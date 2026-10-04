@@ -128,6 +128,10 @@ void populateFolderConfirmTable(QTableWidget *table, const QString &rootDir,
     }
     else
     {
+      // 方向 30：归位预览——plan 期身份匹配结论预显在「实体」列（导入完成后
+      // writeFolderRowResult 用行结果的实体名覆盖）。
+      if (!row.entityPreview.isEmpty())
+        table->item(r, 2)->setText(row.entityPreview);
       // C 包 IngestPlan：plan 期决策逐行可见——重复→跳过 / 重复→新版本；
       // 未决行不在此预写（保持既有口径：结果列导入后才写「未决」）。
       const QString decisionText =

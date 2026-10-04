@@ -128,6 +128,7 @@
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QUndoStack>
 
 #include <memory>
 
@@ -1994,10 +1995,52 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
                 QgsMessageLog::logMessage(err, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
               });
     }
+    connect(constraintPage, &ConstraintPage::constraintSelectionChanged, this,
+            [this](const QString &horizon, const QStringList &ids) {
+      if (!m_layerSvc)
+        return;
+      auto *layer = qobject_cast<QgsVectorLayer *>(m_layerSvc->instantiate(QStringLiteral("constraints.%1").arg(horizon)));
+      if (!layer)
+        return;
+      QgsFeatureIds selection;
+      QgsFeature feature;
+      auto features = layer->getFeatures();
+      while (features.nextFeature(feature))
+        if (ids.contains(feature.attribute(QStringLiteral("id")).toString()))
+          selection.insert(feature.id());
+      layer->selectByIds(selection);
+    });
+    const auto beginConstraintEdit = [this, constraintPage](const QString &horizon) -> QgsVectorLayer * {
+      if (!m_layerSvc)
+        return nullptr;
+      auto *layer = qobject_cast<QgsVectorLayer *>(m_layerSvc->instantiate(QStringLiteral("constraints.%1").arg(horizon)));
+      auto *toolbar = findChild<PaleoEditingToolbar *>(QStringLiteral("editingToolbar"));
+      if (!layer || !toolbar)
+        return nullptr;
+      toolbar->refreshFromProject();
+      toolbar->setCurrentLayer(layer);
+      if (toolbar->currentLayer() != layer || !toolbar->startEditing())
+        return nullptr;
+      connect(layer->undoStack(), &QUndoStack::indexChanged, constraintPage,
+              &ConstraintPage::refreshConstraintList, Qt::UniqueConnection);
+      connect(toolbar, &PaleoEditingToolbar::editingStopped, constraintPage,
+              &ConstraintPage::refreshConstraintList, Qt::UniqueConnection);
+      return layer;
+    };
+    connect(constraintPage, &ConstraintPage::constraintParametersRequested, this,
+            [constraint, constraintPage, beginConstraintEdit](const QString &horizon, const QStringList &ids, const QVariantMap &patch) {
+      QString error;
+      const bool ok = beginConstraintEdit(horizon) && constraint->updateConstraintLines(ids, patch, &error);
+      if (!ok)
+        if (auto *status = constraintPage->findChild<QLabel *>(QStringLiteral("statusLabel")))
+          status->setText(error.isEmpty() ? tr("约束编辑不可用，请检查编辑会话与资产状态") : error);
+    });
     // ---- 方向23：已绘约束线编辑面 ----
     // 删除：store 落盘删除 + 已实例化的 constraints.<horizon> 图层重载。
     connect(constraintPage, &ConstraintPage::constraintDeleteRequested, this,
-            [this, constraint, constraintPage](const QString &horizon, const QString &id) {
+            [this, constraint, constraintPage, beginConstraintEdit](const QString &horizon, const QString &id) {
+              if (!beginConstraintEdit(horizon))
+                return;
               QString err;
               if (!constraint->removeConstraint(id, &err))
               {
@@ -2012,7 +2055,8 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
                 {
                   if (auto *vl = qobject_cast<QgsVectorLayer *>(layer))
                   {
-                    vl->reload();
+                    if (!vl->isEditable())
+                      vl->reload();
                     vl->triggerRepaint();
                   }
                 }
@@ -2021,7 +2065,9 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
             });
     // 语义切换：走 updateConstraintLine 同一持久化通道（type 列 + params_json）。
     connect(constraintPage, &ConstraintPage::constraintSemanticChangeRequested, this,
-            [constraint](const QString &, const QString &id, const QString &semantic) {
+            [constraint, beginConstraintEdit](const QString &horizon, const QString &id, const QString &semantic) {
+              if (!beginConstraintEdit(horizon))
+                return;
               QString err;
               if (!constraint->switchConstraintSemantic(id, semantic, &err))
                 QgsMessageLog::logMessage(err.isEmpty() ? tr("切换约束语义失败") : err,
@@ -2030,31 +2076,17 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
     // 顶点编辑：约束表是可写 GPKG（非派生只读），直接进编辑会话 + 顶点工具，
     // 撤销/重做走编辑条的原生 undo 栈；提交后约束页重读列表。
     connect(constraintPage, &ConstraintPage::editConstraintVerticesRequested, this,
-            [this, constraint, constraintPage](const QString &horizon) {
-              if (!m_layerSvc || !m_canvasCtl)
-                return;
-              const QString layerId = QStringLiteral("constraints.%1").arg(horizon);
-              QgsMapLayer *layer = m_layerSvc->instantiate(layerId);
-              auto *vl = qobject_cast<QgsVectorLayer *>(layer);
-              if (!vl)
-              {
-                QgsMessageLog::logMessage(tr("约束图层不可用：%1").arg(layerId),
-                                          QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
-                return;
-              }
-              auto *editTb = findChild<PaleoEditingToolbar *>(QStringLiteral("editingToolbar"));
-              if (editTb)
-              {
-                editTb->refreshFromProject();
-                editTb->setCurrentLayer(vl);
-                editTb->actionVertexEdit()->trigger();
-                connect(editTb, &PaleoEditingToolbar::editingStopped, constraintPage,
-                        &ConstraintPage::refreshConstraintList, Qt::UniqueConnection);
-                if (editTb->isEditing() && editTb->currentLayer() == vl)
-                  return;
-              }
-              m_canvasCtl->canvas()->setCurrentLayer(vl);
-            });
+            [this, beginConstraintEdit, constraintPage](const QString &horizon) {
+      auto *layer = beginConstraintEdit(horizon);
+      auto *toolbar = findChild<PaleoEditingToolbar *>(QStringLiteral("editingToolbar"));
+      if (!layer || !toolbar)
+        return;
+      if (layer->selectedFeatureCount() == 0)
+        layer->selectAll();
+      toolbar->actionVertexEdit()->trigger();
+      connect(toolbar, &PaleoEditingToolbar::editingStopped, constraintPage,
+              &ConstraintPage::refreshConstraintList, Qt::UniqueConnection);
+    });
     // ---- m2(B) end ----
   }
 }

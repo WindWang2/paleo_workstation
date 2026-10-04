@@ -26,6 +26,10 @@ public:
   bool updateParameters(const QString &id, const QString &paramsJson, int schemaVersion,
                         const QString &semanticType, QString *error = nullptr);
   QVector<QVariantMap> load(const QString &horizon = QString()) const;
+  // 原子替换单一层位的完整编辑快照，保留 FID 与未编辑字段；拒绝跨层位
+  // 及重复身份。经同一写队列；失败时整批回滚，不创建缺失资产。
+  bool replaceHorizon(const QString &horizon, const QVector<QVariantMap> &rows,
+                      QString *error = nullptr);
   bool remove(const QString &id, QString *error = nullptr);
 
 private:

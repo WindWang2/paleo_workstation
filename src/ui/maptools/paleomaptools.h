@@ -2,6 +2,7 @@
 #pragma once
 #include <qgsmaptoolcapture.h>
 #include <QString>
+#include "shapepreview.h"
 
 class QgsMapCanvas;
 class QgsMapMouseEvent;
@@ -35,6 +36,7 @@ class PaleoDrawConstraintTool : public QgsMapToolCapture
     void drawAborted();
 
   protected:
+    void canvasDoubleClickEvent(QgsMapMouseEvent *e) override;
     // QGIS 4.2 hook: const QgsCurve* (was QgsLineString* pre-3.26). The base
     // invokes it via lineCaptured(curveToAdd.release()) — callee takes ownership.
     void lineCaptured(const QgsCurve *line) override;
@@ -46,6 +48,7 @@ class PaleoDrawConstraintTool : public QgsMapToolCapture
     void cadCanvasReleaseEvent(QgsMapMouseEvent *e) override;
 
   private:
+    void finishCapture();
     QString mPendingWkt; // staged by lineCaptured(), consumed by cadLineCaptureFinished()
 };
 
@@ -75,6 +78,7 @@ class PaleoDrawPolygonTool : public QgsMapToolCapture
     void drawAborted();
 
   protected:
+    void canvasDoubleClickEvent(QgsMapMouseEvent *e) override;
     // QGIS 4.2 hook: const QgsCurvePolygon* — borrowed pointer: the base calls
     // polygonCaptured( poly.get() ) and keeps ownership (unlike lineCaptured,
     // which releases the curve to the callee), so clone before transforming.
@@ -87,6 +91,7 @@ class PaleoDrawPolygonTool : public QgsMapToolCapture
     void cadCanvasReleaseEvent( QgsMapMouseEvent *e ) override;
 
   private:
+    void finishCapture();
     QString mPendingWkt; // staged by polygonCaptured(), consumed by cadPolygonCaptureFinished()
 };
 
@@ -119,6 +124,7 @@ class PaleoDrawRectTool : public QgsMapToolCapture
     void drawAborted();
 
   protected:
+    void cadCanvasMoveEvent(QgsMapMouseEvent *e) override;
     // Esc → drawAborted (same pattern as PaleoDrawConstraintTool); base then
     // stops capturing and ignores the event.
     void keyPressEvent( QKeyEvent *e ) override;
@@ -126,9 +132,10 @@ class PaleoDrawRectTool : public QgsMapToolCapture
     void cadCanvasReleaseEvent( QgsMapMouseEvent *e ) override;
 
   private:
+    std::unique_ptr<PaleoShapePreview> m_shapePreview;
     // Emits the axis-aligned bbox WKT for corner 1 (first captured vertex,
     // reprojected to canvas CRS) and corner 2 — *eventCorner when given
     // (right-click finish, already canvas CRS) else the second captured
     // vertex — then stopCapturing(). No-ops if fewer than two corners resolve.
-    void emitRectangle( const QgsPointXY *eventCorner = nullptr );
+    void emitRectangle( const QgsPointXY *cursor = nullptr );
 };

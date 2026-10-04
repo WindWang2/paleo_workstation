@@ -69,6 +69,8 @@ class ConstraintPage : public QWidget
     void drawTypedConstraintRequested(const QString &horizon, const QString &shape,
                                       const QString &constraintType, int faciesCode);
     // ---- 方向23：已绘约束线编辑面 ----
+    void constraintParametersRequested(const QString &horizon, const QStringList &ids, const QVariantMap &patch);
+    void constraintSelectionChanged(const QString &horizon, const QStringList &ids);
     void editConstraintVerticesRequested(const QString &horizon);
     void constraintDeleteRequested(const QString &horizon, const QString &constraintId);
     void constraintSemanticChangeRequested(const QString &horizon, const QString &constraintId,

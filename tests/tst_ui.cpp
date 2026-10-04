@@ -1,6 +1,8 @@
 #include <QtTest>
 #include <QTemporaryDir>
 #include <QLabel>
+#include <QStatusBar>
+#include <QScrollArea>
 #include <QComboBox>
 #include <QLineEdit>
 #include <QTabBar>
@@ -15,6 +17,13 @@
 #include <QToolButton>
 #include <QSignalSpy>
 #include <QDockWidget>
+#include <QDoubleSpinBox>
+#include <QSpinBox>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include "../src/ui/pages/constraintpage.h"
+#include "../src/io/constraintstore.h"
+#include "../src/workflow/workflows.h"
 #include "helpers/visualcapture.h"
 
 #include "../src/app/appcontext.h"
@@ -91,6 +100,8 @@
 #include <qgsmapcanvas.h>
 #include <qgsrectangle.h>
 #include <qgsrubberband.h>
+#include <qgssnappingutils.h>
+#include <cmath>
 #include <QGraphicsItem>
 
 #include <qgslayertreeview.h>
@@ -1687,6 +1698,90 @@ class TestUiShell : public QObject
         }
       }
       PaleoTheme::applyLightTheme();
+    }
+
+    void interactiveConstraintBatchUsesEditingSession()
+    {
+      QTemporaryDir dir;
+      QVERIFY(m_ctx->projectSvc()->createProject(dir.filePath("editing.qgz")));
+      m_win->attachWorkflows(m_ctx->predictionWf(), m_ctx->constraintWf(), m_ctx->compositionWf(),
+          m_ctx->validationWf(), m_ctx->importSvc(), m_ctx->seismicLink(), m_ctx->processingSvc(),
+          m_ctx->store(), m_ctx->editingSvc(), m_ctx->layoutSvc(), m_ctx->taskSvc());
+      m_ctx->selection()->setActiveHorizon("D61");
+      auto *workflow = m_ctx->constraintWf();
+      QString error;
+      for (int i=0; i<2; ++i)
+        QVERIFY2(workflow->addConstraint("D61", QString("LINESTRING(0 %1, 10 %1)").arg(i*5),
+            "direction_line", 7, &error, nullptr, {{"semantic", "direction_guide"}, {"opaque", 42}, {"enabled", false}}), qPrintable(error));
+      auto *page = m_win->findChild<ConstraintPage *>();
+      auto *toolbar = m_win->findChild<PaleoEditingToolbar *>("editingToolbar");
+      QVERIFY(page && toolbar);
+      auto *horizons = page->findChild<QComboBox *>("horizonCombo");
+      if (horizons->findText("D61") < 0)
+        horizons->addItem(QStringLiteral("D61"));
+      QVERIFY(horizons->findText("D61") >= 0);
+      horizons->setCurrentIndex(horizons->findText("D61"));
+      page->refreshConstraintList();
+      auto *list = page->findChild<QListWidget *>("constraintList");
+      QCOMPARE(list->count(), 2);
+      list->setCurrentRow(0);
+      list->item(0)->setSelected(true);
+      list->item(1)->setSelected(true);
+      const auto original = workflow->constraintStore()->load("D61");
+      auto *semantic = page->findChild<QComboBox *>("constraintSemanticCombo");
+      semantic->setCurrentIndex(semantic->findData("interpretive_boundary"));
+      page->findChild<QPushButton *>("constraintBatchTypeButton")->click();
+      QVERIFY2(toolbar->isEditing(), qPrintable(page->findChild<QLabel *>("statusLabel")->text() + " / " + m_win->statusBar()->currentMessage()));
+      const auto changed = workflow->constraintStore()->load("D61");
+      for (const auto &row : changed)
+      {
+        QCOMPARE(row.value("type").toString(), QString("interpretive_boundary"));
+        const auto params = QJsonDocument::fromJson(row.value("params_json").toString().toUtf8()).object();
+        QCOMPARE(params.value("opaque").toInt(), 42);
+        QCOMPARE(params.value("enabled").toBool(), false);
+      }
+      toolbar->undoStack()->undo();
+      QCOMPARE(workflow->constraintStore()->load("D61"), original);
+      QCOMPARE(list->item(0)->data(Qt::UserRole+1).toString(), original.first().value("params_json").toString());
+      toolbar->undoStack()->redo();
+      QCOMPARE(workflow->constraintStore()->load("D61"), changed);
+      list->setCurrentRow(0);
+      page->findChild<QDoubleSpinBox *>("constraintAngleSpin")->setValue(0);
+      page->findChild<QPushButton *>("constraintParamSaveButton")->click();
+      auto *layer = toolbar->currentLayer();
+      const auto feature = layer->getFeature(changed.first().value("fid").toLongLong());
+      const auto line = feature.geometry().asPolyline();
+      QVERIFY(std::abs(line.first().x()-line.last().x()) < 1e-8);
+      const QString shots = qEnvironmentVariable("PALEO_EDITING_SCREENSHOT_DIR");
+      if (!shots.isEmpty())
+      {
+        QVERIFY(QDir().mkpath(shots));
+        m_win->showPage("constraint");
+        m_win->resize(1600,1000);
+        m_win->show();
+        auto *scroll = page->findChild<QScrollArea *>("constraintPageScroll");
+        QVERIFY(scroll);
+        scroll->ensureWidgetVisible(page->findChild<QPushButton *>("constraintParamSaveButton"));
+        for (const auto theme : {PaleoTheme::Theme::Light, PaleoTheme::Theme::Dark})
+        {
+          PaleoTheme::applyTheme(theme);
+          PaleoRibbon::applyTheme(m_win, PaleoTheme::shellStyleSheet() + PaleoTheme::focusRingStyleSheet());
+          QCoreApplication::processEvents();
+          QVERIFY(m_win->grab().save(shots + (theme == PaleoTheme::Theme::Light ? "/editing-light.png" : "/editing-dark.png")));
+        }
+        PaleoTheme::applyLightTheme();
+        PaleoRibbon::applyTheme(m_win, PaleoTheme::shellStyleSheet() + PaleoTheme::focusRingStyleSheet());
+      }
+      QVERIFY(toolbar->saveEditing());
+      const auto saved = workflow->constraintStore()->load("D61");
+      QCOMPARE(saved.first().value("horizon").toString(), QString("D61"));
+      for (const auto &row : saved)
+        QVERIFY(!QJsonDocument::fromJson(row.value("params_json").toString().toUtf8()).object().value("enabled").toBool());
+      QVERIFY(!toolbar->isEditing());
+      auto *snap = m_win->findChild<QSpinBox *>("ribbonEditingSnapToleranceSpin");
+      QVERIFY(snap);
+      snap->setValue(13);
+      QCOMPARE(m_ctx->canvasCtl()->canvas()->snappingUtils()->config().tolerance(), 13.0);
     }
 
     void mappingWorkbenchCanvasRibbonAndReferences()

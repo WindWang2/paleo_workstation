@@ -3,6 +3,7 @@
 
 #include "../qgis/qgiscanvascontroller.h"
 #include "../workflow/workflows.h"
+#include "../metadata/paleoprojectstore.h"
 #include "maptools/paleomaptools.h"
 #include "maptools/paleoshapetools.h"
 
@@ -36,6 +37,11 @@ void ConstraintDrawController::startCapture( const QString &horizon,
     return;
   }
 
+  if (auto *store = m_wf->projectStore(); store && store->isReadOnly())
+  {
+    emit captureFailed(tr("工程为只读，不能绘制约束"));
+    return;
+  }
   QgsMapCanvas *canvas = m_canvasCtl->canvas();
   if ( !m_cadDock )
     m_cadDock = new QgsAdvancedDigitizingDockWidget( canvas, canvas );

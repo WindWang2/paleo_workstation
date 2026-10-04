@@ -504,11 +504,13 @@ void WellTopsEditorDialog::onInsertRow()
                               .trimmed();
       if (!ok)
         return;
-      if (name.isEmpty() || std::any_of(name.cbegin(), name.cend(),
-                                        [](QChar c) { return c.isSpace(); }))
+      if (name.isEmpty() || name.startsWith(QLatin1Char('#')) ||
+          std::any_of(name.cbegin(), name.cend(), [](QChar c) { return c.isSpace(); }))
       {
-        QMessageBox::warning(this, tr("井名不合法"),
-                             tr("井名不能为空、也不能含空白（DC.dat 按空白分列）。"));
+        QMessageBox::warning(
+            this, tr("井名不合法"),
+            tr("井名不能为空、不能含空白、也不能以 # 开头（DC.dat 按空白分列、"
+               "# 起注释——这类名字写盘后无法读回）。"));
         continue;
       }
       m_wellCombo->addItem(name); // addItem 触发 onWellChanged：基线=空、表=空

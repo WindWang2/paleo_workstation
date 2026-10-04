@@ -2432,6 +2432,13 @@ private:
         ContextMenuSpec singleHorizon = singleResolved;
         singleHorizon.singleAssetIsHorizon = true;
         QVERIFY(contextMenuActions(singleHorizon).contains(QStringLiteral("gridHorizon")));
+        // 方向 32：井分层单资产给「编辑分层」，其它类型不给。
+        QVERIFY(!singleActs.contains(QStringLiteral("editTops")));
+        ContextMenuSpec singleTops = singleResolved;
+        singleTops.singleAssetIsTops = true;
+        const QStringList topsActs = contextMenuActions(singleTops);
+        QVERIFY(topsActs.contains(QStringLiteral("editTops")));
+        QVERIFY(!topsActs.contains(QStringLiteral("gridHorizon")));
 
         ContextMenuSpec multi;
         multi.hasAssets = true;

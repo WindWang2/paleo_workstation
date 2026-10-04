@@ -751,7 +751,7 @@ QVariantMap LocalDirectionIdwAlgorithm::processAlgorithm( const QVariantMap &par
   counts.insert( QStringLiteral( "barrier" ), surface.barrierCells );
   counts.insert( QStringLiteral( "kriging" ), surface.krigingCells );
   counts.insert( QStringLiteral( "idw_fallback" ), surface.idwFallbackCells );
-  counts.insert( QStringLiteral( "variogram_fallback" ), surface.surfaceFallbacks );
+  counts.insert( QStringLiteral( "surface_fallback" ), surface.surfaceFallbacks );
   counts.insert( QStringLiteral( "original" ), prepared.input.originalCount );
   counts.insert( QStringLiteral( "valid" ), prepared.input.validCount );
   counts.insert( QStringLiteral( "missing" ), prepared.input.missingCount );

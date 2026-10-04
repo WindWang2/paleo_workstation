@@ -152,6 +152,9 @@ void SingleFactorKrigingTests::exactAtSamples()
     const QueryResult result = evaluateAt( input, queries, params, {} );
     QCOMPARE( result.status, Status::Ok );
     QCOMPARE( result.values.size(), wells.size() );
+    // 精确性必须来自克里金求解，而不是 IDW 的精确命中均值分支。
+    QCOMPARE( result.krigingCells, static_cast<int>( wells.size() ) );
+    QCOMPARE( result.idwFallbackCells, 0 );
     double maxAbs = 0;
     for ( std::size_t i = 0; i < wells.size(); ++i )
     {
@@ -368,6 +371,22 @@ void SingleFactorKrigingTests::radiusGateFallsBackPerCell()
   QCOMPARE( solved.resolved.methodActual, std::string( "kriging" ) );
   QCOMPARE( solved.idwFallbackCells, 0 );
   QVERIFY( solved.krigingCells > 0 );
+
+  // (c) 混合分支：闸设为 2 → 半径内 2 口井的格能解克里金，其余格回落；
+  //     两种计数都 >0，且 issue 如实列出回落格数。
+  ResolvedParameters mixed = gated;
+  // 半径放大到 25（井距 20）：井间的格能凑够 2 口井 → 解克里金；
+  // 边角格不足 → 回落，两种计数同时 >0。
+  mixed.searchRadius = 25.0;
+  mixed.krigingMinPoints = 2;
+  const SurfaceResult blended = evaluateLocalKriging( input, grid, mixed, {} );
+  QCOMPARE( blended.resolved.methodActual, std::string( "kriging" ) );
+  QVERIFY( blended.krigingCells > 0 );
+  QVERIFY( blended.idwFallbackCells > 0 );
+  QCOMPARE( blended.surfaceFallbacks, 0 );
+  QVERIFY( std::any_of( blended.issues.begin(), blended.issues.end(), []( const std::string &issue ) {
+    return issue.find( "kriging_solver_fallback_cells" ) != std::string::npos;
+  } ) );
 
   ResolvedParameters idwParams = baseParams();
   idwParams.searchRadius = 12.0;

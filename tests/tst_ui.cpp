@@ -160,14 +160,14 @@ class TestUiShell : public QObject
       QVERIFY(m_win->minimumHeight() >= 800);
     }
 
-    // goal/ui-experience-polish：W5 快捷键族——Ctrl+1..5 直切、Ctrl+Tab/
+    // goal/ui-experience-polish：W5 快捷键族——Ctrl+1..6 直切、Ctrl+Tab/
     // Ctrl+Shift+Tab 循环（含末→首环绕）、密度切换菜单动作在位。
     void pageShortcutsTabCycleAndDensityToggle()
     {
       m_win->show();
       QTest::qWait(10);
-      // 起点不限（首启是 startup 页）；Ctrl+3 → 单因素图。
-      QTest::keyClick(m_win, Qt::Key_3, Qt::ControlModifier);
+      // 起点不限（首启是 startup 页）；Ctrl+4 → 单因素图。
+      QTest::keyClick(m_win, Qt::Key_4, Qt::ControlModifier);
       QCOMPARE(m_win->currentPage(), QStringLiteral("constraint"));
       // Ctrl+Tab → 智能编图
       QTest::keyClick(m_win, Qt::Key_Tab, Qt::ControlModifier);
@@ -237,16 +237,17 @@ class TestUiShell : public QObject
     }
 
     // §42 workflow chain: 数据管理/预测编图/单因素图/智能编图/验证
-    void workflowTabBarHasFiveTabs()
+    void workflowTabBarHasSixTabs()
     {
       auto *tabs = m_win->findChild<QTabBar *>(QStringLiteral("workflowTabs"));
       QVERIFY(tabs);
-      QCOMPARE(tabs->count(), 5);
+      QCOMPARE(tabs->count(), 6);
       QCOMPARE(tabs->tabText(0), QStringLiteral("数据管理"));
-      QCOMPARE(tabs->tabText(1), QStringLiteral("预测编图"));
-      QCOMPARE(tabs->tabText(2), QStringLiteral("单因素图"));
-      QCOMPARE(tabs->tabText(3), QStringLiteral("智能编图"));
-      QCOMPARE(tabs->tabText(4), QStringLiteral("验证"));
+      QCOMPARE(tabs->tabText(1), QStringLiteral("地层对比"));
+      QCOMPARE(tabs->tabText(2), QStringLiteral("预测编图"));
+      QCOMPARE(tabs->tabText(3), QStringLiteral("单因素图"));
+      QCOMPARE(tabs->tabText(4), QStringLiteral("智能编图"));
+      QCOMPARE(tabs->tabText(5), QStringLiteral("验证"));
       QVERIFY(m_win->categoryForPage(QStringLiteral("data")));
       QVERIFY(m_win->categoryForPage(QStringLiteral("predict")));
       QVERIFY(m_win->categoryForPage(QStringLiteral("constraint")));
@@ -269,17 +270,17 @@ class TestUiShell : public QObject
       QCOMPARE(m_win->currentPage(), QStringLiteral("validate"));
 
       auto *tabs = m_win->findChild<QTabBar *>(QStringLiteral("workflowTabs"));
-      QCOMPARE(tabs->currentIndex(), 4);
+      QCOMPARE(tabs->currentIndex(), 5);
 
       // right panel stack follows the tab
       auto *host = m_win->findChild<QWidget *>(QStringLiteral("rightPanelHost"));
       auto *panelStack = static_cast<QStackedLayout *>(host->layout());
-      QCOMPARE(panelStack->currentIndex(), 4);
+      QCOMPARE(panelStack->currentIndex(), 5);
 
       // unknown ids are rejected without disturbing current state
       m_win->showPage(QStringLiteral("bogus"));
       QCOMPARE(m_win->currentPage(), QStringLiteral("validate"));
-      QCOMPARE(tabs->currentIndex(), 4);
+      QCOMPARE(tabs->currentIndex(), 5);
     }
 
     // §42.1: startup page shows until a project is opened, then the canvas
@@ -1091,7 +1092,7 @@ class TestUiShell : public QObject
         QCOMPARE(namedCount(name), 1);
       auto *host = m_win->findChild<QWidget *>(QStringLiteral("rightPanelHost"));
       QVERIFY(host);
-      QCOMPARE(static_cast<QStackedLayout *>(host->layout())->count(), 5);
+      QCOMPARE(static_cast<QStackedLayout *>(host->layout())->count(), 6);
 
       attachAll(); // 二次调用：必须早退——不翻倍、不叠加连接、不崩。
 
@@ -1101,7 +1102,7 @@ class TestUiShell : public QObject
                                "statusCatalogError", "wellSectionDock",
                                "wellSectionPanel", "mapBookDock", "mapBookPanel"})
         QCOMPARE(namedCount(name), 1);
-      QCOMPARE(static_cast<QStackedLayout *>(host->layout())->count(), 5);
+      QCOMPARE(static_cast<QStackedLayout *>(host->layout())->count(), 6);
 
       // 不崩的直接证据：二次调用后窗口照常响应页切换。
       m_win->showPage(QStringLiteral("data"));
@@ -1791,6 +1792,15 @@ class TestUiShell : public QObject
       m_win->attachWorkflows(m_ctx->predictionWf(),m_ctx->constraintWf(),m_ctx->compositionWf(),m_ctx->validationWf(),m_ctx->importSvc(),m_ctx->seismicLink(),m_ctx->processingSvc(),m_ctx->store(),m_ctx->editingSvc(),m_ctx->layoutSvc(),m_ctx->taskSvc());
       m_win->attachWorkbench(m_ctx->mappingWorkbench());
       QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+      auto *pageHost = m_win->findChild<QWidget *>("rightPanelHost");
+      auto *pageStack = qobject_cast<QStackedLayout *>(pageHost->layout());
+      for (const auto &mode : QStringList{"predict", "constraint", "compose"})
+      {
+        m_win->showPage(mode);
+        auto *modeTabs = qobject_cast<QTabWidget *>(pageStack->currentWidget());
+        QVERIFY(modeTabs);
+        QCOMPARE(modeTabs->objectName(), "workbenchTabs." + mode);
+      }
       auto *d61=m_win->findChild<QToolButton *>("chip_D61");auto *d62=m_win->findChild<QToolButton *>("chip_D62");QVERIFY(d61 && d61->isEnabled());QVERIFY(d62 && d62->isEnabled());d61->click();m_win->showPage("predict");
       auto *catalog=m_ctx->importSvc()->catalog();QVERIFY(catalog && catalog->isOpen());
       DerivedAssetRegistrar registrar(catalog,dir.path());auto st=registrar.stage("seismic","示例地震体","volume.bin");QVERIFY(st.isValid());QFile source(st.absolutePath);QVERIFY(source.open(QIODevice::WriteOnly));source.write("mock volume");source.close();QVERIFY(registrar.commit(st,{},"test",{}));

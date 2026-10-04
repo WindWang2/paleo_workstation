@@ -8,6 +8,7 @@ class QProgressBar;
 class QPushButton;
 class QStackedLayout;
 class QWebEngineView;
+class QWebEngineProfile;
 
 // ui/webviewpanel — 内嵌浏览器孤岛：为「嵌壳」用途（已开发 web 服务 / 页面
 // 预览与可视化）提供 QWebEngineView 宿主。
@@ -24,6 +25,7 @@ class WebViewPanel : public QWidget
   Q_OBJECT
   public:
     explicit WebViewPanel(QWidget *parent = nullptr);
+    ~WebViewPanel() override;
 
     // 开始加载 url。返回 true 表示引擎已建并开始加载（结果经 loadFinished
     // 信号）；false = 引擎不可用，已进入降级面，原因见 lastError()。
@@ -35,6 +37,8 @@ class WebViewPanel : public QWidget
     QUrl url() const { return m_url; }
     bool engineAvailable() const { return m_engine != nullptr; }
     QString lastError() const { return m_lastError; }
+    void showError(const QUrl &url, const QString &reason);
+    void setPageStyleSheet(const QString &css);
 
   signals:
     void loadFinished(bool ok);           // 透传 QWebEngineView::loadFinished
@@ -43,12 +47,15 @@ class WebViewPanel : public QWidget
   private:
     bool ensureEngine(QString *error);
     void showFallback(const QString &reason);
+    void installPageStyleSheet();
 
     QWebEngineView *m_engine = nullptr; // 懒建；nullptr = 未建或不可用
+    QWebEngineProfile *m_profile = nullptr;
     QStackedLayout *m_stack = nullptr;  // 状态面/引擎页切换（根布局是外壳 VBox）
     QProgressBar *m_progress = nullptr; // 加载进度（>1s 的静默加载必须有反馈）
     QLabel *m_statusLabel = nullptr;
     QPushButton *m_externalButton = nullptr;
     QString m_lastError;
     QUrl m_url;
+    QString m_pageCss;
 };

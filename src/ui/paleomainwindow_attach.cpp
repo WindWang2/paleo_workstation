@@ -928,6 +928,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   auto *composePage = new ComposePage(compose, m_layerSvc, host);
   auto *validatePage = new ValidatePage(validate, host);
   stack->addWidget(dataProps);
+  stack->addWidget(new QWidget(host)); // 地层对比使用中央 Web 页，无右侧属性页
   stack->addWidget(predictPage);
   stack->addWidget(constraintPage);
   stack->addWidget(composePage);
@@ -2673,7 +2674,8 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
       auto *saveAct = new QAction(PaleoIcons::qgisTheme(QStringLiteral("mActionFileSave.svg")),
                                   tr("保存工程"), this);
       saveAct->setObjectName(QStringLiteral("saveProjectAction"));
-      saveAct->setShortcut(QKeySequence::Save);
+      saveAct->setShortcut(m_currentPage == QLatin1String("correlation") ? QKeySequence()
+                                                                        : QKeySequence(QKeySequence::Save));
       saveAct->setToolTip(tr("保存工程（Ctrl+S）"));
       // §41.2 ordering through the write queue: gpkg commit (no-op until edit
       // buffers report dirty state) then the atomic .qgz write.

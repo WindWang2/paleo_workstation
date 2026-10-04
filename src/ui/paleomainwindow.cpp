@@ -37,6 +37,8 @@
 #include "taskpanel.h"
 #include "attributetablepanel.h"
 #include "pages/pagepanels.h"
+#include "pages/stratigraphicwebpage.h"
+#include "../workflow/stratigraphicwebsession.h"
 #include "pages/pageshared.h" // kPageIds（W4 跨 TU 页序表）
 #include "constraintdrawcontroller.h"
 #include "dialogs/folderconfirm.h"
@@ -135,7 +137,7 @@
 
 #include <memory>
 
-// §42 shell: five-page workflow chain as ribbon tabs on top, layer tree left,
+// §42 shell: six-page workflow chain as ribbon tabs on top, layer tree left,
 // page panel right, log/tasks bottom, startup page stacked under the
 // workspace. The header fixes the member set, so the page table and
 // cross-widget lookups live at file scope / via objectName (same discipline
@@ -144,13 +146,14 @@ namespace
 {
   // Tab order = reading order = right-panel stack order：页序表收敛到
   // pages/pageshared.h 的 kPageIds（W4：attach 接线 TU 同查页序）。
-  // ribbon 页签文案（用户裁决 2026-09-27：Ribbon 界面，五页保留验证）。
+  // ribbon 页签文案（2026-10-05：数据管理后插入独立地层对比）。
   // 首调时构建（首次调用发生在 buildShell——QApplication 已在场，翻译
   // 系统可用）；命名空间级常量会在 main 前静态初始化，漏翻译。
   const QStringList &pageLabels()
   {
     static const QStringList labels = {
         QCoreApplication::translate("PaleoMainWindow", "数据管理"),
+        QCoreApplication::translate("PaleoMainWindow", "地层对比"),
         QCoreApplication::translate("PaleoMainWindow", "预测编图"),
         QCoreApplication::translate("PaleoMainWindow", "单因素图"),
         QCoreApplication::translate("PaleoMainWindow", "智能编图"),
@@ -163,6 +166,7 @@ namespace
   {
     static const QStringList titles = {
         QCoreApplication::translate("PaleoMainWindow", "数据属性"),
+        QCoreApplication::translate("PaleoMainWindow", "地层对比连接"),
         QCoreApplication::translate("PaleoMainWindow", "预测参数"),
         QCoreApplication::translate("PaleoMainWindow", "单因素参数"),
         QCoreApplication::translate("PaleoMainWindow", "编图参数"),
@@ -521,6 +525,10 @@ void PaleoMainWindow::buildShell()
         if (auto *button = m_previewTabs->findChild<QToolButton *>(QStringLiteral("previewMaxButton")))
           button->setChecked(false);
     });
+
+  auto *correlationSession = new StratigraphicWebSession(this);
+  m_stratigraphicWebPage = new StratigraphicWebPage(correlationSession, m_workspaceStack);
+  m_workspaceStack->addWidget(m_stratigraphicWebPage); // index 2
 
   // ---- T31 空态：地图没有图层时画布上的居中指引（共享组件）----
   PaleoEmptyStateLabel *mapEmpty = nullptr;
@@ -914,14 +922,15 @@ void PaleoMainWindow::buildRibbon()
     tabs->setUsesScrollButtons(true);
   }
 
-  // ---- 五个页签 = 五个工作流页（页签序 = paleo::pagesinternal::kPageIds 序）----
+  // ---- 六个页签 = 六个工作流页（页签序 = paleo::pagesinternal::kPageIds 序）----
   for (int i = 0; i < paleo::pagesinternal::kPageIds.size(); ++i)
   {
     SARibbonCategory *cat = bar->addCategoryPage(pageLabels().at(i));
     cat->setObjectName(QStringLiteral("ribbonCategory.") + paleo::pagesinternal::kPageIds.at(i));
     cat->setProperty("paleo.pageId", paleo::pagesinternal::kPageIds.at(i));
   }
-  // W5 键盘可达：Ctrl+1..5 直切五个工作流页（页序 = 工作流链序）。
+  m_stratigraphicWebPage->buildRibbon(categoryForPage(QStringLiteral("correlation")));
+  // W5 键盘可达：Ctrl+1..6 直切六个工作流页（页序 = 工作流链序）。
   for (int i = 0; i < paleo::pagesinternal::kPageIds.size(); ++i)
   {
     auto *sc = new QShortcut(QKeySequence(QStringLiteral("Ctrl+%1").arg(i + 1)), this);
@@ -931,7 +940,7 @@ void PaleoMainWindow::buildRibbon()
     });
   }
   // goal/ui-experience-polish：Ctrl+Tab / Ctrl+Shift+Tab 循环切页（桌面页签
-  // 惯例；与 Ctrl+1..5 互补——手不离开主行也能走完整工作流链）。
+  // 惯例；与 Ctrl+1..6 互补——手不离开主行也能走完整工作流链）。
   {
     const auto cyclePage = [this](int step) {
       const int idx = paleo::pagesinternal::kPageIds.indexOf(m_currentPage);
@@ -1074,6 +1083,21 @@ void PaleoMainWindow::contextMenuEvent(QContextMenuEvent *event)
   SARibbonMainWindow::contextMenuEvent(event);
 }
 
+void PaleoMainWindow::restoreCorrelationDocks()
+{
+  if (auto *save = findChild<QAction *>(QStringLiteral("saveProjectAction")))
+    save->setShortcut(QKeySequence::Save);
+  for (const auto &dock : m_correlationHiddenDocks)
+    if (dock)
+    {
+      if (auto *paleoDock = qobject_cast<PaleoDockWidget *>(dock.data()))
+        paleoDock->setProgrammaticVisible(true);
+      else
+        dock->show();
+    }
+  m_correlationHiddenDocks.clear();
+}
+
 void PaleoMainWindow::showPage(const QString &pageId)
 {
   const int idx = paleo::pagesinternal::kPageIds.indexOf(pageId);
@@ -1085,7 +1109,24 @@ void PaleoMainWindow::showPage(const QString &pageId)
   if (pageId != QLatin1String("data") && m_previewMaximized)
     if (auto *button = m_previewTabs->findChild<QToolButton *>(QStringLiteral("previewMaxButton")))
       button->setChecked(false);
+  const bool enteringCorrelation = pageId == QLatin1String("correlation") &&
+                                   m_currentPage != pageId;
+  const bool leavingCorrelation = m_currentPage == QLatin1String("correlation") &&
+                                  pageId != m_currentPage;
+  if (leavingCorrelation)
+    restoreCorrelationDocks();
+  if (enteringCorrelation)
+  {
+    m_beforeCorrelationWindowState = saveState();
+    for (auto *dock : findChildren<QDockWidget *>(QString(), Qt::FindDirectChildrenOnly))
+      if (!dock->isHidden())
+        m_correlationHiddenDocks.append(dock);
+  }
   m_currentPage = pageId;
+  // Web 页自己的 Ctrl+S 保存独立解释，Paleo 工程的保存快捷键让出。
+  if (auto *save = findChild<QAction *>(QStringLiteral("saveProjectAction")))
+    save->setShortcut(pageId == QLatin1String("correlation") ? QKeySequence()
+                                                            : QKeySequence(QKeySequence::Save));
 
   // 页签 = 页：切到对应 ribbon 页签（currentRibbonTabChanged 回到这里时
   // id == m_currentPage，不重入）。
@@ -1113,7 +1154,8 @@ void PaleoMainWindow::showPage(const QString &pageId)
   // 数据管理页是列表面（数据列表 + 数据预览），其余四页是画布面。井上
   // 图层状态不受影响——回到画布页照常看图。
   if (m_workspaceStack)
-    m_workspaceStack->setCurrentIndex(pageId == QLatin1String("data") ? 1 : 0);
+    m_workspaceStack->setCurrentIndex(pageId == QLatin1String("data") ? 1 :
+                                      pageId == QLatin1String("correlation") ? 2 : 0);
   if (m_previewTabs)
     m_previewTabs->setVisible(pageId == QLatin1String("data"));
 
@@ -1141,6 +1183,21 @@ void PaleoMainWindow::showPage(const QString &pageId)
     if (m_wellSectionDock && m_wellSectionDock->userWantsVisible())
       m_wellSectionDock->setProgrammaticVisible(true);
   }
+
+  if (pageId == QLatin1String("correlation"))
+  {
+    // Web 工作台拥有井组、属性和任务面；整片中央区域让给它。
+    for (auto *dock : findChildren<QDockWidget *>(QString(), Qt::FindDirectChildrenOnly))
+      if (auto *paleoDock = qobject_cast<PaleoDockWidget *>(dock))
+        paleoDock->setProgrammaticVisible(false);
+      else
+        dock->hide();
+    m_centerStack->setCurrentIndex(1); // 无需先打开 QGIS/Paleo 工程
+    m_stratigraphicWebPage->activate();
+  }
+  else if (leavingCorrelation && (!m_projectSvc || m_projectSvc->projectPath().isEmpty()) &&
+           m_centerStack && m_centerStack->currentIndex() != 0)
+    m_centerStack->setCurrentIndex(0);
 
   // 图层平台：页面档案——不同页面激活不同图层组（QgsMapThemeCollection，
   // data 页 no-op）。
@@ -1356,6 +1413,8 @@ bool PaleoMainWindow::openPath(const QString &path)
 
 void PaleoMainWindow::showStartup()
 {
+  if (m_currentPage == QLatin1String("correlation"))
+    restoreCorrelationDocks();
   setProjectReadOnly(false);
   m_currentPage = QStringLiteral("startup");
   if (m_dataListDock)
@@ -1569,7 +1628,8 @@ void PaleoMainWindow::syncBottomDockForTasks()
   {
     // 有活动任务且底栏藏着 → 程序化露出并切到任务页（不动
     // userWantsVisible）。用户中途手动关掉即尊重其选择，不再反复拉起。
-    if (!m_bottomDockAutoShown && !m_bottomDock->isVisible())
+    if (m_currentPage != QLatin1String("correlation") &&
+        !m_bottomDockAutoShown && !m_bottomDock->isVisible())
     {
       m_bottomDockAutoShown = true;
       m_bottomDock->setProgrammaticVisible(true);
@@ -1584,6 +1644,7 @@ void PaleoMainWindow::syncBottomDockForTasks()
     // 任务清空 → 恢复用户原可见态（数据页的纯三栏布局照常隐藏底栏）。
     m_bottomDockAutoShown = false;
     const bool want = m_currentPage != QLatin1String("data") &&
+                      m_currentPage != QLatin1String("correlation") &&
                       m_bottomDock->userWantsVisible();
     m_bottomDock->setProgrammaticVisible(want);
   }
@@ -1593,7 +1654,9 @@ void PaleoMainWindow::saveWindowState()
 {
   QSettings s(QStringLiteral("paleo"), QStringLiteral("paleo"));
   s.setValue(QStringLiteral("windowGeometry"), saveGeometry());
-  s.setValue(QStringLiteral("windowState"), saveState());
+  s.setValue(QStringLiteral("windowState"),
+             m_currentPage == QLatin1String("correlation") && !m_beforeCorrelationWindowState.isEmpty()
+                 ? m_beforeCorrelationWindowState : saveState());
   s.setValue(QStringLiteral("lastPage"), m_currentPage);
 }
 

@@ -6,6 +6,8 @@
 适用范围：Paleo Workbench C++ 主程序 / QGIS Vendor 集成层
 核心原则：QGIS 负责 GIS，Paleo Workbench 负责地质业务。
 
+2026-10-05 增补（用户要求）：数据管理之后增加「地层对比」ribbon 页，以 QtWebEngine 承载独立交付的 Web 工作台。主仓库只做宿主与连接/启动适配；网络与进程编排在功能层，页面显示在视图层。独立源码、模型、井资料与解释数据库保留在外部目录，不进入 CMake、安装包或 GitHub；地址与机器路径仅进本机 QSettings。该工作台使用自己的工程，不要求先打开 Paleo/QGIS 工程。使用与验证见 `docs/STRATIGRAPHIC_WEB.md`。
+
 **2026-10-03 实现对账**：本文的「建议/最终/应该」保留为目标架构；当前落点
 以 `AGENTS.md`、`BUILDING.md` 与 `docs/progress/` 交付账本为准。
 五页现行文案为「数据管理 → 预测编图 → 单因素图 → 智能编图 → 验证」

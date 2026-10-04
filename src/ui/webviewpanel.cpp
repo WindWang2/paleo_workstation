@@ -4,6 +4,11 @@
 
 #include <QDesktopServices>
 #include <QGuiApplication>
+#include <QDir>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <QLabel>
 #include <QProgressBar>
 #include <QPushButton>
@@ -12,6 +17,10 @@
 
 #if PALEO_HAVE_WEBENGINE
 #include <QWebEnginePage>
+#include <QWebEngineProfile>
+#include <QWebEngineDownloadRequest>
+#include <QWebEngineScript>
+#include <QWebEngineScriptCollection>
 #include <QWebEngineView>
 #endif
 
@@ -76,6 +85,45 @@ bool WebViewPanel::isAllowedUrl(const QUrl &url)
   return scheme == QLatin1String("http") || scheme == QLatin1String("https");
 }
 
+WebViewPanel::~WebViewPanel()
+{
+#if PALEO_HAVE_WEBENGINE
+  // QWebEngineProfile 必须比使用它的 page 活得更久。
+  delete m_engine;
+  delete m_profile;
+#endif
+}
+
+void WebViewPanel::setPageStyleSheet(const QString &css)
+{
+  m_pageCss = css;
+  installPageStyleSheet();
+}
+
+void WebViewPanel::installPageStyleSheet()
+{
+#if PALEO_HAVE_WEBENGINE
+  if (!m_engine)
+    return;
+  const QString name = QStringLiteral("paleoHostTheme");
+  auto &scripts = m_engine->page()->scripts();
+  for (const auto &previous : scripts.find(name))
+    scripts.remove(previous);
+  QWebEngineScript script;
+  script.setName(name);
+  script.setInjectionPoint(QWebEngineScript::DocumentReady);
+  script.setWorldId(QWebEngineScript::ApplicationWorld);
+  script.setRunsOnSubFrames(false);
+  const QString css = QString::fromUtf8(QJsonDocument(QJsonArray{m_pageCss}).toJson(QJsonDocument::Compact));
+  script.setSourceCode(QStringLiteral(
+      "(() => { let s=document.getElementById('paleo-host-theme'); "
+      "if(!s){s=document.createElement('style');s.id='paleo-host-theme';"
+      "(document.head||document.documentElement).appendChild(s);}s.textContent=%1[0]; })();").arg(css));
+  scripts.insert(script);
+  m_engine->page()->runJavaScript(script.sourceCode(), QWebEngineScript::ApplicationWorld);
+#endif
+}
+
 bool WebViewPanel::setUrl(const QUrl &url)
 {
   m_url = url;
@@ -107,6 +155,7 @@ bool WebViewPanel::setUrl(const QUrl &url)
   }
 
 #if PALEO_HAVE_WEBENGINE
+  m_lastError.clear();
   m_engine->setUrl(url);
   if (m_stack)
     m_stack->setCurrentWidget(m_engine);
@@ -137,6 +186,25 @@ bool WebViewPanel::ensureEngine(QString *error)
   }
 
   m_engine = new QWebEngineView(this);
+  m_engine->setObjectName(QStringLiteral("embeddedWebEngine"));
+  // 命名 profile 将 IndexedDB 恢复草稿留在 Qt 用户数据目录；各宿主页
+  // 隔离页面存储/下载信号，切页保留同一 profile。
+  m_profile = new QWebEngineProfile(QStringLiteral("paleoWebView.") + objectName(), this);
+  m_engine->setPage(new QWebEnginePage(m_profile, m_engine));
+  installPageStyleSheet();
+  connect(m_profile, &QWebEngineProfile::downloadRequested, this,
+          [this](QWebEngineDownloadRequest *download) {
+    const QString path = QFileDialog::getSaveFileName(this, tr("保存 Web 工作台成果"),
+        QDir(download->downloadDirectory()).filePath(download->downloadFileName()));
+    if (path.isEmpty())
+    {
+      download->cancel();
+      return;
+    }
+    download->setDownloadDirectory(QFileInfo(path).absolutePath());
+    download->setDownloadFileName(QFileInfo(path).fileName());
+    download->accept();
+  });
   if (m_stack)
     m_stack->addWidget(m_engine);
 
@@ -152,9 +220,20 @@ bool WebViewPanel::ensureEngine(QString *error)
     if (m_progress)
       m_progress->setValue(p);
   });
-  connect(m_engine, &QWebEngineView::loadFinished, this, [this](bool) {
+  connect(m_engine, &QWebEngineView::loadFinished, this, [this](bool ok) {
     if (m_progress)
       m_progress->setVisible(false);
+    if (ok)
+    {
+      m_lastError.clear();
+      m_stack->setCurrentWidget(m_engine);
+    }
+    else
+    {
+      m_lastError = tr("页面加载失败；请检查服务是否已启动，然后重新连接");
+      showFallback(m_lastError);
+      emit loadFailed(m_lastError);
+    }
   });
   connect(m_engine, &QWebEngineView::loadFinished, this,
           &WebViewPanel::loadFinished);
@@ -174,10 +253,19 @@ bool WebViewPanel::ensureEngine(QString *error)
 
 void WebViewPanel::showFallback(const QString &reason)
 {
+  if (m_progress)
+    m_progress->setVisible(false);
   if (m_statusLabel)
-    m_statusLabel->setText(tr("内嵌浏览器不可用：%1").arg(reason));
+    m_statusLabel->setText(tr("内嵌页面不可用：%1").arg(reason));
   if (m_externalButton)
     m_externalButton->setVisible(isAllowedUrl(m_url));
   if (m_stack)
     m_stack->setCurrentIndex(0);
+}
+
+void WebViewPanel::showError(const QUrl &url, const QString &reason)
+{
+  m_url = isAllowedUrl(url) ? url : QUrl();
+  m_lastError = reason;
+  showFallback(reason);
 }

@@ -6,6 +6,8 @@
 #include <QJsonObject>
 #include <QJsonValue>
 
+#include <algorithm>
+
 namespace paleo::fault {
 
 namespace {
@@ -188,9 +190,111 @@ FaultHangingSide FaultHorizonCut::hangingSideFromString(const QString &s)
 
 // ---- FaultSurfaceMesh ----
 
+namespace {
+
+const QString kProvenanceKey = QStringLiteral("provenance");
+const QString kMeasuredTag = QStringLiteral("measured");
+const QString kExtrapolatedTag = QStringLiteral("extrapolated");
+
+QString provenanceTag(paleo::fault::MeshProvenance p)
+{
+    return p == paleo::fault::MeshProvenance::Extrapolated ? kExtrapolatedTag : kMeasuredTag;
+}
+
+paleo::fault::MeshProvenance provenanceFromTag(const QVariant &v)
+{
+    return v.toString() == kExtrapolatedTag ? paleo::fault::MeshProvenance::Extrapolated
+                                            : paleo::fault::MeshProvenance::Measured;
+}
+
+QVariantList toIntList(const QVector<int> &values)
+{
+    QVariantList out;
+    out.reserve(values.size());
+    for (int v : values)
+        out.append(v);
+    return out;
+}
+
+QVector<int> intListFrom(const QVariant &v)
+{
+    QVector<int> out;
+    const QVariantList list = v.toList();
+    out.reserve(list.size());
+    for (const QVariant &item : list)
+        out.append(item.toInt());
+    return out;
+}
+
+QStringList stringListFrom(const QVariant &v)
+{
+    QStringList out;
+    const QVariantList list = v.toList();
+    for (const QVariant &item : list)
+        out.append(item.toString());
+    return out;
+}
+
+} // namespace
+
 bool FaultSurfaceVertex::operator==(const FaultSurfaceVertex &o) const
 {
-    return x == o.x && y == o.y && z == o.z && stickId == o.stickId && pointIndex == o.pointIndex;
+    return x == o.x && y == o.y && z == o.z && stickId == o.stickId && pointIndex == o.pointIndex &&
+           provenance == o.provenance;
+}
+
+bool FaultSurfaceSegment::operator==(const FaultSurfaceSegment &o) const
+{
+    return rowA == o.rowA && rowB == o.rowB && branch == o.branch && stickIds == o.stickIds &&
+           provenance == o.provenance && firstTriangle == o.firstTriangle &&
+           triangleCount == o.triangleCount;
+}
+
+bool FaultSurfaceMesh::hasExtrapolated() const
+{
+    for (const FaultSurfaceSegment &s : segments)
+        if (s.isExtrapolated())
+            return true;
+    for (const FaultSurfaceVertex &v : vertices)
+        if (v.isExtrapolated())
+            return true;
+    return false;
+}
+
+int FaultSurfaceMesh::segmentIndexForTriangle(int idx) const
+{
+    for (int i = 0; i < segments.size(); ++i) {
+        const FaultSurfaceSegment &s = segments.at(i);
+        if (idx >= s.firstTriangle && idx < s.firstTriangle + s.triangleCount)
+            return i;
+    }
+    return -1;
+}
+
+void FaultSurfaceMesh::ensureVertexBranchIndex() const
+{
+    if (!m_vertexBranches.isEmpty() || segments.isEmpty())
+        return;
+    for (const FaultSurfaceSegment &s : segments) {
+        const QVector<int> *rows[2] = {&s.rowA, &s.rowB};
+        for (const QVector<int> *row : rows) {
+            for (int v : *row) {
+                QVector<int> &branches = m_vertexBranches[v];
+                if (!branches.contains(s.branch))
+                    branches.append(s.branch);
+            }
+        }
+    }
+    for (auto it = m_vertexBranches.begin(); it != m_vertexBranches.end(); ++it)
+        std::sort(it.value().begin(), it.value().end());
+}
+
+QVector<int> FaultSurfaceMesh::branchesOfVertex(int idx) const
+{
+    if (idx < 0 || idx >= vertices.size())
+        return {};
+    ensureVertexBranchIndex();
+    return m_vertexBranches.value(idx);
 }
 
 QVariantMap FaultSurfaceMesh::toMap() const
@@ -205,6 +309,8 @@ QVariantMap FaultSurfaceMesh::toMap() const
         vm[QStringLiteral("z")] = v.z;
         vm[QStringLiteral("stickId")] = v.stickId;
         vm[QStringLiteral("pointIndex")] = v.pointIndex;
+        if (v.provenance != MeshProvenance::Measured)
+            vm[kProvenanceKey] = provenanceTag(v.provenance);
         verts.append(vm);
     }
     m[QStringLiteral("vertices")] = verts;
@@ -223,6 +329,30 @@ QVariantMap FaultSurfaceMesh::toMap() const
     for (const QString &id : stickOrder)
         order.append(id);
     m[QStringLiteral("stickOrder")] = order;
+    // 分叉/外推拓扑（分带 + 分支号 + 来历 + 分叉点）。单支实测面这些
+    // 键全缺省，与旧库 JSON 逐字节兼容（读写互为恒等）。
+    if (!segments.isEmpty()) {
+        QVariantList segs;
+        segs.reserve(segments.size());
+        for (const FaultSurfaceSegment &s : segments) {
+            QVariantMap sm;
+            sm[QStringLiteral("rowA")] = toIntList(s.rowA);
+            sm[QStringLiteral("rowB")] = toIntList(s.rowB);
+            sm[QStringLiteral("branch")] = s.branch;
+            if (!s.stickIds.isEmpty())
+                sm[QStringLiteral("stickIds")] = QVariant(s.stickIds);
+            if (s.provenance != MeshProvenance::Measured)
+                sm[kProvenanceKey] = provenanceTag(s.provenance);
+            sm[QStringLiteral("firstTriangle")] = s.firstTriangle;
+            sm[QStringLiteral("triangleCount")] = s.triangleCount;
+            segs.append(sm);
+        }
+        m[QStringLiteral("segments")] = segs;
+    }
+    if (branchCount > 0)
+        m[QStringLiteral("branchCount")] = branchCount;
+    if (!junctionVertexIndices.isEmpty())
+        m[QStringLiteral("junctionVertices")] = toIntList(junctionVertexIndices);
     return m;
 }
 
@@ -238,6 +368,7 @@ FaultSurfaceMesh FaultSurfaceMesh::fromMap(const QVariantMap &m)
         vert.z = vm.value(QStringLiteral("z")).toDouble();
         vert.stickId = vm.value(QStringLiteral("stickId")).toString();
         vert.pointIndex = vm.value(QStringLiteral("pointIndex"), -1).toInt();
+        vert.provenance = provenanceFromTag(vm.value(kProvenanceKey));
         mesh.vertices.append(vert);
     }
     const QVariantList tris = m.value(QStringLiteral("triangles")).toList();
@@ -261,12 +392,29 @@ FaultSurfaceMesh FaultSurfaceMesh::fromMap(const QVariantMap &m)
     const QVariantList order = m.value(QStringLiteral("stickOrder")).toList();
     for (const QVariant &v : order)
         mesh.stickOrder.append(v.toString());
+    const QVariantList segs = m.value(QStringLiteral("segments")).toList();
+    for (const QVariant &v : segs) {
+        const QVariantMap sm = v.toMap();
+        FaultSurfaceSegment s;
+        s.rowA = intListFrom(sm.value(QStringLiteral("rowA")));
+        s.rowB = intListFrom(sm.value(QStringLiteral("rowB")));
+        s.branch = sm.value(QStringLiteral("branch")).toInt();
+        s.stickIds = stringListFrom(sm.value(QStringLiteral("stickIds")));
+        s.provenance = provenanceFromTag(sm.value(kProvenanceKey));
+        s.firstTriangle = sm.value(QStringLiteral("firstTriangle")).toInt();
+        s.triangleCount = sm.value(QStringLiteral("triangleCount")).toInt();
+        mesh.segments.append(s);
+    }
+    mesh.branchCount = m.value(QStringLiteral("branchCount")).toInt();
+    mesh.junctionVertexIndices = intListFrom(m.value(QStringLiteral("junctionVertices")));
     return mesh;
 }
 
 bool FaultSurfaceMesh::operator==(const FaultSurfaceMesh &o) const
 {
-    return vertices == o.vertices && triangles == o.triangles && stickOrder == o.stickOrder;
+    return vertices == o.vertices && triangles == o.triangles && stickOrder == o.stickOrder &&
+           segments == o.segments && branchCount == o.branchCount &&
+           junctionVertexIndices == o.junctionVertexIndices;
 }
 
 // ---- Fault ----

@@ -111,6 +111,43 @@ ComposePage::ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWid
   lay->addWidget(publishState);
   lay->addSpacing(PaleoTheme::tokens().spacingMd); // spacing.md between groups
 
+  // ---- 方向 25 M6：版面库（工程内的版面名单，设计器非孤岛入口）----------
+  lay->addWidget(caption(tr("版面库"), this));
+  m_layoutList = new QListWidget(this);
+  m_layoutList->setObjectName(QStringLiteral("layoutLibraryList"));
+  m_layoutList->setAccessibleName(tr("版面名单"));
+  m_layoutList->setSelectionMode(QAbstractItemView::SingleSelection);
+  lay->addWidget(m_layoutList, 1);
+
+  auto *openLayout = new QPushButton(tr("在设计器中打开"), this);
+  openLayout->setObjectName(QStringLiteral("openLayoutButton"));
+  openLayout->setAccessibleName(tr("在设计器中打开"));
+  connect(openLayout, &QPushButton::clicked, this, [this] {
+    if (m_layoutList->currentItem())
+      emit layoutOpenRequested(m_layoutList->currentItem()->text());
+  });
+  auto *deleteLayout = new QPushButton(tr("删除版面"), this);
+  deleteLayout->setObjectName(QStringLiteral("deleteLayoutButton"));
+  deleteLayout->setAccessibleName(tr("删除版面"));
+  connect(deleteLayout, &QPushButton::clicked, this, [this] {
+    if (m_layoutList->currentItem())
+      emit layoutDeleteRequested(m_layoutList->currentItem()->text());
+  });
+  auto *batchExport = new QPushButton(tr("批量出图（按层位组）"), this);
+  batchExport->setObjectName(QStringLiteral("batchFigureExportButton"));
+  batchExport->setAccessibleName(tr("批量出图"));
+  batchExport->setToolTip(tr("每个层位组导出一幅（工程_层位_日期），登记 catalog"));
+  connect(batchExport, &QPushButton::clicked, this,
+          [this] { emit batchFigureExportRequested(); });
+
+  auto *layoutRow = new QHBoxLayout();
+  layoutRow->setSpacing(4); // xs
+  layoutRow->addWidget(openLayout, 1);
+  layoutRow->addWidget(deleteLayout, 1);
+  lay->addLayout(layoutRow);
+  lay->addWidget(batchExport);
+  lay->addSpacing(16);
+
   lay->addWidget(caption(tr("单因素图层"), this));
   auto *list = new QListWidget(this);
   list->setObjectName(QStringLiteral("factorList"));
@@ -503,4 +540,23 @@ void ComposePage::refreshFactors()
   else if (faciesDecls.size() == 1)
     target = faciesDecls.first();
   updateFaciesTargetUi(target);
+}
+
+void ComposePage::setLayoutNames(const QStringList &names)
+{
+  if (!m_layoutList)
+    return;
+  const QString selected = m_layoutList->currentItem()
+                                ? m_layoutList->currentItem()->text()
+                                : QString();
+  m_layoutList->blockSignals(true);
+  m_layoutList->clear();
+  m_layoutList->addItems(names);
+  m_layoutList->blockSignals(false);
+  // 选中态尽量留住（名单刷新不抢用户上下文）。
+  const int row = names.indexOf(selected);
+  if (row >= 0)
+    m_layoutList->setCurrentRow(row);
+  else if (!names.isEmpty())
+    m_layoutList->setCurrentRow(0);
 }

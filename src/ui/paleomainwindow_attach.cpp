@@ -36,6 +36,7 @@
 #include "../workflow/registration.h"
 #include "../workflow/mappingworkflow.h"
 #include "../workflow/mapexport.h"
+#include "../workflow/horizonbatchexport.h" // 方向 25 M4：按层位组批量出图
 #include "../workflow/mapversioncontroller.h"
 #include "locator/paleolocatorfilters.h"
 #include "releasepanel.h"
@@ -112,6 +113,7 @@
 #include <QMap>
 #include <QMenu>
 #include <QMessageBox>
+#include <QProgressDialog>
 #include <QPushButton>
 #include <QShortcut>
 #include <QToolButton>
@@ -2181,45 +2183,145 @@ void PaleoMainWindow::attachComposePage(ComposePage *composePage,
     // ---- m2(C): 在布局设计器中打开（layoutdesignershell 公共入口）---------
     // 打开（或新建）本层位的版面：优先复用导出同名布局 "<h>_map"；新空布局
     // 没有地图项时主题钉定自然跳过（设计器里由模板/手工补地图项）。
+    // 方向 25 M6：openLayoutDesigner(name) 同时服务版面库的按名打开。
+    const auto openLayoutDesigner = [this, layoutSvc](const QString &name) {
+      if (!layoutSvc)
+      {
+        QgsMessageLog::logMessage(tr("布局服务未接入 — 无法打开图件设计器"),
+                                  QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+        return;
+      }
+      if (!m_projectSvc || m_projectSvc->projectPath().isEmpty())
+      {
+        QgsMessageLog::logMessage(tr("无打开工程 — 无法打开图件设计器"),
+                                  QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+        return;
+      }
+      QString err;
+      QgsLayout *layout = layoutSvc->layout(name);
+      if (!layout)
+        layout = layoutSvc->createLayout(name, &err);
+      if (!layout)
+      {
+        QgsMessageLog::logMessage(
+            err.isEmpty() ? tr("创建布局失败：%1").arg(name) : err,
+            QStringLiteral("Paleo"), Qgis::MessageLevel::Critical);
+        return;
+      }
+      // 版面地图项钉本页主题（m1 setLayoutMapTheme 接缝）。
+      if (QgsLayoutItemMap *mapItem =
+              qobject_cast<QgsLayoutItemMap *>(layout->itemById(QStringLiteral("map"))))
+        pinLayoutTheme(mapItem, QStringLiteral("compose"));
+      auto *shell = new PaleoLayoutDesignerShell(layout, this);
+      shell->setTaskService(m_taskSvc); // #85：导出走任务池 worker
+      shell->setAttribute(Qt::WA_DeleteOnClose);
+      shell->setModal(false);
+      shell->show();
+    };
     connect(composePage, &ComposePage::layoutDesignerRequested, this,
-            [this, layoutSvc]() {
-              if (!layoutSvc)
-              {
-                QgsMessageLog::logMessage(tr("布局服务未接入 — 无法打开图件设计器"),
-                                          QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
-                return;
-              }
-              if (!m_projectSvc || m_projectSvc->projectPath().isEmpty())
-              {
-                QgsMessageLog::logMessage(tr("无打开工程 — 无法打开图件设计器"),
-                                          QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
-                return;
-              }
+            [this, openLayoutDesigner]() {
               const QString h = m_selection ? m_selection->activeHorizon() : QString();
-              const QString name = h.isEmpty() ? tr("编图布局")
-                                               : QStringLiteral("%1_map").arg(h);
-              QString err;
-              QgsLayout *layout = layoutSvc->layout(name);
-              if (!layout)
-                layout = layoutSvc->createLayout(name, &err);
-              if (!layout)
+              openLayoutDesigner(h.isEmpty() ? tr("编图布局")
+                                             : QStringLiteral("%1_map").arg(h));
+            });
+
+    // ---- 方向 25 M6：版面库（打开/删除/批量出图）----------------------------
+    const auto refreshLayoutNames = [composePage, layoutSvc]() {
+      composePage->setLayoutNames(layoutSvc ? layoutSvc->layoutNames() : QStringList());
+    };
+    refreshLayoutNames();
+    if (layoutSvc)
+    {
+      connect(layoutSvc, &QgisLayoutService::layoutAdded, composePage, refreshLayoutNames);
+      connect(layoutSvc, &QgisLayoutService::layoutRemoved, composePage, refreshLayoutNames);
+    }
+    connect(composePage, &ComposePage::layoutOpenRequested, this,
+            [openLayoutDesigner](const QString &name) { openLayoutDesigner(name); });
+    connect(composePage, &ComposePage::layoutDeleteRequested, this,
+            [this, composePage, layoutSvc, refreshLayoutNames](const QString &name) {
+              if (!layoutSvc || name.isEmpty())
+                return;
+              const auto choice = QMessageBox::question(
+                  this, tr("删除版面"),
+                  tr("删除版面「%1」？随工程保存的布局将一并移除。").arg(name),
+                  QMessageBox::Ok | QMessageBox::Cancel, QMessageBox::Cancel);
+              if (choice != QMessageBox::Ok)
+                return;
+              if (!layoutSvc->removeLayout(name))
+                QMessageBox::warning(this, tr("删除失败"), tr("无法删除版面「%1」。").arg(name));
+              refreshLayoutNames();
+            });
+    connect(composePage, &ComposePage::batchFigureExportRequested, this,
+            [this, composePage, layoutSvc]() {
+              // 骨架版面：活动层位版面优先，退第一个现存版面；都没有 → 提示。
+              const QString h = m_selection ? m_selection->activeHorizon() : QString();
+              QString skeletonName = h.isEmpty() ? QString()
+                                                 : QStringLiteral("%1_map").arg(h);
+              QgsPrintLayout *skeleton = skeletonName.isEmpty()
+                                             ? nullptr
+                                             : qobject_cast<QgsPrintLayout *>(
+                                                   layoutSvc ? layoutSvc->layout(skeletonName)
+                                                             : nullptr);
+              if (!skeleton && layoutSvc)
               {
-                QgsMessageLog::logMessage(
-                    err.isEmpty() ? tr("创建布局失败：%1").arg(name) : err,
-                    QStringLiteral("Paleo"), Qgis::MessageLevel::Critical);
+                const QStringList names = layoutSvc->layoutNames();
+                if (!names.isEmpty())
+                {
+                  skeletonName = names.first();
+                  skeleton =
+                      qobject_cast<QgsPrintLayout *>(layoutSvc->layout(skeletonName));
+                }
+              }
+              if (!skeleton)
+              {
+                QMessageBox::information(
+                    this, tr("批量出图"),
+                    tr("先在设计器里准备一个版面（作为批量出图的骨架）。"));
                 return;
               }
-              // 版面地图项钉本页主题（m1 setLayoutMapTheme 接缝）。
-              if (QgsLayoutItemMap *mapItem =
-                      qobject_cast<QgsLayoutItemMap *>(layout->itemById(QStringLiteral("map"))))
-                pinLayoutTheme(mapItem, QStringLiteral("compose"));
-              auto *shell = new PaleoLayoutDesignerShell(layout, this);
-              shell->setTaskService(m_taskSvc); // #85：导出走任务池 worker
-              shell->setAttribute(Qt::WA_DeleteOnClose);
-              shell->setModal(false);
-              shell->show();
+              if (!m_layerSvc)
+                return;
+              DataCatalog *catalog = m_previewDoc ? m_previewDoc->catalog() : nullptr;
+              const QString projectDir =
+                  m_projectSvc && !m_projectSvc->projectPath().isEmpty()
+                      ? QFileInfo(m_projectSvc->projectPath()).absolutePath()
+                      : QString();
+              if (!catalog || projectDir.isEmpty())
+              {
+                QMessageBox::warning(this, tr("批量出图"),
+                                     tr("需要打开工程（catalog 受管区）再批量出图。"));
+                return;
+              }
+
+              PaleoHorizonBatchExport::Request request;
+              request.layout = skeleton;
+              request.projectName = QFileInfo(projectDir).fileName();
+              request.horizonLayers =
+                  PaleoHorizonBatchExport::resolveHorizonLayers(m_layerSvc);
+              request.catalog = catalog;
+              request.projectDir = projectDir;
+              request.dpi = 300.0;
+              request.format = PaleoHorizonBatchExport::Format::Pdf;
+
+              // 同步核心 + 模态忙等（复用无任务池导出路径的口径）。
+              QProgressDialog progress(tr("正在按层位组批量出图…"), QString(), 0, 0, this);
+              progress.setWindowTitle(tr("批量出图"));
+              progress.setWindowModality(Qt::WindowModal);
+              progress.setMinimumDuration(0);
+              QCoreApplication::processEvents();
+              const auto result = PaleoHorizonBatchExport::run(request);
+              progress.cancel();
+
+              QStringList lines{result.summary()};
+              for (const auto &outcome : result.horizons)
+                lines << (outcome.ok ? tr("· %1 → %2").arg(outcome.horizon, outcome.file)
+                                     : tr("· %1 失败：%2").arg(outcome.horizon, outcome.error));
+              QMessageBox::information(this, tr("批量出图"), lines.join(QLatin1Char('\n')));
+              if (auto *status = composePage->findChild<QLabel *>(
+                      QStringLiteral("statusLabel")))
+                status->setText(result.summary());
             });
-    // ---- m2(C) end ----
+    // ---- 方向 25 M6 end ----
   }
 }
 

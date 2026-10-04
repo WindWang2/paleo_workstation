@@ -33,6 +33,7 @@ class DataImportService;
 class QgisLayoutService;
 class PredictionWorkflow;
 class ConstraintWorkflow;
+class FaciesMappingWorkflow;
 class CompositionWorkflow;
 class ValidationWorkflow;
 namespace paleo::fault {
@@ -87,6 +88,8 @@ class AppContext : public QObject
     MappingWorkflow *mappingWf() const { return m_mappingWf; }
     DepthConversionWorkflow *depthConversionWf() const { return m_depthWf; }
     PropertyModelWorkflow *propertyModelWf() const { return m_propModelWf; }
+    // goal/facies-automapping：沉积相自动编图辅助链（优势相→相界→合成→QA→草稿）。
+    FaciesMappingWorkflow *faciesMappingWf() const { return m_faciesMappingWf; }
     MapVersionStore *versionStore() const { return m_versionStore; }
     MapVersionController *versionCtl() const { return m_versionCtl; }
 
@@ -163,6 +166,7 @@ class AppContext : public QObject
     QgisLayoutService *m_layoutSvc = nullptr;
     PredictionWorkflow *m_predictionWf = nullptr;
     ConstraintWorkflow *m_constraintWf = nullptr;
+    FaciesMappingWorkflow *m_faciesMappingWf = nullptr;
     CompositionWorkflow *m_compositionWf = nullptr;
     ValidationWorkflow *m_validationWf = nullptr;
     class WellSitingWorkflow *m_wellsitingWf = nullptr;

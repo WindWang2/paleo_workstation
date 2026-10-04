@@ -105,6 +105,8 @@ int main(int argc, char *argv[])
   new paleo::crossplot::CrossplotController(&ctx, &window);
   // goal/property-modeling：地层格架属性建模编排接线
   window.attachPropertyModel(ctx.propertyModelWf(), ctx.faultCtl());
+  // goal/facies-automapping：证据合成 + QA 报告面板（相图链编排接线）。
+  window.attachFaciesMapping(ctx.faciesMappingWf());
   // goal/fault-interpretation：剖面断层拾取/断层管理面板接编排器
   window.attachFaults(ctx.faultCtl());
   // 方向34：井网辅助（验证页「布井辅助」页签 + 地图布点工具）。

@@ -38,6 +38,7 @@
 #include "../workflow/mappingworkflow.h"
 #include "../workflow/depthconversionworkflow.h"
 #include "../workflow/propertymodelworkflow.h"
+#include "../workflow/faciesmappingworkflow.h"
 #include "../metadata/mapversionstore.h"
 #include "../metadata/metastore.h"
 #include "../workflow/mapversioncontroller.h"
@@ -254,6 +255,9 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   m_mappingWf = new MappingWorkflow(m_constraintWf, m_compositionWf, m_layerSvc, this);
   m_depthWf = new DepthConversionWorkflow(nullptr, QString(), this); // catalog 绑定随工程打开
   m_propModelWf = new PropertyModelWorkflow(nullptr, QString(), this); // catalog 绑定随工程打开
+  // goal/facies-automapping：catalog/约束库绑定随工程打开（rebind 块）。
+  m_faciesMappingWf = new FaciesMappingWorkflow(nullptr, QString(), this);
+  m_faciesMappingWf->attachLayerService(m_layerSvc);
   m_mappingWf->setProjectData(m_projectData);
   m_validationWf->setProjectData(m_projectData); // validate() 增加时间残差
   m_wellsitingWf->setProjectData(m_projectData);   // 方向34：层位井控密度走 tops
@@ -420,6 +424,10 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
               // 交错写互覆）——层深转换产物落 artifacts/derived/。
               m_depthWf->rebind(derivedCatalog, fi.absolutePath());
               m_propModelWf->rebind(derivedCatalog, fi.absolutePath());
+              // goal/facies-automapping：同 catalog 实例纪律；约束库走
+              // ConstraintWorkflow 的共享 store（单写者）。
+              m_faciesMappingWf->rebind(derivedCatalog, fi.absolutePath());
+              m_faciesMappingWf->setConstraintStore(m_constraintWf->constraintStore());
             }
 #if PALEO_HAVE_ORT
             // onnx:* 模型按层位钉在 <工程目录>/models/*.onnx。

@@ -13,6 +13,7 @@
 #include "../services/petrophyscomputeservice.h" // m_petroPhysSvc unique_ptr 需完整类型
 #include "../services/jobrunner.h" // m_propModelRunner 成员需完整类型（方向20）
 #include "../workflow/propertymodelworkflow.h" // PropertyModelComputed 值成员需完整类型（#85 worker→GUI 交接）
+#include "../workflow/faciesmappingworkflow.h" // DraftFaciesJob runner 成员需完整类型（goal/facies-automapping）
 
 class PaleoDockManager;
 class QComboBox;
@@ -92,6 +93,8 @@ class PreviewDocService;
 class DepthConversionWorkflow;
 class PropertyModelWorkflow;
 class PropertyModelPanel;
+class FaciesMappingWorkflow;
+class FaciesMappingPanel;
 class PaleoMapBookPanel;
 class PaleoMapBookController;
 class FolderImportWorkflow;
@@ -175,6 +178,9 @@ class PaleoMainWindow : public SARibbonMainWindow
     // goal/property-modeling：属性建模面板。幂等（dock 已建则只更新指针）。
     void attachPropertyModel(PropertyModelWorkflow *wf,
                              paleo::fault::FaultInterpretationController *faults = nullptr);
+    // goal/facies-automapping：证据合成 + QA 报告面板。幂等（dock 已建则只
+    // 更新指针）。面板只发意图，链路在 FaciesMappingWorkflow。
+    void attachFaciesMapping(FaciesMappingWorkflow *wf);
     // goal/fault-interpretation：断层解释接线——剖面 dock 挂编排器 + 右栏
     // 断层管理面板 dock。幂等（m_faultPanelDock 已建则只重挂控制器）。
     void attachFaults(paleo::fault::FaultInterpretationController *controller);
@@ -385,6 +391,16 @@ class PaleoMainWindow : public SARibbonMainWindow
     // —— 共享所有权正是「commit 段回填的登记结果，UI 段能读到」的前提。
     paleo::jobs::JobRunner<PropertyModelWorkflow::PropertyModelJob> m_propModelRunner{this};
     std::shared_ptr<PropertyModelWorkflow::PropertyModelJob> m_propModelJob;
+    // goal/facies-automapping：证据合成 + QA 报告面板（幂等 dock，同
+    // attachPropertyModel 形态）。runner 承担忙则拒绝/取消传播/commit 亲和。
+    FaciesMappingWorkflow *m_faciesMappingWf = nullptr;
+    QDockWidget *m_faciesMappingDock = nullptr;
+    FaciesMappingPanel *m_faciesMappingPanel = nullptr;
+    paleo::jobs::JobRunner<FaciesMappingWorkflow::DraftFaciesJob> m_faciesMappingRunner{this};
+    std::shared_ptr<FaciesMappingWorkflow::DraftFaciesJob> m_faciesMappingJob;
+    QPointer<PaleoTask> m_faciesMappingTask;
+    bool m_faciesMappingRunning = false;
+    void finishFaciesMappingRun();
     // 单因素本地方向：准备和发布在界面线程，插值在任务池。
     QPointer<PaleoTask> m_factorTask;
     void finishPropertyModelRun(double overlayAlpha);

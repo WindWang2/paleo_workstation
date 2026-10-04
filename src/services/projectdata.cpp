@@ -204,8 +204,10 @@ QVector<TdSample> ProjectDataFacade::tdTableFor(const QString &wellId) const
 }
 
 std::optional<paleo::WellDeviationSurvey>
-ProjectDataFacade::trajectoryFor(const QString &wellId) const
+ProjectDataFacade::trajectoryFor(const QString &wellId, QString *error) const
 {
+  if (error)
+    error->clear();
   const QString path = assetFilePathFor(wellId, QStringLiteral("trajectory"));
   if (path.isEmpty() || !QFile::exists(path))
     return std::nullopt; // 无链接 = 直井语义，不记错误（与 topsFor/tdTableFor 同口径）
@@ -214,6 +216,8 @@ ProjectDataFacade::trajectoryFor(const QString &wellId) const
   if (!f.open(QIODevice::ReadOnly))
   {
     m_lastError = tr("测斜文件无法读取：%1").arg(path);
+    if (error)
+      *error = m_lastError;
     return std::nullopt;
   }
   const QByteArray text = f.readAll();
@@ -227,6 +231,8 @@ ProjectDataFacade::trajectoryFor(const QString &wellId) const
     if (!WellComposite::parseDeviationSurvey(path, parsed, &perr))
     {
       m_lastError = tr("测斜 XML 解析失败：%1（%2）").arg(path, perr);
+      if (error)
+        *error = m_lastError;
       return std::nullopt;
     }
     stations.reserve(parsed.size());
@@ -246,6 +252,8 @@ ProjectDataFacade::trajectoryFor(const QString &wellId) const
   if (!survey)
   {
     m_lastError = tr("测斜站表无效：%1（%2）").arg(path, serr);
+    if (error)
+      *error = m_lastError;
     return std::nullopt;
   }
   return survey;

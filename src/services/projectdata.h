@@ -96,8 +96,11 @@ class ProjectDataFacade : public QObject
     QVector<TdSample> tdTableFor(const QString &wellId) const;  // empty when unlinked — callers must not fabricate times
     // 主 trajectory 链接（primary、非 unresolved）的测斜站表 → 三维轨迹。
     // 无链接/文件不可读/站表无效 → nullopt（直井回退是显式语义：调用方保持
-    // 原垂直路径，绝不虚构造斜）；失败原因记 lastError。
-    std::optional<paleo::WellDeviationSurvey> trajectoryFor(const QString &wellId) const;
+    // 原垂直路径，绝不虚构造斜）；error 非空时按本次调用写明原因（无链接 =
+    // 空串、直井语义；坏文件/坏表 = 具体原因）——不依赖 lastError 跨调用
+    // 残留。失败原因同样记 lastError。
+    std::optional<paleo::WellDeviationSurvey> trajectoryFor(
+        const QString &wellId, QString *error = nullptr) const;
     HorizonRasterInfo horizonRasterDecl(const QString &horizon) const;
 
     QString lastError() const { return m_lastError; }

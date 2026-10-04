@@ -2249,7 +2249,7 @@
   {
     "file": "src/ui/wellsection/wellsectionscene.cpp",
     "rule": "hex",
-    "source": "col = QColor(QStringLiteral(\"#7A7A7A\"));",
+    "source": "col = w.litho.isEmpty() ? QColor(QStringLiteral(\"#7A7A7A\"))",
     "count": 1,
     "reason": "DESIGN 数据符号例外：纸面地层/岩性图未知值的灰色占位符号。"
   },
@@ -2504,5 +2504,12 @@
     "source": "painter.setPen(QColor(QStringLiteral(\"#9AA7B4\")));",
     "count": 1,
     "reason": "DESIGN 数据符号例外：导出图例色板描边中性灰。"
+  },
+  {
+    "file": "src/ui/wellsection/wellsectionscene.cpp",
+    "rule": "rgb",
+    "source": "p->fillRect(band, QColor(217, 222, 228));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：纸面岩性道未命中词表段的中性灰占位底（同 #7A7A7A 例外族）。"
   }
 ]

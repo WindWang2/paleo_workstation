@@ -6,5 +6,8 @@
 # 变更记录：356（R0，3a4f8b5）→ 355（并基 PR #212 清一条例外，随基下调）
 #           → 358（PR #259 拆分平移：setPen(Qt::white)/#1A237E/#B0BEC5 三处
 #           字面量落进 compositeheader×compositebody、trackcompound×trackcolumns
-#           双文件，同语义例外随代码复制各 +1，非新增违规）。
-358
+#           双文件，同语义例外随代码复制各 +1，非新增违规）
+#           → 359（方向 38 移植：解释岩性道未命中词表段中性灰占位底
+#           QColor(217,222,228)，DESIGN 数据符号例外域评审随旧分支三轮
+#           review 已收口，非新增违规）。
+359

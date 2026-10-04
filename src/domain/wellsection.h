@@ -1,5 +1,6 @@
 // 层：数据
 #pragma once
+#include "domain/deviationsurvey.h"
 #include "domain/seismic/timedepthmodel.h"
 #include <QMetaType>
 #include <QString>
@@ -47,6 +48,19 @@ struct FaciesSegment {
   int classId = -1;
 };
 
+// 解释岩性段（catalog 资产 well_litho_intervals 的工程解释成果）：
+// litho 为解释词面（如「细砂岩」），视图按词面取工程图式花纹；深度
+// 语义与其它深度字段一致——MD 记值，TVD 域经 Well::tvdOf 换算。
+struct LithoSegment {
+  double topMd = 0;
+  double baseMd = 0;
+  QString litho;
+};
+
+// 深度显示域：MD = 井深原样；TVD = 真垂深（井斜换算）。井数据永不因
+// 域改写——换算只发生在显示映射（拉平不变量的延伸）。
+enum class DepthDomain { MD, TVD };
+
 // 剖面上的一口井。tops 按 MD 升序（仅含有限 MD 的分层）。kb 为补心海拔
 // （米，海平面以上为正；缺数据 = 0 → 海拔模式退化为井深模式）。
 struct Well {
@@ -57,10 +71,21 @@ struct Well {
   QVector<Top> tops;
   QVector<Curve> curves;
   QVector<FaciesSegment> facies; // 交会分类井层段（catalog 派生资产）
+  QVector<LithoSegment> litho;   // 解释岩性段（catalog 资产，可空 = GR 回落）
   std::optional<TimeDepth> timeDepth;
+  // 井斜轨迹（catalog trajectory 角色）。无链接 = 直井（TVD≡MD，显式
+  // 语义）；surveyError 非空 = 资产在但不可解析——TVD 域该井如实标不可用。
+  std::optional<paleo::WellDeviationSurvey> survey;
+  QString surveyError;
   bool hasCoordinates() const; // 有限 x && y
   double topMd(const QString &name) const;            // 精确匹配；缺失 → NaN
   const Curve *curve(const QString &mnemonic) const;  // 大小写不敏感；缺失 → nullptr
+  // MD → TVD：直井恒等；井斜表坏 → NaN（调用方如实标，不得伪造）。
+  double tvdOf(double md) const;
+  // TVD → MD（井斜反解，契约 #126）；直井恒等；坏表 → NaN。
+  double mdOf(double tvd) const;
+  // TVD 域可显示（直井或有效井斜；坏表 = false）。
+  bool tvdDisplayable() const { return surveyError.isEmpty(); }
 };
 
 // 层段：顶界 tops[i].md → 底界 tops[i+1].md，底段以 bottomMd 收。
@@ -96,13 +121,18 @@ LinkOverride makeLinkOverride(const QString &aId, const QString &bId,
 bool linkConnected(const QVector<LinkOverride> &overrides, const QString &aId,
                    const QString &bId, const QString &topName);
 
-// 井距模式：等距 = 均一缝宽；比例 = 相邻井地图距离加权分摊总缝宽
-//（缺坐标井段用其余段中位距离，全缺退化等距）。
+// 井距模式：等距 = 均一缝宽；比例 = 相邻井真实地图距离加权分摊预算。
+// 契约 v2（缺坐标井不参与比例轴）：任一端缺坐标的缝不进比例分摊——
+// 固定按等距缝宽画；已知距离段分摊剩余预算（全缺/零距退化等距）。
+// 未定位井名录由调用方从 wells 汇总（诚实面：谁没参与一目了然）。
 enum class SpacingMode { Equal, Proportional };
-// n 井 → n−1 缝宽：等距全 totalGap/(n−1)；比例按距离分摊，逐缝夹取
+// n 井 → n−1 缝宽：等距全 totalGap/(n−1)；比例按上述契约，逐缝夹取
 // [minGap, maxGap]。井数 <2 → 空。
 QVector<double> gapWidthsFor(const QVector<Well> &wells, SpacingMode mode,
                              double totalGap, double minGap, double maxGap);
+// 比例模式下未定位（缺坐标）井名（井序）；等距模式恒空。
+QStringList unpositionedWellNames(const QVector<Well> &wells,
+                                  SpacingMode mode);
 
 // 各井在井口连线上的累计长分数（0..1，首井 0 末井 1）；任一井缺坐标 →
 // 空（调用方按等距退化）。断层投绘横向映射的节点。
@@ -150,10 +180,12 @@ QStringList orderedTopNames(const QVector<Well> &wells);
 // 拉平偏移 = 该井 flattenTop 的 MD；空名或缺该顶 → 0。
 double flattenOffset(const Well &w, const QString &flattenTop);
 
-// 基准面：显示深 = MD − datumOffset（井数据永不因模式改写）。
+// 基准面：显示深 = 域深 − datumOffset（井数据永不因模式改写）。
 // Depth = 井口起算原样；Elevation = 补心海拔归零（各井按 kb 挂齐，
 // kb 缺省 0 时与 Depth 等价）；Flatten = 指定标志层顶归零（其余层按
 // 相对高程重排）。模式切换仅改视图偏移与轴标签——拉平不变量的落点。
+// 域参数：TVD 域的偏移在垂深空间取值（Flatten 取 tvdOf(顶)，Elevation
+// 取 kb —— 海拔垂深 = kb − TVD）。
 enum class DatumMode { Depth = 0, Elevation = 1, Flatten = 2 };
 struct Datum {
   DatumMode mode = DatumMode::Depth;
@@ -163,18 +195,22 @@ struct Datum {
   }
   bool operator!=(const Datum &o) const { return !(*this == o); }
 };
-double datumOffset(const Well &w, const Datum &d);
-QString datumLabel(DatumMode mode); // 轴/表头用：「井深 m」/「海拔 m」/「拉平 m」
+double datumOffset(const Well &w, const Datum &d,
+                   DepthDomain domain = DepthDomain::MD);
+QString datumLabel(DatumMode mode,
+                   DepthDomain domain = DepthDomain::MD); // 轴/表头用
 
 struct DepthWindow {
   double top = 0.0;
   double base = 100.0;
 };
-// 显示深度窗口（显示深 = MD − 基准面偏移）：各井 [首顶, 末顶] 的并集；
+// 显示深度窗口（显示深 = 域深 − 基准面偏移）：各井 [首顶, 末顶] 的并集；
 // 全井无顶 → 有限曲线深度范围的并集；仍无 → {0,100}。两端外扩
-// max(5 m, 4% 跨度)，保证 top < base（最小 1 m）。
+// max(5 m, 4% 跨度)，保证 top < base（最小 1 m）。TVD 域按 tvdOf 换算
+// 后取并（坏表井 NaN 段不进窗——不下拽邻居）。
 DepthWindow depthWindow(const QVector<Well> &wells, const QString &flattenTop);
-DepthWindow depthWindow(const QVector<Well> &wells, const Datum &datum);
+DepthWindow depthWindow(const QVector<Well> &wells, const Datum &datum,
+                        DepthDomain domain = DepthDomain::MD);
 
 // 地层厚度段：顶 = activeTop，底 = baseTop（须 > 顶，否则无底）。
 struct Interval {
@@ -197,15 +233,17 @@ struct LithoInterval {
 QVector<LithoInterval> inferSandShale(const Curve &gr, double cutoff,
                                       double minThicknessM = 0.5);
 
-// 层位井深表（导出 CSV 用）：每井每顶一行 [井名, 顶名, MD]。
-// 基准面模式只进首行标记（井名, 顶名两列后附 datumLabel 列），井深数值
-// 不随模式变——模式切换前后 MD 列逐行相等是拉平不变量。
+// 层位井深表（导出 CSV 用）：每井每顶一行 [井名, 顶名, MD]（TVD 域追加
+// TVD 列——坏表井留空，不伪造）。基准面模式只进首行标记（井名, 顶名两列
+// 后附 datumLabel 列），井深数值不随模式变——模式切换前后 MD 列逐行相等
+// 是拉平不变量。
 struct TopsTable {
   QStringList header;
   QVector<QStringList> rows;
   QString csv() const; // UTF-8；含逗号/引号/换行的格加引号转义
 };
-TopsTable topsTable(const QVector<Well> &wells, const Datum &datum);
+TopsTable topsTable(const QVector<Well> &wells, const Datum &datum,
+                    DepthDomain domain = DepthDomain::MD);
 
 // 井间地震缝：reason 非空 = 不可绘（文字填缝）。values 行主序
 // [sample*columns + column]，NaN 无效。column 0 = 左井端。
@@ -231,12 +269,16 @@ struct SeismicStrip {
 // nth_element 选位）；结果 ≤0 或无值 → 1.0。
 float adaptiveClip(const QVector<SeismicGap> &gaps, double percentile = 0.99);
 
-// 显示深 displayDepth 在井间位置 f（0=A，1=B）的 TWT：两端各自
-// MD→TWT 后按 f 线性；任一缺时深/NaN → NaN。offA/offB 为拉平偏移。
+// 显示深 displayDepth 在井间位置 f（0=A，1=B）的 TWT：两端各自换回 MD
+// 后 MD→TWT 再按 f 线性；任一缺时深/坏表/NaN → NaN。offA/offB 为当前
+// 域的基准面偏移；domain 决定 displayDepth→MD 的反解（TVD 走井斜）。
 double gapTwtMs(const Well &a, double offA, const Well &b, double offB,
-                double f, double displayDepth);
+                double f, double displayDepth,
+                DepthDomain domain = DepthDomain::MD);
 
 } // namespace wellsection
 
 Q_DECLARE_METATYPE(QVector<wellsection::Well>)
 Q_DECLARE_METATYPE(wellsection::SeismicStrip)
+Q_DECLARE_METATYPE(wellsection::DepthDomain)
+Q_DECLARE_METATYPE(wellsection::SpacingMode)

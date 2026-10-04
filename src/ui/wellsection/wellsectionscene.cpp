@@ -5,6 +5,7 @@
 #include "domain/faciesclassification.h"
 #include "domain/seismic/nicestep.h"
 #include "ui/paleotheme.h"
+#include "ui/wellcomposite/patterncatalog.h"
 
 #include <QApplication>
 #include <QGraphicsScene>
@@ -14,6 +15,7 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
+#include <QPixmapCache>
 #include <QScrollBar>
 #include <QStyleOptionGraphicsItem>
 #include <QWheelEvent>
@@ -152,7 +154,6 @@ void ColumnItem::paint(QPainter *p, const QStyleOptionGraphicsItem *option,
                        QWidget *)
 {
   const wellsection::Well &w = m_st->wells[m_index];
-  const double off = m_st->offsets.value(m_index, 0.0);
   const QRectF colRect = boundingRect();
   const QRectF exposed = option->exposedRect.intersected(colRect);
   if (exposed.isEmpty())
@@ -178,14 +179,18 @@ void ColumnItem::paint(QPainter *p, const QStyleOptionGraphicsItem *option,
     {
       case wellsection::TrackKind::Zone:
       {
-        // 高亮段底色在层段道内先铺（标签在其上）。
+        // 高亮段底色在层段道内先铺（标签在其上）；坏表井 TVD 域换算
+        // 不出 y → 不铺（不出段不伪造）。
         if (hi.hasBase())
         {
           const double hy0 = m_st->yForMd(m_index, hi.topMd);
           const double hy1 = m_st->yForMd(m_index, hi.baseMd);
-          QColor hc = highlightColor();
-          hc.setAlpha(55);
-          p->fillRect(QRectF(trRect.left(), hy0, tw, hy1 - hy0), hc);
+          if (std::isfinite(hy0) && std::isfinite(hy1))
+          {
+            QColor hc = highlightColor();
+            hc.setAlpha(55);
+            p->fillRect(QRectF(trRect.left(), hy0, tw, hy1 - hy0), hc);
+          }
         }
         paintZoneTrack(p, trRect, exposed);
         break;
@@ -207,12 +212,12 @@ void ColumnItem::paint(QPainter *p, const QStyleOptionGraphicsItem *option,
     ++trackIdx;
   }
 
-  // 分层界线：可见顶各一条，横贯整列。
+  // 分层界线：可见顶各一条，横贯整列（y 经当前深度域映射）。
   p->setPen(QPen(m_st->theme.link, 1.0));
   for (const wellsection::Top &t : w.tops)
   {
-    const double y = m_st->yForDisplay(t.md - off);
-    if (y >= exposed.top() - 1 && y <= exposed.bottom() + 1)
+    const double y = m_st->yForMd(m_index, t.md);
+    if (std::isfinite(y) && y >= exposed.top() - 1 && y <= exposed.bottom() + 1)
       p->drawLine(QPointF(left, y), QPointF(colRect.right(), y));
   }
 
@@ -247,8 +252,11 @@ void ColumnItem::paintZoneTrack(QPainter *p, const QRectF &trackRect,
                                 const QRectF &exposed)
 {
   const wellsection::Well &w = m_st->wells[m_index];
-  const double off = m_st->offsets.value(m_index, 0.0);
-  const auto zs = wellsection::zones(w, m_st->window.base + off);
+  // 窗口底（显示深）→ 该井 MD（TVD 域经井斜反解；坏表 → NaN → 不出段）。
+  const double bottomMd = m_st->mdOfDisplay(m_index, m_st->window.base);
+  if (!std::isfinite(bottomMd))
+    return;
+  const auto zs = wellsection::zones(w, bottomMd);
   QFont f = p->font();
   f.setPointSize(PaleoTheme::kBodyPt);
   const bool zoneFill = m_st->theme.zoneFill;
@@ -359,8 +367,17 @@ void ColumnItem::paintCurveTrack(QPainter *p, const QRectF &trackRect,
           pathStarted = false; // 缺样断线
           continue;
         }
+        // 坏表井 TVD 域换算不出 y → 同缺样断笔（不伪造 int(NaN) 的行号）。
+        const double yD = m_st->yForMd(m_index, md);
+        if (!std::isfinite(yD))
+        {
+          flush();
+          prevRow = INT_MIN;
+          pathStarted = false;
+          continue;
+        }
         const double sx = qBound(innerL, innerL + nx * innerW, innerL + innerW);
-        const int row = int(m_st->yForMd(m_index, md));
+        const int row = int(yD);
         if (row != prevRow)
         {
           flush();
@@ -416,24 +433,25 @@ void ColumnItem::paintCurveTrack(QPainter *p, const QRectF &trackRect,
 void ColumnItem::paintDepthTrack(QPainter *p, const QRectF &trackRect,
                                  const QRectF &exposed)
 {
+  // 可见域深范围（显示深 + 域偏移；TVD 域显示深即垂深）。
   const double off = m_st->offsets.value(m_index, 0.0);
-  // 可见真实 MD 范围（显示深 + 偏移回 MD）。
-  const double mdLo = m_st->displayAtY(exposed.top()) + off;
-  const double mdHi = m_st->displayAtY(exposed.bottom()) + off;
-  if (mdHi - mdLo < 1e-3)
+  const double dLo = m_st->displayAtY(exposed.top()) + off;
+  const double dHi = m_st->displayAtY(exposed.bottom()) + off;
+  // 坏表井 + TVD 域：偏移/换算 NaN → 无刻度可画（不喂 NaN 给取整器）。
+  if (!std::isfinite(dLo) || !std::isfinite(dHi) || dHi - dLo < 1e-3)
     return;
-  const double yTop = m_st->yForMd(m_index, mdLo);
-  const double yBot = m_st->yForMd(m_index, mdHi);
+  const double yTop = m_st->yForDisplay(dLo - off);
+  const double yBot = m_st->yForDisplay(dHi - off);
   const int target = qMax(4, int((yBot - yTop) / 60.0));
-  // 海拔模式：轴标 = kb − MD（补心海拔基准，向上为正）——刻度取整在
-  // 海拔空间做，井深/拉平模式照旧在 MD 空间取整。
+  // 海拔模式：轴标 = kb − 域深（补心海拔基准，向上为正；TVD 域即海拔
+  // 垂深 TVDSS）——刻度取整在海拔空间做，其余模式在域深空间取整。
   const auto ticks = m_st->datum.mode == wellsection::DatumMode::Elevation
                          ? seismic::NiceStep::GenerateTicks(
-                               m_st->wells[m_index].kb - mdHi,
-                               m_st->wells[m_index].kb - mdLo, yBot, yTop,
+                               m_st->wells[m_index].kb - dHi,
+                               m_st->wells[m_index].kb - dLo, yBot, yTop,
                                target, QStringLiteral("%.0f"), true)
                          : seismic::NiceStep::GenerateTicks(
-                               mdLo, mdHi, yTop, yBot, target,
+                               dLo, dHi, yTop, yBot, target,
                                QStringLiteral("%.0f"), true);
 
   QFont mono = PaleoTheme::monoFont();
@@ -475,15 +493,69 @@ void ColumnItem::paintLithologyTrack(QPainter *p, const QRectF &trackRect,
                                      const wellsection::TrackSpec &tr)
 {
   const wellsection::Well &w = m_st->wells[m_index];
+  const double w2 = trackRect.width();
+  // 解释岩性段（catalog 资产）优先——工程解释成果按词面取工程图式花纹；
+  // 未命中词表 → 中性灰底 + 原词面（不吞数据、不伪造图式）。
+  if (!w.litho.isEmpty())
+  {
+    QFont f = p->font();
+    f.setPointSize(PaleoTheme::kLabelPt);
+    const QFontMetricsF fm(f);
+    for (const wellsection::LithoSegment &seg : w.litho)
+    {
+      const double y0 = m_st->yForMd(m_index, seg.topMd);
+      const double y1 = m_st->yForMd(m_index, seg.baseMd);
+      if (!std::isfinite(y0) || !std::isfinite(y1))
+        continue; // 坏表井 TVD 域换算不出——不出段不伪造
+      if (y1 < exposed.top() || y0 > exposed.bottom())
+        continue;
+      const QRectF band(trackRect.left(), y0, w2, y1 - y0);
+      WellComposite::PatternDef def;
+      if (WellComposite::PatternCatalog::lookupLithology(seg.litho, &def))
+      {
+        p->fillRect(band, def.bg);
+        // 花纹 tile 按 (key,bg,fg) 缓存——重绘不再逐段重造 QPixmap。
+        const QString cacheKey = QStringLiteral("paleo-ws-litho-%1-%2-%3")
+                                     .arg(def.key, def.bg.name(), def.fg.name());
+        QPixmap pm;
+        if (!QPixmapCache::find(cacheKey, &pm))
+        {
+          pm = WellComposite::PatternCatalog::createLithoPattern(def.key,
+                                                                def.bg, def.fg);
+          if (!pm.isNull())
+            QPixmapCache::insert(cacheKey, pm);
+        }
+        if (!pm.isNull())
+          p->fillRect(band, QBrush(pm));
+      }
+      else
+      {
+        // 未命中词表：中性灰底 + 原词面（不吞数据、不伪造图式）。
+        p->fillRect(band, QColor(217, 222, 228));
+      }
+      p->setPen(QPen(m_st->theme.frame, 0.5));
+      p->drawRect(band);
+      if (band.height() >= fm.height() + 4 && band.width() > 18)
+      {
+        p->setFont(f);
+        p->setPen(m_st->theme.text);
+        p->drawText(band.adjusted(1, 0, -1, 0),
+                    Qt::AlignCenter | Qt::TextWordWrap, seg.litho);
+      }
+    }
+    return;
+  }
+  // GR 推断回落（题注标「推断」，不混充解释成果）。
   const wellsection::Curve *src = w.curve(tr.sourceMnemonic);
   if (!src)
     return;
   const auto intervals = wellsection::inferSandShale(*src, tr.cutoff);
-  const double w2 = trackRect.width();
   for (const wellsection::LithoInterval &iv : intervals)
   {
     const double y0 = m_st->yForMd(m_index, iv.topMd);
     const double y1 = m_st->yForMd(m_index, iv.baseMd);
+    if (!std::isfinite(y0) || !std::isfinite(y1))
+      continue; // 坏表井 TVD 域同口径：不出段不伪造
     if (y1 < exposed.top() || y0 > exposed.bottom())
       continue;
     if (iv.sand)
@@ -518,6 +590,8 @@ void ColumnItem::paintFaciesTrack(QPainter *p, const QRectF &trackRect,
   {
     const double y0 = m_st->yForMd(m_index, seg.topMd);
     const double y1 = m_st->yForMd(m_index, seg.baseMd);
+    if (!std::isfinite(y0) || !std::isfinite(y1))
+      continue; // 坏表井 TVD 域同口径：不出段不伪造
     if (y1 < exposed.top() || y0 > exposed.bottom())
       continue;
     const QRectF band(trackRect.left(), y0, trackRect.width(), y1 - y0);
@@ -600,13 +674,18 @@ void GapItem::paint(QPainter *p, const QStyleOptionGraphicsItem *option,
 
   // 2. 层段带（zoneFill）：单一闭合子路径——连线 k 正向 + 右端竖边 +
   //    连线 k+1 反向（connectPath 衔接；addPath 会各自按弦闭合，填成
-  //    弦—曲线细楔而非整带）。
+  //    弦—曲线细楔而非整带）。任一端 y 换算不出（坏表井 TVD 域）→ 跳过
+  //    该带（不出带不伪造）。
   if (m_st->theme.zoneFill && lks.size() >= 2)
   {
     for (int k = 0; k + 1 < lks.size(); ++k)
     {
-      QPainterPath band = linkPath(lks[k]);
-      band.connectPath(linkPath(lks[k + 1]).toReversed());
+      QPainterPath top = linkPath(lks[k]);
+      QPainterPath bot = linkPath(lks[k + 1]);
+      if (top.isEmpty() || bot.isEmpty())
+        continue;
+      QPainterPath band = top;
+      band.connectPath(bot.toReversed());
       band.closeSubpath();
       QColor c = wellsection::zoneColor(m_st->zoneOrder.indexOf(lks[k].name));
       c.setAlpha(140);
@@ -625,15 +704,21 @@ void GapItem::paint(QPainter *p, const QStyleOptionGraphicsItem *option,
         lb = &lk;
     }
 
-  // 3. 高亮段带：active 路径 + base 反向路径闭合成单一子路径。
+  // 3. 高亮段带：active 路径 + base 反向路径闭合成单一子路径（端点
+  //    换算不出 → 跳过，同上）。
   if (la && lb)
   {
-    QPainterPath band = linkPath(*la);
-    band.connectPath(linkPath(*lb).toReversed());
-    band.closeSubpath();
-    QColor hc = highlightColor();
-    hc.setAlpha(55);
-    p->fillPath(band, hc);
+    QPainterPath top = linkPath(*la);
+    QPainterPath bot = linkPath(*lb);
+    if (!top.isEmpty() && !bot.isEmpty())
+    {
+      QPainterPath band = top;
+      band.connectPath(bot.toReversed());
+      band.closeSubpath();
+      QColor hc = highlightColor();
+      hc.setAlpha(55);
+      p->fillPath(band, hc);
+    }
   }
 
   // 4. 分层连线（S 形贝塞尔或直线）；高亮两界的名字不画灰线——
@@ -682,6 +767,10 @@ QPainterPath GapItem::linkPath(const wellsection::Link &lk) const
   const double x1 = m_st->columnLeft(m_index + 1);
   const double yl = m_st->yForMd(m_index, lk.leftMd);
   const double yr = m_st->yForMd(m_index + 1, lk.rightMd);
+  // 坏表井 TVD 域：端点换算不出 → 空路径（描边/填充自然跳过，不把 NaN
+  // 喂给光栅化器）。
+  if (!std::isfinite(yl) || !std::isfinite(yr))
+    return QPainterPath();
   QPainterPath path(QPointF(x0, yl));
   if (m_st->theme.curvedLinks)
   {
@@ -847,18 +936,66 @@ void GapItem::paintSeismic(QPainter *p, const QRectF &exposed,
     }
     const int alpha = int(m_st->theme.seismicOpacity * 255 + 0.5);
     const float clip = qMax(1e-6f, m_st->strip.clip);
+    const QTransform inv = xf.inverted();
+    // TVD 域：显示深（垂深）先经井斜反解回 MD 再走时深（直井恒等；坏表
+    // → NaN 整行透明）。tvdToMd 每次调用 O(站数)+百次二分——逐行直调在
+    // 全幅重算（缩放/域切换）时是热路径；行↔显示深线性、md(display) 光滑
+    // （站距 ≥10 m 量级），每 8 行精确反解一次、行间线性内插（常规缩放下
+    // 误差亚米；极小 px/m 的全剖面俯视时米级，仍远小于该缩放下的地震
+    // 采样间隔）。
+    const bool tvdDomain = m_st->domain == wellsection::DepthDomain::TVD;
+    constexpr int kLutStride = 8;
+    QVector<double> lutA, lutB;
+    if (tvdDomain)
+    {
+      const int rows = devRect.height();
+      const int knots = rows / kLutStride + 2;
+      lutA.resize(knots);
+      lutB.resize(knots);
+      for (int k = 0; k < knots; ++k)
+      {
+        const int row = qMin(k * kLutStride, qMax(0, rows - 1));
+        const double sy =
+            inv.map(QPointF(0, devRect.top() + row + 0.5)).y();
+        const double display = m_st->displayAtY(sy);
+        lutA[k] = a.mdOf(display + offA);
+        lutB[k] = b.mdOf(display + offB);
+      }
+    }
+    // 行号 → 两井 MD（TVD 域 = LUT 内插，偏移已在 knot 建立时含入；
+    // MD 域 = 显示深+偏移精确直通）。尾块按实际行距取分数（末 knot 钳在
+    // 尾行，行距可能小于 stride）。
+    const auto mdAtRow = [&](int dy, const QVector<double> &lut,
+                             double off) {
+      if (!tvdDomain)
+      {
+        const double sy = inv.map(QPointF(0, devRect.top() + dy + 0.5)).y();
+        return m_st->displayAtY(sy) + off;
+      }
+      const int rows = devRect.height();
+      const int k0 = qMin(dy / kLutStride, qMax(0, lut.size() - 2));
+      const int k1 = k0 + 1;
+      const int r0 = qMin(k0 * kLutStride, rows - 1);
+      const int r1 = qMin(k1 * kLutStride, rows - 1);
+      const double v0 = lut.value(k0), v1 = lut.value(k1);
+      if (!std::isfinite(v0) || !std::isfinite(v1))
+        return qQNaN();
+      const double f = r1 > r0 ? double(dy - r0) / double(r1 - r0) : 0.0;
+      return v0 + (v1 - v0) * f;
+    };
 
     m_img = QImage(devRect.size(), QImage::Format_ARGB32_Premultiplied);
     m_img.fill(Qt::transparent);
-    const QTransform inv = xf.inverted();
     for (int dy = 0; dy < devRect.height(); ++dy)
     {
-      const double sy = inv.map(QPointF(0, devRect.top() + dy + 0.5)).y();
-      const double display = m_st->displayAtY(sy);
-      const double tA = a.timeDepth ? a.timeDepth->twtAt(display + offA)
-                                    : qQNaN();
-      const double tB = b.timeDepth ? b.timeDepth->twtAt(display + offB)
-                                    : qQNaN();
+      const double mdA = mdAtRow(dy, lutA, offA);
+      const double mdB = mdAtRow(dy, lutB, offB);
+      const double tA = (a.timeDepth && std::isfinite(mdA))
+                            ? a.timeDepth->twtAt(mdA)
+                            : qQNaN();
+      const double tB = (b.timeDepth && std::isfinite(mdB))
+                            ? b.timeDepth->twtAt(mdB)
+                            : qQNaN();
       QRgb *line = reinterpret_cast<QRgb *>(m_img.scanLine(dy));
       for (int dx = 0; dx < devRect.width(); ++dx)
       {
@@ -1154,14 +1291,21 @@ void HeaderWidget::paintContents(QPainter *p, double xOffset) const
       }
       else
       {
-        // 深度道题注随基准面模式（海拔模式轴标是 kb−MD）。
+        // 深度道题注随基准面模式与深度域（TVD 域 = 垂深/海拔垂深）。
         QString title = tr.displayTitle();
-        if (tr.kind == wellsection::TrackKind::Depth &&
-            m_st->datum.mode == wellsection::DatumMode::Elevation)
-          title = QObject::tr("海拔/m");
-        if (tr.kind == wellsection::TrackKind::Depth &&
-            m_st->datum.mode == wellsection::DatumMode::Flatten)
-          title = QObject::tr("拉平/m");
+        if (tr.kind == wellsection::TrackKind::Depth)
+        {
+          if (m_st->domain == wellsection::DepthDomain::TVD)
+          {
+            title = m_st->datum.mode == wellsection::DatumMode::Elevation
+                        ? QObject::tr("海拔垂深/m")
+                        : QObject::tr("垂深/m");
+          }
+          else if (m_st->datum.mode == wellsection::DatumMode::Elevation)
+            title = QObject::tr("海拔/m");
+          else if (m_st->datum.mode == wellsection::DatumMode::Flatten)
+            title = QObject::tr("拉平/m");
+        }
         QStringList ls = wrapCaption(title, twIn, cfm);
         QColor col = m_st->theme.text;
         if (tr.kind == wellsection::TrackKind::Curve && !tr.curves.isEmpty())
@@ -1172,9 +1316,13 @@ void HeaderWidget::paintContents(QPainter *p, double xOffset) const
         }
         else if (tr.kind == wellsection::TrackKind::Lithology)
         {
-          ls += wrapCaption(tr.sourceMnemonic + QObject::tr(" 推断"), twIn,
-                            cfm);
-          col = QColor(QStringLiteral("#7A7A7A"));
+          // 口径诚实：解释资产在 → 「解释」；回落 GR 二分 → 「推断」。
+          ls += wrapCaption(w.litho.isEmpty()
+                                ? tr.sourceMnemonic + QObject::tr(" 推断")
+                                : QObject::tr("解释"),
+                            twIn, cfm);
+          col = w.litho.isEmpty() ? QColor(QStringLiteral("#7A7A7A"))
+                                  : m_st->theme.text;
         }
         drawLines(cell, ls, col);
       }
@@ -1347,18 +1495,37 @@ void View::mouseMoveEvent(QMouseEvent *e)
     return;
   }
   const wellsection::Well &w = m_st->wells[col];
-  const double off = m_st->offsets.value(col, 0.0);
-  const double md = m_st->displayAtY(sp.y()) + off;
+  const double md = m_st->mdOfDisplay(col, m_st->displayAtY(sp.y()));
   QString zoneName;
-  const auto zs = wellsection::zones(w, m_st->window.base + off);
-  for (const auto &z : zs)
-    if (md >= z.topMd && md < z.baseMd)
+  if (std::isfinite(md))
+  {
+    const double bottomMd = m_st->mdOfDisplay(col, m_st->window.base);
+    if (std::isfinite(bottomMd))
     {
-      zoneName = z.name;
-      break;
+      const auto zs = wellsection::zones(w, bottomMd);
+      for (const auto &z : zs)
+        if (md >= z.topMd && md < z.baseMd)
+        {
+          zoneName = z.name;
+          break;
+        }
     }
-  QString text = w.name + QStringLiteral(" · MD ") +
-                 QString::number(md, 'f', 1) + QStringLiteral(" m");
+  }
+  QString text;
+  if (!std::isfinite(md))
+  {
+    // 坏表井 TVD 域：读数换算不出——如实说明，不出「nan」。
+    text = w.name +
+           tr(" · 井斜不可用，TVD 域无深度读数");
+  }
+  else
+  {
+    text = w.name + QStringLiteral(" · MD ") +
+           QString::number(md, 'f', 1) + QStringLiteral(" m");
+    if (m_st->domain == wellsection::DepthDomain::TVD)
+      text += QStringLiteral(" · TVD ") +
+              QString::number(w.tvdOf(md), 'f', 1) + QStringLiteral(" m");
+  }
   if (!zoneName.isEmpty())
     text += tr(" · 层段 %1").arg(zoneName);
   // 先派 base（连线 hoverLeave 清空提示）再上报——否则从连线移入井柱的

@@ -7,6 +7,7 @@
 #include <QGraphicsView>
 #include <QImage>
 #include <QWidget>
+#include <cmath>
 #include <functional>
 
 // ui/wellsection — 剖面渲染核：面板持有一份渲染状态（过滤后的井集、
@@ -19,7 +20,8 @@ namespace wellsectionui {
 // 渲染共享状态（panel 拥有；item/header 持指针只读）。
 struct RenderState {
   QVector<wellsection::Well> wells;    // tops 已按模板过滤
-  QVector<double> offsets;             // 每井拉平偏移（与 wells 等长）
+  QVector<double> offsets;             // 每井基准面偏移（当前域空间，与 wells 等长）
+  wellsection::DepthDomain domain = wellsection::DepthDomain::MD; // 深度显示域
   wellsection::DepthWindow window;     // 显示深度窗口
   wellsection::Datum datum;            // 基准面（深度道轴标签随模式切换）
   wellsection::SectionTemplate tpl;
@@ -59,9 +61,33 @@ struct RenderState {
     return (displayDepth - window.top) * pxPerMeter;
   }
   double displayAtY(double y) const { return window.top + y / pxPerMeter; }
+  // 深度域映射（TVD/MD，井斜在 Well 内）+ 基准面偏移 → 显示深。
+  // 井序越界/坏表井 → NaN（painter 自行跳过，不伪造几何）。
+  double displayOfMd(int well, double md) const
+  {
+    if (well < 0 || well >= wells.size())
+      return qQNaN();
+    const double d = domain == wellsection::DepthDomain::TVD
+                         ? wells.at(well).tvdOf(md)
+                         : md;
+    if (!std::isfinite(d))
+      return qQNaN();
+    return d - offsets.value(well, 0.0);
+  }
+  // 显示深 → MD（域反解：TVD 经井斜 tvdToMd；直井/坏表井语义同 Well）。
+  double mdOfDisplay(int well, double display) const
+  {
+    if (well < 0 || well >= wells.size())
+      return qQNaN();
+    const double d = display + offsets.value(well, 0.0);
+    const double md = domain == wellsection::DepthDomain::TVD
+                          ? wells.at(well).mdOf(d)
+                          : d;
+    return std::isfinite(md) ? md : qQNaN();
+  }
   double yForMd(int well, double md) const
   {
-    return yForDisplay(md - offsets.value(well, 0.0));
+    return yForDisplay(displayOfMd(well, md));
   }
   // 命中测试：返回井序号或 -1（缝/边缘内）。
   int columnAtX(double x) const;

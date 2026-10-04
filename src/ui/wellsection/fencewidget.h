@@ -53,6 +53,10 @@ class WellSectionFenceWidget : public QWidget
     void setSections(const QVector<QStringList> &sections);
     // 换工程重绑存储（壳层调用；落库目标跟随新 project.sqlite）。
     void setStore(metadata::WellSectionStore *store);
+    // 视图偏好同步（三处一致性）：应用到全部剖面面板（程序化 setter，
+    // 不回发信号——防环路）。
+    void setDepthDomain(wellsection::DepthDomain domain);
+    void setSpacingMode(wellsection::SpacingMode mode);
 
     // ---- 测试钩子 ----
     int sectionCount() const { return m_sections.size(); }
@@ -61,6 +65,9 @@ class WellSectionFenceWidget : public QWidget
 
   signals:
     void sectionsChanged();
+    // 剖面面板的用户域/井距动作向上传播（壳层接主面板；程序化同步不发）。
+    void depthDomainChanged(wellsection::DepthDomain domain);
+    void spacingModeChanged(wellsection::SpacingMode mode);
 
   private:
     struct SectionCtl

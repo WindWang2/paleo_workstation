@@ -559,6 +559,230 @@ private slots:
     QVERIFY(wells[1].facies[0].baseMd > wells[1].facies[0].topMd);
   }
 
+  // TVD 域数据源：trajectory 角色井斜 → 各井 survey；无链接 = 直井（显式
+  // 语义，不告警）；坏表 → surveyError 如实 + 告警（不下拽邻居）。
+  void trajectoryAttached() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    DataCatalog cat;
+    QString err;
+    QVERIFY2(cat.open(dir.path(), &err), qPrintable(err));
+    QVERIFY2(buildCatalog(cat, QDir(dir.path()), &err), qPrintable(err));
+    // well-1：有效文本站表（造斜-稳斜）。
+    const QString devPath = dir.filePath(QStringLiteral("dev.dat"));
+    QVERIFY(writeText(devPath, QStringLiteral(
+                                   "# MD INCL AZI\n"
+                                   "0.0 0.0 0.0\n"
+                                   "1000.0 30.0 0.0\n"
+                                   "2000.0 30.0 0.0\n")));
+    QVERIFY2(addFileLink(cat, QStringLiteral("well-1"),
+                         QStringLiteral("trajectory"),
+                         QStringLiteral("dev-1"), devPath,
+                         QStringLiteral("well_deviation"), &err),
+             qPrintable(err));
+    // well-3：坏站表（MD 重复）——不可解析。
+    const QString badPath = dir.filePath(QStringLiteral("dev-bad.dat"));
+    QVERIFY(writeText(badPath, QStringLiteral("0.0 10.0 0.0\n0.0 20.0 90.0\n")));
+    QVERIFY2(addFileLink(cat, QStringLiteral("well-3"),
+                         QStringLiteral("trajectory"),
+                         QStringLiteral("dev-3"), badPath,
+                         QStringLiteral("well_deviation"), &err),
+             qPrintable(err));
+
+    WellSectionWorkflow wf(&cat);
+    QSignalSpy spy(&wf, &WellSectionWorkflow::sectionReady);
+    wf.request({QStringLiteral("well-1"), QStringLiteral("well-2"),
+                QStringLiteral("well-3")},
+               {});
+    QCOMPARE(spy.size(), 1);
+    const auto wells = spy[0][1].value<QVector<wellsection::Well>>();
+    QCOMPARE(wells.size(), 3);
+    // well-1：survey 挂载，TVD < MD（造斜）。
+    QVERIFY(wells[0].survey.has_value());
+    QVERIFY(wells[0].surveyError.isEmpty());
+    QVERIFY(wells[0].tvdOf(1500.0) < 1500.0);
+    QVERIFY(wells[0].tvdDisplayable());
+    // well-2：无链接 = 直井——TVD≡MD、无告警（显式语义，非数据缺失）。
+    QVERIFY(!wells[1].survey.has_value());
+    QVERIFY(wells[1].surveyError.isEmpty());
+    QCOMPARE(wells[1].tvdOf(1500.0), 1500.0);
+    // well-3：坏表 → surveyError 如实 + 告警含井名。
+    QVERIFY(!wells[2].survey.has_value());
+    QVERIFY(!wells[2].surveyError.isEmpty());
+    QVERIFY(!wells[2].tvdDisplayable());
+    const QStringList warnings = spy[0][2].toStringList();
+    bool warned = false;
+    for (const QString &w : warnings)
+      warned = warned || (w.contains(QStringLiteral("A3")) &&
+                          w.contains(wells[2].surveyError));
+    QVERIFY2(warned, "坏表井应在告警中如实点名");
+    // well-2（直井）不应出现在任何井斜告警里。注意只圈井斜告警：
+    // 分层读面诊断（f7fe2311 起）按井名挂，共享 tops 文件的文件级
+    // 拒收行会如实落在 A2 名下，与本断言无关。
+    for (const QString &w : warnings)
+      QVERIFY2(!w.contains(QStringLiteral("井斜轨迹")) ||
+                   !w.contains(QStringLiteral("A2")),
+               "无链接直井是显式语义，不应告警");
+
+    // 同一坏文件挂多口井：每口都必须如实标注（error 出参按调用写明，
+    // 不靠 lastError 残留对比——轮 1 修复的回归面）。
+    DataCatalog cat2;
+    QTemporaryDir dir2;
+    QVERIFY(dir2.isValid());
+    QVERIFY2(cat2.open(dir2.path(), &err), qPrintable(err));
+    QVERIFY2(buildCatalog(cat2, QDir(dir2.path()), &err), qPrintable(err));
+    const QString badShared =
+        QDir(dir2.path()).filePath(QStringLiteral("dev-shared.dat"));
+    QVERIFY(writeText(badShared, QStringLiteral("0.0 10.0 0.0\n0.0 20.0 90.0\n")));
+    QVERIFY2(addFileLink(cat2, QStringLiteral("well-1"),
+                         QStringLiteral("trajectory"),
+                         QStringLiteral("dev-s1"), badShared,
+                         QStringLiteral("well_deviation"), &err),
+             qPrintable(err));
+    QVERIFY2(addFileLink(cat2, QStringLiteral("well-2"),
+                         QStringLiteral("trajectory"),
+                         QStringLiteral("dev-s2"), badShared,
+                         QStringLiteral("well_deviation"), &err),
+             qPrintable(err));
+    WellSectionWorkflow wf2(&cat2);
+    QSignalSpy spy2(&wf2, &WellSectionWorkflow::sectionReady);
+    wf2.request({QStringLiteral("well-1"), QStringLiteral("well-2")}, {});
+    const auto wells2 = spy2[0][1].value<QVector<wellsection::Well>>();
+    QCOMPARE(wells2.size(), 2);
+    for (const auto &w : wells2)
+      QVERIFY2(!w.surveyError.isEmpty() && !w.tvdDisplayable(),
+               "共享坏文件的两口井都必须标 TVD 不可用");
+    const QStringList warnings2 = spy2[0][2].toStringList();
+    int hits = 0;
+    for (const QString &w : warnings2)
+      if (w.contains(QStringLiteral("井斜轨迹不可用")))
+        ++hits;
+    QCOMPARE(hits, 2);
+  }
+
+  // 解释岩性段：catalog 资产 well_litho_intervals 最新版本 → 各井 litho
+  //（升序、按 wellId 匹配；空词面/逆序段跳过；无资产井留空走 GR 回落）。
+  void lithoSegmentsAttached() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    DataCatalog cat;
+    QString err;
+    QVERIFY2(cat.open(dir.path(), &err), qPrintable(err));
+    QVERIFY2(buildCatalog(cat, QDir(dir.path()), &err), qPrintable(err));
+
+    const QString jsonPath = dir.filePath(QStringLiteral("well-litho.json"));
+    QVERIFY(writeText(jsonPath, QStringLiteral(
+                                    "{\"schema\":1,\"intervals\":["
+                                    "{\"wellId\":\"well-1\",\"top\":100,\"base\":150,\"litho\":\"细砂岩\"},"
+                                    "{\"wellId\":\"well-1\",\"top\":150,\"base\":200,\"litho\":\"泥岩\"},"
+                                    "{\"wellId\":\"well-1\",\"top\":300,\"base\":280,\"litho\":\"逆序段\"},"
+                                    "{\"wellId\":\"well-1\",\"top\":400,\"base\":420,\"litho\":\"  \"},"
+                                    "{\"wellId\":\"well-9\",\"top\":1,\"base\":2,\"litho\":\"灰岩\"}"
+                                    "]}")));
+    CatalogAsset a;
+    a.id = QStringLiteral("li-1");
+    a.type = QStringLiteral("well_litho_intervals");
+    a.format = QStringLiteral("json");
+    a.displayName = QStringLiteral("well-litho.json");
+    QVERIFY2(cat.addAsset(a, &err), qPrintable(err));
+    CatalogVersion v;
+    v.id = QStringLiteral("lv-1");
+    v.assetId = a.id;
+    v.managed = false;
+    v.path = jsonPath;
+    v.stage = QStringLiteral("DERIVED");
+    v.versionNumber = 1;
+    QVERIFY2(cat.addVersion(v, &err), qPrintable(err));
+
+    WellSectionWorkflow wf(&cat);
+    QSignalSpy spy(&wf, &WellSectionWorkflow::sectionReady);
+    wf.request({QStringLiteral("well-1"), QStringLiteral("well-2")}, {});
+    QCOMPARE(spy.size(), 1);
+    const auto wells = spy[0][1].value<QVector<wellsection::Well>>();
+    QCOMPARE(wells.size(), 2);
+    // well-1：两段有效（逆序/空词面跳过），升序、词面保真。
+    QCOMPARE(wells[0].litho.size(), 2);
+    QCOMPARE(wells[0].litho[0].topMd, 100.0);
+    QCOMPARE(wells[0].litho[0].litho, QStringLiteral("细砂岩"));
+    QCOMPARE(wells[0].litho[1].litho, QStringLiteral("泥岩"));
+    QVERIFY(wells[0].litho[1].baseMd > wells[0].litho[1].topMd);
+    // well-2：无资产段 → 空（视图回落 GR 推断）。
+    QVERIFY(wells[1].litho.isEmpty());
+    // 告警如实：两个无效段（逆序 + 空词面）计数点名。
+    const QStringList warnings = spy[0][2].toStringList();
+    bool counted = false;
+    for (const QString &w : warnings)
+      counted = counted || w.contains(QStringLiteral("2 个无效段"));
+    QVERIFY2(counted, "无效段应进告警（回落不静默吞数据质量问题）");
+
+    // ---- 告警回归网（轮 2）：schema 不支持 / 文件读不了 → 告警 + 回落 ----
+    const auto seedLithoAsset = [&dir](DataCatalog &c, const QString &assetId,
+                                       const QString &path, int version,
+                                       QString *e) {
+      CatalogAsset a;
+      a.id = assetId;
+      a.type = QStringLiteral("well_litho_intervals");
+      a.format = QStringLiteral("json");
+      a.displayName = QStringLiteral("litho.json");
+      if (!c.addAsset(a, e))
+        return false;
+      CatalogVersion v;
+      v.id = QStringLiteral("v-") + assetId;
+      v.assetId = a.id;
+      v.managed = false;
+      v.path = path;
+      v.stage = QStringLiteral("DERIVED");
+      v.versionNumber = version;
+      return c.addVersion(v, e);
+    };
+    {
+      // schema 未知 → 拒读 + 告警；不挂任何段。
+      QTemporaryDir d2;
+      DataCatalog c2;
+      QString e2;
+      QVERIFY2(c2.open(d2.path(), &e2), qPrintable(e2));
+      QVERIFY2(buildCatalog(c2, QDir(d2.path()), &e2), qPrintable(e2));
+      const QString p2 = QDir(d2.path()).filePath(QStringLiteral("l2.json"));
+      QVERIFY(writeText(p2, QStringLiteral(
+                                "{\"schema\":2,\"intervals\":["
+                                "{\"wellId\":\"well-1\",\"top\":1,\"base\":2,"
+                                "\"litho\":\"灰岩\"}]}")));
+      QVERIFY2(seedLithoAsset(c2, QStringLiteral("li-s"), p2, 1, &e2),
+               qPrintable(e2));
+      WellSectionWorkflow wf2(&c2);
+      QSignalSpy spy2(&wf2, &WellSectionWorkflow::sectionReady);
+      wf2.request({QStringLiteral("well-1")}, {});
+      const auto ws2 = spy2[0][1].value<QVector<wellsection::Well>>();
+      QVERIFY(ws2[0].litho.isEmpty());
+      bool schemaWarned = false;
+      for (const QString &w : spy2[0][2].toStringList())
+        schemaWarned = schemaWarned || w.contains(QStringLiteral("schema"));
+      QVERIFY2(schemaWarned, "schema 不支持要如实告警");
+    }
+    {
+      // 版本路径指向不存在文件 → 读取失败告警 + 回落。
+      QTemporaryDir d3;
+      DataCatalog c3;
+      QString e3;
+      QVERIFY2(c3.open(d3.path(), &e3), qPrintable(e3));
+      QVERIFY2(buildCatalog(c3, QDir(d3.path()), &e3), qPrintable(e3));
+      QVERIFY2(seedLithoAsset(
+                   c3, QStringLiteral("li-m"),
+                   QDir(d3.path()).filePath(QStringLiteral("gone.json")), 1,
+                   &e3),
+               qPrintable(e3));
+      WellSectionWorkflow wf3(&c3);
+      QSignalSpy spy3(&wf3, &WellSectionWorkflow::sectionReady);
+      wf3.request({QStringLiteral("well-1")}, {});
+      const auto ws3 = spy3[0][1].value<QVector<wellsection::Well>>();
+      QVERIFY(ws3[0].litho.isEmpty());
+      bool readWarned = false;
+      for (const QString &w : spy3[0][2].toStringList())
+        readWarned = readWarned || w.contains(QStringLiteral("解释岩性资产读取失败"));
+      QVERIFY2(readWarned, "读失败要如实告警（回落不是静默伪装）");
+    }
+  }
+
   // 栅状图多节：sectionIds 发现 + remove 收尾（条数收缩清尾行）。
   void fenceStoreSections() {
     QTemporaryDir dir;

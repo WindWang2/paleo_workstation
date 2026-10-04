@@ -126,6 +126,19 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
             panel->setFaultTraces(fp.traces, fp.status);
           });
 
+  // 三处一致性：主面板的用户域/井距动作 → 打开中的栅状图各剖面同步；
+  // 反向（fence 内动作 → 主面板）在 fence 创建处接线。
+  connect(panel, &WellSectionPanel::depthDomainChanged, this,
+          [this](wellsection::DepthDomain domain) {
+            if (m_wellSectionFence)
+              m_wellSectionFence->setDepthDomain(domain);
+          });
+  connect(panel, &WellSectionPanel::spacingModeChanged, this,
+          [this](wellsection::SpacingMode mode) {
+            if (m_wellSectionFence)
+              m_wellSectionFence->setSpacingMode(mode);
+          });
+
   // #128：结果按 workflow 的当前世代过滤（wf->currentGeneration()），不记
   // request() 的返回值——同步/早退路径在返回前就已 emit，旧实现把那一次
   // 结果当陈旧丢掉（面板卡在忙碌、地震缝状态不显示）。
@@ -305,7 +318,7 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
 
   // 栅状图（fence）：面板入口 → 单实例窗（交点井联动在部件内部接线）。
   connect(panel, &WellSectionPanel::fenceRequested, this,
-          [this, wf, taskSvc, toChoices] {
+          [this, wf, taskSvc, toChoices, panel] {
             if (m_wellSectionFence)
             {
               m_wellSectionFence->raise();
@@ -324,6 +337,16 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
             fence->setWindowFlags(Qt::Window);
             fence->resize(1100, 700);
             m_wellSectionFence = fence;
+            // 反向一致性：fence 内用户域/井距动作 → 主面板（程序化 setter
+            // 不发信号，与正向接线无环路）。
+            connect(fence, &WellSectionFenceWidget::depthDomainChanged, panel,
+                    [panel](wellsection::DepthDomain domain) {
+                      panel->setDepthDomain(domain);
+                    });
+            connect(fence, &WellSectionFenceWidget::spacingModeChanged, panel,
+                    [panel](wellsection::SpacingMode mode) {
+                      panel->setSpacingMode(mode);
+                    });
             connect(fence, &QObject::destroyed, this,
                     [this] { m_wellSectionFence = nullptr; });
             fence->show();

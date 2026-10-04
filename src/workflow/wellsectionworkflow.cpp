@@ -254,6 +254,18 @@ int WellSectionWorkflow::request(const QStringList &wellIds,
       if (model.setCheckshots(points))
         well.timeDepth = wellsection::TimeDepth{model, 0.0, tr("时深表")};
     }
+    // 井斜轨迹（TVD 域换算源）：无链接 = 直井（显式语义，不告警）；资产在
+    // 但不可解析 → surveyError 如实记 + 告警（TVD 域该井标不可用）。
+    // error 出参按本次调用写明（多井同坏文件也不漏记）。
+    QString trajErr;
+    const auto trajectory = m_data.trajectoryFor(pw->id, &trajErr);
+    if (trajectory)
+      well.survey = *trajectory;
+    else if (!trajErr.isEmpty()) {
+      well.surveyError = trajErr;
+      shared->warnings
+          << tr("井 %1 的井斜轨迹不可用：%2").arg(pw->name, well.surveyError);
+    }
     const QVector<WellCurveRef> index =
         WellLogSet::wellCurveIndex(m_catalog, dir, pw->id);
     const int wellIndex = shared->wells.size();
@@ -265,6 +277,7 @@ int WellSectionWorkflow::request(const QStringList &wellIds,
     shared->wells.push_back(well);
   }
   attachFaciesSegments(shared->wells);
+  attachLithoSegments(shared->wells, &shared->warnings);
   shared->curves.resize(shared->entries.size());
   if (!m_tasks) {
     loadCurveBodies(*shared, nullptr);
@@ -395,6 +408,80 @@ void WellSectionWorkflow::attachFaciesSegments(
     std::sort(w.facies.begin(), w.facies.end(),
               [](const wellsection::FaciesSegment &a,
                  const wellsection::FaciesSegment &b) {
+                return a.topMd < b.topMd;
+              });
+  }
+}
+
+// 解释岩性段（catalog 资产 well_litho_intervals 的最新版本）挂到各井
+// litho；无资产 → 静默回落（GR 推断是正常态）。资产在但读不了/解析不出
+// 有效段 → 如实告警（回落不是静默伪装解释缺失）；schema 未知 → 拒读。
+// 资产契约：{"schema":1,"intervals":[{"wellId","top","base","litho"}]}，
+// 深度 MD 米；生产者/导入器递延（TODOS）——消费先行，谁落库谁点亮。
+void WellSectionWorkflow::attachLithoSegments(
+    QVector<wellsection::Well> &wells, QStringList *warnings) const {
+  if (!m_catalog || wells.isEmpty())
+    return;
+  // versionsForAsset 按值返回临时容器——拷贝持有再比较（UAF 防线同上）。
+  CatalogVersion best;
+  bool has = false;
+  for (const CatalogAsset &a : m_catalog->assets()) {
+    if (a.type != QLatin1String("well_litho_intervals"))
+      continue;
+    for (const CatalogVersion &v : m_catalog->versionsForAsset(a.id))
+      if (!has || v.versionNumber > best.versionNumber) {
+        best = v;
+        has = true;
+      }
+  }
+  if (!has)
+    return;
+  const auto warn = [warnings](const QString &msg) {
+    if (warnings)
+      *warnings << msg;
+  };
+  QFile file(DataCatalog::resolvedVersionPath(projectDir(), best));
+  if (!file.open(QIODevice::ReadOnly)) {
+    warn(tr("解释岩性资产读取失败：%1").arg(best.fileName));
+    return;
+  }
+  const QJsonObject root =
+      QJsonDocument::fromJson(file.readAll()).object();
+  file.close();
+  const QJsonValue schema = root.value(QLatin1String("schema"));
+  if (!schema.isNull() && schema.toInt(-1) != 1) {
+    warn(tr("解释岩性资产 schema 版本不支持（%1），已忽略")
+             .arg(QString::number(schema.toDouble())));
+    return;
+  }
+  QHash<QString, QVector<wellsection::LithoSegment>> byWell;
+  int dropped = 0;
+  for (const QJsonValue &iv : root.value(QLatin1String("intervals")).toArray()) {
+    const QJsonObject o = iv.toObject();
+    wellsection::LithoSegment seg;
+    seg.topMd = o.value(QLatin1String("top")).toDouble();
+    seg.baseMd = o.value(QLatin1String("base")).toDouble();
+    seg.litho = o.value(QLatin1String("litho")).toString().trimmed();
+    if (seg.litho.isEmpty() || !(seg.baseMd > seg.topMd)) {
+      ++dropped;
+      continue;
+    }
+    byWell[o.value(QLatin1String("wellId")).toString()].push_back(seg);
+  }
+  if (byWell.isEmpty() && dropped == 0) {
+    warn(tr("解释岩性资产无有效数据段：%1").arg(best.fileName));
+    return;
+  }
+  if (dropped > 0)
+    warn(tr("解释岩性资产有 %1 个无效段（逆序/空词面）已跳过").arg(dropped));
+  for (wellsection::Well &w : wells) {
+    const auto it = byWell.constFind(w.id);
+    if (it == byWell.constEnd())
+      continue;
+    w.litho = it.value();
+    std::sort(w.litho.begin(), w.litho.end(),
+              [](const wellsection::LithoSegment &a,
+                 const wellsection::LithoSegment &b) {
                 return a.topMd < b.topMd;
               });
   }

@@ -1,0 +1,283 @@
+最终源码 SHA256: ba9ac53c1fa58124cad8138eb1ebc61bfc896f4b154e42346b608ec5ae84a0cf
+完整279项运行: 277通过/2失败; 两项单独复验通过，最新逐项状态279/279绿。
+原始失败不覆盖：full-ctest.txt；复验：last-retries.txt。
+
+  1 layering: Passed    0.39 sec
+  2 layering_strict: Passed    0.32 sec
+  3 layering_selftest: Passed    0.06 sec
+  4 ui_invariants: Passed    0.15 sec
+  5 ui_invariants_strict: Passed    0.16 sec
+  6 ui_invariants_selftest: Passed    0.06 sec
+  7 i18n: Passed    6.91 sec
+  8 i18n_selftest: Passed    0.09 sec
+  9 ui_tokens: Passed    1.16 sec
+ 10 ui_tokens_selftest: Passed    0.09 sec
+ 11 tst_runtime: Passed    0.84 sec
+ 12 tst_projectsvc: Passed    1.42 sec
+ 13 tst_layerservice: Passed    1.66 sec
+ 14 tst_canvas_tools: Passed    0.90 sec
+ 15 tst_domain: Passed    0.44 sec
+ 16 tst_jobrunner: Passed    0.80 sec
+ 17 tst_linkage: Passed    1.05 sec
+ 18 tst_algorithms: Passed    1.11 sec
+ 19 tst_seismicattr: Passed    0.41 sec
+ 20 tst_singlefactor_kernel: Passed    0.51 sec
+ 21 tst_wellsiting_kernel: Passed    0.86 sec
+ 22 tst_singlefactor_corridor: Passed    0.40 sec
+ 23 tst_singlefactor_partition: Passed    0.46 sec
+ 24 tst_singlefactor_faultpath: Passed    0.44 sec
+ 25 tst_singlefactor_buffer: Passed    0.54 sec
+ 26 tst_singlefactor_regional: Passed    0.43 sec
+ 27 tst_singlefactor_avoidance: Passed    0.40 sec
+ 28 tst_constraint_draw: Passed    1.56 sec
+ 29 tst_singlefactor_perf: Passed  192.15 sec
+ 30 tst_contourlevels: Passed    0.42 sec
+ 31 tst_singlefactor_contours: Passed    0.58 sec
+ 32 tst_singlefactor_fieldcontours: Passed   10.19 sec
+ 33 tst_singlefactor_contourbudget: Passed    0.74 sec
+ 34 tst_singlefactor_guilatency: Passed   23.61 sec
+ 35 tst_singlefactor_faults: Passed    1.05 sec
+ 36 tst_singlefactor_asynccontour: Passed    1.38 sec
+ 37 tst_singlefactor_parity: Passed    0.52 sec
+ 38 tst_singlefactor_acquisition: Passed    0.38 sec
+ 39 tst_singlefactor_structural: Passed    1.05 sec
+ 40 tst_singlefactor_parity_completion: Passed    0.42 sec
+ 41 tst_singlefactor_contract: Passed    0.46 sec
+ 42 tst_singlefactor_samples: Passed    0.49 sec
+ 43 tst_singlefactor_store: Passed    0.43 sec
+ 44 tst_services2: Passed    1.49 sec
+ 45 tst_sequenceframework: Passed    0.42 sec
+ 46 tst_geosymbols: Passed    1.25 sec
+ 47 tst_semanticlegend: Passed    1.30 sec
+ 48 tst_symbolpicker: Passed    1.25 sec
+ 49 tst_workflows: Passed    1.86 sec
+ 50 tst_wellsiting_workflow: Passed    1.47 sec
+ 51 tst_wellsiting_panel: Passed    1.54 sec
+ 52 tst_mappingworkbench: Passed    7.53 sec
+ 53 tst_ui: Passed   32.31 sec
+ 54 tst_panels: Passed    4.27 sec
+ 55 tst_mappingpages: Passed    2.24 sec
+ 56 tst_factorworkflow: Passed    2.42 sec
+ 57 tst_composeworkflow: Passed    3.32 sec
+ 58 tst_perf: Passed    0.97 sec
+ 59 tst_locator: Passed    1.02 sec
+ 60 tst_layoutshell: Passed    1.74 sec
+ 61 tst_maptools: Passed    1.29 sec
+ 62 tst_correlation: Passed    0.99 sec
+ 63 tst_decorations: Passed    1.40 sec
+ 64 tst_manifestproj: Passed    1.00 sec
+ 65 tst_import: Passed    9.55 sec
+ 66 tst_drawctl: Passed    1.63 sec
+ 67 tst_procdialog: Passed    3.67 sec
+ 68 tst_rehydrate: Passed    1.90 sec
+ 69 tst_release: Passed    0.45 sec
+ 70 tst_sequenceframework_ui: Passed    0.99 sec
+ 71 tst_releasepanel: Passed    0.74 sec
+ 72 tst_taskpanel: Passed    0.77 sec
+ 73 tst_attrpanel: Passed    1.52 sec
+ 74 tst_segy: Passed    0.52 sec
+ 75 tst_las: Passed   21.74 sec
+ 76 tst_lasperf: Passed    5.21 sec
+ 77 tst_snapshot_dedup: Passed    0.46 sec
+ 78 tst_constraintstore: Passed    1.23 sec
+ 79 tst_constraintediting: Passed    4.60 sec
+ 80 tst_shapetools: Passed    1.72 sec
+ 81 tst_edittools: Passed    2.36 sec
+ 82 tst_correlation_full: Passed    7.38 sec
+ 83 tst_layoutpalette: Passed    1.72 sec
+ 84 tst_layoutitempanel: Passed    1.58 sec
+ 85 tst_layoutexport: Passed    2.85 sec
+ 86 tst_mapbook: Passed    7.29 sec
+ 87 tst_layoutundo: Passed    1.08 sec
+ 88 tst_layoutdesigner_full: Passed    2.87 sec
+ 89 tst_standardelements: Passed    1.10 sec
+ 90 tst_layoutpersistence: Passed    1.12 sec
+ 91 tst_layouttemplatelibrary: Passed    1.35 sec
+ 92 tst_horizonbatchexport: Passed    1.44 sec
+ 93 tst_catalog: Passed    7.08 sec
+ 94 tst_projectparsers: Passed    0.45 sec
+ 95 tst_horizonbinner: Passed    3.06 sec
+ 96 tst_segy_lines: Passed    0.45 sec
+ 97 tst_seismic_core: Passed    0.41 sec
+ 98 tst_sgycoordmapper: Passed    0.44 sec
+ 99 tst_welltracelocate: Passed    0.42 sec
+100 tst_seismic_index: Passed    0.58 sec
+101 tst_dataperf_index: Passed    0.61 sec
+102 tst_coldstart: Passed    1.09 sec
+103 tst_seismic_3d: Passed    1.91 sec
+104 tst_seismic_section: Passed    0.78 sec
+105 tst_timedeptool: Passed    0.45 sec
+106 tst_previewmap_canvas: Passed    1.24 sec
+107 tst_previewmap_tools: Passed    1.24 sec
+108 tst_previewmap_identify: Passed    1.07 sec
+109 tst_previewmap_page: Passed    2.65 sec
+110 tst_previewmap_assets: Passed   24.60 sec
+111 tst_previewmap_perf: Passed    5.19 sec
+112 tst_datapreview: Passed   18.92 sec
+113 tst_folderimport: Passed    1.39 sec
+114 tst_cataloghealth: Passed    0.38 sec
+115 tst_assetops: Passed    0.63 sec
+116 tst_previewdoc: Passed    2.76 sec
+117 tst_wellcomposite: Passed    1.37 sec
+118 tst_smoke_realdata: Passed    0.97 sec
+119 tst_webviewpanel: Passed    2.18 sec
+120 tst_uxtheme: Passed    1.66 sec
+121 tst_onnx: Passed    0.56 sec
+122 tst_onnxsessions: Passed    0.50 sec
+123 tst_tileinference: Passed    0.52 sec
+124 tst_modelregistry: Passed    0.62 sec
+125 tst_aiassistworkflow: Passed    1.30 sec
+126 tst_remotepredictrouter: Passed    0.68 sec
+127 tst_aiassist_perf: Passed    0.50 sec
+128 tst_onnxworkflow: Passed    1.25 sec
+129 tst_projectdata: Passed    1.13 sec
+130 tst_mapping: Passed    2.19 sec
+131 tst_taskservice: Passed    1.64 sec
+132 tst_threeway: Passed    1.18 sec
+133 tst_chips: Passed    1.03 sec
+134 tst_versions: Passed    2.15 sec
+135 tst_derivedassets: Passed    0.61 sec
+136 tst_seismicmapping: Passed    1.09 sec
+137 tst_startup_trace: Passed   23.01 sec
+138 boot: Passed    0.98 sec
+139 polygonize: Passed    1.35 sec
+140 tst_metastore: Passed    0.57 sec
+141 tst_layermanifest: Passed    0.35 sec
+142 tst_segy_fixture: Passed    0.48 sec
+143 tst_algorithm_harness: Passed    1.92 sec
+144 tst_perfbudget: Passed    1.42 sec
+145 tst_roles: Passed    0.36 sec
+146 tst_commitcoord: Passed    0.40 sec
+147 tst_entityview: Passed    0.56 sec
+148 tst_crashreport: Passed    0.49 sec
+149 tst_relocate: Passed    1.88 sec
+150 tst_ui_blocking: Passed   10.57 sec
+151 tst_arearules: Passed    0.47 sec
+152 tst_staleness: Passed    1.30 sec
+153 tst_layerplatform: Passed    3.06 sec
+154 tst_labelzorder: Passed    1.41 sec
+155 tst_dragtop_render: Passed    0.89 sec
+156 tst_layerorganizer: Passed    1.46 sec
+157 tst_layertreepanel: Passed    1.80 sec
+158 tst_layerproperties: Passed    2.54 sec
+159 tst_batchjobqueue: Passed   76.80 sec
+160 tst_batchjobpanel: Passed    0.75 sec
+161 tst_wellfacies: Passed    2.69 sec
+162 tst_wellfaciesconfig: Passed    0.40 sec
+163 tst_catalogstore: Passed    0.49 sec
+164 tst_datacatalog_sqlite: Passed    5.50 sec
+165 tst_cluster: Passed    0.42 sec
+166 tst_crossplot_samples: Passed    0.44 sec
+167 tst_crossplotpanel: Passed    1.00 sec
+168 tst_faciesclassify: Passed    1.43 sec
+169 tst_crossplot_perf: Passed    0.80 sec
+170 tst_crossplot_controller: Passed    3.33 sec
+171 tst_ingestplan: Passed    1.83 sec
+172 tst_seismic_realarea: Passed    0.54 sec
+173 tst_mem_budget: Passed    0.52 sec
+174 tst_correlation_async: Passed    4.25 sec
+175 tst_importqueue_progress: Passed    2.99 sec
+176 tst_pyramid_consume: Passed    1.67 sec
+177 tst_catalog_scale: Passed    0.41 sec
+178 tst_wellcomposite_shell: Passed    6.39 sec
+179 tst_sectionlifecycle: Passed    3.81 sec
+180 tst_derivationgraph: Passed    2.91 sec
+181 tst_evolution_kernel: Passed    0.47 sec
+182 tst_evolution_workflow: Passed    1.80 sec
+183 tst_evolutionplayer: Passed    1.19 sec
+184 tst_faciesmapping_algorithms: Passed    0.44 sec
+185 tst_faciesmapping_workflow: Passed    2.26 sec
+186 tst_faultset: Passed    0.41 sec
+187 tst_faultsetstore: Passed    0.43 sec
+188 tst_faultinterp: Passed    1.04 sec
+189 tst_faultsectionui: Passed    1.85 sec
+190 tst_faultsurface: Passed    0.40 sec
+191 tst_faultsurfaceworkflow: Passed    0.47 sec
+192 tst_faultsurfaceview: Passed    0.94 sec
+193 tst_geostat_variogram: Passed    0.51 sec
+194 tst_geostat_kriging: Passed    0.45 sec
+195 tst_geostat_sgs: Passed    0.67 sec
+196 tst_geostat_faultpath: Passed    0.48 sec
+197 tst_geostat_workflow: Passed    1.62 sec
+198 tst_geostat_perf: Passed    8.09 sec
+199 tst_geostat_realarea: Passed    0.41 sec
+200 tst_cache_core: Passed    0.52 sec
+201 tst_cache_las: Passed    0.48 sec
+202 tst_perf_las: Passed    0.94 sec
+203 tst_cache_segyindex: Passed    0.50 sec
+204 tst_perf_segyindex: Passed    0.62 sec
+205 tst_cache_pyramid: Passed    1.43 sec
+206 tst_perf_catalog: Passed    3.69 sec
+207 tst_cache_async: Passed    3.36 sec
+208 tst_cache_io: Passed    0.45 sec
+209 tst_perf_regress: Passed    2.91 sec
+210 tst_pythonenv: Passed    7.94 sec
+211 mamcl_lock: Passed    0.23 sec
+212 mamcl_lock_selftest: Passed    0.06 sec
+213 tst_petrophys: Passed    0.50 sec
+214 tst_curveexpr: Passed    0.46 sec
+215 tst_petrophysbatch: Passed    1.27 sec
+216 tst_petrophyspanel: Passed    0.64 sec
+217 tst_petrophysperf: Passed    1.35 sec
+218 tst_stratgrid: Passed    0.38 sec
+219 tst_upscale: Passed    0.38 sec
+220 tst_propfill: Passed    0.39 sec
+221 tst_propworkflow: Passed    1.03 sec
+222 tst_propmodelpanel: Passed    1.72 sec
+223 tst_propmodelperf: Passed    1.63 sec
+224 tst_sections_alignment: Passed    1.94 sec
+225 tst_seismic_engine: Passed    1.04 sec
+226 tst_seismic_perf: Passed    0.47 sec
+227 tst_seismic_baseline: Passed    6.55 sec
+228 tst_seismic_transcode: Passed    0.67 sec
+229 tst_seismic_sectionui: Passed    4.17 sec
+230 tst_seismic_3dui: Passed    5.04 sec
+231 tst_seismic_3dviz: Passed    5.18 sec
+232 tst_seismic_interpret: Passed    1.69 sec
+233 tst_seismic_welltie: Passed    0.79 sec
+234 tst_seismic_budgets: Passed    2.50 sec
+235 tst_seismicattrsvc: Passed    0.62 sec
+236 tst_seismicattrui: Passed    0.83 sec
+237 tst_seismicattrperf: Passed    0.89 sec
+238 tst_horizontrack: Passed    0.54 sec
+239 tst_sectionaxis: Passed    0.47 sec
+240 tst_horizontrackperf: Passed   12.77 sec
+241 tst_inversion_wavelet: Passed    0.50 sec
+242 tst_inversion_lowfreq: Passed    0.50 sec
+243 tst_inversion_bandlimit: Passed    0.40 sec
+244 tst_inversion_sparse: Passed    0.58 sec
+245 tst_inversion_welltd: Passed    0.51 sec
+246 tst_inversion_workflow: Passed    1.01 sec
+247 tst_inversion_panel: Passed    0.60 sec
+248 tst_inversion_perf: Passed   29.70 sec
+249 tst_inversion_realarea: Passed    0.50 sec
+250 tst_gridsolver: Passed    0.55 sec
+251 tst_rasteralgebra: Passed    0.42 sec
+252 tst_surfacevolumes: Passed    0.52 sec
+253 tst_surfacegridding_thread: Passed    0.56 sec
+254 tst_gridding_realarea: Passed    0.51 sec
+255 tst_velocitymodel: Passed    0.45 sec
+256 tst_depthconversion: Passed    2.38 sec
+257 tst_timedepthperf: Passed    0.96 sec
+258 tst_dockmanager: Passed    1.39 sec
+259 tst_welllogset: Passed    0.53 sec
+260 tst_welllogset_perf: Passed    0.57 sec
+261 tst_welllog_consumers: Passed    0.78 sec
+262 tst_welllog_ui: Passed    0.80 sec
+263 tst_deviation: Passed    0.35 sec
+264 tst_deviation_import: Passed    0.47 sec
+265 tst_welllogset_tvd: Passed    0.62 sec
+266 tst_sectiontrajectory: Passed    0.64 sec
+267 tst_deviation_realarea: Passed    0.45 sec
+268 tst_wellcomposite_framework: Passed    1.09 sec
+269 tst_wellcomposite_depth: Passed    1.39 sec
+270 tst_wellcomposite_editing: Passed    1.07 sec
+271 tst_wellcomposite_visual: Passed    1.78 sec
+272 tst_wellcomposite_multiwell: Passed    1.34 sec
+273 tst_wellcomposite_perf: Passed    1.37 sec
+274 tst_wellcomposite_a11y: Passed    1.52 sec
+275 tst_welltopsedit: Passed    0.72 sec
+276 tst_welltopseditor_ui: Passed    0.84 sec
+277 tst_wellsection: Passed    0.44 sec
+278 tst_wellsection_workflow: Passed    0.87 sec
+279 tst_wellsection_ui: Passed    3.21 sec

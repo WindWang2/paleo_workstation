@@ -68,6 +68,7 @@ class DataPreviewTabs : public QWidget
 
     // 从资产列表选中一条资产：已有标签则聚焦，否则新开一个可关闭标签。
     void openAsset(const QString &assetId);
+    void openVersion(const QString &versionId);
     // 打开指定资产并选定特定井（如 DC.dat 多井分层表或井口表预选该井）
     void openAssetForWell(const QString &assetId, const QString &wellId);
 
@@ -80,6 +81,7 @@ class DataPreviewTabs : public QWidget
                         int line, double timeMs);
 
     int tabCount() const;
+    QString versionIdAt(int index) const; // 页实际显示的版本，供标签切换恢复上下文
     QString assetIdAt(int index) const;   // "" 越界
     void closeAssetTab(const QString &assetId);
     // #154：关闭全部标签（含测区全景）并释放各资产的服务侧缓存——工程切换
@@ -94,6 +96,7 @@ class DataPreviewTabs : public QWidget
                                    const QString &pickedPath);
 
   signals:
+    void versionContextChanged(const QString &assetId, const QString &versionId);
     // well_head 标签被选中/聚焦时，地图高亮该井（§4）。
     void wellSelected(const QString &wellEntityId);
     // horizon 标签「在地图上显示」按钮（§4）。

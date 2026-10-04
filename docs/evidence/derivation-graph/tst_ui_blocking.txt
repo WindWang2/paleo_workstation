@@ -1,0 +1,17 @@
+********* Start testing of TestUiBlocking *********
+Config: Using QtTest library 6.11.2, Qt 6.11.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 16.2.1 20260810), cachyos unknown
+PASS   : TestUiBlocking::initTestCase()
+PASS   : TestUiBlocking::geoJsonSummaryMatchesDomReference()
+QINFO  : TestUiBlocking::wellLogPreviewBuildsHeaderOnlyWhileParsingInPool() F1 计时：build=18.5ms parse=371.5ms laps=8043
+PASS   : TestUiBlocking::wellLogPreviewBuildsHeaderOnlyWhileParsingInPool()
+PASS   : TestUiBlocking::comprehensiveXmlSubmitIsInstantWhileParsingInPool()
+PASS   : TestUiBlocking::entityPanelGeoJsonStatsStreamOffTheUiThread()
+QINFO  : TestUiBlocking::topologyRebuildIsOffTheUiThread() 拓扑重建（n=1200）：rebuild=22.7ms；端点解析 索引=0.22ms 线性参考=7.6ms（比率 0.029）
+PASS   : TestUiBlocking::topologyRebuildIsOffTheUiThread()
+QINFO  : TestUiBlocking::batchSoftDeleteDoesNotRewritePerItem() 批量软删 40 项（单命令）耗时 0.7ms，recycle_bin.json 落盘 1 次
+PASS   : TestUiBlocking::batchSoftDeleteDoesNotRewritePerItem()
+QINFO  : TestUiBlocking::metadataOpenDoesNotRebuildTopologyInline() 开元数据页（n=800）耗时 16.1ms，拓扑节点 1600
+PASS   : TestUiBlocking::metadataOpenDoesNotRebuildTopologyInline()
+PASS   : TestUiBlocking::cleanupTestCase()
+Totals: 9 passed, 0 failed, 0 skipped, 0 blacklisted, 10022ms
+********* Finished testing of TestUiBlocking *********

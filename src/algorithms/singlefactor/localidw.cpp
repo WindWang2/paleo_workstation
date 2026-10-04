@@ -190,7 +190,8 @@ void evaluateBatch( const Engine &engine, const std::vector<Point2> &queries, st
       softSide[s][static_cast<std::size_t>( q )] = sideOf( engine.soft[s], queries[static_cast<std::size_t>( q )] );
   }
   const std::vector<double> clusterW = engine.clusters.weights( queries, nWell );
-  const double power = engine.params.power;
+  const double exponent = -engine.params.power / 2.0;
+  const bool inverseSquare = engine.params.power == 2.0;
   const int minPoints = engine.params.minPoints;
   const int maxPoints = engine.params.maxPoints;
   const bool useSearch = engine.params.searchRadius.has_value();
@@ -231,11 +232,12 @@ void evaluateBatch( const Engine &engine, const std::vector<Point2> &queries, st
     if ( !std::isfinite( nearest ) )
       nearest = 1;
     nearest = std::max( nearest, 1e-20 );
-    const double exponent = -power / 2.0;
     for ( int w = 0; w < nWell; ++w )
     {
       const double base = std::max( distance2[static_cast<std::size_t>( w )], 1e-20 ) / nearest;
-      weights[static_cast<std::size_t>( w )] = std::pow( base, exponent );
+      // distance2 已平方：默认 power=2 的指数为 -1，倒数与通用 pow 等价。
+      // 保留相同 base 归一化/舍入顺序，其他（含非整数）幂仍走通用路径。
+      weights[static_cast<std::size_t>( w )] = inverseSquare ? 1.0 / base : std::pow( base, exponent );
     }
     if ( !clusterW.empty() )
     {

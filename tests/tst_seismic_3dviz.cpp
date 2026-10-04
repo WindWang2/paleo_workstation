@@ -963,8 +963,8 @@ void TestSeismic3DViz::sweepPerfBigFixture() {
     std::string err;
     QVERIFY2(vol->Load(bigPath.toStdString(), err), err.c_str());
     const double loadMs = loadClock.elapsed();
-    qInfo("volume load: %.0f ms (traces=%lld samples=%d)", loadMs,
-          vol->TraceCount(), vol->SampleCount());
+    qInfo("volume load: %.0f ms (traces=%d samples=%d)", loadMs,
+          int(vol->TraceCount()), int(vol->SampleCount()));
 
     PaleoProjectStore store;
     PaleoTaskService taskSvc(&store);

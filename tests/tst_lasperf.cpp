@@ -268,7 +268,7 @@ void LasPerfTests::concurrentMultiFileReadIsFasterThanSerial()
       3);
 
   qInfo("lasperf concurrent: serial=%.1fms parallel=%.1fms ratio=%.3f (%d files)",
-        serialMs, parallelMs, serialMs > 0 ? parallelMs / serialMs : -1.0, paths.size());
+        serialMs, parallelMs, serialMs > 0 ? parallelMs / serialMs : -1.0, int(paths.size()));
 
   // 主门（比率）：并行读不得比串行慢；门留出线程池建立等固定开销的余量。
   QVERIFY2(serialMs > 0.0 && parallelMs < serialMs,

@@ -81,8 +81,8 @@ BatchJobPanel::BatchJobPanel(BatchQueue *queue, QWidget *parent)
     : QWidget(parent), m_queue(queue)
 {
     auto *layout = new QVBoxLayout(this);
-    layout->setContentsMargins(8, 8, 8, 8);
-    layout->setSpacing(6);
+    layout->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm);
+    layout->setSpacing(PaleoTheme::tokens().spacingSm);
 
     m_summary = new QLabel(this);
     m_summary->setStyleSheet(PaleoTheme::mutedCaptionStyleSheet());

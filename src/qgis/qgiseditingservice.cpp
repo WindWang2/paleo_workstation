@@ -179,8 +179,9 @@ bool QgisEditingService::commitEdit(QgsVectorLayer *layer, QString *error)
       return {true, QString()};
     });
 
-  // Failed commits retain the session and its busy mark for retry/rollback.
-  if (res.ok)
+  // Failed active sessions retain their busy mark for retry/rollback. A stale
+  // mark without an editable session must be released on failure as well.
+  if (res.ok || !layer->isEditable())
     m_store->markLayerFree(busyKey(layer));
 
   if (!res.ok)

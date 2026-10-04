@@ -2206,7 +2206,7 @@ void TestCatalog::sqliteOpenCostAttribution()
     }
     schemaExecMs = clock.elapsed();
     if (!schemaErr.isEmpty())
-      qInfo("catalog schema replay: %d/%d statements ok, first error: %s", schemaStmts, ddl.size(),
+      qInfo("catalog schema replay: %d/%d statements ok, first error: %s", schemaStmts, int(ddl.size()),
             qPrintable(schemaErr));
     sc.close();
     QSqlDatabase::removeDatabase(QStringLiteral("dataperf_scratch"));

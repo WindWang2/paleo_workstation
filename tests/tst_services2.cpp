@@ -111,8 +111,11 @@ private slots:
     QCOMPARE(layer.featureCount(), 0); // buffer discarded
   }
 
-  // (c) commit failure still frees the busy mark (no stuck "editing in progress")
-  void editingCommitFailureStillFrees()
+  // (c) commit failure RETAINS the busy mark for retry/rollback（语义随交互式
+  // 编辑会话变更：失败不是终点，回滚才是出口——见 qgiseditingservice.cpp
+  // commitEdit「Failed commits retain the session and its busy mark」。正常
+  // 会话「回滚必释放」由 editingRollbackFrees 覆盖；这里钉失败保留语义。
+  void editingCommitFailureRetainsBusyForRollback()
   {
     PaleoProjectStore store;
     QgisEditingService svc(&store);
@@ -125,7 +128,7 @@ private slots:
     QString err;
     QVERIFY(!svc.commitEdit(&layer, &err)); // commitChanges on non-editable layer -> false
     QVERIFY(!err.isEmpty());
-    QVERIFY(!store.layerBusy(layer.id()));  // freed on failure too
+    QVERIFY(store.layerBusy(layer.id()));   // retained for retry/rollback (not freed on failure)
 
     // null layer is a clean error, not a crash
     err.clear();

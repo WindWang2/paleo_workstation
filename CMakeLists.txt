@@ -91,6 +91,14 @@ endif()
 if(QGIS_PREFIX)
   list(PREPEND CMAKE_PREFIX_PATH "${QGIS_PREFIX}" "${QGIS_PREFIX}/apps/qt6")
 endif()
+# QGIS 运行时 prefix（QgsApplication::setPrefixPath 用，决定 srs.db/provider 位置）。
+# OSGeo4W 的 QGIS_PREFIX 是 osgeo4w 根，QGIS 真正装在 <根>/apps/qgis——直接拿根
+# 当运行时 prefix，ctest 下 srs.db 找不到（windows tst_runtime/boot 红的根因；
+# paleo-dev.ps1 直跑时设的 QGIS_PREFIX_PATH 本来就是 apps\qgis）。
+set(PALEO_QGIS_RUNTIME_PREFIX "${QGIS_PREFIX}")
+if(QGIS_PREFIX AND EXISTS "${QGIS_PREFIX}/apps/qgis/resources")
+  set(PALEO_QGIS_RUNTIME_PREFIX "${QGIS_PREFIX}/apps/qgis")
+endif()
 # QScintilla：QGIS 的代码编辑器头（qgscodeeditor.h）传递包含它。它有自己的
 # 独立前缀（与 QGIS 分开安装），故也走 cache/env 解析；未显式给出时从既有的
 # CMAKE_PREFIX_PATH 逐个前缀自动发现——与上面 QGIS 的 find_* 同一套 HINTS 风格，
@@ -188,7 +196,7 @@ if(QGIS_PREFIX)
   # provider/srs.db 仍解析到二进制实际链接的 vendor prefix，不静默回落
   # 系统栈（链接与运行资源栈分裂）。env/CLI 覆盖语义不变。
   target_compile_definitions(paleo_qgis_core_deps INTERFACE
-    PALEO_QGIS_PREFIX_DEFAULT="${QGIS_PREFIX}")
+    PALEO_QGIS_PREFIX_DEFAULT="${PALEO_QGIS_RUNTIME_PREFIX}")
 endif()
 target_link_libraries(paleo_qgis_core_deps INTERFACE
   ${QGIS_CORE_LIB} ${QGIS_ANALYSIS_LIB} paleo_qt_core)
@@ -617,13 +625,20 @@ enable_testing()
 function(paleo_test_sandbox name)
   set(_home ${CMAKE_BINARY_DIR}/ctest-home/${name})
   file(MAKE_DIRECTORY "${_home}/config" "${_home}/data" "${_home}/cache" "${_home}/tmp")
-  set_tests_properties(${name} PROPERTIES ENVIRONMENT
-    "QT_QPA_PLATFORM=offscreen;PALEO_WELL_FACIES_NO_KEYCHAIN=1;XDG_CONFIG_HOME=${_home}/config;XDG_DATA_HOME=${_home}/data;XDG_CACHE_HOME=${_home}/cache;HOME=${_home};TMPDIR=${_home}/tmp;TEMP=${_home}/tmp;TMP=${_home}/tmp")
+  set(_env "QT_QPA_PLATFORM=offscreen;PALEO_WELL_FACIES_NO_KEYCHAIN=1;XDG_CONFIG_HOME=${_home}/config;XDG_DATA_HOME=${_home}/data;XDG_CACHE_HOME=${_home}/cache;HOME=${_home};TMPDIR=${_home}/tmp")
+  if(NOT WIN32)
+    # Windows 不把 TEMP/TMP 改到构建目录：<build>/ctest-home/<test>/tmp 比系统
+    # Temp 深 ~40 字符，导入类测试的托管路径（raw/<uuid>/<uuid>/文件）逼近
+    # MAX_PATH=260（tst_import 只在 ctest 下红、直跑绿）；QTemporaryDir 本身
+    # 已按用例隔离，Windows 上 XDG 沙箱也不生效（QSettings 走注册表）。
+    string(APPEND _env ";TEMP=${_home}/tmp;TMP=${_home}/tmp")
+  endif()
+  set_tests_properties(${name} PROPERTIES ENVIRONMENT "${_env}")
   if(QGIS_PREFIX)
     # vendor 构建下测试资源/provider 也走构建所链的 prefix（与二进制
     # RUNPATH 一致），不借系统 /usr 栈——裸 ctest 即全 vendored。
     set_property(TEST ${name} APPEND PROPERTY ENVIRONMENT
-      "QGIS_PREFIX_PATH=${QGIS_PREFIX}")
+      "QGIS_PREFIX_PATH=${PALEO_QGIS_RUNTIME_PREFIX}")
   endif()
   if(PALEO_ENABLE_ASAN)
     set_property(TEST ${name} APPEND PROPERTY ENVIRONMENT
@@ -636,6 +651,9 @@ function(paleo_test_sandbox name)
       "UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=0")
   endif()
 endfunction()
+
+set(PALEO_QTEST_FIRST_RUN_DIR "${CMAKE_BINARY_DIR}/Testing/qtest-first-run")
+file(MAKE_DIRECTORY "${PALEO_QTEST_FIRST_RUN_DIR}")
 
 # ---- 跨方向契约：add_paleo_test(name [LIBS ...]) ----
 # 单参旧式调用零改动可用（回退 paleo_core 伞）——cmake/extra-*.cmake 里
@@ -652,7 +670,8 @@ function(add_paleo_test name)
   add_executable(${name} tests/${name}.cpp)
   target_link_libraries(${name} PRIVATE ${_libs} Qt6::Test)
   target_compile_definitions(${name} PRIVATE FIXTURE_GPKG="${FIXTURE_GPKG}")
-  add_test(NAME ${name} COMMAND ${name})
+  add_test(NAME ${name} COMMAND ${name}
+           -o "${PALEO_QTEST_FIRST_RUN_DIR}/${name}.txt,txt")
   paleo_test_sandbox(${name})
   set(_label core)
   foreach(_l IN LISTS _libs)
@@ -894,13 +913,15 @@ target_link_libraries(paleo_seismic_demo PRIVATE paleo_core)
 add_executable(tst_boot tests/tst_boot.cpp)
 target_link_libraries(tst_boot PRIVATE paleo_qgis_iface Qt6::Test)
 target_compile_definitions(tst_boot PRIVATE FIXTURE_GPKG="${FIXTURE_GPKG}")
-add_test(NAME boot COMMAND tst_boot)
+add_test(NAME boot COMMAND tst_boot
+         -o "${PALEO_QTEST_FIRST_RUN_DIR}/boot.txt,txt")
 paleo_test_sandbox(boot)
 
 add_executable(tst_polygonize tests/tst_polygonize.cpp spikes/polygonize/paleopolygonize.cpp)
 target_link_libraries(tst_polygonize PRIVATE paleo_qgis_iface Qt6::Test ${GDAL_LIB})
 target_include_directories(tst_polygonize PRIVATE ${GDAL_INCLUDE_DIR} ${CMAKE_SOURCE_DIR}/spikes/polygonize)
-add_test(NAME polygonize COMMAND tst_polygonize)
+add_test(NAME polygonize COMMAND tst_polygonize
+         -o "${PALEO_QTEST_FIRST_RUN_DIR}/polygonize.txt,txt")
 paleo_test_sandbox(polygonize)
 
 # ---- wave3/model-hardening (数据模型与测试基建加固) ----

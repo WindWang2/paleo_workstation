@@ -1,4 +1,5 @@
 // 层：视图
+#include "ui/paleotheme.h"
 #include "constraintpage.h"
 
 #include "pageshared.h"
@@ -199,7 +200,7 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   boundaryRow->setObjectName( QStringLiteral( "factorBoundaryRow" ) );
   auto *boundaryLay = new QHBoxLayout( boundaryRow );
   boundaryLay->setContentsMargins( 0, 0, 0, 0 );
-  boundaryLay->setSpacing( 4 );
+  boundaryLay->setSpacing(PaleoTheme::tokens().spacingXs);
   auto *boundary = new QComboBox( boundaryRow );
   boundary->setObjectName( QStringLiteral( "factorBoundaryCombo" ) );
   boundary->setAccessibleName( tr( "成图边界面图层" ) );
@@ -372,7 +373,7 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   surfaceRow->setObjectName( QStringLiteral( "factorSurfaceRow" ) );
   auto *surfaceLay = new QHBoxLayout( surfaceRow );
   surfaceLay->setContentsMargins( 0, 0, 0, 0 );
-  surfaceLay->setSpacing( 4 );
+  surfaceLay->setSpacing(PaleoTheme::tokens().spacingXs);
   auto *topCombo = new QComboBox( surfaceRow );
   topCombo->setObjectName( QStringLiteral( "factorTopSurfaceCombo" ) );
   topCombo->setAccessibleName( tr( "顶构造面图层" ) );
@@ -565,7 +566,7 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
            } );
   // ---- m2(B) 双区 end ------------------------------------------------------
 
-  lay->addSpacing( 16 ); // spacing.md：单因素区与约束区分组
+  lay->addSpacing(PaleoTheme::tokens().spacingMd); // spacing.md：单因素区与约束区分组
   lay->addWidget( caption( tr( "约束" ), this ) );
   auto *list = new QListWidget( this );
   list->setObjectName( QStringLiteral( "constraintList" ) );
@@ -715,7 +716,7 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   // 约束；shape 决定画布工具，constraintType 进 ConstraintStore 词表）------
   // 两个类型化入口是同组次要动作——归并为一行工具排，不再各占全宽。
   auto *typedRow = new QHBoxLayout();
-  typedRow->setSpacing( 4 ); // xs
+  typedRow->setSpacing(PaleoTheme::tokens().spacingXs); // xs
   auto *direction = new QPushButton( tr( "画方向线" ), this );
   direction->setObjectName( QStringLiteral( "directionButton" ) );
   typedRow->addWidget( direction );
@@ -732,7 +733,7 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   } );
   lay->addLayout( typedRow );
   auto *softRow = new QHBoxLayout();
-  softRow->setSpacing( 4 );
+  softRow->setSpacing(PaleoTheme::tokens().spacingXs);
   auto *softButton = new QPushButton( tr( "画软边界" ), content );
   softButton->setObjectName( QStringLiteral( "softBoundaryButton" ) );
   softRow->addWidget( softButton );
@@ -757,7 +758,7 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   lay->addLayout( softRow );
   // ---- 方向23：已绘约束线编辑面（顶点编辑 / 删除；语义切换走列表右键）------
   auto *editRow = new QHBoxLayout();
-  editRow->setSpacing( 4 ); // xs
+  editRow->setSpacing(PaleoTheme::tokens().spacingXs); // xs
   auto *vertexEdit = new QPushButton( tr( "编辑约束线" ), content );
   vertexEdit->setObjectName( QStringLiteral( "constraintVertexEditButton" ) );
   vertexEdit->setAccessibleName( tr( "编辑约束线" ) );
@@ -786,7 +787,7 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   // ---- 类型化约束线 end ----------------------------------------------------
 
   // 旧 IDW 行（objectName 保留；runIdwRequested 原语义不动）。
-  lay->addSpacing( 16 ); // spacing.md：约束区与 IDW 区分组
+  lay->addSpacing(PaleoTheme::tokens().spacingMd); // spacing.md：约束区与 IDW 区分组
   auto *legacyCaption = caption( tr( "插值（IDW）" ), content );
   legacyCaption->setObjectName( QStringLiteral( "factorLegacyIdwCaption" ) );
   lay->addWidget( legacyCaption );
@@ -821,7 +822,7 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   // 镜像到 ConstraintWorkflow 的 paleo.thickness.* 动态属性；不足样本的两句
   // （「厚度样本不足以成面」/「没有厚度样本」）渲染在 thicknessHint，不弹框。
   // m2(B)：整段挪进 CollapsibleSection（objectName 全保留，默认展开）。
-  lay->addSpacing( 16 ); // spacing.md
+  lay->addSpacing(PaleoTheme::tokens().spacingMd); // spacing.md
   // 厚度样本的层位/基面名随工程参数（AreaRules targetHorizon + 有序集合的
   // 下一界面）——文案在工程打开时由 refreshAreaParamLabels 重写。
   auto *section = new CollapsibleSection( tr( "厚度样本" ), this );

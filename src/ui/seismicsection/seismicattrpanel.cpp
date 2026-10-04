@@ -24,8 +24,8 @@ SeismicAttrPanel::SeismicAttrPanel(QWidget *parent)
 void SeismicAttrPanel::buildUi()
 {
     auto *lay = new QVBoxLayout(this);
-    lay->setContentsMargins(6, 4, 6, 4);
-    lay->setSpacing(4);
+    lay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs);
+    lay->setSpacing(PaleoTheme::tokens().spacingXs);
 
     // 行 1：属性种类 + 计算动作（运行类动作主色文案——DESIGN.md ribbon-button）
     auto *row1 = new QHBoxLayout();

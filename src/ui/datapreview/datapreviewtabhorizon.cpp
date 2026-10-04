@@ -1,4 +1,5 @@
 // 层：视图
+// token 例外：DESIGN 数据符号例外：QGIS 极值点高/低两组地质数据符号。（tools/ui-token-exceptions.json 精确计数）。
 #include "datapreviewtabs.h"
 #include "datapreviewtabs_internal.h"
 
@@ -148,7 +149,7 @@ QWidget *DataPreviewTabs::buildHorizonContent(
   details->setObjectName(QStringLiteral("horizonPreviewDetails"));
   auto *detailLayout = new QVBoxLayout(details);
   detailLayout->setContentsMargins(0, 0, 0, 0);
-  detailLayout->setSpacing(4);
+  detailLayout->setSpacing(PaleoTheme::tokens().spacingXs);
   if (m_detailsHost) {
     m_detailsHost->layout()->addWidget(details);
     connect(host, &QObject::destroyed, details, &QObject::deleteLater);
@@ -325,7 +326,7 @@ QWidget *DataPreviewTabs::buildHorizonContent(
   {
     auto *histPage = new QWidget(page);
     auto *histLay = new QVBoxLayout(histPage);
-    histLay->setContentsMargins(4, 4, 4, 4);
+    histLay->setContentsMargins(PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingXs);
     auto *hist = new PreviewHistogramWidget(false, histPage);
     hist->setObjectName(QStringLiteral("horizonHistogram"));
     const auto refreshHist = [hist, rasterRaw](int bins) {

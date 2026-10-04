@@ -1,0 +1,615 @@
+Test project /home/kevin/projects/paleo_workstation/.worktrees/ui-visual-polish/build
+        Start  28: tst_singlefactor_perf
+  1/254 Test  #28: tst_singlefactor_perf ................***Failed  215.04 sec
+********* Start testing of SingleFactorPerfTests *********
+Config: Using QtTest library 6.11.2, Qt 6.11.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 16.2.1 20260810), cachyos unknown
+PASS   : SingleFactorPerfTests::initTestCase()
+QINFO  : SingleFactorPerfTests::proposedBudgets() single-factor perf S=2820ms scale1024=10116ms L=15792ms wells200=3421ms cellRatio=3.59 wellRatio=1.21 cancelMedian=1ms cancelMax=2ms rssDeltaKiB=0
+FAIL!  : SingleFactorPerfTests::proposedBudgets() 'largeMs <= 15000' returned FALSE. (L median 15792 ms)
+   Loc: [/home/kevin/projects/paleo_workstation/.worktrees/ui-visual-polish/tests/tst_singlefactor_perf.cpp(213)]
+PASS   : SingleFactorPerfTests::cleanupTestCase()
+Totals: 2 passed, 1 failed, 0 skipped, 0 blacklisted, 214566ms
+********* Finished testing of SingleFactorPerfTests *********
+
+        Start 248: tst_wellcomposite_visual
+        Start 251: tst_wellcomposite_a11y
+        Start  58: tst_import
+        Start  72: tst_edittools
+        Start  99: tst_datapreview
+        Start  97: tst_previewmap_assets
+        Start  49: tst_factorworkflow
+        Start 115: tst_mapping
+  2/254 Test #251: tst_wellcomposite_a11y ...............   Passed    1.93 sec
+        Start  46: tst_ui
+  3/254 Test #248: tst_wellcomposite_visual .............   Passed    2.19 sec
+        Start 113: tst_onnxworkflow
+  4/254 Test #113: tst_onnxworkflow .....................   Passed   19.19 sec
+        Start  44: tst_workflows
+  5/254 Test  #46: tst_ui ...............................   Passed   26.68 sec
+        Start 110: tst_aiassistworkflow
+  6/254 Test #115: tst_mapping ..........................   Passed   31.49 sec
+        Start  61: tst_rehydrate
+  7/254 Test  #49: tst_factorworkflow ...................   Passed   44.35 sec
+        Start  12: tst_projectsvc
+  8/254 Test #110: tst_aiassistworkflow .................   Passed   19.02 sec
+        Start  76: tst_layoutexport
+  9/254 Test  #44: tst_workflows ........................   Passed   26.32 sec
+        Start  45: tst_mappingworkbench
+ 10/254 Test  #97: tst_previewmap_assets ................   Passed   51.33 sec
+        Start 134: tst_relocate
+ 11/254 Test  #99: tst_datapreview ......................   Passed   52.72 sec
+        Start 100: tst_folderimport
+ 12/254 Test  #61: tst_rehydrate ........................   Passed   23.98 sec
+        Start  35: tst_singlefactor_asynccontour
+ 13/254 Test  #76: tst_layoutexport .....................   Passed   16.42 sec
+        Start 138: tst_layerplatform
+ 14/254 Test  #72: tst_edittools ........................   Passed   66.82 sec
+        Start  80: tst_catalog
+ 15/254 Test  #12: tst_projectsvc .......................   Passed   22.56 sec
+        Start 174: tst_geostat_workflow
+ 16/254 Test #134: tst_relocate .........................   Passed   16.70 sec
+        Start  77: tst_mapbook
+ 17/254 Test  #45: tst_mappingworkbench .................   Passed   21.63 sec
+        Start 101: tst_previewdoc
+ 18/254 Test  #35: tst_singlefactor_asynccontour ........   Passed   14.58 sec
+        Start 139: tst_labelzorder
+ 19/254 Test #100: tst_folderimport .....................   Passed   18.42 sec
+        Start 141: tst_layerorganizer
+ 20/254 Test #174: tst_geostat_workflow .................   Passed   12.64 sec
+        Start 119: tst_versions
+ 21/254 Test  #80: tst_catalog ..........................   Passed   14.13 sec
+        Start 154: tst_ingestplan
+ 22/254 Test  #58: tst_import ...........................   Passed   81.46 sec
+        Start  78: tst_layoutundo
+ 23/254 Test #138: tst_layerplatform ....................   Passed   18.31 sec
+        Start  75: tst_layoutitempanel
+ 24/254 Test #139: tst_labelzorder ......................   Passed   13.61 sec
+        Start  57: tst_manifestproj
+ 25/254 Test #141: tst_layerorganizer ...................   Passed   12.91 sec
+        Start  34: tst_singlefactor_faults
+ 26/254 Test  #77: tst_mapbook ..........................   Passed   17.55 sec
+        Start  67: tst_las
+ 27/254 Test #101: tst_previewdoc .......................   Passed   19.17 sec
+        Start  70: tst_constraintstore
+ 28/254 Test  #67: tst_las ..............................   Passed    9.81 sec
+        Start 118: tst_chips
+ 29/254 Test  #75: tst_layoutitempanel ..................   Passed   18.00 sec
+        Start 137: tst_staleness
+ 30/254 Test  #78: tst_layoutundo .......................   Passed   19.26 sec
+        Start  53: tst_layoutshell
+ 31/254 Test  #34: tst_singlefactor_faults ..............   Passed   16.73 sec
+        Start 117: tst_threeway
+ 32/254 Test #119: tst_versions .........................   Passed   21.89 sec
+        Start  27: tst_constraint_draw
+ 33/254 Test  #57: tst_manifestproj .....................   Passed   18.19 sec
+        Start  59: tst_drawctl
+ 34/254 Test #154: tst_ingestplan .......................   Passed   21.36 sec
+        Start 233: tst_depthconversion
+ 35/254 Test  #70: tst_constraintstore ..................   Passed   15.11 sec
+        Start 161: tst_wellcomposite_shell
+ 36/254 Test #118: tst_chips ............................   Passed   10.60 sec
+        Start 162: tst_sectionlifecycle
+ 37/254 Test #117: tst_threeway .........................   Passed    8.19 sec
+        Start  31: tst_singlefactor_fieldcontours
+ 38/254 Test #137: tst_staleness ........................   Passed    9.22 sec
+        Start 147: tst_datacatalog_sqlite
+ 39/254 Test #233: tst_depthconversion ..................   Passed    7.70 sec
+        Start 198: tst_propworkflow
+ 40/254 Test #161: tst_wellcomposite_shell ..............   Passed    7.23 sec
+        Start  79: tst_layoutdesigner_full
+ 41/254 Test  #27: tst_constraint_draw ..................   Passed    9.99 sec
+        Start  50: tst_composeworkflow
+ 42/254 Test  #53: tst_layoutshell ......................   Passed   11.19 sec
+        Start  74: tst_layoutpalette
+ 43/254 Test  #59: tst_drawctl ..........................   Passed   10.19 sec
+        Start 151: tst_faciesclassify
+ 44/254 Test #162: tst_sectionlifecycle .................   Passed    7.06 sec
+        Start 153: tst_crossplot_controller
+ 45/254 Test #198: tst_propworkflow .....................   Passed    6.25 sec
+        Start  60: tst_procdialog
+ 46/254 Test #147: tst_datacatalog_sqlite ...............   Passed    6.71 sec
+        Start 165: tst_faultinterp
+ 47/254 Test  #31: tst_singlefactor_fieldcontours .......   Passed    7.46 sec
+        Start 209: tst_seismic_interpret
+ 48/254 Test #151: tst_faciesclassify ...................   Passed    5.36 sec
+        Start 208: tst_seismic_3dviz
+ 49/254 Test #153: tst_crossplot_controller .............   Passed    5.06 sec
+        Start 187: tst_pythonenv
+ 50/254 Test  #79: tst_layoutdesigner_full ..............   Passed    8.31 sec
+        Start 132: tst_entityview
+ 51/254 Test  #74: tst_layoutpalette ....................   Passed    7.30 sec
+        Start 207: tst_seismic_3dui
+ 52/254 Test  #50: tst_composeworkflow ..................   Passed    7.83 sec
+        Start  13: tst_layerservice
+ 53/254 Test #165: tst_faultinterp ......................   Passed    4.36 sec
+        Start 143: tst_layerproperties
+ 54/254 Test #209: tst_seismic_interpret ................   Passed    4.36 sec
+        Start 238: tst_welllog_consumers
+ 55/254 Test  #60: tst_procdialog .......................   Passed    5.06 sec
+        Start 114: tst_projectdata
+ 56/254 Test #208: tst_seismic_3dviz ....................   Passed    4.15 sec
+        Start 236: tst_welllogset
+ 57/254 Test #187: tst_pythonenv ........................   Passed    3.63 sec
+        Start 206: tst_seismic_sectionui
+ 58/254 Test #207: tst_seismic_3dui .....................   Passed    3.67 sec
+        Start 242: tst_welllogset_tvd
+ 59/254 Test #132: tst_entityview .......................   Passed    4.18 sec
+        Start  71: tst_shapetools
+ 60/254 Test  #13: tst_layerservice .....................   Passed    4.16 sec
+        Start 166: tst_faultsectionui
+ 61/254 Test #143: tst_layerproperties ..................   Passed    3.75 sec
+        Start 184: tst_cache_async
+ 62/254 Test #238: tst_welllog_consumers ................   Passed    3.80 sec
+        Start 140: tst_dragtop_render
+ 63/254 Test #206: tst_seismic_sectionui ................   Passed    3.13 sec
+        Start 201: tst_sections_alignment
+ 64/254 Test #114: tst_projectdata ......................   Passed    3.73 sec
+        Start  43: tst_services2
+ 65/254 Test #236: tst_welllogset .......................   Passed    3.73 sec
+        Start 125: tst_metastore
+ 66/254 Test #242: tst_welllogset_tvd ...................   Passed    3.36 sec
+        Start 159: tst_pyramid_consume
+ 67/254 Test #166: tst_faultsectionui ...................   Passed    3.25 sec
+        Start  54: tst_maptools
+ 68/254 Test #184: tst_cache_async ......................   Passed    2.98 sec
+        Start  48: tst_mappingpages
+ 69/254 Test  #71: tst_shapetools .......................   Passed    4.16 sec
+        Start 200: tst_propmodelperf
+ 70/254 Test #201: tst_sections_alignment ...............   Passed    2.64 sec
+        Start 146: tst_catalogstore
+ 71/254 Test #140: tst_dragtop_render ...................   Passed    3.12 sec
+        Start 249: tst_wellcomposite_multiwell
+ 72/254 Test #125: tst_metastore ........................   Passed    3.09 sec
+        Start  96: tst_previewmap_page
+ 73/254 Test  #43: tst_services2 ........................   Passed    3.46 sec
+        Start 253: tst_wellsection_workflow
+ 74/254 Test #159: tst_pyramid_consume ..................   Passed    2.40 sec
+        Start 245: tst_wellcomposite_framework
+ 75/254 Test #200: tst_propmodelperf ....................   Passed    2.44 sec
+        Start 246: tst_wellcomposite_depth
+ 76/254 Test #249: tst_wellcomposite_multiwell ..........   Passed    2.43 sec
+        Start 158: tst_importqueue_progress
+ 77/254 Test #146: tst_catalogstore .....................   Passed    2.69 sec
+        Start 142: tst_layertreepanel
+ 78/254 Test  #54: tst_maptools .........................   Passed    3.67 sec
+        Start 247: tst_wellcomposite_editing
+ 79/254 Test  #48: tst_mappingpages .....................   Passed    3.19 sec
+        Start 192: tst_petrophysbatch
+ 80/254 Test #245: tst_wellcomposite_framework ..........   Passed    2.05 sec
+        Start  11: tst_runtime
+ 81/254 Test #253: tst_wellsection_workflow .............   Passed    2.38 sec
+        Start 120: tst_derivedassets
+ 82/254 Test  #96: tst_previewmap_page ..................   Passed    2.68 sec
+        Start 157: tst_correlation_async
+ 83/254 Test #246: tst_wellcomposite_depth ..............   Passed    2.00 sec
+        Start 124: polygonize
+ 84/254 Test #247: tst_wellcomposite_editing ............   Passed    1.94 sec
+        Start  14: tst_canvas_tools
+ 85/254 Test #158: tst_importqueue_progress .............   Passed    2.34 sec
+        Start 123: boot
+ 86/254 Test  #11: tst_runtime ..........................   Passed    1.89 sec
+        Start 128: tst_algorithm_harness
+ 87/254 Test #142: tst_layertreepanel ...................   Passed    2.41 sec
+        Start  18: tst_algorithms
+ 88/254 Test #192: tst_petrophysbatch ...................   Passed    2.39 sec
+        Start 144: tst_wellfacies
+ 89/254 Test #120: tst_derivedassets ....................   Passed    2.12 sec
+        Start  38: tst_singlefactor_structural
+ 90/254 Test #157: tst_correlation_async ................   Passed    2.15 sec
+        Start 243: tst_sectiontrajectory
+ 91/254 Test #124: polygonize ...........................   Passed    1.95 sec
+        Start  65: tst_attrpanel
+ 92/254 Test  #14: tst_canvas_tools .....................   Passed    1.81 sec
+        Start  93: tst_previewmap_canvas
+ 93/254 Test #123: boot .................................   Passed    1.85 sec
+        Start  17: tst_linkage
+ 94/254 Test  #18: tst_algorithms .......................   Passed    1.97 sec
+        Start  16: tst_jobrunner
+ 95/254 Test #128: tst_algorithm_harness ................   Passed    2.02 sec
+        Start  56: tst_decorations
+ 96/254 Test  #38: tst_singlefactor_structural ..........   Passed    1.83 sec
+        Start 102: tst_wellcomposite
+ 97/254 Test #243: tst_sectiontrajectory ................   Passed    1.64 sec
+        Start  94: tst_previewmap_tools
+ 98/254 Test #144: tst_wellfacies .......................   Passed    1.97 sec
+        Start  52: tst_locator
+ 99/254 Test  #65: tst_attrpanel ........................   Passed    2.09 sec
+        Start 103: tst_smoke_realdata
+100/254 Test  #93: tst_previewmap_canvas ................   Passed    1.98 sec
+        Start  95: tst_previewmap_identify
+101/254 Test  #17: tst_linkage ..........................   Passed    1.79 sec
+        Start 182: tst_cache_pyramid
+102/254 Test  #16: tst_jobrunner ........................   Passed    1.69 sec
+        Start 241: tst_deviation_import
+103/254 Test  #56: tst_decorations ......................   Passed    1.90 sec
+        Start  82: tst_horizonbinner
+104/254 Test  #94: tst_previewmap_tools .................   Passed    1.87 sec
+        Start 239: tst_welllog_ui
+105/254 Test #102: tst_wellcomposite ....................   Passed    2.01 sec
+        Start 121: tst_seismicmapping
+106/254 Test  #52: tst_locator ..........................   Passed    1.93 sec
+        Start 164: tst_faultsetstore
+107/254 Test #241: tst_deviation_import .................   Passed    1.45 sec
+        Start 254: tst_wellsection_ui
+108/254 Test #182: tst_cache_pyramid ....................   Passed    1.62 sec
+        Start   7: i18n
+109/254 Test  #82: tst_horizonbinner ....................   Passed    1.33 sec
+        Start 168: tst_faultsurfaceworkflow
+110/254 Test #103: tst_smoke_realdata ...................   Passed    2.03 sec
+        Start 199: tst_propmodelpanel
+111/254 Test  #95: tst_previewmap_identify ..............   Passed    1.98 sec
+        Start 235: tst_dockmanager
+112/254 Test #164: tst_faultsetstore ....................   Passed    1.33 sec
+        Start  90: tst_seismic_3d
+113/254 Test #239: tst_welllog_ui .......................   Passed    1.60 sec
+        Start 116: tst_taskservice
+114/254 Test #121: tst_seismicmapping ...................   Passed    1.50 sec
+        Start 130: tst_roles
+115/254 Test #168: tst_faultsurfaceworkflow .............   Passed    0.75 sec
+        Start 230: tst_surfacegridding_thread
+116/254 Test #254: tst_wellsection_ui ...................   Passed    1.12 sec
+        Start 104: tst_webviewpanel
+117/254 Test #130: tst_roles ............................   Passed    0.66 sec
+        Start 126: tst_layermanifest
+118/254 Test #235: tst_dockmanager ......................   Passed    1.07 sec
+        Start  63: tst_releasepanel
+119/254 Test #199: tst_propmodelpanel ...................   Passed    1.15 sec
+        Start 105: tst_uxtheme
+120/254 Test  #90: tst_seismic_3d .......................   Passed    1.01 sec
+        Start 131: tst_commitcoord
+121/254 Test   #7: i18n .................................   Passed    1.58 sec
+        Start  62: tst_release
+122/254 Test #230: tst_surfacegridding_thread ...........   Passed    0.75 sec
+        Start 202: tst_seismic_engine
+123/254 Test #116: tst_taskservice ......................   Passed    1.12 sec
+        Start 213: tst_seismicattrui
+124/254 Test #126: tst_layermanifest ....................   Passed    0.70 sec
+        Start 212: tst_seismicattrsvc
+125/254 Test #104: tst_webviewpanel .....................   Passed    1.01 sec
+        Start 111: tst_remotepredictrouter
+126/254 Test #202: tst_seismic_engine ...................   Passed    0.78 sec
+        Start  55: tst_correlation
+127/254 Test #105: tst_uxtheme ..........................   Passed    1.04 sec
+        Start  42: tst_singlefactor_store
+128/254 Test  #63: tst_releasepanel .....................   Passed    1.12 sec
+        Start   9: ui_tokens
+129/254 Test #131: tst_commitcoord ......................   Passed    1.04 sec
+        Start 108: tst_tileinference
+130/254 Test  #62: tst_release ..........................   Passed    1.02 sec
+        Start 210: tst_seismic_welltie
+131/254 Test #213: tst_seismicattrui ....................   Passed    0.98 sec
+        Start 221: tst_inversion_sparse
+132/254 Test #212: tst_seismicattrsvc ...................   Passed    0.78 sec
+        Start 205: tst_seismic_transcode
+133/254 Test #111: tst_remotepredictrouter ..............   Passed    0.66 sec
+        Start  91: tst_seismic_section
+134/254 Test #108: tst_tileinference ....................   Passed    0.47 sec
+        Start 227: tst_gridsolver
+135/254 Test  #55: tst_correlation ......................   Passed    0.63 sec
+        Start 107: tst_onnxsessions
+136/254 Test  #42: tst_singlefactor_store ...............   Passed    0.61 sec
+        Start  69: tst_snapshot_dedup
+137/254 Test   #9: ui_tokens ............................   Passed    0.65 sec
+        Start 109: tst_modelregistry
+138/254 Test #221: tst_inversion_sparse .................   Passed    0.48 sec
+        Start 106: tst_onnx
+139/254 Test #210: tst_seismic_welltie ..................   Passed    0.56 sec
+        Start 150: tst_crossplotpanel
+140/254 Test  #91: tst_seismic_section ..................   Passed    0.46 sec
+        Start  30: tst_singlefactor_contours
+141/254 Test #205: tst_seismic_transcode ................   Passed    0.49 sec
+        Start 169: tst_faultsurfaceview
+142/254 Test #107: tst_onnxsessions .....................   Passed    0.45 sec
+        Start 193: tst_petrophyspanel
+143/254 Test #227: tst_gridsolver .......................   Passed    0.48 sec
+        Start 244: tst_deviation_realarea
+144/254 Test #109: tst_modelregistry ....................   Passed    0.37 sec
+        Start 172: tst_geostat_sgs
+145/254 Test  #69: tst_snapshot_dedup ...................   Passed    0.51 sec
+        Start 226: tst_inversion_realarea
+146/254 Test #106: tst_onnx .............................   Passed    0.37 sec
+        Start  64: tst_taskpanel
+147/254 Test  #30: tst_singlefactor_contours ............   Passed    0.39 sec
+        Start 155: tst_seismic_realarea
+148/254 Test #150: tst_crossplotpanel ...................   Passed    0.48 sec
+        Start  15: tst_domain
+149/254 Test #169: tst_faultsurfaceview .................   Passed    0.46 sec
+        Start 224: tst_inversion_panel
+150/254 Test #244: tst_deviation_realarea ...............   Passed    0.36 sec
+        Start 170: tst_geostat_variogram
+151/254 Test #193: tst_petrophyspanel ...................   Passed    0.38 sec
+        Start 185: tst_cache_io
+152/254 Test #172: tst_geostat_sgs ......................   Passed    0.37 sec
+        Start 177: tst_cache_core
+153/254 Test  #64: tst_taskpanel ........................   Passed    0.36 sec
+        Start  87: tst_seismic_index
+154/254 Test #226: tst_inversion_realarea ...............   Passed    0.37 sec
+        Start  24: tst_singlefactor_buffer
+155/254 Test  #15: tst_domain ...........................   Passed    0.26 sec
+        Start  83: tst_segy_lines
+156/254 Test #155: tst_seismic_realarea .................   Passed    0.33 sec
+        Start 180: tst_cache_segyindex
+157/254 Test #224: tst_inversion_panel ..................   Passed    0.40 sec
+        Start 229: tst_surfacevolumes
+158/254 Test  #24: tst_singlefactor_buffer ..............   Passed    0.27 sec
+        Start 173: tst_geostat_faultpath
+159/254 Test #185: tst_cache_io .........................   Passed    0.34 sec
+        Start  37: tst_singlefactor_acquisition
+160/254 Test #170: tst_geostat_variogram ................   Passed    0.35 sec
+        Start 232: tst_velocitymodel
+161/254 Test  #87: tst_seismic_index ....................   Passed    0.29 sec
+        Start 240: tst_deviation
+162/254 Test  #83: tst_segy_lines .......................   Passed    0.30 sec
+        Start 190: tst_petrophys
+163/254 Test #177: tst_cache_core .......................   Passed    0.38 sec
+        Start 191: tst_curveexpr
+164/254 Test #180: tst_cache_segyindex ..................   Passed    0.35 sec
+        Start  92: tst_timedeptool
+165/254 Test #229: tst_surfacevolumes ...................   Passed    0.32 sec
+        Start 136: tst_arearules
+166/254 Test  #37: tst_singlefactor_acquisition .........   Passed    0.28 sec
+        Start 133: tst_crashreport
+167/254 Test #232: tst_velocitymodel ....................   Passed    0.28 sec
+        Start 171: tst_geostat_kriging
+168/254 Test #240: tst_deviation ........................   Passed    0.29 sec
+        Start 196: tst_upscale
+169/254 Test #173: tst_geostat_faultpath ................   Passed    0.32 sec
+        Start  40: tst_singlefactor_contract
+170/254 Test #190: tst_petrophys ........................   Passed    0.30 sec
+        Start  66: tst_segy
+171/254 Test #191: tst_curveexpr ........................   Passed    0.31 sec
+        Start  21: tst_singlefactor_corridor
+172/254 Test  #92: tst_timedeptool ......................   Passed    0.32 sec
+        Start  41: tst_singlefactor_samples
+173/254 Test #136: tst_arearules ........................   Passed    0.30 sec
+        Start 160: tst_catalog_scale
+174/254 Test #196: tst_upscale ..........................   Passed    0.26 sec
+        Start 216: tst_sectionaxis
+175/254 Test #133: tst_crashreport ......................   Passed    0.29 sec
+        Start  81: tst_projectparsers
+176/254 Test  #40: tst_singlefactor_contract ............   Passed    0.29 sec
+        Start 222: tst_inversion_welltd
+177/254 Test #171: tst_geostat_kriging ..................   Passed    0.33 sec
+        Start  36: tst_singlefactor_parity
+178/254 Test  #66: tst_segy .............................   Passed    0.29 sec
+        Start 219: tst_inversion_lowfreq
+179/254 Test  #21: tst_singlefactor_corridor ............   Passed    0.31 sec
+        Start 231: tst_gridding_realarea
+180/254 Test  #41: tst_singlefactor_samples .............   Passed    0.32 sec
+        Start 195: tst_stratgrid
+181/254 Test #160: tst_catalog_scale ....................   Passed    0.27 sec
+        Start 197: tst_propfill
+182/254 Test #216: tst_sectionaxis ......................   Passed    0.29 sec
+        Start  39: tst_singlefactor_parity_completion
+183/254 Test #222: tst_inversion_welltd .................   Passed    0.29 sec
+        Start 228: tst_rasteralgebra
+184/254 Test  #81: tst_projectparsers ...................   Passed    0.34 sec
+        Start 145: tst_wellfaciesconfig
+185/254 Test #219: tst_inversion_lowfreq ................   Passed    0.28 sec
+        Start 215: tst_horizontrack
+186/254 Test  #36: tst_singlefactor_parity ..............   Passed    0.33 sec
+        Start 252: tst_wellsection
+187/254 Test #231: tst_gridding_realarea ................   Passed    0.29 sec
+        Start  20: tst_singlefactor_kernel
+188/254 Test #195: tst_stratgrid ........................   Passed    0.28 sec
+        Start  23: tst_singlefactor_faultpath
+189/254 Test #197: tst_propfill .........................   Passed    0.28 sec
+        Start  84: tst_seismic_core
+190/254 Test  #39: tst_singlefactor_parity_completion ...   Passed    0.29 sec
+        Start  25: tst_singlefactor_regional
+191/254 Test #228: tst_rasteralgebra ....................   Passed    0.29 sec
+192/254 Test #145: tst_wellfaciesconfig .................   Passed    0.29 sec
+        Start 176: tst_geostat_realarea
+        Start 218: tst_inversion_wavelet
+193/254 Test #215: tst_horizontrack .....................   Passed    0.29 sec
+        Start 127: tst_segy_fixture
+194/254 Test #252: tst_wellsection ......................   Passed    0.28 sec
+        Start 220: tst_inversion_bandlimit
+195/254 Test  #20: tst_singlefactor_kernel ..............   Passed    0.30 sec
+        Start  22: tst_singlefactor_partition
+196/254 Test  #23: tst_singlefactor_faultpath ...........   Passed    0.33 sec
+        Start 163: tst_faultset
+197/254 Test  #84: tst_seismic_core .....................   Passed    0.30 sec
+        Start  19: tst_seismicattr
+198/254 Test  #25: tst_singlefactor_regional ............   Passed    0.33 sec
+        Start  26: tst_singlefactor_avoidance
+199/254 Test #176: tst_geostat_realarea .................   Passed    0.30 sec
+        Start 149: tst_crossplot_samples
+200/254 Test #127: tst_segy_fixture .....................   Passed    0.31 sec
+        Start  85: tst_sgycoordmapper
+201/254 Test #218: tst_inversion_wavelet ................   Passed    0.34 sec
+        Start  86: tst_welltracelocate
+202/254 Test #220: tst_inversion_bandlimit ..............   Passed    0.35 sec
+        Start  29: tst_contourlevels
+203/254 Test  #22: tst_singlefactor_partition ...........   Passed    0.32 sec
+        Start 148: tst_cluster
+204/254 Test  #19: tst_seismicattr ......................   Passed    0.32 sec
+        Start   1: layering
+205/254 Test #163: tst_faultset .........................   Passed    0.35 sec
+        Start   2: layering_strict
+206/254 Test  #26: tst_singlefactor_avoidance ...........   Passed    0.31 sec
+        Start   5: ui_invariants_strict
+207/254 Test  #85: tst_sgycoordmapper ...................   Passed    0.29 sec
+        Start   4: ui_invariants
+208/254 Test #149: tst_crossplot_samples ................   Passed    0.30 sec
+        Start 188: mamcl_lock
+209/254 Test  #86: tst_welltracelocate ..................   Passed    0.28 sec
+        Start   8: i18n_selftest
+210/254 Test #188: mamcl_lock ...........................   Passed    0.06 sec
+        Start  10: ui_tokens_selftest
+211/254 Test   #8: i18n_selftest ........................   Passed    0.06 sec
+        Start 189: mamcl_lock_selftest
+212/254 Test  #29: tst_contourlevels ....................   Passed    0.30 sec
+        Start   3: layering_selftest
+213/254 Test   #4: ui_invariants ........................   Passed    0.09 sec
+        Start   6: ui_invariants_selftest
+214/254 Test   #1: layering .............................   Passed    0.22 sec
+215/254 Test   #5: ui_invariants_strict .................   Passed    0.12 sec
+216/254 Test #189: mamcl_lock_selftest ..................   Passed    0.04 sec
+217/254 Test  #10: ui_tokens_selftest ...................   Passed    0.06 sec
+218/254 Test   #3: layering_selftest ....................   Passed    0.04 sec
+219/254 Test   #6: ui_invariants_selftest ...............   Passed    0.04 sec
+220/254 Test   #2: layering_strict ......................   Passed    0.22 sec
+221/254 Test #148: tst_cluster ..........................   Passed    0.32 sec
+        Start 217: tst_horizontrackperf
+222/254 Test #217: tst_horizontrackperf .................   Passed    0.83 sec
+        Start 225: tst_inversion_perf
+223/254 Test #225: tst_inversion_perf ...................***Failed   20.28 sec
+********* Start testing of TestInversionPerf *********
+Config: Using QtTest library 6.11.2, Qt 6.11.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 16.2.1 20260810), cachyos unknown
+PASS   : TestInversionPerf::initTestCase()
+FAIL!  : TestInversionPerf::volumeBudget() 'wf.computeInversionJob(&job)' returned FALSE. (临时体写入不完整)
+   Loc: [/home/kevin/projects/paleo_workstation/.worktrees/ui-visual-polish/tests/tst_inversion_perf.cpp(123)]
+QINFO  : TestInversionPerf::parallelSpeedup() inversion threads 1 : 13296 ms
+QINFO  : TestInversionPerf::parallelSpeedup() inversion threads 4 : 3605 ms
+QINFO  : TestInversionPerf::parallelSpeedup() inversion speedup (1→4 threads): "3.69"
+PASS   : TestInversionPerf::parallelSpeedup()
+PASS   : TestInversionPerf::cleanupTestCase()
+Totals: 3 passed, 1 failed, 0 skipped, 0 blacklisted, 19983ms
+********* Finished testing of TestInversionPerf *********
+
+        Start  33: tst_singlefactor_guilatency
+224/254 Test  #33: tst_singlefactor_guilatency ..........   Passed   17.65 sec
+        Start 122: tst_startup_trace
+225/254 Test #122: tst_startup_trace ....................***Failed   15.08 sec
+********* Start testing of StartupTraceTests *********
+Config: Using QtTest library 6.11.2, Qt 6.11.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 16.2.1 20260810), cachyos unknown
+PASS   : StartupTraceTests::initTestCase()
+PASS   : StartupTraceTests::markRecordsSegmentsInOrder()
+PASS   : StartupTraceTests::adjacentDuplicateMarkCollapsed()
+PASS   : StartupTraceTests::jsonShapeIsStable()
+PASS   : StartupTraceTests::resetClearsState()
+PASS   : StartupTraceTests::realStartupProducesCompleteTrace()
+FAIL!  : StartupTraceTests::realStartupRatioGatesHold() 'median <= gate' returned FALSE. (启动比率 service_assembly_share_max 中位 0.1765 > 门 0.1675（基线×2.5，3 轮样本 0.176,0.176,0.177）)
+   Loc: [/home/kevin/projects/paleo_workstation/.worktrees/ui-visual-polish/tests/tst_startup_trace.cpp(319)]
+QINFO  : StartupTraceTests::injectedDegradationMustTripGate() qgis share: healthy=0.216 degraded=0.583 (x2.7)
+FAIL!  : StartupTraceTests::injectedDegradationMustTripGate() 'degradedShare >= 3.0 * healthyShare' returned FALSE. (注劣化份额 0.583 < 3×健康 0.216——测量管线对劣化不敏感，禁止放宽本断言)
+   Loc: [/home/kevin/projects/paleo_workstation/.worktrees/ui-visual-polish/tests/tst_startup_trace.cpp(360)]
+PASS   : StartupTraceTests::cleanupTestCase()
+Totals: 7 passed, 2 failed, 0 skipped, 0 blacklisted, 14830ms
+********* Finished testing of StartupTraceTests *********
+
+        Start  47: tst_panels
+226/254 Test  #47: tst_panels ...........................   Passed   12.19 sec
+        Start 135: tst_ui_blocking
+227/254 Test #135: tst_ui_blocking ......................   Passed   10.70 sec
+        Start 175: tst_geostat_perf
+228/254 Test #175: tst_geostat_perf .....................   Passed    7.09 sec
+        Start 183: tst_perf_catalog
+229/254 Test #183: tst_perf_catalog .....................   Passed    6.21 sec
+        Start 204: tst_seismic_baseline
+230/254 Test #204: tst_seismic_baseline .................***Failed    2.60 sec
+********* Start testing of TestSeismicBaseline *********
+Config: Using QtTest library 6.11.2, Qt 6.11.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 16.2.1 20260810), cachyos unknown
+QINFO  : TestSeismicBaseline::initTestCase() baseline fixture: /home/kevin/projects/paleo_workstation/.worktrees/ui-visual-polish/build/seismic_perf/perf_big.sgy (220.2 MiB)
+PASS   : TestSeismicBaseline::initTestCase()
+QINFO  : TestSeismicBaseline::indexColdFullScan() BASELINE index_cold_full_scan = 109.0 ms
+QINFO  : TestSeismicBaseline::indexColdFullScan() BASELINE index_traces = 53261.0 traces
+PASS   : TestSeismicBaseline::indexColdFullScan()
+QINFO  : TestSeismicBaseline::indexWarmCache() BASELINE index_warm_cache = 4.0 ms
+PASS   : TestSeismicBaseline::indexWarmCache()
+[index] strategy=cache traces=53261 wall=4.141 ms | window=4194304 queue=2 checkpoint=/home/kevin/projects/paleo_workstation/.worktrees/ui-visual-polish/build/ctest-home/tst_seismic_baseline/cache/paleo_workstation/index-cache/scan-checkpoints/perf_big.sgy.ckpt
+QINFO  : TestSeismicBaseline::directSliceColdAndHot() BASELINE open_direct = 4.0 ms
+QINFO  : TestSeismicBaseline::directSliceColdAndHot() BASELINE slice_inline_cold_direct = 4.0 ms
+QINFO  : TestSeismicBaseline::directSliceColdAndHot() BASELINE slice_inline_hot_direct = 4.0 ms
+QINFO  : TestSeismicBaseline::directSliceColdAndHot() BASELINE slice_time_cold_direct = 3.0 ms
+QINFO  : TestSeismicBaseline::directSliceColdAndHot() BASELINE slice_time_hot_direct = 2.0 ms
+PASS   : TestSeismicBaseline::directSliceColdAndHot()
+[index] strategy=cache traces=53261 wall=4.17 ms | window=4194304 queue=2 checkpoint=/home/kevin/projects/paleo_workstation/.worktrees/ui-visual-polish/build/ctest-home/tst_seismic_baseline/cache/paleo_workstation/index-cache/scan-checkpoints/perf_big.sgy.ckpt
+QINFO  : TestSeismicBaseline::transcodeSf3c() BASELINE transcode_sf3c_total = 838.0 ms
+QINFO  : TestSeismicBaseline::transcodeSf3c() BASELINE transcode_sf3c_traces = 53261.0 traces
+QINFO  : TestSeismicBaseline::transcodeSf3c() BASELINE transcode_sf3c_out_mb = 256.0 MiB
+QINFO  : TestSeismicBaseline::transcodeSf3c() BASELINE open_workspace = 0.0 ms
+QINFO  : TestSeismicBaseline::transcodeSf3c() BASELINE slice_inline_cold_workspace = 97.0 ms
+QINFO  : TestSeismicBaseline::transcodeSf3c() BASELINE slice_inline_hot_workspace = 0.0 ms
+PASS   : TestSeismicBaseline::transcodeSf3c()
+[index] strategy=cache traces=53261 wall=4.188 ms | window=4194304 queue=2 checkpoint=/home/kevin/projects/paleo_workstation/.worktrees/ui-visual-polish/build/ctest-home/tst_seismic_baseline/cache/paleo_workstation/index-cache/scan-checkpoints/perf_big.sgy.ckpt
+FAIL!  : TestSeismicBaseline::transcodeSf3pAndVoxel() 'result.status.ok()' returned FALSE. (cannot write a paged page)
+   Loc: [/home/kevin/projects/paleo_workstation/.worktrees/ui-visual-polish/tests/tst_seismic_baseline.cpp(218)]
+QINFO  : TestSeismicBaseline::fps3dOffscreen() BASELINE gl_renderer = NVIDIA GeForce RTX 3080 Laptop GPU/PCIe/SSE2
+QINFO  : TestSeismicBaseline::fps3dOffscreen() BASELINE fps_3d_offscreen_pipelined = 120000.0 fps
+QINFO  : TestSeismicBaseline::fps3dOffscreen() BASELINE frame_3d_offscreen_ms = 0.0 ms
+QINFO  : TestSeismicBaseline::fps3dOffscreen() BASELINE fps_3d_offscreen_synced = 20000.0 fps
+QINFO  : TestSeismicBaseline::fps3dOffscreen() BASELINE frame_3d_offscreen_synced_ms = 0.1 ms
+PASS   : TestSeismicBaseline::fps3dOffscreen()
+QINFO  : TestSeismicBaseline::peakMemory() BASELINE peak_rss = 424.5 MiB
+PASS   : TestSeismicBaseline::peakMemory()
+PASS   : TestSeismicBaseline::cleanupTestCase()
+Totals: 8 passed, 1 failed, 0 skipped, 0 blacklisted, 2249ms
+********* Finished testing of TestSeismicBaseline *********
+
+        Start  98: tst_previewmap_perf
+231/254 Test  #98: tst_previewmap_perf ..................   Passed    5.01 sec
+        Start  68: tst_lasperf
+232/254 Test  #68: tst_lasperf ..........................   Passed    4.64 sec
+        Start  73: tst_correlation_full
+233/254 Test  #73: tst_correlation_full .................   Passed    4.75 sec
+        Start 186: tst_perf_regress
+234/254 Test #186: tst_perf_regress .....................   Passed    4.13 sec
+        Start 129: tst_perfbudget
+235/254 Test #129: tst_perfbudget .......................   Passed    2.00 sec
+        Start 211: tst_seismic_budgets
+236/254 Test #211: tst_seismic_budgets ..................   Passed    1.58 sec
+        Start  51: tst_perf
+237/254 Test  #51: tst_perf .............................   Passed    1.61 sec
+        Start  89: tst_coldstart
+238/254 Test  #89: tst_coldstart ........................   Passed    1.09 sec
+        Start 250: tst_wellcomposite_perf
+239/254 Test #250: tst_wellcomposite_perf ...............   Passed    0.74 sec
+        Start 194: tst_petrophysperf
+240/254 Test #194: tst_petrophysperf ....................   Passed    0.76 sec
+        Start 203: tst_seismic_perf
+241/254 Test #203: tst_seismic_perf .....................   Passed    0.33 sec
+        Start  32: tst_singlefactor_contourbudget
+242/254 Test  #32: tst_singlefactor_contourbudget .......   Passed    0.59 sec
+        Start 179: tst_perf_las
+243/254 Test #179: tst_perf_las .........................   Passed    0.62 sec
+        Start 223: tst_inversion_workflow
+244/254 Test #223: tst_inversion_workflow ...............   Passed    0.59 sec
+        Start 234: tst_timedepthperf
+245/254 Test #234: tst_timedepthperf ....................   Passed    0.39 sec
+        Start 152: tst_crossplot_perf
+246/254 Test #152: tst_crossplot_perf ...................   Passed    0.39 sec
+        Start 214: tst_seismicattrperf
+247/254 Test #214: tst_seismicattrperf ..................   Passed    0.38 sec
+        Start 237: tst_welllogset_perf
+248/254 Test #237: tst_welllogset_perf ..................   Passed    0.36 sec
+        Start 112: tst_aiassist_perf
+249/254 Test #112: tst_aiassist_perf ....................   Passed    0.32 sec
+        Start 181: tst_perf_segyindex
+250/254 Test #181: tst_perf_segyindex ...................   Passed    0.32 sec
+        Start 156: tst_mem_budget
+251/254 Test #156: tst_mem_budget .......................   Passed    0.36 sec
+        Start 178: tst_cache_las
+252/254 Test #178: tst_cache_las ........................   Passed    0.33 sec
+        Start  88: tst_dataperf_index
+253/254 Test  #88: tst_dataperf_index ...................   Passed    0.29 sec
+        Start 167: tst_faultsurface
+254/254 Test #167: tst_faultsurface .....................   Passed    0.27 sec
+
+98% tests passed, 4 tests failed out of 254
+
+Label Time Summary:
+ai            =   2.93 sec*proc (7 tests)
+algorithms    = 256.07 sec*proc (43 tests)
+app           =   5.06 sec*proc (1 test)
+core          = 133.16 sec*proc (12 tests)
+domain        =   2.35 sec*proc (8 tests)
+golden        =   2.19 sec*proc (1 test)
+io            = 117.31 sec*proc (24 tests)
+linkage       =   1.79 sec*proc (1 test)
+perf          = 301.02 sec*proc (28 tests)
+qgis          = 111.09 sec*proc (15 tests)
+services      =  60.61 sec*proc (20 tests)
+store         =  35.55 sec*proc (10 tests)
+ui            = 443.12 sec*proc (68 tests)
+workflow      = 314.22 sec*proc (31 tests)
+
+Total Test time (real) = 483.40 sec
+
+The following tests FAILED:
+	 28 - tst_singlefactor_perf (Failed)                    algorithms perf
+	122 - tst_startup_trace (Failed)                        perf services
+	204 - tst_seismic_baseline (Failed)                     perf ui
+	225 - tst_inversion_perf (Failed)                       workflow
+Errors while running CTest

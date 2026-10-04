@@ -1,0 +1,7 @@
+{
+  "sourceTest": "tst_wellcomposite_visual::testGoldenImageSampling",
+  "toleranceUnchanged": "44 of 48 samples; 22/255 channel tolerance",
+  "review": "Both original and actual 900x600 images inspected. DESIGN Light chrome and token spacing change header/card appearance and automatic fit ratio from 1:3850 to 1:4000; complete 1000–1400m geological interval and original data colors remain visible. Existing one-line toolbar overflow remains a documented structural Low. No tolerance relaxed.",
+  "beforeSha256": "0cd3553530a2a4d0bb5ee11c9635e6e2e8a31b6106622c0347957d40e84163bd",
+  "afterSha256": "208115f5d0382c59280c52a553aa21864b2a0215c96d8767f1fafcccc9fe4a49"
+}

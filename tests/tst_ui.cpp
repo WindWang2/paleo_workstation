@@ -24,18 +24,24 @@
 #include "../src/ui/pages/constraintpage.h"
 #include "../src/io/constraintstore.h"
 #include "../src/workflow/workflows.h"
+#include "helpers/visualcapture.h"
 
 #include "../src/app/appcontext.h"
 #include "../src/domain/faciescatalog.h"
 #include "../src/io/dataimportservice.h" // 测试可直触 io（断言 DataImportService 信号）
 #include "../src/linkage/selectioncontext.h"
 #include "../src/metadata/layermanifest.h"
+#include "../src/metadata/paleoprojectstore.h"
 #include "../src/qgis/qgiscanvascontroller.h"
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/qgis/qgisprocessingservice.h"
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/ui/correlationpanel.h"
 #include "../src/ui/datapreview/datapreviewtabs.h"
+#include "../src/ui/datapreview/previewhistogramwidget.h"
+#include "../src/ui/datapreview/previewprofilepanel.h"
+#include "../src/ui/datapreview/previewmapstates.h"
+#include "../src/ui/seismic3d/seismic3dfallback.h"
 #include "../src/catalog/datacatalog.h"
 #include "../src/ui/dialogs/folderconfirm.h"
 #include "../src/ui/faults/faultmanagerpanel.h"
@@ -48,9 +54,33 @@
 #include "../src/ui/edittools/editingtoolbar.h"
 #include "../src/ui/pages/mappingworkbenchpage.h"
 #include "../src/ui/pages/datalist.h"
+#include "../src/ui/pages/dataopspalette.h"
+#include "../src/ui/pages/dataopspanelextra.h"
+#include "../src/ui/pages/dataopspanelops.h"
+#include "../src/ui/pages/dataopswidgets.h"
 #include "../src/ui/pages/datapage.h"
 #include "../src/ui/pages/wellpredictionpanel.h"
+#include "../src/ui/pages/validatepage.h"
+#include "../src/services/previewdoc.h"
 #include "../src/ui/paleomainwindow.h"
+#include "../src/ui/correlation/petrophyspanel.h"
+#include "../src/ui/correlation/curvebrowser.h"
+#include "../src/ui/correlation/depthruler.h"
+#include "../src/ui/crossplot/crossplotpanel.h"
+#include "../src/ui/seismicsection/inversionpanel.h"
+#include "../src/ui/seismicsection/seismicattrpanel.h"
+#include "../src/ui/seismicsection/seismicpickpanel.h"
+#include "../src/ui/datapreview/previewidentifypanel.h"
+#include "../src/ui/datapreview/previewtocpanel.h"
+#include "../src/ui/attributetablepanel.h"
+#include "../src/ui/taskpanel.h"
+#include "../src/ui/webviewpanel.h"
+#include "../src/ui/releasepanel.h"
+#include "../src/ui/wellcomposite/wellpositionlegendwidget.h"
+#include "../src/ui/wellcomposite/multiwellview.h"
+#include "../src/ui/wellcomposite/hiddentrackbar.h"
+#include <QGraphicsView>
+#include <QGraphicsScene>
 #include "../src/ui/paleotheme.h"
 #include "../src/ui/paleoribbon.h"
 #include "../src/ui/paleodockmanager.h"
@@ -60,6 +90,7 @@
 #include <QDialog>
 #include <QMenu>
 #include <QTableWidget>
+#include <QHeaderView>
 #include <QTimer>
 #include <QTreeWidget>
 #include <qgsmapmouseevent.h>
@@ -1382,6 +1413,237 @@ class TestUiShell : public QObject
                                      PaleoTheme::focusRingStyleSheet());
     }
 
+    void visualPolishChartSnapshots()
+    {
+      if (qEnvironmentVariable("PALEO_VISUAL_CAPTURE").isEmpty())
+        QSKIP("Set PALEO_VISUAL_CAPTURE for native chart evidence");
+      PreviewHistogramWidget histogram(false);
+      histogram.setTitle(QStringLiteral("合成资料 · 分布"));
+      QVERIFY(paleo::tests::captureVisual(&histogram, "histogram-empty", QSize(640, 340)));
+      PreviewRasterAnalysis::Histogram data;
+      data.valid = true;
+      data.bins = 8;
+      data.lo = 0;
+      data.hi = 80;
+      data.counts = {5, 18, 40, 80, 60, 28, 10, 3};
+      histogram.setHistogram(data);
+      histogram.setStretchMarks(10, 70);
+      QVERIFY(paleo::tests::captureVisual(&histogram, "histogram", QSize(640, 340)));
+      PreviewProfilePanel profile;
+      QVERIFY(paleo::tests::captureVisual(&profile, "profile-empty", QSize(640, 340)));
+      profile.addProfile(QStringLiteral("合成剖面"),
+                         {{0, 20, true}, {100, 35, true}, {200, 25, true}, {300, 50, true}},
+                         QgsPointXY(0, 0), QgsPointXY(300, 0));
+      QVERIFY(paleo::tests::captureVisual(&profile, "profile", QSize(640, 340)));
+      WellPredictionPanel prediction;
+      QVERIFY(paleo::tests::captureVisual(&prediction, "well-facies-empty", QSize(900, 600)));
+      const QVariantList intervals{QVariantMap{{"top", 1000}, {"bottom", 1040}, {"code", 1}},
+                                   QVariantMap{{"top", 1040}, {"bottom", 1100}, {"code", 2}}};
+      prediction.setResult("draft.visual", {QVariantMap{{"id", "visual-well"}, {"name", "合成井"},
+                          {"intervals", intervals}}}, FaciesCatalog::defaults());
+      QVERIFY(paleo::tests::captureVisual(&prediction, "well-facies", QSize(900, 600)));
+      seismic::Seismic3DFallbackWidget fallback;
+      QVERIFY(paleo::tests::captureVisual(&fallback, "seismic-fallback", QSize(1000, 400)));
+      std::unique_ptr<QWidget> error(PreviewMapStates::buildErrorPage(
+          QStringLiteral("读取失败"), QStringLiteral("合成资料读取失败，保留已有重试流程"),
+          nullptr, QStringLiteral("重试"), [] {}));
+      QVERIFY(paleo::tests::captureVisual(error.get(), "map-error", QSize(640, 340)));
+    }
+
+    void additionalVisualPolishSnapshots()
+    {
+      if (qEnvironmentVariable("PALEO_VISUAL_CAPTURE").isEmpty())
+        QSKIP("Optional native panel evidence");
+      { // Release unrelated fixtures before repolishing the multi-page legend.
+      paleo::petrophys::PetroPhysPanel petrophysics;
+      paleo::crossplot::CrossplotPanel crossplot;
+      CurveBrowser curves;
+      LasCurve gr;
+      gr.name = "GR";
+      gr.unit = "API";
+      gr.descr = "合成伽马曲线";
+      curves.setCurves("A1", {gr});
+      curves.setChecked("GR", true);
+      seismic::InversionPanel inversion;
+      seismic::SeismicAttrPanel attributes;
+      seismic::SeismicSectionDockWidget section;
+      seismic::SeismicPickPanel picks(&section);
+      PreviewIdentifyPanel identify;
+      PreviewTocPanel toc;
+      QgsMapCanvas canvas;
+      AttributeTablePanel table(&canvas, [](const QString &) -> QgsVectorLayer * { return nullptr; });
+      TaskPanel tasks(m_ctx->store(), m_ctx->taskSvc());
+      ReleasePanel releases;
+      PaleoEditingToolbar editing(&canvas);
+      WellComposite::WellSelectionDialog selection({"A1", "A2"}, {"A2"}, {"A1"});
+      const QList<QPair<QString, QWidget *>> panels{
+          {"petrophysics", &petrophysics}, {"crossplot", &crossplot},
+          {"curve-browser", &curves}, {"inversion", &inversion},
+          {"seismic-attributes", &attributes}, {"seismic-picks", &picks},
+          {"preview-identify", &identify}, {"preview-toc", &toc},
+          {"attribute-table", &table}, {"tasks", &tasks},
+          {"releases", &releases}, {"editing", &editing}, {"well-selection", &selection}};
+      for (const auto &panel : panels)
+        QVERIFY(paleo::tests::captureVisual(panel.second, panel.first, QSize(900, 650)));
+      }
+      WellComposite::ComprehensiveWellData well;
+      WellComposite::WellLegendDialog legend(well);
+      auto *tabs = legend.findChild<QTabWidget *>();
+      QVERIFY(tabs);
+      for (int i = 0; i < tabs->count(); ++i)
+      {
+        tabs->setCurrentIndex(i);
+        QVERIFY(paleo::tests::captureVisual(&legend, QStringLiteral("well-legend-%1").arg(i), QSize(1000, 700)));
+      }
+      QGraphicsScene scene;
+      auto *ruler = new DepthRuler;
+      ruler->setRange(1000, 1300);
+      ruler->setHeight(500);
+      scene.addItem(ruler);
+      QGraphicsView view(&scene);
+      QVERIFY(paleo::tests::captureVisual(&view, "depth-ruler", QSize(240, 550)));
+    }
+
+    void supplementalVisualPolishSnapshots()
+    {
+      if (qEnvironmentVariable("PALEO_VISUAL_CAPTURE").isEmpty())
+        QSKIP("Optional web fallback visual evidence");
+      WebViewPanel web;
+      QVERIFY(paleo::tests::captureVisual(&web, "web-empty", QSize(900, 600)));
+    }
+
+    void compactControlsVisualPolishSnapshots()
+    {
+      if (qEnvironmentVariable("PALEO_VISUAL_CAPTURE").isEmpty())
+        QSKIP("Optional populated chip controls evidence");
+      using namespace paleo::dataops;
+      SelectionBadge badge;
+      badge.setCount(5);
+      QVERIFY(paleo::tests::captureVisual(&badge, "control-selection", QSize(240, 60)));
+      FilterChipBar filters;
+      FilterGroup group;
+      group.conditions = {{FilterDim::Type, "well_log", false},
+                          {FilterDim::Status, "DERIVED", true},
+                          {FilterDim::Tag, "复核", false}};
+      filters.setConditions(group);
+      QVERIFY(paleo::tests::captureVisual(&filters, "control-filters", QSize(900, 120)));
+      TagCloudWidget tags;
+      tags.setCloud({{"测井", 12}, {"复核", 5}, {"已归档", 2}}, "复核");
+      QVERIFY(paleo::tests::captureVisual(&tags, "control-tags", QSize(900, 180)));
+      WellComposite::HiddenTrackBar hidden;
+      WellComposite::TrackSpec track;
+      track.typeId = "curve"; track.title = "GR"; track.visible = false;
+      hidden.setTracks({track});
+      QCOMPARE(hidden.hiddenCount(), 1);
+      QVERIFY(paleo::tests::captureVisual(&hidden, "control-hidden-tracks", QSize(900, 100)));
+    }
+
+    void fixedRowsVisualPolishSnapshots()
+    {
+      if (qEnvironmentVariable("PALEO_VISUAL_CAPTURE").isEmpty())
+        QSKIP("Optional populated fixed row evidence");
+      QTemporaryDir project;
+      QVERIFY(project.isValid());
+      PaleoProjectStore store;
+      DataImportService importer(&store);
+      importer.setProjectDir(project.path());
+      auto *catalog = importer.catalog();
+      QVERIFY(catalog && catalog->isOpen());
+      CatalogEntity entity;
+      entity.id = "audit-well"; entity.entityType = "well"; entity.name = "示例井";
+      QVERIFY(catalog->addEntity(entity));
+      CatalogAsset asset;
+      asset.id = "audit-row"; asset.type = "well_log"; asset.format = "las";
+      asset.displayName = "合成测井.las";
+      QVERIFY(catalog->addAsset(asset));
+      EntityAssetLink link;
+      link.assetId = asset.id; link.entityType = "well"; link.role = "well_log";
+      link.unresolved = true;
+      QVERIFY(catalog->addLink(link));
+      PreviewDocService doc(&importer);
+      DataListPanel data;
+      data.setDocService(&doc);
+      data.refreshAssetTable();
+      data.setViewMode(1);
+      auto *assets = data.findChild<QTableWidget *>("assetTable");
+      QVERIFY(assets);
+      PaleoTheme::applyDensityToViewTree(&data);
+      QVERIFY(paleo::tests::captureVisual(&data, "fixed-rows-association-default", QSize(1200, 650)));
+      // Exercise existing manual column widths. The production Resize handler may
+      // clamp them again; capture that actual result for structural follow-up.
+      assets->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Interactive);
+      assets->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Interactive);
+      assets->setColumnWidth(1, 160);
+      assets->setColumnWidth(2, 500);
+      QVERIFY(paleo::tests::captureVisual(&data, "fixed-rows-association", QSize(1200, 650)));
+      auto *combo = data.findChild<QComboBox *>("resolveEntityCombo");
+      auto *attach = data.findChild<QPushButton *>("attachLinkButton");
+      QVERIFY(combo && combo->count() == 2 && attach);
+      combo->setCurrentIndex(1);
+      attach->click();
+      QVERIFY(paleo::tests::captureVisual(&data, "fixed-rows-confirm", QSize(1200, 650)));
+      QWidget residuals;
+      auto *layout = new QVBoxLayout(&residuals);
+      auto *table = new QTableWidget(0, 3, &residuals);
+      table->setHorizontalHeaderLabels({"井", "残差", "阈值"});
+      table->setColumnWidth(0, 240);
+      table->setColumnWidth(1, 450);
+      layout->addWidget(table);
+      QVariantList rows;
+      for (const QString &status : {QString("pass"), QString("exceed"), QString("warn"), QString("pending")})
+        rows.append(QVariantMap{{"well_name", "示例井 " + status}, {"status", status},
+                                {"residual_ms", 12.5}, {"threshold_ms", 10.0}});
+      ValidatePage::fillResidualTable(table, rows);
+      PaleoTheme::applyDensityToViewTree(&residuals);
+      QVERIFY(paleo::tests::captureVisual(&residuals, "fixed-rows-residuals", QSize(900, 250)));
+      qInfo() << "Residual native row/cell/minimum height:" << table->rowHeight(0)
+              << table->cellWidget(0, 1)->height() << table->cellWidget(0, 1)->minimumSizeHint().height();
+    }
+
+    void dataOpsVisualPolishSnapshots()
+    {
+      if (qEnvironmentVariable("PALEO_VISUAL_CAPTURE").isEmpty())
+        QSKIP("Optional data operations visual evidence");
+      using namespace paleo::dataops;
+      DataCommandPalette palette;
+      palette.setSources({{"asset", "audit-log", "合成测井资料", "well_log", 0, {}}});
+      CommandRegistry registry;
+      CommandEntry first;
+      first.id = "audit-one"; first.title = "合成动作一"; first.shortcut = "Ctrl+K";
+      CommandEntry second = first;
+      second.id = "audit-two"; second.title = "合成动作二";
+      registry.registerCommand(first); registry.registerCommand(second);
+      ShortcutsDialog shortcuts;
+      shortcuts.loadRegistry(registry);
+      RoleEditDialog role;
+      role.loadRole("well_log", {"well_log", "reference"});
+      EntityEditDialog entity;
+      entity.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+      VersionTimeline timeline;
+      CatalogVersion raw, derived;
+      raw.id = "audit-raw"; raw.stage = "RAW"; raw.fileName = "audit.las";
+      derived = raw; derived.id = "audit-derived"; derived.stage = "DERIVED"; derived.versionNumber = 2;
+      timeline.loadVersions({raw, derived});
+      QDialog folder;
+      FolderPreviewRow row;
+      row.path = "/audit/测井/audit.las"; row.classifiedType = "well_log";
+      PaleoFolderConfirm::Hooks hooks;
+      hooks.importAll = [row](const auto &, const auto &done) {
+        FolderRowResult failed;
+        failed.path = row.path; failed.classifiedType = row.classifiedType;
+        failed.outcome = FolderRowResult::Outcome::Failed; failed.message = "合成输入缺少井名";
+        done({failed}, {});
+      };
+      PaleoFolderConfirm::buildFolderConfirmDialog(&folder, "/audit", {row}, hooks);
+      folder.findChild<QPushButton *>("folderConfirmButton")->click();
+      const QList<QPair<QString, QWidget *>> surfaces{
+        {"command-palette", &palette}, {"shortcut-conflicts", &shortcuts},
+        {"role-warning", &role}, {"entity-error", &entity},
+        {"version-timeline", &timeline}, {"folder-error", &folder}};
+      for (const auto &surface : surfaces)
+        QVERIFY(paleo::tests::captureVisual(surface.second, surface.first, QSize(900, 600)));
+    }
+
     void secondarySurfaceAuditSnapshots()
     {
       const QString dir = qEnvironmentVariable("PALEO_SECONDARY_CAPTURE");
@@ -1559,6 +1821,20 @@ class TestUiShell : public QObject
       };
       QTRY_VERIFY_WITH_TIMEOUT(visibleFaciesPixels()>100,5000);
       if(const auto capture=qEnvironmentVariable("PALEO_MAPPING_CAPTURE");!capture.isEmpty())QVERIFY(m_win->grab().save(capture));
+      if (const auto capture = qEnvironmentVariable("PALEO_VISUAL_CAPTURE"); !capture.isEmpty())
+      {
+        for (const auto theme : {PaleoTheme::Theme::Light, PaleoTheme::Theme::Dark})
+        {
+          PaleoTheme::applyTheme(theme);
+          PaleoRibbon::applyTheme(m_win, PaleoTheme::shellStyleSheet() + PaleoTheme::focusRingStyleSheet());
+          m_ctx->canvasCtl()->canvas()->refresh();
+          QTest::qWait(300);
+          QVERIFY(m_win->grab().save(capture + "/mapping-decorations" +
+                  (theme == PaleoTheme::Theme::Light ? "-light.png" : "-dark.png")));
+        }
+        PaleoTheme::applyLightTheme();
+        PaleoRibbon::applyTheme(m_win, PaleoTheme::shellStyleSheet() + PaleoTheme::focusRingStyleSheet());
+      }
       page->commandButton("polygonize")->click();QVERIFY(page->selectedLayer()!=id);QVERIFY(page->commandButton("copy")->isEnabled());
       page->commandButton("copy")->click();const auto draft=page->selectedLayer();QVERIFY2(draft.startsWith("draft."),qPrintable(page->findChild<QLabel *>("workbenchMessage")->text()));auto *editing=m_win->findChild<PaleoEditingToolbar *>("editingToolbar");QVERIFY(editing && editing->isEditing());auto previous=m_ctx->mappingWorkbench()->versionForLayer(draft);auto *vector=editing->currentLayer();QVERIFY(vector);QgsFeature feature;auto fi=vector->getFeatures();QVERIFY(fi.nextFeature(feature));const int field=vector->fields().indexOf("facies_code");QVERIFY(field>=0);QVERIFY(vector->changeAttributeValue(feature.id(),field,feature.attribute(field).toInt()==1?2:1));editing->actionSave()->trigger();QVERIFY(!editing->isEditing());QCOMPARE(m_ctx->mappingWorkbench()->versionForLayer(draft).versionNumber,previous.versionNumber+1);
       m_win->showPage("compose");auto *compose=m_win->findChild<MappingWorkbenchPage *>("mappingWorkbench.compose");compose->selectLayer(draft);auto *save=m_win->findChild<QAction *>("ribbonSaveVersion");QVERIFY(save && save->isEnabled());QCOMPARE(save->text(),compose->commandButton("save")->text());

@@ -17,18 +17,16 @@ static void applyChipStyle( QToolButton *chip )
 {
   PaleoTheme::applyThemedStyleSheet( chip, [chip] {
     const PaleoTheme::ThemeTokens &t = PaleoTheme::tokens();
-    return QStringLiteral(
-               "QToolButton { border-radius: %8px; padding: 4px 16px;"
+    return PaleoTheme::metricStyleSheet(QStringLiteral(
+               "QToolButton { border-radius: %8px; padding: {spacing.xs}px {spacing.md}px;"
                " background: %1; border: 1px solid %2; color: %3; }"
                "QToolButton:checked { background: %4; border-color: %4; color: %5; }"
                "QToolButton:hover:!checked { color: %6; }"
-               "QToolButton:disabled { color: %7; }" )
+               "QToolButton:disabled { color: %7; }" ))
         .arg( t.surface.name(), t.border.name(), t.textMuted.name(),
               t.primary.name(), t.onPrimary.name(), t.text.name(),
               t.textDisabled.name() )
-        // Qt QSS does not clamp oversized radii like CSS. Use half the
-        // content height (font + padding + border) so the capsule renders.
-        .arg((chip->fontMetrics().height() + 10) / 2);
+        .arg(PaleoTheme::chipRadius(chip->font()));
   } );
 }
 
@@ -40,7 +38,7 @@ HorizonChipBar::HorizonChipBar( SelectionContext *selection, QgisLayerService *l
 {
   auto *lay = new QHBoxLayout( this );
   lay->setContentsMargins( 0, 0, 0, 0 );
-  lay->setSpacing( 4 ); // spacing.xs
+  lay->setSpacing(PaleoTheme::tokens().spacingXs); // spacing.xs
   buildChips();
   lay->addStretch( 1 );
 

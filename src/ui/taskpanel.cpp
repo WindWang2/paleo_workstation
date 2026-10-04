@@ -1,4 +1,5 @@
 // 层：视图
+#include "paleotheme.h"
 #include "taskpanel.h"
 
 #include "../metadata/paleoprojectstore.h"
@@ -23,8 +24,8 @@ TaskPanel::TaskPanel(PaleoProjectStore *store, PaleoTaskService *tasks,
 {
   setObjectName(QStringLiteral("taskPanel"));
   auto *lay = new QVBoxLayout(this);
-  lay->setContentsMargins(6, 6, 6, 6);
-  lay->setSpacing(4);
+  lay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm);
+  lay->setSpacing(PaleoTheme::tokens().spacingXs);
 
   auto *topRow = new QHBoxLayout;
   auto *countLabel = new QLabel(this);

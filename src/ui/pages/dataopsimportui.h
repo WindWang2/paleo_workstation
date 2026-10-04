@@ -90,7 +90,7 @@ public:
     hide(); // 空队列不占位
     auto *lay = new QVBoxLayout(this);
     lay->setContentsMargins(0, 0, 0, 0);
-    lay->setSpacing(4);
+    lay->setSpacing(PaleoTheme::tokens().spacingXs);
     auto *head = new QWidget(this);
     auto *hl = new QHBoxLayout(head);
     hl->setContentsMargins(0, 0, 0, 0);
@@ -148,7 +148,7 @@ public:
     auto *overallRow = new QWidget(this);
     auto *ol = new QHBoxLayout(overallRow);
     ol->setContentsMargins(0, 0, 0, 0);
-    ol->setSpacing(6);
+    ol->setSpacing(PaleoTheme::tokens().spacingSm);
     ol->addWidget(m_overall, 1);
     ol->addWidget(m_eta);
     ol->addWidget(m_cancelAll);
@@ -265,9 +265,9 @@ public slots:
       auto *st = new QTableWidgetItem(ImportQueueItem::stateText(it.state));
       st->setFlags(st->flags() & ~Qt::ItemIsEditable);
       if (it.state == ImportItemState::Failed || it.state == ImportItemState::Canceled)
-        st->setForeground(PaleoTheme::tokens().error);
+        PaleoTheme::setItemTextColor(st, PaleoTheme::ItemTextColor::Error);
       else if (it.state == ImportItemState::Done)
-        st->setForeground(PaleoTheme::tokens().success);
+        PaleoTheme::setItemTextColor(st, PaleoTheme::ItemTextColor::Success);
       m_table->setItem(r, 1, st);
       auto *bar = new QProgressBar(m_table);
       bar->setObjectName(QStringLiteral("importItemProgress"));
@@ -279,8 +279,8 @@ public slots:
       // 操作列：取消（进行/排队）/ 重试+跳过（失败/取消）。
       auto *ops = new QWidget(m_table);
       auto *ol = new QHBoxLayout(ops);
-      ol->setContentsMargins(2, 0, 2, 0);
-      ol->setSpacing(2);
+      ol->setContentsMargins(PaleoTheme::tokens().spacingXs, 0, PaleoTheme::tokens().spacingXs, 0);
+      ol->setSpacing(PaleoTheme::tokens().spacingXs);
       if (it.state == ImportItemState::Queued || it.state == ImportItemState::Running ||
           it.state == ImportItemState::RetryWait)
       {
@@ -433,7 +433,7 @@ public:
 
 signals:
   void saveRequested();
-  void deleteRequested(const QString &name);
+  void deleteRequested(const QString &name); // NOLINT(readability-inconsistent-declaration-parameter-name)
 
 private:
   QTreeWidget *m_list = nullptr;

@@ -237,7 +237,7 @@ GotoDepthDialog::GotoDepthDialog(double minDepth, double maxDepth, double curren
                              .arg(QString::number(lo, 'f', 1), QString::number(hi, 'f', 1)),
                          this);
   PaleoTheme::applyThemedStyleSheet(m_lblHint, [] {
-    return PaleoTheme::mutedCaptionStyleSheet() + QStringLiteral(" font-size: 8pt;");
+    return PaleoTheme::mutedCaptionStyleSheet() + PaleoTheme::metricStyleSheet(QStringLiteral(" font-size: {typography.label}pt;"));
   });
   root->addWidget(m_lblHint);
 

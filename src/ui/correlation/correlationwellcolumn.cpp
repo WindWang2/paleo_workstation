@@ -164,7 +164,7 @@ QGraphicsPathItem *CorrelationWellColumn::rebuild(QGraphicsScene *scene, const Q
   // Well name header: 9pt body token, centered in the header band.
   auto *label = new QGraphicsSimpleTextItem(m_wellName, column);
   QFont f = label->font();
-  f.setPointSize(9);
+  f.setPointSize(PaleoTheme::tokens().bodyPt);
   label->setFont(f);
   label->setBrush(PaleoTheme::tokens().text);
   const QRectF lb = label->boundingRect();
@@ -228,7 +228,7 @@ QGraphicsPathItem *CorrelationWellColumn::rebuild(QGraphicsScene *scene, const Q
       // column item.
       auto *cap = new QGraphicsSimpleTextItem(t.mnemonic(), column);
       QFont cf = cap->font();
-      cf.setPointSize(8);
+      cf.setPointSize(PaleoTheme::tokens().labelPt);
       cap->setFont(cf);
       cap->setBrush(PaleoTheme::tokens().textMuted);
       const QRectF cb = cap->boundingRect();
@@ -240,7 +240,7 @@ QGraphicsPathItem *CorrelationWellColumn::rebuild(QGraphicsScene *scene, const Q
       {
         auto *uc = new QGraphicsSimpleTextItem(t.unit(), column);
         QFont uf = uc->font();
-        uf.setPointSize(8);
+        uf.setPointSize(PaleoTheme::tokens().labelPt);
         uc->setFont(uf);
         uc->setBrush(PaleoTheme::tokens().textMuted); // 与助记符 caption 同 token，不压到 disabled 级
         uc->setPos(cap->x() + cb.width() + 3.0, bodyTop + 2.5);

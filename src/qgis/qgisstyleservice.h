@@ -47,10 +47,12 @@ class QgisStyleService : public QObject
     static void applyContourLayerStyle(class QgsVectorLayer *layer);
 
     // ---- C2（wave/deepen-perf）：相界地质语义符号 --------------------------
-    // 相多边形图层按 boundary_kind 分类描边：断层切割（fault_cut）= 断层红
-    // 粗描边（Q/HS 1011—2016 断层线用色，同 resources/geology/faults 调性），
-    // 其余/未分类 = 常规细灰边。字段缺失 → 无操作（保持现状渲染器）。
-    // 单类型首发：仅 fault_cut 类目；其余类型按 BoundarySemantics 词表扩展。
+    // 相多边形图层按 boundary_kind 分类描边（四类全开——方向 39）：断层切割
+    //（fault_cut）= 断层红粗描边（Q/HS 1011—2016 断层线用色，同
+    // resources/geology/faults 调性）；整合接触 = 细实线、尖灭 = 虚线、
+    // 相变 = 点线 + 可选渐变带（带宽 data-defined 绑 transition_width，
+    // 图层地图单位）；其余/未分类/表外值 = 常规细灰边（中性，不猜类）。
+    // 字段缺失 → 无操作（保持现状渲染器）。
     static void applyFaciesBoundaryStyle(QgsVectorLayer *layer);
 
     // ---- C3（wave/deepen-perf）：井类别符号（Q/HS 1011—2016 表 K.1）------

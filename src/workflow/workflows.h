@@ -451,13 +451,24 @@ class CompositionWorkflow : public QObject
 
     // ---- m2(C)：相属性回写（编辑态页「相属性」区的落库侧）----
     // 页面拿不到选中要素 id——这里按图层当前选中集解析（无选中 → 拒绝）。
-    // attrs 携 facies_code(int)/facies_type/comment；写入走图层 edit buffer
-    // （beginEditCommand/changeAttributeValue/endEditCommand，QGIS 4.2 命令
-    // 组在 QgsMapLayer 上）；facies_type/comment 字段缺则先补建。变更留在
-    // 编辑会话里（随编辑条「保存」提交 / 取消回滚）——不在这里绕过单写者
-    // 纪律直接 commit。
+    // attrs 携 facies_code(int)/facies_type/comment/boundary_kind(词表)/
+    // transition_width(double，图层地图单位——仅相变可携带)；写入走图层
+    // edit buffer（beginEditCommand/changeAttributeValue/endEditCommand，
+    // QGIS 4.2 命令组在 QgsMapLayer 上）；facies_type/comment/boundary_kind/
+    // transition_width 字段缺则先补建。boundary_kind/transition_width 先过
+    // 方向 39 相界类型编辑语义门禁（boundaryeditrules——整合接触切两侧/
+    // 带域类型/开放端），任一要素被拒则整单失败回原因。变更留在编辑会话里
+    //（随编辑条「保存」提交 / 取消回滚）——不在这里绕过单写者纪律直接 commit。
     bool saveFaciesAttributes(const QString &layerId, const QVariantMap &attrs,
                               QString *error = nullptr);
+
+    // 方向 39：对相多边形层跑编图一致性 QA（复用方向 27 faciesqa 引擎——
+    // 只接不重写）。从要素装配 units：regionId=fid、facies_code、环几何、
+    // boundary_kind、transition_width；返回逐条核查项（QVariantMap：
+    // name/reason/regionIds/metric/x/y），空列表 = 无项或层不可检（*error
+    // 只在有真错误时置值）。检测器语义见 faciesqa.h（尖灭开放端豁免与
+    // 端点落位、相变渐变范围、整合接触切两侧）。
+    QVariantList runFaciesBoundaryQa(const QString &layerId, QString *error = nullptr);
 
     // m2(C)：把派生只读的相界 gpkg 备成可编辑工作副本并重指声明。
     // deriveFaciesPolygons 的产物按 T26 纪律 chmod 只读（catalog DERIVED

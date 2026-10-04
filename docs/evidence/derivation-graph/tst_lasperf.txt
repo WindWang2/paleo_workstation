@@ -1,0 +1,12 @@
+********* Start testing of LasPerfTests *********
+Config: Using QtTest library 6.11.2, Qt 6.11.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 16.2.1 20260810), cachyos unknown
+PASS   : LasPerfTests::initTestCase()
+QINFO  : LasPerfTests::millionRowParseRatioGate() lasperf 1M rows: parseDoc=147.4ms reference=308.1ms ratio=0.478 file=40.9MB (277.8 MB/s vs 132.9 MB/s)
+PASS   : LasPerfTests::millionRowParseRatioGate()
+PASS   : LasPerfTests::parseResultIsBitIdenticalToReference()
+PASS   : LasPerfTests::parseRangeAgreesWithFullRead()
+QINFO  : LasPerfTests::concurrentMultiFileReadIsFasterThanSerial() lasperf concurrent: serial=263.3ms parallel=85.3ms ratio=0.324 (4 files)
+PASS   : LasPerfTests::concurrentMultiFileReadIsFasterThanSerial()
+PASS   : LasPerfTests::cleanupTestCase()
+Totals: 6 passed, 0 failed, 0 skipped, 0 blacklisted, 4772ms
+********* Finished testing of LasPerfTests *********

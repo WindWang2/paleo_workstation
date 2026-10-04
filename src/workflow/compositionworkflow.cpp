@@ -9,6 +9,8 @@
 #include "../qgis/qgisprocessingservice.h"
 #include "../qgis/qgisstyleservice.h"       // applyFaciesBoundaryStyle
 #include "../services/projectdata.h"
+#include "../algorithms/faciesmapping/faciesqa.h" // 方向 39：边界核查引擎（只接不重写）
+#include "boundaryeditrules.h"              // 方向 39：相界类型编辑语义门禁
 #include "boundarysemantics.h"              // 相界地质语义类型词表
 #include "derivedassets.h"
 #include "mappingworkflow.h"
@@ -16,15 +18,86 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QHash>
 #include <QJsonObject>
 #include <QSet>
 
+#include <qgsabstractgeometry.h>
+#include <qgscurve.h>
+#include <qgsfeature.h>
+#include <qgsfeatureiterator.h>
+#include <qgsfeaturerequest.h>
+#include <qgsgeometry.h>
 #include <qgsmaplayer.h>
+#include <qgsmultipolygon.h>
+#include <qgspoint.h>
+#include <qgspolygon.h>
 #include <qgsvectorlayer.h>
 
 // 综合编图工作流（③）。
 // 方向20 轮4：按类边界从 workflows.cpp 析出。头文件契约不动。
 
+
+namespace
+{
+  // 方向 39：从图层现势数据装配某要素的边界语义事实（kind/transitionWidth
+  // 由调用方用提案值覆写）。邻接 = 与他要素交集为线（共享边），非仅相交；
+  // 相代码未知（字段缺/值非法）如实记 -1，不参与差异判定。
+  BoundarySemantics::BoundaryEditFacts boundaryFactsOf( QgsVectorLayer *vl, const QgsFeature &f )
+  {
+    using namespace BoundarySemantics;
+    BoundaryEditFacts facts;
+    const int codeIdx = vl->fields().lookupField( QStringLiteral( "facies_code" ) );
+    if ( codeIdx >= 0 && f.attribute( codeIdx ).isValid() )
+    {
+      bool ok = false;
+      const int code = f.attribute( codeIdx ).toInt( &ok );
+      facts.selfFaciesCode = ok ? code : -1;
+    }
+
+    const QgsGeometry geom = f.geometry();
+    if ( geom.type() == Qgis::GeometryType::Polygon && !geom.isNull() )
+    {
+      if ( const QgsPolygon *poly = qgsgeometry_cast< const QgsPolygon * >( geom.constGet() ) )
+      {
+        // 环闭合：外环首尾精确重合（存储环按构造闭合；口径同 faciesqa closedCopy）。
+        if ( const QgsCurve *ring = poly->exteriorRing() )
+        {
+          const QgsPoint first = ring->startPoint();
+          const QgsPoint last = ring->endPoint();
+          facts.ringClosed = first.x() == last.x() && first.y() == last.y();
+        }
+      }
+      QgsFeature other;
+      QgsFeatureIterator it = vl->getFeatures();
+      while ( it.nextFeature( other ) )
+      {
+        if ( other.id() == f.id() )
+          continue;
+        const QgsGeometry og = other.geometry();
+        if ( og.isNull() || !geom.intersects( og ) )
+          continue;
+        const QgsGeometry shared = geom.intersection( og );
+        if ( shared.type() != Qgis::GeometryType::Line || shared.length() <= 0 )
+          continue; // 相交成面（重叠）不算共享边邻接
+        facts.hasAdjacent = true;
+        int otherCode = -1;
+        if ( codeIdx >= 0 && other.attribute( codeIdx ).isValid() )
+        {
+          bool ok = false;
+          const int code = other.attribute( codeIdx ).toInt( &ok );
+          otherCode = ok ? code : -1;
+        }
+        if ( otherCode >= 0 && facts.selfFaciesCode >= 0 && otherCode != facts.selfFaciesCode )
+        {
+          facts.adjacentFaciesDiffers = true;
+          facts.adjacentFaciesCode = otherCode;
+        }
+      }
+    }
+    return facts;
+  }
+} // namespace
 
 // ---------------------------------------------------------------------------
 // CompositionWorkflow — ③综合编图
@@ -33,6 +106,23 @@
 CompositionWorkflow::CompositionWorkflow( QgisProcessingService *proc, QgisLayerService *layers, QObject *parent )
   : QObject( parent ), m_proc( proc ), m_layers( layers )
 {
+  // 方向 39：相多边形层重实例化（工程重开/层位组释放重建）后重挂相界语义
+  // 符号——instantiate 总是从源新建图层，编辑会话里设置的渲染器不随实例
+  // 存活；已提交的 boundary_kind/transition_width 字段在，样式就按词表
+  // 重建（无字段 → applyFaciesBoundaryStyle 自身无操作）。
+  if ( m_layers )
+  {
+    connect( m_layers, &QgisLayerService::layerInstantiated, this,
+             [this]( const QString &layerId ) {
+               if ( !layerId.startsWith( QLatin1String( "facies." ) ) )
+                 return;
+               if ( auto *vl = qobject_cast<QgsVectorLayer *>( m_layers->layer( layerId ) ) )
+               {
+                 QgisStyleService::applyFaciesBoundaryStyle( vl );
+                 vl->triggerRepaint();
+               }
+             } );
+  }
 }
 
 void CompositionWorkflow::setCatalog( DataCatalog *catalog, const QString &projectDir )
@@ -418,8 +508,9 @@ bool CompositionWorkflow::saveFaciesAttributes( const QString &layerId, const QV
 
   // 字段词表：facies_code 是 polygonize 算法产物（int）；facies_type/comment
   // 为编辑面字段，缺则先补建（补建也在编辑会话内，各自成 undo 步）。
-  // boundary_kind 是相界地质语义类型（C2，词表 BoundarySemantics——值域
-  // 校验在页面下拉侧，这里按词面落库，未知词留给地质评审口径）。
+  // boundary_kind 是相界地质语义类型（C2，词表 BoundarySemantics）；值域
+  // 校验在页面下拉侧 + 方向 39 语义门禁（见下）。transition_width 是相变
+  // 渐变带宽度（double，图层地图单位；仅相变可携带——门禁拒绝其余类型）。
   struct FieldSpec
   {
     const char *key;
@@ -431,7 +522,51 @@ bool CompositionWorkflow::saveFaciesAttributes( const QString &layerId, const QV
     { "facies_type", "facies_type", QVariant::String },
     { "comment", "comment", QVariant::String },
     { "boundary_kind", "boundary_kind", QVariant::String },
+    { "transition_width", "transition_width", QVariant::Double },
   };
+
+  // ---- 方向 39：相界类型编辑语义门禁（任一选中要素被拒 → 整单失败，
+  // 未写任何字段——先于 beginEditCommand；拒绝原因含冻结词面回页面）。---
+  // 带域门禁只判本次提交的带宽提案（attrs 携带 transition_width 时）；
+  // 换类型不携带带宽键则不判旧值——旧带宽数据保留但惰性（非相变类目
+  // 不渲染带、QA 不核查），不静默清零也不把用户锁死在旧类型上。
+  if ( attrs.contains( QLatin1String( "boundary_kind" ) ) ||
+       attrs.contains( QLatin1String( "transition_width" ) ) )
+  {
+    const bool kindInAttrs = attrs.contains( QLatin1String( "boundary_kind" ) );
+    const int kindIdx = vl->fields().lookupField( QLatin1String( "boundary_kind" ) );
+    for ( const QgsFeatureId fid : selected )
+    {
+      const QgsFeature current = vl->getFeature( fid );
+      BoundarySemantics::BoundaryEditFacts facts = boundaryFactsOf( vl, current );
+      if ( kindInAttrs )
+        facts.kind = attrs.value( QLatin1String( "boundary_kind" ) ).toString();
+      else if ( kindIdx >= 0 )
+      {
+        const QVariant kind = current.attribute( kindIdx );
+        facts.kind = kind.isValid() ? kind.toString() : QString();
+      }
+      if ( attrs.contains( QLatin1String( "transition_width" ) ) )
+      {
+        bool ok = false;
+        const double width = attrs.value( QLatin1String( "transition_width" ) ).toDouble( &ok );
+        if ( !ok )
+          return fail( tr( "渐变带宽度须是数值：%1" )
+                           .arg( attrs.value( QLatin1String( "transition_width" ) ).toString() ) );
+        facts.transitionWidth = width;
+      }
+      const BoundarySemantics::BoundaryEditVerdict verdicts[] = {
+        BoundarySemantics::checkKindAssignment( facts ),
+        BoundarySemantics::checkTransitionBand( facts ),
+        BoundarySemantics::checkRingClosure( facts ),
+      };
+      for ( const BoundarySemantics::BoundaryEditVerdict &v : verdicts )
+      {
+        if ( !v.accepted )
+          return fail( tr( "%1（要素 %2）" ).arg( v.reason ).arg( fid ) );
+      }
+    }
+  }
 
   // 只写 attrs 携带的字段。
   QVector<QPair<int, QVariant>> writes; // resolved field index + value
@@ -456,7 +591,7 @@ bool CompositionWorkflow::saveFaciesAttributes( const QString &layerId, const QV
         return fail( tr( "cannot add field '%1' to %2" ).arg( QLatin1String( f.name ), layerId ) );
       idx = vl->fields().lookupField( QLatin1String( f.name ) );
       if ( idx < 0 )
-        return fail( tr( "field '%1' not visible after add" ).arg( QLatin1String( f.name ) ) );
+        return fail( tr( "field '%1' not visible after add" ).arg( QLatin1String( f.name ), layerId ) );
     }
     writes.append( qMakePair( idx, value ) );
   }
@@ -468,9 +603,187 @@ bool CompositionWorkflow::saveFaciesAttributes( const QString &layerId, const QV
   vl->endEditCommand();
 
   // C2：boundary_kind 变更即时反映到图面（相界语义符号映射——渲染器按
-  // boundary_kind 分类描边；无该字段的层为无操作）。
-  if ( attrs.contains( QLatin1String( "boundary_kind" ) ) )
+  // boundary_kind 分类描边；无该字段的层为无操作）。transition_width 同样
+  // 挂相变渐变带的 data-defined 带宽（方向 39）。
+  if ( attrs.contains( QLatin1String( "boundary_kind" ) ) ||
+       attrs.contains( QLatin1String( "transition_width" ) ) )
     QgisStyleService::applyFaciesBoundaryStyle( vl );
   vl->triggerRepaint();
   return true;
+}
+
+// ---- 方向 39：相界边界核查（faciesqa 只接不重写）---------------------------
+
+QVariantList CompositionWorkflow::runFaciesBoundaryQa( const QString &layerId, QString *error )
+{
+  using paleo::faciesmapping::FaciesQaIssue;
+  using paleo::faciesmapping::FaciesQaIssueType;
+  using paleo::faciesmapping::FaciesMapUnit;
+  using paleo::faciesmapping::runFaciesQa;
+
+  const auto fail = [error]( const QString &msg ) {
+    paleo::workflow_detail::setError( error, msg );
+    return QVariantList();
+  };
+
+  QgisLayerService *layers = m_layers.data();
+  if ( !layers )
+    return fail( tr( "composition workflow is not bound to services" ) );
+  QgsMapLayer *l = layers->instantiate( layerId, error );
+  auto *vl = qobject_cast<QgsVectorLayer *>( l );
+  if ( !vl )
+    return fail( ( error && !error->isEmpty() ) ? *error
+                     : tr( "层 '%1' 不是矢量层，无法核查相界" ).arg( layerId ) );
+  if ( vl->geometryType() != Qgis::GeometryType::Polygon )
+    return fail( tr( "层 '%1' 不是面层——相界核查面向相多边形" ).arg( layerId ) );
+
+  const int codeIdx = vl->fields().lookupField( QStringLiteral( "facies_code" ) );
+  const int kindIdx = vl->fields().lookupField( QStringLiteral( "boundary_kind" ) );
+  const int widthIdx = vl->fields().lookupField( QStringLiteral( "transition_width" ) );
+
+  // 部件环 → QA 环点（存储环为直线环，pointAt 逐点取；无曲线展开）。
+  const auto ringPoints = []( const QgsCurve *curve ) {
+    std::vector<paleo::singlefactor::Point2> pts;
+    if ( !curve )
+      return pts;
+    const int n = curve->numPoints();
+    pts.reserve( static_cast<std::size_t>( std::max( n, 0 ) ) );
+    for ( int k = 0; k < n; ++k )
+    {
+      QgsPoint p;
+      Qgis::VertexType type = Qgis::VertexType::Segment;
+      if ( curve->pointAt( k, p, type ) )
+        pts.push_back( { p.x(), p.y() } );
+    }
+    return pts;
+  };
+
+  // 单元装配：单部件 = 外环+洞；多部件 = 逐部件成单元（regionId 后缀 .pN
+  // ——每个部件都是真实边界环，不静默丢）。regionId → 单元索引备查。
+  std::vector<FaciesMapUnit> units;
+  QHash<QString, std::size_t> unitIndex;
+  QgsFeature f;
+  QgsFeatureIterator it = vl->getFeatures();
+  while ( it.nextFeature( f ) )
+  {
+    FaciesMapUnit base;
+    if ( codeIdx >= 0 && f.attribute( codeIdx ).isValid() )
+    {
+      bool ok = false;
+      const int code = f.attribute( codeIdx ).toInt( &ok );
+      base.faciesCode = ok ? code : -1;
+    }
+    if ( kindIdx >= 0 && f.attribute( kindIdx ).isValid() )
+      base.boundaryKind = f.attribute( kindIdx ).toString().toStdString();
+    if ( widthIdx >= 0 && f.attribute( widthIdx ).isValid() && !f.attribute( widthIdx ).isNull() )
+    {
+      bool ok = false;
+      const double width = f.attribute( widthIdx ).toDouble( &ok );
+      base.transitionWidth = ok ? width : 0.0;
+    }
+
+    const QString baseId = QString::number( f.id() );
+    const QgsGeometry geom = f.geometry();
+    const QgsAbstractGeometry *g = geom.constGet();
+    const auto appendPart = [&]( const QgsPolygon *poly, const QString &regionId ) {
+      if ( !poly )
+        return;
+      FaciesMapUnit part = base;
+      part.regionId = regionId.toStdString();
+      part.geometry.exterior.points = ringPoints( poly->exteriorRing() );
+      for ( int h = 0; h < poly->numInteriorRings(); ++h )
+      {
+        paleo::singlefactor::Ring hole;
+        hole.points = ringPoints( poly->interiorRing( h ) );
+        part.geometry.holes.push_back( std::move( hole ) );
+      }
+      if ( part.geometry.exterior.points.size() >= 3 )
+      {
+        unitIndex.insert( regionId, units.size() );
+        units.push_back( std::move( part ) );
+      }
+    };
+    if ( const QgsMultiPolygon *mp = qgsgeometry_cast< const QgsMultiPolygon * >( g ) )
+    {
+      for ( int p = 0; p < mp->numGeometries(); ++p )
+        appendPart( qgsgeometry_cast< const QgsPolygon * >( mp->geometryN( p ) ),
+                    QStringLiteral( "%1.p%2" ).arg( baseId, QString::number( p ) ) );
+    }
+    else
+    {
+      appendPart( qgsgeometry_cast< const QgsPolygon * >( g ), baseId );
+    }
+  }
+
+  if ( units.empty() )
+    return fail( tr( "层 '%1' 没有可核查的面要素" ).arg( layerId ) );
+
+  const paleo::faciesmapping::FaciesQaOptions qaOptions; // 默认容差；尖灭端点
+  // 落位检测关（编图层无他可落位边界/约束线上下文时如实不报）。
+  const paleo::faciesmapping::FaciesQaResult qa = runFaciesQa( units, {}, {}, qaOptions );
+  if ( qa.status != paleo::singlefactor::Status::Ok )
+    return fail( tr( "QA 检测失败：%1" ).arg( QString::fromStdString( qa.message ) ) );
+
+  // 报告面 = 边界几何与类型核查项；井覆盖/孤岛/约束冲突归方向 27 的
+  // draft QA（那里有井位/阈值/约束线上下文），这里无上下文不冒充检测。
+  QVariantList report;
+  const auto unitOf = [&]( const std::string &regionId ) -> const FaciesMapUnit * {
+    const auto found = unitIndex.constFind( QString::fromStdString( regionId ) );
+    return found != unitIndex.constEnd() ? &units[found.value()] : nullptr;
+  };
+  for ( const FaciesQaIssue &issue : qa.issues )
+  {
+    QString reason;
+    switch ( issue.type )
+    {
+      case FaciesQaIssueType::UnclosedRing:
+      {
+        const FaciesMapUnit *unit = issue.regionIds.empty() ? nullptr : unitOf( issue.regionIds.front() );
+        if ( unit && unit->geometry.exterior.points.size() < 4 )
+          reason = tr( "环点数不足（%1 个点）" ).arg( unit->geometry.exterior.points.size() );
+        else
+          reason = tr( "环首尾不闭合（缺口 %1）" ).arg( issue.metric, 0, 'f', 2 );
+        break;
+      }
+      case FaciesQaIssueType::Overlap:
+        reason = tr( "相带两两重叠（交集面积 %1）" ).arg( issue.metric, 0, 'f', 2 );
+        break;
+      case FaciesQaIssueType::PinchoutTipDangling:
+        reason = issue.metric >= 0
+                     ? tr( "尖灭端点无落位——开放端悬空（距最近可落位边界 %1）" )
+                           .arg( issue.metric, 0, 'f', 2 )
+                     : tr( "尖灭端点无落位——场内无可落位边界" );
+        break;
+      case FaciesQaIssueType::TransitionBandMissing:
+        reason = tr( "相变带无渐变范围——transition_width 未设置或为 0" );
+        break;
+      case FaciesQaIssueType::ConformableCutFacies:
+      {
+        const FaciesMapUnit *a = issue.regionIds.size() > 0 ? unitOf( issue.regionIds[0] ) : nullptr;
+        const FaciesMapUnit *b = issue.regionIds.size() > 1 ? unitOf( issue.regionIds[1] ) : nullptr;
+        reason = tr( "整合接触边界切两侧相——两侧相代码不同（%1/%2，共享边 %3）" )
+                     .arg( a ? a->faciesCode : -1 )
+                     .arg( b ? b->faciesCode : -1 )
+                     .arg( issue.metric, 0, 'f', 2 );
+        break;
+      }
+      case FaciesQaIssueType::SmallIsland:
+      case FaciesQaIssueType::ConstraintConflict:
+      case FaciesQaIssueType::NoWellCoverage:
+        continue; // 归方向 27 draft QA（无井/阈值/约束线上下文不冒充检测）
+    }
+    QVariantMap row;
+    row.insert( QStringLiteral( "name" ),
+                QString::fromLatin1( paleo::faciesmapping::faciesQaIssueName( issue.type ) ) );
+    row.insert( QStringLiteral( "reason" ), reason );
+    QStringList regionIds;
+    for ( const std::string &id : issue.regionIds )
+      regionIds << QString::fromStdString( id );
+    row.insert( QStringLiteral( "regionIds" ), regionIds );
+    row.insert( QStringLiteral( "metric" ), issue.metric );
+    row.insert( QStringLiteral( "x" ), issue.location.x );
+    row.insert( QStringLiteral( "y" ), issue.location.y );
+    report.append( row );
+  }
+  return report;
 }

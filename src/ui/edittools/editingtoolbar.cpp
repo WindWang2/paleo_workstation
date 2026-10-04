@@ -645,7 +645,12 @@ void PaleoEditingToolbar::buildUi()
     config.setUnits(Qgis::MapToolUnit::Pixels);
     mCanvas->snappingUtils()->setConfig(config);
     if (auto *project = mProject ? mProject.data() : QgsProject::instance())
+    {
+      // 同 paleomainwindow 镜像点：config 须挂 project 指针，否则重开工程
+      // 时 readProject 在空 project 上调 mapLayer 崩溃。
+      config.setProject(project);
       project->setSnappingConfig(config);
+    }
     QSettings().setValue(QStringLiteral("editing/snapTolerancePx"), px);
   });
   auto config = mCanvas->snappingUtils()->config();

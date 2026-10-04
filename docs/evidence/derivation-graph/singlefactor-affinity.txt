@@ -1,0 +1,16 @@
+Test project /home/kevin/projects/paleo_workstation/.worktrees/derivation-graph/build
+    Start 29: tst_singlefactor_perf
+1/1 Test #29: tst_singlefactor_perf ............***Failed  200.61 sec
+
+
+0% tests passed, 1 tests failed out of 1
+
+Label Time Summary:
+algorithms    = 200.61 sec*proc (1 test)
+perf          = 200.61 sec*proc (1 test)
+
+Total Test time (real) = 200.63 sec
+
+The following tests FAILED:
+	 29 - tst_singlefactor_perf (Failed)                    algorithms perf
+Errors while running CTest

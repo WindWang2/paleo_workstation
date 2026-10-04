@@ -191,7 +191,7 @@ private slots:
     const double picksPerSec = picks.size() / (trackMs / 1000.0);
     qInfo("BASELINE autotrack_966mb_track_ms = %.1f for %d picks "
           "(covered %d/%d, stop=%s)",
-          trackMs, picks.size(), report.coveredTraces, report.totalTraces,
+          trackMs, int(picks.size()), int(report.coveredTraces), int(report.totalTraces),
           qPrintable(report.stopSummary));
     qInfo("BASELINE autotrack_966mb_picks_per_sec = %.0f", picksPerSec);
     QVERIFY(picks.size() >= report.totalTraces * 9 / 10); // ramp 全程可追

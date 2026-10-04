@@ -8,7 +8,7 @@
       "installer_url": "https://download.osgeo.org/osgeo4w/v2/osgeo4w-setup.exe",
       "installer_sha256": "6746638d273334ffae3f813ce964023c5655fdf33eb82bd4ce1a97340c684798",
       "qgis_family": "4.2.x",
-      "packages": ["qgis", "qgis-devel", "qgis-devel-deps", "qt6-devel", "qt6-oci", "gdal-devel", "proj-devel", "geos-devel", "sqlite3-devel", "qscintilla-qt6-devel"]
+      "packages": ["qgis", "qgis-devel", "qgis-devel-deps", "qt6-devel", "qt6-oci", "gdal-devel", "proj-devel", "geos-devel", "sqlite3-devel", "qscintilla-qt6-devel", "zlib-devel"]
     },
     "onnxruntime": {
       "version": "1.30.0",

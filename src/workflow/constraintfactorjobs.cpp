@@ -189,7 +189,9 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
     return false;
   }
 
-  if ( method == QLatin1String( "local_direction_idw" ) )
+  // 方向41：local_direction_kriging 走同一本地方向三段式，只在插值面内切引擎
+  //（METHOD=kriging）；克里金不成立时该任务自己如实回落 IDW 并记 method_actual。
+  if ( method == QLatin1String( "local_direction_idw" ) || method == QLatin1String( "local_direction_kriging" ) )
     return generateLocalDirectionFactor( horizon, factorId, def, params, error );
   if ( method == QLatin1String( "kriging" ) || method == QLatin1String( "sgs" ) )
     return generateGeostatFactor( horizon, factorId, method, def, params, error );
@@ -686,6 +688,24 @@ bool ConstraintWorkflow::computeLocalDirectionJob( LocalDirectionJob *job, const
   runParams.insert( QStringLiteral( "MIN_POINTS" ), job->params.value( QStringLiteral( "minPoints" ), 3 ) );
   runParams.insert( QStringLiteral( "MAX_POINTS" ), job->params.value( QStringLiteral( "maxPoints" ), 12 ) );
   runParams.insert( QStringLiteral( "SEARCH_RADIUS" ), job->params.value( QStringLiteral( "searchRadius" ), 0.0 ) );
+  // 方向41：克里金请求与变差参数（只在本地方向面内切引擎，不改缺省 IDW 行为）。
+  const QString localMethod = job->params.value( QStringLiteral( "method" ) ).toString();
+  const bool localKriging = localMethod == QLatin1String( "local_direction_kriging" ) ||
+                            localMethod == QLatin1String( "kriging" );
+  runParams.insert( QStringLiteral( "METHOD" ),
+                    localKriging ? QStringLiteral( "kriging" ) : QStringLiteral( "local_direction_idw" ) );
+  if ( localKriging )
+  {
+    runParams.insert( QStringLiteral( "VARIAGRAM_MODEL" ),
+                      job->params.value( QStringLiteral( "variogramModel" ), QStringLiteral( "spherical" ) ) );
+    runParams.insert( QStringLiteral( "NUGGET" ), job->params.value( QStringLiteral( "nugget" ), 0.0 ) );
+    runParams.insert( QStringLiteral( "SILL" ), job->params.value( QStringLiteral( "sill" ), 0.0 ) );
+    runParams.insert( QStringLiteral( "RANGE" ), job->params.value( QStringLiteral( "range" ), 0.0 ) );
+    runParams.insert( QStringLiteral( "VARIAGRAM_AZIMUTH" ),
+                      job->params.value( QStringLiteral( "azimuth" ), -1.0 ) );
+    runParams.insert( QStringLiteral( "KRIGING_MAX_POINTS" ),
+                      job->params.value( QStringLiteral( "krigingMaxPoints" ), 16 ) );
+  }
   if ( job->engineId == QLatin1String( "paleo:paleo_surfer_idw" ) )
   {
     // 各向异性是 surfer 引擎专属参数；其余引擎不识别。
@@ -872,7 +892,27 @@ bool ConstraintWorkflow::publishLocalDirectionJob( const LocalDirectionJob &job,
   extra.insert( QStringLiteral( "value_source" ), QStringLiteral( "analysis" ) );
   extra.insert( QStringLiteral( "parameter_hash" ), hash.sha256 );
   extra.insert( QStringLiteral( "provenance_schema_version" ), 1 );
-  extra.insert( QStringLiteral( "algorithm_id" ), job.engineId );
+  // 方向41：algorithm_id 只认 QC 里实际执行的引擎（克里金回落时是 constraint/
+  // local_direction_idw），engine_id 记请求的引擎，两者不混称。
+  const QString actualAlgorithm = qc.value( QStringLiteral( "algorithm_id" ) ).toString();
+  const QString actualMethod = qc.value( QStringLiteral( "method_actual" ) ).toString();
+  const QString fallbackReason = qc.value( QStringLiteral( "fallback_reason" ) ).toString();
+  const QString committedAlgorithm = actualAlgorithm.isEmpty() ? job.engineId : actualAlgorithm;
+  extra.insert( QStringLiteral( "algorithm_id" ), committedAlgorithm );
+  extra.insert( QStringLiteral( "engine_id" ), job.engineId );
+  extra.insert( QStringLiteral( "method_actual" ),
+                actualMethod.isEmpty() ? QStringLiteral( "local_direction_idw" ) : actualMethod );
+  if ( qc.contains( QStringLiteral( "variogram" ) ) )
+    extra.insert( QStringLiteral( "variogram" ), qc.value( QStringLiteral( "variogram" ) ) );
+  if ( qc.contains( QStringLiteral( "issues" ) ) )
+    extra.insert( QStringLiteral( "issues" ), qc.value( QStringLiteral( "issues" ) ) );
+  if ( !fallbackReason.isEmpty() )
+    extra.insert( QStringLiteral( "fallback_reason" ), fallbackReason );
+  // 计数只在 QC 里有对应键时写（旧工程 QC 没有 kriging/idw_fallback 计数）。
+  if ( counts.contains( QStringLiteral( "kriging" ) ) )
+    extra.insert( QStringLiteral( "kriging_cells" ), counts.value( QStringLiteral( "kriging" ) ) );
+  if ( counts.contains( QStringLiteral( "idw_fallback" ) ) )
+    extra.insert( QStringLiteral( "idw_fallback_cells" ), counts.value( QStringLiteral( "idw_fallback" ) ) );
   extra.insert( QStringLiteral( "extent_source" ), qc.value( QStringLiteral( "extent_source" ) ) );
   extra.insert( QStringLiteral( "crs_mode" ), qc.value( QStringLiteral( "crs_mode" ) ) );
   extra.insert( QStringLiteral( "support_path" ), projectDir.relativeFilePath( stagedSupport ) );
@@ -885,7 +925,7 @@ bool ConstraintWorkflow::publishLocalDirectionJob( const LocalDirectionJob &job,
   extra.insert( QStringLiteral( "barrier_cells" ), counts.value( QStringLiteral( "barrier" ) ) );
   inheritMockFlag( PaleoWorkflowDerivedCatalog( this ), parentIds, extra );
   QString commitErr;
-  if ( !registrar.commitExternal( st, job.outputPath, parentIds, job.engineId, extra, &commitErr ) )
+  if ( !registrar.commitExternal( st, job.outputPath, parentIds, committedAlgorithm, extra, &commitErr ) )
   {
     discard();
     paleo::workflow_detail::setError( error, commitErr );

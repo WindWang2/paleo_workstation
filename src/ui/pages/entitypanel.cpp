@@ -1,5 +1,6 @@
 // 层：视图
 #include "entitypanel.h"
+#include "derivationgraph.h"
 #include "pageshared.h"
 #include "../paleotheme.h"
 #include "../../services/previewdoc.h"
@@ -392,6 +393,23 @@ void EntityPanel::buildD4Ui()
               });
       sl->addWidget(secTopo);
 
+      auto *secLineage = new CollapsibleSection(tr("衍生血缘"), host);
+      secLineage->setObjectName(QStringLiteral("secDerivation"));
+      m_derivation = new DerivationPanel(secLineage->container());
+      secLineage->containerLayout()->addWidget(m_derivation);
+      sl->addWidget(secLineage);
+      connect(m_derivation, &DerivationPanel::queryChanged, this, &EntityPanel::refreshDerivation);
+      connect(m_derivation, &DerivationPanel::nodeClicked, this, [this](const QString &id) {
+        m_graphSelected = id;
+        m_derivation->graphView()->highlight(id, paleo::derivation::Service::selectionClosure(
+            m_doc ? m_doc->catalog() : nullptr, m_derivationData, id));
+        m_preserveGraphOnce = true;
+        const QPointer<EntityPanel> self(this);
+        emit versionActivated(id);
+        if (self) self->m_preserveGraphOnce = false; // 定位槽可销毁宿主；无接收者也不得残留。
+      });
+      connect(m_timeline, &VersionTimeline::versionActivated, this, &EntityPanel::versionActivated);
+
       // D4.8 统计段：当前上下文的资产计数摘要。
       auto *secStats = new CollapsibleSection(tr("统计"), host);
       secStats->setObjectName(QStringLiteral("secStats"));
@@ -700,12 +718,40 @@ void EntityPanel::beginDeleteEntity(const QString &entityId)
   emit statusMessage(tr("实体「%1」已移入可回收清单（可撤销）").arg(e.name));
 }
 
-void EntityPanel::setDocService(PreviewDocService *doc) { m_doc = doc; }
+void EntityPanel::setDocService(PreviewDocService *doc)
+{
+  m_doc = doc; m_versionId.clear(); m_graphSelected.clear(); m_preserveGraphOnce = false;
+  refreshDerivation();
+}
+void EntityPanel::setVersionContext(const QString &assetId, const QString &versionId)
+{
+  m_assetId = assetId; m_versionId = versionId;
+  m_entityId = m_doc ? m_doc->entityIdForAsset(assetId) : QString();
+  // 图内点选仍保留当前图及无关分支的降透明度；预览外部换版本重建子图。
+  m_preserveGraphOnce = m_preserveGraphOnce && m_graphSelected == versionId;
+  if (!m_preserveGraphOnce) m_graphSelected = versionId;
+  m_multiAssetIds.clear(); m_multiEntityIds.clear();
+  refresh();
+}
+void EntityPanel::refreshDerivation()
+{
+  if (!m_derivation) return;
+  if (m_preserveGraphOnce) { m_preserveGraphOnce = false; return; }
+  auto query = m_derivation->query();
+  query.entityId = m_entityId; query.assetId = m_assetId; query.versionId = m_versionId;
+  if (m_multiAssetIds.size() > 1) { query.entityId.clear(); query.assetId.clear(); query.versionId.clear(); }
+  m_derivationData = paleo::derivation::Service::build(m_doc ? m_doc->catalog() : nullptr, query);
+  m_derivation->setGraph(m_derivationData);
+  if (!m_graphSelected.isEmpty())
+    m_derivation->graphView()->highlight(m_graphSelected, paleo::derivation::Service::selectionClosure(
+        m_doc ? m_doc->catalog() : nullptr, m_derivationData, m_graphSelected));
+}
 
 void EntityPanel::setContext(const QString &entityId, const QString &assetId)
 {
   m_entityId = entityId;
   m_assetId = assetId;
+  m_versionId.clear(); m_graphSelected.clear(); m_preserveGraphOnce = false;
   // 单一上下文覆盖多选批量概要态（D4.9 的回落路径）。
   m_multiAssetIds.clear();
   m_multiEntityIds.clear();
@@ -713,6 +759,7 @@ void EntityPanel::setContext(const QString &entityId, const QString &assetId)
 
 void EntityPanel::refresh()
 {
+  refreshDerivation();
   QWidget *root = this;
   if (!root)
     return;
@@ -845,7 +892,7 @@ void EntityPanel::refresh()
 
     empty->setVisible(false);
     content->setVisible(true);
-    const CatalogVersion v = cat->currentVersion(a.id);
+    const CatalogVersion v = m_versionId.isEmpty() ? cat->currentVersion(a.id) : m_doc->versionForPreview(m_versionId);
     const QString abs = svc ? svc->absolutePathForVersion(v) : QString();
 
     QString typeDisplay = a.type;

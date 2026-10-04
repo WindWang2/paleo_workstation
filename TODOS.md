@@ -30,19 +30,29 @@
 
 ## P2 — 单因素原生算法后续（from goal/single-factor-native, 2026-10-02）
 
-- **What:** 克里金体系深化、完整 SFPKG 导入、外委 XML/XLSX 批量读取、
-  参考工程全部历史制图策略、时深域转换、监督分类、打印排版、
-  完整 Python GUI 嵌入。有限断层路径距离 `FaultPathMetric` 已由
-  `src/algorithms/singlefactor/faultpath.{h,cpp}` 落地，并接入 localdirectionalgorithm；
-  回归为 `tst_singlefactor_faultpath` / `tst_singlefactor_parity_completion`，从未实现项勾销。
-- **Why:** 本次交付只做 C++ 局部方向 IDW、软边界、井群权重、硬屏障栅格连通、
-  真实数值等值线和显式制图工作场。上游井数超过 80 等条件下的各向异性路径
-  会退成 IDW，不能把 UI 标签当成克里金。
-- **Pros:** P0/P1 保持可复算的分析场语义；**Cons:** 历史闭环补接
-  和批量外委格式要另立项。
-- **Context:** `docs/designs/single-factor-native-integration-plan.md` 第 1 节
-  与第 7.3 节（原方向历史快照）。当前 `localidw.h` 的旧核仍为
-  `grid_connectivity_v1`，生产局部方向作业已能使用独立的 FaultPathMetric 绕行核；两者不混称。
+- **What:** 剩余项：协克里金/带约束 OK（把方向线/软边界耦合进克里金权重）、
+  变差函数逐硬隔断分量拟合、SFPKG 写出与 ZIP64、外委表的曲线统计
+  （mean/median/min/max + 深度区间）与因素自动发现、制图策略包进 UI、
+  时深域转换、监督分类、打印排版、完整 Python GUI 嵌入。
+  已完成（原 P2 条目）：有限断层路径距离 `FaultPathMetric`
+  （`src/algorithms/singlefactor/faultpath.{h,cpp}`，回归 `tst_singlefactor_faultpath`）；
+  变差函数/普通克里金核（方向18 `src/algorithms/geostat/`）；
+  克里金接入本地方向插值面（方向41 `krigingsurface.{h,cpp}` +
+  `geostat::KrigingSolver`，`method=local_direction_kriging`，
+  回落记 `method_actual`，回归 `tst_singlefactor_kriging`）；
+  完整 SFPKG 读取（`src/io/sfpkgreader.*`，回归 `tst_io_sfpkg`）；
+  外委 XML/XLSX 批量读取（`src/io/outsourceworkbook.*`，回归 `tst_io_outsource`）；
+  可枚举历史制图策略参数包词表
+  （`src/domain/singlefactorstrategy.*`，回归 `tst_singlefactor_strategy`）。
+- **Why:** 「井数 >80 各向异性路径退成 IDW、UI 标签不得冒充克里金」已在本地引擎侧
+  解决：克里金不再回落成 IDW 冒充，回落时 `method_actual`/`fallback_reason`
+  如实写进血缘与 QC；剩余项各需独立契约。
+- **Pros:** 沿用 local_direction_idw 插值面复算语义，克里金与 IDW 共用一套
+  成图域/硬屏障/井控标记；**Cons:** 协克里金、逐分量拟合、SFPKG 写出仍要另做。
+- **Context:** `docs/progress/sf-kriging.md`（方向41 全文口径与递延）、
+  `docs/progress/geostat-methods.md`（克里金核口径）。
+  当前 `localidw.h` 的旧核仍为 `grid_connectivity_v1`，生产局部方向作业已能使用
+  独立的 FaultPathMetric 绕行核；两者不混称。
 - **Effort:** human: L / CC: L
 - **Priority:** P2
 - **Depends on:** 单因素原生 P0 分析场进入目标基线
@@ -244,7 +254,7 @@ master 的 `41feecf`，catalog 行序修复来自 `e8da8cf`，不归入本 PR �
 - **Why:** 真实古地理图的边界有地质含义；不同边界类型的编辑行为和符号不同。
 - **Pros:** 编图专业正确性；验证模块可按类型核查。
 - **Cons:** 数据模型与编辑工具复杂度上升；需要地质专家参与定义。
-- **Context:** 文档 §14–15 目前把相界当普通 polygon 拓扑处理。先做单一"相界线"类型跑通，再扩类型。**2026-09-30 进展（wave/deepen-perf C2）**：4 类词面已冻结（`src/workflow/boundarysemantics.h`），单类型断层切割 fault_cut 已跑通（boundary_kind 属性 schema → composepage 下拉 → `applyFaciesBoundaryStyle` 断层红粗边）；kind 落要素级，逐弧段需 boundary-graph 线层；其余三类的差异化编辑行为仍需地质专家定义。
+- **Context:** 文档 §14–15 目前把相界当普通 polygon 拓扑处理。先做单一"相界线"类型跑通，再扩类型。**2026-09-30 进展（wave/deepen-perf C2）**：4 类词面已冻结（`src/workflow/boundarysemantics.h`），单类型断层切割 fault_cut 已跑通（boundary_kind 属性 schema → composepage 下拉 → `applyFaciesBoundaryStyle` 断层红粗边）；kind 落要素级，逐弧段需 boundary-graph 线层；其余三类的差异化编辑行为仍需地质专家定义。**2026-10-04 收口（goal/boundary-kinds 方向 39）**：四类全激活——三类图面（整合=实线/尖灭=虚线/相变=点线+渐变带，复用方向 31 facies_* 线型调性；带宽 data-defined 绑 transition_width）、编辑语义门禁（`workflow/boundaryeditrules`：整合接触切两侧拒/渐变带仅相变/尖灭开放端；挂 saveFaciesAttributes）、QA 按类型核查（faciesqa 三新检测器 + 尖灭 UnclosedRing 豁免 + composepage「边界核查」入口）；工程重开样式经 layerInstantiated 钩子重建。**逐弧段仍递延**：boundary-graph 线层需弧段提取/共享弧归属/编辑回写三套新机制，且当前编辑面是要素级 vertex tool——无弧段级编辑消费方，等真需求落地再立（见 `.goal-loop-ledger-boundary-kinds.md`）。
 - **Effort:** human: L / CC: M
 - **Priority:** P2
 - **Depends on:** P0 矢量编辑落地

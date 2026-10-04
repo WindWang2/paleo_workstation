@@ -3,6 +3,7 @@
 
 #include "types.h"
 
+#include <algorithm>
 #include <array>
 #include <vector>
 
@@ -41,6 +42,10 @@ class CurveKernel
     std::vector<std::array<double, 3>> m_dyads;
 };
 
-double tangentEnergy( double dx, double dy, const std::array<double, 3> &tensor );
+// 查询×井×方向的热路径；头内联让调用方复用 dx²/dy²，并免去临时 tensor 落栈。
+inline double tangentEnergy( double dx, double dy, const std::array<double, 3> &tensor )
+{
+  return std::max( 0.0, dx * dx * tensor[0] + 2.0 * dx * dy * tensor[1] + dy * dy * tensor[2] );
+}
 
 } // namespace paleo::singlefactor

@@ -2292,7 +2292,7 @@ private slots:
       sawSeismic = sawSeismic || r.classifiedType == QLatin1String("seismic");
     }
     qWarning("FOLDER SMOKE %lld ms: %d rows — 入库 %d, 未决 %d, 失败 %d, 跳过 %d",
-             timer.elapsed(), rows.size(), nImported, nUnresolved, nFailed, nSkipped);
+             timer.elapsed(), int(rows.size()), nImported, nUnresolved, nFailed, nSkipped);
     QCOMPARE(nFailed, 0);
     QVERIFY(sawWellHead && sawSeismic);
 

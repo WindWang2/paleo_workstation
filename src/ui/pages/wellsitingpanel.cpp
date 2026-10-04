@@ -72,7 +72,7 @@ WellSitingPanel::WellSitingPanel( WellSitingWorkflow *wf, QWidget *parent )
   auto *paramsRow = new QWidget( this );
   auto *paramsLay = new QHBoxLayout( paramsRow );
   paramsLay->setContentsMargins( 0, 0, 0, 0 );
-  paramsLay->setSpacing( 8 );
+  paramsLay->setSpacing(PaleoTheme::tokens().spacingSm);
   paramsLay->addWidget( new QLabel( tr( "井控半径" ), paramsRow ) );
   auto *radius = paramSpin( 2500, 100, 20000, 100, QStringLiteral( "sitingControlRadius" ),
                             tr( "井控半径" ), paramsRow );
@@ -155,7 +155,7 @@ WellSitingPanel::WellSitingPanel( WellSitingWorkflow *wf, QWidget *parent )
   auto *pickRow = new QWidget( this );
   auto *pickLay = new QHBoxLayout( pickRow );
   pickLay->setContentsMargins( 0, 0, 0, 0 );
-  pickLay->setSpacing( 8 );
+  pickLay->setSpacing(PaleoTheme::tokens().spacingSm);
   auto *pick = new QPushButton( tr( "地图布点" ), pickRow );
   pick->setObjectName( QStringLiteral( "sitingPickButton" ) );
   pick->setToolTip( tr( "在地图上单击拾取一个计划井点位（支持吸附）" ) );
@@ -246,7 +246,7 @@ WellSitingPanel::WellSitingPanel( WellSitingWorkflow *wf, QWidget *parent )
   auto *saveRow = new QWidget( this );
   auto *saveLay = new QHBoxLayout( saveRow );
   saveLay->setContentsMargins( 0, 0, 0, 0 );
-  saveLay->setSpacing( 8 );
+  saveLay->setSpacing(PaleoTheme::tokens().spacingSm);
   auto *scenarioName = new QLineEdit( saveRow );
   scenarioName->setObjectName( QStringLiteral( "sitingScenarioNameEdit" ) );
   scenarioName->setPlaceholderText( tr( "方案名" ) );
@@ -274,7 +274,7 @@ WellSitingPanel::WellSitingPanel( WellSitingWorkflow *wf, QWidget *parent )
   auto *exportRow = new QWidget( this );
   auto *exportLay = new QHBoxLayout( exportRow );
   exportLay->setContentsMargins( 0, 0, 0, 0 );
-  exportLay->setSpacing( 8 );
+  exportLay->setSpacing(PaleoTheme::tokens().spacingSm);
   auto *delScenario = new QPushButton( tr( "删除方案" ), exportRow );
   delScenario->setObjectName( QStringLiteral( "sitingDeleteScenarioButton" ) );
   delScenario->setEnabled( false );

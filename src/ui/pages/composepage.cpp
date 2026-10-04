@@ -141,12 +141,12 @@ ComposePage::ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWid
           [this] { emit batchFigureExportRequested(); });
 
   auto *layoutRow = new QHBoxLayout();
-  layoutRow->setSpacing(4); // xs
+  layoutRow->setSpacing(PaleoTheme::tokens().spacingXs); // xs
   layoutRow->addWidget(openLayout, 1);
   layoutRow->addWidget(deleteLayout, 1);
   lay->addLayout(layoutRow);
   lay->addWidget(batchExport);
-  lay->addSpacing(16);
+  lay->addSpacing(PaleoTheme::tokens().spacingMd);
 
   lay->addWidget(caption(tr("单因素图层"), this));
   auto *list = new QListWidget(this);
@@ -275,9 +275,8 @@ ComposePage::ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWid
     comment->setPlaceholderText(tr("备注"));
     al->addWidget(comment);
 
-    // ---- C2（wave/deepen-perf）：相界地质语义类型——单类型首发（断层切割）。
+    // ---- C2（wave/deepen-perf）：相界地质语义类型——四类全开（方向 39）。
     // 词面来自 BoundarySemantics；「无」= 不写 boundary_kind（保持未分类）。
-    // 其余类型（整合接触/尖灭/相变）在 activeKinds 登记后自动出现在此。
     auto *boundaryKind = new QComboBox(attrSection);
     boundaryKind->setObjectName(QStringLiteral("faciesBoundaryKindCombo"));
     boundaryKind->setAccessibleName(tr("相界类型"));
@@ -286,12 +285,36 @@ ComposePage::ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWid
       boundaryKind->addItem(BoundarySemantics::titleFor(kind), kind);
     al->addWidget(boundaryKind);
 
+    // 方向 39：相变渐变带宽（图层地图单位）——仅相变可携带（编辑语义在
+    // workflow 门禁；这里只管使能态 + reason tooltip，DESIGN.md §35）。
+    auto *transitionWidth = new QDoubleSpinBox(attrSection);
+    transitionWidth->setObjectName(QStringLiteral("faciesTransitionWidthSpin"));
+    transitionWidth->setAccessibleName(tr("渐变带宽"));
+    transitionWidth->setDecimals(2);
+    transitionWidth->setRange(0.0, 1.0e9);
+    transitionWidth->setSingleStep(10.0);
+    transitionWidth->setPrefix(tr("渐变带宽 "));
+    transitionWidth->setSuffix(tr("（图层单位）"));
+    al->addWidget(transitionWidth);
+    const auto syncTransitionWidthEnabled = [transitionWidth](const QString &kind) {
+      const bool faciesChange = kind == QLatin1String(BoundarySemantics::kFaciesChange);
+      transitionWidth->setEnabled(faciesChange);
+      transitionWidth->setToolTip(faciesChange
+                                      ? tr("相变边界的渐变带宽度（图层地图单位）")
+                                      : tr("渐变带仅相变边界可携带——先选相界类型「相变」"));
+    };
+    syncTransitionWidthEnabled(boundaryKind->currentData().toString());
+    connect(boundaryKind, &QComboBox::currentIndexChanged, boundaryKind,
+            [boundaryKind, syncTransitionWidthEnabled] {
+              syncTransitionWidthEnabled(boundaryKind->currentData().toString());
+            });
+
     auto *save = new QPushButton(tr("保存相属性"), attrSection);
     save->setObjectName(QStringLiteral("faciesAttrSaveButton"));
     save->setAccessibleName(tr("保存相属性"));
     save->setEnabled(false);
     save->setToolTip(tr("先矢量化生成相界图层"));
-    connect(save, &QPushButton::clicked, this, [this, code, faciesType, comment, boundaryKind] {
+    connect(save, &QPushButton::clicked, this, [this, code, faciesType, comment, boundaryKind, transitionWidth] {
       const QString layerId = property(kFaciesTargetProp).toString();
       const QString codeText = code->text().trimmed();
       auto *status = child<QLabel>(this, "statusLabel");
@@ -324,11 +347,33 @@ ComposePage::ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWid
       const QString kind = boundaryKind->currentData().toString();
       if (!kind.isEmpty())
         attrs.insert(QStringLiteral("boundary_kind"), kind);
+      // 方向 39：渐变带宽随相变提交（>0 才携带；其它类型不带键——语义
+      // 门禁在 workflow 侧，非相变携带带宽会被整单拒绝）。
+      if (kind == QLatin1String(BoundarySemantics::kFaciesChange) &&
+          transitionWidth->value() > 0)
+        attrs.insert(QStringLiteral("transition_width"), transitionWidth->value());
       emit faciesAttributesSaveRequested(layerId, attrs);
       if (status)
         status->setText(tr("已提交相属性：%1（图层当前选中要素）").arg(layerId));
     });
     al->addWidget(save);
+
+    // 方向 39：边界核查——按相界类型出核查项（壳接 runFaciesBoundaryQa，
+    // faciesqa 引擎只接不重写；报告有名有因回 statusLabel）。
+    auto *boundaryQa = new QPushButton(tr("边界核查"), attrSection);
+    boundaryQa->setObjectName(QStringLiteral("faciesBoundaryQaButton"));
+    boundaryQa->setAccessibleName(tr("边界核查"));
+    connect(boundaryQa, &QPushButton::clicked, this, [this] {
+      const QString layerId = property(kFaciesTargetProp).toString();
+      if (layerId.isEmpty())
+      {
+        if (auto *status = child<QLabel>(this, "statusLabel"))
+          status->setText(tr("还没有相属性目标层 — 先「转为相多边形」"));
+        return;
+      }
+      emit boundaryQaRequested(layerId);
+    });
+    al->addWidget(boundaryQa);
   }
   lay->addWidget(attrSection);
 

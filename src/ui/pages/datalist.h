@@ -139,6 +139,7 @@ class DataListPanel : public QWidget
 
   signals:
     void importRequested(const QString &kind);   // "wells" | "seismic" | "boundary" | ...
+    void versionActivated(const QString &versionId); // 体检 stale 版本定位
     void assetActivated(const QString &assetId); // 列表选中 → 预览标签打开
     // goal/gridding-surface-ops：层位散点 → 网格化参数表（壳接线异步任务）。
     void gridHorizonRequested(const QString &assetId);

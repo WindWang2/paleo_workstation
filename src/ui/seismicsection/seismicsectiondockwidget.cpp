@@ -1,4 +1,5 @@
 // 层：视图
+// token 例外：DESIGN 数据符号例外：井旁道的分层位置标记，与数据图像使用原有蓝色。（tools/ui-token-exceptions.json 精确计数）。
 #include "ui/seismicsection/seismicsectiondockwidget.h"
 #include "ui/seismicsection/seismicattrpanel.h"
 #include "ui/seismicsection/inversionpanel.h"
@@ -105,8 +106,8 @@ void SeismicSectionDockWidget::setupUi() {
             .arg(t.surface.name().toUpper(), t.border.name().toUpper());
     });
     auto *toolLay = new QHBoxLayout(toolbar);
-    toolLay->setContentsMargins(8, 4, 8, 4);
-    toolLay->setSpacing(8);
+    toolLay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs);
+    toolLay->setSpacing(PaleoTheme::tokens().spacingSm);
 
     auto applyBtnStyle = [](QToolButton *btn) {
         PaleoTheme::applyThemedStyleSheet(btn, [] { return PaleoTheme::toolButtonStyleSheet(); });
@@ -124,8 +125,8 @@ void SeismicSectionDockWidget::setupUi() {
     m_lblTitle = new QLabel(tr("测线: 未加载"), toolbar);
     PaleoTheme::applyThemedStyleSheet(m_lblTitle, [] {
         const auto &t = PaleoTheme::tokens();
-        return QStringLiteral(
-            "QLabel { background: %1; color: %2; font-weight: bold; border-radius: 4px; padding: 2px 8px; font-size: 9pt; }")
+        return PaleoTheme::metricStyleSheet(QStringLiteral(
+            "QLabel { background: %1; color: %2; font-weight: bold; border-radius: {rounded.sm}px; padding: {spacing.xs}px {spacing.sm}px; font-size: {typography.body}pt; }"))
             .arg(t.surfaceAltRaised.name().toUpper(), t.text.name().toUpper());
     });
     toolLay->addWidget(m_lblTitle);
@@ -136,8 +137,8 @@ void SeismicSectionDockWidget::setupUi() {
     m_cboSectionMode->addItems({tr("纵测线 (IL)"), tr("横测线 (XL)"), tr("时间切片 (Time)"), tr("任意测线/井剖面")});
     PaleoTheme::applyThemedStyleSheet(m_cboSectionMode, [] {
         const auto &t = PaleoTheme::tokens();
-        return QStringLiteral(
-            "QComboBox { border: 1px solid %1; border-radius: 4px; padding: 2px 6px; font-size: 8pt; color: %2; background: %3; font-weight: 500; }")
+        return PaleoTheme::metricStyleSheet(QStringLiteral(
+            "QComboBox { border: 1px solid %1; border-radius: {rounded.sm}px; padding: {spacing.xs}px {spacing.sm}px; font-size: {typography.label}pt; color: %2; background: %3; font-weight: 500; }"))
             .arg(t.border.name().toUpper(), t.text.name().toUpper(), t.surface.name().toUpper());
     });
     toolLay->addWidget(m_cboSectionMode);
@@ -146,11 +147,11 @@ void SeismicSectionDockWidget::setupUi() {
     m_sliceGroup = new QWidget(toolbar);
     auto *sliceLay = new QHBoxLayout(m_sliceGroup);
     sliceLay->setContentsMargins(0, 0, 0, 0);
-    sliceLay->setSpacing(4);
+    sliceLay->setSpacing(PaleoTheme::tokens().spacingXs);
 
     m_lblSliceIndex = new QLabel(tr("纵测线:"), m_sliceGroup);
     PaleoTheme::applyThemedStyleSheet(m_lblSliceIndex, [] {
-        return QStringLiteral("color: %1; font-size: 8pt; font-weight: 500;")
+        return PaleoTheme::metricStyleSheet(QStringLiteral("color: %1; font-size: {typography.label}pt; font-weight: 500;"))
             .arg(PaleoTheme::tokens().textMuted.name().toUpper());
     });
     sliceLay->addWidget(m_lblSliceIndex);
@@ -166,7 +167,7 @@ void SeismicSectionDockWidget::setupUi() {
     m_spinSlice->setObjectName(QStringLiteral("spinSectionSlice"));
     {
         QFont f = PaleoTheme::monoFont();
-        f.setPointSize(PaleoTheme::kLabelPt);
+        f.setPointSize(PaleoTheme::tokens().labelPt);
         m_spinSlice->setFont(f);
     }
     m_spinSlice->setRange(1, 100);
@@ -178,7 +179,7 @@ void SeismicSectionDockWidget::setupUi() {
     m_lblTimeMs->setObjectName(QStringLiteral("lblSectionTimeMs"));
     {
         QFont f = PaleoTheme::monoFont();
-        f.setPointSize(PaleoTheme::kLabelPt);
+        f.setPointSize(PaleoTheme::tokens().labelPt);
         m_lblTimeMs->setFont(f);
     }
     PaleoTheme::applyThemedStyleSheet(m_lblTimeMs, [] {
@@ -194,8 +195,8 @@ void SeismicSectionDockWidget::setupUi() {
     mainLay->addWidget(new PaleoToolRow(toolbar, container));
     toolbar = new QWidget(container);
     toolLay = new QHBoxLayout(toolbar);
-    toolLay->setContentsMargins(8, 4, 8, 4);
-    toolLay->setSpacing(4);
+    toolLay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs);
+    toolLay->setSpacing(PaleoTheme::tokens().spacingXs);
 
     // Zoom Buttons
     m_btnZoomIn = new QToolButton(toolbar);
@@ -234,7 +235,7 @@ void SeismicSectionDockWidget::setupUi() {
     // Colormap Combo
     auto *lblCmap = new QLabel(tr("色标:"), toolbar);
     PaleoTheme::applyThemedStyleSheet(lblCmap, [] {
-        return QStringLiteral("color: %1; font-size: 8pt;")
+        return PaleoTheme::metricStyleSheet(QStringLiteral("color: %1; font-size: {typography.label}pt;"))
             .arg(PaleoTheme::tokens().textMuted.name().toUpper());
     });
     toolLay->addWidget(lblCmap);
@@ -246,8 +247,8 @@ void SeismicSectionDockWidget::setupUi() {
                              tr("绿-白-品红"), tr("青-白-橙")});
     PaleoTheme::applyThemedStyleSheet(m_cboColorMap, [] {
         const auto &t = PaleoTheme::tokens();
-        return QStringLiteral(
-            "QComboBox { border: 1px solid %1; border-radius: 4px; padding: 2px 6px; font-size: 8pt; color: %2; background: %3; }")
+        return PaleoTheme::metricStyleSheet(QStringLiteral(
+            "QComboBox { border: 1px solid %1; border-radius: {rounded.sm}px; padding: {spacing.xs}px {spacing.sm}px; font-size: {typography.label}pt; color: %2; background: %3; }"))
             .arg(t.border.name().toUpper(), t.text.name().toUpper(), t.surface.name().toUpper());
     });
     toolLay->addWidget(m_cboColorMap);
@@ -255,7 +256,7 @@ void SeismicSectionDockWidget::setupUi() {
     // Gain Control
     auto *lblGain = new QLabel(tr("增益:"), toolbar);
     PaleoTheme::applyThemedStyleSheet(lblGain, [] {
-        return QStringLiteral("color: %1; font-size: 8pt;")
+        return PaleoTheme::metricStyleSheet(QStringLiteral("color: %1; font-size: {typography.label}pt;"))
             .arg(PaleoTheme::tokens().textMuted.name().toUpper());
     });
     toolLay->addWidget(lblGain);
@@ -358,14 +359,14 @@ void SeismicSectionDockWidget::setupUi() {
             .arg(t.surfaceAlt.name().toUpper(), t.border.name().toUpper());
     });
     auto *statusLay = new QHBoxLayout(statusBar);
-    statusLay->setContentsMargins(8, 2, 8, 2);
-    statusLay->setSpacing(8);
+    statusLay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs);
+    statusLay->setSpacing(PaleoTheme::tokens().spacingSm);
 
     m_lblCoordinates = new QLabel(statusBar);
     m_lblCoordinates->setObjectName(QStringLiteral("lblSectionCoordinates"));
     {
         QFont f = PaleoTheme::monoFont();
-        f.setPointSize(PaleoTheme::kLabelPt);
+        f.setPointSize(PaleoTheme::tokens().labelPt);
         m_lblCoordinates->setFont(f);
     }
     PaleoTheme::applyThemedStyleSheet(m_lblCoordinates, [] {
@@ -500,7 +501,7 @@ public:
 protected:
     void paintEvent(QPaintEvent *) override {
         QPainter p(this);
-        p.fillRect(rect(), QColor(QStringLiteral("#FFFFFF")));
+        p.fillRect(rect(), PaleoTheme::tokens().surface);
         if (m_trace.empty())
             return;
         float maxAbs = 1e-6f;
@@ -510,7 +511,7 @@ protected:
         const double halfW = width() * 0.32;
         const double cx = width() * 0.5;
         const double y0 = 24.0, y1 = height() - 8.0;
-        p.setPen(QPen(QColor(QStringLiteral("#DFE5EC")), 1.0));
+        p.setPen(QPen(PaleoTheme::tokens().border, 1.0));
         p.drawLine(QPointF(cx, y0), QPointF(cx, y1));
         QPolygonF wave;
         QPolygonF fill;
@@ -531,14 +532,14 @@ protected:
         }
         if (fill.size() >= 3) {
             p.setPen(Qt::NoPen);
-            p.setBrush(QColor(24, 30, 40));
+            p.setBrush(PaleoTheme::tokens().text);
             p.drawPolygon(fill);
         }
-        p.setPen(QPen(QColor(30, 38, 48), 1.0));
+        p.setPen(QPen(PaleoTheme::tokens().text, 1.0));
         p.setBrush(Qt::NoBrush);
         p.drawPolyline(wave);
         // 分层刻度（右缘）
-        p.setFont(QFont(QStringLiteral("Noto Sans SC"), 7));
+        p.setFont(PaleoTheme::bodyFont(PaleoTheme::tokens().labelPt));
         for (const WellTopItem &top : m_well->tops) {
             // 道首样 TWT = 记录延迟 t0（#146 同口径）
             const double frac = std::clamp((top.twtMs - m_t0Ms) / double(m_trace.size() * m_dtMs),
@@ -546,7 +547,7 @@ protected:
             const double py = y0 + frac * (y1 - y0);
             p.setPen(QPen(QColor(QStringLiteral("#1B73D0")), 1.4));
             p.drawLine(QPointF(width() - 46.0, py), QPointF(width() - 6.0, py));
-            p.setPen(QColor(QStringLiteral("#5D6E80")));
+            p.setPen(PaleoTheme::tokens().textMuted);
             p.drawText(QRectF(width() - 90.0, py - 7.0, 46.0, 14.0), Qt::AlignRight, top.topName);
         }
     }
@@ -734,9 +735,9 @@ void themedComboStyle(QWidget *w)
 {
     PaleoTheme::applyThemedStyleSheet(w, [] {
         const auto &t = PaleoTheme::tokens();
-        return QStringLiteral(
-            "QComboBox { border: 1px solid %1; border-radius: 4px;"
-            " padding: 1px 6px; font-size: 8pt; }")
+        return PaleoTheme::metricStyleSheet(QStringLiteral(
+            "QComboBox { border: 1px solid %1; border-radius: {rounded.sm}px;"
+            " padding: {spacing.xs}px {spacing.sm}px; font-size: {typography.label}pt; }"))
             .arg(t.border.name());
     });
 }
@@ -750,8 +751,8 @@ void SeismicSectionDockWidget::setupDisplayBar(QWidget *parent) {
             .arg(t.surface.name(), t.border.name());
     });
     auto *lay = new QHBoxLayout(bar);
-    lay->setContentsMargins(8, 2, 8, 2);
-    lay->setSpacing(8);
+    lay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs);
+    lay->setSpacing(PaleoTheme::tokens().spacingSm);
 
     // D2.2 显示三模
     auto *lblMode = new QLabel(tr("显示:"), bar);
@@ -922,7 +923,7 @@ void SeismicSectionDockWidget::setupDisplayBar(QWidget *parent) {
         dlg.setWindowTitle(tr("手动增益曲线（TWT ms → 倍数，分段线性）"));
         auto *form = new QFormLayout(&dlg);
         auto *edit = new QTextEdit(&dlg);
-        edit->setFont(QFont(QStringLiteral("JetBrains Mono"), 9));
+        edit->setFont(PaleoTheme::monoFont(PaleoTheme::tokens().bodyPt));
         QStringList lines;
         for (const auto &node : m_canvas->gainCurve())
             lines << QStringLiteral("%1 %2").arg(node.twtMs, 0, 'f', 0).arg(node.gain, 0, 'f', 2);
@@ -2308,7 +2309,7 @@ void SeismicSectionDockWidget::showArbitraryLineEditor() {
     dlg.setMinimumSize(420, 320);
     auto *lay = new QVBoxLayout(&dlg);
     auto *edit = new QTextEdit(&dlg);
-    edit->setFont(QFont(QStringLiteral("JetBrains Mono"), 9));
+    edit->setFont(PaleoTheme::monoFont(PaleoTheme::tokens().bodyPt));
     edit->setPlaceholderText(tr("1000 2000\n1002 2005\n1005 2012"));
     lay->addWidget(edit, 1);
     auto *chkWells = new QCheckBox(tr("投影候选井（井震综合）"), &dlg);

@@ -93,11 +93,11 @@ QString FaultManagerPanel::selectedFaultId() const
 void FaultManagerPanel::buildUi()
 {
     auto *root = new QVBoxLayout(this);
-    root->setContentsMargins(8, 8, 8, 8);
-    root->setSpacing(8);
+    root->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm);
+    root->setSpacing(PaleoTheme::tokens().spacingSm);
 
     auto *bar = new QHBoxLayout();
-    bar->setSpacing(4);
+    bar->setSpacing(PaleoTheme::tokens().spacingXs);
     m_btnAdd = mkBtn(tr("+ 断层"), tr("新建命名断层"));
     m_btnRename = mkBtn(tr("改名"), tr("重命名选中断层"));
     m_btnRemove = mkBtn(tr("删除"), tr("删除断层及其全部断层棒/切割（可撤销）"));
@@ -123,7 +123,7 @@ void FaultManagerPanel::buildUi()
     root->addWidget(m_tree, 1);
 
     auto *detail = new QHBoxLayout();
-    detail->setSpacing(4);
+    detail->setSpacing(PaleoTheme::tokens().spacingXs);
     auto *lblSide = new QLabel(tr("上盘方向："), this);
     m_cboHangingSide = new QComboBox(this);
     m_cboHangingSide->addItem(hangingSideLabel(FaultHangingSide::Unknown),

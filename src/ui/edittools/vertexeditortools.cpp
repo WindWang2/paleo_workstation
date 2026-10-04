@@ -1,4 +1,5 @@
 // 层：视图
+// token 例外：DESIGN 数据符号例外：QGIS 顶点编辑的白色顶点与红色拖拽标记（原有覆盖符号）。（tools/ui-token-exceptions.json 精确计数）。
 #include "ui/edittools/vertexeditortools.h"
 
 #include "qgis/topologicalindex.h"

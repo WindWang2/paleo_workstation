@@ -1,4 +1,5 @@
 // 层：视图
+// token 例外：DESIGN 数据符号例外：QGIS 测区空间覆盖的蓝色描边/透明填充。（tools/ui-token-exceptions.json 精确计数）。
 #include "paleomainwindow.h"
 #include "paleodockmanager.h"
 #include "paleoviewport.h"
@@ -218,12 +219,12 @@ namespace
     auto *page = new QWidget;
     page->setObjectName(QStringLiteral("startupPage"));
     auto *lay = new QVBoxLayout(page);
-    lay->setContentsMargins(48, 48, 48, 48);
-    lay->setSpacing(8);
+    lay->setContentsMargins(PaleoTheme::tokens().spacing2xl, PaleoTheme::tokens().spacing2xl, PaleoTheme::tokens().spacing2xl, PaleoTheme::tokens().spacing2xl);
+    lay->setSpacing(PaleoTheme::tokens().spacingSm);
 
     auto *title = new QLabel(QCoreApplication::translate("PaleoMainWindow", "Paleo Workbench"), page);
     QFont f = title->font();
-    f.setPointSize(15); // DESIGN.md 图件标题/页级标题 token
+    f.setPointSize(PaleoTheme::tokens().displayPt); // DESIGN.md 图件标题/页级标题 token
     f.setBold(true);
     title->setFont(f);
     auto *sub = new QLabel(QCoreApplication::translate("PaleoMainWindow", "古地理编图工作台 — 新建工程或打开最近工程开始"), page);
@@ -269,9 +270,9 @@ namespace
 
     lay->addWidget(title);
     lay->addWidget(sub);
-    lay->addSpacing(16);
+    lay->addSpacing(PaleoTheme::tokens().spacingMd);
     lay->addLayout(btnRow);
-    lay->addSpacing(16);
+    lay->addSpacing(PaleoTheme::tokens().spacingMd);
     lay->addWidget(recentLabel);
     lay->addWidget(list, 1);
     return page;
@@ -405,7 +406,7 @@ void PaleoMainWindow::buildShell()
   auto *chipsRow = new QWidget(canvasPane);
   chipsRow->setObjectName(QStringLiteral("horizonChipRow"));
   auto *chipsLay = new QHBoxLayout(chipsRow);
-  chipsLay->setContentsMargins(12, 4, 12, 4);
+  chipsLay->setContentsMargins(PaleoTheme::tokens().spacingMd, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingMd, PaleoTheme::tokens().spacingXs);
   auto *chips = new HorizonChipBar(m_selection, m_layerSvc, chipsRow);
   chips->setObjectName(QStringLiteral("horizonChips"));
   chips->setAccessibleName(tr("层位切换"));
@@ -425,8 +426,8 @@ void PaleoMainWindow::buildShell()
     auto *contextRow = new QWidget(canvasPane);
     contextRow->setObjectName(QStringLiteral("mapInteractionContext"));
     auto *contextLayout = new QHBoxLayout(contextRow);
-    contextLayout->setContentsMargins(8, 4, 8, 4);
-    contextLayout->setSpacing(8);
+    contextLayout->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs);
+    contextLayout->setSpacing(PaleoTheme::tokens().spacingSm);
     auto *context = new QLabel(contextRow);
     context->setObjectName(QStringLiteral("mapInteractionHint"));
     context->setWordWrap(true);
@@ -726,10 +727,10 @@ void PaleoMainWindow::buildShell()
   auto *webHost = new QWidget(webDock);
   webHost->setObjectName(QStringLiteral("webServiceHost"));
   auto *webLay = new QVBoxLayout(webHost);
-  webLay->setContentsMargins(8, 8, 8, 8); // spacing.sm panel padding
-  webLay->setSpacing(4);                  // spacing.xs between bar and view
+  webLay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm); // spacing.sm panel padding
+  webLay->setSpacing(PaleoTheme::tokens().spacingXs);                  // spacing.xs between bar and view
   auto *addrRow = new QHBoxLayout;
-  addrRow->setSpacing(4);
+  addrRow->setSpacing(PaleoTheme::tokens().spacingXs);
   auto *addrEdit = new QLineEdit(webHost);
   addrEdit->setObjectName(QStringLiteral("webAddressEdit"));
   addrEdit->setAccessibleName(tr("Web 服务地址"));
@@ -977,7 +978,8 @@ void PaleoMainWindow::buildRibbon()
   auto *locatorSlot = new QWidget(right);
   locatorSlot->setObjectName(QStringLiteral("locatorSlot"));
   auto *slotLay = new QHBoxLayout(locatorSlot);
-  slotLay->setContentsMargins(0, 1, 6, 1);
+  // SARibbon 原生标题行固定高度；纵向留白会裁切搜索文字，保持零内外留白。
+  slotLay->setContentsMargins(0, 0, PaleoTheme::tokens().spacingSm, 0);
   right->addWidget(locatorSlot);
 
   // 布局管理入口：右键 dock 标题栏使用同一菜单，包含显隐与布局命令。

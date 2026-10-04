@@ -25,8 +25,8 @@ InversionPanel::InversionPanel(QWidget *parent)
 void InversionPanel::buildUi()
 {
     auto *lay = new QVBoxLayout(this);
-    lay->setContentsMargins(6, 4, 6, 4);
-    lay->setSpacing(4);
+    lay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs);
+    lay->setSpacing(PaleoTheme::tokens().spacingXs);
 
     // 行 1：方法 + 运行类动作（主色文案——DESIGN.md ribbon-button）
     auto *row1 = new QHBoxLayout();

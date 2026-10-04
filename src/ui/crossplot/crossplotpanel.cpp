@@ -176,12 +176,12 @@ CrossplotPanel::CrossplotPanel(QWidget *parent) : QWidget(parent) {
   setObjectName(QStringLiteral("crossplotPanel"));
   setFont(PaleoTheme::bodyFont());
   auto *outer = new QHBoxLayout(this);
-  outer->setContentsMargins(8, 8, 8, 8);
-  outer->setSpacing(8);
+  outer->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm);
+  outer->setSpacing(PaleoTheme::tokens().spacingSm);
   auto *controls = new QWidget(this);
   auto *form = new QVBoxLayout(controls);
   form->setContentsMargins(0, 0, 0, 0);
-  form->setSpacing(8);
+  form->setSpacing(PaleoTheme::tokens().spacingSm);
   controls->setMaximumWidth(320);
   m_sources = new QListWidget(controls);
   m_sources->setObjectName(QStringLiteral("crossplotSources"));
@@ -193,7 +193,7 @@ CrossplotPanel::CrossplotPanel(QWidget *parent) : QWidget(parent) {
   m_load->setObjectName(QStringLiteral("crossplotLoad"));
   form->addWidget(m_load);
   auto *axesRow = new QFormLayout;
-  axesRow->setSpacing(8);
+  axesRow->setSpacing(PaleoTheme::tokens().spacingSm);
   m_x = new QComboBox(controls);
   m_y = new QComboBox(controls);
   m_z = new QComboBox(controls);

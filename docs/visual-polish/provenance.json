@@ -1,0 +1,86 @@
+{
+  "productionDiffSha256": "39b4edc67acebc230cf4901544197f5361b5d63e666c925d5362c81c291ed161",
+  "checks": [
+    {
+      "path": "docs/visual-polish/before/1x/capture-controls.json",
+      "images": 8,
+      "sourceDiffCorrect": true
+    },
+    {
+      "path": "docs/visual-polish/before/1x/capture-rows.json",
+      "images": 8,
+      "sourceDiffCorrect": true
+    },
+    {
+      "path": "docs/visual-polish/before/1x/capture-supplemental.json",
+      "images": 8,
+      "sourceDiffCorrect": true
+    },
+    {
+      "path": "docs/visual-polish/before/1x/capture.json",
+      "images": 125,
+      "sourceDiffCorrect": true
+    },
+    {
+      "path": "docs/visual-polish/before/2x/capture-controls.json",
+      "images": 8,
+      "sourceDiffCorrect": true
+    },
+    {
+      "path": "docs/visual-polish/before/2x/capture-rows.json",
+      "images": 8,
+      "sourceDiffCorrect": true
+    },
+    {
+      "path": "docs/visual-polish/before/2x/capture-supplemental.json",
+      "images": 8,
+      "sourceDiffCorrect": true
+    },
+    {
+      "path": "docs/visual-polish/before/2x/capture.json",
+      "images": 125,
+      "sourceDiffCorrect": true
+    },
+    {
+      "path": "docs/visual-polish/after/1x/capture-controls.json",
+      "images": 8,
+      "sourceDiffCorrect": true
+    },
+    {
+      "path": "docs/visual-polish/after/1x/capture-rows.json",
+      "images": 8,
+      "sourceDiffCorrect": true
+    },
+    {
+      "path": "docs/visual-polish/after/1x/capture-supplemental.json",
+      "images": 8,
+      "sourceDiffCorrect": true
+    },
+    {
+      "path": "docs/visual-polish/after/1x/capture.json",
+      "images": 125,
+      "sourceDiffCorrect": true
+    },
+    {
+      "path": "docs/visual-polish/after/2x/capture-controls.json",
+      "images": 8,
+      "sourceDiffCorrect": true
+    },
+    {
+      "path": "docs/visual-polish/after/2x/capture-rows.json",
+      "images": 8,
+      "sourceDiffCorrect": true
+    },
+    {
+      "path": "docs/visual-polish/after/2x/capture-supplemental.json",
+      "images": 8,
+      "sourceDiffCorrect": true
+    },
+    {
+      "path": "docs/visual-polish/after/2x/capture.json",
+      "images": 125,
+      "sourceDiffCorrect": true
+    }
+  ],
+  "note": "Before production is dda2faa without a UI diff. All after sources match the reviewed production diff. Binary hashes identify the actual fixture executables at capture time."
+}

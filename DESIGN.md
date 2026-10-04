@@ -106,7 +106,7 @@ components:
 **Creative North Star:** 这就是干古地理编图活儿的工具 —— 工作流链永远可见，其余一切让位于 QGIS 原生控件的专业质感。
 **Product context:** 石油地质学家的古地理编图工作台；Qt6 Widgets 桌面应用，嵌入 vendored QGIS；六页：数据管理 → 地层对比 → 预测编图 → 单因素图 → 智能编图 → 验证。地层对比按用户 2026-10-05 的要求，以 QtWebEngine 承载独立 Web 工作台。
 **Mode per surface:** 全部 Operate（任务操作面）；无 Persuade/Read 面。
-**Reference:** `原型/` 五张设计稿 + QGIS 主窗口解剖（docs.qgis.org qgis_gui）。
+**Reference:** `prototype/` 五张设计稿 + QGIS 主窗口解剖（docs.qgis.org qgis_gui）。
 **Key characteristics:** 编号工作流标签是唯一的非 QGIS 签名元素；浅色为缺省的双主题（暗色见 2026-09-29 翻案条）+ 单一蓝色 accent；密度对齐专业 GIS 工具而非 Web 惯例。
 
 ## Colors

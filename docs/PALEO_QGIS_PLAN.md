@@ -1305,7 +1305,7 @@ Facies Polygon Layer (可编辑)
 
 ## 39. Greenfield 定位修正与 Phase 0（外部评审新增，E1/E3/E4/E2）
 
-**仓库事实核查（E1 已定）**：本仓库当前仅有 docs/、TODOS.md、CLAUDE.md、`原型/` 设计稿 PNG——**无既有代码**。原稿中"现有 C++ 专业组件""不要再次大规模重做 UI"等表述作废：测井曲线、地震剖面、五页 UI 均为**新建项**，原型图仅作设计意图参照。本项目是 greenfield-on-QGIS，不是迁移。
+**仓库事实核查（E1 已定）**：本仓库当前仅有 docs/、TODOS.md、CLAUDE.md、`prototype/` 设计稿 PNG——**无既有代码**。原稿中"现有 C++ 专业组件""不要再次大规模重做 UI"等表述作废：测井曲线、地震剖面、五页 UI 均为**新建项**，原型图仅作设计意图参照。本项目是 greenfield-on-QGIS，不是迁移。
 
 **Embed vs Plugin 决策（E2 已定）**：维持 embed 架构（qgis_core/gui/analysis 嵌入自有 Qt6 shell），不采用"完整 QGIS + C++ 插件"路线——理由：五页工作流 UX 无法在 QGIS dock 外壳中成立，差异化在地质语义不在编辑器复用。代价已确认：`src/app` 层功能（高级数字化面板、顶点编辑器、形状数字化工具、布局设计器 chrome、Processing 对话框）需自研。
 

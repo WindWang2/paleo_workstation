@@ -1,8 +1,8 @@
-# Goal-Loop Prompts — 23 个方向（自治迭代任务包）
+# Goal-Loop Prompts — 35 个方向（自治迭代任务包）
 
 第一批 01–05 已发 fleet 并落地（PR #70–#73 全合）。第二批 06–11 为追加方向。
 
-本目录保存四批 01–23 的任务书快照；目录名为 `goal-loop-prompts/`，
+本目录保存六批 01–35 的任务书快照；目录名为 `goal-loop-prompts/`，
 编号文件与下表一一对应。表中「新增」「在飞」是任务书发出时的状态，
 当前交付与递延以 `docs/progress/` 对应账本及 `TODOS.md` 为准。
 
@@ -16,12 +16,16 @@ Oracle 验收 → push + `gh pr create`。全自动，无人工确认，不等 C
   本地/远程不一致时明确记录所选 commit）。含 vendor 收口：构建期 prefix 烧进二进制、ctest 注入
   `QGIS_PREFIX_PATH`、vendored .so 全 `$ORIGIN`。
 - **worktree**：必须自建独立 worktree 分支开发（`git worktree add .worktrees/<slug>
-  -b goal/<name>-<日期>`，从上述基线起），禁在主 checkout 写代码。
+  -b goal/<name>-<日期>`，从最新 `origin/master` 起），禁在主 checkout 写代码。
   gitignored vendor 依赖需另行接线，见 BUILDING.md「独立 worktree 开发」。
-- **构建**：`QGIS_PREFIX_PATH=<repo>/vendor/superbuild/prefix cmake -S . -B build
-  -DCMAKE_BUILD_TYPE=RelWithDebInfo`；增量 `cmake --build build -j8`。
+- **构建**：gitignored vendor 三件（`vendor/superbuild/prefix`、`vendor/onnxruntime`、
+  `vendor/prefix`）从主仓**绝对路径** symlink 进 worktree——相对 `../../` 会自环；
+  `cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+  -DQGIS_PREFIX=<repo>/vendor/superbuild/prefix`；增量 `cmake --build build -j8`。
   本机工具链偶发 ld/gcc 崩溃——重试续传即可，坏 `.o` 删后重编。
 - **资源**：构建/测试并行度均不超过 8，`ctest --test-dir build -j8`；Windows ctest 串行。
+  多方向并行执行时全机编译槽会叠加（N 个并发 ≈ 8N 线程）——建议**同时重构建
+  不超过 2 个**，或各会话降 `-j4`；review/测试等轻活不受限。
 - **ledger**：worktree 根建 `.goal-loop-ledger-<slug>.md`，每轮记「改动/验证/判定/下一步」。
 - **分层护栏**：src/ 文件头三行 `// 层：<词表>`（新顶层模块先 `scripts/new_module.sh`
   登记）；`tools/check_layering.py` + `--strict` 必须绿。
@@ -82,8 +86,32 @@ Oracle 验收 → push + `gh pr create`。全自动，无人工确认，不等 C
 | 22 | `22-seismic-inversion.md` | 地震反演：子波提取与库、层位约束低频阻抗模型、带限道积分反演、稀疏脉冲反演→波阻抗体 DERIVED | 新功能 |
 | 23 | `23-singlefactor-completion.md` | 单因素语义补完+约束线交互绘制：走廊/分区/FaultPathMetric/surfer_idw/分区等值线/缓冲过渡移植 + 五语义线绘制编辑吸附 | 功能补完 |
 
+### 第五批（新增，功能扩展五方向）
+
+| # | 文件 | 方向 | 性质 |
+|---|------|------|------|
+| 24 | `24-interactive-editing.md` | 交互式约束编辑与地图数字化：顶点编辑、形状数字化、捕捉、undo/redo、属性批量改型 | 功能补完 |
+| 25 | `25-layout-publishing.md` | 图件编制与出版输出：布局模板库、标准图件元素、地图绑定、PNG/PDF/SVG 批量导出、设计器补全 | 新功能 |
+| 26 | `26-wellsection-deep.md` | 连井剖面深化：基准面拉平、剖面编辑、曲线充填、栅状图、剖面-平面联动、导出 | 功能深化 |
+| 27 | `27-facies-automapping.md` | 沉积相自动编图辅助：优势相统计、候选相界提取、证据合成、编图 QA、快速成图、版本对比 | 新功能 |
+| 28 | `28-sequence-framework.md` | 层序地层格架：格架树/标志层管理、井间归属建议、编图单元校验、格架柱状视图、一致性诊断 | 新功能 |
+| 29 | `29-ui-visual-polish.md` | UI 视觉一致性二轮：token 违例普查、图标收口、面板一致性、状态视觉规范、主题对比度、截图档案 | 打磨 |
+| 30 | `30-data-pipeline.md` | 工区数据管线与健康：批量导入残差（实体归位预览/导入台账/未决归位）、CRS 管理、XYZ/Excel 格式扩展、体检仪表盘、回收站收编、版本对比回滚 | 功能深化 |
+
+### 第六批（新增，领域扩展五方向）
+
+| # | 文件 | 方向 | 性质 |
+|---|------|------|------|
+| 31 | `31-geological-symbols.md` | 地质符号库与花纹体系：岩性/相花纹、井别符号、线型规范、图例自动生成、符号选择器 | 新功能 |
+| 32 | `32-well-tops-editor.md` | 井分层编辑与质量：分层表编辑器、批量修正、校验器、版本化回滚、导入合并、下游失效 | 功能补完 |
+| 33 | `33-batch-jobqueue.md` | 批处理与作业队列：层位×方法批次定义、调度、断点恢复、进度报告、失败隔离、编排 UI | 新功能 |
+| 34 | `34-well-siting.md` | 新井部署辅助：覆盖空洞诊断、候选点位、方案评估对比、planned 实体隔离、导出 | 新功能 |
+| 35 | `35-sedimentary-evolution.md` | 沉积体系多期演化：相邻期对比引擎、迁移矢量、演化剖面、多期动览、演化报告 | 新功能 |
+
 ## 使用方式
 
-每个 prompt 直接喂给一个自治 agent 会话（如 devin/claude 新 session）：
+每个 prompt 直接喂给一个自治 agent 会话（如 devin/claude/zcode 新 session）：
 它会自建 worktree 分支、按 ledger 协议迭代到 Oracle 全绿、push + 开 PR 收尾。
 文件面互不重叠，可并行起多个；20 与 single-factor 迭代面有交集，宜等其收官或隔离实现。
+第五批（24–28）同样互不重叠可全并行；catalog 词表与层位序两处为潜在共触面，
+各方向按「最小改动面」约束避让。

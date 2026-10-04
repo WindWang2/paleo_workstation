@@ -202,8 +202,8 @@ public:
   }
 
 signals:
-  void chipRemoved(const paleo::dataops::FilterCondition &c);
-  void chipToggled(const paleo::dataops::FilterCondition &c);
+  void chipRemoved(const paleo::dataops::FilterCondition &c); // NOLINT(readability-inconsistent-declaration-parameter-name)
+  void chipToggled(const paleo::dataops::FilterCondition &c); // NOLINT(readability-inconsistent-declaration-parameter-name)
   void clearAllRequested();
 
 private:
@@ -385,9 +385,9 @@ public:
   }
 
 signals:
-  void conditionAdded(const paleo::dataops::FilterCondition &c);
-  void modeChanged(bool orMode);
-  void presetChosen(const QString &name);
+  void conditionAdded(const paleo::dataops::FilterCondition &c); // NOLINT(readability-inconsistent-declaration-parameter-name)
+  void modeChanged(bool orMode); // NOLINT(readability-inconsistent-declaration-parameter-name)
+  void presetChosen(const QString &name); // NOLINT(readability-inconsistent-declaration-parameter-name)
   void savePresetRequested();
   void shareStateRequested();
 
@@ -479,7 +479,7 @@ public:
   }
 
 signals:
-  void quickToggled(paleo::dataops::FilterDim dim, bool on);
+  void quickToggled(paleo::dataops::FilterDim dim, bool on); // NOLINT(readability-inconsistent-declaration-parameter-name)
 
 private:
   QList<QPair<QPushButton *, FilterDim>> m_buttons;
@@ -556,7 +556,7 @@ public:
   }
 
 signals:
-  void tagClicked(const QString &tag, bool on);
+  void tagClicked(const QString &tag, bool on); // NOLINT(readability-inconsistent-declaration-parameter-name)
 
 private:
   QWidget *m_host = nullptr;

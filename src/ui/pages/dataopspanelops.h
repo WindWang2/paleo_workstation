@@ -269,7 +269,7 @@ public:
   }
 
 signals:
-  void restoreRequested(const QStringList &assetIds);
+  void restoreRequested(const QStringList &assetIds); // NOLINT(readability-inconsistent-declaration-parameter-name)
   void restoreAllRequested();
   void purgeAllRequested();
 

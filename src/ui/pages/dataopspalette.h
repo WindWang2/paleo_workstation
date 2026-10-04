@@ -85,9 +85,9 @@ public:
 
 signals:
   // 非 command 条目（资产/实体）执行 = 请求定位（DataPage 接线）。
-  void assetChosen(const QString &assetId);
-  void entityChosen(const QString &entityId);
-  void commandChosen(const QString &commandId);
+  void assetChosen(const QString &assetId); // NOLINT(readability-inconsistent-declaration-parameter-name)
+  void entityChosen(const QString &entityId); // NOLINT(readability-inconsistent-declaration-parameter-name)
+  void commandChosen(const QString &commandId); // NOLINT(readability-inconsistent-declaration-parameter-name)
 
 public slots:
   void activateCurrent()

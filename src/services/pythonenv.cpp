@@ -156,7 +156,8 @@ void PythonEnvService::createVenv( const QString &name )
 }
 
 void PythonEnvService::installRequirements( const QString &name,
-                                            const QString &requirementsPath )
+                                            const QString &requirementsPath,
+                                            const QStringList &extraPipArgs )
 {
   const QString py = pythonExecutable( name );
   if ( py.isEmpty() )
@@ -165,9 +166,9 @@ void PythonEnvService::installRequirements( const QString &name,
                        tr( "venv 尚未创建：%1" ).arg( venvDir( name ) ) );
     return;
   }
-  startStep( QStringLiteral( "installRequirements" ), py,
-             { QStringLiteral( "-m" ), QStringLiteral( "pip" ), QStringLiteral( "install" ),
-               QStringLiteral( "-r" ), requirementsPath } );
+  QStringList args{ QStringLiteral( "-m" ), QStringLiteral( "pip" ), QStringLiteral( "install" ) };
+  args << extraPipArgs << QStringLiteral( "-r" ) << requirementsPath;
+  startStep( QStringLiteral( "installRequirements" ), py, args );
 }
 
 void PythonEnvService::extractZip( const QString &zipPath, const QString &destDir )

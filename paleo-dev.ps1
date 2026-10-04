@@ -1,5 +1,9 @@
 # paleo-dev.ps1 — Windows sibling of ./paleo-dev (§44.1).
-# Verbs: bootstrap | build | test | selfcheck | clean-vendor <dep>
+# Verbs: bootstrap [fetch-only] | build | test | selfcheck | clean-vendor <dep>
+#   bootstrap fetch-only : 只取依赖（OSGeo4W + ORT），不编译不自检——CI 用它让
+#                          编译错误落在 Build 步骤而不是 Vendor 步骤（#134）。
+#   build                : $env:CI 已设时 ninja -k 0，一次暴露全部编译错误。
+#   test                 : $env:PALEO_CTEST_ARGS 透传给 ctest（如 "-LE perf"）。
 # Binary-vendor route: OSGeo4W qgis-devel-4.2.x + dep closure, MSVC v14x /MD.
 param(
   [Parameter(Mandatory=$true, Position=0)][string]$Verb,
@@ -120,17 +124,22 @@ switch ($Verb) {
     }
 
     Enter-VendorEnvironment
-    & $PSCommandPath build
-    if ($LASTEXITCODE -ne 0) { throw 'Windows bootstrap build failed' }
-    & $PSCommandPath selfcheck
-    if ($LASTEXITCODE -ne 0) { throw 'Windows bootstrap selfcheck failed' }
+    if ($Arg -eq 'fetch-only') {
+      Write-Host "== fetch-only: skip build/selfcheck (run 'build' then 'selfcheck') =="
+    } else {
+      & $PSCommandPath build
+      if ($LASTEXITCODE -ne 0) { throw 'Windows bootstrap build failed' }
+      & $PSCommandPath selfcheck
+      if ($LASTEXITCODE -ne 0) { throw 'Windows bootstrap selfcheck failed' }
+    }
   }
   'build' {
     Enter-MsvcEnvironment
     Enter-VendorEnvironment
     cmake -S $Root -B $Build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo "-DQGIS_PREFIX=$(Join-Path $Vendor 'osgeo4w')"
     if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed' }
-    cmake --build $Build
+    # CI 上 -k 0：ninja 不在第一个错误处停，一轮暴露全部 MSVC 编译错误（#134）。
+    if ($env:CI) { cmake --build $Build -- -k 0 } else { cmake --build $Build }
     if ($LASTEXITCODE -ne 0) { throw 'CMake build failed' }
     # vendored onnxruntime.dll 拷进 build（应用目录在 DLL 搜索序中永远
     # 第一）：PATH 排序压不住 OSGeo4W 自带的 1.17.1（qgis 依赖链的解析
@@ -145,32 +154,73 @@ switch ($Verb) {
   'test' {
     Enter-VendorEnvironment
     $env:QT_QPA_PLATFORM = 'offscreen'
+    # Python 门禁脚本在 Windows 默认 cp1252 下读写含中文的源码/输出会抛
+    # UnicodeEncodeError（ui_invariants_selftest）——统一 UTF-8 模式。
+    $env:PYTHONUTF8 = '1'
     $logDir = Join-Path $Vendor 'logs'
     New-Item -ItemType Directory -Force $logDir | Out-Null
+    $firstRunDir = Join-Path $Build 'Testing/qtest-first-run'
+    New-Item -ItemType Directory -Force $firstRunDir | Out-Null
+    $junit = Join-Path $Build 'Testing/ctest-junit.xml'
     $log = Join-Path $logDir 'ctest.log'
-    ctest --test-dir $Build --output-on-failure 2>&1 | Tee-Object -FilePath $log
-    if ($LASTEXITCODE -ne 0) {
+    $ctestExtra = @()
+    if ($env:PALEO_CTEST_ARGS) { $ctestExtra = $env:PALEO_CTEST_ARGS.Trim() -split '\s+' }
+    ctest --test-dir $Build --output-on-failure --output-junit $junit @ctestExtra 2>&1 | Tee-Object -FilePath $log
+    $ctestExit = $LASTEXITCODE
+    if ($ctestExit -ne 0) {
       # ctest 的 --output-on-failure 在 Windows runner 上回收不到子进程
-      # 输出；失败测试逐个直跑，QtTest 的 FAIL/Loc 行直落日志与控制台
-      # （控制台可见性：日志文件在 artifact 里，排障不应多一跳）。
-      $names = & ctest --test-dir $Build --rerun-failed -N 2>$null |
-        ForEach-Object { if ($_ -match 'Test\s+#\d+:\s+(\S+)') { $Matches[1] } }
+      # 输出；失败测试逐个直跑，QtTest 的 FAIL/Loc 行直落日志与控制台。
+      # 与 Linux gate 对齐：崩溃/abort 不按一次性环境抖动放行。
+      $crashPattern = '\*\*\*Exception|Subprocess aborted|Child aborted|Subprocess killed|Illegal|SegFault'
+      if (Select-String -Path $log -Pattern $crashPattern -Quiet) {
+        throw 'CTest failed (crash-class failure)'
+      }
+      $names = @( & ctest --test-dir $Build --rerun-failed -N @ctestExtra 2>$null |
+        ForEach-Object { if ($_ -match 'Test\s+#\d+:\s+(\S+)') { $Matches[1] } } )
+      $rerunFailed = $false
+      $unhandled = $names.Count -eq 0
       foreach ($n in $names) {
-        # 有些 ctest 项不是可执行文件（layering 是 python 脚本）——跳过，
-        # 否则 & 不存在的 .exe 会终止整个直跑循环。
+        # 有些 ctest 项不是可执行文件（layering 是 python 脚本）；未处理的
+        # 失败项必须保留红，不能把它误当成可重跑通过。
         $exe = Join-Path $Build "$n.exe"
-        if (-not (Test-Path $exe)) { continue }
+        if (-not (Test-Path $exe)) { $unhandled = $true; continue }
         "=== $n (direct run) ===" | Tee-Object -FilePath $log -Append
         # QtTest 在无控制台的 Windows 上把结果走 OutputDebugString，
         # stdout 重定向收不到——用 -o 落文件再回放（崩溃栈仍走 stderr）。
         $qtout = Join-Path $logDir "$n.qtout.txt"
-        & $exe -o "$qtout,txt" 2>&1 | Tee-Object -FilePath $log -Append
+        # 直跑复现 ctest 环境（该测试的 ENVIRONMENT 属性 + 工作目录=构建目录）。
+        $saved = @{}
+        try {
+          $json = & ctest --test-dir $Build -R "^$([regex]::Escape($n))`$" --show-only=json-v1 2>$null | Out-String | ConvertFrom-Json
+          foreach ($t in @($json.tests)) {
+            foreach ($p in @($t.properties)) {
+              if ($p.name -ne 'ENVIRONMENT') { continue }
+              foreach ($kv in @($p.value)) {
+                $i = $kv.IndexOf('=')
+                if ($i -le 0) { continue }
+                $k = $kv.Substring(0, $i)
+                $saved[$k] = [Environment]::GetEnvironmentVariable($k, 'Process')
+                [Environment]::SetEnvironmentVariable($k, $kv.Substring($i + 1), 'Process')
+              }
+            }
+          }
+        } catch { "  (ctest env 解析失败：$_)" | Tee-Object -FilePath $log -Append }
+        $rerunExit = 1
+        Push-Location $Build
+        try {
+          & $exe -o "$qtout,txt" 2>&1 | Tee-Object -FilePath $log -Append
+          $rerunExit = $LASTEXITCODE
+        } finally {
+          Pop-Location
+          foreach ($k in $saved.Keys) { [Environment]::SetEnvironmentVariable($k, $saved[$k], 'Process') }
+        }
+        if ($rerunExit -ne 0) { $rerunFailed = $true }
         if (Test-Path $qtout) {
           Get-Content $qtout | Tee-Object -FilePath $log -Append
           Remove-Item $qtout -Force
         }
       }
-      throw 'CTest failed'
+      if ($rerunFailed -or $unhandled) { throw 'CTest failed' }
     }
   }
   'selfcheck' {
@@ -193,5 +243,5 @@ switch ($Verb) {
       if (Test-Path $target) { Remove-Item -Recurse -Force $target; Write-Host "removed $target" }
     }
   }
-  default { throw "unknown verb '$Verb' — bootstrap|build|test|selfcheck|clean-vendor" }
+  default { throw "unknown verb '$Verb' — bootstrap [fetch-only]|build|test|selfcheck|clean-vendor" }
 }

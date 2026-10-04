@@ -3,6 +3,7 @@
 
 #include "../services/pythonenv.h"
 
+#include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
@@ -76,7 +77,16 @@ QString MamclTool::packageZip() const
   if ( !m_zipPath.isEmpty() )
     return m_zipPath;
 #ifdef PALEO_MAMCL_PACKAGE
-  return QStringLiteral( PALEO_MAMCL_PACKAGE );
+  // 构建树路径优先；安装/分发后回落 <bin>/../share/paleo/mamcl/<包名>（#142/#86）。
+  const QString buildTree = QStringLiteral( PALEO_MAMCL_PACKAGE );
+  if ( QFileInfo::exists( buildTree ) )
+    return buildTree;
+  const QString installed = QDir( QCoreApplication::applicationDirPath() )
+                                .filePath( QStringLiteral( "../share/paleo/mamcl/" ) +
+                                           QFileInfo( buildTree ).fileName() );
+  if ( QFileInfo::exists( installed ) )
+    return QDir::cleanPath( installed );
+  return buildTree;
 #else
   return QString();
 #endif
@@ -96,6 +106,38 @@ QString MamclTool::appScript() const
 QString MamclTool::requirementsFile() const
 {
   return QDir( packageDir() ).filePath( QStringLiteral( "requirements.txt" ) );
+}
+
+QString MamclTool::lockFile() const
+{
+  const QFileInfo zip( packageZip() );
+  if ( zip.fileName().isEmpty() )
+    return {};
+  return zip.dir().filePath( zip.completeBaseName() + QStringLiteral( ".requirements.lock" ) );
+}
+
+QString MamclTool::expectedZipSha256() const
+{
+  const QString fromEnv = qEnvironmentVariable( "PALEO_MAMCL_ZIP_SHA256" ).trimmed().toLower();
+  if ( !fromEnv.isEmpty() )
+    return fromEnv;
+#ifdef PALEO_MAMCL_SHA256
+  // 只有走内置默认包（无环境变量、无 setPackageZip）才信编译期哈希。
+  if ( qEnvironmentVariable( "PALEO_MAMCL_ZIP" ).trimmed().isEmpty() && m_zipPath.isEmpty() )
+    return QStringLiteral( PALEO_MAMCL_SHA256 ).toLower();
+#endif
+  return {};
+}
+
+QString MamclTool::sha256OfFile( const QString &path )
+{
+  QFile f( path );
+  if ( !f.open( QIODevice::ReadOnly ) )
+    return {};
+  QCryptographicHash hash( QCryptographicHash::Sha256 );
+  if ( !hash.addData( &f ) )
+    return {};
+  return QString::fromLatin1( hash.result().toHex() );
 }
 
 QByteArray MamclTool::normalizedRequirements() const
@@ -122,8 +164,12 @@ QByteArray MamclTool::normalizedRequirements() const
 
 QString MamclTool::depsMarkerPath() const
 {
+  QByteArray content = normalizedRequirements();
+  QFile lock( lockFile() );
+  if ( lock.open( QIODevice::ReadOnly ) )
+    content = QByteArrayLiteral( "lock\n" ) + lock.readAll();
   const QByteArray hash =
-      QCryptographicHash::hash( normalizedRequirements(), QCryptographicHash::Sha1 ).toHex();
+      QCryptographicHash::hash( content, QCryptographicHash::Sha1 ).toHex();
   return QDir( m_env->venvDir( venvName() ) )
       .filePath( QStringLiteral( ".paleo-deps-%1.ok" ).arg( QString::fromLatin1( hash ) ) );
 }
@@ -137,26 +183,18 @@ bool MamclTool::ready() const
 bool MamclTool::extractMarkerValid() const
 {
   QFile marker( extractMarkerPath( packageDir() ) );
-  if ( !marker.open( QIODevice::ReadOnly ) )
+  if ( !marker.open( QIODevice::ReadOnly ) || m_zipSha256.isEmpty() )
     return false;
-  const QFileInfo zip( packageZip() );
-  // 旗标内容 = zip 尺寸 + mtime，换包/换版本即失效重解。
-  const QString expect = QStringLiteral( "%1 %2" )
-                             .arg( zip.size() )
-                             .arg( zip.lastModified().toSecsSinceEpoch() );
-  return QString::fromUtf8( marker.readAll() ).trimmed() == expect &&
+  // 旗标内容 = 程序包 SHA-256（#142：旧版 size+mtime 可被同尺寸替换绕过）。
+  return QString::fromUtf8( marker.readAll() ).trimmed() == m_zipSha256 &&
          QFileInfo::exists( appScript() );
 }
 
 void MamclTool::writeExtractMarker() const
 {
-  const QFileInfo zip( packageZip() );
   QFile marker( extractMarkerPath( packageDir() ) );
   if ( marker.open( QIODevice::WriteOnly | QIODevice::Truncate ) )
-    marker.write( QStringLiteral( "%1 %2" )
-                      .arg( zip.size() )
-                      .arg( zip.lastModified().toSecsSinceEpoch() )
-                      .toUtf8() );
+    marker.write( m_zipSha256.toUtf8() );
 }
 
 void MamclTool::open()
@@ -168,6 +206,23 @@ void MamclTool::open()
     emit launchFinished( false, tr( "未找到内置 MAMCL 程序包：%1" ).arg( packageZip() ) );
     return;
   }
+  // #142 完整性：解包/执行前核对程序包 SHA-256。
+  const QString expected = expectedZipSha256();
+  if ( expected.isEmpty() )
+  {
+    emit launchFinished( false, tr( "MAMCL 程序包未登记 SHA-256，拒绝解包执行：%1"
+                                    "（外部程序包请设置 PALEO_MAMCL_ZIP_SHA256）" )
+                                    .arg( packageZip() ) );
+    return;
+  }
+  const QString actual = sha256OfFile( packageZip() );
+  if ( actual != expected )
+  {
+    emit launchFinished( false, tr( "MAMCL 程序包 SHA-256 不符，拒绝解包执行：%1\n期望 %2\n实际 %3" )
+                                    .arg( packageZip(), expected, actual ) );
+    return;
+  }
+  m_zipSha256 = actual;
   m_stage = Extract;
   emit busyChanged( true );
   advance();
@@ -208,6 +263,22 @@ void MamclTool::advance()
         return;
       }
       emit statusMessage( tr( "正在安装 MAMCL 依赖（含 PyTorch，首次较慢）…" ) );
+      if ( QFileInfo::exists( lockFile() ) )
+      {
+        // #142：锁文件 = 全量钉版本 + 逐文件哈希；只装 wheel，不跑 sdist 构建脚本。
+        m_env->installRequirements( venvName(), lockFile(),
+                                    { QStringLiteral( "--require-hashes" ),
+                                      QStringLiteral( "--only-binary=:all:" ) } );
+        return;
+      }
+      if ( qEnvironmentVariable( "PALEO_MAMCL_ALLOW_UNPINNED" ) != QLatin1String( "1" ) )
+      {
+        finish( false, tr( "缺少依赖锁文件 %1，拒绝安装未钉版本的依赖"
+                           "（确需请设置 PALEO_MAMCL_ALLOW_UNPINNED=1）" )
+                           .arg( lockFile() ) );
+        return;
+      }
+      emit statusMessage( tr( "警告：按未钉版本的 requirements.txt 安装 MAMCL 依赖" ) );
       {
         // 规范化副本落 venv 目录（程序包目录保持原样），pip 装副本。
         const QString normPath = QDir( m_env->venvDir( venvName() ) )

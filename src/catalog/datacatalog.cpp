@@ -23,6 +23,41 @@
 
 namespace
 {
+
+// #155：受管目录 artifacts/<stage>/ast-N/ver-M 的盘上最大序号。提交两步
+// （先 rename 落位、后 applyJournal）之间崩溃会留下 catalog 不认识的孤儿目录；
+// 若序号只按 catalog 推进，下一次导入会分到同一路径并被「拒绝覆盖」永久卡死。
+// open 时把序号抬到盘上最大值之上即可避开（孤儿本身不删，只告警）。
+void scanManagedSeqFloor(const QString &projectDir, int *maxAsset, int *maxVersion)
+{
+  const auto seqOf = [](const QString &name, QLatin1String prefix) -> int {
+    if (!name.startsWith(prefix))
+      return 0;
+    bool ok = false;
+    const int n = name.mid(prefix.size()).toInt(&ok);
+    return ok && n > 0 ? n : 0;
+  };
+  const QDir artifacts(projectDir + QStringLiteral("/artifacts"));
+  if (!artifacts.exists())
+    return;
+  const QStringList stages = artifacts.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+  for (const QString &stage : stages)
+  {
+    const QDir stageDir(artifacts.filePath(stage));
+    const QStringList assets = stageDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+    for (const QString &a : assets)
+    {
+      const int an = seqOf(a, QLatin1String("ast-"));
+      if (an <= 0)
+        continue;
+      *maxAsset = qMax(*maxAsset, an);
+      const QStringList versions =
+          QDir(stageDir.filePath(a)).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+      for (const QString &v : versions)
+        *maxVersion = qMax(*maxVersion, seqOf(v, QLatin1String("ver-")));
+    }
+  }
+}
   // wave/data-integrity：role 词表诊断标记。addLink/attachLink 把诊断写进
   // note 尾部，invalidRoleLinks() 按标记扫描——诊断因此随 catalog.json
   // round-trip，重开工程后诊断面仍可查。
@@ -277,6 +312,7 @@ bool DataCatalog::open(const QString &projectDir, QString *error)
   // 注意：m_lockedReadOnly 不在此重置——实例级只读降级由拥有者管理（见头注）。
   m_batchDepth = 0;
   m_batchDirty = false;
+  m_batchSnapshot.reset();
   m_dir = projectDir.trimmed().isEmpty() ? QString() : projectDir;
   m_revision = 0;
   m_entities.clear();
@@ -343,6 +379,17 @@ bool DataCatalog::open(const QString &projectDir, QString *error)
   m_revision = tables.meta.revision;
   m_assetSeq = qMax(m_assetSeq, tables.meta.assetSeq);
   m_versionSeq = qMax(m_versionSeq, tables.meta.versionSeq);
+  {
+    // #155：盘上孤儿受管目录也占号，见 scanManagedSeqFloor。
+    int diskAsset = 0, diskVersion = 0;
+    scanManagedSeqFloor(m_dir, &diskAsset, &diskVersion);
+    if (diskAsset > m_assetSeq || diskVersion > m_versionSeq)
+      qWarning("catalog: managed dirs on disk exceed catalog sequence (ast %d>%d, ver %d>%d)"
+               " — orphaned files from an interrupted import commit; skipping those ids",
+               diskAsset, m_assetSeq, diskVersion, m_versionSeq);
+    m_assetSeq = qMax(m_assetSeq, diskAsset);
+    m_versionSeq = qMax(m_versionSeq, diskVersion);
+  }
   if (tables.meta.hasMutationSeq)
     m_mutationSeq = qMax(m_mutationSeq, tables.meta.mutationSeq + 1);
   if (tables.meta.hasBackupKeep)
@@ -529,6 +576,22 @@ bool DataCatalog::commitStore(QString *error)
 
 void DataCatalog::beginBatch()
 {
+  if (m_batchDepth == 0 && !m_staging)
+  {
+    auto snap = std::make_unique<BatchSnapshot>();
+    snap->entities = m_entities;
+    snap->assets = m_assets;
+    snap->versions = m_versions;
+    snap->links = m_links;
+    snap->assetSeq = m_assetSeq;
+    snap->versionSeq = m_versionSeq;
+    snap->idx = m_idx;
+    snap->dirtyEntities = m_dirtyEntities;
+    snap->dirtyAssets = m_dirtyAssets;
+    snap->dirtyVersions = m_dirtyVersions;
+    snap->dirtyLinkOrds = m_dirtyLinkOrds;
+    m_batchSnapshot = std::move(snap);
+  }
   ++m_batchDepth;
 }
 
@@ -538,9 +601,31 @@ bool DataCatalog::endBatch(QString *error)
     return true; // 配对失衡由调用方栈结构保证，不 noisy
   if (--m_batchDepth > 0)
     return true; // 嵌套批次：只有最外层结算
+  std::unique_ptr<BatchSnapshot> snap = std::move(m_batchSnapshot);
   if (!m_batchDirty)
     return true;
-  return save(error); // 成功时 commitStore 才清 m_batchDirty
+  if (save(error)) // 成功时 commitStore 才清 m_batchDirty
+    return true;
+  // #169：落盘失败——commitStore 已清脏集，批内改动若留在内存就永远不会
+  // 再写盘（重开即静默丢失）。回滚内存到批次开始时，让内存与盘一致。
+  if (snap)
+  {
+    m_entities = std::move(snap->entities);
+    m_assets = std::move(snap->assets);
+    m_versions = std::move(snap->versions);
+    m_links = std::move(snap->links);
+    m_assetSeq = snap->assetSeq;
+    m_versionSeq = snap->versionSeq;
+    m_idx = std::move(snap->idx);
+    m_dirtyEntities = std::move(snap->dirtyEntities);
+    m_dirtyAssets = std::move(snap->dirtyAssets);
+    m_dirtyVersions = std::move(snap->dirtyVersions);
+    m_dirtyLinkOrds = std::move(snap->dirtyLinkOrds);
+    m_batchDirty = false;
+    ++m_mutationSeq;
+    emit changed();
+  }
+  return false;
 }
 
 DataCatalog::BatchSave::BatchSave(DataCatalog *catalog)

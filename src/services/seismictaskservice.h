@@ -200,6 +200,11 @@ struct SeismicTrackOptions
   int windowSamples = 24;        // 相关窗（种子波形长度）
   int maxSearchSamples = 12;     // 逐道最大搜索半径
   double correlationThreshold = 0.6; // 低于阈值的道不拾取
+  // 剖面轴（#146/#147）：columnLines[col] = 该列实际测线号（体的 Xline/InlineValues，
+  // 步长可 >1；空 → colMin+col 旧语义）；startTimeMs = 剖面首样 TWT（记录延迟），
+  // 追踪结果 twtMs = startTimeMs + sample·dt。
+  std::vector<int> columnLines;
+  double startTimeMs = 0.0;
 };
 
 // goal/horizon-autotrack — 追踪执行报告（QC：覆盖率/均值置信度/双侧停因）

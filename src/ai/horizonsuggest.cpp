@@ -54,10 +54,10 @@ bool suggestHorizonTracking( PaleoOnnxService *onnx, const QString &model,
   if ( !fetch )
     return fail( QObject::tr( "追踪建议需要道窗取数回调" ) );
 
-  if ( !onnx->isModelLoaded( model ) && !onnx->loadModel( model, error ) )
+  OnnxModelMeta meta; // #144：meta 随加载取回，推理绑定模型名
+  if ( onnx->loadModelMeta( model, &meta, error ) != OnnxLoadStatus::Ok )
     return fail( error && !error->isEmpty() ? *error
                                             : QObject::tr( "无法加载模型 '%1'" ).arg( model ) );
-  const OnnxModelMeta meta = onnx->loadedModelMeta();
   // scorer 契约：[1,1,T] 单通道 1D（NCL 布局）。
   if ( meta.inputShape.size() != 3 || meta.inputShape[0] > 1 || meta.inputShape[1] > 1 )
     return fail( QObject::tr( "trace scorer 模型输入须为 [1,1,T]，实际签名 %1" )
@@ -154,7 +154,7 @@ bool suggestHorizonTracking( PaleoOnnxService *onnx, const QString &model,
       continue; // 死道：诚实留空（无建议），扩张链继续
 
     QString runErr;
-    const OnnxTensor prob = onnx->runTensor( meta.inputName, window,
+    const OnnxTensor prob = onnx->runTensorOn( model, meta.inputName, window,
                                              { 1, 1, windowSamples }, &runErr );
     if ( !runErr.isEmpty() )
       return fail( QObject::tr( "道 (%1,%2) 打分失败: %3" ).arg( cand.il ).arg( cand.xl ).arg( runErr ) );

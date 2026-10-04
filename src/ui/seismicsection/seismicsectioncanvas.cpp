@@ -1,5 +1,6 @@
 // 层：视图
 #include "ui/seismicsection/seismicsectioncanvas.h"
+#include "domain/seismic/sectionaxis.h"
 
 #include "ui/paleotheme.h"
 
@@ -1470,13 +1471,15 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
         double px = -1.0, py = -1.0;
         if (m_sectionRef.valid && m_sectionRef.type == SgySliceType::Inline &&
             pick.inlineNo == m_sectionRef.index) {
-            const int col = pick.xlineNo - m_sectionRef.colMin;
+            const int col = sectionColumnForLine(m_sectionRef.colLines, m_sectionRef.colMin,
+                                                 pick.xlineNo);
             if (col < 0 || col >= m_traces) continue;
             px = traceToPixelX(col);
             py = (m_orientation == SectionOrientation::TimeSlice) ? -1.0 : timeToPixelY(pick.twtMs);
         } else if (m_sectionRef.valid && m_sectionRef.type == SgySliceType::Xline &&
                    pick.xlineNo == m_sectionRef.index) {
-            const int col = pick.inlineNo - m_sectionRef.colMin;
+            const int col = sectionColumnForLine(m_sectionRef.colLines, m_sectionRef.colMin,
+                                                 pick.inlineNo);
             if (col < 0 || col >= m_traces) continue;
             px = traceToPixelX(col);
             py = (m_orientation == SectionOrientation::TimeSlice) ? -1.0 : timeToPixelY(pick.twtMs);

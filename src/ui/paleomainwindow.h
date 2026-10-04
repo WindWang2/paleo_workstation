@@ -95,6 +95,8 @@ class PropertyModelWorkflow;
 class PropertyModelPanel;
 class FaciesMappingWorkflow;
 class FaciesMappingPanel;
+class PaleoMapBookPanel;
+class PaleoMapBookController;
 class FolderImportWorkflow;
 class ProjectOpenWorkflow;
 class RegistrationWorkflow;
@@ -147,6 +149,14 @@ class PaleoMainWindow : public SARibbonMainWindow
     SARibbonCategory *categoryForPage(const QString &pageId) const;
     void showStartup();            // first-run: recent projects + new/open
     void onProjectOpened();        // called after project opens: swap startup->workspace
+    // #153/#154/#156/#158：工程即将关闭/切换（QgisProjectService::
+    // projectAboutToClose）——清掉所有工程作用域的视图状态：预览标签与
+    // PreviewDoc 会话缓存、测井对比井集、3D/剖面地震体、属性建模在途作业。
+    // 在途任务已由 AppContext 开新任务会话统一取消。
+    void resetProjectScopedState();
+    // #156：测井对比井集 = catalog 全部 well_log（打开工程与导入后都走这里）。
+    void refreshCorrelationWells(const QString &loadLasForAssetId = QString(),
+                                 bool loadAllLas = false);
     void setProjectReadOnly(bool readOnly);
     bool isProjectReadOnly() const { return m_isProjectReadOnly; }
     // 打开工程文件（.paleo / .qgz）或工区目录（已有工程则打开，全新工区则建工程并唤起导入）。
@@ -309,6 +319,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     PaleoDockWidget *m_wellSectionDock = nullptr;
     WellSectionPanel *m_wellSectionPanel = nullptr;
     WellSectionWorkflow *m_wellSectionWf = nullptr;
+    QPointer<WellCorrelationPanel> m_corrPanel; // 底栏测井对比（attachPages 创建）
 
     QgisCanvasController *m_canvasCtl;
     QgisProjectService *m_projectSvc;
@@ -358,6 +369,11 @@ class PaleoMainWindow : public SARibbonMainWindow
     paleo::fault::FaultInterpretationController *m_propModelFaults = nullptr;
     QDockWidget *m_propModelDock = nullptr;
     PropertyModelPanel *m_propModelPanel = nullptr;
+    // #148：地图册批量导出（「智能编图 › 图件输出 › 地图册」），工程关闭时
+    // resetProjectScopedState 里 resetProject。
+    QDockWidget *m_mapBookDock = nullptr;
+    PaleoMapBookPanel *m_mapBookPanel = nullptr;
+    PaleoMapBookController *m_mapBookCtl = nullptr;
     bool m_propModelRunning = false;
     bool m_propModelCancel = false;
     // #85：计算段在任务池 worker 上跑；交接体由 worker 写、finished 回包（GUI）

@@ -679,12 +679,22 @@ int main(int argc, char *argv[])
   }
   TestUiBlocking tc;
   // ctest 无控制台下 QtTest 结果走 OutputDebugString，失败时看不到哪条红；
-  // 追加 -o 让结果落盘（方向20 轮5 探测面扩展用）。
+  // 追加文件 logger 让结果落盘（方向20 轮5 探测面扩展用）。
+  // #150：单个 `-o file` 会把 stdout 的 FAIL!/实测耗时整个吞掉（Linux CI 日志
+  // 只剩一行 Failed）。改为多 logger：stdout 照常 + 同时落盘；调用方自己给了
+  // -o 时不追加，尊重显式选择。
   QByteArray logPath = QByteArray(QT_TESTCASE_BUILDDIR) + "/tst_ui_blocking-result.txt";
   QList<QByteArray> fwd;
   fwd << QByteArray(argv[0]);
-  for (int i = 1; i < argc; ++i) fwd << QByteArray(argv[i]);
-  fwd << QByteArray("-o") << logPath + ",txt";
+  bool userLogger = false;
+  for (int i = 1; i < argc; ++i)
+  {
+    fwd << QByteArray(argv[i]);
+    if (qstrcmp(argv[i], "-o") == 0)
+      userLogger = true;
+  }
+  if (!userLogger)
+    fwd << QByteArray("-o") << QByteArray("-,txt") << QByteArray("-o") << logPath + ",txt";
   QList<char *> cargv;
   cargv.reserve(fwd.size());
   for (QByteArray &a : fwd) cargv << a.data();

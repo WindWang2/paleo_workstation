@@ -101,6 +101,10 @@ class LasParser
                                 QStringList &curveNames, QList<LasCurve> &curves,
                                 QString *error = nullptr, QList<LasIssue> *issues = nullptr);
 
+    // #166：深度道单位 → 米的换算系数。米族（M/METER/METRE/METERS/METRES）= 1，
+    // 英尺族（FT/F/FEET/FOOT）= 0.3048；空串/其它未知单位 = 0（调用方自定口径）。
+    static double depthUnitToMeters(const QString &unit);
+
     // D1.8 大文件防护：>limit 的文件拒绝整读（parseDoc/parse 返回
     // Oversize Error），流式 parseRange/parseDepthRange 不受限。默认 500MB。
     static qint64 fileSizeLimit() { return s_fileSizeLimit; }

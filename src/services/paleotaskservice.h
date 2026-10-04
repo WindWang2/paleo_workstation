@@ -48,6 +48,9 @@ public:
   // quiet：交互内嵌任务（切片/剖面解码/预取等）——照常进任务页列表、可取消，
   // 但不触发主窗口任务中心自动露出（交互控件自带进度语义，弹出会打断操作）。
   bool quiet() const { return m_quiet; }
+  // 发起时的任务会话号（PaleoTaskService::session()）。工程切换开新会话，
+  // 提交端比对 task->session() != service->session() 即知结果已过期。
+  quint64 session() const { return m_session; }
 
   Q_INVOKABLE void requestCancel() { m_cancel.store(true); }
   bool cancelRequested() const { return m_cancel.load(); }
@@ -82,6 +85,7 @@ private:
   int m_stagePercent = -1;
   State m_state = State::Running;
   bool m_quiet = false;
+  quint64 m_session = 0;
   std::atomic_bool m_cancel{false};
   qint64 m_bytesDone = 0, m_bytesTotal = -1;
   double m_rateBytesPerSec = -1.0; // 最近 ≤10s 窗口字节速率；-1 不可估
@@ -115,7 +119,9 @@ public:
 
   // 关停排空（H-2）：对所有运行中任务 requestCancel、清空排队，再等 worker
   // 全部退出（≤timeoutMs；<0 不限时）。pumpEvents=true 且在主线程时等待期间
-  // 泵事件，避免与 BlockingQueuedConnection 回主线程的 worker 互锁。返回
+  // 泵事件，让 worker 排队回主线程的进度/终态回包与其它排队调用落地（导入
+  // 链已不再 BlockingQueued 回主线程——旧 catInvoke 已移除；泵事件保留给仍
+  // 可能这样做的调用方，tst_taskservice 覆盖该互锁回归）。返回
   // false = 超时仍有 worker 在跑。宿主（AppContext）应在析构依赖对象之前调用；
   // 析构函数自身也会（不泵事件地）排空。幂等。
   bool shutdown(int timeoutMs = kShutdownWaitMs, bool pumpEvents = true);
@@ -127,6 +133,22 @@ public:
   void setMaxWorkerThreads(int n); // 夹取 [1,8]；只影响之后的排队
   int runningCount() const;
 
+  // 任务会话（#153/#124）：工程即将关闭/切换时宿主调 beginNewSession()——
+  // 会话号自增，所有运行中/排队任务 requestCancel（终态必为 Cancelled，
+  // 下游 JobRunner/finished 槽据此丢弃旧工程结果）；尚未出队的任务出队时
+  // 直接跳过 work。返回新会话号。
+  quint64 beginNewSession();
+  quint64 session() const { return m_session; }
+
+  // #164 任务注册表保留策略：quiet 任务终态后 quietLingerMs 自动移除；
+  // 非 quiet 终态任务最多保留 maxFinished 条（超出删最旧）。运行中任务
+  // 永不删。<0 关闭对应策略。删除走 deleteLater——持有方须用 QPointer。
+  void setRetention(int maxFinished, int quietLingerMs);
+  int maxFinishedRetained() const { return m_maxFinished; }
+  int quietLingerMs() const { return m_quietLingerMs; }
+  static constexpr int kDefaultMaxFinished = 50;
+  static constexpr int kDefaultQuietLingerMs = 5000;
+
 signals:
   void taskAdded(PaleoTask *task);
   void tasksChanged(); // 行集合变化（新增/清理），面板据此重建
@@ -134,6 +156,13 @@ signals:
 private:
   friend class PaleoTask;
   void onTaskFinished(PaleoTask *task);
+  PaleoTask *createTask(const QString &title, const QString &layerId, bool quiet);
+  void removeTask(PaleoTask *task);
+  void pruneFinished();
+
+  quint64 m_session = 1;
+  int m_maxFinished = kDefaultMaxFinished;
+  int m_quietLingerMs = kDefaultQuietLingerMs;
 
   PaleoProjectStore *m_store;
   qint64 m_nextId = 1;

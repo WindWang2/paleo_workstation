@@ -3,10 +3,12 @@
 #include <QByteArray>
 #include <QObject>
 #include <QString>
+#include <QVariantMap>
 #include <functional>
 
 #include "../algorithms/gridsolver.h"
 
+struct BinnedHorizon;
 class ConstraintStore;
 class DataCatalog;
 class QgisLayerService;
@@ -75,7 +77,9 @@ class SurfaceGriddingWorkflow : public QObject
 
   // 网格化层位散点文本 → 受管派生 GeoTIFF。任务线程可调：stage(key,percent)
   // 节流上报、cancel 协作取消；成功返回空串并经 rasterReady（排队回 GUI
-  // 线程）请壳上图。网格规模守卫（1 亿像元预算）在 io/geometryForExtent。
+  // 线程）请壳上图。catalog 登记（stage/commit）只在 catalog 所属线程执行：
+  // 任务线程调用时先写 artifacts/staging 临时产物，登记排队回 owner 线程
+  // （此时 Outcome 不含 tifPath/assetId/versionId，登记失败经 griddingFailed）。网格规模守卫（1 亿像元预算）在 io/geometryForExtent。
   QString gridHorizonText(const QString &horizon, const QByteArray &text,
                           const Options &opt, const std::function<bool()> &cancel,
                           const std::function<void(const QString &, int)> &stage,
@@ -96,6 +100,8 @@ class SurfaceGriddingWorkflow : public QObject
   void griddingFailed(const QString &horizon, const QString &error);
 
   private:
+  QString publishGridded(const QString &horizon, const BinnedHorizon &b,
+                         const QString &tmpTif, const QVariantMap &extra, Outcome *o);
   QString buildBarrierMask(const QString &horizon, const paleo::gridsolver::GridGeometry &geom,
                            std::vector<std::uint8_t> *mask) const;
 

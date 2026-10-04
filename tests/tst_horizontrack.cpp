@@ -380,6 +380,47 @@ private slots:
   }
 
   // ---- Oracle#4(3D)：取消逐剖面生效 ----
+  // #139：同相轴距剖面顶/底不足半窗（模板窗被钳位）时，拾取仍落在同相轴上，
+  // 不被吸向窗中心（旧实现：事件在 3 → 全追到 12；在 96 → 92）。
+  void edgeEventsNotPulledToWindowCentre()
+  {
+    const int nT = 20, nS = 100;
+    for (const int ev : {3, 50, 96})
+    {
+      const std::vector<float> sec =
+          makeSection(nT, nS, [ev](int) { return ev; }, zeroNoise, 1u);
+      TrackOptions o;
+      o.windowSamples = 24;
+      o.maxSearchSamples = 12;
+      o.correlationThreshold = 0.6;
+      const TrackResult r = trackSection(sec.data(), nT, nS, {10, ev}, o);
+      QCOMPARE(int(r.picks.size()), nT);
+      for (const TracedPick &p : r.picks)
+        QVERIFY2(p.sample == ev, qPrintable(QString("event %1 trace %2 picked %3")
+                                                .arg(ev).arg(p.trace).arg(p.sample)));
+    }
+  }
+
+  // #139：3D 前沿扩散同理（种子同相轴贴顶 3 样）。
+  void propagateVolumeEdgeEventNotPulled()
+  {
+    const int nIl = 5, nXl = 5, nS = 100;
+    for (const int ev : {3, 96})
+    {
+      const std::vector<float> vol =
+          makeVolume(nIl, nXl, nS, [ev](int, int) { return ev; });
+      TrackOptions o;
+      o.windowSamples = 24;
+      o.maxSearchSamples = 12;
+      o.correlationThreshold = 0.6;
+      const PropagateResult r = propagateVolume(vol.data(), nIl, nXl, nS, 2, {{2, ev}}, o);
+      QCOMPARE(int(r.picks.size()), nIl * nXl);
+      for (const auto &p : r.picks)
+        QVERIFY2(p.sample == ev, qPrintable(QString("event %1 (%2,%3) picked %4")
+                                                .arg(ev).arg(p.il).arg(p.xl).arg(p.sample)));
+    }
+  }
+
   void propagateVolumeCancelled()
   {
     const int nIl = 32, nXl = 48, nS = 384;

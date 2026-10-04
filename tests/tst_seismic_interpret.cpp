@@ -9,6 +9,7 @@
 #include <QElapsedTimer>
 #include <QFileInfo>
 #include <QLabel>
+#include <QRegularExpression>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QUndoStack>
@@ -464,6 +465,42 @@ private slots:
              qPrintable(stopReport.stopSummary));
     QVERIFY2(stopReport.stopSummary.contains(QStringLiteral("XL")),
              qPrintable(stopReport.stopSummary));
+  }
+
+  // ---- #146/#147：追踪结果按剖面实际列轴写线号、按记录延迟写 TWT ----
+  void trackingUsesSectionAxisAndTimeOrigin()
+  {
+    const int cols = 120;
+    const SgySliceImage slice = makeDippingSlice(cols, 400, 150, 1);
+    SeismicTrackOptions opt{24, 12, 0.6};
+    for (int c = 0; c < cols; ++c)
+      opt.columnLines.push_back(2000 + 2 * c); // 线距 2
+    opt.startTimeMs = 100.0;                   // 记录延迟 100 ms
+    SeismicTrackReport report;
+    const QList<SeismicPick> picks = SeismicTaskService::trackHorizonMultiSeeds(
+        slice, SgySliceType::Inline, 1000, 2000, 2000 + 2 * (cols - 1),
+        {{10, 160}, {100, 250}}, opt, QStringLiteral("t"), QStringLiteral("H1"), 2.0f, &report);
+    QCOMPARE(picks.size(), cols);
+    for (const SeismicPick &p : picks)
+    {
+      QCOMPARE(p.inlineNo, 1000);
+      QVERIFY2((p.xlineNo - 2000) % 2 == 0 && p.xlineNo <= 2000 + 2 * (cols - 1),
+               qPrintable(QString("xline %1 不在线距 2 的轴上").arg(p.xlineNo)));
+      const int col = (p.xlineNo - 2000) / 2;
+      QVERIFY(std::abs(p.sampleIndex - (150 + col)) <= 1);
+      QCOMPARE(p.twtMs, 100.0 + 2.0 * p.sampleIndex);
+    }
+
+    const SgySliceImage truncated = makeDippingSlice(cols, 400, 150, 1, 40);
+    SeismicTrackReport stopReport;
+    SeismicTaskService::trackHorizonMultiSeeds(
+        truncated, SgySliceType::Inline, 1000, 2000, 2000 + 2 * (cols - 1), {{10, 160}}, opt,
+        QStringLiteral("t"), QStringLiteral("H1"), 2.0f, &stopReport);
+    // 停因标注的测线号同样走列轴（线距 2 → 偶数线号）。
+    const QRegularExpression re(QStringLiteral("@XL(\\d+)"));
+    const QRegularExpressionMatch m = re.match(stopReport.stopSummary);
+    QVERIFY2(m.hasMatch(), qPrintable(stopReport.stopSummary));
+    QVERIFY2(m.captured(1).toInt() % 2 == 0, qPrintable(stopReport.stopSummary));
   }
 
   // ---- goal/horizon-autotrack：异步追踪可取消（取消不发布半成品）----

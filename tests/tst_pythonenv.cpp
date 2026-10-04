@@ -4,6 +4,7 @@
 #include <QtTest>
 #include <QTemporaryDir>
 #include <QSignalSpy>
+#include <QCryptographicHash>
 
 #include "../src/services/pythonenv.h"
 #include "../src/workflow/mamcltool.h"
@@ -13,7 +14,12 @@ class TestPythonEnv : public QObject
   Q_OBJECT
 
   private slots:
-    void initTestCase() { qunsetenv("PALEO_MAMCL_ZIP"); }
+    void initTestCase()
+    {
+      qunsetenv("PALEO_MAMCL_ZIP");
+      qunsetenv("PALEO_MAMCL_ZIP_SHA256");
+      qunsetenv("PALEO_MAMCL_ALLOW_UNPINNED");
+    }
 
     void paths()
     {
@@ -90,6 +96,50 @@ class TestPythonEnv : public QObject
       // 依赖旗标钉在 venv 目录内，随 requirements 内容哈希命名。
       QVERIFY(tool.depsMarkerPath().startsWith(env.venvDir(QStringLiteral("mamcl"))));
       QVERIFY(tool.depsMarkerPath().contains(QStringLiteral(".paleo-deps-")));
+    }
+
+    // #142：外部程序包未登记 SHA-256 / 哈希不符 → 同步拒绝，不进解包。
+    void mamclRejectsUnverifiedZip()
+    {
+      QTemporaryDir tmp;
+      PythonEnvService env(tmp.path());
+      MamclTool tool(&env);
+      const QString zip = tmp.filePath(QStringLiteral("MAMCL_x.zip"));
+      QFile f(zip);
+      QVERIFY(f.open(QIODevice::WriteOnly));
+      f.write("not really a zip");
+      f.close();
+      tool.setPackageZip(zip);
+      QVERIFY(tool.expectedZipSha256().isEmpty()); // setPackageZip 不信编译期哈希
+      {
+        QSignalSpy spy(&tool, &MamclTool::launchFinished);
+        tool.open();
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(spy.first().at(0).toBool(), false);
+        QVERIFY(spy.first().at(1).toString().contains(QStringLiteral("SHA-256")));
+        QVERIFY(!tool.isBusy());
+      }
+      qputenv("PALEO_MAMCL_ZIP_SHA256", QByteArray(64, '0'));
+      {
+        QSignalSpy spy(&tool, &MamclTool::launchFinished);
+        tool.open();
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(spy.first().at(0).toBool(), false);
+        QVERIFY(spy.first().at(1).toString().contains(QStringLiteral("不符")));
+      }
+      qunsetenv("PALEO_MAMCL_ZIP_SHA256");
+      QCOMPARE(MamclTool::sha256OfFile(zip),
+               QString::fromLatin1(QCryptographicHash::hash("not really a zip",
+                                                            QCryptographicHash::Sha256).toHex()));
+    }
+
+    void mamclLockFileBesideZip()
+    {
+      QTemporaryDir tmp;
+      PythonEnvService env(tmp.path());
+      MamclTool tool(&env);
+      tool.setPackageZip(QStringLiteral("/data/MAMCL_v9.zip"));
+      QCOMPARE(tool.lockFile(), QStringLiteral("/data/MAMCL_v9.requirements.lock"));
     }
 };
 

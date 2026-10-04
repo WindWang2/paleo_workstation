@@ -3,6 +3,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QHostAddress>
 #include <QJsonDocument>
 #include <QNetworkReply>
 #include <QNetworkRequest>
@@ -15,6 +16,30 @@ QString WellFaciesConfig::path() {
              QStandardPaths::GenericConfigLocation) +
          QStringLiteral("/paleo/well-facies.json");
 }
+bool WellFaciesConfig::isLoopbackHost(const QString &host) {
+  const QString h = host.trimmed().toLower();
+  if (h == QLatin1String("localhost"))
+    return true;
+  QHostAddress address;
+  if (!address.setAddress(h))
+    return false;
+  return address.isLoopback();
+}
+QString WellFaciesConfig::validateUrl(const QUrl &url, bool allowInsecureHttp) {
+  if (url.isEmpty())
+    return QObject::tr("尚未配置测井相预测服务地址");
+  if (!url.isValid() || url.host().isEmpty() ||
+      (url.scheme() != QLatin1String("http") &&
+       url.scheme() != QLatin1String("https")) ||
+      !url.userInfo().isEmpty() || url.hasQuery() || url.hasFragment())
+    return QObject::tr("测井相预测服务地址无效");
+  if (url.scheme() == QLatin1String("http") && !allowInsecureHttp &&
+      !isLoopbackHost(url.host()))
+    return QObject::tr("测井相预测服务必须使用 https://（http 会明文传输 API "
+                       "密钥与井数据）；确需内网 http 请在「预测服务」勾选"
+                       "「允许不加密的 HTTP」");
+  return {};
+}
 WellFaciesConfig WellFaciesConfig::load() {
   WellFaciesConfig c;
   QFile f(path());
@@ -23,31 +48,37 @@ WellFaciesConfig WellFaciesConfig::load() {
     if (!j.value("baseUrl").toString().isEmpty())
       c.baseUrl = QUrl(j.value("baseUrl").toString());
     c.apiKey = j.value("apiKey").toString().toUtf8();
+    c.allowInsecureHttp = j.value("allowInsecureHttp").toBool(false);
   }
   if (qEnvironmentVariableIsSet("PALEO_WELL_FACIES_URL"))
     c.baseUrl = QUrl(qEnvironmentVariable("PALEO_WELL_FACIES_URL"));
   if (qEnvironmentVariableIsSet("PALEO_WELL_FACIES_API_KEY"))
     c.apiKey = qgetenv("PALEO_WELL_FACIES_API_KEY");
+  if (qEnvironmentVariable("PALEO_WELL_FACIES_ALLOW_INSECURE_HTTP") ==
+      QLatin1String("1"))
+    c.allowInsecureHttp = true;
   return c;
 }
-bool WellFaciesConfig::save(QString *error) const {
-  if (!baseUrl.isValid() || baseUrl.host().isEmpty() ||
-      (baseUrl.scheme() != "http" && baseUrl.scheme() != "https") ||
-      !baseUrl.userInfo().isEmpty() || baseUrl.hasQuery() ||
-      baseUrl.hasFragment() || apiKey.trimmed().isEmpty() ||
+bool WellFaciesConfig::save(QString *error, bool writeKeyToFile) const {
+  const QString urlError = validateUrl(baseUrl, allowInsecureHttp);
+  if (!urlError.isEmpty() || apiKey.trimmed().isEmpty() ||
       apiKey.contains('\n') || apiKey.contains('\r')) {
     if (error)
-      *error = QObject::tr("请输入有效的 HTTP 服务地址和 API 密钥");
+      *error = urlError.isEmpty()
+                   ? QObject::tr("请输入有效的服务地址和 API 密钥")
+                   : urlError;
     return false;
   }
   QDir().mkpath(QFileInfo(path()).absolutePath());
   QSaveFile f(path());
   if (f.open(QIODevice::WriteOnly)) {
     f.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
-    const QByteArray bytes =
-        QJsonDocument(QJsonObject{{"baseUrl", baseUrl.toString()},
-                                  {"apiKey", QString::fromUtf8(apiKey)}})
-            .toJson();
+    QJsonObject json{{"baseUrl", baseUrl.toString()}};
+    if (allowInsecureHttp)
+      json.insert("allowInsecureHttp", true);
+    if (writeKeyToFile)
+      json.insert("apiKey", QString::fromUtf8(apiKey));
+    const QByteArray bytes = QJsonDocument(json).toJson();
     if (f.write(bytes) == bytes.size() && f.commit())
       return true;
   }
@@ -123,10 +154,10 @@ void WellFaciesService::request(const QString &path, const QJsonObject &body,
       m_config.apiKey.contains('\r'))
     return fail(tr("尚未配置测井相预测 API 密钥"));
   QUrl url = m_config.baseUrl;
-  if (!url.isValid() || url.host().isEmpty() ||
-      (url.scheme() != "http" && url.scheme() != "https") ||
-      !url.userInfo().isEmpty() || url.hasQuery() || url.hasFragment())
-    return fail(tr("测井相预测服务地址无效"));
+  const QString urlError =
+      WellFaciesConfig::validateUrl(url, m_config.allowInsecureHttp);
+  if (!urlError.isEmpty())
+    return fail(urlError);
   QString basePath = url.path();
   while (basePath.endsWith('/'))
     basePath.chop(1);
@@ -144,11 +175,26 @@ void WellFaciesService::request(const QString &path, const QJsonObject &body,
            : m_network.get(req);
   m_reply = reply;
   const int generation = m_generation;
+  // 响应体上限（#133）：声明或实收超过上限即中止，finished 里判失败。
+  connect(reply, &QNetworkReply::downloadProgress, reply,
+          [reply](qint64 received, qint64 total) {
+            if (received > WellFaciesConfig::kMaxResponseBytes ||
+                total > WellFaciesConfig::kMaxResponseBytes) {
+              reply->setProperty("paleoTooLarge", true);
+              reply->abort();
+            }
+          });
   connect(
       reply, &QNetworkReply::finished, this, [this, reply, generation, models] {
         if (generation != m_generation) {
           reply->deleteLater();
           return;
+        }
+        if (reply->property("paleoTooLarge").toBool()) {
+          reply->deleteLater();
+          m_reply = nullptr;
+          return fail(tr("测井相服务响应超过 %1 MiB 上限，已中止")
+                          .arg(WellFaciesConfig::kMaxResponseBytes / (1024 * 1024)));
         }
         const auto bytes = reply->readAll();
         const int http =

@@ -13,7 +13,8 @@
 
 namespace
 {
-  constexpr quint16 kLasCacheVersion = 1;
+  // v2（#167）：解析器不再把纯空白行/尾部 Ctrl-Z 解析成 NaN 幽灵行——旧缓存作废重建。
+  constexpr quint16 kLasCacheVersion = 2;
   const char kLasCacheMagic[8] = {'P', 'L', 'A', 'S', 'C', 'C', 'H', 'E'};
   constexpr qint64 kDefaultMemBudget = 64 * 1024 * 1024;
 

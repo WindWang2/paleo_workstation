@@ -1,8 +1,11 @@
 #include <QtTest>
 #include <QDateTime>
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QSignalSpy>
+#include <QSqlDatabase>
+#include <QSqlQuery>
 #include <QTemporaryDir>
 #include <QThread>
 
@@ -167,6 +170,8 @@ private slots:
   void abortJournalAfterKLeavesSqliteBytesIdentical();
   void batchSaveLeavesSqliteUntouchedUntilFlush();
   void workerReadsDoNotTouchSqlite();
+  void failedBatchFlushRollsBackMemory();
+  void openSkipsIdsOfOrphanedManagedDirs();
 };
 
 void TestDataCatalogSqlite::abortJournalAfterKLeavesSqliteBytesIdentical()
@@ -370,6 +375,70 @@ void TestDataCatalogSqlite::workerReadsDoNotTouchSqlite()
   QVERIFY2(afterCap.isEmpty(), qPrintable(afterCap));
   const QString diff = familyDiff(before, after, false);
   QVERIFY2(diff.isEmpty(), qPrintable(diff));
+}
+
+// #169：批次结算落盘失败（另一连接持写锁）→ 内存回滚到批次前；之后的
+// 成功写入不会让内存与盘分叉（旧代码：A 留内存、重开后消失）。
+void TestDataCatalogSqlite::failedBatchFlushRollsBackMemory()
+{
+  QTemporaryDir tmp;
+  QVERIFY(tmp.isValid());
+  QString err;
+  {
+    DataCatalog cat;
+    QVERIFY2(cat.open(tmp.path(), &err), qPrintable(err));
+    QVERIFY2(cat.addEntity(wellEntity(QStringLiteral("well-0"), QStringLiteral("W0")), &err),
+             qPrintable(err));
+    const QString conn = QStringLiteral("tst_lock_holder");
+    {
+      QSqlDatabase other = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), conn);
+      other.setDatabaseName(cat.sqliteCatalogPath());
+      QVERIFY(other.open());
+      QSqlQuery q(other);
+      QVERIFY(q.exec(QStringLiteral("PRAGMA busy_timeout=0")));
+      QVERIFY(q.exec(QStringLiteral("BEGIN IMMEDIATE")));
+      bool flushed = true;
+      QString ferr;
+      {
+        DataCatalog::BatchSave batch(&cat);
+        QVERIFY2(cat.addEntity(wellEntity(QStringLiteral("well-A"), QStringLiteral("A")), &err),
+                 qPrintable(err));
+        QVERIFY(cat.hasEntity(QStringLiteral("well-A")));
+        flushed = batch.flush(&ferr);
+      }
+      q.exec(QStringLiteral("ROLLBACK"));
+      other.close();
+      QVERIFY2(!flushed, "flush must fail while another connection holds the write lock");
+      QVERIFY(!ferr.isEmpty());
+    }
+    QSqlDatabase::removeDatabase(conn);
+    // 回滚：内存与盘一致——A 不在。
+    QVERIFY(!cat.hasEntity(QStringLiteral("well-A")));
+    QVERIFY(cat.hasEntity(QStringLiteral("well-0")));
+    QVERIFY2(cat.addEntity(wellEntity(QStringLiteral("well-B"), QStringLiteral("B")), &err),
+             qPrintable(err));
+  }
+  DataCatalog again;
+  QVERIFY2(again.open(tmp.path(), &err), qPrintable(err));
+  QVERIFY(again.hasEntity(QStringLiteral("well-0")));
+  QVERIFY(!again.hasEntity(QStringLiteral("well-A")));
+  QVERIFY(again.hasEntity(QStringLiteral("well-B")));
+}
+
+// #155：提交两步之间崩溃留下的 artifacts/<stage>/ast-N/ver-M 孤儿目录也占号，
+// 重开后的分配不得撞上（旧代码重发 ast-1/ver-1 → 导入「拒绝覆盖」永久失败）。
+void TestDataCatalogSqlite::openSkipsIdsOfOrphanedManagedDirs()
+{
+  QTemporaryDir tmp;
+  QVERIFY(tmp.isValid());
+  QVERIFY(QDir().mkpath(tmp.filePath(QStringLiteral("artifacts/raw/ast-3/ver-5"))));
+  QVERIFY(QDir().mkpath(tmp.filePath(QStringLiteral("artifacts/derived/ast-1/ver-7"))));
+  QVERIFY(QDir().mkpath(tmp.filePath(QStringLiteral("artifacts/staging/not-an-asset/ver-99"))));
+  DataCatalog cat;
+  QString err;
+  QVERIFY2(cat.open(tmp.path(), &err), qPrintable(err));
+  QCOMPARE(cat.nextAssetId(), QStringLiteral("ast-4"));
+  QCOMPARE(cat.nextVersionId(), QStringLiteral("ver-8"));
 }
 
 QTEST_MAIN(TestDataCatalogSqlite)

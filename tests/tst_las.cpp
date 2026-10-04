@@ -21,6 +21,7 @@ class TestLas : public QObject
     void testEmptyLinesTrailingWhitespaceVariableColumns();
     void testDepthRangeAcrossChunkBoundaries_data();
     void testDepthRangeAcrossChunkBoundaries();
+    void testWhitespaceOnlyAndCtrlZDoNotCreatePhantomRows();
 
   private:
     QTemporaryDir m_tempDir;
@@ -465,6 +466,38 @@ void TestLas::testEmptyLinesTrailingWhitespaceVariableColumns()
       sawTruncatedIssue = true;
   }
   QVERIFY2(sawTruncatedIssue, "Should report LasIssue::Category::Truncated for malformed rows");
+  // #167：纯空白行不得变成深度为 NaN 的幽灵行。
+  QCOMPARE(doc.curves[0].values.size(), 4);
+  for (double d : doc.curves[0].values)
+    QVERIFY(std::isfinite(d));
+}
+
+// #167：纯空白行 + DOS 尾部 Ctrl-Z（0x1A）——parseDoc 与 parse 都只出 3 行，
+// 深度无 NaN（旧代码 parseDoc 出 5 行 "100 100.5 nan 101 nan"）。
+void TestLas::testWhitespaceOnlyAndCtrlZDoNotCreatePhantomRows()
+{
+  const QString path = m_tempDir.filePath("ws_ctrlz.las");
+  QFile file(path);
+  QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+  file.write("~V\nVERS. 2.0 :\nWRAP. NO :\n~W\nNULL. -999.25 :\nWELL. W1 :\n"
+             "~C\nDEPT.M :\nGR.API :\n~A\n100 10\n100.5 20\n   \t \n101 30\n\x1a");
+  file.close();
+
+  QList<LasIssue> issues;
+  const LasDoc doc = LasParser::parseDoc(path, &issues);
+  QVERIFY(doc.ok);
+  QCOMPARE(doc.curves.size(), 2);
+  QCOMPARE(doc.curves[0].values, (QVector<double>{100.0, 100.5, 101.0}));
+  QCOMPARE(doc.curves[1].values, (QVector<double>{10.0, 20.0, 30.0}));
+  for (const LasIssue &issue : issues)
+    QVERIFY2(issue.category != LasIssue::Category::Truncated, qPrintable(issue.message));
+
+  QStringList names;
+  QList<LasCurve> curves;
+  QString error;
+  QVERIFY2(LasParser::parse(path, names, curves, &error), qPrintable(error));
+  QCOMPARE(curves.size(), 2);
+  QCOMPARE(curves[0].values, (QVector<double>{100.0, 100.5, 101.0}));
 }
 
 void TestLas::testDepthRangeAcrossChunkBoundaries_data()

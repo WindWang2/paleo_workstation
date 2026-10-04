@@ -189,6 +189,11 @@ int main(int argc, char *argv[])
 
   // The QgsApplication built by the runtime is the live QApplication instance.
   const int exitCode = QApplication::exec();
+  // #163：先排空任务池再让 window 析构（栈序：window 先于 ctx 析构）。worker
+  // 闭包/finished 槽可能引用主窗口持有的对象（面板、JobRunner、workflow），
+  // 旧实现等到 ~AppContext 才排空——那时 window 已析构，在途 worker 向已析构
+  // 对象回包 = use-after-free。
+  ctx.drainTasks();
   // 只有走到这里（正常退出）才清旗标；崩溃路径进程死在 exec 里，旗标残留
   // 正是下次启动脏退出检测的依据。
   CrashReport::clearRunningFlag();

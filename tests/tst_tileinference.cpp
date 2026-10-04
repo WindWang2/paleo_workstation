@@ -29,6 +29,12 @@ private slots:
   void planCoversEveryCellExactlyOnce();
   void softmaxMatchesIndependentImpl();
   void softmaxNodataStays255();
+  // #143：非有限 logit（NaN 经感受野扩散）→ 无数据，不落到类 0/置信 1。
+  void softmaxNonFiniteLogitsAreNodata();
+  // #143：输入净化——NaN/Inf 置 0 并记无数据掩膜。
+  void sanitizeModelInputMasksNonFinite();
+  // #143：类数超过 255（类号与无数据 255 冲突）→ 全无数据。
+  void softmaxRejectsTooManyClasses();
   void stitchWritesInnerRegionOnly();
   void endToEndProbabilityAndConfidence();
   void progressIsMonotonic();
@@ -209,6 +215,50 @@ void TestTileInference::softmaxNodataStays255()
   softmaxGrid( logits, 2, 1, 2, valid, &g );
   QCOMPARE( int( g.argmax[0] ), 0 );
   QCOMPARE( int( g.argmax[1] ), 255 ); // NaN 像素 → 无数据
+}
+
+void TestTileInference::softmaxNonFiniteLogitsAreNodata()
+{
+  const float nan = std::numeric_limits<float>::quiet_NaN();
+  const float inf = std::numeric_limits<float>::infinity();
+  // 3 像素 × 3 类：p0 正常、p1 全 NaN、p2 一类 +Inf。
+  const QVector<float> logits = { 0.1f, nan, 0.0f, 2.0f, nan, inf, 0.3f, nan, 0.0f };
+  TileClassGrid g;
+  softmaxGrid( logits, 3, 1, 3, QVector<bool>{ true, true, true }, &g );
+  QCOMPARE( int( g.argmax[0] ), 1 );
+  QVERIFY( g.confidence[0] > 0.0f && g.confidence[0] < 1.0f );
+  for ( int p : { 1, 2 } )
+  {
+    QCOMPARE( int( g.argmax[p] ), 255 ); // 旧实现：类 0、置信 1.0
+    QCOMPARE( g.confidence[p], 0.0f );
+    QCOMPARE( g.probMax[p], 0.0f );
+  }
+}
+
+void TestTileInference::sanitizeModelInputMasksNonFinite()
+{
+  QVector<float> data = { 1.0f, std::numeric_limits<float>::quiet_NaN(), -2.0f,
+                          std::numeric_limits<float>::infinity() };
+  QVector<bool> valid;
+  QCOMPARE( sanitizeModelInput( data, &valid ), 2 );
+  QCOMPARE( data, ( QVector<float>{ 1.0f, 0.0f, -2.0f, 0.0f } ) );
+  QCOMPARE( valid, ( QVector<bool>{ true, false, true, false } ) );
+}
+
+void TestTileInference::softmaxRejectsTooManyClasses()
+{
+  const int C = 256;
+  QVector<float> logits( C, 0.0f );
+  logits[255] = 10.0f; // 类 255 最大——若不拦截会与无数据 255 混淆
+  TileClassGrid g;
+  softmaxGrid( logits, C, 1, 1, {}, &g );
+  QCOMPARE( int( g.argmax[0] ), 255 );
+  QCOMPARE( g.confidence[0], 0.0f );
+  // 上限内（255 类，类号 0..254）正常
+  QVector<float> ok( 255, 0.0f );
+  ok[254] = 10.0f;
+  softmaxGrid( ok, 255, 1, 1, {}, &g );
+  QCOMPARE( int( g.argmax[0] ), 254 );
 }
 
 void TestTileInference::stitchWritesInnerRegionOnly()

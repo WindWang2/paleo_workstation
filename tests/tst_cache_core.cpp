@@ -428,7 +428,11 @@ void CacheCoreTests::lruThreadSafety()
     }));
   for (auto &f : futs)
     f.waitForFinished();
-  QVERIFY(cache.size() >= 0);
+  // #151：真实不变量（旧的 size() >= 0 恒真）。键域 [0,200)、每条 100 字节、
+  // 容量 100000 不触发淘汰 → 条目数 ≤ 200，字节数 = 条目数 × 100 ≤ 容量。
+  QVERIFY(cache.size() <= 200);
+  QCOMPARE(cache.bytes(), qint64(cache.size()) * 100);
+  QVERIFY(cache.bytes() <= cache.capacity());
   cache.clear();
   QCOMPARE(cache.bytes(), qint64(0));
 }

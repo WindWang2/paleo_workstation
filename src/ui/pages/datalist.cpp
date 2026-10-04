@@ -17,6 +17,12 @@
 #include "dataopsviews.h"
 #include "dataopswidgets.h"
 #include "datanavtree.h"
+#include "versiondialog.h"
+#include "pendinglinkdialog.h"
+#include "importledgerdialog.h"
+#include "../dialogs/cataloghealthdialog.h"
+#include "../../workflow/assetops.h"
+#include "../../workflow/importledger.h"
 #include <algorithm>
 #include <QButtonGroup>
 #include <QClipboard>
@@ -140,10 +146,13 @@ namespace
     const QString cp = cat ? cat->catalogPath() : QString();
     if (cp.isEmpty() || !cat->isOpen())
       return QString();
-    // catalog 在 <projectDir>/artifacts/metadata/ → 退两级到工程目录。
-    const QString projectDir = QFileInfo(QFileInfo(cp).dir().absolutePath())
-                                   .dir()
-                                   .absolutePath();
+    // catalog 在 <projectDir>/artifacts/metadata/catalog.json → 退三级到工程
+    // 目录（方向 30 修正：与 dataopsmodel.h projectDirFor 同步——原两级推导
+    // 落在 artifacts/ 下）。
+    const QString projectDir = QFileInfo(
+        QFileInfo(QFileInfo(cp).dir().absolutePath()).dir().absolutePath())
+        .dir()
+        .absolutePath();
     return QDir(projectDir).filePath(QStringLiteral(".paleo/undo_stack.json"));
   }
 
@@ -302,6 +311,19 @@ DataListPanel::DataListPanel(QWidget *parent)
             [this, kind = QLatin1String(spec.kind)] { emit importRequested(kind); });
     importLay->addWidget(btn);
   }
+  // 方向 30：导入台账 + 工区体检（维护面，随导入区安放）。
+  auto *ledgerBtn = new QPushButton(tr("导入台账"), importSection);
+  ledgerBtn->setObjectName(QStringLiteral("importLedgerButton"));
+  ledgerBtn->setToolTip(tr("查看最近导入批次的行级结局（入库/未决/失败/跳过）"));
+  ledgerBtn->setAccessibleName(tr("导入台账"));
+  connect(ledgerBtn, &QPushButton::clicked, this, &DataListPanel::showImportLedger);
+  importLay->addWidget(ledgerBtn);
+  auto *healthBtn = new QPushButton(tr("工区体检"), importSection);
+  healthBtn->setObjectName(QStringLiteral("healthCheckButton"));
+  healthBtn->setToolTip(tr("检查缺失文件 / SHA 失配 / 未决链接 / 孤立实体等"));
+  healthBtn->setAccessibleName(tr("工区体检"));
+  connect(healthBtn, &QPushButton::clicked, this, &DataListPanel::showHealthCheck);
+  importLay->addWidget(healthBtn);
   lay->addWidget(importSection);
 
   // 列表面表头：标题 + 折叠/展开 + 视图切换
@@ -350,6 +372,16 @@ DataListPanel::DataListPanel(QWidget *parent)
   btnGroup->addButton(tableBtn, 1);
   hl->addWidget(treeBtn);
   hl->addWidget(tableBtn);
+
+  // 方向 30：未决链接批量归位入口（恰好一候选才自动挂，其余保持未决）。
+  auto *pendingBtn = new QToolButton(header);
+  pendingBtn->setObjectName(QStringLiteral("pendingResolveButton"));
+  pendingBtn->setText(tr("未决归位"));
+  pendingBtn->setToolTip(tr("按文件名/备注把能唯一命中一口井的未决链接批量挂接"));
+  pendingBtn->setAccessibleName(tr("未决归位"));
+  pendingBtn->setStyleSheet(QStringLiteral("font-size: 8pt; padding: 2px 6px;"));
+  connect(pendingBtn, &QToolButton::clicked, this, &DataListPanel::resolvePendingLinks);
+  hl->addWidget(pendingBtn);
   listLay->addWidget(header);
 
   // 搜索 + 类型筛选 + 计数
@@ -2664,11 +2696,20 @@ void DataListPanel::batchRemoveSoft()
                                "catalog 记录保留）").arg(ids.size())) !=
       QMessageBox::Yes)
     return;
+  // 方向 30：单命令批量软删（一次落盘、整组可撤销）——逐项命令会随 N 放大
+  // recycle_bin.json 重写次数（tst_ui_blocking 探针的非空转门槛）。
+  QVector<std::pair<QString, RecycleEntry>> entries;
   for (const QString &id : ids)
   {
     const CatalogAsset a = m_ctx.cat->assetById(id);
-    pushCommand(new SoftDeleteCmd(m_ctx, id, a.displayName, a.type, true));
+    RecycleEntry e;
+    e.assetId = id;
+    e.type = a.type;
+    e.displayName = a.displayName;
+    entries.append({id, e});
   }
+  const QStringList idList(ids.constBegin(), ids.constEnd());
+  pushCommand(new BatchRemoveCmd(m_ctx, idList, entries, tr("批量移除")));
   if (m_history)
     m_history->push(tr("批量移除 %1 项（软删）").arg(ids.size()));
   emit statusMessage(tr("已移除 %1 个资产到可回收清单（可撤销）").arg(ids.size()));
@@ -2679,38 +2720,353 @@ void DataListPanel::showRecycleBin()
   using namespace paleo::dataops;
   if (!m_ctx.valid())
     return;
+  DataCatalog *cat = m_ctx.cat;
+  const QString pd = projectDirFor(cat);
+
+  // 方向 30：软删资产的受管字节占用（assetId → bytes；外链源不计）。
+  const auto entrySizes = [&]() {
+    QHash<QString, qint64> sizes;
+    for (const RecycleEntry &e : m_recycle.entries())
+    {
+      qint64 t = 0;
+      for (const CatalogVersion &v : cat->versionsForAsset(e.assetId))
+      {
+        if (!v.managed)
+          continue;
+        const QString abs = DataCatalog::resolvedVersionPath(pd, v);
+        if (abs.isEmpty())
+          continue;
+        const QFileInfo fi(abs);
+        if (fi.exists())
+          t += fi.size();
+      }
+      sizes.insert(e.assetId, t);
+    }
+    return sizes;
+  };
+
   RecycleBinDialog dlg(this);
-  dlg.loadEntries(m_recycle.entries());
-  const int restored[] = {0};
-  Q_UNUSED(restored);
+  auto reload = [&]() {
+    dlg.setEntrySizes(entrySizes());
+    dlg.loadEntries(m_recycle.entries());
+  };
+  reload();
   connect(&dlg, &RecycleBinDialog::restoreRequested, this,
           [&](const QStringList &assetIds) {
-            int n = 0;
+            if (assetIds.isEmpty())
+              return;
+            // 方向 30：单命令批量恢复（一次落盘、整组可撤销）。
+            QVector<std::pair<QString, RecycleEntry>> entries;
             for (const QString &id : assetIds)
-            {
-              const RecycleEntry e = [this, id]() {
-                for (const RecycleEntry &x : m_recycle.entries())
-                  if (x.assetId == id)
-                    return x;
-                return RecycleEntry();
-              }();
-              pushCommand(new SoftDeleteCmd(m_ctx, id, e.displayName, e.type, false));
-              ++n;
-            }
-            emit statusMessage(tr("已恢复 %1 个资产").arg(n));
+              for (const RecycleEntry &x : m_recycle.entries())
+                if (x.assetId == id)
+                  entries.append({id, x});
+            pushCommand(new BatchRestoreCmd(m_ctx, assetIds, entries));
+            reload();
+            emit statusMessage(tr("已恢复 %1 个资产（可整组撤销）").arg(assetIds.size()));
           });
   connect(&dlg, &RecycleBinDialog::restoreAllRequested, this, [&] {
+    QStringList ids;
+    QVector<std::pair<QString, RecycleEntry>> entries;
     for (const RecycleEntry &e : m_recycle.entries())
-      pushCommand(new SoftDeleteCmd(m_ctx, e.assetId, e.displayName, e.type, false));
-    emit statusMessage(tr("已全部恢复"));
+    {
+      ids << e.assetId;
+      entries.append({e.assetId, e});
+    }
+    if (ids.isEmpty())
+      return;
+    pushCommand(new BatchRestoreCmd(m_ctx, ids, entries));
+    reload();
+    emit statusMessage(tr("已全部恢复（%1 项，可整组撤销）").arg(ids.size()));
   });
   connect(&dlg, &RecycleBinDialog::purgeAllRequested, this, [&] {
     m_recycle.clearAll();
     m_recycle.save();
+    reload();
     refreshAssetTable();
     emit statusMessage(tr("可回收清单已清空（不可撤销）"));
   });
+  // 方向 30：物理删除（catalog + 磁盘双清；二次确认在对话框内）。
+  connect(&dlg, &RecycleBinDialog::purgeRequested, this, [&](const QStringList &ids) {
+    if (ids.isEmpty() || !cat->isOpen())
+      return;
+    const paleo::assetops::PurgeOutcome out =
+        paleo::assetops::purgeAssets(cat, pd, ids);
+    for (const QString &id : ids)
+      m_recycle.purge(id); // 清 sidecar 条目（不可恢复路径同形）
+    m_recycle.save();
+    reload();
+    refreshAssetTable();
+    emit entityRefreshRequested();
+    QString msg = tr("物理删除完成：%1 项，释放 %2 字节。")
+                      .arg(out.purgedAssetIds.size())
+                      .arg(out.bytesFreed);
+    if (!out.failedAssets.isEmpty() || !out.leftoverFiles.isEmpty())
+    {
+      QStringList lines{msg};
+      for (const QString &f : out.failedAssets)
+        lines << tr("· 被拒：%1").arg(f);
+      for (const QString &f : out.leftoverFiles)
+        lines << tr("· 残留文件（请手动清理）：%1").arg(f);
+      QMessageBox::warning(&dlg, tr("物理删除（部分未完成）"), lines.join(QLatin1Char('\n')));
+    }
+    else
+      emit statusMessage(msg);
+  });
   dlg.exec();
+}
+
+// ---- 方向 30：导入台账查看器 -------------------------------------------------
+void DataListPanel::showImportLedger()
+{
+  DataCatalog *cat = m_ctx.cat;
+  if (!cat || !cat->isOpen())
+  {
+    emit statusMessage(tr("工程未打开，暂无导入台账"));
+    return;
+  }
+  paleo::imports::ImportLedger ledger;
+  ledger.load(cat);
+  paleo::dataops::ImportLedgerDialog dlg(this);
+  dlg.setBatches(ledger.batches());
+  dlg.exec();
+}
+
+// ---- 方向 30：未决链接批量归位 -------------------------------------------------
+void DataListPanel::resolvePendingLinks()
+{
+  using namespace paleo::dataops;
+  DataCatalog *cat = m_ctx.cat;
+  if (!cat || !cat->isOpen())
+    return;
+  PendingLinkDialog dlg(this);
+  const int total = cat->unresolvedLinks().size();
+  dlg.setProposals(paleo::assetops::proposablePendingLinks(cat), total);
+  connect(&dlg, &PendingLinkDialog::applyRequested, this,
+          [&](const QVector<int> &linkIndexes) {
+            QString err;
+            const int n = paleo::assetops::applyPendingResolutions(cat, linkIndexes, &err);
+            dlg.setApplied(n, linkIndexes.size());
+            refreshAssetTable();
+            emit entityRefreshRequested();
+            if (n > 0)
+              emit statusMessage(tr("已归位 %1 条未决链接（单事务落盘）").arg(n));
+            if (!err.isEmpty())
+              QMessageBox::warning(&dlg, tr("归位失败"), err);
+          });
+  dlg.exec();
+}
+
+// ---- 方向 30：资产版本面（对比 + 回滚）---------------------------------------
+QVector<paleo::dataops::VersionRow>
+DataListPanel::versionRowsForAsset(const QString &assetId) const
+{
+  using namespace paleo::dataops;
+  QVector<VersionRow> rows;
+  DataCatalog *cat = m_ctx.cat;
+  if (!cat)
+    return rows;
+  const QString pd = projectDirFor(cat);
+  const CatalogVersion cur = cat->currentVersion(assetId);
+  for (const CatalogVersion &v : cat->versionsForAsset(assetId))
+  {
+    VersionRow r;
+    r.versionId = v.id;
+    r.versionNumber = v.versionNumber;
+    r.stage = v.stage;
+    r.managed = v.managed;
+    r.fileName = v.fileName;
+    r.sha256 = v.sha256;
+    r.sourceUri = v.sourceUri;
+    r.isCurrent = (v.id == cur.id);
+    const QString abs = v.managed ? DataCatalog::resolvedVersionPath(pd, v) : v.path;
+    if (!abs.isEmpty())
+    {
+      const QFileInfo fi(abs);
+      if (fi.exists())
+        r.sizeBytes = fi.size();
+    }
+    rows.append(r);
+  }
+  return rows;
+}
+
+void DataListPanel::showVersionTable()
+{
+  using namespace paleo::dataops;
+  DataCatalog *cat = m_ctx.cat;
+  if (!cat || !cat->isOpen())
+    return;
+  const QSet<QString> ids = currentAssetSelection();
+  if (ids.size() != 1)
+  {
+    emit statusMessage(tr("版本面对单资产——请只选一个资产"));
+    return;
+  }
+  const QString assetId = ids.values().first();
+  const CatalogAsset a = cat->assetById(assetId);
+  if (a.id.isEmpty())
+    return;
+  const QString pd = projectDirFor(cat);
+
+  VersionTableDialog dlg(this);
+  dlg.setAssetTitle(a.displayName);
+  dlg.setRows(versionRowsForAsset(assetId));
+  dlg.setCompareHook([cat, pd](const QString &va, const QString &vb) {
+    return paleo::assetops::compareVersions(pd, cat->versionById(va), cat->versionById(vb));
+  });
+  connect(&dlg, &VersionTableDialog::rollbackRequested, this,
+          [&](const QString &versionId) {
+            QString err;
+            const paleo::assetops::RollbackOutcome out =
+                paleo::assetops::rollbackToVersion(cat, pd, assetId, versionId, &err);
+            if (out.versionId.isEmpty())
+            {
+              QMessageBox::warning(&dlg, tr("回滚失败"), err);
+              return;
+            }
+            dlg.setRowsRefreshed(
+                versionRowsForAsset(assetId),
+                tr("已回滚：新增 v%1（内容与所选版本一致，历史全保留）。")
+                    .arg(out.versionNumber));
+            refreshAssetTable();
+            emit entityRefreshRequested();
+            emit statusMessage(tr("「%1」已回滚到所选版本内容（新版本 v%2）")
+                                   .arg(a.displayName)
+                                   .arg(out.versionNumber));
+          });
+  dlg.exec();
+}
+
+// ---- 方向 30：资产体检 ---------------------------------------------------------
+void DataListPanel::refreshHealthReportInDialog()
+{
+  if (!m_healthDlg)
+    return;
+  m_healthDlg->setReport(m_healthBase, m_healthRecycleCount, m_healthRecycleBytes);
+}
+
+void DataListPanel::showHealthCheck()
+{
+  using namespace paleo::dataops;
+  DataCatalog *cat = m_ctx.cat;
+  if (!cat || !cat->isOpen())
+  {
+    emit statusMessage(tr("工程未打开，无法体检"));
+    return;
+  }
+  const QString pd = projectDirFor(cat);
+  CatalogHealthDialog dlg(this);
+  m_healthDlg = &dlg;
+
+  // 快速面：stat + 内存查询（毫秒级，GUI 直算）；回收站积压随行并入。
+  const auto quickScan = [&]() {
+    m_shaCancelled = true; // 重扫打断在途 SHA 校验
+    m_shaRunning = false;
+    dlg.setVerifyRunning(false);
+    QString err;
+    m_healthBase = paleo::health::buildCatalogHealth(cat, pd, &err);
+    if (!err.isEmpty())
+    {
+      m_healthBase = paleo::health::HealthReport();
+      emit statusMessage(tr("体检失败：%1").arg(err));
+    }
+    m_healthRecycleCount = 0;
+    m_healthRecycleBytes = 0;
+    for (const RecycleEntry &e : m_recycle.entries())
+    {
+      ++m_healthRecycleCount;
+      for (const CatalogVersion &v : cat->versionsForAsset(e.assetId))
+      {
+        if (!v.managed)
+          continue;
+        const QString abs = DataCatalog::resolvedVersionPath(pd, v);
+        if (!abs.isEmpty())
+        {
+          const QFileInfo fi(abs);
+          if (fi.exists())
+            m_healthRecycleBytes += fi.size();
+        }
+      }
+    }
+    refreshHealthReportInDialog();
+    dlg.setShaState(QString());
+  };
+
+  connect(&dlg, &CatalogHealthDialog::refreshRequested, this, quickScan);
+  connect(&dlg, &CatalogHealthDialog::verifyShaRequested, this, [&] {
+    m_shaTargets.clear();
+    for (const CatalogVersion &v : cat->versions())
+      if (!v.managed && !v.sha256.isEmpty() && !v.path.isEmpty())
+        m_shaTargets.append(v);
+    m_shaIdx = 0;
+    m_shaCancelled = false;
+    m_shaRunning = true;
+    dlg.setVerifyRunning(true);
+    if (m_shaTargets.isEmpty())
+    {
+      m_shaRunning = false;
+      dlg.setVerifyRunning(false);
+      dlg.setShaState(tr("没有带 SHA 留底的外链版本——无需校验。"));
+      return;
+    }
+    dlg.setShaState(tr("外链 SHA 校验：0/%1…").arg(m_shaTargets.size()));
+    // 分步推进：每步一个版本，事件循环呼吸间可响应取消。
+    QMetaObject::invokeMethod(this, &DataListPanel::runShaVerifyStep,
+                              Qt::QueuedConnection);
+  });
+  connect(&dlg, &CatalogHealthDialog::cancelVerifyRequested, this,
+          [&] { m_shaCancelled = true; });
+  connect(&dlg, &CatalogHealthDialog::jumpToAsset, this, [&](const QString &assetId) {
+    dlg.accept(); // 收起对话框让跳转立即可见（重开体检是廉价操作）
+    emit assetActivated(assetId); // 壳接预览标签 + 选中（与列表双击同一出口）
+  });
+  connect(&dlg, &CatalogHealthDialog::jumpToEntity, this, [&](const QString &entityId) {
+    dlg.accept();
+    emit entitiesFocusRequested(QStringList{entityId});
+  });
+
+  quickScan();
+  dlg.exec();
+  m_shaCancelled = true;
+  m_shaRunning = false;
+  m_healthDlg = nullptr;
+}
+
+void DataListPanel::runShaVerifyStep()
+{
+  if (!m_healthDlg || !m_shaRunning)
+    return;
+  if (m_shaCancelled || m_shaIdx >= m_shaTargets.size())
+  {
+    const bool done = !m_shaCancelled;
+    m_shaRunning = false;
+    m_healthDlg->setVerifyRunning(false);
+    m_healthDlg->setShaState(
+        done ? tr("外链 SHA 校验完成：共 %1 个版本。").arg(m_shaTargets.size())
+             : tr("外链 SHA 校验已取消（已扫 %1/%2——结果只是已扫部分）。")
+                   .arg(m_shaIdx)
+                   .arg(m_shaTargets.size()));
+    m_healthBase.shaVerifyComplete = done;
+    refreshHealthReportInDialog();
+    return;
+  }
+  const CatalogVersion v = m_shaTargets.at(m_shaIdx);
+  const QVector<paleo::health::HealthIssue> issues =
+      paleo::health::verifyExternalShas({v});
+  if (!issues.isEmpty())
+  {
+    for (const paleo::health::HealthIssue &i : issues)
+      m_healthBase.issues.append(i);
+    m_healthBase.shaVerifyComplete = false; // 进行中段按未完成展示
+    refreshHealthReportInDialog();
+  }
+  ++m_shaIdx;
+  m_healthDlg->setShaState(tr("外链 SHA 校验：%1/%2…")
+                               .arg(m_shaIdx)
+                               .arg(m_shaTargets.size()));
+  QMetaObject::invokeMethod(this, &DataListPanel::runShaVerifyStep,
+                            Qt::QueuedConnection);
 }
 
 // ---- D1.7 导出清单 -------------------------------------------------------------
@@ -3045,6 +3401,7 @@ void DataListPanel::showAssetContextMenu(QObject *source, const QPoint &pos)
     const char *text;
   } kTitles[] = {
     {"openPreview", QT_TR_NOOP("打开预览")},
+    {"showVersions", QT_TR_NOOP("版本与回滚…")},
     {"gridHorizon", QT_TR_NOOP("网格化…")},
     {"openPreviewAll", QT_TR_NOOP("批量打开预览（前 8 项）")},
     {"attachToEntity", QT_TR_NOOP("挂接到实体…")},
@@ -3087,6 +3444,8 @@ void DataListPanel::showAssetContextMenu(QObject *source, const QPoint &pos)
   const QString key = picked->data().toString();
   if (key == QLatin1String("openPreview") || key == QLatin1String("openPreviewAll"))
     batchOpenPreview();
+  else if (key == QLatin1String("showVersions"))
+    showVersionTable();
   else if (key == QLatin1String("gridHorizon"))
     emit gridHorizonRequested(*mix.assetIds.constBegin()); // 意图信号回壳（视图不干活）
   else if (key == QLatin1String("attachToEntity"))
@@ -3218,4 +3577,13 @@ void DataListPanel::applyFilterToTree(const QSet<QString> &visibleIds, bool filt
 #endif
 #if __has_include("moc_datanavtree.cpp")
 #include "moc_datanavtree.cpp"
+#endif
+#if __has_include("moc_versiondialog.cpp")
+#include "moc_versiondialog.cpp"
+#endif
+#if __has_include("moc_pendinglinkdialog.cpp")
+#include "moc_pendinglinkdialog.cpp"
+#endif
+#if __has_include("moc_importledgerdialog.cpp")
+#include "moc_importledgerdialog.cpp"
 #endif

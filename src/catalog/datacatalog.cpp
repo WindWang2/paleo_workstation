@@ -480,6 +480,9 @@ bool DataCatalog::commitStore(QString *error)
     m_dirtyAssets.clear();
     m_dirtyVersions.clear();
     m_dirtyLinkOrds.clear();
+    m_removedAssets.clear();
+    m_removedVersions.clear();
+    m_linksFullRewrite = false;
   };
   if (!m_store)
   {
@@ -561,6 +564,16 @@ bool DataCatalog::commitStore(QString *error)
       if (!m_store->upsertLink(ord, m_links.at(ord), error))
         return failTxn();
     }
+    // 增量删除面（removeAsset）：先重写后删——同批「先改后删」的净效果 =
+    // 已删；链接删行导致 ord 位移 → 整表重写收尾（upsert 过的行一并归位）。
+    for (const QString &id : m_removedAssets)
+      if (!m_store->deleteAsset(id, error))
+        return failTxn();
+    for (const QString &id : m_removedVersions)
+      if (!m_store->deleteVersion(id, error))
+        return failTxn();
+    if (m_linksFullRewrite && !m_store->replaceAllLinks(m_links, error))
+      return failTxn();
     if (!m_store->writeMeta(meta, error))
       return failTxn();
     if (!m_store->commit(error))
@@ -590,6 +603,9 @@ void DataCatalog::beginBatch()
     snap->dirtyAssets = m_dirtyAssets;
     snap->dirtyVersions = m_dirtyVersions;
     snap->dirtyLinkOrds = m_dirtyLinkOrds;
+    snap->removedAssets = m_removedAssets;
+    snap->removedVersions = m_removedVersions;
+    snap->linksFullRewrite = m_linksFullRewrite;
     m_batchSnapshot = std::move(snap);
   }
   ++m_batchDepth;
@@ -621,6 +637,9 @@ bool DataCatalog::endBatch(QString *error)
     m_dirtyAssets = std::move(snap->dirtyAssets);
     m_dirtyVersions = std::move(snap->dirtyVersions);
     m_dirtyLinkOrds = std::move(snap->dirtyLinkOrds);
+    m_removedAssets = std::move(snap->removedAssets);
+    m_removedVersions = std::move(snap->removedVersions);
+    m_linksFullRewrite = snap->linksFullRewrite;
     m_batchDirty = false;
     ++m_mutationSeq;
     emit changed();
@@ -1006,6 +1025,77 @@ bool DataCatalog::setLinkPrimary(int index, QString *error)
   for (int i : demotedRows)
     m_links[i].isPrimary = true;
   m_idx.linksMutated(m_links);
+  return false;
+}
+
+// ---- 方向 30：物理删除资产（回收站「物理删除」的 catalog 面）----
+bool DataCatalog::removeAsset(const QString &assetId, QString *error)
+{
+  if (!checkWriteThread("removeAsset", error))
+    return false;
+  if (!ensureOpen(error))
+    return false;
+  if (m_staging)
+  {
+    setError(error, QStringLiteral(
+                        "staging copy does not support removeAsset (journal has no delete op)"));
+    return false;
+  }
+  const CatalogAsset target = assetById(assetId);
+  if (target.id.isEmpty())
+  {
+    setError(error, QStringLiteral("asset not found: %1").arg(assetId));
+    return false;
+  }
+  // 血缘保护：待删版本被他资产的版本列为 parentVersionIds → 拒绝。
+  // 同资产互引不拦（随资产一起删）。
+  const QVector<CatalogVersion> doomedVersions = versionsForAsset(assetId);
+  for (const CatalogVersion &v : doomedVersions)
+    for (const QString &cid : m_idx.childVersionIds(v.id))
+    {
+      const int row = m_idx.versionRow(cid);
+      if (row < 0 || m_versions.at(row).assetId == assetId)
+        continue;
+      setError(error, QStringLiteral("version %1 (v%2) is referenced as parent by "
+                                     "asset %3 — delete the derived asset first")
+                       .arg(v.id, QString::number(v.versionNumber),
+                             m_versions.at(row).assetId));
+      return false;
+    }
+  // 回滚快照：删除是罕见路径，O(N) 拷贝换 save 失败时的精确还原（与
+  // 索引 rebuild 的「罕见路径花全量换正确性」同一纪律）。
+  const QVector<CatalogAsset> prevAssets = m_assets;
+  const QVector<CatalogVersion> prevVersions = m_versions;
+  const QVector<EntityAssetLink> prevLinks = m_links;
+  const CatalogIndex prevIdx = m_idx;
+  const bool prevLinksFullRewrite = m_linksFullRewrite;
+  for (int i = m_links.size() - 1; i >= 0; --i)
+    if (m_links.at(i).assetId == assetId)
+      m_links.removeAt(i);
+  for (int i = m_versions.size() - 1; i >= 0; --i)
+    if (m_versions.at(i).assetId == assetId)
+      m_versions.removeAt(i);
+  for (int i = m_assets.size() - 1; i >= 0; --i)
+    if (m_assets.at(i).id == assetId)
+      m_assets.removeAt(i);
+  m_idx.rebuild(m_entities, m_assets, m_versions, m_links);
+  m_removedAssets.insert(assetId);
+  for (const CatalogVersion &v : doomedVersions)
+    m_removedVersions.insert(v.id);
+  m_linksFullRewrite = true;
+  if (save(error))
+  {
+    ++m_mutationSeq; // 同 mutator 口径：成功变更推进基线序号（无 journal op）
+    return true;
+  }
+  m_assets = prevAssets;
+  m_versions = prevVersions;
+  m_links = prevLinks;
+  m_idx = prevIdx;
+  m_removedAssets.remove(assetId);
+  for (const CatalogVersion &v : doomedVersions)
+    m_removedVersions.remove(v.id);
+  m_linksFullRewrite = prevLinksFullRewrite;
   return false;
 }
 

@@ -111,8 +111,11 @@ private slots:
     QCOMPARE(layer.featureCount(), 0); // buffer discarded
   }
 
-  // (c) commit failure still frees the busy mark (no stuck "editing in progress")
-  void editingCommitFailureStillFrees()
+  // (c) commit 失败的 busy 语义（合并后精化版，见 qgiseditingservice.cpp
+  // commitEdit「orphanEdit」）：真失败保留活编辑会话供重试/回滚；无编辑态
+  // 的孤儿 edit 标记即清；他人 owner（processing 等）永不被提交错误释放。
+  // 正常会话「回滚必释放」由 editingRollbackFrees 覆盖。
+  void editingCommitFailureFreesOrphanEditMarkOnly()
   {
     PaleoProjectStore store;
     QgisEditingService svc(&store);
@@ -125,7 +128,7 @@ private slots:
     QString err;
     QVERIFY(!svc.commitEdit(&layer, &err)); // commitChanges on non-editable layer -> false
     QVERIFY(!err.isEmpty());
-    QVERIFY(!store.layerBusy(layer.id()));  // freed on failure too
+    QVERIFY(!store.layerBusy(layer.id())); // 孤儿 edit 标记即清（无会话可重试）
     store.markLayerBusy(layer.id(), QStringLiteral("processing"), QStringLiteral("processing in progress"));
     QVERIFY(!svc.commitEdit(&layer, &err));
     QVERIFY(store.layerBusy(layer.id())); // 提交错误不能释放别的任务所有者。

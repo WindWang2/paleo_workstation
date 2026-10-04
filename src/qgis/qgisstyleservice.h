@@ -46,16 +46,35 @@ class QgisStyleService : public QObject
     static void applyFaciesBoundaryStyle(QgsVectorLayer *layer);
 
     // ---- C3（wave/deepen-perf）：井类别符号（Q/HS 1011—2016 表 K.1）------
-    // 数据字段驱动的探井符号全集映射：categoryField 有值域时按 12 类探井
-    // 分/renderer 分类渲染（wellCategoryDefinitions() 给词面/符号描述）；
-    // 字段缺失或空 → 回落通用「探井」符号（外细环+实心盘，盘≈0.73 外径，
-    // 与测区全景 styleSurveyWellLayer 同图式）。类别词面归一化见
-    // normalizeWellCategory()（中文词/英文 id 同收）。
+    // 数据字段驱动的井别符号全集映射：categoryField 有值域时按 16 类井别
+    //（表 K.1 十二类探井 + 方向 31 开发区块四类：生产油/气井、注水井、
+    // 采水井）分/renderer 分类渲染（wellCategoryDefinitions() 给词面/符号
+    // 描述）；字段缺失或空 → 回落通用「探井」符号（外细环+实心盘，盘≈
+    // 0.73 外径，与测区全景 styleSurveyWellLayer 同图式）。类别词面归一化
+    // 见 normalizeWellCategory()（中文词/英文 id 同收）。符号统一挂比例尺
+    // 缩放（@map_scale 数据定义尺寸：1:25万 6mm → 1:250万 3mm）。
     static void applyWellCategoryStyle(QgsVectorLayer *layer, const QString &categoryField);
     // 类别词表（存储 id + 显示名 + 符号构成说明），固定顺序 = 表 K.1 序。
     static QVariantList wellCategoryDefinitions();
     // 常见类别写法 → 规范存储 id（未知 → 原样返回；空 → 空）。
     static QString normalizeWellCategory(const QString &raw);
+
+    // ---- 方向 31（geological-symbols）：花纹/断层线型语义入口 --------------
+    // 词表单点在 GeoPatterns（geopatterns.h）；样式入口统一收本类。资源
+    // 走 qrc（/geology 前缀），不落机器绝对路径；字段缺失一律不接管渲染器。
+
+    // 岩性花纹：lithologyField 值归一化（normalizeLithology）→ SVG 平铺分类
+    // 渲染（未命中值落纯色兜底桶）；Polygon 专属；缺字段保持现状渲染器。
+    static void applyLithologyPatternStyle(QgsVectorLayer *layer,
+                                           const QString &lithologyField);
+    // 相单元花纹：字段值 → 相花纹（河流/三角洲/湖泊/滨海/洪积/沙漠/冰川）
+    // 分类渲染；同岩性入口口径（尺寸基准/兜底另立）。
+    static void applyFaciesPatternStyle(QgsVectorLayer *layer,
+                                        const QString &faciesField);
+    // 断层线型：kindField 值（normal/reverse/strike/inferred 及中文词面）
+    // → 断层红实线挂齿/推测虚线分类渲染；Line 专属；缺字段不接管。
+    static void applyFaultLineLayerStyle(QgsVectorLayer *layer,
+                                         const QString &kindField);
 
   private:
     QString m_stylesRoot;

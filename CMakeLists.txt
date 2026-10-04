@@ -451,6 +451,7 @@ add_library(paleo_services STATIC
   src/services/seismictaskservice.cpp               # sdk::Dataset 门面 + 任务编排
   src/services/crashreport.cpp                      # 致命信号 fd 落盘 + .running 旗标
   src/services/startuptrace.cpp                     # goal/perf-systematize 簇1：启动分段仪表
+  src/services/cataloghealth.cpp                    # 方向30：工区资产体检（快速面 + 外链 SHA 复验）
 )
 target_link_libraries(paleo_services PUBLIC paleo_deps paleo_io paleo_domain paleo_store paleo_algorithms)
 
@@ -482,6 +483,8 @@ add_library(paleo_workflow STATIC
   src/workflow/mapversioncontroller.cpp            # 保存版本/发布编排
   src/workflow/aiassistworkflow.cpp
   src/workflow/derivedassets.cpp                   # 派生产物 + DERIVED 版本登记
+  src/workflow/assetops.cpp                        # 方向30：版本回滚/对比 + 物理清理 + 未决归位
+  src/workflow/importledger.cpp                    # 方向30：文件夹导入批次台账（sidecar 持久化）
 )
 target_link_libraries(paleo_workflow PUBLIC paleo_deps paleo_qgis paleo_store paleo_io paleo_services paleo_domain paleo_ai)
 
@@ -536,6 +539,7 @@ add_library(paleo_ui STATIC
   src/ui/datapreview/previewhistogramwidget.cpp    # P2 D2.3/D5.8 直方图小图
   src/ui/datapreview/previewmapstates.cpp          # P2 D1.7/D2.x 状态页 + 会话记忆
   src/ui/dialogs/folderconfirm.cpp                 # W2 文件夹导入确认表
+  src/ui/dialogs/cataloghealthdialog.cpp           # 方向30：工区体检对话框（分类计数 + 跳转意图）
   src/ui/webviewpanel.cpp                          # embedded web shell (lazy, degradable)
   src/ui/wellcomposite/wellcompositetrack.cpp      # ResFormStar 多道综合柱状图
   src/ui/wellcomposite/wellcompositecanvas.cpp
@@ -824,6 +828,9 @@ target_compile_definitions(tst_datapreview PRIVATE
 add_paleo_test(tst_folderimport LIBS paleo_workflow paleo_ui)
 target_compile_definitions(tst_folderimport PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
+# ---- 方向 30：工区数据管线与健康管理 ----
+add_paleo_test(tst_cataloghealth LIBS paleo_services)   # 体检召回（缺失/SHA/未决/孤立/无版本）
+add_paleo_test(tst_assetops LIBS paleo_workflow)        # 版本回滚/对比 + 物理清理 + 未决归位
 add_paleo_test(tst_previewdoc LIBS paleo_services paleo_qgis)
 target_compile_definitions(tst_previewdoc PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")

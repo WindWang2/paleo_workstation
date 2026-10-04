@@ -1,4 +1,5 @@
 // 层：视图
+// token 例外：DESIGN 数据符号例外：多剖面系列色保持固定，低对比度仅添加中性轮廓。（tools/ui-token-exceptions.json 精确计数）。
 #include "previewprofilepanel.h"
 
 #include "../paleotheme.h"
@@ -35,7 +36,7 @@ namespace
   QFont mono8()
   {
     QFont f = PaleoTheme::monoFont();
-    f.setPointSize( 8 );
+    f.setPointSize(PaleoTheme::tokens().labelPt);
     return f;
   }
 
@@ -79,18 +80,18 @@ class PreviewProfilePanel::ProfileChart : public QWidget
     {
       QPainter p( this );
       p.setRenderHint( QPainter::Antialiasing, true );
-      p.fillRect( rect(), Qt::white );
+      p.fillRect( rect(), PaleoTheme::tokens().surface );
 
       const QRect pr = plotRect();
       if ( pr.isNull() )
         return;
-      p.setPen( QColor( QStringLiteral( "#DFE5EC" ) ) );
+      p.setPen( PaleoTheme::tokens().border );
       p.drawRect( pr );
       // goal/ui-experience-polish：空序列不静默——画面心 muted 指引
       //（有序列时不画）。#5D6E80 = DESIGN.md text-muted（chart 笔色出口）。
       if ( m_host->m_series.isEmpty() )
       {
-        p.setPen( QColor( QStringLiteral( "#5D6E80" ) ) );
+        p.setPen( PaleoTheme::tokens().textMuted );
         p.drawText( pr, Qt::AlignCenter,
                     QObject::tr( "还没有剖面——在预览地图上用「剖面」工具画一条线" ) );
         return;
@@ -99,14 +100,14 @@ class PreviewProfilePanel::ProfileChart : public QWidget
       // 轴刻度（nice steps，mono 标注）
       p.setFont( mono8() );
       const double xStep = niceStep( m_xSpan / 5.0 );
-      p.setPen( QColor( QStringLiteral( "#9AA7B4" ) ) );
+      p.setPen( PaleoTheme::tokens().textMuted );
       for ( double x = 0.0; x <= m_xSpan + 1e-9; x += xStep )
       {
         const int px = pr.left() + int( ( x / m_xSpan ) * pr.width() );
         p.drawLine( px, pr.bottom(), px, pr.bottom() + 3 );
-        p.setPen( QColor( QStringLiteral( "#F0F4F8" ) ) );
+        p.setPen( PaleoTheme::tokens().surfaceAltRaised );
         p.drawLine( px, pr.top(), px, pr.bottom() );
-        p.setPen( QColor( QStringLiteral( "#9AA7B4" ) ) );
+        p.setPen( PaleoTheme::tokens().textMuted );
         p.drawText( QRect( px - 30, pr.bottom() + 4, 60, 12 ), Qt::AlignCenter,
                     QString::number( x, 'f', xStep < 1.0 ? 1 : 0 ) );
       }
@@ -122,7 +123,8 @@ class PreviewProfilePanel::ProfileChart : public QWidget
       // 序列折线（无效点断线）
       for ( const Series &s : m_host->m_series )
       {
-        p.setPen( QPen( s.color, 1.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin ) );
+        const QPen dataPen(s.color, 1.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+        const QColor halo = PaleoTheme::dataHaloColor(s.color);
         bool pen = false;
         QPointF prev;
         for ( const Sample &sm : s.samples )
@@ -135,7 +137,15 @@ class PreviewProfilePanel::ProfileChart : public QWidget
           const QPointF mapped( pr.left() + ( sm.distance / m_xSpan ) * pr.width(),
                                 pr.bottom() - ( ( sm.value - m_yMin ) / m_ySpan ) * pr.height() );
           if ( pen )
+          {
+            if (halo.isValid())
+            {
+              p.setPen(QPen(halo, dataPen.widthF() + 2.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+              p.drawLine(prev, mapped);
+            }
+            p.setPen(dataPen);
             p.drawLine( prev, mapped );
+          }
           prev = mapped;
           pen = true;
         }
@@ -145,7 +155,7 @@ class PreviewProfilePanel::ProfileChart : public QWidget
       if ( m_hoverX >= 0.0 && m_hoverX <= m_xSpan )
       {
         const int px = pr.left() + int( ( m_hoverX / m_xSpan ) * pr.width() );
-        p.setPen( QPen( QColor( QStringLiteral( "#1B73D0" ) ), 1, Qt::DashLine ) );
+        p.setPen( QPen( PaleoTheme::tokens().primaryText, 1, Qt::DashLine ) );
         p.drawLine( px, pr.top(), px, pr.bottom() );
 
         // 各序列在悬停距离处的值点
@@ -162,9 +172,9 @@ class PreviewProfilePanel::ProfileChart : public QWidget
       }
 
       // 轴标题
-      p.setPen( QColor( QStringLiteral( "#5D6E80" ) ) );
+      p.setPen( PaleoTheme::tokens().textMuted );
       QFont f = font();
-      f.setPointSize( 8 );
+      f.setPointSize(PaleoTheme::tokens().labelPt);
       p.setFont( f );
       p.drawText( QRect( pr.left(), height() - 14, pr.width(), 12 ), Qt::AlignCenter,
                   QObject::tr( "距离 (m)" ) );
@@ -305,13 +315,13 @@ PreviewProfilePanel::PreviewProfilePanel( QWidget *parent )
   : QWidget( parent )
 {
   auto *lay = new QVBoxLayout( this );
-  lay->setContentsMargins( 6, 6, 6, 6 );
-  lay->setSpacing( 4 );
+  lay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm);
+  lay->setSpacing(PaleoTheme::tokens().spacingXs);
 
   auto *bar = new QWidget( this );
   auto *barLay = new QHBoxLayout( bar );
   barLay->setContentsMargins( 0, 0, 0, 0 );
-  barLay->setSpacing( 6 );
+  barLay->setSpacing(PaleoTheme::tokens().spacingSm);
 
   auto *title = new QLabel( QObject::tr( "层位剖面" ), bar );
   PaleoTheme::applyThemedStyleSheet(
@@ -338,7 +348,7 @@ PreviewProfilePanel::PreviewProfilePanel( QWidget *parent )
 
   m_legend = new QLabel( bar );
   PaleoTheme::applyThemedStyleSheet( m_legend, [] {
-    return PaleoTheme::mutedCaptionStyleSheet() + QStringLiteral( " font-size: 8pt;" );
+    return PaleoTheme::mutedCaptionStyleSheet();
   } );
   barLay->addWidget( m_legend, 1 );
   lay->addWidget( bar );

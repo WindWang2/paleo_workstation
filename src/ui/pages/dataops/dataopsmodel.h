@@ -34,7 +34,10 @@ namespace paleo::dataops
 
 // ---- sidecar 路径与读写 ----------------------------------------------------
 // catalog 在 <projectDir>/artifacts/metadata/catalog.json → 工程目录 =
-// 上两级（datalist.cpp undoVaultPath 同一推导）。
+// 从该文件上三级（metadata → artifacts → projectDir）。方向 30 修正：
+// 原实现只退两级（落在 <projectDir>/artifacts，sidecar 实际写到
+// artifacts/.paleo/ 下），与注释/tst_ui_blocking 探针声明的
+// <projectDir>/.paleo/ 不符——探针此前空转通过（writes=0 ≤ 2）。
 inline QString projectDirFor(DataCatalog *cat)
 {
   if (!cat || !cat->isOpen())
@@ -42,7 +45,10 @@ inline QString projectDirFor(DataCatalog *cat)
   const QString cp = cat->catalogPath();
   if (cp.isEmpty())
     return QString();
-  return QFileInfo(QFileInfo(cp).dir().absolutePath()).dir().absolutePath();
+  // 纯词法三级上退（QFileInfo::dir() 摘末段）：不查盘上存在性。
+  return QFileInfo(QFileInfo(QFileInfo(cp).dir().absolutePath()).dir().absolutePath())
+      .dir()
+      .absolutePath();
 }
 
 inline QString sidecarPath(DataCatalog *cat, const QString &name)

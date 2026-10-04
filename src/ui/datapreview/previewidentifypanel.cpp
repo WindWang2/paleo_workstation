@@ -46,13 +46,13 @@ PreviewIdentifyPanel::PreviewIdentifyPanel( QWidget *parent )
   : QWidget( parent )
 {
   auto *lay = new QVBoxLayout( this );
-  lay->setContentsMargins( 6, 6, 6, 6 );
-  lay->setSpacing( 4 );
+  lay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm);
+  lay->setSpacing(PaleoTheme::tokens().spacingXs);
 
   auto *bar = new QWidget( this );
   auto *barLay = new QHBoxLayout( bar );
   barLay->setContentsMargins( 0, 0, 0, 0 );
-  barLay->setSpacing( 6 );
+  barLay->setSpacing(PaleoTheme::tokens().spacingSm);
   auto *title = new QLabel( QObject::tr( "识别结果" ), bar );
   PaleoTheme::applyThemedStyleSheet(
       title, [] { return PaleoTheme::sectionTitleStyleSheet(); } );
@@ -227,13 +227,13 @@ PreviewAttributeTableDialog::PreviewAttributeTableDialog( QgsVectorLayer *layer,
   resize( 720, 480 );
 
   auto *lay = new QVBoxLayout( this );
-  lay->setContentsMargins( 8, 8, 8, 8 );
-  lay->setSpacing( 6 );
+  lay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm);
+  lay->setSpacing(PaleoTheme::tokens().spacingSm);
 
   auto *bar = new QWidget( this );
   auto *barLay = new QHBoxLayout( bar );
   barLay->setContentsMargins( 0, 0, 0, 0 );
-  barLay->setSpacing( 6 );
+  barLay->setSpacing(PaleoTheme::tokens().spacingSm);
 
   barLay->addWidget( new QLabel( QObject::tr( "过滤" ), bar ) );
   m_filterEdit = new QLineEdit( bar );

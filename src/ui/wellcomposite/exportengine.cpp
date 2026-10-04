@@ -1,4 +1,6 @@
 // 层：视图
+// token 例外：DESIGN 地质文档纸面例外：输出井柱状图/图例的固定纸面与数据标记。（tools/ui-token-exceptions.json 精确计数）。
+#include "ui/paleotheme.h"
 #include "exportengine.h"
 
 #include <QDate>
@@ -185,7 +187,7 @@ qreal LegendGenerator::paint(QPainter &painter, const QRectF &rect,
   ExportEngine::applyExportRenderHints(painter);
 
   QFont f = painter.font();
-  f.setPointSize(8);
+  f.setPointSize(PaleoTheme::tokens().labelPt);
   painter.setFont(f);
   const QFontMetrics fm(f);
 
@@ -194,7 +196,7 @@ qreal LegendGenerator::paint(QPainter &painter, const QRectF &rect,
   const int rowsPerCol = qMax(1, static_cast<int>(rect.height() / rowH));
   const int cols = 2;
 
-  painter.setPen(QColor(QStringLiteral("#24303E")));
+  painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).text);
   for (int i = 0; i < entries.size(); ++i)
   {
     const int col = i / rowsPerCol;
@@ -218,7 +220,7 @@ qreal LegendGenerator::paint(QPainter &painter, const QRectF &rect,
       painter.drawRect(symbolRect);
     }
 
-    painter.setPen(QColor(QStringLiteral("#24303E")));
+    painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).text);
     const QString text = QStringLiteral("%1 %2").arg(entries.at(i).symbol, entries.at(i).detail);
     painter.drawText(QRectF(symbolRect.right() + 5, y, colW - 25, rowH),
                      Qt::AlignVCenter | Qt::ElideRight, text);
@@ -263,20 +265,20 @@ void paintPageHeader(QPainter &p, const QRectF &rect, const ExportEngine::Option
   p.save();
   const QStringList lines = ExportEngine::headerLines(opt);
   QFont f = p.font();
-  f.setPointSize(9);
+  f.setPointSize(PaleoTheme::tokens().bodyPt);
   f.setBold(true);
   p.setFont(f);
-  p.setPen(QColor(QStringLiteral("#24303E")));
+  p.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).text);
   p.drawText(rect.adjusted(0, 0, -60, -rect.height() + 18), Qt::AlignLeft | Qt::AlignVCenter,
              lines.join(QStringLiteral("   |   ")));
 
-  f.setPointSize(8);
+  f.setPointSize(PaleoTheme::tokens().labelPt);
   f.setBold(false);
   p.setFont(f);
-  p.setPen(QColor(QStringLiteral("#5D6E80")));
+  p.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).textMuted);
   p.drawText(QRectF(rect.right() - 120, rect.top(), 120, 18), Qt::AlignRight | Qt::AlignVCenter,
              QStringLiteral("页 %1/%2").arg(pageNo).arg(totalPages));
-  p.setPen(QColor(QStringLiteral("#DFE5EC")));
+  p.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).border);
   p.drawLine(rect.bottomLeft(), rect.bottomRight());
   p.restore();
 }

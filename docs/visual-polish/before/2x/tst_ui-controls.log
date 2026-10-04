@@ -1,0 +1,21 @@
+********* Start testing of TestUiShell *********
+Config: Using QtTest library 6.11.2, Qt 6.11.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 16.2.1 20260810), cachyos unknown
+QINFO  : TestUiShell::initTestCase() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QWARN  : TestUiShell::initTestCase() QOpenGLWidget is not supported on this platform.
+PASS   : TestUiShell::initTestCase()
+QINFO  : TestUiShell::compactControlsVisualPolishSnapshots() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QINFO  : TestUiShell::compactControlsVisualPolishSnapshots() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QWARN  : TestUiShell::compactControlsVisualPolishSnapshots() This plugin does not support propagateSizeHints()
+QINFO  : TestUiShell::compactControlsVisualPolishSnapshots() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QWARN  : TestUiShell::compactControlsVisualPolishSnapshots() This plugin does not support propagateSizeHints()
+QINFO  : TestUiShell::compactControlsVisualPolishSnapshots() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QWARN  : TestUiShell::compactControlsVisualPolishSnapshots() This plugin does not support propagateSizeHints()
+QINFO  : TestUiShell::compactControlsVisualPolishSnapshots() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QINFO  : TestUiShell::compactControlsVisualPolishSnapshots() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QWARN  : TestUiShell::compactControlsVisualPolishSnapshots() This plugin does not support propagateSizeHints()
+QINFO  : TestUiShell::compactControlsVisualPolishSnapshots() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+QINFO  : TestUiShell::compactControlsVisualPolishSnapshots() paleo: vendored fonts registered (Noto Sans SC + JetBrains Mono)
+PASS   : TestUiShell::compactControlsVisualPolishSnapshots()
+PASS   : TestUiShell::cleanupTestCase()
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 5395ms
+********* Finished testing of TestUiShell *********

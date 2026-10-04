@@ -172,8 +172,8 @@ QWidget *DataPreviewTabs::buildGeoJsonContent(
   // 顶部操作与空间提示工具栏
   auto *topBar = new QWidget(host);
   auto *topLay = new QHBoxLayout(topBar);
-  topLay->setContentsMargins(8, 4, 8, 4);
-  topLay->setSpacing(8);
+  topLay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs);
+  topLay->setSpacing(PaleoTheme::tokens().spacingSm);
   stylePreviewToolBar(topBar);
 
   // 视图切换器: 相图地图 / 属性列表
@@ -199,7 +199,7 @@ QWidget *DataPreviewTabs::buildGeoJsonContent(
   viewGroup->addButton(btnViewMap);
   viewGroup->addButton(btnViewTable);
 
-  topLay->addSpacing(6);
+  topLay->addSpacing(PaleoTheme::tokens().spacingSm);
 
   // D2.6 名称标注开关
   auto *btnLabels = new QToolButton(topBar);
@@ -259,17 +259,17 @@ QWidget *DataPreviewTabs::buildGeoJsonContent(
       fieldCombo->setCurrentText(activeFaciesField);
     PaleoTheme::applyThemedStyleSheet(fieldCombo, [] {
       const PaleoTheme::ThemeTokens &t = PaleoTheme::tokens();
-      return QStringLiteral(
-          "QComboBox { background: %1; border: 1px solid %2; border-radius: 4px;"
-          " padding: 2px 6px; font-size: 8pt; color: %3; }"
-          "QComboBox:hover { border-color: %4; }")
+      return PaleoTheme::metricStyleSheet(QStringLiteral(
+          "QComboBox { background: %1; border: 1px solid %2; border-radius: {rounded.sm}px;"
+          " padding: {spacing.xs}px {spacing.sm}px; font-size: {typography.label}pt; color: %3; }"
+          "QComboBox:hover { border-color: %4; }"))
           .arg(qssHex(t.surface), qssHex(t.border), qssHex(t.text),
                qssHex(t.textDisabled));
     });
     topLay->addWidget(fieldCombo);
   }
 
-  topLay->addSpacing(8);
+  topLay->addSpacing(PaleoTheme::tokens().spacingSm);
 
   // D11 临时配准入口
   auto *regBtn = new QPushButton(tr("临时配准（手工仿射）…"), host);
@@ -278,10 +278,10 @@ QWidget *DataPreviewTabs::buildGeoJsonContent(
   regBtn->setToolTip(tr("手工输入仿射参数，把 GeoJSON 变换到工程局部测网"));
   PaleoTheme::applyThemedStyleSheet(regBtn, [] {
     const PaleoTheme::ThemeTokens &t = PaleoTheme::tokens();
-    return QStringLiteral(
-        "QPushButton { background: %1; border: 1px solid %2; border-radius: 4px;"
-        " padding: 4px 8px; font-size: 8pt; color: %3; }"
-        "QPushButton:hover { background: %4; border-color: %5; }")
+    return PaleoTheme::metricStyleSheet(QStringLiteral(
+        "QPushButton { background: %1; border: 1px solid %2; border-radius: {rounded.sm}px;"
+        " padding: {spacing.xs}px {spacing.sm}px; font-size: {typography.label}pt; color: %3; }"
+        "QPushButton:hover { background: %4; border-color: %5; }"))
         .arg(qssHex(t.surface), qssHex(t.border), qssHex(t.text),
              qssHex(t.surfaceAltRaised), qssHex(t.textDisabled));
   });
@@ -293,8 +293,8 @@ QWidget *DataPreviewTabs::buildGeoJsonContent(
   auto *warnLbl = new QLabel(tr("经纬度，与本测网不是同一空间"), host);
   warnLbl->setWordWrap(true);
   PaleoTheme::applyThemedStyleSheet(warnLbl, [] {
-    return QStringLiteral("color: %1; font-size: 8pt; font-weight: 500;")
-        .arg(qssHex(PaleoTheme::tokens().error));
+    return PaleoTheme::metricStyleSheet(QStringLiteral("color: %1; font-size: {typography.label}pt; font-weight: 500;"))
+        .arg(qssHex(PaleoTheme::tokens().errorText));
   });
   topLay->addWidget(warnLbl);
   lay->addWidget(new PaleoToolRow(topBar, host));
@@ -498,12 +498,12 @@ QWidget *DataPreviewTabs::buildGeoJsonContent(
   table->setSelectionBehavior(QAbstractItemView::SelectRows);
   PaleoTheme::applyThemedStyleSheet(table, [] {
     const PaleoTheme::ThemeTokens &t = PaleoTheme::tokens();
-    return QStringLiteral(
+    return PaleoTheme::metricStyleSheet(QStringLiteral(
         "QTableWidget { background-color: %1; gridline-color: %2; border: 1px solid %2;"
-        " font-size: 9pt; }"
+        " font-size: {typography.body}pt; }"
         "QHeaderView::section { background-color: %3; color: %4; border: none;"
-        " border-bottom: 1px solid %2; border-right: 1px solid %2; padding: 4px 8px;"
-        " font-weight: 500; font-size: 8pt; }")
+        " border-bottom: 1px solid %2; border-right: 1px solid %2; padding: {spacing.xs}px {spacing.sm}px;"
+        " font-weight: 500; font-size: {typography.label}pt; }"))
         .arg(qssHex(t.surface), qssHex(t.border), qssHex(t.surfaceAlt),
              qssHex(t.textMuted));
   });
@@ -560,7 +560,7 @@ QWidget *DataPreviewTabs::buildGeoJsonContent(
   auto *tablePage = new QWidget(viewStack);
   auto *tablePageLay = new QVBoxLayout(tablePage);
   tablePageLay->setContentsMargins(0, 0, 0, 0);
-  tablePageLay->setSpacing(4);
+  tablePageLay->setSpacing(PaleoTheme::tokens().spacingXs);
   tablePageLay->addWidget(table, 1);
   if (features.size() > maxRows)
     tablePageLay->addWidget(

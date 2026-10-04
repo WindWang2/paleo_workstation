@@ -128,6 +128,10 @@ void populateFolderConfirmTable(QTableWidget *table, const QString &rootDir,
     }
     else
     {
+      // 方向 30：归位预览——plan 期身份匹配结论预显在「实体」列（导入完成后
+      // writeFolderRowResult 用行结果的实体名覆盖）。
+      if (!row.entityPreview.isEmpty())
+        table->item(r, 2)->setText(row.entityPreview);
       // C 包 IngestPlan：plan 期决策逐行可见——重复→跳过 / 重复→新版本；
       // 未决行不在此预写（保持既有口径：结果列导入后才写「未决」）。
       const QString decisionText =
@@ -199,7 +203,7 @@ void writeFolderRowResult(QTableWidget *table, int row, const FolderRowResult &r
     // 失败行的「重试」：按当前下拉类型只重导这一行。
     auto *cell = new QWidget(table);
     auto *hl = new QHBoxLayout(cell);
-    hl->setContentsMargins(4, 0, 4, 0);
+    hl->setContentsMargins(PaleoTheme::tokens().spacingXs, 0, PaleoTheme::tokens().spacingXs, 0);
     auto *msg = new QLabel(text, cell);
     msg->setWordWrap(true);
     auto *retry = new QPushButton(QObject::tr("重试"), cell);
@@ -397,7 +401,7 @@ void buildFolderConfirmDialog(QDialog *dlg, const QString &dir,
   // error token（语义红——失败明细是状态不是装饰；活体随主题）。
   PaleoTheme::applyThemedStyleSheet(errorReport, [] {
     return QStringLiteral("color: %1;")
-        .arg(PaleoTheme::tokens().error.name().toUpper());
+        .arg(PaleoTheme::tokens().errorText.name().toUpper());
   });
   errorReport->hide();
   lay->addWidget(errorReport);

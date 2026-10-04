@@ -970,6 +970,52 @@ bool CatalogStore::upsertLink(int ord, const EntityAssetLink &l, QString *error)
   return true;
 }
 
+bool CatalogStore::deleteAsset(const QString &id, QString *error)
+{
+  QSqlDatabase db = QSqlDatabase::database(m_connectionName);
+  QSqlQuery q(db);
+  q.prepare(QStringLiteral("DELETE FROM assets WHERE id = ?"));
+  q.addBindValue(textArg(id));
+  if (!q.exec())
+  {
+    setError(error, q.lastError().text());
+    return false;
+  }
+  return true;
+}
+
+bool CatalogStore::deleteVersion(const QString &id, QString *error)
+{
+  QSqlDatabase db = QSqlDatabase::database(m_connectionName);
+  QSqlQuery q(db);
+  q.prepare(QStringLiteral("DELETE FROM versions WHERE id = ?"));
+  q.addBindValue(textArg(id));
+  if (!q.exec())
+  {
+    setError(error, q.lastError().text());
+    return false;
+  }
+  return true;
+}
+
+bool CatalogStore::replaceAllLinks(const QVector<EntityAssetLink> &links,
+                                   QString *error)
+{
+  QSqlDatabase db = QSqlDatabase::database(m_connectionName);
+  {
+    QSqlQuery q(db);
+    if (!q.exec(QStringLiteral("DELETE FROM entity_asset_links")))
+    {
+      setError(error, q.lastError().text());
+      return false;
+    }
+  }
+  for (int ord = 0; ord < links.size(); ++ord)
+    if (!upsertLink(ord, links.at(ord), error))
+      return false;
+  return true;
+}
+
 bool CatalogStore::writeMeta(const Meta &meta, QString *error)
 {
   QSqlDatabase db = QSqlDatabase::database(m_connectionName);

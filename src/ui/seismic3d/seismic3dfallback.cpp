@@ -2,6 +2,7 @@
 #include "seismic3dfallback.h"
 
 #include <QPainter>
+#include "../paleotheme.h"
 
 #include <array>
 
@@ -32,18 +33,20 @@ void Seismic3DFallbackWidget::clearSlices()
 void Seismic3DFallbackWidget::paintEvent(QPaintEvent *)
 {
     QPainter p(this);
-    p.fillRect(rect(), QColor(QStringLiteral("#1B212A")));
+    p.fillRect(rect(), PaleoTheme::tokens().surfaceAlt);
 
-    QFont head(QStringLiteral("Noto Sans SC"), 10, QFont::Bold);
-    QFont cap(QStringLiteral("Noto Sans SC"), 8);
+    QFont head = PaleoTheme::bodyFont();
+    head.setBold(true);
+    QFont cap = PaleoTheme::bodyFont();
+    cap.setPointSize(PaleoTheme::tokens().labelPt);
 
     // 顶部说明条
     p.setFont(head);
-    p.setPen(QColor(QStringLiteral("#FFB74D")));
+    p.setPen(PaleoTheme::tokens().warningText);
     p.drawText(QRect(8, 6, width() - 16, 22), Qt::AlignLeft | Qt::AlignVCenter,
                tr("三维视口不可用（OpenGL 上下文创建失败）——已切换 2D 切片拼接视图"));
     p.setFont(cap);
-    p.setPen(QColor(QStringLiteral("#A3B1BF")));
+    p.setPen(PaleoTheme::tokens().textMuted);
     p.drawText(QRect(8, 28, width() - 16, 16), Qt::AlignLeft,
                tr("如需完整三维交互，请检查显卡驱动或设置 QT_OPENGL=software 后重启。"));
 
@@ -57,14 +60,14 @@ void Seismic3DFallbackWidget::paintEvent(QPaintEvent *)
     for (int i = 0; i < 3; ++i)
     {
         const QRect cell(gap + i * (cellW + gap), top, cellW, cellH);
-        p.fillRect(cell, QColor(QStringLiteral("#252C36")));
-        p.setPen(QColor(QStringLiteral("#3B4552")));
+        p.fillRect(cell, PaleoTheme::tokens().surface);
+        p.setPen(PaleoTheme::tokens().border);
         p.drawRect(cell);
 
         const QImage &img = slices_[static_cast<std::size_t>(i)];
         if (img.isNull())
         {
-            p.setPen(QColor(QStringLiteral("#66717E")));
+            p.setPen(PaleoTheme::tokens().textMuted);
             p.drawText(cell, Qt::AlignCenter, tr("切片加载中…"));
         }
         else
@@ -75,7 +78,7 @@ void Seismic3DFallbackWidget::paintEvent(QPaintEvent *)
                              scaled.width(), scaled.height());
             p.drawImage(dst, img);
         }
-        p.setPen(QColor(QStringLiteral("#A3B1BF")));
+        p.setPen(PaleoTheme::tokens().textMuted);
         p.setFont(cap);
         const QString label = labels_[static_cast<std::size_t>(i)].isEmpty()
             ? tr(names[i])

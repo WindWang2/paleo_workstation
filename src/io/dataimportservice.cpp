@@ -1605,6 +1605,23 @@ DataImportService::producePreview(ImportSession &sess, const QString &dirPath, Q
       r.typeVocab.append(r.classifiedType); // 词表外类型（未来扩展）保住可选
     r.typeEditable = !r.skipped && !isFixedAuxiliaryPath(r.path);
   };
+  // 归位预览（方向 30）：plan 期身份匹配 → 确认表「实体」列的预显文案。
+  // well_head 是建井来源：entityId 恒空——匹配到既有井显示「井 X（既有）」，
+  // 否则「新井」；井类行零匹配 =「未决（名字）」；歧义如实标注不猜。
+  const auto entityPreviewFor = [](const PlannedItem &item) {
+    if (item.entityAmbiguous)
+      return QStringLiteral("歧义: %1").arg(item.entityName);
+    if (item.type == QLatin1String("well_head"))
+      return item.entityName.isEmpty()
+                 ? QStringLiteral("新井")
+                 : QStringLiteral("井 %1（既有）").arg(item.entityName);
+    if (!item.entityId.isEmpty())
+      return item.entityName.isEmpty() ? item.entityId : item.entityName;
+    if (item.entityType == QLatin1String("well"))
+      return item.entityName.isEmpty() ? QString()
+                                       : QStringLiteral("未决（%1）").arg(item.entityName);
+    return item.entityName;
+  };
   for (const PlannedItem &item : plan.items)
   {
     FolderPreviewRow r;
@@ -1612,6 +1629,7 @@ DataImportService::producePreview(ImportSession &sess, const QString &dirPath, Q
     r.classifiedType = item.type;
     r.decision = item.decision; // plan 期决策（重复→跳过等）随行进确认表
     r.sizeBytes = item.size;    // T2 大小估算（族项 = 主件字节）
+    r.entityPreview = entityPreviewFor(item);
     fillDisplay(r);
     rows.append(r);
   }

@@ -42,6 +42,13 @@ ProjectClassification classifyProjectPath(const QString &path)
     return make(QStringLiteral("seismic"), ext, QStringLiteral("input"));
   if (ext == QLatin1String("geojson"))
     return make(QStringLiteral("geojson"), ext, QStringLiteral("input"));
+  // 方向41：外委格式进词表登记（不旁路分类器）。
+  // .sfpkg = 上游单因素无损包（facies_workflow/sfpkg.py），.xlsx = 外委 OOXML
+  // 工作簿。旧的二进制 .xls 不在这里——读取面没有实现它，不给假能力。
+  if (ext == QLatin1String("sfpkg"))
+    return make(QStringLiteral("single_factor_package"), ext, QStringLiteral("input"));
+  if (ext == QLatin1String("xlsx"))
+    return make(QStringLiteral("outsource_workbook"), ext, QStringLiteral("input"));
   if (ext == QLatin1String("dat"))
   {
     // 目录段规则经 AreaRules（默认 = 原中文目录名表：时深(td)/层位/井分层/
@@ -109,7 +116,8 @@ QStringList projectClassifierTypes()
           QStringLiteral("well_deviation"),    QStringLiteral("horizon"),
           QStringLiteral("seismic"),           QStringLiteral("tabular"),
           QStringLiteral("geojson"),           QStringLiteral("document"),
-          QStringLiteral("image_reference"),   QStringLiteral("reference"),
+          QStringLiteral("image_reference"),   QStringLiteral("single_factor_package"),
+          QStringLiteral("outsource_workbook"), QStringLiteral("reference"),
           QStringLiteral("unknown")};
 }
 

@@ -41,7 +41,7 @@
   全场无一格解出 → **整面回落 IDW**：`resolved.methodActual = "local_direction_idw"`、
   `fallbackReason` 写原因、`issues` 加 `kriging_fallback: ...`、
   `surfaceFallbacks = 1`；回落结果与直接跑 IDW **逐位相同**（测试断言向量相等）。
-- 单格方程奇异/病态 → 该格用**同一参数**的 IDW 权重，计数进 `idwFallbackCells`
+- 单格没解出（方程奇异/病态，**或半径邻域不足**）→ 该格用**同一参数**的 IDW 权重，计数进 `idwFallbackCells`
   并出 issue；回落后仍无值的格保持 nodata，不计数（不把 nodata 说成回落）。
 - 方向线/软边界/井群权重**不参与克里金权重**（v1 语义）：逐条进 `issues`
   （`direction_guide_not_used_by_kriging` 等），不静默忽略。

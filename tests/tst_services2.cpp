@@ -126,6 +126,10 @@ private slots:
     QVERIFY(!svc.commitEdit(&layer, &err)); // commitChanges on non-editable layer -> false
     QVERIFY(!err.isEmpty());
     QVERIFY(!store.layerBusy(layer.id()));  // freed on failure too
+    store.markLayerBusy(layer.id(), QStringLiteral("processing"), QStringLiteral("processing in progress"));
+    QVERIFY(!svc.commitEdit(&layer, &err));
+    QVERIFY(store.layerBusy(layer.id())); // 提交错误不能释放别的任务所有者。
+    store.markLayerFree(layer.id());
 
     // null layer is a clean error, not a crash
     err.clear();

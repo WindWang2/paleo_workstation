@@ -412,6 +412,11 @@
         <source>（外链 SHA 校验未扫完，结果只是已扫部分）</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <location filename="../src/ui/dialogs/cataloghealthdialog.cpp" line="32" />
+        <source>过时版本</source>
+        <translation type="unfinished" />
+    </message>
 </context>
 <context>
     <name>ComposePage</name>
@@ -4767,6 +4772,21 @@
         <source>综合柱状图 XML 无法解析</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="931" />
+        <source>所选版本不在目录中</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/datapreviewtabhorizon.cpp" line="219" />
+        <source>版本 v%1 · %2</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1150"/>
+        <source>该版本暂无内嵌文档预览，可打开所选原件</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>DepthConversionWorkflow</name>
@@ -5702,6 +5722,11 @@ Crossline: %3 ~ %4</source>
         <location filename="../src/ui/pages/entitypanel.cpp" line="764"/>
         <source>在左侧数据列表选择实体或资产，这里按角色词表显示它的数据全貌与派生产物</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/entitypanel.cpp" line="396" />
+        <source>衍生血缘</source>
+        <translation type="unfinished" />
     </message>
 </context>
 <context>
@@ -14632,6 +14657,34 @@ SHA-256：%2</source>
         <source>%1 目录（%2 版）</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <location filename="../src/ui/pages/derivationgraph.cpp" line="46" />
+        <source>过时：%1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/pages/derivationgraph.cpp" line="47" />
+        <source>未提供过时原因</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/pages/derivationgraph.cpp" line="68" />
+        <source>衍生</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/pages/derivationgraph.cpp" line="69" />
+        <source>过时</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/pages/derivationgraph.cpp" line="43" />
+        <source>版本：%1
+资产：%2
+阶段：%3
+版本标识：%4</source>
+        <translation type="unfinished" />
+    </message>
 </context>
 <context>
     <name>QgisEditingService</name>
@@ -20820,6 +20873,16 @@ SHA-256：%2</source>
         <source>来源：%1</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="222" />
+        <source>预览</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/pages/dataopspanelextra.h" line="223" />
+        <source>预览此版本并定位衍生血缘</source>
+        <translation type="unfinished" />
+    </message>
 </context>
 <context>
     <name>paleo::datapreview_detail::CurvePanel</name>
@@ -22111,6 +22174,153 @@ SHA-256：%2</source>
         <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1379"/>
         <source>波谷-</source>
         <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>DerivationGraph</name>
+    <message>
+        <location filename="../src/services/derivationgraph.cpp" line="52" />
+        <source>工程未打开，衍生血缘不可用</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/services/derivationgraph.cpp" line="79" />
+        <source>请选择有版本记录的实体或资产</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/services/derivationgraph.cpp" line="178" />
+        <source>没有符合过滤条件的版本</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/services/derivationgraph.cpp" line="184" />
+        <source>当前深度或过滤下没有连线</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/services/derivationgraph.cpp" line="184" />
+        <source>该版本无衍生记录</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/pages/derivationgraph.cpp" line="105" />
+        <source>版本衍生血缘图</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/pages/derivationgraph.cpp" line="106" />
+        <source>箭头从源版本指向下游；点击节点或按回车预览版本</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/services/derivationgraph.cpp" line="160" />
+        <source>v%1 · %2</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/services/derivationgraph.cpp" line="185" />
+        <source>源版本缺失，无法显示完整衍生关系</source>
+        <translation type="unfinished" />
+    </message>
+</context>
+<context>
+    <name>DerivationPanel</name>
+    <message>
+        <location filename="../src/ui/pages/derivationgraph.cpp" line="235" />
+        <source>上游层数</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/pages/derivationgraph.cpp" line="236" />
+        <source>下游层数</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/pages/derivationgraph.cpp" line="238" />
+        <source>按实体过滤</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/pages/derivationgraph.cpp" line="240" />
+        <location filename="../src/ui/pages/derivationgraph.cpp" line="280" />
+        <source>全部实体</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/pages/derivationgraph.cpp" line="242" />
+        <source>按版本类别过滤</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/pages/derivationgraph.cpp" line="243" />
+        <source>全部类别</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/pages/derivationgraph.cpp" line="243" />
+        <source>原始（方形）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/pages/derivationgraph.cpp" line="244" />
+        <source>衍生（圆形）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/pages/derivationgraph.cpp" line="244" />
+        <source>外链（菱形）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/pages/derivationgraph.cpp" line="247" />
+        <source>过滤资产名称或标识</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/pages/derivationgraph.cpp" line="247" />
+        <source>按资产过滤</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/pages/derivationgraph.cpp" line="249" />
+        <source>仅过期链路（含源版本）</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/pages/derivationgraph.cpp" line="251" />
+        <source>适配视图</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/pages/derivationgraph.cpp" line="286" />
+        <source>工程未打开，衍生血缘不可用</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/pages/derivationgraph.cpp" line="289" />
+        <source>源 → 下游 · 方形：原始 · 圆形：衍生 · 菱形：外链</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/pages/derivationgraph.cpp" line="291" />
+        <source>显示 %1 个版本 · 已折叠 %2 个上游 / %3 个下游节点</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/pages/derivationgraph.cpp" line="293" />
+        <source>已折叠 %1 个所选实体版本</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/pages/derivationgraph.cpp" line="294" />
+        <source>过滤移除 %1 个版本</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/pages/derivationgraph.cpp" line="295" />
+        <source>缺失源版本 %1 个（未补造节点）</source>
+        <translation type="unfinished" />
     </message>
 </context>
 </TS>

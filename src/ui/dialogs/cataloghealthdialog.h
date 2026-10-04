@@ -32,6 +32,7 @@ class CatalogHealthDialog : public QDialog
     void refreshRequested();
     void verifyShaRequested();
     void cancelVerifyRequested();
+    void jumpToVersion(const QString &versionId);
     void jumpToAsset(const QString &assetId);
     void jumpToEntity(const QString &entityId);
 

@@ -6,6 +6,9 @@
 #include <QStringList>
 #include <QWidget>
 #include <functional>
+#include "../../services/derivationgraph.h"
+
+class DerivationPanel;
 
 #include "dataops/dataopscommands.h"
 #include "dataops/dataopsmodel.h"
@@ -37,6 +40,7 @@ class EntityPanel : public QWidget
 
     void setDocService(PreviewDocService *doc);
     void setContext(const QString &entityId, const QString &assetId);
+    void setVersionContext(const QString &assetId, const QString &versionId);
     // D4.9 多选态：批量概要（类型/状态/标签分布 + 共同实体）。
     void setMultiContext(const QStringList &entityIds, const QStringList &assetIds);
     // P3 共享命令面（DataPage 接线：栈与 stores 与列表侧同源）。
@@ -53,11 +57,13 @@ class EntityPanel : public QWidget
 
   signals:
     void statusMessage(const QString &msg);          // D5.4 反馈（壳接状态栏）
+    void versionActivated(const QString &versionId); // 只发版本预览意图
     void entityRefreshRequested();                   // CRUD 后请列表/实体视图重取
     // 井 well_log 非主文件「设为主文件」。面板不写 catalog，由创建方接 setLinkPrimary。
     void wellLogSetPrimaryRequested(const QString &entityId, const QString &assetId);
 
   private:
+    void refreshDerivation();
     void buildD4Ui();          // CRUD 条/版本时间线/拓扑/统计段装配
     void refreshMultiSummary(); // D4.9 批量概要
     // F3（goal/perf-systematize 簇2）：GeoJSON 统计单次请求——缓存命中直装；
@@ -70,6 +76,10 @@ class EntityPanel : public QWidget
     PreviewDocService *m_doc = nullptr;
     QString m_entityId;
     QString m_assetId;
+    QString m_versionId, m_graphSelected;
+    bool m_preserveGraphOnce = false;
+    DerivationPanel *m_derivation = nullptr;
+    paleo::derivation::Graph m_derivationData;
     QStringList m_multiEntityIds;  // D4.9
     QStringList m_multiAssetIds;   // D4.9
     int m_geoSeq = 0;              // F3：统计世代号（新选择作废在途）

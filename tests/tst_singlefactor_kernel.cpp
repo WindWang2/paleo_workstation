@@ -143,6 +143,19 @@ void SingleFactorKernelTests::plainIdwIdentities()
     QVERIFY( value <= 20.0 + 1e-12 );
   }
 
+  // 两井解析解：距查询 1/3 单位，覆盖平方反比快捷路径与非整数幂。
+  PreparedInput two;
+  two.samples = { well( "near", 0, 0, 0 ), well( "far", 4, 0, 100 ) };
+  const std::vector<Point2> between{ { 1, 0 } };
+  const QueryResult squared = evaluateAt( two, between, params, {} );
+  EXPECT_STATUS( squared.status, Status::Ok );
+  QVERIFY( std::abs( squared.values[0] - 10.0 ) <= 1e-12 );
+  ResolvedParameters fractional = params;
+  fractional.power = 1.5;
+  const QueryResult fractionalResult = evaluateAt( two, between, fractional, {} );
+  EXPECT_STATUS( fractionalResult.status, Status::Ok );
+  QVERIFY( std::abs( fractionalResult.values[0] - 100.0 / ( 1.0 + 3.0 * std::sqrt( 3.0 ) ) ) <= 1e-12 );
+
   PreparedInput constant = input;
   for ( Sample &sample : constant.samples )
     sample.value = 7;

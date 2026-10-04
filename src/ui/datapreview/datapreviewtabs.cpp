@@ -785,11 +785,12 @@ void DataPreviewTabs::updateTabTitle(const QString &assetId)
   const QString suffix = m_titleSuffixOfAsset.value(assetId);
   if (!suffix.isEmpty())
     title += QStringLiteral(" · ") + suffix;
-  // B 包 staleness-lite：资产当前版本被标 stale（上游 sha 失配/被取代）→
+  // B 包 staleness-lite：实际预览版本被标 stale（上游 sha 失配/被取代）→
   // 标题带「过时」徽标——下游产物过期在数据页如实可见。
-  if (m_doc && m_doc->catalog()->currentVersion(assetId)
-                   .extra.value(QStringLiteral("stale"))
-                   .toBool())
+  const CatalogVersion shown = !m_doc ? CatalogVersion()
+      : m_chosenVersionOfAsset.value(assetId).isEmpty() ? m_doc->catalog()->currentVersion(assetId)
+      : m_doc->versionForPreview(m_chosenVersionOfAsset.value(assetId));
+  if (shown.extra.value(QStringLiteral("stale")).toBool())
     title += QStringLiteral(" · ") + tr("过时");
   m_tabs->setTabText(idx, title);
 }
@@ -857,6 +858,34 @@ void DataPreviewTabs::openAsset(const QString &assetId)
   focusWellIfNeeded(assetId, page);
 }
 
+QString DataPreviewTabs::versionIdAt(int index) const
+{
+  QWidget *page = index >= 0 && index < m_tabs->count() ? m_tabs->widget(index) : nullptr;
+  return page ? page->property("previewVersionId").toString() : QString();
+}
+
+void DataPreviewTabs::openVersion(const QString &versionId)
+{
+  if (!m_doc) return;
+  const CatalogVersion v = m_doc->versionForPreview(versionId);
+  if (v.id.isEmpty()) return;
+  const bool existing = m_pageOfAsset.contains(v.assetId);
+  // 解码与 SHA 留底缓存按资产键控；换版本必须取消旧世代并释放旧句柄。
+  if (m_chosenVersionOfAsset.value(v.assetId) != v.id)
+  {
+    m_doc->releaseSection(v.assetId);
+    m_doc->releaseLas(v.assetId);
+    m_pendingSection.remove(v.assetId); m_pendingLas.remove(v.assetId);
+  }
+  m_chosenVersionOfAsset[v.assetId] = v.id;
+  // 页签切换时壳不先覆盖图内选中态，最终 versionContextChanged 统一定位。
+  setProperty("paleo.versionNavigation", true);
+  openAsset(v.assetId);
+  if (existing) rebuildAssetTab(v.assetId);
+  setProperty("paleo.versionNavigation", false);
+  emit versionContextChanged(v.assetId, v.id);
+}
+
 void DataPreviewTabs::openAssetForWell(const QString &assetId, const QString &wellId)
 {
   if (!m_doc || assetId.isEmpty())
@@ -907,17 +936,19 @@ void DataPreviewTabs::openSeismicLine(const QString &assetId, const QString &kin
 
 QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
 {
-  Q_UNUSED(page);
   DataCatalog *cat = m_doc->catalog();
   const CatalogAsset asset = cat->assetById(assetId);
   if (asset.id.isEmpty())
     return nullptr;
-  const CatalogVersion v = cat->currentVersion(assetId);
+  const QString chosenId = m_chosenVersionOfAsset.value(assetId);
+  const CatalogVersion v = chosenId.isEmpty() ? cat->currentVersion(assetId) : m_doc->versionForPreview(chosenId);
+  if (v.id.isEmpty() || v.assetId != assetId) return stateLabel(tr("所选版本不在目录中"), page, true);
+  page->setProperty("previewVersionId", v.id);
   CatalogVersion sourceVersion = v; // abs 实际对应的版本（文档标签锚回 RAW 原件）
   QString abs = m_doc->absolutePathForVersion(v);
   // 文档资产：RAW 原件是规范来源——currentVersion 可能已指向 DERIVED
   // PDF 转换件，缺失检查与「用系统程序打开」必须锚在原件上。
-  if (asset.type == QLatin1String("document"))
+  if (asset.type == QLatin1String("document") && chosenId.isEmpty())
     for (const CatalogVersion &cv : cat->versionsForAsset(assetId))
       if (cv.stage == QLatin1String("RAW"))
       {
@@ -1108,8 +1139,15 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     // 「用系统程序打开」只在无内嵌预览（转换失败/无门面）或需要打开
     // office 原件时作兜底出口。
     QString pdfAbs;
-    if (asset.format == QLatin1String("pdf"))
+    if (asset.format == QLatin1String("pdf") ||
+        (!chosenId.isEmpty() && QFileInfo(abs).suffix().compare(QLatin1String("pdf"), Qt::CaseInsensitive) == 0))
       pdfAbs = abs;
+    else if (!chosenId.isEmpty())
+    {
+      // 转换队列按资产而非版本键控；不能把另一版本的 PDF 冒充所选历史原件。
+      lay->addWidget(stateLabel(tr("该版本暂无内嵌文档预览，可打开所选原件"), host), 1);
+      lay->addWidget(makeOpenExternalRow(abs, host));
+    }
     else if (m_doc)
     {
       m_doc->ensureDocumentPdf(assetId);

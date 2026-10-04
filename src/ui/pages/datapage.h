@@ -40,10 +40,12 @@ class DataPage : public QWidget
     void selectAssetsForEntities(const QStringList &entityIds); // D6 地图→表联动
     void setUnresolvedFilter(bool on);            // T31「查看未决」过滤
     void applyListFilter();                       // 搜索/类型筛选
+    void focusVersion(const QString &assetId, const QString &versionId);
     void selectAsset(const QString &assetId);     // 选中资产 + 实体视图定位
 
   signals:
     void importRequested(const QString &kind);  // "wells" | "seismic" | "boundary" | ...
+    void versionActivated(const QString &versionId);
     void assetActivated(const QString &assetId); // 列表选中 → 预览标签打开
     // 树节点关联井选中 → 预览打开并定位到该井
     void assetWellActivated(const QString &assetId, const QString &wellId);

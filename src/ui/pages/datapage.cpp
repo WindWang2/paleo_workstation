@@ -27,7 +27,7 @@ DataPage::DataPage(QWidget *parent)
   m_listPanel = new DataListPanel(this);
   m_entityPanel = new EntityPanel(this);
   lay->addWidget(m_listPanel, 1);
-  lay->addSpacing(16); // spacing.md between groups
+  lay->addSpacing(PaleoTheme::tokens().spacingMd); // spacing.md between groups
   lay->addWidget(m_entityPanel, 1);
 
   // 信号直转：子面板信号签名即本页对外信号（壳/测试接的是 DataPage）。

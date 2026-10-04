@@ -1,4 +1,5 @@
 // 层：视图
+#include "ui/paleotheme.h"
 #include "sectionsetupdialog.h"
 #include <QComboBox>
 #include <QDoubleSpinBox>
@@ -20,7 +21,7 @@ SectionSetupDialog::SectionSetupDialog(QWidget *parent) : QDialog(parent) {
   setWindowTitle(tr("连井剖面与时深对齐"));
   resize(760, 600);
   auto *layout = new QVBoxLayout(this);
-  layout->setSpacing(8);
+  layout->setSpacing(PaleoTheme::tokens().spacingSm);
   auto *hint = new QLabel(tr("井口、地震道头与地图须使用同一米制坐标。勾选井并"
                              "拖动排序，或直接在地图绘制折线。"),
                           this);

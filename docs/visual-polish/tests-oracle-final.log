@@ -1,0 +1,49 @@
+Test project /home/kevin/projects/paleo_workstation/.worktrees/ui-visual-polish/build
+      Start  99: tst_datapreview
+      Start  97: tst_previewmap_assets
+      Start  46: tst_ui
+      Start  96: tst_previewmap_page
+      Start 142: tst_layertreepanel
+      Start  93: tst_previewmap_canvas
+      Start  94: tst_previewmap_tools
+      Start  95: tst_previewmap_identify
+ 1/19 Test  #95: tst_previewmap_identify ..........   Passed    1.20 sec
+      Start   7: i18n
+ 2/19 Test  #94: tst_previewmap_tools .............   Passed    1.30 sec
+      Start   9: ui_tokens
+ 3/19 Test  #93: tst_previewmap_canvas ............   Passed    1.41 sec
+      Start   1: layering
+ 4/19 Test #142: tst_layertreepanel ...............   Passed    1.49 sec
+      Start   2: layering_strict
+ 5/19 Test   #1: layering .........................   Passed    0.16 sec
+      Start   5: ui_invariants_strict
+ 6/19 Test   #5: ui_invariants_strict .............   Passed    0.08 sec
+      Start   4: ui_invariants
+ 7/19 Test   #2: layering_strict ..................   Passed    0.17 sec
+      Start  10: ui_tokens_selftest
+ 8/19 Test  #10: ui_tokens_selftest ...............   Passed    0.06 sec
+      Start   8: i18n_selftest
+ 9/19 Test   #4: ui_invariants ....................   Passed    0.10 sec
+      Start   3: layering_selftest
+10/19 Test  #96: tst_previewmap_page ..............   Passed    1.78 sec
+      Start   6: ui_invariants_selftest
+11/19 Test   #3: layering_selftest ................   Passed    0.05 sec
+12/19 Test   #8: i18n_selftest ....................   Passed    0.07 sec
+13/19 Test   #6: ui_invariants_selftest ...........   Passed    0.04 sec
+14/19 Test   #9: ui_tokens ........................   Passed    0.58 sec
+15/19 Test   #7: i18n .............................   Passed    0.93 sec
+16/19 Test  #46: tst_ui ...........................   Passed   21.35 sec
+17/19 Test  #99: tst_datapreview ..................   Passed   29.69 sec
+18/19 Test  #97: tst_previewmap_assets ............   Passed   30.46 sec
+      Start  98: tst_previewmap_perf
+19/19 Test  #98: tst_previewmap_perf ..............   Passed    4.73 sec
+
+100% tests passed out of 19
+
+Label Time Summary:
+core    =  21.35 sec*proc (1 test)
+perf    =   4.73 sec*proc (1 test)
+qgis    =   3.91 sec*proc (3 tests)
+ui      =  68.16 sec*proc (5 tests)
+
+Total Test time (real) =  35.20 sec

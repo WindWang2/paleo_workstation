@@ -1,4 +1,5 @@
 // 层：视图
+#include "ui/paleotheme.h"
 #include "predictpage.h"
 
 #if PALEO_HAVE_ORT
@@ -72,7 +73,7 @@ PredictPage::PredictPage(PredictionWorkflow *wf, QgisLayerService *layers, QWidg
   paramsArea->setObjectName(QStringLiteral("onnxParamsArea"));
   auto *paramsLay = new QVBoxLayout(paramsArea);
   paramsLay->setContentsMargins(0, 0, 0, 0);
-  paramsLay->setSpacing(8);
+  paramsLay->setSpacing(PaleoTheme::tokens().spacingSm);
 
   paramsLay->addWidget(caption(tr("输入数据 (逗号分隔浮点数)"), paramsArea));
   auto *inputEdit = new QLineEdit(paramsArea);
@@ -113,7 +114,7 @@ PredictPage::PredictPage(PredictionWorkflow *wf, QgisLayerService *layers, QWidg
   formArea->setObjectName(QStringLiteral("paramsFormArea"));
   auto *formLay = new QVBoxLayout(formArea);
   formLay->setContentsMargins(0, 0, 0, 0);
-  formLay->setSpacing(8);
+  formLay->setSpacing(PaleoTheme::tokens().spacingSm);
   formArea->hide();
   lay->addWidget(formArea);
 
@@ -643,8 +644,8 @@ void PredictPage::refreshHistory()
     // C5：行控件 = 标题 label + 「显示」按钮——结果名不能被按钮整行遮蔽。
     auto *roww = new QWidget(list);
     auto *rl = new QHBoxLayout(roww);
-    rl->setContentsMargins(4, 1, 4, 1);
-    rl->setSpacing(4);
+    rl->setContentsMargins(PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingXs);
+    rl->setSpacing(PaleoTheme::tokens().spacingXs);
     auto *title = new QLabel(d.title.isEmpty() ? d.layerId : d.title, roww);
     title->setToolTip(d.layerId);
     rl->addWidget(title, 1);

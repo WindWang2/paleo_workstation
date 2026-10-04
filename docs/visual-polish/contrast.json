@@ -1,0 +1,181 @@
+{
+  "source": "src/ui/paleotheme.cpp kLight/kDark literal definitions",
+  "checks": [
+    {
+      "theme": "light",
+      "foreground": "text",
+      "background": "surface",
+      "ratio": 13.398,
+      "threshold": 4.5,
+      "status": "pass"
+    },
+    {
+      "theme": "light",
+      "foreground": "text",
+      "background": "surfaceAlt",
+      "ratio": 11.804,
+      "threshold": 4.5,
+      "status": "pass"
+    },
+    {
+      "theme": "light",
+      "foreground": "textMuted",
+      "background": "surface",
+      "ratio": 5.24,
+      "threshold": 4.5,
+      "status": "pass"
+    },
+    {
+      "theme": "light",
+      "foreground": "textMuted",
+      "background": "surfaceAlt",
+      "ratio": 4.617,
+      "threshold": 4.5,
+      "status": "pass"
+    },
+    {
+      "theme": "light",
+      "foreground": "primaryText",
+      "background": "surface",
+      "ratio": 4.762,
+      "threshold": 4.5,
+      "status": "pass"
+    },
+    {
+      "theme": "light",
+      "foreground": "successText",
+      "background": "successBg",
+      "ratio": 4.558,
+      "threshold": 4.5,
+      "status": "pass"
+    },
+    {
+      "theme": "light",
+      "foreground": "warningText",
+      "background": "warningBg",
+      "ratio": 4.978,
+      "threshold": 4.5,
+      "status": "pass"
+    },
+    {
+      "theme": "light",
+      "foreground": "errorText",
+      "background": "errorBg",
+      "ratio": 4.888,
+      "threshold": 4.5,
+      "status": "pass"
+    },
+    {
+      "theme": "light",
+      "foreground": "warningText",
+      "background": "surface",
+      "ratio": 5.426,
+      "threshold": 4.5,
+      "status": "pass"
+    },
+    {
+      "theme": "light",
+      "foreground": "errorText",
+      "background": "surface",
+      "ratio": 5.622,
+      "threshold": 4.5,
+      "status": "pass"
+    },
+    {
+      "theme": "light",
+      "foreground": "textDisabled",
+      "background": "surface",
+      "ratio": 2.453,
+      "threshold": null,
+      "status": "inactive control exempt (DESIGN.md)"
+    },
+    {
+      "theme": "dark",
+      "foreground": "text",
+      "background": "surface",
+      "ratio": 11.627,
+      "threshold": 4.5,
+      "status": "pass"
+    },
+    {
+      "theme": "dark",
+      "foreground": "text",
+      "background": "surfaceAlt",
+      "ratio": 13.371,
+      "threshold": 4.5,
+      "status": "pass"
+    },
+    {
+      "theme": "dark",
+      "foreground": "textMuted",
+      "background": "surface",
+      "ratio": 6.432,
+      "threshold": 4.5,
+      "status": "pass"
+    },
+    {
+      "theme": "dark",
+      "foreground": "textMuted",
+      "background": "surfaceAlt",
+      "ratio": 7.397,
+      "threshold": 4.5,
+      "status": "pass"
+    },
+    {
+      "theme": "dark",
+      "foreground": "primaryText",
+      "background": "surface",
+      "ratio": 5.446,
+      "threshold": 4.5,
+      "status": "pass"
+    },
+    {
+      "theme": "dark",
+      "foreground": "successText",
+      "background": "successBg",
+      "ratio": 5.323,
+      "threshold": 4.5,
+      "status": "pass"
+    },
+    {
+      "theme": "dark",
+      "foreground": "warningText",
+      "background": "warningBg",
+      "ratio": 7.671,
+      "threshold": 4.5,
+      "status": "pass"
+    },
+    {
+      "theme": "dark",
+      "foreground": "errorText",
+      "background": "errorBg",
+      "ratio": 5.235,
+      "threshold": 4.5,
+      "status": "pass"
+    },
+    {
+      "theme": "dark",
+      "foreground": "warningText",
+      "background": "surface",
+      "ratio": 8.131,
+      "threshold": 4.5,
+      "status": "pass"
+    },
+    {
+      "theme": "dark",
+      "foreground": "errorText",
+      "background": "surface",
+      "ratio": 4.818,
+      "threshold": 4.5,
+      "status": "pass"
+    },
+    {
+      "theme": "dark",
+      "foreground": "textDisabled",
+      "background": "surface",
+      "ratio": 2.834,
+      "threshold": null,
+      "status": "inactive control exempt (DESIGN.md)"
+    }
+  ]
+}

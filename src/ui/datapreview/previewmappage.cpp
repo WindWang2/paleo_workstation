@@ -1,4 +1,5 @@
 // 层：视图
+// token 例外：DESIGN 数据符号例外：预览地图固定纸面与视口位置符号（透明蓝），避免背景改变数据读图基准。（tools/ui-token-exceptions.json 精确计数）。
 #include "previewmappage.h"
 #include "../paleodockmanager.h"
 #include "../paleoviewport.h"
@@ -392,7 +393,7 @@ void PreviewMapPage::buildToolBar()
   m_toolBar = new QToolBar( this );
   m_toolBar->setObjectName( QStringLiteral( "previewMapToolBar" ) );
   m_toolBar->setToolButtonStyle( Qt::ToolButtonIconOnly );
-  m_toolBar->setIconSize( QSize( 18, 18 ) );
+  m_toolBar->setIconSize(PaleoIcons::toolbarSize());
   m_toolBar->setMovable( false );
   // 工具条 chrome 走 token（活体注册随主题）。hover 用 border 档（surfaceAlt
   // 底上可见）；checked = 活动地图工具惯例（primary 描边 + surfaceAltRaised
@@ -400,11 +401,11 @@ void PreviewMapPage::buildToolBar()
   // 原字面量无对应 token——见 docs/progress/ui-polish.md §5 hover 档 token 提案。
   PaleoTheme::applyThemedStyleSheet( m_toolBar, [] {
     const auto &t = PaleoTheme::tokens();
-    return QStringLiteral(
-        "QToolBar { background: %1; border-bottom: 1px solid %2; padding: 2px; }"
-        "QToolButton { background: transparent; border: none; padding: 3px; border-radius: 4px; }"
+    return PaleoTheme::metricStyleSheet(QStringLiteral(
+        "QToolBar { background: %1; border-bottom: 1px solid %2; padding: {spacing.xs}px; }"
+        "QToolButton { background: transparent; border: none; padding: {spacing.xs}px; border-radius: {rounded.sm}px; }"
         "QToolButton:hover { background: %2; }"
-        "QToolButton:checked { background: %3; border: 1px solid %4; }" )
+        "QToolButton:checked { background: %3; border: 1px solid %4; }" ))
         .arg( t.surfaceAlt.name(), t.border.name(), t.surfaceAltRaised.name(),
               t.primary.name() );
   } );
@@ -418,8 +419,8 @@ void PreviewMapPage::buildToolBar()
         .arg( t.surfaceAlt.name(), t.border.name() );
   } );
   auto *extLay = new QHBoxLayout( m_toolBarExt );
-  extLay->setContentsMargins( 4, 2, 4, 2 );
-  extLay->setSpacing( 2 );
+  extLay->setContentsMargins(PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingXs);
+  extLay->setSpacing(PaleoTheme::tokens().spacingXs);
 
   // 行容器：工具条（QAction 区）+ 扩展条（直挂按钮区）同一视觉行。
   m_toolBarRow = new QWidget( this );
@@ -463,7 +464,7 @@ void PreviewMapPage::buildToolBar()
   m_measureAreaAction = addTool( PreviewMapToolManager::kMeasureArea, QObject::tr( "面积测量" ),
                                  QStringLiteral( "mActionMeasureArea.svg" ) );
   m_profileAction = addTool( PreviewMapToolManager::kProfile, QObject::tr( "层位剖面线" ),
-                             QStringLiteral( "mActionProfile.svg" ) );
+                             QStringLiteral( "mActionElevationProfile.svg" ) );
   m_toolGroup->setExclusive( true );
   m_panAction->setChecked( true );
 
@@ -482,11 +483,11 @@ void PreviewMapPage::buildToolBar()
   connect( fullAction, &QAction::triggered, this, [this] { m_canvas->zoomToFullExtent(); } );
   m_toolBar->addAction( fullAction );
 
-  m_backAction = new QAction( PaleoIcons::qgisTheme( QStringLiteral( "mActionArrowBack.svg" ) ),
+  m_backAction = new QAction( PaleoIcons::qgisTheme( QStringLiteral( "mActionArrowLeft.svg" ) ),
                               QObject::tr( "上一视图" ), this );
   connect( m_backAction, &QAction::triggered, this, [this] { m_canvas->zoomBack(); } );
   m_toolBar->addAction( m_backAction );
-  m_fwdAction = new QAction( PaleoIcons::qgisTheme( QStringLiteral( "mActionArrowForward.svg" ) ),
+  m_fwdAction = new QAction( PaleoIcons::qgisTheme( QStringLiteral( "mActionArrowRight.svg" ) ),
                              QObject::tr( "下一视图" ), this );
   connect( m_fwdAction, &QAction::triggered, this, [this] { m_canvas->zoomForward(); } );
   m_toolBar->addAction( m_fwdAction );
@@ -511,7 +512,7 @@ void PreviewMapPage::buildToolBar()
   // ---- 书签菜单（D3.7）----
   auto *bookmarkBtn = new QToolButton( m_toolBarExt );
   bookmarkBtn->setObjectName( QStringLiteral( "previewBookmarkButton" ) );
-  bookmarkBtn->setIcon( PaleoIcons::qgisTheme( QStringLiteral( "mActionAddBookmark.svg" ) ) );
+  bookmarkBtn->setIcon( PaleoIcons::qgisTheme( QStringLiteral( "mActionNewBookmark.svg" ) ) );
   bookmarkBtn->setToolTip( QObject::tr( "书签：保存/跳转/删除视图" ) );
   bookmarkBtn->setPopupMode( QToolButton::InstantPopup );
   m_bookmarkMenu = new QMenu( bookmarkBtn );
@@ -521,7 +522,7 @@ void PreviewMapPage::buildToolBar()
   // ---- 装饰件菜单（D1.5）----
   auto *decorBtn = new QToolButton( m_toolBarExt );
   decorBtn->setObjectName( QStringLiteral( "previewDecorButton" ) );
-  decorBtn->setIcon( PaleoIcons::qgisTheme( QStringLiteral( "mActionDecorationGrid.svg" ) ) );
+  decorBtn->setIcon( PaleoIcons::qgisTheme( QStringLiteral( "grid.svg" ) ) );
   decorBtn->setToolTip( QObject::tr( "画布装饰：比例尺/指北针/网格" ) );
   decorBtn->setPopupMode( QToolButton::InstantPopup );
   auto *decorMenu = new QMenu( decorBtn );
@@ -566,20 +567,20 @@ void PreviewMapPage::buildStatusBar()
         .arg( t.surfaceAlt.name(), t.border.name() );
   } );
   auto *lay = new QHBoxLayout( m_statusBar );
-  lay->setContentsMargins( 8, 2, 8, 2 );
-  lay->setSpacing( 12 );
+  lay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs);
+  lay->setSpacing(PaleoTheme::tokens().spacingMd);
 
   m_renderLabel = new QLabel( m_statusBar );
   m_renderLabel->setObjectName( QStringLiteral( "previewRenderLabel" ) );
   PaleoTheme::applyThemedStyleSheet( m_renderLabel, [] {
-    return PaleoTheme::mutedCaptionStyleSheet() + QStringLiteral( " font-size: 8pt;" );
+    return PaleoTheme::mutedCaptionStyleSheet() + PaleoTheme::metricStyleSheet(QStringLiteral( " font-size: {typography.label}pt;" ));
   } );
   lay->addWidget( m_renderLabel );
 
   m_measureLabel = new QLabel( m_statusBar );
   m_measureLabel->setObjectName( QStringLiteral( "previewMeasureLabel" ) );
   PaleoTheme::applyThemedStyleSheet( m_measureLabel, [] {
-    return QStringLiteral( "color: %1; font-size: 8pt;" )
+    return PaleoTheme::metricStyleSheet(QStringLiteral( "color: %1; font-size: {typography.label}pt;" ))
         .arg( PaleoTheme::tokens().text.name() );
   } );
   lay->addWidget( m_measureLabel );

@@ -72,7 +72,7 @@ namespace
   {
     auto *it = new QTableWidgetItem(text);
     it->setFlags(Qt::NoItemFlags);
-    it->setForeground(PaleoTheme::tokens().textMuted); // text-muted（现取随主题）
+    PaleoTheme::setItemTextColor(it, PaleoTheme::ItemTextColor::Muted); // text-muted（现取随主题）
     return it;
   }
 } // namespace
@@ -84,7 +84,7 @@ EntityPanel::EntityPanel(QWidget *parent)
   setMinimumWidth(0);
   auto *entityLay = new QVBoxLayout(this);
   entityLay->setContentsMargins(0, 0, 0, 0);
-  entityLay->setSpacing(8);
+  entityLay->setSpacing(PaleoTheme::tokens().spacingSm);
   entityLay->setAlignment(Qt::AlignTop);
   // ---- p5a：实体角色槽与资产属性视图 ----
   entityLay->addWidget(caption(tr("数据属性与设置"), this));
@@ -98,7 +98,7 @@ EntityPanel::EntityPanel(QWidget *parent)
   viewContent->setObjectName(QStringLiteral("entityViewContent"));
   auto *vcl = new QVBoxLayout(viewContent);
   vcl->setContentsMargins(0, 0, 0, 0);
-  vcl->setSpacing(8);
+  vcl->setSpacing(PaleoTheme::tokens().spacingSm);
 
   auto *entityHeader = new QLabel(viewContent);
   entityHeader->setObjectName(QStringLiteral("entityViewHeader"));
@@ -108,16 +108,16 @@ EntityPanel::EntityPanel(QWidget *parent)
   // 数据属性标题使用中性色，交互蓝只用于主操作与选中状态。
   PaleoTheme::applyThemedStyleSheet(entityHeader, [] {
     const auto &t = PaleoTheme::tokens();
-    return QStringLiteral(
+    return PaleoTheme::metricStyleSheet(QStringLiteral(
                "QLabel { "
                "  background: %1; "
                "  color: %2; "
                "  font-weight: 600; "
-               "  font-size: 12pt; "
-               "  padding: 8px 16px; "
-               "  border-radius: 4px; "
+               "  font-size: {typography.title}pt; "
+               "  padding: {spacing.sm}px {spacing.md}px; "
+               "  border-radius: {rounded.sm}px; "
                "  border: 1px solid %3; "
-               "}")
+               "}"))
         .arg(t.surfaceAltRaised.name().toUpper(),
              t.text.name().toUpper(),
              t.border.name().toUpper());
@@ -130,18 +130,18 @@ EntityPanel::EntityPanel(QWidget *parent)
   auto *scrollContainer = new QWidget(scroll);
   auto *sl = new QVBoxLayout(scrollContainer);
   sl->setContentsMargins(0, 0, 0, 0);
-  sl->setSpacing(8);
+  sl->setSpacing(PaleoTheme::tokens().spacingSm);
 
   const auto addRow = [](CollapsibleSection *sec, QFormLayout *fl, const QString &label, const char *valName) -> QLabel * {
     auto *lbl = new QLabel(label, sec->container());
     PaleoTheme::applyThemedStyleSheet(lbl, [] {
-      return QStringLiteral("color: %1; font-size: 8pt;")
+      return PaleoTheme::metricStyleSheet(QStringLiteral("color: %1; font-size: {typography.label}pt;"))
           .arg(PaleoTheme::tokens().textMuted.name().toUpper());
     });
     auto *val = new QLabel(QStringLiteral("—"), sec->container());
     val->setObjectName(QLatin1String(valName));
     PaleoTheme::applyThemedStyleSheet(val, [] {
-      return QStringLiteral("color: %1; font-size: 8pt; font-weight: 500;")
+      return PaleoTheme::metricStyleSheet(QStringLiteral("color: %1; font-size: {typography.label}pt; font-weight: 500;"))
           .arg(PaleoTheme::tokens().text.name().toUpper());
     });
     val->setTextInteractionFlags(Qt::TextSelectableByMouse);
@@ -157,8 +157,8 @@ EntityPanel::EntityPanel(QWidget *parent)
   secBasic->setObjectName(QStringLiteral("secBasic"));
   auto *formBasic = new QFormLayout();
   secBasic->containerLayout()->addLayout(formBasic);
-  formBasic->setContentsMargins(4, 2, 4, 4);
-  formBasic->setSpacing(4);
+  formBasic->setContentsMargins(PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingXs);
+  formBasic->setSpacing(PaleoTheme::tokens().spacingXs);
   auto *nameVal = addRow(secBasic, formBasic, tr("名称:"), "propName");
   nameVal->setWordWrap(true);
   addRow(secBasic, formBasic, tr("类型:"), "propType");
@@ -174,8 +174,8 @@ EntityPanel::EntityPanel(QWidget *parent)
   secSpatial->setObjectName(QStringLiteral("secSpatial"));
   auto *formSpatial = new QFormLayout();
   secSpatial->containerLayout()->addLayout(formSpatial);
-  formSpatial->setContentsMargins(4, 2, 4, 4);
-  formSpatial->setSpacing(4);
+  formSpatial->setContentsMargins(PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingXs);
+  formSpatial->setSpacing(PaleoTheme::tokens().spacingXs);
   addRow(secSpatial, formSpatial, tr("坐标系:"), "propCrs");
   auto *coordVal = addRow(secSpatial, formSpatial, tr("坐标/范围:"), "propCoord");
   coordVal->setWordWrap(true);
@@ -192,7 +192,7 @@ EntityPanel::EntityPanel(QWidget *parent)
   roleSummary->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
   roleSummary->setWordWrap(true);
   PaleoTheme::applyThemedStyleSheet(roleSummary, [] {
-    return QStringLiteral("color: %1; font-size: 8pt; margin-bottom: 2px;")
+    return PaleoTheme::metricStyleSheet(QStringLiteral("color: %1; font-size: {typography.label}pt; margin-bottom: {spacing.xs}px;"))
         .arg(PaleoTheme::tokens().textMuted.name().toUpper());
   });
   rl->addWidget(roleSummary);
@@ -215,7 +215,7 @@ EntityPanel::EntityPanel(QWidget *parent)
   detailsText->setObjectName(QStringLiteral("propDetailsText"));
   detailsText->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
   PaleoTheme::applyThemedStyleSheet(detailsText, [] {
-    return QStringLiteral("color: %1; font-size: 8pt;")
+    return PaleoTheme::metricStyleSheet(QStringLiteral("color: %1; font-size: {typography.label}pt;"))
         .arg(PaleoTheme::tokens().text.name().toUpper());
   });
   detailsText->setWordWrap(true);
@@ -270,7 +270,7 @@ void EntityPanel::buildD4Ui()
   crud->setObjectName(QStringLiteral("entityCrudBar"));
   auto *cl = new QHBoxLayout(crud);
   cl->setContentsMargins(0, 0, 0, 0);
-  cl->setSpacing(4);
+  cl->setSpacing(PaleoTheme::tokens().spacingXs);
   const struct
   {
     const char *name;
@@ -306,7 +306,7 @@ void EntityPanel::buildD4Ui()
     btn->setObjectName(QLatin1String(b.name));
     btn->setText(tr(b.text));
     btn->setToolTip(tr(b.tip));
-    btn->setStyleSheet(QStringLiteral("font-size: 8pt; padding: 2px 8px;"));
+    btn->setStyleSheet(PaleoTheme::metricStyleSheet(QStringLiteral("font-size: {typography.label}pt; padding: {spacing.xs}px {spacing.sm}px;")));
     // D6.7 焦点指示强化：可聚焦 + 强焦点策略（焦点环走全局 QSS）。
     btn->setFocusPolicy(Qt::StrongFocus);
     const auto h = handlers;
@@ -399,7 +399,7 @@ void EntityPanel::buildD4Ui()
       statsLabel->setObjectName(QStringLiteral("propStatsText"));
       statsLabel->setWordWrap(true);
       PaleoTheme::applyThemedStyleSheet(statsLabel, [] {
-        return QStringLiteral("color: %1; font-size: 8pt;")
+        return PaleoTheme::metricStyleSheet(QStringLiteral("color: %1; font-size: {typography.label}pt;"))
             .arg(PaleoTheme::tokens().text.name().toUpper());
       });
       secStats->containerLayout()->addWidget(statsLabel);
@@ -1311,7 +1311,7 @@ void EntityPanel::refresh()
           slot.def.display.isEmpty() ? slot.def.role : slot.def.display);
       roleItem->setFlags(roleItem->flags() & ~Qt::ItemIsEditable);
       if (slotEmpty)
-        roleItem->setForeground(PaleoTheme::tokens().textMuted); // 空槽灰字（现取随主题）
+        PaleoTheme::setItemTextColor(roleItem, PaleoTheme::ItemTextColor::Muted); // 空槽灰字（现取随主题）
       roleTable->setItem(r, 0, roleItem);
 
       if (!slot.primary.assetId.isEmpty())

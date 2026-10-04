@@ -4,6 +4,7 @@
 #include "../io/dataimportservice.h"
 #include "../catalog/datacatalog.h"
 #include "../services/paleotaskservice.h"
+#include "importledger.h"
 
 #include <QFileInfo>
 #include <QPointer>
@@ -156,6 +157,55 @@ void FolderImportWorkflow::previewFolderAsync(
     done(rows, err);
 }
 
+void FolderImportWorkflow::recordLedger(const QString &dir, const QDateTime &started,
+                                        const QVector<FolderRowResult> &rows,
+                                        const QString &importErr)
+{
+  DataCatalog *cat = m_svc ? m_svc->catalog() : nullptr;
+  if (!cat || !cat->isOpen())
+    return;
+  using namespace paleo::imports;
+  ImportLedger ledger;
+  ledger.load(cat);
+  LedgerBatch batch;
+  batch.id = QStringLiteral("batch-%1").arg(started.toMSecsSinceEpoch());
+  batch.dir = dir;
+  batch.startedAt = started;
+  batch.finishedAt = QDateTime::currentDateTime();
+  batch.error = importErr;
+  for (const FolderRowResult &r : rows)
+  {
+    LedgerRow lr;
+    lr.path = r.path;
+    lr.type = r.classifiedType;
+    lr.entity = r.entityName;
+    lr.message = r.message;
+    switch (r.outcome)
+    {
+    case FolderRowResult::Outcome::Imported:
+      lr.outcome = QStringLiteral("imported");
+      ++batch.imported;
+      break;
+    case FolderRowResult::Outcome::Unresolved:
+      lr.outcome = QStringLiteral("unresolved");
+      ++batch.unresolved;
+      break;
+    case FolderRowResult::Outcome::Failed:
+      lr.outcome = QStringLiteral("failed");
+      ++batch.failed;
+      break;
+    case FolderRowResult::Outcome::Skipped:
+      lr.outcome = QStringLiteral("skipped");
+      ++batch.skipped;
+      break;
+    }
+    batch.rows.append(lr);
+  }
+  QString lerr;
+  if (!ledger.record(batch, &lerr))
+    qWarning() << "import ledger record failed:" << lerr;
+}
+
 FolderRowResult
 FolderImportWorkflow::importFolderRow(const QString &path, const QString &forceType,
                                       QString *error)
@@ -198,6 +248,7 @@ void FolderImportWorkflow::importFolder(const QString &dir,
   // 扫描段 total==0（跑马灯 + 文件名 detail），执行段 total=行数。
   if (m_taskSvc)
   {
+    const QDateTime started = QDateTime::currentDateTime();
     auto job = std::make_shared<ImportJob>();
     job->title = tr("导入工区文件夹");
     job->produce = [dir, overrides, forceImportPaths](ImportSession &s, PaleoTask *t) {
@@ -216,8 +267,9 @@ void FolderImportWorkflow::importFolder(const QString &dir,
                 return !t->cancelRequested();
               });
         };
-    job->finish = [this, done](ImportSession &s) {
+    job->finish = [this, done, dir, started](ImportSession &s) {
       emit importActiveChanged(false);
+      recordLedger(dir, started, s.rows, s.error);
       if (done)
         done(s.rows, s.error);
     };
@@ -230,10 +282,12 @@ void FolderImportWorkflow::importFolder(const QString &dir,
     enqueueImport(job);
     return;
   }
+  const QDateTime started = QDateTime::currentDateTime();
   emit importActiveChanged(true);
   QString importErr;
   const auto res = m_svc->importFolder(dir, &importErr, overrides, forceImportPaths);
   emit importActiveChanged(false);
+  recordLedger(dir, started, res, importErr);
   if (done)
     done(res, importErr);
 }

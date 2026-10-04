@@ -13,8 +13,8 @@
 // （DESIGN.md 2026-09-29 决策，同 wellcomposite 画布口径）。
 namespace wellsection {
 
-// 井道种类：层段名 | 曲线道 | 深度尺 | 岩性柱。
-enum class TrackKind { Zone, Curve, Depth, Lithology };
+// 井道种类：层段名 | 曲线道 | 深度尺 | 岩性柱 | 相代码充填。
+enum class TrackKind { Zone, Curve, Depth, Lithology, Facies };
 
 // 一条曲线的显示式样：label 空 → 用 mnemonic；min/max 为道内刻度范围；
 // logScale 时对数值取 log10 归一。
@@ -33,7 +33,7 @@ struct TrackSpec {
   TrackKind kind = TrackKind::Curve;
   QString title;              // 空 → 自动（小层/深度/m/岩性/曲线名拼接）
   int width = 56;             // px，夹取 24..200
-  QVector<CurveStyle> curves; // Curve 道 1..2 条叠加
+  QVector<CurveStyle> curves; // Curve 道 1..3 条叠加（GR/DT/AC 可配道序）
   bool sandFill = false;      // Curve：cutoff 以下自道左缘充填
   double cutoff = 75.0;       // sandFill 与 Lithology 的 GR 截断值
   QString sourceMnemonic = QStringLiteral("GR"); // Lithology 源曲线
@@ -74,6 +74,7 @@ struct SectionTheme {
   bool zoneFill = false;     // 层段底色（zoneColor 55% 透明）
   QColor sand, sandDots;     // 砂岩充填 + 点纹（sand 透明 = 只描轮廓）
   QColor lithoSand, lithoShale;
+  QColor fault;              // 断层投绘线（缺省 classic #B33A3A）
   bool seismicGray = true;   // true = 灰阶，false = 红白蓝
   qreal seismicOpacity = 0.85;
   static QVector<SectionTheme> presets();         // classic/colored/print

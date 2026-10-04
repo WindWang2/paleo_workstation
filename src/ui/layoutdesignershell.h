@@ -5,6 +5,7 @@
 #include <QPointer>
 #include <QString>
 #include <qgslayoutdesignerinterface.h>
+#include <qgslayoutaligner.h> // 对齐/分布方法签名（QgsLayoutAligner::Alignment/Distribution）
 
 class QAction;
 class QDockWidget;
@@ -19,6 +20,7 @@ class QToolBar;
 class QgsFeature;
 class QgsLayout;
 class QgsLayoutItem;
+class QgsLayoutItemMap;
 class QgsLayoutRuler;
 class QgsLayoutView;
 class QgsLayoutViewTool;
@@ -29,6 +31,7 @@ class PaleoLayoutDesignerShell;
 class PaleoLayoutExportActions;
 class PaleoLayoutItemPanel;
 class PaleoLayoutItemPalette;
+class PaleoLayoutItemTree;
 class PaleoLayoutTemplates;
 class PaleoLayoutUndoStack;
 
@@ -177,6 +180,14 @@ class PaleoLayoutDesignerShell : public QDialog
     void openPageProperties();
     void refreshPanelAfterUndoRedo();
 
+    // 标准图件元素（方向 25）：目标地图项解析 + 菜单动作落地。
+    QgsLayoutItemMap *targetMapItem() const;
+    void addStandardElement( const QString &actionObjectName );
+
+    // 对齐/分布（方向 25 M6）：QgsLayoutAligner 静态调用 + 选中数守卫。
+    void alignSelected( QgsLayoutAligner::Alignment alignment );
+    void distributeSelected( QgsLayoutAligner::Distribution distribution );
+
     QMenu *menuFor( QPointer<QMenu> &member, const QString &title );
     QMenu *submenuFor( QPointer<QMenu> &member, QMenu *parent, const QString &title );
     QToolBar *toolBarFor( QPointer<QToolBar> &member, const QString &objectName );
@@ -187,6 +198,7 @@ class PaleoLayoutDesignerShell : public QDialog
     // --- subtask A/B/C/D components ----------------------------------------
     PaleoLayoutItemPalette *m_palette = nullptr;      // left element palette
     PaleoLayoutItemPanel *m_itemPanel = nullptr;      // right properties host
+    PaleoLayoutItemTree *m_itemTree = nullptr;        // left element tree (M6)
     PaleoLayoutExportActions *m_exportActions = nullptr;
     PaleoLayoutTemplates *m_templates = nullptr;
     PaleoLayoutUndoStack *m_undoStack = nullptr;

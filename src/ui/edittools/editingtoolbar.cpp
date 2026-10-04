@@ -16,6 +16,10 @@
 #include <QToolBar>
 #include <QToolButton>
 #include <QVariant>
+#include <QSpinBox>
+#include <QSettings>
+#include <QPushButton>
+#include <qgssnappingutils.h>
 
 #include <qgsadvanceddigitizingdockwidget.h>
 #include <qgscoordinatereferencesystem.h>
@@ -232,6 +236,12 @@ PaleoEditingToolbar::PaleoEditingToolbar( QgsMapCanvas *canvas, QWidget *parent 
   , mCanvas( canvas )
 {
   Q_ASSERT( mCanvas ); // the toolbar drives the canvas; a null one is a wiring bug
+  connect(mCanvas, &QObject::destroyed, this, [this] {
+    // The scene owns its graphics items and deletes them with the canvas.
+    // A host may destroy that child before this toolbar; do not delete twice.
+    mEditHighlight.release();
+    mCanvas = nullptr;
+  });
   mLayerFilter = []( const QgsVectorLayer * ) { return true; };
 
   buildUi();
@@ -259,7 +269,8 @@ PaleoEditingToolbar::~PaleoEditingToolbar()
   {
     QgsMapTool *tool = mActiveEditTool;
     mActiveEditTool = nullptr;
-    mCanvas->unsetMapTool( tool );
+    if (mCanvas)
+      mCanvas->unsetMapTool( tool );
     delete tool; // direct delete: the destructor never runs inside tool code
   }
 }
@@ -269,6 +280,9 @@ void PaleoEditingToolbar::setLayers( const QList<QgsVectorLayer *> &layers )
   for ( const auto &layer : std::as_const( mLayers ) )
     if ( layer )
       disconnect( layer, nullptr, this, nullptr );
+  for (const auto &connection : mHighlightConnections)
+    disconnect(connection);
+  mHighlightConnections.clear();
   mLayers.clear();
   for ( QgsVectorLayer *layer : layers )
   {
@@ -284,6 +298,12 @@ void PaleoEditingToolbar::setLayers( const QList<QgsVectorLayer *> &layers )
     } );
     connect( layer, &QgsVectorLayer::readOnlyChanged, this, &PaleoEditingToolbar::updateActionStates );
     connect( layer, &QgsVectorLayer::supportsEditingChanged, this, &PaleoEditingToolbar::updateActionStates );
+  }
+  if (isEditing())
+  {
+    mHighlightConnections.append(connect(mEditLayer, &QgsVectorLayer::selectionChanged, this, [this] { updateEditHighlight(); }));
+    mHighlightConnections.append(connect(mEditLayer, &QgsVectorLayer::geometryChanged, this, [this] { updateEditHighlight(); }));
+    updateEditHighlight();
   }
   refreshCombo();
   updateActionStates();
@@ -340,6 +360,9 @@ void PaleoEditingToolbar::setEditingService( QgisEditingService *service )
   if ( !mEditingService )
     return;
 
+  mEditingService->setUndoDepth(mUndoDepth->value());
+  connect(mEditingService, &QgisEditingService::availabilityChanged, this, &PaleoEditingToolbar::updateActionStates);
+  connect(mEditingService, &QgisEditingService::editFailed, this, &PaleoEditingToolbar::editRefused);
   auto syncExternalEditEnd = [this]( const QString &layerId, bool saved ) {
     if ( mEditLayer && ( mEditLayer->id() == layerId ||
          mEditLayer->customProperty( QStringLiteral( "paleoLayerId" ) ).toString() == layerId ) )
@@ -435,6 +458,34 @@ void PaleoEditingToolbar::buildUi()
     return a;
   };
 
+  mActionEditMode = newToolAction(tr("编辑模式"), tr("进入编辑；退出时保存或放弃本段编辑"),
+                                  QStringLiteral("mActionToggleEditing.svg"));
+  mActionEditMode->setObjectName(QStringLiteral("actionEditMode"));
+  connect(mActionEditMode, &QAction::triggered, this, [this](bool on) {
+    if (on)
+      startEditing();
+    else if (isEditing())
+    {
+      if (!mEditLayer->isModified())
+        cancelEditing();
+      else
+      {
+        QMessageBox prompt(QMessageBox::Question, tr("退出编辑"),
+                           tr("本段编辑尚未确认保存。保存编辑，或放弃本段修改？"),
+                           QMessageBox::NoButton, this);
+        auto *save = prompt.addButton(tr("保存"), QMessageBox::AcceptRole);
+        auto *discard = prompt.addButton(tr("放弃"), QMessageBox::DestructiveRole);
+        prompt.addButton(tr("取消"), QMessageBox::RejectRole);
+        prompt.setDefaultButton(save);
+        prompt.exec();
+        if (prompt.clickedButton() == save)
+          saveEditing();
+        else if (prompt.clickedButton() == discard)
+          cancelEditing();
+      }
+    }
+    updateActionStates();
+  });
   mActionSelect = newToolAction( tr( "选择" ), tr( "单击或框选要素（Shift 追加 / Ctrl 去除）" ),
                                  QStringLiteral( "mActionSelectRectangle.svg" ) );
 
@@ -518,7 +569,7 @@ void PaleoEditingToolbar::buildUi()
     if ( project )
       project->writeEntry( QStringLiteral( "paleo" ), QStringLiteral( "crossLayerTopologicalEditing" ), on );
     if ( auto *vt = qobject_cast<PaleoVertexTool *>( mActiveEditTool.data() ) )
-      vt->setCrossLayerTopologyEnabled( on );
+      vt->setCrossLayerTopologyEnabled( on && !QgisEditingService::isConstraintLayer(currentLayer()) );
   } );
 
   mToolBar->addSeparator();
@@ -576,6 +627,45 @@ void PaleoEditingToolbar::buildUi()
   layout->addWidget( mToolBar );
   layout->addStretch( 1 );
   layout->addWidget( mStateLabel );
+  mSnapTolerance = new QSpinBox(this);
+  mSnapTolerance->setObjectName(QStringLiteral("editingSnapToleranceSpin"));
+  mSnapTolerance->setRange(1, 100);
+  mSnapTolerance->setFont(PaleoTheme::monoFont());
+  mSnapTolerance->setSuffix(tr(" px"));
+  mSnapTolerance->setAccessibleName(tr("捕捉容差"));
+  mSnapTolerance->setToolTip(tr("井点、层位边界与既有约束顶点/线段的屏幕捕捉容差"));
+  mSnapTolerance->setValue(QSettings().value(QStringLiteral("editing/snapTolerancePx"), 10).toInt());
+  mToolBar->addWidget(mSnapTolerance);
+  connect(mSnapTolerance, &QSpinBox::valueChanged, this, [this](int px) {
+    auto config = mCanvas->snappingUtils()->config();
+    config.setEnabled(true);
+    config.setMode(Qgis::SnappingMode::AllLayers);
+    config.setTypeFlag(Qgis::SnappingType::Vertex | Qgis::SnappingType::Segment);
+    config.setTolerance(px);
+    config.setUnits(Qgis::MapToolUnit::Pixels);
+    mCanvas->snappingUtils()->setConfig(config);
+    if (auto *project = mProject ? mProject.data() : QgsProject::instance())
+      project->setSnappingConfig(config);
+    QSettings().setValue(QStringLiteral("editing/snapTolerancePx"), px);
+  });
+  auto config = mCanvas->snappingUtils()->config();
+  config.setTolerance(mSnapTolerance->value());
+  config.setUnits(Qgis::MapToolUnit::Pixels);
+  mCanvas->snappingUtils()->setConfig(config);
+  mUndoDepth = new QSpinBox(this);
+  mUndoDepth->setObjectName(QStringLiteral("editingUndoDepthSpin"));
+  mUndoDepth->setRange(1, 10000);
+  mUndoDepth->setFont(PaleoTheme::monoFont());
+  mUndoDepth->setValue(QSettings().value(QStringLiteral("editing/undoDepth"), 100).toInt());
+  mUndoDepth->setAccessibleName(tr("撤销栈深度"));
+  mUndoDepth->setToolTip(tr("下一段编辑会话的最大撤销命令数；放弃编辑仍恢复整段起始快照"));
+  mToolBar->addWidget(mUndoDepth);
+  connect(mUndoDepth, &QSpinBox::valueChanged, this, [this](int depth) {
+    QSettings().setValue(QStringLiteral("editing/undoDepth"), depth);
+    if (mEditingService)
+      mEditingService->setUndoDepth(depth);
+  });
+
 }
 
 void PaleoEditingToolbar::installTool( QgsMapTool *tool )
@@ -584,7 +674,8 @@ void PaleoEditingToolbar::installTool( QgsMapTool *tool )
   {
     QgsMapTool *old = mActiveEditTool;
     mActiveEditTool = nullptr;
-    mCanvas->unsetMapTool( old ); // deactivates when it is the live tool
+    if (mCanvas)
+      mCanvas->unsetMapTool( old ); // deactivates when it is the live tool
     old->deleteLater();           // deferred: callers may sit inside the tool's own signal
   }
   if ( tool )
@@ -654,12 +745,19 @@ void PaleoEditingToolbar::updateActionStates()
   const QString noTarget = tr( "先在图层树或图层下拉框选择矢量图层" );
   const QString noEdit = !hasTarget ? noTarget
       : target->readOnly() ? tr( "当前图层为只读，可选择要素，不能修改" )
-      : !target->supportsEditing() ? tr( "当前图层的数据源不支持编辑" ) : QString();
+      : !target->supportsEditing() ? tr( "当前图层的数据源不支持编辑" )
+      : QgisEditingService::isConstraintLayer(target) && !mEditingService ? tr("约束编辑需要工程 store 同步服务")
+      : mEditingService ? mEditingService->availabilityError(target) : QString();
   const auto gate = []( QAction *action, const QString &reason ) {
     action->setEnabled( reason.isEmpty() );
     action->setToolTip( reason.isEmpty() ? action->property( "hint" ).toString() : reason );
     action->setStatusTip( action->toolTip() );
   };
+  gate(mActionEditMode, noEdit);
+  {
+    QSignalBlocker blocked(mActionEditMode);
+    mActionEditMode->setChecked(isEditing());
+  }
   gate( mActionSelect, hasTarget ? QString() : noTarget );
   for ( QAction *action : { mActionAddFeature, mActionMove, mActionDeleteFeatures,
                             mActionVertexEdit, mActionTopological } )
@@ -677,6 +775,14 @@ void PaleoEditingToolbar::updateActionStates()
   geometryGate( mActionAddPolygon, Qgis::GeometryType::Polygon, tr( "添加面仅适用于面图层" ) );
   gate( mActionReshape, !noEdit.isEmpty() ? noEdit
       : target->geometryType() == Qgis::GeometryType::Point ? tr( "整形仅适用于线或面图层" ) : QString() );
+
+  if (QgisEditingService::isConstraintLayer(target))
+  {
+    const QString capture = tr("约束新增请使用约束页的类型化绘制入口");
+    for (QAction *a : {mActionAddFeature, mActionAddPoint, mActionAddLine, mActionAddPolygon})
+      gate(a, capture);
+    gate(mActionCrossLayerTopo, tr("约束编辑使用单图层与 store 一致的撤销会话"));
+  }
 
   const bool editing = isEditing();
   const QString noSession = tr( "当前没有进行中的编辑会话" );
@@ -716,6 +822,22 @@ void PaleoEditingToolbar::updateStateLabel()
     palette.setColor( QPalette::WindowText, stateColor );
   }
   mStateLabel->setPalette( palette );
+}
+
+void PaleoEditingToolbar::updateEditHighlight()
+{
+  if (!mCanvas || !mEditLayer || !mEditLayer->isEditable())
+  {
+    mEditHighlight.reset();
+    return;
+  }
+  if (!mEditHighlight)
+    mEditHighlight = std::make_unique<QgsRubberBand>(mCanvas, Qgis::GeometryType::Line);
+  mEditHighlight->reset(Qgis::GeometryType::Line);
+  mEditHighlight->setColor(mCanvas->mapSettings().selectionColor());
+  mEditHighlight->setLineStyle(Qt::DashLine);
+  for (const auto &feature : mEditLayer->selectedFeatures())
+    mEditHighlight->addGeometry(feature.geometry(), mEditLayer);
 }
 
 QgsVectorLayer *PaleoEditingToolbar::editableTarget() const
@@ -786,7 +908,7 @@ void PaleoEditingToolbar::onEditToolTriggered()
   {
     auto *vt = new PaleoVertexTool( mCanvas, target );
     vt->setTopologicalEditingEnabled( mActionTopological->isChecked() );
-    vt->setCrossLayerTopologyEnabled( mActionCrossLayerTopo->isChecked() );
+    vt->setCrossLayerTopologyEnabled( mActionCrossLayerTopo->isChecked() && !QgisEditingService::isConstraintLayer(target) );
     tool = wireAborted( vt );
   }
 
@@ -819,6 +941,11 @@ bool PaleoEditingToolbar::startEditing()
     emit editRefused( tr( "先选择一个可编辑图层" ) );
     return false;
   }
+  if (QgisEditingService::isConstraintLayer(target) && !mEditingService)
+  {
+    emit editRefused(tr("约束编辑需要工程 store 同步服务"));
+    return false;
+  }
   if ( target->isEditable() )
   {
     if ( mEditLayer == target )
@@ -849,6 +976,9 @@ bool PaleoEditingToolbar::startEditing()
   }
 
   mEditLayer = target;
+  mHighlightConnections.append(connect(target, &QgsVectorLayer::selectionChanged, this, [this] { updateEditHighlight(); }));
+  mHighlightConnections.append(connect(target, &QgsVectorLayer::geometryChanged, this, [this] { updateEditHighlight(); }));
+  updateEditHighlight();
   emit editingStarted( target->id() );
   refreshCombo(); // ● marker moves to the session layer
   updateActionStates();
@@ -861,6 +991,10 @@ void PaleoEditingToolbar::finishSession(const QString &id, bool saved)
   // Consume the session once so each edit produces exactly one new version.
   if (!mEditLayer || mEditLayer->id() != id)
     return;
+  for (const auto &connection : mHighlightConnections)
+    disconnect(connection);
+  mHighlightConnections.clear();
+  mEditHighlight.reset();
   mEditLayer = nullptr;
   installTool(nullptr);
   uncheckEditTools(this);

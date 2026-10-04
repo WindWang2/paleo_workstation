@@ -1,4 +1,5 @@
 #include "domain/wellsection.h"
+#include <QSet>
 #include <QtTest>
 #include <cmath>
 
@@ -258,6 +259,230 @@ private slots:
     // 信号槽排队传递需要可拷贝元类型（Q_DECLARE_METATYPE 生效）。
     QVERIFY(qMetaTypeId<QVector<wellsection::Well>>() >= 0);
     QVERIFY(qMetaTypeId<wellsection::SeismicStrip>() >= 0);
+  }
+
+  // ---- 基准面三模式（Oracle #1：拉平不变量）----
+  void datumModes() {
+    Well w1, w2;
+    w1.kb = 100.0;
+    w1.tops = {{"A", 1000}, {"B", 2000}};
+    w2.kb = 80.0;
+    w2.tops = {{"A", 950}, {"B", 1950}};
+    const QVector<Well> ws = {w1, w2};
+
+    // 井深：零偏移；海拔：各自 kb；拉平：各自基准顶 MD（缺顶/空名 → 0）。
+    for (const Well &w : ws) {
+      QCOMPARE(datumOffset(w, Datum{DatumMode::Depth, QString()}), 0.0);
+      QCOMPARE(datumOffset(w, Datum{DatumMode::Elevation, QString()}), w.kb);
+      QCOMPARE(datumOffset(w, Datum{DatumMode::Flatten, "A"}),
+               flattenOffset(w, "A"));
+      QCOMPARE(datumOffset(w, Datum{DatumMode::Flatten, "Z"}), 0.0);
+      QCOMPARE(datumOffset(w, Datum{DatumMode::Flatten, QString()}), 0.0);
+    }
+    // 拉平 A：两井 A 顶显示深同为 0；并集 [0,1000] span 1000 → pad 40。
+    const auto flat = depthWindow(ws, Datum{DatumMode::Flatten, "A"});
+    QCOMPARE(flat.top, -40.0);
+    QCOMPARE(flat.base, 1040.0);
+    // 海拔：显示并集 [870,1900] span 1030 → pad 41.2。
+    const auto elev = depthWindow(ws, Datum{DatumMode::Elevation, QString()});
+    QCOMPARE(elev.top, 870.0 - 41.2);
+    QCOMPARE(elev.base, 1900.0 + 41.2);
+    // 旧 QString 重载委托新口径（Flatten）。
+    QCOMPARE(depthWindow(ws, QString("A")).top, flat.top);
+    QCOMPARE(datumLabel(DatumMode::Depth), QStringLiteral("井深 m"));
+    QCOMPARE(datumLabel(DatumMode::Elevation), QStringLiteral("海拔 m"));
+    QCOMPARE(datumLabel(DatumMode::Flatten), QStringLiteral("拉平 m"));
+  }
+
+  void topsTableInvariant() {
+    Well w1, w2;
+    w1.name = "W1";
+    w1.kb = 100.0;
+    w1.tops = {{"A", 1000.25}, {"B", 2000}};
+    w2.name = "W2";
+    w2.tops = {{"A", 950}, {"B", 1950}};
+    const QVector<Well> ws = {w1, w2};
+    QVector<TopsTable> tables;
+    tables << topsTable(ws, Datum{DatumMode::Depth, QString()})
+           << topsTable(ws, Datum{DatumMode::Elevation, QString()})
+           << topsTable(ws, Datum{DatumMode::Flatten, "A"});
+    // 行数一致（2 井 × 2 顶），MD 列逐行相等——模式切换不改井深表数值
+    //（拉平不变量：仅视图基准变化）。
+    for (const TopsTable &t : tables)
+      QCOMPARE(t.rows.size(), 4);
+    for (int r = 0; r < 4; ++r)
+      for (int i = 1; i < tables.size(); ++i) {
+        QCOMPARE(tables[i].rows[r][0], tables[0].rows[r][0]); // 井名
+        QCOMPARE(tables[i].rows[r][1], tables[0].rows[r][1]); // 顶名
+        QCOMPARE(tables[i].rows[r][2], tables[0].rows[r][2]); // MD
+      }
+    // 表头标记随模式；拉平带层名。
+    QCOMPARE(tables[0].header.at(3), QStringLiteral("基准面"));
+    QCOMPARE(tables[0].header.at(4), QStringLiteral("井深 m"));
+    QCOMPARE(tables[1].header.at(4), QStringLiteral("海拔 m"));
+    QCOMPARE(tables[2].header.at(4), QStringLiteral("A"));
+    // CSV：表头 + 4 行 + 末换行；数值 f2。
+    const QString csv = tables[0].csv();
+    QVERIFY(csv.endsWith(QLatin1Char('\n')));
+    QCOMPARE(csv.count(QLatin1Char('\n')), 5);
+    QVERIFY(csv.contains(QStringLiteral("W1,A,1000.25")));
+  }
+
+  // ---- 连线改接（井对无序键；缺省连接）----
+  void linkOverrideRules() {
+    const auto a = makeLinkOverride("B", "A", "T1", false); // 归一键序
+    QCOMPARE(a.leftWellId, QStringLiteral("A"));
+    QCOMPARE(a.rightWellId, QStringLiteral("B"));
+    const auto b = makeLinkOverride("A", "B", "T1", false);
+    QCOMPARE(a, b);
+    QVector<LinkOverride> o = {a};
+    QVERIFY(!linkConnected(o, "A", "B", "T1"));
+    QVERIFY(!linkConnected(o, "B", "A", "T1")); // 无序查询
+    QVERIFY(linkConnected(o, "A", "B", "T2"));  // 其它顶缺省连接
+    QVERIFY(linkConnected(o, "A", "C", "T1"));  // 其它井对缺省连接
+    QVERIFY(linkConnected({}, "A", "B", "T1")); // 空表全连接
+    // 重连：同键 upsert 后恢复连接。
+    o[0].connected = true;
+    QVERIFY(linkConnected(o, "A", "B", "T1"));
+  }
+
+  // ---- 井距模式（等距 / 按井口距离比例）----
+  void spacingGapWidths() {
+    Well w1, w2, w3, w4;
+    w1.x = 0;   w1.y = 0;
+    w2.x = 100; w2.y = 0;
+    w3.x = 300; w3.y = 0; // 距 w2 = 200（两倍于 w1-w2）
+    w4.x = 300; w4.y = 0; // 与 w3 同点 → 距离 0（夹 minGap 保护）
+    const QVector<Well> ws3 = {w1, w2, w3};
+    const QVector<Well> ws4 = {w1, w2, w3, w4};
+
+    // 等距：均分。
+    const auto eq = gapWidthsFor(ws3, SpacingMode::Equal, 300, 48, 600);
+    QCOMPARE(eq, QVector<double>({150.0, 150.0}));
+    // 比例：100:200 → 100:200。
+    const auto pr = gapWidthsFor(ws3, SpacingMode::Proportional, 300, 48, 600);
+    QCOMPARE(pr.size(), 2);
+    QVERIFY(std::fabs(pr[0] - 100.0) < 1e-9);
+    QVERIFY(std::fabs(pr[1] - 200.0) < 1e-9);
+    // 零距段夹 minGap；总宽超上限夹 maxGap。
+    const auto cl = gapWidthsFor(ws4, SpacingMode::Proportional, 3000, 48, 600);
+    QCOMPARE(cl, QVector<double>({600.0, 600.0, 48.0}));
+    // 全缺坐标 → 等距退化。
+    Well n1, n2;
+    const auto de = gapWidthsFor({n1, n2}, SpacingMode::Proportional, 200, 48,
+                                 600);
+    QCOMPARE(de, QVector<double>({200.0}));
+    // 缺坐标段用中位距离补：前两段 100/200，后两段缺 → 中位=200，
+    // 距离 [100,200,200,200]，预算 350 → 50/100/100/100。
+    Well nox; // 无坐标
+    const auto mix = gapWidthsFor({w1, w2, w3, nox, w4},
+                                  SpacingMode::Proportional, 350, 48, 600);
+    QCOMPARE(mix.size(), 4);
+    QVERIFY(std::fabs(mix[0] - 50.0) < 1e-9);
+    QVERIFY(std::fabs(mix[1] - 100.0) < 1e-9);
+    QVERIFY(std::fabs(mix[2] - 100.0) < 1e-9);
+    QVERIFY(std::fabs(mix[3] - 100.0) < 1e-9);
+    // 单井 → 空。
+    QVERIFY(gapWidthsFor({w1}, SpacingMode::Proportional, 300, 48, 600)
+                .isEmpty());
+    // 全零距离（同平台井）：退化等距，防 NaN 毒化布局。
+    Well z1, z2, z3;
+    z1.x = 50; z1.y = 50;
+    z2.x = 50; z2.y = 50;
+    z3.x = 50; z3.y = 50;
+    const auto zeros =
+        gapWidthsFor({z1, z2, z3}, SpacingMode::Proportional, 300, 48, 600);
+    QCOMPARE(zeros, QVector<double>({150.0, 150.0}));
+    for (double g : zeros)
+      QVERIFY(std::isfinite(g));
+  }
+
+  // ---- 选井 PCA 序（平面选井一键成剖面的井序）----
+  void orderWellsByPositionRules() {
+    QVector<Well> pos;
+    const double xs[3] = {300.0, 0.0, 100.0};
+    const char *names[3] = {"A", "B", "C"};
+    for (int i = 0; i < 3; ++i) {
+      Well w;
+      w.id = QLatin1String(names[i]);
+      w.x = xs[i];
+      w.y = i * 5.0;
+      pos << w;
+    }
+    // 主轴近 x：按 x 升序。
+    QCOMPARE(orderWellsByPosition({"A", "B", "C"}, pos),
+             QStringList({"B", "C", "A"}));
+    // 子集 + 乱序输入。
+    QCOMPARE(orderWellsByPosition({"A", "B"}, pos), QStringList({"B", "A"}));
+    // 缺坐标井保原相对序排末。
+    Well nox;
+    nox.id = QStringLiteral("D");
+    pos << nox;
+    QCOMPARE(orderWellsByPosition({"D", "A", "B"}, pos),
+             QStringList({"B", "A", "D"}));
+    // 井位全缺 → 原序。
+    QCOMPARE(orderWellsByPosition({"A", "B"}, {nox, nox}),
+             QStringList({"A", "B"}));
+    // 单井无从定轴 → 原序。
+    QCOMPARE(orderWellsByPosition({"A"}, pos), QStringList({"A"}));
+  }
+
+  // ---- 栅状图自动布点（最小交叉启发式）----
+  void fencePlanning() {
+    // 3×2 井网（x 步 100 跨 200、y 步 80——PCA 主轴 = x 向）。
+    QVector<Well> grid;
+    for (int row = 0; row < 2; ++row)
+      for (int col = 0; col < 3; ++col) {
+        Well w;
+        w.id = QStringLiteral("w%1%2").arg(row).arg(col);
+        w.x = col * 100.0;
+        w.y = row * 80.0;
+        grid << w;
+      }
+    // 单条带：全部井，按 u 单调。
+    const auto one = planFence(grid, 1);
+    QVERIFY(one.ok());
+    QCOMPARE(one.sections.size(), 1);
+    QCOMPARE(one.sections[0].wellIds.size(), 6);
+    QCOMPARE(one.sections[0].wellIds.front(), QStringLiteral("w00"));
+    QCOMPARE(one.sections[0].wellIds.last(), QStringLiteral("w12"));
+    // 两条带：各 3 口；井不重复、全覆盖；条带内 u 单调（奇数带倒序——
+    // 剪草机端点相接）。
+    const auto two = planFence(grid, 2);
+    QVERIFY(two.ok());
+    QCOMPARE(two.sections.size(), 2);
+    QCOMPARE(two.sections[0].wellIds.size(), 3);
+    QCOMPARE(two.sections[1].wellIds.size(), 3);
+    QStringList all;
+    for (const auto &sec : two.sections)
+      all << sec.wellIds;
+    QCOMPARE(all.size(), 6);
+    QSet<QString> uniq(all.begin(), all.end());
+    QCOMPARE(uniq.size(), 6); // 无交点（条带互斥）
+    QCOMPARE(two.sections[0].wellIds,
+             QStringList({"w00", "w01", "w02"})); // v 小的带，u 升序
+    QCOMPARE(two.sections[1].wellIds,
+             QStringList({"w12", "w11", "w10"})); // 剪草机倒序
+    // 退化：缺坐标 / 井数不足。
+    Well nox;
+    QCOMPARE(planFence({grid[0], nox}, 2).status,
+             FencePlan::Status::MissingCoords);
+    QCOMPARE(planFence({grid[0]}, 1).status, FencePlan::Status::TooFewWells);
+    QCOMPARE(planFence({}, 3).status, FencePlan::Status::TooFewWells);
+  }
+
+  // ---- 井路径累计长分数（断层投绘横向映射）----
+  void wellPathFractionRules() {
+    Well a, b, c;
+    a.x = 0;   a.y = 0;
+    b.x = 100; b.y = 0;
+    c.x = 100; c.y = 100;
+    const auto fr = wellPathFractions({a, b, c});
+    QCOMPARE(fr, QVector<double>({0.0, 0.5, 1.0})); // 100 + 100 均段
+    QCOMPARE(wellPathFractions({a}).size(), 0);     // 单井无路径
+    Well nox;                                        // 缺坐标 → 整体退化
+    QCOMPARE(wellPathFractions({a, nox}).size(), 0);
+    QCOMPARE(wellPathFractions({}).size(), 0);
   }
 };
 

@@ -3,6 +3,7 @@
 
 #include "../../domain/faultset.h"
 
+#include <QPair>
 #include <QString>
 #include <QVector>
 
@@ -134,6 +135,12 @@ SlipCurve measureSlip(const paleo::fault::FaultSurfaceMesh &mesh, const HorizonP
 
 SectionCut intersectSurfaceWithSection(const paleo::fault::FaultSurfaceMesh &mesh, const SurveyFrame &frame,
                                        const paleo::fault::FaultSectionRef &section);
+
+// 任意地图折线的竖直 curtain（连井剖面投绘）：断面 ∩ 逐段竖直面，
+// 交点按折线累计长分数 traceFrac ∈ [0,1] 排序（z 向下正 = 深度 m）。
+// 折线点为地图 XY（与 mesh 顶点同标架），无需 SurveyFrame。
+SectionCut intersectSurfaceWithPolyline(const paleo::fault::FaultSurfaceMesh &mesh,
+                                        const QVector<QPair<double, double>> &xyPolyline);
 
 bool segmentIntersectsMesh(double ax, double ay, double az, double bx, double by, double bz,
                            const paleo::fault::FaultSurfaceMesh &mesh);

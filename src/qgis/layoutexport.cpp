@@ -1,5 +1,6 @@
 // 层：QGIS 封装
 #include "layoutexport.h"
+#include "standardelements.h"
 
 #include <QDir>
 #include <QFile>
@@ -346,32 +347,17 @@ namespace
     vl->setLabelsEnabled( true );
   }
 
-  // 标签字体（QGIS 4.x：setFont 已弃用，走 QgsTextFormat；字号单位是 pt）。
+  // 标签字体/指北针 SVG：与标准图件元素工厂共用同一份（standardelements，
+  // 方向 25 起为单一事实源——这里只留薄别名，调用点写法不变）。
   QgsTextFormat labelFormat( const QString &family, double sizePt )
   {
-    QgsTextFormat fmt;
-    QFont font( family );
-    font.setPointSizeF( sizePt );
-    fmt.setFont( font );
-    fmt.setSizeUnit( Qgis::RenderUnit::Points );
-    fmt.setSize( sizePt );
-    return fmt;
+    Q_UNUSED( family ); // 字体族由工厂统一（Noto Sans CJK SC，DESIGN.md）
+    return PaleoStandardElements::figureTextFormat( sizePt );
   }
 
-  // 指北针 SVG：QGIS 自带的 arrows/NorthArrow_*.svg
   QString northArrowSvg()
   {
-    for ( const QString &root : QgsApplication::svgPaths() )
-      for ( const QString &name :
-            { QStringLiteral( "NorthArrow_04.svg" ), QStringLiteral( "NorthArrow_02.svg" ),
-              QStringLiteral( "NorthArrow_01.svg" ), QStringLiteral( "NorthArrow_03.svg" ),
-              QStringLiteral( "NorthArrow_05.svg" ), QStringLiteral( "NorthArrow_06.svg" ) } )
-      {
-        const QString path = QDir( root ).filePath( QStringLiteral( "arrows/" ) + name );
-        if ( QFile::exists( path ) )
-          return path;
-      }
-    return QString();
+    return PaleoStandardElements::northArrowSvgPath();
   }
 } // namespace
 

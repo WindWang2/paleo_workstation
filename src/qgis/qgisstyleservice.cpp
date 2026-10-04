@@ -1,6 +1,8 @@
 // 层：QGIS 封装
 #include "qgisstyleservice.h"
 
+#include "geopatterns.h"
+
 #include <QColor>
 #include <QDir>
 #include <QFileInfo>
@@ -16,6 +18,8 @@
 #include <qgsmarkersymbol.h>
 #include <qgsmarkersymbollayer.h> // QgsSimpleMarkerSymbolLayer（QGIS 4 无独立头）
 #include <qgspallabeling.h>
+#include <qgsproject.h>
+#include <qgsproperty.h>
 #include <qgssinglesymbolrenderer.h>
 #include <qgssymbollayer.h>
 #include <qgsvectorlayer.h>
@@ -82,47 +86,73 @@ namespace
     return p;
   }
 
-  // 12 类探井符号（存储 id → 符号）。序 = 表 K.1 类别序；词面与色源见
-  // wellCategoryDefinitions()。未知 id → 通用「探井」。
+  // 井别符号（存储 id → 符号）。序 = 表 K.1 类别序（12 类探井）+ 方向 31
+  // 开发区块 4 类（oil_prod/gas_prod/water_injection/water_prod——表 K.1 之外
+  // 的开发区块图式，按行业惯例近似：生产井实心盘+中心白点、注水井蓝盘白
+  // 箭头，色源同 resources/geology/catalog.json 井型表）。未知 id → 通用
+  //「探井」。全部类别统一挂 @map_scale 数据定义尺寸（函数尾，比例尺缩放）。
   QgsMarkerSymbol *wellCategorySymbol(const QString &id)
   {
     const QString ink = QStringLiteral("#333333");
+    const QString waterBlue = QStringLiteral("#2E86C1");
+    QgsMarkerSymbol *sym = nullptr;
     if (id == QLatin1String("wildcat")) // 预探井：双环
-      return wellSymbolLayers({ ringProps(ink, 0.5, 6.0), ringProps(ink, 0.4, 3.4) });
-    if (id == QLatin1String("appraisal")) // 评价井：单环 + 中点
-      return wellSymbolLayers({ ringProps(ink, 0.5, 6.0), diskProps(ink, 1.8) });
-    if (id == QLatin1String("drilling")) // 正钻井：环 + 半填盘
-      return wellSymbolLayers(
+      sym = wellSymbolLayers({ ringProps(ink, 0.5, 6.0), ringProps(ink, 0.4, 3.4) });
+    else if (id == QLatin1String("appraisal")) // 评价井：单环 + 中点
+      sym = wellSymbolLayers({ ringProps(ink, 0.5, 6.0), diskProps(ink, 1.8) });
+    else if (id == QLatin1String("drilling")) // 正钻井：环 + 半填盘
+      sym = wellSymbolLayers(
           { ringProps(ink, 0.5, 6.0), glyphProps(QStringLiteral("semi_circle"), ink, 4.4) });
-    if (id == QLatin1String("planned")) // 待钻井：虚线环
-      return wellSymbolLayers({ ringProps(ink, 0.5, 6.0, QStringLiteral("dash")) });
-    if (id == QLatin1String("discovery")) // 发现井：环 + 星
-      return wellSymbolLayers(
+    else if (id == QLatin1String("planned")) // 待钻井：虚线环
+      sym = wellSymbolLayers({ ringProps(ink, 0.5, 6.0, QStringLiteral("dash")) });
+    else if (id == QLatin1String("discovery")) // 发现井：环 + 星
+      sym = wellSymbolLayers(
           { ringProps(ink, 0.5, 6.0), glyphProps(QStringLiteral("star"), QStringLiteral("#B8860B"), 4.6) });
-    if (id == QLatin1String("oil_flow")) // 工业油流井：绿盘 + 细环
-      return wellSymbolLayers(
+    else if (id == QLatin1String("oil_flow")) // 工业油流井：绿盘 + 细环
+      sym = wellSymbolLayers(
           { ringProps(ink, 0.4, 6.0), diskProps(QStringLiteral("#00AA00"), 4.4) });
-    if (id == QLatin1String("gas_flow")) // 工业气流井：红环 + 红斜线
-      return wellSymbolLayers({ ringProps(QStringLiteral("#FF3300"), 0.6, 6.0),
-                                glyphProps(QStringLiteral("line"), QStringLiteral("#FF3300"), 6.4, 45.0) });
-    if (id == QLatin1String("parameter")) // 参数井：环内十字
-      return wellSymbolLayers(
+    else if (id == QLatin1String("gas_flow")) // 工业气流井：红环 + 红斜线
+      sym = wellSymbolLayers({ ringProps(QStringLiteral("#FF3300"), 0.6, 6.0),
+                               glyphProps(QStringLiteral("line"), QStringLiteral("#FF3300"), 6.4, 45.0) });
+    else if (id == QLatin1String("parameter")) // 参数井：环内十字
+      sym = wellSymbolLayers(
           { ringProps(ink, 0.5, 6.0), glyphProps(QStringLiteral("cross"), ink, 3.6) });
-    if (id == QLatin1String("scientific")) // 科学探索井：环内斜十字
-      return wellSymbolLayers(
+    else if (id == QLatin1String("scientific")) // 科学探索井：环内斜十字
+      sym = wellSymbolLayers(
           { ringProps(ink, 0.5, 6.0), glyphProps(QStringLiteral("cross2"), ink, 3.6, 45.0) });
-    if (id == QLatin1String("oil_test")) // 试油井：环内上箭头
-      return wellSymbolLayers(
+    else if (id == QLatin1String("oil_test")) // 试油井：环内上箭头
+      sym = wellSymbolLayers(
           { ringProps(ink, 0.5, 6.0), glyphProps(QStringLiteral("arrow"), ink, 3.4) });
-    if (id == QLatin1String("dry")) // 未见显示井：灰空心环
-      return wellSymbolLayers({ ringProps(QStringLiteral("#999999"), 0.5, 6.0) });
-    if (id == QLatin1String("abandoned")) // 报废井：灰环 + 灰叉
-      return wellSymbolLayers(
+    else if (id == QLatin1String("dry")) // 未见显示井：灰空心环
+      sym = wellSymbolLayers({ ringProps(QStringLiteral("#999999"), 0.5, 6.0) });
+    else if (id == QLatin1String("abandoned")) // 报废井：灰环 + 灰叉
+      sym = wellSymbolLayers(
           { ringProps(QStringLiteral("#999999"), 0.5, 6.0),
             glyphProps(QStringLiteral("cross2"), QStringLiteral("#999999"), 3.6, 45.0) });
-    // 通用「探井」：外细环 + 实心盘（0.73 外径比）
-    return wellSymbolLayers({ ringProps(QStringLiteral("#1B73D0"), 0.5, 6.0),
-                              diskProps(QStringLiteral("#1B73D0"), 4.4) });
+    // ---- 方向 31：开发区块井别（行业惯例近似，非表 K.1 序）----
+    else if (id == QLatin1String("oil_prod")) // 生产油井：墨环 + 绿盘 + 中心白点
+      sym = wellSymbolLayers({ ringProps(ink, 0.5, 6.0),
+                               diskProps(QStringLiteral("#00AA00"), 4.4),
+                               diskProps(QStringLiteral("#FFFFFF"), 1.4) });
+    else if (id == QLatin1String("gas_prod")) // 生产气井：墨环 + 红盘 + 中心白点
+      sym = wellSymbolLayers({ ringProps(ink, 0.5, 6.0),
+                               diskProps(QStringLiteral("#FF3300"), 4.4),
+                               diskProps(QStringLiteral("#FFFFFF"), 1.4) });
+    else if (id == QLatin1String("water_injection")) // 注水井：墨环 + 蓝盘 + 白下箭头
+      sym = wellSymbolLayers({ ringProps(ink, 0.5, 6.0),
+                               diskProps(waterBlue, 4.4),
+                               glyphProps(QStringLiteral("arrow"), QStringLiteral("#FFFFFF"), 2.8, 180.0) });
+    else if (id == QLatin1String("water_prod")) // 采水井：蓝环 + 蓝十字
+      sym = wellSymbolLayers({ ringProps(waterBlue, 0.5, 6.0),
+                               glyphProps(QStringLiteral("cross"), waterBlue, 3.6) });
+    else // 通用「探井」：外细环 + 实心盘（0.73 外径比）
+      sym = wellSymbolLayers({ ringProps(QStringLiteral("#1B73D0"), 0.5, 6.0),
+                               diskProps(QStringLiteral("#1B73D0"), 4.4) });
+    // 比例尺缩放：小比例尺（出图远景）符号整体收缩，各构成层按比例
+    //（setDataDefinedSize 语义），断点 1:25万 → 1:250万 线性 6mm → 3mm。
+    sym->setDataDefinedSize(QgsProperty::fromExpression(
+        QStringLiteral("clamp(3.0, scale_linear(@map_scale, 250000, 2500000, 6.0, 3.0), 6.0)")));
+    return sym;
   }
 
   struct WellCategoryDef
@@ -132,7 +162,8 @@ namespace
     const char *glyph;
   };
 
-  // 表 K.1 十二类（词面/图式描述；色源与resources/geology 井型目录一致）。
+  // 表 K.1 十二类（词面/图式描述；色源与resources/geology 井型目录一致）
+  // + 方向 31 开发区块四类（行业惯例近似，注出处 ledger）。
   const WellCategoryDef kWellCategories[] = {
     { "wildcat", QT_TRANSLATE_NOOP("QgisStyleService", "预探井"), "双环" },
     { "appraisal", QT_TRANSLATE_NOOP("QgisStyleService", "评价井"), "单环+中点" },
@@ -146,6 +177,10 @@ namespace
     { "oil_test", QT_TRANSLATE_NOOP("QgisStyleService", "试油井"), "环内箭头" },
     { "dry", QT_TRANSLATE_NOOP("QgisStyleService", "未见显示井"), "灰空心环" },
     { "abandoned", QT_TRANSLATE_NOOP("QgisStyleService", "报废井"), "灰环+叉" },
+    { "oil_prod", QT_TRANSLATE_NOOP("QgisStyleService", "生产油井"), "绿盘+白点" },
+    { "gas_prod", QT_TRANSLATE_NOOP("QgisStyleService", "生产气井"), "红盘+白点" },
+    { "water_injection", QT_TRANSLATE_NOOP("QgisStyleService", "注水井"), "蓝盘+白箭头" },
+    { "water_prod", QT_TRANSLATE_NOOP("QgisStyleService", "采水井"), "蓝环+十字" },
   };
   constexpr int kWellCategoryCount = sizeof(kWellCategories) / sizeof(kWellCategories[0]);
 } // namespace
@@ -320,6 +355,55 @@ void QgisStyleService::applyBoundaryLayerStyle(QgsVectorLayer *layer)
       new QgsSingleSymbolRenderer(QgsFillSymbol::createSimple(props).release()));
 }
 
+void QgisStyleService::applyPlannedWellLayerStyle(QgsVectorLayer *layer)
+{
+  if (!layer)
+    return;
+  // 空心橙虚线方框：部署建议（非实井），与实井实心圆点同图可分。
+  QVariantMap props;
+  props.insert(QStringLiteral("name"), QStringLiteral("square"));
+  props.insert(QStringLiteral("color"), QStringLiteral("transparent"));
+  props.insert(QStringLiteral("outline_color"), QStringLiteral("#F29900"));
+  props.insert(QStringLiteral("outline_width"), QStringLiteral("0.5"));
+  props.insert(QStringLiteral("outline_style"), QStringLiteral("dash"));
+  props.insert(QStringLiteral("size"), QStringLiteral("4.5"));
+  layer->setRenderer(
+      new QgsSingleSymbolRenderer(QgsMarkerSymbol::createSimple(props).release()));
+
+  if (layer->fields().lookupField(QStringLiteral("name")) < 0)
+    return;
+  QgsPalLayerSettings lbl;
+  lbl.fieldName = QStringLiteral("name");
+  lbl.isExpression = false;
+  QgsTextFormat fmt;
+  fmt.setSize(8.0);
+  fmt.setSizeUnit(Qgis::RenderUnit::Points);
+  fmt.setColor(QColor(QStringLiteral("#8A5A00")));
+  QgsTextBufferSettings buffer;
+  buffer.setEnabled(true);
+  buffer.setSize(0.8);
+  buffer.setColor(Qt::white);
+  fmt.setBuffer(buffer);
+  lbl.setFormat(fmt);
+  layer->setLabeling(new QgsVectorLayerSimpleLabeling(lbl));
+  layer->setLabelsEnabled(true);
+}
+
+void QgisStyleService::applyHoleLayerStyle(QgsVectorLayer *layer)
+{
+  if (!layer)
+    return;
+  // 警示橙半透明填 + 橙虚线描边（与配准临时层同调性）：诊断叠加层，
+  // 不遮挡下层井位/因素图。
+  QVariantMap props;
+  props.insert(QStringLiteral("color"), QStringLiteral("242,153,0,64"));
+  props.insert(QStringLiteral("outline_color"), QStringLiteral("#F29900"));
+  props.insert(QStringLiteral("outline_width"), QStringLiteral("0.5"));
+  props.insert(QStringLiteral("outline_style"), QStringLiteral("dash"));
+  layer->setRenderer(
+      new QgsSingleSymbolRenderer(QgsFillSymbol::createSimple(props).release()));
+}
+
 void QgisStyleService::applyConstraintLayerStyle(QgsVectorLayer *layer)
 {
   if (!layer || !layer->isValid())
@@ -488,6 +572,18 @@ QString QgisStyleService::normalizeWellCategory(const QString &raw)
     { QStringLiteral("干井"), QStringLiteral("dry") },
     { QStringLiteral("无显示"), QStringLiteral("dry") },
     { QStringLiteral("报废"), QStringLiteral("abandoned") },
+    // 方向 31：开发区块井别常见写法。
+    { QStringLiteral("生产井"), QStringLiteral("oil_prod") },
+    { QStringLiteral("油井"), QStringLiteral("oil_prod") },
+    { QStringLiteral("开发井"), QStringLiteral("oil_prod") },
+    { QStringLiteral("生产油井"), QStringLiteral("oil_prod") },
+    { QStringLiteral("气井"), QStringLiteral("gas_prod") },
+    { QStringLiteral("生产气井"), QStringLiteral("gas_prod") },
+    { QStringLiteral("注水"), QStringLiteral("water_injection") },
+    { QStringLiteral("注水井"), QStringLiteral("water_injection") },
+    { QStringLiteral("回注井"), QStringLiteral("water_injection") },
+    { QStringLiteral("采水井"), QStringLiteral("water_prod") },
+    { QStringLiteral("水源井"), QStringLiteral("water_prod") },
   };
   return aliases.value(v, v); // 未知词原样返回（不静默吞数据）
 }
@@ -523,4 +619,182 @@ void QgisStyleService::applyWellCategoryStyle(QgsVectorLayer *layer, const QStri
   cats.append(QgsRendererCategory(QVariant(), wellCategorySymbol(QString()), genericTitle));
   layer->setRenderer(
       new QgsCategorizedSymbolRenderer(layer->fields().field(fieldIdx).name(), cats));
+}
+
+// ---- 方向 31（geological-symbols）：花纹/断层线型语义入口 ---------------------
+
+namespace
+{
+  // 花纹分类渲染共用骨架：词表逐条经 valueBuckets 登记（规范 id/词面/同义
+  // 词同桶），末尾 all-other 兜底桶（未命中值走纯色填充，不吞数据）。
+  void applyPatternRenderer(QgsVectorLayer *layer, int fieldIdx,
+                            const QVariantList &defs,
+                            QgsFillSymbol *(*make)(const QString &),
+                            const QString &fallbackTitle)
+  {
+    QgsCategoryList cats;
+    for (const auto &v : defs)
+    {
+      const auto id = v.toMap().value(QStringLiteral("id")).toString();
+      const auto title = v.toMap().value(QStringLiteral("title")).toString();
+      for (const QString &bucket : GeoPatterns::valueBuckets(id))
+        cats.append(QgsRendererCategory(bucket, make(id), title));
+    }
+    cats.append(QgsRendererCategory(QVariant(), make(QString()), fallbackTitle));
+    layer->setRenderer(new QgsCategorizedSymbolRenderer(
+        layer->fields().field(fieldIdx).name(), cats));
+  }
+} // namespace
+
+void QgisStyleService::applyLithologyPatternStyle(QgsVectorLayer *layer,
+                                                  const QString &lithologyField)
+{
+  if (!layer || !layer->isValid())
+    return;
+  if (layer->geometryType() != Qgis::GeometryType::Polygon)
+    return;
+  const int fieldIdx =
+      lithologyField.isEmpty() ? -1 : layer->fields().lookupField(lithologyField);
+  if (fieldIdx < 0)
+    return; // 无语义字段：不接管渲染器（保持现状图面）
+
+  applyPatternRenderer(layer, fieldIdx, GeoPatterns::lithologyDefinitions(),
+                       GeoPatterns::lithologyFillSymbol, QObject::tr("其他岩性"));
+}
+
+void QgisStyleService::applyFaciesPatternStyle(QgsVectorLayer *layer,
+                                               const QString &faciesField)
+{
+  if (!layer || !layer->isValid())
+    return;
+  if (layer->geometryType() != Qgis::GeometryType::Polygon)
+    return;
+  const int fieldIdx =
+      faciesField.isEmpty() ? -1 : layer->fields().lookupField(faciesField);
+  if (fieldIdx < 0)
+    return;
+
+  applyPatternRenderer(layer, fieldIdx, GeoPatterns::faciesDefinitions(),
+                       GeoPatterns::faciesFillSymbol, QObject::tr("未划分相"));
+}
+
+void QgisStyleService::applyFaultLineLayerStyle(QgsVectorLayer *layer,
+                                                const QString &kindField)
+{
+  if (!layer || !layer->isValid())
+    return;
+  if (layer->geometryType() != Qgis::GeometryType::Line)
+    return;
+  const int fieldIdx =
+      kindField.isEmpty() ? -1 : layer->fields().lookupField(kindField);
+  if (fieldIdx < 0)
+    return; // 无语义字段：不接管渲染器
+
+  // 断层四类（normal/reverse/strike/inferred）：词面双桶 + all-other 走
+  // 推测式（未标类型的线不做实线断言——不确定地质体虚线惯例）。
+  QgsCategoryList cats;
+  const struct
+  {
+    const char *id;
+    const char *title;
+  } kinds[] = {
+    { "normal", QT_TRANSLATE_NOOP("QgisStyleService", "正断层") },
+    { "reverse", QT_TRANSLATE_NOOP("QgisStyleService", "逆断层") },
+    { "strike", QT_TRANSLATE_NOOP("QgisStyleService", "走滑断层") },
+    { "inferred", QT_TRANSLATE_NOOP("QgisStyleService", "推测断层") },
+  };
+  QSet<QString> seen;
+  for (const auto &k : kinds)
+  {
+    const QString id = QString::fromLatin1(k.id);
+    const QString title = QObject::tr(k.title);
+    cats.append(QgsRendererCategory(id, GeoPatterns::faultLineSymbol(id), title));
+    if (!seen.contains(title))
+    {
+      seen.insert(title);
+      cats.append(QgsRendererCategory(title, GeoPatterns::faultLineSymbol(id), title));
+    }
+  }
+  const QString otherTitle = QObject::tr("未分类断层");
+  cats.append(
+      QgsRendererCategory(QVariant(), GeoPatterns::faultLineSymbol(QString()), otherTitle));
+  layer->setRenderer(new QgsCategorizedSymbolRenderer(
+      layer->fields().field(fieldIdx).name(), cats));
+}
+
+// ---- 方向 31 批 5：样式版本语义（符号覆盖随工程持久化）------------------------
+
+namespace
+{
+  constexpr const char *kSymbolSemanticsKey = "paleo/symbolSemantics";
+}
+
+int QgisStyleService::symbolTableVersion()
+{
+  return 1;
+}
+
+bool QgisStyleService::applySymbolOverride(QgsVectorLayer *layer, const QString &family,
+                                           const QString &patternId)
+{
+  if (!layer || !layer->isValid() || patternId.isEmpty())
+    return false;
+  // 词表命中校验（familyOf 精确族匹配，跨族 id 不收）+ 几何类型匹配
+  //（面花纹不挂线层、线型不挂面层）。
+  if (GeoPatterns::familyOf(patternId) != family)
+    return false;
+  if (family == QLatin1String("lithology"))
+  {
+    if (layer->geometryType() != Qgis::GeometryType::Polygon)
+      return false;
+    layer->setRenderer(new QgsSingleSymbolRenderer(
+        GeoPatterns::lithologyFillSymbol(patternId)));
+  }
+  else if (family == QLatin1String("facies"))
+  {
+    if (layer->geometryType() != Qgis::GeometryType::Polygon)
+      return false;
+    layer->setRenderer(
+        new QgsSingleSymbolRenderer(GeoPatterns::faciesFillSymbol(patternId)));
+  }
+  else if (family == QLatin1String("line"))
+  {
+    if (layer->geometryType() != Qgis::GeometryType::Line)
+      return false;
+    std::unique_ptr<QgsLineSymbol> sym(GeoPatterns::lineSymbolFor(patternId));
+    if (!sym)
+      return false;
+    layer->setRenderer(new QgsSingleSymbolRenderer(sym.release()));
+  }
+  else
+    return false;
+
+  QVariantMap semantics;
+  semantics.insert(QStringLiteral("family"), family);
+  semantics.insert(QStringLiteral("id"), patternId);
+  semantics.insert(QStringLiteral("version"), symbolTableVersion());
+  layer->setCustomProperty(kSymbolSemanticsKey, semantics);
+  return true;
+}
+
+bool QgisStyleService::restoreSymbolOverride(QgsVectorLayer *layer)
+{
+  if (!layer)
+    return false;
+  const QVariant prop = layer->customProperty(kSymbolSemanticsKey);
+  if (prop.userType() != QMetaType::QVariantMap)
+    return false; // 无覆盖/老工程异构值：不重放（保持 .qgs 原样 renderer）
+  const QVariantMap semantics = prop.toMap();
+  return applySymbolOverride(layer, semantics.value(QStringLiteral("family")).toString(),
+                             semantics.value(QStringLiteral("id")).toString());
+}
+
+void QgisStyleService::restoreAllSymbolOverrides(QgsProject *project)
+{
+  if (!project)
+    return;
+  const auto layers = project->mapLayers();
+  for (auto it = layers.cbegin(); it != layers.cend(); ++it)
+    if (auto *vector = qobject_cast<QgsVectorLayer *>(it.value()))
+      restoreSymbolOverride(vector);
 }

@@ -253,6 +253,12 @@ bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &w
     return false;
   }
 
+  if (auto *existing = qobject_cast<QgsVectorLayer *>(layers->layer(QStringLiteral("constraints.%1").arg(horizon))); existing && existing->isEditable())
+  {
+    paleo::workflow_detail::setError(error, tr("先保存或取消约束编辑，再绘制新约束"));
+    return false;
+  }
+
   // In-memory constraint record (member-equivalent state via property).
   Constraint c;
   const int seq = ++m_inMemorySeq;
@@ -351,78 +357,164 @@ bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &w
   return true;
 }
 
-bool ConstraintWorkflow::updateConstraintLine( const QString &id, const QVariantMap &lineParams, QString *error )
+bool ConstraintWorkflow::updateConstraintLine(const QString &id, const QVariantMap &lineParams, QString *error)
 {
-  if ( id.trimmed().isEmpty() )
+  return updateConstraintLines({id}, lineParams, error);
+}
+
+bool ConstraintWorkflow::updateConstraintLines(const QStringList &ids, const QVariantMap &patch, QString *error)
+{
+  if (ids.isEmpty() || ids.contains(QString()))
   {
-    paleo::workflow_detail::setError( error, tr( "缺少约束 id" ) );
+    paleo::workflow_detail::setError(error, tr("缺少约束 id"));
     return false;
   }
-  const QString paramsJson = lineParamsJson( lineParams.value( QStringLiteral( "semantic" ) ).toString(), lineParams, error );
-  if ( paramsJson.isEmpty() )
-    return false;
-  const QString storedType = storageTypeForSemantic( semanticForStoredType( QString(), lineParams ) );
   ConstraintStore *cs = constraintStore();
-  if ( cs )
+  auto rows = cs ? cs->load() : m_inMemoryConstraints;
+  QString horizon;
+  QSet<QString> pending(ids.cbegin(), ids.cend());
+  QHash<QString, QVariantMap> updates;
+  for (QVariantMap &row : rows)
   {
-    if ( !cs->updateParameters( id, paramsJson, 1, storedType, error ) )
+    const QString id = row.value(QStringLiteral("id")).toString();
+    if (!pending.contains(id))
+      continue;
+    const QString h = row.value(QStringLiteral("horizon")).toString();
+    if (!horizon.isEmpty() && horizon != h)
+    {
+      paleo::workflow_detail::setError(error, tr("批量编辑仅允许同一层位的约束"));
       return false;
+    }
+    horizon = h;
+    if (QgsGeometry::fromWkt(row.value(QStringLiteral("wkt")).toString()).type() != Qgis::GeometryType::Line)
+    {
+      paleo::workflow_detail::setError(error, tr("约束语义改型仅适用于线要素"));
+      return false;
+    }
+    const QByteArray json = row.value(QStringLiteral("params_json")).toString().toUtf8();
+    QJsonParseError parseError;
+    const auto doc = QJsonDocument::fromJson(json, &parseError);
+    if (!json.isEmpty() && (parseError.error != QJsonParseError::NoError || !doc.isObject()))
+    {
+      paleo::workflow_detail::setError(error, tr("约束参数 JSON 无效：%1").arg(id));
+      return false;
+    }
+    QVariantMap params = doc.object().toVariantMap();
+    for (auto it = patch.cbegin(); it != patch.cend(); ++it)
+      if (it.key() != QLatin1String("geometryAzimuth"))
+        params.insert(it.key(), it.value());
+    if (patch.contains(QStringLiteral("geometryAzimuth")))
+    {
+      QgsGeometry geometry = QgsGeometry::fromWkt(row.value(QStringLiteral("wkt")).toString());
+      const auto line = geometry.asPolyline();
+      const double angle = patch.value(QStringLiteral("geometryAzimuth")).toDouble();
+      if (line.size() < 2 || !std::isfinite(angle) || angle < 0 || angle > 360)
+      {
+        paleo::workflow_detail::setError(error, tr("方向角仅适用于非空约束折线，范围为 0–360 度"));
+        return false;
+      }
+      const auto &a = line.first(), &b = line.last();
+      if (a == b)
+      {
+        paleo::workflow_detail::setError(error, tr("闭合约束线没有唯一方向角"));
+        return false;
+      }
+      const double current = std::atan2(b.x()-a.x(), b.y()-a.y()) * 180.0 / std::acos(-1.0);
+      geometry.rotate(angle - current, geometry.centroid().asPoint());
+      row.insert(QStringLiteral("wkt"), geometry.asWkt(17));
+    }
+    const QString text = lineParamsJson(row.value(QStringLiteral("type")).toString(), params, error);
+    if (text.isEmpty())
+      return false;
+    row.insert(QStringLiteral("type"), storageTypeForSemantic(semanticForStoredType(row.value(QStringLiteral("type")).toString(), params)));
+    row.insert(QStringLiteral("params_json"), text);
+    row.insert(QStringLiteral("schema_version"), 1);
+    updates.insert(id, row);
+    pending.remove(id);
+  }
+  if (!pending.isEmpty())
+  {
+    paleo::workflow_detail::setError(error, tr("找不到约束 %1").arg(*pending.cbegin()));
+    return false;
+  }
+  auto *layer = m_layers ? qobject_cast<QgsVectorLayer *>(m_layers->layer(QStringLiteral("constraints.%1").arg(horizon))) : nullptr;
+  if (layer && layer->isEditable())
+  {
+    if (!cs || !layer->property("paleoConstraintEditSession").toBool())
+    {
+      paleo::workflow_detail::setError(error, tr("约束编辑尚未接入 store 同步会话"));
+      return false;
+    }
+    layer->beginEditCommand(tr("批量修改约束参数"));
+    for (const QVariantMap &row : updates)
+    {
+      const qlonglong fid = row.value(QStringLiteral("fid")).toLongLong();
+      QgsGeometry geometry = QgsGeometry::fromWkt(row.value(QStringLiteral("wkt")).toString());
+      if (patch.contains(QStringLiteral("geometryAzimuth")) &&
+          !layer->changeGeometry(fid, geometry))
+      {
+        layer->destroyEditCommand();
+        paleo::workflow_detail::setError(error, tr("修改约束方向角失败"));
+        return false;
+      }
+      for (const QString &key : {QStringLiteral("type"), QStringLiteral("params_json"), QStringLiteral("schema_version")})
+        if (!layer->changeAttributeValue(fid, layer->fields().indexFromName(key), row.value(key)))
+        {
+          layer->destroyEditCommand();
+          paleo::workflow_detail::setError(error, tr("修改约束编辑缓冲区失败"));
+          return false;
+        }
+    }
+    layer->endEditCommand();
+    // A rejected store transaction reverts the native command synchronously.
+    const auto persisted = cs->load(horizon);
+    QSet<QString> verified;
+    for (const QVariantMap &row : persisted)
+    {
+      const QString id = row.value(QStringLiteral("id")).toString();
+      if (!updates.contains(id))
+        continue;
+      const auto expected = updates.value(id);
+      if (row.value(QStringLiteral("params_json")) != expected.value(QStringLiteral("params_json")) ||
+          row.value(QStringLiteral("type")) != expected.value(QStringLiteral("type")) ||
+          !QgsGeometry::fromWkt(row.value(QStringLiteral("wkt")).toString()).equals(
+              QgsGeometry::fromWkt(expected.value(QStringLiteral("wkt")).toString())))
+      {
+        paleo::workflow_detail::setError(error, tr("约束参数未写入 store"));
+        return false;
+      }
+      verified.insert(id);
+    }
+    if (verified.size() != updates.size())
+    {
+      paleo::workflow_detail::setError(error, tr("约束参数未写入 store"));
+      return false;
+    }
+  }
+  else if (cs)
+  {
+    QVector<QVariantMap> horizonRows;
+    for (const QVariantMap &row : rows)
+      if (row.value(QStringLiteral("horizon")).toString() == horizon)
+        horizonRows.append(row);
+    if (!cs->replaceHorizon(horizon, horizonRows, error))
+      return false;
+    if (layer)
+    {
+      layer->reload();
+      layer->triggerRepaint();
+    }
   }
   else
-  {
-    bool found = false;
-    for ( QVariantMap &rec : m_inMemoryConstraints )
-    {
-      if ( rec.value( QStringLiteral( "id" ) ).toString() != id )
-        continue;
-      rec.insert( QStringLiteral( "type" ), storedType );
-      rec.insert( QStringLiteral( "params_json" ), paramsJson );
-      rec.insert( QStringLiteral( "schema_version" ), 1 );
-      found = true;
-    }
-    if ( !found )
-    {
-      paleo::workflow_detail::setError( error, tr( "找不到约束 %1" ).arg( id ) );
-      return false;
-    }
-  }
-  emit constraintLineUpdated( id );
+    m_inMemoryConstraints = rows;
+  for (auto it = updates.cbegin(); it != updates.cend(); ++it)
+    emit constraintLineUpdated(it.key());
   return true;
 }
 
-bool ConstraintWorkflow::switchConstraintSemantic( const QString &constraintId, const QString &semantic,
-                                                   QString *error )
+bool ConstraintWorkflow::switchConstraintSemantic(const QString &id, const QString &semantic, QString *error)
 {
-  if ( !knownConstraintSemantic( semantic ) )
-  {
-    paleo::workflow_detail::setError( error, tr( "未知约束语义：%1" ).arg( semantic ) );
-    return false;
-  }
-  // 读回既有逐线参数，只换语义，不动半径等用户设置。
-  const QVector<QVariantMap> rows = loadConstraints();
-  QVariantMap lineParams;
-  bool found = false;
-  for ( const QVariantMap &row : rows )
-  {
-    if ( row.value( QStringLiteral( "id" ) ).toString() != constraintId )
-      continue;
-    found = true;
-    const QString paramsText = row.value( QStringLiteral( "params_json" ) ).toString();
-    if ( !paramsText.trimmed().isEmpty() )
-    {
-      const QJsonDocument doc = QJsonDocument::fromJson( paramsText.toUtf8() );
-      if ( doc.isObject() )
-        lineParams = doc.object().toVariantMap();
-    }
-    break;
-  }
-  if ( !found )
-  {
-    paleo::workflow_detail::setError( error, tr( "找不到约束 %1" ).arg( constraintId ) );
-    return false;
-  }
-  lineParams.insert( QStringLiteral( "semantic" ), semantic );
-  return updateConstraintLine( constraintId, lineParams, error );
+  return updateConstraintLines({id}, {{QStringLiteral("semantic"), semantic}}, error);
 }
 
 bool ConstraintWorkflow::removeConstraint( const QString &constraintId, QString *error )
@@ -462,6 +554,35 @@ bool ConstraintWorkflow::removeConstraint( const QString &constraintId, QString 
   {
     paleo::workflow_detail::setError( error, tr( "找不到约束 %1" ).arg( constraintId ) );
     return false;
+  }
+  for (const auto &row : cs->load())
+  {
+    if (row.value(QStringLiteral("id")).toString() != constraintId)
+      continue;
+    auto *layer = m_layers ? qobject_cast<QgsVectorLayer *>(m_layers->layer(
+        QStringLiteral("constraints.%1").arg(row.value(QStringLiteral("horizon")).toString()))) : nullptr;
+    if (!layer || !layer->isEditable())
+      break;
+    if (!layer->property("paleoConstraintEditSession").toBool())
+    {
+      paleo::workflow_detail::setError(error, tr("约束编辑尚未接入 store 同步会话"));
+      return false;
+    }
+    layer->beginEditCommand(tr("删除约束"));
+    if (!layer->deleteFeature(row.value(QStringLiteral("fid")).toLongLong()))
+    {
+      layer->destroyEditCommand();
+      return false;
+    }
+    layer->endEditCommand();
+    for (const auto &remaining : cs->load())
+      if (remaining.value(QStringLiteral("id")).toString() == constraintId)
+      {
+        paleo::workflow_detail::setError(error, tr("删除约束未写入 store"));
+        return false;
+      }
+    emit constraintRemoved(constraintId);
+    return true;
   }
   if ( !cs->remove( constraintId, error ) )
     return false;
@@ -524,6 +645,9 @@ QVector<QVariantMap> ConstraintWorkflow::loadConstraints( const QString &horizon
   {
     if ( !horizon.isEmpty() )
     {
+      if (auto *active = layers->layer(QStringLiteral("constraints.%1").arg(horizon));
+          active && active->property("paleoConstraintEditSession").toBool())
+        return loaded; // the temporary provider belongs to the live session
       LayerDeclaration decl;
       decl.layerId = QStringLiteral( "constraints.%1" ).arg( horizon );
       decl.horizon = horizon;
@@ -544,6 +668,9 @@ QVector<QVariantMap> ConstraintWorkflow::loadConstraints( const QString &horizon
       }
       for ( const QString &h : horizons )
       {
+        if (auto *active = layers->layer(QStringLiteral("constraints.%1").arg(h));
+            active && active->property("paleoConstraintEditSession").toBool())
+          continue;
         LayerDeclaration decl;
         decl.layerId = QStringLiteral( "constraints.%1" ).arg( h );
         decl.horizon = h;

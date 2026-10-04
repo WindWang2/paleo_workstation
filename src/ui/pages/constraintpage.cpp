@@ -571,6 +571,15 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   auto *list = new QListWidget( this );
   list->setObjectName( QStringLiteral( "constraintList" ) );
   list->setAccessibleName( tr( "约束列表" ) );
+  list->setSelectionMode(QAbstractItemView::ExtendedSelection);
+  connect(list, &QListWidget::itemSelectionChanged, this, [this, list] {
+    QStringList ids;
+    for (const auto *item : list->selectedItems())
+      ids.append(item->data(Qt::UserRole).toString());
+    auto *h = child<QComboBox>(this, "horizonCombo");
+    emit constraintSelectionChanged(h ? h->currentText() : QString(), ids);
+    updateFactorActionStates();
+  });
   lay->addWidget( list, 1 );
   connect( list, &QListWidget::currentItemChanged, this, [this]( QListWidgetItem *, QListWidgetItem * ) {
     loadSelectedConstraintLine();
@@ -621,18 +630,45 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   semantic->addItem( tr( "制图绕行" ), QStringLiteral( "cartographic_detour" ) );
   semantic->setAccessibleName( tr( "约束语义" ) );
   lay->addWidget( semantic );
+  auto *blockMode = new QComboBox(content);
+  blockMode->setObjectName(QStringLiteral("constraintBlockModeCombo"));
+  blockMode->addItem(tr("完全阻断"), QStringLiteral("full_block"));
+  blockMode->addItem(tr("仅显示停线"), QStringLiteral("display_only"));
+  blockMode->addItem(tr("不阻断"), QStringLiteral("none"));
+  blockMode->setAccessibleName(tr("阻断方式"));
+  lay->addWidget(blockMode);
+  auto *lineAngle = new QDoubleSpinBox(content);
+  lineAngle->setObjectName(QStringLiteral("constraintAngleSpin"));
+  lineAngle->setRange(-1, 360);
+  lineAngle->setSpecialValueText(tr("保留线条方向"));
+  lineAngle->setValue(-1);
+  lineAngle->setSuffix(tr(" °"));
+  lineAngle->setToolTip(tr("从北顺时针；保存时绕线条中心旋转几何，单因素使用同一条线的方向"));
+  lineAngle->setAccessibleName(tr("约束方向角"));
+  useMono(lineAngle);
+  lay->addWidget(lineAngle);
+  auto *batchType = new QPushButton(tr("所选约束批量改型"), content);
+  batchType->setObjectName(QStringLiteral("constraintBatchTypeButton"));
+  batchType->setEnabled(false);
+  batchType->setToolTip(tr("在列表中按 Ctrl 或 Shift 多选约束"));
+  lay->addWidget(batchType);
+  connect(batchType, &QPushButton::clicked, this, [this, list, semantic] {
+    QStringList ids;
+    for (const auto *item : list->selectedItems())
+      ids.append(item->data(Qt::UserRole).toString());
+    auto *horizons = child<QComboBox>(this, "horizonCombo");
+    emit constraintParametersRequested(horizons ? horizons->currentText() : QString(), ids,
+                                       {{QStringLiteral("semantic"), semantic->currentData()}});
+  });
   auto *saveLine = new QPushButton( tr( "保存约束参数" ), content );
   saveLine->setObjectName( QStringLiteral( "constraintParamSaveButton" ) );
   saveLine->setEnabled( false );
   saveLine->setToolTip( tr( "先在约束列表中选择一条线" ) );
   lay->addWidget( saveLine );
-  connect( saveLine, &QPushButton::clicked, this, [this, semantic, ratio, influence, core, softStrength, softRadius] {
+  connect( saveLine, &QPushButton::clicked, this, [this, semantic, blockMode, lineAngle, ratio, influence, core, softStrength, softRadius] {
     auto *rows = child<QListWidget>( this, "constraintList" );
     QListWidgetItem *item = rows ? rows->currentItem() : nullptr;
     if ( !item )
-      return;
-    auto *bound = qobject_cast<ConstraintWorkflow *>( property( kWfProp ).value<QObject *>() );
-    if ( !bound )
       return;
     QVariantMap lineParams = selectedLineParams();
     lineParams.insert( QStringLiteral( "semantic" ), semantic->currentData().toString() );
@@ -641,16 +677,13 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
     lineParams.insert( QStringLiteral( "coreRadius" ), core->value() );
     lineParams.insert( QStringLiteral( "softStrength" ), softStrength->value() );
     lineParams.insert( QStringLiteral( "softRadius" ), softRadius->value() );
-    lineParams.insert( QStringLiteral( "enabled" ), true );
-    QString err;
-    if ( !bound->updateConstraintLine( item->data( Qt::UserRole ).toString(), lineParams, &err ) )
-    {
-      auto *status = child<QLabel>( this, "statusLabel" );
-      if ( status )
-        status->setText( err.isEmpty() ? tr( "约束参数保存失败" ) : err );
-      return;
-    }
-    refreshConstraintList();
+    if (blockMode->currentIndex() >= 0)
+      lineParams.insert(QStringLiteral("blockMode"), blockMode->currentData());
+    if (lineAngle->value() >= 0)
+      lineParams.insert(QStringLiteral("geometryAzimuth"), lineAngle->value());
+    auto *horizons = child<QComboBox>(this, "horizonCombo");
+    emit constraintParametersRequested(horizons ? horizons->currentText() : QString(),
+                                       {item->data(Qt::UserRole).toString()}, lineParams);
   } );
 
   lay->addWidget( caption( tr( "相代码" ), content ) );
@@ -1198,6 +1231,12 @@ void ConstraintPage::updateFactorActionStates()
     else
       saveLine->setToolTip( hasLine ? QString() : tr( "先在约束列表中选择一条线" ) );
   }
+  if (auto *batch = child<QPushButton>(this, "constraintBatchTypeButton"))
+  {
+    const bool selected = rows && !rows->selectedItems().isEmpty();
+    batch->setEnabled(selected && !busy);
+    batch->setToolTip(busy ? tr("正在计算，可取消") : selected ? QString() : tr("在列表中按 Ctrl 或 Shift 多选约束"));
+  }
   const int r = checkedRow( factors );
   if ( r < 0 )
   {
@@ -1326,6 +1365,13 @@ QVariantMap ConstraintPage::selectedLineParams() const
 void ConstraintPage::loadSelectedConstraintLine()
 {
   const QVariantMap params = selectedLineParams();
+  if (auto *mode = child<QComboBox>(this, "constraintBlockModeCombo"))
+  {
+    const QString token = params.value(QStringLiteral("blockMode"), QStringLiteral("full_block")).toString();
+    mode->setCurrentIndex(mode->findData(token));
+  }
+  if (auto *angle = child<QDoubleSpinBox>(this, "constraintAngleSpin"))
+    angle->setValue(-1);
   auto *semantic = child<QComboBox>( this, "constraintSemanticCombo" );
   if ( semantic && params.contains( QStringLiteral( "semantic" ) ) )
   {
@@ -1355,6 +1401,9 @@ void ConstraintPage::refreshConstraintList()
   auto *wf = qobject_cast<ConstraintWorkflow *>( property( kWfProp ).value<QObject *>() );
   auto *horizons = child<QComboBox>( this, "horizonCombo" );
   const QString horizon = horizons ? horizons->currentText() : QString();
+  QSet<QString> selected;
+  for (const auto *item : list->selectedItems())
+    selected.insert(item->data(Qt::UserRole).toString());
   list->blockSignals( true );
   list->clear();
   if ( wf )
@@ -1368,9 +1417,10 @@ void ConstraintPage::refreshConstraintList()
       item->setData( Qt::UserRole, id );
       item->setData( Qt::UserRole + 1, row.value( QStringLiteral( "params_json" ) ).toString() );
       if ( id == keep )
-        list->setCurrentItem( item );
+        list->setCurrentItem(item, QItemSelectionModel::NoUpdate);
+      item->setSelected(selected.contains(id));
     }
   }
   list->blockSignals( false );
-  updateFactorActionStates();
+  loadSelectedConstraintLine();
 }

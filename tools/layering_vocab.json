@@ -20,13 +20,27 @@
     "app": "组装根",
     "selfcheck": "测试壳"
   },
-  "non_view": ["domain", "catalog", "io", "metadata", "services", "algorithms",
-               "workflow", "linkage", "ai", "qgis"],
-  "ui_io_whitelist": ["io/lasdoc.h"],
+  "non_view": [
+    "domain",
+    "catalog",
+    "io",
+    "metadata",
+    "services",
+    "algorithms",
+    "workflow",
+    "linkage",
+    "ai",
+    "qgis"
+  ],
+  "ui_io_whitelist": [
+    "io/lasdoc.h"
+  ],
   "ui_metadata_whitelist": [
     "metadata/layermanifest.h",
     "metadata/paleoprojectstore.h",
     "metadata/mapversionstore.h",
-    "metadata/releasestore.h"
+    "metadata/releasestore.h",
+    "metadata/wellsectionstore.h",
+    "metadata/faultsetstore.h"
   ]
 }

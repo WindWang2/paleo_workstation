@@ -59,6 +59,80 @@ QVector<Link> links(const Well &left, const Well &right) {
   return out;
 }
 
+LinkOverride makeLinkOverride(const QString &aId, const QString &bId,
+                              const QString &topName, bool connected) {
+  LinkOverride o;
+  o.topName = topName;
+  o.connected = connected;
+  if (aId <= bId) {
+    o.leftWellId = aId;
+    o.rightWellId = bId;
+  } else {
+    o.leftWellId = bId;
+    o.rightWellId = aId;
+  }
+  return o;
+}
+
+bool linkConnected(const QVector<LinkOverride> &overrides, const QString &aId,
+                   const QString &bId, const QString &topName) {
+  const QString lo = qMin(aId, bId), hi = qMax(aId, bId);
+  for (const LinkOverride &o : overrides)
+    if (o.leftWellId == lo && o.rightWellId == hi && o.topName == topName)
+      return o.connected;
+  return true;
+}
+
+QVector<double> gapWidthsFor(const QVector<Well> &wells, SpacingMode mode,
+                             double totalGap, double minGap, double maxGap) {
+  const int gaps = wells.size() - 1;
+  QVector<double> out;
+  if (gaps < 1)
+    return out;
+  out.fill(0.0, gaps);
+  if (mode == SpacingMode::Equal || totalGap <= 0.0) {
+    out.fill(qBound(minGap, totalGap / gaps, maxGap), gaps);
+    return out;
+  }
+  // 相邻井地图距离（勾股；缺坐标段先记 NaN）。
+  QVector<double> dist(gaps, qQNaN());
+  int known = 0;
+  for (int i = 0; i < gaps; ++i)
+    if (wells[i].hasCoordinates() && wells[i + 1].hasCoordinates()) {
+      const double dx = wells[i + 1].x - wells[i].x;
+      const double dy = wells[i + 1].y - wells[i].y;
+      dist[i] = std::sqrt(dx * dx + dy * dy);
+      ++known;
+    }
+  if (known == 0) {
+    out.fill(qBound(minGap, totalGap / gaps, maxGap), gaps);
+    return out;
+  }
+  // 缺段用已知段中位距离补（保守：非零、抗离群）。
+  if (known < gaps) {
+    QVector<double> sorted;
+    for (double d : dist)
+      if (std::isfinite(d))
+        sorted << d;
+    std::sort(sorted.begin(), sorted.end());
+    const double med = sorted.isEmpty() ? 1.0 : sorted.at(sorted.size() / 2);
+    for (double &d : dist)
+      if (!std::isfinite(d))
+        d = qMax(1e-6, med);
+  }
+  double sum = 0.0;
+  for (double d : dist)
+    sum += d;
+  if (!(sum > 1e-12)) {
+    // 全零距离（同平台井/重复坐标）：比例无意义，退化等距防 NaN 毒化布局。
+    out.fill(qBound(minGap, totalGap / gaps, maxGap), gaps);
+    return out;
+  }
+  for (int i = 0; i < gaps; ++i)
+    out[i] = qBound(minGap, totalGap * dist[i] / sum, maxGap);
+  return out;
+}
+
 QStringList orderedTopNames(const QVector<Well> &wells) {
   QStringList out;
   for (const Well &w : wells) {
@@ -87,13 +161,41 @@ double flattenOffset(const Well &w, const QString &flattenTop) {
   return std::isfinite(md) ? md : 0.0;
 }
 
+double datumOffset(const Well &w, const Datum &d) {
+  switch (d.mode) {
+  case DatumMode::Flatten:
+    return flattenOffset(w, d.flattenTop);
+  case DatumMode::Elevation:
+    return std::isfinite(w.kb) ? w.kb : 0.0;
+  case DatumMode::Depth:
+    break;
+  }
+  return 0.0;
+}
+
+QString datumLabel(DatumMode mode) {
+  switch (mode) {
+  case DatumMode::Elevation:
+    return QStringLiteral("海拔 m");
+  case DatumMode::Flatten:
+    return QStringLiteral("拉平 m");
+  case DatumMode::Depth:
+    break;
+  }
+  return QStringLiteral("井深 m");
+}
+
 DepthWindow depthWindow(const QVector<Well> &wells, const QString &flattenTop) {
+  return depthWindow(wells, Datum{DatumMode::Flatten, flattenTop});
+}
+
+DepthWindow depthWindow(const QVector<Well> &wells, const Datum &datum) {
   double top = qQNaN(), base = qQNaN();
   bool anyTops = false;
   for (const Well &w : wells)
     anyTops = anyTops || !w.tops.isEmpty();
   for (const Well &w : wells) {
-    const double off = flattenOffset(w, flattenTop);
+    const double off = datumOffset(w, datum);
     double lo = qQNaN(), hi = qQNaN();
     if (anyTops) {
       for (const Top &t : w.tops) {
@@ -153,6 +255,244 @@ Interval formationInterval(const Well &w, const QString &activeTop,
     if (std::isfinite(base) && base > top)
       out.baseMd = base;
   }
+  return out;
+}
+
+namespace {
+QString csvCell(const QString &s) {
+  if (!s.contains(QLatin1Char(',')) && !s.contains(QLatin1Char('"')) &&
+      !s.contains(QLatin1Char('\n')) && !s.contains(QLatin1Char('\r')))
+    return s;
+  QString out;
+  out.reserve(s.size() + 2);
+  out += QLatin1Char('"');
+  for (const QChar c : s) {
+    if (c == QLatin1Char('"'))
+      out += QLatin1Char('"');
+    out += c;
+  }
+  out += QLatin1Char('"');
+  return out;
+}
+} // namespace
+
+TopsTable topsTable(const QVector<Well> &wells, const Datum &datum) {
+  TopsTable t;
+  if (datum.mode == DatumMode::Flatten && !datum.flattenTop.isEmpty())
+    t.header = {QStringLiteral("井名"), QStringLiteral("顶名"),
+                QStringLiteral("MD(m)"),
+                QStringLiteral("基准面"), datum.flattenTop};
+  else
+    t.header = {QStringLiteral("井名"), QStringLiteral("顶名"),
+                QStringLiteral("MD(m)"), QStringLiteral("基准面"),
+                datumLabel(datum.mode)};
+  t.rows.reserve(wells.size() * 8);
+  for (const Well &w : wells)
+    for (const Top &top : w.tops) {
+      if (!std::isfinite(top.md))
+        continue;
+      t.rows.push_back({w.name, top.name,
+                        QString::number(top.md, 'f', 2)});
+    }
+  return t;
+}
+
+QString TopsTable::csv() const {
+  QStringList lines;
+  QStringList head;
+  for (const QString &h : header)
+    head << csvCell(h);
+  lines << head.join(QLatin1Char(','));
+  for (const QStringList &r : rows) {
+    QStringList cells;
+    for (const QString &c : r)
+      cells << csvCell(c);
+    lines << cells.join(QLatin1Char(','));
+  }
+  return lines.join(QLatin1Char('\n')) + QLatin1Char('\n');
+}
+
+
+FencePlan planFence(const QVector<Well> &wells, int targetSections) {
+  FencePlan plan;
+  for (const Well &w : wells)
+    if (!w.hasCoordinates()) {
+      plan.status = FencePlan::Status::MissingCoords;
+      return plan;
+    }
+  const int n = wells.size();
+  if (n < 2) {
+    plan.status = FencePlan::Status::TooFewWells;
+    return plan;
+  }
+  if (targetSections < 1)
+    targetSections = 1;
+  targetSections = qMin(targetSections, n / 2);
+
+  // PCA 主轴：2x2 协方差的最大特征向量（闭式解）。
+  double cx = 0, cy = 0;
+  for (const Well &w : wells) {
+    cx += w.x;
+    cy += w.y;
+  }
+  cx /= n;
+  cy /= n;
+  double sxx = 0, sxy = 0, syy = 0;
+  for (const Well &w : wells) {
+    const double dx = w.x - cx, dy = w.y - cy;
+    sxx += dx * dx;
+    sxy += dx * dy;
+    syy += dy * dy;
+  }
+  // 对称 2x2 特征向量：theta = 0.5*atan2(2sxy, sxx−syy)。
+  const double theta = 0.5 * std::atan2(2 * sxy, sxx - syy);
+  const double ux = std::cos(theta), uy = std::sin(theta);
+  const double vx = -uy, vy = ux; // 垂直向（条带分割方向）
+
+  // 按 v 排序等分条带（余数摊前几带），条带内按 u 单调。
+  QVector<int> byV(n);
+  for (int i = 0; i < n; ++i)
+    byV[i] = i;
+  const auto projV = [&](int i) {
+    return (wells[i].x - cx) * vx + (wells[i].y - cy) * vy;
+  };
+  const auto projU = [&](int i) {
+    return (wells[i].x - cx) * ux + (wells[i].y - cy) * uy;
+  };
+  std::sort(byV.begin(), byV.end(), [&](int a, int b) {
+    const double va = projV(a), vb = projV(b);
+    if (va != vb)
+      return va < vb;
+    const double ua = projU(a), ub = projU(b);
+    if (ua != ub)
+      return ua < ub;
+    return wells[a].id < wells[b].id; // 投影重合时确定性输出
+  });
+  const int base = n / targetSections;
+  const int extra = n % targetSections;
+  int at = 0;
+  for (int b = 0; b < targetSections; ++b) {
+    const int count = base + (b < extra ? 1 : 0);
+    QVector<int> band(byV.mid(at, count));
+    at += count;
+    std::sort(band.begin(), band.end(), [&](int a, int c) {
+      const double ua = projU(a), uc = projU(c);
+      if (ua != uc)
+        return ua < uc;
+      return wells[a].id < wells[c].id; // 投影重合时确定性输出
+    });
+    FenceSection sec;
+    sec.id = QString::number(b + 1);
+    // 剪草机：奇数条带（0 起）倒序——相邻条带走线端点相接不交叉。
+    if (b % 2 == 1)
+      std::reverse(band.begin(), band.end());
+    for (int idx : band)
+      sec.wellIds << wells[idx].id;
+    plan.sections.push_back(sec);
+  }
+  // <2 井条带并入邻带（优先前带；首带并入后带）。
+  for (int i = 0; i < plan.sections.size();) {
+    if (plan.sections[i].wellIds.size() >= 2) {
+      ++i;
+      continue;
+    }
+    const QStringList lone = plan.sections[i].wellIds;
+    if (i > 0)
+      plan.sections[i - 1].wellIds << lone;
+    else if (i + 1 < plan.sections.size())
+      plan.sections[i + 1].wellIds = lone + plan.sections[i + 1].wellIds;
+    plan.sections.removeAt(i);
+  }
+  if (plan.sections.isEmpty())
+    plan.status = FencePlan::Status::TooFewWells;
+  return plan;
+}
+
+QStringList orderWellsByPosition(const QStringList &ids,
+                                 const QVector<Well> &wellsWithCoords) {
+  QVector<const Well *> byId;
+  byId.resize(wellsWithCoords.size());
+  for (int i = 0; i < wellsWithCoords.size(); ++i)
+    byId[i] = &wellsWithCoords[i];
+  const auto locate = [&](const QString &id) -> const Well * {
+    for (const Well *w : byId)
+      if (w->id == id)
+        return w;
+    return nullptr;
+  };
+  QVector<QPair<double, int>> keyed; // (投影, 输入序)
+  QVector<int> tail;                 // 缺坐标（保原序排末）
+  for (int i = 0; i < ids.size(); ++i) {
+    const Well *w = locate(ids.at(i));
+    if (!w || !w->hasCoordinates()) {
+      tail << i;
+      continue;
+    }
+    keyed << qMakePair(qQNaN(), i);
+  }
+  double cx = 0, cy = 0;
+  int n = 0;
+  for (const QString &id : ids) {
+    const Well *w = locate(id);
+    if (!w || !w->hasCoordinates())
+      continue;
+    cx += w->x;
+    cy += w->y;
+    ++n;
+  }
+  if (n < 2)
+    return ids; // 无从定轴 → 原序
+  cx /= n;
+  cy /= n;
+  double sxx = 0, sxy = 0, syy = 0;
+  for (const QString &id : ids) {
+    const Well *w = locate(id);
+    if (!w || !w->hasCoordinates())
+      continue;
+    const double dx = w->x - cx, dy = w->y - cy;
+    sxx += dx * dx;
+    sxy += dx * dy;
+    syy += dy * dy;
+  }
+  const double theta = 0.5 * std::atan2(2 * sxy, sxx - syy);
+  const double ux = std::cos(theta), uy = std::sin(theta);
+  for (auto &k : keyed) {
+    const Well *w = locate(ids.at(k.second));
+    k.first = (w->x - cx) * ux + (w->y - cy) * uy;
+  }
+  std::sort(keyed.begin(), keyed.end(),
+            [](const QPair<double, int> &a, const QPair<double, int> &b) {
+              if (a.first != b.first)
+                return a.first < b.first;
+              return a.second < b.second; // 投影重合保输入序（确定性）
+            });
+  QStringList out;
+  for (const auto &k : keyed)
+    out << ids.at(k.second);
+  for (int i : tail)
+    out << ids.at(i);
+  return out;
+}
+
+QVector<double> wellPathFractions(const QVector<Well> &wells) {
+  QVector<double> out;
+  if (wells.isEmpty())
+    return out;
+  for (const Well &w : wells)
+    if (!w.hasCoordinates())
+      return QVector<double>();
+  QVector<double> cum(wells.size(), 0.0);
+  double total = 0.0;
+  for (int i = 1; i < wells.size(); ++i) {
+    const double dx = wells[i].x - wells[i - 1].x;
+    const double dy = wells[i].y - wells[i - 1].y;
+    total += std::sqrt(dx * dx + dy * dy);
+    cum[i] = total;
+  }
+  if (!(total > 1e-9))
+    return QVector<double>();
+  for (double c : cum)
+    out << c / total;
   return out;
 }
 

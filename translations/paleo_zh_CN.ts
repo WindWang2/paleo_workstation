@@ -21919,4 +21919,198 @@ SHA-256：%2</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
+<context>
+    <name>CurvePanel</name>
+    <message>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1057"/>
+        <source>未勾选任何曲线 — 在上方选择要显示的曲线</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>LayerProfileBar</name>
+    <message>
+        <location filename="../src/ui/layers/layerprofilebar.cpp" line="90"/>
+        <source>可见性主题（页面档案与保存的主题）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layers/layerprofilebar.cpp" line="91"/>
+        <source>未应用主题</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layers/layerprofilebar.cpp" line="99"/>
+        <source>保存主题…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layers/layerprofilebar.cpp" line="102"/>
+        <source>管理主题…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layers/layerprofilebar.cpp" line="105"/>
+        <source>保存当前图层可见性为主题</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layers/layerprofilebar.cpp" line="182"/>
+        <source>页面档案：%1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layers/layerprofilebar.cpp" line="196"/>
+        <location filename="../src/ui/layers/layerprofilebar.cpp" line="255"/>
+        <source>应用主题「%1」失败（主题可能已被移除）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layers/layerprofilebar.cpp" line="208"/>
+        <location filename="../src/ui/layers/layerprofilebar.cpp" line="214"/>
+        <location filename="../src/ui/layers/layerprofilebar.cpp" line="218"/>
+        <source>保存主题</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layers/layerprofilebar.cpp" line="208"/>
+        <source>主题名称：</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layers/layerprofilebar.cpp" line="214"/>
+        <source>主题名称不能为空</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layers/layerprofilebar.cpp" line="219"/>
+        <source>保存主题失败（工程或图层树未就绪）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layers/layerprofilebar.cpp" line="228"/>
+        <source>管理主题</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layers/layerprofilebar.cpp" line="247"/>
+        <source>应用</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layers/layerprofilebar.cpp" line="264"/>
+        <location filename="../src/ui/layers/layerprofilebar.cpp" line="274"/>
+        <source>删除主题</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layers/layerprofilebar.cpp" line="274"/>
+        <source>确定删除主题「%1」？</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layers/layerprofilebar.cpp" line="285"/>
+        <source>重命名</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layers/layerprofilebar.cpp" line="287"/>
+        <source>重命名所选主题；page:* 页面档案名不可改</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layers/layerprofilebar.cpp" line="299"/>
+        <location filename="../src/ui/layers/layerprofilebar.cpp" line="305"/>
+        <source>重命名主题</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layers/layerprofilebar.cpp" line="299"/>
+        <source>主题新名字</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layers/layerprofilebar.cpp" line="306"/>
+        <source>重命名失败：新名字可能已被占用</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/layers/layerprofilebar.cpp" line="309"/>
+        <source>page:* 页面档案名不可改</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>QgisConstraintEditSession</name>
+    <message>
+        <source>约束编辑图层已不可用</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>约束几何</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>约束编辑不能新增无语义要素或改动层位</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>约束编辑不能改动要素身份</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>约束编辑需要可写的工程 constraint store</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>约束图层与 store 的层位范围不一致</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>无法建立约束编辑工作副本：%1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>无法开始约束工作副本编辑</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>约束编辑图层移除时恢复失败：%1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>约束 store 已不可用</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>约束编辑未保存：%1</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>无法结束约束编辑缓冲区</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <source>无法结束约束编辑缓冲区，恢复失败：%1</source>
+        <translation type="unfinished" />
+    </message>
+</context>
+<context>
+    <name>SectionPanel</name>
+    <message>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1339"/>
+        <source>色标</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1377"/>
+        <source>波峰+</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1379"/>
+        <source>波谷-</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
 </TS>

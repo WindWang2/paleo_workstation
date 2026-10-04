@@ -78,6 +78,15 @@ namespace
                      {QStringLiteral("sequence_boundary")}, 0, false,
                      QStringLiteral("格架单元"), QStringLiteral("OUTPUT"),
                      QStringLiteral("层序格架单元对该层序界面的归属（格架资产版本见 catalog/frameworkstore）。")});
+    // 方向 34：计划井（planned）正式登记进词表。planned 是虚拟部署实体
+    // （井位建议，非实井）——只挂部署依据类附件，不参与任何计算输入；
+    // 实体本体由 WellSitingWorkflow 创建，id 前缀 "planned"。
+    add(QStringLiteral("siting_note"), QStringLiteral("planned"), false,
+        QStringLiteral("部署依据"),
+        QStringLiteral("计划井的部署依据/论证附件（覆盖诊断报告、方案对比等）。"));
+    add(QStringLiteral("other"), QStringLiteral("planned"), false,
+        QStringLiteral("其他"),
+        QStringLiteral("兜底角色。"));
     return t;
   }
 } // namespace

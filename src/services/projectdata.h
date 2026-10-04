@@ -39,6 +39,7 @@ struct ProjectWell
   QString name;               // display name, e.g. "A1"
   double surfaceX = 0.0;      // local meter grid (原始坐标；untransformed 时一直用它)
   double surfaceY = 0.0;
+  double kb = 0.0;            // 补心海拔 m（海平面以上为正；缺数据 = 0）
   QString coordinateStatus;   // ok | untransformed | invalid | missing
 };
 

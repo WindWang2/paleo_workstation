@@ -408,6 +408,7 @@ add_library(paleo_qgis STATIC
   src/qgis/qgisprocessingservice.cpp
   src/qgis/qgisstyleservice.cpp
   src/qgis/geopatterns.cpp                           # 方向31：地质符号语义注册表（花纹/线型词表 + 符号构造）
+  src/qgis/semanticlegend.cpp                        # 方向31：语义图例自动生成（渲染器类目→swatch+词面，增删/renderer 联动）
   src/qgis/qgislayoutservice.cpp
   src/qgis/layoutexport.cpp                         # 层位图/设计器导出核心（QgsLayoutExporter 封装）
   src/qgis/mapbooklayout.cpp                        # 地图册：逐格/蒙太奇/索引页版面构建 + 落盘回读校验
@@ -732,6 +733,7 @@ add_paleo_test(tst_singlefactor_samples LIBS paleo_algorithms)
 add_paleo_test(tst_singlefactor_store LIBS paleo_io)
 add_paleo_test(tst_services2 LIBS paleo_qgis)               # algorithms,metadata,qgis
 add_paleo_test(tst_geosymbols LIBS paleo_qgis paleo_domain) # 方向31：花纹/线型词表+入口（qrc 资源在 paleo_domain）
+add_paleo_test(tst_semanticlegend LIBS paleo_qgis paleo_domain) # 方向31：图例自动生成 + 增删/renderer 联动
 add_paleo_test(tst_workflows LIBS paleo_workflow)
 add_paleo_test(tst_mappingworkbench)                    # 伞式（ui/pages+qgis+workflow 全栈面，兼容样本）
 add_paleo_test(tst_ui)                                      # 伞式（app 面全栈，兼容样本）

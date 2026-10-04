@@ -1,4 +1,5 @@
 // 层：视图
+// token 例外：DESIGN 数据符号例外：岩性与沉积相纹理定义，色值是可保存/导出的地质图例数据。（tools/ui-token-exceptions.json 精确计数）。
 #include "patterncatalog.h"
 
 #include <QDir>

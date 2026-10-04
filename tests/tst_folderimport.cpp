@@ -3,6 +3,7 @@
 // 双发、importFolderRow 重试、importFile 同步路径、importedWellHeadAsset
 // 文件名回查、projectopen 的 stampSourceArea 目录门控。
 #include <QtTest>
+#include <QSet>
 #include <QTemporaryDir>
 #include <QSignalSpy>
 
@@ -15,6 +16,7 @@
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/qgis/qgisruntime.h"
 #include "../src/workflow/folderimport.h"
+#include "../src/workflow/importledger.h"
 #include "../src/services/paleotaskservice.h"
 #include "../src/ui/dialogs/folderconfirm.h"
 
@@ -568,7 +570,194 @@ void folderConfirmEstimateForceImportAndErrorReport()
   auto *errorReport = dlg.findChild<QLabel *>(QStringLiteral("folderErrorReport"));
   QVERIFY(errorReport != nullptr);
   QVERIFY(errorReport->isHidden()); // 尚无失败——错误报告不出现
-}
+  }
+
+  // ---- 方向 30：确认表归位预览列（plan 期身份匹配预显）----
+  void previewEntityPreviewShowsPlacement()
+  {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    QVERIFY(!stageFixture(tmp, QStringLiteral("src_area"),
+                          QStringLiteral("ExportWellHead.dat")).isEmpty());
+    QVERIFY(!stageFixture(tmp, QStringLiteral("src_area"),
+                          QStringLiteral("A1.Las")).isEmpty());
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    FolderImportWorkflow wf(stack->importSvc.get(), nullptr);
+    const QString dir = tmp.filePath(QStringLiteral("src_area"));
+
+    const auto rowFor = [](const QVector<FolderPreviewRow> &rows, const QString &name) {
+      for (const FolderPreviewRow &r : rows)
+        if (QFileInfo(r.path).fileName() == name)
+          return r;
+      return FolderPreviewRow();
+    };
+
+    // 新工程：井口行预显「新井」；LAS 零匹配预显「未决（A1）」。
+    QVector<FolderPreviewRow> rows = wf.previewFolder(dir);
+    QCOMPARE(rowFor(rows, QStringLiteral("ExportWellHead.dat")).entityPreview,
+             QStringLiteral("新井"));
+    const QString lasPreview = rowFor(rows, QStringLiteral("A1.Las")).entityPreview;
+    QVERIFY2(lasPreview.startsWith(QStringLiteral("未决")),
+             qPrintable(lasPreview)); // 零匹配：预显未决 + 名字，不猜
+
+    bool done = false;
+    wf.importFolder(dir, {}, [&done](const QVector<FolderRowResult> &, const QString &) {
+      done = true;
+    });
+    QVERIFY(done);
+
+    // 井已建齐：井口行预显「井 A1, A2, …（既有）」（井口文件含 20 口井）；
+    // LAS 命中既有井 A1。
+    rows = wf.previewFolder(dir);
+    const QString headPreview =
+        rowFor(rows, QStringLiteral("ExportWellHead.dat")).entityPreview;
+    QVERIFY2(headPreview.startsWith(QStringLiteral("井 ")) &&
+                 headPreview.endsWith(QStringLiteral("（既有）")) &&
+                 headPreview.contains(QStringLiteral("A1")),
+             qPrintable(headPreview));
+    QCOMPARE(rowFor(rows, QStringLiteral("A1.Las")).entityPreview, QStringLiteral("A1"));
+  }
+
+  // ---- 方向 30：好坏混合导入零静默 + 台账落盘（Oracle 1）----
+  void mixedGoodBadImportIsHonestAndLedgered()
+  {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    QVERIFY(!stageFixture(tmp, QStringLiteral("src_area"),
+                          QStringLiteral("ExportWellHead.dat")).isEmpty());
+    QVERIFY(!stageFixture(tmp, QStringLiteral("src_area"),
+                          QStringLiteral("A1.Las")).isEmpty());
+    // 坏文件一：读不了（权限）——拷贝阶段即失败，行结局 Failed + 原因。
+    // Windows 权限位无 unreadable 语义（readonly 属性不拦读、setPermissions
+    // 只认写位），该场景仅 POSIX 侧覆盖；Windows 由 broken.Las 兜底未决行。
+#ifndef Q_OS_WIN
+    const QString unreadable =
+        stageFixture(tmp, QStringLiteral("src_area"), QStringLiteral("A1.Las"),
+                     QStringLiteral("unreadable.Las"));
+    QVERIFY(!unreadable.isEmpty());
+    QVERIFY(QFile::setPermissions(unreadable, QFile::Permissions{})); // 零权限——不可读
+    QVERIFY(!QFile(unreadable).open(QIODevice::ReadOnly)); // 不可读已生效
+#endif
+    // 坏文件二：损坏 LAS——不静默跳过，如实入库为未决（解析不出井名）。
+    const QString broken = QDir(tmp.filePath(QStringLiteral("src_area")))
+                               .filePath(QStringLiteral("broken.Las"));
+    {
+      QFile f(broken);
+      QVERIFY(f.open(QIODevice::WriteOnly));
+      f.write("this is not a las file\nno tilde sections\ngarbage bytes \x01\x02");
+    }
+
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    FolderImportWorkflow wf(stack->importSvc.get(), nullptr);
+
+    QVector<FolderRowResult> rows;
+    QString importErr;
+    bool done = false;
+    wf.importFolder(tmp.filePath(QStringLiteral("src_area")), {},
+                    [&](const QVector<FolderRowResult> &r, const QString &e) {
+                      rows = r;
+                      importErr = e;
+                      done = true;
+                    });
+    QVERIFY(done);
+    QVERIFY2(importErr.isEmpty(), qPrintable(importErr));
+
+    // 每个源文件恰好一行（零静默：无文件凭空消失）。
+    QSet<QString> seen;
+    for (const FolderRowResult &r : rows)
+      seen.insert(QFileInfo(r.path).fileName());
+    QVERIFY(seen.contains(QStringLiteral("ExportWellHead.dat")));
+    QVERIFY(seen.contains(QStringLiteral("A1.Las")));
+#ifndef Q_OS_WIN
+    QVERIFY(seen.contains(QStringLiteral("unreadable.Las")));
+#endif
+    QVERIFY(seen.contains(QStringLiteral("broken.Las")));
+    QCOMPARE(seen.size(), seen.contains(QStringLiteral("unreadable.Las")) ? 4 : 3);
+
+    using Outcome = FolderRowResult::Outcome;
+    Outcome headOutcome = Outcome::Skipped, lasOutcome = Outcome::Skipped,
+            unreadableOutcome = Outcome::Skipped, brokenOutcome = Outcome::Skipped;
+    QString unreadableMsg, brokenMsg;
+    for (const FolderRowResult &r : rows)
+    {
+      const QString name = QFileInfo(r.path).fileName();
+      if (name == QStringLiteral("ExportWellHead.dat"))
+        headOutcome = r.outcome;
+      else if (name == QStringLiteral("A1.Las"))
+        lasOutcome = r.outcome;
+      else if (name == QStringLiteral("unreadable.Las"))
+      {
+        unreadableOutcome = r.outcome;
+        unreadableMsg = r.message;
+      }
+      else if (name == QStringLiteral("broken.Las"))
+      {
+        brokenOutcome = r.outcome;
+        brokenMsg = r.message;
+      }
+    }
+    QCOMPARE(headOutcome, Outcome::Imported);
+    QCOMPARE(lasOutcome, Outcome::Imported);
+    if (seen.contains(QStringLiteral("unreadable.Las")))
+    {
+      QCOMPARE(unreadableOutcome, Outcome::Failed);
+      QVERIFY(!unreadableMsg.isEmpty()); // 坏文件逐条原因列报
+    }
+    QCOMPARE(brokenOutcome, Outcome::Unresolved); // 损坏不猜——未决如实
+
+    // 好文件全入库：catalog 里有井口与 LAS 资产，井 A1 已建。
+    DataCatalog *cat = stack->importSvc->catalog();
+    int wellHeads = 0, wellLogs = 0;
+    for (const CatalogAsset &a : cat->assets())
+    {
+      if (a.type == QLatin1String("well_head"))
+        ++wellHeads;
+      if (a.type == QLatin1String("well_log"))
+        ++wellLogs;
+    }
+    QCOMPARE(wellHeads, 1);
+    QCOMPARE(wellLogs, 2); // A1.Las + broken.Las（未决也是资产，不静默丢弃）
+    QVERIFY(!cat->wellsMatchingName(QStringLiteral("A1")).isEmpty());
+
+    // 台账：一批落盘，四计数与行集和行结果一致。
+    paleo::imports::ImportLedger ledger;
+    ledger.load(cat);
+    QCOMPARE(ledger.count(), 1);
+    const paleo::imports::LedgerBatch batch = ledger.batches().first();
+    QCOMPARE(batch.error, QString());
+    QCOMPARE(batch.rows.size(), rows.size());
+    QCOMPARE(batch.imported + batch.unresolved + batch.failed + batch.skipped,
+             rows.size());
+    int ledgerFailed = 0;
+    for (const paleo::imports::LedgerRow &lr : batch.rows)
+    {
+      if (lr.outcome == QLatin1String("failed"))
+      {
+        ++ledgerFailed;
+        QVERIFY(!lr.message.isEmpty());
+      }
+    }
+    QCOMPARE(ledgerFailed, seen.contains(QStringLiteral("unreadable.Las")) ? 1 : 0);
+    QVERIFY(QFile::exists(QDir(projectDir).filePath(
+        QStringLiteral(".paleo/import_ledger.json"))));
+
+    // 再导一批（重复决策）→ 台账两批，窗口滚动。
+    bool done2 = false;
+    wf.importFolder(tmp.filePath(QStringLiteral("src_area")), {},
+                    [&done2](const QVector<FolderRowResult> &, const QString &) {
+                      done2 = true;
+                    });
+    QVERIFY(done2);
+    paleo::imports::ImportLedger ledger2;
+    ledger2.load(cat);
+    QCOMPARE(ledger2.count(), 2);
+  }
 };
 
 int main(int argc, char *argv[])

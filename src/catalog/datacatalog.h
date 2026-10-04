@@ -221,6 +221,14 @@ class DataCatalog : public QObject
     // 不复制版本字节。index 越界 / 链接未决或实体 id 为空 → false。
     bool setLinkPrimary(int index, QString *error = nullptr);
 
+    // 物理删除资产（方向 30 回收站「物理删除」的 catalog 面）：一次事务删除
+    // 资产行 + 其全部版本行 + 其全部链接行。血缘保护——待删版本被其他资产的
+    // 版本列为 parentVersionIds 时拒绝（拆血统必须显式先删引用方资产）；
+    // 实体行保留（实体可能仍挂别的资产；孤儿实体的发现归体检面）。磁盘上的
+    // 受管字节不在此职责内——调用方（workflow/assetops purgeAssets）在提交
+    // 成功后清理。staging 副本拒绝（journal 无删除 op，重放不了）。
+    bool removeAsset(const QString &assetId, QString *error = nullptr);
+
     // SHA-256 已在库（dedup，§3）：返回第一个匹配版本；sha 为空或无匹配回空版本。
     CatalogVersion versionBySha256(const QString &sha256) const;
     // Returns an empty path for an unsafe managed path, including symlinked
@@ -396,6 +404,10 @@ class DataCatalog : public QObject
     QSet<QString> m_dirtyAssets;
     QSet<QString> m_dirtyVersions;
     QSet<int> m_dirtyLinkOrds;
+    // 增量删除面（removeAsset）：upsert 之后执行——先重写后删，净效果=已删。
+    QSet<QString> m_removedAssets;
+    QSet<QString> m_removedVersions;
+    bool m_linksFullRewrite = false; // 删链接行 → 后续 ord 整体位移，只能整表重写
     // #169：最外层批次开始时的内存快照。批次结算落盘失败 → 回滚到此，避免
     // 「内存有、盘上无、脏集已清永不再写」的分叉。四表 COW，拍照近乎零成本。
     struct BatchSnapshot
@@ -408,6 +420,8 @@ class DataCatalog : public QObject
       CatalogIndex idx;
       QSet<QString> dirtyEntities, dirtyAssets, dirtyVersions;
       QSet<int> dirtyLinkOrds;
+      QSet<QString> removedAssets, removedVersions;
+      bool linksFullRewrite = false;
     };
     std::unique_ptr<BatchSnapshot> m_batchSnapshot;
 };

@@ -1,4 +1,5 @@
 // 层：视图
+// token 例外：DESIGN 数据符号例外：岩性/相/解释符号的白底图例样张与油气水层标准色，比例尺 chrome 已转 token。（tools/ui-token-exceptions.json 精确计数）。
 #include "wellpositionlegendwidget.h"
 #include "wellcompositetrack.h"
 #include "../paleotheme.h"
@@ -72,13 +73,13 @@ void GraphicScaleBar::paintEvent(QPaintEvent * /*event*/)
 
   // 文字字体 (JetBrains Mono 8pt)
   QFont font = p.font();
-  font.setFamilies({QStringLiteral("JetBrains Mono"), QStringLiteral("monospace")});
+  font = PaleoTheme::monoFont(font.pointSize());
   font.setStyleHint(QFont::TypeWriter);
-  font.setPointSize(8);
+  font.setPointSize(PaleoTheme::tokens().labelPt);
   p.setFont(font);
 
   // 刻度标注文字 (0, mid, max m)
-  p.setPen(QColor(QStringLiteral("#5D6E80")));
+  p.setPen(PaleoTheme::tokens().textMuted);
   p.drawText(QRectF(startX - 8, 0, 16, barY - 1), Qt::AlignCenter, QStringLiteral("0"));
 
   const double halfMeters = m_segmentMeters * 0.5;
@@ -96,12 +97,12 @@ void GraphicScaleBar::paintEvent(QPaintEvent * /*event*/)
   const qreal midX = startX + barW * 0.5;
 
   // 左半段：深灰黑底
-  p.fillRect(QRectF(startX, barY, barW * 0.5, barH), QColor(QStringLiteral("#24303E")));
+  p.fillRect(QRectF(startX, barY, barW * 0.5, barH), PaleoTheme::tokens().text);
   // 右半段：白底
-  p.fillRect(QRectF(midX, barY, barW * 0.5, barH), QColor(QStringLiteral("#FFFFFF")));
+  p.fillRect(QRectF(midX, barY, barW * 0.5, barH), PaleoTheme::tokens().surface);
 
   // 边框与刻度齿
-  p.setPen(QPen(QColor(QStringLiteral("#24303E")), 1.0));
+  p.setPen(QPen(PaleoTheme::tokens().text, 1.0));
   p.drawRect(QRectF(startX, barY, barW, barH));
   p.drawLine(QPointF(startX, barY - 2), QPointF(startX, barY));
   p.drawLine(QPointF(midX, barY - 2), QPointF(midX, barY));
@@ -201,7 +202,7 @@ void WellOverviewMiniBar::paintEvent(QPaintEvent * /*event*/)
   const auto &tok = PaleoTheme::tokens();
   p.fillRect(baseRect, tok.surfaceAlt);
   p.setPen(tok.border);
-  p.drawRoundedRect(baseRect, 3.0, 3.0);
+  p.drawRoundedRect(baseRect, PaleoTheme::tokens().radiusSm, PaleoTheme::tokens().radiusSm);
 
   // 绘制地层分段色块
   for (const auto &f : m_formations)
@@ -260,13 +261,13 @@ WellLegendDialog::WellLegendDialog(const ComprehensiveWellData &wellData, QWidge
   // chrome 跟随主题；普通页签选中态用深字+bold，不占用 primary 交互蓝
   PaleoTheme::applyThemedStyleSheet(this, [] {
     const auto &t = PaleoTheme::tokens();
-    return QStringLiteral(
+    return PaleoTheme::metricStyleSheet(QStringLiteral(
                "QDialog { background: %1; }"
-               "QTabWidget::pane { border: 1px solid %2; background: %1; border-radius: 4px; }"
-               "QTabBar::tab { background: %3; color: %4; padding: 6px 16px; margin-right: 2px; border-top-left-radius: 4px; border-top-right-radius: 4px; font-size: 9pt; }"
+               "QTabWidget::pane { border: 1px solid %2; background: %1; border-radius: {rounded.sm}px; }"
+               "QTabBar::tab { background: %3; color: %4; padding: {spacing.sm}px {spacing.md}px; margin-right: {spacing.xs}px; border-top-left-radius: {rounded.sm}px; border-top-right-radius: {rounded.sm}px; font-size: {typography.body}pt; }"
                "QTabBar::tab:selected { background: %1; color: %5; font-weight: bold; border: 1px solid %2; border-bottom: none; }"
                "QTableWidget { border: none; background: %1; gridline-color: %3; }"
-               "QHeaderView::section { background: %3; color: %5; font-weight: 500; border: none; padding: 4px; }")
+               "QHeaderView::section { background: %3; color: %5; font-weight: 500; border: none; padding: {spacing.xs}px; }"))
         .arg(t.surface.name(), t.border.name(), t.surfaceAlt.name(),
              t.textMuted.name(), t.text.name());
   });
@@ -276,15 +277,15 @@ WellLegendDialog::WellLegendDialog(const ComprehensiveWellData &wellData, QWidge
 void WellLegendDialog::setupUi(const ComprehensiveWellData &data)
 {
   auto *rootLay = new QVBoxLayout(this);
-  rootLay->setContentsMargins(16, 16, 16, 16);
-  rootLay->setSpacing(8);
+  rootLay->setContentsMargins(PaleoTheme::tokens().spacingMd, PaleoTheme::tokens().spacingMd, PaleoTheme::tokens().spacingMd, PaleoTheme::tokens().spacingMd);
+  rootLay->setSpacing(PaleoTheme::tokens().spacingSm);
 
   auto *tabWidget = new QTabWidget(this);
 
   // --- 1. 岩性花纹图例页 ---
   auto *lithPage = new QWidget(tabWidget);
   auto *lithLay = new QVBoxLayout(lithPage);
-  lithLay->setContentsMargins(8, 8, 8, 8);
+  lithLay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm);
 
   auto *lithTable = new QTableWidget(lithPage);
   lithTable->setColumnCount(3);
@@ -320,11 +321,11 @@ void WellLegendDialog::setupUi(const ComprehensiveWellData &data)
     const auto &def = lithDefs[r];
     // 图例花纹预览图像
     QImage swatch(80, 24, QImage::Format_ARGB32_Premultiplied);
-    swatch.fill(QColor(QStringLiteral("#FFFFFF")));
+    swatch.fill(PaleoTheme::tokens(PaleoTheme::Theme::Light).surface);
     QPainter sp(&swatch);
     const QBrush brush = LithologyPatternFactory::getBrush(def.name);
     sp.fillRect(QRectF(0, 0, 80, 24), brush);
-    sp.setPen(QColor(QStringLiteral("#DFE5EC")));
+    sp.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).border);
     sp.drawRect(QRectF(0, 0, 79, 23));
     sp.end();
 
@@ -347,7 +348,7 @@ void WellLegendDialog::setupUi(const ComprehensiveWellData &data)
   // --- 2. 沉积相纹理图例页 ---
   auto *faciesPage = new QWidget(tabWidget);
   auto *faciesLay = new QVBoxLayout(faciesPage);
-  faciesLay->setContentsMargins(8, 8, 8, 8);
+  faciesLay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm);
 
   auto *faciesTable = new QTableWidget(faciesPage);
   faciesTable->setColumnCount(4);
@@ -384,11 +385,11 @@ void WellLegendDialog::setupUi(const ComprehensiveWellData &data)
   {
     const auto &def = faciesDefs[r];
     QImage swatch(80, 24, QImage::Format_ARGB32_Premultiplied);
-    swatch.fill(QColor(QStringLiteral("#FFFFFF")));
+    swatch.fill(PaleoTheme::tokens(PaleoTheme::Theme::Light).surface);
     QPainter sp(&swatch);
     const QBrush brush = FaciesPatternFactory::getBrush(def.patType);
     sp.fillRect(QRectF(0, 0, 80, 24), brush);
-    sp.setPen(QColor(QStringLiteral("#DFE5EC")));
+    sp.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).border);
     sp.drawRect(QRectF(0, 0, 79, 23));
     sp.end();
 
@@ -415,7 +416,7 @@ void WellLegendDialog::setupUi(const ComprehensiveWellData &data)
   // --- 3. 地层分层图例页 ---
   auto *formPage = new QWidget(tabWidget);
   auto *formLay = new QVBoxLayout(formPage);
-  formLay->setContentsMargins(8, 8, 8, 8);
+  formLay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm);
 
   auto *formTable = new QTableWidget(formPage);
   formTable->setColumnCount(4);
@@ -453,7 +454,7 @@ void WellLegendDialog::setupUi(const ComprehensiveWellData &data)
   // --- 3. 测井曲线样式页 ---
   auto *curvePage = new QWidget(tabWidget);
   auto *curveLay = new QVBoxLayout(curvePage);
-  curveLay->setContentsMargins(8, 8, 8, 8);
+  curveLay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm);
 
   auto *curveTable = new QTableWidget(curvePage);
   curveTable->setColumnCount(5);
@@ -502,7 +503,7 @@ void WellLegendDialog::setupUi(const ComprehensiveWellData &data)
   // --- 4. 解释符号图例页 ---
   auto *symPage = new QWidget(tabWidget);
   auto *symLay = new QVBoxLayout(symPage);
-  symLay->setContentsMargins(8, 8, 8, 8);
+  symLay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm);
 
   auto *symTable = new QTableWidget(symPage);
   symTable->setColumnCount(3);
@@ -564,15 +565,15 @@ WellPositionLegendWidget::WellPositionLegendWidget(QWidget *parent)
   // 底部栏 chrome 跟随主题；导航按钮用正文 text 色，不占用 primary 交互蓝
   PaleoTheme::applyThemedStyleSheet(this, [] {
     const auto &t = PaleoTheme::tokens();
-    return QStringLiteral(
+    return PaleoTheme::metricStyleSheet(QStringLiteral(
                "#wellPositionLegendWidget { background: %1; border-top: 1px solid %2; }"
-               "QLabel { color: %3; font-size: 8pt; }")
+               "QLabel { color: %3; font-size: {typography.label}pt; }"))
         .arg(t.surface.name(), t.border.name(), t.text.name()) + PaleoTheme::toolButtonStyleSheet();
   });
 
   auto *mainLay = new QHBoxLayout(this);
-  mainLay->setContentsMargins(6, 1, 6, 1);
-  mainLay->setSpacing(6);
+  mainLay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs);
+  mainLay->setSpacing(PaleoTheme::tokens().spacingSm);
 
   // 1. 物理线段比例尺图例
   m_scaleBar = new GraphicScaleBar(this);
@@ -580,9 +581,9 @@ WellPositionLegendWidget::WellPositionLegendWidget(QWidget *parent)
 
   // 2. 真实比例尺与屏幕实物换算标注文字
   QFont monoFont;
-  monoFont.setFamilies({QStringLiteral("JetBrains Mono"), QStringLiteral("monospace")});
+  monoFont = PaleoTheme::monoFont(monoFont.pointSize());
   monoFont.setStyleHint(QFont::TypeWriter);
-  monoFont.setPointSize(8);
+  monoFont.setPointSize(PaleoTheme::tokens().labelPt);
   monoFont.setStyleStrategy(QFont::PreferAntialias);
 
   m_lblScaleRatio = new QLabel(QStringLiteral("1:500 (1cm≈5m)"), this);
@@ -619,7 +620,7 @@ WellPositionLegendWidget::WellPositionLegendWidget(QWidget *parent)
   // 5. 全井位置微缩示意图例 / 导航条
   auto *lblNavTitle = new QLabel(tr("全井导航:"), this);
   PaleoTheme::applyThemedStyleSheet(lblNavTitle, [] {
-    return PaleoTheme::mutedCaptionStyleSheet() + QStringLiteral(" font-size: 8pt;");
+    return PaleoTheme::mutedCaptionStyleSheet() + PaleoTheme::metricStyleSheet(QStringLiteral(" font-size: {typography.label}pt;"));
   });
   mainLay->addWidget(lblNavTitle);
 

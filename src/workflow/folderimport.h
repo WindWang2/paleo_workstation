@@ -1,6 +1,7 @@
 // 层：功能
 #pragma once
 
+#include <QDateTime>
 #include <QObject>
 #include <QMap>
 #include <QString>
@@ -89,6 +90,10 @@ class FolderImportWorkflow : public QObject
     void enqueueImport(const std::shared_ptr<ImportJob> &job);
     void pumpImports();
     void runImportJob(const std::shared_ptr<ImportJob> &job);
+    // 方向 30：整批导入完成后写台账（.paleo/import_ledger.json，窗口 50 批）。
+    // 写失败 qWarning 如实留痕，不挡导入主路径。
+    void recordLedger(const QString &dir, const QDateTime &started,
+                      const QVector<FolderRowResult> &rows, const QString &importErr);
 
     DataImportService *m_svc = nullptr;
     PaleoTaskService *m_taskSvc = nullptr;

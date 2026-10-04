@@ -1,4 +1,5 @@
 // 层：视图
+// token 例外：DESIGN 数据符号例外：关联分层区间填色，作为综合井图数据。（tools/ui-token-exceptions.json 精确计数）。
 #include "datapreviewtabs.h"
 #include "datapreviewtabs_internal.h"
 #include "../paleoviewport.h"   // PaleoToolRow（工具条容器）
@@ -137,7 +138,7 @@ QWidget *DataPreviewTabs::buildWellLogContent(
   auto *singlePage = new QWidget(host);
   auto *singleLay = new QVBoxLayout(singlePage);
   singleLay->setContentsMargins(0, 0, 0, 0);
-  singleLay->setSpacing(8);
+  singleLay->setSpacing(PaleoTheme::tokens().spacingSm);
 
   auto *panel = new CurvePanel(singlePage);
   panel->setObjectName(QStringLiteral("curvePanel"));
@@ -147,7 +148,7 @@ QWidget *DataPreviewTabs::buildWellLogContent(
   auto *topBar = new QWidget(singlePage);
   auto *topLay = new QHBoxLayout(topBar);
   topLay->setContentsMargins(0, 0, 0, 0);
-  topLay->setSpacing(8);
+  topLay->setSpacing(PaleoTheme::tokens().spacingSm);
 
   auto *combo = new QComboBox(topBar);
   combo->setObjectName(QStringLiteral("curveCombo"));
@@ -195,27 +196,27 @@ QWidget *DataPreviewTabs::buildWellLogContent(
   auto *btnZoomReset = new QToolButton(topBar);
   btnZoomReset->setText(tr("1:1 适应"));
   btnZoomReset->setToolTip(tr("重置为全井深 (双击图道重置)"));
-  btnZoomReset->setStyleSheet(QStringLiteral("QToolButton { min-height: 22px; padding: 0 6px; }"));
+  btnZoomReset->setStyleSheet(PaleoTheme::metricStyleSheet(QStringLiteral("QToolButton { min-height: 22px; padding: 0 {spacing.sm}px; }")));
 
   // 曲线快速预设按钮
   auto *btnSelectDefault = new QToolButton(topBar);
   btnSelectDefault->setText(tr("常规(GR/AC/DEN)"));
   btnSelectDefault->setToolTip(tr("显示三孔隙/常规测井曲线"));
-  btnSelectDefault->setStyleSheet(QStringLiteral("QToolButton { min-height: 22px; padding: 0 6px; }"));
+  btnSelectDefault->setStyleSheet(PaleoTheme::metricStyleSheet(QStringLiteral("QToolButton { min-height: 22px; padding: 0 {spacing.sm}px; }")));
 
   auto *btnSelectAll = new QToolButton(topBar);
   btnSelectAll->setText(tr("全选"));
   btnSelectAll->setToolTip(tr("同时显示所有曲线"));
-  btnSelectAll->setStyleSheet(QStringLiteral("QToolButton { min-height: 22px; padding: 0 6px; }"));
+  btnSelectAll->setStyleSheet(PaleoTheme::metricStyleSheet(QStringLiteral("QToolButton { min-height: 22px; padding: 0 {spacing.sm}px; }")));
 
   auto *btnClear = new QToolButton(topBar);
   btnClear->setText(tr("仅主选"));
   btnClear->setToolTip(tr("仅显示当前下拉框选中的单根曲线"));
-  btnClear->setStyleSheet(QStringLiteral("QToolButton { min-height: 22px; padding: 0 6px; }"));
+  btnClear->setStyleSheet(PaleoTheme::metricStyleSheet(QStringLiteral("QToolButton { min-height: 22px; padding: 0 {spacing.sm}px; }")));
 
   topLay->addWidget(caption8(tr("主选曲线:"), topBar));
   topLay->addWidget(combo);
-  topLay->addSpacing(8);
+  topLay->addSpacing(PaleoTheme::tokens().spacingSm);
   topLay->addWidget(btnSelectDefault);
   topLay->addWidget(btnSelectAll);
   topLay->addWidget(btnClear);
@@ -253,23 +254,23 @@ QWidget *DataPreviewTabs::buildWellLogContent(
   chipContainer->setStyleSheet(QStringLiteral("background: transparent;"));
   auto *chipLay = new QHBoxLayout(chipContainer);
   chipLay->setContentsMargins(0, 0, 0, 0);
-  chipLay->setSpacing(8);
+  chipLay->setSpacing(PaleoTheme::tokens().spacingSm);
   chipLay->addWidget(caption8(tr("多曲线叠合:"), chipContainer));
 
-  // 曲线 chip：描边/字色用曲线数据色（数据符号，豁免）；底/边/悬停走 chrome
+  // 曲线 chip：描边保留曲线数据色；文字和底/边/悬停走 chrome
   // token。切换时重算当前主题样式，活体注册保证运行中换主题跟随。
   const auto chipStyle = [](const QColor &col, bool on) {
     const PaleoTheme::ThemeTokens &t = PaleoTheme::tokens();
     if (on)
-      return QStringLiteral(
-          "QToolButton { background: %1; border: 1.5px solid %2; border-radius: 8px; "
-          "color: %2; font-weight: bold; padding: 1px 7px; font-size: 8pt; }"
-          "QToolButton:hover { background: %3; }")
-          .arg(qssHex(t.surface), col.name(), qssHex(t.surfaceAltRaised));
-    return QStringLiteral(
-        "QToolButton { background: %1; border: 1px solid %2; border-radius: 8px; "
-        "color: %3; padding: 1px 7px; font-size: 8pt; }"
-        "QToolButton:hover { background: %4; border-color: %5; }")
+      return PaleoTheme::metricStyleSheet(QStringLiteral(
+          "QToolButton { background: %1; border: 1.5px solid %2; border-radius: {rounded.md}px; "
+          "color: %4; font-weight: bold; padding: {spacing.xs}px {spacing.sm}px; font-size: {typography.label}pt; }"
+          "QToolButton:hover { background: %3; }"))
+          .arg(qssHex(t.surface), col.name(), qssHex(t.surfaceAltRaised), qssHex(t.text));
+    return PaleoTheme::metricStyleSheet(QStringLiteral(
+        "QToolButton { background: %1; border: 1px solid %2; border-radius: {rounded.md}px; "
+        "color: %3; padding: {spacing.xs}px {spacing.sm}px; font-size: {typography.label}pt; }"
+        "QToolButton:hover { background: %4; border-color: %5; }"))
         .arg(qssHex(t.surface), qssHex(t.border), qssHex(t.textMuted),
              qssHex(t.surfaceAltRaised), qssHex(t.textDisabled));
   };
@@ -539,15 +540,15 @@ QWidget *DataPreviewTabs::buildWellLogContent(
   auto *viewSwitchBar = new QWidget(host);
   auto *switchLay = new QHBoxLayout(viewSwitchBar);
   switchLay->setContentsMargins(0, 0, 0, 0);
-  switchLay->setSpacing(8);
+  switchLay->setSpacing(PaleoTheme::tokens().spacingSm);
   PaleoTheme::applyThemedStyleSheet(viewSwitchBar, [] {
     const PaleoTheme::ThemeTokens &t = PaleoTheme::tokens();
-    return QStringLiteral(
-        "QToolButton { background: %1; border: 1px solid %2; border-radius: 4px;"
-        " padding: 3px 10px; font-size: 8pt; color: %3; }"
+    return PaleoTheme::metricStyleSheet(QStringLiteral(
+        "QToolButton { background: %1; border: 1px solid %2; border-radius: {rounded.sm}px;"
+        " padding: {spacing.xs}px {spacing.md}px; font-size: {typography.label}pt; color: %3; }"
         "QToolButton:hover { background: %4; }"
         "QToolButton:checked { background: %4; border-color: %5; color: %6;"
-        " font-weight: 600; }")
+        " font-weight: 600; }"))
         .arg(qssHex(t.surface), qssHex(t.border), qssHex(t.text),
              qssHex(t.surfaceAltRaised), qssHex(t.primary), qssHex(t.primaryText));
   });

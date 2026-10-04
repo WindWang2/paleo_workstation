@@ -1,4 +1,5 @@
 // 层：视图
+// token 例外：DESIGN 数据符号例外：井轨迹配色与色带编辑示例字符串，保存为数据样式。（tools/ui-token-exceptions.json 精确计数）。
 #include "seismic3dviewpanel.h"
 
 #include "../paleotheme.h"
@@ -55,7 +56,10 @@ QToolButton *createToolBtn(const QString &text, const QString &tooltip, bool che
     // 允许横向压缩：9 个文字按钮的最小宽曾是 dock 宽度下限（688px）的来源；
     // 用户主动收窄时文字裁切、tooltip 仍在，总比调不动强。
     btn->setMinimumWidth(0);
-    btn->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+    // Ignored 保留窄 dock 的可压缩性；分配剩余宽度，避免文字按钮归零。
+    QSizePolicy sizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+    sizePolicy.setHorizontalStretch(1);
+    btn->setSizePolicy(sizePolicy);
     PaleoTheme::applyThemedStyleSheet(btn, [] { return PaleoTheme::toolButtonStyleSheet(); });
     return btn;
 }
@@ -80,8 +84,8 @@ void Seismic3DViewPanel::buildUi() {
             .arg(t.surfaceAlt.name().toUpper(), t.border.name().toUpper());
     });
     auto *topLay = new QHBoxLayout(topBar);
-    topLay->setContentsMargins(6, 4, 6, 4);
-    topLay->setSpacing(4);
+    topLay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs);
+    topLay->setSpacing(PaleoTheme::tokens().spacingXs);
 
     btnIso_ = createToolBtn(tr("等轴测"), tr("切换至等轴测视角"));
     btnTop_ = createToolBtn(tr("俯视"), tr("切换至俯视 (平面) 视角"));
@@ -118,11 +122,11 @@ void Seismic3DViewPanel::buildUi() {
     qualityLabel_->setObjectName(QStringLiteral("seismic3DLodLabel"));
     {
         QFont f = PaleoTheme::monoFont();
-        f.setPointSize(PaleoTheme::kLabelPt);
+        f.setPointSize(PaleoTheme::tokens().labelPt);
         qualityLabel_->setFont(f);
     }
     PaleoTheme::applyThemedStyleSheet(qualityLabel_, [] {
-        return QStringLiteral("color: %1; padding: 0 4px;")
+        return PaleoTheme::metricStyleSheet(QStringLiteral("color: %1; padding: 0 {spacing.xs}px;"))
             .arg(PaleoTheme::tokens().textMuted.name().toUpper());
     });
     qualityLabel_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
@@ -143,9 +147,9 @@ void Seismic3DViewPanel::buildUi() {
             .arg(t.surface.name().toUpper(), t.border.name().toUpper());
     });
     auto *bottomLay = new QGridLayout(bottomBar);
-    bottomLay->setContentsMargins(12, 8, 12, 8);
-    bottomLay->setHorizontalSpacing(10);
-    bottomLay->setVerticalSpacing(6);
+    bottomLay->setContentsMargins(PaleoTheme::tokens().spacingMd, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingMd, PaleoTheme::tokens().spacingSm);
+    bottomLay->setHorizontalSpacing(PaleoTheme::tokens().spacingSm);
+    bottomLay->setVerticalSpacing(PaleoTheme::tokens().spacingSm);
 
     const QFont monoFont = PaleoTheme::monoFont();
 
@@ -712,8 +716,8 @@ void Seismic3DViewPanel::buildDisplayBar() {
             .arg(t.surface.name(), t.border.name());
     });
     auto *lay = new QHBoxLayout(bar);
-    lay->setContentsMargins(6, 2, 6, 2);
-    lay->setSpacing(4);
+    lay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs);
+    lay->setSpacing(PaleoTheme::tokens().spacingXs);
 
     const auto themedCaption = [](QWidget *w) {
         PaleoTheme::applyThemedStyleSheet(w, [] {
@@ -858,7 +862,7 @@ void Seismic3DViewPanel::buildDisplayBar() {
         dlg.setWindowTitle(tr("自定义 colormap 控制点（位置 0..1，颜色 #RRGGBB）"));
         auto *form = new QFormLayout(&dlg);
         auto *edit = new QTextEdit(&dlg);
-        edit->setFont(QFont(QStringLiteral("JetBrains Mono"), 9));
+        edit->setFont(PaleoTheme::monoFont(PaleoTheme::tokens().bodyPt));
         QStringList lines;
         for (const auto &stop : cmap_.stops())
             lines << QStringLiteral("%1 %2").arg(stop.pos, 0, 'f', 2)
@@ -1764,7 +1768,7 @@ void Seismic3DViewPanel::checkMemoryBudget() {
     if (!memoryHintLabel_) {
         memoryHintLabel_ = new QLabel(this);
         PaleoTheme::applyThemedStyleSheet(memoryHintLabel_, [] {
-            return QStringLiteral("color: %1; padding: 0 6px; font-size: 8pt;")
+            return PaleoTheme::metricStyleSheet(QStringLiteral("color: %1; padding: 0 {spacing.sm}px; font-size: {typography.label}pt;"))
                 .arg(PaleoTheme::tokens().warningText.name());
         });
         memoryHintLabel_->setWordWrap(true);
@@ -1783,7 +1787,7 @@ void Seismic3DViewPanel::showInlineWarning(const QString &text)
     if (!memoryHintLabel_) {
         memoryHintLabel_ = new QLabel(this);
         PaleoTheme::applyThemedStyleSheet(memoryHintLabel_, [] {
-            return QStringLiteral("color: %1; padding: 0 6px; font-size: 8pt;")
+            return PaleoTheme::metricStyleSheet(QStringLiteral("color: %1; padding: 0 {spacing.sm}px; font-size: {typography.label}pt;"))
                 .arg(PaleoTheme::tokens().warningText.name());
         });
         memoryHintLabel_->setWordWrap(true);

@@ -183,7 +183,7 @@ inline void showBatchFailureDetail(QWidget *parent, const QString &title,
   box.exec();
 }
 
-// ---- D1.6 可回收清单对话框 ----------------------------------------------------
+// ---- D1.6 可回收清单对话框（方向 30 收编：占用统计/滞留天数/物理删除）----
 class RecycleBinDialog : public QDialog
 {
   Q_OBJECT
@@ -195,9 +195,13 @@ public:
     setWindowTitle(tr("可回收清单（软删资产）"));
     setModal(true);
     auto *lay = new QVBoxLayout(this);
-    m_table = new QTableWidget(0, 4, this);
+    m_footnote = new QLabel(this);
+    m_footnote->setObjectName(QStringLiteral("recycleFootnote"));
+    lay->addWidget(m_footnote);
+    m_table = new QTableWidget(0, 6, this);
     m_table->setObjectName(QStringLiteral("recycleBinTable"));
-    m_table->setHorizontalHeaderLabels({tr("名称"), tr("类型"), tr("移除时间"), tr("原因")});
+    m_table->setHorizontalHeaderLabels(
+        {tr("名称"), tr("类型"), tr("大小"), tr("移除时间"), tr("滞留"), tr("原因")});
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_table->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_table->verticalHeader()->setVisible(false);
@@ -213,10 +217,13 @@ public:
     m_restoreAll->setObjectName(QStringLiteral("recycleRestoreAllButton"));
     m_purge = new QPushButton(tr("清空记录"), row);
     m_purge->setObjectName(QStringLiteral("recyclePurgeButton"));
+    m_purgeSelected = new QPushButton(tr("物理删除选中…"), row);
+    m_purgeSelected->setObjectName(QStringLiteral("recyclePurgeSelectedButton"));
     m_close = new QPushButton(tr("关闭"), row);
     rl->addWidget(m_restore);
     rl->addWidget(m_restoreAll);
     rl->addStretch(1);
+    rl->addWidget(m_purgeSelected);
     rl->addWidget(m_purge);
     rl->addWidget(m_close);
     lay->addWidget(row);
@@ -229,12 +236,27 @@ public:
           QMessageBox::Yes)
         emit purgeAllRequested();
     });
+    connect(m_purgeSelected, &QPushButton::clicked, this, [this] {
+      const QStringList ids = selectedIds();
+      if (ids.isEmpty())
+        return;
+      // 物理删除 = 不可撤销的磁盘 + catalog 双清——强确认（列出后果）。
+      if (QMessageBox::question(
+              this, tr("物理删除"),
+              tr("将把选中的 %1 个资产从 catalog 与磁盘上彻底删除：\n"
+                 "· 版本历史与链接一并清除，不可恢复；\n"
+                 "· 受管文件字节被删除（外链源文件不动）；\n"
+                 "· 被其他资产派生引用（血缘）的资产会被拒绝并说明。\n继续？")
+                  .arg(ids.size())) == QMessageBox::Yes)
+        emit purgeRequested(ids);
+    });
     connect(m_close, &QPushButton::clicked, this, &QDialog::reject);
   }
 
   void loadEntries(const QVector<RecycleEntry> &entries)
   {
     m_table->setRowCount(0);
+    const QDateTime now = QDateTime::currentDateTime();
     for (const RecycleEntry &e : entries)
     {
       const int r = m_table->rowCount();
@@ -246,15 +268,38 @@ public:
       auto *t = new QTableWidgetItem(e.type);
       t->setFlags(t->flags() & ~Qt::ItemIsEditable);
       m_table->setItem(r, 1, t);
+      auto *sz = new QTableWidgetItem;
+      sz->setFlags(sz->flags() & ~Qt::ItemIsEditable);
+      sz->setData(Qt::DisplayRole, m_sizes.value(e.assetId, qint64(-1)));
+      sz->setText(sizeText(m_sizes.value(e.assetId, qint64(-1))));
+      m_table->setItem(r, 2, sz);
       auto *d = new QTableWidgetItem(e.removedAt.toString(QStringLiteral("MM-dd hh:mm")));
       d->setFlags(d->flags() & ~Qt::ItemIsEditable);
-      m_table->setItem(r, 2, d);
+      m_table->setItem(r, 3, d);
+      auto *age = new QTableWidgetItem(ageText(e.removedAt, now));
+      age->setFlags(age->flags() & ~Qt::ItemIsEditable);
+      m_table->setItem(r, 4, age);
       auto *why = new QTableWidgetItem(e.reason);
       why->setFlags(why->flags() & ~Qt::ItemIsEditable);
-      m_table->setItem(r, 3, why);
+      m_table->setItem(r, 5, why);
     }
     m_restore->setEnabled(m_table->rowCount() > 0);
     m_restoreAll->setEnabled(m_table->rowCount() > 0);
+    updateFootnote(entries.size());
+  }
+  // 方向 30：软删资产的受管字节占用（assetId → bytes；无版本/全外链 = 0）。
+  // 调用方在打开对话框前从 catalog 算好灌入——对话框不碰 catalog。
+  void setEntrySizes(const QHash<QString, qint64> &sizes)
+  {
+    m_sizes = sizes;
+  }
+  // 占用统计出口（测试/状态条复用）。
+  qint64 totalBytes() const
+  {
+    qint64 t = 0;
+    for (auto it = m_sizes.cbegin(); it != m_sizes.cend(); ++it)
+      t += it.value();
+    return t;
   }
   QStringList selectedIds() const
   {
@@ -272,12 +317,45 @@ signals:
   void restoreRequested(const QStringList &assetIds); // NOLINT(readability-inconsistent-declaration-parameter-name)
   void restoreAllRequested();
   void purgeAllRequested();
+  // 方向 30：物理删除（catalog + 磁盘双清，二次确认在对话框内完成）。
+  void purgeRequested(const QStringList &assetIds); // NOLINT(readability-inconsistent-declaration-parameter-name)
 
 private:
+  static QString sizeText(qint64 bytes)
+  {
+    if (bytes < 0)
+      return QObject::tr("—");
+    if (bytes < 1024)
+      return QObject::tr("%1 B").arg(bytes);
+    if (bytes < 1024 * 1024)
+      return QObject::tr("%1 KB").arg(QString::number(bytes / 1024.0, 'f', 1));
+    if (bytes < 1024LL * 1024 * 1024)
+      return QObject::tr("%1 MB").arg(QString::number(bytes / (1024.0 * 1024), 'f', 1));
+    return QObject::tr("%1 GB").arg(QString::number(bytes / (1024.0 * 1024 * 1024), 'f', 2));
+  }
+  static QString ageText(const QDateTime &removedAt, const QDateTime &now)
+  {
+    if (!removedAt.isValid())
+      return QObject::tr("—");
+    const qint64 days = removedAt.daysTo(now);
+    return days <= 0 ? QObject::tr("今天") : QObject::tr("%1 天").arg(days);
+  }
+  void updateFootnote(int count)
+  {
+    m_footnote->setText(count == 0
+                            ? tr("清单为空。")
+                            : tr("%1 项 · 受管占用 %2（外链源不计）。")
+                                  .arg(count)
+                                  .arg(sizeText(totalBytes())));
+  }
+
+  QHash<QString, qint64> m_sizes;
+  QLabel *m_footnote = nullptr;
   QTableWidget *m_table = nullptr;
   QPushButton *m_restore = nullptr;
   QPushButton *m_restoreAll = nullptr;
   QPushButton *m_purge = nullptr;
+  QPushButton *m_purgeSelected = nullptr;
   QPushButton *m_close = nullptr;
 };
 
@@ -347,6 +425,8 @@ inline QStringList contextMenuActions(const ContextMenuSpec &spec)
   {
     // 资产面（mixed 时给公共子集——资产操作；实体专属操作不给）。
     acts << QStringLiteral("openPreview");
+    if (spec.assetCount == 1)
+      acts << QStringLiteral("showVersions"); // 方向 30：版本对比/回滚入口
     if (spec.singleAssetIsHorizon)
       acts << QStringLiteral("gridHorizon"); // goal/gridding-surface-ops：层位网格化
     if (spec.assetCount > 1)
@@ -405,7 +485,7 @@ public:
     m_warn->setObjectName(QStringLiteral("roleEditWarn"));
     m_warn->setWordWrap(true);
     PaleoTheme::applyThemedStyleSheet(m_warn, [] {
-      return QStringLiteral("color: %1;").arg(PaleoTheme::tokens().warning.name().toUpper());
+      return QStringLiteral("color: %1;").arg(PaleoTheme::tokens().warningText.name().toUpper());
     });
     lay->addWidget(m_warn);
     auto *box = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);

@@ -582,27 +582,47 @@ void TestUiBlocking::batchSoftDeleteDoesNotRewritePerItem()
 
   QElapsedTimer clock;
   clock.start();
-  int writes = 0;
-  QFileInfo before(recyclePath);
+  // 方向 30 起 batchRemoveSoft 走单命令（BatchRemoveCmd：循环 + 一次
+  // recycle->save()）——探针按新调用形状驱动；逐项 SoftDeleteCmd、每项一次
+  // 全量重写的旧回归若回潮，writes 会随 N 放大被本门拦下。
+  QStringList ids;
+  QVector<std::pair<QString, paleo::dataops::RecycleEntry>> entries;
   for (int i = 0; i < n; ++i)
   {
     const CatalogAsset a = cat->assetById(QStringLiteral("A%1").arg(i));
-    paleo::dataops::SoftDeleteCmd cmd(ctx, a.id, a.displayName, a.type, true);
-    cmd.redo(); // redo() 内部一次 recycle->save() → 一次全量重写
+    paleo::dataops::RecycleEntry e;
+    e.assetId = a.id;
+    e.type = a.type;
+    e.displayName = a.displayName;
+    ids << a.id;
+    entries.append({a.id, e});
+  }
+  int writes = 0;
+  QFileInfo before(recyclePath);
+  paleo::dataops::BatchRemoveCmd cmd(ctx, ids, entries, QStringLiteral("批量移除"));
+  cmd.redo(); // 循环 + 单次 save() → 单次全量重写
+  {
+    const QFileInfo after(recyclePath);
+    if (after.lastModified() != before.lastModified() || after.size() != before.size())
+      ++writes;
+    before = after;
+  }
+  cmd.undo(); // 撤销同样是单次落盘
+  {
     const QFileInfo after(recyclePath);
     if (after.lastModified() != before.lastModified() || after.size() != before.size())
       ++writes;
     before = after;
   }
   const double totalMs = double(clock.nsecsElapsed()) / 1.0e6;
-  qInfo("逐项软删 %d 项耗时 %.1fms，recycle_bin.json 落盘 %d 次", n, totalMs, writes);
+  qInfo("批量软删 %d 项（单命令）耗时 %.1fms，recycle_bin.json 落盘 %d 次", n, totalMs,
+        writes);
 
   QVERIFY2(writes <= 2,
            qPrintable(QStringLiteral(
                           "软删 %1 项触发 %2 次 recycle_bin.json 全量重写——"
-                          "已知阻塞：DataListPanel::pushCommand 每 push 一条命令就"
-                          " refreshAssetTable() 一次（datalist.cpp:2413），"
-                          "批量软删因此是 O(N²) 且全在 GUI 线程")
+                          "批量软删必须走单命令（BatchRemoveCmd：循环 + 一次"
+                          " save()），逐项命令会把重写次数随 N 放大且全在 GUI 线程")
                           .arg(n).arg(writes)));
 }
 

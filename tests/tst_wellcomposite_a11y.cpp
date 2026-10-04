@@ -1,6 +1,7 @@
 #include <QLabel>
 #include <QListWidget>
 #include <QSignalSpy>
+#include "../src/ui/paleotheme.h"
 #include <QTest>
 
 #include "ui/wellcomposite/wellcompositecanvas.h"
@@ -301,9 +302,20 @@ private slots:
     QCOMPARE(list->count(), 2);
     QCOMPARE(list->item(0)->data(Qt::UserRole).toString(), QStringLiteral("survey"));
     QCOMPARE(list->item(1)->data(Qt::UserRole).toString(), QStringLiteral("ref"));
-    // 琥珀前景 = 参考井
-    QCOMPARE(list->item(1)->foreground().color(), QColor(QStringLiteral("#92400E")));
-    QCOMPARE(list->item(0)->foreground().color(), QColor(QStringLiteral("#1B73D0")));
+    // 琥珀/蓝的角色语义取 DESIGN 文字 token；已存在的条目随主题往返更新。
+    const auto originalTheme = PaleoTheme::currentTheme();
+    QSignalSpy changes(list, &QListWidget::itemChanged);
+    for (const auto theme : {PaleoTheme::Theme::Light, PaleoTheme::Theme::Dark, PaleoTheme::Theme::Light})
+    {
+      PaleoTheme::applyTheme(theme);
+      const auto &tokens = PaleoTheme::tokens();
+      QCOMPARE(list->item(1)->foreground().color(), tokens.warningText);
+      QCOMPARE(list->item(0)->foreground().color(), tokens.primaryText);
+      QCOMPARE(list->item(1)->data(Qt::UserRole).toString(), QStringLiteral("ref"));
+      QCOMPARE(list->item(0)->data(Qt::UserRole).toString(), QStringLiteral("survey"));
+    }
+    QCOMPARE(changes.count(), 0);
+    PaleoTheme::applyTheme(originalTheme);
   }
 
   // ---- D1.10 隐藏条 objectName 语义（面板装配）----

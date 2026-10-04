@@ -1,5 +1,6 @@
 // 层：视图
 #include "curveconfigdialog.h"
+#include "ui/paleoicons.h"
 #include "../paleotheme.h"
 
 #include <QDialogButtonBox>
@@ -45,8 +46,8 @@ CurveConfigDialog::CurveConfigDialog(WellCompositeCanvas *canvas, QWidget *paren
 void CurveConfigDialog::setupUi()
 {
   auto *rootLay = new QVBoxLayout(this);
-  rootLay->setContentsMargins(16, 16, 16, 16);
-  rootLay->setSpacing(16);
+  rootLay->setContentsMargins(PaleoTheme::tokens().spacingMd, PaleoTheme::tokens().spacingMd, PaleoTheme::tokens().spacingMd, PaleoTheme::tokens().spacingMd);
+  rootLay->setSpacing(PaleoTheme::tokens().spacingMd);
 
   // 顶部说明提示
   m_lblInfo = new QLabel(
@@ -54,9 +55,9 @@ void CurveConfigDialog::setupUi()
       this);
   PaleoTheme::applyThemedStyleSheet(m_lblInfo, [] {
     const auto &t = PaleoTheme::tokens();
-    return QStringLiteral(
+    return PaleoTheme::metricStyleSheet(QStringLiteral(
                "QLabel { background: %1; color: %2; border: 1px solid %3; "
-               "border-radius: 4px; padding: 8px 12px; font-size: 9pt; }")
+               "border-radius: {rounded.sm}px; padding: {spacing.sm}px {spacing.md}px; font-size: {typography.body}pt; }"))
         .arg(t.surfaceAlt.name(), t.text.name(), t.border.name());
   });
   rootLay->addWidget(m_lblInfo);
@@ -65,7 +66,7 @@ void CurveConfigDialog::setupUi()
   auto *midWidget = new QWidget(this);
   auto *midLay = new QHBoxLayout(midWidget);
   midLay->setContentsMargins(0, 0, 0, 0);
-  midLay->setSpacing(16);
+  midLay->setSpacing(PaleoTheme::tokens().spacingMd);
 
   m_tree = new QTreeWidget(midWidget);
   m_tree->setHeaderLabels({tr("井道 / 测井曲线"), tr("井道类别 / 单位"), tr("道宽 / 显示范围"), tr("形态"), tr("颜色"), tr("数据点数")});
@@ -82,8 +83,8 @@ void CurveConfigDialog::setupUi()
   // 全局三分叉，goal/ui-experience-polish 收敛）。
   PaleoTheme::applyThemedStyleSheet(m_tree, [] {
     const auto &t = PaleoTheme::tokens();
-    return QStringLiteral(
-               "QTreeWidget { border: 1px solid %1; border-radius: 4px; background: %2; font-size: 9pt; }")
+    return PaleoTheme::metricStyleSheet(QStringLiteral(
+               "QTreeWidget { border: 1px solid %1; border-radius: {rounded.sm}px; background: %2; font-size: {typography.body}pt; }"))
         .arg(t.border.name(), t.surface.name());
   });
   midLay->addWidget(m_tree, 1);
@@ -92,16 +93,16 @@ void CurveConfigDialog::setupUi()
   auto *btnBox = new QWidget(midWidget);
   auto *btnLay = new QVBoxLayout(btnBox);
   btnLay->setContentsMargins(0, 0, 0, 0);
-  btnLay->setSpacing(8);
+  btnLay->setSpacing(PaleoTheme::tokens().spacingSm);
 
   const auto themedBtnStyle = [] {
     const auto &t = PaleoTheme::tokens();
-    return QStringLiteral(
-               "QPushButton { background: %1; border: 1px solid %2; border-radius: 4px; "
-               "padding: 6px 12px; font-size: 9pt; color: %3; text-align: left; }"
+    return PaleoTheme::metricStyleSheet(QStringLiteral(
+               "QPushButton { background: %1; border: 1px solid %2; border-radius: {rounded.sm}px; "
+               "padding: {spacing.sm}px {spacing.md}px; font-size: {typography.body}pt; color: %3; text-align: left; }"
                "QPushButton:hover { background: %4; border-color: %5; }"
                "QPushButton:pressed { background: %2; }"
-               "QPushButton:disabled { color: %5; background: %4; border-color: %2; }")
+               "QPushButton:disabled { color: %5; background: %4; border-color: %2; }"))
         .arg(t.surface.name(), t.border.name(), t.text.name(),
              t.surfaceAlt.name(), t.textDisabled.name());
   };
@@ -109,7 +110,7 @@ void CurveConfigDialog::setupUi()
   auto *lblOrderTitle = new QLabel(tr("井道顺序管理"), btnBox);
   PaleoTheme::applyThemedStyleSheet(lblOrderTitle, [] {
     return PaleoTheme::mutedCaptionStyleSheet() +
-           QStringLiteral(" font-weight: bold; font-size: 8pt; margin-top: 2px;");
+           PaleoTheme::metricStyleSheet(QStringLiteral(" font-weight: bold; font-size: {typography.label}pt; margin-top: {spacing.xs}px;"));
   });
   btnLay->addWidget(lblOrderTitle);
 
@@ -143,12 +144,12 @@ void CurveConfigDialog::setupUi()
   m_btnRename->setProperty("hint", m_btnRename->toolTip());
   btnLay->addWidget(m_btnRename);
 
-  btnLay->addSpacing(8);
+  btnLay->addSpacing(PaleoTheme::tokens().spacingSm);
 
   auto *lblCurveTitle = new QLabel(tr("曲线合并与解散"), btnBox);
   PaleoTheme::applyThemedStyleSheet(lblCurveTitle, [] {
     return PaleoTheme::mutedCaptionStyleSheet() +
-           QStringLiteral(" font-weight: bold; font-size: 8pt; margin-top: 4px;");
+           PaleoTheme::metricStyleSheet(QStringLiteral(" font-weight: bold; font-size: {typography.label}pt; margin-top: {spacing.xs}px;"));
   });
   btnLay->addWidget(lblCurveTitle);
 
@@ -170,7 +171,7 @@ void CurveConfigDialog::setupUi()
   m_btnExtract->setProperty("hint", m_btnExtract->toolTip());
   btnLay->addWidget(m_btnExtract);
 
-  btnLay->addSpacing(8);
+  btnLay->addSpacing(PaleoTheme::tokens().spacingSm);
 
   m_btnResetDefault = new QPushButton(tr("恢复标准测井组合"), btnBox);
   PaleoTheme::applyThemedStyleSheet(m_btnResetDefault, themedBtnStyle);
@@ -184,14 +185,14 @@ void CurveConfigDialog::setupUi()
   // 底部标准对话框操作栏
   auto *bottomLay = new QHBoxLayout();
   bottomLay->setContentsMargins(0, 0, 0, 0);
-  bottomLay->setSpacing(8);
+  bottomLay->setSpacing(PaleoTheme::tokens().spacingSm);
 
   m_btnApply = new QPushButton(tr("应用"), this);
   PaleoTheme::applyThemedStyleSheet(m_btnApply, [] {
     const auto &t = PaleoTheme::tokens();
-    return QStringLiteral(
-               "QPushButton { background: %1; border: 1px solid %2; border-radius: 4px; padding: 6px 16px; font-size: 9pt; color: %3; }"
-               "QPushButton:hover { background: %4; border-color: %5; }")
+    return PaleoTheme::metricStyleSheet(QStringLiteral(
+               "QPushButton { background: %1; border: 1px solid %2; border-radius: {rounded.sm}px; padding: {spacing.sm}px {spacing.md}px; font-size: {typography.body}pt; color: %3; }"
+               "QPushButton:hover { background: %4; border-color: %5; }"))
         .arg(t.surface.name(), t.border.name(), t.text.name(),
              t.surfaceAlt.name(), t.textDisabled.name());
   });
@@ -205,16 +206,16 @@ void CurveConfigDialog::setupUi()
   // 确定 = 主按钮（primary 合法三用途之一）
   PaleoTheme::applyThemedStyleSheet(dialogButtons->button(QDialogButtonBox::Ok), [] {
     const auto &t = PaleoTheme::tokens();
-    return QStringLiteral(
-               "QPushButton { background: %1; color: %2; border: 1px solid %3; border-radius: 4px; padding: 6px 20px; font-size: 9pt; font-weight: bold; }"
-               "QPushButton:hover { background: %3; }")
+    return PaleoTheme::metricStyleSheet(QStringLiteral(
+               "QPushButton { background: %1; color: %2; border: 1px solid %3; border-radius: {rounded.sm}px; padding: {spacing.sm}px {spacing.lg}px; font-size: {typography.body}pt; font-weight: bold; }"
+               "QPushButton:hover { background: %3; }"))
         .arg(t.primary.name(), t.onPrimary.name(), t.primaryHover.name());
   });
   PaleoTheme::applyThemedStyleSheet(dialogButtons->button(QDialogButtonBox::Cancel), [] {
     const auto &t = PaleoTheme::tokens();
-    return QStringLiteral(
-               "QPushButton { background: %1; border: 1px solid %2; border-radius: 4px; padding: 6px 16px; font-size: 9pt; color: %3; }"
-               "QPushButton:hover { background: %4; }")
+    return PaleoTheme::metricStyleSheet(QStringLiteral(
+               "QPushButton { background: %1; border: 1px solid %2; border-radius: {rounded.sm}px; padding: {spacing.sm}px {spacing.md}px; font-size: {typography.body}pt; color: %3; }"
+               "QPushButton:hover { background: %4; }"))
         .arg(t.surface.name(), t.border.name(), t.text.name(), t.surfaceAlt.name());
   });
   bottomLay->addWidget(dialogButtons);
@@ -338,7 +339,8 @@ void CurveConfigDialog::populateTree(int selectTrackIdx)
 
         curveItem->setData(0, Qt::UserRole, trackIdx);
         curveItem->setData(0, Qt::UserRole + 1, curveIdx);
-        curveItem->setForeground(0, c.color);
+        curveItem->setIcon(0, PaleoIcons::dataLine(c.color));
+        PaleoTheme::setItemTextColor(curveItem, 0, PaleoTheme::ItemTextColor::Normal);
       }
     }
   }

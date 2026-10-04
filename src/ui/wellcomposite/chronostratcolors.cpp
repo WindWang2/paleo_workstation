@@ -1,4 +1,5 @@
 // 层：视图
+// token 例外：DESIGN 数据符号例外：年代地层色标与标准年代配色，UI 主题不得改写。（tools/ui-token-exceptions.json 精确计数）。
 #include "chronostratcolors.h"
 
 #include <QMap>

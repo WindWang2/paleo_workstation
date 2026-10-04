@@ -125,13 +125,13 @@ class PaleoLayerConfigPage : public QgsMapLayerConfigWidget
         setAutoFillBackground(true);
 
         auto *root = new QVBoxLayout(this);
-        root->setContentsMargins(8, 8, 8, 8); // DESIGN.md spacing sm=8
-        root->setSpacing(8);
+        root->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm); // DESIGN.md spacing sm=8
+        root->setSpacing(PaleoTheme::tokens().spacingSm);
 
         // —— 只读字段（两列 QForm；次级标签 8pt，DESIGN.md label token）——
         auto *form = new QFormLayout();
-        form->setVerticalSpacing(8);
-        form->setHorizontalSpacing(8);
+        form->setVerticalSpacing(PaleoTheme::tokens().spacingSm);
+        form->setHorizontalSpacing(PaleoTheme::tokens().spacingSm);
         m_propLayerId = addFieldRow(form, tr("图层 ID"), layerId,
                                     QStringLiteral("paleoPropLayerId"));
         m_propGroup = addFieldRow(form, tr("所属组"), declField(m_decl.group),
@@ -182,7 +182,7 @@ class PaleoLayerConfigPage : public QgsMapLayerConfigWidget
     {
         auto *cap = new QLabel(caption, this);
         QFont f = cap->font();
-        f.setPointSize(PaleoTheme::kLabelPt); // 8pt 次级标签
+        f.setPointSize(PaleoTheme::tokens().labelPt); // 8pt 次级标签
         cap->setFont(f);
         // text-muted：走 palette 的 PlaceholderText 槽（design palette 已映射
         // 到 #5D6E80）——不落颜色字面量。
@@ -206,13 +206,13 @@ class PaleoLayerConfigPage : public QgsMapLayerConfigWidget
         m_styleGroup = new QGroupBox(tr("样式"), this);
         m_styleGroup->setObjectName(QStringLiteral("paleoStyleGroup"));
         QFont gf = m_styleGroup->font();
-        gf.setPointSize(PaleoTheme::kLabelPt);
+        gf.setPointSize(PaleoTheme::tokens().labelPt);
         m_styleGroup->setFont(gf);
 
         auto *grid = new QGridLayout(m_styleGroup);
-        grid->setContentsMargins(8, 8, 8, 8);
-        grid->setVerticalSpacing(8);
-        grid->setHorizontalSpacing(8);
+        grid->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm);
+        grid->setVerticalSpacing(PaleoTheme::tokens().spacingSm);
+        grid->setHorizontalSpacing(PaleoTheme::tokens().spacingSm);
 
         m_savePresetButton = new QPushButton(tr("保存当前样式为预设"), m_styleGroup);
         m_savePresetButton->setObjectName(QStringLiteral("paleoSavePresetButton"));

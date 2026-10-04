@@ -20,7 +20,7 @@ namespace
   {
     auto *l = new QLabel( text, parent );
     QFont f = l->font();
-    f.setPointSize( 8 );
+    f.setPointSize(PaleoTheme::tokens().labelPt);
     l->setFont( f );
     PaleoTheme::applyThemedStyleSheet(
         l, [] { return PaleoTheme::mutedCaptionStyleSheet(); } );
@@ -37,8 +37,8 @@ QWidget *buildErrorPage( const QString &title, const QString &detail, QWidget *p
 {
   auto *box = new QWidget( parent );
   auto *lay = new QVBoxLayout( box );
-  lay->setContentsMargins( 16, 16, 16, 16 );
-  lay->setSpacing( 8 );
+  lay->setContentsMargins(PaleoTheme::tokens().spacingMd, PaleoTheme::tokens().spacingMd, PaleoTheme::tokens().spacingMd, PaleoTheme::tokens().spacingMd);
+  lay->setSpacing(PaleoTheme::tokens().spacingSm);
   lay->addStretch( 1 );
 
   auto *titleLbl = new QLabel( title, box );
@@ -47,7 +47,7 @@ QWidget *buildErrorPage( const QString &title, const QString &detail, QWidget *p
   titleLbl->setWordWrap( true );
   PaleoTheme::applyThemedStyleSheet( titleLbl, [] {
     return QStringLiteral( "color: %1; font-weight: 600;" )
-        .arg( PaleoTheme::tokens().error.name() );
+        .arg( PaleoTheme::tokens().errorText.name() );
   } );
   lay->addWidget( titleLbl );
 
@@ -76,14 +76,17 @@ QWidget *buildErrorPage( const QString &title, const QString &detail, QWidget *p
   auto *pageLay = new QVBoxLayout( page );
   pageLay->setContentsMargins( 0, 0, 0, 0 );
   auto *frame = new QFrame( page );
+  frame->setObjectName(QStringLiteral("previewErrorCard"));
   frame->setFrameShape( QFrame::StyledPanel );
   PaleoTheme::applyThemedStyleSheet( frame, [] {
-    return QStringLiteral( "QFrame { background: %1; border: 1px solid %2;"
-                           " border-radius: 8px; }" )
-        .arg( PaleoTheme::tokens().errorBg.name(), PaleoTheme::tokens().error.name() );
+    return PaleoTheme::metricStyleSheet(QStringLiteral(
+                           // QLabel 也继承 QFrame；卡片边框只作用于外框。
+                           "QFrame#previewErrorCard { background: %1; border: 1px solid %2;"
+                           " border-radius: {rounded.md}px; }" ))
+        .arg( PaleoTheme::tokens().errorBg.name(), PaleoTheme::tokens().errorText.name() );
   } );
   auto *frameLay = new QVBoxLayout( frame );
-  frameLay->setContentsMargins( 24, 24, 24, 24 );
+  frameLay->setContentsMargins(PaleoTheme::tokens().spacingLg, PaleoTheme::tokens().spacingLg, PaleoTheme::tokens().spacingLg, PaleoTheme::tokens().spacingLg);
   frameLay->addWidget( box );
   pageLay->addWidget( frame, 0, Qt::AlignCenter );
   return page;
@@ -94,8 +97,8 @@ QWidget *buildUnsupportedPage( const QString &typeName, QWidget *parent )
   auto *page = new QWidget( parent );
   page->setObjectName( QStringLiteral( "previewUnsupportedPage" ) );
   auto *lay = new QVBoxLayout( page );
-  lay->setContentsMargins( 16, 16, 16, 16 );
-  lay->setSpacing( 8 );
+  lay->setContentsMargins(PaleoTheme::tokens().spacingMd, PaleoTheme::tokens().spacingMd, PaleoTheme::tokens().spacingMd, PaleoTheme::tokens().spacingMd);
+  lay->setSpacing(PaleoTheme::tokens().spacingSm);
   lay->addStretch( 1 );
 
   auto *title = new QLabel( QObject::tr("不支持预览这个类型") +
@@ -164,13 +167,13 @@ QWidget *buildBigRasterHintBar( const QString &hint, QWidget *parent )
   auto *bar = new QWidget( parent );
   bar->setObjectName( QStringLiteral( "previewBigRasterHint" ) );
   PaleoTheme::applyThemedStyleSheet( bar, [] {
-    return QStringLiteral( "background: %1; border: 1px solid %2;"
-                           " border-radius: 4px;" )
+    return PaleoTheme::metricStyleSheet(QStringLiteral( "background: %1; border: 1px solid %2;"
+                           " border-radius: {rounded.sm}px;" ))
         .arg( PaleoTheme::tokens().warningBg.name(),
               PaleoTheme::tokens().warning.name() );
   } );
   auto *lay = new QHBoxLayout( bar );
-  lay->setContentsMargins( 8, 4, 8, 4 );
+  lay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs);
   auto *lbl = new QLabel( hint, bar );
   PaleoTheme::applyThemedStyleSheet(
       lbl, [] { return PaleoTheme::mutedCaptionStyleSheet(); } );

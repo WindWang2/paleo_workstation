@@ -53,12 +53,24 @@ namespace PaleoDecorationTheme
   }
   void setDark( bool dark ) { gDark = dark; }
   bool isDark() { return gDark; }
-  QColor card() { return gDark ? QColor( 27, 33, 42, 200 ) : QColor( 255, 255, 255, 170 ); }
-  QColor ink() { return gDark ? QColor( QStringLiteral( "#E4EAF2" ) ) : QColor( 20, 20, 20 ); }
-  QColor inkSoft() { return gDark ? QColor( 163, 177, 191, 120 ) : QColor( 60, 60, 60, 90 ); }
-  QColor border() { return gDark ? QColor( QStringLiteral( "#3B4552" ) ) : QColor( QStringLiteral( "#DFE5EC" ) ); }
-  QColor arrowDarkHalf() { return gDark ? QColor( 228, 234, 242 ) : QColor( 30, 30, 30 ); }
-  QColor arrowLightHalf() { return gDark ? QColor( 59, 69, 82 ) : QColor( 240, 240, 240 ); }
+  const PaleoTheme::ThemeTokens &themeTokens()
+  { return PaleoTheme::tokens(gDark ? PaleoTheme::Theme::Dark : PaleoTheme::Theme::Light); }
+  QColor card()
+  {
+    QColor color = gDark ? themeTokens().surfaceAlt : themeTokens().surface;
+    color.setAlpha(gDark ? 200 : 170); // DESIGN：地图装饰保留半透明承载卡。
+    return color;
+  }
+  QColor ink() { return themeTokens().text; }
+  QColor inkSoft()
+  {
+    QColor color = themeTokens().textMuted;
+    color.setAlpha(gDark ? 120 : 90); // 比例尺次级刻度的原有透明度。
+    return color;
+  }
+  QColor border() { return themeTokens().border; }
+  QColor arrowDarkHalf() { return themeTokens().text; }
+  QColor arrowLightHalf() { return themeTokens().surfaceAlt; }
 } // namespace PaleoDecorationTheme
 
 // ---------------------------------------------------------------- scale bar
@@ -139,7 +151,7 @@ void PaleoNorthArrowDecoration::render( const QgsMapSettings &mapSettings, QgsRe
   painter->save();
   painter->setPen(Qt::NoPen);
   painter->setBrush( PaleoDecorationTheme::card() );
-  painter->drawRoundedRect(QRectF(margin-6, margin-6, s+12, s+28),4,4);
+  painter->drawRoundedRect(QRectF(margin-6, margin-6, s+12, s+28), PaleoTheme::tokens().radiusSm, PaleoTheme::tokens().radiusSm);
   painter->translate( cx, cy );
   painter->rotate( -mapSettings.rotation() );
 
@@ -230,7 +242,7 @@ void PaleoWatermarkDecoration::render( const QgsMapSettings &mapSettings, QgsRen
   // 图件文档面而非 UI chrome，故显式取 tokens(Theme::Light)。
   const PaleoTheme::ThemeTokens &lt = PaleoTheme::tokens( PaleoTheme::Theme::Light );
   QFont font = painter->font();
-  font.setPointSizeF( 9.0 );
+  font.setPointSizeF(PaleoTheme::tokens().bodyPt);
   font.setBold( true );
   painter->setFont( font );
   const QFontMetricsF fm( font );
@@ -246,6 +258,7 @@ void PaleoWatermarkDecoration::render( const QgsMapSettings &mapSettings, QgsRen
   painter->setRenderHint( QPainter::Antialiasing, true );
   painter->setPen( Qt::NoPen );
   painter->setBrush( fill );
+  // 纸面标注胶囊按自身高度计算半径，等价于 rounded.full 的几何限幅。
   painter->drawRoundedRect( QRectF( x, y, pillW, pillH ), pillH / 2.0, pillH / 2.0 );
   painter->setPen( lt.text );
   painter->drawText( QRectF( x, y, pillW, pillH ), Qt::AlignCenter, mText );
@@ -452,12 +465,12 @@ void PaleoDecorationManager::paintDecorations( QPainter *painter )
 void PaleoFaciesLegendDecoration::render(const QgsMapSettings &, QgsRenderContext &context)
 {
   auto *p=context.painter();if(!p || !p->device())return;
-  p->save();QFont f=p->font();f.setPointSize(8);p->setFont(f);
+  p->save();QFont f=p->font();f.setPointSize(PaleoTheme::tokens().labelPt);p->setFont(f);
   const int row=p->fontMetrics().height()+8;
   const int width=std::min(240, std::max(140, p->device()->width()/3));
   const int x=p->device()->width()-width-16,y=16;
   p->setPen(PaleoDecorationTheme::border());p->setBrush(PaleoDecorationTheme::card());
-  p->drawRoundedRect(QRectF(x,y,width,16+row*(facies.size()+1)),4,4);
+  p->drawRoundedRect(QRectF(x,y,width,16+row*(facies.size()+1)), PaleoTheme::tokens().radiusSm, PaleoTheme::tokens().radiusSm);
   p->setPen(PaleoDecorationTheme::ink());f.setBold(true);p->setFont(f);
   p->drawText(QRect(x+8,y+4,width-16,row),Qt::AlignVCenter,p->fontMetrics().elidedText(title,Qt::ElideRight,width-16));
   f.setBold(false);p->setFont(f);

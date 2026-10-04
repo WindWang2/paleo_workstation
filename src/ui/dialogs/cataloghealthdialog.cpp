@@ -29,6 +29,7 @@ const CategoryRow kCategoryRows[] = {
     {paleo::health::IssueKind::OrphanEntity, QT_TRANSLATE_NOOP("CatalogHealthDialog", "孤立实体")},
     {paleo::health::IssueKind::NoVersionAsset, QT_TRANSLATE_NOOP("CatalogHealthDialog", "无版本资产")},
     {paleo::health::IssueKind::InvalidRoleLink, QT_TRANSLATE_NOOP("CatalogHealthDialog", "角色词表违例")},
+    {paleo::health::IssueKind::StaleVersion, QT_TRANSLATE_NOOP("CatalogHealthDialog", "过时版本")},
 };
 constexpr int kCategoryCount = sizeof(kCategoryRows) / sizeof(kCategoryRows[0]);
 constexpr int kRecycleRow = kCategoryCount; // 列表第 kCategoryCount 行 = 回收站积压
@@ -131,7 +132,9 @@ CatalogHealthDialog::CatalogHealthDialog(QWidget *parent)
                                                           ->data(Qt::UserRole + 2)
                                                           .toString()
                                                     : QString();
-    if (!entityId.isEmpty())
+    const QString versionId = m_issues->item(row, 0) ? m_issues->item(row, 0)->data(Qt::UserRole + 3).toString() : QString();
+    if (!versionId.isEmpty()) emit jumpToVersion(versionId);
+    else if (!entityId.isEmpty())
       emit jumpToEntity(entityId);
     else if (!assetId.isEmpty())
       emit jumpToAsset(assetId);
@@ -230,6 +233,8 @@ void CatalogHealthDialog::fillIssueTable()
     if (i.kind != kind)
       continue;
     addRow(i.subject, i.detail, i.assetId, i.entityId);
+    if (i.kind == paleo::health::IssueKind::StaleVersion)
+      m_issues->item(m_issues->rowCount() - 1, 0)->setData(Qt::UserRole + 3, i.versionId);
     ++n;
   }
   const int total = m_report.issues.size();

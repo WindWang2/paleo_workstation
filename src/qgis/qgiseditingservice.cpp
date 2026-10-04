@@ -179,9 +179,12 @@ bool QgisEditingService::commitEdit(QgsVectorLayer *layer, QString *error)
       return {true, QString()};
     });
 
-  // Failed active sessions retain their busy mark for retry/rollback. A stale
-  // mark without an editable session must be released on failure as well.
-  if (res.ok || !layer->isEditable())
+  // 真失败仍保留活编辑会话供重试/回滚；只清无编辑态的 edit 所有者标记，
+  // 不释放处理任务的 busy。layerBusy 的公开格式固定为 "taskId — reason"。
+  QString busy;
+  const bool orphanEdit = !layer->isEditable() && m_store->layerBusy(busyKey(layer), &busy)
+      && busy.startsWith(QStringLiteral("edit — "));
+  if (res.ok || orphanEdit)
     m_store->markLayerFree(busyKey(layer));
 
   if (!res.ok)

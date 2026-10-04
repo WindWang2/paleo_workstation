@@ -218,6 +218,11 @@ public:
       });
       w->setProperty("versionId", vid);
       r1->addWidget(pick);
+      auto *preview = new QToolButton(row1);
+      preview->setText(tr("预览"));
+      preview->setToolTip(tr("预览此版本并定位衍生血缘"));
+      connect(preview, &QToolButton::clicked, this, [this, vid] { emit versionActivated(vid); });
+      r1->addWidget(preview);
       l->addWidget(row1);
       auto *name = new QLabel(card.fileName.isEmpty() ? card.path : card.fileName, w);
       l->addWidget(name);
@@ -254,6 +259,7 @@ public:
 
 signals:
   // moc uses _t1/_t2 in the generated definition; public names describe the payload.
+  void versionActivated(const QString &versionId); // NOLINT(readability-inconsistent-declaration-parameter-name)
   void diffRequested(const QString &versionIdA, const QString &versionIdB); // NOLINT(readability-inconsistent-declaration-parameter-name)
 
 private:

@@ -25,11 +25,11 @@ FaciesMappingPanel::FaciesMappingPanel( QWidget *parent )
 void FaciesMappingPanel::buildUi()
 {
   auto *lay = new QVBoxLayout( this );
-  lay->setContentsMargins( PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm );
-  lay->setSpacing( PaleoTheme::tokens().spacingSm );
+  lay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm);
+  lay->setSpacing(PaleoTheme::tokens().spacingSm);
 
   auto *form = new QFormLayout();
-  form->setSpacing( PaleoTheme::tokens().spacingSm );
+  form->setSpacing(PaleoTheme::tokens().spacingSm);
   m_horizon = new QLineEdit();
   m_horizon->setObjectName( QStringLiteral( "faciesHorizonEdit" ) );
   m_horizon->setPlaceholderText( tr( "目标层位，如 D61" ) );
@@ -97,7 +97,7 @@ void FaciesMappingPanel::buildUi()
   lay->addLayout( form );
 
   auto *row = new QHBoxLayout();
-  row->setSpacing( PaleoTheme::tokens().spacingSm );
+  row->setSpacing(PaleoTheme::tokens().spacingSm);
   m_generate = new QToolButton( this );
   m_generate->setObjectName( QStringLiteral( "faciesGenerateButton" ) );
   m_generate->setText( tr( "生成草稿相图" ) );

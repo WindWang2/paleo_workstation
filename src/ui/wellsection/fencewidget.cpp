@@ -158,7 +158,7 @@ WellSectionFenceWidget::WellSectionFenceWidget(const Params &params,
                PaleoTheme::toolButtonStyleSheet();
     });
     auto *barLay = new QHBoxLayout(bar);
-    barLay->setContentsMargins(PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingXs);
+    barLay->setContentsMargins(PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingXs / 2, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingXs / 2);
     barLay->setSpacing(PaleoTheme::tokens().spacingXs);
 
     auto *autoLabel = new QLabel(tr("条带数"), bar);

@@ -1,6 +1,7 @@
 // 层：数据
 #pragma once
 #include <QByteArray>
+#include <QHash>
 #include <QPair>
 #include <QString>
 #include <QStringList>
@@ -82,15 +83,25 @@ struct FaultHorizonCut {
     static FaultHangingSide hangingSideFromString(const QString &s);
 };
 
-// 断面三角网。本轮顶点就是断棒上的点（stickId + pointIndex）。
+// 顶点来历：实测（断棒上的拾取点）或外推（边界自动生长生成）。
+// 外推顶点不是实测数据，消费面必须能把它与实测段分开（不混充实测）。
+enum class MeshProvenance { Measured = 0, Extrapolated = 1 };
+
+// 断面三角网。顶点就是断棒上的点（stickId + pointIndex）；外推顶点
+// pointIndex 记为 kExtrapolatedPointIndex（stickId 仍指它延长的棒）。
 // 空 mesh = 尚未成面。坐标是测网标架下的地图 XY + 向下为正的纵向值。
 struct FaultSurfaceVertex {
+    // 外推顶点哨兵：不是棒上任何实测点。
+    static constexpr int kExtrapolatedPointIndex = -2;
+
     double x = 0;
     double y = 0;
     double z = 0;
     QString stickId;
     int pointIndex = -1;
+    MeshProvenance provenance = MeshProvenance::Measured;
 
+    bool isExtrapolated() const { return provenance == MeshProvenance::Extrapolated; }
     bool operator==(const FaultSurfaceVertex &o) const;
     bool operator!=(const FaultSurfaceVertex &o) const { return !(*this == o); }
 };
@@ -104,17 +115,51 @@ struct FaultSurfaceTriangle {
     bool operator!=(const FaultSurfaceTriangle &o) const { return !(*this == o); }
 };
 
+// 断面的一条「带」：相邻两条剖面线之间的一段条带。每条带只覆盖自己那两个
+// 剖面之间的网格；相邻带在共用的剖面线上共享整排顶点（共棱结构）。
+// 分叉点处的共用顶点就是两支交汇的那一个顶点，不是两份重合副本。
+struct FaultSurfaceSegment {
+    QVector<int> rowA; // 前一剖面的顶点索引，沿趋向单调
+    QVector<int> rowB; // 后一剖面的顶点索引，沿趋向单调
+    int branch = 0;    // 分支号：干为 0，每个撒开支一个正号
+    QStringList stickIds;
+    MeshProvenance provenance = MeshProvenance::Measured;
+    int firstTriangle = 0;
+    int triangleCount = 0;
+
+    bool isExtrapolated() const { return provenance == MeshProvenance::Extrapolated; }
+    bool operator==(const FaultSurfaceSegment &o) const;
+    bool operator!=(const FaultSurfaceSegment &o) const { return !(*this == o); }
+};
+
 struct FaultSurfaceMesh {
     QVector<FaultSurfaceVertex> vertices;
     QVector<FaultSurfaceTriangle> triangles;
-    QStringList stickOrder; // 沿走向的棒序
+    QStringList stickOrder;             // 沿走向的棒序
+    QVector<FaultSurfaceSegment> segments; // 段序：三角形区间互不重叠、首尾相接
+    int branchCount = 0;                // 0/1 = 单支；>1 = 主干 + 撒开支
+    QVector<int> junctionVertexIndices; // 分叉点顶点（各支共棱的那个顶点）
 
     bool isEmpty() const { return vertices.isEmpty() && triangles.isEmpty(); }
+    // 至少一个分叉点 = 非单支断面。
+    bool isBranching() const { return junctionVertexIndices.size() > 0; }
+    bool hasExtrapolated() const;
+    // 顶点落在哪几条带上（分支号升序去重）；索引越界返回空。
+    QVector<int> branchesOfVertex(int idx) const;
+    // 索引所属的带（-1 = 不在任何带里，如悬空顶点）。
+    int segmentOfTriangle(int idx) const { return segmentIndexForTriangle(idx); }
     QVariantMap toMap() const;
     static FaultSurfaceMesh fromMap(const QVariantMap &m);
 
     bool operator==(const FaultSurfaceMesh &o) const;
     bool operator!=(const FaultSurfaceMesh &o) const { return !(*this == o); }
+
+private:
+    int segmentIndexForTriangle(int idx) const;
+    // 顶点 → 分支号，首次查询时按 segments 建一次；segments 改后由
+    // 非 const 访问路径重建（mesh 生成后即只读，故一次性足够）。
+    void ensureVertexBranchIndex() const;
+    mutable QHash<int, QVector<int>> m_vertexBranches;
 };
 
 // 命名断层实体。

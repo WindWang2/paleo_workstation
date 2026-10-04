@@ -3205,6 +3205,10 @@ void DataListPanel::showHealthCheck()
     refreshHealthReportInDialog();
     dlg.setShaState(complete ? tr("外链 SHA 复验完成。") : tr("外链 SHA 复验已取消，未扫完。"));
   });
+  connect(&dlg, &CatalogHealthDialog::jumpToVersion, this, [&](const QString &versionId) {
+    dlg.accept();
+    emit versionActivated(versionId); // #199 体检 stale 版本定位——分支重写时补回
+  });
   connect(&dlg, &CatalogHealthDialog::jumpToAsset, this, [&](const QString &id) { dlg.accept(); emit assetActivated(id); });
   connect(&dlg, &CatalogHealthDialog::jumpToEntity, this, [&](const QString &id) { dlg.accept(); emit entitiesFocusRequested({id}); });
   quickScan(); dlg.exec(); controller.cancel(); m_healthDlg = nullptr;

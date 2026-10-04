@@ -1,0 +1,14 @@
+Test project /home/kevin/projects/paleo_workstation/.worktrees/derivation-graph/build
+    Start  76: tst_lasperf
+1/2 Test  #76: tst_lasperf ......................   Passed    5.21 sec
+    Start 150: tst_ui_blocking
+2/2 Test #150: tst_ui_blocking ..................   Passed   10.57 sec
+
+100% tests passed out of 2
+
+Label Time Summary:
+io      =   5.21 sec*proc (1 test)
+perf    =  15.77 sec*proc (2 tests)
+ui      =  10.57 sec*proc (1 test)
+
+Total Test time (real) =  15.97 sec

@@ -54,6 +54,14 @@ HealthReport buildCatalogHealth(const HealthSnapshot &s, const QString &projectD
     if (progress && !progress(done++, s.versions.size(), v.fileName)) return report;
     const CatalogAsset a = assets.value(v.assetId);
     const QString subject = a.displayName.isEmpty() ? v.assetId : a.displayName;
+    if (v.extra.value(QStringLiteral("stale")).toBool())
+    {
+      HealthIssue issue = makeIssue(IssueKind::StaleVersion, subject,
+          v.extra.value(QStringLiteral("staleReason")).toString());
+      issue.assetId = v.assetId; issue.versionId = v.id;
+      report.issues << issue;
+    }
+
 
     QString abs;
     if (v.managed)

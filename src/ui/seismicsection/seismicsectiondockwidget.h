@@ -151,6 +151,15 @@ public:
     void cancelTracking();                             // 取消在途追踪
     bool trackingActive() const { return m_trackTask != nullptr; }
     const SeismicTrackReport &lastTrackReport() const { return m_lastTrackReport; }
+
+    // ---- goal/horizon-3d 层位 3D 体传播 ----
+    enum class PropagationReadiness { Ready, NoVolume, NotInlineSection, NoSeeds };
+    // 入口可用性 + 禁用原因（面板 reason tooltip / 测试断言用）
+    PropagationReadiness propagationReadiness(QString *reason = nullptr) const;
+    void runVolumePropagation();                       // 种子剖面沿 IL 全体扩散（异步）
+    void cancelVolumePropagation();                    // 取消在途传播
+    bool propagationActive() const { return m_propTask != nullptr; }
+
     SeismicPickPanel *pickPanel() const { return m_pickPanel; }
     void setPickMode(SectionPickMode mode);
 
@@ -161,6 +170,8 @@ signals:
   // goal/horizon-autotrack — 追踪任务终态（ok=false：取消/失败；报告经
   // lastTrackReport()/面板覆盖率行取）
   void trackingFinished(bool ok);
+  // goal/horizon-3d — 体传播任务终态（ok=true：资产已登记/可上图）
+  void propagationFinished(bool ok);
   // goal/horizon-autotrack — 层位资产登记产出可上图声明（app 装配接
   // QgisLayerService::declare）
   void horizonLayerDeclared(const LayerDeclaration &decl);
@@ -271,6 +282,7 @@ private:
     SeismicTrackOptions m_trackOptions;
     QPointer<PaleoTask> m_trackTask;           // goal/horizon-autotrack 异步追踪
     SeismicTrackReport m_lastTrackReport;
+    QPointer<PaleoTask> m_propTask;            // goal/horizon-3d 异步体传播
     DataCatalog *m_catalog = nullptr;          // 资产登记上下文（app 层注入）
     QString m_catalogAssetId;
     QString m_catalogVersionId;

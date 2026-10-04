@@ -64,6 +64,9 @@ class ComposePage : public QWidget
     // m2(C)：相属性保存意图——页面拿不到选中要素 id，壳/工作流侧按图层当前
     // 选中集解析；attrs 携 facies_code(int)/facies_type/comment。
     void faciesAttributesSaveRequested(const QString &layerId, const QVariantMap &attrs);
+    // 方向 39：相界边界核查意图——壳调 CompositionWorkflow::runFaciesBoundaryQa
+    //（faciesqa 引擎按 boundary_kind 出核查项），报告回 statusLabel。
+    void boundaryQaRequested(const QString &layerId);
     // m2(C)：参考图叠加意图（06_Reference 组声明图层的勾选/取消）。
     void referenceVisibilityRequested(const QString &layerId, bool visible);
 

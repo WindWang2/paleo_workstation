@@ -1232,8 +1232,20 @@ void PaleoMainWindow::attachDataPage(DataPage *dataPage,
               [this, importSvc](const QString &assetId, const QVariantMap &params) {
                 applyProvisionalRegistration(importSvc, assetId, params);
               });
+      connect(dataPage, &DataPage::versionActivated, preview, &DataPreviewTabs::openVersion);
+      connect(preview, &DataPreviewTabs::versionContextChanged, dataPage, &DataPage::focusVersion);
       connect(dataPage, &DataPage::assetActivated, preview, &DataPreviewTabs::openAsset);
-      connect(dataPage, &DataPage::assetActivated, dataPage, &DataPage::selectAsset);
+      connect(dataPage, &DataPage::assetActivated, dataPage,
+              [preview, dataPage](const QString &assetId) {
+                dataPage->selectAsset(assetId);
+                // 已有预览可能保留历史版本；列表重选不能用 latest 覆盖它。
+                auto *tabs = preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));
+                if (tabs && preview->assetIdAt(tabs->currentIndex()) == assetId)
+                {
+                  const QString vid = preview->versionIdAt(tabs->currentIndex());
+                  if (!vid.isEmpty()) dataPage->focusVersion(assetId, vid);
+                }
+              });
       connect(dataPage, &DataPage::assetWellActivated, preview, &DataPreviewTabs::openAssetForWell);
       connect(dataPage, &DataPage::seismicLineActivated, preview,
               [preview](const QString &aid, const QString &mode) {
@@ -1247,11 +1259,15 @@ void PaleoMainWindow::attachDataPage(DataPage *dataPage,
       if (auto *inner = preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs")))
       {
         connect(inner, &QTabWidget::currentChanged, this, [preview, dataPage](int idx) {
-          if (idx >= 0 && preview && dataPage)
+          if (idx >= 0 && preview && dataPage && !preview->property("paleo.versionNavigation").toBool())
           {
             const QString aid = preview->assetIdAt(idx);
             if (!aid.isEmpty())
-              dataPage->selectAsset(aid);
+            {
+              const QString vid = preview->versionIdAt(idx);
+              if (!vid.isEmpty()) dataPage->focusVersion(aid, vid);
+              else dataPage->selectAsset(aid);
+            }
           }
         });
       }
@@ -1630,6 +1646,7 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
               }
               const QString methodId = params.value(QStringLiteral("method")).toString();
               const bool taskPool = methodId == QLatin1String("local_direction_idw")
+                                 || methodId == QLatin1String("local_direction_kriging")
                                  || methodId == QLatin1String("surfer_idw");
               if (!taskPool || !m_taskSvc)
               {
@@ -2208,6 +2225,49 @@ void PaleoMainWindow::attachComposePage(ComposePage *composePage,
                   QgsMessageLog::logMessage(err, QStringLiteral("Paleo"),
                                             Qgis::MessageLevel::Warning);
               }
+            });
+
+    // ---- 方向 39: 相界边界核查 → faciesqa 引擎（只接不重写）----------------
+    connect(composePage, &ComposePage::boundaryQaRequested, this,
+            [this, compose, composePage](const QString &layerId) {
+              if (!compose)
+                return;
+              auto *status =
+                  composePage->findChild<QLabel *>(QStringLiteral("statusLabel"));
+              QString err;
+              const QVariantList issues = compose->runFaciesBoundaryQa(layerId, &err);
+              if (!err.isEmpty())
+              {
+                if (status)
+                  status->setText(err);
+                QgsMessageLog::logMessage(err, QStringLiteral("Paleo"),
+                                          Qgis::MessageLevel::Warning);
+                return;
+              }
+              if (issues.isEmpty())
+              {
+                if (status)
+                  status->setText(tr("边界核查通过：%1 无核查项").arg(layerId));
+                return;
+              }
+              // 报告有名有因：状态栏给条数 + 首条，全量逐条进消息日志。
+              QStringList lines;
+              for (const QVariant &v : issues)
+              {
+                const QVariantMap row = v.toMap();
+                lines << tr("【%1】要素 %2：%3")
+                             .arg(row.value(QStringLiteral("name")).toString(),
+                                  row.value(QStringLiteral("regionIds")).toStringList()
+                                      .join(QStringLiteral(",")),
+                                  row.value(QStringLiteral("reason")).toString());
+              }
+              for (const QString &line : lines)
+                QgsMessageLog::logMessage(
+                    tr("边界核查 %1：%2").arg(layerId, line), QStringLiteral("Paleo"),
+                    Qgis::MessageLevel::Warning);
+              if (status)
+                status->setText(tr("边界核查：%1 项核查项（%2；全部见消息日志）")
+                                    .arg(QString::number(issues.size()), lines.first()));
             });
 
     // ---- m2(C): 参考图勾选 → instantiate + 图层树节点勾选/取消 ------------

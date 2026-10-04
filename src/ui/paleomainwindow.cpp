@@ -1393,11 +1393,15 @@ void PaleoMainWindow::onProjectOpened()
 
   // 捕捉配置镜像进工程（QGIS_NATIVE_ADOPTION）：随 .qgz 持久化；画布侧
   // 配置在 canvas() 创建时已装到 snappingUtils（同一 nativeSnappingConfig）。
+  // setProject 必须补：nativeSnappingConfig 是无 project 的静态构造，缺它
+  // 则重开工程时 QgsSnappingConfig::readProject 在空 project 上调 mapLayer
+  // 崩溃（QGIS 4.2 setSnappingConfig 不代挂 project 指针）。
   if (m_projectSvc && m_projectSvc->project())
   {
     auto config = m_projectSvc->project()->snappingConfig();
     if (!config.enabled() || config.units() != Qgis::MapToolUnit::Pixels)
       config = QgisCanvasController::nativeSnappingConfig();
+    config.setProject(m_projectSvc->project());
     m_projectSvc->project()->setSnappingConfig(config);
     if (m_canvasCtl)
       m_canvasCtl->canvas()->snappingUtils()->setConfig(config);

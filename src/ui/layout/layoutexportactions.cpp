@@ -1,6 +1,6 @@
 // 层：视图
-#include "../paleotheme.h"
 #include "layoutexportactions.h"
+#include "../paleotheme.h"
 
 #include <QAction>
 #include <QButtonGroup>
@@ -79,7 +79,7 @@ namespace
         // 方向 25 M4：图件分辨率档位（150 屏阅 / 300 印刷 / 600 高精度），
         // 一键回填自旋框——自旋框仍是唯一真值（档位外可手输）。
         auto *presetRow = new QHBoxLayout;
-        presetRow->setSpacing( PaleoTheme::tokens().spacingXs ); // DESIGN spacing.xs
+        presetRow->setSpacing(PaleoTheme::tokens().spacingXs); // DESIGN spacing.xs
         const struct
         {
             int dpi;

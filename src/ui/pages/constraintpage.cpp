@@ -171,6 +171,9 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   auto *method = new QComboBox( content );
   method->setObjectName( QStringLiteral( "factorMethodCombo" ) );
   method->addItem( tr( "本地方向插值" ), QStringLiteral( "local_direction_idw" ) );
+  // 方向41：同一本地方向插值面（成图域/硬屏障/覆盖标记）上的真克里金。
+  // 与「克里金（各向异性）」作用域不同；克里金不成立时 QC/extra 记 method_actual。
+  method->addItem( tr( "克里金（局部方向约束）" ), QStringLiteral( "local_direction_kriging" ) );
   method->addItem( tr( "克里金（各向异性）" ), QStringLiteral( "kriging" ) );
   method->addItem( tr( "SGS 实现族" ), QStringLiteral( "sgs" ) );
   method->addItem( tr( "Surfer IDW（断层绕行）" ), QStringLiteral( "surfer_idw" ) );
@@ -425,7 +428,8 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
       params.insert( QStringLiteral( "coverage" ), coverage->currentData().toString() );
       params.insert( QStringLiteral( "power" ), power->value() );
       params.insert( QStringLiteral( "wellClusterLocality" ), cluster->isChecked() );
-      if ( methodId == QLatin1String( "kriging" ) || methodId == QLatin1String( "sgs" ) )
+      if ( methodId == QLatin1String( "kriging" ) || methodId == QLatin1String( "sgs" ) ||
+           methodId == QLatin1String( "local_direction_kriging" ) )
       {
         params.insert( QStringLiteral( "variogramModel" ), variogramModel->currentData().toString() );
         params.insert( QStringLiteral( "nugget" ), nugget->value() );
@@ -433,6 +437,8 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
         params.insert( QStringLiteral( "range" ), rangeSpin->value() );
         params.insert( QStringLiteral( "azimuth" ), azimuth->value() );
         params.insert( QStringLiteral( "maxPoints" ), maxPoints->value() );
+        // 方向41：局部方向克里金另有自己的邻域 K（0 = 全部样本）。
+        params.insert( QStringLiteral( "krigingMaxPoints" ), maxPoints->value() );
         if ( methodId == QLatin1String( "sgs" ) )
         {
           params.insert( QStringLiteral( "realizations" ), realizations->value() );

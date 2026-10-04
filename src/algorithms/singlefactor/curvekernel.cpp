@@ -149,9 +149,4 @@ CurveKernel::Eval CurveKernel::evaluate( const std::vector<Point2> &points ) con
   return out;
 }
 
-double tangentEnergy( double dx, double dy, const std::array<double, 3> &tensor )
-{
-  return std::max( 0.0, dx * dx * tensor[0] + 2.0 * dx * dy * tensor[1] + dy * dy * tensor[2] );
-}
-
 } // namespace paleo::singlefactor

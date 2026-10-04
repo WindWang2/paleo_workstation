@@ -205,6 +205,9 @@ struct SeismicTrackOptions
   // 追踪结果 twtMs = startTimeMs + sample·dt。
   std::vector<int> columnLines;
   double startTimeMs = 0.0;
+  // goal/horizon-3d — 显式倾角引导（透传追踪核 TrackOptions，语义见
+  // algorithms/horizontrack.h；0 = 关，>= 2 启用）
+  int dipHistoryPicks = 0;
 };
 
 // goal/horizon-autotrack — 追踪执行报告（QC：覆盖率/均值置信度/双侧停因）
@@ -214,6 +217,8 @@ struct SeismicTrackReport
   int totalTraces = 0;       // 剖面总道数
   float meanConfidence = 0.0f;
   QString stopSummary;       // 人话停因（如「左：相关丢失@XL2031；右：到达边界」）
+  // goal/horizon-3d — 体传播覆盖 IL 线号范围（2D 剖面追踪为 0）
+  int ilMin = 0, ilMax = 0;
 };
 
 // D4.7 网格化结果（规则 il×xl 栅格 + 掩码）
@@ -414,10 +419,54 @@ public:
                          const SeismicTrackReport &report,
                          const QString &error)> onFinished);
 
+  // ---- 层位 3D 体传播（goal/horizon-3d）------------------------------------
+  // 数值核 propagateVolumeWindowed（algorithms/horizontrack）+ IL 滑窗调度：
+  // 逐 IL 剖面 ExtractSlice 取数（至多种子 + 相邻 2 枚剖面驻留），不全体
+  // 驻留。取消/并发闸走 startBounded 语义；同体新传播顶替在途任务
+  // （前者静默丢弃：回调不发、错误不报，cancelled≠failed 口径同切片顶替）。
+  struct VolumePropagationRequest
+  {
+    int seedInline = 0;               // 种子剖面 inline 号（须为本体精确线）
+    QList<QPair<int, int>> seeds;     // 种子（xline 号, 采样）——种子剖面内
+    int windowSamples = 24;
+    int maxSearchSamples = 12;
+    double correlationThreshold = 0.6;
+    int maxInlineStep = 0;            // 0 = 不限（体边界即止）
+    int dipHistoryPicks = 0;          // 显式倾角引导（0 = 关，语义见 horizontrack.h）
+    double startTimeMs = 0.0;         // 首样 TWT（记录延迟；twtMs = t0 + s·dt）
+    qint64 workingSetBudgetBytes = 0; // 滑窗工作集上限；0 = min(RAM/4, 2GiB)
+    QString interpreter;
+    QString horizonName;
+  };
+
+  // 域映射产出（线号/TWT）+ QC 报告（ilMin/ilMax = 实际覆盖线号）。
+  // ReadFailure/Invalid → ok=false（不发布半成品）；前沿相关丢失 → ok=true，
+  // 拾取如实部分覆盖（stopSummary 说明）。取消 → ok=false，拾取不发。
+  PaleoTask *startVolumePropagation(
+      std::shared_ptr<const SgyVolume> volume,
+      const VolumePropagationRequest &request,
+      std::function<void(bool ok, const QList<SeismicPick> &picks,
+                         const SeismicTrackReport &report,
+                         const QString &error)> onFinished);
+
   // D4.7 拾取网格化：IDW（反距离加权）插值成规则测网栅格。
   // 既有算法层 ConstraintIDW 是 QgsProcessing 形态（需 Processing 上下文与
   // 约束线），拾取网格化无约束语义——自实现纯 IDW（TODOS 登记合并点）。
   static SeismicHorizonGrid gridPicks(const QList<SeismicPick> &picks);
+
+  // goal/horizon-3d — 体传播拾取直接成格：轴推导同 gridPicks，但样本
+  // 直接落格（同格点取最高置信），无拾取格点 NaN 如实留空——不 IDW 填洞
+  // （传播覆盖区是实测前沿，外推填充是欺骗；2D 手动拾取稀疏才需要 IDW）。
+  static SeismicHorizonGrid gridPropagated(const QList<SeismicPick> &picks);
+
+  // goal/horizon-3d — 体传播层位面 → 派生资产：直接成格 + CSV + 层位栅格
+  // GeoTIFF（复用 registerHorizonAsset 文件管线，不开平行格式）+ DERIVED
+  // 版本登记（parentVersionIds 锚源体版本）。layerOut 回填同上。
+  static QString registerPropagatedHorizonAsset(
+      DataCatalog *catalog, const QString &seismicAssetId,
+      const QString &seismicVersionId, const QString &horizonName,
+      const QList<SeismicPick> &picks, const QString &outputDir,
+      QString *error, LayerDeclaration *layerOut = nullptr);
 
   // D4.3 拾取集 → 层位资产：写 CSV（inline,xline,twt_ms,confidence）+
   // DERIVED 版本登记 catalog（父版本 = 源地震版本）。返回登记后的版本路径。
@@ -624,6 +673,13 @@ private:
   // 的整图读取不再排队占并发闸）。仅服务所在线程访问（start/finished 均
   // 队列回主线程）。
   QHash<QString, QPointer<PaleoTask>> inFlightTiledTasks_;
+
+  // goal/horizon-3d — 同体体传播顶替：新传播启动即取消旧在途任务并标记
+  // superseded（旧任务回调静默丢弃——cancelled≠failed 口径同切片顶替）。
+  // 键 = 体路径；值 = 在途任务的「被顶替」标志（finished 闭包按值持有
+  // shared_ptr，标志置位即静默）。仅服务所在线程访问。
+  QHash<QString, QPointer<PaleoTask>> inFlightPropagation_;
+  QHash<QString, std::shared_ptr<std::atomic_bool>> propagationSuperseded_;
 };
 
 // D6.4 并发闸：≤4 槽信号量 + 在途计数。shared_ptr 由 worker 携带——

@@ -1,6 +1,7 @@
 // 层：视图
 #include "../paleotheme.h"
 #include "symbolpickerpanel.h"
+#include "../paleotheme.h"
 
 #include "../../qgis/geopatterns.h"
 

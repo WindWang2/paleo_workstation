@@ -1,0 +1,4 @@
+# 夹具是逐字节比较的产物（tools/reference/singlefactor/make_outsource_fixtures.py
+# --check）：禁止 git 做换行转换，否则 Windows 检出（core.autocrlf=true）会把
+# .xml 夹具改成 CRLF，字节与生成器输出不再一致。
+tests/fixtures/** -text

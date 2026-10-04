@@ -35,7 +35,8 @@ enum class IssueKind
   PendingLink,
   OrphanEntity,
   NoVersionAsset,
-  InvalidRoleLink
+  InvalidRoleLink,
+  StaleVersion // 方向 36：与血缘图共享 extra[stale]/staleReason，不再另算状态。
 };
 
 struct HealthIssue

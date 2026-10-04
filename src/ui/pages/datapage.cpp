@@ -53,6 +53,8 @@ DataPage::DataPage(QWidget *parent)
   connect(m_listPanel, &DataListPanel::entitiesFocusRequested, this,
           &DataPage::selectAssetsForEntities);
 
+  connect(m_listPanel, &DataListPanel::versionActivated, this, &DataPage::versionActivated);
+  connect(m_entityPanel, &EntityPanel::versionActivated, this, &DataPage::versionActivated);
   wireDataOps();
 }
 
@@ -289,18 +291,8 @@ void DataPage::selectAssetsForEntities(const QStringList &entityIds)
 void DataPage::selectAsset(const QString &assetId)
 {
   setProperty("paleo.page.assetId", assetId);
-  QString matchedEntity;
-  if (PreviewDocService *svc = docService())
-    if (DataCatalog *cat = svc->catalog())
-    {
-      if (!assetId.isEmpty())
-        for (const EntityAssetLink &l : cat->linksForAsset(assetId))
-          if (!l.entityId.isEmpty() && !l.unresolved)
-          {
-            matchedEntity = l.entityId;
-            break;
-          }
-    }
+  PreviewDocService *svc = docService();
+  const QString matchedEntity = svc ? svc->entityIdForAsset(assetId) : QString();
   setProperty("paleo.page.entityId", matchedEntity);
   if (m_entityPanel)
   {
@@ -316,3 +308,12 @@ void DataPage::selectAsset(const QString &assetId)
 #if __has_include("moc_dataopspalette.cpp")
 #include "moc_dataopspalette.cpp"
 #endif
+
+void DataPage::focusVersion(const QString &assetId, const QString &versionId)
+{
+  setProperty("paleo.page.assetId", assetId);
+  PreviewDocService *svc = docService();
+  setProperty("paleo.page.entityId", svc ? svc->entityIdForAsset(assetId) : QString());
+  if (m_entityPanel) m_entityPanel->setVersionContext(assetId, versionId);
+  if (m_listPanel) m_listPanel->selectAssetInViews(assetId);
+}

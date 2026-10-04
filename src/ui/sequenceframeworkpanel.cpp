@@ -1,6 +1,6 @@
 // 层：视图
-#include "paleotheme.h"
 #include "sequenceframeworkpanel.h"
+#include "paleotheme.h"
 
 #include <QDir>
 #include <QFile>
@@ -34,12 +34,12 @@ SequenceFrameworkPanel::SequenceFrameworkPanel( QWidget *parent )
   : QWidget( parent )
 {
   auto *root = new QVBoxLayout( this );
-  root->setContentsMargins( PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm );
-  root->setSpacing( PaleoTheme::tokens().spacingSm );
+  root->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm);
+  root->setSpacing(PaleoTheme::tokens().spacingSm);
 
   auto *title = new QLabel( tr( "层序地层格架" ), this );
   QFont titleFont = title->font();
-  titleFont.setPointSize( PaleoTheme::kTitlePt );
+  titleFont.setPointSize(PaleoTheme::tokens().titlePt);
   title->setFont( titleFont );
   root->addWidget( title );
 

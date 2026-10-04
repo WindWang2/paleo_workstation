@@ -42,8 +42,8 @@ EvolutionPlayerPanel::EvolutionPlayerPanel( SelectionContext *selection, QgisLay
 void EvolutionPlayerPanel::buildUi()
 {
   auto *lay = new QHBoxLayout( this );
-  lay->setContentsMargins( PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs ); // spacing.sm 水平、紧凑垂直
-  lay->setSpacing( PaleoTheme::tokens().spacingXs );                  // spacing.xs
+  lay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs / 2, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingXs / 2); // spacing.sm 水平、紧凑垂直
+  lay->setSpacing(PaleoTheme::tokens().spacingXs);                  // spacing.xs
 
   auto makeButton = [this]( const QString &text, const char *name ) {
     auto *button = new QToolButton( this );

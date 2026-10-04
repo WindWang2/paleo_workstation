@@ -152,7 +152,7 @@ private slots:
         slice, SgySliceType::Inline, 1000, 2000, 2000 + cols - 1,
         50, 50 + base, {24, 12, 0.6},
         QStringLiteral("tester"), QStringLiteral("H1"), 2.0f);
-    qInfo("tracked %d picks in %lld ms", picks.size(), clock.elapsed());
+    qInfo("tracked %d picks in %lld ms", int(picks.size()), clock.elapsed());
 
     QVERIFY(picks.size() >= cols * 0.9); // 几乎全程追踪
     for (const SeismicPick &p : picks)
@@ -702,6 +702,117 @@ private slots:
     QVERIFY(content.startsWith("id,inline,xline"));
     QVERIFY(content.contains("7,1000,2000,50.00"));
     f.close();
+  }
+
+  // ---- goal/horizon-3d：3D 传播入口可用性（Oracle#6 空态禁用带原因）----
+  void dockPropagationReadinessEmptyStates()
+  {
+    // 无体 → NoVolume + 原因
+    SeismicSectionDockWidget dock;
+    QString reason;
+    QCOMPARE(dock.propagationReadiness(&reason),
+             SeismicSectionDockWidget::PropagationReadiness::NoVolume);
+    QVERIFY2(reason.contains(QStringLiteral("无可用地震体")),
+             qPrintable(reason));
+
+    QTemporaryDir dir;
+    const QString sgy = dir.filePath("prop.sgy");
+    QVERIFY(writeEventSegy(sgy, 6, 8, 128, [](int, int xl) { return 40 + xl; }));
+    auto volume = std::make_shared<SgyVolume>();
+    std::string verr;
+    QVERIFY(volume->Load(sgy.toStdString(), verr));
+    QSignalSpy finishedSpy(&dock, &SeismicSectionDockWidget::sectionExtractionFinished);
+    dock.setVolume(volume);
+    QVERIFY(finishedSpy.wait(10000));
+
+    // 有体 + inline 剖面但无手动拾取 → NoSeeds + 原因；按钮禁用带 tooltip
+    QCOMPARE(dock.propagationReadiness(&reason),
+             SeismicSectionDockWidget::PropagationReadiness::NoSeeds);
+    QVERIFY2(reason.contains(QStringLiteral("手动拾取")), qPrintable(reason));
+    QToolButton *btn = dock.findChild<QToolButton *>(QStringLiteral("btnPropagate3D"));
+    QVERIFY(btn != nullptr);
+    dock.setPickMode(SectionPickMode::Seed); // 建面板（含可用性刷新）
+    QVERIFY(!btn->isEnabled());
+    QVERIFY2(btn->toolTip().contains(QStringLiteral("手动拾取")),
+             qPrintable(btn->toolTip()));
+
+    // 放置手动种子 → Ready；按钮启用
+    dock.addPickFromCanvas(4, 88.0); // 列 4 → XL 2004，峰 44 样 = 88ms
+    QCOMPARE(dock.propagationReadiness(&reason),
+             SeismicSectionDockWidget::PropagationReadiness::Ready);
+    QVERIFY(btn->isEnabled());
+  }
+
+  // ---- goal/horizon-3d Oracle#1（UI 面）：剖面种子 → 3D 传播 → DERIVED 登记
+  //      + GeoTIFF 上图声明（offscreen 全链；结果不进会话拾取表）----
+  void dockVolumePropagationRegistersHorizon()
+  {
+    QTemporaryDir dir;
+    const QString sgy = dir.filePath("prop_e2e.sgy");
+    QVERIFY(writeEventSegy(sgy, 6, 8, 128, [](int, int xl) { return 40 + xl; }));
+    auto volume = std::make_shared<SgyVolume>();
+    std::string verr;
+    QVERIFY(volume->Load(sgy.toStdString(), verr));
+
+    // catalog 上下文（源地震资产 + RAW 版本——DERIVED 锚源体）
+    DataCatalog catalog;
+    QString err;
+    QVERIFY(catalog.open(dir.path(), &err));
+    CatalogAsset seismicAsset;
+    seismicAsset.id = QStringLiteral("seis_hz3d_ui");
+    seismicAsset.type = QStringLiteral("seismic");
+    seismicAsset.format = QStringLiteral("sgy");
+    QVERIFY(catalog.addAsset(seismicAsset, &err));
+    CatalogVersion rawVersion;
+    rawVersion.id = QStringLiteral("rawver_hz3d_ui");
+    rawVersion.assetId = seismicAsset.id;
+    rawVersion.stage = QStringLiteral("RAW");
+    rawVersion.versionNumber = 1;
+    rawVersion.managed = false;
+    rawVersion.path = sgy;
+    QVERIFY(catalog.addVersion(rawVersion, &err));
+
+    SeismicSectionDockWidget dock;
+    dock.resize(900, 650);
+    QSignalSpy finishedSpy(&dock, &SeismicSectionDockWidget::sectionExtractionFinished);
+    dock.setInterpretationCatalog(&catalog, seismicAsset.id, rawVersion.id,
+                                  dir.filePath(QStringLiteral("interpretation")));
+    dock.setVolume(volume);
+    QVERIFY(finishedSpy.wait(10000));
+    dock.setPickMode(SectionPickMode::Seed);
+    dock.addPickFromCanvas(4, 88.0); // 手动种子（XL 2004 峰位）
+    QCOMPARE(dock.propagationReadiness(),
+             SeismicSectionDockWidget::PropagationReadiness::Ready);
+
+    QSignalSpy propSpy(&dock, &SeismicSectionDockWidget::propagationFinished);
+    QSignalSpy declSpy(&dock, &SeismicSectionDockWidget::horizonLayerDeclared);
+    dock.runVolumePropagation();
+    QVERIFY(propSpy.wait(30000));
+    QCOMPARE(propSpy.value(0).at(0).toBool(), true);
+    QCOMPARE(declSpy.count(), 1);
+    const LayerDeclaration decl = qvariant_cast<LayerDeclaration>(declSpy.value(0).at(0));
+    QCOMPARE(decl.layerId, QStringLiteral("horizon.H1"));
+    QVERIFY2(QFileInfo::exists(decl.source), qPrintable(decl.source));
+    QVERIFY(decl.source.endsWith(QStringLiteral(".tif")));
+
+    // catalog：DERIVED + 父版本锚源体 RAW
+    const CatalogVersion derived = catalog.currentVersion(
+        QStringLiteral("seis_horizon_seis_hz3d_ui_H1"));
+    QCOMPARE(derived.stage, QStringLiteral("DERIVED"));
+    QCOMPARE(derived.parentVersionIds, QStringList{rawVersion.id});
+
+    // 面板复位：按钮回「3D 传播」、QC 行报全覆盖（6 IL × 8 XL = 48）
+    QVERIFY(!dock.propagationActive());
+    QToolButton *btn = dock.findChild<QToolButton *>(QStringLiteral("btnPropagate3D"));
+    QVERIFY2(btn && btn->text().contains(QStringLiteral("3D 传播")),
+             qPrintable(btn ? btn->text() : QString()));
+    QLabel *summary = dock.findChild<QLabel *>(QStringLiteral("trackSummaryLabel"));
+    QVERIFY(summary != nullptr);
+    QVERIFY2(summary->text().contains(QStringLiteral("覆盖 48/48")),
+             qPrintable(summary->text()));
+
+    // 结果不进会话拾取表（图件级对象，非单剖面编辑对象）
+    QCOMPARE(dock.interpretationSession().picks.size(), 1);
   }
 };
 

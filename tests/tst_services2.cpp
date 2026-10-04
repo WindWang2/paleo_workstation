@@ -11,10 +11,13 @@
 #include <qgslayoutitemlabel.h>
 #include <qgslayoutmanager.h>
 #include <qgslayoutpagecollection.h>
+#include <qgsfillsymbollayer.h>
+#include <qgslinesymbollayer.h>
 #include <qgsmarkersymbol.h>
 #include <qgsnativealgorithms.h>
 #include <qgsprocessingregistry.h>
 #include <qgsproject.h>
+#include <qgsrendercontext.h>
 #include <qgsrenderer.h>
 #include <qgssinglesymbolrenderer.h>
 #include <qgsvectorlayer.h>
@@ -111,8 +114,11 @@ private slots:
     QCOMPARE(layer.featureCount(), 0); // buffer discarded
   }
 
-  // (c) commit failure still frees the busy mark (no stuck "editing in progress")
-  void editingCommitFailureStillFrees()
+  // (c) commit 失败的 busy 语义（合并后精化版，见 qgiseditingservice.cpp
+  // commitEdit「orphanEdit」）：真失败保留活编辑会话供重试/回滚；无编辑态
+  // 的孤儿 edit 标记即清；他人 owner（processing 等）永不被提交错误释放。
+  // 正常会话「回滚必释放」由 editingRollbackFrees 覆盖。
+  void editingCommitFailureFreesOrphanEditMarkOnly()
   {
     PaleoProjectStore store;
     QgisEditingService svc(&store);
@@ -125,7 +131,11 @@ private slots:
     QString err;
     QVERIFY(!svc.commitEdit(&layer, &err)); // commitChanges on non-editable layer -> false
     QVERIFY(!err.isEmpty());
-    QVERIFY(!store.layerBusy(layer.id()));  // freed on failure too
+    QVERIFY(!store.layerBusy(layer.id())); // 孤儿 edit 标记即清（无会话可重试）
+    store.markLayerBusy(layer.id(), QStringLiteral("processing"), QStringLiteral("processing in progress"));
+    QVERIFY(!svc.commitEdit(&layer, &err));
+    QVERIFY(store.layerBusy(layer.id())); // 提交错误不能释放别的任务所有者。
+    store.markLayerFree(layer.id());
 
     // null layer is a clean error, not a crash
     err.clear();
@@ -419,6 +429,130 @@ private slots:
     const QgsFeatureRenderer *beforePts = points.renderer();
     QgisStyleService::applyFaciesBoundaryStyle(&points);
     QCOMPARE(points.renderer(), beforePts); // 非面层不接管
+  }
+
+  // 方向 39：四类目全开 + 三类线型（实/虚/点，复用方向 31 相界线型调性）
+  // + 相变渐变带符号层（data-defined 绑 transition_width，仅字段存在时挂）
+  // + 表外值/空值落中性桶（诚实：不猜类）。
+  void faciesBoundaryStyleFourKindsLineTypesAndBand()
+  {
+    // helper：类目符号的描边笔型（createSimple 的面符号 = 单 SimpleFill 层，
+    // 描边由填充层自绘——strokeStyle 即线型）。
+    const auto outlinePenOf = [](QgsSymbol *sym) -> Qt::PenStyle {
+      if (!sym || sym->symbolLayerCount() < 1)
+        return Qt::NoPen;
+      auto *fill = dynamic_cast<QgsSimpleFillSymbolLayer *>(sym->symbolLayer(0));
+      return fill ? fill->strokeStyle() : Qt::NoPen;
+    };
+
+    QgsVectorLayer layer(QStringLiteral(
+                             "Polygon?crs=EPSG:4326&field=boundary_kind:string"),
+                         QStringLiteral("bk"), QStringLiteral("memory"));
+    QVERIFY(layer.isValid());
+    QgisStyleService::applyFaciesBoundaryStyle(&layer);
+    auto *cat = static_cast<QgsCategorizedSymbolRenderer *>(layer.renderer());
+
+    // 四类目按冻结词面命名（UI/属性/样式三处词面一致的面）；空串与
+    // catch-all 两个中性桶同标「常规相界」（共 6 类目）。
+    const QStringList expectedTitles = { QStringLiteral("整合接触"), QStringLiteral("尖灭"),
+                                         QStringLiteral("相变"), QStringLiteral("断层切割"),
+                                         QStringLiteral("常规相界"),
+                                         QStringLiteral("常规相界") };
+    QStringList titles;
+    for (const QgsRendererCategory &c : cat->categories())
+      titles << c.label();
+    QCOMPARE(titles, expectedTitles);
+
+    // 线型：整合=实线、尖灭=虚线、相变=点线（渐变带字段缺失 → 无带层）。
+    const auto categoryFor = [cat](const QString &value) -> const QgsRendererCategory * {
+      for (const QgsRendererCategory &c : cat->categories())
+        if (c.value() == QVariant(value))
+          return &c;
+      return nullptr;
+    };
+    const QgsRendererCategory *conformable = categoryFor(QStringLiteral("conformable"));
+    const QgsRendererCategory *pinchout = categoryFor(QStringLiteral("pinchout"));
+    const QgsRendererCategory *change = categoryFor(QStringLiteral("facies_change"));
+    QVERIFY(conformable && pinchout && change);
+    QCOMPARE(outlinePenOf(conformable->symbol()), Qt::SolidLine);
+    QCOMPARE(outlinePenOf(pinchout->symbol()), Qt::DashLine);
+    QCOMPARE(outlinePenOf(change->symbol()), Qt::DotLine);
+    QCOMPARE(change->symbol()->symbolLayerCount(), 1); // 无 transition_width 字段 → 不挂带层
+
+    // 带 transition_width 字段：相变符号两层（SimpleFill 点线描边 + 带层），带层
+    // data-defined 宽度+线型绑 transition_width，宽度单位 = 地图单位。
+    QgsVectorLayer banded(QStringLiteral(
+                              "Polygon?crs=EPSG:4326&field=boundary_kind:string"
+                              "&field=transition_width:double"),
+                          QStringLiteral("bkb"), QStringLiteral("memory"));
+    QVERIFY(banded.isValid());
+    QgisStyleService::applyFaciesBoundaryStyle(&banded);
+    auto *catB = static_cast<QgsCategorizedSymbolRenderer *>(banded.renderer());
+    const QgsRendererCategory *changeB = [catB]() {
+      for (const QgsRendererCategory &c : catB->categories())
+        if (c.value() == QVariant(QStringLiteral("facies_change")))
+          return &c;
+      return static_cast<const QgsRendererCategory *>(nullptr);
+    }();
+    QVERIFY(changeB);
+    QCOMPARE(changeB->symbol()->symbolLayerCount(), 2);
+    auto *band = dynamic_cast<QgsSimpleLineSymbolLayer *>(changeB->symbol()->symbolLayer(1));
+    QVERIFY2(band, "band layer at index 1");
+    QCOMPARE(band->widthUnit(), Qgis::RenderUnit::MapUnits);
+    QVERIFY(band->dataDefinedProperties().hasProperty(
+        QgsSymbolLayer::Property::StrokeWidth));
+    QVERIFY(band->dataDefinedProperties().hasProperty(
+        QgsSymbolLayer::Property::StrokeStyle));
+    QVERIFY(band->dataDefinedProperties()
+                .property(QgsSymbolLayer::Property::StrokeWidth)
+                .asExpression()
+                .contains(QStringLiteral("transition_width")));
+
+    // 表外值与空值 → 中性桶（catch-all/空串类目各承接，不猜类不 crash）。
+    QgsFeature weird;
+    weird.setGeometry(QgsGeometry::fromWkt(
+        QStringLiteral("POLYGON((30 0, 31 0, 31 1, 30 1, 30 0))")));
+    QgsAttributes weirdAttrs;
+    weirdAttrs << QVariant(QStringLiteral("erosion"));
+    weird.setAttributes(weirdAttrs);
+    QVERIFY(layer.dataProvider()->addFeature(weird));
+    QgsFeature unmarked;
+    unmarked.setGeometry(QgsGeometry::fromWkt(
+        QStringLiteral("POLYGON((40 0, 41 0, 41 1, 40 1, 40 0))")));
+    QgsAttributes emptyAttrs;
+    emptyAttrs << QVariant(QString());
+    unmarked.setAttributes(emptyAttrs);
+    QVERIFY(layer.dataProvider()->addFeature(unmarked));
+    QgsSymbol *catchAll = nullptr;
+    for (const QgsRendererCategory &c : cat->categories())
+      if (!c.value().isValid())
+        catchAll = c.symbol();
+    QVERIFY(catchAll);
+    QgsSymbol *neutralEmpty = categoryFor(QString())->symbol();
+    QVERIFY(neutralEmpty);
+
+    QgsFeature gotWeird, gotEmpty;
+    QVERIFY(layer.getFeatures(QgsFeatureRequest(weird.id())).nextFeature(gotWeird));
+    QVERIFY(layer.getFeatures(QgsFeatureRequest(unmarked.id())).nextFeature(gotEmpty));
+    QgsRenderContext context;
+    cat->startRender(context, layer.fields());
+    QgsSymbol *forWeird = cat->symbolForFeature(gotWeird, context);
+    QgsSymbol *forEmpty = cat->symbolForFeature(gotEmpty, context);
+    cat->stopRender(context);
+    QVERIFY2(forWeird, "out-of-vocab value resolves to the catch-all symbol");
+    QVERIFY2(forEmpty, "empty value resolves to a symbol");
+    // startRender 可能克隆符号——按视觉属性对表（实线 + 中性灰描边同
+    // 「常规相界」类目，不猜类）。
+    const auto neutralLike = [](QgsSymbol *sym) {
+      auto *fill =
+          sym ? dynamic_cast<QgsSimpleFillSymbolLayer *>(sym->symbolLayer(0)) : nullptr;
+      return fill && fill->strokeStyle() == Qt::SolidLine &&
+             fill->strokeColor() == QColor(QStringLiteral("#5D6E80"));
+    };
+    QVERIFY(neutralLike(catchAll));
+    QVERIFY(neutralLike(neutralEmpty));
+    QVERIFY(neutralLike(forWeird));
+    QVERIFY(neutralLike(forEmpty));
   }
 
   // (h) layout lifecycle: create (duplicate rejected) -> pdf export -> remove

@@ -15,8 +15,10 @@ target_sources(paleo_io PRIVATE
 # zlib：.sfpkg/.xlsx 的 ZIP deflate 解压（stored 条目不需要它）。QGIS/GDAL 已经
 # 依赖 zlib，这里显式找一次；找不到时 ziparchive.cpp 直接 #error —— 硬依赖，
 # 不静默降级成「只能读 stored 包」。
-find_path(PALEO_ZLIB_INCLUDE zlib.h)
-find_library(PALEO_ZLIB_LIBRARY NAMES z zlib zdll)
+find_path(PALEO_ZLIB_INCLUDE zlib.h
+  HINTS ${QGIS_PREFIX} ENV OSGEO4W_ROOT PATH_SUFFIXES include)
+find_library(PALEO_ZLIB_LIBRARY NAMES z zlib zdll
+  HINTS ${QGIS_PREFIX} ENV OSGEO4W_ROOT PATH_SUFFIXES lib)
 if(PALEO_ZLIB_INCLUDE AND PALEO_ZLIB_LIBRARY)
   target_include_directories(paleo_io SYSTEM PRIVATE ${PALEO_ZLIB_INCLUDE})
   target_link_libraries(paleo_io PRIVATE ${PALEO_ZLIB_LIBRARY})

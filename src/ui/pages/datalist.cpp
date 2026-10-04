@@ -379,7 +379,7 @@ DataListPanel::DataListPanel(QWidget *parent)
   pendingBtn->setText(tr("未决归位"));
   pendingBtn->setToolTip(tr("按文件名/备注把能唯一命中一口井的未决链接批量挂接"));
   pendingBtn->setAccessibleName(tr("未决归位"));
-  pendingBtn->setStyleSheet(QStringLiteral("font-size: 8pt; padding: 2px 6px;"));
+  pendingBtn->setStyleSheet(PaleoTheme::metricStyleSheet(QStringLiteral("font-size: {typography.label}pt; padding: {spacing.xs}px {spacing.sm}px;")));
   connect(pendingBtn, &QToolButton::clicked, this, &DataListPanel::resolvePendingLinks);
   hl->addWidget(pendingBtn);
   listLay->addWidget(header);

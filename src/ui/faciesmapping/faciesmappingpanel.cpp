@@ -25,11 +25,11 @@ FaciesMappingPanel::FaciesMappingPanel( QWidget *parent )
 void FaciesMappingPanel::buildUi()
 {
   auto *lay = new QVBoxLayout( this );
-  lay->setContentsMargins( 8, 8, 8, 8 );
-  lay->setSpacing( 8 );
+  lay->setContentsMargins( PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm );
+  lay->setSpacing( PaleoTheme::tokens().spacingSm );
 
   auto *form = new QFormLayout();
-  form->setSpacing( 8 );
+  form->setSpacing( PaleoTheme::tokens().spacingSm );
   m_horizon = new QLineEdit();
   m_horizon->setObjectName( QStringLiteral( "faciesHorizonEdit" ) );
   m_horizon->setPlaceholderText( tr( "目标层位，如 D61" ) );
@@ -97,7 +97,7 @@ void FaciesMappingPanel::buildUi()
   lay->addLayout( form );
 
   auto *row = new QHBoxLayout();
-  row->setSpacing( 8 );
+  row->setSpacing( PaleoTheme::tokens().spacingSm );
   m_generate = new QToolButton( this );
   m_generate->setObjectName( QStringLiteral( "faciesGenerateButton" ) );
   m_generate->setText( tr( "生成草稿相图" ) );

@@ -158,8 +158,8 @@ WellSectionFenceWidget::WellSectionFenceWidget(const Params &params,
                PaleoTheme::toolButtonStyleSheet();
     });
     auto *barLay = new QHBoxLayout(bar);
-    barLay->setContentsMargins(4, 2, 4, 2);
-    barLay->setSpacing(4);
+    barLay->setContentsMargins(PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingXs);
+    barLay->setSpacing(PaleoTheme::tokens().spacingXs);
 
     auto *autoLabel = new QLabel(tr("条带数"), bar);
     auto *autoSpin = new QSpinBox(bar);
@@ -176,7 +176,7 @@ WellSectionFenceWidget::WellSectionFenceWidget(const Params &params,
     barLay->addWidget(autoLabel);
     barLay->addWidget(autoSpin);
     barLay->addWidget(autoBtn);
-    barLay->addSpacing(8);
+    barLay->addSpacing(PaleoTheme::tokens().spacingSm);
     m_addBtn = new QToolButton(bar);
     m_addBtn->setObjectName(QStringLiteral("wellSectionFenceAddButton"));
     m_addBtn->setIcon(PaleoIcons::qgisTheme(QLatin1String("mActionAdd.svg")));

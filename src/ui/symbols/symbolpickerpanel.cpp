@@ -1,4 +1,5 @@
 // 层：视图
+#include "../paleotheme.h"
 #include "symbolpickerpanel.h"
 
 #include "../../qgis/geopatterns.h"
@@ -68,8 +69,8 @@ SymbolPickerPanel::SymbolPickerPanel(Family family, QWidget *parent)
   : QWidget(parent), m_family(family)
 {
   auto *layout = new QVBoxLayout(this);
-  layout->setContentsMargins(8, 8, 8, 8);
-  layout->setSpacing(6);
+  layout->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm);
+  layout->setSpacing(PaleoTheme::tokens().spacingSm);
 
   auto *filterRow = new QHBoxLayout();
   auto *filterLabel = new QLabel(tr("过滤："), this);

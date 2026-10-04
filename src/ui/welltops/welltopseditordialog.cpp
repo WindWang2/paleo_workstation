@@ -304,6 +304,7 @@ void WellTopsEditorDialog::reloadAll()
                           "topsMoveDownButton", "topsSortButton"})
       if (auto *b = findChild<QPushButton *>(QLatin1String(n)))
         b->setEnabled(false);
+    m_versionButton->setEnabled(false); // 回滚是写操作——只读下一并禁
     if (m_catalog) // 资产缺失场景 reloadAll 已在 setSummaryLine 给过原因
       setSummaryLine(tr("catalog 只读——分层仅可查看"));
   }
@@ -411,10 +412,10 @@ QVector<WellTopRecord> WellTopsEditorDialog::collectRows(QString *error) const
         return QVector<WellTopRecord>();
       }
     }
-    if (dummyHas && (!r.hasX || !r.hasY)) // Z 与 X/Y 同列组：单独的 Z 保存即丢
+    if (dummyHas && !r.hasX && !r.hasY) // 写侧 hasX||hasY 即出 Z：X/Y 双缺才丢
     {
       if (error)
-        *error = tr("第 %1 行：Z 有值但 X/Y 缺失——三列同组写出，请补 X/Y 或清空 Z")
+        *error = tr("第 %1 行：Z 有值但 X/Y 均缺失——写盘会丢 Z，请补 X/Y 或清空 Z")
                      .arg(QString::number(row + 1));
       return QVector<WellTopRecord>();
     }
@@ -606,7 +607,7 @@ void WellTopsEditorDialog::refreshRowStatus(int row)
     if (!parseNumericCell(text, c.has, c.v))
       badNumber = true;
   }
-  if (dummyHas && (!current.hasX || !current.hasY)) // Z 有值而 X/Y 空——保存被拦
+  if (dummyHas && !current.hasX && !current.hasY) // Z 有值而 X/Y 双缺——保存被拦
     badNumber = true;
 
   const WellTopRecord *baselineRec = nullptr;
@@ -638,7 +639,7 @@ void WellTopsEditorDialog::refreshRowStatus(int row)
                                                   : tr("已改"));
     status->setForeground(QBrush(tk.warningText));
     status->setBackground(QBrush(tk.warningBg));
-    status->setToolTip(badNumber ? tr("数值列有非法输入，或 Z 有值而 X/Y 缺失（同列组）")
+    status->setToolTip(badNumber ? tr("数值列有非法输入，或 Z 有值而 X/Y 均缺失（写盘会丢 Z）")
                                  : QString());
   }
   else

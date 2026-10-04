@@ -32,6 +32,7 @@ private slots:
   void validationBlocksSaveOnErrorThenPasses();
   void insertDeleteSortRows();
   void zWithoutXYBlocksSave();
+  void halfGroupRowLoadsCleanAndSaves();
   void precisionAndZSurviveEditorRoundTrip();
   void mergeDialogDefaultsAndResolutions();
 
@@ -64,7 +65,10 @@ private:
       if (!cat.open(dir.path()))
         return false;
       QVector<WellTopRecord> rows;
-      rows << rec(QStringLiteral("A1"), QStringLiteral("X"), 850.0, 850.0)
+      WellTopRecord half = rec(QStringLiteral("A1"), QStringLiteral("X"), 850.0, 850.0);
+      half.y = 0.0;
+      half.hasY = false; // 半坐标组（X 实、Y 哨兵、z 实值）——写侧保 z 的形态
+      rows << half
            << rec(QStringLiteral("A1"), QStringLiteral("A"), 942.5, 942.5)
            << rec(QStringLiteral("A1"), QStringLiteral("B"), 1146.0, 1146.0)
            << rec(QStringLiteral("A2"), QStringLiteral("X"), 800.0, 800.0);
@@ -246,6 +250,27 @@ void TestWellTopsEditorUi::zWithoutXYBlocksSave()
   auto *save = dlg->findChild<QPushButton *>(QStringLiteral("topsSaveButton"));
   save->click();
   QCOMPARE(fx.cat.versionsForAsset(fx.assetId).size(), 1); // 未发版本
+  delete dlg;
+}
+
+void TestWellTopsEditorUi::halfGroupRowLoadsCleanAndSaves()
+{
+  Fixture fx;
+  QVERIFY(fx.build()); // 首行是半坐标组（hasY=false，z=-850）
+  auto *dlg = openDialog(fx);
+  auto *table = dlg->findChild<QTableWidget *>(QStringLiteral("topsEditTable"));
+  // 打开即净：半组行不得标 待修正/已改（轮 4 M1——门控曾是 !hasX||!hasY）。
+  for (int r = 0; r < table->rowCount(); ++r)
+    QCOMPARE(table->item(r, 0)->text(), QStringLiteral("—"));
+  QCOMPARE(table->item(0, 4)->text(), QStringLiteral("5288.670")); // X
+  QCOMPARE(table->item(0, 5)->text(), QString());                  // Y 空
+  QCOMPARE(table->item(0, 6)->text(), QStringLiteral("-850.000")); // Z 实值在表
+
+  table->item(0, 2)->setText(QStringLiteral("851.000")); // 改一行触发可保存态
+  auto *save = dlg->findChild<QPushButton *>(QStringLiteral("topsSaveButton"));
+  autoDismissModalBoxes();
+  save->click();
+  QCOMPARE(fx.cat.versionsForAsset(fx.assetId).size(), 2); // 半组行不阻断保存
   delete dlg;
 }
 

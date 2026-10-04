@@ -371,14 +371,14 @@ int applyShift(QVector<WellTopRecord> *rows, double delta)
   int changed = 0;
   for (WellTopRecord &r : *rows)
   {
-    const bool touches = r.hasMd || r.hasTvd || (r.hasX && r.hasY);
+    const bool touches = r.hasMd || r.hasTvd || (r.hasX || r.hasY);
     if (!touches)
       continue;
     if (r.hasMd)
       r.md += delta;
     if (r.hasTvd)
       r.tvd += delta;
-    if (r.hasX && r.hasY) // Z 与 X/Y 同列组（解析器 t.size()>=6 才读）
+    if (r.hasX || r.hasY) // Z 与 X/Y 同列组——半组行的 z 同样位移（写侧同门控）
       r.z += delta;
     ++changed;
   }

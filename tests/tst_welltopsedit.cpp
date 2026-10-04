@@ -350,6 +350,16 @@ void TestWellTopsEdit::batchTransforms()
   QCOMPARE(copy.at(2).topName, QStringLiteral("C3"));
 
   copy = rows;
+  {
+    WellTopRecord half = Fixture::rec(QStringLiteral("A4"), QStringLiteral("H"), 500.0, 500.0);
+    half.y = 0.0;
+    half.hasY = false;
+    copy.append(half); // 半坐标组：z 也要随位移（轮 4 M2）
+    QCOMPARE(applyShift(&copy, 10.0), 5);
+    QCOMPARE(copy.last().z, -500.0 + 10.0);
+    QCOMPARE(copy.last().hasY, false);
+  }
+  copy = rows;
   QCOMPARE(applyShift(&copy, 10.0), 4); // 4 行有深度列；纯层名行不动
   QCOMPARE(copy.at(0).md, 860.0);
   QCOMPARE(copy.at(0).tvd, 860.0);

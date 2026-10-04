@@ -489,6 +489,7 @@ target_link_libraries(paleo_workflow PUBLIC paleo_deps paleo_qgis paleo_store pa
 
 # ---- 视图层 ----
 add_library(paleo_ui STATIC
+  src/ui/symbols/symbolpickerpanel.cpp             # 方向31：符号选择器面板（花纹/线型浏览 + 语义过滤）
   src/ui/pages/mappingworkbenchpage.cpp
   src/ui/paleomainwindow_workbench.cpp
   src/ui/paleomainwindow.cpp
@@ -734,6 +735,7 @@ add_paleo_test(tst_singlefactor_store LIBS paleo_io)
 add_paleo_test(tst_services2 LIBS paleo_qgis)               # algorithms,metadata,qgis
 add_paleo_test(tst_geosymbols LIBS paleo_qgis paleo_domain) # 方向31：花纹/线型词表+入口（qrc 资源在 paleo_domain）
 add_paleo_test(tst_semanticlegend LIBS paleo_qgis paleo_domain) # 方向31：图例自动生成 + 增删/renderer 联动
+add_paleo_test(tst_symbolpicker LIBS paleo_ui paleo_qgis paleo_domain) # 方向31：符号选择器面板（缩略/过滤/patternPicked）
 add_paleo_test(tst_workflows LIBS paleo_workflow)
 add_paleo_test(tst_mappingworkbench)                    # 伞式（ui/pages+qgis+workflow 全栈面，兼容样本）
 add_paleo_test(tst_ui)                                      # 伞式（app 面全栈，兼容样本）

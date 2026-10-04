@@ -374,4 +374,25 @@ QgsLineSymbol *surveyBoundaryLineSymbol()
   return QgsLineSymbol::createSimple(props).release();
 }
 
+QgsLineSymbol *lineSymbolFor(const QString &lineId)
+{
+  if (lineId == QLatin1String("fault_normal"))
+    return faultLineSymbol(QStringLiteral("normal"));
+  if (lineId == QLatin1String("fault_reverse"))
+    return faultLineSymbol(QStringLiteral("reverse"));
+  if (lineId == QLatin1String("fault_strike"))
+    return faultLineSymbol(QStringLiteral("strike"));
+  if (lineId == QLatin1String("fault_inferred"))
+    return faultLineSymbol(QStringLiteral("inferred"));
+  if (lineId == QLatin1String("facies_definite"))
+    return faciesBoundaryLineSymbol(QStringLiteral("definite"));
+  if (lineId == QLatin1String("facies_inferred"))
+    return faciesBoundaryLineSymbol(QStringLiteral("inferred"));
+  if (lineId == QLatin1String("facies_transitional"))
+    return faciesBoundaryLineSymbol(QStringLiteral("transitional"));
+  if (lineId == QLatin1String("survey_boundary"))
+    return surveyBoundaryLineSymbol();
+  return nullptr;
+}
+
 } // namespace GeoPatterns

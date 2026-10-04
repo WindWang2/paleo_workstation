@@ -57,6 +57,9 @@ QgsFillSymbol *linePatternFillSymbol(const QColor &color, double distanceMm,
 // 断层线型四类：实测实线挂齿（normal 齿朝一侧/reverse 反侧/strike 双向
 // cross），推测虚线不挂齿；未知 → 推测式（不确定地质体虚线惯例）。
 QgsLineSymbol *faultLineSymbol(const QString &kind);
+// 线型词表 id（fault_normal/…/survey_boundary）→ 符号：选择器/图例统一
+// 构造口（词表 id 与构造参数的映射单点）。未知 → 空指针。
+QgsLineSymbol *lineSymbolFor(const QString &lineId);
 // 相界线型三类：确定实线/推测虚线/渐变相带点线。
 QgsLineSymbol *faciesBoundaryLineSymbol(const QString &kind);
 // 测区边界线型：墨色 0.6mm 实线 + 圆端头（DESIGN.md 地图域例外条款）。

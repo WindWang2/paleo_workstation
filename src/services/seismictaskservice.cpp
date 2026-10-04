@@ -1883,6 +1883,8 @@ QString trackStopText(paleo::hztrack::StopReason reason)
     return QObject::tr("相干门槛");
   case paleo::hztrack::StopReason::Cancelled:
     return QObject::tr("已取消");
+  case paleo::hztrack::StopReason::ReadFailure:
+    return QObject::tr("剖面读取失败");
   case paleo::hztrack::StopReason::Invalid:
     return QObject::tr("输入无效");
   case paleo::hztrack::StopReason::Completed:

@@ -434,6 +434,292 @@ private slots:
     QVERIFY(int(r.picks.size()) >= nXl); // 种子剖面已产出
     QVERIFY(int(r.picks.size()) < nIl * nXl); // 未全程
   }
+
+  // ---- goal/horizon-3d：倾角引导 ---------------------------------------------
+
+  // 近距同相轴双事件窄波形剖面（半宽 5，事件重叠区叠加）：主事件 aAt(t)
+  // + 平坦捕获事件 flat（仅 trace >= flatFrom 存在——走廊期不受污染，捕获
+  // 面在陡化区入场才能演示「滑落接管」而非交叉相关劣化）。注意 flat 距
+  // 主事件取 8 样：距 5 样恰是波形半周期（cos(d/5π)），等幅两事件相消
+  // 成空，追踪会诚实停而非滑落（实测教训）。
+  static std::vector<float> makeTwoEventSection(
+      int nTraces, int nSamples, const std::function<int(int)> &aAt,
+      int flatSample, int flatFrom)
+  {
+    std::vector<float> v(static_cast<std::size_t>(nTraces) * nSamples, 0.0f);
+    for (int t = 0; t < nTraces; ++t)
+      for (int s = 0; s < nSamples; ++s)
+      {
+        const int da = s - aAt(t);
+        float val = 0.0f;
+        if (std::abs(da) <= 5)
+          val += std::cos(da / 5.0f * float(M_PI));
+        if (t >= flatFrom)
+        {
+          const int db = s - flatSample;
+          if (std::abs(db) <= 5)
+            val += std::cos(db / 5.0f * float(M_PI));
+        }
+        v[static_cast<std::size_t>(t) * nSamples + s] = val;
+      }
+    return v;
+  }
+
+  // Oracle#2（方向37）：同一剖面，无引导滑落平坦邻轴 / 有引导贴真值，
+  // 尾段量化差异入 ledger。斜率设计：前段 2（≤ maxSearch=3，两侧都能跟、
+  // 历史可建立），t>15 起陡至 5（∈ (3, 2×3]，隐式窗不可达、预测窗可达）；
+  // 捕获面 t≥16 起在 [A(15)-3, A(15)+3] = [147,153] 带内（flat=147）。
+  void dipGuidanceDifferentialEvidence()
+  {
+    const int cols = 48, rows = 512, flat = 147, flatFrom = 16;
+    const auto eventA = [](int t) { return t <= 15 ? 120 + 2 * t : 150 + 5 * (t - 15); };
+    const std::vector<float> sec =
+        makeTwoEventSection(cols, rows, eventA, flat, flatFrom);
+
+    TrackOptions base;
+    base.windowSamples = 24;
+    base.maxSearchSamples = 3;
+    base.correlationThreshold = 0.6;
+
+    // 无引导：t=16 起主事件跳 5 > 搜索半径 3，窗内只剩平坦事件 → 接管
+    TrackOptions off = base;
+    const TrackResult slid = trackSection(sec.data(), cols, rows,
+                                          {8, eventA(8)}, off);
+    QVERIFY(slid.valid());
+    QCOMPARE(int(slid.picks.size()), cols); // 相关全程「合格」——滑落不可见
+    double slidErr = 0.0;
+    for (const TracedPick &p : slid.picks)
+    {
+      if (p.trace >= 20) // 尾段（远离交叉过渡区）
+      {
+        QVERIFY(std::abs(p.sample - flat) <= 1); // 锁死在平坦邻轴上
+        slidErr += std::abs(p.sample - eventA(p.trace));
+      }
+    }
+    slidErr /= (cols - 20);
+
+    // 有引导：趋势预测中心跟随主事件，尾段贴真值
+    TrackOptions on = base;
+    on.dipHistoryPicks = 8;
+    const TrackResult guided = trackSection(sec.data(), cols, rows,
+                                            {8, eventA(8)}, on);
+    QVERIFY(guided.valid());
+    QCOMPARE(int(guided.picks.size()), cols);
+    double guidedErr = 0.0;
+    for (const TracedPick &p : guided.picks)
+    {
+      if (p.trace >= 20)
+      {
+        QVERIFY2(std::abs(p.sample - eventA(p.trace)) <= 1,
+                 qPrintable(QString("t=%1 picked %2 want %3")
+                                .arg(p.trace).arg(p.sample).arg(eventA(p.trace))));
+        guidedErr += std::abs(p.sample - eventA(p.trace));
+      }
+    }
+    guidedErr /= (cols - 20);
+
+    // 差异证据（ledger 誊录）：滑落误差对真值斜率量级（5 样/道），
+    // 引导误差在拾取样点容差内
+    qInfo("dip-guidance differential: no-guide mean |err| %.2f, "
+          "guided mean |err| %.2f (trailing traces)",
+          slidErr, guidedErr);
+    QVERIFY(guidedErr < 0.5);
+    QVERIFY(slidErr > 2.5); // 滑落：尾段偏离 ≥ 半条斜率（5 样/道之半）
+  }
+
+  // 回落语义：缓倾角（斜率 ≤ maxSearch，隐式窗本就可达）下引导开关
+  // 结果逐位一致——引导只移动搜索窗，不改变拾取判据
+  void dipGuidanceFallbackMatchesImplicit()
+  {
+    const int cols = 160, rows = 512;
+    const auto peak = [](int t) { return 140 + 2 * t; };
+    const std::vector<float> sec =
+        makeSection(cols, rows, peak, zeroNoise, 7u);
+    TrackOptions off{24, 12, 0.6};
+    TrackOptions on = off;
+    on.dipHistoryPicks = 8;
+    const TrackResult a = trackSection(sec.data(), cols, rows,
+                                       {80, peak(80)}, off);
+    const TrackResult b = trackSection(sec.data(), cols, rows,
+                                       {80, peak(80)}, on);
+    QCOMPARE(int(a.picks.size()), int(b.picks.size()));
+    for (std::size_t i = 0; i < a.picks.size(); ++i)
+    {
+      QCOMPARE(b.picks[i].trace, a.picks[i].trace);
+      QCOMPARE(b.picks[i].sample, a.picks[i].sample);
+      QCOMPARE(b.picks[i].confidence, a.picks[i].confidence);
+    }
+  }
+
+  // ---- goal/horizon-3d：滑窗取数面 -------------------------------------------
+
+  // Oracle#5 支撑：滑窗供应器契约（至多 2 枚相邻剖面存活）足以完成传播；
+  // 结果与全量缓冲逐位一致（含空块/限步长/取消）
+  void windowedMatchesFullVolumeWithBoundedLiveSections()
+  {
+    const int nIl = 32, nXl = 48, nS = 384;
+    const auto peak = [](int il, int xl) { return 100 + 3 * il + 2 * xl; };
+    std::vector<float> vol = makeVolume(nIl, nXl, nS, peak);
+    for (int il = 18; il < 22; ++il) // 空块（同 propagateVolumeHonestHoles）
+      for (int xl = 20; xl < 26; ++xl)
+        for (int s = 0; s < nS; ++s)
+          vol[(static_cast<std::size_t>(il) * nXl + xl) * nS + s] = kNan;
+
+    // 滑窗供应器：仅缓存最近 2 枚剖面（模拟服务层 IL 滑窗调度），
+    // 统计同时在场的剖面数上界
+    struct LiveWindow
+    {
+      const std::vector<float> &vol;
+      int nXl, nS;
+      int alive[2] = {-1, -1};      // 在场 IL 索引（-1 = 空）
+      int maxAlive = 0;
+      std::size_t fetches = 0;
+      const float *section(int il)
+      {
+        if (alive[0] != il && alive[1] != il)
+        {
+          ++fetches;
+          alive[1] = alive[0]; // 淘汰最旧
+          alive[0] = il;
+        }
+        int aliveCount = (alive[1] >= 0 ? 2 : 1);
+        maxAlive = std::max(maxAlive, aliveCount);
+        return vol.data() + static_cast<std::size_t>(il) * nXl * nS;
+      }
+    } window{vol, nXl, nS};
+
+    const std::vector<SeedPoint> seeds{{24, peak(16, 24)}};
+    const TrackOptions opt{24, 12, 0.6};
+    const PropagateResult full = propagateVolume(
+        vol.data(), nIl, nXl, nS, 16, seeds, opt, 5);
+    const PropagateResult win = propagateVolumeWindowed(
+        nIl, nXl, nS,
+        [&window](int il) { return window.section(il); },
+        16, seeds, opt, 5);
+
+    QVERIFY(full.valid() && win.valid());
+    QCOMPARE(win.stopReason, full.stopReason);
+    QCOMPARE(win.ilMin, full.ilMin);
+    QCOMPARE(win.ilMax, full.ilMax);
+    QCOMPARE(int(win.picks.size()), int(full.picks.size()));
+    for (std::size_t i = 0; i < full.picks.size(); ++i)
+    {
+      QCOMPARE(win.picks[i].il, full.picks[i].il);
+      QCOMPARE(win.picks[i].xl, full.picks[i].xl);
+      QCOMPARE(win.picks[i].sample, full.picks[i].sample);
+      QCOMPARE(win.picks[i].confidence, full.picks[i].confidence);
+    }
+    QVERIFY(window.maxAlive <= 2);  // 契约：≤2 枚剖面在场即足够
+    QVERIFY(window.fetches >= 2);   // 确实走了多次取数（非一次性全量）
+
+    // 取消语义（滑窗路径同样生效）
+    int calls = 0;
+    const PropagateResult cancelled = propagateVolumeWindowed(
+        nIl, nXl, nS, [&window](int il) { return window.section(il); },
+        16, seeds, opt, 0, [&calls]() { return ++calls > 60; });
+    QCOMPARE(cancelled.stopReason, StopReason::Cancelled);
+    QVERIFY(cancelled.valid());
+    QVERIFY(int(cancelled.picks.size()) < nIl * nXl);
+  }
+
+  // 诚实失败：剖面读取失败 → ReadFailure 中止（已得拾取保留）；
+  // 种子剖面读取失败 → 空 + ReadFailure
+  void windowedReadFailureStopsHonestly()
+  {
+    const int nIl = 16, nXl = 8, nS = 256;
+    const auto peak = [](int il, int xl) { return 100 + 3 * il + 2 * xl; };
+    const std::vector<float> vol = makeVolume(nIl, nXl, nS, peak);
+    const TrackOptions opt{24, 12, 0.6};
+
+    const auto failFrom = [&vol, nXl, nS](int brokenIl) {
+      return [&vol, nXl, nS, brokenIl](int il) -> const float * {
+        if (il == brokenIl)
+          return nullptr; // 读错误
+        return vol.data() + static_cast<std::size_t>(il) * nXl * nS;
+      };
+    };
+    // 种子剖面失败：零拾取
+    const PropagateResult seedFail = propagateVolumeWindowed(
+        nIl, nXl, nS, failFrom(8), 8, {{4, peak(8, 4)}}, opt);
+    QCOMPARE(seedFail.stopReason, StopReason::ReadFailure);
+    QVERIFY(seedFail.picks.empty());
+
+    // 扫掠中途失败（右侧 step 2 = il 10）：已得拾取如实保留
+    const PropagateResult midFail = propagateVolumeWindowed(
+        nIl, nXl, nS, failFrom(10), 8, {{4, peak(8, 4)}}, opt);
+    QCOMPARE(midFail.stopReason, StopReason::ReadFailure);
+    QVERIFY(midFail.valid());
+    int maxIl = -1;
+    for (const VolumePick &p : midFail.picks)
+    {
+      maxIl = std::max(maxIl, p.il);
+      QVERIFY(std::abs(p.sample - peak(p.il, p.xl)) <= 1); // 已得拾取有效
+    }
+    QCOMPARE(maxIl, 9); // il=10 失败：两侧推进均止于 il 9
+  }
+
+  // Oracle#2(3D)：陡化层面（XL 向斜率 2→5 跨 maxSearch）+ 平坦捕获面
+  // （xl≥16 入场），无引导前沿滑落平坦面 / 有引导贴解析面
+  void propagateVolumeDipGuidanceDifferential()
+  {
+    const int nIl = 12, nXl = 48, nS = 512, flatXl = 147, flatFromXl = 16;
+    // 层面 = A(xl) + il（IL 向斜率 1，恒可达）；捕获面 = flatXl + il（平坦随 IL）
+    const auto eventA = [](int xl) { return xl <= 15 ? 120 + 2 * xl : 150 + 5 * (xl - 15); };
+    std::vector<float> vol(static_cast<std::size_t>(nIl) * nXl * nS, 0.0f);
+    for (int il = 0; il < nIl; ++il)
+      for (int xl = 0; xl < nXl; ++xl)
+        for (int s = 0; s < nS; ++s)
+        {
+          const int da = s - (eventA(xl) + il);
+          float val = 0.0f;
+          if (std::abs(da) <= 5)
+            val += std::cos(da / 5.0f * float(M_PI));
+          if (xl >= flatFromXl)
+          {
+            const int db = s - (flatXl + il);
+            if (std::abs(db) <= 5)
+              val += std::cos(db / 5.0f * float(M_PI));
+          }
+          vol[(static_cast<std::size_t>(il) * nXl + xl) * nS + s] = val;
+        }
+
+    const int seedIl = 6, seedXl = 8;
+    TrackOptions off;
+    off.windowSamples = 24;
+    off.maxSearchSamples = 3;
+    off.correlationThreshold = 0.6;
+    TrackOptions on = off;
+    on.dipHistoryPicks = 8;
+
+    const PropagateResult slid = propagateVolume(
+        vol.data(), nIl, nXl, nS, seedIl, {{seedXl, eventA(seedXl) + seedIl}}, off);
+    QVERIFY(slid.valid());
+    QCOMPARE(int(slid.picks.size()), nIl * nXl);
+    for (const VolumePick &p : slid.picks)
+      if (p.xl >= 20)
+        QVERIFY(std::abs(p.sample - (flatXl + p.il)) <= 1); // 滑落平坦捕获面
+
+    const PropagateResult guided = propagateVolume(
+        vol.data(), nIl, nXl, nS, seedIl, {{seedXl, eventA(seedXl) + seedIl}}, on);
+    QVERIFY(guided.valid());
+    QCOMPARE(int(guided.picks.size()), nIl * nXl);
+    int trailing = 0;
+    double errSum = 0.0;
+    for (const VolumePick &p : guided.picks)
+    {
+      if (p.xl < 20)
+        continue;
+      QVERIFY2(std::abs(p.sample - (eventA(p.xl) + p.il)) <= 1,
+               qPrintable(QString("(%1,%2) picked %3 want %4")
+                              .arg(p.il).arg(p.xl).arg(p.sample)
+                              .arg(eventA(p.xl) + p.il)));
+      errSum += std::abs(p.sample - (eventA(p.xl) + p.il));
+      ++trailing;
+    }
+    qInfo("3D dip-guidance: guided trailing mean |err| %.3f over %d picks",
+          trailing ? errSum / trailing : -1.0, trailing);
+    QVERIFY(trailing > 0);
+  }
 };
 
 QTEST_GUILESS_MAIN(TestHorizonTrack)

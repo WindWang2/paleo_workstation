@@ -6,8 +6,11 @@
 #include "layout/layoutexportactions.h"
 #include "layout/layoutitempalette.h"
 #include "layout/layoutitempanel.h"
+#include "layout/layoutitemtree.h"
 #include "layout/layouttemplates.h"
 #include "layout/layoutundostack.h"
+
+#include "../qgis/standardelements.h"
 
 #include <QAction>
 #include <QDialog>
@@ -35,14 +38,20 @@
 #include <qgsfeature.h>
 #include <qgsgui.h>
 #include <qgslayout.h>
+#include <qgslayoutaligner.h>
 #include <qgslayoutatlas.h>
 #include <qgslayoutexporter.h>
 #include <qgslayoutitem.h>
 #include <qgslayoutitemguiregistry.h>
+#include <qgslayoutitemlabel.h>
+#include <qgslayoutitemlegend.h>
+#include <qgslayoutitemmap.h>
+#include <qgslayoutitemscalebar.h>
 #include <qgslayoutitempage.h>
 #include <qgslayoutpagecollection.h>
 #include <qgslayoutpagepropertieswidget.h>
 #include <qgslayoutruler.h>
+#include <qgslayoutsnapper.h>
 #include <qgslayoutundostack.h>
 #include <qgslayoutview.h>
 #include <qgslayoutviewtooladditem.h>
@@ -155,6 +164,14 @@ PaleoLayoutDesignerShell::PaleoLayoutDesignerShell( QgsLayout *layout, QWidget *
   paletteDock->setWidget(leftHost);
   m_dockManager->addDock(Qt::LeftDockWidgetArea, paletteDock);
 
+  // 元素树（方向 25 M6）：原生 QgsLayoutModel 视图，挂左侧 dock 区（与
+  // 元素面板同区，可拖拽重排）。先建后绑——布局在下面 setCurrentLayout。
+  m_itemTree = new PaleoLayoutItemTree(this);
+  auto *treeDock = new QDockWidget(tr("元素树"), m_dockArea);
+  treeDock->setObjectName(QStringLiteral("designerItemTreeDock"));
+  treeDock->setWidget(m_itemTree);
+  m_dockManager->addDock(Qt::LeftDockWidgetArea, treeDock);
+
   // Center: view with rulers (unchanged from the original shell).
   m_view = new QgsLayoutView( this );
 
@@ -215,6 +232,17 @@ PaleoLayoutDesignerShell::PaleoLayoutDesignerShell( QgsLayout *layout, QWidget *
 
   m_templates = new PaleoLayoutTemplates( this );
   m_templates->setLayoutProvider( [this]() -> QgsLayout * { return m_layout; } );
+
+  // 元素树绑版面 + 双向选中同步（树 → 版面选中；版面选中 → 树高亮）。
+  m_itemTree->attach( m_layout );
+  connect( m_itemTree, &PaleoLayoutItemTree::itemActivated, this,
+           [this]( QgsLayoutItem *item )
+           {
+             if ( item )
+               selectItems( { item } );
+           } );
+  connect( m_itemTree, &PaleoLayoutItemTree::itemShowOptions, this,
+           [this]( QgsLayoutItem *item ) { showItemOptions( item ); } );
 
   // Element palette interactive path: itemRequested -> QgsLayoutViewToolAddItem.
   m_palette->attach( m_view );
@@ -393,6 +421,16 @@ void PaleoLayoutDesignerShell::buildFileMenu()
     if ( a )
       builtins->addAction( a );
   }
+
+  // 图件模板（方向 25）：三类图件骨架 × A4/A3 横竖，二级菜单。
+  QMenu *figures = builtins->addMenu( tr( "图件模板(&F)" ) );
+  figures->setObjectName( QStringLiteral( "menuFigureTemplates" ) );
+  for ( const QString &key : PaleoLayoutTemplates::figureBuiltinKeys() )
+  {
+    QAction *a = m_templates->applyBuiltinAction( key );
+    if ( a )
+      figures->addAction( a );
+  }
 }
 
 void PaleoLayoutDesignerShell::buildItemsMenu()
@@ -413,9 +451,96 @@ void PaleoLayoutDesignerShell::buildItemsMenu()
   }
 
   menu->addSeparator();
+
+  // 标准图件元素（方向 25 M2）：Paleo 工厂默认值（DESIGN.md 装饰位 + 字阶），
+  // 不是 QGIS 裸项——裸项继续走上面的 GUI 注册表路径。
+  QMenu *standard = menu->addMenu( tr( "标准图件元素(&S)" ) );
+  standard->setObjectName( QStringLiteral( "menuStandardElements" ) );
+
+  struct StandardSpec
+  {
+      const char *objectName;
+      const char *text;
+  };
+  const StandardSpec specs[] = {
+    { "actionAddStandardSet", QT_TRANSLATE_NOOP( "PaleoLayoutDesignerShell", "全套标准元素" ) },
+    { "actionAddStandardScaleBar", QT_TRANSLATE_NOOP( "PaleoLayoutDesignerShell", "比例尺（数字+条式）" ) },
+    { "actionAddStandardLegend", QT_TRANSLATE_NOOP( "PaleoLayoutDesignerShell", "图例（随图层树）" ) },
+    { "actionAddStandardNorthArrow", QT_TRANSLATE_NOOP( "PaleoLayoutDesignerShell", "指北针" ) },
+    { "actionAddStandardGrid", QT_TRANSLATE_NOOP( "PaleoLayoutDesignerShell", "坐标网格" ) },
+    { "actionAddStandardTitleBlock", QT_TRANSLATE_NOOP( "PaleoLayoutDesignerShell", "图名/副题/署名块" ) },
+    { "actionAddStandardInset", QT_TRANSLATE_NOOP( "PaleoLayoutDesignerShell", "插图（全图概览）" ) },
+  };
+  for ( const StandardSpec &spec : specs )
+  {
+    QAction *a = standard->addAction( tr( spec.text ) );
+    a->setObjectName( QString::fromLatin1( spec.objectName ) );
+    a->setToolTip( tr( "需要版面中有地图项（新建地图项或先套图件模板）" ) );
+    connect( a, &QAction::triggered, this, [this, name = spec.objectName]()
+    { addStandardElement( QLatin1String( name ) ); } );
+  }
+
+  menu->addSeparator();
   QAction *pageAction = menu->addAction( tr( "页面属性…" ) );
   pageAction->setObjectName( QStringLiteral( "menuPageProperties" ) );
   connect( pageAction, &QAction::triggered, m_palette, &PaleoLayoutItemPalette::requestPageProperties );
+}
+
+QgsLayoutItemMap *PaleoLayoutDesignerShell::targetMapItem() const
+{
+  if ( !m_layout )
+    return nullptr;
+  // 优先级：选中项是地图 → id="map" → 第一个地图项。
+  const QList<QgsLayoutItem *> selected = m_layout->selectedLayoutItems();
+  for ( QgsLayoutItem *item : selected )
+    if ( auto *map = qobject_cast<QgsLayoutItemMap *>( item ) )
+      return map;
+  if ( QgsLayoutItem *byId = m_layout->itemById( QStringLiteral( "map" ) ) )
+    if ( auto *map = qobject_cast<QgsLayoutItemMap *>( byId ) )
+      return map;
+  QList<QgsLayoutItemMap *> maps;
+  m_layout->layoutItems( maps );
+  return maps.isEmpty() ? nullptr : maps.first();
+}
+
+void PaleoLayoutDesignerShell::addStandardElement( const QString &name )
+{
+  auto *printLayout = dynamic_cast<QgsPrintLayout *>( m_layout );
+  QgsLayoutItemMap *map = targetMapItem();
+  if ( !printLayout || !map )
+  {
+    if ( m_statusBar )
+      m_statusBar->showMessage( tr( "标准图件元素需要版面中有地图项。" ), 4000 );
+    return;
+  }
+
+  QgsLayoutItem *created = nullptr;
+  if ( name == QLatin1String( "actionAddStandardSet" ) )
+  {
+    const int added = PaleoStandardElements::addStandardSet(
+        printLayout, map, tr( "图名" ), QString() );
+    if ( m_statusBar )
+      m_statusBar->showMessage( tr( "已添加 %1 个标准图件元素。" ).arg( added ), 4000 );
+  }
+  else if ( name == QLatin1String( "actionAddStandardScaleBar" ) )
+    created = PaleoStandardElements::addScaleBar( printLayout, map );
+  else if ( name == QLatin1String( "actionAddStandardLegend" ) )
+    created = PaleoStandardElements::addLegend( printLayout, map );
+  else if ( name == QLatin1String( "actionAddStandardNorthArrow" ) )
+    created = PaleoStandardElements::addNorthArrow( printLayout, map );
+  else if ( name == QLatin1String( "actionAddStandardGrid" ) )
+    PaleoStandardElements::addCoordinateGrid( map );
+  else if ( name == QLatin1String( "actionAddStandardTitleBlock" ) )
+  {
+    const auto block =
+        PaleoStandardElements::addTitleBlock( printLayout, tr( "图名" ), QString() );
+    created = block.title;
+  }
+  else if ( name == QLatin1String( "actionAddStandardInset" ) )
+    created = PaleoStandardElements::addInsetMap( printLayout, map );
+
+  if ( created )
+    selectItems( { created } ); // 加完即选——右侧属性面板立即可调
 }
 
 void PaleoLayoutDesignerShell::buildLayoutMenu()
@@ -440,9 +565,78 @@ void PaleoLayoutDesignerShell::buildLayoutMenu()
 
   layout->addSeparator();
 
-  // Interface submenus: &Edit (undo/redo via subtask D), &View (rulers+zoom),
-  // &Atlas and &Report hang off the Layout top-level menu.
+  // Interface submenus: &Edit (undo/redo via subtask D + 对齐/分布), &View
+  // (rulers + zoom + 吸附), &Atlas and &Report hang off the Layout top-level.
   m_undoStack->attachMenu( editMenu() );
+
+  // 对齐/分布（方向 25 M6）：QgsLayoutAligner（core）静态调用；QGIS 4.2 无
+  // 对齐动作类，动作挂壳是嵌入方的事。选中不足时置灰（§35 reason tooltip）。
+  editMenu()->addSeparator();
+  QMenu *alignMenu = editMenu()->addMenu( tr( "对齐(&A)" ) );
+  alignMenu->setObjectName( QStringLiteral( "menuAlignItems" ) );
+  struct AlignSpec
+  {
+      const char *objectName;
+      const char *text;
+      QgsLayoutAligner::Alignment alignment;
+  };
+  const AlignSpec alignSpecs[] = {
+    { "actionAlignLeft", QT_TRANSLATE_NOOP( "PaleoLayoutDesignerShell", "左对齐" ),
+      QgsLayoutAligner::AlignLeft },
+    { "actionAlignHCenter", QT_TRANSLATE_NOOP( "PaleoLayoutDesignerShell", "水平居中" ),
+      QgsLayoutAligner::AlignHCenter },
+    { "actionAlignRight", QT_TRANSLATE_NOOP( "PaleoLayoutDesignerShell", "右对齐" ),
+      QgsLayoutAligner::AlignRight },
+    { "actionAlignTop", QT_TRANSLATE_NOOP( "PaleoLayoutDesignerShell", "顶对齐" ),
+      QgsLayoutAligner::AlignTop },
+    { "actionAlignVCenter", QT_TRANSLATE_NOOP( "PaleoLayoutDesignerShell", "垂直居中" ),
+      QgsLayoutAligner::AlignVCenter },
+    { "actionAlignBottom", QT_TRANSLATE_NOOP( "PaleoLayoutDesignerShell", "底对齐" ),
+      QgsLayoutAligner::AlignBottom },
+  };
+  for ( const AlignSpec &spec : alignSpecs )
+  {
+    QAction *a = alignMenu->addAction( tr( spec.text ) );
+    a->setObjectName( QString::fromLatin1( spec.objectName ) );
+    a->setToolTip( tr( "需要至少选中两个版面项" ) );
+    connect( a, &QAction::triggered, this,
+             [this, alignment = spec.alignment]() { alignSelected( alignment ); } );
+  }
+
+  QMenu *distributeMenu = editMenu()->addMenu( tr( "分布(&D)" ) );
+  distributeMenu->setObjectName( QStringLiteral( "menuDistributeItems" ) );
+  struct DistributeSpec
+  {
+      const char *objectName;
+      const char *text;
+      QgsLayoutAligner::Distribution distribution;
+  };
+  const DistributeSpec distributeSpecs[] = {
+    { "actionDistributeLeft", QT_TRANSLATE_NOOP( "PaleoLayoutDesignerShell", "左边缘等距" ),
+      QgsLayoutAligner::DistributeLeft },
+    { "actionDistributeHCenter", QT_TRANSLATE_NOOP( "PaleoLayoutDesignerShell", "水平中心等距" ),
+      QgsLayoutAligner::DistributeHCenter },
+    { "actionDistributeHSpace", QT_TRANSLATE_NOOP( "PaleoLayoutDesignerShell", "水平等距" ),
+      QgsLayoutAligner::DistributeHSpace },
+    { "actionDistributeRight", QT_TRANSLATE_NOOP( "PaleoLayoutDesignerShell", "右边缘等距" ),
+      QgsLayoutAligner::DistributeRight },
+    { "actionDistributeTop", QT_TRANSLATE_NOOP( "PaleoLayoutDesignerShell", "顶边缘等距" ),
+      QgsLayoutAligner::DistributeTop },
+    { "actionDistributeVCenter", QT_TRANSLATE_NOOP( "PaleoLayoutDesignerShell", "垂直中心等距" ),
+      QgsLayoutAligner::DistributeVCenter },
+    { "actionDistributeVSpace", QT_TRANSLATE_NOOP( "PaleoLayoutDesignerShell", "垂直等距" ),
+      QgsLayoutAligner::DistributeVSpace },
+    { "actionDistributeBottom", QT_TRANSLATE_NOOP( "PaleoLayoutDesignerShell", "底边缘等距" ),
+      QgsLayoutAligner::DistributeBottom },
+  };
+  for ( const DistributeSpec &spec : distributeSpecs )
+  {
+    QAction *a = distributeMenu->addAction( tr( spec.text ) );
+    a->setObjectName( QString::fromLatin1( spec.objectName ) );
+    a->setToolTip( tr( "需要至少选中三个版面项" ) );
+    connect( a, &QAction::triggered, this,
+             [this, distribution = spec.distribution]() { distributeSelected( distribution ); } );
+  }
 
   QAction *rulerAction = new QAction( tr( "显示标尺" ), this );
   rulerAction->setObjectName( QStringLiteral( "actionShowRulers" ) );
@@ -451,11 +645,81 @@ void PaleoLayoutDesignerShell::buildLayoutMenu()
   connect( rulerAction, &QAction::toggled, this, &PaleoLayoutDesignerShell::showRulers );
   viewMenu()->addAction( rulerAction );
   viewMenu()->addSeparator();
+
+  // 吸附开关（方向 25 M6）：QgsLayoutSnapper 的三路吸附，默认参考线+项开
+  //（QGIS 设计器惯例）。网格吸附默认关（版面网格是排版参考，不常开）。
+  if ( m_layout )
+  {
+    struct SnapSpec
+    {
+        const char *objectName;
+        const char *text;
+        bool initial;
+        void ( QgsLayoutSnapper::*setter )( bool );
+    };
+    const SnapSpec snapSpecs[] = {
+      { "actionSnapToGuides", QT_TRANSLATE_NOOP( "PaleoLayoutDesignerShell", "吸附到参考线" ),
+        true, &QgsLayoutSnapper::setSnapToGuides },
+      { "actionSnapToItems", QT_TRANSLATE_NOOP( "PaleoLayoutDesignerShell", "吸附到项" ),
+        true, &QgsLayoutSnapper::setSnapToItems },
+      { "actionSnapToGrid", QT_TRANSLATE_NOOP( "PaleoLayoutDesignerShell", "吸附到网格" ),
+        false, &QgsLayoutSnapper::setSnapToGrid },
+    };
+    for ( const SnapSpec &spec : snapSpecs )
+    {
+      QAction *a = new QAction( tr( spec.text ), this );
+      a->setObjectName( QString::fromLatin1( spec.objectName ) );
+      a->setCheckable( true );
+      a->setChecked( spec.initial );
+      // 初始态对齐 snapper 现值（版面可能带模板里的吸附设置）。
+      if ( spec.initial )
+        ( m_layout->snapper().*spec.setter )( true );
+      connect( a, &QAction::toggled, this,
+               [this, setter = spec.setter]( bool on )
+               {
+                 if ( m_layout )
+                   ( m_layout->snapper().*setter )( on );
+               } );
+      viewMenu()->addAction( a );
+    }
+    viewMenu()->addSeparator();
+  }
+  viewMenu()->addSeparator();
   for ( QAction *a : navigationToolbar()->actions() )
     viewMenu()->addAction( a );
 
   layout->addMenu( atlasMenu() );
   layout->addMenu( reportMenu() );
+}
+
+void PaleoLayoutDesignerShell::alignSelected( QgsLayoutAligner::Alignment alignment )
+{
+  if ( !m_layout )
+    return;
+  const QList<QgsLayoutItem *> selected = m_layout->selectedLayoutItems();
+  if ( selected.size() < 2 )
+  {
+    if ( m_statusBar )
+      m_statusBar->showMessage( tr( "对齐需要至少选中 2 个版面项。" ), 4000 );
+    return;
+  }
+  QgsLayoutAligner::alignItems( m_layout, selected, alignment );
+  m_layout->update();
+}
+
+void PaleoLayoutDesignerShell::distributeSelected( QgsLayoutAligner::Distribution distribution )
+{
+  if ( !m_layout )
+    return;
+  const QList<QgsLayoutItem *> selected = m_layout->selectedLayoutItems();
+  if ( selected.size() < 3 )
+  {
+    if ( m_statusBar )
+      m_statusBar->showMessage( tr( "分布需要至少选中 3 个版面项。" ), 4000 );
+    return;
+  }
+  QgsLayoutAligner::distributeItems( m_layout, selected, distribution );
+  m_layout->update();
 }
 
 void PaleoLayoutDesignerShell::connectLayoutSync()
@@ -465,7 +729,12 @@ void PaleoLayoutDesignerShell::connectLayoutSync()
   if ( m_layout )
   {
     connect( m_layout, &QgsLayout::selectedItemChanged, this,
-             [this]( QgsLayoutItem *item ) { m_itemPanel->setItem( item ); } );
+             [this]( QgsLayoutItem *item )
+             {
+               m_itemPanel->setItem( item );
+               if ( m_itemTree )
+                 m_itemTree->highlightItem( item );
+             } );
 
     // Undo/redo rebuilds item instances by UUID (subtask D's warning): the
     // panel's QPointer guards against dangling, and this hook re-reads the
@@ -523,6 +792,8 @@ void PaleoLayoutDesignerShell::selectItems( const QList<QgsLayoutItem *> &items 
   // (only setSelectedItem/deselectAll do), so the panel sync is driven here too
   // rather than relying on the layout signal alone.
   m_itemPanel->setItem( items.isEmpty() ? nullptr : items.first() );
+  if ( m_itemTree )
+    m_itemTree->highlightItem( items.isEmpty() ? nullptr : items.first() );
 }
 
 void PaleoLayoutDesignerShell::setAtlasPreviewEnabled( bool enabled )

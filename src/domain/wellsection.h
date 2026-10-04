@@ -39,13 +39,24 @@ struct TimeDepth {
   double twtAt(double md) const;
 };
 
-// 剖面上的一口井。tops 按 MD 升序（仅含有限 MD 的分层）。
+// 相代码充填段：交会分类（crossplot 井层段）产物的按井深度段。
+// classId 对 12 色Wheel 取色（数据符号色，视图侧解析）。
+struct FaciesSegment {
+  double topMd = 0;
+  double baseMd = 0;
+  int classId = -1;
+};
+
+// 剖面上的一口井。tops 按 MD 升序（仅含有限 MD 的分层）。kb 为补心海拔
+// （米，海平面以上为正；缺数据 = 0 → 海拔模式退化为井深模式）。
 struct Well {
   QString id, name;
   double x = qQNaN(), y = qQNaN();
+  double kb = 0.0;
   double totalDepth = qQNaN();
   QVector<Top> tops;
   QVector<Curve> curves;
+  QVector<FaciesSegment> facies; // 交会分类井层段（catalog 派生资产）
   std::optional<TimeDepth> timeDepth;
   bool hasCoordinates() const; // 有限 x && y
   double topMd(const QString &name) const;            // 精确匹配；缺失 → NaN
@@ -69,6 +80,69 @@ struct Link {
 };
 QVector<Link> links(const Well &left, const Well &right);
 
+// 连线改接（用户编辑产物）：井对无序（makeLinkOverride 归一键序），井序
+// 重排不失效。overrides 只记显式改动的键；缺省（无条目）= 连接。
+struct LinkOverride {
+  QString leftWellId, rightWellId, topName;
+  bool connected = false;
+  bool operator==(const LinkOverride &o) const {
+    return leftWellId == o.leftWellId && rightWellId == o.rightWellId &&
+           topName == o.topName && connected == o.connected;
+  }
+};
+LinkOverride makeLinkOverride(const QString &aId, const QString &bId,
+                              const QString &topName, bool connected);
+// 井对+顶名当前是否连接：显式条目优先，缺省 true。
+bool linkConnected(const QVector<LinkOverride> &overrides, const QString &aId,
+                   const QString &bId, const QString &topName);
+
+// 井距模式：等距 = 均一缝宽；比例 = 相邻井地图距离加权分摊总缝宽
+//（缺坐标井段用其余段中位距离，全缺退化等距）。
+enum class SpacingMode { Equal, Proportional };
+// n 井 → n−1 缝宽：等距全 totalGap/(n−1)；比例按距离分摊，逐缝夹取
+// [minGap, maxGap]。井数 <2 → 空。
+QVector<double> gapWidthsFor(const QVector<Well> &wells, SpacingMode mode,
+                             double totalGap, double minGap, double maxGap);
+
+// 各井在井口连线上的累计长分数（0..1，首井 0 末井 1）；任一井缺坐标 →
+// 空（调用方按等距退化）。断层投绘横向映射的节点。
+QVector<double> wellPathFractions(const QVector<Well> &wells);
+
+// ---- 栅状图（fence）布点 ----
+// 一条剖面 = 有序井 id 集（井口连线即剖面线）。
+struct FenceSection {
+  QString id;            // "1"、"2"…（store 节 id 前缀 fence-）
+  QStringList wellIds;
+};
+struct FencePlan {
+  enum class Status { Ok, MissingCoords, TooFewWells };
+  QVector<FenceSection> sections;
+  Status status = Status::Ok; // 结构化状态——用户文案由视图层 tr() 出
+  bool ok() const { return status == Status::Ok && !sections.isEmpty(); }
+};
+
+// 自动布点（最小交叉启发式）：井位 PCA 主轴 (u,v)；按 v 等分
+// targetSections 条带，条带内按 u 单调走线（剪草机式：奇偶条带方向
+// 交替——相邻条带端点相接、走线互不交叉）；<2 井条带并入邻带。
+// 任一井缺坐标 / 井数 <2 / target <1 → status 说明。
+FencePlan planFence(const QVector<Well> &wells, int targetSections);
+
+// 平面/图层树选井 → 剖面井序：井位 PCA 主轴投影升序（缺坐标井保持
+// 原相对序排末）。wellsWithCoords 只需 id/x/y（tops/曲线不参与）。
+QStringList orderWellsByPosition(const QStringList &ids,
+                                 const QVector<Well> &wellsWithCoords);
+
+// 断层投绘：along ∈ [0,1] 井路径累计长分数，depth 为深度 m（z 向下正）。
+// 由断面 mesh ∩ 井径 curtain 求得（workflow 编排，渲染归视图）。
+struct FaultTracePoint {
+  double along = 0;
+  double depth = 0;
+};
+struct FaultTrace {
+  QString faultName;
+  QVector<FaultTracePoint> points;
+};
+
 // 顶名按地层序归并：首井顶序为底，后续井把新名插在「该井最近的、已在
 // 表中的较浅名」之后（没有则插最前）。确定性输出。
 QStringList orderedTopNames(const QVector<Well> &wells);
@@ -76,14 +150,31 @@ QStringList orderedTopNames(const QVector<Well> &wells);
 // 拉平偏移 = 该井 flattenTop 的 MD；空名或缺该顶 → 0。
 double flattenOffset(const Well &w, const QString &flattenTop);
 
+// 基准面：显示深 = MD − datumOffset（井数据永不因模式改写）。
+// Depth = 井口起算原样；Elevation = 补心海拔归零（各井按 kb 挂齐，
+// kb 缺省 0 时与 Depth 等价）；Flatten = 指定标志层顶归零（其余层按
+// 相对高程重排）。模式切换仅改视图偏移与轴标签——拉平不变量的落点。
+enum class DatumMode { Depth = 0, Elevation = 1, Flatten = 2 };
+struct Datum {
+  DatumMode mode = DatumMode::Depth;
+  QString flattenTop; // Flatten 模式的基准层名（空 → 视作 Depth）
+  bool operator==(const Datum &o) const {
+    return mode == o.mode && flattenTop == o.flattenTop;
+  }
+  bool operator!=(const Datum &o) const { return !(*this == o); }
+};
+double datumOffset(const Well &w, const Datum &d);
+QString datumLabel(DatumMode mode); // 轴/表头用：「井深 m」/「海拔 m」/「拉平 m」
+
 struct DepthWindow {
   double top = 0.0;
   double base = 100.0;
 };
-// 显示深度窗口（显示深 = MD − 拉平偏移）：各井 [首顶, 末顶] 的并集；
+// 显示深度窗口（显示深 = MD − 基准面偏移）：各井 [首顶, 末顶] 的并集；
 // 全井无顶 → 有限曲线深度范围的并集；仍无 → {0,100}。两端外扩
 // max(5 m, 4% 跨度)，保证 top < base（最小 1 m）。
 DepthWindow depthWindow(const QVector<Well> &wells, const QString &flattenTop);
+DepthWindow depthWindow(const QVector<Well> &wells, const Datum &datum);
 
 // 地层厚度段：顶 = activeTop，底 = baseTop（须 > 顶，否则无底）。
 struct Interval {
@@ -105,6 +196,16 @@ struct LithoInterval {
 };
 QVector<LithoInterval> inferSandShale(const Curve &gr, double cutoff,
                                       double minThicknessM = 0.5);
+
+// 层位井深表（导出 CSV 用）：每井每顶一行 [井名, 顶名, MD]。
+// 基准面模式只进首行标记（井名, 顶名两列后附 datumLabel 列），井深数值
+// 不随模式变——模式切换前后 MD 列逐行相等是拉平不变量。
+struct TopsTable {
+  QStringList header;
+  QVector<QStringList> rows;
+  QString csv() const; // UTF-8；含逗号/引号/换行的格加引号转义
+};
+TopsTable topsTable(const QVector<Well> &wells, const Datum &datum);
 
 // 井间地震缝：reason 非空 = 不可绘（文字填缝）。values 行主序
 // [sample*columns + column]，NaN 无效。column 0 = 左井端。

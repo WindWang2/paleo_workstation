@@ -2,6 +2,7 @@
 #pragma once
 #include <qgsmaptoolcapture.h>
 #include <QString>
+#include "shapepreview.h"
 
 class QgsMapCanvas;
 class QgsMapMouseEvent;
@@ -52,11 +53,13 @@ class PaleoDrawCircleTool : public QgsMapToolCapture
     void drawAborted();
 
   protected:
+    void cadCanvasMoveEvent(QgsMapMouseEvent *e) override;
     void keyPressEvent( QKeyEvent *e ) override;
     void cadCanvasReleaseEvent( QgsMapMouseEvent *e ) override;
 
   private:
-    void emitCircle( const QgsPointXY *eventRadiusPoint = nullptr );
+    std::unique_ptr<PaleoShapePreview> m_shapePreview;
+    void emitCircle( const QgsPointXY *cursor = nullptr );
 };
 
 // ui/maptools/ — PaleoDrawEllipseTool: 36-vertex ellipse approximation
@@ -78,9 +81,11 @@ class PaleoDrawEllipseTool : public QgsMapToolCapture
     void drawAborted();
 
   protected:
+    void cadCanvasMoveEvent(QgsMapMouseEvent *e) override;
     void keyPressEvent( QKeyEvent *e ) override;
     void cadCanvasReleaseEvent( QgsMapMouseEvent *e ) override;
 
   private:
-    void emitEllipse( const QgsPointXY *eventAxis2Point = nullptr );
+    std::unique_ptr<PaleoShapePreview> m_shapePreview;
+    void emitEllipse( const QgsPointXY *cursor = nullptr );
 };

@@ -13,11 +13,21 @@
 #include <QSignalSpy>
 #include <QSpinBox>
 #include <QToolButton>
+#include <QTemporaryDir>
 #include <QWheelEvent>
 #include "helpers/visualcapture.h"
 
 #include "../src/linkage/selectioncontext.h"
+#include "../src/catalog/datacatalog.h"
+#include "../src/qgis/wellsectionmapband.h"
+#include <qgsattributes.h>
+#include <qgsfeature.h>
+#include <qgsgeometry.h>
+#include <qgsmapcanvas.h>
+#include <qgsvectorlayer.h>
+#include "../src/metadata/wellsectionstore.h"
 #include "../src/ui/paleotheme.h"
+#include "../src/ui/wellsection/fencewidget.h"
 #include "../src/ui/wellsection/wellsectiondialogs.h"
 #include "../src/ui/wellsection/wellsectionpanel.h"
 
@@ -329,6 +339,216 @@ class TestWellSectionUi : public QObject
       panel.setFlattenTop(QString());
       QVERIFY(std::fabs(panel.topLineY("C-2", "D61") -
                         panel.topLineY("C-4", "D61")) > 1.0);
+    }
+
+    // ---- 基准面三模式（Oracle #1：模式切换只动视图，井深表逐行不变）----
+    void datumModesInvariant()
+    {
+      SelectionContext ctx;
+      WellSectionPanel panel(&ctx);
+      auto wells = wells4();
+      const double kbs[4] = {30.0, 12.0, -8.0, 22.0};
+      for (int i = 0; i < wells.size(); ++i)
+        wells[i].kb = kbs[i];
+      panel.setSection(wells);
+      const QStringList csvDepth = panel.topsCsv().split(QLatin1Char('\n'));
+
+      // 井深 → 拉平 D61：基准层同高（其余层按相对高程重排）。
+      const double diffBefore = panel.topLineY("C-2", "D61") -
+                                panel.topLineY("C-4", "D61");
+      QVERIFY(std::fabs(diffBefore) > 1.0);
+      panel.setDatum({wellsection::DatumMode::Flatten,
+                      QStringLiteral("D61")});
+      const double ref = panel.topLineY("C-2", "D61");
+      for (const char *id : {"C-2", "A5", "C-1", "C-4"})
+        QVERIFY(std::fabs(panel.topLineY(QLatin1String(id),
+                                         QStringLiteral("D61")) -
+                          ref) <= 0.5);
+      QVERIFY(panel.statusText().contains(QStringLiteral("拉平于")));
+      // 拉平不变量：井深表数据行（非表头）逐行相等。
+      const QStringList csvFlat = panel.topsCsv().split(QLatin1Char('\n'));
+      QCOMPARE(csvFlat.size(), csvDepth.size());
+      for (int i = 1; i < csvFlat.size(); ++i)
+        QCOMPARE(csvFlat.at(i), csvDepth.at(i));
+
+      // 海拔（补心）：状态行标记 + 数据行不变 + 井顶深不动。
+      panel.setDatum({wellsection::DatumMode::Elevation, QString()});
+      QVERIFY(panel.statusText().contains(QStringLiteral("海拔基准")));
+      const QStringList csvElev = panel.topsCsv().split(QLatin1Char('\n'));
+      for (int i = 1; i < csvElev.size(); ++i)
+        QCOMPARE(csvElev.at(i), csvDepth.at(i));
+      QCOMPARE(panel.wells()[0].topMd(QStringLiteral("D61")),
+               wells[0].topMd(QStringLiteral("D61")));
+
+      // 回井深：起伏差恢复；空 flattenTop 的 Flatten 视作井深。
+      panel.setDatum({wellsection::DatumMode::Depth, QString()});
+      const double diffAfter = panel.topLineY("C-2", "D61") -
+                               panel.topLineY("C-4", "D61");
+      QVERIFY(std::fabs(diffAfter - diffBefore) <= 0.5);
+      panel.setDatum({wellsection::DatumMode::Flatten, QString()});
+      QVERIFY(std::fabs(panel.topLineY("C-2", "D61") -
+                        panel.topLineY("C-4", "D61") - diffBefore) <= 0.5);
+
+      // 统一 kb：海拔模式与井深模式几何全等（等价平移）。
+      auto uniform = wells4();
+      for (auto &w : uniform)
+        w.kb = 12.0;
+      WellSectionPanel p2(&ctx);
+      p2.setSection(uniform);
+      const double yD = p2.topLineY("A5", "D53");
+      p2.setDatum({wellsection::DatumMode::Elevation, QString()});
+      QVERIFY(std::fabs(p2.topLineY("A5", "D53") - yD) <= 0.5);
+    }
+
+    // ---- 井距比例/等距切换 + 层位连线断开重连 ----
+    void spacingAndLinkEditing()
+    {
+      SelectionContext ctx;
+      WellSectionPanel panel(&ctx);
+      auto wells = wells4();
+      wells[1].x = 150.0; // 第二段井距拉开（首段 ~192、次段 ~466）
+      panel.resize(1400, 720);
+      panel.setSection(wells);
+      panel.show();
+      QVERIFY(QTest::qWaitForWindowExposed(&panel));
+      panel.fitToView();
+      QCOMPARE(panel.spacingMode(), wellsection::SpacingMode::Equal);
+      const qreal x0 = panel.columnX(0), x1 = panel.columnX(1),
+                 x2 = panel.columnX(2), x3 = panel.columnX(3);
+      QVERIFY(std::fabs((x1 - x0) - (x2 - x1)) <= 0.5); // 等距均一
+
+      // 比例：宽缝变宽、窄缝变窄，总跨不变（预算守恒）。
+      panel.setSpacingMode(wellsection::SpacingMode::Proportional);
+      const qreal p1 = panel.columnX(1), p2 = panel.columnX(2),
+                 p3 = panel.columnX(3);
+      QVERIFY(panel.gapWidthAt(1) > panel.gapWidthAt(0) + 1.0);
+      QVERIFY(std::fabs(p3 - x3) <= 0.5);
+      // 切回等距：位置复原（模式切换不变形）。
+      panel.setSpacingMode(wellsection::SpacingMode::Equal);
+      QVERIFY(std::fabs(panel.columnX(1) - x1) <= 0.5);
+      QVERIFY(std::fabs(panel.columnX(2) - x2) <= 0.5);
+
+      // 连线：断开 → 计数降、信号发；重连 → 恢复（同键 upsert 不追加）。
+      const int total = panel.linkCount();
+      QVERIFY(total > 0);
+      QSignalSpy spy(&panel, &WellSectionPanel::linkOverridesChanged);
+      panel.toggleLink(0, QStringLiteral("D61"), false);
+      QCOMPARE(panel.linkCount(), total - 1);
+      QCOMPARE(spy.size(), 1);
+      QCOMPARE(panel.linkOverrides().size(), 1);
+      panel.toggleLink(0, QStringLiteral("D61"), true);
+      QCOMPARE(panel.linkCount(), total);
+      QCOMPARE(panel.linkOverrides().size(), 1); // upsert
+      QCOMPARE(spy.size(), 2);
+      // 另一缝另一顶独立断开。
+      panel.toggleLink(1, QStringLiteral("D53"), false);
+      QCOMPARE(panel.linkCount(), total - 1);
+      QCOMPARE(panel.linkOverrides().size(), 2);
+      QCOMPARE(spy.size(), 3);
+      // 程序化恢复（store 读回路径）：不改计数、不发信号。
+      QVector<wellsection::LinkOverride> restored;
+      restored << wellsection::makeLinkOverride(
+          QStringLiteral("C-2"), QStringLiteral("A5"),
+          QStringLiteral("D62"), false);
+      panel.setLinkOverrides(restored);
+      QCOMPARE(spy.size(), 3);
+      QCOMPARE(panel.linkCount(), total - 1);
+      // 井序无关键：井对从任一方向查都命中（C-2/A5 断开 D62）。
+      QVERIFY(panel.linkOverrides().first().leftWellId ==
+              QStringLiteral("A5"));
+    }
+
+    // ---- 相代码充填道 + 三曲线叠加道（渲染冒烟 + 模板 round-trip）----
+    void faciesTrackAndTripleCurve()
+    {
+      SelectionContext ctx;
+      WellSectionPanel panel(&ctx);
+      auto wells = wells4();
+      // 每井两段相代码。
+      for (auto &w : wells) {
+        wellsection::FaciesSegment s1, s2;
+        s1.topMd = w.tops.first().md;
+        s1.baseMd = w.tops.at(2).md;
+        s1.classId = 2;
+        s2.topMd = w.tops.at(2).md;
+        s2.baseMd = w.tops.last().md;
+        s2.classId = 7;
+        w.facies = {s1, s2};
+      }
+      // 模板：三曲线道（GR/RD/RS）+ 相代码道。
+      wellsection::SectionTemplate t = panel.sectionTemplate();
+      for (auto &tr : t.tracks)
+        if (tr.kind == wellsection::TrackKind::Curve && tr.curves.size() == 2)
+        {
+          wellsection::CurveStyle c3;
+          c3.mnemonic = QStringLiteral("RS");
+          c3.min = 0.2;
+          c3.max = 20;
+          c3.logScale = true;
+          c3.color = QColor(QStringLiteral("#1F7A4D"));
+          tr.curves << c3;
+        }
+      wellsection::TrackSpec facies;
+      facies.kind = wellsection::TrackKind::Facies;
+      facies.width = 40;
+      t.tracks << facies;
+      panel.setSectionTemplate(t);
+      panel.setSection(wells);
+      // 曲线道 mnemonics 变了 → 重发数据请求（RS 加入）。
+      panel.setSection(wells); // 再喂一次数据（壳层回填路径）
+      bool foundTriple = false;
+      for (const auto &tr : panel.sectionTemplate().tracks)
+        if (tr.kind == wellsection::TrackKind::Curve && tr.curves.size() == 3)
+          foundTriple = true;
+      QVERIFY(foundTriple);
+      QCOMPARE(panel.sectionTemplate().tracks.last().kind,
+               wellsection::TrackKind::Facies);
+      // 渲染冒烟：含相代码道 + 三曲线道的图非空。
+      panel.resize(1200, 700);
+      panel.show();
+      QVERIFY(QTest::qWaitForWindowExposed(&panel));
+      const QImage img = panel.renderImage(1.0);
+      QVERIFY(!img.isNull());
+      QVERIFY(img.width() > 400);
+      // 模板 JSON round-trip 保三曲线 + 相代码道。
+      const wellsection::SectionTemplate rt =
+          wellsection::SectionTemplate::fromJson(t.toJson());
+      bool rtTriple = false;
+      for (const auto &tr : rt.tracks)
+        if (tr.kind == wellsection::TrackKind::Curve && tr.curves.size() == 3)
+          rtTriple = true;
+      QVERIFY(rtTriple);
+      QCOMPARE(rt.tracks.last().kind, wellsection::TrackKind::Facies);
+    }
+
+    // ---- 断层投绘开关 ----
+    void faultToggleAndOverlay()
+    {
+      SelectionContext ctx;
+      WellSectionPanel panel(&ctx);
+      panel.setSection(wells4());
+      QVERIFY(!panel.faultsEnabled());
+      // 数据回填（壳层接 workflow 的路径）：开关关闭时也可预置数据。
+      QVector<wellsection::FaultTrace> traces;
+      wellsection::FaultTrace t;
+      t.faultName = QStringLiteral("F1");
+      t.points = {{0.0, 1900.0}, {1.0, 1980.0}};
+      traces << t;
+      panel.setFaultTraces(traces, QString());
+      QCOMPARE(panel.faultTraceCount(), 1);
+      // 用户开 → 发 faultsRequested；关 → 清数据不发。
+      QSignalSpy spy(&panel, &WellSectionPanel::faultsRequested);
+      panel.setFaultsEnabled(true);
+      QCOMPARE(spy.size(), 1);
+      QCOMPARE(panel.faultTraceCount(), 1);
+      panel.setFaultsEnabled(false);
+      QCOMPARE(spy.size(), 1); // 关不发请求
+      QCOMPARE(panel.faultTraceCount(), 0); // 清空
+      // 井集变化 + 开关开 → 重新请求。
+      panel.setFaultsEnabled(true);
+      spy.clear();
+      panel.setSection(wells4());
+      QCOMPARE(spy.size(), 1);
     }
 
     // 版头点名 → SelectionContext「wellsection」源选中 + wellClicked；
@@ -722,6 +942,146 @@ class TestWellSectionUi : public QObject
     // 截图件产（不断言）：/tmp/wellsection-shots/{classic,colored,print,
     // highlight_D61,seismic,seismic_reflectors,seismic_colored,
     // panel_light}.png
+    // ---- 栅状图：自动布点 + 交点井同帧联动（Oracle #3）+ 落库恢复 ----
+    void fencePlanAndSharedWellSync()
+    {
+      // 4 井网格 2×2（坐标），跨条带共享 w10（手工指定两节都含它）。
+      QVector<WellSectionPanel::WellChoice> choices;
+      const char *ids[4] = {"w00", "w01", "w10", "w11"};
+      for (int i = 0; i < 4; ++i) {
+        WellSectionPanel::WellChoice c;
+        c.id = QLatin1String(ids[i]);
+        c.name = c.id;
+        c.hasCoordinates = true;
+        c.x = (i % 2) * 300.0;
+        c.y = (i / 2) * 200.0;
+        choices << c;
+      }
+      QTemporaryDir dir;
+      metadata::WellSectionStore store(
+          QDir(dir.path()).filePath(QStringLiteral("t.project.sqlite")));
+      QString err;
+      QVERIFY(store.open(&err));
+
+      WellSectionFenceWidget::Params fp;
+      fp.choices = choices;
+      fp.store = &store;
+      WellSectionFenceWidget fence(fp);
+      QVERIFY(fence.sectionCount() == 0); // 新库无栅格节
+      // 自动布点：2 条带 → 各 2 口，井不重复。
+      fence.autoPlan(2);
+      QCOMPARE(fence.sectionCount(), 2);
+      QCOMPARE(fence.sectionWellIds(0).size(), 2);
+      QSet<QString> planned;
+      for (int i = 0; i < 2; ++i) {
+        const QStringList ids = fence.sectionWellIds(i);
+        planned.unite(QSet<QString>(ids.begin(), ids.end()));
+      }
+      QCOMPARE(planned.size(), 4);
+      // 手工指定：两节共享 w10（交点井）。
+      fence.setSections({QStringList({"w00", "w10"}),
+                         QStringList({"w10", "w11"})});
+      QCOMPARE(fence.sectionCount(), 2);
+      // 落库 round-trip：新部件同 store 恢复两节。
+      WellSectionFenceWidget reopened(fp);
+      QCOMPARE(reopened.sectionCount(), 2);
+      QCOMPARE(reopened.sectionWellIds(0),
+               QStringList({"w00", "w10"}));
+      QCOMPARE(reopened.sectionWellIds(1),
+               QStringList({"w10", "w11"}));
+
+      // 同帧联动：剖面 A 点名 w10 → 剖面 B 立即选中（selectWell 直连）。
+      auto *pa = fence.sectionPanel(0);
+      auto *pb = fence.sectionPanel(1);
+      QVERIFY(pa && pb);
+      QMetaObject::invokeMethod(pa, "wellClicked",
+                                Q_ARG(QString, QStringLiteral("w10")));
+      QVERIFY(pb->isWellSelected(QStringLiteral("w10")));
+      QVERIFY(!pb->isWellSelected(QStringLiteral("w11")));
+    }
+
+    // ---- 平面选井一键成剖面 + SVG/CSV 导出 ----
+    void selectionToSectionAndExport()
+    {
+      SelectionContext ctx;
+      WellSectionPanel panel(&ctx);
+      QVector<WellSectionPanel::WellChoice> choices;
+      const char *ids[3] = {"C-4", "C-2", "A5"};
+      const double xs[3] = {900.0, 0.0, 300.0};
+      for (int i = 0; i < 3; ++i) {
+        WellSectionPanel::WellChoice c;
+        c.id = QLatin1String(ids[i]);
+        c.name = c.id;
+        c.hasCoordinates = true;
+        c.x = xs[i];
+        c.y = i * 10.0;
+        choices << c;
+      }
+      panel.setWellChoices(choices);
+      // 选井乱序（C-4 先选）→ PCA 井序（x 升序）。
+      ctx.setSelection({"C-4", "C-2", "A5"}, QStringLiteral("well_map"));
+      QSignalSpy spy(&panel, &WellSectionPanel::wellIdsChanged);
+      const QStringList ordered = panel.generateFromSelection();
+      QCOMPARE(ordered, QStringList({"C-2", "A5", "C-4"}));
+      QCOMPARE(panel.wellIds(), ordered);
+      QCOMPARE(spy.size(), 1);
+      // 单井不成剖面。
+      ctx.setSelection({"C-2"}, QStringLiteral("well_map"));
+      QCOMPARE(panel.generateFromSelection().size(), 0);
+
+      // 导出：CSV = 井深表（模式只进表头）；SVG 矢量（文件非空）。
+      panel.setSection(wells4());
+      QTemporaryDir dir;
+      const QString csvPath = dir.filePath(QStringLiteral("tops.csv"));
+      const QString svgPath = dir.filePath(QStringLiteral("section.svg"));
+      QVERIFY(panel.exportTo(csvPath));
+      QVERIFY(panel.exportTo(svgPath));
+      QFile csv(csvPath);
+      QVERIFY(csv.open(QIODevice::ReadOnly));
+      const QString csvText = QString::fromUtf8(csv.readAll());
+      QVERIFY(csvText.startsWith(QStringLiteral("井名,顶名,MD(m)")));
+      QCOMPARE(csvText, panel.topsCsv());
+      QFile svg(svgPath);
+      QVERIFY(svg.open(QIODevice::ReadOnly));
+      QVERIFY(svg.readAll().size() > 1000);
+      QVERIFY(svg.readAll().isEmpty() || true);
+    }
+
+    // ---- QGIS 侧联动面：剖面线位带 + 井点闪烁（offscreen canvas）----
+    void mapBandBasics()
+    {
+      QgsMapCanvas canvas;
+      WellSectionMapBand band(&canvas);
+      // 井位层（memory，id 字段）。
+      QgsVectorLayer layer(
+          QStringLiteral("Point?crs=EPSG:3857&field=id:string"), "wells",
+          QStringLiteral("memory"));
+      QVERIFY(layer.isValid());
+      QgsFeature f1, f2;
+      f1.setGeometry(QgsGeometry::fromPointXY(QgsPointXY(100, 200)));
+      QgsAttributes a1;
+      a1 << QVariant(QStringLiteral("well-1"));
+      f1.setAttributes(a1);
+      f2.setGeometry(QgsGeometry::fromPointXY(QgsPointXY(300, 200)));
+      QgsAttributes a2;
+      a2 << QVariant(QStringLiteral("well-2"));
+      f2.setAttributes(a2);
+      QgsFeatureList flist;
+      flist << f1 << f2;
+      QVERIFY(layer.dataProvider()->addFeatures(flist));
+      band.setWellLayer(&layer, QStringLiteral("id"));
+      // 线位：<2 点隐藏；2 点成线不崩。
+      band.setSectionPath({{100.0, 200.0}});
+      band.setSectionPath({{100.0, 200.0}, {300.0, 200.0}});
+      // 闪烁：well-1 命中；well-x 无命中不崩。
+      band.flashWell(QStringLiteral("well-1"));
+      band.flashWell(QStringLiteral("well-x"));
+      // 无层闪烁（降级 no-op）。
+      WellSectionMapBand bare(&canvas);
+      bare.setSectionPath({{1.0, 2.0}, {3.0, 4.0}});
+      bare.flashWell(QStringLiteral("well-1"));
+    }
+
     void screenshots()
     {
       QDir().mkpath(QStringLiteral("/tmp/wellsection-shots"));

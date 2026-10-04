@@ -1362,6 +1362,42 @@ void DataListPanel::refreshAssetTree()
     return false;
   };
 
+  // 1b. 计划井 (Planned：方向34 布井候选)——虚拟部署实体，独立成组
+  // 与实井分组隔开；显示名同走实体改写表，软删实体不显示。
+  {
+    QVector<CatalogEntity> planned = cat->entities(QStringLiteral("planned"));
+    QVector<CatalogEntity> plannedVisible;
+    for (const CatalogEntity &e : planned)
+      if (!m_recycle.isRemoved(e.id) &&
+          (!m_plannedVisible || m_plannedVisible(e.id)))
+        plannedVisible.append(e);
+    std::sort(plannedVisible.begin(), plannedVisible.end(),
+              [ovStore](const CatalogEntity &a, const CatalogEntity &b) {
+                return naturalNameSort(ovStore->displayName(a), ovStore->displayName(b));
+              });
+    auto *plannedRoot = new QTreeWidgetItem(m_tree);
+    plannedRoot->setText(0, tr("计划井 (%1)").arg(plannedVisible.size()));
+    plannedRoot->setText(1, tr("布井候选（不进实井计算）"));
+    plannedRoot->setData(0, Qt::UserRole + 2, QStringLiteral("category"));
+    plannedRoot->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mIconPointLayer.svg")));
+    plannedRoot->setExpanded(false);
+    for (const CatalogEntity &p : plannedVisible)
+    {
+      auto *item = new QTreeWidgetItem(plannedRoot);
+      item->setText(0, m_entityOv.displayName(p));
+      item->setData(0, Qt::UserRole + 1, p.id);
+      item->setData(0, Qt::UserRole + 2, QStringLiteral("planned"));
+      item->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mIconPointLayer.svg")));
+      if (p.hasSurface)
+      {
+        item->setText(1, QStringLiteral("X: %1, Y: %2")
+                                 .arg(QString::number(p.surfaceX, 'f', 1))
+                                 .arg(QString::number(p.surfaceY, 'f', 1)));
+        item->setFont(1, PaleoTheme::monoFont());
+      }
+    }
+  }
+
   // 2. 测井 (Well Logs: 综合柱状图 + 测井曲线)
   QList<CatalogAsset> logAssets;
   QList<CatalogAsset> compositeAssets;

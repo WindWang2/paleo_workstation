@@ -12,9 +12,15 @@
 
 #include <qgslayout.h>
 #include <qgslayoutitem.h>
+#include <qgslayoutitemmap.h>
 #include <qgslayoutitempage.h>
 #include <qgslayoutpagecollection.h>
+#include <qgsmaplayer.h>
+#include <qgsprintlayout.h>
 #include <qgsreadwritecontext.h>
+#include <qgsrectangle.h>
+
+#include "../../qgis/standardelements.h"
 
 namespace
 {
@@ -29,8 +35,13 @@ namespace
   {
     { "a4_landscape", QT_TRANSLATE_NOOP( "PaleoLayoutTemplates", "A4 横向（297 × 210 mm）" ) },
     { "a4_portrait", QT_TRANSLATE_NOOP( "PaleoLayoutTemplates", "A4 纵向（210 × 297 mm）" ) },
+    { "a3_landscape", QT_TRANSLATE_NOOP( "PaleoLayoutTemplates", "A3 横向（420 × 297 mm）" ) },
+    { "a3_portrait", QT_TRANSLATE_NOOP( "PaleoLayoutTemplates", "A3 纵向（297 × 420 mm）" ) },
     { "a0_landscape", QT_TRANSLATE_NOOP( "PaleoLayoutTemplates", "A0 横向（1189 × 841 mm）" ) },
   };
+
+  // 内容模板的页面变体（复合键的右段）。
+  const char *kFigurePageKeys[] = { "a4_landscape", "a4_portrait", "a3_landscape", "a3_portrait" };
 
   const BuiltinTemplate *builtinFor( const QString &key )
   {
@@ -40,6 +51,43 @@ namespace
         return &entry;
     }
     return nullptr;
+  }
+
+  // 复合键解析："well_position@a4_landscape" → kind + 页面规格。
+  bool parseFigureKey( const QString &key, PaleoStandardElements::FigureKind *kind,
+                       PaleoStandardElements::PageSetup *setup )
+  {
+    const int at = key.indexOf( QLatin1Char( '@' ) );
+    if ( at <= 0 || !kind || !setup )
+      return false;
+    if ( !PaleoStandardElements::figureKindFromKey( key.left( at ), kind ) )
+      return false;
+
+    const QString pageKey = key.mid( at + 1 );
+    *setup = PaleoStandardElements::PageSetup{};
+    if ( pageKey == QLatin1String( "a4_landscape" ) )
+    {
+      setup->sizeName = QStringLiteral( "A4" );
+      setup->landscape = true;
+    }
+    else if ( pageKey == QLatin1String( "a4_portrait" ) )
+    {
+      setup->sizeName = QStringLiteral( "A4" );
+      setup->landscape = false;
+    }
+    else if ( pageKey == QLatin1String( "a3_landscape" ) )
+    {
+      setup->sizeName = QStringLiteral( "A3" );
+      setup->landscape = true;
+    }
+    else if ( pageKey == QLatin1String( "a3_portrait" ) )
+    {
+      setup->sizeName = QStringLiteral( "A3" );
+      setup->landscape = false;
+    }
+    else
+      return false;
+    return true;
   }
 
   // Content items = everything except the paper items.
@@ -112,8 +160,29 @@ QStringList PaleoLayoutTemplates::builtinKeys()
   return keys;
 }
 
+QStringList PaleoLayoutTemplates::figureBuiltinKeys()
+{
+  const QStringList kinds = { QStringLiteral( "well_position" ),
+                              QStringLiteral( "single_factor" ),
+                              QStringLiteral( "facies" ) };
+  QStringList keys;
+  for ( const QString &kind : kinds )
+    for ( const char *page : kFigurePageKeys )
+      keys << kind + QLatin1Char( '@' ) + QLatin1String( page );
+  return keys;
+}
+
 QString PaleoLayoutTemplates::builtinTitle( const QString &key )
 {
+  // 复合键：「井位图 · A4 横向」。
+  PaleoStandardElements::FigureKind kind;
+  PaleoStandardElements::PageSetup setup;
+  if ( parseFigureKey( key, &kind, &setup ) )
+  {
+    const QString page = setup.landscape ? tr( "横向" ) : tr( "纵向" );
+    return tr( "%1 · %2 %3" ).arg( PaleoStandardElements::figureKindTitle( kind ),
+                                   setup.sizeName, page );
+  }
   const BuiltinTemplate *entry = builtinFor( key );
   return entry ? tr( entry->title ) : QString();
 }
@@ -231,6 +300,41 @@ PaleoLayoutTemplates::TemplateOutcome PaleoLayoutTemplates::loadFromFile( QgsLay
 PaleoLayoutTemplates::TemplateOutcome PaleoLayoutTemplates::applyBuiltin( QgsLayout *layout, const QString &key )
 {
   TemplateOutcome outcome;
+
+  // 内容模板（复合键）：骨架走代码工厂，不落 .qpt。
+  PaleoStandardElements::FigureKind kind;
+  PaleoStandardElements::PageSetup setup;
+  if ( parseFigureKey( key, &kind, &setup ) )
+  {
+    auto *printLayout = dynamic_cast<QgsPrintLayout *>( layout );
+    if ( !printLayout )
+    {
+      outcome.error = tr( "内容模板需要 QgsPrintLayout 版面。" );
+      emit templateFinished( QString(), false );
+      return outcome;
+    }
+    // 套模板保留地图项当前图层与范围（换骨架不换数据）。
+    QgsLayoutItemMap *map = nullptr;
+    QList<QgsLayoutItemMap *> maps;
+    layout->layoutItems( maps );
+    if ( !maps.isEmpty() )
+      map = maps.first();
+    const QList<QgsMapLayer *> layers = map ? map->layers() : QList<QgsMapLayer *>();
+    const QgsRectangle extent = map ? map->extent() : QgsRectangle();
+
+    QString err;
+    if ( !PaleoStandardElements::populateFigureLayout( printLayout, kind, setup, layers, extent, &err ) )
+    {
+      outcome.error = err;
+      emit templateFinished( QString(), false );
+      return outcome;
+    }
+    outcome.ok = true;
+    outcome.itemCount = contentItemCount( layout );
+    emit templateFinished( key, true );
+    return outcome;
+  }
+
   if ( !builtinFor( key ) )
   {
     outcome.error = tr( "未知的内置模板「%1」。" ).arg( key );
@@ -267,8 +371,7 @@ void PaleoLayoutTemplates::setLayoutProvider( const std::function<QgsLayout *()>
 
 QAction *PaleoLayoutTemplates::applyBuiltinAction( const QString &key )
 {
-  const BuiltinTemplate *entry = builtinFor( key );
-  if ( !entry )
+  if ( builtinTitle( key ).isEmpty() ) // page keys + figure composite keys
     return nullptr;
 
   const QString title = builtinTitle( key );

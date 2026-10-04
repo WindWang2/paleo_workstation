@@ -8,6 +8,7 @@
 #include "wellsectiondialogs.h"
 
 #include <QActionGroup>
+#include <QCursor>
 #include <QFileDialog>
 #include <QGraphicsScene>
 #include <QGridLayout>
@@ -20,6 +21,7 @@
 #include <QPushButton>
 #include <QScrollBar>
 #include <QSettings>
+#include <QSvgGenerator>
 #include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -44,6 +46,23 @@ WellSectionPanel::WellSectionPanel(SelectionContext *ctx, QWidget *parent)
         s.value(QStringLiteral("wellSection/highlight"), true).toBool();
     m_seismicOn =
         s.value(QStringLiteral("wellSection/seismic"), false).toBool();
+    m_faultsOn =
+        s.value(QStringLiteral("wellSection/faults"), false).toBool();
+    const int mode = s.value(QStringLiteral("wellSection/datumMode"),
+                             int(wellsection::DatumMode::Depth)).toInt();
+    m_datum.mode = mode == int(wellsection::DatumMode::Elevation)
+                       ? wellsection::DatumMode::Elevation
+                       : (mode == int(wellsection::DatumMode::Flatten)
+                              ? wellsection::DatumMode::Flatten
+                              : wellsection::DatumMode::Depth);
+    if (m_datum.mode == wellsection::DatumMode::Flatten)
+      m_datum.flattenTop = s.value(QStringLiteral("wellSection/datumTop"))
+                               .toString();
+    m_spacing = s.value(QStringLiteral("wellSection/spacing"),
+                        int(wellsection::SpacingMode::Equal))
+                      .toInt() == int(wellsection::SpacingMode::Proportional)
+                    ? wellsection::SpacingMode::Proportional
+                    : wellsection::SpacingMode::Equal;
     const QByteArray tj =
         s.value(QStringLiteral("wellSection/template")).toByteArray();
     if (!tj.isEmpty())
@@ -54,6 +73,7 @@ WellSectionPanel::WellSectionPanel(SelectionContext *ctx, QWidget *parent)
   }
   m_st.theme = wellsection::SectionTheme::byId(m_themeId);
   m_st.tpl = m_tpl;
+  m_st.datum = m_datum;
 
   m_scene = new QGraphicsScene(this);
   m_scene->setBackgroundBrush(m_st.theme.paper);
@@ -93,21 +113,32 @@ WellSectionPanel::WellSectionPanel(SelectionContext *ctx, QWidget *parent)
 
   m_wellsBtn = mkBtn("wellSectionWellsButton", "mIconPointLayer.svg",
                      tr("选择连井的井与顺序"));
+  m_fromSelBtn = mkBtn("wellSectionFromSelectionButton", "mActionSelect.svg",
+                       tr("用地图/图层树选中的井生成剖面（按井位排序）"));
+  connect(m_fromSelBtn, &QToolButton::clicked, this,
+          [this] { generateFromSelection(); });
   m_tracksBtn = mkBtn("wellSectionTracksButton", "mActionFilterTableFields.svg",
                       tr("设置显示的井道与参与连井的分层"));
   m_themeBtn = mkBtn("wellSectionThemeButton", "propertyicons/symbology.svg",
                      tr("剖面显示主题与高亮"));
   m_flattenBtn = mkBtn("wellSectionFlattenButton", "mActionAlignTop.svg",
-                       tr("按某一分层拉平剖面"));
+                       tr("基准面：井深 / 海拔 / 按分层拉平"));
   m_seismicBtn = mkBtn("wellSectionSeismicButton", "mIconRasterLayer.svg",
                        tr("井间叠加地震剖面（按时深关系自适应缩放）"));
   m_seismicBtn->setCheckable(true);
+  m_faultBtn = mkBtn("wellSectionFaultButton", "mIconLineLayer.svg",
+                     tr("断层投绘（断面与剖面井径求交）"));
+  m_faultBtn->setCheckable(true);
   // 恢复的开/关态落到按钮上（信号用 clicked——setChecked 不触发）。
   if (m_seismicOn)
   {
     m_st.seismicOn = true;
     m_st.gapPx = qBound(m_st.minGap(), m_st.gapPx, m_st.maxGap());
   }
+  m_fenceBtn = mkBtn("wellSectionFenceButton", "mActionAddMap.svg",
+                    tr("栅状图（多剖面井网，交点井联动）"));
+  connect(m_fenceBtn, &QToolButton::clicked, this,
+          [this] { emit fenceRequested(); });
   m_fitBtn = mkBtn("wellSectionFitButton", "mActionZoomFullExtent.svg",
                    tr("适应窗口（Ctrl+滚轮纵向缩放，Ctrl+Shift+滚轮调整井间距）"));
   m_exportBtn = mkBtn("wellSectionExportButton", "mActionSaveMapAsImage.svg",
@@ -148,27 +179,66 @@ WellSectionPanel::WellSectionPanel(SelectionContext *ctx, QWidget *parent)
   m_themeBtn->setMenu(m_themeMenu);
   m_themeBtn->setPopupMode(QToolButton::InstantPopup);
 
-  // 拉平菜单：不拉平 + 剖面全部顶名。
+  // 基准面菜单：井深 / 海拔（补心） / 按分层拉平（任一标志层）。
+  // 模式切换只改视图偏移与轴标签，井深数据永不改写（拉平不变量）。
   m_flattenMenu = new QMenu(m_flattenBtn);
   connect(m_flattenMenu, &QMenu::aboutToShow, this, [this] {
     m_flattenMenu->clear();
-    QAction *off = m_flattenMenu->addAction(tr("不拉平"));
-    off->setCheckable(true);
-    off->setChecked(m_flattenTop.isEmpty());
-    connect(off, &QAction::triggered, this,
-            [this] { setFlattenTop(QString()); });
+    const auto addMode = [this](const QString &title,
+                                wellsection::DatumMode mode) {
+      QAction *a = m_flattenMenu->addAction(title);
+      a->setCheckable(true);
+      a->setChecked(m_datum.mode == mode);
+      connect(a, &QAction::triggered, this, [this, mode] {
+        wellsection::Datum d = m_datum;
+        d.mode = mode;
+        if (mode != wellsection::DatumMode::Flatten)
+          d.flattenTop.clear();
+        applyDatumFromMenu(d);
+      });
+      return a;
+    };
+    addMode(tr("井深（MD）"), wellsection::DatumMode::Depth);
+    addMode(tr("海拔（补心基准）"), wellsection::DatumMode::Elevation);
+    m_flattenMenu->addSeparator();
     for (const QString &name : wellsection::orderedTopNames(m_st.wells))
     {
-      QAction *a = m_flattenMenu->addAction(name);
+      QAction *a = m_flattenMenu->addAction(tr("拉平于 %1").arg(name));
       a->setCheckable(true);
-      a->setChecked(name == m_flattenTop);
-      connect(a, &QAction::triggered, this,
-              [this, name] { setFlattenTop(name); });
+      a->setChecked(m_datum.mode == wellsection::DatumMode::Flatten &&
+                    m_datum.flattenTop == name);
+      connect(a, &QAction::triggered, this, [this, name] {
+        applyDatumFromMenu(
+            wellsection::Datum{wellsection::DatumMode::Flatten, name});
+      });
     }
   });
   m_flattenBtn->setMenu(m_flattenMenu);
   m_flattenBtn->setPopupMode(QToolButton::InstantPopup);
-  m_flattenBtn->setCheckable(true); // 拉平期间按钮呈按下态
+  m_flattenBtn->setCheckable(true); // 非井深模式期间按钮呈按下态
+
+  // 井距菜单：等距 / 按井口距离比例（缺坐标段用中位距离）。
+  m_spacingBtn = mkBtn("wellSectionSpacingButton", "mActionDecorationGrid.svg",
+                       tr("井距：等距 / 按井口距离比例"));
+  m_spacingMenu = new QMenu(m_spacingBtn);
+  {
+    const auto addSpacing = [this](const QString &title,
+                                   wellsection::SpacingMode mode) {
+      QAction *a = m_spacingMenu->addAction(title);
+      a->setCheckable(true);
+      a->setChecked(m_spacing == mode);
+      connect(a, &QAction::triggered, this, [this, mode] {
+        setSpacingMode(mode);
+        panelSettings().setValue(QStringLiteral("wellSection/spacing"),
+                                 int(mode));
+      });
+    };
+    addSpacing(tr("等距"), wellsection::SpacingMode::Equal);
+    addSpacing(tr("按井口距离比例"), wellsection::SpacingMode::Proportional);
+  }
+  m_spacingBtn->setMenu(m_spacingMenu);
+  m_spacingBtn->setPopupMode(QToolButton::InstantPopup);
+  m_spacingBtn->setCheckable(true);
 
   connect(m_wellsBtn, &QToolButton::clicked, this,
           [this] { openWellsDialog(); });
@@ -185,11 +255,23 @@ WellSectionPanel::WellSectionPanel(SelectionContext *ctx, QWidget *parent)
     if (on && m_wells.size() >= 2)
       emit seismicRequested();
   });
+  // 用户点击才写设置并发起投绘请求（clicked 不响应程序化 setChecked）。
+  connect(m_faultBtn, &QToolButton::clicked, this, [this](bool on) {
+    m_faultsOn = on;
+    m_st.faultsOn = on;
+    panelSettings().setValue(QStringLiteral("wellSection/faults"), on);
+    syncToolbarState();
+    if (on && m_wells.size() >= 2)
+      emit faultsRequested();
+    else if (!on)
+      setFaultTraces({}, QString());
+  });
   connect(m_fitBtn, &QToolButton::clicked, this, [this] { fitToView(); });
   connect(m_exportBtn, &QToolButton::clicked, this, [this] {
     const QString path = QFileDialog::getSaveFileName(
         this, tr("导出剖面图"), QString(),
-        tr("PNG 图片 (*.png);;PDF 文档 (*.pdf)"));
+        tr("PNG 图片 (*.png);;PDF 文档 (*.pdf);;SVG 矢量图 (*.svg);;"
+           "层位井深表 CSV (*.csv)"));
     if (!path.isEmpty())
       exportTo(path);
   });
@@ -343,6 +425,8 @@ void WellSectionPanel::setSection(const QVector<wellsection::Well> &wells)
   syncToolbarState();
   if (m_seismicOn && m_wells.size() >= 2)
     emit seismicRequested();
+  if (m_faultsOn && m_wells.size() >= 2)
+    emit faultsRequested();
 }
 
 void WellSectionPanel::setSeismicStrip(const wellsection::SeismicStrip &strip)
@@ -363,6 +447,19 @@ void WellSectionPanel::setSeismicAvailable(bool available,
   m_seismicAvailable = available;
   m_seismicReason = reason;
   syncToolbarState();
+}
+
+void WellSectionPanel::selectWell(const QString &wellId)
+{
+  if (wellId.isEmpty() || !m_ids.contains(wellId))
+    return;
+  m_selectedId = wellId;
+  m_st.selected = -1;
+  for (int i = 0; i < m_st.wells.size(); ++i)
+    if (m_st.wells[i].id == wellId)
+      m_st.selected = i;
+  m_header->update();
+  m_view->viewport()->update();
 }
 
 void WellSectionPanel::setBusy(bool busy)
@@ -429,14 +526,147 @@ void WellSectionPanel::setSeismicEnabled(bool on)
     emit seismicRequested();
 }
 
+void WellSectionPanel::setFaultsEnabled(bool on)
+{
+  if (m_faultsOn == on)
+    return;
+  m_faultsOn = on;
+  m_st.faultsOn = on;
+  if (m_faultBtn)
+  {
+    const QSignalBlocker b(m_faultBtn); // 程序化同步不发 clicked
+    m_faultBtn->setChecked(on);
+  }
+  syncToolbarState(); // 设置持久化只在按钮 clicked（用户路径）
+  if (on && m_wells.size() >= 2)
+    emit faultsRequested();
+  else if (!on)
+    setFaultTraces({}, QString());
+}
+
+void WellSectionPanel::setFaultTraces(
+    const QVector<wellsection::FaultTrace> &traces, const QString &status)
+{
+  m_st.faultTraces = traces;
+  m_faultStatus = status;
+  if (m_faultItem)
+    m_faultItem->update();
+  syncToolbarState();
+}
+
+void WellSectionPanel::setFaultsAvailable(bool available, const QString &reason)
+{
+  m_faultsAvailable = available;
+  m_faultsReason = reason;
+  syncToolbarState();
+}
+
 void WellSectionPanel::setFlattenTop(const QString &top)
 {
-  m_flattenTop = top;
+  setDatum(top.isEmpty()
+               ? wellsection::Datum{wellsection::DatumMode::Depth, QString()}
+               : wellsection::Datum{wellsection::DatumMode::Flatten, top});
+}
+
+void WellSectionPanel::setDatum(const wellsection::Datum &d)
+{
+  wellsection::Datum nd = d;
+  if (nd.mode == wellsection::DatumMode::Flatten && nd.flattenTop.isEmpty())
+    nd.mode = wellsection::DatumMode::Depth; // 空 flattenTop 视作井深
+  if (nd == m_datum)
+    return;
+  m_datum = nd;
   rebuildFiltered();
   applyLayout();
   if (m_autofit)
     fitToView();
   syncToolbarState();
+}
+
+void WellSectionPanel::applyDatumFromMenu(const wellsection::Datum &d)
+{
+  setDatum(d);
+  QSettings s = panelSettings();
+  s.setValue(QStringLiteral("wellSection/datumMode"), int(m_datum.mode));
+  s.setValue(QStringLiteral("wellSection/datumTop"), m_datum.flattenTop);
+}
+
+void WellSectionPanel::setSpacingMode(wellsection::SpacingMode mode)
+{
+  if (m_spacing == mode)
+    return;
+  m_spacing = mode;
+  rebuildGapWidths();
+  if (m_autofit)
+    fitToView();
+  else
+    applyLayout();
+  syncToolbarState();
+}
+
+void WellSectionPanel::setLinkOverrides(
+    const QVector<wellsection::LinkOverride> &overrides)
+{
+  m_linkOverrides = overrides;
+  m_st.linkOverrides = overrides;
+  for (auto *g : m_gapItems)
+    g->update();
+}
+
+// 井对 id 定位目标缝（菜单动作经 id 间接寻址——重建后仍指对缝）。
+void WellSectionPanel::toggleLinkForPair(const QString &aId,
+                                         const QString &bId,
+                                         const QString &topName, bool connect)
+{
+  for (int i = 0; i + 1 < m_st.wells.size(); ++i)
+    if ((m_st.wells[i].id == aId && m_st.wells[i + 1].id == bId) ||
+        (m_st.wells[i].id == bId && m_st.wells[i + 1].id == aId))
+    {
+      toggleLink(i, topName, connect);
+      return;
+    }
+}
+
+void WellSectionPanel::toggleLink(int gap, const QString &topName,
+                                  bool connect)
+{
+  if (gap < 0 || gap + 1 >= m_st.wells.size() || topName.isEmpty())
+    return;
+  const QString a = m_st.wells[gap].id;
+  const QString b = m_st.wells[gap + 1].id;
+  const wellsection::LinkOverride key =
+      wellsection::makeLinkOverride(a, b, topName, connect);
+  // upsert：同键替换（保留向量序稳定，便于 round-trip 对比）。
+  bool replaced = false;
+  for (wellsection::LinkOverride &o : m_linkOverrides)
+    if (o.leftWellId == key.leftWellId && o.rightWellId == key.rightWellId &&
+        o.topName == key.topName)
+    {
+      o.connected = key.connected;
+      replaced = true;
+      break;
+    }
+  if (!replaced)
+    m_linkOverrides.push_back(key);
+  m_st.linkOverrides = m_linkOverrides;
+  for (auto *g : m_gapItems)
+    g->update();
+  emit linkOverridesChanged(m_linkOverrides);
+}
+
+void WellSectionPanel::rebuildGapWidths()
+{
+  m_st.gapWidths =
+      m_spacing == wellsection::SpacingMode::Proportional
+          ? wellsection::gapWidthsFor(m_st.wells, m_spacing,
+                                      (m_st.wells.size() - 1) * m_st.gapPx,
+                                      m_st.minGap(), m_st.maxGap())
+          : QVector<double>();
+}
+
+QString WellSectionPanel::topsCsv() const
+{
+  return wellsection::topsTable(m_st.wells, m_datum).csv();
 }
 
 void WellSectionPanel::fitToView()
@@ -484,6 +714,36 @@ QImage WellSectionPanel::renderImage(double scale) const
 
 bool WellSectionPanel::exportTo(const QString &path) const
 {
+  if (path.endsWith(QLatin1String(".csv"), Qt::CaseInsensitive))
+  {
+    // 层位井深表：MD 值不随基准面模式变（拉平不变量），模式只进表头标记。
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
+      return false;
+    const QByteArray bytes = topsCsv().toUtf8();
+    return file.write(bytes) == bytes.size();
+  }
+  if (path.endsWith(QLatin1String(".svg"), Qt::CaseInsensitive))
+  {
+    QSvgGenerator gen;
+    gen.setFileName(path);
+    const double w = m_st.sceneWidth();
+    const double headerH = m_header ? m_header->headerHeight()
+                                    : wellsectionui::HeaderWidget::kHeight;
+    const double h = headerH + m_st.sceneHeight();
+    gen.setSize(QSize(qMax(1, int(std::ceil(w))), qMax(1, int(std::ceil(h)))));
+    gen.setViewBox(QRect(0, 0, int(w), int(h)));
+    gen.setTitle(tr("连井剖面"));
+    QPainter p(&gen);
+    if (!p.isActive())
+      return false;
+    p.setRenderHint(QPainter::Antialiasing);
+    m_header->paintContents(&p, 0.0);
+    m_scene->render(&p, QRectF(0, headerH, w, m_st.sceneHeight()),
+                    QRectF(0, 0, w, m_st.sceneHeight()));
+    p.end();
+    return true;
+  }
   if (path.endsWith(QLatin1String(".pdf"), Qt::CaseInsensitive))
   {
     const double w = m_st.sceneWidth();
@@ -511,7 +771,11 @@ int WellSectionPanel::linkCount() const
 {
   int n = 0;
   for (int i = 0; i + 1 < m_st.wells.size(); ++i)
-    n += wellsection::links(m_st.wells[i], m_st.wells[i + 1]).size();
+    for (const wellsection::Link &lk :
+         wellsection::links(m_st.wells[i], m_st.wells[i + 1]))
+      if (wellsection::linkConnected(m_linkOverrides, m_st.wells[i].id,
+                                     m_st.wells[i + 1].id, lk.name))
+        ++n;
   return n;
 }
 
@@ -560,8 +824,12 @@ void WellSectionPanel::rebuildFiltered()
   m_st.wells = wellsection::filterTops(m_wells, m_tpl);
   m_st.offsets.clear();
   for (const auto &w : m_st.wells)
-    m_st.offsets << wellsection::flattenOffset(w, m_flattenTop);
-  m_st.window = wellsection::depthWindow(m_st.wells, m_flattenTop);
+    m_st.offsets << wellsection::datumOffset(w, m_datum);
+  m_st.window = wellsection::depthWindow(m_st.wells, m_datum);
+  m_st.datum = m_datum;
+  m_st.linkOverrides = m_linkOverrides;
+  m_st.pathFractions = wellsection::wellPathFractions(m_st.wells);
+  m_st.faultsOn = m_faultsOn;
   m_st.zoneOrder = wellsection::orderedTopNames(m_st.wells);
   m_st.tpl = m_tpl;
   m_st.seismicOn = m_seismicOn;
@@ -580,6 +848,8 @@ void WellSectionPanel::rebuildItems()
     delete it;
   for (auto *it : m_gapItems)
     delete it;
+  delete m_faultItem;
+  m_faultItem = nullptr;
   m_colItems.clear();
   m_gapItems.clear();
   for (int i = 0; i < m_st.wells.size(); ++i)
@@ -591,9 +861,41 @@ void WellSectionPanel::rebuildItems()
     {
       auto *gap = new wellsectionui::GapItem(&m_st, i);
       gap->setZValue(-1); // 缝内容不压列框
+      // 连线拾取回调（item 非 QObject）：hover 提示进状态行、右键菜单
+      // 走面板的改接路径（信号 + 持久化钩子在面板侧）。
+      gap->setLinkHoverCallback(
+          [this](const QString &text) {
+            m_hoverText = text;
+            updateStatus();
+          });
+      gap->setLinkMenuCallback([this](int gapIndex, const QString &top,
+                                      bool connected) {
+        // 菜单动作捕获井对 id（非缝号）——非模态 popup 到触发之间若发生
+        // 重建，按 id 重定位目标缝，不误改别缝。
+        const QString aId = m_st.wells.value(gapIndex).id;
+        const QString bId = m_st.wells.value(gapIndex + 1).id;
+        auto *menu = new QMenu(this);
+        menu->setObjectName(QStringLiteral("wellSectionLinkMenu"));
+        QAction *act = menu->addAction(
+            connected ? tr("断开 %1 连线").arg(top)
+                      : tr("重连 %1 连线").arg(top));
+        connect(act, &QAction::triggered, this,
+                [this, aId, bId, top, connected] {
+                  toggleLinkForPair(aId, bId, top, !connected);
+                });
+        menu->setAttribute(Qt::WA_DeleteOnClose);
+        // 非模态 popup（不嵌事件循环——exec 期间 rebuildItems 可能删除
+        // 本 GapItem，回到已析构栈帧是 UB）。
+        menu->popup(QCursor::pos());
+      });
       m_scene->addItem(gap);
       m_gapItems << gap;
     }
+  }
+  if (!m_st.wells.isEmpty())
+  {
+    m_faultItem = new wellsectionui::FaultOverlayItem(&m_st);
+    m_scene->addItem(m_faultItem);
   }
   applyLayout();
 }
@@ -612,11 +914,14 @@ void WellSectionPanel::syncGapToolTips()
 
 void WellSectionPanel::applyLayout()
 {
+  rebuildGapWidths(); // gapPx/井集/间距模式可能变 → 逐缝宽重算
   ++m_st.layoutVersion;
   for (auto *it : m_colItems)
     it->relayout();
   for (auto *it : m_gapItems)
     it->relayout();
+  if (m_faultItem)
+    m_faultItem->relayout();
   const QRectF r(0, 0, m_st.sceneWidth(), m_st.sceneHeight());
   if (m_scene->sceneRect() != r)
     m_scene->setSceneRect(r);
@@ -649,6 +954,10 @@ void WellSectionPanel::updateStatus()
   else if (m_wells.size() >= 2)
   {
     QString s = tr("%1 口井").arg(m_wells.size());
+    if (m_datum.mode == wellsection::DatumMode::Elevation)
+      s += tr(" · 海拔基准");
+    else if (m_datum.mode == wellsection::DatumMode::Flatten)
+      s += tr(" · 拉平于 %1").arg(m_datum.flattenTop);
     if (!highlightedFormation().isEmpty())
     {
       s += tr(" · 高亮 %1").arg(m_st.activeTop);
@@ -717,6 +1026,12 @@ void WellSectionPanel::moveWell(int from, int to)
   emit wellIdsChanged(m_ids);
   if (m_seismicOn && m_wells.size() >= 2)
     emit seismicRequested();
+  // 井径变了：旧投绘的 along 映射已失真——先清后按需重求。
+  if (m_faultsOn) {
+    setFaultTraces({}, QString());
+    if (m_wells.size() >= 2)
+      emit faultsRequested();
+  }
 }
 
 void WellSectionPanel::removeWellAt(int index)
@@ -734,6 +1049,11 @@ void WellSectionPanel::removeWellAt(int index)
   emit wellIdsChanged(m_ids);
   if (m_seismicOn && m_wells.size() >= 2)
     emit seismicRequested();
+  if (m_faultsOn) {
+    setFaultTraces({}, QString());
+    if (m_wells.size() >= 2)
+      emit faultsRequested();
+  }
 }
 
 void WellSectionPanel::openWellsDialog()
@@ -753,6 +1073,46 @@ void WellSectionPanel::openWellsDialog()
   rebuildItems();
   emit wellIdsChanged(m_ids);
   emit dataRequested(m_ids, m_tpl.mnemonics());
+}
+
+QStringList WellSectionPanel::generateFromSelection()
+{
+  if (!m_ctx)
+    return {};
+  const QStringList selected = m_ctx->selectedIds();
+  // 平面/树选中 ∩ 可选井（保选择序）。
+  QStringList usable;
+  for (const QString &id : selected) {
+    for (const auto &c : m_choices)
+      if (c.id == id) {
+        usable << id;
+        break;
+      }
+  }
+  if (usable.size() < 2)
+    return {}; // 一口井不成剖面（用户可手选）
+  // 井位 PCA 序（缺坐标保选序排末）。
+  QVector<wellsection::Well> positioned;
+  for (const auto &c : m_choices)
+    if (c.hasCoordinates) {
+      wellsection::Well w;
+      w.id = c.id;
+      w.x = c.x;
+      w.y = c.y;
+      positioned << w;
+    }
+  const QStringList ordered =
+      wellsection::orderWellsByPosition(usable, positioned);
+  if (ordered == m_ids)
+    return ordered;
+  m_ids = ordered;
+  m_wells.clear();
+  clearStrip();
+  rebuildFiltered();
+  rebuildItems();
+  emit wellIdsChanged(m_ids);
+  emit dataRequested(m_ids, m_tpl.mnemonics());
+  return ordered;
 }
 
 void WellSectionPanel::openTracksDialog()
@@ -793,8 +1153,28 @@ void WellSectionPanel::syncToolbarState()
     const QSignalBlocker b(m_seismicBtn); // 恢复态同步不触发用户路径
     m_seismicBtn->setChecked(m_seismicOn);
   }
+  if (m_faultBtn)
+  {
+    m_faultBtn->setEnabled(m_faultsAvailable);
+    m_faultBtn->setToolTip(
+        !m_faultsAvailable
+            ? (m_faultsReason.isEmpty() ? tr("工程内无断层解释") : m_faultsReason)
+            : (m_faultStatus.isEmpty() || !m_faultsOn
+                   ? tr("断层投绘（断面与剖面井径求交）")
+                   : m_faultStatus));
+    const QSignalBlocker b(m_faultBtn);
+    m_faultBtn->setChecked(m_faultsOn);
+  }
   if (m_flattenBtn)
-    m_flattenBtn->setChecked(!m_flattenTop.isEmpty());
+    m_flattenBtn->setChecked(m_datum.mode != wellsection::DatumMode::Depth);
+  if (m_spacingMenu)
+    for (QAction *a : m_spacingMenu->actions())
+      if (a->isCheckable())
+        a->setChecked((a->text() == tr("等距")) ==
+                      (m_spacing == wellsection::SpacingMode::Equal));
+  if (m_spacingBtn)
+    m_spacingBtn->setChecked(
+        m_spacing == wellsection::SpacingMode::Proportional);
   if (m_themeMenu)
     for (QAction *a : m_themeMenu->actions())
       if (a->isCheckable() && !a->data().isNull())

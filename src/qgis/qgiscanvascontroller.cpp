@@ -16,6 +16,8 @@
 
 #include <QColor>
 #include <QWidget>
+#include <QSettings>
+#include <algorithm>
 
 // §41.3 SelectionContext debounce: the broadcast chain (map→well→seismic→map)
 // must not ping-pong. The header fixes m_broadcasting as the public in-flight
@@ -54,7 +56,7 @@ QgsSnappingConfig QgisCanvasController::nativeSnappingConfig()
   cfg.setMode( Qgis::SnappingMode::AllLayers );           // 全图层捕捉（编图工位默认）
   cfg.setTypeFlag( Qgis::SnappingType::Vertex |
                    Qgis::SnappingType::Segment ); // 顶点+边
-  cfg.setTolerance( 10.0 );
+  cfg.setTolerance(std::clamp(QSettings().value(QStringLiteral("editing/snapTolerancePx"), 10).toInt(), 1, 100));
   cfg.setUnits( Qgis::MapToolUnit::Pixels );               // 屏幕像素容差
   return cfg;
 }

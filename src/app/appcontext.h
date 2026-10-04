@@ -9,6 +9,7 @@
 // app/ — AppContext wires the service graph together (composition root).
 // Construct once in main(); owns all services; PaleoMainWindow receives them.
 #include "metadata/faultsetstore.h"
+#include "metadata/wellsitingstore.h"
 class ProjectDirLock;
 class QgisRuntime;
 class QgisCanvasController;
@@ -32,6 +33,7 @@ class DataImportService;
 class QgisLayoutService;
 class PredictionWorkflow;
 class ConstraintWorkflow;
+class FaciesMappingWorkflow;
 class CompositionWorkflow;
 class ValidationWorkflow;
 namespace paleo::fault {
@@ -77,6 +79,8 @@ class AppContext : public QObject
     ConstraintWorkflow *constraintWf() const { return m_constraintWf; }
     CompositionWorkflow *compositionWf() const { return m_compositionWf; }
     ValidationWorkflow *validationWf() const { return m_validationWf; }
+    // 方向34：井网辅助（覆盖诊断/候选/方案/planned 计划井）。
+    class WellSitingWorkflow *wellsitingWf() const { return m_wellsitingWf; }
 
     // wave/mapping-pipeline 阶段C+E：读侧门面 / D61 编图链 / 版本状态机。
     ProjectDataFacade *projectData() const { return m_projectData; }
@@ -84,6 +88,8 @@ class AppContext : public QObject
     MappingWorkflow *mappingWf() const { return m_mappingWf; }
     DepthConversionWorkflow *depthConversionWf() const { return m_depthWf; }
     PropertyModelWorkflow *propertyModelWf() const { return m_propModelWf; }
+    // goal/facies-automapping：沉积相自动编图辅助链（优势相→相界→合成→QA→草稿）。
+    FaciesMappingWorkflow *faciesMappingWf() const { return m_faciesMappingWf; }
     MapVersionStore *versionStore() const { return m_versionStore; }
     MapVersionController *versionCtl() const { return m_versionCtl; }
 
@@ -160,8 +166,11 @@ class AppContext : public QObject
     QgisLayoutService *m_layoutSvc = nullptr;
     PredictionWorkflow *m_predictionWf = nullptr;
     ConstraintWorkflow *m_constraintWf = nullptr;
+    FaciesMappingWorkflow *m_faciesMappingWf = nullptr;
     CompositionWorkflow *m_compositionWf = nullptr;
     ValidationWorkflow *m_validationWf = nullptr;
+    class WellSitingWorkflow *m_wellsitingWf = nullptr;
+    WellSitingStore m_wellsitingStore{QString(), nullptr}; // projectOpened 值重绑（FaultSetStore 同式）
     ProjectDataFacade *m_projectData = nullptr;
     MappingWorkbench *m_mappingWorkbench = nullptr;
     MappingWorkflow *m_mappingWf = nullptr;

@@ -41,6 +41,8 @@ private slots:
   void wellKeyMirrorsCatalogUnderscoreRule();
   void validateAllWellsAggregatesPerWell();
   void mergeCommitCarriesProvenance();
+  void sameDepthChainWithinTolerance();
+  void halfCoordinateGroupPreservesZ();
 
 private:
   struct Fixture
@@ -688,6 +690,45 @@ void TestWellTopsEdit::mergeCommitCarriesProvenance()
   const CatalogVersion v = fx.cat.currentVersion(fx.assetId);
   QCOMPARE(v.extra.value(QStringLiteral("editKind")).toString(), QStringLiteral("merge"));
   QCOMPARE(v.extra.value(QStringLiteral("editNote")).toString(), QStringLiteral("合并自 DC2.dat"));
+}
+
+// 轮 3：同深链式分组——恰好 1e-6 的链全部检出（量化分桶会漏）。
+void TestWellTopsEdit::sameDepthChainWithinTolerance()
+{
+  using namespace WellTopsEdit;
+  QVector<WellTopRecord> rows;
+  rows << Fixture::rec(QStringLiteral("A1"), QStringLiteral("A"), 1.0, 1.0)
+       << Fixture::rec(QStringLiteral("A1"), QStringLiteral("B"), 1.0 + 0.5e-6, 1.0)
+       << Fixture::rec(QStringLiteral("A1"), QStringLiteral("C"), 1.0 + 1.5e-6, 1.0);
+  const QVector<Issue> issues = validate(rows, ValidationContext());
+  QCOMPARE(findIssues(issues, IssueKind::SameDepth).size(), 3); // 链式三行全报
+  // 远离容差的两行不误报。
+  QVector<WellTopRecord> apart;
+  apart << Fixture::rec(QStringLiteral("A1"), QStringLiteral("A"), 1.0, 1.0)
+        << Fixture::rec(QStringLiteral("A1"), QStringLiteral("B"), 1.0 + 1e-5, 1.0);
+  QCOMPARE(findIssues(validate(apart, ValidationContext()), IssueKind::SameDepth).size(), 0);
+}
+
+// 轮 3 M2：半坐标组（X 有效 Y 哨兵）的 z 不得在写读往返中丢失。
+void TestWellTopsEdit::halfCoordinateGroupPreservesZ()
+{
+  QVector<WellTopRecord> rows;
+  WellTopRecord r = Fixture::rec(QStringLiteral("A1"), QStringLiteral("X"), 850.0, 850.0);
+  r.y = 0.0;
+  r.hasY = false; // 半组：X 有效、Y 哨兵
+  r.z = -123.456;
+  rows.append(r);
+  const QVector<WellTopRecord> back = parseWellTopsText(writeWellTopsText(rows));
+  QCOMPARE(back.size(), 1);
+  QCOMPARE(back.front().hasX, true);
+  QCOMPARE(back.front().hasY, false);
+  QCOMPARE(back.front().z, -123.456); // 半组的 z 保住了
+
+  const QVector<WellTopsEdit::Issue> issues =
+      WellTopsEdit::validate(back, WellTopsEdit::ValidationContext());
+  const auto half = findIssues(issues, WellTopsEdit::IssueKind::HalfCoordinateGroup);
+  QCOMPARE(half.size(), 1); // 但作为 QA 警告可见
+  QVERIFY(!half.front().isError());
 }
 
 void TestWellTopsEdit::contextForUsesWellTd()

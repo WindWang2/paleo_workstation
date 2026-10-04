@@ -31,6 +31,7 @@ private slots:
   void editMarksRowDirtyAndSaveRoundTrips();
   void validationBlocksSaveOnErrorThenPasses();
   void insertDeleteSortRows();
+  void zWithoutXYBlocksSave();
   void precisionAndZSurviveEditorRoundTrip();
   void mergeDialogDefaultsAndResolutions();
 
@@ -230,6 +231,22 @@ void TestWellTopsEditorUi::precisionAndZSurviveEditorRoundTrip()
   for (int r = 0; r < table2->rowCount(); ++r)
     QCOMPARE(table2->item(r, 0)->text(), QStringLiteral("—"));
   delete reopened;
+}
+
+void TestWellTopsEditorUi::zWithoutXYBlocksSave()
+{
+  Fixture fx;
+  QVERIFY(fx.build());
+  auto *dlg = openDialog(fx);
+  auto *table = dlg->findChild<QTableWidget *>(QStringLiteral("topsEditTable"));
+  // 清空 X/Y 但留 Z——同列组静默丢值不可接受，保存被拦。
+  table->item(0, 4)->setText(QString());
+  table->item(0, 5)->setText(QString());
+  autoDismissModalBoxes();
+  auto *save = dlg->findChild<QPushButton *>(QStringLiteral("topsSaveButton"));
+  save->click();
+  QCOMPARE(fx.cat.versionsForAsset(fx.assetId).size(), 1); // 未发版本
+  delete dlg;
 }
 
 void TestWellTopsEditorUi::insertDeleteSortRows()

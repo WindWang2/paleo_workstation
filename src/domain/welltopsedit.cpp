@@ -3,6 +3,7 @@
 
 #include <QHash>
 
+#include <algorithm>
 #include <cmath>
 
 namespace WellTopsEdit
@@ -54,6 +55,7 @@ bool Issue::isError() const
   {
     case IssueKind::DanglingName:
     case IssueKind::MissingTop:
+    case IssueKind::HalfCoordinateGroup:
       return false;
     default:
       return true;
@@ -89,6 +91,8 @@ QString issueKindLabel(IssueKind kind)
       return QStringLiteral("井名为空");
     case IssueKind::SentinelValue:
       return QStringLiteral("命中缺失哨兵值");
+    case IssueKind::HalfCoordinateGroup:
+      return QStringLiteral("X/Y 半组");
     case IssueKind::DuplicateName:
       return QStringLiteral("层名重复（叠置）");
     case IssueKind::SameDepth:
@@ -123,6 +127,11 @@ QVector<Issue> validate(const QVector<WellTopRecord> &rows, const ValidationCont
       issues.append({IssueKind::WhitespaceName, i,
                      QStringLiteral("第 %1 行：层名「%2」含空白——DC.dat 按空白分列，"
                                     "含空白的层名写盘即损坏")
+                         .arg(QString::number(i + 1), r.topName)});
+    if (r.hasX != r.hasY)
+      issues.append({IssueKind::HalfCoordinateGroup, i,
+                     QStringLiteral("第 %1 行（%2）：X/Y 只有一列有效——DC.dat 三列"
+                                    "同组写出，缺列按哨兵落盘")
                          .arg(QString::number(i + 1), r.topName)});
     if (r.wellName.trimmed().isEmpty())
       issues.append({IssueKind::EmptyWellName, i,
@@ -189,8 +198,8 @@ QVector<Issue> validate(const QVector<WellTopRecord> &rows, const ValidationCont
     for (int i = 0; i < rows.size(); ++i)
       if (rows.at(i).hasMd)
         byMd.append({rows.at(i).md, i});
-    std::sort(byMd.begin(), byMd.end(),
-              [](const auto &a, const auto &b) { return a.first < b.first; });
+    std::stable_sort(byMd.begin(), byMd.end(),
+                     [](const auto &a, const auto &b) { return a.first < b.first; });
     int groupStart = 0;
     for (int k = 1; k <= byMd.size(); ++k)
     {

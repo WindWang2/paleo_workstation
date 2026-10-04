@@ -17,14 +17,15 @@ namespace
 {
 // 冲突按全字段判定（sameValues 含 X/Y/Z/Time）——值列必须展示全部字段，
 // 否则用户被要求裁决一个看不见差异的冲突（评审轮 2 Medium）。
+// 单行 + 列宽自适应内容 + 同文 tooltip（固定行高下双行文本会被裁掉，轮 3 M1）。
 QString valueText(const WellTopRecord &r)
 {
   auto f = [](bool has, double v) {
     return has ? WellTopsEdit::formatDepth(v) : QStringLiteral("空");
   };
-  return QStringLiteral("MD %1 TVD %2\nX %3 Y %4 Z %5 T %6")
+  return QStringLiteral("MD %1 TVD %2 X %3 Y %4 Z %5 T %6")
       .arg(f(r.hasMd, r.md), f(r.hasTvd, r.tvd), f(r.hasX, r.x), f(r.hasY, r.y),
-           f(r.hasX && r.hasY, r.z), f(r.hasTime, r.timeMs));
+           f(r.hasX || r.hasY, r.z), f(r.hasTime, r.timeMs));
 }
 } // namespace
 
@@ -40,8 +41,8 @@ WellTopsMergeDialog::WellTopsMergeDialog(const QVector<WellTopsEdit::MergeRow> &
 
   auto *root = new QVBoxLayout(this);
   auto *intro = new QLabel(
-      tr("同层名深度不同 = 冲突（默认保留旧值）；仅新文件有的层位默认新增。逐行取舍后确认——"
-         "结果先进入编辑表，保存才落库。"),
+      tr("同层名任一字段不同 = 冲突（默认保留旧值）；仅新文件有的层位默认新增。"
+         "逐行取舍后确认——结果先进入编辑表，保存才落库。"),
       this);
   intro->setObjectName(QStringLiteral("topsMergeIntro"));
   intro->setWordWrap(true);
@@ -53,6 +54,8 @@ WellTopsMergeDialog::WellTopsMergeDialog(const QVector<WellTopsEdit::MergeRow> &
   m_table->setHorizontalHeaderLabels({tr("层名"), tr("当前值（旧）"), tr("导入值（新）"), tr("取舍")});
   m_table->verticalHeader()->hide();
   m_table->horizontalHeader()->setStretchLastSection(true);
+  m_table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+  m_table->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
   m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
   PaleoTheme::applyDensityToViewTree(m_table);
 
@@ -64,9 +67,11 @@ WellTopsMergeDialog::WellTopsMergeDialog(const QVector<WellTopsEdit::MergeRow> &
     m_table->setItem(r, 0, name);
     auto *oldIt = new QTableWidgetItem(m.inOld ? valueText(m.oldRec) : tr("（无）"));
     oldIt->setFont(PaleoTheme::monoFont());
+    oldIt->setToolTip(oldIt->text());
     m_table->setItem(r, 1, oldIt);
     auto *newIt = new QTableWidgetItem(m.inNew ? valueText(m.newRec) : tr("（无）"));
     newIt->setFont(PaleoTheme::monoFont());
+    newIt->setToolTip(newIt->text());
     m_table->setItem(r, 2, newIt);
 
     auto *combo = new QComboBox(this);

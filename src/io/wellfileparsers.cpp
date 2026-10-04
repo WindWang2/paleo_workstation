@@ -142,8 +142,9 @@ QByteArray writeWellTopsText(const QVector<WellTopRecord> &tops)
   out += QStringLiteral("#WellName    Name         MD           X            Y            Z            TVD          Time(ms)\r\n");
   for (const WellTopRecord &r : tops)
   {
-    // Z 列无判空标志（解析器与 X/Y 同组读）：X/Y 任一无效时整组写哨兵。
-    const bool hasXy = r.hasX && r.hasY;
+    // Z 列无判空标志（解析器 t.size()>=6 组内独立解析）：X/Y 任一有效即写出 z
+    // ——半坐标组（X 有效 Y 哨兵）的 z 是真实值，整组写哨兵会静默丢（轮 3 M2）。
+    const bool hasXy = r.hasX || r.hasY;
     out += padName(r.wellName) + padName(r.topName) + num(r.hasMd, r.md) +
            num(r.hasX, r.x) + num(r.hasY, r.y) + num(hasXy, r.z) +
            num(r.hasTvd, r.tvd) + num(r.hasTime, r.timeMs) + QStringLiteral("\r\n");

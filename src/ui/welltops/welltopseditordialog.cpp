@@ -300,6 +300,10 @@ void WellTopsEditorDialog::reloadAll()
     m_saveButton->setEnabled(false);
     m_mergeButton->setEnabled(false);
     m_batchButton->setEnabled(false);
+    for (const char *n : {"topsInsertRowButton", "topsDeleteRowButton", "topsMoveUpButton",
+                          "topsMoveDownButton", "topsSortButton"})
+      if (auto *b = findChild<QPushButton *>(QLatin1String(n)))
+        b->setEnabled(false);
     if (m_catalog) // 资产缺失场景 reloadAll 已在 setSummaryLine 给过原因
       setSummaryLine(tr("catalog 只读——分层仅可查看"));
   }
@@ -333,9 +337,9 @@ void WellTopsEditorDialog::fillTableFrom(const QVector<WellTopRecord> &rows)
     m_table->setItem(row, ColTvd, new QTableWidgetItem(numericCell(r.tvd, r.hasTvd)));
     m_table->setItem(row, ColX, new QTableWidgetItem(numericCell(r.x, r.hasX)));
     m_table->setItem(row, ColY, new QTableWidgetItem(numericCell(r.y, r.hasY)));
-    // Z 无独立判空标志：与 X/Y 同列组语义——X/Y 任一缺失时不显示（写侧同口径）。
+    // Z 无独立判空标志：与 X/Y 同列组语义——X/Y 任一有效即显示（写侧同口径）。
     m_table->setItem(row, ColZ,
-                     new QTableWidgetItem(numericCell(r.z, r.hasX && r.hasY)));
+                     new QTableWidgetItem(numericCell(r.z, r.hasX || r.hasY)));
     m_table->setItem(row, ColTime, new QTableWidgetItem(numericCell(r.timeMs, r.hasTime)));
     for (int c = ColMd; c < ColCount; ++c)
       if (QTableWidgetItem *it = m_table->item(row, c))
@@ -489,16 +493,27 @@ void WellTopsEditorDialog::onInsertRow()
   if (m_wellCombo->count() == 0)
   {
     // 空文件死胡同（评审轮 2）：无井可选时先问井名，播下第一行。
-    bool ok = false;
-    const QString name = QInputDialog::getText(this, tr("新井名"),
-                                               tr("为首个分层行输入井名："),
-                                               QLineEdit::Normal, QString(), &ok)
-                            .trimmed();
-    if (!ok || name.isEmpty())
-      return;
-    m_wellCombo->addItem(name);
-    m_wellCombo->setCurrentIndex(0); // 触发 onWellChanged：基线=空、表=空
-    m_currentWell = name;
+    // 井名含空白 = 写盘即损坏（DC.dat 按空白分列）——循环拦到合法名为止。
+    while (true)
+    {
+      bool ok = false;
+      const QString name = QInputDialog::getText(this, tr("新井名"),
+                                                 tr("为首个分层行输入井名："),
+                                                 QLineEdit::Normal, QString(), &ok)
+                              .trimmed();
+      if (!ok)
+        return;
+      if (name.isEmpty() || std::any_of(name.cbegin(), name.cend(),
+                                        [](QChar c) { return c.isSpace(); }))
+      {
+        QMessageBox::warning(this, tr("井名不合法"),
+                             tr("井名不能为空、也不能含空白（DC.dat 按空白分列）。"));
+        continue;
+      }
+      m_wellCombo->addItem(name); // addItem 触发 onWellChanged：基线=空、表=空
+      m_currentWell = name;
+      break;
+    }
   }
   int row = m_table->currentRow() + 1;
   if (row <= 0)
@@ -618,11 +633,13 @@ void WellTopsEditorDialog::refreshRowStatus(int row)
   m_filling = true; // 改状态单元格不再触发 itemChanged
   if (badNumber || !baselineRec || !WellTopsEdit::sameTop(*baselineRec, current))
   {
-    const bool isNew = !baselineRec && !badNumber;
-    status->setText(isNew ? tr("新行") : tr("已改"));
+    status->setText(!baselineRec && !badNumber ? tr("新行")
+                    : badNumber                     ? tr("待修正")
+                                                  : tr("已改"));
     status->setForeground(QBrush(tk.warningText));
     status->setBackground(QBrush(tk.warningBg));
-    status->setToolTip(badNumber ? tr("数值列有非法输入") : QString());
+    status->setToolTip(badNumber ? tr("数值列有非法输入，或 Z 有值而 X/Y 缺失（同列组）")
+                                 : QString());
   }
   else
   {

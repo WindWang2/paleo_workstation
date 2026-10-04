@@ -1065,15 +1065,22 @@ void ComposePageTests::faciesAttrAreaSavesPayload()
   QCOMPARE(attrs.value(QStringLiteral("facies_type")).toString(), QStringLiteral("辫状河三角洲"));
   QCOMPARE(attrs.value(QStringLiteral("comment")).toString(), QStringLiteral("备注"));
 
-  // C2（wave/deepen-perf）：相界类型单类型首发（断层切割）——「无」不携带键，
-  // 选中断层切割 → payload 带 boundary_kind=fault_cut（词面 = 词表 title）。
+  // C2（wave/deepen-perf）→ 方向 39：相界类型四类全开——「无」不携带键，
+  // 词面/顺序全由词表驱动；选中断层切割 → payload 带 boundary_kind=fault_cut。
   auto *kind = page.findChild<QComboBox *>(QStringLiteral("faciesBoundaryKindCombo"));
   QVERIFY(kind != nullptr);
   QCOMPARE(kind->count(), 1 + BoundarySemantics::activeKinds().size());
-  QCOMPARE(kind->itemData(1).toString(), QStringLiteral("fault_cut"));
-  QCOMPARE(kind->itemText(1), QStringLiteral("断层切割"));
+  QCOMPARE(kind->itemData(1).toString(), QStringLiteral("conformable"));
+  QCOMPARE(kind->itemText(1), QStringLiteral("整合接触")); // 词面 = 词表 title
   QVERIFY(!attrs.contains(QStringLiteral("boundary_kind"))); // 「无」= 不带键
-  kind->setCurrentIndex(1);
+  const int faultIndex = [&kind]() {
+    for (int i = 0; i < kind->count(); ++i)
+      if (kind->itemData(i).toString() == QLatin1String("fault_cut"))
+        return i;
+    return -1;
+  }();
+  QVERIFY(faultIndex > 0);
+  kind->setCurrentIndex(faultIndex);
   save->click();
   QCOMPARE(spy.count(), 2);
   QCOMPARE(spy.last().at(1).toMap().value(QStringLiteral("boundary_kind")).toString(),

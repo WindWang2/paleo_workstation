@@ -1,4 +1,6 @@
 #include <QtTest>
+#include <QComboBox>
+#include <QDoubleSpinBox>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
@@ -305,6 +307,306 @@ class TestComposeWorkflow : public QObject
       // 会话卫生：同上——编辑会话用例内收掉，避免 teardown 悬空。
       if (auto *tb = m_win->findChild<PaleoEditingToolbar *>(QStringLiteral("editingToolbar")))
         tb->cancelEditing();
+    }
+
+    // 方向 39：相界类型编辑语义门禁——真实栈（polygonize 两相带代码 1/2
+    // 邻接）。整合接触切两侧被拒（原因含冻结词面与两侧相代码证据）；拒绝
+    // 时零副作用（不建字段）；尖灭可过；带宽随非相变类型提交被拒；相变+
+    // 带宽整单通过并落 edit buffer。
+    void boundaryEditGateRejectsConformableCut()
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      QVERIFY2(m_ctx->projectSvc()->createProject(dir.filePath(QStringLiteral("gate.qgz"))),
+               "createProject failed");
+      const QVector<float> px = {1, 1, 2, 2};
+      const QString path =
+          makeRaster(dir.filePath(QStringLiteral("coded_g.tif")), 2, 2, px);
+      QVERIFY(!path.isEmpty());
+      QString err;
+      QVERIFY2(m_ctx->layerSvc()->declare(
+                   decl(QStringLiteral("composite.T1"), QStringLiteral("T1"),
+                        QStringLiteral("raster"), path, QStringLiteral("03_Composite")),
+                   &err),
+               qPrintable(err));
+      QVERIFY2(m_ctx->compositionWf()->deriveFaciesPolygons(
+                   QStringLiteral("T1"), QStringLiteral("composite.T1"), QVariantMap(), &err),
+               qPrintable(err));
+      auto *vl = qobject_cast<QgsVectorLayer *>(
+          m_ctx->layerSvc()->instantiate(QStringLiteral("facies.T1")));
+      QVERIFY2(vl, "facies.T1 did not instantiate");
+
+      // 选中相代码 1 的要素（与相代码 2 的要素共享边）。
+      QgsFeature first;
+      QgsFeatureIterator it = vl->getFeatures();
+      QVERIFY(it.nextFeature(first));
+      vl->select(first.id());
+
+      // 整合接触切两侧 → 拒绝 + 原因文案（含词面与两侧相代码）。
+      QVERIFY(!m_ctx->compositionWf()->saveFaciesAttributes(
+          QStringLiteral("facies.T1"),
+          QVariantMap{{QStringLiteral("boundary_kind"), QStringLiteral("conformable")}},
+          &err));
+      QVERIFY2(err.contains(QStringLiteral("整合接触")), qPrintable(err));
+      QVERIFY2(err.contains(QStringLiteral("相变")), qPrintable(err));
+      QVERIFY2(err.contains('1') && err.contains('2'), qPrintable(err)); // 两侧相代码证据
+      QVERIFY2(err.contains(QString::number(first.id())), qPrintable(err)); // 定位到要素
+
+      // 拒绝零副作用：boundary_kind 字段仍未建（门禁先于字段补建）。
+      QVERIFY(vl->fields().lookupField(QStringLiteral("boundary_kind")) < 0);
+
+      // 尖灭可过（无两侧约束）；属性落 edit buffer。
+      QVERIFY2(m_ctx->compositionWf()->saveFaciesAttributes(
+                   QStringLiteral("facies.T1"),
+                   QVariantMap{{QStringLiteral("boundary_kind"), QStringLiteral("pinchout")}},
+                   &err),
+               qPrintable(err));
+      {
+        QgsFeature got;
+        QVERIFY(vl->getFeatures(QgsFeatureRequest(first.id())).nextFeature(got));
+        QCOMPARE(got.attribute(QStringLiteral("boundary_kind")).toString(),
+                 QStringLiteral("pinchout"));
+      }
+
+      // 带宽随尖灭（非相变）提交 → 拒绝并说明。
+      QVERIFY(!m_ctx->compositionWf()->saveFaciesAttributes(
+          QStringLiteral("facies.T1"),
+          QVariantMap{{QStringLiteral("transition_width"), 500.0}}, &err));
+      QVERIFY2(err.contains(QStringLiteral("渐变带仅相变边界可携带")), qPrintable(err));
+
+      // 相变 + 带宽整单通过：两字段落 edit buffer，渲染器重挂（渐变带字段
+      // 存在 → 相变类目符号三层）。
+      QVERIFY2(m_ctx->compositionWf()->saveFaciesAttributes(
+                   QStringLiteral("facies.T1"),
+                   QVariantMap{{QStringLiteral("boundary_kind"), QStringLiteral("facies_change")},
+                               {QStringLiteral("transition_width"), 500.0}},
+                   &err),
+               qPrintable(err));
+      {
+        QgsFeature got;
+        QVERIFY(vl->getFeatures(QgsFeatureRequest(first.id())).nextFeature(got));
+        QCOMPARE(got.attribute(QStringLiteral("boundary_kind")).toString(),
+                 QStringLiteral("facies_change"));
+        QCOMPARE(got.attribute(QStringLiteral("transition_width")).toDouble(), 500.0);
+        auto *cat = static_cast<QgsCategorizedSymbolRenderer *>(vl->renderer());
+        QCOMPARE(cat->classAttribute(), QStringLiteral("boundary_kind"));
+        for (const QgsRendererCategory &c : cat->categories())
+          if (c.value() == QVariant(QStringLiteral("facies_change")))
+            QCOMPARE(c.symbol()->symbolLayerCount(), 2); // SimpleFill(点线描边)/渐变带层
+      }
+
+      // 换类型不携带宽键 → 过（旧带宽惰性保留，不锁死类型切换；带域门禁
+      // 只判本次提交的带宽提案）。尖灭两侧无门禁，此处可换。
+      QVERIFY2(m_ctx->compositionWf()->saveFaciesAttributes(
+                   QStringLiteral("facies.T1"),
+                   QVariantMap{{QStringLiteral("boundary_kind"), QStringLiteral("pinchout")}},
+                   &err),
+               qPrintable(err));
+      {
+        QgsFeature got;
+        QVERIFY(vl->getFeatures(QgsFeatureRequest(first.id())).nextFeature(got));
+        QCOMPARE(got.attribute(QStringLiteral("boundary_kind")).toString(),
+                 QStringLiteral("pinchout"));
+        QCOMPARE(got.attribute(QStringLiteral("transition_width")).toDouble(), 500.0); // 惰性保留
+      }
+
+      while (vl->undoStack()->canUndo())
+        vl->undoStack()->undo();
+      if (auto *tb = m_win->findChild<PaleoEditingToolbar *>(QStringLiteral("editingToolbar")))
+        tb->cancelEditing();
+    }
+
+    // 方向 39：边界核查端到端——runFaciesBoundaryQa（faciesqa 引擎只接不
+    // 重写）按 boundary_kind 出核查项，报告有名有因。相变无渐变范围 →
+    // transition_band_missing；绕过门禁手改的整合接触切两侧（模拟外部
+    // 手编数据）→ conformable_cuts_facies。
+    void boundaryQaReportsByKind()
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      QVERIFY2(m_ctx->projectSvc()->createProject(dir.filePath(QStringLiteral("qa.qgz"))),
+               "createProject failed");
+      const QVector<float> px = {1, 1, 2, 2};
+      const QString path =
+          makeRaster(dir.filePath(QStringLiteral("coded_q.tif")), 2, 2, px);
+      QVERIFY(!path.isEmpty());
+      QString err;
+      QVERIFY2(m_ctx->layerSvc()->declare(
+                   decl(QStringLiteral("composite.T1"), QStringLiteral("T1"),
+                        QStringLiteral("raster"), path, QStringLiteral("03_Composite")),
+                   &err),
+               qPrintable(err));
+      QVERIFY2(m_ctx->compositionWf()->deriveFaciesPolygons(
+                   QStringLiteral("T1"), QStringLiteral("composite.T1"), QVariantMap(), &err),
+               qPrintable(err));
+      auto *vl = qobject_cast<QgsVectorLayer *>(
+          m_ctx->layerSvc()->instantiate(QStringLiteral("facies.T1")));
+      QVERIFY2(vl, "facies.T1 did not instantiate");
+
+      QgsFeature first;
+      QgsFeatureIterator it = vl->getFeatures();
+      QVERIFY(it.nextFeature(first));
+      vl->select(first.id());
+
+      // 相变（无渐变带宽）→ 核查项：transition_band_missing 有名有因。
+      QVERIFY2(m_ctx->compositionWf()->saveFaciesAttributes(
+                   QStringLiteral("facies.T1"),
+                   QVariantMap{{QStringLiteral("boundary_kind"), QStringLiteral("facies_change")}},
+                   &err),
+               qPrintable(err));
+      QVariantList report = m_ctx->compositionWf()->runFaciesBoundaryQa(
+          QStringLiteral("facies.T1"), &err);
+      QVERIFY2(err.isEmpty(), qPrintable(err));
+      QCOMPARE(report.size(), 1);
+      {
+        const QVariantMap row = report.first().toMap();
+        QCOMPARE(row.value(QStringLiteral("name")).toString(),
+                 QStringLiteral("transition_band_missing"));
+        QVERIFY2(row.value(QStringLiteral("reason")).toString().contains(
+                     QStringLiteral("相变带无渐变范围")),
+                 qPrintable(row.value(QStringLiteral("reason")).toString()));
+        QVERIFY(!row.value(QStringLiteral("regionIds")).toStringList().isEmpty());
+      }
+
+      // 绕过门禁手改整合接触（外部手编数据路径）→ conformable_cuts_facies。
+      const int kindIdx = vl->fields().lookupField(QStringLiteral("boundary_kind"));
+      QVERIFY(kindIdx >= 0);
+      vl->beginEditCommand(QStringLiteral("手改整合接触"));
+      vl->changeAttributeValue(first.id(), kindIdx, QStringLiteral("conformable"));
+      vl->endEditCommand();
+      report = m_ctx->compositionWf()->runFaciesBoundaryQa(QStringLiteral("facies.T1"), &err);
+      QVERIFY2(err.isEmpty(), qPrintable(err));
+      QCOMPARE(report.size(), 1);
+      {
+        const QVariantMap row = report.first().toMap();
+        QCOMPARE(row.value(QStringLiteral("name")).toString(),
+                 QStringLiteral("conformable_cuts_facies"));
+        QVERIFY2(row.value(QStringLiteral("reason")).toString().contains(
+                     QStringLiteral("整合接触边界切两侧相")),
+                 qPrintable(row.value(QStringLiteral("reason")).toString()));
+        QCOMPARE(row.value(QStringLiteral("regionIds")).toStringList().size(), 2);
+      }
+
+      // 修复态（相变补带宽）零核查项：回到相变 + 带 500 → transition 缺失
+      // 消失，且两侧不再声明整合 → 无项。
+      vl->beginEditCommand(QStringLiteral("修复相变带"));
+      vl->changeAttributeValue(first.id(), kindIdx, QStringLiteral("facies_change"));
+      vl->endEditCommand();
+      QVERIFY2(m_ctx->compositionWf()->saveFaciesAttributes(
+                   QStringLiteral("facies.T1"),
+                   QVariantMap{{QStringLiteral("transition_width"), 500.0}}, &err),
+               qPrintable(err)); // 门禁读现值 facies_change → 带宽可过
+      report = m_ctx->compositionWf()->runFaciesBoundaryQa(QStringLiteral("facies.T1"), &err);
+      QVERIFY2(err.isEmpty(), qPrintable(err));
+      QCOMPARE(report.size(), 0);
+
+      while (vl->undoStack()->canUndo())
+        vl->undoStack()->undo();
+      if (auto *tb = m_win->findChild<PaleoEditingToolbar *>(QStringLiteral("editingToolbar")))
+        tb->cancelEditing();
+    }
+
+    // 方向 39 Oracle 1：着色 round-trip——赋类 → 渲染器按类型分类 →
+    // 提交 + 工程存取（write/close/open + 重实例化）后数据与样式不回退。
+    void boundaryStyleSurvivesProjectRoundTrip()
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      const QString qgz = dir.filePath(QStringLiteral("rt.qgz"));
+      QVERIFY2(m_ctx->projectSvc()->createProject(qgz), "createProject failed");
+      const QVector<float> px = {1, 1, 2, 2};
+      const QString path =
+          makeRaster(dir.filePath(QStringLiteral("coded_r.tif")), 2, 2, px);
+      QVERIFY(!path.isEmpty());
+      QString err;
+      QVERIFY2(m_ctx->layerSvc()->declare(
+                   decl(QStringLiteral("composite.T1"), QStringLiteral("T1"),
+                        QStringLiteral("raster"), path, QStringLiteral("03_Composite")),
+                   &err),
+               qPrintable(err));
+      QVERIFY2(m_ctx->compositionWf()->deriveFaciesPolygons(
+                   QStringLiteral("T1"), QStringLiteral("composite.T1"), QVariantMap(), &err),
+               qPrintable(err));
+      auto *vl = qobject_cast<QgsVectorLayer *>(
+          m_ctx->layerSvc()->instantiate(QStringLiteral("facies.T1")));
+      QVERIFY2(vl, "facies.T1 did not instantiate");
+
+      QgsFeature first;
+      QgsFeatureIterator it = vl->getFeatures();
+      QVERIFY(it.nextFeature(first));
+      vl->select(first.id());
+      QVERIFY2(m_ctx->compositionWf()->saveFaciesAttributes(
+                   QStringLiteral("facies.T1"),
+                   QVariantMap{{QStringLiteral("boundary_kind"), QStringLiteral("fault_cut")}},
+                   &err),
+               qPrintable(err));
+      QCOMPARE(vl->renderer()->type(), QStringLiteral("categorizedSymbol"));
+
+      // 提交编辑（只读派生件由 saveFaciesAttributes 自愈铺可写工作副本）。
+      vl = qobject_cast<QgsVectorLayer *>(
+          m_ctx->layerSvc()->instantiate(QStringLiteral("facies.T1")));
+      QVERIFY(vl && vl->isEditable());
+      QVERIFY2(vl->commitChanges(), "commitChanges failed");
+      vl->removeSelection();
+      // 会话卫生：先收编辑态（同其它用例口径——复位 vertex tool/编辑条），
+      // 再走工程存取；tst_rehydrate 先例 = write → open（read 自带 clear）。
+      if (auto *tb = m_win->findChild<PaleoEditingToolbar *>(QStringLiteral("editingToolbar")))
+        tb->cancelEditing();
+
+      // 工程存取：write → open → 重实例化（instantiate 从源新建，
+      // 样式靠 layerInstantiated 钩子重建）。
+      QVERIFY2(m_ctx->projectSvc()->writeProject(), "writeProject failed");
+      QVERIFY2(m_ctx->projectSvc()->openProject(qgz), "openProject failed");
+      vl = qobject_cast<QgsVectorLayer *>(
+          m_ctx->layerSvc()->instantiate(QStringLiteral("facies.T1")));
+      QVERIFY2(vl, "facies.T1 did not re-instantiate after reopen");
+
+      QCOMPARE(vl->renderer()->type(), QStringLiteral("categorizedSymbol"));
+      auto *cat = static_cast<QgsCategorizedSymbolRenderer *>(vl->renderer());
+      QCOMPARE(cat->classAttribute(), QStringLiteral("boundary_kind"));
+      bool hasFault = false;
+      for (const QgsRendererCategory &c : cat->categories())
+        if (c.value() == QVariant(QStringLiteral("fault_cut")))
+          hasFault = true;
+      QVERIFY2(hasFault, "fault_cut category survives reopen");
+      QgsFeature got;
+      QVERIFY(vl->getFeatures(QgsFeatureRequest(first.id())).nextFeature(got));
+      QCOMPARE(got.attribute(QStringLiteral("boundary_kind")).toString(),
+               QStringLiteral("fault_cut")); // 数据经提交往返仍在
+    }
+
+    // 方向 39：页面可用面——下拉四类冻结词面（Oracle 3 的 UI 侧）+ 渐变带
+    // 宽 spin 仅相变启用（禁用带 reason tooltip）+ 边界核查按钮在册。
+    void boundaryUiAffordances()
+    {
+      m_win->showPage(QStringLiteral("compose"));
+      auto *combo = m_win->findChild<QComboBox *>(QStringLiteral("faciesBoundaryKindCombo"));
+      auto *spin = m_win->findChild<QDoubleSpinBox *>(QStringLiteral("faciesTransitionWidthSpin"));
+      auto *qaButton = m_win->findChild<QPushButton *>(QStringLiteral("faciesBoundaryQaButton"));
+      QVERIFY(combo && spin && qaButton);
+
+      // 下拉词面：「无（未分类）」+ 冻结词面四类（与 boundarysemantics.h
+      // titleFor 逐字一致）。
+      QStringList items;
+      for (int i = 0; i < combo->count(); ++i)
+        items << combo->itemText(i);
+      const QStringList expected = { QStringLiteral("无（未分类）"),
+                                     QStringLiteral("整合接触"), QStringLiteral("尖灭"),
+                                     QStringLiteral("相变"), QStringLiteral("断层切割") };
+      QCOMPARE(items, expected);
+      // data 侧 = 稳定 id。
+      QCOMPARE(combo->itemData(1).toString(), QStringLiteral("conformable"));
+      QCOMPARE(combo->itemData(2).toString(), QStringLiteral("pinchout"));
+      QCOMPARE(combo->itemData(3).toString(), QStringLiteral("facies_change"));
+      QCOMPARE(combo->itemData(4).toString(), QStringLiteral("fault_cut"));
+
+      // spin 使能随类型：默认（无）禁用 + reason tooltip；相变启用。
+      QVERIFY(!spin->isEnabled());
+      QVERIFY(!spin->toolTip().isEmpty());
+      combo->setCurrentIndex(3); // 相变
+      QVERIFY(spin->isEnabled());
+      combo->setCurrentIndex(1); // 整合接触
+      QVERIFY(!spin->isEnabled());
     }
 };
 

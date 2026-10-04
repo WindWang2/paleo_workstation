@@ -1,0 +1,8 @@
+********* Start testing of SingleFactorPerfTests *********
+Config: Using QtTest library 6.11.2, Qt 6.11.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 16.2.1 20260810), cachyos unknown
+PASS   : SingleFactorPerfTests::initTestCase()
+QINFO  : SingleFactorPerfTests::proposedBudgets() single-factor perf S=3082ms scale1024=8168ms L=13810ms wells200=2865ms cellRatio=2.65 wellRatio=0.93 cancelMedian=1ms cancelMax=3ms rssDeltaKiB=0
+PASS   : SingleFactorPerfTests::proposedBudgets()
+PASS   : SingleFactorPerfTests::cleanupTestCase()
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 191617ms
+********* Finished testing of SingleFactorPerfTests *********

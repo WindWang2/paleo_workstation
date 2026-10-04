@@ -22,7 +22,11 @@ enum class FaciesQaIssueType
   Overlap,             // 单元两两重叠
   SmallIsland,         // 面积小于可配阈值的孤岛
   ConstraintConflict,  // 单元边界穿越硬约束线
-  NoWellCoverage       // 单元内（或缓冲半径内）无井点
+  NoWellCoverage,      // 单元内（或缓冲半径内）无井点
+  // ---- 方向 39：按相界类型（boundaryKind）核查 ----
+  PinchoutTipDangling, // 尖灭开放端无落位（悬空——距最近可落位边界超容差）
+  TransitionBandMissing, // 相变单元无渐变范围（transitionWidth <= 0）
+  ConformableCutFacies  // 整合接触边界切割两侧相（共享边两侧相代码不同）
 };
 
 inline const char *faciesQaIssueName( FaciesQaIssueType type )
@@ -39,6 +43,12 @@ inline const char *faciesQaIssueName( FaciesQaIssueType type )
       return "constraint_conflict";
     case FaciesQaIssueType::NoWellCoverage:
       return "no_well_coverage";
+    case FaciesQaIssueType::PinchoutTipDangling:
+      return "pinchout_tip_dangling";
+    case FaciesQaIssueType::TransitionBandMissing:
+      return "transition_band_missing";
+    case FaciesQaIssueType::ConformableCutFacies:
+      return "conformable_cuts_facies";
   }
   return "unknown";
 }
@@ -50,6 +60,10 @@ struct FaciesMapUnit
   int faciesCode = -1;
   Polygon geometry;
   double area = 0; // <=0 → 由检测器现算
+  // 方向 39：相界地质语义类型（boundarysemantics 词面 id；空 = 未分类，
+  // 不参与按类型核查——draft 路径零行为变化）。
+  std::string boundaryKind;
+  double transitionWidth = 0; // 相变渐变带宽（<=0 = 无带）
 };
 
 // 硬约束线（如断层/隔挡线）：单元边界不得穿越。
@@ -65,6 +79,8 @@ struct FaciesQaOptions
   double wellCoverageRadius = 0;   // 0 = 井点须落在面内；>0 = 允许缓冲半径
   double overlapTolerance = 1e-9;  // 交集面积 <= 该值不算重叠
   double ringClosureTolerance = 1e-9; // 首尾距离 > 该值判不闭合
+  double pinchoutTipTolerance = 0; // <=0 → 尖灭端点落位检测关闭；>0 = 开放端
+                                   // 距最近可落位边界（他单元边界/约束线）上限
 };
 
 struct FaciesQaIssue

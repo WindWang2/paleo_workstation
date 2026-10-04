@@ -152,7 +152,7 @@ private slots:
         slice, SgySliceType::Inline, 1000, 2000, 2000 + cols - 1,
         50, 50 + base, {24, 12, 0.6},
         QStringLiteral("tester"), QStringLiteral("H1"), 2.0f);
-    qInfo("tracked %d picks in %lld ms", picks.size(), clock.elapsed());
+    qInfo("tracked %d picks in %lld ms", int(picks.size()), clock.elapsed());
 
     QVERIFY(picks.size() >= cols * 0.9); // 几乎全程追踪
     for (const SeismicPick &p : picks)

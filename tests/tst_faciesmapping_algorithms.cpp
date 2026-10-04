@@ -99,6 +99,11 @@ class TestFaciesMappingAlgorithms : public QObject
     void qaConstraintCrossingLocated();
     void qaWellCoverageRadius();
     void qaReproducibleDiagnostics();
+
+    // ---- 方向 39：按相界类型（boundaryKind）核查 ----------------------------
+    void qaPinchoutOpenEndExemptAndTipDangling();
+    void qaTransitionBandMissingForFaciesChange();
+    void qaConformableCutFaciesDetected();
 };
 
 // ---- 阶段1 ------------------------------------------------------------------
@@ -617,6 +622,125 @@ void TestFaciesMappingAlgorithms::qaReproducibleDiagnostics()
   QCOMPARE( first.diagnostics, second.diagnostics ); // 同输入同输出：报告可复现
   QCOMPARE( first.diagnostics.value( QStringLiteral( "unit_count" ) ).toInt(), 2 );
   QCOMPARE( first.diagnostics.value( QStringLiteral( "well_count" ) ).toInt(), 0 );
+}
+
+// ---- 方向 39：按相界类型（boundaryKind）核查 ---------------------------------
+
+void TestFaciesMappingAlgorithms::qaPinchoutOpenEndExemptAndTipDangling()
+{
+  // 尖灭开放端：UnclosedRing 豁免（合法形态）；未分类开放环仍照报（回归护栏）。
+  FaciesMapUnit pinch;
+  pinch.regionId = "pinch";
+  pinch.geometry = openRect( 0, 0, 5, 5 );
+  pinch.boundaryKind = "pinchout";
+  FaciesMapUnit plain;
+  plain.regionId = "plain";
+  plain.geometry = openRect( 10, 0, 15, 5 ); // 同样开放但未分类
+
+  FaciesQaResult result = runFaciesQa( { pinch, plain }, {}, {} );
+  QCOMPARE( result.status, paleo::singlefactor::Status::Ok );
+  const auto unclosedFor = []( const FaciesQaResult &r, const char *region ) {
+    int count = 0;
+    for ( const FaciesQaIssue &issue : r.issues )
+      if ( issue.type == FaciesQaIssueType::UnclosedRing &&
+           !issue.regionIds.empty() && issue.regionIds.front() == region )
+        ++count;
+    return count;
+  };
+  QCOMPARE( unclosedFor( result, "pinch" ), 0 ); // 尖灭开放端：豁免
+  QCOMPARE( unclosedFor( result, "plain" ), 1 ); // 未分类开放环：照报（回归护栏）
+  QVERIFY( !firstIssue( result, FaciesQaIssueType::PinchoutTipDangling ) ); // 容差 0 → 检测关
+
+  // 端点落位（容差 0.5）：尖灭端距最近可落位边界 5 → 悬空报；metric 实测距离。
+  FaciesMapUnit neighbor;
+  neighbor.regionId = "nb";
+  neighbor.geometry = rect( 5, 0, 10, 5 );
+  FaciesQaOptions withTolerance;
+  withTolerance.pinchoutTipTolerance = 0.5;
+  result = runFaciesQa( { pinch, neighbor }, {}, {}, withTolerance );
+  const FaciesQaIssue *dangling = firstIssue( result, FaciesQaIssueType::PinchoutTipDangling );
+  QVERIFY( dangling );
+  QCOMPARE( dangling->regionIds.front(), std::string( "pinch" ) );
+  QVERIFY( std::abs( dangling->metric - 5.0 ) < 1e-6 ); // 端 (0,0)/(0,5) 距 x=5 边
+  QVERIFY( std::abs( dangling->location.y - 2.5 ) < 1e-6 ); // 缺口中点
+
+  // 端点贴住约束线（x=0 竖线）→ 落位成立不报。
+  QaConstraintLine landing;
+  landing.id = "edge";
+  landing.points = { { 0, -1 }, { 0, 6 } };
+  result = runFaciesQa( { pinch }, {}, { landing }, withTolerance );
+  QVERIFY( !firstIssue( result, FaciesQaIssueType::PinchoutTipDangling ) );
+
+  // 场内无可落位边界（独一单元 + 无约束）→ 如实报，metric = -1。
+  result = runFaciesQa( { pinch }, {}, {}, withTolerance );
+  dangling = firstIssue( result, FaciesQaIssueType::PinchoutTipDangling );
+  QVERIFY( dangling );
+  QCOMPARE( dangling->metric, -1.0 );
+
+  // 诊断开关落账。
+  QCOMPARE( result.diagnostics.value( QStringLiteral( "pinchout_tip_detector_on" ) ).toBool(),
+            true );
+}
+
+void TestFaciesMappingAlgorithms::qaTransitionBandMissingForFaciesChange()
+{
+  FaciesMapUnit noBand;
+  noBand.regionId = "t1";
+  noBand.geometry = rect( 0, 0, 5, 5 );
+  noBand.boundaryKind = "facies_change";
+  FaciesMapUnit withBand = noBand;
+  withBand.regionId = "t2";
+  withBand.geometry = rect( 10, 0, 15, 5 );
+  withBand.transitionWidth = 250.0;
+  FaciesMapUnit unclassified = noBand;
+  unclassified.regionId = "t3";
+  unclassified.geometry = rect( 20, 0, 25, 5 );
+  unclassified.boundaryKind.clear(); // 未分类不参与按类型核查
+
+  const FaciesQaResult result = runFaciesQa( { noBand, withBand, unclassified }, {}, {} );
+  QCOMPARE( result.status, paleo::singlefactor::Status::Ok );
+  const FaciesQaIssue *missing =
+      firstIssue( result, FaciesQaIssueType::TransitionBandMissing );
+  QVERIFY( missing );
+  QCOMPARE( missing->regionIds.front(), std::string( "t1" ) );
+  QCOMPARE( result.diagnostics.value( QStringLiteral( "issue_transition_band_missing" ) ).toInt(),
+            1 );
+}
+
+void TestFaciesMappingAlgorithms::qaConformableCutFaciesDetected()
+{
+  FaciesMapUnit a;
+  a.regionId = "a";
+  a.faciesCode = 1;
+  a.geometry = rect( 0, 0, 5, 5 );
+  a.boundaryKind = "conformable";
+  FaciesMapUnit b;
+  b.regionId = "b";
+  b.faciesCode = 2;
+  b.geometry = rect( 5, 0, 10, 5 ); // 共享边 x=5（长 5）
+
+  const FaciesQaResult cut = runFaciesQa( { a, b }, {}, {} );
+  const FaciesQaIssue *issue = firstIssue( cut, FaciesQaIssueType::ConformableCutFacies );
+  QVERIFY( issue );
+  QCOMPARE( issue->regionIds.size(), size_t( 2 ) );
+  QVERIFY( issue->regionIds[0] == "a" || issue->regionIds[1] == "a" );
+  QVERIFY( issue->regionIds[0] == "b" || issue->regionIds[1] == "b" );
+  QVERIFY( std::abs( issue->metric - 5.0 ) < 1e-6 ); // 共享边长
+  QVERIFY( issue->location.x >= 5 - 1e-6 && issue->location.x <= 5 + 1e-6 );
+
+  // 两侧同相 → 不报；侧相未知 → 不报（诚实中性）；两侧不接触 → 不报。
+  FaciesMapUnit same = b;
+  same.faciesCode = 1;
+  QVERIFY( !firstIssue( runFaciesQa( { a, same }, {}, {} ),
+                        FaciesQaIssueType::ConformableCutFacies ) );
+  FaciesMapUnit unknown = b;
+  unknown.faciesCode = -1;
+  QVERIFY( !firstIssue( runFaciesQa( { a, unknown }, {}, {} ),
+                        FaciesQaIssueType::ConformableCutFacies ) );
+  FaciesMapUnit away = b;
+  away.geometry = rect( 20, 0, 25, 5 );
+  QVERIFY( !firstIssue( runFaciesQa( { a, away }, {}, {} ),
+                        FaciesQaIssueType::ConformableCutFacies ) );
 }
 
 QTEST_MAIN( TestFaciesMappingAlgorithms )

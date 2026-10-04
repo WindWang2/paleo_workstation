@@ -1,0 +1,16 @@
+********* Start testing of SingleFactorKernelTests *********
+Config: Using QtTest library 6.11.2, Qt 6.11.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 16.2.1 20260810), cachyos unknown
+PASS   : SingleFactorKernelTests::initTestCase()
+PASS   : SingleFactorKernelTests::basisAndReverseKernel()
+PASS   : SingleFactorKernelTests::plainIdwIdentities()
+PASS   : SingleFactorKernelTests::duplicatesKeepRows()
+PASS   : SingleFactorKernelTests::directionDegenerates()
+PASS   : SingleFactorKernelTests::softBoundaryDoesNotStack()
+PASS   : SingleFactorKernelTests::clustersAreNotAMask()
+PASS   : SingleFactorKernelTests::hardBarrierPartitions()
+PASS   : SingleFactorKernelTests::autoParameters()
+PASS   : SingleFactorKernelTests::domainGridAndBudget()
+PASS   : SingleFactorKernelTests::cartographicWorkTouchesOnlyCrossings()
+PASS   : SingleFactorKernelTests::cleanupTestCase()
+Totals: 12 passed, 0 failed, 0 skipped, 0 blacklisted, 2ms
+********* Finished testing of SingleFactorKernelTests *********

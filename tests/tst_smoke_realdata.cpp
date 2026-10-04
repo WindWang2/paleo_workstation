@@ -205,8 +205,8 @@ void TestSmokeRealdata::importsWholeWorkarea()
     QVector<SegyTrace> line;
     QVERIFY2(r.readInline(1515, &line, &err), qPrintable(err));
     QCOMPARE(line.size(), 641);
-    qWarning("SMOKE inline 1515: %d traces x %d samples", line.size(),
-             line.front().samples.size());
+    qWarning("SMOKE inline 1515: %d traces x %d samples", int(line.size()),
+             int(line.front().samples.size()));
     QCOMPARE(line.front().samples.size(), 901);
   }
 

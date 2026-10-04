@@ -199,6 +199,7 @@ QWidget *DataPreviewTabs::buildHorizonContent(
       chosen = cv;
   if (chosen.id.isEmpty() && !raw.id.isEmpty() && raw.id == chosenId)
     chosen = raw;
+  if (chosen.id.isEmpty() && !chosenId.isEmpty() && v.id == chosenId) chosen = v;
   if (chosen.id.isEmpty())
     chosen = derived.id.isEmpty() ? raw : derived;
   const int totalVersions = deriveds.size() + (raw.id.isEmpty() ? 0 : 1);
@@ -214,6 +215,8 @@ QWidget *DataPreviewTabs::buildHorizonContent(
       verCombo->addItem(tr("派生栅格 v%1").arg(cv.versionNumber), cv.id);
     if (!raw.id.isEmpty())
       verCombo->addItem(tr("原始散点 · %1").arg(raw.fileName), raw.id);
+    if (verCombo->findData(chosen.id) < 0)
+      verCombo->addItem(tr("版本 v%1 · %2").arg(chosen.versionNumber).arg(chosen.stage), chosen.id);
     const int wantIdx = verCombo->findData(chosen.id);
     if (wantIdx >= 0)
       verCombo->setCurrentIndex(wantIdx);
@@ -224,6 +227,7 @@ QWidget *DataPreviewTabs::buildHorizonContent(
               {
                 m_chosenVersionOfAsset[assetId] = vid;
                 rebuildAssetTab(assetId); // 画布即时切换（D2.9）
+                emit versionContextChanged(assetId, vid);
               }
             });
     verLay->addWidget(verCombo);
@@ -231,7 +235,7 @@ QWidget *DataPreviewTabs::buildHorizonContent(
     detailLayout->addWidget(verBar);
   }
 
-  const bool chosenIsDerived = chosen.stage == QLatin1String("DERIVED");
+  const bool chosenIsDerived = chosen.stage != QLatin1String("RAW");
   if (!chosenIsDerived)
   {
     // RAW 散点：如实给文件信息卡——散点解析属 io 层，视图不造假地图。

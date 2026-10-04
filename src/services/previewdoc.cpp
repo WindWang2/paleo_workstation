@@ -135,6 +135,21 @@ DataCatalog *PreviewDocService::catalog() const
   return m_svc ? m_svc->catalog() : nullptr;
 }
 
+CatalogVersion PreviewDocService::versionForPreview(const QString &versionId) const
+{
+  DataCatalog *cat = catalog();
+  return cat && cat->isOpen() ? cat->versionById(versionId) : CatalogVersion();
+}
+
+QString PreviewDocService::entityIdForAsset(const QString &assetId) const
+{
+  DataCatalog *cat = catalog();
+  if (cat && cat->isOpen())
+    for (const EntityAssetLink &link : cat->linksForAsset(assetId))
+      if (!link.unresolved && !link.entityId.isEmpty()) return link.entityId;
+  return QString();
+}
+
 QString PreviewDocService::absolutePathForVersion(const CatalogVersion &version) const
 {
   return m_svc ? m_svc->absolutePathForVersion(version) : QString();

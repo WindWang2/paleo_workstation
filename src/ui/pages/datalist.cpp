@@ -379,7 +379,7 @@ DataListPanel::DataListPanel(QWidget *parent)
   pendingBtn->setText(tr("未决归位"));
   pendingBtn->setToolTip(tr("按文件名/备注把能唯一命中一口井的未决链接批量挂接"));
   pendingBtn->setAccessibleName(tr("未决归位"));
-  pendingBtn->setStyleSheet(QStringLiteral("font-size: 8pt; padding: 2px 6px;"));
+  pendingBtn->setStyleSheet(PaleoTheme::metricStyleSheet(QStringLiteral("font-size: {typography.label}pt; padding: {spacing.xs}px {spacing.sm}px;")));
   connect(pendingBtn, &QToolButton::clicked, this, &DataListPanel::resolvePendingLinks);
   hl->addWidget(pendingBtn);
   listLay->addWidget(header);
@@ -3053,6 +3053,10 @@ void DataListPanel::showHealthCheck()
   });
   connect(&dlg, &CatalogHealthDialog::cancelVerifyRequested, this,
           [&] { m_shaCancelled = true; });
+  connect(&dlg, &CatalogHealthDialog::jumpToVersion, this, [&](const QString &versionId) {
+    dlg.accept();
+    emit versionActivated(versionId);
+  });
   connect(&dlg, &CatalogHealthDialog::jumpToAsset, this, [&](const QString &assetId) {
     dlg.accept(); // 收起对话框让跳转立即可见（重开体检是廉价操作）
     emit assetActivated(assetId); // 壳接预览标签 + 选中（与列表双击同一出口）

@@ -254,7 +254,7 @@ master 的 `41feecf`，catalog 行序修复来自 `e8da8cf`，不归入本 PR �
 - **Why:** 真实古地理图的边界有地质含义；不同边界类型的编辑行为和符号不同。
 - **Pros:** 编图专业正确性；验证模块可按类型核查。
 - **Cons:** 数据模型与编辑工具复杂度上升；需要地质专家参与定义。
-- **Context:** 文档 §14–15 目前把相界当普通 polygon 拓扑处理。先做单一"相界线"类型跑通，再扩类型。**2026-09-30 进展（wave/deepen-perf C2）**：4 类词面已冻结（`src/workflow/boundarysemantics.h`），单类型断层切割 fault_cut 已跑通（boundary_kind 属性 schema → composepage 下拉 → `applyFaciesBoundaryStyle` 断层红粗边）；kind 落要素级，逐弧段需 boundary-graph 线层；其余三类的差异化编辑行为仍需地质专家定义。
+- **Context:** 文档 §14–15 目前把相界当普通 polygon 拓扑处理。先做单一"相界线"类型跑通，再扩类型。**2026-09-30 进展（wave/deepen-perf C2）**：4 类词面已冻结（`src/workflow/boundarysemantics.h`），单类型断层切割 fault_cut 已跑通（boundary_kind 属性 schema → composepage 下拉 → `applyFaciesBoundaryStyle` 断层红粗边）；kind 落要素级，逐弧段需 boundary-graph 线层；其余三类的差异化编辑行为仍需地质专家定义。**2026-10-04 收口（goal/boundary-kinds 方向 39）**：四类全激活——三类图面（整合=实线/尖灭=虚线/相变=点线+渐变带，复用方向 31 facies_* 线型调性；带宽 data-defined 绑 transition_width）、编辑语义门禁（`workflow/boundaryeditrules`：整合接触切两侧拒/渐变带仅相变/尖灭开放端；挂 saveFaciesAttributes）、QA 按类型核查（faciesqa 三新检测器 + 尖灭 UnclosedRing 豁免 + composepage「边界核查」入口）；工程重开样式经 layerInstantiated 钩子重建。**逐弧段仍递延**：boundary-graph 线层需弧段提取/共享弧归属/编辑回写三套新机制，且当前编辑面是要素级 vertex tool——无弧段级编辑消费方，等真需求落地再立（见 `.goal-loop-ledger-boundary-kinds.md`）。
 - **Effort:** human: L / CC: M
 - **Priority:** P2
 - **Depends on:** P0 矢量编辑落地

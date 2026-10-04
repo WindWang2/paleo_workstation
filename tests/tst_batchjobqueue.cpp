@@ -653,20 +653,10 @@ void TestBatchJobQueue::cancelSingleQueuedItem()
 
   QString err;
   QVERIFY2(m_queue->start(s, &err), qPrintable(err));
-  QVERIFY(pumpUntil([this] { return m_queue->finishedCount() >= 1; }));
-
-  // 取消一个还在队列里的项
-  const QVector<BatchItem> items = m_queue->items();
-  QString target;
-  for (const BatchItem &it : items)
-  {
-    if (it.state == ItemState::Queued || it.state == ItemState::Pending)
-    {
-      target = it.itemId;
-      break;
-    }
-  }
-  QVERIFY(!target.isEmpty());
+  // 并发度 1 且 FIFO 按展开顺序出队：start 返回时至多首项已进 Running，
+  // 队尾必为 Pending/Queued——不等 pump 直接取消队尾，规避「快照时队列
+  // 已跑完」的竞态（linux CI 曾三项全完成、快照内无可取消项而挂）。
+  const QString target = QStringLiteral("H3|m1");
   QVERIFY(m_queue->cancelItem(target));
   QVERIFY(pumpUntil([this] { return !m_queue->busy(); }));
 

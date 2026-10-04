@@ -413,7 +413,7 @@ bool ConstraintWorkflow::updateConstraintLines(const QStringList &ids, const QVa
         paleo::workflow_detail::setError(error, tr("方向角仅适用于非空约束折线，范围为 0–360 度"));
         return false;
       }
-      const auto a = line.first(), b = line.last();
+      const auto &a = line.first(), &b = line.last();
       if (a == b)
       {
         paleo::workflow_detail::setError(error, tr("闭合约束线没有唯一方向角"));

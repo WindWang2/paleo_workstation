@@ -59,7 +59,7 @@ class PaleoDrawCircleTool : public QgsMapToolCapture
 
   private:
     std::unique_ptr<PaleoShapePreview> m_shapePreview;
-    void emitCircle( const QgsPointXY *eventRadiusPoint = nullptr );
+    void emitCircle( const QgsPointXY *cursor = nullptr );
 };
 
 // ui/maptools/ — PaleoDrawEllipseTool: 36-vertex ellipse approximation
@@ -87,5 +87,5 @@ class PaleoDrawEllipseTool : public QgsMapToolCapture
 
   private:
     std::unique_ptr<PaleoShapePreview> m_shapePreview;
-    void emitEllipse( const QgsPointXY *eventAxis2Point = nullptr );
+    void emitEllipse( const QgsPointXY *cursor = nullptr );
 };

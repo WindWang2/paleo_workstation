@@ -137,5 +137,5 @@ class PaleoDrawRectTool : public QgsMapToolCapture
     // reprojected to canvas CRS) and corner 2 — *eventCorner when given
     // (right-click finish, already canvas CRS) else the second captured
     // vertex — then stopCapturing(). No-ops if fewer than two corners resolve.
-    void emitRectangle( const QgsPointXY *eventCorner = nullptr );
+    void emitRectangle( const QgsPointXY *cursor = nullptr );
 };

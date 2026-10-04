@@ -421,6 +421,8 @@ add_library(paleo_qgis STATIC
   src/qgis/qgiseditingservice.cpp
   src/qgis/qgisprocessingservice.cpp
   src/qgis/qgisstyleservice.cpp
+  src/qgis/geopatterns.cpp                           # 方向31：地质符号语义注册表（花纹/线型词表 + 符号构造）
+  src/qgis/semanticlegend.cpp                        # 方向31：语义图例自动生成（渲染器类目→swatch+词面，增删/renderer 联动）
   src/qgis/qgislayoutservice.cpp
   src/qgis/layoutexport.cpp                         # 层位图/设计器导出核心（QgsLayoutExporter 封装）
   src/qgis/mapbooklayout.cpp                        # 地图册：逐格/蒙太奇/索引页版面构建 + 落盘回读校验
@@ -505,6 +507,7 @@ target_link_libraries(paleo_workflow PUBLIC paleo_deps paleo_qgis paleo_store pa
 
 # ---- 视图层 ----
 add_library(paleo_ui STATIC
+  src/ui/symbols/symbolpickerpanel.cpp             # 方向31：符号选择器面板（花纹/线型浏览 + 语义过滤）
   src/ui/pages/mappingworkbenchpage.cpp
   src/ui/paleomainwindow_workbench.cpp
   src/ui/paleomainwindow.cpp
@@ -760,6 +763,9 @@ add_paleo_test(tst_singlefactor_contract LIBS paleo_domain)
 add_paleo_test(tst_singlefactor_samples LIBS paleo_algorithms)
 add_paleo_test(tst_singlefactor_store LIBS paleo_io)
 add_paleo_test(tst_services2 LIBS paleo_qgis)               # algorithms,metadata,qgis
+add_paleo_test(tst_geosymbols LIBS paleo_qgis paleo_domain) # 方向31：花纹/线型词表+入口（qrc 资源在 paleo_domain）
+add_paleo_test(tst_semanticlegend LIBS paleo_qgis paleo_domain) # 方向31：图例自动生成 + 增删/renderer 联动
+add_paleo_test(tst_symbolpicker LIBS paleo_ui paleo_qgis paleo_domain) # 方向31：符号选择器面板（缩略/过滤/patternPicked）
 add_paleo_test(tst_workflows LIBS paleo_workflow)
 add_paleo_test(tst_wellsiting_workflow LIBS paleo_workflow)  # 方向34：井网辅助编排（Oracle 2/4）
 add_paleo_test(tst_wellsiting_panel LIBS paleo_ui)         # 方向34：布井辅助面板（视图锚点/意图信号）

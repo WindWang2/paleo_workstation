@@ -11,6 +11,7 @@
 #include <qgslayoutitemlabel.h>
 #include <qgslayoutmanager.h>
 #include <qgslayoutpagecollection.h>
+#include <qgsmarkersymbol.h>
 #include <qgsnativealgorithms.h>
 #include <qgsprocessingregistry.h>
 #include <qgsproject.h>
@@ -289,15 +290,18 @@ private slots:
     QCOMPARE(plainSymbol->symbol()->color().name().toUpper(), QStringLiteral("#24303E"));
   }
 
-  // C3（wave/deepen-perf）：井类别符号（Q/HS 1011—2016 表 K.1 十二类）——
-  // 数据字段驱动分类渲染；无类别字段回落通用「探井」（单符号）；
-  // 词表 12 项 + 归一化（中文词面/同义词/未知原样）。
+  // C3（wave/deepen-perf）：井类别符号（表 K.1 十二类 + 方向 31 开发区块
+  // 四类 = 16 类）——数据字段驱动分类渲染；无类别字段回落通用「探井」
+  //（单符号）；词表 + 归一化（中文词面/同义词/未知原样）+ 比例尺缩放
+  //（@map_scale 数据定义尺寸）。
   void wellCategoryStyleDataDriven()
   {
-    QCOMPARE(QgisStyleService::wellCategoryDefinitions().size(), 12);
+    QCOMPARE(QgisStyleService::wellCategoryDefinitions().size(), 16);
     const QVariantMap first = QgisStyleService::wellCategoryDefinitions().first().toMap();
     QCOMPARE(first.value(QStringLiteral("id")).toString(), QStringLiteral("wildcat"));
     QCOMPARE(first.value(QStringLiteral("title")).toString(), QStringLiteral("预探井"));
+    const QVariantMap last = QgisStyleService::wellCategoryDefinitions().last().toMap();
+    QCOMPARE(last.value(QStringLiteral("id")).toString(), QStringLiteral("water_prod"));
 
     // 归一化：规范 id / 中文词面 / 常见同义词 → id；未知原样；空 → 空。
     QCOMPARE(QgisStyleService::normalizeWellCategory(QStringLiteral("wildcat")),
@@ -308,6 +312,10 @@ private slots:
              QStringLiteral("gas_flow"));
     QCOMPARE(QgisStyleService::normalizeWellCategory(QStringLiteral(" 评价井 ")),
              QStringLiteral("appraisal"));
+    QCOMPARE(QgisStyleService::normalizeWellCategory(QStringLiteral("注水井")),
+             QStringLiteral("water_injection"));
+    QCOMPARE(QgisStyleService::normalizeWellCategory(QStringLiteral("开发井")),
+             QStringLiteral("oil_prod"));
     QCOMPARE(QgisStyleService::normalizeWellCategory(QStringLiteral("神秘井")),
              QStringLiteral("神秘井"));
     QVERIFY(QgisStyleService::normalizeWellCategory(QString()).isEmpty());
@@ -321,8 +329,27 @@ private slots:
     auto *single = static_cast<QgsSingleSymbolRenderer *>(noField.renderer());
     QCOMPARE(single->symbol()->symbolLayerCount(), 2);
 
-    // 有类别字段 → 分类渲染：id 与中文词面双桶；wildcat（双环）与
-    // gas_flow（红环+斜线）的符号层数构成可区分。
+    // 方向 31：比例尺缩放——@map_scale 数据定义尺寸挂全类；两个比例尺档
+    // 位求值 6mm/3mm（构造层各自基准 6mm，setDataDefinedSize 语义=整符号
+    // 按值重设尺寸，多层按比例同步）。
+    auto *singleMarker = static_cast<QgsMarkerSymbol *>(single->symbol());
+    const QString ddExpr = singleMarker->dataDefinedSize().asExpression();
+    QVERIFY(!ddExpr.isEmpty());
+    QVERIFY(ddExpr.contains(QStringLiteral("@map_scale")));
+    for (const auto &scaleAndSize : {QPair<double, double>{250000.0, 6.0},
+                                     QPair<double, double>{2500000.0, 3.0}})
+    {
+      QgsExpressionContext ctx;
+      auto *scope = new QgsExpressionContextScope();
+      scope->setVariable(QStringLiteral("map_scale"), scaleAndSize.first);
+      ctx.appendScope(scope);
+      QgsExpression expr(ddExpr);
+      QVERIFY(expr.isValid());
+      QCOMPARE(expr.evaluate(&ctx).toDouble(), scaleAndSize.second);
+    }
+
+    // 有类别字段 → 分类渲染：id 与中文词面双桶；wildcat（双环）、
+    // gas_flow（红环+斜线）与 oil_prod（开发区块：环+盘+白点）层数可区分。
     QgsVectorLayer withField(
         QStringLiteral("Point?crs=EPSG:4326&field=well_class:string"),
         QStringLiteral("w2"), QStringLiteral("memory"));
@@ -332,7 +359,7 @@ private slots:
     auto *cat = static_cast<QgsCategorizedSymbolRenderer *>(withField.renderer());
     QCOMPARE(cat->classAttribute(), QStringLiteral("well_class"));
     QSet<QString> values;
-    int wildcatLayers = -1, gasFlowLayers = -1;
+    int wildcatLayers = -1, gasFlowLayers = -1, oilProdLayers = -1;
     for (const QgsRendererCategory &c : cat->categories())
     {
       if (c.value().isValid() && !c.value().toString().isEmpty())
@@ -341,12 +368,16 @@ private slots:
         wildcatLayers = c.symbol()->symbolLayerCount();
       if (c.value() == QVariant(QStringLiteral("gas_flow")))
         gasFlowLayers = c.symbol()->symbolLayerCount();
+      if (c.value() == QVariant(QStringLiteral("oil_prod")))
+        oilProdLayers = c.symbol()->symbolLayerCount();
     }
     QVERIFY(values.contains(QStringLiteral("wildcat")));
     QVERIFY(values.contains(QStringLiteral("预探井"))); // 中文词面同桶命中
     QVERIFY(values.contains(QStringLiteral("abandoned")));
+    QVERIFY(values.contains(QStringLiteral("water_injection")));
     QCOMPARE(wildcatLayers, 2); // 双环
     QCOMPARE(gasFlowLayers, 2); // 红环 + 斜线
+    QCOMPARE(oilProdLayers, 3); // 墨环 + 绿盘 + 中心白点
     // 字段名不存在 → 同无字段路径（不抛、单符号）。
     QgsVectorLayer ghost(QStringLiteral("Point?crs=EPSG:4326"), QStringLiteral("w3"),
                          QStringLiteral("memory"));

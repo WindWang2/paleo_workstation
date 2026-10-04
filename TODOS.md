@@ -46,10 +46,18 @@
 - 资产表既有 Resize 处理器将类型/关联列上限约束为 60/75px，内嵌未决关联与确认控件横向裁切；另行评估列宽约束与单元格布局。
 - 三项均为前后实证中已有的结构问题，本轮仅归一视觉 token，未改变产品布局层级、resize 规则或交互流程。逐图证据见 [方向 29 ledger](.goal-loop-ledger-ui-visual-polish.md#low--遗留项与实证边界)。触发条件：启动对应布局改进方向。Priority: P3。
 
-## P3 — 连井剖面后续（from goal/wellsection, 2026-10-03）
+## ~~P3 — 连井剖面后续（from goal/wellsection, 2026-10-03）~~（已落地：goal/wellsection-tvd, 2026-10-04）
 
-- **What:** 连井剖面只走 MD 深度域（分层/LAS/时深表 MD 列）；岩性道是 GR 截断推断的砂/泥二分，不读解释岩性；
-  道模板/主题是用户级 QSettings，井集按 catalog 路径分工区存，均不进工程文件；井间距等距，不按实际井距。
+- **What:** TVD 域（井斜 trajectory 角色换算，坏表如实标注）、真实井距
+  （比例模式缺坐标井不参与比例轴 + 名录）、解释岩性道（well_litho_intervals
+  资产契约 + GR 推断回落）均已落地；见 [方向 38 ledger](.goal-loop-ledger-wellsection-tvd.md)。
+- **残留递延（新，同上来源）:**
+  - `well_litho_intervals` 只有消费侧（wellsection attach + 契约文档），
+    无生产者/导入器——AI 微相预测（WellFaciesWorkflow，本地缓存不落
+    catalog）或岩性文件导入任一落库即可点亮。human: M / CC: M，P3。
+  - `WellDeviationSurvey::tvdToMd` 每调用 O(站数)+百次二分且 pointAt 线性
+    扫段；wellsection 地震缝侧已用行级 LUT 绕开（scene 内注释），治本
+    （站点二分查找 + 段内缓存）留 deviationsurvey 专项。CC: S，P3。
 - **Why:** 首版先打通按地层连井 + 井间地震 + 编图层位高亮；TVD 域、解释岩性数据源、模板随工程走都需要额外数据契约。
 - **Pros:** 不编造岩性/时深，缺时深的井间段如实标原因；**Cons:** 斜井连井有 MD 失真，岩性道分辨力有限。
 - **Context:** src/domain/wellsection.*、src/workflow/wellsectionworkflow.*、src/ui/wellsection/。

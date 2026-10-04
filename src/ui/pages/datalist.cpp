@@ -3053,6 +3053,10 @@ void DataListPanel::showHealthCheck()
   });
   connect(&dlg, &CatalogHealthDialog::cancelVerifyRequested, this,
           [&] { m_shaCancelled = true; });
+  connect(&dlg, &CatalogHealthDialog::jumpToVersion, this, [&](const QString &versionId) {
+    dlg.accept();
+    emit versionActivated(versionId);
+  });
   connect(&dlg, &CatalogHealthDialog::jumpToAsset, this, [&](const QString &assetId) {
     dlg.accept(); // 收起对话框让跳转立即可见（重开体检是廉价操作）
     emit assetActivated(assetId); // 壳接预览标签 + 选中（与列表双击同一出口）

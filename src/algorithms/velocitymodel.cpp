@@ -394,7 +394,8 @@ DepthGridResult convertTimeGridToDepth(const VelocityModel &model,
     {
       const int idx = row * cols + col;
       const float t = timeMs.value(idx);
-      if (!std::isfinite(t) || t == nodata)
+      // #165：像元是 float，nodata 按 float 口径比较（1e30 等非 float 可表示值）。
+      if (!std::isfinite(t) || t == static_cast<float>(nodata))
       {
         ++r.nodataCells;
         continue;

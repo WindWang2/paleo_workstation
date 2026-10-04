@@ -5,7 +5,7 @@
 # 吞掉（run 36825437562：tst_factorworkflow 并行轮 SegFault，串行轮变
 # 断言失败）。崩溃 = 内存/生命周期缺陷，与负载无关，一律直接判红。
 #
-# 用法：tools/ci_ctest_gate.sh <ctest 选择参数...>（如 -LE core / -L core）
+# 用法：tools/ci_ctest_gate.sh <ctest 选择参数...>（如 -LE 'core|perf' / -L core -LE perf）
 set -uo pipefail
 
 build_dir="${BUILD_DIR:-build}"
@@ -27,5 +27,13 @@ if grep -E "Test +#[0-9]+:" "$log" | grep -E "$crash_re"; then
 fi
 
 echo "::warning::并行轮有断言/超时失败，串行重跑失败项一次以排除负载抖动（重跑通过仍留痕）"
+# 保留第一轮 QtTest 输出；串行 ctest 会覆盖同名 -o 文件。
+first_run_dir="$build_dir/Testing/qtest-first-run"
+if [ -d "$first_run_dir" ]; then
+  rm -rf "$build_dir/Testing/qtest-first-run-initial"
+  cp -a "$first_run_dir" "$build_dir/Testing/qtest-first-run-initial"
+fi
+# #136：perf 标签（墙钟预算）不重跑——确定性超限串行重跑只会再烧 200 s 后
+# 照样红；perf 在独立的非阻断 linux-perf job 里跑（tools/ci_perf.sh）。
 QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-offscreen}" \
-  ctest --test-dir "$build_dir" -j1 --rerun-failed --output-on-failure
+  ctest --test-dir "$build_dir" -j1 --rerun-failed -LE perf --output-on-failure

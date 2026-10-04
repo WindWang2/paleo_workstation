@@ -173,26 +173,27 @@ bool RemotePredictionRouter::runLocalFallback( const RemotePredictionRequest &re
                    .arg( request.samples.size() )
                    .arg( request.columns )
                    .arg( request.rows ) );
-  if ( !m_onnx->isModelLoaded( m_localModel ) && !m_onnx->loadModel( m_localModel, error ) )
+  OnnxModelMeta meta; // #144：meta 随加载取回，推理绑定模型名
+  if ( m_onnx->loadModelMeta( m_localModel, &meta, error ) != OnnxLoadStatus::Ok )
     return fail( error && !error->isEmpty() ? *error : QObject::tr( "本地模型加载失败" ) );
 
-  const OnnxModelMeta meta = m_onnx->loadedModelMeta();
   if ( meta.inputShape.size() != 4 || meta.inputShape[0] > 1 || meta.inputShape[1] > 1 )
     return fail( QObject::tr( "本地模型输入须为 [1,1,H,W]，实际 %1" ).arg( meta.inputSignature ) );
 
-  QVector<bool> valid( request.samples.size(), true );
-  for ( qsizetype i = 0; i < request.samples.size(); ++i )
-    if ( std::isnan( request.samples[i] ) )
-      valid[i] = false;
+  QVector<float> samples = request.samples;
+  QVector<bool> valid;
+  sanitizeModelInput( samples, &valid ); // #143：非有限样置 0 喂模型，输出端置 255
 
   QString runErr;
-  const OnnxTensor out = m_onnx->runTensor( meta.inputName, request.samples,
+  const OnnxTensor out = m_onnx->runTensorOn( m_localModel, meta.inputName, samples,
                                             { 1, 1, request.rows, request.columns }, &runErr );
   if ( !runErr.isEmpty() )
     return fail( runErr );
   if ( out.shape.size() != 4 || out.shape[0] != 1 ||
        out.shape[2] != request.rows || out.shape[3] != request.columns )
     return fail( QObject::tr( "本地模型输出形状与请求网格不符" ) );
+  if ( out.shape[1] < 1 || out.shape[1] > kMaxTileClasses )
+    return fail( QObject::tr( "本地模型输出类数 %1 越界 [1, %2]" ).arg( out.shape[1] ).arg( kMaxTileClasses ) );
 
   TileClassGrid grid;
   softmaxGrid( out.values, int( out.shape[1] ), request.rows, request.columns, valid, &grid );

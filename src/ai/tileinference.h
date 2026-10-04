@@ -37,7 +37,17 @@ struct TileClassGrid
   bool isEmpty() const { return argmax.isEmpty(); }
 };
 
+// 类数上限：argmax 为 quint8 且 255 = 无数据，可用类号 0..254（#143）。
+constexpr int kMaxTileClasses = 255;
+
+// 模型输入净化（#143）：非有限样（NaN/±Inf，缺道/测网外）置 0 喂模型，
+// 并在 valid 掩膜中记为无数据（输出端置 255），不把 NaN 传进 ORT。
+// 返回非有限样个数。
+int sanitizeModelInput( QVector<float> &data, QVector<bool> *valid );
+
 // logits 布局 [C][pixels]（模型 NCHW 输出去 batch 维）。valid 缺省全真。
+// 任一 logit 非有限的像元 → 无数据（255、置信 0），不回落到类 0（#143）。
+// classes 越界 [1, kMaxTileClasses] → 全 255。
 void softmaxGrid( const QVector<float> &logits, int classes, int rows, int cols,
                   const QVector<bool> &valid, TileClassGrid *out );
 

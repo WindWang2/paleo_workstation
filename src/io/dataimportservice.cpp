@@ -168,6 +168,7 @@ void DataImportService::setProjectDir(const QString &dir)
   m_pdfPending.clear();
   m_pdfErrors.clear();
 
+  const bool projectChanged = QDir::cleanPath(m_projectDir) != QDir::cleanPath(dir);
   m_projectDir = dir;
   ++m_catalogEpoch; // 在途 session 的产出不得提交进新工程
   // wave/io-perf-cache：工程级缓存根统一接线（P4）。
@@ -192,6 +193,38 @@ void DataImportService::setProjectDir(const QString &dir)
     qWarning("DataImportService: catalog open failed: %s", qPrintable(err));
     emit catalogOpenFailed(err);
   }
+  // #155：上次进程崩溃残留的 artifacts/staging/<uuid> 无人回收。只在真正
+  // 切到另一工程、且本实例拿到写锁（无别的进程在用该工程）时清扫——本进程
+  // 的在途 session 都属于旧工程目录，同目录重设不扫。
+  else if (projectChanged && !m_catalog->isLockedReadOnly())
+    sweepStaleStaging(dir);
+}
+
+int DataImportService::sweepStaleStaging(const QString &projectDir)
+{
+  if (projectDir.trimmed().isEmpty())
+    return 0;
+  QDir staging(projectDir + QStringLiteral("/artifacts/staging"));
+  if (!staging.exists())
+    return 0;
+  int removed = 0;
+  const QStringList entries =
+      staging.entryList(QDir::Dirs | QDir::Files | QDir::Hidden | QDir::NoDotAndDotDot);
+  for (const QString &e : entries)
+  {
+    const QString path = staging.filePath(e);
+    const bool ok = QFileInfo(path).isDir() ? QDir(path).removeRecursively()
+                                            : QFile::remove(path);
+    if (ok)
+      ++removed;
+    else
+      qWarning("DataImportService: cannot remove stale staging %s", qPrintable(path));
+  }
+  if (removed > 0)
+    qWarning("DataImportService: swept %d stale staging entr%s under %s", removed,
+             removed == 1 ? "y" : "ies", qPrintable(staging.path()));
+  QDir().rmdir(staging.path()); // 空了顺手收掉（非空失败无妨）
+  return removed;
 }
 
 QString DataImportService::indexCacheDir() const
@@ -500,7 +533,17 @@ bool ImportSession::ensureStagingRoot(QString *err)
     setError(err, QStringLiteral("no project directory"));
     return false;
   }
-  if (QDir(stagingRoot).exists() || QDir().mkpath(stagingRoot))
+  // 并发 produce 会同时建 artifacts/staging/<uuid>：Windows 上 QDir::mkpath 在
+  // 中间目录（artifacts/staging）被别的线程抢先建好时误报失败（Qt
+  // createDirectoryWithParents 对已存在的父目录继续向上递归到盘符 → false）；
+  // owner 线程 discardStaging 顺手 rmdir 空父目录也可能与 worker 建目录交错。
+  // 重试：下一轮父目录已在，直接建叶子即成。
+  for (int attempt = 0; attempt < 5; ++attempt)
+  {
+    if (QDir(stagingRoot).exists() || QDir().mkpath(stagingRoot))
+      return true;
+  }
+  if (QDir(stagingRoot).exists())
     return true;
   setError(err, QStringLiteral("cannot create directory %1").arg(stagingRoot));
   return false;
@@ -724,6 +767,16 @@ DataImportService::commitImport(ImportSession &s, QString *error, bool allowConf
     return CommitStatus::Failed;
   }
   const QVector<CatalogOp> ops = s.cat ? s.cat->journal() : QVector<CatalogOp>{};
+  // 单文件 produce 失败时 importOneFile 可能已在 staging 副本上记了半截 journal
+  // （如 addAsset 之后受管复制/建暂存目录失败）——整份作废，绝不把没有版本、
+  // 没发 imported 的半截资产提交入库。
+  if (s.hasFileResult && s.fileResult.outcome == ImportOutcome::Failed && !ops.isEmpty())
+  {
+    const QString msg = s.error.isEmpty() ? QStringLiteral("导入失败，结果已丢弃") : s.error;
+    failSession(s, msg);
+    setError(error, msg);
+    return CommitStatus::Failed;
+  }
   if (m_catalog->mutationSeq() != s.baseSeq && !ops.isEmpty())
   {
     // produce 期间 owner 侧另有写入：staging 副本的决策（id 分配/dedup/井
@@ -2034,8 +2087,12 @@ int DataImportService::attachResolvableLinks(DataCatalog *cat, const CatalogAsse
   }
   // 批次结算：落盘失败如实透给调用方（dedup 路径只记 qWarning，不中断）。
   QString berr;
-  if (!batch.flush(&berr) && !berr.isEmpty())
-    setError(error, berr);
+  if (!batch.flush(&berr))
+  {
+    // #169：结算失败时批内改动已回滚，不能再报「已补上关联」。
+    setError(error, berr.isEmpty() ? QStringLiteral("catalog 落盘失败") : berr);
+    return 0;
+  }
   return attached;
 }
 

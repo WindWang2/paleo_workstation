@@ -39,7 +39,8 @@ namespace FactorContourService
 namespace
 {
 bool generateWithOption( const QString &rasterPath, const QString &outputGpkg,
-                         const QByteArray &levelOption, QString *error )
+                         const QByteArray &levelOption, QString *error,
+                         double capInterval = 0.0 )
 {
   if ( rasterPath.isEmpty() || !QFile::exists( rasterPath ) )
   {
@@ -66,6 +67,31 @@ bool generateWithOption( const QString &rasterPath, const QString &outputGpkg,
     setError( error, QStringLiteral( "raster '%1' has no band 1" ).arg( rasterPath ) );
     GDALClose( src );
     return false;
+  }
+  if ( capInterval > 0.0 )
+  {
+    // #149：LEVEL_INTERVAL 路径同样先估级别数，间距过小直接拒绝（GDAL 会逐级追线卡死）。
+    // 返回值在不同 GDAL 版本里是 void/CPLErr——不依赖它，用 NaN 哨兵判定是否算出。
+    double minMax[2] = { std::numeric_limits<double>::quiet_NaN(),
+                         std::numeric_limits<double>::quiet_NaN() };
+    GDALComputeRasterMinMax( band, FALSE, minMax );
+    if ( std::isfinite( minMax[0] ) && std::isfinite( minMax[1] ) )
+    {
+      const double estimated =
+          paleo::singlefactor::estimateContourLevelCount( minMax[1] - minMax[0], capInterval );
+      if ( !( estimated <= static_cast<double>( paleo::singlefactor::kMaxContourLevels ) ) )
+      {
+        setError( error, QStringLiteral( "等值线间距过小：间距 %1 在值域 %2~%3 上将生成约 %4 条级别，"
+                                         "超过上限 %5 条；请增大间距" )
+                             .arg( capInterval, 0, 'g', 6 )
+                             .arg( minMax[0], 0, 'g', 8 )
+                             .arg( minMax[1], 0, 'g', 8 )
+                             .arg( estimated, 0, 'g', 6 )
+                             .arg( static_cast<qulonglong>( paleo::singlefactor::kMaxContourLevels ) ) );
+        GDALClose( src );
+        return false;
+      }
+    }
   }
 
   // GPKG 输出（OGR 面）；同路径重生成 → 先移除旧文件保证幂等。
@@ -138,7 +164,7 @@ bool generateContours( const QString &rasterPath, const QString &outputGpkg,
     return false;
   }
   const QByteArray levelOption = QByteArray( "LEVEL_INTERVAL=" ) + QByteArray::number( interval );
-  return generateWithOption( rasterPath, outputGpkg, levelOption, error );
+  return generateWithOption( rasterPath, outputGpkg, levelOption, error, interval );
 }
 
 bool generateFixedContours( const QString &rasterPath, const QString &outputGpkg,
@@ -327,6 +353,18 @@ bool generateStructuralContours( const QString &rasterPath,
                               surface.grid, surface.validMask, interval, &plan )
                         : paleo::singlefactor::autoContourLevels(
                               surface.grid, surface.validMask, &plan );
+    if ( !ok && plan.tooManyLevels )
+    {
+      setError( error, QStringLiteral( "等值线间距过小：间距 %1 在值域 %2~%3 上将生成约 %4 条级别，"
+                                       "超过上限 %5 条；请增大间距" )
+                           .arg( interval, 0, 'g', 6 )
+                           .arg( plan.valueMin, 0, 'g', 8 )
+                           .arg( plan.valueMax, 0, 'g', 8 )
+                           .arg( plan.estimatedLevels, 0, 'g', 6 )
+                           .arg( static_cast<qulonglong>( paleo::singlefactor::kMaxContourLevels ) ) );
+      OSRDestroySpatialReference( srs );
+      return false;
+    }
     if ( !ok )
     {
       setError( error, QStringLiteral( "趋势面没有可提线的有效像元" ) );

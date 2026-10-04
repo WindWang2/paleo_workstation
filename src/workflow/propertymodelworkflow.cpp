@@ -13,6 +13,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QHash>
 #include <QJsonObject>
 #include <QRegularExpression>
 #include <QStringList>
@@ -94,8 +95,16 @@ HorizonPick findHorizonRaster(DataCatalog *catalog, const QString &projectDir, c
     return best;
   bool have = false;
   bool bestExact = false;
-  int bestVersion = -1;
-  QString bestAssetId;
+  // #127 同型：versionNumber 是资产内局部序号，跨资产不可比。跨资产的「更新」
+  // 用 catalog 版本表的提交序（行序，重开稳定）。
+  QHash<QString, int> commitOrder;
+  {
+    const QVector<CatalogVersion> all = catalog->versions();
+    commitOrder.reserve(all.size());
+    for (int i = 0; i < all.size(); ++i)
+      commitOrder.insert(all.at(i).id, i);
+  }
+  int bestOrder = -1;
   for (const CatalogAsset &asset : catalog->assets())
   {
     if (asset.type != QLatin1String("horizon"))
@@ -127,16 +136,13 @@ HorizonPick findHorizonRaster(DataCatalog *catalog, const QString &projectDir, c
     }
     if (!matched)
       continue;
-    const bool better = !have || (exact && !bestExact) ||
-                        (exact == bestExact && latest.versionNumber > bestVersion) ||
-                        (exact == bestExact && latest.versionNumber == bestVersion &&
-                         asset.id < bestAssetId);
+    const int order = commitOrder.value(latest.id, -1);
+    const bool better = !have || (exact && !bestExact) || (exact == bestExact && order > bestOrder);
     if (!better)
       continue;
     have = true;
     bestExact = exact;
-    bestVersion = latest.versionNumber;
-    bestAssetId = asset.id;
+    bestOrder = order;
     best.path = path;
     best.found = true;
   }
@@ -434,6 +440,18 @@ PropertyModelWorkflow::PropertyModelComputed
 PropertyModelWorkflow::runCompute(const PropertyModelRequest &request,
                                   const std::function<bool(double, const QString &)> &progress)
 {
+  PropertyModelComputed computed =
+      computeSnapshot(request, m_projectDir, m_catalog && m_catalog->isOpen(), progress);
+  if (!computed.ok)
+    emit modelFailed(computed.error);
+  return computed;
+}
+
+PropertyModelWorkflow::PropertyModelComputed
+PropertyModelWorkflow::computeSnapshot(const PropertyModelRequest &request,
+                                       const QString &projectDir, bool catalogOpen,
+                                       const std::function<bool(double, const QString &)> &progress)
+{
   PropertyModelComputed computed;
   PropertyModelOutput &result = computed.out;
   const auto fail = [&](const QString &why) {
@@ -441,7 +459,6 @@ PropertyModelWorkflow::runCompute(const PropertyModelRequest &request,
     result.ok = false;
     result.error = why;
     computed.error = why;
-    emit modelFailed(why);
     return computed;
   };
   const auto report = [&](double fraction, const QString &stage) {
@@ -453,7 +470,7 @@ PropertyModelWorkflow::runCompute(const PropertyModelRequest &request,
     return true;
   };
 
-  if (!m_catalog || !m_catalog->isOpen())
+  if (!catalogOpen)
     return fail(QStringLiteral("属性建模未绑定 catalog"));
   if (request.nLayers < 1)
     return fail(QStringLiteral("层数须 ≥ 1"));
@@ -469,8 +486,8 @@ PropertyModelWorkflow::runCompute(const PropertyModelRequest &request,
   QString botPath = request.botPath;
   if (!request.useEmbeddedSurfaces)
   {
-    topPath = resolveSurfacePath(m_projectDir, request.topPath);
-    botPath = resolveSurfacePath(m_projectDir, request.botPath);
+    topPath = resolveSurfacePath(projectDir, request.topPath);
+    botPath = resolveSurfacePath(projectDir, request.botPath);
     QString err;
     if (!loadSurface(topPath, &top, &err))
       return fail(err);
@@ -633,7 +650,7 @@ PropertyModelWorkflow::run(const PropertyModelRequest &request,
 
 PaleoTask *PropertyModelWorkflow::startJob(paleo::jobs::JobRunner<PropertyModelJob> &runner,
                                           const PropertyModelRequest &request,
-                                          double overlayAlpha, QObject *progressSink,
+                                          double overlayAlpha,
                                           std::shared_ptr<PropertyModelJob> *started)
 {
   using paleo::jobs::JobRunner;
@@ -644,31 +661,32 @@ PaleoTask *PropertyModelWorkflow::startJob(paleo::jobs::JobRunner<PropertyModelJ
 
   JobRunner<PropertyModelJob>::Callbacks cb;
 
-  // prepare：owner 线程抓输入快照。本迁移点的输入已经是调用方在 owner 线程
-  // 抓好的 request（requestFromCatalog 读 catalog，属 owner 线程操作），
-  // 故 prepare 只做一次浅拷贝落位，不重复触碰 catalog。
-  cb.prepare = [](PropertyModelJob &j, QString *) { return true; };
+  // prepare：owner 线程抓输入快照。request 已由调用方在 owner 线程经
+  // requestFromCatalog 抓好；这里再快照工程目录与 catalog 打开态——#153：
+  // worker 不再读 m_projectDir/m_catalog（工程切换时 rebind 在主线程改写
+  // 它们，旧实现在 worker 上读 = 数据竞争，且会按新工程目录解析旧路径）。
+  cb.prepare = [this](PropertyModelJob &j, QString *) {
+    j.projectDir = m_projectDir;
+    j.catalogOpen = m_catalog && m_catalog->isOpen();
+    return true;
+  };
 
-  // compute：worker 线程纯计算。取消点在 progress 回调里（现状语义：fraction
-  // < 1 时返回 false 表示取消），由框架的 CancelFn 统一判定。
-  //
-  // progressSink 约定：属性建模面板，按名调它的 updateProgress 槽。用字符串
-  // 签名 + invokeMethod，功能层因此不必 include 视图层头（层契约）。
-  auto *sink = progressSink;
-  cb.compute = [this, sink](PropertyModelJob &j, const paleo::jobs::CancelFn &,
-                            const paleo::jobs::ProgressFn &) {
-    j.computed = runCompute(j.request, [sink](double fraction, const QString &stage) {
-      if (sink)
-      {
-        const int pct = fraction <= 0.0
-                            ? 0
-                            : (fraction >= 1.0 ? 100 : static_cast<int>(fraction * 100.0 + 0.5));
-        QMetaObject::invokeMethod(sink, "updateProgress", Qt::QueuedConnection,
-                                  Q_ARG(int, pct), Q_ARG(QString, stage));
-      }
-      return true; // 取消判定交给框架的 CancelFn，不在这里私自决定
-    });
-    // runCompute 的失败串在 computed.error 上；框架据此走失败通道。
+  // compute：worker 线程纯计算（静态，不捕获 this）。#160：进度回调返回
+  // !cancel()——任务页取消/工程切换在下一个进度点即生效，不再跑满全程。
+  // #163：进度只经框架 ProgressFn → PaleoTask::reportStage（任务对象属
+  // 服务，生命周期由服务排空保证）；不再捕获面板裸指针——面板随主窗口
+  // 析构后 worker 仍在跑时，旧实现向已析构对象 invokeMethod。UI 侧改接
+  // PaleoTask::changed 读 stage()/stagePercent()。
+  cb.compute = [](PropertyModelJob &j, const paleo::jobs::CancelFn &cancel,
+                  const paleo::jobs::ProgressFn &report) {
+    j.computed = computeSnapshot(
+        j.request, j.projectDir, j.catalogOpen,
+        [&cancel, &report](double fraction, const QString &stage) {
+          if (report)
+            report(fraction * 100.0, stage);
+          return !(cancel && cancel());
+        });
+    // computeSnapshot 的失败串在 computed.error 上；框架据此走失败通道。
     return j.computed.ok;
   };
 
@@ -766,6 +784,10 @@ PropertyModelRequest PropertyModelWorkflow::requestFromCatalog(const QString &to
     const QVector<double> &depth = curves.at(0).values;
     const QVector<double> &vals = curves.at(ref.column).values;
     const int n = static_cast<int>(std::min(depth.size(), vals.size()));
+    // #166：深度道单位 → 米制 MD（轨迹/层位都是米）。FT 族 ×0.3048；
+    // 空/未知单位沿用旧口径按米处理。
+    const double unitScale = LasParser::depthUnitToMeters(curves.at(0).unit);
+    const double mdScale = unitScale > 0.0 ? unitScale : 1.0;
     struct Sample
     {
       double md = 0;
@@ -776,7 +798,7 @@ PropertyModelRequest PropertyModelWorkflow::requestFromCatalog(const QString &to
     bool anyFinite = false;
     for (int i = 0; i < n; ++i)
     {
-      const double md = depth.at(i);
+      const double md = depth.at(i) * mdScale;
       if (!std::isfinite(md))
         continue;
       const double value = vals.at(i);

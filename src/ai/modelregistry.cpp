@@ -9,6 +9,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QSet>
 
 namespace
 {
@@ -45,6 +46,33 @@ ModelRegistryEntry parseEntry( const QJsonObject &o )
   return e;
 }
 } // namespace
+
+bool ModelRegistry::isSafeModelName( const QString &name )
+{
+  if ( name.isEmpty() || name == QLatin1String( "." ) || name == QLatin1String( ".." ) )
+    return false;
+  if ( name.contains( QLatin1Char( '/' ) ) || name.contains( QLatin1Char( '\\' ) ) ||
+       name.contains( QLatin1Char( ':' ) ) || name.contains( QChar( 0 ) ) )
+    return false;
+  return true;
+}
+
+bool ModelRegistry::isSafeRelativeFile( const QString &file )
+{
+  if ( file.isEmpty() || QDir::isAbsolutePath( file ) || file.startsWith( QLatin1Char( '/' ) ) ||
+       file.startsWith( QLatin1Char( '\\' ) ) || file.contains( QLatin1Char( ':' ) ) ||
+       file.contains( QChar( 0 ) ) )
+    return false;
+  QString norm = file;
+  norm.replace( QLatin1Char( '\\' ), QLatin1Char( '/' ) );
+  const QStringList parts = norm.split( QLatin1Char( '/' ), Qt::SkipEmptyParts );
+  if ( parts.isEmpty() )
+    return false;
+  for ( const QString &p : parts )
+    if ( p == QLatin1String( ".." ) )
+      return false;
+  return true;
+}
 
 bool ModelRegistryScan::anyRunnable() const
 {
@@ -97,6 +125,7 @@ ModelRegistryScan ModelRegistry::scan( const QString &modelsDir )
     return out;
   }
 
+  QSet<QString> seenNames;
   for ( const QJsonValue &v : models )
   {
     if ( !v.isObject() )
@@ -115,13 +144,44 @@ ModelRegistryScan ModelRegistry::scan( const QString &modelsDir )
       out.entries.append( e );
       continue;
     }
-    e.absolutePath = QDir( modelsDir ).absoluteFilePath( e.file );
+    if ( !ModelRegistry::isSafeModelName( e.name ) || !ModelRegistry::isSafeRelativeFile( e.file ) )
+    {
+      e.status = ModelRegistryEntry::Status::ManifestInvalid;
+      e.detail = QObject::tr( "name/file 含非法路径（name 须为单段；file 须为 models/ 内相对路径，"
+                              "不得含 .. 或绝对路径）: name=%1 file=%2" )
+                   .arg( e.name, e.file );
+      out.entries.append( e );
+      continue;
+    }
+    if ( seenNames.contains( e.name ) )
+    {
+      e.status = ModelRegistryEntry::Status::ManifestInvalid;
+      e.detail = QObject::tr( "重复的模型名 %1（仅第一条生效）" ).arg( e.name );
+      out.entries.append( e );
+      continue;
+    }
+    seenNames.insert( e.name );
+    e.absolutePath = QDir::cleanPath( QDir( modelsDir ).absoluteFilePath( e.file ) );
     if ( !QFileInfo::exists( e.absolutePath ) )
     {
       e.status = ModelRegistryEntry::Status::FileMissing;
       e.detail = QObject::tr( "模型文件缺失: %1" ).arg( e.absolutePath );
       out.entries.append( e );
       continue;
+    }
+    {
+      // canonical 前缀判断：符号链接不得把模型指到 models/ 外。
+      const QString rootCanon = QFileInfo( modelsDir ).canonicalFilePath();
+      const QString fileCanon = QFileInfo( e.absolutePath ).canonicalFilePath();
+      if ( rootCanon.isEmpty() || fileCanon.isEmpty() ||
+           !fileCanon.startsWith( rootCanon + QLatin1Char( '/' ) ) )
+      {
+        e.status = ModelRegistryEntry::Status::ManifestInvalid;
+        e.detail = QObject::tr( "模型文件解析到 models/ 目录之外: %1" ).arg( fileCanon );
+        out.entries.append( e );
+        continue;
+      }
+      e.absolutePath = fileCanon;
     }
     e.sha256Actual = PaleoOnnxService::sha256OfFile( e.absolutePath );
     if ( e.sha256Actual.isEmpty() )

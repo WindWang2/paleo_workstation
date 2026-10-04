@@ -126,6 +126,8 @@ class TestJobRunner : public QObject
   Q_OBJECT
 
 private slots:
+  // 每例结束都拆 fixture——断言提前返回时也不把在途任务留给下一例。
+  void cleanup() { tearDownBusy(); }
   void computeOffOwnerCommitOnOwner();
   void staleGenerationDropsCommit();
   void cancelInterruptsComputeAndSkipsCommit();
@@ -135,6 +137,9 @@ private slots:
   void prepareFailureBuildsNoTask();
   void rejectsStartWhenBusy();
   void withoutTaskServiceDegrades();
+  void commitPrecedesCallerFinishedSlot();
+  void taskCancelReachesCompute();
+  void sessionResetDropsInFlightJob();
 
 private:
   /// 每例一份 fixture：dispatcher（owner 线程）+ 可选任务服务 + runner。
@@ -558,6 +563,136 @@ void TestJobRunner::withoutTaskServiceDegrades()
 
   QVERIFY(!m_runner->taskService());
   QVERIFY(!m_runner->start(QStringLiteral("no-svc"), m_job, cb));
+  QVERIFY(!m_runner->busy());
+
+  tearDownBusy();
+}
+
+// ---------------------------------------------------------------------------
+// 10. #159：调用方在 start() 之后连到 task->finished 的收尾槽，必须看到
+//     commit 已执行（旧实现 commit 再排队一次，收尾槽先跑、读到空登记）；
+//     jobCompleted 在 commit 之后、busy() 已转假时发。
+// ---------------------------------------------------------------------------
+void TestJobRunner::commitPrecedesCallerFinishedSlot()
+{
+  setUpWithService();
+  auto probe = m_probe;
+
+  JobRunner<TestJob>::Callbacks cb;
+  cb.compute = [](TestJob &job, const CancelFn &, const ProgressFn &) {
+    job.result = 7;
+    job.ok = true;
+    return true;
+  };
+  cb.commit = [probe](TestJob &, QString *) {
+    probe->commitCalls.fetch_add(1);
+    probe->note(QStringLiteral("commit"));
+    return true;
+  };
+
+  int commitsSeenByCaller = -1;
+  bool busySeenByCompleted = true;
+  int completedCalls = 0;
+  bool completedCommitted = false;
+  // 连接挂在局部 ctx 上：断言提前返回时 ctx 先于上面的局部量析构、自动断连，
+  // 不会让排队回调写已出作用域的引用。
+  QObject ctx;
+  connect(m_runner.get(), &paleo::jobs::JobRunnerBase::jobCompleted, &ctx,
+          [&](quint64, bool committed) {
+            ++completedCalls;
+            completedCommitted = committed;
+            busySeenByCompleted = m_runner->busy();
+            probe->note(QStringLiteral("completed"));
+          });
+
+  PaleoTask *task = m_runner->start(QStringLiteral("order"), m_job, cb);
+  QVERIFY(task);
+  // 与 PaleoMainWindow::startPropertyModelRun 同形：start 之后才连收尾槽。
+  connect(task, &PaleoTask::finished, &ctx, [&, probe] {
+    commitsSeenByCaller = probe->commitCalls.load();
+    probe->note(QStringLiteral("caller-finished"));
+  });
+
+  QVERIFY(pumpUntil([&] { return commitsSeenByCaller >= 0 && completedCalls == 1; }));
+  QCOMPARE(commitsSeenByCaller, 1);
+  QVERIFY(probe->indexOf(QStringLiteral("commit")) <
+          probe->indexOf(QStringLiteral("caller-finished")));
+  QVERIFY(probe->indexOf(QStringLiteral("commit")) <
+          probe->indexOf(QStringLiteral("completed")));
+  QVERIFY(completedCommitted);
+  QVERIFY(!busySeenByCompleted);
+
+  tearDownBusy();
+}
+
+// ---------------------------------------------------------------------------
+// 11. #160：任务页「取消」按钮只调 PaleoTask::requestCancel——compute 的
+//     CancelFn 必须立刻看到（旧实现只看 claim 取消位，compute 跑满全程）。
+// ---------------------------------------------------------------------------
+void TestJobRunner::taskCancelReachesCompute()
+{
+  setUpWithService();
+  auto probe = m_probe;
+
+  JobRunner<TestJob>::Callbacks cb;
+  cb.compute = [probe](TestJob &, const CancelFn &cancelled, const ProgressFn &) {
+    probe->computeCalls.fetch_add(1);
+    QElapsedTimer clock;
+    clock.start();
+    waitOnGate(probe, cancelled, 3000);
+    probe->computeSawCancel.store(cancelled() && clock.elapsed() < 2500);
+    return !cancelled();
+  };
+  cb.commit = [probe](TestJob &, QString *) {
+    probe->commitCalls.fetch_add(1);
+    return true;
+  };
+  cb.onDropped = [probe](TestJob &, DropReason reason) {
+    probe->droppedCalls.fetch_add(1);
+    probe->lastDropReason.store(static_cast<quintptr>(reason));
+  };
+
+  PaleoTask *task = m_runner->start(QStringLiteral("panel-cancel"), m_job, cb);
+  QVERIFY(task);
+  QVERIFY(pumpUntil([probe] { return probe->computeCalls.load() == 1; }));
+  task->requestCancel(); // 任务页取消按钮的连接目标
+  QVERIFY(pumpUntil([probe] { return probe->droppedCalls.load() == 1; }, 5000));
+  QVERIFY2(probe->computeSawCancel.load(),
+           "compute did not observe PaleoTask::requestCancel promptly");
+  QCOMPARE(probe->commitCalls.load(), 0);
+  QCOMPARE(probe->lastDropReason.load(), quintptr(DropReason::Cancelled));
+
+  tearDownBusy();
+}
+
+// ---------------------------------------------------------------------------
+// 12. #153：工程切换 beginNewSession() → 在途作业被取消、不进入 commit。
+// ---------------------------------------------------------------------------
+void TestJobRunner::sessionResetDropsInFlightJob()
+{
+  setUpWithService();
+  auto probe = m_probe;
+
+  JobRunner<TestJob>::Callbacks cb;
+  cb.compute = [probe](TestJob &, const CancelFn &cancelled, const ProgressFn &) {
+    probe->computeCalls.fetch_add(1);
+    waitOnGate(probe, cancelled, 3000);
+    return true; // 即便 compute 无视取消照常返回成功，结果也必须作废
+  };
+  cb.commit = [probe](TestJob &, QString *) {
+    probe->commitCalls.fetch_add(1);
+    return true;
+  };
+  cb.onDropped = [probe](TestJob &, DropReason) { probe->droppedCalls.fetch_add(1); };
+
+  const quint64 before = m_tasks->session();
+  PaleoTask *task = m_runner->start(QStringLiteral("old-project"), m_job, cb);
+  QVERIFY(task);
+  QCOMPARE(task->session(), before);
+  QVERIFY(pumpUntil([probe] { return probe->computeCalls.load() == 1; }));
+  QVERIFY(m_tasks->beginNewSession() > before);
+  QVERIFY(pumpUntil([probe] { return probe->droppedCalls.load() == 1; }, 5000));
+  QCOMPARE(probe->commitCalls.load(), 0);
   QVERIFY(!m_runner->busy());
 
   tearDownBusy();

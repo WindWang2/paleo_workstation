@@ -64,7 +64,9 @@
 #include "../catalog/datacatalog.h"
 #include "layoutdesignershell.h"
 #include "edittools/editingtoolbar.h"
-#include "layout/layoutexportactions.h"     // m2(C)：导出版面钉 compose 主题后走同一 PDF 出口
+#include "layout/layoutexportactions.h"
+#include "layout/mapbookcontroller.h" // #148：地图册面板 ↔ 批量导出队列
+#include "layout/mapbookpanel.h"     // m2(C)：导出版面钉 compose 主题后走同一 PDF 出口
 #include "../qgis/qgislayoutservice.h"
 #include "../qgis/qgislayerprofile.h"       // m1 页面档案：setLayoutMapTheme/pageThemeName
 #include "../qgis/qgiseditingservice.h"
@@ -509,12 +511,27 @@ void PaleoMainWindow::attachPropertyModel(PropertyModelWorkflow *wf,
               // （原 m_propModelRunning 布尔的等价物）。
               m_propModelRunner.setTaskService(m_taskSvc);
               m_propModelTask = m_propModelWf->startJob(m_propModelRunner, req, overlayAlpha,
-                                                        m_propModelPanel, &m_propModelJob);
-              if (m_propModelTask)
-                connect(m_propModelTask.data(), &PaleoTask::finished, this,
-                        [this, overlayAlpha] { finishPropertyModelRun(overlayAlpha); });
-              else
+                                                        &m_propModelJob);
+              if (!m_propModelTask)
+              {
                 m_propModelRunning = false;
+                m_propModelPanel->setBusy(false);
+                return;
+              }
+              // #163：进度经任务对象回主线程（任务属服务，服务排空前不析构），
+              // 由主窗口转给面板——worker 不再持有面板裸指针。
+              const QPointer<PaleoTask> task = m_propModelTask;
+              const QPointer<PropertyModelPanel> panel = m_propModelPanel;
+              connect(m_propModelTask.data(), &PaleoTask::changed, this, [task, panel] {
+                if (task && panel && task->running())
+                  panel->updateProgress(qMax(0, task->stagePercent()), task->stage());
+              });
+              // #159：收尾接 jobCompleted（commit/drop 执行完之后发），而不是
+              // PaleoTask::finished——UI 段必须读到登记结果与登记失败。
+              // 框架忙则拒绝，同一时刻只有一代，单发连接即可。
+              connect(&m_propModelRunner, &paleo::jobs::JobRunnerBase::jobCompleted, this,
+                      [this, overlayAlpha](quint64, bool) { finishPropertyModelRun(overlayAlpha); },
+                      Qt::SingleShotConnection);
               return;
             }
 
@@ -538,17 +555,22 @@ void PaleoMainWindow::finishPropertyModelRun(double overlayAlpha)
   if (!m_propModelWf || !m_propModelPanel)
     return;
 
-  // finished 回包/同步兜底都在 GUI 线程。方向20 起 catalog 登记由 JobRunner 的
-  // commit 段完成（且已断言 owner 线程），本函数只负责把结果呈到 UI——不要再
-  // 无条件调 commitComputed，那会二次登记同一份 staging。
-  //
-  // 判据用 job->registered（commit 段成功时置位），不拿 runner.busy() 判：commit
-  // 段在发 finished 之前就 clearTask() 了，busy() 会误判成「没登记过」。
-  // 同步兜底路径（无任务池）压根不建 job，故仍需直连登记。
+  // 异步路径由 JobRunnerBase::jobCompleted 调到这里：commit（成功或失败）/
+  // drop 都已执行完（#159）。catalog 登记由 JobRunner 的 commit 段完成（已断言
+  // owner 线程），本函数只负责把结果呈到 UI——不要再调 commitComputed，那会
+  // 二次登记同一份 staging。登记失败时 commitComputed 已把 computed.out.ok
+  // 置假并回填错误串，下面按失败如实上 UI。
+  // 同步兜底路径（无任务池）不建 job，仍需直连登记。
   PropertyModelOutput out;
   if (m_propModelJob)
   {
     m_propModelComputed = m_propModelJob->computed; // 共享同一份，commit 已回填
+    if (!cancelled && m_propModelComputed.out.ok && !m_propModelJob->registered)
+    {
+      m_propModelComputed.out.ok = false; // 防御：未登记不报成功
+      if (m_propModelComputed.out.error.isEmpty())
+        m_propModelComputed.out.error = tr("属性体登记失败");
+    }
   }
   else if (!cancelled && m_propModelComputed.ok)
   {
@@ -748,6 +770,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
                     QStringLiteral("Paleo"));
               });
       bottomTabs->addTab(corrPanel, tr("测井对比"));
+      m_corrPanel = corrPanel;
     }
   }
 
@@ -1155,20 +1178,10 @@ void PaleoMainWindow::attachDataPage(DataPage *dataPage,
               // 文件夹导入期间不逐文件开标签——确认后只开井口标签（§4）。
               if (previewForImport && !m_folderImportActive)
                 previewForImport->openAsset(assetId);
+              // LAS imports pull the GR curve into the column when present
+              // (#156：井集与工程打开同一来源——catalog 全部 well_log)。
               if (corrPanel && kind == QLatin1String("well_log"))
-              {
-                QList<QPair<QString, QString>> wells;
-                for (const QString &id : m_previewDoc->assetIds(QStringLiteral("well_log")))
-                  wells.append({id, m_previewDoc->assetSource(id)});
-                corrPanel->setWells(wells);
-                // LAS imports pull the GR curve into the column when present.
-                const QString src = m_previewDoc->assetSource(assetId);
-                if (src.endsWith(QLatin1String(".las"), Qt::CaseInsensitive))
-                  corrPanel->loadWellLas(assetId,
-                                         QDir(m_projectSvc ? QFileInfo(m_projectSvc->projectPath()).absolutePath()
-                                                           : QString()).absoluteFilePath(src),
-                                         QStringLiteral("GR"));
-              }
+                refreshCorrelationWells(assetId);
             });
 }
 
@@ -2547,6 +2560,78 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
     }
   }
 
+  // #148 地图册批量导出：面板挂右侧 dock（与属性建模同区 tab），入口在
+  // 「智能编图 › 图件输出」组（ribbonMapBookAction）。catalog 在 attachMapping
+  // 补注入；工程上下文全部经 provider 现取，工程关闭由 resetProjectScopedState
+  // 调 resetProject（取消在途、丢弃迟到结果）。
+  if (taskSvc && !m_mapBookDock)
+  {
+    m_mapBookPanel = new PaleoMapBookPanel(this);
+    m_mapBookPanel->setObjectName(QStringLiteral("mapBookPanel"));
+    m_mapBookDock = new QDockWidget(tr("地图册"), this);
+    m_mapBookDock->setObjectName(QStringLiteral("mapBookDock"));
+    m_mapBookDock->setWidget(m_mapBookPanel);
+    addDockWidget(Qt::RightDockWidgetArea, m_mapBookDock);
+    if (m_rightDock)
+      tabifyDockWidget(m_rightDock, m_mapBookDock);
+    m_mapBookDock->hide();
+
+    m_mapBookCtl = new PaleoMapBookController(m_mapBookPanel, taskSvc, this);
+    m_mapBookCtl->setObjectName(QStringLiteral("mapBookController"));
+    m_mapBookCtl->setProjectProvider([this]() -> QgsProject * {
+      return m_projectSvc && !m_projectSvc->projectPath().isEmpty() ? m_projectSvc->project()
+                                                                     : nullptr;
+    });
+    m_mapBookCtl->setProjectDirProvider([this]() {
+      return m_projectSvc && !m_projectSvc->projectPath().isEmpty()
+                 ? QFileInfo(m_projectSvc->projectPath()).absolutePath()
+                 : QString();
+    });
+    m_mapBookCtl->setLayersProvider([this]() {
+      return m_canvasCtl && m_canvasCtl->canvas() ? m_canvasCtl->canvas()->layers()
+                                                  : QList<QgsMapLayer *>();
+    });
+    m_mapBookCtl->setCrsTextProvider([this]() {
+      return m_canvasCtl && m_canvasCtl->canvas()
+                 ? m_canvasCtl->canvas()->mapSettings().destinationCrs().authid()
+                 : QString();
+    });
+    m_mapBookCtl->setHorizonProvider(
+        [this]() { return m_selection ? m_selection->activeHorizon() : QString(); });
+    connect(m_mapBookCtl, &PaleoMapBookController::statusMessage, this,
+            [this](const QString &msg) {
+              if (statusBar())
+                statusBar()->showMessage(msg, 6000);
+            });
+
+    auto *mapBookAct = new QAction(
+        PaleoIcons::qgisTheme(QStringLiteral("mActionAtlasSettings.svg")), tr("地图册"), this);
+    mapBookAct->setObjectName(QStringLiteral("ribbonMapBookAction"));
+    mapBookAct->setToolTip(tr("按网格分幅批量导出地图册"));
+    connect(mapBookAct, &QAction::triggered, this, [this] {
+      if (!m_mapBookDock || !m_mapBookPanel)
+        return;
+      // 首次打开（或工程切换后）用画布当前范围与工程目录预填参数。
+      if (!m_mapBookCtl->busy() && !m_mapBookPanel->area().valid() && m_canvasCtl &&
+          m_canvasCtl->canvas())
+      {
+        const QgsRectangle e = m_canvasCtl->canvas()->extent();
+        PaleoMapBook::Area area;
+        area.xMin = e.xMinimum();
+        area.yMin = e.yMinimum();
+        area.xMax = e.xMaximum();
+        area.yMax = e.yMaximum();
+        m_mapBookPanel->setArea(area);
+      }
+      if (m_mapBookPanel->outputDir().isEmpty() && m_projectSvc &&
+          !m_projectSvc->projectPath().isEmpty())
+        m_mapBookPanel->setOutputDir(QDir(QFileInfo(m_projectSvc->projectPath()).absolutePath())
+                                         .filePath(QStringLiteral("exports/mapbook")));
+      m_mapBookDock->show();
+      m_mapBookDock->raise();
+    });
+  }
+
   // 图件设计 entry (wave/layout-designer): create a print layout via the
   // layout service and open the designer shell dialog non-modally. 入口在
   // 「智能编图 › 图件输出」组（buildRibbonPanels 按 objectName 取这颗动作）。
@@ -2600,6 +2685,8 @@ void PaleoMainWindow::attachMapping(MappingWorkflow *mapping, MapVersionControll
   attachMappingPublishGate(composePage, versions, versionStore, projectData, catalog);
   attachMappingExport(composePage, mapping, versionStore, projectData, catalog);
   attachMappingVersions(composePage, versions);
+  if (m_mapBookCtl)
+    m_mapBookCtl->setCatalog(catalog); // #148：逐版产物登记进 catalog
 
   // 工程打开时恢复发布门状态（版本行的 PDF 资产 + 残差覆盖重算）。
   if (m_projectSvc)

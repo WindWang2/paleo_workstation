@@ -93,6 +93,8 @@ add_paleo_test(tst_seismicattrperf LIBS paleo_services)
 # 多种子合并+3D 前沿扫掠+协作取消）；数值面测试在 tst_horizontrack
 target_sources(paleo_algorithms PRIVATE src/algorithms/horizontrack.cpp)
 add_paleo_test(tst_horizontrack LIBS paleo_algorithms)
+# #146/#147：剖面列↔线号、样点↔TWT 唯一换算（header-only domain/seismic/sectionaxis.h）
+add_paleo_test(tst_sectionaxis LIBS paleo_algorithms)
 
 # goal/horizon-autotrack — 追踪性能面：比率门（≤8× 切片提取基线）+
 # 966MB 生产形状（411×641×901@2ms）逐道追踪速率实测（BASELINE 行誊

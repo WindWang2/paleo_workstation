@@ -103,6 +103,10 @@ public:
 signals:
   /// 一次任务未进入 commit（取消/陈旧/prepare 失败）。reason 见 DropReason。
   void claimDropped(quint64 generation, int reason);
+  /// 一代任务彻底结束（#159）：commit（成功/失败态）或 drop（取消/陈旧）都已
+  /// 执行完、busy() 已转假之后发。UI 收尾应接这个而不是 PaleoTask::finished——
+  /// 后者早于 commit，读不到登记结果。committed=false 表示走了 drop。
+  void jobCompleted(quint64 generation, bool committed);
 
 protected:
   void clearTask();
@@ -184,8 +188,13 @@ public:
                                     PaleoTask *running) mutable -> QString {
                                 if (claim.cancelled() || !claim.current())
                                   return JobRunnerBase::tr("已取消");
-                                CancelFn cancelFn = [claim] { return claim.cancelled() ||
-                                                                       !claim.current(); };
+                                // #160：任务页「取消」/工程切换只置 PaleoTask 的
+                                // 取消位——compute 轮询必须也看得到它，否则取消
+                                // 要等整段算完才生效。
+                                CancelFn cancelFn = [claim, running] {
+                                  return claim.cancelled() || !claim.current() ||
+                                         (running && running->cancelRequested());
+                                };
                                 ProgressFn progress = [running, throttleMs, lastReport](
                                                           double percent,
                                                           const QString &stage) {
@@ -232,39 +241,45 @@ public:
       return nullptr;
 
     setCurrentTask(task);
-    connect(task, &PaleoTask::finished, this, [this, job, cb, claim] {
-      // finished 由服务经 QueuedConnection 派发，天然在 owner 线程；commit 段
-      // 再走一次 scheduleOnOwner 只是为了让「排队回 owner」成为机制而非事实。
-      // 注意 job 是 shared_ptr：worker 在 compute 段写入的结果，commit 段读到的
-      // 就是同一份对象（迁移点据此读 job.ok / job.error 上 UI）。
-      scheduleOnOwner([this, job, cb, claim]() mutable {
-        if (!job)
-          return;
-        Job &work = *job;
-        const PaleoTask::State state = m_task ? m_task->state()
-                                              : PaleoTask::State::Succeeded;
-        const bool stale = !claim.current();
-        if (state == PaleoTask::State::Cancelled || stale)
-        {
-          if (cb.cleanup)
-            cb.cleanup(work);
-          const DropReason reason = stale && state != PaleoTask::State::Cancelled
-                                        ? DropReason::Stale
-                                        : DropReason::Cancelled;
-          if (cb.onDropped)
-            cb.onDropped(work, reason);
-          clearTask();
-          emit claimDropped(claim.myGeneration, static_cast<int>(reason));
-          return;
-        }
-        if (state == PaleoTask::State::Failed && cb.cleanup)
+    // #159：commit/drop 在 finished 槽内**同步**执行，不再二次排队。旧实现
+    // 再 scheduleOnOwner 一次，导致调用方随后连到 task->finished 的收尾槽
+    // 先于 commit 跑（读到空登记、失败也报成功）。finished 本身已由服务经
+    // QueuedConnection 派发到 owner 线程，这里不需要再排队。
+    // 状态读自信号发送者 task（发射期间必存活），不读 m_task——后者可能被
+    // clearFinished/保留策略的 deleteLater 清成空指针，旧代码会把空指针
+    // 当成 Succeeded。
+    connect(task, &PaleoTask::finished, this, [this, job, cb, claim, task] {
+      if (!job)
+        return;
+      Job &work = *job;
+      const PaleoTask::State state = task->state();
+      const bool stale = !claim.current();
+      // 只清理本代自己的句柄：陈旧代结束时不能把新一代的 m_task 清掉。
+      const bool ownsHandle = (m_task.data() == task);
+      if (state == PaleoTask::State::Cancelled || stale)
+      {
+        if (cb.cleanup)
           cb.cleanup(work);
-        // 失败态也进 commit：Job 上已带失败态，迁移者据此如实上 UI（现状语义）。
-        assertOwnerThread("JobRunner::commit");
-        if (cb.commit)
-          cb.commit(work, nullptr);
+        const DropReason reason = stale && state != PaleoTask::State::Cancelled
+                                      ? DropReason::Stale
+                                      : DropReason::Cancelled;
+        if (cb.onDropped)
+          cb.onDropped(work, reason);
+        if (ownsHandle)
+          clearTask();
+        emit claimDropped(claim.myGeneration, static_cast<int>(reason));
+        emit jobCompleted(claim.myGeneration, false);
+        return;
+      }
+      if (state == PaleoTask::State::Failed && cb.cleanup)
+        cb.cleanup(work);
+      // 失败态也进 commit：Job 上已带失败态，迁移者据此如实上 UI（现状语义）。
+      assertOwnerThread("JobRunner::commit");
+      if (cb.commit)
+        cb.commit(work, nullptr);
+      if (ownsHandle)
         clearTask();
-      });
+      emit jobCompleted(claim.myGeneration, true);
     });
     return task;
   }

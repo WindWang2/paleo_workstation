@@ -110,6 +110,7 @@ private slots:
   // 质量标记 + 语义。
   void statsAndConvergence();
   void rejectedPointsCounted();
+  void farEdgePointsKeptOnExactMultipleExtent();
   void collisionsAveraged();
   void barrierBlocksInterpolation();
   void barrierOnlyAffectsMaskedCells();
@@ -268,6 +269,37 @@ void TestGridSolver::rejectedPointsCounted()
   QString err;
   QVERIFY(solveMinimumCurvature(pts, fx.geom, params, nullptr, &z, &stats, &err));
   QCOMPARE(stats.rejected, 2);
+}
+
+// #162：11×11 规则点阵 @25 m、像元 25 m（跨度恰为整数倍）→ 东/南边界 21 点旧代码被丢。
+void TestGridSolver::farEdgePointsKeptOnExactMultipleExtent()
+{
+  std::vector<ScatterPoint> pts;
+  for (int i = 0; i <= 10; ++i)
+    for (int j = 0; j <= 10; ++j)
+    {
+      ScatterPoint p;
+      p.x = 1000.0 + 25.0 * i;
+      p.y = 5000.0 + 25.0 * j;
+      p.z = planeF(p.x, p.y);
+      pts.push_back(p);
+    }
+  QString err;
+  const GridGeometry g = geometryForExtent(1000.0, 1250.0, 5000.0, 5250.0, 25.0, &err);
+  QVERIFY2(g.isValid(), qPrintable(err));
+  GriddingParams params;
+  std::vector<float> z;
+  GriddingStats stats;
+  QVERIFY2(solveMinimumCurvature(pts, g, params, nullptr, &z, &stats, &err), qPrintable(err));
+  QCOMPARE(stats.rejected, 0);
+  // 真正在网格外的点仍拒绝。
+  ScatterPoint outside;
+  outside.x = 1250.0 + 1.0;
+  outside.y = 5100.0;
+  outside.z = 0;
+  pts.push_back(outside);
+  QVERIFY2(solveMinimumCurvature(pts, g, params, nullptr, &z, &stats, &err), qPrintable(err));
+  QCOMPARE(stats.rejected, 1);
 }
 
 void TestGridSolver::collisionsAveraged()

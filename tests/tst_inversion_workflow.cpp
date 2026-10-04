@@ -6,6 +6,7 @@
 
 #include <cmath>
 #include <random>
+#include <optional>
 
 #include "../src/io/segyreader.h"
 #include "../src/catalog/datacatalog.h"
@@ -264,11 +265,11 @@ void TestInversionWorkflow::waveletEndToEnd()
     const QString versionId = wf.publishWaveletJob(job, registrar, &err);
     QVERIFY2(!versionId.isEmpty(), qPrintable(err));
 
-    const CatalogVersion *published = nullptr;
+    std::optional<CatalogVersion> published;
     for (const CatalogVersion &v : catalog.versions())
         if (v.id == versionId)
-            published = &v;
-    QVERIFY(published != nullptr);
+            published = v;
+    QVERIFY(published.has_value());
     QCOMPARE(published->stage, QStringLiteral("DERIVED"));
     QCOMPARE(published->parentVersionIds, QStringList{parent.id});
     QCOMPARE(published->extra.value(QStringLiteral("wellId")).toString(), QStringLiteral("well-A1"));
@@ -327,11 +328,11 @@ void TestInversionWorkflow::bandlimitedEndToEnd()
     QVERIFY2(pub.ok, qPrintable(pub.error.isEmpty() ? err : pub.error));
     QVERIFY(!pub.versionId.isEmpty());
 
-    const CatalogVersion *published = nullptr;
+    std::optional<CatalogVersion> published;
     for (const CatalogVersion &v : catalog.versions())
         if (v.id == pub.versionId)
-            published = &v;
-    QVERIFY(published != nullptr);
+            published = v;
+    QVERIFY(published.has_value());
     QCOMPARE(published->stage, QStringLiteral("DERIVED"));
     QCOMPARE(published->extra.value(QStringLiteral("lowCutHz")).toDouble(), 8.0);
     QCOMPARE(published->extra.value(QStringLiteral("method")).toString(), QStringLiteral("bandlimited"));

@@ -82,6 +82,9 @@ class DataPreviewTabs : public QWidget
     int tabCount() const;
     QString assetIdAt(int index) const;   // "" 越界
     void closeAssetTab(const QString &assetId);
+    // #154：关闭全部标签（含测区全景）并释放各资产的服务侧缓存——工程切换
+    // 前由壳调用；assetId 跨工程复用，旧标签不能留到新工程里。
+    void closeAllTabs();
     bool isMissingSourceState(const QString &assetId) const; // 外链缺失态（测试/诊断）
 
     // wave4：外链「重新定位文件…」按钮的动作面（对话框只产出 pickedPath，

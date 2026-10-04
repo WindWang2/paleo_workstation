@@ -25,7 +25,9 @@
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/qgis/qgisprocessingservice.h"
 #include "../src/qgis/qgisprojectservice.h"
+#include "../src/ui/correlationpanel.h"
 #include "../src/ui/datapreview/datapreviewtabs.h"
+#include "../src/catalog/datacatalog.h"
 #include "../src/ui/dialogs/folderconfirm.h"
 #include "../src/ui/faults/faultmanagerpanel.h"
 #include "../src/ui/layoutdesignershell.h"
@@ -302,10 +304,14 @@ class TestUiShell : public QObject
     // (full-registry ids live in per-provider submenus).
     void processingButtonSurfacesAlgorithms()
     {
+      // 套件内第一次 attach：attachWorkflows 幂等（二次调用早退），这里必须
+      // 带齐 editing/layout/task 服务，否则依赖 taskSvc 的地图册 dock/入口
+      // （#148）永远装不上，后续用例的 mapBookButton/mapBookDock 断言必红。
       m_win->attachWorkflows(m_ctx->predictionWf(), m_ctx->constraintWf(),
                              m_ctx->compositionWf(), m_ctx->validationWf(),
                              m_ctx->importSvc(), m_ctx->seismicLink(),
-                             m_ctx->processingSvc(), m_ctx->store());
+                             m_ctx->processingSvc(), m_ctx->store(),
+                             m_ctx->editingSvc(), m_ctx->layoutSvc(), m_ctx->taskSvc());
 
       auto *btn = m_win->findChild<QToolButton *>(QStringLiteral("processingButton"));
       QVERIFY(btn);
@@ -400,6 +406,17 @@ class TestUiShell : public QObject
         auto *btn = m_win->findChild<QToolButton *>(QLatin1String(name));
         QVERIFY2(btn, name);
         QVERIFY2(!btn->icon().isNull(), name);
+      }
+      // #148：地图册入口在「智能编图 › 图件输出」（任务服务在场即接线）。
+      {
+        auto *mb = m_win->findChild<QToolButton *>(QStringLiteral("mapBookButton"));
+        QVERIFY2(mb, "mapBookButton");
+        QVERIFY(!mb->icon().isNull());
+        auto *dock = m_win->findChild<QDockWidget *>(QStringLiteral("mapBookDock"));
+        QVERIFY(dock);
+        mb->click();
+        QVERIFY(!dock->isHidden());
+        dock->hide();
       }
       // designerButton 需要带 layoutSvc 的 attachWorkflows——套件内缺席则跳过。
       if (auto *d = m_win->findChild<QToolButton *>(QStringLiteral("designerButton")))
@@ -769,6 +786,45 @@ class TestUiShell : public QObject
       inner->removeTab(0);
     }
 
+    // #154/#156：换工程清工程作用域视图——预览标签全关、测井对比井集清空；
+    // 重开工程时测井对比从 catalog 重灌（不依赖本会话的导入事件）。
+    void projectSwitchResetsProjectScopedViews()
+    {
+      m_win->attachWorkflows(m_ctx->predictionWf(), m_ctx->constraintWf(),
+                             m_ctx->compositionWf(), m_ctx->validationWf(),
+                             m_ctx->importSvc(), m_ctx->seismicLink(),
+                             m_ctx->processingSvc(), m_ctx->store(),
+                             m_ctx->editingSvc(), m_ctx->layoutSvc(),
+                             m_ctx->taskSvc()); // 幂等：套件内已 attach 时为空操作
+      auto *preview = m_win->findChild<DataPreviewTabs *>(QStringLiteral("dataPreview"));
+      auto *corr = m_win->findChild<WellCorrelationPanel *>(QStringLiteral("correlationPanel"));
+      QVERIFY(preview && corr);
+
+      QTemporaryDir dirA, dirB;
+      const QString qgzA = dirA.filePath(QStringLiteral("a.qgz"));
+      QVERIFY(m_ctx->projectSvc()->createProject(qgzA));
+      QString error;
+      const QString asset = m_ctx->importSvc()->importProjectFile(
+          QFINDTESTDATA("../testdata/project_area/A1.Las"), &error);
+      QVERIFY2(!asset.isEmpty(), qPrintable(error));
+      preview->openAsset(asset);
+      QVERIFY(preview->tabCount() >= 1);
+      int wellLogs = 0;
+      for (const CatalogAsset &a : m_ctx->importSvc()->catalog()->assets())
+        if (a.type == QLatin1String("well_log"))
+          ++wellLogs;
+      QVERIFY(wellLogs >= 1);
+      corr->setWells({{asset, QStringLiteral("A1")}});
+      QCOMPARE(corr->wellCount(), 1);
+
+      QVERIFY(m_ctx->projectSvc()->createProject(dirB.filePath(QStringLiteral("b.qgz"))));
+      QCOMPARE(preview->tabCount(), 0);   // #154：旧工程标签不残留
+      QCOMPARE(corr->wellCount(), 0);     // #156：旧工程井集不残留
+
+      QVERIFY(m_ctx->projectSvc()->openProject(qgzA));
+      QTRY_COMPARE_WITH_TIMEOUT(corr->wellCount(), wellLogs, 3000); // #156：从 catalog 重灌
+    }
+
     void canvasYieldsSpaceToDocks()
     {
       m_win->resize(1800, 1000);
@@ -989,7 +1045,7 @@ class TestUiShell : public QObject
       for (const char *name : {"correlationPanel", "editingToolbar",
                                "releasePanel", "attributeTablePanel", "processingButton",
                                "statusCatalogError", "wellSectionDock",
-                               "wellSectionPanel"})
+                               "wellSectionPanel", "mapBookDock", "mapBookPanel"})
         QCOMPARE(namedCount(name), 1);
       auto *host = m_win->findChild<QWidget *>(QStringLiteral("rightPanelHost"));
       QVERIFY(host);
@@ -1001,7 +1057,7 @@ class TestUiShell : public QObject
       for (const char *name : {"correlationPanel", "editingToolbar",
                                "releasePanel", "attributeTablePanel", "processingButton",
                                "statusCatalogError", "wellSectionDock",
-                               "wellSectionPanel"})
+                               "wellSectionPanel", "mapBookDock", "mapBookPanel"})
         QCOMPARE(namedCount(name), 1);
       QCOMPARE(static_cast<QStackedLayout *>(host->layout())->count(), 5);
 

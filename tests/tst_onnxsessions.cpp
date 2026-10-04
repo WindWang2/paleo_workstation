@@ -34,6 +34,9 @@ private slots:
   void failedLoadKeepsPoolAndSession();
   void inputDimMismatchHonestError();
   void concurrentRunsAllValid();
+  // #144：runTensorOn 绑定模型名——别的任务换了活动模型也不受影响；
+  // 未加载的模型明确失败，不落到活动模型。
+  void runTensorOnBindsToNamedModel();
 
 private:
   // seg3: y[0,c] = gain[c]*x + bias[c]，gains {1,-1,0}、biases {0,0,0.1}——
@@ -355,6 +358,55 @@ void TestOnnxSessions::concurrentRunsAllValid()
   for ( int i = 0; i < 4; ++i )
     threads[i].join();
   QCOMPARE( failures.load(), 0 );
+}
+
+void TestOnnxSessions::runTensorOnBindsToNamedModel()
+{
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  QVERIFY( OnnxFixtureWriter::writeAddScalar( dir.filePath( QStringLiteral( "m40.onnx" ) ), 40.0f ) );
+  QVERIFY( OnnxFixtureWriter::writeAddScalar( dir.filePath( QStringLiteral( "m80.onnx" ) ), 80.0f ) );
+  PaleoOnnxService svc;
+  svc.setModelRoot( dir.path() );
+  QString err;
+  OnnxModelMeta meta40;
+  QCOMPARE( svc.loadModelMeta( QStringLiteral( "m40" ), &meta40, &err ), OnnxLoadStatus::Ok );
+  QVERIFY( svc.loadModel( QStringLiteral( "m80" ), &err ) ); // 活动模型被换成 m80
+
+  const OnnxTensor bound =
+    svc.runTensorOn( QStringLiteral( "m40" ), meta40.inputName, { 2.0f }, { 1 }, &err );
+  QVERIFY2( err.isEmpty(), qPrintable( err ) );
+  QVERIFY2( qAbs( bound.values.value( 0 ) - 42.0f ) < 1e-5f, "绑定 m40 的推理不能跑到活动模型 m80 上" );
+  const QVector<float> active = svc.run( QStringLiteral( "x" ), { 2.0f }, { 1 }, &err );
+  QVERIFY( qAbs( active.value( 0 ) - 82.0f ) < 1e-5f ); // 旧接口语义不变
+
+  const OnnxTensor missing =
+    svc.runTensorOn( QStringLiteral( "nope" ), meta40.inputName, { 2.0f }, { 1 }, &err );
+  QVERIFY( missing.values.isEmpty() );
+  QVERIFY( !err.isEmpty() );
+
+  // 并发：一个线程反复切换活动模型，另一个线程绑定 m40 推理——结果恒为 42。
+  std::atomic<bool> stop { false };
+  std::thread switcher( [&]() {
+    QString e;
+    while ( !stop.load() )
+    {
+      svc.loadModel( QStringLiteral( "m80" ), &e );
+      svc.loadModel( QStringLiteral( "m40" ), &e );
+    }
+  } );
+  int wrong = 0;
+  for ( int i = 0; i < 200; ++i )
+  {
+    QString e;
+    const OnnxTensor t =
+      svc.runTensorOn( QStringLiteral( "m40" ), meta40.inputName, { 2.0f }, { 1 }, &e );
+    if ( !e.isEmpty() || qAbs( t.values.value( 0 ) - 42.0f ) > 1e-5f )
+      ++wrong;
+  }
+  stop = true;
+  switcher.join();
+  QCOMPARE( wrong, 0 );
 }
 
 int main( int argc, char *argv[] )

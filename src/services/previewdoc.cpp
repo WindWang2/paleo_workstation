@@ -712,7 +712,9 @@ void PreviewDocService::releaseSection(const QString &assetId)
   // 标签关掉即释放该资产的索引缓存（持有文件句柄级状态）与世代号；进行
   // 中的解码任务请求取消——结果没人等了。
   m_segyReaders.remove(assetId);
-  m_decodeSeq.remove(assetId);
+  // 世代号 +1 而不是移除：移除后同 assetId 的下一次请求会从 1 重新计数，
+  // 与刚取消、尚未落地的旧代撞号（#154：换工程后 ast-N 复用时尤甚）。
+  ++m_decodeSeq[assetId];
   m_shaVerified.remove(assetId);
   if (auto *t = m_decodeTask.value(assetId).data(); t && t->running())
     t->requestCancel();
@@ -810,10 +812,34 @@ QHash<QString, LasDoc> PreviewDocService::lasSiblingDocs(const QString &key) con
   return m_lasSiblings.value(key);
 }
 
+void PreviewDocService::resetProjectState()
+{
+  for (auto it = m_decodeTask.begin(); it != m_decodeTask.end(); ++it)
+    if (PaleoTask *t = it.value().data(); t && t->running())
+      t->requestCancel();
+  for (auto it = m_lasTask.begin(); it != m_lasTask.end(); ++it)
+    if (PaleoTask *t = it.value().data(); t && t->running())
+      t->requestCancel();
+  for (auto it = m_pyramidTask.begin(); it != m_pyramidTask.end(); ++it)
+    if (PaleoTask *t = it.value().data(); t && t->running())
+      t->requestCancel();
+  for (auto it = m_decodeSeq.begin(); it != m_decodeSeq.end(); ++it)
+    ++it.value();
+  for (auto it = m_lasSeq.begin(); it != m_lasSeq.end(); ++it)
+    ++it.value();
+  m_decodeTask.clear();
+  m_lasTask.clear();
+  m_pyramidTask.clear();
+  m_segyReaders.clear();
+  m_shaVerified.clear();
+  m_lasSiblings.clear();
+  m_pyramidState.clear();
+}
+
 void PreviewDocService::releaseLas(const QString &key)
 {
   // 标签/调用方关掉即释放世代号；进行中的解析请求取消——结果没人等了。
-  m_lasSeq.remove(key);
+  ++m_lasSeq[key]; // 同 releaseSection：+1 作废在途代，不移除（防撞号）
   m_lasSiblings.remove(key);
   if (auto *t = m_lasTask.value(key).data(); t && t->running())
     t->requestCancel();

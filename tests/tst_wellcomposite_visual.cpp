@@ -477,14 +477,21 @@ private slots:
     img.fill(Qt::white);
     panel.render(&img);
 
-    // 黄金图不存在则写入基线（首跑建立；PR 附带基线图）
+    // #151：测试绝不写源码树。基线缺失即红；PALEO_UPDATE_GOLDEN=1 时把当前
+    // 渲染写到构建目录 golden-out/，由人工审阅后复制进 tests/golden/。
     const QString goldenPath = goldenDir + QStringLiteral("/golden_syn_full.png");
-    if (!QFile::exists(goldenPath))
+    const QString outDir = QStringLiteral(QT_TESTCASE_BUILDDIR) + QStringLiteral("/golden-out");
+    if (qEnvironmentVariableIntValue("PALEO_UPDATE_GOLDEN") == 1)
     {
-      QDir().mkpath(goldenDir);
-      QVERIFY(img.save(goldenPath));
-      QWARN("黄金图基线已建立（首跑）");
+      QDir().mkpath(outDir);
+      const QString outPath = outDir + QStringLiteral("/golden_syn_full.png");
+      QVERIFY(img.save(outPath));
+      qInfo().noquote() << "PALEO_UPDATE_GOLDEN: 当前渲染已写入" << outPath
+                        << "——审阅后复制到" << goldenPath;
     }
+    if (!QFile::exists(goldenPath))
+      QFAIL(qPrintable(QStringLiteral("golden missing: %1; run with PALEO_UPDATE_GOLDEN=1 "
+                                      "to regenerate into %2").arg(goldenPath, outDir)));
 
     QImage golden(goldenPath);
     QVERIFY(!golden.isNull());
@@ -528,7 +535,27 @@ private slots:
       }
     }
     if (diffs > 4)
+    {
       qInfo() << "GOLDEN-DIFF" << diffDetail.join(QStringLiteral(", "));
+      // 失败现场落到构建目录（CI 作 artifact 上传）：当前渲染 + 逐像素差分图，
+      // 便于判断是渲染回归还是有意的视觉变更（后者用 PALEO_UPDATE_GOLDEN 更新基线）。
+      QDir().mkpath(outDir);
+      img.save(outDir + QStringLiteral("/golden_syn_full.actual.png"));
+      const int w = qMin(img.width(), golden.width());
+      const int h = qMin(img.height(), golden.height());
+      QImage diff(w, h, QImage::Format_RGB32);
+      for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x)
+        {
+          const QColor a = golden.pixelColor(x, y);
+          const QColor b = img.pixelColor(x, y);
+          diff.setPixelColor(x, y, QColor(std::abs(a.red() - b.red()),
+                                          std::abs(a.green() - b.green()),
+                                          std::abs(a.blue() - b.blue())));
+        }
+      diff.save(outDir + QStringLiteral("/golden_syn_full.diff.png"));
+      qInfo().noquote() << "GOLDEN-OUT" << outDir;
+    }
     // ≥ 44/48 抽样点稳定一致（允许 4 个网格点跨文字/线条）
     QVERIFY2(diffs <= 4, qPrintable(QStringLiteral("%1/48 抽样点超容差").arg(diffs)));
   }

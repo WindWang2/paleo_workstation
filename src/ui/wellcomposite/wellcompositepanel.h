@@ -146,7 +146,8 @@ signals:
   void faciesCancelRequested();
   void faciesModelsRequested();
   void faciesModelSelected(const QString &id);
-  void faciesConfigurationRequested(const QString &url, const QString &key);
+  void faciesConfigurationRequested(const QString &url, const QString &key,
+                                    bool allowInsecureHttp);
   void wellLoaded(const QString &wellName);
   // F2（goal/perf-systematize 簇2）：两段式 XML 装配终态（含同步路径；
   // ok=false = 解析失败——页面侧据此换装失败面）。

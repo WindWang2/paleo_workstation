@@ -147,22 +147,42 @@ BandlimitedResult bandlimitedInversion(const float *trace, int n, double sampleI
       refl[std::size_t(i)] = std::isnan(trace[i]) ? 0.0 : double(trace[i]);
   }
 
-  // ---- 递归积分 → 相对阻抗 -------------------------------------------------
-  std::vector<double> relZ(std::size_t(n), 1.0);
+  // ---- 振幅标定（#141）：道振幅 → 反射系数 --------------------------------
+  const double k = resolveAmplitudeScale(options.amplitudeScale, haveWavelet ? wavelet : nullptr,
+                                         &result.amplitudeCalibrated);
+  result.amplitudeScaleUsed = k;
+  for (double &r : refl)
+    r /= k;
+
+  // ---- 递归积分（对数域）→ 相对阻抗 L = ln(Z/Z0) ---------------------------
+  std::vector<double> relZ(std::size_t(n), 0.0);
+  int clamped = 0, finiteCnt = 0;
   for (int i = 0; i + 1 < n; ++i)
   {
     double r = refl[std::size_t(i)];
-    if (!std::isfinite(r))
+    if (!std::isfinite(r) || std::isnan(trace[i]))
       r = 0.0;
-    r = std::clamp(r, -0.45, 0.45); // 递归稳定护栏（真反射系数 |r|≪1）
-    relZ[std::size_t(i + 1)] = relZ[std::size_t(i)] * (1.0 + r) / (1.0 - r);
+    else
+    {
+      ++finiteCnt;
+      if (std::fabs(r) > kMaxReflectivity)
+        ++clamped;
+    }
+    r = std::clamp(r, -kMaxReflectivity, kMaxReflectivity); // 递归稳定护栏
+    relZ[std::size_t(i + 1)] = relZ[std::size_t(i)] + std::log((1.0 + r) / (1.0 - r));
   }
-  double meanRel = 0.0;
+  result.clampedFraction = finiteCnt > 0 ? double(clamped) / double(finiteCnt) : 0.0;
+  if (result.clampedFraction > options.maxClampedFraction)
+  {
+    result.reason = "反射系数超出物理范围的样点比例过高（地震振幅未标定？提供 "
+                    "amplitudeScale 或使用井旁道提取的子波）";
+    return result;
+  }
   {
     double sum = 0.0;
     for (int i = 0; i < n; ++i)
       sum += relZ[std::size_t(i)];
-    meanRel = sum / double(n);
+    const double meanRel = sum / double(n);
     for (int i = 0; i < n; ++i)
       relZ[std::size_t(i)] -= meanRel; // 去均值（漂移趋势去除）
   }
@@ -173,8 +193,9 @@ BandlimitedResult bandlimitedInversion(const float *trace, int n, double sampleI
         std::isnan(trace[i]) ? kNan : float(refl[std::size_t(i)]);
 
   // ---- 低频合并 ------------------------------------------------------------
-  // 相对阻抗先做同 lowCut 高通（减同核移动平均），再原幅度叠加——否则相对项
-  // 自带的低频漂移会与低频模型双计。无低频模型时输出全带相对阻抗。
+  // 对数相对阻抗先做同 lowCut 高通（减同核移动平均）——否则相对项自带的低频
+  // 漂移会与低频模型双计；再乘性合并 Z = Z_low·exp(HP(L))（量纲一致，#141）。
+  // 无低频模型时输出全带对数相对阻抗。
   std::vector<float> relOnly(std::size_t(n), kNan);
   for (int i = 0; i < n; ++i)
     relOnly[std::size_t(i)] = std::isnan(trace[i]) ? kNan : float(relZ[std::size_t(i)]);
@@ -198,18 +219,19 @@ BandlimitedResult bandlimitedInversion(const float *trace, int n, double sampleI
         std::isfinite(lowFreq[i]))
     {
       result.impedance[std::size_t(i)] =
-          float(double(lowFreq[i]) + double(relOnly[std::size_t(i)]) -
-                double(relTrend[std::size_t(i)]));
+          float(double(lowFreq[i]) * std::exp(double(relOnly[std::size_t(i)]) -
+                                              double(relTrend[std::size_t(i)])));
     }
   }
 
-  // 低频贡献 = σ_low² / (σ_low² + σ_relHP²)（合成道的两分量方差占比）。
+  // 低频贡献 = σ_low² / (σ_low² + σ_band²)，两分量都按阻抗单位计：
+  // band = Z − Z_low = Z_low·(exp(HP)−1)。
   {
     std::vector<float> relHp(std::size_t(n), kNan);
     for (int i = 0; i < n; ++i)
-      if (std::isfinite(relOnly[std::size_t(i)]) && std::isfinite(relTrend[std::size_t(i)]))
-        relHp[std::size_t(i)] = float(double(relOnly[std::size_t(i)]) -
-                                      double(relTrend[std::size_t(i)]));
+      if (std::isfinite(result.impedance[std::size_t(i)]))
+        relHp[std::size_t(i)] =
+            float(double(result.impedance[std::size_t(i)]) - double(lowFreq[i]));
     const double sdLow = stdevFinite(lowFreq, n);
     const double sdHp = stdevFinite(relHp.data(), n);
     const double vLow = sdLow * sdLow;

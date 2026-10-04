@@ -14,6 +14,7 @@
 #include "metadata/paleoprojectstore.h"
 #include "metadata/wellsectionstore.h"
 #include "seismicsection/seismicsectiondockwidget.h"
+#include "qgis/qgisprojectservice.h"
 #include "services/previewdoc.h"
 #include "services/seismictaskservice.h"
 #include "wellsection/fencewidget.h"
@@ -125,8 +126,9 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
             panel->setFaultTraces(fp.traces, fp.status);
           });
 
-  auto lastGen = std::make_shared<int>(0);
-  auto lastSeismicGen = std::make_shared<int>(0);
+  // #128：结果按 workflow 的当前世代过滤（wf->currentGeneration()），不记
+  // request() 的返回值——同步/早退路径在返回前就已 emit，旧实现把那一次
+  // 结果当陈旧丢掉（面板卡在忙碌、地震缝状态不显示）。
   auto catalogPath =
       std::make_shared<QString>(m_previewDoc->catalog()->catalogPath());
 
@@ -151,16 +153,14 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
           });
 
   connect(panel, &WellSectionPanel::dataRequested, this,
-          [this, wf, panel, lastGen](const QStringList &ids,
-                                     const QStringList &mnemonics) {
+          [wf, panel](const QStringList &ids, const QStringList &mnemonics) {
             panel->setBusy(true);
-            *lastGen = wf->request(ids, mnemonics);
+            wf->request(ids, mnemonics);
           });
   connect(wf, &WellSectionWorkflow::sectionReady, this,
-          [this, wf, panel, lastGen](int gen,
-                                     const QVector<wellsection::Well> &wells,
-                                     const QStringList &warnings) {
-            if (gen != *lastGen)
+          [wf, panel](int gen, const QVector<wellsection::Well> &wells,
+                      const QStringList &warnings) {
+            if (gen != wf->currentGeneration())
               return; // 陈旧世代丢弃
             panel->setBusy(false);
             panel->setSection(wells);
@@ -171,7 +171,7 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
           });
 
   connect(panel, &WellSectionPanel::seismicRequested, this,
-          [this, wf, panel, lastSeismicGen] {
+          [this, wf, panel] {
             WellSectionWorkflow::SeismicSource src;
             if (m_sectionLink)
             {
@@ -181,12 +181,11 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
             src.timeOriginMs = m_seismicSectionDock
                                    ? m_seismicSectionDock->timeOriginMs()
                                    : 0.0;
-            *lastSeismicGen = wf->requestSeismic(panel->wells(), src);
+            wf->requestSeismic(panel->wells(), src);
           });
   connect(wf, &WellSectionWorkflow::seismicReady, this,
-          [panel, lastSeismicGen](int gen,
-                                  const wellsection::SeismicStrip &strip) {
-            if (gen != *lastSeismicGen)
+          [wf, panel](int gen, const wellsection::SeismicStrip &strip) {
+            if (gen != wf->currentSeismicGeneration())
               return;
             panel->setSeismicStrip(strip);
           });
@@ -249,7 +248,7 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
     panel->setWellIds(ids);
   };
   connect(debounce, &QTimer::timeout, this,
-          [this, wf, panel, catalogPath, lastGen, restoreWells, toChoices] {
+          [this, wf, panel, catalogPath, restoreWells, toChoices] {
             const auto freshChoices = toChoices(wf->wellChoices());
             panel->setWellChoices(freshChoices);
             if (m_wellSectionFence) // 栅格井选项随 catalog 刷新
@@ -257,14 +256,19 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
             const QString path = m_previewDoc->catalog()->catalogPath();
             if (path != *catalogPath)
             {
+              // #124：工区身份变了——先作废在途代并清空面板，再按新工区
+              // 恢复；空恢复即空面板（兜底 aboutToClose 之外的 catalog 换绑）。
               *catalogPath = path;
+              wf->cancel();
+              panel->setBusy(false);
+              panel->setWarnings({});
+              panel->setSection({});
               restoreWells();
             }
             else if (!panel->wellIds().isEmpty())
             {
               panel->setBusy(true);
-              *lastGen = wf->request(panel->wellIds(),
-                                     panel->sectionTemplate().mnemonics());
+              wf->request(panel->wellIds(), panel->sectionTemplate().mnemonics());
             }
           });
   connect(m_previewDoc->catalog(), &DataCatalog::changed, debounce,
@@ -324,6 +328,16 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
                     [this] { m_wellSectionFence = nullptr; });
             fence->show();
           });
+  // #124：工程即将切换——作废在途取数/井间缝（迟到结果按世代丢弃）并清空
+  // 面板。新工程的井集由 catalog changed 去抖路径按新 catalogPath 恢复；
+  // 恢复为空时面板保持空，不再残留上一工程的井。
+  if (m_projectSvc)
+    connect(m_projectSvc, &QgisProjectService::projectAboutToClose, panel, [wf, panel] {
+      wf->cancel();
+      panel->setBusy(false);
+      panel->setWarnings({});
+      panel->setSection({});
+    });
 
   // 初始装配同恢复路径。
   panel->setWellChoices(toChoices(wf->wellChoices()));

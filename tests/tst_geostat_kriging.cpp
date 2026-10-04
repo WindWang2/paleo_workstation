@@ -258,7 +258,7 @@ void GeostatKrigingTests::cancelledAndInvalid()
   std::vector<Sample> samples;
   for ( int row = 0; row < 8; ++row )
     for ( int column = 0; column < 8; ++column )
-      samples.push_back( Sample{ column * 10.0, row * 10.0, row + column } );
+      samples.push_back( Sample{ column * 10.0, row * 10.0, double( row + column ) } );
   const VariogramModel model = sphericalModel();
   KrigingParams params;
   const GridSpec grid = makeGrid( 120, 120, -5, 85, 0.7 ); // 14400 格 > 2048 检查间隔

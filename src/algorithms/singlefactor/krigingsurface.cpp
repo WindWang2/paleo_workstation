@@ -88,7 +88,8 @@ VariogramResolution resolveVariogram( const std::vector<Sample> &samples, const 
     }
     if ( !( parameters.nugget + parameters.sill > 0.0 ) )
     {
-      result.message = "显式变差参数零信号（块金+拱高=0）：井值无空间变化，克里金方程组退化";
+      // 显式分支没看过样本值：这里只能说参数零信号，不能说「井值无空间变化」。
+      result.message = "显式变差参数零信号（块金+拱高=0）：克里金方程组退化";
       return result;
     }
     result.nugget = parameters.nugget;
@@ -188,7 +189,7 @@ SurfaceResult evaluateLocalKriging( const PreparedInput &input, const GridSpec &
     idw.semanticProfile = "paleo_local_idw_v1";
     idw.fallbackReason = reason;
     SurfaceResult result = evaluateLocalIdw( input, grid, idw, control );
-    result.variogramFallbacks = 1;
+    result.surfaceFallbacks = 1;
     result.issues.push_back( "kriging_fallback: " + reason );
     return result;
   };
@@ -224,18 +225,35 @@ SurfaceResult evaluateLocalKriging( const PreparedInput &input, const GridSpec &
   if ( result.status != Status::Ok )
     return result;
 
-  // 一个格都没解出来：按整面回落口径处理，不挂克里金标签。
+  // 一个格都没解出来：按整面回落口径处理，不挂克里金标签——不重跑 IDW，
+  // 现有数值本来就是同参数 IDW 权重给的（idwFallbackCells 如实保留）。
   if ( result.krigingCells == 0 && result.finiteCells > 0 )
   {
-    return fallbackToIdw( "没有任何格解出克里金值（方程奇异/病态 " +
-                          std::to_string( result.idwFallbackCells ) + " 格回落 IDW）" );
+    ResolvedParameters idw = parameters;
+    idw.methodActual = "local_direction_idw";
+    idw.algorithmId = "paleo:paleo_local_direction_idw";
+    idw.semanticProfile = "paleo_local_idw_v1";
+    idw.fallbackReason = "没有任何格解出克里金值（" + std::to_string( result.idwFallbackCells ) +
+                         " 格因方程奇异/病态或半径邻域不足改用 IDW 权重）";
+    result.resolved = idw;
+    result.surfaceFallbacks = 1;
+    result.issues.push_back( "kriging_fallback: " + idw.fallbackReason );
+    return result;
   }
 
   if ( result.idwFallbackCells > 0 )
   {
     result.issues.push_back( "kriging_solver_fallback_cells " +
                              std::to_string( result.idwFallbackCells ) +
-                             "（方程奇异/病态格用同参数 IDW 权重，不冒充克里金值）" );
+                             "（方程奇异/病态，或半径邻域不足；这些格用同参数 IDW 权重，"
+                             "不冒充克里金值）" );
+  }
+  // 全部样本邻域（K=0）时每格是 O(n³) 求解：井数大时如实提示，不静默拖慢。
+  if ( kriging.krigingMaxPoints <= 0 && input.samples.size() > 256 )
+  {
+    result.issues.push_back( "kriging_all_samples_neighbourhood " +
+                             std::to_string( input.samples.size() ) +
+                             "（K=0：每格 O(n³) 求解，建议设邻域点数上限）" );
   }
   result.issues.push_back( "variogram " + kriging.variogramModel + " nugget=" + number( kriging.nugget ) +
                            " sill=" + number( kriging.sill ) + " range=" + number( kriging.range ) +

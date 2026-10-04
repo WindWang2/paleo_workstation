@@ -24,11 +24,13 @@ struct SurfaceMethodPack
   QString id;      // 上游 method_id（UI 与参数持久化都用它）
   QString label;   // 上游标签原文（中文）
   QString category;
-  // 本仓算法 id：既是有独立 Processing 入口的引擎名（paleo:paleo_*），
-  // 也是写进血缘/QC 的 algorithm_id。`local_direction_kriging` 与 IDW 共用
-  // 同一个 Processing 入口（paleo_local_direction_idw + METHOD=kriging），
-  // 但血缘用独立 id 区分真实引擎——回落时血缘写的是 IDW 的 id，不冒充。
-  QString engineId; // 空 = 未实现
+  // 本仓 Processing 入口（paleo:paleo_*）：可执行 id，必须已注册。
+  // 空 = 未实现。
+  QString processingId;
+  // 写进血缘/QC 的 algorithm_id。`local_direction_kriging` 与 IDW 共用同一个
+  // Processing 入口（`paleo:paleo_local_direction_idw` + METHOD=kriging），
+  // 但血缘用独立 id 区分真实引擎；回落时血缘写的是 IDW 的 id，不冒充。
+  QString algorithmId;
   bool supportsConstraints = false;
   bool requiresScipy = false;
   bool implemented = false;

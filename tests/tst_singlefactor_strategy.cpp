@@ -16,27 +16,46 @@ class SingleFactorStrategyTests : public QObject
     void cartographicWorkPacksAreExplicit();
 };
 
-// 参数包与真实算法严格一致：每个已实现包的 engineId 非空且指到本仓算法。
+// 参数包与真实算法严格一致：已实现包的 processingId 必须指向本仓真实注册的
+// Processing 入口（局部方向克里金与 IDW 共用入口，血缘走独立 algorithmId）。
 void SingleFactorStrategyTests::surfacePacksMapToRealEngines()
 {
   const QVector<SurfaceMethodPack> &packs = surfaceMethodPacks();
   QVERIFY( packs.size() >= 5 );
+  // paleoalgorithms.cpp 里真实 addAlgorithm 过的 Processing 入口（局部方向族必须
+  // 落在其中，否则工作流 prepare 的 algorithmIds() 检查会直接拒绝）。
+  const QStringList registeredProcessing{ QStringLiteral( "paleo:paleo_local_direction_idw" ),
+                                          QStringLiteral( "paleo:paleo_surfer_idw" ),
+                                          QStringLiteral( "paleo:paleo_structural_idw" ),
+                                          QStringLiteral( "paleo:paleo_constraint_idw" ) };
   for ( const SurfaceMethodPack &pack : packs )
   {
     QVERIFY2( !pack.id.isEmpty(), "参数包 id 不能为空" );
     QVERIFY2( !pack.label.isEmpty(), qPrintable( pack.id ) );
     if ( pack.implemented )
-      QVERIFY2( pack.engineId.startsWith( QStringLiteral( "paleo:" ) ), qPrintable( pack.id ) );
+    {
+      QVERIFY2( pack.processingId.startsWith( QStringLiteral( "paleo:" ) ), qPrintable( pack.id ) );
+      QVERIFY2( pack.algorithmId.startsWith( QStringLiteral( "paleo:" ) ), qPrintable( pack.id ) );
+    }
     else
-      QVERIFY2( pack.engineId.isEmpty(), qPrintable( pack.id ) );
+    {
+      QVERIFY2( pack.processingId.isEmpty(), qPrintable( pack.id ) );
+      QVERIFY2( pack.algorithmId.isEmpty(), qPrintable( pack.id ) );
+    }
   }
   const SurfaceMethodPack *local = surfaceMethodPack( QStringLiteral( "local_direction_idw" ) );
   QVERIFY( local != nullptr );
-  QCOMPARE( local->engineId, QStringLiteral( "paleo:paleo_local_direction_idw" ) );
+  QCOMPARE( local->processingId, QStringLiteral( "paleo:paleo_local_direction_idw" ) );
+  QCOMPARE( local->algorithmId, QStringLiteral( "paleo:paleo_local_direction_idw" ) );
+  QVERIFY( registeredProcessing.contains( local->processingId ) );
   const SurfaceMethodPack *localKriging =
       surfaceMethodPack( QStringLiteral( "local_direction_kriging" ) );
   QVERIFY( localKriging != nullptr );
-  QCOMPARE( localKriging->engineId, QStringLiteral( "paleo:paleo_local_direction_kriging" ) );
+  // 共用 Processing 入口（METHOD=kriging 切引擎），血缘 id 独立；
+  // 入口必须是已注册的那个，否则 UI 任务池路径会在 prepare 阶段被拒。
+  QCOMPARE( localKriging->processingId, QStringLiteral( "paleo:paleo_local_direction_idw" ) );
+  QCOMPARE( localKriging->algorithmId, QStringLiteral( "paleo:paleo_local_direction_kriging" ) );
+  QVERIFY( registeredProcessing.contains( localKriging->processingId ) );
   QVERIFY( localKriging->supportsConstraints );
   // 全局克里金不消费约束线（方向18 的 v1 语义），包表也要如实。
   const SurfaceMethodPack *kriging = surfaceMethodPack( QStringLiteral( "kriging" ) );

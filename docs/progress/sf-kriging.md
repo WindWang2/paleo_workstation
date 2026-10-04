@@ -87,7 +87,7 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
   -DQSCINTILLA_PREFIX=C:/deps/qscintilla-install
 cmake --build build -j8
 ctest --output-on-failure -j4 -R '^(tst_io_sfpkg|tst_io_outsource|tst_singlefactor_kriging|tst_singlefactor_strategy)$'
-python tools/reference/singlefactor/make_outsource_fixtures.py --check
+python tools/reference/singlefactor/make_outsource_fixtures.py --check   # 9/9 OK（.gitattributes 保证夹具不做换行转换）
 python tools/check_layering.py --strict
 python tools/check_i18n.py
 python tools/check_ui_invariants.py --strict
@@ -96,7 +96,7 @@ python tools/check_ui_invariants.py --strict
 运行时 PATH 需让 `paleo-qgis-deps/Library/bin`（Qt 6.11，QGIS 二进制就是按它编的）
 排在 `C:/deps/Qt/6.8.0/msvc2022_64/bin` 之前，否则加载期 `ENTRYPOINT_NOT_FOUND`。
 
-2026-10-04 结果：新测试 4 项全绿（kriging 12 用例 / sfpkg 8 / outsource 11 /
+2026-10-04 结果：新测试 4 项全绿（kriging 13 用例 / sfpkg 12 / outsource 11 /
 strategy 词表），同批回归（kernel、geostat×4、faultpath、parity、contract、
 samples、contourlevels、projectparsers）全绿；三个门禁脚本通过。
 本沙箱拒绝对测试子进程的临时目录写入，命中该约束的既有测试失败/崩溃 12 项，
@@ -109,3 +109,6 @@ samples、contourlevels、projectparsers）全绿；三个门禁脚本通过。
 - SFPKG 写出、ZIP64、shp 边车几何解析（当前只列条目名）。
 - 外委曲线统计（mean/median/min/max + 深度区间）与因素自动发现。
 - 制图策略包进 UI、真实工区绝对耗时门、UI 真人点击（双主题/窄 dock/高 DPI）。
+- `--check` 还没有 ctest 门禁（当前是文档里的手写命令）。
+- 本机 CMake/Ninja 不记头文件依赖（`deps = gcc`）：改头文件后必须删
+  `build/CMakeFiles/**/*.obj` 再整编，否则会出现旧布局对象混链的假失败。

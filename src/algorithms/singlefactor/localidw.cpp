@@ -466,7 +466,13 @@ QueryResult evaluateAt( const PreparedInput &input, std::span<const Point2> quer
                                queryPoints.begin() + static_cast<std::ptrdiff_t>( start + count ) );
     std::vector<double> values;
     std::vector<double> influence;
-    evaluateBatch( engine, batch, values, influence );
+    // 点查询面也给克里金回落计数：QueryResult 没有专门字段，落进 issues 如实说明
+    //（否则带 kriging 标签的调用方拿到「部分克里金 + 部分 IDW」的混合值而无标记）。
+    int krigingCells = 0;
+    int idwFallbackCells = 0;
+    evaluateBatch( engine, batch, values, influence, &krigingCells, &idwFallbackCells );
+    result.krigingCells += krigingCells;
+    result.idwFallbackCells += idwFallbackCells;
     for ( std::size_t i = 0; i < count; ++i )
     {
       result.values[start + i] = values[i];
@@ -474,6 +480,11 @@ QueryResult evaluateAt( const PreparedInput &input, std::span<const Point2> quer
     }
     done += static_cast<int>( count );
     report( control, total ? static_cast<double>( done ) / static_cast<double>( total ) : 1 );
+  }
+  if ( result.idwFallbackCells > 0 )
+  {
+    result.issues.push_back( "kriging_point_fallback " + std::to_string( result.idwFallbackCells ) +
+                             "（这些查询点没解出克里金值，用同参数 IDW 权重给出）" );
   }
   result.status = Status::Ok;
   return result;

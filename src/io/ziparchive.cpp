@@ -23,6 +23,8 @@ constexpr std::uint32_t kCentralHeader = 0x02014b50u;
 constexpr std::uint32_t kLocalHeader = 0x04034b50u;
 constexpr std::uint32_t kZip64Sentinel = 0xFFFFFFFFu;
 constexpr qint64 kMaxArchiveBytes = 512ll * 1024 * 1024;
+// 整包声明解压总量上限（zip bomb 闸；与单条目闸一起生效）。
+constexpr qint64 kMaxTotalUncompressedBytes = 512ll * 1024 * 1024;
 
 std::uint16_t readU16( const QByteArray &buffer, int offset )
 {
@@ -38,10 +40,12 @@ std::uint32_t readU32( const QByteArray &buffer, int offset )
          ( static_cast<std::uint32_t>( static_cast<unsigned char>( buffer.at( offset + 3 ) ) ) << 24 );
 }
 
-// 中央目录结束记录可能被尾部注释推前：从尾部往前找签名。
+// 中央目录结束记录可能被尾部注释推前：按 ZIP 规范只在尾部注释区
+//（≤ 65535 字节 + EOCD 22 字节）里从后往前找签名，不整包回扫。
 int findEndOfCentralDirectory( const QByteArray &archive )
 {
-  for ( int i = archive.size() - 22; i >= 0; --i )
+  const int lowest = std::max( 0, static_cast<int>( archive.size() ) - ( 65535 + 22 ) );
+  for ( int i = static_cast<int>( archive.size() ) - 22; i >= lowest; --i )
   {
     if ( readU32( archive, i ) == kEndOfCentralDirectory )
       return i;
@@ -109,10 +113,13 @@ ZipListResult zipListBytes( const QByteArray &archive )
     result.error = QStringLiteral( "ZIP 中央目录偏移越界" );
     return result;
   }
+  // 条目硬上界 = 中央目录声明的范围（不是整个包）：声言 directorySize=0 的包
+  // 不能把包内任意数据当条目读。
+  const qint64 directoryEnd = static_cast<qint64>( directoryOffset ) + directorySize;
   int offset = static_cast<int>( directoryOffset );
   for ( int i = 0; i < count; ++i )
   {
-    if ( offset + 46 > archive.size() || readU32( archive, offset ) != kCentralHeader )
+    if ( offset + 46 > directoryEnd || readU32( archive, offset ) != kCentralHeader )
     {
       result.error = QStringLiteral( "ZIP 中央目录第 %1 项签名不符" ).arg( i + 1 );
       result.entries.clear();
@@ -128,9 +135,10 @@ ZipListResult zipListBytes( const QByteArray &archive )
     const std::uint16_t commentLength = readU16( archive, offset + 32 );
     item.localHeaderOffset = readU32( archive, offset + 42 );
     item.encrypted = ( flags & 0x1u ) != 0;
-    if ( offset + 46 + nameLength > archive.size() )
+    // 条目总长（名字 + extra + 注释）也要落在中央目录内。
+    if ( static_cast<qint64>( offset ) + 46 + nameLength + extraLength + commentLength > directoryEnd )
     {
-      result.error = QStringLiteral( "ZIP 中央目录条目名被截断" );
+      result.error = QStringLiteral( "ZIP 中央目录第 %1 项越出中央目录范围（名字/extra/注释被截断）" ).arg( i + 1 );
       result.entries.clear();
       return result;
     }
@@ -146,6 +154,34 @@ ZipListResult zipListBytes( const QByteArray &archive )
     }
     result.entries.append( item );
     offset += 46 + nameLength + extraLength + commentLength;
+  }
+  // 解压预算：deflate 可把几百字节放大成数百 MiB，逐条 512 MiB 闸挡不住
+  // 「几千条各声言 512 MiB」的包。这里按中央目录声明的未压缩总量一次性判。
+  qint64 totalUncompressed = 0;
+  for ( const ZipEntry &entry : result.entries )
+  {
+    totalUncompressed += static_cast<qint64>( entry.uncompressedSize );
+    if ( totalUncompressed > kMaxTotalUncompressedBytes )
+    {
+      result.error = QStringLiteral( "ZIP 声明解压总量超过上限（%1 字节 > %2 字节），拒绝读取" )
+                         .arg( totalUncompressed )
+                         .arg( kMaxTotalUncompressedBytes );
+      result.entries.clear();
+      return result;
+    }
+  }
+  // 重名条目：不同读取器取首条/末条不一致，这里明确拒绝而不是悄悄取一条。
+  for ( int i = 0; i < result.entries.size(); ++i )
+  {
+    for ( int j = i + 1; j < result.entries.size(); ++j )
+    {
+      if ( result.entries.at( i ).name == result.entries.at( j ).name )
+      {
+        result.error = QStringLiteral( "ZIP 内条目重名：%1" ).arg( result.entries.at( i ).name );
+        result.entries.clear();
+        return result;
+      }
+    }
   }
   result.ok = true;
   return result;

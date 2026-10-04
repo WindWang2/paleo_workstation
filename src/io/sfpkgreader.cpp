@@ -439,13 +439,14 @@ NpyArray parseNpy( const QByteArray &bytes )
     result.error = QStringLiteral( "只支持 1D/2D 数组，shape 维度 %1" ).arg( dims.size() );
     return result;
   }
-  result.rows = dims.empty() ? 1 : dims[0];
-  result.cols = dims.size() < 2 ? 1 : dims[1];
   if ( dims.empty() )
   {
-    result.rows = 1;
-    result.cols = 1;
+    // numpy 的 0 维标量（shape=()）不是 1×1 数组，不按数组读。
+    result.error = QStringLiteral( "不支持 0 维标量数组（shape=()）" );
+    return result;
   }
+  result.rows = dims[0];
+  result.cols = dims.size() < 2 ? 1 : dims[1];
 
   QString dtypeError;
   const int width = dtypeBytes( result.descr, &result.integral, &dtypeError );
@@ -544,12 +545,37 @@ SfPackageReadResult readSfPackage( const QString &path )
       return result;
     }
     const QJsonObject object = document.object();
-    const QString npzHash = object.value( QStringLiteral( "surface_npz_sha256" ) ).toString();
-    const QString manifestHash = object.value( QStringLiteral( "manifest_sha256" ) ).toString();
-    const QString algorithm = object.value( QStringLiteral( "algorithm" ) ).toString();
+    // 三个字段都要类型校验：非字符串（null/number/array）不能靠 toString() 变成
+    // 空串后被「!isEmpty()」跳过——那等于静默免校验。
+    const auto checksumField = [&]( const QString &key, QString *target ) {
+      const QJsonValue value = object.value( key );
+      if ( value.isUndefined() || value.isNull() )
+        return true;
+      if ( !value.isString() )
+      {
+        result.error = QStringLiteral( "checksum.json 的 %1 类型是 %2，期望 string（拒绝跳过校验）" )
+                           .arg( key, typeName( value ) );
+        return false;
+      }
+      *target = value.toString();
+      return true;
+    };
+    QString npzHash;
+    QString manifestHash;
+    QString algorithm;
+    if ( !checksumField( QStringLiteral( "surface_npz_sha256" ), &npzHash ) ||
+         !checksumField( QStringLiteral( "manifest_sha256" ), &manifestHash ) ||
+         !checksumField( QStringLiteral( "algorithm" ), &algorithm ) )
+      return result;
     if ( !algorithm.isEmpty() && algorithm.compare( QLatin1String( "sha256" ), Qt::CaseInsensitive ) != 0 )
     {
       result.error = QStringLiteral( "checksum.json 算法不是 sha256：%1" ).arg( algorithm );
+      return result;
+    }
+    if ( npzHash.isEmpty() && manifestHash.isEmpty() )
+    {
+      result.error = QStringLiteral(
+          "checksum.json 存在但没有任何 sha256 字段：拒绝在未校验的情况下读取" );
       return result;
     }
     if ( !npzHash.isEmpty() && npzHash.compare( sha256Hex( npzBytes ), Qt::CaseInsensitive ) != 0 )
@@ -562,8 +588,6 @@ SfPackageReadResult readSfPackage( const QString &path )
       result.error = QStringLiteral( ".sfpkg 校验失败：manifest.json SHA256 不匹配" );
       return result;
     }
-    if ( npzHash.isEmpty() && manifestHash.isEmpty() )
-      result.issues.append( QStringLiteral( "checksum.json 没有任何 sha256 字段，未做校验" ) );
   }
   else
   {

@@ -64,12 +64,15 @@ void OutsourceWorkbookTests::readsSpreadsheetMl()
                                            QStringLiteral( "孔隙度" ) } ) );
   QCOMPARE( curves.rows.size(), 2 );
   QCOMPARE( curves.rows.at( 0 ).at( 0 ), QStringLiteral( "1000" ) );
+  // 嵌套富文本 <Data>0.<B>12</B></Data> 必须拼成 0.12（否则 reader 进 error 态、
+  // 整表剩余行静默消失）。
+  QCOMPARE( curves.rows.at( 0 ).at( 2 ), QStringLiteral( "0.12" ) );
   QCOMPARE( curves.rows.at( 1 ).at( 2 ), QStringLiteral( "0.15" ) );
 
   const WorkbookSheet &intervals = result.sheets.at( 1 );
   QCOMPARE( intervals.name, QStringLiteral( "地层单位道" ) );
   QCOMPARE( intervals.headers.size(), 4 );
-  QCOMPARE( intervals.rows.size(), 3 );
+  QCOMPARE( intervals.rows.size(), 4 );
   QCOMPARE( intervals.rows.at( 0 ), QStringList( { QStringLiteral( "T1" ), QStringLiteral( "1000" ),
                                                     QStringLiteral( "1050" ), QStringLiteral( "50" ) } ) );
   // ss:Index="4"：2/3 列补空串
@@ -132,30 +135,28 @@ void OutsourceWorkbookTests::readsCoordinateTable()
   QCOMPARE( issueCountContaining( table.issues, QStringLiteral( "X/Y 非数值" ) ), 1 );
   QCOMPARE( issueCountContaining( table.issues, QStringLiteral( "重复" ) ), 1 );
   // 逐条带行号（表头为第 1 行 → 坏行分别是第 4/5/6 行）。
-  QVERIFY( table.issues.at( 0 ).contains( QStringLiteral( "行 4" ) ) );
-  QVERIFY( table.issues.at( 1 ).contains( QStringLiteral( "行 5" ) ) );
-  QVERIFY( table.issues.at( 2 ).contains( QStringLiteral( "行 6" ) ) );
+  QVERIFY( table.issues.at( 0 ).contains( QStringLiteral( "第 4 行" ) ) );
+  QVERIFY( table.issues.at( 1 ).contains( QStringLiteral( "第 5 行" ) ) );
+  QVERIFY( table.issues.at( 2 ).contains( QStringLiteral( "第 6 行" ) ) );
 }
 
 // 层段行 + 数值字段：找不到层号、空值、非数值都如实报因。
 void OutsourceWorkbookTests::readsIntervalRowAndValues()
 {
   const QString path = fixturePath( QStringLiteral( "wg1_well.xml" ) );
-  const IntervalRow row = readIntervalRow( path, QStringLiteral( "地层单位道" ), QStringLiteral( "T1" ) );
+  // 唯一层号 T2（第 3 行）：行号口径 = 工作表内第 N 行，表头为第 1 行。
+  const IntervalRow row = readIntervalRow( path, QStringLiteral( "地层单位道" ), QStringLiteral( "T2" ) );
   QVERIFY2( row.ok, qPrintable( row.error ) );
-  QCOMPARE( row.rowNumber, 2 );
+  QCOMPARE( row.rowNumber, 3 );
   double thickness = 0;
   QString error;
   QVERIFY( intervalRowNumber( row, QStringLiteral( "厚度" ), &thickness, &error ) );
-  QCOMPARE( thickness, 50.0 );
+  QCOMPARE( thickness, 60.0 );
 
-  const IntervalRow empty = readIntervalRow( path, QStringLiteral( "地层单位道" ), QStringLiteral( "T2" ) );
-  QVERIFY( empty.ok );
+  const IntervalRow empty = row; // 同一行：顶深/底深是 ss:Index 空洞
   error.clear();
   QVERIFY( !intervalRowNumber( empty, QStringLiteral( "顶深" ), nullptr, &error ) );
   QVERIFY2( error.contains( QStringLiteral( "为空" ) ), qPrintable( error ) );
-  QVERIFY( intervalRowNumber( empty, QStringLiteral( "厚度" ), &thickness, &error ) );
-  QCOMPARE( thickness, 60.0 );
 
   const IntervalRow bad = readIntervalRow( path, QStringLiteral( "地层单位道" ), QStringLiteral( "T3" ) );
   QVERIFY( bad.ok );
@@ -168,6 +169,13 @@ void OutsourceWorkbookTests::readsIntervalRowAndValues()
   error.clear();
   QVERIFY( !intervalRowNumber( bad, QStringLiteral( "不存在字段" ), nullptr, &error ) );
   QVERIFY( error.contains( QStringLiteral( "没有" ) ) );
+
+  const IntervalRow ambiguous = readIntervalRow( path, QStringLiteral( "地层单位道" ), QStringLiteral( "T1" ) );
+  QVERIFY( !ambiguous.ok );
+  QVERIFY2( ambiguous.error.contains( QStringLiteral( "多义" ) ) ||
+                ambiguous.error.contains( QStringLiteral( "无法确定唯一层段行" ) ),
+            qPrintable( ambiguous.error ) );
+  QVERIFY( ambiguous.error.contains( QStringLiteral( "2 次" ) ) );
 
   const IntervalRow missing = readIntervalRow( path, QStringLiteral( "地层单位道" ), QStringLiteral( "T9" ) );
   QVERIFY( !missing.ok );
@@ -191,27 +199,32 @@ void OutsourceWorkbookTests::scansDirectoryHonestly()
 {
   const QString dir = QFileInfo( fixturePath( QStringLiteral( "not_a_workbook.xml" ) ) ).absolutePath();
   const WorkbookScanResult scan = scanWorkbookDirectory( dir );
-  QCOMPARE( scan.filesSeen, 3 );
-  QCOMPARE( scan.filesFailed, 1 );
-  QCOMPARE( scan.entries.size(), 3 );
-  int ok = 0;
-  int failed = 0;
+  // 不硬编码整个共享夹具目录的计数（别的方向新增夹具不该让本测试变红）：
+  // 只断言「列出的每个文件都有结论」+「三个已知夹具都在且结论正确」。
+  QCOMPARE( scan.entries.size(), scan.filesSeen );
+  QVERIFY( scan.filesSeen >= 3 );
+  QVERIFY( scan.filesFailed >= 1 );
+  QHash<QString, const WorkbookScanEntry *> byName;
   for ( const WorkbookScanEntry &entry : scan.entries )
   {
+    byName.insert( QFileInfo( entry.path ).fileName(), &entry );
     if ( entry.ok )
     {
-      ++ok;
+      QVERIFY( entry.error.isEmpty() );
       QVERIFY( entry.sheetCount > 0 );
       QVERIFY( entry.rowCount > 0 );
     }
     else
     {
-      ++failed;
       QVERIFY( !entry.error.isEmpty() );
     }
   }
-  QCOMPARE( ok, 2 );
-  QCOMPARE( failed, 1 );
+  QVERIFY( byName.contains( QStringLiteral( "coordinates.xlsx" ) ) );
+  QVERIFY( byName.value( QStringLiteral( "coordinates.xlsx" ) )->ok );
+  QVERIFY( byName.contains( QStringLiteral( "wg1_well.xml" ) ) );
+  QVERIFY( byName.value( QStringLiteral( "wg1_well.xml" ) )->ok );
+  QVERIFY( byName.contains( QStringLiteral( "not_a_workbook.xml" ) ) );
+  QVERIFY( !byName.value( QStringLiteral( "not_a_workbook.xml" ) )->ok );
 }
 
 void OutsourceWorkbookTests::canonicalizesWellNamesAndNumbers()

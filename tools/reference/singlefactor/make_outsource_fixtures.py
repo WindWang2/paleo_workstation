@@ -100,7 +100,9 @@ def surface_values():
         boundary[(rows - 1) * cols + j] = 0  # 上游用例：最后一行不在边界内
     coverage = [1 if v else 0 for v in valid]
     region = [1 if v else 0 for v in valid]
-    trend = [0.35 for _ in grid_z]
+    # source_trend_grid 用列优先（fortran_order=True）写盘：读面必须转置回行主序，
+    # 值按 (i + 1) * 100 + (j + 1) 造得不规则，转置错了立刻能看出来。
+    trend = [float((i + 1) * 100 + (j + 1)) for i in range(rows) for j in range(cols)]
     return {
         "grid_z": ("<f8", grid_z, (rows, cols)),
         "grid_x": ("<f8", grid_x, (cols,)),
@@ -115,6 +117,24 @@ def surface_values():
 
 
 NPY_WRITERS = {"<f8": npy_f8, "<i4": npy_i4, "|u1": npy_u1}
+# 列优先写盘的条目（numpy 的 order='F' 产物）。
+FORTRAN_ENTRIES = {"source_trend_grid"}
+
+
+def _fortran_payload(kind: str, row_major_values) -> bytes:
+    """把行主序值列按列优先铺成字节（shape 仍按 (rows, cols) 申报）。"""
+    rows, cols = 17, 21
+    packed = []
+    for j in range(cols):
+        for i in range(rows):
+            packed.append(row_major_values[i * cols + j])
+    import struct
+
+    if kind == "<f8":
+        return struct.pack("<%dd" % len(packed), *packed)
+    if kind == "<i4":
+        return struct.pack("<%di" % len(packed), *packed)
+    return bytes(int(v) & 0xFF for v in packed)
 
 
 def npz_bytes(drop_grid_z: bool = False, shift_grid_z: bool = False) -> bytes:
@@ -125,7 +145,10 @@ def npz_bytes(drop_grid_z: bool = False, shift_grid_z: bool = False) -> bytes:
         payload = list(values)
         if shift_grid_z and name == "grid_z":
             payload = [value if math.isnan(value) else value + 1.0 for value in payload]
-        entries.append((name + ".npy", NPY_WRITERS[kind](payload, shape)))
+        if name in FORTRAN_ENTRIES:
+            entries.append((name + ".npy", npy_bytes(kind, shape, _fortran_payload(kind, payload), True)))
+        else:
+            entries.append((name + ".npy", NPY_WRITERS[kind](payload, shape)))
     return zip_bytes(entries)
 
 
@@ -169,7 +192,13 @@ def manifest_json(has_pickle: bool = False) -> bytes:
     return json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True).encode("utf-8")
 
 
-def sfpkg_bytes(has_pickle: bool = False, drop_grid_z: bool = False, tamper_npz: bool = False) -> bytes:
+def sfpkg_bytes(
+    has_pickle: bool = False,
+    drop_grid_z: bool = False,
+    tamper_npz: bool = False,
+    empty_checksum: bool = False,
+    no_checksum: bool = False,
+) -> bytes:
     # 校验和口径与上游一致：checksum 覆盖真实写入的 manifest 与 npz 字节。
     # tamper_npz 让包内 npz 与 checksum 记录不一致（读取必须拒绝）。
     checksum_npz = npz_bytes(drop_grid_z=drop_grid_z)
@@ -185,13 +214,12 @@ def sfpkg_bytes(has_pickle: bool = False, drop_grid_z: bool = False, tamper_npz:
         indent=2,
         sort_keys=True,
     ).encode("utf-8")
-    return zip_bytes(
-        [
-            ("manifest.json", manifest_bytes),
-            ("surface.npz", npz),
-            ("checksum.json", checksum),
-        ]
-    )
+    entries = [("manifest.json", manifest_bytes), ("surface.npz", npz)]
+    if empty_checksum:
+        entries.append(("checksum.json", b"{}"))
+    elif not no_checksum:
+        entries.append(("checksum.json", checksum))
+    return zip_bytes(entries)
 
 
 # ---------------------------------------------------------------- XLSX
@@ -316,7 +344,9 @@ def cell(text: str, index=None, merge: int = 0) -> str:
 def spreadsheetml_well() -> bytes:
     rows_a = [
         "<Row>" + cell("深度") + cell("GR") + cell("孔隙度") + "</Row>",
-        "<Row>" + cell("1000") + cell("45") + cell("0.12") + "</Row>",
+        # 嵌套富文本：<Data>0.<B>12</B></Data> —— 读面必须拼成 0.12（而不是
+        # 让 reader 进 error 态、把后面所有行吞掉）
+        "<Row>" + cell("1000") + cell("45") + "<Cell><Data>0.<B>12</B></Data></Cell>" + "</Row>",
         "<Row>" + cell("1005") + cell("50") + cell("0.15") + "</Row>",
     ]
     rows_b = [
@@ -328,6 +358,8 @@ def spreadsheetml_well() -> bytes:
         "<Row>" + cell("T3") + cell("1200") + cell("abc") + cell("-") + "</Row>",
         # 坏行：ss:Index 非整数 → 整行跳过并列因
         '<Row ss:Index="abc">' + cell("T4") + cell("1300") + cell("1350") + cell("50") + "</Row>",
+        # 层号重复：指名查 T1 时必须报「多义」，不能悄悄取首次出现
+        "<Row>" + cell("T1") + cell("2000") + cell("2050") + cell("50") + "</Row>",
     ]
     xml = (
         '<?xml version="1.0"?>\n'
@@ -357,6 +389,8 @@ def expected_files():
         SFPKG_DIR / "bad_checksum.sfpkg": sfpkg_bytes(tamper_npz=True),
         SFPKG_DIR / "pickle_forbidden.sfpkg": sfpkg_bytes(has_pickle=True),
         SFPKG_DIR / "missing_grid_z.sfpkg": sfpkg_bytes(drop_grid_z=True),
+        SFPKG_DIR / "empty_checksum.sfpkg": sfpkg_bytes(empty_checksum=True),
+        SFPKG_DIR / "no_checksum.sfpkg": sfpkg_bytes(no_checksum=True),
     }
 
 

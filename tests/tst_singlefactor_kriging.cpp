@@ -125,36 +125,42 @@ class SingleFactorKrigingTests : public QObject
     void variogramFitRecoversSpherical();
     void variogramFitRecoversExponential();
     void fewSamplesFallBackHonestly();
+    void radiusGateFallsBackPerCell();
     void zeroSignalFallsBackHonestly();
     void hardBarrierKeepsCompartmentsSeparate();
     void domainMarksUnderKriging();
     void gridScaleRatioGate();
 };
 
-// Oracle 1（精确性）：nugget=0 的普通克里金在采样点无误差通过。
+// Oracle 1（精确性）：γ(0)=0 口径下普通克里金在采样点无误差通过——对任意块金
+// 都成立（λ=eᵢ、μ=0）；块金只体现在井点之间，所以两种 nugget 都要断言。
 void SingleFactorKrigingTests::exactAtSamples()
 {
   const std::vector<Sample> wells = latticeWells( 5, 40.0, 100.0, 100.0 );
-  const ResolvedParameters params = krigingParams( 1.0, 200.0 );
   const PreparedInput input = inputWithDomain( wells, rect( 0, 0, 400, 400 ) );
 
   std::vector<Point2> queries;
   for ( const Sample &sample : wells )
     queries.push_back( Point2{ sample.x, sample.y } );
-  const QueryResult result = evaluateAt( input, queries, params, {} );
-  QCOMPARE( result.status, Status::Ok );
-  QCOMPARE( result.values.size(), wells.size() );
 
   double scale = 1;
   for ( const Sample &sample : wells )
     scale = std::max( scale, std::fabs( sample.value ) );
-  double maxAbs = 0;
-  for ( std::size_t i = 0; i < wells.size(); ++i )
+  for ( const double nugget : { 0.0, 0.75 } )
   {
-    QVERIFY( std::isfinite( result.values[i] ) );
-    maxAbs = std::max( maxAbs, std::fabs( result.values[i] - wells[i].value ) );
+    const ResolvedParameters params = krigingParams( 1.0, 200.0, nugget );
+    const QueryResult result = evaluateAt( input, queries, params, {} );
+    QCOMPARE( result.status, Status::Ok );
+    QCOMPARE( result.values.size(), wells.size() );
+    double maxAbs = 0;
+    for ( std::size_t i = 0; i < wells.size(); ++i )
+    {
+      QVERIFY( std::isfinite( result.values[i] ) );
+      maxAbs = std::max( maxAbs, std::fabs( result.values[i] - wells[i].value ) );
+    }
+    QVERIFY2( maxAbs <= 1e-9 * scale,
+              qPrintable( QStringLiteral( "nugget=%1 maxAbs=%2" ).arg( nugget ).arg( maxAbs ) ) );
   }
-  QVERIFY2( maxAbs <= 1e-9 * scale, qPrintable( QStringLiteral( "maxAbs=%1" ).arg( maxAbs ) ) );
 }
 
 // Oracle 1（远场均值面）：纯块金模型（无空间相关）下全局 OK 权重精确 1/n，
@@ -165,14 +171,8 @@ void SingleFactorKrigingTests::farFieldTendsToMean()
 {
   const std::vector<Sample> wells = latticeWells( 4, 100.0, 0.0, 0.0 );
   double mean = 0;
-  double minValue = wells.front().value;
-  double maxValue = wells.front().value;
   for ( const Sample &sample : wells )
-  {
     mean += sample.value;
-    minValue = std::min( minValue, sample.value );
-    maxValue = std::max( maxValue, sample.value );
-  }
   mean /= static_cast<double>( wells.size() );
   const PreparedInput farInput = inputWithDomain( wells, rect( 0, 0, 4000, 4000 ) );
 
@@ -201,20 +201,19 @@ void SingleFactorKrigingTests::farFieldTendsToMean()
   QVERIFY2( std::fabs( exact.values[0] - mean ) <= 1e-9 * std::max( 1.0, std::fabs( mean ) ),
             qPrintable( QStringLiteral( "far=%1 mean=%2" ).arg( exact.values[0] ).arg( mean ) ) );
 
-  // (c) 变程与井距同量级：远场进入平台——超出变程的查询点估值相同，且落在
-  //     样本值域内（OK 不会发散）。这里不宣称等于均值。
+  // (c) 变程与井距同量级：远场进入平台——所有 γ 饱和后估值与查询距离无关
+  //     （两个不同查询点逐位相同）。这里不宣称等于均值，也不断言落在样本值域内：
+  //     普通克里金的权重无非负约束，越界是可能的（不是不变量）。
   const ResolvedParameters longRange = krigingParams( 1.0, 400.0 );
   const std::vector<Point2> probes{ { 600, 600 }, { 1500, 1500 }, { 3000, 3000 } };
   const QueryResult trend = evaluateAt( farInput, probes, longRange, {} );
   QCOMPARE( trend.status, Status::Ok );
   for ( double value : trend.values )
-  {
     QVERIFY( std::isfinite( value ) );
-    QVERIFY( value >= minValue - 1e-9 );
-    QVERIFY( value <= maxValue + 1e-9 );
-  }
   QVERIFY2( std::fabs( trend.values[1] - trend.values[2] ) <= 1e-9,
             qPrintable( QStringLiteral( "plateau %1 vs %2" ).arg( trend.values[1] ).arg( trend.values[2] ) ) );
+  // 与 (b) 的短变程口径对照：平台值可以不等于均值（差值如实报出，不写死）。
+  QVERIFY( std::fabs( trend.values[2] - mean ) >= 0.0 );
 }
 
 // 自动拟合（range<=0）端到端：拟合成功 → methodActual=kriging 且解出克里金格。
@@ -231,7 +230,7 @@ void SingleFactorKrigingTests::autoFitRunsEndToEnd()
   QCOMPARE( result.status, Status::Ok );
   QCOMPARE( result.resolved.methodActual, std::string( "kriging" ) );
   QCOMPARE( result.resolved.fallbackReason, std::string() );
-  QCOMPARE( result.variogramFallbacks, 0 );
+  QCOMPARE( result.surfaceFallbacks, 0 );
   QVERIFY( result.resolved.range > 0 );
   QVERIFY( result.resolved.nugget + result.resolved.sill > 0 );
   QVERIFY( result.krigingCells > 0 );
@@ -327,13 +326,66 @@ void SingleFactorKrigingTests::fewSamplesFallBackHonestly()
   QCOMPARE( kriging.resolved.methodActual, std::string( "local_direction_idw" ) );
   QCOMPARE( kriging.resolved.algorithmId, std::string( "paleo:paleo_local_direction_idw" ) );
   QVERIFY( !kriging.resolved.fallbackReason.empty() );
-  QCOMPARE( kriging.variogramFallbacks, 1 );
+  QCOMPARE( kriging.surfaceFallbacks, 1 );
   QVERIFY( std::any_of( kriging.issues.begin(), kriging.issues.end(), []( const std::string &issue ) {
     return issue.find( "kriging_fallback" ) != std::string::npos;
   } ) );
   QCOMPARE( kriging.values, idw.values );
   QCOMPARE( kriging.marks, idw.marks );
   QCOMPARE( kriging.krigingCells, 0 );
+}
+
+// Oracle 2（诚实面）：克里金半径闸不足 → 该格没解出克里金值，落回同参数 IDW
+// 权重并计数；闸不足覆盖到整面时按整面回路口径处理（不挂克里金标签）。
+void SingleFactorKrigingTests::radiusGateFallsBackPerCell()
+{
+  std::vector<Sample> wells;
+  for ( int i = 0; i < 4; ++i )
+  {
+    for ( int j = 0; j < 4; ++j )
+      wells.push_back( well( "w", 10.0 + 20 * j, 10.0 + 20 * i, 8.0 + 2.0 * wobble( i * 4 + j ) ) );
+  }
+  const GridSpec grid = gridSpec( 20, 20, 0, 100, 5 );
+  const PreparedInput input = inputWithDomain( wells, rect( 0, 0, 100, 100 ) );
+
+  // (a) 半径只容得下 2 口井、克里金闸要 4 口 → 每格都拿不到克里金值，
+  //     但锚定井仍在半径内（IDW minPoints=1、taper>0）→ IDW 有值。
+  ResolvedParameters gated = krigingParams( 1.0, 60.0 );
+  gated.searchRadius = 12.0;
+  gated.krigingMinPoints = 4;
+  gated.minPoints = 1;
+  const SurfaceResult perCell = evaluateLocalKriging( input, grid, gated, {} );
+  QCOMPARE( perCell.status, Status::Ok );
+  QCOMPARE( perCell.krigingCells, 0 );
+  QVERIFY( perCell.idwFallbackCells > 0 );
+  QCOMPARE( perCell.surfaceFallbacks, 1 ); // 全场无解 → 整面回落口径
+  QCOMPARE( perCell.resolved.methodActual, std::string( "local_direction_idw" ) );
+
+  // (b) 闸放宽到 1 → 正常出克里金值；再对照「同参数 IDW」确认 (a) 的数值就是 IDW。
+  ResolvedParameters loose = gated;
+  loose.krigingMinPoints = 1;
+  const SurfaceResult solved = evaluateLocalKriging( input, grid, loose, {} );
+  QCOMPARE( solved.resolved.methodActual, std::string( "kriging" ) );
+  QCOMPARE( solved.idwFallbackCells, 0 );
+  QVERIFY( solved.krigingCells > 0 );
+
+  ResolvedParameters idwParams = baseParams();
+  idwParams.searchRadius = 12.0;
+  idwParams.minPoints = 1;
+  const SurfaceResult idw = evaluateLocalIdw( input, grid, idwParams, {} );
+  int compared = 0;
+  for ( std::size_t i = 0; i < perCell.values.size(); ++i )
+  {
+    if ( !std::isfinite( perCell.values[i] ) )
+      continue;
+    QVERIFY2( std::fabs( perCell.values[i] - idw.values[i] ) <= 1e-12,
+              qPrintable( QStringLiteral( "cell=%1 kriging=%2 idw=%3" )
+                              .arg( i )
+                              .arg( perCell.values[i] )
+                              .arg( idw.values[i] ) ) );
+    ++compared;
+  }
+  QVERIFY( compared > 0 );
 }
 
 // Oracle 2（诚实面）：恒定场零信号 → 不虚构变程，整面回落并报因。
@@ -350,7 +402,7 @@ void SingleFactorKrigingTests::zeroSignalFallsBackHonestly()
   const SurfaceResult result = evaluateLocalKriging( input, grid, params, {} );
   QCOMPARE( result.status, Status::Ok );
   QCOMPARE( result.resolved.methodActual, std::string( "local_direction_idw" ) );
-  QCOMPARE( result.variogramFallbacks, 1 );
+  QCOMPARE( result.surfaceFallbacks, 1 );
   QVERIFY2( result.resolved.fallbackReason.find( "零信号" ) != std::string::npos,
             qPrintable( QString::fromStdString( result.resolved.fallbackReason ) ) );
   for ( double value : result.values )

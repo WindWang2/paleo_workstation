@@ -39,6 +39,10 @@ class SfPackageReaderTests : public QObject
     void rejectsChecksumMismatch();
     void rejectsPickle();
     void rejectsMissingGridZ();
+    void rejectsEmptyChecksum();
+    void toleratesMissingChecksumWithIssue();
+    void transposesFortranOrderArray();
+    void parsesNpyDirectly();
     void reportsMissingFile();
 };
 
@@ -70,6 +74,16 @@ void SfPackageReaderTests::readsCompleteFields()
   QCOMPARE( result.manifest.gridShape.size(), 2 );
   QCOMPARE( result.manifest.gridShape.at( 0 ).toInt(), 17 );
   QCOMPARE( result.manifest.gridShape.at( 1 ).toInt(), 21 );
+  QCOMPARE( result.manifest.globalAnisotropyRatio, 1.0 );
+  QCOMPARE( result.manifest.globalAnisotropyAngle, 0.0 );
+  QCOMPARE( result.manifest.dataSource, QStringLiteral( "外委夹具" ) );
+  QCOMPARE( result.manifest.coverageInfo.value( QStringLiteral( "mode" ) ).toString(),
+            QStringLiteral( "well_supported" ) );
+  QCOMPARE( result.manifest.boundaries.size(), 1 );
+  QCOMPARE( result.manifest.partitionBarriers.size(), 1 );
+  QCOMPARE( result.manifest.fieldModel.value( QStringLiteral( "surface_kind" ) ).toString(),
+            QStringLiteral( "analysis" ) );
+  QCOMPARE( result.manifest.createdAt, QStringLiteral( "2026-10-04T00:00:00Z" ) );
   QCOMPARE( result.manifest.contourPartition.value( QStringLiteral( "geometry_policy" ) ).toString(),
             QStringLiteral( "local_interpretive_detour" ) );
   QVERIFY( result.manifest.crsWkt.startsWith( QStringLiteral( "PROJCS" ) ) );
@@ -125,7 +139,9 @@ void SfPackageReaderTests::readsAllArrays()
   const SfPackageArray *wellRegions = result.array( QStringLiteral( "well_region_ids" ) );
   QVERIFY( wellRegions != nullptr );
   QCOMPARE( wellRegions->rows, 3 );
-  QVERIFY( result.array( QStringLiteral( "source_trend_grid" ) ) != nullptr );
+  const SfPackageArray *trend = result.array( QStringLiteral( "source_trend_grid" ) );
+  QVERIFY( trend != nullptr );
+  QVERIFY( trend->fortranOrder );
 
   // 读取面不粉饰：缺 checksum 或全有限 grid 都要列因，测试夹具本身合规。
   for ( const QString &issue : result.issues )
@@ -163,6 +179,95 @@ void SfPackageReaderTests::reportsMissingFile()
   const SfPackageReadResult result = readSfPackage( fixturePath( QStringLiteral( "no_such_file.sfpkg" ) ) );
   QVERIFY( !result.ok );
   QVERIFY( result.error.contains( QStringLiteral( "文件不存在" ) ) );
+}
+
+// Oracle 2（诚实面）：checksum.json 存在但没有任何 sha256 字段 → 拒绝读取，
+// 不允许「有校验文件却什么都没校验」。
+void SfPackageReaderTests::rejectsEmptyChecksum()
+{
+  const SfPackageReadResult result = readSfPackage( fixturePath( QStringLiteral( "empty_checksum.sfpkg" ) ) );
+  QVERIFY( !result.ok );
+  QVERIFY2( result.error.contains( QStringLiteral( "没有任何 sha256 字段" ) ), qPrintable( result.error ) );
+}
+
+// 包内没有 checksum.json：上游容忍（读面照常返回数据），但必须留 issue。
+void SfPackageReaderTests::toleratesMissingChecksumWithIssue()
+{
+  const SfPackageReadResult result = readSfPackage( fixturePath( QStringLiteral( "no_checksum.sfpkg" ) ) );
+  QVERIFY2( result.ok, qPrintable( result.error ) );
+  QVERIFY( !result.checksumPresent );
+  QVERIFY( std::any_of( result.issues.cbegin(), result.issues.cend(), []( const QString &issue ) {
+    return issue.contains( QStringLiteral( "没有 checksum.json" ) );
+  } ) );
+}
+
+// 列优先（fortran_order=True）数组必须转置回行主序：夹具值 = (i+1)*100 + (j+1)。
+void SfPackageReaderTests::transposesFortranOrderArray()
+{
+  const SfPackageReadResult result = readSfPackage( fixturePath( QStringLiteral( "demo.sfpkg" ) ) );
+  QVERIFY2( result.ok, qPrintable( result.error ) );
+  const SfPackageArray *trend = result.array( QStringLiteral( "source_trend_grid" ) );
+  QVERIFY( trend != nullptr );
+  QCOMPARE( trend->rows, 17 );
+  QCOMPARE( trend->cols, 21 );
+  // 转置错了会得到 (j+1)*100 + (i+1)：用非对称位置 (i=1,j=2) 断言。
+  QCOMPARE( trend->values[1 * 21 + 2], 203.0 );
+  QCOMPARE( trend->values[2 * 21 + 1], 302.0 );
+  QCOMPARE( trend->values[0], 101.0 );
+}
+
+// NPY 单文件入口（含 v1 头、fortran_order、整数 dtype）直接单测。
+void SfPackageReaderTests::parsesNpyDirectly()
+{
+  // 手工构造 2×3 列优先 NPY：值 = col*10 + row（行主序读回 = [0,10,20,1,11,21]）。
+  const QByteArray header =
+      QStringLiteral( "{'descr': '<i4', 'fortran_order': True, 'shape': (2, 3), }\n" ).toUtf8();
+  QByteArray bytes;
+  bytes.append( "\x93NUMPY", 6 );
+  bytes.append( char( 1 ) );
+  bytes.append( char( 0 ) );
+  bytes.append( char( header.size() & 0xFF ) );
+  bytes.append( char( ( header.size() >> 8 ) & 0xFF ) );
+  bytes.append( header );
+  for ( int column = 0; column < 3; ++column )
+  {
+    for ( int row = 0; row < 2; ++row )
+    {
+      const qint32 value = column * 10 + row;
+      bytes.append( char( value & 0xFF ) );
+      bytes.append( char( ( value >> 8 ) & 0xFF ) );
+      bytes.append( char( ( value >> 16 ) & 0xFF ) );
+      bytes.append( char( ( value >> 24 ) & 0xFF ) );
+    }
+  }
+  const NpyArray parsed = parseNpy( bytes );
+  QVERIFY2( parsed.ok, qPrintable( parsed.error ) );
+  QCOMPARE( parsed.descr, QStringLiteral( "<i4" ) );
+  QVERIFY( parsed.fortranOrder );
+  QVERIFY( parsed.integral );
+  QCOMPARE( parsed.rows, 2 );
+  QCOMPARE( parsed.cols, 3 );
+  QCOMPARE( parsed.values.size(), std::size_t{ 6 } );
+  QCOMPARE( parsed.values[0], 0.0 );
+  QCOMPARE( parsed.values[1], 10.0 );
+  QCOMPARE( parsed.values[2], 20.0 );
+  QCOMPARE( parsed.values[3], 1.0 );
+  QCOMPARE( parsed.values[5], 21.0 );
+
+  // 0 维标量（shape=()）与截断数据都要如实报因。
+  const QByteArray scalarHeader = QStringLiteral( "{'descr': '<f8', 'fortran_order': False, 'shape': (), }\n" ).toUtf8();
+  QByteArray scalar;
+  scalar.append( "\x93NUMPY", 6 );
+  scalar.append( char( 1 ) );
+  scalar.append( char( 0 ) );
+  scalar.append( char( scalarHeader.size() & 0xFF ) );
+  scalar.append( char( ( scalarHeader.size() >> 8 ) & 0xFF ) );
+  scalar.append( scalarHeader );
+  scalar.append( QByteArray( 8, '\0' ) );
+  const NpyArray scalarParsed = parseNpy( scalar );
+  QVERIFY( !scalarParsed.ok );
+  QVERIFY2( scalarParsed.error.contains( QStringLiteral( "0 维" ) ), qPrintable( scalarParsed.error ) );
+  QVERIFY( !parseNpy( QByteArray( "not an npy" ) ).ok );
 }
 
 QTEST_MAIN( SfPackageReaderTests )

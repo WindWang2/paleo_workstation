@@ -14,12 +14,16 @@
 //
 // 诚实面（不冒充克里金）：
 //   - 有效样本 < 8 → 变差函数欠定，整面回落 IDW，methodActual="local_direction_idw"
-//     + fallbackReason + issue；
+//     + fallbackReason + issue + surfaceFallbacks=1；
 //   - 实验变差/最小二乘失败或零信号（块金+拱高=0）→ 同样整面回落并报因；
-//   - 单格方程奇异/病态 → 该格用同参数 IDW 权重，计数进 idwFallbackCells 并出 issue；
+//   - 单格没解出（方程奇异/病态，或半径邻域不足）→ 该格用同参数 IDW 权重，
+//     计数进 idwFallbackCells 并出 issue（两种原因不分开计数，文案按两种写全）；
+//   - 全场没有一个格解出克里金值 → 按整面回路口径处理（surfaceFallbacks=1）；
 //   - 方向线/软边界/井群权重不参与克里金权重（v1 语义）：逐条列进 issues，不静默忽略。
-//   - nugget > 0 时普通克里金是平滑器，采样点不再精确通过（数学事实）；要精确
-//     通过必须 nugget=0。本头不做「精确」承诺以外的事。
+//   - 精确性：γ(0)=0 口径下普通克里金对任意 nugget 都在采样点精确通过
+//     （λ=eᵢ、μ=0 ⇒ 估值=井值、方差=0）；块金只体现在井点之间。
+//   - 覆盖闸口径：克里金侧只看「半径闸 + krigingMinPoints」，与 IDW 的
+//     minPoints（正权重个数闸）不是同一个闸；生产入口固定 krigingMinPoints=1。
 // 层：数据
 namespace paleo::singlefactor
 {

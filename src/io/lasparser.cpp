@@ -322,6 +322,7 @@ bool LasParser::parseHeader(const QString &path, LasHeaderInfo &out,
                             QString *error)
 {
   out = LasHeaderInfo{};
+  out.indexBasis = QStringLiteral("MD"); // LAS 不声明基准，行业惯例 MD（lasparser.h）
   QFile f(path);
   if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
   {
@@ -477,6 +478,7 @@ namespace
   HeaderScanResult scanHeaderBytes(const QByteArray &raw, QList<LasIssue> *issues)
   {
     HeaderScanResult out;
+    out.header.indexBasis = QStringLiteral("MD"); // LAS 惯例（lasparser.h）
     out.bomBytes = static_cast<int>(bomAdjustment(raw));
     enum class Section { None, Version, Well, Curves, Other };
     Section section = Section::None;

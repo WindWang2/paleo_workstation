@@ -14,6 +14,7 @@
 
 #include "catalog/datacatalog.h"
 #include "domain/seismic/sgyvolume.h"
+#include "io/sattrio.h"
 #include "services/paleotaskservice.h"
 #include "services/seismictaskservice.h"
 
@@ -407,6 +408,33 @@ private slots:
     QVERIFY(!derived.sha256.isEmpty());
     QCOMPARE(derived.extra.value(QStringLiteral("attrId")).toString(),
              QStringLiteral("envelope"));
+
+    // goal/attr-volume：服务写端产物 → io/sattrio 读回器逐字段一致
+    // （参数/几何/值块——Oracle#1 的服务路径证据）。
+    paleo::sattr::SattrSectionHeader back;
+    QVector<float> backValues;
+    QVERIFY2(paleo::sattr::readSattrSection(path, &back, &backValues, &err),
+             qPrintable(err));
+    QCOMPARE(back.attrId, QStringLiteral("envelope"));
+    QCOMPARE(back.section, QStringLiteral("il"));
+    QCOMPARE(back.sectionIndex, 11);
+    QCOMPARE(back.width, out.result.image->width);
+    QCOMPARE(back.height, out.result.image->height);
+    QCOMPARE(back.windowHalfSamples, params.windowHalfSamples);
+    QCOMPARE(back.coherenceIlHalf, params.coherenceIlHalf);
+    QCOMPARE(back.coherenceXlHalf, params.coherenceXlHalf);
+    QCOMPARE(back.coherenceTimeHalf, params.coherenceTimeHalf);
+    QCOMPARE(back.coherenceWeighting, params.coherenceWeighting);
+    QCOMPARE(backValues.size(),
+             qsizetype(out.result.image->values.size()));
+    for (qsizetype i = 0; i < backValues.size(); ++i)
+    {
+      const float a = out.result.image->values[std::size_t(i)];
+      QVERIFY2(std::isnan(a) == std::isnan(backValues[i]),
+               qPrintable(QStringLiteral("NaN 位不一致 @%1").arg(i)));
+      if (!std::isnan(a))
+        QCOMPARE(backValues[i], a);
+    }
   }
 };
 

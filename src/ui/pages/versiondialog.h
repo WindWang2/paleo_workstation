@@ -34,6 +34,9 @@ struct VersionRow
   QString sha256;       // 完整留底；表里缩写显示
   QString sourceUri;
   bool isCurrent = false; // 最高 versionNumber
+  // 方向 47：realization 成员/统计面标签（壳侧自 extra 契约键填；
+  // 「成员 #3」「成员均值」等——空 = 普通版本行）。
+  QString memberNote;
 };
 
 inline QString versionSizeText(qint64 bytes)
@@ -121,8 +124,11 @@ class VersionTableDialog : public QDialog
       {
         const int i = m_table->rowCount();
         m_table->insertRow(i);
-        auto *n = new QTableWidgetItem(tr("v%1%2").arg(r.versionNumber).arg(
-            r.isCurrent ? tr("（当前）") : QString()));
+        auto *n = new QTableWidgetItem(
+            tr("v%1%2%3").arg(r.versionNumber)
+                .arg(r.isCurrent ? tr("（当前）") : QString())
+                .arg(r.memberNote.isEmpty() ? QString()
+                                            : tr("（%1）").arg(r.memberNote)));
         n->setData(Qt::UserRole, r.versionId);
         n->setFlags(n->flags() & ~Qt::ItemIsEditable);
         m_table->setItem(i, 0, n);

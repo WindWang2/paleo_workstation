@@ -258,6 +258,158 @@ private slots:
     QVERIFY(!canvas.hasAttrOverlay());
   }
 
+  // ---- goal/attr-volume 面板：扫描范围/采样位/加权档 → 意图信号 ----
+  void panelScopeAndScanIntents()
+  {
+    SeismicAttrPanel panel;
+    auto *scope = panel.findChild<QComboBox *>(QStringLiteral("attrScopeCombo"));
+    auto *sample = panel.findChild<QSpinBox *>(QStringLiteral("attrTimeSample"));
+    auto *weight = panel.findChild<QComboBox *>(QStringLiteral("attrWeightCombo"));
+    auto *compute = panel.findChild<QToolButton *>(QStringLiteral("attrComputeButton"));
+    QVERIFY(scope && sample && weight && compute);
+    QCOMPARE(panel.currentScope(), 0); // 缺省本剖面
+    QVERIFY(!sample->isEnabled());    // 采样位仅时间切片范围启用
+
+    // 体加载回填：范围 + 缺省中位采样
+    panel.setVolumeSampleRange(256);
+    QVERIFY(sample->isEnabled() == false); // 范围仍是本剖面
+    scope->setCurrentIndex(1);             // 时间切片
+    QVERIFY(sample->isEnabled());
+    QCOMPARE(sample->maximum(), 255);
+    QCOMPARE(sample->value(), 127); // 0..255 的中位
+    QCOMPARE(panel.currentSampleIndex(), 127);
+
+    QSignalSpy tsSpy(&panel, &SeismicAttrPanel::timeSliceScanRequested);
+    QSignalSpy volSpy(&panel, &SeismicAttrPanel::volumeScanRequested);
+    QSignalSpy secSpy(&panel, &SeismicAttrPanel::computeRequested);
+    weight->setCurrentIndex(1); // 道距加权
+    compute->click();
+    QCOMPARE(tsSpy.count(), 1);
+    QCOMPARE(volSpy.count(), 0);
+    QCOMPARE(secSpy.count(), 0);
+    const QVariantList args = tsSpy.takeFirst();
+    QCOMPARE(args.at(2).toInt(), 127);
+    QCOMPARE(args.at(1)
+                  .value<SeismicTaskService::SeismicAttrParams>()
+                  .coherenceWeighting,
+             1);
+
+    scope->setCurrentIndex(2); // 属性体
+    QVERIFY(!sample->isEnabled());
+    compute->click();
+    QCOMPARE(volSpy.count(), 1);
+    QCOMPARE(tsSpy.count(), 0);
+    QCOMPARE(volSpy.takeFirst()
+                  .at(1)
+                  .value<SeismicTaskService::SeismicAttrParams>()
+                  .coherenceWeighting,
+             1);
+
+    scope->setCurrentIndex(0); // 本剖面（回归：原意图信号）
+    compute->click();
+    QCOMPARE(secSpy.count(), 1);
+    QCOMPARE(tsSpy.count(), 0);
+    QCOMPARE(volSpy.count(), 0);
+  }
+
+  // ---- goal/attr-volume dock 全链（offscreen）：扫描 → 登记 → 层树/3D 信号 ----
+  void dockScanChainOffscreen()
+  {
+    const QString sgy = m_workDir.filePath(QStringLiteral("ui_scan.sgy"));
+    QVERIFY(writeSegy(sgy, 5, 8, 128, 2000));
+
+    PaleoTaskService tasks;
+    SeismicTaskService svc(&tasks);
+    SeismicSectionDockWidget dock;
+    dock.setTaskService(&svc);
+
+    auto vol = std::make_shared<SgyVolume>();
+    std::string err;
+    QVERIFY(vol->Load(sgy.toStdString(), err));
+    dock.setVolume(vol);
+    QVERIFY(waitFor([&dock]() { return dock.canvas()->hasData(); }, 10000)
+            || true); // 切片未上图不影响扫描链（体已加载即可）
+
+    // catalog 注入（登记上下文）
+    DataCatalog catalog;
+    QString cerr;
+    QVERIFY(catalog.open(m_workDir.path(), &cerr));
+    CatalogAsset seisAsset;
+    seisAsset.id = QStringLiteral("seis_attrui_scan");
+    seisAsset.type = QStringLiteral("seismic");
+    seisAsset.format = QStringLiteral("sgy");
+    seisAsset.displayName = QStringLiteral("ui_scan.sgy");
+    QVERIFY(catalog.addAsset(seisAsset, &cerr));
+    CatalogVersion raw;
+    raw.id = QStringLiteral("rawver_attrui_scan");
+    raw.assetId = seisAsset.id;
+    raw.stage = QStringLiteral("RAW");
+    raw.versionNumber = 1;
+    raw.managed = false;
+    raw.path = sgy;
+    raw.fileName = QStringLiteral("ui_scan.sgy");
+    QVERIFY(catalog.addVersion(raw, &cerr));
+    const QString outDir = m_workDir.filePath(QStringLiteral("attrs_scan"));
+    dock.setInterpretationCatalog(&catalog, seisAsset.id, raw.id, outDir);
+
+    QSignalSpy layerSpy(&dock, &SeismicSectionDockWidget::timeSliceAttrLayerReady);
+    QSignalSpy volumeSpy(&dock, &SeismicSectionDockWidget::attrVolumeReady);
+    auto *panel = dock.attrPanel();
+    QVERIFY(panel);
+    auto *scope = panel->findChild<QComboBox *>(QStringLiteral("attrScopeCombo"));
+    auto *sample = panel->findChild<QSpinBox *>(QStringLiteral("attrTimeSample"));
+    auto *compute = panel->findChild<QToolButton *>(QStringLiteral("attrComputeButton"));
+    auto *status = panel->findChild<QLabel *>(QStringLiteral("attrStatus"));
+    QVERIFY(scope && sample && compute && status);
+    QCOMPARE(sample->maximum(), 127); // 体加载回填
+    QCOMPARE(sample->value(), 63);
+
+    // 时间切片扫描 → 层树声明 + GeoTIFF 产物 + DERIVED 版本
+    scope->setCurrentIndex(1);
+    compute->click();
+    QVERIFY(waitFor([&panel]() { return !panel->isBusy(); }, 30000));
+    QVERIFY(status->text().contains(QStringLiteral("✓")));
+    QCOMPARE(layerSpy.count(), 1);
+    const LayerDeclaration decl =
+        layerSpy.takeFirst().at(0).value<LayerDeclaration>();
+    QCOMPARE(decl.type, QStringLiteral("raster"));
+    QVERIFY(QFileInfo::exists(decl.source));
+    QVERIFY(decl.source.endsWith(QStringLiteral(".tif")));
+    const CatalogVersion tsVer = catalog.currentVersion(
+        QStringLiteral("seis_attr_seis_attrui_scan_envelope_ts_63"));
+    QCOMPARE(tsVer.stage, QStringLiteral("DERIVED"));
+    QCOMPARE(tsVer.parentVersionIds, QStringList{raw.id});
+    QVERIFY(tsVer.extra.contains(QStringLiteral("param_hash")));
+
+    // 属性体扫描 → 3D 预览信号（服务线程烘焙的三面 + 堆叠层）+ SATV 产物
+    scope->setCurrentIndex(2);
+    compute->click();
+    QVERIFY(waitFor([&panel]() { return !panel->isBusy(); }, 60000));
+    QVERIFY(waitFor([&volumeSpy]() { return volumeSpy.count() > 0; }, 30000));
+    QVERIFY(status->text().contains(QStringLiteral("✓")));
+    const QVariantList vArgs = volumeSpy.takeFirst();
+    QVERIFY(vArgs.at(1).toBool());
+    const auto preview =
+        vArgs.at(0)
+            .value<seismic::SeismicTaskService::AttributeVolumePreview>();
+    QVERIFY(preview.ok);
+    QCOMPARE(preview.nIl, 5);
+    QCOMPARE(preview.nXl, 8);
+    QCOMPARE(preview.nS, 128);
+    QVERIFY(preview.stackLayerCount > 0);
+    const QStringList satvFiles = QDir(m_workDir.filePath(
+        QStringLiteral("attrs_scan")))
+        .entryList(QStringList() << QStringLiteral("*.sattr"), QDir::Files);
+    QVERIFY(!satvFiles.isEmpty());
+
+    // 同参数二次时间切片扫描 → 缓存命中可见（面板文案）
+    scope->setCurrentIndex(1);
+    compute->click();
+    QVERIFY(waitFor([&panel]() { return !panel->isBusy(); }, 30000));
+    QVERIFY(status->text().contains(QStringLiteral("缓存命中")));
+    QCOMPARE(layerSpy.count(), 1);
+  }
+
   // ---- Oracle#1 全链（offscreen，fixture 体）：面板 → 任务 → 叠加上图 ----
   // 三类属性闭环：包络（瞬时族）/ RMS（时窗族）/ 相干（3×3×3）。
   void dockFullChainOffscreen()

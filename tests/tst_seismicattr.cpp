@@ -75,6 +75,13 @@ private slots:
   void coherenceDirectionalFault();
   void coherenceRandomNoise();
 
+  // ---- goal/attr-volume 相干道距加权 ---------------------------------------
+  // Equal 档与原 semblanceCoherence 逐位一致（同累加路径，乘 1 不改浮点值）。
+  void coherenceWeightedEqualBitwise();
+  // 道距加权：各向异性道距（IL 100m / XL 25m）渐变体上两档结果有差异；
+  // 同波形体两档都 =1（S=1 与权重无关）；道距缺失 → 全 NaN（不静默降级）。
+  void coherenceWeightedInverseDistance();
+
   // ---- 甜点 / NaN 道 -------------------------------------------------------
   void sweetnessHandComputed();
   void allNanTrace();
@@ -360,6 +367,84 @@ void TestSeismicAttr::coherenceRandomNoise()
                             .arg(xl)
                             .arg(s)
                             .arg(at(1, xl, s))));
+}
+
+void TestSeismicAttr::coherenceWeightedEqualBitwise()
+{
+  // Equal 档 = 原 semblanceCoherence 的加权推广退化形：乘 1 不改浮点值，
+  // 同一累加路径 → 逐位一致（回归门——等权语义零改动）。
+  const int nIl = 3, nXl = 12, nS = 128;
+  const int faultXl = 6;
+  const int shift = 8;
+  std::vector<float> vol(std::size_t(nIl * nXl * nS), 0.0f);
+  for (int il = 0; il < nIl; ++il)
+    for (int xl = 0; xl < nXl; ++xl)
+    {
+      const int peak = xl < faultXl ? 64 : 64 + shift;
+      const auto w = ricker(nS, 40.0, 0.002, peak);
+      for (int s = 0; s < nS; ++s)
+        vol[std::size_t((il * nXl + xl) * nS + s)] = w[std::size_t(s)];
+    }
+  std::vector<float> a(std::size_t(vol.size())), b(std::size_t(vol.size()));
+  semblanceCoherence(vol.data(), nIl, nXl, nS, 1, 1, 2, a.data());
+  semblanceCoherenceWeighted(vol.data(), nIl, nXl, nS, 1, 1, 2, 100.0, 25.0,
+                             CoherenceWeightMode::Equal, b.data());
+  for (std::size_t i = 0; i < vol.size(); ++i)
+  {
+    QVERIFY2(std::isnan(a[i]) == std::isnan(b[i]),
+             qPrintable(QStringLiteral("NaN 位不一致 @%1").arg(i)));
+    if (!std::isnan(a[i]))
+      QVERIFY2(b[i] == a[i],
+               qPrintable(QStringLiteral("Equal 档非逐位一致 @%1：%2 vs %3")
+                              .arg(i)
+                              .arg(b[i])
+                              .arg(a[i])));
+  }
+}
+
+void TestSeismicAttr::coherenceWeightedInverseDistance()
+{
+  const int nIl = 4, nXl = 6, nS = 96;
+  // 道间渐变体（相位随 il/xl 线性漂移）：加权/等权结果分得开。
+  std::vector<float> vol(std::size_t(nIl * nXl * nS));
+  for (int il = 0; il < nIl; ++il)
+    for (int xl = 0; xl < nXl; ++xl)
+      for (int s = 0; s < nS; ++s)
+        vol[std::size_t((il * nXl + xl) * nS + s)] =
+            std::sin(2.f * float(std::numbers::pi) * 25.f * 0.002f * s + 0.11f * il +
+                     0.23f * xl);
+  std::vector<float> eq(std::size_t(vol.size())),
+      iw(std::size_t(vol.size()));
+  const int ilHalf = 1, xlHalf = 1, tHalf = 2;
+  semblanceCoherenceWeighted(vol.data(), nIl, nXl, nS, ilHalf, xlHalf, tHalf,
+                             0.0, 0.0, CoherenceWeightMode::Equal, eq.data());
+  // 各向异性道距：IL 100m / XL 25m（近 crossline 道权重相对抬升）。
+  semblanceCoherenceWeighted(vol.data(), nIl, nXl, nS, ilHalf, xlHalf, tHalf,
+                             100.0, 25.0,
+                             CoherenceWeightMode::InverseDistance, iw.data());
+  int differing = 0;
+  for (std::size_t i = 0; i < vol.size(); ++i)
+    if (std::isfinite(eq[i]) && std::isfinite(iw[i]) &&
+        std::fabs(eq[i] - iw[i]) > 1e-6f)
+      ++differing;
+  QVERIFY2(differing > 0, "道距加权与等权无差异");
+
+  // 同波形体：两档都 =1（S=1 与权重无关——数学不变量）。
+  const auto w = ricker(nS, 40.0, 0.002, nS / 2);
+  for (int p = 0; p < nIl * nXl; ++p)
+    for (int s = 0; s < nS; ++s)
+      vol[std::size_t(p * nS + s)] = w[std::size_t(s)];
+  semblanceCoherenceWeighted(vol.data(), nIl, nXl, nS, ilHalf, xlHalf, tHalf,
+                             100.0, 25.0,
+                             CoherenceWeightMode::InverseDistance, iw.data());
+  QCOMPARE(iw[std::size_t((1 * nXl + 2) * nS + nS / 2)], 1.0f);
+
+  // 道距缺失（≤0）+ InverseDistance：全 NaN（诚实失败，不静默降级等权）。
+  semblanceCoherenceWeighted(vol.data(), nIl, nXl, nS, ilHalf, xlHalf, tHalf,
+                             0.0, 25.0,
+                             CoherenceWeightMode::InverseDistance, iw.data());
+  QVERIFY(std::isnan(iw[std::size_t((1 * nXl + 2) * nS + nS / 2)]));
+  QVERIFY(std::isnan(iw[0]));
 }
 
 void TestSeismicAttr::sweetnessHandComputed()

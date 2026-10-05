@@ -522,6 +522,11 @@ public:
     int coherenceIlHalf = 1;     // 相干 inline 向半窗（道）
     int coherenceXlHalf = 1;     // 相干 crossline 向半窗（道）
     int coherenceTimeHalf = 2;   // 相干垂直半窗（样）
+    // goal/attr-volume 相干道距加权：0=等权（原语义，缺省零改动）；1=按
+    // IL/XL 道距反比加权（道距各向异性时近道贡献大——语义见
+    // algorithms/seismicattr.h weighted 变体）。写入 SATR/SATV 头与参数包
+    // 摘要，读端缺键按 0 兼容旧文件。
+    int coherenceWeighting = 0;
   };
 
   struct SeismicAttrResult
@@ -558,6 +563,134 @@ public:
       const QString &seismicVersionId, const SeismicAttrResult &result,
       const SeismicAttrParams &params, const QString &sourceSgyPath,
       const QString &outputDir, QString *error);
+
+
+  // ---- 地震属性体化（goal/attr-volume）--------------------------------
+  // 时间切片（单采样面）不满足逐道族的输入形状（瞬时族需整道谱、时窗族
+  // 需垂向窗、相干需三维窗）——体化扫描按属性族各取所需窗口在全测网上
+  // 分块（逐 inline 取剖面，不全体驻留）：
+  //   · 瞬时族：整道谱 → 复数道属性 → 取目标采样位；
+  //   · 时窗族：垂向窗 → 窗属性 → 取目标采样位；
+  //   · 相干：[s-timeHalf, s+timeHalf] 采样 slab（IL×XL 全覆盖）→
+  //     semblance → 目标采样面（slab 恰为该采样的完整垂直窗，边缘缩窗
+  //     与整体系数一致）。
+  // 产出：IL×XL 地理参考栅格（GeoTIFF，SgyCoordinateMapper 仿射）——
+  // 具备层树挂接资格；剖面属性图（非地理参考）不入层树。
+
+  // 时间切片扫描结果（值块缓存命中时不重读栅格——values 空、cachePath
+  // 指既有产物；未命中/无缓存目录时 values = nIl*nXl 行主序 [il*nXl+xl]）。
+  struct SeismicAttrTimeSliceResult
+  {
+    bool ok = false;
+    QString error;
+    QString attrId;
+    int sampleIndex = 0;          // 采样号（0 = 首样）
+    double timeMs = 0.0;          // t0 + sampleIndex·dt
+    int nIl = 0, nXl = 0;
+    std::vector<int> ilValues;    // inline 轴值域（升序）
+    std::vector<int> xlValues;
+    std::vector<float> values;    // nIl*nXl，NaN = 无效
+    double valueMin = 0.0, valueMax = 0.0;
+    qint64 validCells = 0;
+    double readMs = 0.0, computeMs = 0.0;
+    bool cacheHit = false;        // 同参数扫描命中去重缓存（未重算）
+    QString cachePath;            // 缓存产物路径（GeoTIFF）
+    QString paramHash;            // 参数包摘要（hex）
+  };
+
+  // 整体属性体结果：`.sattr` SATV 体容器（分块 payload，块表寻址）。
+  struct SeismicAttrVolumeResult
+  {
+    bool ok = false;
+    QString error;
+    QString attrId;
+    QString path;                 // SATV 产物路径
+    int nIl = 0, nXl = 0, nS = 0;
+    std::vector<int> ilValues, xlValues;
+    double sampleIntervalMs = 0.0;
+    double startTimeMs = 0.0;
+    double valueMin = 0.0, valueMax = 0.0;
+    qint64 validCells = 0;
+    double readMs = 0.0, computeMs = 0.0;
+    bool cacheHit = false;
+    QString paramHash;
+  };
+
+  // 参数包摘要：域分隔 + 范围 + 属性 + 参数（含道距加权档）+ 采样位（ts）
+  // + 源文件身份（绝对路径/尺寸/mtime/几何）。去重缓存与 provenance 共用。
+  static QString attrScanParamHash(const QString &scope, SeismicAttrKind kind,
+                                   const SeismicAttrParams &params,
+                                   const QString &sgyPath, int sampleIndex);
+
+  // 异步时间切片属性扫描：sampleIndex ∈ [0, SampleCount)。outputDir 非空
+  // 时启用同参数去重缓存（命中即回 cacheHit，不重算）。取消/顶替语义同
+  // 切片取数：协作取消逐 inline 生效，取消不产半成品（缓存文件只在全量
+  // 扫描成功后原子落盘）；同体新扫描顶替在途扫描（旧回调静默丢弃）。
+  PaleoTask *startTimeSliceAttribute(
+      std::shared_ptr<const SgyVolume> volume,
+      SeismicAttrKind kind,
+      const SeismicAttrParams &params,
+      int sampleIndex,
+      const QString &outputDir,
+      std::function<void(bool success, const SeismicAttrTimeSliceResult &result)> onFinished);
+
+  // 异步整体属性体扫描：瞬时/时窗族逐道全样计算；相干按 (2·ilHalf+1) 线
+  // 滑窗分块。流式写 SATV（峰值驻留 = 单块 + 滑窗），outputDir 非空时启
+  // 用去重缓存。onFinished 在服务所在线程回调。
+  PaleoTask *startAttributeVolume(
+      std::shared_ptr<const SgyVolume> volume,
+      SeismicAttrKind kind,
+      const SeismicAttrParams &params,
+      const QString &outputDir,
+      std::function<void(bool success, const SeismicAttrVolumeResult &result)> onFinished);
+
+  // 时间切片扫描 → 派生资产 + 层树条目：扫描任务已落 GeoTIFF（缓存命名
+  // <attr>_ts_<hash12>.tif）；此处做 DERIVED 版本登记（父版本 = 源地震
+  // RAW 版本；extra 带 param_hash/cache_hit）并回填 LayerDeclaration
+  // （"seisattr_ts.<attr>.t<idx>"，type raster，group 00_Data——诚实
+  // 栅格 URI）。同 param_hash 版本已存在时复用（不重复登记）。返回产物
+  // 路径（空 = 失败）。
+  static QString registerTimeSliceAttributeAsset(
+      DataCatalog *catalog, const QString &seismicAssetId,
+      const QString &seismicVersionId, SeismicAttrKind kind,
+      const SeismicAttrParams &params,
+      const SeismicAttrTimeSliceResult &result,
+      const QString &sourceSgyPath, const QString &outputDir,
+      QString *error, LayerDeclaration *layerOut = nullptr);
+
+  // 属性体 → 派生资产：SATV 文件登记（format "sattr"，extra volume=true +
+  // param_hash/cache_hit）。同 param_hash 版本已存在时复用。
+  static QString registerAttributeVolumeAsset(
+      DataCatalog *catalog, const QString &seismicAssetId,
+      const QString &seismicVersionId, SeismicAttrKind kind,
+      const SeismicAttrParams &params,
+      const SeismicAttrVolumeResult &result,
+      const QString &sourceSgyPath, QString *error);
+
+  // ---- 3D 体视消费（goal/attr-volume）---------------------------------
+  // SATV → 3D 显示面数据（服务层读 io/sattrio——视图层 io include 白名单
+  // 不含 sattrio，取数归此处）。三中位面按 seismic-3d 三槽切片约定成图：
+  //   inlineSlice  w=nXl h=nS（row0=最深）→ Inline 槽（index=inlineIdx）
+  //   xlineSlice   w=nIl h=nS（row0=最深）→ Crossline 槽（index=xlineIdx）
+  //   timeSlice    w=nXl h=nIl（row0=最大 inline）→ Time 槽（index=sampleIdx）
+  // 另取 kMaxPropertyStackLayers=16 个采样面（extractTimePlanes 单遍块读）
+  // 供体渲染堆叠层（UpdatePropertyStackLayer）。IJK 轴：i=xline、j=inline、
+  // k=采样（PropertyBrickAxes 同约定）。
+  static constexpr int kMaxPropertyStackLayers = 16;
+  struct AttributeVolumePreview
+  {
+    bool ok = false;
+    QString error;
+    int nIl = 0, nXl = 0, nS = 0;
+    SgySliceImage inlineSlice;
+    SgySliceImage xlineSlice;
+    SgySliceImage timeSlice;
+    int inlineIdx = 0, xlineIdx = 0, sampleIdx = 0;
+    int stackLayerCount = 0;                 // 实际层数（≤16；小体按 nS 收缩）
+    SgySliceImage stackLayers[kMaxPropertyStackLayers];
+    int stackKIndexes[kMaxPropertyStackLayers] = {};
+  };
+  static AttributeVolumePreview loadAttributeVolumePreview(const QString &path);
 
 
   // ---- Phase 6 性能与可靠性 ----
@@ -680,6 +813,12 @@ private:
   // shared_ptr，标志置位即静默）。仅服务所在线程访问。
   QHash<QString, QPointer<PaleoTask>> inFlightPropagation_;
   QHash<QString, std::shared_ptr<std::atomic_bool>> propagationSuperseded_;
+
+  // goal/attr-volume — 同体属性扫描顶替（时间切片/属性体共用）：新扫描
+  // 启动即取消旧在途扫描并标记 superseded（旧回调静默丢弃——取消不产
+  // 半成品，缓存文件只在扫描成功后落盘）。仅服务所在线程访问。
+  QHash<QString, QPointer<PaleoTask>> inFlightAttrScans_;
+  QHash<QString, std::shared_ptr<std::atomic_bool>> attrScanSuperseded_;
 };
 
 // D6.4 并发闸：≤4 槽信号量 + 在途计数。shared_ptr 由 worker 携带——

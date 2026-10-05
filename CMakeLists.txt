@@ -467,6 +467,8 @@ add_library(paleo_io STATIC
   src/io/constraintstore.cpp                        # wave/constraint-gpkg
   src/io/wellfileparsers.cpp                        # well head / tops / TD text parsers
   src/io/horizonbinner.cpp                          # horizon scatter -> binned time raster
+  src/io/sattrio.cpp                                # goal/attr-volume：SATR/SATV 属性容器读写
+  src/io/attrgridout.cpp                            # goal/attr-volume：时间切片属性网格 → 地理参考 GeoTIFF
   src/io/timedeptool.cpp                            # TVD/MD -> TIME(ms) interpolation
   src/io/geojsonaffine.cpp                          # D11 临时配准（手工仿射）
   src/io/wellcompositexml.cpp
@@ -772,6 +774,7 @@ add_paleo_test(tst_jobrunner LIBS paleo_services paleo_ui_deps)  # 方向20：Jo
 add_paleo_test(tst_linkage LIBS paleo_linkage)
 add_paleo_test(tst_algorithms LIBS paleo_algorithms paleo_ui_deps)
 add_paleo_test(tst_seismicattr LIBS paleo_algorithms)      # 地震属性核（纯数值，无 QGIS init）
+add_paleo_test(tst_sattrio LIBS paleo_io)                 # goal/attr-volume：SATR/SATV 容器 round-trip
 add_paleo_test(tst_singlefactor_kernel LIBS paleo_algorithms)
 add_paleo_test(tst_wellsiting_kernel LIBS paleo_algorithms)  # 方向34：井网辅助纯核（Oracle 1/3）
 add_paleo_test(tst_singlefactor_corridor LIBS paleo_algorithms)

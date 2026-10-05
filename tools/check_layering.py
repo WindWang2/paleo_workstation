@@ -759,6 +759,10 @@ def main(argv=None):
             if not qgis_include:
                 print("FAIL --qgis-include 需要路径参数", file=sys.stderr)
                 return 2
+            if not os.path.isdir(qgis_include):
+                # 显式指定即显式意图：路径不存在直接红，不静默回退 vendor 默认
+                print(f"FAIL --qgis-include 目录不存在：{qgis_include}", file=sys.stderr)
+                return 2
         elif a in ("-h", "--help"):
             print(__doc__)
             return 0

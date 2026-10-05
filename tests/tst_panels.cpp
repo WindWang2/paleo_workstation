@@ -381,25 +381,26 @@ class TestPanels : public QObject
         attach->click();
         table->findChild<QPushButton *>(QStringLiteral("attachConfirmButton"))->click();
 
-        // attach 后：ast-2 成主关联，ast-1 被降级，note 被清（catalog 语义）。
+        // attach 后（方向 44 挂接契约）：ast-2 挂为成员，ast-1 主不动，
+        // note 被清（catalog 语义）。
         const auto links1 = cat->links();
         QCOMPARE(links1.size(), 2);
-        bool sawAst2Primary = false, sawAst1Demoted = false;
+        bool sawAst2Member = false, sawAst1Primary = false;
         for (const EntityAssetLink &l : links1)
         {
           if (l.assetId == QLatin1String("ast-2"))
           {
             QVERIFY(!l.unresolved);
-            QVERIFY(l.isPrimary);
-            sawAst2Primary = true;
+            QVERIFY(!l.isPrimary); // 挂接不夺主
+            sawAst2Member = true;
           }
           if (l.assetId == QLatin1String("ast-1"))
           {
-            QVERIFY(!l.isPrimary); // 降级
-            sawAst1Demoted = true;
+            QVERIFY(l.isPrimary); // 主不动
+            sawAst1Primary = true;
           }
         }
-        QVERIFY(sawAst2Primary && sawAst1Demoted);
+        QVERIFY(sawAst2Member && sawAst1Primary);
       } // svc 析构——会话状态全部消失
 
       // 新会话：同工程目录重新打开。撤销入口靠 vault 存活。
@@ -425,7 +426,7 @@ class TestPanels : public QObject
         }
         if (l.assetId == QLatin1String("ast-1"))
         {
-          QVERIFY2(l.isPrimary, "undo must restore the demoted primary (D4)");
+          QVERIFY2(l.isPrimary, "primary must stay primary through attach+undo");
           sawRestoredPrimary = true;
         }
       }
@@ -1996,13 +1997,13 @@ class TestPanels : public QObject
       QVERIFY(roleTable->item(2, 1)->text().contains(QStringLiteral("ast-pend")));
       QCOMPARE(roleTable->item(2, 3)->text(), QString::fromUtf8("未决关联"));
 
-      // 挂接待定链接（catalog 变更）→ changed() 通路重取：新主关联是
-      // ast-pend，旧主关联单独成行，未决行消失。
+      // 挂接待定链接（catalog 变更）→ changed() 通路重取：方向 44 挂接契约
+      // ——ast-pend 挂为成员，ast-main 仍是主关联（挂接不夺主），未决行消失。
       QVERIFY(cat->attachLink(1, QStringLiteral("well-1")));
       page.refreshAssetTable();
-      QVERIFY(roleTable->item(1, 1)->text().contains(QStringLiteral("pend")));
+      QVERIFY(roleTable->item(1, 1)->text().contains(QStringLiteral("main")));
       QVERIFY(roleTable->item(1, 1)->text().contains(QString::fromUtf8("主文件")));
-      QVERIFY(roleTable->item(2, 1)->text().contains(QStringLiteral("main")));
+      QVERIFY(roleTable->item(2, 1)->text().contains(QStringLiteral("pend")));
       QVERIFY(roleTable->item(2, 1)->text().contains(QString::fromUtf8("成员")));
       QCOMPARE(roleTable->item(1, 3)->text(), QStringLiteral("—"));
     }

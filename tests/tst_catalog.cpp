@@ -647,11 +647,28 @@ void TestCatalog::attachLinkResolvesUnresolvedAndDemotes()
   QCOMPARE(links.size(), 2);
   QVERIFY(!links.at(0).unresolved);
   QCOMPARE(links.at(0).entityId, QStringLiteral("well-G9"));
-  QVERIFY(links.at(0).isPrimary);
   QVERIFY(links.at(0).note.isEmpty());
-  QVERIFY(!links.at(1).isPrimary); // 同实体同角色的旧主关联降级
+  // 方向 44 挂接契约（收口）：主文件只由显式操作变更——目标已有主关联时
+  // 挂接为成员，不夺主；现任主保持。
+  QVERIFY(!links.at(0).isPrimary);
+  QVERIFY(links.at(1).isPrimary);
 
   QVERIFY(!cat.attachLink(0, QStringLiteral("well-G9"), &err)); // 已决不能再挂
+
+  // 显式夺主唯一入口：setLinkPrimary（「设为主文件」）
+  QVERIFY(cat.setLinkPrimary(0, &err));
+  const auto promoted = cat.links();
+  QVERIFY(promoted.at(0).isPrimary);
+  QVERIFY(!promoted.at(1).isPrimary);
+
+  // 无主才补主：主关联解挂 → 无主 → 挂接补主；主仍在 → 挂接为成员
+  QVERIFY(cat.setLinkUnresolved(0, &err));
+  QVERIFY(cat.attachLink(0, QStringLiteral("well-G9"), &err));
+  QVERIFY(cat.links().at(0).isPrimary); // 无主 → 挂接补主
+  QVERIFY(cat.setLinkUnresolved(1, &err));
+  QVERIFY(cat.attachLink(1, QStringLiteral("well-G9"), &err));
+  QVERIFY(!cat.links().at(1).isPrimary); // ast-1 仍是主——有主不夺
+  QVERIFY(cat.links().at(0).isPrimary);
 
   // 往返后仍是已决
   DataCatalog reloaded;

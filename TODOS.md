@@ -57,11 +57,17 @@
 - **Priority:** P2
 - **Depends on:** 单因素原生 P0 分析场进入目标基线
 
-## P3 — 多文件井曲线其余读口（from goal/well-logset, 2026-10-02）
+## P3 — 多文件井曲线其余读口（from goal/well-logset, 2026-10-02；方向 44 已结）
 
-- **What:** 并集读面已接到岩石物理、属性建模、剖面井轨、交会清单和测井综合图。
-  相关对比与成图工作台仍按单资产或「有没有 well_log」。DLIS/LIS/BE 不读。
-  非驱动文件只做线性重采样，不做 MD/TVD 对齐。`attachLink` 仍把新挂链接升主。
+- **What:** ~~DLIS/LIS/BE 不读；非驱动文件只做线性重采样不做 MD/TVD 对齐；
+  `attachLink` 仍把新挂链接升主。~~（2026-10-05 方向 44 对账：DLIS/LIS 读口
+  已实装——io/dlisparser + io/lisparser + io/welllogread 分派，RP66/LIS79
+  逐条对账见 .goal-loop-ledger-welllog-fmt.md；MD/TVD 深度基准对齐落
+  petrophys 并集（时深表逆插值 +「线性重采样」口径 notes 不冒充已对齐）；
+  attachLink 收口为「挂接不夺主，显式夺主唯一入口 setLinkPrimary」。递延：
+  LIS 快道/多维通道展开、TVD↔MD 测斜反推、BE（查无公开规范待样件）——
+  docs/progress/welllog-multiformat.md「递延」。）原 What 其余部分（相关对比
+  与成图工作台仍按单资产）不变。
 - **Why:** 本方向锁的是 LAS 已决链接的并集和导入序，不改 catalog 格式，也不改挂接不变量。
 - **Pros:** 第二份 LAS 的曲线能进计算和综合图；**Cons:** 走挂接而不是导入时主文件会换。
 - **Context:** docs/progress/well-logset.md「递延」。
@@ -69,18 +75,26 @@
 - **Priority:** P3
 - **Depends on:** goal/well-logset 的 `WellLogSet` 读面
 
-## P3 — 地层格架后续：断块网格 / 随机模拟（from goal/property-modeling, 2026-10-02）
+## P3 — 地层格架后续：断块网格 / 随机模拟（from goal/property-modeling, 2026-10-02；方向 45 已消化大部分）
 
 - **What:** V1 只做等比例 IJK 格架 + 井曲线粗化 + 断层竖帘阻断的 IDW。
-  未做 pillar/断块错位网格、Y 型断层、沉积相带/对象建模、序贯高斯模拟，
-  也未做变差函数克里金。壳层「属性建模」dock 已接并进入 master。
-- **Why:** 断块网格和随机模拟是另一立项。斜井测斜表、断层棒投影也未做。
-- **Pros:** 等比例格架和 IDW 已能出 DERIVED 属性体；**Cons:** 斜井轨迹、
-  断距错位和相控仍要另做。
+  **方向 45（goal/prop-model-v2, 2026-10-05）已落**：断距矢量 z 向断块错位
+  （faultoffset）、序贯高斯充填接入 IJK 格架（geostat::sgs3 三维点集入口 +
+  stratgrid::sgsfill 编排）、相带分区参数域（facies_draft_map 栅格化）、
+  河道/点坝对象建模最小骨架（对象优先硬覆盖）、多 realization 各落独立
+  DERIVED 版本、竖直近似显式口径。斜井测斜表消费已由方向 19 落地。
+- **仍递延：** Y 型断层分叉成面（依赖方向 40，数据模型已打底）、断距的
+  heave（x/y 向水平错动——破坏规则柱假设）、深度变化断距（生长断层）、
+  pillar 网格本体、带内变差拟合、对象-河道耦合点坝与多对象谱系、
+  多实现的逐条流式序列化（当前 R 份体+R 份 blob 峰值驻留）。
+- **Why:** 剩余项是另一立项量级；本轮口径见 ledger
+  `.goal-loop-ledger-prop-model-v2.md` 与 docs/progress/property-modeling.md V2 节。
+- **Pros:** 错位网格 + SGS/相控/对象已能出多实现属性体；**Cons:** Y 型与
+  heave 错位仍要另做。
 - **Context:** docs/progress/property-modeling.md「递延」。
 - **Effort:** human: L / CC: L
 - **Priority:** P3
-- **Depends on:** goal/property-modeling 的格架核与属性体容器
+- **Depends on:** goal/property-modeling 的格架核与属性体容器、goal/geostat 的变差/SGS 核
 
 ## P3 — 层位自动追踪 3D 服务暴露 + 显式倾角引导（from goal/horizon-autotrack, 2026-10-02）
 

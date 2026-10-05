@@ -4,6 +4,7 @@
 #include "shacache.h"
 
 #include "lasparser.h"
+#include "welllogread.h" // 方向44：井名提取分派
 #include "../domain/projectclassifier.h"
 #include "wellfileparsers.h"
 #include "../metadata/paleoprojectfile.h"
@@ -384,8 +385,9 @@ namespace
   void proposeWellLog(PlannedItem &item, const IngestCatalogSource &catalog)
   {
     QString wellName;
-    if (item.format == QLatin1String("las"))
-      LasParser::readWellInfo(item.path, wellName);
+    if (item.format == QLatin1String("las") || item.format == QLatin1String("dlis") ||
+        item.format == QLatin1String("lis"))
+      WellLogRead::readWellInfo(item.path, wellName);
     proposeWell(item, {wellName, fileStem(item.path)}, catalog);
   }
 

@@ -78,6 +78,12 @@ bool fillIdw(const ZoneGrid &grid, const std::vector<Seed> &seeds,
 // 粗化表 → 种子（无值或没有代表柱的层跳过）。
 std::vector<Seed> seedsFromUpscale(const UpscaleTable &table);
 
+// 竖帘分块：活柱 4 连通 flood，柱心连线被任一断层段严格截断则不连通。
+// fillIdw 与 SGS 分块条件（goal/prop-model-v2）共用的同一机制——单一口径，
+// 不双轨。columnBlock 尺寸 ni*nj（死柱 = -1）。
+void assignColumnBlocks(const ZoneGrid &grid, const std::vector<FaultSegment> &faults,
+                        std::vector<int> *columnBlock, int *blockCount);
+
 // 剖面投影：每个采样点 (trace, sample) 用该道的地图 (x,y) 与 z=z0+sample*dz
 // 反查 IJK，取出属性。落在死柱 / 层段外 → NaN。
 // out 布局与剖面画布一致：行 = 采样（y），列 = 道（x），下标 sample*nTraces+trace。

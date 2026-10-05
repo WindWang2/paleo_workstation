@@ -2,6 +2,7 @@
 #include "lascache.h"
 
 #include "pathcanon.h"
+#include "welllogread.h" // 方向44：LAS/DLIS/LIS 分派
 
 #include <QCryptographicHash>
 #include <QDateTime>
@@ -248,7 +249,7 @@ LasDoc LasCache::load(const QString &path, QList<LasIssue> *issues)
         }
         QElapsedTimer parseTimer;
         parseTimer.start();
-        LasDoc doc = LasParser::parseDoc(path, issues);
+        LasDoc doc = WellLogRead::parseDoc(path, issues); // 方向44：格式分派
         m_timings.coldParseNs = parseTimer.nsecsElapsed();
         if (!doc.ok)
           return nullptr;

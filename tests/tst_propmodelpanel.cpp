@@ -1,7 +1,10 @@
 // 层：测试壳
 #include <QtTest>
 #include <QApplication>
+#include <QCheckBox>
 #include <QComboBox>
+#include <QDoubleSpinBox>
+#include <QGroupBox>
 #include <QLabel>
 #include <QLineEdit>
 #include <QOffscreenSurface>
@@ -21,6 +24,7 @@
 #include "../src/ui/seismicsection/seismicsectioncanvas.h"
 
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <vector>
 
@@ -104,6 +108,8 @@ private slots:
   void zoneOverlayNanIsTransparent();
   void viewportQueuesPropertySlice();
   void propertySliceUploadsOnGl();
+  void v2MethodSgsAndObjectControls();
+  void caliberNoteLabel();
 };
 
 void TestPropModelPanel::intentAndBusyGate()
@@ -302,6 +308,75 @@ void TestPropModelPanel::propertySliceUploadsOnGl()
   }
   QVERIFY2(lit > 20, qPrintable(QStringLiteral("property slice pixels=%1").arg(lit)));
   renderer.Cleanup(&gl);
+}
+
+// 方向 45：V2 参数控件——方法切换/SGS 组使能/对象组/种子 mono 输入。
+void TestPropModelPanel::v2MethodSgsAndObjectControls()
+{
+  PropertyModelPanel panel;
+  QCOMPARE(panel.method(), 0);
+  QCOMPARE(panel.realizations(), 1);
+  QCOMPARE(panel.seed(), std::uint64_t(42));
+  QCOMPARE(panel.objectSeed(), std::uint64_t(43));
+  QVERIFY(!panel.faciesEnabled());
+  QVERIFY(!panel.objectEnabled());
+  QCOMPARE(panel.variogramType(), 0);
+  QCOMPARE(panel.sill(), 1.0);
+  QCOMPARE(panel.rangeMeters(), 500.0);
+  QCOMPARE(panel.verticalRangeRatio(), 5.0);
+
+  auto *sgsGroup = panel.findChild<QGroupBox *>(QStringLiteral("propSgsGroup"));
+  auto *power = panel.findChild<QDoubleSpinBox *>(QStringLiteral("propPowerSpin"));
+  auto *method = panel.findChild<QComboBox *>(QStringLiteral("propMethodCombo"));
+  auto *objectGroup = panel.findChild<QGroupBox *>(QStringLiteral("propObjectGroup"));
+  QVERIFY(sgsGroup && power && method && objectGroup);
+  QVERIFY(!sgsGroup->isEnabled()); // IDW 时 SGS 参数不可用
+  QVERIFY(power->isEnabled());
+
+  method->setCurrentIndex(1); // 序贯高斯
+  QVERIFY(sgsGroup->isEnabled());
+  QVERIFY(!power->isEnabled()); // IDW 幂在 SGS 方法下无意义
+  QCOMPARE(panel.method(), 1);
+
+  panel.findChild<QSpinBox *>(QStringLiteral("propRealizationsSpin"))->setValue(8);
+  panel.findChild<QLineEdit *>(QStringLiteral("propSeedEdit"))->setText(QStringLiteral("20261005"));
+  QCOMPARE(panel.realizations(), 8);
+  QCOMPARE(panel.seed(), std::uint64_t(20261005));
+
+  objectGroup->setChecked(true);
+  QVERIFY(panel.objectEnabled());
+  panel.findChild<QComboBox *>(QStringLiteral("propObjectTypeCombo"))
+      ->setCurrentIndex(1); // 点坝
+  panel.findChild<QDoubleSpinBox *>(QStringLiteral("propObjectWidthSpin"))->setValue(320.0);
+  panel.findChild<QSpinBox *>(QStringLiteral("propObjectCountSpin"))->setValue(3);
+  QCOMPARE(panel.objectType(), 1);
+  QCOMPARE(panel.objectWidthMeters(), 320.0);
+  QCOMPARE(panel.objectCount(), 3);
+
+  auto *facies = panel.findChild<QCheckBox *>(QStringLiteral("propFaciesCheck"));
+  facies->setChecked(true);
+  QVERIFY(panel.faciesEnabled());
+
+  // busy 门控照旧覆盖新控件
+  panel.setBusy(true);
+  QVERIFY(!sgsGroup->isEnabled());
+  QVERIFY(!objectGroup->isEnabled());
+  QVERIFY(!facies->isEnabled());
+  panel.setBusy(false);
+}
+
+// 口径标签：编排层回写 → 显示；清空 → 隐藏（诚实口径的呈现面）。
+void TestPropModelPanel::caliberNoteLabel()
+{
+  PropertyModelPanel panel;
+  auto *caliber = panel.findChild<QLabel *>(QStringLiteral("propCaliberLabel"));
+  QVERIFY(caliber);
+  QVERIFY(!caliber->isVisible());
+  panel.setCaliberNote(QStringLiteral("2/2 井真实轨迹（余为竖直近似）"));
+  QVERIFY(caliber->isVisibleTo(&panel));
+  QCOMPARE(panel.caliberNote(), QStringLiteral("2/2 井真实轨迹（余为竖直近似）"));
+  panel.setCaliberNote(QString());
+  QVERIFY(!caliber->isVisibleTo(&panel));
 }
 
 QTEST_MAIN(TestPropModelPanel)

@@ -76,6 +76,60 @@ namespace TimeDepthTool
     return out;
   }
 
+  TdDepthResult interpolateDepthAtTimeMs(const TimeDepthTable &td,
+                                         double timeMs, bool preferMd)
+  {
+    // (time, depth) 对：沿用 collectKeys 的行过滤与文件顺序契约
+    struct TDrow
+    {
+      double t = 0.0, d = 0.0;
+    };
+    QVector<TDrow> rows;
+    rows.reserve(td.rows.size());
+    for (const TdRow &r : td.rows)
+    {
+      const double d = preferMd ? r.md : r.tvd;
+      if ((preferMd ? !r.hasMd : !r.hasTvd) || !std::isfinite(d) ||
+          !std::isfinite(r.timeMs) || r.timeMs <= kNullSentinel + 0.5)
+        continue;
+      rows.append({r.timeMs, d});
+    }
+    TdDepthResult out;
+    if (rows.size() < 2)
+    {
+      out.status = TdStatus::NoTable;
+      return out;
+    }
+    for (int i = 1; i < rows.size(); ++i)
+    {
+      if (!(rows.at(i).t > rows.at(i - 1).t))
+      {
+        out.status = TdStatus::NonMonotonic;
+        return out;
+      }
+    }
+    if (!(timeMs >= rows.first().t && timeMs <= rows.last().t))
+    {
+      out.status = TdStatus::OutOfRange;
+      return out;
+    }
+    for (int i = 1; i < rows.size(); ++i)
+    {
+      if (rows.at(i).t >= timeMs)
+      {
+        const TDrow &a = rows.at(i - 1);
+        const TDrow &b = rows.at(i);
+        const double f = (timeMs - a.t) / (b.t - a.t);
+        out.depth = a.d + f * (b.d - a.d);
+        out.status = TdStatus::Ok;
+        return out;
+      }
+    }
+    out.depth = rows.last().d;
+    out.status = TdStatus::Ok;
+    return out;
+  }
+
   QString reasonText(TdStatus status)
   {
     switch (status)

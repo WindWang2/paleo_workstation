@@ -7,6 +7,7 @@
 #include "../io/geojsonaffine.h"
 #include "../io/lascache.h"
 #include "../io/lasparser.h"
+#include "../io/welllogread.h" // 方向44：格式分派
 #include "../io/segyreader.h"
 #include "../io/streaming.h" // F3：GeoJSON 流式统计（无 DOM 增量扫描）
 #include "../io/timedeptool.h"
@@ -252,7 +253,7 @@ bool PreviewDocService::lasHeaderAt(const QString &absPath, LasHeaderInfo *out,
                                     QString *error)
 {
   LasHeaderInfo info;
-  if (!LasParser::parseHeader(absPath, info, error))
+  if (!WellLogRead::parseHeader(absPath, info, error))
     return false;
   if (out)
     *out = info;

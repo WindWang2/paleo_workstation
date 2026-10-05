@@ -408,7 +408,8 @@ class PaleoMainWindow : public SARibbonMainWindow
     bool m_propModelCancel = false;
     // #85：计算段在任务池 worker 上跑；交接体由 worker 写、finished 回包（GUI）
     // 读。task 是 PaleoTaskService 持有的对象，QPointer 防服务先析构。
-    PropertyModelWorkflow::PropertyModelComputed m_propModelComputed;
+    // V2（goal/prop-model-v2）：SGS 多实现 → list（每实现一项；呈现取首实现）。
+    PropertyModelWorkflow::PropertyModelComputedList m_propModelComputed;
     QPointer<PaleoTask> m_propModelTask;
     // 方向20：属性建模改由统一 JobRunner 编排（忙则拒绝/取消传播/commit 强制
     // owner 线程都由框架承担）。job 用 shared_ptr 与 commit 段共享同一份交接体

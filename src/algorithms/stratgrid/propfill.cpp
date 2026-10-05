@@ -194,6 +194,14 @@ void trackRange(float v, bool *any, float *vmin, float *vmax)
 
 } // namespace
 
+void assignColumnBlocks(const ZoneGrid &grid, const std::vector<FaultSegment> &faults,
+                        std::vector<int> *columnBlock, int *blockCount)
+{
+  if (!columnBlock || !blockCount)
+    return;
+  assignBlocks(grid, faults, columnBlock, blockCount);
+}
+
 std::vector<Seed> seedsFromUpscale(const UpscaleTable &table)
 {
   std::vector<Seed> seeds;

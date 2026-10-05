@@ -13,6 +13,7 @@
 #include "horizonbinner.h"
 #include "ingestplan.h"
 #include "lasparser.h"
+#include "welllogread.h" // 方向44：井名提取分派
 #include "../domain/projectclassifier.h"
 #include "segyreader.h"
 #include "wellcompositexml.h"
@@ -1168,8 +1169,16 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
     // LAS 先读 ~W 的 WELL；XML 测井/读不到时用文件名主名。
     // （D12：UWI 回退已随 uwi/aliases 字段剥离——井身份只走 name。）
     QString wellName;
-    if (cls.format == QLatin1String("las"))
-      LasParser::readWellInfo(sourcePath, wellName);
+    QString parseNote;
+    if (cls.format == QLatin1String("las") || cls.format == QLatin1String("dlis") ||
+        cls.format == QLatin1String("lis"))
+    {
+      // 方向44 诚实面：井名提取失败（截断/坏段）逐条给因——进链接 note，
+      // 未决链接的 note 会带进导入台账行，零静默。
+      QString werr;
+      if (!WellLogRead::readWellInfo(sourcePath, wellName, &werr))
+        parseNote = QStringLiteral("测井头解析失败：%1").arg(werr);
+    }
     QStringList tried{wellName};
     WellBind bind = resolveWell(cat, wellName);
     if (bind.unresolved && bind.candidates.isEmpty())
@@ -1195,6 +1204,8 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
                       ? candidatesNote(cat, bind.candidates)
                       : unmatchedNameNote(tried);
     }
+    if (!parseNote.isEmpty())
+      link.note = parseNote + (link.note.isEmpty() ? QString() : QStringLiteral("；") + link.note);
     if (!cat->addLink(link, error))
       return fail(*error);
   }
@@ -2010,8 +2021,9 @@ int DataImportService::attachResolvableLinks(DataCatalog *cat, const CatalogAsse
   if (asset.type == QLatin1String("well_log"))
   {
     QString wellName;
-    if (asset.format == QLatin1String("las"))
-      LasParser::readWellInfo(sourcePath, wellName);
+    if (asset.format == QLatin1String("las") || asset.format == QLatin1String("dlis") ||
+        asset.format == QLatin1String("lis"))
+      WellLogRead::readWellInfo(sourcePath, wellName); // 失败如实：井名空走候选
     namesPerLink.append({wellName, stem}); // ~W WELL → 文件名主名（D12：UWI 层已删）
   }
   else if (asset.type == QLatin1String("well_stratification"))

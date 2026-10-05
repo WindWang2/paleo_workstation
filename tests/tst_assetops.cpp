@@ -390,6 +390,92 @@ private slots:
     for (const PendingProposal &p : props2)
       QVERIFY(p.assetId != QStringLiteral("pd"));
   }
+
+  // 方向 44 挂接契约（收口）：applyPendingResolutions 的「有主不夺」分支。
+  // 契约底层已由 attachLink 自身保证（挂接不夺主）——本用例钉工作流层语义：
+  // 目标井已有主关联时不再归位该链接（提议面跳过），即使归位也不会换主。
+  void pendingResolutionNeverStealsPrimary()
+  {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    QDir dir(tmp.path());
+    DataCatalog cat;
+    QString err;
+    QVERIFY(cat.open(dir.absolutePath(), &err));
+
+    CatalogEntity w;
+    w.id = QStringLiteral("w1");
+    w.entityType = QStringLiteral("well");
+    w.name = QStringLiteral("A1");
+    QVERIFY(cat.addEntity(w, &err));
+
+    auto addLog = [&](const QString &id, const QString &file, bool primary,
+                      const QString &note) {
+      CatalogAsset a;
+      a.id = id;
+      a.type = QStringLiteral("well_log");
+      a.displayName = file;
+      QVERIFY(cat.addAsset(a, &err));
+      CatalogVersion v;
+      v.id = id + QStringLiteral("-v");
+      v.assetId = id;
+      v.stage = QStringLiteral("RAW");
+      v.versionNumber = 1;
+      v.managed = false;
+      v.fileName = file;
+      QVERIFY(cat.addVersion(v, &err));
+      EntityAssetLink l;
+      l.entityType = QStringLiteral("well");
+      l.assetId = id;
+      l.role = QStringLiteral("well_log");
+      if (primary)
+      {
+        l.entityId = QStringLiteral("w1");
+        l.isPrimary = true;
+      }
+      else
+      {
+        l.unresolved = true;
+        l.note = note;
+      }
+      QVERIFY(cat.addLink(l, &err));
+    };
+
+    // 主文件已挂；另一未决链接的 note 记 A1（唯一匹配 w1）——但主位已占。
+    addLog(QStringLiteral("prim"), QStringLiteral("A1.Las"), true, QString());
+    addLog(QStringLiteral("pend"), QStringLiteral("B2.Las"), false,
+           QStringLiteral("未匹配井名: A1"));
+
+    // 提议面：proposablePendingLinks 对「目标已有主关联」的未决链接不提议
+    const auto pending = cat.unresolvedLinks();
+    QCOMPARE(pending.size(), 1);
+    const QVector<paleo::assetops::PendingProposal> props =
+        paleo::assetops::proposablePendingLinks(&cat);
+    for (const paleo::assetops::PendingProposal &p : props)
+      QVERIFY(p.assetId != QLatin1String("pend"));
+
+    // 执行面：即使直接归位（越过提议面），attachLink 也不夺主（方向 44 契约）
+    int pendIdx = -1;
+    const auto links = cat.links();
+    for (int i = 0; i < links.size(); ++i)
+      if (links.at(i).unresolved)
+        pendIdx = i;
+    QVERIFY(pendIdx >= 0);
+    QString aerr;
+    QVERIFY(cat.attachLink(pendIdx, QStringLiteral("w1"), &aerr));
+    const auto after = cat.links();
+    bool sawPrimaryPrim = false;
+    bool sawMemberPend = false;
+    for (const EntityAssetLink &l : after)
+    {
+      if (l.assetId == QLatin1String("prim") && l.isPrimary)
+        sawPrimaryPrim = true;
+      if (l.assetId == QLatin1String("pend") && !l.isPrimary && !l.unresolved)
+        sawMemberPend = true;
+    }
+    QVERIFY(sawPrimaryPrim); // 主文件不动
+    QVERIFY(sawMemberPend);  // 新挂链接为成员
+  }
 };
 
 QTEST_MAIN(TestAssetOps)

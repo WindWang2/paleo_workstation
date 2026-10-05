@@ -2,7 +2,8 @@
 #include "welllogset.h"
 
 #include "catalog/datacatalog.h"
-#include "io/lasparser.h"
+#include "io/timedeptool.h"     // 方向44：TIME 基准逆插值
+#include "io/welllogread.h"     // 方向44：LAS/DLIS/LIS 统一分派（无感格式差异）
 
 #include <QFileInfo>
 #include <QHash>
@@ -167,7 +168,7 @@ namespace
       }
       LasHeaderInfo header;
       QString error;
-      if (!LasParser::parseHeader(path, header, &error))
+      if (!WellLogRead::parseHeader(path, header, &error))
       {
         addWarning(warnings, QStringLiteral("%1: %2").arg(path, error));
         continue;
@@ -179,6 +180,8 @@ namespace
       row.file.isPrimary = link.isPrimary;
       row.file.ordinal = link.ordinal;
       row.file.curveNames = header.curveNames;
+      row.file.indexBasis = header.indexBasis;
+      row.file.format = WellLogRead::formatTag(WellLogRead::detect(path));
       row.versionNumber = version.versionNumber;
       rows.append(row);
     }
@@ -195,6 +198,31 @@ namespace
     for (const Row &row : rows)
       out.files.append(row.file);
     out.items = itemsFromFiles(out.files, warnings);
+
+    // 方向44：基准不一致的事实告警（对齐动作在并集消费侧——petrophys 合并
+    // 会用井的时深表做 TIME→深度；这里只陈述口径，不冒充已对齐）。
+    QString refBasis;
+    for (const WellLogFile &file : out.files)
+    {
+      if (file.isPrimary && !file.indexBasis.isEmpty())
+      {
+        refBasis = file.indexBasis;
+        break;
+      }
+    }
+    if (refBasis.isEmpty() && !out.files.isEmpty())
+      refBasis = out.files.first().indexBasis;
+    if (!refBasis.isEmpty())
+    {
+      for (const WellLogFile &file : out.files)
+      {
+        if (!file.indexBasis.isEmpty() && file.indexBasis != refBasis)
+          addWarning(warnings,
+                     QStringLiteral("%1: 深度基准 %2 与主基准 %3 不一致——"
+                                    "并集按线性重采样（可对齐时消费侧用时深表）")
+                         .arg(file.path, file.indexBasis, refBasis));
+      }
+    }
     return out;
   }
 
@@ -257,7 +285,7 @@ bool WellLogSet::readCurveTvd(const WellCurveRef &ref,
   QStringList names;
   QList<LasCurve> curves;
   QString perr;
-  if (!LasParser::parse(ref.path, names, curves, &perr))
+  if (!WellLogRead::parseCurves(ref.path, names, curves, &perr))
   {
     if (error)
       *error = QStringLiteral("%1: %2").arg(ref.path, perr);
@@ -304,6 +332,59 @@ bool WellLogSet::readCurveTvd(const WellCurveRef &ref,
     if (error)
       *error = QStringLiteral("%1: 无有限深度样本").arg(ref.path);
     return false;
+  }
+  return true;
+}
+
+bool WellLogSet::timeIndexToDepth(QVector<double> *indexValues,
+                                  const QString &indexUnit,
+                                  const TimeDepthTable &td, bool preferMd,
+                                  QString *error)
+{
+  if (error)
+    error->clear();
+  if (!indexValues || indexValues->isEmpty())
+  {
+    if (error)
+      *error = QStringLiteral("索引道为空");
+    return false;
+  }
+  // 时间单位归一到 ms：s ×1000；ms 原样；其余单位不猜（如实报错）
+  const QString u = indexUnit.trimmed().toLower();
+  double toMs = 1.0;
+  if (u == QLatin1String("s") || u == QLatin1String("sec") ||
+      u == QLatin1String("seconds"))
+    toMs = 1000.0;
+  else if (u != QLatin1String("ms"))
+  {
+    // 未知/缺失单位不猜（空单位也不冒充 ms）——诚实拒绝
+    if (error)
+      *error = QStringLiteral("时间索引单位未知（%1），不猜折算")
+                   .arg(indexUnit.isEmpty() ? QStringLiteral("<空>") : indexUnit);
+    return false;
+  }
+  // 表可用性先验（NoTable/NonMonotonic 在范围判定之前，NaN 探针可区分）；
+  // 失败时 indexValues 原样不动（头注释契约）
+  const TimeDepthTool::TdDepthResult probe =
+      TimeDepthTool::interpolateDepthAtTimeMs(td, qQNaN(), preferMd);
+  if (probe.status == TimeDepthTool::TdStatus::NoTable ||
+      probe.status == TimeDepthTool::TdStatus::NonMonotonic)
+  {
+    if (error)
+      *error = QStringLiteral("时深表不可用：%1")
+                   .arg(TimeDepthTool::reasonText(probe.status));
+    return false;
+  }
+  for (double &t : *indexValues)
+  {
+    if (!std::isfinite(t))
+      continue;
+    const TimeDepthTool::TdDepthResult r =
+        TimeDepthTool::interpolateDepthAtTimeMs(td, t * toMs, preferMd);
+    if (r.ok())
+      t = r.depth;
+    else
+      t = std::numeric_limits<double>::quiet_NaN(); // 超表：不外推，按缺失
   }
   return true;
 }

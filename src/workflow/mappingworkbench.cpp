@@ -1,11 +1,12 @@
 // 层：功能
-#include "../qgis/layervocabulary.h"
 #include "mappingworkbench.h"
 #include "../domain/faciescatalog.h"
 #include "../domain/mappinghorizons.h"
 #include "../domain/singlefactorrequest.h"
 #include "../io/constraintstore.h"
+#include "../qgis/facieshierarchyrenderer.h"
 #include "../qgis/factorstylewriter.h"
+#include "../qgis/layervocabulary.h"
 #include "../qgis/mappingartifactwriter.h"
 #include "../qgis/qgislayerservice.h"
 #include "../qgis/qgisprocessingservice.h"
@@ -30,9 +31,9 @@
 #include <qgscoordinatereferencesystem.h>
 #include <qgsgeometry.h>
 #include <qgsmaplayer.h>
-#include <qgsunittypes.h>
 #include <qgsproject.h>
 #include <qgsrasterlayer.h>
+#include <qgsunittypes.h>
 #include <qgsvectorlayer.h>
 
 namespace {
@@ -740,6 +741,8 @@ QString MappingWorkbench::copyForEditing(const QString &id,
       {"working_path", relative},
       {"facies", source.extra.value("facies", facies(d.horizon))},
       {"reference_layers", references},
+      {"display_mode", displayMode(id)},
+      {"hierarchy_model", "shared-polygon-partition-v1"},
       {"mock", source.extra.value("mock")},
       {"method", "manual-edit-copy"}};
   const auto editTitle = layer->fields().indexOf("facies_intervals") >= 0
@@ -775,6 +778,8 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
     fail(error, tr("请先点击“保存编辑”提交当前编辑，再保存图件版本"));
     return false;
   }
+  if (!FaciesHierarchyRenderer::validateTopology(layer, error))
+    return false;
   const auto previous = versionForLayer(id);
   if (previous.id.isEmpty()) {
     fail(error, tr("找不到编辑副本的来源版本"));
@@ -799,13 +804,31 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
     return false;
   auto extra = previous.extra;
   extra.insert("method", "manual-edit-save");
+  extra.insert("display_mode", displayMode(id));
+  extra.insert("hierarchy_model", "shared-polygon-partition-v1");
+  QStringList evidenceParents{previous.id};
+  auto evidenceFeatures = layer->getFeatures();
+  QgsFeature evidenceFeature;
+  while (evidenceFeatures.nextFeature(evidenceFeature)) {
+    if (layer->fields().indexOf("facies_evidence") < 0)
+      break;
+    for (const auto &entry :
+         QJsonDocument::fromJson(
+             evidenceFeature.attribute("facies_evidence").toString().toUtf8())
+             .toVariant()
+             .toList()) {
+      const auto source = entry.toMap().value("source_version").toString();
+      if (!source.isEmpty() && !evidenceParents.contains(source))
+        evidenceParents << source;
+    }
+  }
   const auto snapshotPath = m_dir + "/artifacts/staging/" + uid() + ".gpkg";
   if (!MappingArtifactWriter::vectorSnapshot(layer, snapshotPath, error))
     return false;
   const auto output =
       record(snapshotPath, d.horizon, "edited_facies",
-             previous.extra.value("title").toString(), "vector", {previous.id},
-             extra, error, "|layername=features", id);
+             previous.extra.value("title").toString(), "vector",
+             evidenceParents, extra, error, "|layername=features", id);
   return !output.isEmpty();
 }
 QString MappingWorkbench::snapshotConstraints(const QString &h,
@@ -1086,14 +1109,38 @@ void MappingWorkbench::styleLayer(const QString &id) {
       paleo::singlefactor::rejectsQuantitativeUse(styledKind, styledSource);
   if (auto *vector = qobject_cast<QgsVectorLayer *>(layer)) {
     vector->setReadOnly(!id.startsWith("draft."));
+    if (!vector->property("faciesSelectionAttached").toBool()) {
+      vector->setProperty("faciesSelectionAttached", true);
+      connect(vector, &QgsVectorLayer::selectionChanged, this,
+              [this, id] { emit displayChanged(id); });
+    }
     if (id.startsWith("draft.") &&
         !vector->property("faciesSyncAttached").toBool()) {
       vector->setProperty("faciesSyncAttached", true);
+      vector->setCustomProperty("paleo/requireFaciesTopology",
+                                vector->geometryType() ==
+                                    Qgis::GeometryType::Polygon);
+      connect(vector, &QgsVectorLayer::editCommandEnded, this, [this, id] {
+        styleLayer(id);
+        emit displayChanged(id);
+      });
+      connect(vector, &QgsVectorLayer::afterRollBack, this, [this, id] {
+        styleLayer(id);
+        emit displayChanged(id);
+      });
+      FaciesHierarchyRenderer::watchUndo(vector, this, [this, id] {
+        if (m_layers->layer(id)) {
+          styleLayer(id);
+          emit displayChanged(id);
+        }
+      });
       connect(vector, &QgsVectorLayer::beforeCommitChanges, this,
               [this, vector, schema = v.extra.value("facies").toList()] {
                 QString error;
-                const bool ok = MappingArtifactWriter::syncFaciesAttributes(
-                    vector, schema, &error);
+                const bool ok =
+                    FaciesHierarchyRenderer::validateTopology(vector, &error) &&
+                    MappingArtifactWriter::syncFaciesAttributes(vector, schema,
+                                                                &error);
                 vector->setAllowCommit(ok);
                 if (!ok)
                   emit errorOccurred(error);
@@ -1113,8 +1160,11 @@ void MappingWorkbench::styleLayer(const QString &id) {
         QgisStyleService::applyContourLayerStyle(vector);
     return;
   }
-  MappingArtifactWriter::applyFaciesStyle(layer,
-                                          v.extra.value("facies").toList());
+  if (!layer->customProperty("paleo/faciesDisplayMode").isValid())
+    layer->setCustomProperty("paleo/faciesDisplayMode",
+                             v.extra.value("display_mode", "auto"));
+  FaciesHierarchyRenderer::apply(layer, v.extra.value("facies").toList(),
+                                 resolvedLevel(id));
   if (auto *vector = qobject_cast<QgsVectorLayer *>(layer)) {
     MappingArtifactWriter::applyFaciesLabels(vector, labelMode(id));
     vector->setReadOnly(!id.startsWith("draft."));

@@ -1,9 +1,12 @@
 // 层：视图
 // token 例外：DESIGN 数据符号例外：编图参考地图固定纸面与地质预览色样。（tools/ui-token-exceptions.json 精确计数）。
 #include "../domain/faciescatalog.h"
+#include "../domain/facieshierarchy.h"
 #include "../domain/singlefactorrequest.h"
 #include "../linkage/selectioncontext.h"
+#include "../qgis/facieshierarchyrenderer.h"
 #include "../qgis/factorstylewriter.h"
+#include "../qgis/mapcanvaslink.h"
 #include "../qgis/mappingartifactwriter.h"
 #include "../qgis/qgiscanvascontroller.h"
 #include "../qgis/qgislayerprofile.h"
@@ -17,12 +20,13 @@
 #include "pages/composepage.h"
 #include "pages/constraintpage.h"
 #include "pages/mappingworkbenchpage.h"
-#include "pages/predictpage.h"
 #include "pages/pageshared.h"
+#include "pages/predictpage.h"
 #include "pages/wellpredictionpanel.h"
 #include "paleomainwindow.h"
 #include "paleoribbon.h"
 #include <QAction>
+#include <QCheckBox>
 #include <QDialog>
 #include <QDockWidget>
 #include <QFileDialog>
@@ -138,9 +142,14 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
                                        ? tr("等值线")
                                        : tr("约束线"));
     }
-    if (product && d.type == "vector")
-      schema << QVariantMap{{"name", tr("其他 / 未分类")},
-                            {"color", "#9AA7B4"}};
+    if (product) {
+      schema = workbench->displayLegend(id);
+      title = tr("%1 · %2 · v%3")
+                  .arg(h, FaciesHierarchy::title(workbench->resolvedLevel(id)))
+                  .arg(v.versionNumber);
+      if (v.extra.value("mock").toBool())
+        title += tr(" · Mock");
+    }
     m_decorMgr->setFaciesLegend(title, h.isEmpty() ? QVariantList() : schema);
   };
   auto shown = std::make_shared<QHash<QString, QString>>();
@@ -224,11 +233,15 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
     layer->setParent(dialog);
     auto *layout = new QVBoxLayout(dialog);
     auto *caption = new QLabel(
-        tr("%1 · %2\n独立视图：切换主图层位后仍保留；滚轮缩放，拖动平移。")
+        tr("%1 · %2\n与主图联动范围及光标；取消联动后可独立缩放和平移。")
             .arg(d.horizon, d.title),
         dialog);
     caption->setWordWrap(true);
     layout->addWidget(caption);
+    auto *linked = new QCheckBox(tr("联动主图范围与光标"), dialog);
+    linked->setObjectName("referenceLinked");
+    linked->setChecked(true);
+    layout->addWidget(linked);
     auto *canvas = new QgsMapCanvas(dialog);
     canvas->setObjectName("referenceCanvas");
     layer->setParent(
@@ -250,9 +263,12 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
         paleo::singlefactor::isAnalysisFactorRaster(compareKind, compareSource);
     const bool compareCartographic =
         paleo::singlefactor::rejectsQuantitativeUse(compareKind, compareSource);
-    if (!compareKind.startsWith(QLatin1String("constraint")) && !compareAnalysis &&
-        !compareCartographic)
-      MappingArtifactWriter::applyFaciesStyle(layer, f);
+    const bool faciesReference =
+        !compareKind.startsWith(QLatin1String("constraint")) &&
+        !compareAnalysis && !compareCartographic && !f.isEmpty();
+    if (faciesReference)
+      f = FaciesHierarchyRenderer::apply(
+          layer, f, FaciesHierarchy::resolveLevel("auto", canvas->scale()));
     else {
       f.clear();
       if (compareAnalysis || compareCartographic)
@@ -272,6 +288,27 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
                                                     ? tr(" Mock")
                                                     : QString()),
                            f);
+    auto *link = new MapCanvasLink(m_canvasCtl->canvas(), canvas, dialog);
+    connect(linked, &QCheckBox::toggled, link, &MapCanvasLink::setEnabled);
+    if (faciesReference) {
+      const auto schema =
+          v.extra.value("facies", workbench->facies(d.horizon)).toList();
+      const auto refreshReference = [layer, canvas, decor, schema, d] {
+        const auto level =
+            FaciesHierarchy::resolveLevel("auto", canvas->scale());
+        if (layer->customProperty("paleo/faciesResolvedLevel").toString() !=
+            level) {
+          const auto entries =
+              FaciesHierarchyRenderer::apply(layer, schema, level);
+          decor->setFaciesLegend(
+              d.horizon + " · " + FaciesHierarchy::title(level), entries);
+        }
+      };
+      connect(canvas, &QgsMapCanvas::scaleChanged, dialog, refreshReference);
+      refreshReference();
+    }
+    connect(dialog, &QDialog::finished, link,
+            [link] { link->setEnabled(false); });
     connect(dialog, &QDialog::finished, canvas, [canvas] {
       canvas->stopRendering();
       canvas->setLayers({});
@@ -459,6 +496,20 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
               });
         }
       });
+  workbench->updateDisplayScale(m_canvasCtl->canvas()->scale());
+  connect(m_canvasCtl->canvas(), &QgsMapCanvas::scaleChanged, workbench,
+          &MappingWorkbench::updateDisplayScale);
+  connect(workbench, &MappingWorkbench::displayChanged, this,
+          [this, legend](const QString &id) {
+            auto *layer = m_canvasCtl->canvas()->currentLayer();
+            if (layer &&
+                layer->customProperty("paleoLayerId").toString() == id) {
+              legend(id);
+              if (m_profileSvc)
+                m_profileSvc->captureCurrentAsTheme(
+                    QgisLayerProfileService::pageThemeName(currentPage()));
+            }
+          });
   for (auto *page : pages) {
     page->setHorizon(m_selection->activeHorizon());
     connect(m_selection, &SelectionContext::activeHorizonChanged, page,
@@ -484,7 +535,24 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
                                          &error);
           else if (action == "welltracks")
             openWells(id);
-          else if (action == "assignFacies") {
+          else if (action == "selectHierarchy") {
+            ok = workbench->selectHierarchyMembers(
+                id, p.value("edit_level").toString(), &error);
+          } else if (action == "displayLevel") {
+            ok = workbench->setDisplayMode(
+                id, p.value("display_mode").toString(), &error);
+          } else if (action == "addEvidence" || action == "removeEvidence") {
+            if (!beginEdit(id)) {
+              ok = false;
+              error = tr("请先结束其他图层的编辑");
+            } else if (action == "addEvidence")
+              ok = workbench->addEvidence(id, workbench->selectedFeatures(id),
+                                          p, &error);
+            else
+              ok = workbench->removeEvidence(
+                  id, workbench->selectedFeatures(id),
+                  p.value("evidence_id").toString(), &error);
+          } else if (action == "assignFacies") {
             auto *v =
                 qobject_cast<QgsVectorLayer *>(m_layerSvc->instantiate(id));
             if (!v || v->selectedFeatureIds().isEmpty()) {
@@ -494,8 +562,16 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
               ok = false;
               error = tr("请先结束其他图层的编辑");
             } else
-              ok = workbench->assignFacies(id, v->selectedFeatureIds().values(),
-                                           p.value("code").toInt(), &error);
+              ok = workbench->assignHierarchy(
+                  id, v->selectedFeatureIds().values(), p.value("code").toInt(),
+                  p.value("edit_level", "micro_facies").toString(), &error);
+          } else if (action == "references") {
+            for (const auto &ref : inputs) {
+              if (!compare(ref, &error)) {
+                ok = false;
+                break;
+              }
+            }
           } else if (action == "compare")
             ok = compare(id, &error);
           else if (action == "polygonize")
@@ -584,8 +660,13 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
             message = tr("已请求取消预测。");
           else if (action == "show")
             message = tr("已在画布显示并定位选中图件。");
-          else if (action == "compare")
-            message = tr("已打开独立参考窗口，可继续对照当前图件。");
+          else if (action == "compare" || action == "references")
+            message =
+                tr("已打开联动参考窗口，平移、缩放与光标位置随主图同步。");
+          else if (action == "displayLevel")
+            message = tr("相图显示层级、标注与图例已更新。");
+          else if (action == "addEvidence" || action == "removeEvidence")
+            message = tr("解释证据已更新，可撤销；保存图件版本后持久化。");
           else if (action == "labels")
             message = tr("选中图件的标注已更新。");
           else if (action == "schema")

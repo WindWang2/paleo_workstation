@@ -88,6 +88,7 @@
 #include "../src/workflow/derivedassets.h"
 #include "../src/workflow/mappingworkbench.h"
 #include <QDialog>
+#include <QCheckBox>
 #include <QMenu>
 #include <QTableWidget>
 #include <QHeaderView>
@@ -1810,6 +1811,12 @@ class TestUiShell : public QObject
       const auto id=page->selectedLayer();QVERIFY(!id.isEmpty());auto *layer=m_ctx->layerSvc()->layer(id);QVERIFY(layer);QTRY_VERIFY(m_ctx->canvasCtl()->canvas()->layers().contains(layer));QCOMPARE(m_ctx->canvasCtl()->canvas()->currentLayer(),layer);
       auto *decor=m_win->findChild<PaleoDecorationManager *>();QVERIFY(decor);QVERIFY(decor->isNorthArrowEnabled());QVERIFY(decor->isScaleBarEnabled());QVERIFY(decor->legendTitle().contains("D61"));QVERIFY(decor->legendTitle().contains("Mock"));
       page->commandButton("compare")->click();auto *ref=m_win->findChild<QDialog *>("mappingReferenceWindow");QVERIFY(ref);auto *referenceCanvas=ref->findChild<QgsMapCanvas *>("referenceCanvas");QVERIFY(referenceCanvas);QCOMPARE(referenceCanvas->layers().size(),1);QPointer<QgsMapLayer> reference=referenceCanvas->layers().first();QVERIFY(reference!=layer);
+      auto *display=page->findChild<QComboBox *>("faciesDisplayLevel"); QVERIFY(display); display->setCurrentIndex(1); QVERIFY(decor->legendTitle().contains(QStringLiteral("相（1 级）")));
+      auto *linked=ref->findChild<QCheckBox *>("referenceLinked"); QVERIFY(linked && linked->isChecked());
+      auto *mainCanvas=m_ctx->canvasCtl()->canvas(); mainCanvas->setExtent(QgsRectangle(100,200,400,500));
+      QCOMPARE(referenceCanvas->extent().center(),mainCanvas->extent().center());
+      linked->setChecked(false); const auto independentExtent=referenceCanvas->extent(); mainCanvas->setExtent(QgsRectangle(200,300,500,600)); QCOMPARE(referenceCanvas->extent(),independentExtent);
+      linked->setChecked(true); QCOMPARE(referenceCanvas->extent().center(),mainCanvas->extent().center());
       QPointer<QgsMapLayer> mainLayer=layer;d62->click();QVERIFY(mainLayer.isNull());QVERIFY(reference && reference->isValid());QCOMPARE(referenceCanvas->layers().first(),reference.data());QVERIFY(decor->legendTitle().contains("D62"));
       d61->click();QTRY_VERIFY(m_ctx->canvasCtl()->canvas()->layers().contains(m_ctx->layerSvc()->layer(id)));QTRY_COMPARE(page->selectedLayer(),id);page->commandButton("show")->click();ref->close();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
       PaleoTheme::applyLightTheme();m_win->resize(1600,1000);m_win->show();QTest::qWait(350);

@@ -7672,6 +7672,93 @@ Crossline: %3 ~ %4</source>
         <source>井段修订失败，已撤销本次修改</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <location filename="../src/workflow/mappinghierarchy.cpp" line="57"/>
+        <source>请选择自动、相、亚相或微相</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappinghierarchy.cpp" line="60"/>
+        <source>请选择相图件</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappinghierarchy.cpp" line="89"/>
+        <source>请先在画布选中相要素</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappinghierarchy.cpp" line="111"/>
+        <source>请选择编辑层级</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappinghierarchy.cpp" line="115"/>
+        <source>请在编辑副本中选择要素</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappinghierarchy.cpp" line="121"/>
+        <source>请选择当前图件分类中的目标类别</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappinghierarchy.cpp" line="128"/>
+        <location filename="../src/workflow/mappinghierarchy.cpp" line="218"/>
+        <location filename="../src/workflow/mappinghierarchy.cpp" line="283"/>
+        <source>选中要素已不存在</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappinghierarchy.cpp" line="134"/>
+        <source>同步相、亚相、微相分类</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappinghierarchy.cpp" line="172"/>
+        <source>三级相分类更新失败，已撤销本次修改</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappinghierarchy.cpp" line="209"/>
+        <source>请在编辑副本中选择要素后添加证据</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappinghierarchy.cpp" line="214"/>
+        <source>证据内容须为 1–10000 字，并指定相层级</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappinghierarchy.cpp" line="231"/>
+        <source>证据来源请选择其他图件，或选择手工解释</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappinghierarchy.cpp" line="242"/>
+        <source>添加相解释证据</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappinghierarchy.cpp" line="266"/>
+        <source>证据保存失败，已撤销本次修改</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappinghierarchy.cpp" line="279"/>
+        <source>请选择编辑副本中的证据</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappinghierarchy.cpp" line="290"/>
+        <source>移除相解释证据</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappinghierarchy.cpp" line="303"/>
+        <source>证据移除失败</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>MappingWorkbenchPage</name>
@@ -8257,6 +8344,163 @@ Crossline: %3 ~ %4</source>
     <message>
         <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="591"/>
         <source>请先复制相图为编辑副本</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="165"/>
+        <source>勾选本层位输入，按列表从上到下优先采用有效相值。测井相点使用最近邻；连续单因素按下方阈值分相。已有图件可联动对照编辑。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="194"/>
+        <source>联动显示勾选的参考图</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="254"/>
+        <source>相图显示层级</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="255"/>
+        <source>自动（按比例尺切换）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="258"/>
+        <source>相图编辑层级</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="264"/>
+        <source>显示层级</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="265"/>
+        <source>编辑层级</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="271"/>
+        <source>三级共用边界。相／亚相改类会更新整个选中父类，并保留目标分类内兼容的下级；微相改类只作用于选中面。缺层级先向上、再向下填充显示。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="281"/>
+        <source>选中同级分类的全部面</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="297"/>
+        <source>选中要素的解释证据</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="303"/>
+        <source>解释证据列表</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="308"/>
+        <source>证据来源图件</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="310"/>
+        <source>图件来源引用其已保存版本；手工解释可不选来源。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="315"/>
+        <source>手工解释证据内容</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="316"/>
+        <source>输入井段、地震反射、单因素特征或专家解释；证据按上方编辑层级记录。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="320"/>
+        <source>添加证据</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="321"/>
+        <source>移除选中证据</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="327"/>
+        <source>移除此条证据，可撤销</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="327"/>
+        <source>请先选择编辑副本中的证据</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="551"/>
+        <source>手工解释（无来源图件）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="645"/>
+        <source>勾选单因素图、测井相或地震相后打开联动参考窗口</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="656"/>
+        <source>请先选择相图件</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="656"/>
+        <source>当前显示：%1；自动阈值为 1:800 万与 1:400 万</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="658"/>
+        <source>选择要修改的相层级</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="681"/>
+        <source>请先在画布选择相要素，再按编辑层级扩展选区</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="682"/>
+        <source>请先在编辑副本的画布中选中要素，再填写证据</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="689"/>
+        <source>%1 · 要素 %2 · %3
+%4</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="689"/>
+        <source>手工解释</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="689"/>
+        <source>（分类已变更，需复核）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="691"/>
+        <source>解释时分类：%1
+记录时间：%2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="695"/>
+        <source>请选择编辑副本中的证据</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -9025,6 +9269,11 @@ Crossline: %3 ~ %4</source>
     <message>
         <location filename="../src/ui/edittools/editingtoolbar.cpp" line="1093"/>
         <source>工程已清空：编辑已丢弃</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/edittools/editingtoolbar.cpp" line="772"/>
+        <source>三级相面共用边界，必须保持拓扑编辑</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -12009,6 +12258,42 @@ SHA-256：%2</source>
     <message>
         <location filename="../src/ui/paleomainwindow_wellsection.cpp" line="198"/>
         <source>先在「数据管理」导入带坐标的地震体</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="147"/>
+        <source>%1 · %2 · v%3</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="148"/>
+        <source> · Mock</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="233"/>
+        <source>%1 · %2
+与主图联动范围及光标；取消联动后可独立缩放和平移。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="238"/>
+        <source>联动主图范围与光标</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="636"/>
+        <source>已打开联动参考窗口，平移、缩放与光标位置随主图同步。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="638"/>
+        <source>相图显示层级、标注与图例已更新。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="640"/>
+        <source>解释证据已更新，可撤销；保存图件版本后持久化。</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -17080,6 +17365,46 @@ SHA-256：%2</source>
     <message>
         <location filename="../src/ui/pages/stratigraphicwebpage.cpp" line="110"/>
         <source>正在连接或启动服务，请稍候</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/domain/facieshierarchy.cpp" line="12"/>
+        <source>相（1 级）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/domain/facieshierarchy.cpp" line="14"/>
+        <source>亚相（2 级）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/domain/facieshierarchy.cpp" line="15"/>
+        <source>微相（3 级）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/mappingartifactwriter.cpp" line="390"/>
+        <source>解释证据</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/facieshierarchyrenderer.cpp" line="136"/>
+        <source>相面含空几何或无效几何，请修复后保存</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/facieshierarchyrenderer.cpp" line="148"/>
+        <source>当前 QGIS/GEOS 不支持相面覆盖拓扑检查</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/qgis/facieshierarchyrenderer.cpp" line="152"/>
+        <source>相、亚相、微相共用的面覆盖存在重叠或共边不匹配；请撤销或修复边界后保存</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/mappinghierarchy.cpp" line="31"/>
+        <source>已有证据内容不是有效列表，请先修复；原证据未覆盖</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

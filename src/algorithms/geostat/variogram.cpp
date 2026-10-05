@@ -48,6 +48,22 @@ double VariogramModel::semivariance( double dx, double dy ) const
   return semivariance( std::hypot( along, across * anisotropyRatio ) );
 }
 
+double VariogramModel::semivariance( double dx, double dy, double dz ) const
+{
+  if ( dz == 0.0 )
+    return semivariance( dx, dy ); // 2D 消费方逐位不变（z 恒 0 → dz 恒 +0.0）
+  const double zScale = verticalRangeRatio > 1.0 ? verticalRangeRatio : 1.0;
+  if ( !( anisotropyRatio > 1.0 ) )
+    return semivariance( std::hypot( std::hypot( dx, dy ), dz * zScale ) );
+  const double azimuthRad = azimuthDeg * std::numbers::pi / 180.0;
+  const double sinA = std::sin( azimuthRad );
+  const double cosA = std::cos( azimuthRad );
+  const double along = dx * sinA + dy * cosA;
+  const double across = -dx * cosA + dy * sinA;
+  return semivariance( std::hypot( std::hypot( along, across * anisotropyRatio ),
+                                   dz * zScale ) );
+}
+
 ExperimentalVariogram experimentalVariogram( const std::vector<Sample> &samples,
     double lag, int nLags, const VariogramDirection &direction )
 {

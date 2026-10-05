@@ -65,10 +65,48 @@ D63 / D72 层位栅格抽到 200×200×20（800000 单元），20 口井 GR，
 壳层有「属性建模」dock：面板发意图，`requestFromCatalog` 收集层位和井，
 跑完把 I/J/K 中切片推进 3D 视口；剖面尺寸对得上时再叠层段。
 
+## V2（goal/prop-model-v2，2026-10-05）
+
+方向 45 在 V1 面上落了四块能力，口径全部记
+`.goal-loop-ledger-prop-model-v2.md`：
+
+1. **断块错位（faultoffset）**。断距矢量 z 分量驱动下掉侧整柱 top/bot
+   平移：沿段线性内插、最近断层主控（并列取下标小者）、柱心恰在线上
+   的边界柱不动并计数。连通屏障仍是竖帘 columnBlock——几何错位与连通
+   阻断分层。断距来源：`FaultHorizonCut.extra["throw_z"]`（正 = 上盘侧
+   z 增大）+ 盘侧 Left/Right；盘侧 Unknown 或无断距保持竖帘并计数。
+   heave（水平错动）与深度变化断距递延。
+2. **序贯高斯充填（sgsfill）**。geostat 扩三维点集入口 `sgs3`（与 2D
+   `sgs()` 共享 sgs_internal.h 机件——不是新模拟核；2D 逐位恒等由
+   dz=0 精确委托 2D 半变差保证）。stratgrid 侧编排：条件点 = 粗化井柱
+   cell（重合合并取均值）、序贯路径走三维网格、竖帘分块作连通组分
+   （跨断块零条件泄漏）、相带分区独立参数域（各带独立正态得分与统计，
+   变差几何共享全局模型；带内种子 < 2 保持未充填）、硬数据每实现钉死
+   （float 存储精度）。变差模型加 `verticalRangeRatio`（垂向变程 =
+   range/ratio）与 `semivariance(dx,dy,dz)` 三参重载。
+3. **相带约束 + 对象建模**。相带面 = 最新 `facies_draft_map` GPKG
+   （owner 线程 OGR 读外环 + facies_code，worker 纯几何栅格化：偶奇
+   测试、先命中先得、无覆盖 = -1 背景域）。对象建模最小骨架
+   （objectmodel）：河道 = 中线正弦参数化（走向/长度/宽度/厚度/曲率/
+   垂向锚定，512 段折线精算）、点坝 = 地图椭圆；相带内播种
+   （mt19937_64 可复现）；**对象优先**——对象 cell 硬覆盖背景场
+   （IDW/SGS）值，放置几何全量入 provenance。
+4. **多实现版本链与口径**。SGS N 实现 = 同资产 N 个 DERIVED 版本
+   （fileName R 序号；extra：realization_index/seed/param_hash/口径串/
+   父版本锚）。诚实口径三处落地：provenance JSON、catalog extra、面板
+   `propCaliberLabel`——竖直近似井数、断层竖帘/错位计数、相带覆盖、
+   种子与参数全套。
+
+面板（DESIGN.md 对齐）：方法 combo（IDW/序贯高斯）联动 SGS 参数组、
+相带 checkbox、对象组（checkable QGroupBox，原生控件）、种子 mono
+数值面。paramHash schema 升 `paleo-propmodel-v2`（新输入全量入哈希）。
+
 ## 递延
 
-- Pillar / 断块错位网格、Y 型断层、断面两侧的层位错动。
-- 沉积相带控制、对象建模、序贯高斯模拟。变差函数克里金未做；若做只保留
-  球状和指数两种标准模型，不引第三方地质统计库。
-- 斜井测斜表、旋转/错切栅格、断层棒到地图坐标的投影。
+- Y 型断层分叉成面（方向 40 数据模型已打底，算法未落——依赖记档不自制）。
+- 断距 heave（x/y 向水平错动——破坏规则柱假设）、深度变化断距（生长
+  断层）、pillar 网格本体。
+- 带内变差拟合（样本量不足以可信）、对象-河道耦合点坝、多对象谱系。
+- 相带面孔洞与跨 CRS 重投影（相图出自同工程编图链，同 CRS 假设）。
+- 旋转/错切栅格、断层棒到地图坐标的投影。
 - `stage()` 之后写入失败仍会留下一个没有版本的资产（登记器既有行为）。

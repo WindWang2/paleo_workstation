@@ -10120,7 +10120,7 @@ Crossline: %3 ~ %4</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3683"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3760"/>
         <location filename="../src/ui/paleomainwindow.cpp" line="160"/>
         <location filename="../src/ui/ribbonpanels.cpp" line="413"/>
         <source>验证</source>
@@ -10319,8 +10319,8 @@ Crossline: %3 ~ %4</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3003"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3006"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3080"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3083"/>
         <location filename="../src/ui/paleomainwindow.cpp" line="703"/>
         <source>任务</source>
         <translation type="unfinished"></translation>
@@ -10563,290 +10563,290 @@ Crossline: %3 ~ %4</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1272"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1349"/>
         <source>数据目录打开失败 — 导入暂不可用（见状态栏）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1279"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1356"/>
         <source>数据目录打开失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1412"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1489"/>
         <source>地震数据文件 (*.sgy *.segy);;All files (*)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1414"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1491"/>
         <source>测井与柱状图文件 (*.las *.xml *.txt *.csv);;All files (*)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1415"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1492"/>
         <source>数据文件 (*.las *.xml *.csv *.dat *.gpkg *.shp *.tif *.img);;All files (*)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1417"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1494"/>
         <source>导入 %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1424"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1501"/>
         <source>导入数据</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1428"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1505"/>
         <source>文件：%1
 识别类型：%2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1439"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1516"/>
         <source>导入</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1440"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1517"/>
         <location filename="../src/ui/paleomainwindow.cpp" line="1557"/>
         <source>取消</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1516"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1593"/>
         <source>预测 %1 · %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1534"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1611"/>
         <source>已请求取消——预测运算无法中断，结果以实际完成为准</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1543"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1620"/>
         <source>预测失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1555"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1632"/>
         <source>预测</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1648"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1721"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1872"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1970"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1725"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1798"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1949"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2047"/>
         <location filename="../src/ui/paleomainwindow_workbench.cpp" line="562"/>
         <source>已有单因素计算在进行</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1666"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1743"/>
         <source>图层服务未就绪</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1673"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1750"/>
         <source>无法读取图层清单</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1695"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1772"/>
         <source>层位 %1 没有井点图层</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1701"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1778"/>
         <source>约束插值失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1732"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1739"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1812"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1822"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1809"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1816"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1889"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1899"/>
         <source>单因素生成失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1743"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1780"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1884"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1820"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1857"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1961"/>
         <source>正在准备</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1746"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1823"/>
         <source>单因素 %1 · %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1778"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1855"/>
         <source>正在插值</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1782"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1859"/>
         <source>正在读取几何</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1784"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1861"/>
         <source>正在编码</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1817"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1824"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1935"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1942"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2031"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2038"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1894"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1901"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2012"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2019"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2108"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2115"/>
         <source>正在保存</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1867"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1880"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1929"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1940"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1944"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1957"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2006"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2017"/>
         <source>解释性等值线生成失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1886"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1963"/>
         <source>解释性等值线 %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1965"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1978"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2026"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2036"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2042"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2055"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2103"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2113"/>
         <source>等值线生成失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1982"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2059"/>
         <source>正在生成等值线</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1984"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2061"/>
         <source>等值线 %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2066"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2143"/>
         <source>单因素上图失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2157"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2234"/>
         <source>删除约束失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2183"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2260"/>
         <source>切换约束语义失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2329"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2406"/>
         <source>相界工作副本铺设失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2346"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2423"/>
         <source>相界就绪，已进入编辑：%1（顶点工具 — 选中要素改属性）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2355"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2432"/>
         <source>相界就绪：%1 — 请在「要素编辑」组手动进入编辑</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2368"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2445"/>
         <source>相属性已写入编辑缓冲：%1（随「保存编辑」提交）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2374"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2451"/>
         <source>相属性保存失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2449"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2526"/>
         <source>布局服务未接入 — 无法打开图件设计器</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2455"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2532"/>
         <source>无打开工程 — 无法打开图件设计器</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2483"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2560"/>
         <source>编图布局</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2466"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3278"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2543"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3355"/>
         <source>创建布局失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2598"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2675"/>
         <source>图层上图失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2827"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2904"/>
         <source>搜索井位/层位  Ctrl+K</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2905"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2949"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2982"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3026"/>
         <source>保存工程</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2909"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2986"/>
         <location filename="../src/ui/paleomainwindow.cpp" line="1622"/>
         <source>保存工程（Ctrl+S）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2915"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2992"/>
         <source>无打开工程 — 无法保存</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2930"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3007"/>
         <source>工程已保存</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2930"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3007"/>
         <source>保存失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2987"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3064"/>
         <location filename="../src/ui/ribbonpanels.cpp" line="405"/>
         <location filename="../src/ui/ribbonpanels.cpp" line="428"/>
         <source>发布</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1374"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1571"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1451"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1648"/>
         <source>在地图上显示失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10892,233 +10892,248 @@ Crossline: %3 ~ %4</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="761"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="735"/>
+        <source>相带约束已请求但不可用（%1）——本次全域单一参数域</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="815"/>
         <source>属性体登记失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="878"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="861"/>
+        <source> · %1 个实现</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="863"/>
+        <source>已充填 %1 个单元 · %2%3</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="955"/>
         <source>属性体 3D 显示失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1025"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1102"/>
         <location filename="../src/ui/ribbonpanels.cpp" line="121"/>
         <source>测井对比</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1176"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1253"/>
         <source>先打开工程再编辑分层（新版本需要受管目录）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1521"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1598"/>
         <source>预测失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2146"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2223"/>
         <source>约束编辑不可用，请检查编辑会话与资产状态</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2249"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2326"/>
         <source>统计派生失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2258"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2335"/>
         <source>集合差值失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2401"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2478"/>
         <source>边界核查通过：%1 无核查项</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2409"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2486"/>
         <source>【%1】要素 %2：%3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2417"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2494"/>
         <source>边界核查 %1：%2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2420"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2497"/>
         <source>边界核查：%1 项核查项（%2；全部见消息日志）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2504"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2581"/>
         <source>删除版面</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2505"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2582"/>
         <source>删除版面「%1」？随工程保存的布局将一并移除。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2510"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2587"/>
         <source>删除失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2510"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2587"/>
         <source>无法删除版面「%1」。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2537"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2550"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2567"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2578"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2614"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2627"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2644"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2655"/>
         <source>批量出图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2538"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2615"/>
         <source>先在设计器里准备一个版面（作为批量出图的骨架）。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2551"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2628"/>
         <source>需要打开工程（catalog 受管区）再批量出图。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2566"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2643"/>
         <source>正在按层位组批量出图…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2576"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2653"/>
         <source>· %1 → %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2577"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2654"/>
         <source>· %1 失败：%2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2628"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2705"/>
         <source>集合图层上图失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2675"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2752"/>
         <source>%1 成员在场</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2681"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2758"/>
         <source> · 缺 %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2685"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2762"/>
         <source>集合成员 #%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2696"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2773"/>
         <source>%1 成员参与</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2857"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2934"/>
         <source>层位搜索：图层清单读取失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2936"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3013"/>
         <source>工程已保存：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2940"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3017"/>
         <source>保存工程失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2975"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3052"/>
         <source>发布面板：图层清单读取失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3025"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3102"/>
         <source>属性表面板：图层清单读取失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3048"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3125"/>
         <location filename="../src/ui/ribbonpanels.cpp" line="136"/>
         <source>属性表</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3062"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3139"/>
         <source>处理算法</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3063"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3140"/>
         <source>处理算法选择</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3152"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3229"/>
         <source>已显示操作图层：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3192"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3229"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3269"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3306"/>
         <source>地图册</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3231"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3308"/>
         <source>按网格分幅批量导出地图册</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3262"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3339"/>
         <source>图件设计</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3264"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3341"/>
         <source>新建布局并打开图件设计器</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3268"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3345"/>
         <source>无打开工程 — 无法创建布局</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3275"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3352"/>
         <source>布局 %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3373"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3450"/>
         <source>先选择层位再发布</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3387"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3464"/>
         <source>发布版本</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3388"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3465"/>
         <source>发布 %1 v%2？
 
 PDF：%3
@@ -11128,71 +11143,71 @@ PDF：%3
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3392"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3469"/>
         <source>（未登记）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3397"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3474"/>
         <source>
 
 注意：</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3405"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3482"/>
         <source>已发布：%1 v%2 → %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3409"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3486"/>
         <source>发布失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3435"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3512"/>
         <source>编图链完成：%1 → %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3449"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3526"/>
         <source>先在顶部 chip 选择层位（本阶段目标 %1）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3471"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3548"/>
         <source>先在顶部 chip 选择层位再导出</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3516"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3593"/>
         <source>导出失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3517"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3594"/>
         <source>%1
 
 导出目标：%2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3533"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3610"/>
         <source>PDF 资产登记失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3546"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3623"/>
         <source>层位图已导出：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3547"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3624"/>
         <source>导出成功</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3548"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3625"/>
         <source>已导出层位图：
 %1
 
@@ -11200,85 +11215,85 @@ SHA-256：%2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3566"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3643"/>
         <source>动览尚未定格到任何层位</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3571"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3648"/>
         <source>画布不可用，无法抓帧</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3579"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3656"/>
         <source>未打开工程数据目录，演化帧无法登记为导出资产</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3585"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3662"/>
         <source>演化帧抓取失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3594"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3671"/>
         <source>演化帧资产登记失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3599"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3676"/>
         <source>演化帧已登记：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3625"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3702"/>
         <source>先选择层位再保存版本</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3635"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3712"/>
         <source>已保存版本：%1 v%2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3639"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3716"/>
         <source>保存版本失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3686"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3763"/>
         <source>布井辅助</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3701"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3778"/>
         <source>在地图上单击放置计划井（Esc 取消）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3712"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3717"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3789"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3794"/>
         <source>导出方案点位表</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3712"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3789"/>
         <source>CSV 表 (*.csv)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3719"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3731"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3796"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3808"/>
         <source>已导出：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3724"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3729"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3801"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3806"/>
         <source>导出覆盖对比图</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3724"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="3801"/>
         <source>PNG 图 (*.png)</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11980,91 +11995,87 @@ SHA-256：%2</source>
     </message>
     <message>
         <location filename="../src/ui/paleomainwindow_attach.cpp" line="679"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="780"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="855"/>
         <source>属性建模失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="777"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="832"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="852"/>
         <source>属性建模失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../src/ui/paleomainwindow_attach.cpp" line="589"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="772"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1805"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1921"/>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2018"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="827"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1882"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1998"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2095"/>
         <source>已取消</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="786"/>
-        <source>已充填 %1 个单元 · %2</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="789"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="866"/>
         <source>属性建模完成：%1（%2 个单元）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="888"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="965"/>
         <source>属性体已产出（%1×%2×%3）——三维视口不可用</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="915"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="992"/>
         <source>属性体已入 3D 视口（%1×%2×%3，堆叠 %4 层——栈模式开关查看）%5</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1020"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1097"/>
         <source>测井 %1 曲线加载失败：%2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1022"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1099"/>
         <source>连井剖面：井 %1 LAS 加载失败 — %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1041"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1118"/>
         <source>测井计算</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1050"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1127"/>
         <source>井集为空——先在数据页导入井（含 LAS）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1077"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1154"/>
         <source>无可解析 LAS 的井：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1106"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1183"/>
         <source>（%1）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1108"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1185"/>
         <source>%1/%2 井完成，%3 条曲线并入曲线集%4</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1155"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1232"/>
         <source>先打开工程再网格化（派生产物需要受管目录）</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1190"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1267"/>
         <source>面运算需要已打开的工程与图层声明</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2876"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2953"/>
         <source>正在编辑「%1」——先保存或放弃编辑，再切换层位（定位器切换已拒绝）</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13297,92 +13308,269 @@ SHA-256：%2</source>
 <context>
     <name>PropertyModelPanel</name>
     <message>
-        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="38"/>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="42"/>
         <source>上层面位，如 C3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="41"/>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="45"/>
         <source>下层面位，如 D72</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="50"/>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="54"/>
         <source>弧长加权均值</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="51"/>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="55"/>
         <source>算术均值</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="52"/>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="56"/>
         <source>中位数</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="53"/>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="57"/>
         <source>众数</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="60"/>
-        <source>顶面</source>
+        <source>IDW 插值</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="61"/>
-        <source>底面</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="62"/>
-        <source>曲线</source>
+        <source>序贯高斯模拟</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="63"/>
-        <source>层数</source>
+        <source>序贯高斯是随机模拟：结果带种子与参数溯源，不是确定性插值。</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="64"/>
-        <source>粗化</source>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="70"/>
+        <source>顶面</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="65"/>
-        <source>IDW 幂</source>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="71"/>
+        <source>底面</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="72"/>
-        <source>建立属性体</source>
+        <source>曲线</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="73"/>
-        <source>按当前参数发建模意图。计算在功能层，面板不改网格。</source>
+        <source>层数</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="74"/>
+        <source>粗化</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="75"/>
+        <source>方法</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="76"/>
+        <source>IDW 幂</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="80"/>
+        <source>序贯高斯参数</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="86"/>
-        <source>取消</source>
+        <source>球状</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="87"/>
-        <source>取消在途建模。未落盘的结果不登记。</source>
+        <source>指数</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="95"/>
-        <source>叠加</source>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="88"/>
+        <source>高斯</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="104"/>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="176"/>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="183"/>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="189"/>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="195"/>
+        <source> m</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="110"/>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="170"/>
+        <source>°</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="125"/>
+        <source>多实现时每实现各落一个独立 DERIVED 版本。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="135"/>
+        <source>mt19937_64 种子。同种子同输入逐位可复现。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="136"/>
+        <source>变差模型</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="137"/>
+        <source>块金</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="138"/>
+        <source>基台</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="139"/>
+        <source>变程</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="140"/>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="207"/>
+        <source>走向</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="141"/>
+        <source>水平比</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="142"/>
+        <source>垂向比</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="143"/>
+        <source>实现数</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="144"/>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="214"/>
+        <source>种子</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="148"/>
+        <source>相带约束（最新相图）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="151"/>
+        <source>勾选后按最新相带草稿图分带：各带独立统计，变差几何共享全局模型。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="155"/>
+        <source>对象建模（对象优先）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="163"/>
+        <source>河道</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="164"/>
+        <source>点坝</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="177"/>
+        <source>自动</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="206"/>
+        <source>类型</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="208"/>
+        <source>长度</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="209"/>
+        <source>宽度</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="210"/>
+        <source>厚度</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="211"/>
+        <source>曲率</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="212"/>
+        <source>属性值</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="213"/>
+        <source>数量</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="221"/>
+        <source>建立属性体</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="222"/>
+        <source>按当前参数发建模意图。计算在功能层，面板不改网格。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="235"/>
+        <source>取消</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="236"/>
+        <source>取消在途建模。未落盘的结果不登记。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="244"/>
+        <source>叠加</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/propertymodel/propertymodelpanel.cpp" line="259"/>
         <source>选择顶底面与曲线</source>
         <translation type="unfinished"></translation>
     </message>
@@ -15042,22 +15230,22 @@ SHA-256：%2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1458"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1535"/>
         <source>导入失败：%1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1769"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1846"/>
         <source>本地方向插值失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1893"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1970"/>
         <source>解释性等值线生成失败</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach.cpp" line="1991"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="2068"/>
         <source>等值线生成失败</source>
         <translation type="unfinished"></translation>
     </message>

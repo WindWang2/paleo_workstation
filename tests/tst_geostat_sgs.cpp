@@ -90,6 +90,11 @@ void GeostatSgsTests::goldenAnchorPinsRefactoredKernel()
   // 黄金哈希 = 重构当日 master 版核与本版独立编译同场景输出的 FNV-1a
   //（逐位一致后钉入；防未来再动 sgs.cpp 时静默漂移——见
   // .goal-loop-ledger-prop-model-v2.md 批次3 纠错记录）。
+  // 跨工具链不可逐位钉：样本生成与核内 std::erf/log/cos/exp 的 libm
+  // ULP 差及 FMA 收缩差异使 GCC/MSVC/各 glibc 版本的原始位不同（CI
+  // linux+windows 实测一致地异于本机钉值）。故哈希前把每格量化到
+  // 1e-9·max(1,|v|) 网格——ULP 噪声被吸收，任何 >1e-9 相对的语义
+  // 漂移仍被钉住。
   const std::vector<Sample> samples = skewedSamples( 120, 99 );
   const VariogramModel model = gaussianModel();
   SgsParams params;
@@ -103,15 +108,16 @@ void GeostatSgsTests::goldenAnchorPinsRefactoredKernel()
   for ( const std::vector<double> &realization : result.realizations )
     for ( double value : realization )
     {
-      std::uint64_t bits = 0;
-      std::memcpy( &bits, &value, sizeof( bits ) );
+      const double quantum = 1e-9 * std::max( 1.0, std::fabs( value ) );
+      const std::uint64_t q =
+          static_cast<std::uint64_t>( std::llround( value / quantum ) );
       for ( int byte = 0; byte < 8; ++byte )
       {
-        hash ^= ( bits >> ( byte * 8 ) ) & 0xFF;
+        hash ^= ( q >> ( byte * 8 ) ) & 0xFF;
         hash *= 1099511628211ULL;
       }
     }
-  QCOMPARE( hash, std::uint64_t( 15131284449114955202ULL ) );
+  QCOMPARE( hash, std::uint64_t( 15585602635067018472ULL ) );
 }
 
 void GeostatSgsTests::reproducibleWithSameSeed()

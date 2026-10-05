@@ -6279,6 +6279,37 @@ Crossline: %3 ~ %4</source>
         <source>衍生血缘</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <location filename="../src/ui/pages/entitypanel.cpp" line="127" />
+        <source>在编图中联动参考</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/pages/entitypanel.cpp" line="130" />
+        <location filename="../src/ui/pages/entitypanel.cpp" line="773" />
+        <source>请先选择已保存的编图或单因素图件版本</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/pages/entitypanel.cpp" line="917" />
+        <source>引用 %1 · v%2；重算后仍保留所选版本，不切换当前编辑图件</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/pages/entitypanel.cpp" line="929" />
+        <source>编图 / 单因素图件</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/pages/entitypanel.cpp" line="934" />
+        <source>矢量</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/pages/entitypanel.cpp" line="935" />
+        <source>栅格</source>
+        <translation type="unfinished" />
+    </message>
 </context>
 <context>
     <name>EvolutionPlayerPanel</name>
@@ -7759,6 +7790,16 @@ Crossline: %3 ~ %4</source>
         <source>证据移除失败</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <location filename="../src/workflow/mappingworkbench.cpp" line="191" />
+        <source>所选版本不是可联动的编图或单因素图件</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/workflow/mappingworkbench.cpp" line="197" />
+        <source>所选图件版本尚未登记到图层目录</source>
+        <translation type="unfinished" />
+    </message>
 </context>
 <context>
     <name>MappingWorkbenchPage</name>
@@ -8502,6 +8543,16 @@ Crossline: %3 ~ %4</source>
         <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="695"/>
         <source>请选择编辑副本中的证据</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="243" />
+        <source>在数据管理中定位</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="760" />
+        <source>请先选择已登记的图件版本；工作副本定位到最近保存版本</source>
+        <translation type="unfinished" />
     </message>
 </context>
 <context>
@@ -12295,6 +12346,21 @@ SHA-256：%2</source>
         <location filename="../src/ui/paleomainwindow_workbench.cpp" line="640"/>
         <source>解释证据已更新，可撤销；保存图件版本后持久化。</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="340" />
+        <source>已打开所选保存版本的联动参考图。</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="555" />
+        <source>所选图件尚未登记到数据管理</source>
+        <translation type="unfinished" />
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_workbench.cpp" line="696" />
+        <source>已在数据管理中定位图件的保存版本和来源谱系。</source>
+        <translation type="unfinished" />
     </message>
 </context>
 <context>

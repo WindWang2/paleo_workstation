@@ -92,51 +92,112 @@ void MappingWorkbench::bindCatalog(DataCatalog *catalog, const QString &dir) {
     if (name.startsWith("paleo.constraint.snapshot."))
       m_constraints->setProperty(name.constData(), QVariant());
   m_catalog = catalog;
+  m_catalogSyncQueued = false;
   m_dir = dir;
   m_logVersion.clear();
   m_logCache = {};
   if (catalog)
-    connect(catalog, &DataCatalog::changed, this, &MappingWorkbench::changed);
-  // Catalog is the durable recovery source if .qgz was not saved after a
-  // result.
-  if (catalog && catalog->isOpen())
-    for (const auto &a : catalog->assets())
-      for (const auto &v : catalog->versionsForAsset(a.id)) {
-        const auto e = v.extra;
-        const auto id = e.value("layer_id").toString();
-        if (id.isEmpty() || !e.value("mapping_product").toBool())
-          continue;
-        LayerDeclaration d;
-        d.layerId = id;
-        d.horizon = e.value("horizon").toString();
-        d.type = e.value("layer_type").toString();
-        d.source = DataCatalog::resolvedVersionPath(dir, v) +
-                   e.value("source_suffix").toString();
-        d.group = e.value("group").toString();
-        d.title =
-            e.value("title").toString() + tr(" · v%1").arg(v.versionNumber);
-        m_layers->declare(d);
-        if (e.value("kind") == "constraint_snapshot" &&
-            catalog->currentVersion(a.id).id == v.id)
-          m_constraints->setProperty(
-              ("paleo.constraint.snapshot." + d.horizon).toUtf8().constData(),
-              filePath(d.source));
-        const auto draftId = e.value("draft_id").toString();
-        const auto working = e.value("working_path").toString();
-        if (!draftId.isEmpty() && !working.isEmpty()) {
-          CatalogVersion pathCheck;
-          pathCheck.managed = true;
-          pathCheck.path = working;
-          const auto wp = DataCatalog::resolvedVersionPath(dir, pathCheck);
-          if (!wp.isEmpty() && QFileInfo::exists(wp)) {
-            d.layerId = draftId;
-            d.source = wp + QStringLiteral("|layername=features");
-            d.title = e.value("title").toString() + tr(" · 工作副本");
-            m_layers->declare(d);
-          }
+    connect(catalog, &DataCatalog::changed, this, [this] {
+      emit changed();
+      if (m_catalogSyncQueued)
+        return;
+      m_catalogSyncQueued = true;
+      const QPointer<DataCatalog> bound = m_catalog;
+      QMetaObject::invokeMethod(
+          this,
+          [this, bound] {
+            if (m_catalog != bound)
+              return;
+            m_catalogSyncQueued = false;
+            synchronizeCatalogLayers();
+            emit changed();
+          },
+          Qt::QueuedConnection);
+    });
+  synchronizeCatalogLayers();
+  emit changed();
+}
+void MappingWorkbench::synchronizeCatalogLayers() {
+  if (!m_catalog || !m_catalog->isOpen())
+    return;
+  QVector<LayerDeclaration> declarations;
+  QString error;
+  if (!m_layers->tryDeclared(&declarations, &error)) {
+    emit errorOccurred(error);
+    return;
+  }
+  QHash<QString, LayerDeclaration> known;
+  for (const auto &d : declarations)
+    known.insert(d.layerId, d);
+  const auto declareMissing = [this, &known](const LayerDeclaration &d) {
+    const auto old = known.value(d.layerId);
+    if (old.source == d.source && old.horizon == d.horizon &&
+        old.type == d.type && old.title == d.title && old.group == d.group)
+      return;
+    QString error;
+    if (m_layers->declare(d, &error))
+      known.insert(d.layerId, d);
+    else
+      emit errorOccurred(error);
+  };
+  // Catalog also receives products from the single-factor advanced tools.
+  // Every saved version gets its own immutable layer, including products
+  // whose original manifest_layer_id or layer_id is a moving current alias.
+  for (const auto &a : m_catalog->assets())
+    for (const auto &v : m_catalog->versionsForAsset(a.id)) {
+      const auto e = v.extra;
+      if (!e.value("mapping_product").toBool() ||
+          (e.value("layer_type") != "vector" &&
+           e.value("layer_type") != "raster"))
+        continue;
+      LayerDeclaration d;
+      d.layerId = QStringLiteral("product.%1").arg(v.id);
+      d.horizon = e.value("horizon").toString();
+      d.type = e.value("layer_type").toString();
+      d.source = DataCatalog::resolvedVersionPath(m_dir, v) +
+                 e.value("source_suffix").toString();
+      d.group = e.value("group").toString();
+      d.title = e.value("title", a.displayName).toString() +
+                tr(" · v%1").arg(v.versionNumber);
+      declareMissing(d);
+      if (e.value("kind") == "constraint_snapshot" &&
+          m_catalog->currentVersion(a.id).id == v.id)
+        m_constraints->setProperty(
+            ("paleo.constraint.snapshot." + d.horizon).toUtf8().constData(),
+            filePath(d.source));
+      const auto draftId = e.value("draft_id").toString();
+      const auto working = e.value("working_path").toString();
+      if (!draftId.isEmpty() && !working.isEmpty()) {
+        CatalogVersion pathCheck;
+        pathCheck.managed = true;
+        pathCheck.path = working;
+        const auto wp = DataCatalog::resolvedVersionPath(m_dir, pathCheck);
+        if (!wp.isEmpty() && QFileInfo::exists(wp)) {
+          d.layerId = draftId;
+          d.source = wp + QStringLiteral("|layername=features");
+          d.title = e.value("title").toString() + tr(" · 工作副本");
+          declareMissing(d);
         }
       }
-  emit changed();
+    }
+}
+QString MappingWorkbench::layerForVersion(const QString &versionId,
+                                          QString *error) {
+  const auto v =
+      m_catalog ? m_catalog->versionById(versionId) : CatalogVersion();
+  if (v.id.isEmpty() || !v.extra.value("mapping_product").toBool() ||
+      (v.extra.value("layer_type") != "vector" &&
+       v.extra.value("layer_type") != "raster")) {
+    fail(error, tr("所选版本不是可联动的编图或单因素图件"));
+    return {};
+  }
+  const auto id = QStringLiteral("product.%1").arg(v.id);
+  synchronizeCatalogLayers();
+  if (declaration(id).layerId.isEmpty()) {
+    fail(error, tr("所选图件版本尚未登记到图层目录"));
+    return {};
+  }
+  return id;
 }
 void MappingWorkbench::setPredictionService(RemotePredictionService *service) {
   cancelPrediction();
@@ -289,6 +350,11 @@ CatalogVersion MappingWorkbench::versionForLayer(const QString &id) const {
   CatalogVersion found;
   if (!m_catalog)
     return found;
+  if (id.startsWith("product.")) {
+    const auto exact = m_catalog->versionById(id.mid(8));
+    if (!exact.id.isEmpty())
+      return exact;
+  }
   const auto d = declaration(id);
   const auto path = filePath(d.source);
   for (const auto &a : m_catalog->assets())
@@ -310,8 +376,8 @@ QVariantList MappingWorkbench::products(const QString &h) const {
     const auto e = v.extra;
     // Current aliases remain in the layer tree; the result list shows one row
     // per immutable version plus each writable draft.
-    if (!e.value("layer_id").toString().isEmpty() &&
-        e.value("layer_id").toString() != d.layerId &&
+    if (e.value("mapping_product").toBool() &&
+        d.layerId != QStringLiteral("product.%1").arg(v.id) &&
         !d.layerId.startsWith("draft."))
       continue;
     QStringList parentNames, childNames;
@@ -340,6 +406,7 @@ QVariantList MappingWorkbench::products(const QString &h) const {
                         {"type", d.type},
                         {"version", v.versionNumber},
                         {"version_id", v.id},
+                        {"asset_id", v.assetId},
                         {"parents", v.parentVersionIds},
                         {"parent_names", parentNames},
                         {"children", childNames},
@@ -829,6 +896,8 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
       record(snapshotPath, d.horizon, "edited_facies",
              previous.extra.value("title").toString(), "vector",
              evidenceParents, extra, error, "|layername=features", id);
+  if (!output.isEmpty())
+    styleLayer(id);
   return !output.isEmpty();
 }
 QString MappingWorkbench::snapshotConstraints(const QString &h,
@@ -1101,6 +1170,8 @@ void MappingWorkbench::styleLayer(const QString &id) {
   auto *layer = m_layers->layer(id);
   if (!layer)
     return;
+  layer->setCustomProperty("paleoAssetId", v.assetId);
+  layer->setCustomProperty("paleoVersionId", v.id);
   const auto styledKind = v.extra.value("kind").toString();
   const auto styledSource = v.extra.value("value_source").toString();
   const bool analysisRaster =

@@ -124,6 +124,15 @@ EntityPanel::EntityPanel(QWidget *parent)
              t.border.name().toUpper());
   });
   vcl->addWidget(entityHeader);
+  m_mappingReference = new QPushButton(tr("在编图中联动参考"), viewContent);
+  m_mappingReference->setObjectName(QStringLiteral("dataMappingReference"));
+  m_mappingReference->setEnabled(false);
+  m_mappingReference->setToolTip(tr("请先选择已保存的编图或单因素图件版本"));
+  vcl->addWidget(m_mappingReference);
+  connect(m_mappingReference, &QPushButton::clicked, this, [this] {
+    if (!m_mappingReferenceVersion.isEmpty())
+      emit mappingReferenceRequested(m_mappingReferenceVersion);
+  });
 
   auto *scroll = new QScrollArea(viewContent);
   scroll->setWidgetResizable(true);
@@ -759,6 +768,9 @@ void EntityPanel::setContext(const QString &entityId, const QString &assetId)
 
 void EntityPanel::refresh()
 {
+  m_mappingReferenceVersion.clear();
+  m_mappingReference->setEnabled(false);
+  m_mappingReference->setToolTip(tr("请先选择已保存的编图或单因素图件版本"));
   refreshDerivation();
   QWidget *root = this;
   if (!root)
@@ -894,6 +906,18 @@ void EntityPanel::refresh()
     content->setVisible(true);
     const CatalogVersion v = m_versionId.isEmpty() ? cat->currentVersion(a.id) : m_doc->versionForPreview(m_versionId);
     const QString abs = svc ? svc->absolutePathForVersion(v) : QString();
+    if (v.extra.value(QStringLiteral("mapping_product")).toBool() &&
+        (v.extra.value(QStringLiteral("layer_type")) ==
+             QLatin1String("vector") ||
+         v.extra.value(QStringLiteral("layer_type")) ==
+             QLatin1String("raster"))) {
+      m_mappingReferenceVersion = v.id;
+      m_mappingReference->setEnabled(!v.id.isEmpty());
+      m_mappingReference->setToolTip(
+          tr("引用 %1 · v%2；重算后仍保留所选版本，不切换当前编辑图件")
+              .arg(a.displayName)
+              .arg(v.versionNumber));
+    }
 
     QString typeDisplay = a.type;
     QString formatDisplay = tr("未知格式");
@@ -901,44 +925,42 @@ void EntityPanel::refresh()
                            a.type == QLatin1String("boundary") ||
                            a.displayName.endsWith(QLatin1String(".geojson"), Qt::CaseInsensitive);
 
-    if (a.type == QLatin1String("seismic"))
-    {
+    if (v.extra.value(QStringLiteral("mapping_product")).toBool()) {
+      typeDisplay = tr("编图 / 单因素图件");
+      const auto format = v.fileName.section(QLatin1Char('.'), -1).toUpper();
+      formatDisplay = tr("%1 · %2").arg(
+          format.isEmpty() ? a.format.toUpper() : format,
+          v.extra.value(QStringLiteral("layer_type")) == QLatin1String("vector")
+              ? tr("矢量")
+              : tr("栅格"));
+      header->setText(
+          v.extra.value(QStringLiteral("title"), a.displayName).toString());
+    } else if (a.type == QLatin1String("seismic")) {
       typeDisplay = tr("三维地震数据体 (3D Seismic)");
       formatDisplay = tr("SEG-Y rev1.0 (IEEE/IBM FP32)");
       header->setText(QStringLiteral("%1  (%2)").arg(a.displayName, tr("三维地震")));
-    }
-    else if (a.type == QLatin1String("horizon"))
-    {
+    } else if (a.type == QLatin1String("horizon")) {
       typeDisplay = tr("解释层位 (Horizon Grid)");
       formatDisplay = tr("CPS-3 / ZMAP ASCII");
       header->setText(QStringLiteral("%1  (%2)").arg(a.displayName, tr("解释层位")));
-    }
-    else if (a.type == QLatin1String("well_log"))
-    {
+    } else if (a.type == QLatin1String("well_log")) {
       typeDisplay = tr("测井曲线 (Well Log)");
       formatDisplay = tr("CWLS LAS 2.0");
       header->setText(QStringLiteral("%1  (%2)").arg(a.displayName, tr("测井曲线")));
-    }
-    else if (a.type == QLatin1String("boundary"))
-    {
+    } else if (a.type == QLatin1String("boundary")) {
       typeDisplay = tr("工区边界 (Boundary)");
       formatDisplay = tr("GeoJSON 矢量");
       header->setText(QStringLiteral("%1  (%2)").arg(a.displayName, tr("工区边界")));
-    }
-    else if (isGeoJson)
-    {
+    } else if (isGeoJson) {
       typeDisplay = tr("参考相图 (GeoJSON 矢量)");
       formatDisplay = tr("GeoJSON");
       header->setText(QStringLiteral("%1  (%2)").arg(a.displayName, tr("参考相图")));
-    }
-    else if (a.type == QLatin1String("auxiliary") || a.type == QLatin1String("document"))
-    {
+    } else if (a.type == QLatin1String("auxiliary") ||
+               a.type == QLatin1String("document")) {
       typeDisplay = tr("辅助参考资料");
       formatDisplay = a.displayName.section(QLatin1Char('.'), -1).toUpper();
       header->setText(QStringLiteral("%1  (%2)").arg(a.displayName, a.type));
-    }
-    else
-    {
+    } else {
       header->setText(QStringLiteral("%1  (%2)").arg(a.displayName, a.type));
     }
 

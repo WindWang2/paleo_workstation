@@ -1810,6 +1810,37 @@ class TestUiShell : public QObject
       auto *run=m_win->findChild<QAction *>("ribbonRunPrediction");QVERIFY(run && run->isEnabled());run->trigger();QVERIFY(m_ctx->mappingWorkbench()->busy());QVERIFY(!run->isEnabled());QTRY_VERIFY_WITH_TIMEOUT(!m_ctx->mappingWorkbench()->busy(),5000);
       const auto id=page->selectedLayer();QVERIFY(!id.isEmpty());auto *layer=m_ctx->layerSvc()->layer(id);QVERIFY(layer);QTRY_VERIFY(m_ctx->canvasCtl()->canvas()->layers().contains(layer));QCOMPARE(m_ctx->canvasCtl()->canvas()->currentLayer(),layer);
       auto *decor=m_win->findChild<PaleoDecorationManager *>();QVERIFY(decor);QVERIFY(decor->isNorthArrowEnabled());QVERIFY(decor->isScaleBarEnabled());QVERIFY(decor->legendTitle().contains("D61"));QVERIFY(decor->legendTitle().contains("Mock"));
+      const auto mapVersion=m_ctx->mappingWorkbench()->versionForLayer(id);
+      page->commandButton("catalog")->click(); QCOMPARE(m_win->currentPage(),QString("data"));
+      auto *dataPage=m_win->findChild<DataPage *>(); QVERIFY(dataPage);
+      QCOMPARE(dataPage->property("paleo.page.assetId").toString(),mapVersion.assetId);
+      auto *dataReference=m_win->findChild<QPushButton *>("dataMappingReference"); QVERIFY(dataReference && dataReference->isEnabled());
+      auto *dataType=dataPage->entityViewSection()->findChild<QLabel *>("propType");
+      auto *dataFormat=dataPage->entityViewSection()->findChild<QLabel *>("propFormat");
+      QVERIFY(dataType && dataFormat);
+      QCOMPARE(dataType->text(),QStringLiteral("编图 / 单因素图件"));
+      QVERIFY(dataFormat->text().contains("TIF"));
+      if (const auto qa=qEnvironmentVariable("PALEO_MAPPING_QA_DIR"); !qa.isEmpty()) {
+        QDir().mkpath(qa);
+        for (const auto theme : {PaleoTheme::Theme::Light, PaleoTheme::Theme::Dark}) {
+          PaleoTheme::applyTheme(theme);
+          PaleoRibbon::applyTheme(m_win, PaleoTheme::shellStyleSheet() + PaleoTheme::focusRingStyleSheet());
+          QTest::qWait(80);
+          QVERIFY(dataReference->parentWidget()->grab().save(qa +
+                  (theme==PaleoTheme::Theme::Light ? "/data-reference-light.png" : "/data-reference-dark.png")));
+        }
+        PaleoTheme::applyLightTheme();
+        PaleoRibbon::applyTheme(m_win, PaleoTheme::shellStyleSheet() + PaleoTheme::focusRingStyleSheet());
+      }
+      dataReference->click(); QCOMPARE(m_win->currentPage(),QString("compose"));
+      QCOMPARE(m_ctx->canvasCtl()->canvas()->currentLayer(),layer);
+      auto *dataRefWindow=m_win->findChild<QDialog *>("mappingReferenceWindow"); QVERIFY(dataRefWindow);
+      QCOMPARE(dataRefWindow->property("paleo.referenceVersion").toString(),mapVersion.id);
+      QCOMPARE(m_ctx->selection()->activeHorizon(),QString("D61"));
+      QCOMPARE(page->selectedLayer(),id);
+      dataRefWindow->close(); QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+      dataPage->focusVersion(st.assetId,st.versionId); QVERIFY(!dataReference->isEnabled());
+      m_win->showPage("predict");
       page->commandButton("compare")->click();auto *ref=m_win->findChild<QDialog *>("mappingReferenceWindow");QVERIFY(ref);auto *referenceCanvas=ref->findChild<QgsMapCanvas *>("referenceCanvas");QVERIFY(referenceCanvas);QCOMPARE(referenceCanvas->layers().size(),1);QPointer<QgsMapLayer> reference=referenceCanvas->layers().first();QVERIFY(reference!=layer);
       auto *display=page->findChild<QComboBox *>("faciesDisplayLevel"); QVERIFY(display); display->setCurrentIndex(1); QVERIFY(decor->legendTitle().contains(QStringLiteral("相（1 级）")));
       auto *linked=ref->findChild<QCheckBox *>("referenceLinked"); QVERIFY(linked && linked->isChecked());
@@ -1853,7 +1884,13 @@ class TestUiShell : public QObject
         PaleoRibbon::applyTheme(m_win, PaleoTheme::shellStyleSheet() + PaleoTheme::focusRingStyleSheet());
       }
       page->commandButton("polygonize")->click();QVERIFY(page->selectedLayer()!=id);QVERIFY(page->commandButton("copy")->isEnabled());
-      page->commandButton("copy")->click();const auto draft=page->selectedLayer();QVERIFY2(draft.startsWith("draft."),qPrintable(page->findChild<QLabel *>("workbenchMessage")->text()));auto *editing=m_win->findChild<PaleoEditingToolbar *>("editingToolbar");QVERIFY(editing && editing->isEditing());auto previous=m_ctx->mappingWorkbench()->versionForLayer(draft);auto *vector=editing->currentLayer();QVERIFY(vector);QgsFeature feature;auto fi=vector->getFeatures();QVERIFY(fi.nextFeature(feature));const int field=vector->fields().indexOf("facies_code");QVERIFY(field>=0);QVERIFY(vector->changeAttributeValue(feature.id(),field,feature.attribute(field).toInt()==1?2:1));editing->actionSave()->trigger();QVERIFY(!editing->isEditing());QCOMPARE(m_ctx->mappingWorkbench()->versionForLayer(draft).versionNumber,previous.versionNumber+1);
+      page->commandButton("copy")->click();const auto draft=page->selectedLayer();QVERIFY2(draft.startsWith("draft."),qPrintable(page->findChild<QLabel *>("workbenchMessage")->text()));auto *editing=m_win->findChild<PaleoEditingToolbar *>("editingToolbar");QVERIFY(editing && editing->isEditing());auto previous=m_ctx->mappingWorkbench()->versionForLayer(draft);auto *vector=editing->currentLayer();QVERIFY(vector);
+      m_win->showPage("data"); dataPage->focusVersion(mapVersion.assetId,mapVersion.id);
+      dataReference->click(); QVERIFY(editing->isEditing()); QCOMPARE(editing->currentLayer(),vector);
+      QCOMPARE(m_ctx->canvasCtl()->canvas()->currentLayer(),vector);
+      auto *editingRef=m_win->findChild<QDialog *>("mappingReferenceWindow"); QVERIFY(editingRef);
+      editingRef->close(); QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+      QgsFeature feature;auto fi=vector->getFeatures();QVERIFY(fi.nextFeature(feature));const int field=vector->fields().indexOf("facies_code");QVERIFY(field>=0);QVERIFY(vector->changeAttributeValue(feature.id(),field,feature.attribute(field).toInt()==1?2:1));editing->actionSave()->trigger();QVERIFY(!editing->isEditing());QCOMPARE(m_ctx->mappingWorkbench()->versionForLayer(draft).versionNumber,previous.versionNumber+1);
       m_win->showPage("compose");auto *compose=m_win->findChild<MappingWorkbenchPage *>("mappingWorkbench.compose");compose->selectLayer(draft);auto *save=m_win->findChild<QAction *>("ribbonSaveVersion");QVERIFY(save && save->isEnabled());QCOMPARE(save->text(),compose->commandButton("save")->text());
       auto wellStage = registrar.stage("well_log", "井道测试", "review.las");
       QVERIFY(wellStage.isValid());

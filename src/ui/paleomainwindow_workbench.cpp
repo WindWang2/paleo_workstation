@@ -14,11 +14,13 @@
 #include "../qgis/qgisprojectservice.h"
 #include "../services/paleotaskservice.h" // QPointer<PaleoTask>::running 需完整类型
 #include "../workflow/mappingworkbench.h"
+#include "datapreview/datapreviewtabs.h"
 #include "decorations/paleodecorations.h"
 #include "edittools/editingtoolbar.h"
 #include "horizonchipbar.h"
 #include "pages/composepage.h"
 #include "pages/constraintpage.h"
+#include "pages/datapage.h"
 #include "pages/mappingworkbenchpage.h"
 #include "pages/pageshared.h"
 #include "pages/predictpage.h"
@@ -228,6 +230,8 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
     auto *dialog = new QDialog(this, Qt::Window);
     dialog->setAttribute(Qt::WA_DeleteOnClose);
     dialog->setObjectName("mappingReferenceWindow");
+    dialog->setProperty("paleo.referenceVersion",
+                        workbench->versionForLayer(id).id);
     dialog->setWindowTitle(tr("参考 · %1 · %2").arg(d.horizon, d.title));
     dialog->resize(640, 480);
     layer->setParent(dialog);
@@ -323,6 +327,34 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
   wellDock->setWidget(wellPanel);
   addDockWidget(Qt::BottomDockWidgetArea, wellDock);
   wellDock->hide();
+  if (auto *dataPage = findChild<DataPage *>())
+    connect(dataPage, &DataPage::mappingReferenceRequested, this,
+            [this, workbench, compare](const QString &version) {
+              const QPointer<QgsMapLayer> target =
+                  m_canvasCtl->canvas()->currentLayer();
+              QString error;
+              const auto id = workbench->layerForVersion(version, &error);
+              if (id.isEmpty() || !compare(id, &error)) {
+                statusBar()->showMessage(error, 15000);
+                return;
+              }
+              showPage("compose");
+              if (target) {
+                if (auto *node =
+                        m_projectSvc->project()->layerTreeRoot()->findLayer(
+                            target->id()))
+                  node->setItemVisibilityCheckedParentRecursive(true);
+                if (auto *tree = findChild<QgsLayerTreeView *>())
+                  tree->setCurrentLayer(target);
+                m_canvasCtl->canvas()->setCurrentLayer(target);
+                m_canvasCtl->canvas()->refresh();
+                if (m_profileSvc)
+                  m_profileSvc->captureCurrentAsTheme(
+                      QgisLayerProfileService::pageThemeName(currentPage()));
+              }
+              statusBar()->showMessage(tr("已打开所选保存版本的联动参考图。"),
+                                       8000);
+            });
   auto openWells = [this, workbench, wellPanel, wellDock](const QString &id) {
     const auto wells = workbench->wellPredictions(id);
     if (wells.isEmpty())
@@ -530,7 +562,19 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
             workbench->cancelPrediction();
           else if (action == "show")
             ok = show(id, &error);
-          else if (action == "labels")
+          else if (action == "catalog") {
+            const auto version = workbench->versionForLayer(id);
+            auto *dataPage = findChild<DataPage *>();
+            if (!dataPage || version.id.isEmpty()) {
+              ok = false;
+              error = tr("所选图件尚未登记到数据管理");
+            } else {
+              showPage("data");
+              if (m_previewTabs)
+                m_previewTabs->openVersion(version.id);
+              dataPage->focusVersion(version.assetId, version.id);
+            }
+          } else if (action == "labels")
             ok = workbench->setLabelMode(id, p.value("label_mode").toInt(),
                                          &error);
           else if (action == "welltracks")
@@ -663,6 +707,8 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
           else if (action == "compare" || action == "references")
             message =
                 tr("已打开联动参考窗口，平移、缩放与光标位置随主图同步。");
+          else if (action == "catalog")
+            message = tr("已在数据管理中定位图件的保存版本和来源谱系。");
           else if (action == "displayLevel")
             message = tr("相图显示层级、标注与图例已更新。");
           else if (action == "addEvidence" || action == "removeEvidence")

@@ -210,6 +210,141 @@ class TestMappingWorkbench : public QObject {
     return f.work.copyForEditing(d.layerId, {}, error);
   }
 private slots:
+  void advancedSingleFactorsReachMappingWithoutReopeningProject() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto source = f.dir.filePath("advanced-samples.geojson");
+    QVERIFY(MappingArtifactWriter::points(
+        source,
+        {QVariantMap{{"x", 0}, {"y", 0}, {"z", 10}},
+         QVariantMap{{"x", 100}, {"y", 0}, {"z", 20}},
+         QVariantMap{{"x", 0}, {"y", 100}, {"z", 40}},
+         QVariantMap{{"x", 100}, {"y", 100}, {"z", 60}}},
+        &error));
+    LayerDeclaration samples;
+    samples.layerId = "wells.D61";
+    samples.horizon = "D61";
+    samples.type = "vector";
+    samples.source = source;
+    samples.title = "高级工具样点";
+    QVERIFY(f.layers.declare(samples, &error));
+    MappingWorkbenchPage page("compose", &f.work);
+    page.setHorizon("D61");
+    auto *inputs = page.findChild<QListWidget *>("workbenchInputs");
+    const QVariantMap options{
+        {"pointsLayerId", samples.layerId}, {"field", "z"}, {"cellSize", 10}};
+    // Use exactly the advanced-tools entry, bypassing MappingWorkbench.
+    QVERIFY2(f.constraints.generateFactor("D61", "sandthick", options, &error),
+             qPrintable(error));
+    const auto first = f.work.versionForLayer("factor.D61.sandthick");
+    QVERIFY(!first.id.isEmpty());
+    const auto firstLayer = "product." + first.id;
+    QTRY_VERIFY(!f.work.declaration(firstLayer).layerId.isEmpty());
+    int checked = -1;
+    for (int i = 0; i < inputs->count(); ++i)
+      if (inputs->item(i)->data(Qt::UserRole).toString() == firstLayer)
+        checked = i;
+    QVERIFY(checked >= 0);
+    inputs->item(checked)->setCheckState(Qt::Checked);
+    const auto originalPath = f.work.declaration(firstLayer).source;
+    const auto hash = digest(originalPath);
+    QVERIFY2(f.constraints.generateFactor("D61", "sandthick", options, &error),
+             qPrintable(error));
+    const auto second = f.work.versionForLayer("factor.D61.sandthick");
+    QVERIFY(second.id != first.id);
+    QTRY_VERIFY(!f.work.declaration("product." + second.id).layerId.isEmpty());
+    QCOMPARE(f.work.versionForLayer(firstLayer).id, first.id);
+    QCOMPARE(f.work.declaration(firstLayer).source, originalPath);
+    QCOMPARE(digest(originalPath), hash);
+    int factors = 0;
+    bool stillChecked = false;
+    for (const auto &entry : f.work.products("D61")) {
+      const auto row = entry.toMap();
+      if (row.value("kind") != "single_factor_raster")
+        continue;
+      ++factors;
+      QCOMPARE(row.value("asset_id").toString(), first.assetId);
+      QVERIFY(row.value("version_id") == first.id ||
+              row.value("version_id") == second.id);
+    }
+    QCOMPARE(factors, 2);
+    for (int i = 0; i < inputs->count(); ++i)
+      if (inputs->item(i)->data(Qt::UserRole).toString() == firstLayer)
+        stillChecked = inputs->item(i)->checkState() == Qt::Checked;
+    QVERIFY(stillChecked);
+    QCOMPARE(f.work.layerForVersion(first.id, &error), firstLayer);
+    auto *rendered = f.layers.instantiate(firstLayer, &error);
+    QVERIFY(rendered);
+    QCOMPARE(rendered->customProperty("paleoAssetId").toString(),
+             first.assetId);
+    QCOMPARE(rendered->customProperty("paleoVersionId").toString(), first.id);
+    page.selectLayer(firstLayer);
+    QVERIFY(page.commandButton("catalog")->isEnabled());
+    QSignalSpy intent(&page, &MappingWorkbenchPage::commandRequested);
+    page.commandButton("catalog")->click();
+    QCOMPARE(intent.last()[0].toString(), QString("catalog"));
+    // Old factor versions remain usable as frozen evidence sources.
+    const auto draft = hierarchyDraft(f, &error);
+    QVERIFY(!draft.isEmpty());
+    auto *v = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft));
+    auto features = v->getFeatures();
+    QgsFeature feature;
+    QVERIFY(features.nextFeature(feature));
+    QVERIFY(f.work.addEvidence(draft, {feature.id()},
+                               {{"text", "依据重算前的砂厚图"},
+                                {"level", "facies"},
+                                {"source_layer", firstLayer}},
+                               &error));
+    QCOMPARE(f.work.evidence(draft, {feature.id()})[0]
+                 .toMap()
+                 .value("source_version")
+                 .toString(),
+             first.id);
+    QVERIFY(v->rollBack());
+  }
+  void movingCatalogAliasesDoNotReplaceHistoricalReferences() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    DerivedAssetRegistrar registrar(&f.catalog, f.dir.path());
+    const QVariantMap extra{{"mapping_product", true},
+                            {"layer_id", "cartographic.D61.sandthick"},
+                            {"manifest_layer_id", "cartographic.D61.sandthick"},
+                            {"horizon", "D61"},
+                            {"layer_type", "raster"},
+                            {"group", "04_SingleFactor/Cartographic"},
+                            {"title", "砂厚制图工作场"},
+                            {"kind", "single_factor_cartographic_work"},
+                            {"value_source", "cartographic_work"}};
+    QString first, second;
+    for (int i = 0; i < 2; ++i) {
+      const auto staged = registrar.stage("single_factor_cartographic_work",
+                                          "砂厚制图工作场", "work.tif", &error);
+      QVERIFY(staged.isValid());
+      QVERIFY(MappingArtifactWriter::raster(staged.absolutePath, {1, 1, 2, 2},
+                                            2, 2, QRectF(0, 0, 100, 100),
+                                            &error));
+      QVERIFY(registrar.commit(staged, {}, "fixture", extra, &error));
+      (i == 0 ? first : second) = staged.versionId;
+    }
+    QTRY_VERIFY(!f.work.declaration("product." + second).layerId.isEmpty());
+    QCOMPARE(f.work.versionForLayer("product." + first).id, first);
+    QCOMPARE(f.work.versionForLayer("product." + second).id, second);
+    QCOMPARE(f.work.layerForVersion(first, &error), "product." + first);
+    QVERIFY(f.work.declaration("product." + first).source !=
+            f.work.declaration("product." + second).source);
+    QVERIFY(f.work.products("D62").isEmpty());
+    QCOMPARE(f.work.products("D61").size(), 2);
+    QVERIFY(f.work.compose("D61", {"product." + first}, {}, &error).isEmpty());
+    QVERIFY(
+        !error
+             .isEmpty()); // display-only work cannot enter quantitative fusion.
+    f.work.bindCatalog(&f.catalog, f.dir.path());
+    QCOMPARE(f.work.versionForLayer("product." + first).id, first);
+    QCOMPARE(f.work.products("D61").size(), 2);
+    QVERIFY(f.work.layerForVersion("missing", &error).isEmpty());
+  }
   void hierarchyScaleFallbackAndScopedNames() {
     QCOMPARE(FaciesHierarchy::resolveLevel("auto", 8000001), QString("facies"));
     QCOMPARE(FaciesHierarchy::resolveLevel("auto", 8000000), QString("sub_facies"));
@@ -403,6 +538,7 @@ private slots:
     QVERIFY(v->commitChanges());
     QVERIFY(f.work.saveEditingVersion(draft, &error));
     const auto snapshot = f.work.versionForLayer(draft);
+    QCOMPARE(v->customProperty("paleoVersionId").toString(), snapshot.id);
     QVERIFY(snapshot.parentVersionIds.contains(
         evidence.value("source_version").toString()));
     QgsVectorLayer saved(

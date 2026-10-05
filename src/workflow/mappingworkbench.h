@@ -29,6 +29,7 @@ public:
   QVariantList products(const QString &horizon) const;
   CatalogVersion versionForLayer(const QString &id) const;
   LayerDeclaration declaration(const QString &id) const;
+  QString layerForVersion(const QString &versionId, QString *error = nullptr);
   bool predict(const QString &horizon, const QString &kind,
                const QStringList &ids, QString *error);
   void cancelPrediction();
@@ -90,6 +91,7 @@ signals:
   void errorOccurred(const QString &message);
 
 private:
+  void synchronizeCatalogLayers();
   bool ready(const QString &horizon, QString *error) const;
   QString schemaVersion(const QString &horizon) const;
   QString record(const QString &path, const QString &horizon,
@@ -107,6 +109,7 @@ private:
   QPointer<RemotePredictionService> m_remote;
   QString m_dir;
   double m_displayScale = 0;
+  bool m_catalogSyncQueued = false;
   RemotePredictionRequest m_request;
   mutable QString m_logVersion;
   mutable LasDoc m_logCache;

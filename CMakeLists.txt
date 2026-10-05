@@ -463,6 +463,9 @@ target_link_libraries(paleo_qgis PUBLIC paleo_deps paleo_ui_deps paleo_store pal
 add_library(paleo_io STATIC
   src/io/dataimportservice.cpp
   src/io/lasparser.cpp
+  src/io/dlisparser.cpp                            # 方向44：DLIS (RP66 v1) 读口
+  src/io/lisparser.cpp                             # 方向44：LIS79 读口（含 TIF）
+  src/io/welllogread.cpp                           # 方向44：井曲线格式分派门面
   src/io/segyreader.cpp                             # wave/segy
   src/io/constraintstore.cpp                        # wave/constraint-gpkg
   src/io/wellfileparsers.cpp                        # well head / tops / TD text parsers
@@ -827,7 +830,7 @@ add_paleo_test(tst_maptools LIBS paleo_ui)
 add_paleo_test(tst_correlation LIBS paleo_ui)
 add_paleo_test(tst_decorations LIBS paleo_ui)
 add_paleo_test(tst_manifestproj LIBS paleo_qgis)
-add_paleo_test(tst_import LIBS paleo_io paleo_qgis)
+add_paleo_test(tst_import LIBS paleo_io paleo_services paleo_qgis) # 方向44：并集可达断言
 add_paleo_test(tst_drawctl LIBS paleo_ui)
 add_paleo_test(tst_procdialog LIBS paleo_qgis)
 add_paleo_test(tst_rehydrate)                               # 伞式（app 面全栈，兼容样本）
@@ -839,6 +842,8 @@ add_paleo_test(tst_attrpanel LIBS paleo_ui)
 # ---- merged worktree waves ----
 add_paleo_test(tst_segy LIBS paleo_io)
 add_paleo_test(tst_las LIBS paleo_io)
+add_paleo_test(tst_dlisparser LIBS paleo_io)          # 方向44：DLIS (RP66 v1) 全集读口
+add_paleo_test(tst_lisparser LIBS paleo_io)           # 方向44：LIS79 全集读口
 add_paleo_test(tst_lasperf LIBS paleo_io)    # 方向21：LAS 读面比率门探针（同进程参照实现）
 add_paleo_test(tst_snapshot_dedup LIBS paleo_io) # #84：快照/活对象 dedup 复核同一语义（真重哈希）
 add_paleo_test(tst_constraintstore LIBS paleo_workflow)

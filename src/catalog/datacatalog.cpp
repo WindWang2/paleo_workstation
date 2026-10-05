@@ -920,26 +920,26 @@ bool DataCatalog::attachLink(int index, const QString &entityId, QString *error)
   }
   l.entityId = entityId;
   l.unresolved = false;
-  l.isPrimary = true;
   l.note.clear();
   // 决议清空 note 后词表诊断重下——role 词表违例不因挂上实体而消失
   // （诚实降级，见 invalidRoleLinks()）。
   annotateRoleDiagnostics(l, m_roles);
-  // 与 addLink 同一不变量：同一 (entityType, entityId, role) 只留这一条主关联。
-  // 注意：未决链接也可能带 entityId（上游约定——entity 邻接先于决议建立），
-  // 行集可能包含 index 自身，须显式排除。
-  QVector<int> demotedRows;
+  // 方向 44 挂接契约（收口，TODOS P3「attachLink 升主」递延的对账）：
+  // 主文件只由显式操作变更——attachLink 不夺主。目标 (entity, role) 已有
+  // 已决主关联时，新挂链接为成员（isPrimary=false）；无主才补主（首份语义，
+  // 与导入路径 assignResolvedWellLogSlot 的「首条主/后到非主」一致）。
+  // 显式夺主唯一入口 = setLinkPrimary（「设为主文件」按钮）。
+  // 消费面依据：welllogset canonical 命名、petrophys 驱动文件选举、
+  // sectionworkbench 快照恢复、mapping logVersion 都读 isPrimary——挂接
+  // 换主会让这些面静默漂移（快照恢复直接拒绝），故收口。
+  bool hasExistingPrimary = false;
   for (int i : m_idx.linkRowsForEntity(entityId)) // D5.1 O(命中集)
     if (i != index && m_links[i].isPrimary && !m_links[i].unresolved &&
         m_links[i].entityType == l.entityType && m_links[i].entityId == entityId &&
         m_links[i].role == l.role)
-    {
-      demotedRows.append(i);
-      m_links[i].isPrimary = false;
-    }
+      hasExistingPrimary = true;
+  l.isPrimary = !hasExistingPrimary;
   m_dirtyLinkOrds.insert(index);
-  for (int row : demotedRows)
-    m_dirtyLinkOrds.insert(row);
   if (save(error))
   {
     m_idx.linksMutated(m_links); // entityId 获值——entity 邻接变化
@@ -951,8 +951,6 @@ bool DataCatalog::attachLink(int index, const QString &entityId, QString *error)
     return true;
   }
   m_links[index] = previousLink;
-  for (int i : demotedRows)
-    m_links[i].isPrimary = true;
   m_idx.linksMutated(m_links);
   return false;
 }

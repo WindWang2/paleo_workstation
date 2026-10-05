@@ -6,6 +6,7 @@
 #include <QVector>
 
 #include "../domain/deviationsurvey.h"
+#include "../domain/wellrecords.h" // TimeDepthTable（方向44 TIME 基准对齐）
 
 class DataCatalog;
 
@@ -14,6 +15,8 @@ class DataCatalog;
 // ——例外：readCurveTvd 是按列读数据体的读值面（goal/well-trajectory 轮3），
 // 溯源/别名协议与其余头扫描面不动。调用方在 catalog 所属线程使用。
 // catalog 为空、未打开，或 wellId 为空 → 空结果。
+// 方向 44：well_log 链接的文件可以是 LAS / DLIS / LIS（WellLogRead 分派），
+// indexBasis 透出各文件深度基准（"MD"/"TVD"/"TIME"/"" 未知）。
 
 struct WellLogFile
 {
@@ -23,6 +26,8 @@ struct WellLogFile
   bool isPrimary = false;
   int ordinal = 0;
   QStringList curveNames;  // parseHeader 的 ~C 列序，curves[0] 为深度索引
+  QString indexBasis;      // 深度基准（方向44）："MD"/"TVD"/"TIME"/""（未知）
+  QString format;          // "las"/"dlis"/"lis"（WellLogRead 分派口径）
 };
 
 struct WellCurveRef
@@ -81,4 +86,14 @@ public:
   static bool readCurveTvd(const WellCurveRef &ref,
                            const paleo::WellDeviationSurvey *survey,
                            WellCurveTvdSamples *out, QString *error = nullptr);
+
+  // ---- 深度基准对齐（方向 44）----
+  // TIME 基准索引道 → 深度（米）：逐样点经时深表逆插值；indexUnit 是该道
+  // 原始单位（只认 "s"/"ms"，未知或空单位拒绝不猜）；样点超表 → NaN
+  // （下游重采样按范围外缺失处理，不外推）。表不可用（无样点/无序）→ false
+  // + error 给因，indexValues 原样不动。petrophys 并集对齐与测试共用此面。
+  static bool timeIndexToDepth(QVector<double> *indexValues,
+                               const QString &indexUnit,
+                               const TimeDepthTable &td, bool preferMd,
+                               QString *error = nullptr);
 };

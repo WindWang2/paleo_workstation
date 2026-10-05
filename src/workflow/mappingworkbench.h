@@ -29,6 +29,7 @@ public:
   QVariantList products(const QString &horizon) const;
   CatalogVersion versionForLayer(const QString &id) const;
   LayerDeclaration declaration(const QString &id) const;
+  QString layerForVersion(const QString &versionId, QString *error = nullptr);
   bool predict(const QString &horizon, const QString &kind,
                const QStringList &ids, QString *error);
   void cancelPrediction();
@@ -62,12 +63,27 @@ public:
                     int code, QString *error);
   bool reviseWellInterval(const QString &draftId, const QString &wellId,
                           int interval, int code, QString *error);
+  QString displayMode(const QString &id) const;
+  QString resolvedLevel(const QString &id) const;
+  QVariantList displayLegend(const QString &id) const;
+  bool setDisplayMode(const QString &id, const QString &mode, QString *error);
+  void updateDisplayScale(double scale);
+  bool selectHierarchyMembers(const QString &id, const QString &level, QString *error);
+  bool assignHierarchy(const QString &id, const QList<qint64> &ids,
+                       int code, const QString &level, QString *error);
+  QList<qint64> selectedFeatures(const QString &id) const;
+  QVariantList evidence(const QString &id, const QList<qint64> &ids) const;
+  bool addEvidence(const QString &id, const QList<qint64> &ids,
+                   const QVariantMap &entry, QString *error);
+  bool removeEvidence(const QString &id, const QList<qint64> &ids,
+                      const QString &evidenceId, QString *error);
   void styleLayer(const QString &id);
   int labelMode(const QString &id) const;
   bool setLabelMode(const QString &id, int mode, QString *error);
 signals:
   void changed();
   void faciesEdited(const QString &layerId);
+  void displayChanged(const QString &layerId);
   void faciesChanged(const QString &horizon);
   void predictionBusyChanged(bool busy);
   void predictionProgress(int percent);
@@ -75,6 +91,7 @@ signals:
   void errorOccurred(const QString &message);
 
 private:
+  void synchronizeCatalogLayers();
   bool ready(const QString &horizon, QString *error) const;
   QString schemaVersion(const QString &horizon) const;
   QString record(const QString &path, const QString &horizon,
@@ -91,6 +108,8 @@ private:
   QPointer<DataCatalog> m_catalog;
   QPointer<RemotePredictionService> m_remote;
   QString m_dir;
+  double m_displayScale = 0;
+  bool m_catalogSyncQueued = false;
   RemotePredictionRequest m_request;
   mutable QString m_logVersion;
   mutable LasDoc m_logCache;

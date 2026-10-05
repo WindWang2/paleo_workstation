@@ -6,7 +6,9 @@
 #include <QEventLoop>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
 #include <QJsonObject>
+#include <QSet>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QThread>
@@ -186,6 +188,11 @@ private slots:
   void asyncJobRegisteredBeforeCallerFinishedSlot();
   void asyncJobDroppedOnSessionReset();
   void computeSnapshotIsPureAndCancellable();
+  // ---- 方向 45（goal/prop-model-v2）：SGS 多实现 / 断距提取 / 相带与口径 ----
+  void sgsMultiRealizationRegistersIndependentVersions();
+  void faultThrowExtractionFeedsOffset();
+  void faciesAndVerticalApproxCalibersAreHonest();
+  void objectOverrideRegistersInProvenance();
 };
 
 void TestPropWorkflow::wktSegmentsAndFaultSet()
@@ -796,7 +803,8 @@ void TestPropWorkflow::asyncJobSucceedsAndRegistersOnOwnerThread()
   QCOMPARE(stored.size(), 1);
   QCOMPARE(failed.size(), 0);
   QVERIFY(job->registered);
-  QVERIFY2(job->computed.ok, qPrintable(job->computed.error));
+  QVERIFY2(!job->computed.empty() && job->computed.front().ok,
+             qPrintable(job->computed.empty() ? QStringLiteral("空结果") : job->computed.front().error));
   QCOMPARE(task->state(), PaleoTask::State::Succeeded);
 
   // 登记确实落到 catalog（与同步路径同一面）
@@ -805,9 +813,10 @@ void TestPropWorkflow::asyncJobSucceedsAndRegistersOnOwnerThread()
     if (asset.type == QLatin1String("property_volume"))
       ++registered;
   QCOMPARE(registered, 1);
-  // 共享所有权：UI 段读到的就是 commit 段回填的那一份
-  QCOMPARE(job->computed.out.assetId, job->computed.out.assetId);
-  QVERIFY(!job->computed.out.path.isEmpty());
+  // 共享所有权：UI 段读到的就是 commit 段回填的那一份（与 catalog 对账）
+  const CatalogVersion registeredVersion = cat.versionById(job->computed.front().out.versionId);
+  QCOMPARE(job->computed.front().out.assetId, registeredVersion.assetId);
+  QVERIFY(!job->computed.front().out.path.isEmpty());
 
   svc.shutdown(3000, false);
 }
@@ -1107,7 +1116,7 @@ void TestPropWorkflow::asyncJobRegisteredBeforeCallerFinishedSlot()
   QObject ctx;
   connect(task, &PaleoTask::finished, &ctx, [&] {
     seen = job->registered ? 1 : 0;
-    seenPath = job->computed.out.path;
+    seenPath = job->computed.front().out.path;
   });
   bool completed = false;
   connect(&runner, &paleo::jobs::JobRunnerBase::jobCompleted, &ctx,
@@ -1152,8 +1161,8 @@ void TestPropWorkflow::computeSnapshotIsPureAndCancellable()
   // 纯函数：catalog 未打开 → 如实失败，不发信号（worker 线程不 emit）
   PropertyModelRequest req = asyncFixtureRequest();
   const auto closed = PropertyModelWorkflow::computeSnapshot(req, QString(), false);
-  QVERIFY(!closed.ok);
-  QVERIFY(!closed.error.isEmpty());
+  QVERIFY(!closed.empty() && !closed.front().ok);
+  QVERIFY(!closed.front().error.isEmpty());
   // 进度回调返回 false（取消）→ 立即失败、错误为「已取消」
   int calls = 0;
   const auto cancelled = PropertyModelWorkflow::computeSnapshot(
@@ -1161,11 +1170,342 @@ void TestPropWorkflow::computeSnapshotIsPureAndCancellable()
         ++calls;
         return false;
       });
-  QVERIFY(!cancelled.ok);
+  QVERIFY(!cancelled.empty() && !cancelled.front().ok);
   QCOMPARE(calls, 1);
-  QCOMPARE(cancelled.error, QStringLiteral("已取消"));
+  QCOMPARE(cancelled.front().error, QStringLiteral("已取消"));
   const auto ok = PropertyModelWorkflow::computeSnapshot(req, QString(), true);
-  QVERIFY2(ok.ok, qPrintable(ok.error));
+  QVERIFY2(!ok.empty() && ok.front().ok,
+           qPrintable(ok.empty() ? QStringLiteral("空结果") : ok.front().error));
+}
+
+// ---- 方向 45：SGS 多实现 = 同资产多 DERIVED 版本，每版本带完整参数+种子+
+// 父版本锚（Oracle 7）；同种子重跑逐位复现。 ----
+void TestPropWorkflow::sgsMultiRealizationRegistersIndependentVersions()
+{
+  QTemporaryDir tmp;
+  QVERIFY(tmp.isValid());
+  const QString topPath = tmp.filePath(QStringLiteral("top.tif"));
+  const QString botPath = tmp.filePath(QStringLiteral("bot.tif"));
+  QVERIFY(writeFlat(topPath, 6, 0.0f, 0.0f));
+  QVERIFY(writeFlat(botPath, 6, 60.0f, 0.0f));
+
+  DataCatalog cat;
+  QVERIFY(cat.open(tmp.path()));
+  QString catErr;
+  QVERIFY2(addExternal(&cat, QStringLiteral("ast-top"), topPath, &catErr), qPrintable(catErr));
+  QVERIFY2(addExternal(&cat, QStringLiteral("ast-bot"), botPath, &catErr), qPrintable(catErr));
+
+  PropertyModelRequest req;
+  req.propertyName = QStringLiteral("PHIT");
+  req.topName = QStringLiteral("C3");
+  req.botName = QStringLiteral("D72");
+  req.topPath = topPath;
+  req.botPath = botPath;
+  req.nLayers = 4;
+  req.method = PropertyMethod::Sgs;
+  req.variogram.type = paleo::geostat::VariogramModelType::Spherical;
+  req.variogram.nugget = 0.1;
+  req.variogram.sill = 1.0;
+  req.variogram.range = 30.0;
+  req.variogram.verticalRangeRatio = 4.0;
+  req.sgsRealizations = 4;
+  req.sgsSeed = 20261005;
+  req.wells.push_back(wellNamed(QStringLiteral("WA"), QStringLiteral("PHIT"), 15.0, 45.0, 0.0,
+                                60.0, 10.0));
+  req.wells.push_back(wellNamed(QStringLiteral("WB"), QStringLiteral("PHIT"), 45.0, 15.0, 0.0,
+                                60.0, 12.0));
+
+  PropertyModelWorkflow wf(&cat, tmp.path());
+  QSignalSpy stored(&wf, &PropertyModelWorkflow::modelStored);
+  const PropertyModelOutput out = wf.run(req);
+  QVERIFY2(out.ok, qPrintable(out.error));
+  QCOMPARE(stored.count(), 4); // 每实现一次登记通知
+  QCOMPARE(out.realizationCount, 4);
+
+  const CatalogAsset asset = cat.assetById(out.assetId);
+  QCOMPARE(asset.type, QStringLiteral("property_volume"));
+  const QVector<CatalogVersion> versions = cat.versionsForAsset(out.assetId);
+  QCOMPARE(versions.size(), 4);
+  QSet<QString> paramHashes;
+  QSet<int> realizationIndexes;
+  for (const CatalogVersion &ver : versions)
+  {
+    QCOMPARE(ver.stage, QStringLiteral("DERIVED"));
+    paramHashes.insert(ver.extra.value(QStringLiteral("param_hash")).toString());
+    realizationIndexes.insert(ver.extra.value(QStringLiteral("realization_index")).toInt());
+    QCOMPARE(ver.extra.value(QStringLiteral("seed")).toString(), QStringLiteral("20261005"));
+    QCOMPARE(ver.extra.value(QStringLiteral("method")).toString(), QStringLiteral("sgs"));
+    // 父版本锚：每个 realization 版本都锚住层位源
+    QVERIFY(ver.parentVersionIds.contains(QStringLiteral("ast-top-v")));
+    QVERIFY(ver.parentVersionIds.contains(QStringLiteral("ast-bot-v")));
+  }
+  QCOMPARE(paramHashes.size(), 1); // 同参数同哈希（实现序不进哈希）
+  QCOMPARE(realizationIndexes.size(), 4);
+
+  // blob provenance：首实现带 realization_index/seed/方法/竖直近似口径。
+  PropertyVolume volume;
+  QJsonObject prov;
+  QString err;
+  QFile blobFile(out.path);
+  QVERIFY(blobFile.open(QIODevice::ReadOnly));
+  QVERIFY2(readPropertyBlob(blobFile.readAll(), &volume, &prov, &err), qPrintable(err));
+  QCOMPARE(prov.value(QStringLiteral("method")).toString(), QStringLiteral("sgs"));
+  QCOMPARE(prov.value(QStringLiteral("seed")).toString(), QStringLiteral("20261005"));
+  const int blobIndex = prov.value(QStringLiteral("realization_index")).toInt();
+  QVERIFY(blobIndex >= 0 && blobIndex < 4);
+  QVERIFY(prov.value(QStringLiteral("realization_count")).toInt() == 4);
+  QCOMPARE(prov.value(QStringLiteral("n_vertical_approx_wells")).toInt(), 2);
+  QVERIFY(prov.value(QStringLiteral("trajectory_caliber")).toString().contains(
+      QStringLiteral("竖直近似")));
+  // 硬数据：井柱 cell 精确复现（每实现都钉死——这里验首实现）
+  QCOMPARE(volume.values[static_cast<std::size_t>(volume.grid.cellIndex(1, 1, 0))], 10.0f);
+  QCOMPARE(volume.values[static_cast<std::size_t>(volume.grid.cellIndex(4, 4, 3))], 12.0f);
+
+  // 可复现：同参数重跑 → 每实现 blob 逐位一致（对齐 realization_index）。
+  const PropertyModelOutput again = wf.run(req);
+  QVERIFY2(again.ok, qPrintable(again.error));
+  const QVector<CatalogVersion> versions2 = cat.versionsForAsset(out.assetId);
+  QCOMPARE(versions2.size(), 8);
+  int matched = 0;
+  for (const CatalogVersion &ver : versions)
+  {
+    const int index = ver.extra.value(QStringLiteral("realization_index")).toInt();
+    // 找第二次运行的同序版本
+    bool found = false;
+    for (const CatalogVersion &ver2 : versions2)
+    {
+      if (ver2.id == ver.id)
+        continue;
+      if (ver2.extra.value(QStringLiteral("realization_index")).toInt() != index ||
+          ver2.extra.value(QStringLiteral("param_hash")).toString() !=
+              ver.extra.value(QStringLiteral("param_hash")).toString())
+        continue;
+      QFile a(DataCatalog::resolvedVersionPath(tmp.path(), ver));
+      QFile b(DataCatalog::resolvedVersionPath(tmp.path(), ver2));
+      QVERIFY(a.open(QIODevice::ReadOnly));
+      QVERIFY(b.open(QIODevice::ReadOnly));
+      QCOMPARE(a.readAll(), b.readAll());
+      found = true;
+      break;
+    }
+    if (found)
+      ++matched;
+  }
+  QCOMPARE(matched, 4); // 每个实现都找到配对且逐位一致——静默 break 不算过
+}
+
+// ---- 方向 45：cut.extra["throw_z"] + 盘侧 → FaultThrow；链路上错位口径入档 ----
+void TestPropWorkflow::faultThrowExtractionFeedsOffset()
+{
+  paleo::fault::FaultSet set;
+  const QString id = set.addFault(QStringLiteral("F1"));
+
+  paleo::fault::FaultHorizonCut cut;
+  cut.horizon = QStringLiteral("H1");
+  cut.wkt = QStringLiteral("LINESTRING (0 0, 100 0)");
+  cut.hangingSide = paleo::fault::FaultHangingSide::Left;
+  cut.extra.insert(QStringLiteral("throw_z"), 5.0);
+  QVERIFY(set.setCut(id, cut));
+
+  auto extracted = PropertyModelWorkflow::throwSegmentsFromFaultSet(set);
+  QCOMPARE(extracted.throws.size(), std::size_t(1));
+  QCOMPARE(extracted.curtainSegments, 1);
+  QCOMPARE(extracted.throwSegments, 1);
+  QCOMPARE(extracted.throws[0].throwStart, 5.0);
+  QCOMPARE(extracted.throws[0].throwEnd, 5.0);
+  QVERIFY(extracted.throws[0].dropLeftSide);
+
+  // 无断距：只竖帘
+  paleo::fault::FaultHorizonCut bare = cut;
+  bare.extra.remove(QStringLiteral("throw_z"));
+  QVERIFY(set.setCut(id, bare));
+  extracted = PropertyModelWorkflow::throwSegmentsFromFaultSet(set);
+  QVERIFY(extracted.throws.empty());
+  QCOMPARE(extracted.curtainSegments, 1);
+
+  // 有断距但盘侧未知：保持竖帘并计数
+  paleo::fault::FaultHorizonCut unknown = cut;
+  unknown.hangingSide = paleo::fault::FaultHangingSide::Unknown;
+  QVERIFY(set.setCut(id, unknown));
+  extracted = PropertyModelWorkflow::throwSegmentsFromFaultSet(set);
+  QVERIFY(extracted.throws.empty());
+  QCOMPARE(extracted.unknownSideCuts, 1);
+
+  // 链路：断距进请求 → 错位格架 → 错位口径进 blob/extra
+  QTemporaryDir tmp;
+  QVERIFY(tmp.isValid());
+  DataCatalog cat;
+  QVERIFY(cat.open(tmp.path()));
+  PropertyModelRequest req;
+  req.useEmbeddedSurfaces = true;
+  req.propertyName = QStringLiteral("GR");
+  req.topName = QStringLiteral("T");
+  req.botName = QStringLiteral("B");
+  req.nLayers = 3;
+  req.top.cols = req.bot.cols = 12;
+  req.top.rows = req.bot.rows = 8;
+  req.top.dx = req.bot.dx = 10;
+  req.top.dy = req.bot.dy = 10;
+  req.top.z.assign(12 * 8, 0.0f);
+  req.bot.z.assign(12 * 8, 30.0f);
+  req.wells.push_back(wellAt(25.0, 45.0, 0.0, 30.0, 8.0));
+  req.wells.push_back(wellAt(75.0, 35.0, 0.0, 30.0, 9.0));
+  paleo::stratgrid::FaultThrow throwSeg;
+  throwSeg.x0 = 60;
+  throwSeg.y0 = -10;
+  throwSeg.x1 = 60;
+  throwSeg.y1 = 90;
+  throwSeg.throwStart = 4.0;
+  throwSeg.throwEnd = 4.0;
+  throwSeg.dropLeftSide = false;
+  req.faultThrows = {throwSeg};
+  req.faults.push_back(FaultSegment{60.0, -10.0, 60.0, 90.0});
+
+  PropertyModelWorkflow wf(&cat, tmp.path());
+  const PropertyModelOutput out = wf.run(req);
+  QVERIFY2(out.ok, qPrintable(out.error));
+  PropertyVolume volume;
+  QJsonObject prov;
+  QString err;
+  QFile blobFile(out.path);
+  QVERIFY(blobFile.open(QIODevice::ReadOnly));
+  QVERIFY2(readPropertyBlob(blobFile.readAll(), &volume, &prov, &err), qPrintable(err));
+  QCOMPARE(prov.value(QStringLiteral("fault_offset_max_abs_throw")).toDouble(), 4.0);
+  QVERIFY(prov.value(QStringLiteral("fault_offset_columns")).toInt() > 0);
+  QVERIFY(prov.value(QStringLiteral("caliber")).toString().contains(QStringLiteral("断块错位")));
+  // Oracle 1 链路面：错位后断层两侧同层界面差 = throw（dropLeftSide=false
+  // → 东侧 i≥6 下掉 +4，西侧未动 → 东侧界面 − 西侧界面 = +4）
+  double zl = 0;
+  double zr = 0;
+  QVERIFY(interfaceZ(volume.grid, 3, 4, 2, &zl));
+  QVERIFY(interfaceZ(volume.grid, 8, 4, 2, &zr));
+  QCOMPARE(zr - zl, 4.0);
+}
+
+// ---- 方向 45：相带分区链路 + 竖直近似口径 + 无相带诚实降级 ----
+void TestPropWorkflow::faciesAndVerticalApproxCalibersAreHonest()
+{
+  QTemporaryDir tmp;
+  QVERIFY(tmp.isValid());
+  DataCatalog cat;
+  QVERIFY(cat.open(tmp.path()));
+  PropertyModelWorkflow wf(&cat, tmp.path());
+
+  // collectFaciesPolygons：无资产 → 如实拒绝
+  PropertyModelRequest empty;
+  QString err;
+  QVERIFY(!wf.collectFaciesPolygons(&empty, &err));
+  QVERIFY(err.contains(QStringLiteral("相带")));
+  QVERIFY(empty.faciesRings.empty());
+
+  PropertyModelRequest req;
+  req.useEmbeddedSurfaces = true;
+  req.propertyName = QStringLiteral("PHIT");
+  req.topName = QStringLiteral("T");
+  req.botName = QStringLiteral("B");
+  req.nLayers = 3;
+  req.method = PropertyMethod::Sgs;
+  req.variogram.sill = 1.0;
+  req.variogram.range = 40.0;
+  req.sgsSeed = 11;
+  req.sgsRealizations = 2;
+  req.top.cols = req.bot.cols = 16;
+  req.top.rows = req.bot.rows = 8;
+  req.top.dx = req.bot.dx = 10;
+  req.top.dy = req.bot.dy = 10;
+  req.top.z.assign(16 * 8, 0.0f);
+  req.bot.z.assign(16 * 8, 24.0f);
+  req.wells.push_back(wellNamed(QStringLiteral("WA"), QStringLiteral("PHIT"), 25.0, 35.0, 0.0,
+                                24.0, 10.0));
+  req.wells.push_back(wellNamed(QStringLiteral("WB"), QStringLiteral("PHIT"), 125.0, 45.0, 0.0,
+                                24.0, 20.0));
+  // 两相带：西 8 列 code 1、东 8 列 code 2
+  req.useFacies = true;
+  req.faciesAssetName = QStringLiteral("facies-draft");
+  {
+    paleo::stratgrid::ZoneRing west;
+    west.code = 1;
+    west.xs = {0, 80, 80, 0, 0};
+    west.ys = {0, 0, 80, 80, 0};
+    paleo::stratgrid::ZoneRing east;
+    east.code = 2;
+    east.xs = {80, 160, 160, 80, 80};
+    east.ys = {0, 0, 80, 80, 0};
+    req.faciesRings = {west, east};
+  }
+
+  const PropertyModelOutput out = wf.run(req);
+  QVERIFY2(out.ok, qPrintable(out.error));
+  PropertyVolume volume;
+  QJsonObject prov;
+  QString err2;
+  QFile blobFile(out.path);
+  QVERIFY(blobFile.open(QIODevice::ReadOnly));
+  QVERIFY2(readPropertyBlob(blobFile.readAll(), &volume, &prov, &err2), qPrintable(err2));
+  QVERIFY(prov.value(QStringLiteral("caliber")).toString().contains(QStringLiteral("相带面")));
+  QVERIFY(prov.value(QStringLiteral("caliber")).toString().contains(QStringLiteral("相带分区 2 域")));
+  QCOMPARE(prov.value(QStringLiteral("n_vertical_approx_wells")).toInt(), 2);
+  // 竖直近似井（无测斜输入）：wellAt 站点即竖直口径，值仍钉死
+  QCOMPARE(volume.values[static_cast<std::size_t>(volume.grid.cellIndex(2, 3, 0))], 10.0f);
+}
+
+// ---- 方向 45：对象建模叠加链路——对象优先口径 + 放置几何入 provenance ----
+void TestPropWorkflow::objectOverrideRegistersInProvenance()
+{
+  QTemporaryDir tmp;
+  QVERIFY(tmp.isValid());
+  DataCatalog cat;
+  QVERIFY(cat.open(tmp.path()));
+  PropertyModelRequest req;
+  req.useEmbeddedSurfaces = true;
+  req.propertyName = QStringLiteral("GR");
+  req.topName = QStringLiteral("T");
+  req.botName = QStringLiteral("B");
+  req.nLayers = 4;
+  req.top.cols = req.bot.cols = 20;
+  req.top.rows = req.bot.rows = 14;
+  req.top.dx = req.bot.dx = 10;
+  req.top.dy = req.bot.dy = 10;
+  req.top.z.assign(20 * 14, 0.0f);
+  req.bot.z.assign(20 * 14, 40.0f);
+  req.wells.push_back(wellAt(25.0, 75.0, 0.0, 40.0, 5.0));
+  req.wells.push_back(wellAt(175.0, 65.0, 0.0, 40.0, 7.0));
+
+  paleo::stratgrid::ObjectSpec channel;
+  channel.type = paleo::stratgrid::ObjectType::Channel;
+  channel.azimuthDeg = 90;
+  channel.length = 150;
+  channel.width = 60;
+  channel.thickness = 12;
+  channel.value = 42.0;
+  channel.count = 2;
+  req.objectSpecs = {channel};
+  req.objectSeed = 7;
+
+  PropertyModelWorkflow wf(&cat, tmp.path());
+  const PropertyModelOutput out = wf.run(req);
+  QVERIFY2(out.ok, qPrintable(out.error));
+  PropertyVolume volume;
+  QJsonObject prov;
+  QString err;
+  QFile blobFile(out.path);
+  QVERIFY(blobFile.open(QIODevice::ReadOnly));
+  QVERIFY2(readPropertyBlob(blobFile.readAll(), &volume, &prov, &err), qPrintable(err));
+  const QJsonArray placements = prov.value(QStringLiteral("object_placements")).toArray();
+  QCOMPARE(placements.size(), 2);
+  QCOMPARE(placements.at(0).toObject().value(QStringLiteral("type")).toString(),
+           QStringLiteral("channel"));
+  QCOMPARE(placements.at(0).toObject().value(QStringLiteral("width")).toDouble(), 60.0);
+  QVERIFY(placements.at(0).toObject().value(QStringLiteral("cells")).toInt() > 0);
+  QVERIFY(prov.value(QStringLiteral("object_cells")).toInt() > 0);
+  QCOMPARE(prov.value(QStringLiteral("object_seed")).toString(), QStringLiteral("7"));
+  // 对象优先口径：场内存在对象值（背景 IDW 值 5~7 之外）
+  bool hasOverride = false;
+  for (float v : volume.values)
+    if (std::isfinite(v) && std::fabs(v - 42.0f) < 1e-6f)
+      hasOverride = true;
+  QVERIFY2(hasOverride, "object cells must hard-override the background field");
+  QVERIFY(prov.value(QStringLiteral("caliber")).toString().contains(QStringLiteral("对象优先")));
 }
 
 int main(int argc, char *argv[])

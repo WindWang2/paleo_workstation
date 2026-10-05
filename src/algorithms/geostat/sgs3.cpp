@@ -251,19 +251,34 @@ public:
         std::min( k, simulatedInGroup == m_simulatedByGroup.end() ? 0 : simulatedInGroup->second );
     if ( effectiveK <= 0 )
       return; // 该组分还没有任何已模拟点：邻域必然为空，不扫。
-    // 剪枝界 = 三轴最小步长（保守下界：任何壳 r 内的格点到查询点的度量
-    // 距离 ≥ (r−1)·minStep——地层格架 dx/|dy| 远大于层厚时，垂向邻居靠
-    // 小步长界保住，取 max 会把整段垂向条件化剪没）。
-    const double minStep = std::min( { steps.x, steps.y, steps.zMin } );
+    // 剪枝下界（保守、含倾斜/断尖格架）：壳 r 内任一格点，其优势轴
+    //（索引增量 = r 的那根）给出分量下界——
+    //   x/y 优势：|Δx| = r·dx / |Δy| = r·|dy|（轴精确）；
+    //   z 优势同柱：|Δz| = r·层厚 ≥ r·zMin（柱内 relief 无关）；
+    //   z 优势跨柱（Δ柱 ≥ 1）：dist ≥ sqrt( hxy² + max(0, r·zMin − relief)² )
+    //   （hxy = min(dx,|dy|)；跨柱 top 落差可抵消 r·zMin 的一部分）。
+    // 取四者的 min，再退一环 ((r−1)) 作剪枝界。relief = 0 时退化为
+    // (r−1)·min(dx,|dy|,zMin)（平格架旧行为）。
+    const double hxy = std::min( steps.x, steps.y );
+    const auto ringBound = [hxy, &steps]( int ring ) {
+      const int slack = std::max( 0, ring - 1 );
+      const double zTerm = std::max( 0.0, static_cast<double>(slack) * steps.zMin -
+                                             steps.topRelief );
+      return std::min( { static_cast<double>(slack) * steps.x,
+                         static_cast<double>(slack) * steps.y,
+                         static_cast<double>(slack) * steps.zMin,
+                         std::hypot( hxy, zTerm ) } );
+    };
     const int maxRing = std::max( { query.ix - m_minIx, m_maxIx - query.ix,
                                     query.iy - m_minIy, m_maxIy - query.iy,
                                     query.iz - m_minIz, m_maxIz - query.iz } );
     std::priority_queue<std::pair<double, std::uint32_t>> heap; // max-heap on (d², idx)
     for ( int ring = 1; ring <= maxRing; ++ring )
     {
-      const double ringMin = static_cast<double>( ring - 1 ) * minStep;
-      if ( static_cast<int>( heap.size() ) == effectiveK && ringMin * ringMin >= heap.top().first )
-        break; // 已收齐该组分全部更近点，后续壳不可能改进
+      const double ringMin = ringBound( ring );
+      if ( static_cast<int>( heap.size() ) == effectiveK &&
+           ( effectiveK < k || ringMin * ringMin >= heap.top().first ) )
+        break; // 堆已收齐该组全部已模拟点，或后续壳不可能更近
       visitShell( query, ring, [&heap, &query, this, k]( int cx, int cy, int cz ) {
         const auto found = m_lookup.find( packIndex( cx, cy, cz ) );
         if ( found == m_lookup.end() )

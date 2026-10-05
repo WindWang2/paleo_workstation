@@ -813,8 +813,9 @@ void TestPropWorkflow::asyncJobSucceedsAndRegistersOnOwnerThread()
     if (asset.type == QLatin1String("property_volume"))
       ++registered;
   QCOMPARE(registered, 1);
-  // 共享所有权：UI 段读到的就是 commit 段回填的那一份
-  QCOMPARE(job->computed.front().out.assetId, job->computed.front().out.assetId);
+  // 共享所有权：UI 段读到的就是 commit 段回填的那一份（与 catalog 对账）
+  const CatalogVersion registeredVersion = cat.versionById(job->computed.front().out.versionId);
+  QCOMPARE(job->computed.front().out.assetId, registeredVersion.assetId);
   QVERIFY(!job->computed.front().out.path.isEmpty());
 
   svc.shutdown(3000, false);

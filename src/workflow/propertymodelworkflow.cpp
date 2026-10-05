@@ -929,10 +929,28 @@ bool PropertyModelWorkflow::commitAll(PropertyModelComputedList *list)
     emit modelFailed(QStringLiteral("无计算结果"));
     return false;
   }
+  int committed = 0;
   for (PropertyModelComputed &computed : *list)
   {
     if (!commitComputed(&computed))
+    {
+      // 半途失败：已登记的 k 版本留在 catalog（staging 已 commit 不可撤），
+      // 未登记尾部与全部条目置败——同步/兜底路径按失败呈现，错误串带
+      // 已登记计数（部分集与完整集在用户面上不可分辨地「成功」是谎报）。
+      const QString why = QStringLiteral("属性体登记失败：已登记 %1/%2 实现（余者未登记）")
+                              .arg(committed)
+                              .arg(list->size());
+      for (PropertyModelComputed &entry : *list)
+      {
+        entry.ok = false;
+        if (entry.error.isEmpty())
+          entry.error = why;
+        entry.out.ok = false;
+        entry.out.error = why;
+      }
       return false;
+    }
+    ++committed;
   }
   return true;
 }

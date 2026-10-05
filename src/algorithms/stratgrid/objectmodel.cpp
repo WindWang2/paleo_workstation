@@ -154,21 +154,15 @@ bool placeObjects(const ZoneGrid &grid, const std::vector<int> *zonePerColumn,
     }
   }
 
-  // 播种候选柱（限制相带内）。
+  // 播种候选柱（限制相带内）；全部 spec 预先收集——失败（空相带）发生在
+  // 任何输出写入之前，*out 保持调用前状态（与 faultoffset/sgsfill 契约一致）。
   std::vector<std::pair<int, int>> allLive;
   for (int j = 0; j < grid.nj; ++j)
     for (int i = 0; i < grid.ni; ++i)
       if (grid.columnLive(i, j))
         allLive.emplace_back(i, j);
-
-  std::mt19937_64 rng(seed);
-  out->grid = grid;
-  out->values.assign(static_cast<std::size_t>(grid.cellCount()),
-                     std::numeric_limits<float>::quiet_NaN());
-  out->columnBlock.clear(); // 对象指示场不携带竖帘分块——连通口径属背景场
-  out->blockCount = 0;
-  std::vector<std::uint8_t> hit(static_cast<std::size_t>(grid.cellCount()), 0);
-
+  std::vector<std::vector<std::pair<int, int>>> candidatesPerSpec;
+  candidatesPerSpec.reserve(specs.size());
   for (const ObjectSpec &spec : specs)
   {
     std::vector<std::pair<int, int>> candidates;
@@ -190,6 +184,21 @@ bool placeObjects(const ZoneGrid &grid, const std::vector<int> *zonePerColumn,
       setError(error, QStringLiteral("相带 %1 没有可播种的活柱").arg(spec.zoneCode));
       return false;
     }
+    candidatesPerSpec.push_back(std::move(candidates));
+  }
+
+  std::mt19937_64 rng(seed);
+  out->grid = grid;
+  out->values.assign(static_cast<std::size_t>(grid.cellCount()),
+                     std::numeric_limits<float>::quiet_NaN());
+  out->columnBlock.clear(); // 对象指示场不携带竖帘分块——连通口径属背景场
+  out->blockCount = 0;
+  std::vector<std::uint8_t> hit(static_cast<std::size_t>(grid.cellCount()), 0);
+
+  for (std::size_t specIndex = 0; specIndex < specs.size(); ++specIndex)
+  {
+    const ObjectSpec &spec = specs[specIndex];
+    const std::vector<std::pair<int, int>> &candidates = candidatesPerSpec[specIndex];
 
     const double azimuthRad = spec.azimuthDeg * std::numbers::pi / 180.0;
     const double dirX = std::sin(azimuthRad);
@@ -241,10 +250,13 @@ bool placeObjects(const ZoneGrid &grid, const std::vector<int> *zonePerColumn,
           boxMinY = std::min(boxMinY, y);
           boxMaxY = std::max(boxMaxY, y);
         }
-        boxMinX -= halfWidth;
-        boxMaxX += halfWidth;
-        boxMinY -= halfWidth;
-        boxMaxY += halfWidth;
+        // 64 采样对正弦的欠覆盖补偿（垂度 ≈ A·(2π/64)²/8 ≈ 0.0077A）：
+        // 盒再外扩该量，避免窄带内的真实命中柱被静默跳过。
+        const double sagitta = 0.008 * std::fabs(record.curvature) + halfWidth;
+        boxMinX -= sagitta;
+        boxMaxX += sagitta;
+        boxMinY -= sagitta;
+        boxMaxY += sagitta;
       }
       else
       {

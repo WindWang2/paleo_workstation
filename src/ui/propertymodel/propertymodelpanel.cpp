@@ -345,6 +345,8 @@ void PropertyModelPanel::showResult(bool ok, const QString &summary)
   m_busy = false;
   m_progress->setValue(ok ? 100 : m_progress->value());
   m_status->setText(summary);
+  if (!ok)
+    setCaliberNote(QString()); // 失败轮清口径：上一轮成功口径不能冒充本轮
   syncEnabledState();
 }
 

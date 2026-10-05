@@ -155,8 +155,11 @@ bool fillSgs(const ZoneGrid &grid, const std::vector<Seed> &seeds,
   }
   meta->snappedSeedCells = static_cast<int>(seedCells.size());
 
-  // 活柱层厚最小值（环扫剪枝的 z 步长保守界）。
+  // 活柱层厚最小值与 top 极差（环扫剪枝的保守界：跨柱 z 落差可抵消层厚差，
+  // 倾斜/断尖格架必须计入——见 geostat::Lattice3Steps 注释）。
   double minThickness = std::numeric_limits<double>::max();
+  double minTop = std::numeric_limits<double>::max();
+  double maxTop = std::numeric_limits<double>::lowest();
   bool anyLive = false;
   for (int j = 0; j < grid.nj; ++j)
   {
@@ -166,6 +169,9 @@ bool fillSgs(const ZoneGrid &grid, const std::vector<Seed> &seeds,
         continue;
       anyLive = true;
       minThickness = std::min(minThickness, layerThickness(grid, i, j, 0));
+      const double top = grid.topZ[static_cast<std::size_t>(grid.columnIndex(i, j))];
+      minTop = std::min(minTop, top);
+      maxTop = std::max(maxTop, top);
     }
   }
   if (!anyLive)
@@ -192,6 +198,7 @@ bool fillSgs(const ZoneGrid &grid, const std::vector<Seed> &seeds,
   steps.x = std::fabs(grid.dx);
   steps.y = std::fabs(grid.dy);
   steps.zMin = minThickness;
+  steps.topRelief = std::max(0.0, maxTop - minTop);
 
   // 输出体（每实现一个，跨带散射后统一钉死）。
   out->assign(static_cast<std::size_t>(R), PropertyVolume{});
@@ -205,15 +212,22 @@ bool fillSgs(const ZoneGrid &grid, const std::vector<Seed> &seeds,
   }
 
   int zoneIndex = 0;
+  // 种子按 cell 键升序遍历（unordered_map 序是标准库实现细节——排序后
+  // 样本进入静态索引的顺序跨库一致，(d²,下标) 并列打破才可复现）。
+  std::vector<int> seedCellKeys;
+  seedCellKeys.reserve(seedCells.size());
+  for (const auto &entry : seedCells)
+    seedCellKeys.push_back(entry.first);
+  std::sort(seedCellKeys.begin(), seedCellKeys.end());
   for (const int zone : zones)
   {
     // 带内种子与目标。
     std::vector<geostat::Sample3> zoneSamples;
     std::vector<geostat::Sgs3Target> zoneTargets;
     std::vector<int> targetCells;
-    for (const auto &entry : seedCells)
+    for (const int cellKey : seedCellKeys)
     {
-      const SeedAgg &agg = entry.second;
+      const SeedAgg &agg = seedCells[static_cast<std::size_t>(cellKey)];
       const int column = grid.columnIndex(agg.i, agg.j);
       const int cellZone =
           zonePerColumn ? ( *zonePerColumn )[static_cast<std::size_t>(column)] : 0;

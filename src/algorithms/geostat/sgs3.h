@@ -47,12 +47,15 @@ struct Sgs3Target
 };
 
 // 环扫剪枝用的索引轴度量步长（stratgrid 侧：dx、|dy|、活柱最小层厚）。
-// 剪枝界取三轴最小步长，偏保守（多扫不少漏）。
+// topRelief = 活柱 top 极差（含断块错位后的）：跨柱 z 落差可抵消层厚差，
+// 垂向下界按「同柱 r·zMin / 跨柱 sqrt(min(dx,|dy|)² + max(0, r·zMin−relief)²)」
+// 分解（见 sgs3.cpp 剪枝注释）。平格架 relief=0 退化为三轴最小步长。
 struct Lattice3Steps
 {
   double x = 1;
   double y = 1;
   double zMin = 1;
+  double topRelief = 0;
 };
 
 struct Sgs3Params

@@ -3,12 +3,12 @@
 
 #include "linsolve.h"
 #include "neighborhood.h"
+#include "sgs_internal.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <limits>
-#include <numbers>
 #include <random>
 #include <utility>
 
@@ -19,135 +19,10 @@ namespace paleo::geostat
 namespace
 {
 
-struct GaussianPoint
-{
-  double x = 0;
-  double y = 0;
-  double value = 0; // 高斯域值
-};
-
-// 确定性 (0,1) 均匀：mt19937_64 原始 u64 → 53bit 尾数。
-double unitRandom( std::mt19937_64 &rng )
-{
-  return ( static_cast<double>( rng() >> 11 ) + 0.5 ) * 0x1.0p-53;
-}
-
-double gaussianRandom( std::mt19937_64 &rng )
-{
-  // Box-Muller（cos 分支；u1 ∈ (0,1) 保证 log 有限）
-  const double u1 = unitRandom( rng );
-  const double u2 = unitRandom( rng );
-  return std::sqrt( -2.0 * std::log( u1 ) ) * std::cos( 2.0 * std::numbers::pi * u2 );
-}
-
-// Φ⁻¹：erf 二分（erf 严格单调、std 实现可移植；100 次迭代到双精度
-// 饱和。建表每样本只调一次，成本可忽略。不用有理逼近——系数手打
-// 易错，尾部分支爆过 e300（见 ledger 轮3 纠错记录）。
-double standardNormalQuantile( double p )
-{
-  const double target = 2.0 * std::clamp( p, 1e-12, 1.0 - 1e-12 ) - 1.0;
-  double lo = -9.0; // erf(±9) = ±1 − <1e-17，覆盖双精度全域
-  double hi = 9.0;
-  for ( int iteration = 0; iteration < 100; ++iteration )
-  {
-    const double mid = 0.5 * ( lo + hi );
-    if ( std::erf( mid ) < target )
-      lo = mid;
-    else
-      hi = mid;
-  }
-  return std::numbers::sqrt2 * 0.5 * ( lo + hi );
-}
-
-// 正态得分变换：排序 → (i+0.5)/n 分位 → Φ⁻¹。同值并列取平均分位。
-struct NormalScoreTable
-{
-  std::vector<double> z; // 升序原值（并列合组）
-  std::vector<double> y; // 对应高斯得分（升序）
-  double sampleMean = 0;
-  double sampleStd = 0;
-
-  static NormalScoreTable build( const std::vector<Sample> &samples )
-  {
-    NormalScoreTable table;
-    std::vector<double> values;
-    values.reserve( samples.size() );
-    double sum = 0;
-    double sumSq = 0;
-    for ( const Sample &sample : samples )
-    {
-      values.push_back( sample.value );
-      sum += sample.value;
-      sumSq += sample.value * sample.value;
-    }
-    std::sort( values.begin(), values.end() );
-    const double n = static_cast<double>( values.size() );
-    table.sampleMean = sum / n;
-    table.sampleStd = std::sqrt( std::max( 0.0, sumSq / n - table.sampleMean * table.sampleMean ) );
-    std::size_t i = 0;
-    while ( i < values.size() )
-    {
-      std::size_t j = i;
-      while ( j + 1 < values.size() &&
-              values[j + 1] - values[i] <= 1e-12 * std::max( 1.0, std::fabs( values[i] ) ) )
-        ++j;
-      double rankSum = 0;
-      for ( std::size_t k = i; k <= j; ++k )
-        rankSum += ( static_cast<double>( k ) + 0.5 );
-      const double p = rankSum / static_cast<double>( j - i + 1 ) / n;
-      table.z.push_back( values[i] );
-      table.y.push_back( standardNormalQuantile( std::clamp( p, 1e-9, 1.0 - 1e-9 ) ) );
-      i = j + 1;
-    }
-    return table;
-  }
-
-  // 样本值 → 高斯得分（build 的样本必命中某组；越界值线性外推兜底）。
-  double forward( double value ) const
-  {
-    if ( z.size() == 1 )
-      return y.front();
-    if ( value <= z.front() )
-    {
-      const double slope = ( y[1] - y[0] ) / std::max( z[1] - z[0], 1e-12 );
-      return y[0] + slope * ( value - z.front() );
-    }
-    if ( value >= z.back() )
-    {
-      const std::size_t m = z.size();
-      const double slope = ( y[m - 1] - y[m - 2] ) / std::max( z[m - 1] - z[m - 2], 1e-12 );
-      return y[m - 1] + slope * ( value - z.back() );
-    }
-    const std::size_t k = static_cast<std::size_t>(
-        std::upper_bound( z.begin(), z.end(), value ) - z.begin() ) - 1;
-    const double t = ( value - z[k] ) / std::max( z[k + 1] - z[k], 1e-12 );
-    return y[k] + t * ( y[k + 1] - y[k] );
-  }
-
-  // 反变换：线性内插 + 端部按末段斜率线性外推（直方图忠实样本分布）。
-  double backTransform( double gaussian ) const
-  {
-    if ( z.size() == 1 )
-      return z.front(); // 单样本退化：任何高斯值都映回该值（如实退化）
-    if ( gaussian <= y.front() )
-    {
-      const double slope = ( z[1] - z[0] ) / std::max( y[1] - y[0], 1e-12 );
-      return z[0] + slope * ( gaussian - y.front() );
-    }
-    if ( gaussian >= y.back() )
-    {
-      const std::size_t m = z.size();
-      const double slope = ( z[m - 1] - z[m - 2] ) / std::max( y[m - 1] - y[m - 2], 1e-12 );
-      return z[m - 1] + slope * ( gaussian - y.back() );
-    }
-    const std::size_t k = static_cast<std::size_t>(
-        std::upper_bound( y.begin(), y.end(), gaussian ) - y.begin() ) - 1;
-    const double t = ( gaussian - y[k] ) / std::max( y[k + 1] - y[k], 1e-12 );
-    return z[k] + t * ( z[k + 1] - z[k] );
-  }
-};
+using detail::CondPoint;
 
 // 已模拟格的格点邻域查询（模拟点恰在格心，格上环扫 + 堆剪枝）。
+// 访问序是 2D 逐位结果的组成部分（并列距离靠访问序打破）——不动。
 class SimulatedLattice
 {
 public:
@@ -166,7 +41,7 @@ public:
 
   // 最近 K 个已模拟格（按距离升序）。
   void queryNearest( int column, int row, const GridSpec &grid, int k,
-                     std::vector<GaussianPoint> *out ) const
+                     std::vector<CondPoint> *out ) const
   {
     out->clear();
     const double x0 = grid.cellCenterX( column );
@@ -204,8 +79,8 @@ public:
       const std::size_t cell = entry.second;
       const int cellRow = static_cast<int>( cell / m_cols );
       const int cellColumn = static_cast<int>( cell % m_cols );
-      out->push_back( GaussianPoint{ grid.cellCenterX( cellColumn ), grid.cellCenterY( cellRow ),
-                                     m_values[cell] } );
+      out->push_back( CondPoint{ grid.cellCenterX( cellColumn ), grid.cellCenterY( cellRow ),
+                                 0.0, m_values[cell] } );
     }
   }
 
@@ -235,60 +110,6 @@ private:
   int m_rows = 0;
   std::vector<double> m_values;
 };
-
-// 简单克里金（高斯域，均值 0 已知）：C(h) = S − γ(h)，解 Cw = c0。
-// 估计 = Σwᵢyᵢ，方差 = S − Σwᵢc0ᵢ。
-bool solveSimpleKriging( const std::vector<GaussianPoint> &data, double x0, double y0,
-                         const VariogramModel &model, double *estimate, double *variance )
-{
-  const int n = static_cast<int>( data.size() );
-  if ( n <= 0 )
-    return false;
-  const double totalSill = model.nugget + model.sill;
-  std::vector<double> a( static_cast<std::size_t>( n ) * n );
-  std::vector<double> b( static_cast<std::size_t>( n ) );
-  for ( int i = 0; i < n; ++i )
-  {
-    for ( int j = i; j < n; ++j )
-    {
-      if ( i == j )
-      {
-        a[static_cast<std::size_t>( i ) * n + i] = totalSill; // C(0) = S
-        continue;
-      }
-      const double gamma = model.semivariance(
-          data[static_cast<std::size_t>( i )].x - data[static_cast<std::size_t>( j )].x,
-          data[static_cast<std::size_t>( i )].y - data[static_cast<std::size_t>( j )].y );
-      const double covariance = totalSill - gamma;
-      a[static_cast<std::size_t>( i ) * n + j] = covariance;
-      a[static_cast<std::size_t>( j ) * n + i] = covariance;
-    }
-    b[static_cast<std::size_t>( i )] =
-        totalSill - model.semivariance( data[static_cast<std::size_t>( i )].x - x0,
-                                        data[static_cast<std::size_t>( i )].y - y0 );
-  }
-  std::vector<double> weights;
-  if ( !solveDenseLu( a, n, b, weights ) )
-    return false;
-  double est = 0;
-  double var = totalSill;
-  for ( int i = 0; i < n; ++i )
-  {
-    est += weights[static_cast<std::size_t>( i )] * data[static_cast<std::size_t>( i )].value;
-    var -= weights[static_cast<std::size_t>( i )] * b[static_cast<std::size_t>( i )];
-  }
-  if ( !std::isfinite( est ) || !std::isfinite( var ) )
-    return false;
-  if ( var < 0 )
-  {
-    if ( var < -1e-9 * std::max( 1.0, totalSill ) )
-      return false;
-    var = 0;
-  }
-  *estimate = est;
-  *variance = var;
-  return true;
-}
 
 } // namespace
 
@@ -330,15 +151,15 @@ SgsResult sgs( const std::vector<Sample> &samples, const GridSpec &grid,
     result.message = "no finite samples";
     return result;
   }
-  const NormalScoreTable table = NormalScoreTable::build( deduped );
+  std::vector<double> sampleValues;
+  sampleValues.reserve( deduped.size() );
+  for ( const Sample &sample : deduped )
+    sampleValues.push_back( sample.value );
+  const detail::NormalScoreTable table = detail::NormalScoreTable::build( sampleValues );
   result.sampleMean = table.sampleMean;
   result.sampleStd = table.sampleStd;
 
-  // 静态样本（高斯域）
-  std::vector<GaussianPoint> staticPoints;
-  staticPoints.reserve( deduped.size() );
-  for ( const Sample &sample : deduped )
-    staticPoints.push_back( GaussianPoint{ sample.x, sample.y, table.forward( sample.value ) } );
+  // 静态样本邻域按索引原位取 deduped（detail::NeighborIndex 语义）。
   const detail::NeighborIndex index = detail::NeighborIndex::build( deduped );
 
   const std::size_t cells = static_cast<std::size_t>( cells64 );
@@ -350,8 +171,8 @@ SgsResult sgs( const std::vector<Sample> &samples, const GridSpec &grid,
   std::mt19937_64 rng( clamped.seed );
   SimulatedLattice lattice;
   std::vector<std::uint32_t> staticNeighborhood;
-  std::vector<GaussianPoint> simulatedNeighborhood;
-  std::vector<GaussianPoint> neighborhood;
+  std::vector<CondPoint> simulatedNeighborhood;
+  std::vector<CondPoint> neighborhood;
   std::vector<std::size_t> path( cells );
 
   for ( int realization = 0; realization < R; ++realization )
@@ -388,10 +209,10 @@ SgsResult sgs( const std::vector<Sample> &samples, const GridSpec &grid,
       for ( std::uint32_t staticIndex : staticNeighborhood )
       {
         const Sample &sample = deduped[staticIndex];
-        neighborhood.push_back( GaussianPoint{ sample.x, sample.y, table.forward( sample.value ) } );
+        neighborhood.push_back( CondPoint{ sample.x, sample.y, 0.0, table.forward( sample.value ) } );
       }
       const std::size_t staticCount = neighborhood.size();
-      for ( const GaussianPoint &simulated : simulatedNeighborhood )
+      for ( const CondPoint &simulated : simulatedNeighborhood )
       {
         bool coincidentWithStatic = false;
         for ( std::size_t i = 0; i < staticCount; ++i )
@@ -412,7 +233,7 @@ SgsResult sgs( const std::vector<Sample> &samples, const GridSpec &grid,
       {
         const double radius2 = clamped.searchRadius * clamped.searchRadius;
         neighborhood.erase( std::remove_if( neighborhood.begin(), neighborhood.end(),
-                                            [x0, y0, radius2]( const GaussianPoint &point ) {
+                                            [x0, y0, radius2]( const CondPoint &point ) {
                                               const double dx = point.x - x0;
                                               const double dy = point.y - y0;
                                               return dx * dx + dy * dy > radius2;
@@ -422,7 +243,7 @@ SgsResult sgs( const std::vector<Sample> &samples, const GridSpec &grid,
       if ( static_cast<int>( neighborhood.size() ) > clamped.maxPoints )
       {
         std::partial_sort( neighborhood.begin(), neighborhood.begin() + clamped.maxPoints,
-                           neighborhood.end(), [x0, y0]( const GaussianPoint &a, const GaussianPoint &b ) {
+                           neighborhood.end(), [x0, y0]( const CondPoint &a, const CondPoint &b ) {
                              const double da = ( a.x - x0 ) * ( a.x - x0 ) + ( a.y - y0 ) * ( a.y - y0 );
                              const double db = ( b.x - x0 ) * ( b.x - x0 ) + ( b.y - y0 ) * ( b.y - y0 );
                              return da < db;
@@ -432,9 +253,10 @@ SgsResult sgs( const std::vector<Sample> &samples, const GridSpec &grid,
 
       double estimate = 0;
       double variance = 0;
-      if ( !neighborhood.empty() && solveSimpleKriging( neighborhood, x0, y0, model, &estimate, &variance ) )
+      if ( !neighborhood.empty() &&
+           detail::solveSimpleKriging( neighborhood, x0, y0, 0.0, model, &estimate, &variance ) )
       {
-        const double draw = estimate + std::sqrt( variance ) * gaussianRandom( rng );
+        const double draw = estimate + std::sqrt( variance ) * detail::gaussianRandom( rng );
         gaussianField[cell] = draw;
         lattice.setValue( column, row, draw );
       }

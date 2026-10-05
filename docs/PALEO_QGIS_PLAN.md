@@ -1485,8 +1485,9 @@ STAGE          | DEV DOES                          | STATUS
 - **QGIS 封装** `src/qgis`：QtWidgets 豁免（Qgs* 接口所需），仍禁 `ui/`。
   `layoutexport`（PDF/PNG 导出核心，ui/layout 壳委托）。
 - **视图** `src/ui/**`：渲染 + 输入 + 意图信号。`io/*` 白名单仅
-  `io/lasdoc.h`；`metadata/*` 白名单四头（layermanifest/paleoprojectstore/
-  mapversionstore/releasestore）；`algorithms/*` 全禁。
+  `io/lasdoc.h`；`metadata/*` 白名单六头（layermanifest/paleoprojectstore/
+  mapversionstore/releasestore/wellsectionstore/faultsetstore，
+  单点事实在 `tools/layering_vocab.json`）；`algorithms/*` 全禁。
   `PaleoMainWindow` 是壳：attachWorkflows 按页拆 `attach*Page` +
   attachShellSurfaces（`paleomainwindow_attach.cpp`），attachMapping 三段
   （发布门/导出接线/版本状态机），ribbon 命令组在 `ribbonpanels.cpp`；

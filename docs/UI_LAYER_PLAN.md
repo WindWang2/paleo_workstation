@@ -128,7 +128,7 @@ src/
    - 层标记检查：每个 `src/` 文件头三行内必须有 `// 层：<六值词表之一>`，缺失即失败（W5c 的硬执行面，防注释腐烂）。**原子落地**：层标记添加与检查器启用必须同一 commit，否则 ctest 中途红。
    - 既有合法残留走 `tools/layering-baseline.txt`（带日期、逐文件列明、只许缩不许涨）；失败信息写明「如何正确收敛 baseline」一行，防橡皮图章。
    - **自检**：`check_layering.py --selftest` 跑内置正/反夹具（含 `class QTabWidget;` 与 `../../io/` 前缀样例），进 ctest——扫描器自身坏掉不能静默变绿。
-   - 结构性上限写进 AGENTS.md：各层编进同一 `paleo_core` 静态库，护栏只能挡 include 层，挡不住「不带 include 直接 new」——接受为本轮已知边界（不引入接口抽象层的代价）。
+   - 结构性上限写进 AGENTS.md：各层编进 `paleo_<模块>` 分层静态库（`paleo_core` 已降为 INTERFACE 兼容伞，不编代码），护栏只能挡 include 层，挡不住「不带 include 直接 new」——完整抽象层隔离递延（不引入接口抽象层的代价）。
 2. 挂进 `ctest`；新增源文件按现有 CMakeLists.txt 显式列表登记（主源码列表 `CMakeLists.txt:82–146`，另有 `target_sources` 块 :155、:160、:163、:173、:261–269、:274–276、:283–286、:309+，无 glob）。
 3. `AGENTS.md` 写三层契约；`docs/PALEO_QGIS_PLAN.md` 加边界一节；`DESIGN.md` 不动。`TODOS.md` 新增递延项：clang-tidy include-order CI、`DataImportService` 兼容别名删除（一期后）、大 LAS 同步 `lasAt` 的 UI 线程延迟悬崖、文件夹导入扫描期的进度 UX（本轮只定忙碌光标契约）。
 

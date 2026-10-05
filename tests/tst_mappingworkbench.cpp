@@ -1,20 +1,30 @@
 #include "../src/domain/faciescatalog.h"
+#include "../src/domain/facieshierarchy.h"
 #include "../src/metadata/paleoprojectstore.h"
+#include "../src/qgis/facieshierarchyrenderer.h"
+#include "../src/qgis/mapcanvaslink.h"
 #include "../src/qgis/mappingartifactwriter.h"
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/qgis/qgisprocessingservice.h"
 #include "../src/qgis/qgisprojectservice.h"
+#include "../src/ui/edittools/editingtoolbar.h"
+#include "../src/ui/edittools/vertexeditortools.h"
 #include "../src/ui/pages/mappingworkbenchpage.h"
 #include "../src/ui/pages/wellpredictionpanel.h"
+#include "../src/ui/paleotheme.h"
 #include "../src/ui/wellcomposite/wellcompositecanvas.h"
 #include "../src/workflow/derivedassets.h"
 #include "../src/workflow/mappingworkbench.h"
 #include "../src/workflow/workflows.h"
+#include <QAction>
 #include <QComboBox>
 #include <QCryptographicHash>
+#include <QDir>
 #include <QFile>
+#include <QGraphicsScene>
 #include <QLabel>
 #include <QListWidget>
+#include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSignalSpy>
 #include <QTableWidget>
@@ -25,10 +35,14 @@
 #include <gdal.h>
 #include <qgsapplication.h>
 #include <qgscategorizedsymbolrenderer.h>
+#include <qgsexpressioncontextutils.h>
 #include <qgsgeometry.h>
+#include <qgsmapcanvas.h>
+#include <qgsmergedfeaturerenderer.h>
 #include <qgsproject.h>
 #include <qgsrasterlayer.h>
 #include <qgsrasterrenderer.h>
+#include <qgsrubberband.h>
 #include <qgsvectordataprovider.h>
 #include <qgsvectorlayer.h>
 #include <qgsvectorlayerlabeling.h>
@@ -152,7 +166,492 @@ class TestMappingWorkbench : public QObject {
       return {};
     return QCryptographicHash::hash(f.readAll(), QCryptographicHash::Sha256);
   }
+  static QVariantList hierarchySchema() {
+    QVariantList schema;
+    const QStringList parents{"河流", "河流", "三角洲", "三角洲", "湖泊"};
+    const QStringList children{"河道", "河道", "河道", "河道", ""};
+    const QStringList leaves{"主槽", "边滩", "主槽", "边滩", ""};
+    for (int i = 0; i < 5; ++i)
+      schema << QVariantMap{{"code", i + 1},
+                            {"name", parents[i] + leaves[i]},
+                            {"facies", parents[i]},
+                            {"subfacies", children[i]},
+                            {"microfacies", leaves[i]},
+                            {"color", i < 2 ? "#97B4CE" : "#F2D28B"}};
+    return schema;
+  }
+  static QString hierarchyDraft(Fixture &f, QString *error) {
+    if (!f.work.saveFacies("D61", hierarchySchema(), error))
+      return {};
+    QgsVectorLayer grid("Polygon?field=facies_code:integer", "grid", "memory");
+    grid.setCrs(
+        QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()));
+    QgsFeatureList features;
+    for (int i = 0; i < 5; ++i) {
+      QgsFeature feature(grid.fields());
+      feature.setAttribute("facies_code", i + 1);
+      feature.setGeometry(
+          QgsGeometry::fromRect(QgsRectangle(i * 100, 0, (i + 1) * 100, 100)));
+      features << feature;
+    }
+    if (!grid.dataProvider()->addFeatures(features))
+      return {};
+    const auto path = f.dir.filePath("input-grid.gpkg");
+    if (!MappingArtifactWriter::vectorSnapshot(&grid, path, error))
+      return {};
+    LayerDeclaration d;
+    d.layerId = "input.grid";
+    d.horizon = "D61";
+    d.type = "vector";
+    d.group = "05_Composition";
+    d.title = "hierarchical grid";
+    d.source = path + "|layername=features";
+    f.layers.declare(d);
+    return f.work.copyForEditing(d.layerId, {}, error);
+  }
 private slots:
+  void advancedSingleFactorsReachMappingWithoutReopeningProject() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto source = f.dir.filePath("advanced-samples.geojson");
+    QVERIFY(MappingArtifactWriter::points(
+        source,
+        {QVariantMap{{"x", 0}, {"y", 0}, {"z", 10}},
+         QVariantMap{{"x", 100}, {"y", 0}, {"z", 20}},
+         QVariantMap{{"x", 0}, {"y", 100}, {"z", 40}},
+         QVariantMap{{"x", 100}, {"y", 100}, {"z", 60}}},
+        &error));
+    LayerDeclaration samples;
+    samples.layerId = "wells.D61";
+    samples.horizon = "D61";
+    samples.type = "vector";
+    samples.source = source;
+    samples.title = "高级工具样点";
+    QVERIFY(f.layers.declare(samples, &error));
+    MappingWorkbenchPage page("compose", &f.work);
+    page.setHorizon("D61");
+    auto *inputs = page.findChild<QListWidget *>("workbenchInputs");
+    const QVariantMap options{
+        {"pointsLayerId", samples.layerId}, {"field", "z"}, {"cellSize", 10}};
+    // Use exactly the advanced-tools entry, bypassing MappingWorkbench.
+    QVERIFY2(f.constraints.generateFactor("D61", "sandthick", options, &error),
+             qPrintable(error));
+    const auto first = f.work.versionForLayer("factor.D61.sandthick");
+    QVERIFY(!first.id.isEmpty());
+    const auto firstLayer = "product." + first.id;
+    QTRY_VERIFY(!f.work.declaration(firstLayer).layerId.isEmpty());
+    int checked = -1;
+    for (int i = 0; i < inputs->count(); ++i)
+      if (inputs->item(i)->data(Qt::UserRole).toString() == firstLayer)
+        checked = i;
+    QVERIFY(checked >= 0);
+    inputs->item(checked)->setCheckState(Qt::Checked);
+    const auto originalPath = f.work.declaration(firstLayer).source;
+    const auto hash = digest(originalPath);
+    QVERIFY2(f.constraints.generateFactor("D61", "sandthick", options, &error),
+             qPrintable(error));
+    const auto second = f.work.versionForLayer("factor.D61.sandthick");
+    QVERIFY(second.id != first.id);
+    QTRY_VERIFY(!f.work.declaration("product." + second.id).layerId.isEmpty());
+    QCOMPARE(f.work.versionForLayer(firstLayer).id, first.id);
+    QCOMPARE(f.work.declaration(firstLayer).source, originalPath);
+    QCOMPARE(digest(originalPath), hash);
+    int factors = 0;
+    bool stillChecked = false;
+    for (const auto &entry : f.work.products("D61")) {
+      const auto row = entry.toMap();
+      if (row.value("kind") != "single_factor_raster")
+        continue;
+      ++factors;
+      QCOMPARE(row.value("asset_id").toString(), first.assetId);
+      QVERIFY(row.value("version_id") == first.id ||
+              row.value("version_id") == second.id);
+    }
+    QCOMPARE(factors, 2);
+    for (int i = 0; i < inputs->count(); ++i)
+      if (inputs->item(i)->data(Qt::UserRole).toString() == firstLayer)
+        stillChecked = inputs->item(i)->checkState() == Qt::Checked;
+    QVERIFY(stillChecked);
+    QCOMPARE(f.work.layerForVersion(first.id, &error), firstLayer);
+    auto *rendered = f.layers.instantiate(firstLayer, &error);
+    QVERIFY(rendered);
+    QCOMPARE(rendered->customProperty("paleoAssetId").toString(),
+             first.assetId);
+    QCOMPARE(rendered->customProperty("paleoVersionId").toString(), first.id);
+    page.selectLayer(firstLayer);
+    QVERIFY(page.commandButton("catalog")->isEnabled());
+    QSignalSpy intent(&page, &MappingWorkbenchPage::commandRequested);
+    page.commandButton("catalog")->click();
+    QCOMPARE(intent.last()[0].toString(), QString("catalog"));
+    // Old factor versions remain usable as frozen evidence sources.
+    const auto draft = hierarchyDraft(f, &error);
+    QVERIFY(!draft.isEmpty());
+    auto *v = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft));
+    auto features = v->getFeatures();
+    QgsFeature feature;
+    QVERIFY(features.nextFeature(feature));
+    QVERIFY(f.work.addEvidence(draft, {feature.id()},
+                               {{"text", "依据重算前的砂厚图"},
+                                {"level", "facies"},
+                                {"source_layer", firstLayer}},
+                               &error));
+    QCOMPARE(f.work.evidence(draft, {feature.id()})[0]
+                 .toMap()
+                 .value("source_version")
+                 .toString(),
+             first.id);
+    QVERIFY(v->rollBack());
+  }
+  void movingCatalogAliasesDoNotReplaceHistoricalReferences() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    DerivedAssetRegistrar registrar(&f.catalog, f.dir.path());
+    const QVariantMap extra{{"mapping_product", true},
+                            {"layer_id", "cartographic.D61.sandthick"},
+                            {"manifest_layer_id", "cartographic.D61.sandthick"},
+                            {"horizon", "D61"},
+                            {"layer_type", "raster"},
+                            {"group", "04_SingleFactor/Cartographic"},
+                            {"title", "砂厚制图工作场"},
+                            {"kind", "single_factor_cartographic_work"},
+                            {"value_source", "cartographic_work"}};
+    QString first, second;
+    for (int i = 0; i < 2; ++i) {
+      const auto staged = registrar.stage("single_factor_cartographic_work",
+                                          "砂厚制图工作场", "work.tif", &error);
+      QVERIFY(staged.isValid());
+      QVERIFY(MappingArtifactWriter::raster(staged.absolutePath, {1, 1, 2, 2},
+                                            2, 2, QRectF(0, 0, 100, 100),
+                                            &error));
+      QVERIFY(registrar.commit(staged, {}, "fixture", extra, &error));
+      (i == 0 ? first : second) = staged.versionId;
+    }
+    QTRY_VERIFY(!f.work.declaration("product." + second).layerId.isEmpty());
+    QCOMPARE(f.work.versionForLayer("product." + first).id, first);
+    QCOMPARE(f.work.versionForLayer("product." + second).id, second);
+    QCOMPARE(f.work.layerForVersion(first, &error), "product." + first);
+    QVERIFY(f.work.declaration("product." + first).source !=
+            f.work.declaration("product." + second).source);
+    QVERIFY(f.work.products("D62").isEmpty());
+    QCOMPARE(f.work.products("D61").size(), 2);
+    QVERIFY(f.work.compose("D61", {"product." + first}, {}, &error).isEmpty());
+    QVERIFY(
+        !error
+             .isEmpty()); // display-only work cannot enter quantitative fusion.
+    f.work.bindCatalog(&f.catalog, f.dir.path());
+    QCOMPARE(f.work.versionForLayer("product." + first).id, first);
+    QCOMPARE(f.work.products("D61").size(), 2);
+    QVERIFY(f.work.layerForVersion("missing", &error).isEmpty());
+  }
+  void hierarchyScaleFallbackAndScopedNames() {
+    QCOMPARE(FaciesHierarchy::resolveLevel("auto", 8000001), QString("facies"));
+    QCOMPARE(FaciesHierarchy::resolveLevel("auto", 8000000), QString("sub_facies"));
+    QCOMPARE(FaciesHierarchy::resolveLevel("auto", 7999999),
+             QString("sub_facies"));
+    QCOMPARE(FaciesHierarchy::resolveLevel("auto", 4000001),
+             QString("sub_facies"));
+    QCOMPARE(FaciesHierarchy::resolveLevel("auto", 4000000),
+             QString("micro_facies"));
+    QCOMPARE(FaciesHierarchy::resolveLevel("auto", 3999999),
+             QString("micro_facies"));
+    QCOMPARE(FaciesHierarchy::resolveLevel("facies", 1), QString("facies"));
+    QCOMPARE(FaciesHierarchy::path({{"microfacies", "仅微相"}}),
+             QStringList({"仅微相", "仅微相", "仅微相"}));
+    QCOMPARE(FaciesHierarchy::path({{"facies", "相"}, {"microfacies", "微相"}}),
+             QStringList({"相", "相", "微相"}));
+    auto schema = hierarchySchema();
+    QCOMPARE(FaciesHierarchy::legend(schema, "facies", {1, 2, 3, 4, 5}).size(),
+             3);
+    QCOMPARE(
+        FaciesHierarchy::legend(schema, "sub_facies", {1, 2, 3, 4, 5}).size(),
+        3);
+    QCOMPARE(
+        FaciesHierarchy::legend(schema, "micro_facies", {1, 2, 3, 4, 5}).size(),
+        5);
+    QVERIFY(FaciesHierarchy::key(schema[0].toMap(), "sub_facies") !=
+            FaciesHierarchy::key(schema[2].toMap(), "sub_facies"));
+    QCOMPARE(FaciesHierarchy::legend(schema, "facies", {1, 2}).size(), 1);
+    QCOMPARE(
+        FaciesHierarchy::legend(schema, "facies", {1, 77, QVariant()}).size(),
+        2);
+  }
+  void hierarchyRenderingMergesAndUpdatesLabelsWithoutChangingGeometry() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto draft = hierarchyDraft(f, &error);
+    QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    auto *v = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft));
+    QVERIFY(v);
+    auto it = v->getFeatures();
+    QgsFeature a, b;
+    QVERIFY(it.nextFeature(a));
+    QVERIFY(it.nextFeature(b));
+    const auto geometry = a.geometry().asWkt();
+    QVERIFY(f.work.setDisplayMode(draft, "facies", &error));
+    auto *merged = dynamic_cast<QgsMergedFeatureRenderer *>(v->renderer());
+    QVERIFY(merged);
+    auto *categorized = dynamic_cast<const QgsCategorizedSymbolRenderer *>(
+        merged->embeddedRenderer());
+    QVERIFY(categorized);
+    QCOMPARE(categorized->categories().size(), 3);
+    auto context = v->createExpressionContext();
+    context.setFeature(a);
+    QgsExpression expr(categorized->classAttribute());
+    QVERIFY(expr.prepare(&context));
+    const auto keyA = expr.evaluate(&context);
+    context.setFeature(b);
+    QCOMPARE(expr.evaluate(&context), keyA);
+    QVERIFY(f.work.setDisplayMode(draft, "micro_facies", &error));
+    QCOMPARE(f.work.displayLegend(draft).size(), 5);
+    QCOMPARE(v->getFeature(a.id()).geometry().asWkt(), geometry);
+    QCOMPARE(v->customProperty("paleo/faciesResolvedLevel").toString(),
+             QString("micro_facies"));
+    QVERIFY(f.work.setDisplayMode(draft, "auto", &error));
+    f.work.updateDisplayScale(9000000);
+    QCOMPARE(f.work.resolvedLevel(draft), QString("facies"));
+    QCOMPARE(f.work.displayLegend(draft).size(), 3);
+  }
+  void hierarchyParentAssignmentIsOneUndoAndKeepsCompatibleChildren() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto draft = hierarchyDraft(f, &error);
+    QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    auto *v = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft));
+    QVERIFY(v);
+    auto it = v->getFeatures();
+    QgsFeature a, b;
+    QVERIFY(it.nextFeature(a));
+    QVERIFY(it.nextFeature(b));
+    QVERIFY(f.work.assignHierarchy(draft, {a.id()}, 3, "facies", &error));
+    QCOMPARE(v->getFeature(a.id()).attribute("facies_code").toInt(), 3);
+    QCOMPARE(v->getFeature(b.id()).attribute("facies_code").toInt(), 4);
+    QCOMPARE(v->getFeature(b.id()).attribute("microfacies").toString(),
+             QString("边滩"));
+    QCOMPARE(v->undoStack()->count(), 1);
+    v->selectByIds({a.id()});
+    QVERIFY(f.work.selectHierarchyMembers(draft, "facies", &error));
+    QCOMPARE(v->selectedFeatureIds().size(), 4);
+    v->undoStack()->undo();
+    QCoreApplication::processEvents();
+    QCOMPARE(v->getFeature(a.id()).attribute("facies_code").toInt(), 1);
+    QCOMPARE(v->getFeature(b.id()).attribute("facies_code").toInt(), 2);
+    QVERIFY(f.work.assignHierarchy(draft, {a.id()}, 3, "sub_facies", &error));
+    QCOMPARE(v->getFeature(b.id()).attribute("facies_code").toInt(), 4);
+    v->undoStack()->undo();
+    QVERIFY(f.work.assignHierarchy(draft, {a.id()}, 3, "micro_facies", &error));
+    QCOMPARE(v->getFeature(b.id()).attribute("facies_code").toInt(), 2);
+    QVERIFY(v->rollBack());
+  }
+  void hierarchyTopologyRejectsOverlapAndAllowsSharedBoundaryChanges() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto draft = hierarchyDraft(f, &error);
+    QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    auto *v = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft));
+    QVERIFY(v);
+    QVERIFY(FaciesHierarchyRenderer::validateTopology(v, &error));
+    const auto snapshot = f.work.versionForLayer(draft);
+    const auto hash =
+        digest(DataCatalog::resolvedVersionPath(f.dir.path(), snapshot));
+    auto it = v->getFeatures();
+    QgsFeature a, b;
+    QVERIFY(it.nextFeature(a));
+    QVERIFY(it.nextFeature(b));
+    auto expanded = QgsGeometry::fromRect(QgsRectangle(0, 0, 120, 100));
+    auto narrowed = QgsGeometry::fromRect(QgsRectangle(120, 0, 200, 100));
+    QVERIFY(v->startEditing());
+    v->beginEditCommand("bad overlap");
+    QVERIFY(v->changeGeometry(a.id(), expanded));
+    v->endEditCommand();
+    QVERIFY(!v->commitChanges());
+    QVERIFY(v->isEditable());
+    QCOMPARE(digest(DataCatalog::resolvedVersionPath(f.dir.path(), snapshot)),
+             hash);
+    v->undoStack()->undo();
+    v->beginEditCommand("shared edge");
+    QVERIFY(v->changeGeometry(a.id(), expanded));
+    QVERIFY(v->changeGeometry(b.id(), narrowed));
+    v->endEditCommand();
+    QVERIFY2(FaciesHierarchyRenderer::validateTopology(v, &error),
+             qPrintable(error));
+    QVERIFY(v->commitChanges());
+    QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
+    QCOMPARE(f.work.versionForLayer(draft).versionNumber, 2);
+    QVERIFY(f.work.setDisplayMode(draft, "facies", &error));
+    QCOMPARE(v->getFeature(a.id()).geometry().boundingBox().xMaximum(), 120.0);
+    QVERIFY(f.work.setDisplayMode(draft, "micro_facies", &error));
+    QCOMPARE(v->getFeature(b.id()).geometry().boundingBox().xMinimum(), 120.0);
+  }
+  void hierarchyDraftForcesSharedVertexTopology() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto draft = hierarchyDraft(f, &error);
+    QVERIFY(!draft.isEmpty());
+    auto *v = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft));
+    QVERIFY(v);
+    QgsMapCanvas canvas;
+    PaleoEditingToolbar toolbar(&canvas);
+    toolbar.setProject(f.project.project());
+    toolbar.setLayers({v});
+    toolbar.setCurrentLayer(v);
+    QVERIFY(toolbar.actionTopological()->isChecked());
+    QVERIFY(!toolbar.actionTopological()->isEnabled());
+    toolbar.actionVertexEdit()->trigger();
+    auto *tool = qobject_cast<PaleoVertexTool *>(canvas.mapTool());
+    QVERIFY(tool);
+    QVERIFY(tool->topologicalEditingEnabled());
+    toolbar.actionTopological()->setChecked(false);
+    QVERIFY(tool->topologicalEditingEnabled());
+    QVERIFY(toolbar.actionTopological()->isChecked());
+    QVERIFY(toolbar.cancelEditing());
+  }
+  void evidenceUndoVersionLineageAndRecovery() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto draft = hierarchyDraft(f, &error);
+    QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    auto *v = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft));
+    QVERIFY(v);
+    auto it = v->getFeatures();
+    QgsFeature feature;
+    QVERIFY(it.nextFeature(feature));
+    const QVariantMap entry{{"text", "井 A 砂泥比与河道解释一致"},
+                            {"level", "facies"},
+                            {"source_layer", "input.grid"}};
+    QVERIFY(f.work.addEvidence(draft, {feature.id()}, entry, &error));
+    QCOMPARE(f.work.evidence(draft, {feature.id()}).size(), 1);
+    const auto evidence = f.work.evidence(draft, {feature.id()})[0].toMap();
+    QVERIFY(!evidence.value("source_version").toString().isEmpty());
+    v->undoStack()->undo();
+    QCoreApplication::processEvents();
+    QCOMPARE(f.work.evidence(draft, {feature.id()}).size(), 0);
+    v->undoStack()->redo();
+    QCoreApplication::processEvents();
+    QCOMPARE(f.work.evidence(draft, {feature.id()}).size(), 1);
+    QVERIFY(v->commitChanges());
+    QVERIFY(f.work.saveEditingVersion(draft, &error));
+    const auto snapshot = f.work.versionForLayer(draft);
+    QCOMPARE(v->customProperty("paleoVersionId").toString(), snapshot.id);
+    QVERIFY(snapshot.parentVersionIds.contains(
+        evidence.value("source_version").toString()));
+    QgsVectorLayer saved(
+        DataCatalog::resolvedVersionPath(f.dir.path(), snapshot) +
+            "|layername=features",
+        "saved", "ogr");
+    QVERIFY(saved.isValid());
+    auto savedIt = saved.getFeatures();
+    QgsFeature savedFeature;
+    QVERIFY(savedIt.nextFeature(savedFeature));
+    QVERIFY(
+        savedFeature.attribute("facies_evidence").toString().contains("井 A"));
+    f.work.bindCatalog(&f.catalog, f.dir.path());
+    QCOMPARE(f.work.evidence(draft, {feature.id()}).size(), 1);
+    QVERIFY(f.work.removeEvidence(draft, {feature.id()},
+                                  evidence.value("id").toString(), &error));
+    QCOMPARE(f.work.evidence(draft, {feature.id()}).size(), 0);
+    v->undoStack()->undo();
+    QCoreApplication::processEvents();
+    QCOMPARE(f.work.evidence(draft, {feature.id()}).size(), 1);
+    QVERIFY(v->rollBack());
+    QVERIFY(f.work.assignHierarchy(draft, {feature.id()}, 3, "micro_facies",
+                                   &error));
+    QVERIFY(f.work.evidence(draft, {feature.id()})[0]
+                .toMap()
+                .value("needs_review")
+                .toBool());
+    QVERIFY(v->rollBack());
+  }
+  void linkedCanvasesFollowExtentCursorAndCanDisconnect() {
+    QgsMapCanvas main, reference;
+    main.resize(600, 400);
+    reference.resize(600, 400);
+    main.setDestinationCrs(QgsCoordinateReferenceSystem("EPSG:3857"));
+    reference.setDestinationCrs(main.mapSettings().destinationCrs());
+    main.setExtent(QgsRectangle(0, 0, 600, 400));
+    MapCanvasLink link(&main, &reference);
+    main.setExtent(QgsRectangle(100, 200, 700, 600));
+    QCOMPARE(reference.extent().center(), main.extent().center());
+    reference.setExtent(QgsRectangle(200, 400, 800, 800));
+    QCOMPARE(main.extent().center(), reference.extent().center());
+    emit main.xyCoordinates(QgsPointXY(300, 500));
+    bool cursor = false;
+    for (auto *item : reference.scene()->items())
+      cursor |= dynamic_cast<QgsRubberBand *>(item) != nullptr;
+    QVERIFY(cursor);
+    link.setEnabled(false);
+    const auto old = reference.extent();
+    main.setExtent(QgsRectangle(500, 700, 1100, 1100));
+    QCOMPARE(reference.extent(), old);
+    link.setEnabled(true);
+    QCOMPARE(reference.extent().center(), main.extent().center());
+    main.stopRendering();
+    reference.stopRendering();
+  }
+  void hierarchyAndEvidencePanelIssueCommands() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto draft = hierarchyDraft(f, &error);
+    QVERIFY(!draft.isEmpty());
+    MappingWorkbenchPage page("compose", &f.work);
+    page.setHorizon("D61");
+    page.selectLayer(draft);
+    auto *level = page.findChild<QComboBox *>("faciesDisplayLevel");
+    auto *edit = page.findChild<QComboBox *>("faciesEditLevel");
+    QVERIFY(level && edit);
+    QSignalSpy intent(&page, &MappingWorkbenchPage::commandRequested);
+    level->setCurrentIndex(1);
+    QCOMPARE(intent.last()[0].toString(), QString("displayLevel"));
+    edit->setCurrentIndex(0);
+    page.commandButton("assignFacies")->click();
+    QCOMPARE(intent.last()[1].toMap().value("edit_level").toString(),
+             QString("facies"));
+    auto *text = page.findChild<QPlainTextEdit *>("faciesEvidenceText");
+    QVERIFY(text);
+    QVERIFY(!page.commandButton("addEvidence")->isEnabled());
+    auto *v = qobject_cast<QgsVectorLayer *>(f.layers.layer(draft));
+    auto it = v->getFeatures();
+    QgsFeature feature;
+    QVERIFY(it.nextFeature(feature));
+    v->selectByIds({feature.id()});
+    text->setPlainText("解释证据");
+    QVERIFY(page.commandButton("addEvidence")->isEnabled());
+    page.commandButton("addEvidence")->click();
+    QCOMPARE(intent.last()[0].toString(), QString("addEvidence"));
+    QCOMPARE(intent.last()[1].toMap().value("text").toString(),
+             QString("解释证据"));
+    QVERIFY(f.work.addEvidence(
+        draft, {feature.id()},
+        {{"text", "井 A 的测井砂泥比与河道解释一致"}, {"level", "facies"}},
+        &error));
+    const auto qa = qEnvironmentVariable("PALEO_MAPPING_QA_DIR");
+    if (!qa.isEmpty()) {
+      QDir().mkpath(qa);
+      page.resize(680, 2200);
+      page.show();
+      for (auto theme : {PaleoTheme::Theme::Light, PaleoTheme::Theme::Dark}) {
+        PaleoTheme::applyTheme(theme);
+        QTest::qWait(60);
+        const auto suffix = theme == PaleoTheme::Theme::Light ? QString("light")
+                                                              : QString("dark");
+        QVERIFY(page.findChild<QWidget *>("workbenchAppearance")
+                    ->grab()
+                    .save(qa + "/hierarchy-" + suffix + ".png"));
+        QVERIFY(page.findChild<QWidget *>("workbenchEvidence")
+                    ->grab()
+                    .save(qa + "/evidence-" + suffix + ".png"));
+      }
+      PaleoTheme::applyLightTheme();
+    }
+    QVERIFY(v->rollBack());
+  }
   void textureLibraryAndUnknownCategories() {
     const auto library = FaciesCatalog::library();
     QVERIFY(library.size() > 100);

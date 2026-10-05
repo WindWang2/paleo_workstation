@@ -80,8 +80,39 @@ private slots:
   void histogramFidelity();
   void conditionedAtSampleCells();
   void singleSampleDegeneratesHonestly();
+  void goldenAnchorPinsRefactoredKernel();
   void invalidAndCancelled();
 };
+
+void GeostatSgsTests::goldenAnchorPinsRefactoredKernel()
+{
+  // goal/prop-model-v2：机件抽到 sgs_internal.h 的重构必须算术恒等。
+  // 黄金哈希 = 重构当日 master 版核与本版独立编译同场景输出的 FNV-1a
+  //（逐位一致后钉入；防未来再动 sgs.cpp 时静默漂移——见
+  // .goal-loop-ledger-prop-model-v2.md 批次3 纠错记录）。
+  const std::vector<Sample> samples = skewedSamples( 120, 99 );
+  const VariogramModel model = gaussianModel();
+  SgsParams params;
+  params.nRealizations = 2;
+  params.seed = 20261003;
+  params.maxPoints = 12;
+  const GridSpec grid = makeGrid( 32, 32, -10, 250, 8 );
+  const SgsResult result = sgs( samples, grid, model, params );
+  QCOMPARE( result.status, Status::Ok );
+  std::uint64_t hash = 1469598103934665603ULL;
+  for ( const std::vector<double> &realization : result.realizations )
+    for ( double value : realization )
+    {
+      std::uint64_t bits = 0;
+      std::memcpy( &bits, &value, sizeof( bits ) );
+      for ( int byte = 0; byte < 8; ++byte )
+      {
+        hash ^= ( bits >> ( byte * 8 ) ) & 0xFF;
+        hash *= 1099511628211ULL;
+      }
+    }
+  QCOMPARE( hash, std::uint64_t( 15131284449114955202ULL ) );
+}
 
 void GeostatSgsTests::reproducibleWithSameSeed()
 {

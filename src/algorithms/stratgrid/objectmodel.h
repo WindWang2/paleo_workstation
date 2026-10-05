@@ -77,7 +77,10 @@ struct ObjectModelMeta
   QString caliber;
 };
 
-// 对象指示/属性场：value = 对象属性值，非对象 NaN；columnBlock 照竖帘口径填。
+// 对象指示/属性场：value = 对象属性值，非对象 NaN；不携带竖帘分块
+//（columnBlock 空——连通口径属背景场，本场只做覆盖源）。
+// verticalFrac=0 的退化spec产生零 cell 空对象：不报错、placement 计 cells=0
+//（如实可查）。
 bool placeObjects(const ZoneGrid &grid, const std::vector<int> *zonePerColumn,
                   std::uint64_t seed, const std::vector<ObjectSpec> &specs,
                   PropertyVolume *out, ObjectModelMeta *meta, QString *error = nullptr);

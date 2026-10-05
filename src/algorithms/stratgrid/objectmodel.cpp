@@ -1,8 +1,6 @@
 // 层：数据
 #include "objectmodel.h"
 
-#include "propfill.h"
-
 #include <QString>
 #include <QStringList>
 
@@ -167,7 +165,8 @@ bool placeObjects(const ZoneGrid &grid, const std::vector<int> *zonePerColumn,
   out->grid = grid;
   out->values.assign(static_cast<std::size_t>(grid.cellCount()),
                      std::numeric_limits<float>::quiet_NaN());
-  assignColumnBlocks(grid, {}, &out->columnBlock, &out->blockCount);
+  out->columnBlock.clear(); // 对象指示场不携带竖帘分块——连通口径属背景场
+  out->blockCount = 0;
   std::vector<std::uint8_t> hit(static_cast<std::size_t>(grid.cellCount()), 0);
 
   for (const ObjectSpec &spec : specs)
@@ -222,14 +221,50 @@ bool placeObjects(const ZoneGrid &grid, const std::vector<int> *zonePerColumn,
                              record.curvature};
       const double halfWidth = 0.5 * spec.width;
 
+      // 对象包围盒（曲率振幅计入）：盒外柱直接跳过——全柱 512 段折线
+      // 精算是 O(柱×段)，没有预筛在 200×200 网格 × 200 对象下不可用。
+      double boxMinX = 0, boxMaxX = 0, boxMinY = 0, boxMaxY = 0;
+      if (spec.type == ObjectType::Channel)
+      {
+        boxMinX = boxMaxX = centerX;
+        boxMinY = boxMaxY = centerY;
+        double prevX = 0;
+        double prevY = 0;
+        path.point(0.0, &prevX, &prevY);
+        for (int s = 1; s <= 64; ++s) // 包围盒 64 采样足够（正弦单峰间隔）
+        {
+          double x = 0;
+          double y = 0;
+          path.point(static_cast<double>(s) / 64, &x, &y);
+          boxMinX = std::min(boxMinX, x);
+          boxMaxX = std::max(boxMaxX, x);
+          boxMinY = std::min(boxMinY, y);
+          boxMaxY = std::max(boxMaxY, y);
+        }
+        boxMinX -= halfWidth;
+        boxMaxX += halfWidth;
+        boxMinY -= halfWidth;
+        boxMaxY += halfWidth;
+      }
+      else
+      {
+        const double ex = std::fabs(dirX) * 0.5 * length + std::fabs(perpX) * halfWidth;
+        const double ey = std::fabs(dirY) * 0.5 * length + std::fabs(perpY) * halfWidth;
+        boxMinX = centerX - ex;
+        boxMaxX = centerX + ex;
+        boxMinY = centerY - ey;
+        boxMaxY = centerY + ey;
+      }
       for (int j = 0; j < grid.nj; ++j)
       {
         for (int i = 0; i < grid.ni; ++i)
         {
-          if (!grid.columnLive(i, j))
-            continue;
           const double px = grid.originX + ( static_cast<double>(i) + 0.5 ) * grid.dx;
           const double py = grid.originY + ( static_cast<double>(j) + 0.5 ) * grid.dy;
+          if (px < boxMinX || px > boxMaxX || py < boxMinY || py > boxMaxY)
+            continue; // 包围盒快筛（dy 可负，中心判据与符号无关）
+          if (!grid.columnLive(i, j))
+            continue;
           const double d2 = spec.type == ObjectType::Channel
                                 ? channelDistance2(path, px, py)
                                 : 0.0;

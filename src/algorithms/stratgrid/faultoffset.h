@@ -26,6 +26,8 @@
 //     的生长断层断距递延（单一垂向断距口径）。
 //   * heave（x/y 向水平错动）破坏规则柱假设（ijkAt/粗化/切片全依赖
 //     originX/dx 规则柱位）——递延，见 ledger 轮0 决策 1。
+//   * 断层段端点之外的柱仍按该段的无限延长线侧向归属并施加端点断距
+//    （无尖灭/衰减——未声明的确定性建模选择，如实记档）。
 namespace paleo::stratgrid
 {
 
@@ -47,8 +49,9 @@ struct FaultOffsetMeta
   double maxAbsThrow = 0;  // 施加断距的最大绝对值（米）
 };
 
-// 错位格架写到 *out（副本，原格架不动）；每柱位移写 dzPerColumn（ni*nj，
-// 死柱/未动柱 0）。失败时 *out/*dzPerColumn 保持清空。
+// 错位格架写到 *out（局部副本一次性写回，out 与 grid 同对象合法——原地
+// 错位）；每柱位移写 dzPerColumn（ni*nj，死柱/未动柱 0）。失败时不写
+// *out/*dzPerColumn（保持调用前状态）。
 bool applyFaultOffset(const ZoneGrid &grid, const std::vector<FaultThrow> &throws,
                       ZoneGrid *out, std::vector<float> *dzPerColumn,
                       FaultOffsetMeta *meta = nullptr, QString *error = nullptr);

@@ -203,7 +203,9 @@ private:
 };
 
 // 已模拟目标的格架邻域：稀疏 IJK 目标集，(ix,iy,iz) 打包键查已模拟值，
-// 索引空间壳扩张 + 度量步长剪枝，同组分过滤。并列距离按目标下标全序。
+// 索引空间六面壳扩张 + 度量步长剪枝，同组分过滤。并列距离的打破由固定
+// 环访问序承担（确定性；不是严格下标全序——早断可能漏掉后续壳中恰好
+// 并列的点，结果仍确定）。
 class SimulatedLattice3
 {
 public:
@@ -211,6 +213,7 @@ public:
   {
     m_targets = &targets;
     m_values.assign( targets.size(), std::numeric_limits<double>::quiet_NaN() );
+    m_simulatedByGroup.clear();
     if ( m_lookupTargetCount == targets.size() && !m_lookup.empty() )
       return; // 同一目标集的后续实现：只清值，不重建索引（确定性不受影响）
     m_lookup.clear();
@@ -232,58 +235,57 @@ public:
     m_lookupTargetCount = targets.size();
   }
 
-  void setValue( std::size_t targetIndex, double value ) { m_values[targetIndex] = value; }
+  void setValue( std::size_t targetIndex, double value )
+  {
+    m_values[targetIndex] = value;
+    ++m_simulatedByGroup[( *m_targets )[targetIndex].group];
+  }
 
-  // 同组分最近 K 个已模拟目标（(d², 下标) 升序）。
+  // 同组分最近 K 个已模拟目标（固定环访问序，升序输出）。
   void queryNearest( const Sgs3Target &query, const Lattice3Steps &steps, int k,
                      std::vector<CondPoint> *out ) const
   {
     out->clear();
+    const auto simulatedInGroup = m_simulatedByGroup.find( query.group );
+    const int effectiveK =
+        std::min( k, simulatedInGroup == m_simulatedByGroup.end() ? 0 : simulatedInGroup->second );
+    if ( effectiveK <= 0 )
+      return; // 该组分还没有任何已模拟点：邻域必然为空，不扫。
+    // 剪枝界 = 三轴最小步长（保守下界：任何壳 r 内的格点到查询点的度量
+    // 距离 ≥ (r−1)·minStep——地层格架 dx/|dy| 远大于层厚时，垂向邻居靠
+    // 小步长界保住，取 max 会把整段垂向条件化剪没）。
+    const double minStep = std::min( { steps.x, steps.y, steps.zMin } );
     const int maxRing = std::max( { query.ix - m_minIx, m_maxIx - query.ix,
                                     query.iy - m_minIy, m_maxIy - query.iy,
                                     query.iz - m_minIz, m_maxIz - query.iz } );
-    const double minStep = std::max( { steps.x, steps.y, steps.zMin, 0.0 } );
     std::priority_queue<std::pair<double, std::uint32_t>> heap; // max-heap on (d², idx)
     for ( int ring = 1; ring <= maxRing; ++ring )
     {
       const double ringMin = static_cast<double>( ring - 1 ) * minStep;
-      if ( static_cast<int>( heap.size() ) == k && ringMin * ringMin >= heap.top().first )
-        break;
-      const int lo0 = std::max( m_minIx, query.ix - ring );
-      const int hi0 = std::min( m_maxIx, query.ix + ring );
-      const int lo1 = std::max( m_minIy, query.iy - ring );
-      const int hi1 = std::min( m_maxIy, query.iy + ring );
-      const int lo2 = std::max( m_minIz, query.iz - ring );
-      const int hi2 = std::min( m_maxIz, query.iz + ring );
-      for ( int cx = lo0; cx <= hi0; ++cx )
-        for ( int cy = lo1; cy <= hi1; ++cy )
-          for ( int cz = lo2; cz <= hi2; ++cz )
-          {
-            const int chebyshev = std::max( { std::abs( cx - query.ix ), std::abs( cy - query.iy ),
-                                              std::abs( cz - query.iz ) } );
-            if ( chebyshev != ring )
-              continue;
-            const auto found = m_lookup.find( packIndex( cx, cy, cz ) );
-            if ( found == m_lookup.end() )
-              continue;
-            const std::uint32_t index = found->second;
-            const double value = m_values[index];
-            if ( !std::isfinite( value ) )
-              continue;
-            if ( ( *m_targets )[index].group != query.group )
-              continue;
-            const double dx = ( *m_targets )[index].x - query.x;
-            const double dy = ( *m_targets )[index].y - query.y;
-            const double dz = ( *m_targets )[index].z - query.z;
-            const double d2 = dx * dx + dy * dy + dz * dz;
-            if ( static_cast<int>( heap.size() ) < k )
-              heap.push( { d2, index } );
-            else if ( d2 < heap.top().first )
-            {
-              heap.pop();
-              heap.push( { d2, index } );
-            }
-          }
+      if ( static_cast<int>( heap.size() ) == effectiveK && ringMin * ringMin >= heap.top().first )
+        break; // 已收齐该组分全部更近点，后续壳不可能改进
+      visitShell( query, ring, [&heap, &query, this, k]( int cx, int cy, int cz ) {
+        const auto found = m_lookup.find( packIndex( cx, cy, cz ) );
+        if ( found == m_lookup.end() )
+          return;
+        const std::uint32_t index = found->second;
+        const double value = m_values[index];
+        if ( !std::isfinite( value ) )
+          return;
+        if ( ( *m_targets )[index].group != query.group )
+          return;
+        const double dx = ( *m_targets )[index].x - query.x;
+        const double dy = ( *m_targets )[index].y - query.y;
+        const double dz = ( *m_targets )[index].z - query.z;
+        const double d2 = dx * dx + dy * dy + dz * dz;
+        if ( static_cast<int>( heap.size() ) < k )
+          heap.push( { d2, index } );
+        else if ( d2 < heap.top().first )
+        {
+          heap.pop();
+          heap.push( { d2, index } );
+        }
+      } );
     }
     std::vector<std::pair<double, std::uint32_t>> collected;
     collected.reserve( heap.size() );
@@ -301,6 +303,42 @@ public:
   }
 
 private:
+  // 六面壳访问（Chebyshev 距离 == ring 的格点）——避免整盒 + continue 扫描。
+  template <typename Visitor>
+  void visitShell( const Sgs3Target &query, int ring, Visitor &&visitor ) const
+  {
+    const int lo0 = std::max( m_minIx, query.ix - ring );
+    const int hi0 = std::min( m_maxIx, query.ix + ring );
+    const int lo1 = std::max( m_minIy, query.iy - ring );
+    const int hi1 = std::min( m_maxIy, query.iy + ring );
+    const int lo2 = std::max( m_minIz, query.iz - ring );
+    const int hi2 = std::min( m_maxIz, query.iz + ring );
+    // z 面（x/y 走整环）
+    for ( int cx = lo0; cx <= hi0; ++cx )
+      for ( int cy = lo1; cy <= hi1; ++cy )
+      {
+        visitor( cx, cy, query.iz - ring );
+        visitor( cx, cy, query.iz + ring );
+      }
+    // y 面（z 收进内圈）
+    for ( int cz = std::max( lo2, query.iz - ring + 1 ); cz <= std::min( hi2, query.iz + ring - 1 );
+          ++cz )
+      for ( int cx = lo0; cx <= hi0; ++cx )
+      {
+        visitor( cx, query.iy - ring, cz );
+        visitor( cx, query.iy + ring, cz );
+      }
+    // x 面（y/z 都在内圈）
+    for ( int cz = std::max( lo2, query.iz - ring + 1 ); cz <= std::min( hi2, query.iz + ring - 1 );
+          ++cz )
+      for ( int cy = std::max( lo1, query.iy - ring + 1 ); cy <= std::min( hi1, query.iy + ring - 1 );
+           ++cy )
+      {
+        visitor( query.ix - ring, cy, cz );
+        visitor( query.ix + ring, cy, cz );
+      }
+  }
+
   static std::uint64_t packIndex( int ix, int iy, int iz )
   {
     return ( static_cast<std::uint64_t>( static_cast<std::uint32_t>( ix ) ) << 42 ) |
@@ -311,6 +349,7 @@ private:
   const std::vector<Sgs3Target> *m_targets = nullptr;
   std::vector<double> m_values;
   std::unordered_map<std::uint64_t, std::uint32_t> m_lookup;
+  std::unordered_map<int, int> m_simulatedByGroup;
   std::size_t m_lookupTargetCount = 0;
   int m_minIx = 0, m_maxIx = 0, m_minIy = 0, m_maxIy = 0, m_minIz = 0, m_maxIz = 0;
 };

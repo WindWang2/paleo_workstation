@@ -707,6 +707,7 @@ PropertyModelWorkflow::computeSnapshot(const PropertyModelRequest &request,
   int sgsMergedDuplicates = 0;
   int sgsSnappedCells = 0;
   int sgsSolverFailures = 0;
+  int sgsInsufficientZones = 0;
   if (request.method == PropertyMethod::Sgs)
   {
     paleo::geostat::Sgs3Params params;
@@ -725,6 +726,7 @@ PropertyModelWorkflow::computeSnapshot(const PropertyModelRequest &request,
     sgsMergedDuplicates = meta.mergedSeedDuplicates;
     sgsSnappedCells = meta.snappedSeedCells;
     sgsSolverFailures = meta.solverFailures;
+    sgsInsufficientZones = meta.insufficientZones;
   }
   else
   {
@@ -823,6 +825,8 @@ PropertyModelWorkflow::computeSnapshot(const PropertyModelRequest &request,
       prov.insert(QStringLiteral("sgs_merged_duplicates"), sgsMergedDuplicates);
       prov.insert(QStringLiteral("sgs_snapped_seed_cells"), sgsSnappedCells);
       prov.insert(QStringLiteral("sgs_solver_failures"), sgsSolverFailures);
+      prov.insert(QStringLiteral("sgs_insufficient_zones"), sgsInsufficientZones);
+      prov.insert(QStringLiteral("sgs_max_points"), request.sgsMaxPoints);
     }
     if (!request.faultThrows.empty())
     {
@@ -908,7 +912,10 @@ PropertyModelWorkflow::computeSnapshot(const PropertyModelRequest &request,
     result.liveColumns = volume.grid.liveColumns;
     result.filledCells = volume.filledCells;
     result.unfilledLiveCells = volume.unfilledLiveCells;
-    result.volume = volume;
+    // 体数据只在首实现携带（UI/编排消费首实现；全量数据在 blob 里，
+    // 逐实现深拷贝 PropertyVolume 是 GB 级浪费）。
+    if (r == 0)
+      result.volume = volume;
     computed.ok = result.ok = true;
     results.push_back(std::move(computed));
   }

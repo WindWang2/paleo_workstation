@@ -127,7 +127,7 @@ void PropertyModelPanel::buildUi()
     auto *edit = new QLineEdit(initial);
     edit->setObjectName(objectName);
     edit->setValidator(new QRegularExpressionValidator(
-        QRegularExpression(QStringLiteral("[0-9]{1,20}")), edit));
+        QRegularExpression(QStringLiteral("[0-9]{1,19}")), edit));
     edit->setFont(PaleoTheme::monoFont()); // 种子是数值面（DESIGN mono）
     return edit;
   };
@@ -266,6 +266,9 @@ void PropertyModelPanel::buildUi()
   m_caliber->setObjectName(QStringLiteral("propCaliberLabel"));
   m_caliber->setWordWrap(true);
   m_caliber->setVisible(false);
+  PaleoTheme::applyThemedStyleSheet(m_caliber, [] {
+    return PaleoTheme::mutedCaptionStyleSheet();
+  });
   lay->addWidget(m_caliber);
 
   connect(m_build, &QToolButton::clicked, this, [this]() {

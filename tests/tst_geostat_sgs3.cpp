@@ -5,6 +5,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <numbers>
 #include <random>
 #include <vector>
@@ -66,9 +67,69 @@ private slots:
   void conditionedAtSampleTargets();
   void histogramFidelity();
   void groupBarrierBlocksConditioning();
+  void strongAnisotropyTallStack();
   void invalidAndCancelled();
   void variogramThreeArgMatchesTwoArgOnZeroDz();
 };
+
+void GeostatSgs3Tests::strongAnisotropyTallStack()
+{
+  // 地层格架典型形态：水平步长 1000 m、垂向步长 1 m（1000:1）。垂向邻居
+  // 必须不被环扫剪枝截断——样本放在格点列 (0,0)/(5,5) 上叠置时，远 k 的
+  // 估计仍被近垂距样本强条件化（变程 200 >> 垂距、<< 柱距 1000）。
+  const std::vector<Sgs3Target> targets = makeTargets(6, 6, 40, 0, 0, 0, 1000, 1000, 1);
+  std::vector<Sample3> samples;
+  samples.push_back(Sample3{0.0, 0.0, 2.0, 9.0, 0});
+  samples.push_back(Sample3{0.0, 0.0, 22.0, 10.0, 0});
+  samples.push_back(Sample3{0.0, 0.0, 38.0, 11.0, 0});
+  samples.push_back(Sample3{5000.0, 5000.0, 2.0, 0.5, 0});
+  samples.push_back(Sample3{5000.0, 5000.0, 22.0, 1.0, 0});
+  samples.push_back(Sample3{5000.0, 5000.0, 38.0, 1.5, 0});
+  VariogramModel model;
+  model.type = VariogramModelType::Spherical;
+  model.nugget = 0.0;
+  model.sill = 1.0;
+  model.range = 200;             // 覆盖垂向全叠置，跨柱（≥1000）不相关
+  model.verticalRangeRatio = 1;
+  Lattice3Steps steps;
+  steps.x = 1000;
+  steps.y = 1000;
+  steps.zMin = 1;
+  Sgs3Params params;
+  params.nRealizations = 8;
+  params.seed = 61;
+  params.maxPoints = 12;
+  const Sgs3Result result = sgs3(samples, targets, steps, model, params);
+  QCOMPARE(result.status, Status::Ok);
+  QCOMPARE(result.solverFailures, 0);
+
+  // 样本柱（ix=0,iy=0）中部 k：跨实现均值贴近样本柱值（强垂向条件化）；
+  // 远柱（ix=5,iy=5）中部 k：贴近远柱样本（跨柱去相关后由各自静态条件化）。
+  auto cellMean = [&](int ix, int iy, int iz) {
+    const std::size_t index = static_cast<std::size_t>(( iz * 6 + iy ) * 6 + ix);
+    double sum = 0;
+    int n = 0;
+    for (const std::vector<double> &realization : result.realizations)
+      if (std::isfinite(realization[index]))
+      {
+        sum += realization[index];
+        ++n;
+      }
+    return n > 0 ? sum / n : std::numeric_limits<double>::quiet_NaN();
+  };
+  const double nearColumn = cellMean(0, 0, 20);
+  const double farColumn = cellMean(5, 5, 20);
+  QVERIFY2(std::isfinite(nearColumn) && nearColumn > 7.5 && nearColumn < 12.5,
+           QStringLiteral("near column mean %1 must track stacked samples (~10)")
+               .arg(nearColumn)
+               .toUtf8()
+               .constData());
+  QVERIFY2(std::isfinite(farColumn) && farColumn > -1.0 && farColumn < 3.0,
+           QStringLiteral("far column mean %1 must track its own samples (~1)")
+               .arg(farColumn)
+               .toUtf8()
+               .constData());
+}
 
 void GeostatSgs3Tests::reproducibleWithSameSeed()
 {

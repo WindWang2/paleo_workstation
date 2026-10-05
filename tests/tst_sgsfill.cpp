@@ -434,12 +434,22 @@ void SgsFillTests::invalidInputsAndCancel()
   QVERIFY(!fillSgs(grid, seeds, {}, &badZones, testModel(1.0), params, &out, &meta, {}, &err));
   QVERIFY(!err.isEmpty());
 
-  // 单种子（全域域）= sgs3 的如实退化路径：全部有限且钉在种子值附近
+  // 单种子（全域域）= 如实退化：正态得分表单组退化 + 样本不足口径——
+  // 除钉死的种子 cell 外整域 NaN，meta/口径如实标注（不是全有值）。
   std::vector<PropertyVolume> degenerate;
   QVERIFY2(fillSgs(grid, seeds, {}, nullptr, testModel(1.0), params, &degenerate, &meta, {}, &err),
            qPrintable(err));
   QCOMPARE(static_cast<int>(degenerate.size()), 1);
   QCOMPARE(meta.snappedSeedCells, 1);
+  QCOMPARE(meta.insufficientZones, 1);
+  QVERIFY2(meta.caliber.contains(QStringLiteral("样本不足")),
+           qPrintable(meta.caliber));
+  int finiteCells = 0;
+  for (float v : degenerate.front().values)
+    if (std::isfinite(v))
+      ++finiteCells;
+  QCOMPARE(finiteCells, 1); // 只有种子 cell 钉死
+  QCOMPARE(degenerate.front().values[static_cast<std::size_t>(grid.cellIndex(2, 2, 1))], 5.0f);
 
   // 取消：第一个进度点即取消
   std::vector<PropertyVolume> cancelled;

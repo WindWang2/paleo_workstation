@@ -1265,10 +1265,12 @@ void TestPropWorkflow::sgsMultiRealizationRegistersIndependentVersions()
   QVERIFY2(again.ok, qPrintable(again.error));
   const QVector<CatalogVersion> versions2 = cat.versionsForAsset(out.assetId);
   QCOMPARE(versions2.size(), 8);
+  int matched = 0;
   for (const CatalogVersion &ver : versions)
   {
     const int index = ver.extra.value(QStringLiteral("realization_index")).toInt();
     // 找第二次运行的同序版本
+    bool found = false;
     for (const CatalogVersion &ver2 : versions2)
     {
       if (ver2.id == ver.id)
@@ -1282,9 +1284,13 @@ void TestPropWorkflow::sgsMultiRealizationRegistersIndependentVersions()
       QVERIFY(a.open(QIODevice::ReadOnly));
       QVERIFY(b.open(QIODevice::ReadOnly));
       QCOMPARE(a.readAll(), b.readAll());
+      found = true;
       break;
     }
+    if (found)
+      ++matched;
   }
+  QCOMPARE(matched, 4); // 每个实现都找到配对且逐位一致——静默 break 不算过
 }
 
 // ---- 方向 45：cut.extra["throw_z"] + 盘侧 → FaultThrow；链路上错位口径入档 ----

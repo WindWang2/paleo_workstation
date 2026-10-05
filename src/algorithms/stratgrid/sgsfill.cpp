@@ -266,6 +266,9 @@ bool fillSgs(const ZoneGrid &grid, const std::vector<Seed> &seeds,
     }
 
     // 进度/取消：带内 f∈[0,1] 映射到总体 (zoneIndex+f)/zoneCount。
+    // 按带混种子（seed + zone·黄金比常数，模 2⁶⁴ 确定回绕）：各带独立
+    // 随机流——等目标数的两带不会共享同一条路径置换（跨带随机误差去相关，
+    // 口径记档；单域 zone=0 时种子不变）。
     double lastFraction = 0.0;
     geostat::Control control;
     control.progress = [&lastFraction](double f) { lastFraction = f; };
@@ -277,8 +280,13 @@ bool fillSgs(const ZoneGrid &grid, const std::vector<Seed> &seeds,
       return !progress(overall);
     };
 
+    geostat::Sgs3Params zoneParams = clamped;
+    zoneParams.seed = clamped.seed +
+                      static_cast<std::uint64_t>(static_cast<std::int64_t>(zone)) *
+                          0x9E3779B97F4A7C15ULL;
+
     const geostat::Sgs3Result result =
-        geostat::sgs3(zoneSamples, zoneTargets, steps, model, clamped, control);
+        geostat::sgs3(zoneSamples, zoneTargets, steps, model, zoneParams, control);
     if (result.status == geostat::Status::Cancelled)
     {
       setError(error, QStringLiteral("已取消"));
@@ -342,21 +350,22 @@ bool fillSgs(const ZoneGrid &grid, const std::vector<Seed> &seeds,
   caliber << QStringLiteral("分块 %1（竖帘阻断）").arg(blockCount);
   if (zonePerColumn)
   {
-    caliber << QStringLiteral("相带分区 %1 域（各带独立统计，变差几何共享全局模型）")
+    caliber << QStringLiteral("相带分区 %1 域（各带独立统计与随机流，变差几何共享全局模型）")
                    .arg(meta->zoneCount);
-    if (meta->insufficientZones > 0)
-    {
-      QStringList codes;
-      for (int code : meta->insufficientZoneCodes)
-        codes << QString::number(code);
-      caliber << QStringLiteral("样本不足保持未充填的相带（<%1 种子）：%2")
-                     .arg(kMinZoneSamples)
-                     .arg(codes.join(QStringLiteral(",")));
-    }
   }
   else
   {
     caliber << QStringLiteral("无相带输入：全域单一参数域");
+  }
+  if (meta->insufficientZones > 0)
+  {
+    QStringList codes;
+    for (int code : meta->insufficientZoneCodes)
+      codes << QString::number(code);
+    caliber << QStringLiteral("样本不足保持未充填的分区（<%1 种子）：%2（区内种子 "
+                              "cell 仍钉实测值）")
+                   .arg(kMinZoneSamples)
+                   .arg(codes.join(QStringLiteral(",")));
   }
   if (meta->mergedSeedDuplicates > 0)
     caliber << QStringLiteral("重合种子合并 %1 次（取均值）").arg(meta->mergedSeedDuplicates);

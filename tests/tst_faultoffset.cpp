@@ -243,29 +243,35 @@ void FaultOffsetTests::blockPartitionSplitsAcrossFaultAndIdwDoesNotLeak()
 void FaultOffsetTests::invalidInputs()
 {
   const ZoneGrid grid = flatGrid(4, 4, 2);
-  ZoneGrid offset;
-  std::vector<float> dz;
   QString err;
 
-  QVERIFY(!applyFaultOffset(grid, {}, &offset, &dz, nullptr, &err) || true); // 空断距集合 = 合法无操作
-  if (err.isEmpty())
+  // 空断距集合 = 合法无操作（全 dz 零，格架原样）
   {
+    ZoneGrid offset;
+    std::vector<float> dz;
+    QVERIFY2(applyFaultOffset(grid, {}, &offset, &dz, nullptr, &err), qPrintable(err));
     QCOMPARE(offset.ni, grid.ni);
     QCOMPARE(dz.size(), std::size_t(grid.ni * grid.nj));
+    QCOMPARE(offset.topZ, grid.topZ);
   }
 
-  FaultThrow bad; // 断距非有限
+  // 断距非有限：如实失败，且不写输出（预填哨兵验证保持调用前状态）
+  FaultThrow bad;
   bad.x0 = 0;
   bad.y0 = 0;
   bad.x1 = 100;
   bad.y1 = 0;
   bad.throwStart = std::nan("");
-  err.clear();
-  offset = ZoneGrid{};
-  dz.clear();
-  QVERIFY(!applyFaultOffset(grid, {bad}, &offset, &dz, nullptr, &err));
-  QVERIFY(!err.isEmpty());
-  QCOMPARE(offset.ni, 0); // 失败不写半成品
+  {
+    ZoneGrid offset = grid; // 哨兵：失败路径不得触碰
+    std::vector<float> dz(7, 42.0f);
+    err.clear();
+    QVERIFY(!applyFaultOffset(grid, {bad}, &offset, &dz, nullptr, &err));
+    QVERIFY(!err.isEmpty());
+    QCOMPARE(offset.topZ, grid.topZ);   // 未被清空/改写
+    QCOMPARE(offset.ni, grid.ni);
+    QCOMPARE(dz, std::vector<float>(7, 42.0f));
+  }
 }
 
 QTEST_MAIN( FaultOffsetTests )

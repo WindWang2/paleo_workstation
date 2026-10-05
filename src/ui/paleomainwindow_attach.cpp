@@ -796,39 +796,51 @@ void PaleoMainWindow::finishPropertyModelRun(double overlayAlpha)
   // 二次登记同一份 staging。登记失败时 commitComputed 已把 computed.out.ok
   // 置假并回填错误串，下面按失败如实上 UI。
   // 同步兜底路径（无任务池）不建 job，仍需直连登记（多实现逐版本）。
+  // job 是 shared_ptr 共享体——异步路径直接引用，不整表深拷贝（R=64 大网格
+  // 时每项含完整 PropertyVolume + blob）。
   PropertyModelOutput out;
+  const PropertyModelWorkflow::PropertyModelComputedList *computedPtr = &m_propModelComputed;
   if (m_propModelJob)
   {
-    m_propModelComputed = m_propModelJob->computed; // 共享同一份，commit 已回填
-    if (!cancelled && !m_propModelComputed.empty() && m_propModelComputed.front().out.ok &&
+    computedPtr = &m_propModelJob->computed; // commit 已回填
+    if (!cancelled && !computedPtr->empty() && computedPtr->front().out.ok &&
         !m_propModelJob->registered)
     {
-      // 防御：未登记不报成功
-      for (auto &computed : m_propModelComputed)
-      {
-        computed.out.ok = false;
-        if (computed.out.error.isEmpty())
-          computed.out.error = tr("属性体登记失败");
-      }
+      // 防御：未登记不报成功（改写共享体会污染 commit 段回填，改走本地标记）
+      out.ok = false;
+      out.error = tr("属性体登记失败");
     }
   }
   else if (!cancelled && !m_propModelComputed.empty() && m_propModelComputed.front().ok)
   {
     m_propModelWf->commitAll(&m_propModelComputed); // 无池兜底：同步直连
   }
-  if (m_propModelComputed.empty())
+  if (out.error.isEmpty())
   {
-    out.ok = false;
-    out.error = tr("属性建模失败");
+    if (cancelled)
+    {
+      out.ok = false;
+      out.error = tr("已取消");
+    }
+    else if (computedPtr->empty())
+    {
+      out.ok = false;
+      out.error = tr("属性建模失败");
+    }
+    else
+    {
+      out = computedPtr->front().out; // 呈现首实现；实现数见 out.realizationCount
+    }
   }
   else
   {
-    out = m_propModelComputed.front().out; // 呈现首实现；实现数见 out.realizationCount
-  }
-  if (cancelled)
-  {
     out.ok = false;
-    out.error = tr("已取消");
+  }
+  if (out.ok && !computedPtr->empty())
+  {
+    // 诚实口径标签：竖直近似井数 / 断层竖帘与错位 / 相带 / 种子（首实现 extra）。
+    m_propModelPanel->setCaliberNote(
+        computedPtr->front().extra.value(QStringLiteral("caliber")).toString());
   }
 
   if (!out.ok)
@@ -839,10 +851,6 @@ void PaleoMainWindow::finishPropertyModelRun(double overlayAlpha)
       statusBar()->showMessage(tr("属性建模失败：%1").arg(why), 8000);
     return;
   }
-
-  // 诚实口径标签：竖直近似井数 / 断层竖帘与错位 / 相带 / 种子（首实现 extra）。
-  m_propModelPanel->setCaliberNote(
-      m_propModelComputed.front().extra.value(QStringLiteral("caliber")).toString());
 
   const QString fileName = QFileInfo(out.path).fileName();
   const QString realizationNote =

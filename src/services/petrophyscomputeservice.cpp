@@ -15,6 +15,7 @@
 #include "io/lascache.h"
 #include "io/lasparser.h"
 #include "io/laswriter.h"
+#include "io/wellfileparsers.h" // parseTimeDepthText（方向44 TIME 基准对齐）
 #include "metadata/paleoprojectstore.h"
 #include "paleotaskservice.h"
 #include "welllogset.h"
@@ -319,6 +320,13 @@ struct WellMergePlan
   QString driverPath;
   QString driverVersionId;
   QVector<CurvePiece> pieces;
+  // 方向44 深度基准对齐：各文件基准 + 驱动基准 + 井的时深表（有 time_depth
+  // 链接才有）。TIME 基准副文件经时深表逆插值换到驱动深度域；其余基准
+  // 错位按「线性重采样」口径如实记 note，不冒充已对齐。
+  QString driverBasis;
+  QHash<QString, QString> basisByPath;
+  TimeDepthTable tdTable;
+  bool hasTdTable = false;
 };
 
 WellMergePlan planWellMerge(const DataCatalog *catalog, const QString &projectDir,
@@ -375,6 +383,40 @@ WellMergePlan planWellMerge(const DataCatalog *catalog, const QString &projectDi
   if (plan.driverPath.isEmpty())
     return plan;
   plan.active = true;
+
+  // 基准映射 + 井时深表（主链 time_depth 当前版本）
+  for (const WellLogFile &file : files)
+    plan.basisByPath.insert(file.path, file.indexBasis);
+  for (const WellLogFile &file : files)
+    if (file.path == plan.driverPath)
+      plan.driverBasis = file.indexBasis;
+  {
+    // 主链优先（previewdoc time_depth 先例），无主才取首条已决
+    const QVector<EntityAssetLink> links = catalog->linksForEntity(well.wellId);
+    const EntityAssetLink *tdLink = nullptr;
+    for (const EntityAssetLink &link : links)
+      if (link.role == QLatin1String("time_depth") && !link.unresolved)
+      {
+        if (link.isPrimary)
+        {
+          tdLink = &link;
+          break;
+        }
+        if (!tdLink)
+          tdLink = &link;
+      }
+    if (tdLink)
+    {
+      const CatalogVersion v = catalog->currentVersion(tdLink->assetId);
+      const QString tdPath = DataCatalog::resolvedVersionPath(projectDir, v);
+      QFile tf(tdPath);
+      if (!tdPath.isEmpty() && QFileInfo(tdPath).isFile() && tf.open(QIODevice::ReadOnly))
+      {
+        plan.tdTable = parseTimeDepthText(tf.readAll());
+        plan.hasTdTable = plan.tdTable.rows.size() >= 2;
+      }
+    }
+  }
   plan.pieces.reserve(index.size());
   for (const WellCurveRef &ref : index)
   {
@@ -469,8 +511,10 @@ bool onDriverFile(const CurvePiece &piece, const WellMergePlan &plan)
 }
 
 bool loadWellCurves(const PetroPhysTaskService::WellRef &well, const WellMergePlan &plan,
-                    QVector<LasCurve> *out, QString *error)
+                    QVector<LasCurve> *out, QString *error,
+                    QStringList *alignNotes = nullptr)
 {
+  QStringList notes; // 方向44 对齐口径（成功/未对齐都如实带出）
   if (!plan.active)
   {
     const LasDoc doc = LasCache::shared().load(well.lasPath);
@@ -546,9 +590,51 @@ bool loadWellCurves(const PetroPhysTaskService::WellRef &well, const WellMergePl
     const bool descending = srcDepth.size() > 1 && srcDepth.first() > srcDepth.last();
     if (descending)
       std::reverse(srcDepth.begin(), srcDepth.end());
+    // 方向44：深度基准对齐——TIME 基准副文件先经时深表逆插值换到驱动深度域
+    // （结果为米），再做单位换算；其余基准错位按「线性重采样」口径记 note。
+    QString fileUnit = doc.ok && !doc.curves.isEmpty() ? doc.curves.at(0).unit : QString();
+    const QString fileBasis = plan.basisByPath.value(path);
+    if (!fileBasis.isEmpty() && !plan.driverBasis.isEmpty() &&
+        fileBasis != plan.driverBasis)
+    {
+      if (fileBasis == QLatin1String("TIME") && plan.driverBasis != QLatin1String("TIME") &&
+          !srcDepth.isEmpty())
+      {
+        if (plan.hasTdTable)
+        {
+          QString alignErr;
+          if (WellLogSet::timeIndexToDepth(&srcDepth, fileUnit, plan.tdTable,
+                                           plan.driverBasis == QLatin1String("MD"),
+                                           &alignErr))
+          {
+            notes.append(
+                QStringLiteral("%1: 深度基准 TIME→%2 已按时深表对齐")
+                    .arg(QFileInfo(path).fileName(), plan.driverBasis));
+            fileUnit = QStringLiteral("M"); // 转换后为米（TD 表米口径）
+          }
+          else
+          {
+            notes.append(
+                QStringLiteral("%1: 线性重采样（TIME→%2 时深表不可用：%3）")
+                    .arg(QFileInfo(path).fileName(), plan.driverBasis, alignErr));
+          }
+        }
+        else
+        {
+          notes.append(
+              QStringLiteral("%1: 线性重采样（TIME→%2 无时深表）")
+                  .arg(QFileInfo(path).fileName(), plan.driverBasis));
+        }
+      }
+      else if (fileBasis != QLatin1String("TIME") || srcDepth.isEmpty())
+      {
+        notes.append(
+            QStringLiteral("%1: 线性重采样（基准 %2→%3 未对齐）")
+                .arg(QFileInfo(path).fileName(), fileBasis, plan.driverBasis));
+      }
+    }
     if (!srcDepth.isEmpty())
     {
-      const QString fileUnit = doc.curves.at(0).unit;
       const double factor = depthFactorToDriver(fileUnit, driver.curves.at(0).unit);
       if (std::isnan(factor))
         qWarning("petrophys merge: depth unit '%s' of %s vs driver '%s' unknown — assuming same unit",
@@ -582,6 +668,8 @@ bool loadWellCurves(const PetroPhysTaskService::WellRef &well, const WellMergePl
   }
 
   *out = std::move(merged);
+  if (alignNotes)
+    *alignNotes = notes;
   return true;
 }
 
@@ -1142,16 +1230,20 @@ PaleoTask *PetroPhysTaskService::startBatch(
           task->reportStage(QStringLiteral("parse"));
           QVector<LasCurve> curves;
           QString loadErr;
-          if (!loadWellCurves(well, plans->value(well.wellId), &curves, &loadErr))
+          QStringList alignNotes;
+          if (!loadWellCurves(well, plans->value(well.wellId), &curves, &loadErr,
+                              &alignNotes))
           {
             r.parseMs = nowMs(parseClock);
             r.error = loadErr;
+            r.notes = alignNotes;
             result->wells.append(r);
             task->reportBytes(qint64(w + 1) * 1000, totalUnits);
             task->reportDetail(QStringLiteral("%1：解析失败").arg(well.wellId));
             continue;
           }
           r.parseMs = nowMs(parseClock);
+          r.notes = alignNotes;
 
           task->reportStage(QStringLiteral("compute"));
           QElapsedTimer computeClock;
@@ -1218,12 +1310,17 @@ PaleoTask *PetroPhysTaskService::startBatch(
           r.ok = r.error.isEmpty();
           result->wells.append(r);
           task->reportBytes(qint64(w + 1) * 1000, totalUnits);
+          QString noteSuffix;
+          if (!r.notes.isEmpty())
+            noteSuffix = QStringLiteral("；") + r.notes.join(QStringLiteral("；"));
           task->reportDetail(r.ok
-                                 ? QStringLiteral("%1：完成（%2 样本，null %3%）")
+                                 ? QStringLiteral("%1：完成（%2 样本，null %3%）%4")
                                        .arg(well.wellId)
                                        .arg(r.stats.n)
                                        .arg(r.stats.nullRate * 100.0, 0, 'f', 1)
-                                 : QStringLiteral("%1：%2").arg(well.wellId, r.error));
+                                       .arg(noteSuffix)
+                                 : QStringLiteral("%1：%2%3")
+                                       .arg(well.wellId, r.error, noteSuffix));
         }
         result->totalMs = nowMs(totalClock);
         return QString(); // 单井失败记入 wells（分井处置），任务本身不算败

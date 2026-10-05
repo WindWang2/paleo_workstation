@@ -1393,7 +1393,7 @@ private slots:
     expectPath(0, QString::fromUtf8("井位/empty.dat"));
     QCOMPARE(rows.at(0).classifiedType, QStringLiteral("well_head"));
     QCOMPARE(rows.at(0).outcome, Outcome::Failed);
-    QVERIFY(rows.at(0).message.contains(QStringLiteral("no well head rows")));
+    QVERIFY(rows.at(0).message.contains(QStringLiteral("井表没有可用数据行")));
     QVERIFY(rows.at(0).entityName.isEmpty());
 
     expectPath(1, QString::fromUtf8("井位/heads.dat"));
@@ -1496,7 +1496,10 @@ private slots:
     std::sort(roles.begin(), roles.end());
     QCOMPARE(roles, QStringList({QStringLiteral("time_depth"), QStringLiteral("tops"),
                                  QStringLiteral("well_head"), QStringLiteral("well_log")}));
-    QCOMPARE(cat->assets().size(), 7); // ghost/empty 也各占一份资产；mirror/escape/fifo 无
+    QCOMPARE(cat->assets().size(), 6); // ghost 有资产；拒收的空井表不留孤立资产。
+    for (const auto &asset : cat->assets())
+      for (const auto &version : cat->versionsForAsset(asset.id))
+        QVERIFY(!version.sourceUri.endsWith(QStringLiteral("井位/empty.dat")));
     QCOMPARE(cat->links().size(), 8);  // 2 井口 + 2 tops + 2 LAS + 1 ghost + 1 TD
   }
 
@@ -2222,7 +2225,7 @@ private slots:
         svc.importFolderRow(headsPath, QString(), &err);
     QCOMPARE(row.outcome, Outcome::Failed);
     QVERIFY(!err.isEmpty());
-    QVERIFY(row.message.contains(QStringLiteral("no well head rows")));
+    QVERIFY(row.message.contains(QStringLiteral("井表没有可用数据行")));
     QCOMPARE(row.classifiedType, QStringLiteral("well_head"));
 
     // 修好文件再重导：入库 + 实体名，error 清空。

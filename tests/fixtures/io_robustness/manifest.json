@@ -1,0 +1,118 @@
+{
+  "coordinates_edges.xlsx": {
+    "bytes": 2495,
+    "sha256": "da2bdaba3b5f4608339594fe37c600b8b524c6ba91fbbd58daa672d3cf89e839"
+  },
+  "custom_words.sgy": {
+    "bytes": 4816,
+    "sha256": "e1da1cb584662e01f0197b266f4557b4fcfdc726b408e4ad748d7a6f1af4bad3"
+  },
+  "duplicate_cells.xlsx": {
+    "bytes": 2207,
+    "sha256": "f06cd9e04ffe153034be467c4b171b707f77c09817820cf8875ab56afaa9ce47"
+  },
+  "formula_error.xlsx": {
+    "bytes": 2193,
+    "sha256": "c0483bf8f5268bb8b3b25b225f1969cb550c8c2217f8642492de4b6063ae4524"
+  },
+  "good.sgy": {
+    "bytes": 4816,
+    "sha256": "ca77746b2ec5373503f36aa9d055115c380d9fd16ed84a4d17337136f7e5374d"
+  },
+  "implicit_row.xlsx": {
+    "bytes": 2183,
+    "sha256": "ee20e829385e1be8aa2de02e96a99002dab79708cd9475c78ba9d91c30f4c8de"
+  },
+  "invalid_ref.xlsx": {
+    "bytes": 2114,
+    "sha256": "353b9b0c37bcf253f114657972f1973764138102cd6f523632504234cd36efab"
+  },
+  "malformed_refs.xlsx": {
+    "bytes": 2187,
+    "sha256": "875dc83b6c1c5fbcbe6f78970e137c6d1cac956d3772a3a913a659b330370ec9"
+  },
+  "nonfinite_ibm.sgy": {
+    "bytes": 4816,
+    "sha256": "534a48cd0db3033e25507df64425214f1988726bc5b8826fb9243f375dfe9bee"
+  },
+  "nonfinite_ieee.sgy": {
+    "bytes": 4816,
+    "sha256": "3eb116d09b4f220e1e075e93ab8471b8a81cbae921d5573682a9381e7e057706"
+  },
+  "physical_intervals.xml": {
+    "bytes": 424,
+    "sha256": "ee0b451a33c378072a8cc94a4d0f40e8c96cf67a8e25095890ed1e1e6fa10807"
+  },
+  "physical_rows.xlsx": {
+    "bytes": 2165,
+    "sha256": "282b58877a02e6c02c4b3b7502203209f9e57757b6827f2a335d98d5c2073b2c"
+  },
+  "shared_strings_missing.xlsx": {
+    "bytes": 2165,
+    "sha256": "4ecd4dc1e1e37ee731ea3c7498dd9efbc4c2b0096ffe2f087ba32f79c920d22d"
+  },
+  "swapped_words.sgy": {
+    "bytes": 4816,
+    "sha256": "ea6c311a604831a9c180ecb00838d3c71fa701a32e4a94dafca9c8313d7f0a2c"
+  },
+  "td_nulls.tsv": {
+    "bytes": 101,
+    "sha256": "5ab9120e8f355f039d4dd1771dec284e98f71fbc989f0e032261cea35a1066ea"
+  },
+  "tops_nulls.tsv": {
+    "bytes": 162,
+    "sha256": "5bcd8c3d06d98afbbc0c0bde090231f9f839685cc9bb2f37f2ec9077874412cf"
+  },
+  "truncated_bad_ns.sgy": {
+    "bytes": 4815,
+    "sha256": "14e547edd1996c8010920df95ac78c4bda35d8e084a8d846a5f6cf2d53b5aa1a"
+  },
+  "truncated_binary_header.sgy": {
+    "bytes": 3599,
+    "sha256": "b705ea677bd3a0a5881aa060bff2bdc0a047fa5de904eaae0a8bfff3948c3e99"
+  },
+  "truncated_samples.sgy": {
+    "bytes": 4815,
+    "sha256": "9c0bc3aa4e1149c3f2235b23c89f676dd152e11d017abdbabbbbb1759d3d652d"
+  },
+  "truncated_trace_header.sgy": {
+    "bytes": 4632,
+    "sha256": "94b73ec3c18d532889e423328b48284a237175c3566b4e691cb355a275a3a3cc"
+  },
+  "unit_feet.las": {
+    "bytes": 132,
+    "sha256": "4848a4f3c7d1a584790df26677dda43b3e2e8f6d26e71b2b8cb1cc5071390dfe"
+  },
+  "unit_ft.las": {
+    "bytes": 130,
+    "sha256": "ed88b289a3b37ec5a7f3095971b7017d6eb9a05f870cd4d4ceb86c683a0a5ac9"
+  },
+  "unit_m_lower.las": {
+    "bytes": 129,
+    "sha256": "33f26819081484f8097f7b27fabde81362559ae7584f60d9ce455b0034259844"
+  },
+  "unit_m_upper.las": {
+    "bytes": 129,
+    "sha256": "5e908c8bc94bb7e7baa52914aeba44c97a9397a4e7d415683caa388325949188"
+  },
+  "unit_meter.las": {
+    "bytes": 133,
+    "sha256": "e2bbb10738c09b4168f603505b9f03696f44c7185443ed07ba98e0107afe63fa"
+  },
+  "unit_meters.las": {
+    "bytes": 134,
+    "sha256": "ef5dadaef4706e87bf70776061f5370257300ed58369f279c0f4420dd49c89bf"
+  },
+  "unit_metre.las": {
+    "bytes": 133,
+    "sha256": "585e43b484afd5c8e10a943b70123c80aa4be60c1cb82f9affc56fc01d5e8433"
+  },
+  "unit_unknown.las": {
+    "bytes": 135,
+    "sha256": "432917444d070d85e5bca95364820f510662b9468bc48d78ab4c61474d0fad8b"
+  },
+  "unordered_cells.xlsx": {
+    "bytes": 2183,
+    "sha256": "03c5f782c48a2325d3cfc640d3f9e1680dca39311ba097c41537012d85e5ef09"
+  }
+}

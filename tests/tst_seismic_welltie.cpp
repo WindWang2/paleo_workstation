@@ -9,6 +9,7 @@
 #include <QPainter>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+#include <QTimer>
 
 #include <cmath>
 #include <cstring>
@@ -193,6 +194,9 @@ private slots:
     qInfo("section cache: first=%lldms second=%lldms", firstMs, secondMs);
     QVERIFY2(secondMs <= firstMs + 3,
              qPrintable(QStringLiteral("cache hit %1 not faster than %2").arg(secondMs).arg(firstMs)));
+    // RUNTIME-04 钉死：缓存命中的单发 QTimer 必须在事件循环回收后清干净
+    // （deleteLater 的延迟删除由 QTRY 的循环处理），不得残留子对象。
+    QVERIFY(svc.findChildren<QTimer *>().isEmpty());
   }
 
   // ---- D5.3 井轨迹投影：顶/底到剖面折线的独立投影 ----

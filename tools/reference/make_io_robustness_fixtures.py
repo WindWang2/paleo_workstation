@@ -65,8 +65,17 @@ def workbook(path, sheet):
 def generate(out):
     out.mkdir(parents=True, exist_ok=True)
     good = segy()
+    finite_edges = bytearray(good)
+    finite_bits = (0x00000000, 0x80000000, 0x00000001, 0x80000001,
+                   0x00800000, 0x80800000, 0x7F7FFFFF, 0xFF7FFFFF,
+                   0x3F800000, 0xBF800000, 0x3DCCCCCD, 0xBDCCCCCD,
+                   0x3F000000, 0xBF000000, 0x41200000, 0xC1200000)
+    for trace in range(4):
+        for sample, bits in enumerate(finite_bits):
+            struct.pack_into(">I", finite_edges, 3600 + trace * 304 + 240 + sample * 4, bits)
     files = {
         "good.sgy": good,
+        "finite_ieee_edges.sgy": bytes(finite_edges),
         "nonfinite_ieee.sgy": segy(bad=True),
         "nonfinite_ibm.sgy": segy(fmt=1, bad=True),
         "custom_words.sgy": segy(offsets=(180, 184)),

@@ -176,6 +176,7 @@ class PreviewDocService : public QObject
     // ---- 测线解码（见类注释的异步语义）----
     struct SectionDoc
     {
+      SegyReadReport readReport;
       QVector<SegyTrace> traces;
       float sampleIntervalUs = 0.0f;
       double startTimeMs = 0.0;

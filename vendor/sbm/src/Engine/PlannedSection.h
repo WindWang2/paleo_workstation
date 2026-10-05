@@ -29,6 +29,7 @@ struct PlannedSectionStats {
     int columns = 0;
     int uniqueTraces = 0;
     int tracesRead = 0;
+    std::uint64_t sanitizedSampleReads = 0;
     int duplicateColumns = 0;
     int missingColumns = 0;
     int readRanges = 0;

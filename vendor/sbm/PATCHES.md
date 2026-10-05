@@ -125,3 +125,20 @@ O(1e20)，灾难性抵消——精确仿射的 2×4 测网拟出 rms=2 m（FMA �
   `.u8string()` 按 C++17 返回 `std::string` 的语义写；头文件零 char8_t
   使用，故 flag 不外泄到消费方 TU。
 - `SEISMIC_HAVE_ZSTD`：系统 libzstd 存在时定义并链接。
+
+## P13 · 方向50：非有限 SEG-Y 样点 → quiet NaN + 质量账目
+
+- `Data/Sgy/SgySampleSanitizer.h` 仅改非有限值；IEEE/IBM 的所有有限振幅
+  逐值保持原样。`SgyReadSession` 与 `SgyVolume` 的整道、单样、mmap 时间片、
+  时间预览缓存都经过同一清洗，逐次日志使用 `PALEO-SEGY-SANITIZED`。
+- `SourceStatistics.sanitizedSampleReads` 为解码次数口径（重复读会再次计数）；
+  session、planned、legacy/mmap 路径均计入，取消/失败前已解码的样点也保留计数，
+  ResetStatistics 同时复位。
+- SF3C/Paged L0 新增 `sanitizedSampleCount` / `sanitizedTraceCount`；SF3C
+  时间分块导致重复读时按源道去重。值域仅纳入有限样点，保持 NaN 缺失传播。
+  计数是本次实际源道解码的质量账目；续跑跳过既有块时不冒充重新验过源样点。
+- C++ `SourceStatistics` 布局增加字段，SDK facade `kSdkAbiVersion` 提升到 2。
+  本仓 vendor 与所有消费目标统一重编；公共 C 函数参数/结果布局未更改。
+- 上层 `SeismicTranscodeReport` 转码摘要与 JSON 同时展示清洗数；
+  `tst_io_seismicquality` 对拍 direct/voxel/legacy/mmap、SF3C 单/多次读、Paged L0
+  与服务报告，`tst_io_robustness` 钉住旧属性/反演 null 传播。

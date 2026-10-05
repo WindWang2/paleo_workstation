@@ -11,6 +11,10 @@
     "bytes": 2207,
     "sha256": "f06cd9e04ffe153034be467c4b171b707f77c09817820cf8875ab56afaa9ce47"
   },
+  "finite_ieee_edges.sgy": {
+    "bytes": 4816,
+    "sha256": "549235dfffee66fcccf977bd5384b4ccb56b38be68cf455ff70d3ab1764694c3"
+  },
   "formula_error.xlsx": {
     "bytes": 2193,
     "sha256": "c0483bf8f5268bb8b3b25b225f1969cb550c8c2217f8642492de4b6063ae4524"

@@ -204,4 +204,10 @@ appcontext.cpp：该文件同时被并行 UX 包与编排会话修改，接线�
   `futureUserVersionRefusesWithoutBak`（断言错误含子串
   `newer than this build`，且 `.bak` 大小不变）/
   `futureSchemaEpochRefusesWithoutBak`。
+- **extra_json 键族扩展惯例（方向 47 realization 落地注记）**：契约型元
+  数据（如 `realizationSetId`/`realizationIndex`/`realizationStatistic`）
+  放 `versions.extra_json`，不加 sqlite 列、不动 `schema_epoch`。
+  兼容语义靠「缺键 = 非该契约成员」成立：旧构建读新库原样回写不丢键，
+  新构建读旧库缺键即普通版本。契约本文在 `src/catalog/realizationset.h`
+  头注；round-trip/缺号/旧库打开测试见 `tests/tst_realizationset.cpp`。
 

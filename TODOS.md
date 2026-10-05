@@ -237,13 +237,16 @@ master 的 `41feecf`，catalog 行序修复来自 `e8da8cf`，不归入本 PR �
 - **Depends on:** 井头数据带类别字段
 
 
-## P2 — 多 realization / 不确定性支持（deferred from CEO review D6, 2026-09-25)
+## ~~P2 — 多 realization / 不确定性支持（deferred from CEO review D6, 2026-09-25）~~（已落地：goal/realization-20261004，方向 47）
 
 - **What:** 每层位存 N 个预测 realization，派生置信度面，同一 canvas 切换 realization。
 - **Why:** 相对商业软件的研究级差异化能力；井点稀疏区的不确定性可视化。
 - **Pros:** 真正的不确定性量化；预测-验证闭环更强。
 - **Cons:** 触及数据模型、存储、预测管线、版本、UI — 约使预测子系统翻倍。
-- **Context:** 当前文档 §7 只有单个"预测置信度"图层。schema 已预留可空 `realization_id`（见 PALEO_QGIS_PLAN.md NOT-in-scope 决议）。做时先定 realization 与 version 的正交关系。
+- **Context:** 契约钉在 `src/catalog/realizationset.h` 头注（extra_json 键族，
+  无 schema_epoch bump；SCHEMA_MIGRATION.md §8 末条）。首个填充源 = SGS
+  （约束页「保留实现集合」）；派生统计/差值/成员动画/不确定性图签/集合
+  分组树均在 `goal/realization-20261004`。
 - **Effort:** human: XL / CC: L
 - **Priority:** P2
 - **Depends on:** 智能预测管线落地后

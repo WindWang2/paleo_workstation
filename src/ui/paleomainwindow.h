@@ -80,6 +80,7 @@ class QStackedWidget;
 class QSplitter;
 class DataPreviewTabs;
 class PredictionWorkflow;
+class RealizationWorkflow;
 class ConstraintWorkflow;
 class CompositionWorkflow;
 class ValidationWorkflow;
@@ -227,6 +228,14 @@ class PaleoMainWindow : public SARibbonMainWindow
     // 把清单图层实例化并勾选到图层树。zoomTo 为真时再缩放到该层。
     // 单因素等值线、综合编图成果和验证定位都走这条，不另建显示路径。
     bool revealDeclaredLayer(const QString &layerId, bool zoomTo);
+    // 方向 47：realization 面同画布上图 + 不确定性图签。成员/统计面各按
+    // 同集合互斥显隐（成员换成员、统计换统计），差值面独立可叠。
+    // badgeTitle 空 = 关图签。
+    void showRealizationLayer(const QString &layerId, const QString &badgeTitle,
+                              const QString &badgeSub);
+    // 成员/统计 intent 的统一入口（面板与数据页树共用，图签文案同源）。
+    void showRealizationMember(const QString &setId, int index);
+    void showRealizationStat(const QString &setId, const QString &token);
     // 壳面（locator/保存/底栏面板/处理算法/编辑条/图件设计）；返回编辑条
     // 逻辑宿主供 buildRibbonPanels 镜像。
     PaleoEditingToolbar *attachShellSurfaces(PaleoProjectStore *store,
@@ -427,6 +436,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     FolderImportWorkflow *m_folderImportWf = nullptr;   // W2 文件夹/单文件导入编排
     ProjectOpenWorkflow *m_projectOpenWf = nullptr;     // W2 打开/新建工程编排
     RegistrationWorkflow *m_registrationWf = nullptr;   // W3 临时配准编排
+    RealizationWorkflow *m_realizationWf = nullptr;     // 方向 47：集合编排（统计派生/差值）
     // attachWorkflows 幂等守卫：该函数每次执行都清栈重建右栏页面、给底栏/
     // 状态栏加面板并往服务对象上叠信号连接，二次执行会重复建 dock/按钮并
     // 遗留悬空引用（后续用例段错误）。测试套件会二次触达同一窗口——

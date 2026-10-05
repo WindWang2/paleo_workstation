@@ -12,6 +12,7 @@ class QLabel;
 class QPushButton;
 class QProgressBar;
 class QTableWidget;
+class QPlainTextEdit;
 class MappingWorkbenchPage : public QWidget {
   Q_OBJECT
 public:
@@ -46,4 +47,7 @@ private:
   QProgressBar *m_progress = nullptr;
   QTableWidget *m_facies = nullptr;
   QComboBox *m_editFacies = nullptr;
+  QComboBox *m_displayLevel = nullptr, *m_editLevel = nullptr, *m_evidenceSource = nullptr;
+  QPlainTextEdit *m_evidenceText = nullptr;
+  QListWidget *m_evidence = nullptr;
 };

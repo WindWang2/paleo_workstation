@@ -111,6 +111,9 @@ public:
     double grBaselineMin = std::numeric_limits<double>::quiet_NaN();
     double grBaselineMax = std::numeric_limits<double>::quiet_NaN();
     double parseMs = 0.0, computeMs = 0.0;
+    // 方向44 深度基准口径（逐副文件一条）：「已按时深表对齐」或
+    // 「线性重采样（…未对齐）」——进任务明细，不冒充已对齐。
+    QStringList notes;
   };
 
   struct BatchResult

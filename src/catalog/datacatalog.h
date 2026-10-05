@@ -206,9 +206,12 @@ class DataCatalog : public QObject
     bool addVersion(const CatalogVersion &v, QString *error = nullptr);
     bool addLink(const EntityAssetLink &l, QString *error = nullptr);
 
-    // 把 links() 序中第 index 条未决链接挂到 entityId：置已决、清备注、成为主关联。
-    // 同一 (entityType, entityId, role) 下的其他主关联同时降级——§3：同一角色
-    // 只保留一条主关联。index 越界 / 链接已决 / entityId 为空 → false。
+    // 把 links() 序中第 index 条未决链接挂到 entityId：置已决、清备注。
+    // 方向 44 挂接契约（收口）：主文件只由显式操作变更——挂接不夺主。
+    // 目标 (entityType, entityId, role) 已有已决主关联 → 本链接为成员
+    // （isPrimary=false，现任主不动）；无主 → 补主（首份语义）。显式夺主
+    // 唯一入口是 setLinkPrimary（「设为主文件」）。§3 不变量不变：同角色
+    // 至多一条主关联。index 越界 / 链接已决 / entityId 为空 → false。
     bool attachLink(int index, const QString &entityId, QString *error = nullptr);
 
     // attachLink 的撤销面（资产表「未决」行的会话内回退，§4）：links() 序第
@@ -219,8 +222,9 @@ class DataCatalog : public QObject
 
     // 「将此版本设为主版本」（§4）：links() 序第 index 条已决链接提升为同角色
     // 主关联——本链接 isPrimary=true，同一 (entityType, entityId, role) 下的
-    // 其他主关联降级（与 addLink/attachLink 同一不变量）。只动链接标志，
-    // 不复制版本字节。index 越界 / 链接未决或实体 id 为空 → false。
+    // 其他主关联降级（§3 不变量）。这是变更主文件的唯一显式入口（方向 44
+    // 挂接契约的另一半）。只动链接标志，不复制版本字节。index 越界 /
+    // 链接未决或实体 id 为空 → false。
     bool setLinkPrimary(int index, QString *error = nullptr);
 
     // 物理删除资产（方向 30 回收站「物理删除」的 catalog 面）：一次事务删除

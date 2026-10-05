@@ -553,7 +553,16 @@ void TestTileInference::asyncTaskCancelsWithoutLeak()
 
   QCOMPARE( task->state(), PaleoTask::State::Cancelled );
   // 取消后无泄漏：句柄数不涨、RSS 增长有界（粗上界抓会话/缓冲泄漏）、池不涨。
-  QCOMPARE( countFds(), fdsBefore );
+  // finished 信号先于 worker 线程的 dispatcher/唤醒 fd 拆台落地——立即数
+  // fd 会偶发撞见 +1（CI linux 已两次命中，重跑与负载相关）。给最多 3s
+  // 收敛窗：拆台在途会回落，真泄漏不会。
+  int fdsNow = countFds();
+  for ( int waited = 0; fdsNow != fdsBefore && waited < 3000; waited += 50 )
+  {
+    QThread::msleep( 50 );
+    fdsNow = countFds();
+  }
+  QCOMPARE( fdsNow, fdsBefore );
   QVERIFY2( readRssKb() - rssBefore < 200 * 1024,
             qPrintable( QStringLiteral( "rss %1 -> %2 kB" ).arg( rssBefore ).arg( readRssKb() ) ) );
   QCOMPARE( onnx.sessionPoolSize(), poolBefore );

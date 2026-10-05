@@ -18,6 +18,8 @@
 #include "../src/io/geojsonaffine.h"
 #include "../src/io/ingestplan.h"
 #include "../src/io/lasparser.h"
+#include "../src/services/welllogset.h" // 方向44：导入绑定后并集可达
+#include "welllogfixturewriters.h" // 方向44：DLIS/LIS 夹具写入器
 #include "../src/domain/projectclassifier.h"
 #include "../src/metadata/layermanifest.h"
 #include "../src/metadata/paleoprojectstore.h"
@@ -2748,6 +2750,156 @@ private slots:
         QDir(projectDir).filePath(QStringLiteral("artifacts")), *cat);
     QVERIFY(inner.items.isEmpty());
     QVERIFY(!inner.issues.isEmpty());
+  }
+
+  // ---- 方向 44：DLIS/LIS 读口进导入面 ----
+
+  // 分类词表登记 + 井名绑定：LIS 的 wellsite WELL 分量 → 已决主链接；
+  // DLIS 的 ORIGIN.WELL-NAME 同口径。格式字段如实（dlis/lis）。
+  void dlisAndLisClassifyBindAndKeepFirstPrimary()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj44"));
+    QVERIFY(QDir().mkpath(projectDir));
+    QVERIFY(seedCatalogWithSingleWell(projectDir)); // 预置 A1
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+
+    // A1 主 LAS（井名 A1 → 已决主）
+    const QString lasPath = tmp.filePath(QStringLiteral("A1.Las"));
+    QVERIFY(writeFile(lasPath, QByteArrayLiteral(
+        "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. A1 : WELL\n"
+        "~Curve\nDEPT.M :\nGR.GAPI :\n~A DEPT GR\n100.0 50.0\n101.0 51.0\n")));
+
+    // LIS：wellsite WELL=A1（lisfix 写入器的主夹具，井名等长替换为 A1
+    const QString lisPath = tmp.filePath(QStringLiteral("A1-Rt.lis"));
+    {
+      QByteArray b = lisfix::buildMain().raw;
+      b.replace(QByteArrayLiteral("HZ28-6-2"),
+                QByteArrayLiteral("A1") + QByteArray(6, ' ')); // 等长（8 字节）：不动偏移
+      QFile f(lisPath);
+      QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Truncate));
+      f.write(b);
+      f.close();
+    }
+
+    // DLIS：ORIGIN WELL-NAME=A1
+    const QString dlisPath = tmp.filePath(QStringLiteral("A1-Rhob.dlis"));
+    {
+      using namespace dlisfix;
+      QVector<ChannelDef> channels = {
+        { QStringLiteral("DEPT"), QStringLiteral("m"), 2, {}, QString() },
+        { QStringLiteral("RHOB"), QStringLiteral("g/cm3"), 7, {}, QString() },
+      };
+      QVector<FrameDef> frames = { { QStringLiteral("1000"),
+                                     { QStringLiteral("DEPT"), QStringLiteral("RHOB") },
+                                     QStringLiteral("BOREHOLE-DEPTH"),
+                                     QString() } };
+      QByteArray b = sul();
+      b += buildFileHeaderEflr(QStringLiteral("IMP"));
+      b += buildOriginEflr(QStringLiteral("A1"));
+      b += buildChannelEflr(channels);
+      b += buildFrameEflr(frames);
+      QByteArray s1, s2;
+      s1 += fsinglBytes(1000.0f) + fdoublBytes(2.3);
+      s2 += fsinglBytes(1000.5f) + fdoublBytes(2.4);
+      b += buildFdata(QStringLiteral("1000"), 1, s1);
+      b += buildFdata(QStringLiteral("1000"), 2, s2);
+      QFile f(dlisPath);
+      QVERIFY(f.open(QIODevice::WriteOnly));
+      f.write(b);
+      f.close();
+    }
+
+    QString err;
+    const QString lasId = svc.importProjectFile(lasPath, &err);
+    QVERIFY2(!lasId.isEmpty(), qPrintable(err));
+    const QString lisId = svc.importProjectFile(lisPath, &err);
+    QVERIFY2(!lisId.isEmpty(), qPrintable(err));
+    const QString dlisId = svc.importProjectFile(dlisPath, &err);
+    QVERIFY2(!dlisId.isEmpty(), qPrintable(err));
+
+    DataCatalog *cat = svc.catalog();
+    QCOMPARE(cat->assetById(lisId).format, QStringLiteral("lis"));
+    QCOMPARE(cat->assetById(lisId).type, QStringLiteral("well_log"));
+    QCOMPARE(cat->assetById(dlisId).format, QStringLiteral("dlis"));
+    QCOMPARE(cat->assetById(dlisId).type, QStringLiteral("well_log"));
+
+    // 井名绑定：三链接全部已决挂 well-A1；导入序 = 首份主/后到非主（Oracle 3）
+    int primaryCount = 0;
+    int linkCount = 0;
+    for (const EntityAssetLink &link : cat->linksForEntity(QStringLiteral("well-A1")))
+    {
+      if (link.role != QLatin1String("well_log") || link.unresolved)
+        continue;
+      ++linkCount;
+      if (link.isPrimary)
+        ++primaryCount;
+      QVERIFY(link.note.isEmpty()); // 解析成功不带诚实面 note
+    }
+    QCOMPARE(linkCount, 3);
+    QCOMPARE(primaryCount, 1);
+
+    // 井曲线并集消费面直接可达（格式无感）
+    WellLogWarnings warnings;
+    const QVector<WellCurveRef> refs =
+        WellLogSet::wellCurveIndex(cat, projectDir, QStringLiteral("well-A1"), &warnings);
+    QStringList names;
+    for (const WellCurveRef &r : refs)
+      names.append(r.mnemonic);
+    QVERIFY(names.contains(QStringLiteral("GR")));
+    QVERIFY(names.contains(QStringLiteral("RHOB")));
+  }
+
+  // 失败诚实面（Oracle 4）：截断 DLIS 导入——资产入库、链接未决、
+  // 井名提取失败原因逐条进 note（零静默）。
+  void truncatedDlisImportNotesReason()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj44t"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+
+    QByteArray whole;
+    {
+      using namespace dlisfix;
+      QVector<ChannelDef> channels = {
+        { QStringLiteral("DEPT"), QStringLiteral("m"), 2, {}, QString() },
+      };
+      QVector<FrameDef> frames = { { QStringLiteral("1000"),
+                                     { QStringLiteral("DEPT") },
+                                     QString(), QString() } };
+      whole = sul();
+      whole += buildFileHeaderEflr(QStringLiteral("TRUNC"));
+      whole += buildOriginEflr(QStringLiteral("NO-SUCH-WELL"));
+      whole += buildChannelEflr(channels);
+      whole += buildFrameEflr(frames);
+      QByteArray s;
+      s += fsinglBytes(100.0f);
+      whole += buildFdata(QStringLiteral("1000"), 1, s);
+    }
+    const QString dlisPath = tmp.filePath(QStringLiteral("broken.dlis"));
+    {
+      QFile f(dlisPath);
+      QVERIFY(f.open(QIODevice::WriteOnly));
+      f.write(whole.left(whole.size() - 10)); // 掐掉帧尾 + 部分段体
+      f.close();
+    }
+
+    QString err;
+    const QString assetId = svc.importProjectFile(dlisPath, &err);
+    QVERIFY2(!assetId.isEmpty(), qPrintable(err));
+    DataCatalog *cat = svc.catalog();
+    const auto links = cat->linksForAsset(assetId);
+    QCOMPARE(links.size(), 1);
+    QVERIFY(links.front().unresolved);
+    QVERIFY2(links.front().note.contains(QStringLiteral("测井头解析失败")),
+             qPrintable(links.front().note));
+    QVERIFY2(links.front().note.contains(QStringLiteral("截断")),
+             qPrintable(links.front().note));
   }
 
 };

@@ -57,11 +57,17 @@
 - **Priority:** P2
 - **Depends on:** 单因素原生 P0 分析场进入目标基线
 
-## P3 — 多文件井曲线其余读口（from goal/well-logset, 2026-10-02）
+## P3 — 多文件井曲线其余读口（from goal/well-logset, 2026-10-02；方向 44 已结）
 
-- **What:** 并集读面已接到岩石物理、属性建模、剖面井轨、交会清单和测井综合图。
-  相关对比与成图工作台仍按单资产或「有没有 well_log」。DLIS/LIS/BE 不读。
-  非驱动文件只做线性重采样，不做 MD/TVD 对齐。`attachLink` 仍把新挂链接升主。
+- **What:** ~~DLIS/LIS/BE 不读；非驱动文件只做线性重采样不做 MD/TVD 对齐；
+  `attachLink` 仍把新挂链接升主。~~（2026-10-05 方向 44 对账：DLIS/LIS 读口
+  已实装——io/dlisparser + io/lisparser + io/welllogread 分派，RP66/LIS79
+  逐条对账见 .goal-loop-ledger-welllog-fmt.md；MD/TVD 深度基准对齐落
+  petrophys 并集（时深表逆插值 +「线性重采样」口径 notes 不冒充已对齐）；
+  attachLink 收口为「挂接不夺主，显式夺主唯一入口 setLinkPrimary」。递延：
+  LIS 快道/多维通道展开、TVD↔MD 测斜反推、BE（查无公开规范待样件）——
+  docs/progress/welllog-multiformat.md「递延」。）原 What 其余部分（相关对比
+  与成图工作台仍按单资产）不变。
 - **Why:** 本方向锁的是 LAS 已决链接的并集和导入序，不改 catalog 格式，也不改挂接不变量。
 - **Pros:** 第二份 LAS 的曲线能进计算和综合图；**Cons:** 走挂接而不是导入时主文件会换。
 - **Context:** docs/progress/well-logset.md「递延」。
@@ -153,13 +159,20 @@ master 的 `41feecf`，catalog 行序修复来自 `e8da8cf`，不归入本 PR �
 
 ## P3 — 交会分类后续（from goal/crossplot-facies，2026-10-02）
 
-- **有监督分类 / SOM**：样本标注→训练→推理另立项；RemotePredictionRouter
-  沿 AI 方向深化。当前 k-means/GMM 只输出未解释簇编号，不自动赋地质相名。
+- ~~**有监督分类 / SOM**~~ **已落地（方向 46，goal/xplot-sup-20261004）**：
+  套索自由词标注→训练（LDA/QDA/kNN + 分层 k-fold 混淆矩阵）→推理
+  （标签+置信度）；SOM 自组织图并列第三无监督族；证据
+  `.goal-loop-ledger-xplot-sup.md` + `tests/tst_faciessupervised.cpp`。
+  仍递延：RemotePredictionRouter 沿 AI 方向深化（多特征逐点推理需先破
+  tileinference 的 [1,1,H,W] 单通道契约）；井段相名落库字段仍无
+  （WellComposite XML 有相名但无 catalog 映射——接入另立项）。
 - **时深域交会**：需要单位、基准、速度模型与不确定性契约后再接跨域采样；
   当前 SATR 只配时间层位（ms），深度栅格作为独立特征不能冒充时间。
-- **大规模 GMM / 伴生置信度**：工区 N×k 缓冲达到内存预算时改分块 EM；
-  分类服务已有真实置信度/距离向量，可按编图消费需要持久化伴生栅格。
-  当前 Byte 分类图只写类别与 provenance，井段写平均置信度。
+- ~~**大规模 GMM / 伴生置信度**~~ **已落地（方向 46）**：
+  `cluster::Options::emChunkBudgetBytes`（默认 256MiB）超预算自动分块 EM，
+  与全量路径逐位一致（`tests/tst_gmm_chunked.cpp`，RSS 有界断言）；
+  置信度伴生栅格三件套（Byte 分类 + Float32 置信度 + 低置信掩膜）落
+  catalog DERIVED 版本，provenance 含训练集指纹（trainingSetHash）。
 - **4D/时移、交会打印排版**：各自另立项，排版沿 mapbook 方向。
   口径与验收证据见 `docs/progress/crossplot-facies.md`。
 

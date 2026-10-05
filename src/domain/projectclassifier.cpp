@@ -38,6 +38,12 @@ ProjectClassification classifyProjectPath(const QString &path)
 
   if (ext == QLatin1String("las"))
     return make(QStringLiteral("well_log"), ext, QStringLiteral("input"));
+  // 方向44：DLIS (RP66 v1) / LIS (LIS79) 进词表登记（读面已实装：
+  // io/dlisparser + io/lisparser，井名/曲线目录/帧数据/单位/深度基准全集）。
+  // 「.be」查无公开规范定位（ledger 调查记录）——不给假能力，仍走下方
+  // unknown → reference 口径：确认表里显式呈现为「参考」而非静默消失。
+  if (ext == QLatin1String("dlis") || ext == QLatin1String("lis"))
+    return make(QStringLiteral("well_log"), ext, QStringLiteral("input"));
   if (ext == QLatin1String("sgy") || ext == QLatin1String("segy"))
     return make(QStringLiteral("seismic"), ext, QStringLiteral("input"));
   if (ext == QLatin1String("geojson"))

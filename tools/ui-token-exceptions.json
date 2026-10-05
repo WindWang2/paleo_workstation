@@ -554,13 +554,6 @@
   },
   {
     "file": "src/ui/paleomainwindow_workbench.cpp",
-    "rule": "hex",
-    "source": "{\"color\", \"#9AA7B4\"}};",
-    "count": 1,
-    "reason": "DESIGN 数据符号例外：编图参考地图固定纸面与地质预览色样。"
-  },
-  {
-    "file": "src/ui/paleomainwindow_workbench.cpp",
     "rule": "qt-color",
     "source": "canvas->setCanvasColor(Qt::white);",
     "count": 1,

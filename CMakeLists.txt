@@ -488,7 +488,12 @@ add_library(paleo_services STATIC
   src/services/paleotaskservice.cpp                 # D1/D2 异步任务框架
   src/services/jobrunner.cpp                        # 方向20：统一三段式 JobRunner（作业框架）
   src/services/seismicmapping.cpp                   # 测网几何↔inline/xline/CDP
-  src/services/seismictaskservice.cpp               # sdk::Dataset 门面 + 任务编排
+  src/services/seismictaskservice.cpp               # sdk::Dataset 门面 + 任务编排 (Base Core)
+  src/services/seismictaskservice_transcode.cpp     # 地震任务：索引与转码
+  src/services/seismictaskservice_slice.cpp         # 地震任务：切片与剖面
+  src/services/seismictaskservice_attr.cpp          # 地震任务：属性计算与体生成
+  src/services/seismictaskservice_interp.cpp        # 地震任务：层位追踪与解释
+  src/services/seismictaskservice_viz.cpp           # 地震任务：可视化与预览
   src/services/crashreport.cpp                      # 致命信号 fd 落盘 + .running 旗标
   src/services/frameworkservice.cpp                 # 方向28：格架读侧门面 + 建议/诊断编排
   src/services/startuptrace.cpp                     # goal/perf-systematize 簇1：启动分段仪表

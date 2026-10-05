@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Inventory UI literals against DESIGN.md; exceptions are exact, counted sources."""
+"""Inventory UI literals against DESIGN.md; exceptions are exact, counted sources.
+
+方向 49 起例外清单是收缩债：条目数入 tools/ui-token-baseline.txt ratchet
+（同 layering-baseline 先例，只降不升）——非 strict 偏差仅提示，
+--strict 下偏差（升或降）即红：清理例外须同 commit 下调 baseline 数，
+新增例外须先走 DESIGN 域评审而不是加表项。"""
 
 import argparse
 from collections import Counter
@@ -79,6 +84,35 @@ def classify(found, exceptions):
     return violations, stale
 
 
+def load_baseline_count(path):
+    """baseline 文件首个非注释行取整数；缺失/坏格式返回 None。"""
+    try:
+        for line in Path(path).read_text(encoding="utf-8").splitlines():
+            text = line.strip()
+            if text and not text.startswith("#"):
+                return int(text)
+    except (OSError, ValueError):
+        return None
+    return None
+
+
+def ratchet_lines(count, baseline_count, strict):
+    """(提示/失败行列表, 是否红)。相等=绿；偏差在非 strict 为 NOTE、strict 为 FAIL。"""
+    if baseline_count is None:
+        if strict:
+            return (["FAIL 例外计数 baseline 缺失或不可解析：tools/ui-token-baseline.txt"], True)
+        return [], False
+    if count == baseline_count:
+        return [], False
+    direction = "回升" if count > baseline_count else "收缩"
+    detail = f"{count} vs baseline {baseline_count}"
+    if strict:
+        return ([f"FAIL 例外计数{direction}（{detail}）——只降不升：清理例外后同 "
+                 f"commit 下调 baseline；新增例外须先走 DESIGN 域评审而非加表项。"], True)
+    return ([f"NOTE 例外计数{direction}（{detail}）——strict 闸门口径见 "
+             f"tools/ui-token-baseline.txt。"], False)
+
+
 def selftest():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
@@ -122,6 +156,25 @@ def selftest():
             pass
         else:
             raise AssertionError("duplicate whitelist entry accepted")
+        # 方向 49：例外计数 ratchet（相等绿 / 偏差 strict 红 / 非 strict 提示 / 缺失红）
+        baseline = root / "baseline.txt"
+        baseline.write_text("# comment\n1\n", encoding="utf-8")
+        assert load_baseline_count(baseline) == 1
+        assert load_baseline_count(root / "missing.txt") is None
+        bad = root / "bad.txt"
+        bad.write_text("not-a-number\n", encoding="utf-8")
+        assert load_baseline_count(bad) is None
+        assert ratchet_lines(1, 1, strict=False) == ([], False)
+        assert ratchet_lines(1, 1, strict=True) == ([], False)
+        lines, fail = ratchet_lines(2, 1, strict=True)
+        assert fail and lines and "回升" in lines[0]
+        lines, fail = ratchet_lines(1, 2, strict=True)
+        assert fail and lines and "收缩" in lines[0]
+        lines, fail = ratchet_lines(2, 1, strict=False)
+        assert not fail and lines and lines[0].startswith("NOTE")
+        lines, fail = ratchet_lines(1, None, strict=True)
+        assert fail and lines
+        assert ratchet_lines(1, None, strict=False) == ([], False)
     print("UI token scanner selftest passed")
     return 0
 
@@ -129,6 +182,8 @@ def selftest():
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--selftest", action="store_true")
+    parser.add_argument("--strict", action="store_true",
+                        help="例外计数 ratchet：与 tools/ui-token-baseline.txt 偏差即红")
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--report", type=Path)
     parser.add_argument("--inventory", action="store_true", help="record candidates without claiming a clean scan")
@@ -138,6 +193,8 @@ def main():
     root = args.root.resolve()
     exceptions_path = root / "tools/ui-token-exceptions.json"
     exceptions = json.loads(exceptions_path.read_text()) if exceptions_path.exists() else []
+    baseline_count = load_baseline_count(root / "tools/ui-token-baseline.txt")
+    notes, ratchet_fail = ratchet_lines(len(exceptions), baseline_count, args.strict)
     found = scan(root)
     violations, stale = classify(found, exceptions)
     report = {"candidates": len(found), "byRule": dict(Counter(item["rule"] for item in found)),
@@ -147,10 +204,12 @@ def main():
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
     print(json.dumps({k: v for k, v in report.items() if k != "matches"}, ensure_ascii=False))
+    for line in notes:
+        print(line)
     if not args.inventory:
         for item in violations:
             print(f"FAIL {item['file']}:{item['line']} {item['rule']}: {item['literal']}")
-        return int(bool(violations or stale))
+        return int(bool(violations or stale) or ratchet_fail)
     return 0
 
 

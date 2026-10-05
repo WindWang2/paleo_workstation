@@ -6,6 +6,7 @@
 #include "../algorithms/geostat/sgs.h"         // SgsParams / SgsResult（方向18）
 #include "../algorithms/geostat/variogram.h"   // 变差函数模型（方向18）
 #include "../algorithms/rasterout.h"          // PaleoRasterOut / createFloatRaster
+#include "../algorithms/ensemblestats.h"     // StatsRequest（方向47 集合统计派生）
 #include "../catalog/datacatalog.h"
 #include "../algorithms/singlefactor/cartographicworkfile.h"
 #include "../domain/arearules.h"
@@ -23,6 +24,7 @@
 #include "boundarysemantics.h"             // 相界地质语义类型词表
 #include "derivedassets.h"
 #include "mappingworkflow.h"
+#include "realizationworkflow.h"
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
@@ -1798,6 +1800,26 @@ bool ConstraintWorkflow::computeGeostatJob( GeostatJob *job, const std::function
       job->error = tr( "SGS 栅格写盘失败" );
       return false;
     }
+    // 方向 47：成员持久化——各 realization 写成员栅格，发布段收编为
+    // realization_set 集合（契约见 catalog/realizationset.h）。
+    // params.persistRealizations=false → 只产均值+标准差旁路的旧形态。
+    if ( job->params.value( QStringLiteral( "persistRealizations" ), true ).toBool() )
+    {
+      for ( std::size_t k = 0; k < result.realizations.size(); ++k )
+      {
+        const QString memberPath = QDir( tempDir ).filePath(
+            QStringLiteral( "member_r%1.tif" ).arg( k, 3, 10, QLatin1Char( '0' ) ) );
+        if ( !writeFloatRaster( memberPath, result.realizations[k], grid.cols,
+                                grid.rows, geoTransform, crs ) )
+        {
+          cleanupTemp();
+          job->error = tr( "SGS 成员栅格写盘失败（成员 %1）" ).arg( k );
+          return false;
+        }
+        job->memberPaths << memberPath;
+      }
+      job->memberSeed = sgsParams.seed;
+    }
     counts.insert( QStringLiteral( "finite" ), result.finiteCells );
     counts.insert( QStringLiteral( "nodata" ), result.nodataCells );
     counts.insert( QStringLiteral( "solver_failures" ), result.solverFailures );
@@ -2008,9 +2030,60 @@ bool ConstraintWorkflow::publishGeostatJob( const GeostatJob &job, QString *erro
     paleo::workflow_detail::setError( error, commitErr );
     return false;
   }
+  if ( !declareFactorResult( layers, job.horizon, job.factorId, def, st.absolutePath, registrar.projectDir(),
+                             st.assetId, error ) )
+  {
+    discardTemp();
+    return false;
+  }
+  // 方向 47：SGS 成员集合入库——成员栅格由计算段写进同一临时目录，
+  // 这里收编为 realization_set 成员版本，并派生均值/总体标准差/P10/P90
+  // 统计面（成员 ≥2 才派生——单成员集合如实无不确定性）。
+  if ( !job.memberPaths.isEmpty() )
+  {
+    RealizationWorkflow realizationWf;
+    realizationWf.bind( m_catalog.data(), m_projectDir, layers );
+    QVector<RealizationWorkflow::MemberInput> memberInputs;
+    memberInputs.reserve( job.memberPaths.size() );
+    for ( const QString &path : job.memberPaths )
+      memberInputs.push_back( { path, job.memberSeed } );
+    QVariantMap setExtra;
+    setExtra.insert( QStringLiteral( "method" ), job.method );
+    setExtra.insert( QStringLiteral( "method_actual" ), methodActual );
+    setExtra.insert( QStringLiteral( "algorithm_id" ), algorithmId );
+    setExtra.insert( QStringLiteral( "factor_id" ), job.factorId );
+    setExtra.insert( QStringLiteral( "field" ), job.field );
+    setExtra.insert( QStringLiteral( "cell_size" ), job.cellSize );
+    setExtra.insert( QStringLiteral( "parameter_hash" ), hash.sha256 );
+    setExtra.insert( QStringLiteral( "variogram" ), qc.value( QStringLiteral( "model" ) ) );
+    setExtra.insert( QStringLiteral( "group" ), QStringLiteral( "04_SingleFactor/Realizations" ) );
+    QString setErr;
+    const QString setId = realizationWf.publishSet(
+        tr( "%1·%2" ).arg( def.title, job.horizon ), job.horizon, memberInputs,
+        parentIds, setExtra, &setErr );
+    if ( setId.isEmpty() )
+    {
+      discardTemp();
+      // 单因素图+图层已登记成功——集合是增量产物，如实报告两半段状态。
+      paleo::workflow_detail::setError( error,
+          tr( "单因素图已登记；realization 集合入库失败：%1" ).arg( setErr ) );
+      return false;
+    }
+    if ( job.memberPaths.size() >= 2 )
+    {
+      paleo::ensemble::StatsRequest want;
+      want.mean = want.stddev = want.p10 = want.p90 = true;
+      if ( !realizationWf.deriveStatistics( setId, want, &setErr ) )
+      {
+        discardTemp();
+        paleo::workflow_detail::setError( error,
+            tr( "realization 集合 %1 已入库；统计派生失败：%2" ).arg( setId, setErr ) );
+        return false;
+      }
+    }
+  }
   discardTemp();
-  return declareFactorResult( layers, job.horizon, job.factorId, def, st.absolutePath, registrar.projectDir(),
-                              st.assetId, error );
+  return true;
 }
 
 bool ConstraintWorkflow::generateGeostatFactor( const QString &horizon, const QString &factorId,

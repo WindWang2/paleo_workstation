@@ -169,6 +169,9 @@ class DataListPanel : public QWidget
     void entityRenameRequested(const QString &entityId);
     void entityDeleteRequested(const QString &entityId);
     void shortcutsDialogRequested(); // D6.3（DataPage 接快捷键表对话框）
+    // 方向 47：集合树成员/统计面激活 → 壳侧物化 realset.* 图层上图。
+    void realizationMemberRequested(const QString &setId, int index);
+    void realizationStatRequested(const QString &setId, const QString &token);
 
   protected:
     bool eventFilter(QObject *watched, QEvent *event) override;

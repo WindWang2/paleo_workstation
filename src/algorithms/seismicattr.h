@@ -73,6 +73,28 @@ void windowedMeanEnergy(const float *x, int n, int halfWindow, float *out);
 void semblanceCoherence(const float *volume, int nIl, int nXl, int nS,
                         int ilHalf, int xlHalf, int timeHalf, float *out);
 
+// goal/attr-volume 道距加权变体：两向道距各向异性时近道对「局部连续性」
+// 的贡献应大于远道。加权将 J 道窗推广为带权道集：
+//   S_w = Σ_t ( Σ_j w_j u_j(t) )²  /  ( W · Σ_t Σ_j w_j u_j(t)² )，
+//   W = Σ_j w_j；全部波形一致时仍 S_w = 1（权重无关），全无序趋近 0。
+// InverseDistance：w_j = 1/(d_j + d₀)，d_j = 邻道物理距离
+// sqrt((di·ilSpacing)² + (dj·xlSpacing)²)（di/dj = 窗口道偏移），
+// d₀ = min(ilSpacing, xlSpacing)——中心道 w = 1/d₀ 有限，两向道距一致
+// 且窗口对称时权重对称，各向异性时近道权重升。Equal：w≡1，与
+// semblanceCoherence 同一累加路径（乘 1 不改浮点值），逐位一致。
+// mode=InverseDistance 而 ilSpacing/xlSpacing ≤ 0：输入不满足 → 全 NaN
+// （调用方负责给道距；诚实失败不静默降级等权）。
+enum class CoherenceWeightMode
+{
+  Equal = 0,
+  InverseDistance = 1
+};
+
+void semblanceCoherenceWeighted(const float *volume, int nIl, int nXl, int nS,
+                                int ilHalf, int xlHalf, int timeHalf,
+                                double ilSpacing, double xlSpacing,
+                                CoherenceWeightMode mode, float *out);
+
 // ---- 甜点 ---------------------------------------------------------------------
 // sweetness = envelope / sqrt(max(freqHz, fMin))，fMin=1e-3 Hz（负瞬时频率
 // 抬到 fMin——甜点语义只关心频率量级，负值是相位差分噪声）。NaN 传播。

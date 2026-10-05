@@ -57,11 +57,17 @@
 - **Priority:** P2
 - **Depends on:** 单因素原生 P0 分析场进入目标基线
 
-## P3 — 多文件井曲线其余读口（from goal/well-logset, 2026-10-02）
+## P3 — 多文件井曲线其余读口（from goal/well-logset, 2026-10-02；方向 44 已结）
 
-- **What:** 并集读面已接到岩石物理、属性建模、剖面井轨、交会清单和测井综合图。
-  相关对比与成图工作台仍按单资产或「有没有 well_log」。DLIS/LIS/BE 不读。
-  非驱动文件只做线性重采样，不做 MD/TVD 对齐。`attachLink` 仍把新挂链接升主。
+- **What:** ~~DLIS/LIS/BE 不读；非驱动文件只做线性重采样不做 MD/TVD 对齐；
+  `attachLink` 仍把新挂链接升主。~~（2026-10-05 方向 44 对账：DLIS/LIS 读口
+  已实装——io/dlisparser + io/lisparser + io/welllogread 分派，RP66/LIS79
+  逐条对账见 .goal-loop-ledger-welllog-fmt.md；MD/TVD 深度基准对齐落
+  petrophys 并集（时深表逆插值 +「线性重采样」口径 notes 不冒充已对齐）；
+  attachLink 收口为「挂接不夺主，显式夺主唯一入口 setLinkPrimary」。递延：
+  LIS 快道/多维通道展开、TVD↔MD 测斜反推、BE（查无公开规范待样件）——
+  docs/progress/welllog-multiformat.md「递延」。）原 What 其余部分（相关对比
+  与成图工作台仍按单资产）不变。
 - **Why:** 本方向锁的是 LAS 已决链接的并集和导入序，不改 catalog 格式，也不改挂接不变量。
 - **Pros:** 第二份 LAS 的曲线能进计算和综合图；**Cons:** 走挂接而不是导入时主文件会换。
 - **Context:** docs/progress/well-logset.md「递延」。

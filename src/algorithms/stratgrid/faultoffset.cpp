@@ -48,10 +48,6 @@ bool applyFaultOffset(const ZoneGrid &grid, const std::vector<FaultThrow> &throw
     setError(error, QStringLiteral("断块错位输出为空"));
     return false;
   }
-  out->ni = 0;
-  out->nj = 0;
-  out->nk = 0;
-  dzPerColumn->clear();
   if (grid.ni < 1 || grid.nj < 1 || grid.nk < 1)
   {
     setError(error, QStringLiteral("格架为空"));
@@ -76,9 +72,10 @@ bool applyFaultOffset(const ZoneGrid &grid, const std::vector<FaultThrow> &throw
       }
     }
   }
-
-  *out = grid;
-  dzPerColumn->assign(grid.topZ.size(), 0.0f);
+  // 别名安全：全部在局部副本上算，成功后一次性写回（out 与 grid 同对象
+  // 是合法用法——编排层原地错位）。
+  ZoneGrid result = grid;
+  std::vector<float> dz(grid.topZ.size(), 0.0f);
   FaultOffsetMeta local;
   const double kOnLineEps = 1e-9;
 
@@ -128,14 +125,18 @@ bool applyFaultOffset(const ZoneGrid &grid, const std::vector<FaultThrow> &throw
       const double throwZ = fault.throwStart + (fault.throwEnd - fault.throwStart) * bestT;
       if (throwZ == 0.0)
         continue;
-      out->topZ[column] = static_cast<float>(static_cast<double>(out->topZ[column]) + throwZ);
-      out->botZ[column] = static_cast<float>(static_cast<double>(out->botZ[column]) + throwZ);
-      (*dzPerColumn)[column] = static_cast<float>(throwZ);
+      result.topZ[column] =
+          static_cast<float>(static_cast<double>(result.topZ[column]) + throwZ);
+      result.botZ[column] =
+          static_cast<float>(static_cast<double>(result.botZ[column]) + throwZ);
+      dz[column] = static_cast<float>(throwZ);
       ++local.offsetColumns;
       local.maxAbsThrow = std::max(local.maxAbsThrow, std::fabs(throwZ));
     }
   }
 
+  *out = std::move(result);
+  *dzPerColumn = std::move(dz);
   if (meta)
     *meta = local;
   return true;

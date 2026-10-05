@@ -14,12 +14,15 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QHash>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QRegularExpression>
 #include <QStringList>
 #include <QVariantMap>
 
 #include <gdal.h>
+#include <cpl_conv.h>
+#include <ogr_api.h>
 
 #include <algorithm>
 #include <cmath>
@@ -347,12 +350,58 @@ PropertyModelWorkflow::segmentsFromFaultSet(const paleo::fault::FaultSet &faults
   return out;
 }
 
+PropertyModelWorkflow::FaultThrowExtraction
+PropertyModelWorkflow::throwSegmentsFromFaultSet(const paleo::fault::FaultSet &faults)
+{
+  FaultThrowExtraction out;
+  for (const paleo::fault::Fault &fault : faults.faults())
+  {
+    for (const paleo::fault::FaultHorizonCut &cut : fault.cuts)
+    {
+      const auto segs = segmentsFromWkt(cut.wkt);
+      out.curtainSegments += static_cast<int>(segs.size());
+      bool throwOk = false;
+      double throwZ = 0;
+      const QVariant raw = cut.extra.value(QStringLiteral("throw_z"));
+      if (!raw.isNull())
+      {
+        bool converted = false;
+        throwZ = raw.toDouble(&converted);
+        throwOk = converted && std::isfinite(throwZ) && throwZ != 0.0;
+      }
+      const bool sideKnown = cut.hangingSide == paleo::fault::FaultHangingSide::Left ||
+                             cut.hangingSide == paleo::fault::FaultHangingSide::Right;
+      if (throwOk && !sideKnown)
+      {
+        ++out.unknownSideCuts; // 有断距但盘侧未知：保持竖帘，如实计数
+        continue;
+      }
+      for (const paleo::stratgrid::FaultSegment &seg : segs)
+      {
+        if (!throwOk)
+          continue;
+        paleo::stratgrid::FaultThrow throwSeg;
+        throwSeg.x0 = seg.x0;
+        throwSeg.y0 = seg.y0;
+        throwSeg.x1 = seg.x1;
+        throwSeg.y1 = seg.y1;
+        throwSeg.throwStart = throwZ;
+        throwSeg.throwEnd = throwZ;
+        throwSeg.dropLeftSide = cut.hangingSide == paleo::fault::FaultHangingSide::Left;
+        out.throws.push_back(throwSeg);
+        ++out.throwSegments;
+      }
+    }
+  }
+  return out;
+}
+
 QString PropertyModelWorkflow::paramHash(const PropertyModelRequest &request,
                                          const paleo::stratgrid::SurfaceGrid &top,
                                          const paleo::stratgrid::SurfaceGrid &bot)
 {
   QCryptographicHash hash(QCryptographicHash::Sha256);
-  hash.addData("paleo-propmodel-v1\n");
+  hash.addData("paleo-propmodel-v2\n");
   hash.addData(request.propertyName.toUtf8());
   hash.addData("\n");
   hash.addData(request.topName.toUtf8());
@@ -433,40 +482,121 @@ QString PropertyModelWorkflow::paramHash(const PropertyModelRequest &request,
     hash.addData(num(f.y1).toUtf8());
     hash.addData(";");
   }
+  // V2 输入面：方法 / 断距 / SGS / 对象 / 相带（同输入同哈希，无时间戳）。
+  hash.addData(request.method == PropertyMethod::Sgs ? "sgs\n" : "idw\n");
+  for (const paleo::stratgrid::FaultThrow &t : request.faultThrows)
+  {
+    hash.addData(num(t.x0).toUtf8());
+    hash.addData(",");
+    hash.addData(num(t.y0).toUtf8());
+    hash.addData(",");
+    hash.addData(num(t.x1).toUtf8());
+    hash.addData(",");
+    hash.addData(num(t.y1).toUtf8());
+    hash.addData(",");
+    hash.addData(num(t.throwStart).toUtf8());
+    hash.addData(",");
+    hash.addData(num(t.throwEnd).toUtf8());
+    hash.addData(",");
+    hash.addData(t.dropLeftSide ? "L" : "R");
+    hash.addData(";");
+  }
+  if (request.method == PropertyMethod::Sgs)
+  {
+    hash.addData(QByteArray::number(request.sgsRealizations));
+    hash.addData(",");
+    hash.addData(QByteArray::number(request.sgsSeed));
+    hash.addData(",");
+    hash.addData(QByteArray::number(request.sgsMaxPoints));
+    hash.addData(",");
+    hash.addData(QByteArray::number(static_cast<int>(request.variogram.type)));
+    hash.addData(",");
+    hash.addData(num(request.variogram.nugget).toUtf8());
+    hash.addData(",");
+    hash.addData(num(request.variogram.sill).toUtf8());
+    hash.addData(",");
+    hash.addData(num(request.variogram.range).toUtf8());
+    hash.addData(",");
+    hash.addData(num(request.variogram.anisotropyRatio).toUtf8());
+    hash.addData(",");
+    hash.addData(num(request.variogram.azimuthDeg).toUtf8());
+    hash.addData(",");
+    hash.addData(num(request.variogram.verticalRangeRatio).toUtf8());
+    hash.addData("\n");
+  }
+  for (const paleo::stratgrid::ObjectSpec &spec : request.objectSpecs)
+  {
+    hash.addData(QByteArray::number(request.objectSeed));
+    hash.addData("|");
+    hash.addData(QByteArray::number(static_cast<int>(spec.type)));
+    hash.addData(",");
+    hash.addData(num(spec.azimuthDeg).toUtf8());
+    hash.addData(",");
+    hash.addData(num(spec.length).toUtf8());
+    hash.addData(",");
+    hash.addData(num(spec.width).toUtf8());
+    hash.addData(",");
+    hash.addData(num(spec.thickness).toUtf8());
+    hash.addData(",");
+    hash.addData(num(spec.curvature).toUtf8());
+    hash.addData(",");
+    hash.addData(num(spec.verticalFrac).toUtf8());
+    hash.addData(",");
+    hash.addData(num(spec.value).toUtf8());
+    hash.addData(",");
+    hash.addData(QByteArray::number(spec.count));
+    hash.addData(",");
+    hash.addData(QByteArray::number(spec.zoneCode));
+    hash.addData(";");
+  }
+  if (request.useFacies)
+  {
+    for (const paleo::stratgrid::ZoneRing &ring : request.faciesRings)
+    {
+      hash.addData(QByteArray::number(ring.code));
+      hash.addData(":");
+      for (std::size_t i = 0; i < ring.xs.size() && i < ring.ys.size(); ++i)
+      {
+        hash.addData(num(ring.xs[i]).toUtf8());
+        hash.addData(",");
+        hash.addData(num(ring.ys[i]).toUtf8());
+        hash.addData(";");
+      }
+    }
+  }
   return QString::fromLatin1(hash.result().toHex());
 }
 
-PropertyModelWorkflow::PropertyModelComputed
+PropertyModelWorkflow::PropertyModelComputedList
 PropertyModelWorkflow::runCompute(const PropertyModelRequest &request,
                                   const std::function<bool(double, const QString &)> &progress)
 {
-  PropertyModelComputed computed =
+  PropertyModelComputedList computed =
       computeSnapshot(request, m_projectDir, m_catalog && m_catalog->isOpen(), progress);
-  if (!computed.ok)
-    emit modelFailed(computed.error);
+  if (computed.empty() || !computed.front().ok)
+    emit modelFailed(computed.empty() ? QStringLiteral("属性建模失败") : computed.front().error);
   return computed;
 }
 
-PropertyModelWorkflow::PropertyModelComputed
+PropertyModelWorkflow::PropertyModelComputedList
 PropertyModelWorkflow::computeSnapshot(const PropertyModelRequest &request,
                                        const QString &projectDir, bool catalogOpen,
                                        const std::function<bool(double, const QString &)> &progress)
 {
-  PropertyModelComputed computed;
-  PropertyModelOutput &result = computed.out;
+  PropertyModelComputedList results;
   const auto fail = [&](const QString &why) {
-    computed.ok = false;
-    result.ok = false;
-    result.error = why;
-    computed.error = why;
-    return computed;
+    PropertyModelComputed bad;
+    bad.ok = false;
+    bad.error = why;
+    bad.out.ok = false;
+    bad.out.error = why;
+    results.clear();
+    results.push_back(bad);
+    return results;
   };
   const auto report = [&](double fraction, const QString &stage) {
     if (progress && !progress(fraction, stage))
-    {
-      result.error = QStringLiteral("已取消");
       return false;
-    }
     return true;
   };
 
@@ -474,11 +604,20 @@ PropertyModelWorkflow::computeSnapshot(const PropertyModelRequest &request,
     return fail(QStringLiteral("属性建模未绑定 catalog"));
   if (request.nLayers < 1)
     return fail(QStringLiteral("层数须 ≥ 1"));
-  if (!(request.idwPower > 0.0))
+  if (request.method == PropertyMethod::Idw && !(request.idwPower > 0.0))
     return fail(QStringLiteral("IDW 幂次须为正"));
+  if (request.method == PropertyMethod::Sgs)
+  {
+    const auto &model = request.variogram;
+    if (!(model.range > 0.0) || model.nugget < 0.0 || model.sill < 0.0 ||
+        !(model.nugget + model.sill > 0.0))
+      return fail(QStringLiteral("变差模型非法：变程须为正，块金/基台非负且总基台为正"));
+    if (request.sgsRealizations < 1 || request.sgsRealizations > 64)
+      return fail(QStringLiteral("实现数须在 [1, 64]"));
+  }
 
   if (!report(0.02, QStringLiteral("读层位")))
-    return fail(result.error);
+    return fail(QStringLiteral("已取消"));
 
   paleo::stratgrid::SurfaceGrid top = request.top;
   paleo::stratgrid::SurfaceGrid bot = request.bot;
@@ -500,92 +639,295 @@ PropertyModelWorkflow::computeSnapshot(const PropertyModelRequest &request,
   }
 
   if (!report(0.10, QStringLiteral("建格架")))
-    return fail(result.error);
+    return fail(QStringLiteral("已取消"));
 
   paleo::stratgrid::ZoneGrid grid;
   QString err;
   if (!paleo::stratgrid::buildZoneGrid(top, bot, request.nLayers, &grid, &err))
     return fail(err);
 
+  // 断块错位：断距矢量驱动下掉侧柱平移（无断距 = 纯竖帘，V1 行为不变）。
+  paleo::stratgrid::FaultOffsetMeta offsetMeta;
+  QString offsetCaliber;
+  if (!request.faultThrows.empty())
+  {
+    if (!report(0.13, QStringLiteral("断块错位")))
+      return fail(QStringLiteral("已取消"));
+    std::vector<float> dz;
+    if (!paleo::stratgrid::applyFaultOffset(grid, request.faultThrows, &grid, &dz, &offsetMeta,
+                                            &err))
+      return fail(err);
+    offsetCaliber = QStringLiteral("断块错位：%1 段断距（最大 |throw| = %2 m）、错动 %3 柱")
+                        .arg(request.faultThrows.size())
+                        .arg(offsetMeta.maxAbsThrow, 0, 'g', 6)
+                        .arg(offsetMeta.offsetColumns);
+  }
+  else
+  {
+    offsetCaliber = QStringLiteral("无断距输入：断层保持竖帘（无几何错位）");
+  }
+
   if (!report(0.20, QStringLiteral("粗化")))
-    return fail(result.error);
+    return fail(QStringLiteral("已取消"));
 
   paleo::stratgrid::UpscaleTable table;
   if (!paleo::stratgrid::upscaleWells(grid, request.wells, request.aggregator, &table, &err))
     return fail(err);
   const std::vector<paleo::stratgrid::Seed> seeds = paleo::stratgrid::seedsFromUpscale(table);
 
-  paleo::stratgrid::PropertyVolume volume;
-  const bool filled = paleo::stratgrid::fillIdw(
-      grid, seeds, request.faults, request.idwPower, &volume,
-      [&](double fraction) { return report(0.30 + 0.60 * fraction, QStringLiteral("充填")); }, &err);
-  if (!filled)
-    return fail(err.isEmpty() ? QStringLiteral("已取消") : err);
+  // 相带栅格化（owner 线程已收集好多边形环；worker 只做纯几何）。
+  std::vector<int> zones;
+  const std::vector<int> *zonePtr = nullptr;
+  QString faciesCaliber;
+  if (request.useFacies && !request.faciesRings.empty())
+  {
+    if (!report(0.24, QStringLiteral("相带栅格")))
+      return fail(QStringLiteral("已取消"));
+    zones = paleo::stratgrid::rasterizeZoneRings(grid, request.faciesRings);
+    zonePtr = &zones;
+    int matched = 0;
+    for (int code : zones)
+      if (code >= 0)
+        ++matched;
+    faciesCaliber = QStringLiteral("相带面 %1：%2 环、命中柱 %3、背景域柱 %4（无覆盖区自成参数域）")
+                        .arg(request.faciesAssetName.isEmpty() ? QStringLiteral("(未命名)")
+                                                               : request.faciesAssetName)
+                        .arg(request.faciesRings.size())
+                        .arg(matched)
+                        .arg(static_cast<int>(zones.size()) - matched);
+  }
+  else
+  {
+    faciesCaliber = QStringLiteral("无相带输入：全域单一参数域");
+  }
+
+  // 背景场：IDW（单实现）或 SGS（多实现）。
+  std::vector<paleo::stratgrid::PropertyVolume> volumes;
+  QString fillCaliber;
+  int sgsMergedDuplicates = 0;
+  int sgsSnappedCells = 0;
+  int sgsSolverFailures = 0;
+  if (request.method == PropertyMethod::Sgs)
+  {
+    paleo::geostat::Sgs3Params params;
+    params.nRealizations = request.sgsRealizations;
+    params.seed = request.sgsSeed;
+    params.maxPoints = request.sgsMaxPoints;
+    paleo::stratgrid::SgsFillMeta meta;
+    if (!paleo::stratgrid::fillSgs(grid, seeds, request.faults, zonePtr, request.variogram,
+                                   params, &volumes, &meta,
+                                   [&](double fraction) {
+                                     return report(0.30 + 0.60 * fraction, QStringLiteral("序贯高斯"));
+                                   },
+                                   &err))
+      return fail(err.isEmpty() ? QStringLiteral("已取消") : err);
+    fillCaliber = meta.caliber;
+    sgsMergedDuplicates = meta.mergedSeedDuplicates;
+    sgsSnappedCells = meta.snappedSeedCells;
+    sgsSolverFailures = meta.solverFailures;
+  }
+  else
+  {
+    paleo::stratgrid::PropertyVolume volume;
+    const bool filled = paleo::stratgrid::fillIdw(
+        grid, seeds, request.faults, request.idwPower, &volume,
+        [&](double fraction) { return report(0.30 + 0.60 * fraction, QStringLiteral("充填")); }, &err);
+    if (!filled)
+      return fail(err.isEmpty() ? QStringLiteral("已取消") : err);
+    volumes.push_back(std::move(volume));
+    fillCaliber = QStringLiteral("IDW：幂次 %1，分块竖帘阻断").arg(request.idwPower);
+  }
+
+  // 对象建模：硬覆盖背景场（口径钉死：对象优先）。
+  paleo::stratgrid::ObjectModelMeta objectMeta;
+  if (!request.objectSpecs.empty())
+  {
+    if (!report(0.92, QStringLiteral("对象建模")))
+      return fail(QStringLiteral("已取消"));
+    paleo::stratgrid::PropertyVolume objects;
+    if (!paleo::stratgrid::placeObjects(grid, zonePtr, request.objectSeed, request.objectSpecs,
+                                        &objects, &objectMeta, &err))
+      return fail(err);
+    for (paleo::stratgrid::PropertyVolume &volume : volumes)
+    {
+      if (!paleo::stratgrid::applyObjectOverride(objects, &volume, &err))
+        return fail(err);
+    }
+  }
 
   if (!report(0.94, QStringLiteral("落盘")))
-    return fail(result.error);
+    return fail(QStringLiteral("已取消"));
 
   const QString hash = paramHash(request, top, bot);
   const QString curves = curveProvenance(request.wells);
-  QJsonObject prov;
-  prov.insert(QStringLiteral("param_hash"), hash);
-  prov.insert(QStringLiteral("property"), request.propertyName);
-  prov.insert(QStringLiteral("top"), request.topName);
-  prov.insert(QStringLiteral("bot"), request.botName);
-  prov.insert(QStringLiteral("curve"), curves);
-  prov.insert(QStringLiteral("aggregator"), paleo::stratgrid::aggregatorId(request.aggregator));
-  prov.insert(QStringLiteral("n_layers"), request.nLayers);
-  prov.insert(QStringLiteral("idw_power"), request.idwPower);
-  prov.insert(QStringLiteral("n_wells"), static_cast<int>(request.wells.size()));
-  prov.insert(QStringLiteral("n_trajectory_wells"), request.trajectoryWellCount);
-  prov.insert(QStringLiteral("n_fault_segments"), static_cast<int>(request.faults.size()));
-  const QByteArray blob = paleo::stratgrid::writePropertyBlob(volume, prov);
-  if (blob.isEmpty())
-    return fail(QStringLiteral("属性体序列化失败"));
+  const int verticalWells =
+      request.trajectoryWellCount >= 0
+          ? std::max(0, static_cast<int>(request.wells.size()) - request.trajectoryWellCount)
+          : 0;
+  const QString trajectoryCaliber =
+      QStringLiteral("%1/%2 井真实轨迹（余为竖直近似）")
+          .arg(request.trajectoryWellCount)
+          .arg(static_cast<int>(request.wells.size()));
 
   QString fileStem = request.propertyName.trimmed();
   if (fileStem.isEmpty())
     fileStem = QStringLiteral("PROP");
   fileStem.replace(QLatin1Char('/'), QLatin1Char('_'));
   fileStem.replace(QLatin1Char('\\'), QLatin1Char('_'));
-  const QString fileName = QStringLiteral("PROP_%1.pprop").arg(fileStem);
+  const bool multi = volumes.size() > 1;
   const QString display = QStringLiteral("%1 %2-%3")
                               .arg(request.propertyName.isEmpty() ? QStringLiteral("PROP")
                                                                   : request.propertyName,
                                    request.topName, request.botName);
 
-  QVariantMap extra;
-  extra.insert(QStringLiteral("param_hash"), hash);
-  extra.insert(QStringLiteral("property"), request.propertyName);
-  extra.insert(QStringLiteral("top_name"), request.topName);
-  extra.insert(QStringLiteral("bot_name"), request.botName);
-  extra.insert(QStringLiteral("aggregator"), paleo::stratgrid::aggregatorId(request.aggregator));
-  extra.insert(QStringLiteral("n_layers"), request.nLayers);
-  extra.insert(QStringLiteral("idw_power"), request.idwPower);
-  extra.insert(QStringLiteral("ni"), volume.grid.ni);
-  extra.insert(QStringLiteral("nj"), volume.grid.nj);
-  extra.insert(QStringLiteral("nk"), volume.grid.nk);
-  extra.insert(QStringLiteral("live_columns"), volume.grid.liveColumns);
-  extra.insert(QStringLiteral("filled_cells"), volume.filledCells);
-  extra.insert(QStringLiteral("unfilled_live_cells"), volume.unfilledLiveCells);
-  extra.insert(QStringLiteral("curves"), curves);
+  results.reserve(volumes.size());
+  for (std::size_t r = 0; r < volumes.size(); ++r)
+  {
+    const paleo::stratgrid::PropertyVolume &volume = volumes[r];
+    QJsonObject prov;
+    prov.insert(QStringLiteral("param_hash"), hash);
+    prov.insert(QStringLiteral("property"), request.propertyName);
+    prov.insert(QStringLiteral("top"), request.topName);
+    prov.insert(QStringLiteral("bot"), request.botName);
+    prov.insert(QStringLiteral("curve"), curves);
+    prov.insert(QStringLiteral("aggregator"), paleo::stratgrid::aggregatorId(request.aggregator));
+    prov.insert(QStringLiteral("n_layers"), request.nLayers);
+    prov.insert(QStringLiteral("idw_power"), request.idwPower);
+    prov.insert(QStringLiteral("n_wells"), static_cast<int>(request.wells.size()));
+    prov.insert(QStringLiteral("n_trajectory_wells"), request.trajectoryWellCount);
+    prov.insert(QStringLiteral("n_vertical_approx_wells"), verticalWells);
+    prov.insert(QStringLiteral("trajectory_caliber"), trajectoryCaliber);
+    prov.insert(QStringLiteral("n_fault_segments"), static_cast<int>(request.faults.size()));
+    prov.insert(QStringLiteral("method"),
+                request.method == PropertyMethod::Sgs ? QStringLiteral("sgs")
+                                                      : QStringLiteral("idw"));
+    prov.insert(QStringLiteral("caliber"),
+                QStringList{offsetCaliber, faciesCaliber, fillCaliber,
+                            objectMeta.placements.empty()
+                                ? QStringLiteral("无对象建模")
+                                : objectMeta.caliber,
+                            trajectoryCaliber}
+                    .join(QStringLiteral(" ｜ ")));
+    if (request.method == PropertyMethod::Sgs)
+    {
+      prov.insert(QStringLiteral("realization_index"), static_cast<int>(r));
+      prov.insert(QStringLiteral("realization_count"), static_cast<int>(volumes.size()));
+      prov.insert(QStringLiteral("seed"), QString::number(request.sgsSeed));
+      prov.insert(QStringLiteral("variogram_type"), static_cast<int>(request.variogram.type));
+      prov.insert(QStringLiteral("nugget"), request.variogram.nugget);
+      prov.insert(QStringLiteral("sill"), request.variogram.sill);
+      prov.insert(QStringLiteral("range"), request.variogram.range);
+      prov.insert(QStringLiteral("anisotropy_ratio"), request.variogram.anisotropyRatio);
+      prov.insert(QStringLiteral("azimuth_deg"), request.variogram.azimuthDeg);
+      prov.insert(QStringLiteral("vertical_range_ratio"), request.variogram.verticalRangeRatio);
+      prov.insert(QStringLiteral("sgs_merged_duplicates"), sgsMergedDuplicates);
+      prov.insert(QStringLiteral("sgs_snapped_seed_cells"), sgsSnappedCells);
+      prov.insert(QStringLiteral("sgs_solver_failures"), sgsSolverFailures);
+    }
+    if (!request.faultThrows.empty())
+    {
+      prov.insert(QStringLiteral("fault_offset_columns"), offsetMeta.offsetColumns);
+      prov.insert(QStringLiteral("fault_offset_boundary_columns"), offsetMeta.boundaryColumns);
+      prov.insert(QStringLiteral("fault_offset_max_abs_throw"), offsetMeta.maxAbsThrow);
+    }
+    if (!objectMeta.placements.empty())
+    {
+      QJsonArray placements;
+      for (const paleo::stratgrid::ObjectPlacementRecord &record : objectMeta.placements)
+      {
+        QJsonObject entry;
+        entry.insert(QStringLiteral("type"), record.type == paleo::stratgrid::ObjectType::Channel
+                                                  ? QStringLiteral("channel")
+                                                  : QStringLiteral("point_bar"));
+        entry.insert(QStringLiteral("center_x"), record.centerX);
+        entry.insert(QStringLiteral("center_y"), record.centerY);
+        entry.insert(QStringLiteral("azimuth_deg"), record.azimuthDeg);
+        entry.insert(QStringLiteral("length"), record.length);
+        entry.insert(QStringLiteral("width"), record.width);
+        entry.insert(QStringLiteral("thickness"), record.thickness);
+        entry.insert(QStringLiteral("curvature"), record.curvature);
+        entry.insert(QStringLiteral("vertical_frac"), record.verticalFrac);
+        entry.insert(QStringLiteral("value"), record.value);
+        entry.insert(QStringLiteral("cells"), record.cells);
+        entry.insert(QStringLiteral("zone_code"), record.zoneCode);
+        placements.append(entry);
+      }
+      prov.insert(QStringLiteral("object_placements"), placements);
+      prov.insert(QStringLiteral("object_cells"), objectMeta.objectCells);
+      prov.insert(QStringLiteral("object_seed"), QString::number(request.objectSeed));
+    }
+    const QByteArray blob = paleo::stratgrid::writePropertyBlob(volume, prov);
+    if (blob.isEmpty())
+      return fail(QStringLiteral("属性体序列化失败"));
 
-  // 登记尾巴（DerivedAssetRegistrar）不在此做——worker 线程禁止写活
-  // catalog（#106 owner-thread 守卫）；由 commitComputed 在 owner 线程执行。
-  computed.blob = blob;
-  computed.fileName = fileName;
-  computed.display = display;
-  if (!request.useEmbeddedSurfaces)
-    computed.parentPaths = QStringList{topPath, botPath};
-  computed.extra = extra;
+    PropertyModelComputed computed;
+    computed.blob = blob;
+    computed.fileName =
+        multi ? QStringLiteral("PROP_%1_R%2.pprop").arg(fileStem).arg(r + 1, 4, 10, QLatin1Char('0'))
+              : QStringLiteral("PROP_%1.pprop").arg(fileStem);
+    computed.display = display;
+    if (!request.useEmbeddedSurfaces)
+      computed.parentPaths = QStringList{topPath, botPath};
 
-  result.paramHash = hash;
-  result.liveColumns = volume.grid.liveColumns;
-  result.filledCells = volume.filledCells;
-  result.unfilledLiveCells = volume.unfilledLiveCells;
-  result.volume = std::move(volume);
-  computed.ok = result.ok = true;
-  return computed;
+    QVariantMap extra;
+    extra.insert(QStringLiteral("param_hash"), hash);
+    extra.insert(QStringLiteral("property"), request.propertyName);
+    extra.insert(QStringLiteral("top_name"), request.topName);
+    extra.insert(QStringLiteral("bot_name"), request.botName);
+    extra.insert(QStringLiteral("aggregator"), paleo::stratgrid::aggregatorId(request.aggregator));
+    extra.insert(QStringLiteral("n_layers"), request.nLayers);
+    extra.insert(QStringLiteral("idw_power"), request.idwPower);
+    extra.insert(QStringLiteral("method"),
+                 request.method == PropertyMethod::Sgs ? QStringLiteral("sgs")
+                                                       : QStringLiteral("idw"));
+    extra.insert(QStringLiteral("ni"), volume.grid.ni);
+    extra.insert(QStringLiteral("nj"), volume.grid.nj);
+    extra.insert(QStringLiteral("nk"), volume.grid.nk);
+    extra.insert(QStringLiteral("live_columns"), volume.grid.liveColumns);
+    extra.insert(QStringLiteral("filled_cells"), volume.filledCells);
+    extra.insert(QStringLiteral("unfilled_live_cells"), volume.unfilledLiveCells);
+    extra.insert(QStringLiteral("curves"), curves);
+    extra.insert(QStringLiteral("n_trajectory_wells"), request.trajectoryWellCount);
+    extra.insert(QStringLiteral("n_vertical_approx_wells"), verticalWells);
+    extra.insert(QStringLiteral("caliber"), prov.value(QStringLiteral("caliber")).toString());
+    if (request.method == PropertyMethod::Sgs)
+    {
+      extra.insert(QStringLiteral("realization_index"), static_cast<int>(r));
+      extra.insert(QStringLiteral("realization_count"), static_cast<int>(volumes.size()));
+      extra.insert(QStringLiteral("seed"), QString::number(request.sgsSeed));
+    }
+    if (!request.faultThrows.empty())
+      extra.insert(QStringLiteral("fault_offset_columns"), offsetMeta.offsetColumns);
+    if (!objectMeta.placements.empty())
+      extra.insert(QStringLiteral("object_cells"), objectMeta.objectCells);
+    computed.extra = extra;
+
+    PropertyModelOutput &result = computed.out;
+    result.paramHash = hash;
+    result.realizationCount = static_cast<int>(volumes.size());
+    result.liveColumns = volume.grid.liveColumns;
+    result.filledCells = volume.filledCells;
+    result.unfilledLiveCells = volume.unfilledLiveCells;
+    result.volume = volume;
+    computed.ok = result.ok = true;
+    results.push_back(std::move(computed));
+  }
+  return results;
+}
+
+bool PropertyModelWorkflow::commitAll(PropertyModelComputedList *list)
+{
+  if (!list || list->empty())
+  {
+    emit modelFailed(QStringLiteral("无计算结果"));
+    return false;
+  }
+  for (PropertyModelComputed &computed : *list)
+  {
+    if (!commitComputed(&computed))
+      return false;
+  }
+  return true;
 }
 
 bool PropertyModelWorkflow::commitComputed(PropertyModelComputed *computed)
@@ -638,14 +980,14 @@ PropertyModelOutput
 PropertyModelWorkflow::run(const PropertyModelRequest &request,
                            const std::function<bool(double, const QString &)> &progress)
 {
-  PropertyModelComputed computed = runCompute(request, progress);
-  if (!computed.ok)
-    return computed.out;
-  if (!commitComputed(&computed))
-    return computed.out;
+  PropertyModelComputedList computed = runCompute(request, progress);
+  if (computed.empty() || !computed.front().ok)
+    return computed.empty() ? PropertyModelOutput{} : computed.front().out;
+  if (!commitAll(&computed))
+    return computed.front().out;
   if (progress)
     progress(1.0, QStringLiteral("完成"));
-  return computed.out;
+  return computed.front().out;
 }
 
 PaleoTask *PropertyModelWorkflow::startJob(paleo::jobs::JobRunner<PropertyModelJob> &runner,
@@ -686,14 +1028,14 @@ PaleoTask *PropertyModelWorkflow::startJob(paleo::jobs::JobRunner<PropertyModelJ
             report(fraction * 100.0, stage);
           return !(cancel && cancel());
         });
-    // computeSnapshot 的失败串在 computed.error 上；框架据此走失败通道。
-    return j.computed.ok;
+    // computeSnapshot 的失败串在首元素 error 上；框架据此走失败通道。
+    return !j.computed.empty() && j.computed.front().ok;
   };
 
   // commit：owner 线程登记。DerivedAssetRegistrar 的 stage+commit 属 #106
   // owner-thread 写守卫面，框架已断言线程亲和——这条断言正把 #80 的纪律变机制。
   cb.commit = [this](PropertyModelJob &j, QString *) {
-    const bool ok = commitComputed(&j.computed);
+    const bool ok = commitAll(&j.computed);
     j.registered = ok;
     return ok;
   };
@@ -864,6 +1206,182 @@ PropertyModelRequest PropertyModelWorkflow::requestFromCatalog(const QString &to
   }
   req.trajectoryWellCount = trajectoryWells;
   return req;
+}
+
+namespace
+{
+
+// WKT POLYGON/MULTIPOLYGON → 外环坐标对（孔洞不另取——编图产物是无重叠
+// 邻接瓦片，孔洞口径递延）。解析不出 ≥3 点 → 空。
+std::vector<std::vector<std::pair<double, double>>>
+outerRingsFromWkt(const QString &wkt)
+{
+  std::vector<std::vector<std::pair<double, double>>> rings;
+  const QString trimmed = wkt.trimmed();
+  if (!trimmed.contains(QLatin1String("POLYGON"), Qt::CaseInsensitive))
+    return rings;
+  static const QRegularExpression numRe(
+      QStringLiteral("[-+]?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][-+]?\\d+)?"));
+  const QStringList chunks = trimmed.split(QLatin1Char('('));
+  for (const QString &chunk : chunks)
+  {
+    QRegularExpressionMatchIterator it = numRe.globalMatch(chunk);
+    std::vector<double> nums;
+    while (it.hasNext())
+      nums.push_back(it.next().captured().toDouble());
+    std::vector<std::pair<double, double>> pts;
+    for (std::size_t i = 0; i + 1 < nums.size(); i += 2)
+      pts.emplace_back(nums[i], nums[i + 1]);
+    if (pts.size() >= 3)
+      rings.push_back(std::move(pts));
+  }
+  return rings;
+}
+
+} // namespace
+
+bool PropertyModelWorkflow::collectFaciesPolygons(PropertyModelRequest *request,
+                                                  QString *error) const
+{
+  if (!request)
+  {
+    setError(error, QStringLiteral("请求为空"));
+    return false;
+  }
+  request->faciesRings.clear();
+  request->faciesAssetName.clear();
+  if (!m_catalog || !m_catalog->isOpen())
+  {
+    setError(error, QStringLiteral("属性建模未绑定 catalog"));
+    return false;
+  }
+
+  // 最新 facies_draft_map 版本（#127 口径：跨资产比较用版本表提交序）。
+  QString bestPath;
+  QString bestName;
+  int bestOrder = -1;
+  QHash<QString, int> commitOrder;
+  {
+    const QVector<CatalogVersion> all = m_catalog->versions();
+    commitOrder.reserve(all.size());
+    for (int i = 0; i < all.size(); ++i)
+      commitOrder.insert(all.at(i).id, i);
+  }
+  for (const CatalogAsset &asset : m_catalog->assets())
+  {
+    if (asset.type != QLatin1String("facies_draft_map"))
+      continue;
+    const QVector<CatalogVersion> versions = m_catalog->versionsForAsset(asset.id);
+    CatalogVersion latest;
+    bool haveVer = false;
+    for (const CatalogVersion &version : versions)
+    {
+      if (!haveVer || version.versionNumber > latest.versionNumber)
+      {
+        latest = version;
+        haveVer = true;
+      }
+    }
+    if (!haveVer)
+      continue;
+    const QString path = DataCatalog::resolvedVersionPath(m_projectDir, latest);
+    if (path.isEmpty())
+      continue;
+    const int order = commitOrder.value(latest.id, -1);
+    if (order > bestOrder)
+    {
+      bestOrder = order;
+      bestPath = path;
+      bestName = asset.displayName;
+    }
+  }
+  if (bestPath.isEmpty())
+  {
+    setError(error, QStringLiteral("没有可用的相带草稿图资产（facies_draft_map）"));
+    return false;
+  }
+
+  // OGR 读 GPKG：facies_code 字段 + 多边形外环。CRS 不做重投影——相带图
+  // 出自同工程编图链（同工程 CRS），跨 CRS 消费递延（ledger 记档）。
+  GDALAllRegister();
+  GDALDatasetH ds = OGROpen(bestPath.toUtf8().constData(), FALSE, nullptr);
+  if (!ds)
+  {
+    setError(error, QStringLiteral("相带图打不开：%1").arg(bestPath));
+    return false;
+  }
+  const int nLayers = GDALDatasetGetLayerCount(ds);
+  OGRLayerH layer = nLayers > 0 ? GDALDatasetGetLayer(ds, 0) : nullptr;
+  if (!layer)
+  {
+    GDALClose(ds);
+    setError(error, QStringLiteral("相带图没有图层：%1").arg(bestPath));
+    return false;
+  }
+  OGR_L_ResetReading(layer);
+  int badCode = 0;
+  int badGeom = 0;
+  while (true)
+  {
+    OGRFeatureH feature = OGR_L_GetNextFeature(layer);
+    if (!feature)
+      break;
+    // OGR C API 的字段索引按 feature 查（层级 GetFieldIndex 不在 C 面）。
+    const int codeField = OGR_F_GetFieldIndex(feature, "facies_code");
+    int code = -1;
+    bool codeOk = false;
+    if (codeField >= 0 && OGR_F_IsFieldSetAndNotNull(feature, codeField))
+    {
+      code = OGR_F_GetFieldAsInteger(feature, codeField);
+      codeOk = true;
+    }
+    OGRGeometryH geometry = OGR_F_GetGeometryRef(feature);
+    char *wkt = nullptr;
+    if (!codeOk || code < 0 || !geometry ||
+        OGR_G_ExportToWkt(geometry, &wkt) != OGRERR_NONE || !wkt)
+    {
+      if (!codeOk || code < 0)
+        ++badCode;
+      else
+        ++badGeom;
+      OGR_F_Destroy(feature);
+      continue;
+    }
+    const auto rings = outerRingsFromWkt(QString::fromLatin1(wkt));
+    CPLFree(wkt);
+    OGR_F_Destroy(feature);
+    if (rings.empty())
+    {
+      ++badGeom;
+      continue;
+    }
+    for (const auto &pts : rings)
+    {
+      paleo::stratgrid::ZoneRing ring;
+      ring.code = code;
+      ring.xs.reserve(pts.size());
+      ring.ys.reserve(pts.size());
+      for (const auto &pt : pts)
+      {
+        ring.xs.push_back(pt.first);
+        ring.ys.push_back(pt.second);
+      }
+      request->faciesRings.push_back(std::move(ring));
+    }
+  }
+  GDALClose(ds);
+  request->faciesAssetName = bestName;
+  request->useFacies = true;
+  if (request->faciesRings.empty())
+  {
+    setError(error,
+             QStringLiteral("相带图 %1 没有可用多边形（facies_code<0 %2 个、几何失败 %3 个）")
+                 .arg(bestName)
+                 .arg(badCode)
+                 .arg(badGeom));
+    return false;
+  }
+  return true;
 }
 
 PropertyGridSlice PropertyModelWorkflow::gridSlice(const paleo::stratgrid::PropertyVolume &volume,

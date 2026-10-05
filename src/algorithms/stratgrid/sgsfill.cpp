@@ -36,7 +36,53 @@ struct SeedAgg
 constexpr int kMinZoneSamples = 2; // 正态得分变换 + SK 至少 2 个样本
 constexpr int kMaxAxis = 1 << 20;  // sgs3 格点索引打包上限
 
+// 射线法偶奇测试（环闭合由首尾重合或环绕数语义兜底——开放环按闭合处理）。
+bool pointInRing(double px, double py, const std::vector<double> &xs,
+                 const std::vector<double> &ys)
+{
+  bool inside = false;
+  const std::size_t n = xs.size();
+  for (std::size_t i = 0, j = n - 1; i < n; j = i++)
+  {
+    const double yi = ys[i];
+    const double yj = ys[j];
+    if ( ( yi > py ) != ( yj > py ) )
+    {
+      const double xAt = xs[j] + ( py - yj ) * ( xs[i] - xs[j] ) / ( yi - yj );
+      if (px < xAt)
+        inside = !inside;
+    }
+  }
+  return inside;
+}
+
 } // namespace
+
+std::vector<int> rasterizeZoneRings(const ZoneGrid &grid, const std::vector<ZoneRing> &rings)
+{
+  std::vector<int> zones(static_cast<std::size_t>(grid.ni) * grid.nj, -1);
+  for (int j = 0; j < grid.nj; ++j)
+  {
+    for (int i = 0; i < grid.ni; ++i)
+    {
+      if (!grid.columnLive(i, j))
+        continue;
+      const double px = grid.originX + ( static_cast<double>(i) + 0.5 ) * grid.dx;
+      const double py = grid.originY + ( static_cast<double>(j) + 0.5 ) * grid.dy;
+      for (const ZoneRing &ring : rings)
+      {
+        if (ring.xs.size() < 3 || ring.xs.size() != ring.ys.size())
+          continue;
+        if (pointInRing(px, py, ring.xs, ring.ys))
+        {
+          zones[static_cast<std::size_t>(grid.columnIndex(i, j))] = ring.code;
+          break; // 先命中先得（环序确定）
+        }
+      }
+    }
+  }
+  return zones;
+}
 
 bool fillSgs(const ZoneGrid &grid, const std::vector<Seed> &seeds,
              const std::vector<FaultSegment> &faults, const std::vector<int> *zonePerColumn,

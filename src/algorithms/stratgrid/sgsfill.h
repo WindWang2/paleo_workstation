@@ -38,6 +38,19 @@ struct SgsFillMeta
   QString caliber;                     // 口径串（provenance 直接带走）
 };
 
+// 相带多边形环（外环；孔洞递延——编图产物是无重叠邻接瓦片，如实口径）。
+struct ZoneRing
+{
+  int code = 0;
+  std::vector<double> xs;
+  std::vector<double> ys;
+};
+
+// 环 → 柱相带码：柱心逐环偶奇测试（射线法），先命中先得（环序确定即确定）；
+// 无命中 = -1（背景域，自成参数域——样本不足时如实未充填）。死柱 -1。
+// 返回尺寸 ni*nj。环数或环内点数为零 → 全 -1。
+std::vector<int> rasterizeZoneRings(const ZoneGrid &grid, const std::vector<ZoneRing> &rings);
+
 // 成功 → *out 填 params.nRealizations 个属性体（各含同一 columnBlock 分块）。
 // progress 返回 false 取消（失败不写半成品）。失败时 *out 保持清空。
 bool fillSgs(const ZoneGrid &grid, const std::vector<Seed> &seeds,

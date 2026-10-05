@@ -677,9 +677,59 @@ void PaleoMainWindow::attachPropertyModel(PropertyModelWorkflow *wf,
             }
             if (m_propModelFaults)
             {
+              // V2：断距提取——cut.extra 带 throw_z 且盘侧已知 → 断块错位；
+              // 其余段照旧只进竖帘（口径由 provenance 如实标注）。
+              const auto extracted = PropertyModelWorkflow::throwSegmentsFromFaultSet(
+                  m_propModelFaults->faultSet());
+              // 竖帘全集（含断距段几何——错位后跨断层仍不连通）
               const auto segs =
                   PropertyModelWorkflow::segmentsFromFaultSet(m_propModelFaults->faultSet());
               req.faults.insert(req.faults.end(), segs.begin(), segs.end());
+              req.faultThrows = extracted.throws;
+            }
+
+            // V2：方法/SGS/对象/相带参数（面板纯值 getter → 请求翻译）。
+            const int method = m_propModelPanel->method();
+            req.method = method == 1 ? PropertyMethod::Sgs : PropertyMethod::Idw;
+            if (req.method == PropertyMethod::Sgs)
+            {
+              req.variogram.type = static_cast<paleo::geostat::VariogramModelType>(
+                  m_propModelPanel->variogramType());
+              req.variogram.nugget = m_propModelPanel->nugget();
+              req.variogram.sill = m_propModelPanel->sill();
+              req.variogram.range = m_propModelPanel->rangeMeters();
+              req.variogram.azimuthDeg = m_propModelPanel->azimuthDeg();
+              req.variogram.anisotropyRatio = m_propModelPanel->anisotropyRatio();
+              req.variogram.verticalRangeRatio = m_propModelPanel->verticalRangeRatio();
+              req.sgsRealizations = m_propModelPanel->realizations();
+              req.sgsSeed = m_propModelPanel->seed();
+              req.sgsMaxPoints = 16;
+            }
+            if (m_propModelPanel->objectEnabled())
+            {
+              paleo::stratgrid::ObjectSpec spec;
+              spec.type = m_propModelPanel->objectType() == 1
+                              ? paleo::stratgrid::ObjectType::PointBar
+                              : paleo::stratgrid::ObjectType::Channel;
+              spec.azimuthDeg = m_propModelPanel->objectAzimuthDeg();
+              spec.length = m_propModelPanel->objectLengthMeters();
+              spec.width = m_propModelPanel->objectWidthMeters();
+              spec.thickness = m_propModelPanel->objectThicknessMeters();
+              spec.curvature = m_propModelPanel->objectCurvatureMeters();
+              spec.value = m_propModelPanel->objectValue();
+              spec.count = m_propModelPanel->objectCount();
+              req.objectSpecs = {spec};
+              req.objectSeed = m_propModelPanel->objectSeed();
+            }
+            if (m_propModelPanel->faciesEnabled())
+            {
+              QString faciesErr;
+              if (!m_propModelWf->collectFaciesPolygons(&req, &faciesErr))
+              {
+                // 没有相带资产不是建模失败：降级全域单一域并如实标注。
+                m_propModelPanel->setCaliberNote(
+                    tr("相带约束已请求但不可用（%1）——本次全域单一参数域").arg(faciesErr));
+              }
             }
 
             m_propModelRunning = true;
@@ -745,23 +795,36 @@ void PaleoMainWindow::finishPropertyModelRun(double overlayAlpha)
   // owner 线程），本函数只负责把结果呈到 UI——不要再调 commitComputed，那会
   // 二次登记同一份 staging。登记失败时 commitComputed 已把 computed.out.ok
   // 置假并回填错误串，下面按失败如实上 UI。
-  // 同步兜底路径（无任务池）不建 job，仍需直连登记。
+  // 同步兜底路径（无任务池）不建 job，仍需直连登记（多实现逐版本）。
   PropertyModelOutput out;
   if (m_propModelJob)
   {
     m_propModelComputed = m_propModelJob->computed; // 共享同一份，commit 已回填
-    if (!cancelled && m_propModelComputed.out.ok && !m_propModelJob->registered)
+    if (!cancelled && !m_propModelComputed.empty() && m_propModelComputed.front().out.ok &&
+        !m_propModelJob->registered)
     {
-      m_propModelComputed.out.ok = false; // 防御：未登记不报成功
-      if (m_propModelComputed.out.error.isEmpty())
-        m_propModelComputed.out.error = tr("属性体登记失败");
+      // 防御：未登记不报成功
+      for (auto &computed : m_propModelComputed)
+      {
+        computed.out.ok = false;
+        if (computed.out.error.isEmpty())
+          computed.out.error = tr("属性体登记失败");
+      }
     }
   }
-  else if (!cancelled && m_propModelComputed.ok)
+  else if (!cancelled && !m_propModelComputed.empty() && m_propModelComputed.front().ok)
   {
-    m_propModelWf->commitComputed(&m_propModelComputed); // 无池兜底：同步直连
+    m_propModelWf->commitAll(&m_propModelComputed); // 无池兜底：同步直连
   }
-  out = m_propModelComputed.out;
+  if (m_propModelComputed.empty())
+  {
+    out.ok = false;
+    out.error = tr("属性建模失败");
+  }
+  else
+  {
+    out = m_propModelComputed.front().out; // 呈现首实现；实现数见 out.realizationCount
+  }
   if (cancelled)
   {
     out.ok = false;
@@ -777,9 +840,15 @@ void PaleoMainWindow::finishPropertyModelRun(double overlayAlpha)
     return;
   }
 
+  // 诚实口径标签：竖直近似井数 / 断层竖帘与错位 / 相带 / 种子（首实现 extra）。
+  m_propModelPanel->setCaliberNote(
+      m_propModelComputed.front().extra.value(QStringLiteral("caliber")).toString());
+
   const QString fileName = QFileInfo(out.path).fileName();
+  const QString realizationNote =
+      out.realizationCount > 1 ? tr(" · %1 个实现").arg(out.realizationCount) : QString();
   m_propModelPanel->showResult(
-      true, tr("已充填 %1 个单元 · %2").arg(out.filledCells).arg(fileName));
+      true, tr("已充填 %1 个单元 · %2%3").arg(out.filledCells).arg(fileName).arg(realizationNote));
   if (statusBar())
     statusBar()->showMessage(
         tr("属性建模完成：%1（%2 个单元）").arg(fileName).arg(out.filledCells), 8000);

@@ -419,6 +419,11 @@ class PaleoMainWindow : public SARibbonMainWindow
     // 单因素本地方向：准备和发布在界面线程，插值在任务池。
     QPointer<PaleoTask> m_factorTask;
     void finishPropertyModelRun(double overlayAlpha);
+    // goal/attr-volume — 属性体 3D 预览就绪 → 喂视口（服务线程已取数烘焙：
+    // 三槽属性切片 + 堆叠层体渲染；ok=false 时状态栏报因）。
+    void showAttributeVolumeIn3D(
+        const seismic::SeismicTaskService::AttributeVolumePreview &preview,
+        bool ok, const QString &message);
     FolderImportWorkflow *m_folderImportWf = nullptr;   // W2 文件夹/单文件导入编排
     ProjectOpenWorkflow *m_projectOpenWf = nullptr;     // W2 打开/新建工程编排
     RegistrationWorkflow *m_registrationWf = nullptr;   // W3 临时配准编排

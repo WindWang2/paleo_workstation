@@ -720,6 +720,25 @@ void PaleoMainWindow::buildShell()
             if (!m_layerSvc->declare(decl, &err))
               qWarning() << "horizon layer declare failed:" << decl.layerId << err;
           });
+  // goal/attr-volume — 时间切片属性层树条目（诚实栅格 URI）→ 上图；
+  // 属性体扫描完成 → 3D 体视喂入（三槽切片 + 堆叠层体渲染）。
+  connect(m_seismicSectionDock,
+          &seismic::SeismicSectionDockWidget::timeSliceAttrLayerReady, this,
+          [this](const LayerDeclaration &decl) {
+            QString err;
+            if (!m_layerSvc->declare(decl, &err))
+              qWarning() << "time-slice attr layer declare failed:" << decl.layerId
+                         << err;
+            else if (statusBar())
+              statusBar()->showMessage(
+                  tr("时间切片属性已上图：%1").arg(decl.title), 8000);
+          });
+  connect(m_seismicSectionDock,
+          &seismic::SeismicSectionDockWidget::attrVolumeReady, this,
+          [this](const seismic::SeismicTaskService::AttributeVolumePreview &preview,
+                 bool ok, const QString &message) {
+            showAttributeVolumeIn3D(preview, ok, message);
+          });
 
   // ---- 连井剖面 dock（地层对比图件；默认隐藏，显隐随页规则同底栏）----
   m_wellSectionDock = new PaleoDockWidget(tr("连井剖面"), this);

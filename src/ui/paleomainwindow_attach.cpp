@@ -854,6 +854,69 @@ void PaleoMainWindow::finishPropertyModelRun(double overlayAlpha)
   }
 }
 
+// goal/attr-volume — 属性体 3D 预览 → 视口喂入：预览（三中位面 + 堆叠层）
+// 已由 dock 的静默预览任务在服务线程取数烘焙（SATV 可达 GB 级——主线程
+// 同步读文件会冻 UI），此处仅贴纹理（几何走属性砖块 IJK：i=xline、
+// j=inline、k=采样——finishPropertyModelRun 同一挂点）。ok=false（含
+// 登记消息）状态栏如实报因。
+void PaleoMainWindow::showAttributeVolumeIn3D(
+    const seismic::SeismicTaskService::AttributeVolumePreview &preview, bool ok,
+    const QString &message)
+{
+  if (!ok || !preview.ok)
+  {
+    const QString why =
+        !message.isEmpty() ? message
+                           : (!preview.error.isEmpty()
+                                  ? preview.error
+                                  : QStringLiteral("属性体预览不可用"));
+    if (statusBar())
+      statusBar()->showMessage(tr("属性体 3D 显示失败：%1").arg(why), 8000);
+    return;
+  }
+  seismic::Seismic3DViewPanel *panel3d = m_seismic3dPanel;
+  if (!panel3d && m_seismic3dDock)
+    panel3d = qobject_cast<seismic::Seismic3DViewPanel *>(m_seismic3dDock->widget());
+  seismic::Seismic3DViewportWidget *vp = panel3d ? panel3d->viewport() : nullptr;
+  if (!vp)
+  {
+    if (statusBar())
+      statusBar()->showMessage(tr("属性体已产出（%1×%2×%3）——三维视口不可用")
+                                   .arg(preview.nIl)
+                                   .arg(preview.nXl)
+                                   .arg(preview.nS), 8000);
+    return;
+  }
+  seismic::PropertyBrickAxes axes;
+  axes.iMin = 0;
+  axes.iMax = preview.nXl - 1;
+  axes.jMin = 0;
+  axes.jMax = preview.nIl - 1;
+  axes.kMin = 0;
+  axes.kMax = preview.nS - 1;
+  vp->updatePropertySlice(seismic::SeismicSliceSlot::Crossline,
+                          seismic::SgySliceType::Xline, preview.xlineIdx, axes,
+                          preview.xlineSlice);
+  vp->updatePropertySlice(seismic::SeismicSliceSlot::Inline,
+                          seismic::SgySliceType::Inline, preview.inlineIdx, axes,
+                          preview.inlineSlice);
+  vp->updatePropertySlice(seismic::SeismicSliceSlot::Time,
+                          seismic::SgySliceType::Time, preview.sampleIdx, axes,
+                          preview.timeSlice);
+  for (int k = 0; k < preview.stackLayerCount; ++k)
+    vp->updatePropertyStackLayer(k, preview.stackKIndexes[k], axes,
+                                 preview.stackLayers[std::size_t(k)]);
+  if (statusBar())
+    statusBar()->showMessage(
+        tr("属性体已入 3D 视口（%1×%2×%3，堆叠 %4 层——栈模式开关查看）%5")
+            .arg(preview.nIl)
+            .arg(preview.nXl)
+            .arg(preview.nS)
+            .arg(preview.stackLayerCount)
+            .arg(message.isEmpty() ? QString()
+                                   : QStringLiteral("；") + message), 8000);
+}
+
 void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkflow *constraint,
                                       CompositionWorkflow *compose, ValidationWorkflow *validate,
                                       DataImportService *importSvc, SeismicMapLink *seismicLink,

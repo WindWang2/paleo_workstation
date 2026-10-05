@@ -6,7 +6,8 @@ target_sources(paleo_algorithms PRIVATE
   src/algorithms/stratgrid/upscale.cpp
   src/algorithms/stratgrid/propfill.cpp
   src/algorithms/stratgrid/faultoffset.cpp
-  src/algorithms/stratgrid/sgsfill.cpp)
+  src/algorithms/stratgrid/sgsfill.cpp
+  src/algorithms/stratgrid/objectmodel.cpp)
 target_sources(paleo_workflow PRIVATE
   src/workflow/propertymodelworkflow.cpp)
 target_sources(paleo_ui PRIVATE
@@ -19,6 +20,7 @@ target_compile_definitions(tst_upscale PRIVATE
 add_paleo_test(tst_propfill LIBS paleo_algorithms)
 add_paleo_test(tst_faultoffset LIBS paleo_algorithms)
 add_paleo_test(tst_sgsfill LIBS paleo_algorithms)
+add_paleo_test(tst_objectmodel LIBS paleo_algorithms)
 add_paleo_test(tst_propworkflow LIBS paleo_workflow)
 add_paleo_test(tst_propmodelpanel LIBS paleo_ui)
 add_paleo_test(tst_propmodelperf LIBS paleo_workflow)

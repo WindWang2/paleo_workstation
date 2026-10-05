@@ -63,6 +63,7 @@ private slots:
   void duplicateMdNanOrderAgrees();
   void failureClearsOutput();
   void realLasFixture();
+  void deviatedVsVerticalDifferentCellHits();
 };
 
 void TestUpscale::constantCurveStaysConstant()
@@ -380,6 +381,51 @@ void TestUpscale::realLasFixture()
 #else
   QSKIP("PROJECT_FIXTURE_DIR not defined");
 #endif
+}
+
+// 方向 45 Oracle 6：带测斜表合成井按真实轨迹粗化，cell 命中序列与竖直近似
+// 有差异证据；无测斜井走竖直近似（口径由编排层显式标注，这里证语义差异）。
+void TestUpscale::deviatedVsVerticalDifferentCellHits()
+{
+  // 20×10 柱、dx=dy=10：井口在柱 (0,0)，向东造斜到对面。
+  const ZoneGrid grid = zone(0.0f, 30.0f, 3, 20, 10);
+
+  // 竖直近似：x/y 恒井口、z=MD（requestFromCatalog 无测斜的直井回退口径）。
+  WellCurve straight = vertical(QStringLiteral("W1"), 5.0, 5.0, 0.0, 30.0,
+                                {{0.0, 10.0}, {10.0, 10.0}, {20.0, 20.0}, {30.0, 20.0}});
+
+  // 真实轨迹：MD 0→30 均匀东漂 x 5→195（z=MD 直斜简化，轨迹语义在 x 漂移）。
+  WellCurve deviated;
+  deviated.wellId = QStringLiteral("W1");
+  deviated.curveName = QStringLiteral("GR");
+  deviated.stations.push_back(WellStation{0.0, 5.0, 5.0, 0.0});
+  deviated.stations.push_back(WellStation{15.0, 100.0, 5.0, 15.0});
+  deviated.stations.push_back(WellStation{30.0, 195.0, 5.0, 30.0});
+  deviated.curve = straight.curve;
+
+  UpscaleTable tableStraight;
+  QString err;
+  QVERIFY(upscaleWells(grid, {straight}, Aggregator::Mean, &tableStraight, &err));
+  UpscaleTable tableDeviated;
+  QVERIFY(upscaleWells(grid, {deviated}, Aggregator::Mean, &tableDeviated, &err));
+
+  // 竖直近似：全程柱 (0,0)；真实轨迹：深层代表柱向东迁移（cell 命中序列不同）。
+  for (int k = 0; k < grid.nk; ++k)
+    QCOMPARE(tableStraight.at(0, k).columnI, 0);
+  int migrated = 0;
+  for (int k = 0; k < grid.nk; ++k)
+  {
+    QVERIFY(tableDeviated.at(0, k).hasValue);
+    if (tableDeviated.at(0, k).columnI > 0)
+      ++migrated;
+  }
+  QVERIFY2(migrated >= 2,
+           QStringLiteral("deviated representative columns must move east (migrated %1 of %2)")
+               .arg(migrated)
+               .arg(grid.nk)
+               .toUtf8()
+               .constData());
+  QVERIFY(tableDeviated.at(0, grid.nk - 1).columnI > tableDeviated.at(0, 0).columnI);
 }
 
 QTEST_GUILESS_MAIN(TestUpscale)

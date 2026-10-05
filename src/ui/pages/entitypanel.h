@@ -31,6 +31,8 @@ class TopologyGraph;
 // 按角色词表枚举 (实体,角色) 槽、下游 DERIVED 产物与悬空血缘诊断。
 // 上下文由壳/列表侧经 setContext 下发（D6 地图点选 → entityId；表选中 →
 // assetId 反推实体）。catalog.changed() 由主窗口接线调 refresh() 重取。
+class QPushButton;
+
 class EntityPanel : public QWidget
 {
   Q_OBJECT
@@ -58,6 +60,7 @@ class EntityPanel : public QWidget
   signals:
     void statusMessage(const QString &msg);          // D5.4 反馈（壳接状态栏）
     void versionActivated(const QString &versionId); // 只发版本预览意图
+    void mappingReferenceRequested(const QString &versionId);
     void entityRefreshRequested();                   // CRUD 后请列表/实体视图重取
     // 井 well_log 非主文件「设为主文件」。面板不写 catalog，由创建方接 setLinkPrimary。
     void wellLogSetPrimaryRequested(const QString &entityId, const QString &assetId);
@@ -73,6 +76,8 @@ class EntityPanel : public QWidget
     bool requestGeoJsonSummary(
         const QString &absPath,
         const std::function<void(const PreviewDocService::GeoJsonSummary &)> &apply);
+    QPushButton *m_mappingReference = nullptr;
+    QString m_mappingReferenceVersion;
     PreviewDocService *m_doc = nullptr;
     QString m_entityId;
     QString m_assetId;

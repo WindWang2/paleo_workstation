@@ -258,11 +258,12 @@ void applyFaciesLabels(QgsVectorLayer *layer, int mode) {
   const QString identifier =
       QStringLiteral("coalesce(%1, %2, %3, to_string($id))")
           .arg(field("name"), field("id"), field("fid"));
-  const QString facies =
+  const QString defaultFacies =
       QStringLiteral("coalesce(%1, %2, %3, %4, %5)")
           .arg(field("facies_label"), field("microfacies"), field("subfacies"),
                field("facies_name"),
                QgsExpression::quotedString(QObject::tr("其他 / 未分类")));
+  const QString facies = layer->customProperty("paleo/faciesDisplayExpression", defaultFacies).toString();
   QgsPalLayerSettings settings;
   settings.isExpression = true;
   settings.fieldName =
@@ -383,10 +384,10 @@ void applyFaciesStyle(QgsMapLayer *layer, const QVariantList &facies) {
     applyFaciesLabels(
         vector, vector->customProperty("paleo/faciesLabelMode", 3).toInt());
     const QStringList names{"facies_code", "facies_name",  "subfacies",
-                            "microfacies", "facies_label", "texture"};
+                            "microfacies", "facies_label", "texture", "facies_evidence"};
     const QStringList labels{QObject::tr("相编码"),   QObject::tr("相"),
                              QObject::tr("亚相"),     QObject::tr("微相"),
-                             QObject::tr("类别名称"), QObject::tr("纹理")};
+                             QObject::tr("类别名称"), QObject::tr("纹理"), QObject::tr("解释证据")};
     for (int i = 0; i < names.size(); ++i)
       if (int index = vector->fields().indexOf(names[i]); index >= 0)
         vector->setFieldAlias(index, labels[i]);

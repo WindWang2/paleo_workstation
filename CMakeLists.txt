@@ -461,7 +461,14 @@ add_library(paleo_qgis STATIC
 target_link_libraries(paleo_qgis PUBLIC paleo_deps paleo_ui_deps paleo_store paleo_algorithms paleo_io)
 
 add_library(paleo_io STATIC
-  src/io/dataimportservice.cpp
+  src/io/dataimportservice.cpp                      # 方向57：生命周期 + 入口 wrapper
+  src/io/dataimport_session.cpp                     # 方向57：会话/登记基座（plan/RAW/commit 面）
+  src/io/dataimport_file.cpp                        # 方向57：单文件导入编排（importOneFile 壳+分派）
+  src/io/dataimport_wells.cpp                       # 方向57：井族分支（well_head/log/tops/deviation）
+  src/io/dataimport_geodata.cpp                     # 方向57：地物族分支（horizon/seismic/辅助参考）
+  src/io/dataimport_folder.cpp                      # 方向57：文件夹导入/预览/plan 执行面
+  src/io/dataimport_pyramids.cpp                    # 方向57：栅格金字塔/概览族
+  src/io/dataimport_document.cpp                    # 方向57：文档 PDF 转换 + 外链重定位
   src/io/lasparser.cpp
   src/io/dlisparser.cpp                            # 方向44：DLIS (RP66 v1) 读口
   src/io/lisparser.cpp                             # 方向44：LIS79 读口（含 TIF）

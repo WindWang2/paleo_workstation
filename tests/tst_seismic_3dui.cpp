@@ -12,6 +12,7 @@
 #include <QtEndian>
 #include <QOffscreenSurface>
 #include <QOpenGLContext>
+#include <QOpenGLFramebufferObject>
 #include <QOpenGLFunctions_3_3_Core>
 #include <QSignalSpy>
 #include <QTemporaryDir>
@@ -211,6 +212,165 @@ private slots:
     QCOMPARE(panel.cameraBookmarkNames(), expectedNames);
     panel.applyCameraBookmark(0); // 不崩 + 视角生效
     panel.applyCameraBookmark(1);
+  }
+
+  // ---- goal/attr-volume：属性体 3D 体视（无头 GL）----
+  // 全链：合成体扫描 → SATV → 服务层预览加载器 → 属性砖块三槽切片 +
+  // 16 层堆叠（体渲染）真实 Render；PALEO_UI_CAPTURE 指定时落 PNG
+  // （ledger 渲染证据，tst_ui 同约定）。
+  void attrVolumePropertyBrickHeadless()
+  {
+    QTemporaryDir dir;
+    const QString sgy = dir.filePath("attrvol.sgy");
+    QVERIFY(writeTestSegy(sgy, 5, 6, 96));
+    auto volume = std::make_shared<SgyVolume>();
+    std::string err;
+    QVERIFY(volume->Load(sgy.toStdString(), err));
+
+    PaleoTaskService tasks;
+    SeismicTaskService svc(&tasks);
+    const QString outDir = dir.filePath(QStringLiteral("attrs"));
+    bool scanOk = false;
+    QString scanErr;
+    SeismicTaskService::SeismicAttrVolumeResult scanResult;
+    PaleoTask *task = svc.startAttributeVolume(
+        volume, SeismicTaskService::SeismicAttrKind::Envelope,
+        SeismicTaskService::SeismicAttrParams{}, outDir,
+        [&](bool ok, const SeismicTaskService::SeismicAttrVolumeResult &r) {
+          scanOk = ok;
+          scanResult = r;
+          if (!ok)
+            scanErr = r.error;
+        });
+    QVERIFY(task);
+    QVERIFY(waitForQuiet([&scanOk]() { return scanOk; }, 60000));
+    QVERIFY2(scanOk, qPrintable(scanErr));
+
+    const SeismicTaskService::AttributeVolumePreview preview =
+        SeismicTaskService::loadAttributeVolumePreview(scanResult.path);
+    QVERIFY2(preview.ok, qPrintable(preview.error));
+    QCOMPARE(preview.nIl, 5);
+    QCOMPARE(preview.nXl, 6);
+    QCOMPARE(preview.nS, 96);
+    QCOMPARE(preview.inlineSlice.width, 6);
+    QCOMPARE(preview.inlineSlice.height, 96);
+    QCOMPARE(preview.xlineSlice.width, 5);
+    QCOMPARE(preview.timeSlice.width, 6);
+    QCOMPARE(preview.timeSlice.height, 5);
+    QCOMPARE(preview.stackLayerCount, SeismicTaskService::kMaxPropertyStackLayers);
+
+    QSurfaceFormat format;
+    format.setVersion(3, 3);
+    format.setProfile(QSurfaceFormat::CoreProfile);
+    QOffscreenSurface surface;
+    surface.setFormat(format);
+    surface.create();
+    if (!surface.isValid())
+      QSKIP("offscreen surface unavailable");
+    QOpenGLContext context;
+    context.setFormat(format);
+    if (!context.create() || !context.makeCurrent(&surface))
+      QSKIP("OpenGL context could not be created in this environment");
+    QOpenGLFunctions_3_3_Core gl;
+    if (!gl.initializeOpenGLFunctions())
+      QSKIP("OpenGL 3.3 Core functions not available");
+
+    PropertyBrickAxes axes;
+    axes.iMin = 0;
+    axes.iMax = preview.nXl - 1;
+    axes.jMin = 0;
+    axes.jMax = preview.nIl - 1;
+    axes.kMin = 0;
+    axes.kMax = preview.nS - 1;
+
+    SeismicSliceRenderer renderer;
+    QVERIFY(renderer.Initialize(&gl));
+    // 生产路径经视口 bakePropertyRgba（values → 灰度渐变 rgba，NaN→alpha0）
+    // 后进渲染器；无头直调渲染器同语义预烘焙。
+    auto bake = [](const SgySliceImage &image) {
+      SgySliceImage baked = image;
+      const std::size_t n =
+          std::size_t(std::max(0, image.width) * std::max(0, image.height));
+      float lo = 0.f, hi = 1.f;
+      bool any = false;
+      for (float v : baked.values)
+      {
+        if (!std::isfinite(v))
+          continue;
+        if (!any)
+        {
+          lo = hi = v;
+          any = true;
+        }
+        else
+        {
+          lo = std::min(lo, v);
+          hi = std::max(hi, v);
+        }
+      }
+      const float span = hi > lo ? hi - lo : 1.f;
+      baked.rgba.resize(n * 4);
+      for (std::size_t i = 0; i < n; ++i)
+      {
+        const float v = baked.values[i];
+        unsigned char *px = baked.rgba.data() + i * 4;
+        if (!std::isfinite(v))
+        {
+          px[0] = px[1] = px[2] = px[3] = 0;
+          continue;
+        }
+        const float t = std::clamp((v - lo) / span, 0.f, 1.f);
+        px[0] = static_cast<unsigned char>(40 + t * 200);
+        px[1] = static_cast<unsigned char>(80 + (1.f - std::fabs(t - 0.5f) * 2.f) * 80);
+        px[2] = static_cast<unsigned char>(180 - t * 150);
+        px[3] = 255;
+      }
+      return baked;
+    };
+    QVERIFY(renderer.UpdatePropertySlice(
+        &gl, SeismicSliceSlot::Crossline, axes, SgySliceType::Xline,
+        preview.xlineIdx, bake(preview.xlineSlice)));
+    QVERIFY(renderer.UpdatePropertySlice(
+        &gl, SeismicSliceSlot::Inline, axes, SgySliceType::Inline,
+        preview.inlineIdx, bake(preview.inlineSlice)));
+    QVERIFY(renderer.UpdatePropertySlice(
+        &gl, SeismicSliceSlot::Time, axes, SgySliceType::Time,
+        preview.sampleIdx, bake(preview.timeSlice)));
+    for (int k = 0; k < preview.stackLayerCount; ++k)
+      QVERIFY(renderer.UpdatePropertyStackLayer(
+          &gl, k, axes, preview.stackKIndexes[std::size_t(k)],
+          bake(preview.stackLayers[std::size_t(k)])));
+    renderer.SetStackVisible(true);
+    QVERIFY(renderer.IsSlotReady(SeismicSliceSlot::Inline));
+    QVERIFY(renderer.IsSlotReady(SeismicSliceSlot::Crossline));
+    QVERIFY(renderer.IsSlotReady(SeismicSliceSlot::Time));
+
+    // 真实渲染到 FBO 并读回（证据帧）：三切片 + 堆叠层路径不崩且非空帧。
+    QOpenGLFramebufferObject fbo(480, 360);
+    QVERIFY(fbo.bind());
+    gl.glViewport(0, 0, 480, 360);
+    gl.glClearColor(0.05f, 0.06f, 0.08f, 1.f);
+    gl.glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    SeismicCameraController cam;
+    cam.SetTarget(glm::vec3(0.5f, 0.5f, 0.5f));
+    cam.SetDistance(3.2f);
+    cam.SetYaw(0.6f);
+    cam.SetPitch(-0.5f);
+    renderer.Render(&gl, cam.BuildViewMatrix(), cam.BuildProjectionMatrix(480.f / 360.f));
+    gl.glFinish();
+    const QImage frame = fbo.toImage();
+    fbo.release();
+    QVERIFY(!frame.isNull());
+    qint64 lit = 0;
+    for (int y = 0; y < frame.height(); ++y)
+      for (int x = 0; x < frame.width(); ++x)
+        if (qGray(frame.pixel(x, y)) > 24) // 高于清屏底色 = 有属性面/堆叠着色
+          ++lit;
+    QVERIFY2(lit > 500, qPrintable(QStringLiteral("渲染像素过少：%1").arg(lit)));
+    const QString capture = qEnvironmentVariable("PALEO_UI_CAPTURE");
+    if (!capture.isEmpty())
+      QVERIFY(frame.save(capture));
+    renderer.Cleanup(&gl);
   }
 
   // ---- D3.9 GL 回退件：无 GL 渲染 2D 拼接 ----

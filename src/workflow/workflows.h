@@ -284,6 +284,10 @@ class ConstraintWorkflow : public QObject
         QVariantMap params;
         QString outputPath;
         QString supportPath; // 克里金：估计方差场；SGS：实现间标准差场；降级：空
+        // 方向 47：SGS 成员集合——计算段把各 realization 写成员栅格（同一临时
+        // 目录），发布段由 RealizationWorkflow 收编为 realization_set 成员版本。
+        QStringList memberPaths; // 按 realizationIndex 升序
+        quint64 memberSeed = 0;  // 集合基种子（SGS 共享随机流）
         QString qcPath;
     };
     bool prepareGeostatJob(const QString &horizon, const QString &factorId, const QString &method,

@@ -26,6 +26,11 @@ public:
     SeismicTaskService::SeismicAttrKind currentKind() const;
     SeismicTaskService::SeismicAttrParams currentParams() const;
     double currentAlpha() const;
+    // goal/attr-volume：扫描范围（0=本剖面 1=时间切片 2=属性体）与
+    // 时间切片采样位（0=首样；dock 在体加载时回填范围/中位缺省）
+    int currentScope() const;
+    int currentSampleIndex() const;
+    void setVolumeSampleRange(int sampleCount);
 
     // 叠加透明度变化（画布 setAttrOverlayAlpha 直通）
     void setBusy(bool busy);
@@ -36,19 +41,30 @@ signals:
     void computeRequested(seismic::SeismicTaskService::SeismicAttrKind kind,
                           const seismic::SeismicTaskService::SeismicAttrParams &params,
                           double overlayAlpha);
+    // goal/attr-volume：扫描意图（视图只发信号，编排归 dock→服务）
+    void timeSliceScanRequested(seismic::SeismicTaskService::SeismicAttrKind kind,
+                                const seismic::SeismicTaskService::SeismicAttrParams &params,
+                                int sampleIndex);
+    void volumeScanRequested(seismic::SeismicTaskService::SeismicAttrKind kind,
+                             const seismic::SeismicTaskService::SeismicAttrParams &params);
     void cancelRequested();          // 取消在途任务
     void registerRequested();        // 最近一次成功结果 → catalog 派生资产
     void alphaChanged(double alpha); // 叠加透明度实时调整
 
 public slots:
     void updateProgress(int percent, const QString &stageLabel);
-    void showResult(bool ok, const QString &summary);
+    // registrable=false：扫描类结果（自动登记，不点亮剖面登记按钮）
+    void showResult(bool ok, const QString &summary, bool registrable = true);
 
 private:
     void buildUi();
     void syncEnabledState();
 
     QComboBox *m_cboKind = nullptr;
+    QComboBox *m_cboScope = nullptr;
+    QComboBox *m_cboWeight = nullptr;
+    QSpinBox *m_spinTimeSample = nullptr;
+    QLabel *m_lblTimeSample = nullptr;
     QSpinBox *m_spinWindowHalf = nullptr;
     QSpinBox *m_spinIlHalf = nullptr;
     QSpinBox *m_spinXlHalf = nullptr;
@@ -61,6 +77,7 @@ private:
     QLabel *m_lblStatus = nullptr;
     bool m_busy = false;
     bool m_hasResult = false;
+    bool m_sampleTouched = false; // 用户显式选过采样位（换体不重置）
 };
 
 } // namespace seismic

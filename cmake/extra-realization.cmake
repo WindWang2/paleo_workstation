@@ -3,6 +3,9 @@
 # 根 CMakeLists 只登记本文件，不改模块源列表。
 
 target_sources(paleo_store PRIVATE src/catalog/realizationset.cpp)
+target_sources(paleo_algorithms PRIVATE src/algorithms/ensemblestats.cpp)
 
 # 契约：集合/成员寻址 round-trip + 缺号诚实面 + 缺键兼容（无 epoch bump）。
 add_paleo_test(tst_realizationset LIBS paleo_store)
+# 统计核：合成成员场 → 均值/总体标准差/分位数逐像元收敛；带式与整幅 parity。
+add_paleo_test(tst_ensemblestats LIBS paleo_algorithms)

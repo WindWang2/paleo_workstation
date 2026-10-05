@@ -28,8 +28,8 @@ class QShowEvent;
 //     constraintSemanticChangeRequested(horizon, id, semantic)（五种词表）
 // 旧链保留不动：drawConstraintRequested/runIdwRequested（idw* objectName
 // 全保留）；厚度样本表挪进 CollapsibleSection（objectName 不变，默认展开），
-// 样本行仍由 MappingWorkflow 镜像到 ConstraintWorkflow 的
-// "paleo.thickness.samples"/"paleo.thickness.message" 动态属性。
+// 样本行仍由 MappingWorkflow typed 镜像到 ConstraintWorkflow::
+// setThicknessSamples（ARCH-06，原动态属性暗道已撤）。
 class ConstraintPage : public QWidget
 {
   Q_OBJECT

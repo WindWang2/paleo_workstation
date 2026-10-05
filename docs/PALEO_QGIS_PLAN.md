@@ -1497,9 +1497,18 @@ STAGE          | DEV DOES                          | STATUS
 - **机械执行**：`tools/check_layering.py`（include 归一化 + io/metadata
   白名单 + QtWidgets 词表禁令含 `class Q…;` 前向声明 + 头三行 `// 层：`
   标记硬检查），ctest 项 `layering`/`layering_strict`/`layering_selftest`；
+  另有两档 opt-in 诊断（方向 49，默认关、不进 strict 闸、不扰三档输出）：
+  `--transitive` 报「功能层直接 include 的 repo qgis 封装头经 include 闭包
+  （repo 边 + QGIS 自带头）传递引入 QtWidgets」黄牌链——QGIS 头目录按
+  `--qgis-include` > `$QGIS_PREFIX/include/qgis` > vendor 默认序定位；
+  `--symbol-audit` 对非视图层 `new`/`std::make_*` 构造 ui Q_OBJECT 类直接
+  红（符号级，当前零报告）。ui token 例外清单计数入
+  `tools/ui-token-baseline.txt` 收缩门（ctest `ui_tokens_strict`，只降不
+  升，方向 49 以 356 条起步——清理例外属 DESIGN 域递延）。
   `tools/layering-baseline.txt` 已归零，strict 下非空或可收缩均失败。
   各模块编为 `paleo_<模块>` 静态库，`paleo_core` 是 INTERFACE 兼容伞。
-  已知上限：护栏只挡 include 层，不能识别不带 include 的违规调用。
+  已知上限：护栏只挡 include 层，不能识别不带 include 的违规调用
+  （`--symbol-audit` 已补上 new/make_* 构造这一子面的抽检）。
 
 ## NOT in scope（本次评审决议）
 

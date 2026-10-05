@@ -1178,7 +1178,6 @@ PaleoTask *PetroPhysTaskService::startBatch(
   const auto request = std::make_shared<BatchRequest>(req);
   const auto result = std::make_shared<BatchResult>();
   const auto plans = std::make_shared<QHash<QString, WellMergePlan>>();
-  const QString outDir = outputDir;
   PaleoProjectStore *store = m_store;
   // 并集与驱动文件在服务线程定下来（worker 不碰 catalog）。无 catalog
   // 或索不到已决 LAS 时计划为空，worker 仍只解析 WellRef::lasPath。
@@ -1204,14 +1203,14 @@ PaleoTask *PetroPhysTaskService::startBatch(
       QStringLiteral("测井计算：%1 × %2 井")
           .arg(formulaName(req.formula))
           .arg(req.wells.size()),
-      [request, result, outDir, store, plans](PaleoTask *task) -> QString {
+      [request, result, outputDir, store, plans](PaleoTask *task) -> QString {
         QElapsedTimer totalClock;
         totalClock.start();
         const qint64 totalUnits = qint64(request->wells.size()) * 1000;
         task->reportStage(QStringLiteral("scan"));
         task->reportBytes(0, totalUnits);
         if (request->writeProduct)
-          QDir().mkpath(outDir);
+          QDir().mkpath(outputDir);
 
         for (int w = 0; w < request->wells.size(); ++w)
         {
@@ -1274,7 +1273,7 @@ PaleoTask *PetroPhysTaskService::startBatch(
               // #157：不覆盖既有产物——旧版本（managed=false、sha256 为凭）仍指向
               // 它；重名时追加 _2、_3… 序号另起文件。
               const QString base = QStringLiteral("%1/%2_%3_%4")
-                                       .arg(outDir, sanitizeToken(well.wellId),
+                                       .arg(outputDir, sanitizeToken(well.wellId),
                                             formulaKey(request->formula),
                                             sanitizeToken(request->outputMnemonic));
               QString path = base + QStringLiteral(".las");

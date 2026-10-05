@@ -462,6 +462,13 @@ bool RealizationWorkflow::deriveStatistics( const QString &setId,
   return true;
 }
 
+bool RealizationWorkflow::deriveAllStatistics( const QString &setId, QString *error )
+{
+  paleo::ensemble::StatsRequest want;
+  want.mean = want.stddev = want.p10 = want.p90 = true;
+  return deriveStatistics( setId, want, error );
+}
+
 bool RealizationWorkflow::differenceOfMeans( const QString &setIdA,
                                              const QString &setIdB, QString *error )
 {

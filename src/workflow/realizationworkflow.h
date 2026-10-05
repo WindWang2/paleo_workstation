@@ -65,6 +65,10 @@ class RealizationWorkflow : public QObject
     bool deriveStatistics( const QString &setId, const paleo::ensemble::StatsRequest &want,
                            QString *error = nullptr );
 
+    // 全口径便捷面：均值+总体标准差+P10+P90（壳层/UI 意图不带算法类型——
+    // StatsRequest 属 algorithms 层，视图侧不直持）。
+    bool deriveAllStatistics( const QString &setId, QString *error = nullptr );
+
     // 两集合均值差（A−B）：缺均值面的集合先补派生（派生本身记档）。
     // 网格不一致 → 拒绝。产物 = realization_diff 资产版本（parents =
     // 两侧均值版本）+ 图层 realsetdiff.<A>.<B>。成功发 realizationDiffReady。

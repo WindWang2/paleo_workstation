@@ -6,6 +6,7 @@
 #include "../paleoicons.h"
 #include "../../services/previewdoc.h"
 #include "../../catalog/datacatalog.h"
+#include "../../catalog/realizationset.h" // 方向 47：集合分组树 + 版本行标签
 #include "../../domain/importrows.h"
 #include "dataops/dataopscommands.h"
 #include "dataops/dataopsexport.h"
@@ -584,6 +585,24 @@ DataListPanel::DataListPanel(QWidget *parent)
     {
       emit surveyAreaActivated();
       emit assetFocusRequested(QStringLiteral("survey_area"));
+      return;
+    }
+    // 方向 47：集合成员/统计面叶 → 壳侧物化图层（缺席叶已禁选，到不了这里）。
+    if (nodeType == QLatin1String("realization_member"))
+    {
+      emit realizationMemberRequested(item->data(0, Qt::UserRole + 3).toString(),
+                                      item->data(0, Qt::UserRole + 4).toInt());
+      return;
+    }
+    if (nodeType == QLatin1String("realization_stat"))
+    {
+      emit realizationStatRequested(item->data(0, Qt::UserRole + 3).toString(),
+                                    item->data(0, Qt::UserRole + 4).toString());
+      return;
+    }
+    if (nodeType == QLatin1String("realization_set"))
+    {
+      item->setExpanded(!item->isExpanded());
       return;
     }
     if (nodeType == QLatin1String("seismic_line"))
@@ -1728,7 +1747,76 @@ void DataListPanel::refreshAssetTree()
       it->setText(1, a.type);
   }
 
-  // 6. 标签分组（D2.4 组织面 + D3.5 拖放目标）：每个标签一个叶节点，
+  // 6. 不确定性集合（方向 47）：realization_set 资产 → 父集合→成员树，
+  //    成员 index 升序 + 缺号位如实列「缺席」；统计面挂为集合子节点
+  //   （成员叶激活 = realizationMemberRequested，统计叶 = realizationStatRequested）。
+  {
+    const auto sets = paleo::realization::enumerateSets(*cat);
+    if (!sets.isEmpty())
+    {
+      auto *setRoot = new QTreeWidgetItem(m_tree);
+      setRoot->setText(0, tr("不确定性集合 (%1)").arg(sets.size()));
+      setRoot->setText(1, tr("realization 集合 · 成员等概率实现"));
+      setRoot->setData(0, Qt::UserRole + 2, QStringLiteral("category"));
+      setRoot->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mIconRaster.svg")));
+      setRoot->setExpanded(true);
+      for (const auto &set : sets)
+      {
+        auto *setItem = new QTreeWidgetItem(setRoot);
+        QString setText = tr("%1（%2/%3 成员）")
+                              .arg(set.title)
+                              .arg(set.members.size())
+                              .arg(set.declaredCount);
+        if (!set.missingIndices.isEmpty())
+        {
+          QStringList miss;
+          for (const int idx : set.missingIndices)
+            miss << QStringLiteral("#%1").arg(idx);
+          setText += tr(" · 缺 %1").arg(miss.join(QStringLiteral("、")));
+        }
+        setItem->setText(0, setText);
+        setItem->setText(1, set.members.size() == 1 ? tr("单成员 · 无不确定性")
+                                                  : tr("realization 集合"));
+        setItem->setData(0, Qt::UserRole, set.setId); // 集合资产 id
+        setItem->setData(0, Qt::UserRole + 2, QStringLiteral("realization_set"));
+        setItem->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mIconRaster.svg")));
+        setItem->setExpanded(true);
+        // 成员叶按 declaredCount 全列——缺号位展示为缺席（禁选）。
+        for (int idx = 0; idx < set.declaredCount; ++idx)
+        {
+          const QString vid = paleo::realization::memberVersionId(set, idx);
+          auto *leaf = new QTreeWidgetItem(setItem);
+          leaf->setText(0, vid.isEmpty() ? tr("成员 #%1（缺席）").arg(idx)
+                                       : tr("成员 #%1").arg(idx));
+          leaf->setData(0, Qt::UserRole + 2, QStringLiteral("realization_member"));
+          leaf->setData(0, Qt::UserRole + 3, set.setId);
+          leaf->setData(0, Qt::UserRole + 4, idx);
+          leaf->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mIconRaster.svg")));
+          if (vid.isEmpty())
+          {
+            leaf->setFlags(leaf->flags() & ~Qt::ItemIsEnabled);
+            leaf->setText(1, tr("成员栅格缺席——集合不完整"));
+          }
+          else
+            leaf->setText(1, tr("成员版本 %1").arg(vid.left(8)));
+        }
+        // 统计面子节点（token → 口径词与图签同源）。
+        for (const auto &s : paleo::realization::statSurfaces(*cat, set.setId))
+        {
+          auto *leaf = new QTreeWidgetItem(setItem);
+          const QString label = paleo::realization::statisticDisplayLabel(s.token);
+          leaf->setText(0, tr("%1 · %2 成员").arg(label.isEmpty() ? s.token : label).arg(s.memberCount));
+          leaf->setData(0, Qt::UserRole + 2, QStringLiteral("realization_stat"));
+          leaf->setData(0, Qt::UserRole + 3, set.setId);
+          leaf->setData(0, Qt::UserRole + 4, s.token);
+          leaf->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mIconRaster.svg")));
+          leaf->setText(1, tr("统计面 %1").arg(s.token));
+        }
+      }
+    }
+  }
+
+  // 7. 标签分组（D2.4 组织面 + D3.5 拖放目标）：每个标签一个叶节点，
   //    拖资产到标签节点 = 打标签；点击标签 = 过滤。
   const auto tagCloud = m_tags.tagCloud();
   if (!tagCloud.isEmpty())
@@ -3070,6 +3158,19 @@ DataListPanel::versionRowsForAsset(const QString &assetId) const
     r.sha256 = v.sha256;
     r.sourceUri = v.sourceUri;
     r.isCurrent = (v.id == cur.id);
+    // 方向 47：realization 契约键 → 成员/统计面标签（缺键行不受影响）。
+    {
+      bool indexOk = false;
+      const int idx = v.extra.value( paleo::realization::kKeyIndex ).toInt( &indexOk );
+      const QString statToken = v.extra.value( paleo::realization::kKeyStatistic ).toString();
+      if ( indexOk && idx >= 0 )
+        r.memberNote = tr( "成员 #%1" ).arg( idx );
+      else if ( !statToken.isEmpty() )
+      {
+        const QString label = paleo::realization::statisticDisplayLabel( statToken );
+        r.memberNote = label.isEmpty() ? statToken : label;
+      }
+    }
     const QString abs = v.managed ? DataCatalog::resolvedVersionPath(pd, v) : v.path;
     if (!abs.isEmpty())
     {

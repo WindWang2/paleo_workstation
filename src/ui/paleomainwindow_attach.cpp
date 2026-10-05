@@ -70,6 +70,10 @@
 #include "datapreview/datapreviewtabs.h"
 #include "wellcomposite/derivedsink.h" // deepen-perf D1：井综合派生登记 sink
 #include "../catalog/datacatalog.h"
+#include "../catalog/realizationset.h"       // 方向 47：集合 DTO/口径词（图签文案同源）
+#include "../workflow/realizationworkflow.h" // 方向 47：派生/差值/图层 id 词表
+#include "realization/realizationpanel.h"    // 方向 47：集合查看面 intent 信号
+#include "decorations/paleodecorations.h"    // 方向 47：不确定性图签
 #include "layoutdesignershell.h"
 #include "edittools/editingtoolbar.h"
 #include "layout/layoutexportactions.h"
@@ -1090,6 +1094,15 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
               }
               runHorizonGridding(this, const_cast<DataCatalog *>(catalogConst), projectDir,
                                  taskSvc, m_layerSvc, gpkg, assetId);
+            });
+    // 方向 47：集合树的成员/统计叶节点 → 同上图通道（图签文案同源）。
+    connect(dataPage->listPanel(), &DataListPanel::realizationMemberRequested, this,
+            [this](const QString &setId, int index) {
+              showRealizationMember(setId, index);
+            });
+    connect(dataPage->listPanel(), &DataListPanel::realizationStatRequested, this,
+            [this](const QString &setId, const QString &token) {
+              showRealizationStat(setId, token);
             });
     // 方向 32：井分层右键「编辑分层…」→ 版本化编辑对话框（GUI 线程单事务）。
     connect(dataPage->listPanel(), &DataListPanel::topsEditRequested, this,
@@ -2123,6 +2136,80 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
     });
     // ---- m2(B) end ----
   }
+
+  // ---- 方向 47：realization 集合面板接线（独立于约束 workflow——集合是
+  // SGS 副产物，查看/派生/差值不依赖约束捕获通道）----------------------------
+  if (constraintPage)
+  {
+    auto *rsPanel = constraintPage->findChild<RealizationPanel *>(
+        QStringLiteral("realizationPanel"));
+    if (rsPanel)
+    {
+      if (!m_realizationWf)
+      {
+        m_realizationWf = new RealizationWorkflow(this);
+        m_realizationWf->setObjectName(QStringLiteral("realizationWorkflow"));
+      }
+      // catalog 换绑：工程打开后 catalog/projectDir 才就绪；接线时已在场则
+      // 立即换绑。bind 幂等（成员寻址按调用时刻状态查询）。
+      const auto rebindRealization = [this, rsPanel] {
+        DataCatalog *cat = m_previewDoc ? m_previewDoc->catalog() : nullptr;
+        const QString projectDir =
+            m_projectSvc ? QFileInfo(m_projectSvc->projectPath()).absolutePath() : QString();
+        if (m_realizationWf)
+          m_realizationWf->bind(cat, projectDir, m_layerSvc);
+        rsPanel->bindCatalog(cat);
+      };
+      if (m_projectSvc)
+        connect(m_projectSvc, &QgisProjectService::projectOpened, this,
+                rebindRealization);
+      rebindRealization();
+
+      connect(rsPanel, &RealizationPanel::statusMessage, this,
+              [this](const QString &text) { statusBar()->showMessage(text, 8000); });
+      connect(rsPanel, &RealizationPanel::memberShowRequested, this,
+              [this](const QString &setId, int index) {
+                showRealizationMember(setId, index);
+              });
+      connect(rsPanel, &RealizationPanel::statShowRequested, this,
+              [this](const QString &setId, const QString &token) {
+                showRealizationStat(setId, token);
+              });
+      // 派生/差值走功能层便捷面——视图不持 algorithms 的 StatsRequest 类型。
+      connect(rsPanel, &RealizationPanel::deriveStatsRequested, this,
+              [this](const QString &setId) {
+                if (!m_realizationWf)
+                  return;
+                QString err;
+                if (!m_realizationWf->deriveAllStatistics(setId, &err))
+                  statusBar()->showMessage(
+                      err.isEmpty() ? tr("统计派生失败") : err, 8000);
+              });
+      connect(rsPanel, &RealizationPanel::diffRequested, this,
+              [this](const QString &setIdA, const QString &setIdB) {
+                if (!m_realizationWf)
+                  return;
+                QString err;
+                if (!m_realizationWf->differenceOfMeans(setIdA, setIdB, &err))
+                  statusBar()->showMessage(
+                      err.isEmpty() ? tr("集合差值失败") : err, 8000);
+              });
+      // 派生/差值成功 → 直接上图反馈（统计亮均值面，图签口径词同源）。
+      connect(m_realizationWf, &RealizationWorkflow::realizationStatsDerived, this,
+              [this](const QString &setId, const QStringList &tokens) {
+                if (tokens.contains(paleo::realization::kStatMean))
+                  showRealizationStat(setId, paleo::realization::kStatMean);
+              });
+      connect(m_realizationWf, &RealizationWorkflow::realizationDiffReady, this,
+              [this](const QString &, const QString &, const QString &layerId) {
+                showRealizationLayer(
+                    layerId,
+                    paleo::realization::statisticDisplayLabel(
+                        paleo::realization::kStatMeanDiff),
+                    QString());
+              });
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2467,6 +2554,86 @@ bool PaleoMainWindow::revealDeclaredLayer(const QString &layerId, bool zoomTo)
     m_canvasCtl->zoomToLayer(layerId);
   }
   return true;
+}
+
+void PaleoMainWindow::showRealizationLayer(const QString &layerId,
+                                           const QString &badgeTitle,
+                                           const QString &badgeSub)
+{
+  if (!revealDeclaredLayer(layerId, false))
+  {
+    statusBar()->showMessage(tr("集合图层上图失败：%1").arg(layerId), 8000);
+    return;
+  }
+  // 同集合互斥：成员面 realset.<id>.m* 与统计面 realset.<id>.stat.* 各按
+  // 前缀成组——切成员只换成员、切统计只换统计，成员+统计可并置同读；
+  // 差值面 realsetdiff.* 不互斥（对比视图可叠在成员/统计之上）。
+  QString mutexPrefix;
+  const int statPos = layerId.indexOf(QStringLiteral(".stat."));
+  const int memberPos = layerId.lastIndexOf(QStringLiteral(".m"));
+  if (statPos >= 0)
+    mutexPrefix = layerId.left(statPos) + QStringLiteral(".stat.");
+  else if (memberPos >= 0)
+    mutexPrefix = layerId.left(memberPos) + QStringLiteral(".m");
+  if (!mutexPrefix.isEmpty())
+  {
+    QgsProject *proj = m_projectSvc ? m_projectSvc->project() : nullptr;
+    QgsLayerTree *tree = proj ? proj->layerTreeRoot() : nullptr;
+    if (tree && m_layerSvc)
+    {
+      const QVector<LayerDeclaration> decls = m_layerSvc->declared();
+      for (const LayerDeclaration &d : decls)
+      {
+        if (d.layerId == layerId || !d.layerId.startsWith(mutexPrefix))
+          continue;
+        if (QgsMapLayer *other = m_layerSvc->layer(d.layerId))
+          if (auto *node = tree->findLayer(other->id()))
+            node->setItemVisibilityChecked(false);
+      }
+    }
+  }
+  // 不确定性图签：图签只随集合面在画布期间存在；badgeTitle 空 = 关。
+  if (m_decorMgr)
+  {
+    if (badgeTitle.isEmpty())
+      m_decorMgr->clearUncertaintyBadge();
+    else
+      m_decorMgr->setUncertaintyBadge(badgeTitle, badgeSub);
+  }
+}
+
+void PaleoMainWindow::showRealizationMember(const QString &setId, int index)
+{
+  QString subtitle;
+  if (DataCatalog *cat = m_previewDoc ? m_previewDoc->catalog() : nullptr)
+  {
+    const paleo::realization::RealizationSet set =
+        paleo::realization::setById(*cat, setId);
+    subtitle = tr("%1 成员在场").arg(set.members.size());
+    if (!set.missingIndices.isEmpty())
+    {
+      QStringList missing;
+      for (const int idx : set.missingIndices)
+        missing << QStringLiteral("#%1").arg(idx);
+      subtitle += tr(" · 缺 %1").arg(missing.join(QStringLiteral(" ")));
+    }
+  }
+  showRealizationLayer(RealizationWorkflow::memberLayerId(setId, index),
+                       tr("集合成员 #%1").arg(index), subtitle);
+}
+
+void PaleoMainWindow::showRealizationStat(const QString &setId, const QString &token)
+{
+  QString subtitle;
+  if (DataCatalog *cat = m_previewDoc ? m_previewDoc->catalog() : nullptr)
+  {
+    const auto stats = paleo::realization::statSurfaces(*cat, setId);
+    for (const auto &s : stats)
+      if (s.token == token)
+        subtitle = tr("%1 成员参与").arg(s.memberCount);
+  }
+  showRealizationLayer(RealizationWorkflow::statLayerId(setId, token),
+                       paleo::realization::statisticDisplayLabel(token), subtitle);
 }
 
 void PaleoMainWindow::pinLayoutTheme(QgsLayoutItemMap *mapItem, const QString &pageId)

@@ -75,18 +75,26 @@
 - **Priority:** P3
 - **Depends on:** goal/well-logset 的 `WellLogSet` 读面
 
-## P3 — 地层格架后续：断块网格 / 随机模拟（from goal/property-modeling, 2026-10-02）
+## P3 — 地层格架后续：断块网格 / 随机模拟（from goal/property-modeling, 2026-10-02；方向 45 已消化大部分）
 
 - **What:** V1 只做等比例 IJK 格架 + 井曲线粗化 + 断层竖帘阻断的 IDW。
-  未做 pillar/断块错位网格、Y 型断层、沉积相带/对象建模、序贯高斯模拟，
-  也未做变差函数克里金。壳层「属性建模」dock 已接并进入 master。
-- **Why:** 断块网格和随机模拟是另一立项。斜井测斜表、断层棒投影也未做。
-- **Pros:** 等比例格架和 IDW 已能出 DERIVED 属性体；**Cons:** 斜井轨迹、
-  断距错位和相控仍要另做。
+  **方向 45（goal/prop-model-v2, 2026-10-05）已落**：断距矢量 z 向断块错位
+  （faultoffset）、序贯高斯充填接入 IJK 格架（geostat::sgs3 三维点集入口 +
+  stratgrid::sgsfill 编排）、相带分区参数域（facies_draft_map 栅格化）、
+  河道/点坝对象建模最小骨架（对象优先硬覆盖）、多 realization 各落独立
+  DERIVED 版本、竖直近似显式口径。斜井测斜表消费已由方向 19 落地。
+- **仍递延：** Y 型断层分叉成面（依赖方向 40，数据模型已打底）、断距的
+  heave（x/y 向水平错动——破坏规则柱假设）、深度变化断距（生长断层）、
+  pillar 网格本体、带内变差拟合、对象-河道耦合点坝与多对象谱系、
+  多实现的逐条流式序列化（当前 R 份体+R 份 blob 峰值驻留）。
+- **Why:** 剩余项是另一立项量级；本轮口径见 ledger
+  `.goal-loop-ledger-prop-model-v2.md` 与 docs/progress/property-modeling.md V2 节。
+- **Pros:** 错位网格 + SGS/相控/对象已能出多实现属性体；**Cons:** Y 型与
+  heave 错位仍要另做。
 - **Context:** docs/progress/property-modeling.md「递延」。
 - **Effort:** human: L / CC: L
 - **Priority:** P3
-- **Depends on:** goal/property-modeling 的格架核与属性体容器
+- **Depends on:** goal/property-modeling 的格架核与属性体容器、goal/geostat 的变差/SGS 核
 
 ## P3 — 层位自动追踪 3D 服务暴露 + 显式倾角引导（from goal/horizon-autotrack, 2026-10-02）
 

@@ -29,8 +29,11 @@ void FaciesClassifyWorkflow::clear() {
 }
 void FaciesClassifyWorkflow::setSamples(std::shared_ptr<const SampleSet> s) {
   clear();
-  clearTraining(); // 样本换页即清训练集：行号依附旧样本，防错位标注
+  // 样本先落位、再清训练集：clearTraining 发 trainingChanged 时 m_samples
+  // 已非空，controller 的 refreshTrainingState 才能按新样本算禁用原因
+  // （顺序反了会停在「请先读取至少两个通道」的陈旧文案上）。
   m_samples = std::move(s);
+  clearTraining(); // 样本换页即清训练集：行号依附旧样本，防错位标注
 }
 void FaciesClassifyWorkflow::assignTrainingLabel(const QVector<int> &rows,
                                                  const QString &className) {
@@ -82,6 +85,9 @@ void FaciesClassifyWorkflow::clearTraining() {
   m_training = TrainingSet{};
   m_trained.reset();
   m_trainingDirty = false;
+  // 直调 clearTraining 时 finished 回调被 generation 早退，busy 永驻——
+  // 与 clear() 的补偿 emit 口径对齐（面板/训练按钮需要回到可用态）。
+  emit busyChanged(false);
   emit trainingChanged();
 }
 QString FaciesClassifyWorkflow::trainingSummary() const {

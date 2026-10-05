@@ -241,6 +241,7 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
   runParams.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( points ) );
   runParams.insert( QStringLiteral( "FIELD" ), field );
   runParams.insert( QStringLiteral( "CELL_SIZE" ), cellSize );
+  runParams.insert( QStringLiteral( "LOCAL_GRID_WKT" ), DataCatalog::localGridCrsWkt() );
   runParams.insert( QStringLiteral( "OUTPUT" ), st.absolutePath );
 
   // 约束线屏障随行（同 runConstraintIDW：清单里有该层位的约束图层就带上）。
@@ -376,6 +377,7 @@ bool ConstraintWorkflow::generateIsopachFactor( const QString &horizon, const QS
   QVariantMap runParams;
   runParams.insert( QStringLiteral( "INPUT_TOP" ), QVariant::fromValue( top ) );
   runParams.insert( QStringLiteral( "INPUT_BASE" ), QVariant::fromValue( base ) );
+  runParams.insert( QStringLiteral( "LOCAL_GRID_WKT" ), DataCatalog::localGridCrsWkt() );
   // 倒置层序（底高于顶）多为重叠/误拾取——默认折 nodata（注册表默认同值）。
   runParams.insert( QStringLiteral( "NEGATIVE_TO_NODATA" ),
                     params.value( QStringLiteral( "negativeToNodata" ),
@@ -474,6 +476,7 @@ bool ConstraintWorkflow::generateDistanceFactor( const QString &horizon, const Q
   QVariantMap runParams;
   runParams.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( points ) );
   runParams.insert( QStringLiteral( "CELL_SIZE" ), cellSize );
+  runParams.insert( QStringLiteral( "LOCAL_GRID_WKT" ), DataCatalog::localGridCrsWkt() );
   runParams.insert( QStringLiteral( "OUTPUT" ), st.absolutePath );
 
   // 约束图层随行（绕障语义在算法侧按 type 分拣：仅 break_line 阻断）。
@@ -683,6 +686,9 @@ bool ConstraintWorkflow::computeLocalDirectionJob( LocalDirectionJob *job, const
                     job->params.value( QStringLiteral( "coverage" ), QStringLiteral( "well_supported" ) ) );
   runParams.insert( QStringLiteral( "CLUSTER" ), job->params.value( QStringLiteral( "wellClusterLocality" ), false ) );
   runParams.insert( QStringLiteral( "LOCAL_GRID" ), job->params.value( QStringLiteral( "localGrid" ), false ) );
+  // ARCH-05：规范局部网格 WKT 由 workflow 注入（算法核不问 catalog），
+  // 局部网格输出的 GeoTIFF 保 EDATUM 往返等价。
+  runParams.insert( QStringLiteral( "LOCAL_GRID_WKT" ), DataCatalog::localGridCrsWkt() );
   runParams.insert( QStringLiteral( "REQUIRE_FULL_COVERAGE" ),
                     job->params.value( QStringLiteral( "requireFullCoverage" ), false ) );
   runParams.insert( QStringLiteral( "PERCENT_TO_FRACTION" ),
@@ -1190,6 +1196,7 @@ bool ConstraintWorkflow::generateStructuralFactor( const QString &horizon, const
                     params.value( QStringLiteral( "wellClusterLocality" ), true ) );
   runParams.insert( QStringLiteral( "LOCAL_GRID" ),
                     params.value( QStringLiteral( "localGrid" ), false ) );
+  runParams.insert( QStringLiteral( "LOCAL_GRID_WKT" ), DataCatalog::localGridCrsWkt() );
   runParams.insert( QStringLiteral( "OUTPUT" ), st.absolutePath );
 
   const QString stagedQc = fileStem( st.absolutePath ) + QStringLiteral( ".qc.json" );
@@ -1354,9 +1361,10 @@ QString variogramTypeName( paleo::geostat::VariogramModelType type )
 
 // NaN → nodata 的 float32 写出（mincurvature 同款 geoTransform/CRS 口径）。
 bool writeFloatRaster( const QString &path, const std::vector<double> &values, int cols, int rows,
-                       const double geoTransform[6], const QgsCoordinateReferenceSystem &crs )
+                       const double geoTransform[6], const QgsCoordinateReferenceSystem &crs,
+                       const QString &canonicalCrsWkt = QString() )
 {
-  GDALDatasetH ds = PaleoRasterOut::createFloatRaster( path, cols, rows, geoTransform, crs, -9999.0 );
+  GDALDatasetH ds = PaleoRasterOut::createFloatRaster( path, cols, rows, geoTransform, crs, -9999.0, canonicalCrsWkt );
   if ( !ds )
     return false;
   std::vector<float> row( static_cast<std::size_t>( cols ) );
@@ -1737,8 +1745,10 @@ bool ConstraintWorkflow::computeGeostatJob( GeostatJob *job, const std::function
       return false;
     }
     job->supportPath = QDir( tempDir ).filePath( QStringLiteral( "variance.tif" ) );
-    if ( !writeFloatRaster( job->outputPath, result.estimate, grid.cols, grid.rows, geoTransform, crs ) ||
-         !writeFloatRaster( job->supportPath, result.variance, grid.cols, grid.rows, geoTransform, crs ) )
+    if ( !writeFloatRaster( job->outputPath, result.estimate, grid.cols, grid.rows, geoTransform, crs,
+                             DataCatalog::localGridCrsWkt() ) ||
+         !writeFloatRaster( job->supportPath, result.variance, grid.cols, grid.rows, geoTransform, crs,
+                            DataCatalog::localGridCrsWkt() ) )
     {
       cleanupTemp();
       job->error = tr( "克里金栅格写盘失败" );
@@ -1793,8 +1803,10 @@ bool ConstraintWorkflow::computeGeostatJob( GeostatJob *job, const std::function
       }
     }
     job->supportPath = QDir( tempDir ).filePath( QStringLiteral( "std.tif" ) );
-    if ( !writeFloatRaster( job->outputPath, mean, grid.cols, grid.rows, geoTransform, crs ) ||
-         !writeFloatRaster( job->supportPath, spread, grid.cols, grid.rows, geoTransform, crs ) )
+    if ( !writeFloatRaster( job->outputPath, mean, grid.cols, grid.rows, geoTransform, crs,
+                             DataCatalog::localGridCrsWkt() ) ||
+         !writeFloatRaster( job->supportPath, spread, grid.cols, grid.rows, geoTransform, crs,
+                            DataCatalog::localGridCrsWkt() ) )
     {
       cleanupTemp();
       job->error = tr( "SGS 栅格写盘失败" );
@@ -1810,7 +1822,7 @@ bool ConstraintWorkflow::computeGeostatJob( GeostatJob *job, const std::function
         const QString memberPath = QDir( tempDir ).filePath(
             QStringLiteral( "member_r%1.tif" ).arg( k, 3, 10, QLatin1Char( '0' ) ) );
         if ( !writeFloatRaster( memberPath, result.realizations[k], grid.cols,
-                                grid.rows, geoTransform, crs ) )
+                                grid.rows, geoTransform, crs, DataCatalog::localGridCrsWkt() ) )
         {
           cleanupTemp();
           job->error = tr( "SGS 成员栅格写盘失败（成员 %1）" ).arg( k );
@@ -3130,6 +3142,7 @@ bool ConstraintWorkflow::computeInterpretiveContourJob( InterpretiveContourJob *
   request.levels.assign( job->levels.cbegin(), job->levels.cend() );
   request.transition = 0.0;
   request.deriveCrsFromDataset = true;
+  request.canonicalCrsWkt = DataCatalog::localGridCrsWkt();
   request.cancelled = cancelled;
   const paleo::singlefactor::CartographicWorkWritten written =
       paleo::singlefactor::writeCartographicWorkFile( request );

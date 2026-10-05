@@ -110,8 +110,13 @@ def generate(out):
     workbook(out / "shared_strings_missing.xlsx", headers + '<row r="2"><c r="A2" t="s"><v>0</v></c><c r="B2"><v>123</v></c><c r="C2"><v>456</v></c></row>')
     workbook(out / "implicit_row.xlsx", headers + '<row><c r="C100"><v>456</v></c><c r="A100" t="inlineStr"><is><t>W1</t></is></c><c r="B100"><v>123</v></c></row>')
     (out / "physical_intervals.xml").write_text('<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="层段"><Table><Row ss:Index="7"><Cell><Data ss:Type="String">层号</Data></Cell><Cell><Data ss:Type="String">厚度</Data></Cell></Row><Row ss:Index="100"><Cell><Data ss:Type="String">T1</Data></Cell><Cell><Data ss:Type="Number">123</Data></Cell></Row></Table></Worksheet></Workbook>', encoding="utf-8")
+    xml_header = '<Row><Cell><Data ss:Type="String">井号</Data></Cell><Cell><Data ss:Type="String">X</Data></Cell><Cell><Data ss:Type="String">Y</Data></Cell></Row>'
+    for name, row in (
+        ("duplicate_cells.xml", '<Row><Cell><Data ss:Type="String">W1</Data></Cell><Cell><Data ss:Type="Number">123</Data></Cell><Cell ss:Index="2"><Data ss:Type="Number">999</Data></Cell><Cell ss:Index="3"><Data ss:Type="Number">456</Data></Cell></Row>'),
+        ("oversize_merge.xml", '<Row><Cell ss:MergeAcross="2147483647"><Data ss:Type="String">W1</Data></Cell><Cell><Data ss:Type="Number">123</Data></Cell><Cell><Data ss:Type="Number">456</Data></Cell></Row>')):
+        (out / name).write_text('<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="坐标"><Table>' + xml_header + row + '</Table></Worksheet></Workbook>', encoding="utf-8")
     manifest = {p.name: {"bytes": p.stat().st_size, "sha256": hashlib.sha256(p.read_bytes()).hexdigest()} for p in sorted(out.iterdir()) if p.name != "manifest.json" and p.is_file()}
-    (out / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    (out / "manifest.json").write_bytes((json.dumps(manifest, indent=2, ensure_ascii=False) + "\n").encode("utf-8"))
 
 
 def main():

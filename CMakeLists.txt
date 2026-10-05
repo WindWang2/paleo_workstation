@@ -840,11 +840,12 @@ add_paleo_test(tst_releasepanel LIBS paleo_ui)
 add_paleo_test(tst_taskpanel LIBS paleo_ui)
 add_paleo_test(tst_attrpanel LIBS paleo_ui)
 # ---- merged worktree waves ----
-# 方向50：井文件空值、导入台账与单位消费。
+# 方向50：IO 容错、导入诊断、SDK 消费与工作簿边角回归。
 add_paleo_test(tst_wellfileparsers LIBS paleo_io)
 add_paleo_test(tst_io_importledger LIBS paleo_workflow)
 add_paleo_test(tst_io_robustness LIBS paleo_io paleo_algorithms)
 add_paleo_test(tst_io_seismicquality LIBS paleo_services paleo_algorithms)
+add_paleo_test(tst_io_workbook_edges LIBS paleo_io)
 add_paleo_test(tst_segy LIBS paleo_io)
 add_paleo_test(tst_las LIBS paleo_io)
 add_paleo_test(tst_dlisparser LIBS paleo_io)          # 方向44：DLIS (RP66 v1) 全集读口

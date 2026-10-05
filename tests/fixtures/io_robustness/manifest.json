@@ -11,6 +11,10 @@
     "bytes": 2207,
     "sha256": "f06cd9e04ffe153034be467c4b171b707f77c09817820cf8875ab56afaa9ce47"
   },
+  "duplicate_cells.xml": {
+    "bytes": 553,
+    "sha256": "9787eacc6f0cfedfc2f83258f2b1e6c08378cb6afa1524fcaa108648058c25b2"
+  },
   "finite_ieee_edges.sgy": {
     "bytes": 4816,
     "sha256": "549235dfffee66fcccf977bd5384b4ccb56b38be68cf455ff70d3ab1764694c3"
@@ -42,6 +46,10 @@
   "nonfinite_ieee.sgy": {
     "bytes": 4816,
     "sha256": "3eb116d09b4f220e1e075e93ab8471b8a81cbae921d5573682a9381e7e057706"
+  },
+  "oversize_merge.xml": {
+    "bytes": 509,
+    "sha256": "93995002307555d764564ebe1c170d826a0974119917018fcc8180ce5190351f"
   },
   "physical_intervals.xml": {
     "bytes": 424,

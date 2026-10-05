@@ -11,7 +11,7 @@
 // 两种工作簿容器：
 //   - SpreadsheetML 2003（.xml，urn:schemas-microsoft-com:office:spreadsheet）
 //   - OOXML（.xlsx，ZIP：xl/workbook.xml + xl/_rels/workbook.xml.rels +
-//     xl/sharedStrings.xml + xl/worksheets/sheetN.xml）
+//     xl/worksheets/sheetN.xml；sharedStrings.xml 仅共享字符串单元格需要）
 // 单元格语义与上游一致：首行为表头，其后为数据行；ss:Index/ss:MergeAcross 与
 // OOXML 的 r="B3" 列引用都按 1 基列号补齐空洞。
 //
@@ -26,6 +26,8 @@ struct WorkbookSheet
 {
   QString name;
   QStringList headers;         // 首个非空行的单元格（原样，尾部空列已去掉）
+  int headerRowNumber = 1;     // 首个非空表头的物理行号
+  QVector<int> rowNumbers;     // 与 rows 平行；不按缺行分配空洞
   QVector<QStringList> rows;   // 表头之后的行（保留原始列数，含空行位置）
 };
 
@@ -90,7 +92,7 @@ struct IntervalRow
   bool ok = false;
   QString error;
   QString sheetName;
-  int rowNumber = 0; // 工作簿内物理行号（表头为 1）
+  int rowNumber = 0; // 工作簿内物理行号
   QStringList headers;
   QStringList values;
   QStringList issues;

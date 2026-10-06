@@ -45,6 +45,15 @@ QgisLabelZOrder::QgisLabelZOrder( QgsProject *project, QObject *parent )
   refresh();
 }
 
+bool QgisLabelZOrder::labelsWithLayerSupported()
+{
+#ifdef QGIS_PALEO_LABELS_WITH_LAYER
+  return true;
+#else
+  return false;
+#endif
+}
+
 void QgisLabelZOrder::applyToLayer( QgsMapLayer *layer )
 {
   if ( !layer )

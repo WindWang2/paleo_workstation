@@ -55,6 +55,9 @@ StratigraphicWebSession::~StratigraphicWebSession()
   {
     m_reply->disconnect(this);
     m_reply->abort();
+    // #235-4：QNAM 不接管 reply 所有权——abort 后须释放（同 fail() 口径）。
+    m_reply->deleteLater();
+    m_reply = nullptr;
   }
   m_process.disconnect(this);
   // 只回收本会话启动的进程；连接的已有服务从不交给 QProcess。

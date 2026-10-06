@@ -39,6 +39,7 @@ class CacheCoreTests : public QObject
     void cacheFileRejectsVersionOutOfRange();
     void cacheFileRejectsCorruptPayload();
     void cacheFileSelfHealsTruncated();
+    void cacheFileRejectsCorruptSizeFields();
     void cacheFileAtomicCreatesParentDirs();
     void cacheIoPrimitivesRoundtrip();
     void zstdRoundtrip();
@@ -342,6 +343,43 @@ void CacheCoreTests::cacheFileSelfHealsTruncated()
   QString reason;
   QVERIFY(!readCacheFile(path, QByteArray("TRNCTST!"), 1, 1, nullptr, nullptr, &reason));
   QVERIFY(reason.contains(QStringLiteral("truncated")) || reason.contains(QStringLiteral("size")));
+}
+
+void CacheCoreTests::cacheFileRejectsCorruptSizeFields()
+{
+  // #217：storedSize（字节 28-35）/payloadSize（20-27）不在 headerCrc 覆盖内。
+  // 高位单比特翻转必须走「损坏」报因（调用方据此自愈删除），不得按声明值分配。
+  QTemporaryDir dir;
+  const QString path = dir.filePath("s.cache");
+  QVERIFY(writeCacheFileAtomic(path, QByteArray("SIZETST!"), 1, CacheFlags::None,
+                               QByteArray(4000, 'q')));
+  {
+    QFile f(path);
+    QVERIFY(f.open(QIODevice::ReadWrite));
+    QVERIFY(f.seek(28 + 5)); // storedSize 第 6 字节 → 声明 ~2^40 字节
+    QVERIFY(f.putChar(char(0x01)));
+  }
+  QString reason;
+  QVERIFY(!readCacheFile(path, QByteArray("SIZETST!"), 1, 1, nullptr, nullptr, &reason));
+  QCOMPARE(reason, QStringLiteral("truncated payload"));
+
+#ifdef PALEO_HAVE_ZSTD
+  // 压缩文件的 payloadSize 损坏：与 zstd 帧头 content size 不符 → 直接判失败。
+  const QString zpath = dir.filePath("z.cache");
+  QVERIFY(writeCacheFileAtomic(zpath, QByteArray("SIZETST!"), 1, CacheFlags::ZstdCompressed,
+                               QByteArray(100000, 'z')));
+  {
+    QFile f(zpath);
+    QVERIFY(f.open(QIODevice::ReadWrite));
+    QVERIFY(f.seek(20 + 4)); // payloadSize 第 5 字节 → 声明 ~4GB
+    QVERIFY(f.putChar(char(0x01)));
+  }
+  reason.clear();
+  QByteArray back;
+  QVERIFY(!readCacheFile(zpath, QByteArray("SIZETST!"), 1, 1, &back, nullptr, &reason));
+  QVERIFY(back.isEmpty());
+  QVERIFY2(reason.contains(QStringLiteral("zstd")), qPrintable(reason));
+#endif
 }
 
 void CacheCoreTests::cacheFileAtomicCreatesParentDirs()

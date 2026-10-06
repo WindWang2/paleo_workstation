@@ -1,6 +1,8 @@
 // 层：数据
 #include "frameworkstore.h"
 
+#include "metadata/atomicfile.h"
+
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -163,20 +165,14 @@ bool FrameworkStore::save( const Framework &fw, QString *error )
   }
   const QByteArray bytes = toJsonBytes( fw );
   {
-    QFile f( abs );
-    if ( !f.open( QIODevice::WriteOnly ) )
+    // #233：tmp 同胞 + 原子替换——短写/崩溃不留截断 ver-N 孤儿。
+    QString writeErr;
+    if ( !paleoWriteFileAtomic( abs, bytes, &writeErr ) )
     {
       if ( error )
-        *error = QStringLiteral( "格架文件写不开：%1" ).arg( abs );
+        *error = QStringLiteral( "格架文件写入失败：%1（%2）" ).arg( abs, writeErr );
       return false;
     }
-    if ( f.write( bytes ) != bytes.size() )
-    {
-      if ( error )
-        *error = QStringLiteral( "格架文件写入不完整：%1" ).arg( abs );
-      return false;
-    }
-    f.close();
   }
 
   const CatalogVersion prev = m_catalog->currentVersion( aid );

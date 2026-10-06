@@ -71,8 +71,8 @@ void ErrorHub::setInstance(ErrorHub *customInstance) {
   s_instance = customInstance;
 }
 
-void ErrorHub::report(const ErrorEntry &input) {
-  ErrorEntry finalEntry = input;
+void ErrorHub::report(const ErrorEntry &entry) {
+  ErrorEntry finalEntry = entry;
   if (!finalEntry.timestamp.isValid()) {
     finalEntry.timestamp = QDateTime::currentDateTime();
   }

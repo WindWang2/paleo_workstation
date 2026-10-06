@@ -1825,7 +1825,7 @@ QCOMPARE(cache.bytes(), qint64(0));
 ---
 
 ### [TEST-06] 33 Source Headers and Critical Subsystems Completely Untested
-> **终态（2026-10-06，方向48 清账复核）**：仍存在→方向52 test-deepening（零测试头清单）
+> **终态（2026-10-07，方向58 标记同步）**：方向52 已清 16 个高/中危零测试头（其账本 R1/R3，见下 Resolution Status）。原「33 个」为审计期 228 头口径；方向58 按 f130fb2 重扫（445 头）：直接零引用 45、传递可达 14、完全不可达 31，其中 13 个为转发垫片/`_internal.h`（不计入），**低风险剩余 18 个逐项终态见 `docs/evidence/audit-tail/test06-untested-headers.md`（待补 7 / 不值得 11）**。高/中危部分已修（方向52）；低风险剩余为登记清单，不冒记全清。
 
 - **Severity**: **P2** (Test Coverage Blind Spot)
 - **Dimension**: Test Coverage & Automation Verification

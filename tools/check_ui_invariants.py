@@ -16,6 +16,10 @@
 #      域配色不属 UI token」），不在扫描面；paleotheme.cpp 是 token 字面量
 #      落地处、整文件豁免。
 #      合法残留走 baseline（同 layering-baseline 惯例：只缩不涨）。
+#   3. gl-dpr（DESIGN.md「High DPI」；goal/highdpi-20261007）：src/ui/** 的
+#      QOpenGLWidget 子类 resizeGL 定义体内必须引用 devicePixelRatio——
+#      QOpenGLWidget 的 FBO 是物理像素而 resizeGL 收逻辑像素，不乘 dpr
+#      则高 DPI 屏场景只占左下角。只扫 .cpp（.h 里是声明无函数体）。
 #
 # baseline 格式：每行 `<relpath>:<rule>`；`#` 开头注释/空行忽略。
 # --strict 下 baseline 非空即红（防回升）；非 strict 命中 baseline 降级提示。
@@ -28,9 +32,56 @@ from pathlib import Path
 
 MOTION_TOKENS = ("QPropertyAnimation", "QVariantAnimation", "QEasingCurve")
 HEX_RE = re.compile(r"#[0-9A-Fa-f]{6}\b|#[0-9A-Fa-f]{3}\b")
+RESIZEGL_DEF_RE = re.compile(r"::\s*resizeGL\s*\(")
 SETSTYLE_RE = re.compile(r"setStyleSheet\s*\(")
+# 剥 // 行注释与 /* */ 块注释——gl-dpr 的子串判定只看真实代码。
+CPP_COMMENT_RE = re.compile(r"//[^\n]*|/\*.*?\*/", re.S)
 
 EXEMPT_FILES = ("src/ui/paleotheme.cpp", "src/ui/paleotheme.h")
+
+
+def _balanced(text, open_idx):
+    """从 open_idx（指向 '{'）截到配对 '}' 的函数体；不配对返回 None。"""
+    depth = 0
+    for i in range(open_idx, len(text)):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[open_idx:i + 1]
+    return None
+
+
+def scan_resizegl_dpr(text, rel):
+    """gl-dpr 规则：resizeGL 定义体内必须引用 devicePixelRatio。
+
+    只认 `.cpp` 里的 `::resizeGL(...)` 定义（头文件里是声明，无体）。
+    参数表后的第一个 '{' 起做括号配对取函数体；体内（剥注释后的真实代码）
+    没有 devicePixelRatio 即违规——注释里提 devicePixelRatio 而代码没真乘
+    不算数（乘法口径任何形式都算：qRound/int()/裸乘均可）。"""
+    out = []
+    for m in RESIZEGL_DEF_RE.finditer(text):
+        line = text.count("\n", 0, m.start()) + 1
+        # 找参数表的配对 ')'，再跳过修饰符找 '{'（声明以 ';' 结尾则跳过）。
+        depth, i = 0, m.end() - 1
+        while i < len(text):
+            if text[i] == "(":
+                depth += 1
+            elif text[i] == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            i += 1
+        j = text.find("{", i)
+        semi = text.find(";", i)
+        if j == -1 or (semi != -1 and semi < j):
+            continue  # 声明（override;）或残缺——非定义不扫
+        body = _balanced(text, j)
+        code = CPP_COMMENT_RE.sub(" ", body) if body else None
+        if code and "devicePixelRatio" not in code:
+            out.append((f"{rel}:gl-dpr", f"{rel}:{line}: resizeGL 未引用 devicePixelRatio"))
+    return out
 
 
 def scan(root: Path):
@@ -69,6 +120,8 @@ def scan(root: Path):
                 if hx:
                     violations.append((f"{rel}:qss-hex",
                                        f"{rel}:{start}: {hx.group()}"))
+        if path.suffix == ".cpp" and rel not in EXEMPT_FILES:
+            violations.extend(scan_resizegl_dpr(text, rel))
         for i, line in enumerate(text.splitlines(), 1):
             if "setAnimated(true)" in line or any(t in line for t in MOTION_TOKENS):
                 violations.append((f"{rel}:motion", f"{rel}:{i}"))
@@ -84,19 +137,31 @@ def selftest():
     fake.mkdir(parents=True)
     (fake / "ok.cpp").write_text(
         'l->setStyleSheet(PaleoTheme::mutedCaptionStyleSheet());\n'
-        'c.setPen(QPen(QColor("#DFE5EC"), 1.0));  // 数据符号色不在规则面\n',
+        'c.setPen(QPen(QColor("#DFE5EC"), 1.0));  // 数据符号色不在规则面\n'
+        'void V::resizeGL(int w, int h) {\n'
+        '    glViewport(0, 0, qRound(w * devicePixelRatioF()),\n'
+        '              qRound(h * devicePixelRatioF()));\n'
+        '}\n',
         encoding="utf-8")
     (fake / "bad.cpp").write_text(
         'w->setStyleSheet(\n    QStringLiteral("color: #5D6E80;"));\n'
         'auto *a = new QPropertyAnimation(w, "pos");\n'
-        'tree->setAnimated(true);\n', encoding="utf-8")
+        'tree->setAnimated(true);\n'
+        'void B::resizeGL(int w, int h) { glViewport(0, 0, w, h); }\n'
+        # 注释绕过反例：只提词不真乘——剥注释后无 devicePixelRatio 必须打红
+        'void C::resizeGL(int w, int h) {\n'
+        '    // devicePixelRatio 已在上层处理\n'
+        '    glViewport(0, 0, w, h);\n'
+        '}\n',
+        encoding="utf-8")
     # #232：头文件内联实现同样在扫描面内。
     (fake / "badinline.h").write_text(
         'inline void f(QWidget *w) { w->setStyleSheet("color:#ABCDEF"); }\n',
         encoding="utf-8")
     v = scan(fake.parent.parent)
     keys = sorted(k for k, _ in v)
-    ok = keys == ["src/ui/bad.cpp:motion", "src/ui/bad.cpp:motion",
+    ok = keys == ["src/ui/bad.cpp:gl-dpr", "src/ui/bad.cpp:gl-dpr",
+                  "src/ui/bad.cpp:motion", "src/ui/bad.cpp:motion",
                   "src/ui/bad.cpp:qss-hex", "src/ui/badinline.h:qss-hex"]
     shutil.rmtree(fake.parent.parent)
     print("selftest:", "PASS" if ok else "FAIL", keys)

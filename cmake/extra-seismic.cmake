@@ -56,6 +56,12 @@ target_compile_definitions(tst_seismic_3dviz PRIVATE
   SEGY_FIXTURE_PATH="${CMAKE_SOURCE_DIR}/testdata/project_area/mini_seismic.sgy"
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
 
+# goal/highdpi-20261007：高 DPI 验收（QT_SCALE_FACTOR=2 子进程重入 + FBO 直渲
+# + 拾取 dpr 无关对拍；DESIGN.md「High DPI」）
+add_paleo_test(tst_seismic_highdpi LIBS paleo_ui)
+target_compile_definitions(tst_seismic_highdpi PRIVATE
+  SEGY_FIXTURE_PATH="${CMAKE_SOURCE_DIR}/testdata/project_area/mini_seismic.sgy")
+
 # P5 Phase 4 解释：拾取面板
 target_sources(paleo_ui PRIVATE src/ui/seismicsection/seismicpickpanel.cpp)
 

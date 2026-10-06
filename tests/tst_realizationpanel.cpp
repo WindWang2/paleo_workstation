@@ -90,6 +90,7 @@ class RealizationPanelTests : public QObject
     void singleMemberDisablesDerive();
     void animationTicksInFrameOrder();
     void diffIntentRequiresTwoDistinctSets();
+    void rebindDropsStaleSelection();
 };
 
 void RealizationPanelTests::emptyCatalogHonestState()
@@ -268,6 +269,27 @@ void RealizationPanelTests::diffIntentRequiresTwoDistinctSets()
   diffBtn->click();
   QCOMPARE( diffSpy.count(), 1 );
   QCOMPARE( diffSpy.takeFirst().at( 0 ).toString(), a );
+}
+
+// #236-3：重绑定（工程边界）不得沿用旧 set id 选择。
+void RealizationPanelTests::rebindDropsStaleSelection()
+{
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  DataCatalog catalog;
+  QVERIFY( catalog.open( dir.path() ) );
+  const QString a = makeSet( catalog, QStringLiteral( "A" ), { 0, 1 }, 2 );
+  const QString b = makeSet( catalog, QStringLiteral( "B" ), { 0, 1 }, 2 );
+  QVERIFY( !a.isEmpty() && !b.isEmpty() );
+
+  RealizationPanel panel;
+  panel.bindCatalog( &catalog );
+  auto *combo = panel.findChild<QComboBox *>( QStringLiteral( "realizationSetCombo" ) );
+  QVERIFY( combo );
+  combo->setCurrentIndex( combo->findData( b ) );
+  QCOMPARE( panel.currentSetId(), b );
+  panel.bindCatalog( &catalog );
+  QCOMPARE( panel.currentSetId(), combo->itemData( 0 ).toString() );
 }
 
 int main( int argc, char *argv[] )

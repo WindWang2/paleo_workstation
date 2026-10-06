@@ -89,7 +89,11 @@ def check(root):
             if name not in pins:
                 errors.append(f"{os.path.basename(lock)}: 缺顶层依赖 {name}")
         digest = hashlib.sha256(open(zpath, "rb").read()).hexdigest()
-        if base in cmake and digest not in cmake:
+        # #237：凡 zip 必须在 cmake 登记基名 + SHA——未登记本身即违规，
+        # 不得短路掉哈希核对。
+        if base not in cmake:
+            errors.append(f"{z}: 未在 cmake/extra-mamcl.cmake 登记（凡程序包必须登记 SHA-256）")
+        elif digest not in cmake:
             errors.append(f"cmake/extra-mamcl.cmake 登记的 SHA-256 与 {z} 实际 {digest} 不符")
     return errors
 
@@ -104,6 +108,18 @@ def selftest():
             continue
         raise AssertionError(f"应拒绝：{bad!r}")
     assert top_level("# c\nnumpy>=1\r\nopenzgy\nKmeans_Pytorch>=0.3\n") == ["numpy", "kmeans-pytorch"]
+    # #237：未在 cmake 登记的 zip 必须报错（旧实现短路跳过哈希核对）。
+    import tempfile
+    with tempfile.TemporaryDirectory() as root:
+        os.makedirs(os.path.join(root, "vendor", "mamcl"))
+        os.makedirs(os.path.join(root, "cmake"))
+        open(os.path.join(root, "cmake", "extra-mamcl.cmake"), "w", encoding="utf-8").write("# empty\n")
+        with zipfile.ZipFile(os.path.join(root, "vendor", "mamcl", "rogue.zip"), "w") as zf:
+            zf.writestr("rogue/requirements.txt", "a>=1\n")
+        open(os.path.join(root, "vendor", "mamcl", "rogue.requirements.lock"), "w",
+             encoding="utf-8").write("a==1.0 \\\n    --hash=sha256:" + "0" * 64 + "\n")
+        errs = check(root)
+        assert any("未在 cmake/extra-mamcl.cmake 登记" in e for e in errs), errs
     print("check_mamcl_lock selftest: PASS")
     return 0
 

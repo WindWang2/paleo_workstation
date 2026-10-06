@@ -457,7 +457,9 @@ NpyArray parseNpy( const QByteArray &bytes )
   }
   const qint64 count = static_cast<qint64>( result.rows ) * result.cols;
   const qint64 dataStart = prefix + headerLength;
-  if ( count < 0 || dataStart + count * width > bytes.size() )
+  // #216：count*width 在 shape 声明超大时会有符号溢出回绕成负值、击穿长度闸；
+  // 改用除法比较（dataStart <= bytes.size() 已由头部长度闸保证）。
+  if ( count < 0 || count > ( bytes.size() - dataStart ) / width )
   {
     result.error = QStringLiteral( "NPY 数据段长度与 shape 不符" );
     return result;

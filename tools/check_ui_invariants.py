@@ -92,7 +92,10 @@ def scan(root: Path):
     if not ui_root.is_dir():
         # 扫描根不存在 = 定位错误（ctest 的 cwd 是构建目录），不是「零违规」。
         raise FileNotFoundError(f"scan root not found: {ui_root}")
-    files = sorted(ui_root.rglob("*.?pp"))
+    # #232：头文件同属扫描面（.h 里的 setStyleSheet/动画同样要过闸）；
+    # 旧的 "*.?pp" 只匹配 .cpp/.hpp，漏掉全部 .h。
+    files = sorted(p for p in ui_root.rglob("*")
+                   if p.is_file() and p.suffix in (".cpp", ".hpp", ".h"))
     if not files:
         raise FileNotFoundError(f"scan root has no sources: {ui_root}")
     for path in files:
@@ -151,11 +154,15 @@ def selftest():
         '    glViewport(0, 0, w, h);\n'
         '}\n',
         encoding="utf-8")
+    # #232：头文件内联实现同样在扫描面内。
+    (fake / "badinline.h").write_text(
+        'inline void f(QWidget *w) { w->setStyleSheet("color:#ABCDEF"); }\n',
+        encoding="utf-8")
     v = scan(fake.parent.parent)
     keys = sorted(k for k, _ in v)
     ok = keys == ["src/ui/bad.cpp:gl-dpr", "src/ui/bad.cpp:gl-dpr",
                   "src/ui/bad.cpp:motion", "src/ui/bad.cpp:motion",
-                  "src/ui/bad.cpp:qss-hex"]
+                  "src/ui/bad.cpp:qss-hex", "src/ui/badinline.h:qss-hex"]
     shutil.rmtree(fake.parent.parent)
     print("selftest:", "PASS" if ok else "FAIL", keys)
     return 0 if ok else 1

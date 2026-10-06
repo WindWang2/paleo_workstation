@@ -305,6 +305,7 @@ bool ConstraintWorkflow::computeInterpretiveContourJob( InterpretiveContourJob *
   request.levels.assign( job->levels.cbegin(), job->levels.cend() );
   request.transition = 0.0;
   request.deriveCrsFromDataset = true;
+  request.canonicalCrsWkt = DataCatalog::localGridCrsWkt();
   request.cancelled = cancelled;
   const paleo::singlefactor::CartographicWorkWritten written =
       paleo::singlefactor::writeCartographicWorkFile( request );

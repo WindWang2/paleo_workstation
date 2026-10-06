@@ -84,8 +84,12 @@ class TestLayoutShell : public QObject
         QVERIFY( m != nullptr );
         QVERIFY( !m->title().isEmpty() );
       }
-      // Idempotent: repeated calls return the same menu.
+      // TEST-04：原断言自比较恒真。真实不变量：菜单 getter 幂等（重复取
+      // 同一 QMenu*——接口契约：QGIS 设计器假设菜单实例稳定），且各菜单
+      // 互不相同（getter 串了对象即红）。
       QCOMPARE( iface->layoutMenu(), iface->layoutMenu() );
+      QVERIFY( iface->layoutMenu() != iface->editMenu() );
+      QVERIFY( iface->layoutMenu() != iface->viewMenu() );
 
       for ( QToolBar *tb : { iface->layoutToolbar(), iface->navigationToolbar(),
                              iface->actionsToolbar(), iface->atlasToolbar() } )

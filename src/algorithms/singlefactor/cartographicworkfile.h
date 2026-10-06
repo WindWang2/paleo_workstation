@@ -40,6 +40,9 @@ struct CartographicWorkWrite
   // 为假时沿用 crs，无效 CRS 表示局部工程网。
   bool deriveCrsFromDataset = false;
   QgsCoordinateReferenceSystem crs;
+  // 规范局部网格 WKT（ARCH-05 参数化）：crs 与之同坐标系时输出 GeoTIFF 按
+  // 原串写（保 EDATUM）。空 = 无规范覆盖。由调用方注入，算法核不问 catalog。
+  QString canonicalCrsWkt;
   std::function<bool()> cancelled;
 };
 

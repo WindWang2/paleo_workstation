@@ -96,9 +96,10 @@ QString variogramTypeName( paleo::geostat::VariogramModelType type )
 
 // NaN → nodata 的 float32 写出（mincurvature 同款 geoTransform/CRS 口径）。
 bool writeFloatRaster( const QString &path, const std::vector<double> &values, int cols, int rows,
-                       const double geoTransform[6], const QgsCoordinateReferenceSystem &crs )
+                       const double geoTransform[6], const QgsCoordinateReferenceSystem &crs,
+                       const QString &canonicalCrsWkt = QString() )
 {
-  GDALDatasetH ds = PaleoRasterOut::createFloatRaster( path, cols, rows, geoTransform, crs, -9999.0 );
+  GDALDatasetH ds = PaleoRasterOut::createFloatRaster( path, cols, rows, geoTransform, crs, -9999.0, canonicalCrsWkt );
   if ( !ds )
     return false;
   std::vector<float> row( static_cast<std::size_t>( cols ) );
@@ -479,8 +480,10 @@ bool ConstraintWorkflow::computeGeostatJob( GeostatJob *job, const std::function
       return false;
     }
     job->supportPath = QDir( tempDir ).filePath( QStringLiteral( "variance.tif" ) );
-    if ( !writeFloatRaster( job->outputPath, result.estimate, grid.cols, grid.rows, geoTransform, crs ) ||
-         !writeFloatRaster( job->supportPath, result.variance, grid.cols, grid.rows, geoTransform, crs ) )
+    if ( !writeFloatRaster( job->outputPath, result.estimate, grid.cols, grid.rows, geoTransform, crs,
+                             DataCatalog::localGridCrsWkt() ) ||
+         !writeFloatRaster( job->supportPath, result.variance, grid.cols, grid.rows, geoTransform, crs,
+                            DataCatalog::localGridCrsWkt() ) )
     {
       cleanupTemp();
       job->error = tr( "克里金栅格写盘失败" );
@@ -535,8 +538,10 @@ bool ConstraintWorkflow::computeGeostatJob( GeostatJob *job, const std::function
       }
     }
     job->supportPath = QDir( tempDir ).filePath( QStringLiteral( "std.tif" ) );
-    if ( !writeFloatRaster( job->outputPath, mean, grid.cols, grid.rows, geoTransform, crs ) ||
-         !writeFloatRaster( job->supportPath, spread, grid.cols, grid.rows, geoTransform, crs ) )
+    if ( !writeFloatRaster( job->outputPath, mean, grid.cols, grid.rows, geoTransform, crs,
+                             DataCatalog::localGridCrsWkt() ) ||
+         !writeFloatRaster( job->supportPath, spread, grid.cols, grid.rows, geoTransform, crs,
+                            DataCatalog::localGridCrsWkt() ) )
     {
       cleanupTemp();
       job->error = tr( "SGS 栅格写盘失败" );
@@ -552,7 +557,7 @@ bool ConstraintWorkflow::computeGeostatJob( GeostatJob *job, const std::function
         const QString memberPath = QDir( tempDir ).filePath(
             QStringLiteral( "member_r%1.tif" ).arg( k, 3, 10, QLatin1Char( '0' ) ) );
         if ( !writeFloatRaster( memberPath, result.realizations[k], grid.cols,
-                                grid.rows, geoTransform, crs ) )
+                                grid.rows, geoTransform, crs, DataCatalog::localGridCrsWkt() ) )
         {
           cleanupTemp();
           job->error = tr( "SGS 成员栅格写盘失败（成员 %1）" ).arg( k );

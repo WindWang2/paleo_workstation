@@ -316,6 +316,11 @@ add_executable(paleo_selfcheck src/selfcheck/main.cpp)
 target_link_libraries(paleo_selfcheck PRIVATE paleo_qgis_iface)
 target_compile_definitions(paleo_selfcheck PRIVATE FIXTURE_GPKG="${FIXTURE_GPKG}")
 
+# demo 工程无头构建工具（组装根）：xlsx 转规范井文本 + 生产导入路径 +
+# georeference 落 project.paleo + 重开自校验。用法见 src/app/mkproject.cpp 头注。
+add_executable(paleo_mkproject src/app/mkproject.cpp)
+target_link_libraries(paleo_mkproject PRIVATE paleo_services paleo_qgis)
+
 # ---- ONNX Runtime (vendored; spike ET4) — 先于模块库定义，paleo_ai 依赖它 ----
 find_path(ORT_INCLUDE onnxruntime_cxx_api.h PATHS ${CMAKE_SOURCE_DIR}/vendor/onnxruntime/include)
 find_library(ORT_LIB onnxruntime PATHS ${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib)
@@ -506,6 +511,7 @@ add_library(paleo_services STATIC
   src/services/startuptrace.cpp                     # goal/perf-systematize 簇1：启动分段仪表
   src/services/storagegovernance.cpp
   src/services/cataloghealth.cpp                    # 方向30：工区资产体检（快速面 + 外链 SHA 复验）
+  src/services/errorhub.cpp                         # 方向54+方向64：统一错误通道（去重/聚合/环形历史，两实现并存）
 )
 target_link_libraries(paleo_services PUBLIC paleo_deps paleo_io paleo_domain paleo_store paleo_algorithms)
 
@@ -556,6 +562,10 @@ target_link_libraries(paleo_workflow PUBLIC paleo_deps paleo_qgis paleo_store pa
 
 # ---- 视图层 ----
 add_library(paleo_ui STATIC
+  src/ui/notifications/notificationcenter.cpp      # 方向64：错误呈现（通知卡/severe 模态/状态栏）
+  src/ui/notifications/toastcard.cpp               # 方向64：通知卡（预建池复用）
+  src/ui/notifications/paleonotify.cpp             # 方向64：视图层错误/确认统一出口
+  src/ui/notifications/errorhistorypanel.cpp       # 方向64：错误历史面板（过滤/复制/清空）
   src/ui/pages/stratigraphicwebpage.cpp
   src/ui/symbols/symbolpickerpanel.cpp             # 方向31：符号选择器面板（花纹/线型浏览 + 语义过滤）
   src/ui/pages/mappingworkbenchpage.cpp
@@ -655,6 +665,10 @@ add_library(paleo_ui STATIC
   src/ui/paleotheme.cpp                            # DESIGN.md 字体/色 token
   src/ui/paleoicons.cpp                            # ribbon 图标出口
   src/ui/paleoribbon.cpp                           # SARibbon 壳公用件
+  src/ui/notifications/notificationcard.cpp        # 方向54：ErrorHub 浮动通知卡片
+  src/ui/notifications/notificationmanager.cpp     # 方向54：ErrorHub 呈现与模态策略管理器
+  src/ui/notifications/errorhistorymodel.cpp       # 方向54：ErrorHub 错误历史模型
+  src/ui/notifications/errorhistorydock.cpp        # 方向54：ErrorHub 错误历史面板
   resources/seismic_shaders.qrc
   resources/paleo_fonts.qrc
 )
@@ -873,6 +887,7 @@ add_paleo_test(tst_release LIBS paleo_store)
 add_paleo_test(tst_sequenceframework_ui LIBS paleo_ui)  # 方向28：格架面板/柱状视图无头断言
 add_paleo_test(tst_releasepanel LIBS paleo_ui)
 add_paleo_test(tst_taskpanel LIBS paleo_ui)
+add_paleo_test(tst_notifications LIBS paleo_ui)   # 方向64：通知卡/模态单弹/风暴（offscreen；同 tst_taskpanel 取 paleo_ui 的 QtWidgets 头）
 add_paleo_test(tst_attrpanel LIBS paleo_ui)
 # ---- merged worktree waves ----
 # 方向50：IO 容错、导入诊断、SDK 消费与工作簿边角回归。
@@ -1045,6 +1060,7 @@ add_paleo_test(tst_segy_fixture LIBS paleo_io)   # 合成最小 SEG-Y 夹具：�
 target_compile_definitions(tst_segy_fixture PRIVATE
   TESTDATA_DIR="${CMAKE_SOURCE_DIR}/testdata")
 add_paleo_test(tst_algorithm_harness LIBS paleo_algorithms paleo_ui_deps)  # AlgorithmTestBase harness + ≥3 算法用例
+add_paleo_test(tst_algorithm_rasterout_crs LIBS paleo_algorithms paleo_ui_deps)  # QgsApplication 需 QtWidgets（同 tst_algorithm_harness）；BIZ-11（方向58）：无 CRS 输入经共享写口带规范 CRS
 add_paleo_test(tst_perfbudget LIBS paleo_services paleo_qgis)
 # 墙钟预算门禁在 CI 并行负载下必抖（实测 525ms>500ms，预热救不了 CPU
 # 争抢）——计时测试串行跑，对齐 tst_correlation_full 先例。
@@ -1065,6 +1081,15 @@ add_paleo_test(tst_entityview LIBS paleo_store)
 # 崩溃本地转储（§38 留白按本地优先落地）+ 外链源重定位恢复路径。
 # 新增源与测试集中在此块；并行包合并冲突时保留双方行。
 add_paleo_test(tst_crashreport LIBS paleo_services)
+add_paleo_test(tst_errorhub LIBS paleo_services)      # 方向64：去重窗口/聚合/环形逐出/并发
+add_paleo_test(tst_errorhub_d54 LIBS paleo_services)   # 方向54：ErrorHub 核心数据服务与去重/环形缓冲单元测试
+add_paleo_test(tst_notification_card LIBS paleo_ui paleo_services) # 方向54：通知卡片与管理器测试
+add_paleo_test(tst_notification_m2_challenger LIBS paleo_ui paleo_services) # 方向54：M2 Challenger 经验证套件
+add_paleo_test(tst_error_history_dock LIBS paleo_ui paleo_services) # 方向54/M4：错误历史模型与面板测试
+add_paleo_test(tst_errorhub_challenger_m4 LIBS paleo_ui paleo_services) # 方向54/M4：M4 Challenger UI交互与边界测试套件
+add_paleo_test(tst_errorhub_storm LIBS paleo_ui paleo_services) # 方向54/M5：错误风暴压力与事件循环防冻结测试
+set_tests_properties(tst_errorhub_storm PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+add_paleo_test(tst_errorhub_challenger_m5_harness LIBS paleo_ui paleo_services) # 方向54/M5：M5-2 Challenger 极端压力与经验证套件
 add_paleo_test(tst_relocate LIBS paleo_ui)
 
 # ---- goal/perf-systematize 簇2：UI 线程阻塞动态验证 ----
@@ -1134,6 +1159,7 @@ set(_paleo_extra_manifest
   "${CMAKE_SOURCE_DIR}/cmake/extra-seismic.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-seismic-inversion.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-sf-kriging.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-shortcuts-help.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-surfaceops.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-time-depth.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-ux.cmake"

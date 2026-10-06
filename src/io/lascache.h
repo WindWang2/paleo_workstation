@@ -7,10 +7,10 @@
 
 #include "cachecore.h"
 #include "inflight.h"
-#include "lasdoc.h"
-#include "lasparser.h"
+#include "lasdoc.h" // LasDoc / LasIssue（载荷契约；解析入口 lasparser.h 不进缓存头）
 #include "lrucache.h"
 
+#include <functional>
 #include <memory>
 
 // io/ — LAS 解析缓存（wave/io-perf-cache D1.1/D1.2/D1.10）。
@@ -40,6 +40,10 @@ class LasCache
 
     // 主入口：内存 → 磁盘 → 解析（顺路回填两级缓存）。
     // 解析失败时 doc.ok=false + doc.error 有文（与 LasParser::parseDoc 同构）。
+    // issues 契约（RUNTIME-03，方向58）：本次调用**走到解析**时（执行者或同
+    // 指纹并发搭车者），*issues 追加该次解析的完整诊断——每个调用方各自
+    // 回填，不再只有首个提交者拿到。内存/磁盘命中不重放诊断（诊断不入缓存，
+    // 与历史行为一致）；需要诊断的调用方应在命中前 invalidate 或直走 parser。
     LasDoc load(const QString &path, QList<LasIssue> *issues = nullptr);
 
     // D1.3 批量预取：同 load() 逐个装载进缓存（后台线程调；调度是调用方
@@ -65,6 +69,11 @@ class LasCache
     };
     Timings lastTimings() const { return m_timings; }
 
+    // 测试钩子：冷解析前回调（在执行者线程上、job 内调用），用于确定性构造
+    // 同指纹并发；ridersJoined = 合并器累计搭车数。生产不设钩子。
+    void setColdParseHookForTest(std::function<void()> hook);
+    int ridersJoinedForTest() const { return m_inflight.ridersJoined(); }
+
   private:
     LasCache();
 
@@ -87,6 +96,16 @@ class LasCache
     mutable QMutex m_cfgMutex;      // 保护 m_diskRoot / m_extra
     QString m_diskRoot;
     CacheStats m_extra;             // disk 层计数（与 m_mem.stats() 合并上报）
-    InflightCoalescer<QString, std::shared_ptr<LasDoc>> m_inflight;
+    // RUNTIME-03：合并器结果携带「文档 + 本次解析诊断」——诊断随 future 分发
+    // 给每个等待方各自拷贝；job 绝不捕获任何调用方的 out 指针（旧实现按引用
+    // 捕获首个提交者的 issues，搭车者永远拿不到诊断）。LasDoc 保持纯值类型、
+    // 磁盘 payload 格式不变（未选「LasDoc 加 issues 字段」方案）。
+    struct LoadOutcome
+    {
+        std::shared_ptr<LasDoc> doc;
+        std::shared_ptr<const QList<LasIssue>> issues; // 走解析时非空指针
+    };
+    InflightCoalescer<QString, LoadOutcome> m_inflight;
+    std::function<void()> m_coldParseHook; // 测试钩子（m_cfgMutex 保护）
     Timings m_timings; // 最近一次（粗粒度诊断面；不做多线程记账）
 };

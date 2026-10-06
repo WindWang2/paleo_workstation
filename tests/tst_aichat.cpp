@@ -24,7 +24,7 @@ private slots:
   void configRejectsEmptyEndpointModelAndPlainHttp();
   void configBuildsCompletionsUrl();
   void domainToolsEnumerateWithValidSchemas();
-  void toolDispatchIsHonestAboutNotBeingWired();
+  void toolDispatchIsHonestAboutWiring();
 
 private:
   QString m_projectDir;
@@ -251,26 +251,33 @@ void TestAiChat::domainToolsEnumerateWithValidSchemas() {
   QVERIFY(aiToolSpec(QStringLiteral("paleo.nonexistent")).name.isEmpty());
 }
 
-void TestAiChat::toolDispatchIsHonestAboutNotBeingWired() {
+void TestAiChat::toolDispatchIsHonestAboutWiring() {
   // 未登记 → NotFound，且不给 target。
   const AiToolDispatch unknown =
     dispatchAiTool(QStringLiteral("paleo.nonexistent"), {});
   QCOMPARE(unknown.status, AiToolDispatchStatus::NotFound);
   QVERIFY(unknown.target.isEmpty());
 
-  // 已登记、参数齐全 → 必须写出「入口在哪」与「为什么现在跑不了」。
+  // 已登记、参数齐全 → 必须写出「入口在哪」；状态按构建如实（方向61 后
+  // ORT 构建里 tile/层位 Routed 已接线，无 ORT 构建 Disabled——两种都诚实，
+  // 冒充「已执行」或静默 NotFound 才不合格）。
   QJsonObject arguments;
   arguments.insert(QStringLiteral("model"), QStringLiteral("seg3"));
   arguments.insert(QStringLiteral("grid_columns"), 8);
   arguments.insert(QStringLiteral("grid_rows"), 8);
   const AiToolDispatch tiled =
     dispatchAiTool(QStringLiteral("paleo.tile_classification"), arguments);
-  QVERIFY(tiled.status == AiToolDispatchStatus::NotImplemented ||
-          tiled.status == AiToolDispatchStatus::Disabled);
+#if PALEO_HAVE_ORT
+  QCOMPARE(tiled.status, AiToolDispatchStatus::Routed);
+  QVERIFY2(tiled.note.contains(QStringLiteral("已接线")),
+           qPrintable(tiled.note));
+#else
+  QCOMPARE(tiled.status, AiToolDispatchStatus::Disabled);
+  QVERIFY2(tiled.note.contains(QStringLiteral("ONNX")),
+           qPrintable(tiled.note));
+#endif
   QVERIFY2(!tiled.target.isEmpty(), "分发必须给出目标入口");
-  QVERIFY2(!tiled.note.isEmpty(), "分发必须说清为什么不可执行");
-  QVERIFY(tiled.note.contains(QStringLiteral("未接线")) ||
-          tiled.note.contains(QStringLiteral("ONNX")));
+  QVERIFY2(!tiled.note.isEmpty(), "分发必须说清执行前提");
 
   // 参数不合法 → Disabled + 原因（不假装已受理）。
   QJsonObject bad;

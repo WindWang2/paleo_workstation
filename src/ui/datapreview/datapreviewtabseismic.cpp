@@ -77,7 +77,7 @@ using namespace paleo::datapreview_detail;
 #include <QJsonObject>
 #include <QLabel>
 #include <QMenu>
-#include <QMessageBox>
+#include "../notifications/paleonotify.h"
 #include <QPainter>
 #include <QPointer>
 #include <QMouseEvent>
@@ -475,8 +475,7 @@ QWidget *DataPreviewTabs::buildSeismicContent(
       questionText = tr("将 %1 转码为 .sf3c 分片工作区（体积与源文件同量级）。\n"
                         "过程可取消并续跑；完成后切片与任意剖面走随机访问后端。")
                          .arg(QFileInfo(abs).fileName());
-    const auto answer = QMessageBox::question(btnTranscode, tr("转码地震工作区"), questionText);
-    if (answer != QMessageBox::Yes)
+    if (!PaleoNotify::ask(btnTranscode, tr("转码地震工作区"), questionText))
       return;
     btnTranscode->setEnabled(false);
     btnTranscode->setText(tr("转码中…（可取消）"));
@@ -498,7 +497,7 @@ QWidget *DataPreviewTabs::buildSeismicContent(
         guard->setText(QObject::tr("继续转码 (.sf3c)"));
         guard->setEnabled(true);
         if (!err.isEmpty())
-          QMessageBox::warning(guard, QObject::tr("转码未完成"), err);
+          PaleoNotify::warning(guard, QObject::tr("转码未完成"), err);
       }
     },
         [guard](const seismic::SeismicTranscodeReport &report) {
@@ -507,9 +506,9 @@ QWidget *DataPreviewTabs::buildSeismicContent(
       // D1.4：质量报告挂按钮 tooltip（道数/覆盖率/丢弃率/值域）
       guard->setToolTip(report.summaryLine());
       if (report.ok)
-        QMessageBox::information(guard, QObject::tr("转码完成"), report.summaryLine());
+        PaleoNotify::information(guard, QObject::tr("转码完成"), report.summaryLine());
       else if (report.damagedTraces > 0)
-        QMessageBox::warning(guard, QObject::tr("转码包含坏道"),
+        PaleoNotify::warning(guard, QObject::tr("转码包含坏道"),
                              QObject::tr("损坏源道 %1 条已跳过（NaN 填充），如 %2…")
                                  .arg(report.damagedTraces)
                                  .arg(report.damagedSample.isEmpty() ? QString() : report.damagedSample.first()));
@@ -534,8 +533,7 @@ QWidget *DataPreviewTabs::buildSeismicContent(
                          "（含瓦片渐进时间片与渐进 LOD；体积与源文件同量级）。\n"
                          "过程可取消并续跑。")
                           .arg(QFileInfo(abs).fileName());
-    const auto answer = QMessageBox::question(btnPagedTranscode, tr("转码分页工作区"), pagedQuestion);
-    if (answer != QMessageBox::Yes)
+    if (!PaleoNotify::ask(btnPagedTranscode, tr("转码分页工作区"), pagedQuestion))
       return;
     btnPagedTranscode->setEnabled(false);
     btnPagedTranscode->setText(tr("转码中…（可取消）"));
@@ -561,7 +559,7 @@ QWidget *DataPreviewTabs::buildSeismicContent(
         guard->setText(QObject::tr("继续转码 (.sf3p)"));
         guard->setEnabled(true);
         if (!err.isEmpty())
-          QMessageBox::warning(guard, QObject::tr("分页转码未完成"), err);
+          PaleoNotify::warning(guard, QObject::tr("分页转码未完成"), err);
       }
     },
         [guard](const seismic::SeismicTranscodeReport &report) {
@@ -569,7 +567,7 @@ QWidget *DataPreviewTabs::buildSeismicContent(
         return;
       guard->setToolTip(report.summaryLine());
       if (report.ok)
-        QMessageBox::information(guard, QObject::tr("分页转码完成"), report.summaryLine());
+        PaleoNotify::information(guard, QObject::tr("分页转码完成"), report.summaryLine());
     });
     bindTranscodeTask(task);
   });

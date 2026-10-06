@@ -10,10 +10,12 @@
 #include <QCheckBox>
 #include <QClipboard>
 #include <QDialog>
+#include <QDialogButtonBox>
 #include <QFileDialog>
 #include <QFormLayout>
 #include <QHeaderView>
-#include <QMessageBox>
+#include "../notifications/paleonotify.h"
+#include <QDialogButtonBox>  // 原经 <QMessageBox> 传递引入
 #include <QPainter>
 #include <QPrinter>
 #include <QPrintDialog>
@@ -1192,6 +1194,9 @@ void SeismicSectionDockWidget::extractSliceAsync(SgySliceType type, int index) {
     }
     m_sliceType = type;
     m_sliceIndex = index;
+    // #224：换线即清属性叠加——同体同尺寸的相邻线几何全等，画布按尺寸
+    // 清叠加的防线挡不住旧线属性图残留。
+    m_canvas->clearAttrOverlay();
 
     // 常规 IL/XL/Time 切换：丢弃任意线旧状态（route/井叠加），
     // hasRoute() 复归 false（wave/sections 语义）。
@@ -1376,9 +1381,9 @@ void SeismicSectionDockWidget::onExportSnapshot() {
     QImage img(m_canvas->size(), QImage::Format_ARGB32_Premultiplied);
     m_canvas->render(&img);
     if (img.save(filePath)) {
-        QMessageBox::information(this, tr("导出成功"), tr("剖面图件已成功保存到:\n%1").arg(filePath));
+        PaleoNotify::information(this, tr("导出成功"), tr("剖面图件已成功保存到:\n%1").arg(filePath));
     } else {
-        QMessageBox::critical(this, tr("导出失败"), tr("保存图像文件失败，请检查文件写入权限。"));
+        PaleoNotify::critical(this, tr("导出失败"), tr("保存图像文件失败，请检查文件写入权限。"));
     }
 }
 
@@ -1459,6 +1464,10 @@ void SeismicSectionDockWidget::extractSectionFromVolumeAsync(
             geometry.distancesM, geometry.coordinates);
         guard->refreshWellOverlay(candidateWells);
         guard->setLineTitle(lineTitle);
+        // #225：入参候选井写入成员——computeWellTrajectories /
+        // computeSyntheticOverlays / 井旁道 / 子波提取 / 反演低频井读的都是
+        // m_candidateWells，旧实现只按入参判空、成员恒空，四条链生产恒死。
+        guard->m_candidateWells = candidateWells;
         // D5.3/D5.4：井轨迹投影 + 合成记录（任意线链路，wave/seismic-chain-deep）
         if (!candidateWells.empty()) {
           guard->computeWellTrajectories(mapPolyline);
@@ -1817,26 +1826,38 @@ void SeismicSectionDockWidget::computeAttributeOnCurrentSection(
     const SgySliceType type = mode == 0 ? SgySliceType::Inline : SgySliceType::Xline;
     const int index = m_spinSlice ? m_spinSlice->value() : 0;
 
-    m_lastAttrParams = params;
-    m_lastAttrSourcePath = QString::fromStdString(m_volume->Path().string());
+    const QString sourcePath = QString::fromStdString(m_volume->Path().string());
     m_attrPanel->setBusy(true);
+    // #224：请求时快照剖面身份（世代号随换线/换体/任意线推进）+ 迟到回调守卫。
+    // 换线换体后迟到的属性图不得贴到新剖面上，也不得顶替可登记结果。
+    const quint64 generation = m_generation;
+    QPointer<SeismicSectionDockWidget> guard(this);
     PaleoTask *task = m_taskService->startAttributeSlice(
         m_volume, kind, params, type, index,
-        [this](bool ok, const SeismicTaskService::SeismicAttrResult &r) {
-            if (!m_attrPanel)
+        [guard, generation, params, sourcePath](
+            bool ok, const SeismicTaskService::SeismicAttrResult &r) {
+            if (!guard || !guard->m_attrPanel)
                 return;
+            SeismicSectionDockWidget *self = guard.data();
+            if (self->m_generation != generation) {
+                self->m_attrPanel->showResult(
+                    false, self->tr("剖面已切换，本次属性结果丢弃（请在当前剖面重新计算）"));
+                return;
+            }
             if (ok && r.image) {
-                m_lastAttrResult = r;
-                m_canvas->setAttrOverlay(*r.image);
-                m_attrPanel->showResult(
-                    true, tr("✓ %1 完成（读 %2ms / 算 %3ms，有效道 %4/%5）")
+                self->m_lastAttrResult = r;
+                self->m_lastAttrParams = params;
+                self->m_lastAttrSourcePath = sourcePath;
+                self->m_canvas->setAttrOverlay(*r.image);
+                self->m_attrPanel->showResult(
+                    true, self->tr("✓ %1 完成（读 %2ms / 算 %3ms，有效道 %4/%5）")
                               .arg(r.attrId)
                               .arg(int(r.readMs))
                               .arg(int(r.computeMs))
                               .arg(r.validTraceCount)
                               .arg(r.traceCount));
             } else {
-                m_attrPanel->showResult(false, r.error);
+                self->m_attrPanel->showResult(false, r.error);
             }
         });
     // 拒绝路径（缺线/边缘线/时间切片等）服务已同步回调具体原因——此处
@@ -2647,7 +2668,7 @@ void SeismicSectionDockWidget::computeSyntheticOverlays() {
 // D5.1 任意线路径编辑器：多段折线（il xl 每行一节点）→ 提取
 void SeismicSectionDockWidget::showArbitraryLineEditor() {
     if (!m_volume || !m_volume->IsLoaded()) {
-        QMessageBox::information(this, tr("任意线编辑器"), tr("请先加载地震体。"));
+        PaleoNotify::information(this, tr("任意线编辑器"), tr("请先加载地震体。"));
         return;
     }
     QDialog dlg(this);
@@ -2681,7 +2702,7 @@ void SeismicSectionDockWidget::showArbitraryLineEditor() {
             pathPoints.push_back({il, xl});
     }
     if (pathPoints.size() < 2) {
-        QMessageBox::warning(this, tr("任意线编辑器"), tr("至少需要 2 个有效节点。"));
+        PaleoNotify::warning(this, tr("任意线编辑器"), tr("至少需要 2 个有效节点。"));
         return;
     }
     const std::vector<SectionWellInfo> wells =
@@ -2693,7 +2714,7 @@ void SeismicSectionDockWidget::showArbitraryLineEditor() {
 // D5.6 井旁道小图：最近井位置的地震道 wiggle + 分层刻度
 void SeismicSectionDockWidget::showWellSideTrace() {
     if (!m_volume || !m_volume->IsLoaded() || m_candidateWells.empty()) {
-        QMessageBox::information(this, tr("井旁道"), tr("无可用的候选井。"));
+        PaleoNotify::information(this, tr("井旁道"), tr("无可用的候选井。"));
         return;
     }
     // 最近井（离当前剖面最近）
@@ -2704,7 +2725,7 @@ void SeismicSectionDockWidget::showWellSideTrace() {
     // 井口 XY → 测网 (IL, XL)（#129：FindNearest* 的参数是测线号，不能直接喂米制坐标；
     // 先经道头拟合的测网仿射换算，再吸附到体的实际线号）。
     if (!m_volume->Index()) {
-        QMessageBox::warning(this, tr("井旁道"), tr("地震体无道头索引，无法把井口坐标换算到测网。"));
+        PaleoNotify::warning(this, tr("井旁道"), tr("地震体无道头索引，无法把井口坐标换算到测网。"));
         return;
     }
     // 换算/覆盖/吸附/取列统一走 domain/seismic/welltracelocate（tst_welltracelocate
@@ -2713,7 +2734,7 @@ void SeismicSectionDockWidget::showWellSideTrace() {
     const seismic::WellTraceLocation loc =
         seismic::locateWellTrace(*m_volume->Index(), mapper, best->surfaceX, best->surfaceY);
     if (!loc.ok && loc.outOfCoverage) {
-        QMessageBox::information(this, tr("井旁道"),
+        PaleoNotify::information(this, tr("井旁道"),
                                  tr("井 %1 井口 (%2, %3) 在测网覆盖范围外（连续解 IL %4 / XL %5），不取井旁道。")
                                      .arg(best->wellName)
                                      .arg(best->surfaceX, 0, 'f', 1)
@@ -2723,12 +2744,12 @@ void SeismicSectionDockWidget::showWellSideTrace() {
         return;
     }
     if (!loc.ok && !mapper.valid()) {
-        QMessageBox::warning(this, tr("井旁道"),
+        PaleoNotify::warning(this, tr("井旁道"),
                              tr("测网坐标拟合不可用：%1").arg(QString::fromStdString(mapper.Describe())));
         return;
     }
     if (!loc.ok) {
-        QMessageBox::warning(this, tr("井旁道"),
+        PaleoNotify::warning(this, tr("井旁道"),
                              tr("井口无法定位到测网道：%1").arg(QString::fromStdString(loc.error)));
         return;
     }
@@ -2739,14 +2760,14 @@ void SeismicSectionDockWidget::showWellSideTrace() {
     SgySliceImage slice;
     std::string err;
     if (!m_volume->ExtractSlice(SgySliceType::Inline, il, slice, err)) {
-        QMessageBox::warning(this, tr("井旁道"), tr("道提取失败：%1").arg(QString::fromStdString(err)));
+        PaleoNotify::warning(this, tr("井旁道"), tr("道提取失败：%1").arg(QString::fromStdString(err)));
         return;
     }
     // 列 = xl 在体实际线号表中的位置（#147 同口径：线距可 >1）；剖面宽度须与
     // 线号表一致，否则列轴对不上——如实拒绝，不按单位线距猜。
     const int col = int(m_volume->XlineValues().size()) == slice.width ? loc.column : -1;
     if (col < 0 || col >= slice.width) {
-        QMessageBox::warning(this, tr("井旁道"), tr("XL %1 不在 IL %2 剖面列轴上").arg(xl).arg(il));
+        PaleoNotify::warning(this, tr("井旁道"), tr("XL %1 不在 IL %2 剖面列轴上").arg(xl).arg(il));
         return;
     }
 

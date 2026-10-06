@@ -4,6 +4,8 @@
 
 #include "paleoicons.h"
 #include "paleoribbon.h"
+#include "notifications/errorhistorypanel.h"   // 方向64
+#include "notifications/notificationcenter.h"  // 方向64
 #include "../qgis/qgiscanvascontroller.h"
 #include "../qgis/qgisprojectservice.h"
 #include "../qgis/qgislayerservice.h"
@@ -25,7 +27,8 @@
 #include "ai/aiassistdock.h"                    // 方向51：AI 助手 dock
 #include "ai/llmconfigdialog.h"                 // 方向62：图形化配置对话框
 #include "../workflow/aichatcontroller.h"
-#include "../ai/chat/llmclient.h"               // LlmConfig（对话框装配面）
+#include "../ai/chat/llmclient.h"               // LlmConfig（对话框装配面 + path() 配置说明）
+#include "shortcuts/shortcutcatalog.h" // 方向63：快捷键中央注册表
 
 #include <qgsmapcanvas.h>
 #include <qgsmaptool.h>
@@ -50,7 +53,7 @@
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QMenu>
-#include <QMessageBox>
+#include "notifications/paleonotify.h"
 #include <QShortcut>
 #include <QSignalBlocker>
 #include <QStatusBar>
@@ -154,7 +157,7 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
       // validation page's issueTable → ThreeWayLocator path instead.
 
       topBar->layout()->addWidget(locatorWidget);
-      auto *focus = new QShortcut(QKeySequence(QStringLiteral("Ctrl+K")), this);
+      auto *focus = paleo::shortcuts::bindShortcut(QStringLiteral("main.locator.focus"), this);
       connect(focus, &QShortcut::activated, locatorWidget,
               [locatorWidget] { locatorWidget->search(QString()); });
     }
@@ -166,8 +169,8 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
       auto *saveAct = new QAction(PaleoIcons::qgisTheme(QStringLiteral("mActionFileSave.svg")),
                                   tr("保存工程"), this);
       saveAct->setObjectName(QStringLiteral("saveProjectAction"));
-      saveAct->setShortcut(m_currentPage == QLatin1String("correlation") ? QKeySequence()
-                                                                        : QKeySequence(QKeySequence::Save));
+      paleo::shortcuts::setActionShortcutActive(QStringLiteral("main.project.save"), saveAct,
+                                                m_currentPage != QLatin1String("correlation"));
       saveAct->setToolTip(tr("保存工程（Ctrl+S）"));
       // §41.2 ordering through the write queue: gpkg commit (no-op until edit
       // buffers report dirty state) then the atomic .qgz write.
@@ -199,7 +202,7 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
           updateWindowTitle();
         }
         else if (QGuiApplication::platformName() != QLatin1String("offscreen"))
-          QMessageBox::critical(this, tr("保存工程失败"), res.error);
+          PaleoNotify::critical(this, tr("保存工程失败"), res.error);
       };
       connect(saveAct, &QAction::triggered, this, saveFn);
       if (SARibbonQuickAccessBar *qab = ribbonBar()->quickAccessBar())
@@ -636,4 +639,28 @@ void PaleoMainWindow::attachAiAssistant(AiChatController *controller)
               statusBar()->showMessage(
                 error.isEmpty() ? tr("删除会话失败") : error, 6000);
           });
+}
+
+// 方向64：错误呈现接线。ErrorHub 由 AppContext 持有并 installGlobal；这里只把
+// 呈现层与历史面板挂到本窗口（视图层不持有服务生命周期）。
+void PaleoMainWindow::attachErrorHub(ErrorHub *hub)
+{
+  if (!hub || m_notifications)
+    return;
+  m_notifications = new NotificationCenter(this, hub);
+  m_notifications->setStatusBar(statusBar());
+  auto *panel = new ErrorHistoryPanel(hub, this);
+  m_errorHistoryDock = new PaleoDockWidget(tr("错误历史"), this);
+  m_errorHistoryDock->setObjectName(QStringLiteral("errorHistoryDock"));
+  m_errorHistoryDock->setWidget(panel);
+  addDockWidget(Qt::BottomDockWidgetArea, m_errorHistoryDock);
+  m_errorHistoryDock->hide(); // 按需唤出（布局与面板菜单 / showErrorHistory）
+}
+
+void PaleoMainWindow::showErrorHistory()
+{
+  if (!m_errorHistoryDock)
+    return;
+  m_errorHistoryDock->show();
+  m_errorHistoryDock->raise();
 }

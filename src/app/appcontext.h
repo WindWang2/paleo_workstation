@@ -20,6 +20,7 @@ class QgisProcessingService;
 class QgisEditingService;
 class QgisStyleService;
 class ToolAvailabilityService;
+class ErrorHub;
 class AiChatController;
 class PaleoOnnxService;
 class RemotePredictionRouter;
@@ -63,6 +64,8 @@ class AppContext : public QObject
     QgisEditingService *editingSvc() const { return m_editSvc; }
     QgisStyleService *styleSvc() const { return m_styleSvc; }
     ToolAvailabilityService *toolSvc() const { return m_toolSvc; }
+    // 方向64：统一错误通道（构造即 installGlobal，析构自动摘除）。
+    ErrorHub *errorHub() const { return m_errorHub; }
     // ONNX 推理服务（PALEO_HAVE_ORT 构建下恒实例化并绑到 predictionWf；
     // 运行库/模型缺失由服务自身如实报告，!ORT 构建恒为 nullptr）。
     PaleoOnnxService *onnxSvc() const { return m_onnxSvc; }
@@ -162,6 +165,7 @@ class AppContext : public QObject
     QgisEditingService *m_editSvc = nullptr;
     QgisStyleService *m_styleSvc = nullptr;
     ToolAvailabilityService *m_toolSvc = nullptr;
+    ErrorHub *m_errorHub = nullptr;
     PaleoOnnxService *m_onnxSvc = nullptr;
     // 方向51：远端推理装配产物（router 的生命周期挂在 this 上）。
     RemotePredictionRouter *m_remotePredict = nullptr;

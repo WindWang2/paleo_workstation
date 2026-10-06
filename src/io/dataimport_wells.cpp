@@ -15,7 +15,6 @@
 #include "../domain/arearules.h"
 #include "horizonbinner.h"
 #include "ingestplan.h"
-#include "lasparser.h"
 #include "welllogread.h" // 方向44：井名提取分派
 #include "../domain/projectclassifier.h"
 #include "segyreader.h"
@@ -174,8 +173,21 @@ QString importWellHeadFamily(FamilyContext &ctx)
         w.surfaceY = r.y;
         w.kb = r.kb;
         w.td = r.td;
-        // 局部测网坐标：真投影参数出现前保持未变换（plan §3）。
-        w.coordinateStatus = QStringLiteral("untransformed");
+        // 局部测网坐标：真投影参数出现前保持未变换（plan §3）。工程带
+        // georeference 时换算 WGS84 落 extra（surfaceX/Y 仍存原始网格——
+        // 地图读它，渲染管线不变），状态进 ok。
+        double lonDeg = 0.0, latDeg = 0.0;
+        if (ctx.s->georeference &&
+            applyGeoreference(*ctx.s->georeference, r.x, r.y, &lonDeg, &latDeg))
+        {
+          w.coordinateStatus = QStringLiteral("ok");
+          w.extra.insert(QStringLiteral("projectLon"), lonDeg);
+          w.extra.insert(QStringLiteral("projectLat"), latDeg);
+        }
+        else
+        {
+          w.coordinateStatus = QStringLiteral("untransformed");
+        }
         if (!cat->addEntity(w, error))
           return *error;
       }

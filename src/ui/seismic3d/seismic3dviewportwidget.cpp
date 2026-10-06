@@ -158,8 +158,16 @@ void Seismic3DViewportWidget::initializeGL() {
     update();
 }
 
+QSize Seismic3DViewportWidget::physicalViewportSize(int w, int h, qreal devicePixelRatio) {
+    return QSize(qRound(w * devicePixelRatio), qRound(h * devicePixelRatio));
+}
+
 void Seismic3DViewportWidget::resizeGL(int w, int h) {
-    glViewport(0, 0, w, h);
+    // QOpenGLWidget 的 FBO 是物理像素，resizeGL 收逻辑像素——高 DPI 屏必须
+    // 乘 dpr，否则场景只占物理帧buffer的左下角（DESIGN.md「High DPI」）。
+    // dpr=1 时 qRound(w*1.0)==w，逐像素行为不变。
+    const QSize phys = physicalViewportSize(w, h, devicePixelRatioF());
+    glViewport(0, 0, phys.width(), phys.height());
     if (!initialFitDone_ && w > 0 && h > 0 && volume_ && volume_->IsLoaded()) {
         fitToBounds();
         initialFitDone_ = true;

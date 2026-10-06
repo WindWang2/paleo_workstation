@@ -121,8 +121,8 @@ void DataPage::wireDataOps()
   // 定位器（DESIGN.md QGIS 控件映射：搜索命令 Ctrl+K → QgsLocator）同键
   // 同 WindowShortcut 上下文——Qt 歧义消解下两键全哑；命令面板让位改
   // Ctrl+Shift+P（编辑器惯例），Ctrl+K 归定位器独占。
-  auto *paletteSc = new QShortcut(
-      QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_P), this);
+  // 方向63：键序登记在 shortcuts/shortcutcatalog（data.palette.open）。
+  auto *paletteSc = paleo::shortcuts::bindShortcut(QStringLiteral("data.palette.open"), this);
   paletteSc->setObjectName(QStringLiteral("scCommandPalette"));
   connect(paletteSc, &QShortcut::activated, this, &DataPage::openCommandPalette);
 }
@@ -309,6 +309,7 @@ void DataPage::selectAsset(const QString &assetId)
 // __has_include 守卫：lint 门 configure-only 场景跳过（详见 datalist.cpp 尾注）。
 #if __has_include("moc_dataopspalette.cpp")
 #include "moc_dataopspalette.cpp"
+#include "../shortcuts/shortcutcatalog.h"
 #endif
 
 void DataPage::focusVersion(const QString &assetId, const QString &versionId)

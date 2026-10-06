@@ -33,6 +33,9 @@
 namespace {
 const char kChunkA[] = "data: {\"choices\":[{\"delta\":{\"content\":\"砂岩\"}}]}\n\n";
 const char kChunkB[] = "data: {\"choices\":[{\"delta\":{\"content\":\"为主\"}}]}\n\n";
+const char kDone[] =
+  "data: {\"choices\":[{\"delta\":{\"content\":\"已完成\"}}]}\n\n"
+  "data: [DONE]\n\n";
 const char kToolChunk[] =
   "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c1\",\"type\":\"function\","
   "\"function\":{\"name\":\"paleo.well_facies_prediction\",\"arguments\":\"{\\\"model\\\":\\\"f1\\\","
@@ -49,7 +52,7 @@ const char kMarkdownChunk[] =
 class FakeLlmServer : public QObject {
   Q_OBJECT
 public:
-  enum class Mode { Stream, ToolCalls, Unauthorized, Markdown };
+  enum class Mode { Stream, ToolCalls, ToolCallsOnce, Unauthorized, Markdown };
   bool start(Mode mode) {
     m_mode = mode;
     connect(&m_server, &QTcpServer::newConnection, this,
@@ -101,8 +104,10 @@ private:
       });
       return;
     }
-    const QByteArray tail =
-      m_mode == Mode::ToolCalls ? QByteArray(kToolChunk) : QByteArray(kChunkA);
+    const bool toolRound =
+      m_mode == Mode::ToolCalls ||
+      (m_mode == Mode::ToolCallsOnce && m_requestCount++ == 0);
+    const QByteArray tail = toolRound ? QByteArray(kToolChunk) : QByteArray(kDone);
     QTimer::singleShot(20, sock, [sock] { sock->write(kChunkA); });
     QTimer::singleShot(50, sock, [sock, tail] {
       sock->write(tail);
@@ -110,6 +115,7 @@ private:
     });
   }
   Mode m_mode = Mode::Stream;
+  int m_requestCount = 0;
   QTcpServer m_server;
   int m_requests = 0;
 };
@@ -205,7 +211,7 @@ void TestAiAssistDock::streamingRendersIntoTranscript() {
 
 void TestAiAssistDock::toolCallRendersPlaceholderCard() {
   FakeLlmServer server;
-  QVERIFY(server.start(FakeLlmServer::Mode::ToolCalls));
+  QVERIFY(server.start(FakeLlmServer::Mode::ToolCallsOnce));
   AiChatController controller;
   controller.setConfig(makeConfig(server.endpoint()));
   AiAssistDock dock(&controller);
@@ -219,14 +225,18 @@ void TestAiAssistDock::toolCallRendersPlaceholderCard() {
                        QStringLiteral("aiAssistantToolCard")).isEmpty();
            }),
            "工具调用必须出占位卡片");
+  // 方向61：卡片两态翻面——未配置远端 → 终态「失败」+ 如实摘要，然后模型
+  // 拿到错误结果给出终答（ToolCallsOnce：工具一轮、文字一轮）。
+  QVERIFY2(spinUntil([&controller] { return !controller.streaming(); }, 20000),
+           "诚实失败轮必须收敛（错误回灌→终答）");
   const auto cardList =
     cards->findChildren<QFrame *>(QStringLiteral("aiAssistantToolCard"));
-  QCOMPARE(cardList.size(), 1);
-  // 卡片是"待接线"占位，不是"已执行"结果——文案里必须写明。
-  const QString cardText = cardList.first()->findChildren<QLabel *>().isEmpty()
-                             ? QString()
-                             : cardList.first()->findChildren<QLabel *>().last()->text();
-  QVERIFY2(cardText.contains(QStringLiteral("尚未接线")), qPrintable(cardText));
+  QCOMPARE(cardList.size(), 1); // 同 id 帧不叠卡
+  QString cardText;
+  for (QLabel *label : cardList.first()->findChildren<QLabel *>())
+    cardText += label->text() + QLatin1Char('\n');
+  QVERIFY2(cardText.contains(QStringLiteral("失败")), qPrintable(cardText));
+  QVERIFY2(cardText.contains(QStringLiteral("未配置")), qPrintable(cardText));
   dropSession(&controller);
 }
 

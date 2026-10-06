@@ -18,6 +18,7 @@
 
 #include "../paleotheme.h"
 #include "dataops/dataopsfuzzy.h"
+#include "../shortcuts/shortcutcatalog.h"
 
 namespace paleo::dataops
 {
@@ -69,8 +70,9 @@ public:
     connect(m_list, &QListWidget::itemActivated, this,
             [this](QListWidgetItem *) { activateCurrent(); });
     // 面板键盘：↑↓ 选条目、Esc 关闭（QDialog 自带 reject）。
-    auto *up = new QShortcut(Qt::Key_Up, this);
-    auto *down = new QShortcut(Qt::Key_Down, this);
+    // 方向63：键序登记在 shortcuts/shortcutcatalog（data.palette.up/down）。
+    auto *up = paleo::shortcuts::bindShortcut(QStringLiteral("data.palette.up"), this);
+    auto *down = paleo::shortcuts::bindShortcut(QStringLiteral("data.palette.down"), this);
     connect(up, &QShortcut::activated, this, [this] { moveSelection(-1); });
     connect(down, &QShortcut::activated, this, [this] { moveSelection(+1); });
   }

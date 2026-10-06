@@ -27,8 +27,11 @@ endif()
 target_include_directories(paleo_ai PUBLIC ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(paleo_ai PUBLIC Qt6::Network)
 
-# 编排面（功能层）：会话 + 客户端 + 工具分发的对外那一层。
-target_sources(paleo_workflow PRIVATE src/workflow/aichatcontroller.cpp)
+# 编排面（功能层）：会话 + 客户端 + 工具分发/执行回路的对外那一层。
+target_sources(paleo_workflow PRIVATE
+  src/workflow/aichatcontroller.cpp
+  src/workflow/aichattoolrunner.cpp
+)
 
 # 装配根：远端预测装配（唯一的装配入口，产品与测试同源）。
 target_sources(paleo_app PRIVATE src/app/aiwiring.cpp)
@@ -52,3 +55,14 @@ add_paleo_test(tst_aiassistdock LIBS paleo_ui)
 add_paleo_test(tst_aimarkdown LIBS paleo_ai)
 # 方向62：图形化配置对话框（表单 round-trip / 密钥掩码 / 无钥匙串禁用态）。
 add_paleo_test(tst_llmconfigdialog LIBS paleo_ui)
+
+# 方向61：工具调用闭环（tools 上送→tool_calls 执行→role=tool 回灌→终答）。
+# 真 ORT 执行面（夹具小模型 + catalog 声明断言），只在 ORT 构建跑。
+if(PALEO_HAVE_ORT)
+  add_paleo_test(tst_aichattoolloop LIBS paleo_workflow paleo_ai)
+  # POSIX 侧 ORT 运行库路径前置（同根 CMakeLists 的 ORT 测试口径；属性放在
+  # 本文件是因为测试注册在这里——根文件的 set_tests_properties 先于本 include
+  # 执行，放那边会因测试不存在而 configure 失败）。
+  set_tests_properties(tst_aichattoolloop PROPERTIES ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib")
+endif()

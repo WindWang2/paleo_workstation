@@ -15,7 +15,7 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMenu>
-#include <QMessageBox>
+#include "../notifications/paleonotify.h"
 #include <QPushButton>
 #include <QSplitter>
 #include <QTableWidget>
@@ -181,7 +181,7 @@ void PreviewIdentifyPanel::exportCsv()
   QFile f( path );
   if ( !f.open( QIODevice::WriteOnly | QIODevice::Text ) )
   {
-    QMessageBox::warning( this, QObject::tr( "导出失败" ), QObject::tr( "无法写入 %1" ).arg( path ) );
+    PaleoNotify::warning( this, QObject::tr( "导出失败" ), QObject::tr( "无法写入 %1" ).arg( path ) );
     return;
   }
   QTextStream ts( &f );

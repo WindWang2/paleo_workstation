@@ -1,5 +1,8 @@
 // 层：测试壳
 #include <QtTest>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QtEndian>
 
 #include "../src/algorithms/stratgrid/propfill.h"
 #include "../src/algorithms/stratgrid/stratgrid.h"
@@ -53,6 +56,7 @@ private slots:
   void power2WeightsLock();
   void cancelLeavesOutputUntouched();
   void sectionProjectionAndBlobRoundTrip();
+  void readBlobRejectsOverflowingAxes();
 };
 
 void TestPropFill::singleSeedFillsConstantField()
@@ -255,6 +259,39 @@ void TestPropFill::sectionProjectionAndBlobRoundTrip()
   QCOMPARE(w, 3);
   QCOMPARE(h, 2);
   QCOMPARE(slice[0 * 3 + 1], 4.0f);
+}
+
+void TestPropFill::readBlobRejectsOverflowingAxes()
+{
+  // #219：损坏 .pprop 头声明的轴尺寸让 int 乘法回绕（65536×65536 → 0），need
+  // 变小绕过长度闸；读侧必须与写侧同闸并以 qint64 计算后拒绝。
+  const auto makeBlob = [](int ni, int nj, int nk) {
+    QJsonObject obj;
+    obj.insert(QStringLiteral("format"), QStringLiteral("paleo-property-volume"));
+    obj.insert(QStringLiteral("version"), 1);
+    obj.insert(QStringLiteral("ni"), ni);
+    obj.insert(QStringLiteral("nj"), nj);
+    obj.insert(QStringLiteral("nk"), nk);
+    const QByteArray json = QJsonDocument(obj).toJson(QJsonDocument::Compact);
+    QByteArray blob("PPROP1\n", 7);
+    char len[4];
+    qToLittleEndian(static_cast<quint32>(json.size()), len);
+    blob.append(len, 4);
+    blob.append(json);
+    blob.append(QByteArray(64, '\0')); // 少量尾随数据
+    return blob;
+  };
+  PropertyVolume back;
+  QString err;
+  QVERIFY(!readPropertyBlob(makeBlob(65536, 65536, 1), &back, nullptr, &err));
+  QVERIFY(!err.isEmpty());
+  QVERIFY(back.values.empty());
+  err.clear();
+  QVERIFY(!readPropertyBlob(makeBlob(46341, 46341, 1), &back, nullptr, &err)); // n 回绕为负
+  QVERIFY(!err.isEmpty());
+  err.clear();
+  QVERIFY(!readPropertyBlob(makeBlob((1 << 20) + 1, 1, 1), &back, nullptr, &err)); // 超轴上限
+  QVERIFY(!err.isEmpty());
 }
 
 QTEST_GUILESS_MAIN(TestPropFill)

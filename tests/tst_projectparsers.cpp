@@ -21,6 +21,9 @@ private slots:
   void parsesWellHeadOptionalColumns();
   void rejectsInvalidWellHeadRequiredColumns();
   void parsesWellTops();
+  void parsesWellTopsHeaderDriven();
+  void parsesWellTopsHeaderDrivenOptionalColumns();
+  void parsesWellTopsUnrecognizedHeaderFallsBack();
   void parsesTimeDepth();
   void bomOnFirstDataLineIsStripped();
   void readsLasWellInfo();
@@ -182,6 +185,57 @@ void TestProjectParsers::parsesWellTops()
   QVERIFY(a1d61->hasY);
   QCOMPARE(a1d61->x, 5288.670);
   QCOMPARE(a1d61->y, 8219.940);
+}
+
+// 头驱动列映射：'#' 头行含齐全列名（wellName DepthMD topName + 多余列）时
+// 按名取列——工区方言（20kou_tops.dat：井名 MD 层名 版本列）。
+void TestProjectParsers::parsesWellTopsHeaderDriven()
+{
+  const QVector<WellTopRecord> tops = parseWellTopsText(QByteArrayLiteral(
+      "#       wellName         DepthMD         topName      topVerName \n"
+      "                  A1        1971.0000             C7_2       Top(Depth) \n"
+      "                  A1        1933.6597             C7_1       Top(Depth) \n"
+      "                 A10        2036.0000             C7_2       Top(Depth) \n"));
+  QCOMPARE(tops.size(), 3);
+  QCOMPARE(tops.at(0).wellName, QStringLiteral("A1"));
+  QCOMPARE(tops.at(0).topName, QStringLiteral("C7_2"));
+  QCOMPARE(tops.at(0).md, 1971.0);
+  QVERIFY(tops.at(0).hasMd);
+  QVERIFY(!tops.at(0).hasX);
+  QCOMPARE(tops.at(1).topName, QStringLiteral("C7_1"));
+  QCOMPARE(tops.at(1).md, 1933.6597);
+  QCOMPARE(tops.at(2).wellName, QStringLiteral("A10"));
+  QCOMPARE(tops.at(2).md, 2036.0);
+}
+
+// 头驱动也可带可选列（X Y Z TVD Time 按名映射，列序任意）。
+void TestProjectParsers::parsesWellTopsHeaderDrivenOptionalColumns()
+{
+  const QVector<WellTopRecord> tops = parseWellTopsText(QByteArrayLiteral(
+      "# topName time wellName y md tvd x\n"
+      "T1 1234.5 W1 200.5 1000.0 998.0 300.25\n"));
+  QCOMPARE(tops.size(), 1);
+  const WellTopRecord &r = tops.first();
+  QCOMPARE(r.wellName, QStringLiteral("W1"));
+  QCOMPARE(r.topName, QStringLiteral("T1"));
+  QCOMPARE(r.md, 1000.0);
+  QCOMPARE(r.x, 300.25);
+  QCOMPARE(r.y, 200.5);
+  QCOMPARE(r.tvd, 998.0);
+  QCOMPARE(r.timeMs, 1234.5);
+  QVERIFY(r.hasX && r.hasY && r.hasTvd && r.hasTime);
+}
+
+// 列名不全的头（普通注释）→ 维持位置约定（井名 层名 MD）。
+void TestProjectParsers::parsesWellTopsUnrecognizedHeaderFallsBack()
+{
+  const QVector<WellTopRecord> tops = parseWellTopsText(QByteArrayLiteral(
+      "# Well : A1 分层表\n"
+      "A1 D61 1894.0 5288.67 8219.94 -1600 1894.0\n"));
+  QCOMPARE(tops.size(), 1);
+  QCOMPARE(tops.first().topName, QStringLiteral("D61"));
+  QCOMPARE(tops.first().md, 1894.0);
+  QCOMPARE(tops.first().x, 5288.67);
 }
 
 void TestProjectParsers::parsesTimeDepth()

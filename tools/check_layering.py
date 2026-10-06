@@ -53,10 +53,17 @@
 #      （黄牌面收窄，输出 NOTE 说明）。已知实现边界：norm_include 会把
 #      `<qgsx.h>` 归一成不存在的 repo 幽灵路径——repo 边必须存在性校验后
 #      再回退外部解析。
-#      刻意不查「视图层经 repo 闭包传递引禁入数据头」：services/previewdoc.h
-#      是契约认可的视图读侧唯一门（§45），门面头内部 include io/* 属头文件
-#      卫生债而非层契约违规，混进黄牌清单会稀释信号（方向 49 实测 38 处
-#      皆为该类，记 ledger 递延）。
+#      方向 59 起并含「公共头出闸重头」检测：io/* / algorithms/* 头（ui
+#      白名单外的全部重头）出现在非实现 TU 的 repo 传递闭包即黄牌并打链
+#      ——豁免三类：同模块 TU（io 头对 io TU / algorithms 头对 algorithms
+#      TU = 实现 TU）、TU 自身的直接 include（自有选择，直接边的层违规由
+#      三档闸门口径管）、app/selfcheck（组装根/测试壳终端消费 by design）。
+#      方向 49 时点「刻意不查」的 previewdoc 类门面扇出（38 处）已由方向
+#      59 收口 lasparser/qgisprocessingservice 两族；algorithms/* 经 workflow
+#      头进 ui 的存量扇出仍是方向 49 递延债面，本检测如实列示（黄牌清单
+#      是诊断面，不进 strict 闸——修复手段是删 include 边，不落 baseline）。
+#      护栏语义：selftest 内置正/反夹具（ctest layering_selftest 档把守
+#      检测逻辑本身）；--transitive 退出码维持诊断档语义（0）。
 #   --symbol-audit：符号级抽检——非视图层 TU 内 new / std::make_unique /
 #      std::make_shared 构造 src/ui 头定义的 Q_OBJECT 类即 fail（exit 1）。
 #      词表由 src/ui/**/*.h 扫描生成；这是「不带 include 直接 new」盲区的
@@ -387,6 +394,70 @@ def iter_files_under(dirs):
                     yield os.path.join(dirpath, f)
 
 
+# ---------------- 方向 59：--transitive 升级「公共头出闸重头」检测 ----------------
+# io/* / algorithms/* 头（ui io 白名单外）出现在非实现 TU 的 repo 传递闭包
+# 即黄牌。豁免：同模块 TU（实现侧）、TU 自身直接 include、app/selfcheck
+# （组装根/测试壳终端消费 by design）。白名单复用 ui_io_whitelist 单点事实
+# （当前 io/lasdoc.h——纯类型门面，本身即「轻」）。
+
+HEAVY_ROOTS = ("io/", "algorithms/")
+HEAVY_EXEMPT_DIRS = {"app", "selfcheck"}
+
+
+def repo_closure(start_rel, cap=TRANSITIVE_NODE_CAP):
+    """start_rel 起的 repo 内部 include BFS 闭包（边须存在性校验）。
+
+    返回 (seen 集, prev 链)。与 widget_chain 的 repo 边同口径：norm_include
+    归一出的幽灵路径（不存在的文件）不算边。
+    """
+    seen = {start_rel}
+    prev = {start_rel: None}
+    queue = deque([start_rel])
+    visited = 0
+    while queue and visited < cap:
+        cur = queue.popleft()
+        visited += 1
+        path = os.path.join(SRC, cur)
+        for _n, inc in file_includes(path):
+            rel = norm_include(os.path.dirname(path), inc)
+            if rel and rel not in seen and os.path.exists(os.path.join(SRC, rel)):
+                seen.add(rel)
+                prev[rel] = cur
+                queue.append(rel)
+    return seen, prev
+
+
+def collect_heavy_fanout():
+    """(--transitive 的重头出闸数据面) → [(tu_rel, heavy_rel, chain_str)]。"""
+    hits = []
+    for root, _dirs, files in os.walk(SRC):
+        for f in sorted(files):
+            if not f.endswith(".cpp"):
+                continue
+            tu_rel = os.path.relpath(os.path.join(root, f), SRC).replace(os.sep, "/")
+            tu_top = tu_rel.split("/", 1)[0]
+            if tu_top in HEAVY_EXEMPT_DIRS:
+                continue
+            tu_path = os.path.join(SRC, tu_rel)
+            direct = {norm_include(os.path.dirname(tu_path), inc)
+                      for _n, inc in file_includes(tu_path)}
+            direct.discard(None)
+            seen, prev = repo_closure(tu_rel)
+            for h in sorted(x for x in seen
+                            if x.startswith(HEAVY_ROOTS)
+                            and x not in UI_IO_WHITELIST):
+                if h.split("/", 1)[0] == tu_top or h in direct:
+                    continue
+                chain = [h]
+                cur = prev[h]
+                while cur is not None:
+                    chain.append(cur)
+                    cur = prev[cur]
+                chain.reverse()
+                hits.append((tu_rel, h, " -> ".join(chain)))
+    return hits
+
+
 def collect_transitive(qgis_inc_arg=None):
     """(--transitive 的数据面) → (inc_dir, func_hits, ui_widget_notes)。"""
     inc_dir = find_qgis_include_dir(qgis_inc_arg)
@@ -415,6 +486,7 @@ def collect_transitive(qgis_inc_arg=None):
 
 def run_transitive(qgis_inc_arg=None):
     inc_dir, func_hits, ui_widget_notes = collect_transitive(qgis_inc_arg)
+    heavy_hits = collect_heavy_fanout()
     print("NOTE --transitive：opt-in 传递闭包黄牌清单（不进 strict 闸；与三档输出互不干扰）")
     if inc_dir:
         print(f"     QGIS 头目录：{inc_dir}")
@@ -425,8 +497,26 @@ def run_transitive(qgis_inc_arg=None):
         print(f"黄牌 {e}")
     for e in ui_widget_notes:
         print(f"记录 {e}（视图层不禁 QtWidgets，仅记录）")
-    print(f"--transitive 小计：功能层黄牌 {len(func_hits)} 处；"
-          f"视图层 QtWidgets 边记录 {len(ui_widget_notes)} 处。")
+    # 重头出闸按（重头 × 出闸头）聚合展示：出闸头 = 链上直接 include 重头的
+    # 那个 repo 头（债的归属点）；逐 TU 明细以计数给出，代表链示形态。
+    edges = {}
+    for tu, heavy, chain in heavy_hits:
+        steps = chain.split(" -> ")
+        # 直接 include 的重头已在 collect_heavy_fanout 豁免，链长恒 ≥3；
+        # steps[-2] 即链上直接 include 重头的 repo 头（出闸责任人）。
+        key = (heavy, steps[-2])
+        entry = edges.setdefault(key, {"tus": set(), "chain": steps})
+        entry["tus"].add(tu)
+    for (heavy, carrier) in sorted(edges):
+        e = edges[(heavy, carrier)]
+        print(f"黄牌(重头出闸) {heavy} 经 {carrier} 出闸 → {len(e['tus'])} TU；"
+              f"代表链：{' -> '.join(e['chain'])}")
+    n_edges = len(edges)
+    n_tus = len({tu for tu, _h, _c in heavy_hits})
+    n_heavy = len({h for _t, h, _c in heavy_hits})
+    print(f"--transitive 小计：功能层 QtWidgets 黄牌 {len(func_hits)} 处；"
+          f"视图层 QtWidgets 边记录 {len(ui_widget_notes)} 处；"
+          f"重头出闸黄牌 {n_edges} 条出闸边（{n_heavy} 个重头 × {n_tus} 个受染 TU）。")
     return 0
 
 
@@ -702,6 +792,34 @@ def selftest():
             print(f"SELFTEST FAIL transitive: 视图层 QtWidgets 记录面 {ui_widget_notes}")
             failures += 1
 
+        # ---- 方向 59：--transitive 重头出闸夹具（正例 + 四类豁免反例）----
+        put("io/heavy.h", "// 层：数据\n")
+        put("io/lasdoc.h", "// 层：数据\n")  # 名字即白名单单点事实（ui_io_whitelist）
+        put("services/facade.h", '// 层：数据\n#include "../io/heavy.h"\n')
+        put("services/facade_light.h", '// 层：数据\n#include "../io/lasdoc.h"\n')
+        put("ui/victim.cpp", '// 层：视图\n#include "../services/facade.h"\n')
+        put("ui/own_choice.cpp", '// 层：视图\n#include "../io/heavy.h"\n')
+        put("io/impl.cpp", '// 层：数据\n#include "../services/facade.h"\n')
+        put("ui/light.cpp", '// 层：视图\n#include "../services/facade_light.h"\n')
+        put("app/wired.cpp", '// 层：组装根\n#include "../services/facade.h"\n')
+        put("selfcheck/probe.cpp", '// 层：测试壳\n#include "../services/facade.h"\n')
+
+        heavy_map = {(tu, h): chain for tu, h, chain in collect_heavy_fanout()}
+        if ("ui/victim.cpp", "io/heavy.h") not in heavy_map:
+            print("SELFTEST FAIL heavy-fanout: 门面扇出的 ui TU 必须黄牌（io/heavy.h）")
+            failures += 1
+        else:
+            ch = heavy_map[("ui/victim.cpp", "io/heavy.h")]
+            if not (ch.startswith("ui/victim.cpp") and "services/facade.h" in ch
+                    and ch.endswith("io/heavy.h")):
+                print(f"SELFTEST FAIL heavy-fanout: 链形态异常：{ch}")
+                failures += 1
+        victim_set = {tu for tu, _h in heavy_map}
+        if victim_set != {"ui/victim.cpp"}:
+            print(f"SELFTEST FAIL heavy-fanout: 命中面 {sorted(victim_set)} 应仅"
+                  f" ui/victim.cpp（直接 include/同模块/白名单/app+selfcheck 四类豁免不触发）")
+            failures += 1
+
         # ---- 方向 49：--symbol-audit 夹具（new / make_unique 正例 + 注释反例）----
         put("ui/foopanel.h", '// 层：视图\nclass FooPanel {\n  Q_OBJECT\n};\n')
         put("workflow/n.cpp", '// 层：功能\nauto *p = new FooPanel(this);\n')
@@ -722,7 +840,8 @@ def selftest():
         print(f"selftest：{failures} 处夹具失败")
         return 1
     print(f"selftest 通过：{len(cases)} 文件夹具 + 2 词表外置夹具 + "
-          f"5 strict 语义夹具 + 7 transitive 夹具 + 2 symbol-audit 夹具全部命中预期。")
+          f"5 strict 语义夹具 + 7 transitive 夹具 + 3 重头出闸夹具 + "
+          f"2 symbol-audit 夹具全部命中预期。")
     return 0
 
 

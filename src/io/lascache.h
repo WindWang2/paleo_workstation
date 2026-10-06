@@ -7,8 +7,7 @@
 
 #include "cachecore.h"
 #include "inflight.h"
-#include "lasdoc.h"
-#include "lasparser.h"
+#include "lasdoc.h" // LasDoc / LasIssue（载荷契约；解析入口 lasparser.h 不进缓存头）
 #include "lrucache.h"
 
 #include <functional>

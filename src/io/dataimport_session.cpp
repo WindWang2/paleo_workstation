@@ -15,7 +15,6 @@
 #include "../domain/arearules.h"
 #include "horizonbinner.h"
 #include "ingestplan.h"
-#include "lasparser.h"
 #include "welllogread.h" // 方向44：井名提取分派
 #include "../domain/projectclassifier.h"
 #include "segyreader.h"

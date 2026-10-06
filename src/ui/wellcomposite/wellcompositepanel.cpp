@@ -10,6 +10,7 @@
 #include "curveconfigdialog.h"
 #include "wellpositionlegendwidget.h"
 #include "../paleotheme.h"
+#include "../../domain/wellcompositemodel.h" // ComprehensiveWellData（方向 59：previewdoc.h 瘦身后出参类型直取）
 #include "../../services/previewdoc.h" // 数据门面（W1：XML 解析入口不直触）
 #include "../../services/paleotaskservice.h" // F2：两段式 XML 任务池路径
 #include <QApplication>

@@ -3,7 +3,7 @@
 #include <QtTest>
 
 #include "io/lascache.h"
-#include "io/lasparser.h"
+#include "io/lasdoc.h" // LasDoc（缓存载荷契约）
 #include "io/perffixtures.h"
 
 #include <QElapsedTimer>

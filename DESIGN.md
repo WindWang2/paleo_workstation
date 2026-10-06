@@ -182,10 +182,22 @@ QGIS 标准解剖：左 dock（资源管理器/图层树）、中央 `QgsMapCanv
 
 地层对比页占用中央工作区，收起 Paleo 的停靠面板；离页恢复原可见状态。ribbon 宿主与连接反馈遵守以上 token；宿主注入样式适配 Web chrome 的字体、主题与焦点环，SVG 地质图件保持原有数据符号。独立 Web 源码、模型、井资料与解释工程不纳入主仓库。
 
+## High DPI
+
+渲染正确性条款（非视觉决策；色彩/字体口径仍以 Colors、Typography 节为准，pointSize 已跟随系统缩放）。
+
+- **口径：** Qt Widgets 栈按逻辑坐标绘制，backing store 为物理像素——普通 QWidget 的 QPainter 路径天然 dpr 正确，**禁止**自行乘除 devicePixelRatio（画蛇添足会二次缩放）。需要手算设备像素的只有两类：
+  1. **QOpenGLWidget 子类的 `resizeGL`**：`glViewport` 必须用物理像素（`qRound(w * devicePixelRatioF())`），因为 FBO 是物理尺寸而 `resizeGL(w, h)` 收到的是逻辑尺寸。视口按逻辑设置 = 高 DPI 屏渲染内容只占左下角。已由 `tools/check_ui_invariants.py` 的 `gl-dpr` 规则静态把关。
+  2. **手动构建屏幕分辨率位图**（图标 pixmap、剖面地震栅格缓存）：按 `devicePixelRatioF()` 生成并 `setDevicePixelRatio`，参考 PaleoIcons 与 wellsectionscene 的 deviceTransform 口径。
+- **拾取一致性：** 屏幕坐标↔NDC 换算要求分子分母同单位（鼠标逻辑坐标配视口逻辑 rect，或物理配物理）。尺度因子在除法中相消，混用才是错位根源；新拾取代码沿用逻辑单位。
+- **图像出口分两类**：数据位图（地震切片 rgba、CPU 拼接栅格、图件导出）以**数据分辨率**为准，不做 dpr 换算——dpr 是屏幕概念；屏幕抓帧（视口截图、GL sweep 帧的 `grabFramebuffer`）按**物理像素**回读（所见即所得，dpr>1 时即高分辨率帧），同样不做额外缩放补偿。
+- **测试约定：** 高 DPI 回归用 `QT_SCALE_FACTOR=2`（Qt 官方机制，offscreen 平台下有效）模拟分数缩放；断言 `grab()` 输出物理尺寸 = 逻辑×2。offscreen 下 QOpenGLWidget 不建 GL 上下文，GL 路径的 dpr 验证走 QOffscreenSurface+FBO 直渲（tst_seismic_highdpi 先例）。dpr=1 路径必须逐像素不变（既有 golden 对拍）。
+
 ## Decisions Log
 
 | Date | Decision | Rationale |
 |------|----------|-----------|
+| 2026-10-06 | 高 DPI 条款成文（High DPI 节） | 3D 视口 resizeGL 未乘 dpr 为确定性缺陷（方向 60）；口径=普通 QWidget 路径禁止手乘 dpr、GL resizeGL 必须物理像素、图像出口两类（数据位图=数据分辨率、屏幕抓帧=物理回读）均不额外补偿；护栏入 check_ui_invariants.py `gl-dpr` 规则；测试约定 QT_SCALE_FACTOR=2 offscreen。 |
 | 2026-10-05 | 数据管理后增加地层对比 ribbon 页 | 用户明确要求嵌入独立 Web 前端。QtWebEngine 只作页面宿主，连接与进程编排留在功能层；本机配置保存服务地址、外部目录和 Python，源码/模型/数据不进入 GitHub。 |
 | 2026-09-25 | 初始设计系统 | /design-consultation + /qt-ui-design；控件级复用+主题还原（D2）；工作流即记忆点（D4）；AI mockup 不可用走 HTML 预览 |
 | 2026-09-29 | 暗色模式翻案 | 用户明确要求交付暗色：推翻 2026-09-25「V1 不交付暗色」决定。落地=UI chrome 全量 token 双值（frontmatter `dark` 块）；缺省浅色、仅显式切换写 QSettings（`ui/theme`）；SARibbon 调色板 isDark 双份；图标暗色再着色（QGIS default 深 glyph 逐像素提亮，PaleoIcons）；数据符号色（§93）不跟随；wellcomposite 柱状图画布保持纸面白底（地质文档隐喻），仅面板/对话框 chrome 跟随。对比度全 AA（text/surface 11.6:1、muted 6.4:1、error 胶囊 5.2:1）。 |

@@ -16,6 +16,7 @@
 #include <QTimer>
 
 #include "../src/services/errorhub.h"
+#include "../src/ui/paleotheme.h"
 #include "../src/ui/notifications/errorhistorypanel.h"
 #include "../src/ui/notifications/notificationcenter.h"
 #include "../src/ui/notifications/paleonotify.h"
@@ -76,6 +77,7 @@ private slots:
     void askReturnsAcceptButton();
     void separateTopLevelKeepsModal();
     void historyOnlyNotPresented();
+    void cardFollowsThemeSwitch();
     void stormDoesNotFreezeMainThread();
     void stormFromWorkerThreadDelivered();
     void historyFilterCopyClear();
@@ -249,6 +251,21 @@ void TestNotifications::historyOnlyNotPresented()
     QCOMPARE(r.center->visibleCardCount(), 0);
     QCOMPARE(r.center->statusShownCount(), 0);
     QCOMPARE(r.hub.size(), 2);
+}
+
+void TestNotifications::cardFollowsThemeSwitch()
+{
+    Rig r;
+    r.hub.raise(ErrorHub::Level::Warning, "t", "T", "theme");
+    auto *card = r.win.findChild<QWidget *>(QStringLiteral("paleoToastCard"));
+    QVERIFY(card);
+    const QString darkSurface = PaleoTheme::tokens(PaleoTheme::Theme::Dark).surface.name();
+    QVERIFY(!card->styleSheet().contains(darkSurface));
+    PaleoTheme::applyTheme(PaleoTheme::Theme::Dark);
+    QCoreApplication::processEvents();
+    QVERIFY(card->styleSheet().contains(darkSurface));
+    PaleoTheme::applyTheme(PaleoTheme::Theme::Light);
+    QCoreApplication::processEvents();
 }
 
 void TestNotifications::askReturnsAcceptButton()

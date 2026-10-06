@@ -15,23 +15,26 @@ ToastCard::ToastCard(QWidget *parent) : QFrame(parent)
     setObjectName(QStringLiteral("paleoToastCard"));
     setAttribute(Qt::WA_StyledBackground, true);
     setFixedWidth(360);  // = NotificationCenter::kCardWidth（DESIGN.md）
+    // 活体主题样式（换深/浅色主题自动重算）；级别切换只改动态属性 + repolish，不重建串。
+    PaleoTheme::applyThemedStyleSheet(this, [] {
+        const auto &t = PaleoTheme::tokens();
+        return QStringLiteral(
+                   "QFrame#paleoToastCard{background:%1;border:1px solid %2;border-radius:%3px;"
+                   "border-left:4px solid %2;}"
+                   "QFrame#paleoToastCard[level=\"warning\"]{border-left:4px solid %4;}"
+                   "QFrame#paleoToastCard[level=\"error\"]{border-left:4px solid %5;}"
+                   "QLabel#toastLevel[level=\"warning\"]{color:%6;font-weight:bold;}"
+                   "QLabel#toastLevel[level=\"error\"]{color:%7;font-weight:bold;}"
+                   "QLabel#toastTitle{font-weight:bold;color:%8;}"
+                   "QLabel#toastText{color:%8;}"
+                   "QLabel#toastCount{background:%9;color:%8;border-radius:%10px;padding:0 6px;}")
+            .arg(t.surface.name(), t.border.name())
+            .arg(t.radiusMd)
+            .arg(t.warning.name(), t.error.name(), t.warningText.name(),
+                 t.errorText.name(), t.text.name(), t.surfaceAlt.name())
+            .arg(t.radiusSm);
+    });
     const auto &t = PaleoTheme::tokens();
-    // 样式只在构造时生成一次；级别切换只改动态属性 + repolish，不重建串。
-    setStyleSheet(QStringLiteral(
-        "QFrame#paleoToastCard{background:%1;border:1px solid %2;border-radius:%3px;"
-        "border-left:4px solid %2;}"
-        "QFrame#paleoToastCard[level=\"warning\"]{border-left:4px solid %4;}"
-        "QFrame#paleoToastCard[level=\"error\"]{border-left:4px solid %5;}"
-        "QLabel#toastLevel[level=\"warning\"]{color:%6;font-weight:bold;}"
-        "QLabel#toastLevel[level=\"error\"]{color:%7;font-weight:bold;}"
-        "QLabel#toastTitle{font-weight:bold;color:%8;}"
-        "QLabel#toastText{color:%8;}"
-        "QLabel#toastCount{background:%9;color:%8;border-radius:%10px;padding:0 6px;}")
-                      .arg(t.surface.name(), t.border.name())
-                      .arg(t.radiusMd)
-                      .arg(t.warning.name(), t.error.name(), t.warningText.name(),
-                           t.errorText.name(), t.text.name(), t.surfaceAlt.name())
-                      .arg(t.radiusSm));
 
     auto *outer = new QVBoxLayout(this);
     outer->setContentsMargins(t.spacingSm + 4, t.spacingSm, t.spacingSm, t.spacingSm);

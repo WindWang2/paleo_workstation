@@ -2,7 +2,6 @@
 #include "seismicmaplink.h"
 #include "domain/seismic/sgycoordinatemapper.h"
 #include "domain/seismic/sgyvolume.h"
-#include "../qgis/seismicsectiontool.h"
 #include "selectioncontext.h"
 
 #include <QSignalBlocker>
@@ -26,7 +25,6 @@ SeismicMapLink::SeismicMapLink(QgsMapCanvas *canvas, SelectionContext *ctx, QObj
   {
     connect(m_canvas.data(), &QObject::destroyed, this, [this]() {
       m_cursorMarker = nullptr;
-      m_tool = nullptr;
     });
   }
 }
@@ -36,7 +34,6 @@ SeismicMapLink::~SeismicMapLink()
   if (m_canvas)
   {
     delete m_cursorMarker;
-    delete m_tool;
   }
 }
 
@@ -117,20 +114,12 @@ void SeismicMapLink::setActiveVolume(std::shared_ptr<const seismic::SgyVolume> v
   emit sectionVolumeChanged(volume);
 }
 
-void SeismicMapLink::activateSectionCaptureTool()
+void SeismicMapLink::requestSectionCapture()
 {
-  if (!m_canvas)
-    return;
-
-  if (!m_tool)
-  {
-    m_tool = new SeismicSectionTool(m_canvas);
-    connect(m_tool, &SeismicSectionTool::sectionPathCaptured,
-            this, &SeismicMapLink::onSectionPathCaptured);
-    connect(m_tool, &SeismicSectionTool::captureCancelled,
-            this, &SeismicMapLink::sectionCaptureCancelled);
-  }
-  m_canvas->setMapTool(m_tool);
+  // R4 信号化（方向 49）：工具归壳持有（SeismicSectionTool 是 QgsMapTool
+  // 派生的 widget 机械，qgis 封装域），这里只发意图——壳订阅后创建/激活
+  // 工具，并把 sectionPathCaptured 接回 triggerSectionFromMapPolyline。
+  emit sectionCaptureRequested();
 }
 
 void SeismicMapLink::triggerSectionFromMapPolyline(const QVector<QgsPointXY> &mapPoints, const QString &title)

@@ -253,18 +253,10 @@ class DataImportService : public QObject
     void failSession(ImportSession &s, const QString &message);
     void emitSessionEvents(const ImportSession &s, bool committed);
 
-    struct WellBind
-    {
-      QString entityId;   // 恰好一个匹配
-      bool unresolved = false;
-      QStringList candidates; // 0/2+ 候选时的集合
-    };
     // 单行导入 → FolderRowResult（importFolder 每行与「重试」共用口径）：
     // effectiveType 与 classifiedType 不同时经 forceType 下传。
     FolderRowResult folderRowFor(const QString &path, const QString &classifiedType,
                                 const QString &effectiveType);
-
-    static WellBind resolveWell(const DataCatalog *cat, const QString &name);
 
     // 单文件导入实体（plan 化前的 importProjectFileEx 主体——分类→dedup→
     // 受管 RAW/外链→实体解析→关联，语义原样未动）。由单文件 wrapper 与

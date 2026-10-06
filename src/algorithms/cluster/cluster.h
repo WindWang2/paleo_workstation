@@ -30,6 +30,7 @@ struct Options {
   std::uint64_t seed = 42;
   double tolerance = 1e-6;
   double varianceFloor = 1e-6;
+  std::size_t emChunkBudgetBytes = 268435456; // EM memory budget; 0 = full path
 };
 enum class Method { KMeans, Gmm };
 struct Model {
@@ -51,6 +52,7 @@ struct Result {
       objectiveHistory; // SSE for kmeans, observed log-likelihood for GMM
   double bic = 0;
   int iterations = 0;
+  bool chunkedEm = false; // gmm() ran chunked EM (no n*k buffer)
 };
 Result kmeans(const Matrix &, const Options & = {}, const Control & = {});
 Result gmm(const Matrix &, const Options & = {}, const Control & = {});

@@ -461,7 +461,14 @@ add_library(paleo_qgis STATIC
 target_link_libraries(paleo_qgis PUBLIC paleo_deps paleo_ui_deps paleo_store paleo_algorithms paleo_io)
 
 add_library(paleo_io STATIC
-  src/io/dataimportservice.cpp
+  src/io/dataimportservice.cpp                      # 方向57：生命周期 + 入口 wrapper
+  src/io/dataimport_session.cpp                     # 方向57：会话/登记基座（plan/RAW/commit 面）
+  src/io/dataimport_file.cpp                        # 方向57：单文件导入编排（importOneFile 壳+分派）
+  src/io/dataimport_wells.cpp                       # 方向57：井族分支（well_head/log/tops/deviation）
+  src/io/dataimport_geodata.cpp                     # 方向57：地物族分支（horizon/seismic/辅助参考）
+  src/io/dataimport_folder.cpp                      # 方向57：文件夹导入/预览/plan 执行面
+  src/io/dataimport_pyramids.cpp                    # 方向57：栅格金字塔/概览族
+  src/io/dataimport_document.cpp                    # 方向57：文档 PDF 转换 + 外链重定位
   src/io/lasparser.cpp
   src/io/dlisparser.cpp                            # 方向44：DLIS (RP66 v1) 读口
   src/io/lisparser.cpp                             # 方向44：LIS79 读口（含 TIF）
@@ -515,7 +522,12 @@ add_library(paleo_workflow STATIC
   src/workflow/compositionworkflow.cpp               # 方向20 轮4：③综合编图（按类边界析出）
   src/workflow/predictionworkflow.cpp              # 方向20 轮4：①智能预测（按类边界析出）
   src/workflow/constraintworkflow.cpp              # 方向20 轮4：②约束与单因素（按类边界析出）
-  src/workflow/constraintfactorjobs.cpp            # 方向20 轮4：②的单因素作业面（二次拆分）
+  src/workflow/constraintfactorjobs.cpp            # 方向20 轮4：②的单因素作业面；方向57 只留统一异步面
+  src/workflow/constraintfactorjobs_factor.cpp     # 方向57：基础因子生成族（idw/isopach/welldist/structural/surfer）
+  src/workflow/constraintfactorjobs_localdirection.cpp # 方向57：局部方向族三段式
+  src/workflow/constraintfactorjobs_geostat.cpp    # 方向57：克里金/SGS 族三段式
+  src/workflow/constraintfactorjobs_contours.cpp   # 方向57：分析等值线族 + 制图工作场
+  src/workflow/constraintfactorjobs_interpretive.cpp # 方向57：解释性等值线族三段式
   src/workflow/folderimport.cpp                    # W2 文件夹/单文件导入编排
   src/workflow/projectopen.cpp                     # W2 打开/新建工程编排
   src/workflow/registration.cpp                    # W3 临时配准编排
@@ -774,11 +786,13 @@ if(PALEO_PYTHON3)
            ${CMAKE_SOURCE_DIR}/tools/check_i18n.py --selftest)
   add_test(NAME ui_tokens COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/check_ui_tokens.py)
+  add_test(NAME ui_tokens_strict COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_ui_tokens.py --strict)
   add_test(NAME ui_tokens_selftest COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/check_ui_tokens.py --selftest)
   set_tests_properties(layering layering_strict layering_selftest
                        ui_invariants ui_invariants_strict ui_invariants_selftest
-                       i18n i18n_selftest ui_tokens ui_tokens_selftest
+                       i18n i18n_selftest ui_tokens ui_tokens_strict ui_tokens_selftest
                        PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 endif()
 
@@ -1116,6 +1130,11 @@ set(_paleo_extra_manifest
   "${CMAKE_SOURCE_DIR}/cmake/extra-wellcomposite.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-welltops.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-wellsection.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-xplot-sup-supervised.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-xplot-sup-em.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-xplot-sup-som.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-xplot-sup-service.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-xplot-sup-ui.cmake"
 )
 foreach(_f IN LISTS _paleo_extra_manifest)
   if(EXISTS "${_f}")

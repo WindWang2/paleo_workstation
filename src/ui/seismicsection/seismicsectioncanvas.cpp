@@ -350,6 +350,7 @@ void SeismicSectionCanvas::clearData() {
     m_displayValues.clear();
     m_lodStride = 0;
     clearZoneOverlay();
+    clearAttrOverlay(); // #224：换体/清剖面时属性叠加随数据作废（同尺寸新体不得沿用）
     update();
 }
 

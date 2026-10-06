@@ -166,7 +166,8 @@ QVariantMap PaleoDistanceTransformAlgorithm::processAlgorithm( const QVariantMap
   const double gt[6] = { extent.xMinimum(), cellSize, 0.0,
                          extent.yMaximum(), 0.0, -cellSize };
   GDALDatasetH outDs = PaleoRasterOut::createFloatRaster( outPath, nCols, nRows, gt, source->sourceCrs(),
-                                                          PALEO_DT_NODATA );
+                                                          PALEO_DT_NODATA,
+                                                          PaleoRasterOut::canonicalWktFromParameters( parameters ) );
   if ( !outDs )
     throw QgsProcessingException( QStringLiteral( "Cannot create output raster %1" ).arg( outPath ) );
   GDALSetMetadataItem( outDs, "PALEO_BREAK_LINES",

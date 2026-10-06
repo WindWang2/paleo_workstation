@@ -838,7 +838,7 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
 
   // ---- 阶段C 厚度样本表（autoplan §5C）-------------------------------------
   // 逐井：井名 / D61 TVD / D62 TVD / 层间速度或原因。行表由 MappingWorkflow
-  // 镜像到 ConstraintWorkflow 的 paleo.thickness.* 动态属性；不足样本的两句
+  // typed 镜像到 ConstraintWorkflow::setThicknessSamples；不足样本的两句
   // （「厚度样本不足以成面」/「没有厚度样本」）渲染在 thicknessHint，不弹框。
   // m2(B)：整段挪进 CollapsibleSection（objectName 全保留，默认展开）。
   lay->addSpacing(PaleoTheme::tokens().spacingMd); // spacing.md
@@ -981,10 +981,9 @@ void ConstraintPage::refreshThicknessSamples()
   if ( !table )
     return;
   auto *wf = qobject_cast<ConstraintWorkflow *>( property( kWfProp ).value<QObject *>() );
-  const QVariantList rows =
-      wf ? wf->property( "paleo.thickness.samples" ).toList() : QVariantList();
-  const QString message =
-      wf ? wf->property( "paleo.thickness.message" ).toString() : QString();
+  // ARCH-06：typed 面直读（原 paleo.thickness.* 动态属性暗道已撤）。
+  const QVariantList rows = wf ? wf->thicknessSampleRows() : QVariantList();
+  const QString message = wf ? wf->thicknessSampleMessage() : QString();
 
   table->setRowCount( 0 );
   for ( const QVariant &v : rows )

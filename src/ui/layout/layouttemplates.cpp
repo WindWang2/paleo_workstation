@@ -8,7 +8,7 @@
 #include <QFileDialog>
 #include <QDomDocument>
 #include <QFileInfo>
-#include <QMessageBox>
+#include "ui/notifications/notificationmanager.h"
 
 #include <qgslayout.h>
 #include <qgslayoutitem.h>
@@ -390,13 +390,11 @@ QAction *PaleoLayoutTemplates::applyBuiltinAction( const QString &key )
     const int existing = contentItemCount( layout );
     if ( existing > 0 )
     {
-      const auto choice = QMessageBox::question(
-        dialogParent( this ), tr( "应用内置模板" ),
-        tr( "应用模板「%1」将清空当前版面的 %2 个内容项，是否继续？" )
-          .arg( builtinTitle( key ) )
-          .arg( existing ),
-        QMessageBox::Ok | QMessageBox::Cancel, QMessageBox::Cancel );
-      if ( choice != QMessageBox::Ok )
+      if (!paleo::ui::NotificationManager::confirmDestructive(
+            dialogParent( this ), tr( "应用内置模板" ),
+            tr( "应用模板「%1」将清空当前版面的 %2 个内容项，是否继续？" )
+              .arg( builtinTitle( key ) )
+              .arg( existing ) ))
         return;
     }
     applyBuiltin( layout, key );

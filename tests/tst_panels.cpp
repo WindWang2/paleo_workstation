@@ -15,6 +15,7 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMessageBox>
+#include "ui/notifications/notificationmanager.h"
 #include <QMimeData>
 #include <QPushButton>
 #include <QSet>
@@ -4520,6 +4521,7 @@ private:
         table->selectRow(2); // free.sgy
         QCOMPARE(table->rowCount(), 3);
         // 确认框点 Yes。
+        paleo::ui::NotificationManager::setOffscreenAutoAnswer(true);
         driveModalNextTick([](QWidget *w) {
             if (auto *mb = qobject_cast<QMessageBox *>(w))
                 mb->button(QMessageBox::Yes)->click();
@@ -4530,11 +4532,13 @@ private:
         // 取消路径：确认框点 No → 不动。
         table->selectRow(1);
         const int rows = table->rowCount();
+        paleo::ui::NotificationManager::setOffscreenAutoAnswer(false);
         driveModalNextTick([](QWidget *w) {
             if (auto *mb = qobject_cast<QMessageBox *>(w))
                 mb->button(QMessageBox::No)->click();
         });
         lp->batchRemoveSoft();
+        paleo::ui::NotificationManager::setOffscreenAutoAnswer(true);
         QCOMPARE(table->rowCount(), rows);
     }
 

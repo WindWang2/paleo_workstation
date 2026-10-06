@@ -1,6 +1,6 @@
 {
-  "baseGitCommit": "dda2faa58c8804f195e8af28c69fec29ccf38379",
-  "productionDiffSha256": "39b4edc67acebc230cf4901544197f5361b5d63e666c925d5362c81c291ed161",
+  "baseGitCommit": "6c3ad212b130ad2a091746176e456f1daeb19a99",
+  "productionDiffSha256": "beac7e6bcebfff1698977f0ac2527e677c06f7d98346d34c0894f3d39986be4a",
   "checks": [
     {
       "file": "src/ui/attributetablepanel.cpp",
@@ -9,61 +9,7 @@
       "widgetLayoutConstructorCallsUnchanged": true
     },
     {
-      "file": "src/ui/correlation/correlationwellcolumn.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/correlation/curvebrowser.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/correlation/depthruler.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/correlation/horizonmarkers.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/correlation/petrophyspanel.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/crossplot/crossplotpanel.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/datapreview/datapreviewtabgeojson.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/datapreview/datapreviewtabhorizon.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/datapreview/datapreviewtabs.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+      "file": "src/ui/datapreview/datapreviewtabimage.cpp",
       "translationSourceStringsUnchanged": true,
       "connectionSignaturesUnchanged": true,
       "widgetLayoutConstructorCallsUnchanged": true
@@ -75,31 +21,7 @@
       "widgetLayoutConstructorCallsUnchanged": true
     },
     {
-      "file": "src/ui/datapreview/datapreviewtabwelllog.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/datapreview/previewhistogramwidget.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
       "file": "src/ui/datapreview/previewidentifypanel.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/datapreview/previewmappage.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/datapreview/previewmapstates.cpp",
       "translationSourceStringsUnchanged": true,
       "connectionSignaturesUnchanged": true,
       "widgetLayoutConstructorCallsUnchanged": true
@@ -111,43 +33,13 @@
       "widgetLayoutConstructorCallsUnchanged": true
     },
     {
-      "file": "src/ui/datapreview/previewtocpanel.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/decorations/paleodecorations.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
       "file": "src/ui/dialogs/folderconfirm.cpp",
       "translationSourceStringsUnchanged": true,
       "connectionSignaturesUnchanged": true,
       "widgetLayoutConstructorCallsUnchanged": true
     },
     {
-      "file": "src/ui/edittools/editingtoolbar.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/edittools/vertexeditortools.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/faults/faultmanagerpanel.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/horizonchipbar.cpp",
+      "file": "src/ui/dialogs/griddingdialog.cpp",
       "translationSourceStringsUnchanged": true,
       "connectionSignaturesUnchanged": true,
       "widgetLayoutConstructorCallsUnchanged": true
@@ -159,37 +51,7 @@
       "widgetLayoutConstructorCallsUnchanged": true
     },
     {
-      "file": "src/ui/layers/layertreepanel.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/layout/layoutitempalette.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/layout/layoutitempanel.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/layoutdesignershell.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/pages/composepage.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/pages/constraintpage.cpp",
+      "file": "src/ui/layout/layouttemplates.cpp",
       "translationSourceStringsUnchanged": true,
       "connectionSignaturesUnchanged": true,
       "widgetLayoutConstructorCallsUnchanged": true
@@ -201,217 +63,37 @@
       "widgetLayoutConstructorCallsUnchanged": true
     },
     {
-      "file": "src/ui/pages/dataopsimportui.h",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/pages/dataopspalette.h",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/pages/dataopspanelextra.h",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/pages/dataopspanelops.h",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/pages/dataopsviews.h",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/pages/dataopswidgets.h",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/pages/datapage.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
       "file": "src/ui/pages/entitypanel.cpp",
       "translationSourceStringsUnchanged": true,
       "connectionSignaturesUnchanged": true,
       "widgetLayoutConstructorCallsUnchanged": true
     },
     {
-      "file": "src/ui/pages/mappingworkbenchpage.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/pages/pageshared.h",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/pages/predictpage.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/pages/validatepage.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/pages/wellpredictionpanel.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/paleodockmanager.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/paleoemptystate.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/paleoicons.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/paleoicons.h",
+      "file": "src/ui/pages/wellsitingpanel.cpp",
       "translationSourceStringsUnchanged": true,
       "connectionSignaturesUnchanged": true,
       "widgetLayoutConstructorCallsUnchanged": true
     },
     {
       "file": "src/ui/paleomainwindow.cpp",
+      "translationSourceStringsUnchanged": false,
+      "connectionSignaturesUnchanged": false,
+      "widgetLayoutConstructorCallsUnchanged": true
+    },
+    {
+      "file": "src/ui/paleomainwindow.h",
       "translationSourceStringsUnchanged": true,
       "connectionSignaturesUnchanged": true,
       "widgetLayoutConstructorCallsUnchanged": true
     },
     {
       "file": "src/ui/paleomainwindow_attach.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/paleomainwindow_sections.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/paleomainwindow_workbench.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/paleotheme.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/paleotheme.h",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/propertymodel/propertymodelpanel.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/releasepanel.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/ribbonpanels.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/seismic3d/seismic3dcolormap.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/seismic3d/seismic3dfallback.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/seismic3d/seismic3dtf.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/seismic3d/seismic3dtfeditor.cpp",
-      "translationSourceStringsUnchanged": true,
+      "translationSourceStringsUnchanged": false,
       "connectionSignaturesUnchanged": true,
       "widgetLayoutConstructorCallsUnchanged": true
     },
     {
       "file": "src/ui/seismic3d/seismic3dviewpanel.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/seismic3d/seismic3dviewportwidget.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/seismic3d/volumeframerenderer.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/seismicsection/inversionpanel.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/seismicsection/sectionsetupdialog.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/seismicsection/seismicattrpanel.cpp",
       "translationSourceStringsUnchanged": true,
       "connectionSignaturesUnchanged": true,
       "widgetLayoutConstructorCallsUnchanged": true
@@ -423,31 +105,7 @@
       "widgetLayoutConstructorCallsUnchanged": true
     },
     {
-      "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
       "file": "src/ui/seismicsection/seismicsectiondockwidget.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/taskpanel.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/webviewpanel.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/wellcomposite/chronostratcolors.cpp",
       "translationSourceStringsUnchanged": true,
       "connectionSignaturesUnchanged": true,
       "widgetLayoutConstructorCallsUnchanged": true
@@ -459,91 +117,13 @@
       "widgetLayoutConstructorCallsUnchanged": true
     },
     {
-      "file": "src/ui/wellcomposite/depthtools.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/wellcomposite/exportengine.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/wellcomposite/hiddentrackbar.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/wellcomposite/multiwellview.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/wellcomposite/patterncatalog.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/wellcomposite/stratassignment.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/wellcomposite/trackconfigdialog.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/wellcomposite/wellcompositecanvas.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
       "file": "src/ui/wellcomposite/wellcompositepanel.cpp",
       "translationSourceStringsUnchanged": true,
       "connectionSignaturesUnchanged": true,
       "widgetLayoutConstructorCallsUnchanged": true
     },
     {
-      "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/wellcomposite/wellpositionlegendwidget.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/wellsection/wellsectiondialogs.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/wellsection/wellsectionpanel.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/wellsection/wellsectionscene.cpp",
-      "translationSourceStringsUnchanged": true,
-      "connectionSignaturesUnchanged": true,
-      "widgetLayoutConstructorCallsUnchanged": true
-    },
-    {
-      "file": "src/ui/wellsection/wellsectionstyle.cpp",
+      "file": "src/ui/welltops/welltopseditordialog.cpp",
       "translationSourceStringsUnchanged": true,
       "connectionSignaturesUnchanged": true,
       "widgetLayoutConstructorCallsUnchanged": true

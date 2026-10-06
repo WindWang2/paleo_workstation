@@ -39,6 +39,8 @@ public:
 
     // hub 是否有存活的呈现层（PaleoNotify 据此决定走 hub 还是回落旧模态）。
     static bool hasPresenter(const ErrorHub *hub);
+    // hub 当前呈现层的宿主窗口（无则 nullptr）。
+    static QWidget *presenterHost(const ErrorHub *hub);
 
     // ---- 观测面（测试/诊断） ----
     int visibleCardCount() const;

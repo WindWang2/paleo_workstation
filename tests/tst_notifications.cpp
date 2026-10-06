@@ -74,6 +74,8 @@ private slots:
     void paleoNotifyFallsBackWithoutPresenter();
     void paleoNotifyRoutesThroughHub();
     void askReturnsAcceptButton();
+    void separateTopLevelKeepsModal();
+    void historyOnlyNotPresented();
     void stormDoesNotFreezeMainThread();
     void stormFromWorkerThreadDelivered();
     void historyFilterCopyClear();
@@ -216,6 +218,37 @@ void TestNotifications::paleoNotifyRoutesThroughHub()
     QCOMPARE(r.center->modalShownCount(), 1);
     closeSevereBoxes();
     ErrorHub::installGlobal(nullptr);
+}
+
+void TestNotifications::separateTopLevelKeepsModal()
+{
+    Rig r;
+    ErrorHub::installGlobal(&r.hub);
+    QMainWindow other;  // 独立顶层（如版面设计器）
+    other.show();
+    QString seen;
+    QTimer::singleShot(0, [&] {
+        if (auto *mb = qobject_cast<QMessageBox *>(QApplication::activeModalWidget()))
+        {
+            seen = mb->text();
+            mb->accept();
+        }
+    });
+    PaleoNotify::warning(&other, QStringLiteral("T"), QStringLiteral("另一窗"));
+    QCOMPARE(seen, QStringLiteral("另一窗"));          // 旧模态呈现
+    QCOMPARE(r.center->visibleCardCount(), 0);          // 主窗口不出卡
+    QCOMPARE(r.hub.entries().last().text, QStringLiteral("另一窗"));  // 仍入账历史
+    ErrorHub::installGlobal(nullptr);
+}
+
+void TestNotifications::historyOnlyNotPresented()
+{
+    Rig r;
+    r.hub.raise(ErrorHub::Level::Warning, "t", "T", "quiet", {}, false, true);
+    r.hub.raise(ErrorHub::Level::Info, "t", "T", "quiet info", {}, false, true);
+    QCOMPARE(r.center->visibleCardCount(), 0);
+    QCOMPARE(r.center->statusShownCount(), 0);
+    QCOMPARE(r.hub.size(), 2);
 }
 
 void TestNotifications::askReturnsAcceptButton()

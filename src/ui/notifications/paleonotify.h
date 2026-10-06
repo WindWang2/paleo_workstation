@@ -11,6 +11,8 @@ class QWidget;
 //   (NotificationCenter)」时入账 ErrorHub（warning→通知卡、information→状态栏、
 //   critical→severe 模态且同键 60s 单弹），**立即返回、不阻塞**；
 //   否则（单测、组装根之前）原样回落迁移前的 QMessageBox 静态调用。
+// - 调用方身处另一个可见的非对话框顶层窗（独立设计器等，主窗口通知卡可能被
+//   盖住）时：入账 historyOnly + 旧模态呈现。
 // - 文本逐字透传（title/text 不改写）；source 缺省取 parent 的类名作来源域。
 // - report()：模态保留清单内的「需阅读的报告型提示」，始终模态 information。
 // - ask*()：模态保留清单内的「用户裁决」确认，始终模态，按钮/默认键与迁移前

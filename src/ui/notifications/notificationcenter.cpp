@@ -19,6 +19,12 @@ QHash<const ErrorHub *, int> &presenters()
     static QHash<const ErrorHub *, int> map;
     return map;
 }
+// hub → 最近一个呈现层的宿主（主线程访问）。
+QHash<const ErrorHub *, QPointer<QWidget>> &hosts()
+{
+    static QHash<const ErrorHub *, QPointer<QWidget>> map;
+    return map;
+}
 } // namespace
 
 NotificationCenter::NotificationCenter(QWidget *host, ErrorHub *hub)
@@ -37,6 +43,7 @@ NotificationCenter::NotificationCenter(QWidget *host, ErrorHub *hub)
     if (hub)
     {
         ++presenters()[hub];
+        hosts()[hub] = host;
         connect(hub, &ErrorHub::errorRaised, this, &NotificationCenter::onRaised);
     }
 }
@@ -47,7 +54,10 @@ NotificationCenter::~NotificationCenter()
     {
         auto it = presenters().find(m_hub.data());
         if (it != presenters().end() && --it.value() <= 0)
+        {
             presenters().erase(it);
+            hosts().remove(m_hub.data());
+        }
     }
     for (ToastCard *card : std::as_const(m_cards))
         if (card)
@@ -57,6 +67,11 @@ NotificationCenter::~NotificationCenter()
 bool NotificationCenter::hasPresenter(const ErrorHub *hub)
 {
     return hub && presenters().value(hub, 0) > 0;
+}
+
+QWidget *NotificationCenter::presenterHost(const ErrorHub *hub)
+{
+    return hasPresenter(hub) ? hosts().value(hub).data() : nullptr;
 }
 
 void NotificationCenter::setStatusBar(QStatusBar *bar)
@@ -109,7 +124,7 @@ ToastCard *NotificationCenter::takeCard()
 
 void NotificationCenter::onRaised(const ErrorHub::Entry &entry, bool firstInWindow)
 {
-    if (!m_host)
+    if (!m_host || entry.historyOnly)
         return;
     if (entry.level == ErrorHub::Level::Info)
     {

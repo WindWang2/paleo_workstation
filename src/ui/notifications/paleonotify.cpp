@@ -4,6 +4,7 @@
 #include "../../services/errorhub.h"
 #include "notificationcenter.h"
 
+#include <QDialog>
 #include <QPushButton>
 #include <QMessageBox>
 #include <QWidget>
@@ -14,6 +15,19 @@ ErrorHub *activeHub()
 {
     ErrorHub *hub = ErrorHub::global();
     return NotificationCenter::hasPresenter(hub) ? hub : nullptr;
+}
+
+// 通知卡锚定在呈现层宿主（主窗口）上。调用方若身处另一个可见的非对话框
+// 顶层窗（如独立的版面设计器主窗口），主窗口上的卡可能被整个盖住——此时
+// 保留旧模态呈现（只入账历史）。对话框（多叠在主窗口之上）照常走通知卡。
+bool presentsOnHost(ErrorHub *hub, QWidget *parent)
+{
+    QWidget *host = NotificationCenter::presenterHost(hub);
+    if (!parent || !host)
+        return true;
+    QWidget *win = parent->window();
+    return win == host->window() || !win->isVisible() ||
+           qobject_cast<QDialog *>(win) != nullptr;
 }
 
 QString sourceOf(QWidget *parent, const QString &source)
@@ -30,37 +44,46 @@ namespace PaleoNotify
 void warning(QWidget *parent, const QString &title, const QString &text,
              const QString &source)
 {
-    if (ErrorHub *hub = activeHub())
-        hub->raise(ErrorHub::Level::Warning, sourceOf(parent, source), title, text);
-    else
+    ErrorHub *hub = activeHub();
+    const bool onHost = hub && presentsOnHost(hub, parent);
+    if (hub)
+        hub->raise(ErrorHub::Level::Warning, sourceOf(parent, source), title, text,
+                   QString(), false, /*historyOnly=*/!onHost);
+    if (!onHost)
         QMessageBox::warning(parent, title, text);
 }
 
 void information(QWidget *parent, const QString &title, const QString &text,
                  const QString &source)
 {
-    if (ErrorHub *hub = activeHub())
-        hub->raise(ErrorHub::Level::Info, sourceOf(parent, source), title, text);
-    else
+    ErrorHub *hub = activeHub();
+    const bool onHost = hub && presentsOnHost(hub, parent);
+    if (hub)
+        hub->raise(ErrorHub::Level::Info, sourceOf(parent, source), title, text,
+                   QString(), false, /*historyOnly=*/!onHost);
+    if (!onHost)
         QMessageBox::information(parent, title, text);
 }
 
 void critical(QWidget *parent, const QString &title, const QString &text,
               const QString &source)
 {
-    if (ErrorHub *hub = activeHub())
+    ErrorHub *hub = activeHub();
+    const bool onHost = hub && presentsOnHost(hub, parent);
+    if (hub)
         hub->raise(ErrorHub::Level::Error, sourceOf(parent, source), title, text,
-                   QString(), /*severe=*/true);
-    else
+                   QString(), /*severe=*/true, /*historyOnly=*/!onHost);
+    if (!onHost)
         QMessageBox::critical(parent, title, text);
 }
 
 void report(QWidget *parent, const QString &title, const QString &text)
 {
-    // 报告型提示属模态保留清单：仍入账历史（info，不触发呈现分流之外的弹窗——
-    // info 级只走状态栏），再模态展示全文。
+    // 报告型提示属模态保留清单：只入账历史（historyOnly，不再上状态栏），
+    // 再模态展示全文。
     if (ErrorHub *hub = ErrorHub::global())
-        hub->raise(ErrorHub::Level::Info, sourceOf(parent, QString()), title, text);
+        hub->raise(ErrorHub::Level::Info, sourceOf(parent, QString()), title, text,
+                   QString(), false, /*historyOnly=*/true);
     QMessageBox::information(parent, title, text);
 }
 

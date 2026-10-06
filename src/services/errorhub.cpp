@@ -72,7 +72,8 @@ ErrorHub::Entry *ErrorHub::findLive(quint64 id)
 
 ErrorHub::Entry ErrorHub::raise(Level level, const QString &source,
                                 const QString &title, const QString &text,
-                                const QString &dedupKey, bool severe)
+                                const QString &dedupKey, bool severe,
+                                bool historyOnly)
 {
     Entry snapshot;
     bool first = true;
@@ -94,6 +95,7 @@ ErrorHub::Entry ErrorHub::raise(Level level, const QString &source,
                     live->lastMs = now;
                     live->severe = live->severe || severe;
                     snapshot = *live;
+                    snapshot.historyOnly = historyOnly;
                     first = false;
                 }
             }
@@ -124,6 +126,7 @@ ErrorHub::Entry ErrorHub::raise(Level level, const QString &source,
             slot.severe = severe && level == Level::Error;
             m_keyIndex.insert(key, slot.id);
             snapshot = slot;
+            snapshot.historyOnly = historyOnly;
         }
     }
     emit errorRaised(snapshot, first);

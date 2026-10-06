@@ -18,7 +18,10 @@
 //   lastMs 刷新），不新增历史行，errorRaised 的 firstInWindow=false；窗口
 //   以首次出现计（固定窗口，不随重复滑动）——持续风暴下每 60s 至多一次
 //   firstInWindow=true，呈现层据此「同键 60s 单弹」。
-// - 去重键缺省 = level|source|title|text（文本完全相同才算同一错误）。
+// - 去重键缺省 = level|source|title|text（文本完全相同才算同一错误；severe
+//   不入键——同文本的 severe 与非 severe Error 视为同一错误，severe 只升不降）。
+// - historyOnly：调用方已自行呈现（如保留清单内的模态），本次只记历史；
+//   随 errorRaised 快照带出，呈现层见此标记不再呈现。
 // - 环形历史上限 kCapacity=500：满后逐出最旧条目（其去重索引同步作废）。
 // - 线程：raise/查询/清空均加锁，任意线程可调；errorRaised 在 raise 的
 //   调用线程发出，跨线程接收者经 AutoConnection 排队到其所在线程。
@@ -43,6 +46,7 @@ public:
         qint64 lastMs = 0;
         int count = 0;           // 聚合计数（≥1）
         bool severe = false;     // Error 级请求模态
+        bool historyOnly = false;// 本次只入账历史、不请求呈现（调用方已自行呈现）
     };
 
     struct Filter
@@ -61,7 +65,7 @@ public:
     // 返回条目（聚合后状态）。text 为空时仍记录（不吞），去重键照常计算。
     Entry raise(Level level, const QString &source, const QString &title,
                 const QString &text, const QString &dedupKey = QString(),
-                bool severe = false);
+                bool severe = false, bool historyOnly = false);
 
     QVector<Entry> entries() const;                 // 旧 → 新
     QVector<Entry> entries(const Filter &f) const;  // 旧 → 新

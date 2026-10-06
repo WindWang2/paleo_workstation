@@ -112,7 +112,7 @@
 #include <QListWidget>
 #include <QMap>
 #include <QMenu>
-#include <QMessageBox>
+#include "notifications/paleonotify.h"
 #include <QPushButton>
 #include <QShortcut>
 #include <QTimer>
@@ -567,7 +567,7 @@ void PaleoMainWindow::buildShell()
       // §38 blocking-error contract: a failed open surfaces as a dialog, not
       // a silent no-op on the startup page.
       if (!m_projectSvc->openProject(p) && !m_projectSvc->lastOpenCancelled()) // #152：用户取消不弹错
-        QMessageBox::critical(this, tr("打开工程失败"),
+        PaleoNotify::critical(this, tr("打开工程失败"),
                               m_projectSvc->lastErrors().join(QLatin1Char('\n')));
     });
   if (auto *newBtn = startup->findChild<QPushButton *>(QStringLiteral("newProjectButton")))
@@ -579,7 +579,7 @@ void PaleoMainWindow::buildShell()
       if (p.isEmpty())
         return;
       if (!m_projectSvc->createProject(p) && !m_projectSvc->lastOpenCancelled()) // #152：用户取消不弹错
-        QMessageBox::critical(this, tr("新建工程失败"),
+        PaleoNotify::critical(this, tr("新建工程失败"),
                               m_projectSvc->lastErrors().join(QLatin1Char('\n')));
     });
   // PROJECT_FILE_DESIGN：从工区文件夹新建——选目录后
@@ -602,7 +602,7 @@ void PaleoMainWindow::buildShell()
       if (p.isEmpty() || !m_projectSvc)
         return;
       if (!m_projectSvc->openProject(p) && !m_projectSvc->lastOpenCancelled()) // #152：用户取消不弹错
-        QMessageBox::critical(this, tr("打开工程失败"),
+        PaleoNotify::critical(this, tr("打开工程失败"),
                               m_projectSvc->lastErrors().join(QLatin1Char('\n')));
     });
 
@@ -1291,7 +1291,7 @@ void PaleoMainWindow::runFolderImportAt(DataImportService *svc,
                           : QVector<FolderPreviewRow>();
   if (preview.isEmpty())
   {
-    QMessageBox::warning(this, tr("导入工区文件夹"),
+    PaleoNotify::warning(this, tr("导入工区文件夹"),
                          err.isEmpty() ? tr("目录里没有可导入的文件") : err);
     return;
   }
@@ -1422,16 +1422,16 @@ ProjectOpenWorkflow *PaleoMainWindow::projectOpenWorkflow()
               if (isOffscreen())
                 return;
               if (fatal)
-                QMessageBox::critical(this, title, detail);
+                PaleoNotify::critical(this, title, detail);
               else
-                QMessageBox::warning(this, title, detail);
+                PaleoNotify::warning(this, title, detail);
             });
     connect(m_projectOpenWf, &ProjectOpenWorkflow::folderImportRequested, this,
             [this](const QString &dir) {
               if (m_importSvc)
                 runFolderImportAt(m_importSvc, dir);
               else if (!isOffscreen())
-                QMessageBox::information(
+                PaleoNotify::information(
                     this, tr("从工区文件夹新建"),
                     tr("工程已创建于 %1；导入服务未就绪，请在数据页手动导入该文件夹。")
                         .arg(dir));
@@ -1566,21 +1566,17 @@ void PaleoMainWindow::closeEvent(QCloseEvent *event)
     {
       // 显式中文按钮文案（标准按钮的翻译依赖 Qt 自带 qtbase 翻译目录，
       // 未装载时会漏英文——i18n 决策 2026-09-29 用户可见串必须中文）。
-      QMessageBox box(QMessageBox::Warning, tr("未保存的编辑"),
-                      tr("以下图层有未保存的编辑：\n%1\n\n关闭前如何处理？")
-                          .arg(dirtyNames.join(QLatin1Char('\n'))),
-                      QMessageBox::NoButton, this);
-      QPushButton *saveBtn = box.addButton(tr("保存"), QMessageBox::AcceptRole);
-      QPushButton *discardBtn = box.addButton(tr("放弃"), QMessageBox::DestructiveRole);
-      box.addButton(tr("取消"), QMessageBox::RejectRole);
-      box.setDefaultButton(saveBtn);
-      box.exec();
-      if (box.clickedButton() != saveBtn && box.clickedButton() != discardBtn)
+      const auto choice = PaleoNotify::askSaveDiscard(
+          this, PaleoNotify::AskIcon::Warning, tr("未保存的编辑"),
+          tr("以下图层有未保存的编辑：\n%1\n\n关闭前如何处理？")
+              .arg(dirtyNames.join(QLatin1Char('\n'))),
+          tr("保存"), tr("放弃"), tr("取消"));
+      if (choice == PaleoNotify::SaveChoice::Cancel)
       {
         event->ignore(); // 取消（含 Esc/窗口 ✕）
         return;
       }
-      if (box.clickedButton() == saveBtn)
+      if (choice == PaleoNotify::SaveChoice::Save)
       {
         for (QgsVectorLayer *vl : dirty)
         {
@@ -1589,7 +1585,7 @@ void PaleoMainWindow::closeEvent(QCloseEvent *event)
                                     : vl->commitChanges();
           if (!ok)
           {
-            QMessageBox::critical(
+            PaleoNotify::critical(
                 this, tr("保存编辑失败"),
                 tr("图层「%1」的编辑未能提交，窗口不会关闭。")
                     .arg(vl->name().isEmpty() ? vl->id() : vl->name()));

@@ -52,7 +52,7 @@ bool ask(QWidget *parent, const QString &title, const QString &text,
 
 enum class SaveChoice { Save, Discard, Cancel };
 // 三键「保存 / 放弃 / 取消」（AcceptRole / DestructiveRole / RejectRole）。
-// 按钮文案由调用方 tr() 传入（保留原翻译上下文）。关窗/Esc = Cancel。
+// 按钮文案由调用方 tr() 传入（保留原翻译上下文）。默认键 = 保存；关窗/Esc = Cancel。
 SaveChoice askSaveDiscard(QWidget *parent, AskIcon icon, const QString &title,
                           const QString &text, const QString &saveText,
                           const QString &discardText, const QString &cancelText);

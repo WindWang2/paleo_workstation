@@ -95,6 +95,7 @@ SaveChoice askSaveDiscard(QWidget *parent, AskIcon icon, const QString &title,
     QPushButton *save = box.addButton(saveText, QMessageBox::AcceptRole);
     QPushButton *discard = box.addButton(discardText, QMessageBox::DestructiveRole);
     box.addButton(cancelText, QMessageBox::RejectRole);
+    box.setDefaultButton(save);  // 两处原调用均以「保存」为默认键
     box.exec();
     if (box.clickedButton() == save)
         return SaveChoice::Save;

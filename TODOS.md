@@ -1,3 +1,22 @@
+## P3 — 快捷键/帮助面后续（from goal/shortcuts-help, 2026-10-07）
+
+- **What:** 方向63 把全仓键位收进 `src/ui/shortcuts/shortcutcatalog.cpp` 中央注册表，但按红线「不改键序/上下文/行为」，
+  以下几项只登记未动：
+  1. **Delete 遮蔽**：图层树面板 `layers.remove` 是主窗级 `WindowShortcut` QAction，面板可见时会先吃掉数据树焦点内
+     Delete（`data.assets.remove`）与节点编辑工具 Delete（`map.vertex.delete`）。启动日志以 info 报两条 shadow，
+     `tst_shortcuthelp::knownShadowsArePinned` 钉住清单。候选修法：改 `Qt::WidgetWithChildrenShortcut`（需真机核实
+     图层树内 Delete 仍可用）。
+  2. 保存按钮提示「保存工程（Ctrl+S）」、定位器占位符「搜索井位/层位  Ctrl+K」仍硬编码键名，改为取 `keyFor()`。
+  3. 数据页「?」快捷键表（DataPage ShortcutsDialog）与 F1 总表并存，可改为打开总表并预过滤到数据页。
+  4. 地图画布（主地图与预览地图都是 `QgsMapCanvas`）的 QGIS 内建按键（+ / - / 方向键 / 0 复位等，见
+     `tst_previewmap_canvas::keyboardPlusMinusZero`）属第三方行为，未进注册表与总表；可补登记为 KeyHandler 条目做展示。
+  5. 新增 `PaleoShortcuts` / `PaleoWhatsThis` / `tr()` 文案待 #246（zh_CN 本地化）合入后跑 lupdate 刷 `.ts`。
+- **Why:** 都是行为或文案改动，超出「收编不改行为」的边界；需要真机交互验证。
+- **Context:** ledger [方向63](.goal-loop-ledger-shortcuts-help.md#遮蔽告警启动日志-info测试钉死清单)。
+- **Effort:** human: S / CC: S
+- **Priority:** P3
+- **Depends on:** #246（第 5 项）
+
 ## P3 — AI 助手：function calling 闭环 + 图形化配置（from goal/ai-assist, 2026-10-06）
 
 - **What:** 方向51 只交付了「领域工具描述表 + 调用分发」：模型点名挑工具后，助手面板会

@@ -40,6 +40,9 @@
 #include "pages/stratigraphicwebpage.h"
 #include "../workflow/stratigraphicwebsession.h"
 #include "pages/pageshared.h" // kPageIds（W4 跨 TU 页序表）
+#include "shortcuts/shortcutcatalog.h" // 方向63：快捷键中央注册表（键序/上下文唯一真源）
+#include "help/helpsurface.h"          // 方向63：帮助菜单 + F1 总表 + Shift+F1
+#include "help/whatsthiscatalog.h"     // 方向63：「这是什么？」清单回填
 #include "constraintdrawcontroller.h"
 #include "dialogs/folderconfirm.h"
 #include "typedconstraintdrawcontroller.h" // ---- m2(B)：物源线/展布线/控制点（块内接线用）----
@@ -83,6 +86,7 @@
 #include <qgslayertreeview.h>
 #include <qgslayertreeviewdefaultactions.h>
 #include <qgsmessagelog.h>
+#include <qgis.h> // Qgis::version()（方向63 关于框）
 #include <qgsmessagelogviewer.h>
 #include <qgslocatorwidget.h>
 #include <qgslocator.h>
@@ -357,6 +361,11 @@ PaleoMainWindow::PaleoMainWindow(QgisCanvasController *canvasCtl,
   m_dockManager->captureDefaultLayout();
   showStartup(); // §42.1: first-run lands on the startup page
   restoreWindowState();
+
+  // 方向63：快捷键注册表健康度进启动日志（冲突 warning / 遮蔽 info），
+  // 外壳控件按清单回填 whatsThis（页面板在 attachWorkflows 末尾再补一轮）。
+  paleo::shortcuts::logConflictsOnce();
+  paleo::help::applyWhatsThis(this);
 }
 
 PaleoMainWindow::~PaleoMainWindow()
@@ -971,9 +980,11 @@ void PaleoMainWindow::buildRibbon()
   }
   m_stratigraphicWebPage->buildRibbon(categoryForPage(QStringLiteral("correlation")));
   // W5 键盘可达：Ctrl+1..6 直切六个工作流页（页序 = 工作流链序）。
+  // 方向63：键序登记在 shortcuts/shortcutcatalog（main.page.<页 id>）。
   for (int i = 0; i < paleo::pagesinternal::kPageIds.size(); ++i)
   {
-    auto *sc = new QShortcut(QKeySequence(QStringLiteral("Ctrl+%1").arg(i + 1)), this);
+    auto *sc = paleo::shortcuts::bindShortcut(
+        QStringLiteral("main.page.") + paleo::pagesinternal::kPageIds.at(i), this);
     sc->setObjectName(QStringLiteral("pageShortcut.") + paleo::pagesinternal::kPageIds.at(i));
     connect(sc, &QShortcut::activated, this, [this, i] {
       showPage(paleo::pagesinternal::kPageIds.at(i));
@@ -988,11 +999,10 @@ void PaleoMainWindow::buildRibbon()
       const int next = ((idx < 0 ? 0 : idx) + step + n) % n;
       showPage(paleo::pagesinternal::kPageIds.at(next));
     };
-    auto *nextSc = new QShortcut(QKeySequence(QStringLiteral("Ctrl+Tab")), this);
+    auto *nextSc = paleo::shortcuts::bindShortcut(QStringLiteral("main.page.next"), this);
     nextSc->setObjectName(QStringLiteral("pageShortcut.next"));
     connect(nextSc, &QShortcut::activated, this, [cyclePage] { cyclePage(1); });
-    auto *prevSc =
-        new QShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+Tab")), this);
+    auto *prevSc = paleo::shortcuts::bindShortcut(QStringLiteral("main.page.prev"), this);
     prevSc->setObjectName(QStringLiteral("pageShortcut.prev"));
     connect(prevSc, &QShortcut::activated, this, [cyclePage] { cyclePage(-1); });
   }
@@ -1056,6 +1066,21 @@ void PaleoMainWindow::buildRibbon()
     showPanelMenu(panelsBtn->mapToGlobal(QPoint(0, panelsBtn->height())));
   });
   right->addWidget(panelsBtn);
+
+  // 方向63 帮助面骨架：「帮助」菜单（快捷键总表 / 这是什么？ / 关于）挂在右侧
+  // 按钮组；F1、Shift+F1 动作挂在主窗上，菜单收起时同样生效。
+  auto *help = new paleo::help::HelpSurface(this);
+  help->setAboutDetails({tr("QGIS：%1").arg(Qgis::version())});
+  auto *helpBtn = new QToolButton(right);
+  helpBtn->setObjectName(QStringLiteral("helpMenuButton"));
+  helpBtn->setText(tr("帮助"));
+  helpBtn->setAccessibleName(tr("帮助菜单"));
+  helpBtn->setToolTip(tr("快捷键总表、「这是什么？」与关于"));
+  helpBtn->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionHelpContents.svg")));
+  helpBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+  helpBtn->setPopupMode(QToolButton::InstantPopup);
+  helpBtn->setMenu(help->menu());
+  right->addWidget(helpBtn);
 
   // Web 服务 dock 的 toggleViewAction：dock 标题栏 ✕ 关掉时按钮态跟随。
   if (auto *webDock = findChild<QDockWidget *>(QStringLiteral("webServiceDock")))
@@ -1126,7 +1151,7 @@ void PaleoMainWindow::contextMenuEvent(QContextMenuEvent *event)
 void PaleoMainWindow::restoreCorrelationDocks()
 {
   if (auto *save = findChild<QAction *>(QStringLiteral("saveProjectAction")))
-    save->setShortcut(QKeySequence::Save);
+    paleo::shortcuts::setActionShortcutActive(QStringLiteral("main.project.save"), save, true);
   for (const auto &dock : m_correlationHiddenDocks)
     if (dock)
     {
@@ -1165,8 +1190,8 @@ void PaleoMainWindow::showPage(const QString &pageId)
   m_currentPage = pageId;
   // Web 页自己的 Ctrl+S 保存独立解释，Paleo 工程的保存快捷键让出。
   if (auto *save = findChild<QAction *>(QStringLiteral("saveProjectAction")))
-    save->setShortcut(pageId == QLatin1String("correlation") ? QKeySequence()
-                                                            : QKeySequence(QKeySequence::Save));
+    paleo::shortcuts::setActionShortcutActive(QStringLiteral("main.project.save"), save,
+                                              pageId != QLatin1String("correlation"));
 
   // 页签 = 页：切到对应 ribbon 页签（currentRibbonTabChanged 回到这里时
   // id == m_currentPage，不重入）。

@@ -58,6 +58,13 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
   connect(dock, &seismic::SeismicSectionDockWidget::setupRequested, this, open);
   connect(link, &SeismicMapLink::sectionVolumeChanged, dock,
           &seismic::SeismicSectionDockWidget::setVolume);
+  // #225：IL/XL 剖面同样需要候选井（井旁道 / 子波提取 / 反演低频井）——
+  // 体就绪后常驻注入工程井（连接序在 setVolume 之后）。
+  connect(link, &SeismicMapLink::sectionVolumeChanged, dock,
+          [dock, workbench](std::shared_ptr<const seismic::SgyVolume> volume) {
+            dock->setCandidateWells(volume ? workbench->sectionWells()
+                                           : std::vector<seismic::SectionWellInfo>{});
+          });
   connect(link, &SeismicMapLink::sectionVolumeChanged, this, [route, band] {
     route->clear();
     band->reset(Qgis::GeometryType::Line);
@@ -220,7 +227,9 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
           report(error);
           return;
         }
-        dock->refreshWellOverlay(workbench->sectionWells());
+        const auto wells = workbench->sectionWells();
+        dock->refreshWellOverlay(wells);
+        dock->setCandidateWells(wells); // #225：校正后的时深随候选井下发
         refresh();
         report(QObject::tr("时深对齐已应用；保存剖面新版本后可在工程中恢复。"));
       });

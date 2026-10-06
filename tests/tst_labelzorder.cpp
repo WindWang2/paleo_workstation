@@ -120,6 +120,7 @@ class TestLabelZOrder : public QObject
     void labelsStackWithLayerParallel();
     void labelsStackWithLayerSequential();
     void nativeLabelsStayOnTop();
+    void supportProbeMatchesBuild();
     void unlabeledMiddleLayerNeverCoversTopGeometry();
 
   private:
@@ -302,6 +303,16 @@ void TestLabelZOrder::labelsStackWithLayerSequential()
   runStackFixture(false, true);
 #else
   QSKIP("vendored QGIS lacks labelsWithLayer patch (QGIS_PALEO_LABELS_WITH_LAYER)");
+#endif
+}
+
+void TestLabelZOrder::supportProbeMatchesBuild()
+{
+  // #138：壳层降级提示读的探针必须与编译期宏一致。
+#ifdef QGIS_PALEO_LABELS_WITH_LAYER
+  QVERIFY(QgisLabelZOrder::labelsWithLayerSupported());
+#else
+  QVERIFY(!QgisLabelZOrder::labelsWithLayerSupported());
 #endif
 }
 

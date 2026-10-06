@@ -175,8 +175,15 @@ RealizationPanel::RealizationPanel( QWidget *parent )
 
 void RealizationPanel::bindCatalog( DataCatalog *catalog )
 {
+  // #236-3：每次（重）绑定都是工程边界——"ast-N" 序号 id 跨工程必撞，旧选择
+  // 不得沿用到新工程同号的不同集合上。catalog 指针可能跨工程复用，故即便
+  // 同指针也清选择并重建。
+  m_currentSetId.clear();
   if ( m_catalog == catalog )
+  {
+    rebuildSets();
     return;
+  }
   if ( m_catalog )
     disconnect( m_catalog, nullptr, this, nullptr );
   m_catalog = catalog;

@@ -139,7 +139,10 @@ switch ($Verb) {
     cmake -S $Root -B $Build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo "-DQGIS_PREFIX=$(Join-Path $Vendor 'osgeo4w')"
     if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed' }
     # CI 上 -k 0：ninja 不在第一个错误处停，一轮暴露全部 MSVC 编译错误（#134）。
-    if ($env:CI) { cmake --build $Build -- -k 0 } else { cmake --build $Build }
+    # #230：AGENTS.md「构建/测试一律 -j8 以内」——min(核数, 8)，PALEO_JOBS 可调低。
+    $jobs = [Math]::Min([Environment]::ProcessorCount, 8)
+    if ($env:PALEO_JOBS -match '^\d+$') { $jobs = [Math]::Max(1, [Math]::Min([int]$env:PALEO_JOBS, 8)) }
+    if ($env:CI) { cmake --build $Build --parallel $jobs -- -k 0 } else { cmake --build $Build --parallel $jobs }
     if ($LASTEXITCODE -ne 0) { throw 'CMake build failed' }
     # vendored onnxruntime.dll 拷进 build（应用目录在 DLL 搜索序中永远
     # 第一）：PATH 排序压不住 OSGeo4W 自带的 1.17.1（qgis 依赖链的解析

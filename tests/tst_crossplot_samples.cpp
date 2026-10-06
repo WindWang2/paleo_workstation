@@ -194,6 +194,12 @@ void TestSamples::attributeHorizon() {
       coarse.samples.samplingMetadata.value("collapsedTraces").toLongLong(), 1);
   QCOMPARE(coarse.samples.samplingMetadata.value("validTraces").toLongLong(),
            3);
+  // #221：道坐标全部落在层位网格外 → 全拒样本必须报错，不能空集报成功。
+  AttributeSection away = a;
+  away.traceXY = {{100.5, -.5}, {101.5, -.5}, {102.5, -.5}, {103.5, -.5}};
+  const auto none = CrossplotSamples::attributeHorizon({away}, {horizon});
+  QVERIFY(!none.ok);
+  QVERIFY(!none.error.isEmpty());
   a.stepMs = 0;
   QVERIFY(!CrossplotSamples::attributeHorizon({a}, {horizon}).ok);
 }
@@ -259,6 +265,9 @@ void TestSamples::satrSource() {
   QCOMPARE(r.samples.values[0], 20.);
   QCOMPARE(r.samples.values[2], 11.);
   QCOMPARE(r.samples.values[4], 2.);
+  // #221：无投影层位放行但如实标注未校验。
+  QCOMPARE(r.samples.samplingMetadata.value("horizonCrs").toString(),
+           QStringLiteral("unknown_unverified"));
   QFile truncated(attrPath);
   QVERIFY(truncated.open(QIODevice::WriteOnly));
   truncated.write("SATR");

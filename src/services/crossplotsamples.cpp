@@ -434,6 +434,11 @@ CrossplotSamples::attributeHorizon(const QVector<AttributeSection> &sections,
   s.samplingMetadata.insert("collapsedTraces", validTraces - qint64(s.rows()));
   if (stop(ctl))
     return fail(QStringLiteral("已取消"), true);
+  // #221：全部道被拒（层位网格与道坐标不重叠 / 时间全无效）不是成功——
+  // 空样本集如实报错，避免空 CRS 或坐标系错配时静默「成功」。
+  if (validTraces == 0)
+    return fail(QStringLiteral("属性剖面 %1 道全部未落在时间层位有效网格内（坐标系或范围不匹配）")
+                    .arg(first.traceXY.size()));
   r.ok = true;
   progress(ctl, 1);
   return r;

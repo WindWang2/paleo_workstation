@@ -1,5 +1,6 @@
 // 层：组装根
 #include "appcontext.h"
+#include "../services/errorhub.h"                 // 方向64：统一错误通道
 #include "aiwiring.h"                          // 方向51：远端预测装配（唯一入口）
 #include "../ai/remotepredictconfig.h"
 #include "../ai/chat/llmclient.h"              // 方向51：LLM 配置 + 助手编排
@@ -173,6 +174,9 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   m_editSvc = new QgisEditingService(m_store, this);
   m_styleSvc = new QgisStyleService(this);
   m_toolSvc = new ToolAvailabilityService(m_store, this);
+  // 方向64：统一错误通道——视图层 PaleoNotify 经 ErrorHub::global() 入账。
+  m_errorHub = new ErrorHub(this);
+  ErrorHub::installGlobal(m_errorHub);
   m_selection = new SelectionContext(this);
 
   // goal/fault-interpretation：断层解释编排器（存储值成员在 projectOpened

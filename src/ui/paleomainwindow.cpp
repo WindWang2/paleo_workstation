@@ -1074,6 +1074,13 @@ void PaleoMainWindow::showPanelMenu(const QPoint &globalPos)
   {
     menu->setAttribute(Qt::WA_DeleteOnClose);
     menu->addSeparator();
+    // 方向64：错误历史入口（主窗口无字面「视图」菜单，此菜单即视图入口）。
+    if (m_errorHistoryDock)
+    {
+      QAction *history = menu->addAction(tr("错误历史"));
+      history->setObjectName(QStringLiteral("errorHistoryAction"));
+      connect(history, &QAction::triggered, this, &PaleoMainWindow::showErrorHistory);
+    }
     QAction *dark = menu->addAction(tr("深色模式"));
     dark->setObjectName(QStringLiteral("themeToggleAction"));
     dark->setCheckable(true);

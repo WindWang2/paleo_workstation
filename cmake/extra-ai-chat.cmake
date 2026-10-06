@@ -47,3 +47,13 @@ add_paleo_test(tst_aichat LIBS paleo_ai)
 add_paleo_test(tst_aiwiring LIBS paleo_app)
 add_paleo_test(tst_aichatcontroller LIBS paleo_workflow paleo_ai)
 add_paleo_test(tst_aiassistdock LIBS paleo_ui)
+# 方向61：工具调用闭环（tools 上送→tool_calls 执行→role=tool 回灌→终答）。
+# 真 ORT 执行面（夹具小模型 + catalog 声明断言），只在 ORT 构建跑。
+if(PALEO_HAVE_ORT)
+  add_paleo_test(tst_aichattoolloop LIBS paleo_workflow paleo_ai)
+  # POSIX 侧 ORT 运行库路径前置（同根 CMakeLists 的 ORT 测试口径；属性放在
+  # 本文件是因为测试注册在这里——根文件的 set_tests_properties 先于本 include
+  # 执行，放那边会因测试不存在而 configure 失败）。
+  set_tests_properties(tst_aichattoolloop PROPERTIES ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib")
+endif()

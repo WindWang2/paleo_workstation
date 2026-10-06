@@ -187,14 +187,21 @@ void TestAiChatController::toolCallFramesReachThePanelWithHonestStatus() {
   controller.setConfig(baseConfig(server.endpoint()));
   m_createdSessions.append(controller.session().id);
   QSignalSpy dispatched(&controller, &AiChatController::toolCallDispatched);
+  QSignalSpy results(&controller, &AiChatController::toolResultReady);
   controller.sendUserText(QStringLiteral("帮我跑一下测井相"));
   QVERIFY2(spinUntil([&dispatched] { return dispatched.size() >= 1; }),
-           "工具调用帧必须被分发（含状态说明）");
+           "工具调用帧必须被分发（含路由结论）");
   const QString status = dispatched.at(0).at(1).toString();
-  // 诚实：卡片里必须写明"尚未接线/未接线"，不得写成"已执行"。
-  QVERIFY2(status.contains(QStringLiteral("尚未接线")), qPrintable(status));
+  // 诚实：路由结论如实写出（已路由 + 入口），不冒充"已执行"。
+  QVERIFY2(status.contains(QStringLiteral("已路由")), qPrintable(status));
   QVERIFY2(status.contains(QStringLiteral("wellfaciesservice")),
            qPrintable(status));
+  // 方向61：工具会真的执行——未配置远端 → 失败结果（不冒充成功）；模型
+  // 反复点工具由往返上限兜底收敛。
+  QVERIFY2(spinUntil([&controller] { return !controller.streaming(); }, 20000),
+           "诚实失败轮必须收敛（错误回灌→终答或上限停轮）");
+  QVERIFY2(results.size() >= 1, "必须给出执行终态（失败也是终态）");
+  QVERIFY(!results.at(0).at(1).toBool());
 }
 
 void TestAiChatController::unauthorizedResponseIsClassifiedAsAuthError() {

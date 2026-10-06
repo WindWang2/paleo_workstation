@@ -52,14 +52,14 @@ void TestGeostatLinSolve::standard2x2And3x3Systems()
 
   // 3x3:
   // [1, 2, 3] * [x] = [14]  -> [1, 2, 3]
-  // [2, 5, 3]         [23]
+  // [2, 5, 3]         [21]
   // [1, 0, 8]         [25]
   const std::vector<double> a3 = {
     1.0, 2.0, 3.0,
     2.0, 5.0, 3.0,
     1.0, 0.0, 8.0
   };
-  const std::vector<double> b3 = {14.0, 23.0, 25.0};
+  const std::vector<double> b3 = {14.0, 21.0, 25.0};
   std::vector<double> x3(3, 0.0);
 
   QVERIFY(solveDenseLu(a3, 3, b3, x3));

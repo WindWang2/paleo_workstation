@@ -50,7 +50,7 @@ void TestIoLasWriter::mismatchedLengthsFails()
   QString err;
   const bool ok = LasWriter::writeLasFile(out, {dept, gr}, {}, &err);
   QVERIFY(!ok);
-  QVERIFY(err.contains(QStringLiteral("等长")) || err.contains(QStringLiteral("长度")));
+  QVERIFY(err.contains(QStringLiteral("length")));
 }
 
 void TestIoLasWriter::validLasFileGeneration()

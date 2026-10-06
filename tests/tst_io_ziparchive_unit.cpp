@@ -194,10 +194,12 @@ void TestIoZipArchiveUnit::mutationDemonstration_corruptEntryDetected()
   QVERIFY(targetIndex != -1);
   zipBytes[targetIndex] = 'X';
 
-  // 尝试读取，或者破坏局部头
-  zipBytes[0] = 'Z'; // 破坏魔数
-  const ZipListResult list = zipListBytes(zipBytes);
-  QVERIFY(!list.ok);
+  // 破坏局部头魔数——listing 只读中央目录，须走 extract 才触达本地头校验
+  zipBytes[0] = 'Z';
+  QByteArray out;
+  QString err;
+  QVERIFY(!zipExtractBytes(zipBytes, QStringLiteral("test.bin"), &out, &err));
+  QVERIFY(!err.isEmpty());
 }
 
 QTEST_GUILESS_MAIN(TestIoZipArchiveUnit)

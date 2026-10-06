@@ -22,14 +22,17 @@ void TestSingleFactorStructuralUnit::blockModeNormalizationAndPredicates()
 {
   QCOMPARE(QString::fromStdString(normalizeBlockMode("FULL_BLOCK")), QStringLiteral("full_block"));
   QCOMPARE(QString::fromStdString(normalizeBlockMode("contour_stop")), QStringLiteral("contour_stop"));
-  QCOMPARE(QString::fromStdString(normalizeBlockMode("stop")), QStringLiteral("contour_stop"));
-  QCOMPARE(QString::fromStdString(normalizeBlockMode("unknown")), QStringLiteral("full_block"));
+  QCOMPARE(QString::fromStdString(normalizeBlockMode("  Contour_Stop ")), QStringLiteral("contour_stop"));
 
   QVERIFY(isFullBlockMode("full_block"));
-  QVERIFY(!isFullBlockMode("contour_stop"));
+  QVERIFY(isFullBlockMode("contour_stop")); // 不在非阻断词表即按阻断处理
+  QVERIFY(!isFullBlockMode("display_only"));
+  QVERIFY(!isFullBlockMode("none"));
 
   QVERIFY(isContourStopMode("contour_stop"));
-  QVERIFY(!isContourStopMode("full_block"));
+  QVERIFY(isContourStopMode("full_block"));
+  QVERIFY(isContourStopMode("display_only")); // 停线不动趋势
+  QVERIFY(!isContourStopMode("none"));
 }
 
 void TestSingleFactorStructuralUnit::performanceGridResolutionCalculations()
@@ -96,15 +99,15 @@ void TestSingleFactorStructuralUnit::structuralBarrierAndDirectionProperties()
 
 void TestSingleFactorStructuralUnit::mutationDemonstration_distinctModes()
 {
-  // 变异测试示范：full_block 与 contour_stop 互斥，绝不可互相混淆
+  // 变异测试示范：阻断模（full_block/contour_stop）与非阻断模不可混淆
   const std::string m1 = "full_block";
-  const std::string m2 = "contour_stop";
+  const std::string m2 = "display_only";
 
   QVERIFY(isFullBlockMode(m1));
-  QVERIFY(!isContourStopMode(m1));
+  QVERIFY(isContourStopMode(m1)); // 阻断模必然停等值线
 
-  QVERIFY(isContourStopMode(m2));
   QVERIFY(!isFullBlockMode(m2));
+  QVERIFY(isContourStopMode(m2)); // display_only 只停线
 }
 
 QTEST_GUILESS_MAIN(TestSingleFactorStructuralUnit)

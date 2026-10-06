@@ -1,6 +1,9 @@
 #include <QtTest>
+#include <QTemporaryDir>
 
 #include "../src/ai/horizonsuggest.h"
+#include "../src/ai/onnxfixture.h"
+#include "../src/ai/onnxpredictionservice.h"
 
 class TestAiHorizonSuggest : public QObject
 {
@@ -33,9 +36,19 @@ void TestAiHorizonSuggest::seedAndSuggestionDefaults()
 
 void TestAiHorizonSuggest::emptySeedsReturnsError()
 {
+  if (!PaleoOnnxService::runtimeAvailable())
+    QSKIP("onnxruntime 不在 vendor 树中");
+
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  QVERIFY(OnnxFixtureWriter::writeTraceScorer(
+      dir.filePath(QStringLiteral("scorer.onnx")), 8.0f, 0.0f));
+  PaleoOnnxService svc;
+  svc.setModelRoot(dir.path());
+
   QVector<TrackingSuggestion> out;
   QString err;
-  const bool ok = suggestHorizonTracking(nullptr, QStringLiteral("mock.onnx"),
+  const bool ok = suggestHorizonTracking(&svc, QStringLiteral("scorer"),
                                          {}, 64, 5, nullptr, &out, &err);
   QVERIFY(!ok);
   QVERIFY(!err.isEmpty());
@@ -43,6 +56,16 @@ void TestAiHorizonSuggest::emptySeedsReturnsError()
 
 void TestAiHorizonSuggest::fetcherErrorPropagation()
 {
+  if (!PaleoOnnxService::runtimeAvailable())
+    QSKIP("onnxruntime 不在 vendor 树中");
+
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  QVERIFY(OnnxFixtureWriter::writeTraceScorer(
+      dir.filePath(QStringLiteral("scorer.onnx")), 8.0f, 0.0f));
+  PaleoOnnxService svc;
+  svc.setModelRoot(dir.path());
+
   TrackingSeed seed;
   seed.inlineNo = 100;
   seed.xlineNo = 200;
@@ -55,7 +78,7 @@ void TestAiHorizonSuggest::fetcherErrorPropagation()
 
   QVector<TrackingSuggestion> out;
   QString err;
-  const bool ok = suggestHorizonTracking(nullptr, QStringLiteral("mock.onnx"),
+  const bool ok = suggestHorizonTracking(&svc, QStringLiteral("scorer"),
                                          {seed}, 64, 2, failingFetcher, &out, &err);
   QVERIFY(!ok);
   QVERIFY(err.contains(QStringLiteral("道数据")) || err.contains(QStringLiteral("故障")));
@@ -63,6 +86,16 @@ void TestAiHorizonSuggest::fetcherErrorPropagation()
 
 void TestAiHorizonSuggest::invalidRadiusOrWindow()
 {
+  if (!PaleoOnnxService::runtimeAvailable())
+    QSKIP("onnxruntime 不在 vendor 树中");
+
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  QVERIFY(OnnxFixtureWriter::writeTraceScorer(
+      dir.filePath(QStringLiteral("scorer.onnx")), 8.0f, 0.0f));
+  PaleoOnnxService svc;
+  svc.setModelRoot(dir.path());
+
   TrackingSeed seed;
   seed.inlineNo = 10;
   seed.xlineNo = 20;
@@ -76,7 +109,7 @@ void TestAiHorizonSuggest::invalidRadiusOrWindow()
   QVector<TrackingSuggestion> out;
   QString err;
   // 非正窗宽应被拒绝
-  const bool ok = suggestHorizonTracking(nullptr, QStringLiteral("mock.onnx"),
+  const bool ok = suggestHorizonTracking(&svc, QStringLiteral("scorer"),
                                          {seed}, 0, 2, dummy, &out, &err);
   QVERIFY(!ok);
   QVERIFY(!err.isEmpty());

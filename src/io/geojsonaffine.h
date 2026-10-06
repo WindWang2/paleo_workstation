@@ -18,6 +18,12 @@ struct GeoAffineParams
   double rotDeg = 0.0;  // 绕原点逆时针旋转（度）
 };
 
+// BIZ-07（方向58）参数闸：五个分量必须有限；|sx|/|sy| ∈ [1e-9, 1e9]
+// （零/近零缩放把几何塌成点，负值镜像合法）；|tx|/|ty| ≤ 1e10 米（远超任何
+// 投影坐标量程，挡 1e300 之类溢出量级）；rotDeg 任意有限值（周期量）。
+// 不合法 → false，*why 收逐字段原因（含字段名，供错误通道上报）。
+bool geoAffineParamsValid(const GeoAffineParams &p, QString *why = nullptr);
+
 // 单点变换：先缩放、再旋转、后平移。
 void geoAffineApply(const GeoAffineParams &p, double inX, double inY,
                     double *outX, double *outY);
@@ -29,6 +35,7 @@ void geoAffineTransformCoords(const GeoAffineParams &p, QJsonValue *coords);
 // 变换整份 GeoJSON 文件并写出（紧凑 JSON；properties/结构原样）。
 // *outFeatures 收要素数；*outBounds 收变换后 [minX,minY,maxX,maxY]。
 // 非 FeatureCollection / 无 geometry / 写盘失败 → false + error。
+// 参数不过 geoAffineParamsValid → 读源之前即 false + error，不产出文件。
 bool geoAffineTransformFile(const QString &inPath, const QString &outPath,
                             const GeoAffineParams &p, QString *error,
                             int *outFeatures = nullptr,

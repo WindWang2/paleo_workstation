@@ -17,6 +17,7 @@
 #include "../decorations/paleodecorations.h"
 #include "../paleoicons.h"
 #include "../paleotheme.h"
+#include "../shortcuts/shortcutcatalog.h"
 
 #include <QActionGroup>
 #include <QApplication>
@@ -432,14 +433,16 @@ void PreviewMapPage::buildToolBar()
   rowLay->addWidget( m_toolBarExt, 1 );
 
   m_toolGroup = new QActionGroup( this );
+  // 方向63：工具快捷键只能按登记 id 绑定（shortcuts/shortcutcatalog）；当前
+  // 七个工具均未设快捷键，参数留作入口。
   const auto addTool = [this]( const QString &id, const QString &text, const QString &icon,
-                               const QKeySequence &shortcut = QKeySequence() ) {
+                               const QString &shortcutId = QString() ) {
     auto *a = new QAction( PaleoIcons::qgisTheme( icon ), text, this );
     a->setObjectName( QStringLiteral( "previewAction_" ) + id );
     a->setCheckable( true );
     a->setToolTip( text );
-    if ( !shortcut.isEmpty() )
-      a->setShortcut( shortcut );
+    if ( !shortcutId.isEmpty() )
+      paleo::shortcuts::bindAction( shortcutId, a );
     m_toolGroup->addAction( a );
     m_toolBar->addAction( a );
     m_toolActions.insert( id, a );

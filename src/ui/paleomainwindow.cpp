@@ -40,6 +40,7 @@
 #include "pages/stratigraphicwebpage.h"
 #include "../workflow/stratigraphicwebsession.h"
 #include "pages/pageshared.h" // kPageIds（W4 跨 TU 页序表）
+#include "shortcuts/shortcutcatalog.h" // 方向63：快捷键中央注册表（键序/上下文唯一真源）
 #include "constraintdrawcontroller.h"
 #include "dialogs/folderconfirm.h"
 #include "typedconstraintdrawcontroller.h" // ---- m2(B)：物源线/展布线/控制点（块内接线用）----
@@ -357,6 +358,9 @@ PaleoMainWindow::PaleoMainWindow(QgisCanvasController *canvasCtl,
   m_dockManager->captureDefaultLayout();
   showStartup(); // §42.1: first-run lands on the startup page
   restoreWindowState();
+
+  // 方向63：快捷键注册表健康度进启动日志（冲突 warning / 遮蔽 info）。
+  paleo::shortcuts::logConflictsOnce();
 }
 
 PaleoMainWindow::~PaleoMainWindow()
@@ -961,9 +965,11 @@ void PaleoMainWindow::buildRibbon()
   }
   m_stratigraphicWebPage->buildRibbon(categoryForPage(QStringLiteral("correlation")));
   // W5 键盘可达：Ctrl+1..6 直切六个工作流页（页序 = 工作流链序）。
+  // 方向63：键序登记在 shortcuts/shortcutcatalog（main.page.<页 id>）。
   for (int i = 0; i < paleo::pagesinternal::kPageIds.size(); ++i)
   {
-    auto *sc = new QShortcut(QKeySequence(QStringLiteral("Ctrl+%1").arg(i + 1)), this);
+    auto *sc = paleo::shortcuts::bindShortcut(
+        QStringLiteral("main.page.") + paleo::pagesinternal::kPageIds.at(i), this);
     sc->setObjectName(QStringLiteral("pageShortcut.") + paleo::pagesinternal::kPageIds.at(i));
     connect(sc, &QShortcut::activated, this, [this, i] {
       showPage(paleo::pagesinternal::kPageIds.at(i));
@@ -978,11 +984,10 @@ void PaleoMainWindow::buildRibbon()
       const int next = ((idx < 0 ? 0 : idx) + step + n) % n;
       showPage(paleo::pagesinternal::kPageIds.at(next));
     };
-    auto *nextSc = new QShortcut(QKeySequence(QStringLiteral("Ctrl+Tab")), this);
+    auto *nextSc = paleo::shortcuts::bindShortcut(QStringLiteral("main.page.next"), this);
     nextSc->setObjectName(QStringLiteral("pageShortcut.next"));
     connect(nextSc, &QShortcut::activated, this, [cyclePage] { cyclePage(1); });
-    auto *prevSc =
-        new QShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+Tab")), this);
+    auto *prevSc = paleo::shortcuts::bindShortcut(QStringLiteral("main.page.prev"), this);
     prevSc->setObjectName(QStringLiteral("pageShortcut.prev"));
     connect(prevSc, &QShortcut::activated, this, [cyclePage] { cyclePage(-1); });
   }
@@ -1116,7 +1121,7 @@ void PaleoMainWindow::contextMenuEvent(QContextMenuEvent *event)
 void PaleoMainWindow::restoreCorrelationDocks()
 {
   if (auto *save = findChild<QAction *>(QStringLiteral("saveProjectAction")))
-    save->setShortcut(QKeySequence::Save);
+    paleo::shortcuts::setActionShortcutActive(QStringLiteral("main.project.save"), save, true);
   for (const auto &dock : m_correlationHiddenDocks)
     if (dock)
     {
@@ -1155,8 +1160,8 @@ void PaleoMainWindow::showPage(const QString &pageId)
   m_currentPage = pageId;
   // Web 页自己的 Ctrl+S 保存独立解释，Paleo 工程的保存快捷键让出。
   if (auto *save = findChild<QAction *>(QStringLiteral("saveProjectAction")))
-    save->setShortcut(pageId == QLatin1String("correlation") ? QKeySequence()
-                                                            : QKeySequence(QKeySequence::Save));
+    paleo::shortcuts::setActionShortcutActive(QStringLiteral("main.project.save"), save,
+                                              pageId != QLatin1String("correlation"));
 
   // 页签 = 页：切到对应 ribbon 页签（currentRibbonTabChanged 回到这里时
   // id == m_currentPage，不重入）。

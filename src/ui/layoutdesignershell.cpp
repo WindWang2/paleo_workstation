@@ -15,6 +15,7 @@
 #include <QAction>
 #include <QDialog>
 #include "paleodockmanager.h"
+#include "shortcuts/shortcutcatalog.h"
 #include <QMainWindow>
 #include <QCursor>
 #include <QDockWidget>
@@ -270,7 +271,7 @@ PaleoLayoutDesignerShell::PaleoLayoutDesignerShell( QgsLayout *layout, QWidget *
   // QAction 挂壳；方向键微调/Space 平移是视图内建，E3 不重复实现）。
   auto *deleteAction = new QAction( tr( "删除所选项" ), this );
   deleteAction->setObjectName( QStringLiteral( "layoutDeleteSelectedAction" ) );
-  deleteAction->setShortcut( Qt::Key_Delete );
+  paleo::shortcuts::bindAction( QStringLiteral( "layout.delete" ), deleteAction ); // 方向63 登记
   connect( deleteAction, &QAction::triggered, this, [this] {
     if ( m_view )
       m_view->deleteSelectedItems();

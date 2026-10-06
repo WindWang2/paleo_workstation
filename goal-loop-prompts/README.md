@@ -1,4 +1,4 @@
-# Goal-Loop Prompts — 57 个方向（自治迭代任务包）
+# Goal-Loop Prompts — 72 个方向（自治迭代任务包）
 
 第一批 01–05 已发 fleet 并落地（PR #70–#73 全合）。第二至七批为追加方向。
 第八批 48–57 为 2026-10-05 三路深度代码审计（技术债/架构/质量）后的
@@ -6,7 +6,7 @@
 错误面分散等），每个 prompt 内含开发量预算（agent tokens 上限 3 亿 +
 执行花费轮次/墙钟估计）。
 
-本目录保存八批 01–57 的任务书快照；目录名为 `goal-loop-prompts/`，
+本目录保存九批 01–72 的任务书快照；目录名为 `goal-loop-prompts/`，
 编号文件与下表一一对应。表中「新增」「在飞」是任务书发出时的状态，
 当前交付与递延以 `docs/progress/` 对应账本及 `TODOS.md` 为准。
 
@@ -132,6 +132,34 @@ Oracle 验收 → push + `gh pr create`。全自动，无人工确认，不等 C
 与 CMake；54/55/56/57 均触 UI/服务大文件但拆分面互不重叠——与在飞
 方向撞文件时按「谁先合谁为准，后者 rebase」处理。同机并行重构建建议
 ≤2 个会话（编译槽叠加），或各降 -j4。
+### 第九批（新增，2026-10-06 二轮审计驱动：合并后现势 + 能力缺口 + 工程质量十五方向，按开发量升序）
+
+| # | 文件 | 方向 | 性质 |
+|---|------|------|------|
+| 58 | `58-audit-tail.md` | 审计尾巴清零：BIZ-07/RUNTIME-03/BIZ-10/BIZ-11 四项无主债务 + TEST-06 标记同步 | 债务清理 |
+| 59 | `59-header-hygiene.md` | 头文件卫生：previewdoc 重头扇出（26 UI TU + 4 中间头）收口 + QWidget 前向声明（11 workflow TU 黄牌）+ 传递闭包护栏 | 架构治理 |
+| 60 | `60-highdpi.md` | 高 DPI 适配：3D 视口 resizeGL 不乘 dpr 确定性缺陷 + 2D fallback + 静态护栏 | 质量提升 |
+| 61 | `61-ai-toolloop.md` | AI 工具调用闭环：tools[] 上送 + 领域工具执行回路接 aiassistworkflow + 上下文预算 | 功能补完 |
+| 62 | `62-ai-ux.md` | AI 助手 UX 补全：会话列表 + 图形化配置对话框 + markdown 渲染 + 消息操作 | 功能补完 |
+| 63 | `63-shortcuts-help.md` | 快捷键体系与帮助面：中央注册（44 处收编）+ 冲突检测 + 总表 + QWhatsThis | 功能补完 |
+| 64 | `64-errorhub.md` | 错误面统一（方向 54 修订重发）：ErrorHub + 三级呈现 + 169 处弹框收敛 | 新功能 |
+| 65 | `65-section-split.md` | seismicsection 家族拆分：dockwidget 3,040 + canvas 2,192 新晋头号巨兽 | 重构 |
+| 66 | `66-composite-split.md` | wellcomposite 家族拆分：track 1,875 + panel 1,640 + canvas 1,549 三文件 | 重构 |
+| 67 | `67-sf-completion.md` | 单因素域补完：协克里金/带约束 OK + 隔断感知变差函数 + SFPKG 写出/ZIP64 + 策略包 UI | 功能补完 |
+| 68 | `68-python-scripting.md` | Python 脚本面：scriptrunner + JSON 行协议 + 控制台面板 + 最小 REPL + 结果落地 | 新功能 |
+| 69 | `69-wellsection-tvd.md` | 连井剖面 TVD 域 + 解释岩性道（方向 38 修订重发——目标 2 井距已完成勿重做） | 功能补完 |
+| 70 | `70-sanitizer-hardening.md` | Sanitizer 常态化：PALEO_SANITIZER_BUILD 落地 + Unity 前置清障（setError 35 处）+ CI job + 增量基线 | 工程硬化 |
+| 71 | `71-dep-unify.md` | 依赖口径统一：QGIS 4.2.2/4.2.3/4.2.x 三路分裂收敛 + #76 CI 政策迁移 + 一致性护栏 | 工程治理 |
+| 72 | `72-win-qt-unify.md` | Windows 环境债根治：Qt 6.8/6.11 混链收敛（185/293 环境红的根因）+ 环境自检防回归 | 环境治理 |
+
+第九批并行纪律：58/59/60 文件面互不重叠可并行；61/62 同域
+（ai/chat）建议 61 先行（62 的会话管理依赖工具闭环后的消息形态
+更稳）；64 与 65 都触 seismicsectiondockwidget——**65 先拆文件、
+64 后迁弹框**（或谁先合谁为准）；66/65 同模式不同目录可并行；
+67 独占 singlefactor/geostat；68 独占新目录；69 独占 wellsection；
+70 的 Unity 清障触 35 个 .cpp 的 setError（与 58 的 lascache/
+registration 有小交集，按语义合）；71 不触 src/；72 只改环境/
+脚本/文档零 src 改动。同机并行重构建建议 ≤2 个会话。
 
 ## 使用方式
 

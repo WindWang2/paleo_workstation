@@ -45,6 +45,7 @@ class DataPage : public QWidget
 
   signals:
     void importRequested(const QString &kind);  // "wells" | "seismic" | "boundary" | ...
+    void mappingReferenceRequested(const QString &versionId);
     void versionActivated(const QString &versionId);
     void assetActivated(const QString &assetId); // 列表选中 → 预览标签打开
     // 树节点关联井选中 → 预览打开并定位到该井

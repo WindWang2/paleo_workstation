@@ -1,0 +1,7 @@
+# ui-token 例外收缩门 baseline（方向 49 架构收口，2026-10-05 R0 记档）。
+# 语义：tools/ui-token-exceptions.json 的条目数只降不升——
+#   清理例外后同 commit 下调本数（strict 下偏低也红，防 baseline 占坑不缩）；
+#   新增例外不得加表项，须先走 DESIGN 域评审（例外清单体量本身即债）。
+# 非严格模式偏差仅 NOTE 提示；ctest 项 ui_tokens_strict（--strict）为闸门。
+# 变更记录：356（R0，3a4f8b5）→ 355（并基 PR #212 清一条例外，随基下调）。
+355

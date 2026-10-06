@@ -554,7 +554,7 @@ void PaleoEditingToolbar::buildUi()
     if ( project && project->topologicalEditing() != on )
       project->setTopologicalEditing( on );
     if ( auto *vt = qobject_cast<PaleoVertexTool *>( mActiveEditTool.data() ) )
-      vt->setTopologicalEditingEnabled( on );
+      vt->setTopologicalEditingEnabled( on || (currentLayer() && currentLayer()->customProperty("paleo/requireFaciesTopology").toBool()) );
     updateActionStates(); // 跨层开关的可用性随拓扑开关联动
   } );
 
@@ -767,6 +767,10 @@ void PaleoEditingToolbar::updateActionStates()
   for ( QAction *action : { mActionAddFeature, mActionMove, mActionDeleteFeatures,
                             mActionVertexEdit, mActionTopological } )
     gate( action, noEdit );
+  if (target && target->customProperty("paleo/requireFaciesTopology").toBool()) {
+    if (!mActionTopological->isChecked()) mActionTopological->setChecked(true);
+    gate(mActionTopological, tr("三级相面共用边界，必须保持拓扑编辑"));
+  }
   // 跨层拓扑叠加在拓扑编辑之上：拓扑关或不可编辑 → 禁用并带 reason。
   gate( mActionCrossLayerTopo, !noEdit.isEmpty() ? noEdit
           : !mActionTopological->isChecked() ? tr( "先开启拓扑编辑，再考虑跨层联动" ) : QString() );
@@ -912,7 +916,7 @@ void PaleoEditingToolbar::onEditToolTriggered()
   else if ( action == mActionVertexEdit )
   {
     auto *vt = new PaleoVertexTool( mCanvas, target );
-    vt->setTopologicalEditingEnabled( mActionTopological->isChecked() );
+    vt->setTopologicalEditingEnabled( mActionTopological->isChecked() || target->customProperty("paleo/requireFaciesTopology").toBool() );
     vt->setCrossLayerTopologyEnabled( mActionCrossLayerTopo->isChecked() && !QgisEditingService::isConstraintLayer(target) );
     tool = wireAborted( vt );
   }

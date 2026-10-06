@@ -618,6 +618,17 @@ updated_at
 QGIS 使用 Categorized Renderer，根据 `facies_code` 渲染。
 这样当前截图中的颜色体系可以成为正式的 QGIS Style。
 
+### 14.1 三级相结果（2026-10-05 用户要求）
+
+MappingWorkbench 的相结果以同一基础面分区及 `facies_code` 分类快照表达
+相、亚相、微相父子关系。QGIS 按完整路径分类并合并渲染，三级不保存独立几何。
+显示支持自动尺度切换及手动锁定；缺失层级仅在显示时按上下级补齐。
+相／亚相改类批量同步所属成员，微相改类同步父级归属；共边拓扑编辑强制开启，
+提交前运行 QGIS/GEOS 覆盖验证。证据存入 `facies_evidence`，引用不可变来源版本
+并加入版本谱系；分类改变后原证据保留并提示复核。参考 canvas 通过 QGIS
+转换同步范围及光标；布局主题随当前层级更新。使用与边界见
+[`FACIES_MAPPING.md`](FACIES_MAPPING.md)。
+
 ## 15. 相界编辑
 
 "编辑相界"建议对应以下状态：
@@ -1485,8 +1496,9 @@ STAGE          | DEV DOES                          | STATUS
 - **QGIS 封装** `src/qgis`：QtWidgets 豁免（Qgs* 接口所需），仍禁 `ui/`。
   `layoutexport`（PDF/PNG 导出核心，ui/layout 壳委托）。
 - **视图** `src/ui/**`：渲染 + 输入 + 意图信号。`io/*` 白名单仅
-  `io/lasdoc.h`；`metadata/*` 白名单四头（layermanifest/paleoprojectstore/
-  mapversionstore/releasestore）；`algorithms/*` 全禁。
+  `io/lasdoc.h`；`metadata/*` 白名单六头（layermanifest/paleoprojectstore/
+  mapversionstore/releasestore/wellsectionstore/faultsetstore，
+  单点事实在 `tools/layering_vocab.json`）；`algorithms/*` 全禁。
   `PaleoMainWindow` 是壳：attachWorkflows 按页拆 `attach*Page` +
   attachShellSurfaces（`paleomainwindow_attach.cpp`），attachMapping 三段
   （发布门/导出接线/版本状态机），ribbon 命令组在 `ribbonpanels.cpp`；
@@ -1496,9 +1508,18 @@ STAGE          | DEV DOES                          | STATUS
 - **机械执行**：`tools/check_layering.py`（include 归一化 + io/metadata
   白名单 + QtWidgets 词表禁令含 `class Q…;` 前向声明 + 头三行 `// 层：`
   标记硬检查），ctest 项 `layering`/`layering_strict`/`layering_selftest`；
+  另有两档 opt-in 诊断（方向 49，默认关、不进 strict 闸、不扰三档输出）：
+  `--transitive` 报「功能层直接 include 的 repo qgis 封装头经 include 闭包
+  （repo 边 + QGIS 自带头）传递引入 QtWidgets」黄牌链——QGIS 头目录按
+  `--qgis-include` > `$QGIS_PREFIX/include/qgis` > vendor 默认序定位；
+  `--symbol-audit` 对非视图层 `new`/`std::make_*` 构造 ui Q_OBJECT 类直接
+  红（符号级，当前零报告）。ui token 例外清单计数入
+  `tools/ui-token-baseline.txt` 收缩门（ctest `ui_tokens_strict`，只降不
+  升，方向 49 以 356 条起步——清理例外属 DESIGN 域递延）。
   `tools/layering-baseline.txt` 已归零，strict 下非空或可收缩均失败。
   各模块编为 `paleo_<模块>` 静态库，`paleo_core` 是 INTERFACE 兼容伞。
-  已知上限：护栏只挡 include 层，不能识别不带 include 的违规调用。
+  已知上限：护栏只挡 include 层，不能识别不带 include 的违规调用
+  （`--symbol-audit` 已补上 new/make_* 构造这一子面的抽检）。
 
 ## NOT in scope（本次评审决议）
 

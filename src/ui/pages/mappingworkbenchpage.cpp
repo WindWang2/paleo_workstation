@@ -1,13 +1,13 @@
 // 层：视图
 // token 例外：DESIGN 数据符号例外：地质相模型表格中可编辑的颜色值。（tools/ui-token-exceptions.json 精确计数）。
-#include "ui/paleotheme.h"
 #include "mappingworkbenchpage.h"
-#include "pageshared.h"
-#include <qgscollapsiblegroupbox.h>
 #include "../../domain/faciescatalog.h"
+#include "../../domain/facieshierarchy.h"
 #include "../../domain/singlefactorrequest.h"
 #include "../../services/singlefactordef.h"
 #include "../../workflow/mappingworkbench.h"
+#include "pageshared.h"
+#include "ui/paleotheme.h"
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
@@ -18,6 +18,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QPlainTextEdit>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QRegularExpression>
@@ -27,6 +28,7 @@
 #include <QVBoxLayout>
 #include <algorithm>
 #include <climits>
+#include <qgscollapsiblegroupbox.h>
 
 MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
                                            MappingWorkbench *workbench,
@@ -161,7 +163,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
             [this] { updateState(); });
   } else {
     label(tr("勾选本层位输入，按列表从上到下优先采用有效相值。测井相点使用最近"
-             "邻；连续单因素按下方阈值分相。其他图件可打开独立参考窗口。"));
+             "邻；连续单因素按下方阈值分相。已有图件可联动对照编辑。"));
     m_inputs = new QListWidget(body);
     m_inputs->setObjectName("workbenchInputs");
     m_inputs->setFixedHeight(96);
@@ -189,6 +191,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
     label(tr("不同量纲的单因素请分别分相。当前一次编图使用同一组阈值；相栅格和"
              "相点不使用阈值。"));
     layout->addWidget(button("compose", tr("生成综合相图与相面")));
+    layout->addWidget(button("references", tr("联动显示勾选的参考图")));
   }
   m_inputHint = label(QString());
   m_inputHint->setObjectName("workbenchInputHint");
@@ -236,7 +239,8 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   actions->addWidget(button("compare", tr("打开参考窗口")), 0, 1);
   actions->addWidget(button("polygonize", tr("相栅格转相面")), 1, 0);
   actions->addWidget(button("copy", tr("复制底图并编辑")), 1, 1);
-  actions->addWidget(button("save", tr("保存图件新版本")), 2, 0, 1, 2);
+  actions->addWidget(button("save", tr("保存图件新版本")), 2, 0);
+  actions->addWidget(button("catalog", tr("在数据管理中定位")), 2, 1);
   if (mode == "predict")
     actions->addWidget(button("welltracks", tr("查看井道 / 修订测井相")), 3, 0,
                        1, 2);
@@ -245,6 +249,33 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   appearance->setObjectName("workbenchAppearance");
   appearance->setSaveCollapsedState(false);
   auto *appearanceLayout = new QVBoxLayout(appearance);
+  auto *levelForm = new QFormLayout;
+  m_displayLevel = new QComboBox(appearance);
+  m_displayLevel->setObjectName("faciesDisplayLevel");
+  m_displayLevel->setAccessibleName(tr("相图显示层级"));
+  m_displayLevel->addItem(tr("自动（按比例尺切换）"), "auto");
+  m_editLevel = new QComboBox(appearance);
+  m_editLevel->setObjectName("faciesEditLevel");
+  m_editLevel->setAccessibleName(tr("相图编辑层级"));
+  for (const auto &level : FaciesHierarchy::levels()) {
+    m_displayLevel->addItem(FaciesHierarchy::title(level), level);
+    m_editLevel->addItem(FaciesHierarchy::title(level), level);
+  }
+  m_editLevel->setCurrentIndex(2);
+  levelForm->addRow(tr("显示层级"), m_displayLevel);
+  levelForm->addRow(tr("编辑层级"), m_editLevel);
+  appearanceLayout->addLayout(levelForm);
+  connect(m_displayLevel, &QComboBox::currentIndexChanged, this, [this] {
+    issue("displayLevel", {{"display_mode", m_displayLevel->currentData()}});
+  });
+  connect(m_editLevel, &QComboBox::currentIndexChanged, this,
+          [this] { updateState(); });
+  auto *hierarchyHint = new QLabel(
+      tr("三级共用边界。相／亚相改类会更新整个选中父类，并保留目标分类内兼容的"
+         "下级；微相改类只作用于选中面。缺层级先向上、再向下填充显示。"),
+      appearance);
+  hierarchyHint->setWordWrap(true);
+  appearanceLayout->addWidget(hierarchyHint);
   auto *faciesRow = new QHBoxLayout;
   m_editFacies = new QComboBox(appearance);
   m_editFacies->setAccessibleName(tr("选中要素的相类别"));
@@ -252,6 +283,8 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   faciesRow->addWidget(m_editFacies, 1);
   faciesRow->addWidget(button("assignFacies", tr("应用到选中要素")));
   appearanceLayout->addLayout(faciesRow);
+  appearanceLayout->addWidget(
+      button("selectHierarchy", tr("选中同级分类的全部面")));
   auto *labelMode = new QComboBox(body);
   labelMode->setObjectName("faciesLabelMode");
   labelMode->setAccessibleName(tr("画布文本标注"));
@@ -267,6 +300,46 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   appearanceLayout->addLayout(labelRow);
   appearanceLayout->addWidget(button("labels", tr("应用标注到选中图件")));
   layout->addWidget(appearance);
+  auto *evidenceGroup =
+      new QgsCollapsibleGroupBox(tr("选中要素的解释证据"), body);
+  evidenceGroup->setObjectName("workbenchEvidence");
+  evidenceGroup->setSaveCollapsedState(false);
+  auto *evidenceLayout = new QVBoxLayout(evidenceGroup);
+  m_evidence = new QListWidget(evidenceGroup);
+  m_evidence->setObjectName("faciesEvidenceList");
+  m_evidence->setAccessibleName(tr("解释证据列表"));
+  m_evidence->setMinimumHeight(80);
+  evidenceLayout->addWidget(m_evidence);
+  m_evidenceSource = new QComboBox(evidenceGroup);
+  m_evidenceSource->setObjectName("faciesEvidenceSource");
+  m_evidenceSource->setAccessibleName(tr("证据来源图件"));
+  evidenceLayout->addWidget(m_evidenceSource);
+  auto *sourceHint = new QLabel(
+      tr("图件来源引用其已保存版本；手工解释可不选来源。"), evidenceGroup);
+  sourceHint->setWordWrap(true);
+  evidenceLayout->addWidget(sourceHint);
+  m_evidenceText = new QPlainTextEdit(evidenceGroup);
+  m_evidenceText->setObjectName("faciesEvidenceText");
+  m_evidenceText->setAccessibleName(tr("手工解释证据内容"));
+  m_evidenceText->setPlaceholderText(
+      tr("输入井段、地震反射、单因素特征或专家解释；证据按上方编辑层级记录。"));
+  m_evidenceText->setMaximumHeight(100);
+  evidenceLayout->addWidget(m_evidenceText);
+  auto *evidenceButtons = new QHBoxLayout;
+  evidenceButtons->addWidget(button("addEvidence", tr("添加证据")));
+  evidenceButtons->addWidget(button("removeEvidence", tr("移除选中证据")));
+  evidenceLayout->addLayout(evidenceButtons);
+  connect(m_evidenceText, &QPlainTextEdit::textChanged, this,
+          [this] { updateState(); });
+  connect(m_evidence, &QListWidget::currentRowChanged, this, [this] {
+    auto *b = commandButton("removeEvidence");
+    b->setEnabled(selectedLayer().startsWith("draft.") &&
+                  m_evidence->currentItem());
+    b->setToolTip(b->isEnabled() ? tr("移除此条证据，可撤销")
+                                 : tr("请先选择编辑副本中的证据"));
+  });
+  evidenceGroup->setCollapsed(false);
+  layout->addWidget(evidenceGroup);
   appearance->setCollapsed(false); // DESIGN.md: groups start expanded.
   auto *details = new QgsCollapsibleGroupBox(tr("来源与生成参数"), body);
   details->setObjectName("workbenchProvenance");
@@ -362,6 +435,11 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
           [this] { updateState(); });
   connect(m_results, &QTreeWidget::itemActivated, this,
           [this] { issue("show"); });
+  connect(workbench, &MappingWorkbench::displayChanged, this,
+          [this](const QString &id) {
+            if (id == selectedLayer())
+              updateState();
+          });
   connect(workbench, &MappingWorkbench::changed, this,
           &MappingWorkbenchPage::refresh);
   connect(workbench, &MappingWorkbench::faciesChanged, this,
@@ -481,6 +559,19 @@ void MappingWorkbenchPage::refresh() {
   }
   if (m_points && m_points->findData(pointId) >= 0)
     m_points->setCurrentIndex(m_points->findData(pointId));
+  const auto source = m_evidenceSource->currentData();
+  {
+    const QSignalBlocker block(m_evidenceSource);
+    m_evidenceSource->clear();
+    m_evidenceSource->addItem(tr("手工解释（无来源图件）"), QString());
+    for (const auto &entry : m_workbench->products(m_horizon)) {
+      const auto p = entry.toMap();
+      if (p.value("id").toString() != selectedLayer())
+        m_evidenceSource->addItem(p.value("name").toString(), p.value("id"));
+    }
+    m_evidenceSource->setCurrentIndex(
+        qMax(0, m_evidenceSource->findData(source)));
+  }
   refreshInputs();
   updateState();
 }
@@ -568,6 +659,8 @@ void MappingWorkbenchPage::updateState() {
   gate("contours", selected && row.value("type") == "raster" && analysisRaster,
        cartographic ? tr("解释性制图成果不能当作分析场提取等值线")
                     : tr("先选择一个连续单因素栅格"));
+  gate("references", horizon && !checkedInputs().isEmpty(),
+       tr("勾选单因素图、测井相或地震相后打开联动参考窗口"));
   gate("compose", horizon && !checkedInputs().isEmpty(),
        readiness);
   for (const auto &name : {"import", "draw", "schema"})
@@ -575,13 +668,36 @@ void MappingWorkbenchPage::updateState() {
   const auto selectedSchema = m_workbench->versionForLayer(selectedLayer())
                                   .extra.value("facies")
                                   .toList();
+  const QSignalBlocker displayBlock(m_displayLevel);
+  m_displayLevel->setCurrentIndex(qMax(
+      0, m_displayLevel->findData(m_workbench->displayMode(selectedLayer()))));
+  m_displayLevel->setEnabled(!selectedSchema.isEmpty());
+  m_displayLevel->setToolTip(
+      selectedSchema.isEmpty()
+          ? tr("请先选择相图件")
+          : tr("当前显示：%1；自动阈值为 1:800 万与 1:400 万")
+                .arg(FaciesHierarchy::title(
+                    m_workbench->resolvedLevel(selectedLayer()))));
+  m_editLevel->setEnabled(row.value("draft").toBool());
+  m_editLevel->setToolTip(m_editLevel->isEnabled()
+                              ? tr("选择要修改的相层级")
+                              : tr("请先复制相图为编辑副本"));
   const auto oldCode = m_editFacies->currentData();
   m_editFacies->clear();
+  QSet<QString> editKeys;
   for (const auto &v : selectedSchema) {
     auto f = v.toMap();
-    m_editFacies->addItem(
-        QIcon(FaciesCatalog::resourcePath(f.value("icon", f.value("texture")).toString())),
-        f.value("name").toString(), f.value("code").toInt());
+    const auto key =
+        FaciesHierarchy::key(f, m_editLevel->currentData().toString());
+    if (editKeys.contains(key))
+      continue;
+    editKeys.insert(key);
+    m_editFacies->addItem(QIcon(FaciesCatalog::resourcePath(
+                              f.value("icon", f.value("texture")).toString())),
+                          FaciesHierarchy::path(f)
+                              .mid(0, m_editLevel->currentIndex() + 1)
+                              .join(" / "),
+                          f.value("code").toInt());
   }
   int oldIndex = m_editFacies->findData(oldCode);
   if (oldIndex >= 0)
@@ -591,6 +707,45 @@ void MappingWorkbenchPage::updateState() {
                                                   : tr("请先复制相图为编辑副本"));
   gate("assignFacies", row.value("draft").toBool() && !selectedSchema.isEmpty(),
        tr("复制相图后，在画布选中要素，再选择相类别"));
+  const auto evidenceSelection = m_workbench->selectedFeatures(selectedLayer());
+  const bool editableEvidence =
+      row.value("draft").toBool() && !evidenceSelection.isEmpty();
+  gate("selectHierarchy",
+       !selectedSchema.isEmpty() && !evidenceSelection.isEmpty(),
+       tr("请先在画布选择相要素，再按编辑层级扩展选区"));
+  gate("addEvidence",
+       editableEvidence && !m_evidenceText->toPlainText().trimmed().isEmpty(),
+       tr("请先在编辑副本的画布中选中要素，再填写证据"));
+  const auto currentEvidence =
+      m_evidence->currentItem()
+          ? m_evidence->currentItem()->data(Qt::UserRole).toString()
+          : QString();
+  {
+    const QSignalBlocker block(m_evidence);
+    m_evidence->clear();
+    for (const auto &entry :
+         m_workbench->evidence(selectedLayer(), evidenceSelection)) {
+      const auto e = entry.toMap();
+      auto *item = new QListWidgetItem(
+          tr("%1 · 要素 %2 · %3\n%4")
+              .arg(FaciesHierarchy::title(e.value("level").toString()),
+                   e.value("feature_id").toString(),
+                   e.value("source_title", tr("手工解释")).toString(),
+                   e.value("text").toString() +
+                       (e.value("needs_review").toBool()
+                            ? tr("（分类已变更，需复核）")
+                            : QString())),
+          m_evidence);
+      item->setData(Qt::UserRole, e.value("id"));
+      item->setToolTip(tr("解释时分类：%1\n记录时间：%2")
+                           .arg(e.value("category_path").toString(),
+                                e.value("created_at").toString()));
+      if (e.value("id").toString() == currentEvidence)
+        m_evidence->setCurrentItem(item);
+    }
+  }
+  gate("removeEvidence", editableEvidence && m_evidence->currentItem(),
+       tr("请选择编辑副本中的证据"));
   gate("welltracks",
        selected && !m_workbench->wellPredictions(selectedLayer()).isEmpty(),
        tr("选择包含井段的测井相预测或修订结果"));
@@ -599,6 +754,10 @@ void MappingWorkbenchPage::updateState() {
        tr("请选择矢量相面或测井相点图"));
   gate("show", selected, tr("请先选择图件"));
   gate("compare", selected, tr("请先选择图件"));
+  gate("catalog",
+       !row.value("asset_id").toString().isEmpty() &&
+           !row.value("version_id").toString().isEmpty(),
+       tr("请先选择已登记的图件版本；工作副本定位到最近保存版本"));
   gate("polygonize",
        selected && row.value("type") == "raster" && !analysisRaster &&
            !cartographic && !row.value("id").toString().startsWith("factor."),
@@ -651,8 +810,21 @@ void MappingWorkbenchPage::issue(const QString &action, QVariantMap p) {
       thresholds << v;
     p.insert("thresholds", thresholds);
   }
-  if (action == "assignFacies")
+  if (action == "selectHierarchy")
+    p.insert("edit_level", m_editLevel->currentData());
+  if (action == "assignFacies") {
     p.insert("code", m_editFacies->currentData());
+    p.insert("edit_level", m_editLevel->currentData());
+  }
+  if (action == "addEvidence") {
+    p.insert("text", m_evidenceText->toPlainText());
+    p.insert("level", m_editLevel->currentData());
+    p.insert("source_layer", m_evidenceSource->currentData());
+  }
+  if (action == "removeEvidence")
+    p.insert("evidence_id", m_evidence->currentItem()
+                                ? m_evidence->currentItem()->data(Qt::UserRole)
+                                : QVariant());
   if (action == "schema") {
     QVariantList rows;
     for (int i = 0; i < m_facies->rowCount(); ++i) {

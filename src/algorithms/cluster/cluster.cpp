@@ -266,62 +266,145 @@ Result gmm(const Matrix &x, const Options &o, const Control &ctl) {
       std::accumulate(m.weights.begin(), m.weights.end(), 0.0);
   for (double &w : m.weights)
     w /= weightSum;
-  std::vector<double> responsibilities(n * k), history;
+  std::vector<double> history;
   int iterations = 0;
-  for (int it = 0; it <= o.maxIterations; ++it) {
-    double ll = 0;
-    for (std::size_t i = 0; i < n; ++i) {
-      if ((i & 1023U) == 0 && stopped(ctl))
-        return failure("Cancelled", true);
-      ll += posterior(x.row(i), m, p);
-      std::copy(p.begin(), p.end(),
-                responsibilities.begin() + std::ptrdiff_t(i * k));
-    }
-    if (!std::isfinite(ll))
-      return failure("Non-finite Gaussian likelihood");
-    history.push_back(ll);
-    if (it &&
-        ll + 1e-8 * std::max(1.0, std::abs(ll)) < history[history.size() - 2])
-      return failure("Gaussian EM likelihood decreased; model not accepted");
-    if (it == o.maxIterations ||
-        (it && std::abs(ll - history[history.size() - 2]) <=
-                   o.tolerance * std::max(1.0, std::abs(ll))))
-      break;
-    std::fill(counts.begin(), counts.end(), 0);
-    std::fill(sums.begin(), sums.end(), 0);
-    for (std::size_t i = 0; i < n; ++i) {
-      if ((i & 1023U) == 0 && stopped(ctl))
-        return failure("Cancelled", true);
-      for (std::size_t c = 0; c < k; ++c) {
-        const double w = responsibilities[i * k + c];
-        counts[c] += w;
-        for (std::size_t j = 0; j < d; ++j)
-          sums[c * d + j] += w * x.row(i)[j];
-      }
-    }
-    for (std::size_t c = 0; c < k; ++c)
-      if (counts[c] > 1e-12) {
-        m.weights[c] = counts[c] / double(n);
-        for (std::size_t j = 0; j < d; ++j)
-          m.centers.values[c * d + j] = sums[c * d + j] / counts[c];
-      }
-    std::fill(sums.begin(), sums.end(), 0);
-    for (std::size_t i = 0; i < n; ++i) {
-      if ((i & 1023U) == 0 && stopped(ctl))
-        return failure("Cancelled", true);
-      for (std::size_t c = 0; c < k; ++c)
-        for (std::size_t j = 0; j < d; ++j) {
-          const double delta = x.row(i)[j] - m.centers.values[c * d + j];
-          sums[c * d + j] += responsibilities[i * k + c] * delta * delta;
+  const std::size_t kBytes = k * sizeof(double);
+  const bool bytesOverflow =
+      kBytes != 0 && n > std::numeric_limits<std::size_t>::max() / kBytes;
+  const bool chunked = o.emChunkBudgetBytes != 0 &&
+                       (bytesOverflow || n * kBytes > o.emChunkBudgetBytes);
+  if (chunked) {
+    // Chunked EM: same two-pass update as the full-matrix path below, but the
+    // n*k responsibilities are streamed in row blocks so peak memory stays
+    // chunkRows*k doubles instead of n*k.
+    const std::size_t chunkRows =
+        std::max<std::size_t>(1, o.emChunkBudgetBytes / (k * sizeof(double)));
+    std::vector<double> block(chunkRows * k);
+    Model old; // loop-start parameters for the variance pass
+    for (int it = 0; it <= o.maxIterations; ++it) {
+      double ll = 0;
+      std::fill(counts.begin(), counts.end(), 0);
+      std::fill(sums.begin(), sums.end(), 0);
+      old = m;
+      for (std::size_t start = 0; start < n; start += chunkRows) {
+        const std::size_t rows = std::min(chunkRows, n - start);
+        for (std::size_t r = 0; r < rows; ++r) {
+          const std::size_t i = start + r;
+          if ((i & 1023U) == 0 && stopped(ctl))
+            return failure("Cancelled", true);
+          ll += posterior(x.row(i), m, p);
+          std::copy(p.begin(), p.end(),
+                    block.begin() + std::ptrdiff_t(r * k));
         }
+        for (std::size_t r = 0; r < rows; ++r)
+          for (std::size_t c = 0; c < k; ++c) {
+            const double w = block[r * k + c];
+            counts[c] += w;
+            for (std::size_t j = 0; j < d; ++j)
+              sums[c * d + j] += w * x.row(start + r)[j];
+          }
+      }
+      if (!std::isfinite(ll))
+        return failure("Non-finite Gaussian likelihood");
+      history.push_back(ll);
+      if (it &&
+          ll + 1e-8 * std::max(1.0, std::abs(ll)) < history[history.size() - 2])
+        return failure("Gaussian EM likelihood decreased; model not accepted");
+      if (it == o.maxIterations ||
+          (it && std::abs(ll - history[history.size() - 2]) <=
+                     o.tolerance * std::max(1.0, std::abs(ll))))
+        break;
+      for (std::size_t c = 0; c < k; ++c)
+        if (counts[c] > 1e-12) {
+          m.weights[c] = counts[c] / double(n);
+          for (std::size_t j = 0; j < d; ++j)
+            m.centers.values[c * d + j] = sums[c * d + j] / counts[c];
+        }
+      std::fill(sums.begin(), sums.end(), 0);
+      for (std::size_t start = 0; start < n; start += chunkRows) {
+        const std::size_t rows = std::min(chunkRows, n - start);
+        for (std::size_t r = 0; r < rows; ++r) {
+          const std::size_t i = start + r;
+          if ((i & 1023U) == 0 && stopped(ctl))
+            return failure("Cancelled", true);
+          posterior(x.row(i), old, p);
+          std::copy(p.begin(), p.end(),
+                    block.begin() + std::ptrdiff_t(r * k));
+        }
+        for (std::size_t r = 0; r < rows; ++r)
+          for (std::size_t c = 0; c < k; ++c)
+            for (std::size_t j = 0; j < d; ++j) {
+              const double delta =
+                  x.row(start + r)[j] - m.centers.values[c * d + j];
+              sums[c * d + j] += block[r * k + c] * delta * delta;
+            }
+      }
+      for (std::size_t c = 0; c < k; ++c)
+        if (counts[c] > 1e-12)
+          for (std::size_t j = 0; j < d; ++j)
+            m.variances[c * d + j] =
+                std::max(sums[c * d + j] / counts[c], o.varianceFloor);
+      iterations = it + 1;
+      report(ctl, 0.9 * double(iterations) / o.maxIterations);
     }
-    for (std::size_t c = 0; c < k; ++c)
-      if (counts[c] > 1e-12)
-        for (std::size_t j = 0; j < d; ++j)
-          m.variances[c * d + j] =
-              std::max(sums[c * d + j] / counts[c], o.varianceFloor);
-    iterations = it + 1;
-    report(ctl, 0.9 * double(iterations) / o.maxIterations);
+  } else {
+    std::vector<double> responsibilities(n * k);
+    for (int it = 0; it <= o.maxIterations; ++it) {
+      double ll = 0;
+      for (std::size_t i = 0; i < n; ++i) {
+        if ((i & 1023U) == 0 && stopped(ctl))
+          return failure("Cancelled", true);
+        ll += posterior(x.row(i), m, p);
+        std::copy(p.begin(), p.end(),
+                  responsibilities.begin() + std::ptrdiff_t(i * k));
+      }
+      if (!std::isfinite(ll))
+        return failure("Non-finite Gaussian likelihood");
+      history.push_back(ll);
+      if (it &&
+          ll + 1e-8 * std::max(1.0, std::abs(ll)) <
+                   history[history.size() - 2])
+        return failure("Gaussian EM likelihood decreased; model not accepted");
+      if (it == o.maxIterations ||
+          (it && std::abs(ll - history[history.size() - 2]) <=
+                     o.tolerance * std::max(1.0, std::abs(ll))))
+        break;
+      std::fill(counts.begin(), counts.end(), 0);
+      std::fill(sums.begin(), sums.end(), 0);
+      for (std::size_t i = 0; i < n; ++i) {
+        if ((i & 1023U) == 0 && stopped(ctl))
+          return failure("Cancelled", true);
+        for (std::size_t c = 0; c < k; ++c) {
+          const double w = responsibilities[i * k + c];
+          counts[c] += w;
+          for (std::size_t j = 0; j < d; ++j)
+            sums[c * d + j] += w * x.row(i)[j];
+        }
+      }
+      for (std::size_t c = 0; c < k; ++c)
+        if (counts[c] > 1e-12) {
+          m.weights[c] = counts[c] / double(n);
+          for (std::size_t j = 0; j < d; ++j)
+            m.centers.values[c * d + j] = sums[c * d + j] / counts[c];
+        }
+      std::fill(sums.begin(), sums.end(), 0);
+      for (std::size_t i = 0; i < n; ++i) {
+        if ((i & 1023U) == 0 && stopped(ctl))
+          return failure("Cancelled", true);
+        for (std::size_t c = 0; c < k; ++c)
+          for (std::size_t j = 0; j < d; ++j) {
+            const double delta = x.row(i)[j] - m.centers.values[c * d + j];
+            sums[c * d + j] += responsibilities[i * k + c] * delta * delta;
+          }
+      }
+      for (std::size_t c = 0; c < k; ++c)
+        if (counts[c] > 1e-12)
+          for (std::size_t j = 0; j < d; ++j)
+            m.variances[c * d + j] =
+                std::max(sums[c * d + j] / counts[c], o.varianceFloor);
+      iterations = it + 1;
+      report(ctl, 0.9 * double(iterations) / o.maxIterations);
+    }
   }
   Result r = predict(x, m, initCtl);
   if (!r.ok)
@@ -329,6 +412,7 @@ Result gmm(const Matrix &x, const Options &o, const Control &ctl) {
   r.objectiveHistory = history;
   r.iterations = iterations;
   r.bic = double(2 * k * d + k - 1) * std::log(double(n)) - 2 * history.back();
+  r.chunkedEm = chunked;
   report(ctl, 1);
   return r;
 }

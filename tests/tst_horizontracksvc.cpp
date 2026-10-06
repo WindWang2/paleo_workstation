@@ -10,6 +10,7 @@
 #include <QtTest>
 #include <QCoreApplication>
 #include <QTemporaryDir>
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QSignalSpy>
@@ -402,6 +403,46 @@ private slots:
   }
 
   // 直接成格保留空洞：缺拾取格点 NaN（不 IDW 填洞——传播覆盖即边界）
+  void unsafeHorizonNameRefused()
+  {
+    // #226 收编项 2：层位名是自由输入，拼进文件名/资产 id——路径穿越与
+    // Windows 非法字符必须如实拒绝，不得写穿 outputDir。
+    QTemporaryDir dir;
+    DataCatalog catalog;
+    QString err;
+    QVERIFY(catalog.open(dir.path(), &err));
+    QList<SeismicPick> picks;
+    for (int i = 0; i < 3; ++i)
+    {
+      SeismicPick p;
+      p.id = i + 1;
+      p.inlineNo = 1000 + i;
+      p.xlineNo = 2000 + i;
+      p.twtMs = 100.0 + i;
+      picks << p;
+    }
+    const QString out = dir.filePath(QStringLiteral("interp/sub"));
+    for (const QString &bad : {QStringLiteral("../evil"), QStringLiteral("a/b"),
+                               QStringLiteral("H:1"), QStringLiteral("H?"),
+                               QStringLiteral("")})
+    {
+      err.clear();
+      QVERIFY(SeismicTaskService::registerHorizonAsset(&catalog, QStringLiteral("s"),
+                                                       QStringLiteral("v"), bad, picks,
+                                                       out, &err)
+                  .isEmpty());
+      QVERIFY2(!err.isEmpty(), qPrintable(bad));
+      err.clear();
+      QVERIFY(SeismicTaskService::registerPropagatedHorizonAsset(
+                  &catalog, QStringLiteral("s"), QStringLiteral("v"), bad, picks, out, &err)
+                  .isEmpty());
+      QVERIFY(!err.isEmpty());
+    }
+    QVERIFY(QDir(dir.filePath(QStringLiteral("interp"))).entryList(
+                QStringList() << QStringLiteral("*.csv"), QDir::Files).isEmpty());
+    QVERIFY(!QFileInfo::exists(dir.filePath(QStringLiteral("interp/evil_horizon.csv"))));
+  }
+
   void gridPropagatedKeepsHoles()
   {
     QList<SeismicPick> picks;

@@ -14,7 +14,7 @@
 #include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
-#include <QMessageBox>
+#include "../notifications/paleonotify.h"
 #include <QPushButton>
 #include <QVBoxLayout>
 
@@ -303,7 +303,7 @@ class PaleoLayerConfigPage : public QgsMapLayerConfigWidget
                 qWarning("paleo: addStyleFromLayer('%s') failed",
                          qPrintable(name));
             else
-                QMessageBox::warning(this, tr("保存样式预设"),
+                PaleoNotify::warning(this, tr("保存样式预设"),
                                      tr("保存预设失败：%1").arg(name));
             return;
         }
@@ -321,7 +321,7 @@ class PaleoLayerConfigPage : public QgsMapLayerConfigWidget
         if (!sm->setCurrentStyle(name))
         {
             if (!isOffscreen())
-                QMessageBox::warning(this, tr("从预设恢复"),
+                PaleoNotify::warning(this, tr("从预设恢复"),
                                      tr("无法应用预设：%1").arg(name));
             return;
         }
@@ -343,12 +343,12 @@ class PaleoLayerConfigPage : public QgsMapLayerConfigWidget
         mLayer->exportNamedStyle(doc, styleErr, ctx);
         if (!styleErr.isEmpty())
         {
-            QMessageBox::warning(this, tr("导出样式 .qml"), styleErr);
+            PaleoNotify::warning(this, tr("导出样式 .qml"), styleErr);
             return;
         }
         QFile f(path);
         if (!f.open(QIODevice::WriteOnly) || f.write(doc.toByteArray()) < 0)
-            QMessageBox::warning(this, tr("导出样式 .qml"),
+            PaleoNotify::warning(this, tr("导出样式 .qml"),
                                  tr("无法写入文件：%1").arg(path));
     }
 
@@ -363,19 +363,19 @@ class PaleoLayerConfigPage : public QgsMapLayerConfigWidget
         QFile f(path);
         if (!f.open(QIODevice::ReadOnly))
         {
-            QMessageBox::warning(this, tr("导入样式 .qml"),
+            PaleoNotify::warning(this, tr("导入样式 .qml"),
                                  tr("无法读取文件：%1").arg(path));
             return;
         }
         QDomDocument doc;
         if (!doc.setContent(&f))
         {
-            QMessageBox::warning(this, tr("导入样式 .qml"), tr("不是有效的样式文件。"));
+            PaleoNotify::warning(this, tr("导入样式 .qml"), tr("不是有效的样式文件。"));
             return;
         }
         QString styleErr;
         if (!mLayer->importNamedStyle(doc, styleErr) || !styleErr.isEmpty())
-            QMessageBox::warning(this, tr("导入样式 .qml"), styleErr);
+            PaleoNotify::warning(this, tr("导入样式 .qml"), styleErr);
         refreshPresets();
     }
 

@@ -51,7 +51,7 @@
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QMenu>
-#include <QMessageBox>
+#include "notifications/paleonotify.h"
 #include <QShortcut>
 #include <QSignalBlocker>
 #include <QStatusBar>
@@ -200,7 +200,7 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
           updateWindowTitle();
         }
         else if (QGuiApplication::platformName() != QLatin1String("offscreen"))
-          QMessageBox::critical(this, tr("保存工程失败"), res.error);
+          PaleoNotify::critical(this, tr("保存工程失败"), res.error);
       };
       connect(saveAct, &QAction::triggered, this, saveFn);
       if (SARibbonQuickAccessBar *qab = ribbonBar()->quickAccessBar())

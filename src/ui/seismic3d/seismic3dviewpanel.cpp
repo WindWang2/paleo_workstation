@@ -25,7 +25,7 @@
 #include <QInputDialog>
 #include <QVBoxLayout>
 #include <QGridLayout>
-#include <QMessageBox>
+#include "../notifications/paleonotify.h"
 #include <QSettings>
 #include <QToolButton>
 #include <QSlider>
@@ -1041,7 +1041,7 @@ void Seismic3DViewPanel::buildDisplayBar() {
     // D3.7 截图
     connect(btnShot_, &QToolButton::clicked, this, [this]() {
         if (fallbackActive_) {
-            QMessageBox::information(this, tr("三维截图"), tr("当前处于 2D 回退模式，请使用右键另存。"));
+            PaleoNotify::information(this, tr("三维截图"), tr("当前处于 2D 回退模式，请使用右键另存。"));
             return;
         }
         const QString path = QFileDialog::getSaveFileName(
@@ -1051,13 +1051,13 @@ void Seismic3DViewPanel::buildDisplayBar() {
             return;
         const QImage img = viewport_->grabViewportImage();
         if (img.isNull()) {
-            QMessageBox::warning(this, tr("截图失败"), tr("OpenGL 帧缓冲不可用。"));
+            PaleoNotify::warning(this, tr("截图失败"), tr("OpenGL 帧缓冲不可用。"));
             return;
         }
         if (img.save(path, "PNG"))
-            QMessageBox::information(this, tr("已导出"), tr("三维视口已保存到:\n%1").arg(path));
+            PaleoNotify::information(this, tr("已导出"), tr("三维视口已保存到:\n%1").arg(path));
         else
-            QMessageBox::critical(this, tr("导出失败"), tr("保存 PNG 失败。"));
+            PaleoNotify::critical(this, tr("导出失败"), tr("保存 PNG 失败。"));
     });
 
     // D3.6 相机书签

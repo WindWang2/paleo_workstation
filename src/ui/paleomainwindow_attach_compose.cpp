@@ -29,7 +29,7 @@
 #include <QCoreApplication>
 #include <QFileInfo>
 #include <QLabel>
-#include <QMessageBox>
+#include "notifications/paleonotify.h"
 #include <QProgressDialog>
 
 // ---------------------------------------------------------------------------
@@ -257,14 +257,13 @@ void PaleoMainWindow::attachComposePage(ComposePage *composePage,
             [this, composePage, layoutSvc, refreshLayoutNames](const QString &name) {
               if (!layoutSvc || name.isEmpty())
                 return;
-              const auto choice = QMessageBox::question(
-                  this, tr("删除版面"),
-                  tr("删除版面「%1」？随工程保存的布局将一并移除。").arg(name),
-                  QMessageBox::Ok | QMessageBox::Cancel, QMessageBox::Cancel);
-              if (choice != QMessageBox::Ok)
+              if (!PaleoNotify::ask(
+                      this, tr("删除版面"),
+                      tr("删除版面「%1」？随工程保存的布局将一并移除。").arg(name),
+                      PaleoNotify::AskButtons::OkCancel, PaleoNotify::AskDefault::Reject))
                 return;
               if (!layoutSvc->removeLayout(name))
-                QMessageBox::warning(this, tr("删除失败"), tr("无法删除版面「%1」。").arg(name));
+                PaleoNotify::warning(this, tr("删除失败"), tr("无法删除版面「%1」。").arg(name));
               refreshLayoutNames();
             });
     connect(composePage, &ComposePage::batchFigureExportRequested, this,
@@ -290,7 +289,7 @@ void PaleoMainWindow::attachComposePage(ComposePage *composePage,
               }
               if (!skeleton)
               {
-                QMessageBox::information(
+                PaleoNotify::information(
                     this, tr("批量出图"),
                     tr("先在设计器里准备一个版面（作为批量出图的骨架）。"));
                 return;
@@ -304,7 +303,7 @@ void PaleoMainWindow::attachComposePage(ComposePage *composePage,
                       : QString();
               if (!catalog || projectDir.isEmpty())
               {
-                QMessageBox::warning(this, tr("批量出图"),
+                PaleoNotify::warning(this, tr("批量出图"),
                                      tr("需要打开工程（catalog 受管区）再批量出图。"));
                 return;
               }
@@ -332,7 +331,7 @@ void PaleoMainWindow::attachComposePage(ComposePage *composePage,
               for (const auto &outcome : result.horizons)
                 lines << (outcome.ok ? tr("· %1 → %2").arg(outcome.horizon, outcome.file)
                                      : tr("· %1 失败：%2").arg(outcome.horizon, outcome.error));
-              QMessageBox::information(this, tr("批量出图"), lines.join(QLatin1Char('\n')));
+              PaleoNotify::report(this, tr("批量出图"), lines.join(QLatin1Char('\n')));
               if (auto *status = composePage->findChild<QLabel *>(
                       QStringLiteral("statusLabel")))
                 status->setText(result.summary());

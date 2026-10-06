@@ -126,6 +126,7 @@ bool PlannedReader::Execute(
                 }
                 continue; // unreadable trace: its columns stay NaN
             }
+            stats_.sanitizedSampleReads += impl_->session.LastSanitizedSampleCount();
             ++stats_.tracesRead;
             stats_.ioMicros += ioMicros;
             stats_.bytesRead += static_cast<std::uint64_t>(plan.stats.bytesPerTrace);

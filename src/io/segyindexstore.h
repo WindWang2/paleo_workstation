@@ -1,6 +1,7 @@
 // 层：数据
 #pragma once
 #include <QByteArray>
+#include <array>
 #include <QFileInfo>
 #include <QString>
 #include <QVector>
@@ -48,6 +49,7 @@ class SegyIndexStore
         qint32 binLineNo = 0;
         qint64 firstTraceOffset = 0;
         SegyGeometry geometry;
+        std::array<int, 4> headerWordOffsets = {188, 192, 8, 20}; // 索引取字口径（v2）
         QVector<qint32> inlineNos;
         QVector<qint32> xlineNos;
         QVector<qint64> offsets;

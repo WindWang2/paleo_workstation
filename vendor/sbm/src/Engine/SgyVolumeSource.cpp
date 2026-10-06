@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cmath>
 #include <limits>
+#include <QScopeGuard>
 
 #include "Data/Sgy/SgyIndexCache.h"
 #include "Data/Sgy/SgyIndexService.h"
@@ -300,6 +301,10 @@ Status SgyVolumeSource::ReadTrace(int inlineNo, int xlineNo, TraceData& out, Can
     }
     const auto start = std::chrono::steady_clock::now();
     SgyReadSession session;
+    const auto accountSamples = qScopeGuard([&] {
+        std::lock_guard<std::mutex> lock(statsMutex_);
+        stats_.sanitizedSampleReads += session.SanitizedSampleReads();
+    });
     std::string error;
     if(!session.Open(volume_.Index(), error)) {
         const Status status = Status::Error(StatusCode::IoError, error);
@@ -358,6 +363,10 @@ Status SgyVolumeSource::ReadVoxelWindow(
     }
     const auto start = std::chrono::steady_clock::now();
     SgyReadSession session;
+    const auto accountSamples = qScopeGuard([&] {
+        std::lock_guard<std::mutex> lock(statsMutex_);
+        stats_.sanitizedSampleReads += session.SanitizedSampleReads();
+    });
     std::string error;
     if(!session.Open(volume_.Index(), error)) {
         const Status status = Status::Error(StatusCode::IoError, error);
@@ -455,6 +464,10 @@ Status SgyVolumeSource::ReadArbitrarySection(
             }
         }
         PlannedSectionStats plannedStats;
+        const auto accountSamples = qScopeGuard([&] {
+            std::lock_guard<std::mutex> lock(statsMutex_);
+            stats_.sanitizedSampleReads += plannedStats.sanitizedSampleReads;
+        });
         PlannedSectionColumns plannedColumns;
         const bool ok = BuildPlannedLineSection(
             volume_, path, options, planOptions, image, plannedColumns, plannedStats, error, cancel,
@@ -548,12 +561,15 @@ const SgyCoordinateMapper* SgyVolumeSource::Mapper() const {
 
 SourceStatistics SgyVolumeSource::Statistics() const {
     std::lock_guard<std::mutex> lock(statsMutex_);
-    return stats_;
+    auto result = stats_;
+    result.sanitizedSampleReads += volume_.SanitizedSampleReads();
+    return result;
 }
 
 void SgyVolumeSource::ResetStatistics() {
     std::lock_guard<std::mutex> lock(statsMutex_);
     stats_ = SourceStatistics{};
+    volume_.ResetSanitizedSampleReads();
 }
 
 } // namespace engine

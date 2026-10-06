@@ -28,7 +28,7 @@ namespace sdk {
 //     cooperative CancelToken and never publish a cancelled result;
 //   * errors: engine::Status with a StatusCode; no exceptions cross the API;
 //   * ABI: kSdkAbiVersion identifies the facade layout.
-constexpr std::uint32_t kSdkAbiVersion = 1;
+constexpr std::uint32_t kSdkAbiVersion = 2;
 
 enum class Backend {
     Auto = 0,      // workspace when <path>.sf3c.meta exists, otherwise Direct SEG-Y

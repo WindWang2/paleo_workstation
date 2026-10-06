@@ -1,7 +1,9 @@
 // 层：功能
 #include "sectionworkbench.h"
+#include "../domain/wellnumeric.h"
 #include "derivedassets.h"
 #include "io/lasparser.h"
+#include "io/wellfileparsers.h"
 #include "services/welllogset.h"
 #include <QDir>
 #include <QFile>
@@ -212,7 +214,11 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells() {
         out.bottomY = w.surfaceY + tip.north;
       }
     }
-    for (const auto &t : m_data.topsFor(w.id)) {
+    WellParseReport topsReport;
+    const auto tops = m_data.topsFor(w.id, &topsReport);
+    if (!topsReport.issues.isEmpty())
+      out.alignmentStatus += tr(" · 分层文件读面：%1").arg(wellParseSummary(topsReport));
+    for (const auto &t : tops) {
       seismic::WellTopItem top;
       top.topName = t.horizon;
       top.md = t.md;
@@ -276,15 +282,13 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells() {
       const QString curveName = chosen->mnemonic;
       const auto &depths = doc.curves.at(0);
       const auto &values = doc.curves.at(column);
-      double scale = 1;
-      const auto unit = depths.unit.trimmed().toUpper();
-      if (unit == "FT" || unit == "F")
-        scale = .3048;
-      else if (unit != "M") {
-        // 单位未知只跳过这一份 LAS，同井其它文件继续。
-        out.alignmentStatus += tr(" · 深度单位未知，曲线未叠加");
+      const auto scaleToM = paleo::wellnumeric::depthScaleToMetres(depths.unit);
+      if (!scaleToM) {
+        out.alignmentStatus += tr(" · 深度单位未知（%1），曲线未叠加")
+                                   .arg(depths.unit.trimmed().isEmpty() ? tr("空") : depths.unit);
         continue;
       }
+      const double scale = *scaleToM;
       seismic::WellCurveItem curve;
       curve.curveName = curveName;
       const int size = std::min(depths.values.size(), values.values.size());

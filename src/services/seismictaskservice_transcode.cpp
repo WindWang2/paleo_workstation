@@ -137,8 +137,10 @@ void fillReportFromSf3c(SeismicTranscodeReport &report,
   report.tracesTotal = qint64(result.info.inlines) * result.info.xlines;
   report.missingTraces = qint64(result.missingTraceCount);
   report.damagedTraces = qint64(result.damagedTraceCount);
+  report.sanitizedSamples = qint64(result.sanitizedSampleCount);
+  report.sanitizedTraces = qint64(result.sanitizedTraceCount);
   report.damagedSample = damagedListFromEngine(result.damagedTraceSample);
-  if (!std::isnan(result.valueMin) && !std::isnan(result.valueMax))
+  if (std::isfinite(result.valueMin) && std::isfinite(result.valueMax))
   {
     report.valueMin = result.valueMin;
     report.valueMax = result.valueMax;
@@ -165,8 +167,10 @@ void fillReportFromPaged(SeismicTranscodeReport &report,
   report.tracesTotal = qint64(l0.info.inlineAxis.count) * l0.info.xlineAxis.count;
   report.missingTraces = qint64(l0.missingTraceCount);
   report.damagedTraces = qint64(l0.damagedTraceCount);
+  report.sanitizedSamples = qint64(l0.sanitizedSampleCount);
+  report.sanitizedTraces = qint64(l0.sanitizedTraceCount);
   report.damagedSample = damagedListFromEngine(l0.damagedTraceSample);
-  if (!std::isnan(l0.valueMin) && !std::isnan(l0.valueMax))
+  if (std::isfinite(l0.valueMin) && std::isfinite(l0.valueMax))
   {
     report.valueMin = l0.valueMin;
     report.valueMax = l0.valueMax;
@@ -202,6 +206,8 @@ QJsonObject reportToJson(const SeismicTranscodeReport &r)
   o.insert("tracesTotal", double(r.tracesTotal));
   o.insert("missingTraces", double(r.missingTraces));
   o.insert("damagedTraces", double(r.damagedTraces));
+  o.insert("sanitizedSamples", double(r.sanitizedSamples));
+  o.insert("sanitizedTraces", double(r.sanitizedTraces));
   o.insert("coverage", r.coverage());
   o.insert("droppedRatio", r.droppedRatio());
   if (r.validValues)
@@ -814,6 +820,8 @@ QString SeismicTranscodeReport::summaryLine() const
                 .arg(QString::number(valueMax, 'g', 6));
   if (!lodLevels.isEmpty())
     line += QObject::tr(" · 金字塔 %1").arg(lodLevels.join(QLatin1Char('/')));
+  if (sanitizedSamples > 0)
+    line += QObject::tr(" · 清洗 %1 个非有限样点（%2 道）").arg(sanitizedSamples).arg(sanitizedTraces);
   if (damagedTraces > 0)
     line += QObject::tr(" · 坏道 %1（%2…）")
                 .arg(damagedTraces)

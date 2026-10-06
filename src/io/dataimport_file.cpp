@@ -45,6 +45,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <utility>
 #include "dataimport_internal.h"
 
 using paleo::dataimport_detail::setError;
@@ -158,6 +159,51 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
   if (sourceSha.isEmpty())
     return fail(shaErr.isEmpty() ? QStringLiteral("cannot hash %1").arg(sourcePath) : shaErr);
 
+  const QByteArray xmlContent =
+      fi.suffix().compare(QStringLiteral("xml"), Qt::CaseInsensitive) == 0
+          ? readFileOrEmpty(sourcePath).toUtf8()
+          : QByteArray();
+  ProjectClassification cls = classifyProjectImport(sourcePath, xmlContent);
+  // 确认表「改类型」：forceType 覆盖分类器结果（其余分类字段保留）。
+  if (!options.forceType.isEmpty())
+    cls.type = options.forceType;
+  const QString stem = fi.completeBaseName();
+  const bool fixedAux = isFixedAuxiliaryPath(sourcePath) &&
+                        (cls.type == QLatin1String("well_head") ||
+                         cls.type == QLatin1String("well_log"));
+  // 在创建资产/复制 RAW 前验证井表；拒收不能留下冒充成功的实体关联。
+  WellParseReport wellReport;
+  QVector<WellHeadRecord> parsedHeads;
+  QVector<WellTopRecord> parsedTops;
+  TimeDepthTable parsedTd;
+  DeviationTable parsedDev;
+  const bool textWellInput = !fixedAux &&
+      (cls.type == QLatin1String("well_head") ||
+       cls.type == QLatin1String("well_stratification") ||
+       cls.type == QLatin1String("time_depth") ||
+       (cls.type == QLatin1String("well_deviation") && cls.format != QLatin1String("xml")));
+  QString parseSummary;
+  if (textWellInput)
+  {
+    QFile source(sourcePath);
+    if (!source.open(QIODevice::ReadOnly))
+      return fail(QCoreApplication::translate("DataImportService", "无法读取井表 %1：%2")
+                      .arg(sourcePath, source.errorString()));
+    const QByteArray bytes = source.readAll();
+    if (source.error() != QFileDevice::NoError)
+      return fail(QCoreApplication::translate("DataImportService", "读取井表失败 %1：%2").arg(sourcePath, source.errorString()));
+    if (QString::fromLatin1(QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex()) != sourceSha)
+      return fail(QCoreApplication::translate("DataImportService", "井表读取期间内容发生变化，请重试：%1").arg(sourcePath));
+    if (cls.type == QLatin1String("well_head")) parsedHeads = parseWellHeadText(bytes, &wellReport);
+    else if (cls.type == QLatin1String("well_stratification")) parsedTops = parseWellTopsText(bytes, &wellReport);
+    else if (cls.type == QLatin1String("time_depth")) parsedTd = parseTimeDepthText(bytes, &wellReport);
+    else parsedDev = parseDeviationText(bytes, &wellReport);
+    parseSummary = wellParseSummary(wellReport);
+    if (wellReport.acceptedRows == 0)
+      return fail(QCoreApplication::translate("DataImportService", "井表没有可用数据行：%1；%2")
+                      .arg(sourcePath, parseSummary));
+  }
+
   // §3 dedup：同一 SHA-256 已在库 → 不新建资产/版本/主关联；只把现在恰好能
   // 匹配到一口井的未决关联补挂上（不建井、不并井）。versionBySha256 只认
   // 文件仍在且重哈希一致的版本——受管文件丢失/被改的旧条目不再冒充命中，
@@ -180,25 +226,17 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
     const int attached = attachResolvableLinks(cat, existingAsset, sourcePath, &aerr);
     if (!aerr.isEmpty())
       qWarning("import dedup attach: %s", qPrintable(aerr));
-    const QString msg =
+    QString msg =
         QStringLiteral("字节已在库 · %1")
             .arg(attached > 0 ? QStringLiteral("已补上关联")
                               : QStringLiteral("没有新的关联"));
+    // 旧版本没有报告时，也对本次相同字节重新验证并展示。
+    if (!parseSummary.isEmpty()) msg += QStringLiteral("；") + parseSummary;
     qInfo("import: %s — %s", qPrintable(msg), qPrintable(sourcePath));
     res.linkAttached = attached > 0;
     s.recordImported(existingAsset.type, existing.assetId, QString()); // 聚焦已有资产
     return done(ImportOutcome::AlreadyStored, existing.assetId, msg);
   }
-
-  const QByteArray xmlContent =
-      fi.suffix().compare(QStringLiteral("xml"), Qt::CaseInsensitive) == 0
-          ? readFileOrEmpty(sourcePath).toUtf8()
-          : QByteArray();
-  ProjectClassification cls = classifyProjectImport(sourcePath, xmlContent);
-  // 确认表「改类型」：forceType 覆盖分类器结果（其余分类字段保留）。
-  if (!options.forceType.isEmpty())
-    cls.type = options.forceType;
-  const QString stem = fi.completeBaseName();
 
   const QString assetId = cat->nextAssetId();
   const QString versionId = cat->nextVersionId();
@@ -208,13 +246,24 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
   asset.type = cls.type;
   asset.format = cls.format;
   asset.displayName = fi.fileName();
-  if (!cat->addAsset(asset, error))
+  if (!textWellInput && !cat->addAsset(asset, error))
     return fail(*error);
 
   CatalogVersion version;
   version.id = versionId;
   version.assetId = assetId;
   version.stage = QStringLiteral("RAW");
+  if (textWellInput)
+  {
+    version.extra.insert(QStringLiteral("wellParseReport"), QVariantMap{
+        {QStringLiteral("acceptedRows"), wellReport.acceptedRows},
+        {QStringLiteral("rejectedRows"), wellReport.rejectedRows},
+        {QStringLiteral("sentinelHits"), wellReport.sentinelHits},
+        {QStringLiteral("blankCells"), wellReport.blankCells},
+        {QStringLiteral("invalidCells"), wellReport.invalidCells},
+        {QStringLiteral("issues"), wellReport.issues},
+        {QStringLiteral("summary"), parseSummary}});
+  }
   version.versionNumber = 1;
   version.fileName = fi.fileName();
   version.sourceUri = fi.absoluteFilePath();
@@ -233,23 +282,27 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
     QString relPath, sha;
     if (!storeManagedRaw(s, sourcePath, assetId, versionId, &relPath, &sha, error))
       return fail(*error);
+    if (textWellInput && sha != sourceSha)
+    {
+      // 本行尚无资产/版本/关联；移除自身暂存 RAW，不能提交不匹配的解析报告。
+      version.managed = true;
+      version.path = relPath;
+      const QString staged = DataCatalog::resolvedVersionPath(s.stagingRoot, version);
+      QFile::setPermissions(staged, QFile::permissions(staged) | QFileDevice::WriteOwner);
+      if (!QFile::remove(staged))
+        qWarning("import: cannot remove changed staged well file %s", qPrintable(staged));
+      return fail(QCoreApplication::translate("DataImportService", "井表复制期间内容发生变化，请重试：%1").arg(sourcePath));
+    }
     version.path = relPath;
     version.sha256 = sha;
   }
+  if (textWellInput && !cat->addAsset(asset, error))
+    return fail(*error);
   if (!cat->addVersion(version, error))
     return fail(*error);
 
   // ---- 实体解析与关联（角色沿用已有名字）----
   QString manifestLayerId;
-  // 阶段 D：HZ28-6-1 命名的井类内容 XML 固定作辅助参考——override 也不理
-  // （T22 收窄：「参考资料」目录内其他文件的默认「参考」由确认表给，可改）。
-  // 阶段 D 固定辅助规则：isFixedAuxiliaryPath（HZ28-6-1 命名文件）在
-  // projectclassifier.cpp——T22 起只锁这一个文件；「参考资料」目录段的
-  // 默认「参考」展示归确认表（isDefaultReferencePath），改动成 override。
-  const bool fixedAux = isFixedAuxiliaryPath(sourcePath) &&
-                        (cls.type == QLatin1String("well_head") ||
-                         cls.type == QLatin1String("well_log"));
-
   paleo::dataimport_detail::FamilyContext ctx;
   ctx.cat = cat;
   ctx.s = &s;
@@ -262,6 +315,10 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
   ctx.external = external;
   ctx.version = version;
   ctx.error = error;
+  ctx.parsedHeads = std::move(parsedHeads);
+  ctx.parsedTops = std::move(parsedTops);
+  ctx.parsedTd = std::move(parsedTd);
+  ctx.parsedDev = std::move(parsedDev);
   QString branchErr;
   if (cls.type == QLatin1String("well_head") && !fixedAux)
     branchErr = paleo::dataimport_detail::importWellHeadFamily(ctx);
@@ -303,7 +360,7 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
   }
 
   s.recordImported(cls.type, assetId, manifestLayerId);
-  return done(ImportOutcome::Imported, assetId);
+  return done(ImportOutcome::Imported, assetId, parseSummary);
 }
 
 // ---------------------------------------------------------------------------

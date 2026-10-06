@@ -1,5 +1,6 @@
 #include "Engine/TranscodeJob.h"
 
+#include <unordered_set>
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -120,9 +121,15 @@ struct TraceQuality {
         }
     }
 
-    void NoteTrace(const std::vector<float>& samples) {
+    std::uint64_t sanitizedSamples = 0;
+    std::unordered_set<int> sanitizedTraces;
+
+    void NoteTrace(const std::vector<float>& samples, int traceIndex, std::uint64_t sanitizedCount) {
+        if(sanitizedCount > 0 && sanitizedTraces.insert(traceIndex).second) {
+            sanitizedSamples += sanitizedCount;
+        }
         for(const float v : samples) {
-            if(std::isnan(v)) {
+            if(!std::isfinite(v)) {
                 continue;
             }
             if(v < valueMin) {
@@ -137,6 +144,8 @@ struct TraceQuality {
     void Finish(TranscodeResult& result) const {
         result.missingTraceCount = missing;
         result.damagedTraceCount = damaged;
+        result.sanitizedSampleCount = sanitizedSamples;
+        result.sanitizedTraceCount = sanitizedTraces.size();
         result.damagedTraceSample = damagedSample;
         if(valueMin != std::numeric_limits<float>::infinity()) {
             result.valueMin = valueMin;
@@ -460,7 +469,7 @@ TranscodeResult TranscodeSegyToWorkspace(
                             continue;
                         }
                         tracesReadAtomic.fetch_add(1);
-                        quality.NoteTrace(traceSamples);
+                        quality.NoteTrace(traceSamples, traceIndex, session.LastSanitizedSampleCount());
                         for(std::uint32_t cs = 0; cs < info.ChunksS(); ++cs) {
                             std::vector<float>& buffer = buffers[cs];
                             if(writer.HasChunk(cs, ci, cx)) {
@@ -616,7 +625,7 @@ TranscodeResult TranscodeSegyToWorkspace(
                             chunk[offset] = traceSamples[static_cast<std::size_t>(sample)];
                         }
                         tracesReadAtomic.fetch_add(1);
-                        quality.NoteTrace(traceSamples);
+                        quality.NoteTrace(traceSamples, traceIndex, session.LastSanitizedSampleCount());
                     }
                 }
                 if(cancelled || writerFailed.load()) {

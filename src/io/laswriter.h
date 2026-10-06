@@ -1,6 +1,7 @@
 // 层：数据
 #pragma once
 #include <QList>
+#include "../domain/wellnumeric.h"
 #include <QString>
 
 #include "lasdoc.h"
@@ -16,7 +17,7 @@
 struct LasWriteOptions
 {
   QString wellName;              // ~W WELL（可空）
-  double nullToken = -999.25;    // LAS 2.0 惯例 NULL（读侧 lasparser 同默认）
+  double nullToken = paleo::wellnumeric::kLasDefaultNull;    // LAS 2.0 惯例 NULL（读侧 lasparser 同默认）
   int valuePrecision = 6;        // ~A 数值小数位
 };
 

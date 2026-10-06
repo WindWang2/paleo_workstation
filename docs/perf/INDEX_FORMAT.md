@@ -41,7 +41,7 @@ per curve: rowCount × f64  行主序
 文件名：`sha256(fingerprint)[0:24].plc`，位于
 `<proj>/artifacts/index/las/`。
 
-## 3. SEG-Y 道头索引 `.psx`（magic `PSGYIDX1`，version 1）
+## 3. SEG-Y 道头索引 `.psx`（magic `PSGYIDX1`，version 2）
 
 payload：
 
@@ -55,6 +55,7 @@ i32  samplesPerTrace        头块
 i32  sampleIntervalUs
 i32  formatCode
 i32  binLineNo
+i32[4] headerWordOffsets     inline/crossline/field-record/CDP 的 0 基偏移
 i64  firstTraceOffset
 f64  geometry.inlineMin/Max, xlineMin/Max     survey 几何（open 时冻结）
 f64  geometry.cornerX[4] / cornerY[4]
@@ -70,7 +71,11 @@ i64[bad] badTraceOffsets    损坏被跳过的道头偏移
 ```
 
 文件名：`segyidx_<sha256(canonicalPath)[0:24]>.psx`，位于
-`<proj>/artifacts/index/segy/`。zstd 压缩后合成测得 ratio 0.126（-87%）。
+`<proj>/artifacts/index/segy/`。v1 合成样本的历史 zstd 测量为 ratio 0.126（-87%）。
+
+v2 把道字配置加入完整索引与 checkpoint 身份；`openCached` 仅恢复与本次
+配置四个偏移全部相同的快照。v1 无配置自证信息，读侧弃用并重扫。配置
+变化只更新可再生 `.psx` 缓存，不改 SEG-Y 字节。
 
 ### checkpoint 完整性审计（D2.8）
 

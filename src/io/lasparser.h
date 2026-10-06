@@ -1,5 +1,6 @@
 // 层：数据
 #pragma once
+#include "../domain/wellnumeric.h"
 #include <QList>
 #include <QString>
 #include <QStringList>
@@ -21,7 +22,7 @@ struct LasHeaderInfo
 {
   QStringList curveNames;   // ~C 列序（curves[0] 是 DEPT 索引道）
   QString wellName;         // ~W WELL（缺省空）
-  double nullValue = -999.25; // ~W NULL（CWLS 缺省）
+  double nullValue = paleo::wellnumeric::kLasDefaultNull; // ~W NULL（CWLS 缺省）
   bool sawAscii = false;    // 头部扫描途中遇到 ~A 段头（数据节存在）
   QString indexBasis;       // 深度基准："MD"/"TVD"/"TIME"/""（未知）
 };

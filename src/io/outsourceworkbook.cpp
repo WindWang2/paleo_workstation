@@ -2,6 +2,7 @@
 #include "outsourceworkbook.h"
 
 #include "ziparchive.h"
+#include "domain/wellnumeric.h"
 
 #include <QByteArray>
 #include <QDir>
@@ -9,6 +10,8 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QHash>
+#include <QSet>
+#include <QCoreApplication>
 #include <QRegularExpression>
 #include <QXmlStreamReader>
 
@@ -39,6 +42,7 @@ QStringList normalizeHeaderRow( QStringList values )
 // 列号上限：畸形 ss:Index / 列引用（如 200000000）会让补空列的分配失控。
 // 16384 列（XFD）已远超任何外委表的实际宽度。
 constexpr int kMaxColumns = 16384;
+constexpr int kMaxRows = 1048576;
 
 void padTo( QStringList *values, int size )
 {
@@ -86,6 +90,7 @@ WorkbookReadResult readSpreadsheetMl( const QString &path, const QByteArray &byt
   int nextColumn = 0;
   QStringList row;
   bool rowHasError = false;
+  QSet<int> usedColumns;
 
   const auto finishRow = [&]() {
     if ( !inRow )
@@ -95,15 +100,20 @@ WorkbookReadResult readSpreadsheetMl( const QString &path, const QByteArray &byt
       if ( sheet.headers.isEmpty() )
       {
         if ( rowHasAnyText( row ) )
+        {
           sheet.headers = normalizeHeaderRow( row );
+          sheet.headerRowNumber = rowNumber;
+        }
       }
       else
       {
         sheet.rows.append( row );
+        sheet.rowNumbers.append( rowNumber );
       }
     }
     row.clear();
     rowHasError = false;
+    usedColumns.clear();
     inRow = false;
   };
   const auto finishSheet = [&]() {
@@ -153,18 +163,18 @@ WorkbookReadResult readSpreadsheetMl( const QString &path, const QByteArray &byt
                                       .arg( index.toString() ) );
             rowHasError = true;
           }
-          else if ( value > kMaxColumns )
+          else if ( value > kMaxRows )
           {
-            result.issues.append( QStringLiteral( "工作表「%1」第 %2 行：ss:Index=%3 超过列上限 %4，整行跳过" )
+            result.issues.append( QStringLiteral( "工作表「%1」第 %2 行：ss:Index=%3 超过行上限 %4，整行跳过" )
                                       .arg( sheet.name )
                                       .arg( rowNumber )
                                       .arg( value )
-                                      .arg( kMaxColumns ) );
+                                      .arg( kMaxRows ) );
             rowHasError = true;
           }
           else
           {
-            nextColumn = value;
+            rowNumber = value;
           }
         }
       }
@@ -217,7 +227,13 @@ WorkbookReadResult readSpreadsheetMl( const QString &path, const QByteArray &byt
             span = value;
           }
         }
-        if ( span > 0 && column + span > kMaxColumns )
+        if ( column < 1 || column > kMaxColumns || usedColumns.contains( column ) )
+        {
+          result.issues.append( QCoreApplication::translate( "OutsourceWorkbook", "工作表「%1」第 %2 行列 %3 重复或越界，该格跳过" )
+                                    .arg( sheet.name ).arg( rowNumber ).arg( column ) );
+          cellOk = false;
+        }
+        if ( span > 0 && span > kMaxColumns - column )
         {
           result.issues.append( QStringLiteral( "工作表「%1」第 %2 行：合并跨度 %3 超过列上限 %4，按不合并处理" )
                                     .arg( sheet.name )
@@ -226,6 +242,15 @@ WorkbookReadResult readSpreadsheetMl( const QString &path, const QByteArray &byt
                                     .arg( kMaxColumns ) );
           span = 0;
         }
+        if ( cellOk )
+          for ( int merged = column; merged <= column + span; ++merged )
+            if ( usedColumns.contains( merged ) )
+            {
+              result.issues.append( QCoreApplication::translate( "OutsourceWorkbook", "工作表「%1」第 %2 行合并范围覆盖已有列 %3，该格跳过" )
+                                        .arg( sheet.name ).arg( rowNumber ).arg( merged ) );
+              cellOk = false;
+              break;
+            }
         QString text;
         while ( !reader.atEnd() )
         {
@@ -240,11 +265,11 @@ WorkbookReadResult readSpreadsheetMl( const QString &path, const QByteArray &byt
         }
         if ( cellOk )
         {
-          padTo( &row, column - 1 );
-          row.append( text );
-          for ( int i = 0; i < span; ++i )
-            row.append( QString() );
-          nextColumn = column + span + 1;
+          padTo( &row, column + span );
+          row[column - 1] = text;
+          for ( int merged = column; merged <= column + span; ++merged )
+            usedColumns.insert( merged );
+          nextColumn = std::max( nextColumn, column + span + 1 );
         }
       }
     }
@@ -331,19 +356,21 @@ QVector<QString> readSharedStrings( const QByteArray &bytes )
 }
 
 // "BC12" → 列号（1 基）；引用非法返回 -1。
-int columnIndexFromRef( const QString &ref )
+int columnIndexFromRef( const QString &ref, int *rowNumber )
 {
-  int index = 0;
-  int letters = 0;
-  for ( const QChar &character : ref )
-  {
-    if ( !character.isLetter() )
-      break;
-    index = index * 26 + ( character.toUpper().unicode() - 'A' + 1 );
-    ++letters;
-  }
-  if ( letters == 0 || letters > 3 )
+  static const QRegularExpression pattern( QStringLiteral( "^([A-Za-z]{1,3})([1-9][0-9]{0,6})$" ) );
+  const auto match = pattern.match( ref );
+  if ( !match.hasMatch() )
     return -1;
+  bool ok = false;
+  const int row = match.captured( 2 ).toInt( &ok );
+  if ( !ok || row > kMaxRows )
+    return -1;
+  int index = 0;
+  for ( const QChar &character : match.captured( 1 ).toUpper() )
+    index = index * 26 + character.unicode() - 'A' + 1;
+  if ( rowNumber )
+    *rowNumber = row;
   return index;
 }
 
@@ -391,11 +418,6 @@ WorkbookReadResult readXlsx( const QString &path )
   QString sharedError;
   const bool hasSharedStrings =
       readZipEntry( archive, QStringLiteral( "xl/sharedStrings.xml" ), &sharedBytes, &sharedError );
-  if ( !hasSharedStrings )
-  {
-    result.issues.append( QStringLiteral( "%1：读不到 xl/sharedStrings.xml（%2），字符串单元格会缺值" )
-                              .arg( fileName, sharedError ) );
-  }
   const QVector<QString> sharedStrings = hasSharedStrings ? readSharedStrings( sharedBytes ) : QVector<QString>();
 
   QVector<QPair<QString, QString>> sheetTargets;
@@ -455,20 +477,29 @@ WorkbookReadResult readXlsx( const QString &path )
     bool inRow = false;
     int rowNumber = 0;
     int nextColumn = 1;
+    bool rowHasError = false;
+    bool rowIsExplicit = false;
+    QSet<int> usedColumns;
     const auto finishRow = [&]() {
       if ( !inRow )
         return;
-      if ( sheet.headers.isEmpty() )
+      if ( !rowHasError && sheet.headers.isEmpty() )
       {
         if ( rowHasAnyText( row ) )
+        {
           sheet.headers = normalizeHeaderRow( row );
+          sheet.headerRowNumber = rowNumber;
+        }
       }
-      else
+      else if ( !rowHasError )
       {
         sheet.rows.append( row );
+        sheet.rowNumbers.append( rowNumber );
       }
       row.clear();
       inRow = false;
+      rowHasError = false;
+      usedColumns.clear();
     };
     while ( !reader.atEnd() )
     {
@@ -482,6 +513,21 @@ WorkbookReadResult readXlsx( const QString &path )
           inRow = true;
           ++rowNumber;
           nextColumn = 1;
+          const QString rawRow = reader.attributes().value( QStringLiteral( "r" ) ).toString();
+          rowIsExplicit = !rawRow.isEmpty();
+          if ( rowIsExplicit )
+          {
+            bool ok = false;
+            const int physicalRow = rawRow.toInt( &ok );
+            if ( !ok || physicalRow < 1 || physicalRow > kMaxRows )
+            {
+              result.issues.append( QCoreApplication::translate( "OutsourceWorkbook", "%1：工作表「%2」行号 %3 非法，整行跳过" )
+                                        .arg( fileName, sheet.name, rawRow ) );
+              rowHasError = true;
+            }
+            else
+              rowNumber = physicalRow;
+          }
         }
         else if ( inRow && name == QLatin1String( "c" ) )
         {
@@ -490,13 +536,16 @@ WorkbookReadResult readXlsx( const QString &path )
           int column = nextColumn;
           if ( !ref.isEmpty() )
           {
-            const int parsed = columnIndexFromRef( ref );
-            if ( parsed < 0 )
+            int cellRow = 0;
+            const int parsed = columnIndexFromRef( ref, &cellRow );
+            if ( parsed > 0 && !rowIsExplicit && usedColumns.isEmpty() ) rowNumber = cellRow;
+            if ( parsed < 0 || cellRow != rowNumber )
             {
               result.issues.append( QStringLiteral( "%1：工作表「%2」第 %3 行单元格引用 %4 非法，该格跳过" )
                                         .arg( fileName, sheet.name )
                                         .arg( rowNumber )
                                         .arg( ref ) );
+              reader.skipCurrentElement();
               continue;
             }
             if ( parsed > kMaxColumns )
@@ -506,10 +555,19 @@ WorkbookReadResult readXlsx( const QString &path )
                                         .arg( rowNumber )
                                         .arg( parsed )
                                         .arg( kMaxColumns ) );
+              reader.skipCurrentElement();
               continue;
             }
             column = parsed;
           }
+          if ( column > kMaxColumns || usedColumns.contains( column ) )
+          {
+            result.issues.append( QCoreApplication::translate( "OutsourceWorkbook", "%1：工作表「%2」第 %3 行列 %4 重复或越界，该格跳过" )
+                                      .arg( fileName, sheet.name ).arg( rowNumber ).arg( column ) );
+            reader.skipCurrentElement();
+            continue;
+          }
+          usedColumns.insert( column );
           QString value;
           QString errorText;
           bool isError = false;
@@ -533,6 +591,9 @@ WorkbookReadResult readXlsx( const QString &path )
           }
           if ( type == QLatin1String( "s" ) )
           {
+            if ( !hasSharedStrings )
+              result.issues.append( QCoreApplication::translate( "OutsourceWorkbook", "%1：工作表「%2」第 %3 行需要共享字符串表但读不到 xl/sharedStrings.xml（%4），该格置空" )
+                                        .arg( fileName, sheet.name ).arg( rowNumber ).arg( sharedError ) );
             bool ok = false;
             const int index = value.toInt( &ok );
             if ( !ok || index < 0 || index >= sharedStrings.size() )
@@ -559,10 +620,11 @@ WorkbookReadResult readXlsx( const QString &path )
                                       .arg( fileName, sheet.name )
                                       .arg( rowNumber )
                                       .arg( errorText ) );
+            value.clear();
           }
-          padTo( &row, column - 1 );
-          row.append( cellText( value ) );
-          nextColumn = column + 1;
+          padTo( &row, column );
+          row[column - 1] = cellText( value );
+          nextColumn = std::max( nextColumn, column + 1 );
         }
       }
       else if ( token == QXmlStreamReader::EndElement && reader.name() == QLatin1String( "row" ) )
@@ -640,7 +702,7 @@ bool parseNumericCell( const QString &raw, double *value )
     text.chop( 1 );
   bool ok = false;
   const double parsed = text.toDouble( &ok );
-  if ( !ok || !std::isfinite( parsed ) )
+  if ( !ok || !paleo::wellnumeric::isUsable( parsed ) )
     return false;
   if ( value )
     *value = parsed;
@@ -731,7 +793,7 @@ WellCoordinateTable readWellCoordinateTable( const QString &path )
     for ( int i = 0; i < sheet.rows.size(); ++i )
     {
       const QStringList &row = sheet.rows.at( i );
-      const int displayRow = i + 2; // 表头占第 1 行
+      const int displayRow = sheet.rowNumbers.value( i, i + sheet.headerRowNumber + 1 );
       const QString rawName = valueAt( row, wellColumn );
       double x = 0;
       double y = 0;
@@ -812,7 +874,7 @@ IntervalRow readIntervalRow( const QString &path, const QString &sheetName, cons
   for ( int i = 0; i < found->rows.size(); ++i )
   {
     if ( valueAt( found->rows.at( i ), intervalColumn ) == intervalName )
-      matchingRows.append( i + 2 ); // 表头占第 1 行
+      matchingRows.append( i ); // 存索引；报告时转换为物理行号
   }
   if ( matchingRows.isEmpty() )
   {
@@ -823,7 +885,7 @@ IntervalRow readIntervalRow( const QString &path, const QString &sheetName, cons
   {
     QStringList rowText;
     for ( int row : matchingRows )
-      rowText << QString::number( row );
+      rowText << QString::number( found->rowNumbers.value( row, row + found->headerRowNumber + 1 ) );
     result.error = QStringLiteral( "%1：工作表「%2」层号 %3 出现 %4 次（第 %5 行），无法确定唯一层段行" )
                        .arg( fileName, sheetName, intervalName )
                        .arg( matchingRows.size() )
@@ -831,8 +893,8 @@ IntervalRow readIntervalRow( const QString &path, const QString &sheetName, cons
     return result;
   }
   result.headers = found->headers;
-  result.values = found->rows.at( matchingRows.first() - 2 );
-  result.rowNumber = matchingRows.first();
+  result.values = found->rows.at( matchingRows.first() );
+  result.rowNumber = found->rowNumbers.value( matchingRows.first(), matchingRows.first() + found->headerRowNumber + 1 );
   result.ok = true;
   return result;
 }
@@ -843,7 +905,7 @@ bool intervalRowNumber( const IntervalRow &row, const QString &field, double *va
   if ( column < 0 )
   {
     if ( error )
-      *error = QStringLiteral( "工作表「%1」第 %2 行（表头为第 1 行）表头没有「%3」列" ).arg( row.sheetName ).arg( row.rowNumber ).arg( field );
+      *error = QStringLiteral( "工作表「%1」第 %2 行的表头没有「%3」列" ).arg( row.sheetName ).arg( row.rowNumber ).arg( field );
     return false;
   }
   const QString raw = valueAt( row.values, column );

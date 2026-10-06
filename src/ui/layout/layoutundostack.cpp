@@ -1,8 +1,8 @@
 // 层：视图
 #include "layoutundostack.h"
+#include "../shortcuts/shortcutcatalog.h"
 
 #include <QAction>
-#include <QKeySequence>
 #include <QMenu>
 #include <QToolBar>
 #include <QUndoStack>
@@ -41,8 +41,9 @@ PaleoLayoutUndoStack::PaleoLayoutUndoStack( QgsLayout *layout, QObject *parent )
 
   m_undoAction->setObjectName( QStringLiteral( "mActionUndo" ) );
   m_redoAction->setObjectName( QStringLiteral( "mActionRedo" ) );
-  m_undoAction->setShortcut( QKeySequence( QKeySequence::StandardKey::Undo ) );
-  m_redoAction->setShortcut( QKeySequence( QKeySequence::StandardKey::Redo ) );
+  // 方向63：键序登记在 shortcuts/shortcutcatalog（layout.undo/redo，StandardKey 求值）。
+  paleo::shortcuts::bindAction( QStringLiteral( "layout.undo" ), m_undoAction );
+  paleo::shortcuts::bindAction( QStringLiteral( "layout.redo" ), m_redoAction );
 }
 
 void PaleoLayoutUndoStack::attachMenu( QMenu *menu )

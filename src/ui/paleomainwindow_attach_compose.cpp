@@ -32,6 +32,8 @@
 #include "notifications/paleonotify.h"
 #include <QProgressDialog>
 
+#include "notifications/notificationmanager.h"
+
 // ---------------------------------------------------------------------------
 // 编图页接线：因子融合 + 相面多边形化（W4 拆分段）
 // ---------------------------------------------------------------------------

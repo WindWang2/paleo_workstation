@@ -4,6 +4,8 @@
 #include "../../catalog/datacatalog.h"
 #include "../../workflow/welltopseditorworkflow.h"
 #include "../paleotheme.h"
+#include "../notifications/notificationmanager.h"
+#include "../notifications/notificationmanager.h"
 #include "welltopsmergedialog.h"
 
 #include <QBrush>

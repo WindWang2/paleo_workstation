@@ -11,6 +11,7 @@
 #include "ui/crossplot/crossplotpanel.h"
 #include "ui/paleomainwindow.h"
 #include "workflow/faciesclassify.h"
+#include "ui/shortcuts/shortcutcatalog.h"
 #include <QAction>
 #include <QFileInfo>
 #include <QTabWidget>
@@ -29,7 +30,7 @@ CrossplotController::CrossplotController(AppContext *ctx,
   m_map = new CrossplotMapLink(ctx->canvasCtl()->canvas(), this);
   auto *action = new QAction(tr("交会相分类"), window);
   action->setObjectName(QStringLiteral("openCrossplot"));
-  action->setShortcut(QKeySequence(QStringLiteral("Ctrl+Alt+X")));
+  paleo::shortcuts::bindAction(QStringLiteral("main.crossplot.open"), action); // 方向63 登记
   window->addAction(action);
   connect(action, &QAction::triggered, this, [window, tabs, this] {
     if (auto *dock = window->findChild<PaleoDockWidget *>(

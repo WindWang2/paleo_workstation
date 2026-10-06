@@ -239,6 +239,10 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   // 方向51：AI 对话助手编排。端点/模型从用户配置读，密钥由系统钥匙串异步
   // 补齐——补齐前是禁用态（UI 显示禁用原因），不静默跑假回答。
   m_aiChat = new AiChatController(this);
+#if PALEO_HAVE_ORT
+  // 方向61：工具执行回路装配（tile 分类起步；工程打开处随 AreaRules 重绑）。
+  bindChatToolRunner(m_aiChat, m_aiAssistWf, m_layerSvc);
+#endif
   {
     LlmConfig llm = LlmConfig::load();
     LlmKeyStore::read(this, [this, llm](bool ok, const QByteArray &key,
@@ -451,6 +455,9 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
 #if PALEO_HAVE_ORT
               if (m_aiAssistWf)
                 m_aiAssistWf->setCatalog(derivedCatalog, fi.absolutePath());
+              // 方向61：工程打开 → 重绑聊天工具上下文（AreaRules 按工区钉
+              // targetHorizon，层位名与栅格声明都可能换了）。
+              bindChatToolRunner(m_aiChat, m_aiAssistWf, m_layerSvc);
 #endif
               // goal/time-depth-velocity：同一 catalog 实例纪律（整文件重写，
               // 交错写互覆）——层深转换产物落 artifacts/derived/。

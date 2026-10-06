@@ -27,6 +27,7 @@
 #include "ai/aiassistdock.h"                    // 方向51：AI 助手 dock
 #include "../workflow/aichatcontroller.h"
 #include "../ai/chat/llmclient.h"               // LlmConfig::path()（配置说明用）
+#include "shortcuts/shortcutcatalog.h" // 方向63：快捷键中央注册表
 
 #include <qgsmapcanvas.h>
 #include <qgsmaptool.h>
@@ -155,7 +156,7 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
       // validation page's issueTable → ThreeWayLocator path instead.
 
       topBar->layout()->addWidget(locatorWidget);
-      auto *focus = new QShortcut(QKeySequence(QStringLiteral("Ctrl+K")), this);
+      auto *focus = paleo::shortcuts::bindShortcut(QStringLiteral("main.locator.focus"), this);
       connect(focus, &QShortcut::activated, locatorWidget,
               [locatorWidget] { locatorWidget->search(QString()); });
     }
@@ -167,8 +168,8 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
       auto *saveAct = new QAction(PaleoIcons::qgisTheme(QStringLiteral("mActionFileSave.svg")),
                                   tr("保存工程"), this);
       saveAct->setObjectName(QStringLiteral("saveProjectAction"));
-      saveAct->setShortcut(m_currentPage == QLatin1String("correlation") ? QKeySequence()
-                                                                        : QKeySequence(QKeySequence::Save));
+      paleo::shortcuts::setActionShortcutActive(QStringLiteral("main.project.save"), saveAct,
+                                                m_currentPage != QLatin1String("correlation"));
       saveAct->setToolTip(tr("保存工程（Ctrl+S）"));
       // §41.2 ordering through the write queue: gpkg commit (no-op until edit
       // buffers report dirty state) then the atomic .qgz write.

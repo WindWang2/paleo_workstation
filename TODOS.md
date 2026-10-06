@@ -1,20 +1,44 @@
-## P3 — AI 助手：function calling 闭环 + 图形化配置（from goal/ai-assist, 2026-10-06）
+## P3 — 快捷键/帮助面后续（from goal/shortcuts-help, 2026-10-07）
 
-- **What:** 方向51 只交付了「领域工具描述表 + 调用分发」：模型点名挑工具后，助手面板会
-  出一张占位卡片写明目标入口与「尚未接线」，**不会**真的执行、也不会把结果回填再续写。
-  另：端点/模型/密钥的图形化配置对话框同样未做——面板「配置…」只发意图，状态栏告知
-  配置文件（`LlmConfig::path()`）与 `PALEO_LLM_ENDPOINT` / `_MODEL` / `_API_KEY` 环境变量。
-  密钥本身已进系统钥匙串（`src/ai/chat/llmkeystore.*`），只是没有写入 UI。
-- **Why:** 工具执行要跨到既有服务（ORT 推理、测井相 HTTP）并定义「结果回填 → 再发起一轮
-  补全」的协议与取消边界，工作量不在骨架方向；而且未做之前假装做了，是更坏的诚实面。
-- **Pros:** 现在这一版不冒充已执行的 function calling，配置缺口也明说在状态行；
-  **Cons:** 助手目前只是「能聊 + 知道有哪些工具」，不能代跑。
-- **Context:** `src/ai/chat/domaintools.{h,cpp}`（`dispatchAiTool` 的 `NotImplemented`
-  分支就是闭环的落点）、`src/workflow/aichatcontroller.*`、`src/ui/ai/aiassistdock.*`、
-  ledger [方向51](.goal-loop-ledger-ai-assist.md)。
+- **What:** 方向63 把全仓键位收进 `src/ui/shortcuts/shortcutcatalog.cpp` 中央注册表，但按红线「不改键序/上下文/行为」，
+  以下几项只登记未动：
+  1. **Delete 遮蔽**：图层树面板 `layers.remove` 是主窗级 `WindowShortcut` QAction，面板可见时会先吃掉数据树焦点内
+     Delete（`data.assets.remove`）与节点编辑工具 Delete（`map.vertex.delete`）。启动日志以 info 报两条 shadow，
+     `tst_shortcuthelp::knownShadowsArePinned` 钉住清单。候选修法：改 `Qt::WidgetWithChildrenShortcut`（需真机核实
+     图层树内 Delete 仍可用）。
+  2. 保存按钮提示「保存工程（Ctrl+S）」、定位器占位符「搜索井位/层位  Ctrl+K」仍硬编码键名，改为取 `keyFor()`。
+  3. 数据页「?」快捷键表（DataPage ShortcutsDialog）与 F1 总表并存，可改为打开总表并预过滤到数据页。
+  4. 地图画布（主地图与预览地图都是 `QgsMapCanvas`）的 QGIS 内建按键（+ / - / 方向键 / 0 复位等，见
+     `tst_previewmap_canvas::keyboardPlusMinusZero`）属第三方行为，未进注册表与总表；可补登记为 KeyHandler 条目做展示。
+  5. 新增 `PaleoShortcuts` / `PaleoWhatsThis` / `tr()` 文案待 #246（zh_CN 本地化）合入后跑 lupdate 刷 `.ts`。
+- **Why:** 都是行为或文案改动，超出「收编不改行为」的边界；需要真机交互验证。
+- **Context:** ledger [方向63](.goal-loop-ledger-shortcuts-help.md#遮蔽告警启动日志-info测试钉死清单)。
+- **Effort:** human: S / CC: S
+- **Priority:** P3
+- **Depends on:** #246（第 5 项）
+
+## P3 — AI 助手：图形化配置对话框 + 工具上下文补绑（from goal/ai-assist, 2026-10-06；工具闭环已由方向61 交付）
+
+- **What:** 方向61（goal/ai-toolloop）已交付 function calling 闭环：tools[] 上送
+  （tool_choice=auto）、tool_calls 经 `workflow/aichattoolrunner` 真执行（tile 分类
+  走 `AiAssistWorkflow::startClassification` 异步 + 协作取消，产品落 DERIVED 草稿
+  通道）、结果按 role=tool + tool_call_id 回灌下轮、历史开窗与工具结果截断、取消
+  作废语义（未应答帧补「已取消」应答保协议完整）。**仍递延**：
+  1. 端点/模型/密钥的图形化配置对话框——面板「配置…」只发意图，状态栏告知配置
+     文件（`LlmConfig::path()`）与 `PALEO_LLM_ENDPOINT` / `_MODEL` / `_API_KEY`
+     环境变量；密钥已进系统钥匙串（`src/ai/chat/llmkeystore.*`），只是没有写入 UI。
+  2. 层位建议/测井相的应用级上下文绑定：`bindChatToolRunner`（app/aiwiring）目前
+     只绑 horizon + 层位栅格取数；traceFetch（须地震体道窗服务）与 faciesInput
+     （须井缓存曲线组装）未绑——模型点名时执行器如实报「上下文未绑定」，不冒充
+     成功。补绑点即 `AiChatToolContext` 的两个 provider。
+- **Why:** 图形化配置是纯 UI 面但涉及密钥写入口（钥匙串写入流）；道窗/井曲线
+  上下文要跨到地震体缓存与井合成服务，各是一条独立接线。
+- **Context:** `src/workflow/aichattoolrunner.*`、`src/app/aiwiring.cpp`
+  （`bindChatToolRunner`）、`src/ui/ai/aiassistdock.*`、
+  ledger [方向61](.goal-loop-ledger-ai-toolloop.md)。
 - **Effort:** human: M / CC: M
 - **Priority:** P3
-- **Depends on:** 既有三条能力的服务入口接线（ORT 推理/测井相），以及工具结果回填的多轮协议
+- **Depends on:** 地震体道窗取数服务、井合成曲线缓存（faciesInput 用）
 
 ## P3 — UI 窄面布局后续（from goal/ui-visual-polish, 2026-10-04）
 

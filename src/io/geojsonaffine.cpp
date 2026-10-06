@@ -5,7 +5,9 @@
 #include <QJsonDocument>
 #include <QSaveFile>
 #include <QJsonObject>
+#include <QStringList>
 #include <QtMath>
+#include <cmath>
 #include <limits>
 
 namespace
@@ -83,10 +85,44 @@ void geoAffineTransformCoords(const GeoAffineParams &p, QJsonValue *coords)
   *coords = arr;
 }
 
+bool geoAffineParamsValid(const GeoAffineParams &p, QString *why)
+{
+  constexpr double kMinScale = 1e-9;
+  constexpr double kMaxScale = 1e9;
+  constexpr double kMaxShift = 1e10;
+  QStringList bad;
+  const auto shift = [&bad](const char *name, double v) {
+    if (!std::isfinite(v))
+      bad << QStringLiteral("%1 非有限值").arg(QLatin1String(name));
+    else if (std::fabs(v) > kMaxShift)
+      bad << QStringLiteral("%1=%2 超出平移量程 ±%3")
+                 .arg(QLatin1String(name)).arg(v).arg(kMaxShift);
+  };
+  const auto scale = [&bad](const char *name, double v) {
+    if (!std::isfinite(v))
+      bad << QStringLiteral("%1 非有限值").arg(QLatin1String(name));
+    else if (std::fabs(v) < kMinScale)
+      bad << QStringLiteral("%1=%2 缩放为零或近零（几何塌缩）").arg(QLatin1String(name)).arg(v);
+    else if (std::fabs(v) > kMaxScale)
+      bad << QStringLiteral("%1=%2 缩放超出量程").arg(QLatin1String(name)).arg(v);
+  };
+  shift("tx", p.tx);
+  shift("ty", p.ty);
+  scale("sx", p.sx);
+  scale("sy", p.sy);
+  if (!std::isfinite(p.rotDeg))
+    bad << QStringLiteral("rotDeg 非有限值");
+  if (!bad.isEmpty() && why)
+    *why = QStringLiteral("仿射参数不合法：%1").arg(bad.join(QStringLiteral("；")));
+  return bad.isEmpty();
+}
+
 bool geoAffineTransformFile(const QString &inPath, const QString &outPath,
                             const GeoAffineParams &p, QString *error,
                             int *outFeatures, double outBounds[4])
 {
+  if (!geoAffineParamsValid(p, error))
+    return false;
   QFile in(inPath);
   if (!in.open(QIODevice::ReadOnly))
   {

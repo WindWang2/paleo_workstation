@@ -10,7 +10,9 @@
 #include <QPointer>
 #include <QTimer>
 
+#include <cmath>
 #include <cstring>
+#include <limits>
 
 #include <gdal.h>
 #include <cpl_conv.h>
@@ -41,45 +43,48 @@ struct AssistGrid
   bool fromDecl = false;
 };
 
+// horizon.<target>* 声明里第一个 raster 的数据源路径（无则空串）。
+// resolveAssistGrid（产品几何）与 horizonGridFetch（聊天取数）共用同一解析，
+// 保证「写产品用的网格」与「读数用的网格」是同一张栅格。
+QString horizonRasterPath( const QgisLayerService *layers )
+{
+  if ( !layers )
+    return QString();
+  const QString prefix = QStringLiteral( "horizon.%1" )
+                           .arg( AreaRules::active().targetHorizon );
+  for ( const LayerDeclaration &d : layers->declared() )
+  {
+    if ( d.layerId.startsWith( prefix ) &&
+         d.type.compare( QStringLiteral( "raster" ), Qt::CaseInsensitive ) == 0 )
+      return d.source.section( QLatin1Char( '|' ), 0, 0 );
+  }
+  return QString();
+}
+
 // horizon.<target>* 声明的栅格提供 GT/SRS（同 workflows.cpp onnxAreaGrid
 // 语义；这里给任意行列的 tile 产品用，没有 D61 411×641 硬门）。
 AssistGrid resolveAssistGrid( const QgisLayerService *layers, int rows, int cols )
 {
   AssistGrid grid;
   grid.gt[3] = double( rows ); // 北向上 GT：y 原点 = 行数（左上外角）
-  if ( layers )
+  const QString path = horizonRasterPath( layers );
+  if ( !path.isEmpty() && QFile::exists( path ) )
   {
-    const QString prefix = QStringLiteral( "horizon.%1" )
-                             .arg( AreaRules::active().targetHorizon );
-    QString source;
-    for ( const LayerDeclaration &d : layers->declared() )
+    GDALAllRegister();
+    GDALDatasetH ds = GDALOpen( path.toUtf8().constData(), GA_ReadOnly );
+    if ( ds )
     {
-      if ( d.layerId.startsWith( prefix ) &&
-           d.type.compare( QStringLiteral( "raster" ), Qt::CaseInsensitive ) == 0 )
+      double gt[6];
+      if ( GDALGetGeoTransform( ds, gt ) == CE_None )
       {
-        source = d.source;
-        break;
+        std::memcpy( grid.gt, gt, sizeof( gt ) );
+        grid.fromDecl = true;
+        grid.sourcePath = path;
       }
-    }
-    const QString path = source.section( QLatin1Char( '|' ), 0, 0 );
-    if ( !path.isEmpty() && QFile::exists( path ) )
-    {
-      GDALAllRegister();
-      GDALDatasetH ds = GDALOpen( path.toUtf8().constData(), GA_ReadOnly );
-      if ( ds )
-      {
-        double gt[6];
-        if ( GDALGetGeoTransform( ds, gt ) == CE_None )
-        {
-          std::memcpy( grid.gt, gt, sizeof( gt ) );
-          grid.fromDecl = true;
-          grid.sourcePath = path;
-        }
-        const char *proj = GDALGetProjectionRef( ds );
-        if ( proj && *proj )
-          grid.projection = QString::fromUtf8( proj );
-        GDALClose( ds );
-      }
+      const char *proj = GDALGetProjectionRef( ds );
+      if ( proj && *proj )
+        grid.projection = QString::fromUtf8( proj );
+      GDALClose( ds );
     }
   }
   Q_UNUSED( cols );
@@ -224,6 +229,7 @@ bool AiAssistWorkflow::writeTileProducts( const QString &horizon, const QString 
                                           const TileInferenceResult &result,
                                           double lowConfidenceThreshold, QString *error )
 {
+  m_lastStats = QJsonObject(); // 失败不留旧摘要（诚实：stats 只在成功后有效）
   QString regErr;
   DerivedAssetRegistrar registrar( m_catalog, m_projectDir );
   if ( !registrar.isBound() )
@@ -336,7 +342,80 @@ bool AiAssistWorkflow::writeTileProducts( const QString &horizon, const QString 
     layerIds.append( p.layerId );
   }
   m_lastProductLayerIds = layerIds;
+
+  // 统计摘要（方向61）：给聊天工具结果回灌用——类直方图/无数据数/有效均值
+  // 置信都从推理结果直接算，避免为摘要回读整幅栅格。
+  QJsonObject histogram;
+  qsizetype nodata = 0;
+  double confidenceSum = 0.0;
+  qsizetype valid = 0;
+  for ( qsizetype i = 0; i < n; ++i )
+  {
+    const int code = result.grid.argmax[i];
+    if ( code == 255 )
+    {
+      ++nodata;
+      continue;
+    }
+    histogram.insert( QString::number( code ), histogram.value( QString::number( code ) ).toInt() + 1 );
+    confidenceSum += double( result.grid.confidence[i] );
+    ++valid;
+  }
+  QJsonObject stats;
+  stats.insert( QStringLiteral( "rows" ), rows );
+  stats.insert( QStringLiteral( "columns" ), cols );
+  stats.insert( QStringLiteral( "classes" ), result.grid.classes );
+  stats.insert( QStringLiteral( "tiles_done" ), result.tilesDone );
+  stats.insert( QStringLiteral( "inference_ms" ), double( result.inferenceMs ) );
+  stats.insert( QStringLiteral( "classified_pixels" ), qint64( valid ) );
+  stats.insert( QStringLiteral( "nodata_pixels" ), qint64( nodata ) );
+  stats.insert( QStringLiteral( "mean_confidence" ), valid > 0 ? confidenceSum / valid : 0.0 );
+  stats.insert( QStringLiteral( "class_histogram" ), histogram );
+  stats.insert( QStringLiteral( "layer_ids" ), QJsonArray::fromStringList( layerIds ) );
+  m_lastStats = stats;
   return true;
+}
+
+AiAssistWorkflow::GridFetch AiAssistWorkflow::horizonGridFetch( QgisLayerService *layers )
+{
+  // 返回可拷贝的取数闭包（classifyTiles/startClassification/聊天执行器共用
+  // 契约：NaN = 缺）。池线程调用——声明解析在调用时做，数据集按调用开关。
+  return [layers]( int row0, int col0, int rows, int cols, QVector<float> &out,
+                   QString &err ) -> bool {
+    const QString path = horizonRasterPath( layers );
+    if ( path.isEmpty() || !QFile::exists( path ) )
+    {
+      err = QObject::tr( "未找到活动层位的栅格声明（horizon.%1）——先导入/生成层位栅格" )
+              .arg( AreaRules::active().targetHorizon );
+      return false;
+    }
+    GDALAllRegister();
+    GDALDatasetH ds = GDALOpen( path.toUtf8().constData(), GA_ReadOnly );
+    if ( !ds )
+    {
+      err = QObject::tr( "无法打开层位栅格 %1" ).arg( path );
+      return false;
+    }
+    GDALRasterBandH band = GDALGetRasterBand( ds, 1 );
+    out.resize( rows * cols );
+    const CPLErr rc = GDALRasterIO( band, GF_Read, col0, row0, cols, rows,
+                                    out.data(), cols, rows, GDT_Float32, 0, 0 );
+    if ( rc != CE_None )
+    {
+      GDALClose( ds );
+      err = QObject::tr( "读取层位栅格窗口失败（%1，行 %2 列 %3）" ).arg( path ).arg( row0 ).arg( col0 );
+      return false;
+    }
+    int hasNodata = 0;
+    const float nodata = float( GDALGetRasterNoDataValue( band, &hasNodata ) );
+    for ( float &v : out )
+    {
+      if ( !std::isfinite( v ) || ( hasNodata && v == nodata ) )
+        v = std::numeric_limits<float>::quiet_NaN();
+    }
+    GDALClose( ds );
+    return true;
+  };
 }
 
 PaleoTask *AiAssistWorkflow::startClassification( const QString &horizon, const QString &model,
@@ -432,6 +511,57 @@ bool AiAssistWorkflow::suggestTracking( const QString &horizon, const QString &m
     *suggestions = out;
   emit suggestionsReady( horizon, int( out.size() ) );
   return true;
+}
+
+PaleoTask *AiAssistWorkflow::startSuggestion( const QString &horizon, const QString &model,
+                                              const QVector<TrackingSeed> &seeds, int windowSamples,
+                                              int radius, const TraceWindowFetcher &fetch,
+                                              QString *error )
+{
+  if ( error )
+    error->clear();
+  if ( !m_tasks )
+  {
+    if ( error )
+      *error = tr( "异步层位建议需要任务服务（setTaskService）" );
+    return nullptr;
+  }
+  if ( !m_onnx )
+  {
+    if ( error )
+      *error = tr( "AI 辅助未绑定 ONNX 服务" );
+    return nullptr;
+  }
+  // 同 startClassification 范式：池线程只跑纯引擎（onnx 服务线程安全），
+  // 建议入队/信号回主线程。取消语义见头文件注释（算完但作废）。
+  auto *result = new QVector<TrackingSuggestion>;
+  QPointer<AiAssistWorkflow> self( this );
+  const QString title = tr( "%1 AI 层位建议 %2" ).arg( horizon, model );
+  PaleoTask *task = m_tasks->start(
+    title,
+    [this, model, seeds, windowSamples, radius, fetch, result]( PaleoTask * ) -> QString {
+      QString err;
+      QVector<TrackingSuggestion> out;
+      if ( !suggestHorizonTracking( m_onnx, model, seeds, windowSamples, radius, fetch, &out, &err ) )
+        return err;
+      *result = out;
+      return QString();
+    },
+    QString(), PaleoTask::Priority::Normal, true );
+  connect( task, &PaleoTask::finished, this, [self, this, task, horizon, result]() {
+    if ( task->state() == PaleoTask::State::Succeeded && self )
+    {
+      const QVector<TrackingSuggestion> out = *result;
+      QVector<SuggestionState> states;
+      states.reserve( out.size() );
+      for ( const TrackingSuggestion &s : out )
+        states.append( SuggestionState { s, s.isSeed } );
+      m_suggestions.insert( horizon, states );
+      emit suggestionsReady( horizon, int( out.size() ) );
+    }
+    delete result;
+  } );
+  return task;
 }
 
 bool AiAssistWorkflow::acceptSuggestion( const QString &horizon, int inlineNo, int xlineNo )

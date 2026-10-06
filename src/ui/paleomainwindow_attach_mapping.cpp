@@ -28,6 +28,8 @@
 #include <QLabel>
 #include "notifications/paleonotify.h"
 #include <QPushButton>
+
+#include "notifications/notificationmanager.h"
 #include <QStatusBar>
 #include <QTemporaryFile>
 

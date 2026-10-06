@@ -29,7 +29,7 @@ commit `e308372`–`ca18f88`）/ 移交方向50 io-robustness 7（BIZ-05/06/07/1
 三路复核的「8 未修/15 待证」与本轮实测差异（BIZ-12/13、ARCH-03/04/07 已
 修，MEM-06/CONC-05 不复现）以本轮逐条 rg+读码重验为准。
 
-上述分布是方向48的 R0 历史快照；方向50已关闭其中 BIZ-05/06/14，条目终态已同步。原 BIZ-07（配准）、BIZ-10/11（CRS）和 RUNTIME-03（LAS 合乘诊断）仍保留各自状态，不冒记为本方向已修。用户本方向的 IO BIZ-07/10/12 描述以第11节 IO-R0-07/10/12 映射单独验收。
+上述分布是方向48的 R0 历史快照；方向50已关闭其中 BIZ-05/06/14，条目终态已同步。原 BIZ-07（配准）、BIZ-10/11（CRS）和 RUNTIME-03（LAS 合乘诊断）未在方向50 关闭；**方向58（audit-tail，2026-10-07）已给出终态**：BIZ-07、RUNTIME-03 已修（带红绿）；BIZ-10 标记漂移 + 窄残余加固；BIZ-11 窄残余已收、直调无规范覆盖为文档化残余；TEST-06 高中危已清（方向52）、低风险 18 项逐项终态。账本 `.goal-loop-ledger-audit-tail.md`。用户本方向的 IO BIZ-07/10/12 描述以第11节 IO-R0-07/10/12 映射单独验收。
 
 ---
 
@@ -836,7 +836,7 @@ if (!m_projectSvc || !m_projectSvc->project() || !m_projectSvc->project()->layer
 ---
 
 ### [RUNTIME-03] `InflightCoalescer` Issue Reporting Desynchronization in `LasCache::load`
-> **终态（2026-10-06，方向48 清账复核）**：仍存在→方向50 io-robustness（方向48 R0 证据：lascache.cpp InflightCoalescer 合乘者 issues 不回填；LasDoc 无 issues 字段）
+> **终态（2026-10-07，方向58 audit-tail）**：已修 `0d01bd6`——合并器结果改为 `LoadOutcome{doc, issues}`，job 不再捕获调用方指针，执行者与同指纹搭车者各自回填（未给 LasDoc 加字段，磁盘 payload 不变）；内存/磁盘命中不重放诊断为既有契约（lascache.h 注释钉死）。红绿：`tst_cache_las::coalescedRidersReceiveIssues` 旧逻辑 `issuesB.size()` 0≠1，新逻辑 13/13、8 次重复稳定。（方向48 R0 历史：仍存在→方向50，未在方向50 关闭。）
 
 - **Severity**: **P2** (Diagnostic Information Loss)
 - **Dimension**: Runtime & Error Safety
@@ -1436,7 +1436,7 @@ tops.append(r); // Appended even if r.hasMd is false!
 ---
 
 ### [BIZ-07] `RegistrationWorkflow` and `geoAffineTransformFile` Lack Non-Finite/Zero Scale Defense
-> **终态（2026-10-06，方向48 清账复核）**：仍存在→方向50 io-robustness（方向48 R0 证据：sx/sy/rotDeg 无有限性校验）
+> **终态（2026-10-07，方向58 audit-tail）**：已修 `7c94359`（测试更名 `ed2ea71`）——`geoAffineParamsValid`（五分量有限、|sx|/|sy|∈[1e-9,1e9]、|tx|/|ty|≤1e10）在 `geoAffineTransformFile` 读源前与 `RegistrationWorkflow` 建目录前双重把关，非数值串不再静默成 0，原因经 `registrationFailed`。红绿：`tst_import_geoaffine` 旧写口 9/9 坏参数照常写盘，新 12/12。`registration.cpp` 仅语法检查（QGIS 依赖）。（方向48 R0 历史：仍存在→方向50。）
 
 - **Severity**: **P2** (Boundary Vulnerability)
 - **Dimension**: Business & Boundary Robustness
@@ -1511,7 +1511,7 @@ const QList<QgisTopologicalIndex::VertexHit> hits =
 ---
 
 ### [BIZ-10] `ConstraintIDWAlgorithm` & `PaleoDistanceTransformAlgorithm` Fatal Abort on Engineering CRS
-> **终态（2026-10-06，方向48 清账复核）**：仍存在→方向50 io-robustness（方向48 R0 证据：g.transform 前无 xform->isValid() 前置）
+> **终态（2026-10-07，方向58 audit-tail）**：**标记漂移 + 窄残余已加固（非「已修」）**。审计期描述与当前代码不符：三处（paleoalgorithms.cpp:357、distancetransform.cpp:107、mincurvature.cpp:150）已有 CRS 有效性前置（ddcd974 2026-09-25 引入）且失败抛 QgsProcessingException（处理框架内如实失败，非 fatal abort），行号 258–285/138–166 已漂移；工程常态（井/约束同为 LOCAL_GRID_WKT）`from==to` 不构造变换。根因复现（PROJ 9.6，无 QGIS 运行时）：ENGCRS→EPSG:32650/4326 `Candidate operations found: 0`（`docs/evidence/audit-tail/biz10-projinfo.txt`）。窄残余＝未检 `xform->isValid()` 且逐要素 QgsCsException 未收编，`f359a74` 加固（仅语法检查，运行时待 QGIS CI）。
 
 - **Severity**: **P2** (Processing Pipeline Failure)
 - **Dimension**: Business & Boundary Robustness
@@ -1539,7 +1539,7 @@ if ( tr != Qgis::GeometryOperationResult::Success )
 ---
 
 ### [BIZ-11] Single-Factor Well Distance Algorithms Emit Unprojected GeoTIFFs
-> **终态（2026-10-06，方向48 清账复核）**：仍存在→方向50 io-robustness（方向48 R0 证据：welldist/distancetransform 无 GDALSetProjection 旁路——注：两者已走共享写口写 CRS，残余面=非 LOCAL_GRID_WKT 直调场景）
+> **终态（2026-10-07，方向58 audit-tail）**：窄残余已收 `0e7df51`，余一项文档化残余。welldist/distancetransform 早已走 `PaleoRasterOut` 共享写口写 CRS（审计描述漂移）；全仓 11 个写口调用点逐一分类（账本 R4）。`createGTiff` 在输入无 CRS 且有规范 WKT（workflow 恒注入 LOCAL_GRID_WKT）时按规范串写投影；**残余**：直调且无 CRS、无规范覆盖时不编造 CRS（rasterout.h 文档化，`tst_algorithm_rasterout_crs` 钉行为）；realizationworkflow 沿用成员投影。仅语法检查（QGIS 依赖）。
 
 - **Severity**: **P2** (Missing Spatial Metadata)
 - **Dimension**: Business & Boundary Robustness
@@ -1825,7 +1825,7 @@ QCOMPARE(cache.bytes(), qint64(0));
 ---
 
 ### [TEST-06] 33 Source Headers and Critical Subsystems Completely Untested
-> **终态（2026-10-06，方向48 清账复核）**：仍存在→方向52 test-deepening（零测试头清单）
+> **终态（2026-10-07，方向58 标记同步）**：方向52 已清 16 个高/中危零测试头（其账本 R1/R3，见下 Resolution Status）。原「33 个」为审计期 228 头口径；方向58 按 f130fb2 重扫（445 头）：直接零引用 45、传递可达 14、完全不可达 31，其中 13 个为转发垫片/`_internal.h`（不计入），**低风险剩余 18 个逐项终态见 `docs/evidence/audit-tail/test06-untested-headers.md`（待补 7 / 不值得 11）**。高/中危部分已修（方向52）；低风险剩余为登记清单，不冒记全清。
 
 - **Severity**: **P2** (Test Coverage Blind Spot)
 - **Dimension**: Test Coverage & Automation Verification

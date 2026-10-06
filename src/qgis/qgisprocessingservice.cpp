@@ -9,6 +9,7 @@
 #include <QLabel>
 #include <QMainWindow>
 #include <QTemporaryDir>
+#include <QWidget>
 
 #include <atomic>
 #include <memory>
@@ -546,6 +547,11 @@ QgisProcessingService::QgisProcessingService(PaleoProjectStore *store, QObject *
 void QgisProcessingService::setProject(QgsProject *project)
 {
   m_project = project;
+}
+
+QWidget *QgisProcessingService::lastAlgorithmDialog() const
+{
+  return m_lastDialog;
 }
 
 namespace

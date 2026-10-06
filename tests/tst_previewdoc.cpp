@@ -7,6 +7,7 @@
 #include <QSignalSpy>
 
 #include "../src/catalog/datacatalog.h"
+#include "../src/domain/wellrecords.h" // WellHeadRecord/TimeDepthTable（方向 59：previewdoc.h 瘦身后直取）
 #include "../src/io/dataimportservice.h"
 #include "../src/metadata/layermanifest.h"
 #include "../src/metadata/paleoprojectstore.h"
@@ -14,6 +15,7 @@
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/qgis/qgisruntime.h"
 #include "../src/services/previewdoc.h"
+#include "../src/services/sectiondoc.h" // SectionDoc 完整定义（QSignalSpy 取参）
 #include "../src/services/paleotaskservice.h"
 
 #include <QElapsedTimer>

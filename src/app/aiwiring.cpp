@@ -2,7 +2,11 @@
 #include "aiwiring.h"
 
 #include "../ai/remotepredictrouter.h"
+#include "../domain/arearules.h"
+#include "../workflow/aichatcontroller.h"
+#include "../workflow/aiassistworkflow.h"
 #include "../workflow/mappingworkbench.h"
+#include "../qgis/qgislayerservice.h"
 #if PALEO_HAVE_ORT
 #include "../ai/onnxlocalpredictor.h"
 #endif
@@ -53,4 +57,18 @@ RemotePredictionAssembly installRemotePrediction(MappingWorkbench *bench,
     bench->setPredictionStatusHint(assembled.statusHint);
   }
   return assembled;
+}
+
+void bindChatToolRunner(AiChatController *chat, AiAssistWorkflow *assist,
+                        QgisLayerService *layers) {
+  if (!chat || !assist)
+    return;
+  chat->toolRunner()->setWorkflow(assist);
+  AiChatToolContext context;
+  // 层位与栅格取数在绑定/重绑时快照；horizonGridFetch 每次取数重解析声明，
+  // 换工程后随 appcontext 的重绑刷新 horizon 名。
+  context.horizon = AreaRules::active().targetHorizon;
+  context.gridFetch = AiAssistWorkflow::horizonGridFetch(layers);
+  // traceFetch / faciesInput 未绑（递延）：执行器按调用如实报错。
+  chat->toolRunner()->setContext(context);
 }

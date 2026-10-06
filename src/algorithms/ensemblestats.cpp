@@ -10,7 +10,32 @@ namespace paleo::ensemble
 namespace
 {
 constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
+
+// #234-3：有限值收集 + 排序一次，多分位共享有序数组；调用方复用缓冲，
+// 带内循环不再逐像元、逐分位各自堆分配 + 排序。
+void collectFiniteSorted( const double *values, std::size_t n, std::vector<double> &buf )
+{
+  buf.clear();
+  for ( std::size_t i = 0; i < n; ++i )
+    if ( std::isfinite( values[i] ) )
+      buf.push_back( values[i] );
+  std::sort( buf.begin(), buf.end() );
 }
+
+double quantileOfSorted( const std::vector<double> &sorted, double q )
+{
+  if ( sorted.empty() )
+    return kNaN;
+  q = std::clamp( q, 0.0, 1.0 );
+  const double h = q * static_cast<double>( sorted.size() - 1 );
+  const std::size_t lo = static_cast<std::size_t>( std::floor( h ) );
+  const std::size_t hi = static_cast<std::size_t>( std::ceil( h ) );
+  if ( lo == hi )
+    return sorted[lo];
+  const double frac = h - static_cast<double>( lo );
+  return sorted[lo] + ( sorted[hi] - sorted[lo] ) * frac;
+}
+} // namespace
 
 double quantileOf( const double *values, std::size_t n, double q )
 {
@@ -18,20 +43,8 @@ double quantileOf( const double *values, std::size_t n, double q )
     return kNaN;
   std::vector<double> finite;
   finite.reserve( n );
-  for ( std::size_t i = 0; i < n; ++i )
-    if ( std::isfinite( values[i] ) )
-      finite.push_back( values[i] );
-  if ( finite.empty() )
-    return kNaN;
-  std::sort( finite.begin(), finite.end() );
-  q = std::clamp( q, 0.0, 1.0 );
-  const double h = q * static_cast<double>( finite.size() - 1 );
-  const std::size_t lo = static_cast<std::size_t>( std::floor( h ) );
-  const std::size_t hi = static_cast<std::size_t>( std::ceil( h ) );
-  if ( lo == hi )
-    return finite[lo];
-  const double frac = h - static_cast<double>( lo );
-  return finite[lo] + ( finite[hi] - finite[lo] ) * frac;
+  collectFiniteSorted( values, n, finite );
+  return quantileOfSorted( finite, q );
 }
 
 void StreamingMoments::reset( std::size_t cells )
@@ -121,6 +134,8 @@ StatsResult compute( const std::vector<const double *> &members, std::size_t cel
     out.p10.assign( cells, kNaN );
     out.p90.assign( cells, kNaN );
     std::vector<double> cellValues( members.size() );
+    std::vector<double> sorted;
+    sorted.reserve( members.size() );
     for ( std::size_t i = 0; i < cells; ++i )
     {
       if ( out.validCount[i] == 0 )
@@ -129,10 +144,11 @@ StatsResult compute( const std::vector<const double *> &members, std::size_t cel
       for ( const double *field : members )
         if ( field )
           cellValues[k++] = field[i];
+      collectFiniteSorted( cellValues.data(), k, sorted );
       if ( want.p10 )
-        out.p10[i] = quantileOf( cellValues.data(), k, 0.10 );
+        out.p10[i] = quantileOfSorted( sorted, 0.10 );
       if ( want.p90 )
-        out.p90[i] = quantileOf( cellValues.data(), k, 0.90 );
+        out.p90[i] = quantileOfSorted( sorted, 0.90 );
     }
   }
   return out;
@@ -158,6 +174,8 @@ std::vector<std::vector<double>> quantilesBanded(
   std::vector<double> slice;
   slice.resize( perRow * std::min<std::size_t>( bandRows, static_cast<std::size_t>( rows ) ) );
   std::vector<double> cellValues( memberCount );
+  std::vector<double> sorted;
+  sorted.reserve( memberCount );
 
   for ( int row0 = 0; row0 < rows; row0 += static_cast<int>( bandRows ) )
   {
@@ -175,8 +193,9 @@ std::vector<std::vector<double>> quantilesBanded(
       for ( std::size_t m = 0; m < memberCount; ++m )
         cellValues[k++] = slice[m * bandCells + i];
       const std::size_t cell = static_cast<std::size_t>( row0 ) * cols + i;
+      collectFiniteSorted( cellValues.data(), k, sorted );
       for ( std::size_t qi = 0; qi < quantiles.size(); ++qi )
-        result[qi][cell] = quantileOf( cellValues.data(), k, quantiles[qi] );
+        result[qi][cell] = quantileOfSorted( sorted, quantiles[qi] );
     }
   }
   return result;

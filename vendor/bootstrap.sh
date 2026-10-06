@@ -64,5 +64,10 @@ fi
 
 echo "== selfcheck (tail of bootstrap per §44.1) =="
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo >/dev/null
-cmake --build build
+# #230：AGENTS.md -j8 上限（PALEO_JOBS 可调低）。
+_jobs="${PALEO_JOBS:-$(nproc 2>/dev/null || echo 4)}"
+case "$_jobs" in ''|*[!0-9]*) _jobs=4 ;; esac
+[ "$_jobs" -gt 8 ] && _jobs=8
+[ "$_jobs" -lt 1 ] && _jobs=1
+cmake --build build --parallel "$_jobs"
 QT_QPA_PLATFORM=offscreen ./build/paleo_selfcheck

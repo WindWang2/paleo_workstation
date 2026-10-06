@@ -234,8 +234,15 @@ SampleResult CrossplotSamples::rasters(const QVector<RasterSource> &sources,
                        GDT_Byte, 0, 0) != CE_None)
         return fail(QStringLiteral("栅格像元读取失败"));
     }
+    // #220（#165 残留点）：Float32 波段以 Float64 读出的像元是 (double)(float)
+    // 值，与元数据里不可被 float 精确表示的 double nodata 永不相等——比较口径
+    // 先把 nodata 钳到 float，与算法侧五处对齐。
+    const double nodataCmp =
+        (hasNo && GDALGetRasterDataType(band) == GDT_Float32)
+            ? static_cast<double>(static_cast<float>(nodata))
+            : nodata;
     for (std::size_t i = 0; i < count; ++i)
-      if (!mask[i] || (hasNo && values[i] == nodata))
+      if (!mask[i] || (hasNo && values[i] == nodataCmp))
         values[i] = std::numeric_limits<double>::quiet_NaN();
     Plane p;
     p.name = src.name;
@@ -427,6 +434,11 @@ CrossplotSamples::attributeHorizon(const QVector<AttributeSection> &sections,
   s.samplingMetadata.insert("collapsedTraces", validTraces - qint64(s.rows()));
   if (stop(ctl))
     return fail(QStringLiteral("已取消"), true);
+  // #221：全部道被拒（层位网格与道坐标不重叠 / 时间全无效）不是成功——
+  // 空样本集如实报错，避免空 CRS 或坐标系错配时静默「成功」。
+  if (validTraces == 0)
+    return fail(QStringLiteral("属性剖面 %1 道全部未落在时间层位有效网格内（坐标系或范围不匹配）")
+                    .arg(first.traceXY.size()));
   r.ok = true;
   progress(ctl, 1);
   return r;

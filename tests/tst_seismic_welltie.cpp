@@ -314,6 +314,22 @@ private slots:
     QVERIFY(finishedSpy.wait(30000));
     QVERIFY(dock.canvas()->hasData());
     QVERIFY(dock.canvas()->traceCount() > 1);
+    QVERIFY(dock.candidateWells().empty());
+
+    // #225：任意线入参候选井必须写入成员——井旁道/子波/反演低频井/井轨迹
+    // 全读 m_candidateWells，旧实现成员恒空，生产链路恒死。
+    SectionWellInfo well;
+    well.wellId = QStringLiteral("W225");
+    well.wellName = QStringLiteral("候选井");
+    well.surfaceX = 1003.0;
+    well.surfaceY = 2004.0;
+    well.totalDepth = 1000.0;
+    dock.extractSectionFromVolumeAsync(
+        volume, {{1000, 2000}, {1003, 2004}, {1006, 2005}},
+        QStringLiteral("带井任意线"), {{1000.0, 2000.0}, {1006.0, 2005.0}}, {well});
+    QVERIFY(finishedSpy.wait(30000));
+    QCOMPARE(dock.candidateWells().size(), std::size_t{1});
+    QCOMPARE(dock.candidateWells().front().wellId, QStringLiteral("W225"));
   }
 };
 

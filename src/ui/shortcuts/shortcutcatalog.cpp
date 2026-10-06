@@ -105,7 +105,7 @@ QList<ShortcutEntry> catalogEntries()
   // W5：Ctrl+1..6 直切六页——id 尾段 = 页 id，键序 = 页序 + 1。
   for (int i = 0; i < pagesinternal::kPageIds.size(); ++i)
   {
-    const QString pageId = pagesinternal::kPageIds.at(i);
+    const QString &pageId = pagesinternal::kPageIds.at(i);
     ShortcutEntry e = make("", QKeySequence(QStringLiteral("Ctrl+%1").arg(i + 1)), "main", S,
                            "navigation", pageDescription(pageId), mainPanel,
                            "src/ui/paleomainwindow.cpp");

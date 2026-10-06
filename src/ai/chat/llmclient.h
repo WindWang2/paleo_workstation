@@ -50,6 +50,8 @@ struct LlmConfig {
                              bool stream = true);
 };
 
+Q_DECLARE_METATYPE(LlmConfig)
+
 // 错误分类（UI 按类给提示；测试断言分类而不匹配整句——文案可变，语义不可变）。
 enum class LlmErrorKind {
   None,

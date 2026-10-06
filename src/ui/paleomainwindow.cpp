@@ -41,6 +41,7 @@
 #include "../workflow/stratigraphicwebsession.h"
 #include "pages/pageshared.h" // kPageIds（W4 跨 TU 页序表）
 #include "shortcuts/shortcutcatalog.h" // 方向63：快捷键中央注册表（键序/上下文唯一真源）
+#include "help/helpsurface.h"          // 方向63：帮助菜单 + F1 总表 + Shift+F1
 #include "constraintdrawcontroller.h"
 #include "dialogs/folderconfirm.h"
 #include "typedconstraintdrawcontroller.h" // ---- m2(B)：物源线/展布线/控制点（块内接线用）----
@@ -84,6 +85,7 @@
 #include <qgslayertreeview.h>
 #include <qgslayertreeviewdefaultactions.h>
 #include <qgsmessagelog.h>
+#include <qgis.h> // Qgis::version()（方向63 关于框）
 #include <qgsmessagelogviewer.h>
 #include <qgslocatorwidget.h>
 #include <qgslocator.h>
@@ -1051,6 +1053,21 @@ void PaleoMainWindow::buildRibbon()
     showPanelMenu(panelsBtn->mapToGlobal(QPoint(0, panelsBtn->height())));
   });
   right->addWidget(panelsBtn);
+
+  // 方向63 帮助面骨架：「帮助」菜单（快捷键总表 / 这是什么？ / 关于）挂在右侧
+  // 按钮组；F1、Shift+F1 动作挂在主窗上，菜单收起时同样生效。
+  auto *help = new paleo::help::HelpSurface(this);
+  help->setAboutDetails({tr("QGIS：%1").arg(Qgis::version())});
+  auto *helpBtn = new QToolButton(right);
+  helpBtn->setObjectName(QStringLiteral("helpMenuButton"));
+  helpBtn->setText(tr("帮助"));
+  helpBtn->setAccessibleName(tr("帮助菜单"));
+  helpBtn->setToolTip(tr("快捷键总表、「这是什么？」与关于"));
+  helpBtn->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionHelpContents.svg")));
+  helpBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+  helpBtn->setPopupMode(QToolButton::InstantPopup);
+  helpBtn->setMenu(help->menu());
+  right->addWidget(helpBtn);
 
   // Web 服务 dock 的 toggleViewAction：dock 标题栏 ✕ 关掉时按钮态跟随。
   if (auto *webDock = findChild<QDockWidget *>(QStringLiteral("webServiceDock")))

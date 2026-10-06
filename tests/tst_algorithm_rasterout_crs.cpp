@@ -42,9 +42,6 @@ class TestAlgorithmRasterOutCrs : public QObject
 {
   Q_OBJECT
 private slots:
-  void initTestCase() { QgsApplication::initQgis(); }
-  void cleanupTestCase() { QgsApplication::exitQgis(); }
-
   void noCrsWithCanonicalGetsCrs()
   {
     QTemporaryDir dir;
@@ -81,5 +78,16 @@ private slots:
   }
 };
 
-QTEST_MAIN(TestAlgorithmRasterOutCrs)
+// 同 tst_algorithm_harness：QgsApplication + 前缀路径 + initQgis（EPSG 查表需 srs.db）。
+int main( int argc, char *argv[] )
+{
+  QgsApplication app( argc, argv, false );
+  app.setPrefixPath( qEnvironmentVariable( "QGIS_PREFIX_PATH", QStringLiteral( "/usr" ) ), true );
+  app.initQgis();
+  GDALAllRegister();
+  TestAlgorithmRasterOutCrs tc;
+  const int rc = QTest::qExec( &tc, argc, argv );
+  QgsApplication::exitQgis();
+  return rc;
+}
 #include "tst_algorithm_rasterout_crs.moc"

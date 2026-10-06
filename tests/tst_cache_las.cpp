@@ -350,6 +350,12 @@ void CacheLasTests::coalescedRidersReceiveIssues()
   QVERIFY(!single.isEmpty());
   LasCache::shared().invalidate();
 
+  // 任何断言提前返回也必须卸钩子、复位磁盘根，不污染同进程后续用例。
+  const auto restore = qScopeGuard([this] {
+    LasCache::shared().setColdParseHookForTest({});
+    LasCache::shared().setDiskRoot(m_dir.filePath("idx10"));
+    LasCache::shared().invalidate();
+  });
   const int ridersBefore = LasCache::shared().ridersJoinedForTest();
   std::atomic_bool executorInJob{false};
   std::atomic_bool riderTimedOut{false};
@@ -378,7 +384,6 @@ void CacheLasTests::coalescedRidersReceiveIssues()
   QFuture<LasDoc> b = QtConcurrent::run([&] { return LasCache::shared().load(las, &issuesB); });
   QVERIFY(a.result().ok);
   QVERIFY(b.result().ok);
-  LasCache::shared().setColdParseHookForTest({});
 
   QVERIFY(!riderTimedOut);
   QCOMPARE(LasCache::shared().ridersJoinedForTest(), ridersBefore + 1);

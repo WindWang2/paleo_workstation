@@ -244,7 +244,11 @@ SampleResult CrossplotSources::load(const QVector<SourceSpec> &specs,
           r.samples.values[i * 2];
     horizons << std::move(p);
   }
-  if (!horizons[0].grid.crs.isEmpty()) {
+  // #221：空 CRS 层位（有效仿射但无投影）无法校验与 SEG-Y 同属局部工程坐标系，
+  // 这里仍放行（契约测试与外委数据常见），但样本元数据如实标「未校验」，且
+  // attributeHorizon 对全拒样本报错而非报成功。
+  const bool horizonCrsUnknown = horizons[0].grid.crs.isEmpty();
+  if (!horizonCrsUnknown) {
     auto crs =
         OSRNewSpatialReference(horizons[0].grid.crs.toUtf8().constData());
     const bool local = crs && OSRIsLocal(crs);
@@ -265,6 +269,8 @@ SampleResult CrossplotSources::load(const QVector<SourceSpec> &specs,
     sections << std::move(a);
   }
   auto result = CrossplotSamples::attributeHorizon(sections, horizons, ctl);
+  if (result.ok && horizonCrsUnknown)
+    result.samples.samplingMetadata.insert("horizonCrs", QStringLiteral("unknown_unverified"));
   for (const auto &s : rasters)
     if (!s.layerId.isEmpty())
       result.samples.sourceLayerIds << s.layerId;

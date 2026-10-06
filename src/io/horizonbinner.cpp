@@ -392,6 +392,7 @@ bool writeHorizonGeoTiff(const BinnedHorizon &b, const QString &destPath, QStrin
   {
     const QString detail = QString::fromUtf8(CPLGetLastErrorMsg());
     GDALClose(ds);
+    QFile::remove(destPath); // #233：失败不留无 PALEO_* 元数据的半成品栅格
     setError(error, QStringLiteral("cannot write raster metadata for %1%2")
                          .arg(destPath, detail.isEmpty() ? QString() : QStringLiteral(": ") + detail));
     return false;
@@ -415,6 +416,7 @@ bool writeHorizonGeoTiff(const BinnedHorizon &b, const QString &destPath, QStrin
   GDALClose(ds);
   if (err != CE_None)
   {
+    QFile::remove(destPath); // #233：像元不全的残件不占缓存位
     setError(error, QStringLiteral("raster write failed for %1").arg(destPath));
     return false;
   }

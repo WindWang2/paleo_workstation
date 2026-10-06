@@ -67,6 +67,8 @@
 #include "datapreviewtabs.h"
 #include "../paleotheme.h"
 #include "../../catalog/datacatalog.h"
+#include "../../domain/sectiontrace.h" // SegyTrace（方向 59：previewdoc.h 瘦身后直取）
+#include "../../io/lasdoc.h"           // LasCurve/LasDoc（同上，白名单门面）
 #include "../../services/previewdoc.h"
 #include "../../services/welllogset.h"
 #include "../seismic3d/seismic3dviewpanel.h"

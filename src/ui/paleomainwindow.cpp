@@ -8,6 +8,9 @@
 #include "paleoemptystate.h" // T31 空态卡片共享组件（本文件旧匿名类收敛于此）
 #include "paleoicons.h" // ribbon 图标：QGIS 主题直取（暗色再着色）+ 自绘补缺
 #include "paleoribbon.h" // SARibbon 壳公用件：主题/命令镜像
+#include "notifications/notificationmanager.h"
+#include "notifications/errorhistorydock.h"
+#include "../services/errorhub.h"
 
 #include "../qgis/qgiscanvascontroller.h"
 #include "../qgis/qgisprojectservice.h"
@@ -40,6 +43,9 @@
 #include "pages/stratigraphicwebpage.h"
 #include "../workflow/stratigraphicwebsession.h"
 #include "pages/pageshared.h" // kPageIds（W4 跨 TU 页序表）
+#include "shortcuts/shortcutcatalog.h" // 方向63：快捷键中央注册表（键序/上下文唯一真源）
+#include "help/helpsurface.h"          // 方向63：帮助菜单 + F1 总表 + Shift+F1
+#include "help/whatsthiscatalog.h"     // 方向63：「这是什么？」清单回填
 #include "constraintdrawcontroller.h"
 #include "dialogs/folderconfirm.h"
 #include "typedconstraintdrawcontroller.h" // ---- m2(B)：物源线/展布线/控制点（块内接线用）----
@@ -83,6 +89,7 @@
 #include <qgslayertreeview.h>
 #include <qgslayertreeviewdefaultactions.h>
 #include <qgsmessagelog.h>
+#include <qgis.h> // Qgis::version()（方向63 关于框）
 #include <qgsmessagelogviewer.h>
 #include <qgslocatorwidget.h>
 #include <qgslocator.h>
@@ -112,7 +119,7 @@
 #include <QListWidget>
 #include <QMap>
 #include <QMenu>
-#include <QMessageBox>
+#include "notifications/paleonotify.h"
 #include <QPushButton>
 #include <QShortcut>
 #include <QTimer>
@@ -357,6 +364,11 @@ PaleoMainWindow::PaleoMainWindow(QgisCanvasController *canvasCtl,
   m_dockManager->captureDefaultLayout();
   showStartup(); // §42.1: first-run lands on the startup page
   restoreWindowState();
+
+  // 方向63：快捷键注册表健康度进启动日志（冲突 warning / 遮蔽 info），
+  // 外壳控件按清单回填 whatsThis（页面板在 attachWorkflows 末尾再补一轮）。
+  paleo::shortcuts::logConflictsOnce();
+  paleo::help::applyWhatsThis(this);
 }
 
 PaleoMainWindow::~PaleoMainWindow()
@@ -567,7 +579,7 @@ void PaleoMainWindow::buildShell()
       // §38 blocking-error contract: a failed open surfaces as a dialog, not
       // a silent no-op on the startup page.
       if (!m_projectSvc->openProject(p) && !m_projectSvc->lastOpenCancelled()) // #152：用户取消不弹错
-        QMessageBox::critical(this, tr("打开工程失败"),
+        PaleoNotify::critical(this, tr("打开工程失败"),
                               m_projectSvc->lastErrors().join(QLatin1Char('\n')));
     });
   if (auto *newBtn = startup->findChild<QPushButton *>(QStringLiteral("newProjectButton")))
@@ -579,7 +591,7 @@ void PaleoMainWindow::buildShell()
       if (p.isEmpty())
         return;
       if (!m_projectSvc->createProject(p) && !m_projectSvc->lastOpenCancelled()) // #152：用户取消不弹错
-        QMessageBox::critical(this, tr("新建工程失败"),
+        PaleoNotify::critical(this, tr("新建工程失败"),
                               m_projectSvc->lastErrors().join(QLatin1Char('\n')));
     });
   // PROJECT_FILE_DESIGN：从工区文件夹新建——选目录后
@@ -602,7 +614,7 @@ void PaleoMainWindow::buildShell()
       if (p.isEmpty() || !m_projectSvc)
         return;
       if (!m_projectSvc->openProject(p) && !m_projectSvc->lastOpenCancelled()) // #152：用户取消不弹错
-        QMessageBox::critical(this, tr("打开工程失败"),
+        PaleoNotify::critical(this, tr("打开工程失败"),
                               m_projectSvc->lastErrors().join(QLatin1Char('\n')));
     });
 
@@ -628,6 +640,16 @@ void PaleoMainWindow::buildShell()
     // 该维护器给每层打 rendering/labelsWithLayer（vendored QGIS 补丁），
     // 让标注跟本层一起出图、被上层盖住。未打补丁的 QGIS 上属性为空值，无碍。
     m_labelZOrder = new QgisLabelZOrder(m_projectSvc->project(), this);
+    // #138 降级方案：未打补丁的 QGIS（apt / OSGeo4W 二进制路）标注不随图层
+    // z 序——启动后在状态栏如实提示一次，而不是只留 qInfo 日志。
+    if (!QgisLabelZOrder::labelsWithLayerSupported()) {
+      QTimer::singleShot(0, this, [this]() {
+        if (statusBar())
+          statusBar()->showMessage(
+              tr("提示：当前 QGIS 未含「标注随图层」补丁，地图标注将始终置顶显示"),
+              15000);
+      });
+    }
     connect(m_layerPanel, &LayerTreePanel::propertiesRequested, m_layerProps,
             &LayerPropertiesDialog::openLayerProperties);
     connect(m_layerPanel, &LayerTreePanel::mappingPageRequested, this,
@@ -761,6 +783,20 @@ void PaleoMainWindow::buildShell()
   m_wellSectionDock->setUserWantsVisible(false);
   m_wellSectionDock->setProgrammaticVisible(false);
 
+  // ---- 错误历史 dock ----
+  m_errorHistoryDock = new paleo::ui::ErrorHistoryDock(this);
+  m_errorHistoryDock->setObjectName(QStringLiteral("errorHistoryDock"));
+  QAction *errAct = m_errorHistoryDock->toggleViewAction();
+  errAct->setObjectName(QStringLiteral("actionViewErrorHistory"));
+  errAct->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionHistory.svg")));
+  errAct->setText(tr("错误历史"));
+  errAct->setToolTip(tr("显示/隐藏错误与警告历史面板"));
+  addDockWidget(Qt::BottomDockWidgetArea, m_errorHistoryDock);
+  if (m_bottomDock) {
+    tabifyDockWidget(m_bottomDock, m_errorHistoryDock);
+  }
+  m_errorHistoryDock->hide();
+
   // ---- seismic 3D viewport dock ----
   m_seismic3dDock = new QDockWidget(tr("三维地震视口 (3D)"), this);
   m_seismic3dDock->setObjectName(QStringLiteral("seismic3dDock"));
@@ -886,6 +922,41 @@ void PaleoMainWindow::buildShell()
     connect(m_selection, &SelectionContext::activeHorizonChanged, horizonLabel,
             [horizonLabel, horizonText](const QString &h) { horizonLabel->setText(horizonText(h)); });
 
+  // 错误历史状态栏胶囊按钮
+  m_statusErrorBtn = new QToolButton(this);
+  m_statusErrorBtn->setObjectName(QStringLiteral("statusErrorHistoryButton"));
+  m_statusErrorBtn->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionHistory.svg")));
+  m_statusErrorBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+  m_statusErrorBtn->setAutoRaise(true);
+  m_statusErrorBtn->setCursor(Qt::PointingHandCursor);
+  m_statusErrorBtn->setVisible(false);
+  connect(m_statusErrorBtn, &QToolButton::clicked, this, [this] {
+    if (m_errorHistoryPanelDock) {
+      m_errorHistoryPanelDock->show();
+      m_errorHistoryPanelDock->raise();
+      m_errorHistoryPanelDock->activateWindow();
+    }
+  });
+  statusBar()->addPermanentWidget(m_statusErrorBtn);
+
+  if (auto *hub = paleo::services::ErrorHub::instance()) {
+    const auto syncErrorStatus = [this, hub] {
+      if (!m_statusErrorBtn)
+        return;
+      const int count = hub->count();
+      if (count <= 0) {
+        m_statusErrorBtn->setVisible(false);
+      } else {
+        m_statusErrorBtn->setVisible(true);
+        m_statusErrorBtn->setText(QString::number(count));
+        m_statusErrorBtn->setToolTip(tr("错误与警告历史（共 %1 条记录），点击查看").arg(count));
+      }
+    };
+    connect(hub, &paleo::services::ErrorHub::historyChanged, this, syncErrorStatus);
+    connect(hub, &paleo::services::ErrorHub::historyCleared, this, syncErrorStatus);
+    syncErrorStatus();
+  }
+
   // DESIGN.md tokens on shell chrome only — no custom painting. ribbon 本体
   // 的颜色来自 PaleoTheme::ribbonPaletteJson（office2021 模板）。
   // T32：拼上全局 2px 键盘焦点环（替代 Fusion 虚线框）。壳 QSS 与焦点环
@@ -961,9 +1032,11 @@ void PaleoMainWindow::buildRibbon()
   }
   m_stratigraphicWebPage->buildRibbon(categoryForPage(QStringLiteral("correlation")));
   // W5 键盘可达：Ctrl+1..6 直切六个工作流页（页序 = 工作流链序）。
+  // 方向63：键序登记在 shortcuts/shortcutcatalog（main.page.<页 id>）。
   for (int i = 0; i < paleo::pagesinternal::kPageIds.size(); ++i)
   {
-    auto *sc = new QShortcut(QKeySequence(QStringLiteral("Ctrl+%1").arg(i + 1)), this);
+    auto *sc = paleo::shortcuts::bindShortcut(
+        QStringLiteral("main.page.") + paleo::pagesinternal::kPageIds.at(i), this);
     sc->setObjectName(QStringLiteral("pageShortcut.") + paleo::pagesinternal::kPageIds.at(i));
     connect(sc, &QShortcut::activated, this, [this, i] {
       showPage(paleo::pagesinternal::kPageIds.at(i));
@@ -978,11 +1051,10 @@ void PaleoMainWindow::buildRibbon()
       const int next = ((idx < 0 ? 0 : idx) + step + n) % n;
       showPage(paleo::pagesinternal::kPageIds.at(next));
     };
-    auto *nextSc = new QShortcut(QKeySequence(QStringLiteral("Ctrl+Tab")), this);
+    auto *nextSc = paleo::shortcuts::bindShortcut(QStringLiteral("main.page.next"), this);
     nextSc->setObjectName(QStringLiteral("pageShortcut.next"));
     connect(nextSc, &QShortcut::activated, this, [cyclePage] { cyclePage(1); });
-    auto *prevSc =
-        new QShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+Tab")), this);
+    auto *prevSc = paleo::shortcuts::bindShortcut(QStringLiteral("main.page.prev"), this);
     prevSc->setObjectName(QStringLiteral("pageShortcut.prev"));
     connect(prevSc, &QShortcut::activated, this, [cyclePage] { cyclePage(-1); });
   }
@@ -1047,6 +1119,21 @@ void PaleoMainWindow::buildRibbon()
   });
   right->addWidget(panelsBtn);
 
+  // 方向63 帮助面骨架：「帮助」菜单（快捷键总表 / 这是什么？ / 关于）挂在右侧
+  // 按钮组；F1、Shift+F1 动作挂在主窗上，菜单收起时同样生效。
+  auto *help = new paleo::help::HelpSurface(this);
+  help->setAboutDetails({tr("QGIS：%1").arg(Qgis::version())});
+  auto *helpBtn = new QToolButton(right);
+  helpBtn->setObjectName(QStringLiteral("helpMenuButton"));
+  helpBtn->setText(tr("帮助"));
+  helpBtn->setAccessibleName(tr("帮助菜单"));
+  helpBtn->setToolTip(tr("快捷键总表、「这是什么？」与关于"));
+  helpBtn->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionHelpContents.svg")));
+  helpBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+  helpBtn->setPopupMode(QToolButton::InstantPopup);
+  helpBtn->setMenu(help->menu());
+  right->addWidget(helpBtn);
+
   // Web 服务 dock 的 toggleViewAction：dock 标题栏 ✕ 关掉时按钮态跟随。
   if (auto *webDock = findChild<QDockWidget *>(QStringLiteral("webServiceDock")))
   {
@@ -1074,6 +1161,13 @@ void PaleoMainWindow::showPanelMenu(const QPoint &globalPos)
   {
     menu->setAttribute(Qt::WA_DeleteOnClose);
     menu->addSeparator();
+    // 方向64：错误历史入口（主窗口无字面「视图」菜单，此菜单即视图入口）。
+    if (m_errorHistoryPanelDock)
+    {
+      QAction *history = menu->addAction(tr("错误历史"));
+      history->setObjectName(QStringLiteral("errorHistoryAction"));
+      connect(history, &QAction::triggered, this, &PaleoMainWindow::showErrorHistory);
+    }
     QAction *dark = menu->addAction(tr("深色模式"));
     dark->setObjectName(QStringLiteral("themeToggleAction"));
     dark->setCheckable(true);
@@ -1113,10 +1207,15 @@ void PaleoMainWindow::contextMenuEvent(QContextMenuEvent *event)
   SARibbonMainWindow::contextMenuEvent(event);
 }
 
+QAction *PaleoMainWindow::errorHistoryAction() const
+{
+  return m_errorHistoryPanelDock ? m_errorHistoryPanelDock->toggleViewAction() : nullptr;
+}
+
 void PaleoMainWindow::restoreCorrelationDocks()
 {
   if (auto *save = findChild<QAction *>(QStringLiteral("saveProjectAction")))
-    save->setShortcut(QKeySequence::Save);
+    paleo::shortcuts::setActionShortcutActive(QStringLiteral("main.project.save"), save, true);
   for (const auto &dock : m_correlationHiddenDocks)
     if (dock)
     {
@@ -1155,8 +1254,8 @@ void PaleoMainWindow::showPage(const QString &pageId)
   m_currentPage = pageId;
   // Web 页自己的 Ctrl+S 保存独立解释，Paleo 工程的保存快捷键让出。
   if (auto *save = findChild<QAction *>(QStringLiteral("saveProjectAction")))
-    save->setShortcut(pageId == QLatin1String("correlation") ? QKeySequence()
-                                                            : QKeySequence(QKeySequence::Save));
+    paleo::shortcuts::setActionShortcutActive(QStringLiteral("main.project.save"), save,
+                                              pageId != QLatin1String("correlation"));
 
   // 页签 = 页：切到对应 ribbon 页签（currentRibbonTabChanged 回到这里时
   // id == m_currentPage，不重入）。
@@ -1284,7 +1383,7 @@ void PaleoMainWindow::runFolderImportAt(DataImportService *svc,
                           : QVector<FolderPreviewRow>();
   if (preview.isEmpty())
   {
-    QMessageBox::warning(this, tr("导入工区文件夹"),
+    PaleoNotify::warning(this, tr("导入工区文件夹"),
                          err.isEmpty() ? tr("目录里没有可导入的文件") : err);
     return;
   }
@@ -1415,16 +1514,16 @@ ProjectOpenWorkflow *PaleoMainWindow::projectOpenWorkflow()
               if (isOffscreen())
                 return;
               if (fatal)
-                QMessageBox::critical(this, title, detail);
+                PaleoNotify::critical(this, title, detail);
               else
-                QMessageBox::warning(this, title, detail);
+                PaleoNotify::warning(this, title, detail);
             });
     connect(m_projectOpenWf, &ProjectOpenWorkflow::folderImportRequested, this,
             [this](const QString &dir) {
               if (m_importSvc)
                 runFolderImportAt(m_importSvc, dir);
               else if (!isOffscreen())
-                QMessageBox::information(
+                PaleoNotify::information(
                     this, tr("从工区文件夹新建"),
                     tr("工程已创建于 %1；导入服务未就绪，请在数据页手动导入该文件夹。")
                         .arg(dir));
@@ -1559,21 +1658,17 @@ void PaleoMainWindow::closeEvent(QCloseEvent *event)
     {
       // 显式中文按钮文案（标准按钮的翻译依赖 Qt 自带 qtbase 翻译目录，
       // 未装载时会漏英文——i18n 决策 2026-09-29 用户可见串必须中文）。
-      QMessageBox box(QMessageBox::Warning, tr("未保存的编辑"),
-                      tr("以下图层有未保存的编辑：\n%1\n\n关闭前如何处理？")
-                          .arg(dirtyNames.join(QLatin1Char('\n'))),
-                      QMessageBox::NoButton, this);
-      QPushButton *saveBtn = box.addButton(tr("保存"), QMessageBox::AcceptRole);
-      QPushButton *discardBtn = box.addButton(tr("放弃"), QMessageBox::DestructiveRole);
-      box.addButton(tr("取消"), QMessageBox::RejectRole);
-      box.setDefaultButton(saveBtn);
-      box.exec();
-      if (box.clickedButton() != saveBtn && box.clickedButton() != discardBtn)
+      const auto choice = PaleoNotify::askSaveDiscard(
+          this, PaleoNotify::AskIcon::Warning, tr("未保存的编辑"),
+          tr("以下图层有未保存的编辑：\n%1\n\n关闭前如何处理？")
+              .arg(dirtyNames.join(QLatin1Char('\n'))),
+          tr("保存"), tr("放弃"), tr("取消"));
+      if (choice == PaleoNotify::SaveChoice::Cancel)
       {
         event->ignore(); // 取消（含 Esc/窗口 ✕）
         return;
       }
-      if (box.clickedButton() == saveBtn)
+      if (choice == PaleoNotify::SaveChoice::Save)
       {
         for (QgsVectorLayer *vl : dirty)
         {
@@ -1582,7 +1677,7 @@ void PaleoMainWindow::closeEvent(QCloseEvent *event)
                                     : vl->commitChanges();
           if (!ok)
           {
-            QMessageBox::critical(
+            PaleoNotify::critical(
                 this, tr("保存编辑失败"),
                 tr("图层「%1」的编辑未能提交，窗口不会关闭。")
                     .arg(vl->name().isEmpty() ? vl->id() : vl->name()));

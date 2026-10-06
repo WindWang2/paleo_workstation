@@ -21,6 +21,7 @@ class QDialog;
 class QLabel;
 class QTableWidget;
 class QTimer;
+class QToolButton;
 
 class QgisCanvasController;
 class QgisProjectService;
@@ -28,6 +29,9 @@ class QgisLayerService;
 class QgisLabelZOrder;
 class QgisLayerProfileService;
 class ToolAvailabilityService;
+class ErrorHub;
+class NotificationCenter;
+class ErrorHistoryPanel;
 class SelectionContext;
 class QgsMapLayer;
 class LayerTreePanel;
@@ -45,6 +49,10 @@ class SeismicTaskService;
 namespace paleo::fault {
 class FaultInterpretationController;
 class FaultManagerPanel;
+}
+
+namespace paleo::ui {
+class ErrorHistoryDock;
 }
 
 class PaleoDockWidget : public QDockWidget
@@ -192,6 +200,11 @@ class PaleoMainWindow : public SARibbonMainWindow
     // AiChatController。编排与会话落盘全在 workflow 层，这里只装配面板 +
     // 把「配置…」意图翻成状态栏提示（配置对话框递延，见 TODOS.md）。
     void attachAiAssistant(class AiChatController *controller);
+    // 方向68：Python 脚本面——底栏加「Python 脚本」+「Python REPL（实验性）」
+    // 页签，挂 AppContext 持有的 PythonConsoleController。返回脚本面板指针，
+    // 供组装根把 importRequested 接到 DataImportService（视图不碰 io）。幂等。
+    class PythonConsolePanel *attachPythonConsole(
+        class PythonConsoleController *controller);
     // goal/fault-interpretation：断层解释接线——剖面 dock 挂编排器 + 右栏
     // 断层管理面板 dock。幂等（m_faultPanelDock 已建则只重挂控制器）。
     void attachFaults(paleo::fault::FaultInterpretationController *controller);
@@ -199,6 +212,10 @@ class PaleoMainWindow : public SARibbonMainWindow
     // 工具 + 导出对话框。独立于 attachWorkflows（同 attachDepthConversion
     // 先例）；幂等（页签已建则只重挂指针）。
     void attachWellSiting(class WellSitingWorkflow *wf);
+    // 方向64：错误呈现接线——NotificationCenter（通知卡/severe 模态/状态栏 info）
+    // 挂本窗口 + 「错误历史」dock（布局与面板菜单唤出）。幂等（已接则忽略）。
+    void attachErrorHub(ErrorHub *hub);
+    void showErrorHistory();
     void attachWorkflows(PredictionWorkflow *pred, ConstraintWorkflow *constraint,
                          CompositionWorkflow *compose, ValidationWorkflow *validate,
                          DataImportService *importSvc = nullptr,
@@ -266,6 +283,8 @@ class PaleoMainWindow : public SARibbonMainWindow
     seismic::SeismicSectionDockWidget *seismicSectionDock() const { return m_seismicSectionDock; }
     QDockWidget *seismic3dDock() const { return m_seismic3dDock; }
     seismic::Seismic3DViewPanel *seismic3dPanel() const { return m_seismic3dPanel; }
+    paleo::ui::ErrorHistoryDock *errorHistoryDock() const { return m_errorHistoryDock; }
+    QAction *errorHistoryAction() const;
 
   protected:
     void closeEvent(QCloseEvent *event) override;
@@ -391,6 +410,8 @@ class PaleoMainWindow : public SARibbonMainWindow
     seismic::SeismicSectionDockWidget *m_seismicSectionDock = nullptr;
     QDockWidget *m_seismic3dDock = nullptr;
     seismic::Seismic3DViewPanel *m_seismic3dPanel = nullptr;
+    paleo::ui::ErrorHistoryDock *m_errorHistoryDock = nullptr;
+    QToolButton *m_statusErrorBtn = nullptr;
     // goal/fault-interpretation：断层管理面板 dock（attachFaults 建一次）
     QDockWidget *m_faultPanelDock = nullptr;
     paleo::fault::FaultManagerPanel *m_faultPanel = nullptr;
@@ -412,6 +433,9 @@ class PaleoMainWindow : public SARibbonMainWindow
     // #148：地图册批量导出（「智能编图 › 图件输出 › 地图册」），工程关闭时
     // resetProjectScopedState 里 resetProject。
     QDockWidget *m_mapBookDock = nullptr;
+    // 方向64：错误呈现层 + 错误历史 dock（attachErrorHub 建）。
+    NotificationCenter *m_notifications = nullptr;
+    QDockWidget *m_errorHistoryPanelDock = nullptr;
     PaleoMapBookPanel *m_mapBookPanel = nullptr;
     PaleoMapBookController *m_mapBookCtl = nullptr;
     bool m_propModelRunning = false;

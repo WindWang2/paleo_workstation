@@ -1,6 +1,7 @@
 // 层：功能
 #pragma once
 #include "chatmessage.h"
+#include "domaintools.h"
 #include <QByteArray>
 #include <QHash>
 #include <QList>
@@ -49,6 +50,8 @@ struct LlmConfig {
                              const QByteArray &apiKey = QByteArray(),
                              bool stream = true);
 };
+
+Q_DECLARE_METATYPE(LlmConfig)
 
 // 错误分类（UI 按类给提示；测试断言分类而不匹配整句——文案可变，语义不可变）。
 enum class LlmErrorKind {
@@ -113,8 +116,11 @@ public:
   LlmConfig config() const { return m_config; }
 
   // 发起一轮补全。messages 里 system/user/assistant/tool 均可（由 ChatMessage
-  // 直接序列化）。未配置时立即 emit errorOccurred(NotConfigured)——不静默。
-  void send(const QVector<ChatMessage> &messages);
+  // 直接序列化）。tools 非空时请求体带 tools[]（领域工具表）与
+  // tool_choice="auto"——模型自决是否调用（含不调工具直接作答）。
+  // 未配置时立即 emit errorOccurred(NotConfigured)——不静默。
+  void send(const QVector<ChatMessage> &messages,
+            const QVector<AiToolSpec> &tools = QVector<AiToolSpec>());
   void cancel();
   bool busy() const { return m_reply != nullptr; }
 
@@ -129,7 +135,8 @@ private:
   void fail(LlmErrorKind kind, const QString &message);
   void finishUp(const QString &reason, int promptTokens, int completionTokens);
   void handleNonStreamReply(const QByteArray &payload);
-  QNetworkReply *issueRequest(const QVector<ChatMessage> &messages);
+  QNetworkReply *issueRequest(const QVector<ChatMessage> &messages,
+                              const QVector<AiToolSpec> &tools);
 
   LlmConfig m_config;
   QNetworkAccessManager *m_nam = nullptr;

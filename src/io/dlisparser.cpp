@@ -2,6 +2,7 @@
 #include "dlisparser.h"
 
 #include "../domain/wellnumeric.h"
+#include "lasparser.h" // LasParser::fileSizeLimit（大文件防护共用口径）
 #include <QFile>
 #include <QFileInfo>
 

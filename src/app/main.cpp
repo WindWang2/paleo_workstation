@@ -2,6 +2,7 @@
 #include "appcontext.h"
 #include "../workflow/wellfaciesworkflow.h"
 #include "../ui/wellcomposite/wellcompositepanel.h"
+#include "../ui/python/pythonconsolepanel.h" // 方向68：脚本面 importRequested 接线
 #include "crossplotcontroller.h"
 #include "../io/dataimportservice.h" // catalog() — attachMapping 的 OUTPUT 登记
 #include "../io/wellcompositexml.h" // D1：wellcomposite 序列化/深度表解析注入（wave/deepen-perf）
@@ -270,10 +271,45 @@ int main(int argc, char *argv[])
   window.attachFaciesMapping(ctx.faciesMappingWf());
   // 方向51：AI 地质对话助手（编排在 AppContext，面板只渲染 + 发意图）。
   window.attachAiAssistant(ctx.aiChat());
+  // 方向68：Python 脚本面（服务/编排在 AppContext，面板只渲染 + 发意图）。
+  // 结果导入意图在组装根接 DataImportService——视图不碰 io；未打开工程时
+  // 导入如实失败并把原因回写控制台。
+  if (auto *pythonPanel = window.attachPythonConsole(ctx.pythonConsole()))
+  {
+    QObject::connect(pythonPanel, &PythonConsolePanel::importRequested, &window,
+                     [&ctx, pythonPanel](const QString &path) {
+                       QString error;
+                       const DataImportService::ImportResult result =
+                           ctx.importSvc()->importProjectFileEx(path, &error);
+                       QString message;
+                       switch (result.outcome)
+                       {
+                         case DataImportService::ImportOutcome::Imported:
+                           message = QCoreApplication::translate("PythonScripting",
+                                                                 "已导入：%1")
+                                         .arg(path);
+                           break;
+                         case DataImportService::ImportOutcome::AlreadyStored:
+                           message = QCoreApplication::translate(
+                                         "PythonScripting",
+                                         "已在工程中（跳过重复导入）：%1")
+                                         .arg(path);
+                           break;
+                         case DataImportService::ImportOutcome::Failed:
+                           message = QCoreApplication::translate(
+                                         "PythonScripting", "导入失败：%1——%2")
+                                         .arg(path, error);
+                           break;
+                       }
+                       pythonPanel->appendSystemLine(message);
+                     });
+  }
   // goal/fault-interpretation：剖面断层拾取/断层管理面板接编排器
   window.attachFaults(ctx.faultCtl());
   // 方向34：井网辅助（验证页「布井辅助」页签 + 地图布点工具）。
   window.attachWellSiting(ctx.wellsitingWf());
+  // 方向64：错误呈现（通知卡/severe 模态/状态栏）+ 错误历史 dock。
+  window.attachErrorHub(ctx.errorHub());
   // D1（wave/deepen-perf）：wellcomposite 派生登记/井斜时深装配的 io 注入——
   // 组装根是唯一可同时 include io/ 与 ui/ 的非视图目录（视图侧白名单只放
   // 行 io/lasdoc.h）。未注入时 sink 走诚实失败路径（状态栏+日志），不静默。

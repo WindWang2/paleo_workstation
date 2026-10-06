@@ -4,6 +4,7 @@
 #include <QTemporaryDir>
 
 #include <limits>
+#include <cstring>
 
 #include "../src/io/segyreader.h"
 
@@ -215,6 +216,130 @@ private slots:
     QString err;
     QVERIFY(!reader.open(badPath, &err));
     QVERIFY2(err.contains(QStringLiteral("CDP order mismatch")), qPrintable(err));
+  }
+
+  // ---- demo 工区方言（open() 探针回退）----
+  // inline 字有效、crossline 字（193 位）恒 0 而 crossline 实际在 CDP 字节 21；
+  // 角点在 181-188 而 72/76 恒 0。writeDialectSgy 写 2 inline × 3 CDP 最小体。
+  static QString writeDialectSgy(const QString &path, bool writeStandardXline,
+                                 bool coordsAtSource)
+  {
+    const int ns = 8, dt = 2000, nInl = 2, nXl = 2;
+    QByteArray bytes(3600, '\0');
+    auto putI16 = [&bytes](int off, qint16 v) {
+      qToBigEndian<qint16>(v, reinterpret_cast<uchar *>(bytes.data()) + off);
+    };
+    auto putI32 = [&bytes](int off, qint32 v) {
+      qToBigEndian<qint32>(v, reinterpret_cast<uchar *>(bytes.data()) + off);
+    };
+    putI16(3200 + 12, nXl); // 二进制头（文件偏移 3200 起）：每条 inline 道数
+    putI16(3200 + 16, dt);
+    putI16(3200 + 20, ns);
+    putI16(3200 + 24, 5);   // IEEE
+    putI16(3200 + 304, 0);  // 无扩展文本头
+    for (int i = 0; i < nInl; ++i)
+    {
+      for (int j = 0; j < nXl; ++j)
+      {
+        const int inl = 5 + i, cdp = 4001 + j;
+        const qint32 x = j * 25, y = i * 40; // 角点坐标（局部米）
+        QByteArray th(240, '\0');
+        auto thI16 = [&th](int off, qint16 v) {
+          qToBigEndian<qint16>(v, reinterpret_cast<uchar *>(th.data()) + off);
+        };
+        auto thI32 = [&th](int off, qint32 v) {
+          qToBigEndian<qint32>(v, reinterpret_cast<uchar *>(th.data()) + off);
+        };
+        thI32(20, cdp);    // CDP 集号（1 基字节 21）
+        thI32(188, inl);   // inline（1 基字节 189）
+        if (writeStandardXline)
+          thI32(192, cdp); // 标准 crossline 位（1 基 193）
+        if (coordsAtSource)
+        {
+          thI32(72, x);    // Source X/Y（1 基 73/77）
+          thI32(76, y);
+        }
+        else
+        {
+          thI32(180, x);   // CDP X/Y（1 基 181-185）
+          thI32(184, y);
+        }
+        thI16(114, ns);
+        thI16(116, dt);
+        bytes.append(th);
+        QByteArray samples(ns * 4, '\0');
+        for (int k = 0; k < ns; ++k)
+        {
+          const float v = static_cast<float>(inl * 100 + cdp + k);
+          quint32 bits = 0;
+          memcpy(&bits, &v, 4);
+          qToBigEndian<quint32>(bits,
+                                reinterpret_cast<uchar *>(samples.data()) + k * 4);
+        }
+        bytes.append(samples);
+      }
+    }
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly) || f.write(bytes) != bytes.size())
+      return QString();
+    return path;
+  }
+
+  // 方言布局：crossline 回退取 CDP、角点回退取 181-188。
+  void dialectCdpXlineAndCornerFallback()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path =
+        writeDialectSgy(dir.filePath(QStringLiteral("dialect.sgy")), false, false);
+    QVERIFY2(!path.isEmpty(), "write failed");
+
+    SegyReader reader;
+    QString err;
+    QVERIFY2(reader.open(path, &err), qPrintable(err));
+    QCOMPARE(reader.traceCount(), 4);
+    const SegyGeometry g = reader.geometry();
+    QCOMPARE(g.inlineMin, 5);
+    QCOMPARE(g.inlineMax, 6);
+    QCOMPARE(g.xlineMin, 4001);
+    QCOMPARE(g.xlineMax, 4002);
+    // 角点顺序 (inlMin,xlMin)(inlMin,xlMax)(inlMax,xlMax)(inlMin 对应 NW)。
+    QCOMPARE(g.cornerX[0], 0.0);
+    QCOMPARE(g.cornerY[0], 0.0);
+    QCOMPARE(g.cornerX[1], 25.0);
+    QCOMPARE(g.cornerY[1], 0.0);
+    QCOMPARE(g.cornerX[2], 25.0);
+    QCOMPARE(g.cornerY[2], 40.0);
+    QCOMPARE(g.cornerX[3], 0.0);
+    QCOMPARE(g.cornerY[3], 40.0);
+    const QVector<qint32> xlines = reader.crosslineNumbers();
+    QCOMPARE(xlines.size(), 2);
+    QCOMPARE(xlines.front(), 4001);
+    QCOMPARE(xlines.back(), 4002);
+    QVector<SegyTrace> line;
+    QVERIFY2(reader.readCrossline(4002, &line, &err), qPrintable(err));
+    QCOMPARE(line.size(), 2); // 每条 crossline 两条 inline
+    QCOMPARE(line.front().lineNo, 5);
+    QCOMPARE(line.back().lineNo, 6);
+  }
+
+  // 回退不劫持标准布局：193 位有效 crossline + 72/76 角点 → 走标准位。
+  void dialectProbeLeavesStandardLayoutAlone()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path =
+        writeDialectSgy(dir.filePath(QStringLiteral("standard.sgy")), true, true);
+    QVERIFY2(!path.isEmpty(), "write failed");
+
+    SegyReader reader;
+    QString err;
+    QVERIFY2(reader.open(path, &err), qPrintable(err));
+    const SegyGeometry g = reader.geometry();
+    QCOMPARE(g.xlineMin, 4001);
+    QCOMPARE(g.xlineMax, 4002);
+    QCOMPARE(g.cornerX[1], 25.0);
+    QCOMPARE(g.cornerY[2], 40.0);
   }
 };
 

@@ -1,6 +1,7 @@
 #include <QtTest>
 #include <QFile>
 #include <QFileInfo>
+#include <QRegularExpression>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 
@@ -209,6 +210,88 @@ private slots:
     const QStringList missing = missingMembers( dir.path(), back );
     QVERIFY( missing.join( ' ' ).contains( QStringLiteral( "catalog" ) ) );
     QVERIFY( missing.join( ' ' ).contains( QStringLiteral( "qgz" ) ) );
+  }
+
+  // georeference 节：写读往返（参数/控制点/公式/溯源）+ 应用纯函数 +
+  // 坏节如实报 georeferenceError、不完整节拒写。
+  void projectFileRoundTripsGeoreference()
+  {
+    QTemporaryDir dir;
+    QVERIFY( dir.isValid() );
+    PaleoProjectFile pf = projectFileForQgz( dir.filePath( "geo.qgz" ) );
+    PaleoGeoreference g;
+    g.kind = QStringLiteral( "similarity2d" );
+    g.targetCrs = QStringLiteral( "EPSG:4326" );
+    g.anchorLonDeg = 108.05;
+    g.anchorLatDeg = 36.10;
+    g.metersPerDegLon = 90049.687955;
+    g.metersPerDegLat = 110960.830261;
+    g.a = 1.000896238;
+    g.b = 0.030275703;
+    g.tE = -6182.244744;
+    g.tN = -9871.264523;
+    g.formula = QStringLiteral( "E=a*x-b*y+tE ; N=b*x+a*y+tN" );
+    g.provenance = QStringLiteral( "7 LAS header lon/lat least-squares fit" );
+    PaleoGeoreference::ControlPoint cp;
+    cp.well = QStringLiteral( "A2" );
+    cp.x = 3720.83;
+    cp.y = 3899.60;
+    cp.lon = 108.021518697795;
+    cp.lat = 36.047302568879;
+    cp.residualM = 14.0;
+    g.controlPoints.append( cp );
+    g.maxResidualM = 48.7;
+    pf.georeference = g;
+    QVERIFY( writeProjectFile( dir.path(), pf ) );
+
+    bool ok = false;
+    QString err;
+    const PaleoProjectFile back =
+        readProjectFile( paleoProjectFilePath( dir.path() ), &ok, &err );
+    QVERIFY2( ok, qPrintable( err ) );
+    QVERIFY( back.georeference.has_value() );
+    QVERIFY( back.georeferenceError.isEmpty() );
+    const PaleoGeoreference &bg = *back.georeference;
+    QCOMPARE( bg.targetCrs, QStringLiteral( "EPSG:4326" ) );
+    QCOMPARE( bg.metersPerDegLon, g.metersPerDegLon );
+    QCOMPARE( bg.controlPoints.size(), 1 );
+    QCOMPARE( bg.controlPoints.front().well, QStringLiteral( "A2" ) );
+    QCOMPARE( bg.controlPoints.front().residualM, 14.0 );
+
+    // 应用：A12 井位（局部网格 6533.51, 12189.22）→ WGS84 与拟合基准一致。
+    double lon = 0, lat = 0;
+    QVERIFY( applyGeoreference( bg, 6533.51, 12189.22, &lon, &lat ) );
+    QCOMPARE( lon, 108.04986766896302 );
+    QCOMPARE( lat, 36.12277097712336 );
+
+    // 坏节（params 数值换成字符串）→ georeferenceError，读取整体仍 ok。
+    {
+      QFile f( paleoProjectFilePath( dir.path() ) );
+      QVERIFY( f.open( QIODevice::ReadOnly | QIODevice::Text ) );
+      QString text = QString::fromUtf8( f.readAll() );
+      f.close();
+      QRegularExpression re( QStringLiteral( "\"tN\"\\s*:\\s*-?[0-9.eE+-]+" ) );
+      QVERIFY2( re.match( text ).hasMatch(), "tN numeric entry not found" );
+      text.replace( re, QStringLiteral( "\"tN\": \"broken\"" ) );
+      QVERIFY( f.open( QIODevice::WriteOnly | QIODevice::Truncate ) );
+      f.write( text.toUtf8() );
+      f.close();
+    }
+    const PaleoProjectFile broken =
+        readProjectFile( paleoProjectFilePath( dir.path() ), &ok, &err );
+    QVERIFY( ok );
+    QVERIFY( !broken.georeference.has_value() );
+    QVERIFY2( broken.georeferenceError.contains( QStringLiteral( "georeference" ) ),
+              qPrintable( broken.georeferenceError ) );
+
+    // 不完整节拒写（度米系数非正）。
+    PaleoGeoreference bad = g;
+    bad.metersPerDegLat = 0.0;
+    PaleoProjectFile pf2 = projectFileForQgz( dir.filePath( "geo2.qgz" ) );
+    pf2.georeference = bad;
+    QString werr;
+    QVERIFY( !writeProjectFile( dir.path(), pf2, &werr ) );
+    QVERIFY( werr.contains( QStringLiteral( "georeference" ) ) );
   }
 
   // ---- Issue #26: 工程目录锁互斥与并发创建/打开检测 ----

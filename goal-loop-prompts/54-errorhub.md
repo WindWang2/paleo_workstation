@@ -1,5 +1,7 @@
 # Goal-Loop 方向 54：错误面统一——ErrorHub 错误通道 + 状态栏/通知收敛
 
+> **已修订重发为方向 64**（`goal-loop-prompts/64-errorhub.md`，2026-10-07）——本任务书背景已过时，**勿执行**；以方向 64 为准（先例：方向 69 对方向 38 的处理）。
+
 ## 背景（实测事实，勿再勘察；行号为 2026-10-05 master `adf2be7` 口径）
 
 - **UI 层 QMessageBox 169 处**（`rg -o "QMessageBox::\w+" src/ui -g "*.cpp"`

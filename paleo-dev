@@ -28,6 +28,23 @@ if [ -z "${QGIS_PREFIX_PATH:-}" ]; then
   fi
 fi
 
+# 并行度上限（AGENTS.md「构建/测试一律 -j8 以内」，#230）：缺省 min(核数, 8)；
+# PALEO_JOBS 可调低，超过 8 一律钳回 8。用户显式传 -j/--parallel 时照传不抢。
+paleo_jobs() {
+  local n="${PALEO_JOBS:-$(nproc 2>/dev/null || echo 4)}"
+  case "$n" in ''|*[!0-9]*) n=4 ;; esac
+  [ "$n" -lt 1 ] && n=1
+  [ "$n" -gt 8 ] && n=8
+  echo "$n"
+}
+paleo_has_jobs_arg() {
+  local a
+  for a in "$@"; do
+    case "$a" in -j|-j*|--parallel|--parallel=*) return 0 ;; --) return 1 ;; esac
+  done
+  return 1
+}
+
 usage() { awk '/^# paleo-dev —/{print;next} /^# verbs:/{p=1} p&&/^$/{exit} p' "$0"; exit "${1:-0}"; }
 # verbs:
 #   bootstrap    preflight -> vendor fetch/build -> selfcheck (the one-command TTHW path)
@@ -43,7 +60,11 @@ case "$verb" in
     ;;
   build)
     cmake -S . -B "$BUILD_DIR" -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
-    cmake --build "$BUILD_DIR" "$@"
+    if paleo_has_jobs_arg "$@"; then
+      cmake --build "$BUILD_DIR" "$@"
+    else
+      cmake --build "$BUILD_DIR" --parallel "$(paleo_jobs)" "$@"
+    fi
     ;;
   test)
     # ET1 消费侧：deb 闭包路（vendor/prefix 存在）自动注入 prefix 与动态库
@@ -63,15 +84,15 @@ case "$verb" in
         if [ -d "$cand" ]; then export GDAL_DRIVER_PATH="$cand"; break; fi
       done
     fi
-    # ctest 默认并行到核数（T2：每测试有独立 XDG 沙箱，并行安全）；
-    # 传 --parallel/-j 或 RERUN 语义时用户参数照传。
+    # ctest 默认并行 min(核数, 8)（T2：每测试有独立 XDG 沙箱，并行安全；
+    # #230：-j8 上限）；传 --parallel/-j 时用户参数照传。
     mkdir -p "$BUILD_DIR/Testing/qtest-first-run"
-    if [ "$#" -eq 0 ]; then
-      QT_QPA_PLATFORM=offscreen ctest --test-dir "$BUILD_DIR" --output-on-failure \
-        --output-junit "$BUILD_DIR/Testing/ctest-junit.xml" -j "$(nproc 2>/dev/null || echo 4)"
-    else
+    if paleo_has_jobs_arg "$@"; then
       QT_QPA_PLATFORM=offscreen ctest --test-dir "$BUILD_DIR" --output-on-failure \
         --output-junit "$BUILD_DIR/Testing/ctest-junit.xml" "$@"
+    else
+      QT_QPA_PLATFORM=offscreen ctest --test-dir "$BUILD_DIR" --output-on-failure \
+        --output-junit "$BUILD_DIR/Testing/ctest-junit.xml" -j "$(paleo_jobs)" "$@"
     fi
     ;;
   selfcheck)

@@ -196,9 +196,11 @@ AiToolDispatch dispatchAiTool(const QString &name,
     out.target = QStringLiteral("ai/tileinference.h:runTileInference + "
                                 "ai/onnxpredictionservice.h:PaleoOnnxService");
 #if PALEO_HAVE_ORT
-    out.status = AiToolDispatchStatus::NotImplemented;
+    // 方向61：执行回路已接线（workflow/aichattoolrunner 经 startClassification
+    // 异步执行 + 协作取消）；本函数只答「能否路由」，不执行。
+    out.status = AiToolDispatchStatus::Routed;
     out.note = QObject::tr(
-      "入口可达，但 function calling 闭环未接线（本方向只做描述与分发）");
+      "入口已接线：由聊天工具执行器异步驱动（须绑定工程上下文与模型）");
 #else
     out.status = AiToolDispatchStatus::Disabled;
     out.note = QObject::tr("本构建未编译 ONNX Runtime，入口不可达");
@@ -209,9 +211,9 @@ AiToolDispatch dispatchAiTool(const QString &name,
     out.target =
       QStringLiteral("ai/horizonsuggest.h:suggestHorizonTracking");
 #if PALEO_HAVE_ORT
-    out.status = AiToolDispatchStatus::NotImplemented;
+    out.status = AiToolDispatchStatus::Routed;
     out.note = QObject::tr(
-      "入口可达，但 function calling 闭环未接线（本方向只做描述与分发）");
+      "入口已接线：由聊天工具执行器异步驱动（须绑定道窗取数上下文）");
 #else
     out.status = AiToolDispatchStatus::Disabled;
     out.note = QObject::tr("本构建未编译 ONNX Runtime，入口不可达");
@@ -221,9 +223,9 @@ AiToolDispatch dispatchAiTool(const QString &name,
   if (name == QStringLiteral("paleo.well_facies_prediction")) {
     out.target =
       QStringLiteral("ai/wellfaciesservice.h:WellFaciesService::predict");
-    out.status = AiToolDispatchStatus::NotImplemented;
+    out.status = AiToolDispatchStatus::Routed;
     out.note = QObject::tr(
-      "入口可达（须先配置端点与密钥），function calling 闭环未接线");
+      "入口已接线：须先配置测井相服务端点与密钥，并绑定井曲线数据上下文");
     return out;
   }
   return out;

@@ -3,6 +3,7 @@
 
 #include "dlisparser.h"
 #include "lisparser.h"
+#include "lasparser.h" // LAS 路径分派目标（解析入口）
 
 #include <QFileInfo>
 

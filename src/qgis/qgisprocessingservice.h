@@ -5,7 +5,6 @@
 #include <QString>
 #include <QStringList>
 #include <QVariantMap>
-#include <QWidget>
 #include <functional>
 
 class QgsProject;
@@ -13,6 +12,10 @@ class QgsProject;
 class QgsProcessingContext;
 class QgsProcessingFeedback;
 class PaleoProjectStore;
+// 方向 59：QWidget 只以指针/返回值出现——前向声明即可，include <QWidget>
+// 会把 QtWidgets 传递灌进 11 个直接消费本头的 workflow TU（--transitive
+// 黄牌实测）。成员 QPointer<QWidget> 与出参定义都在 .cpp 侧补全。
+class QWidget;
 
 // qgis/ — QgisProcessingService runs QgsProcessingAlgorithms.
 // §41.2 contract: algorithm outputs go to a TEMP destination; on success the
@@ -73,7 +76,9 @@ class QgisProcessingService : public QObject
 
     // Last widget created by createAlgorithmDialog()/showAlgorithmDialog()
     // (test hook; auto-nulls when the widget is destroyed).
-    QWidget *lastAlgorithmDialog() const { return m_lastDialog; }
+    // 定义在 .cpp（返回值经 QPointer 转换需 QWidget 完整类型——头文件只留
+    // 前向声明，消费 TU 不再被迫吃 QtWidgets）。
+    QWidget *lastAlgorithmDialog() const;
 
   private:
     PaleoProjectStore *m_store;

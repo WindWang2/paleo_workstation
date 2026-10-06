@@ -5,7 +5,7 @@
 #include <QStringList>
 #include <QVector>
 
-#include "lasparser.h" // LasHeaderInfo / LasCurve / LasIssue（井曲线文档共用契约）
+#include "lasdoc.h" // LasHeaderInfo / LasCurve / LasIssue（井曲线文档共用契约，方向 59 起纯门面）
 
 // io/ — LIS79（Log Information Standard，1979/84 子集）测井曲线解析器：
 // 纯 Qt、无 QGIS 依赖、无第三方依赖（方向 44「自写受限子集」，规范对账见

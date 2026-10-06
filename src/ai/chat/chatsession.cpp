@@ -6,6 +6,7 @@
 #include <QJsonDocument>
 #include <QSaveFile>
 #include <QStandardPaths>
+#include <QStringList>
 #include <QUuid>
 
 // apo file naming stays off-project: see ChatSessionStore::directory().
@@ -158,4 +159,57 @@ QVector<ChatSession> ChatSessionStore::loadRecent(int limit) {
       out.append(session);
   }
   return out;
+}
+
+QString ChatSession::toMarkdown() const {
+  QStringList out;
+  const QString heading = displayTitle().isEmpty() ? QObject::tr("未命名会话")
+                                                   : displayTitle();
+  out << QStringLiteral("# %1").arg(heading);
+  QStringList meta;
+  if (!model.isEmpty())
+    meta << QObject::tr("模型：%1").arg(model);
+  if (createdAt.isValid())
+    meta << QObject::tr("创建：%1")
+                .arg(createdAt.toString(QStringLiteral("yyyy-MM-dd HH:mm")));
+  if (!meta.isEmpty())
+    out << meta.join(QStringLiteral(" · "));
+  for (const ChatMessage &message : messages) {
+    QString role;
+    switch (message.role) {
+    case ChatRole::User:
+      role = QObject::tr("你");
+      break;
+    case ChatRole::Assistant:
+      role = QObject::tr("助手");
+      break;
+    case ChatRole::Tool:
+      role = QObject::tr("工具");
+      break;
+    case ChatRole::System:
+      continue; // 系统提示是内部装配产物，不进用户导出面
+    }
+    out << QStringLiteral("## %1").arg(role);
+    if (!message.content.isEmpty())
+      out << message.content;
+    for (const ChatToolCall &call : message.toolCalls)
+      out << QStringLiteral("- %1 `%2`").arg(
+        QObject::tr("工具调用"), call.name); // argumentsJson 不进导出（防泄漏实参）
+    out << QString(); // 消息间空行
+  }
+  return out.join(QStringLiteral("\n"));
+}
+
+bool ChatSessionStore::exportMarkdown(const ChatSession &session,
+                                      const QString &filePath,
+                                      QString *error) {
+  QSaveFile file(filePath);
+  const QByteArray bytes = session.toMarkdown().toUtf8();
+  if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size() ||
+      !file.commit()) {
+    if (error)
+      *error = file.errorString();
+    return false;
+  }
+  return true;
 }

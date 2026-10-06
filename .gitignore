@@ -8,6 +8,11 @@ vendor/superbuild/prefix
 vendor/logs
 vendor/ort.tgz
 vendor/cache
+# 离线底图数据资产：fetch-tiles.py 可复现（脚本本身入库，产物不入库）
+vendor/basemap/tiles
+vendor/basemap/*.mbtiles
+# demo 工程产物（paleo_mkproject 可重建）
+demo/
 *.o
 symbology-style.db
 build-nowebengine/

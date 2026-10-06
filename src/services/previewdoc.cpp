@@ -8,7 +8,7 @@
 #include "../io/dataimportservice.h"
 #include "../io/geojsonaffine.h"
 #include "../io/lascache.h"
-#include "../io/lasparser.h"
+#include "../io/lasdoc.h" // LasCurve/LasDoc/LasHeaderInfo（契约类型；解析入口不再直触）
 #include "../io/welllogread.h" // 方向44：格式分派
 #include "../io/segyreader.h"
 #include "../io/streaming.h" // F3：GeoJSON 流式统计（无 DOM 增量扫描）

@@ -2,7 +2,6 @@
 #include "paleoalgorithms.h"
 #include "rasterout.h"
 #include "gridsolver.h"
-#include "../catalog/datacatalog.h"
 
 #include <qgsprocessingparameters.h>
 #include <qgsprocessingutils.h>
@@ -208,7 +207,7 @@ QVariantMap MinimumCurvatureAlgorithm::processAlgorithm( const QVariantMap &para
                          -cellSize };
   GDALDatasetH outDs =
       PaleoRasterOut::createFloatRaster( outPath, dims.cols, dims.rows, gt, source->sourceCrs(),
-                         PALEO_NODATA );
+                         PALEO_NODATA, PaleoRasterOut::canonicalWktFromParameters( parameters ) );
   if ( !outDs )
     throw QgsProcessingException(
         QStringLiteral( "Cannot create output raster %1" ).arg( outPath ) );

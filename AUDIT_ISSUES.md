@@ -17,6 +17,18 @@ CTest suites. The old `src/workflow/workflows.cpp` has been split into
 `docs/progress/job-framework.md` for current reconciliation and test evidence;
 this refactor does not reopen or independently revalidate every audit claim.
 
+**2026-10-06 closure note（方向48 审计清账）:** Every item below now carries a
+`> **终态（2026-10-06，方向48 清账复核）**` marker with re-verification
+evidence against `origin/master 3a4f8b5`. Ledger:
+`.goal-loop-ledger-audit-closure.md`. Distribution: 已修 26（历史 commit 带
+证）/ 不复现 2（MEM-06、CONC-05，带论证与复现尝试）/ 方向48 当批修复 7
+（TEST-07=ARCH-08、RUNTIME-04、BIZ-09、ARCH-05、TEST-04、MEM-07、ARCH-06，
+commit `e308372`–`ca18f88`）/ 移交方向50 io-robustness 7（BIZ-05/06/07/10/
+11/14、RUNTIME-03）/ 移交方向52 test-deepening 1（TEST-06）/ 环境项消解 1
+（TEST-01，fresh configure 后 7 套件全注册）。快照漂移教训已落实：10-05
+三路复核的「8 未修/15 待证」与本轮实测差异（BIZ-12/13、ARCH-03/04/07 已
+修，MEM-06/CONC-05 不复现）以本轮逐条 rg+读码重验为准。
+
 ---
 
 ## 1. Executive Summary & Audit Scorecard
@@ -76,6 +88,8 @@ Following adversarial verification and calibration against empirical source code
 ## 3. Dimension 1: Memory, Concurrency & Runtime Safety
 
 ### [MEM-01] Asynchronous Write Queue Use-After-Free & Dynamic Property Smuggling in `ConstraintStore` / `ConstraintWorkflow`
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：constraintstore.cpp QPointer safeStore；commit `57f0161`）
+
 - **Severity**: **P0** (Fatal Crash / Use-After-Free in Asynchronous Write Queue Closure)
 - **Dimension**: Memory & Runtime Safety (Cross-Ref: `ARCH-02`)
 - **Exact Code Location**: `src/workflow/workflows.cpp`, Lines 112–123, 711–715; `src/io/constraintstore.cpp`, Lines 48–53
@@ -140,6 +154,8 @@ ConstraintStore::ConstraintStore(const QString &gpkgPath, PaleoProjectStore *sto
 ---
 
 ### [MEM-02] [EMPIRICALLY REFUTED] Claimed Double Delete Hazard in `QgisTopologicalIndex` on Layer Destruction
+> **终态（2026-10-06，方向48 清账复核）**：维持反驳（§7.1；不复核翻案）
+
 - **Severity**: **REFUTED / INFORMATIONAL** (Claimed P0 Double-Free Empirically Disproved — Excluded from Active P0 Tally)
 - **Dimension**: Memory & Runtime Safety
 - **Exact Code Location**: `src/qgis/topologicalindex.cpp`, Lines 76–85, 109–110
@@ -181,6 +197,8 @@ ConstraintStore::ConstraintStore(const QString &gpkgPath, PaleoProjectStore *sto
 ---
 
 ### [MEM-03] Use-After-Free & Double Delete in `PaleoMainWindow::flashHorizon` Timer
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：m_horizonFlashTimer 成员守卫；commit `6845d84`+`bcecd04`）
+
 - **Severity**: **P1** (Use-After-Free / UI Destruction Crash)
 - **Dimension**: Memory & Runtime Safety
 - **Exact Code Location**: `src/ui/paleomainwindow.cpp`, Lines 1156–1176
@@ -242,6 +260,8 @@ ConstraintStore::ConstraintStore(const QString &gpkgPath, PaleoProjectStore *sto
 ---
 
 ### [MEM-04] Dangling Pointers in `QgisLayerService::m_instances` and `isEditingAnyLayer`
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：QHash<QString, QPointer<QgsMapLayer>>；PR #193 `0a02a0e`）
+
 - **Severity**: **P1** (Use-After-Free / Dangling Pointer Dereference)
 - **Dimension**: Memory & Runtime Safety
 - **Exact Code Location**: `src/qgis/qgislayerservice.h`, Line 55; `src/qgis/qgislayerservice.cpp`, Lines 240–275
@@ -308,6 +328,8 @@ for (auto it = m_instances.cbegin(); it != m_instances.cend(); ++it)
 ---
 
 ### [MEM-05] Heap-Allocated `QThreadPool` Leaked in `PaleoTaskService`
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：析构超时兜底+delete m_pool；PR #193 `0a02a0e`）
+
 - **Severity**: **P2** (Permanent Resource & Thread Handle Leak)
 - **Dimension**: Memory & Runtime Safety
 - **Exact Code Location**: `src/services/paleotaskservice.cpp`, Lines 161–164, 180–182
@@ -360,6 +382,8 @@ PaleoTaskService::~PaleoTaskService()
 ---
 
 ### [MEM-06] Spared `mouseGrabberItem` and Double Delete Hazard in `HorizonMarkerSet::rebuild`
+> **终态（2026-10-06，方向48 清账复核）**：不复现（方向48 复核：rebuild 已重写为现场查询 mouseGrabberItem+逐项豁免+无跨帧存指针，`235ca00` 范式；跨帧死亡时 QGraphicsItem 析构自动 ungrab→查询返回 null）
+
 - **Severity**: **P2** (Dangling Pointer / Potential Crash on Mouse Drag Cancel)
 - **Dimension**: Memory & Runtime Safety
 - **Exact Code Location**: `src/ui/correlation/horizonmarkers.cpp`, Lines 322–330, 431–432
@@ -402,6 +426,8 @@ PaleoTaskService::~PaleoTaskService()
 ---
 
 ### [MEM-07] Unchecked Dangling Canvas Pointer in `PaleoEditingToolbar` Destructor
+> **终态（2026-10-06，方向48 清账复核）**：方向48 已修（mCanvas QPointer 化+拆卸顺序钉死；commit `c814130`）
+
 - **Severity**: **P3** (Teardown Lifetime Hazard)
 - **Dimension**: Memory & Runtime Safety
 - **Exact Code Location**: `src/ui/edittools/editingtoolbar.h`, Line 143; `src/ui/edittools/editingtoolbar.cpp`, Lines 258–264
@@ -433,6 +459,8 @@ PaleoEditingToolbar::~PaleoEditingToolbar()
 ---
 
 ### [CONC-01] Thread Pool Task Capturing Raw UI Widget Pointer in `SeismicSectionDockWidget`
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：四处 QPointer guard；commit `5e3aea1`/PR #193）
+
 - **Severity**: **P0** (Fatal Crash / Use-After-Free / Thread Safety Violation)
 - **Dimension**: Memory, Concurrency & Runtime Safety
 - **Exact Code Location**: `src/ui/seismicsection/seismicsectiondockwidget.cpp`, Lines 1046–1065, 1400–1410
@@ -515,6 +543,8 @@ PaleoEditingToolbar::~PaleoEditingToolbar()
 ---
 
 ### [CONC-02] Missing RAII on `gate->slotSemaphore` in `SeismicTaskService::startBounded`
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：SemaphoreGuard RAII；PR #193 `0a02a0e`）
+
 - **Severity**: **P0** (Permanent Deadlock on Exception)
 - **Dimension**: Concurrency & Thread Safety
 - **Exact Code Location**: `src/services/seismictaskservice.cpp`, Lines 2586–2591
@@ -558,6 +588,8 @@ PaleoEditingToolbar::~PaleoEditingToolbar()
 ---
 
 ### [CONC-03] Use-After-Free of `EvictableCache` in `CacheBudgetManager::enforce()`
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：evictionZeroCond+evictionScope RAII；PR #193 `0a02a0e`）
+
 - **Severity**: **P1** (Use-After-Free / Thread Race Condition)
 - **Dimension**: Concurrency & Thread Safety
 - **Exact Code Location**: `src/io/cachebudget.cpp`, Lines 76–110
@@ -611,6 +643,8 @@ void CacheBudgetManager::unregisterCache(EvictableCache *cache)
 ---
 
 ### [CONC-04] Concurrent Callback Data Race in `SegyReader::scanTraceHeadersFast`
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：progressMutex 串行化；PR #193 `0a02a0e`）
+
 - **Severity**: **P1** (Data Race / Unsynchronized Callback Invocation)
 - **Dimension**: Concurrency & Thread Safety
 - **Exact Code Location**: `src/io/segyreader.cpp`, Lines 817–821, 862–863
@@ -648,6 +682,8 @@ void CacheBudgetManager::unregisterCache(EvictableCache *cache)
 ---
 
 ### [CONC-05] Data Race on Non-Atomic Diagnostic Struct `LasCache::m_timings`
+> **终态（2026-10-06，方向48 清账复核）**：不复现（方向48 复核：LasCache 全部消费面在 GUI 线程——crossplotcontroller/previewdoc/wellsectionworkflow/selfcheck 无 worker 调用；头注释已声明单线程诊断口径）
+
 - **Severity**: **P2** (Data Race / Torn Reads)
 - **Dimension**: Concurrency & Thread Safety
 - **Exact Code Location**: `src/io/lascache.h`, Line 91; `src/io/lascache.cpp`, Lines 228, 235
@@ -672,6 +708,8 @@ m_timings.coldParseNs = parseTimer.nsecsElapsed();
 ---
 
 ### [CONC-06] `DataImportService::catInvoke` Deadlock Hazard with `Qt::BlockingQueuedConnection`
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：produce-then-commit 重设计，无 BlockingQueuedConnection 回 owner；commit `57f0161`）
+
 - **Severity**: **P1** (Deadlock Hazard Across Thread Boundaries)
 - **Dimension**: Concurrency & Thread Safety
 - **Exact Code Location**: `src/io/dataimportservice.h`, Lines 220–243
@@ -710,6 +748,8 @@ m_timings.coldParseNs = parseTimer.nsecsElapsed();
 ---
 
 ### [RUNTIME-01] Unchecked Nullptr Dereference of `m_projectSvc` in MainWindow Operations
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：attach/workbench 全守卫；`aa2e2ba` 波次及后续）
+
 - **Severity**: **P0** (Fatal Crash / Null Pointer Dereference)
 - **Dimension**: Runtime & Error Safety
 - **Exact Code Location**: `src/ui/paleomainwindow_attach.cpp`, Line 1411; `src/ui/paleomainwindow_workbench.cpp`, Lines 149–155, 574
@@ -745,6 +785,8 @@ if (!m_projectSvc || !m_projectSvc->project() || !m_projectSvc->project()->layer
 ---
 
 ### [RUNTIME-02] Task Timeout and Use-After-Free in `PaleoAlgorithmWidget::~PaleoAlgorithmWidget()`
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：超时不达即孤儿化+shared_ptr feedback；commit `57f0161`）
+
 - **Severity**: **P1** (Use-After-Free / Background Thread Crash)
 - **Dimension**: Runtime & Error Safety
 - **Exact Code Location**: `src/qgis/qgisprocessingservice.cpp`, Lines 325–333, 410–417
@@ -792,6 +834,8 @@ if (!m_projectSvc || !m_projectSvc->project() || !m_projectSvc->project()->layer
 ---
 
 ### [RUNTIME-03] `InflightCoalescer` Issue Reporting Desynchronization in `LasCache::load`
+> **终态（2026-10-06，方向48 清账复核）**：仍存在→方向50 io-robustness（方向48 R0 证据：lascache.cpp InflightCoalescer 合乘者 issues 不回填；LasDoc 无 issues 字段）
+
 - **Severity**: **P2** (Diagnostic Information Loss)
 - **Dimension**: Runtime & Error Safety
 - **Exact Code Location**: `src/io/lascache.cpp`, Lines 220–254; `src/io/inflight.h`, Lines 23–67
@@ -818,6 +862,8 @@ if (!m_projectSvc || !m_projectSvc->project() || !m_projectSvc->project()->layer
 ---
 
 ### [RUNTIME-04] Synchronous `delete timer;` Inside `QTimer::timeout` Handler
+> **终态（2026-10-06，方向48 清账复核）**：方向48 已修（deleteLater+findChildren 清净断言；commit `e308372`）
+
 - **Severity**: **P2** (Unsafe Object Deletion on Active Call Stack)
 - **Dimension**: Runtime & Error Safety
 - **Exact Code Location**: `src/services/seismictaskservice.cpp`, Lines 619–625
@@ -845,6 +891,8 @@ if (!m_projectSvc || !m_projectSvc->project() || !m_projectSvc->project()->layer
 ## 4. Dimension 2: Architecture Layering & Contracts
 
 ### [ARCH-01] Critical Layer Inversion: Data Layer (`src/io/dataimportservice`) Directly Couples to and Calls QGIS Wrapper Layer (`src/qgis/qgislayerservice`)
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：paleo_io 无 paleo_qgis 链接、layerDeclared 信号；commit `57f0161`）
+
 - **Severity**: **P0** (Architecture Inversion / Target-Level Circularity)
 - **Dimension**: Architecture Layering & Module Isolation
 - **Exact Code Location**: 
@@ -898,6 +946,8 @@ target_link_libraries(paleo_io PUBLIC paleo_deps paleo_domain paleo_store paleo_
 ---
 
 ### [ARCH-02] Subversive `void*` Pointer Smuggling and Manual Deletion via Dynamic QObject Properties in Functional Layer (`src/workflow/workflows.cpp`)
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：unique_ptr<ConstraintStore>；commit `57f0161`）
+
 - **Severity**: **P1** (Severe Contract Violation / Type-Safety Destruction)
 - **Dimension**: Architecture Layering & Interface Contracts (Cross-Ref: `MEM-01`)
 - **Exact Code Location**: `src/workflow/workflows.cpp`, Lines 95–125, 711–715, 718–721
@@ -942,6 +992,8 @@ ConstraintStore *constraintStoreOf( const QObject *wf )
 ---
 
 ### [ARCH-03] Coarse-Grained Umbrella Linker Leak: `paleo_deps` Transitively Propagates `QtWidgets` and All Source Includes to Data and Functional Modules
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：四层 tier 依赖模型；commit `b451452`）
+
 - **Severity**: **P1** (Linker Contract Leak / Hidden Dependency Exposure)
 - **Dimension**: Build & Linker Boundaries
 - **Exact Code Location**: `CMakeLists.txt`, Lines 88–96, 232–235, 248, 254, 269, 293, 307, 320, 330, 343
@@ -976,6 +1028,8 @@ target_link_libraries(paleo_workflow PUBLIC paleo_deps paleo_qgis paleo_store pa
 ---
 
 ### [ARCH-04] Tooling Guardrail Blind Spot: `tools/check_layering.py` Fails to Detect Data Layer Inversions into Higher Layers
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：data-qgis/data-functional 规则；commit `57f0161`）
+
 - **Severity**: **P2** (Linter Guardrail Blind Spot / False Green)
 - **Dimension**: Architecture Guardrails & Verification Tooling
 - **Exact Code Location**: `tools/check_layering.py`, Lines 174–184; `tools/layering_vocab.json`, Lines 23–24
@@ -1013,6 +1067,8 @@ if layer_dir in DATA_DIRS and dst in {"qgis", "workflow", "linkage", "ui"}:
 ---
 
 ### [ARCH-05] Inverted / Out-of-Layer Dependency: Algorithm Layer (`src/algorithms/paleoalgorithms.cpp`) Couples to Catalog Storage Layer (`src/catalog/datacatalog.h`)
+> **终态（2026-10-06，方向48 清账复核）**：方向48 已修（canonicalCrsWkt 参数化+LOCAL_GRID_WKT 注入，rg "catalog/" src/algorithms/ 零命中；commit `d7d650c`）
+
 - **Severity**: **P2** (Boundary Violation / Undeclared CMake Link Dependency)
 - **Dimension**: Architecture Layering & Module Isolation
 - **Exact Code Location**: `src/algorithms/paleoalgorithms.cpp`, Lines 3, 75–76; `CMakeLists.txt`, Lines 250–254
@@ -1037,6 +1093,8 @@ const QByteArray wkt = ((crs == local || crs.toWkt()==local.toWkt()) ? DataCatal
 ---
 
 ### [ARCH-06] Side-Channel Property Smuggling: Dynamic String Properties Used as Covert Cross-Layer Data Channel between UI and Workflow Layers
+> **终态（2026-10-06，方向48 清账复核）**：方向48 已修（typed 成员/访问器替代动态属性暗道；commit `6e7a1e2`）
+
 - **Severity**: **P2** (Interface Degeneration / Fragile Untyped Coupling)
 - **Dimension**: Interface Contracts & Hidden Coupling
 - **Exact Code Location**: `src/workflow/mappingworkflow.cpp`, Lines 558–566; `src/ui/pages/constraintpage.cpp`, Lines 393–397
@@ -1066,6 +1124,8 @@ const QString message = wf ? wf->property( "paleo.thickness.message" ).toString(
 ---
 
 ### [ARCH-07] Modularity Placement Smell: Interactive `QgsMapTool` with RubberBand Visualization Located in Functional Layer (`src/linkage/seismicsectiontool.h`)
+> **终态（2026-10-06，方向48 清账复核）**：已修（移至 src/qgis/seismicsectiontool，QGIS 封装层 QtWidgets 豁免；PR #193 `0a02a0e`）
+
 - **Severity**: **P3** (Modularity Smell / Responsibility Blur)
 - **Dimension**: Architecture Layering & Module Isolation
 - **Exact Code Location**: `src/linkage/seismicsectiontool.h`, Lines 1–36; `src/linkage/seismicsectiontool.cpp`, Lines 9–20, 89
@@ -1099,6 +1159,8 @@ private:
 ---
 
 ### [ARCH-08] Test Suite Failure in UI Tab Navigation: `tst_panels.cpp:4736` Failure under Headless Offscreen Platform
+> **终态（2026-10-06，方向48 清账复核）**：方向48 已修（同 TEST-07，nextInFocusChain 链断言；commit `ca18f88`）
+
 - **Severity**: **P1** (Test Suite Blocker)
 - **Dimension**: Architecture Layering & Automation Verification (Cross-Ref: `TEST-07`)
 - **Exact Code Location**: `tests/tst_panels.cpp`, Line 4736; `build/Testing/Temporary/LastTest.log`, Lines 151–153
@@ -1126,6 +1188,8 @@ QTest::qWaitForWindowExposed(panel);
 ## 5. Dimension 3: Business & Boundary Robustness
 
 ### [BIZ-01] `LasParser::parseDepthRange` Hardcoded 64-Curve Stack Buffer Truncates Logs Silently
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：动态 nCurves 向量；commit `e69ae58`/`34df4ea`）
+
 - **Severity**: **P1** (Data Truncation / Silent Data Loss)
 - **Dimension**: Business & Boundary Robustness
 - **Exact Code Location**: `src/io/lasparser.cpp`, Lines 793–823
@@ -1182,6 +1246,8 @@ std::vector<double> rowVals(nCurves, nan());
 ---
 
 ### [BIZ-02] `LasParser` BOM Offset Miscalculation in `parseRange` and `parseDepthRange`
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：bomBytes 扫描期落位；commit `e69ae58`）
+
 - **Severity**: **P1** (File Offset Desynchronization / Data Corruption)
 - **Dimension**: Business & Boundary Robustness
 - **Exact Code Location**: `src/io/lasparser.cpp`, Lines 605–607, 653–656, 744–763
@@ -1219,6 +1285,8 @@ const qint64 asciiOff = header.asciiDataOffset + (header.hasBom ? 3 : 0);
 ---
 
 ### [BIZ-03] `SegyReader::scanParallel` Offset Desynchronization & Trace Duplication on Resume
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：m_index+m_badTraceOffsets 计位；PR #193 `0a02a0e`）
+
 - **Severity**: **P1** (Trace Duplication / Index Corruption)
 - **Dimension**: Business & Boundary Robustness
 - **Exact Code Location**: `src/io/segyreader.cpp`, Lines 847–851, 875–888, 941–949
@@ -1260,6 +1328,8 @@ m_scannedOffset = firstTraceOffset + static_cast<qint64>(m_index.size() + m_badT
 ---
 
 ### [BIZ-04] `SegyReader::openCached` Inverted Probe Logic Rejects Valid 3D Seismic Datasets
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：anyDifferent 探针逻辑；PR #193 `0a02a0e`）
+
 - **Severity**: **P1** (Severe Performance Regression / Fallback to Sequential Scan)
 - **Dimension**: Business & Boundary Robustness
 - **Exact Code Location**: `src/io/segyreader.cpp`, Lines 1108–1132
@@ -1305,6 +1375,8 @@ if (!anyDifferent) eligible = false; // All probes identical -> ordinal dialect
 ---
 
 ### [BIZ-05] `SegyReader::decodeTrace` Missing IEEE 754 Non-Finite/NaN/Inf Validation
+> **终态（2026-10-06，方向48 清账复核）**：仍存在→方向50 io-robustness（方向48 R0 证据：decodeTrace 无 isfinite 清洗）
+
 - **Severity**: **P2** (Data Corruption / Numerical Instability)
 - **Dimension**: Business & Boundary Robustness
 - **Exact Code Location**: `src/io/segyreader.cpp`, Lines 564–573
@@ -1331,6 +1403,8 @@ if (!anyDifferent) eligible = false; // All probes identical -> ordinal dialect
 ---
 
 ### [BIZ-06] `TimeDepthTool` and `parseWellTopsText` Depth Null Sentinel Inconsistencies
+> **终态（2026-10-06，方向48 清账复核）**：仍存在→方向50 io-robustness（方向48 R0 证据：timedeptool 仅 -99999 哨兵；wellfileparsers 深度缺失行仍 append）
+
 - **Severity**: **P2** (Boundary Robustness Defect)
 - **Dimension**: Business & Boundary Robustness
 - **Exact Code Location**: `src/io/timedeptool.cpp`, Lines 25–28; `src/io/wellfileparsers.cpp`, Lines 95–118
@@ -1356,6 +1430,8 @@ tops.append(r); // Appended even if r.hasMd is false!
 ---
 
 ### [BIZ-07] `RegistrationWorkflow` and `geoAffineTransformFile` Lack Non-Finite/Zero Scale Defense
+> **终态（2026-10-06，方向48 清账复核）**：仍存在→方向50 io-robustness（方向48 R0 证据：sx/sy/rotDeg 无有限性校验）
+
 - **Severity**: **P2** (Boundary Vulnerability)
 - **Dimension**: Business & Boundary Robustness
 - **Exact Code Location**: `src/workflow/registration.cpp`, Lines 71–85; `src/io/geojsonaffine.cpp`, Lines 12–20
@@ -1377,6 +1453,8 @@ p.sy = params.value(QStringLiteral("sy"), 1.0).toDouble();
 ---
 
 ### [BIZ-08] `PaleoVertexTool::deleteVertexAtMapPoint` Degenerates Polygons on Multi-Coincident Vertex Deletion
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：defense-in-depth 逐环最小数校验；commit `eff046e`）
+
 - **Severity**: **P1** (Topological Geometry Corruption)
 - **Dimension**: Business & Boundary Robustness
 - **Exact Code Location**: `src/ui/edittools/vertexeditortools.cpp`, Lines 482–486, 566–614
@@ -1405,6 +1483,8 @@ if ( remainingCount >= 2 ) { ... }
 ---
 
 ### [BIZ-09] `PaleoVertexTool::coincidentVertices` 1-Nanometer Tolerance Radius Rejects Real-World Shared Boundaries
+> **终态（2026-10-06，方向48 清账复核）**：方向48 已修（kTopoCandidateEnvelope 具名常量+量纲注释+包络上界钉死；commit `c814130`）
+
 - **Severity**: **P2** (Topological Tolerance Fragility)
 - **Dimension**: Business & Boundary Robustness
 - **Exact Code Location**: `src/ui/edittools/vertexeditortools.cpp`, Lines 1053–1064
@@ -1425,6 +1505,8 @@ const QList<QgisTopologicalIndex::VertexHit> hits =
 ---
 
 ### [BIZ-10] `ConstraintIDWAlgorithm` & `PaleoDistanceTransformAlgorithm` Fatal Abort on Engineering CRS
+> **终态（2026-10-06，方向48 清账复核）**：仍存在→方向50 io-robustness（方向48 R0 证据：g.transform 前无 xform->isValid() 前置）
+
 - **Severity**: **P2** (Processing Pipeline Failure)
 - **Dimension**: Business & Boundary Robustness
 - **Exact Code Location**: `src/algorithms/paleoalgorithms.cpp`, Lines 258–285; `src/algorithms/distancetransform.cpp`, Lines 138–166
@@ -1451,6 +1533,8 @@ if ( tr != Qgis::GeometryOperationResult::Success )
 ---
 
 ### [BIZ-11] Single-Factor Well Distance Algorithms Emit Unprojected GeoTIFFs
+> **终态（2026-10-06，方向48 清账复核）**：仍存在→方向50 io-robustness（方向48 R0 证据：welldist/distancetransform 无 GDALSetProjection 旁路——注：两者已走共享写口写 CRS，残余面=非 LOCAL_GRID_WKT 直调场景）
+
 - **Severity**: **P2** (Missing Spatial Metadata)
 - **Dimension**: Business & Boundary Robustness
 - **Exact Code Location**: `src/algorithms/welldist.cpp`, Lines 34–53; `src/algorithms/distancetransform.cpp`, Lines 42–61
@@ -1476,6 +1560,8 @@ GDALDatasetH createFloatRaster( const QString &outPath, int nCols, int nRows,
 ---
 
 ### [BIZ-12] `TimeDepthModel` Defensive Check Ordering & Potential Undefined Behavior
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：empty 检查先行；commit `9a9cec1`）
+
 - **Severity**: **P2** (Defensive Brittleness / Fragile Check Ordering — Calibrated from P0)
 - **Dimension**: Business & Boundary Robustness
 - **Exact Code Location**: `src/domain/seismic/timedepthmodel.cpp`, Lines 61–70, 108–116
@@ -1523,6 +1609,8 @@ if (!std::isfinite(depthM) ||
 ---
 
 ### [BIZ-13] `ConstraintIDWAlgorithm` Generates NaNs Due to Floating-Point Overflow Near Sample Points
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：d2<1e-12 epsilon 门；commit `09c8db2`）
+
 - **Severity**: **P2** (Numerical Degeneration / NaN Hole Artifacts)
 - **Dimension**: Business & Boundary Robustness
 - **Exact Code Location**: `src/algorithms/paleoalgorithms.cpp`, Lines 536–550
@@ -1552,6 +1640,8 @@ if (!std::isfinite(depthM) ||
 ---
 
 ### [BIZ-14] `SectionWorkbench::sectionWells` Fragile Depth Unit Filtering Aborts Valid Well Logs
+> **终态（2026-10-06，方向48 清账复核）**：仍存在→方向50 io-robustness（方向48 R0 证据：单位同义词仍只认 M/FT/F）
+
 - **Severity**: **P2** (Defensive Robustness Omission)
 - **Dimension**: Business & Boundary Robustness
 - **Exact Code Location**: `src/workflow/sectionworkbench.cpp`, Lines 187–199
@@ -1579,6 +1669,8 @@ else if (unit != "M") {
 ## 6. Dimension 4: Test Coverage & Assertion Integrity
 
 ### [TEST-01] Build Directory Drift Leaves 7 Newly Merged Test Targets Unbuilt & Unexecuted
+> **终态（2026-10-06，方向48 清账复核）**：已消解（方向48 复核：fresh configure 后 7 套件全注册，ctest -N 证据；残余风险=构建目录纪律，非代码缺陷）
+
 - **Severity**: **P1** (Test Suite Execution Blind Spot)
 - **Dimension**: Test Coverage & Automation Verification
 - **Exact Code Location**: `CMakeLists.txt`, Lines 717–720; `cmake/extra-deepen-*.cmake`; `build/CTestTestfile.cmake`
@@ -1612,6 +1704,8 @@ endforeach()
 ---
 
 ### [TEST-02] Flaky Wall-Clock Performance Assertion in `tst_correlation_full` Causes Intermittent CI Failures
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：offscreen 感知+平台自适应预算；commit `bc79b6a`）
+
 - **Severity**: **P1** (Flaky Test Suite / CI Blocker)
 - **Dimension**: Test Coverage & Automation Verification
 - **Exact Code Location**: `tests/tst_correlation_full.cpp`, Lines 2501–2535
@@ -1640,6 +1734,8 @@ QVERIFY2(best < budgetMs, qPrintable(QStringLiteral("50-well setup+render took %
 ---
 
 ### [TEST-03] False Green Assertion in `tst_wellcomposite_depth.cpp` Passes Without Signal Emission
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：spy.count()==1；PR #193 `0a02a0e` 系）
+
 - **Severity**: **P2** (Tautological Assertion / False Green)
 - **Dimension**: Test Coverage & Automation Verification
 - **Exact Code Location**: `tests/tst_wellcomposite_depth.cpp`, Lines 413–416
@@ -1661,6 +1757,8 @@ QVERIFY(spy.count() >= 0); // TAUTOLOGICAL ASSERTION
 ---
 
 ### [TEST-04] Tautological Self-Comparison Assertions Across Multiple UI Test Suites
+> **终态（2026-10-06，方向48 清账复核）**：方向48 已修（四处换真实不变量+mutation 验证；commit `bf93dc4`）
+
 - **Severity**: **P2** (False Positive Visual Regression Tests)
 - **Dimension**: Test Coverage & Automation Verification
 - **Exact Code Location**: 
@@ -1692,6 +1790,8 @@ QCOMPARE( render(), render() ); // EXPRESSION COMPARED TO ITSELF
 ---
 
 ### [TEST-05] Tautological Concurrency Invariant Check in `tst_cache_core.cpp`
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：size≤cap+bytes 关系断言；commit `7f7381f`）
+
 - **Severity**: **P2** (Tautological Invariant Check)
 - **Dimension**: Test Coverage & Automation Verification
 - **Exact Code Location**: `tests/tst_cache_core.cpp`, Lines 343–347
@@ -1715,6 +1815,8 @@ QCOMPARE(cache.bytes(), qint64(0));
 ---
 
 ### [TEST-06] 33 Source Headers and Critical Subsystems Completely Untested
+> **终态（2026-10-06，方向48 清账复核）**：仍存在→方向52 test-deepening（零测试头清单）
+
 - **Severity**: **P2** (Test Coverage Blind Spot)
 - **Dimension**: Test Coverage & Automation Verification
 - **Exact Code Location**: Multiple modules across `src/`
@@ -1754,6 +1856,8 @@ QCOMPARE(cache.bytes(), qint64(0));
 ---
 
 ### [TEST-07] Headless Offscreen Focus Traversal Failure in `tst_panels`
+> **终态（2026-10-06，方向48 清账复核）**：方向48 已修（nextInFocusChain 链断言+折叠披露 mutation 红绿；commit `ca18f88`；本机 Qt6.11 offscreen 原用例偶绿——CI 红证据为审计 LastTest.log:151-153）
+
 - **Severity**: **P1** (Deterministic Test Failure in CI)
 - **Dimension**: Test Coverage & Automation Verification (Cross-Ref: `ARCH-08`)
 - **Exact Code Location**: `tests/tst_panels.cpp`, Line 4736; `build/Testing/Temporary/LastTest.log`, Lines 151–153

@@ -11,7 +11,8 @@ set -uo pipefail
 build_dir="${BUILD_DIR:-build}"
 log="$(mktemp -t ctest-gate.XXXXXX.log)"
 
-./paleo-dev test "$@" -j "$(nproc)" 2>&1 | tee "$log"
+# #230：并行度交给 paleo-dev 的 min(核数, 8) 缺省（AGENTS.md -j8 上限）。
+./paleo-dev test "$@" 2>&1 | tee "$log"
 rc=${PIPESTATUS[0]}
 if [ "$rc" -eq 0 ]; then
   exit 0

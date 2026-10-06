@@ -64,7 +64,7 @@ target_link_libraries(paleo_selfcheck PRIVATE paleo_io paleo_store)
 # ---- 测试（命名匹配 ctest -R 'perf|cache|catalog|import|index|layering'）----
 add_paleo_test(tst_cache_core LIBS paleo_io)
 add_paleo_test(tst_cache_las LIBS paleo_io)
-add_paleo_test(tst_geoaffine_guard LIBS paleo_io) # BIZ-07（方向58）：仿射参数有限性/零缩放闸
+add_paleo_test(tst_import_geoaffine LIBS paleo_io) # BIZ-07（方向58）：仿射参数有限性/零缩放闸
 # RUN_SERIAL：cold<50ms/warm<5ms 墙钟预算在并行 IO 负载下偶发超限——
 # 计时抖动关回串行基线（同 CMakeLists tst_perf 先例）。
 set_tests_properties(tst_cache_las PROPERTIES RUN_SERIAL TRUE)

@@ -115,4 +115,4 @@ void TestGeoAffineGuard::validParamsUnchanged()
 }
 
 QTEST_GUILESS_MAIN(TestGeoAffineGuard)
-#include "tst_geoaffine_guard.moc"
+#include "tst_import_geoaffine.moc"

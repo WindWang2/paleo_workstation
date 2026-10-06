@@ -33,8 +33,11 @@ target_sources(paleo_workflow PRIVATE src/workflow/aichatcontroller.cpp)
 # 装配根：远端预测装配（唯一的装配入口，产品与测试同源）。
 target_sources(paleo_app PRIVATE src/app/aiwiring.cpp)
 
-# 视图层：助手 dock。
-target_sources(paleo_ui PRIVATE src/ui/ai/aiassistdock.cpp)
+# 视图层：助手 dock + 配置对话框（方向62）。
+target_sources(paleo_ui PRIVATE
+  src/ui/ai/aiassistdock.cpp
+  src/ui/ai/llmconfigdialog.cpp
+)
 
 # ---- 测试 ----
 # 刻意不走 ORT 门：异步路由/降级语义用桩 LocalPredictor 即可覆盖，
@@ -47,3 +50,5 @@ add_paleo_test(tst_aichatcontroller LIBS paleo_workflow paleo_ai)
 add_paleo_test(tst_aiassistdock LIBS paleo_ui)
 # 方向62：markdown 转换器（纯逻辑，无 UI）。
 add_paleo_test(tst_aimarkdown LIBS paleo_ai)
+# 方向62：图形化配置对话框（表单 round-trip / 密钥掩码 / 无钥匙串禁用态）。
+add_paleo_test(tst_llmconfigdialog LIBS paleo_ui)

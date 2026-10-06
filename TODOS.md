@@ -1,10 +1,9 @@
-## P3 — AI 助手：function calling 闭环 + 图形化配置（from goal/ai-assist, 2026-10-06）
+## P3 — AI 助手：function calling 闭环（from goal/ai-assist, 2026-10-06）
 
 - **What:** 方向51 只交付了「领域工具描述表 + 调用分发」：模型点名挑工具后，助手面板会
   出一张占位卡片写明目标入口与「尚未接线」，**不会**真的执行、也不会把结果回填再续写。
-  另：端点/模型/密钥的图形化配置对话框同样未做——面板「配置…」只发意图，状态栏告知
-  配置文件（`LlmConfig::path()`）与 `PALEO_LLM_ENDPOINT` / `_MODEL` / `_API_KEY` 环境变量。
-  密钥本身已进系统钥匙串（`src/ai/chat/llmkeystore.*`），只是没有写入 UI。
+  （2026-10-07 更新：原同条登记的「端点/模型/密钥图形化配置对话框」已由方向62 交付——
+  `src/ui/ai/llmconfigdialog.*`，密钥写系统钥匙串不回显；本条只剩 function calling 闭环。）
 - **Why:** 工具执行要跨到既有服务（ORT 推理、测井相 HTTP）并定义「结果回填 → 再发起一轮
   补全」的协议与取消边界，工作量不在骨架方向；而且未做之前假装做了，是更坏的诚实面。
 - **Pros:** 现在这一版不冒充已执行的 function calling，配置缺口也明说在状态行；

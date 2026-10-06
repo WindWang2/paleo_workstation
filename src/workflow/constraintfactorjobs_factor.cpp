@@ -14,6 +14,7 @@
 #include "../algorithms/singlefactor/cartographicworkfile.h"
 #include "../domain/arearules.h"
 #include "../domain/singlefactorrequest.h"  // 制图工作场不进融合/分相
+#include "../domain/singlefactorstrategy.h" // 方向67：策略包词表（strategy_id 校验）
 #include "../io/constraintstore.h"
 #include "../metadata/paleoprojectstore.h"
 #include "../qgis/factorcontour.h"
@@ -107,6 +108,15 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
     return false;
   }
   const QString method = params.value( QStringLiteral( "method" ) ).toString();
+  // 方向67：策略包 id 先于一切分派校验——词表（singlefactorstrategy）里查不到
+  // 就拒绝，不回退到某个「差不多」的策略（未知 id 混进血缘比缺字段更糟）。
+  const QString strategyId = params.value( QStringLiteral( "strategy_id" ) ).toString();
+  if ( !strategyId.isEmpty() && !paleo::singlefactor::surfaceMethodPack( strategyId ) )
+  {
+    paleo::workflow_detail::setError(
+        error, tr( "未知制图策略 id：%1（不在 singlefactorstrategy 词表内）" ).arg( strategyId ) );
+    return false;
+  }
   // structural_idw 按格网分辨率（gridResolution）成图，没有 cellSize 契约——
   // 分派先于像元大小校验。
   if ( method == QLatin1String( "structural_idw" ) )
@@ -230,6 +240,7 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
   parentIds.removeDuplicates();
   if(auto *catalog=PaleoWorkflowDerivedCatalog(this))for(const auto &id:parentIds)
     if(catalog->versionById(id).extra.value("mock").toBool())extra.insert("mock",true);
+  insertStrategyId( params, extra ); // 方向67：策略包 id 进血缘（旧约束 IDW = 词表 "idw"）
   QString commitErr;
   if ( !registrar.commitExternal( st, outPath, parentIds,
                                   def.processingAlgId, extra, &commitErr ) )
@@ -799,6 +810,7 @@ bool ConstraintWorkflow::generateStructuralFactor( const QString &horizon, const
   extra.insert( QStringLiteral( "contour_stop_buffer_distance" ),
                 qc.value( QStringLiteral( "contour_stop_buffer_distance" ) ) );
   inheritMockFlag( PaleoWorkflowDerivedCatalog( this ), parentIds, extra );
+  insertStrategyId( params, extra ); // 方向67：策略包 id 进血缘（structural_idw 词表项）
   QString commitErr;
   if ( !registrar.commitExternal( st, outPath, parentIds, engineId, extra, &commitErr ) )
   {

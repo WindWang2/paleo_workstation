@@ -75,6 +75,8 @@ class AppContext : public QObject
     QString remotePredictStatusHint() const { return m_remotePredictHint; }
     // 方向51：AI 地质对话助手编排（会话/流式/工具分发）；未配置密钥时呈禁用态。
     AiChatController *aiChat() const { return m_aiChat; }
+    // 方向68：Python 脚本面编排（脚本运行/协议/历史/REPL 会话转发）。
+    class PythonConsoleController *pythonConsole() const { return m_pythonConsole; }
     // AI 辅助编排（tile 分类产品 + 追踪建议裁决）；无 ORT 构建下为 null。
     AiAssistWorkflow *aiAssistWorkflow() const { return m_aiAssistWf; }
     SelectionContext *selection() const { return m_selection; }
@@ -167,6 +169,10 @@ class AppContext : public QObject
     RemotePredictionRouter *m_remotePredict = nullptr;
     QString m_remotePredictHint;
     AiChatController *m_aiChat = nullptr;
+    // 方向68：Python 脚本面三件（运行服务/REPL 会话/控制台编排）。
+    class ScriptRunnerService *m_scriptRunner = nullptr;
+    class PythonReplSession *m_pythonRepl = nullptr;
+    class PythonConsoleController *m_pythonConsole = nullptr;
     AiAssistWorkflow *m_aiAssistWf = nullptr;
     SelectionContext *m_selection = nullptr;
     SeismicMapLink *m_seismicLink = nullptr;

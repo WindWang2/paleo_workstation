@@ -192,6 +192,11 @@ class PaleoMainWindow : public SARibbonMainWindow
     // AiChatController。编排与会话落盘全在 workflow 层，这里只装配面板 +
     // 把「配置…」意图翻成状态栏提示（配置对话框递延，见 TODOS.md）。
     void attachAiAssistant(class AiChatController *controller);
+    // 方向68：Python 脚本面——底栏加「Python 脚本」+「Python REPL（实验性）」
+    // 页签，挂 AppContext 持有的 PythonConsoleController。返回脚本面板指针，
+    // 供组装根把 importRequested 接到 DataImportService（视图不碰 io）。幂等。
+    class PythonConsolePanel *attachPythonConsole(
+        class PythonConsoleController *controller);
     // goal/fault-interpretation：断层解释接线——剖面 dock 挂编排器 + 右栏
     // 断层管理面板 dock。幂等（m_faultPanelDock 已建则只重挂控制器）。
     void attachFaults(paleo::fault::FaultInterpretationController *controller);

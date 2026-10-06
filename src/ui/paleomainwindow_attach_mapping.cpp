@@ -28,6 +28,8 @@
 #include <QLabel>
 #include <QMessageBox>
 #include <QPushButton>
+
+#include "notifications/notificationmanager.h"
 #include <QStatusBar>
 #include <QTemporaryFile>
 
@@ -125,8 +127,7 @@ void PaleoMainWindow::attachMappingPublishGate(ComposePage *composePage,
                     .fileName();
             const QString advisory =
                 MapVersionController::stalePublishAdvisory(catalog);
-            const auto choice = QMessageBox::question(
-                this, tr("发布版本"),
+            const QString publishText =
                 tr("发布 %1 v%2？\n\nPDF：%3\n覆盖井数：%4/%5\n\n发布后快照只读，"
                    "继续编辑请保存新版本。")
                     .arg(h)
@@ -136,9 +137,8 @@ void PaleoMainWindow::attachMappingPublishGate(ComposePage *composePage,
                     .arg(total < 0 ? 0 : total)
                     + (advisory.isEmpty()
                            ? QString()
-                           : tr("\n\n注意：") + advisory),
-                QMessageBox::Ok | QMessageBox::Cancel, QMessageBox::Cancel);
-            if (choice != QMessageBox::Ok)
+                           : tr("\n\n注意：") + advisory);
+            if (!paleo::ui::NotificationManager::confirmOkCancel(this, tr("发布版本"), publishText))
               return;
             QString err;
             const QString dir = versions->publish(h, summary, &err);
@@ -286,9 +286,9 @@ void PaleoMainWindow::attachMappingExport(ComposePage *composePage,
                                           Qgis::MessageLevel::Warning);
             }
             status(tr("层位图已导出：%1").arg(pdf));
-            QMessageBox::information(this, tr("导出成功"),
-                                     tr("已导出层位图：\n%1\n\nSHA-256：%2")
-                                         .arg(pdf, sha));
+            paleo::ui::NotificationManager::showInfo(
+                this, tr("导出成功"),
+                tr("已导出层位图：\n%1\n\nSHA-256：%2").arg(pdf, sha));
             if (m_refreshPublishGate) m_refreshPublishGate();
           });
 

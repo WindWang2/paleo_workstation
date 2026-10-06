@@ -506,6 +506,7 @@ add_library(paleo_services STATIC
   src/services/startuptrace.cpp                     # goal/perf-systematize 簇1：启动分段仪表
   src/services/storagegovernance.cpp
   src/services/cataloghealth.cpp                    # 方向30：工区资产体检（快速面 + 外链 SHA 复验）
+  src/services/errorhub.cpp                         # 方向54：ErrorHub 统一错误汇聚与历史管理
 )
 target_link_libraries(paleo_services PUBLIC paleo_deps paleo_io paleo_domain paleo_store paleo_algorithms)
 
@@ -655,6 +656,10 @@ add_library(paleo_ui STATIC
   src/ui/paleotheme.cpp                            # DESIGN.md 字体/色 token
   src/ui/paleoicons.cpp                            # ribbon 图标出口
   src/ui/paleoribbon.cpp                           # SARibbon 壳公用件
+  src/ui/notifications/notificationcard.cpp        # 方向54：ErrorHub 浮动通知卡片
+  src/ui/notifications/notificationmanager.cpp     # 方向54：ErrorHub 呈现与模态策略管理器
+  src/ui/notifications/errorhistorymodel.cpp       # 方向54：ErrorHub 错误历史模型
+  src/ui/notifications/errorhistorydock.cpp        # 方向54：ErrorHub 错误历史面板
   resources/seismic_shaders.qrc
   resources/paleo_fonts.qrc
 )
@@ -1066,6 +1071,14 @@ add_paleo_test(tst_entityview LIBS paleo_store)
 # 崩溃本地转储（§38 留白按本地优先落地）+ 外链源重定位恢复路径。
 # 新增源与测试集中在此块；并行包合并冲突时保留双方行。
 add_paleo_test(tst_crashreport LIBS paleo_services)
+add_paleo_test(tst_errorhub LIBS paleo_services)   # 方向54：ErrorHub 核心数据服务与去重/环形缓冲单元测试
+add_paleo_test(tst_notification_card LIBS paleo_ui paleo_services) # 方向54：通知卡片与管理器测试
+add_paleo_test(tst_notification_m2_challenger LIBS paleo_ui paleo_services) # 方向54：M2 Challenger 经验证套件
+add_paleo_test(tst_error_history_dock LIBS paleo_ui paleo_services) # 方向54/M4：错误历史模型与面板测试
+add_paleo_test(tst_errorhub_challenger_m4 LIBS paleo_ui paleo_services) # 方向54/M4：M4 Challenger UI交互与边界测试套件
+add_paleo_test(tst_errorhub_storm LIBS paleo_ui paleo_services) # 方向54/M5：错误风暴压力与事件循环防冻结测试
+set_tests_properties(tst_errorhub_storm PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+add_paleo_test(tst_errorhub_challenger_m5_harness LIBS paleo_ui paleo_services) # 方向54/M5：M5-2 Challenger 极端压力与经验证套件
 add_paleo_test(tst_relocate LIBS paleo_ui)
 
 # ---- goal/perf-systematize 簇2：UI 线程阻塞动态验证 ----

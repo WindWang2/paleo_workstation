@@ -8,6 +8,9 @@
 #include "paleoemptystate.h" // T31 空态卡片共享组件（本文件旧匿名类收敛于此）
 #include "paleoicons.h" // ribbon 图标：QGIS 主题直取（暗色再着色）+ 自绘补缺
 #include "paleoribbon.h" // SARibbon 壳公用件：主题/命令镜像
+#include "notifications/notificationmanager.h"
+#include "notifications/errorhistorydock.h"
+#include "../services/errorhub.h"
 
 #include "../qgis/qgiscanvascontroller.h"
 #include "../qgis/qgisprojectservice.h"
@@ -780,6 +783,20 @@ void PaleoMainWindow::buildShell()
   m_wellSectionDock->setUserWantsVisible(false);
   m_wellSectionDock->setProgrammaticVisible(false);
 
+  // ---- 错误历史 dock ----
+  m_errorHistoryDock = new paleo::ui::ErrorHistoryDock(this);
+  m_errorHistoryDock->setObjectName(QStringLiteral("errorHistoryDock"));
+  QAction *errAct = m_errorHistoryDock->toggleViewAction();
+  errAct->setObjectName(QStringLiteral("actionViewErrorHistory"));
+  errAct->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionHistory.svg")));
+  errAct->setText(tr("错误历史"));
+  errAct->setToolTip(tr("显示/隐藏错误与警告历史面板"));
+  addDockWidget(Qt::BottomDockWidgetArea, m_errorHistoryDock);
+  if (m_bottomDock) {
+    tabifyDockWidget(m_bottomDock, m_errorHistoryDock);
+  }
+  m_errorHistoryDock->hide();
+
   // ---- seismic 3D viewport dock ----
   m_seismic3dDock = new QDockWidget(tr("三维地震视口 (3D)"), this);
   m_seismic3dDock->setObjectName(QStringLiteral("seismic3dDock"));
@@ -904,6 +921,41 @@ void PaleoMainWindow::buildShell()
   if (m_selection)
     connect(m_selection, &SelectionContext::activeHorizonChanged, horizonLabel,
             [horizonLabel, horizonText](const QString &h) { horizonLabel->setText(horizonText(h)); });
+
+  // 错误历史状态栏胶囊按钮
+  m_statusErrorBtn = new QToolButton(this);
+  m_statusErrorBtn->setObjectName(QStringLiteral("statusErrorHistoryButton"));
+  m_statusErrorBtn->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionHistory.svg")));
+  m_statusErrorBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+  m_statusErrorBtn->setAutoRaise(true);
+  m_statusErrorBtn->setCursor(Qt::PointingHandCursor);
+  m_statusErrorBtn->setVisible(false);
+  connect(m_statusErrorBtn, &QToolButton::clicked, this, [this] {
+    if (m_errorHistoryDock) {
+      m_errorHistoryDock->show();
+      m_errorHistoryDock->raise();
+      m_errorHistoryDock->activateWindow();
+    }
+  });
+  statusBar()->addPermanentWidget(m_statusErrorBtn);
+
+  if (auto *hub = paleo::services::ErrorHub::instance()) {
+    const auto syncErrorStatus = [this, hub] {
+      if (!m_statusErrorBtn)
+        return;
+      const int count = hub->count();
+      if (count <= 0) {
+        m_statusErrorBtn->setVisible(false);
+      } else {
+        m_statusErrorBtn->setVisible(true);
+        m_statusErrorBtn->setText(QString::number(count));
+        m_statusErrorBtn->setToolTip(tr("错误与警告历史（共 %1 条记录），点击查看").arg(count));
+      }
+    };
+    connect(hub, &paleo::services::ErrorHub::historyChanged, this, syncErrorStatus);
+    connect(hub, &paleo::services::ErrorHub::historyCleared, this, syncErrorStatus);
+    syncErrorStatus();
+  }
 
   // DESIGN.md tokens on shell chrome only — no custom painting. ribbon 本体
   // 的颜色来自 PaleoTheme::ribbonPaletteJson（office2021 模板）。
@@ -1148,6 +1200,11 @@ void PaleoMainWindow::contextMenuEvent(QContextMenuEvent *event)
   SARibbonMainWindow::contextMenuEvent(event);
 }
 
+QAction *PaleoMainWindow::errorHistoryAction() const
+{
+  return m_errorHistoryDock ? m_errorHistoryDock->toggleViewAction() : nullptr;
+}
+
 void PaleoMainWindow::restoreCorrelationDocks()
 {
   if (auto *save = findChild<QAction *>(QStringLiteral("saveProjectAction")))
@@ -1319,8 +1376,9 @@ void PaleoMainWindow::runFolderImportAt(DataImportService *svc,
                           : QVector<FolderPreviewRow>();
   if (preview.isEmpty())
   {
-    QMessageBox::warning(this, tr("导入工区文件夹"),
-                         err.isEmpty() ? tr("目录里没有可导入的文件") : err);
+    paleo::ui::NotificationManager::showWarning(
+        this, tr("导入工区文件夹"),
+        err.isEmpty() ? tr("目录里没有可导入的文件") : err);
     return;
   }
 
@@ -1452,14 +1510,14 @@ ProjectOpenWorkflow *PaleoMainWindow::projectOpenWorkflow()
               if (fatal)
                 QMessageBox::critical(this, title, detail);
               else
-                QMessageBox::warning(this, title, detail);
+                paleo::ui::NotificationManager::showWarning(this, title, detail);
             });
     connect(m_projectOpenWf, &ProjectOpenWorkflow::folderImportRequested, this,
             [this](const QString &dir) {
               if (m_importSvc)
                 runFolderImportAt(m_importSvc, dir);
-              else if (!isOffscreen())
-                QMessageBox::information(
+              else
+                paleo::ui::NotificationManager::showInfo(
                     this, tr("从工区文件夹新建"),
                     tr("工程已创建于 %1；导入服务未就绪，请在数据页手动导入该文件夹。")
                         .arg(dir));

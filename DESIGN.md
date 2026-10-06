@@ -165,6 +165,50 @@ QGIS 标准解剖：左 dock（资源管理器/图层树）、中央 `QgsMapCanv
 - **状态标签:** 浅色底+深色字的小胶囊（通过/待复核/未执行），永远带数字。
 - **画布内装饰:** 指北针左上、比例尺左下、图例右上、图件标题 chip 左上——白底半透明卡片承载。
 
+## 错误呈现 (Error Presentation)
+
+为彻底解决散弹式弹窗导致的交互打断与状态丢失问题，Paleo Workbench 采用统一的 ErrorHub 汇聚与三级呈现（3-tier hierarchy）体系：
+
+### 1. 三级呈现架构 (3-Tier Hierarchy)
+
+- **Tier 1 (轻量通知): 通知卡片 (`NotificationCard` & `NotificationManager`)**
+  - **交互语义**: 非模态、右下角悬浮堆叠呈现。适用于常规操作反馈、后台任务告警及非破坏性错误。
+  - **生命周期与倒计时**: 支持基于严重级别的自动倒计时关闭（Info: 4s / Warning: 7s / Error: 10s / Critical: 10s）。
+  - **悬停交互控制**: 鼠标光标悬停（Hover）在卡片上时即时暂停倒计时计时器；光标离开后从暂停的剩余时长恢复倒计时。
+  - **去重与聚合角标**: 相同去重键（deduplicationKey）的高频消息不重复弹出新卡片，就地更新卡片文案并累加聚合角标（`×N`），且重置倒计时。
+  - **屏幕并发与排队屏障**: 屏幕最大并发上限为 5 张卡片（`kMaxVisibleCards = 5`）；超出并发时进入 FIFO 等待队列，队列容量上限为 50 条（`kMaxPendingQueue = 50`），满额时 FIFO 逐出最早排队项，防止内存泄露与屏幕溢出。
+  - **动效规范**: 零 `QPropertyAnimation` / `QEasingCurve` 动效（严格符合 `minimal-functional` 即时切换规范）。底部采用 2px 高度微步递减进度条（50ms 刷新），无跳跃与无编排动画。
+
+- **Tier 2 (阻断决策): 模态确认对话框 (`PaleoConfirmDialog` & `NotificationManager` 确认契约)**
+  - **交互语义**: 仅用于不可逆、破坏性操作二次确认或致命业务阻断。
+  - **收敛契约**: 全局统一走 `NotificationManager` 封装的 `PaleoConfirmDialog`（`confirmOkCancel` / `confirmYesNo` / `confirmDestructive`），消除散弹式裸 `QMessageBox` 调用。
+  - **去重抑制保护**: 引入 60 秒时间窗口的模态弹窗去重保护机制（相同去重键 60 秒内仅允许弹窗一次，后续相同错误降级为非模态卡片或静默记录，杜绝错误风暴下的模态弹窗洪泛）。
+  - **无头测试钩子**: 提供 `setConfirmHookForTesting` 与 `setOffscreenAutoAnswer` 自动化应答注入探针，保证离线与无头测试环境下不会死锁或阻塞事件循环。
+
+- **Tier 3 (全局审计): 错误历史抽屉面板 (`ErrorHistoryDockWidget` / `ErrorHistoryDock` & `ErrorHistoryModel`)**
+  - **交互语义**: 集中式全局停靠（Dock）面板，挂载于主窗口底栏及「视图」菜单。
+  - **环形缓冲区**: 底层由 `ErrorHub` 维护上限为 500 条的环形历史缓冲区（`kDefaultMaxHistory = 500`），满额时严格按 FIFO 逐出最早记录。
+  - **多维过滤与检索**: 支持按来源领域（Domain）、错误等级（Level）、关键字文本模糊搜索等实时组合过滤，支持各列数据类型感知排序。
+  - **多行详情复制与清空**: 支持单行/多行选中的格式化错误详情一键复制到剪贴板，支持全局一键清空历史（通过二次破坏性确认）。
+  - **实时联动与无感逐出**: 订阅 `ErrorHub::errorRaised` / `errorAggregated` 信号，在 500 条满额逐出与高频注入时，通过精准的 `beginRemoveRows` / `beginInsertRows` 保证 TableView 视图实时更新、无抖动且零越界崩溃。
+
+### 2. 错误呈现 UI 令牌与布局规范 (UI Tokens & Layout)
+
+| Token / 属性 | 取值规范 | 设计系统对齐依据 |
+|---|---|---|
+| **通知卡片宽度 (Card Width)** | `340px` | 保证多行排版下在主画布右下角的紧凑感与可读性 |
+| **通知卡片高度 (Card Height)** | `64px ~ 140px` (自适应) | 最小高度 64px 保证单行标题与操作栏布局；最大高度 140px 容纳详细错误说明 |
+| **卡片圆角 (Border Radius)** | `8px` (`rounded.md`) | 严格遵守 `DESIGN.md` 中卡片/对话框 `rounded.md: 8px` 规范 |
+| **卡片描边与阴影** | 1px border (`border: #DFE5EC` / 暗色 `#3B4552`) + 轻量 drop-shadow (4px offset, 12px blur) | 统一走 `PaleoTheme::tokens()` 动态注入 |
+| **倒计时条 (Countdown Bar)** | 底部 `2px` 矩形填充 | 对应语义强调色，不设圆角或外发光，50ms 步进渲染 |
+| **悬浮堆叠容器宽度 (Overlay Width)** | `360px` | 容纳 340px 卡片及左右 margin/shadow 缓冲 |
+| **悬浮堆叠定位锚点 (Overlay Anchor)** | 屏幕右下角 (Right-Bottom) | `right: 16px` (距窗口右边缘), `bottom: 36px` (避让底部状态栏高度) |
+| **卡片垂直堆叠间距 (Card Spacing)** | `8px` (`spacing.sm`) | 垂直线性布局，紧凑不粘连 |
+| **Info / Primary 语义色** | 浅色 `#1B73D0` / 暗色 `#5FA5F0` | WCAG AA 文本对比度符合 (4.5:1+) |
+| **Warning 语义色** | 浅色 `#F29900` / 暗色 `#FFB74D` | 文本位置采用 `warningText: #9A5B00` 保障 AA 对比度 |
+| **Error / Critical 语义色** | 浅色 `#E53935` / 暗色 `#F76A61` | 文本位置采用 `errorText: #C62828` 保障 AA 对比度 |
+
+
 ## Do's and Don'ts
 
 - Do: 一切可复用的 QGIS 控件直接用原生类（图层树/任务面板/日志/样式面板/定位器）。
@@ -192,3 +236,4 @@ QGIS 标准解剖：左 dock（资源管理器/图层树）、中央 `QgsMapCanv
 | 2026-09-29 | 翻译源语言口径 = 中文 | 全部用户可见串以中文为源串走 tr()/translate（layoutdesignershell 的 22 条英文源串同日改写为中文源串）；lupdate 骨架 translations/paleo_zh_CN.ts（1611 条），更新走 tools/update_translations.sh。 |
 | 2026-09-29 | status-tag 胶囊文字色补 token | 浅色 status-tag 底+语义原色实测不足 AA（warning 2.1:1/success 3.0:1/error 3.7:1），补 successText/warningText/errorText 深色变体（4.5+）；暗色深底上语义提亮色本已 AA，文字=语义色。capsuleLabel 同步改活体注册（运行中切主题即时跟随）。 |
 | 2026-09-28 | 控件映射与页签文案偏离确认 (#43) | 1. 工作流页签文案根据用户裁决确定为「数据管理 / 预测编图 / 单因素图 / 智能编图 / 验证」五页；2. 状态栏采用 QStatusBar + 坐标/比例尺/CRS（QGIS 4.2 中 QgsScaleWidget 等专有状态栏控件为 QGIS 应用内实现，libqgis_gui 未导出）；3. 右侧 dock 采用 QDockWidget+QStackedLayout，任务面板采用 QTreeWidget 以满足非模态展示与无头测试需求。 |
+| 2026-10-06 | 统一错误呈现架构与 QMessageBox 收敛 | 建立统一 ErrorHub 服务与三级错误呈现（Tier 1 通知卡片非模态浮动 / Tier 2 PaleoConfirmDialog 模态阻断二次确认 / Tier 3 错误历史 Dock 全局审计面板）。将 UI 层现存 169 处 QMessageBox 散弹调用降幅达 81.66%（保留 31 处关键决策并在 NotificationManager 设立 60s 模态去重抑制与 setConfirmHookForTesting 无头自动化应答钩子）。通知卡片并发上限 5 张、排队上限 50 条 FIFO 逐出、零 QPropertyAnimation 动效；ErrorHub 500 条环形缓冲区 FIFO 逐出。严格符合 DESIGN.md 配色、圆角与 minimal-functional 动效规范。 |

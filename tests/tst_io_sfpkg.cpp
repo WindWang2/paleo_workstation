@@ -268,6 +268,23 @@ void SfPackageReaderTests::parsesNpyDirectly()
   QVERIFY( !scalarParsed.ok );
   QVERIFY2( scalarParsed.error.contains( QStringLiteral( "0 维" ) ), qPrintable( scalarParsed.error ) );
   QVERIFY( !parseNpy( QByteArray( "not an npy" ) ).ok );
+
+  // #216：shape 声明巨大（2^30 × (2^31-1)，count*8 > 2^63）时 count*width 有符号
+  // 溢出曾回绕成负值击穿长度闸 → 巨量分配崩溃。必须走报错路径。
+  const QByteArray hugeHeader =
+      QStringLiteral( "{'descr': '<f8', 'fortran_order': False, 'shape': (1073741824, 2147483647), }\n" ).toUtf8();
+  QByteArray huge;
+  huge.append( "\x93NUMPY", 6 );
+  huge.append( char( 1 ) );
+  huge.append( char( 0 ) );
+  huge.append( char( hugeHeader.size() & 0xFF ) );
+  huge.append( char( ( hugeHeader.size() >> 8 ) & 0xFF ) );
+  huge.append( hugeHeader );
+  huge.append( QByteArray( 64, '\0' ) );
+  const NpyArray hugeParsed = parseNpy( huge );
+  QVERIFY( !hugeParsed.ok );
+  QVERIFY( hugeParsed.values.empty() );
+  QVERIFY2( hugeParsed.error.contains( QStringLiteral( "长度与 shape 不符" ) ), qPrintable( hugeParsed.error ) );
 }
 
 QTEST_MAIN( SfPackageReaderTests )

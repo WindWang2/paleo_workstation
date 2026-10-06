@@ -46,6 +46,7 @@ class TestSeismicAttr : public QObject
   Q_OBJECT
 
 private slots:
+  void semblanceRejectsIntOverflowDims();
   // ---- 瞬时族：Hilbert 核对拍 ---------------------------------------------
   // H{cos(ωt)} = sin(ωt)。实部达机器精度（~1e-8）；虚部带镜像端折点的
   // Hilbert 尾偏置（实测 ~5e-3@1000 样/30Hz，见 ledger 轮1）——有限道
@@ -86,6 +87,26 @@ private slots:
   void sweetnessHandComputed();
   void allNanTrace();
 };
+
+// #234-2：nIl*nXl*nS 超 int 域时内核必须拒绝，不得按回绕下标写 out。
+// 65536×65536×1 = 2^32 回绕为 0——旧实现填 NaN 循环空转后进入窗口循环越界读写。
+void TestSeismicAttr::semblanceRejectsIntOverflowDims()
+{
+  std::vector<float> vol(16, 1.0f);
+  std::vector<float> out(16, 7.0f);
+  semblanceCoherence(vol.data(), 65536, 65536, 1, 1, 1, 0, out.data());
+  for (float v : out)
+    QCOMPARE(v, 7.0f);
+  semblanceCoherenceWeighted(vol.data(), 65536, 65536, 1, 1, 1, 0, 1.0, 1.0,
+                             CoherenceWeightMode::Equal, out.data());
+  for (float v : out)
+    QCOMPARE(v, 7.0f);
+  // 窗半径过大（2h+1 溢出）同样拒绝
+  semblanceCoherence(vol.data(), 2, 2, 4, std::numeric_limits<int>::max(), 0, 0,
+                     out.data());
+  for (float v : out)
+    QCOMPARE(v, 7.0f);
+}
 
 void TestSeismicAttr::hilbertKernelCosine()
 {

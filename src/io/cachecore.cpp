@@ -121,6 +121,18 @@ QByteArray cacheZstdDecompress(const QByteArray &compressed, qint64 uncompressed
     if (ok) *ok = false;
     return QByteArray();
   }
+  // #217：声明的解压尺寸来自缓存头（不在 headerCrc 覆盖内），单比特损坏即可
+  // 驱动至多 8GB 分配。帧头自带 content size（ZSTD_compress 必写）时先比对，
+  // 不符直接判损坏，不按声明值分配。
+  const unsigned long long frameSize =
+      ZSTD_getFrameContentSize(compressed.constData(), static_cast<size_t>(compressed.size()));
+  if (frameSize == ZSTD_CONTENTSIZE_ERROR ||
+      (frameSize != ZSTD_CONTENTSIZE_UNKNOWN &&
+       frameSize != static_cast<unsigned long long>(uncompressedSize)))
+  {
+    if (ok) *ok = false;
+    return QByteArray();
+  }
   QByteArray out(static_cast<qsizetype>(uncompressedSize), Qt::Uninitialized);
   const size_t written = ZSTD_decompress(out.data(), static_cast<size_t>(uncompressedSize),
                                          compressed.constData(),
@@ -243,6 +255,13 @@ bool readCacheFile(const QString &path, const QByteArray &magic,
   const quint32 payloadCrc = qFromLittleEndian<quint32>(p + 16);
   const quint64 payloadSize = qFromLittleEndian<quint64>(p + 20);
   const quint64 storedSize = qFromLittleEndian<quint64>(p + 28);
+  // #217：payloadSize/storedSize 不在 headerCrc 覆盖内——读前按文件实际大小
+  // 封顶，损坏的尺寸字段走「损坏自愈」报因，而不是按声明值巨量分配崩溃。
+  if (storedSize > static_cast<quint64>(f.size() - kHeaderSize))
+  {
+    if (reason) *reason = QStringLiteral("truncated payload");
+    return false;
+  }
 
   const QByteArray stored = f.read(static_cast<qint64>(storedSize));
   if (static_cast<quint64>(stored.size()) != storedSize)

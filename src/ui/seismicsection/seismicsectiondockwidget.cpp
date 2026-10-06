@@ -1193,6 +1193,9 @@ void SeismicSectionDockWidget::extractSliceAsync(SgySliceType type, int index) {
     }
     m_sliceType = type;
     m_sliceIndex = index;
+    // #224：换线即清属性叠加——同体同尺寸的相邻线几何全等，画布按尺寸
+    // 清叠加的防线挡不住旧线属性图残留。
+    m_canvas->clearAttrOverlay();
 
     // 常规 IL/XL/Time 切换：丢弃任意线旧状态（route/井叠加），
     // hasRoute() 复归 false（wave/sections 语义）。
@@ -1460,6 +1463,10 @@ void SeismicSectionDockWidget::extractSectionFromVolumeAsync(
             geometry.distancesM, geometry.coordinates);
         guard->refreshWellOverlay(candidateWells);
         guard->setLineTitle(lineTitle);
+        // #225：入参候选井写入成员——computeWellTrajectories /
+        // computeSyntheticOverlays / 井旁道 / 子波提取 / 反演低频井读的都是
+        // m_candidateWells，旧实现只按入参判空、成员恒空，四条链生产恒死。
+        guard->m_candidateWells = candidateWells;
         // D5.3/D5.4：井轨迹投影 + 合成记录（任意线链路，wave/seismic-chain-deep）
         if (!candidateWells.empty()) {
           guard->computeWellTrajectories(mapPolyline);
@@ -1818,26 +1825,38 @@ void SeismicSectionDockWidget::computeAttributeOnCurrentSection(
     const SgySliceType type = mode == 0 ? SgySliceType::Inline : SgySliceType::Xline;
     const int index = m_spinSlice ? m_spinSlice->value() : 0;
 
-    m_lastAttrParams = params;
-    m_lastAttrSourcePath = QString::fromStdString(m_volume->Path().string());
+    const QString sourcePath = QString::fromStdString(m_volume->Path().string());
     m_attrPanel->setBusy(true);
+    // #224：请求时快照剖面身份（世代号随换线/换体/任意线推进）+ 迟到回调守卫。
+    // 换线换体后迟到的属性图不得贴到新剖面上，也不得顶替可登记结果。
+    const quint64 generation = m_generation;
+    QPointer<SeismicSectionDockWidget> guard(this);
     PaleoTask *task = m_taskService->startAttributeSlice(
         m_volume, kind, params, type, index,
-        [this](bool ok, const SeismicTaskService::SeismicAttrResult &r) {
-            if (!m_attrPanel)
+        [guard, generation, params, sourcePath](
+            bool ok, const SeismicTaskService::SeismicAttrResult &r) {
+            if (!guard || !guard->m_attrPanel)
                 return;
+            SeismicSectionDockWidget *self = guard.data();
+            if (self->m_generation != generation) {
+                self->m_attrPanel->showResult(
+                    false, self->tr("剖面已切换，本次属性结果丢弃（请在当前剖面重新计算）"));
+                return;
+            }
             if (ok && r.image) {
-                m_lastAttrResult = r;
-                m_canvas->setAttrOverlay(*r.image);
-                m_attrPanel->showResult(
-                    true, tr("✓ %1 完成（读 %2ms / 算 %3ms，有效道 %4/%5）")
+                self->m_lastAttrResult = r;
+                self->m_lastAttrParams = params;
+                self->m_lastAttrSourcePath = sourcePath;
+                self->m_canvas->setAttrOverlay(*r.image);
+                self->m_attrPanel->showResult(
+                    true, self->tr("✓ %1 完成（读 %2ms / 算 %3ms，有效道 %4/%5）")
                               .arg(r.attrId)
                               .arg(int(r.readMs))
                               .arg(int(r.computeMs))
                               .arg(r.validTraceCount)
                               .arg(r.traceCount));
             } else {
-                m_attrPanel->showResult(false, r.error);
+                self->m_attrPanel->showResult(false, r.error);
             }
         });
     // 拒绝路径（缺线/边缘线/时间切片等）服务已同步回调具体原因——此处

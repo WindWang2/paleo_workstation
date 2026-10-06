@@ -256,6 +256,12 @@ private slots:
     QVERIFY(canvas.hasAttrOverlay());
     canvas.setSectionData(makeSection(32, 128), 2.0f);
     QVERIFY(!canvas.hasAttrOverlay());
+
+    // #224：clearData（换体）同样清叠加——同尺寸新体首切片不得沿用旧叠加。
+    canvas.setAttrOverlay(makeAttr(32, 128));
+    QVERIFY(canvas.hasAttrOverlay());
+    canvas.clearData();
+    QVERIFY(!canvas.hasAttrOverlay());
   }
 
   // ---- goal/attr-volume 面板：扫描范围/采样位/加权档 → 意图信号 ----
@@ -464,6 +470,18 @@ private slots:
       QVERIFY(status->text().contains(QStringLiteral("✓")));
       dock.canvas()->clearAttrOverlay(); // 逐类独立验证
     }
+
+    // #224：计算在途/完成后换线——旧线属性图不得留在新剖面上（迟到结果被
+    // 世代守卫丢弃，已上屏叠加随换线清除；两种时序结论一致）。
+    kind->setCurrentIndex(0);
+    compute->click();
+    slider->setValue(12);
+    QVERIFY(waitFor([&panel]() { return !panel->isBusy(); }, 10000));
+    QVERIFY(waitFor([&dock]() { return dock.canvas()->hasData(); }, 10000));
+    QTest::qWait(50);
+    QVERIFY(!dock.canvas()->hasAttrOverlay());
+    slider->setValue(11); // 复位到中部线供下方登记闭环
+    QVERIFY(waitFor([&dock]() { return dock.canvas()->hasData(); }, 10000));
 
     // ---- 资产登记闭环（catalog 注入 → SATR 文件 + DERIVED 版本）----
     DataCatalog catalog;

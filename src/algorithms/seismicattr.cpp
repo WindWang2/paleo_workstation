@@ -250,11 +250,25 @@ void windowedMeanEnergy(const float *x, int n, int halfWindow, float *out)
   });
 }
 
+namespace
+{
+// #234-2：内核级护栏——体元总数与窗直径在 int 索引域内才可走下标算术；
+// 越界组合拒绝（不写 out：调用方缓冲本就无法按 int 下标完整覆盖）。
+bool semblanceDimsFit(int nIl, int nXl, int nS, int ilHalf, int xlHalf, int timeHalf)
+{
+  constexpr long long kMax = std::numeric_limits<int>::max();
+  return static_cast<long long>(nIl) * nXl * nS <= kMax && ilHalf <= (kMax - 1) / 2 &&
+         xlHalf <= (kMax - 1) / 2 && timeHalf <= (kMax - 1) / 2;
+}
+} // namespace
+
 void semblanceCoherence(const float *volume, int nIl, int nXl, int nS,
                         int ilHalf, int xlHalf, int timeHalf, float *out)
 {
   if (!volume || !out || nIl <= 0 || nXl <= 0 || nS <= 0 ||
       ilHalf < 0 || xlHalf < 0 || timeHalf < 0)
+    return;
+  if (!semblanceDimsFit(nIl, nXl, nS, ilHalf, xlHalf, timeHalf))
     return;
   const int nOut = nIl * nXl * nS;
   for (int i = 0; i < nOut; ++i)
@@ -320,6 +334,10 @@ void semblanceCoherenceWeighted(const float *volume, int nIl, int nXl, int nS,
                                 double ilSpacing, double xlSpacing,
                                 CoherenceWeightMode mode, float *out)
 {
+  if (nIl > 0 && nXl > 0 && nS > 0 &&
+      !semblanceDimsFit(nIl, nXl, nS, std::max(ilHalf, 0), std::max(xlHalf, 0),
+                        std::max(timeHalf, 0)))
+    return; // #234-2：int 索引域外拒绝，不按回绕下标写越界
   const int nOut = nIl * nXl * nS;
   if (!volume || !out || nIl <= 0 || nXl <= 0 || nS <= 0 ||
       ilHalf < 0 || xlHalf < 0 || timeHalf < 0)

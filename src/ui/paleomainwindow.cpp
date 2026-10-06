@@ -631,6 +631,16 @@ void PaleoMainWindow::buildShell()
     // 该维护器给每层打 rendering/labelsWithLayer（vendored QGIS 补丁），
     // 让标注跟本层一起出图、被上层盖住。未打补丁的 QGIS 上属性为空值，无碍。
     m_labelZOrder = new QgisLabelZOrder(m_projectSvc->project(), this);
+    // #138 降级方案：未打补丁的 QGIS（apt / OSGeo4W 二进制路）标注不随图层
+    // z 序——启动后在状态栏如实提示一次，而不是只留 qInfo 日志。
+    if (!QgisLabelZOrder::labelsWithLayerSupported()) {
+      QTimer::singleShot(0, this, [this]() {
+        if (statusBar())
+          statusBar()->showMessage(
+              tr("提示：当前 QGIS 未含「标注随图层」补丁，地图标注将始终置顶显示"),
+              15000);
+      });
+    }
     connect(m_layerPanel, &LayerTreePanel::propertiesRequested, m_layerProps,
             &LayerPropertiesDialog::openLayerProperties);
     connect(m_layerPanel, &LayerTreePanel::mappingPageRequested, this,

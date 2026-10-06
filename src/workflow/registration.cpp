@@ -10,6 +10,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QStringList>
 
 #include <qgsfillsymbol.h>
 #include <qgslinesymbol.h>
@@ -51,6 +52,38 @@ void RegistrationWorkflow::applyProvisionalRegistration(
     return;
   }
 
+  // BIZ-07（方向58）：参数闸前置到建目录/读源之前——非数值字符串（toDouble
+  // 静默回 0）、NaN/Inf、零缩放一律拒绝，原因走 registrationFailed 错误通道，
+  // 不留空派生目录、不产出 [null,null] 或塌缩几何的 GeoJSON。
+  GeoAffineParams p;
+  QStringList unparsable;
+  const auto num = [&params, &unparsable](const char *key, double fallback) {
+    const QString k = QLatin1String(key);
+    if (!params.contains(k))
+      return fallback;
+    bool ok = false;
+    const double v = params.value(k).toDouble(&ok);
+    if (!ok)
+      unparsable << k;
+    return v;
+  };
+  p.tx = num("tx", 0.0);
+  p.ty = num("ty", 0.0);
+  p.sx = num("sx", 1.0);
+  p.sy = num("sy", 1.0);
+  p.rotDeg = num("rotDeg", 0.0);
+  if (!unparsable.isEmpty())
+  {
+    fail(tr("仿射参数不是数值：%1").arg(unparsable.join(QStringLiteral(", "))));
+    return;
+  }
+  QString paramWhy;
+  if (!geoAffineParamsValid(p, &paramWhy))
+  {
+    fail(paramWhy);
+    return;
+  }
+
   // 工程目录：catalogPath() = <projectDir>/artifacts/metadata/catalog.json。
   const QDir projectDir = QFileInfo(cat->catalogPath())
                               .absoluteDir()
@@ -67,13 +100,6 @@ void RegistrationWorkflow::applyProvisionalRegistration(
   const QString outName = QFileInfo(src.fileName).completeBaseName() +
                           QStringLiteral(".provisional.geojson");
   const QString outAbs = QDir(outDir).filePath(outName);
-
-  GeoAffineParams p;
-  p.tx = params.value(QStringLiteral("tx")).toDouble();
-  p.ty = params.value(QStringLiteral("ty")).toDouble();
-  p.sx = params.value(QStringLiteral("sx"), 1.0).toDouble();
-  p.sy = params.value(QStringLiteral("sy"), 1.0).toDouble();
-  p.rotDeg = params.value(QStringLiteral("rotDeg")).toDouble();
 
   QString terr;
   int featureCount = 0;

@@ -26,7 +26,7 @@
 #include <cmath>
 #include <limits>
 
-#include "../src/io/lasparser.h"
+#include "../src/io/lasdoc.h" // LasCurve（曲线值类型）
 #include "../src/linkage/selectioncontext.h"
 #include "../src/ui/correlationpanel.h"
 #include "../src/ui/correlation/correlationtrack.h"

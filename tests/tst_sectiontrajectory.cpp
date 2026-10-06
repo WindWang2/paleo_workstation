@@ -11,7 +11,6 @@
 
 #include "catalog/datacatalog.h"
 #include "domain/deviationsurvey.h"
-#include "io/lasparser.h"
 #include "services/projectdata.h"
 #include "workflow/sectionworkbench.h"
 #include "workflow/welltrajectorylayer.h"

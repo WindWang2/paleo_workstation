@@ -9,7 +9,7 @@
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QMessageBox>
+#include "ui/notifications/notificationmanager.h"
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPushButton>
@@ -414,7 +414,7 @@ void PreviewProfilePanel::exportCsv()
   if ( path.isEmpty() )
     return;
   if ( !writeCsv( path ) )
-    QMessageBox::warning( this, QObject::tr( "导出失败" ), QObject::tr( "无法写入 %1" ).arg( path ) );
+    paleo::ui::NotificationManager::showWarning( this, QObject::tr( "导出失败" ), QObject::tr( "无法写入 %1" ).arg( path ) );
 }
 
 void PreviewProfilePanel::exportPng()
@@ -428,7 +428,7 @@ void PreviewProfilePanel::exportPng()
   if ( path.isEmpty() )
     return;
   if ( !writePng( path ) )
-    QMessageBox::warning( this, QObject::tr( "导出失败" ), QObject::tr( "无法写入 %1" ).arg( path ) );
+    paleo::ui::NotificationManager::showWarning( this, QObject::tr( "导出失败" ), QObject::tr( "无法写入 %1" ).arg( path ) );
 }
 
 bool PreviewProfilePanel::writeCsv( const QString &path ) const

@@ -21,6 +21,7 @@ class QDialog;
 class QLabel;
 class QTableWidget;
 class QTimer;
+class QToolButton;
 
 class QgisCanvasController;
 class QgisProjectService;
@@ -45,6 +46,10 @@ class SeismicTaskService;
 namespace paleo::fault {
 class FaultInterpretationController;
 class FaultManagerPanel;
+}
+
+namespace paleo::ui {
+class ErrorHistoryDock;
 }
 
 class PaleoDockWidget : public QDockWidget
@@ -266,6 +271,8 @@ class PaleoMainWindow : public SARibbonMainWindow
     seismic::SeismicSectionDockWidget *seismicSectionDock() const { return m_seismicSectionDock; }
     QDockWidget *seismic3dDock() const { return m_seismic3dDock; }
     seismic::Seismic3DViewPanel *seismic3dPanel() const { return m_seismic3dPanel; }
+    paleo::ui::ErrorHistoryDock *errorHistoryDock() const { return m_errorHistoryDock; }
+    QAction *errorHistoryAction() const;
 
   protected:
     void closeEvent(QCloseEvent *event) override;
@@ -391,6 +398,8 @@ class PaleoMainWindow : public SARibbonMainWindow
     seismic::SeismicSectionDockWidget *m_seismicSectionDock = nullptr;
     QDockWidget *m_seismic3dDock = nullptr;
     seismic::Seismic3DViewPanel *m_seismic3dPanel = nullptr;
+    paleo::ui::ErrorHistoryDock *m_errorHistoryDock = nullptr;
+    QToolButton *m_statusErrorBtn = nullptr;
     // goal/fault-interpretation：断层管理面板 dock（attachFaults 建一次）
     QDockWidget *m_faultPanelDock = nullptr;
     paleo::fault::FaultManagerPanel *m_faultPanel = nullptr;

@@ -11,7 +11,7 @@
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QLabel>
-#include <QMessageBox>
+#include "ui/notifications/notificationmanager.h"
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSpinBox>
@@ -175,7 +175,7 @@ bool promptIsopach(QWidget *parent, const QVector<QPair<QString, QString>> &cand
 {
   if (candidates.size() < 2)
   {
-    QMessageBox::information(parent, QObject::tr("面运算"),
+    paleo::ui::NotificationManager::showInfo(parent, QObject::tr("面运算"),
                              QObject::tr("需要至少两个已声明的栅格图层（顶/底结构面）。"));
     return false;
   }
@@ -219,7 +219,7 @@ bool promptIsopach(QWidget *parent, const QVector<QPair<QString, QString>> &cand
     return false;
   if (topCombo->currentIndex() == baseCombo->currentIndex())
   {
-    QMessageBox::warning(parent, QObject::tr("面运算"), QObject::tr("顶/底不能是同一图层。"));
+    paleo::ui::NotificationManager::showWarning(parent, QObject::tr("面运算"), QObject::tr("顶/底不能是同一图层。"));
     return false;
   }
   if (out)
@@ -262,12 +262,12 @@ QString showVolumeReport(QWidget *parent, const QString &title,
     if (!f.open(QIODevice::WriteOnly | QIODevice::Text) ||
         f.write(csv.toUtf8()) < 0)
     {
-      QMessageBox::warning(parent, QObject::tr("导出失败"),
+      paleo::ui::NotificationManager::showWarning(parent, QObject::tr("导出失败"),
                            QObject::tr("无法写入文件：%1").arg(path));
       return;
     }
     f.close();
-    QMessageBox::information(parent, QObject::tr("导出完成"), path);
+    paleo::ui::NotificationManager::showInfo(parent, QObject::tr("导出完成"), path);
   });
 
   auto *lay = new QVBoxLayout(&dlg);

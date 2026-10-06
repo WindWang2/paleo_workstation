@@ -27,6 +27,11 @@ public:
     explicit Seismic3DViewportWidget(QWidget *parent = nullptr);
     ~Seismic3DViewportWidget() override;
 
+    // 高 DPI 单一真源：resizeGL 收逻辑像素而 FBO 是物理像素，视口尺寸统一
+    // 经此换算（DESIGN.md「High DPI」）。独立成静态函数是给 offscreen 测试
+    // 直接调用同一口径（offscreen 下 QOpenGLWidget 不建 GL，走不进 resizeGL）。
+    static QSize physicalViewportSize(int w, int h, qreal devicePixelRatio);
+
     void setVolume(std::shared_ptr<SgyVolume> volume);
     [[nodiscard]] std::shared_ptr<SgyVolume> volume() const { return volume_; }
 

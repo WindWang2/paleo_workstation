@@ -12,11 +12,15 @@
 #include <functional>
 #include <memory>
 
-#include "../domain/sectiontrace.h"   // SegyTrace/SegySectionGrid（domain 纯数据）
-#include "../domain/wellrecords.h"    // WellHeadRecord/WellTopRecord/TimeDepthTable
-#include "../domain/wellcompositemodel.h" // ComprehensiveWellData（XML 门面的出参）
-#include "../io/lasdoc.h"             // LasCurve（数据模型，白名单）
-#include "../io/lasparser.h"          // LasHeaderInfo（header-only LAS 出参）
+// 方向 59 头文件卫生：本门面头曾被 27 个 ui TU 直接消费，io/domain 重头
+// （lasparser.h / sectiontrace.h / wellrecords.h / wellcompositemodel.h）
+// 一律不再出闸。io/lasdoc.h 是唯一保留的 include——它是白名单纯类型
+// 门面（Qt 类型 + wellnumeric 常量，零解析入口），且 lasReady 信号的
+// QList<LasCurve> 参数在 moc 的 qt_incomplete_metaTypeArray 里必须完整
+//（QDebug operator<< 对 QList<T> 做 __is_base_of<QList<T>,T>，不完全 T
+// 直接 C2139——方向 59 实测）。SectionDoc 值形态需要 domain/sectiontrace.h，
+// 拆细头 sectiondoc.h；其余契约类型只留前向声明（出参全是指针/引用）。
+#include "../io/lasdoc.h" // LasCurve/LasDoc/LasHeaderInfo（白名单纯类型门面）
 
 class DataCatalog;
 class DataImportService;
@@ -25,6 +29,14 @@ class PaleoTaskService;
 class SegyReader; // io/segyreader.h——实现侧类型，头文件只留指针容器
 struct CatalogEntity;
 struct CatalogVersion;
+struct TimeDepthTable;    // domain/wellrecords.h（timeDepthAt 出参）
+struct WellHeadRecord;    // domain/wellrecords.h（wellHeadsAt 出参）
+struct WellTopRecord;     // domain/wellrecords.h（wellTopsAt 出参）
+
+namespace WellComposite
+{
+struct ComprehensiveWellData; // domain/wellcompositemodel.h（XML 出参）
+}
 
 namespace seismic {
 class SeismicTaskService;
@@ -174,15 +186,10 @@ class PreviewDocService : public QObject
     TieMarker seismicTieMarker(const QString &assetId) const;
 
     // ---- 测线解码（见类注释的异步语义）----
-    struct SectionDoc
-    {
-      SegyReadReport readReport;
-      QVector<SegyTrace> traces;
-      float sampleIntervalUs = 0.0f;
-      double startTimeMs = 0.0;
-      bool isInline = true;
-      int lineNo = -1;
-    };
+    // SectionDoc 完整定义在 sectiondoc.h（方向 59 拆细头）——值成员需要
+    // domain/sectiontrace.h，门面头不再出闸重头；信号/引用形参用本嵌套
+    // 前向声明即可。要触碰成员的消费 TU include services/sectiondoc.h。
+    struct SectionDoc;
     // 请求解码一条测线；同资产重复请求自动作废上一代。结果经信号回来
     // （无任务服务时同步执行、请求返回前信号已发——与旧同步路径一致）。
     void requestSection(const QString &assetId, const QString &versionId,
@@ -270,7 +277,7 @@ class PreviewDocService : public QObject
     mutable QHash<QString, bool> m_shaVerified;
 
     // T1 LAS 异步填充：按 key 的世代号（陈旧结果发射前丢弃）与进行中
-    // 任务指针（新请求取消旧任务）——与 m_decodeSeq/m_decodeTask 同一模式。
+    // 任务指针（新解码请求取消旧任务）——与 m_decodeSeq/m_decodeTask 同一模式。
     QHash<QString, int> m_lasSeq;
     QHash<QString, QPointer<PaleoTask>> m_lasTask;
     QHash<QString, QHash<QString, LasDoc>> m_lasSiblings;
@@ -281,6 +288,4 @@ class PreviewDocService : public QObject
     QHash<QString, int> m_pyramidState;
     QHash<QString, QPointer<PaleoTask>> m_pyramidTask;
 };
-
-// 解码结果经信号跨线程交接（任务池路径）——注册 metatype 供排队连接/QSignalSpy。
-Q_DECLARE_METATYPE(PreviewDocService::SectionDoc)
+// SectionDoc 的 Q_DECLARE_METATYPE 随完整定义移至 sectiondoc.h（方向 59）。

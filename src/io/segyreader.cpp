@@ -246,6 +246,59 @@ bool SegyReader::open(const QString &path, QString *error,
   const bool ordinalIndex = !fieldVaries(sidx.inlineWordOffset);
   const int binEnsTraces = beI16(bin + 12); // 二进制头字节 13-14：每条 inline 道数
 
+  // P?（demo 工区方言，工区 docx 道头契约「道号位置 21 / X=181 / Y=185」）：
+  // ①标准 inline 位有效、crossline 位（字节 193）恒 0 且 CDP（字节 21）在变化
+  //   → crossline 取 CDP；
+  // ②角点坐标对（偏移 72/76，源点 X/Y）恒 0 而 CDP X/Y（偏移 180/184）非零
+  //   → 角点取 181-188。两者都是探针判据（≤4096 道），既有布局（72/76 有值、
+  //   193 有值）不触发，行为逐字节不变。
+  auto fieldAllZero = [&](int fieldOff) -> bool {
+    uchar h[240];
+    qint64 probeOffset = offset;
+    for (int i = 0; i < 4096 && probeOffset + 240 <= fileSize; ++i)
+    {
+      if (!file.seek(probeOffset) ||
+          file.read(reinterpret_cast<char *>(h), 240) != 240)
+        return false;
+      if (beI32(h + fieldOff) != 0)
+        return false;
+      const qint16 traceNs = beI16(h + 114);
+      if (traceNs < 0)
+      {
+        probeOffset += 240 + static_cast<qint64>(binNs) * 4;
+        continue;
+      }
+      const int ns = traceNs > 0 ? traceNs : binNs;
+      probeOffset += 240 + static_cast<qint64>(ns) * 4;
+    }
+    return true;
+  };
+  auto pairHasNonZero = [&](int offA, int offB) -> bool {
+    uchar h[240];
+    qint64 probeOffset = offset;
+    for (int i = 0; i < 4096 && probeOffset + 240 <= fileSize; ++i)
+    {
+      if (!file.seek(probeOffset) ||
+          file.read(reinterpret_cast<char *>(h), 240) != 240)
+        return false;
+      if (beI32(h + offA) != 0 || beI32(h + offB) != 0)
+        return true;
+      const qint16 traceNs = beI16(h + 114);
+      if (traceNs < 0)
+      {
+        probeOffset += 240 + static_cast<qint64>(binNs) * 4;
+        continue;
+      }
+      const int ns = traceNs > 0 ? traceNs : binNs;
+      probeOffset += 240 + static_cast<qint64>(ns) * 4;
+    }
+    return false;
+  };
+  const bool xlineFromCdp = !ordinalIndex &&
+                            fieldAllZero(sidx.crosslineWordOffset) &&
+                            fieldVaries(sidx.cdpXlineOffset);
+  const bool cornerFromCdpXY = fieldAllZero(72) && pairHasNonZero(180, 184);
+
   // 索引道：只读 240 字节道头；样本区用 seek 跳过——打开内存不随体增长。
   uchar trHdr[240];
   bool sawTrace = false;
@@ -333,16 +386,19 @@ bool SegyReader::open(const QString &path, QString *error,
       delayMs = static_cast<double>(beI16(trHdr + 108)); // 字节 109-110
     }
 
-    // survey 坐标（角点）：Source X/Y 整数米（0 基偏移 72/76，1 基字节 73/77）。
-    // plan 文本曾写 180/184（CDP X/Y）——本文件那两个字恒为 0，实测角点
-    // 坐标在 72/76。比例因子（偏移 70）为 0 或 1 都按原值取整数；正值乘、负值除。
+    // survey 坐标（角点）：偏移 72/76（源点 X/Y，1 基字节 73/77）或——探针判
+    // 该对恒 0 且 CDP X/Y（偏移 180/184，1 基字节 181-188）非零时——后者
+    //（demo 工区方言，见 open() 头注释）。比例因子（偏移 70）为 0 或 1 都按
+    // 原值取整数；正值乘、负值除。
+    const int coordXOff = cornerFromCdpXY ? 180 : 72;
+    const int coordYOff = cornerFromCdpXY ? 184 : 76;
     const qint16 scal = beI16(trHdr + 70);
     const double coordScale =
         (scal == 0 || scal == 1) ? 1.0
                                  : (scal > 0 ? static_cast<double>(scal)
                                              : 1.0 / -static_cast<double>(scal));
-    const double cx = static_cast<double>(beI32(trHdr + 72)) * coordScale;
-    const double cy = static_cast<double>(beI32(trHdr + 76)) * coordScale;
+    const double cx = static_cast<double>(beI32(trHdr + coordXOff)) * coordScale;
+    const double cy = static_cast<double>(beI32(trHdr + coordYOff)) * coordScale;
 
     if (ordinalIndex)
     {
@@ -374,7 +430,10 @@ bool SegyReader::open(const QString &path, QString *error,
     else
     {
       e.inlineNo = beI32(trHdr + sidx.inlineWordOffset);    // 标准 inline 字节位（1-based 字节 189）
-      e.xlineNo = beI32(trHdr + sidx.crosslineWordOffset); // 标准 crossline 字节位（1-based 字节 193）
+      // 标准 crossline 字节位（1-based 字节 193）；探针判其恒 0 且 CDP 变化时
+      // 回退取 CDP（demo 工区「道号位置 21」方言）。
+      e.xlineNo = beI32(trHdr + (xlineFromCdp ? sidx.cdpXlineOffset
+                                             : sidx.crosslineWordOffset));
 
       // survey 几何冻结：范围 + 四角 (x,y)。
       if (m_index.isEmpty())

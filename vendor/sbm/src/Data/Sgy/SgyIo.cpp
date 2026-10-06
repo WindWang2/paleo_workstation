@@ -66,6 +66,11 @@ SgyTraceKeyWords ReadTraceKeyWords(const char* traceHeader) {
         // ensemble @20 (xline). Only reached when both standard words are zero.
         segy_get_tracefield_int(traceHeader, SEGY_TR_FIELD_RECORD, &key.inlineNo);
         segy_get_tracefield_int(traceHeader, SEGY_TR_ENSEMBLE, &key.xlineNo);
+    } else if(key.xlineNo == 0) {
+        // Paleo dialect: standard inline word is live but the crossline word
+        // stays zero — xline rides the CDP ensemble field (@20). Same layout
+        // the io-side SegyReader probes for (docx header contract 21/189).
+        segy_get_tracefield_int(traceHeader, SEGY_TR_ENSEMBLE, &key.xlineNo);
     }
     return key;
 }

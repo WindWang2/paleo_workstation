@@ -4,10 +4,14 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonValue>
 #include <QSaveFile>
 #include <QUuid>
+
+#include <cmath>
 
 namespace
 {
@@ -27,6 +31,164 @@ namespace
     m.insert(QStringLiteral("areaRules"), f.areaRules);
     return m;
   }
+
+  QJsonObject georeferenceToJsonImpl(const PaleoGeoreference &g)
+  {
+    QJsonObject anchor;
+    anchor.insert(QStringLiteral("lonDeg"), g.anchorLonDeg);
+    anchor.insert(QStringLiteral("latDeg"), g.anchorLatDeg);
+    anchor.insert(QStringLiteral("metersPerDegLon"), g.metersPerDegLon);
+    anchor.insert(QStringLiteral("metersPerDegLat"), g.metersPerDegLat);
+    QJsonObject params;
+    params.insert(QStringLiteral("a"), g.a);
+    params.insert(QStringLiteral("b"), g.b);
+    params.insert(QStringLiteral("tE"), g.tE);
+    params.insert(QStringLiteral("tN"), g.tN);
+    QJsonArray cps;
+    for (const PaleoGeoreference::ControlPoint &c : g.controlPoints)
+    {
+      QJsonObject o;
+      o.insert(QStringLiteral("well"), c.well);
+      o.insert(QStringLiteral("x"), c.x);
+      o.insert(QStringLiteral("y"), c.y);
+      o.insert(QStringLiteral("lon"), c.lon);
+      o.insert(QStringLiteral("lat"), c.lat);
+      o.insert(QStringLiteral("residualM"), c.residualM);
+      cps.append(o);
+    }
+    QJsonObject o;
+    o.insert(QStringLiteral("kind"), g.kind);
+    o.insert(QStringLiteral("targetCrs"), g.targetCrs);
+    o.insert(QStringLiteral("anchor"), anchor);
+    o.insert(QStringLiteral("params"), params);
+    o.insert(QStringLiteral("formula"), g.formula);
+    o.insert(QStringLiteral("controlPoints"), cps);
+    o.insert(QStringLiteral("maxResidualM"), g.maxResidualM);
+    o.insert(QStringLiteral("provenance"), g.provenance);
+    return o;
+  }
+
+  // 数值键缺失/非有限 → nullptr 返回；kind 缺省 similarity2d（唯一实现）。
+  bool num(const QJsonObject &o, const QString &key, double *out)
+  {
+    const QJsonValue v = o.value(key);
+    if (!v.isDouble())
+      return false;
+    const double d = v.toDouble();
+    if (!std::isfinite(d))
+      return false;
+    *out = d;
+    return true;
+  }
+} // namespace
+
+QJsonObject paleoGeoreferenceToJson(const PaleoGeoreference &g)
+{
+  QJsonObject anchor;
+  anchor.insert(QStringLiteral("lonDeg"), g.anchorLonDeg);
+  anchor.insert(QStringLiteral("latDeg"), g.anchorLatDeg);
+  anchor.insert(QStringLiteral("metersPerDegLon"), g.metersPerDegLon);
+  anchor.insert(QStringLiteral("metersPerDegLat"), g.metersPerDegLat);
+  QJsonObject params;
+  params.insert(QStringLiteral("a"), g.a);
+  params.insert(QStringLiteral("b"), g.b);
+  params.insert(QStringLiteral("tE"), g.tE);
+  params.insert(QStringLiteral("tN"), g.tN);
+  QJsonArray cps;
+  for (const PaleoGeoreference::ControlPoint &c : g.controlPoints)
+  {
+    QJsonObject o;
+    o.insert(QStringLiteral("well"), c.well);
+    o.insert(QStringLiteral("x"), c.x);
+    o.insert(QStringLiteral("y"), c.y);
+    o.insert(QStringLiteral("lon"), c.lon);
+    o.insert(QStringLiteral("lat"), c.lat);
+    o.insert(QStringLiteral("residualM"), c.residualM);
+    cps.append(o);
+  }
+  QJsonObject o;
+  o.insert(QStringLiteral("kind"), g.kind);
+  o.insert(QStringLiteral("targetCrs"), g.targetCrs);
+  o.insert(QStringLiteral("anchor"), anchor);
+  o.insert(QStringLiteral("params"), params);
+  o.insert(QStringLiteral("formula"), g.formula);
+  o.insert(QStringLiteral("controlPoints"), cps);
+  o.insert(QStringLiteral("maxResidualM"), g.maxResidualM);
+  o.insert(QStringLiteral("provenance"), g.provenance);
+  return o;
+}
+
+bool paleoGeoreferenceFromJson(const QJsonObject &o, PaleoGeoreference *g,
+                               QString *error)
+{
+  g->kind = o.value(QStringLiteral("kind")).toString(
+      QStringLiteral("similarity2d"));
+  if (g->kind != QLatin1String("similarity2d"))
+  {
+    setErr(error, QStringLiteral("georeference.kind '%1' 不支持").arg(g->kind));
+    return false;
+  }
+  g->targetCrs = o.value(QStringLiteral("targetCrs")).toString();
+  const QJsonObject anchor = o.value(QStringLiteral("anchor")).toObject();
+  const QJsonObject params = o.value(QStringLiteral("params")).toObject();
+  if (!num(anchor, QStringLiteral("lonDeg"), &g->anchorLonDeg) ||
+      !num(anchor, QStringLiteral("latDeg"), &g->anchorLatDeg) ||
+      !num(anchor, QStringLiteral("metersPerDegLon"), &g->metersPerDegLon) ||
+      !num(anchor, QStringLiteral("metersPerDegLat"), &g->metersPerDegLat) ||
+      !num(params, QStringLiteral("a"), &g->a) ||
+      !num(params, QStringLiteral("b"), &g->b) ||
+      !num(params, QStringLiteral("tE"), &g->tE) ||
+      !num(params, QStringLiteral("tN"), &g->tN))
+  {
+    setErr(error,
+           QStringLiteral("georeference 缺 anchor/params 数值字段或含非有限值"));
+    return false;
+  }
+  g->formula = o.value(QStringLiteral("formula")).toString();
+  g->provenance = o.value(QStringLiteral("provenance")).toString();
+  g->maxResidualM = o.value(QStringLiteral("maxResidualM")).toDouble(0.0);
+  const QJsonArray cps = o.value(QStringLiteral("controlPoints")).toArray();
+  for (const QJsonValue &v : cps)
+  {
+    const QJsonObject c = v.toObject();
+    PaleoGeoreference::ControlPoint cp;
+    cp.well = c.value(QStringLiteral("well")).toString();
+    num(c, QStringLiteral("x"), &cp.x);
+    num(c, QStringLiteral("y"), &cp.y);
+    num(c, QStringLiteral("lon"), &cp.lon);
+    num(c, QStringLiteral("lat"), &cp.lat);
+    num(c, QStringLiteral("residualM"), &cp.residualM);
+    g->controlPoints.append(cp);
+  }
+  if (!g->isComplete())
+  {
+    setErr(error, QStringLiteral("georeference 参数不完整（度米系数须为正）"));
+    return false;
+  }
+  return true;
+}
+
+bool PaleoGeoreference::isComplete() const
+{
+  return std::isfinite(anchorLonDeg) && std::isfinite(anchorLatDeg) &&
+         std::isfinite(metersPerDegLon) && metersPerDegLon > 0.0 &&
+         std::isfinite(metersPerDegLat) && metersPerDegLat > 0.0 &&
+         std::isfinite(a) && std::isfinite(b) && std::isfinite(tE) &&
+         std::isfinite(tN) && !targetCrs.isEmpty();
+}
+
+bool applyGeoreference(const PaleoGeoreference &g, double x, double y,
+                       double *lonDeg, double *latDeg)
+{
+  if (!g.isComplete())
+    return false;
+  const double e = g.a * x - g.b * y + g.tE;
+  const double n = g.b * x + g.a * y + g.tN;
+  if (lonDeg)
+    *lonDeg = g.anchorLonDeg + e / g.metersPerDegLon;
+  if (latDeg)
+    *latDeg = g.anchorLatDeg + n / g.metersPerDegLat;
+  return true;
 }
 
 QString paleoProjectFilePath(const QString &projectDir)
@@ -82,6 +244,17 @@ bool writeProjectFile(const QString &projectDir, const PaleoProjectFile &file,
     s.insert(QStringLiteral("stats"),
              QJsonObject::fromVariantMap(file.sourceStats));
     o.insert(QStringLiteral("sourceArea"), s);
+  }
+  if (file.georeference)
+  {
+    if (!file.georeference->isComplete())
+    {
+      setErr(error,
+             QStringLiteral("georeference 参数不完整，拒写 project.paleo"));
+      return false;
+    }
+    o.insert(QStringLiteral("georeference"),
+             paleoGeoreferenceToJson(*file.georeference));
   }
 
   const QString path = paleoProjectFilePath(projectDir);
@@ -165,6 +338,16 @@ PaleoProjectFile readProjectFile(const QString &path, bool *ok, QString *error)
   f.sourceAreaRoot = s.value(QStringLiteral("root")).toString();
   f.sourceAreaImportedUtc = s.value(QStringLiteral("importedUtc")).toString();
   f.sourceStats = s.value(QStringLiteral("stats")).toObject().toVariantMap();
+  if (o.contains(QStringLiteral("georeference")))
+  {
+    PaleoGeoreference g;
+    QString gerr;
+    if (paleoGeoreferenceFromJson(o.value(QStringLiteral("georeference")).toObject(),
+                                  &g, &gerr))
+      f.georeference = g;
+    else
+      f.georeferenceError = gerr; // 节在但坏：如实报，不拦打开
+  }
 
   if (ok)
     *ok = true;

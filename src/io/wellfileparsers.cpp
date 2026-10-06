@@ -31,6 +31,63 @@ namespace
     *out = v;
     return true;
   }
+
+  // ---- 分层文本头驱动列映射（工区惯例兼容）----
+  // '#' 注释头行列名齐全时按名取列（如 "wellName DepthMD topName topVerName"，
+  // 道号/层名列序与 SMI 位置约定不同）；列名不全 → 返回 false，调用方维持
+  // 既有位置约定（井名 层名 MD [X Y Z TVD Time]）。列名匹配为小写子串。
+  struct TopsColumnMap
+  {
+    int well = -1, top = -1, md = -1, x = -1, y = -1, z = -1, tvd = -1, time = -1;
+    int maxIndex() const
+    {
+      return qMax(qMax(qMax(well, top), qMax(md, x)),
+                  qMax(qMax(qMax(y, z), tvd), time));
+    }
+  };
+
+  bool tokenMatches(const QString &token, const QStringList &names)
+  {
+    for (const QString &n : names)
+      if (token.contains(n, Qt::CaseInsensitive))
+        return true;
+    return false;
+  }
+
+  bool sniffTopsColumnMap(const QStringList &tokens, TopsColumnMap *map)
+  {
+    TopsColumnMap m;
+    for (int i = 0; i < tokens.size(); ++i)
+    {
+      const QString t = tokens.at(i);
+      if (m.well < 0 && tokenMatches(t, {QStringLiteral("wellname"),
+                                          QStringLiteral("well"),
+                                          QStringLiteral("井名"), QStringLiteral("井号")}))
+        m.well = i;
+      else if (m.top < 0 && tokenMatches(t, {QStringLiteral("topname"),
+                                             QStringLiteral("top"),
+                                             QStringLiteral("层名"), QStringLiteral("层位")}))
+        m.top = i;
+      else if (m.md < 0 && tokenMatches(t, {QStringLiteral("depthmd"),
+                                            QStringLiteral("md"),
+                                            QStringLiteral("顶深"), QStringLiteral("深度")}))
+        m.md = i;
+      else if (m.x < 0 && tokenMatches(t, {QStringLiteral("x")}))
+        m.x = i;
+      else if (m.y < 0 && tokenMatches(t, {QStringLiteral("y")}))
+        m.y = i;
+      else if (m.z < 0 && tokenMatches(t, {QStringLiteral("z")}))
+        m.z = i;
+      else if (m.tvd < 0 && tokenMatches(t, {QStringLiteral("tvd")}))
+        m.tvd = i;
+      else if (m.time < 0 && tokenMatches(t, {QStringLiteral("time")}))
+        m.time = i;
+    }
+    if (m.well < 0 || m.top < 0 || m.md < 0)
+      return false;
+    *map = m;
+    return true;
+  }
 } // namespace
 
 // plan §3：井口文件带 UTF-8 BOM；U+FEFF 不是空白，trimmed() 去不掉。
@@ -82,16 +139,51 @@ QVector<WellTopRecord> parseWellTopsText(const QByteArray &text)
 {
   QVector<WellTopRecord> tops;
   const QString data = withoutBom(text);
+  // 头驱动列映射：数据行之前的首条 '#' 注释行若含齐全列名（井名/层名/深度，
+  // 如 "wellName DepthMD topName topVerName"），按名取列；否则维持位置约定。
+  bool headerChecked = false;
+  TopsColumnMap cmap;
+  bool byName = false;
   for (const QString &rawLine : data.split(QRegularExpression(QStringLiteral("[\r\n]")),
                                             Qt::SkipEmptyParts))
   {
     const QString line = rawLine.trimmed();
-    if (line.isEmpty() || line.startsWith(QLatin1Char('#')))
+    if (line.isEmpty())
       continue;
+    if (line.startsWith(QLatin1Char('#')))
+    {
+      if (!headerChecked)
+      {
+        headerChecked = true;
+        byName = sniffTopsColumnMap(splitTokens(line.mid(1)), &cmap);
+      }
+      continue;
+    }
+    headerChecked = true;
     const QStringList t = splitTokens(line);
+    WellTopRecord r;
+    if (byName)
+    {
+      if (t.size() <= cmap.maxIndex())
+        continue; // 列不全的行不硬猜
+      r.wellName = t.at(cmap.well);
+      r.topName = t.at(cmap.top);
+      if (parseColumn(t.at(cmap.md), &r.md))
+        r.hasMd = true;
+      auto optNum = [&t](int idx, double *out) {
+        return idx >= 0 && idx < t.size() && parseColumn(t.at(idx), out);
+      };
+      double v = 0;
+      if (optNum(cmap.x, &v)) { r.x = v; r.hasX = true; }
+      if (optNum(cmap.y, &v)) { r.y = v; r.hasY = true; }
+      if (optNum(cmap.z, &v)) { r.z = v; }
+      if (optNum(cmap.tvd, &v)) { r.tvd = v; r.hasTvd = true; }
+      if (optNum(cmap.time, &v)) { r.timeMs = v; r.hasTime = true; }
+      tops.append(r);
+      continue;
+    }
     if (t.size() < 3) // 井名 层名 MD
       continue;
-    WellTopRecord r;
     r.wellName = t.at(0);
     r.topName = t.at(1);
     if (parseColumn(t.at(2), &r.md))

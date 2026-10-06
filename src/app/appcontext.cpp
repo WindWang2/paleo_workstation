@@ -401,6 +401,13 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
                   QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
             }
             m_import->setProjectDir(fi.absolutePath());
+            // 工程级地理配准（project.paleo georeference 节）：导入服务带上
+            // 局部网格→WGS84 变换——建井时写 coordinateStatus=ok + extra
+            // 经纬度；无配准工程保持 untransformed 现状。
+            if (m_projectSvc->georeference())
+              m_import->setGeoreference(*m_projectSvc->georeference());
+            else
+              m_import->clearGeoreference();
             // wave4/崩溃报告：报告头的「当前工程路径」随工程打开更新（落点
             // 不变——AppData 下，脏退出检测要求先于工程存在）。
             CrashReport::setProjectContext(fi.absolutePath());

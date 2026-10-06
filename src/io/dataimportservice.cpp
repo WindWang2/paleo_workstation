@@ -616,6 +616,7 @@ std::shared_ptr<ImportSession> DataImportService::beginImport()
   s->catalogOpenError = m_catalogOpenError;
   s->baseSeq = m_catalog->mutationSeq();
   s->epoch = m_catalogEpoch;
+  s->georeference = m_georeference; // 建井配准快照（produce 期间只读）
   if (!m_projectDir.isEmpty())
     s->stagingRoot = QDir(m_projectDir).absoluteFilePath(
         QStringLiteral("artifacts/staging/") +
@@ -1152,8 +1153,21 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
         w.surfaceY = r.y;
         w.kb = r.kb;
         w.td = r.td;
-        // 局部测网坐标：真投影参数出现前保持未变换（plan §3）。
-        w.coordinateStatus = QStringLiteral("untransformed");
+        // 局部测网坐标：真投影参数出现前保持未变换（plan §3）。工程带
+        // georeference 时换算 WGS84 落 extra（surfaceX/Y 仍存原始网格——
+        // 地图读它，渲染管线不变），状态进 ok。
+        double lonDeg = 0.0, latDeg = 0.0;
+        if (s.georeference &&
+            applyGeoreference(*s.georeference, r.x, r.y, &lonDeg, &latDeg))
+        {
+          w.coordinateStatus = QStringLiteral("ok");
+          w.extra.insert(QStringLiteral("projectLon"), lonDeg);
+          w.extra.insert(QStringLiteral("projectLat"), latDeg);
+        }
+        else
+        {
+          w.coordinateStatus = QStringLiteral("untransformed");
+        }
         if (!cat->addEntity(w, error))
           return fail(*error);
       }
@@ -1421,19 +1435,48 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
     const QString surveyId = QStringLiteral("survey-%1").arg(stem);
     if (!cat->hasEntity(surveyId))
     {
-      CatalogEntity s;
-      s.id = surveyId;
-      s.entityType = QStringLiteral("seismic_survey");
-      s.name = stem;
-      s.inlineMin = g.inlineMin;
-      s.inlineMax = g.inlineMax;
-      s.xlineMin = g.xlineMin;
-      s.xlineMax = g.xlineMax;
-      s.sampleIntervalUs = reader.sampleIntervalUs();
-      s.startTimeMs = g.startTimeMs;
+      CatalogEntity svy;
+      svy.id = surveyId;
+      svy.entityType = QStringLiteral("seismic_survey");
+      svy.name = stem;
+      svy.inlineMin = g.inlineMin;
+      svy.inlineMax = g.inlineMax;
+      svy.xlineMin = g.xlineMin;
+      svy.xlineMax = g.xlineMax;
+      svy.sampleIntervalUs = reader.sampleIntervalUs();
+      svy.startTimeMs = g.startTimeMs;
       for (int i = 0; i < 4; ++i)
-        s.corners.append({g.cornerX[i], g.cornerY[i]});
-      if (!cat->addEntity(s, error))
+        svy.corners.append({g.cornerX[i], g.cornerY[i]});
+      // 配准可用时把角点换算成 WGS84 包围盒落 extra（原始 corners 仍存局部
+      // 网格——视图/测线几何管线不变）。
+      if (s.georeference)
+      {
+        double lo = 180, hi = -180, la = 90, ha = -90;
+        bool have = false;
+        for (int i = 0; i < 4; ++i)
+        {
+          double lonDeg = 0, latDeg = 0;
+          if (!applyGeoreference(*s.georeference, g.cornerX[i], g.cornerY[i],
+                                 &lonDeg, &latDeg))
+          {
+            have = false;
+            break;
+          }
+          have = true;
+          lo = qMin(lo, lonDeg);
+          hi = qMax(hi, lonDeg);
+          la = qMin(la, latDeg);
+          ha = qMax(ha, latDeg);
+        }
+        if (have)
+        {
+          svy.extra.insert(QStringLiteral("wgs84BboxWest"), lo);
+          svy.extra.insert(QStringLiteral("wgs84BboxEast"), hi);
+          svy.extra.insert(QStringLiteral("wgs84BboxSouth"), la);
+          svy.extra.insert(QStringLiteral("wgs84BboxNorth"), ha);
+        }
+      }
+      if (!cat->addEntity(svy, error))
         return fail(*error);
     }
     EntityAssetLink link;

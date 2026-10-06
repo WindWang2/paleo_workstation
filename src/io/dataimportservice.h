@@ -13,6 +13,9 @@
 #include "../catalog/datacatalog.h"
 #include "../domain/importrows.h"   // FolderPreviewRow / FolderRowResult（domain 瞬态 DTO）
 #include "../metadata/layermanifest.h" // LayerDeclaration（ImportEvent 按值携带）
+#include "../metadata/paleoprojectfile.h" // PaleoGeoreference（建井配准应用）
+
+#include <optional>
 
 class PaleoProjectStore;
 class QProcess;
@@ -38,6 +41,13 @@ class DataImportService : public QObject
     ~DataImportService() override;
 
     void setProjectDir(const QString &dir);   // where the project lives
+
+    // 工程级地理配准（project.paleo georeference 节注入）：建井时把局部网格
+    // surfaceX/Y 换算成 WGS84 经纬度——coordinateStatus="ok"、extra 记
+    // projectLon/projectLat；surfaceX/Y 照旧存原始网格（地图渲染不变）。
+    // 未设置 = 现状（untransformed，无 extra）。
+    void setGeoreference(const PaleoGeoreference &g) { m_georeference = g; }
+    void clearGeoreference() { m_georeference.reset(); }
 
     // T20a：catalog 打开失败面（audit row 36）。setProjectDir 里 open() 失败 →
     // 发 catalogOpenFailed + 记 catalogOpenError()；此后 catalog 处于拒绝写入
@@ -299,6 +309,7 @@ class DataImportService : public QObject
     bool m_catalogReady = false;
     QString m_catalogOpenError;   // 最近一次 catalog open 失败原因（成功则空）
     quint64 m_catalogEpoch = 0;   // setProjectDir 每次 +1——session 跨工程切换不提交
+    std::optional<PaleoGeoreference> m_georeference; // 建井配准（空=不应用）
 
     QString m_converter;            // "" 未解析/不可用
     bool m_converterResolved = false;
@@ -342,6 +353,7 @@ struct ImportSession
   QString catalogOpenError;
   quint64 baseSeq = 0;          // DataCatalog::mutationSeq() 基线
   quint64 epoch = 0;
+  std::optional<PaleoGeoreference> georeference; // 工程配准快照（建井/几何换算）
   std::unique_ptr<DataCatalog> cat; // staging 副本：produce 线程独占
 
   // ---- 产出（produce 写；commit 读/改写失败态）----

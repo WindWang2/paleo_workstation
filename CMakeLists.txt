@@ -316,6 +316,11 @@ add_executable(paleo_selfcheck src/selfcheck/main.cpp)
 target_link_libraries(paleo_selfcheck PRIVATE paleo_qgis_iface)
 target_compile_definitions(paleo_selfcheck PRIVATE FIXTURE_GPKG="${FIXTURE_GPKG}")
 
+# demo 工程无头构建工具（组装根）：xlsx 转规范井文本 + 生产导入路径 +
+# georeference 落 project.paleo + 重开自校验。用法见 src/app/mkproject.cpp 头注。
+add_executable(paleo_mkproject src/app/mkproject.cpp)
+target_link_libraries(paleo_mkproject PRIVATE paleo_services paleo_qgis)
+
 # ---- ONNX Runtime (vendored; spike ET4) — 先于模块库定义，paleo_ai 依赖它 ----
 find_path(ORT_INCLUDE onnxruntime_cxx_api.h PATHS ${CMAKE_SOURCE_DIR}/vendor/onnxruntime/include)
 find_library(ORT_LIB onnxruntime PATHS ${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib)

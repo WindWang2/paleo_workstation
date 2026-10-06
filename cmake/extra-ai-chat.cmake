@@ -18,6 +18,7 @@ target_sources(paleo_ai PRIVATE
   src/ai/chat/llmclient.cpp
   src/ai/chat/llmkeystore.cpp
   src/ai/chat/domaintools.cpp
+  src/ai/chat/markdown.cpp
 )
 # ORT 本地降级引擎：TU 里用到 PaleoOnnxService 的符号，只在 ORT 构建里编。
 if(PALEO_HAVE_ORT)
@@ -35,8 +36,11 @@ target_sources(paleo_workflow PRIVATE
 # 装配根：远端预测装配（唯一的装配入口，产品与测试同源）。
 target_sources(paleo_app PRIVATE src/app/aiwiring.cpp)
 
-# 视图层：助手 dock。
-target_sources(paleo_ui PRIVATE src/ui/ai/aiassistdock.cpp)
+# 视图层：助手 dock + 配置对话框（方向62）。
+target_sources(paleo_ui PRIVATE
+  src/ui/ai/aiassistdock.cpp
+  src/ui/ai/llmconfigdialog.cpp
+)
 
 # ---- 测试 ----
 # 刻意不走 ORT 门：异步路由/降级语义用桩 LocalPredictor 即可覆盖，
@@ -47,6 +51,11 @@ add_paleo_test(tst_aichat LIBS paleo_ai)
 add_paleo_test(tst_aiwiring LIBS paleo_app)
 add_paleo_test(tst_aichatcontroller LIBS paleo_workflow paleo_ai)
 add_paleo_test(tst_aiassistdock LIBS paleo_ui)
+# 方向62：markdown 转换器（纯逻辑，无 UI）。
+add_paleo_test(tst_aimarkdown LIBS paleo_ai)
+# 方向62：图形化配置对话框（表单 round-trip / 密钥掩码 / 无钥匙串禁用态）。
+add_paleo_test(tst_llmconfigdialog LIBS paleo_ui)
+
 # 方向61：工具调用闭环（tools 上送→tool_calls 执行→role=tool 回灌→终答）。
 # 真 ORT 执行面（夹具小模型 + catalog 声明断言），只在 ORT 构建跑。
 if(PALEO_HAVE_ORT)

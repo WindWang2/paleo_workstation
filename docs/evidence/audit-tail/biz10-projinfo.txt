@@ -11,4 +11,4 @@ Operation No. 1:
 unknown id, Identity transformation from Paleo local engineering grid to Paleo local engineering grid, 0 m, World
 $ echo "500000 4000000" | cs2cs <LOCAL_GRID_WKT> EPSG:32650
 Rel. 9.6.0, March 15th, 2025
-<cs2cs>: 
+<cs2cs>:

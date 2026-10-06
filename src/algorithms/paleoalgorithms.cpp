@@ -136,6 +136,16 @@ GDALDatasetH createGTiff( const QString &outPath, int nCols, int nRows, GDALData
     GDALSetProjection( ds, wktUtf8.constData() );
     GDALSetMetadataItem( ds, "PALEO_CRS_WKT", wktUtf8.constData(), nullptr );
   }
+  else if ( !canonicalCrsWkt.isEmpty() )
+  {
+    // BIZ-11（方向58）：输入无 CRS（无效 crs）但调用方给了规范局部网格 WKT
+    //（workflow 恒注入 LOCAL_GRID_WKT）——工程内一切栅格都在该网格上，按规范
+    // 串写出，不再产出无投影 GeoTIFF。无规范覆盖的直调（测试/外部脚本）
+    // 仍保持旧行为（不编造 CRS），见 rasterout.h 残余面说明。
+    const QByteArray wktUtf8 = canonicalCrsWkt.toUtf8();
+    GDALSetProjection( ds, wktUtf8.constData() );
+    GDALSetMetadataItem( ds, "PALEO_CRS_WKT", wktUtf8.constData(), nullptr );
+  }
   return ds;
 }
 

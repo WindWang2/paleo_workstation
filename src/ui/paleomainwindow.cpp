@@ -42,6 +42,7 @@
 #include "pages/pageshared.h" // kPageIds（W4 跨 TU 页序表）
 #include "shortcuts/shortcutcatalog.h" // 方向63：快捷键中央注册表（键序/上下文唯一真源）
 #include "help/helpsurface.h"          // 方向63：帮助菜单 + F1 总表 + Shift+F1
+#include "help/whatsthiscatalog.h"     // 方向63：「这是什么？」清单回填
 #include "constraintdrawcontroller.h"
 #include "dialogs/folderconfirm.h"
 #include "typedconstraintdrawcontroller.h" // ---- m2(B)：物源线/展布线/控制点（块内接线用）----
@@ -361,8 +362,10 @@ PaleoMainWindow::PaleoMainWindow(QgisCanvasController *canvasCtl,
   showStartup(); // §42.1: first-run lands on the startup page
   restoreWindowState();
 
-  // 方向63：快捷键注册表健康度进启动日志（冲突 warning / 遮蔽 info）。
+  // 方向63：快捷键注册表健康度进启动日志（冲突 warning / 遮蔽 info），
+  // 外壳控件按清单回填 whatsThis（页面板在 attachWorkflows 末尾再补一轮）。
   paleo::shortcuts::logConflictsOnce();
+  paleo::help::applyWhatsThis(this);
 }
 
 PaleoMainWindow::~PaleoMainWindow()

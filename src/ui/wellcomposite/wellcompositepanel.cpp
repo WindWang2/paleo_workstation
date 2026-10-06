@@ -47,6 +47,7 @@
 #include "trackregistry.h"
 #include "wellpositionlegendwidget.h"
 #include "../shortcuts/shortcutcatalog.h"
+#include "../help/whatsthiscatalog.h"
 
 namespace WellComposite
 {
@@ -68,6 +69,9 @@ WellCompositePanel::WellCompositePanel(QWidget *parent)
   // sink 迟装时由 setDefault 补挂）。
   WellCompositeDerivedSink::registerPanel(this);
   if (s_faciesFactory) bindFaciesWorkflow(s_faciesFactory(this));
+
+  // 方向63：懒建面板自行按清单回填「这是什么？」说明。
+  paleo::help::applyWhatsThis(this);
 }
 
 WellCompositePanel::~WellCompositePanel()

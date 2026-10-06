@@ -37,6 +37,7 @@
 #include "../services/paleotaskservice.h"
 #include "ui/seismic3d/seismic3dviewpanel.h"
 #include "services/seismictaskservice.h"
+#include "help/whatsthiscatalog.h" // 方向63：「这是什么？」清单回填
 
 #include <qgsmapcanvas.h>
 #include <qgsproject.h>
@@ -603,6 +604,10 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
     if (store->isReadOnly())
       setProjectReadOnly(true);
   }
+
+  // 方向63：页面板（数据列表/五页/定位器/处理算法）此刻才建齐——按清单补
+  // 一轮 whatsThis（幂等，外壳控件已在构造末尾回填过的不覆盖）。
+  paleo::help::applyWhatsThis(this);
 
   m_workflowsAttached = true;
 }

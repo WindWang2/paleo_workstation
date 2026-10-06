@@ -268,6 +268,8 @@ int main(int argc, char *argv[])
   window.attachPropertyModel(ctx.propertyModelWf(), ctx.faultCtl());
   // goal/facies-automapping：证据合成 + QA 报告面板（相图链编排接线）。
   window.attachFaciesMapping(ctx.faciesMappingWf());
+  // 方向51：AI 地质对话助手（编排在 AppContext，面板只渲染 + 发意图）。
+  window.attachAiAssistant(ctx.aiChat());
   // goal/fault-interpretation：剖面断层拾取/断层管理面板接编排器
   window.attachFaults(ctx.faultCtl());
   // 方向34：井网辅助（验证页「布井辅助」页签 + 地图布点工具）。

@@ -20,7 +20,9 @@ class QgisProcessingService;
 class QgisEditingService;
 class QgisStyleService;
 class ToolAvailabilityService;
+class AiChatController;
 class PaleoOnnxService;
+class RemotePredictionRouter;
 class AiAssistWorkflow;
 class SelectionContext;
 class DepthConversionWorkflow;
@@ -64,6 +66,15 @@ class AppContext : public QObject
     // ONNX 推理服务（PALEO_HAVE_ORT 构建下恒实例化并绑到 predictionWf；
     // 运行库/模型缺失由服务自身如实报告，!ORT 构建恒为 nullptr）。
     PaleoOnnxService *onnxSvc() const { return m_onnxSvc; }
+    // 方向51：远端预测路由（装配根注入 MappingWorkbench 的那个实例）。
+    // 恒非空——端点未配置时它不带传输，收到请求如实失败；UI 显示
+    // predictionStatusHint()（「远端预测未配置，走本地引擎」）。
+    RemotePredictionRouter *remotePredictRouter() const {
+      return m_remotePredict;
+    }
+    QString remotePredictStatusHint() const { return m_remotePredictHint; }
+    // 方向51：AI 地质对话助手编排（会话/流式/工具分发）；未配置密钥时呈禁用态。
+    AiChatController *aiChat() const { return m_aiChat; }
     // AI 辅助编排（tile 分类产品 + 追踪建议裁决）；无 ORT 构建下为 null。
     AiAssistWorkflow *aiAssistWorkflow() const { return m_aiAssistWf; }
     SelectionContext *selection() const { return m_selection; }
@@ -152,6 +163,10 @@ class AppContext : public QObject
     QgisStyleService *m_styleSvc = nullptr;
     ToolAvailabilityService *m_toolSvc = nullptr;
     PaleoOnnxService *m_onnxSvc = nullptr;
+    // 方向51：远端推理装配产物（router 的生命周期挂在 this 上）。
+    RemotePredictionRouter *m_remotePredict = nullptr;
+    QString m_remotePredictHint;
+    AiChatController *m_aiChat = nullptr;
     AiAssistWorkflow *m_aiAssistWf = nullptr;
     SelectionContext *m_selection = nullptr;
     SeismicMapLink *m_seismicLink = nullptr;

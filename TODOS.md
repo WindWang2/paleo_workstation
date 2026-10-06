@@ -1,3 +1,21 @@
+## P3 — AI 助手：function calling 闭环 + 图形化配置（from goal/ai-assist, 2026-10-06）
+
+- **What:** 方向51 只交付了「领域工具描述表 + 调用分发」：模型点名挑工具后，助手面板会
+  出一张占位卡片写明目标入口与「尚未接线」，**不会**真的执行、也不会把结果回填再续写。
+  另：端点/模型/密钥的图形化配置对话框同样未做——面板「配置…」只发意图，状态栏告知
+  配置文件（`LlmConfig::path()`）与 `PALEO_LLM_ENDPOINT` / `_MODEL` / `_API_KEY` 环境变量。
+  密钥本身已进系统钥匙串（`src/ai/chat/llmkeystore.*`），只是没有写入 UI。
+- **Why:** 工具执行要跨到既有服务（ORT 推理、测井相 HTTP）并定义「结果回填 → 再发起一轮
+  补全」的协议与取消边界，工作量不在骨架方向；而且未做之前假装做了，是更坏的诚实面。
+- **Pros:** 现在这一版不冒充已执行的 function calling，配置缺口也明说在状态行；
+  **Cons:** 助手目前只是「能聊 + 知道有哪些工具」，不能代跑。
+- **Context:** `src/ai/chat/domaintools.{h,cpp}`（`dispatchAiTool` 的 `NotImplemented`
+  分支就是闭环的落点）、`src/workflow/aichatcontroller.*`、`src/ui/ai/aiassistdock.*`、
+  ledger [方向51](.goal-loop-ledger-ai-assist.md)。
+- **Effort:** human: M / CC: M
+- **Priority:** P3
+- **Depends on:** 既有三条能力的服务入口接线（ORT 推理/测井相），以及工具结果回填的多轮协议
+
 ## P3 — UI 窄面布局后续（from goal/ui-visual-polish, 2026-10-04）
 
 - GeoJSON/层位预览的 QGIS 样式侧栏在 1100×700 下字段标题拥挤；另行评估侧栏宽度与表单排布。

@@ -143,6 +143,47 @@ class TestVersions : public QObject
         QCOMPARE( reopened.versions( QStringLiteral( "D61" ) ).size(), 2 );
     }
 
+    // #222：提交失败时编辑缓冲保留供重试/回滚，撤销历史也必须保留——
+    // 失败路径不得执行成功路径的 undoStack()->clear() 收尾。
+    void failedCommitKeepsUndoHistory()
+    {
+        Fixture f;
+        QVERIFY( f.init() );
+        const QString gpkg = makeFaciesGpkg( f.dir.filePath( QStringLiteral( "facies_undo.gpkg" ) ) );
+        QVERIFY( !gpkg.isEmpty() );
+
+        LayerDeclaration decl;
+        decl.layerId = QStringLiteral( "faciesundo.D61" );
+        decl.horizon = QStringLiteral( "D61" );
+        decl.type = QStringLiteral( "vector" );
+        decl.source = QStringLiteral( "%1|layername=facies_polygons" ).arg( gpkg );
+        QString err;
+        QVERIFY2( f.layers.declare( decl, &err ), qPrintable( err ) );
+        auto *vl = qobject_cast<QgsVectorLayer *>( f.layers.instantiate( decl.layerId, &err ) );
+        QVERIFY2( vl != nullptr, qPrintable( err ) );
+
+        QVERIFY( vl->startEditing() );
+        QgsFeature nf( vl->fields() );
+        nf.setGeometry( QgsGeometry::fromWkt( QStringLiteral( "POLYGON((2 2,3 2,3 3,2 2))" ) ) );
+        QVERIFY( vl->addFeature( nf ) );
+        const int undoBefore = vl->undoStack()->count();
+        QVERIFY( undoBefore > 0 );
+
+        vl->setAllowCommit( false ); // 模拟提交失败（磁盘满 / 锁 / 约束拒绝）
+        const MapVersion v = f.controller.saveVersion( QStringLiteral( "D61" ), QVariantMap(), &err );
+        QCOMPARE( v.version, 0 );
+        QVERIFY( !err.isEmpty() );
+        QVERIFY( vl->isEditable() );                       // 编辑缓冲保留
+        QCOMPARE( vl->undoStack()->count(), undoBefore );  // 撤销历史保留
+
+        // 解除故障后重试成功，成功路径照常清栈。
+        vl->setAllowCommit( true );
+        err.clear();
+        const MapVersion retry = f.controller.saveVersion( QStringLiteral( "D61" ), QVariantMap(), &err );
+        QVERIFY2( retry.version == 1, qPrintable( err ) );
+        QCOMPARE( vl->undoStack()->count(), 0 );
+    }
+
     // 清单读失败 → saveVersion/publish 都失败，不出版本、不发空快照。
     void manifestReadFailureFailsVersionOps()
     {

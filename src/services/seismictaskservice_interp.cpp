@@ -642,6 +642,23 @@ SeismicHorizonGrid SeismicTaskService::gridPicks(const QList<SeismicPick> &picks
 
 namespace {
 
+// #226：层位名来自自由输入（拾取面板 QLineEdit / 改名对话框），会拼进文件名
+// 与资产 id——拒绝路径穿越（../ 斜杠、控制字符，同 catalog isSafePathSegment）
+// 与 Windows 文件名非法字符，失败如实报因而不是写穿 outputDir。
+bool checkHorizonName(const QString &horizonName, QString *error)
+{
+  static const QString kWinIllegal = QStringLiteral("<>:\"|?*");
+  bool ok = DataCatalog::isSafePathSegment(horizonName) &&
+            horizonName.trimmed() == horizonName && !horizonName.endsWith(QLatin1Char('.'));
+  for (const QChar c : horizonName)
+    if (kWinIllegal.contains(c))
+      ok = false;
+  if (!ok && error)
+    *error = QStringLiteral("层位名「%1」含非法路径字符（/ \\ .. 控制字符或 <>:\"|?*），请改名后再登记")
+                 .arg(horizonName);
+  return ok;
+}
+
 // goal/horizon-3d — 层位资产文件体（CSV + 可选层位栅格 GeoTIFF +
 // LayerDeclaration 回填）：registerHorizonAsset（IDW 网格化拾取）与
 // registerPropagatedHorizonAsset（直接成格前沿）共用——同一文件格式与
@@ -793,6 +810,8 @@ QString SeismicTaskService::registerHorizonAsset(
       *error = QStringLiteral("catalog 未设置或拾取集为空");
     return QString();
   }
+  if (!checkHorizonName(horizonName, error))
+    return QString();
   const SeismicHorizonGrid grid = gridPicks(picks);
   if (!grid.isValid())
   {
@@ -884,6 +903,8 @@ QString SeismicTaskService::registerPropagatedHorizonAsset(
       *error = QStringLiteral("catalog 未设置或拾取集为空");
     return QString();
   }
+  if (!checkHorizonName(horizonName, error))
+    return QString();
   const SeismicHorizonGrid grid = gridPropagated(picks);
   if (!grid.isValid())
   {

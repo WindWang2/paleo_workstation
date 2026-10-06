@@ -7,7 +7,8 @@
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QInputDialog>
-#include <QMessageBox>
+#include "../notifications/paleonotify.h"
+#include <QDialog>  // 原经 <QMessageBox> 传递引入
 #include <QVBoxLayout>
 
 namespace WellComposite
@@ -622,7 +623,7 @@ void CurveConfigDialog::onCombineSelected()
 
   if (indices.size() < 2 || indices.size() > 4)
   {
-    QMessageBox::warning(this, tr("提示"), tr("请在列表中选择 2 至 4 根曲线进行合并！"));
+    PaleoNotify::warning(this, tr("提示"), tr("请在列表中选择 2 至 4 根曲线进行合并！"));
     return;
   }
 
@@ -672,7 +673,7 @@ void CurveConfigDialog::onDissolveSelected()
   const int targetTrackIdx = sel.front()->data(0, Qt::UserRole).toInt();
   if (!dissolveTrack(targetTrackIdx))
   {
-    QMessageBox::information(this, tr("提示"), tr("该井道非多曲线道，无需解散。"));
+    PaleoNotify::information(this, tr("提示"), tr("该井道非多曲线道，无需解散。"));
   }
 }
 

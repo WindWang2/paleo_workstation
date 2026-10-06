@@ -4,6 +4,8 @@
 #include "derivedsink.h"
 #include "editsession.h"
 #include "../paleotheme.h"
+#include "../shortcuts/shortcutcatalog.h"
+#include "../help/whatsthiscatalog.h"
 #include <QFile>
 #include <QFileInfo>
 #include <QShortcut>
@@ -21,14 +23,17 @@ WellCompositePanel::WellCompositePanel(QWidget *parent)
 {
   setupUi();
 
-  // D2.7 Ctrl+G 跳深度
-  auto *shortcut = new QShortcut(QKeySequence(QStringLiteral("Ctrl+G")), this);
+  // D2.7 Ctrl+G 跳深度（方向63：键序登记在 shortcuts/shortcutcatalog）
+  auto *shortcut = paleo::shortcuts::bindShortcut(QStringLiteral("wellcomposite.gotoDepth"), this);
   connect(shortcut, &QShortcut::activated, this, &WellCompositePanel::openGotoDepthDialog);
 
   // D1：登记进活跃面板表并挂接默认 sink（壳 attachWorkflows 先于预览页建立；
   // sink 迟装时由 setDefault 补挂）。
   WellCompositeDerivedSink::registerPanel(this);
   if (s_faciesFactory) bindFaciesWorkflow(s_faciesFactory(this));
+
+  // 方向63：懒建面板自行按清单回填「这是什么？」说明。
+  paleo::help::applyWhatsThis(this);
 }
 
 WellCompositePanel::~WellCompositePanel()

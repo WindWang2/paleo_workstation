@@ -12,6 +12,7 @@
 #include "../../domain/sectiontrace.h"    // SegyTrace/SegySectionGrid（domain 纯数据）
 #include "../../io/lasdoc.h"              // LasCurve（白名单：数据模型）
 #include "../../services/previewdoc.h"    // 唯一数据门面——解析/解码/SHA/PDF 编排全经它（W1）
+#include "../../services/sectiondoc.h"   // SectionDoc 完整定义（方向 59 拆细头；onSectionReady 触碰成员）
 #include "../../services/welllogset.h"    // 井曲线并集（综合柱状图；只读 ~C 头）
 #include "../../services/paleotaskservice.h" // PaleoTask 进度/取消（地震转码区）
 #include "../seismic3d/seismic3dviewpanel.h"

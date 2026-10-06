@@ -15,7 +15,6 @@
 #include "../domain/arearules.h"
 #include "horizonbinner.h"
 #include "ingestplan.h"
-#include "lasparser.h"
 #include "welllogread.h" // 方向44：井名提取分派
 #include "../domain/projectclassifier.h"
 #include "segyreader.h"
@@ -260,6 +259,7 @@ std::shared_ptr<ImportSession> DataImportService::beginImport()
   s->catalogOpenError = m_catalogOpenError;
   s->baseSeq = m_catalog->mutationSeq();
   s->epoch = m_catalogEpoch;
+  s->georeference = m_georeference; // 建井配准快照（produce 期间只读）
   if (!m_projectDir.isEmpty())
     s->stagingRoot = QDir(m_projectDir).absoluteFilePath(
         QStringLiteral("artifacts/staging/") +

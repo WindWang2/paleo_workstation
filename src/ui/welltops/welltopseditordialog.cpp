@@ -4,6 +4,8 @@
 #include "../../catalog/datacatalog.h"
 #include "../../workflow/welltopseditorworkflow.h"
 #include "../paleotheme.h"
+#include "../notifications/notificationmanager.h"
+#include "../notifications/notificationmanager.h"
 #include "welltopsmergedialog.h"
 
 #include <QBrush>
@@ -21,7 +23,8 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMenu>
-#include <QMessageBox>
+#include "../notifications/paleonotify.h"
+#include <QDialog>  // 原经 <QMessageBox> 传递引入
 #include <QPushButton>
 #include <QStyledItemDelegate>
 #include <QTableWidget>
@@ -444,7 +447,7 @@ bool WellTopsEditorDialog::requireCleanTable(const QString &what)
 {
   if (!isDirty())
     return true;
-  QMessageBox::information(this, tr("先落定当前改动"),
+  PaleoNotify::information(this, tr("先落定当前改动"),
                            tr("%1基于最近保存的版本计算。当前井的编辑表有未保存改动——"
                               "请先保存，或切换井时选择放弃。")
                                .arg(what));
@@ -455,10 +458,9 @@ bool WellTopsEditorDialog::confirmDiscard()
 {
   if (!isDirty())
     return true;
-  return QMessageBox::question(this, tr("未保存的改动"),
-                               tr("当前井分层有未保存改动，放弃并继续？"),
-                               QMessageBox::Yes | QMessageBox::No,
-                               QMessageBox::No) == QMessageBox::Yes;
+  return PaleoNotify::ask(this, tr("未保存的改动"),
+                          tr("当前井分层有未保存改动，放弃并继续？"),
+                          PaleoNotify::AskButtons::YesNo, PaleoNotify::AskDefault::Reject);
 }
 
 void WellTopsEditorDialog::onWellChanged()
@@ -507,7 +509,7 @@ void WellTopsEditorDialog::onInsertRow()
       if (name.isEmpty() || name.startsWith(QLatin1Char('#')) ||
           std::any_of(name.cbegin(), name.cend(), [](QChar c) { return c.isSpace(); }))
       {
-        QMessageBox::warning(
+        PaleoNotify::warning(
             this, tr("井名不合法"),
             tr("井名不能为空、不能含空白、也不能以 # 开头（DC.dat 按空白分列、"
                "# 起注释——这类名字写盘后无法读回）。"));
@@ -703,7 +705,7 @@ void WellTopsEditorDialog::onSave()
   const QVector<WellTopRecord> rows = collectRows(&err);
   if (!err.isEmpty())
   {
-    QMessageBox::warning(this, tr("无法保存"), err);
+    PaleoNotify::warning(this, tr("无法保存"), err);
     return;
   }
   const WellTopsEdit::ValidationContext ctx =
@@ -716,7 +718,7 @@ void WellTopsEditorDialog::onSave()
   if (errors > 0)
   {
     showIssues(issues);
-    QMessageBox::warning(
+    PaleoNotify::warning(
         this, tr("无法保存"),
         tr("存在 %1 个校验错误，修正后才能保存（见校验结果列表）。").arg(QString::number(errors)));
     return;
@@ -727,7 +729,7 @@ void WellTopsEditorDialog::onSave()
                                               m_pendingMergeNote, editKind);
   if (!out.ok)
   {
-    QMessageBox::warning(this, tr("保存失败"), out.error);
+    PaleoNotify::warning(this, tr("保存失败"), out.error);
     return;
   }
   m_pendingMergeNote.clear();
@@ -753,7 +755,7 @@ void WellTopsEditorDialog::onMergeFromFile()
   QString err;
   if (!m_workflow->loadMergeRows(m_assetId, m_wellCombo->currentText(), path, &mergeRows, &err))
   {
-    QMessageBox::warning(this, tr("无法合并"), err);
+    PaleoNotify::warning(this, tr("无法合并"), err);
     return;
   }
   WellTopsMergeDialog dlg(mergeRows, this);
@@ -784,19 +786,19 @@ bool WellTopsEditorDialog::commitBatch(QVector<WellTopRecord> rows, const QStrin
       QStringList shown = errors.mid(0, kMaxShown);
       if (errors.size() > kMaxShown)
         shown << tr("……共 %1 个错误").arg(QString::number(errors.size()));
-      QMessageBox::warning(this, tr("批量修正被校验阻断"),
+      PaleoNotify::warning(this, tr("批量修正被校验阻断"),
                            tr("批量结果存在错误级问题，未提交：\n%1")
                                .arg(shown.join(QLatin1Char('\n'))));
       return false;
     }
   }
-  if (QMessageBox::question(this, tr("批量修正确认"), confirmText, QMessageBox::Ok |
-                          QMessageBox::Cancel, QMessageBox::Cancel) != QMessageBox::Ok)
+  if (!PaleoNotify::ask(this, tr("批量修正确认"), confirmText,
+                        PaleoNotify::AskButtons::OkCancel, PaleoNotify::AskDefault::Reject))
     return false;
   const auto out = m_workflow->commitAllRows(m_assetId, rows, editKind, QString());
   if (!out.ok)
   {
-    QMessageBox::warning(this, tr("批量修正失败"), out.error);
+    PaleoNotify::warning(this, tr("批量修正失败"), out.error);
     return false;
   }
   if (out.unchanged)
@@ -948,16 +950,16 @@ void WellTopsEditorDialog::onRollbackMenu(QAction *action)
   if (!requireCleanTable(tr("回滚")))
     return;
   const QString label = action->text();
-  if (QMessageBox::question(
+  if (!PaleoNotify::ask(
           this, tr("回滚确认"),
           tr("回滚到「%1」？\n将以该版本的完整内容产生一个新版本（当前版本保留在历史中）。")
               .arg(label),
-          QMessageBox::Ok | QMessageBox::Cancel, QMessageBox::Cancel) != QMessageBox::Ok)
+          PaleoNotify::AskButtons::OkCancel, PaleoNotify::AskDefault::Reject))
     return;
   const auto out = m_workflow->rollbackTo(m_assetId, targetId);
   if (!out.ok)
   {
-    QMessageBox::warning(this, tr("回滚失败"), out.error);
+    PaleoNotify::warning(this, tr("回滚失败"), out.error);
     return;
   }
   setSummaryLine(tr("已回滚为新版本 v%1（内容 = %2）").arg(QString::number(out.newVersionNumber),

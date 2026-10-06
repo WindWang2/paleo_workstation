@@ -14,7 +14,7 @@
 #include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QMessageBox>
+#include "notifications/paleonotify.h"
 #include <QToolButton>
 #include <QVBoxLayout>
 
@@ -180,12 +180,11 @@ bool AttributeTablePanel::cancelEditing()
   if (vl->isModified() &&
       QGuiApplication::platformName() != QLatin1String("offscreen"))
   {
-    const QMessageBox::StandardButton answer = QMessageBox::question(
-        this, tr("放弃编辑"),
-        tr("图层「%1」有未提交的修改——放弃后将全部丢失，确定放弃？")
-            .arg(vl->name()),
-        QMessageBox::Discard | QMessageBox::Cancel, QMessageBox::Cancel);
-    if (answer != QMessageBox::Discard)
+    if (!PaleoNotify::ask(
+            this, tr("放弃编辑"),
+            tr("图层「%1」有未提交的修改——放弃后将全部丢失，确定放弃？")
+                .arg(vl->name()),
+            PaleoNotify::AskButtons::DiscardCancel, PaleoNotify::AskDefault::Reject))
       return false; // 用户取消：会话原样保留
   }
   const bool ok = m_editingService ? m_editingService->rollbackEdit(vl)

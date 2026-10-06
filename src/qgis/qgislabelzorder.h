@@ -26,6 +26,10 @@ class QgisLabelZOrder : public QObject
     // 立即给全部图层打标（构造时已调用一次；测试可直接调用）。
     void refresh();
 
+    // #138：所链 QGIS 是否带 labelsWithLayer 补丁（编译期宏）。false = 标注
+    // 回到原生置顶的降级态，壳层据此给用户可见提示（不只是日志）。
+    static bool labelsWithLayerSupported();
+
   private:
     void applyToLayer( QgsMapLayer *layer );
 

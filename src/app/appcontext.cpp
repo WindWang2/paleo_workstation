@@ -1,5 +1,6 @@
 // 层：组装根
 #include "appcontext.h"
+#include "../services/errorhub.h"                 // 方向64：统一错误通道
 #include "aiwiring.h"                          // 方向51：远端预测装配（唯一入口）
 #include "../ai/remotepredictconfig.h"
 #include "../ai/chat/llmclient.h"              // 方向51：LLM 配置 + 助手编排
@@ -23,6 +24,9 @@
 #include "../qgis/qgisstyleservice.h"
 #include "../services/toolavailability.h"
 #include "../services/paleotaskservice.h"
+#include "../services/scriptrunner.h"  // 方向68：Python 脚本运行服务
+#include "../services/pythonrepl.h"    // 方向68：REPL 会话桥（实验性）
+#include "../workflow/pythonconsolecontroller.h" // 方向68：脚本面编排
 #include "../services/startuptrace.h" // goal/perf-systematize 簇1：启动分段打点
 #include "../services/crashreport.h" // wave4：projectOpened → 报告头工程路径
 #include "../domain/arearules.h"         // wave4 接线点：projectOpened → setProjectDir
@@ -173,6 +177,9 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   m_editSvc = new QgisEditingService(m_store, this);
   m_styleSvc = new QgisStyleService(this);
   m_toolSvc = new ToolAvailabilityService(m_store, this);
+  // 方向64：统一错误通道——视图层 PaleoNotify 经 ErrorHub::global() 入账。
+  m_errorHub = new ErrorHub(this);
+  ErrorHub::installGlobal(m_errorHub);
   m_selection = new SelectionContext(this);
 
   // goal/fault-interpretation：断层解释编排器（存储值成员在 projectOpened
@@ -235,6 +242,10 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   // 方向51：AI 对话助手编排。端点/模型从用户配置读，密钥由系统钥匙串异步
   // 补齐——补齐前是禁用态（UI 显示禁用原因），不静默跑假回答。
   m_aiChat = new AiChatController(this);
+#if PALEO_HAVE_ORT
+  // 方向61：工具执行回路装配（tile 分类起步；工程打开处随 AreaRules 重绑）。
+  bindChatToolRunner(m_aiChat, m_aiAssistWf, m_layerSvc);
+#endif
   {
     LlmConfig llm = LlmConfig::load();
     LlmKeyStore::read(this, [this, llm](bool ok, const QByteArray &key,
@@ -245,6 +256,12 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
         m_aiChat->setConfig(llm);
     });
   }
+  // 方向68：Python 脚本面三件。脚本执行恒为显式用户动作（控制台面板
+  // 触发）；无沙箱，脚本安全性用户自担（面板提示 +
+  // tools/reference/scripts/README.md 同步声明）。
+  m_scriptRunner = new ScriptRunnerService(this);
+  m_pythonRepl = new PythonReplSession(this);
+  m_pythonConsole = new PythonConsoleController(m_scriptRunner, m_pythonRepl, this);
   m_compositionWf = new CompositionWorkflow(m_procSvc, m_layerSvc, this);
   m_validationWf = new ValidationWorkflow(m_layerSvc, m_store, this);
 
@@ -429,6 +446,13 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
                   QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
             }
             m_import->setProjectDir(fi.absolutePath());
+            // 工程级地理配准（project.paleo georeference 节）：导入服务带上
+            // 局部网格→WGS84 变换——建井时写 coordinateStatus=ok + extra
+            // 经纬度；无配准工程保持 untransformed 现状。
+            if (m_projectSvc->georeference())
+              m_import->setGeoreference(*m_projectSvc->georeference());
+            else
+              m_import->clearGeoreference();
             // wave4/崩溃报告：报告头的「当前工程路径」随工程打开更新（落点
             // 不变——AppData 下，脏退出检测要求先于工程存在）。
             CrashReport::setProjectContext(fi.absolutePath());
@@ -447,6 +471,9 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
 #if PALEO_HAVE_ORT
               if (m_aiAssistWf)
                 m_aiAssistWf->setCatalog(derivedCatalog, fi.absolutePath());
+              // 方向61：工程打开 → 重绑聊天工具上下文（AreaRules 按工区钉
+              // targetHorizon，层位名与栅格声明都可能换了）。
+              bindChatToolRunner(m_aiChat, m_aiAssistWf, m_layerSvc);
 #endif
               // goal/time-depth-velocity：同一 catalog 实例纪律（整文件重写，
               // 交错写互覆）——层深转换产物落 artifacts/derived/。

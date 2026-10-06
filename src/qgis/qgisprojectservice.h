@@ -7,6 +7,9 @@
 #include <functional>
 
 #include "../metadata/layermanifest.h"
+#include "../metadata/paleoprojectfile.h"
+
+#include <optional>
 
 class QgsProject;
 
@@ -27,6 +30,14 @@ class QgisProjectService : public QObject
     bool writeProject();                            // atomic temp+rename via store ordering
     QString projectPath() const;
     QStringList lastErrors() const { return m_errors; }
+
+    // 工程级地理配准（project.paleo 的 georeference 节；.qgz 内嵌副本兜底）。
+    // 打开/新建/关闭时重置；无配准工程为 nullopt。设置侧走 writeProjectFile
+    //（工程清单是权威），本服务在 writeProject 时把它镜像进 QgsProject 自定义
+    // 属性（paleo/georeference）随 .qgz 持久化。
+    const std::optional<PaleoGeoreference> &georeference() const { return m_georeference; }
+    void setGeoreference(const PaleoGeoreference &g) { m_georeference = g; }
+    void clearGeoreference() { m_georeference.reset(); }
 
     // 关闭当前工程（#152/#153）：发 projectAboutToClose → clear() → 清路径
     // → 发 projectClosed。未打开工程时为空操作。关闭后 writeProject() 拒写
@@ -69,11 +80,12 @@ class QgisProjectService : public QObject
     void notifyAboutToClose();
     void failAfterClose();
 
-    QgsProject *m_project = nullptr;
-    quint64 m_sessionId = 0;
-    bool m_lastOpenCancelled = false;
-    OpenGate m_openGate;
-    QString m_path;
-    QStringList m_errors;
-    std::function<bool(QVector<LayerDeclaration> *, QString *)> m_declarationProvider;
+  QgsProject *m_project = nullptr;
+  quint64 m_sessionId = 0;
+  bool m_lastOpenCancelled = false;
+  OpenGate m_openGate;
+  QString m_path;
+  QStringList m_errors;
+  std::optional<PaleoGeoreference> m_georeference;
+  std::function<bool(QVector<LayerDeclaration> *, QString *)> m_declarationProvider;
 };

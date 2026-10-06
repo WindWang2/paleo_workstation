@@ -20,6 +20,7 @@ class QgisProcessingService;
 class QgisEditingService;
 class QgisStyleService;
 class ToolAvailabilityService;
+class ErrorHub;
 class AiChatController;
 class PaleoOnnxService;
 class RemotePredictionRouter;
@@ -63,6 +64,8 @@ class AppContext : public QObject
     QgisEditingService *editingSvc() const { return m_editSvc; }
     QgisStyleService *styleSvc() const { return m_styleSvc; }
     ToolAvailabilityService *toolSvc() const { return m_toolSvc; }
+    // 方向64：统一错误通道（构造即 installGlobal，析构自动摘除）。
+    ErrorHub *errorHub() const { return m_errorHub; }
     // ONNX 推理服务（PALEO_HAVE_ORT 构建下恒实例化并绑到 predictionWf；
     // 运行库/模型缺失由服务自身如实报告，!ORT 构建恒为 nullptr）。
     PaleoOnnxService *onnxSvc() const { return m_onnxSvc; }
@@ -75,6 +78,8 @@ class AppContext : public QObject
     QString remotePredictStatusHint() const { return m_remotePredictHint; }
     // 方向51：AI 地质对话助手编排（会话/流式/工具分发）；未配置密钥时呈禁用态。
     AiChatController *aiChat() const { return m_aiChat; }
+    // 方向68：Python 脚本面编排（脚本运行/协议/历史/REPL 会话转发）。
+    class PythonConsoleController *pythonConsole() const { return m_pythonConsole; }
     // AI 辅助编排（tile 分类产品 + 追踪建议裁决）；无 ORT 构建下为 null。
     AiAssistWorkflow *aiAssistWorkflow() const { return m_aiAssistWf; }
     SelectionContext *selection() const { return m_selection; }
@@ -162,11 +167,16 @@ class AppContext : public QObject
     QgisEditingService *m_editSvc = nullptr;
     QgisStyleService *m_styleSvc = nullptr;
     ToolAvailabilityService *m_toolSvc = nullptr;
+    ErrorHub *m_errorHub = nullptr;
     PaleoOnnxService *m_onnxSvc = nullptr;
     // 方向51：远端推理装配产物（router 的生命周期挂在 this 上）。
     RemotePredictionRouter *m_remotePredict = nullptr;
     QString m_remotePredictHint;
     AiChatController *m_aiChat = nullptr;
+    // 方向68：Python 脚本面三件（运行服务/REPL 会话/控制台编排）。
+    class ScriptRunnerService *m_scriptRunner = nullptr;
+    class PythonReplSession *m_pythonRepl = nullptr;
+    class PythonConsoleController *m_pythonConsole = nullptr;
     AiAssistWorkflow *m_aiAssistWf = nullptr;
     SelectionContext *m_selection = nullptr;
     SeismicMapLink *m_seismicLink = nullptr;

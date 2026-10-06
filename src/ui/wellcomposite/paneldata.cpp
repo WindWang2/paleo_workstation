@@ -1,6 +1,7 @@
 // 层：视图
 // 综合图面板·数据装配（XML 同步/异步、LAS 曲线、综合数据→道布局）——自 wellcompositepanel.cpp 拆出（方向 66，行为零变更）
 #include "wellcompositepanel.h"
+#include "../../domain/wellcompositemodel.h" // ComprehensiveWellData（方向 59：previewdoc.h 瘦身后出参类型直取）
 #include "../../services/previewdoc.h"
 #include "../../services/paleotaskservice.h"
 #include "editsession.h"

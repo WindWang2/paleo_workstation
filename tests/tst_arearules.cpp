@@ -243,6 +243,9 @@ void TestAreaRules::defaultClassifierBehaviorUnchanged()
            QStringLiteral("well_head"));
   QCOMPARE(classifyProjectPath(QStringLiteral("/any/plain.dat")).type,
            QStringLiteral("tabular"));
+  // 方向68：csv 进词表（脚本产出落地通道）——与 plain .dat 同档 tabular。
+  QCOMPARE(classifyProjectPath(QStringLiteral("/any/table.csv")).type,
+           QStringLiteral("tabular"));
   QVERIFY(isFixedAuxiliaryPath(QString::fromUtf8("/a/b/HZ28-6-1测井.xml")));
   QVERIFY(!isFixedAuxiliaryPath(QString::fromUtf8("/a/参考资料/other.xml")));
   QVERIFY(isDefaultReferencePath(QString::fromUtf8("/a/参考资料/doc.pdf")));

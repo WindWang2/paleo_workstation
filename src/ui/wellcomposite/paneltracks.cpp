@@ -9,7 +9,7 @@
 #include "trackregistry.h"
 #include <QDialog>
 #include <QFileDialog>
-#include <QMessageBox>
+#include "../notifications/paleonotify.h"
 #include <QSignalBlocker>
 
 namespace WellComposite
@@ -135,7 +135,7 @@ void WellCompositePanel::onTrackCsvRequested(int trackIndex)
   QFile f(path);
   if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
   {
-    QMessageBox::warning(this, tr("导出失败"), tr("无法写入文件: %1").arg(path));
+    PaleoNotify::warning(this, tr("导出失败"), tr("无法写入文件: %1").arg(path));
     return;
   }
   f.write("\xEF\xBB\xBF"); // UTF-8 BOM（Excel 中文兼容）

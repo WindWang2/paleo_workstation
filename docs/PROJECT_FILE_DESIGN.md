@@ -85,6 +85,40 @@ sourceArea）+ `readProjectFile`/`writeProjectFile`/`missingMembers`。
   `.running`、崩溃转储等不重复登记进清单（它们是派生态不是成员）。
 - 最近工程列表照存入口路径（`.paleo` 或 `.qgz` 均可——打开端自适应）。
 
+## georeference 节（工程级地理配准，可选）
+
+局部工程米制网格（ENGCRS，无大地基准）→ 真实地理坐标的 2D 相似变换。
+有此节的工程，`DataImportService` 建井时把井口局部网格坐标换算成 WGS84
+经纬度：`coordinateStatus="ok"`、`extra` 记 `projectLon/projectLat`
+（`surfaceX/Y` 仍存原始网格——地图渲染管线不变）；地震 survey 冻结时
+角点换算包围盒落 `extra.wgs84Bbox*`。
+
+```json
+"georeference": {
+  "kind": "similarity2d",
+  "targetCrs": "EPSG:4326",
+  "anchor":     { "lonDeg": 108.05, "latDeg": 36.10,
+                  "metersPerDegLon": 90049.7, "metersPerDegLat": 110960.8 },
+  "params":     { "a": 1.000896, "b": 0.030276, "tE": -6182.24, "tN": -9871.26 },
+  "formula":    "E=a*x-b*y+tE ; N=b*x+a*y+tN ; lon=lon0+E/mPerLon ; lat=lat0+N/mPerLat",
+  "controlPoints": [ {"well":"A2","x":…,"y":…,"lon":…,"lat":…,"residualM":14.0}, … ],
+  "maxResidualM": 48.7,
+  "provenance":  "参数来源（拟合方法/日期/控制点出处）"
+}
+```
+
+- 变换：`E = a*x - b*y + tE`、`N = b*x + a*y + tN`（米，a=s·cosθ、b=s·sinθ），
+  再按锚点度米系数换算经纬度。`controlPoints`/`maxResidualM` 仅审查溯源，
+  应用端不消费。
+- 兼容：节缺席 = 无配准（现状行为，`formatVersion` 不动——旧读端逐键提取、
+  多余键容忍）。节存在但缺键/含非有限值 → 读端置 `georeferenceError`，
+  打开如实进 `lastErrors`，**不拦打开**（按无配准继续）。写端拒写不完整节。
+- 分发：清单是权威；`QgisProjectService` 另把该节镜像进 QgsProject 自定义
+  属性（scope `paleo`、key `georeference`）随 `.qgz` 持久化——直开 `.qgz`
+  且旁无清单时作兜底，QGIS 侧（底图/导出）未来可直接读。
+- 序列化/反序列化复用 `paleoGeoreferenceToJson/paleoGeoreferenceFromJson`
+  （清单与 `.qgz` 副本同一形状）。
+
 ## 非目标
 
 - 不把数据文件清单写进 `project.paleo`（那是 catalog.json 的职责，

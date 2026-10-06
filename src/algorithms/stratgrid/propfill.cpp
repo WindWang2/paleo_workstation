@@ -763,14 +763,26 @@ bool readPropertyBlob(const QByteArray &blob, PropertyVolume *volume, QJsonObjec
   grid.originY = obj.value(QStringLiteral("originY")).toDouble();
   grid.dx = obj.value(QStringLiteral("dx")).toDouble();
   grid.dy = obj.value(QStringLiteral("dy")).toDouble();
-  const int n = grid.ni * grid.nj;
-  const int cells = n * grid.nk;
-  const int need = 11 + static_cast<int>(jsonLen) + (n * 2 + cells) * static_cast<int>(sizeof(float));
-  if (grid.ni < 1 || grid.nj < 1 || grid.nk < 1 || blob.size() < need)
+  // #219：读侧与写侧同闸——先把每轴钳在 [1, kMaxPropAxis]，再用 qint64 算
+  // 列数/格数/所需字节，避免 int 乘法回绕让 need 变小而绕过长度闸后巨量分配。
+  constexpr int kMaxPropAxis = 1 << 20;
+  if (grid.ni < 1 || grid.nj < 1 || grid.nk < 1 || grid.ni > kMaxPropAxis ||
+      grid.nj > kMaxPropAxis || grid.nk > kMaxPropAxis)
   {
     setError(error, QStringLiteral("属性体几何或体数据长度不符"));
     return false;
   }
+  const qint64 n64 = static_cast<qint64>(grid.ni) * grid.nj;
+  const qint64 cells64 = n64 * grid.nk;
+  const qint64 need = 11 + static_cast<qint64>(jsonLen) +
+                      (n64 * 2 + cells64) * static_cast<qint64>(sizeof(float));
+  if (cells64 > std::numeric_limits<int>::max() || static_cast<qint64>(blob.size()) < need)
+  {
+    setError(error, QStringLiteral("属性体几何或体数据长度不符"));
+    return false;
+  }
+  const int n = static_cast<int>(n64);
+  const int cells = static_cast<int>(cells64);
   const char *cursor = blob.constData() + 11 + static_cast<int>(jsonLen);
   const auto readFloats = [&](int count, std::vector<float> *dst) {
     dst->resize(static_cast<std::size_t>(count));

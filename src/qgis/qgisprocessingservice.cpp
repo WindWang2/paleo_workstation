@@ -9,6 +9,7 @@
 #include <QLabel>
 #include <QMainWindow>
 #include <QTemporaryDir>
+#include <QWidget>
 
 #include <atomic>
 #include <memory>
@@ -548,6 +549,11 @@ void QgisProcessingService::setProject(QgsProject *project)
   m_project = project;
 }
 
+QWidget *QgisProcessingService::lastAlgorithmDialog() const
+{
+  return m_lastDialog;
+}
+
 namespace
 {
 class HookFeedback : public QgsProcessingFeedback
@@ -624,8 +630,11 @@ QVariantMap QgisProcessingService::run(const QString &algorithmId, const QVarian
   QVariantMap results;
   try
   {
-    // Synchronous (blocking) run — main thread only per QgsProcessingAlgorithm
-    // contract; the async/task runner wraps this in its own thread boundary.
+    // Synchronous (blocking) run on the CALLER's thread. #235-2：实际契约——
+    // ConstraintWorkflow 在 worker 线程调用（constraintfactorjobs），依赖冻结
+    // URI 快照 + worker 上独立建层 + nextRunDir 原子计数这一 QGIS 授权的后台
+    // 处理形态；调用方不得传入主线程拥有的图层对象。注意 context 为默认构造，
+    // 未注入工程 transformContext——需要 CRS 变换的算法接入前须先补注入。
     results = instance->run(params, context, &feedback, &ok);
   }
   catch (const QgsProcessingException &e)

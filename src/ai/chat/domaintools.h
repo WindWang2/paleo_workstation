@@ -4,15 +4,15 @@
 #include <QString>
 #include <QVector>
 
-// ai/chat — 领域工具描述表（方向51）。
+// ai/chat — 领域工具描述表（方向51 建立，方向61 接入执行回路）。
 //
 // 把既有的三条推理能力（tile 分类 / 层位建议 / 测井相）登记为「可枚举、有
-// schema 的工具描述」，供聊天面板展示、并在未来由模型点名挑用。
+// schema 的工具描述」，供聊天面板展示、并由模型点名挑用（tools[] 上送）。
 //
-// 诚实边界（本方向的红线）：**这只是一个描述表 + 调用分发占位**。
-// 表里的工具不会被自动执行，也不假装被自动执行——function calling 闭环
-// （模型挑工具 → 真的跑 → 结果回填再续写）递延，见 TODOS.md 登记项。
-// 分发函数现在只回答「这个调用现在能否路由到既有入口」，不能执行。
+// 边界（本文件只管描述与可路由性）：表本身不执行工具——执行编排在
+// workflow/aichattoolrunner（方向61），它把这里的表映射到 AiAssistWorkflow /
+// WellFaciesService 的既有执行面。分发函数回答「这个调用现在能否路由到
+// 入口、缺什么」，不承诺已代用户落任何库。
 
 struct AiToolParamSpec {
   QString name;
@@ -43,13 +43,13 @@ QVector<AiToolSpec> builtinAiToolSpecs();
 AiToolSpec aiToolSpec(const QString &name);
 
 // ---------------------------------------------------------------------------
-// 分发（占位）
+// 分发（可路由性判定——不执行；执行在 workflow/aichattoolrunner）
 // ---------------------------------------------------------------------------
 enum class AiToolDispatchStatus {
-  Routed,    // 入口可达（本构建里有对应的实现面）
+  Routed,    // 入口可达（本构建里有对应的实现面且已接线）
   NotFound,  // 工具未登记
-  Disabled,  // 登记了，但本构建缺依赖（如无 ORT），入口不可达
-  NotImplemented, // 登记且在构建内，但还没把钥匙拧到底（递延项）
+  Disabled,  // 登记了，但本构建缺依赖（如无 ORT）或实参不合格，入口不可达
+  NotImplemented, // 保留值：方向61 后内置三工具均不再返回此态（新工具未接线时用）
 };
 QString aiToolDispatchLabel(AiToolDispatchStatus status);
 

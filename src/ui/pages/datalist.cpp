@@ -18,6 +18,7 @@
 #include "dataopsviews.h"
 #include "dataopswidgets.h"
 #include "datanavtree.h"
+#include "../shortcuts/shortcutcatalog.h" // 方向63：快捷键中央注册表
 #include <QTimer>
 #include <QBoxLayout>
 #include <QButtonGroup>
@@ -907,36 +908,37 @@ void DataListPanel::buildDataOpsUi()
           [this](const QPoint &pos) { showAssetContextMenu(m_tree, pos); });
 
   // ---- 快捷键（D6.4/D6.6；命令面板/快捷键表在 DataPage 层）----
-  const auto addShortcut = [this](QKeySequence key, const char *name,
+  // 方向63：键序登记在 shortcuts/shortcutcatalog（data.list.*），这里只按 id 绑定。
+  const auto addShortcut = [this](const char *id, const char *name,
                                   std::function<void()> handler) {
-    auto *sc = new QShortcut(key, this);
+    auto *sc = paleo::shortcuts::bindShortcut(QLatin1String(id), this);
     sc->setObjectName(QLatin1String(name));
-    m_shortcuts.append({key.toString(), QLatin1String(name)});
+    m_shortcuts.append({sc->key().toString(), QLatin1String(name)});
     connect(sc, &QShortcut::activated, this, std::move(handler));
     return sc;
   };
-  addShortcut(QKeySequence(Qt::CTRL | Qt::Key_Z), "scUndo",
+  addShortcut("data.list.undo", "scUndo",
               [this] { undoOp(); });
-  addShortcut(QKeySequence(Qt::CTRL | Qt::Key_Y), "scRedo",
+  addShortcut("data.list.redo", "scRedo",
               [this] { redoOp(); });
-  addShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_A), "scInvert",
+  addShortcut("data.list.invert", "scInvert",
               [this] { invertAssetSelection(); });
-  addShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_F), "scSelectFiltered",
+  addShortcut("data.list.selectFiltered", "scSelectFiltered",
               [this] { selectByCurrentFilter(); });
-  addShortcut(QKeySequence(Qt::Key_F2), "scRename", [this] {
+  addShortcut("data.list.rename", "scRename", [this] {
     // D4.1：树内实体节点 F2 → 实体重命名意图（EntityPanel/壳接）。
     const QStringList ents = currentEntitySelection();
     if (!ents.isEmpty())
       emit entityRenameRequested(ents.front());
   });
-  addShortcut(QKeySequence(Qt::Key_Question), "scShortcuts", [this] {
+  addShortcut("data.list.shortcuts", "scShortcuts", [this] {
     emit shortcutsDialogRequested();
   });
-  addShortcut(QKeySequence(Qt::CTRL | Qt::Key_F), "scFocusSearch", [this] {
+  addShortcut("data.list.focusSearch", "scFocusSearch", [this] {
     if (auto *edit = findChild<QLineEdit *>(QStringLiteral("assetSearchEdit")))
       edit->setFocus();
   });
-  addShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_V), "scVimToggle", [this] {
+  addShortcut("data.list.vimToggle", "scVimToggle", [this] {
     QSettings s(QStringLiteral("paleo"), QStringLiteral("paleo"));
     const bool on = !s.value(QStringLiteral("dataops/vimMode")).toBool();
     s.setValue(QStringLiteral("dataops/vimMode"), on);

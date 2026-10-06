@@ -7,6 +7,9 @@
 #
 # 为什么只扫 .cpp：compile_commands.json 只登记 TU；改动的头文件经由
 # 包含它的 TU 被分析（header-filter 限定 src/），告警归属照常输出。
+# #229：纯头文件改动（改动集里没有包含它的 TU）时，按「同名 .cpp 优先，
+# 否则取 #include 它的已登记 TU（排序后至多 HEADER_TU_LIMIT 个）」把代表
+# TU 纳入扫描——头文件改动不再整体绕过门禁。
 #
 # 用法（CI 与本地同一入口）：
 #   python3 tools/check_tidy.py                       # base=merge-base(origin/master)
@@ -51,6 +54,92 @@ def tidy_compile_db(entries, build_dir):
     with open(out_path, "w", encoding="utf-8") as fh:
         json.dump(cleaned, fh)
     return os.path.dirname(out_path)
+
+
+HEADER_EXTS = (".h", ".hpp", ".hh", ".hxx")
+HEADER_TU_LIMIT = 3
+
+
+def _includes_header(text, header_rel):
+    """TU 源码是否 #include 了该头（按 src/ 相对路径或基名后缀匹配）。"""
+    base = os.path.basename(header_rel)
+    rel_from_src = header_rel[len("src/"):] if header_rel.startswith("src/") else header_rel
+    for m in re.finditer(r'^\s*#\s*include\s*["<]([^">]+)[">]', text, re.M):
+        inc = m.group(1).replace("\\", "/")
+        if inc == rel_from_src or inc == base or inc.endswith("/" + base):
+            return True
+    return False
+
+
+_SRC_HEADERS = None
+
+
+def all_src_headers():
+    """src/ 下全部头文件（仓库相对路径，缓存一次）。"""
+    global _SRC_HEADERS
+    if _SRC_HEADERS is None:
+        out = []
+        for d, _, fs in os.walk(os.path.join(REPO, "src")):
+            for f in fs:
+                if f.endswith(HEADER_EXTS):
+                    out.append(os.path.relpath(os.path.join(d, f), REPO).replace(os.sep, "/"))
+        _SRC_HEADERS = sorted(out)
+    return _SRC_HEADERS
+
+
+def header_tus(changed_headers, db_files, selected, read=None):
+    """#229：为改动的 src/ 头文件挑选代表 TU。
+    changed_headers：仓库相对路径；db_files：compile_commands 里的绝对路径；
+    selected：已因 .cpp 改动入选的 TU（绝对路径）。返回 (新增 TU 列表, 无覆盖头列表)。"""
+    if read is None:
+        def read(path):
+            try:
+                with open(path, encoding="utf-8", errors="replace") as fh:
+                    return fh.read()
+            except OSError:
+                return ""
+    src_tus = sorted(f for f in db_files
+                     if os.path.relpath(f, REPO).replace(os.sep, "/").startswith(SRC_ONLY))
+    texts = {}
+    picked, uncovered = [], []
+    chosen = set(selected)
+    for h in sorted(changed_headers):
+        stem = os.path.splitext(os.path.normpath(os.path.join(REPO, h)))[0]
+        # 已入选 TU 若包含该头，视作已覆盖。
+        def text_of(tu):
+            if tu not in texts:
+                texts[tu] = read(tu)
+            return texts[tu]
+        if any(_includes_header(text_of(t), h) for t in chosen):
+            continue
+        sibling = [t for t in src_tus if os.path.splitext(t)[0] == stem]
+        cands = sibling or [t for t in src_tus if _includes_header(text_of(t), h)]
+        if not cands:
+            # 只被其它头间接包含（如 lrucache.h ← rasterpyramid.h ← .cpp）：
+            # 沿 src/ 头文件反向包含链至多 3 层找代表 TU。
+            frontier, seen = {h}, {h}
+            for _ in range(3):
+                nxt = set()
+                for oh in all_src_headers():
+                    if oh not in seen and any(_includes_header(text_of(
+                            os.path.join(REPO, oh)), f) for f in frontier):
+                        nxt.add(oh)
+                if not nxt:
+                    break
+                seen |= nxt
+                frontier = nxt
+                cands = [t for t in src_tus
+                         if any(_includes_header(text_of(t), f) for f in frontier)]
+                if cands:
+                    break
+        if not cands:
+            uncovered.append(h)
+            continue
+        for t in cands[:HEADER_TU_LIMIT]:
+            if t not in chosen:
+                chosen.add(t)
+                picked.append(t)
+    return picked, uncovered
 
 
 def sh(args, cwd=REPO):
@@ -113,7 +202,12 @@ def main():
         changed = git_changed_files(args.base)
         db = {os.path.normpath(e["file"]): e for e in entries}
         tus = []
+        headers = []
         for f in sorted(changed):
+            if f.startswith(SRC_ONLY) and f.endswith(HEADER_EXTS):
+                if os.path.exists(os.path.join(REPO, f)):  # 删除的头无从分析
+                    headers.append(f)
+                continue
             if not f.startswith(SRC_ONLY) or not f.endswith((".cpp", ".cc", ".cxx")):
                 continue  # 门禁只认 src/ 产品代码 TU；tests/ 不扫（存量面大，PR 说明）
             norm = os.path.normpath(os.path.join(REPO, f))
@@ -121,6 +215,13 @@ def main():
                 tus.append(norm)
             else:
                 print(f"NOTE {f} 改动过但不在 compile_commands（新增未编译？先 build）")
+        if headers:
+            extra, uncovered = header_tus(headers, list(db.keys()), tus)
+            for t in extra:
+                print(f"check-tidy：头文件改动经由 {os.path.relpath(t, REPO)} 分析")
+            for h in uncovered:
+                print(f"NOTE {h} 改动过但没有已登记 TU 包含它（未被 tidy 覆盖）")
+            tus.extend(extra)
     if not tus:
         print("check-tidy：无改动 src/ TU，门禁绿。")
         return 0

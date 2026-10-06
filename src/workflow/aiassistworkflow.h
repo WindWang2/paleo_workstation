@@ -1,6 +1,7 @@
 // 层：功能
 #pragma once
 #include <QHash>
+#include <QJsonObject>
 #include <QObject>
 #include <QString>
 #include <QStringList>
@@ -49,6 +50,10 @@ class AiAssistWorkflow : public QObject
                         const GridFetch &fetch, double lowConfidenceThreshold,
                         QString *error = nullptr );
     QStringList lastProductLayerIds() const { return m_lastProductLayerIds; }
+    // 方向61：上次成功产品的统计摘要（rows/cols/classes/类直方图/无数据数/
+    // 有效均值置信/tilesDone/inferenceMs/layerIds）——聊天工具结果回灌用，
+    // 从推理结果直接算，不回读栅格。失败/未跑过 = 空 object。
+    QJsonObject lastProductStats() const { return m_lastStats; }
 
     // 异步批量分类（PaleoTaskService 池 + 协作取消）：推理跑在任务线程，
     // 栅格落盘/登记/声明收尾在主线程（QgisLayerService 非线程安全）。
@@ -59,12 +64,26 @@ class AiAssistWorkflow : public QObject
                                     int halo, const GridFetch &fetch,
                                     double lowConfidenceThreshold, QString *error = nullptr );
 
+    // 方向61：面向聊天/批处理调用方的现成取数——按 horizon.<target> 声明读
+    // 层位栅格窗口（Float32；nodata/脏值归一为 NaN）。每次取数重新解析声明
+    // 并开关数据集：fetch 在任务池线程跑，GDAL 数据集不跨线程共享，按调用
+    // 开关是线程安全口径（声明变化也自然生效）。声明缺失时如实 err。
+    static GridFetch horizonGridFetch( QgisLayerService *layers );
+
     // ---- 层位追踪建议（范围 4）----
     // 生成建议（引擎纯计算；不写任何持久状态）。out 同步返回 + 缓存待裁决。
     bool suggestTracking( const QString &horizon, const QString &model,
                           const QVector<TrackingSeed> &seeds, int windowSamples, int radius,
                           const TraceWindowFetcher &fetch,
                           QVector<TrackingSuggestion> *suggestions, QString *error = nullptr );
+    // 方向61：异步版建议（同 startClassification 范式：池线程跑纯引擎，主线程
+    // 收尾入裁决队列——m_suggestions 与信号发射都不是线程安全面）。引擎无协作
+    // 取消钩子：requestCancel 后任务仍算完，但终态判 Cancelled、建议不进队
+    // （语义作废；聊天执行器另有世代号守卫丢弃迟到结果）。
+    PaleoTask *startSuggestion( const QString &horizon, const QString &model,
+                                const QVector<TrackingSeed> &seeds, int windowSamples,
+                                int radius, const TraceWindowFetcher &fetch,
+                                QString *error = nullptr );
     // 纯内存状态转移（不落盘、不动 catalog）。
     bool acceptSuggestion( const QString &horizon, int inlineNo, int xlineNo );
     bool vetoSuggestion( const QString &horizon, int inlineNo, int xlineNo );
@@ -99,5 +118,6 @@ class AiAssistWorkflow : public QObject
     DataCatalog *m_catalog = nullptr;
     QString m_projectDir;
     QStringList m_lastProductLayerIds;
+    QJsonObject m_lastStats;
     QHash<QString, QVector<SuggestionState>> m_suggestions; // key = horizon
 };

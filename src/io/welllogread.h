@@ -4,7 +4,7 @@
 #include <QString>
 #include <QStringList>
 
-#include "lasparser.h" // LasHeaderInfo / LasCurve / LasDoc / LasIssue
+#include "lasdoc.h" // LasHeaderInfo / LasCurve / LasDoc / LasIssue（井曲线文档契约）
 
 class QByteArray;
 

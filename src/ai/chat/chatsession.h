@@ -26,6 +26,8 @@ struct ChatSession {
   QString displayTitle() const;
   QJsonObject toJson() const;
   static ChatSession fromJson(const QJsonObject &object);
+  // 方向62：整会话导出为 Markdown 文本（复制/导出口径单一来源）。
+  QString toMarkdown() const;
 };
 
 // 会话存储（静态函数集合；无状态，测试可直接驱动）。
@@ -41,4 +43,7 @@ public:
   static bool remove(const QString &sessionId, QString *error);
   // 最近会话优先：按 updatedAt 倒序。
   static QVector<ChatSession> loadRecent(int limit = 20);
+  // 方向62：导出会话为 .md 文件（显式路径，不经会话目录——用户导出口）。
+  static bool exportMarkdown(const ChatSession &session,
+                             const QString &filePath, QString *error);
 };

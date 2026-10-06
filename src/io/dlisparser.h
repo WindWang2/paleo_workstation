@@ -5,7 +5,7 @@
 #include <QStringList>
 #include <QVector>
 
-#include "lasparser.h" // LasHeaderInfo / LasCurve / LasIssue（井曲线文档共用契约）
+#include "lasdoc.h" // LasHeaderInfo / LasCurve / LasIssue（井曲线文档共用契约，方向 59 起纯门面）
 
 // io/ — DLIS (RP66 v1, 1991) 测井曲线解析器：纯 Qt、无 QGIS 依赖、无第三方
 // 依赖（方向 44「自写受限子集」决策——vendored 首选无成熟方案，见

@@ -87,6 +87,63 @@ namespace
         qWarning().noquote() << wellParseSummary(report);
     }
   };
+
+  // ---- 分层文本头驱动列映射（工区惯例兼容）----
+  // '#' 注释头行列名齐全时按名取列（如 "wellName DepthMD topName topVerName"，
+  // 道号/层名列序与 SMI 位置约定不同）；列名不全 → 返回 false，调用方维持
+  // 既有位置约定（井名 层名 MD [X Y Z TVD Time]）。列名匹配为小写子串。
+  struct TopsColumnMap
+  {
+    int well = -1, top = -1, md = -1, x = -1, y = -1, z = -1, tvd = -1, time = -1;
+    int maxIndex() const
+    {
+      return qMax(qMax(qMax(well, top), qMax(md, x)),
+                  qMax(qMax(qMax(y, z), tvd), time));
+    }
+  };
+
+  bool tokenMatches(const QString &token, const QStringList &names)
+  {
+    for (const QString &n : names)
+      if (token.contains(n, Qt::CaseInsensitive))
+        return true;
+    return false;
+  }
+
+  bool sniffTopsColumnMap(const QStringList &tokens, TopsColumnMap *map)
+  {
+    TopsColumnMap m;
+    for (int i = 0; i < tokens.size(); ++i)
+    {
+      const QString t = tokens.at(i);
+      if (m.well < 0 && tokenMatches(t, {QStringLiteral("wellname"),
+                                          QStringLiteral("well"),
+                                          QStringLiteral("井名"), QStringLiteral("井号")}))
+        m.well = i;
+      else if (m.top < 0 && tokenMatches(t, {QStringLiteral("topname"),
+                                             QStringLiteral("top"),
+                                             QStringLiteral("层名"), QStringLiteral("层位")}))
+        m.top = i;
+      else if (m.md < 0 && tokenMatches(t, {QStringLiteral("depthmd"),
+                                            QStringLiteral("md"),
+                                            QStringLiteral("顶深"), QStringLiteral("深度")}))
+        m.md = i;
+      else if (m.x < 0 && tokenMatches(t, {QStringLiteral("x")}))
+        m.x = i;
+      else if (m.y < 0 && tokenMatches(t, {QStringLiteral("y")}))
+        m.y = i;
+      else if (m.z < 0 && tokenMatches(t, {QStringLiteral("z")}))
+        m.z = i;
+      else if (m.tvd < 0 && tokenMatches(t, {QStringLiteral("tvd")}))
+        m.tvd = i;
+      else if (m.time < 0 && tokenMatches(t, {QStringLiteral("time")}))
+        m.time = i;
+    }
+    if (m.well < 0 || m.top < 0 || m.md < 0)
+      return false;
+    *map = m;
+    return true;
+  }
 } // namespace
 
 QString wellParseSummary(const WellParseReport &report)
@@ -147,13 +204,55 @@ QVector<WellTopRecord> parseWellTopsText(const QByteArray &text, WellParseReport
 {
   QVector<WellTopRecord> tops;
   ParseContext ctx;
+  // 头驱动列映射：数据行之前的首条 '#' 注释行若含齐全列名（井名/层名/深度，
+  // 如 "wellName DepthMD topName topVerName"），按名取列；否则维持位置约定。
+  bool headerChecked = false;
+  TopsColumnMap cmap;
+  bool byName = false;
   for (const QString &raw : withoutBom(text).split(QRegularExpression(QStringLiteral("\\r\\n|\\n|\\r"))))
   {
     ++ctx.line;
-    if (raw.trimmed().isEmpty() || raw.trimmed().startsWith(QLatin1Char('#')))
+    const QString line = raw.trimmed();
+    if (line.isEmpty())
       continue;
+    if (line.startsWith(QLatin1Char('#')))
+    {
+      if (!headerChecked)
+      {
+        headerChecked = true;
+        byName = sniffTopsColumnMap(splitTokens(line.mid(1)), &cmap);
+      }
+      continue;
+    }
+    headerChecked = true;
     const QStringList t = splitTokens(raw);
     WellTopRecord r;
+    if (byName)
+    {
+      // 列名驱动按名取列：可选列缺席（索引 -1）跳过不记 issue。
+      if (t.size() <= cmap.maxIndex())
+      {
+        ++ctx.report.rejectedRows; // 列不全的行不硬猜
+        continue;
+      }
+      bool namesValid = ctx.textColumn(t, cmap.well, "WellName", &r.wellName);
+      namesValid &= ctx.textColumn(t, cmap.top, "Name", &r.topName);
+      r.hasMd = ctx.column(t, cmap.md, "MD", &r.md, true);
+      if (!r.hasMd || !namesValid)
+      {
+        ++ctx.report.rejectedRows;
+        continue;
+      }
+      if (cmap.x >= 0) r.hasX = ctx.column(t, cmap.x, "X", &r.x, false);
+      if (cmap.y >= 0) r.hasY = ctx.column(t, cmap.y, "Y", &r.y, false);
+      if (cmap.z >= 0 && !ctx.column(t, cmap.z, "Z", &r.z, false))
+        r.z = std::numeric_limits<double>::quiet_NaN();
+      if (cmap.tvd >= 0) r.hasTvd = ctx.column(t, cmap.tvd, "TVD", &r.tvd, false);
+      if (cmap.time >= 0) r.hasTime = ctx.column(t, cmap.time, "Time(ms)", &r.timeMs, false);
+      tops.append(r);
+      ++ctx.report.acceptedRows;
+      continue;
+    }
     bool namesValid = ctx.textColumn(t, 0, "WellName", &r.wellName);
     namesValid &= ctx.textColumn(t, 1, "Name", &r.topName);
     r.hasMd = ctx.column(t, 2, "MD", &r.md, true);

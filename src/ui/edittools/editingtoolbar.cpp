@@ -10,7 +10,7 @@
 #include <QLabel>
 #include <QLayout>
 #include <QMenu>
-#include <QMessageBox>
+#include "../notifications/paleonotify.h"
 #include <QPoint>
 #include <QRect>
 #include <QToolBar>
@@ -470,17 +470,13 @@ void PaleoEditingToolbar::buildUi()
         cancelEditing();
       else
       {
-        QMessageBox prompt(QMessageBox::Question, tr("退出编辑"),
-                           tr("本段编辑尚未确认保存。保存编辑，或放弃本段修改？"),
-                           QMessageBox::NoButton, this);
-        auto *save = prompt.addButton(tr("保存"), QMessageBox::AcceptRole);
-        auto *discard = prompt.addButton(tr("放弃"), QMessageBox::DestructiveRole);
-        prompt.addButton(tr("取消"), QMessageBox::RejectRole);
-        prompt.setDefaultButton(save);
-        prompt.exec();
-        if (prompt.clickedButton() == save)
+        const auto choice = PaleoNotify::askSaveDiscard(
+            this, PaleoNotify::AskIcon::Question, tr("退出编辑"),
+            tr("本段编辑尚未确认保存。保存编辑，或放弃本段修改？"),
+            tr("保存"), tr("放弃"), tr("取消"));
+        if (choice == PaleoNotify::SaveChoice::Save)
           saveEditing();
-        else if (prompt.clickedButton() == discard)
+        else if (choice == PaleoNotify::SaveChoice::Discard)
           cancelEditing();
       }
     }
@@ -602,13 +598,12 @@ void PaleoEditingToolbar::buildUi()
     QgsVectorLayer *layer = mEditLayer;
     if ( layer && layer->isEditable() && layer->undoStack() && layer->undoStack()->canUndo() )
     {
-      const auto choice = QMessageBox::question(
-        this, tr( "放弃编辑" ),
-        tr( "将放弃图层 %1 的全部未保存编辑（%2 条命令），是否继续？" )
-          .arg( layer->name() )
-          .arg( layer->undoStack()->index() ),
-        QMessageBox::Ok | QMessageBox::Cancel, QMessageBox::Cancel );
-      if ( choice != QMessageBox::Ok )
+      if ( !PaleoNotify::ask(
+             this, tr( "放弃编辑" ),
+             tr( "将放弃图层 %1 的全部未保存编辑（%2 条命令），是否继续？" )
+               .arg( layer->name() )
+               .arg( layer->undoStack()->index() ),
+             PaleoNotify::AskButtons::OkCancel, PaleoNotify::AskDefault::Reject ) )
         return;
     }
     cancelEditing();

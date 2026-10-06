@@ -4,6 +4,8 @@
 
 #include "paleoicons.h"
 #include "paleoribbon.h"
+#include "notifications/errorhistorypanel.h"   // 方向64
+#include "notifications/notificationcenter.h"  // 方向64
 #include "../qgis/qgiscanvascontroller.h"
 #include "../qgis/qgisprojectservice.h"
 #include "../qgis/qgislayerservice.h"
@@ -50,7 +52,7 @@
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QMenu>
-#include <QMessageBox>
+#include "notifications/paleonotify.h"
 #include <QShortcut>
 #include <QSignalBlocker>
 #include <QStatusBar>
@@ -199,7 +201,7 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
           updateWindowTitle();
         }
         else if (QGuiApplication::platformName() != QLatin1String("offscreen"))
-          QMessageBox::critical(this, tr("保存工程失败"), res.error);
+          PaleoNotify::critical(this, tr("保存工程失败"), res.error);
       };
       connect(saveAct, &QAction::triggered, this, saveFn);
       if (SARibbonQuickAccessBar *qab = ribbonBar()->quickAccessBar())
@@ -584,4 +586,28 @@ void PaleoMainWindow::attachAiAssistant(AiChatController *controller)
     if (statusBar())
       statusBar()->showMessage(hint, 8000);
   });
+}
+
+// 方向64：错误呈现接线。ErrorHub 由 AppContext 持有并 installGlobal；这里只把
+// 呈现层与历史面板挂到本窗口（视图层不持有服务生命周期）。
+void PaleoMainWindow::attachErrorHub(ErrorHub *hub)
+{
+  if (!hub || m_notifications)
+    return;
+  m_notifications = new NotificationCenter(this, hub);
+  m_notifications->setStatusBar(statusBar());
+  auto *panel = new ErrorHistoryPanel(hub, this);
+  m_errorHistoryDock = new PaleoDockWidget(tr("错误历史"), this);
+  m_errorHistoryDock->setObjectName(QStringLiteral("errorHistoryDock"));
+  m_errorHistoryDock->setWidget(panel);
+  addDockWidget(Qt::BottomDockWidgetArea, m_errorHistoryDock);
+  m_errorHistoryDock->hide(); // 按需唤出（布局与面板菜单 / showErrorHistory）
+}
+
+void PaleoMainWindow::showErrorHistory()
+{
+  if (!m_errorHistoryDock)
+    return;
+  m_errorHistoryDock->show();
+  m_errorHistoryDock->raise();
 }

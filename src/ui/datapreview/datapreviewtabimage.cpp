@@ -76,7 +76,7 @@ using namespace paleo::datapreview_detail;
 #include <QJsonObject>
 #include <QLabel>
 #include <QMenu>
-#include "ui/notifications/notificationmanager.h"
+#include "../notifications/paleonotify.h"
 #include <QPainter>
 #include <QPointer>
 #include <QMouseEvent>
@@ -164,7 +164,7 @@ QWidget *DataPreviewTabs::buildImageReferenceContent(
   regGuideBtn->setObjectName(QStringLiteral("goRegisterGuideBtn"));
   regGuideBtn->setToolTip(tr("把这张平面相图配准到工程测网"));
   connect(regGuideBtn, &QPushButton::clicked, host, [this, host]() {
-    paleo::ui::NotificationManager::showInfo(
+    PaleoNotify::report(
         host, tr("去配准"),
         tr("配准两条路：\n"
            "· 在图片旁放同名 world file（.wld/.pgw/.jgw，六参数文本）——"

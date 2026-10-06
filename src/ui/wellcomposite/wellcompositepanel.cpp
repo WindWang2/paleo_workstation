@@ -22,7 +22,7 @@
 #include <QFileInfo>
 #include <QInputDialog>
 #include <QMenu>
-#include "ui/notifications/notificationmanager.h"
+#include "../notifications/paleonotify.h"
 #include <QPlainTextEdit>
 #include <QPrinter>
 #include <QPrintDialog>
@@ -1034,7 +1034,7 @@ void WellCompositePanel::onTrackCsvRequested(int trackIndex)
   QFile f(path);
   if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
   {
-    paleo::ui::NotificationManager::showWarning(this, tr("导出失败"), tr("无法写入文件: %1").arg(path));
+    PaleoNotify::warning(this, tr("导出失败"), tr("无法写入文件: %1").arg(path));
     return;
   }
   f.write("\xEF\xBB\xBF"); // UTF-8 BOM（Excel 中文兼容）
@@ -1439,7 +1439,7 @@ void WellCompositePanel::setEditMode(bool on)
     m_btnEdit->blockSignals(true);
     m_btnEdit->setChecked(false);
     m_btnEdit->blockSignals(false);
-    paleo::ui::NotificationManager::showInfo(this, tr("不可编辑"),
+    PaleoNotify::information(this, tr("不可编辑"),
                              m_editSession->readOnlyReason().isEmpty()
                                  ? tr("当前资产为只读（RAW 或未授权路径）。")
                                  : m_editSession->readOnlyReason());
@@ -1584,7 +1584,7 @@ void WellCompositePanel::exportCurrent(ExportEngine::Format format)
 
   const QString err = ExportEngine::exportCanvas(*m_canvas, m_data, format, path, opt);
   if (!err.isEmpty())
-    paleo::ui::NotificationManager::showWarning(this, tr("导出失败"), err);
+    PaleoNotify::warning(this, tr("导出失败"), err);
   else
     m_lblStatus->setText(tr("已导出: %1").arg(path));
 }
@@ -1617,7 +1617,7 @@ void WellCompositePanel::printCurrent()
     opt.projectName = m_projectName;
     const QString err = ExportEngine::exportToPagedDevice(*m_canvas, m_data, printer, opt);
     if (!err.isEmpty())
-      paleo::ui::NotificationManager::showWarning(this, tr("打印失败"), err);
+      PaleoNotify::warning(this, tr("打印失败"), err);
     else
       m_lblStatus->setText(tr("已发送到打印机: %1").arg(printer.printerName()));
     return;
@@ -1630,7 +1630,7 @@ void WellCompositePanel::manageExportPresets()
 {
   if (!m_store)
   {
-    paleo::ui::NotificationManager::showInfo(this, tr("导出预设"), tr("加载井数据后可用（预设按源数据 sidecar 保存）。"));
+    PaleoNotify::information(this, tr("导出预设"), tr("加载井数据后可用（预设按源数据 sidecar 保存）。"));
     return;
   }
 
@@ -1638,7 +1638,7 @@ void WellCompositePanel::manageExportPresets()
   const auto presets = m_store->exportPresets();
   for (const auto &p : presets)
     rows << QStringLiteral("%1 [%2 %3dpi]").arg(p.name, p.format, QString::number(p.dpi));
-  paleo::ui::NotificationManager::showInfo(this, tr("导出预设"),
+  PaleoNotify::report(this, tr("导出预设"),
                            rows.isEmpty() ? tr("暂无预设。导出一次后可经 sidecar 保存。")
                                           : rows.join(QLatin1Char('\n')));
 }

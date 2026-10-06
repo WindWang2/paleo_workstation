@@ -511,7 +511,7 @@ add_library(paleo_services STATIC
   src/services/startuptrace.cpp                     # goal/perf-systematize 簇1：启动分段仪表
   src/services/storagegovernance.cpp
   src/services/cataloghealth.cpp                    # 方向30：工区资产体检（快速面 + 外链 SHA 复验）
-  src/services/errorhub.cpp                         # 方向54：ErrorHub 统一错误汇聚与历史管理
+  src/services/errorhub.cpp                         # 方向54+方向64：统一错误通道（去重/聚合/环形历史，两实现并存）
 )
 target_link_libraries(paleo_services PUBLIC paleo_deps paleo_io paleo_domain paleo_store paleo_algorithms)
 
@@ -562,6 +562,10 @@ target_link_libraries(paleo_workflow PUBLIC paleo_deps paleo_qgis paleo_store pa
 
 # ---- 视图层 ----
 add_library(paleo_ui STATIC
+  src/ui/notifications/notificationcenter.cpp      # 方向64：错误呈现（通知卡/severe 模态/状态栏）
+  src/ui/notifications/toastcard.cpp               # 方向64：通知卡（预建池复用）
+  src/ui/notifications/paleonotify.cpp             # 方向64：视图层错误/确认统一出口
+  src/ui/notifications/errorhistorypanel.cpp       # 方向64：错误历史面板（过滤/复制/清空）
   src/ui/pages/stratigraphicwebpage.cpp
   src/ui/symbols/symbolpickerpanel.cpp             # 方向31：符号选择器面板（花纹/线型浏览 + 语义过滤）
   src/ui/pages/mappingworkbenchpage.cpp
@@ -883,6 +887,7 @@ add_paleo_test(tst_release LIBS paleo_store)
 add_paleo_test(tst_sequenceframework_ui LIBS paleo_ui)  # 方向28：格架面板/柱状视图无头断言
 add_paleo_test(tst_releasepanel LIBS paleo_ui)
 add_paleo_test(tst_taskpanel LIBS paleo_ui)
+add_paleo_test(tst_notifications LIBS paleo_ui)   # 方向64：通知卡/模态单弹/风暴（offscreen；同 tst_taskpanel 取 paleo_ui 的 QtWidgets 头）
 add_paleo_test(tst_attrpanel LIBS paleo_ui)
 # ---- merged worktree waves ----
 # 方向50：IO 容错、导入诊断、SDK 消费与工作簿边角回归。
@@ -1076,7 +1081,8 @@ add_paleo_test(tst_entityview LIBS paleo_store)
 # 崩溃本地转储（§38 留白按本地优先落地）+ 外链源重定位恢复路径。
 # 新增源与测试集中在此块；并行包合并冲突时保留双方行。
 add_paleo_test(tst_crashreport LIBS paleo_services)
-add_paleo_test(tst_errorhub LIBS paleo_services)   # 方向54：ErrorHub 核心数据服务与去重/环形缓冲单元测试
+add_paleo_test(tst_errorhub LIBS paleo_services)      # 方向64：去重窗口/聚合/环形逐出/并发
+add_paleo_test(tst_errorhub_d54 LIBS paleo_services)   # 方向54：ErrorHub 核心数据服务与去重/环形缓冲单元测试
 add_paleo_test(tst_notification_card LIBS paleo_ui paleo_services) # 方向54：通知卡片与管理器测试
 add_paleo_test(tst_notification_m2_challenger LIBS paleo_ui paleo_services) # 方向54：M2 Challenger 经验证套件
 add_paleo_test(tst_error_history_dock LIBS paleo_ui paleo_services) # 方向54/M4：错误历史模型与面板测试

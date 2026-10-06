@@ -15,7 +15,7 @@
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
-#include "ui/notifications/notificationmanager.h"
+#include "../notifications/paleonotify.h"
 #include <QPushButton>
 #include <QTableWidget>
 #include <QVBoxLayout>
@@ -479,7 +479,7 @@ void buildFolderConfirmDialog(QDialog *dlg, const QString &dir,
          hooks](const QVector<FolderRowResult> &res, const QString &importErr) {
       if (res.isEmpty() && !importErr.isEmpty())
       {
-        paleo::ui::NotificationManager::showWarning(dlg, QObject::tr("导入工区文件夹"), importErr);
+        PaleoNotify::warning(dlg, QObject::tr("导入工区文件夹"), importErr);
         confirm->setEnabled(true); // 整体失败可重试
         return;
       }

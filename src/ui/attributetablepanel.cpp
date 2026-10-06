@@ -14,7 +14,7 @@
 #include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QLabel>
-#include "ui/notifications/notificationmanager.h"
+#include "notifications/paleonotify.h"
 #include <QToolButton>
 #include <QVBoxLayout>
 
@@ -179,10 +179,11 @@ bool AttributeTablePanel::cancelEditing()
   // offscreen（测试/CI）无窗口系统不弹框（硬纪律），直走回滚。
   if (vl->isModified())
   {
-    if (!paleo::ui::NotificationManager::confirmDestructive(
+    if (!PaleoNotify::ask(
             this, tr("放弃编辑"),
             tr("图层「%1」有未提交的修改——放弃后将全部丢失，确定放弃？")
-                .arg(vl->name())))
+                .arg(vl->name()),
+            PaleoNotify::AskButtons::DiscardCancel, PaleoNotify::AskDefault::Reject))
       return false; // 用户取消：会话原样保留
   }
   const bool ok = m_editingService ? m_editingService->rollbackEdit(vl)

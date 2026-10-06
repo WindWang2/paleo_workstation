@@ -10,7 +10,7 @@
 
 | # | 豁免项 | 理由 |
 |---|--------|------|
-| E1 | QMessageBox/QInputDialog/QFileDialog 无统一包装层（全仓 73+23+17 处裸调） | 原生对话框是 Qt 桌面惯例，DESIGN.md 未要求包装；建委托层属跨 28 文件架构改动，收益（弹窗样式统一）已被全局 palette+焦点环覆盖大半。递延提案见 §5。 |
+| E1 | QMessageBox/QInputDialog/QFileDialog 无统一包装层（全仓 73+23+17 处裸调） | 原生对话框是 Qt 桌面惯例，DESIGN.md 未要求包装；建委托层属跨 28 文件架构改动，收益（弹窗样式统一）已被全局 palette+焦点环覆盖大半。递延提案见 §5。**2026-10-07 方向64 终态：QMessageBox 部分已收口**——`ui/notifications/PaleoNotify` + `services/ErrorHub`（通知卡/severe 模态/状态栏三级，见 DESIGN.md「错误呈现」）；`rg -o "QMessageBox::\w+" src/ui -g "*.cpp"` 169→15（全部在 ui/notifications 内）。QInputDialog/QFileDialog 不在本方向范围，仍为原生裸调。 |
 | E2 | 数据符号色字面量（直方图条色/相名色/相关分析笔色/井曲线色/剖面波形色/剖面图表笔色） | DESIGN.md「地图域配色是数据符号，由 QGIS 样式系统管理，不属 UI token」——两主题都不跟随，字面量合规。 |
 | E3 | QGIS 原生控件内建键盘行为不再造 | QgsLayerTreeView F2 重命名、QgsLocatorWidget ↑↓Enter、QgsLayoutView 方向键微调/Space 平移为上游能力。 |
 | E4 | seismic3d GL 视口 offscreen 渲染断言 | 无 GL 环境渲染为黑是已知（ux.md §7），键盘断言走 fallback/事件直发。 |

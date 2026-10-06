@@ -10,7 +10,7 @@
 #include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
-#include "ui/notifications/notificationmanager.h"
+#include "../notifications/paleonotify.h"
 #include <QPushButton>
 #include <QSpinBox>
 #include <QTableWidget>
@@ -361,7 +361,7 @@ void WellSitingPanel::runDiagnosis()
     return;
   QString error;
   if ( !m_wf->runDiagnosis( paramsFromPanel( this ), &error ) )
-    paleo::ui::NotificationManager::showWarning( this, tr( "覆盖诊断" ), error );
+    PaleoNotify::warning( this, tr( "覆盖诊断" ), error );
   refreshDiagnosisLabels();
 }
 
@@ -426,7 +426,7 @@ void WellSitingPanel::generateCandidates()
     return;
   QString error;
   if ( !m_wf->generateCandidates( paramsFromPanel( this ), &error ) )
-    paleo::ui::NotificationManager::showWarning( this, tr( "候选生成" ), error );
+    PaleoNotify::warning( this, tr( "候选生成" ), error );
   refreshCandidateTable();
 }
 
@@ -480,14 +480,14 @@ void WellSitingPanel::addPlannedFromInputs()
   const double y = yEdit->text().toDouble( &okY );
   if ( !okX || !okY )
   {
-    paleo::ui::NotificationManager::showWarning( this, tr( "添加计划井" ), tr( "X/Y 需要填数字坐标（局部米制网格）" ) );
+    PaleoNotify::warning( this, tr( "添加计划井" ), tr( "X/Y 需要填数字坐标（局部米制网格）" ) );
     return;
   }
   QString error;
   const QString id = m_wf->addPlannedWell(
       name->text().isEmpty() ? tr( "计划井" ) : name->text(), x, y, &error );
   if ( id.isEmpty() )
-    paleo::ui::NotificationManager::showWarning( this, tr( "添加计划井" ), error );
+    PaleoNotify::warning( this, tr( "添加计划井" ), error );
 }
 
 void WellSitingPanel::placePlannedAt( double x, double y )
@@ -498,7 +498,7 @@ void WellSitingPanel::placePlannedAt( double x, double y )
   const QString base = name && !name->text().isEmpty() ? name->text() : tr( "计划井" );
   QString error;
   if ( m_wf->addPlannedWell( base, x, y, &error ).isEmpty() )
-    paleo::ui::NotificationManager::showWarning( this, tr( "地图布点" ), error );
+    PaleoNotify::warning( this, tr( "地图布点" ), error );
 }
 
 void WellSitingPanel::refreshPlannedTable()
@@ -544,7 +544,7 @@ void WellSitingPanel::removeSelectedPlanned()
   const QString id = table->item( row, 0 )->data( Qt::UserRole ).toString();
   QString error;
   if ( !m_wf->removePlannedWell( id, &error ) )
-    paleo::ui::NotificationManager::showWarning( this, tr( "删除计划井" ), error );
+    PaleoNotify::warning( this, tr( "删除计划井" ), error );
 }
 
 void WellSitingPanel::renameSelectedPlanned()
@@ -564,7 +564,7 @@ void WellSitingPanel::renameSelectedPlanned()
     return;
   QString error;
   if ( !m_wf->renamePlannedWell( id, name, &error ) )
-    paleo::ui::NotificationManager::showWarning( this, tr( "改名" ), error );
+    PaleoNotify::warning( this, tr( "改名" ), error );
 }
 
 void WellSitingPanel::refreshEvaluation()
@@ -620,7 +620,7 @@ void WellSitingPanel::saveScenarioFromInput()
   QString error;
   if ( !m_wf->saveScenario( name ? name->text() : QString(), plannedIds,
                             paramsFromPanel( this ), &error ) )
-    paleo::ui::NotificationManager::showWarning( this, tr( "保存方案" ), error );
+    PaleoNotify::warning( this, tr( "保存方案" ), error );
 }
 
 void WellSitingPanel::refreshScenarioTable()
@@ -668,7 +668,7 @@ void WellSitingPanel::deleteSelectedScenario()
   const QString id = table->item( row, 0 )->data( Qt::UserRole ).toString();
   QString error;
   if ( !m_wf->deleteScenario( id, &error ) )
-    paleo::ui::NotificationManager::showWarning( this, tr( "删除方案" ), error );
+    PaleoNotify::warning( this, tr( "删除方案" ), error );
 }
 
 void WellSitingPanel::exportScenarioCsv()

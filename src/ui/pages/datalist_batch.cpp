@@ -17,7 +17,7 @@
 #include <QInputDialog>
 #include <QLineEdit>
 #include <QMenu>
-#include "ui/notifications/notificationmanager.h"
+#include "../notifications/paleonotify.h"
 #include <QUrl>
 
 void DataListPanel::batchAttachToEntity()
@@ -126,11 +126,10 @@ void DataListPanel::batchRemoveSoft()
   if (ids.isEmpty() || !m_ctx.valid())
     return;
   // D5.5：软删可撤销——确认说明这一点（不是破坏性删除）。
-  if (!paleo::ui::NotificationManager::confirmYesNo(
-          this, tr("移除资产"),
-          tr("把 %1 个资产移入可回收清单？\n"
-             "（软删：可从「可回收清单」恢复，可撤销；"
-             "catalog 记录保留）").arg(ids.size())))
+  if (!PaleoNotify::ask(this, tr("移除资产"),
+                        tr("把 %1 个资产移入可回收清单？\n"
+                           "（软删：可从「可回收清单」恢复，可撤销；"
+                           "catalog 记录保留）").arg(ids.size())))
     return;
   // 方向 30：单命令批量软删（一次落盘、整组可撤销）——逐项命令会随 N 放大
   // recycle_bin.json 重写次数（tst_ui_blocking 探针的非空转门槛）。
@@ -288,11 +287,13 @@ void DataListPanel::editRoleForSelection()
   if (dlg.exec() != QDialog::Accepted || dlg.newRole() == role)
     return;
   // D4.7 + D5.5：addLink 无删除对偶 → 不可撤销，确认说明。
-  if (!paleo::ui::NotificationManager::confirmDestructive(
+  if (!PaleoNotify::ask(
           this, tr("角色变更（不可撤销）"),
           tr("将为「%1」新增角色关联 %2（原 %3 关联保留）。\n"
              "此操作不可撤销。继续？")
-              .arg(assetId, dlg.newRole(), role)))
+              .arg(assetId, dlg.newRole(), role),
+          PaleoNotify::AskButtons::YesNo, PaleoNotify::AskDefault::Platform,
+          PaleoNotify::AskIcon::Warning))
     return;
   EntityAssetLink l;
   l.entityType = m_ctx.cat->entityById(entityId).entityType;

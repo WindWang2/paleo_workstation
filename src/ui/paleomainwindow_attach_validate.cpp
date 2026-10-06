@@ -17,6 +17,7 @@
 #include "../workflow/workflows.h"
 
 #include <QFileDialog>
+#include "notifications/paleonotify.h"
 #include <QStackedLayout>
 
 #include "notifications/notificationmanager.h"
@@ -180,7 +181,7 @@ void PaleoMainWindow::attachWellSiting(WellSitingWorkflow *wf)
                   return;
                 QString err;
                 if (!m_wellSitingWf->exportScenarioCsv(scenarioId, path, &err))
-                  paleo::ui::NotificationManager::showWarning(this, tr("导出方案点位表"), err);
+                  PaleoNotify::warning(this, tr("导出方案点位表"), err);
                 else
                   statusBar()->showMessage(tr("已导出：%1").arg(path), 8000);
               }
@@ -192,7 +193,7 @@ void PaleoMainWindow::attachWellSiting(WellSitingWorkflow *wf)
                   return;
                 QString err;
                 if (!m_wellSitingWf->exportComparisonChart(path, &err))
-                  paleo::ui::NotificationManager::showWarning(this, tr("导出覆盖对比图"), err);
+                  PaleoNotify::warning(this, tr("导出覆盖对比图"), err);
                 else
                   statusBar()->showMessage(tr("已导出：%1").arg(path), 8000);
               }

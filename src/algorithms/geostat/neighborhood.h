@@ -28,24 +28,41 @@ inline bool coincident( const Sample &a, const Sample &b )
 }
 
 // 重合样本合并取均值（preserve 均值口径，防克氏矩阵奇异）。
-inline std::vector<Sample> dedupeSamples( const std::vector<Sample> &samples, int *mergedCount )
+// inputToDeduped 非空时回给「输入下标 → 合并后下标」映射（长度 = samples.size()，
+// 非有限样本映射到 UINT32_MAX）——带约束克里金等需要按输入下标引用样本的
+// 调用方用；不传则零开销（kriging/sgs 既有调用不动）。
+inline std::vector<Sample> dedupeSamples( const std::vector<Sample> &samples, int *mergedCount,
+                                          std::vector<std::uint32_t> *inputToDeduped = nullptr )
 {
+  if ( inputToDeduped )
+    inputToDeduped->assign( samples.size(), std::numeric_limits<std::uint32_t>::max() );
   std::vector<Sample> finite;
+  std::vector<std::uint32_t> finiteSource; // finite[i] 的输入下标
   finite.reserve( samples.size() );
-  for ( const Sample &sample : samples )
+  for ( std::size_t inputIndex = 0; inputIndex < samples.size(); ++inputIndex )
   {
+    const Sample &sample = samples[inputIndex];
     if ( std::isfinite( sample.x ) && std::isfinite( sample.y ) && std::isfinite( sample.value ) )
+    {
       finite.push_back( sample );
+      finiteSource.push_back( static_cast<std::uint32_t>( inputIndex ) );
+    }
   }
-  std::sort( finite.begin(), finite.end(), []( const Sample &a, const Sample &b ) {
-    if ( a.x != b.x )
-      return a.x < b.x;
-    return a.y < b.y;
-  } );
+  std::vector<std::pair<Sample, std::uint32_t>> sorted; // (样本, finite 下标)
+  sorted.reserve( finite.size() );
+  for ( std::size_t i = 0; i < finite.size(); ++i )
+    sorted.push_back( { finite[i], static_cast<std::uint32_t>( i ) } );
+  std::sort( sorted.begin(), sorted.end(),
+             []( const std::pair<Sample, std::uint32_t> &a, const std::pair<Sample, std::uint32_t> &b ) {
+               if ( a.first.x != b.first.x )
+                 return a.first.x < b.first.x;
+               return a.first.y < b.first.y;
+             } );
   std::vector<Sample> merged;
   std::vector<std::size_t> mergedCounts;
-  merged.reserve( finite.size() );
-  for ( const Sample &sample : finite )
+  std::vector<std::uint32_t> finiteToMerged( finite.size(), 0 );
+  merged.reserve( sorted.size() );
+  for ( const auto &[sample, finiteIndex] : sorted )
   {
     if ( !merged.empty() && coincident( merged.back(), sample ) )
     {
@@ -53,13 +70,21 @@ inline std::vector<Sample> dedupeSamples( const std::vector<Sample> &samples, in
       ++mergedCounts.back();
       if ( mergedCount )
         ++( *mergedCount );
-      continue;
     }
-    merged.push_back( sample );
-    mergedCounts.push_back( 1 );
+    else
+    {
+      merged.push_back( sample );
+      mergedCounts.push_back( 1 );
+    }
+    finiteToMerged[finiteIndex] = static_cast<std::uint32_t>( merged.size() - 1 );
   }
   for ( std::size_t i = 0; i < merged.size(); ++i )
     merged[i].value /= static_cast<double>( mergedCounts[i] );
+  if ( inputToDeduped )
+  {
+    for ( std::size_t i = 0; i < finite.size(); ++i )
+      ( *inputToDeduped )[finiteSource[i]] = finiteToMerged[i];
+  }
   return merged;
 }
 

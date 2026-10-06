@@ -182,10 +182,29 @@ QGIS 标准解剖：左 dock（资源管理器/图层树）、中央 `QgsMapCanv
 
 地层对比页占用中央工作区，收起 Paleo 的停靠面板；离页恢复原可见状态。ribbon 宿主与连接反馈遵守以上 token；宿主注入样式适配 Web chrome 的字体、主题与焦点环，SVG 地质图件保持原有数据符号。独立 Web 源码、模型、井资料与解释工程不纳入主仓库。
 
+## 错误呈现
+
+方向 64（2026-10-07）。错误/提示统一经 `services/errorhub`（`ErrorHub`）入账，再由 `ui/notifications` 按级别分流呈现；**文本、出现时机、失败语义与迁移前逐点一致，只换呈现通道**。
+
+| 级别 | 通道 | 时长 / 规则 |
+|---|---|---|
+| info | 状态栏 `showMessage` | 5 s；不入通知卡 |
+| warning | 右下角非模态通知卡 | 8 s 自动消失 |
+| error | 右下角非模态通知卡 | 12 s 自动消失 |
+| error + severe（原 `critical`） | 窗口模态 `QMessageBox::critical`（`open()`，不嵌套事件循环） | 同去重键 60 s 内只弹一次；其余次数只聚合计数 |
+
+- **去重/聚合（单点事实在 `ErrorHub`）：** 去重键缺省 = 级别|来源|标题|正文；同键自**首次出现起 60 s 固定窗口**内再次上报只累加计数（不新增历史行、不新弹卡/模态）。窗口不随重复滑动——持续风暴下每 60 s 至多再呈现一次。
+- **通知卡：** 宽 360 px，距主窗口右/下边缘 `spacingMd`(16)，卡间距 `spacingSm`(8)，自下而上堆叠，**最多同时 4 张**；第 5 张到来时最旧一张提前收起（不排队、不溢出）。卡面 = `surface` 底 + 1 px `border` + `radiusMd`(8) 圆角 + 左侧 4 px 语义色条（warning 橙 / error 红）+ 级别文字（「警告」/「错误」，颜色永远配文字）+ 加粗标题 + 正文（自动换行）+ ✕ 关闭。同键卡在场时只把右上角计数胶囊更新为「×N」并重置计时，不另起一张。
+- **动效：** 遵守 Motion 节 minimal-functional——出现/消失即时切换，无滑入/淡出动画；卡片控件预建池复用（4 张），通知路径无逐帧分配。
+- **模态保留清单：** ① 需要用户裁决的确认（是/否、确定/取消、保存/放弃/取消、重试/取消）——结果决定后续分支，保留模态，统一经 `PaleoNotify::ask*` 收口；② severe 错误（原 `critical`）。其余 warning/information 一律走非模态。逐点清单见 `.goal-loop-ledger-errorhub.md`。
+- **错误历史：** 「布局与面板」菜单（主窗口无字面「视图」菜单，此菜单即视图入口）→「错误历史」dock：列 = 时间 / 级别 / 来源 / 次数 / 标题 / 内容；级别下拉 + 文本过滤；「复制」把选中行（无选中则全部可见行）按 TSV 进剪贴板；「清空」清 `ErrorHub` 环形历史（上限 500，满则逐出最旧）。
+- **降级：** 未安装全局 `ErrorHub`（单测、组装根之前）时 `PaleoNotify` 原样回落到迁移前的 `QMessageBox` 调用，行为与迁移前完全一致。
+
 ## Decisions Log
 
 | Date | Decision | Rationale |
 |------|----------|-----------|
+| 2026-10-07 | 错误呈现三级分流（方向 64） | 169 处 QMessageBox 连弹无聚合、无历史；统一 ErrorHub + 通知卡/模态/状态栏，确认类与 severe 保留模态，详见「错误呈现」节 |
 | 2026-10-05 | 数据管理后增加地层对比 ribbon 页 | 用户明确要求嵌入独立 Web 前端。QtWebEngine 只作页面宿主，连接与进程编排留在功能层；本机配置保存服务地址、外部目录和 Python，源码/模型/数据不进入 GitHub。 |
 | 2026-09-25 | 初始设计系统 | /design-consultation + /qt-ui-design；控件级复用+主题还原（D2）；工作流即记忆点（D4）；AI mockup 不可用走 HTML 预览 |
 | 2026-09-29 | 暗色模式翻案 | 用户明确要求交付暗色：推翻 2026-09-25「V1 不交付暗色」决定。落地=UI chrome 全量 token 双值（frontmatter `dark` 块）；缺省浅色、仅显式切换写 QSettings（`ui/theme`）；SARibbon 调色板 isDark 双份；图标暗色再着色（QGIS default 深 glyph 逐像素提亮，PaleoIcons）；数据符号色（§93）不跟随；wellcomposite 柱状图画布保持纸面白底（地质文档隐喻），仅面板/对话框 chrome 跟随。对比度全 AA（text/surface 11.6:1、muted 6.4:1、error 胶囊 5.2:1）。 |

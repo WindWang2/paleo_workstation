@@ -7,3 +7,7 @@ target_sources(paleo_algorithms PRIVATE
 
 add_paleo_test(tst_geostat_cokriging LIBS paleo_algorithms)
 add_paleo_test(tst_geostat_variogram_barrier LIBS paleo_algorithms)
+
+target_sources(paleo_io PRIVATE
+  src/io/sfpkgwriter.cpp)
+add_paleo_test(tst_io_sfpkg_write LIBS paleo_io)

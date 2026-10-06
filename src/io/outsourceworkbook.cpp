@@ -15,7 +15,9 @@
 #include <QRegularExpression>
 #include <QXmlStreamReader>
 
+#include <algorithm>
 #include <cmath>
+#include <limits>
 
 // 层：数据
 namespace paleo::io
@@ -925,6 +927,278 @@ bool intervalRowNumber( const IntervalRow &row, const QString &field, double *va
     return false;
   }
   return true;
+}
+
+// ---- 方向67：曲线统计与因素候选发现 ----
+
+namespace
+{
+
+// 深度列口径：表头含「深度」的首列（顶深/底深/深度都算），不进曲线统计。
+int depthColumnIndex( const QStringList &headers )
+{
+  for ( int i = 0; i < headers.size(); ++i )
+  {
+    if ( headers.at( i ).contains( QStringLiteral( "深度" ) ) )
+      return i;
+  }
+  return -1;
+}
+
+} // namespace
+
+CurveSheetStats curveSheetStatistics( const WorkbookSheet &sheet, int minCurveRows )
+{
+  CurveSheetStats stats;
+  stats.sheetName = sheet.name;
+  stats.minCurveRows = std::max( 1, minCurveRows );
+  if ( sheet.headers.isEmpty() )
+  {
+    stats.error = QStringLiteral( "工作表「%1」没有表头" ).arg( sheet.name );
+    return stats;
+  }
+  const int depthColumn = depthColumnIndex( sheet.headers );
+  if ( depthColumn >= 0 )
+  {
+    stats.depthColumn = sheet.headers.at( depthColumn );
+  }
+  else
+  {
+    stats.issues.append( QStringLiteral( "表头不含「深度」列，深度区间不可用" ) );
+  }
+
+  // 行对齐的深度序列（无深度列/空或非数值行 → NaN），供各列深度区间配对。
+  std::vector<double> depthByRow;
+  if ( depthColumn >= 0 )
+  {
+    depthByRow.reserve( static_cast<std::size_t>( sheet.rows.size() ) );
+    for ( const QStringList &row : sheet.rows )
+    {
+      const QString raw = depthColumn < row.size() ? row.at( depthColumn ) : QString();
+      double value = 0;
+      depthByRow.push_back( !raw.trimmed().isEmpty() && parseNumericCell( raw, &value )
+                                ? value
+                                : std::numeric_limits<double>::quiet_NaN() );
+    }
+  }
+
+  for ( int column = 0; column < sheet.headers.size(); ++column )
+  {
+    if ( column == depthColumn )
+      continue;
+    int badCells = 0;
+    std::vector<double> values;
+    std::vector<std::size_t> rowIndexes; // values[k] 来自 sheet.rows 的下标（深度配对用）
+    for ( std::size_t r = 0; r < sheet.rows.size(); ++r )
+    {
+      const QString raw =
+          column < sheet.rows[r].size() ? sheet.rows[r].at( column ) : QString();
+      if ( raw.trimmed().isEmpty() )
+        continue;
+      double value = 0;
+      if ( parseNumericCell( raw, &value ) )
+      {
+        values.push_back( value );
+        rowIndexes.push_back( r );
+      }
+      else
+      {
+        ++badCells;
+      }
+    }
+    if ( static_cast<int>( values.size() ) < stats.minCurveRows )
+    {
+      if ( !values.empty() || badCells > 0 )
+        stats.issues.append( QStringLiteral( "列「%1」数值行数 %2 不足 %3，不进曲线统计（坏单元格 %4 个）" )
+                                 .arg( sheet.headers.at( column ) )
+                                 .arg( values.size() )
+                                 .arg( stats.minCurveRows )
+                                 .arg( badCells ) );
+      continue;
+    }
+    CurveColumnStats columnStats;
+    columnStats.name = sheet.headers.at( column );
+    columnStats.rowCount = static_cast<int>( values.size() );
+    columnStats.badCells = badCells;
+    std::vector<double> sorted = values;
+    std::sort( sorted.begin(), sorted.end() );
+    columnStats.min = sorted.front();
+    columnStats.max = sorted.back();
+    columnStats.median = sorted.size() % 2 == 1
+                             ? sorted[sorted.size() / 2]
+                             : 0.5 * ( sorted[sorted.size() / 2 - 1] + sorted[sorted.size() / 2] );
+    double sum = 0;
+    for ( double value : values )
+      sum += value;
+    columnStats.mean = sum / static_cast<double>( values.size() );
+    if ( depthColumn >= 0 )
+    {
+      double depthMin = std::numeric_limits<double>::max();
+      double depthMax = std::numeric_limits<double>::lowest();
+      bool anyDepth = false;
+      for ( std::size_t k = 0; k < rowIndexes.size(); ++k )
+      {
+        const double depth = depthByRow[rowIndexes[k]];
+        if ( !std::isfinite( depth ) )
+          continue;
+        depthMin = std::min( depthMin, depth );
+        depthMax = std::max( depthMax, depth );
+        anyDepth = true;
+      }
+      columnStats.hasDepth = anyDepth;
+      columnStats.depthMin = depthMin;
+      columnStats.depthMax = depthMax;
+    }
+    stats.columns.append( columnStats );
+  }
+  if ( stats.columns.isEmpty() )
+    stats.issues.append( QStringLiteral( "工作表「%1」没有可统计的曲线列" ).arg( sheet.name ) );
+  stats.ok = true;
+  return stats;
+}
+
+FactorDiscovery discoverFactorCandidates( const WorkbookSheet &sheet, double minAbsCorrelation,
+                                          int minPairedRows, int minCurveRows )
+{
+  FactorDiscovery discovery;
+  if ( !( minAbsCorrelation >= 0 && minAbsCorrelation <= 1 ) )
+  {
+    discovery.error = QStringLiteral( "minAbsCorrelation 必须在 [0,1]" );
+    return discovery;
+  }
+  const int minRows = std::max( 1, minCurveRows );
+  if ( sheet.headers.isEmpty() )
+  {
+    discovery.error = QStringLiteral( "工作表「%1」没有表头" ).arg( sheet.name );
+    return discovery;
+  }
+  const int depthColumn = depthColumnIndex( sheet.headers );
+
+  // 行对齐数值序列（NaN = 空单元格/非数值）；曲线列 = 有限值行数 ≥ minRows 且
+  // 不是深度列（与 curveSheetStatistics 的曲线列判定同口径）。
+  std::vector<int> curveColumns;
+  std::vector<std::vector<double>> seriesByColumn( static_cast<std::size_t>( sheet.headers.size() ) );
+  for ( int column = 0; column < sheet.headers.size(); ++column )
+  {
+    if ( column == depthColumn )
+      continue;
+    std::vector<double> &series = seriesByColumn[static_cast<std::size_t>( column )];
+    series.assign( static_cast<std::size_t>( sheet.rows.size() ),
+                   std::numeric_limits<double>::quiet_NaN() );
+    int finite = 0;
+    for ( std::size_t r = 0; r < sheet.rows.size(); ++r )
+    {
+      const QString raw = column < sheet.rows[r].size() ? sheet.rows[r].at( column ) : QString();
+      double value = 0;
+      if ( !raw.trimmed().isEmpty() && parseNumericCell( raw, &value ) )
+      {
+        series[r] = value;
+        ++finite;
+      }
+    }
+    if ( finite >= minRows )
+      curveColumns.push_back( column );
+  }
+  if ( curveColumns.size() < 2 )
+  {
+    discovery.ok = true;
+    discovery.notes.append( QStringLiteral( "曲线列不足两列，无候选可评估" ) );
+    return discovery;
+  }
+
+  // Pearson 两遍法（先均值，后方差/协方差）；常数列相关无定义，如实跳过计数。
+  const auto pearson = []( const std::vector<double> &a, const std::vector<double> &b, int *paired,
+                           bool *degenerate ) -> double {
+    double sumA = 0, sumB = 0;
+    int n = 0;
+    for ( std::size_t r = 0; r < a.size(); ++r )
+    {
+      if ( std::isfinite( a[r] ) && std::isfinite( b[r] ) )
+      {
+        sumA += a[r];
+        sumB += b[r];
+        ++n;
+      }
+    }
+    *paired = n;
+    if ( n < 3 )
+    {
+      *degenerate = true;
+      return 0;
+    }
+    const double meanA = sumA / n;
+    const double meanB = sumB / n;
+    double cov = 0, varA = 0, varB = 0;
+    for ( std::size_t r = 0; r < a.size(); ++r )
+    {
+      if ( !( std::isfinite( a[r] ) && std::isfinite( b[r] ) ) )
+        continue;
+      cov += ( a[r] - meanA ) * ( b[r] - meanB );
+      varA += ( a[r] - meanA ) * ( a[r] - meanA );
+      varB += ( b[r] - meanB ) * ( b[r] - meanB );
+    }
+    if ( varA <= 0 || varB <= 0 )
+    {
+      *degenerate = true;
+      return 0;
+    }
+    *degenerate = false;
+    return std::clamp( cov / std::sqrt( varA * varB ), -1.0, 1.0 );
+  };
+
+  for ( std::size_t i = 0; i + 1 < curveColumns.size(); ++i )
+  {
+    for ( std::size_t j = i + 1; j < curveColumns.size(); ++j )
+    {
+      const int columnA = curveColumns[i];
+      const int columnB = curveColumns[j];
+      ++discovery.pairsConsidered;
+      int paired = 0;
+      bool degenerate = false;
+      const double r = pearson( seriesByColumn[static_cast<std::size_t>( columnA )],
+                                seriesByColumn[static_cast<std::size_t>( columnB )], &paired,
+                                &degenerate );
+      if ( degenerate )
+      {
+        ++discovery.pairsSkippedDegenerate;
+        continue;
+      }
+      if ( paired < minPairedRows )
+      {
+        ++discovery.pairsSkippedSparse;
+        continue;
+      }
+      if ( std::fabs( r ) < minAbsCorrelation )
+        continue;
+      FactorCandidate candidate;
+      const QString nameA = sheet.headers.at( columnA );
+      const QString nameB = sheet.headers.at( columnB );
+      if ( nameA <= nameB )
+      {
+        candidate.columnA = nameA;
+        candidate.columnB = nameB;
+      }
+      else
+      {
+        candidate.columnA = nameB;
+        candidate.columnB = nameA;
+      }
+      candidate.correlation = r;
+      candidate.pairedRows = paired;
+      discovery.candidates.append( candidate );
+    }
+  }
+  // |r| 降序；同 |r| 按列名字典序（稳定可复现）。
+  std::sort( discovery.candidates.begin(), discovery.candidates.end(),
+             []( const FactorCandidate &a, const FactorCandidate &b ) {
+               if ( std::fabs( a.correlation ) != std::fabs( b.correlation ) )
+                 return std::fabs( a.correlation ) > std::fabs( b.correlation );
+               if ( a.columnA != b.columnA )
+                 return a.columnA < b.columnA;
+               return a.columnB < b.columnB;
+             } );
+  discovery.ok = true;
+  return discovery;
 }
 
 } // namespace paleo::io

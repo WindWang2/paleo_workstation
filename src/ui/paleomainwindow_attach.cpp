@@ -23,6 +23,9 @@
 #include "propertymodel/propertymodelpanel.h"
 #include "welltops/welltopseditordialog.h" // 方向 32：分层编辑器（topsEditRequested 接壳）
 #include "faciesmapping/faciesmappingpanel.h"
+#include "ai/aiassistdock.h"                    // 方向51：AI 助手 dock
+#include "../workflow/aichatcontroller.h"
+#include "../ai/chat/llmclient.h"               // LlmConfig::path()（配置说明用）
 #include "../workflow/workflows.h"
 #include "../domain/arearules.h"
 #include "../domain/projectclassifier.h"
@@ -3813,4 +3816,37 @@ void PaleoMainWindow::attachWellSiting(WellSitingWorkflow *wf)
   {
     m_wellSitingPanel->reloadFromWorkflow();
   }
+}
+
+// 方向51：AI 助手 dock 装配。幂等（页签已建则只重挂控制器）。
+void PaleoMainWindow::attachAiAssistant(AiChatController *controller)
+{
+  if (!controller)
+    return;
+  auto *bottomTabs = findChild<QTabWidget *>(QStringLiteral("bottomTabs"));
+  if (!bottomTabs)
+    return;
+  auto *existing = bottomTabs->findChild<AiAssistDock *>(
+      QStringLiteral("aiAssistantDock"));
+  if (existing)
+  {
+    // 幂等分支：只把新控制器交给面板（面本身不重建，避免丢滚动位置）。
+    existing->attachController(controller);
+    return;
+  }
+  auto *dock = new AiAssistDock(controller, bottomTabs);
+  dock->setObjectName(QStringLiteral("aiAssistantDock"));
+  bottomTabs->addTab(dock, tr("AI 助手"));
+  // 「配置…」是意图不是动作：面板不管配置存储，这里如实告诉用户配置在
+  // 哪儿（文件 + 环境变量）——图形化配置对话框递延（TODOS.md）。
+  connect(dock, &AiAssistDock::configureRequested, this, [this] {
+    const QString hint =
+      tr("大模型配置：%1（端点/模型/开关）；密钥经系统钥匙串或 "
+         "PALEO_LLM_API_KEY 环境变量提供。图形化配置对话框尚未接入。")
+        .arg(LlmConfig::path());
+    QgsMessageLog::logMessage(hint, QStringLiteral("Paleo"),
+                              Qgis::MessageLevel::Info);
+    if (statusBar())
+      statusBar()->showMessage(hint, 8000);
+  });
 }

@@ -148,6 +148,7 @@ bool writeTimeSliceGeoTiff(const QString &path, const AttrTimeSliceGrid &grid,
   {
     const QString detail = QString::fromUtf8(CPLGetLastErrorMsg());
     GDALClose(ds);
+    QFile::remove(path); // #233：同文件另两失败分支口径——不留无元数据半成品
     setError(error, QStringLiteral("栅格元数据写入失败：%1%2")
                          .arg(path, detail.isEmpty() ? QString()
                                                      : QStringLiteral(": ") + detail));

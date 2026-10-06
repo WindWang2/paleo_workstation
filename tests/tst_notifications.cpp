@@ -4,6 +4,9 @@
 // + 通知路径零新增控件分配（卡片池计数）。
 #include <QtTest>
 #include <QApplication>
+#include <QClipboard>
+#include <QPushButton>
+#include <QTableWidget>
 #include <QLabel>
 #include <QMainWindow>
 #include <QPushButton>
@@ -13,6 +16,7 @@
 #include <QTimer>
 
 #include "../src/services/errorhub.h"
+#include "../src/ui/notifications/errorhistorypanel.h"
 #include "../src/ui/notifications/notificationcenter.h"
 #include "../src/ui/notifications/paleonotify.h"
 
@@ -72,6 +76,8 @@ private slots:
     void askReturnsAcceptButton();
     void stormDoesNotFreezeMainThread();
     void stormFromWorkerThreadDelivered();
+    void historyFilterCopyClear();
+    void historyRingEvictionVisible();
 };
 
 void TestNotifications::cardAppearsAndExpires()
@@ -299,6 +305,57 @@ void TestNotifications::stormFromWorkerThreadDelivered()
     QCOMPARE(delivered, 1000);
     QVERIFY(r.center->visibleCardCount() <= NotificationCenter::kMaxCards);
     QCOMPARE(r.center->cardAllocations(), NotificationCenter::kMaxCards);
+}
+
+void TestNotifications::historyFilterCopyClear()
+{
+    ErrorHub hub;
+    g_now = 7'000'000;
+    hub.setClockForTest([] { return g_now; });
+    hub.raise(ErrorHub::Level::Error, "mapping", "E1", "坏网格");
+    hub.raise(ErrorHub::Level::Warning, "welltops", "W1", "缺分层\n第二行");
+    hub.raise(ErrorHub::Level::Warning, "welltops", "W1", "缺分层\n第二行");  // 聚合
+    hub.raise(ErrorHub::Level::Info, "shell", "I1", "已保存");
+    ErrorHistoryPanel panel(&hub);
+    panel.show();
+    QCOMPARE(panel.rowCount(), 3);
+    panel.setLevelFilter(2);  // 警告
+    QCOMPARE(panel.rowCount(), 1);
+    const QString tsv = panel.copyText();
+    QVERIFY(tsv.contains(QStringLiteral("\twelltops\t2\tW1\t缺分层 第二行")));
+    QVERIFY(!tsv.contains(QLatin1Char('\n')));  // 单行，多行正文压平
+    panel.setLevelFilter(0);
+    panel.setTextFilter(QStringLiteral("网格"));
+    QCOMPARE(panel.rowCount(), 1);
+    panel.setTextFilter(QString());
+    // 选中第一行（最新 = info）只复制该行。
+    auto *table = panel.findChild<QTableWidget *>(QStringLiteral("errorHistoryTable"));
+    table->selectRow(0);
+    QCOMPARE(panel.copyText().count(QLatin1Char('\n')), 0);
+    QVERIFY(panel.copyText().contains(QStringLiteral("已保存")));
+    panel.findChild<QPushButton *>(QStringLiteral("errorHistoryCopy"))->click();
+    QCOMPARE(QApplication::clipboard()->text(), panel.copyText());
+    // 新条目合并刷新（150ms 单发）。
+    hub.raise(ErrorHub::Level::Error, "io", "E2", "读失败");
+    QTRY_COMPARE_WITH_TIMEOUT(panel.rowCount(), 4, 5000);
+    panel.findChild<QPushButton *>(QStringLiteral("errorHistoryClear"))->click();
+    QCOMPARE(hub.size(), 0);
+    QCOMPARE(panel.rowCount(), 0);
+    QVERIFY(!panel.findChild<QPushButton *>(QStringLiteral("errorHistoryClear"))->isEnabled());
+}
+
+void TestNotifications::historyRingEvictionVisible()
+{
+    ErrorHub hub;
+    for (int i = 0; i < ErrorHub::kCapacity + 1; ++i)
+        hub.raise(ErrorHub::Level::Warning, "s", "T", QStringLiteral("n%1").arg(i));
+    ErrorHistoryPanel panel(&hub);
+    panel.show();
+    QCOMPARE(panel.rowCount(), ErrorHub::kCapacity);
+    panel.setTextFilter(QStringLiteral("n0"));
+    QCOMPARE(panel.rowCount(), 0);  // n0 已逐出（n0 不是任何其他条目的子串）
+    panel.setTextFilter(QStringLiteral("n500"));
+    QCOMPARE(panel.rowCount(), 1);
 }
 
 QTEST_MAIN(TestNotifications)

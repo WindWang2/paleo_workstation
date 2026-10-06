@@ -560,6 +560,7 @@ add_library(paleo_ui STATIC
   src/ui/notifications/notificationcenter.cpp      # 方向64：错误呈现（通知卡/severe 模态/状态栏）
   src/ui/notifications/toastcard.cpp               # 方向64：通知卡（预建池复用）
   src/ui/notifications/paleonotify.cpp             # 方向64：视图层错误/确认统一出口
+  src/ui/notifications/errorhistorypanel.cpp       # 方向64：错误历史面板（过滤/复制/清空）
   src/ui/pages/stratigraphicwebpage.cpp
   src/ui/symbols/symbolpickerpanel.cpp             # 方向31：符号选择器面板（花纹/线型浏览 + 语义过滤）
   src/ui/pages/mappingworkbenchpage.cpp

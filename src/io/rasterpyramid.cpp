@@ -38,6 +38,25 @@ namespace
     return 28 + static_cast<qint64>(tilesX) * tilesY +      // state bytes
            static_cast<qint64>(tilesX) * tilesY * 8;        // offset table
   }
+
+  // #215：瓦片 payload 偏移合法 = 落在 payload 追加区（头 + state + offset 表
+  // 之后）且整块 samples*4 字节不越过文件尾。offset=0（崩溃残片）必判非法。
+  bool payloadOffsetInRange(qint64 payloadOff, int tileCount, int samples, qint64 fileSize)
+  {
+    const qint64 payloadStart = 28 + static_cast<qint64>(tileCount) * 9;
+    return payloadOff >= payloadStart &&
+           payloadOff <= fileSize - static_cast<qint64>(samples) * 4;
+  }
+
+  bool payloadOffsetValid(QFile &f, qint64 offsetPos, int tileCount, int samples)
+  {
+    char off[8];
+    if (!f.seek(offsetPos) || f.read(off, 8) != 8)
+      return false;
+    const qint64 payloadOff =
+        static_cast<qint64>(qFromLittleEndian<quint64>(reinterpret_cast<const uchar *>(off)));
+    return payloadOffsetInRange(payloadOff, tileCount, samples, f.size());
+  }
 } // namespace
 
 RasterPyramidService::RasterPyramidService(QString cacheRoot)
@@ -364,10 +383,16 @@ bool RasterPyramidService::buildTile(const QString &rasterPath, const PyramidMet
   const int n = tilesX * tilesY;
   const qint64 statePos = 28 + static_cast<qint64>(y) * tilesX + x;
   const qint64 offsetPos = 28 + n + (static_cast<qint64>(y) * tilesX + x) * 8;
-  if (f.seek(statePos) && f.peek(1).at(0) != '\0')
-    return true; // 已建过——不重复落盘（并发/重复 ensure 兜底）
-  f.seek(statePos);
-  f.putChar(allNodata ? '\2' : '\1');
+  if (f.seek(statePos))
+  {
+    const char st = f.peek(1).at(0);
+    // 已建过——不重复落盘（并发/重复 ensure 兜底）。#215：state=1 但 offset
+    // 不指向合法 payload 的是崩溃/写失败残片，必须重建覆盖而非早退。
+    if (st == '\2' || (st == '\1' && payloadOffsetValid(f, offsetPos, n, tileW * tileH)))
+      return true;
+  }
+  // #215：按头文件协议「payload append → 回填 offset → 最后写 state」，
+  // 任一步失败 state 保持 0（未建），下次 tile() 自然重建。
   if (!allNodata)
   {
     QByteArray payload;
@@ -375,18 +400,24 @@ bool RasterPyramidService::buildTile(const QString &rasterPath, const PyramidMet
     for (float v : buf)
       cacheio::putF32(&payload, v);
     const qint64 end = f.size();
-    f.seek(end);
-    if (f.write(payload) != payload.size())
+    if (!f.seek(end) || f.write(payload) != payload.size())
     {
       if (error) *error = QStringLiteral("short write to %1").arg(path);
       return false;
     }
-    f.seek(offsetPos);
     char off[8];
     qToLittleEndian<quint64>(static_cast<quint64>(end), off);
-    f.write(off, 8);
+    if (!f.seek(offsetPos) || f.write(off, 8) != 8 || !f.flush())
+    {
+      if (error) *error = QStringLiteral("offset write failed in %1").arg(path);
+      return false;
+    }
   }
-  f.flush();
+  if (!f.seek(statePos) || !f.putChar(allNodata ? '\2' : '\1') || !f.flush())
+  {
+    if (error) *error = QStringLiteral("state write failed in %1").arg(path);
+    return false;
+  }
   return true;
 }
 
@@ -455,7 +486,10 @@ bool RasterPyramidService::tile(const QString &rasterPath, int z, int x, int y, 
           const int w = qMin(kTileSize, lw - x * kTileSize);
           const int h = qMin(kTileSize, lh - y * kTileSize);
           QByteArray raw(w * h * 4, Qt::Uninitialized);
-          if (f.seek(payloadOff) && f.read(raw.data(), raw.size()) == raw.size())
+          // #215：offset 必须落在 payload 追加区内（>= 头+state+offset 表），
+          // 否则（如崩溃残片 offset=0）落到下方懒建分支重建，不把文件头当像素。
+          if (payloadOffsetInRange(payloadOff, n, w * h, f.size()) && f.seek(payloadOff) &&
+              f.read(raw.data(), raw.size()) == raw.size())
           {
             auto samples = std::make_shared<QVector<float>>();
             samples->resize(w * h);

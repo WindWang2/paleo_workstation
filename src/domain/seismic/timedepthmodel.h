@@ -25,6 +25,9 @@ public:
     // Strict checkshots preserve file order and never extrapolate. Rejection
     // leaves the model unchanged.
     bool setCheckshots(const std::vector<TdPoint> &points);
+    // Lenient: drops non-finite/negative points, sorts by depth, and drops
+    // points whose time does not strictly increase with depth (#218) so both
+    // conversion directions stay monotone and mutually inverse.
     void setPoints(const std::vector<TdPoint> &points);
     const std::vector<TdPoint>& points() const { return m_points; }
     bool hasCheckshots() const { return !m_points.empty(); }

@@ -21,6 +21,11 @@
   （`CMakeLists.txt:27` QUIET 探测，缺失时 WebViewPanel 降级外链浏览器）。
 - **GDAL/PROJ/GEOS**：随 QGIS 来源（行 1 实测 GDAL 3.13.3 / PROJ 9.8.1 /
   GEOS 3.15.0；行 2/3 由 apt/OSGeo4W 闭包决定）。
+- **标注随图层 z 序**（#138）：仅 superbuild 路的 QGIS 带
+  `patches/qgis-4.2.2-labels-with-layer.patch`（宏 `QGIS_PALEO_LABELS_WITH_LAYER`）；
+  apt / OSGeo4W 二进制路（行 2/3 与 CI 两 leg）无补丁，标注回到 QGIS 原生
+  「始终置顶」——启动时状态栏提示一次，`tst_labelzorder` 的补丁专属断言在这两条路上
+  不被覆盖（补丁行为只在 superbuild 本机行 1 验证）。
 - **ONNX Runtime 1.30.0**：与平台矩阵正交（Linux: manylinux_2_28, Windows: win-x64；均已在 `vendor/manifest.json` pin SHA256）；未 vendor 时构建降级——`ai/` 服务与 `tst_onnx*` 排除。
 
 ## 实测基线（写死在 CI 与本机的两档）

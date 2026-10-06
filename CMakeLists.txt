@@ -544,9 +544,25 @@ add_library(paleo_ui STATIC
   src/ui/pages/mappingworkbenchpage.cpp
   src/ui/paleomainwindow_workbench.cpp
   src/ui/paleomainwindow.cpp
-  src/ui/paleomainwindow_attach.cpp                # W4 接线按页拆分
+  src/ui/paleomainwindow_attach.cpp                # 壳接线聚合胶水层
+  src/ui/paleomainwindow_attach_data.cpp           # 数据管理页接线
+  src/ui/paleomainwindow_attach_predict.cpp        # 智能预测页接线
+  src/ui/paleomainwindow_attach_constraint.cpp     # 约束与单因素页接线
+  src/ui/paleomainwindow_attach_compose.cpp        # 综合编图页接线
+  src/ui/paleomainwindow_attach_validate.cpp       # 验证与布井辅助接线
+  src/ui/paleomainwindow_attach_shell.cpp          # 壳面与全局组件接线
+  src/ui/paleomainwindow_attach_mapping.cpp        # 编图流水线与版本接线
+  src/ui/paleomainwindow_attach_models.cpp         # 属性建模/相图/时深转换接线
   src/ui/ribbonpanels.cpp                          # W4 ribbon 命令组构建迁出
-  src/ui/pages/datalist.cpp                        # W5 数据页·列表侧
+  src/ui/pages/datalist.cpp                        # W5 数据页·列表侧（胶水层）
+  src/ui/pages/datalistops.h                       # 数据页·辅助类型与持久化工具
+  src/ui/pages/datalist_table.cpp                  # 数据页·表格展现与行内动作
+  src/ui/pages/datalist_tree.cpp                   # 数据页·树形层级与分组
+  src/ui/pages/datalist_select.cpp                 # 数据页·选中集管理与联动
+  src/ui/pages/datalist_filter.cpp                 # 数据页·多维组合过滤与搜索
+  src/ui/pages/datalist_batch.cpp                  # 数据页·批量操作与上下文菜单
+  src/ui/pages/datalist_dnd.cpp                    # 数据页·拖拽与外部文件处理
+  src/ui/pages/datalist_undo.cpp                   # 数据页·撤销重做与治理对话框
   src/ui/pages/entitypanel.cpp                     # W5 数据页·实体视图侧
   src/ui/pages/wellsitingpanel.cpp                 # 方向34：布井辅助面板（验证页页签）
   src/ui/pages/datapage.cpp                        # W5 DataPage 兼容薄壳

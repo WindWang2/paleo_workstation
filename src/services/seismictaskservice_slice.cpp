@@ -199,7 +199,7 @@ PaleoTask *SeismicTaskService::startSectionExtraction(
       auto *timer = new QTimer(this);
       timer->setSingleShot(true);
       connect(timer, &QTimer::timeout, this, [timer, hit, stats, onFinished]() {
-        delete timer;
+        timer->deleteLater(); // RUNTIME-04：不能在自身 timeout 栈上同步 delete
         onFinished(true, hit, stats, QString());
       });
       timer->start(0);

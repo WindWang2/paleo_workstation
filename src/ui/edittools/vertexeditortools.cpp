@@ -95,6 +95,17 @@ bool sameXy( const QgsPoint &a, const QgsPoint &b )
   return qgsDoubleNear( a.x(), b.x() ) && qgsDoubleNear( a.y(), b.y() );
 }
 
+// BIZ-09：拓扑共点/共享边的 R-tree 候选包络半径，单位=层坐标单位（本项目
+// 局部工程网格为米）。量纲依据：它只做空间索引预筛，命中语义由 sameXy 的
+// qgsDoubleNear 把守——QGIS 4 语义为绝对 ε=4·DBL_EPSILON≈8.9e-16（近精确，
+// 非 3.x 的相对 1e-10），polygonize 产出的共享边界顶点本就逐位相等。包络
+// 只需 ≥ 该精确门（1e-9 留 ~10³ 余量、兼收 1e6 量级坐标的 ulp≈2e-10 表
+// 示噪声），又要足够小以保持候选集极小——亚纳米是安全取值。不承载
+// 「业务级吸附容差」职责——那是 searchRadiusMU（随画布 DPI/比例尺）的
+// 职责；放大本值会改变跨层拓扑命中面，需连同
+// vertexCoincidentEnvelopeBoundsNoise 回归一起评估。
+constexpr double kTopoCandidateEnvelope = 1e-9;
+
 // Dense-numbered vertex position; invalid nr → empty (geometry-less).
 QgsPointXY vertexXy( const QgsGeometry &geometry, int vertexNr )
 {
@@ -1119,10 +1130,10 @@ QList<PaleoVertexTool::CoincidentMember> PaleoVertexTool::coincidentVertices( co
   if ( !layer || !mTopoIndex )
     return out;
 
-  // R-tree 邻域候选（1e-9 包络）→ 层坐标 qgsDoubleNear 精确过滤（同旧语义）。
+  // R-tree 邻域候选（kTopoCandidateEnvelope 包络）→ 层坐标 qgsDoubleNear 精确过滤（同旧语义）。
   const QgsPoint target( layerPoint );
   const QList<QgisTopologicalIndex::VertexHit> hits =
-      mTopoIndex->verticesNear( layerPoint, 1e-9, mTopoEditing && mCrossLayerTopology );
+      mTopoIndex->verticesNear( layerPoint, kTopoCandidateEnvelope, mTopoEditing && mCrossLayerTopology );
   for ( const QgisTopologicalIndex::VertexHit &hit : hits )
   {
     if ( !sameXy( QgsPoint( hit.pos ), target ) )
@@ -1174,10 +1185,10 @@ QList<PaleoVertexTool::CoincidentMember> PaleoVertexTool::sharedEdgeMembers(
   if ( !mTopoIndex )
     return out;
 
-  // 共享边矩形包络（端点 ±1e-9）：边的两端点必须精确等于 segA/segB（正/反
-  // 两种走向——共享边界在两侧环里方向相反）。
-  QgsRectangle rect( std::min( segA.x(), segB.x() ) - 1e-9, std::min( segA.y(), segB.y() ) - 1e-9,
-                     std::max( segA.x(), segB.x() ) + 1e-9, std::max( segA.y(), segB.y() ) + 1e-9 );
+  // 共享边矩形包络（端点 ±kTopoCandidateEnvelope）：边的两端点必须精确等于
+  // segA/segB（正/反两种走向——共享边界在两侧环里方向相反）。
+  QgsRectangle rect( std::min( segA.x(), segB.x() ) - kTopoCandidateEnvelope, std::min( segA.y(), segB.y() ) - kTopoCandidateEnvelope,
+                     std::max( segA.x(), segB.x() ) + kTopoCandidateEnvelope, std::max( segA.y(), segB.y() ) + kTopoCandidateEnvelope );
   const QList<QgisTopologicalIndex::EdgeHit> hits =
       mTopoIndex->edgesNear( rect, mTopoEditing && mCrossLayerTopology );
   for ( const QgisTopologicalIndex::EdgeHit &hit : hits )

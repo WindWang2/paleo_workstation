@@ -239,8 +239,8 @@ PaleoEditingToolbar::PaleoEditingToolbar( QgsMapCanvas *canvas, QWidget *parent 
   connect(mCanvas, &QObject::destroyed, this, [this] {
     // The scene owns its graphics items and deletes them with the canvas.
     // A host may destroy that child before this toolbar; do not delete twice.
+    //（mCanvas 现为 QPointer，析构自动置空——钩子只处理画布子项。）
     mEditHighlight.release();
-    mCanvas = nullptr;
   });
   mLayerFilter = []( const QgsVectorLayer * ) { return true; };
 

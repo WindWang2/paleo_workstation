@@ -207,6 +207,9 @@ bool ConstraintWorkflow::computeLocalDirectionJob( LocalDirectionJob *job, const
                     job->params.value( QStringLiteral( "coverage" ), QStringLiteral( "well_supported" ) ) );
   runParams.insert( QStringLiteral( "CLUSTER" ), job->params.value( QStringLiteral( "wellClusterLocality" ), false ) );
   runParams.insert( QStringLiteral( "LOCAL_GRID" ), job->params.value( QStringLiteral( "localGrid" ), false ) );
+  // ARCH-05：规范局部网格 WKT 由 workflow 注入（算法核不问 catalog），
+  // 局部网格输出的 GeoTIFF 保 EDATUM 往返等价。
+  runParams.insert( QStringLiteral( "LOCAL_GRID_WKT" ), DataCatalog::localGridCrsWkt() );
   runParams.insert( QStringLiteral( "REQUIRE_FULL_COVERAGE" ),
                     job->params.value( QStringLiteral( "requireFullCoverage" ), false ) );
   runParams.insert( QStringLiteral( "PERCENT_TO_FRACTION" ),

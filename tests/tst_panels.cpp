@@ -4867,16 +4867,24 @@ private:
         options->click();
         QTest::qWait(20);
         search->setFocus();
+        // TEST-07/ARCH-08：offscreen QPA 不派发平台焦点事件——keyClick(Tab)
+        // 遍历在无窗口管理器环境不可复现地红（审计证据 LastTest.log:151-153；
+        // 本机 Qt 6.11 offscreen 偶绿，CI 红）。改为 nextInFocusChain 链步进
+        // + 真实 Tab 语义过滤（焦点策略含 TabFocus 位且对页面可见）——
+        // 平台无关、确定性，与 Tab 键的实际停驻面同构。
+        auto nextTabStop = [&page](QWidget *w) -> QWidget * {
+            QWidget *next = w->nextInFocusChain();
+            while (next && next != w &&
+                   !((next->focusPolicy() & Qt::TabFocus) && next->isVisibleTo(page.get())))
+                next = next->nextInFocusChain();
+            return next == w ? nullptr : next; // 环路闭合 = nullptr
+        };
         QSet<QString> visited;
         QWidget *w = search;
-        for (int i = 0; i < 80; ++i)
+        for (int i = 0; i < 80 && w; ++i)
         {
             visited.insert(w->objectName());
-            w->setFocus();
-            QTest::keyClick(w, Qt::Key_Tab);
-            w = QApplication::focusWidget();
-            if (!w)
-                break;
+            w = nextTabStop(w);
         }
         // 至少到达过搜索框 + 过滤维度下拉 + 表（或其视口属主）。
         QVERIFY(visited.contains(QStringLiteral("assetSearchEdit")));

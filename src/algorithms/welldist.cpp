@@ -96,7 +96,8 @@ QVariantMap PaleoWellDistanceAlgorithm::processAlgorithm( const QVariantMap &par
   const double gt[6] = { extent.xMinimum(), cellSize, 0.0,
                          extent.yMaximum(), 0.0, -cellSize };
   GDALDatasetH outDs = PaleoRasterOut::createFloatRaster( outPath, nCols, nRows, gt, source->sourceCrs(),
-                                                          PALEO_WELLDIST_NODATA );
+                                                          PALEO_WELLDIST_NODATA,
+                                                          PaleoRasterOut::canonicalWktFromParameters( parameters ) );
   if ( !outDs )
     throw QgsProcessingException( QStringLiteral( "Cannot create output raster %1" ).arg( outPath ) );
 

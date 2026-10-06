@@ -1,5 +1,6 @@
 #include <QtTest>
 #include <QTemporaryDir>
+#include <QElapsedTimer>
 #include <QSignalSpy>
 #include <QThreadPool>
 #include <QDirIterator>
@@ -165,6 +166,65 @@ private slots:
 
   // T4（data-foundation）：锁降级只读——导入在算 SHA/复制字节之前早拒，
   // 不留 artifacts/raw 孤儿文件。
+  // 方向57 阻塞解除语义测试：PDF 转换在途时销毁服务，析构不得阻塞主线程
+  // 等进程退出（原实现 ~DataImportService 里 waitForFinished(2000)——事件
+  // 循环冻结最多 2s）。新实现 kill + deleteLater（与 setProjectDir 的工程
+  // 切换清理同一模式）。阈值取旧 2s 上限的四分之三：旧实现必红、新实现
+  // 数十毫秒级即回，两端都不贴边。
+  void documentTeardownDoesNotBlockOnInflightConversion()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+
+    // 长睡转换器：无论参数睡 30s 再退（模拟卡住的 soffice）。
+    // Windows 用 .cmd（QProcess/CreateProcess 可直接拉起批处理），POSIX 用 .sh。
+    const QString stub = tmp.filePath(QStringLiteral("sleepy_converter") +
+#ifdef Q_OS_WIN
+                                      QStringLiteral(".cmd"));
+    {
+      QFile f(stub);
+      QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
+      f.write("@ping -n 30 127.0.0.1 > nul\r\n");
+      f.close();
+    }
+#else
+                                      QStringLiteral(".sh"));
+    {
+      QFile f(stub);
+      QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
+      f.write("#!/bin/sh\nsleep 30\n");
+      f.close();
+      QFile::setPermissions(stub, QFileDevice::ExeOwner | QFileDevice::ReadOwner |
+                                     QFileDevice::WriteOwner);
+    }
+#endif
+    svc.setDocumentConverterProgram(stub);
+
+    QString err;
+    const QString docSrc = tmp.filePath(QStringLiteral("stub.doc"));
+    {
+      QFile df(docSrc);
+      QVERIFY(df.open(QIODevice::WriteOnly));
+      df.write("not a real doc");
+      df.close();
+    }
+    const QString docId = svc.importProjectFile(docSrc, &err);
+    QVERIFY2(!docId.isEmpty(), qPrintable(err));
+
+    svc.ensureDocumentPdf(docId);
+    QCOMPARE(svc.documentPdfState(docId), DataImportService::DocPdfState::Pending);
+
+    QElapsedTimer t0;
+    t0.start();
+    stack.reset(); // 析构：旧实现在此 waitForFinished(2000)
+    const qint64 elapsed = t0.elapsed();
+    QVERIFY2(elapsed < 1500, qPrintable(QStringLiteral("destroy blocked %1ms").arg(elapsed)));
+  }
+
   void lockedReadOnlyImportRefusedEarly()
   {
     QTemporaryDir tmp;

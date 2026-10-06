@@ -11,3 +11,6 @@ target_sources(paleo_ui PRIVATE
 )
 
 add_paleo_test(tst_shortcutregistry LIBS paleo_services) # 注册/查重/上下文优先级
+add_paleo_test(tst_shortcuthelp LIBS paleo_ui)           # 目录零冲突+变异/R0 收编/总表/帮助面（offscreen）
+target_compile_definitions(tst_shortcuthelp PRIVATE PALEO_SOURCE_DIR="${CMAKE_SOURCE_DIR}") # 源码闸
+add_paleo_test(tst_shortcuts_shell)                      # 真实主窗：键位行为回归 + F1/Shift+F1 + whatsThis 落点

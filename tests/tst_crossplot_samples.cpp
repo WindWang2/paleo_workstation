@@ -7,12 +7,15 @@
 #include <QTemporaryDir>
 #include <QtTest>
 #include <gdal.h>
+#include <algorithm>
+#include <iterator>
 using namespace paleo::crossplot;
 class TestSamples : public QObject {
   Q_OBJECT
 private slots:
   void depthAlignment();
   void rasterPairs();
+  void float32NodataWithExplicitMask();
   void projections();
   void attributeHorizon();
   void satrSource();
@@ -117,6 +120,48 @@ void TestSamples::projections() {
   s.locations[0].hasXY = true;
   s.locations[0].x = qQNaN();
   QVERIFY(!CrossplotSamples::validate(s));
+}
+void TestSamples::float32NodataWithExplicitMask() {
+  // #220：Float32 波段的 nodata（-99999.9 不能被 float 精确表示）以 Float64 读
+  // 出后是 (double)(float) 值；外部/内部 mask 不反映 nodata 时，兜底比较必须按
+  // float 口径，否则 nodata 像元作为有限值漏进交会样本。
+  QTemporaryDir dir;
+  GDALAllRegister();
+  const double nodata = -99999.9;
+  double gt[]{100, 2, 0, 200, 0, -2};
+  for (int b = 0; b < 2; ++b) {
+    auto path = dir.filePath(QString("m%1.tif").arg(b));
+    auto ds =
+        GDALCreate(GDALGetDriverByName("GTiff"), path.toUtf8().constData(), 4,
+                   3, 1, GDT_Float32, nullptr);
+    QVERIFY(ds);
+    QCOMPARE(GDALSetGeoTransform(ds, gt), CE_None);
+    float data[12];
+    for (int i = 0; i < 12; ++i)
+      data[i] = float(i + b * 100);
+    if (b == 0)
+      data[0] = static_cast<float>(nodata);
+    auto band = GDALGetRasterBand(ds, 1);
+    GDALSetRasterNoDataValue(band, nodata);
+    QCOMPARE(
+        GDALRasterIO(band, GF_Write, 0, 0, 4, 3, data, 4, 3, GDT_Float32, 0, 0),
+        CE_None);
+    // 显式全有效 mask：mask band 不再由 nodata 派生。
+    QCOMPARE(GDALCreateMaskBand(band, GMF_PER_DATASET), CE_None);
+    unsigned char valid[12];
+    std::fill(std::begin(valid), std::end(valid), 255);
+    QCOMPARE(GDALRasterIO(GDALGetMaskBand(band), GF_Write, 0, 0, 4, 3, valid, 4,
+                          3, GDT_Byte, 0, 0),
+             CE_None);
+    GDALClose(ds);
+  }
+  auto r = CrossplotSamples::rasters({{dir.filePath("m0.tif"), "a", "v0", "l0"},
+                                      {dir.filePath("m1.tif"), "b", "v1", "l1"}});
+  QVERIFY2(r.ok, qPrintable(r.error));
+  QCOMPARE(r.samples.rejected, 1);
+  QCOMPARE(r.samples.rows(), std::size_t(11));
+  for (double v : r.samples.values)
+    QVERIFY(v > -1000.0);
 }
 void TestSamples::attributeHorizon() {
   Grid grid;

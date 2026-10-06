@@ -234,8 +234,15 @@ SampleResult CrossplotSamples::rasters(const QVector<RasterSource> &sources,
                        GDT_Byte, 0, 0) != CE_None)
         return fail(QStringLiteral("栅格像元读取失败"));
     }
+    // #220（#165 残留点）：Float32 波段以 Float64 读出的像元是 (double)(float)
+    // 值，与元数据里不可被 float 精确表示的 double nodata 永不相等——比较口径
+    // 先把 nodata 钳到 float，与算法侧五处对齐。
+    const double nodataCmp =
+        (hasNo && GDALGetRasterDataType(band) == GDT_Float32)
+            ? static_cast<double>(static_cast<float>(nodata))
+            : nodata;
     for (std::size_t i = 0; i < count; ++i)
-      if (!mask[i] || (hasNo && values[i] == nodata))
+      if (!mask[i] || (hasNo && values[i] == nodataCmp))
         values[i] = std::numeric_limits<double>::quiet_NaN();
     Plane p;
     p.name = src.name;

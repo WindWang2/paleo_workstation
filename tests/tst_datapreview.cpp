@@ -3,6 +3,8 @@
 #include <windows.h>
 #endif
 #include <QSignalSpy>
+#include <QCryptographicHash>
+#include <QUuid>
 #include <QTemporaryDir>
 
 #include "helpers/previewfixture.h"
@@ -758,7 +760,7 @@ void TestDataPreview::topsTableShowsXYColumns()
   QVERIFY(table->item(d61, 3)->font().families().contains(QStringLiteral("JetBrains Mono")));
 }
 
-// §4：TD 剔除 -99999 后没有可用样点 → 正文「无时深表」，不画假线。
+// §4：新导入空值 TD 拒收；旧目录记录剔除 -99999 后正文「无时深表」，不画假线。
 void TestDataPreview::timeDepthEmptyShowsNoTable()
 {
   QTemporaryDir tmp;
@@ -775,9 +777,45 @@ void TestDataPreview::timeDepthEmptyShowsNoTable()
     QVERIFY(f.open(QIODevice::WriteOnly));
     f.write("# Well : A1\n380.0 -99999 -99999 -99999\n382.0 -99999 -99999 -99999\n");
   }
+  DataCatalog *cat = st->importSvc->catalog();
+  const int assetsBefore = cat->assets().size();
   const QString tdId = st->importSvc->importProjectFile(tdPath, &err);
-  QVERIFY2(!tdId.isEmpty(), qPrintable(err));
-  st->preview->openAsset(tdId);
+  QVERIFY(tdId.isEmpty());
+  QVERIFY2(err.contains(QStringLiteral("没有可用数据行")), qPrintable(err));
+  QVERIFY(err.contains(QStringLiteral("哨兵 6")));
+  QVERIFY(err.contains(QStringLiteral("TVDSS")));
+  QCOMPARE(cat->assets().size(), assetsBefore);
+  for (const CatalogVersion &version : cat->versions())
+    QVERIFY(version.sourceUri != tdPath);
+
+  // 明确构造既有项目的旧目录记录，保留预览空态覆盖；不让新导入绕过拒收。
+  CatalogAsset legacy;
+  legacy.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+  legacy.type = QStringLiteral("time_depth");
+  legacy.format = QStringLiteral("dat");
+  legacy.displayName = QStringLiteral("legacy-empty.dat");
+  CatalogVersion version;
+  version.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+  version.assetId = legacy.id;
+  version.stage = QStringLiteral("RAW");
+  version.managed = false;
+  version.path = tdPath;
+  version.sourceUri = tdPath;
+  version.fileName = QStringLiteral("empty.dat");
+  QFile source(tdPath);
+  QVERIFY(source.open(QIODevice::ReadOnly));
+  version.sha256 = QString::fromLatin1(QCryptographicHash::hash(source.readAll(), QCryptographicHash::Sha256).toHex());
+  QVERIFY2(cat->addAsset(legacy, &err), qPrintable(err));
+  QVERIFY2(cat->addVersion(version, &err), qPrintable(err));
+  const QStringList wells = cat->wellsMatchingName(QStringLiteral("A1"));
+  QCOMPARE(wells.size(), 1);
+  EntityAssetLink link;
+  link.entityType = QStringLiteral("well");
+  link.entityId = wells.front();
+  link.assetId = legacy.id;
+  link.role = QStringLiteral("time_depth");
+  QVERIFY2(cat->addLink(link, &err), qPrintable(err));
+  st->preview->openAsset(legacy.id);
   auto *tabs = st->preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));
   QWidget *page = tabs->widget(tabs->currentIndex());
   auto *state = page->findChild<QLabel *>(QStringLiteral("stateText"));

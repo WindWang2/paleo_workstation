@@ -346,6 +346,17 @@ void patchTraceNs(const QString &path, qint64 offset, qint16 val)
   f.write(bytes, 2);
   f.close();
 }
+// 改短 ns 时同步移除真实载荷，后续道头才处于正确边界。
+bool shortenFirstTrace(const QString &path, int oldSamples, int newSamples)
+{
+  QFile f(path);
+  if (!f.open(QIODevice::ReadOnly)) return false;
+  QByteArray bytes = f.readAll();
+  f.close();
+  bytes.remove(3600 + 240 + newSamples * 4, (oldSamples - newSamples) * 4);
+  if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
+  return f.write(bytes) == bytes.size();
+}
 } // namespace
 
 void CacheSegyIndexTests::sequentialBadTraceSkipMatchesParallelContract()
@@ -379,6 +390,7 @@ void CacheSegyIndexTests::variableLayoutFlagSurfaces()
   QVERIFY(PerfFixtures::makeSyntheticSegy(sgy, inl, xl, samples) > 0);
   // 道 0 的 ns 改 12（≠ 20）→ 首道变短，其余正常。
   patchTraceNs(sgy, 3600, 12);
+  QVERIFY(shortenFirstTrace(sgy, samples, 12));
 
   SegyReader r;
   QString err;
@@ -396,6 +408,7 @@ void CacheSegyIndexTests::variableLayoutKeepsHardErrorOnCorruptNs()
   QVERIFY(PerfFixtures::makeSyntheticSegy(sgy, inl, xl, samples) > 0);
   // 道 0 ns=12（变道长观察点）；扫描器视角的道 1 起点随之前移。
   patchTraceNs(sgy, 3600, 12);
+  QVERIFY(shortenFirstTrace(sgy, samples, 12));
   const qint64 trace1Offset = 3600 + 240 + qint64(12) * 4; // 道 0 实长
   patchTraceNs(sgy, trace1Offset, -32768);
 
@@ -414,6 +427,7 @@ void CacheSegyIndexTests::variableLayoutWritesNoCheckpoint()
   const int inl = 12, xl = 12, samples = 20; // 144 道 ≈ 46KB → 顺序路径
   QVERIFY(PerfFixtures::makeSyntheticSegy(sgy, inl, xl, samples) > 0);
   patchTraceNs(sgy, 3600, 16); // 道 0 变短 → variable
+  QVERIFY(shortenFirstTrace(sgy, samples, 16));
 
   const QString idx = cacheDir();
   {

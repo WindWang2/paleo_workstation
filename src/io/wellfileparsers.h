@@ -11,8 +11,10 @@
 // 记录类型在 domain/wellrecords.h（视图读门面），这里只留解析入口。
 
 QVector<WellHeadRecord> parseWellHeadText(const QByteArray &text);
+QVector<WellHeadRecord> parseWellHeadText(const QByteArray &text, WellParseReport *report);
 
 QVector<WellTopRecord> parseWellTopsText(const QByteArray &text);
+QVector<WellTopRecord> parseWellTopsText(const QByteArray &text, WellParseReport *report);
 
 // 井分层文本写侧（方向 32 编辑落库）：parseWellTopsText 的逆。
 // 列序 井名 层名 MD X Y Z TVD Time(ms)；缺失值写 -99999.000；
@@ -22,9 +24,14 @@ QVector<WellTopRecord> parseWellTopsText(const QByteArray &text);
 QByteArray writeWellTopsText(const QVector<WellTopRecord> &tops);
 
 TimeDepthTable parseTimeDepthText(const QByteArray &text);
+TimeDepthTable parseTimeDepthText(const QByteArray &text, WellParseReport *report);
 
 // 井斜站表文本：MD 井斜角 方位角；'# Well : <名>' 取井名（缺省空）。
 // 三列任一无效（-99999/非数值/非有限）整行不进站表——站点缺角无法定位。
 DeviationTable parseDeviationText(const QByteArray &text);
+DeviationTable parseDeviationText(const QByteArray &text, WellParseReport *report);
 
 // .xml 内容判定（§3：井口或测井，判不出作参考）。
+
+// 计数与逐条列因串（供导入结果/台账展示）；无异常为空。
+QString wellParseSummary(const WellParseReport &report);

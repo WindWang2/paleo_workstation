@@ -1,6 +1,7 @@
 // 层：数据
 #include "dlisparser.h"
 
+#include "../domain/wellnumeric.h"
 #include <QFile>
 #include <QFileInfo>
 
@@ -1301,7 +1302,7 @@ bool DlisParser::parse(const QString &path, LasHeaderInfo &header,
 
   header.wellName = w.wellName;
   header.sawAscii = w.sawAnyFdata;
-  header.nullValue = -999.25; // DLIS 无全局 NULL：缺失值本身是 NaN/省略帧
+  header.nullValue = paleo::wellnumeric::kLasDefaultNull; // DLIS 无全局 NULL：缺失值本身是 NaN/省略帧
   header.indexBasis = indexBasisFor(w);
   const QStringList names = catalogNames(w);
   header.curveNames = names;
@@ -1374,7 +1375,7 @@ bool DlisParser::parseHeader(const QString &path, LasHeaderInfo &out,
 
   out.wellName = w.wellName;
   out.sawAscii = w.sawAnyFdata;
-  out.nullValue = -999.25;
+  out.nullValue = paleo::wellnumeric::kLasDefaultNull;
   out.indexBasis = indexBasisFor(w);
   out.curveNames = catalogNames(w);
   if (out.curveNames.isEmpty())

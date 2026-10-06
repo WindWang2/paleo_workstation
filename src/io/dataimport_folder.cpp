@@ -347,6 +347,12 @@ DataImportService::produceItem(ImportSession &s, const PlannedItem &item, QStrin
   FolderRowResult row;
   row.path = item.path;
   row.classifiedType = item.type;
+  const auto appendStoredWellReport = [&](const CatalogVersion &version) {
+    const QString summary = version.extra.value(QStringLiteral("wellParseReport"))
+                                .toMap().value(QStringLiteral("summary")).toString();
+    if (!summary.isEmpty())
+      row.message += QCoreApplication::translate("DataImportService", "；已有版本：%1").arg(summary);
+  };
 
   // T33 符号链接 TOCTOU 终验：真正读字节的是 importOneFile 里的 open/hash/
   // copy——入它之前再核一次：路径仍解析到枚举时判定的同一 canonical、仍是
@@ -373,6 +379,8 @@ DataImportService::produceItem(ImportSession &s, const PlannedItem &item, QStrin
     // shp 族补齐：重复跳过的族顺带把缺的成员拷进已注册版本目录（幂等修复）。
     if (!item.members.isEmpty() && !item.duplicateOfVersionId.isEmpty())
       copyBundleMembersIntoVersion(s, item, item.duplicateOfVersionId, &row.message);
+    if (!item.duplicateOfVersionId.isEmpty())
+      appendStoredWellReport(cat->versionById(item.duplicateOfVersionId));
     return row;
   }
 
@@ -391,6 +399,7 @@ DataImportService::produceItem(ImportSession &s, const PlannedItem &item, QStrin
       row.message = QStringLiteral("已在库，幂等跳过");
       if (!item.members.isEmpty())
         copyBundleMembersIntoVersion(s, item, hit.id, &row.message);
+      appendStoredWellReport(hit);
       return row;
     }
   }

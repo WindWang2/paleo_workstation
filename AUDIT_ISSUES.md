@@ -29,6 +29,8 @@ commit `e308372`–`ca18f88`）/ 移交方向50 io-robustness 7（BIZ-05/06/07/1
 三路复核的「8 未修/15 待证」与本轮实测差异（BIZ-12/13、ARCH-03/04/07 已
 修，MEM-06/CONC-05 不复现）以本轮逐条 rg+读码重验为准。
 
+上述分布是方向48的 R0 历史快照；方向50已关闭其中 BIZ-05/06/14，条目终态已同步。原 BIZ-07（配准）、BIZ-10/11（CRS）和 RUNTIME-03（LAS 合乘诊断）仍保留各自状态，不冒记为本方向已修。用户本方向的 IO BIZ-07/10/12 描述以第11节 IO-R0-07/10/12 映射单独验收。
+
 ---
 
 ## 1. Executive Summary & Audit Scorecard
@@ -1375,8 +1377,10 @@ if (!anyDifferent) eligible = false; // All probes identical -> ordinal dialect
 ---
 
 ### [BIZ-05] `SegyReader::decodeTrace` Missing IEEE 754 Non-Finite/NaN/Inf Validation
-> **终态（2026-10-06，方向48 清账复核）**：仍存在→方向50 io-robustness（方向48 R0 证据：decodeTrace 无 isfinite 清洗）
 
+> **终态（2026-10-06，方向48 清账复核）**：方向48 R0 曾移交方向50（当时 decodeTrace 无 isfinite 清洗）；方向50已修 `1719684`，读面/SDK计数与手工缺失掩码对拍见下述证据。
+
+- **Direction 50 status (2026-10-06): Resolved, `1719684`.** All decoded non-finite IEEE/IBM samples become quiet NaN and are counted in the request read report; finite samples retain their bit patterns. SDK direct, voxel, mmap, planned and SF3C paths share the missing-value contract and expose quality counts, including cancellation after decoding. `tst_io_robustness` / `tst_io_seismicquality` assert manual missing-mask attribute/inversion results and persisted reports. The historical suggestion to replace samples with zero is superseded: zero fabricates an amplitude and changes downstream missing-value semantics.
 - **Severity**: **P2** (Data Corruption / Numerical Instability)
 - **Dimension**: Business & Boundary Robustness
 - **Exact Code Location**: `src/io/segyreader.cpp`, Lines 564–573
@@ -1403,8 +1407,10 @@ if (!anyDifferent) eligible = false; // All probes identical -> ordinal dialect
 ---
 
 ### [BIZ-06] `TimeDepthTool` and `parseWellTopsText` Depth Null Sentinel Inconsistencies
-> **终态（2026-10-06，方向48 清账复核）**：仍存在→方向50 io-robustness（方向48 R0 证据：timedeptool 仅 -99999 哨兵；wellfileparsers 深度缺失行仍 append）
 
+> **终态（2026-10-06，方向48 清账复核）**：方向48 R0 曾移交方向50（当时仅 -99999 哨兵、深度缺失行仍 append）；方向50已修 `8c67a12` / `f7fe231`，统一词表、逐列拒收及消费报告见下述证据。
+
+- **Direction 50 status (2026-10-06): Resolved, `8c67a12` / `f7fe231`.** Domain vocabulary exactly recognizes -99999/-999.25/-9999/-999; required blank/non-numeric/non-finite depths reject the row with physical line/column reasons. Both time-depth interpolation directions filter the same vocabulary and count ignored rows. Import reports expose sentinel/blank/invalid-cell counts through version metadata and the import ledger, including duplicate skips. File-level top rejection reasons also reach section/workbench reports through ProjectDataFacade; missing TVDSS retains valid MD/TVD and becomes NaN, while a row with no usable depth is rejected. Explicit LAS NULL values remain authoritative. The historical suggestion to reject every negative value is superseded: valid negative coordinates/elevations remain usable.
 - **Severity**: **P2** (Boundary Robustness Defect)
 - **Dimension**: Business & Boundary Robustness
 - **Exact Code Location**: `src/io/timedeptool.cpp`, Lines 25–28; `src/io/wellfileparsers.cpp`, Lines 95–118
@@ -1560,8 +1566,10 @@ GDALDatasetH createFloatRaster( const QString &outPath, int nCols, int nRows,
 ---
 
 ### [BIZ-12] `TimeDepthModel` Defensive Check Ordering & Potential Undefined Behavior
+
 > **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：empty 检查先行；commit `9a9cec1`）
 
+- **Direction 50 R0 status (2026-10-06): Already fixed, `d2ca076`.** The empty-point check was reordered before strict bounds access. This original TimeDepthModel issue is distinct from the request's XLSX/coordinate-table label BIZ-12; workbook evidence is tracked as IO-R0-12 below.
 - **Severity**: **P2** (Defensive Brittleness / Fragile Check Ordering — Calibrated from P0)
 - **Dimension**: Business & Boundary Robustness
 - **Exact Code Location**: `src/domain/seismic/timedepthmodel.cpp`, Lines 61–70, 108–116
@@ -1640,8 +1648,10 @@ if (!std::isfinite(depthM) ||
 ---
 
 ### [BIZ-14] `SectionWorkbench::sectionWells` Fragile Depth Unit Filtering Aborts Valid Well Logs
-> **终态（2026-10-06，方向48 清账复核）**：仍存在→方向50 io-robustness（方向48 R0 证据：单位同义词仍只认 M/FT/F）
 
+> **终态（2026-10-06，方向48 清账复核）**：方向48 R0 曾移交方向50（当时仅认 M/FT/F）；方向50已修 `8c67a12`，规范别名表与真实 LAS 消费证据见下述说明。
+
+- **Direction 50 status (2026-10-06): Resolved, `8c67a12`.** Shared domain vocabulary normalizes case/whitespace and accepts M/METER/METERS/METRE/METRES and FT/F/FOOT/FEET; foot scaling remains exactly 0.3048. Tests pin the vocabulary and import real LAS aliases into SectionWorkbench. Unknown or empty units produce an explicit alignment reason and do not block other log files. The historical suggestion to guess metres for an empty unit is superseded by the honest unknown-unit contract.
 - **Severity**: **P2** (Defensive Robustness Omission)
 - **Dimension**: Business & Boundary Robustness
 - **Exact Code Location**: `src/workflow/sectionworkbench.cpp`, Lines 187–199
@@ -2042,8 +2052,29 @@ Multiple test failures and flaky timeouts (`ARCH-08`, `TEST-02`, `TEST-03`, `TES
 
 ## 10. Conclusion
 
-The comprehensive forensic audit has established a definitive catalogue of **44 unique active issues (45 total categorized views)** across Memory & Concurrency Safety, Architectural Layering, Business Robustness, and Test Suite Integrity, alongside **1 empirically refuted claim (`MEM-02`)**.
+The original forensic audit established a historical catalogue of **44 unique active issues (45 total categorized views)** across Memory & Concurrency Safety, Architectural Layering, Business Robustness, and Test Suite Integrity, alongside **1 empirically refuted claim (`MEM-02`)**.
 
 The findings definitively prove that superficial green test/linter statuses masked deep architectural violations (`ARCH-01`), type-safety bypasses (`ARCH-02`), silent scientific data loss (`BIZ-01`), and genuine fatal runtime crashes (`CONC-01`, `CONC-02`, `RUNTIME-01`, `ARCH-01`, and `MEM-01` UAF), while rigorous adversarial challenge successfully weeded out false positives (`MEM-02`) and calibrated unreachable failure conditions (`BIZ-12`).
 
-With this calibrated, publication-grade master audit report delivered, the implementation teams (Workers) have an unambiguous, verified, and empirically substantiated remediation blueprint to execute in the subsequent milestone.
+The original report provides the remediation blueprint. Dated closure notes and the following Direction 50 section supersede the historical active status for their explicitly listed findings.
+
+
+## 11. Direction 50 IO R0 closure (2026-10-06)
+
+The request's BIZ-07/10/12 descriptions use IO labels which do not match this audit's original numbering. This section preserves the original RegistrationWorkflow BIZ-07 and engineering-CRS BIZ-10 as independent findings; IO closure must not be interpreted as closing those issues. R0 was run against fetched `origin/master` **3a4f8b5**, with a separate Linux worktree/build and the existing vendored QGIS prefix.
+
+| Request label / stable IO key | R0 evidence and already-fixed provenance | Final disposition and verification |
+| --- | --- | --- |
+| BIZ-07 / **IO-R0-07** — custom SEG-Y header words / field order | Direct open with offsets 180/184 or swapped 192/188 already returns IL=100/101, XL=200/201 (`69cda1f`). Reusing a default-field cache after changing configuration returned stale IL=200/201, XL=100/101. | **Resolved `1719684`**: index v2 freezes all four header-word offsets; complete/checkpoint caches require the same identity, v1 regenerates. `configuredHeaderWords` and `changedHeaderWordsInvalidateCache` exercise real `custom_words.sgy` / `swapped_words.sgy` and both direct/cached paths. No guessed field remapping. |
+| BIZ-10 / **IO-R0-10** — truncated SEG-Y | Incomplete binary header and last payload short by one byte already reject (`11f1d5c` sample guard). Last trace header with only 120 bytes silently succeeded with 3 traces; negative ns plus a short payload succeeded with 3 traces / 1 bad offset. SDK already rejects all four truncated variants. | **Resolved `1719684`**: reject incomplete trailing headers/payloads, permit binary-ns fallback only when its complete payload exists, and report decode failure offsets after post-open file changes. Four real truncated fixtures and variable-ns payload fixtures pin these boundaries; existing `tst_cache_segyindex` assertions remain intact. |
+| BIZ-12 / **IO-R0-12** — XLSX / coordinate edges | Sparse XY/non-finite/duplicate-well/oversize-column issues already report (`6094775` / `cfa3296`). `B2junk` / `C0` accepted false coordinates; C/A/B cell order shifted values; physical row 100 reported row 2; legal inlineStr emitted a missing-SST issue. | **Resolved `5654926`**: strict cell/row references, column-indexed placement, physical row bookkeeping, shared-string issues only for cells needing SST, error cells cleared, repeated columns and overlapping merges rejected with reasons. `tst_io_workbook_edges` verifies malformed/unordered/duplicate/physical-row XLSX and SpreadsheetML, including INT_MAX merge-span downgrade without overflow. |
+
+BIZ-05/06/14 closure also covers their actual SDK/import/workflow consumers, with pure io parsing, domain vocabulary and workflow consumption. The fixture generator `tools/reference/make_io_robustness_fixtures.py --check` regenerates **32 files byte-for-byte**, with fixed ZIP metadata, real SEG-Y binary words/payloads and UTF-8 manifest hashes. Good finite samples are compared by bits (including ±0, subnormals and maximum finite IEEE values); accepted well coordinates/depths and interpolation results are compared directly against clean data.
+
+R0 full serial ctest: **300/301 passed, 1786.17 s**. The only pre-existing red target was `tst_startup_trace`: qgis_init_share_max median 0.2570 exceeded 0.2200, and the injected degradation ratio 0.544/0.253 missed the required factor of 3. No performance thresholds were relaxed, and this historical R0 result is retained.
+
+Pre-integration full serial regressions against the same frozen implementation (`f7fe2311`) both passed **306/306**, in **884.69 s / 893.05 s**, with no new failures. `tst_seismic_engine` (22 Qt cases), `tst_wellfileparsers` (34), `tst_welllogset` (10), the five Direction 50 test targets, all three layering targets and both i18n targets passed twice. Startup passed 9/9 twice under its original thresholds; singlefactor performance passed with its original watchdog and assertions. The existing optional datapreview synchronous-loading capture case remained skipped because `PALEO_VISUAL_CAPTURE` was not enabled; functional and asynchronous-loading cases ran. Full CTest and preserved raw Qt receipts, Oracle case names and per-target counts are recorded in `.goal-loop-ledger-io-robustness.md`; diagnostic or partial runs do not count as acceptance passes.
+
+Fixture, well, SEG-Y/SDK, workbook and final consumer batches each completed two consecutive five-dimension self reviews with **High=0 / Medium=0 / Low=0** after fixes and green targeted tests. Linux execution is verified; the Windows commands supplied in the request were not executed on this Linux host. Old converted artifacts are not retroactively certified; resumable transcode counts describe this run's actual reads.
+
+The final PR execution source (`e97ba7da`, build 22) also preserves the master format-family, seismic-service, main-window and audit-closure integrations. Two complete serial regressions against the same artifacts passed **311/311 and 311/311**, in **852.59 s / 840.58 s**. Each run preserved all 298 raw Qt outputs before starting another test. The seismic/well red lines, Direction 50 targets, three layering checks and both i18n checks passed twice; all 40 pre-existing optional skip records are unchanged. Historical diagnostic performance failures and the inversion short write at only 309 MB free remain recorded separately and never count as acceptance passes. The IO ledger records the exact receipts, private resource recovery, unchanged thresholds and two final zero-High/Medium/Low reviews.

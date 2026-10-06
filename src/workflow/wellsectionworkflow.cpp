@@ -6,6 +6,7 @@
 #include "io/lasalias.h"
 #include "io/lascache.h"
 #include "io/lasdoc.h"
+#include "io/wellfileparsers.h"
 #include "metadata/faultsetstore.h"
 #include "sectionworkbench.h"
 #include "services/paleotaskservice.h"
@@ -218,7 +219,12 @@ int WellSectionWorkflow::request(const QStringList &wellIds,
         well.totalDepth = td;
     }
     int missingMd = 0;
-    for (const WellTop &t : m_data.topsFor(pw->id)) {
+    WellParseReport topsReport;
+    const auto tops = m_data.topsFor(pw->id, &topsReport);
+    if (!topsReport.issues.isEmpty())
+      shared->warnings << tr("井 %1 的分层文件读面：%2")
+                              .arg(pw->name, wellParseSummary(topsReport));
+    for (const WellTop &t : tops) {
       if (std::isfinite(t.md))
         well.tops.push_back({t.horizon, t.md});
       else

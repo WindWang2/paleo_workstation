@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <atomic>
 #include <cstdint>
 #include <algorithm>
 #include <filesystem>
@@ -71,6 +72,9 @@ public:
 
     // Adopts an index built elsewhere (background job or cache).
     void AdoptIndex(SgyIndexPtr index);
+
+    std::uint64_t SanitizedSampleReads() const { return sanitizedSampleReads_->load(); }
+    void ResetSanitizedSampleReads() { sanitizedSampleReads_->store(0); }
 
     const SgyIndexPtr& Index() const { return index_; }
     bool HasIndex() const { return index_ != nullptr; }
@@ -180,6 +184,7 @@ public:
     int FindTraceIndex(int inlineNo, int xlineNo) const;
 
 private:
+    void SanitizeSamples(float* samples, std::size_t count, int traceIndex) const;
     bool ReadTraceAsFloat(int traceIndex, std::vector<float>& samples, std::string& errorMessage) const;
     bool ReadTraceAsFloat(segy_datasource* file, int traceIndex, std::vector<float>& samples, std::string& errorMessage) const;
     bool ReadSampleAsFloat(
@@ -201,6 +206,9 @@ private:
     };
     mutable std::shared_ptr<TimeGridCache> timeGridCache_ = std::make_shared<TimeGridCache>();
 
+    // Shared with cheap volume copies, just like the immutable index.
+    std::shared_ptr<std::atomic<std::uint64_t>> sanitizedSampleReads_ =
+        std::make_shared<std::atomic<std::uint64_t>>(0);
     SgyIndexPtr index_;
 };
 

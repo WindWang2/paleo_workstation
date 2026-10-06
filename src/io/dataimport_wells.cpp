@@ -120,10 +120,7 @@ QString importWellHeadFamily(FamilyContext &ctx)
   const QString &sourcePath = ctx.sourcePath;
   const QString &assetId = ctx.assetId;
   QString *const error = ctx.error;
-    QFile f(sourcePath);
-    if (!f.open(QIODevice::ReadOnly))
-      return QStringLiteral("cannot read %1").arg(sourcePath);
-    const QVector<WellHeadRecord> rows = parseWellHeadText(f.readAll());
+    const QVector<WellHeadRecord> &rows = ctx.parsedHeads;
     if (rows.isEmpty())
       return QStringLiteral("no well head rows in %1").arg(sourcePath);
     // §3：井口是建井来源，但同文件里同一规范化井名出现两行、或一行同时匹配
@@ -262,20 +259,14 @@ QString importWellTopsFamily(FamilyContext &ctx)
     QStringList names;
     if (cls.type == QLatin1String("well_stratification"))
     {
-      QFile f(sourcePath);
-      if (!f.open(QIODevice::ReadOnly))
-        return QStringLiteral("cannot read %1").arg(sourcePath);
-      const QVector<WellTopRecord> tops = parseWellTopsText(f.readAll());
+      const QVector<WellTopRecord> &tops = ctx.parsedTops;
       for (const WellTopRecord &t : tops)
         if (!names.contains(t.wellName))
           names.append(t.wellName);
     }
     else
     {
-      QFile f(sourcePath);
-      if (!f.open(QIODevice::ReadOnly))
-        return QStringLiteral("cannot read %1").arg(sourcePath);
-      const TimeDepthTable td = parseTimeDepthText(f.readAll());
+      const TimeDepthTable &td = ctx.parsedTd;
       names.append(td.wellName.isEmpty() ? stem : td.wellName);
     }
     if (names.isEmpty())
@@ -343,10 +334,7 @@ QString importDeviationFamily(FamilyContext &ctx)
     }
     else
     {
-      QFile f(sourcePath);
-      if (!f.open(QIODevice::ReadOnly))
-        return QStringLiteral("cannot read %1").arg(sourcePath);
-      const DeviationTable dev = parseDeviationText(f.readAll());
+      const DeviationTable &dev = ctx.parsedDev;
       names.append(dev.wellName.isEmpty() ? stem : dev.wellName);
     }
     if (names.isEmpty())

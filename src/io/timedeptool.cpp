@@ -1,13 +1,13 @@
 // 层：数据
 #include "timedeptool.h"
+#include "../domain/wellnumeric.h"
 
 #include <cmath>
 
 namespace
 {
-  constexpr double kNullSentinel = -99999.0;
 
-  // 取参与插值的 (key, time) 对：key=TVD 或 MD；-99999/缺列/非有限的行剔除。
+  // 取参与插值的 (key, time) 对：key=TVD 或 MD；共享哨兵/缺列/非有限的行剔除。
   // 解析端已滤，这里再滤一遍兜住手工构造的表（mappingworkflow/
   // mapversioncontroller 从 TdSample 回填）。
   // 保持文件顺序——不排序（PROJECT_AREA_PLAN §3）。
@@ -15,17 +15,19 @@ namespace
   {
     double key = 0.0, t = 0.0;
   };
-  QVector<KtRow> collectKeys(const TimeDepthTable &td, bool useMd)
+  QVector<KtRow> collectKeys(const TimeDepthTable &td, bool useMd, int *ignored)
   {
     QVector<KtRow> rows;
     rows.reserve(td.rows.size());
     for (const TdRow &r : td.rows)
     {
       const double key = useMd ? r.md : r.tvd;
-      if ((useMd ? !r.hasMd : !r.hasTvd) || !std::isfinite(key) ||
-          !std::isfinite(r.timeMs) ||
-          r.timeMs <= kNullSentinel + 0.5) // 缺列、非有限值或 -99999 → 不进插值
+      if ((useMd ? !r.hasMd : !r.hasTvd) || !paleo::wellnumeric::isUsable(key) ||
+          !paleo::wellnumeric::isUsable(r.timeMs)) // 缺列、非有限值或共享哨兵 → 不进插值
+      {
+        ++*ignored;
         continue;
+      }
       rows.append({key, r.timeMs});
     }
     return rows;
@@ -36,8 +38,8 @@ namespace TimeDepthTool
 {
   TdResult interpolateTimeMs(const TimeDepthTable &td, double depth, bool useMd)
   {
-    const QVector<KtRow> rows = collectKeys(td, useMd);
     TdResult out;
+    const QVector<KtRow> rows = collectKeys(td, useMd, &out.ignoredRows);
     if (rows.size() < 2) // 可用样点不足两个 → 无时深表
     {
       out.status = TdStatus::NoTable;
@@ -84,17 +86,20 @@ namespace TimeDepthTool
     {
       double t = 0.0, d = 0.0;
     };
+    TdDepthResult out;
     QVector<TDrow> rows;
     rows.reserve(td.rows.size());
     for (const TdRow &r : td.rows)
     {
       const double d = preferMd ? r.md : r.tvd;
-      if ((preferMd ? !r.hasMd : !r.hasTvd) || !std::isfinite(d) ||
-          !std::isfinite(r.timeMs) || r.timeMs <= kNullSentinel + 0.5)
+      if ((preferMd ? !r.hasMd : !r.hasTvd) || !paleo::wellnumeric::isUsable(d) ||
+          !paleo::wellnumeric::isUsable(r.timeMs))
+      {
+        ++out.ignoredRows;
         continue;
+      }
       rows.append({r.timeMs, d});
     }
-    TdDepthResult out;
     if (rows.size() < 2)
     {
       out.status = TdStatus::NoTable;

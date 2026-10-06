@@ -8,6 +8,7 @@
 #include "segyindexstore.h"           // StoredIndex/IndexStats（D2 索引持久化）
 
 #include <atomic>
+#include "../domain/arearules.h"
 
 class QFile;
 class QThreadPool;
@@ -53,15 +54,18 @@ class SegyReader
     QString filePath() const { return m_path; }
 
     // 全量解码（兼容小文件路径；每次调用重新解码，调用方负责规模）。
-    QVector<SegyTrace> traces(const SegyOptions *opts = nullptr) const;
+    QVector<SegyTrace> traces(const SegyOptions *opts = nullptr,
+                              SegyReadReport *report = nullptr) const;
 
     // ---- 测线级 ----
     QVector<qint32> inlineNumbers() const;    // 升序去重
     QVector<qint32> crosslineNumbers() const; // 升序去重
     bool readInline(qint32 inlineNo, QVector<SegyTrace> *out,
-                    QString *error = nullptr, const SegyOptions *opts = nullptr) const;
+                    QString *error = nullptr, const SegyOptions *opts = nullptr,
+                    SegyReadReport *report = nullptr) const;
     bool readCrossline(qint32 xlineNo, QVector<SegyTrace> *out,
-                       QString *error = nullptr, const SegyOptions *opts = nullptr) const;
+                       QString *error = nullptr, const SegyOptions *opts = nullptr,
+                    SegyReadReport *report = nullptr) const;
 
     // ---- D2 索引面 ----
     // 当前索引快照（open/openCached 成功后可取）。
@@ -89,9 +93,11 @@ class SegyReader
       qint64 offset = 0; // 道头起始偏移
     };
 
-    bool decodeTrace(QFile &file, const IndexEntry &e, SegyTrace *out) const;
+    bool decodeTrace(QFile &file, const IndexEntry &e, SegyTrace *out,
+                     SegySampleIssue *issue) const;
     QVector<SegyTrace> readByIndexList(const QVector<int> &idxs,
-                                     const SegyOptions *opts = nullptr) const;
+                                     const SegyOptions *opts = nullptr,
+                                     SegyReadReport *report = nullptr) const;
 
     // D2.9 并行扫描（固定道长布局专用）：成功时填 m_index/m_geometry/…。
     bool scanParallel(QFile &file, qint64 firstTraceOffset, qint64 traceSize,
@@ -104,6 +110,7 @@ class SegyReader
     void rebuildLineHashes();
     void resetState();
 
+    AreaRules::SegyIndexing m_indexingRules; // 本次索引取字口径快照
     QString m_path;
     int m_samplesPerTrace = 0;
     float m_sampleIntervalUs = 0.0f;

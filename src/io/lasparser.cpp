@@ -1,5 +1,6 @@
 // 层：数据
 #include "lasparser.h"
+#include "../domain/wellnumeric.h"
 
 #include "cachebudget.h"
 #include "encodingdetect.h"
@@ -209,7 +210,7 @@ bool LasParser::parse(const QString &path, QStringList &curveNames,
   enum class Section { None, Version, Well, Curves, Ascii, Other };
   Section section = Section::None;
 
-  double nullValue = -999.25; // CWLS default when ~W has no usable NULL item
+  double nullValue = paleo::wellnumeric::kLasDefaultNull; // CWLS default when ~W has no usable NULL item
   bool sawAscii = false;
   QStringList names;
   QList<LasCurve> cols;

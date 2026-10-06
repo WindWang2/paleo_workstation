@@ -13,6 +13,7 @@
 #include "../catalog/datacatalog.h"
 #include "../domain/projectclassifier.h"
 #include "dataimportservice.h"
+#include "../domain/wellrecords.h"
 
 namespace paleo::dataimport_detail
 {
@@ -47,6 +48,11 @@ struct FamilyContext
   CatalogVersion version;
   QString *error = nullptr;
   QString manifestLayerId;
+  // 方向50：校验过且SHA一致的井表快照；族函数不再重新读取源文件。
+  QVector<WellHeadRecord> parsedHeads;
+  QVector<WellTopRecord> parsedTops;
+  TimeDepthTable parsedTd;
+  DeviationTable parsedDev;
 };
 
 // 井身份解析结果（原 DataImportService 私有嵌套 WellBind 迁此，字段逐字）。

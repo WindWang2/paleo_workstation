@@ -1274,7 +1274,8 @@ class SectionPanel : public QWidget
 {
 public:
   SectionPanel(QWidget *parent = nullptr) : QWidget(parent) { setMinimumSize(320, 260); }
-  void setTraces(const QVector<SegyTrace> &traces, float dtUs, double t0Ms)
+  void setTraces(const QVector<SegyTrace> &traces, float dtUs, double t0Ms,
+                 const QString &readWarning = {})
   {
     if (traces.isEmpty())
     {
@@ -1319,6 +1320,8 @@ public:
                     .arg(grid.rows)
                     .arg(grid.stepMs, 0, 'f', 1)
                     .arg(grid.startMs, 0, 'f', 1);
+    if (!readWarning.isEmpty()) m_caption = readWarning + QStringLiteral(" · ") + m_caption;
+    setToolTip(readWarning);
     update();
   }
   bool hasImage() const { return !m_img.isNull(); }
@@ -1326,6 +1329,7 @@ public:
   {
     m_img = QImage();
     m_caption.clear();
+    setToolTip(QString());
     m_error.clear();
     clearTieMarker();
     update();

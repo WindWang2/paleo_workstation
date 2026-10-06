@@ -12,6 +12,7 @@ class QLabel;
 class QPushButton;
 class QProgressBar;
 class QTableWidget;
+class QPlainTextEdit;
 class MappingWorkbenchPage : public QWidget {
   Q_OBJECT
 public:
@@ -36,6 +37,8 @@ private:
   QString m_mode, m_horizon;
   QLabel *m_heading, *m_message, *m_details;
   QLabel *m_inputHint = nullptr, *m_resultHint = nullptr;
+  // 方向51：远端预测状态行（「远端预测未配置，走本地引擎」等，由装配注入）。
+  QLabel *m_status = nullptr;
   QString m_labelLayer;
   bool m_labelModeDirty = false;
   QListWidget *m_inputs = nullptr;
@@ -46,4 +49,7 @@ private:
   QProgressBar *m_progress = nullptr;
   QTableWidget *m_facies = nullptr;
   QComboBox *m_editFacies = nullptr;
+  QComboBox *m_displayLevel = nullptr, *m_editLevel = nullptr, *m_evidenceSource = nullptr;
+  QPlainTextEdit *m_evidenceText = nullptr;
+  QListWidget *m_evidence = nullptr;
 };

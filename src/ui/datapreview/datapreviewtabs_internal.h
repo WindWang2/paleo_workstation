@@ -67,6 +67,8 @@
 #include "datapreviewtabs.h"
 #include "../paleotheme.h"
 #include "../../catalog/datacatalog.h"
+#include "../../domain/sectiontrace.h" // SegyTrace（方向 59：previewdoc.h 瘦身后直取）
+#include "../../io/lasdoc.h"           // LasCurve/LasDoc（同上，白名单门面）
 #include "../../services/previewdoc.h"
 #include "../../services/welllogset.h"
 #include "../seismic3d/seismic3dviewpanel.h"
@@ -1274,7 +1276,8 @@ class SectionPanel : public QWidget
 {
 public:
   SectionPanel(QWidget *parent = nullptr) : QWidget(parent) { setMinimumSize(320, 260); }
-  void setTraces(const QVector<SegyTrace> &traces, float dtUs, double t0Ms)
+  void setTraces(const QVector<SegyTrace> &traces, float dtUs, double t0Ms,
+                 const QString &readWarning = {})
   {
     if (traces.isEmpty())
     {
@@ -1319,6 +1322,8 @@ public:
                     .arg(grid.rows)
                     .arg(grid.stepMs, 0, 'f', 1)
                     .arg(grid.startMs, 0, 'f', 1);
+    if (!readWarning.isEmpty()) m_caption = readWarning + QStringLiteral(" · ") + m_caption;
+    setToolTip(readWarning);
     update();
   }
   bool hasImage() const { return !m_img.isNull(); }
@@ -1326,6 +1331,7 @@ public:
   {
     m_img = QImage();
     m_caption.clear();
+    setToolTip(QString());
     m_error.clear();
     clearTieMarker();
     update();

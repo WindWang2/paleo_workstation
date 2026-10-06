@@ -140,6 +140,19 @@ public:
     // 最近一次成功结果 → catalog 派生资产（登记上下文同解释登记注入）
     QString registerCurrentAttributeAsset(QString *error = nullptr);
 
+    // ---- goal/attr-volume 属性体化扫描 ----
+    // 时间切片扫描（IL×XL 地理栅格）：完成即登记 DERIVED + 发层树声明；
+    // 属性体扫描（SATV）：完成即登记 + 静默预览任务喂 3D 体视。
+    void computeTimeSliceAttribute(
+        SeismicTaskService::SeismicAttrKind kind,
+        const SeismicTaskService::SeismicAttrParams &params, int sampleIndex);
+    void computeAttributeVolume(
+        SeismicTaskService::SeismicAttrKind kind,
+        const SeismicTaskService::SeismicAttrParams &params);
+    // 扫描产物目录：解释目录优先；未注入时 <sgy>.attrs 伴生目录（会话
+    // 伴生文件同先例）。空 = 无体可写（服务侧如实拒绝体扫描）。
+    QString attrScanOutputDir() const;
+
     // goal/seismic-inversion：最近井 AC×DEN+时深+井旁道 → 子波（DERIVED 登记）；
     // 反演任务（InversionWorkflow 三段式，PaleoTaskService 通道）。
     InversionPanel *inversionPanel() const { return m_invPanel; }
@@ -175,6 +188,12 @@ signals:
   // goal/horizon-autotrack — 层位资产登记产出可上图声明（app 装配接
   // QgisLayerService::declare）
   void horizonLayerDeclared(const LayerDeclaration &decl);
+  // goal/attr-volume — 时间切片属性登记完成（诚实栅格 URI，可开可上图）；
+  // 属性体 3D 预览取数完成（服务线程烘焙好的三槽切片 + 堆叠层，app 直接
+  // 喂视口）。ok=false 时 message 带人话原因（扫描/登记/预览取数失败）。
+  void timeSliceAttrLayerReady(const LayerDeclaration &decl);
+  void attrVolumeReady(const seismic::SeismicTaskService::AttributeVolumePreview &preview,
+                       bool ok, const QString &message);
 
 private slots:
     void onZoomChanged(double zoom);
@@ -294,6 +313,10 @@ private:
     InversionPanel *m_invPanel = nullptr;
     QToolButton *m_btnAttr = nullptr;
     QPointer<PaleoTask> m_attrTask;
+    // goal/attr-volume：3D 预览静默任务 + 世代号（新预览顶替旧预览——
+    // 陈旧属性体不得迟到覆盖 3D 视口）
+    QPointer<PaleoTask> m_attrPreviewTask;
+    quint64 m_attrPreviewGen = 0;
     // goal/seismic-inversion：在途反演任务 + 世代号（陈旧发布丢弃）+ 最近子波
     QPointer<PaleoTask> m_invTask;
     quint64 m_invGeneration = 0;

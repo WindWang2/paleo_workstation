@@ -147,7 +147,7 @@ class PaleoEditingToolbar : public QWidget
     // 监听工程的 layersWillBeRemoved/cleared（null → 进程级 QgsProject::instance()）。
     void watchProject( QgsProject *project );
 
-    QgsMapCanvas *mCanvas = nullptr;            // not owned
+    QPointer<QgsMapCanvas> mCanvas;              // not owned（MEM-07：析构期画布可先亡）
     QList<QPointer<QgsVectorLayer>> mLayers;     // not owned candidates
     LayerFilter mLayerFilter;                   // default: accept all
     QgisEditingService *mEditingService = nullptr; // not owned, optional

@@ -2,7 +2,6 @@
 #include "paleoalgorithms.h"
 #include "rasterout.h"
 #include "gridsolver.h"
-#include "../catalog/datacatalog.h"
 
 #include <qgsprocessingparameters.h>
 #include <qgsprocessingutils.h>
@@ -160,6 +159,16 @@ QVariantMap MinimumCurvatureAlgorithm::processAlgorithm( const QVariantMap &para
           throw QgsProcessingException( QStringLiteral(
               "Cannot transform constraints into the input CRS: %1" ).arg( e.what() ) );
         }
+        // BIZ-10（方向58）：显式前置 transform 有效性——无大地基准的工程 CRS
+        //（LOCAL_GRID_WKT ENGCRS）与大地/投影 CRS 之间 PROJ 造不出坐标操作
+        //（projinfo：Candidate operations found: 0）。如实报因，不依赖 QGIS
+        // 对无效 transform 的内部处理（直通或抛 QgsCsException）。
+        if ( !xform->isValid() )
+          throw QgsProcessingException(
+              QStringLiteral( "Cannot transform constraints into the %1 CRS: no coordinate operation "
+                              "between %2 and %3 (engineering CRS without geodetic datum?)" )
+                  .arg( QStringLiteral( "input" ), from.userFriendlyIdentifier(),
+                        to.userFriendlyIdentifier() ) );
       }
       const int typeIdx = constraints->fields().lookupField( QStringLiteral( "type" ) );
       QgsFeatureIterator cit = constraints->getFeatures( QgsFeatureRequest() );
@@ -171,7 +180,15 @@ QVariantMap MinimumCurvatureAlgorithm::processAlgorithm( const QVariantMap &para
         QgsGeometry g = cf.geometry();
         if ( xform )
         {
-          const Qgis::GeometryOperationResult tr = g.transform( *xform );
+          Qgis::GeometryOperationResult tr = Qgis::GeometryOperationResult::Success;
+          try
+          {
+            tr = g.transform( *xform );
+          }
+          catch ( const QgsCsException & )
+          {
+            tr = Qgis::GeometryOperationResult::NothingHappened; // BIZ-10：逐要素变换异常归入同一报因
+          }
           if ( tr != Qgis::GeometryOperationResult::Success )
             throw QgsProcessingException( QStringLiteral(
                 "Constraint geometry failed to transform into the input CRS" ) );
@@ -208,7 +225,7 @@ QVariantMap MinimumCurvatureAlgorithm::processAlgorithm( const QVariantMap &para
                          -cellSize };
   GDALDatasetH outDs =
       PaleoRasterOut::createFloatRaster( outPath, dims.cols, dims.rows, gt, source->sourceCrs(),
-                         PALEO_NODATA );
+                         PALEO_NODATA, PaleoRasterOut::canonicalWktFromParameters( parameters ) );
   if ( !outDs )
     throw QgsProcessingException(
         QStringLiteral( "Cannot create output raster %1" ).arg( outPath ) );

@@ -1,5 +1,6 @@
 // 层：数据
 #include "lasparser.h"
+#include "../domain/wellnumeric.h"
 
 #include "cachebudget.h"
 #include "encodingdetect.h"
@@ -209,7 +210,7 @@ bool LasParser::parse(const QString &path, QStringList &curveNames,
   enum class Section { None, Version, Well, Curves, Ascii, Other };
   Section section = Section::None;
 
-  double nullValue = -999.25; // CWLS default when ~W has no usable NULL item
+  double nullValue = paleo::wellnumeric::kLasDefaultNull; // CWLS default when ~W has no usable NULL item
   bool sawAscii = false;
   QStringList names;
   QList<LasCurve> cols;
@@ -322,6 +323,7 @@ bool LasParser::parseHeader(const QString &path, LasHeaderInfo &out,
                             QString *error)
 {
   out = LasHeaderInfo{};
+  out.indexBasis = QStringLiteral("MD"); // LAS 不声明基准，行业惯例 MD（lasparser.h）
   QFile f(path);
   if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
   {
@@ -477,6 +479,7 @@ namespace
   HeaderScanResult scanHeaderBytes(const QByteArray &raw, QList<LasIssue> *issues)
   {
     HeaderScanResult out;
+    out.header.indexBasis = QStringLiteral("MD"); // LAS 惯例（lasparser.h）
     out.bomBytes = static_cast<int>(bomAdjustment(raw));
     enum class Section { None, Version, Well, Curves, Other };
     Section section = Section::None;

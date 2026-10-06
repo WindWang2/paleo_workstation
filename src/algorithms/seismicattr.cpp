@@ -8,11 +8,13 @@
 
 #include "algorithms/dsp/fft.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <limits>
 #include <numbers>
 #include <utility>
+#include <vector>
 
 namespace paleo::seisattr
 {
@@ -248,11 +250,25 @@ void windowedMeanEnergy(const float *x, int n, int halfWindow, float *out)
   });
 }
 
+namespace
+{
+// #234-2：内核级护栏——体元总数与窗直径在 int 索引域内才可走下标算术；
+// 越界组合拒绝（不写 out：调用方缓冲本就无法按 int 下标完整覆盖）。
+bool semblanceDimsFit(int nIl, int nXl, int nS, int ilHalf, int xlHalf, int timeHalf)
+{
+  constexpr long long kMax = std::numeric_limits<int>::max();
+  return static_cast<long long>(nIl) * nXl * nS <= kMax && ilHalf <= (kMax - 1) / 2 &&
+         xlHalf <= (kMax - 1) / 2 && timeHalf <= (kMax - 1) / 2;
+}
+} // namespace
+
 void semblanceCoherence(const float *volume, int nIl, int nXl, int nS,
                         int ilHalf, int xlHalf, int timeHalf, float *out)
 {
   if (!volume || !out || nIl <= 0 || nXl <= 0 || nS <= 0 ||
       ilHalf < 0 || xlHalf < 0 || timeHalf < 0)
+    return;
+  if (!semblanceDimsFit(nIl, nXl, nS, ilHalf, xlHalf, timeHalf))
     return;
   const int nOut = nIl * nXl * nS;
   for (int i = 0; i < nOut; ++i)
@@ -307,6 +323,105 @@ void semblanceCoherence(const float *volume, int nIl, int nXl, int nS,
         // 全零窗是精确 0/0 → NaN；微小但非零的能量（如子波远尾）是合法
         // 窗（同波形时 S=1 成立），不得用绝对阈值误杀（double 平方和非负，
         // 仅精确零窗得 0）。
+        out[outBase + s] = den > 0.0 ? float(num / den) : kNaN;
+      }
+    }
+  }
+}
+
+void semblanceCoherenceWeighted(const float *volume, int nIl, int nXl, int nS,
+                                int ilHalf, int xlHalf, int timeHalf,
+                                double ilSpacing, double xlSpacing,
+                                CoherenceWeightMode mode, float *out)
+{
+  if (nIl > 0 && nXl > 0 && nS > 0 &&
+      !semblanceDimsFit(nIl, nXl, nS, std::max(ilHalf, 0), std::max(xlHalf, 0),
+                        std::max(timeHalf, 0)))
+    return; // #234-2：int 索引域外拒绝，不按回绕下标写越界
+  const int nOut = nIl * nXl * nS;
+  if (!volume || !out || nIl <= 0 || nXl <= 0 || nS <= 0 ||
+      ilHalf < 0 || xlHalf < 0 || timeHalf < 0)
+  {
+    if (out && nOut > 0)
+      for (int i = 0; i < nOut; ++i)
+        out[i] = kNaN;
+    return;
+  }
+  for (int i = 0; i < nOut; ++i)
+    out[i] = kNaN;
+  if (ilHalf == 0 && xlHalf == 0 && timeHalf == 0)
+    return; // 退化窗：单道单样 semblance 恒 1 无意义，保持 NaN
+  if (mode == CoherenceWeightMode::InverseDistance &&
+      !(ilSpacing > 0.0 && xlSpacing > 0.0))
+    return; // 道距缺失：全 NaN（诚实失败，不静默降级等权）
+
+  const int traceStride = nS;
+  const int rowStride = nXl * nS;
+  const int ilDiam = 2 * ilHalf + 1;
+  const int xlDiam = 2 * xlHalf + 1;
+
+  // 道权重表（Equal 恒 1——乘 1 不改浮点值，与无权路径逐位一致）。
+  std::vector<double> weight(std::size_t(ilDiam) * xlDiam, 1.0);
+  double weightSum = 0.0;
+  if (mode == CoherenceWeightMode::InverseDistance)
+  {
+    const double d0 = std::min(ilSpacing, xlSpacing);
+    for (int dil = -ilHalf; dil <= ilHalf; ++dil)
+      for (int dxl = -xlHalf; dxl <= xlHalf; ++dxl)
+      {
+        const double d = std::sqrt(double(dil) * ilSpacing * (dil * ilSpacing) +
+                                   double(dxl) * xlSpacing * (dxl * xlSpacing));
+        const double w = 1.0 / (d + d0);
+        weight[std::size_t((dil + ilHalf) * xlDiam + (dxl + xlHalf))] = w;
+        weightSum += w;
+      }
+  }
+  else
+  {
+    weightSum = double(ilDiam) * double(xlDiam);
+  }
+
+  for (int il = ilHalf; il < nIl - ilHalf; ++il)
+  {
+    for (int xl = xlHalf; xl < nXl - xlHalf; ++xl)
+    {
+      const int traceBase = il * rowStride + xl * traceStride;
+      const int outBase = traceBase;
+      for (int s = 0; s < nS; ++s)
+      {
+        const int lo = s - timeHalf < 0 ? 0 : s - timeHalf;
+        const int hi = s + timeHalf > nS - 1 ? nS - 1 : s + timeHalf;
+        double num = 0.0;   // Σ_t (Σ_j w_j u_j)²
+        double den = 0.0;   // Σ_t Σ_j w_j u_j²（最后乘 W）
+        bool valid = true;
+        for (int t = lo; t <= hi && valid; ++t)
+        {
+          double stack = 0.0;
+          for (int dil = -ilHalf; dil <= ilHalf; ++dil)
+          {
+            for (int dxl = -xlHalf; dxl <= xlHalf; ++dxl)
+            {
+              const double v = double(volume[traceBase + dil * rowStride +
+                                             dxl * traceStride + t]);
+              if (std::isnan(v))
+              {
+                valid = false;
+                break;
+              }
+              const double w =
+                  weight[std::size_t((dil + ilHalf) * xlDiam + (dxl + xlHalf))];
+              stack += w * v;
+              den += w * v * v;
+            }
+            if (!valid)
+              break;
+          }
+          num += stack * stack;
+        }
+        if (!valid)
+          continue; // 输出保持 NaN
+        den *= weightSum;
+        // 全零窗是精确 0/0 → NaN（与等权路径同一判据）。
         out[outBase + s] = den > 0.0 ? float(num / den) : kNaN;
       }
     }

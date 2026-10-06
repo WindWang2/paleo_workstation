@@ -4,6 +4,7 @@
 #include "../domain/arearules.h"
 
 #include <QFile>
+#include <QCoreApplication>
 #include <QFileInfo>
 #include <QThread>
 #include <QThreadPool>
@@ -92,6 +93,7 @@ bool SegyReader::open(const QString &path, QString *error,
   // m_scannedOffset）——同一 reader 重开时不得累加坏道、不得把成功扫描的
   // snapshot 写成 complete=false。
   resetState();
+  m_indexingRules = AreaRules::active().segy;
 
   if (path.isEmpty())
   {
@@ -211,7 +213,7 @@ bool SegyReader::open(const QString &path, QString *error,
   //   并排报出期望值和读到的值。
   // 道头偏移经 AreaRules（segy 道号索引约定；第二工区方言经 project_area.json
   // 覆盖，见 docs/AREA_PARAMETERS.md）——open() 开始取一份快照，全程一致。
-  const AreaRules::SegyIndexing sidx = AreaRules::active().segy;
+  const AreaRules::SegyIndexing sidx = m_indexingRules;
   auto fieldVaries = [&](int fieldOff) -> bool {
     qint32 first = 0;
     bool haveFirst = false, varies = false;
@@ -350,7 +352,15 @@ bool SegyReader::open(const QString &path, QString *error,
         m_index.clear();
         return false;
       }
-      m_badTraceOffsets.append(offset); // D2.7/B6：固定步长下可安全跳过
+      if (fileSize - (offset + 240) < static_cast<qint64>(binNs) * 4)
+      {
+        if (error) *error = QCoreApplication::translate("SegyReader",
+            "坏道样点区截断（偏移 %1，需要 %2 字节，剩余 %3）")
+            .arg(offset + 240).arg(static_cast<qint64>(binNs) * 4).arg(fileSize - offset - 240);
+        m_index.clear();
+        return false;
+      }
+      m_badTraceOffsets.append(offset); // 仅完整的固定道长坏道才可跳过
       offset += 240 + static_cast<qint64>(binNs) * 4;
       continue;
     }
@@ -461,6 +471,13 @@ bool SegyReader::open(const QString &path, QString *error,
 
     m_index.append(e);
     offset += 240 + static_cast<qint64>(ns) * 4;
+  }
+  if (offset != fileSize)
+  {
+    if (error) *error = QCoreApplication::translate("SegyReader",
+        "道头截断（偏移 %1，剩余 %2 字节，需要 240 字节）").arg(offset).arg(fileSize - offset);
+    m_index.clear();
+    return false;
   }
   if (m_index.isEmpty())
   {
@@ -612,13 +629,15 @@ bool SegyReader::open(const QString &path, QString *error,
   return true;
 }
 
-bool SegyReader::decodeTrace(QFile &file, const IndexEntry &e, SegyTrace *out) const
+bool SegyReader::decodeTrace(QFile &file, const IndexEntry &e, SegyTrace *out,
+                              SegySampleIssue *issue) const
 {
   uchar trHdr[240];
   if (!file.seek(e.offset) || file.read(reinterpret_cast<char *>(trHdr), 240) != 240)
     return false;
 
   const qint16 traceNs = beI16(trHdr + 114);
+  if (traceNs < 0) return false; // 打开后损坏的道头不得伪装成正常 fallback
   const int ns = traceNs > 0 ? traceNs : m_samplesPerTrace;
 
   QByteArray raw(static_cast<int>(ns) * 4, Qt::Uninitialized);
@@ -650,56 +669,98 @@ bool SegyReader::decodeTrace(QFile &file, const IndexEntry &e, SegyTrace *out) c
     for (int i = 0; i < ns; ++i)
       t.samples[i] = ibmToIeee(qFromBigEndian<quint32>(p + i * 4));
   }
+  *issue = SegySampleIssue{};
+  issue->traceOffset = e.offset;
+  for (int i = 0; i < ns; ++i)
+  {
+    if (!std::isfinite(t.samples[i]))
+    {
+      t.samples[i] = std::numeric_limits<float>::quiet_NaN();
+      ++issue->sampleCount;
+      if (issue->sampleIndices.size() < 32) issue->sampleIndices.append(i);
+    }
+  }
   *out = t;
   return true;
 }
 
 QVector<SegyTrace> SegyReader::readByIndexList(const QVector<int> &idxs,
-                                             const SegyOptions *opts) const
+                                             const SegyOptions *opts,
+                                             SegyReadReport *report) const
 {
   QVector<SegyTrace> out;
+  SegyReadReport quality;
+  quality.requestedTraceCount = idxs.size();
   QFile file(m_path);
-  if (!file.open(QIODevice::ReadOnly))
-    return out;
-  out.reserve(idxs.size());
-  int n = 0;
-  int failed = 0; // #42.1：丢道必须留痕——readInline/readCrossline 以行数差
-                  // 报「failed to decode N of M」，但 traces()/未来调用方拿到
-                  // 的是部分数据当成功。计数 + qWarning 是诚实降级的最低面
-                  //（取消路径除外——取消不算失败）。
-  bool cancelled = false;
-  for (int i : idxs)
+  if (!idxs.isEmpty() && !file.open(QIODevice::ReadOnly))
   {
-    if (opts && (n % 64) == 0)
-    {
-      if (opts->cancel && opts->cancel())
-      {
-        cancelled = true;
-        break; // 调用方把空/部分结果按取消处理
-      }
-      if (opts->progress)
-        opts->progress(n, idxs.size());
-    }
-    SegyTrace t;
-    if (decodeTrace(file, m_index.at(i), &t))
-      out.append(t);
-    else
-      ++failed;
-    ++n;
+    for (int i : idxs) quality.failedTraceOffsets.append(m_index.at(i).offset);
+    quality.message = QCoreApplication::translate("SegyReader", "无法读取 SEG-Y %1：%2")
+                          .arg(m_path, file.errorString());
   }
-  if (failed > 0 && !cancelled)
-    qWarning("segy: dropped %d of %d traces in %s (decode failed; partial result returned)",
-             failed, int(idxs.size()), qPrintable(m_path));
+  else
+  {
+    out.reserve(idxs.size());
+    int n = 0;
+    for (int i : idxs)
+    {
+      if (opts && (n % 64) == 0)
+      {
+        if (opts->cancel && opts->cancel())
+        {
+          quality.cancelled = true;
+          break;
+        }
+        if (opts->progress) opts->progress(n, idxs.size());
+      }
+      SegyTrace trace;
+      SegySampleIssue issue;
+      if (decodeTrace(file, m_index.at(i), &trace, &issue))
+      {
+        out.append(trace);
+        if (issue.sampleCount > 0)
+        {
+          quality.sanitizedSampleCount += issue.sampleCount;
+          quality.sanitizedTraces.append(issue);
+        }
+      }
+      else quality.failedTraceOffsets.append(m_index.at(i).offset);
+      ++n;
+    }
+  }
+  quality.decodedTraceCount = out.size();
+  QStringList messages;
+  if (!quality.message.isEmpty()) messages.append(quality.message);
+  if (quality.cancelled)
+    messages.append(QCoreApplication::translate("SegyReader", "读取已取消（已解码 %1/%2 道）")
+                        .arg(quality.decodedTraceCount).arg(quality.requestedTraceCount));
+  if (quality.sanitizedSampleCount > 0)
+    messages.append(QCoreApplication::translate("SegyReader",
+        "已清洗 %1 个非有限样点为缺失值（%2 道；首道偏移 %3）")
+        .arg(quality.sanitizedSampleCount).arg(quality.sanitizedTraces.size())
+        .arg(quality.sanitizedTraces.first().traceOffset));
+  if (!quality.failedTraceOffsets.isEmpty())
+    messages.append(QCoreApplication::translate("SegyReader",
+        "解码失败 %1/%2 道（首道偏移 %3），返回部分结果")
+        .arg(quality.failedTraceOffsets.size()).arg(idxs.size())
+        .arg(quality.failedTraceOffsets.first()));
+  quality.message = messages.join(QStringLiteral("；"));
+  if (report) *report = quality;
+  // 保留既有解码丢道日志契约；新增 DTO 提供偏移与本地化详情。
+  if (!quality.failedTraceOffsets.isEmpty())
+    qWarning("SegyReader::readByIndexList(%s): dropped %d of %d traces (decode/read failure)",
+             qPrintable(m_path), int(quality.failedTraceOffsets.size()), int(idxs.size()));
+  if (quality.sanitizedSampleCount > 0 || quality.cancelled || !file.isOpen())
+    if (!quality.message.isEmpty()) qWarning().noquote() << quality.message;
   return out;
 }
 
-QVector<SegyTrace> SegyReader::traces(const SegyOptions *opts) const
+QVector<SegyTrace> SegyReader::traces(const SegyOptions *opts, SegyReadReport *report) const
 {
   QVector<int> all;
   all.reserve(m_index.size());
-  for (int i = 0; i < m_index.size(); ++i)
-    all.append(i);
-  return readByIndexList(all, opts);
+  for (int i = 0; i < m_index.size(); ++i) all.append(i);
+  return readByIndexList(all, opts, report);
 }
 
 QVector<qint32> SegyReader::inlineNumbers() const
@@ -717,8 +778,16 @@ QVector<qint32> SegyReader::crosslineNumbers() const
 }
 
 bool SegyReader::readInline(qint32 inlineNo, QVector<SegyTrace> *out,
-                            QString *error, const SegyOptions *opts) const
+                            QString *error, const SegyOptions *opts, SegyReadReport *report) const
 {
+  if (report) *report = SegyReadReport{};
+  if (error) error->clear();
+  if (!out)
+  {
+    if (error) *error = QCoreApplication::translate("SegyReader", "解码输出缓冲为空");
+    return false;
+  }
+  out->clear();
   if (!m_byInline.contains(inlineNo))
   {
     if (error)
@@ -726,9 +795,14 @@ bool SegyReader::readInline(qint32 inlineNo, QVector<SegyTrace> *out,
     return false;
   }
   const QVector<int> &idxs = m_byInline.value(inlineNo);
-  *out = readByIndexList(idxs, opts);
-  if (opts && opts->cancel && opts->cancel())
+  SegyReadReport quality;
+  *out = readByIndexList(idxs, opts, &quality);
+  if (report) *report = quality;
+  if (quality.cancelled)
+  {
+    if (error) *error = QCoreApplication::translate("SegyReader", "读取已取消");
     return false;
+  }
   if (out->size() != idxs.size())
   {
     if (error)
@@ -743,8 +817,16 @@ bool SegyReader::readInline(qint32 inlineNo, QVector<SegyTrace> *out,
 }
 
 bool SegyReader::readCrossline(qint32 xlineNo, QVector<SegyTrace> *out,
-                               QString *error, const SegyOptions *opts) const
+                               QString *error, const SegyOptions *opts, SegyReadReport *report) const
 {
+  if (report) *report = SegyReadReport{};
+  if (error) error->clear();
+  if (!out)
+  {
+    if (error) *error = QCoreApplication::translate("SegyReader", "解码输出缓冲为空");
+    return false;
+  }
+  out->clear();
   if (!m_byXline.contains(xlineNo))
   {
     if (error)
@@ -752,9 +834,14 @@ bool SegyReader::readCrossline(qint32 xlineNo, QVector<SegyTrace> *out,
     return false;
   }
   const QVector<int> &idxs = m_byXline.value(xlineNo);
-  *out = readByIndexList(idxs, opts);
-  if (opts && opts->cancel && opts->cancel())
+  SegyReadReport quality;
+  *out = readByIndexList(idxs, opts, &quality);
+  if (report) *report = quality;
+  if (quality.cancelled)
+  {
+    if (error) *error = QCoreApplication::translate("SegyReader", "读取已取消");
     return false;
+  }
   if (out->size() != idxs.size())
   {
     if (error)
@@ -774,6 +861,7 @@ bool SegyReader::readCrossline(qint32 xlineNo, QVector<SegyTrace> *out,
 // ===========================================================================
 void SegyReader::resetState()
 {
+  m_indexingRules = AreaRules::SegyIndexing{};
   m_index.clear();
   m_byInline.clear();
   m_byXline.clear();
@@ -819,6 +907,8 @@ bool SegyReader::snapshot(SegyIndexStore::StoredIndex *out) const
   out->binLineNo = m_binLineNo;
   out->firstTraceOffset = m_firstTraceOffset;
   out->geometry = m_geometry;
+  out->headerWordOffsets = {m_indexingRules.inlineWordOffset, m_indexingRules.crosslineWordOffset,
+                            m_indexingRules.fieldRecordOffset, m_indexingRules.cdpXlineOffset};
   out->inlineNos.resize(m_index.size());
   out->xlineNos.resize(m_index.size());
   out->offsets.resize(m_index.size());
@@ -841,6 +931,8 @@ bool SegyReader::restore(const SegyIndexStore::StoredIndex &in, const QString &p
   if (in.inlineNos.size() != in.xlineNos.size() ||
       in.inlineNos.size() != in.offsets.size() || in.inlineNos.isEmpty())
     return false;
+  m_indexingRules = {in.headerWordOffsets[0], in.headerWordOffsets[1],
+                     in.headerWordOffsets[2], in.headerWordOffsets[3]};
   m_samplesPerTrace = in.samplesPerTrace;
   m_sampleIntervalUs = static_cast<float>(in.sampleIntervalUs);
   m_formatCode = in.formatCode;
@@ -871,7 +963,7 @@ bool SegyReader::scanParallel(QFile &file, qint64 firstTraceOffset, qint64 trace
 {
   Q_UNUSED(file);
   const QString path = m_path;
-  const AreaRules::SegyIndexing sidx = AreaRules::active().segy;
+  const AreaRules::SegyIndexing sidx = m_indexingRules;
   const int ns = m_samplesPerTrace;
 
   struct Shard
@@ -1037,7 +1129,7 @@ bool SegyReader::resumeScan(QFile &file, const SegyIndexStore::StoredIndex &part
                    .arg(fileSize - partial.scannedOffset);
     return false;
   }
-  const AreaRules::SegyIndexing sidx = AreaRules::active().segy;
+  const AreaRules::SegyIndexing sidx = m_indexingRules;
   uchar trHdr[240];
   qint64 offset = partial.scannedOffset;
   while (offset + 240 <= fileSize)
@@ -1119,6 +1211,9 @@ bool SegyReader::openCached(const QString &path, const QString &indexCacheDir,
                             QString *error, const SegyOptions *opts)
 {
   resetState();
+  m_indexingRules = AreaRules::active().segy;
+  const std::array<int, 4> requestedWords = {m_indexingRules.inlineWordOffset,
+      m_indexingRules.crosslineWordOffset, m_indexingRules.fieldRecordOffset, m_indexingRules.cdpXlineOffset};
   SegyIndexStore::ensureLegacyGlobalCacheDir(); // D2.1：vendor 全局缓存目录预建
   const QFileInfo fi(path);
   if (!fi.exists())
@@ -1132,7 +1227,7 @@ bool SegyReader::openCached(const QString &path, const QString &indexCacheDir,
   QString reason;
   if (auto stored = store.load(fi, /*partialOk=*/false, &reason))
   {
-    if (restore(*stored, path))
+    if (stored->headerWordOffsets == requestedWords && restore(*stored, path))
     {
       if (opts && opts->progress)
         opts->progress(fi.size(), fi.size()); // 命中即收敛 100%
@@ -1150,7 +1245,7 @@ bool SegyReader::openCached(const QString &path, const QString &indexCacheDir,
   // 2) checkpoint / 追加增长 → 断点续扫（D2.5/D2.8）。
   if (auto partial = store.loadForResume(fi, &reason))
   {
-    if (restore(*partial, path))
+    if (partial->headerWordOffsets == requestedWords && restore(*partial, path))
     {
       if (resumeScan(file, *partial, error, opts))
       {
@@ -1190,7 +1285,7 @@ bool SegyReader::openCached(const QString &path, const QString &indexCacheDir,
       //（变道长判据；负 ns = 损坏道，不否定固定道长）。
       if (eligible)
       {
-        const AreaRules::SegyIndexing sidx = AreaRules::active().segy;
+        const AreaRules::SegyIndexing sidx = m_indexingRules;
         const qint64 traceCountTotal = tail / traceSize;
         const qint64 probes[] = {0, traceCountTotal / 3, traceCountTotal * 2 / 3,
                                  traceCountTotal - 1};

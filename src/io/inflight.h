@@ -37,7 +37,10 @@ class InflightCoalescer
         QMutexLocker lock(&m_mutex);
         const auto it = m_map.find(key);
         if (it != m_map.end())
+        {
+          ++m_ridersJoined;
           return Ticket{it.value(), false};
+        }
         m_map.insert(key, future);
       }
 
@@ -73,7 +76,16 @@ class InflightCoalescer
       return m_map.size();
     }
 
+    // 累计搭车（非执行者）提交次数，单调递增（诊断/测试：确定性构造
+    // 「执行者在跑、搭车者已入队」的并发时序）。
+    int ridersJoined() const
+    {
+      QMutexLocker lock(&m_mutex);
+      return m_ridersJoined;
+    }
+
   private:
     mutable QMutex m_mutex;
+    int m_ridersJoined = 0;
     QHash<Key, std::shared_future<Result>> m_map;
 };

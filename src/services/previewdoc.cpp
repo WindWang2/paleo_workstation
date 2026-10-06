@@ -3,16 +3,20 @@
 
 #include "../catalog/datacatalog.h"
 #include "../domain/arearules.h"
+#include "../domain/wellcompositemodel.h" // ComprehensiveWellData（wellCompositeAt 出参；方向 59 起显式）
+#include "../domain/wellrecords.h"        // WellHeadRecord 等（wellHeadsAt 出参；方向 59 起显式）
 #include "../io/dataimportservice.h"
 #include "../io/geojsonaffine.h"
 #include "../io/lascache.h"
-#include "../io/lasparser.h"
+#include "../io/lasdoc.h" // LasCurve/LasDoc/LasHeaderInfo（契约类型；解析入口不再直触）
+#include "../io/welllogread.h" // 方向44：格式分派
 #include "../io/segyreader.h"
 #include "../io/streaming.h" // F3：GeoJSON 流式统计（无 DOM 增量扫描）
 #include "../io/timedeptool.h"
 #include "../io/wellcompositexml.h"
 #include "../io/wellfileparsers.h"
 #include "paleotaskservice.h"
+#include "sectiondoc.h" // SectionDoc 完整定义（信号载荷构造/metatype 注册）
 #include "seismictaskservice.h"
 
 #include <QCryptographicHash>
@@ -252,7 +256,7 @@ bool PreviewDocService::lasHeaderAt(const QString &absPath, LasHeaderInfo *out,
                                     QString *error)
 {
   LasHeaderInfo info;
-  if (!LasParser::parseHeader(absPath, info, error))
+  if (!WellLogRead::parseHeader(absPath, info, error))
     return false;
   if (out)
     *out = info;
@@ -663,8 +667,8 @@ void PreviewDocService::requestSection(const QString &assetId,
     }
     QString err;
     const bool ok =
-        isInline ? reader->readInline(lineNo, &out->doc.traces, &err, &opts)
-                 : reader->readCrossline(lineNo, &out->doc.traces, &err, &opts);
+        isInline ? reader->readInline(lineNo, &out->doc.traces, &err, &opts, &out->doc.readReport)
+                 : reader->readCrossline(lineNo, &out->doc.traces, &err, &opts, &out->doc.readReport);
     if (!ok && !(t && t->cancelRequested()))
       return err.isEmpty() ? QStringLiteral("无法解码测线") : err;
     out->doc.sampleIntervalUs = reader->sampleIntervalUs();

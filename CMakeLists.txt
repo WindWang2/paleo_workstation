@@ -466,12 +466,24 @@ add_library(paleo_qgis STATIC
 target_link_libraries(paleo_qgis PUBLIC paleo_deps paleo_ui_deps paleo_store paleo_algorithms paleo_io)
 
 add_library(paleo_io STATIC
-  src/io/dataimportservice.cpp
+  src/io/dataimportservice.cpp                      # 方向57：生命周期 + 入口 wrapper
+  src/io/dataimport_session.cpp                     # 方向57：会话/登记基座（plan/RAW/commit 面）
+  src/io/dataimport_file.cpp                        # 方向57：单文件导入编排（importOneFile 壳+分派）
+  src/io/dataimport_wells.cpp                       # 方向57：井族分支（well_head/log/tops/deviation）
+  src/io/dataimport_geodata.cpp                     # 方向57：地物族分支（horizon/seismic/辅助参考）
+  src/io/dataimport_folder.cpp                      # 方向57：文件夹导入/预览/plan 执行面
+  src/io/dataimport_pyramids.cpp                    # 方向57：栅格金字塔/概览族
+  src/io/dataimport_document.cpp                    # 方向57：文档 PDF 转换 + 外链重定位
   src/io/lasparser.cpp
+  src/io/dlisparser.cpp                            # 方向44：DLIS (RP66 v1) 读口
+  src/io/lisparser.cpp                             # 方向44：LIS79 读口（含 TIF）
+  src/io/welllogread.cpp                           # 方向44：井曲线格式分派门面
   src/io/segyreader.cpp                             # wave/segy
   src/io/constraintstore.cpp                        # wave/constraint-gpkg
   src/io/wellfileparsers.cpp                        # well head / tops / TD text parsers
   src/io/horizonbinner.cpp                          # horizon scatter -> binned time raster
+  src/io/sattrio.cpp                                # goal/attr-volume：SATR/SATV 属性容器读写
+  src/io/attrgridout.cpp                            # goal/attr-volume：时间切片属性网格 → 地理参考 GeoTIFF
   src/io/timedeptool.cpp                            # TVD/MD -> TIME(ms) interpolation
   src/io/geojsonaffine.cpp                          # D11 临时配准（手工仿射）
   src/io/wellcompositexml.cpp
@@ -488,12 +500,18 @@ add_library(paleo_services STATIC
   src/services/paleotaskservice.cpp                 # D1/D2 异步任务框架
   src/services/jobrunner.cpp                        # 方向20：统一三段式 JobRunner（作业框架）
   src/services/seismicmapping.cpp                   # 测网几何↔inline/xline/CDP
-  src/services/seismictaskservice.cpp               # sdk::Dataset 门面 + 任务编排
+  src/services/seismictaskservice.cpp               # sdk::Dataset 门面 + 任务编排 (Base Core)
+  src/services/seismictaskservice_transcode.cpp     # 地震任务：索引与转码
+  src/services/seismictaskservice_slice.cpp         # 地震任务：切片与剖面
+  src/services/seismictaskservice_attr.cpp          # 地震任务：属性计算与体生成
+  src/services/seismictaskservice_interp.cpp        # 地震任务：层位追踪与解释
+  src/services/seismictaskservice_viz.cpp           # 地震任务：可视化与预览
   src/services/crashreport.cpp                      # 致命信号 fd 落盘 + .running 旗标
   src/services/frameworkservice.cpp                 # 方向28：格架读侧门面 + 建议/诊断编排
   src/services/startuptrace.cpp                     # goal/perf-systematize 簇1：启动分段仪表
   src/services/storagegovernance.cpp
   src/services/cataloghealth.cpp                    # 方向30：工区资产体检（快速面 + 外链 SHA 复验）
+  src/services/errorhub.cpp                         # 方向54：ErrorHub 统一错误汇聚与历史管理
 )
 target_link_libraries(paleo_services PUBLIC paleo_deps paleo_io paleo_domain paleo_store paleo_algorithms)
 
@@ -515,7 +533,12 @@ add_library(paleo_workflow STATIC
   src/workflow/compositionworkflow.cpp               # 方向20 轮4：③综合编图（按类边界析出）
   src/workflow/predictionworkflow.cpp              # 方向20 轮4：①智能预测（按类边界析出）
   src/workflow/constraintworkflow.cpp              # 方向20 轮4：②约束与单因素（按类边界析出）
-  src/workflow/constraintfactorjobs.cpp            # 方向20 轮4：②的单因素作业面（二次拆分）
+  src/workflow/constraintfactorjobs.cpp            # 方向20 轮4：②的单因素作业面；方向57 只留统一异步面
+  src/workflow/constraintfactorjobs_factor.cpp     # 方向57：基础因子生成族（idw/isopach/welldist/structural/surfer）
+  src/workflow/constraintfactorjobs_localdirection.cpp # 方向57：局部方向族三段式
+  src/workflow/constraintfactorjobs_geostat.cpp    # 方向57：克里金/SGS 族三段式
+  src/workflow/constraintfactorjobs_contours.cpp   # 方向57：分析等值线族 + 制图工作场
+  src/workflow/constraintfactorjobs_interpretive.cpp # 方向57：解释性等值线族三段式
   src/workflow/folderimport.cpp                    # W2 文件夹/单文件导入编排
   src/workflow/projectopen.cpp                     # W2 打开/新建工程编排
   src/workflow/registration.cpp                    # W3 临时配准编排
@@ -544,9 +567,25 @@ add_library(paleo_ui STATIC
   src/ui/pages/mappingworkbenchpage.cpp
   src/ui/paleomainwindow_workbench.cpp
   src/ui/paleomainwindow.cpp
-  src/ui/paleomainwindow_attach.cpp                # W4 接线按页拆分
+  src/ui/paleomainwindow_attach.cpp                # 壳接线聚合胶水层
+  src/ui/paleomainwindow_attach_data.cpp           # 数据管理页接线
+  src/ui/paleomainwindow_attach_predict.cpp        # 智能预测页接线
+  src/ui/paleomainwindow_attach_constraint.cpp     # 约束与单因素页接线
+  src/ui/paleomainwindow_attach_compose.cpp        # 综合编图页接线
+  src/ui/paleomainwindow_attach_validate.cpp       # 验证与布井辅助接线
+  src/ui/paleomainwindow_attach_shell.cpp          # 壳面与全局组件接线
+  src/ui/paleomainwindow_attach_mapping.cpp        # 编图流水线与版本接线
+  src/ui/paleomainwindow_attach_models.cpp         # 属性建模/相图/时深转换接线
   src/ui/ribbonpanels.cpp                          # W4 ribbon 命令组构建迁出
-  src/ui/pages/datalist.cpp                        # W5 数据页·列表侧
+  src/ui/pages/datalist.cpp                        # W5 数据页·列表侧（胶水层）
+  src/ui/pages/datalistops.h                       # 数据页·辅助类型与持久化工具
+  src/ui/pages/datalist_table.cpp                  # 数据页·表格展现与行内动作
+  src/ui/pages/datalist_tree.cpp                   # 数据页·树形层级与分组
+  src/ui/pages/datalist_select.cpp                 # 数据页·选中集管理与联动
+  src/ui/pages/datalist_filter.cpp                 # 数据页·多维组合过滤与搜索
+  src/ui/pages/datalist_batch.cpp                  # 数据页·批量操作与上下文菜单
+  src/ui/pages/datalist_dnd.cpp                    # 数据页·拖拽与外部文件处理
+  src/ui/pages/datalist_undo.cpp                   # 数据页·撤销重做与治理对话框
   src/ui/pages/entitypanel.cpp                     # W5 数据页·实体视图侧
   src/ui/pages/wellsitingpanel.cpp                 # 方向34：布井辅助面板（验证页页签）
   src/ui/pages/datapage.cpp                        # W5 DataPage 兼容薄壳
@@ -622,6 +661,10 @@ add_library(paleo_ui STATIC
   src/ui/paleotheme.cpp                            # DESIGN.md 字体/色 token
   src/ui/paleoicons.cpp                            # ribbon 图标出口
   src/ui/paleoribbon.cpp                           # SARibbon 壳公用件
+  src/ui/notifications/notificationcard.cpp        # 方向54：ErrorHub 浮动通知卡片
+  src/ui/notifications/notificationmanager.cpp     # 方向54：ErrorHub 呈现与模态策略管理器
+  src/ui/notifications/errorhistorymodel.cpp       # 方向54：ErrorHub 错误历史模型
+  src/ui/notifications/errorhistorydock.cpp        # 方向54：ErrorHub 错误历史面板
   resources/seismic_shaders.qrc
   resources/paleo_fonts.qrc
 )
@@ -758,11 +801,13 @@ if(PALEO_PYTHON3)
            ${CMAKE_SOURCE_DIR}/tools/check_i18n.py --selftest)
   add_test(NAME ui_tokens COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/check_ui_tokens.py)
+  add_test(NAME ui_tokens_strict COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_ui_tokens.py --strict)
   add_test(NAME ui_tokens_selftest COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/check_ui_tokens.py --selftest)
   set_tests_properties(layering layering_strict layering_selftest
                        ui_invariants ui_invariants_strict ui_invariants_selftest
-                       i18n i18n_selftest ui_tokens ui_tokens_selftest
+                       i18n i18n_selftest ui_tokens ui_tokens_strict ui_tokens_selftest
                        PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 endif()
 
@@ -777,6 +822,8 @@ add_paleo_test(tst_jobrunner LIBS paleo_services paleo_ui_deps)  # 方向20：Jo
 add_paleo_test(tst_linkage LIBS paleo_linkage)
 add_paleo_test(tst_algorithms LIBS paleo_algorithms paleo_ui_deps)
 add_paleo_test(tst_seismicattr LIBS paleo_algorithms)      # 地震属性核（纯数值，无 QGIS init）
+add_paleo_test(tst_sattrio LIBS paleo_io)                 # goal/attr-volume：SATR/SATV 容器 round-trip
+add_paleo_test(tst_seismicattrscan LIBS paleo_services)  # goal/attr-volume：时间切片/属性体扫描编排
 add_paleo_test(tst_singlefactor_kernel LIBS paleo_algorithms)
 add_paleo_test(tst_wellsiting_kernel LIBS paleo_algorithms)  # 方向34：井网辅助纯核（Oracle 1/3）
 add_paleo_test(tst_singlefactor_corridor LIBS paleo_algorithms)
@@ -828,7 +875,7 @@ add_paleo_test(tst_maptools LIBS paleo_ui)
 add_paleo_test(tst_correlation LIBS paleo_ui)
 add_paleo_test(tst_decorations LIBS paleo_ui)
 add_paleo_test(tst_manifestproj LIBS paleo_qgis)
-add_paleo_test(tst_import LIBS paleo_io paleo_qgis)
+add_paleo_test(tst_import LIBS paleo_io paleo_services paleo_qgis) # 方向44：并集可达断言
 add_paleo_test(tst_drawctl LIBS paleo_ui)
 add_paleo_test(tst_procdialog LIBS paleo_qgis)
 add_paleo_test(tst_rehydrate)                               # 伞式（app 面全栈，兼容样本）
@@ -838,8 +885,16 @@ add_paleo_test(tst_releasepanel LIBS paleo_ui)
 add_paleo_test(tst_taskpanel LIBS paleo_ui)
 add_paleo_test(tst_attrpanel LIBS paleo_ui)
 # ---- merged worktree waves ----
+# 方向50：IO 容错、导入诊断、SDK 消费与工作簿边角回归。
+add_paleo_test(tst_wellfileparsers LIBS paleo_io)
+add_paleo_test(tst_io_importledger LIBS paleo_workflow)
+add_paleo_test(tst_io_robustness LIBS paleo_io paleo_algorithms)
+add_paleo_test(tst_io_seismicquality LIBS paleo_services paleo_algorithms)
+add_paleo_test(tst_io_workbook_edges LIBS paleo_io)
 add_paleo_test(tst_segy LIBS paleo_io)
 add_paleo_test(tst_las LIBS paleo_io)
+add_paleo_test(tst_dlisparser LIBS paleo_io)          # 方向44：DLIS (RP66 v1) 全集读口
+add_paleo_test(tst_lisparser LIBS paleo_io)           # 方向44：LIS79 全集读口
 add_paleo_test(tst_lasperf LIBS paleo_io)    # 方向21：LAS 读面比率门探针（同进程参照实现）
 add_paleo_test(tst_snapshot_dedup LIBS paleo_io) # #84：快照/活对象 dedup 复核同一语义（真重哈希）
 add_paleo_test(tst_constraintstore LIBS paleo_workflow)
@@ -1000,6 +1055,7 @@ add_paleo_test(tst_segy_fixture LIBS paleo_io)   # 合成最小 SEG-Y 夹具：�
 target_compile_definitions(tst_segy_fixture PRIVATE
   TESTDATA_DIR="${CMAKE_SOURCE_DIR}/testdata")
 add_paleo_test(tst_algorithm_harness LIBS paleo_algorithms paleo_ui_deps)  # AlgorithmTestBase harness + ≥3 算法用例
+add_paleo_test(tst_algorithm_rasterout_crs LIBS paleo_algorithms paleo_ui_deps)  # QgsApplication 需 QtWidgets（同 tst_algorithm_harness）；BIZ-11（方向58）：无 CRS 输入经共享写口带规范 CRS
 add_paleo_test(tst_perfbudget LIBS paleo_services paleo_qgis)
 # 墙钟预算门禁在 CI 并行负载下必抖（实测 525ms>500ms，预热救不了 CPU
 # 争抢）——计时测试串行跑，对齐 tst_correlation_full 先例。
@@ -1020,6 +1076,14 @@ add_paleo_test(tst_entityview LIBS paleo_store)
 # 崩溃本地转储（§38 留白按本地优先落地）+ 外链源重定位恢复路径。
 # 新增源与测试集中在此块；并行包合并冲突时保留双方行。
 add_paleo_test(tst_crashreport LIBS paleo_services)
+add_paleo_test(tst_errorhub LIBS paleo_services)   # 方向54：ErrorHub 核心数据服务与去重/环形缓冲单元测试
+add_paleo_test(tst_notification_card LIBS paleo_ui paleo_services) # 方向54：通知卡片与管理器测试
+add_paleo_test(tst_notification_m2_challenger LIBS paleo_ui paleo_services) # 方向54：M2 Challenger 经验证套件
+add_paleo_test(tst_error_history_dock LIBS paleo_ui paleo_services) # 方向54/M4：错误历史模型与面板测试
+add_paleo_test(tst_errorhub_challenger_m4 LIBS paleo_ui paleo_services) # 方向54/M4：M4 Challenger UI交互与边界测试套件
+add_paleo_test(tst_errorhub_storm LIBS paleo_ui paleo_services) # 方向54/M5：错误风暴压力与事件循环防冻结测试
+set_tests_properties(tst_errorhub_storm PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+add_paleo_test(tst_errorhub_challenger_m5_harness LIBS paleo_ui paleo_services) # 方向54/M5：M5-2 Challenger 极端压力与经验证套件
 add_paleo_test(tst_relocate LIBS paleo_ui)
 
 # ---- goal/perf-systematize 簇2：UI 线程阻塞动态验证 ----
@@ -1061,6 +1125,7 @@ add_paleo_test(tst_layerproperties LIBS paleo_ui)   # 矢量/栅格/缺源三类
 # 禁止直接改本文件的模块源列表——并行分支在此汇合零冲突。
 # 显式清单登记替代隐式 GLOB，根治构建目录漂移与测试漏注（P1-14 / TEST-01）
 set(_paleo_extra_manifest
+  "${CMAKE_SOURCE_DIR}/cmake/extra-ai-chat.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-batch.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-well-facies.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-catalog-sqlite.cmake"
@@ -1083,10 +1148,12 @@ set(_paleo_extra_manifest
   "${CMAKE_SOURCE_DIR}/cmake/extra-petrophys.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-property-modeling.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-prediction-facies.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-realization.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-sections-alignment.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-seismic.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-seismic-inversion.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-sf-kriging.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-shortcuts-help.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-surfaceops.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-time-depth.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-ux.cmake"
@@ -1095,6 +1162,12 @@ set(_paleo_extra_manifest
   "${CMAKE_SOURCE_DIR}/cmake/extra-wellcomposite.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-welltops.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-wellsection.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-test-deepening.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-xplot-sup-supervised.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-xplot-sup-em.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-xplot-sup-som.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-xplot-sup-service.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-xplot-sup-ui.cmake"
 )
 foreach(_f IN LISTS _paleo_extra_manifest)
   if(EXISTS "${_f}")

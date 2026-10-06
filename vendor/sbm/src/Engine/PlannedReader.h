@@ -38,6 +38,7 @@ struct PlannedTraceData {
 };
 
 struct PlannedReadStats {
+    std::uint64_t sanitizedSampleReads = 0;
     std::uint64_t tracesRead = 0;
     std::uint64_t gapTracesRead = 0;
     std::uint64_t readRanges = 0;

@@ -5,7 +5,6 @@
 #include "catalog/datacatalog.h"
 #include "io/benchreport.h"
 #include "io/lascache.h"
-#include "io/lasparser.h"
 #include "io/perffixtures.h"
 #include "io/segyindexstore.h"
 #include "io/segyreader.h"

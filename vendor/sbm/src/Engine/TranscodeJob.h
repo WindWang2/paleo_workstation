@@ -77,6 +77,8 @@ struct TranscodeResult {
     // the source produced no data at all).
     std::uint64_t missingTraceCount = 0;
     std::uint64_t damagedTraceCount = 0;
+    std::uint64_t sanitizedSampleCount = 0;
+    std::uint64_t sanitizedTraceCount = 0;
     std::vector<std::pair<int, int>> damagedTraceSample;
     float valueMin = std::numeric_limits<float>::quiet_NaN();
     float valueMax = std::numeric_limits<float>::quiet_NaN();

@@ -3,6 +3,7 @@
 #include "paleotheme.h"
 
 #include "../linkage/selectioncontext.h"
+#include "../io/lasdoc.h" // LasCurve（方向 59：previewdoc.h 瘦身后契约值类型直取白名单门面）
 #include "../services/paleotaskservice.h" // B1：quiet LAS 异步任务服务
 #include "../services/previewdoc.h" // LasParser 的唯一 UI 出口（W1）
 

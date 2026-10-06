@@ -1,4 +1,5 @@
 #include "Data/Sgy/SgyVolume.h"
+#include "Data/Sgy/SgySampleSanitizer.h"
 
 #include <algorithm>
 #include <array>
@@ -12,6 +13,7 @@
 #include <unordered_map>
 
 #include <QFile>
+#include <QDebug>
 #include <QString>
 
 #include <segyio/segy.h>
@@ -294,6 +296,15 @@ bool SgyVolume::ValidateRuleTrace(segy_datasource* file, int traceIndex, std::st
     return true;
 }
 
+void SgyVolume::SanitizeSamples(float* samples, std::size_t count, int traceIndex) const {
+    const auto sanitized = SanitizeSgySamples(samples, count);
+    if(sanitized > 0) {
+        sanitizedSampleReads_->fetch_add(sanitized);
+        qWarning().nospace() << "PALEO-SEGY-SANITIZED trace=" << traceIndex
+                             << " samples=" << sanitized;
+    }
+}
+
 bool SgyVolume::ReadTraceAsFloat(int traceIndex, std::vector<float>& samples, std::string& errorMessage) const {
     if(!index_) {
         errorMessage = "SGY volume has no index.";
@@ -327,6 +338,7 @@ bool SgyVolume::ReadTraceAsFloat(segy_datasource* file, int traceIndex, std::vec
         if(!Check(segy_to_native(formatCode, sampleCount, samples.data()), "segy_to_native", errorMessage)) {
             return false;
         }
+        SanitizeSamples(samples.data(), samples.size(), traceIndex);
         return true;
     }
 
@@ -374,6 +386,7 @@ bool SgyVolume::ReadSampleAsFloat(
         if(!Check(segy_to_native(formatCode, 1, &raw), "segy_to_native", errorMessage)) {
             return false;
         }
+        SanitizeSamples(&raw, 1, traceIndex);
         value = raw;
         return true;
     }
@@ -541,6 +554,7 @@ bool SgyVolume::ExtractSlice(
                                 float val = 0.0f;
                                 std::memcpy(&val, mapped + offset, 4);
                                 segy_to_native(formatCode, 1, &val);
+                                SanitizeSamples(&val, 1, traceIdx);
                                 values[idx] = val;
                             } else if(formatSizeBytes == 2) {
                                 std::int16_t raw = 0;
@@ -891,6 +905,7 @@ bool SgyVolume::ExtractTimeSlicePreview(
                        !Check(segy_to_native(FormatCode(), cache->count, raw16.data()), "segy_to_native", errorMessage)) return false;
                     std::copy(raw16.begin(), raw16.end(), raw.begin());
                 } else { errorMessage = "Unsupported SGY sample format for time-slice preview."; return false; }
+                SanitizeSamples(raw.data(), raw.size(), read.traceIndex);
                 std::copy(raw.begin(), raw.end(), cache->values.begin() + read.outputIndex * cache->count);
                 cache->filled[read.outputIndex] = 1;
                 ++cache->traceReads;

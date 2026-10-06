@@ -9,6 +9,7 @@
 #include "../../qgis/qgislayerservice.h"
 #include "../../services/singlefactordef.h"
 #include "../../workflow/workflows.h"
+#include "../realization/realizationpanel.h" // 方向 47：集合查看面（视图同层）
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -369,6 +370,16 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   useMono( seed );
   adv->addWidget( caption( tr( "SGS 种子" ), advanced->container() ) );
   adv->addWidget( seed );
+  // 方向 47：SGS 成员持久化——勾选时各实现收编为 realization_set 集合版本
+  //（成员数 = 实现数），供统计面/成员切换/集合对比；取消则只产均值+标准差旁路。
+  auto *persistRealizations = new QCheckBox( tr( "保留实现集合（成员可切换/派生不确定性面）" ),
+                                           advanced->container() );
+  persistRealizations->setObjectName( QStringLiteral( "factorSgsPersistRealizationsCheck" ) );
+  persistRealizations->setChecked( true );
+  persistRealizations->setToolTip(
+      tr( "成员栅格逐实现落库为集合版本（惰性寻址）。取消时 SGS 仍产均值与标准差旁路，"
+          "但集合成员不入库，后续不可成员切换/派生统计面。" ) );
+  adv->addWidget( persistRealizations );
 
   // 主线6：等厚引擎（strathick）专属行——顶/底构造面栅格选择。默认隐藏，
   // 勾选等厚引擎因素时展开（updateEngineRows 管可见性）。
@@ -407,7 +418,7 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   connect( generate, &QPushButton::clicked, this,
            [this, horizons, field, cell, factors, topCombo, baseCombo, method, coverage, power, cluster,
              variogramModel, nugget, sill, rangeSpin, azimuth, maxPoints, realizations, seed,
-             boundary, gridRes] {
+             persistRealizations, boundary, gridRes] {
     const int r = checkedRow( factors );
     if ( r < 0 )
       return;
@@ -443,6 +454,8 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
         {
           params.insert( QStringLiteral( "realizations" ), realizations->value() );
           params.insert( QStringLiteral( "seed" ), seed->value() );
+          params.insert( QStringLiteral( "persistRealizations" ),
+                         persistRealizations->isChecked() );
         }
       }
       // 结构 IDW：边界图层（必选）+ 格网分辨率；覆盖方式→extendToBoundary。
@@ -825,7 +838,7 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
 
   // ---- 阶段C 厚度样本表（autoplan §5C）-------------------------------------
   // 逐井：井名 / D61 TVD / D62 TVD / 层间速度或原因。行表由 MappingWorkflow
-  // 镜像到 ConstraintWorkflow 的 paleo.thickness.* 动态属性；不足样本的两句
+  // typed 镜像到 ConstraintWorkflow::setThicknessSamples；不足样本的两句
   // （「厚度样本不足以成面」/「没有厚度样本」）渲染在 thicknessHint，不弹框。
   // m2(B)：整段挪进 CollapsibleSection（objectName 全保留，默认展开）。
   lay->addSpacing(PaleoTheme::tokens().spacingMd); // spacing.md
@@ -860,6 +873,19 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   PaleoTheme::applyThemedStyleSheet(
       thHint, [] { return PaleoTheme::mutedCaptionStyleSheet(); } );
   thLay->addWidget( thHint );
+
+  // ---- 方向 47：realization 集合查看面 -------------------------------------
+  // SGS「保留实现集合」勾选后的产物面：成员切换/统计面/集合差值/动画帧全是
+  // intent 信号，catalog 换绑与上图编排由壳侧 attachConstraintPage 接
+  // RealizationWorkflow。默认收起——副产物面不抢单因素主流程的视觉权重。
+  lay->addSpacing( PaleoTheme::tokens().spacingMd );
+  auto *rsSection = new CollapsibleSection( tr( "不确定性集合" ), this );
+  rsSection->setObjectName( QStringLiteral( "realizationSection" ) );
+  rsSection->setExpanded( false );
+  lay->addWidget( rsSection );
+  auto *rsPanel = new RealizationPanel( rsSection->container() );
+  rsPanel->setObjectName( QStringLiteral( "realizationPanel" ) );
+  rsSection->containerLayout()->addWidget( rsPanel );
 
   if ( wf ) // workflow feedback lands on the status label
   {
@@ -955,10 +981,9 @@ void ConstraintPage::refreshThicknessSamples()
   if ( !table )
     return;
   auto *wf = qobject_cast<ConstraintWorkflow *>( property( kWfProp ).value<QObject *>() );
-  const QVariantList rows =
-      wf ? wf->property( "paleo.thickness.samples" ).toList() : QVariantList();
-  const QString message =
-      wf ? wf->property( "paleo.thickness.message" ).toString() : QString();
+  // ARCH-06：typed 面直读（原 paleo.thickness.* 动态属性暗道已撤）。
+  const QVariantList rows = wf ? wf->thicknessSampleRows() : QVariantList();
+  const QString message = wf ? wf->thicknessSampleMessage() : QString();
 
   table->setRowCount( 0 );
   for ( const QVariant &v : rows )

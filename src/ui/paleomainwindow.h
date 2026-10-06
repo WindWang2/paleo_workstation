@@ -21,6 +21,7 @@ class QDialog;
 class QLabel;
 class QTableWidget;
 class QTimer;
+class QToolButton;
 
 class QgisCanvasController;
 class QgisProjectService;
@@ -45,6 +46,10 @@ class SeismicTaskService;
 namespace paleo::fault {
 class FaultInterpretationController;
 class FaultManagerPanel;
+}
+
+namespace paleo::ui {
+class ErrorHistoryDock;
 }
 
 class PaleoDockWidget : public QDockWidget
@@ -80,6 +85,7 @@ class QStackedWidget;
 class QSplitter;
 class DataPreviewTabs;
 class PredictionWorkflow;
+class RealizationWorkflow;
 class ConstraintWorkflow;
 class CompositionWorkflow;
 class ValidationWorkflow;
@@ -102,6 +108,7 @@ class FolderImportWorkflow;
 class ProjectOpenWorkflow;
 class RegistrationWorkflow;
 class SeismicMapLink;
+class SeismicSectionTool; // R4 信号化（方向 49）：剖面捕获工具壳持有
 class QgisProcessingService;
 class QgisLayoutService;
 class QgisEditingService;
@@ -186,6 +193,10 @@ class PaleoMainWindow : public SARibbonMainWindow
     // goal/facies-automapping：证据合成 + QA 报告面板。幂等（dock 已建则只
     // 更新指针）。面板只发意图，链路在 FaciesMappingWorkflow。
     void attachFaciesMapping(FaciesMappingWorkflow *wf);
+    // 方向51：AI 地质对话助手——底栏加「AI 助手」页签，挂 AppContext 持有的
+    // AiChatController。编排与会话落盘全在 workflow 层，这里只装配面板 +
+    // 把「配置…」意图翻成状态栏提示（配置对话框递延，见 TODOS.md）。
+    void attachAiAssistant(class AiChatController *controller);
     // goal/fault-interpretation：断层解释接线——剖面 dock 挂编排器 + 右栏
     // 断层管理面板 dock。幂等（m_faultPanelDock 已建则只重挂控制器）。
     void attachFaults(paleo::fault::FaultInterpretationController *controller);
@@ -227,6 +238,14 @@ class PaleoMainWindow : public SARibbonMainWindow
     // 把清单图层实例化并勾选到图层树。zoomTo 为真时再缩放到该层。
     // 单因素等值线、综合编图成果和验证定位都走这条，不另建显示路径。
     bool revealDeclaredLayer(const QString &layerId, bool zoomTo);
+    // 方向 47：realization 面同画布上图 + 不确定性图签。成员/统计面各按
+    // 同集合互斥显隐（成员换成员、统计换统计），差值面独立可叠。
+    // badgeTitle 空 = 关图签。
+    void showRealizationLayer(const QString &layerId, const QString &badgeTitle,
+                              const QString &badgeSub);
+    // 成员/统计 intent 的统一入口（面板与数据页树共用，图签文案同源）。
+    void showRealizationMember(const QString &setId, int index);
+    void showRealizationStat(const QString &setId, const QString &token);
     // 壳面（locator/保存/底栏面板/处理算法/编辑条/图件设计）；返回编辑条
     // 逻辑宿主供 buildRibbonPanels 镜像。
     PaleoEditingToolbar *attachShellSurfaces(PaleoProjectStore *store,
@@ -252,6 +271,8 @@ class PaleoMainWindow : public SARibbonMainWindow
     seismic::SeismicSectionDockWidget *seismicSectionDock() const { return m_seismicSectionDock; }
     QDockWidget *seismic3dDock() const { return m_seismic3dDock; }
     seismic::Seismic3DViewPanel *seismic3dPanel() const { return m_seismic3dPanel; }
+    paleo::ui::ErrorHistoryDock *errorHistoryDock() const { return m_errorHistoryDock; }
+    QAction *errorHistoryAction() const;
 
   protected:
     void closeEvent(QCloseEvent *event) override;
@@ -328,6 +349,11 @@ class PaleoMainWindow : public SARibbonMainWindow
                            PaleoProjectStore *store = nullptr);
     SeismicMapLink *m_sectionLink = nullptr;
     SectionWorkbench *m_sectionWorkbench = nullptr; // attachSections 持有（this 父子）
+    // 任意剖面捕获工具（R4 信号化，方向 49）：壳持有 SeismicSectionTool——
+    // linkage 只发 sectionCaptureRequested 意图。析构在画布存活时先
+    // unsetMapTool 再 delete；画布先死则由 destroyed 接线置空（坑序同
+    // tst_sectionlifecycle 既有规避：活动工具不可直接 delete）。
+    SeismicSectionTool *m_sectionCaptureTool = nullptr;
     PaleoDockWidget *m_wellSectionDock = nullptr;
     WellSectionPanel *m_wellSectionPanel = nullptr;
     WellSectionWorkflow *m_wellSectionWf = nullptr;
@@ -372,6 +398,8 @@ class PaleoMainWindow : public SARibbonMainWindow
     seismic::SeismicSectionDockWidget *m_seismicSectionDock = nullptr;
     QDockWidget *m_seismic3dDock = nullptr;
     seismic::Seismic3DViewPanel *m_seismic3dPanel = nullptr;
+    paleo::ui::ErrorHistoryDock *m_errorHistoryDock = nullptr;
+    QToolButton *m_statusErrorBtn = nullptr;
     // goal/fault-interpretation：断层管理面板 dock（attachFaults 建一次）
     QDockWidget *m_faultPanelDock = nullptr;
     paleo::fault::FaultManagerPanel *m_faultPanel = nullptr;
@@ -399,7 +427,8 @@ class PaleoMainWindow : public SARibbonMainWindow
     bool m_propModelCancel = false;
     // #85：计算段在任务池 worker 上跑；交接体由 worker 写、finished 回包（GUI）
     // 读。task 是 PaleoTaskService 持有的对象，QPointer 防服务先析构。
-    PropertyModelWorkflow::PropertyModelComputed m_propModelComputed;
+    // V2（goal/prop-model-v2）：SGS 多实现 → list（每实现一项；呈现取首实现）。
+    PropertyModelWorkflow::PropertyModelComputedList m_propModelComputed;
     QPointer<PaleoTask> m_propModelTask;
     // 方向20：属性建模改由统一 JobRunner 编排（忙则拒绝/取消传播/commit 强制
     // owner 线程都由框架承担）。job 用 shared_ptr 与 commit 段共享同一份交接体
@@ -419,9 +448,15 @@ class PaleoMainWindow : public SARibbonMainWindow
     // 单因素本地方向：准备和发布在界面线程，插值在任务池。
     QPointer<PaleoTask> m_factorTask;
     void finishPropertyModelRun(double overlayAlpha);
+    // goal/attr-volume — 属性体 3D 预览就绪 → 喂视口（服务线程已取数烘焙：
+    // 三槽属性切片 + 堆叠层体渲染；ok=false 时状态栏报因）。
+    void showAttributeVolumeIn3D(
+        const seismic::SeismicTaskService::AttributeVolumePreview &preview,
+        bool ok, const QString &message);
     FolderImportWorkflow *m_folderImportWf = nullptr;   // W2 文件夹/单文件导入编排
     ProjectOpenWorkflow *m_projectOpenWf = nullptr;     // W2 打开/新建工程编排
     RegistrationWorkflow *m_registrationWf = nullptr;   // W3 临时配准编排
+    RealizationWorkflow *m_realizationWf = nullptr;     // 方向 47：集合编排（统计派生/差值）
     // attachWorkflows 幂等守卫：该函数每次执行都清栈重建右栏页面、给底栏/
     // 状态栏加面板并往服务对象上叠信号连接，二次执行会重复建 dock/按钮并
     // 遗留悬空引用（后续用例段错误）。测试套件会二次触达同一窗口——

@@ -28,11 +28,16 @@ public:
     bool IsOpen() const { return handle_.Get() != nullptr; }
     int SampleCount() const { return index_ ? index_->sampleCount : 0; }
 
+    std::uint64_t LastSanitizedSampleCount() const { return lastSanitizedSamples_; }
+    std::uint64_t SanitizedSampleReads() const { return sanitizedSampleReads_; }
+
     bool ReadTrace(int traceIndex, std::vector<float>& samples, std::string& errorMessage);
 
 private:
     bool ValidateRuleTrace(int traceIndex, std::string& errorMessage) const;
 
+    std::uint64_t lastSanitizedSamples_ = 0;
+    std::uint64_t sanitizedSampleReads_ = 0;
     SgyIndexPtr index_;
     sgyio::Handle handle_;
 };

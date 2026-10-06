@@ -1,3 +1,45 @@
+## P3 — 快捷键/帮助面后续（from goal/shortcuts-help, 2026-10-07）
+
+- **What:** 方向63 把全仓键位收进 `src/ui/shortcuts/shortcutcatalog.cpp` 中央注册表，但按红线「不改键序/上下文/行为」，
+  以下几项只登记未动：
+  1. **Delete 遮蔽**：图层树面板 `layers.remove` 是主窗级 `WindowShortcut` QAction，面板可见时会先吃掉数据树焦点内
+     Delete（`data.assets.remove`）与节点编辑工具 Delete（`map.vertex.delete`）。启动日志以 info 报两条 shadow，
+     `tst_shortcuthelp::knownShadowsArePinned` 钉住清单。候选修法：改 `Qt::WidgetWithChildrenShortcut`（需真机核实
+     图层树内 Delete 仍可用）。
+  2. 保存按钮提示「保存工程（Ctrl+S）」、定位器占位符「搜索井位/层位  Ctrl+K」仍硬编码键名，改为取 `keyFor()`。
+  3. 数据页「?」快捷键表（DataPage ShortcutsDialog）与 F1 总表并存，可改为打开总表并预过滤到数据页。
+  4. 地图画布（主地图与预览地图都是 `QgsMapCanvas`）的 QGIS 内建按键（+ / - / 方向键 / 0 复位等，见
+     `tst_previewmap_canvas::keyboardPlusMinusZero`）属第三方行为，未进注册表与总表；可补登记为 KeyHandler 条目做展示。
+  5. 新增 `PaleoShortcuts` / `PaleoWhatsThis` / `tr()` 文案待 #246（zh_CN 本地化）合入后跑 lupdate 刷 `.ts`。
+- **Why:** 都是行为或文案改动，超出「收编不改行为」的边界；需要真机交互验证。
+- **Context:** ledger [方向63](.goal-loop-ledger-shortcuts-help.md#遮蔽告警启动日志-info测试钉死清单)。
+- **Effort:** human: S / CC: S
+- **Priority:** P3
+- **Depends on:** #246（第 5 项）
+
+## P3 — AI 助手：图形化配置对话框 + 工具上下文补绑（from goal/ai-assist, 2026-10-06；工具闭环已由方向61 交付）
+
+- **What:** 方向61（goal/ai-toolloop）已交付 function calling 闭环：tools[] 上送
+  （tool_choice=auto）、tool_calls 经 `workflow/aichattoolrunner` 真执行（tile 分类
+  走 `AiAssistWorkflow::startClassification` 异步 + 协作取消，产品落 DERIVED 草稿
+  通道）、结果按 role=tool + tool_call_id 回灌下轮、历史开窗与工具结果截断、取消
+  作废语义（未应答帧补「已取消」应答保协议完整）。**仍递延**：
+  1. 端点/模型/密钥的图形化配置对话框——面板「配置…」只发意图，状态栏告知配置
+     文件（`LlmConfig::path()`）与 `PALEO_LLM_ENDPOINT` / `_MODEL` / `_API_KEY`
+     环境变量；密钥已进系统钥匙串（`src/ai/chat/llmkeystore.*`），只是没有写入 UI。
+  2. 层位建议/测井相的应用级上下文绑定：`bindChatToolRunner`（app/aiwiring）目前
+     只绑 horizon + 层位栅格取数；traceFetch（须地震体道窗服务）与 faciesInput
+     （须井缓存曲线组装）未绑——模型点名时执行器如实报「上下文未绑定」，不冒充
+     成功。补绑点即 `AiChatToolContext` 的两个 provider。
+- **Why:** 图形化配置是纯 UI 面但涉及密钥写入口（钥匙串写入流）；道窗/井曲线
+  上下文要跨到地震体缓存与井合成服务，各是一条独立接线。
+- **Context:** `src/workflow/aichattoolrunner.*`、`src/app/aiwiring.cpp`
+  （`bindChatToolRunner`）、`src/ui/ai/aiassistdock.*`、
+  ledger [方向61](.goal-loop-ledger-ai-toolloop.md)。
+- **Effort:** human: M / CC: M
+- **Priority:** P3
+- **Depends on:** 地震体道窗取数服务、井合成曲线缓存（faciesInput 用）
+
 ## P3 — UI 窄面布局后续（from goal/ui-visual-polish, 2026-10-04）
 
 - GeoJSON/层位预览的 QGIS 样式侧栏在 1100×700 下字段标题拥挤；另行评估侧栏宽度与表单排布。
@@ -57,11 +99,17 @@
 - **Priority:** P2
 - **Depends on:** 单因素原生 P0 分析场进入目标基线
 
-## P3 — 多文件井曲线其余读口（from goal/well-logset, 2026-10-02）
+## P3 — 多文件井曲线其余读口（from goal/well-logset, 2026-10-02；方向 44 已结）
 
-- **What:** 并集读面已接到岩石物理、属性建模、剖面井轨、交会清单和测井综合图。
-  相关对比与成图工作台仍按单资产或「有没有 well_log」。DLIS/LIS/BE 不读。
-  非驱动文件只做线性重采样，不做 MD/TVD 对齐。`attachLink` 仍把新挂链接升主。
+- **What:** ~~DLIS/LIS/BE 不读；非驱动文件只做线性重采样不做 MD/TVD 对齐；
+  `attachLink` 仍把新挂链接升主。~~（2026-10-05 方向 44 对账：DLIS/LIS 读口
+  已实装——io/dlisparser + io/lisparser + io/welllogread 分派，RP66/LIS79
+  逐条对账见 .goal-loop-ledger-welllog-fmt.md；MD/TVD 深度基准对齐落
+  petrophys 并集（时深表逆插值 +「线性重采样」口径 notes 不冒充已对齐）；
+  attachLink 收口为「挂接不夺主，显式夺主唯一入口 setLinkPrimary」。递延：
+  LIS 快道/多维通道展开、TVD↔MD 测斜反推、BE（查无公开规范待样件）——
+  docs/progress/welllog-multiformat.md「递延」。）原 What 其余部分（相关对比
+  与成图工作台仍按单资产）不变。
 - **Why:** 本方向锁的是 LAS 已决链接的并集和导入序，不改 catalog 格式，也不改挂接不变量。
 - **Pros:** 第二份 LAS 的曲线能进计算和综合图；**Cons:** 走挂接而不是导入时主文件会换。
 - **Context:** docs/progress/well-logset.md「递延」。
@@ -69,18 +117,26 @@
 - **Priority:** P3
 - **Depends on:** goal/well-logset 的 `WellLogSet` 读面
 
-## P3 — 地层格架后续：断块网格 / 随机模拟（from goal/property-modeling, 2026-10-02）
+## P3 — 地层格架后续：断块网格 / 随机模拟（from goal/property-modeling, 2026-10-02；方向 45 已消化大部分）
 
 - **What:** V1 只做等比例 IJK 格架 + 井曲线粗化 + 断层竖帘阻断的 IDW。
-  未做 pillar/断块错位网格、Y 型断层、沉积相带/对象建模、序贯高斯模拟，
-  也未做变差函数克里金。壳层「属性建模」dock 已接并进入 master。
-- **Why:** 断块网格和随机模拟是另一立项。斜井测斜表、断层棒投影也未做。
-- **Pros:** 等比例格架和 IDW 已能出 DERIVED 属性体；**Cons:** 斜井轨迹、
-  断距错位和相控仍要另做。
+  **方向 45（goal/prop-model-v2, 2026-10-05）已落**：断距矢量 z 向断块错位
+  （faultoffset）、序贯高斯充填接入 IJK 格架（geostat::sgs3 三维点集入口 +
+  stratgrid::sgsfill 编排）、相带分区参数域（facies_draft_map 栅格化）、
+  河道/点坝对象建模最小骨架（对象优先硬覆盖）、多 realization 各落独立
+  DERIVED 版本、竖直近似显式口径。斜井测斜表消费已由方向 19 落地。
+- **仍递延：** Y 型断层分叉成面（依赖方向 40，数据模型已打底）、断距的
+  heave（x/y 向水平错动——破坏规则柱假设）、深度变化断距（生长断层）、
+  pillar 网格本体、带内变差拟合、对象-河道耦合点坝与多对象谱系、
+  多实现的逐条流式序列化（当前 R 份体+R 份 blob 峰值驻留）。
+- **Why:** 剩余项是另一立项量级；本轮口径见 ledger
+  `.goal-loop-ledger-prop-model-v2.md` 与 docs/progress/property-modeling.md V2 节。
+- **Pros:** 错位网格 + SGS/相控/对象已能出多实现属性体；**Cons:** Y 型与
+  heave 错位仍要另做。
 - **Context:** docs/progress/property-modeling.md「递延」。
 - **Effort:** human: L / CC: L
 - **Priority:** P3
-- **Depends on:** goal/property-modeling 的格架核与属性体容器
+- **Depends on:** goal/property-modeling 的格架核与属性体容器、goal/geostat 的变差/SGS 核
 
 ## P3 — 层位自动追踪 3D 服务暴露 + 显式倾角引导（from goal/horizon-autotrack, 2026-10-02）
 
@@ -145,13 +201,20 @@ master 的 `41feecf`，catalog 行序修复来自 `e8da8cf`，不归入本 PR �
 
 ## P3 — 交会分类后续（from goal/crossplot-facies，2026-10-02）
 
-- **有监督分类 / SOM**：样本标注→训练→推理另立项；RemotePredictionRouter
-  沿 AI 方向深化。当前 k-means/GMM 只输出未解释簇编号，不自动赋地质相名。
+- ~~**有监督分类 / SOM**~~ **已落地（方向 46，goal/xplot-sup-20261004）**：
+  套索自由词标注→训练（LDA/QDA/kNN + 分层 k-fold 混淆矩阵）→推理
+  （标签+置信度）；SOM 自组织图并列第三无监督族；证据
+  `.goal-loop-ledger-xplot-sup.md` + `tests/tst_faciessupervised.cpp`。
+  仍递延：RemotePredictionRouter 沿 AI 方向深化（多特征逐点推理需先破
+  tileinference 的 [1,1,H,W] 单通道契约）；井段相名落库字段仍无
+  （WellComposite XML 有相名但无 catalog 映射——接入另立项）。
 - **时深域交会**：需要单位、基准、速度模型与不确定性契约后再接跨域采样；
   当前 SATR 只配时间层位（ms），深度栅格作为独立特征不能冒充时间。
-- **大规模 GMM / 伴生置信度**：工区 N×k 缓冲达到内存预算时改分块 EM；
-  分类服务已有真实置信度/距离向量，可按编图消费需要持久化伴生栅格。
-  当前 Byte 分类图只写类别与 provenance，井段写平均置信度。
+- ~~**大规模 GMM / 伴生置信度**~~ **已落地（方向 46）**：
+  `cluster::Options::emChunkBudgetBytes`（默认 256MiB）超预算自动分块 EM，
+  与全量路径逐位一致（`tests/tst_gmm_chunked.cpp`，RSS 有界断言）；
+  置信度伴生栅格三件套（Byte 分类 + Float32 置信度 + 低置信掩膜）落
+  catalog DERIVED 版本，provenance 含训练集指纹（trainingSetHash）。
 - **4D/时移、交会打印排版**：各自另立项，排版沿 mapbook 方向。
   口径与验收证据见 `docs/progress/crossplot-facies.md`。
 
@@ -237,13 +300,16 @@ master 的 `41feecf`，catalog 行序修复来自 `e8da8cf`，不归入本 PR �
 - **Depends on:** 井头数据带类别字段
 
 
-## P2 — 多 realization / 不确定性支持（deferred from CEO review D6, 2026-09-25)
+## ~~P2 — 多 realization / 不确定性支持（deferred from CEO review D6, 2026-09-25）~~（已落地：goal/realization-20261004，方向 47）
 
 - **What:** 每层位存 N 个预测 realization，派生置信度面，同一 canvas 切换 realization。
 - **Why:** 相对商业软件的研究级差异化能力；井点稀疏区的不确定性可视化。
 - **Pros:** 真正的不确定性量化；预测-验证闭环更强。
 - **Cons:** 触及数据模型、存储、预测管线、版本、UI — 约使预测子系统翻倍。
-- **Context:** 当前文档 §7 只有单个"预测置信度"图层。schema 已预留可空 `realization_id`（见 PALEO_QGIS_PLAN.md NOT-in-scope 决议）。做时先定 realization 与 version 的正交关系。
+- **Context:** 契约钉在 `src/catalog/realizationset.h` 头注（extra_json 键族，
+  无 schema_epoch bump；SCHEMA_MIGRATION.md §8 末条）。首个填充源 = SGS
+  （约束页「保留实现集合」）；派生统计/差值/成员动画/不确定性图签/集合
+  分组树均在 `goal/realization-20261004`。
 - **Effort:** human: XL / CC: L
 - **Priority:** P2
 - **Depends on:** 智能预测管线落地后
@@ -321,7 +387,7 @@ master 的 `41feecf`，catalog 行序修复来自 `e8da8cf`，不归入本 PR �
 
 - **置信度伴生栅格**：算法侧无真实置信度输出（ONNX 仅读首个输出张量、paleo:\* 均确定性单输出栅格）——不造假数据；接入点已留（`PredictionWorkflow::confidenceCompanionAvailable()` 恒 false + 声明位）。触发条件：出现带置信度/方差输出的算法。Effort: S / Priority: P3
 - **非 IDW 单因素引擎**：~~welldist（距离变换）~~ 已落地（wave/deepen-perf C5）：`paleo:paleo_distance_transform` 绕障距离引擎（无屏障=精确欧氏与 paleo_welldist 零容差对拍；break_line 屏障=8 邻接 Dijkstra），注册表标签已翻「绕障距离变换」；confidence 维持冻结拒绝（ONNX 仅读首个输出张量，无置信度通道——记档 docs/ALGORITHM_AUDIT.md §3a）；strathick 核实主线 6 已接（paleo_isopach 双栅格链），无需动作。
-- ~~**PaleoEditingToolbar `mEditLayer` 裸指针**~~ — 已落地：`mEditLayer` 与 `mLayers` 均已切为 `QPointer<QgsVectorLayer>`（`src/ui/edittools/editingtoolbar.h:134,137`）。
+- ~~**PaleoEditingToolbar `mEditLayer` 裸指针**~~ — 已落地：`mEditLayer` 与 `mLayers` 均已切为 `QPointer<QgsVectorLayer>`（`src/ui/edittools/editingtoolbar.h:134,137`）；2026-10-06 方向48 审计清账把残余的 `mCanvas` 也收口为 `QPointer<QgsMapCanvas>`（MEM-07，commit `c814130`）——AUDIT_ISSUES.md 全账终态见该文件 2026-10-06 注记。
 - ~~**ctest -j2 跨二进制 QSettings 竞态**~~ — 已核实根治（wave/deepen-perf B5）：四轮全量 `ctest -j4`（127 项）历史竞态点全绿——`add_paleo_test` 的 XDG/HOME 沙箱已根治（证据 docs/perf/BASELINE.md §6）；四个测试 main 的 `setPath` /tmp 重定向属历史残留可清理。
 - **native processing provider 注册**：C++ 嵌入运行时 Processing 注册表仅 `paleo:\*`（`gdal:contour` 属 Python provider）；等值线已走 GDAL C API（gdal:contour 同一底层引擎）交付，native provider 按需引入。Effort: M / Priority: P4
 - ~~**SBM Engine 剩余入口**~~ — 已落地对账关闭（wave/deepen-perf A1）：QuickOpen/ReadTimeSliceTiled/progressiveLod+SetActiveLod 前序 wave 已接，本轮补齐唯一缺口 ReadVoxelWindow 消费侧（3D 16 层堆叠取数 16 请求→1 体窗任务）；四入口消费核账表 docs/seismic/ARCHITECTURE.md §9b。

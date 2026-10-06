@@ -5,6 +5,7 @@
 #include "paleoicons.h"
 #include "paleomainwindow.h"
 #include "qgis/qgiscanvascontroller.h"
+#include "qgis/seismicsectiontool.h"
 #include "seismicsection/sectionsetupdialog.h"
 #include "seismicsection/seismicsectiondockwidget.h"
 #include "services/previewdoc.h"
@@ -57,6 +58,13 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
   connect(dock, &seismic::SeismicSectionDockWidget::setupRequested, this, open);
   connect(link, &SeismicMapLink::sectionVolumeChanged, dock,
           &seismic::SeismicSectionDockWidget::setVolume);
+  // #225：IL/XL 剖面同样需要候选井（井旁道 / 子波提取 / 反演低频井）——
+  // 体就绪后常驻注入工程井（连接序在 setVolume 之后）。
+  connect(link, &SeismicMapLink::sectionVolumeChanged, dock,
+          [dock, workbench](std::shared_ptr<const seismic::SgyVolume> volume) {
+            dock->setCandidateWells(volume ? workbench->sectionWells()
+                                           : std::vector<seismic::SectionWellInfo>{});
+          });
   connect(link, &SeismicMapLink::sectionVolumeChanged, this, [route, band] {
     route->clear();
     band->reset(Qgis::GeometryType::Line);
@@ -170,10 +178,32 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
             *drawingFromSetup = true;
             showPage("constraint");
             setup->hide();
-            link->activateSectionCaptureTool();
+            link->requestSectionCapture();
             m_canvasCtl->canvas()->setFocus();
             report(tr("左键添加节点，右键完成；退格撤回节点，Esc 取消。"));
           });
+  // R4 信号化（方向 49）：任意剖面捕获工具归壳持有——linkage 只发
+  // sectionCaptureRequested 意图（先例 threewaylocator）；工具的路径完成
+  // 接回 linkage 的折线提取入口，Esc 取消直通其取消信号。
+  connect(link, &SeismicMapLink::sectionCaptureRequested, this, [this] {
+    QgsMapCanvas *canvas = m_canvasCtl ? m_canvasCtl->canvas() : nullptr;
+    if (!canvas)
+      return;
+    if (!m_sectionCaptureTool)
+    {
+      m_sectionCaptureTool = new SeismicSectionTool(canvas);
+      connect(m_sectionCaptureTool, &SeismicSectionTool::sectionPathCaptured,
+              m_sectionLink, &SeismicMapLink::onSectionPathCaptured);
+      connect(m_sectionCaptureTool, &SeismicSectionTool::captureCancelled,
+              m_sectionLink, &SeismicMapLink::sectionCaptureCancelled);
+      // 画布先死则置空不 delete（工具析构会碰已死场景的橡皮带——
+      // tst_sectionlifecycle 既有坑序；正常收尾走 ~PaleoMainWindow）。
+      connect(canvas, &QObject::destroyed, this, [this]() {
+        m_sectionCaptureTool = nullptr;
+      });
+    }
+    canvas->setMapTool(m_sectionCaptureTool);
+  });
   connect(setup, &SectionSetupDialog::buildRequested, this,
           [link, workbench, report](const QStringList &ids) {
             QString error;
@@ -197,7 +227,9 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
           report(error);
           return;
         }
-        dock->refreshWellOverlay(workbench->sectionWells());
+        const auto wells = workbench->sectionWells();
+        dock->refreshWellOverlay(wells);
+        dock->setCandidateWells(wells); // #225：校正后的时深随候选井下发
         refresh();
         report(QObject::tr("时深对齐已应用；保存剖面新版本后可在工程中恢复。"));
       });

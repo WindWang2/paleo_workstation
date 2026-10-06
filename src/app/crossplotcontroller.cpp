@@ -7,9 +7,11 @@
 #include "qgis/qgiscanvascontroller.h"
 #include "qgis/qgislayerservice.h"
 #include "qgis/qgisprojectservice.h"
+#include "services/faciestraining.h"
 #include "ui/crossplot/crossplotpanel.h"
 #include "ui/paleomainwindow.h"
 #include "workflow/faciesclassify.h"
+#include "ui/shortcuts/shortcutcatalog.h"
 #include <QAction>
 #include <QFileInfo>
 #include <QTabWidget>
@@ -28,7 +30,7 @@ CrossplotController::CrossplotController(AppContext *ctx,
   m_map = new CrossplotMapLink(ctx->canvasCtl()->canvas(), this);
   auto *action = new QAction(tr("交会相分类"), window);
   action->setObjectName(QStringLiteral("openCrossplot"));
-  action->setShortcut(QKeySequence(QStringLiteral("Ctrl+Alt+X")));
+  paleo::shortcuts::bindAction(QStringLiteral("main.crossplot.open"), action); // 方向63 登记
   window->addAction(action);
   connect(action, &QAction::triggered, this, [window, tabs, this] {
     if (auto *dock = window->findChild<PaleoDockWidget *>(
@@ -69,6 +71,12 @@ CrossplotController::CrossplotController(AppContext *ctx,
             m_panel->setFrame(m_frame);
             m_panel->setDimensions({});
             m_panel->setClassified(false);
+            // 换工程：训练态整体重置（setCatalog→clear 不清训练集，这里显式
+            // 记陈旧），质量区与摘要由 setDimensions/refreshTrainingState 清。
+            m_trainedMethod = -1;
+            m_selection = {}; // 旧样本选区行号作废（与 load/project 对齐）
+            m_panel->setModelTrained(false);
+            refreshTrainingState();
             m_map->clear();
             refreshSources();
           });
@@ -87,6 +95,55 @@ CrossplotController::CrossplotController(AppContext *ctx,
       m_loadTask->requestCancel();
     m_workflow->cancel();
   });
+  connect(m_panel, &CrossplotPanel::assignLabelRequested, this,
+          [this](const QString &className) {
+            // 选区行号来源 = select() 落定的当前 Selection.indices；无选区
+            // （未套索/已切轴/未读样本）时只提示，不发空标注。
+            if (m_selection.indices.isEmpty()) {
+              m_panel->setMessage(tr("先在图上框选样本"));
+              return;
+            }
+            m_workflow->assignTrainingLabel(m_selection.indices, className);
+          });
+  connect(m_panel, &CrossplotPanel::clearTrainingRequested, this,
+          [this] { m_workflow->clearTraining(); });
+  connect(m_panel, &CrossplotPanel::trainRequested, this, [this] {
+    ClassificationOptions o = m_panel->options();
+    o.selection.clear(); // 训练用全学习集；selection 只服务约束分类
+    m_workflow->train(o);
+  });
+  connect(m_panel, &CrossplotPanel::methodChanged, this, [this] {
+    // 方法切换：训练态按新方法重算（validate 下限与方法是绑定的）；已训练态
+    // 按「模型方法 == 当前选择」刷新（LDA 模型不喂 QDA/kNN 推理）。
+    const int current = int(m_panel->options().method);
+    const bool matches = m_trainedMethod >= 0 && m_trainedMethod == current;
+    m_panel->setModelTrained(matches);
+    // 质量区：切回已训练方法 → 回填该次训练的 CV 质量；否则清空（旧方法的
+    // 混淆矩阵不挂到新方法上）。m_trainedMethod == -1（陈旧/已清）时一切
+    // 方法都不回填——报告与模型已失配。
+    m_panel->setTrainingQuality(matches ? m_lastReport : QVariantMap{});
+    refreshTrainingState();
+  });
+  connect(m_panel, &CrossplotPanel::paramsChanged, this,
+          [this] { refreshTrainingState(); });
+  connect(m_workflow, &FaciesClassifyWorkflow::trainingChanged, this, [this] {
+    // 标注变更 / 清空 = 模型陈旧或作废（与 workflow classify 门禁同语义：
+    // trainingDirty 即要求重训）。零标注初始态也经此落下禁用原因。
+    m_trainedMethod = -1;
+    m_panel->setModelTrained(false);
+    m_panel->setTrainingQuality({}); // 陈旧/作废模型的旧混淆矩阵不得残留
+    refreshTrainingState();
+  });
+  connect(m_workflow, &FaciesClassifyWorkflow::trainingReady, this,
+          [this](const QVariantMap &report) {
+            m_trainedMethod = report.value("supervisedMethod").toInt();
+            m_lastReport = report; // 方法来回切换时质量区回填的缓存
+            m_panel->setTrainingQuality(report);
+            m_panel->setModelTrained(true);
+            m_panel->setMessage(
+                tr("训练完成：%1 折交叉验证；可在同方法下推理并写回工程。")
+                    .arg(report.value("folds").toInt()));
+          });
   connect(m_panel, &CrossplotPanel::writeRequested, this, [this] {
     m_workflow->write(m_context->selection()->activeHorizon());
   });
@@ -108,6 +165,10 @@ CrossplotController::CrossplotController(AppContext *ctx,
             m_panel->setMessage(
                 tr("分类成果已登记：%1。栅格可在智能编图中作为先验相图矢量化。")
                     .arg(p.path));
+            // 伴生层上图决策：productReady 只 instantiate 主分类图
+            // （p.layerId）；置信度 / 低置信掩膜两件已在 write() 内 declare
+            // 进图层树（02_Prediction 组），交由用户按需手动开启——不替用户
+            // 决定默认可见层，避免一次写回铺开三图层。
             if (!p.layerId.isEmpty()) {
               QString error;
               m_context->layerSvc()->instantiate(p.layerId, &error);
@@ -118,6 +179,7 @@ CrossplotController::CrossplotController(AppContext *ctx,
   if (!ctx->projectSvc()->projectPath().isEmpty())
     m_workflow->setCatalog(
         catalog, QFileInfo(ctx->projectSvc()->projectPath()).absolutePath());
+  refreshTrainingState(); // 首启训练态：禁用原因由控制器单一出处下发
   refreshSources();
 }
 void CrossplotController::refreshSources() {
@@ -129,6 +191,41 @@ void CrossplotController::refreshSources() {
   for (const auto &s : m_sources)
     choices << s.choice;
   m_panel->setSources(choices);
+}
+void CrossplotController::refreshTrainingState() {
+  // 摘要区始终与 workflow 对齐（无样本/零标注 → 「未标注」）。
+  m_panel->setTrainingSummary(m_workflow->trainingSummary());
+  ClassificationOptions o = m_panel->options();
+  o.selection.clear(); // 校验只看训练集与样本，selection 不参与
+  const auto samples = m_workflow->samples();
+  if (!samples) {
+    m_panel->setTrainingState(false, tr("请先读取至少两个通道"));
+    return;
+  }
+  if (!isSupervisedClassifier(o.method)) {
+    m_panel->setTrainingState(
+        false, tr("请选择监督分类方法（LDA / QDA / kNN）再训练"));
+    return;
+  }
+  // 零标注首启：labels 为空（换样本已清）时给可操作提示，不让validate 的
+  // 「行数不一致」误导用户以为数据坏了。
+  if (m_workflow->trainingSet().labels.empty()) {
+    m_panel->setTrainingState(
+        false, tr("尚无标注样本——先用套索选区并赋予类名"));
+    return;
+  }
+  const auto precondition = FaciesTrainingService::validateTrainingSet(
+      *samples, m_workflow->trainingSet(), o);
+  if (precondition.ok)
+    // 放行也带 tooltip：失衡/小类 warnings 摘要（按钮可用，提示不阻断）。
+    m_panel->setTrainingState(
+        true,
+        precondition.warnings.isEmpty()
+            ? QString()
+            : tr("可以训练（注意：%1）")
+                  .arg(precondition.warnings.join(tr("；"))));
+  else
+    m_panel->setTrainingState(false, precondition.error);
 }
 void CrossplotController::load(const QStringList &ids) {
   QVector<SourceSpec> specs;
@@ -148,12 +245,19 @@ void CrossplotController::load(const QStringList &ids) {
     m_loadTask->requestCancel();
   m_workflow->clear();
   m_map->clear();
+  m_selection = {};     // 旧样本的选区行号全部作废
+  m_trainedMethod = -1; // workflow->clear 不清训练集，控制器显式记陈旧
+  m_panel->setModelTrained(false);
   const auto generation = ++m_generation;
   auto result = std::make_shared<SampleResult>();
   m_panel->setClassified(false);
   m_panel->setDimensions({});
   m_panel->setFrame({});
   m_panel->setSelection({}, {});
+  // 面板展示重置之后才刷训练态：setDimensions 会清摘要区，refreshTrainingState
+  // 若先跑，「未标注」摘要会被随后的 setDimensions 抹掉（轮 3 Medium-1 同款
+  // 顺序问题，起始段一并修）。
+  refreshTrainingState(); // 样本已空：训练按钮禁用 + 摘要回落「未标注」
   m_panel->setBusy(true);
   auto *task = m_context->taskSvc()->start(
       tr("交会样本抽取"), [specs, result](PaleoTask *t) {
@@ -181,8 +285,13 @@ void CrossplotController::load(const QStringList &ids) {
       return;
     }
     auto samples = std::make_shared<SampleSet>(std::move(result->samples));
-    m_workflow->setSamples(samples);
+    // 先推面板维度、后落 workflow 样本：setSamples → clearTraining →
+    // trainingChanged → refreshTrainingState 下发「未标注」摘要，若被随后
+    // 的 setDimensions（清摘要区）盖掉就丢了（轮 3 Medium-1）。轮 1
+    // Medium-2 的根因修（setSamples 内部先落样本再 clearTraining）不受
+    // 对调影响——回调里 samples 已就绪。
     m_panel->setDimensions(samples->names);
+    m_workflow->setSamples(samples);
     project(m_panel->axes());
     m_panel->setMessage(
         tr("有效样本 %1，联合缺失剔除 %2；类别是未解释的簇编号。")
@@ -198,6 +307,7 @@ void CrossplotController::project(const Axes &a) {
                                       m_workflow->classification().labels);
   m_panel->setFrame(m_frame);
   m_panel->setSelection({}, samples->names);
+  m_selection = {}; // 换轴即重投影，旧选区高亮与行号一并作废
   m_map->clear();
 }
 void CrossplotController::select(const QVector<QPointF> &vertices) {
@@ -205,6 +315,7 @@ void CrossplotController::select(const QVector<QPointF> &vertices) {
   if (!samples)
     return;
   const auto selection = CrossplotSamples::select(*samples, m_frame, vertices);
+  m_selection = selection; // assignLabelRequested 的行号来源
   m_panel->setSelection(selection, samples->names);
   m_context->selection()->setSelection(selection.wellIds,
                                        QStringLiteral("crossplot"));

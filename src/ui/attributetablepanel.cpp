@@ -14,7 +14,7 @@
 #include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QMessageBox>
+#include "ui/notifications/notificationmanager.h"
 #include <QToolButton>
 #include <QVBoxLayout>
 
@@ -177,15 +177,12 @@ bool AttributeTablePanel::cancelEditing()
   }
   // C4 数据安全：rollBack 丢弃整个编辑会话——有未提交修改时先确认。
   // offscreen（测试/CI）无窗口系统不弹框（硬纪律），直走回滚。
-  if (vl->isModified() &&
-      QGuiApplication::platformName() != QLatin1String("offscreen"))
+  if (vl->isModified())
   {
-    const QMessageBox::StandardButton answer = QMessageBox::question(
-        this, tr("放弃编辑"),
-        tr("图层「%1」有未提交的修改——放弃后将全部丢失，确定放弃？")
-            .arg(vl->name()),
-        QMessageBox::Discard | QMessageBox::Cancel, QMessageBox::Cancel);
-    if (answer != QMessageBox::Discard)
+    if (!paleo::ui::NotificationManager::confirmDestructive(
+            this, tr("放弃编辑"),
+            tr("图层「%1」有未提交的修改——放弃后将全部丢失，确定放弃？")
+                .arg(vl->name())))
       return false; // 用户取消：会话原样保留
   }
   const bool ok = m_editingService ? m_editingService->rollbackEdit(vl)
@@ -309,4 +306,25 @@ QString AttributeTablePanel::currentLayerId() const
 {
   const auto *picker = findChild<QComboBox *>(QStringLiteral("attrLayerPicker"));
   return picker ? picker->currentData().toString() : QString();
+}
+
+bool AttributeTablePanel::updateCell(int row, int column, const QVariant &value)
+{
+  if (!m_filter || row < 0 || column < 0)
+    return false;
+  const QModelIndex idx = m_filter->index(row, column);
+  if (!idx.isValid())
+    return false;
+  return m_filter->setData(idx, value, Qt::EditRole);
+}
+
+int AttributeTablePanel::updateCells(const QVector<std::tuple<int, int, QVariant>> &cellUpdates)
+{
+  int count = 0;
+  for (const auto &[row, col, val] : cellUpdates)
+  {
+    if (updateCell(row, col, val))
+      ++count;
+  }
+  return count;
 }

@@ -3,7 +3,6 @@
 #include "rasterout.h"
 #include "singlefactor/localdirectionalgorithm.h"
 #include "singlefactor/structuralalgorithm.h"
-#include "../catalog/datacatalog.h"
 #include "domain/singlefactorrequest.h"
 
 #include <qgsprocessingparameters.h>
@@ -100,8 +99,11 @@ void bandNodata( GDALRasterBandH band, bool &hasNodata, double &nodata )
 }
 
 // 单波段 GeoTIFF。GeoTransform 与 CRS 只在这里写，float / byte 共用。
+// canonicalCrsWkt 非空且与 crs 同坐标系时按原串写出（EDATUM 保真，见
+// rasterout.h ARCH-05 注）。
 GDALDatasetH createGTiff( const QString &outPath, int nCols, int nRows, GDALDataType type,
-                          const double geoTransform[6], const QgsCoordinateReferenceSystem &crs )
+                          const double geoTransform[6], const QgsCoordinateReferenceSystem &crs,
+                          const QString &canonicalCrsWkt )
 {
   GDALAllRegister(); // idempotent — safe under an already-initialized QGIS runtime
   GDALDriverH drv = GDALGetDriverByName( "GTiff" );
@@ -119,13 +121,30 @@ GDALDatasetH createGTiff( const QString &outPath, int nCols, int nRows, GDALData
   {
     // QGIS's engineering CRS exporter can omit EDATUM; GeoTIFF then loses
     // the local datum and no longer compares equal to the project grid.
-    const auto local = QgsCoordinateReferenceSystem::fromWkt( DataCatalog::localGridCrsWkt() );
-    const QByteArray wkt = ( ( crs == local || crs.toWkt() == local.toWkt() )
-                                 ? DataCatalog::localGridCrsWkt()
-                                 : crs.toWkt( Qgis::CrsWktVariant::PreferredGdal ) )
-                               .toUtf8();
-    GDALSetProjection( ds, wkt.constData() );
-    GDALSetMetadataItem( ds, "PALEO_CRS_WKT", wkt.constData(), nullptr );
+    // The canonical WKT now arrives as a parameter (ARCH-05) — algorithms
+    // no longer consult the catalog for it.
+    QString wkt;
+    if ( !canonicalCrsWkt.isEmpty() )
+    {
+      const auto canonical = QgsCoordinateReferenceSystem::fromWkt( canonicalCrsWkt );
+      if ( crs == canonical || crs.toWkt() == canonical.toWkt() )
+        wkt = canonicalCrsWkt;
+    }
+    if ( wkt.isEmpty() )
+      wkt = crs.toWkt( Qgis::CrsWktVariant::PreferredGdal );
+    const QByteArray wktUtf8 = wkt.toUtf8();
+    GDALSetProjection( ds, wktUtf8.constData() );
+    GDALSetMetadataItem( ds, "PALEO_CRS_WKT", wktUtf8.constData(), nullptr );
+  }
+  else if ( !canonicalCrsWkt.isEmpty() )
+  {
+    // BIZ-11（方向58）：输入无 CRS（无效 crs）但调用方给了规范局部网格 WKT
+    //（workflow 恒注入 LOCAL_GRID_WKT）——工程内一切栅格都在该网格上，按规范
+    // 串写出，不再产出无投影 GeoTIFF。无规范覆盖的直调（测试/外部脚本）
+    // 仍保持旧行为（不编造 CRS），见 rasterout.h 残余面说明。
+    const QByteArray wktUtf8 = canonicalCrsWkt.toUtf8();
+    GDALSetProjection( ds, wktUtf8.constData() );
+    GDALSetMetadataItem( ds, "PALEO_CRS_WKT", wktUtf8.constData(), nullptr );
   }
   return ds;
 }
@@ -136,9 +155,10 @@ GDALDatasetH createGTiff( const QString &outPath, int nCols, int nRows, GDALData
 GDALDatasetH PaleoRasterOut::createFloatRaster( const QString &outPath, int nCols, int nRows,
                                 const double geoTransform[6],
                                 const QgsCoordinateReferenceSystem &crs,
-                                double nodata )
+                                double nodata,
+                                const QString &canonicalCrsWkt )
 {
-  GDALDatasetH ds = createGTiff( outPath, nCols, nRows, GDT_Float32, geoTransform, crs );
+  GDALDatasetH ds = createGTiff( outPath, nCols, nRows, GDT_Float32, geoTransform, crs, canonicalCrsWkt );
   if ( !ds )
     return nullptr;
   GDALSetRasterNoDataValue( GDALGetRasterBand( ds, 1 ), nodata );
@@ -147,17 +167,19 @@ GDALDatasetH PaleoRasterOut::createFloatRaster( const QString &outPath, int nCol
 
 GDALDatasetH PaleoRasterOut::createByteRaster( const QString &outPath, int nCols, int nRows,
                                                const double geoTransform[6],
-                                               const QgsCoordinateReferenceSystem &crs )
+                                               const QgsCoordinateReferenceSystem &crs,
+                                               const QString &canonicalCrsWkt )
 {
-  return createGTiff( outPath, nCols, nRows, GDT_Byte, geoTransform, crs );
+  return createGTiff( outPath, nCols, nRows, GDT_Byte, geoTransform, crs, canonicalCrsWkt );
 }
 
 GDALDatasetH PaleoRasterOut::createDoubleRaster( const QString &outPath, int nCols, int nRows,
                                                  const double geoTransform[6],
                                                  const QgsCoordinateReferenceSystem &crs,
-                                                 double nodata )
+                                                 double nodata,
+                                                 const QString &canonicalCrsWkt )
 {
-  GDALDatasetH ds = createGTiff( outPath, nCols, nRows, GDT_Float64, geoTransform, crs );
+  GDALDatasetH ds = createGTiff( outPath, nCols, nRows, GDT_Float64, geoTransform, crs, canonicalCrsWkt );
   if ( !ds )
     return nullptr;
   GDALSetRasterNoDataValue( GDALGetRasterBand( ds, 1 ), nodata );
@@ -354,6 +376,16 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
           throw QgsProcessingException(
               QStringLiteral( "Cannot transform constraints into the well CRS: %1" ).arg( e.what() ) );
         }
+        // BIZ-10（方向58）：显式前置 transform 有效性——无大地基准的工程 CRS
+        //（LOCAL_GRID_WKT ENGCRS）与大地/投影 CRS 之间 PROJ 造不出坐标操作
+        //（projinfo：Candidate operations found: 0）。如实报因，不依赖 QGIS
+        // 对无效 transform 的内部处理（直通或抛 QgsCsException）。
+        if ( !xform->isValid() )
+          throw QgsProcessingException(
+              QStringLiteral( "Cannot transform constraints into the %1 CRS: no coordinate operation "
+                              "between %2 and %3 (engineering CRS without geodetic datum?)" )
+                  .arg( QStringLiteral( "well" ), from.userFriendlyIdentifier(),
+                        to.userFriendlyIdentifier() ) );
       }
       const int typeIdx = constraints->fields().lookupField( QStringLiteral( "type" ) );
       QgsFeatureIterator cit = constraints->getFeatures( QgsFeatureRequest() );
@@ -365,7 +397,15 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
         QgsGeometry g = cf.geometry();
         if ( xform )
         {
-          const Qgis::GeometryOperationResult tr = g.transform( *xform );
+          Qgis::GeometryOperationResult tr = Qgis::GeometryOperationResult::Success;
+          try
+          {
+            tr = g.transform( *xform );
+          }
+          catch ( const QgsCsException & )
+          {
+            tr = Qgis::GeometryOperationResult::NothingHappened; // BIZ-10：逐要素变换异常归入同一报因
+          }
           if ( tr != Qgis::GeometryOperationResult::Success )
             throw QgsProcessingException(
                 QStringLiteral( "Constraint geometry failed to transform into the well CRS" ) );
@@ -416,7 +456,8 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
   const double gt[6] = { extent.xMinimum(), cellSize, 0.0,
                          extent.yMaximum(), 0.0, -cellSize };
   GDALDatasetH outDs = PaleoRasterOut::createFloatRaster( outPath, nCols, nRows, gt,
-                                          source->sourceCrs(), PALEO_NODATA );
+                                          source->sourceCrs(), PALEO_NODATA,
+                                          PaleoRasterOut::canonicalWktFromParameters( parameters ) );
   if ( !outDs )
     throw QgsProcessingException( QStringLiteral( "Cannot create output raster %1" ).arg( outPath ) );
 
@@ -784,7 +825,8 @@ QVariantMap FaciesFusionAlgorithm::processAlgorithm( const QVariantMap &paramete
   const double outNodata = inputs.front()->hasNodata ? inputs.front()->nodata
                                                      : static_cast<double>( PALEO_NODATA );
   GDALDatasetH outDs = PaleoRasterOut::createFloatRaster( outPath, ref.cols, ref.rows, ref.gt,
-                                          layers.at( 0 )->crs(), outNodata );
+                                          layers.at( 0 )->crs(), outNodata,
+                                          PaleoRasterOut::canonicalWktFromParameters( parameters ) );
   if ( !outDs )
   {
     closeAll();
@@ -989,7 +1031,8 @@ QVariantMap GeologicalSmoothingAlgorithm::processAlgorithm( const QVariantMap &p
   }
 
   GDALDatasetH outDs = PaleoRasterOut::createFloatRaster( outPath, grid.cols, grid.rows, grid.gt,
-                                          rl->crs(), outNodata );
+                                          rl->crs(), outNodata,
+                                          PaleoRasterOut::canonicalWktFromParameters( parameters ) );
   if ( !outDs )
     throw QgsProcessingException( QStringLiteral( "Cannot create output raster %1" ).arg( outPath ) );
   GDALRasterBandH outBand = GDALGetRasterBand( outDs, 1 );
@@ -1085,7 +1128,8 @@ QVariantMap IsopachAlgorithm::processAlgorithm( const QVariantMap &parameters,
 
   const double outNodata = topNodataOk ? topNodata : static_cast<double>( PALEO_NODATA );
   GDALDatasetH outDs = PaleoRasterOut::createFloatRaster( outPath, grid.cols, grid.rows, grid.gt,
-                                          topLayer->crs(), outNodata );
+                                          topLayer->crs(), outNodata,
+                                          PaleoRasterOut::canonicalWktFromParameters( parameters ) );
   if ( !outDs )
   {
     closeInputs();

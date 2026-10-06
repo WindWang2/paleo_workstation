@@ -2,10 +2,23 @@
 #pragma once
 #include <QByteArray>
 #include <QString>
+#include <QStringList>
 #include <QVector>
 
 // domain/ — 井文本文件解析出的瞬态记录类型（从 io/wellfileparsers.h 拆出）。
 // 纯值类型：视图层的预览表/剖面标定按这份 DTO 渲染，不需要碰解析器入口。
+
+// 解析报告按单次调用复位，物理行号从 1 开始；拒收按行计，空值按单元格计。
+// optional 列为空仅置 has* false；required 列缺失拒收整行。issues 逐条列因。
+struct WellParseReport
+{
+  int acceptedRows = 0;
+  int rejectedRows = 0;
+  int sentinelHits = 0;
+  int blankCells = 0;
+  int invalidCells = 0;
+  QStringList issues;
+};
 
 // 井位 ExportWellHead.dat：井名 X Y KB TotalDepth BottomX BottomY WellType
 struct WellHeadRecord
@@ -31,7 +44,7 @@ struct WellTopRecord
 struct TdRow
 {
   double timeMs = 0.0, tvdss = 0.0, tvd = 0.0, md = 0.0;
-  bool hasTvd = false, hasMd = false; // -99999/缺列 → false
+  bool hasTvd = false, hasMd = false; // 共享哨兵/缺列 → false；缺失 TVDSS 为 NaN
 };
 struct TimeDepthTable
 {

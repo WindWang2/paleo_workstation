@@ -3,6 +3,7 @@
 #include "domain/seismic/sgycoordinatemapper.h"
 #include "domain/seismic/sgyvolume.h"
 #include "io/lascache.h"
+#include "io/sattrio.h"
 #include "io/segyreader.h"
 #include "welllogset.h"
 #include <QDataStream>
@@ -75,48 +76,24 @@ bool CrossplotSources::attributeSection(const QString &path,
       *error = e;
     return false;
   };
-  QFile file(path);
-  if (!out || !file.open(QIODevice::ReadOnly))
-    return fail(QStringLiteral("SATR 文件无法打开"));
-  QDataStream stream(&file);
-  stream.setByteOrder(QDataStream::LittleEndian);
-  stream.setFloatingPointPrecision(QDataStream::SinglePrecision);
-  char magic[4];
-  quint32 version = 0, jsonSize = 0;
-  qint32 width = 0, height = 0;
-  if (stream.readRawData(magic, 4) != 4 || QByteArray(magic, 4) != "SATR")
-    return fail(QStringLiteral("SATR 魔数无效"));
-  stream >> version >> width >> height >> jsonSize;
-  if (version != 1 || width <= 0 || height <= 0 ||
-      qint64(width) * height > std::numeric_limits<int>::max() ||
-      jsonSize > 1024 * 1024 ||
-      file.size() != 20 + qint64(jsonSize) + qint64(width) * height * 4)
-    return fail(QStringLiteral("SATR 版本或载荷大小无效"));
-  QByteArray json(int(jsonSize), Qt::Uninitialized);
-  if (stream.readRawData(json.data(), json.size()) != json.size())
-    return fail(QStringLiteral("SATR 头截断"));
-  QJsonParseError parseError;
-  const auto header = QJsonDocument::fromJson(json, &parseError).object();
-  if (parseError.error != QJsonParseError::NoError)
-    return fail(QStringLiteral("SATR JSON 无效"));
-  const auto section = header.value("section").toString();
-  if (section != "il" && section != "xl")
-    return fail(QStringLiteral("SATR 剖面方向不支持"));
+  if (!out)
+    return fail(QStringLiteral("SATR 输出为空"));
+  // 读回器收敛在 io/sattrio（与服务写端同一格式定义，防漂移）；协作取消
+  // 语义保持：读值途中取消 → 如实报已取消。
+  paleo::sattr::SattrSectionHeader header;
+  QVector<float> values;
+  const std::function<bool()> cancelled =
+      ctl.cancelled ? std::function<bool()>([&ctl] { return !ctl.cancelled(); })
+                    : std::function<bool()>();
+  if (!paleo::sattr::readSattrSection(path, &header, &values, error, cancelled))
+    return false;
+  const QString section = header.section;
   AttributeSection a;
-  a.plane.name = header.value("attrId").toString();
-  a.plane.grid.rows = height;
-  a.plane.grid.cols = width;
-  a.plane.values.resize(std::size_t(width) * height);
-  for (auto &v : a.plane.values) {
-    if (ctl.cancelled && ctl.cancelled())
-      return fail(QStringLiteral("已取消"));
-    float sample = 0;
-    stream >> sample;
-    v = sample;
-  }
-  if (stream.status() != QDataStream::Ok)
-    return fail(QStringLiteral("SATR 值块截断"));
-  const QString source = header.value("sourceSgyPath").toString();
+  a.plane.name = header.attrId;
+  a.plane.grid.rows = header.height;
+  a.plane.grid.cols = header.width;
+  a.plane.values.assign(values.begin(), values.end());
+  const QString source = header.sourceSgyPath;
   if (source.isEmpty())
     return fail(QStringLiteral("SATR 缺源测网路径"));
   seismic::SgyVolume volume;
@@ -140,9 +117,10 @@ bool CrossplotSources::attributeSection(const QString &path,
   a.startTimeMs = reader.geometry().startTimeMs;
   const auto &axis =
       section == "il" ? volume.XlineValues() : volume.InlineValues();
-  if (axis.size() != std::size_t(width) || volume.SampleCount() != height)
+  if (axis.size() != std::size_t(header.width) ||
+      volume.SampleCount() != header.height)
     return fail(QStringLiteral("SATR 与源测网尺寸不符"));
-  const int line = header.value("sectionIndex").toInt();
+  const int line = header.sectionIndex;
   for (int value : axis) {
     double x = 0, y = 0;
     if (!mapper.MapInlineXline(section == "il" ? line : value,
@@ -266,7 +244,11 @@ SampleResult CrossplotSources::load(const QVector<SourceSpec> &specs,
           r.samples.values[i * 2];
     horizons << std::move(p);
   }
-  if (!horizons[0].grid.crs.isEmpty()) {
+  // #221：空 CRS 层位（有效仿射但无投影）无法校验与 SEG-Y 同属局部工程坐标系，
+  // 这里仍放行（契约测试与外委数据常见），但样本元数据如实标「未校验」，且
+  // attributeHorizon 对全拒样本报错而非报成功。
+  const bool horizonCrsUnknown = horizons[0].grid.crs.isEmpty();
+  if (!horizonCrsUnknown) {
     auto crs =
         OSRNewSpatialReference(horizons[0].grid.crs.toUtf8().constData());
     const bool local = crs && OSRIsLocal(crs);
@@ -287,6 +269,8 @@ SampleResult CrossplotSources::load(const QVector<SourceSpec> &specs,
     sections << std::move(a);
   }
   auto result = CrossplotSamples::attributeHorizon(sections, horizons, ctl);
+  if (result.ok && horizonCrsUnknown)
+    result.samples.samplingMetadata.insert("horizonCrs", QStringLiteral("unknown_unverified"));
   for (const auto &s : rasters)
     if (!s.layerId.isEmpty())
       result.samples.sourceLayerIds << s.layerId;

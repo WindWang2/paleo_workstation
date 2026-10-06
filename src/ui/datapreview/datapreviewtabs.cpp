@@ -12,6 +12,7 @@
 #include "../../domain/sectiontrace.h"    // SegyTrace/SegySectionGrid（domain 纯数据）
 #include "../../io/lasdoc.h"              // LasCurve（白名单：数据模型）
 #include "../../services/previewdoc.h"    // 唯一数据门面——解析/解码/SHA/PDF 编排全经它（W1）
+#include "../../services/sectiondoc.h"   // SectionDoc 完整定义（方向 59 拆细头；onSectionReady 触碰成员）
 #include "../../services/welllogset.h"    // 井曲线并集（综合柱状图；只读 ~C 头）
 #include "../../services/paleotaskservice.h" // PaleoTask 进度/取消（地震转码区）
 #include "../seismic3d/seismic3dviewpanel.h"
@@ -1616,7 +1617,7 @@ void DataPreviewTabs::onSectionReady(const QString &assetId,
     return;
   // SectionPanel 是本 cpp 内聚的预览控件——挂起时存的是它。
   auto *sp = static_cast<SectionPanel *>(pend.panel.data());
-  sp->setTraces(doc.traces, doc.sampleIntervalUs, doc.startTimeMs);
+  sp->setTraces(doc.traces, doc.sampleIntervalUs, doc.startTimeMs, doc.readReport.message);
   if (pend.hasTie)
     sp->setTieMarker(pend.tieText, pend.tieMs);
   // 标题后缀：「文件名 · IL1315」/「文件名 · XL4165」（§4）。
@@ -1627,12 +1628,12 @@ void DataPreviewTabs::onSectionReady(const QString &assetId,
   if (pend.mode)
   {
     pend.mode->setEnabled(true);
-    pend.mode->setToolTip(QString());
+    pend.mode->setToolTip(doc.readReport.message);
   }
   if (pend.spin)
   {
     pend.spin->setEnabled(true);
-    pend.spin->setToolTip(QString());
+    pend.spin->setToolTip(doc.readReport.message);
   }
 }
 

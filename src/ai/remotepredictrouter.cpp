@@ -1,10 +1,6 @@
 // 层：功能
 #include "remotepredictrouter.h"
 
-#include "onnxpredictionservice.h"
-#include "tileinference.h"
-
-#include <QEventLoop>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -15,260 +11,317 @@
 
 #include <cmath>
 
-// ai/ — 远端推理路由实现。
+// ai/ — 远端推理路由实现（方向51：全异步，零事件循环嵌套）。
+//
+// 轮次号（runId）契约：router 每次 start 领一个只增不复用的 runId，随
+// healthCheck/predict 传下去，传输层**原样带回**。router 收到与当前不符的
+// runId 就静默丢弃——取消 / 重入之后迟到的应答因此没有机会被写成新结论
+// （旧实现的"取消"只是置个 flag，迟到的完成照样回来）。
+// 传输层自己另有内部 generation，用来作废自己那侧的 reply（超时先 bump 再
+// abort，避免 abort 触发的 finished 重复回包）。
 
+LocalPredictor::~LocalPredictor() = default;
+
+RemoteTransport::RemoteTransport(QObject *parent) : QObject(parent) {}
 RemoteTransport::~RemoteTransport() = default;
 
 // ---------------------------------------------------------------------------
 // HttpRemoteTransport
 // ---------------------------------------------------------------------------
-HttpRemoteTransport::HttpRemoteTransport( const QUrl &base, QObject *parent )
-  : QObject( parent )
-  , m_base( base )
-  , m_nam( new QNetworkAccessManager( this ) )
+HttpRemoteTransport::HttpRemoteTransport(const QUrl &base, QObject *parent)
+  : RemoteTransport(parent)
+  , m_base(base)
+  , m_nam(new QNetworkAccessManager(this))
+  , m_timer(new QTimer(this))
 {
+  m_timer->setSingleShot(true);
+  // 只连一次：多次 healthCheck/predict 不累积定时器连接（反复 connect 会让
+  // 一次超时发多次信号——历史上的 secondary emit 源）。
+  connect(m_timer, &QTimer::timeout, this, [this]() {
+    const Op op = m_op;
+    if (op == Op::None)
+      return;
+    const int timeoutMs = m_opTimeoutMs;
+    const quint64 runId = m_runId;
+    // 先提世代再 abort：abort 触发的 finished 判为过期，不会重复回包。
+    ++m_generation;
+    m_op = Op::None;
+    m_runId = 0;
+    m_timer->stop();
+    QPointer<QNetworkReply> victim = m_reply;
+    m_reply.clear();
+    if (victim) {
+      victim->abort();
+      victim->deleteLater();
+    }
+    const QString reason = QObject::tr("远端请求超时（>%1ms）: %2")
+                             .arg(timeoutMs)
+                             .arg(m_base.toString());
+    if (op == Op::Health)
+      emit healthDone(runId, false, reason);
+    else
+      emit predictDone(runId, {}, reason);
+  });
 }
 
 HttpRemoteTransport::~HttpRemoteTransport() = default;
 
-QNetworkReply *HttpRemoteTransport::waitFinished( QNetworkReply *reply, int timeoutMs,
-                                                   QString *error )
+void HttpRemoteTransport::abort()
 {
-  QEventLoop loop;
-  QTimer timer;
-  timer.setSingleShot( true );
-  QObject::connect( reply, &QNetworkReply::finished, &loop, &QEventLoop::quit );
-  QObject::connect( &timer, &QTimer::timeout, &loop, &QEventLoop::quit );
-  timer.start( timeoutMs );
-  loop.exec();
-  if ( !timer.isActive() )
-  {
-    reply->abort();
+  ++m_generation;
+  m_op = Op::None;
+  m_timer->stop();
+  if (m_reply) {
+    m_reply->abort();
+    m_reply->deleteLater();
+    m_reply.clear();
+  }
+}
+
+void HttpRemoteTransport::begin(int timeoutMs, Op op, QNetworkReply *reply,
+                                quint64 runId)
+{
+  abort();
+  const int generation = ++m_generation;
+  m_op = op;
+  m_runId = runId;
+  m_opTimeoutMs = timeoutMs;
+  m_reply = reply;
+  m_timer->start(timeoutMs);
+  connect(reply, &QNetworkReply::finished, this,
+          [this, generation, op, reply, runId]() {
+    if (generation != m_generation) { // 已被超时/取消/新一轮作废
+      reply->deleteLater();
+      return;
+    }
+    m_timer->stop();
+    m_op = Op::None;
+    ++m_generation; // 本轮已 settle，后续任何迟到信号判过期
+    m_runId = 0;
+    m_reply.clear();
+    const bool ok = reply->error() == QNetworkReply::NoError;
+    const int status =
+      reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const QByteArray payload = reply->readAll();
+    const QString detail = reply->errorString();
     reply->deleteLater();
-    if ( error )
-      *error = QObject::tr( "远端请求超时（>%1ms）: %2" ).arg( timeoutMs ).arg( m_base.toString() );
-    return nullptr;
-  }
-  return reply;
+    if (op == Op::Health) {
+      if (!ok || status != 200) {
+        emit healthDone(runId, false, QObject::tr("健康检查失败: HTTP %1 (%2)")
+                                 .arg(status)
+                                 .arg(detail));
+        return;
+      }
+      if (!payload.contains("ok")) {
+        emit healthDone(runId, false, QObject::tr("健康检查应答异常: %1")
+                                 .arg(QString::fromUtf8(payload)));
+        return;
+      }
+      emit healthDone(runId, true, {});
+      return;
+    }
+    if (!ok || status != 200) {
+      emit predictDone(runId, {}, QObject::tr("远端预测失败: HTTP %1 (%2)")
+                              .arg(status)
+                              .arg(detail));
+      return;
+    }
+    const QJsonObject doc = QJsonDocument::fromJson(payload).object();
+    const QJsonArray got = doc.value(QStringLiteral("cells")).toArray();
+    if (got.size() != m_gridColumns * m_gridRows) {
+      emit predictDone(runId, {},
+                       QObject::tr("远端预测应答格数 %1 与请求网格 %2×%3 不符")
+                              .arg(got.size())
+                              .arg(m_gridColumns)
+                              .arg(m_gridRows));
+      return;
+    }
+    QVector<int> cells;
+    cells.reserve(got.size());
+    for (const QJsonValue &v : got)
+      cells.append(v.toInt());
+    emit predictDone(runId, cells, {});
+  });
 }
 
-bool HttpRemoteTransport::healthCheck( int timeoutMs, QString *error )
+void HttpRemoteTransport::healthCheck(int timeoutMs, quint64 runId)
 {
-  QNetworkRequest req( m_base.resolved( QUrl( QStringLiteral( "/health" ) ) ) );
-  req.setTransferTimeout( 0 ); // 超时由 waitFinished 统一判
-  QNetworkReply *reply = m_nam->get( req );
-  reply = waitFinished( reply, timeoutMs, error );
-  if ( !reply )
-    return false;
-  const bool ok = reply->error() == QNetworkReply::NoError;
-  const int status = reply->attribute( QNetworkRequest::HttpStatusCodeAttribute ).toInt();
-  const QByteArray body = reply->readAll();
-  const QString errDetail = reply->errorString();
-  reply->deleteLater();
-  if ( !ok || status != 200 )
-  {
-    if ( error )
-      *error = QObject::tr( "健康检查失败: HTTP %1 (%2)" ).arg( status ).arg( errDetail );
-    return false;
-  }
-  if ( !body.contains( "ok" ) )
-  {
-    if ( error )
-      *error = QObject::tr( "健康检查应答异常: %1" ).arg( QString::fromUtf8( body ) );
-    return false;
-  }
-  return true;
+  if (!m_nam)
+    return;
+  QNetworkRequest req(m_base.resolved(QUrl(QStringLiteral("/health"))));
+  req.setTransferTimeout(0); // 超时统一由本端定时器判
+  begin(timeoutMs, Op::Health, m_nam->get(req), runId);
 }
 
-bool HttpRemoteTransport::predict( const RemotePredictionRequest &request, int timeoutMs,
-                                   QVector<int> &cells, QString *error )
+void HttpRemoteTransport::predict(const RemotePredictionRequest &request,
+                                  int timeoutMs, quint64 runId)
 {
+  if (!m_nam)
+    return;
+  m_gridColumns = request.columns;
+  m_gridRows = request.rows;
   QJsonObject body;
-  body.insert( QStringLiteral( "id" ), request.id );
-  body.insert( QStringLiteral( "horizon" ), request.horizon );
-  body.insert( QStringLiteral( "kind" ), request.kind );
-  body.insert( QStringLiteral( "columns" ), request.columns );
-  body.insert( QStringLiteral( "rows" ), request.rows );
+  body.insert(QStringLiteral("id"), request.id);
+  body.insert(QStringLiteral("horizon"), request.horizon);
+  body.insert(QStringLiteral("kind"), request.kind);
+  body.insert(QStringLiteral("columns"), request.columns);
+  body.insert(QStringLiteral("rows"), request.rows);
   QJsonArray samples;
-  for ( float v : request.samples )
-    samples.append( std::isnan( v ) ? QJsonValue() : QJsonValue( double( v ) ) );
-  body.insert( QStringLiteral( "samples" ), samples );
+  for (float v : request.samples)
+    samples.append(std::isnan(v) ? QJsonValue() : QJsonValue(double(v)));
+  body.insert(QStringLiteral("samples"), samples);
 
-  QNetworkRequest req( m_base.resolved( QUrl( QStringLiteral( "/predict" ) ) ) );
-  req.setHeader( QNetworkRequest::ContentTypeHeader, QStringLiteral( "application/json" ) );
-  req.setTransferTimeout( 0 );
+  QNetworkRequest req(m_base.resolved(QUrl(QStringLiteral("/predict"))));
+  req.setHeader(QNetworkRequest::ContentTypeHeader,
+                QStringLiteral("application/json"));
+  req.setTransferTimeout(0);
   QNetworkReply *reply =
-    m_nam->post( req, QJsonDocument( body ).toJson( QJsonDocument::Compact ) );
-  reply = waitFinished( reply, timeoutMs, error );
-  if ( !reply )
-    return false;
-  const bool ok = reply->error() == QNetworkReply::NoError;
-  const int status = reply->attribute( QNetworkRequest::HttpStatusCodeAttribute ).toInt();
-  const QByteArray payload = reply->readAll();
-  const QString errDetail = reply->errorString();
-  reply->deleteLater();
-  if ( !ok || status != 200 )
-  {
-    if ( error )
-      *error = QObject::tr( "远端预测失败: HTTP %1 (%2)" ).arg( status ).arg( errDetail );
-    return false;
-  }
-  const QJsonObject doc = QJsonDocument::fromJson( payload ).object();
-  const QJsonArray got = doc.value( QStringLiteral( "cells" ) ).toArray();
-  if ( got.size() != request.columns * request.rows )
-  {
-    if ( error )
-      *error = QObject::tr( "远端预测应答格数 %1 与请求网格 %2×%3 不符" )
-                 .arg( got.size() )
-                 .arg( request.columns )
-                 .arg( request.rows );
-    return false;
-  }
-  cells.clear();
-  cells.reserve( got.size() );
-  for ( const QJsonValue &v : got )
-    cells.append( v.toInt() );
-  return true;
+    m_nam->post(req, QJsonDocument(body).toJson(QJsonDocument::Compact));
+  begin(timeoutMs, Op::Predict, reply, runId);
 }
 
 // ---------------------------------------------------------------------------
 // RemotePredictionRouter
 // ---------------------------------------------------------------------------
-RemotePredictionRouter::RemotePredictionRouter( RemoteTransport *transport, QObject *parent )
-  : RemotePredictionService( parent )
-  , m_transport( transport )
+RemotePredictionRouter::RemotePredictionRouter(RemoteTransport *transport,
+                                               QObject *parent)
+  : RemotePredictionService(parent)
+  , m_transport(transport)
 {
+  if (!m_transport)
+    return;
+  connect(m_transport, &RemoteTransport::healthDone, this,
+          [this](quint64 runId, bool ok, const QString &error) {
+            onHealth(runId, ok, error);
+          });
+  connect(m_transport, &RemoteTransport::predictDone, this,
+          [this](quint64 runId, const QVector<int> &cells,
+                 const QString &error) {
+            onPredict(runId, cells, error);
+          });
 }
 
 RemotePredictionRouter::~RemotePredictionRouter() = default;
 
-void RemotePredictionRouter::setLocalFallback( PaleoOnnxService *onnx, const QString &model )
+void RemotePredictionRouter::setLocalPredictor(LocalPredictor *predictor)
 {
-  m_onnx = onnx;
-  m_localModel = model;
+  m_local = predictor;
 }
-
-void RemotePredictionRouter::setFallbackEnabled( bool enabled )
+void RemotePredictionRouter::setFallbackEnabled(bool enabled)
 {
   m_fallbackEnabled = enabled;
 }
 
-void RemotePredictionRouter::cancel()
-{
-  m_cancelled = true;
-}
-
-bool RemotePredictionRouter::runLocalFallback( const RemotePredictionRequest &request,
-                                               QVector<int> &cells, QString *error )
-{
-  const auto fail = [error]( const QString &msg ) {
-    if ( error )
-      *error = msg;
-    return false;
-  };
-  if ( !m_onnx || m_localModel.isEmpty() )
-    return fail( QObject::tr( "无本地 ORT 降级（未绑定模型）" ) );
-  if ( request.samples.size() != qsizetype( request.columns ) * request.rows )
-    return fail( QObject::tr( "请求未携带网格数据——本地降级不造假（samples=%1，网格 %2×%3）" )
-                   .arg( request.samples.size() )
-                   .arg( request.columns )
-                   .arg( request.rows ) );
-  OnnxModelMeta meta; // #144：meta 随加载取回，推理绑定模型名
-  if ( m_onnx->loadModelMeta( m_localModel, &meta, error ) != OnnxLoadStatus::Ok )
-    return fail( error && !error->isEmpty() ? *error : QObject::tr( "本地模型加载失败" ) );
-
-  if ( meta.inputShape.size() != 4 || meta.inputShape[0] > 1 || meta.inputShape[1] > 1 )
-    return fail( QObject::tr( "本地模型输入须为 [1,1,H,W]，实际 %1" ).arg( meta.inputSignature ) );
-
-  QVector<float> samples = request.samples;
-  QVector<bool> valid;
-  sanitizeModelInput( samples, &valid ); // #143：非有限样置 0 喂模型，输出端置 255
-
-  QString runErr;
-  const OnnxTensor out = m_onnx->runTensorOn( m_localModel, meta.inputName, samples,
-                                            { 1, 1, request.rows, request.columns }, &runErr );
-  if ( !runErr.isEmpty() )
-    return fail( runErr );
-  if ( out.shape.size() != 4 || out.shape[0] != 1 ||
-       out.shape[2] != request.rows || out.shape[3] != request.columns )
-    return fail( QObject::tr( "本地模型输出形状与请求网格不符" ) );
-  if ( out.shape[1] < 1 || out.shape[1] > kMaxTileClasses )
-    return fail( QObject::tr( "本地模型输出类数 %1 越界 [1, %2]" ).arg( out.shape[1] ).arg( kMaxTileClasses ) );
-
-  TileClassGrid grid;
-  softmaxGrid( out.values, int( out.shape[1] ), request.rows, request.columns, valid, &grid );
-  cells = QVector<int>( grid.argmax.size(), 0 );
-  for ( qsizetype i = 0; i < grid.argmax.size(); ++i )
-    cells[i] = int( grid.argmax[i] ); // 255=nodata 语义与 tile 产品一致
-  return true;
-}
-
-void RemotePredictionRouter::start( const RemotePredictionRequest &request )
+void RemotePredictionRouter::start(const RemotePredictionRequest &request)
 {
   m_cancelled = false;
   m_lastRoute.clear();
+  m_request = request;
+  // 领新轮次号：上一轮的任何回包（哪怕没有 runId 校验的实现）在新号下都被判
+  // 过期。m_nextRunId 只增不复用——复用的号会让旧回包冒充新一轮。
+  m_runId = ++m_nextRunId;
+  m_running = true;
+  // 契约：start 立即返回；链在下一轮事件循环才起跑（对齐旧行为，取消先到
+  // 即得「已取消」）。
+  QTimer::singleShot(
+      0, this, [this, request]() { beginChain(m_runId, request); });
+}
 
-  // 异步链（接口契约：start 立即返回，结果经信号回）。取消在阶段间检查。
-  QTimer::singleShot( 0, this, [this, request]() {
-    const auto giveUp = [this, &request]( const QString &reason ) {
-      emit failed( request.id, reason );
-    };
-    if ( m_cancelled )
-      return giveUp( QObject::tr( "已取消" ) );
-    if ( !m_transport )
-      return giveUp( QObject::tr( "未绑定远端传输" ) );
+void RemotePredictionRouter::cancel()
+{
+  // 在飞的那一轮要有个终态：老语义（同步链时代）就是「取消即 failed(已取消)」，
+  // 这里照旧报一次——否则调用方（MappingWorkbench）会一直停在 busy。
+  const bool wasRunning = m_running;
+  m_cancelled = true;
+  if (m_transport)
+    m_transport->abort();
+  // 轮次号置 0（= 无有效在飞轮次）+ m_running=false：在飞回包一律判过期，
+  // 取消之后不会再补一个 completed（幽灵结果）。
+  m_runId = 0;
+  m_running = false;
+  if (wasRunning)
+    emit failed(m_request.id, QObject::tr("已取消"));
+}
 
-    emit progress( request.id, 5 );
-    QString healthErr;
-    const bool healthy = m_transport->healthCheck( m_healthTimeoutMs, &healthErr );
-    if ( m_cancelled )
-      return giveUp( QObject::tr( "已取消" ) );
+void RemotePredictionRouter::beginChain(quint64 runId,
+                                        const RemotePredictionRequest &request)
+{
+  if (runId != m_runId)
+    return; // 期间又来了一轮新的 start（或已取消）
+  if (m_cancelled)
+    return settleFail(QObject::tr("已取消"));
+  if (!m_transport)
+    return settleFail(QObject::tr("未绑定远端传输"));
+  emit progress(request.id, 5);
+  m_transport->healthCheck(m_healthTimeoutMs, runId);
+}
 
-    const auto degradeOrDie = [this, &request, &healthErr]( const QString &stageErr ) -> bool {
-      // 远端不可用：先试本地降级，再如实失败（错误链两段都保留）。
-      if ( !m_fallbackEnabled || !m_onnx || m_localModel.isEmpty() )
-      {
-        emit failed( request.id,
-                     QObject::tr( "远端不可用且降级未配置: %1 / %2" ).arg( healthErr, stageErr ) );
-        return true; // 已终态
-      }
-      emit progress( request.id, 50 );
-      QVector<int> cells;
-      QString localErr;
-      if ( !runLocalFallback( request, cells, &localErr ) )
-      {
-        emit failed( request.id, QObject::tr( "远端失败 (%1)，本地降级失败 (%2)" )
-                                    .arg( stageErr, localErr ) );
-        return true;
-      }
-      RemotePredictionResult result;
-      result.request = request;
-      result.cells = cells;
-      result.method = QStringLiteral( "local-ort:%1" ).arg( m_localModel );
-      result.mock = false;
-      m_lastRoute = result.method;
-      emit completed( result );
-      return true;
-    };
+void RemotePredictionRouter::onHealth(quint64 runId, bool ok, const QString &error)
+{
+  if (runId != m_runId)
+    return;
+  if (m_cancelled)
+    return settleFail(QObject::tr("已取消"));
+  if (!ok)
+    return degradeOrDie(runId, QObject::tr("健康检查"), error);
+  emit progress(m_request.id, 30);
+  m_transport->predict(m_request, m_predictTimeoutMs, runId);
+}
 
-    if ( !healthy )
-      return (void)degradeOrDie( healthErr );
+void RemotePredictionRouter::onPredict(quint64 runId, const QVector<int> &cells,
+                                       const QString &error)
+{
+  if (runId != m_runId)
+    return;
+  if (m_cancelled)
+    return settleFail(QObject::tr("已取消"));
+  if (!error.isEmpty())
+    return degradeOrDie(runId, QObject::tr("远端预测"), error);
 
-    emit progress( request.id, 30 );
-    QVector<int> cells;
-    QString predictErr;
-    if ( m_cancelled )
-      return giveUp( QObject::tr( "已取消" ) );
-    if ( !m_transport->predict( request, m_predictTimeoutMs, cells, &predictErr ) )
-      return (void)degradeOrDie( predictErr );
+  RemotePredictionResult result;
+  result.request = m_request;
+  result.cells = cells;
+  result.method = QStringLiteral("remote");
+  result.mock = false;
+  m_lastRoute = result.method;
+  emit progress(m_request.id, 100);
+  m_running = false;
+  emit completed(result);
+}
 
-    RemotePredictionResult result;
-    result.request = request;
-    result.cells = cells;
-    result.method = QStringLiteral( "remote" );
-    result.mock = false;
-    m_lastRoute = result.method;
-    emit progress( request.id, 100 );
-    emit completed( result );
-  } );
+void RemotePredictionRouter::degradeOrDie(quint64 runId, const QString &stageName,
+                                          const QString &stageError)
+{
+  if (runId != m_runId)
+    return;
+  LocalPredictor *local = m_local;
+  const bool usable = local && m_fallbackEnabled && local->isConfigured();
+  if (!usable) {
+    settleFail(QObject::tr("远端不可用且降级未配置（%1）：%2")
+                 .arg(stageName, stageError));
+    return;
+  }
+  emit progress(m_request.id, 50);
+  QVector<int> cells;
+  QString localError;
+  if (!local->predict(m_request, cells, &localError)) {
+    settleFail(QObject::tr("远端失败 (%1)，本地降级失败 (%2)")
+                 .arg(stageError, localError));
+    return;
+  }
+  RemotePredictionResult result;
+  result.request = m_request;
+  result.cells = cells;
+  result.method = local->engineId();
+  result.mock = false;
+  m_lastRoute = result.method;
+  emit progress(m_request.id, 100);
+  m_running = false;
+  emit completed(result);
+}
+
+void RemotePredictionRouter::settleFail(const QString &reason)
+{
+  m_running = false;
+  emit failed(m_request.id, reason);
 }

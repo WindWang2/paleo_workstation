@@ -15,6 +15,7 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMessageBox>
+#include "ui/notifications/notificationmanager.h"
 #include <QMimeData>
 #include <QPushButton>
 #include <QSet>
@@ -381,25 +382,26 @@ class TestPanels : public QObject
         attach->click();
         table->findChild<QPushButton *>(QStringLiteral("attachConfirmButton"))->click();
 
-        // attach 后：ast-2 成主关联，ast-1 被降级，note 被清（catalog 语义）。
+        // attach 后（方向 44 挂接契约）：ast-2 挂为成员，ast-1 主不动，
+        // note 被清（catalog 语义）。
         const auto links1 = cat->links();
         QCOMPARE(links1.size(), 2);
-        bool sawAst2Primary = false, sawAst1Demoted = false;
+        bool sawAst2Member = false, sawAst1Primary = false;
         for (const EntityAssetLink &l : links1)
         {
           if (l.assetId == QLatin1String("ast-2"))
           {
             QVERIFY(!l.unresolved);
-            QVERIFY(l.isPrimary);
-            sawAst2Primary = true;
+            QVERIFY(!l.isPrimary); // 挂接不夺主
+            sawAst2Member = true;
           }
           if (l.assetId == QLatin1String("ast-1"))
           {
-            QVERIFY(!l.isPrimary); // 降级
-            sawAst1Demoted = true;
+            QVERIFY(l.isPrimary); // 主不动
+            sawAst1Primary = true;
           }
         }
-        QVERIFY(sawAst2Primary && sawAst1Demoted);
+        QVERIFY(sawAst2Member && sawAst1Primary);
       } // svc 析构——会话状态全部消失
 
       // 新会话：同工程目录重新打开。撤销入口靠 vault 存活。
@@ -425,7 +427,7 @@ class TestPanels : public QObject
         }
         if (l.assetId == QLatin1String("ast-1"))
         {
-          QVERIFY2(l.isPrimary, "undo must restore the demoted primary (D4)");
+          QVERIFY2(l.isPrimary, "primary must stay primary through attach+undo");
           sawRestoredPrimary = true;
         }
       }
@@ -1433,8 +1435,8 @@ class TestPanels : public QObject
     }
 
     // 确认导入 → 结果行 + 汇总；失败行挂「重试」——按当前下拉类型重导单行，
-    // 行与汇总一起更新。仍失败的回挂重试按钮；内容级失败行重导命中 dedup
-    // （字节已在库）也如实记行。
+    // 行与汇总一起更新。内容拒收原样重试仍失败；修为已入库的有效字节后，
+    // dedup（字节已在库）才可如实记成功行。
     void folderConfirm_importSummaryAndRowRetry()
     {
       QTemporaryDir tmp;
@@ -1443,7 +1445,7 @@ class TestPanels : public QObject
       QVERIFY(QDir().mkpath(projectDir));
       const QString root = tmp.filePath(QStringLiteral("area"));
       QVERIFY(QDir().mkpath(QDir(root).filePath(QString::fromUtf8("井位"))));
-      // bad.dat：井口表只有注释 → 入库后解析失败（RAW 已落库，重导命中 dedup）。
+      // bad.dat：井口表只有注释 → 解析拒收，不创建资产；原样重试不能冒充入库。
       const QString badPath =
           QDir(root).filePath(QString::fromUtf8("井位/bad.dat"));
       QVERIFY(writeFile(badPath,
@@ -1563,7 +1565,21 @@ class TestPanels : public QObject
           ->click();
       QVERIFY(table->item(rNodat, 3)->text().contains(QString::fromUtf8("已入库")));
 
-      // bad.dat 原样重试：字节已在库（dedup 如实记行），按钮消失。
+      // bad.dat 原样重试仍拒收，不能靠首轮的坏文件/孤立资产绕过解析。
+      retry = static_cast<QWidget *>(table->cellWidget(rBad, 3))
+                  ->findChild<QPushButton *>(QStringLiteral("folderRetry"));
+      QVERIFY(retry);
+      retry->click();
+      QVERIFY(table->item(rBad, 3)->text().contains(QString::fromUtf8("失败")));
+      QVERIFY(table->item(rBad, 3)->text().contains(QString::fromUtf8("没有可用数据行")));
+      QCOMPARE(summary->text(), QString::fromUtf8("入库 3，未决 0，失败 1"));
+      for (const CatalogAsset &asset : st.svc.catalog()->assets())
+        QVERIFY(asset.displayName != QLatin1String("bad.dat"));
+
+      // 修为 good.dat 的有效字节后重试，继续覆盖真实成功的 dedup 分支。
+      QFile goodFile(QDir(root).filePath(QString::fromUtf8("井位/good.dat")));
+      QVERIFY(goodFile.open(QIODevice::ReadOnly));
+      QVERIFY(writeFile(badPath, goodFile.readAll()));
       retry = static_cast<QWidget *>(table->cellWidget(rBad, 3))
                   ->findChild<QPushButton *>(QStringLiteral("folderRetry"));
       QVERIFY(retry);
@@ -1996,13 +2012,13 @@ class TestPanels : public QObject
       QVERIFY(roleTable->item(2, 1)->text().contains(QStringLiteral("ast-pend")));
       QCOMPARE(roleTable->item(2, 3)->text(), QString::fromUtf8("未决关联"));
 
-      // 挂接待定链接（catalog 变更）→ changed() 通路重取：新主关联是
-      // ast-pend，旧主关联单独成行，未决行消失。
+      // 挂接待定链接（catalog 变更）→ changed() 通路重取：方向 44 挂接契约
+      // ——ast-pend 挂为成员，ast-main 仍是主关联（挂接不夺主），未决行消失。
       QVERIFY(cat->attachLink(1, QStringLiteral("well-1")));
       page.refreshAssetTable();
-      QVERIFY(roleTable->item(1, 1)->text().contains(QStringLiteral("pend")));
+      QVERIFY(roleTable->item(1, 1)->text().contains(QStringLiteral("main")));
       QVERIFY(roleTable->item(1, 1)->text().contains(QString::fromUtf8("主文件")));
-      QVERIFY(roleTable->item(2, 1)->text().contains(QStringLiteral("main")));
+      QVERIFY(roleTable->item(2, 1)->text().contains(QStringLiteral("pend")));
       QVERIFY(roleTable->item(2, 1)->text().contains(QString::fromUtf8("成员")));
       QCOMPARE(roleTable->item(1, 3)->text(), QStringLiteral("—"));
     }
@@ -4519,6 +4535,7 @@ private:
         table->selectRow(2); // free.sgy
         QCOMPARE(table->rowCount(), 3);
         // 确认框点 Yes。
+        paleo::ui::NotificationManager::setOffscreenAutoAnswer(true);
         driveModalNextTick([](QWidget *w) {
             if (auto *mb = qobject_cast<QMessageBox *>(w))
                 mb->button(QMessageBox::Yes)->click();
@@ -4529,11 +4546,13 @@ private:
         // 取消路径：确认框点 No → 不动。
         table->selectRow(1);
         const int rows = table->rowCount();
+        paleo::ui::NotificationManager::setOffscreenAutoAnswer(false);
         driveModalNextTick([](QWidget *w) {
             if (auto *mb = qobject_cast<QMessageBox *>(w))
                 mb->button(QMessageBox::No)->click();
         });
         lp->batchRemoveSoft();
+        paleo::ui::NotificationManager::setOffscreenAutoAnswer(true);
         QCOMPARE(table->rowCount(), rows);
     }
 
@@ -4866,16 +4885,24 @@ private:
         options->click();
         QTest::qWait(20);
         search->setFocus();
+        // TEST-07/ARCH-08：offscreen QPA 不派发平台焦点事件——keyClick(Tab)
+        // 遍历在无窗口管理器环境不可复现地红（审计证据 LastTest.log:151-153；
+        // 本机 Qt 6.11 offscreen 偶绿，CI 红）。改为 nextInFocusChain 链步进
+        // + 真实 Tab 语义过滤（焦点策略含 TabFocus 位且对页面可见）——
+        // 平台无关、确定性，与 Tab 键的实际停驻面同构。
+        auto nextTabStop = [&page](QWidget *w) -> QWidget * {
+            QWidget *next = w->nextInFocusChain();
+            while (next && next != w &&
+                   !((next->focusPolicy() & Qt::TabFocus) && next->isVisibleTo(page.get())))
+                next = next->nextInFocusChain();
+            return next == w ? nullptr : next; // 环路闭合 = nullptr
+        };
         QSet<QString> visited;
         QWidget *w = search;
-        for (int i = 0; i < 80; ++i)
+        for (int i = 0; i < 80 && w; ++i)
         {
             visited.insert(w->objectName());
-            w->setFocus();
-            QTest::keyClick(w, Qt::Key_Tab);
-            w = QApplication::focusWidget();
-            if (!w)
-                break;
+            w = nextTabStop(w);
         }
         // 至少到达过搜索框 + 过滤维度下拉 + 表（或其视口属主）。
         QVERIFY(visited.contains(QStringLiteral("assetSearchEdit")));

@@ -3,12 +3,18 @@
 #include <QtTest>
 
 #include "io/lascache.h"
-#include "io/lasparser.h"
+#include "io/lasdoc.h" // LasDoc（缓存载荷契约）
 #include "io/perffixtures.h"
 
+#include <QElapsedTimer>
 #include <QFile>
+#include <QThread>
 #include <QTemporaryDir>
 #include <QtConcurrent>
+#include <algorithm>
+#include <array>
+#include <atomic>
+#include <cstring>
 
 class CacheLasTests : public QObject
 {
@@ -25,6 +31,7 @@ class CacheLasTests : public QObject
     void explicitInvalidate();
     void writePathInvalidation();
     void concurrentLoadCoalesces();
+    void coalescedRidersReceiveIssues();
 
   private:
     QTemporaryDir m_dir;
@@ -49,41 +56,94 @@ void CacheLasTests::coldParsePopulatesBothLevels()
 
 void CacheLasTests::secondOpenUnder5ms()
 {
-  const QString las = m_dir.filePath("b.las");
-  QVERIFY(PerfFixtures::makeSyntheticLas(las, 15581));
-  LasCache::shared().setDiskRoot(m_dir.filePath("idx2"));
-  LasCache::shared().invalidate();
+  constexpr std::size_t sampleCount = 5;
+  std::array<double, sampleCount> coldTimes{}, diskTimes{}, totalTimes{}, memoryTimes{};
+  // 相同 15581 点夹具各自冷建/磁盘读/内存读；中位数抑制单次调度噪声。
+  // 每组仍需真实命中、无重解析/重写，以及全部曲线载荷按位不变。
+  for (std::size_t sample = 0; sample < sampleCount; ++sample)
+  {
+    const QString las = m_dir.filePath(QStringLiteral("b_%1.las").arg(sample));
+    QVERIFY(PerfFixtures::makeSyntheticLas(las, 15581));
+    LasCache::shared().setDiskRoot(m_dir.filePath("idx2"));
+    LasCache::shared().invalidate();
 
-  const LasDoc cold = LasCache::shared().load(las);
-  QVERIFY(cold.ok);
-  const double coldMs = LasCache::shared().lastTimings().coldParseNs / 1.0e6;
-  // goal/perf-systematize 簇3：墙钟断言比率化——绝对预算（cold<50/warm<5，
-  // 余量仅 ~3×，慢机必抖）改在测参照比率门 + 防挂死 sanity 上限。
-  // 实测锚（docs/perf/BASELINE.md §2）：cold 13-17ms、warm ≈0.05ms、
-  // mem ≈0.03ms——比率余量 10×/500×；缓存退化（warm≈cold）时比率→1 必红。
-  QVERIFY2(coldMs < 2000.0,
-           qPrintable(QStringLiteral("cold %1ms >= 2000ms（sanity：解析挂死/死循环）").arg(coldMs)));
+    const CacheStats beforeCold = LasCache::shared().stats();
+    const LasDoc cold = LasCache::shared().load(las);
+    QVERIFY(cold.ok);
+    QCOMPARE(cold.curves.size(), 5);
+    for (const auto &curve : cold.curves)
+      QCOMPARE(curve.values.size(), 15581);
+    QCOMPARE(LasCache::shared().stats().diskWrites, beforeCold.diskWrites + 1);
+    const qint64 coldNs = LasCache::shared().lastTimings().coldParseNs;
+    const double coldMs = coldNs / 1.0e6;
+    QVERIFY(coldNs > 0);
+    QVERIFY2(coldMs < 2000.0,
+             qPrintable(QStringLiteral("cold %1ms >= 2000ms（sanity：解析挂死/死循环）").arg(coldMs)));
 
-  // 二次打开（磁盘层）≤ 冷解析一半（D1.1 的机器无关形式；TEST-02：
-  // 原 <5ms 绝对预算在并行争用下偶发抖动——比率门随负载同侧伸缩）。
-  LasCache::shared().clearMemory();
-  QElapsedTimer t;
-  t.start();
-  const LasDoc warm = LasCache::shared().load(las);
-  const double warmMs = t.nsecsElapsed() / 1.0e6;
-  QVERIFY(warm.ok);
-  QVERIFY2(coldMs > 0 && warmMs < 0.5 * coldMs,
-           qPrintable(QStringLiteral("disk hit %1ms >= 0.5×cold %2ms（缓存未生效）")
-                          .arg(warmMs, 0, 'f', 3)
-                          .arg(coldMs, 0, 'f', 3)));
-  // 三次打开（内存层）同口径 ≤ 0.5×cold。
-  t.restart();
-  LasCache::shared().load(las);
-  const double memMs = t.nsecsElapsed() / 1.0e6;
+    // 冷侧统计仅解析阶段，热侧也比较磁盘读取/解码阶段；整次 load 的线程
+    // 调度/指纹/LRU 开销另外打印，不能混入一侧并推断「缓存未生效」。
+    // 0.5 比率门及 2000ms sanity 不变；真实命中还必须由计数证明。
+    LasCache::shared().clearMemory();
+    const CacheStats beforeDisk = LasCache::shared().stats();
+    QElapsedTimer t;
+    t.start();
+    const LasDoc warm = LasCache::shared().load(las);
+    const double warmTotalMs = t.nsecsElapsed() / 1.0e6;
+    QVERIFY(warm.ok);
+    const CacheStats afterDisk = LasCache::shared().stats();
+    QCOMPARE(afterDisk.diskHits, beforeDisk.diskHits + 1);
+    QCOMPARE(afterDisk.diskWrites, beforeDisk.diskWrites);
+    QCOMPARE(afterDisk.selfHeals, beforeDisk.selfHeals);
+    const auto diskTimings = LasCache::shared().lastTimings();
+    QCOMPARE(diskTimings.coldParseNs, coldNs); // 命中不得回落到重新解析
+    QVERIFY(diskTimings.diskLoadNs >= 0);
+    const double warmMs = diskTimings.diskLoadNs / 1.0e6;
+    coldTimes[sample] = coldMs;
+    diskTimes[sample] = warmMs;
+    totalTimes[sample] = warmTotalMs;
+    // 内存层保留原整次 load ≤ 0.5×cold 的更严格口径，并证明真正命中。
+    t.restart();
+    const LasDoc memory = LasCache::shared().load(las);
+    const double memMs = t.nsecsElapsed() / 1.0e6;
+    QVERIFY(memory.ok);
+    const CacheStats afterMemory = LasCache::shared().stats();
+    QCOMPARE(afterMemory.hits, afterDisk.hits + 1);
+    QCOMPARE(afterMemory.diskHits, afterDisk.diskHits);
+    QCOMPARE(afterMemory.diskWrites, afterDisk.diskWrites);
+    memoryTimes[sample] = memMs;
+    for (const LasDoc *cached : {&warm, &memory})
+    {
+      QCOMPARE(cached->curveNames, cold.curveNames);
+      QCOMPARE(cached->curves.size(), cold.curves.size());
+      for (qsizetype i = 0; i < cold.curves.size(); ++i)
+      {
+        const auto &expected = cold.curves[i];
+        const auto &actual = cached->curves[i];
+        QCOMPARE(actual.name, expected.name);
+        QCOMPARE(actual.unit, expected.unit);
+        QCOMPARE(actual.descr, expected.descr);
+        QCOMPARE(actual.values.size(), expected.values.size());
+        QVERIFY(std::memcmp(actual.values.constData(), expected.values.constData(),
+                            std::size_t(expected.values.size()) * sizeof(double)) == 0);
+      }
+    }
+  }
+  const auto median = [](auto values) {
+    std::sort(values.begin(), values.end());
+    return values[values.size() / 2];
+  };
+  const double coldMs = median(coldTimes);
+  const double diskMs = median(diskTimes);
+  const double totalMs = median(totalTimes);
+  const double memMs = median(memoryTimes);
+  qInfo("LAS cache median(5) coldParse=%.3fms diskPhase=%.3fms diskLoadTotal=%.3fms memoryLoad=%.3fms",
+        coldMs, diskMs, totalMs, memMs);
+  QVERIFY2(diskMs < 0.5 * coldMs,
+           qPrintable(QStringLiteral("disk phase median %1ms >= 0.5×cold parse median %2ms")
+                          .arg(diskMs, 0, 'f', 3).arg(coldMs, 0, 'f', 3)));
   QVERIFY2(memMs < 0.5 * coldMs,
-           qPrintable(QStringLiteral("memory hit %1ms >= 0.5×cold %2ms")
-                          .arg(memMs, 0, 'f', 3)
-                          .arg(coldMs, 0, 'f', 3)));
+           qPrintable(QStringLiteral("memory load median %1ms >= 0.5×cold parse median %2ms")
+                          .arg(memMs, 0, 'f', 3).arg(coldMs, 0, 'f', 3)));
 }
 
 void CacheLasTests::mtimeChangeInvalidates()
@@ -245,6 +305,90 @@ void CacheLasTests::concurrentLoadCoalesces()
   }
   // 内存缓存只有一份条目（同文件）。
   QVERIFY(LasCache::shared().isCached(las));
+}
+
+namespace
+{
+// 一条曲线缺单位 → LasParser 产出 MissingUnit 诊断（非致命，doc.ok）。
+bool writeIssueLas(const QString &path)
+{
+  QFile f(path);
+  if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+    return false;
+  f.write("~Version Information\n"
+          " VERS.   2.0 : CWLS LAS 2.0\n"
+          " WRAP.   NO  : single line\n"
+          "~Well Information\n"
+          " STRT.M  100.0 : start\n"
+          " STOP.M  102.0 : stop\n"
+          " STEP.M  1.0 : step\n"
+          " NULL.   -999.25 : null\n"
+          "~Curve Information\n"
+          " DEPT.M  : depth\n"
+          " GR.     : gamma ray\n"
+          "~A\n"
+          "100.0 50.0\n"
+          "101.0 60.0\n"
+          "102.0 70.0\n");
+  return true;
+}
+} // namespace
+
+void CacheLasTests::coalescedRidersReceiveIssues()
+{
+  // RUNTIME-03（方向58）：同指纹并发——搭车者也必须拿到本次解析的诊断。
+  // 确定性时序：冷解析钩子挡住执行者，直到合并器登记到一个搭车者。
+  const QString las = m_dir.filePath("issues.las");
+  QVERIFY(writeIssueLas(las));
+  LasCache::shared().setDiskRoot(QString()); // 纯内存：强制走解析
+  LasCache::shared().invalidate();
+
+  // 单请求路径基线：诊断非空，记下条数。
+  QList<LasIssue> single;
+  const LasDoc solo = LasCache::shared().load(las, &single);
+  QVERIFY2(solo.ok, qPrintable(solo.error));
+  QVERIFY(!single.isEmpty());
+  LasCache::shared().invalidate();
+
+  // 任何断言提前返回也必须卸钩子、复位磁盘根，不污染同进程后续用例。
+  const auto restore = qScopeGuard([this] {
+    LasCache::shared().setColdParseHookForTest({});
+    LasCache::shared().setDiskRoot(m_dir.filePath("idx10"));
+    LasCache::shared().invalidate();
+  });
+  const int ridersBefore = LasCache::shared().ridersJoinedForTest();
+  std::atomic_bool executorInJob{false};
+  std::atomic_bool riderTimedOut{false};
+  LasCache::shared().setColdParseHookForTest([&] {
+    executorInJob = true;
+    QElapsedTimer t;
+    t.start();
+    while (LasCache::shared().ridersJoinedForTest() == ridersBefore)
+    {
+      if (t.elapsed() > 10000)
+      {
+        riderTimedOut = true;
+        return;
+      }
+      QThread::msleep(1);
+    }
+  });
+
+  QList<LasIssue> issuesA, issuesB;
+  QFuture<LasDoc> a = QtConcurrent::run([&] { return LasCache::shared().load(las, &issuesA); });
+  QElapsedTimer t;
+  t.start();
+  while (!executorInJob && t.elapsed() < 10000)
+    QThread::msleep(1);
+  QVERIFY(executorInJob);
+  QFuture<LasDoc> b = QtConcurrent::run([&] { return LasCache::shared().load(las, &issuesB); });
+  QVERIFY(a.result().ok);
+  QVERIFY(b.result().ok);
+
+  QVERIFY(!riderTimedOut);
+  QCOMPARE(LasCache::shared().ridersJoinedForTest(), ridersBefore + 1);
+  QCOMPARE(issuesA.size(), single.size());
+  QCOMPARE(issuesB.size(), single.size()); // 旧实现：搭车者 0 条
 }
 
 QTEST_MAIN(CacheLasTests)

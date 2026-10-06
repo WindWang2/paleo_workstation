@@ -1,5 +1,10 @@
 // 层：组装根
 #include "appcontext.h"
+#include "aiwiring.h"                          // 方向51：远端预测装配（唯一入口）
+#include "../ai/remotepredictconfig.h"
+#include "../ai/chat/llmclient.h"              // 方向51：LLM 配置 + 助手编排
+#include "../ai/chat/llmkeystore.h"
+#include "../workflow/aichatcontroller.h"
 #include "../workflow/mappingworkbench.h"
 #include "../workflow/welltrajectorylayer.h" // goal/well-trajectory 轨迹线层组装
 
@@ -217,6 +222,33 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   m_constraintWf = new ConstraintWorkflow(m_procSvc, m_layerSvc, this);
   m_constraintWf->setStore(m_store); // GeoPackage constraint persistence (wave/constraint-gpkg)
   m_mappingWorkbench = new MappingWorkbench(m_layerSvc, m_procSvc, m_projectSvc, m_constraintWf, this);
+  // 方向51：远端预测装配—— MappingWorkbench 自己的那份替身 Mock 已删除，
+  // 这里显式装入 RemotePredictionRouter。端点未配置时 router 不带传输，
+  // 任何预测请求如实失败；UI 侧显示「远端预测未配置，走本地引擎」。
+  {
+    const RemotePredictConfig remoteConfig = RemotePredictConfig::load();
+    const RemotePredictionAssembly assembly = installRemotePrediction(
+        m_mappingWorkbench, remoteConfig, m_onnxSvc, QString(), this);
+    m_remotePredict = assembly.router;
+    m_remotePredictHint = assembly.statusHint;
+  }
+  // 方向51：AI 对话助手编排。端点/模型从用户配置读，密钥由系统钥匙串异步
+  // 补齐——补齐前是禁用态（UI 显示禁用原因），不静默跑假回答。
+  m_aiChat = new AiChatController(this);
+#if PALEO_HAVE_ORT
+  // 方向61：工具执行回路装配（tile 分类起步；工程打开处随 AreaRules 重绑）。
+  bindChatToolRunner(m_aiChat, m_aiAssistWf, m_layerSvc);
+#endif
+  {
+    LlmConfig llm = LlmConfig::load();
+    LlmKeyStore::read(this, [this, llm](bool ok, const QByteArray &key,
+                                        const QString &) mutable {
+      if (ok)
+        llm.apiKey = key;
+      if (m_aiChat)
+        m_aiChat->setConfig(llm);
+    });
+  }
   m_compositionWf = new CompositionWorkflow(m_procSvc, m_layerSvc, this);
   m_validationWf = new ValidationWorkflow(m_layerSvc, m_store, this);
 
@@ -426,6 +458,9 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
 #if PALEO_HAVE_ORT
               if (m_aiAssistWf)
                 m_aiAssistWf->setCatalog(derivedCatalog, fi.absolutePath());
+              // 方向61：工程打开 → 重绑聊天工具上下文（AreaRules 按工区钉
+              // targetHorizon，层位名与栅格声明都可能换了）。
+              bindChatToolRunner(m_aiChat, m_aiAssistWf, m_layerSvc);
 #endif
               // goal/time-depth-velocity：同一 catalog 实例纪律（整文件重写，
               // 交错写互覆）——层深转换产物落 artifacts/derived/。

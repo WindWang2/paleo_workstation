@@ -26,12 +26,27 @@ namespace TimeDepthTool
   {
     double timeMs = qQNaN();              // 仅 status==Ok 时有效
     TdStatus status = TdStatus::NoTable;
+    int ignoredRows = 0; // 缺列/非有限/哨兵剔除数（含手工构表）
     bool ok() const { return status == TdStatus::Ok; }
   };
 
   // depth→time(ms)。useMd=false 查 TVD 列（井分层 TVD 有效时的首选）；
   // useMd=true 查 MD 列（分层 TVD 空的兜底）。失败原因见 status/reasonText。
   TdResult interpolateTimeMs(const TimeDepthTable &td, double depth, bool useMd);
+
+  // 方向 44 逆插值：time(ms)→depth（米）。preferMd=true 取 MD 列
+  // （对齐到 MD 基准），false 取 TVD 列。契约与 interpolateTimeMs 同源：
+  // 文件顺序、timeMs 查找列严格递增、样点<2 → NoTable、范围外 → OutOfRange
+  // 绝不外推。井曲线 TIME 基准对齐（petrophys 并集）走这里。
+  struct TdDepthResult
+  {
+    double depth = qQNaN();               // 仅 status==Ok 时有效（米）
+    TdStatus status = TdStatus::NoTable;
+    int ignoredRows = 0; // 缺列/非有限/哨兵剔除数（含手工构表）
+    bool ok() const { return status == TdStatus::Ok; }
+  };
+  TdDepthResult interpolateDepthAtTimeMs(const TimeDepthTable &td,
+                                         double timeMs, bool preferMd);
 
   // 原因文案：Ok → 空串；否则「无时深表」「超出时深表」「时深表无序」之一。
   QString reasonText(TdStatus status);

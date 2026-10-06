@@ -1,7 +1,9 @@
 // 层：数据
 #include "lascache.h"
 
+#include "../domain/wellnumeric.h"
 #include "pathcanon.h"
+#include "welllogread.h" // 方向44：LAS/DLIS/LIS 分派
 
 #include <QCryptographicHash>
 #include <QDateTime>
@@ -26,7 +28,7 @@ namespace
   {
     QByteArray out;
     cacheio::putStr(&out, fingerprint);
-    cacheio::putF64(&out, -999.25); // NULL 值已在解析时映射为 NaN；占位保布局
+    cacheio::putF64(&out, paleo::wellnumeric::kLasDefaultNull); // NULL 值已在解析时映射为 NaN；占位保布局
     const quint32 curveCount = static_cast<quint32>(doc.curves.size());
     quint32 rowCount = 0;
     for (const LasCurve &c : doc.curves)
@@ -234,37 +236,47 @@ LasDoc LasCache::load(const QString &path, QList<LasIssue> *issues)
   }
 
   // 2) 磁盘命中 / 3) 冷解析。同指纹并发只跑一份（D4.7）。
-  std::shared_ptr<LasDoc> fromDisk;
+  // RUNTIME-03：job 只按值/本地收集诊断，不捕获调用方 issues 指针。
   const auto ticket = m_inflight.submit(
-      fp, [this, &path, &fp, &issues, &fromDisk]() -> std::shared_ptr<LasDoc> {
+      fp, [this, &path, &fp]() -> LoadOutcome {
         QElapsedTimer diskTimer;
         diskTimer.start();
-        fromDisk = readDisk(fp);
-        if (fromDisk)
+        if (auto fromDisk = readDisk(fp))
         {
           m_timings.diskLoadNs = diskTimer.nsecsElapsed();
           bumpExtra(&CacheStats::diskHits);
-          return fromDisk;
+          return LoadOutcome{std::move(fromDisk), nullptr};
         }
+        std::function<void()> hook;
+        {
+          QMutexLocker lock(&m_cfgMutex);
+          hook = m_coldParseHook;
+        }
+        if (hook)
+          hook();
         QElapsedTimer parseTimer;
         parseTimer.start();
-        LasDoc doc = LasParser::parseDoc(path, issues);
+        auto diag = std::make_shared<QList<LasIssue>>();
+        LasDoc doc = WellLogRead::parseDoc(path, diag.get()); // 方向44：格式分派
         m_timings.coldParseNs = parseTimer.nsecsElapsed();
         if (!doc.ok)
-          return nullptr;
+          return LoadOutcome{nullptr, std::move(diag)};
         auto shared = std::make_shared<LasDoc>(std::move(doc));
         if (writeDisk(fp, *shared))
           bumpExtra(&CacheStats::diskWrites);
-        return shared;
+        return LoadOutcome{std::move(shared), std::move(diag)};
       });
 
-  const std::shared_ptr<LasDoc> doc = ticket.future.get();
+  const LoadOutcome outcome = ticket.future.get();
+  if (issues && outcome.issues)
+    issues->append(*outcome.issues); // 执行者与搭车者各自回填
+  const std::shared_ptr<LasDoc> doc = outcome.doc;
   if (!doc)
   {
     LasDoc failed;
     failed.error = QStringLiteral("parse failed: %1").arg(path);
-    if (issues)
-      for (const LasIssue &i : *issues)
+    if (outcome.issues)
+      for (const LasIssue &i : *outcome.issues)
         if (i.severity == LasIssue::Severity::Error)
           failed.error = i.message;
     return failed;
@@ -274,6 +286,12 @@ LasDoc LasCache::load(const QString &path, QList<LasIssue> *issues)
   e.doc = doc;
   m_mem.insert(canon, e);
   return *doc;
+}
+
+void LasCache::setColdParseHookForTest(std::function<void()> hook)
+{
+  QMutexLocker lock(&m_cfgMutex);
+  m_coldParseHook = std::move(hook);
 }
 
 int LasCache::prefetch(const QStringList &paths)

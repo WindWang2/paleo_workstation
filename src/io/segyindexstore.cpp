@@ -16,7 +16,7 @@
 
 namespace
 {
-  constexpr quint16 kSegyIndexVersion = 1;
+  constexpr quint16 kSegyIndexVersion = 2;
   const char kSegyIndexMagic[8] = {'P', 'S', 'G', 'Y', 'I', 'D', 'X', '1'};
 
   quint16 compressionFlags()
@@ -82,6 +82,7 @@ QByteArray SegyIndexStore::encodePayload(const StoredIndex &index)
   cacheio::putI32(&out, index.sampleIntervalUs);
   cacheio::putI32(&out, index.formatCode);
   cacheio::putI32(&out, index.binLineNo);
+  for (int offset : index.headerWordOffsets) cacheio::putI32(&out, offset);
   cacheio::putI64(&out, index.firstTraceOffset);
   cacheio::putF64(&out, index.geometry.inlineMin);
   cacheio::putF64(&out, index.geometry.inlineMax);
@@ -125,6 +126,11 @@ bool SegyIndexStore::decodePayload(const QByteArray &payload, StoredIndex *out)
   out->sampleIntervalUs = cacheio::i32(payload, &pos, &ok);
   out->formatCode = static_cast<qint16>(cacheio::i32(payload, &pos, &ok));
   out->binLineNo = cacheio::i32(payload, &pos, &ok);
+  for (int &offset : out->headerWordOffsets)
+  {
+    offset = cacheio::i32(payload, &pos, &ok);
+    if (offset < 0 || offset > 236) return false;
+  }
   out->firstTraceOffset = cacheio::i64(payload, &pos, &ok);
   out->geometry.inlineMin = cacheio::f64(payload, &pos, &ok);
   out->geometry.inlineMax = cacheio::f64(payload, &pos, &ok);

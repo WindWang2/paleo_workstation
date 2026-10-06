@@ -17,6 +17,20 @@ CTest suites. The old `src/workflow/workflows.cpp` has been split into
 `docs/progress/job-framework.md` for current reconciliation and test evidence;
 this refactor does not reopen or independently revalidate every audit claim.
 
+**2026-10-06 closure note（方向48 审计清账）:** Every item below now carries a
+`> **终态（2026-10-06，方向48 清账复核）**` marker with re-verification
+evidence against `origin/master 3a4f8b5`. Ledger:
+`.goal-loop-ledger-audit-closure.md`. Distribution: 已修 26（历史 commit 带
+证）/ 不复现 2（MEM-06、CONC-05，带论证与复现尝试）/ 方向48 当批修复 7
+（TEST-07=ARCH-08、RUNTIME-04、BIZ-09、ARCH-05、TEST-04、MEM-07、ARCH-06，
+commit `e308372`–`ca18f88`）/ 移交方向50 io-robustness 7（BIZ-05/06/07/10/
+11/14、RUNTIME-03）/ 移交方向52 test-deepening 1（TEST-06）/ 环境项消解 1
+（TEST-01，fresh configure 后 7 套件全注册）。快照漂移教训已落实：10-05
+三路复核的「8 未修/15 待证」与本轮实测差异（BIZ-12/13、ARCH-03/04/07 已
+修，MEM-06/CONC-05 不复现）以本轮逐条 rg+读码重验为准。
+
+上述分布是方向48的 R0 历史快照；方向50已关闭其中 BIZ-05/06/14，条目终态已同步。原 BIZ-07（配准）、BIZ-10/11（CRS）和 RUNTIME-03（LAS 合乘诊断）未在方向50 关闭；**方向58（audit-tail，2026-10-07）已给出终态**：BIZ-07、RUNTIME-03 已修（带红绿）；BIZ-10 标记漂移 + 窄残余加固；BIZ-11 窄残余已收、直调无规范覆盖为文档化残余；TEST-06 高中危已清（方向52）、低风险 18 项逐项终态。账本 `.goal-loop-ledger-audit-tail.md`。用户本方向的 IO BIZ-07/10/12 描述以第11节 IO-R0-07/10/12 映射单独验收。
+
 ---
 
 ## 1. Executive Summary & Audit Scorecard
@@ -76,6 +90,8 @@ Following adversarial verification and calibration against empirical source code
 ## 3. Dimension 1: Memory, Concurrency & Runtime Safety
 
 ### [MEM-01] Asynchronous Write Queue Use-After-Free & Dynamic Property Smuggling in `ConstraintStore` / `ConstraintWorkflow`
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：constraintstore.cpp QPointer safeStore；commit `57f0161`）
+
 - **Severity**: **P0** (Fatal Crash / Use-After-Free in Asynchronous Write Queue Closure)
 - **Dimension**: Memory & Runtime Safety (Cross-Ref: `ARCH-02`)
 - **Exact Code Location**: `src/workflow/workflows.cpp`, Lines 112–123, 711–715; `src/io/constraintstore.cpp`, Lines 48–53
@@ -140,6 +156,8 @@ ConstraintStore::ConstraintStore(const QString &gpkgPath, PaleoProjectStore *sto
 ---
 
 ### [MEM-02] [EMPIRICALLY REFUTED] Claimed Double Delete Hazard in `QgisTopologicalIndex` on Layer Destruction
+> **终态（2026-10-06，方向48 清账复核）**：维持反驳（§7.1；不复核翻案）
+
 - **Severity**: **REFUTED / INFORMATIONAL** (Claimed P0 Double-Free Empirically Disproved — Excluded from Active P0 Tally)
 - **Dimension**: Memory & Runtime Safety
 - **Exact Code Location**: `src/qgis/topologicalindex.cpp`, Lines 76–85, 109–110
@@ -181,6 +199,8 @@ ConstraintStore::ConstraintStore(const QString &gpkgPath, PaleoProjectStore *sto
 ---
 
 ### [MEM-03] Use-After-Free & Double Delete in `PaleoMainWindow::flashHorizon` Timer
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：m_horizonFlashTimer 成员守卫；commit `6845d84`+`bcecd04`）
+
 - **Severity**: **P1** (Use-After-Free / UI Destruction Crash)
 - **Dimension**: Memory & Runtime Safety
 - **Exact Code Location**: `src/ui/paleomainwindow.cpp`, Lines 1156–1176
@@ -242,6 +262,8 @@ ConstraintStore::ConstraintStore(const QString &gpkgPath, PaleoProjectStore *sto
 ---
 
 ### [MEM-04] Dangling Pointers in `QgisLayerService::m_instances` and `isEditingAnyLayer`
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：QHash<QString, QPointer<QgsMapLayer>>；PR #193 `0a02a0e`）
+
 - **Severity**: **P1** (Use-After-Free / Dangling Pointer Dereference)
 - **Dimension**: Memory & Runtime Safety
 - **Exact Code Location**: `src/qgis/qgislayerservice.h`, Line 55; `src/qgis/qgislayerservice.cpp`, Lines 240–275
@@ -308,6 +330,8 @@ for (auto it = m_instances.cbegin(); it != m_instances.cend(); ++it)
 ---
 
 ### [MEM-05] Heap-Allocated `QThreadPool` Leaked in `PaleoTaskService`
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：析构超时兜底+delete m_pool；PR #193 `0a02a0e`）
+
 - **Severity**: **P2** (Permanent Resource & Thread Handle Leak)
 - **Dimension**: Memory & Runtime Safety
 - **Exact Code Location**: `src/services/paleotaskservice.cpp`, Lines 161–164, 180–182
@@ -360,6 +384,8 @@ PaleoTaskService::~PaleoTaskService()
 ---
 
 ### [MEM-06] Spared `mouseGrabberItem` and Double Delete Hazard in `HorizonMarkerSet::rebuild`
+> **终态（2026-10-06，方向48 清账复核）**：不复现（方向48 复核：rebuild 已重写为现场查询 mouseGrabberItem+逐项豁免+无跨帧存指针，`235ca00` 范式；跨帧死亡时 QGraphicsItem 析构自动 ungrab→查询返回 null）
+
 - **Severity**: **P2** (Dangling Pointer / Potential Crash on Mouse Drag Cancel)
 - **Dimension**: Memory & Runtime Safety
 - **Exact Code Location**: `src/ui/correlation/horizonmarkers.cpp`, Lines 322–330, 431–432
@@ -402,6 +428,8 @@ PaleoTaskService::~PaleoTaskService()
 ---
 
 ### [MEM-07] Unchecked Dangling Canvas Pointer in `PaleoEditingToolbar` Destructor
+> **终态（2026-10-06，方向48 清账复核）**：方向48 已修（mCanvas QPointer 化+拆卸顺序钉死；commit `c814130`）
+
 - **Severity**: **P3** (Teardown Lifetime Hazard)
 - **Dimension**: Memory & Runtime Safety
 - **Exact Code Location**: `src/ui/edittools/editingtoolbar.h`, Line 143; `src/ui/edittools/editingtoolbar.cpp`, Lines 258–264
@@ -433,6 +461,8 @@ PaleoEditingToolbar::~PaleoEditingToolbar()
 ---
 
 ### [CONC-01] Thread Pool Task Capturing Raw UI Widget Pointer in `SeismicSectionDockWidget`
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：四处 QPointer guard；commit `5e3aea1`/PR #193）
+
 - **Severity**: **P0** (Fatal Crash / Use-After-Free / Thread Safety Violation)
 - **Dimension**: Memory, Concurrency & Runtime Safety
 - **Exact Code Location**: `src/ui/seismicsection/seismicsectiondockwidget.cpp`, Lines 1046–1065, 1400–1410
@@ -515,6 +545,8 @@ PaleoEditingToolbar::~PaleoEditingToolbar()
 ---
 
 ### [CONC-02] Missing RAII on `gate->slotSemaphore` in `SeismicTaskService::startBounded`
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：SemaphoreGuard RAII；PR #193 `0a02a0e`）
+
 - **Severity**: **P0** (Permanent Deadlock on Exception)
 - **Dimension**: Concurrency & Thread Safety
 - **Exact Code Location**: `src/services/seismictaskservice.cpp`, Lines 2586–2591
@@ -558,6 +590,8 @@ PaleoEditingToolbar::~PaleoEditingToolbar()
 ---
 
 ### [CONC-03] Use-After-Free of `EvictableCache` in `CacheBudgetManager::enforce()`
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：evictionZeroCond+evictionScope RAII；PR #193 `0a02a0e`）
+
 - **Severity**: **P1** (Use-After-Free / Thread Race Condition)
 - **Dimension**: Concurrency & Thread Safety
 - **Exact Code Location**: `src/io/cachebudget.cpp`, Lines 76–110
@@ -611,6 +645,8 @@ void CacheBudgetManager::unregisterCache(EvictableCache *cache)
 ---
 
 ### [CONC-04] Concurrent Callback Data Race in `SegyReader::scanTraceHeadersFast`
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：progressMutex 串行化；PR #193 `0a02a0e`）
+
 - **Severity**: **P1** (Data Race / Unsynchronized Callback Invocation)
 - **Dimension**: Concurrency & Thread Safety
 - **Exact Code Location**: `src/io/segyreader.cpp`, Lines 817–821, 862–863
@@ -648,6 +684,8 @@ void CacheBudgetManager::unregisterCache(EvictableCache *cache)
 ---
 
 ### [CONC-05] Data Race on Non-Atomic Diagnostic Struct `LasCache::m_timings`
+> **终态（2026-10-06，方向48 清账复核）**：不复现（方向48 复核：LasCache 全部消费面在 GUI 线程——crossplotcontroller/previewdoc/wellsectionworkflow/selfcheck 无 worker 调用；头注释已声明单线程诊断口径）
+
 - **Severity**: **P2** (Data Race / Torn Reads)
 - **Dimension**: Concurrency & Thread Safety
 - **Exact Code Location**: `src/io/lascache.h`, Line 91; `src/io/lascache.cpp`, Lines 228, 235
@@ -672,6 +710,8 @@ m_timings.coldParseNs = parseTimer.nsecsElapsed();
 ---
 
 ### [CONC-06] `DataImportService::catInvoke` Deadlock Hazard with `Qt::BlockingQueuedConnection`
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：produce-then-commit 重设计，无 BlockingQueuedConnection 回 owner；commit `57f0161`）
+
 - **Severity**: **P1** (Deadlock Hazard Across Thread Boundaries)
 - **Dimension**: Concurrency & Thread Safety
 - **Exact Code Location**: `src/io/dataimportservice.h`, Lines 220–243
@@ -710,6 +750,8 @@ m_timings.coldParseNs = parseTimer.nsecsElapsed();
 ---
 
 ### [RUNTIME-01] Unchecked Nullptr Dereference of `m_projectSvc` in MainWindow Operations
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：attach/workbench 全守卫；`aa2e2ba` 波次及后续）
+
 - **Severity**: **P0** (Fatal Crash / Null Pointer Dereference)
 - **Dimension**: Runtime & Error Safety
 - **Exact Code Location**: `src/ui/paleomainwindow_attach.cpp`, Line 1411; `src/ui/paleomainwindow_workbench.cpp`, Lines 149–155, 574
@@ -745,6 +787,8 @@ if (!m_projectSvc || !m_projectSvc->project() || !m_projectSvc->project()->layer
 ---
 
 ### [RUNTIME-02] Task Timeout and Use-After-Free in `PaleoAlgorithmWidget::~PaleoAlgorithmWidget()`
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：超时不达即孤儿化+shared_ptr feedback；commit `57f0161`）
+
 - **Severity**: **P1** (Use-After-Free / Background Thread Crash)
 - **Dimension**: Runtime & Error Safety
 - **Exact Code Location**: `src/qgis/qgisprocessingservice.cpp`, Lines 325–333, 410–417
@@ -792,6 +836,8 @@ if (!m_projectSvc || !m_projectSvc->project() || !m_projectSvc->project()->layer
 ---
 
 ### [RUNTIME-03] `InflightCoalescer` Issue Reporting Desynchronization in `LasCache::load`
+> **终态（2026-10-07，方向58 audit-tail）**：已修 `0d01bd6`——合并器结果改为 `LoadOutcome{doc, issues}`，job 不再捕获调用方指针，执行者与同指纹搭车者各自回填（未给 LasDoc 加字段，磁盘 payload 不变）；内存/磁盘命中不重放诊断为既有契约（lascache.h 注释钉死）。红绿：`tst_cache_las::coalescedRidersReceiveIssues` 旧逻辑 `issuesB.size()` 0≠1，新逻辑 13/13、8 次重复稳定。（方向48 R0 历史：仍存在→方向50，未在方向50 关闭。）
+
 - **Severity**: **P2** (Diagnostic Information Loss)
 - **Dimension**: Runtime & Error Safety
 - **Exact Code Location**: `src/io/lascache.cpp`, Lines 220–254; `src/io/inflight.h`, Lines 23–67
@@ -818,6 +864,8 @@ if (!m_projectSvc || !m_projectSvc->project() || !m_projectSvc->project()->layer
 ---
 
 ### [RUNTIME-04] Synchronous `delete timer;` Inside `QTimer::timeout` Handler
+> **终态（2026-10-06，方向48 清账复核）**：方向48 已修（deleteLater+findChildren 清净断言；commit `e308372`）
+
 - **Severity**: **P2** (Unsafe Object Deletion on Active Call Stack)
 - **Dimension**: Runtime & Error Safety
 - **Exact Code Location**: `src/services/seismictaskservice.cpp`, Lines 619–625
@@ -845,6 +893,8 @@ if (!m_projectSvc || !m_projectSvc->project() || !m_projectSvc->project()->layer
 ## 4. Dimension 2: Architecture Layering & Contracts
 
 ### [ARCH-01] Critical Layer Inversion: Data Layer (`src/io/dataimportservice`) Directly Couples to and Calls QGIS Wrapper Layer (`src/qgis/qgislayerservice`)
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：paleo_io 无 paleo_qgis 链接、layerDeclared 信号；commit `57f0161`）
+
 - **Severity**: **P0** (Architecture Inversion / Target-Level Circularity)
 - **Dimension**: Architecture Layering & Module Isolation
 - **Exact Code Location**: 
@@ -898,6 +948,8 @@ target_link_libraries(paleo_io PUBLIC paleo_deps paleo_domain paleo_store paleo_
 ---
 
 ### [ARCH-02] Subversive `void*` Pointer Smuggling and Manual Deletion via Dynamic QObject Properties in Functional Layer (`src/workflow/workflows.cpp`)
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：unique_ptr<ConstraintStore>；commit `57f0161`）
+
 - **Severity**: **P1** (Severe Contract Violation / Type-Safety Destruction)
 - **Dimension**: Architecture Layering & Interface Contracts (Cross-Ref: `MEM-01`)
 - **Exact Code Location**: `src/workflow/workflows.cpp`, Lines 95–125, 711–715, 718–721
@@ -942,6 +994,8 @@ ConstraintStore *constraintStoreOf( const QObject *wf )
 ---
 
 ### [ARCH-03] Coarse-Grained Umbrella Linker Leak: `paleo_deps` Transitively Propagates `QtWidgets` and All Source Includes to Data and Functional Modules
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：四层 tier 依赖模型；commit `b451452`）
+
 - **Severity**: **P1** (Linker Contract Leak / Hidden Dependency Exposure)
 - **Dimension**: Build & Linker Boundaries
 - **Exact Code Location**: `CMakeLists.txt`, Lines 88–96, 232–235, 248, 254, 269, 293, 307, 320, 330, 343
@@ -976,6 +1030,8 @@ target_link_libraries(paleo_workflow PUBLIC paleo_deps paleo_qgis paleo_store pa
 ---
 
 ### [ARCH-04] Tooling Guardrail Blind Spot: `tools/check_layering.py` Fails to Detect Data Layer Inversions into Higher Layers
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：data-qgis/data-functional 规则；commit `57f0161`）
+
 - **Severity**: **P2** (Linter Guardrail Blind Spot / False Green)
 - **Dimension**: Architecture Guardrails & Verification Tooling
 - **Exact Code Location**: `tools/check_layering.py`, Lines 174–184; `tools/layering_vocab.json`, Lines 23–24
@@ -1013,6 +1069,8 @@ if layer_dir in DATA_DIRS and dst in {"qgis", "workflow", "linkage", "ui"}:
 ---
 
 ### [ARCH-05] Inverted / Out-of-Layer Dependency: Algorithm Layer (`src/algorithms/paleoalgorithms.cpp`) Couples to Catalog Storage Layer (`src/catalog/datacatalog.h`)
+> **终态（2026-10-06，方向48 清账复核）**：方向48 已修（canonicalCrsWkt 参数化+LOCAL_GRID_WKT 注入，rg "catalog/" src/algorithms/ 零命中；commit `d7d650c`）
+
 - **Severity**: **P2** (Boundary Violation / Undeclared CMake Link Dependency)
 - **Dimension**: Architecture Layering & Module Isolation
 - **Exact Code Location**: `src/algorithms/paleoalgorithms.cpp`, Lines 3, 75–76; `CMakeLists.txt`, Lines 250–254
@@ -1037,6 +1095,8 @@ const QByteArray wkt = ((crs == local || crs.toWkt()==local.toWkt()) ? DataCatal
 ---
 
 ### [ARCH-06] Side-Channel Property Smuggling: Dynamic String Properties Used as Covert Cross-Layer Data Channel between UI and Workflow Layers
+> **终态（2026-10-06，方向48 清账复核）**：方向48 已修（typed 成员/访问器替代动态属性暗道；commit `6e7a1e2`）
+
 - **Severity**: **P2** (Interface Degeneration / Fragile Untyped Coupling)
 - **Dimension**: Interface Contracts & Hidden Coupling
 - **Exact Code Location**: `src/workflow/mappingworkflow.cpp`, Lines 558–566; `src/ui/pages/constraintpage.cpp`, Lines 393–397
@@ -1066,6 +1126,8 @@ const QString message = wf ? wf->property( "paleo.thickness.message" ).toString(
 ---
 
 ### [ARCH-07] Modularity Placement Smell: Interactive `QgsMapTool` with RubberBand Visualization Located in Functional Layer (`src/linkage/seismicsectiontool.h`)
+> **终态（2026-10-06，方向48 清账复核）**：已修（移至 src/qgis/seismicsectiontool，QGIS 封装层 QtWidgets 豁免；PR #193 `0a02a0e`）
+
 - **Severity**: **P3** (Modularity Smell / Responsibility Blur)
 - **Dimension**: Architecture Layering & Module Isolation
 - **Exact Code Location**: `src/linkage/seismicsectiontool.h`, Lines 1–36; `src/linkage/seismicsectiontool.cpp`, Lines 9–20, 89
@@ -1099,6 +1161,8 @@ private:
 ---
 
 ### [ARCH-08] Test Suite Failure in UI Tab Navigation: `tst_panels.cpp:4736` Failure under Headless Offscreen Platform
+> **终态（2026-10-06，方向48 清账复核）**：方向48 已修（同 TEST-07，nextInFocusChain 链断言；commit `ca18f88`）
+
 - **Severity**: **P1** (Test Suite Blocker)
 - **Dimension**: Architecture Layering & Automation Verification (Cross-Ref: `TEST-07`)
 - **Exact Code Location**: `tests/tst_panels.cpp`, Line 4736; `build/Testing/Temporary/LastTest.log`, Lines 151–153
@@ -1126,6 +1190,8 @@ QTest::qWaitForWindowExposed(panel);
 ## 5. Dimension 3: Business & Boundary Robustness
 
 ### [BIZ-01] `LasParser::parseDepthRange` Hardcoded 64-Curve Stack Buffer Truncates Logs Silently
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：动态 nCurves 向量；commit `e69ae58`/`34df4ea`）
+
 - **Severity**: **P1** (Data Truncation / Silent Data Loss)
 - **Dimension**: Business & Boundary Robustness
 - **Exact Code Location**: `src/io/lasparser.cpp`, Lines 793–823
@@ -1182,6 +1248,8 @@ std::vector<double> rowVals(nCurves, nan());
 ---
 
 ### [BIZ-02] `LasParser` BOM Offset Miscalculation in `parseRange` and `parseDepthRange`
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：bomBytes 扫描期落位；commit `e69ae58`）
+
 - **Severity**: **P1** (File Offset Desynchronization / Data Corruption)
 - **Dimension**: Business & Boundary Robustness
 - **Exact Code Location**: `src/io/lasparser.cpp`, Lines 605–607, 653–656, 744–763
@@ -1219,6 +1287,8 @@ const qint64 asciiOff = header.asciiDataOffset + (header.hasBom ? 3 : 0);
 ---
 
 ### [BIZ-03] `SegyReader::scanParallel` Offset Desynchronization & Trace Duplication on Resume
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：m_index+m_badTraceOffsets 计位；PR #193 `0a02a0e`）
+
 - **Severity**: **P1** (Trace Duplication / Index Corruption)
 - **Dimension**: Business & Boundary Robustness
 - **Exact Code Location**: `src/io/segyreader.cpp`, Lines 847–851, 875–888, 941–949
@@ -1260,6 +1330,8 @@ m_scannedOffset = firstTraceOffset + static_cast<qint64>(m_index.size() + m_badT
 ---
 
 ### [BIZ-04] `SegyReader::openCached` Inverted Probe Logic Rejects Valid 3D Seismic Datasets
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：anyDifferent 探针逻辑；PR #193 `0a02a0e`）
+
 - **Severity**: **P1** (Severe Performance Regression / Fallback to Sequential Scan)
 - **Dimension**: Business & Boundary Robustness
 - **Exact Code Location**: `src/io/segyreader.cpp`, Lines 1108–1132
@@ -1305,6 +1377,10 @@ if (!anyDifferent) eligible = false; // All probes identical -> ordinal dialect
 ---
 
 ### [BIZ-05] `SegyReader::decodeTrace` Missing IEEE 754 Non-Finite/NaN/Inf Validation
+
+> **终态（2026-10-06，方向48 清账复核）**：方向48 R0 曾移交方向50（当时 decodeTrace 无 isfinite 清洗）；方向50已修 `1719684`，读面/SDK计数与手工缺失掩码对拍见下述证据。
+
+- **Direction 50 status (2026-10-06): Resolved, `1719684`.** All decoded non-finite IEEE/IBM samples become quiet NaN and are counted in the request read report; finite samples retain their bit patterns. SDK direct, voxel, mmap, planned and SF3C paths share the missing-value contract and expose quality counts, including cancellation after decoding. `tst_io_robustness` / `tst_io_seismicquality` assert manual missing-mask attribute/inversion results and persisted reports. The historical suggestion to replace samples with zero is superseded: zero fabricates an amplitude and changes downstream missing-value semantics.
 - **Severity**: **P2** (Data Corruption / Numerical Instability)
 - **Dimension**: Business & Boundary Robustness
 - **Exact Code Location**: `src/io/segyreader.cpp`, Lines 564–573
@@ -1331,6 +1407,10 @@ if (!anyDifferent) eligible = false; // All probes identical -> ordinal dialect
 ---
 
 ### [BIZ-06] `TimeDepthTool` and `parseWellTopsText` Depth Null Sentinel Inconsistencies
+
+> **终态（2026-10-06，方向48 清账复核）**：方向48 R0 曾移交方向50（当时仅 -99999 哨兵、深度缺失行仍 append）；方向50已修 `8c67a12` / `f7fe231`，统一词表、逐列拒收及消费报告见下述证据。
+
+- **Direction 50 status (2026-10-06): Resolved, `8c67a12` / `f7fe231`.** Domain vocabulary exactly recognizes -99999/-999.25/-9999/-999; required blank/non-numeric/non-finite depths reject the row with physical line/column reasons. Both time-depth interpolation directions filter the same vocabulary and count ignored rows. Import reports expose sentinel/blank/invalid-cell counts through version metadata and the import ledger, including duplicate skips. File-level top rejection reasons also reach section/workbench reports through ProjectDataFacade; missing TVDSS retains valid MD/TVD and becomes NaN, while a row with no usable depth is rejected. Explicit LAS NULL values remain authoritative. The historical suggestion to reject every negative value is superseded: valid negative coordinates/elevations remain usable.
 - **Severity**: **P2** (Boundary Robustness Defect)
 - **Dimension**: Business & Boundary Robustness
 - **Exact Code Location**: `src/io/timedeptool.cpp`, Lines 25–28; `src/io/wellfileparsers.cpp`, Lines 95–118
@@ -1356,6 +1436,8 @@ tops.append(r); // Appended even if r.hasMd is false!
 ---
 
 ### [BIZ-07] `RegistrationWorkflow` and `geoAffineTransformFile` Lack Non-Finite/Zero Scale Defense
+> **终态（2026-10-07，方向58 audit-tail）**：已修 `7c94359`（测试更名 `ed2ea71`）——`geoAffineParamsValid`（五分量有限、|sx|/|sy|∈[1e-9,1e9]、|tx|/|ty|≤1e10）在 `geoAffineTransformFile` 读源前与 `RegistrationWorkflow` 建目录前双重把关，非数值串不再静默成 0，原因经 `registrationFailed`。红绿：`tst_import_geoaffine` 旧写口 9/9 坏参数照常写盘，新 12/12。`registration.cpp` 仅语法检查（QGIS 依赖）。（方向48 R0 历史：仍存在→方向50。）
+
 - **Severity**: **P2** (Boundary Vulnerability)
 - **Dimension**: Business & Boundary Robustness
 - **Exact Code Location**: `src/workflow/registration.cpp`, Lines 71–85; `src/io/geojsonaffine.cpp`, Lines 12–20
@@ -1377,6 +1459,8 @@ p.sy = params.value(QStringLiteral("sy"), 1.0).toDouble();
 ---
 
 ### [BIZ-08] `PaleoVertexTool::deleteVertexAtMapPoint` Degenerates Polygons on Multi-Coincident Vertex Deletion
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：defense-in-depth 逐环最小数校验；commit `eff046e`）
+
 - **Severity**: **P1** (Topological Geometry Corruption)
 - **Dimension**: Business & Boundary Robustness
 - **Exact Code Location**: `src/ui/edittools/vertexeditortools.cpp`, Lines 482–486, 566–614
@@ -1405,6 +1489,8 @@ if ( remainingCount >= 2 ) { ... }
 ---
 
 ### [BIZ-09] `PaleoVertexTool::coincidentVertices` 1-Nanometer Tolerance Radius Rejects Real-World Shared Boundaries
+> **终态（2026-10-06，方向48 清账复核）**：方向48 已修（kTopoCandidateEnvelope 具名常量+量纲注释+包络上界钉死；commit `c814130`）
+
 - **Severity**: **P2** (Topological Tolerance Fragility)
 - **Dimension**: Business & Boundary Robustness
 - **Exact Code Location**: `src/ui/edittools/vertexeditortools.cpp`, Lines 1053–1064
@@ -1425,6 +1511,8 @@ const QList<QgisTopologicalIndex::VertexHit> hits =
 ---
 
 ### [BIZ-10] `ConstraintIDWAlgorithm` & `PaleoDistanceTransformAlgorithm` Fatal Abort on Engineering CRS
+> **终态（2026-10-07，方向58 audit-tail）**：**标记漂移 + 窄残余已加固（非「已修」）**。审计期描述与当前代码不符：三处（paleoalgorithms.cpp:357、distancetransform.cpp:107、mincurvature.cpp:150）已有 CRS 有效性前置（ddcd974 2026-09-25 引入）且失败抛 QgsProcessingException（处理框架内如实失败，非 fatal abort），行号 258–285/138–166 已漂移；工程常态（井/约束同为 LOCAL_GRID_WKT）`from==to` 不构造变换。根因复现（PROJ 9.6，无 QGIS 运行时）：ENGCRS→EPSG:32650/4326 `Candidate operations found: 0`（`docs/evidence/audit-tail/biz10-projinfo.txt`）。窄残余＝未检 `xform->isValid()` 且逐要素 QgsCsException 未收编，`f359a74` 加固（仅语法检查，运行时待 QGIS CI）。
+
 - **Severity**: **P2** (Processing Pipeline Failure)
 - **Dimension**: Business & Boundary Robustness
 - **Exact Code Location**: `src/algorithms/paleoalgorithms.cpp`, Lines 258–285; `src/algorithms/distancetransform.cpp`, Lines 138–166
@@ -1451,6 +1539,8 @@ if ( tr != Qgis::GeometryOperationResult::Success )
 ---
 
 ### [BIZ-11] Single-Factor Well Distance Algorithms Emit Unprojected GeoTIFFs
+> **终态（2026-10-07，方向58 audit-tail）**：窄残余已收 `0e7df51`，余一项文档化残余。welldist/distancetransform 早已走 `PaleoRasterOut` 共享写口写 CRS（审计描述漂移）；全仓 11 个写口调用点逐一分类（账本 R4）。`createGTiff` 在输入无 CRS 且有规范 WKT（workflow 恒注入 LOCAL_GRID_WKT）时按规范串写投影；**残余**：直调且无 CRS、无规范覆盖时不编造 CRS（rasterout.h 文档化，`tst_algorithm_rasterout_crs` 钉行为）；realizationworkflow 沿用成员投影。仅语法检查（QGIS 依赖）。
+
 - **Severity**: **P2** (Missing Spatial Metadata)
 - **Dimension**: Business & Boundary Robustness
 - **Exact Code Location**: `src/algorithms/welldist.cpp`, Lines 34–53; `src/algorithms/distancetransform.cpp`, Lines 42–61
@@ -1476,6 +1566,10 @@ GDALDatasetH createFloatRaster( const QString &outPath, int nCols, int nRows,
 ---
 
 ### [BIZ-12] `TimeDepthModel` Defensive Check Ordering & Potential Undefined Behavior
+
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：empty 检查先行；commit `9a9cec1`）
+
+- **Direction 50 R0 status (2026-10-06): Already fixed, `d2ca076`.** The empty-point check was reordered before strict bounds access. This original TimeDepthModel issue is distinct from the request's XLSX/coordinate-table label BIZ-12; workbook evidence is tracked as IO-R0-12 below.
 - **Severity**: **P2** (Defensive Brittleness / Fragile Check Ordering — Calibrated from P0)
 - **Dimension**: Business & Boundary Robustness
 - **Exact Code Location**: `src/domain/seismic/timedepthmodel.cpp`, Lines 61–70, 108–116
@@ -1523,6 +1617,8 @@ if (!std::isfinite(depthM) ||
 ---
 
 ### [BIZ-13] `ConstraintIDWAlgorithm` Generates NaNs Due to Floating-Point Overflow Near Sample Points
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：d2<1e-12 epsilon 门；commit `09c8db2`）
+
 - **Severity**: **P2** (Numerical Degeneration / NaN Hole Artifacts)
 - **Dimension**: Business & Boundary Robustness
 - **Exact Code Location**: `src/algorithms/paleoalgorithms.cpp`, Lines 536–550
@@ -1552,6 +1648,10 @@ if (!std::isfinite(depthM) ||
 ---
 
 ### [BIZ-14] `SectionWorkbench::sectionWells` Fragile Depth Unit Filtering Aborts Valid Well Logs
+
+> **终态（2026-10-06，方向48 清账复核）**：方向48 R0 曾移交方向50（当时仅认 M/FT/F）；方向50已修 `8c67a12`，规范别名表与真实 LAS 消费证据见下述说明。
+
+- **Direction 50 status (2026-10-06): Resolved, `8c67a12`.** Shared domain vocabulary normalizes case/whitespace and accepts M/METER/METERS/METRE/METRES and FT/F/FOOT/FEET; foot scaling remains exactly 0.3048. Tests pin the vocabulary and import real LAS aliases into SectionWorkbench. Unknown or empty units produce an explicit alignment reason and do not block other log files. The historical suggestion to guess metres for an empty unit is superseded by the honest unknown-unit contract.
 - **Severity**: **P2** (Defensive Robustness Omission)
 - **Dimension**: Business & Boundary Robustness
 - **Exact Code Location**: `src/workflow/sectionworkbench.cpp`, Lines 187–199
@@ -1579,6 +1679,8 @@ else if (unit != "M") {
 ## 6. Dimension 4: Test Coverage & Assertion Integrity
 
 ### [TEST-01] Build Directory Drift Leaves 7 Newly Merged Test Targets Unbuilt & Unexecuted
+> **终态（2026-10-06，方向48 清账复核）**：已消解（方向48 复核：fresh configure 后 7 套件全注册，ctest -N 证据；残余风险=构建目录纪律，非代码缺陷）
+
 - **Severity**: **P1** (Test Suite Execution Blind Spot)
 - **Dimension**: Test Coverage & Automation Verification
 - **Exact Code Location**: `CMakeLists.txt`, Lines 717–720; `cmake/extra-deepen-*.cmake`; `build/CTestTestfile.cmake`
@@ -1604,12 +1706,16 @@ endforeach()
 - **Impact Analysis**: The automated test suite executes an incomplete subset of tests, leaving recent seismic performance, asynchronous LAS parsing, and section lifecycles unverified.
 - **Concrete Remediation**:
   Re-run `cmake -B build` to re-scan `extra-*.cmake` and regenerate `CTestTestfile.cmake`.
+- **Resolution Status**: **RESOLVED** (Master manifest static wiring)  
+  All extra cmake modules (`cmake/extra-*.cmake`) are tracked directly via `_paleo_extra_manifest` in `CMakeLists.txt` (including `extra-test-deepening.cmake`), ensuring that test targets are never skipped due to configuration directory drift. All 7 previously omitted test suites are actively registered and built.
 - **Empirical Verification Evidence**:
-  Inspect `build/CTestTestfile.cmake`; search for `tst_sectionlifecycle` or `tst_pyramid_consume` (both absent).
+  Inspect `build/CTestTestfile.cmake`; search for `tst_sectionlifecycle` or `tst_pyramid_consume` (both present and registered in `ctest -N`).
 
 ---
 
 ### [TEST-02] Flaky Wall-Clock Performance Assertion in `tst_correlation_full` Causes Intermittent CI Failures
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：offscreen 感知+平台自适应预算；commit `bc79b6a`）
+
 - **Severity**: **P1** (Flaky Test Suite / CI Blocker)
 - **Dimension**: Test Coverage & Automation Verification
 - **Exact Code Location**: `tests/tst_correlation_full.cpp`, Lines 2501–2535
@@ -1630,12 +1736,16 @@ QVERIFY2(best < budgetMs, qPrintable(QStringLiteral("50-well setup+render took %
 - **Impact Analysis**: Flaky CI test runs and false negative build failures.
 - **Concrete Remediation**:
   In offscreen mode, skip exposure checks or adapt thresholds based on runner load.
+- **Resolution Status**: **RESOLVED** (Offscreen platform detection & budget relaxation)  
+  `tests/tst_correlation_full.cpp` incorporates `QGuiApplication::platformName() == "offscreen"` detection and a relaxed 9000ms wall-clock budget for multi-threaded setups, eliminating timeout flakes in CI and headless sandboxes.
 - **Empirical Verification Evidence**:
   Inspect `tests/tst_correlation_full.cpp:2501-2535` and `TODOS.md:168`.
 
 ---
 
 ### [TEST-03] False Green Assertion in `tst_wellcomposite_depth.cpp` Passes Without Signal Emission
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：spy.count()==1；PR #193 `0a02a0e` 系）
+
 - **Severity**: **P2** (Tautological Assertion / False Green)
 - **Dimension**: Test Coverage & Automation Verification
 - **Exact Code Location**: `tests/tst_wellcomposite_depth.cpp`, Lines 413–416
@@ -1657,6 +1767,8 @@ QVERIFY(spy.count() >= 0); // TAUTOLOGICAL ASSERTION
 ---
 
 ### [TEST-04] Tautological Self-Comparison Assertions Across Multiple UI Test Suites
+> **终态（2026-10-06，方向48 清账复核）**：方向48 已修（四处换真实不变量+mutation 验证；commit `bf93dc4`）
+
 - **Severity**: **P2** (False Positive Visual Regression Tests)
 - **Dimension**: Test Coverage & Automation Verification
 - **Exact Code Location**: 
@@ -1688,6 +1800,8 @@ QCOMPARE( render(), render() ); // EXPRESSION COMPARED TO ITSELF
 ---
 
 ### [TEST-05] Tautological Concurrency Invariant Check in `tst_cache_core.cpp`
+> **终态（2026-10-06，方向48 清账复核）**：已修（R0 证据：size≤cap+bytes 关系断言；commit `7f7381f`）
+
 - **Severity**: **P2** (Tautological Invariant Check)
 - **Dimension**: Test Coverage & Automation Verification
 - **Exact Code Location**: `tests/tst_cache_core.cpp`, Lines 343–347
@@ -1711,6 +1825,8 @@ QCOMPARE(cache.bytes(), qint64(0));
 ---
 
 ### [TEST-06] 33 Source Headers and Critical Subsystems Completely Untested
+> **终态（2026-10-07，方向58 标记同步）**：方向52 已清 16 个高/中危零测试头（其账本 R1/R3，见下 Resolution Status）。原「33 个」为审计期 228 头口径；方向58 按 f130fb2 重扫（445 头）：直接零引用 45、传递可达 14、完全不可达 31，其中 13 个为转发垫片/`_internal.h`（不计入），**低风险剩余 18 个逐项终态见 `docs/evidence/audit-tail/test06-untested-headers.md`（待补 7 / 不值得 11）**。高/中危部分已修（方向52）；低风险剩余为登记清单，不冒记全清。
+
 - **Severity**: **P2** (Test Coverage Blind Spot)
 - **Dimension**: Test Coverage & Automation Verification
 - **Exact Code Location**: Multiple modules across `src/`
@@ -1725,12 +1841,33 @@ QCOMPARE(cache.bytes(), qint64(0));
 - **Impact Analysis**: Regressions in atomic saving, AI predictions, and registration can pass unnoticed.
 - **Concrete Remediation**:
   Author targeted test suites for `RegistrationWorkflow`, `AtomicFile`, and `RemotePredictionService`.
+- **Resolution Status**: **RESOLVED** (Direction 52 Zero-test header clearing)  
+  Under Goal-Loop Direction 52, all high and medium-risk zero-test headers have been systematically tested via 15 dedicated unit test suites in `tests/`:
+  1. `src/metadata/atomicfile.h`: Tested in `tests/tst_metadata_atomicfile.cpp` (12 test cases covering atomic writes, error injection, crash simulation with `.running` dirty marker, and data corruption defense assertions).
+  2. `src/workflow/registration.h`: Tested in `tests/tst_workflow_registration.cpp` (6 test cases).
+  3. `src/catalog/catalogindex.h`: Tested in `tests/tst_catalog_catalogindex.cpp` (7 test cases).
+  4. `src/domain/wellsitingplan.h`: Tested in `tests/tst_domain_wellsitingplan.cpp` (7 test cases).
+  5. `src/domain/faciesclassification.h`: Tested in `tests/tst_domain_faciesclassification.cpp` (7 test cases).
+  6. `src/domain/importrows.h`: Tested in `tests/tst_domain_importrows.cpp` (6 test cases).
+  7. `src/domain/sectiontrace.h`: Tested in `tests/tst_domain_sectiontrace.cpp` (6 test cases).
+  8. `src/io/laswriter.h`: Tested in `tests/tst_io_laswriter.cpp` (6 test cases).
+  9. `src/io/inflight.h`: Tested in `tests/tst_io_inflight.cpp` (6 test cases).
+  10. `src/io/ziparchive.h`: Tested in `tests/tst_io_ziparchive_unit.cpp` (6 test cases).
+  11. `src/algorithms/geostat/linsolve.h`: Tested in `tests/tst_geostat_linsolve.cpp` (6 test cases).
+  12. `src/algorithms/geostat/neighborhood.h`: Tested in `tests/tst_geostat_neighborhood.cpp` (6 test cases).
+  13. `src/algorithms/inversion/volume.h`: Tested in `tests/tst_inversion_volume.cpp` (6 test cases).
+  14. `src/algorithms/singlefactor/cartographicsmooth.h`: Tested in `tests/tst_singlefactor_cartographicsmooth.cpp` (8 test cases).
+  15. `src/algorithms/singlefactor/structural.h`: Tested in `tests/tst_singlefactor_structural_unit.cpp` (6 test cases).
+  16. `src/ai/horizonsuggest.h`: Tested in `tests/tst_ai_horizonsuggest.cpp` (6 test cases, conditional on `PALEO_HAVE_ORT`).
+  `src/ai/remotepredictionservice.h` transferred to Direction 51.
 - **Empirical Verification Evidence**:
-  Static scan comparing `src/**/*.h` against `#include` statements in `tests/**/*.cpp`.
+  All 15 suites compile, link, and are verified registered in CTest (`ctest -N`). Mutation verification demonstrated for every suite in `.goal-loop-ledger-test-deepening.md`.
 
 ---
 
 ### [TEST-07] Headless Offscreen Focus Traversal Failure in `tst_panels`
+> **终态（2026-10-06，方向48 清账复核）**：方向48 已修（nextInFocusChain 链断言+折叠披露 mutation 红绿；commit `ca18f88`；本机 Qt6.11 offscreen 原用例偶绿——CI 红证据为审计 LastTest.log:151-153）
+
 - **Severity**: **P1** (Deterministic Test Failure in CI)
 - **Dimension**: Test Coverage & Automation Verification (Cross-Ref: `ARCH-08`)
 - **Exact Code Location**: `tests/tst_panels.cpp`, Line 4736; `build/Testing/Temporary/LastTest.log`, Lines 151–153
@@ -1915,8 +2052,29 @@ Multiple test failures and flaky timeouts (`ARCH-08`, `TEST-02`, `TEST-03`, `TES
 
 ## 10. Conclusion
 
-The comprehensive forensic audit has established a definitive catalogue of **44 unique active issues (45 total categorized views)** across Memory & Concurrency Safety, Architectural Layering, Business Robustness, and Test Suite Integrity, alongside **1 empirically refuted claim (`MEM-02`)**.
+The original forensic audit established a historical catalogue of **44 unique active issues (45 total categorized views)** across Memory & Concurrency Safety, Architectural Layering, Business Robustness, and Test Suite Integrity, alongside **1 empirically refuted claim (`MEM-02`)**.
 
 The findings definitively prove that superficial green test/linter statuses masked deep architectural violations (`ARCH-01`), type-safety bypasses (`ARCH-02`), silent scientific data loss (`BIZ-01`), and genuine fatal runtime crashes (`CONC-01`, `CONC-02`, `RUNTIME-01`, `ARCH-01`, and `MEM-01` UAF), while rigorous adversarial challenge successfully weeded out false positives (`MEM-02`) and calibrated unreachable failure conditions (`BIZ-12`).
 
-With this calibrated, publication-grade master audit report delivered, the implementation teams (Workers) have an unambiguous, verified, and empirically substantiated remediation blueprint to execute in the subsequent milestone.
+The original report provides the remediation blueprint. Dated closure notes and the following Direction 50 section supersede the historical active status for their explicitly listed findings.
+
+
+## 11. Direction 50 IO R0 closure (2026-10-06)
+
+The request's BIZ-07/10/12 descriptions use IO labels which do not match this audit's original numbering. This section preserves the original RegistrationWorkflow BIZ-07 and engineering-CRS BIZ-10 as independent findings; IO closure must not be interpreted as closing those issues. R0 was run against fetched `origin/master` **3a4f8b5**, with a separate Linux worktree/build and the existing vendored QGIS prefix.
+
+| Request label / stable IO key | R0 evidence and already-fixed provenance | Final disposition and verification |
+| --- | --- | --- |
+| BIZ-07 / **IO-R0-07** — custom SEG-Y header words / field order | Direct open with offsets 180/184 or swapped 192/188 already returns IL=100/101, XL=200/201 (`69cda1f`). Reusing a default-field cache after changing configuration returned stale IL=200/201, XL=100/101. | **Resolved `1719684`**: index v2 freezes all four header-word offsets; complete/checkpoint caches require the same identity, v1 regenerates. `configuredHeaderWords` and `changedHeaderWordsInvalidateCache` exercise real `custom_words.sgy` / `swapped_words.sgy` and both direct/cached paths. No guessed field remapping. |
+| BIZ-10 / **IO-R0-10** — truncated SEG-Y | Incomplete binary header and last payload short by one byte already reject (`11f1d5c` sample guard). Last trace header with only 120 bytes silently succeeded with 3 traces; negative ns plus a short payload succeeded with 3 traces / 1 bad offset. SDK already rejects all four truncated variants. | **Resolved `1719684`**: reject incomplete trailing headers/payloads, permit binary-ns fallback only when its complete payload exists, and report decode failure offsets after post-open file changes. Four real truncated fixtures and variable-ns payload fixtures pin these boundaries; existing `tst_cache_segyindex` assertions remain intact. |
+| BIZ-12 / **IO-R0-12** — XLSX / coordinate edges | Sparse XY/non-finite/duplicate-well/oversize-column issues already report (`6094775` / `cfa3296`). `B2junk` / `C0` accepted false coordinates; C/A/B cell order shifted values; physical row 100 reported row 2; legal inlineStr emitted a missing-SST issue. | **Resolved `5654926`**: strict cell/row references, column-indexed placement, physical row bookkeeping, shared-string issues only for cells needing SST, error cells cleared, repeated columns and overlapping merges rejected with reasons. `tst_io_workbook_edges` verifies malformed/unordered/duplicate/physical-row XLSX and SpreadsheetML, including INT_MAX merge-span downgrade without overflow. |
+
+BIZ-05/06/14 closure also covers their actual SDK/import/workflow consumers, with pure io parsing, domain vocabulary and workflow consumption. The fixture generator `tools/reference/make_io_robustness_fixtures.py --check` regenerates **32 files byte-for-byte**, with fixed ZIP metadata, real SEG-Y binary words/payloads and UTF-8 manifest hashes. Good finite samples are compared by bits (including ±0, subnormals and maximum finite IEEE values); accepted well coordinates/depths and interpolation results are compared directly against clean data.
+
+R0 full serial ctest: **300/301 passed, 1786.17 s**. The only pre-existing red target was `tst_startup_trace`: qgis_init_share_max median 0.2570 exceeded 0.2200, and the injected degradation ratio 0.544/0.253 missed the required factor of 3. No performance thresholds were relaxed, and this historical R0 result is retained.
+
+Pre-integration full serial regressions against the same frozen implementation (`f7fe2311`) both passed **306/306**, in **884.69 s / 893.05 s**, with no new failures. `tst_seismic_engine` (22 Qt cases), `tst_wellfileparsers` (34), `tst_welllogset` (10), the five Direction 50 test targets, all three layering targets and both i18n targets passed twice. Startup passed 9/9 twice under its original thresholds; singlefactor performance passed with its original watchdog and assertions. The existing optional datapreview synchronous-loading capture case remained skipped because `PALEO_VISUAL_CAPTURE` was not enabled; functional and asynchronous-loading cases ran. Full CTest and preserved raw Qt receipts, Oracle case names and per-target counts are recorded in `.goal-loop-ledger-io-robustness.md`; diagnostic or partial runs do not count as acceptance passes.
+
+Fixture, well, SEG-Y/SDK, workbook and final consumer batches each completed two consecutive five-dimension self reviews with **High=0 / Medium=0 / Low=0** after fixes and green targeted tests. Linux execution is verified; the Windows commands supplied in the request were not executed on this Linux host. Old converted artifacts are not retroactively certified; resumable transcode counts describe this run's actual reads.
+
+The final PR execution source (`e97ba7da`, build 22) also preserves the master format-family, seismic-service, main-window and audit-closure integrations. Two complete serial regressions against the same artifacts passed **311/311 and 311/311**, in **852.59 s / 840.58 s**. Each run preserved all 298 raw Qt outputs before starting another test. The seismic/well red lines, Direction 50 targets, three layering checks and both i18n checks passed twice; all 40 pre-existing optional skip records are unchanged. Historical diagnostic performance failures and the inversion short write at only 309 MB free remain recorded separately and never count as acceptance passes. The IO ledger records the exact receipts, private resource recovery, unchanged thresholds and two final zero-High/Medium/Low reviews.

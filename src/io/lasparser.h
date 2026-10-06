@@ -5,60 +5,17 @@
 #include <QStringList>
 #include <QVector>
 
-#include "lasdoc.h" // LasCurve / LasDoc（视图可用的纯类型门面）
+#include "lasdoc.h" // LasCurve/LasDoc/LasHeaderInfo/LasIssue（井曲线文档契约，
+                    // 方向 59 起纯类型门面全在 lasdoc.h；本头只留解析入口）
 
 // io/ — minimal LAS 2.x well-log parser (pure Qt, no QGIS dependency).
 // Handles the CWLS sections ~V (version/wrap), ~W (well info — the NULL item
 // drives NaN mapping), ~C (curve definitions in column order) and ~A (ASCII
 // data rows). The first ~C curve is the DEPT index channel.
 
-// 表头快照（header-only 解析的出参）：不触 ~A 数据行——大 LAS 的头部只有
-// 几 KB，读它不构成「整文件解析」；消费方先拿曲线名铺 UI，数据行异步补。
-struct LasHeaderInfo
-{
-  QStringList curveNames;   // ~C 列序（curves[0] 是 DEPT 索引道）
-  QString wellName;         // ~W WELL（缺省空）
-  double nullValue = -999.25; // ~W NULL（CWLS 缺省）
-  bool sawAscii = false;    // 头部扫描途中遇到 ~A 段头（数据节存在）
-};
-
-// D1.6 解析器错误分类：格式错/编码错/截断/单位缺失分级。Error 级必然伴随
-// 解析失败；Warning 级「能解但值得提醒」；Info 是策略性提示（如空曲线）。
-struct LasIssue
-{
-  enum class Severity { Info, Warning, Error };
-  enum class Category { Format, Encoding, Truncated, MissingUnit, MissingCurve, Io, WrapMode, Oversize };
-  Severity severity = Severity::Warning;
-  Category category = Category::Format;
-  int line = 0;         // 1-based；0 = 与行无关
-  QString message;
-
-  static QString severityText(Severity s)
-  {
-    switch (s)
-    {
-      case Severity::Info: return QStringLiteral("info");
-      case Severity::Warning: return QStringLiteral("warning");
-      case Severity::Error: return QStringLiteral("error");
-    }
-    return QStringLiteral("warning");
-  }
-  static QString categoryText(Category c)
-  {
-    switch (c)
-    {
-      case Category::Format: return QStringLiteral("format");
-      case Category::Encoding: return QStringLiteral("encoding");
-      case Category::Truncated: return QStringLiteral("truncated");
-      case Category::MissingUnit: return QStringLiteral("missing-unit");
-      case Category::MissingCurve: return QStringLiteral("missing-curve");
-      case Category::Io: return QStringLiteral("io");
-      case Category::WrapMode: return QStringLiteral("wrap-mode");
-      case Category::Oversize: return QStringLiteral("oversize");
-    }
-    return QStringLiteral("format");
-  }
-};
+// D1.6 解析器错误分类：格式错/编码错/截断/单位缺失分级（LasIssue，与
+// LasHeaderInfo/LasCurve/LasDoc 同在 lasdoc.h——解析入口与契约类型分离，
+// 见 lasdoc.h 头注释）。
 
 class LasParser
 {

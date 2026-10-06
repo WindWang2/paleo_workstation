@@ -2,35 +2,91 @@
 #include "wellfileparsers.h"
 
 #include "../domain/welltopsedit.h"
+#include "../domain/wellnumeric.h"
+#include <QCoreApplication>
 
 #include "encodingdetect.h"
 
 #include <QFile>
+#include <QDebug>
 #include <QRegularExpression>
 #include <QSet>
 #include <QXmlStreamReader>
 
 #include <cmath>
+#include <limits>
 
 namespace
 {
-  const double kNullSentinel = -99999.0; // SMI 空值（plan §1）
+  using paleo::wellnumeric::NumberKind;
 
   QStringList splitTokens(const QString &line)
   {
-    return line.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+    // 明确的列分隔符保留空列；空格分隔旧式 SMI 维持原有规则。
+    if (line.contains(QLatin1Char('\t')))
+      return line.split(QLatin1Char('\t'), Qt::KeepEmptyParts);
+    if (line.contains(QLatin1Char(',')))
+      return line.split(QLatin1Char(','), Qt::KeepEmptyParts);
+    return line.trimmed().split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
   }
 
-  // 数值列：-99999 视为空。
-  bool parseColumn(const QString &token, double *out)
+  struct ParseContext
   {
-    bool ok = false;
-    const double v = token.toDouble(&ok);
-    if (!ok || !std::isfinite(v) || v <= kNullSentinel + 0.5) // 非有限值或命中 -99999 哨兵邻域
+    WellParseReport report;
+    int line = 0;
+    bool column(const QStringList &tokens, int index, const char *name,
+                double *out, bool reject)
+    {
+      const QString token = tokens.value(index).trimmed();
+      const NumberKind kind = paleo::wellnumeric::parse(token, out);
+      if (kind == NumberKind::Value)
+        return true;
+      QString reason;
+      switch (kind)
+      {
+      case NumberKind::Empty:
+        ++report.blankCells;
+        reason = QCoreApplication::translate("WellFileParsers", "空白或缺列");
+        break;
+      case NumberKind::NullSentinel:
+        ++report.sentinelHits;
+        reason = QCoreApplication::translate("WellFileParsers", "空值哨兵");
+        break;
+      case NumberKind::NonFinite:
+        ++report.invalidCells;
+        reason = QCoreApplication::translate("WellFileParsers", "非有限数值");
+        break;
+      case NumberKind::NonNumeric:
+        ++report.invalidCells;
+        reason = QCoreApplication::translate("WellFileParsers", "非数值");
+        break;
+      case NumberKind::Value: break;
+      }
+      report.issues.append(QCoreApplication::translate(
+          "WellFileParsers", "第 %1 行 · %2 列（%3）：%4（原值“%5”），%6")
+          .arg(line).arg(index + 1).arg(QLatin1String(name), reason, token,
+          reject ? QCoreApplication::translate("WellFileParsers", "拒收该行")
+                 : QCoreApplication::translate("WellFileParsers", "该列置空")));
       return false;
-    *out = v;
-    return true;
-  }
+    }
+    bool textColumn(const QStringList &tokens, int index, const char *name, QString *out)
+    {
+      *out = tokens.value(index).trimmed();
+      if (!out->isEmpty()) return true;
+      ++report.blankCells;
+      report.issues.append(QCoreApplication::translate("WellFileParsers",
+          "第 %1 行 · %2 列（%3）：名称为空或缺列，拒收该行")
+          .arg(line).arg(index + 1).arg(QLatin1String(name)));
+      return false;
+    }
+    void finish(WellParseReport *out) const
+    {
+      if (out)
+        *out = report;
+      else if (!report.issues.isEmpty())
+        qWarning().noquote() << wellParseSummary(report);
+    }
+  };
 
   // ---- 分层文本头驱动列映射（工区惯例兼容）----
   // '#' 注释头行列名齐全时按名取列（如 "wellName DepthMD topName topVerName"，
@@ -90,6 +146,17 @@ namespace
   }
 } // namespace
 
+QString wellParseSummary(const WellParseReport &report)
+{
+  if (report.issues.isEmpty())
+    return {};
+  return QCoreApplication::translate("WellFileParsers",
+      "井表解析：接收 %1 行，拒收 %2 行；哨兵 %3，空白/缺列 %4，非数值/非有限 %5；%6")
+      .arg(report.acceptedRows).arg(report.rejectedRows).arg(report.sentinelHits)
+      .arg(report.blankCells).arg(report.invalidCells)
+      .arg(report.issues.join(QStringLiteral("；")));
+}
+
 // plan §3：井口文件带 UTF-8 BOM；U+FEFF 不是空白，trimmed() 去不掉。
 // 若首行是表头/数据行，BOM 会粘上第一个 token（井名失配），统一先剥。
 static QString withoutBom(const QByteArray &text)
@@ -99,55 +166,53 @@ static QString withoutBom(const QByteArray &text)
   return EncodingDetect::decodeText(text);
 }
 
-QVector<WellHeadRecord> parseWellHeadText(const QByteArray &text)
+QVector<WellHeadRecord> parseWellHeadText(const QByteArray &text, WellParseReport *report)
 {
   QVector<WellHeadRecord> rows;
-  const QString data = withoutBom(text);
-  for (const QString &rawLine : data.split(QRegularExpression(QStringLiteral("[\r\n]")),
-                                            Qt::SkipEmptyParts))
+  ParseContext ctx;
+  for (const QString &raw : withoutBom(text).split(QRegularExpression(QStringLiteral("\\r\\n|\\n|\\r"))))
   {
-    const QString line = rawLine.trimmed();
-    if (line.isEmpty() || line.startsWith(QLatin1Char('#')))
+    ++ctx.line;
+    if (raw.trimmed().isEmpty() || raw.trimmed().startsWith(QLatin1Char('#')))
       continue;
-    const QStringList t = splitTokens(line);
-    if (t.size() < 5) // Name X Y KB TotalDepth
-      continue;
+    const QStringList t = splitTokens(raw);
     WellHeadRecord r;
-    r.name = t.at(0);
-    // All five columns are required.  Use the same finite/sentinel rules as
-    // the optional columns below so a missing coordinate is never marked as
-    // a valid surface position by the importer.
-    if (!parseColumn(t.at(1), &r.x) || !parseColumn(t.at(2), &r.y) ||
-        !parseColumn(t.at(3), &r.kb) || !parseColumn(t.at(4), &r.td))
-      continue;
-    // 可选列：BottomX BottomY WellType（-99999/缺列 → has* false / 空串）。
-    if (t.size() >= 7)
+    bool valid = ctx.textColumn(t, 0, "Name", &r.name);
+    valid &= ctx.column(t, 1, "X", &r.x, true);
+    valid &= ctx.column(t, 2, "Y", &r.y, true);
+    valid &= ctx.column(t, 3, "KB", &r.kb, true);
+    valid &= ctx.column(t, 4, "TotalDepth", &r.td, true);
+    if (!valid || r.name.isEmpty())
     {
-      if (parseColumn(t.at(5), &r.bottomX))
-        r.hasBottomX = true;
-      if (parseColumn(t.at(6), &r.bottomY))
-        r.hasBottomY = true;
+      ++ctx.report.rejectedRows;
+      continue;
     }
-    if (t.size() >= 8)
-      r.wellType = t.at(7);
+    if (t.size() > 5)
+    {
+      r.hasBottomX = ctx.column(t, 5, "BottomX", &r.bottomX, false);
+      r.hasBottomY = ctx.column(t, 6, "BottomY", &r.bottomY, false);
+    }
+    if (t.size() >= 8) r.wellType = t.at(7).trimmed();
     rows.append(r);
+    ++ctx.report.acceptedRows;
   }
+  ctx.finish(report);
   return rows;
 }
 
-QVector<WellTopRecord> parseWellTopsText(const QByteArray &text)
+QVector<WellTopRecord> parseWellTopsText(const QByteArray &text, WellParseReport *report)
 {
   QVector<WellTopRecord> tops;
-  const QString data = withoutBom(text);
+  ParseContext ctx;
   // 头驱动列映射：数据行之前的首条 '#' 注释行若含齐全列名（井名/层名/深度，
   // 如 "wellName DepthMD topName topVerName"），按名取列；否则维持位置约定。
   bool headerChecked = false;
   TopsColumnMap cmap;
   bool byName = false;
-  for (const QString &rawLine : data.split(QRegularExpression(QStringLiteral("[\r\n]")),
-                                            Qt::SkipEmptyParts))
+  for (const QString &raw : withoutBom(text).split(QRegularExpression(QStringLiteral("\\r\\n|\\n|\\r"))))
   {
-    const QString line = rawLine.trimmed();
+    ++ctx.line;
+    const QString line = raw.trimmed();
     if (line.isEmpty())
       continue;
     if (line.startsWith(QLatin1Char('#')))
@@ -160,62 +225,61 @@ QVector<WellTopRecord> parseWellTopsText(const QByteArray &text)
       continue;
     }
     headerChecked = true;
-    const QStringList t = splitTokens(line);
+    const QStringList t = splitTokens(raw);
     WellTopRecord r;
     if (byName)
     {
+      // 列名驱动按名取列：可选列缺席（索引 -1）跳过不记 issue。
       if (t.size() <= cmap.maxIndex())
-        continue; // 列不全的行不硬猜
-      r.wellName = t.at(cmap.well);
-      r.topName = t.at(cmap.top);
-      if (parseColumn(t.at(cmap.md), &r.md))
-        r.hasMd = true;
-      auto optNum = [&t](int idx, double *out) {
-        return idx >= 0 && idx < t.size() && parseColumn(t.at(idx), out);
-      };
-      double v = 0;
-      if (optNum(cmap.x, &v)) { r.x = v; r.hasX = true; }
-      if (optNum(cmap.y, &v)) { r.y = v; r.hasY = true; }
-      if (optNum(cmap.z, &v)) { r.z = v; }
-      if (optNum(cmap.tvd, &v)) { r.tvd = v; r.hasTvd = true; }
-      if (optNum(cmap.time, &v)) { r.timeMs = v; r.hasTime = true; }
+      {
+        ++ctx.report.rejectedRows; // 列不全的行不硬猜
+        continue;
+      }
+      bool namesValid = ctx.textColumn(t, cmap.well, "WellName", &r.wellName);
+      namesValid &= ctx.textColumn(t, cmap.top, "Name", &r.topName);
+      r.hasMd = ctx.column(t, cmap.md, "MD", &r.md, true);
+      if (!r.hasMd || !namesValid)
+      {
+        ++ctx.report.rejectedRows;
+        continue;
+      }
+      if (cmap.x >= 0) r.hasX = ctx.column(t, cmap.x, "X", &r.x, false);
+      if (cmap.y >= 0) r.hasY = ctx.column(t, cmap.y, "Y", &r.y, false);
+      if (cmap.z >= 0 && !ctx.column(t, cmap.z, "Z", &r.z, false))
+        r.z = std::numeric_limits<double>::quiet_NaN();
+      if (cmap.tvd >= 0) r.hasTvd = ctx.column(t, cmap.tvd, "TVD", &r.tvd, false);
+      if (cmap.time >= 0) r.hasTime = ctx.column(t, cmap.time, "Time(ms)", &r.timeMs, false);
       tops.append(r);
+      ++ctx.report.acceptedRows;
       continue;
     }
-    if (t.size() < 3) // 井名 层名 MD
-      continue;
-    r.wellName = t.at(0);
-    r.topName = t.at(1);
-    if (parseColumn(t.at(2), &r.md))
-      r.hasMd = true;
-    if (t.size() >= 6)
+    bool namesValid = ctx.textColumn(t, 0, "WellName", &r.wellName);
+    namesValid &= ctx.textColumn(t, 1, "Name", &r.topName);
+    r.hasMd = ctx.column(t, 2, "MD", &r.md, true);
+    if (!r.hasMd || !namesValid)
     {
-      double v = 0;
-      if (parseColumn(t.at(3), &v))
-      {
-        r.x = v;
-        r.hasX = true;
-      }
-      if (parseColumn(t.at(4), &v))
-      {
-        r.y = v;
-        r.hasY = true;
-      }
-      if (parseColumn(t.at(5), &v))
-        r.z = v;
+      ++ctx.report.rejectedRows;
+      continue;
     }
-    if (t.size() >= 7 && parseColumn(t.at(6), &r.tvd))
-      r.hasTvd = true;
-    if (t.size() >= 8 && parseColumn(t.at(7), &r.timeMs))
-      r.hasTime = true;
+    if (t.size() > 3)
+    {
+      r.hasX = ctx.column(t, 3, "X", &r.x, false);
+      r.hasY = ctx.column(t, 4, "Y", &r.y, false);
+      if (!ctx.column(t, 5, "Z", &r.z, false))
+        r.z = std::numeric_limits<double>::quiet_NaN();
+    }
+    if (t.size() >= 7) r.hasTvd = ctx.column(t, 6, "TVD", &r.tvd, false);
+    if (t.size() >= 8) r.hasTime = ctx.column(t, 7, "Time(ms)", &r.timeMs, false);
     tops.append(r);
+    ++ctx.report.acceptedRows;
   }
+  ctx.finish(report);
   return tops;
 }
 
 QByteArray writeWellTopsText(const QVector<WellTopRecord> &tops)
 {
-  const QString kNull = QStringLiteral("-99999.000");
+  const QString kNull = QString::number(paleo::wellnumeric::kSmiNull, 'f', 3);
   const int kNumW = 14, kNameW = 13; // 列宽对齐 fixture 风格（解析按空白切，仅美观）
   auto padNum = [](const QString &s) {
     // 超宽值（如 'g',17 长串）不再负数补空——至少留一个空格分隔。
@@ -238,80 +302,97 @@ QByteArray writeWellTopsText(const QVector<WellTopRecord> &tops)
     // ——半坐标组（X 有效 Y 哨兵）的 z 是真实值，整组写哨兵会静默丢（轮 3 M2）。
     const bool hasXy = r.hasX || r.hasY;
     out += padName(r.wellName) + padName(r.topName) + num(r.hasMd, r.md) +
-           num(r.hasX, r.x) + num(r.hasY, r.y) + num(hasXy, r.z) +
+           num(r.hasX, r.x) + num(r.hasY, r.y) + num(hasXy && paleo::wellnumeric::isUsable(r.z), r.z) +
            num(r.hasTvd, r.tvd) + num(r.hasTime, r.timeMs) + QStringLiteral("\r\n");
   }
   return out.toUtf8();
 }
 
-TimeDepthTable parseTimeDepthText(const QByteArray &text)
+TimeDepthTable parseTimeDepthText(const QByteArray &text, WellParseReport *report)
 {
   TimeDepthTable table;
-  const QString data = withoutBom(text);
-  for (const QString &rawLine : data.split(QRegularExpression(QStringLiteral("[\r\n]")),
-                                            Qt::SkipEmptyParts))
+  ParseContext ctx;
+  for (const QString &raw : withoutBom(text).split(QRegularExpression(QStringLiteral("\\r\\n|\\n|\\r"))))
   {
-    const QString line = rawLine.trimmed();
+    ++ctx.line;
+    const QString line = raw.trimmed();
     if (line.startsWith(QLatin1Char('#')))
     {
-      // '# Well : A1'
       const int idx = line.indexOf(QStringLiteral("Well :"), Qt::CaseInsensitive);
-      if (idx >= 0 && table.wellName.isEmpty())
-        table.wellName = line.mid(idx + 6).trimmed();
+      if (idx >= 0 && table.wellName.isEmpty()) table.wellName = line.mid(idx + 6).trimmed();
       continue;
     }
-    if (line.isEmpty())
-      continue;
-    const QStringList t = splitTokens(line);
-    if (t.size() < 4) // TIME TVDSS TVD MD
-      continue;
+    if (line.isEmpty()) continue;
+    const QStringList t = splitTokens(raw);
     TdRow row;
-    bool sOk = false;
-    row.tvdss = t.at(1).toDouble(&sOk);
-    // 参与规则（audit #39/T18）：TIME(ms) 命中 -99999/非数值/非有限的行
-    // 整行不进时深表——否则 sentinel 时间值会混进插值污染标定。TVDSS 只
-    // 要求可解析且有限（它不是查找列，-99999 不逐行）；TVD/MD 列沿用
-    // -99999→空。
-    if (!sOk || !std::isfinite(row.tvdss) || !parseColumn(t.at(0), &row.timeMs) ||
-        !std::isfinite(row.timeMs))
+    row.tvdss = std::numeric_limits<double>::quiet_NaN();
+    const bool timeOk = ctx.column(t, 0, "TIME(ms)", &row.timeMs, true);
+    // TVDSS 不是 MD/TVD 查找列；缺失时仍保留其它真实深度，不能连带拒收。
+    const bool sOk = ctx.column(t, 1, "TVDSS", &row.tvdss, false);
+    row.hasTvd = ctx.column(t, 2, "TVD", &row.tvd, false);
+    row.hasMd = ctx.column(t, 3, "MD", &row.md, false);
+    if (!timeOk || (!sOk && !row.hasTvd && !row.hasMd))
+    {
+      if (!sOk && !row.hasTvd && !row.hasMd)
+        ctx.report.issues.append(QCoreApplication::translate("WellFileParsers",
+            "第 %1 行没有可用深度（TVDSS/TVD/MD），拒收该行").arg(ctx.line));
+      ++ctx.report.rejectedRows;
       continue;
-    if (parseColumn(t.at(2), &row.tvd))
-      row.hasTvd = true;
-    if (parseColumn(t.at(3), &row.md))
-      row.hasMd = true;
-    // 末列可能是 Well 名（'# Well' 已给出，冗余忽略）
+    }
     table.rows.append(row);
+    ++ctx.report.acceptedRows;
   }
+  ctx.finish(report);
   return table;
 }
 
+// 保留旧式单参数入口（包括最小链接测试壳的前向声明）。
+QVector<WellHeadRecord> parseWellHeadText(const QByteArray &text)
+{
+  return parseWellHeadText(text, nullptr);
+}
+QVector<WellTopRecord> parseWellTopsText(const QByteArray &text)
+{
+  return parseWellTopsText(text, nullptr);
+}
+TimeDepthTable parseTimeDepthText(const QByteArray &text)
+{
+  return parseTimeDepthText(text, nullptr);
+}
 DeviationTable parseDeviationText(const QByteArray &text)
 {
+  return parseDeviationText(text, nullptr);
+}
+
+DeviationTable parseDeviationText(const QByteArray &text, WellParseReport *report)
+{
   DeviationTable table;
-  const QString data = withoutBom(text);
-  for (const QString &rawLine : data.split(QRegularExpression(QStringLiteral("[\r\n]")),
-                                            Qt::SkipEmptyParts))
+  ParseContext ctx;
+  for (const QString &raw : withoutBom(text).split(QRegularExpression(QStringLiteral("\\r\\n|\\n|\\r"))))
   {
-    const QString line = rawLine.trimmed();
+    ++ctx.line;
+    const QString line = raw.trimmed();
     if (line.startsWith(QLatin1Char('#')))
     {
       const int idx = line.indexOf(QStringLiteral("Well :"), Qt::CaseInsensitive);
-      if (idx >= 0 && table.wellName.isEmpty())
-        table.wellName = line.mid(idx + 6).trimmed();
+      if (idx >= 0 && table.wellName.isEmpty()) table.wellName = line.mid(idx + 6).trimmed();
       continue;
     }
-    if (line.isEmpty())
-      continue;
-    const QStringList t = splitTokens(line);
-    if (t.size() < 3) // MD 井斜角 方位角
-      continue;
+    if (line.isEmpty()) continue;
+    const QStringList t = splitTokens(raw);
     DeviationStationRecord r;
-    // 站点三元组缺一不可：任一列无效整行丢弃（区别于 tops 的可选列语义）。
-    if (!parseColumn(t.at(0), &r.md) || !parseColumn(t.at(1), &r.inclinationDeg) ||
-        !parseColumn(t.at(2), &r.azimuthDeg))
+    bool valid = true;
+    valid &= ctx.column(t, 0, "MD", &r.md, true);
+    valid &= ctx.column(t, 1, "INCL", &r.inclinationDeg, true);
+    valid &= ctx.column(t, 2, "AZI", &r.azimuthDeg, true);
+    if (!valid)
+    {
+      ++ctx.report.rejectedRows;
       continue;
+    }
     table.stations.append(r);
+    ++ctx.report.acceptedRows;
   }
+  ctx.finish(report);
   return table;
 }
-

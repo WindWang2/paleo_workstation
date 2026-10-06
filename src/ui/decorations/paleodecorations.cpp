@@ -10,6 +10,7 @@
 #include <QColor>
 #include <QEvent>
 #include <QFont>
+#include <QFontMetrics>
 #include <QPainter>
 #include <QPen>
 #include <QPolygonF>
@@ -265,6 +266,48 @@ void PaleoWatermarkDecoration::render( const QgsMapSettings &mapSettings, QgsRen
   painter->restore();
 }
 
+void PaleoUncertaintyDecoration::render( const QgsMapSettings &mapSettings,
+                                         QgsRenderContext &context )
+{
+  Q_UNUSED( mapSettings )
+  QPainter *painter = context.painter();
+  if ( !painter || !painter->device() || title.isEmpty() )
+    return;
+
+  // 右上卡（DESIGN 图例位）：口径词加粗一行 + 成员/缺号次级一行。
+  // 画布装饰不随 UI 暗色——与 facies 图签同口径，装饰 token 走卡片件。
+  const PaleoTheme::ThemeTokens &tk = PaleoTheme::tokens();
+  QFont titleFont = painter->font();
+  titleFont.setPointSizeF( tk.labelPt );
+  titleFont.setBold( true );
+  QFont subFont = titleFont;
+  subFont.setBold( false );
+  const QFontMetricsF fmT( titleFont ), fmS( subFont );
+  const qreal w = qMax( fmT.horizontalAdvance( title ),
+                        fmS.horizontalAdvance( subtitle ) ) + 20;
+  const qreal h = fmT.height() + ( subtitle.isEmpty() ? 0 : fmS.height() + 2 ) + 12;
+  const qreal x = painter->device()->width() - w - 16;
+  const qreal y = topMargin;
+
+  painter->save();
+  painter->setRenderHint( QPainter::Antialiasing, true );
+  painter->setPen( PaleoDecorationTheme::border() );
+  painter->setBrush( PaleoDecorationTheme::card() );
+  painter->drawRoundedRect( QRectF( x, y, w, h ), tk.radiusSm, tk.radiusSm );
+  painter->setPen( PaleoDecorationTheme::ink() );
+  painter->setFont( titleFont );
+  qreal ty = y + fmT.ascent() + 6;
+  painter->drawText( QPointF( x + 10, ty ), title );
+  if ( !subtitle.isEmpty() )
+  {
+    painter->setFont( subFont );
+    painter->setPen( PaleoDecorationTheme::inkSoft() );
+    ty += fmS.height() + 2;
+    painter->drawText( QPointF( x + 10, ty ), subtitle );
+  }
+  painter->restore();
+}
+
 namespace
 {
   class PaleoDecorationOverlay : public QWidget
@@ -326,6 +369,7 @@ PaleoDecorationManager::PaleoDecorationManager( QgsMapCanvas *canvas, QObject *p
   , mNorthArrow( std::make_unique<PaleoNorthArrowDecoration>() )
   , mGrid( std::make_unique<PaleoGridDecoration>() )
   , mWatermark( std::make_unique<PaleoWatermarkDecoration>() )
+  , mUncertainty( std::make_unique<PaleoUncertaintyDecoration>() )
 {
   // 水印默认文案走翻译机制（装饰类非 QObject，语境挂管理器）。
   mWatermark->setText( QCoreApplication::translate( "PaleoDecorationManager", "临时配准 · 手工仿射" ) );
@@ -426,6 +470,37 @@ void PaleoDecorationManager::setWatermarkText( const QString &text )
   }
 }
 
+void PaleoDecorationManager::setUncertaintyBadge( const QString &title,
+                                                  const QString &subtitle )
+{
+  mUncertainty->title = title;
+  mUncertainty->subtitle = subtitle;
+  const bool enabled = !title.isEmpty(); // 空口径 = 关图签（不产假签）
+  mUncertaintyEnabled = enabled;
+  if ( mOverlay )
+  {
+    mOverlay->raise();
+    mOverlay->update();
+  }
+  if ( mCanvas )
+    mCanvas->refresh();
+}
+
+void PaleoDecorationManager::clearUncertaintyBadge()
+{
+  setUncertaintyBadge( QString(), QString() );
+}
+
+QString PaleoDecorationManager::uncertaintyTitle() const
+{
+  return mUncertainty->title;
+}
+
+QString PaleoDecorationManager::uncertaintySubtitle() const
+{
+  return mUncertainty->subtitle;
+}
+
 QList<QgsMapDecoration *> PaleoDecorationManager::decorationItems() const
 {
   QList<QgsMapDecoration *> items;
@@ -438,6 +513,8 @@ QList<QgsMapDecoration *> PaleoDecorationManager::decorationItems() const
     items << mNorthArrow.get();
   if ( mLegendEnabled )
     items << mLegend.get();
+  if ( mUncertaintyEnabled )
+    items << mUncertainty.get();
   if ( mWatermarkEnabled )
     items << mWatermark.get();
   return items;
@@ -452,6 +529,21 @@ void PaleoDecorationManager::paintDecorations( QPainter *painter )
   QgsRenderContext context = QgsRenderContext::fromQPainter( painter );
   context.setMapToPixel( ms.mapToPixel() );
   context.setExtent( ms.visibleExtent() );
+
+  // 不确定性图签与相图签同占右上位——相图签在场时向下让位（行高口径与
+  // PaleoFaciesLegendDecoration::render 同源：卡高 = 16 + row*(n+1)）。
+  if ( mUncertaintyEnabled && mUncertainty )
+  {
+    qreal top = 16.0;
+    if ( mLegendEnabled && mLegend && !mLegend->facies.isEmpty() )
+    {
+      QFont f = painter->font();
+      f.setPointSize( PaleoTheme::tokens().labelPt );
+      const int row = QFontMetrics( f ).height() + 8;
+      top += 16 + row * ( mLegend->facies.size() + 1 ) + 8;
+    }
+    mUncertainty->topMargin = top;
+  }
 
   const QList<QgsMapDecoration *> items = decorationItems();
   for ( QgsMapDecoration *d : items )

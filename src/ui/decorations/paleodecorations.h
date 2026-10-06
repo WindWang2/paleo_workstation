@@ -75,6 +75,22 @@ public:
   void render(const QgsMapSettings &, QgsRenderContext &context) override;
 };
 
+// 方向 47：不确定性图签——右上卡（DESIGN 图例位），随图面走的
+// 「统计口径 + 成员数」。title = 口径词（壳侧从 statisticDisplayLabel
+// 取——与 catalog token 同源逐字一致，不混称方差/分位）；
+// subtitle = 成员在场/缺号（如「8 成员在场 · 缺 #3」）。
+// title 空 → 不绘制（无统计面在场时无图签，不产假口径）。
+class PaleoUncertaintyDecoration : public QgsMapDecoration
+{
+  public:
+    PaleoUncertaintyDecoration() { setDisplayName( QStringLiteral( "Uncertainty Badge" ) ); }
+    QString title;
+    QString subtitle;
+    // 相图签同占右上位时向下让位（管理器逐帧按 legend 高度回写）。
+    qreal topMargin = 16.0;
+    void render( const QgsMapSettings &mapSettings, QgsRenderContext &context ) override;
+};
+
 class QWidget;
 
 // D1.10 装饰件主题 token（DESIGN.md 双主题）：画布本体按纸面白底不动
@@ -110,6 +126,14 @@ class PaleoDecorationManager : public QObject
     void setWatermarkEnabled( bool enabled );
     void setWatermarkText( const QString &text );
 
+    // 方向 47：不确定性图签。title 空 = 关闭（enabled 置回 false——
+    // 图签只随统计面/成员面在画布期间存在）。
+    void setUncertaintyBadge( const QString &title, const QString &subtitle );
+    void clearUncertaintyBadge();
+    bool isUncertaintyEnabled() const { return mUncertaintyEnabled; }
+    QString uncertaintyTitle() const;
+    QString uncertaintySubtitle() const;
+
     bool isScaleBarEnabled() const { return mScaleBarEnabled; }
     bool isNorthArrowEnabled() const { return mNorthArrowEnabled; }
     bool isGridEnabled() const { return mGridEnabled; }
@@ -136,9 +160,11 @@ class PaleoDecorationManager : public QObject
     std::unique_ptr<PaleoNorthArrowDecoration> mNorthArrow;
     std::unique_ptr<PaleoGridDecoration> mGrid;
     std::unique_ptr<PaleoWatermarkDecoration> mWatermark;
+    std::unique_ptr<PaleoUncertaintyDecoration> mUncertainty;
 
     bool mScaleBarEnabled = false;
     bool mNorthArrowEnabled = false;
     bool mGridEnabled = false;
     bool mWatermarkEnabled = false;
+    bool mUncertaintyEnabled = false;
 };

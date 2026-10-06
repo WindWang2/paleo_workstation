@@ -24,7 +24,7 @@ enum class IssueKind
   EmptyName,      // 层名为空（错误）
   WhitespaceName, // 层名含空白（错误：DC.dat 按空白分列，含空白的层名写盘即损坏）
   EmptyWellName,  // 井名为空（错误：写盘后行归属无法解析）
-  SentinelValue,  // 数值列命中 -99999 缺失哨兵域（错误：缺失应清空单元格）
+  SentinelValue,  // 数值列命中共享缺失哨兵词表（错误：缺失应清空单元格）
   HalfCoordinateGroup, // X/Y 只有一列有效（警告：三列同组，缺列按哨兵落盘）
   DuplicateName, // 同井同层名多行——叠置（错误）：每个重复行各一条
   SameDepth,     // 同井两行 MD 相同——叠置（错误）：两行各一条

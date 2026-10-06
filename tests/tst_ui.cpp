@@ -25,6 +25,7 @@
 #include "../src/io/constraintstore.h"
 #include "../src/workflow/workflows.h"
 #include "helpers/visualcapture.h"
+#include "mockremotepredictionservice.h"
 
 #include "../src/app/appcontext.h"
 #include "../src/domain/faciescatalog.h"
@@ -1789,6 +1790,10 @@ class TestUiShell : public QObject
     void mappingWorkbenchCanvasRibbonAndReferences()
     {
       QTemporaryDir dir;
+      // 方向51：产品装配装的是真 router（无远端配置→如实失败），本用例需要
+      // 能出层的预测结果——显式注入 tests/ 替身（口径同 tst_mappingworkbench）。
+      MockRemotePredictionService predictionMock;
+      m_ctx->mappingWorkbench()->setPredictionService(&predictionMock);
       QVERIFY(m_ctx->projectSvc()->createProject(dir.filePath("mapping.qgz")));
       m_win->attachWorkflows(m_ctx->predictionWf(),m_ctx->constraintWf(),m_ctx->compositionWf(),m_ctx->validationWf(),m_ctx->importSvc(),m_ctx->seismicLink(),m_ctx->processingSvc(),m_ctx->store(),m_ctx->editingSvc(),m_ctx->layoutSvc(),m_ctx->taskSvc());
       m_win->attachWorkbench(m_ctx->mappingWorkbench());

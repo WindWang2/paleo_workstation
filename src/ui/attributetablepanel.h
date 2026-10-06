@@ -2,7 +2,10 @@
 #pragma once
 #include <QWidget>
 #include <QString>
+#include <QVariant>
+#include <QVector>
 #include <functional>
+#include <tuple>
 
 class QgsAttributeTableFilterModel;
 class QgsAttributeTableModel;
@@ -44,6 +47,12 @@ class AttributeTablePanel : public QWidget
     void setEditingService(QgisEditingService *service);
 
     bool isEditing() const;
+
+    // 方向 52 B 线：增量更新通道（dataChanged 驱动，保持选区与滚动，零 reset）
+    bool updateCell(int row, int column, const QVariant &value);
+    int updateCells(const QVector<std::tuple<int, int, QVariant>> &cellUpdates);
+    QgsAttributeTableModel *attributeModel() const { return m_model; }
+    QgsAttributeTableFilterModel *filterModel() const { return m_filter; }
 
   public slots:
     // 显式会话入口（与按钮同路径）。当前层未解析/不可写 → 拒绝并 editRefused。

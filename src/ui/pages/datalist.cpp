@@ -2940,6 +2940,7 @@ void DataListPanel::batchChangeType()
   if (newType.isEmpty())
     return;
   QStringList failures;
+  QVector<AssetRowInfo> updatedRows;
   for (const QString &id : ids)
   {
     const QString prev = m_typeOv.overriddenType(id);
@@ -2951,8 +2952,37 @@ void DataListPanel::batchChangeType()
     if (!m_typeOv.save())
       failures << tr("%1：sidecar 写入失败").arg(id);
     else
-      pushCommand(new TypeOverrideCmd(m_ctx, id, newType, prev));
+    {
+      if (m_opStack)
+        m_opStack->push(new TypeOverrideCmd(m_ctx, id, newType, prev));
+      for (AssetRowInfo &r : m_rows)
+      {
+        if (r.assetId == id)
+        {
+          r.effectiveType = newType;
+          updatedRows.append(r);
+        }
+      }
+    }
   }
+
+  // 方向 52 B 线：增量通道更新——若虚拟视图在用，走 updateRows 增量发射 dataChanged，保留滚动与选中；
+  // 仅在无虚拟视图或全量重构时回落 refreshAssetTable。
+  if (m_virtualView && !updatedRows.isEmpty())
+  {
+    m_virtualView->updateRows(updatedRows);
+    if (m_iconView)
+      m_iconView->loadRows(m_rows);
+    if (m_groupTree)
+      m_groupTree->loadRows(m_rows);
+    emit entityRefreshRequested();
+  }
+  else
+  {
+    refreshAssetTable();
+    emit entityRefreshRequested();
+  }
+
   if (m_history)
     m_history->push(tr("批量改类型 → %1（%2 项）").arg(newType).arg(ids.size()));
   if (!failures.isEmpty())

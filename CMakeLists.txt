@@ -631,9 +631,20 @@ add_library(paleo_ui STATIC
   src/ui/dialogs/storagegovernancedialog.cpp
   src/ui/dialogs/cataloghealthdialog.cpp           # 方向30：工区体检对话框（分类计数 + 跳转意图）
   src/ui/webviewpanel.cpp                          # embedded web shell (lazy, degradable)
-  src/ui/wellcomposite/wellcompositetrack.cpp      # ResFormStar 多道综合柱状图
-  src/ui/wellcomposite/wellcompositecanvas.cpp
-  src/ui/wellcomposite/wellcompositepanel.cpp
+  src/ui/wellcomposite/wellcompositetrack.cpp      # ResFormStar 多道综合柱状图（D1.11 道头基类）
+  src/ui/wellcomposite/trackpatterns.cpp           # 方向 66：道图案工厂（岩性/相纹理）
+  src/ui/wellcomposite/trackcolumns.cpp            # 方向 66：基础六道（标尺/文本/地层/岩性/取芯/图片）
+  src/ui/wellcomposite/trackcurves.cpp             # 方向 66：曲线充填与符号道
+  src/ui/wellcomposite/trackcompound.cpp           # 方向 66：地层系统组/沉积相复合道
+  src/ui/wellcomposite/wellcompositecanvas.cpp     # 画布主控件（视口/缩放/深度协调）
+  src/ui/wellcomposite/compositeheader.cpp         # 方向 66：置顶道头（拖拽换位/分隔线/焦点环）
+  src/ui/wellcomposite/compositebody.cpp           # 方向 66：道体渲染与手势
+  src/ui/wellcomposite/wellcompositepanel.cpp      # 综合图总装面板（编排根）
+  src/ui/wellcomposite/panelsetup.cpp              # 方向 66：面板 UI 搭建
+  src/ui/wellcomposite/paneldata.cpp               # 方向 66：数据装配（XML/LAS→道布局）
+  src/ui/wellcomposite/paneltracks.cpp             # 方向 66：道编排与会话同步
+  src/ui/wellcomposite/paneldepth.cpp              # 方向 66：深度交互（书签/pin/TWT/读数）
+  src/ui/wellcomposite/paneledit.cpp               # 方向 66：编辑会话与导出
   src/ui/wellcomposite/curveconfigdialog.cpp
   src/ui/wellcomposite/wellpositionlegendwidget.cpp
   src/ui/sequenceframeworkcolumn.cpp               # 方向28：格架柱状视图（层级色带）

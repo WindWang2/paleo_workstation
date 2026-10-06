@@ -24,6 +24,9 @@
 #include "../qgis/qgisstyleservice.h"
 #include "../services/toolavailability.h"
 #include "../services/paleotaskservice.h"
+#include "../services/scriptrunner.h"  // 方向68：Python 脚本运行服务
+#include "../services/pythonrepl.h"    // 方向68：REPL 会话桥（实验性）
+#include "../workflow/pythonconsolecontroller.h" // 方向68：脚本面编排
 #include "../services/startuptrace.h" // goal/perf-systematize 簇1：启动分段打点
 #include "../services/crashreport.h" // wave4：projectOpened → 报告头工程路径
 #include "../domain/arearules.h"         // wave4 接线点：projectOpened → setProjectDir
@@ -253,6 +256,12 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
         m_aiChat->setConfig(llm);
     });
   }
+  // 方向68：Python 脚本面三件。脚本执行恒为显式用户动作（控制台面板
+  // 触发）；无沙箱，脚本安全性用户自担（面板提示 +
+  // tools/reference/scripts/README.md 同步声明）。
+  m_scriptRunner = new ScriptRunnerService(this);
+  m_pythonRepl = new PythonReplSession(this);
+  m_pythonConsole = new PythonConsoleController(m_scriptRunner, m_pythonRepl, this);
   m_compositionWf = new CompositionWorkflow(m_procSvc, m_layerSvc, this);
   m_validationWf = new ValidationWorkflow(m_layerSvc, m_store, this);
 

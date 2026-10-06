@@ -1154,6 +1154,7 @@ set(_paleo_extra_manifest
   "${CMAKE_SOURCE_DIR}/cmake/extra-petrophys.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-property-modeling.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-prediction-facies.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-python-scripting.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-realization.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-sections-alignment.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-seismic.cmake"

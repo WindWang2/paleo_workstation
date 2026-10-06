@@ -1462,6 +1462,10 @@ void SeismicSectionDockWidget::extractSectionFromVolumeAsync(
             geometry.distancesM, geometry.coordinates);
         guard->refreshWellOverlay(candidateWells);
         guard->setLineTitle(lineTitle);
+        // #225：入参候选井写入成员——computeWellTrajectories /
+        // computeSyntheticOverlays / 井旁道 / 子波提取 / 反演低频井读的都是
+        // m_candidateWells，旧实现只按入参判空、成员恒空，四条链生产恒死。
+        guard->m_candidateWells = candidateWells;
         // D5.3/D5.4：井轨迹投影 + 合成记录（任意线链路，wave/seismic-chain-deep）
         if (!candidateWells.empty()) {
           guard->computeWellTrajectories(mapPolyline);

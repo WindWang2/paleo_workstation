@@ -931,10 +931,10 @@ void PaleoMainWindow::buildShell()
   m_statusErrorBtn->setCursor(Qt::PointingHandCursor);
   m_statusErrorBtn->setVisible(false);
   connect(m_statusErrorBtn, &QToolButton::clicked, this, [this] {
-    if (m_errorHistoryDock) {
-      m_errorHistoryDock->show();
-      m_errorHistoryDock->raise();
-      m_errorHistoryDock->activateWindow();
+    if (m_errorHistoryPanelDock) {
+      m_errorHistoryPanelDock->show();
+      m_errorHistoryPanelDock->raise();
+      m_errorHistoryPanelDock->activateWindow();
     }
   });
   statusBar()->addPermanentWidget(m_statusErrorBtn);
@@ -1162,7 +1162,7 @@ void PaleoMainWindow::showPanelMenu(const QPoint &globalPos)
     menu->setAttribute(Qt::WA_DeleteOnClose);
     menu->addSeparator();
     // 方向64：错误历史入口（主窗口无字面「视图」菜单，此菜单即视图入口）。
-    if (m_errorHistoryDock)
+    if (m_errorHistoryPanelDock)
     {
       QAction *history = menu->addAction(tr("错误历史"));
       history->setObjectName(QStringLiteral("errorHistoryAction"));
@@ -1209,7 +1209,7 @@ void PaleoMainWindow::contextMenuEvent(QContextMenuEvent *event)
 
 QAction *PaleoMainWindow::errorHistoryAction() const
 {
-  return m_errorHistoryDock ? m_errorHistoryDock->toggleViewAction() : nullptr;
+  return m_errorHistoryPanelDock ? m_errorHistoryPanelDock->toggleViewAction() : nullptr;
 }
 
 void PaleoMainWindow::restoreCorrelationDocks()

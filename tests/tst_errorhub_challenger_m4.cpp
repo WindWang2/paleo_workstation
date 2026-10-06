@@ -35,10 +35,10 @@ private slots:
 
   void init()
   {
-    if (ErrorHub::instance()) {
-      ErrorHub::instance()->clear();
-      ErrorHub::instance()->setMaxCapacity(ErrorHub::kDefaultMaxHistory);
-      ErrorHub::instance()->setDedupWindowSecs(ErrorHub::kDefaultDedupWindowSecs);
+    if (paleo::services::ErrorHub::instance()) {
+      paleo::services::ErrorHub::instance()->clear();
+      paleo::services::ErrorHub::instance()->setMaxCapacity(paleo::services::ErrorHub::kDefaultMaxHistory);
+      paleo::services::ErrorHub::instance()->setDedupWindowSecs(paleo::services::ErrorHub::kDefaultDedupWindowSecs);
     }
     NotificationManager::setConfirmHookForTesting(nullptr);
     NotificationManager::setOffscreenAutoAnswer(true);
@@ -49,8 +49,8 @@ private slots:
 
   void cleanup()
   {
-    if (ErrorHub::instance()) {
-      ErrorHub::instance()->clear();
+    if (paleo::services::ErrorHub::instance()) {
+      paleo::services::ErrorHub::instance()->clear();
     }
     NotificationManager::setConfirmHookForTesting(nullptr);
     NotificationManager::setOffscreenAutoAnswer(true);
@@ -81,7 +81,7 @@ private slots:
     QCOMPARE(clipboard->text(), QStringLiteral("PRESERVED_CLIPBOARD_TEXT"));
 
     // 填充数据后，清除选择
-    ErrorHub::instance()->reportError(ErrorDomain::General, QStringLiteral("E1"), QStringLiteral("D1"));
+    paleo::services::ErrorHub::instance()->reportError(ErrorDomain::General, QStringLiteral("E1"), QStringLiteral("D1"));
     QCoreApplication::processEvents();
 
     auto *selModel = dock.tableView()->selectionModel();
@@ -105,9 +105,9 @@ private slots:
     QClipboard *clipboard = QGuiApplication::clipboard();
     clipboard->clear();
 
-    ErrorHub::instance()->setDedupWindowSecs(0);
+    paleo::services::ErrorHub::instance()->setDedupWindowSecs(0);
     for (int i = 0; i < 5; ++i) {
-      ErrorHub::instance()->reportError(
+      paleo::services::ErrorHub::instance()->reportError(
         ErrorDomain::General,
         QStringLiteral("Msg_%1").arg(i),
         QStringLiteral("Detail_%1").arg(i),
@@ -178,10 +178,10 @@ private slots:
     QCOMPARE(clipboard->text(), QStringLiteral("CLIPBOARD_CANARY"));
 
     // B. 填充 3 条数据
-    ErrorHub::instance()->setDedupWindowSecs(0);
-    ErrorHub::instance()->reportInfo(ErrorDomain::Seismic, QStringLiteral("Seismic Info"));
-    ErrorHub::instance()->reportWarning(ErrorDomain::Well, QStringLiteral("Well Warn"));
-    ErrorHub::instance()->reportError(ErrorDomain::IO, QStringLiteral("IO Err"));
+    paleo::services::ErrorHub::instance()->setDedupWindowSecs(0);
+    paleo::services::ErrorHub::instance()->reportInfo(ErrorDomain::Seismic, QStringLiteral("Seismic Info"));
+    paleo::services::ErrorHub::instance()->reportWarning(ErrorDomain::Well, QStringLiteral("Well Warn"));
+    paleo::services::ErrorHub::instance()->reportError(ErrorDomain::IO, QStringLiteral("IO Err"));
     QCoreApplication::processEvents();
 
     dock.copyAllToClipboard();
@@ -216,13 +216,13 @@ private slots:
     QString multilineDetails = QStringLiteral("堆栈详情:\n  at SeismicTracker::traceHorizon(line=412)\n  at GridInterpolation::run()\n参数: {\"grid\": \"CGG_3D_SURVEY\", \"smooth\": 0.85}");
     QString specialChars = QStringLiteral("<xml attr=\"test\">&amp; 'quotes' \"double\" \t tabs and \\backslashes\\ --- dashes");
 
-    ErrorHub::instance()->reportError(
+    paleo::services::ErrorHub::instance()->reportError(
       ErrorDomain::Seismic,
       multilineMsg,
       multilineDetails,
       QStringLiteral("key.multiline.seismic"));
 
-    ErrorHub::instance()->reportWarning(
+    paleo::services::ErrorHub::instance()->reportWarning(
       ErrorDomain::Project,
       specialChars,
       QStringLiteral("特殊符号详情"),
@@ -265,7 +265,7 @@ private slots:
   {
     // A. 填充 10 条
     for (int i = 0; i < 10; ++i) {
-      ErrorHub::instance()->reportError(ErrorDomain::General, QStringLiteral("Err %1").arg(i));
+      paleo::services::ErrorHub::instance()->reportError(ErrorDomain::General, QStringLiteral("Err %1").arg(i));
     }
     QCoreApplication::processEvents();
 
@@ -282,7 +282,7 @@ private slots:
     dock.clearHistory();
     QCoreApplication::processEvents();
 
-    QCOMPARE(ErrorHub::instance()->count(), 0);
+    QCOMPARE(paleo::services::ErrorHub::instance()->count(), 0);
     QCOMPARE(dock.model()->rowCount(), 0);
     QCOMPARE(dock.proxyModel()->rowCount(), 0);
     QCOMPARE(statusLabel->text(), QStringLiteral("共 0 条记录"));
@@ -292,13 +292,13 @@ private slots:
     QCoreApplication::processEvents();
     QCOMPARE(dock.model()->rowCount(), 0);
 
-    // D. 外部通过 ErrorHub 直接清空与新增：反向同步检查
-    ErrorHub::instance()->reportInfo(ErrorDomain::Well, QStringLiteral("New Well Error"));
+    // D. 外部通过 paleo::services::ErrorHub 直接清空与新增：反向同步检查
+    paleo::services::ErrorHub::instance()->reportInfo(ErrorDomain::Well, QStringLiteral("New Well Error"));
     QCoreApplication::processEvents();
     QCOMPARE(dock.model()->rowCount(), 1);
     QCOMPARE(statusLabel->text(), QStringLiteral("共 1 条记录"));
 
-    ErrorHub::instance()->clear();
+    paleo::services::ErrorHub::instance()->clear();
     QCoreApplication::processEvents();
     QCOMPARE(dock.model()->rowCount(), 0);
     QCOMPARE(statusLabel->text(), QStringLiteral("共 0 条记录"));
@@ -309,7 +309,7 @@ private slots:
   // =========================================================================
   void testFilteringMatrixComplexAndEmptyMatches()
   {
-    ErrorHub::instance()->setDedupWindowSecs(0);
+    paleo::services::ErrorHub::instance()->setDedupWindowSecs(0);
 
     // 注入矩阵数据:
     // 1: Domain=Seismic, Level=Info, Msg="Seismic Survey Loaded"
@@ -319,13 +319,13 @@ private slots:
     // 5: Domain=Well, Level=Error, Msg="Well Log LAS parsing Error"
     // 6: Domain=IO, Level=Critical, Msg="Disk IO Fatal Read Failure"
     // 7: Domain=AI, Level=Error, Msg="FaultNet Model Prediction Timeout"
-    ErrorHub::instance()->reportInfo(ErrorDomain::Seismic, QStringLiteral("Seismic Survey Loaded"));
-    ErrorHub::instance()->reportWarning(ErrorDomain::Seismic, QStringLiteral("Seismic Trace Clipping detected"));
-    ErrorHub::instance()->reportError(ErrorDomain::Seismic, QStringLiteral("Seismic Grid Interpolation Error"));
-    ErrorHub::instance()->reportWarning(ErrorDomain::Well, QStringLiteral("Well Trajectory Deviation Warning"));
-    ErrorHub::instance()->reportError(ErrorDomain::Well, QStringLiteral("Well Log LAS parsing Error"));
-    ErrorHub::instance()->reportCritical(ErrorDomain::IO, QStringLiteral("Disk IO Fatal Read Failure"));
-    ErrorHub::instance()->reportError(ErrorDomain::AI, QStringLiteral("FaultNet Model Prediction Timeout"));
+    paleo::services::ErrorHub::instance()->reportInfo(ErrorDomain::Seismic, QStringLiteral("Seismic Survey Loaded"));
+    paleo::services::ErrorHub::instance()->reportWarning(ErrorDomain::Seismic, QStringLiteral("Seismic Trace Clipping detected"));
+    paleo::services::ErrorHub::instance()->reportError(ErrorDomain::Seismic, QStringLiteral("Seismic Grid Interpolation Error"));
+    paleo::services::ErrorHub::instance()->reportWarning(ErrorDomain::Well, QStringLiteral("Well Trajectory Deviation Warning"));
+    paleo::services::ErrorHub::instance()->reportError(ErrorDomain::Well, QStringLiteral("Well Log LAS parsing Error"));
+    paleo::services::ErrorHub::instance()->reportCritical(ErrorDomain::IO, QStringLiteral("Disk IO Fatal Read Failure"));
+    paleo::services::ErrorHub::instance()->reportError(ErrorDomain::AI, QStringLiteral("FaultNet Model Prediction Timeout"));
     QCoreApplication::processEvents();
 
     ErrorHistoryDock dock;
@@ -394,7 +394,7 @@ private slots:
     QCOMPARE(proxy->rowCount(), 1);
 
     // 动态新增一条符合条件的错误
-    ErrorHub::instance()->reportWarning(ErrorDomain::Well, QStringLiteral("New Well Trajectory Warning"));
+    paleo::services::ErrorHub::instance()->reportWarning(ErrorDomain::Well, QStringLiteral("New Well Trajectory Warning"));
     QCoreApplication::processEvents();
     QCOMPARE(proxy->rowCount(), 2);
     QCOMPARE(statusLabel->text(), QStringLiteral("显示 2 / 共 8 条记录"));
@@ -437,8 +437,8 @@ private slots:
   // =========================================================================
   void testActiveEvictionUnderFilterAndSelection()
   {
-    ErrorHub::instance()->setMaxCapacity(20);
-    ErrorHub::instance()->setDedupWindowSecs(0);
+    paleo::services::ErrorHub::instance()->setMaxCapacity(20);
+    paleo::services::ErrorHub::instance()->setDedupWindowSecs(0);
 
     ErrorHistoryDock dock;
     dock.show();
@@ -448,9 +448,9 @@ private slots:
     // 注入 50 条消息 (Seismic 与 Well 混合)，触发多次 FIFO 逐出
     for (int i = 0; i < 50; ++i) {
       if (i % 2 == 0) {
-        ErrorHub::instance()->reportError(ErrorDomain::Seismic, QStringLiteral("Seismic %1").arg(i));
+        paleo::services::ErrorHub::instance()->reportError(ErrorDomain::Seismic, QStringLiteral("Seismic %1").arg(i));
       } else {
-        ErrorHub::instance()->reportError(ErrorDomain::Well, QStringLiteral("Well %1").arg(i));
+        paleo::services::ErrorHub::instance()->reportError(ErrorDomain::Well, QStringLiteral("Well %1").arg(i));
       }
       if (i == 10) {
         // 在逐出过程中选择表格第 0 行

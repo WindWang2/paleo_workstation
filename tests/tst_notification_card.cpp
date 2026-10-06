@@ -26,8 +26,8 @@ private slots:
   void init()
   {
     QCursor::setPos(1000, 1000);
-    if (ErrorHub::instance()) {
-      ErrorHub::instance()->clear();
+    if (paleo::services::ErrorHub::instance()) {
+      paleo::services::ErrorHub::instance()->clear();
     }
   }
 
@@ -280,22 +280,22 @@ private slots:
     NotificationManager::setInstance(nullptr);
   }
 
-  // 13. ErrorHub 信号全链路订阅与聚合联动
+  // 13. paleo::services::ErrorHub 信号全链路订阅与聚合联动
   void testErrorHubSignalSubscription()
   {
     QWidget mainWindow;
     mainWindow.resize(1000, 700);
     NotificationManager mgr(&mainWindow);
 
-    ErrorHub hub;
-    connect(&hub, &ErrorHub::errorRaised, &mgr, &NotificationManager::onErrorRaised);
-    connect(&hub, &ErrorHub::errorAggregated, &mgr, &NotificationManager::onErrorAggregated);
+    paleo::services::ErrorHub hub;
+    connect(&hub, &paleo::services::ErrorHub::errorRaised, &mgr, &NotificationManager::onErrorRaised);
+    connect(&hub, &paleo::services::ErrorHub::errorAggregated, &mgr, &NotificationManager::onErrorAggregated);
 
     // 1. 上报普通错误 -> 触发 errorRaised -> 弹出通知卡片
     hub.reportWarning(ErrorDomain::IO, QStringLiteral("文件载入失败"), QString(), QStringLiteral("io.read"));
     QCOMPARE(mgr.activeCardCount(), 1);
 
-    // 2. 60s 内再次上报 -> ErrorHub 聚合 -> 触发 errorAggregated -> 卡片不新增
+    // 2. 60s 内再次上报 -> paleo::services::ErrorHub 聚合 -> 触发 errorAggregated -> 卡片不新增
     hub.reportWarning(ErrorDomain::IO, QStringLiteral("文件载入再次失败"), QString(), QStringLiteral("io.read"));
     QCOMPARE(mgr.activeCardCount(), 1);
 

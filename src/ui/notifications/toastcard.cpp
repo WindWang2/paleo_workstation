@@ -27,12 +27,13 @@ ToastCard::ToastCard(QWidget *parent) : QFrame(parent)
                    "QLabel#toastLevel[level=\"error\"]{color:%7;font-weight:bold;}"
                    "QLabel#toastTitle{font-weight:bold;color:%8;}"
                    "QLabel#toastText{color:%8;}"
-                   "QLabel#toastCount{background:%9;color:%8;border-radius:%10px;padding:0 6px;}")
+                   "QLabel#toastCount{background:%9;color:%8;border-radius:%10px;padding:0 %11px;}")
             .arg(t.surface.name(), t.border.name())
             .arg(t.radiusMd)
             .arg(t.warning.name(), t.error.name(), t.warningText.name(),
                  t.errorText.name(), t.text.name(), t.surfaceAlt.name())
-            .arg(t.radiusSm);
+            .arg(t.radiusSm)
+            .arg(t.spacingXs + 2);
     });
     const auto &t = PaleoTheme::tokens();
 

@@ -300,7 +300,8 @@ void TestAiChatController::switchingSessionsFlushesUnsavedContentToDisk() {
   QCOMPARE(controller.messages().size(), 1);
   const QVector<ChatMessage> snapshotA = controller.messages(); // 切换前快照
   QString error;
-  QVERIFY(!ChatSessionStore::load(idA, nullptr, &error)); // 确认确实未落盘
+  // 方向61 起 cancel 即落盘（作废帧一并记账）——A 此刻可能已在盘上；
+  // 本测试钉的是「切换不丢/不改写」，不再要求未落盘前提。
 
   // 另一个会话 B（直接造文件），切过去。
   ChatSession sessionB;

@@ -30,6 +30,8 @@
 #include "../ai/chat/llmclient.h"               // LlmConfig（对话框装配面 + path() 配置说明）
 #include "shortcuts/shortcutcatalog.h" // 方向63：快捷键中央注册表
 
+#include <QMessageBox>
+
 #include <qgsmapcanvas.h>
 #include <qgsmaptool.h>
 #include <qgsproject.h>
@@ -650,17 +652,17 @@ void PaleoMainWindow::attachErrorHub(ErrorHub *hub)
   m_notifications = new NotificationCenter(this, hub);
   m_notifications->setStatusBar(statusBar());
   auto *panel = new ErrorHistoryPanel(hub, this);
-  m_errorHistoryDock = new PaleoDockWidget(tr("错误历史"), this);
-  m_errorHistoryDock->setObjectName(QStringLiteral("errorHistoryDock"));
-  m_errorHistoryDock->setWidget(panel);
-  addDockWidget(Qt::BottomDockWidgetArea, m_errorHistoryDock);
-  m_errorHistoryDock->hide(); // 按需唤出（布局与面板菜单 / showErrorHistory）
+  m_errorHistoryPanelDock = new PaleoDockWidget(tr("错误历史"), this);
+  m_errorHistoryPanelDock->setObjectName(QStringLiteral("errorHistoryDock"));
+  m_errorHistoryPanelDock->setWidget(panel);
+  addDockWidget(Qt::BottomDockWidgetArea, m_errorHistoryPanelDock);
+  m_errorHistoryPanelDock->hide(); // 按需唤出（布局与面板菜单 / showErrorHistory）
 }
 
 void PaleoMainWindow::showErrorHistory()
 {
-  if (!m_errorHistoryDock)
+  if (!m_errorHistoryPanelDock)
     return;
-  m_errorHistoryDock->show();
-  m_errorHistoryDock->raise();
+  m_errorHistoryPanelDock->show();
+  m_errorHistoryPanelDock->raise();
 }

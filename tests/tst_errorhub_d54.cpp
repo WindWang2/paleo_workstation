@@ -6,7 +6,7 @@
 
 #include "../src/services/errorhub.h"
 
-using namespace paleo::services;
+namespace paleo::services {
 
 class TestErrorHub : public QObject {
   Q_OBJECT
@@ -621,5 +621,7 @@ void TestErrorHub::testReentrantSlotExecution() {
   QCOMPARE(hub.count(), 2);
 }
 
-QTEST_MAIN(TestErrorHub)
+} // namespace paleo::services
+
+QTEST_MAIN(paleo::services::TestErrorHub)
 #include "tst_errorhub_d54.moc"

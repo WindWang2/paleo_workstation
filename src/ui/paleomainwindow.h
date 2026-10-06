@@ -430,7 +430,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     QDockWidget *m_mapBookDock = nullptr;
     // 方向64：错误呈现层 + 错误历史 dock（attachErrorHub 建）。
     NotificationCenter *m_notifications = nullptr;
-    QDockWidget *m_errorHistoryDock = nullptr;
+    QDockWidget *m_errorHistoryPanelDock = nullptr;
     PaleoMapBookPanel *m_mapBookPanel = nullptr;
     PaleoMapBookController *m_mapBookCtl = nullptr;
     bool m_propModelRunning = false;

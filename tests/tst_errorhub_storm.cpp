@@ -114,10 +114,10 @@ private slots:
   void init()
   {
     QCursor::setPos(1000, 1000);
-    if (ErrorHub::instance()) {
-      ErrorHub::instance()->clear();
-      ErrorHub::instance()->setMaxCapacity(ErrorHub::kDefaultMaxHistory);
-      ErrorHub::instance()->setDedupWindowSecs(ErrorHub::kDefaultDedupWindowSecs);
+    if (paleo::services::ErrorHub::instance()) {
+      paleo::services::ErrorHub::instance()->clear();
+      paleo::services::ErrorHub::instance()->setMaxCapacity(paleo::services::ErrorHub::kDefaultMaxHistory);
+      paleo::services::ErrorHub::instance()->setDedupWindowSecs(paleo::services::ErrorHub::kDefaultDedupWindowSecs);
     }
     if (NotificationManager::instance()) {
       NotificationManager::instance()->clearAll();
@@ -133,8 +133,8 @@ private slots:
     }
     NotificationManager::setConfirmHookForTesting(nullptr);
     NotificationManager::setOffscreenAutoAnswer(true);
-    if (ErrorHub::instance()) {
-      ErrorHub::instance()->clear();
+    if (paleo::services::ErrorHub::instance()) {
+      paleo::services::ErrorHub::instance()->clear();
     }
   }
 
@@ -147,7 +147,7 @@ private slots:
     mainWindow.resize(1000, 700);
     mainWindow.show();
 
-    NotificationManager mgr(&mainWindow, ErrorHub::instance());
+    NotificationManager mgr(&mainWindow, paleo::services::ErrorHub::instance());
 
     EventLoopProbe probe;
     probe.start(10, &mgr); // 10ms 精度心跳探针
@@ -165,7 +165,7 @@ private slots:
     connect(&stormTimer, &QTimer::timeout, [&]() {
       for (int i = 0; i < kErrorsPerBatch; ++i) {
         const int errorId = batchesSent * kErrorsPerBatch + i;
-        ErrorHub::instance()->reportError(
+        paleo::services::ErrorHub::instance()->reportError(
             ErrorDomain::General,
             QStringLiteral("风暴错误 #%1").arg(errorId),
             QStringLiteral("详细上下文 #%1").arg(errorId),
@@ -198,11 +198,11 @@ private slots:
     QVERIFY(overlay != nullptr);
     QVERIFY(overlay->height() <= mainWindow.height());
 
-    // 3. 验证 ErrorHub 环形缓冲区上限保持 500 条
-    QCOMPARE(ErrorHub::instance()->count(), ErrorHub::kDefaultMaxHistory);
+    // 3. 验证 paleo::services::ErrorHub 环形缓冲区上限保持 500 条
+    QCOMPARE(paleo::services::ErrorHub::instance()->count(), paleo::services::ErrorHub::kDefaultMaxHistory);
 
     // 最早的 500 条被 FIFO 逐出，当前保留 id 500..999
-    const auto history = ErrorHub::instance()->history();
+    const auto history = paleo::services::ErrorHub::instance()->history();
     QCOMPARE(history.size(), 500);
     QCOMPARE(history.first().deduplicationKey, QStringLiteral("storm.sustained.500"));
     QCOMPARE(history.last().deduplicationKey, QStringLiteral("storm.sustained.999"));
@@ -216,7 +216,7 @@ private slots:
     QWidget mainWindow;
     mainWindow.resize(1000, 700);
     mainWindow.show();
-    NotificationManager mgr(&mainWindow, ErrorHub::instance());
+    NotificationManager mgr(&mainWindow, paleo::services::ErrorHub::instance());
 
     EventLoopProbe probe;
     probe.start(10, &mgr);
@@ -235,7 +235,7 @@ private slots:
         if (i % 2 == 0) {
           // 重复键：映射到 5 个共享键之一
           const int sharedKeyId = (i / 2) % 5;
-          ErrorHub::instance()->reportWarning(
+          paleo::services::ErrorHub::instance()->reportWarning(
               ErrorDomain::IO,
               QStringLiteral("共享警告 %1").arg(sharedKeyId),
               QStringLiteral("IO 发生抖动"),
@@ -243,7 +243,7 @@ private slots:
         } else {
           // 独立键
           const int uniqueId = batchesSent * kErrorsPerBatch + i;
-          ErrorHub::instance()->reportWarning(
+          paleo::services::ErrorHub::instance()->reportWarning(
               ErrorDomain::Catalog,
               QStringLiteral("独立警告 %1").arg(uniqueId),
               QStringLiteral("资产解析异常"),
@@ -276,7 +276,7 @@ private slots:
       }
     }
     // 共享键被重复上报，至少有卡片聚合或者历史聚合
-    const auto history = ErrorHub::instance()->history();
+    const auto history = paleo::services::ErrorHub::instance()->history();
     bool foundAggregatedHistory = false;
     for (const auto &entry : history) {
       if (entry.aggregationCount > 1) {
@@ -292,7 +292,7 @@ private slots:
   // =========================================================================
   void testRingBuffer500ItemFifoEvictionUnderStorm()
   {
-    ErrorHub hub;
+    paleo::services::ErrorHub hub;
     hub.setMaxCapacity(500);
 
     constexpr int kTotalInjections = 1500;
@@ -332,7 +332,7 @@ private slots:
     QWidget mainWindow;
     mainWindow.resize(1000, 700);
     mainWindow.show();
-    NotificationManager mgr(&mainWindow, ErrorHub::instance());
+    NotificationManager mgr(&mainWindow, paleo::services::ErrorHub::instance());
 
     EventLoopProbe probe;
     probe.start(10, &mgr);
@@ -350,7 +350,7 @@ private slots:
           std::this_thread::yield();
         }
         for (int i = 0; i < kPerThreadErrors; ++i) {
-          ErrorHub::postError(
+          paleo::services::ErrorHub::postError(
               ErrorDomain::AI,
               QStringLiteral("线程 %1 预测任务异常 #%2").arg(t).arg(i),
               QStringLiteral("线程上下文"),
@@ -384,7 +384,7 @@ private slots:
     QVERIFY2(!probe.cardLimitViolated, "多线程风暴下活跃卡片超过 5 张");
     QVERIFY2(probe.maxLagMs < 50, qPrintable(QStringLiteral("多线程风暴事件循环延迟过高: %1 ms").arg(probe.maxLagMs)));
     QCOMPARE(mgr.activeCardCount(), NotificationManager::kMaxVisibleCards);
-    QCOMPARE(ErrorHub::instance()->count(), ErrorHub::kDefaultMaxHistory);
+    QCOMPARE(paleo::services::ErrorHub::instance()->count(), paleo::services::ErrorHub::kDefaultMaxHistory);
   }
 
   // =========================================================================
@@ -395,11 +395,11 @@ private slots:
     QWidget mainWindow;
     mainWindow.resize(1000, 700);
     mainWindow.show();
-    NotificationManager mgr(&mainWindow, ErrorHub::instance());
+    NotificationManager mgr(&mainWindow, paleo::services::ErrorHub::instance());
 
     // 注入 100 条快速风暴填满卡片和排队
     for (int i = 0; i < 100; ++i) {
-      ErrorHub::postInfo(ErrorDomain::General, QStringLiteral("快速信息 %1").arg(i),
+      paleo::services::ErrorHub::postInfo(ErrorDomain::General, QStringLiteral("快速信息 %1").arg(i),
                          QString(), QStringLiteral("drain.%1").arg(i));
     }
     QCoreApplication::processEvents();
@@ -458,14 +458,14 @@ private slots:
     QWidget mainWindow;
     mainWindow.resize(1000, 700);
     mainWindow.show();
-    NotificationManager mgr(&mainWindow, ErrorHub::instance());
+    NotificationManager mgr(&mainWindow, paleo::services::ErrorHub::instance());
 
     EventLoopProbe probe;
     probe.start(10, &mgr);
 
     // 瞬间注入 100 条
     for (int i = 0; i < 100; ++i) {
-      ErrorHub::postError(ErrorDomain::Crossplot,
+      paleo::services::ErrorHub::postError(ErrorDomain::Crossplot,
                           QStringLiteral("交会图样本异常 #%1").arg(i),
                           QString(), QStringLiteral("microburst.%1").arg(i));
     }
@@ -486,7 +486,7 @@ private slots:
     QWidget mainWindow;
     mainWindow.resize(1000, 700);
     mainWindow.show();
-    NotificationManager mgr(&mainWindow, ErrorHub::instance());
+    NotificationManager mgr(&mainWindow, paleo::services::ErrorHub::instance());
 
     int modalDialogShowCount = 0;
     NotificationManager::setConfirmHookForTesting(
@@ -498,7 +498,7 @@ private slots:
     // 连续注入 100 条同 key Critical 错误
     const QString modalKey = QStringLiteral("storm.critical.key");
     for (int i = 0; i < 100; ++i) {
-      ErrorHub::postCritical(ErrorDomain::Project,
+      paleo::services::ErrorHub::postCritical(ErrorDomain::Project,
                              QStringLiteral("工程损坏 #%1").arg(i),
                              QStringLiteral("崩溃日志"),
                              modalKey);

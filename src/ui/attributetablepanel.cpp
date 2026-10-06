@@ -177,7 +177,8 @@ bool AttributeTablePanel::cancelEditing()
   }
   // C4 数据安全：rollBack 丢弃整个编辑会话——有未提交修改时先确认。
   // offscreen（测试/CI）无窗口系统不弹框（硬纪律），直走回滚。
-  if (vl->isModified())
+  if (vl->isModified() &&
+      QGuiApplication::platformName() != QLatin1String("offscreen"))
   {
     if (!PaleoNotify::ask(
             this, tr("放弃编辑"),

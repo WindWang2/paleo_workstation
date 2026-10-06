@@ -29,6 +29,8 @@ commit `e308372`–`ca18f88`）/ 移交方向50 io-robustness 7（BIZ-05/06/07/1
 三路复核的「8 未修/15 待证」与本轮实测差异（BIZ-12/13、ARCH-03/04/07 已
 修，MEM-06/CONC-05 不复现）以本轮逐条 rg+读码重验为准。
 
+上述分布是方向48的 R0 历史快照；方向50已关闭其中 BIZ-05/06/14，条目终态已同步。原 BIZ-07（配准）、BIZ-10/11（CRS）和 RUNTIME-03（LAS 合乘诊断）仍保留各自状态，不冒记为本方向已修。用户本方向的 IO BIZ-07/10/12 描述以第11节 IO-R0-07/10/12 映射单独验收。
+
 ---
 
 ## 1. Executive Summary & Audit Scorecard
@@ -1376,7 +1378,7 @@ if (!anyDifferent) eligible = false; // All probes identical -> ordinal dialect
 
 ### [BIZ-05] `SegyReader::decodeTrace` Missing IEEE 754 Non-Finite/NaN/Inf Validation
 
-> **终态（2026-10-06，方向48 清账复核）**：仍存在→方向50 io-robustness（方向48 R0 证据：decodeTrace 无 isfinite 清洗）
+> **终态（2026-10-06，方向48 清账复核）**：方向48 R0 曾移交方向50（当时 decodeTrace 无 isfinite 清洗）；方向50已修 `1719684`，读面/SDK计数与手工缺失掩码对拍见下述证据。
 
 - **Direction 50 status (2026-10-06): Resolved, `1719684`.** All decoded non-finite IEEE/IBM samples become quiet NaN and are counted in the request read report; finite samples retain their bit patterns. SDK direct, voxel, mmap, planned and SF3C paths share the missing-value contract and expose quality counts, including cancellation after decoding. `tst_io_robustness` / `tst_io_seismicquality` assert manual missing-mask attribute/inversion results and persisted reports. The historical suggestion to replace samples with zero is superseded: zero fabricates an amplitude and changes downstream missing-value semantics.
 - **Severity**: **P2** (Data Corruption / Numerical Instability)
@@ -1406,7 +1408,7 @@ if (!anyDifferent) eligible = false; // All probes identical -> ordinal dialect
 
 ### [BIZ-06] `TimeDepthTool` and `parseWellTopsText` Depth Null Sentinel Inconsistencies
 
-> **终态（2026-10-06，方向48 清账复核）**：仍存在→方向50 io-robustness（方向48 R0 证据：timedeptool 仅 -99999 哨兵；wellfileparsers 深度缺失行仍 append）
+> **终态（2026-10-06，方向48 清账复核）**：方向48 R0 曾移交方向50（当时仅 -99999 哨兵、深度缺失行仍 append）；方向50已修 `8c67a12` / `f7fe231`，统一词表、逐列拒收及消费报告见下述证据。
 
 - **Direction 50 status (2026-10-06): Resolved, `8c67a12` / `f7fe231`.** Domain vocabulary exactly recognizes -99999/-999.25/-9999/-999; required blank/non-numeric/non-finite depths reject the row with physical line/column reasons. Both time-depth interpolation directions filter the same vocabulary and count ignored rows. Import reports expose sentinel/blank/invalid-cell counts through version metadata and the import ledger, including duplicate skips. File-level top rejection reasons also reach section/workbench reports through ProjectDataFacade; missing TVDSS retains valid MD/TVD and becomes NaN, while a row with no usable depth is rejected. Explicit LAS NULL values remain authoritative. The historical suggestion to reject every negative value is superseded: valid negative coordinates/elevations remain usable.
 - **Severity**: **P2** (Boundary Robustness Defect)
@@ -1647,7 +1649,7 @@ if (!std::isfinite(depthM) ||
 
 ### [BIZ-14] `SectionWorkbench::sectionWells` Fragile Depth Unit Filtering Aborts Valid Well Logs
 
-> **终态（2026-10-06，方向48 清账复核）**：仍存在→方向50 io-robustness（方向48 R0 证据：单位同义词仍只认 M/FT/F）
+> **终态（2026-10-06，方向48 清账复核）**：方向48 R0 曾移交方向50（当时仅认 M/FT/F）；方向50已修 `8c67a12`，规范别名表与真实 LAS 消费证据见下述说明。
 
 - **Direction 50 status (2026-10-06): Resolved, `8c67a12`.** Shared domain vocabulary normalizes case/whitespace and accepts M/METER/METERS/METRE/METRES and FT/F/FOOT/FEET; foot scaling remains exactly 0.3048. Tests pin the vocabulary and import real LAS aliases into SectionWorkbench. Unknown or empty units produce an explicit alignment reason and do not block other log files. The historical suggestion to guess metres for an empty unit is superseded by the honest unknown-unit contract.
 - **Severity**: **P2** (Defensive Robustness Omission)
@@ -2052,4 +2054,4 @@ Pre-integration full serial regressions against the same frozen implementation (
 
 Fixture, well, SEG-Y/SDK, workbook and final consumer batches each completed two consecutive five-dimension self reviews with **High=0 / Medium=0 / Low=0** after fixes and green targeted tests. Linux execution is verified; the Windows commands supplied in the request were not executed on this Linux host. Old converted artifacts are not retroactively certified; resumable transcode counts describe this run's actual reads.
 
-The PR subsequently integrated master format-family and seismic-service splits (`02dd0665` / `72120640`), retaining the Direction 50 reports. Final 311-target acceptance for that integrated build is still in progress; its diagnostic runs include original performance failures and a subsequent inversion short write while the project volume had only 309 MB available. None is counted as a passing acceptance run. Only this task’s temporary residue and private debug-section storage are being reclaimed, with exact loaded-image verification and all thresholds retained. Detailed raw receipts and the final disposition will be appended to the IO ledger.
+The final PR execution source (`e97ba7da`, build 22) also preserves the master format-family, seismic-service, main-window and audit-closure integrations. Two complete serial regressions against the same artifacts passed **311/311 and 311/311**, in **852.59 s / 840.58 s**. Each run preserved all 298 raw Qt outputs before starting another test. The seismic/well red lines, Direction 50 targets, three layering checks and both i18n checks passed twice; all 40 pre-existing optional skip records are unchanged. Historical diagnostic performance failures and the inversion short write at only 309 MB free remain recorded separately and never count as acceptance passes. The IO ledger records the exact receipts, private resource recovery, unchanged thresholds and two final zero-High/Medium/Low reviews.

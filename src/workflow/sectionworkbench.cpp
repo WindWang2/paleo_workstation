@@ -3,6 +3,7 @@
 #include "../domain/wellnumeric.h"
 #include "derivedassets.h"
 #include "io/lasparser.h"
+#include "io/wellfileparsers.h"
 #include "services/welllogset.h"
 #include <QDir>
 #include <QFile>
@@ -213,7 +214,11 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells() {
         out.bottomY = w.surfaceY + tip.north;
       }
     }
-    for (const auto &t : m_data.topsFor(w.id)) {
+    WellParseReport topsReport;
+    const auto tops = m_data.topsFor(w.id, &topsReport);
+    if (!topsReport.issues.isEmpty())
+      out.alignmentStatus += tr(" · 分层文件读面：%1").arg(wellParseSummary(topsReport));
+    for (const auto &t : tops) {
       seismic::WellTopItem top;
       top.topName = t.horizon;
       top.md = t.md;

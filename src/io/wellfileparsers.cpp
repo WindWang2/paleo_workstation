@@ -226,15 +226,20 @@ TimeDepthTable parseTimeDepthText(const QByteArray &text, WellParseReport *repor
     if (line.isEmpty()) continue;
     const QStringList t = splitTokens(raw);
     TdRow row;
+    row.tvdss = std::numeric_limits<double>::quiet_NaN();
     const bool timeOk = ctx.column(t, 0, "TIME(ms)", &row.timeMs, true);
-    const bool sOk = ctx.column(t, 1, "TVDSS", &row.tvdss, true);
-    if (!timeOk || !sOk)
+    // TVDSS 不是 MD/TVD 查找列；缺失时仍保留其它真实深度，不能连带拒收。
+    const bool sOk = ctx.column(t, 1, "TVDSS", &row.tvdss, false);
+    row.hasTvd = ctx.column(t, 2, "TVD", &row.tvd, false);
+    row.hasMd = ctx.column(t, 3, "MD", &row.md, false);
+    if (!timeOk || (!sOk && !row.hasTvd && !row.hasMd))
     {
+      if (!sOk && !row.hasTvd && !row.hasMd)
+        ctx.report.issues.append(QCoreApplication::translate("WellFileParsers",
+            "第 %1 行没有可用深度（TVDSS/TVD/MD），拒收该行").arg(ctx.line));
       ++ctx.report.rejectedRows;
       continue;
     }
-    row.hasTvd = ctx.column(t, 2, "TVD", &row.tvd, false);
-    row.hasMd = ctx.column(t, 3, "MD", &row.md, false);
     table.rows.append(row);
     ++ctx.report.acceptedRows;
   }

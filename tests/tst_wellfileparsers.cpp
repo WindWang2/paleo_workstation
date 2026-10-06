@@ -32,6 +32,7 @@ private slots:
   void lineEndingsKeepPhysicalRowNumbers();
   void goodRowsAreUnchanged();
   void timeDepthFilteringMatchesBothDirections();
+  void missingTvdssKeepsUsableLookupDepths();
   void reportsOptionalMissingCellsWithoutRejectingGoodDepth();
   void depthAliases_data();
   void depthAliases();
@@ -163,6 +164,32 @@ void WellFileParserTests::timeDepthFilteringMatchesBothDirections()
   QCOMPARE(inverse.depth, 150.0);
   QCOMPARE(forward.ignoredRows, 8);
   QCOMPARE(inverse.ignoredRows, 8);
+}
+
+void WellFileParserTests::missingTvdssKeepsUsableLookupDepths()
+{
+  WellParseReport report;
+  const auto td = parseTimeDepthText(
+      "100\t-999.25\t100\t100\n200\t\t200\t200\n300\t-99999\t-99999\t-99999\n", &report);
+  QCOMPARE(td.rows.size(), 2);
+  QCOMPARE(report.acceptedRows, 2);
+  QCOMPARE(report.rejectedRows, 1);
+  QCOMPARE(report.sentinelHits, 4);
+  QCOMPARE(report.blankCells, 1);
+  QVERIFY(std::isnan(td.rows[0].tvdss));
+  QVERIFY(std::isnan(td.rows[1].tvdss));
+  QVERIFY(td.rows[0].hasTvd && td.rows[0].hasMd);
+  QCOMPARE(td.rows[0].tvd, 100.0);
+  QCOMPARE(td.rows[0].md, 100.0);
+  QVERIFY(report.issues.join(QString()).contains(QStringLiteral("没有可用深度")));
+  for (bool useMd : {false, true})
+  {
+    const auto forward = TimeDepthTool::interpolateTimeMs(td, 150, useMd);
+    const auto inverse = TimeDepthTool::interpolateDepthAtTimeMs(td, 150, useMd);
+    QVERIFY(forward.ok() && inverse.ok());
+    QCOMPARE(forward.timeMs, 150.0);
+    QCOMPARE(inverse.depth, 150.0);
+  }
 }
 
 void WellFileParserTests::reportsOptionalMissingCellsWithoutRejectingGoodDepth()

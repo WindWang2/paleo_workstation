@@ -44,7 +44,7 @@ struct WellTopRecord
 struct TdRow
 {
   double timeMs = 0.0, tvdss = 0.0, tvd = 0.0, md = 0.0;
-  bool hasTvd = false, hasMd = false; // -99999/缺列 → false
+  bool hasTvd = false, hasMd = false; // 共享哨兵/缺列 → false；缺失 TVDSS 为 NaN
 };
 struct TimeDepthTable
 {

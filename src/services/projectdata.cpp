@@ -125,6 +125,13 @@ QString ProjectDataFacade::assetFilePathFor(const QString &wellId, const QString
 
 QVector<WellTop> ProjectDataFacade::topsFor(const QString &wellId) const
 {
+  return topsFor(wellId, nullptr);
+}
+
+QVector<WellTop> ProjectDataFacade::topsFor(const QString &wellId, WellParseReport *report) const
+{
+  if (report)
+    *report = {};
   QVector<WellTop> out;
   const QString path = assetFilePathFor(wellId, QStringLiteral("tops"));
   if (path.isEmpty() || !QFile::exists(path))
@@ -145,7 +152,11 @@ QVector<WellTop> ProjectDataFacade::topsFor(const QString &wellId) const
   }
   const QString normalized = m_catalog ? DataCatalog::normalizeWellName(wellName) : wellName;
 
-  for (const WellTopRecord &r : parseWellTopsText(text))
+  const auto rows = parseWellTopsText(text, report);
+  if (report)
+    for (QString &issue : report->issues)
+      issue = QStringLiteral("%1：%2").arg(QFileInfo(path).fileName(), issue);
+  for (const WellTopRecord &r : rows)
   {
     if (DataCatalog::normalizeWellName(r.wellName) != normalized)
       continue;

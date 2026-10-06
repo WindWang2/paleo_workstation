@@ -281,9 +281,10 @@ QString RealizationWorkflow::publishSet( const QString &title, const QString &ho
 }
 
 bool RealizationWorkflow::deriveStatistics( const QString &setId,
-                                            const paleo::ensemble::StatsRequest &want,
+                                            const paleo::ensemble::StatsRequest &wantIn,
                                             QString *error )
 {
+  paleo::ensemble::StatsRequest want = wantIn;
   if ( !isBound() )
   {
     setError( error, tr( "realization workflow 未绑定 catalog/projectDir" ) );
@@ -308,6 +309,23 @@ bool RealizationWorkflow::deriveStatistics( const QString &setId,
                          .arg( setId ).arg( set.members.size() ) );
     return false;
   }
+
+  // #227（部分）：幂等跳过前置到读栅格之前——已派生的口径不再重读全集合
+  // 再丢弃。GUI 线程上冻结期间排队的连点，恢复后逐次早退而不是逐次重跑。
+  for ( const paleo::realization::StatisticSurface &s :
+        paleo::realization::statSurfaces( *m_catalog, setId ) )
+  {
+    if ( s.token == paleo::realization::kStatMean )
+      want.mean = false;
+    else if ( s.token == paleo::realization::kStatStdDev )
+      want.stddev = false;
+    else if ( s.token == paleo::realization::kStatP10 )
+      want.p10 = false;
+    else if ( s.token == paleo::realization::kStatP90 )
+      want.p90 = false;
+  }
+  if ( !want.any() )
+    return true; // 全部口径已在场：与逐口径幂等跳过同语义（不发 derived 信号）
 
   QVector<MemberRaster> rasters;
   if ( !openMemberRasters( set, m_catalog.data(), m_projectDir, &rasters, error ) )

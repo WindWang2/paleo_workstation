@@ -20,6 +20,10 @@ namespace PaleoRasterOut
   // 一律走 QGIS PreferredGdal 导出（非局部网格 CRS 与旧行为逐字节一致）。
   // 算法核不问 catalog：规范 WKT 由 workflow 侧以 LOCAL_GRID_WKT 处理参数
   // 注入（见 canonicalWktFromParameters）。
+  // BIZ-11（方向58）：crs 无效（输入无 CRS）时，canonicalCrsWkt 非空 → 按规范
+  // 串写投影 + PALEO_CRS_WKT；两者皆空 → 不写投影（不编造 CRS；仅直调路径，
+  // workflow 路径恒注入 LOCAL_GRID_WKT）。realizationworkflow 传空 crs 后自行
+  // GDALSetProjection 沿用成员投影，不受影响。
   GDALDatasetH createFloatRaster( const QString &outPath, int nCols, int nRows,
                                   const double geoTransform[6],
                                   const QgsCoordinateReferenceSystem &crs,

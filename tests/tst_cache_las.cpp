@@ -6,11 +6,14 @@
 #include "io/lasparser.h"
 #include "io/perffixtures.h"
 
+#include <QElapsedTimer>
 #include <QFile>
+#include <QThread>
 #include <QTemporaryDir>
 #include <QtConcurrent>
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstring>
 
 class CacheLasTests : public QObject
@@ -28,6 +31,7 @@ class CacheLasTests : public QObject
     void explicitInvalidate();
     void writePathInvalidation();
     void concurrentLoadCoalesces();
+    void coalescedRidersReceiveIssues();
 
   private:
     QTemporaryDir m_dir;
@@ -301,6 +305,90 @@ void CacheLasTests::concurrentLoadCoalesces()
   }
   // 内存缓存只有一份条目（同文件）。
   QVERIFY(LasCache::shared().isCached(las));
+}
+
+namespace
+{
+// 一条曲线缺单位 → LasParser 产出 MissingUnit 诊断（非致命，doc.ok）。
+bool writeIssueLas(const QString &path)
+{
+  QFile f(path);
+  if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+    return false;
+  f.write("~Version Information\n"
+          " VERS.   2.0 : CWLS LAS 2.0\n"
+          " WRAP.   NO  : single line\n"
+          "~Well Information\n"
+          " STRT.M  100.0 : start\n"
+          " STOP.M  102.0 : stop\n"
+          " STEP.M  1.0 : step\n"
+          " NULL.   -999.25 : null\n"
+          "~Curve Information\n"
+          " DEPT.M  : depth\n"
+          " GR.     : gamma ray\n"
+          "~A\n"
+          "100.0 50.0\n"
+          "101.0 60.0\n"
+          "102.0 70.0\n");
+  return true;
+}
+} // namespace
+
+void CacheLasTests::coalescedRidersReceiveIssues()
+{
+  // RUNTIME-03（方向58）：同指纹并发——搭车者也必须拿到本次解析的诊断。
+  // 确定性时序：冷解析钩子挡住执行者，直到合并器登记到一个搭车者。
+  const QString las = m_dir.filePath("issues.las");
+  QVERIFY(writeIssueLas(las));
+  LasCache::shared().setDiskRoot(QString()); // 纯内存：强制走解析
+  LasCache::shared().invalidate();
+
+  // 单请求路径基线：诊断非空，记下条数。
+  QList<LasIssue> single;
+  const LasDoc solo = LasCache::shared().load(las, &single);
+  QVERIFY2(solo.ok, qPrintable(solo.error));
+  QVERIFY(!single.isEmpty());
+  LasCache::shared().invalidate();
+
+  // 任何断言提前返回也必须卸钩子、复位磁盘根，不污染同进程后续用例。
+  const auto restore = qScopeGuard([this] {
+    LasCache::shared().setColdParseHookForTest({});
+    LasCache::shared().setDiskRoot(m_dir.filePath("idx10"));
+    LasCache::shared().invalidate();
+  });
+  const int ridersBefore = LasCache::shared().ridersJoinedForTest();
+  std::atomic_bool executorInJob{false};
+  std::atomic_bool riderTimedOut{false};
+  LasCache::shared().setColdParseHookForTest([&] {
+    executorInJob = true;
+    QElapsedTimer t;
+    t.start();
+    while (LasCache::shared().ridersJoinedForTest() == ridersBefore)
+    {
+      if (t.elapsed() > 10000)
+      {
+        riderTimedOut = true;
+        return;
+      }
+      QThread::msleep(1);
+    }
+  });
+
+  QList<LasIssue> issuesA, issuesB;
+  QFuture<LasDoc> a = QtConcurrent::run([&] { return LasCache::shared().load(las, &issuesA); });
+  QElapsedTimer t;
+  t.start();
+  while (!executorInJob && t.elapsed() < 10000)
+    QThread::msleep(1);
+  QVERIFY(executorInJob);
+  QFuture<LasDoc> b = QtConcurrent::run([&] { return LasCache::shared().load(las, &issuesB); });
+  QVERIFY(a.result().ok);
+  QVERIFY(b.result().ok);
+
+  QVERIFY(!riderTimedOut);
+  QCOMPARE(LasCache::shared().ridersJoinedForTest(), ridersBefore + 1);
+  QCOMPARE(issuesA.size(), single.size());
+  QCOMPARE(issuesB.size(), single.size()); // 旧实现：搭车者 0 条
 }
 
 QTEST_MAIN(CacheLasTests)

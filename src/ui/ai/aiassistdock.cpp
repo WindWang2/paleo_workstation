@@ -4,6 +4,7 @@
 #include "../../workflow/aichatcontroller.h"
 #include "../paleotheme.h"
 
+#include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
@@ -128,6 +129,10 @@ void AiAssistDock::bindController() {
           &AiAssistDock::appendError);
   connect(m_controller, &AiChatController::toolCallDispatched, this,
           &AiAssistDock::addToolCard);
+  connect(m_controller, &AiChatController::toolExecutionStarted, this,
+          &AiAssistDock::markToolRunning);
+  connect(m_controller, &AiChatController::toolResultReady, this,
+          &AiAssistDock::markToolResult);
   connect(m_controller, &AiChatController::statusChanged, this,
           [this](const QString &text) { m_status->setText(text); });
   connect(m_controller, &AiChatController::streamingChanged, this,
@@ -171,6 +176,15 @@ void AiAssistDock::appendMessage(const ChatMessage &message) {
   if (message.role == ChatRole::Assistant && message.isEmpty())
     return; // 流式占位：等增量到了再显示，避免先出现一条空白
   const PaleoTheme::ThemeTokens &tokens = PaleoTheme::tokens();
+  if (message.role == ChatRole::Tool) {
+    // 工具结果不灌 JSON 进正文（可读性）；详情在工具卡摘要里，这里是
+    // 弱化一行占位（重载会话时同样呈现，不假装历史上没有这回事）。
+    writeBlock(
+      QStringLiteral("<div style=\"color:%1\">%2：%3</div>")
+        .arg(tokens.textMuted.name(), roleLabel(message.role).toHtmlEscaped(),
+             tr("结果已回传模型（%1 字符）").arg(message.content.size())));
+    return;
+  }
   const QString color = message.role == ChatRole::User
                           ? tokens.primaryText.name()
                           : tokens.text.name();
@@ -193,6 +207,7 @@ void AiAssistDock::appendError(const QString &message) {
 }
 
 void AiAssistDock::clearToolCards() {
+  m_toolCards.clear();
   while (auto *item = m_cardLayout->takeAt(0)) {
     if (item->widget())
       item->widget()->deleteLater();
@@ -203,22 +218,78 @@ void AiAssistDock::clearToolCards() {
 void AiAssistDock::addToolCard(const ChatToolCall &call,
                                const QString &statusText) {
   const PaleoTheme::ThemeTokens &tokens = PaleoTheme::tokens();
-  auto *card = new QFrame(m_cards);
-  card->setObjectName(QStringLiteral("aiAssistantToolCard"));
-  card->setStyleSheet(QStringLiteral(
-                        "QFrame#aiAssistantToolCard {"
-                        " background: %1; border: 1px solid %2;"
-                        " border-radius: %3px; padding: %4px; }")
-                        .arg(tokens.surfaceAlt.name(), tokens.border.name())
-                        .arg(tokens.radiusMd)
-                        .arg(tokens.spacingXs));
-  auto *row = new QHBoxLayout(card);
-  auto *name = new QLabel(call.name, card);
+  // 同 id 帧重放（脚本端点/断线重试）不叠卡：旧卡先撤，hash 顶替。
+  if (m_toolCards.contains(call.id)) {
+    const ToolCard old = m_toolCards.value(call.id);
+    if (old.card) {
+      m_cardLayout->removeWidget(old.card);
+      old.card->deleteLater();
+    }
+    m_toolCards.remove(call.id);
+  }
+  ToolCard entry;
+  entry.card = new QFrame(m_cards);
+  entry.card->setObjectName(QStringLiteral("aiAssistantToolCard"));
+  entry.card->setStyleSheet(QStringLiteral(
+                              "QFrame#aiAssistantToolCard {"
+                              " background: %1; border: 1px solid %2;"
+                              " border-radius: %3px; padding: %4px; }")
+                              .arg(tokens.surfaceAlt.name(), tokens.border.name())
+                              .arg(tokens.radiusMd)
+                              .arg(tokens.spacingXs));
+  auto *layout = new QVBoxLayout(entry.card);
+  layout->setContentsMargins(tokens.spacingXs, tokens.spacingXs, tokens.spacingXs,
+                             tokens.spacingXs);
+  layout->setSpacing(tokens.spacingXs);
+  entry.row = new QHBoxLayout;
+  entry.row->setSpacing(tokens.spacingXs);
+  auto *name = new QLabel(call.name, entry.card);
   name->setFont(PaleoTheme::bodyFont(PaleoTheme::kLabelPt));
-  row->addWidget(name, 1);
-  // 未接线/不可用都按 Warning 胶囊呈现——不冒充"已执行"。
-  row->addWidget(PaleoTheme::capsuleLabel(
-    statusText.isEmpty() ? tr("待接线") : statusText,
-    PaleoTheme::CapsuleKind::Warning, card));
-  m_cardLayout->addWidget(card);
+  entry.row->addWidget(name, 1);
+  // 首态 = 分发结论（已路由/未登记/本构建不可用都如实写）——不冒充"已执行"。
+  entry.capsule =
+    PaleoTheme::capsuleLabel(statusText.isEmpty() ? tr("待执行") : statusText,
+                             PaleoTheme::CapsuleKind::Warning, entry.card);
+  entry.row->addWidget(entry.capsule);
+  layout->addLayout(entry.row);
+  entry.summary = new QLabel(entry.card);
+  entry.summary->setFont(PaleoTheme::bodyFont(PaleoTheme::kLabelPt));
+  entry.summary->setWordWrap(true);
+  entry.summary->hide(); // 结果到了才显示（两态卡片的第二态）
+  layout->addWidget(entry.summary);
+  m_cardLayout->addWidget(entry.card);
+  m_toolCards.insert(call.id, entry);
+}
+
+void AiAssistDock::swapCapsule(ToolCard &card, const QString &text,
+                               PaleoTheme::CapsuleKind kind) {
+  auto *fresh = PaleoTheme::capsuleLabel(text, kind, card.card);
+  const int index = card.row->indexOf(card.capsule);
+  if (index >= 0)
+    card.row->insertWidget(index, fresh);
+  else
+    card.row->addWidget(fresh);
+  card.capsule->deleteLater();
+  card.capsule = fresh;
+}
+
+void AiAssistDock::markToolRunning(const ChatToolCall &call) {
+  const auto it = m_toolCards.find(call.id);
+  if (it == m_toolCards.end())
+    return;
+  swapCapsule(it.value(), tr("执行中"), PaleoTheme::CapsuleKind::Neutral);
+}
+
+void AiAssistDock::markToolResult(const ChatToolCall &call, bool ok,
+                                  const QString &summary) {
+  const auto it = m_toolCards.find(call.id);
+  if (it == m_toolCards.end())
+    return;
+  ToolCard &card = it.value();
+  // 终态翻面：完成/失败 + 摘要行（失败原文如实显示，不吞错）。
+  swapCapsule(card, ok ? tr("已完成") : tr("失败"),
+              ok ? PaleoTheme::CapsuleKind::Success
+                 : PaleoTheme::CapsuleKind::Error);
+  card.summary->setText(summary.toHtmlEscaped());
+  card.summary->show();
 }

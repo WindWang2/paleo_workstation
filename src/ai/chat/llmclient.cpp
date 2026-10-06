@@ -307,7 +307,8 @@ LlmClient::~LlmClient() {
 
 void LlmClient::setConfig(const LlmConfig &config) { m_config = config; }
 
-QNetworkReply *LlmClient::issueRequest(const QVector<ChatMessage> &messages) {
+QNetworkReply *LlmClient::issueRequest(const QVector<ChatMessage> &messages,
+                                       const QVector<AiToolSpec> &tools) {
   QJsonArray array;
   for (const ChatMessage &message : messages)
     array.append(message.toProtocolJson()); // 只发协议字段（见 chatmessage.h）
@@ -316,6 +317,21 @@ QNetworkReply *LlmClient::issueRequest(const QVector<ChatMessage> &messages) {
   body.insert(QStringLiteral("messages"), array);
   body.insert(QStringLiteral("stream"), m_config.stream);
   body.insert(QStringLiteral("max_tokens"), m_config.maxTokens);
+  // 工具上送（方向61）：tools[] 按 OpenAI 口径 = {type:"function",
+  // function:{name,description,parameters}}；tool_choice 恒 "auto"——模型自决
+  // 是否调用（含不调工具直接作答），不用 "required"/"none" 强制，也不点名
+  // 单工具。空表不上送（无工具场景请求体保持方向51 形状）。
+  if (!tools.isEmpty()) {
+    QJsonArray toolArray;
+    for (const AiToolSpec &spec : tools) {
+      QJsonObject entry;
+      entry.insert(QStringLiteral("type"), QStringLiteral("function"));
+      entry.insert(QStringLiteral("function"), spec.toChatFunction());
+      toolArray.append(entry);
+    }
+    body.insert(QStringLiteral("tools"), toolArray);
+    body.insert(QStringLiteral("tool_choice"), QStringLiteral("auto"));
+  }
 
   QNetworkRequest request(m_config.completionsUrl());
   request.setHeader(QNetworkRequest::ContentTypeHeader,
@@ -328,7 +344,8 @@ QNetworkReply *LlmClient::issueRequest(const QVector<ChatMessage> &messages) {
   return m_nam->post(request, QJsonDocument(body).toJson(QJsonDocument::Compact));
 }
 
-void LlmClient::send(const QVector<ChatMessage> &messages) {
+void LlmClient::send(const QVector<ChatMessage> &messages,
+                     const QVector<AiToolSpec> &tools) {
   const QString invalid = m_config.validate();
   if (!invalid.isEmpty()) {
     // 诚实禁用态：不给假结果，也不静默吞掉请求。
@@ -343,7 +360,7 @@ void LlmClient::send(const QVector<ChatMessage> &messages) {
   m_promptTokens = 0;
   m_completionTokens = 0;
 
-  QNetworkReply *reply = issueRequest(messages);
+  QNetworkReply *reply = issueRequest(messages, tools);
   m_reply = reply;
   m_timer->start(m_config.timeoutMs);
 

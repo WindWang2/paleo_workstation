@@ -92,6 +92,12 @@ void ConstraintWorkflow::setConstraintStore( ConstraintStore *store )
   m_externalConstraintStore = store;
 }
 
+void ConstraintWorkflow::setThicknessSamples( const QVariantList &rows, const QString &message )
+{
+  m_thicknessRows = rows;
+  m_thicknessMessage = message;
+}
+
 void ConstraintWorkflow::setCatalog( DataCatalog *catalog, const QString &projectDir )
 {
   m_catalog = catalog;

@@ -37,6 +37,8 @@ private:
   QString m_mode, m_horizon;
   QLabel *m_heading, *m_message, *m_details;
   QLabel *m_inputHint = nullptr, *m_resultHint = nullptr;
+  // 方向51：远端预测状态行（「远端预测未配置，走本地引擎」等，由装配注入）。
+  QLabel *m_status = nullptr;
   QString m_labelLayer;
   bool m_labelModeDirty = false;
   QListWidget *m_inputs = nullptr;

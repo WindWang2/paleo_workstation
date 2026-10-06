@@ -637,19 +637,22 @@ void TestWellTopsEdit::batchCommitAllRows()
            805.0);
 }
 
-// M2：X/Y/TVD/Time 命中 -99999 哨兵域 = 错误级（缺失应清空单元格）。
+// 方向50：编辑与导入共用精确空值词表，合法负值不能按范围误拒。
 void TestWellTopsEdit::sentinelValuesAreValidatorErrors()
 {
   using namespace WellTopsEdit;
   WellTopRecord r = Fixture::rec(QStringLiteral("A1"), QStringLiteral("X"), 850.0, 850.0);
-  r.tvd = -100000.0; // 命中哨兵域
+  for (double sentinel : {-99999.0, -999.25, -9999.0, -999.0})
+  {
+    r.tvd = sentinel;
+    r.x = sentinel;
+    const auto sentinels = findIssues(validate({r}, ValidationContext()), IssueKind::SentinelValue);
+    QCOMPARE(sentinels.size(), 2);
+    QVERIFY(sentinels.front().isError());
+  }
+  r.tvd = -100000.0;
   r.x = -99999.5;
-  const QVector<Issue> issues = validate({r}, ValidationContext());
-  const auto sentinels = findIssues(issues, IssueKind::SentinelValue);
-  QCOMPARE(sentinels.size(), 2);
-  QVERIFY(sentinels.front().isError());
-  QVERIFY(sentinels.at(0).message.contains(QStringLiteral("TVD")) ||
-          sentinels.at(0).message.contains(QStringLiteral("X")));
+  QVERIFY(findIssues(validate({r}, ValidationContext()), IssueKind::SentinelValue).isEmpty());
 }
 
 // M5：井名键镜像 catalog 规则——下划线在两端口径一致（A_1 ≡ A1）。

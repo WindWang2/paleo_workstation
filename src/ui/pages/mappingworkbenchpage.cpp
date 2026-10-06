@@ -70,9 +70,25 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   layout->addWidget(paleo::pagesinternal::caption(tr("输入与参数"), body));
   layout->addLayout(form);
   if (mode == "predict") {
-    label(tr("远端预测 · 模拟数据 · 待复核\n"
+    // 方向51：不再写「模拟数据」——远端预测走的是装配出来的真实路由
+    // （RemotePredictionRouter）；未配置端点时状态行如实说「未配置，走本地引擎」，
+    // 不再悄悄跑替身 Mock 出一份看起来像结果的东西。
+    label(tr("远端预测 · 结果待复核\n"
              "选择一个地震体，或勾选一口／多口井。结果按当前层位与相分类"
              "生成。"));
+    m_status = new QLabel(body);
+    m_status->setObjectName("workbenchPredictionStatus");
+    m_status->setWordWrap(true);
+    m_status->setTextFormat(Qt::PlainText);
+    m_status->setFont(PaleoTheme::bodyFont(PaleoTheme::kLabelPt));
+    layout->addWidget(m_status);
+    const auto showStatus = [this] {
+      if (m_status && m_workbench)
+        m_status->setText(m_workbench->predictionStatusHint());
+    };
+    showStatus();
+    connect(workbench, &MappingWorkbench::predictionStatusChanged, this,
+            showStatus);
     m_kind = new QComboBox(body);
     m_kind->setObjectName("predictionKind");
     m_kind->setAccessibleName(tr("预测类型"));

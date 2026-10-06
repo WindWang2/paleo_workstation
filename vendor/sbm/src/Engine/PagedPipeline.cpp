@@ -256,12 +256,14 @@ PagedBuildResult TranscodeSegyToPagedWorkspace(
     // failing the whole pyramid; the first 32 are recorded for the report.
     std::uint64_t missingTraces = 0;
     std::uint64_t damagedTraces = 0;
+    std::uint64_t sanitizedSamples = 0;
+    std::uint64_t sanitizedTraces = 0;
     std::vector<std::pair<int, int>> damagedSample;
     float valueMin = std::numeric_limits<float>::infinity();
     float valueMax = -std::numeric_limits<float>::infinity();
     const auto noteTrace = [&valueMin, &valueMax](const std::vector<float>& trace) {
         for(const float v : trace) {
-            if(std::isnan(v)) {
+            if(!std::isfinite(v)) {
                 continue;
             }
             if(v < valueMin) {
@@ -270,6 +272,19 @@ PagedBuildResult TranscodeSegyToPagedWorkspace(
             if(v > valueMax) {
                 valueMax = v;
             }
+        }
+    };
+    const auto applyQuality = [&](PagedBuildResult& r) {
+        r.missingTraceCount = missingTraces;
+        r.damagedTraceCount = damagedTraces;
+        r.sanitizedSampleCount = sanitizedSamples;
+        r.sanitizedTraceCount = sanitizedTraces;
+        r.damagedTraceSample = damagedSample;
+        if(valueMin != std::numeric_limits<float>::infinity()) {
+            r.valueMin = valueMin;
+        }
+        if(valueMax != -std::numeric_limits<float>::infinity()) {
+            r.valueMax = valueMax;
         }
     };
     if(!Report(progress, state, cancel)) {
@@ -307,6 +322,7 @@ PagedBuildResult TranscodeSegyToPagedWorkspace(
                                              "paged workspace build cancelled", start);
                         result.info = info;
                         result.tracesRead = state.tracesRead;
+                        applyQuality(result);
                         return result;
                     }
                     const int xlineNo = info.xlineAxis.ValueAt(globalX);
@@ -322,6 +338,8 @@ PagedBuildResult TranscodeSegyToPagedWorkspace(
                         }
                         continue; // damaged trace stays NaN
                     }
+                    sanitizedSamples += readSession.LastSanitizedSampleCount();
+                    sanitizedTraces += readSession.LastSanitizedSampleCount() > 0;
                     ++state.tracesRead;
                     noteTrace(trace);
                     for(std::uint32_t sample = 0; sample < info.samples; ++sample) {
@@ -343,6 +361,7 @@ PagedBuildResult TranscodeSegyToPagedWorkspace(
                     result = ErrorResult(targetPath, StatusCode::IoError, error, start);
                     result.info = info;
                     result.tracesRead = state.tracesRead;
+                    applyQuality(result);
                     return result;
                 }
                 ++state.chunksDone;
@@ -353,6 +372,7 @@ PagedBuildResult TranscodeSegyToPagedWorkspace(
                                          "paged workspace build cancelled", start);
                     result.info = info;
                     result.tracesRead = state.tracesRead;
+                    applyQuality(result);
                     result.bytesWritten = state.bytesWritten;
                     return result;
                 }
@@ -361,17 +381,6 @@ PagedBuildResult TranscodeSegyToPagedWorkspace(
     }
     state.phase = "finalizing";
     Report(progress, state, cancel);
-    const auto applyQuality = [&](PagedBuildResult& r) {
-        r.missingTraceCount = missingTraces;
-        r.damagedTraceCount = damagedTraces;
-        r.damagedTraceSample = damagedSample;
-        if(valueMin != std::numeric_limits<float>::infinity()) {
-            r.valueMin = valueMin;
-        }
-        if(valueMax != -std::numeric_limits<float>::infinity()) {
-            r.valueMax = valueMax;
-        }
-    };
     if(IsCancelled(cancel)) {
         result = ErrorResult(targetPath, StatusCode::Cancelled, "paged workspace build cancelled", start);
         result.info = info;
@@ -381,7 +390,11 @@ PagedBuildResult TranscodeSegyToPagedWorkspace(
     const std::uint64_t bytesWritten = writer.BytesWritten();
     const std::uint64_t finalChunks = writer.ChunksWritten();
     if(!writer.Finalize(error)) {
-        return ErrorResult(targetPath, StatusCode::IoError, error, start);
+        result = ErrorResult(targetPath, StatusCode::IoError, error, start);
+        result.info = info;
+        result.tracesRead = state.tracesRead;
+        applyQuality(result);
+        return result;
     }
     result.status = Status::Ok();
     info.complete = true;

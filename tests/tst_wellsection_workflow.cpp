@@ -282,7 +282,9 @@ private slots:
     QCOMPARE(wells[2].id, QString("well-3"));
     const QString warnBlob = warnings.join(QLatin1Char('\n'));
     QVERIFY(warnBlob.contains(QStringLiteral("未找到井 well-9")));
-    QVERIFY(warnBlob.contains(QStringLiteral("缺 MD")));
+    QVERIFY(warnBlob.contains(QStringLiteral("MD")));
+    QVERIFY(warnBlob.contains(QStringLiteral("拒收 1 行")));
+    QVERIFY(warnBlob.contains(QStringLiteral("tops.dat：第 4 行")));
     QVERIFY(warnBlob.contains(QStringLiteral("深度单位未知")));
 
     const auto &w1 = wells[1];

@@ -26,6 +26,7 @@ namespace TimeDepthTool
   {
     double timeMs = qQNaN();              // 仅 status==Ok 时有效
     TdStatus status = TdStatus::NoTable;
+    int ignoredRows = 0; // 缺列/非有限/哨兵剔除数（含手工构表）
     bool ok() const { return status == TdStatus::Ok; }
   };
 
@@ -41,6 +42,7 @@ namespace TimeDepthTool
   {
     double depth = qQNaN();               // 仅 status==Ok 时有效（米）
     TdStatus status = TdStatus::NoTable;
+    int ignoredRows = 0; // 缺列/非有限/哨兵剔除数（含手工构表）
     bool ok() const { return status == TdStatus::Ok; }
   };
   TdDepthResult interpolateDepthAtTimeMs(const TimeDepthTable &td,

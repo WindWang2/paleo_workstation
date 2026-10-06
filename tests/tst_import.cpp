@@ -1,5 +1,6 @@
 #include <QtTest>
 #include <QTemporaryDir>
+#include <QElapsedTimer>
 #include <QSignalSpy>
 #include <QThreadPool>
 #include <QDirIterator>
@@ -165,6 +166,65 @@ private slots:
 
   // T4（data-foundation）：锁降级只读——导入在算 SHA/复制字节之前早拒，
   // 不留 artifacts/raw 孤儿文件。
+  // 方向57 阻塞解除语义测试：PDF 转换在途时销毁服务，析构不得阻塞主线程
+  // 等进程退出（原实现 ~DataImportService 里 waitForFinished(2000)——事件
+  // 循环冻结最多 2s）。新实现 kill + deleteLater（与 setProjectDir 的工程
+  // 切换清理同一模式）。阈值取旧 2s 上限的四分之三：旧实现必红、新实现
+  // 数十毫秒级即回，两端都不贴边。
+  void documentTeardownDoesNotBlockOnInflightConversion()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+
+    // 长睡转换器：无论参数睡 30s 再退（模拟卡住的 soffice）。
+    // Windows 用 .cmd（QProcess/CreateProcess 可直接拉起批处理），POSIX 用 .sh。
+    const QString stub = tmp.filePath(QStringLiteral("sleepy_converter") +
+#ifdef Q_OS_WIN
+                                      QStringLiteral(".cmd"));
+    {
+      QFile f(stub);
+      QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
+      f.write("@ping -n 30 127.0.0.1 > nul\r\n");
+      f.close();
+    }
+#else
+                                      QStringLiteral(".sh"));
+    {
+      QFile f(stub);
+      QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
+      f.write("#!/bin/sh\nsleep 30\n");
+      f.close();
+      QFile::setPermissions(stub, QFileDevice::ExeOwner | QFileDevice::ReadOwner |
+                                     QFileDevice::WriteOwner);
+    }
+#endif
+    svc.setDocumentConverterProgram(stub);
+
+    QString err;
+    const QString docSrc = tmp.filePath(QStringLiteral("stub.doc"));
+    {
+      QFile df(docSrc);
+      QVERIFY(df.open(QIODevice::WriteOnly));
+      df.write("not a real doc");
+      df.close();
+    }
+    const QString docId = svc.importProjectFile(docSrc, &err);
+    QVERIFY2(!docId.isEmpty(), qPrintable(err));
+
+    svc.ensureDocumentPdf(docId);
+    QCOMPARE(svc.documentPdfState(docId), DataImportService::DocPdfState::Pending);
+
+    QElapsedTimer t0;
+    t0.start();
+    stack.reset(); // 析构：旧实现在此 waitForFinished(2000)
+    const qint64 elapsed = t0.elapsed();
+    QVERIFY2(elapsed < 1500, qPrintable(QStringLiteral("destroy blocked %1ms").arg(elapsed)));
+  }
+
   void lockedReadOnlyImportRefusedEarly()
   {
     QTemporaryDir tmp;
@@ -1393,7 +1453,7 @@ private slots:
     expectPath(0, QString::fromUtf8("井位/empty.dat"));
     QCOMPARE(rows.at(0).classifiedType, QStringLiteral("well_head"));
     QCOMPARE(rows.at(0).outcome, Outcome::Failed);
-    QVERIFY(rows.at(0).message.contains(QStringLiteral("no well head rows")));
+    QVERIFY(rows.at(0).message.contains(QStringLiteral("井表没有可用数据行")));
     QVERIFY(rows.at(0).entityName.isEmpty());
 
     expectPath(1, QString::fromUtf8("井位/heads.dat"));
@@ -1496,7 +1556,10 @@ private slots:
     std::sort(roles.begin(), roles.end());
     QCOMPARE(roles, QStringList({QStringLiteral("time_depth"), QStringLiteral("tops"),
                                  QStringLiteral("well_head"), QStringLiteral("well_log")}));
-    QCOMPARE(cat->assets().size(), 7); // ghost/empty 也各占一份资产；mirror/escape/fifo 无
+    QCOMPARE(cat->assets().size(), 6); // ghost 有资产；拒收的空井表不留孤立资产。
+    for (const auto &asset : cat->assets())
+      for (const auto &version : cat->versionsForAsset(asset.id))
+        QVERIFY(!version.sourceUri.endsWith(QStringLiteral("井位/empty.dat")));
     QCOMPARE(cat->links().size(), 8);  // 2 井口 + 2 tops + 2 LAS + 1 ghost + 1 TD
   }
 
@@ -2222,7 +2285,7 @@ private slots:
         svc.importFolderRow(headsPath, QString(), &err);
     QCOMPARE(row.outcome, Outcome::Failed);
     QVERIFY(!err.isEmpty());
-    QVERIFY(row.message.contains(QStringLiteral("no well head rows")));
+    QVERIFY(row.message.contains(QStringLiteral("井表没有可用数据行")));
     QCOMPARE(row.classifiedType, QStringLiteral("well_head"));
 
     // 修好文件再重导：入库 + 实体名，error 清空。

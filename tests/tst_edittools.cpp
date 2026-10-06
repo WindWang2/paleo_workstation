@@ -153,6 +153,7 @@ class TestEditTools : public QObject
     // c+) topological editing — shared-boundary coincident vertices
     void vertexTopoDragMovesCoincidentVertices();
     void vertexTopoOffLeavesNeighborUntouched();
+    void vertexCoincidentEnvelopeBoundsNoise();
     void vertexTopoDoubleClickInsertsOnSharedEdge();
     void vertexTopoDeleteRemovesCoincidentVertices();
     void vertexTopoReleaseWeldsToNeighborVertex();
@@ -191,6 +192,7 @@ class TestEditTools : public QObject
     void toolbarStartStopSignalsAndStateRendering();
     void toolbarComboFilterAndProjectRefresh();
     void toolbarEditToolActionAutoStartsSession();
+    void toolbarOutlivesCanvasDestruction();
     void toolbarUndoRedoActionStates();
     void toolbarSavePersistsAndClearsUndo();
     void toolbarServiceEndsEachSessionOnce();
@@ -1164,6 +1166,56 @@ void TestEditTools::vertexTopoOffLeavesNeighborUntouched()
   QVERIFY( qgsDoubleNear( lsA->xAt( 1 ), pNew.x(), 1e-6 ) );
   QVERIFY( qgsDoubleNear( lsB->xAt( 0 ), shared.x(), 1e-6 ) ); // neighbor kept the split
   QVERIFY( qgsDoubleNear( lsB->yAt( 0 ), shared.y(), 1e-6 ) );
+
+  canvas.unsetMapTool( &tool );
+  layer.rollBack();
+}
+
+// BIZ-09 钉死：kTopoCandidateEnvelope（1e-9）只是 R-tree 预筛包络，命中
+// 语义由 sameXy 的 qgsDoubleNear 把守（QGIS 4 = 绝对 4·DBL_EPSILON≈8.9e-16，
+// 近精确）。邻居顶点偏移 1e-8（>> 包络）不得并入共点栈联动；逐位相等的
+// 邻居必须联动（既有 vertexTopoDragMovesCoincidentVertices 用例钉住）。
+// 包络若被放大到 ≥1e-8 本用例转红——常量回改需连本钉死一起评估。
+void TestEditTools::vertexCoincidentEnvelopeBoundsNoise()
+{
+  QgsMapCanvas canvas;
+  configureCanvas( canvas );
+
+  QgsVectorLayer layer( QStringLiteral( "LineString?crs=EPSG:4326&field=id:integer" ), QStringLiteral( "topo-noise" ), QStringLiteral( "memory" ) );
+  QVERIFY2( layer.isValid(), "memory line layer failed to initialize" );
+  const QgsPointXY anchor = mapPt( canvas, 100, 100 );
+  const QgsPointXY offset( anchor.x() + 1e-8, anchor.y() - 1e-8 );
+  const QgsFeatureId fidA = seedFeature( layer, QgsGeometry::fromPolylineXY(
+      { mapPt( canvas, 40, 140 ), anchor, mapPt( canvas, 160, 60 ) } ) );
+  const QgsFeatureId fidB = seedFeature( layer, QgsGeometry::fromPolylineXY(
+      { offset, mapPt( canvas, 180, 140 ) } ) );
+  layer.startEditing();
+  layer.selectByIds( { fidA } );
+  canvas.setLayers( QList<QgsMapLayer *>{ &layer } );
+  canvas.setCurrentLayer( &layer );
+  canvas.refresh();
+
+  TestVertexTool tool( &canvas, &layer );
+  tool.setTopologicalEditingEnabled( true );
+  canvas.setMapTool( &tool );
+  QSignalSpy editedSpy( &tool, &PaleoVertexTool::featureEdited );
+
+  const QgsPointXY pNew = mapPt( canvas, 70, 110 );
+  QgsMapMouseEvent press( &canvas, QEvent::MouseButtonPress, QPoint( 100, 100 ),
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier );
+  tool.canvasPressEvent( &press );
+  QVERIFY2( tool.isDragging(), "press on the anchor must arm the drag" );
+  QgsMapMouseEvent release( &canvas, QEvent::MouseButtonRelease, QPoint( 70, 110 ),
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier );
+  tool.canvasReleaseEvent( &release );
+
+  QCOMPARE( editedSpy.count(), 1 );
+  const QgsLineString *lsA = asLineString( layer.getFeature( fidA ).geometry() );
+  const QgsLineString *lsB = asLineString( layer.getFeature( fidB ).geometry() );
+  QVERIFY2( lsA && lsB, "dragged geometries must stay line strings" );
+  QVERIFY( qgsDoubleNear( lsA->xAt( 1 ), pNew.x(), 1e-6 ) ); // 被拖顶点到位
+  QVERIFY( qgsDoubleNear( lsB->xAt( 0 ), offset.x(), 0.0 ) ); // 包络外邻居不动
+  QVERIFY( qgsDoubleNear( lsB->yAt( 0 ), offset.y(), 0.0 ) );
 
   canvas.unsetMapTool( &tool );
   layer.rollBack();
@@ -3117,6 +3169,31 @@ void TestEditTools::toolbarEditToolActionAutoStartsSession()
   QVERIFY( !layer.isEditable() );
   QCOMPARE( stoppedSpy.count(), 1 );
   QCOMPARE( stoppedSpy.at( 0 ).at( 1 ).toBool(), true );
+}
+
+// MEM-07 钉死：工具栏可后于画布析构。QgsMapTool 以画布为 QObject 父
+// （级联删除会自动清 QPointer 的 mActiveEditTool），析构里对 mCanvas 的
+// 访问必须全程守卫——画布先亡后删工具栏不得触碰已亡对象（QPointer 化
+// 前是裸指针悬垂面；该路径兼验 destroyed 钩子的高亮释放）。
+void TestEditTools::toolbarOutlivesCanvasDestruction()
+{
+  QgsVectorLayer layer( QStringLiteral( "Point?crs=EPSG:4326&field=id:integer" ), QStringLiteral( "canvas-first-death" ), QStringLiteral( "memory" ) );
+  QVERIFY2( layer.isValid(), "memory layer failed to initialize" );
+
+  auto *canvas = new QgsMapCanvas;
+  configureCanvas( *canvas );
+  auto *bar = new PaleoEditingToolbar( canvas );
+  bar->setLayers( QList<QgsVectorLayer *>{ &layer } );
+  bar->setCurrentLayer( &layer );
+
+  bar->actionAddPoint()->trigger(); // 装上编辑工具并开启会话
+  QVERIFY2( layer.isEditable(), "edit-tool action must auto-start the session" );
+  QVERIFY2( canvas->mapTool() != nullptr, "edit-tool action must install a map tool" );
+
+  delete canvas; // 画布先亡：工具级联析构 + destroyed 钩子触发
+  delete bar;    // 工具栏后亡：析构走守卫路径（不得触碰已亡画布）
+
+  layer.rollBack(); // 会话缓冲由宿主收尾——这里回滚防未提交编辑外溢
 }
 
 void TestEditTools::toolbarUndoRedoActionStates()

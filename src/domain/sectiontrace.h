@@ -11,6 +11,25 @@
 // 下沉）：道头几何/样本缓冲/共享时间轴网格。读取器实现（SegyReader）留在
 // io/；本头只承载数据，视图/工作流/解析器三方共用。
 //
+// 解码质量报告独立于索引跳过列表；计数按一次请求，不累计重复读取。
+// 每道保留前 32 个异常样点下标，sampleCount 仍记录全数。
+struct SegySampleIssue
+{
+  qint64 traceOffset = 0;
+  qint64 sampleCount = 0;
+  QVector<int> sampleIndices;
+};
+struct SegyReadReport
+{
+  qint64 requestedTraceCount = 0;
+  qint64 decodedTraceCount = 0;
+  qint64 sanitizedSampleCount = 0;
+  QVector<SegySampleIssue> sanitizedTraces;
+  QVector<qint64> failedTraceOffsets;
+  bool cancelled = false;
+  QString message;
+};
+
 // 长 IO 钩子（wave2 D1：索引/解码跑在任务池上）：progress(done,total) 报
 // 字节/条目进度（worker 侧节流，~每 8MB 或每 64 道一次）；cancel() 返回真
 // 即中止，函数照常返回 false、error 记 "cancelled"——任务层据此判 Cancelled。
@@ -91,8 +110,17 @@ struct SegySectionGrid
     if (position < 0 || position > trace.samples.size() - 1) return false;
     const int lo = static_cast<int>(position);
     const int hi = qMin(lo + 1, trace.samples.size() - 1);
-    *sample = trace.samples.at(lo) * static_cast<float>(1.0 - (position - lo)) +
-              trace.samples.at(hi) * static_cast<float>(position - lo);
-    return true;
+    const double fraction = position - lo;
+    // 精确样点不能乘邻点 NaN×0；缺失只影响真正参与插值的样点。
+    if (fraction == 0.0 || lo == hi)
+    {
+      *sample = trace.samples.at(lo);
+      return std::isfinite(*sample);
+    }
+    if (!std::isfinite(trace.samples.at(lo)) || !std::isfinite(trace.samples.at(hi)))
+      return false;
+    *sample = trace.samples.at(lo) * static_cast<float>(1.0 - fraction) +
+              trace.samples.at(hi) * static_cast<float>(fraction);
+    return std::isfinite(*sample);
   }
 };

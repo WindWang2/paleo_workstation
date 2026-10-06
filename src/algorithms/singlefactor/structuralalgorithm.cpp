@@ -179,11 +179,12 @@ sf::WellFeatureRow wellRowFromFeature( const QgsFeature &feature )
 void writeDoubleGrid( const QString &path, int cols, int rows, double originX, double originY,
                       double pixelWidth, double pixelHeight,
                       const std::vector<double> &values,
-                      const QgsCoordinateReferenceSystem &crs, const char *algorithmId )
+                      const QgsCoordinateReferenceSystem &crs, const char *algorithmId,
+                      const QString &canonicalCrsWkt )
 {
   const double geoTransform[6] = { originX, pixelWidth, 0.0, originY, 0.0, pixelHeight };
   GDALDatasetH dataset =
-      PaleoRasterOut::createDoubleRaster( path, cols, rows, geoTransform, crs, kFileNodata );
+      PaleoRasterOut::createDoubleRaster( path, cols, rows, geoTransform, crs, kFileNodata, canonicalCrsWkt );
   if ( !dataset )
     throw QgsProcessingException( QStringLiteral( "Cannot create output raster %1" ).arg( path ) );
   GDALSetMetadataItem( dataset, "PALEO_VALUE_SOURCE", "analysis", nullptr );
@@ -553,7 +554,8 @@ QVariantMap StructuralIdwAlgorithm::processAlgorithm( const QVariantMap &paramet
                rasterValues.begin() + static_cast<std::ptrdiff_t>( dst ) );
   }
   writeDoubleGrid( outPath, nx, ny, originX, originY, dx, -dy, rasterValues, crs,
-                   "paleo:paleo_structural_idw" );
+                   "paleo:paleo_structural_idw",
+                   PaleoRasterOut::canonicalWktFromParameters( parameters ) );
 
   // ---- .structural.json：等值线阶段所需的完整面模型 ----
   QVariantList barrierList;

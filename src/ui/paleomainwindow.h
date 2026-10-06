@@ -108,6 +108,7 @@ class FolderImportWorkflow;
 class ProjectOpenWorkflow;
 class RegistrationWorkflow;
 class SeismicMapLink;
+class SeismicSectionTool; // R4 信号化（方向 49）：剖面捕获工具壳持有
 class QgisProcessingService;
 class QgisLayoutService;
 class QgisEditingService;
@@ -192,6 +193,10 @@ class PaleoMainWindow : public SARibbonMainWindow
     // goal/facies-automapping：证据合成 + QA 报告面板。幂等（dock 已建则只
     // 更新指针）。面板只发意图，链路在 FaciesMappingWorkflow。
     void attachFaciesMapping(FaciesMappingWorkflow *wf);
+    // 方向51：AI 地质对话助手——底栏加「AI 助手」页签，挂 AppContext 持有的
+    // AiChatController。编排与会话落盘全在 workflow 层，这里只装配面板 +
+    // 把「配置…」意图翻成状态栏提示（配置对话框递延，见 TODOS.md）。
+    void attachAiAssistant(class AiChatController *controller);
     // goal/fault-interpretation：断层解释接线——剖面 dock 挂编排器 + 右栏
     // 断层管理面板 dock。幂等（m_faultPanelDock 已建则只重挂控制器）。
     void attachFaults(paleo::fault::FaultInterpretationController *controller);
@@ -344,6 +349,11 @@ class PaleoMainWindow : public SARibbonMainWindow
                            PaleoProjectStore *store = nullptr);
     SeismicMapLink *m_sectionLink = nullptr;
     SectionWorkbench *m_sectionWorkbench = nullptr; // attachSections 持有（this 父子）
+    // 任意剖面捕获工具（R4 信号化，方向 49）：壳持有 SeismicSectionTool——
+    // linkage 只发 sectionCaptureRequested 意图。析构在画布存活时先
+    // unsetMapTool 再 delete；画布先死则由 destroyed 接线置空（坑序同
+    // tst_sectionlifecycle 既有规避：活动工具不可直接 delete）。
+    SeismicSectionTool *m_sectionCaptureTool = nullptr;
     PaleoDockWidget *m_wellSectionDock = nullptr;
     WellSectionPanel *m_wellSectionPanel = nullptr;
     WellSectionWorkflow *m_wellSectionWf = nullptr;

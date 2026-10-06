@@ -1,6 +1,7 @@
 // 层：数据
 #include "lisparser.h"
 
+#include "../domain/wellnumeric.h"
 #include <QFile>
 #include <QFileInfo>
 
@@ -536,7 +537,7 @@ namespace
     QString depthUnits;     // 模式 1 深度单位（条目 14）
     double spacing = 0;     // 帧距（条目 8）
     int direction = 1;      // 1=UP（递减）255=DOWN（递增）（条目 4）
-    double absentValue = -999.25;
+    double absentValue = paleo::wellnumeric::kLasDefaultNull;
     bool sawData = false;
     bool whitelisted = false;
     QString whitelistReason;
@@ -1036,7 +1037,7 @@ bool LisParser::parse(const QString &path, LasHeaderInfo &header,
 
   const LogSet &ls = out.logsets.at(out.primaryLogset);
   header.sawAscii = ls.sawData;
-  header.nullValue = -999.25; // 缺席值已按条目 12 映射为 NaN
+  header.nullValue = paleo::wellnumeric::kLasDefaultNull; // 缺席值已按条目 12 映射为 NaN
   bool tvd = false;
   for (const SpecBlock &sp : ls.specs)
     if (sp.tvdCorrected)
@@ -1122,7 +1123,7 @@ bool LisParser::parseHeader(const QString &path, LasHeaderInfo &out,
   }
   const LogSet &ls = wout.logsets.at(wout.primaryLogset);
   out.sawAscii = ls.sawData;
-  out.nullValue = -999.25;
+  out.nullValue = paleo::wellnumeric::kLasDefaultNull;
   bool tvd = false;
   for (const SpecBlock &sp : ls.specs)
     if (sp.tvdCorrected)

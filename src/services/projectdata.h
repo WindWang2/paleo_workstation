@@ -10,6 +10,7 @@
 #include <optional>
 
 class LayerManifest;
+struct WellParseReport;
 
 // services/ — ProjectDataFacade: the READ side of the project_area data
 // foundation for the mapping pipeline (docs/PROJECT_AREA_PLAN.md §3, 阶段C)。
@@ -90,6 +91,8 @@ class ProjectDataFacade : public QObject
 
     QVector<ProjectWell> wells() const;
     QVector<WellTop> topsFor(const QString &wellId) const;      // empty when unlinked
+    // 文件级解析诊断（筛井前）；保留旧入口，报告每次复位。
+    QVector<WellTop> topsFor(const QString &wellId, WellParseReport *report) const;
     QVector<TdSample> tdTableFor(const QString &wellId) const;  // empty when unlinked — callers must not fabricate times
     // 主 trajectory 链接（primary、非 unresolved）的测斜站表 → 三维轨迹。
     // 无链接/文件不可读/站表无效 → nullopt（直井回退是显式语义：调用方保持

@@ -12,6 +12,7 @@
 #include <QPageLayout>
 #include <QPageSize>
 #include <QPrinter>
+#include <QPrinterInfo>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
@@ -382,9 +383,11 @@ private slots:
              "pdf export via shared paged pipeline");
     QVERIFY(QFile(exportPdf).size() > 0);
 
-    // 打印探测：offscreen 无打印服务 → false（降级路径判定）；有打印机的真机
-    // 环境为 true 也合法——只要求探测稳定且打印入口据此分支。
-    QCOMPARE(ExportEngine::nativePrintAvailable(), ExportEngine::nativePrintAvailable());
+    // TEST-04：原断言自比较恒真（同帧两次探测必然同值）。真实不变量：
+    // 探测必须如实反映 Qt 打印后端——有打印机 → true；无打印服务/
+    // offscreen → false。打印入口据此分支降级 PDF，探测失真即分支错。
+    QCOMPARE(ExportEngine::nativePrintAvailable(),
+             !QPrinterInfo::availablePrinters().isEmpty());
   }
 };
 

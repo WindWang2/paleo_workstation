@@ -18,6 +18,7 @@ target_sources(paleo_ai PRIVATE
   src/ai/chat/llmclient.cpp
   src/ai/chat/llmkeystore.cpp
   src/ai/chat/domaintools.cpp
+  src/ai/chat/markdown.cpp
 )
 # ORT 本地降级引擎：TU 里用到 PaleoOnnxService 的符号，只在 ORT 构建里编。
 if(PALEO_HAVE_ORT)
@@ -44,3 +45,5 @@ add_paleo_test(tst_aichat LIBS paleo_ai)
 add_paleo_test(tst_aiwiring LIBS paleo_app)
 add_paleo_test(tst_aichatcontroller LIBS paleo_workflow paleo_ai)
 add_paleo_test(tst_aiassistdock LIBS paleo_ui)
+# 方向62：markdown 转换器（纯逻辑，无 UI）。
+add_paleo_test(tst_aimarkdown LIBS paleo_ai)

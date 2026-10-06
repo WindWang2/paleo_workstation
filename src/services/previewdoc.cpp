@@ -3,6 +3,8 @@
 
 #include "../catalog/datacatalog.h"
 #include "../domain/arearules.h"
+#include "../domain/wellcompositemodel.h" // ComprehensiveWellData（wellCompositeAt 出参；方向 59 起显式）
+#include "../domain/wellrecords.h"        // WellHeadRecord 等（wellHeadsAt 出参；方向 59 起显式）
 #include "../io/dataimportservice.h"
 #include "../io/geojsonaffine.h"
 #include "../io/lascache.h"
@@ -14,6 +16,7 @@
 #include "../io/wellcompositexml.h"
 #include "../io/wellfileparsers.h"
 #include "paleotaskservice.h"
+#include "sectiondoc.h" // SectionDoc 完整定义（信号载荷构造/metatype 注册）
 #include "seismictaskservice.h"
 
 #include <QCryptographicHash>

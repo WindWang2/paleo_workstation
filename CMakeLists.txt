@@ -1100,6 +1100,7 @@ set(_paleo_extra_manifest
   "${CMAKE_SOURCE_DIR}/cmake/extra-wellcomposite.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-welltops.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-wellsection.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-test-deepening.cmake"
 )
 foreach(_f IN LISTS _paleo_extra_manifest)
   if(EXISTS "${_f}")

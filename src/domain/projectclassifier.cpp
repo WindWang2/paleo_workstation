@@ -82,6 +82,10 @@ ProjectClassification classifyProjectPath(const QString &path)
     }
     return make(QStringLiteral("tabular"), ext, QStringLiteral("input"));
   }
+  // 方向68：脚本产出落地通道——csv 与未命中目录规则的 .dat 同档
+  //（通用表格，导入走 aux 实体存储；不假装解析列语义）。
+  if (ext == QLatin1String("csv"))
+    return make(QStringLiteral("tabular"), ext, QStringLiteral("input"));
   if (ext == QLatin1String("pdf") || ext == QLatin1String("ppt") ||
       ext == QLatin1String("pptx") || ext == QLatin1String("doc") ||
       ext == QLatin1String("docx"))

@@ -259,6 +259,7 @@ std::shared_ptr<ImportSession> DataImportService::beginImport()
   s->catalogOpenError = m_catalogOpenError;
   s->baseSeq = m_catalog->mutationSeq();
   s->epoch = m_catalogEpoch;
+  s->georeference = m_georeference; // 建井配准快照（produce 期间只读）
   if (!m_projectDir.isEmpty())
     s->stagingRoot = QDir(m_projectDir).absoluteFilePath(
         QStringLiteral("artifacts/staging/") +

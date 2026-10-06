@@ -195,19 +195,48 @@ QString importSeismicFamily(FamilyContext &ctx)
     const QString surveyId = QStringLiteral("survey-%1").arg(stem);
     if (!cat->hasEntity(surveyId))
     {
-      CatalogEntity s;
-      s.id = surveyId;
-      s.entityType = QStringLiteral("seismic_survey");
-      s.name = stem;
-      s.inlineMin = g.inlineMin;
-      s.inlineMax = g.inlineMax;
-      s.xlineMin = g.xlineMin;
-      s.xlineMax = g.xlineMax;
-      s.sampleIntervalUs = reader.sampleIntervalUs();
-      s.startTimeMs = g.startTimeMs;
+      CatalogEntity svy;
+      svy.id = surveyId;
+      svy.entityType = QStringLiteral("seismic_survey");
+      svy.name = stem;
+      svy.inlineMin = g.inlineMin;
+      svy.inlineMax = g.inlineMax;
+      svy.xlineMin = g.xlineMin;
+      svy.xlineMax = g.xlineMax;
+      svy.sampleIntervalUs = reader.sampleIntervalUs();
+      svy.startTimeMs = g.startTimeMs;
       for (int i = 0; i < 4; ++i)
-        s.corners.append({g.cornerX[i], g.cornerY[i]});
-      if (!cat->addEntity(s, error))
+        svy.corners.append({g.cornerX[i], g.cornerY[i]});
+      // 配准可用时把角点换算成 WGS84 包围盒落 extra（原始 corners 仍存局部
+      // 网格——视图/测线几何管线不变）。
+      if (ctx.s->georeference)
+      {
+        double lo = 180, hi = -180, la = 90, ha = -90;
+        bool have = false;
+        for (int i = 0; i < 4; ++i)
+        {
+          double lonDeg = 0, latDeg = 0;
+          if (!applyGeoreference(*ctx.s->georeference, g.cornerX[i], g.cornerY[i],
+                                 &lonDeg, &latDeg))
+          {
+            have = false;
+            break;
+          }
+          have = true;
+          lo = qMin(lo, lonDeg);
+          hi = qMax(hi, lonDeg);
+          la = qMin(la, latDeg);
+          ha = qMax(ha, latDeg);
+        }
+        if (have)
+        {
+          svy.extra.insert(QStringLiteral("wgs84BboxWest"), lo);
+          svy.extra.insert(QStringLiteral("wgs84BboxEast"), hi);
+          svy.extra.insert(QStringLiteral("wgs84BboxSouth"), la);
+          svy.extra.insert(QStringLiteral("wgs84BboxNorth"), ha);
+        }
+      }
+      if (!cat->addEntity(svy, error))
         return *error;
     }
     EntityAssetLink link;

@@ -9,10 +9,28 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonDocument>
 
 #include <qgsproject.h>
 
 #include <cstdio>
+
+namespace
+{
+  // georeference 的 .qgz 内嵌副本（清单权威、副本兜底）：与 ManifestProjection
+  // 同款「自定义属性字符串」通道，形状 = project.paleo 的 georeference 节。
+  constexpr auto kGeoScope = "paleo";
+  constexpr auto kGeoKey = "georeference";
+
+  void embedGeoreferenceProperty(QgsProject *project,
+                                 const PaleoGeoreference &g)
+  {
+    project->writeEntry(
+        kGeoScope, kGeoKey,
+        QString::fromUtf8(QJsonDocument(paleoGeoreferenceToJson(g))
+                              .toJson(QJsonDocument::Compact)));
+  }
+} // namespace
 
 // P0 spine service — owns a QgsProject per service instance. The project is
 // created with `new QgsProject()` (service owns its open/save lifecycle,
@@ -88,6 +106,7 @@ void QgisProjectService::closeProject()
   emit projectAboutToClose();
   m_project->clear();
   m_path.clear();
+  m_georeference.reset();
   ++m_sessionId;
   emit projectClosed();
 }
@@ -105,6 +124,7 @@ bool QgisProjectService::openProject( const QString &qgzPath )
 
   // project.paleo 清单入口（PROJECT_FILE_DESIGN）：.paleo → 解析出 qgz 成员
   // 再开；qgz 成员缺席 = 束损坏，拒开。其他成员缺失如实报 lastErrors 仍开。
+  m_georeference.reset();
   QString qgzFile = qgzPath;
   if ( qgzPath.endsWith( QLatin1String( ".paleo" ) ) )
   {
@@ -117,6 +137,9 @@ bool QgisProjectService::openProject( const QString &qgzPath )
                                    : perr );
       return false;
     }
+    m_georeference = pf.georeference;
+    if ( !pf.georeferenceError.isEmpty() )
+      m_errors << tr( "georeference 节无效: %1（按无配准继续）" ).arg( pf.georeferenceError );
     const QString dir = QFileInfo( qgzPath ).absolutePath();
     if ( pf.qgz.isEmpty() ||
          !QFile::exists( QDir( dir ).filePath( pf.qgz ) ) )
@@ -148,8 +171,13 @@ bool QgisProjectService::openProject( const QString &qgzPath )
       QString perr;
       const PaleoProjectFile pf = readProjectFile( paleoPath, &ok, &perr );
       if ( ok )
+      {
+        m_georeference = pf.georeference;
+        if ( !pf.georeferenceError.isEmpty() )
+          m_errors << tr( "georeference 节无效: %1（按无配准继续）" ).arg( pf.georeferenceError );
         for ( const QString &m : missingMembers( dir, pf ) )
           m_errors << tr( "project member missing: %1" ).arg( m );
+      }
       else
         m_errors << tr( "project manifest unreadable: %1" ).arg( perr );
     }
@@ -173,6 +201,28 @@ bool QgisProjectService::openProject( const QString &qgzPath )
   }
 
   m_path = qgzFile;
+
+  // 配准兜底链：清单（已取）→ .qgz 内嵌副本。取到后回写属性，保证
+  // read() 清空过的 QgsProject 里副本与清单一致。
+  if ( !m_georeference )
+  {
+    bool propOk = false;
+    const QString json =
+        m_project->readEntry( kGeoScope, kGeoKey, QString(), &propOk );
+    if ( propOk && !json.isEmpty() )
+    {
+      QJsonParseError pe;
+      const QJsonDocument doc = QJsonDocument::fromJson( json.toUtf8(), &pe );
+      PaleoGeoreference g;
+      QString gerr;
+      if ( pe.error == QJsonParseError::NoError && doc.isObject() &&
+           paleoGeoreferenceFromJson( doc.object(), &g, &gerr ) )
+        m_georeference = g;
+    }
+  }
+  if ( m_georeference )
+    embedGeoreferenceProperty( m_project, *m_georeference );
+
   ++m_sessionId;
   emit projectOpened( m_path );
   return true;
@@ -212,6 +262,7 @@ bool QgisProjectService::createProject( const QString &qgzPath )
   notifyAboutToClose();
   m_project->clear();
   m_path = qgzPath;
+  m_georeference.reset();
 
   // Materialize the file immediately so the path is authoritative from t=0 and
   // later saveAll() cycles always have an existing .qgz to back up.
@@ -271,6 +322,9 @@ bool QgisProjectService::writeProject()
   // Temp file lives in the same directory (required for atomic rename across
   // filesystems) and MUST keep the same suffix: QgsProject::write() picks the
   // zip (.qgz) vs xml (.qgs) storage backend from the filename extension.
+  if ( m_georeference )
+    embedGeoreferenceProperty( m_project, *m_georeference );
+
   const QFileInfo fi( m_path );
   const QString tmpPath = fi.dir().filePath(
     fi.completeBaseName() + QStringLiteral( ".tmp.%1" ).arg( fi.suffix() ) );

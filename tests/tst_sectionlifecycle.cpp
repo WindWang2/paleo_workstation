@@ -201,18 +201,10 @@ private slots:
 
   void cleanupTestCase()
   {
-    // 已知坑规避（报 lead）：SeismicSectionTool 析构 delete 橡皮带
-    //（src/linkage/seismicsectiontool.cpp:24）——QgsMapCanvas 析构序下场景
-    // 先死，delete 场景项悬空 SIGSEGV（PreviewMapCanvas 决策①同类坑）。
-    // 测试收尾在画布存活时先拆工具；工具本体修复归 linkage 属主（Track A）。
-    if (m_ctx && m_ctx->seismicLink())
-      if (auto *tool = m_ctx->seismicLink()->sectionCaptureTool())
-      {
-        // 画布存活时先摘当前工具再拆（直接 delete 活动工具会把画布的
-        // mTool 留成悬空指针，关窗路径再踩一次）
-        m_ctx->canvasCtl()->canvas()->unsetMapTool(tool);
-        delete tool;
-      }
+    // 剖面捕获工具随壳走（R4 信号化，方向 49）：linkage 不再持有
+    // SeismicSectionTool。壳析构在画布存活时先 unsetMapTool 再 delete
+    //（直接 delete 活动工具会把画布 mTool 留成悬空指针；橡皮带析构须
+    // 场景存活）——坑序由 ~PaleoMainWindow 承担，测试不再手工拆工具。
     delete m_win;
     m_win = nullptr;
   }

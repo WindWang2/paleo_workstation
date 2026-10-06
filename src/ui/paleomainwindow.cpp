@@ -62,6 +62,7 @@
 #include "../qgis/qgislayerprofile.h" // ---- m2(C)：setLayoutMapTheme（m1 接缝）----
 #include "../qgis/qgislayoutservice.h"
 #include "../qgis/qgiseditingservice.h"
+#include "../qgis/seismicsectiontool.h" // 剖面捕获工具壳持有（R4 信号化）：析构需完整类型
 #include "../services/paleotaskservice.h"
 #include "decorations/paleodecorations.h"
 #include "ui/seismicsection/seismicsectiondockwidget.h"
@@ -368,6 +369,16 @@ PaleoMainWindow::~PaleoMainWindow()
   if (m_horizonFlashBand)
   {
     delete m_horizonFlashBand.data();
+  }
+  // R4 信号化（方向 49）：剖面捕获工具壳持有，随壳析构。画布存活时先摘
+  // 当前工具再拆（直接 delete 活动工具会把画布 mTool 留成悬空指针）；画布
+  // 若先死，destroyed 接线已把指针置空，这里自然跳过。
+  if (m_sectionCaptureTool)
+  {
+    if (m_canvasCtl && m_canvasCtl->canvas())
+      m_canvasCtl->canvas()->unsetMapTool(m_sectionCaptureTool);
+    delete m_sectionCaptureTool;
+    m_sectionCaptureTool = nullptr;
   }
 }
 

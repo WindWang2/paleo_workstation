@@ -26,8 +26,11 @@ endif()
 target_include_directories(paleo_ai PUBLIC ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(paleo_ai PUBLIC Qt6::Network)
 
-# 编排面（功能层）：会话 + 客户端 + 工具分发的对外那一层。
-target_sources(paleo_workflow PRIVATE src/workflow/aichatcontroller.cpp)
+# 编排面（功能层）：会话 + 客户端 + 工具分发/执行回路的对外那一层。
+target_sources(paleo_workflow PRIVATE
+  src/workflow/aichatcontroller.cpp
+  src/workflow/aichattoolrunner.cpp
+)
 
 # 装配根：远端预测装配（唯一的装配入口，产品与测试同源）。
 target_sources(paleo_app PRIVATE src/app/aiwiring.cpp)

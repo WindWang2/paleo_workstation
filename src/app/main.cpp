@@ -14,11 +14,71 @@
 
 #include <QApplication>
 #include <QCoreApplication>
+#include <QDebug>
+#include <QLibraryInfo>
+#include <QLocale>
 #include <QMessageBox>
+#include <QSet>
 #include <QStandardPaths>
 #include <QString>
 #include <QSurfaceFormat>
+#include <QTranslator>
 #include <cstdio>
+
+namespace
+{
+  bool isChineseLocale(const QString &localeStr)
+  {
+    QString s = localeStr.trimmed();
+    if (s.isEmpty())
+      return false;
+
+    // Strip codeset (.UTF-8) and modifier (@pinyin)
+    s = s.section(QLatin1Char('.'), 0, 0);
+    s = s.section(QLatin1Char('@'), 0, 0);
+    s.replace(QLatin1Char('-'), QLatin1Char('_'));
+
+    if (s.compare(QStringLiteral("chinese"), Qt::CaseInsensitive) == 0)
+      return true;
+
+    if (s.startsWith(QLatin1Char('_')) || s.endsWith(QLatin1Char('_')))
+      return false;
+
+    const QStringList parts = s.split(QLatin1Char('_'));
+    if (parts.isEmpty())
+      return false;
+
+    // Primary language tag must be "zh"
+    if (parts.first().compare(QStringLiteral("zh"), Qt::CaseInsensitive) != 0)
+      return false;
+
+    if (parts.size() == 1)
+      return true; // "zh" alone
+
+    static const QSet<QString> validScripts = {
+        QStringLiteral("hans"), QStringLiteral("hant"), QStringLiteral("latn")
+    };
+    static const QSet<QString> validTerritories = {
+        QStringLiteral("cn"), QStringLiteral("tw"), QStringLiteral("hk"),
+        QStringLiteral("mo"), QStringLiteral("sg"), QStringLiteral("my")
+    };
+
+    if (parts.size() == 2)
+    {
+      const QString sub = parts.at(1).toLower();
+      return validScripts.contains(sub) || validTerritories.contains(sub);
+    }
+
+    if (parts.size() == 3)
+    {
+      const QString script = parts.at(1).toLower();
+      const QString terr = parts.at(2).toLower();
+      return validScripts.contains(script) && validTerritories.contains(terr);
+    }
+
+    return false;
+  }
+} // namespace
 
 // App entry. Order matters: QgisRuntime::initialize() (inside AppContext)
 // creates the QgsApplication — which IS the process's QApplication — and must
@@ -28,6 +88,58 @@
 int main(int argc, char *argv[])
 {
   StartupTrace::mark(QStringLiteral("main_entry"));
+
+  // Parse command line arguments early, before OpenGL, Qt resources, and crash handler.
+  // Critical for --help / -h: terminates cleanly without installing CrashReport handlers,
+  // preventing orphan .running session flags in <AppDataLocation>/crash/.
+  QString qgisPrefix = qEnvironmentVariable("QGIS_PREFIX_PATH", QgisRuntime::defaultPrefixPath());
+  QString targetPath;
+  QString cliLocale;
+  for (int i = 1; i < argc; ++i)
+  {
+    const QString arg = QString::fromLocal8Bit(argv[i]);
+    if (arg == QStringLiteral("--help") || arg == QStringLiteral("-h"))
+    {
+      std::printf("Usage: paleo [options] [project_path]\n"
+                  "Options:\n"
+                  "  --lang <locale>      Force UI language (e.g. zh_CN, en_US)\n"
+                  "  --locale <locale>    Alias for --lang\n"
+                  "  --prefix <path>      Set custom QGIS prefix directory\n"
+                  "  --qgis-prefix <path> Set custom QGIS prefix directory\n"
+                  "  --help, -h           Show this help message and exit\n");
+      return 0;
+    }
+    else if (arg == QStringLiteral("--prefix") || arg == QStringLiteral("--qgis-prefix"))
+    {
+      if (i + 1 < argc)
+        qgisPrefix = QString::fromLocal8Bit(argv[++i]);
+      else
+        std::fprintf(stderr, "paleo: warning: %s requires a path argument\n", qPrintable(arg));
+    }
+    else if (arg == QStringLiteral("--lang") || arg == QStringLiteral("--locale"))
+    {
+      if (i + 1 < argc)
+        cliLocale = QString::fromLocal8Bit(argv[++i]);
+      else
+      {
+        std::fprintf(stderr, "paleo: warning: %s requires a locale argument\n", qPrintable(arg));
+        cliLocale = QStringLiteral("invalid");
+      }
+    }
+    else if (arg.startsWith(QStringLiteral("--lang=")))
+    {
+      cliLocale = arg.mid(7);
+    }
+    else if (arg.startsWith(QStringLiteral("--locale=")))
+    {
+      cliLocale = arg.mid(9);
+    }
+    else if (!arg.startsWith(QLatin1Char('-')))
+    {
+      if (targetPath.isEmpty())
+        targetPath = arg;
+    }
+  }
 
   // OpenGL 3.3 Core Profile default format must precede QApplication / QgsApplication
   // so that shared OpenGL contexts across the application (including QtWebEngine,
@@ -40,8 +152,9 @@ int main(int argc, char *argv[])
   glFormat.setSwapBehavior(QSurfaceFormat::DoubleBuffer);
   QSurfaceFormat::setDefaultFormat(glFormat);
 
-  // Initialize static Qt resources in paleo_core
+  // Initialize static Qt resources in paleo_core and paleo_ui
   Q_INIT_RESOURCE(seismic_shaders);
+  Q_INIT_RESOURCE(translations);
 
   // Required by QtWebEngine when a process also owns OpenGL-backed widgets
   // (QGIS map canvas). Must precede the QApplication/QgsApplication ctor,
@@ -61,29 +174,77 @@ int main(int argc, char *argv[])
       QStandardPaths::writableLocation(QStandardPaths::AppDataLocation));
   StartupTrace::mark(QStringLiteral("pre_qt_ready"));
 
-  QString qgisPrefix = qEnvironmentVariable("QGIS_PREFIX_PATH", QgisRuntime::defaultPrefixPath());
-  QString targetPath;
-  for (int i = 1; i < argc; ++i)
-  {
-    const QString arg = QString::fromLocal8Bit(argv[i]);
-    if (arg == QStringLiteral("--prefix") || arg == QStringLiteral("--qgis-prefix"))
-    {
-      if (i + 1 < argc)
-        qgisPrefix = QString::fromLocal8Bit(argv[++i]);
-    }
-    else if (!arg.startsWith(QLatin1Char('-')))
-    {
-      if (targetPath.isEmpty())
-        targetPath = arg;
-    }
-  }
-
   AppContext ctx(qgisPrefix); // brings up QgsApplication + wires all services
   if (!ctx.ready())
   {
     std::fprintf(stderr, "paleo: QgisRuntime::initialize failed for prefix '%s'\n",
                  qPrintable(qgisPrefix));
     return 1;
+  }
+
+  // --- Dynamic Locale & Translation Initialization (R4) ---
+  // Precedence: CLI option (--lang/--locale) > PALEO_LOCALE > QLocale::system().name()
+  QString requestedLocale;
+  QString localeSource;
+  if (!cliLocale.trimmed().isEmpty())
+  {
+    requestedLocale = cliLocale.trimmed();
+    localeSource = QStringLiteral("CLI flag --lang");
+  }
+  else if (qEnvironmentVariableIsSet("PALEO_LOCALE") &&
+           !qEnvironmentVariable("PALEO_LOCALE").trimmed().isEmpty())
+  {
+    requestedLocale = qEnvironmentVariable("PALEO_LOCALE").trimmed();
+    localeSource = QStringLiteral("environment variable PALEO_LOCALE");
+  }
+  else
+  {
+    requestedLocale = QLocale::system().name();
+    localeSource = QStringLiteral("system default (QLocale::system)");
+  }
+
+  if (isChineseLocale(requestedLocale))
+  {
+    // Configure default application locale for formatting
+    QLocale::setDefault(QLocale(QLocale::Chinese, QLocale::China));
+
+    // 1. Load Qt base translations (QMessageBox buttons, file dialogs, context menus)
+    // Installed first so application-specific translations take precedence in search chain.
+    auto *qtTranslator = new QTranslator(QCoreApplication::instance());
+    const QString qtTransDir = QLibraryInfo::path(QLibraryInfo::TranslationsPath);
+    if (qtTranslator->load(QStringLiteral("qtbase_zh_CN"), qtTransDir) ||
+        qtTranslator->load(QStringLiteral("qt_zh_CN"), qtTransDir))
+    {
+      QCoreApplication::installTranslator(qtTranslator);
+      qInfo("paleo: Loaded Qt base translations from '%s'", qPrintable(qtTransDir));
+    }
+    else
+    {
+      qWarning("paleo: Qt base translations (qtbase_zh_CN.qm) not found in '%s'; dialog buttons may use English",
+               qPrintable(qtTransDir));
+      delete qtTranslator;
+    }
+
+    // 2. Load Paleo Workstation application translations from embedded resource
+    auto *paleoTranslator = new QTranslator(QCoreApplication::instance());
+    if (paleoTranslator->load(QStringLiteral(":/i18n/paleo_zh_CN.qm")))
+    {
+      QCoreApplication::installTranslator(paleoTranslator);
+      qInfo("paleo: Loaded Chinese translation catalog from ':/i18n/paleo_zh_CN.qm' (locale '%s' via %s)",
+            qPrintable(requestedLocale), qPrintable(localeSource));
+    }
+    else
+    {
+      qWarning("paleo: Failed to load Chinese translation catalog ':/i18n/paleo_zh_CN.qm'; falling back to English (en_US)");
+      delete paleoTranslator;
+    }
+  }
+  else
+  {
+    // Graceful fallback: non-Chinese locale requested, retain unmodified built-in English strings
+    QLocale::setDefault(QLocale(requestedLocale));
+    qInfo("paleo: Locale is '%s' (from %s); using built-in English (en_US)",
+          qPrintable(requestedLocale), qPrintable(localeSource));
   }
 
   // T32 + 浅色默认主题：vendor 字体注册（缺失时 PaleoTheme 内如实告警降级）、

@@ -167,6 +167,7 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
   runParams.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( points ) );
   runParams.insert( QStringLiteral( "FIELD" ), field );
   runParams.insert( QStringLiteral( "CELL_SIZE" ), cellSize );
+  runParams.insert( QStringLiteral( "LOCAL_GRID_WKT" ), DataCatalog::localGridCrsWkt() );
   runParams.insert( QStringLiteral( "OUTPUT" ), st.absolutePath );
 
   // 约束线屏障随行（同 runConstraintIDW：清单里有该层位的约束图层就带上）。
@@ -302,6 +303,7 @@ bool ConstraintWorkflow::generateIsopachFactor( const QString &horizon, const QS
   QVariantMap runParams;
   runParams.insert( QStringLiteral( "INPUT_TOP" ), QVariant::fromValue( top ) );
   runParams.insert( QStringLiteral( "INPUT_BASE" ), QVariant::fromValue( base ) );
+  runParams.insert( QStringLiteral( "LOCAL_GRID_WKT" ), DataCatalog::localGridCrsWkt() );
   // 倒置层序（底高于顶）多为重叠/误拾取——默认折 nodata（注册表默认同值）。
   runParams.insert( QStringLiteral( "NEGATIVE_TO_NODATA" ),
                     params.value( QStringLiteral( "negativeToNodata" ),
@@ -400,6 +402,7 @@ bool ConstraintWorkflow::generateDistanceFactor( const QString &horizon, const Q
   QVariantMap runParams;
   runParams.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( points ) );
   runParams.insert( QStringLiteral( "CELL_SIZE" ), cellSize );
+  runParams.insert( QStringLiteral( "LOCAL_GRID_WKT" ), DataCatalog::localGridCrsWkt() );
   runParams.insert( QStringLiteral( "OUTPUT" ), st.absolutePath );
 
   // 约束图层随行（绕障语义在算法侧按 type 分拣：仅 break_line 阻断）。
@@ -699,6 +702,7 @@ bool ConstraintWorkflow::generateStructuralFactor( const QString &horizon, const
                     params.value( QStringLiteral( "wellClusterLocality" ), true ) );
   runParams.insert( QStringLiteral( "LOCAL_GRID" ),
                     params.value( QStringLiteral( "localGrid" ), false ) );
+  runParams.insert( QStringLiteral( "LOCAL_GRID_WKT" ), DataCatalog::localGridCrsWkt() );
   runParams.insert( QStringLiteral( "OUTPUT" ), st.absolutePath );
 
   const QString stagedQc = fileStem( st.absolutePath ) + QStringLiteral( ".qc.json" );

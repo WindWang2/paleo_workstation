@@ -244,11 +244,12 @@ sf::Polygon gridExtentPolygon( const sf::GridSpec &grid )
 }
 
 void writeFloatGrid( const QString &path, const sf::GridSpec &grid, const std::vector<double> &values,
-                     const QgsCoordinateReferenceSystem &crs, const char *valueSource, const char *algorithmId )
+                     const QgsCoordinateReferenceSystem &crs, const char *valueSource, const char *algorithmId,
+                     const QString &canonicalCrsWkt )
 {
   const double geoTransform[6] = { grid.originX, grid.pixelWidth, 0.0, grid.originY, 0.0, grid.pixelHeight };
   GDALDatasetH dataset =
-      PaleoRasterOut::createFloatRaster( path, grid.cols, grid.rows, geoTransform, crs, kFileNodata );
+      PaleoRasterOut::createFloatRaster( path, grid.cols, grid.rows, geoTransform, crs, kFileNodata, canonicalCrsWkt );
   if ( !dataset )
     throw QgsProcessingException( QStringLiteral( "Cannot create output raster %1" ).arg( path ) );
   GDALSetMetadataItem( dataset, "PALEO_VALUE_SOURCE", valueSource, nullptr );
@@ -281,10 +282,10 @@ void writeFloatGrid( const QString &path, const sf::GridSpec &grid, const std::v
 }
 
 void writeSupportGrid( const QString &path, const sf::GridSpec &grid, const std::vector<std::uint8_t> &marks,
-                       const QgsCoordinateReferenceSystem &crs )
+                       const QgsCoordinateReferenceSystem &crs, const QString &canonicalCrsWkt )
 {
   const double geoTransform[6] = { grid.originX, grid.pixelWidth, 0.0, grid.originY, 0.0, grid.pixelHeight };
-  GDALDatasetH dataset = PaleoRasterOut::createByteRaster( path, grid.cols, grid.rows, geoTransform, crs );
+  GDALDatasetH dataset = PaleoRasterOut::createByteRaster( path, grid.cols, grid.rows, geoTransform, crs, canonicalCrsWkt );
   if ( !dataset )
     throw QgsProcessingException( QStringLiteral( "Cannot create support raster %1" ).arg( path ) );
   GDALRasterBandH band = GDALGetRasterBand( dataset, 1 );
@@ -741,8 +742,9 @@ QVariantMap LocalDirectionIdwAlgorithm::processAlgorithm( const QVariantMap &par
   if ( feedback )
     feedback->setProgress( 80 );
   // 栅格内的 algorithm 标记只认实际执行的引擎（回落时是 local_direction_idw）。
-  writeFloatGrid( outPath, grid, surface.values, crs, "analysis", surface.resolved.algorithmId.c_str() );
-  writeSupportGrid( supportPath, grid, surface.marks, crs );
+  const QString canonicalWkt = PaleoRasterOut::canonicalWktFromParameters( parameters );
+  writeFloatGrid( outPath, grid, surface.values, crs, "analysis", surface.resolved.algorithmId.c_str(), canonicalWkt );
+  writeSupportGrid( supportPath, grid, surface.marks, crs, canonicalWkt );
 
   QVariantMap counts;
   counts.insert( QStringLiteral( "finite" ), surface.finiteCells );
@@ -1123,8 +1125,9 @@ QVariantMap SurferIdwAlgorithm::processAlgorithm( const QVariantMap &parameters,
   guard.paths << outPath << supportPath << qcPath;
   if ( feedback )
     feedback->setProgress( 80 );
-  writeFloatGrid( outPath, grid, surface.values, crs, "analysis", "paleo:paleo_surfer_idw" );
-  writeSupportGrid( supportPath, grid, surface.marks, crs );
+  const QString canonicalWkt = PaleoRasterOut::canonicalWktFromParameters( parameters );
+  writeFloatGrid( outPath, grid, surface.values, crs, "analysis", "paleo:paleo_surfer_idw", canonicalWkt );
+  writeSupportGrid( supportPath, grid, surface.marks, crs, canonicalWkt );
 
   QVariantMap counts;
   counts.insert( QStringLiteral( "finite" ), surface.finiteCells );
@@ -1312,7 +1315,8 @@ paleo::singlefactor::CartographicWorkWritten paleo::singlefactor::writeCartograp
     OutputGuard guard;
     const QString qcPath = sidecarPath( request.outputPath, QStringLiteral( ".qc.json" ) );
     guard.paths << request.outputPath << qcPath;
-    writeFloatGrid( request.outputPath, grid, work.values, crs, "cartographic_work", "paleo:paleo_cartographic_work" );
+    writeFloatGrid( request.outputPath, grid, work.values, crs, "cartographic_work", "paleo:paleo_cartographic_work",
+                    request.canonicalCrsWkt );
 
     int unresolved = 0;
     {
@@ -1435,6 +1439,7 @@ QVariantMap CartographicWorkAlgorithm::processAlgorithm( const QVariantMap &para
   request.transition = transition;
   request.deriveCrsFromDataset = false;
   request.crs = crs;
+  request.canonicalCrsWkt = PaleoRasterOut::canonicalWktFromParameters( parameters );
   if ( feedback )
     request.cancelled = [feedback]() { return feedback->isCanceled(); };
   const sf::CartographicWorkWritten written = sf::writeCartographicWorkFile( request );

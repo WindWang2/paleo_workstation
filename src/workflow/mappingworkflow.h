@@ -86,8 +86,8 @@ class MappingWorkflow : public QObject
     // 成功声明「D61–D62 等厚（米）」并发 chainDone(horizon, layerId)。
     bool runThicknessChain( const QString &horizon, QString *error = nullptr );
 
-    // 最近一次厚度评估的行表/文案（约束页面板渲染源；同时镜像到
-    // ConstraintWorkflow 的 paleo.thickness.* 动态属性——面板只持有它）。
+    // 最近一次厚度评估的行表/文案（约束页面板渲染源；typed 镜像到
+    // ConstraintWorkflow::setThicknessSamples——面板只持有它，ARCH-06）。
     QVariantList thicknessSampleRows() const;
     QString thicknessSampleMessage() const;
 
@@ -102,6 +102,9 @@ class MappingWorkflow : public QObject
     // 声明失败不失败链路——厚度栅格本身已经产出；只记警告。
     void declareThicknessWellsLayer( const QString &horizon,
                                      const QVector<ThicknessSample> &samples );
+
+    QVariantList m_thicknessRows;
+    QString m_thicknessMessage;
 
     ConstraintWorkflow *m_constraints = nullptr;
     CompositionWorkflow *m_compose = nullptr;

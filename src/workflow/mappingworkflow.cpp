@@ -463,25 +463,22 @@ void MappingWorkflow::publishThicknessSamples( const QVector<ThicknessSample> &s
   rows.reserve( samples.size() );
   for ( const ThicknessSample &s : samples )
     rows.append( thicknessSampleToMap( s ) );
-  setProperty( "paleo.thickness.samples", rows );
-  setProperty( "paleo.thickness.message", message );
-  // 约束页面板只持有 ConstraintWorkflow* —— 行表镜像到它的动态属性，
-  // 面板 showEvent 时读出渲染（不弹对话框）。
+  m_thicknessRows = rows;
+  m_thicknessMessage = message;
+  // 约束页面板只持有 ConstraintWorkflow* —— 行表 typed 镜像过去，
+  // 面板 showEvent 时读出渲染（不弹对话框；ARCH-06：替代动态属性暗道）。
   if ( m_constraints )
-  {
-    m_constraints->setProperty( "paleo.thickness.samples", rows );
-    m_constraints->setProperty( "paleo.thickness.message", message );
-  }
+    m_constraints->setThicknessSamples( rows, message );
 }
 
 QVariantList MappingWorkflow::thicknessSampleRows() const
 {
-  return property( "paleo.thickness.samples" ).toList();
+  return m_thicknessRows;
 }
 
 QString MappingWorkflow::thicknessSampleMessage() const
 {
-  return property( "paleo.thickness.message" ).toString();
+  return m_thicknessMessage;
 }
 
 void MappingWorkflow::declareThicknessWellsLayer( const QString &horizon,

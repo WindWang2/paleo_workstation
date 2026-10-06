@@ -18,6 +18,7 @@
 #include <QHeaderView>
 #include <QInputDialog>
 #include "../notifications/paleonotify.h"
+#include <QDialog>  // 原经 <QMessageBox> 传递引入
 #include <QPointer>
 #include <QPushButton>
 #include <QScrollArea>

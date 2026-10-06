@@ -22,6 +22,7 @@
 #include <QListWidget>
 #include <QMenu>
 #include "../notifications/paleonotify.h"
+#include <QDialog>  // 原经 <QMessageBox> 传递引入
 #include <QPushButton>
 #include <QStyledItemDelegate>
 #include <QTableWidget>

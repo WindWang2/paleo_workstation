@@ -27,6 +27,7 @@
 #include <QJsonObject>
 #include <QJsonValue>
 #include "../notifications/paleonotify.h"
+#include <QDialog>  // 原经 <QMessageBox> 传递引入
 #include <QPushButton>
 
 using namespace paleo::pagesinternal;

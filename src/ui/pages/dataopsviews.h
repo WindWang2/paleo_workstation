@@ -11,7 +11,9 @@
 #pragma once
 
 #include <QAbstractTableModel>
+#include <QAction>
 #include <QComboBox>
+#include <QCursor>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFile>
@@ -21,13 +23,16 @@
 #include <QListWidget>
 #include <QMenu>
 #include <QPainter>
+#include <QPushButton>
 #include <QSettings>
 #include <QSortFilterProxyModel>
 #include <QStyledItemDelegate>
 #include <QTableView>
+#include <QTableWidget>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 #include <QVector>
+#include <tuple>
 
 #include "../paleotheme.h"
 #include "dataops/dataopsfilter.h"
@@ -153,6 +158,146 @@ public:
     return row >= 0 && row < m_visible ? m_rows.at(row).assetId : QString();
   }
 
+  // ---- 方向 52 B 线：增量更新通道（dataChanged 发送，保持选区与滚动，零 reset）----
+
+  // 增量更新单行：若可见则发射 dataChanged，返回是否在行边界内
+  bool updateRow(int row, const AssetRowInfo &updatedRow)
+  {
+    if (row < 0 || row >= m_rows.size())
+      return false;
+    m_rows[row] = updatedRow;
+    if (row < m_visible)
+    {
+      const QModelIndex left = index(row, 0);
+      const QModelIndex right = index(row, ColCount - 1);
+      emit dataChanged(left, right, {Qt::DisplayRole, Qt::EditRole, Qt::ToolTipRole, Qt::UserRole});
+    }
+    return true;
+  }
+
+  // 批量增量更新多行（按 assetId 匹配）：将受影响的可见行分组为连续闭区间发射 dataChanged
+  int updateRows(const QVector<AssetRowInfo> &updatedRows)
+  {
+    if (updatedRows.isEmpty() || m_rows.isEmpty())
+      return 0;
+
+    QHash<QString, int> idToRow;
+    idToRow.reserve(m_rows.size());
+    for (int i = 0; i < m_rows.size(); ++i)
+      idToRow.insert(m_rows.at(i).assetId, i);
+
+    QVector<int> affectedVisibleRows;
+    int updatedCount = 0;
+
+    for (const AssetRowInfo &u : updatedRows)
+    {
+      auto it = idToRow.find(u.assetId);
+      if (it != idToRow.end())
+      {
+        const int r = it.value();
+        m_rows[r] = u;
+        ++updatedCount;
+        if (r < m_visible)
+          affectedVisibleRows.append(r);
+      }
+    }
+
+    if (affectedVisibleRows.isEmpty())
+      return updatedCount;
+
+    std::sort(affectedVisibleRows.begin(), affectedVisibleRows.end());
+    affectedVisibleRows.erase(std::unique(affectedVisibleRows.begin(), affectedVisibleRows.end()),
+                              affectedVisibleRows.end());
+
+    int start = affectedVisibleRows.first();
+    int end = start;
+    for (int i = 1; i < affectedVisibleRows.size(); ++i)
+    {
+      const int r = affectedVisibleRows.at(i);
+      if (r == end + 1)
+      {
+        end = r;
+      }
+      else
+      {
+        emit dataChanged(index(start, 0), index(end, ColCount - 1),
+                         {Qt::DisplayRole, Qt::EditRole, Qt::ToolTipRole, Qt::UserRole});
+        start = r;
+        end = r;
+      }
+    }
+    emit dataChanged(index(start, 0), index(end, ColCount - 1),
+                     {Qt::DisplayRole, Qt::EditRole, Qt::ToolTipRole, Qt::UserRole});
+    return updatedCount;
+  }
+
+  // 增量更新单个单元格
+  bool updateCell(int row, int col, const QVariant &value)
+  {
+    if (row < 0 || row >= m_rows.size() || col < 0 || col >= ColCount)
+      return false;
+    AssetRowInfo &r = m_rows[row];
+    switch (col)
+    {
+      case ColName:
+        r.displayName = value.toString();
+        break;
+      case ColType:
+        r.effectiveType = value.toString();
+        break;
+      case ColTags:
+        if (value.canConvert<QStringList>())
+          r.tags = value.toStringList();
+        else
+          r.tags = value.toString().split(QStringLiteral("、"), Qt::SkipEmptyParts);
+        break;
+      case ColSize:
+        r.sizeBytes = value.toLongLong();
+        break;
+      case ColVersion:
+        r.currentVersionNo = value.toInt();
+        break;
+      default:
+        break;
+    }
+    if (row < m_visible)
+    {
+      const QModelIndex cellIdx = index(row, col);
+      emit dataChanged(cellIdx, cellIdx, {Qt::DisplayRole, Qt::EditRole, Qt::ToolTipRole});
+    }
+    return true;
+  }
+
+  // 批量更新单元格
+  int updateCells(const QVector<std::tuple<int, int, QVariant>> &cellUpdates)
+  {
+    int count = 0;
+    for (const auto &[row, col, val] : cellUpdates)
+    {
+      if (updateCell(row, col, val))
+        ++count;
+    }
+    return count;
+  }
+
+  // QAbstractItemModel 编辑契约支持
+  Qt::ItemFlags flags(const QModelIndex &idx) const override
+  {
+    if (!idx.isValid())
+      return Qt::NoItemFlags;
+    Qt::ItemFlags f = Qt::ItemIsEnabled | Qt::ItemIsSelectable;
+    if (idx.column() == ColName || idx.column() == ColType || idx.column() == ColTags)
+      f |= Qt::ItemIsEditable;
+    return f;
+  }
+
+  bool setData(const QModelIndex &idx, const QVariant &value, int role = Qt::EditRole) override
+  {
+    if (!idx.isValid() || idx.row() >= m_rows.size() || role != Qt::EditRole)
+      return false;
+    return updateCell(idx.row(), idx.column(), value);
+  }
+
 private:
   QVector<AssetRowInfo> m_rows;
   int m_visible = 0;
@@ -178,6 +323,11 @@ public:
   }
   ~AssetVirtualView() override { setModel(nullptr); }
   FlatAssetModel *flatModel() { return &m_model; }
+
+  // 增量转发通道（B 线）
+  bool updateRow(int row, const AssetRowInfo &updatedRow) { return m_model.updateRow(row, updatedRow); }
+  int updateRows(const QVector<AssetRowInfo> &updatedRows) { return m_model.updateRows(updatedRows); }
+  bool updateCell(int row, int col, const QVariant &value) { return m_model.updateCell(row, col, value); }
 
   // 滚动到底触发 fetchMore（QTableView 自带 fetchMore 感知，这里显式暴露
   // 给测试/快捷键「跳到末尾」）。

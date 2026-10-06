@@ -74,7 +74,10 @@ MappingWorkbench::MappingWorkbench(QgisLayerService *layers,
                                    QObject *parent)
     : QObject(parent), m_layers(layers), m_processing(processing),
       m_project(project), m_constraints(constraints) {
-  setPredictionService(new MockRemotePredictionService(this));
+  // 方向51：不再自装测试替身（原先这里 setPredictionService(new <替身>(this))，
+  // 产品里的远端预测就这样悄悄跑着假数据）。
+  // 预测服务由装配根显式注入（app/aiwiring.cpp）；未注入时 bench 如实报告
+  // 「远端预测未配置，走本地引擎」，predict() 直接失败而不是给出假结果。
   connect(m_layers, &QgisLayerService::layerInstantiated, this,
           &MappingWorkbench::styleLayer);
   connect(m_layers, &QgisLayerService::layerDeclared, this,
@@ -221,6 +224,12 @@ void MappingWorkbench::setPredictionService(RemotePredictionService *service) {
             emit predictionBusyChanged(false);
             emit errorOccurred(message);
           });
+}
+void MappingWorkbench::setPredictionStatusHint(const QString &hint) {
+  if (m_predictionHint == hint)
+    return;
+  m_predictionHint = hint;
+  emit predictionStatusChanged();
 }
 bool MappingWorkbench::ready(const QString &h, QString *error) const {
   if (!m_catalog || !m_catalog->isOpen() || m_dir.isEmpty()) {
@@ -487,8 +496,13 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
     fail(error, tr("未知预测类型"));
     return false;
   }
-  if (busy() || !m_remote) {
-    fail(error, tr("已有预测运行中，或未绑定预测服务"));
+  if (busy()) {
+    fail(error, tr("已有预测运行中"));
+    return false;
+  }
+  if (!m_remote) {
+    // 诚实：没有装配预测服务就不给结果（不管是 Mock 还是别的什么）。
+    fail(error, tr("远端预测未配置，走本地引擎"));
     return false;
   }
   if (ids.isEmpty() || (kind == "seismic" && ids.size() != 1)) {

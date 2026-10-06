@@ -22,6 +22,15 @@ public:
                    QObject *parent = nullptr);
   void bindCatalog(DataCatalog *catalog, const QString &projectDir);
   void setPredictionService(RemotePredictionService *service);
+  RemotePredictionService *predictionService() const { return m_remote.data(); }
+  // 远端预测状态文案（装配根注入；既无服务又无文案时给「未配置」兜底——
+  // UI 必须能显示「远端预测未配置，走本地引擎」，不许静默跑替身）。
+  void setPredictionStatusHint(const QString &hint);
+  QString predictionStatusHint() const {
+    return m_predictionHint.isEmpty() && !m_remote
+               ? tr("远端预测未配置，走本地引擎")
+               : m_predictionHint;
+  }
   QVariantList facies(const QString &horizon) const;
   bool saveFacies(const QString &horizon, const QVariantList &items,
                   QString *error);
@@ -87,6 +96,7 @@ signals:
   void faciesChanged(const QString &horizon);
   void predictionBusyChanged(bool busy);
   void predictionProgress(int percent);
+  void predictionStatusChanged();
   void productReady(const QString &horizon, const QString &layerId);
   void errorOccurred(const QString &message);
 
@@ -111,6 +121,7 @@ private:
   double m_displayScale = 0;
   bool m_catalogSyncQueued = false;
   RemotePredictionRequest m_request;
+  QString m_predictionHint;
   mutable QString m_logVersion;
   mutable LasDoc m_logCache;
 };

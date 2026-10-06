@@ -1106,6 +1106,7 @@ add_paleo_test(tst_layerproperties LIBS paleo_ui)   # 矢量/栅格/缺源三类
 # 禁止直接改本文件的模块源列表——并行分支在此汇合零冲突。
 # 显式清单登记替代隐式 GLOB，根治构建目录漂移与测试漏注（P1-14 / TEST-01）
 set(_paleo_extra_manifest
+  "${CMAKE_SOURCE_DIR}/cmake/extra-ai-chat.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-batch.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-well-facies.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-catalog-sqlite.cmake"

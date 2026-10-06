@@ -6,3 +6,4 @@ target_sources(paleo_algorithms PRIVATE
   src/algorithms/geostat/cokriging.cpp)
 
 add_paleo_test(tst_geostat_cokriging LIBS paleo_algorithms)
+add_paleo_test(tst_geostat_variogram_barrier LIBS paleo_algorithms)

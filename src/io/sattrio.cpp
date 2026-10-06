@@ -3,6 +3,8 @@
 
 #include <QDataStream>
 #include <QDateTime>
+#include <QFile>
+#include <QSaveFile>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -27,7 +29,7 @@ void setError(QString *error, const QString &text)
 
 // 小端 f32 块的快路径：小端宿主直写内存像，大端逐值换序（正确性优先，
 // 热路径在主流小端平台零拷贝）。
-bool writeFloatBlock(QFile &file, const float *values, qint64 count)
+bool writeFloatBlock(QIODevice &file, const float *values, qint64 count)
 {
   if (count <= 0)
     return true;
@@ -135,8 +137,10 @@ bool writeSattrSection(const QString &path, const SattrSectionHeader &header,
   }
   const QByteArray json =
       QJsonDocument(sectionHeaderJson(header)).toJson(QJsonDocument::Compact);
-  QFile f(path);
-  if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+  // #233：QSaveFile 暂存 + commit 发布——写中途失败/崩溃不留截断 .satr，
+  // 旧文件保持完好（对齐 SattrVolumeWriter 失败即删与 QSaveFile 口径）。
+  QSaveFile f(path);
+  if (!f.open(QIODevice::WriteOnly))
   {
     setError(error, QStringLiteral("无法写属性文件 %1").arg(path));
     return false;
@@ -153,6 +157,12 @@ bool writeSattrSection(const QString &path, const SattrSectionHeader &header,
   {
     setError(error, QStringLiteral("SATR 值块写入失败：%1（%2）")
                              .arg(path, f.errorString()));
+    f.cancelWriting();
+    return false;
+  }
+  if (!f.commit())
+  {
+    setError(error, QStringLiteral("SATR 发布失败：%1（%2）").arg(path, f.errorString()));
     return false;
   }
   return true;

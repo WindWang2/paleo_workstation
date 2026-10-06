@@ -56,6 +56,17 @@ void TimeDepthModel::setPoints(const std::vector<TdPoint> &points) {
         return std::abs(a.depthM - b.depthM) < 1e-4;
     });
     m_points.erase(it, m_points.end());
+
+    // #218：宽松口径同样要求时间随深度严格递增——TwtMsToDepth 按 timeMs
+    // 二分，时间回落的脏点会让 lower_bound 在未按时间排序的区间上返回任意
+    // 位置（静默错值）。按深度序贪心保留时间严格递增的点，剔除回落/持平点，
+    // 保证双向换算互逆、两个方向的二分前置条件同时成立。
+    auto keep = m_points.begin();
+    for (auto cur = m_points.begin(); cur != m_points.end(); ++cur) {
+        if (keep == m_points.begin() || cur->timeMs > (keep - 1)->timeMs)
+            *keep++ = *cur;
+    }
+    m_points.erase(keep, m_points.end());
 }
 
 double TimeDepthModel::DepthToTwtMs(double depthM) const {

@@ -9,6 +9,7 @@
 #include <QFile>
 #include <QTemporaryDir>
 #include <QThread>
+#include <QtEndian>
 #include <atomic>
 
 class CachePyramidTests : public QObject
@@ -27,6 +28,7 @@ class CachePyramidTests : public QObject
     void invalidateClears();
     void concurrentTileReads();
     void sourceChangeRebuilds();
+    void crashResidueStateWithoutOffsetSelfHeals();
 
   private:
     QTemporaryDir m_dir;
@@ -240,6 +242,58 @@ void CachePyramidTests::sourceChangeRebuilds()
   QString err;
   QVERIFY(pyr.ensure(tif, &meta, &err));
   QCOMPARE(meta.width, 300);
+}
+
+void CachePyramidTests::crashResidueStateWithoutOffsetSelfHeals()
+{
+  // #215：崩溃残片 state=1 而 offset 仍为 0——读路径不得把文件头当像素，
+  // 应判非法偏移并重建该瓦片（永久自愈）。
+  const QString tif = makeTiff(QStringLiteral("residue.tif"), 512, 300, false);
+  const QString root = m_dir.filePath("pyr_residue");
+  {
+    RasterPyramidService pyr(root);
+    QString err;
+    QVERIFY(pyr.ensure(tif, nullptr, &err));
+    // 先建两个别的瓦片，让 z0.bin 足够大：offset=0 时整块 read 能成功，
+    // 修复前会把文件头 + 别的瓦片 payload 当像素静默返回。
+    RasterPyramidService::Tile other;
+    QVERIFY(pyr.tile(tif, 0, 0, 0, &other, &err));
+    QVERIFY(pyr.tile(tif, 0, 0, 1, &other, &err));
+  }
+  const QStringList dirs = QDir(root).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+  QCOMPARE(dirs.size(), 1);
+  QFile z0(root + "/" + dirs.at(0) + "/z0.bin");
+  QVERIFY(z0.open(QIODevice::ReadWrite));
+  const int tilesX = 2; // 512px / 256
+  const qint64 statePos = 28 + 0 * tilesX + 1; // 瓦片 (1,0)
+  QVERIFY(z0.seek(statePos));
+  QVERIFY(z0.putChar('\1')); // state 先于 payload/offset 落盘的残片
+  z0.close();
+
+  RasterPyramidService pyr(root); // 新实例：LRU 空，必走磁盘层
+  RasterPyramidService::Tile tile;
+  QString err;
+  QVERIFY2(pyr.tile(tif, 0, 1, 0, &tile, &err), qPrintable(err));
+  QCOMPARE(tile.samples.size(), 256 * 256);
+  const double expect = 1000.0 + 50.0 * std::sin(256 * 0.05) + 30.0 * std::cos(0 * 0.07);
+  QVERIFY2(qAbs(double(tile.samples.at(0)) - expect) < 0.01,
+           qPrintable(QString::number(tile.samples.at(0))));
+
+  // 重建后 offset 已回填（非 0）——残片被永久修复而非每次重算。
+  {
+    QFile check(root + "/" + dirs.at(0) + "/z0.bin");
+    QVERIFY(check.open(QIODevice::ReadOnly));
+    const int n = tilesX * 2; // 512×300 → 2×2 瓦片
+    QVERIFY(check.seek(28 + n + 1 * 8));
+    const QByteArray off = check.read(8);
+    QCOMPARE(off.size(), 8);
+    QVERIFY(qFromLittleEndian<quint64>(reinterpret_cast<const uchar *>(off.constData())) != 0);
+  }
+  // 重建后落盘有效：再开新实例直读磁盘层仍正确。
+  RasterPyramidService again(root);
+  RasterPyramidService::Tile t2;
+  QVERIFY(again.tile(tif, 0, 1, 0, &t2, &err));
+  QVERIFY(qAbs(double(t2.samples.at(0)) - expect) < 0.01);
 }
 
 QTEST_MAIN(CachePyramidTests)

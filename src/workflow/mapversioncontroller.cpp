@@ -95,12 +95,13 @@ MapVersion MapVersionController::saveVersion( const QString &horizon, const QVar
     auto *vl = item.second.data();
     if ( !vl )
       continue;
+    bool layerCommitted = true;
     if ( vl->isEditable() )
     {
       if ( m_editSvc )
       {
         if ( !m_editSvc->commitEdit( vl, error ) )
-          commitFailed = true;
+          layerCommitted = false;
       }
       else if ( m_projectStore )
       {
@@ -113,7 +114,7 @@ MapVersion MapVersionController::saveVersion( const QString &horizon, const QVar
         {
           if ( error && error->isEmpty() )
             *error = tr( "图层 %1 提交编辑失败：%2" ).arg( item.first, res.error );
-          commitFailed = true;
+          layerCommitted = false;
         }
       }
       else
@@ -123,11 +124,18 @@ MapVersion MapVersionController::saveVersion( const QString &horizon, const QVar
           if ( error && error->isEmpty() )
             *error = tr( "图层 %1 提交编辑失败：%2" )
                          .arg( item.first, vl->commitErrors().join( QLatin1Char( ';' ) ) );
-          commitFailed = true;
+          layerCommitted = false;
         }
       }
     }
-    vl->undoStack()->clear();
+    // #222：只有提交成功（或本无编辑缓冲）的层才清 undo 栈。提交失败时编辑
+    // 缓冲保留供重试/回滚，撤销历史也必须一并保留；且约束会话仍挂着
+    // QUndoStack::indexChanged，clear() 会触发 synchronize(0) 把失败态反向
+    // 再 persist 进 store。
+    if ( layerCommitted )
+      vl->undoStack()->clear();
+    else
+      commitFailed = true;
   }
 
   if ( commitFailed )

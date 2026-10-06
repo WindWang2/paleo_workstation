@@ -25137,17 +25137,17 @@ SHA-256：%2</translation>
 <context>
     <name>paleo::crossplot::CrossplotCanvas</name>
     <message>
-        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="27"/>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="35"/>
         <source>散点交会图，拖动套索，Shift 拖动框选，单击定位</source>
         <translation>散点交会图，拖动套索，Shift 拖动框选，单击定位</translation>
     </message>
     <message>
-        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="107"/>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="115"/>
         <source>三维投影 · Z：%1</source>
         <translation>三维投影 · Z：%1</translation>
     </message>
     <message>
-        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="138"/>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="146"/>
         <source>选择两个或更多通道，然后读取样本</source>
         <translation>选择两个或更多通道，然后读取样本</translation>
     </message>
@@ -25155,48 +25155,83 @@ SHA-256：%2</translation>
 <context>
     <name>paleo::crossplot::CrossplotController</name>
     <message>
-        <location filename="../src/app/crossplotcontroller.cpp" line="25"/>
-        <location filename="../src/app/crossplotcontroller.cpp" line="29"/>
+        <location filename="../src/app/crossplotcontroller.cpp" line="26"/>
+        <location filename="../src/app/crossplotcontroller.cpp" line="30"/>
         <source>交会相分类</source>
         <translation>交会相分类</translation>
     </message>
     <message>
-        <location filename="../src/app/crossplotcontroller.cpp" line="104"/>
+        <location filename="../src/app/crossplotcontroller.cpp" line="102"/>
+        <source>先在图上框选样本</source>
+        <translation>先在图上框选样本</translation>
+    </message>
+    <message>
+        <location filename="../src/app/crossplotcontroller.cpp" line="143"/>
+        <source>训练完成：%1 折交叉验证；可在同方法下推理并写回工程。</source>
+        <translation>训练完成：%1 折交叉验证；可在同方法下推理并写回工程。</translation>
+    </message>
+    <message>
+        <location filename="../src/app/crossplotcontroller.cpp" line="160"/>
         <source>分类完成；类别统计与置信度已计算。可写回工程。</source>
         <translation>分类完成；类别统计与置信度已计算。可写回工程。</translation>
     </message>
     <message>
-        <location filename="../src/app/crossplotcontroller.cpp" line="109"/>
+        <location filename="../src/app/crossplotcontroller.cpp" line="165"/>
         <source>分类成果已登记：%1。栅格可在智能编图中作为先验相图矢量化。</source>
         <translation>分类成果已登记：%1。栅格可在智能编图中作为先验相图矢量化。</translation>
     </message>
     <message>
-        <location filename="../src/app/crossplotcontroller.cpp" line="144"/>
+        <location filename="../src/app/crossplotcontroller.cpp" line="201"/>
+        <source>请先读取至少两个通道</source>
+        <translation>请先读取至少两个通道</translation>
+    </message>
+    <message>
+        <location filename="../src/app/crossplotcontroller.cpp" line="206"/>
+        <source>请选择监督分类方法（LDA / QDA / kNN）再训练</source>
+        <translation>请选择监督分类方法（LDA / QDA / kNN）再训练</translation>
+    </message>
+    <message>
+        <location filename="../src/app/crossplotcontroller.cpp" line="213"/>
+        <source>尚无标注样本——先用套索选区并赋予类名</source>
+        <translation>尚无标注样本——先用套索选区并赋予类名</translation>
+    </message>
+    <message>
+        <location filename="../src/app/crossplotcontroller.cpp" line="224"/>
+        <source>可以训练（注意：%1）</source>
+        <translation>可以训练（注意：%1）</translation>
+    </message>
+    <message>
+        <location filename="../src/app/crossplotcontroller.cpp" line="225"/>
+        <source>；</source>
+        <translation>；</translation>
+    </message>
+    <message>
+        <location filename="../src/app/crossplotcontroller.cpp" line="240"/>
         <source>请选择至少两个通道；井曲线来自同一口井，SATR 配时间层位。</source>
         <translation>请选择至少两个通道；井曲线来自同一口井，SATR 配时间层位。</translation>
     </message>
     <message>
-        <location filename="../src/app/crossplotcontroller.cpp" line="159"/>
+        <location filename="../src/app/crossplotcontroller.cpp" line="262"/>
         <source>交会样本抽取</source>
         <translation>交会样本抽取</translation>
     </message>
     <message>
-        <location filename="../src/app/crossplotcontroller.cpp" line="179"/>
+        <location filename="../src/app/crossplotcontroller.cpp" line="282"/>
         <source>抽样已取消</source>
         <translation>抽样已取消</translation>
     </message>
     <message>
-        <location filename="../src/app/crossplotcontroller.cpp" line="188"/>
+        <location filename="../src/app/crossplotcontroller.cpp" line="296"/>
         <source>有效样本 %1，联合缺失剔除 %2；类别是未解释的簇编号。</source>
         <translation>有效样本 %1，联合缺失剔除 %2；类别是未解释的簇编号。</translation>
     </message>
     <message>
-        <location filename="../src/app/crossplotcontroller.cpp" line="239"/>
+        <location filename="../src/app/crossplotcontroller.cpp" line="349"/>
         <source>已定位像元 %1</source>
         <translation>已定位像元 %1</translation>
     </message>
     <message>
-        <location filename="../src/app/crossplotcontroller.cpp" line="240"/>
+        <location filename="../src/app/crossplotcontroller.cpp" line="350"/>
         <source>已定位 %1，深度 %2</source>
         <translation>已定位 %1，深度 %2</translation>
     </message>
@@ -25238,198 +25273,449 @@ SHA-256：%2</translation>
 <context>
     <name>paleo::crossplot::CrossplotPanel</name>
     <message>
-        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="189"/>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="197"/>
         <source>交会数据通道</source>
         <translation>交会数据通道</translation>
     </message>
     <message>
-        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="192"/>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="200"/>
         <source>读取选中通道</source>
         <translation>读取选中通道</translation>
     </message>
     <message>
-        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="207"/>
-        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="210"/>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="215"/>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="218"/>
         <source>X 轴</source>
         <translation>X 轴</translation>
     </message>
     <message>
-        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="208"/>
-        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="211"/>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="216"/>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="219"/>
         <source>Y 轴</source>
         <translation>Y 轴</translation>
     </message>
     <message>
-        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="209"/>
-        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="212"/>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="217"/>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="220"/>
         <source>Z 轴</source>
         <translation>Z 轴</translation>
     </message>
     <message>
-        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="221"/>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="229"/>
         <source>方位 </source>
         <translation>方位 </translation>
     </message>
     <message>
-        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="222"/>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="230"/>
         <source>俯仰 </source>
         <translation>俯仰 </translation>
     </message>
     <message>
-        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="228"/>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="238"/>
         <source>k-means++</source>
         <translation>k-means++</translation>
     </message>
     <message>
-        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="228"/>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="238"/>
         <source>高斯混合（对角 EM）</source>
         <translation>高斯混合（对角 EM）</translation>
     </message>
     <message>
-        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="229"/>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="239"/>
         <source>手选凸包规则</source>
         <translation>手选凸包规则</translation>
     </message>
     <message>
-        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="229"/>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="239"/>
         <source>手选多维盒规则</source>
         <translation>手选多维盒规则</translation>
     </message>
     <message>
-        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="236"/>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="240"/>
+        <source>SOM 自组织图</source>
+        <translation>SOM 自组织图</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="240"/>
+        <source>LDA 线性判别</source>
+        <translation>LDA 线性判别</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="241"/>
+        <source>QDA 二次判别</source>
+        <translation>QDA 二次判别</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="241"/>
+        <source>kNN 近邻</source>
+        <translation>kNN 近邻</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="248"/>
         <source>类别数 </source>
         <translation>类别数 </translation>
     </message>
     <message>
-        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="239"/>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="251"/>
         <source>手选类别 </source>
         <translation>手选类别 </translation>
     </message>
     <message>
-        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="243"/>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="263"/>
+        <source>SOM 宽 </source>
+        <translation>SOM 宽 </translation>
+    </message>
+    <message>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="268"/>
+        <source>SOM 高 </source>
+        <translation>SOM 高 </translation>
+    </message>
+    <message>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="273"/>
+        <source>近邻 k </source>
+        <translation>近邻 k </translation>
+    </message>
+    <message>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="276"/>
+        <source>修改后需重新训练方生效（推理使用模型内记录的近邻数）</source>
+        <translation>修改后需重新训练方生效（推理使用模型内记录的近邻数）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="281"/>
+        <source>CV 折数 </source>
+        <translation>CV 折数 </translation>
+    </message>
+    <message>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="287"/>
+        <source>掩膜阈值 </source>
+        <translation>掩膜阈值 </translation>
+    </message>
+    <message>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="288"/>
+        <source> %</source>
+        <translation> %</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="293"/>
         <source>各通道标准化（均值 / 标准差）</source>
         <translation>各通道标准化（均值 / 标准差）</translation>
     </message>
     <message>
-        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="246"/>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="302"/>
+        <source>类名（如：砂岩）</source>
+        <translation>类名（如：砂岩）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="303"/>
+        <source>标注类名</source>
+        <translation>标注类名</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="304"/>
+        <source>标注选区</source>
+        <translation>标注选区</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="306"/>
+        <source>把当前套索选区标注为指定类名（重复标注覆盖）</source>
+        <translation>把当前套索选区标注为指定类名（重复标注覆盖）</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="307"/>
+        <source>清除标注</source>
+        <translation>清除标注</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="309"/>
+        <source>清空全部标注与已训练模型</source>
+        <translation>清空全部标注与已训练模型</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="319"/>
+        <source>训练分类器</source>
+        <translation>训练分类器</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="322"/>
         <source>运行分类</source>
         <translation>运行分类</translation>
     </message>
     <message>
-        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="248"/>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="324"/>
         <source>写回工程 / 编图</source>
         <translation>写回工程 / 编图</translation>
     </message>
     <message>
-        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="250"/>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="326"/>
         <source>取消</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="267"/>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="344"/>
         <source>选区：N=0</source>
         <translation>选区：N=0</translation>
     </message>
     <message>
-        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="277"/>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="361"/>
         <source>簇编号不代表地质相；写回后可在智能编图中矢量化。</source>
         <translation>簇编号不代表地质相；写回后可在智能编图中矢量化。</translation>
     </message>
     <message>
-        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="338"/>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="469"/>
         <source>Z：二维</source>
         <translation>Z：二维</translation>
     </message>
     <message>
-        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="358"/>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="496"/>
         <source>%1 均值=%2</source>
         <translation>%1 均值=%2</translation>
     </message>
     <message>
-        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="359"/>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="497"/>
         <source>选区：N=%1，占比=%2% · %3</source>
         <translation>选区：N=%1，占比=%2% · %3</translation>
     </message>
     <message>
-        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="376"/>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="519"/>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="533"/>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="535"/>
+        <source>任务进行中</source>
+        <translation>任务进行中</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="537"/>
         <source>请先读取至少两个通道</source>
         <translation>请先读取至少两个通道</translation>
     </message>
     <message>
-        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="377"/>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="546"/>
+        <source>请先完成标注并训练监督模型</source>
+        <translation>请先完成标注并训练监督模型</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="550"/>
         <source>请先完成分类</source>
         <translation>请先完成分类</translation>
     </message>
     <message>
-        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="378"/>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="551"/>
         <source>当前没有运行中的任务</source>
         <translation>当前没有运行中的任务</translation>
     </message>
     <message>
-        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="390"/>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="563"/>
         <source>&lt;span style=&apos;color:%1&apos;&gt;■&lt;/span&gt; 类别 %2：%3</source>
         <translation>&lt;span style=&apos;color:%1&apos;&gt;■&lt;/span&gt; 类别 %2：%3</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="602"/>
+        <source>&lt;div&gt;&lt;b&gt;交叉验证质量（%1 折）&lt;/b&gt;：查准率（precision）与查全率（recall）逐类列出；混淆矩阵行 = 真实类别，列 = 预测类别。&lt;/div&gt;</source>
+        <translation>&lt;div&gt;&lt;b&gt;交叉验证质量（%1 折）&lt;/b&gt;：查准率（precision）与查全率（recall）逐类列出；混淆矩阵行 = 真实类别，列 = 预测类别。&lt;/div&gt;</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="621"/>
+        <source>%1：查准率 %2，查全率 %3</source>
+        <translation>%1：查准率 %2，查全率 %3</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/crossplot/crossplotpanel.cpp" line="632"/>
+        <source>提示：</source>
+        <translation>提示：</translation>
     </message>
 </context>
 <context>
     <name>paleo::crossplot::FaciesClassifyWorkflow</name>
     <message>
-        <location filename="../src/workflow/faciesclassify.cpp" line="39"/>
+        <location filename="../src/workflow/faciesclassify.cpp" line="44"/>
+        <source>类名不能为空</source>
+        <translation>类名不能为空</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/faciesclassify.cpp" line="53"/>
+        <source>类别数超出分类栅格编码范围</source>
+        <translation>类别数超出分类栅格编码范围</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/faciesclassify.cpp" line="66"/>
+        <source>没有有效行号可标注</source>
+        <translation>没有有效行号可标注</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/faciesclassify.cpp" line="95"/>
+        <location filename="../src/workflow/faciesclassify.cpp" line="104"/>
+        <source>未标注</source>
+        <translation>未标注</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/faciesclassify.cpp" line="109"/>
+        <source>%1：%2 样本</source>
+        <translation>%1：%2 样本</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/faciesclassify.cpp" line="116"/>
+        <source>已标注 %1 样本 / %2 类（%3）</source>
+        <translation>已标注 %1 样本 / %2 类（%3）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/faciesclassify.cpp" line="119"/>
+        <source>；</source>
+        <translation>；</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/faciesclassify.cpp" line="121"/>
+        <source>；未使用的类名：%1</source>
+        <translation>；未使用的类名：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/faciesclassify.cpp" line="121"/>
+        <location filename="../src/workflow/faciesclassify.cpp" line="452"/>
+        <source>、</source>
+        <translation>、</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/faciesclassify.cpp" line="160"/>
+        <location filename="../src/workflow/faciesclassify.cpp" line="222"/>
         <source>没有任务服务或交会样本</source>
         <translation>没有任务服务或交会样本</translation>
     </message>
     <message>
-        <location filename="../src/workflow/faciesclassify.cpp" line="52"/>
+        <location filename="../src/workflow/faciesclassify.cpp" line="177"/>
+        <source>训练交会监督分类模型</source>
+        <translation>训练交会监督分类模型</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/faciesclassify.cpp" line="186"/>
+        <location filename="../src/workflow/faciesclassify.cpp" line="205"/>
+        <source>训练失败</source>
+        <translation>训练失败</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/faciesclassify.cpp" line="200"/>
+        <source>训练已取消，未生成模型</source>
+        <translation>训练已取消，未生成模型</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/faciesclassify.cpp" line="228"/>
+        <source>尚未训练监督模型，请先训练</source>
+        <translation>尚未训练监督模型，请先训练</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/faciesclassify.cpp" line="232"/>
+        <source>监督方法需先训练（当前模型与所选方法不一致）</source>
+        <translation>监督方法需先训练（当前模型与所选方法不一致）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/faciesclassify.cpp" line="236"/>
+        <source>训练集已变更，请重新训练后再推理</source>
+        <translation>训练集已变更，请重新训练后再推理</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/faciesclassify.cpp" line="252"/>
         <source>交会无监督相分类</source>
         <translation>交会无监督相分类</translation>
     </message>
     <message>
-        <location filename="../src/workflow/faciesclassify.cpp" line="76"/>
+        <location filename="../src/workflow/faciesclassify.cpp" line="252"/>
+        <source>交会有监督相分类</source>
+        <translation>交会有监督相分类</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/faciesclassify.cpp" line="280"/>
         <source>分类已取消，未生成新成果</source>
         <translation>分类已取消，未生成新成果</translation>
     </message>
     <message>
-        <location filename="../src/workflow/faciesclassify.cpp" line="89"/>
+        <location filename="../src/workflow/faciesclassify.cpp" line="293"/>
         <source>分类仍在运行</source>
         <translation>分类仍在运行</translation>
     </message>
     <message>
-        <location filename="../src/workflow/faciesclassify.cpp" line="93"/>
+        <location filename="../src/workflow/faciesclassify.cpp" line="297"/>
         <source>工程不可写或没有分类成果</source>
         <translation>工程不可写或没有分类成果</translation>
     </message>
     <message>
-        <location filename="../src/workflow/faciesclassify.cpp" line="98"/>
+        <location filename="../src/workflow/faciesclassify.cpp" line="302"/>
         <source>栅格写回需要有效层位和图层服务</source>
         <translation>栅格写回需要有效层位和图层服务</translation>
     </message>
     <message>
-        <location filename="../src/workflow/faciesclassify.cpp" line="104"/>
+        <location filename="../src/workflow/faciesclassify.cpp" line="308"/>
         <source>%1 交会分类</source>
         <translation>%1 交会分类</translation>
     </message>
     <message>
-        <location filename="../src/workflow/faciesclassify.cpp" line="104"/>
+        <location filename="../src/workflow/faciesclassify.cpp" line="308"/>
         <source>交会井层段分类</source>
         <translation>交会井层段分类</translation>
     </message>
     <message>
-        <location filename="../src/workflow/faciesclassify.cpp" line="145"/>
+        <location filename="../src/workflow/faciesclassify.cpp" line="377"/>
+        <source>%1 分类置信度</source>
+        <translation>%1 分类置信度</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/faciesclassify.cpp" line="377"/>
+        <source>置信度</source>
+        <translation>置信度</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/faciesclassify.cpp" line="380"/>
+        <source>%1 交会分类（低置信掩膜）</source>
+        <translation>%1 交会分类（低置信掩膜）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/faciesclassify.cpp" line="380"/>
+        <source>低置信掩膜</source>
+        <translation>低置信掩膜</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/faciesclassify.cpp" line="411"/>
+        <source>%1伴生栅格写入失败：%2</source>
+        <translation>%1伴生栅格写入失败：%2</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/faciesclassify.cpp" line="427"/>
+        <source>主分类图登记失败：%1（尚未登记任何版本）</source>
+        <translation>主分类图登记失败：%1（尚未登记任何版本）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/faciesclassify.cpp" line="447"/>
+        <source>主分类图</source>
+        <translation>主分类图</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/faciesclassify.cpp" line="450"/>
+        <source>%1伴生栅格登记失败：%2；%3已登记入 catalog 但未声明图层，可重试本层位写入生成下一版本</source>
+        <translation>%1伴生栅格登记失败：%2；%3已登记入 catalog 但未声明图层，可重试本层位写入生成下一版本</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/faciesclassify.cpp" line="482"/>
+        <source>（已登记图层：%1）</source>
+        <translation>（已登记图层：%1）</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/faciesclassify.cpp" line="483"/>
+        <source>成果已登记，但%1图层声明失败：%2%3</source>
+        <translation>成果已登记，但%1图层声明失败：%2%3</translation>
+    </message>
+    <message>
+        <location filename="../src/workflow/faciesclassify.cpp" line="489"/>
         <source>%1 交会分类（簇编号）</source>
         <translation>%1 交会分类（簇编号）</translation>
     </message>
     <message>
-        <location filename="../src/workflow/faciesclassify.cpp" line="147"/>
-        <source>成果已登记，但图层声明失败：%1</source>
-        <translation>成果已登记，但图层声明失败：%1</translation>
+        <location filename="../src/workflow/faciesclassify.cpp" line="490"/>
+        <source>主分类</source>
+        <translation>主分类</translation>
     </message>
     <message>
-        <location filename="../src/workflow/faciesclassify.cpp" line="159"/>
+        <location filename="../src/workflow/faciesclassify.cpp" line="351"/>
         <source>交会分类井层段</source>
         <translation>交会分类井层段</translation>
     </message>
     <message>
-        <location filename="../src/workflow/faciesclassify.cpp" line="161"/>
+        <location filename="../src/workflow/faciesclassify.cpp" line="353"/>
         <source>成果已登记，但井关联失败：%1</source>
         <translation>成果已登记，但井关联失败：%1</translation>
     </message>

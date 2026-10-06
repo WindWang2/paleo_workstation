@@ -1,5 +1,7 @@
 // 层：数据
 #include "welltopsedit.h"
+#include "wellnumeric.h"
+#include <QCoreApplication>
 
 #include <QHash>
 
@@ -166,10 +168,9 @@ QVector<Issue> validate(const QVector<WellTopRecord> &rows, const ValidationCont
       } sentinelCols[] = {{r.hasTvd, r.tvd, "TVD"}, {r.hasX, r.x, "X"},
                           {r.hasY, r.y, "Y"},        {r.hasTime, r.timeMs, "Time(ms)"}};
       for (const auto &c : sentinelCols)
-        if (c.has && c.v <= -99998.5)
+        if (c.has && paleo::wellnumeric::isNull(c.v))
           issues.append({IssueKind::SentinelValue, i,
-                         QStringLiteral("第 %1 行（%2）：%3 列值 %4 进入缺失哨兵域"
-                                        "（-99999 邻域）——缺失请清空单元格")
+                         QCoreApplication::translate("WellTopsEdit", "第 %1 行（%2）：%3 列值 %4 命中空值哨兵，缺失请清空单元格")
                              .arg(QString::number(i + 1), r.topName,
                                   QString::fromLatin1(c.col),
                                   QString::number(c.v, 'f', 3))});
@@ -314,7 +315,9 @@ bool sameTop(const WellTopRecord &a, const WellTopRecord &b)
          (!a.hasY || std::abs(a.y - b.y) <= kEps) &&
          (!a.hasTvd || std::abs(a.tvd - b.tvd) <= kEps) &&
          (!a.hasTime || std::abs(a.timeMs - b.timeMs) <= kEps) &&
-         std::abs(a.z - b.z) <= kEps;
+         // Z 只在至少一个 XY 有效时参与写盘；无坐标组的占位值不构成变化。
+         (!(a.hasX || a.hasY) || (std::isnan(a.z) && std::isnan(b.z)) ||
+          std::abs(a.z - b.z) <= kEps);
 }
 
 bool sameValues(const WellTopRecord &a, const WellTopRecord &b)

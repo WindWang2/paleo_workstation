@@ -1,3 +1,4 @@
+#include "domain/wellrecords.h"
 #include <QtTest>
 #include <QDir>
 #include <QFile>
@@ -135,7 +136,7 @@ class TestProjectData : public QObject
         if ( !catalog.addVersion( tdVer ) )
             return false;
         // 行故意倒序、末尾一行 -99999：门面按文件顺序交付、不排序
-        // （PROJECT_AREA_PLAN §3），哨兵以 NaN 透传，留给 TimeDepthTool 判。
+        // （PROJECT_AREA_PLAN §3）；全深度空值行在读面拒收，其余列不改。
         const QString tdText = QStringLiteral(
             "#TimeDepth File From SMI\n"
             "# Well : A1\n"
@@ -169,7 +170,12 @@ class TestProjectData : public QObject
         QVERIFY( qAbs( wells.at( 0 ).surfaceY - 8219.94 ) < 0.01 );
         QCOMPARE( wells.at( 0 ).coordinateStatus, QStringLiteral( "untransformed" ) );
 
-        const QVector<WellTop> tops = pd.topsFor( QStringLiteral( "well-1" ) );
+        WellParseReport report;
+        const QVector<WellTop> tops = pd.topsFor( QStringLiteral( "well-1" ), &report );
+        QCOMPARE( report.acceptedRows, 6 );
+        QCOMPARE( report.rejectedRows, 0 );
+        QCOMPARE( report.sentinelHits, 6 );
+        QVERIFY( report.issues.join( QString() ).contains( QStringLiteral( "DC.dat：第 3 行" ) ) );
         QCOMPARE( tops.size(), 3 );
         QCOMPARE( tops.at( 1 ).horizon, QStringLiteral( "D61" ) );
         QVERIFY( qAbs( tops.at( 1 ).tvd - 2125.0 ) < 0.01 );
@@ -180,7 +186,7 @@ class TestProjectData : public QObject
         QVERIFY( qAbs( tops.at( 1 ).y - 8219.94 ) < 0.01 );
 
         const QVector<TdSample> td = pd.tdTableFor( QStringLiteral( "well-1" ) );
-        QCOMPARE( td.size(), 4 );
+        QCOMPARE( td.size(), 3 );
         // 文件顺序交付：按 TIME 排序会排成 2000/2200/2400/2500，这里第一条
         // 必须是文件首行 2400。TVD 与 MD 两列都带上（MD 兜底要用）。
         QVERIFY( qAbs( td.at( 0 ).timeMs - 2400.0 ) < 0.01 );
@@ -188,15 +194,17 @@ class TestProjectData : public QObject
         QVERIFY( qAbs( td.at( 0 ).md - 2400.0 ) < 0.01 );
         QVERIFY( qAbs( td.at( 1 ).timeMs - 2200.0 ) < 0.01 );
         QVERIFY( qAbs( td.at( 2 ).timeMs - 2000.0 ) < 0.01 );
-        // -99999 行：时间保留，深度以 NaN 透传（插值端剔除，不进排序检查）。
-        QVERIFY( qAbs( td.at( 3 ).timeMs - 2500.0 ) < 0.01 );
-        QVERIFY( qIsNaN( td.at( 3 ).tvd ) );
-        QVERIFY( qIsNaN( td.at( 3 ).md ) );
+        // 全深度空值行已拒收；没有把时间 2500 对应的空深度当作真值交付。
+        for ( const TdSample &sample : td )
+            QVERIFY( sample.timeMs != 2500.0 );
 
         // No time_depth link → empty, not fabricated.
         QCOMPARE( pd.tdTableFor( QStringLiteral( "well-3" ) ).size(), 0 );
-        // Unknown well → empty tops.
-        QCOMPARE( pd.topsFor( QStringLiteral( "well-XX" ) ).size(), 0 );
+        // Unknown well → empty tops；报告复位，不能沿用上一次的空值计数。
+        QCOMPARE( pd.topsFor( QStringLiteral( "well-XX" ), &report ).size(), 0 );
+        QCOMPARE( report.acceptedRows, 0 );
+        QCOMPARE( report.sentinelHits, 0 );
+        QVERIFY( report.issues.isEmpty() );
 
         // setProjectDir round-trips the same data from disk.
         ProjectDataFacade fromDisk;

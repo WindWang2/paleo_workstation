@@ -158,13 +158,15 @@ bool BuildPlannedLineSection(
     }
     reader.SetBufferPool(pool);
     std::vector<PlannedTraceData> traceData;
-    if(!reader.Execute(plan, traceData, cancel, errorMessage, progress)) {
-        return false;
-    }
+    const bool readOk = reader.Execute(plan, traceData, cancel, errorMessage, progress);
     stats.tracesRead = static_cast<int>(reader.Stats().tracesRead);
+    stats.sanitizedSampleReads = reader.Stats().sanitizedSampleReads;
     stats.gapTracesRead = static_cast<int>(reader.Stats().gapTracesRead);
     stats.ioMicros = reader.Stats().ioMicros;
     stats.decodeMicros = reader.Stats().decodeMicros;
+    if(!readOk) {
+        return false;
+    }
 
     // Per-column metadata: distance, inline/xline, trace ordinal and optionally
     // X/Y from the affine coordinate fit.

@@ -664,8 +664,8 @@ void PreviewDocService::requestSection(const QString &assetId,
     }
     QString err;
     const bool ok =
-        isInline ? reader->readInline(lineNo, &out->doc.traces, &err, &opts)
-                 : reader->readCrossline(lineNo, &out->doc.traces, &err, &opts);
+        isInline ? reader->readInline(lineNo, &out->doc.traces, &err, &opts, &out->doc.readReport)
+                 : reader->readCrossline(lineNo, &out->doc.traces, &err, &opts, &out->doc.readReport);
     if (!ok && !(t && t->cancelRequested()))
       return err.isEmpty() ? QStringLiteral("无法解码测线") : err;
     out->doc.sampleIntervalUs = reader->sampleIntervalUs();

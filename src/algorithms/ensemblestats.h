@@ -6,7 +6,7 @@
 #include <vector>
 
 // algorithms/ensemblestats —— realization 集合逐像元统计核（纯数值，无 I/O、
-// 无 Qt）。统计口径与 catalog/realizationset.h 的 token 一一对应：
+// 无 Qt）。统计口径与 catalog 模块 realizationset.h 的 token 一一对应：
 //   mean               成员算术均值
 //   stddev_population  总体标准差 ÷n——成员等概率即总体（不用样本口径 ÷(n-1)）
 //   p10 / p90          升序线性插值分位数（h = q·(n-1)，type-7）

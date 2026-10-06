@@ -1,6 +1,7 @@
 // 层：数据
 #include "lascache.h"
 
+#include "../domain/wellnumeric.h"
 #include "pathcanon.h"
 #include "welllogread.h" // 方向44：LAS/DLIS/LIS 分派
 
@@ -27,7 +28,7 @@ namespace
   {
     QByteArray out;
     cacheio::putStr(&out, fingerprint);
-    cacheio::putF64(&out, -999.25); // NULL 值已在解析时映射为 NaN；占位保布局
+    cacheio::putF64(&out, paleo::wellnumeric::kLasDefaultNull); // NULL 值已在解析时映射为 NaN；占位保布局
     const quint32 curveCount = static_cast<quint32>(doc.curves.size());
     quint32 rowCount = 0;
     for (const LasCurve &c : doc.curves)

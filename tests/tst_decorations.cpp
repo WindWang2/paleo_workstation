@@ -41,10 +41,18 @@ class TestDecorations : public QObject
                                          "family, got: ") + info.family()));
     }
 
-    // 同帧双渲染逐字节一致（字体钉住后文本基线可复现的前提）。
+    // TEST-04：原 `QCOMPARE( render(), render() )` 的假绿面——若
+    // paintDecorations 退化为 no-op，两次渲染都是全白画布，比较恒真。
+    // 真实不变量：（a）装饰确实画了东西（非全白像元 > 0——确定性不得
+    // 建立在空白画布上）；（b）字体钉住后两次渲染逐字节一致（文本基线
+    // 可复现的前提）。
     void pinnedRenderIsDeterministic()
     {
       QgsMapCanvas canvas;
+      canvas.resize( 640, 480 );
+      canvas.setExtent( QgsRectangle( 0, 0, 1000, 800 ) );
+      canvas.refresh();
+      QCoreApplication::processEvents();
       PaleoDecorationManager mgr( &canvas );
       mgr.setScaleBarEnabled( true );
       mgr.setGridEnabled( true );
@@ -56,7 +64,12 @@ class TestDecorations : public QObject
         p.end();
         return img;
       };
-      QCOMPARE( render(), render() );
+      const QImage first = render();
+      QVERIFY2( !first.isNull() && first.size() == canvas.size(),
+                "render must produce a full-canvas image" );
+      QVERIFY2( paintAndCount( canvas, mgr ) > 0,
+                "decorations must actually paint (determinism must not be vacuous)" );
+      QCOMPARE( first, render() );
     }
 
     void togglesChangeItemCount();

@@ -113,6 +113,8 @@ struct SeismicTranscodeReport
   qint64 tracesTotal = 0;          // ROI 内 (inline,xline) 格点数
   qint64 missingTraces = 0;        // 源文件缺席（NaN 填充）
   qint64 damagedTraces = 0;        // 源读取失败（跳过 + NaN 填充）
+  qint64 sanitizedSamples = 0;     // 本次转码去重后的非有限源样点
+  qint64 sanitizedTraces = 0;
   QStringList damagedSample;       // 前 32 个坏道 "inline/xline"
   double valueMin = 0.0;           // 无数据时 validValues=false
   double valueMax = 0.0;

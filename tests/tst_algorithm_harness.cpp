@@ -7,6 +7,7 @@
 #include <gdal.h>
 
 #include "algorithmbase.h"
+#include "../src/catalog/datacatalog.h"
 
 // wave3/model-hardening — 算法测试 harness 的验收用例（TODOS P1「算法测试
 // 框架自建」）。三个不同输出形态的 paleo:* 算法全部只通过
@@ -201,6 +202,50 @@ private slots:
       QVERIFY( hasGt );
       QCOMPARE( gt[1], 1.0 );
     }
+    delete wells;
+  }
+
+  // 0c) ARCH-05：局部网格输出的规范 WKT 逐字保真。QGIS 对工程坐标系的
+  //     WKT 再导出在部分构建上丢 EDATUM——丢失后 GeoTIFF 与工程网格不再
+  //     判等。规范 WKT 现由 LOCAL_GRID_WKT 处理参数注入（算法核不问
+  //     catalog）；注入时 PALEO_CRS_WKT 元数据必须逐字等于注入串。
+  void distanceOutputsPreserveLocalGridDatum()
+  {
+    auto *wells = AlgorithmTestBase::makePointLayer(
+        QStringLiteral( "wells-lg" ),
+        { { QgsPointXY( 0, 0 ), 0.0 }, { QgsPointXY( 10, 0 ), 0.0 } } );
+    QVERIFY( wells->isValid() );
+    const QString canonical = DataCatalog::localGridCrsWkt();
+    wells->setCrs( QgsCoordinateReferenceSystem::fromWkt( canonical ) );
+    QVERIFY( wells->crs() == QgsCoordinateReferenceSystem::fromWkt( canonical ) );
+
+    const QString out = mDir.filePath( QStringLiteral( "crs_localgrid.tif" ) );
+    QVariantMap params;
+    params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( wells ) );
+    params.insert( QStringLiteral( "CELL_SIZE" ), 1.0 );
+    const QString canonicalVerbatim = canonical + QLatin1Char( ' ' );
+    params.insert( QStringLiteral( "LOCAL_GRID_WKT" ), canonicalVerbatim );
+    params.insert( QStringLiteral( "OUTPUT" ), out );
+    QString log;
+    QVERIFY2( !AlgorithmTestBase::run( QStringLiteral( "paleo:paleo_welldist" ), params, &log ).isEmpty(),
+              qPrintable( log ) );
+    GDALDatasetH ds = GDALOpen( out.toUtf8().constData(), GA_ReadOnly );
+    QVERIFY( ds );
+    const QString wkt = QString::fromUtf8( GDALGetProjectionRef( ds ) );
+    const QString meta = QString::fromUtf8( GDALGetMetadataItem( ds, "PALEO_CRS_WKT", nullptr ) );
+    GDALClose( ds );
+    // GeoTIFF 的 projection 域会被 GDAL 重导出（ENGCRS → WKT1 LOCAL_CS）；
+    // EDATUM 保真的消费契约在 PALEO_CRS_WKT 元数据（factorcontour /
+    // mappingartifactwriter 读它重建 CRS）——必须逐字等于规范串，且从它
+    // 重建的 CRS 与输入层判等。
+    QVERIFY2( !wkt.isEmpty(), "projection must be non-empty" );
+    // 逐字保真钉法：canonical 串尾附加一个空格（WKT 解析等价、文本可区
+    // 分）。参数化正确时输出按 canonical 原串写出（含空格）；穿线被拆
+    //（mutation）时输出回落 QGIS 规范化导出（无尾随空格）→ 红。EDATUM
+    // 丢失本身是 QGIS 构建相关的（本机 superbuild 已保真），逐字保真
+    // 是不依赖该环境差异的上位契约。
+    QCOMPARE( meta, canonicalVerbatim );
+    QCOMPARE( QgsCoordinateReferenceSystem::fromWkt( meta ), wells->crs() );
     delete wells;
   }
 

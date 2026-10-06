@@ -159,13 +159,20 @@ master 的 `41feecf`，catalog 行序修复来自 `e8da8cf`，不归入本 PR �
 
 ## P3 — 交会分类后续（from goal/crossplot-facies，2026-10-02）
 
-- **有监督分类 / SOM**：样本标注→训练→推理另立项；RemotePredictionRouter
-  沿 AI 方向深化。当前 k-means/GMM 只输出未解释簇编号，不自动赋地质相名。
+- ~~**有监督分类 / SOM**~~ **已落地（方向 46，goal/xplot-sup-20261004）**：
+  套索自由词标注→训练（LDA/QDA/kNN + 分层 k-fold 混淆矩阵）→推理
+  （标签+置信度）；SOM 自组织图并列第三无监督族；证据
+  `.goal-loop-ledger-xplot-sup.md` + `tests/tst_faciessupervised.cpp`。
+  仍递延：RemotePredictionRouter 沿 AI 方向深化（多特征逐点推理需先破
+  tileinference 的 [1,1,H,W] 单通道契约）；井段相名落库字段仍无
+  （WellComposite XML 有相名但无 catalog 映射——接入另立项）。
 - **时深域交会**：需要单位、基准、速度模型与不确定性契约后再接跨域采样；
   当前 SATR 只配时间层位（ms），深度栅格作为独立特征不能冒充时间。
-- **大规模 GMM / 伴生置信度**：工区 N×k 缓冲达到内存预算时改分块 EM；
-  分类服务已有真实置信度/距离向量，可按编图消费需要持久化伴生栅格。
-  当前 Byte 分类图只写类别与 provenance，井段写平均置信度。
+- ~~**大规模 GMM / 伴生置信度**~~ **已落地（方向 46）**：
+  `cluster::Options::emChunkBudgetBytes`（默认 256MiB）超预算自动分块 EM，
+  与全量路径逐位一致（`tests/tst_gmm_chunked.cpp`，RSS 有界断言）；
+  置信度伴生栅格三件套（Byte 分类 + Float32 置信度 + 低置信掩膜）落
+  catalog DERIVED 版本，provenance 含训练集指纹（trainingSetHash）。
 - **4D/时移、交会打印排版**：各自另立项，排版沿 mapbook 方向。
   口径与验收证据见 `docs/progress/crossplot-facies.md`。
 
@@ -338,7 +345,7 @@ master 的 `41feecf`，catalog 行序修复来自 `e8da8cf`，不归入本 PR �
 
 - **置信度伴生栅格**：算法侧无真实置信度输出（ONNX 仅读首个输出张量、paleo:\* 均确定性单输出栅格）——不造假数据；接入点已留（`PredictionWorkflow::confidenceCompanionAvailable()` 恒 false + 声明位）。触发条件：出现带置信度/方差输出的算法。Effort: S / Priority: P3
 - **非 IDW 单因素引擎**：~~welldist（距离变换）~~ 已落地（wave/deepen-perf C5）：`paleo:paleo_distance_transform` 绕障距离引擎（无屏障=精确欧氏与 paleo_welldist 零容差对拍；break_line 屏障=8 邻接 Dijkstra），注册表标签已翻「绕障距离变换」；confidence 维持冻结拒绝（ONNX 仅读首个输出张量，无置信度通道——记档 docs/ALGORITHM_AUDIT.md §3a）；strathick 核实主线 6 已接（paleo_isopach 双栅格链），无需动作。
-- ~~**PaleoEditingToolbar `mEditLayer` 裸指针**~~ — 已落地：`mEditLayer` 与 `mLayers` 均已切为 `QPointer<QgsVectorLayer>`（`src/ui/edittools/editingtoolbar.h:134,137`）。
+- ~~**PaleoEditingToolbar `mEditLayer` 裸指针**~~ — 已落地：`mEditLayer` 与 `mLayers` 均已切为 `QPointer<QgsVectorLayer>`（`src/ui/edittools/editingtoolbar.h:134,137`）；2026-10-06 方向48 审计清账把残余的 `mCanvas` 也收口为 `QPointer<QgsMapCanvas>`（MEM-07，commit `c814130`）——AUDIT_ISSUES.md 全账终态见该文件 2026-10-06 注记。
 - ~~**ctest -j2 跨二进制 QSettings 竞态**~~ — 已核实根治（wave/deepen-perf B5）：四轮全量 `ctest -j4`（127 项）历史竞态点全绿——`add_paleo_test` 的 XDG/HOME 沙箱已根治（证据 docs/perf/BASELINE.md §6）；四个测试 main 的 `setPath` /tmp 重定向属历史残留可清理。
 - **native processing provider 注册**：C++ 嵌入运行时 Processing 注册表仅 `paleo:\*`（`gdal:contour` 属 Python provider）；等值线已走 GDAL C API（gdal:contour 同一底层引擎）交付，native provider 按需引入。Effort: M / Priority: P4
 - ~~**SBM Engine 剩余入口**~~ — 已落地对账关闭（wave/deepen-perf A1）：QuickOpen/ReadTimeSliceTiled/progressiveLod+SetActiveLod 前序 wave 已接，本轮补齐唯一缺口 ReadVoxelWindow 消费侧（3D 16 层堆叠取数 16 请求→1 体窗任务）；四入口消费核账表 docs/seismic/ARCHITECTURE.md §9b。

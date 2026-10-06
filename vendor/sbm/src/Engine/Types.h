@@ -165,6 +165,7 @@ struct SourceStatistics {
     std::uint64_t requests = 0;
     std::uint64_t cancelledRequests = 0;
     std::uint64_t tracesRead = 0;
+    std::uint64_t sanitizedSampleReads = 0; // nonfinite decodes, including rereads
     std::uint64_t bytesRead = 0;
     std::uint64_t ioMicros = 0;
     std::uint64_t decodeMicros = 0;

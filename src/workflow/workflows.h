@@ -128,6 +128,13 @@ class ConstraintWorkflow : public QObject
     // T26：IDW 单因素栅格的登记通道（见 PaleoWorkflowBindDerivedCatalog）。
     void setCatalog(DataCatalog *catalog, const QString &projectDir);
 
+    // ARCH-06：厚度评估行表/文案的 typed 镜像（原 paleo.thickness.* 动态
+    // 属性暗道的替代）。MappingWorkflow 产出时写入；ConstraintPage 渲染
+    // 时读出——面板只持有本 workflow，不持有 MappingWorkflow。
+    void setThicknessSamples(const QVariantList &rows, const QString &message);
+    QVariantList thicknessSampleRows() const { return m_thicknessRows; }
+    QString thicknessSampleMessage() const { return m_thicknessMessage; }
+
     bool addConstraint(const QString &horizon, const QString &wkt, const QString &type, int faciesCode,
                        QString *error = nullptr, QString *constraintIdOut = nullptr,
                        const QVariantMap &lineParams = {});
@@ -156,6 +163,8 @@ class ConstraintWorkflow : public QObject
                         const QVariantMap &params, QString *error = nullptr);
 
   private:
+    QVariantList m_thicknessRows;
+    QString m_thicknessMessage;
     // 主线6：strathick 的等厚引擎分派（paleo:paleo_isopach，INPUT_TOP/
     // INPUT_BASE 双构造面栅格）。params：topLayerId/baseLayerId（声明图层
     // id，必填）+ negativeToNodata（默认 true，倒置层序折 nodata）。

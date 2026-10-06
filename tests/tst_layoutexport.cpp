@@ -53,7 +53,12 @@ class TestLayoutExport : public QObject
         QVERIFY( !a->text().isEmpty() );
         QVERIFY( !a->objectName().isEmpty() );
       }
-      QCOMPARE( exports.exportPngAction(), exports.exportPngAction() ); // stable
+      // TEST-04：原断言自比较恒真。真实不变量：动作 getter 幂等（重复取
+      // 同一 QAction*——宿主重复接线不得得到新对象），且三个导出动作是
+      // 互不相同的实例（getter 串了对象即红）。
+      QCOMPARE( exports.exportPngAction(), exports.exportPngAction() );
+      QVERIFY( exports.exportPngAction() != exports.exportPdfAction() );
+      QVERIFY( exports.exportPngAction() != exports.exportSvgAction() );
 
       PaleoLayoutTemplates templates;
       QVERIFY( !templates.saveAsTemplateAction()->text().isEmpty() );

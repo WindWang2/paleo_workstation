@@ -1,6 +1,8 @@
 #include "Data/Sgy/SgyReadSession.h"
 
 #include <array>
+#include <QDebug>
+#include "Data/Sgy/SgySampleSanitizer.h"
 #include <cstdint>
 #include <sstream>
 
@@ -26,6 +28,8 @@ bool Check(int err, const char* op, std::string& errorMessage) {
 SgyReadSession::~SgyReadSession() = default;
 
 bool SgyReadSession::Open(const SgyIndexPtr& index, std::string& errorMessage) {
+    lastSanitizedSamples_ = 0;
+    sanitizedSampleReads_ = 0;
     index_.reset();
     handle_.Reset();
     errorMessage.clear();
@@ -78,6 +82,8 @@ bool SgyReadSession::ValidateRuleTrace(int traceIndex, std::string& errorMessage
 }
 
 bool SgyReadSession::ReadTrace(int traceIndex, std::vector<float>& samples, std::string& errorMessage) {
+    lastSanitizedSamples_ = 0;
+    errorMessage.clear();
     if(!IsOpen() || !index_) {
         errorMessage = "Read session is not open.";
         return false;
@@ -99,7 +105,16 @@ bool SgyReadSession::ReadTrace(int traceIndex, std::vector<float>& samples, std:
         if(!Check(segy_readtrace(handle_.Get(), traceIndex, samples.data()), "segy_readtrace", errorMessage)) {
             return false;
         }
-        return Check(segy_to_native(formatCode, sampleCount, samples.data()), "segy_to_native", errorMessage);
+        if(!Check(segy_to_native(formatCode, sampleCount, samples.data()), "segy_to_native", errorMessage)) {
+            return false;
+        }
+        lastSanitizedSamples_ = SanitizeSgySamples(samples.data(), samples.size());
+        sanitizedSampleReads_ += lastSanitizedSamples_;
+        if(lastSanitizedSamples_ > 0) {
+            qWarning().nospace() << "PALEO-SEGY-SANITIZED trace=" << traceIndex
+                                 << " samples=" << lastSanitizedSamples_;
+        }
+        return true;
     }
 
     if(formatSizeBytes == 2) {

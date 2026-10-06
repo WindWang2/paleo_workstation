@@ -310,3 +310,24 @@ QString AttributeTablePanel::currentLayerId() const
   const auto *picker = findChild<QComboBox *>(QStringLiteral("attrLayerPicker"));
   return picker ? picker->currentData().toString() : QString();
 }
+
+bool AttributeTablePanel::updateCell(int row, int column, const QVariant &value)
+{
+  if (!m_filter || row < 0 || column < 0)
+    return false;
+  const QModelIndex idx = m_filter->index(row, column);
+  if (!idx.isValid())
+    return false;
+  return m_filter->setData(idx, value, Qt::EditRole);
+}
+
+int AttributeTablePanel::updateCells(const QVector<std::tuple<int, int, QVariant>> &cellUpdates)
+{
+  int count = 0;
+  for (const auto &[row, col, val] : cellUpdates)
+  {
+    if (updateCell(row, col, val))
+      ++count;
+  }
+  return count;
+}

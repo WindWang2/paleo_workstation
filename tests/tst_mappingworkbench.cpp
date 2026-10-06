@@ -1,3 +1,5 @@
+#include "../src/ai/remotepredictconfig.h"
+#include "../src/app/aiwiring.h"
 #include "../src/domain/faciescatalog.h"
 #include "../src/domain/facieshierarchy.h"
 #include "../src/metadata/paleoprojectstore.h"
@@ -16,6 +18,7 @@
 #include "../src/workflow/derivedassets.h"
 #include "../src/workflow/mappingworkbench.h"
 #include "../src/workflow/workflows.h"
+#include "mockremotepredictionservice.h"
 #include <QAction>
 #include <QComboBox>
 #include <QCryptographicHash>
@@ -74,7 +77,11 @@ class TestMappingWorkbench : public QObject {
     QgisProcessingService processing{&store};
     ConstraintWorkflow constraints{&processing, &layers};
     MappingWorkbench work{&layers, &processing, &project, &constraints};
+    // 方向51：替身 Mock 不再由 workbench 自装（产品装配走 app/aiwiring 的
+    // router）——需要旧有替身行为的用例在这里显式注入。
+    MockRemotePredictionService prediction;
     bool init() {
+      work.setPredictionService(&prediction);
       if (!catalog.open(dir.path()) ||
           !project.createProject(dir.filePath("project.qgz")) ||
           !manifest.open())
@@ -1107,6 +1114,47 @@ private slots:
     QVERIFY(!compose.findChild<QPushButton *>("workbenchMoveUp")->isEnabled());
   }
 
+  // 方向51 Oracle①：装配出来的预测服务必须是 router（不是任何替身），
+  // 且端点未配置时 UI 拿得到「未配置」的诚实状态。
+  void remotePredictionAssemblyInstallsRouterNotSubstitute() {
+    Fixture f;
+    QVERIFY(f.init());
+    // 未配置端点：仍然装 router（不带传输），而非 Mock。
+    const auto unconfigured =
+      installRemotePrediction(&f.work,
+                              RemotePredictConfig::fromParts(QUrl(), true,
+                                                             QString()),
+                              nullptr, QString(), &f.work);
+    QVERIFY(unconfigured.router);
+    QVERIFY(unconfigured.service);
+    QVERIFY(unconfigured.service == f.work.predictionService());
+    QCOMPARE(QString(unconfigured.service->metaObject()->className()),
+             QStringLiteral("RemotePredictionRouter"));
+    QVERIFY(!unconfigured.transportBound);
+    QVERIFY(unconfigured.statusHint.contains(QStringLiteral("未配置")));
+    QVERIFY(f.work.predictionStatusHint().contains(QStringLiteral("未配置")));
+
+    // 配了 loopback 端点：同一个装配函数挂上 HTTP 传输，仍是 router。
+    const auto configured = installRemotePrediction(
+        &f.work,
+        RemotePredictConfig::fromParts(
+            QUrl(QStringLiteral("http://127.0.0.1:65500")), true, QString()),
+        nullptr, QString(), &f.work);
+    QVERIFY(configured.transportBound);
+    QVERIFY(configured.service == f.work.predictionService());
+    QCOMPARE(QString(configured.service->metaObject()->className()),
+             QStringLiteral("RemotePredictionRouter"));
+  }
+  void unboundPredictionReportsUnconfiguredInsteadOfMockResult() {
+    Fixture f;
+    QVERIFY(f.init());
+    QVERIFY(!f.well("A", 100, 100).isEmpty());
+    f.work.setPredictionService(nullptr); // 模拟装配未到位
+    QString error;
+    QVERIFY(!f.work.predict("D61", "wells", {"A"}, &error));
+    QVERIFY2(error.contains(QStringLiteral("未配置")), qPrintable(error));
+    QVERIFY(f.work.predictionStatusHint().contains(QStringLiteral("未配置")));
+  }
   void panelSelectionAndBusyFollowActualState() {
     Fixture f;
     QVERIFY(f.init());

@@ -120,11 +120,91 @@ class LoopbackServer : public QObject
     QTcpServer m_server;
 };
 
+// 方向51：手动传输——不发网络请求，由测试决定何时「回包」。用来确定性地
+// 断言世代号守卫（取消/新一轮之后到达的应答必须被丢弃）。
+class ManualTransport : public RemoteTransport
+{
+  Q_OBJECT
+  public:
+    int healthStarts = 0, predictStarts = 0, aborts = 0;
+    quint64 lastRunId = 0;
+    static constexpr quint64 kStaleRunId = 999999;
+    void healthCheck( int, quint64 runId ) override
+    {
+      ++healthStarts;
+      lastRunId = runId;
+    }
+    void predict( const RemotePredictionRequest &, int, quint64 runId ) override
+    {
+      ++predictStarts;
+      lastRunId = runId;
+    }
+    void abort() override { ++aborts; }
+    // 正常回包：原样带回调用方的轮次号。
+    void settleHealth( bool ok, const QString &error )
+    {
+      emit healthDone( lastRunId, ok, error );
+    }
+    void settlePredict( const QVector<int> &cells, const QString &error )
+    {
+      emit predictDone( lastRunId, cells, error );
+    }
+    // 迟到回包：带着一个**不是当前在飞轮次**的号（router 已换新号或已取消，
+    // 其 m_runId=0）。用一个大哨兵而不是 lastRunId-1：0 与 cancel() 后的
+    // 失效号撞车会掩盖真实语义。
+    void settleStaleHealth( bool ok, const QString &error )
+    {
+      emit healthDone( kStaleRunId, ok, error );
+    }
+    void settleStalePredict( const QVector<int> &cells, const QString &error )
+    {
+      emit predictDone( kStaleRunId, cells, error );
+    }
+};
+
+// 方向51：本地降级桩——没有 ONNX 运行库的构建里也能测「远端不可用 → 本地
+// 降级」这条语义（router 只认 LocalPredictor 接口，不再直接调 ORT）。
+class StubLocalPredictor : public LocalPredictor
+{
+  public:
+    bool configured = true;
+    bool failAnyway = false;
+    QVector<int> cells;
+    bool isConfigured() const override { return configured; }
+    QString engineId() const override { return QStringLiteral( "stub-engine" ); }
+    bool predict( const RemotePredictionRequest &request, QVector<int> &out,
+                  QString *error ) override
+    {
+      if ( !configured )
+      {
+        if ( error ) *error = QObject::tr( "未绑定本地引擎" );
+        return false;
+      }
+      if ( request.samples.size() != qsizetype( request.columns ) * request.rows )
+      {
+        if ( error ) *error = QObject::tr( "请求未携带网格数据——本地降级不造假" );
+        return false;
+      }
+      if ( failAnyway )
+      {
+        if ( error ) *error = QObject::tr( "桩引擎失败" );
+        return false;
+      }
+      out = cells;
+      return true;
+    }
+};
+
 class TestRemotePredictionRouter : public QObject
 {
   Q_OBJECT
   private slots:
     void initTestCase();
+    void startReturnsBeforeAnySignalAndNeverBlocks();
+    void stalePredictReplyAfterCancelIsDropped();
+    void cancelDuringFlightReportsCancelledOnceAndDropsLateReply();
+    void stubLocalPredictorDegradesWithoutOnnxRuntime();
+    void unconfiguredLocalPredictorFailsHonestly();
     void healthyRemoteServesPredictions();
     void deadRemoteFallsBackToLocalOrt();
     void fallbackWithoutDataFailsHonestly();
@@ -179,6 +259,112 @@ void TestRemotePredictionRouter::initTestCase()
 {
   qRegisterMetaType<RemotePredictionResult>( "RemotePredictionResult" );
   qRegisterMetaType<RemotePredictionRequest>( "RemotePredictionRequest" );
+}
+
+void TestRemotePredictionRouter::startReturnsBeforeAnySignalAndNeverBlocks()
+{
+  // 方向51 硬约束：start() 立即返回，链在后续事件循环里跑（不得嵌套事件
+  // 循环把调用方卡住）。同一轮里同步观察不到任何终态信号。
+  ManualTransport transport;
+  RemotePredictionRouter router( &transport );
+  QSignalSpy completed( &router, &RemotePredictionService::completed );
+  QSignalSpy failed( &router, &RemotePredictionService::failed );
+  router.start( makeRequest( 4, 4, true ) );
+  QCOMPARE( completed.size(), 0 );
+  QCOMPARE( failed.size(), 0 );
+  QCOMPARE( transport.healthStarts, 0 ); // 健康检查也还没发起
+  // 链跑起来后（一次事件循环）才发起健康检查。
+  QCoreApplication::processEvents( QEventLoop::AllEvents, 20 );
+  QCOMPARE( transport.healthStarts, 1 );
+  router.cancel();
+}
+
+void TestRemotePredictionRouter::stalePredictReplyAfterCancelIsDropped()
+{
+  ManualTransport transport;
+  StubLocalPredictor local;
+  local.cells = QVector<int>( 16, 7 );
+  RemotePredictionRouter router( &transport );
+  router.setLocalPredictor( &local );
+  QSignalSpy completed( &router, &RemotePredictionService::completed );
+  QSignalSpy failed( &router, &RemotePredictionService::failed );
+  router.start( makeRequest( 4, 4, true ) );
+  QCoreApplication::processEvents( QEventLoop::AllEvents, 20 );
+  QCOMPARE( transport.healthStarts, 1 );
+  transport.settleHealth( true, {} );       // 健康 → 发起预测
+  QCOMPARE( transport.predictStarts, 1 );
+  router.cancel();                          // 取消作废本轮
+  QVERIFY( transport.aborts >= 1 );
+  // 迟到的预测应答（取消后才到、且带的是上一轮号）必须被丢弃：既不完成也
+  // 不再报错——取消后补一个 completed 就是"幽灵结果"。
+  transport.settleStalePredict( QVector<int>( 16, 3 ), {} );
+  QCoreApplication::processEvents( QEventLoop::AllEvents, 20 );
+  QCOMPARE( completed.size(), 0 );
+  QCOMPARE( failed.size(), 1 ); // 只有取消那一条
+  QVERIFY( failed.at( 0 ).at( 1 ).toString().contains( QStringLiteral( "已取消" ) ) );
+  QVERIFY( router.lastRoute().isEmpty() );
+  QVERIFY( !router.busy() );
+}
+
+void TestRemotePredictionRouter::cancelDuringFlightReportsCancelledOnceAndDropsLateReply()
+{
+  ManualTransport transport;
+  RemotePredictionRouter router( &transport );
+  QSignalSpy failed( &router, &RemotePredictionService::failed );
+  router.start( makeRequest( 4, 4, true ) );
+  QCoreApplication::processEvents( QEventLoop::AllEvents, 20 );
+  // 还在等健康检查时取消：router 须报一次"已取消"，随后的健康应答不再产生
+  // 第二个终态（双回会让 UI 出现"失败后又完成"的幽灵态）。
+  router.cancel();
+  QCOMPARE( failed.size(), 1 );
+  transport.settleStaleHealth( true, {} );
+  transport.settleStalePredict( QVector<int>( 16, 3 ), {} );
+  QCoreApplication::processEvents( QEventLoop::AllEvents, 20 );
+  QCOMPARE( failed.size(), 1 );
+  QCOMPARE( transport.predictStarts, 0 ); // 已取消的轮次不再往下走
+}
+
+void TestRemotePredictionRouter::stubLocalPredictorDegradesWithoutOnnxRuntime()
+{
+  // 没有 ORT 也能验证降级语义：远端健康检查失败 → 走 LocalPredictor 接口。
+  ManualTransport transport;
+  StubLocalPredictor local;
+  local.cells = QVector<int>( 16, 7 );
+  RemotePredictionRouter router( &transport );
+  router.setLocalPredictor( &local );
+  QSignalSpy completed( &router, &RemotePredictionService::completed );
+  QSignalSpy failed( &router, &RemotePredictionService::failed );
+  router.start( makeRequest( 4, 4, true ) );
+  QCoreApplication::processEvents( QEventLoop::AllEvents, 20 );
+  transport.settleHealth( false, QStringLiteral( "健康检查失败: 桩" ) );
+  QVERIFY2( waitSpy( completed ), "远端不健康 → 走本地降级" );
+  QCOMPARE( failed.size(), 0 );
+  const RemotePredictionResult result =
+    completed.at( 0 ).at( 0 ).value<RemotePredictionResult>();
+  QCOMPARE( result.method, QStringLiteral( "stub-engine" ) );
+  QVERIFY( !result.mock );
+  QCOMPARE( result.cells.size(), 16 );
+  for ( int cell : result.cells )
+    QCOMPARE( cell, 7 );
+  QCOMPARE( router.lastRoute(), QStringLiteral( "stub-engine" ) );
+}
+
+void TestRemotePredictionRouter::unconfiguredLocalPredictorFailsHonestly()
+{
+  ManualTransport transport;
+  StubLocalPredictor local;
+  local.configured = false; // 降级引擎缺失
+  RemotePredictionRouter router( &transport );
+  router.setLocalPredictor( &local );
+  QSignalSpy completed( &router, &RemotePredictionService::completed );
+  QSignalSpy failed( &router, &RemotePredictionService::failed );
+  router.start( makeRequest( 4, 4, true ) );
+  QCoreApplication::processEvents( QEventLoop::AllEvents, 20 );
+  transport.settleHealth( false, QStringLiteral( "健康检查失败: 桩" ) );
+  QVERIFY2( waitSpy( failed ), "降级不可用 → 如实失败" );
+  QCOMPARE( completed.size(), 0 );
+  QVERIFY2( failed.at( 0 ).at( 1 ).toString().contains( QStringLiteral( "降级未配置" ) ),
+            qPrintable( failed.at( 0 ).at( 1 ).toString() ) );
 }
 
 void TestRemotePredictionRouter::healthyRemoteServesPredictions()

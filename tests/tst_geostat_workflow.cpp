@@ -126,6 +126,9 @@ class GeostatWorkflowTests : public QObject
     void sgsFullChainAndParamRoundTrip();
     // 取消诚实：compute 取消 → 失败无输出，publish 拒绝
     void cancelledComputeIsHonest();
+    // 方向67 Oracle 5：策略包 id 进血缘；未知 id 拒绝不回退
+    void strategyIdLandsInLineage();
+    void unknownStrategyIdRejected();
 };
 
 void GeostatWorkflowTests::krigingFullChainRegistersDerived()
@@ -260,6 +263,50 @@ void GeostatWorkflowTests::cancelledComputeIsHonest()
   QVERIFY( job.outputPath.isEmpty() ); // 半成品不外泄
   QVERIFY( !wf.publishGeostatJob( job, &err ) );
   QVERIFY( !err.isEmpty() );
+}
+
+// 方向67 Oracle 5：所选策略包 id 进血缘 extra（词表 id 原样落 strategy_id）。
+void GeostatWorkflowTests::strategyIdLandsInLineage()
+{
+  Fixture f;
+  QVERIFY( initFixture( f ) );
+  QString err;
+  QVERIFY2( setupWells( f, 5, &err ), qPrintable( err ) );
+
+  ConstraintWorkflow wf( &f.proc, &f.layers );
+  wf.setCatalog( &f.catalog, f.projectDir() );
+  QVariantMap params;
+  params.insert( QStringLiteral( "field" ), QStringLiteral( "z" ) );
+  params.insert( QStringLiteral( "cellSize" ), 2.0 );
+  params.insert( QStringLiteral( "method" ), QStringLiteral( "kriging" ) );
+  params.insert( QStringLiteral( "variogramModel" ), QStringLiteral( "spherical" ) );
+  params.insert( QStringLiteral( "strategy_id" ), QStringLiteral( "kriging" ) ); // 词表 id
+  QVERIFY2( wf.generateFactor( QStringLiteral( "T1" ), QStringLiteral( "sandthick" ), params, &err ),
+            qPrintable( err ) );
+  const QVariantMap extra = findExtraByAlgorithm( f.catalog, QStringLiteral( "paleo:geostat_kriging" ) );
+  QVERIFY( !extra.isEmpty() );
+  QCOMPARE( extra.value( QStringLiteral( "strategy_id" ) ).toString(), QStringLiteral( "kriging" ) );
+}
+
+// 方向67 Oracle 5：未知策略 id 在分派入口拒绝（词表外不回退，不冒名落血缘）。
+void GeostatWorkflowTests::unknownStrategyIdRejected()
+{
+  Fixture f;
+  QVERIFY( initFixture( f ) );
+  QString err;
+  QVERIFY2( setupWells( f, 5, &err ), qPrintable( err ) );
+
+  ConstraintWorkflow wf( &f.proc, &f.layers );
+  wf.setCatalog( &f.catalog, f.projectDir() );
+  QVariantMap params;
+  params.insert( QStringLiteral( "field" ), QStringLiteral( "z" ) );
+  params.insert( QStringLiteral( "cellSize" ), 2.0 );
+  params.insert( QStringLiteral( "method" ), QStringLiteral( "kriging" ) );
+  params.insert( QStringLiteral( "strategy_id" ), QStringLiteral( "no_such_strategy" ) );
+  QVERIFY( !wf.generateFactor( QStringLiteral( "T1" ), QStringLiteral( "sandthick" ), params, &err ) );
+  QVERIFY2( err.contains( QStringLiteral( "未知制图策略" ) ), qPrintable( err ) );
+  // 没有任何 single_factor_raster 版本被登记（拒绝发生在分派前）。
+  QVERIFY( findExtraByAlgorithm( f.catalog, QStringLiteral( "paleo:geostat_kriging" ) ).isEmpty() );
 }
 
 int main( int argc, char *argv[] )

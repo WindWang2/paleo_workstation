@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <numbers>
 
@@ -65,7 +66,7 @@ double VariogramModel::semivariance( double dx, double dy, double dz ) const
 }
 
 ExperimentalVariogram experimentalVariogram( const std::vector<Sample> &samples,
-    double lag, int nLags, const VariogramDirection &direction )
+    double lag, int nLags, const VariogramDirection &direction, const VariogramBarriers &barriers )
 {
   ExperimentalVariogram result;
   result.lag = lag;
@@ -85,6 +86,78 @@ ExperimentalVariogram experimentalVariogram( const std::vector<Sample> &samples,
   {
     result.message = "need at least 2 finite samples";
     return result;
+  }
+
+  // 隔断感知档：每样本一个绕障测地距离场（faultpath 核），对的滞后距取场值，
+  // 不可达（NaN）= 跨隔断，不进累积。关或无隔断 → barrierTrack 为空，逐位走
+  // 既有欧氏距代码路径。
+  constexpr std::size_t kBarrierSampleLimit = 512;
+  const bool barrierTrack = barriers.enabled && !barriers.polygons.empty();
+  GridSpec barrierGrid;
+  std::vector<std::vector<double>> barrierFields; // 有限样本序的第 i 个距离场
+  if ( barrierTrack )
+  {
+    if ( samples.size() > kBarrierSampleLimit )
+    {
+      result.message = "barrier-aware variogram supports at most 512 samples";
+      return result;
+    }
+    // 栅格化格网：覆盖有限样本范围 + 一格余量；分辨率沿最长边。
+    double minX = std::numeric_limits<double>::max();
+    double minY = std::numeric_limits<double>::max();
+    double maxX = std::numeric_limits<double>::lowest();
+    double maxY = std::numeric_limits<double>::lowest();
+    for ( const Sample &sample : samples )
+    {
+      if ( !std::isfinite( sample.x ) || !std::isfinite( sample.y ) )
+        continue;
+      minX = std::min( minX, sample.x );
+      minY = std::min( minY, sample.y );
+      maxX = std::max( maxX, sample.x );
+      maxY = std::max( maxY, sample.y );
+    }
+    int resolution = barriers.gridResolution > 0 ? barriers.gridResolution : 256;
+    resolution = std::clamp( resolution, 32, 1024 );
+    const double span = std::max( maxX - minX, maxY - minY );
+    double cellSize = span > 0 ? span / resolution : 1.0;
+    const auto cellsAlong = [cellSize]( double extent ) {
+      return std::max( 1, static_cast<int>( std::ceil( extent / cellSize ) ) );
+    };
+    barrierGrid.originX = minX - cellSize;
+    barrierGrid.originY = maxY + cellSize; // north-up：行向南
+    barrierGrid.pixelWidth = cellSize;
+    barrierGrid.pixelHeight = -cellSize;
+    barrierGrid.cols = cellsAlong( maxX - minX ) + 2;
+    barrierGrid.rows = cellsAlong( maxY - minY ) + 2;
+    // 总单元预算闸（分辨率参数与长宽比组合出的极端格网不无限放大）。
+    constexpr std::int64_t kCellBudget = 4'000'000;
+    if ( static_cast<std::int64_t>( barrierGrid.rows ) * barrierGrid.cols > kCellBudget )
+    {
+      const double scale = std::sqrt(
+          static_cast<double>( kCellBudget ) /
+          static_cast<double>( static_cast<std::int64_t>( barrierGrid.rows ) * barrierGrid.cols ) );
+      barrierGrid.cols = std::max( 2, static_cast<int>( barrierGrid.cols * scale ) );
+      barrierGrid.rows = std::max( 2, static_cast<int>( barrierGrid.rows * scale ) );
+    }
+    barrierFields.reserve( samples.size() );
+    for ( const Sample &sample : samples )
+    {
+      if ( !std::isfinite( sample.x ) || !std::isfinite( sample.y ) ||
+           !std::isfinite( sample.value ) )
+      {
+        barrierFields.emplace_back(); // 占位：与非有限样本对本来就不累积
+        continue;
+      }
+      const FaultPathResult field =
+          faultPathMetric( barrierGrid, barriers.polygons, sample.x, sample.y );
+      if ( field.status != Status::Ok )
+      {
+        result.message = "barrier distance field failed: " + field.message;
+        return result;
+      }
+      barrierFields.push_back( std::move( field.distance ) );
+    }
+    result.barrierAware = true;
   }
 
   const bool omnidirectional = direction.omnidirectional || direction.toleranceDeg >= 90;
@@ -109,6 +182,8 @@ ExperimentalVariogram experimentalVariogram( const std::vector<Sample> &samples,
     const Sample &a = samples[i];
     if ( !std::isfinite( a.x ) || !std::isfinite( a.y ) || !std::isfinite( a.value ) )
       continue;
+    const std::vector<double> *fieldOfA =
+        barrierTrack ? &barrierFields[i] : nullptr;
     for ( std::size_t j = i + 1; j < samples.size(); ++j )
     {
       const Sample &b = samples[j];
@@ -116,16 +191,41 @@ ExperimentalVariogram experimentalVariogram( const std::vector<Sample> &samples,
         continue;
       const double dx = b.x - a.x;
       const double dy = b.y - a.y;
-      const double h = std::hypot( dx, dy );
-      if ( !( h > 0 ) )
+      const double hEuclid = std::hypot( dx, dy );
+      if ( !( hEuclid > 0 ) )
         continue; // 重合点对：γ 由重合均值承担，跳过（与 γ(0)=0 口径一致）
+      double h = hEuclid;
+      if ( fieldOfA )
+      {
+        // 测地滞后距：场在 b 所在格的值（方向过滤仍按欧氏位移与欧氏距）。
+        const int column = static_cast<int>( std::floor( ( b.x - barrierGrid.originX ) /
+                                                         barrierGrid.pixelWidth ) );
+        const int row = static_cast<int>( std::floor( ( b.y - barrierGrid.originY ) /
+                                                      barrierGrid.pixelHeight ) );
+        if ( column < 0 || column >= barrierGrid.cols || row < 0 || row >= barrierGrid.rows )
+        {
+          ++result.unreachablePairs;
+          continue; // 样本落在格网外（理论不可能：格网覆盖样本范围）——如实跳过
+        }
+        const double geodesic = ( *fieldOfA )[static_cast<std::size_t>( row ) * barrierGrid.cols +
+                                              static_cast<std::size_t>( column )];
+        if ( !std::isfinite( geodesic ) )
+        {
+          ++result.unreachablePairs;
+          continue; // 跨隔断（不同连通域）：不进累积
+        }
+        h = geodesic;
+        if ( !( h > 0 ) )
+          continue; // 同格不同点（测地 0）：按 γ(0) 口径跳过
+      }
       const int lagIndex = static_cast<int>( h / lag );
       if ( lagIndex >= nLags )
         continue;
       if ( !omnidirectional )
       {
         // |cos| 处理 h 与 -h 的对称：对方向与反方向都计入
-        const double cosine = std::fabs( dx * std::sin( azimuthRad ) + dy * std::cos( azimuthRad ) ) / h;
+        const double cosine =
+            std::fabs( dx * std::sin( azimuthRad ) + dy * std::cos( azimuthRad ) ) / hEuclid;
         if ( cosine < cosTolerance )
           continue;
       }

@@ -6,6 +6,7 @@
 
 #include "../../domain/arearules.h" // 历史存量 include（勿增新 io include）
 #include "../../domain/mappinghorizons.h"
+#include "../../domain/singlefactorstrategy.h" // 方向67：策略包词表（方法下拉单一真源）
 #include "../../qgis/qgislayerservice.h"
 #include "../../services/singlefactordef.h"
 #include "../../workflow/workflows.h"
@@ -171,18 +172,38 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   lay->addWidget( methodCaption );
   auto *method = new QComboBox( content );
   method->setObjectName( QStringLiteral( "factorMethodCombo" ) );
-  method->addItem( tr( "本地方向插值" ), QStringLiteral( "local_direction_idw" ) );
-  // 方向41：同一本地方向插值面（成图域/硬屏障/覆盖标记）上的真克里金。
-  // 与「克里金（各向异性）」作用域不同；克里金不成立时 QC/extra 记 method_actual。
-  method->addItem( tr( "克里金（局部方向约束）" ), QStringLiteral( "local_direction_kriging" ) );
-  method->addItem( tr( "克里金（各向异性）" ), QStringLiteral( "kriging" ) );
+  // 方向67：成图方法下拉由 singlefactorstrategy 词表驱动（标签与真实算法一致，
+  // 参数预览 = 词表 geologicalNote）。词表 id → 本页 method 参数映射唯一例外：
+  // 词表 "idw"（上游口径）在本仓请求里是 "legacy"（不写 method，走旧约束 IDW）。
+  // SGS 是实现族不是曲面策略包，作为页面专属项追加（不带策略 id）。
+  for ( const paleo::singlefactor::SurfaceMethodPack &pack : paleo::singlefactor::surfaceMethodPacks() )
+  {
+    const QString methodId = pack.id == QLatin1String( "idw" )
+                                 ? QStringLiteral( "legacy" )
+                                 : pack.id;
+    method->addItem( pack.label, methodId );
+    method->setItemData( method->count() - 1, pack.geologicalNote, Qt::ToolTipRole );
+  }
   method->addItem( tr( "SGS 实现族" ), QStringLiteral( "sgs" ) );
-  method->addItem( tr( "Surfer IDW（断层绕行）" ), QStringLiteral( "surfer_idw" ) );
-  method->addItem( tr( "原约束 IDW" ), QStringLiteral( "legacy" ) );
-  // WS-C5：上游移植的结构化 IDW（方向线+打断约束+测区边界域）。
-  method->addItem( tr( "结构 IDW（测区边界）" ), QStringLiteral( "structural_idw" ) );
+  const int defaultMethod = method->findData( QStringLiteral( "local_direction_idw" ) );
+  if ( defaultMethod >= 0 )
+    method->setCurrentIndex( defaultMethod );
   method->setAccessibleName( tr( "成图方法" ) );
   lay->addWidget( method );
+  // 策略参数预览（随选择联动；SGS 无词表项时隐藏）。
+  auto *strategyNote = new QLabel( content );
+  strategyNote->setObjectName( QStringLiteral( "factorStrategyNote" ) );
+  strategyNote->setWordWrap( true );
+  const auto updateStrategyNote = [method, strategyNote]() {
+    const QVariant note = method->currentIndex() >= 0
+                              ? method->itemData( method->currentIndex(), Qt::ToolTipRole )
+                              : QVariant();
+    strategyNote->setText( note.toString() );
+    strategyNote->setVisible( !note.toString().isEmpty() );
+  };
+  updateStrategyNote();
+  connect( method, &QComboBox::currentIndexChanged, method, updateStrategyNote );
+  lay->addWidget( strategyNote );
 
   auto *coverageCaption = caption( tr( "覆盖方式" ), content );
   coverageCaption->setObjectName( QStringLiteral( "factorCoverageCaption" ) );
@@ -436,6 +457,15 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
       const QString methodId = method->currentData().toString();
       if ( methodId != QLatin1String( "legacy" ) )
         params.insert( QStringLiteral( "method" ), methodId );
+      // 方向67：所选策略包 id（词表口径）进参数 → 血缘 strategy_id。页面把词表
+      // "idw" 显示为 legacy；SGS 不在曲面词表内，不写 strategy_id（不冒充）。
+      const QString strategyLookup =
+          methodId == QLatin1String( "legacy" ) ? QStringLiteral( "idw" ) : methodId;
+      if ( const paleo::singlefactor::SurfaceMethodPack *pack =
+               paleo::singlefactor::surfaceMethodPack( strategyLookup ) )
+      {
+        params.insert( QStringLiteral( "strategy_id" ), pack->id );
+      }
       params.insert( QStringLiteral( "coverage" ), coverage->currentData().toString() );
       params.insert( QStringLiteral( "power" ), power->value() );
       params.insert( QStringLiteral( "wellClusterLocality" ), cluster->isChecked() );

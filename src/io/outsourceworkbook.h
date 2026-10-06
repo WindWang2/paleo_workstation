@@ -111,4 +111,64 @@ QString canonicalWellName( const QString &raw );
 // 上游 _parse_numeric：去空白与千分位逗号、去尾部百分号，非有限返回 false。
 bool parseNumericCell( const QString &raw, double *value );
 
+// ---- 方向67：曲线统计与因素候选发现（读面之上的纯统计，不自动进图）----
+
+// 单列曲线统计。深度区间 = 该列有限值所在行的深度取值范围（没识别到深度列
+// 则 hasDepth=false，区间字段无效）。
+struct CurveColumnStats
+{
+  QString name;
+  int rowCount = 0;   // 参与统计的有限值行数
+  int badCells = 0;   // 非数值单元格（如实计数，不静默丢弃）
+  double mean = 0;
+  double median = 0;
+  double min = 0;
+  double max = 0;
+  bool hasDepth = false;
+  double depthMin = 0;
+  double depthMax = 0;
+};
+
+// 一个工作表的曲线统计。深度列口径：表头含「深度」的首个列（顶深/底深/深度
+// 都算），不进曲线列；曲线列 = 至少 minCurveRows（默认 3）个有限数值的数值列。
+struct CurveSheetStats
+{
+  bool ok = false;
+  QString error;
+  QString sheetName;
+  QString depthColumn;
+  int minCurveRows = 3;
+  QVector<CurveColumnStats> columns; // 按表头顺序
+  QStringList issues;                // 没有数值列/深度列缺失等非致命提示
+};
+
+CurveSheetStats curveSheetStatistics( const WorkbookSheet &sheet, int minCurveRows = 3 );
+
+// 因素自动发现：曲线列两两 Pearson 相关，|r| ≥ minAbsCorrelation（默认 0.7——
+// 常规经验「强相关」下沿，阈值口径钉死在参数注释）且共同有限样本 ≥ minPairedRows
+//（默认 8）→ 候选对。这是候选不是结论：调用方自行审阅，不自动进图。
+// 排序 |r| 降序、|r| 相同按列名字典序——同输入同输出（可复现）。
+struct FactorCandidate
+{
+  QString columnA; // 字典序不大于 columnB
+  QString columnB;
+  double correlation = 0; // Pearson r，符号保留
+  int pairedRows = 0;     // 两列同时有限的行数
+};
+
+struct FactorDiscovery
+{
+  bool ok = false;
+  QString error;
+  QVector<FactorCandidate> candidates; // 按 |r| 降序
+  int pairsConsidered = 0;             // 评估过的列对总数（含被阈值滤掉的）
+  int pairsSkippedSparse = 0;          // 共同样本不足被跳过的对数
+  int pairsSkippedDegenerate = 0;      // 某列常数（零方差）无法定义相关的对数
+  QStringList notes;
+};
+
+FactorDiscovery discoverFactorCandidates( const WorkbookSheet &sheet,
+                                          double minAbsCorrelation = 0.7,
+                                          int minPairedRows = 8, int minCurveRows = 3 );
+
 } // namespace paleo::io

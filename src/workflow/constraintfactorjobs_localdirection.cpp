@@ -453,6 +453,7 @@ bool ConstraintWorkflow::publishLocalDirectionJob( const LocalDirectionJob &job,
   extra.insert( QStringLiteral( "extrapolated_cells" ), counts.value( QStringLiteral( "extrapolated" ) ) );
   extra.insert( QStringLiteral( "barrier_cells" ), counts.value( QStringLiteral( "barrier" ) ) );
   inheritMockFlag( PaleoWorkflowDerivedCatalog( this ), parentIds, extra );
+  insertStrategyId( job.params, extra ); // 方向67：策略包 id 进血缘（覆盖本地方向两引擎与 surfer 委托）
   QString commitErr;
   if ( !registrar.commitExternal( st, job.outputPath, parentIds, committedAlgorithm, extra, &commitErr ) )
   {

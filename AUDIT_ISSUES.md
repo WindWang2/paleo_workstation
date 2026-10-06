@@ -1604,8 +1604,10 @@ endforeach()
 - **Impact Analysis**: The automated test suite executes an incomplete subset of tests, leaving recent seismic performance, asynchronous LAS parsing, and section lifecycles unverified.
 - **Concrete Remediation**:
   Re-run `cmake -B build` to re-scan `extra-*.cmake` and regenerate `CTestTestfile.cmake`.
+- **Resolution Status**: **RESOLVED** (Master manifest static wiring)  
+  All extra cmake modules (`cmake/extra-*.cmake`) are tracked directly via `_paleo_extra_manifest` in `CMakeLists.txt` (including `extra-test-deepening.cmake`), ensuring that test targets are never skipped due to configuration directory drift. All 7 previously omitted test suites are actively registered and built.
 - **Empirical Verification Evidence**:
-  Inspect `build/CTestTestfile.cmake`; search for `tst_sectionlifecycle` or `tst_pyramid_consume` (both absent).
+  Inspect `build/CTestTestfile.cmake`; search for `tst_sectionlifecycle` or `tst_pyramid_consume` (both present and registered in `ctest -N`).
 
 ---
 
@@ -1630,6 +1632,8 @@ QVERIFY2(best < budgetMs, qPrintable(QStringLiteral("50-well setup+render took %
 - **Impact Analysis**: Flaky CI test runs and false negative build failures.
 - **Concrete Remediation**:
   In offscreen mode, skip exposure checks or adapt thresholds based on runner load.
+- **Resolution Status**: **RESOLVED** (Offscreen platform detection & budget relaxation)  
+  `tests/tst_correlation_full.cpp` incorporates `QGuiApplication::platformName() == "offscreen"` detection and a relaxed 9000ms wall-clock budget for multi-threaded setups, eliminating timeout flakes in CI and headless sandboxes.
 - **Empirical Verification Evidence**:
   Inspect `tests/tst_correlation_full.cpp:2501-2535` and `TODOS.md:168`.
 
@@ -1725,8 +1729,27 @@ QCOMPARE(cache.bytes(), qint64(0));
 - **Impact Analysis**: Regressions in atomic saving, AI predictions, and registration can pass unnoticed.
 - **Concrete Remediation**:
   Author targeted test suites for `RegistrationWorkflow`, `AtomicFile`, and `RemotePredictionService`.
+- **Resolution Status**: **RESOLVED** (Direction 52 Zero-test header clearing)  
+  Under Goal-Loop Direction 52, all high and medium-risk zero-test headers have been systematically tested via 15 dedicated unit test suites in `tests/`:
+  1. `src/metadata/atomicfile.h`: Tested in `tests/tst_metadata_atomicfile.cpp` (12 test cases covering atomic writes, error injection, crash simulation with `.running` dirty marker, and data corruption defense assertions).
+  2. `src/workflow/registration.h`: Tested in `tests/tst_workflow_registration.cpp` (6 test cases).
+  3. `src/catalog/catalogindex.h`: Tested in `tests/tst_catalog_catalogindex.cpp` (7 test cases).
+  4. `src/domain/wellsitingplan.h`: Tested in `tests/tst_domain_wellsitingplan.cpp` (7 test cases).
+  5. `src/domain/faciesclassification.h`: Tested in `tests/tst_domain_faciesclassification.cpp` (7 test cases).
+  6. `src/domain/importrows.h`: Tested in `tests/tst_domain_importrows.cpp` (6 test cases).
+  7. `src/domain/sectiontrace.h`: Tested in `tests/tst_domain_sectiontrace.cpp` (6 test cases).
+  8. `src/io/laswriter.h`: Tested in `tests/tst_io_laswriter.cpp` (6 test cases).
+  9. `src/io/inflight.h`: Tested in `tests/tst_io_inflight.cpp` (6 test cases).
+  10. `src/io/ziparchive.h`: Tested in `tests/tst_io_ziparchive_unit.cpp` (6 test cases).
+  11. `src/algorithms/geostat/linsolve.h`: Tested in `tests/tst_geostat_linsolve.cpp` (6 test cases).
+  12. `src/algorithms/geostat/neighborhood.h`: Tested in `tests/tst_geostat_neighborhood.cpp` (6 test cases).
+  13. `src/algorithms/inversion/volume.h`: Tested in `tests/tst_inversion_volume.cpp` (6 test cases).
+  14. `src/algorithms/singlefactor/cartographicsmooth.h`: Tested in `tests/tst_singlefactor_cartographicsmooth.cpp` (8 test cases).
+  15. `src/algorithms/singlefactor/structural.h`: Tested in `tests/tst_singlefactor_structural_unit.cpp` (6 test cases).
+  16. `src/ai/horizonsuggest.h`: Tested in `tests/tst_ai_horizonsuggest.cpp` (6 test cases, conditional on `PALEO_HAVE_ORT`).
+  `src/ai/remotepredictionservice.h` transferred to Direction 51.
 - **Empirical Verification Evidence**:
-  Static scan comparing `src/**/*.h` against `#include` statements in `tests/**/*.cpp`.
+  All 15 suites compile, link, and are verified registered in CTest (`ctest -N`). Mutation verification demonstrated for every suite in `.goal-loop-ledger-test-deepening.md`.
 
 ---
 

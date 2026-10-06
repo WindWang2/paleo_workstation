@@ -99,3 +99,23 @@
 | `src/ui/attributetablepanel.cpp:184` | `QMessageBox::question`(Discard\|Cancel, 默认 Cancel) | `PaleoNotify::ask(DiscardCancel, Reject)` | 模态①（offscreen 跳过分支不变） | 放弃编辑 |
 | `src/ui/datapreview/datapreviewtabseismic.cpp:479` | `QMessageBox::question`(缺省) | `PaleoNotify::ask()` | 模态① | 转码地震工作区 |
 | `src/ui/datapreview/datapreviewtabseismic.cpp:538` | `QMessageBox::question`(缺省) | `PaleoNotify::ask()` | 模态① | 转码分页工作区 |
+| `src/ui/seismicsection/seismicsectiondockwidget.cpp:1379` | `QMessageBox::information` | `PaleoNotify::information` | 状态栏 info（5s） | tr("导出成功") |
+| `src/ui/seismicsection/seismicsectiondockwidget.cpp:1381` | `QMessageBox::critical` | `PaleoNotify::critical` | severe 模态（同键60s单弹） | tr("导出失败") |
+| `src/ui/seismicsection/seismicsectiondockwidget.cpp:2650` | `QMessageBox::information` | `PaleoNotify::information` | 状态栏 info（5s） | tr("任意线编辑器") |
+| `src/ui/seismicsection/seismicsectiondockwidget.cpp:2684` | `QMessageBox::warning` | `PaleoNotify::warning` | 非模态通知卡（8s） | tr("任意线编辑器") |
+| `src/ui/seismicsection/seismicsectiondockwidget.cpp:2696` | `QMessageBox::information` | `PaleoNotify::information` | 状态栏 info（5s） | tr("井旁道") |
+| `src/ui/seismicsection/seismicsectiondockwidget.cpp:2707` | `QMessageBox::warning` | `PaleoNotify::warning` | 非模态通知卡（8s） | tr("井旁道") |
+| `src/ui/seismicsection/seismicsectiondockwidget.cpp:2716` | `QMessageBox::information` | `PaleoNotify::information` | 状态栏 info（5s） | tr("井旁道") |
+| `src/ui/seismicsection/seismicsectiondockwidget.cpp:2726` | `QMessageBox::warning` | `PaleoNotify::warning` | 非模态通知卡（8s） | tr("井旁道") |
+| `src/ui/seismicsection/seismicsectiondockwidget.cpp:2731` | `QMessageBox::warning` | `PaleoNotify::warning` | 非模态通知卡（8s） | tr("井旁道") |
+| `src/ui/seismicsection/seismicsectiondockwidget.cpp:2742` | `QMessageBox::warning` | `PaleoNotify::warning` | 非模态通知卡（8s） | tr("井旁道") |
+| `src/ui/seismicsection/seismicsectiondockwidget.cpp:2749` | `QMessageBox::warning` | `PaleoNotify::warning` | 非模态通知卡（8s） | tr("井旁道") |
+| `src/ui/seismicsection/seismicpickpanel.cpp:277` | `QMessageBox::warning` | `PaleoNotify::warning` | 非模态通知卡（8s） | tr("导出失败") |
+| `src/ui/seismicsection/seismicpickpanel.cpp:279` | `QMessageBox::information` | `PaleoNotify::information` | 状态栏 info（5s） | tr("已导出") |
+| `src/ui/seismicsection/seismicpickpanel.cpp:289` | `QMessageBox::warning` | `PaleoNotify::warning` | 非模态通知卡（8s） | tr("层位资产登记失败") |
+| `src/ui/seismicsection/seismicpickpanel.cpp:291` | `QMessageBox::information` | `PaleoNotify::information` | 状态栏 info（5s） | tr("层位资产已登记") |
+| `src/ui/seismicsection/seismicpickpanel.cpp:302` | `QMessageBox::warning` | `PaleoNotify::warning` | 非模态通知卡（8s） | tr("断层资产登记失败") |
+| `src/ui/seismicsection/seismicpickpanel.cpp:304` | `QMessageBox::information` | `PaleoNotify::information` | 状态栏 info（5s） | tr("断层资产已登记") |
+| `src/ui/seismicsection/seismicpickpanel.cpp:314` | `QMessageBox::warning` | `PaleoNotify::warning` | 非模态通知卡（8s） | tr("会话保存失败") |
+| `src/ui/seismicsection/seismicpickpanel.cpp:316` | `QMessageBox::information` | `PaleoNotify::information` | 状态栏 info（5s） | tr("会话已保存") |
+| `src/ui/seismicsection/seismicpickpanel.cpp:326` | `QMessageBox::warning` | `PaleoNotify::warning` | 非模态通知卡（8s） | tr("会话载入失败") |

@@ -347,6 +347,13 @@ PaleoMainWindow::PaleoMainWindow(QgisCanvasController *canvasCtl,
             [this] { resetProjectScopedState(); });
     connect(m_projectSvc, &QgisProjectService::projectOpened, this,
             [this](const QString &) { onProjectOpened(); });
+    // #282：writeProject 落盘后 setFileName 重靶权威路径，QGIS 把「文件名
+    // 变更」计为未保存改动——内容刚整本写入，这里把状态拉回干净。否则标题
+    // [*] 保存后常驻，且切工程/关窗会拿刚保存过的工程反复询问。
+    connect(m_projectSvc, &QgisProjectService::projectWritten, this, [this] {
+      if (QgsProject *p = m_projectSvc ? m_projectSvc->project() : nullptr)
+        p->setDirty(false);
+    });
     // 窗口标题/修改标记：dirty → [*] 显示，保存/改名 → 刷新工程名。
     if (QgsProject *proj = m_projectSvc->project())
     {
@@ -576,6 +583,9 @@ void PaleoMainWindow::buildShell()
           tr("Paleo 工程 (*.paleo);;QGIS 工程 (*.qgz *.qgs)"));
       if (p.isEmpty())
         return;
+      // #282：切换工程前先问当前工程脏状态（取消则原地不动）。
+      if (!maybeSaveProject())
+        return;
       // §38 blocking-error contract: a failed open surfaces as a dialog, not
       // a silent no-op on the startup page.
       if (!m_projectSvc->openProject(p) && !m_projectSvc->lastOpenCancelled()) // #152：用户取消不弹错
@@ -589,6 +599,9 @@ void PaleoMainWindow::buildShell()
       const QString p = QFileDialog::getSaveFileName(
           this, tr("新建工程"), QString(), tr("Paleo 工程 (*.qgz)"));
       if (p.isEmpty())
+        return;
+      // #282：新建前同样先问当前工程脏状态。
+      if (!maybeSaveProject())
         return;
       if (!m_projectSvc->createProject(p) && !m_projectSvc->lastOpenCancelled()) // #152：用户取消不弹错
         PaleoNotify::critical(this, tr("新建工程失败"),
@@ -606,12 +619,15 @@ void PaleoMainWindow::buildShell()
       const QString dir =
           QFileDialog::getExistingDirectory(this, tr("从工区文件夹新建工程"));
       if (!dir.isEmpty())
-        openPath(dir);
+        openPath(dir); // 脏状态检查在 openPath 内（#282）
     });
   if (auto *list = startup->findChild<QListWidget *>(QStringLiteral("recentProjectsList")))
     connect(list, &QListWidget::itemActivated, this, [this](QListWidgetItem *item) {
       const QString p = item ? item->data(Qt::UserRole).toString() : QString();
       if (p.isEmpty() || !m_projectSvc)
+        return;
+      // #282：从最近列表切换工程前先问当前工程脏状态。
+      if (!maybeSaveProject())
         return;
       if (!m_projectSvc->openProject(p) && !m_projectSvc->lastOpenCancelled()) // #152：用户取消不弹错
         PaleoNotify::critical(this, tr("打开工程失败"),
@@ -1536,6 +1552,10 @@ bool PaleoMainWindow::openPath(const QString &path)
 {
   if (path.isEmpty())
     return false;
+  // #282：所有走 workflow 的工程切换入口（启动页「从工区文件夹新建」等）
+  // 先问当前工程脏状态——取消则原地不动。启动首开（无工程）时为空操作。
+  if (!maybeSaveProject())
+    return false;
   auto *wf = projectOpenWorkflow();
   return wf ? wf->openPath(path) : false;
 }
@@ -1638,63 +1658,14 @@ void PaleoMainWindow::onProjectOpened()
 
 void PaleoMainWindow::closeEvent(QCloseEvent *event)
 {
-  // C1 关窗数据保护：编辑中且有未提交改动的矢量图层 → 保存/放弃/取消
-  // 三选一。走编辑服务（busy 挂账随 commit/rollback 清），无服务时直连
-  // commitChanges/rollBack。offscreen（无头测试/渲染环境）不弹模态框——
-  // 弹了没人点会挂死事件循环，保持旧行为直接放行。
-  if (m_projectSvc && m_projectSvc->project() && !isOffscreen())
+  // C1 关窗数据保护 + #282（UIS-09）工程级脏状态：maybeSaveProject 先查
+  // 编辑缓冲（resolveDirtyLayerEdits）再查 QgsProject::isDirty（版面/样式/
+  // 图层树/主题只存 .qgz）——保存/放弃/取消三选一，取消（含 Esc/窗口 ✕）
+  // 不关窗。offscreen 且未注入 seam 时直接放行（无头环境不弹模态）。
+  if (!maybeSaveProject())
   {
-    QList<QgsVectorLayer *> dirty;
-    QStringList dirtyNames;
-    const auto layers = m_projectSvc->project()->mapLayers();
-    for (QgsMapLayer *l : layers)
-      if (auto *vl = qobject_cast<QgsVectorLayer *>(l))
-        if (vl->isEditable() && vl->isModified())
-        {
-          dirty << vl;
-          dirtyNames << (vl->name().isEmpty() ? vl->id() : vl->name());
-        }
-    if (!dirty.isEmpty())
-    {
-      // 显式中文按钮文案（标准按钮的翻译依赖 Qt 自带 qtbase 翻译目录，
-      // 未装载时会漏英文——i18n 决策 2026-09-29 用户可见串必须中文）。
-      const auto choice = PaleoNotify::askSaveDiscard(
-          this, PaleoNotify::AskIcon::Warning, tr("未保存的编辑"),
-          tr("以下图层有未保存的编辑：\n%1\n\n关闭前如何处理？")
-              .arg(dirtyNames.join(QLatin1Char('\n'))),
-          tr("保存"), tr("放弃"), tr("取消"));
-      if (choice == PaleoNotify::SaveChoice::Cancel)
-      {
-        event->ignore(); // 取消（含 Esc/窗口 ✕）
-        return;
-      }
-      if (choice == PaleoNotify::SaveChoice::Save)
-      {
-        for (QgsVectorLayer *vl : dirty)
-        {
-          QString err;
-          const bool ok = m_editSvc ? m_editSvc->commitEdit(vl, &err)
-                                    : vl->commitChanges();
-          if (!ok)
-          {
-            PaleoNotify::critical(
-                this, tr("保存编辑失败"),
-                tr("图层「%1」的编辑未能提交，窗口不会关闭。")
-                    .arg(vl->name().isEmpty() ? vl->id() : vl->name()));
-            event->ignore();
-            return;
-          }
-        }
-      }
-      else // 放弃
-        for (QgsVectorLayer *vl : dirty)
-        {
-          if (m_editSvc)
-            m_editSvc->rollbackEdit(vl);
-          else
-            vl->rollBack();
-        }
-    }
+    event->ignore();
+    return;
   }
   saveWindowState();
   SARibbonMainWindow::closeEvent(event);
@@ -1928,6 +1899,103 @@ void PaleoMainWindow::resetProjectScopedState()
     m_mapBookPanel->setArea(PaleoMapBook::Area());
     m_mapBookPanel->setOutputDir(QString());
   }
+}
+
+// C1/#282：编辑中且有未提交改动的矢量图层 → 保存/放弃/取消三选一。走编辑
+// 服务（busy 挂账随 commit/rollback 清），无服务时直连 commitChanges/
+// rollBack。offscreen（无头测试/渲染环境）且未注入询问 seam 时不弹模态框
+// ——弹了没人点会挂死事件循环，保持旧行为直接放行。返回 false = 取消。
+bool PaleoMainWindow::resolveDirtyLayerEdits()
+{
+  if (!m_projectSvc || !m_projectSvc->project())
+    return true;
+  if (isOffscreen() && !m_projectSaveAsk)
+    return true;
+  QList<QgsVectorLayer *> dirty;
+  QStringList dirtyNames;
+  const auto layers = m_projectSvc->project()->mapLayers();
+  for (QgsMapLayer *l : layers)
+    if (auto *vl = qobject_cast<QgsVectorLayer *>(l))
+      if (vl->isEditable() && vl->isModified())
+      {
+        dirty << vl;
+        dirtyNames << (vl->name().isEmpty() ? vl->id() : vl->name());
+      }
+  if (dirty.isEmpty())
+    return true;
+  const QString text = tr("以下图层有未保存的编辑：\n%1\n\n继续之前如何处理？")
+                           .arg(dirtyNames.join(QLatin1Char('\n')));
+  const auto choice =
+      m_projectSaveAsk
+          ? m_projectSaveAsk(tr("未保存的编辑"), text)
+          : PaleoNotify::askSaveDiscard(this, PaleoNotify::AskIcon::Warning,
+                                        tr("未保存的编辑"), text, tr("保存"),
+                                        tr("放弃"), tr("取消"));
+  if (choice == PaleoNotify::SaveChoice::Cancel)
+    return false;
+  if (choice == PaleoNotify::SaveChoice::Save)
+  {
+    for (QgsVectorLayer *vl : dirty)
+    {
+      QString err;
+      const bool ok =
+          m_editSvc ? m_editSvc->commitEdit(vl, &err) : vl->commitChanges();
+      if (!ok)
+      {
+        PaleoNotify::critical(
+            this, tr("保存编辑失败"),
+            tr("图层「%1」的编辑未能提交，操作中止。")
+                .arg(vl->name().isEmpty() ? vl->id() : vl->name()));
+        return false;
+      }
+    }
+  }
+  else // 放弃
+    for (QgsVectorLayer *vl : dirty)
+    {
+      if (m_editSvc)
+        m_editSvc->rollbackEdit(vl);
+      else
+        vl->rollBack();
+    }
+  return true;
+}
+
+// #282（UIS-09）：关窗/切换工程前的工程级脏状态检查。版面、图层样式、
+// 图层树顺序、地图主题只活在 .qgz 里——此前 closeEvent 只查编辑缓冲、切换
+// 路径（开新工程/新建/最近列表/openPath）根本不问，改动随 QgsProject::
+// clear() 静默丢失（标题栏 [*] 曾是唯一线索）。收口成三选一：保存
+// （writeProject 原子落盘）/ 放弃（照常关闭或切换）/ 取消（原地不动）。
+// 返回 false = 取消。offscreen 且无 seam 时直接放行（无头自动化旧行为）。
+bool PaleoMainWindow::maybeSaveProject()
+{
+  if (!resolveDirtyLayerEdits())
+    return false;
+  QgsProject *proj = m_projectSvc ? m_projectSvc->project() : nullptr;
+  if (!proj || !proj->isDirty())
+    return true; // 无工程/不脏：直接放行
+  if (isOffscreen() && !m_projectSaveAsk)
+    return true;
+  const QString text =
+      tr("当前工程有未保存的改动（版面、图层样式、图层树顺序、地图主题等"
+         "保存在工程文件里）。\n\n继续之前是否保存？");
+  const auto choice =
+      m_projectSaveAsk
+          ? m_projectSaveAsk(tr("保存工程改动？"), text)
+          : PaleoNotify::askSaveDiscard(this, PaleoNotify::AskIcon::Warning,
+                                        tr("保存工程改动？"), text,
+                                        tr("保存"), tr("放弃"), tr("取消"));
+  if (choice == PaleoNotify::SaveChoice::Cancel)
+    return false;
+  if (choice == PaleoNotify::SaveChoice::Save && !m_projectSvc->writeProject())
+  {
+    const QString why = m_projectSvc->lastErrors().join(QLatin1Char('\n'));
+    PaleoNotify::critical(this, tr("保存工程失败"),
+                          tr("工程文件未能写入：%1\n当前工程保持不变。").arg(why));
+    return false;
+  }
+  // 放弃：不写盘——随后的关闭/切换按既有语义丢弃（QgsProject::clear()）。
+  return true;
 }
 
 void PaleoMainWindow::refreshCorrelationWells(const QString &loadLasForAssetId,

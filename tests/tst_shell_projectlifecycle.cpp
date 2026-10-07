@@ -5,6 +5,7 @@
 // 关窗/切工程检查 QgsProject 脏状态（#282）、切工程状态残留（#236）。
 #include <QApplication>
 #include <QAbstractButton>
+#include <QDateTime>
 #include <QDialog>
 #include <QDir>
 #include <QElapsedTimer>
@@ -18,6 +19,7 @@
 #include <QTemporaryDir>
 #include <QTimer>
 #include <QtTest>
+#include <QListWidget>
 
 #include <functional>
 #include <memory>
@@ -29,8 +31,11 @@
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/services/paleotaskservice.h"
 #include "../src/ui/layers/layertreepanel.h"
+#include "../src/ui/notifications/paleonotify.h"
 #include "../src/ui/pages/datalist.h"
 #include "../src/ui/paleomainwindow.h"
+
+#include <qgis/qgsproject.h>
 
 namespace
 {
@@ -71,9 +76,19 @@ public:
 private:
   AppContext *m_ctx = nullptr;
   PaleoMainWindow *m_win = nullptr;
+  // #282：跨测试函数存活的工程目录（函数内 QTemporaryDir 会随测试返回销毁，
+  // 后续 writeProject/关窗就写给已删目录）。
+  QTemporaryDir m_dirA;
+  QTemporaryDir m_dirB;
+  QString m_qgzA;
+  QString m_qgzB;
 
   DataListPanel *listPanel() const { return m_win->findChild<DataListPanel *>(); }
   LayerTreePanel *layerPanel() const { return m_win->findChild<LayerTreePanel *>(); }
+  QListWidget *recentList() const
+  {
+    return m_win->findChild<QListWidget *>(QStringLiteral("recentProjectsList"));
+  }
 
   // 注册层位资产 + 受管 RAW 版本（散点文本真实落盘 projectDir 下）。
   bool addHorizonAsset(DataCatalog *cat, const QDir &dir, const QString &assetId)
@@ -181,6 +196,7 @@ private slots:
 
   void cleanupTestCase()
   {
+    m_win->setProjectSaveAskForTesting(nullptr); // 缝里的栈上 lambda 不得存活
     delete m_win;
     m_win = nullptr;
   }
@@ -301,6 +317,132 @@ private slots:
     QVERIFY2(!bar->currentMessage().contains(QStringLiteral("先打开工程")) &&
                  !bar->currentMessage().contains(QStringLiteral("需要已打开的工程")),
              "工程已打开时面运算不得再报先打开工程");
+  }
+
+  // #282：切换工程前查 QgsProject 脏状态——「取消」原地不动，「保存」
+  // 先落盘再切。询问走注入 seam（替身模态框）。
+  // 注：QgisProjectService 单实例复用同一 QgsProject（clear+read），当前
+  // 工程就是切换前的那个；新建的第二个工程经 createProject 完整落成，
+  // 切回第一个工程即可同时覆盖「取消原地不动 / 保存落盘再切」两分支。
+  void switchProjectAsksWhenDirty()
+  {
+    QVERIFY(m_dirA.isValid());
+    m_qgzA = m_dirA.filePath(QStringLiteral("a.qgz"));
+    QVERIFY(m_ctx->projectSvc()->createProject(m_qgzA));
+    QApplication::processEvents();
+    QCOMPARE(m_ctx->projectSvc()->projectPath(), m_qgzA);
+
+    // 真实用户动作改脏：翻转工程吸附开关（setSnappingConfig → setDirty）。
+    QgsProject *proj = m_ctx->projectSvc()->project();
+    auto snap = proj->snappingConfig();
+    snap.setEnabled(!snap.enabled());
+    proj->setSnappingConfig(snap);
+    QVERIFY2(proj->isDirty(), "吸附开关切换后工程应为脏状态");
+
+    // 第二个工程完整落成（createProject 自带 manifest/受管目录结构——
+    // writeProject 需要它）。当前工程切到 B。
+    QVERIFY(m_dirB.isValid());
+    m_qgzB = m_dirB.filePath(QStringLiteral("b.qgz"));
+    QVERIFY(m_ctx->projectSvc()->createProject(m_qgzB));
+    QApplication::processEvents();
+    QCOMPARE(m_ctx->projectSvc()->projectPath(), m_qgzB);
+
+    auto *list = recentList();
+    QVERIFY(list);
+    auto *item = new QListWidgetItem(m_qgzA, list);
+    item->setData(Qt::UserRole, m_qgzA);
+
+    int askCount = 0;
+    auto choice = PaleoNotify::SaveChoice::Cancel;
+    m_win->setProjectSaveAskForTesting(
+        [&askCount, &choice](const QString &, const QString &) {
+          ++askCount;
+          return choice;
+        });
+
+    // 「取消」：原地不动（仍停留在 B），目标工程不得被打开。
+    emit list->itemActivated(item);
+    QApplication::processEvents();
+    QCOMPARE(askCount, 1);
+    QCOMPARE(m_ctx->projectSvc()->projectPath(), m_qgzB);
+
+    // 「保存」：先写当前工程（B 的 .qgz mtime 更新）再切到 A，只问一次。
+    QTest::qWait(60); // 保证 mtime 可辨
+    const QDateTime before = QFileInfo(m_qgzB).lastModified();
+    choice = PaleoNotify::SaveChoice::Save;
+    emit list->itemActivated(item);
+    QApplication::processEvents();
+    QCOMPARE(askCount, 2);
+    QCOMPARE(m_ctx->projectSvc()->projectPath(), m_qgzA);
+    QVERIFY2(QFileInfo(m_qgzB).lastModified() > before,
+             "选保存后当前工程 .qgz 必须落盘（mtime 更新）");
+
+    m_win->setProjectSaveAskForTesting(nullptr);
+  }
+
+  // #282：干净的工程切换不打扰——一次询问都不弹。
+  void switchCleanProjectDoesNotAsk()
+  {
+    // 当前工程（上一测试切回的 A）完整落成 → 落盘清脏。
+    QVERIFY(m_ctx->projectSvc()->writeProject());
+    QVERIFY2(!m_ctx->projectSvc()->project()->isDirty(), "写盘后工程应为干净");
+    QVERIFY2(!m_ctx->projectSvc()->project()->isDirty(), "写盘后工程应为干净");
+
+    int askCount = 0;
+    m_win->setProjectSaveAskForTesting(
+        [&askCount](const QString &, const QString &) {
+          ++askCount;
+          return PaleoNotify::SaveChoice::Cancel;
+        });
+    // 切回 B（上一测试完整落成的工程；其 .qgz 已带 native 吸附配置，
+    // 重开不再触发 snapping 替换改脏）。
+    auto *list = recentList();
+    QVERIFY(list);
+    QString target;
+    for (int i = 0; i < list->count() && target.isEmpty(); ++i)
+      if (QListWidgetItem *it = list->item(i))
+        if (it->data(Qt::UserRole).toString() == m_qgzB)
+          target = m_qgzB;
+    QVERIFY2(!target.isEmpty(), "最近列表应含上一测试创建的 B");
+    auto *item = new QListWidgetItem(target, list);
+    item->setData(Qt::UserRole, target);
+    emit list->itemActivated(item);
+    QApplication::processEvents();
+    QCOMPARE(askCount, 0); // 不脏不问
+    QCOMPARE(m_ctx->projectSvc()->projectPath(), m_qgzB);
+    m_win->setProjectSaveAskForTesting(nullptr);
+  }
+
+  // #282：关窗同样查工程脏状态——取消不关、保存关且落盘。
+  void closeWindowAsksWhenDirty()
+  {
+    const QString qgz = m_ctx->projectSvc()->projectPath();
+    QVERIFY(!qgz.isEmpty());
+    QgsProject *proj = m_ctx->projectSvc()->project();
+    auto snap = proj->snappingConfig();
+    snap.setEnabled(!snap.enabled());
+    proj->setSnappingConfig(snap);
+    QVERIFY(proj->isDirty());
+    int askCount = 0;
+    auto choice = PaleoNotify::SaveChoice::Cancel;
+    m_win->setProjectSaveAskForTesting(
+        [&askCount, &choice](const QString &, const QString &) {
+          ++askCount;
+          return choice;
+        });
+
+    m_win->close(); // 取消 → 不关
+    QVERIFY(m_win->isVisible());
+    QCOMPARE(askCount, 1);
+
+    QTest::qWait(60);
+    const QDateTime before = QFileInfo(qgz).lastModified();
+    choice = PaleoNotify::SaveChoice::Save;
+    m_win->close(); // 保存 → 关 + 落盘
+    QVERIFY(!m_win->isVisible());
+    QCOMPARE(askCount, 2);
+    QVERIFY(QFileInfo(qgz).lastModified() > before);
+    m_win->setProjectSaveAskForTesting(nullptr);
   }
 
 };

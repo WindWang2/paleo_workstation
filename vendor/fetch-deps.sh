@@ -94,7 +94,9 @@ if [ "$UPDATE_LOCK" = 1 ]; then
   printf '%s\n' "$URIS" > "$LOCK.tmp"
 else
   [ -s "$LOCK" ] || fail "missing pinned closure $LOCK" "generate it on the target distro with --update-lock and commit it"
-  URIS=$(cat "$LOCK")
+  # Windows 检出（autocrlf）的锁文件行尾带 \r——hash 字段会挂上 \r 打破
+  # 格式断言伪红；统一剥掉（锁在索引/CI（LF）语义不变）。
+  URIS=$(tr -d '\r' < "$LOCK")
 fi
 
 COUNT=$(printf '%s\n' "$URIS" | wc -l)

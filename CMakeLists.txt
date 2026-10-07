@@ -820,9 +820,17 @@ if(PALEO_PYTHON3)
            ${CMAKE_SOURCE_DIR}/tools/check_ui_tokens.py --strict)
   add_test(NAME ui_tokens_selftest COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/check_ui_tokens.py --selftest)
+  # 方向 71（#76 依赖口径统一）：三路 QGIS 版本口径一致性——superbuild 精确
+  # == deb 闭包上游 == manifest qgis_family 家族，补丁名随 superbuild 版本。
+  # 防 4.2.2/4.2.3/4.2.x 三口径再分裂；selftest 合成树验证各分裂形态能打红。
+  add_test(NAME qgis_versions COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_qgis_versions.py)
+  add_test(NAME qgis_versions_selftest COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_qgis_versions.py --selftest)
   set_tests_properties(layering layering_strict layering_selftest
                        ui_invariants ui_invariants_strict ui_invariants_selftest
                        i18n i18n_selftest ui_tokens ui_tokens_strict ui_tokens_selftest
+                       qgis_versions qgis_versions_selftest
                        PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 endif()
 

@@ -142,10 +142,17 @@ switch ($Verb) {
     $setupProcess = Start-Process -FilePath $setup -ArgumentList $setupArgs -Wait -PassThru
     if ($setupProcess.ExitCode -ne 0) { throw "OSGeo4W setup failed: $($setupProcess.ExitCode)" }
     $installedDb = Join-Path $osgeo 'etc\setup\installed.db'
+    # qgis_family 单一来源（方向 71）：家族闸的正则从 manifest 派生，不再在
+    # 脚本里硬编码第二份 "4.2"——installer 只有包名粒度（无法精确 pin 版本），
+    # 家族不符即拒（OSGeo4W 粒度边界见 vendor/manifest.json notes）。
+    if ($pin.qgis_family -notmatch '^(\d+\.\d+)(\.x)?$') {
+      throw "unparseable qgis_family in vendor/manifest.json: '$($pin.qgis_family)' (expect e.g. '4.2.x')"
+    }
+    $fam = [regex]::Escape($Matches[1])
     if (-not (Test-Path $installedDb) -or
-        -not (Select-String -Path $installedDb -Pattern '^qgis\s+qgis-4\.2\.' -Quiet) -or
-        -not (Select-String -Path $installedDb -Pattern '^qgis-devel\s+qgis-devel-4\.2\.' -Quiet)) {
-      throw 'OSGeo4W did not install QGIS and development headers from the 4.2.x family'
+        -not (Select-String -Path $installedDb -Pattern ('^qgis\s+qgis-' + $fam + '\.') -Quiet) -or
+        -not (Select-String -Path $installedDb -Pattern ('^qgis-devel\s+qgis-devel-' + $fam + '\.') -Quiet)) {
+      throw "OSGeo4W did not install QGIS and development headers from the $($pin.qgis_family) family"
     }
     foreach ($required in @('apps\qgis\include\qgsapplication.h',
                            'apps\qgis\lib\qgis_core.lib',

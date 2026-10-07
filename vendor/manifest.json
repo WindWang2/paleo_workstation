@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "notes": "ONNX Runtime archive and OSGeo4W installer pins. The Ubuntu 26.04 QGIS package closure is pinned separately in deb-closure.lock. See docs/PALEO_QGIS_PLAN.md §39/ET1.",
+  "notes": "ONNX Runtime archive and OSGeo4W installer pins. The Ubuntu 26.04 QGIS package closure is pinned separately in deb-closure.lock. See docs/PALEO_QGIS_PLAN.md §39/ET1. qgis_family granularity: the OSGeo4W installer accepts package names only (no per-package version pin), so this field pins the x.y family; paleo-dev.ps1 derives its installed.db family gate from it (single source). Cross-route version consistency (superbuild exact == deb closure upstream == manifest family) is enforced by tools/check_qgis_versions.py.",
   "deps": {
     "osgeo4w": {
       "platform": "windows-x64",

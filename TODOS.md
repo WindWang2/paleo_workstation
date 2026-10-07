@@ -52,9 +52,10 @@
   （比例模式缺坐标井不参与比例轴 + 名录）、解释岩性道（well_litho_intervals
   资产契约 + GR 推断回落）均已落地；见 [方向 38 ledger](.goal-loop-ledger-wellsection-tvd.md)。
 - **残留递延（新，同上来源）:**
-  - `well_litho_intervals` 只有消费侧（wellsection attach + 契约文档），
-    无生产者/导入器——AI 微相预测（WellFaciesWorkflow，本地缓存不落
-    catalog）或岩性文件导入任一落库即可点亮。human: M / CC: M，P3。
+  - ~~`well_litho_intervals` 只有消费侧~~（已落地 2026-10-07：welllogfacies
+    预测经 WellFaciesWorkflow::publishLithoAsset 落 DERIVED 资产 +
+    per-well interpretation 链接，剖面按井链接消费；见方向 69）。仍递延：
+    置信度曲线进场、岩性文件导入器。human: M / CC: M，P3。
   - `WellDeviationSurvey::tvdToMd` 每调用 O(站数)+百次二分且 pointAt 线性
     扫段；wellsection 地震缝侧已用行级 LUT 绕开（scene 内注释），治本
     （站点二分查找 + 段内缓存）留 deviationsurvey 专项。CC: S，P3。

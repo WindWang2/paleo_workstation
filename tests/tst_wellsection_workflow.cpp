@@ -1,11 +1,13 @@
 #include "catalog/datacatalog.h"
 #include "domain/faultset.h"
 #include "domain/seismic/sgyvolume.h"
+#include "domain/welllogfacies.h"
 #include "metadata/faultsetstore.h"
 #include "metadata/wellsectionstore.h"
 #include "services/paleotaskservice.h"
 #include "services/seismictaskservice.h"
 #include "workflow/sectionworkbench.h"
+#include "workflow/wellfaciesworkflow.h"
 #include "workflow/wellsectionworkflow.h"
 #include <QFile>
 #include <QFileInfo>
@@ -718,8 +720,8 @@ private slots:
     QCOMPARE(hits, 2);
   }
 
-  // 解释岩性段：catalog 资产 well_litho_intervals 最新版本 → 各井 litho
-  //（升序、按 wellId 匹配；空词面/逆序段跳过；无资产井留空走 GR 回落）。
+  // 解释岩性段：catalog 资产 well_litho_intervals 按井 interpretation 链接
+  // 消费（升序、按 wellId 匹配；空词面/逆序段跳过；无链接井留空走 GR 回落）。
   void lithoSegmentsAttached() {
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
@@ -751,6 +753,13 @@ private slots:
     v.stage = QStringLiteral("DERIVED");
     v.versionNumber = 1;
     QVERIFY2(cat.addVersion(v, &err), qPrintable(err));
+    // 方向 69：按井 interpretation 链接消费——无链接的资产不再全工程可见。
+    EntityAssetLink link;
+    link.entityType = QStringLiteral("well");
+    link.entityId = QStringLiteral("well-1");
+    link.assetId = a.id;
+    link.role = QStringLiteral("interpretation");
+    QVERIFY2(cat.addLink(link, &err), qPrintable(err));
 
     WellSectionWorkflow wf(&cat);
     QSignalSpy spy(&wf, &WellSectionWorkflow::sectionReady);
@@ -758,13 +767,17 @@ private slots:
     QCOMPARE(spy.size(), 1);
     const auto wells = spy[0][1].value<QVector<wellsection::Well>>();
     QCOMPARE(wells.size(), 2);
-    // well-1：两段有效（逆序/空词面跳过），升序、词面保真。
+    // well-1：两段有效（逆序/空词面跳过），升序、词面保真、来源标注。
     QCOMPARE(wells[0].litho.size(), 2);
     QCOMPARE(wells[0].litho[0].topMd, 100.0);
     QCOMPARE(wells[0].litho[0].litho, QStringLiteral("细砂岩"));
     QCOMPARE(wells[0].litho[1].litho, QStringLiteral("泥岩"));
     QVERIFY(wells[0].litho[1].baseMd > wells[0].litho[1].topMd);
-    // well-2：无资产段 → 空（视图回落 GR 推断）。
+    for (const auto &seg : wells[0].litho) {
+      QCOMPARE(seg.source, wellsection::LithoSource::Interpreted);
+      QVERIFY(seg.provenance.isEmpty()); // 老资产无 provenance → 不伪造
+    }
+    // well-2：无链接 → 空（视图回落 GR 推断；A 井资产不漏给 B 井）。
     QVERIFY(wells[1].litho.isEmpty());
     // 告警如实：两个无效段（逆序 + 空词面）计数点名。
     const QStringList warnings = spy[0][2].toStringList();
@@ -791,7 +804,15 @@ private slots:
       v.path = path;
       v.stage = QStringLiteral("DERIVED");
       v.versionNumber = version;
-      return c.addVersion(v, e);
+      if (!c.addVersion(v, e))
+        return false;
+      // 方向 69：消费走 interpretation 链接——种子资产必须挂到井上才可达。
+      EntityAssetLink l;
+      l.entityType = QStringLiteral("well");
+      l.entityId = QStringLiteral("well-1");
+      l.assetId = assetId;
+      l.role = QStringLiteral("interpretation");
+      return c.addLink(l, e);
     };
     {
       // schema 未知 → 拒读 + 告警；不挂任何段。
@@ -839,6 +860,113 @@ private slots:
         readWarned = readWarned || w.contains(QStringLiteral("解释岩性资产读取失败"));
       QVERIFY2(readWarned, "读失败要如实告警（回落不是静默伪装）");
     }
+  }
+
+  // 方向 69 生产者→消费者闭环：welllogfacies 预测结果（伪结果直达
+  // publishLithoAsset 缝，与 completed 信号同一条生产者路）落 catalog
+  // DERIVED 资产 + per-well interpretation 链接 → 剖面按井链接消费：
+  // A 井资产不漏给 B 井，段带来源标注（source/provenance）。
+  void wellFaciesLithoAssetRoundTrip() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    DataCatalog cat;
+    QString err;
+    QVERIFY2(cat.open(dir.path(), &err), qPrintable(err));
+    QVERIFY2(buildCatalog(cat, QDir(dir.path()), &err), qPrintable(err));
+
+    WellComposite::ComprehensiveWellData data;
+    data.wellName = QStringLiteral("A1");
+    WellFaciesWorkflow faciesWf;
+    faciesWf.setData(data);
+    faciesWf.setCatalog(&cat); // projectDir 按 catalog 当前工程推导
+
+    WellFaciesResult result;
+    result.jobId = QStringLiteral("job-9");
+    result.modelName = QStringLiteral("测试微相");
+    result.modelVersion = QStringLiteral("v2");
+    WellComposite::TextInterval iv1, iv2, bad;
+    iv1.topDepth = 100.0f;
+    iv1.bottomDepth = 150.0f;
+    iv1.text = QStringLiteral("河口坝");
+    iv2.topDepth = 150.0f;
+    iv2.bottomDepth = 200.0f;
+    iv2.text = QStringLiteral("席状砂");
+    bad.topDepth = 300.0f;
+    bad.bottomDepth = 280.0f; // 逆序 → 跳过
+    bad.text = QStringLiteral("逆序段");
+    result.intervals = {iv1, iv2, bad};
+    const QString publishError = faciesWf.publishLithoAsset(result);
+    QVERIFY2(publishError.isEmpty(), qPrintable(publishError));
+
+    // DERIVED 资产登记 + per-well interpretation 链接。
+    QVector<CatalogAsset> lithoAssets;
+    for (const CatalogAsset &a : cat.assets())
+      if (a.type == QLatin1String("well_litho_intervals"))
+        lithoAssets << a;
+    QCOMPARE(lithoAssets.size(), 1);
+    bool linked = false;
+    for (const EntityAssetLink &l :
+         cat.linksForEntity(QStringLiteral("well-1")))
+      linked = linked || (l.assetId == lithoAssets.first().id &&
+                          l.role == QLatin1String("interpretation"));
+    QVERIFY2(linked, "登记后必须挂 per-well interpretation 链接");
+
+    // schema 字段断言（生产者契约逐字段）。
+    const CatalogVersion cv = cat.currentVersion(lithoAssets.first().id);
+    QFile f(DataCatalog::resolvedVersionPath(dir.path(), cv));
+    QVERIFY(f.open(QIODevice::ReadOnly));
+    const QJsonObject root = QJsonDocument::fromJson(f.readAll()).object();
+    QCOMPARE(root.value(QStringLiteral("schema")).toInt(), 1);
+    const QJsonObject prov =
+        root.value(QStringLiteral("provenance")).toObject();
+    QCOMPARE(prov.value(QStringLiteral("source")).toString(),
+             QStringLiteral("welllogfacies"));
+    QCOMPARE(prov.value(QStringLiteral("modelName")).toString(),
+             QStringLiteral("测试微相"));
+    QCOMPARE(prov.value(QStringLiteral("modelVersion")).toString(),
+             QStringLiteral("v2"));
+    QCOMPARE(prov.value(QStringLiteral("jobId")).toString(),
+             QStringLiteral("job-9"));
+    const QJsonArray intervals = root.value(QStringLiteral("intervals")).toArray();
+    QCOMPARE(intervals.size(), 2); // 逆序段被生产者跳过
+    QCOMPARE(intervals[0].toObject().value(QStringLiteral("wellId")).toString(),
+             QStringLiteral("well-1"));
+    QCOMPARE(intervals[0].toObject().value(QStringLiteral("top")).toDouble(),
+             100.0);
+    QCOMPARE(intervals[0].toObject().value(QStringLiteral("litho")).toString(),
+             QStringLiteral("河口坝"));
+
+    // 消费面：按井链接——A 井资产不漏给 B 井，段带 source/provenance。
+    WellSectionWorkflow wf(&cat);
+    QSignalSpy spy(&wf, &WellSectionWorkflow::sectionReady);
+    wf.request({QStringLiteral("well-1"), QStringLiteral("well-2")}, {});
+    QCOMPARE(spy.size(), 1);
+    const auto wells = spy[0][1].value<QVector<wellsection::Well>>();
+    QCOMPARE(wells.size(), 2);
+    QCOMPARE(wells[0].litho.size(), 2);
+    QCOMPARE(wells[0].litho[0].litho, QStringLiteral("河口坝"));
+    QCOMPARE(wells[0].litho[0].source,
+             wellsection::LithoSource::Interpreted);
+    QCOMPARE(wells[0].litho[0].provenance,
+             QStringLiteral("welllogfacies 测试微相 v2"));
+    QVERIFY2(wells[1].litho.isEmpty(),
+             "B 井无链接：A 井资产不得漏给 B 井（GR 回落是正常态）");
+
+    // 诚实面：未绑定 catalog / 井名未唯一解析 → 不写资产，如实原因。
+    WellFaciesWorkflow unbound;
+    unbound.setData(data);
+    QVERIFY(!unbound.publishLithoAsset(result).isEmpty());
+    WellComposite::ComprehensiveWellData ghost;
+    ghost.wellName = QStringLiteral("NO-SUCH-WELL");
+    WellFaciesWorkflow ghostWf;
+    ghostWf.setData(ghost);
+    ghostWf.setCatalog(&cat);
+    QVERIFY(!ghostWf.publishLithoAsset(result).isEmpty());
+    QVector<CatalogAsset> after;
+    for (const CatalogAsset &a : cat.assets())
+      if (a.type == QLatin1String("well_litho_intervals"))
+        after << a;
+    QCOMPARE(after.size(), 1); // 两次失败都没多写资产
   }
 
   // 栅状图多节：sectionIds 发现 + remove 收尾（条数收缩清尾行）。

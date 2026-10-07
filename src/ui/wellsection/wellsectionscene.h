@@ -26,6 +26,12 @@ QString tvdBadgeText(const wellsection::Well &w,
 QString depthTrackCaption(const wellsection::TrackSpec &tr,
                           wellsection::DepthDomain domain,
                           const wellsection::Datum &datum);
+// 岩性道题注文本（方向 69 来源标注）：解释段带资产来源（如
+// 「解释·welllogfacies 测试微相 v1」；无 provenance 回落「解释」）；
+// 无解释资产 → 「推断·<曲线> 截断」（GR 二分回落，如实不混充解释）。
+// paintContents/headerHeight 与面板测试钩子共用同一口径。
+QString lithoTrackCaptionText(const wellsection::Well &w,
+                              const QString &sourceMnemonic);
 
 // 渲染共享状态（panel 拥有；item/header 持指针只读）。
 struct RenderState {

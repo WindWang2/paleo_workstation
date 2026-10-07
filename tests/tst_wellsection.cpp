@@ -189,6 +189,31 @@ private slots:
     QCOMPARE(dc[2].topMd, 104.5);
     QCOMPARE(dc[2].baseMd, 105.0);
   }
+  // GR 截断推断 provider（方向 69 domain 回落面）：段口径与 inferSandShale
+  // 严格一致，来源 Inferred + 砂/泥词面。
+  void grCutoffLithologyProvider() {
+    Curve gr;
+    gr.unit = "GAPI";
+    gr.depths = {100, 101, 102, 103, 104, 105, 106, 107};
+    gr.values = {30, 30, 80, 80, 80, 30, 30, 30};
+    const GrCutoffLithologyProvider provider(gr, 50.0);
+    QCOMPARE(provider.sourceLabel(), QStringLiteral("GR"));
+    const auto segs = provider.lithologyFor(QStringLiteral("well-x"));
+    const auto raw = inferSandShale(gr, 50.0);
+    QCOMPARE(segs.size(), raw.size());
+    for (int i = 0; i < raw.size(); ++i) {
+      QCOMPARE(segs[i].source, LithoSource::Inferred);
+      QCOMPARE(segs[i].topMd, raw[i].topMd);
+      QCOMPARE(segs[i].baseMd, raw[i].baseMd);
+      QCOMPARE(segs[i].litho, raw[i].sand ? GrCutoffLithologyProvider::sandWord()
+                                          : GrCutoffLithologyProvider::shaleWord());
+    }
+    QVERIFY(segs[0].litho == GrCutoffLithologyProvider::sandWord());
+    QVERIFY(segs[1].litho == GrCutoffLithologyProvider::shaleWord());
+    // 空曲线 → 空段（无伪造）。
+    const GrCutoffLithologyProvider empty(Curve{}, 50.0);
+    QVERIFY(empty.lithologyFor(QString()).isEmpty());
+  }
   void seismicGapSampling() {
     SeismicGap g;
     QVERIFY(!g.valid());

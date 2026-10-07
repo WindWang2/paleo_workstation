@@ -628,6 +628,27 @@ QVector<LithoInterval> inferSandShale(const Curve &gr, double cutoff,
   return out;
 }
 
+GrCutoffLithologyProvider::GrCutoffLithologyProvider(
+    const Curve &gr, double cutoff, double minThicknessM,
+    const QString &sourceName)
+    : m_intervals(inferSandShale(gr, cutoff, minThicknessM)),
+      m_sourceName(sourceName) {}
+
+QVector<LithoSegment>
+GrCutoffLithologyProvider::lithologyFor(const QString &) const {
+  QVector<LithoSegment> out;
+  out.reserve(m_intervals.size());
+  for (const LithoInterval &iv : m_intervals) {
+    LithoSegment seg;
+    seg.topMd = iv.topMd;
+    seg.baseMd = iv.baseMd;
+    seg.litho = iv.sand ? sandWord() : shaleWord();
+    seg.source = LithoSource::Inferred;
+    out.push_back(seg);
+  }
+  return out;
+}
+
 bool SeismicGap::valid() const {
   return reason.isEmpty() && columns > 0 && samples > 0 && stepMs > 0.0 &&
          values.size() == static_cast<size_t>(columns) * samples;

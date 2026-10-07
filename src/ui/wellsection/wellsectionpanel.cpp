@@ -877,6 +877,20 @@ QString WellSectionPanel::headerBadgeText(const QString &wellId) const
   return QString();
 }
 
+QString WellSectionPanel::lithoTrackCaption(const QString &wellId) const
+{
+  QString sourceMnemonic;
+  for (const auto &tr : m_tpl.tracks)
+    if (tr.kind == wellsection::TrackKind::Lithology) {
+      sourceMnemonic = tr.sourceMnemonic;
+      break;
+    }
+  for (const wellsection::Well &w : m_st.wells)
+    if (w.id == wellId)
+      return wellsectionui::lithoTrackCaptionText(w, sourceMnemonic);
+  return QString();
+}
+
 // ---- 内部 ----
 void WellSectionPanel::rebuildFiltered()
 {

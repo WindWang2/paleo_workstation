@@ -48,13 +48,31 @@ struct FaciesSegment {
   int classId = -1;
 };
 
-// 解释岩性段（catalog 资产 well_litho_intervals 的工程解释成果）：
-// litho 为解释词面（如「细砂岩」），视图按词面取工程图式花纹；深度
-// 语义与其它深度字段一致——MD 记值，TVD 域经 Well::tvdOf 换算。
+// 岩性段来源（方向 69）：解释 = 工程解释成果（catalog 资产，经 provider
+// 通道按井消费）；推断 = GR 截断等算法推断（渲染期回落面）。题注与分色
+// 按来源如实区分——推断不混充解释。
+enum class LithoSource { Interpreted, Inferred };
+
+// 岩性段：litho 为词面（解释段如「细砂岩」，视图按词面取工程图式花纹；
+// 推断段为 provider 词面常量的砂/泥词），深度语义与其它深度字段一致——
+// MD 记值，TVD 域经 Well::tvdOf 换算。provenance 为来源标注（题注级，
+// 如「welllogfacies 测试微相 v1」）；空 = 无标注（题注回落「解释」）。
 struct LithoSegment {
   double topMd = 0;
   double baseMd = 0;
   QString litho;
+  LithoSource source = LithoSource::Interpreted;
+  QString provenance;
+};
+
+// 解释岩性通道 provider 接口（方向 69）：按井问答岩性段，段自带
+// source/provenance。workflow 的 catalog provider（解释资产按井链接消费）
+// 与视图期回落 provider 各实现一本。
+class WellLithologyProvider {
+public:
+  virtual ~WellLithologyProvider() = default;
+  virtual QVector<LithoSegment> lithologyFor(const QString &wellId) const = 0;
+  virtual QString sourceLabel() const = 0; // 来源标注词（如「GR」「catalog」）
 };
 
 // 深度显示域：MD = 井深原样；TVD = 真垂深（井斜换算）。井数据永不因
@@ -246,6 +264,26 @@ struct LithoInterval {
 };
 QVector<LithoInterval> inferSandShale(const Curve &gr, double cutoff,
                                       double minThicknessM = 0.5);
+
+// GR 截断推断 provider（domain 内置回落面，方向 69）：包装 inferSandShale
+// 产 Inferred 段——构造时持单井 GR 曲线，lithologyFor 的 wellId 忽略。
+// 词面与 LithoInterval::sand 一一对应：sandWord()=「砂」/shaleWord()=「泥」
+// （视图按词面还原砂/泥二分绘，不混入解释词表花纹）。渲染期回落专用——
+// workflow 不预挂推断段（保持渲染期回落架构）。
+class GrCutoffLithologyProvider : public WellLithologyProvider {
+public:
+  GrCutoffLithologyProvider(const Curve &gr, double cutoff,
+                            double minThicknessM = 0.5,
+                            const QString &sourceName = QLatin1String("GR"));
+  QVector<LithoSegment> lithologyFor(const QString &wellId) const override;
+  QString sourceLabel() const override { return m_sourceName; }
+  static QString sandWord() { return QStringLiteral("砂"); }
+  static QString shaleWord() { return QStringLiteral("泥"); }
+
+private:
+  QVector<LithoInterval> m_intervals;
+  QString m_sourceName;
+};
 
 // 层位井深表（导出 CSV 用）：每井每顶一行 [井名, 顶名, MD]（TVD 域追加
 // TVD 列——坏表井留空，不伪造）。基准面模式只进首行标记（井名, 顶名两列

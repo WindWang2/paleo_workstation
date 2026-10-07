@@ -105,6 +105,9 @@ class WellSectionPanel : public QWidget
     QString depthCaption() const;
     // TVD 域名行角标文本（无测斜/坏表如实标注；MD 域/正常井 → 空串）。
     QString headerBadgeText(const QString &wellId) const;
+    // 岩性道题注文本（方向 69 来源标注：解释段带资产来源 / 无资产回落
+    // 「推断·<曲线> 截断」）——字符串断言通道，与版头绘制同一口径。
+    QString lithoTrackCaption(const QString &wellId) const;
     double pxPerMeter() const { return m_st.pxPerMeter; }
     qreal gapWidth() const { return m_st.gapPx; }
     // 测试钩子：列左缘 x / 第 i 缝宽（比例井距模式的断言面）。

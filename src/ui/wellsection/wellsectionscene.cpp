@@ -65,6 +65,16 @@ QString depthTrackCaption(const wellsection::TrackSpec &tr,
   return title;
 }
 
+QString lithoTrackCaptionText(const wellsection::Well &w,
+                              const QString &sourceMnemonic)
+{
+  if (w.litho.isEmpty())
+    return QObject::tr("推断·%1 截断").arg(sourceMnemonic);
+  const QString prov = w.litho.first().provenance.trimmed();
+  return prov.isEmpty() ? QObject::tr("解释")
+                        : QObject::tr("解释·%1").arg(prov);
+}
+
 namespace {
 constexpr double kNameRowH = 26.0;
 constexpr qreal kDragThreshold = 6.0;
@@ -583,20 +593,23 @@ void ColumnItem::paintLithologyTrack(QPainter *p, const QRectF &trackRect,
     }
     return;
   }
-  // GR 推断回落（题注标「推断」，不混充解释成果）。
+  // GR 推断回落（题注标「推断」，不混充解释成果）。domain 内置 fallback
+  // provider 包装 inferSandShale——渲染期回落，workflow 不预挂推断段。
   const wellsection::Curve *src = w.curve(tr.sourceMnemonic);
   if (!src)
     return;
-  const auto intervals = wellsection::inferSandShale(*src, tr.cutoff);
-  for (const wellsection::LithoInterval &iv : intervals)
+  const wellsection::GrCutoffLithologyProvider fallback(*src, tr.cutoff);
+  const auto segments = fallback.lithologyFor(QString());
+  for (const wellsection::LithoSegment &seg : segments)
   {
-    const double y0 = m_st->yForMd(m_index, iv.topMd);
-    const double y1 = m_st->yForMd(m_index, iv.baseMd);
+    const bool sand = seg.litho == wellsection::GrCutoffLithologyProvider::sandWord();
+    const double y0 = m_st->yForMd(m_index, seg.topMd);
+    const double y1 = m_st->yForMd(m_index, seg.baseMd);
     if (!std::isfinite(y0) || !std::isfinite(y1))
       continue; // 坏表井 TVD 域同口径：不出段不伪造
     if (y1 < exposed.top() || y0 > exposed.bottom())
       continue;
-    if (iv.sand)
+    if (sand)
     {
       const QRectF r(trackRect.left(), y0, w2, y1 - y0);
       const QColor base = m_st->theme.lithoSand;
@@ -1226,8 +1239,15 @@ int HeaderWidget::headerHeight() const
       if (tr.kind == wellsection::TrackKind::Curve && !tr.curves.isEmpty())
         n += wrapCaption(scaleOf(tr.curves.first()), w, fm).size();
       else if (tr.kind == wellsection::TrackKind::Lithology)
-        n += wrapCaption(tr.sourceMnemonic + QObject::tr(" 推断"), w, fm)
-                 .size();
+      {
+        // 题注随行来源标注按井变化（方向 69）——行数取全井最大，防裁切。
+        int capLines = 1;
+        for (const auto &well : m_st->wells)
+          capLines = qMax(capLines, wrapCaption(lithoTrackCaptionText(
+                                         well, tr.sourceMnemonic), w, fm)
+                                        .size());
+        n += capLines;
+      }
     }
     lines = qMax(lines, n);
   }
@@ -1362,11 +1382,10 @@ void HeaderWidget::paintContents(QPainter *p, double xOffset) const
         }
         else if (tr.kind == wellsection::TrackKind::Lithology)
         {
-          // 口径诚实：解释资产在 → 「解释」；回落 GR 二分 → 「推断」。
-          ls += wrapCaption(w.litho.isEmpty()
-                                ? tr.sourceMnemonic + QObject::tr(" 推断")
-                                : QObject::tr("解释"),
-                            twIn, cfm);
+          // 口径诚实（方向 69 来源标注）：解释段带资产来源；回落 GR
+          // 二分 → 「推断·<曲线> 截断」。题注级分色：推断灰 / 解释正文色。
+          ls += wrapCaption(lithoTrackCaptionText(w, tr.sourceMnemonic), twIn,
+                            cfm);
           col = w.litho.isEmpty() ? QColor(QStringLiteral("#7A7A7A"))
                                   : m_st->theme.text;
         }

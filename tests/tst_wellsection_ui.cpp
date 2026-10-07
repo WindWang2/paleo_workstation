@@ -733,8 +733,10 @@ class TestWellSectionUi : public QObject
       QVERIFY(QTest::qWaitForWindowExposed(&panel));
       panel.fitToView();
       const QImage inferred = panel.renderImage(1.0);
-      // 挂解释段（词面命中工程图式 + 未命中词面各一）。
-      for (auto &w : wells) {
+      // 挂解释段（词面命中工程图式 + 未命中词面各一）；首井带 provenance
+      // （方向 69：题注来源标注），其余解释井无 provenance。
+      for (int i = 0; i < wells.size(); ++i) {
+        auto &w = wells[i];
         wellsection::LithoSegment s1, s2;
         s1.topMd = w.tops.first().md;
         s1.baseMd = w.tops.at(2).md;
@@ -742,12 +744,19 @@ class TestWellSectionUi : public QObject
         s2.topMd = w.tops.at(2).md;
         s2.baseMd = w.tops.last().md + 40.0;
         s2.litho = QStringLiteral("未知岩性X");
+        if (i == 0)
+          s1.provenance = s2.provenance =
+              QStringLiteral("welllogfacies 测试微相 v2");
         w.litho = {s1, s2};
       }
       panel.setSection(wells);
       panel.fitToView();
       const QImage interpreted = panel.renderImage(1.0);
-      QCOMPARE(inferred.size(), interpreted.size());
+      // 版头高度随行来源标注按井取长（方向 69：解释·<来源> 比「推断」
+      // 题注更宽更高）——只要求同宽且不低，像素差分裁到重叠高。
+      QCOMPARE(interpreted.width(), inferred.width());
+      QVERIFY(interpreted.height() >= inferred.height());
+      const int cmpH = qMin(inferred.height(), interpreted.height());
       // 岩性道列区必变（解释段花纹 ≠ GR 砂泥二分）；逐像素找差异并核对
       // 落点都在岩性道 x 带内（题注行「推断/解释」差异在版头，跳过头部）。
       const auto &tpl = panel.sectionTemplate();
@@ -767,7 +776,7 @@ class TestWellSectionUi : public QObject
       QVERIFY(lithoLeft >= 0);
       int lithoDiffs = 0;
       bool anyDiff = false;
-      for (int y = 160; y < inferred.height(); ++y)
+      for (int y = 160; y < cmpH; ++y)
         for (int x = 0; x < inferred.width(); ++x) {
           if (inferred.pixel(x, y) == interpreted.pixel(x, y))
             continue;
@@ -777,6 +786,27 @@ class TestWellSectionUi : public QObject
         }
       QVERIFY(anyDiff);
       QVERIFY(lithoDiffs > 50); // 岩性道本体确实换了内容（非仅题注）
+      // ---- 方向 69 题注来源标注（字符串断言通道，与版头绘制同一口径）----
+      // 解释井：带 provenance → 「解释·<来源>」；无 provenance → 「解释」。
+      QVERIFY(panel.lithoTrackCaption(QStringLiteral("C-2"))
+                  .contains(QStringLiteral("解释")));
+      QVERIFY(panel.lithoTrackCaption(QStringLiteral("C-2"))
+                  .contains(QStringLiteral("welllogfacies 测试微相 v2")));
+      QCOMPARE(panel.lithoTrackCaption(QStringLiteral("A5")),
+               QStringLiteral("解释"));
+      // 混合井：后两井去掉资产 → 各自如实——解释井题注不变，无资产井
+      // 题注「推断·GR 截断」（GR 二分回落，不混充解释）。
+      wells[2].litho.clear();
+      wells[3].litho.clear();
+      panel.setSection(wells);
+      QVERIFY(panel.lithoTrackCaption(QStringLiteral("C-2"))
+                  .contains(QStringLiteral("解释")));
+      QVERIFY(panel.lithoTrackCaption(QStringLiteral("C-1"))
+                  .contains(QStringLiteral("推断")));
+      QVERIFY(panel.lithoTrackCaption(QStringLiteral("C-1"))
+                  .contains(QStringLiteral("GR")));
+      QVERIFY(panel.lithoTrackCaption(QStringLiteral("C-4"))
+                  .contains(QStringLiteral("推断")));
       // 回落井（去掉资产）：渲染回到推断口径。
       for (auto &w : wells)
         w.litho.clear();

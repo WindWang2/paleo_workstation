@@ -189,6 +189,31 @@ private slots:
     QCOMPARE(dc[2].topMd, 104.5);
     QCOMPARE(dc[2].baseMd, 105.0);
   }
+  // GR 截断推断 provider（方向 69 domain 回落面）：段口径与 inferSandShale
+  // 严格一致，来源 Inferred + 砂/泥词面。
+  void grCutoffLithologyProvider() {
+    Curve gr;
+    gr.unit = "GAPI";
+    gr.depths = {100, 101, 102, 103, 104, 105, 106, 107};
+    gr.values = {30, 30, 80, 80, 80, 30, 30, 30};
+    const GrCutoffLithologyProvider provider(gr, 50.0);
+    QCOMPARE(provider.sourceLabel(), QStringLiteral("GR"));
+    const auto segs = provider.lithologyFor(QStringLiteral("well-x"));
+    const auto raw = inferSandShale(gr, 50.0);
+    QCOMPARE(segs.size(), raw.size());
+    for (int i = 0; i < raw.size(); ++i) {
+      QCOMPARE(segs[i].source, LithoSource::Inferred);
+      QCOMPARE(segs[i].topMd, raw[i].topMd);
+      QCOMPARE(segs[i].baseMd, raw[i].baseMd);
+      QCOMPARE(segs[i].litho, raw[i].sand ? GrCutoffLithologyProvider::sandWord()
+                                          : GrCutoffLithologyProvider::shaleWord());
+    }
+    QVERIFY(segs[0].litho == GrCutoffLithologyProvider::sandWord());
+    QVERIFY(segs[1].litho == GrCutoffLithologyProvider::shaleWord());
+    // 空曲线 → 空段（无伪造）。
+    const GrCutoffLithologyProvider empty(Curve{}, 50.0);
+    QVERIFY(empty.lithologyFor(QString()).isEmpty());
+  }
   void seismicGapSampling() {
     SeismicGap g;
     QVERIFY(!g.valid());
@@ -259,6 +284,142 @@ private slots:
     // 信号槽排队传递需要可拷贝元类型（Q_DECLARE_METATYPE 生效）。
     QVERIFY(qMetaTypeId<QVector<wellsection::Well>>() >= 0);
     QVERIFY(qMetaTypeId<wellsection::SeismicStrip>() >= 0);
+    QVERIFY(qMetaTypeId<wellsection::DepthDomain>() >= 0);
+    QVERIFY(qMetaTypeId<wellsection::SpacingMode>() >= 0);
+  }
+
+  // ---- TVD 域（方向 38：井斜换算 + 诚实面）----
+  void tvdDomainMapping() {
+    // 造斜-稳斜（tst_deviation 同款站表）：0-1000 造斜 0→30°，稳斜到 2000。
+    QString err;
+    const auto survey = paleo::WellDeviationSurvey::fromStations(
+        {{0, 0, 0}, {1000, 30, 0}, {2000, 30, 0}}, &err);
+    QVERIFY2(survey.has_value(), qPrintable(err));
+    Well dev, vert, broken;
+    dev.survey = survey;
+    broken.surveyError = QStringLiteral("测斜站表无效");
+    for (Well *w : {&dev, &vert, &broken})
+      w->tops = {{"A", 500}, {"B", 1500}};
+    // tvdOf：直井恒等；造斜井 TVD < MD；坏表 NaN（不伪造）。
+    QCOMPARE(vert.tvdOf(1200), 1200.0);
+    QVERIFY(dev.tvdOf(2000) < 2000.0);
+    QVERIFY(std::isnan(broken.tvdOf(1200)));
+    // mdOf 反解 round-trip（#126 首次到达契约）。
+    QVERIFY(std::fabs(dev.mdOf(dev.tvdOf(1234)) - 1234) < 1e-6);
+    QCOMPARE(vert.mdOf(1180), 1180.0);
+    QVERIFY(std::isnan(broken.mdOf(1180)));
+    QVERIFY(dev.tvdDisplayable() && vert.tvdDisplayable());
+    QVERIFY(!broken.tvdDisplayable());
+    // datumOffset TVD 域：Flatten 取 tvdOf(基准顶)；Elevation 取 kb。
+    QCOMPARE(datumOffset(dev, Datum{DatumMode::Flatten, "A"}, DepthDomain::TVD),
+             dev.tvdOf(500));
+    QCOMPARE(datumOffset(dev, Datum{DatumMode::Elevation, QString()},
+                         DepthDomain::TVD),
+             dev.kb);
+    // depthWindow TVD 域：坏表井整井跳过（不下拽邻居）——窗只含 vert。
+    const auto win = depthWindow({vert, broken},
+                                 Datum{DatumMode::Depth, QString()},
+                                 DepthDomain::TVD);
+    QCOMPARE(win.top, 500.0 - 40.0);
+    QCOMPARE(win.base, 1500.0 + 40.0);
+    // MD 域窗不受坏表影响（tvdOf 不参与）。
+    const auto winMd = depthWindow({vert, broken},
+                                   Datum{DatumMode::Depth, QString()});
+    QCOMPARE(winMd.top, win.top);
+    QCOMPARE(datumLabel(DatumMode::Depth, DepthDomain::TVD),
+             QStringLiteral("垂深 m"));
+    QCOMPARE(datumLabel(DatumMode::Elevation, DepthDomain::TVD),
+             QStringLiteral("海拔垂深 m"));
+    QCOMPARE(datumLabel(DatumMode::Depth, DepthDomain::MD),
+             QStringLiteral("井深 m"));
+  }
+
+  // ---- TVD 可用性三态（方向 69：无测斜如实态，几何恒等 ≠ 语义可用）----
+  void tvdStatusTriState() {
+    QString err;
+    const auto survey = paleo::WellDeviationSurvey::fromStations(
+        {{0, 0, 0}, {1000, 30, 0}, {2000, 30, 0}}, &err);
+    QVERIFY2(survey.has_value(), qPrintable(err));
+    const auto verticalTable = paleo::WellDeviationSurvey::fromStations(
+        {{0, 0, 0}, {1000, 0, 0}}, &err);
+    QVERIFY2(verticalTable.has_value(), qPrintable(err));
+    Well dev, vertTable, noSurvey, broken;
+    dev.survey = survey;
+    vertTable.survey = verticalTable;
+    broken.surveyError = QStringLiteral("测斜站表无效");
+    // 三态：survey 有效（含纯垂井表）/ 无链接 / 坏表。
+    QCOMPARE(dev.tvdStatus(), TvdStatus::Surveyed);
+    QCOMPARE(vertTable.tvdStatus(), TvdStatus::Surveyed);
+    QCOMPARE(noSurvey.tvdStatus(), TvdStatus::NoSurvey);
+    QCOMPARE(broken.tvdStatus(), TvdStatus::BrokenSurvey);
+    // 几何口径不变：无测斜恒等（= 按 MD 绘制），坏表 NaN。
+    QCOMPARE(noSurvey.tvdOf(1234.0), 1234.0);
+    QCOMPARE(noSurvey.mdOf(1234.0), 1234.0);
+    QVERIFY(std::isnan(broken.tvdOf(1234.0)));
+    // 可显示性：无测斜可出几何（按 MD），坏表不出。
+    QVERIFY(noSurvey.tvdDisplayable());
+    QVERIFY(!broken.tvdDisplayable());
+    // 纯垂井表是合法 survey 数据（≠ 无测斜）；tvdStatus 已在三态断言圈定。
+    QVERIFY(verticalTable->isVertical());
+  }
+
+  void topsTableTvdColumn() {
+    QString err;
+    const auto survey = paleo::WellDeviationSurvey::fromStations(
+        {{0, 0, 0}, {1000, 30, 0}, {2000, 30, 0}}, &err);
+    QVERIFY(survey.has_value());
+    Well dev, broken;
+    dev.name = "D1";
+    dev.survey = survey;
+    dev.tops = {{"A", 1000}, {"B", 2000}};
+    broken.name = "B1";
+    broken.surveyError = QStringLiteral("坏表");
+    broken.tops = {{"A", 1000}};
+    const QVector<Well> ws = {dev, broken};
+    const TopsTable md = topsTable(ws, Datum{DatumMode::Depth, QString()});
+    const TopsTable tvd =
+        topsTable(ws, Datum{DatumMode::Depth, QString()}, DepthDomain::TVD);
+    // TVD 表多一列；MD 列逐行不变（拉平不变量延伸到域切换）。
+    QCOMPARE(tvd.header.size(), md.header.size() + 1);
+    QCOMPARE(tvd.header.at(3), QStringLiteral("TVD(m)"));
+    QCOMPARE(tvd.header.at(5), QStringLiteral("垂深 m"));
+    for (int r = 0; r < md.rows.size(); ++r) {
+      QCOMPARE(tvd.rows[r][0], md.rows[r][0]);
+      QCOMPARE(tvd.rows[r][2], md.rows[r][2]); // MD
+    }
+    // 造斜井 TVD 值 = tvdOf；坏表井 TVD 格留空（不伪造）。
+    QCOMPARE(tvd.rows[0][3], QString::number(dev.tvdOf(1000), 'f', 2));
+    QCOMPARE(tvd.rows[1][3], QString::number(dev.tvdOf(2000), 'f', 2));
+    QCOMPARE(tvd.rows[2][3], QString());
+    // MD 域表无 TVD 列且表头不变。
+    QVERIFY(!md.header.contains(QStringLiteral("TVD(m)")));
+  }
+
+  void gapTwtTvdDomain() {
+    // TVD 域：显示深（垂深）先经井斜反解回 MD 再走时深——与 MD 域路径
+    // 数值可区分：同屏深下 MD ≥ TVD → 换算 TWT 更大；断言精确换算值。
+    QString err;
+    const auto survey = paleo::WellDeviationSurvey::fromStations(
+        {{0, 0, 0}, {1000, 30, 0}, {2000, 30, 0}}, &err);
+    QVERIFY(survey.has_value());
+    Well a, b;
+    a.survey = survey; // 造斜
+    const seismic::TimeDepthModel vel(2500.0);
+    a.timeDepth = TimeDepth{vel, 0.0, QString("常速")};
+    b.timeDepth = TimeDepth{vel, 0.0, QString("常速")};
+    const double md = 800.0;
+    const double tvd = survey->tvdAt(md);
+    // f=0（A 井端）：display=tvd → md=800 → twt=800*0.8=640。
+    QCOMPARE(gapTwtMs(a, 0, b, 0, 0.0, tvd, DepthDomain::TVD), 640.0);
+    // f=1（B 直井端）：display=tvd → md=tvd → twt=0.8*tvd。
+    QCOMPARE(gapTwtMs(a, 0, b, 0, 1.0, tvd, DepthDomain::TVD),
+             0.8 * tvd);
+    // 坏表井 → NaN。
+    Well broken;
+    broken.surveyError = QStringLiteral("x");
+    broken.timeDepth = a.timeDepth;
+    QVERIFY(std::isnan(gapTwtMs(broken, 0, b, 0, 0.0, 1000.0,
+                                DepthDomain::TVD)));
   }
 
   // ---- 基准面三模式（Oracle #1：拉平不变量）----
@@ -372,16 +533,23 @@ private slots:
     const auto de = gapWidthsFor({n1, n2}, SpacingMode::Proportional, 200, 48,
                                  600);
     QCOMPARE(de, QVector<double>({200.0}));
-    // 缺坐标段用中位距离补：前两段 100/200，后两段缺 → 中位=200，
-    // 距离 [100,200,200,200]，预算 350 → 50/100/100/100。
+    // 契约 v2：缺坐标段不参与比例轴——固定等距宽（350/4=87.5），已知段
+    //（100/200）分摊剩余预算 350−2×87.5=175 → 58.33/116.67。
     Well nox; // 无坐标
     const auto mix = gapWidthsFor({w1, w2, w3, nox, w4},
                                   SpacingMode::Proportional, 350, 48, 600);
     QCOMPARE(mix.size(), 4);
-    QVERIFY(std::fabs(mix[0] - 50.0) < 1e-9);
-    QVERIFY(std::fabs(mix[1] - 100.0) < 1e-9);
-    QVERIFY(std::fabs(mix[2] - 100.0) < 1e-9);
-    QVERIFY(std::fabs(mix[3] - 100.0) < 1e-9);
+    QVERIFY(std::fabs(mix[0] - 175.0 * 100.0 / 300.0) < 1e-9);
+    QVERIFY(std::fabs(mix[1] - 175.0 * 200.0 / 300.0) < 1e-9);
+    QVERIFY(std::fabs(mix[2] - 87.5) < 1e-9);
+    QVERIFY(std::fabs(mix[3] - 87.5) < 1e-9);
+    // 名录：比例模式缺坐标井名列；等距恒空。
+    QCOMPARE(unpositionedWellNames({w1, w2, w3, nox, w4},
+                                   SpacingMode::Proportional)
+                 .size(), 1);
+    QVERIFY(unpositionedWellNames({w1, w2, w3, nox, w4},
+                                  SpacingMode::Equal)
+                .isEmpty());
     // 单井 → 空。
     QVERIFY(gapWidthsFor({w1}, SpacingMode::Proportional, 300, 48, 600)
                 .isEmpty());

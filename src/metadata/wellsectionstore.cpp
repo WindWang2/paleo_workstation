@@ -90,6 +90,32 @@ void setError(QString *error, const QString &text)
 }
 
 // 幂等建表：section_id 主键单节一行，version 随 save 递增。
+// 前向升级：CREATE TABLE IF NOT EXISTS 对既有表不加列——depth_domain
+// （方向 69 深度域入剖面状态）靠 PRAGMA 查缺 + ALTER 补列（mapversionstore
+// 同款口径）；旧行取列默认 'MD'。
+bool ensureColumn(QSqlDatabase &db, const QString &table, const QString &name,
+                  const QString &type, QString *error)
+{
+    QSqlQuery info(db);
+    if (!info.exec(QStringLiteral("PRAGMA table_info(%1)").arg(table)))
+    {
+        setError(error, info.lastError().text());
+        return false;
+    }
+    while (info.next())
+        if (info.value(1).toString() == name)
+            return true; // 已有该列
+    info.finish();
+    QSqlQuery alter(db);
+    if (!alter.exec(
+            QStringLiteral("ALTER TABLE %1 ADD COLUMN %2 %3").arg(table, name, type)))
+    {
+        setError(error, alter.lastError().text());
+        return false;
+    }
+    return true;
+}
+
 bool ensureOpen(const QString &path, QString *error)
 {
     QSqlDatabase db = MetaStore::openConnection(path, connectionNameFor(path), error);
@@ -101,12 +127,17 @@ bool ensureOpen(const QString &path, QString *error)
             "section_id TEXT PRIMARY KEY, "
             "well_ids TEXT NOT NULL, "
             "link_overrides TEXT NOT NULL, "
+            "depth_domain TEXT NOT NULL DEFAULT 'MD', "
             "version INTEGER NOT NULL, "
             "updated_utc TEXT NOT NULL)")))
     {
         setError(error, schema.lastError().text());
         return false;
     }
+    if (!ensureColumn(db, QStringLiteral("well_section_edits"),
+                      QStringLiteral("depth_domain"),
+                      QStringLiteral("TEXT NOT NULL DEFAULT 'MD'"), error))
+        return false;
     return true;
 }
 
@@ -154,7 +185,8 @@ bool WellSectionStore::open(QString *error)
 
 WellSectionRecord WellSectionStore::save(
     const QString &sectionId, const QStringList &wellIds,
-    const QVector<WellSectionLinkOverride> &links, QString *error)
+    const QVector<WellSectionLinkOverride> &links,
+    wellsection::DepthDomain depthDomain, QString *error)
 {
     if (m_readOnly)
     {
@@ -180,8 +212,8 @@ WellSectionRecord WellSectionStore::save(
         QSqlQuery q(QSqlDatabase::database(connectionNameFor(m_dbPath)));
         q.prepare(QStringLiteral(
             "INSERT OR REPLACE INTO well_section_edits "
-            "(section_id, well_ids, link_overrides, version, updated_utc) "
-            "VALUES (?, ?, ?, ?, ?)"));
+            "(section_id, well_ids, link_overrides, depth_domain, version, "
+            "updated_utc) VALUES (?, ?, ?, ?, ?, ?)"));
         q.addBindValue(sectionId);
         // 空 join 是 null QString（QSql 绑成 NULL 撞 NOT NULL）——钉空串；
         // 字段先转义（id/顶名可含分隔符）。
@@ -202,6 +234,9 @@ WellSectionRecord WellSectionStore::save(
                                          : QStringLiteral("0"));
         const QString linksCsv = rows.join(QLatin1Char('|'));
         q.addBindValue(linksCsv.isNull() ? QStringLiteral("") : linksCsv);
+        q.addBindValue(depthDomain == wellsection::DepthDomain::TVD
+                           ? QStringLiteral("TVD")
+                           : QStringLiteral("MD"));
         q.addBindValue(version);
         q.addBindValue(nowUtc);
         if (!q.exec())
@@ -212,6 +247,7 @@ WellSectionRecord WellSectionStore::save(
         WellSectionRecord rec;
         rec.wellIds = wellIds;
         rec.linkOverrides = links;
+        rec.depthDomain = depthDomain;
         rec.version = version;
         return rec;
     };
@@ -251,8 +287,8 @@ WellSectionRecord WellSectionStore::load(const QString &sectionId,
         return rec;
     QSqlQuery q(QSqlDatabase::database(connectionNameFor(m_dbPath)));
     q.prepare(QStringLiteral(
-        "SELECT well_ids, link_overrides, version FROM well_section_edits "
-        "WHERE section_id = ?"));
+        "SELECT well_ids, link_overrides, depth_domain, version FROM "
+        "well_section_edits WHERE section_id = ?"));
     q.addBindValue(sectionId);
     if (!q.exec())
     {
@@ -278,7 +314,11 @@ WellSectionRecord WellSectionStore::load(const QString &sectionId,
         o.connected = parts.at(3) == QLatin1String("1");
         rec.linkOverrides.push_back(o);
     }
-    rec.version = q.value(2).toInt();
+    // 旧库行无该列时 ensureOpen 已补列、行值取默认 'MD'——缺字段恒默认 MD。
+    rec.depthDomain = q.value(2).toString() == QLatin1String("TVD")
+                          ? wellsection::DepthDomain::TVD
+                          : wellsection::DepthDomain::MD;
+    rec.version = q.value(3).toInt();
     return rec;
 }
 

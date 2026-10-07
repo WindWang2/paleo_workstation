@@ -63,6 +63,11 @@ WellSectionPanel::WellSectionPanel(SelectionContext *ctx, QWidget *parent)
                       .toInt() == int(wellsection::SpacingMode::Proportional)
                     ? wellsection::SpacingMode::Proportional
                     : wellsection::SpacingMode::Equal;
+    m_domain = s.value(QStringLiteral("wellSection/depthDomain"),
+                       int(wellsection::DepthDomain::MD))
+                     .toInt() == int(wellsection::DepthDomain::TVD)
+                   ? wellsection::DepthDomain::TVD
+                   : wellsection::DepthDomain::MD;
     const QByteArray tj =
         s.value(QStringLiteral("wellSection/template")).toByteArray();
     if (!tj.isEmpty())
@@ -122,7 +127,7 @@ WellSectionPanel::WellSectionPanel(SelectionContext *ctx, QWidget *parent)
   m_themeBtn = mkBtn("wellSectionThemeButton", "propertyicons/symbology.svg",
                      tr("剖面显示主题与高亮"));
   m_flattenBtn = mkBtn("wellSectionFlattenButton", "mActionAlignTop.svg",
-                       tr("基准面：井深 / 海拔 / 按分层拉平"));
+                       tr("基准面与深度域：井深 / 海拔 / 拉平 / 垂深（TVD）"));
   m_seismicBtn = mkBtn("wellSectionSeismicButton", "mIconRasterLayer.svg",
                        tr("井间叠加地震剖面（按时深关系自适应缩放）"));
   m_seismicBtn->setCheckable(true);
@@ -179,8 +184,9 @@ WellSectionPanel::WellSectionPanel(SelectionContext *ctx, QWidget *parent)
   m_themeBtn->setMenu(m_themeMenu);
   m_themeBtn->setPopupMode(QToolButton::InstantPopup);
 
-  // 基准面菜单：井深 / 海拔（补心） / 按分层拉平（任一标志层）。
-  // 模式切换只改视图偏移与轴标签，井深数据永不改写（拉平不变量）。
+  // 基准面菜单：井深 / 海拔（补心） / 按分层拉平（任一标志层）+ 垂深域
+  // 开关（与基准面正交：TVD×井深=垂深，TVD×海拔=海拔垂深）。模式切换只
+  // 改视图偏移/域映射与轴标签，井深数据永不改写（拉平不变量）。
   m_flattenMenu = new QMenu(m_flattenBtn);
   connect(m_flattenMenu, &QMenu::aboutToShow, this, [this] {
     m_flattenMenu->clear();
@@ -212,12 +218,32 @@ WellSectionPanel::WellSectionPanel(SelectionContext *ctx, QWidget *parent)
             wellsection::Datum{wellsection::DatumMode::Flatten, name});
       });
     }
+    // 深度域开关（aboutToShow 重建，指针不跨 clear 存活——外部按
+    // objectName 现查）。
+    m_flattenMenu->addSeparator();
+    QAction *tvdAct = m_flattenMenu->addAction(tr("垂深（TVD）"));
+    tvdAct->setObjectName(QStringLiteral("wellSectionTvdAction"));
+    tvdAct->setCheckable(true);
+    tvdAct->setChecked(m_domain == wellsection::DepthDomain::TVD);
+    tvdAct->setToolTip(
+        tr("按井斜轨迹换算真垂深显示；未挂井斜的井按井深绘制并如实标注"
+           "「TVD 不可用（无测斜）」，井斜表损坏的井不出几何、不下拽邻居"));
+    connect(tvdAct, &QAction::triggered, this, [this](bool on) {
+      const wellsection::DepthDomain d = on
+                                             ? wellsection::DepthDomain::TVD
+                                             : wellsection::DepthDomain::MD;
+      setDepthDomain(d);
+      panelSettings().setValue(QStringLiteral("wellSection/depthDomain"),
+                               int(d));
+      emit depthDomainChanged(d);
+    });
   });
   m_flattenBtn->setMenu(m_flattenMenu);
   m_flattenBtn->setPopupMode(QToolButton::InstantPopup);
   m_flattenBtn->setCheckable(true); // 非井深模式期间按钮呈按下态
 
-  // 井距菜单：等距 / 按井口距离比例（缺坐标段用中位距离）。
+  // 井距菜单：等距 / 按井口距离比例（缺坐标井不参与比例轴——固定等距
+  // 缝宽，名录进状态行）。
   m_spacingBtn = mkBtn("wellSectionSpacingButton", "mActionDecorationGrid.svg",
                        tr("井距：等距 / 按井口距离比例"));
   m_spacingMenu = new QMenu(m_spacingBtn);
@@ -231,6 +257,7 @@ WellSectionPanel::WellSectionPanel(SelectionContext *ctx, QWidget *parent)
         setSpacingMode(mode);
         panelSettings().setValue(QStringLiteral("wellSection/spacing"),
                                  int(mode));
+        emit spacingModeChanged(mode);
       });
     };
     addSpacing(tr("等距"), wellsection::SpacingMode::Equal);
@@ -602,6 +629,25 @@ void WellSectionPanel::setSpacingMode(wellsection::SpacingMode mode)
   else
     applyLayout();
   syncToolbarState();
+  updateStatus(); // 未定位井名录随模式进状态行
+}
+
+void WellSectionPanel::setDepthDomain(wellsection::DepthDomain domain)
+{
+  if (m_domain == domain)
+    return;
+  m_domain = domain;
+  rebuildFiltered();
+  applyLayout();
+  if (m_autofit)
+    fitToView();
+  syncToolbarState();
+  // 域切换作废在途代：重发数据请求（壳层 → workflow 新世代，旧结果按
+  // currentGeneration 丢弃）。地震缝是 TWT 域数据、井集未变——保留现缝
+  // 平滑过渡（位图缓存随 layoutVersion 失效重算；新数据到达后 setSection
+  // 照常按需重提）。
+  if (!m_ids.isEmpty())
+    emit dataRequested(m_ids, m_tpl.mnemonics());
 }
 
 void WellSectionPanel::setLinkOverrides(
@@ -666,7 +712,7 @@ void WellSectionPanel::rebuildGapWidths()
 
 QString WellSectionPanel::topsCsv() const
 {
-  return wellsection::topsTable(m_st.wells, m_datum).csv();
+  return wellsection::topsTable(m_st.wells, m_datum, m_domain).csv();
 }
 
 void WellSectionPanel::fitToView()
@@ -818,14 +864,52 @@ QString WellSectionPanel::statusText() const
   return m_status ? m_status->text() : QString();
 }
 
+QString WellSectionPanel::depthCaption() const
+{
+  return m_header ? m_header->depthCaptionText() : QString();
+}
+
+QString WellSectionPanel::headerBadgeText(const QString &wellId) const
+{
+  for (const wellsection::Well &w : m_st.wells)
+    if (w.id == wellId)
+      return wellsectionui::tvdBadgeText(w, m_domain);
+  return QString();
+}
+
+QString WellSectionPanel::hoverReadoutTextFor(const QString &wellId,
+                                               double md,
+                                               const QString &zoneName) const
+{
+  for (const wellsection::Well &w : m_st.wells)
+    if (w.id == wellId)
+      return wellsectionui::hoverReadoutText(w, m_domain, md, zoneName);
+  return QString();
+}
+
+QString WellSectionPanel::lithoTrackCaption(const QString &wellId) const
+{
+  QString sourceMnemonic;
+  for (const auto &tr : m_tpl.tracks)
+    if (tr.kind == wellsection::TrackKind::Lithology) {
+      sourceMnemonic = tr.sourceMnemonic;
+      break;
+    }
+  for (const wellsection::Well &w : m_st.wells)
+    if (w.id == wellId)
+      return wellsectionui::lithoTrackCaptionText(w, sourceMnemonic);
+  return QString();
+}
+
 // ---- 内部 ----
 void WellSectionPanel::rebuildFiltered()
 {
   m_st.wells = wellsection::filterTops(m_wells, m_tpl);
+  m_st.domain = m_domain;
   m_st.offsets.clear();
   for (const auto &w : m_st.wells)
-    m_st.offsets << wellsection::datumOffset(w, m_datum);
-  m_st.window = wellsection::depthWindow(m_st.wells, m_datum);
+    m_st.offsets << wellsection::datumOffset(w, m_datum, m_domain);
+  m_st.window = wellsection::depthWindow(m_st.wells, m_datum, m_domain);
   m_st.datum = m_datum;
   m_st.linkOverrides = m_linkOverrides;
   m_st.pathFractions = wellsection::wellPathFractions(m_st.wells);
@@ -947,30 +1031,58 @@ void WellSectionPanel::updateStatus()
     m_status->setText(tr("%1 条提示").arg(m_warnings.size()));
     m_status->setToolTip(m_warnings.join(QLatin1Char('\n')));
   }
-  else if (m_wells.size() == 1)
+  else if (m_wells.isEmpty())
   {
-    m_status->setText(tr("再选一口井即可连井"));
+    m_status->setText(QString());
     m_status->setToolTip(QString());
   }
-  else if (m_wells.size() >= 2)
+  else
   {
-    QString s = tr("%1 口井").arg(m_wells.size());
+    // 井集非空（含单井）：单井给连接提示；井距/高亮附注有 ≥2 井守卫，
+    // 基准面/TVD 名录随井集走（含单井——单井 TVD 域同样如实点名无测斜/
+    // 坏表井，R1-3 L5：名录不再圈在 ≥2 井分支内）。
+    QString s = m_wells.size() == 1
+                    ? tr("再选一口井即可连井")
+                    : tr("%1 口井").arg(m_wells.size());
     if (m_datum.mode == wellsection::DatumMode::Elevation)
       s += tr(" · 海拔基准");
     else if (m_datum.mode == wellsection::DatumMode::Flatten)
       s += tr(" · 拉平于 %1").arg(m_datum.flattenTop);
-    if (!highlightedFormation().isEmpty())
+    if (m_domain == wellsection::DepthDomain::TVD)
+    {
+      // 诚实面：坏表井不出几何（不下拽邻居——深度窗按可用井取并），无测斜
+      // 井按 MD 绘制但如实点名；两类原因措辞区分。
+      QStringList broken, noSurvey;
+      for (const auto &w : m_st.wells)
+      {
+        if (w.tvdStatus() == wellsection::TvdStatus::BrokenSurvey)
+          broken << w.name;
+        else if (w.tvdStatus() == wellsection::TvdStatus::NoSurvey)
+          noSurvey << w.name;
+      }
+      if (!broken.isEmpty())
+        s += tr(" · TVD 不可换算（井斜表损坏）：%1").arg(broken.join(u'、'));
+      if (!noSurvey.isEmpty())
+        s += tr(" · TVD 不可用（无测斜，按井深绘制）：%1")
+                 .arg(noSurvey.join(u'、'));
+      if (broken.isEmpty() && noSurvey.isEmpty())
+        s += tr(" · TVD 域");
+    }
+    if (m_wells.size() >= 2 &&
+        m_spacing == wellsection::SpacingMode::Proportional)
+    {
+      const QStringList unpos =
+          wellsection::unpositionedWellNames(m_st.wells, m_spacing);
+      if (!unpos.isEmpty())
+        s += tr(" · 未定位井 %1（不参与比例井距）").arg(unpos.join(u'、'));
+    }
+    if (m_wells.size() >= 2 && !highlightedFormation().isEmpty())
     {
       s += tr(" · 高亮 %1").arg(m_st.activeTop);
       if (!m_st.baseTop.isEmpty())
         s += QStringLiteral("–%1").arg(m_st.baseTop);
     }
     m_status->setText(s);
-    m_status->setToolTip(QString());
-  }
-  else
-  {
-    m_status->setText(QString());
     m_status->setToolTip(QString());
   }
 }
@@ -1168,6 +1280,16 @@ void WellSectionPanel::syncToolbarState()
   }
   if (m_flattenBtn)
     m_flattenBtn->setChecked(m_datum.mode != wellsection::DatumMode::Depth);
+  // 垂深域动作随菜单 aboutToShow 重建（clear 会删旧动作）——按 objectName
+  // 现查；菜单未开过则无该动作，跳过。
+  if (m_flattenMenu)
+    for (QAction *a : m_flattenMenu->actions())
+      if (a->objectName() == QLatin1String("wellSectionTvdAction"))
+      {
+        const QSignalBlocker b(a); // 程序化同步不发 triggered
+        a->setChecked(m_domain == wellsection::DepthDomain::TVD);
+        break;
+      }
   if (m_spacingMenu)
     for (QAction *a : m_spacingMenu->actions())
       if (a->isCheckable())

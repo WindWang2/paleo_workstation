@@ -256,6 +256,19 @@ int WellSectionWorkflow::request(const QStringList &wellIds,
       if (model.setCheckshots(points))
         well.timeDepth = wellsection::TimeDepth{model, 0.0, tr("时深表")};
     }
+    // 井斜轨迹（TVD 域换算源）：无链接 = 无测斜——几何恒等按 MD 绘制，
+    // TVD 域如实标注不可用；不告警（非数据损坏）。资产在但不可解析 →
+    // surveyError 如实记 + 告警（TVD 域该井不出几何）。
+    // error 出参按本次调用写明（多井同坏文件也不漏记）。
+    QString trajErr;
+    const auto trajectory = m_data.trajectoryFor(pw->id, &trajErr);
+    if (trajectory)
+      well.survey = *trajectory;
+    else if (!trajErr.isEmpty()) {
+      well.surveyError = trajErr;
+      shared->warnings
+          << tr("井 %1 的井斜轨迹不可用：%2").arg(pw->name, well.surveyError);
+    }
     const QVector<WellCurveRef> index =
         WellLogSet::wellCurveIndex(m_catalog, dir, pw->id);
     const int wellIndex = shared->wells.size();
@@ -267,6 +280,7 @@ int WellSectionWorkflow::request(const QStringList &wellIds,
     shared->wells.push_back(well);
   }
   attachFaciesSegments(shared->wells);
+  attachLithoSegments(shared->wells, &shared->warnings);
   collectCoreImages(*shared);
   shared->curves.resize(shared->entries.size());
   if (!m_tasks) {
@@ -435,6 +449,148 @@ void WellSectionWorkflow::attachFaciesSegments(
                  const wellsection::FaciesSegment &b) {
                 return a.topMd < b.topMd;
               });
+  }
+}
+
+// 解释岩性段的按井链接消费 provider（方向 69）：经 linksForEntity(wellId)
+// 找 interpretation 角色且类型为 well_litho_intervals 的链接（解释链接还
+// 有交会相分类等其它类型——按类型过滤，见 faciesclassify 登记面），多份
+// 资产取 currentVersion 版本号最新者 → resolvedVersionPath → 解析 schema 1
+// JSON → Interpreted 段（provenance 带上资产来源标注）。版本解析结果按
+// version id 缓存：共享资产的多口井不重复读盘/重复告警。
+class CatalogWellLithologyProvider
+    : public wellsection::WellLithologyProvider {
+public:
+  CatalogWellLithologyProvider(DataCatalog *catalog,
+                               const QString &projectDir, QStringList *warnings)
+      : m_catalog(catalog), m_projectDir(projectDir),
+        m_warnings(warnings) {}
+
+  QVector<wellsection::LithoSegment>
+  lithologyFor(const QString &wellId) const override {
+    if (!m_catalog)
+      return {};
+    QString bestAssetId;
+    CatalogVersion best;
+    for (const EntityAssetLink &link : m_catalog->linksForEntity(wellId)) {
+      if (link.role != QLatin1String("interpretation"))
+        continue;
+      const CatalogAsset a = m_catalog->assetById(link.assetId);
+      if (a.type != QLatin1String("well_litho_intervals"))
+        continue;
+      const CatalogVersion v = m_catalog->currentVersion(link.assetId);
+      if (v.id.isEmpty())
+        continue;
+      if (bestAssetId.isEmpty() || v.versionNumber > best.versionNumber) {
+        best = v;
+        bestAssetId = link.assetId;
+      }
+    }
+    if (bestAssetId.isEmpty())
+      return {}; // 无链接井静默留空（GR 回落是正常态，不告警）
+    return parse(best).byWell.value(wellId);
+  }
+
+  QString sourceLabel() const override { return QStringLiteral("catalog"); }
+
+private:
+  struct Parsed {
+    bool readable = false;
+    int dropped = 0;
+    QHash<QString, QVector<wellsection::LithoSegment>> byWell;
+  };
+  Parsed parse(const CatalogVersion &v) const {
+    const auto it = m_parsed.constFind(v.id);
+    if (it != m_parsed.constEnd())
+      return it.value();
+    Parsed p;
+    const auto warn = [this](const QString &msg) {
+      if (m_warnings)
+        *m_warnings << msg;
+    };
+    QFile file(DataCatalog::resolvedVersionPath(m_projectDir, v));
+    if (!file.open(QIODevice::ReadOnly)) {
+      warn(WellSectionWorkflow::tr("解释岩性资产读取失败：%1").arg(v.fileName));
+      m_parsed.insert(v.id, p);
+      return p;
+    }
+    const QJsonObject root =
+        QJsonDocument::fromJson(file.readAll()).object();
+    file.close();
+    const QJsonValue schema = root.value(QLatin1String("schema"));
+    if (!schema.isNull() && schema.toInt(-1) != 1) {
+      warn(WellSectionWorkflow::tr(
+               "解释岩性资产 schema 版本不支持（%1），已忽略：%2")
+               .arg(QString::number(schema.toDouble()), v.fileName));
+      m_parsed.insert(v.id, p);
+      return p;
+    }
+    // 来源标注：JSON provenance（生产者 welllogfacies 落）拼为题注词面；
+    // 无 provenance 的老资产 → 空（题注回落「解释」，不伪造来源）。
+    const QJsonObject prov =
+        root.value(QLatin1String("provenance")).toObject();
+    QStringList provParts;
+    for (const char *key :
+         {"source", "modelName", "modelVersion"})
+      if (!prov.value(QLatin1String(key)).toString().trimmed().isEmpty())
+        provParts << prov.value(QLatin1String(key)).toString().trimmed();
+    const QString provenance = provParts.join(QLatin1Char(' '));
+    for (const QJsonValue &iv :
+         root.value(QLatin1String("intervals")).toArray()) {
+      const QJsonObject o = iv.toObject();
+      wellsection::LithoSegment seg;
+      seg.topMd = o.value(QLatin1String("top")).toDouble();
+      seg.baseMd = o.value(QLatin1String("base")).toDouble();
+      seg.litho = o.value(QLatin1String("litho")).toString().trimmed();
+      seg.source = wellsection::LithoSource::Interpreted;
+      seg.provenance = provenance;
+      if (seg.litho.isEmpty() || !(seg.baseMd > seg.topMd)) {
+        ++p.dropped;
+        continue;
+      }
+      p.byWell[o.value(QLatin1String("wellId")).toString()].push_back(seg);
+    }
+    if (p.byWell.isEmpty() && p.dropped == 0)
+      warn(WellSectionWorkflow::tr("解释岩性资产无有效数据段：%1")
+               .arg(v.fileName));
+    if (p.dropped > 0)
+      warn(WellSectionWorkflow::tr(
+               "解释岩性资产有 %1 个无效段（逆序/空词面）已跳过：%2")
+               .arg(p.dropped)
+               .arg(v.fileName));
+    p.readable = true;
+    m_parsed.insert(v.id, p);
+    return p;
+  }
+
+  DataCatalog *m_catalog;
+  QString m_projectDir;
+  QStringList *m_warnings;
+  mutable QHash<QString, Parsed> m_parsed;
+};
+
+// 解释岩性段（catalog 资产 well_litho_intervals，方向 69 按井链接消费：
+// 废弃全工程最新版粗口径——A 井的解释资产不漏给 B 井）挂到各井 litho；
+// 无链接井静默留空（GR 回落是正常态）。资产在但读不了/解析不出有效段 →
+// 如实告警（回落不是静默伪装解释缺失）；schema 未知 → 拒读。
+// 资产契约：{"schema":1,"provenance":{...},"intervals":[{"wellId","top",
+// "base","litho"}]}，深度 MD 米；生产者 = wellfaciesworkflow（welllogfacies
+// 预测结果落 DERIVED）。
+void WellSectionWorkflow::attachLithoSegments(
+    QVector<wellsection::Well> &wells, QStringList *warnings) const {
+  if (!m_catalog || wells.isEmpty())
+    return;
+  CatalogWellLithologyProvider provider(m_catalog, projectDir(), warnings);
+  for (wellsection::Well &w : wells) {
+    QVector<wellsection::LithoSegment> segs = provider.lithologyFor(w.id);
+    if (segs.isEmpty())
+      continue;
+    std::sort(segs.begin(), segs.end(),
+              [](const wellsection::LithoSegment &a,
+                 const wellsection::LithoSegment &b) {
+                return a.topMd < b.topMd;
+              });
+    w.litho = segs;
   }
 }
 

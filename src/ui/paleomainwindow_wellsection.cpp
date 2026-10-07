@@ -298,6 +298,9 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
           });
   connect(m_previewDoc->catalog(), &DataCatalog::changed, debounce,
           qOverload<>(&QTimer::start));
+  if (m_sectionWorkbench)
+    connect(m_sectionWorkbench, &SectionWorkbench::alignmentsChanged, debounce,
+            qOverload<>(&QTimer::start));
 
   // 剖面-平面联动：剖面线位高亮（井序连线）+ 点名反向闪烁。线位随
   // 井集/井序/取数回填刷新；闪烁经 well 层 fid 解析。

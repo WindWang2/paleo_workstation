@@ -57,7 +57,11 @@ QgisProjectService::QgisProjectService( QObject *parent )
   QgsProject::setInstance( m_project );
 }
 
-QgisProjectService::~QgisProjectService() = default;
+QgisProjectService::~QgisProjectService()
+{
+  cancelOpen();
+  m_openFuture.waitForFinished(); // provider/runtime 析构前排空独立读取器
+}
 
 QgsProject *QgisProjectService::project() const
 {
@@ -101,6 +105,7 @@ void QgisProjectService::failAfterClose()
 
 void QgisProjectService::closeProject()
 {
+  cancelOpen();
   if ( m_path.isEmpty() )
     return;
   emit projectAboutToClose();
@@ -113,6 +118,8 @@ void QgisProjectService::closeProject()
 
 bool QgisProjectService::openProject( const QString &qgzPath )
 {
+  if (m_opening)
+    return false;
   m_errors.clear();
   m_lastOpenCancelled = false;
 
@@ -230,6 +237,11 @@ bool QgisProjectService::openProject( const QString &qgzPath )
 
 bool QgisProjectService::createProject( const QString &qgzPath )
 {
+  if (m_opening || m_openFuture.isRunning())
+  {
+    m_errors = {tr("正在读取工程，请等待完成或取消后再新建")};
+    return false;
+  }
   m_errors.clear();
   m_lastOpenCancelled = false;
 

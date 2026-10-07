@@ -5,6 +5,8 @@
 #include <QStringList>
 #include <QVector>
 #include <functional>
+#include <QFuture>
+#include <memory>
 
 #include "../metadata/layermanifest.h"
 #include "../metadata/paleoprojectfile.h"
@@ -12,6 +14,7 @@
 #include <optional>
 
 class QgsProject;
+struct ProjectLoadState;
 
 // P0 spine service — owns QgsProject open/save. Never write .qgz directly:
 // writes are sequenced by PaleoProjectStore (gpkg commit -> .qgz backup -> atomic .qgz write).
@@ -26,6 +29,9 @@ class QgisProjectService : public QObject
 
     QgsProject *project() const;                    // never null after open/create
     bool openProject(const QString &qgzPath);       // resolves manifest placeholders on demand
+    bool openProjectAsync(const QString &path);
+    void cancelOpen();
+    bool isOpening() const { return m_opening; }
     bool createProject(const QString &qgzPath);
     bool writeProject();                            // atomic temp+rename via store ordering
     QString projectPath() const;
@@ -74,6 +80,10 @@ class QgisProjectService : public QObject
     void projectClosed();
     void projectOpened(const QString &path);
     void projectWritten(const QString &path);
+    void openActiveChanged(bool active);
+    void openProgress(int percent, const QString &status);
+    void openFinished(bool success);
+    void openAborted(); // 释放待打开工程的锁；当前工程会话仍有效
 
   private:
     bool runGate( const QString &projectDir, bool creating );
@@ -88,4 +98,8 @@ class QgisProjectService : public QObject
   QStringList m_errors;
   std::optional<PaleoGeoreference> m_georeference;
   std::function<bool(QVector<LayerDeclaration> *, QString *)> m_declarationProvider;
+  bool m_opening = false;
+  quint64 m_openGeneration = 0;
+  QFuture<void> m_openFuture;
+  std::shared_ptr<ProjectLoadState> m_pendingLoad;
 };

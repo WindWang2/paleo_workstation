@@ -233,6 +233,14 @@ void WellCompositePanel::clearDepthTables()
   refreshTwtLabels();
 }
 
+void WellCompositePanel::applyTimeDepthAlignment(const std::optional<seismic::TimeDepthModel> &model,
+                                               double shiftMs, const QString &status)
+{
+  m_depthTransform.setMdTimeDepth(model, shiftMs);
+  refreshTwtLabels();
+  m_lblStatus->setText(tr("时深对齐：%1 · 平移 %2 ms").arg(status).arg(shiftMs, 0, 'f', 2));
+}
+
 void WellCompositePanel::refreshTwtLabels()
 {
   QVector<QPair<double, QString>> labels;

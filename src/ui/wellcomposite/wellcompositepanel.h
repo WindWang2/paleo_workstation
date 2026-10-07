@@ -105,12 +105,14 @@ public:
   void applyDepthTables(const QVector<DeviationStation> &stations,
                         const QVector<QPair<double, double>> &tvdTwtPairs,
                         double kbElevation = std::numeric_limits<double>::quiet_NaN());
+  void applyTimeDepthAlignment(const std::optional<seismic::TimeDepthModel> &model,
+                              double shiftMs, const QString &status);
   bool hasDeviationSurvey() const { return m_depthTransform.hasDeviationSurvey(); }
   bool hasTimeDepthTable() const { return m_depthTransform.hasTimeDepthTable(); }
   double mdToTvd(double md) const { return m_depthTransform.mdToTvd(md); }
   double twtAtDepth(double md) const
   {
-    return m_depthTransform.twtAtTvd(m_depthTransform.mdToTvd(md));
+    return m_depthTransform.twtAtMd(md);
   }
   void clearDepthTables(); // 换井/换源时复位
   // D1：读数条尾缀（TVD/TWT；无表回空）——测试与壳侧状态显示共用

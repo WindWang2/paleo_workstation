@@ -416,6 +416,9 @@ class PaleoMainWindow : public SARibbonMainWindow
     QDockWidget *m_faultPanelDock = nullptr;
     paleo::fault::FaultManagerPanel *m_faultPanel = nullptr;
     std::unique_ptr<seismic::SeismicTaskService> m_seismicTaskSvc;
+    QPointer<class PaleoTask> m_seismicOpenTask;
+    QString m_seismicOpenPath;
+    quint64 m_seismicOpenGeneration = 0;
     // goal/petrophysics-logs：测井计算批任务（面板只发意图，编排在此）。
     std::unique_ptr<paleo::petrophys::PetroPhysTaskService> m_petroPhysSvc;
     QPointer<class PaleoTask> m_petroPhysTask;

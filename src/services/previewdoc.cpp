@@ -833,6 +833,10 @@ QHash<QString, LasDoc> PreviewDocService::lasSiblingDocs(const QString &key) con
 
 void PreviewDocService::resetProjectState()
 {
+  ++m_surveyGeneration;
+  if (m_surveyTask)
+    m_surveyTask->requestCancel();
+  m_surveyTask.clear();
   for (auto it = m_decodeTask.begin(); it != m_decodeTask.end(); ++it)
     if (PaleoTask *t = it.value().data(); t && t->running())
       t->requestCancel();

@@ -25,16 +25,21 @@ public:
   // （「无时深表」/「时深表无序或有效样点不足」）。
   bool mdTimeDepth(const QString &wellId, seismic::TimeDepthModel *model,
                    double *shiftMs, QString *status);
+  QString wellForSource(const QString &path, const QString &name);
   std::vector<glm::dvec2> wellRoute(const QStringList &ids, QString *error);
   bool save(const QString &name, const std::vector<glm::dvec2> &route,
             const QString &seismicPath, const QString &horizon, QString *error);
   QVariantMap restore(const QString &versionId, QString *error,
                       const QString &activeSeismicPath = QString());
 
+signals:
+  void alignmentsChanged();
+
 private:
   void syncProject();
   seismic::TimeDepthModel modelFor(const QString &id, bool md, bool *ok) const;
   QString projectDir() const;
+  bool storeCalibrations(const QVariantMap &calibrations, QString *error) const;
   QPointer<DataCatalog> m_catalog;
   ProjectDataFacade m_data;
   QString m_catalogPath, m_parentVersion;

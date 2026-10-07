@@ -16,7 +16,7 @@
 
 namespace
 {
-  constexpr quint16 kSegyIndexVersion = 2;
+  constexpr quint16 kSegyIndexVersion = 3; // 四角改为完整测网极值，旧几何缓存需重建
   const char kSegyIndexMagic[8] = {'P', 'S', 'G', 'Y', 'I', 'D', 'X', '1'};
 
   quint16 compressionFlags()

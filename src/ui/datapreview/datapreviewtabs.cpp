@@ -510,12 +510,12 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
   QgsGeometry surveyGeom;
   if (survey.corners.size() >= 3)
   {
-    QgsPolylineXY ring;
+    QgsRectangle bounds;
     for (const auto &c : survey.corners)
-      ring.append(QgsPointXY(c.first, c.second));
-    if (!ring.isEmpty() && ring.first() != ring.last())
-      ring.append(ring.first());
-    surveyGeom = QgsGeometry::fromPolygonXY(QgsPolygonXY{ring});
+      if (std::isfinite(c.first) && std::isfinite(c.second))
+        bounds.combineExtentWith(QgsRectangle(c.first, c.second, c.first, c.second));
+    if (!bounds.isEmpty())
+      surveyGeom = QgsGeometry::fromRect(bounds);
   }
   else if (survey.inlineMax > survey.inlineMin && survey.xlineMax > survey.xlineMin)
   {
@@ -574,10 +574,11 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
   lay->addWidget(new PaleoToolRow(topBar, w));
   lay->addWidget(mapPage, 1);
 
-  auto zoomFull = [canvas, surveyGeom]() {
-    if (!surveyGeom.isNull() && !surveyGeom.boundingBox().isEmpty())
+  auto completeSurvey = std::make_shared<QgsGeometry>(surveyGeom);
+  auto zoomFull = [canvas, completeSurvey]() {
+    if (!completeSurvey->isNull() && !completeSurvey->boundingBox().isEmpty())
     {
-      QgsRectangle ext = surveyGeom.boundingBox();
+      QgsRectangle ext = completeSurvey->boundingBox();
       ext.grow(qMax(ext.width(), ext.height()) * 0.08);
       canvas->setExtent(ext);
       canvas->refresh();
@@ -615,6 +616,39 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
 
   // 延迟自适应全图（等几何尺寸就绪）
   QTimer::singleShot(100, mapPage, zoomFull);
+
+  if (m_doc && m_doc->catalog())
+    for (const auto &asset : m_doc->catalog()->assets())
+      if (asset.type == QLatin1String("seismic"))
+      {
+        bool matches = survey.id.isEmpty();
+        for (const auto &link : m_doc->catalog()->linksForAsset(asset.id))
+          matches = matches || (!link.unresolved && link.entityId == survey.id);
+        if (!matches)
+          continue;
+        crsLabel->setText(tr("正在后台恢复完整测区范围…"));
+        QPointer<QWidget> guard = mapPage;
+        m_doc->requestSurveyBounds(asset.id,
+            [guard, completeSurvey, boundaryBand, btnBoundary, crsLabel, zoomFull](const auto &corners, const QString &error) {
+          if (!guard)
+            return;
+          QgsRectangle bounds;
+          for (const auto &corner : corners)
+            bounds.combineExtentWith(QgsRectangle(corner.first, corner.second, corner.first, corner.second));
+          if (!bounds.isEmpty()) {
+            *completeSurvey = QgsGeometry::fromRect(bounds);
+            boundaryBand->setToGeometry(*completeSurvey, nullptr);
+            boundaryBand->setVisible(btnBoundary->isChecked());
+            crsLabel->setText(QObject::tr("工区范围: %1 km × %2 km · 局部工程坐标系统 (米)")
+                .arg(bounds.width() / 1000.0, 0, 'f', 1).arg(bounds.height() / 1000.0, 0, 'f', 1));
+            zoomFull();
+          } else {
+            crsLabel->setText(QObject::tr("测区范围恢复失败：%1")
+                .arg(error.isEmpty() ? QObject::tr("地震体缺少有效坐标") : error));
+          }
+        });
+        break;
+      }
 
   return w;
 }

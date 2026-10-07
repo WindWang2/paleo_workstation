@@ -63,10 +63,23 @@ double DepthTransform::mdToTvdss(double md) const
 void DepthTransform::setTimeDepthTable(const QVector<QPair<double, double>> &tvdTwtPairs)
 {
   m_twtStations = tvdTwtPairs;
-  std::sort(m_twtStations.begin(), m_twtStations.end(),
-            [](const QPair<double, double> &a, const QPair<double, double> &b) {
-              return a.first < b.first;
-            });
+  seismic::TimeDepthModel validated;
+  std::vector<seismic::TdPoint> points;
+  for (const auto &pair : tvdTwtPairs)
+    points.push_back({pair.first, pair.second});
+  if (!validated.setCheckshots(points))
+    m_twtStations.clear();
+}
+
+void DepthTransform::setMdTimeDepth(const std::optional<seismic::TimeDepthModel> &model, double shiftMs)
+{
+  m_mdTimeDepth = model;
+  m_timeShiftMs = shiftMs;
+}
+
+double DepthTransform::twtAtMd(double md) const
+{
+  return (m_mdTimeDepth ? m_mdTimeDepth->DepthToTwtMs(md) : twtAtTvd(mdToTvd(md))) + m_timeShiftMs;
 }
 
 QString DepthTransform::twtUnavailableReason() const
@@ -78,10 +91,9 @@ QString DepthTransform::twtUnavailableReason() const
 
 double DepthTransform::twtAtTvd(double tvd) const
 {
-  if (m_twtStations.isEmpty())
-    return -1.0;
-  if (tvd <= m_twtStations.first().first)
-    return m_twtStations.first().second;
+  if (m_twtStations.size() < 2 || !std::isfinite(tvd) ||
+      tvd < m_twtStations.first().first || tvd > m_twtStations.last().first)
+    return qQNaN();
   for (int i = 1; i < m_twtStations.size(); ++i)
   {
     if (tvd <= m_twtStations.at(i).first)
@@ -96,7 +108,7 @@ double DepthTransform::twtAtTvd(double tvd) const
       return t0 + f * (t1 - t0);
     }
   }
-  return m_twtStations.last().second;
+  return qQNaN();
 }
 
 // ----------------------------------------------------------------------------

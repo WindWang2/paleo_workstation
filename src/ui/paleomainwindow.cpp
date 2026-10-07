@@ -125,6 +125,7 @@
 #include <QTimer>
 #include <QSplitter>
 #include <QToolButton>
+#include <QProgressBar>
 #include <QSettings>
 #include <QStackedLayout>
 #include <QStackedWidget>
@@ -578,9 +579,7 @@ void PaleoMainWindow::buildShell()
         return;
       // §38 blocking-error contract: a failed open surfaces as a dialog, not
       // a silent no-op on the startup page.
-      if (!m_projectSvc->openProject(p) && !m_projectSvc->lastOpenCancelled()) // #152：用户取消不弹错
-        PaleoNotify::critical(this, tr("打开工程失败"),
-                              m_projectSvc->lastErrors().join(QLatin1Char('\n')));
+      openPath(p);
     });
   if (auto *newBtn = startup->findChild<QPushButton *>(QStringLiteral("newProjectButton")))
     connect(newBtn, &QPushButton::clicked, this, [this] {
@@ -613,9 +612,7 @@ void PaleoMainWindow::buildShell()
       const QString p = item ? item->data(Qt::UserRole).toString() : QString();
       if (p.isEmpty() || !m_projectSvc)
         return;
-      if (!m_projectSvc->openProject(p) && !m_projectSvc->lastOpenCancelled()) // #152：用户取消不弹错
-        PaleoNotify::critical(this, tr("打开工程失败"),
-                              m_projectSvc->lastErrors().join(QLatin1Char('\n')));
+      openPath(p);
     });
 
   setCentralWidget(m_centerStack);
@@ -938,6 +935,42 @@ void PaleoMainWindow::buildShell()
     }
   });
   statusBar()->addPermanentWidget(m_statusErrorBtn);
+  if (m_projectSvc) {
+    auto *openStatus = new QLabel(this);
+    openStatus->setObjectName(QStringLiteral("projectOpenStatus"));
+    auto *openProgress = new QProgressBar(this);
+    openProgress->setObjectName(QStringLiteral("projectOpenProgress"));
+    openProgress->setRange(0, 100);
+    openProgress->setMaximumWidth(160);
+    auto *cancelOpen = new QToolButton(this);
+    cancelOpen->setObjectName(QStringLiteral("cancelProjectOpenButton"));
+    cancelOpen->setText(tr("取消打开"));
+    cancelOpen->setAutoRaise(true);
+    statusBar()->addPermanentWidget(openStatus);
+    statusBar()->addPermanentWidget(openProgress);
+    statusBar()->addPermanentWidget(cancelOpen);
+    openStatus->hide(); openProgress->hide(); cancelOpen->hide();
+    connect(cancelOpen, &QToolButton::clicked, m_projectSvc, &QgisProjectService::cancelOpen);
+    connect(m_projectSvc, &QgisProjectService::openActiveChanged, this,
+            [this, openStatus, openProgress, cancelOpen](bool active) {
+      openStatus->setVisible(active); openProgress->setVisible(active); cancelOpen->setVisible(active);
+      if (active) openProgress->setValue(0);
+      for (const auto &name : {"openProjectButton", "newProjectButton", "importFromFolderButton"})
+        if (auto *button = findChild<QPushButton *>(QString::fromLatin1(name)))
+          button->setEnabled(!active);
+    });
+    connect(m_projectSvc, &QgisProjectService::openProgress, this,
+            [openStatus, openProgress, cancelOpen](int percent, const QString &status) {
+      openProgress->setValue(percent);
+      openStatus->setText(status);
+      openStatus->setToolTip(status);
+      cancelOpen->setEnabled(percent < 85);
+    });
+    connect(m_projectSvc, &QgisProjectService::openFinished, this, [this](bool success) {
+      statusBar()->showMessage(success ? tr("工程打开完成") : m_projectSvc->lastOpenCancelled()
+          ? tr("已取消打开工程") : tr("工程打开失败"), 5000);
+    });
+  }
 
   if (auto *hub = paleo::services::ErrorHub::instance()) {
     const auto syncErrorStatus = [this, hub] {
@@ -1902,6 +1935,14 @@ void PaleoMainWindow::resetProjectScopedState()
   if (m_corrPanel)
     m_corrPanel->resetProject();
 
+  ++m_seismicOpenGeneration;
+  if (m_seismicOpenTask)
+    m_seismicOpenTask->requestCancel();
+  m_seismicOpenPath.clear();
+  if (auto *status = findChild<QLabel *>(QStringLiteral("projectSeismicLoadStatus")))
+    status->hide();
+  if (auto *progress = findChild<QProgressBar *>(QStringLiteral("projectSeismicLoadProgress")))
+    progress->hide();
   // #158：3D 视图与剖面 dock 的地震体清空；新工程若有地震，打开后由
   // syncSeismicVolumeToDocks 重新装载。
   if (m_seismic3dPanel)
@@ -1949,55 +1990,87 @@ void PaleoMainWindow::refreshCorrelationWells(const QString &loadLasForAssetId,
 void PaleoMainWindow::syncSeismicVolumeToDocks()
 {
   DataCatalog *cat = m_previewDoc ? m_previewDoc->catalog() : nullptr;
-  if (!cat)
+  if (!cat || !cat->isOpen() || !m_seismicTaskSvc)
     return;
-  for (const CatalogAsset &a : cat->assets())
+  for (const CatalogAsset &asset : cat->assets())
   {
-    if (a.type == QLatin1String("seismic"))
-    {
-      const CatalogVersion tv = cat->currentVersion(a.id);
-      const QString abs = tv.id.isEmpty() ? QString() : m_previewDoc->absolutePathForVersion(tv);
-      if (!abs.isEmpty() && QFile::exists(abs))
-      {
-        if (m_seismic3dPanel && (m_seismic3dPanel->volume() == nullptr ||
-                                 QString::fromStdString(m_seismic3dPanel->volume()->Path().string()) != abs))
-        {
-          if (m_seismicTaskSvc)
-            m_seismic3dPanel->setTaskService(m_seismicTaskSvc.get());
-          auto vol = std::make_shared<seismic::SgyVolume>();
-          std::string volErr;
-          if (vol->Load(abs.toStdString(), volErr))
-          {
-            m_seismic3dPanel->setVolume(vol);
-            if (m_seismic3dPanel->viewport())
-            {
-              m_seismic3dPanel->viewport()->setPresetView(seismic::SeismicCameraController::PresetView::Isometric);
-              m_seismic3dPanel->viewport()->fitToBounds();
-            }
-          }
-        }
-        if (m_seismicSectionDock && (m_seismicSectionDock->volume() == nullptr ||
-                                     QString::fromStdString(m_seismicSectionDock->volume()->Path().string()) != abs))
-        {
-          auto vol = std::make_shared<seismic::SgyVolume>();
-          std::string volErr;
-          if (vol->Load(abs.toStdString(), volErr))
-          {
-            double origin = 0;
-            for (const auto &link : cat->linksForAsset(a.id))
-              if (!link.unresolved && link.entityType == "seismic_survey") {
-                origin = cat->entityById(link.entityId).startTimeMs;
-                break;
-              }
-            m_seismicSectionDock->setTimeOriginMs(origin);
-            if (m_sectionLink)
-              m_sectionLink->setActiveVolume(vol);
-            else
-              m_seismicSectionDock->setVolume(vol);
-          }
-        }
+    if (asset.type != QLatin1String("seismic"))
+      continue;
+    const auto version = cat->currentVersion(asset.id);
+    const QString path = m_previewDoc->absolutePathForVersion(version);
+    if (path.isEmpty() || !QFile::exists(path))
+      continue;
+    const auto matches = [&path](const auto &volume) {
+      return volume && QString::fromStdString(volume->Path().string()) == path;
+    };
+    const bool need3d = m_seismic3dPanel && !matches(m_seismic3dPanel->volume());
+    const bool needSection = m_seismicSectionDock && !matches(m_seismicSectionDock->volume());
+    if ((!need3d && !needSection) || (m_seismicOpenPath == path && m_seismicOpenTask && m_seismicOpenTask->running()))
+      return;
+    if (m_seismicOpenTask)
+      m_seismicOpenTask->requestCancel();
+    const quint64 generation = ++m_seismicOpenGeneration;
+    m_seismicOpenPath = path;
+    const quint64 session = m_projectSvc ? m_projectSvc->sessionId() : 0;
+    double origin = 0;
+    for (const auto &link : cat->linksForAsset(asset.id))
+      if (!link.unresolved && link.entityType == QLatin1String("seismic_survey")) {
+        origin = cat->entityById(link.entityId).startTimeMs;
         break;
       }
+    auto *status = findChild<QLabel *>(QStringLiteral("projectSeismicLoadStatus"));
+    auto *progress = findChild<QProgressBar *>(QStringLiteral("projectSeismicLoadProgress"));
+    if (!status) {
+      status = new QLabel(this);
+      status->setObjectName(QStringLiteral("projectSeismicLoadStatus"));
+      progress = new QProgressBar(this);
+      progress->setObjectName(QStringLiteral("projectSeismicLoadProgress"));
+      progress->setMaximumWidth(160);
+      statusBar()->addPermanentWidget(status);
+      statusBar()->addPermanentWidget(progress);
     }
+    status->setText(tr("后台加载地震体：%1").arg(QFileInfo(path).fileName()));
+    progress->setRange(0, 0);
+    status->show(); progress->show();
+    QPointer<PaleoMainWindow> guard(this);
+    m_seismicOpenTask = m_seismicTaskSvc->startVolumeLoad(path,
+        [guard, generation, session, origin, status, progress](bool ok,
+              std::shared_ptr<seismic::SgyVolume> volume, const QString &error) {
+      if (!guard || generation != guard->m_seismicOpenGeneration ||
+          (guard->m_projectSvc && session != guard->m_projectSvc->sessionId()))
+        return;
+      status->hide(); progress->hide();
+      guard->m_seismicOpenPath.clear();
+      if (!ok || !volume) {
+        guard->statusBar()->showMessage(error, 10000);
+        return;
+      }
+      if (guard->m_seismic3dPanel) {
+        guard->m_seismic3dPanel->setTaskService(guard->m_seismicTaskSvc.get());
+        guard->m_seismic3dPanel->setVolume(volume);
+        if (guard->m_seismic3dPanel->viewport()) {
+          guard->m_seismic3dPanel->viewport()->setPresetView(seismic::SeismicCameraController::PresetView::Isometric);
+          guard->m_seismic3dPanel->viewport()->fitToBounds();
+        }
+      }
+      if (guard->m_seismicSectionDock) {
+        guard->m_seismicSectionDock->setTimeOriginMs(origin);
+        if (guard->m_sectionLink)
+          guard->m_sectionLink->setActiveVolume(volume);
+        else
+          guard->m_seismicSectionDock->setVolume(volume);
+      }
+      guard->statusBar()->showMessage(QObject::tr("地震体加载完成"), 5000);
+    });
+    if (m_seismicOpenTask) {
+      QPointer<PaleoTask> task = m_seismicOpenTask;
+      connect(task, &PaleoTask::changed, this, [task, progress, generation, this] {
+        if (!task || generation != m_seismicOpenGeneration) return;
+        const int percent = task->percent();
+        progress->setRange(0, percent < 0 ? 0 : 100);
+        if (percent >= 0) progress->setValue(percent);
+      });
+    }
+    return;
   }
 }

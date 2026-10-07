@@ -527,12 +527,10 @@ DataImportService::importFolderRow(const QString &sourcePath, const QString &for
 {
   if (error)
     error->clear();
-  // 与 plan 枚举同一分类口径：.xml 要看内容判定。
-  const QByteArray xml =
-      QFileInfo(sourcePath).suffix().compare(QLatin1String("xml"), Qt::CaseInsensitive) == 0
-          ? readFileOrEmpty(sourcePath).toUtf8()
-          : QByteArray();
-  const QString classified = classifyProjectImport(sourcePath, xml).type;
+  // 与目录预览、单文件导入使用相同的有界内容识别。
+  QFile source(sourcePath);
+  const QByteArray prefix = source.open(QIODevice::ReadOnly) ? source.read(65536) : QByteArray();
+  const QString classified = classifyProjectImport(sourcePath, prefix).type;
   const QString eff = isClassifierType(forceType) ? forceType : classified;
   const FolderRowResult row = folderRowFor(sourcePath, classified, eff);
   if (row.outcome == FolderRowResult::Outcome::Failed)

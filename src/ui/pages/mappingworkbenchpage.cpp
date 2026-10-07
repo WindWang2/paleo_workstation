@@ -70,10 +70,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   layout->addWidget(paleo::pagesinternal::caption(tr("输入与参数"), body));
   layout->addLayout(form);
   if (mode == "predict") {
-    // 方向51：不再写「模拟数据」——远端预测走的是装配出来的真实路由
-    // （RemotePredictionRouter）；未配置端点时状态行如实说「未配置，走本地引擎」，
-    // 不再悄悄跑替身 Mock 出一份看起来像结果的东西。
-    label(tr("远端预测 · 结果待复核\n"
+    label(tr("地震层位窗聚类／预测服务 · 结果待复核\n"
              "选择一个地震体，或勾选一口／多口井。结果按当前层位与相分类"
              "生成。"));
     m_status = new QLabel(body);
@@ -84,7 +81,9 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
     layout->addWidget(m_status);
     const auto showStatus = [this] {
       if (m_status && m_workbench)
-        m_status->setText(m_workbench->predictionStatusHint());
+        m_status->setText(m_kind && m_kind->currentData() == "seismic_mock"
+          ? tr("Mock：沿当前层位提取 ±12 ms 地震反射窗，聚类生成分布图；相类别映射需地质复核。")
+          : m_workbench->predictionStatusHint());
     };
     showStatus();
     connect(workbench, &MappingWorkbench::predictionStatusChanged, this,
@@ -92,9 +91,12 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
     m_kind = new QComboBox(body);
     m_kind->setObjectName("predictionKind");
     m_kind->setAccessibleName(tr("预测类型"));
-    m_kind->addItem(tr("地震体 → 相栅格"), "seismic");
+    m_kind->addItem(tr("地震层位窗聚类 → 分布图（Mock）"), "seismic_mock");
+    m_kind->addItem(tr("地震体 → 相栅格（预测服务）"), "seismic");
     m_kind->addItem(tr("测井 → 预测相点"), "wells");
     form->addRow(tr("预测类型"), m_kind);
+    connect(m_kind, &QComboBox::currentIndexChanged, this, showStatus);
+    showStatus();
     m_inputs = new QListWidget(body);
     m_inputs->setObjectName("workbenchInputs");
     m_inputs->setFixedHeight(96);
@@ -107,7 +109,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
     layout->addWidget(all);
     connect(all, &QPushButton::clicked, this, [this] {
       const bool clear = !checkedInputs().isEmpty() &&
-          (m_kind->currentData() == "seismic" ||
+          (m_kind->currentData() != "wells" ||
            checkedInputs().size() == m_inputs->count());
       const QSignalBlocker blocker(m_inputs);
       for (int i = 0; i < m_inputs->count(); ++i)
@@ -220,7 +222,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   if (m_inputs)
     connect(m_inputs, &QListWidget::itemChanged, this,
             [this](QListWidgetItem *item) {
-              if (m_kind && m_kind->currentData() == "seismic" &&
+              if (m_kind && m_kind->currentData() != "wells" &&
                   item->checkState() == Qt::Checked) {
                 QSignalBlocker block(m_inputs);
                 for (int i = 0; i < m_inputs->count(); ++i)

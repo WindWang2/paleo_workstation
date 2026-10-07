@@ -438,6 +438,7 @@ add_library(paleo_qgis STATIC
   src/qgis/mappingartifactwriter.cpp
   src/qgis/qgisruntime.cpp
   src/qgis/qgisprojectservice.cpp
+  src/qgis/qgisprojectservice_async.cpp
   src/qgis/qgislayerservice.cpp
   src/qgis/qgiscanvascontroller.cpp
   src/qgis/qgiseditingservice.cpp
@@ -494,12 +495,14 @@ target_link_libraries(paleo_io PUBLIC paleo_deps paleo_domain paleo_store)
 add_library(paleo_services STATIC
   src/services/toolavailability.cpp
   src/services/previewdoc.cpp                       # W1 数据页唯一数据门面
+  src/services/previewdoc_survey.cpp                # 完整测区范围后台恢复
   src/services/singlefactordef.cpp                  # m2：单因素定义注册表
   src/services/algoparamschema.cpp                  # m2：算法参数 schema 注册表
   src/services/projectdata.cpp                      # 读侧门面（catalog.json + LayerManifest）
   src/services/paleotaskservice.cpp                 # D1/D2 异步任务框架
   src/services/jobrunner.cpp                        # 方向20：统一三段式 JobRunner（作业框架）
   src/services/seismicmapping.cpp                   # 测网几何↔inline/xline/CDP
+  src/services/seismichorizoncluster.cpp             # 层位窗反射特征聚类（Mock 相解释）
   src/services/seismictaskservice.cpp               # sdk::Dataset 门面 + 任务编排 (Base Core)
   src/services/seismictaskservice_transcode.cpp     # 地震任务：索引与转码
   src/services/seismictaskservice_slice.cpp         # 地震任务：切片与剖面

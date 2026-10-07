@@ -108,6 +108,9 @@ class SegyReader
                     QString *error, const SegyOptions *opts);
     // 从（部分）m_index 重建行/道哈希 + 范围几何（restore/resume 收尾）。
     void rebuildLineHashes();
+    void freezeCorners(const QVector<double> &xs, const QVector<double> &ys);
+    QVector<int> cornerTraceIndices() const;
+    bool freezeCornersFromFile(QFile &file, bool fromCdpXY = false);
     void resetState();
 
     AreaRules::SegyIndexing m_indexingRules; // 本次索引取字口径快照

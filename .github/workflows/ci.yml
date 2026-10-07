@@ -208,9 +208,12 @@ jobs:
       - name: Cache vendor artifacts
         uses: actions/cache@v4
         with:
+          # #231：osgeo4w 安装树随包钉版缓存（key 已含 manifest.json 哈希，
+          # 钉版变更自动 bust）；命中时 bootstrap 直接跳过 setup。
           path: |
             vendor/onnxruntime
             vendor/cache
+            vendor/osgeo4w
           key: ${{ runner.os }}-vendor-${{ hashFiles('vendor/manifest.json') }}
       # #134：Vendor 只取依赖；编译错误落在 Build 步骤（CI 下 ninja -k 0 一次暴露全部错误）。
       - name: Vendor dependencies (OSGeo4W route per docs/phase0/et0-vendor-comparison.md)

@@ -70,24 +70,79 @@ switch ($Verb) {
     Preflight
     Write-Host "== vendor bootstrap (OSGeo4W route) =="
     $pin = (Get-Content (Join-Path $Vendor 'manifest.json') -Raw | ConvertFrom-Json).deps.osgeo4w
-    if (-not $pin) { throw 'OSGeo4W pin missing from vendor/manifest.json' }
-    $setup = Join-Path $Vendor 'osgeo4w-setup.exe'
-    Invoke-WebRequest -Uri $pin.installer_url -OutFile $setup
-    $actual = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($actual -ne $pin.installer_sha256) { throw "OSGeo4W installer SHA256 mismatch: $actual" }
+    if (-not $pin -or -not $pin.packages -or -not $pin.closure) {
+      throw 'OSGeo4W pins incomplete in vendor/manifest.json（需 packages+closure）——跑 python3 tools/pin_osgeo4w.py 生成'
+    }
+    # #231：包集钉版（packages=直接包 / closure=requires 全闭包快照）。已装的
+    # 安装树与钉版一致时跳过 setup（CI 缓存命中场景，零网络零漂移）；不一致
+    # 才跑安装器，装后逐包校验——上游任何发版不再静默流进，漂移如实打红，
+    # 刷新 = python3 tools/pin_osgeo4w.py 提交（同 deb-closure.lock 口径）。
     $osgeo = Join-Path $Vendor 'osgeo4w'
     $cache = Join-Path $Vendor 'cache\osgeo4w'
     New-Item -ItemType Directory -Force $osgeo, $cache | Out-Null
-    $setupArgs = @('-q', '-A', '-k', '-n', '-N', '-d', '-O', '-s', $pin.site,
-                   '-R', ('"' + $osgeo + '"'), '-l', ('"' + $cache + '"'),
-                   '-P', ($pin.packages -join ','))
-    # The installer detaches when invoked directly; wait for the entire setup
-    # process tree before inspecting installed.db or configuring CMake.
-    $setupProcess = Start-Process -FilePath $setup -ArgumentList $setupArgs -Wait -PassThru
-    if ($setupProcess.ExitCode -ne 0) { throw "OSGeo4W setup failed: $($setupProcess.ExitCode)" }
     $installedDb = Join-Path $osgeo 'etc\setup\installed.db'
-    if (-not (Test-Path $installedDb) -or
-        -not (Select-String -Path $installedDb -Pattern '^qgis\s+qgis-4\.2\.' -Quiet) -or
+
+    function Read-InstalledDbMap([string]$path) {
+      # installed.db 每行「名称 版本 0」；返回 @{名称=版本}，空文件/缺文件返回 $null。
+      if (-not (Test-Path $path)) { return $null }
+      $map = @{}
+      foreach ($line in (Get-Content $path -Encoding utf8)) {
+        $f = $line -split '\s+'
+        if ($f.Count -ge 2 -and $f[0]) { $map[$f[0]] = $f[1] }
+      }
+      if ($map.Count -eq 0) { return $null }
+      return $map
+    }
+
+    function Compare-PinnedClosure($installed, $closure) {
+      # 双向比对：装了的必须钉、钉了的必须装且版本一致。返回差异描述列表。
+      $diffs = @()
+      foreach ($p in $closure.PSObject.Properties) {
+        $v = $null
+        if ($installed.ContainsKey($p.Name)) { $v = $installed[$p.Name] }
+        if ($null -eq $v) { $diffs += "缺包 $($p.Name)（钉 $($p.Value)）" }
+        elseif ($v -ne $p.Value) { $diffs += "版本漂移 $($p.Name)：装 $v / 钉 $($p.Value)" }
+      }
+      foreach ($k in $installed.Keys) {
+        if (-not $closure.PSObject.Properties.Name.Contains($k)) {
+          $diffs += "未钉版包装入 $k $($installed[$k])"
+        }
+      }
+      return $diffs
+    }
+
+    $installed = Read-InstalledDbMap $installedDb
+    $closureMatches = $false
+    if ($null -ne $installed -and $null -ne $pin.closure) {
+      $closureMatches = (@(Compare-PinnedClosure $installed $pin.closure)).Count -eq 0
+    }
+
+    if ($closureMatches) {
+      Write-Host "  OSGeo4W 安装树与 manifest 钉版一致（$(@($pin.closure.PSObject.Properties).Count) 包）——跳过 setup"
+    } else {
+      $setup = Join-Path $Vendor 'osgeo4w-setup.exe'
+      Invoke-WebRequest -Uri $pin.installer_url -OutFile $setup
+      $actual = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLowerInvariant()
+      if ($actual -ne $pin.installer_sha256) { throw "OSGeo4W installer SHA256 mismatch: $actual" }
+      $setupArgs = @('-q', '-A', '-k', '-n', '-N', '-d', '-O', '-s', $pin.site,
+                     '-R', ('"' + $osgeo + '"'), '-l', ('"' + $cache + '"'),
+                     '-P', (($pin.packages.PSObject.Properties.Name) -join ','))
+      # The installer detaches when invoked directly; wait for the entire setup
+      # process tree before inspecting installed.db or configuring CMake.
+      $setupProcess = Start-Process -FilePath $setup -ArgumentList $setupArgs -Wait -PassThru
+      if ($setupProcess.ExitCode -ne 0) { throw "OSGeo4W setup failed: $($setupProcess.ExitCode)" }
+      # 装后校验（#231）：漂移不再静默——逐包比对闭包钉版，不一致即红并给
+      # 出机械刷新路径。
+      $installed = Read-InstalledDbMap $installedDb
+      if ($null -eq $installed) { throw "OSGeo4W installed.db 缺失或为空：$installedDb" }
+      $diffs = @(Compare-PinnedClosure $installed $pin.closure)
+      if ($diffs.Count -gt 0) {
+        Write-Host "::error::OSGeo4W 包集与 manifest 钉版不符（上游已发版或钉版过期）："
+        foreach ($d in $diffs) { Write-Host "::error::  $d" }
+        throw 'OSGeo4W pin drift — 跑 python3 tools/pin_osgeo4w.py 刷新 vendor/manifest.json 并提交'
+      }
+    }
+    if (-not (Select-String -Path $installedDb -Pattern '^qgis\s+qgis-4\.2\.' -Quiet) -or
         -not (Select-String -Path $installedDb -Pattern '^qgis-devel\s+qgis-devel-4\.2\.' -Quiet)) {
       throw 'OSGeo4W did not install QGIS and development headers from the 4.2.x family'
     }

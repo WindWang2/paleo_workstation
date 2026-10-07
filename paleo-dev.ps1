@@ -85,9 +85,10 @@ function Enter-LocalDepsEnvironment {
   $env:QSCINTILLA_PREFIX_PATH = Join-Path $deps 'Library\include\qt6'
   # DLL 搜索序：deps 运行时在前（exe 与 QGIS DLL 共用的 6.11.2），QGIS 前缀
   # bin 随后（exe 静态导入 qgis_core/gui/analysis），qtpdf 覆盖层补 Qt6Pdf*.dll；
-  # 任何 6.8 系目录都不许出现在它们前面。
+  # deps 根随后（conda 布局的 python.exe 在根不在 Library/bin——tst_pythonrepl/
+  # tst_scriptrunner 的 QProcess 启动依赖它）；任何 6.8 系目录都不许在前面。
   $env:PATH = ((Join-Path $deps 'Library\bin'), (Join-Path $qgis 'bin'),
-               (Join-Path $qtpdf 'bin'), $env:PATH) -join ';'
+               (Join-Path $qtpdf 'bin'), $deps, $env:PATH) -join ';'
   # GDAL/PROJ 数据目录（与 vendored 路线同语义）：缺省时 GDAL 找不到
   # tms_NZTM2000.json、PROJ 报 CRS 无大地基准。
   $gdalData = Join-Path $deps 'Library\share\gdal'
@@ -231,6 +232,11 @@ switch ($Verb) {
       $treeTmp = Join-Path $Build 'paleo-tmp'
       New-Item -ItemType Directory -Force $treeTmp | Out-Null
       $env:TEMP = $treeTmp; $env:TMP = $treeTmp
+      # 同一监狱的第二个落点：SgyIndexCache 在 Windows 解析到 %LOCALAPPDATA%
+      # （树外）→「Cannot create cache file」（tst_seismic_* 家族）。其解析链
+      # 的最高优先覆盖是 SEISMIC_INDEX_CACHE_DIR——指到树内。
+      $env:SEISMIC_INDEX_CACHE_DIR = Join-Path $treeTmp 'seismic-index'
+      New-Item -ItemType Directory -Force $env:SEISMIC_INDEX_CACHE_DIR | Out-Null
     }
     # Python 门禁脚本在 Windows 默认 cp1252 下读写含中文的源码/输出会抛
     # UnicodeEncodeError（ui_invariants_selftest）——统一 UTF-8 模式。

@@ -1,10 +1,19 @@
 # paleo-dev.ps1 — Windows sibling of ./paleo-dev (§44.1).
-# Verbs: bootstrap [fetch-only] | build | test | selfcheck | clean-vendor <dep>
+# Verbs: bootstrap [fetch-only] | build | test | selfcheck | checkenv | clean-vendor <dep>
 #   bootstrap fetch-only : 只取依赖（OSGeo4W + ORT），不编译不自检——CI 用它让
 #                          编译错误落在 Build 步骤而不是 Vendor 步骤（#134）。
 #   build                : $env:CI 已设时 ninja -k 0，一次暴露全部编译错误。
 #   test                 : $env:PALEO_CTEST_ARGS 透传给 ctest（如 "-LE perf"）。
-# Binary-vendor route: OSGeo4W qgis-devel-4.2.x + dep closure, MSVC v14x /MD.
+#   checkenv             : Qt 编译/运行链一致性自检（方向 72 防回归）。
+# 依赖路线两条（Enter-DependencyEnvironment 自动择一，vendored 优先）：
+#   vendored ：OSGeo4W qgis-devel-4.2.x 闭包（vendor/osgeo4w，CI 口径）。
+#   localdeps：本机 conda 依赖根（默认 ~/paleo-qgis-deps，qt6-main 6.11.2 全家
+#              + GDAL/GEOS 闭包）+ QGIS 4.2.0 前缀（~/paleo-qgis-prefix，按
+#              Qt 6.11.2 构建）+ qtpdf 官方 6.11.2 覆盖层（默认
+#              C:/deps/Qt/6.11.2/msvc2022_64——conda 闭包不带 Qt6Pdf，经
+#              QT_ADDITIONAL_PACKAGES_PREFIX_PATH 补位）。编译与运行同链
+#              6.11.2，治「exe 按 6.8 编、QGIS DLL 按 6.11 载」的混链（方向 72）。
+#              根位置可被 PALEO_LOCAL_DEPS / PALEO_QGIS_PREFIX / PALEO_QTPDF_PREFIX 覆盖。
 param(
   [Parameter(Mandatory=$true, Position=0)][string]$Verb,
   [Parameter(Position=1)][string]$Arg
@@ -34,7 +43,8 @@ function Enter-MsvcEnvironment {
 
 function Enter-VendorEnvironment {
   $osgeo = Join-Path $Vendor 'osgeo4w'
-  if (-not (Test-Path (Join-Path $osgeo 'apps\qgis\include\qgsapplication.h'))) { return }
+  if (-not (Test-Path (Join-Path $osgeo 'apps\qgis\include\qgsapplication.h'))) { return $false }
+  $script:DepsRoute = 'vendored'
   $env:QGIS_PREFIX_PATH = Join-Path $osgeo 'apps\qgis'
   $env:CMAKE_PREFIX_PATH = Join-Path $osgeo 'apps\qt6'
   # vendored onnxruntime 必须排在 OSGeo4W bin 之前——OSGeo4W 自带
@@ -49,6 +59,51 @@ function Enter-VendorEnvironment {
   if (Test-Path $gdalData) { $env:GDAL_DATA = $gdalData }
   $projData = Join-Path $osgeo 'share\proj'
   if (Test-Path $projData) { $env:PROJ_LIB = $projData }
+  return $true
+}
+
+function Enter-LocalDepsEnvironment {
+  # 方向 72：本机 conda 依赖路线。Qt 6.11.2 编译（deps 头/cmake）与运行
+  # （deps DLL，PATH 前置）同链；QGIS prefix 与 deps 的 Qt 同为 6.11.2 族。
+  # 探测基准：deps 根有 Qt6Core.dll、QGIS 前缀有 qgis_core.lib——都不在则
+  # 静默让位（返回 $false），build/test 会落到系统兜底并保持原报错语义。
+  $deps = if ($env:PALEO_LOCAL_DEPS) { $env:PALEO_LOCAL_DEPS } else { Join-Path $env:USERPROFILE 'paleo-qgis-deps' }
+  $qgis = if ($env:PALEO_QGIS_PREFIX) { $env:PALEO_QGIS_PREFIX } else { Join-Path $env:USERPROFILE 'paleo-qgis-prefix' }
+  $qtpdf = if ($env:PALEO_QTPDF_PREFIX) { $env:PALEO_QTPDF_PREFIX } else { 'C:/deps/Qt/6.11.2/msvc2022_64' }
+  if (-not (Test-Path (Join-Path $deps 'Library\bin\Qt6Core.dll'))) { return $false }
+  if (-not (Test-Path (Join-Path $qgis 'lib\qgis_core.lib'))) { return $false }
+  $script:DepsRoute = 'localdeps'
+  $script:LocalQgis = $qgis; $script:LocalQtpdf = $qtpdf
+  $env:QGIS_PREFIX_PATH = $qgis
+  $env:CMAKE_PREFIX_PATH = Join-Path $deps 'Library'
+  # Qt6Pdf 系不在 conda 闭包里：官方 6.11.2 qtpdf 扩展作为独立前缀补位
+  # （Qt6Config 只在自己前缀内找组件，QT_ADDITIONAL_PACKAGES_PREFIX_PATH
+  # 是 Qt 官方的「模块独立前缀」入口）。
+  $env:QT_ADDITIONAL_PACKAGES_PREFIX_PATH = $qtpdf
+  # QScintilla 头随 conda Qt 走（include/qt6/Qsci）——旧的
+  # C:/deps/qscintilla-install 按 6.8 环境构建，统一链下退役。
+  $env:QSCINTILLA_PREFIX_PATH = Join-Path $deps 'Library\include\qt6'
+  # DLL 搜索序：deps 运行时在前（exe 与 QGIS DLL 共用的 6.11.2），QGIS 前缀
+  # bin 随后（exe 静态导入 qgis_core/gui/analysis），qtpdf 覆盖层补 Qt6Pdf*.dll；
+  # 任何 6.8 系目录都不许出现在它们前面。
+  $env:PATH = ((Join-Path $deps 'Library\bin'), (Join-Path $qgis 'bin'),
+               (Join-Path $qtpdf 'bin'), $env:PATH) -join ';'
+  # GDAL/PROJ 数据目录（与 vendored 路线同语义）：缺省时 GDAL 找不到
+  # tms_NZTM2000.json、PROJ 报 CRS 无大地基准。
+  $gdalData = Join-Path $deps 'Library\share\gdal'
+  if (Test-Path $gdalData) { $env:GDAL_DATA = $gdalData }
+  $projData = Join-Path $deps 'Library\share\proj'
+  if (Test-Path $projData) { $env:PROJ_LIB = $projData }
+  return $true
+}
+
+function Enter-DependencyEnvironment {
+  # vendored 优先（CI 与本地 vendor 装机一致）；否则本机 localdeps；都缺则
+  # 保持系统兜底（$script:DepsRoute 留空，build 走原 -DQGIS_PREFIX=osgeo4w
+  # 报错语义）。
+  if (Enter-VendorEnvironment) { return }
+  if (Enter-LocalDepsEnvironment) { return }
+  $script:DepsRoute = 'system'
 }
 
 function Preflight {
@@ -135,8 +190,18 @@ switch ($Verb) {
   }
   'build' {
     Enter-MsvcEnvironment
-    Enter-VendorEnvironment
-    cmake -S $Root -B $Build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo "-DQGIS_PREFIX=$(Join-Path $Vendor 'osgeo4w')"
+    Enter-DependencyEnvironment
+    # localdeps：configure 显式钉统一链四元组（cache 粘住，防无 env 的
+    # shell 重配时静默丢前缀——与 QGIS_PREFIX 进 cache 同一纪律）。
+    if ($script:DepsRoute -eq 'localdeps') {
+      cmake -S $Root -B $Build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo `
+        "-DCMAKE_PREFIX_PATH=$env:CMAKE_PREFIX_PATH" `
+        "-DQT_ADDITIONAL_PACKAGES_PREFIX_PATH=$env:QT_ADDITIONAL_PACKAGES_PREFIX_PATH" `
+        "-DQGIS_PREFIX=$script:LocalQgis" `
+        "-DQSCINTILLA_PREFIX=$env:QSCINTILLA_PREFIX_PATH"
+    } else {
+      cmake -S $Root -B $Build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo "-DQGIS_PREFIX=$(Join-Path $Vendor 'osgeo4w')"
+    }
     if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed' }
     # CI 上 -k 0：ninja 不在第一个错误处停，一轮暴露全部 MSVC 编译错误（#134）。
     # #230：AGENTS.md「构建/测试一律 -j8 以内」——min(核数, 8)，PALEO_JOBS 可调低。
@@ -155,8 +220,18 @@ switch ($Verb) {
     }
   }
   'test' {
-    Enter-VendorEnvironment
+    Enter-DependencyEnvironment
     $env:QT_QPA_PLATFORM = 'offscreen'
+    # 方向 72：本机沙箱策略对「镜像位于仓库树内的进程」实施文件监狱——只能
+    # 写树内路径。%TEMP% 默认在树外 → QTemporaryDir/QFile 全线「拒绝访问」
+    # （历代 Windows 环境红的真身）。localdeps 路线下把 TEMP/TMP 重定向到
+    # build 内一层浅目录（比 CMakeLists 避让的 ctest-home 深路径短）。
+    # vendored/CI 路线无此策略，保持原样。
+    if ($script:DepsRoute -eq 'localdeps') {
+      $treeTmp = Join-Path $Build 'paleo-tmp'
+      New-Item -ItemType Directory -Force $treeTmp | Out-Null
+      $env:TEMP = $treeTmp; $env:TMP = $treeTmp
+    }
     # Python 门禁脚本在 Windows 默认 cp1252 下读写含中文的源码/输出会抛
     # UnicodeEncodeError（ui_invariants_selftest）——统一 UTF-8 模式。
     $env:PYTHONUTF8 = '1'
@@ -227,10 +302,23 @@ switch ($Verb) {
     }
   }
   'selfcheck' {
-    Enter-VendorEnvironment
+    Enter-DependencyEnvironment
     $env:QT_QPA_PLATFORM = 'offscreen'
+    if ($script:DepsRoute -eq 'localdeps') {
+      # 同 test：树内进程的 TEMP 重定向（selfcheck 也用 QTemporaryDir）。
+      $treeTmp = Join-Path $Build 'paleo-tmp'
+      New-Item -ItemType Directory -Force $treeTmp | Out-Null
+      $env:TEMP = $treeTmp; $env:TMP = $treeTmp
+    }
     & (Join-Path $Build 'paleo_selfcheck.exe')
     if ($LASTEXITCODE -ne 0) { throw 'Selfcheck failed' }
+  }
+  'checkenv' {
+    # 方向 72 防回归：编译链（CMakeCache 的 Qt6Core_DIR）vs 运行链（PATH
+    # 解析到的 Qt6Core.dll）版本比对；不一致即非零退出。详见 BUILDING.md。
+    Enter-DependencyEnvironment
+    & (Join-Path $Root 'tools\check_qt_env.ps1') -BuildDir $Build
+    if ($LASTEXITCODE -ne 0) { throw 'Qt environment check failed' }
   }
   'clean-vendor' {
     if (-not $Arg) {
@@ -246,5 +334,5 @@ switch ($Verb) {
       if (Test-Path $target) { Remove-Item -Recurse -Force $target; Write-Host "removed $target" }
     }
   }
-  default { throw "unknown verb '$Verb' — bootstrap [fetch-only]|build|test|selfcheck|clean-vendor" }
+  default { throw "unknown verb '$Verb' — bootstrap [fetch-only]|build|test|selfcheck|checkenv|clean-vendor" }
 }

@@ -20,6 +20,7 @@
 
 #include "domain/seismic/sectiongeometry.h"
 #include "domain/seismic/sgysectionbuilder.h"
+#include "services/fspathutils.h" // #291 QString↔filesystem::path 走 UTF-16（MSVC 窄构造按 ANSI 解码）
 #include "services/seismictaskservice.h"
 
 #include <algorithm>
@@ -130,7 +131,7 @@ void SeismicSectionDockWidget::setVolume(std::shared_ptr<const SgyVolume> volume
     loadBookmarksFromSettings(); // D2.12：体身份确定后才有 settings 键
     // D4.8：会话锚定到 SEG-Y 伴生文件（存在即自动恢复）
     m_session = SeismicInterpretationSession{};
-    m_session.sourceSgyPath = QString::fromStdString(m_volume->Path().string());
+    m_session.sourceSgyPath = paleo::fromFsPath(m_volume->Path());
     SeismicTaskService::loadSession(m_session.sourceSgyPath, m_session, nullptr);
     refreshInterpretationOverlay();
     // 任意线（模式 3）保持待编辑态，不强制重提剖面（wave/sections）

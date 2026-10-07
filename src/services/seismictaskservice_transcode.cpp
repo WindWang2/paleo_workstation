@@ -1,6 +1,7 @@
 // 层：数据
 #include "services/seismictaskservice.h"
 #include "services/seismictaskservice_internal.h"
+#include "services/fspathutils.h"
 #include "services/paleotaskservice.h"
 
 #include "domain/seismic/sgyindexbuilder.h"
@@ -239,7 +240,7 @@ PaleoTask *SeismicTaskService::startIndexing(
     return nullptr;
   }
 
-  const std::filesystem::path stdPath(sgyPath.toStdString());
+  const std::filesystem::path stdPath = paleo::toFsPath(sgyPath);
   const QString title = tr("索引 SEG-Y: %1").arg(QFileInfo(sgyPath).fileName());
   auto resultIndex = std::make_shared<SgyIndexPtr>();
 
@@ -399,8 +400,8 @@ PaleoTask *SeismicTaskService::startWorkspaceTranscodeDetailed(
     options.codec = engine::kCodecZstd;
 #endif
     *outResult = engine::TranscodeSegyToWorkspace(
-        std::filesystem::path(sgyPath.toStdString()),
-        std::filesystem::path(base.toStdString()),
+        paleo::toFsPath(sgyPath),
+        paleo::toFsPath(base),
         options, &cancel, progress);
     *engineRan = true;
 
@@ -588,9 +589,9 @@ PaleoTask *SeismicTaskService::startPagedTranscodeImpl(
     options.codec = engine::kPagedCodecZstd;
 #endif
 
-    const std::filesystem::path l0(sf3pPath.toStdString());
+    const std::filesystem::path l0 = paleo::toFsPath(sf3pPath);
     *outPyramid = engine::BuildPagedPyramid(
-        std::filesystem::path(sgyPath.toStdString()), l0, options, &cancel, progress);
+        paleo::toFsPath(sgyPath), l0, options, &cancel, progress);
     *engineRan = true;
 
     // D1.9 L3（16x16x1，超大体量档）：直接从 L0 构建
@@ -728,7 +729,7 @@ SeismicWorkspaceProbe SeismicTaskService::probeWorkspace(const QString &sgyOrMet
 
   engine::WorkspaceMetaSummary summary;
   std::string error;
-  engine::ProbeWorkspaceMeta(std::filesystem::path(base.toStdString()), summary, error);
+  engine::ProbeWorkspaceMeta(paleo::toFsPath(base), summary, error);
   probe.exists = summary.exists;
   probe.complete = summary.complete;
   probe.resumable = summary.exists && summary.readable && !summary.complete;
@@ -755,7 +756,7 @@ SeismicWorkspaceProbe SeismicTaskService::probePagedWorkspace(const QString &sf3
     probe.exists = true;
     engine::PagedWorkspaceReader reader;
     std::string error;
-    if (reader.Open(std::filesystem::path(sf3pPath.toStdString()), error, /*metadataOnly=*/true))
+    if (reader.Open(paleo::toFsPath(sf3pPath), error, /*metadataOnly=*/true))
     {
       probe.readable = true;
       probe.complete = reader.Info().complete;
@@ -779,7 +780,7 @@ SeismicWorkspaceProbe SeismicTaskService::probePagedWorkspace(const QString &sf3
     probe.resumable = true; // .partial 半成品：续跑从完成位图继续
     engine::PagedWorkspaceReader reader;
     std::string error;
-    if (reader.Open(std::filesystem::path(partialPath.toStdString()), error, /*metadataOnly=*/true))
+    if (reader.Open(paleo::toFsPath(partialPath), error, /*metadataOnly=*/true))
     {
       probe.readable = true;
       probe.formatVersion = 7;
@@ -852,7 +853,7 @@ SeismicTraceHeaderInfo SeismicTaskService::readTraceHeader(const QString &sgyPat
   int formatCode = 5;
   double dtUs = 0.0;
   std::string reason;
-  if (SgyIndexPtr index = SgyIndexCache::Load(std::filesystem::path(sgyPath.toStdString()), reason))
+  if (SgyIndexPtr index = SgyIndexCache::Load(paleo::toFsPath(sgyPath), reason))
   {
     if (traceIndex >= static_cast<int>(index->traces.size()))
     {

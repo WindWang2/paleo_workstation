@@ -11,6 +11,7 @@
 #include "notifications/notificationmanager.h"
 #include "notifications/errorhistorydock.h"
 #include "../services/errorhub.h"
+#include "../services/fspathutils.h" // #291 QString↔filesystem::path 走 UTF-16（MSVC 窄构造按 ANSI 解码）
 
 #include "../qgis/qgiscanvascontroller.h"
 #include "../qgis/qgisprojectservice.h"
@@ -2076,11 +2077,11 @@ void PaleoMainWindow::syncSeismicVolumeToDocks()
           }
         }
         if (m_seismicSectionDock && (m_seismicSectionDock->volume() == nullptr ||
-                                     QString::fromStdString(m_seismicSectionDock->volume()->Path().string()) != abs))
+                                     paleo::fromFsPath(m_seismicSectionDock->volume()->Path()) != abs))
         {
           auto vol = std::make_shared<seismic::SgyVolume>();
           std::string volErr;
-          if (vol->Load(abs.toStdString(), volErr))
+          if (vol->Load(paleo::toFsPath(abs), volErr))
           {
             double origin = 0;
             for (const auto &link : cat->linksForAsset(a.id))

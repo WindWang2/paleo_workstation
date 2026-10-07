@@ -13,6 +13,7 @@ using namespace paleo::datapreview_detail;
 #include "../../domain/wellrecords.h"     // WellTopRecord/TimeDepthTable（domain 纯数据）
 #include "../../domain/sectiontrace.h"    // SegyTrace/SegySectionGrid（domain 纯数据）
 #include "../../io/lasdoc.h"              // LasCurve（白名单：数据模型）
+#include "../../services/fspathutils.h"   // #291 QString↔filesystem::path 走 UTF-16（MSVC 窄构造按 ANSI 解码）
 #include "../../services/previewdoc.h"    // 唯一数据门面——解析/解码/SHA/PDF 编排全经它（W1）
 #include "../../services/welllogset.h"    // 井曲线并集（综合柱状图；只读 ~C 头）
 #include "../../services/paleotaskservice.h" // PaleoTask 进度/取消（地震转码区）
@@ -646,7 +647,7 @@ QWidget *DataPreviewTabs::buildSeismicContent(
       // 无任务服务（小夹具测试环境）：保留同步加载路径
       auto vol = std::make_shared<seismic::SgyVolume>();
       std::string volErr;
-      if (vol->Load(abs.toStdString(), volErr))
+      if (vol->Load(paleo::toFsPath(abs), volErr))
         installVolume(vol);
       return;
     }

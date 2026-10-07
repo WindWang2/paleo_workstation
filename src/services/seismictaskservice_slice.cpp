@@ -1,6 +1,7 @@
 // 层：数据
 #include "services/seismictaskservice.h"
 #include "services/seismictaskservice_internal.h"
+#include "services/fspathutils.h"
 #include "services/paleotaskservice.h"
 
 #include "catalog/datacatalog.h"
@@ -40,10 +41,12 @@ PaleoTask *SeismicTaskService::startSliceExtraction(
   }
 
   const char *typeStr = (type == SgySliceType::Inline) ? "inl" : ((type == SgySliceType::Xline) ? "xl" : "time");
+  // #291：缓存键的路径字节走 UTF-16 通道（path::string() 在 MSVC 上按 ACP
+  // 返回窄字节、遇无法表示的字符还会抛——键会错乱甚至崩）。
   const std::string key =
       SgyDataCache::MakeKey(typeStr, volume->Index()->fileSize,
                             static_cast<std::uint64_t>(sliceIndex)) +
-      ":" + volume->Path().string();
+      ":" + paleo::fromFsPath(volume->Path()).toStdString();
 
   // 1. 检查内存 LRU 缓存（显式 paged 通道不查直读缓存——两条通道语义独立）
   if (pagedPath.isEmpty())
@@ -321,7 +324,7 @@ PaleoTask *SeismicTaskService::startVolumeLoad(
       task->reportBytes(processed, total);
       return true;
     };
-    if (!volume->Load(std::filesystem::path(sgyPath.toStdString()), err, progress))
+    if (!volume->Load(paleo::toFsPath(sgyPath), err, progress))
     {
       if (task->cancelRequested())
         return QString();

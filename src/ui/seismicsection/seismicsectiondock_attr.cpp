@@ -5,6 +5,7 @@
 #include "ui/seismicsection/seismicattrpanel.h"
 
 #include "catalog/datacatalog.h"
+#include "services/fspathutils.h" // #291 QString↔filesystem::path 走 UTF-16（MSVC 窄构造按 ANSI 解码）
 #include "services/seismictaskservice.h"
 
 #include <QPointer>
@@ -33,7 +34,7 @@ void SeismicSectionDockWidget::computeAttributeOnCurrentSection(
     const SgySliceType type = mode == 0 ? SgySliceType::Inline : SgySliceType::Xline;
     const int index = m_spinSlice ? m_spinSlice->value() : 0;
 
-    const QString sourcePath = QString::fromStdString(m_volume->Path().string());
+    const QString sourcePath = paleo::fromFsPath(m_volume->Path());
     m_attrPanel->setBusy(true);
     // #224：请求时快照剖面身份（世代号随换线/换体/任意线推进）+ 迟到回调守卫。
     // 换线换体后迟到的属性图不得贴到新剖面上，也不得顶替可登记结果。
@@ -120,7 +121,7 @@ void SeismicSectionDockWidget::computeTimeSliceAttribute(
         m_attrPanel->showResult(false, tr("地震体未加载（先打开 SEG-Y）"));
         return;
     }
-    const QString sourcePath = QString::fromStdString(m_volume->Path().string());
+    const QString sourcePath = paleo::fromFsPath(m_volume->Path());
     const QString outputDir = attrScanOutputDir();
     const QPointer<DataCatalog> catalog = m_catalog;
     const QString assetId = m_catalogAssetId;
@@ -212,7 +213,7 @@ void SeismicSectionDockWidget::computeAttributeVolume(
         m_attrPanel->showResult(false, tr("地震体未加载（先打开 SEG-Y）"));
         return;
     }
-    const QString sourcePath = QString::fromStdString(m_volume->Path().string());
+    const QString sourcePath = paleo::fromFsPath(m_volume->Path());
     const QString outputDir = attrScanOutputDir();
     const QPointer<DataCatalog> catalog = m_catalog;
     const QString assetId = m_catalogAssetId;

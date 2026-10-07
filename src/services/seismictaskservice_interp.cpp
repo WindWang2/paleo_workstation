@@ -1,6 +1,7 @@
 // 层：数据
 #include "services/seismictaskservice.h"
 #include "services/seismictaskservice_internal.h"
+#include "services/fspathutils.h"
 #include "services/paleotaskservice.h"
 
 #include "algorithms/horizontrack.h"
@@ -389,7 +390,7 @@ PaleoTask *SeismicTaskService::startVolumePropagation(
 
   // 同体顶替：旧在途传播取消 + 静默标志（回调丢弃，cancelled≠failed 口径
   // 同切片顶替 A3）
-  const QString pathKey = QString::fromStdString(volume->Path().string());
+  const QString pathKey = paleo::fromFsPath(volume->Path());
   if (PaleoTask *old = inFlightPropagation_.value(pathKey))
   {
     const auto oldFlag = propagationSuperseded_.value(pathKey);

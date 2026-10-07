@@ -100,8 +100,11 @@ class SegyReader
                                      SegyReadReport *report = nullptr) const;
 
     // D2.9 并行扫描（固定道长布局专用）：成功时填 m_index/m_geometry/…。
+    // xlineFromCdp/cornerFromCdpXY 为道头方言开关（与 open() 同判据，调用方
+    // 探针后传入）——大文件并行路径不带方言会把该类体的号域扫成退化。
     bool scanParallel(QFile &file, qint64 firstTraceOffset, qint64 traceSize,
-                      qint64 traceCount, QString *error, const SegyOptions *opts);
+                      qint64 traceCount, QString *error, const SegyOptions *opts,
+                      bool xlineFromCdp, bool cornerFromCdpXY);
     // D2.5/D2.8 断点续扫：从 scannedOffset 继续顺序扫（标准索引模式专用），
     // 追加进已恢复的部分索引。
     bool resumeScan(QFile &file, const SegyIndexStore::StoredIndex &partial,

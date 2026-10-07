@@ -16,7 +16,9 @@
 
 namespace
 {
-  constexpr quint16 kSegyIndexVersion = 3; // 四角改为完整测网极值，旧几何缓存需重建
+  // v4：并行扫描补齐 demo 工区方言（crossline 取 CDP、角点取 181-188）——
+  // v3 及更早的大文件索引可能带退化号域（xline 全 0、角点全 0），过版自愈重建。
+  constexpr quint16 kSegyIndexVersion = 4;
   const char kSegyIndexMagic[8] = {'P', 'S', 'G', 'Y', 'I', 'D', 'X', '1'};
 
   quint16 segyIndexCompressionFlags()

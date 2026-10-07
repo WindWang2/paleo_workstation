@@ -73,6 +73,8 @@ struct SyntheticSegyConfig
     qint16 ns = 0;          // bytes 114-115 (0 = fallback to binNs)
     qint16 dt = 0;          // bytes 116-117 (0 = fallback to binDt)
     QVector<float> samples; // sample values
+    qint32 cdpX = 0;        // bytes 180-183（CDP X；0 保持全零布局；末位避免
+    qint32 cdpY = 0;        // bytes 184-187（CDP Y；破坏既有按位聚合初始化）
   };
 
   QVector<TraceData> customTraces;
@@ -132,6 +134,13 @@ QByteArray buildSyntheticSegy(const SyntheticSegyConfig &cfg)
     qToBigEndian<qint16>(ns, reinterpret_cast<uchar *>(trHdr.data() + 114));
     qToBigEndian<qint16>(dt, reinterpret_cast<uchar *>(trHdr.data() + 116));
     qToBigEndian<qint32>(lineNo, reinterpret_cast<uchar *>(trHdr.data() + 188));
+    if (i < cfg.customTraces.size())
+    {
+      // demo 工区方言布局：坐标只出现在 CDP X/Y（181-188），源点 73-78 与
+      // crossline 193-196 保持全零，crossline 号走 CDP（21）。
+      qToBigEndian<qint32>(cfg.customTraces[i].cdpX, reinterpret_cast<uchar *>(trHdr.data() + 180));
+      qToBigEndian<qint32>(cfg.customTraces[i].cdpY, reinterpret_cast<uchar *>(trHdr.data() + 184));
+    }
     out.append(trHdr);
 
     const int sampleCount = (ns > 0) ? ns : cfg.binNs;
@@ -593,6 +602,66 @@ class TestSegy : public QObject
                                 .arg(finalSnap.offsets[i])
                                 .arg(finalSnap.offsets[i - 1])));
       }
+    }
+    // P? 回归（2026-10 智能预测「地震体号域不构成二维测网」）：demo 工区方言体
+    // （crossline 193 恒 0、CDP 21 变化、坐标只在 CDP X/Y 181-188）此前只有顺序
+    // open() 应用方言；>1MB 体走 openCached 并行扫描时号域退化为 xline 全 0、
+    // 角点全 0。并行路径必须与顺序路径产出同一几何，缓存热读同样保持。
+    void dialectLayoutParallelOpenCachedMatchesSequential()
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      const QString path = dir.filePath(QStringLiteral("dialect_parallel.sgy"));
+
+      const int perLine = 50, lines = 60, ns = 64;
+      SyntheticSegyConfig cfg;
+      cfg.formatCode = 5;
+      cfg.binNs = ns;
+      cfg.traceCount = perLine * lines; // 3000 道 × 496B ≈ 1.49MB → 并行资格
+      QVector<SyntheticSegyConfig::TraceData> traces(cfg.traceCount);
+      for (int i = 0; i < cfg.traceCount; ++i)
+      {
+        traces[i].lineNo = 100 + i / perLine;   // inline 变化（非 ordinal 方言）
+        traces[i].cdp = 2000 + i % perLine;     // CDP 变化 → 方言 crossline 源
+        traces[i].cdpX = 10 * (i % perLine);    // 坐标只出现在 181-188（73-78 恒 0）
+        traces[i].cdpY = 20 * (i / perLine);
+      }
+      cfg.customTraces = traces;
+      QVERIFY(writeSegyFile(path, buildSyntheticSegy(cfg)));
+
+      SegyReader seq;
+      QString err;
+      QVERIFY2(seq.open(path, &err), qPrintable(err));
+      const auto g0 = seq.geometry();
+      QCOMPARE(g0.inlineMin, 100);
+      QCOMPARE(g0.inlineMax, 100 + lines - 1);
+      QCOMPARE(g0.xlineMin, 2000);
+      QCOMPARE(g0.xlineMax, 2000 + perLine - 1);
+
+      QTemporaryDir cacheDir;
+      SegyReader cold;
+      QVERIFY2(cold.openCached(path, cacheDir.path(), &err), qPrintable(err));
+      const auto g1 = cold.geometry();
+      QCOMPARE(g1.inlineMin, g0.inlineMin);
+      QCOMPARE(g1.inlineMax, g0.inlineMax);
+      QCOMPARE(g1.xlineMin, g0.xlineMin);
+      QCOMPARE(g1.xlineMax, g0.xlineMax);
+      for (int c = 0; c < 4; ++c)
+      {
+        QCOMPARE(g1.cornerX[c], g0.cornerX[c]);
+        QCOMPARE(g1.cornerY[c], g0.cornerY[c]);
+      }
+      QCOMPARE(g1.cornerX[2], double(10 * (perLine - 1)));
+      QCOMPARE(g1.cornerY[2], double(20 * (lines - 1)));
+
+      // 缓存热读（身份命中免扫）同样不得回退成退化几何。
+      SegyReader hot;
+      QVERIFY2(hot.openCached(path, cacheDir.path(), &err), qPrintable(err));
+      const auto g2 = hot.geometry();
+      QCOMPARE(g2.xlineMin, 2000);
+      QCOMPARE(g2.xlineMax, 2000 + perLine - 1);
+      QCOMPARE(g2.cornerX[2], double(10 * (perLine - 1)));
+      QCOMPARE(g2.cornerY[2], double(20 * (lines - 1)));
     }
     // e) #42.1 收口（WP2）：open 成功后文件被截断（索引已建）——丢道不再
     //    静默：readInline 以「failed to decode N of M」如实失败，且

@@ -396,22 +396,45 @@ void ImageTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
   painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).border);
   painter.drawLine(bodyRect.topRight(), bodyRect.bottomRight());
 
+  const qreal tw = bodyRect.width() - 4.0;
   for (const auto &item : m_items)
   {
     if (item.bottomDepth < topDepth || item.topDepth > bottomDepth)
       continue;
 
-    const qreal y0 = bodyRect.top() + (item.topDepth - topDepth) * pxPerMeter;
-    const qreal y1 = bodyRect.top() + (item.bottomDepth - topDepth) * pxPerMeter;
-    const qreal h = qMax<qreal>(20.0, y1 - y0);
-    const QRectF imgRect(bodyRect.left() + 2, y0, bodyRect.width() - 4, h);
+    const qreal anchorY = bodyRect.top() + (item.topDepth - topDepth) * pxPerMeter;
+    // 井段照片（top<bottom）纵向按深度区间等比；单点锚照片（top==bottom，
+    // 当前唯一数据形态）以锚深为中心、宽度撑满按原图纵横比定高——
+    // 任何情况都不做非等比拉伸。
+    const qreal spanH = (item.bottomDepth - item.topDepth) * pxPerMeter;
+    QRectF imgRect;
 
     if (!item.pixmap.isNull())
     {
-      painter.drawPixmap(imgRect.toRect(), item.pixmap);
+      const QSizeF want = item.pixmap.size();
+      if (spanH > 1.0)
+      {
+        const QSizeF fitted = want.scaled(QSizeF(tw, spanH), Qt::KeepAspectRatio);
+        imgRect = QRectF(bodyRect.left() + 2.0 + (tw - fitted.width()) / 2.0,
+                         anchorY + (spanH - fitted.height()) / 2.0,
+                         fitted.width(), fitted.height());
+      }
+      else
+      {
+        // 超高（窄长）照片封顶 4 倍道宽并等比缩窄，避免吃掉整道。
+        const qreal naturalH = tw * want.height() / want.width();
+        const qreal drawH = qMin(naturalH, tw * 4.0);
+        const qreal drawW = tw * (drawH / naturalH);
+        imgRect = QRectF(bodyRect.left() + 2.0 + (tw - drawW) / 2.0,
+                         anchorY - drawH / 2.0, drawW, drawH);
+      }
+      painter.drawPixmap(imgRect, item.pixmap, QRectF(item.pixmap.rect()));
     }
     else
     {
+      const qreal h = qMax<qreal>(20.0, spanH);
+      imgRect = QRectF(bodyRect.left() + 2.0,
+                       anchorY - (spanH > 1.0 ? 0.0 : h / 2.0), tw, h);
       painter.fillRect(imgRect, QColor(QStringLiteral("#E0E0E0")));
       painter.setPen(QColor(QStringLiteral("#757575")));
       painter.drawText(imgRect, Qt::AlignCenter, item.caption.isEmpty() ? QCoreApplication::translate("WellCompositeTrack", "照片") : item.caption);

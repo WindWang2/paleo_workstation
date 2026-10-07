@@ -798,133 +798,133 @@
     "reason": "DESIGN 数据符号例外：体框架上地层位置的缺省蓝色数据标记，非面板文字。"
   },
   {
-    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "file": "src/ui/seismicsection/seismicsectioncanvas_paint.cpp",
     "rule": "hex",
     "source": "p.fillRect(vp, QColor(QStringLiteral(\"#FFFFFF\")));",
     "count": 1,
     "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
   },
   {
-    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "file": "src/ui/seismicsection/seismicsectioncanvas_paint.cpp",
     "rule": "hex",
     "source": "p.setBrush(QColor(QStringLiteral(\"#1B73D0\")));",
     "count": 1,
     "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
   },
   {
-    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "file": "src/ui/seismicsection/seismicsectioncanvas_paint.cpp",
     "rule": "hex",
     "source": "p.setPen(QColor(QStringLiteral(\"#24303E\")));",
     "count": 1,
     "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
   },
   {
-    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "file": "src/ui/seismicsection/seismicsectioncanvas_paint.cpp",
     "rule": "hex",
     "source": "p.setPen(QColor(QStringLiteral(\"#F29900\")));",
     "count": 1,
     "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
   },
   {
-    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "file": "src/ui/seismicsection/seismicsectioncanvas_paint.cpp",
     "rule": "hex",
     "source": "p.setPen(QPen(curve.color.isValid() ? curve.color : QColor(QStringLiteral(\"#43A047\")), 1.5));",
     "count": 1,
     "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
   },
   {
-    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "file": "src/ui/seismicsection/seismicsectioncanvas_nav.cpp",
     "rule": "qt-color",
     "source": "img.fill(Qt::white);",
     "count": 1,
     "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
   },
   {
-    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "file": "src/ui/seismicsection/seismicsectioncanvas_paint.cpp",
     "rule": "qt-color",
     "source": "p.setPen(QPen(QColor(Qt::white), 3.0));",
     "count": 1,
     "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
   },
   {
-    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "file": "src/ui/seismicsection/seismicsectioncanvas_paint.cpp",
     "rule": "qt-color",
     "source": "p.setPen(QPen(QColor(Qt::white), 4.6));",
     "count": 1,
     "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
   },
   {
-    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "file": "src/ui/seismicsection/seismicsectioncanvas_paint.cpp",
     "rule": "rgb",
     "source": ": (pick.confidence >= 0.5 ? QColor(242, 153, 0) : QColor(229, 57, 53));",
     "count": 2,
     "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
   },
   {
-    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "file": "src/ui/seismicsection/seismicsectioncanvas_paint.cpp",
     "rule": "rgb",
     "source": "? QColor(67, 160, 71)",
     "count": 1,
     "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
   },
   {
-    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "file": "src/ui/seismicsection/seismicsectioncanvas_render.cpp",
     "rule": "rgb",
     "source": "QBrush fillBrush(QColor(24, 30, 40));",
     "count": 1,
     "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
   },
   {
-    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "file": "src/ui/seismicsection/seismicsectioncanvas_render.cpp",
     "rule": "rgb",
     "source": "QPen wavePen(QColor(30, 38, 48), 1.0);",
     "count": 1,
     "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
   },
   {
-    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "file": "src/ui/seismicsection/seismicsectioncanvas_paint.cpp",
     "rule": "rgb",
     "source": "p.setPen(QPen(QColor(220, 38, 38), 1.4));",
     "count": 1,
     "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
   },
   {
-    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "file": "src/ui/seismicsection/seismicsectioncanvas_render.cpp",
     "rule": "rgb",
     "source": "p.setPen(QPen(QColor(223, 229, 236), 1.0));",
     "count": 1,
     "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
   },
   {
-    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "file": "src/ui/seismicsection/seismicsectioncanvas_paint.cpp",
     "rule": "rgb",
     "source": "p.setPen(QPen(QColor(229, 57, 53), 2.2));",
     "count": 2,
     "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
   },
   {
-    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "file": "src/ui/seismicsection/seismicsectioncanvas_paint.cpp",
     "rule": "rgb",
     "source": "p.setPen(QPen(QColor(229, 57, 53), 2.6));",
     "count": 1,
     "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
   },
   {
-    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "file": "src/ui/seismicsection/seismicsectioncanvas_paint.cpp",
     "rule": "rgb",
     "source": "p.setPen(QPen(QColor(229, 57, 53, 180), 2.0, Qt::DashLine));",
     "count": 1,
     "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
   },
   {
-    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "file": "src/ui/seismicsection/seismicsectioncanvas_paint.cpp",
     "rule": "rgb",
     "source": "p.setPen(QPen(QColor(242, 153, 0), 2.0, Qt::DashLine));",
     "count": 1,
     "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
   },
   {
-    "file": "src/ui/seismicsection/seismicsectiondockwidget.cpp",
+    "file": "src/ui/seismicsection/seismicsectiondock_wells.cpp",
     "rule": "hex",
     "source": "p.setPen(QPen(QColor(QStringLiteral(\"#1B73D0\")), 1.4));",
     "count": 1,
@@ -2485,7 +2485,7 @@
     "reason": "DESIGN 数据符号例外：井综合图头对比带的既定强调蓝（自 wellcompositecanvas.cpp 拆分平移）。"
   },
   {
-    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "file": "src/ui/seismicsection/seismicsectioncanvas_paint.cpp",
     "rule": "hex",
     "source": "p.setPen(QPen(QColor(QStringLiteral(\"#1B73D0\")), 2.0));",
     "count": 1,

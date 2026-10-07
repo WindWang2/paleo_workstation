@@ -19,6 +19,8 @@
 #include <qgsmessagelog.h>
 
 #include <QLabel>
+#include <QDir>
+#include <QFileInfo>
 #include <QStandardPaths>
 #include <memory>
 
@@ -37,9 +39,12 @@ void PaleoMainWindow::attachPredictPage(PredictPage *predictPage,
               predictPage->setAlgorithms(pred->availableAlgorithms());
             });
     // ---- m2(A): 预测运行任务化 + 历史结果显示接线 ----
-    // 任务池在场 → runPrediction 跑 worker 线程（模仿导入任务化样例：结果经
-    // PaleoTask 终态回 GUI；changed→进度、finished→解忙+失败文案）；取消是
-    // 协作式的——预测运算本体无法中断，取消后以实际完成状态如实呈现。
+    // #277 三段式（仿约束页）：prepare（catalog stage 线程闸，GUI 线程）→
+    // worker 只跑 compute（Processing / ONNX 推理 + 栅格落盘，不碰 catalog）
+    // → finished 回 GUI 线程 publish（DERIVED 登记 + 图层声明 +
+    // predictionDone）。失败原因经任务 errorText 如实上屏（此前 outErr 从不
+    // 写入，界面恒为空的「预测失败：」）；取消是协作式的——预测运算本体无法
+    // 中断，取消后不登记/不声明、清理 staging，状态栏如实呈现「未发布」。
     // 无任务服务时保持同步旧路径。
     connect(predictPage, &PredictPage::runRequested, this,
             [this, pred, predictPage](const QString &horizon, const QString &algId,
@@ -56,15 +61,21 @@ void PaleoMainWindow::attachPredictPage(PredictPage *predictPage,
                 pred->runPrediction(horizon, algId, params, &err);
                 return;
               }
+              auto job = std::make_shared<PredictionWorkflow::PredictionJob>();
+              QString prepErr;
+              if (!pred->preparePredictionJob(horizon, algId, params, job.get(), &prepErr))
+              {
+                logFail(tr("预测失败：%1")
+                            .arg(prepErr.isEmpty() ? tr("参数准备失败") : prepErr));
+                return;
+              }
               predictPage->setRunBusy(true);
-              auto outErr = std::make_shared<QString>();
               PaleoTask *task = m_taskSvc->start(
                   tr("预测 %1 · %2").arg(horizon, algId),
-                  [pred, horizon, algId, params, outErr](PaleoTask *) -> QString {
-                    QString err;
-                    if (pred->runPrediction(horizon, algId, params, &err))
+                  [pred, job](PaleoTask *) -> QString {
+                    if (pred->computePredictionJob(job.get()))
                       return QString();
-                    return err.isEmpty() ? tr("预测失败") : err;
+                    return job->error.isEmpty() ? QObject::tr("预测失败") : job->error;
                   });
               QObject::connect(task, &PaleoTask::changed, predictPage,
                                [predictPage, task] {
@@ -73,21 +84,42 @@ void PaleoMainWindow::attachPredictPage(PredictPage *predictPage,
                                    predictPage->updateProgress(pct);
                                });
               QObject::connect(task, &PaleoTask::finished, predictPage,
-                               [predictPage, task, outErr, status, logFail] {
+                               [predictPage, pred, job, status, logFail, task] {
                                  predictPage->setRunBusy(false);
                                  if (task->state() == PaleoTask::State::Cancelled)
                                  {
+                                   // 取消是协作式的：运算本体无法中断、已跑完，
+                                   // 但成果不登记/不声明；staging 栅格如已落盘
+                                   // 即清掉（约束页同口径），文案如实说「未发布」
+                                   //（旧文案「以实际完成为准」与不发布矛盾）。
+                                   if (!job->outputPath.isEmpty())
+                                     QDir(QFileInfo(job->outputPath).absolutePath())
+                                         .removeRecursively();
                                    const QString msg = tr(
-                                       "已请求取消——预测运算无法中断，结果以实际完成为准");
+                                       "预测已取消——运算无法中断，计算结果未发布");
                                    if (status)
                                      status->setText(msg);
                                    QgsMessageLog::logMessage(msg, QStringLiteral("Paleo"),
                                                              Qgis::MessageLevel::Warning);
+                                   return;
                                  }
-                                 else if (task->state() == PaleoTask::State::Failed)
+                                 if (task->state() != PaleoTask::State::Succeeded)
                                  {
-                                   logFail(tr("预测失败：%1").arg(*outErr));
+                                   // #277：失败原因如实传（task->errorText() =
+                                   // compute 写入的 job.error）。
+                                   const QString reason =
+                                       task->errorText().isEmpty() ? tr("未知原因")
+                                                                   : task->errorText();
+                                   logFail(tr("预测失败：%1").arg(reason));
+                                   return;
                                  }
+                                 // 发布是临界区：回到 GUI 线程做 catalog 登记 +
+                                 // 图层声明（worker 做会被 catalog 线程闸拒绝）。
+                                 QString pubErr;
+                                 if (!pred->publishPredictionJob(*job, &pubErr))
+                                   logFail(tr("预测失败：%1")
+                                               .arg(pubErr.isEmpty() ? tr("成果发布失败")
+                                                                     : pubErr));
                                });
             });
     // 取消按钮 → 协作式取消请求（worker 自查 cancelRequested）。

@@ -17,3 +17,6 @@ target_compile_definitions(tst_petrophysperf PRIVATE
 # #276：测井计算装配缝回归（真实 PaleoMainWindow + attachWorkflows +
 # PaleoTaskService——连井面板资产 id ast-N → 井实体 id well-N 映射回填）。
 add_paleo_test(tst_petrophys_assembly LIBS paleo_ui)
+# #277：预测运行装配缝回归（真实 PaleoMainWindow + attachWorkflows +
+# PaleoTaskService——prepare/compute/publish 三段式线程纪律）。
+add_paleo_test(tst_predict_assembly LIBS paleo_ui)

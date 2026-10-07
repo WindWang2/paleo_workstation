@@ -35,16 +35,37 @@
 3. **系统包（仅兜底）**——发行版 QGIS 4.2.x 开发包只在上述两路都不可用
    时作临时兜底；CI 与发布构建禁止依赖系统包提供 QGIS/GDAL/PROJ/GEOS。
 
-> **现状与策略的差距（#76）**：目前 `.github/workflows/ci.yml` 的 Linux job
-> 仍从 qgis.org apt 源安装系统 QGIS 包，并未走上面 1/2 路——即 CI 实际
-> 处于第 3 档，与本策略矛盾，待迁移。`fetch-deps.sh --check-urls` 可做锁
-> 文件可达性冒烟（只 HEAD 探测，不下载）。
+> **#76 状态（方向 71，2026-10-07）**：`.github/workflows/ci.yml` 的 Linux
+> 侧（lint/linux/linux-perf）已从 qgis.org apt 系统 QGIS 迁到 deb 闭包
+> vendored 路（bootstrap 拉 `vendor/prefix`，apt 只装政策例外面 Qt6/
+> qtkeychain/工具链）；`tools/ci_apt_qgis.sh` 已删除。**状态如实：已迁移、
+> 待 CI 实跑验证**（yaml 编写与结构核对在本机完成，GitHub Actions 语义
+> 未在本方向内实跑）。`fetch-deps.sh --check-urls` 可做锁文件可达性冒烟
+> （只 HEAD 探测，不下载）。
+>
+> **QGIS 版本口径（方向 71 统一）**：三路同一上游版本 **4.2.3**——
+> superbuild 源码 pin（URL+SHA256）、deb 闭包（4.2.3+44resolute）、
+> OSGeo4W 家族（4.2.x，installer 只有包名粒度，无法精确 pin——粒度边界
+> 见 `vendor/manifest.json` notes；家族闸正则从 manifest 派生，单一来源）。
+> 一致性由 `tools/check_qgis_versions.py` 门禁看守（ctest 项
+> `qgis_versions`/`qgis_versions_selftest` + CI lint Source gates）：三处
+> 口径不一致即红，防再分裂。升级 QGIS 时三处一起动，护栏会拦漏改。
 
 例外（不 vendored，沿用系统/官方二进制）：Qt6（体积与构建时长，
 superbuild 明示禁止 qt-everywhere 整块编译；走发行版或 OSGeo4W 同源）、
 编译器工具链与构建依赖（flex/bison/nasm/python3）、glibc/libstdc++
 （ABI floor，无法 vendored）、ONNX Runtime（官方 release SHA256 pin，
 与 QGIS 路线正交）。
+
+### glibc 三档口径（显式分层，非混乱）
+
+| 档 | 下限 | 出处 | 语义 |
+|---|---|---|---|
+| binary vendoring 总地板 | 2.41 | `vendor/bootstrap.sh` preflight | 走 binary 路（deb 闭包/ORT）的宿主最低要求 |
+| deb 闭包锁 | 2.43 | `vendor/bootstrap.sh`（闭包腿）/ `fetch-deps.sh` 头注 | 已提交锁是 Ubuntu 26.04（resolute）闭包，链接 GLIBC_2.43 符号；低 glibc 宿主能解包不能运行，提前拒绝 |
+| ONNX Runtime abi_floor | 2.28 | `vendor/manifest.json` `abi_floor` | 官方 manylinux_2_28 构建；与 QGIS 路线正交 |
+
+更低 glibc 宿主走 superbuild（"superbuild-on-oldest-target"）。
 
 ## QGIS prefix 解析顺序（CMakeLists.txt:16 起）
 
@@ -103,13 +124,13 @@ QGIS 代码编辑器头的 Linux 构建中允许降级；Windows 使用已有 `C
 
 | 平台 | 状态 | 依赖来源 |
 |------|------|----------|
-| Linux x86_64：deb 闭包需 glibc≥2.43（Ubuntu 26.04 / 同代 Arch）；Debian 13（glibc 2.41）不能运行该闭包，须走 superbuild | Arch 本机通过；Ubuntu 26.04 CI（系统包，见上） | superbuild 自编译 prefix（首选）→ deb 闭包 `vendor/prefix/usr`（加速档）；发行版 QGIS 4.2.x 仅兜底 |
+| Linux x86_64：deb 闭包需 glibc≥2.43（Ubuntu 26.04 / 同代 Arch）；Debian 13（glibc 2.41）不能运行该闭包，须走 superbuild | Arch 本机通过；Ubuntu 26.04 CI（deb 闭包 vendored，#76 已迁移待 CI 验证） | superbuild 自编译 prefix（首选）→ deb 闭包 `vendor/prefix/usr`（加速档，CI 现行）；发行版 QGIS 4.2.x 仅兜底 |
 | Windows x86_64 | CI leg（本机未实测） | OSGeo4W `qgis` + `qgis-devel` 4.2.x + `qt6-devel`，MSVC /MD |
 | 更低 glibc 宿主 | 不支持 | superbuild-on-oldest-target（ExternalProject） |
 
 ## 依赖（vendor manifest pin）
 
-QGIS 4.2.x · Qt ≥6.6 · GDAL · PROJ · GEOS · QCA-qt6 · QtKeychain-qt6 · libspatialindex · exiv2 · libzip · OpenSSL · sqlite3/spatialite · **ONNX Runtime 1.30.0**（官方 release，sha256 `a5ed5a3c…3b3fd`，manylinux_2_28）。Ubuntu 26.04 的 deb 完整闭包和 SHA-256 在 `vendor/deb-closure.lock`（库解包在 `vendor/prefix/usr/lib/<multiarch>`，`./paleo-dev` 已加入 `LD_LIBRARY_PATH`）；Ubuntu pool 会删除被安全更新取代的旧版本，因此 `fetch-deps.sh` 在 pool 404 时回退到 `https://snapshot.ubuntu.com/ubuntu/<ts>/`，时间戳记录在 `vendor/deb-closure.snapshot`（`--update-lock` 会刷新；可用 `PALEO_DEB_SNAPSHOT` 覆盖），内容仍由锁内 SHA-256 校验；OSGeo4W 安装器摘要在 `vendor/manifest.json`。
+QGIS 4.2.x（三路口径统一上游 4.2.3，`tools/check_qgis_versions.py` 门禁看守）· Qt ≥6.6 · GDAL · PROJ · GEOS · QCA-qt6 · QtKeychain-qt6 · libspatialindex · exiv2 · libzip · OpenSSL · sqlite3/spatialite · **ONNX Runtime 1.30.0**（官方 release，sha256 `a5ed5a3c…3b3fd`，manylinux_2_28）。Ubuntu 26.04 的 deb 完整闭包和 SHA-256 在 `vendor/deb-closure.lock`（库解包在 `vendor/prefix/usr/lib/<multiarch>`，`./paleo-dev` 已加入 `LD_LIBRARY_PATH`）；Ubuntu pool 会删除被安全更新取代的旧版本，因此 `fetch-deps.sh` 在 pool 404 时回退到 `https://snapshot.ubuntu.com/ubuntu/<ts>/`，时间戳记录在 `vendor/deb-closure.snapshot`（`--update-lock` 会刷新；可用 `PALEO_DEB_SNAPSHOT` 覆盖），内容仍由锁内 SHA-256 校验；OSGeo4W 安装器摘要在 `vendor/manifest.json`。
 
 ## 测试布线约定（devex）
 
@@ -172,7 +193,7 @@ layer-marker 全量判违规（by design，防漏网）；脚本同时打印
 
 ## 升级流程
 
-Debian 闭包升级时，在目标发行版且已配置 QGIS 官方 apt 源的干净环境运行 `./vendor/fetch-deps.sh --update-lock --print-only`，审查并提交新的 `vendor/deb-closure.lock`。正常 bootstrap 只读取锁文件，并仅解包锁内经过大小和 SHA-256 校验的文件。ONNX Runtime 升级则更新 `vendor/manifest.json` 的版本和摘要。Windows bootstrap 校验安装器 SHA-256，并拒绝 QGIS 主版本不符；OSGeo4W 包闭包仍由其安装器选择，升级时须复核 CI。
+Debian 闭包升级时，在目标发行版且已配置 QGIS 官方 apt 源的干净环境运行 `./vendor/fetch-deps.sh --update-lock --print-only`，审查并提交新的 `vendor/deb-closure.lock`。正常 bootstrap 只读取锁文件，并仅解包锁内经过大小和 SHA-256 校验的文件。superbuild 升级则同步改 `vendor/superbuild/CMakeLists.txt` 的 `QGIS_URL` 与 `URL_HASH`（补丁文件名随版本重命名，需对目标版本 tarball 重验证 dry-run 干净），`vendor/cache/tarballs/` 缓存与哈希一并更新。**三路版本口径（superbuild 精确 / deb 闭包上游 / manifest `qgis_family` 家族）必须一起动**——`tools/check_qgis_versions.py`（ctest `qgis_versions` + CI lint）不一致即红。ONNX Runtime 升级则更新 `vendor/manifest.json` 的版本和摘要。Windows bootstrap 校验安装器 SHA-256，并按 manifest `qgis_family` 拒绝家族不符（正则从 manifest 派生，单一来源；OSGeo4W installer 只有包名粒度，精确版本 pin 不可表达）；OSGeo4W 包闭包仍由其安装器选择，升级时须复核 CI。
 
 ## 实测值（Phase 0，本机 Arch/qgis-4.2.2 已装）
 

@@ -203,7 +203,7 @@ WorkbookSheet textSheetFromLines( const QStringList &lines, const QString &name,
     issues->append( QStringLiteral( "文件为空，无表头行" ) );
     return sheet;
   }
-  const QString headerLine = lines.at( headerIndex );
+  const QString &headerLine = lines.at( headerIndex );
   QChar delimiter = QLatin1Char( ',' );
   int bestCount = 0;
   const QVector<QChar> candidates = { QLatin1Char( '\t' ), QLatin1Char( ';' ),

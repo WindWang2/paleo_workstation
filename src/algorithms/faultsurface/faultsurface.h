@@ -147,6 +147,30 @@ bool segmentIntersectsMesh(double ax, double ay, double az, double bx, double by
 bool segmentIntersectsTriangles(double ax, double ay, double az, double bx, double by, double bz,
                                 const std::vector<Triangle3> &tris);
 
+// 三角形集合的线段求交空间索引（#234 项 1）：build 一次（均匀网格按
+// 三角形 AABB 分桶），之后每次 segmentIntersects 只扫线段覆盖格内的候选，
+// 替代 O(|tris|) 线性扫描。AABB 预筛是保守必要条件——命中蕴含两 AABB
+// 相交，故结果与线性版逐位一致。退化输入（空集/全非有限/零体积）建不出
+// 索引，usable() 为 false，调用方须回退 segmentIntersectsTriangles。
+struct SegmentMeshIndex {
+    void build(const std::vector<Triangle3> &tris);
+    bool usable() const { return m_ok; }
+    bool segmentIntersects(double ax, double ay, double az, double bx, double by, double bz) const;
+
+private:
+    struct Aabb {
+        double x0 = 0, y0 = 0, z0 = 0, x1 = 0, y1 = 0, z1 = 0;
+    };
+    std::vector<Triangle3> m_tris;
+    std::vector<Aabb> m_aabbs;
+    std::vector<std::vector<int>> m_cells;
+    double m_loX = 0, m_loY = 0, m_loZ = 0; // 网格原点（整体 AABB 下角）
+    double m_hiX = 0, m_hiY = 0, m_hiZ = 0; // 整体 AABB 上角（线段初筛）
+    double m_invCell = 0;                   // 1 / 单元边长
+    int m_nx = 0, m_ny = 0, m_nz = 0;
+    bool m_ok = false;
+};
+
 QString statusText(SurfaceBuildStatus status);
 
 } // namespace paleo::faultsurf

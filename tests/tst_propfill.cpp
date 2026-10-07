@@ -7,6 +7,7 @@
 #include "../src/algorithms/stratgrid/propfill.h"
 #include "../src/algorithms/stratgrid/stratgrid.h"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <vector>
@@ -55,6 +56,8 @@ private slots:
   void endpointTouchDoesNotIsolate();
   void power2WeightsLock();
   void cancelLeavesOutputUntouched();
+  void meshBlockedFillReportsFirstStage();
+  void meshStageCancelLeavesOutputUntouched();
   void sectionProjectionAndBlobRoundTrip();
   void readBlobRejectsOverflowingAxes();
 };
@@ -204,6 +207,59 @@ void TestPropFill::cancelLeavesOutputUntouched()
       grid, {Seed{0, 0, 0, 1.0}}, kNoFaults, 2.0, &vol, [](double) { return false; }, &err));
   QVERIFY(err.contains(QStringLiteral("已取消")));
   QCOMPARE(vol.filledCells, 123);
+  QVERIFY(vol.values.empty());
+}
+
+void TestPropFill::meshBlockedFillReportsFirstStage()
+{
+  const ZoneGrid grid = box(8, 6, 4, 0.0f, 10.0f, 1.0, 1.0);
+  // 竖直 mesh 面 x=4.0：阻断左右两侧通联（#234 项 1 网格版 fillIdw 场景）。
+  const std::vector<FaultTriangle> wall{
+      FaultTriangle{4, -1, -1, 4, 7, -1, 4, -1, 11},
+      FaultTriangle{4, 7, 11, 4, 7, -1, 4, -1, 11},
+  };
+  PropertyVolume vol;
+  std::vector<double> progress;
+  QString err;
+  QVERIFY2(fillIdw(grid, {Seed{0, 0, 0, 3.0}, Seed{7, 0, 0, 9.0}}, wall, 2.0, &vol,
+                   [&](double f) {
+                     progress.push_back(f);
+                     return true;
+                   },
+                   &err),
+           qPrintable(err));
+  // 一阶段（断块标记 BFS，求交主耗时）也上报进度：必有小数 < 0.5 的回调。
+  QVERIFY(!progress.empty());
+  QVERIFY(progress.front() == 0.0);
+  QCOMPARE(progress.back(), 1.0);
+  QVERIFY(std::any_of(progress.begin(), progress.end(), [](double f) { return f < 0.5; }));
+  // mesh 面阻断：两侧不同块，各自只拿到同侧种子。
+  QVERIFY(vol.cellBlock[static_cast<std::size_t>(grid.cellIndex(3, 0, 0))] !=
+          vol.cellBlock[static_cast<std::size_t>(grid.cellIndex(4, 0, 0))]);
+  QCOMPARE(at(vol, 3, 0, 0), 3.0f);
+  QCOMPARE(at(vol, 4, 0, 0), 9.0f);
+}
+
+void TestPropFill::meshStageCancelLeavesOutputUntouched()
+{
+  const ZoneGrid grid = box(8, 6, 4, 0.0f, 10.0f, 1.0, 1.0);
+  const std::vector<FaultTriangle> wall{
+      FaultTriangle{4, -1, -1, 4, 7, -1, 4, -1, 11},
+      FaultTriangle{4, 7, 11, 4, 7, -1, 4, -1, 11},
+  };
+  PropertyVolume vol;
+  vol.filledCells = 7;
+  QString err;
+  int calls = 0;
+  QVERIFY(!fillIdw(grid, {Seed{0, 0, 0, 3.0}}, wall, 2.0, &vol,
+                   [&](double) {
+                     ++calls;
+                     return false;
+                   },
+                   &err));
+  QVERIFY(err.contains(QStringLiteral("已取消")));
+  QVERIFY(calls >= 1);
+  QCOMPARE(vol.filledCells, 7);
   QVERIFY(vol.values.empty());
 }
 

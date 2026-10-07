@@ -421,11 +421,18 @@ bool fillIdw(const ZoneGrid &grid, const std::vector<Seed> &seeds, const std::ve
   for (const FaultTriangle &t : mesh)
     tris.push_back(paleo::faultsurf::Triangle3{t.ax, t.ay, t.az, t.bx, t.by, t.bz, t.cx, t.cy, t.cz});
 
+  // #234 项 1：mesh 空间索引建一次，blocked 每次查询只扫线段覆盖格内的
+  // 候选三角形，替代 O(|tris|) 线性扫描（网格版接线前该阶段是分钟级悬崖）。
+  paleo::faultsurf::SegmentMeshIndex meshIndex;
+  meshIndex.build(tris);
+
   const auto blocked = [&](int i0, int j0, int k0, int i1, int j1, int k1) {
     Point3 a;
     Point3 b;
     if (!cellCenter(grid, i0, j0, k0, &a) || !cellCenter(grid, i1, j1, k1, &b))
       return true;
+    if (meshIndex.usable())
+      return meshIndex.segmentIntersects(a.x, a.y, a.z, b.x, b.y, b.z);
     return paleo::faultsurf::segmentIntersectsTriangles(a.x, a.y, a.z, b.x, b.y, b.z, tris);
   };
 
@@ -440,6 +447,13 @@ bool fillIdw(const ZoneGrid &grid, const std::vector<Seed> &seeds, const std::ve
   const int dk[6] = {0, 0, 0, 0, -1, 1};
   for (int k = 0; k < grid.nk; ++k)
   {
+    // #234 项 1：一阶段（断块标记 BFS，含 blocked 求交）也接进度/取消——
+    // 此前仅二阶段（IDW 充填）可达，一阶段是网格版的主要耗时所在。
+    if (progress && !progress(0.5 * static_cast<double>(k) / static_cast<double>(grid.nk)))
+    {
+      setError(error, QStringLiteral("已取消"));
+      return false;
+    }
     for (int j = 0; j < grid.nj; ++j)
     {
       for (int i = 0; i < grid.ni; ++i)
@@ -573,7 +587,7 @@ bool fillIdw(const ZoneGrid &grid, const std::vector<Seed> &seeds, const std::ve
           ++unfilled;
       }
     }
-    if (progress && !progress(static_cast<double>(j + 1) / static_cast<double>(grid.nj)))
+    if (progress && !progress(0.5 + 0.5 * static_cast<double>(j + 1) / static_cast<double>(grid.nj)))
     {
       setError(error, QStringLiteral("已取消"));
       return false;

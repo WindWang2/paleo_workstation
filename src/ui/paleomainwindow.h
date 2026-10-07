@@ -421,6 +421,9 @@ class PaleoMainWindow : public SARibbonMainWindow
     QPointer<class PaleoTask> m_petroPhysTask;
     bool m_folderImportActive = false; // 文件夹导入期间抑制逐文件开预览标签
     PaleoTaskService *m_taskSvc = nullptr; // attachWorkflows 注入；空 → 导入走同步旧路径
+    // #275：attach 期工程未开，projectDir/gpkg 必须调用时经此现取（与
+    // rebindRealization 同口径）；按值捕获会得到永久空串/旧工程路径。
+    PaleoProjectStore *m_projectStore = nullptr; // attachWorkflows 注入
     QgisEditingService *m_editSvc = nullptr; // attachShellSurfaces 注入；closeEvent 保存/放弃走它
     DataImportService *m_importSvc = nullptr; // attachWorkflows 注入；启动页「从工区文件夹新建」用
     // 壳唯一数据门面（W1）：dataPage 属性与 previewTabs 共用同一实例。

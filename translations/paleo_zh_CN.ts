@@ -3294,8 +3294,8 @@
     </message>
     <message>
         <location filename="../src/ui/pages/datalist.cpp" line="1610"/>
-        <source>三维地震数据体</source>
-        <translation>三维地震数据体</translation>
+        <source>三维地震体 / 层位解释</source>
+        <translation>三维地震体 / 层位解释</translation>
     </message>
     <message>
         <location filename="../src/ui/pages/datalist.cpp" line="1635"/>
@@ -8568,8 +8568,8 @@ Crossline: %3 ~ %4</source>
     </message>
     <message>
         <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="534"/>
-        <source>预测编图</source>
-        <translation>预测编图</translation>
+        <source>智能预测</source>
+        <translation>智能预测</translation>
     </message>
     <message>
         <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="596"/>
@@ -10443,8 +10443,8 @@ Crossline: %3 ~ %4</source>
     </message>
     <message>
         <location filename="../src/ui/paleomainwindow.cpp" line="157"/>
-        <source>预测编图</source>
-        <translation>预测编图</translation>
+        <source>智能预测</source>
+        <translation>智能预测</translation>
     </message>
     <message>
         <location filename="../src/ui/paleomainwindow.cpp" line="158"/>
@@ -10601,8 +10601,8 @@ Crossline: %3 ~ %4</source>
     </message>
     <message>
         <location filename="../src/ui/paleomainwindow.cpp" line="538"/>
-        <source>地图上还没有图层 — 先在「数据管理」导入工区文件夹，或在「预测编图」运行预测</source>
-        <translation>地图上还没有图层 — 先在「数据管理」导入工区文件夹，或在「预测编图」运行预测</translation>
+        <source>地图上还没有图层 — 先在「数据管理」导入工区文件夹，或在「智能预测」运行预测</source>
+        <translation>地图上还没有图层 — 先在「数据管理」导入工区文件夹，或在「智能预测」运行预测</translation>
     </message>
     <message>
         <location filename="../src/ui/paleomainwindow.cpp" line="559"/>

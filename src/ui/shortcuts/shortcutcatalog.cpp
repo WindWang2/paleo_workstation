@@ -45,7 +45,7 @@ const char *pageDescription(const QString &pageId)
   static const QHash<QString, const char *> descriptions = {
       {QStringLiteral("data"), QT_TRANSLATE_NOOP("PaleoShortcuts", "切换到「数据管理」页")},
       {QStringLiteral("correlation"), QT_TRANSLATE_NOOP("PaleoShortcuts", "切换到「地层对比」页")},
-      {QStringLiteral("predict"), QT_TRANSLATE_NOOP("PaleoShortcuts", "切换到「预测编图」页")},
+      {QStringLiteral("predict"), QT_TRANSLATE_NOOP("PaleoShortcuts", "切换到「智能预测」页")},
       {QStringLiteral("constraint"), QT_TRANSLATE_NOOP("PaleoShortcuts", "切换到「单因素图」页")},
       {QStringLiteral("compose"), QT_TRANSLATE_NOOP("PaleoShortcuts", "切换到「智能编图」页")},
       {QStringLiteral("validate"), QT_TRANSLATE_NOOP("PaleoShortcuts", "切换到「验证」页")},

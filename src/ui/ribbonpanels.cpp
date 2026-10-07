@@ -43,7 +43,7 @@
 #include <QToolButton>
 
 // Ribbon 命令组：每个页签按「做事的顺序」排组——数据管理（导入 → 列表 →
-// 预览）、预测编图（运行 → 叠加对照 → 编辑 → 地图 → 结果）、单因素图（约束
+// 预览）、智能预测（运行 → 叠加对照 → 编辑 → 地图 → 结果）、单因素图（约束
 // → 插值 → 连井 → 编辑 → 地图 → 结果）、智能编图（编图链 → 编辑 → 地图 →
 // 图件输出 → 版本）、验证（验证 → 联动定位 → 地图 → 发布）。
 // 页面板按钮是状态源：ribbon 动作经 PaleoRibbon::mirror 镜像它们。
@@ -269,7 +269,7 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
     addLarge(sp, seismic2dAct);
   }
 
-  // ================= 预测编图 =================
+  // ================= 智能预测 =================
   if (SARibbonCategory *cat = categoryForPage(QStringLiteral("predict")))
   {
     SARibbonPanel *p = panel(cat, tr("预测运行"), "ribbonPanel.predict.run");

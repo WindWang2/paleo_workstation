@@ -308,7 +308,7 @@ void DataListPanel::refreshAssetTree()
       seisAssets.append(a);
   auto *seismicRoot = new QTreeWidgetItem(m_tree);
   seismicRoot->setText(0, tr("地震 (%1)").arg(seisAssets.size()));
-  seismicRoot->setText(1, tr("三维地震数据体"));
+  seismicRoot->setText(1, tr("三维地震体 / 层位解释"));
   seismicRoot->setData(0, Qt::UserRole + 2, QStringLiteral("category"));
   seismicRoot->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mIconPolygonLayer.svg")));
   seismicRoot->setExpanded(false);
@@ -458,7 +458,7 @@ void DataListPanel::refreshAssetTree()
     }
   }
 
-  // 4. 层位 (Horizons)
+  // 地震解释层位归入地震分类，资产仍保持 horizon 类型与层序界面关联。
   QList<CatalogAsset> horAssets;
   for (const CatalogAsset &a : cat->assets())
     if (assetVisible(a) && a.type == QLatin1String("horizon"))
@@ -466,7 +466,7 @@ void DataListPanel::refreshAssetTree()
   std::sort(horAssets.begin(), horAssets.end(), [](const CatalogAsset &a, const CatalogAsset &b) {
     return naturalNameSort(a.displayName, b.displayName);
   });
-  auto *horRoot = new QTreeWidgetItem(m_tree);
+  auto *horRoot = new QTreeWidgetItem(seismicRoot);
   horRoot->setText(0, tr("层位 (%1)").arg(horAssets.size()));
   horRoot->setText(1, tr("解释层位数据"));
   horRoot->setData(0, Qt::UserRole + 2, QStringLiteral("category"));

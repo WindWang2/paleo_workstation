@@ -137,7 +137,7 @@ class QContextMenuEvent;
 class QPoint;
 
 // ui/ — PaleoMainWindow: the six-page workflow shell (§42), Ribbon 形态。
-// 顶部 = SARibbon：「文件」应用按钮 + 六个页签（数据管理 | 地层对比 | 预测编图 | 单因素图 |
+// 顶部 = SARibbon：「文件」应用按钮 + 六个页签（数据管理 | 地层对比 | 智能预测 | 单因素图 |
 // 智能编图 | 验证，页签 = 工作流页）+ 右侧全局按钮组（搜索/处理算法/面板/
 // Web 服务）+ 快速访问栏（保存/撤销/重做）。
 // 中央：数据管理页 = 「数据列表」上 +「数据预览」下的竖向分栏；其余四页 =

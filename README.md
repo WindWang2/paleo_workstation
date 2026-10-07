@@ -32,7 +32,7 @@ git clone https://github.com/WindWang2/paleo_workstation.git && cd paleo_worksta
 
 ## 地震层位窗聚类（Mock）
 
-在「预测编图」选择当前层位、一个地震体及「地震层位窗聚类 → 分布图（Mock）」。
+在「智能预测」选择当前层位、一个地震体及「地震层位窗聚类 → 分布图（Mock）」。
 「层位文件」可直接选择 SMI DAT（X、Y、时间 ms、Inline、Crossline，含测网文件头）；
 留空时自动使用工程中对应层位的原始数据或已有时间栅格。
 原始 DAT 按每个有效点的道号和时间直接提取 ±12 ms 反射窗，无需先生成时间栅格。

@@ -166,7 +166,7 @@ using paleo::ui_detail::isOffscreen;
     static const QStringList labels = {
         QCoreApplication::translate("PaleoMainWindow", "数据管理"),
         QCoreApplication::translate("PaleoMainWindow", "地层对比"),
-        QCoreApplication::translate("PaleoMainWindow", "预测编图"),
+        QCoreApplication::translate("PaleoMainWindow", "智能预测"),
         QCoreApplication::translate("PaleoMainWindow", "单因素图"),
         QCoreApplication::translate("PaleoMainWindow", "智能编图"),
         QCoreApplication::translate("PaleoMainWindow", "验证"),
@@ -420,7 +420,7 @@ void PaleoMainWindow::buildShell()
   m_centerStack->addWidget(startup); // index 0
 
   // 工作区两面（用户裁决：数据管理是列表面，另外四页以 QGIS 画布为主）：
-  //   0 画布面 = 层位 chip 条 + QgsMapCanvas（预测编图/单因素图/智能编图/验证）
+  //   0 画布面 = 层位 chip 条 + QgsMapCanvas（智能预测/单因素图/智能编图/验证）
   //   1 数据面 = 可视化预览；数据列表独立停靠在主窗口左侧（数据管理）
   m_workspaceStack = new PaleoViewportStack(m_centerStack);
   m_workspaceStack->setObjectName(QStringLiteral("workspaceStack"));
@@ -558,7 +558,7 @@ void PaleoMainWindow::buildShell()
   {
     mapEmpty = new PaleoEmptyStateLabel(
         QCoreApplication::translate("PaleoMainWindow",
-                                    "地图上还没有图层 — 先在「数据管理」导入工区文件夹，或在「预测编图」运行预测"),
+                                    "地图上还没有图层 — 先在「数据管理」导入工区文件夹，或在「智能预测」运行预测"),
         m_canvasCtl->canvas());
     mapEmpty->setObjectName(QStringLiteral("mapEmptyState")); // tst_ui 依赖的稳定名
     mapEmpty->raise();

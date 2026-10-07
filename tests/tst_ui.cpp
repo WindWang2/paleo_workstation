@@ -238,7 +238,7 @@ class TestUiShell : public QObject
       QCOMPARE(m_win->styleSheet(), light);
     }
 
-    // §42 workflow chain: 数据管理/预测编图/单因素图/智能编图/验证
+    // §42 workflow chain: 数据管理/智能预测/单因素图/智能编图/验证
     void workflowTabBarHasSixTabs()
     {
       auto *tabs = m_win->findChild<QTabBar *>(QStringLiteral("workflowTabs"));
@@ -246,7 +246,7 @@ class TestUiShell : public QObject
       QCOMPARE(tabs->count(), 6);
       QCOMPARE(tabs->tabText(0), QStringLiteral("数据管理"));
       QCOMPARE(tabs->tabText(1), QStringLiteral("地层对比"));
-      QCOMPARE(tabs->tabText(2), QStringLiteral("预测编图"));
+      QCOMPARE(tabs->tabText(2), QStringLiteral("智能预测"));
       QCOMPARE(tabs->tabText(3), QStringLiteral("单因素图"));
       QCOMPARE(tabs->tabText(4), QStringLiteral("智能编图"));
       QCOMPARE(tabs->tabText(5), QStringLiteral("验证"));
@@ -1328,7 +1328,7 @@ class TestUiShell : public QObject
     }
 
     // Ribbon 工作流五页与工作区视图联动：
-    // 1. 五个页签全部就位且文案对齐设计（数据管理 / 预测编图 / 单因素图 / 智能编图 / 验证）；
+    // 1. 五个页签全部就位且文案对齐设计（数据管理 / 智能预测 / 单因素图 / 智能编图 / 验证）；
     // 2. 数据管理页处于数据面（index 1：数据列表 + 数据预览）；
     // 3. 预测/单因素/智能编图/验证页处于画布面（index 0：层位 chips + QgsMapCanvas）。
     void ribbonWorkflowCategoriesAndWorkspaceSwitching()
@@ -1338,7 +1338,7 @@ class TestUiShell : public QObject
         QStringLiteral("compose"), QStringLiteral("validate")
       };
       const QStringList expectedTitles = {
-        QStringLiteral("数据管理"), QStringLiteral("预测编图"), QStringLiteral("单因素图"),
+        QStringLiteral("数据管理"), QStringLiteral("智能预测"), QStringLiteral("单因素图"),
         QStringLiteral("智能编图"), QStringLiteral("验证")
       };
 
@@ -1357,7 +1357,7 @@ class TestUiShell : public QObject
       m_win->showPage(QStringLiteral("data"));
       QCOMPARE(workspaceStack->currentIndex(), 1);
 
-      // 预测编图、单因素图、智能编图、验证页：工作区展示 QGIS 画布与层位栏（index 0）
+      // 智能预测、单因素图、智能编图、验证页：工作区展示 QGIS 画布与层位栏（index 0）
       for (const QString &p : {QStringLiteral("predict"), QStringLiteral("constraint"),
                                QStringLiteral("compose"), QStringLiteral("validate")})
       {

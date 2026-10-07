@@ -104,7 +104,7 @@ components:
 ## Overview
 
 **Creative North Star:** 这就是干古地理编图活儿的工具 —— 工作流链永远可见，其余一切让位于 QGIS 原生控件的专业质感。
-**Product context:** 石油地质学家的古地理编图工作台；Qt6 Widgets 桌面应用，嵌入 vendored QGIS；六页：数据管理 → 地层对比 → 预测编图 → 单因素图 → 智能编图 → 验证。地层对比按用户 2026-10-05 的要求，以 QtWebEngine 承载独立 Web 工作台。
+**Product context:** 石油地质学家的古地理编图工作台；Qt6 Widgets 桌面应用，嵌入 vendored QGIS；六页：数据管理 → 地层对比 → 智能预测 → 单因素图 → 智能编图 → 验证。地层对比按用户 2026-10-05 的要求，以 QtWebEngine 承载独立 Web 工作台。
 **Mode per surface:** 全部 Operate（任务操作面）；无 Persuade/Read 面。
 **Reference:** `prototype/` 五张设计稿 + QGIS 主窗口解剖（docs.qgis.org qgis_gui）。
 **Key characteristics:** 编号工作流标签是唯一的非 QGIS 签名元素；浅色为缺省的双主题（暗色见 2026-09-29 翻案条）+ 单一蓝色 accent；密度对齐专业 GIS 工具而非 Web 惯例。
@@ -128,7 +128,7 @@ components:
 
 QGIS 标准解剖：左 dock（资源管理器/图层树）、中央 `QgsMapCanvas`、右 dock（页签参数面板）、底 dock（任务/日志/验证记录）、状态栏。
 
-**唯一签名元素：编号工作流标签栏** —— 文件菜单右侧依次为 `数据管理 | 地层对比 | 预测编图 | 单因素图 | 智能编图 | 验证`（2026-10-05 增加地层对比），当前步蓝色下划线+蓝色文字（暗色用 primaryText 提亮）。它把产品的工作流链钉在顶部，是"这就是干这事儿的工具"的载体。
+**唯一签名元素：编号工作流标签栏** —— 文件菜单右侧依次为 `数据管理 | 地层对比 | 智能预测 | 单因素图 | 智能编图 | 验证`（2026-10-05 增加地层对比），当前步蓝色下划线+蓝色文字（暗色用 primaryText 提亮）。它把产品的工作流链钉在顶部，是"这就是干这事儿的工具"的载体。
 
 层位切换条（C3 C6 D53…chips）在 ribbon 之下、画布之上，checkable `QToolButton` 组。
 
@@ -261,6 +261,7 @@ QGIS 标准解剖：左 dock（资源管理器/图层树）、中央 `QgsMapCanv
 
 | Date | Decision | Rationale |
 |------|----------|-----------|
+| 2026-10-07 | 预测页统一命名为「智能预测」 | 用户明确要求；页签、页面标题、快捷键说明、帮助及工作流指南统一使用新名称。 |
 | 2026-10-07 | 错误呈现三级分流（方向 64） | 169 处 QMessageBox 连弹无聚合、无历史；统一 ErrorHub + 通知卡/模态/状态栏，确认类与 severe 保留模态，详见「错误呈现」节 |
 | 2026-10-06 | 高 DPI 条款成文（High DPI 节） | 3D 视口 resizeGL 未乘 dpr 为确定性缺陷（方向 60）；口径=普通 QWidget 路径禁止手乘 dpr、GL resizeGL 必须物理像素、图像出口两类（数据位图=数据分辨率、屏幕抓帧=物理回读）均不额外补偿；护栏入 check_ui_invariants.py `gl-dpr` 规则；测试约定 QT_SCALE_FACTOR=2 offscreen。 |
 | 2026-10-05 | 数据管理后增加地层对比 ribbon 页 | 用户明确要求嵌入独立 Web 前端。QtWebEngine 只作页面宿主，连接与进程编排留在功能层；本机配置保存服务地址、外部目录和 Python，源码/模型/数据不进入 GitHub。 |

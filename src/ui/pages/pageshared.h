@@ -26,7 +26,7 @@ inline constexpr char kTaskSvcProp[] = "paleo.page.tasksvc"; // QObject* (PaleoT
 inline const QStringList kPageIds = {
   QStringLiteral("data"),       // 数据管理
   QStringLiteral("correlation"), // 地层对比（独立 Web 工作台）
-  QStringLiteral("predict"),    // 预测编图
+  QStringLiteral("predict"),    // 智能预测
   QStringLiteral("constraint"), // 单因素图
   QStringLiteral("compose"),    // 智能编图
   QStringLiteral("validate"),   // 验证

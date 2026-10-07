@@ -26,7 +26,7 @@
 // QSignalSpy + objectName 子件查找（plain QApplication，无 QisRuntime）。
 // 文件内三个测试类共用一个 main（多类 qExec）；每页一个类，各任务段
 // 只改自己的类：
-//   PredictPageTests   —— 预测编图页（任务 A）
+//   PredictPageTests   —— 智能预测页（任务 A）
 //   FactorPageTests    —— 单因素图页（任务 B；ConstraintPage 重定位）
 //   ComposePageTests   —— 智能编图页（任务 C）
 

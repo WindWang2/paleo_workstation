@@ -574,7 +574,7 @@ void MappingWorkbenchPage::refresh() {
   m_heading->setText(m_horizon.isEmpty()
                          ? tr("请选择编图层位")
                          : tr("%1 · %2").arg(m_horizon, m_mode == "predict"
-                                                            ? tr("预测编图")
+                                                            ? tr("智能预测")
                                                         : m_mode == "constraint"
                                                             ? tr("单因素图")
                                                             : tr("智能编图")));

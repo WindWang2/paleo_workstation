@@ -309,6 +309,36 @@ private slots:
              QStringLiteral("井深 m"));
   }
 
+  // ---- TVD 可用性三态（方向 69：无测斜如实态，几何恒等 ≠ 语义可用）----
+  void tvdStatusTriState() {
+    QString err;
+    const auto survey = paleo::WellDeviationSurvey::fromStations(
+        {{0, 0, 0}, {1000, 30, 0}, {2000, 30, 0}}, &err);
+    QVERIFY2(survey.has_value(), qPrintable(err));
+    const auto verticalTable = paleo::WellDeviationSurvey::fromStations(
+        {{0, 0, 0}, {1000, 0, 0}}, &err);
+    QVERIFY2(verticalTable.has_value(), qPrintable(err));
+    Well dev, vertTable, noSurvey, broken;
+    dev.survey = survey;
+    vertTable.survey = verticalTable;
+    broken.surveyError = QStringLiteral("测斜站表无效");
+    // 三态：survey 有效（含纯垂井表）/ 无链接 / 坏表。
+    QCOMPARE(dev.tvdStatus(), TvdStatus::Surveyed);
+    QCOMPARE(vertTable.tvdStatus(), TvdStatus::Surveyed);
+    QCOMPARE(noSurvey.tvdStatus(), TvdStatus::NoSurvey);
+    QCOMPARE(broken.tvdStatus(), TvdStatus::BrokenSurvey);
+    // 几何口径不变：无测斜恒等（= 按 MD 绘制），坏表 NaN。
+    QCOMPARE(noSurvey.tvdOf(1234.0), 1234.0);
+    QCOMPARE(noSurvey.mdOf(1234.0), 1234.0);
+    QVERIFY(std::isnan(broken.tvdOf(1234.0)));
+    // 可显示性：无测斜可出几何（按 MD），坏表不出。
+    QVERIFY(noSurvey.tvdDisplayable());
+    QVERIFY(!broken.tvdDisplayable());
+    // 纯垂井表是合法 survey 数据（≠ 无测斜）。
+    QVERIFY(verticalTable->isVertical());
+    QCOMPARE(vertTable.tvdStatus(), TvdStatus::Surveyed);
+  }
+
   void topsTableTvdColumn() {
     QString err;
     const auto survey = paleo::WellDeviationSurvey::fromStations(

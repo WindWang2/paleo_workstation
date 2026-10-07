@@ -226,8 +226,8 @@ WellSectionPanel::WellSectionPanel(SelectionContext *ctx, QWidget *parent)
     tvdAct->setCheckable(true);
     tvdAct->setChecked(m_domain == wellsection::DepthDomain::TVD);
     tvdAct->setToolTip(
-        tr("按井斜轨迹换算真垂深显示；未挂井斜的井按直井处理（TVD=MD），"
-           "井斜表损坏的井如实标注、不下拽邻居"));
+        tr("按井斜轨迹换算真垂深显示；未挂井斜的井按井深绘制并如实标注"
+           "「TVD 不可用（无测斜）」，井斜表损坏的井不出几何、不下拽邻居"));
     connect(tvdAct, &QAction::triggered, this, [this](bool on) {
       const wellsection::DepthDomain d = on
                                              ? wellsection::DepthDomain::TVD
@@ -864,6 +864,19 @@ QString WellSectionPanel::statusText() const
   return m_status ? m_status->text() : QString();
 }
 
+QString WellSectionPanel::depthCaption() const
+{
+  return m_header ? m_header->depthCaptionText() : QString();
+}
+
+QString WellSectionPanel::headerBadgeText(const QString &wellId) const
+{
+  for (const wellsection::Well &w : m_st.wells)
+    if (w.id == wellId)
+      return wellsectionui::tvdBadgeText(w, m_domain);
+  return QString();
+}
+
 // ---- 内部 ----
 void WellSectionPanel::rebuildFiltered()
 {
@@ -1007,15 +1020,23 @@ void WellSectionPanel::updateStatus()
       s += tr(" · 拉平于 %1").arg(m_datum.flattenTop);
     if (m_domain == wellsection::DepthDomain::TVD)
     {
-      // 诚实面：坏表井列名录（不下拽邻居——深度窗按可用井取并）；全可
-      // 用只标域。
-      QStringList broken;
+      // 诚实面：坏表井不出几何（不下拽邻居——深度窗按可用井取并），无测斜
+      // 井按 MD 绘制但如实点名；两类原因措辞区分。
+      QStringList broken, noSurvey;
       for (const auto &w : m_st.wells)
-        if (!w.tvdDisplayable())
+      {
+        if (w.tvdStatus() == wellsection::TvdStatus::BrokenSurvey)
           broken << w.name;
-      s += broken.isEmpty()
-               ? tr(" · TVD 域")
-               : tr(" · TVD 域（不可换算：%1）").arg(broken.join(u'、'));
+        else if (w.tvdStatus() == wellsection::TvdStatus::NoSurvey)
+          noSurvey << w.name;
+      }
+      if (!broken.isEmpty())
+        s += tr(" · TVD 不可换算（井斜表损坏）：%1").arg(broken.join(u'、'));
+      if (!noSurvey.isEmpty())
+        s += tr(" · TVD 不可用（无测斜，按井深绘制）：%1")
+                 .arg(noSurvey.join(u'、'));
+      if (broken.isEmpty() && noSurvey.isEmpty())
+        s += tr(" · TVD 域");
     }
     if (m_spacing == wellsection::SpacingMode::Proportional)
     {

@@ -17,6 +17,16 @@
 // 版头不是场景项：它是视图上方的一个 QWidget，水平滚动跟随视图。
 namespace wellsectionui {
 
+// TVD 域名行角标文本：无测斜/坏表井如实标注「TVD 不可用」（MD 域或
+// survey 正常井 → 空串）。版头绘制与面板测试钩子共用同一口径。
+QString tvdBadgeText(const wellsection::Well &w,
+                     wellsection::DepthDomain domain);
+// 深度道题注文本（随基准面模式与深度域：垂深/m、海拔垂深/m…）——
+// paintContents 与字符串断言通道共用，导出图随版头自然携带口径词。
+QString depthTrackCaption(const wellsection::TrackSpec &tr,
+                          wellsection::DepthDomain domain,
+                          const wellsection::Datum &datum);
+
 // 渲染共享状态（panel 拥有；item/header 持指针只读）。
 struct RenderState {
   QVector<wellsection::Well> wells;    // tops 已按模板过滤
@@ -217,6 +227,9 @@ class HeaderWidget : public QWidget
     static constexpr int kHeight = 70; // 版头最小高
     // 与 renderImage 共用：在 (0,0,w×headerHeight) 内按状态画版头内容。
     void paintContents(QPainter *p, double xOffset) const;
+    // 深度道题注文本（随基准面模式与深度域）——导出/截图的口径标签
+    // 字符串级断言通道（比像素断言稳；无深度道 → 空串）。
+    QString depthCaptionText() const;
 
   signals:
     void wellClicked(int index);

@@ -101,6 +101,10 @@ class WellSectionPanel : public QWidget
     qreal topLineY(const QString &wellId, const QString &top) const;
     QString gapReason(int gap) const;
     QString statusText() const;
+    // 深度道题注文本（随基准面/域；导出图口径标签的字符串断言通道）。
+    QString depthCaption() const;
+    // TVD 域名行角标文本（无测斜/坏表如实标注；MD 域/正常井 → 空串）。
+    QString headerBadgeText(const QString &wellId) const;
     double pxPerMeter() const { return m_st.pxPerMeter; }
     qreal gapWidth() const { return m_st.gapPx; }
     // 测试钩子：列左缘 x / 第 i 缝宽（比例井距模式的断言面）。

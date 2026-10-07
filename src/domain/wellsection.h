@@ -61,6 +61,13 @@ struct LithoSegment {
 // 域改写——换算只发生在显示映射（拉平不变量的延伸）。
 enum class DepthDomain { MD, TVD };
 
+// TVD 域如实性三态（方向 69 语义对齐）：
+//   Surveyed     — survey 有效（含纯垂井表）；
+//   NoSurvey     — 无 survey 链接：几何按直井恒等（= 按 MD 绘制），但
+//                  TVD 语义不可用——必须如实标注「无测斜」，不得静默冒充；
+//   BrokenSurvey — 资产在但不可解析：TVD 域不出几何（NaN，不伪造）。
+enum class TvdStatus { Surveyed, NoSurvey, BrokenSurvey };
+
 // 剖面上的一口井。tops 按 MD 升序（仅含有限 MD 的分层）。kb 为补心海拔
 // （米，海平面以上为正；缺数据 = 0 → 海拔模式退化为井深模式）。
 struct Well {
@@ -73,19 +80,26 @@ struct Well {
   QVector<FaciesSegment> facies; // 交会分类井层段（catalog 派生资产）
   QVector<LithoSegment> litho;   // 解释岩性段（catalog 资产，可空 = GR 回落）
   std::optional<TimeDepth> timeDepth;
-  // 井斜轨迹（catalog trajectory 角色）。无链接 = 直井（TVD≡MD，显式
-  // 语义）；surveyError 非空 = 资产在但不可解析——TVD 域该井如实标不可用。
+  // 井斜轨迹（catalog trajectory 角色）。无链接 = 直井几何（TVD≡MD，
+  // 按 MD 绘制不变）；surveyError 非空 = 资产在但不可解析——TVD 域该井
+  // 不出几何。可用性三态见 tvdStatus()（方向 69：无链接如实标无测斜）。
   std::optional<paleo::WellDeviationSurvey> survey;
   QString surveyError;
   bool hasCoordinates() const; // 有限 x && y
   double topMd(const QString &name) const;            // 精确匹配；缺失 → NaN
   const Curve *curve(const QString &mnemonic) const;  // 大小写不敏感；缺失 → nullptr
+  // TVD 域可用性三态（survey 有效 / 无链接 / 坏表）。
+  TvdStatus tvdStatus() const {
+    if (!surveyError.isEmpty())
+      return TvdStatus::BrokenSurvey;
+    return survey ? TvdStatus::Surveyed : TvdStatus::NoSurvey;
+  }
   // MD → TVD：直井恒等；井斜表坏 → NaN（调用方如实标，不得伪造）。
   double tvdOf(double md) const;
   // TVD → MD（井斜反解，契约 #126）；直井恒等；坏表 → NaN。
   double mdOf(double tvd) const;
-  // TVD 域可显示（直井或有效井斜；坏表 = false）。
-  bool tvdDisplayable() const { return surveyError.isEmpty(); }
+  // TVD 域可出几何（无链接按直井恒等绘制；坏表 = false 不出几何）。
+  bool tvdDisplayable() const { return tvdStatus() != TvdStatus::BrokenSurvey; }
 };
 
 // 层段：顶界 tops[i].md → 底界 tops[i+1].md，底段以 bottomMd 收。

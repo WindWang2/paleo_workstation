@@ -10,6 +10,8 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QSignalSpy>
+#include <QSqlDatabase>
+#include <QSqlQuery>
 #include <QTemporaryDir>
 #include <QTextStream>
 #include <QtEndian>
@@ -381,7 +383,7 @@ private slots:
     rec = store.save(QStringLiteral("default"),
                      {QStringLiteral("well-2"), QStringLiteral("well-1"),
                       QStringLiteral("well-3")},
-                     links, &err);
+                     links, wellsection::DepthDomain::MD, &err);
     QVERIFY2(rec.valid(), qPrintable(err));
     QCOMPARE(rec.version, 1);
 
@@ -403,7 +405,7 @@ private slots:
     links[0].connected = true;
     rec = reopened.save(QStringLiteral("default"),
                         {QStringLiteral("well-3"), QStringLiteral("well-1")},
-                        links, &err);
+                        links, wellsection::DepthDomain::MD, &err);
     QCOMPARE(rec.version, 2);
     auto rec2 = reopened.load(QStringLiteral("default"), &err);
     QCOMPARE(rec2.version, 2);
@@ -412,7 +414,8 @@ private slots:
 
     // 多节互不干扰：另一节 id 各自版本从 1 起。
     rec = reopened.save(QStringLiteral("fence-1"),
-                        {QStringLiteral("well-1")}, {}, &err);
+                        {QStringLiteral("well-1")}, {},
+                        wellsection::DepthDomain::MD, &err);
     QCOMPARE(rec.version, 1);
     QCOMPARE(reopened.load(QStringLiteral("default"), &err).version, 2);
 
@@ -426,7 +429,7 @@ private slots:
         QStringLiteral("default"),
         {QStringLiteral("well,a"), QStringLiteral("well;b"),
          QStringLiteral("w|3"), QStringLiteral("w;4")},
-        weird, &err);
+        weird, wellsection::DepthDomain::MD, &err);
     QVERIFY(escRec.valid());
     QCOMPARE(escRec.version, 3); // default 节第三次落盘
     const auto escBack =
@@ -441,6 +444,61 @@ private slots:
              QStringLiteral("顶|名\\反斜杠"));
     QVERIFY(!escBack.linkOverrides[0].connected);
 
+  }
+
+  // 深度域入剖面状态（方向 69）：round-trip + 旧库无列迁移（缺字段默认 MD）。
+  void sectionStoreDepthDomain() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString dbPath = QDir(dir.path()).filePath(QStringLiteral(
+        "t.project.sqlite"));
+
+    // 旧 schema 夹具：方向 69 前的五列表（无 depth_domain），直接写一行——
+    // 模拟用户工程库的旧数据。连接名避开 store 的命名空间。
+    {
+      QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"),
+                                                  QStringLiteral("oldschema_setup"));
+      db.setDatabaseName(dbPath);
+      QVERIFY(db.open());
+      QSqlQuery schema(db);
+      QVERIFY(schema.exec(QStringLiteral(
+          "CREATE TABLE well_section_edits ("
+          "section_id TEXT PRIMARY KEY, well_ids TEXT NOT NULL, "
+          "link_overrides TEXT NOT NULL, version INTEGER NOT NULL, "
+          "updated_utc TEXT NOT NULL)")));
+      QVERIFY(schema.exec(QStringLiteral(
+          "INSERT INTO well_section_edits VALUES "
+          "('default', 'well-1', '', 1, '2026-01-01T00:00:00.000')")));
+      db.close();
+      QSqlDatabase::removeDatabase(QStringLiteral("oldschema_setup"));
+    }
+
+    // 旧库打开 → 补列迁移；旧行读回 depthDomain = MD（向后兼容口径）。
+    metadata::WellSectionStore store(dbPath);
+    QString err;
+    QVERIFY2(store.open(&err), qPrintable(err));
+    auto rec = store.load(QStringLiteral("default"), &err);
+    QVERIFY(rec.valid());
+    QCOMPARE(rec.version, 1);
+    QCOMPARE(rec.wellIds, QStringList({QStringLiteral("well-1")}));
+    QCOMPARE(rec.depthDomain, wellsection::DepthDomain::MD);
+
+    // 存 TVD → 重开新实例读回 TVD（工程级 round-trip）。
+    rec = store.save(QStringLiteral("default"),
+                     {QStringLiteral("well-1"), QStringLiteral("well-2")}, {},
+                     wellsection::DepthDomain::TVD, &err);
+    QVERIFY2(rec.valid(), qPrintable(err));
+    QCOMPARE(rec.depthDomain, wellsection::DepthDomain::TVD);
+    metadata::WellSectionStore reopened(dbPath);
+    rec = reopened.load(QStringLiteral("default"), &err);
+    QCOMPARE(rec.depthDomain, wellsection::DepthDomain::TVD);
+    // 缺省参数 = MD（不显式给域时落 MD）。
+    rec = reopened.save(QStringLiteral("fence-1"),
+                        {QStringLiteral("well-1")}, {},
+                        wellsection::DepthDomain::MD, &err);
+    QVERIFY(rec.valid());
+    QCOMPARE(reopened.load(QStringLiteral("fence-1"), &err).depthDomain,
+             wellsection::DepthDomain::MD);
   }
 
   // 断层投绘：FaultSetStore 断面 mesh ∩ 井径 curtain → FaultTrace 集。
@@ -792,10 +850,13 @@ private slots:
     metadata::WellSectionStore store(dbPath);
     QString err;
     QVERIFY2(store.open(&err), qPrintable(err));
-    store.save(QStringLiteral("default"), {QStringLiteral("well-1")}, {}, &err);
+    store.save(QStringLiteral("default"), {QStringLiteral("well-1")}, {},
+               wellsection::DepthDomain::MD, &err);
     store.save(QStringLiteral("fence-1"), {QStringLiteral("well-1"),
-                                           QStringLiteral("well-2")}, {}, &err);
-    store.save(QStringLiteral("fence-2"), {QStringLiteral("well-3")}, {}, &err);
+                                           QStringLiteral("well-2")},
+               {}, wellsection::DepthDomain::MD, &err);
+    store.save(QStringLiteral("fence-2"), {QStringLiteral("well-3")}, {},
+               wellsection::DepthDomain::MD, &err);
     const QStringList ids = store.sectionIds(&err);
     QCOMPARE(ids, QStringList({QStringLiteral("default"),
                                QStringLiteral("fence-1"),

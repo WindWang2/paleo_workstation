@@ -27,6 +27,44 @@
 
 namespace wellsectionui {
 
+QString tvdBadgeText(const wellsection::Well &w,
+                     wellsection::DepthDomain domain)
+{
+  if (domain != wellsection::DepthDomain::TVD)
+    return QString(); // 角标是 TVD 域专属诚实面，MD 域不出现
+  switch (w.tvdStatus())
+  {
+    case wellsection::TvdStatus::NoSurvey:
+      return QObject::tr("TVD 不可用（无测斜）");
+    case wellsection::TvdStatus::BrokenSurvey:
+      return QObject::tr("TVD 不可用（井斜表损坏）");
+    case wellsection::TvdStatus::Surveyed:
+      break;
+  }
+  return QString();
+}
+
+QString depthTrackCaption(const wellsection::TrackSpec &tr,
+                          wellsection::DepthDomain domain,
+                          const wellsection::Datum &datum)
+{
+  QString title = tr.displayTitle();
+  if (tr.kind == wellsection::TrackKind::Depth)
+  {
+    if (domain == wellsection::DepthDomain::TVD)
+    {
+      title = datum.mode == wellsection::DatumMode::Elevation
+                  ? QObject::tr("海拔垂深/m")
+                  : QObject::tr("垂深/m");
+    }
+    else if (datum.mode == wellsection::DatumMode::Elevation)
+      title = QObject::tr("海拔/m");
+    else if (datum.mode == wellsection::DatumMode::Flatten)
+      title = QObject::tr("拉平/m");
+  }
+  return title;
+}
+
 namespace {
 constexpr double kNameRowH = 26.0;
 constexpr qreal kDragThreshold = 6.0;
@@ -1246,16 +1284,36 @@ void HeaderWidget::paintContents(QPainter *p, double xOffset) const
     if (colX + cw < 0 || colX > W)
       continue;
 
-    // 上行：井名（选中 = 主色字 + 2px 主色下划线）。
+    // 上行：井名（选中 = 主色字 + 2px 主色下划线）。TVD 域下无测斜/坏表
+    // 井如实加角标小字（名行两行排布，角标用语义色——DESIGN warning/error
+    // 文字位变体；MD 域不出现这些标记）。
     const wellsection::Well &w = m_st->wells[i];
     QString title = w.name.endsWith(QStringLiteral("井"))
                         ? w.name
                         : w.name + QObject::tr(" 井");
     const bool sel = (i == m_st->selected);
+    const QString badge = tvdBadgeText(w, m_st->domain);
     p->setFont(nameFont);
     p->setPen(sel ? PaleoTheme::tokens().primary : m_st->theme.text);
-    p->drawText(QRectF(colX, 0, cw, kNameRowH - 2),
-                Qt::AlignCenter | Qt::TextSingleLine, title);
+    if (badge.isEmpty())
+    {
+      p->drawText(QRectF(colX, 0, cw, kNameRowH - 2),
+                  Qt::AlignCenter | Qt::TextSingleLine, title);
+    }
+    else
+    {
+      const double nameH = (kNameRowH - 2) * 0.62;
+      p->drawText(QRectF(colX, 0, cw, nameH),
+                  Qt::AlignCenter | Qt::TextSingleLine, title);
+      p->setFont(cellFont);
+      const QColor badgeCol =
+          w.tvdStatus() == wellsection::TvdStatus::BrokenSurvey
+              ? PaleoTheme::tokens().errorText
+              : PaleoTheme::tokens().warningText;
+      p->setPen(badgeCol);
+      p->drawText(QRectF(colX, nameH, cw, kNameRowH - 2 - nameH),
+                  Qt::AlignCenter | Qt::TextSingleLine, badge);
+    }
     if (sel)
       p->fillRect(QRectF(colX + 4, kNameRowH - 2, cw - 8, 2),
                   PaleoTheme::tokens().primary);
@@ -1291,21 +1349,9 @@ void HeaderWidget::paintContents(QPainter *p, double xOffset) const
       }
       else
       {
-        // 深度道题注随基准面模式与深度域（TVD 域 = 垂深/海拔垂深）。
-        QString title = tr.displayTitle();
-        if (tr.kind == wellsection::TrackKind::Depth)
-        {
-          if (m_st->domain == wellsection::DepthDomain::TVD)
-          {
-            title = m_st->datum.mode == wellsection::DatumMode::Elevation
-                        ? QObject::tr("海拔垂深/m")
-                        : QObject::tr("垂深/m");
-          }
-          else if (m_st->datum.mode == wellsection::DatumMode::Elevation)
-            title = QObject::tr("海拔/m");
-          else if (m_st->datum.mode == wellsection::DatumMode::Flatten)
-            title = QObject::tr("拉平/m");
-        }
+        // 深度道题注随基准面模式与深度域（TVD 域 = 垂深/海拔垂深）——
+        // 与 depthCaptionText() 同一口径，导出图随版头携带域标签。
+        QString title = depthTrackCaption(tr, m_st->domain, m_st->datum);
         QStringList ls = wrapCaption(title, twIn, cfm);
         QColor col = m_st->theme.text;
         if (tr.kind == wellsection::TrackKind::Curve && !tr.curves.isEmpty())
@@ -1347,6 +1393,14 @@ void HeaderWidget::paintEvent(QPaintEvent *)
 {
   QPainter p(this);
   paintContents(&p, m_scrollX);
+}
+
+QString HeaderWidget::depthCaptionText() const
+{
+  for (const wellsection::TrackSpec &tr : m_st->tpl.tracks)
+    if (tr.kind == wellsection::TrackKind::Depth)
+      return depthTrackCaption(tr, m_st->domain, m_st->datum);
+  return QString();
 }
 
 void HeaderWidget::mousePressEvent(QMouseEvent *e)

@@ -933,9 +933,13 @@ QString MappingWorkbench::polygonize(const QString &id, QString *error) {
   }
   QDir().mkpath(m_dir + "/artifacts/staging");
   const auto path = m_dir + "/artifacts/staging/" + uid() + ".gpkg";
+  // 相栅格转面默认开平滑+聚合：逐像元聚类的椒盐噪点若直接多边形化会碎成
+  // 噪声图斑（用户要求——「一定要做平滑和聚合，不然太细了」）。
   auto output = m_processing->run("paleo:paleo_facies_polygonize",
                                   {{"INPUT", QVariant::fromValue(layer)},
                                    {"OUTPUT", path},
+                                   {"SMOOTH", 1},
+                                   {"MIN_CELLS", 4},
                                    {"MIN_AREA", 0.0},
                                    {"SIMPLIFY", 0.0}},
                                   error);

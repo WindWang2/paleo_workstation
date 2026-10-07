@@ -111,11 +111,13 @@ class IsopachAlgorithm : public QgsProcessingAlgorithm
 };
 
 // FaciesPolygonize — §36 raster → editable facies polygons.
-// Recode → drop sub-threshold parts on the grid → GDALPolygonize → dissolve →
+// Recode → SMOOTH 3×3 majority passes（椒盐去噪）→ absorb parts under
+// MIN_CELLS/MIN_AREA on the grid → GDALPolygonize → dissolve →
 // GEOS coverage simplify (each shared edge once) → boundary-graph rebuild so
 // both faces reference the same arc → optional constraint conflation.
-// Params: INPUT (raster), MIN_AREA, SIMPLIFY, SNAP_TOLERANCE, ANGLE_TOLERANCE,
-//         CONSTRAINTS (optional lines/polygons/points), OUTPUT (vector).
+// Params: INPUT (raster), SMOOTH, MIN_CELLS, MIN_AREA, SIMPLIFY,
+//         SNAP_TOLERANCE, ANGLE_TOLERANCE, CONSTRAINTS (optional
+//         lines/polygons/points), OUTPUT (vector).
 class FaciesPolygonizeAlgorithm : public QgsProcessingAlgorithm
 {
   public:

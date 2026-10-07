@@ -7,7 +7,9 @@
 //                                CELL_SIZE     double def 1.0
 //   paleo_facies_fusion        : （仅 INPUTS/OUTPUT 图层型 → 零标量字段）
 //   paleo_isopach              : NEGATIVE_TO_NODATA bool → InList 是/否
-//   paleo_facies_polygonize    : MIN_AREA      double def 0.0  min 0
+//   paleo_facies_polygonize    : SMOOTH        double def 1    min 0 max 10
+//                                MIN_CELLS     double def 4    min 0
+//                                MIN_AREA      double def 0.0  min 0
 //                                SIMPLIFY      double def 0.0  min 0
 //                                SNAP_TOLERANCE double def 0.0 min 0
 //                                ANGLE_TOLERANCE double def 15.0 min 0 max 90
@@ -81,8 +83,8 @@ namespace
     return { negToNodata };
   }
 
-  QVector<AlgorithmParamField> polygonizeFields()
-  {
+QVector<AlgorithmParamField> polygonizeFields()
+{
     auto scalar = []( const QString &key, const QString &label, double def,
                       double minV, bool hasMaxV, double maxV, const QString &suffix ) {
       AlgorithmParamField f;
@@ -99,6 +101,28 @@ namespace
       return f;
     };
     return {
+      [] {
+        AlgorithmParamField f;
+        f.key = QStringLiteral( "SMOOTH" );
+        f.label = QCoreApplication::translate( "AlgorithmParamSchema", "平滑次数（3×3 多数滤波）" );
+        f.type = AlgorithmParamField::Int;
+        f.defaultValue = 1;
+        f.hasMin = true;
+        f.minValue = 0.0;
+        f.hasMax = true; // 与算法参数上限一致（initAlgorithm 10）
+        f.maxValue = 10.0;
+        return f;
+      }(),
+      [] {
+        AlgorithmParamField f;
+        f.key = QStringLiteral( "MIN_CELLS" );
+        f.label = QCoreApplication::translate( "AlgorithmParamSchema", "最小图斑像元数" );
+        f.type = AlgorithmParamField::Int;
+        f.defaultValue = 4;
+        f.hasMin = true;
+        f.minValue = 0.0;
+        return f;
+      }(),
       scalar( QStringLiteral( "MIN_AREA" ),
               QCoreApplication::translate( "AlgorithmParamSchema", "最小图斑面积" ), 0.0, 0.0,
               false, 0.0, QStringLiteral( " m²" ) ),

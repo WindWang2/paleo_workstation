@@ -1,5 +1,13 @@
 # Goal-Loop 方向 38：连井剖面 TVD 域 + 真实井距 + 解释岩性道
 
+> **修订注记（2026-10-07）：本方向已修订重发为方向 69
+> （`goal-loop-prompts/69-wellsection-tvd.md`），勿按本任务书执行。**
+> 史实：方向 38 的 20261004 分支实现已移植进方向 69 分支
+> `goal/wellsection-tvd-20261007`；69 修订了三处口径——无测斜如实标注
+> （取代 38 的「直井显式语义」）、岩性 provider 形态定案（
+> `WellLithologyProvider` + wellfacies 落 DERIVED 资产）、深度域入剖面
+> 状态。本文件保留作历史记录。
+
 ## 背景（实测事实，勿再勘察）
 
 连井剖面首版只走 MD 深度域（TODOS P3 递延项，数据契约需逐个核实）：

@@ -110,7 +110,18 @@ class SegyReader
     void rebuildLineHashes();
     void resetState();
 
+    // #290：方言探针结果——open()/scanParallel()/resumeScan() 三条扫描路径
+    // 共用同一判据（segyreader.cpp 顶部 probe* 共享函数），避免并行/续扫
+    // 索引与顺序索引口径分叉；经 StoredIndex::dialectFlags 随 checkpoint
+    // 持久化，restore() 后 resumeScan 仍按同一口径续扫。
+    struct DialectFlags
+    {
+        bool xlineFromCdp = false;    // crossline 位恒 0 且 CDP 变化 → 取 CDP
+        bool cornerFromCdpXY = false; // 72/76 恒 0 且 180/184 非零 → 角点取 CDP X/Y
+    };
+
     AreaRules::SegyIndexing m_indexingRules; // 本次索引取字口径快照
+    DialectFlags m_dialect;                  // #290 方言探针结果（快照时一致）
     QString m_path;
     int m_samplesPerTrace = 0;
     float m_sampleIntervalUs = 0.0f;

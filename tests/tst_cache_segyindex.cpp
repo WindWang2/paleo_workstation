@@ -10,6 +10,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QTemporaryDir>
+#include <QtEndian>
 
 class CacheSegyIndexTests : public QObject
 {
@@ -33,6 +34,9 @@ class CacheSegyIndexTests : public QObject
     void variableLayoutFlagSurfaces();
     void variableLayoutKeepsHardErrorOnCorruptNs();
     void variableLayoutWritesNoCheckpoint();
+    // #290：并行/续扫与顺序 open() 的索引口径一致性。
+    void parallelDialectMatchesSequential();
+    void parallelShortTraceMatchesSequential();
 
   private:
     QTemporaryDir m_dir;
@@ -357,6 +361,87 @@ bool shortenFirstTrace(const QString &path, int oldSamples, int newSamples)
   if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
   return f.write(bytes) == bytes.size();
 }
+
+// #290：demo 工区方言 SEG-Y 生成器——inline 字（偏移 188）随测网变化，
+// crossline 字（偏移 192，字节 193）全 0，CDP（偏移 20）随 xline 变化；
+// 坐标对 72/76（Source X/Y）全 0，CDP X/Y（偏移 180/184）非零。固定道长、
+// 样本全 0（内容不重要，索引只读道头）。
+bool makeDialectSegy(const QString &path, int inlCount, int xlCount, int samples,
+                     qint32 baseInline)
+{
+  QFile f(path);
+  if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+    return false;
+  f.write(QByteArray(3200, ' ')); // 文本头
+  QByteArray bin(400, '\0');
+  qToBigEndian<qint16>(static_cast<qint16>(xlCount), reinterpret_cast<uchar *>(bin.data() + 12));
+  qToBigEndian<qint16>(2000, reinterpret_cast<uchar *>(bin.data() + 16)); // dt
+  qToBigEndian<qint16>(static_cast<qint16>(samples), reinterpret_cast<uchar *>(bin.data() + 20));
+  qToBigEndian<qint16>(5, reinterpret_cast<uchar *>(bin.data() + 24));    // IEEE
+  qToBigEndian<qint16>(0, reinterpret_cast<uchar *>(bin.data() + 304));   // 无扩展文本头
+  qToBigEndian<qint32>(baseInline, reinterpret_cast<uchar *>(bin.data() + 4));
+  f.write(bin);
+
+  QByteArray trHdr(240, '\0');
+  const QByteArray body(samples * 4, '\0');
+  int tracl = 0;
+  for (int i = 0; i < inlCount; ++i)
+  {
+    for (int x = 0; x < xlCount; ++x)
+    {
+      memset(trHdr.data(), 0, 240);
+      auto put32 = [&trHdr](int off, qint32 v) {
+        qToBigEndian<qint32>(v, reinterpret_cast<uchar *>(trHdr.data() + off));
+      };
+      put32(0, ++tracl);                        // TRACL
+      put32(8, i + 1);                          // field record
+      put32(20, x);                             // CDP = xline 序（道号位置 21）
+      qToBigEndian<qint16>(1, reinterpret_cast<uchar *>(trHdr.data() + 70)); // scal = 1
+      put32(180, 500000 + 50 * x);              // CDP X（字节 181-184）
+      put32(184, 4000000 + 100 * i);            // CDP Y（字节 185-188）
+      qToBigEndian<qint16>(static_cast<qint16>(samples),
+                           reinterpret_cast<uchar *>(trHdr.data() + 114));
+      qToBigEndian<qint16>(2000, reinterpret_cast<uchar *>(trHdr.data() + 116));
+      put32(188, baseInline + i);               // inline（192 恒 0——方言点①）
+      f.write(trHdr);
+      f.write(body);
+    }
+  }
+  return f.error() == QFileDevice::NoError;
+}
+
+// 断言 r 与 seq 的索引/几何完全一致（#290 口径一致性）。
+bool sameIndexAs(const SegyReader &r, const SegyReader &seq, QString *why)
+{
+  if (r.traceCount() != seq.traceCount() ||
+      r.inlineNumbers() != seq.inlineNumbers() ||
+      r.crosslineNumbers() != seq.crosslineNumbers() ||
+      r.samplesPerTrace() != seq.samplesPerTrace())
+  {
+    if (why)
+      *why = QStringLiteral("index mismatch: traces %1 vs %2, inlines %3 vs %4, xlines %5 vs %6")
+                 .arg(r.traceCount()).arg(seq.traceCount())
+                 .arg(r.inlineNumbers().size()).arg(seq.inlineNumbers().size())
+                 .arg(r.crosslineNumbers().size()).arg(seq.crosslineNumbers().size());
+    return false;
+  }
+  const SegyGeometry a = r.geometry(), b = seq.geometry();
+  if (a.inlineMin != b.inlineMin || a.inlineMax != b.inlineMax ||
+      a.xlineMin != b.xlineMin || a.xlineMax != b.xlineMax)
+  {
+    if (why) *why = QStringLiteral("geometry range mismatch");
+    return false;
+  }
+  for (int k = 0; k < 4; ++k)
+  {
+    if (a.cornerX[k] != b.cornerX[k] || a.cornerY[k] != b.cornerY[k])
+    {
+      if (why) *why = QStringLiteral("corner %1 mismatch").arg(k);
+      return false;
+    }
+  }
+  return true;
+}
 } // namespace
 
 void CacheSegyIndexTests::sequentialBadTraceSkipMatchesParallelContract()
@@ -446,6 +531,87 @@ void CacheSegyIndexTests::variableLayoutWritesNoCheckpoint()
   SegyIndexStore store(idx);
   QVERIFY2(!QFile::exists(store.cacheFilePathFor(QFileInfo(sgy))),
            "variable-trace-length layout must not publish a resumable checkpoint");
+}
+
+// ---- #290：并行/续扫与顺序 open() 的索引口径一致性 --------------------------
+
+void CacheSegyIndexTests::parallelDialectMatchesSequential()
+{
+  // demo 工区方言文件（193 全 0 取 CDP、72/76 全 0 取 CDP X/Y）恰好满足并行
+  // 资格（inline 字变化、定长、>1MiB、format 5）——修复前 openCached 走
+  // scanParallel 时 xline 全 0、角点 (0,0)，与 open() 结果分叉。
+  const QString sgy = m_dir.filePath("q.sgy");
+  const int inl = 40, xl = 60, samples = 100; // 2400 道 × 640B ≈ 1.5MB → 并行资格
+  QVERIFY(makeDialectSegy(sgy, inl, xl, samples, 3000));
+
+  SegyReader seq;
+  QString err;
+  QVERIFY2(seq.open(sgy, &err), qPrintable(err));
+  // 顺序路径探针必须命中方言：crossline 来自 CDP、角点来自 CDP X/Y。
+  QCOMPARE(seq.traceCount(), inl * xl);
+  QCOMPARE(seq.crosslineNumbers().size(), xl);
+  QCOMPARE(seq.crosslineNumbers().first(), 0);
+  QCOMPARE(seq.crosslineNumbers().last(), xl - 1);
+  QVERIFY(seq.geometry().cornerX[0] != 0.0);
+  QVERIFY(seq.geometry().cornerY[0] != 0.0);
+
+  // 路径 1：冷并行扫（独立缓存目录）。
+  SegyReader par;
+  QVERIFY2(par.openCached(sgy, m_dir.filePath("idxA"), &err), qPrintable(err));
+  QVERIFY2(sameIndexAs(par, seq, &err), qPrintable(err));
+
+  // 路径 2：checkpoint 续扫——首遍立刻取消落 checkpoint，第二遍 resumeScan。
+  const QString idxB = m_dir.filePath("idxB");
+  {
+    SegyReader r;
+    SegyOptions opts;
+    opts.cancel = [] { return true; };
+    QVERIFY(!r.openCached(sgy, idxB, &err, &opts));
+    QVERIFY(r.lastScanPartial());
+  }
+  SegyReader resumed;
+  QVERIFY2(resumed.openCached(sgy, idxB, &err), qPrintable(err));
+  QVERIFY2(sameIndexAs(resumed, seq, &err), qPrintable(err));
+
+  // 路径 3：身份命中（路径 1 已发布完整索引）。
+  SegyReader hit;
+  QVERIFY2(hit.openCached(sgy, m_dir.filePath("idxA"), &err), qPrintable(err));
+  QVERIFY2(sameIndexAs(hit, seq, &err), qPrintable(err));
+}
+
+void CacheSegyIndexTests::parallelShortTraceMatchesSequential()
+{
+  // 固定道长文件中部（首 8 道资格抽查之外）一道 ns 字变短、载荷不动（文件
+  // 整体仍整道对齐）——修复前并行路径接受它为参差好道（decode 只读短 ns
+  // 个采样），顺序路径则错位报错；修复后两条路径一致判为坏道跳过。
+  const QString sgy = m_dir.filePath("r.sgy");
+  const int inl = 40, xl = 60, samples = 100; // 同上：>1MiB → 并行资格
+  QVERIFY(PerfFixtures::makeSyntheticSegy(sgy, inl, xl, samples) > 0);
+  const qint64 traceSize = 240 + qint64(samples) * 4;
+  const qint64 shortOffset = 3600 + 1000 * traceSize;
+  patchTraceNs(sgy, shortOffset, samples - 10);
+
+  SegyReader seq;
+  QString err;
+  QVERIFY2(seq.open(sgy, &err), qPrintable(err));
+  QCOMPARE(seq.traceCount(), inl * xl - 1);
+  QCOMPARE(seq.badTraceOffsets().size(), 1);
+  QCOMPARE(seq.badTraceOffsets().first(), shortOffset);
+  QCOMPARE(seq.variableTraceLayout(), false);
+
+  SegyReader par;
+  QVERIFY2(par.openCached(sgy, cacheDir(), &err), qPrintable(err));
+  QCOMPARE(par.traceCount(), seq.traceCount());
+  QCOMPARE(par.badTraceOffsets(), seq.badTraceOffsets());
+  QCOMPARE(par.inlineNumbers(), seq.inlineNumbers());
+  QCOMPARE(par.crosslineNumbers(), seq.crosslineNumbers());
+
+  // 索引内不再有参差道：任一线解码全部统一 samplesPerTrace 长。
+  QVector<SegyTrace> line;
+  QVERIFY2(par.readInline(1000, &line, &err), qPrintable(err));
+  QCOMPARE(line.size(), xl);
+  for (const SegyTrace &t : line)
+    QCOMPARE(t.samples.size(), samples);
 }
 
 QTEST_MAIN(CacheSegyIndexTests)

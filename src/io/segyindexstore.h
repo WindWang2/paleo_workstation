@@ -50,6 +50,9 @@ class SegyIndexStore
         qint64 firstTraceOffset = 0;
         SegyGeometry geometry;
         std::array<int, 4> headerWordOffsets = {188, 192, 8, 20}; // 索引取字口径（v2）
+        quint8 dialectFlags = 0; // #290（v3）：bit0 crossline 取 CDP，bit1 角点取 CDP
+                                 // X/Y——checkpoint 续扫按同一口径取字；随格式版本
+                                 // 升级让旧缓存（错误方言索引）整体失效重建
         QVector<qint32> inlineNos;
         QVector<qint32> xlineNos;
         QVector<qint64> offsets;

@@ -41,7 +41,7 @@ per curve: rowCount × f64  行主序
 文件名：`sha256(fingerprint)[0:24].plc`，位于
 `<proj>/artifacts/index/las/`。
 
-## 3. SEG-Y 道头索引 `.psx`（magic `PSGYIDX1`，version 2）
+## 3. SEG-Y 道头索引 `.psx`（magic `PSGYIDX1`，version 3）
 
 payload：
 
@@ -56,6 +56,9 @@ i32  sampleIntervalUs
 i32  formatCode
 i32  binLineNo
 i32[4] headerWordOffsets     inline/crossline/field-record/CDP 的 0 基偏移
+u32  dialectFlags           #290：bit0 crossline 取 CDP（193 恒 0 且 CDP 变化），
+                            bit1 角点取 CDP X/Y（72/76 恒 0 且 180/184 非零）——
+                            三路径（顺序/并行/续扫）同口径，随版本升级令旧缓存重建
 i64  firstTraceOffset
 f64  geometry.inlineMin/Max, xlineMin/Max     survey 几何（open 时冻结）
 f64  geometry.cornerX[4] / cornerY[4]
@@ -77,6 +80,11 @@ v2 把道字配置加入完整索引与 checkpoint 身份；`openCached` 仅恢�
 配置四个偏移全部相同的快照。v1 无配置自证信息，读侧弃用并重扫。配置
 变化只更新可再生 `.psx` 缓存，不改 SEG-Y 字节。
 
+v3（#290）追加 `dialectFlags`：方言探针结果（crossline/角点回退取 CDP 字）
+进入完整索引与 checkpoint，`resumeScan` 据此与顺序路径同口径续扫。v2 缓存
+的并行/续扫索引不含方言回退（xline 全 0、角点 (0,0)），按过版拒绝并自愈
+删除重建。
+
 ### checkpoint 完整性审计（D2.8）
 
 读 checkpoint 时的附加闸：`firstTraceOffset ≤ scannedOffset ≤ size`、
@@ -93,18 +101,24 @@ v2 把道字配置加入完整索引与 checkpoint 身份；`openCached` 仅恢�
 | 顺序扫描（`open()`） | 支持；坏道（负 ns）跳过 + 记录（B6 起，原为整索引报错） | 支持（逐道按各自 ns 推进）；坏道整索引报错 |
 | 并行扫描（`scanParallel`） | 支持（>1MB） | 不适用（步长假设） |
 | checkpoint / 续扫 | 支持 | **不落 checkpoint**（B6 起；`SegyReader::variableTraceLayout()` 门） |
-| 坏道跳过 | 三路径（顺序/并行/续扫）一致：`ns < 0` 或 `ns > binNs` → 跳过 + 记 `badTraceOffsets` | **不跳**——负 ns 后道边界不可恢复，宁可整索引报错 |
+| 坏道跳过 | 三路径（顺序/并行/续扫）一致：`ns < 0`、`ns > binNs` 或（固定步长前缀内）`0 < ns < binNs` 且后续仍整道对齐 → 跳过 + 记 `badTraceOffsets` | **不跳**——负 ns 后道边界不可恢复，宁可整索引报错 |
 
 - 顺序路径坏道跳过（B6）：仅当扫描前缀尚未观察到变道长（所有道
   `ns == binNs` 或 `0`）时，负 ns 按固定步长 `240 + binNs*4` 跳过——与
   并行/resume 路径的 D2.7 语义对齐（此前小文件顺序路径坏道=整索引报错，
   大文件并行路径却跳过，口径不一致）。
+- 固定步长前缀内的短道（#290）：`0 < ns < binNs` 时，若按固定道长推进后
+  剩余字节仍整道对齐，判定该 ns 字损坏（固定道长布局里摆不下），按坏道
+  跳过——与并行/续扫路径同口径（此前顺序路径把它当变道长起点逐道按
+  `traceNs` 推进，而并行路径当好道收下，两口径分叉）；对不齐才认定为
+  变道长布局起点。`ns > binNs` 仍一律视为变道长观察。
 - 变道长不落 checkpoint 的理由：`resumeScan` 按固定步长推进，变道长断点
   续扫会把错位的道头当好道收进索引（静默坏数据）——宁可重扫。落盘侧由
   `openCached` 的 `!variableTraceLayout()` 闸保证；旧版本已落的变道长
   checkpoint 由 loadForResume 的整道判据兜底（增长量恰为固定步长整数倍的
   碰撞窗口接受为残余边界，读侧审计闸仍在）。
 - 测试：`tst_cache_segyindex::{sequentialBadTraceSkipMatchesParallelContract,
+  parallelDialectMatchesSequential, parallelShortTraceMatchesSequential,
   variableLayoutFlagSurfaces, variableLayoutKeepsHardErrorOnCorruptNs,
   variableLayoutWritesNoCheckpoint}`。
 

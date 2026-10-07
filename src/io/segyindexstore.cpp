@@ -16,7 +16,10 @@
 
 namespace
 {
-  constexpr quint16 kSegyIndexVersion = 2;
+  // v2 → v3（#290）：payload 头块追加 u32 dialectFlags；旧 v2 缓存按过版拒绝
+  // + 自愈删除——升级前并行路径不含方言回退，其缓存索引（方言文件 xline 全 0、
+  // 角点 (0,0)）与短道判定（参差短道当好道）不可信，必须重建。
+  constexpr quint16 kSegyIndexVersion = 3;
   const char kSegyIndexMagic[8] = {'P', 'S', 'G', 'Y', 'I', 'D', 'X', '1'};
 
   quint16 compressionFlags()
@@ -83,6 +86,7 @@ QByteArray SegyIndexStore::encodePayload(const StoredIndex &index)
   cacheio::putI32(&out, index.formatCode);
   cacheio::putI32(&out, index.binLineNo);
   for (int offset : index.headerWordOffsets) cacheio::putI32(&out, offset);
+  cacheio::putU32(&out, index.dialectFlags); // #290 v3
   cacheio::putI64(&out, index.firstTraceOffset);
   cacheio::putF64(&out, index.geometry.inlineMin);
   cacheio::putF64(&out, index.geometry.inlineMax);
@@ -131,6 +135,7 @@ bool SegyIndexStore::decodePayload(const QByteArray &payload, StoredIndex *out)
     offset = cacheio::i32(payload, &pos, &ok);
     if (offset < 0 || offset > 236) return false;
   }
+  out->dialectFlags = static_cast<quint8>(cacheio::u32(payload, &pos, &ok) & 0xFF); // #290 v3
   out->firstTraceOffset = cacheio::i64(payload, &pos, &ok);
   out->geometry.inlineMin = cacheio::f64(payload, &pos, &ok);
   out->geometry.inlineMax = cacheio::f64(payload, &pos, &ok);

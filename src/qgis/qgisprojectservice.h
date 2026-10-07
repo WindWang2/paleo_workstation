@@ -44,8 +44,10 @@ class QgisProjectService : public QObject
     // （路径为空），不会再把空工程覆盖到任何 .qgz 上。
     void closeProject();
 
-    // 工程会话序号：每次成功 open/create/close 自增。在途任务/面板可在
-    // 发起时记下、提交时比对——不等即为过期结果（#153/#124）。
+    // 工程会话序号：每次成功 open/create/close 自增。注意：此序号目前**无
+    // 框架消费**——在途任务的过期防线在 JobRunner（比对 PaleoTask::session()
+    // 与 PaleoTaskService::session()，#235）。新增非 JobRunner 的登记型回调
+    // 时如需同款防线，在此自行比对，勿假设已有机制兜底。
     quint64 sessionId() const { return m_sessionId; }
 
     // 打开闸门（#152）：openProject/createProject 在任何读写（含清单收养、

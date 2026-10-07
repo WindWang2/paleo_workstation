@@ -620,6 +620,12 @@ QVariantMap QgisProcessingService::run(const QString &algorithmId, const QVarian
   }
 
   QgsProcessingContext context;
+  // #235：注入工程 transformContext——默认构造的空变换上下文会让需要 CRS
+  // 变换的算法静默拿到恒等变换结果。工程指针解析与对话框路径同口径
+  //（setProject 注入，空则回退单例）；run 在 worker 线程被 ConstraintWorkflow
+  // 调用，这里只在 run 起点读一次快照。
+  if ( QgsProject *project = m_project ? m_project.data() : QgsProject::instance() )
+    context.setTransformContext( project->transformContext() );
   HookFeedback feedback(hooks);
   if (hooks.cancelled && hooks.cancelled())
   {
@@ -633,8 +639,8 @@ QVariantMap QgisProcessingService::run(const QString &algorithmId, const QVarian
     // Synchronous (blocking) run on the CALLER's thread. #235-2：实际契约——
     // ConstraintWorkflow 在 worker 线程调用（constraintfactorjobs），依赖冻结
     // URI 快照 + worker 上独立建层 + nextRunDir 原子计数这一 QGIS 授权的后台
-    // 处理形态；调用方不得传入主线程拥有的图层对象。注意 context 为默认构造，
-    // 未注入工程 transformContext——需要 CRS 变换的算法接入前须先补注入。
+    // 处理形态；调用方不得传入主线程拥有的图层对象。context 在 run 起点注入
+    // 工程 transformContext（见上）——需要 CRS 变换的算法由此拿到真实变换。
     results = instance->run(params, context, &feedback, &ok);
   }
   catch (const QgsProcessingException &e)

@@ -122,16 +122,18 @@ class FaciesMappingWorkflow : public QObject
     // 同步直跑（无任务池的壳/测试）；内部仍是 compute→commit 两段。
     bool run( const DraftFaciesRequest &request, QString *error = nullptr );
 
-    DraftFaciesComputed runCompute(
+    // 纯数据计算（不读成员；#235：worker 线程可安全直调/作静态回调）。
+    static DraftFaciesComputed runCompute(
       const DraftFaciesRequest &request,
       const std::function<bool( double, const QString & )> &progress = {} );
     // owner 线程：登记双资产 + declare + stamp；成功 emit draftReady。
     bool commitComputed( const DraftFaciesRequest &request, DraftFaciesComputed *computed );
 
-    // JobRunner 三段式（进度经 sink 的 updateProgress 槽，按名调用——
-    // 功能层不 include 视图头）。
+    // JobRunner 三段式（#235：compute 静态、不捕获 this——对齐
+    // PropertyModelWorkflow 的 #163 形态；进度走框架 ProgressFn →
+    // PaleoTask::changed，UI 侧接 changed 读 stagePercent()/stage()）。
     PaleoTask *startJob( paleo::jobs::JobRunner<DraftFaciesJob> &runner,
-                         const DraftFaciesRequest &request, QObject *progressSink,
+                         const DraftFaciesRequest &request,
                          std::shared_ptr<DraftFaciesJob> *started = nullptr );
 
   signals:

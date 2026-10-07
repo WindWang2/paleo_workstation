@@ -20,6 +20,7 @@
 #include <QEventLoop>
 #include <QMutex>
 #include <QMutexLocker>
+#include <QSignalSpy>
 #include <QString>
 #include <QStringList>
 #include <QTest>
@@ -483,6 +484,7 @@ void TestJobRunner::prepareFailureBuildsNoTask()
   auto probe = m_probe;
 
   JobRunner<TestJob>::Callbacks cb;
+  QSignalSpy droppedSpy( m_runner.get(), &paleo::jobs::JobRunnerBase::claimDropped );
   cb.prepare = [probe](TestJob &, QString *err) {
     probe->prepareCalls.fetch_add(1);
     if (err)
@@ -514,6 +516,10 @@ void TestJobRunner::prepareFailureBuildsNoTask()
   QVERIFY(!m_runner->busy());
   // generation 未被 prepare 失败推进
   QCOMPARE(m_runner->currentGeneration(), quint64(0));
+  // #235：prepare 失败分支发 0（未入代约定）——不发上一代的代号。
+  QCOMPARE(droppedSpy.count(), 1);
+  QCOMPARE(droppedSpy.at(0).at(0).toULongLong(), 0ULL);
+  QCOMPARE(droppedSpy.at(0).at(1).toInt(), static_cast<int>(DropReason::PrepareFailed));
 
   tearDownBusy();
 }

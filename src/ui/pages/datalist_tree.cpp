@@ -638,11 +638,13 @@ void DataListPanel::applyFilterToTree(const QSet<QString> &visibleIds, bool filt
     cat->setHidden(!catVisible);
     if (filtering && catVisible)
       cat->setExpanded(true);
-    else if (!filtering)
+    else if (!filtering && m_treeWasFiltering)
     {
-      // 默认收拢（用户契约）：清空搜索后一级节点全部回到收拢态；子分支
-      // 维持构建态（综合柱状图等展开位不动）。
+      // 默认收拢（用户契约）只在「清空搜索退出过滤态」那一跳执行——选中联动/
+      // 翻页等无过滤重放（applyListFilter 的良性再入）不得收掉用户手动展开
+      // 的一级组，否则点击三级节点会把树跳回一级并收拢。
       cat->setExpanded(false);
     }
   }
+  m_treeWasFiltering = filtering;
 }

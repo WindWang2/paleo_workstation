@@ -105,7 +105,7 @@ struct Well {
   QVector<Top> tops;
   QVector<Curve> curves;
   QVector<FaciesSegment> facies; // 交会分类井层段（catalog 派生资产）
-  QVector<LithoSegment> litho;   // 解释岩性段（catalog 资产，可空 = GR 回落）
+  QVector<LithoSegment> litho;   // 解释岩性段（catalog 资产或岩屑录井文件，可空 = GR 回落）
   QVector<ImageAnchor> images;   // 图片道锚（岩心/薄片照片，md 升序）
   std::optional<TimeDepth> timeDepth;
   // 井斜轨迹（catalog trajectory 角色）。无链接 = 直井几何（TVD≡MD，

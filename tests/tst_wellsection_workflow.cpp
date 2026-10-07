@@ -823,6 +823,183 @@ private slots:
     QCOMPARE(hits, 2);
   }
 
+  // 第二解释源（方向 69 扩展）：role=="cuttings" 岩屑录井文件（CSV 夹具）。
+  // 优先级（按井）：有该井段的 well_litho_intervals > cuttings > 无（GR
+  // 回落）；cuttings 段 source=Interpreted、provenance=「岩屑录井」；
+  // 读失败告警带 fileName。
+  void cuttingsLithoSecondSource() {
+    const auto seedCuttings = [](DataCatalog &cat, const QString &wellId,
+                                 const QString &assetId, const QString &path,
+                                 QString *err) {
+      CatalogAsset a;
+      a.id = assetId;
+      a.type = QStringLiteral("cuttings");
+      a.displayName = QFileInfo(path).fileName();
+      if (!cat.addAsset(a, err))
+        return false;
+      CatalogVersion v;
+      v.id = QStringLiteral("v-") + assetId;
+      v.assetId = assetId;
+      v.managed = false;
+      v.path = path;
+      v.fileName = QFileInfo(path).fileName();
+      v.stage = QStringLiteral("RAW");
+      if (!cat.addVersion(v, err))
+        return false;
+      EntityAssetLink l;
+      l.entityId = wellId;
+      l.entityType = QStringLiteral("well");
+      l.role = QStringLiteral("cuttings");
+      l.assetId = assetId;
+      l.isPrimary = true;
+      return cat.addLink(l, err);
+    };
+    const auto csvText = QStringLiteral(
+        "顶深,底深,岩性,描述\n"
+        "150,200,泥岩,深灰色\n"
+        "100,150,细砂岩,褐灰色\n");
+
+    // 仅 cuttings → cuttings 生效（升序、词面/深度对、来源标注）。
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      DataCatalog cat;
+      QString err;
+      QVERIFY2(cat.open(dir.path(), &err), qPrintable(err));
+      QVERIFY2(buildCatalog(cat, QDir(dir.path()), &err), qPrintable(err));
+      const QString csvPath = dir.filePath(QStringLiteral("cuttings.csv"));
+      QVERIFY(writeText(csvPath, csvText));
+      QVERIFY2(seedCuttings(cat, QStringLiteral("well-1"),
+                            QStringLiteral("cut-1"), csvPath, &err),
+               qPrintable(err));
+
+      WellSectionWorkflow wf(&cat);
+      QSignalSpy spy(&wf, &WellSectionWorkflow::sectionReady);
+      wf.request({QStringLiteral("well-1"), QStringLiteral("well-2")}, {});
+      QCOMPARE(spy.size(), 1);
+      const auto wells = spy[0][1].value<QVector<wellsection::Well>>();
+      QCOMPARE(wells.size(), 2);
+      QCOMPARE(wells[0].litho.size(), 2);
+      QCOMPARE(wells[0].litho[0].topMd, 100.0);
+      QCOMPARE(wells[0].litho[0].baseMd, 150.0);
+      QCOMPARE(wells[0].litho[0].litho, QStringLiteral("细砂岩"));
+      QCOMPARE(wells[0].litho[1].topMd, 150.0);
+      QCOMPARE(wells[0].litho[1].litho, QStringLiteral("泥岩"));
+      for (const auto &seg : wells[0].litho) {
+        QCOMPARE(seg.source, wellsection::LithoSource::Interpreted);
+        QCOMPARE(seg.provenance, QStringLiteral("岩屑录井"));
+      }
+      // well-2 无 cuttings 链接 → 空（GR 回落是正常态，不告警）。
+      QVERIFY(wells[1].litho.isEmpty());
+      for (const QString &w : spy[0][2].toStringList())
+        QVERIFY2(!w.contains(QStringLiteral("岩屑")),
+                 "正常路径不应有岩屑告警");
+    }
+
+    // 优先级：同井并存解释资产与 cuttings → 解释资产（well_litho_intervals）胜出。
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      DataCatalog cat;
+      QString err;
+      QVERIFY2(cat.open(dir.path(), &err), qPrintable(err));
+      QVERIFY2(buildCatalog(cat, QDir(dir.path()), &err), qPrintable(err));
+      const QString csvPath = dir.filePath(QStringLiteral("cuttings.csv"));
+      QVERIFY(writeText(csvPath, csvText));
+      QVERIFY2(seedCuttings(cat, QStringLiteral("well-1"),
+                            QStringLiteral("cut-1"), csvPath, &err),
+               qPrintable(err));
+      const QString jsonPath = dir.filePath(QStringLiteral("well-litho.json"));
+      QVERIFY(writeText(jsonPath, QStringLiteral(
+                                      "{\"schema\":1,\"intervals\":["
+                                      "{\"wellId\":\"well-1\",\"top\":10,"
+                                      "\"base\":20,\"litho\":\"解释泥岩\"}]}")));
+      QVERIFY2(addFileLink(cat, QStringLiteral("well-1"),
+                           QStringLiteral("interpretation"),
+                           QStringLiteral("li-1"), jsonPath,
+                           QStringLiteral("well_litho_intervals"), &err),
+               qPrintable(err));
+
+      WellSectionWorkflow wf(&cat);
+      QSignalSpy spy(&wf, &WellSectionWorkflow::sectionReady);
+      wf.request({QStringLiteral("well-1")}, {});
+      const auto wells = spy[0][1].value<QVector<wellsection::Well>>();
+      QCOMPARE(wells[0].litho.size(), 1);
+      QCOMPARE(wells[0].litho[0].litho, QStringLiteral("解释泥岩"));
+      QCOMPARE(wells[0].litho[0].provenance, QString()); // 老资产无 provenance
+    }
+
+    // 诚实面：注册后删掉文件 → 读取失败告警（带 fileName）+ 段为空。
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      DataCatalog cat;
+      QString err;
+      QVERIFY2(cat.open(dir.path(), &err), qPrintable(err));
+      QVERIFY2(buildCatalog(cat, QDir(dir.path()), &err), qPrintable(err));
+      const QString csvPath = dir.filePath(QStringLiteral("cuttings.csv"));
+      QVERIFY(writeText(csvPath, csvText));
+      QVERIFY2(seedCuttings(cat, QStringLiteral("well-1"),
+                            QStringLiteral("cut-1"), csvPath, &err),
+               qPrintable(err));
+      QVERIFY(QFile::remove(csvPath));
+
+      WellSectionWorkflow wf(&cat);
+      QSignalSpy spy(&wf, &WellSectionWorkflow::sectionReady);
+      wf.request({QStringLiteral("well-1")}, {});
+      const auto wells = spy[0][1].value<QVector<wellsection::Well>>();
+      QVERIFY(wells[0].litho.isEmpty());
+      bool readWarned = false;
+      for (const QString &w : spy[0][2].toStringList())
+        readWarned = readWarned || (w.contains(QStringLiteral("岩屑录井文件读取失败")) &&
+                                    w.contains(QStringLiteral("cuttings.csv")));
+      QVERIFY2(readWarned, "读失败要如实告警并点名文件（回落不是静默伪装）");
+    }
+
+    // 按井兜底（M1 修复面）：井有解释资产链接、但资产内无该井段（只有其它
+    // 井的段）→ cuttings 兜底生效；资产可读且对他人有段 → 不新增告警。
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      DataCatalog cat;
+      QString err;
+      QVERIFY2(cat.open(dir.path(), &err), qPrintable(err));
+      QVERIFY2(buildCatalog(cat, QDir(dir.path()), &err), qPrintable(err));
+      const QString csvPath = dir.filePath(QStringLiteral("cuttings.csv"));
+      QVERIFY(writeText(csvPath, csvText));
+      QVERIFY2(seedCuttings(cat, QStringLiteral("well-1"),
+                            QStringLiteral("cut-1"), csvPath, &err),
+               qPrintable(err));
+      const QString jsonPath = dir.filePath(QStringLiteral("well-litho.json"));
+      QVERIFY(writeText(jsonPath, QStringLiteral(
+                                      "{\"schema\":1,\"intervals\":["
+                                      "{\"wellId\":\"well-9\",\"top\":10,"
+                                      "\"base\":20,\"litho\":\"解释泥岩\"}]}")));
+      QVERIFY2(addFileLink(cat, QStringLiteral("well-1"),
+                           QStringLiteral("interpretation"),
+                           QStringLiteral("li-1"), jsonPath,
+                           QStringLiteral("well_litho_intervals"), &err),
+               qPrintable(err));
+
+      WellSectionWorkflow wf(&cat);
+      QSignalSpy spy(&wf, &WellSectionWorkflow::sectionReady);
+      wf.request({QStringLiteral("well-1")}, {});
+      QCOMPARE(spy.size(), 1);
+      const auto wells = spy[0][1].value<QVector<wellsection::Well>>();
+      QCOMPARE(wells.size(), 1);
+      QCOMPARE(wells[0].litho.size(), 2);
+      QCOMPARE(wells[0].litho[0].litho, QStringLiteral("细砂岩"));
+      for (const auto &seg : wells[0].litho) {
+        QCOMPARE(seg.source, wellsection::LithoSource::Interpreted);
+        QCOMPARE(seg.provenance, QStringLiteral("岩屑录井"));
+      }
+      for (const QString &w : spy[0][2].toStringList())
+        QVERIFY2(!w.contains(QStringLiteral("解释岩性资产")) &&
+                     !w.contains(QStringLiteral("岩屑")),
+                 "无该井段的按井兜底不应新增告警");
+    }
+  }
+
   // 解释岩性段：catalog 资产 well_litho_intervals 按井 interpretation 链接
   // 消费（升序、按 wellId 匹配；空词面/逆序段跳过；无链接井留空走 GR 回落）。
   void lithoSegmentsAttached() {

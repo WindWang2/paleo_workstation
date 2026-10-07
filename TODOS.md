@@ -68,6 +68,14 @@
   - wellfacies completed → publishLithoAsset 生产者接线无端到端测试：
     publishLithoAsset 直达缝已测，completed 信号缝（缓存写入 + 登记 +
     状态行原因追加全链）未钉。P3。
+  - 岩屑录井（cuttings）第二解释源已接入（2026-10-07：role=="cuttings"
+    链接按井兜底，段 provenance=「岩屑录井」，题注呈「解释·岩屑录井」）。
+    递延：CSV/TSV 解析无引号转义——岩性/描述词面含分隔符会列右移
+    （列数不足的行被行级校验跳过，但列数恰好够的错位行进库不报警）；
+    xlsx 路径走既有 readWorkbook 面，测试只覆盖 CSV+合成表。CC: S，P3。
+  - 同井多份 cuttings 链接取 currentVersion 版本号最新者：落选文件无
+    提示、段 provenance 统一「岩屑录井」不点名具体文件——多版本并存
+    排查时需到资产表自查来源。P3。
 - **Why:** 首版先打通按地层连井 + 井间地震 + 编图层位高亮；TVD 域、解释岩性数据源、模板随工程走都需要额外数据契约。
 - **Pros:** 不编造岩性/时深，缺时深的井间段如实标原因；**Cons:** 斜井连井有 MD 失真，岩性道分辨力有限。
 - **Context:** src/domain/wellsection.*、src/workflow/wellsectionworkflow.*、src/ui/wellsection/。

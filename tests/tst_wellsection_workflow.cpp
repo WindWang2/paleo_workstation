@@ -638,8 +638,9 @@ private slots:
     QVERIFY(wells[1].facies[0].baseMd > wells[1].facies[0].topMd);
   }
 
-  // TVD 域数据源：trajectory 角色井斜 → 各井 survey；无链接 = 直井（显式
-  // 语义，不告警）；坏表 → surveyError 如实 + 告警（不下拽邻居）。
+  // TVD 域数据源：trajectory 角色井斜 → 各井 survey；无链接 = 无测斜（不
+  // 告警：非数据损坏，TVD 域如实标注不可用）；坏表 → surveyError 如实 +
+  // 告警（不下拽邻居）。
   void trajectoryAttached() {
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
@@ -681,7 +682,8 @@ private slots:
     QVERIFY(wells[0].surveyError.isEmpty());
     QVERIFY(wells[0].tvdOf(1500.0) < 1500.0);
     QVERIFY(wells[0].tvdDisplayable());
-    // well-2：无链接 = 直井——TVD≡MD、无告警（显式语义，非数据缺失）。
+    // well-2：无链接 = 无测斜——TVD≡MD、无告警（非数据损坏；TVD 域如实
+    // 标注不可用）。
     QVERIFY(!wells[1].survey.has_value());
     QVERIFY(wells[1].surveyError.isEmpty());
     QCOMPARE(wells[1].tvdOf(1500.0), 1500.0);
@@ -695,13 +697,14 @@ private slots:
       warned = warned || (w.contains(QStringLiteral("A3")) &&
                           w.contains(wells[2].surveyError));
     QVERIFY2(warned, "坏表井应在告警中如实点名");
-    // well-2（直井）不应出现在任何井斜告警里。注意只圈井斜告警：
+    // well-2（无测斜）不应出现在任何井斜告警里——不告警是对的（非数据
+    // 损坏，TVD 域如实标注即可）。注意只圈井斜告警：
     // 分层读面诊断（f7fe2311 起）按井名挂，共享 tops 文件的文件级
     // 拒收行会如实落在 A2 名下，与本断言无关。
     for (const QString &w : warnings)
       QVERIFY2(!w.contains(QStringLiteral("井斜轨迹")) ||
                    !w.contains(QStringLiteral("A2")),
-               "无链接直井是显式语义，不应告警");
+               "无测斜井（A2）不应出现在任何井斜告警里");
 
     // 同一坏文件挂多口井：每口都必须如实标注（error 出参按调用写明，
     // 不靠 lastError 残留对比——轮 1 修复的回归面）。

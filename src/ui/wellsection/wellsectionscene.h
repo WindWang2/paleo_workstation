@@ -26,6 +26,14 @@ QString tvdBadgeText(const wellsection::Well &w,
 QString depthTrackCaption(const wellsection::TrackSpec &tr,
                           wellsection::DepthDomain domain,
                           const wellsection::Datum &datum);
+// hover 井柱读数文案（方向 69 R2 收口：单源供 View 的 hoverChanged 与
+// 面板测试钩子共用）：井名 + MD 读数 + TVD 域口径（正常井出 TVD 数值；
+// 无测斜注明「按井深绘制」——恒等值冒充垂深会与角标抵触；坏表井域反解
+// 不出 md（NaN）→ 如实说明无读数）+ 层段名。
+QString hoverReadoutText(const wellsection::Well &w,
+                         wellsection::DepthDomain domain, double md,
+                         const QString &zoneName);
+
 // 岩性道题注文本（方向 69 来源标注）：解释段带资产来源（如
 // 「解释·welllogfacies 测试微相 v1」；无 provenance 回落「解释」）；
 // 无解释资产 → 「推断·<曲线> 截断」（GR 二分回落，如实不混充解释）。

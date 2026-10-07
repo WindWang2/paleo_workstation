@@ -33,7 +33,8 @@ double Well::tvdOf(double md) const {
   if (!surveyError.isEmpty())
     return qQNaN();
   if (!survey)
-    return md; // 无井斜链接 = 直井（catalog 显式语义，TVD≡MD）
+    return md; // 无链接 = 无测斜（NoSurvey）：几何恒等按 MD 绘制，TVD 域
+               // 如实标注不可用（见 .h TvdStatus 三态注释）。
   return survey->tvdAt(md);
 }
 

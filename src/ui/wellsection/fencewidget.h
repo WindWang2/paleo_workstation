@@ -53,9 +53,10 @@ class WellSectionFenceWidget : public QWidget
     void setSections(const QVector<QStringList> &sections);
     // 换工程重绑存储（壳层调用；落库目标跟随新 project.sqlite）。
     void setStore(metadata::WellSectionStore *store);
-    // 工程级剖面状态 + 视图同步（方向 69：域/间距随工程落库 round-trip；
-    // 三处一致性）：应用到全部剖面面板（程序化 setter，不回发信号——防
-    // 环路）。
+    // 工程级剖面状态 + 视图同步（方向 69：深度域随工程落库 round-trip，
+    // 间距为应用级视图偏好（QSettings）不落库——「域/间距同落库」表述不
+    // 实，以此为准；三处一致性）：应用到全部剖面面板（程序化 setter，不
+    // 回发信号——防环路）。
     void setDepthDomain(wellsection::DepthDomain domain);
     void setSpacingMode(wellsection::SpacingMode mode);
 

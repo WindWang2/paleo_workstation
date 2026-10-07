@@ -254,8 +254,9 @@ int WellSectionWorkflow::request(const QStringList &wellIds,
       if (model.setCheckshots(points))
         well.timeDepth = wellsection::TimeDepth{model, 0.0, tr("时深表")};
     }
-    // 井斜轨迹（TVD 域换算源）：无链接 = 直井（显式语义，不告警）；资产在
-    // 但不可解析 → surveyError 如实记 + 告警（TVD 域该井标不可用）。
+    // 井斜轨迹（TVD 域换算源）：无链接 = 无测斜——几何恒等按 MD 绘制，
+    // TVD 域如实标注不可用；不告警（非数据损坏）。资产在但不可解析 →
+    // surveyError 如实记 + 告警（TVD 域该井不出几何）。
     // error 出参按本次调用写明（多井同坏文件也不漏记）。
     QString trajErr;
     const auto trajectory = m_data.trajectoryFor(pw->id, &trajErr);

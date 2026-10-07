@@ -105,6 +105,10 @@ class WellSectionPanel : public QWidget
     QString depthCaption() const;
     // TVD 域名行角标文本（无测斜/坏表如实标注；MD 域/正常井 → 空串）。
     QString headerBadgeText(const QString &wellId) const;
+    // hover 井柱读数文案（TVD 域三态如实口径：数值/无测斜注明按井深绘
+    // 制/坏表无读数）——字符串断言通道，与 View 的 hoverChanged 同一单源。
+    QString hoverReadoutTextFor(const QString &wellId, double md,
+                                const QString &zoneName = QString()) const;
     // 岩性道题注文本（方向 69 来源标注：解释段带资产来源 / 无资产回落
     // 「推断·<曲线> 截断」）——字符串断言通道，与版头绘制同一口径。
     QString lithoTrackCaption(const QString &wellId) const;

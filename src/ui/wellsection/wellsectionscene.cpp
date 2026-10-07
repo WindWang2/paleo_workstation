@@ -69,6 +69,35 @@ QString depthTrackCaption(const wellsection::TrackSpec &tr,
   return title;
 }
 
+QString hoverReadoutText(const wellsection::Well &w,
+                         wellsection::DepthDomain domain, double md,
+                         const QString &zoneName)
+{
+  QString text;
+  if (!std::isfinite(md))
+    // 坏表井 TVD 域：读数换算不出——如实说明，不出「nan」。
+    text = w.name + QObject::tr(" · 井斜不可用，TVD 域无深度读数");
+  else
+  {
+    text = w.name + QStringLiteral(" · MD ") +
+           QString::number(md, 'f', 1) + QStringLiteral(" m");
+    if (domain == wellsection::DepthDomain::TVD)
+    {
+      // 无测斜井 TVD 读数是恒等值（= 按井深绘制），出数值会与角标
+      // 「TVD 不可用（无测斜）」抵触——如实注明口径（坏表井走上方
+      // 无读数分支，措辞同款）。
+      if (w.tvdStatus() == wellsection::TvdStatus::NoSurvey)
+        text += QObject::tr(" · TVD 不可用（无测斜，按井深绘制）");
+      else
+        text += QStringLiteral(" · TVD ") +
+                QString::number(w.tvdOf(md), 'f', 1) + QStringLiteral(" m");
+    }
+  }
+  if (!zoneName.isEmpty())
+    text += QObject::tr(" · 层段 %1").arg(zoneName);
+  return text;
+}
+
 QString lithoTrackCaptionText(const wellsection::Well &w,
                               const QString &sourceMnemonic)
 {
@@ -1607,31 +1636,7 @@ void View::mouseMoveEvent(QMouseEvent *e)
         }
     }
   }
-  QString text;
-  if (!std::isfinite(md))
-  {
-    // 坏表井 TVD 域：读数换算不出——如实说明，不出「nan」。
-    text = w.name +
-           tr(" · 井斜不可用，TVD 域无深度读数");
-  }
-  else
-  {
-    text = w.name + QStringLiteral(" · MD ") +
-           QString::number(md, 'f', 1) + QStringLiteral(" m");
-    if (m_st->domain == wellsection::DepthDomain::TVD)
-    {
-      // 无测斜井 TVD 读数是恒等值（= 按井深绘制），出数值会与角标
-      // 「TVD 不可用（无测斜）」抵触——如实注明口径（坏表井走上方
-      // 无读数分支，措辞同款）。
-      if (w.tvdStatus() == wellsection::TvdStatus::NoSurvey)
-        text += tr(" · TVD 不可用（无测斜，按井深绘制）");
-      else
-        text += QStringLiteral(" · TVD ") +
-                QString::number(w.tvdOf(md), 'f', 1) + QStringLiteral(" m");
-    }
-  }
-  if (!zoneName.isEmpty())
-    text += tr(" · 层段 %1").arg(zoneName);
+  const QString text = hoverReadoutText(w, m_st->domain, md, zoneName);
   // 先派 base（连线 hoverLeave 清空提示）再上报——否则从连线移入井柱的
   // 一拍里旧提示会覆盖井读数。
   QGraphicsView::mouseMoveEvent(e);

@@ -877,6 +877,16 @@ QString WellSectionPanel::headerBadgeText(const QString &wellId) const
   return QString();
 }
 
+QString WellSectionPanel::hoverReadoutTextFor(const QString &wellId,
+                                               double md,
+                                               const QString &zoneName) const
+{
+  for (const wellsection::Well &w : m_st.wells)
+    if (w.id == wellId)
+      return wellsectionui::hoverReadoutText(w, m_domain, md, zoneName);
+  return QString();
+}
+
 QString WellSectionPanel::lithoTrackCaption(const QString &wellId) const
 {
   QString sourceMnemonic;
@@ -1027,9 +1037,9 @@ void WellSectionPanel::updateStatus()
   }
   else
   {
-    // 井集非空（含单井）：单井给连接提示；TVD 域名录、基准面、井距、
-    // 高亮各附注随井集走——单井 TVD 域同样如实点名无测斜/坏表井
-    // （R1-3 L5：名录不再圈在 ≥2 井分支内）。
+    // 井集非空（含单井）：单井给连接提示；井距/高亮附注有 ≥2 井守卫，
+    // 基准面/TVD 名录随井集走（含单井——单井 TVD 域同样如实点名无测斜/
+    // 坏表井，R1-3 L5：名录不再圈在 ≥2 井分支内）。
     QString s = m_wells.size() == 1
                     ? tr("再选一口井即可连井")
                     : tr("%1 口井").arg(m_wells.size());

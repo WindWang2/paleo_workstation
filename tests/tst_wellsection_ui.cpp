@@ -658,6 +658,45 @@ class TestWellSectionUi : public QObject
       QVERIFY(!panel.statusText().contains(QStringLiteral("井斜表损坏")));
     }
 
+    // ---- 方向 69 R2 收口：hover 三态文案如实（单源自由函数断言）----
+    void tvdHoverReadoutHonesty()
+    {
+      SelectionContext ctx;
+      WellSectionPanel panel(&ctx);
+      auto wells = wells4();
+      QString err;
+      const auto survey = paleo::WellDeviationSurvey::fromStations(
+          {{0, 0, 0}, {1000, 30, 0}, {2000, 30, 0}}, &err);
+      QVERIFY2(survey.has_value(), qPrintable(err));
+      wells[0].survey = survey; // C-2 Surveyed
+      wells[2].surveyError = QStringLiteral("测斜站表无效：重复 MD"); // C-1
+      panel.setSection(wells);  // A5/C-4 无链接 = 无测斜
+
+      // MD 域：不出 TVD 口径词，层段名照常附。
+      QCOMPARE(panel.hoverReadoutTextFor(QStringLiteral("A5"), 1500.0),
+               QStringLiteral("A5 · MD 1500.0 m"));
+      QCOMPARE(panel.hoverReadoutTextFor(QStringLiteral("A5"), 1500.0,
+                                         QStringLiteral("D61")),
+               QStringLiteral("A5 · MD 1500.0 m · 层段 D61"));
+
+      panel.setDepthDomain(wellsection::DepthDomain::TVD);
+      // Surveyed：如实出 TVD 数值（与源站表换算一致）。
+      QCOMPARE(panel.hoverReadoutTextFor(QStringLiteral("C-2"), 1500.0),
+               QStringLiteral("C-2 · MD 1500.0 m · TVD %1 m")
+                   .arg(QString::number(survey->tvdAt(1500.0), 'f', 1)));
+      // NoSurvey：不出恒等值冒充垂深，如实注明按井深绘制。
+      QCOMPARE(panel.hoverReadoutTextFor(QStringLiteral("A5"), 1500.0),
+               QStringLiteral("A5 · MD 1500.0 m · "
+                              "TVD 不可用（无测斜，按井深绘制）"));
+      // BrokenSurvey：域反解不出读数——如实说明，不出「nan」。
+      QCOMPARE(panel.hoverReadoutTextFor(QStringLiteral("C-1"), qQNaN()),
+               QStringLiteral("C-1 · 井斜不可用，TVD 域无深度读数"));
+
+      panel.setDepthDomain(wellsection::DepthDomain::MD);
+      QCOMPARE(panel.hoverReadoutTextFor(QStringLiteral("A5"), 1500.0),
+               QStringLiteral("A5 · MD 1500.0 m"));
+    }
+
     // ---- 方向 69：域切换保持剖面状态（井序/拉平基准/选中 + 世代重发）----
     void tvdSwitchPreservesSectionState()
     {

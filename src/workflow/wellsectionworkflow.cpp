@@ -3,6 +3,7 @@
 #include "algorithms/faultsurface/faultsurface.h"
 #include "catalog/datacatalog.h"
 #include "domain/faultset.h"
+#include "io/cuttingsdoc.h"
 #include "io/lasalias.h"
 #include "io/lascache.h"
 #include "io/lasdoc.h"
@@ -458,6 +459,10 @@ void WellSectionWorkflow::attachFaciesSegments(
 // 资产取 currentVersion 版本号最新者 → resolvedVersionPath → 解析 schema 1
 // JSON → Interpreted 段（provenance 带上资产来源标注）。版本解析结果按
 // version id 缓存：共享资产的多口井不重复读盘/重复告警。
+// 第二解释源（69 扩展）：解释资产无该井段命中 → role=="cuttings" 链接
+// （岩屑录井表，readCuttingsFile）→ Interpreted 段（provenance=「岩屑录井」）。
+// 优先级（按井）：有该井段的 well_litho_intervals 解释资产 > cuttings >
+// 无（GR 回落）。
 class CatalogWellLithologyProvider
     : public wellsection::WellLithologyProvider {
 public:
@@ -486,9 +491,18 @@ public:
         bestAssetId = link.assetId;
       }
     }
-    if (bestAssetId.isEmpty())
-      return {}; // 无链接井静默留空（GR 回落是正常态，不告警）
-    return parse(best).byWell.value(wellId);
+    // 第二解释源（方向 69 扩展）按井兜底：解释资产未链接、读失败（parse
+    // 已告警）或不含该井段 → role=="cuttings" 链接（岩屑录井，一井一份）→
+    // 无 → 静默留空（GR 回落是正常态，不告警）。cuttings 多份取
+    // currentVersion 版本号最新者，与解释资产同确定性口径。
+    if (!bestAssetId.isEmpty()) {
+      const QVector<wellsection::LithoSegment> segs =
+          parse(best).byWell.value(wellId);
+      if (!segs.isEmpty())
+        return segs;
+      // 资产读失败（已告警）或无该井段：落 cuttings 兜底（不重复告警）。
+    }
+    return cuttingsLithologyFor(wellId);
   }
 
   QString sourceLabel() const override { return QStringLiteral("catalog"); }
@@ -567,15 +581,83 @@ private:
   QString m_projectDir;
   QStringList *m_warnings;
   mutable QHash<QString, Parsed> m_parsed;
+
+  // ---- 第二解释源：岩屑录井（cuttings）文件（一井一份，readCuttingsFile） ----
+
+  QVector<wellsection::LithoSegment>
+  cuttingsLithologyFor(const QString &wellId) const {
+    QString bestAssetId;
+    CatalogVersion best;
+    for (const EntityAssetLink &link : m_catalog->linksForEntity(wellId)) {
+      if (link.role != QLatin1String("cuttings"))
+        continue;
+      const CatalogVersion v = m_catalog->currentVersion(link.assetId);
+      if (v.id.isEmpty())
+        continue;
+      if (bestAssetId.isEmpty() || v.versionNumber > best.versionNumber) {
+        best = v;
+        bestAssetId = link.assetId;
+      }
+    }
+    if (bestAssetId.isEmpty())
+      return {}; // 无 cuttings 链接井静默留空（GR 回落是正常态，不告警）
+    return parseCuttings(best);
+  }
+
+  // 解析结果按 version id 缓存（与解释资产 m_parsed 同款）：共享文件的多
+  // 次渲染不重复读盘/重复告警。诚实面与解释资产同款：文件读不了/解析不出
+  // 有效段 → 告警带 fileName 后返回空；跳过行进一条汇总告警（计数+fileName）。
+  QVector<wellsection::LithoSegment>
+  parseCuttings(const CatalogVersion &v) const {
+    const auto it = m_cuttingsParsed.constFind(v.id);
+    if (it != m_cuttingsParsed.constEnd())
+      return it.value();
+    const auto warn = [this](const QString &msg) {
+      if (m_warnings)
+        *m_warnings << msg;
+    };
+    QVector<wellsection::LithoSegment> segments;
+    const paleo::io::CuttingsTable table =
+        paleo::io::readCuttingsFile(DataCatalog::resolvedVersionPath(m_projectDir, v));
+    if (!table.ok) {
+      warn(WellSectionWorkflow::tr("岩屑录井文件读取失败：%1（%2）")
+               .arg(v.fileName, table.error));
+      m_cuttingsParsed.insert(v.id, segments);
+      return segments;
+    }
+    if (table.intervals.isEmpty())
+      warn(WellSectionWorkflow::tr("岩屑录井文件无有效岩屑段：%1").arg(v.fileName));
+    if (!table.issues.isEmpty())
+      warn(WellSectionWorkflow::tr("岩屑录井文件有 %1 条数据问题已跳过：%2")
+               .arg(table.issues.size())
+               .arg(v.fileName));
+    for (const paleo::io::CuttingsInterval &interval : table.intervals) {
+      wellsection::LithoSegment seg;
+      seg.topMd = interval.topMd;
+      seg.baseMd = interval.baseMd;
+      seg.litho = interval.litho;
+      seg.source = wellsection::LithoSource::Interpreted;
+      seg.provenance = WellSectionWorkflow::tr("岩屑录井");
+      segments.push_back(seg);
+    }
+    m_cuttingsParsed.insert(v.id, segments);
+    return segments;
+  }
+
+  mutable QHash<QString, QVector<wellsection::LithoSegment>> m_cuttingsParsed;
 };
 
-// 解释岩性段（catalog 资产 well_litho_intervals，方向 69 按井链接消费：
-// 废弃全工程最新版粗口径——A 井的解释资产不漏给 B 井）挂到各井 litho；
-// 无链接井静默留空（GR 回落是正常态）。资产在但读不了/解析不出有效段 →
-// 如实告警（回落不是静默伪装解释缺失）；schema 未知 → 拒读。
+// 解释岩性段（方向 69 按井链接消费：有该井段的解释资产
+// well_litho_intervals 优先，无该井段回落 role=="cuttings" 的岩屑录井
+// 文件；再空走 GR 回落）挂到各井
+// litho；两源皆无链接的井静默留空（GR 回落是正常态）。资产在但读不了/
+// 解析不出有效段 → 如实告警（回落不是静默伪装解释缺失）；schema 未知 →
+// 拒读。cuttings 段 source=Interpreted、provenance=「岩屑录井」，题注自然
+// 呈「解释·岩屑录井」——不新增 LithoSource 枚举。
 // 资产契约：{"schema":1,"provenance":{...},"intervals":[{"wellId","top",
 // "base","litho"}]}，深度 MD 米；生产者 = wellfaciesworkflow（welllogfacies
-// 预测结果落 DERIVED）。
+// 预测结果落 DERIVED）。岩屑表契约：顶深/底深/岩性必需列 + 描述可选列
+// （方言表头见 cuttingsdoc.h），一井一份。
 void WellSectionWorkflow::attachLithoSegments(
     QVector<wellsection::Well> &wells, QStringList *warnings) const {
   if (!m_catalog || wells.isEmpty())

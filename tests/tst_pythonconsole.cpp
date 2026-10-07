@@ -32,6 +32,18 @@ struct ConsoleFixture {
   PythonConsolePanel panel{&controller};
   PythonReplPanel replPanel{&controller};
 };
+
+// 作用域环境变量值守：析构恢复原值，中途 QVERIFY 失败不污染同进程后续用例。
+struct EnvGuard {
+  EnvGuard(const char *name, const QByteArray &value)
+      : m_name(name), m_saved(qgetenv(name))
+  {
+    qputenv(name, value);
+  }
+  ~EnvGuard() { qputenv(m_name, m_saved); }
+  const char *m_name;
+  QByteArray m_saved;
+};
 } // namespace
 
 class TestPythonConsole : public QObject
@@ -227,25 +239,20 @@ void TestPythonConsole::unknownResultDisablesImport()
 
 void TestPythonConsole::interpreterMissingShowsGuidance()
 {
-  // 掐掉 PATH + PALEO_PYTHON 模拟无解释器环境（findBasePython 发现序全空）。
-  const QByteArray savedPath = qgetenv("PATH");
-  const QByteArray savedPaleo = qgetenv("PALEO_PYTHON");
-  qputenv("PATH", "/nonexistent-paleo-dir");
-  qputenv("PALEO_PYTHON", "/nonexistent-paleo-python");
-  {
-    ConsoleFixture f;
-    QVERIFY(f.controller.interpreter().isEmpty());
-    auto *run = f.panel.findChild<QPushButton *>(QStringLiteral("pythonRun"));
-    auto *label =
-        f.panel.findChild<QLabel *>(QStringLiteral("pythonInterpreterLabel"));
-    auto *replStart =
-        f.replPanel.findChild<QPushButton *>(QStringLiteral("pythonReplStart"));
-    QVERIFY(!run->isEnabled()); // 禁用态而非空按钮
-    QVERIFY(label->text().contains(QStringLiteral("PALEO_PYTHON")));
-    QVERIFY(!replStart->isEnabled());
-  }
-  qputenv("PATH", savedPath);
-  qputenv("PALEO_PYTHON", savedPaleo);
+  // 掐掉 PATH + PALEO_PYTHON 模拟无解释器环境（findBasePython 发现序全空；
+  // EnvGuard 析构恢复，中途失败不污染后续用例）。
+  EnvGuard guardPath("PATH", "/nonexistent-paleo-dir");
+  EnvGuard guardPaleo("PALEO_PYTHON", "/nonexistent-paleo-python");
+  ConsoleFixture f;
+  QVERIFY(f.controller.interpreter().isEmpty());
+  auto *run = f.panel.findChild<QPushButton *>(QStringLiteral("pythonRun"));
+  auto *label =
+      f.panel.findChild<QLabel *>(QStringLiteral("pythonInterpreterLabel"));
+  auto *replStart =
+      f.replPanel.findChild<QPushButton *>(QStringLiteral("pythonReplStart"));
+  QVERIFY(!run->isEnabled()); // 禁用态而非空按钮
+  QVERIFY(label->text().contains(QStringLiteral("PALEO_PYTHON")));
+  QVERIFY(!replStart->isEnabled());
 }
 
 void TestPythonConsole::replRoundTripThroughPanel()

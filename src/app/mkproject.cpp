@@ -1,8 +1,12 @@
 // 层：组装根
 // paleo_mkproject — 无头建 demo 工程工具（鄂尔多斯竞赛数据）。
 //
-// 用法：
-//   paleo_mkproject --out <工程目录> --data <paleo_data 根> [--name 名字]
+// 用法（就地工程模式，默认工程束直接生成在数据根里——PROJECT_FILE_DESIGN
+// 的「从工区文件夹新建」契约：<目录名>.qgz + project.paleo 落在数据夹内，
+// GUI「打开工程/从工区文件夹新建」指到该目录即识别）：
+//   paleo_mkproject --data <paleo_data 根>                 # 就地：<根>/<目录名>.qgz
+//   paleo_mkproject --out <目录> --data <paleo_data 根>    # 另建工程目录
+//   [--name 名字]（缺省 = 工程目录名）
 //
 // 全程走生产代码路径（产物与 GUI「新建工程 + 导入」等价）：
 //   1. QgisProjectService::createProject（.qgz + project.paleo 双件）；
@@ -254,30 +258,38 @@ int main(int argc, char *argv[])
 
   QCommandLineParser parser;
   parser.setApplicationDescription(
-      QStringLiteral("paleo_workstation demo 工程无头构建（鄂尔多斯竞赛数据）"));
+      QStringLiteral("paleo_workstation demo 工程无头构建（鄂尔多斯竞赛数据；"
+                     "缺省就地模式：工程束生成在数据根里）"));
   parser.addOptions({
-      {{"o", "out"}, QStringLiteral("工程输出目录（不存在则创建）"), "dir"},
+      {{"o", "out"},
+       QStringLiteral("工程输出目录（缺省=数据根——就地工程，project.paleo "
+                      "直接落在数据夹内）"),
+       "dir"},
       {{"d", "data"}, QStringLiteral("paleo_data 数据根目录"), "dir"},
-      {{"n", "name"}, QStringLiteral("工程名（默认 ordos_demo）"), "name"},
+      {{"n", "name"}, QStringLiteral("工程名（缺省=工程目录名）"), "name"},
   });
   parser.process(app);
-  const QString outDir = parser.value("out");
   const QString dataRoot = parser.value("data");
-  const QString name = parser.value("name");
-  if (outDir.isEmpty() || dataRoot.isEmpty())
+  if (dataRoot.isEmpty())
   {
-    std::printf("用法: paleo_mkproject --out <目录> --data <paleo_data 根> "
+    std::printf("用法: paleo_mkproject --data <paleo_data 根> [--out 目录] "
                 "[--name 名字]\n");
     return 2;
   }
+  // 就地工程：缺省 --out = 数据根（PROJECT_FILE_DESIGN「从工区文件夹新建」
+  // 契约——<目录名>.qgz + project.paleo 落在数据夹内，GUI 指到目录即识别）。
+  const QString outDir =
+      parser.isSet("out") ? parser.value("out") : dataRoot;
+  const QString name = parser.isSet("name")
+                           ? parser.value("name")
+                           : QFileInfo(outDir).fileName();
   const QDir data(dataRoot);
   if (!data.exists())
   {
     std::printf("数据根不存在: %s\n", qPrintable(dataRoot));
     return 2;
   }
-  const QString projectName =
-      name.isEmpty() ? QStringLiteral("ordos_demo") : name;
+  const QString projectName = name;
   if (QFile::exists(QDir(outDir).filePath(
           QString::fromLatin1(PaleoProjectFile::kFileName))))
   {

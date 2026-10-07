@@ -43,6 +43,14 @@ PythonReplPanel::PythonReplPanel(PythonConsoleController *controller,
   header->addWidget(m_stopButton);
   layout->addLayout(header);
 
+  // 安全口径与脚本控制台同墙上：REPL 同样以当前用户权限执行任意代码。
+  auto *security = new QLabel(
+      tr("会话以当前用户权限执行输入的代码、无沙箱——只输入可信语句"), this);
+  security->setObjectName(QStringLiteral("pythonReplSecurityHint"));
+  security->setStyleSheet(PaleoTheme::mutedCaptionStyleSheet());
+  security->setWordWrap(true);
+  layout->addWidget(security);
+
   m_output = new QPlainTextEdit(this);
   m_output->setObjectName(QStringLiteral("pythonReplOutput"));
   m_output->setReadOnly(true);

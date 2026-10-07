@@ -178,8 +178,9 @@ void TestEntityView::legacyLinkWithoutOrdinalReadsZero()
   QCOMPARE(links.front().ordinal, 0);
 }
 
-// 词表驱动：well 实体的视图展开全部 9 个内置角色槽——空角色也占位，
-// 词表序保持（well_head 打头、other 收尾）。
+// 词表驱动：well 实体的视图展开全部 11 个内置角色槽——空角色也占位，
+// 词表序保持（well_head 打头、other 收尾；136e39fc 井附件通道扩位
+// cuttings/lab_analysis 后 9→11）。
 void TestEntityView::slotsEnumerateRegistryRolesIncludingEmpty()
 {
   QTemporaryDir dir;
@@ -190,7 +191,7 @@ void TestEntityView::slotsEnumerateRegistryRolesIncludingEmpty()
 
   const EntityView view = entityDataView(cat, QStringLiteral("well-A1"));
   QCOMPARE(view.entity.id, QStringLiteral("well-A1"));
-  QCOMPARE(view.roleSlots.size(), 9);
+  QCOMPARE(view.roleSlots.size(), 11);
   QCOMPARE(view.roleSlots.first().def.role, QStringLiteral("well_head"));
   QCOMPARE(view.roleSlots.last().def.role, QStringLiteral("other"));
   for (const RoleSlot &s : view.roleSlots)

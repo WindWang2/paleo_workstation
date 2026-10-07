@@ -2348,7 +2348,7 @@ private slots:
       QVERIFY(QDir().mkpath(QFileInfo(p).absolutePath()));
       // 内容逐文件不同——同字节会被 SHA 去重成同一资产（§3 dedup），测不到
       // 每文件的挂井链接。
-      QVERIFY(writeFile(p, QByteArrayLiteral("\xff\xd8\xff\xe0fake") +
+      QVERIFY(writeFile(p, QByteArrayLiteral("\xff\xd8\xff\xe0" "fake") +
                                  QByteArray::number(seq++)));
     }
 

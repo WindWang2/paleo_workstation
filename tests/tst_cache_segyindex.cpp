@@ -410,7 +410,9 @@ bool makeDialectSegy(const QString &path, int inlCount, int xlCount, int samples
   return f.error() == QFileDevice::NoError;
 }
 
-// 断言 r 与 seq 的索引/几何完全一致（#290 口径一致性）。
+// 断言 r 与 seq 的索引/几何完全一致（#290 口径一致性）：道数、去重线号集合、
+// 几何范围 + 四角，以及逐道 (lineNo, xlineNo, cdp, tracl) 有序序列（索引
+// 身份的全序比对——offsets 无公开访问口，逐道序列 + 角点 + 计数等价覆盖）。
 bool sameIndexAs(const SegyReader &r, const SegyReader &seq, QString *why)
 {
   if (r.traceCount() != seq.traceCount() ||
@@ -437,6 +439,26 @@ bool sameIndexAs(const SegyReader &r, const SegyReader &seq, QString *why)
     if (a.cornerX[k] != b.cornerX[k] || a.cornerY[k] != b.cornerY[k])
     {
       if (why) *why = QStringLiteral("corner %1 mismatch").arg(k);
+      return false;
+    }
+  }
+  const QVector<SegyTrace> ta = r.traces(), tb = seq.traces();
+  if (ta.size() != tb.size())
+  {
+    if (why) *why = QStringLiteral("traces() size %1 vs %2").arg(ta.size()).arg(tb.size());
+    return false;
+  }
+  for (int i = 0; i < ta.size(); ++i)
+  {
+    if (ta[i].lineNo != tb[i].lineNo || ta[i].xlineNo != tb[i].xlineNo ||
+        ta[i].cdp != tb[i].cdp || ta[i].tracl != tb[i].tracl)
+    {
+      if (why)
+        *why = QStringLiteral("trace %1: (line %2, xline %3, cdp %4, tracl %5) vs "
+                              "(line %6, xline %7, cdp %8, tracl %9)")
+                   .arg(i)
+                   .arg(ta[i].lineNo).arg(ta[i].xlineNo).arg(ta[i].cdp).arg(ta[i].tracl)
+                   .arg(tb[i].lineNo).arg(tb[i].xlineNo).arg(tb[i].cdp).arg(tb[i].tracl);
       return false;
     }
   }

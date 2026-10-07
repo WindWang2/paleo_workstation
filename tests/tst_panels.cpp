@@ -1694,12 +1694,12 @@ class TestPanels : public QObject
       QVERIFY(header);
       QVERIFY(header->text().contains(QStringLiteral("A1")));
 
-      // 词表 9 槽仍全枚举。well_log 按文件拆行：主文件、未决、mid、old，
-      // 所以总行数是 12。井头打头，其他收尾。
-      QCOMPARE(roleTable->rowCount(), 12);
+      // 词表 11 槽仍全枚举（+岩屑录井/实验分析）。well_log 按文件拆行：
+      // 主文件、未决、mid、old，所以总行数是 14。井头打头，其他收尾。
+      QCOMPARE(roleTable->rowCount(), 14);
       QCOMPARE(roleTable->item(0, 0)->text(), QString::fromUtf8("井身/井位"));
       QCOMPARE(roleTable->item(1, 0)->text(), QString::fromUtf8("测井曲线"));
-      QCOMPARE(roleTable->item(11, 0)->text(), QString::fromUtf8("其他"));
+      QCOMPARE(roleTable->item(13, 0)->text(), QString::fromUtf8("其他"));
 
       // 井头槽：primary = 资产名 + 当前版本号（v3，非字面 v1）。
       const QString headPrimary = roleTable->item(0, 1)->text();

@@ -34,6 +34,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QDirIterator>
 #include <QFileInfo>
 #include <QTemporaryDir>
 #include <QTextStream>
@@ -360,6 +361,95 @@ int main(int argc, char *argv[])
                           QDir(lasDir).filePath(QStringLiteral("A%1_log.las").arg(i)));
   imported += importOne(importer, a3SeismicLas); // A3 第二份 LAS（多文件井）
   imported += importOne(importer, sgy);          // 外链 + 几何冻结
+
+  // 井数据全景（导入侧井附件通道：文件名/父目录识井 + 关键词角色 + 照片
+  // 深度锚）——岩心照片→core（图片井道）、岩屑录井→cuttings（岩性道）、
+  // 薄片/粒度→lab_analysis；参考井合成地震记录→井域 reference。
+  int corePhotos = 0, cuttingsFiles = 0, labFiles = 0;
+  {
+    const struct
+    {
+      const char *rel;
+      const char *what;
+    } dirs[] = {
+        {"2.沉积相分析-第9届/2.3岩心资料", "岩心照片"},
+        {"2.沉积相分析-第9届/2.6薄片岩矿鉴定", "薄片"},
+        {"2.沉积相分析-第9届/2.7粒度分析", "粒度"},
+    };
+    for (const auto &d : dirs)
+    {
+      const QString root = data.filePath(QString::fromUtf8(d.rel));
+      QDirIterator it(root, QDir::Files, QDirIterator::Subdirectories);
+      while (it.hasNext())
+      {
+        const QString p = it.next();
+        if (it.fileInfo().size() == 0)
+          continue; // 空占位件
+        if (importOne(importer, p))
+        {
+          ++imported;
+          if (p.contains(QString::fromUtf8("岩心")))
+            ++corePhotos;
+          else if (p.contains(QString::fromUtf8("粒度")) ||
+                   p.contains(QString::fromUtf8("薄片")))
+            ++labFiles;
+        }
+      }
+    }
+    const QString cutDir =
+        data.filePath(QStringLiteral("2.沉积相分析-第9届/2.4岩屑录井数据"));
+    QDirIterator cit(cutDir, QDir::Files);
+    while (cit.hasNext())
+    {
+      const QString p = cit.next();
+      if (cit.fileInfo().size() == 0)
+        continue;
+      if (importOne(importer, p))
+      {
+        ++imported;
+        ++cuttingsFiles;
+      }
+    }
+  }
+  // 参考井合成地震记录（A12 井域 reference）+ 工区参数文档/位置图（零匹配
+  // → 辅助参考）。
+  {
+    QDir synthDir(data.filePath(
+        QStringLiteral("1.地震资料构造解释-第9届/05.参考井合成地震记录")));
+    for (const QFileInfo &f : synthDir.entryInfoList(QDir::Files))
+      imported += importOne(importer, f.absoluteFilePath());
+    const QString loadDir = data.filePath(QStringLiteral(
+        "1.地震资料构造解释-第9届/01.三维数据、工区加载相关参数及位置图"));
+    for (const QFileInfo &f :
+         QDir(loadDir).entryInfoList({QStringLiteral("*.docx"), QStringLiteral("*.pptx")},
+                                     QDir::Files))
+      imported += importOne(importer, f.absoluteFilePath());
+    imported += importOne(importer, data.filePath(QStringLiteral(
+        "2.沉积相分析-第9届/2.1井位坐标/20260722-沉积相平面作图范围-ok.JPG")));
+  }
+  // 辅助参考测井（真实惠州工区综合柱状图，外委工作簿口径）：外链入库不复制
+  //（22×几十~几百 MB），零井匹配 → 辅助参考实体。
+  int auxRefs = 0;
+  {
+    QDir auxDir(data.filePath(QStringLiteral("辅助-参考测井excel")));
+    for (const QFileInfo &f : auxDir.entryInfoList({QStringLiteral("*.xml")}, QDir::Files))
+    {
+      DataImportService::ImportOptions opts;
+      opts.forceType = QStringLiteral("outsource_workbook");
+      opts.linkExternal = true;
+      QString err;
+      if (importer.importProjectFileEx(f.absoluteFilePath(), opts, &err).outcome !=
+          DataImportService::ImportOutcome::Failed)
+      {
+        ++imported;
+        ++auxRefs;
+      }
+      else
+        note(false, QStringLiteral("导入 %1: %2").arg(f.fileName(), err));
+    }
+  }
+  std::printf("  井数据全景: 岩心照片 %d、岩屑 %d、薄片/粒度 %d、辅助外链 %d\n",
+              corePhotos, cuttingsFiles, labFiles, auxRefs);
   imported += importOne(importer, wellCoordXlsx); // 原 xlsx 作 reference（溯源）
   imported += importOne(importer, stratXlsx);
   if (fails)
@@ -389,6 +479,40 @@ int main(int argc, char *argv[])
     }
   }
   note(true, QStringLiteral("georeference 节 + sourceArea 溯源写入"));
+
+  // 井名泄露兜底：A18 的 LAS ~W 井名是原始名（zhuang181），resolveWell 落
+  // 未决；文件名主名可前缀识井的未决 well_log 链接，按 GUI 拖拽同款
+  // attachLink 面挂回正确井——不猜（零/双匹配保持未决）。
+  {
+    DataCatalog *cat2 = importer.catalog();
+    const auto wellsAll = cat2->entities(QStringLiteral("well"));
+    for (int i = 0; i < cat2->links().size(); ++i)
+    {
+      const EntityAssetLink l = cat2->links().at(i);
+      if (l.role != QStringLiteral("well_log") || !l.unresolved)
+        continue;
+      const QVector<CatalogVersion> vers = cat2->versionsForAsset(l.assetId);
+      if (vers.isEmpty())
+        continue;
+      const QString stem = QFileInfo(vers.front().fileName).completeBaseName();
+      QStringList hit;
+      for (const CatalogEntity &w : wellsAll)
+        if (stem.startsWith(w.name, Qt::CaseInsensitive) &&
+            (stem.size() == w.name.size() ||
+             !stem.at(w.name.size()).isLetterOrNumber() ||
+             stem.at(w.name.size()).toLatin1() == '_'))
+          hit.append(w.id);
+      if (hit.size() == 1)
+      {
+        QString aerr;
+        if (!cat2->attachLink(i, hit.front(), &aerr))
+          note(false, QStringLiteral("挂回未决测井链接: %1").arg(aerr));
+        else
+          std::printf("  井名泄露兜底: %s → %s\n",
+                      qPrintable(vers.front().fileName), qPrintable(hit.front()));
+      }
+    }
+  }
 
   std::printf("== 5/5 重开自校验 ==\n");
   DataCatalog *cat = importer.catalog();
@@ -424,6 +548,33 @@ int main(int argc, char *argv[])
       ++geoOk;
   }
   note(dualLog == 1, QStringLiteral("A3 多文件测井（实际 %1 口 ≥2 份）").arg(dualLog));
+  // 井附件角色面：岩心（图片井道）/岩屑（岩性道）/实验分析/井域参考。
+  int coreLinks = 0, cutLinks = 0, labLinks = 0, wellRefs = 0, unresolvedLinks = 0;
+  for (const CatalogEntity &w : wells)
+    for (const EntityAssetLink &l : cat->linksForEntity(w.id))
+    {
+      if (l.unresolved)
+        ++unresolvedLinks;
+      if (l.role == QStringLiteral("core"))
+        ++coreLinks;
+      else if (l.role == QStringLiteral("cuttings"))
+        ++cutLinks;
+      else if (l.role == QStringLiteral("lab_analysis"))
+        ++labLinks;
+      else if (l.role == QStringLiteral("reference"))
+        ++wellRefs;
+    }
+  note(coreLinks == corePhotos,
+       QStringLiteral("岩心照片挂井 core %1/%2（图片井道，含 depthMd 锚）")
+           .arg(coreLinks)
+           .arg(corePhotos));
+  note(cutLinks == cuttingsFiles,
+       QStringLiteral("岩屑录井挂井 cuttings %1/%2（岩性道；源数据缺 A8/A13/A16/A17 四井）")
+           .arg(cutLinks)
+           .arg(cuttingsFiles));
+  note(labLinks == labFiles, QStringLiteral("薄片/粒度挂井 lab_analysis %1/%2").arg(labLinks).arg(labFiles));
+  note(unresolvedLinks == 0,
+       QStringLiteral("井附件未决链接 %1（应为 0）").arg(unresolvedLinks));
   note(dualTops == 20, QStringLiteral("每井双分层（实际 %1 口 ≥2 份）").arg(dualTops));
   note(headOk == 20, QStringLiteral("每井井口关联（实际 %1）").arg(headOk));
   note(geoOk == 20, QStringLiteral("配准应用（coordinateStatus=ok + 经纬度，实际 %1）").arg(geoOk));

@@ -2307,6 +2307,102 @@ private slots:
     QCOMPARE(row.classifiedType, QStringLiteral("tabular")); // 非法 → 分类器原类型
   }
 
+  // 井附件挂井（竞赛工区数据形态，importAuxReferenceFamily 的前置通道）：
+  // 岩心照片「<井名>,<深度>m.JPG」→ core + version extra depthMd（图片井道
+  // 深度锚）；岩屑目录 xlsx → cuttings（岩性道）；薄片子目录父名识井
+  //（A3薄片鉴定/A31868.62粒间孔.JPG）→ lab_analysis；无关键词井附件 →
+  // 井域 reference；零匹配 → 原辅助实体路径。
+  void wellAttachmentLinksCoreCuttingsLabAndReference()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+    DataCatalog *cat = svc.catalog();
+    QVERIFY(cat != nullptr && cat->isOpen());
+
+    QString err;
+    QVERIFY(!svc.importProjectFile(fixture(QStringLiteral("ExportWellHead.dat")),
+                                   &err)
+                 .isEmpty()); // 建井 A1..A20
+
+    const QString corePhoto = QDir(tmp.path()).filePath(
+        QString::fromUtf8("2.3岩心资料/A1岩心照片/A1,1849.35m.JPG"));
+    const QString cuttings = QDir(tmp.path()).filePath(
+        QString::fromUtf8("2.4岩屑录井数据/A1岩屑录井数据.xlsx"));
+    const QString thin = QDir(tmp.path()).filePath(
+        QString::fromUtf8("2.6薄片岩矿鉴定/A3薄片鉴定/A31868.62粒间孔.JPG"));
+    const QString seismo = QDir(tmp.path()).filePath(
+        QString::fromUtf8("05.参考井合成地震记录/A12井合成地震记录.jpg"));
+    // 回归陷阱：薄片目录下文件名含「岩屑」字样（白云岩屑——岩性描述词），
+    // 角色关键词只看目录段，不得误判成 cuttings。
+    const QString thinTextTrap = QDir(tmp.path()).filePath(
+        QString::fromUtf8("2.6薄片岩矿鉴定/A1薄片鉴定/A11905.95致密富含白云岩屑.JPG"));
+    const QString unrelated = QDir(tmp.path()).filePath(
+        QStringLiteral("参考资料/说明图.jpg"));
+    int seq = 0;
+    for (const QString &p : {corePhoto, cuttings, thin, thinTextTrap, seismo, unrelated})
+    {
+      QVERIFY(QDir().mkpath(QFileInfo(p).absolutePath()));
+      // 内容逐文件不同——同字节会被 SHA 去重成同一资产（§3 dedup），测不到
+      // 每文件的挂井链接。
+      QVERIFY(writeFile(p, QByteArrayLiteral("\xff\xd8\xff\xe0fake") +
+                                 QByteArray::number(seq++)));
+    }
+
+    for (const QString &p : {corePhoto, cuttings, thin, thinTextTrap, seismo, unrelated})
+    {
+      const QString id = svc.importProjectFile(p, &err);
+      QVERIFY2(!id.isEmpty(), qPrintable(p + ": " + err));
+    }
+
+    auto linksForRole = [cat](const QString &wellId, const QString &role) {
+      QVector<EntityAssetLink> out;
+      for (const EntityAssetLink &l : cat->linksForEntity(wellId))
+        if (l.role == role && !l.unresolved)
+          out.append(l);
+      return out;
+    };
+    const QStringList a1 = cat->wellsMatchingName(QStringLiteral("A1"));
+    const QStringList a3 = cat->wellsMatchingName(QStringLiteral("A3"));
+    const QStringList a12 = cat->wellsMatchingName(QStringLiteral("A12"));
+    QCOMPARE(a1.size(), 1);
+    QCOMPARE(a3.size(), 1);
+    QCOMPARE(a12.size(), 1);
+
+    // 岩心照片 → core；深度锚进 version extra。
+    const auto coreLinks = linksForRole(a1.front(), QStringLiteral("core"));
+    QCOMPARE(coreLinks.size(), 1);
+    const QVector<CatalogVersion> coreVersions =
+        cat->versionsForAsset(coreLinks.front().assetId);
+    QCOMPARE(coreVersions.size(), 1);
+    QCOMPARE(coreVersions.front().extra.value(QStringLiteral("depthMd")).toDouble(),
+             1849.35);
+    // 岩屑 xlsx → cuttings。
+    QCOMPARE(linksForRole(a1.front(), QStringLiteral("cuttings")).size(), 1);
+    // 薄片（父目录识井）→ lab_analysis；无「数字m」深度模式 → 无 depthMd。
+    const auto labLinks = linksForRole(a3.front(), QStringLiteral("lab_analysis"));
+    QCOMPARE(labLinks.size(), 1);
+    QVERIFY(!cat->versionsForAsset(labLinks.front().assetId)
+                 .front()
+                 .extra.contains(QStringLiteral("depthMd")));
+    // 陷阱件挂 A1 的 lab_analysis（不是 cuttings——文件名描述词不参与角色）。
+    QCOMPARE(linksForRole(a1.front(), QStringLiteral("lab_analysis")).size(), 1);
+    // 合成地震记录（无关键词井附件）→ 井域 reference。
+    QCOMPARE(linksForRole(a12.front(), QStringLiteral("reference")).size(), 1);
+
+    // 挂井的附件不再落辅助实体：辅助实体只剩零匹配的「说明图」。
+    int auxCount = 0;
+    for (const CatalogEntity &e : cat->entities(QStringLiteral("auxiliary")))
+    {
+      ++auxCount;
+      QCOMPARE(e.name, QStringLiteral("说明图"));
+    }
+    QCOMPARE(auxCount, 1);
+  }
+
   // 可选真数据：PALEO_REAL_PROJECT_AREA 跑一次 importFolder——井口先行后
   // A1 仍得四条主关联；无 Failed 行（与 tst_smoke_realdata 同一门禁变量）。
   void folderImportRealAreaSmoke()

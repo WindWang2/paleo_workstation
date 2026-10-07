@@ -38,6 +38,12 @@ namespace
     add(QStringLiteral("core"), QStringLiteral("well"), false,
         QStringLiteral("岩心"),
         QStringLiteral("岩心描述/图像数据。"));
+    add(QStringLiteral("cuttings"), QStringLiteral("well"), false,
+        QStringLiteral("岩屑录井"),
+        QStringLiteral("岩屑录井岩性分段（顶深/底深/定名/描述）；岩性道数据源。"));
+    add(QStringLiteral("lab_analysis"), QStringLiteral("well"), false,
+        QStringLiteral("实验分析"),
+        QStringLiteral("薄片鉴定/粒度分析等井样品实验资料。"));
     add(QStringLiteral("interpretation"), QStringLiteral("well"), false,
         QStringLiteral("井周解释"),
         QStringLiteral("井尺度解释成果（多方案并存）。"));

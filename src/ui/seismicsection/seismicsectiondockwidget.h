@@ -109,6 +109,9 @@ public:
     QString sessionFilePath() const;
     void setInterpretationCatalog(DataCatalog *catalog, const QString &assetId,
                                   const QString &versionId, const QString &outputDir);
+    // #236：工程边界复位——清解释会话/可登记属性结果/在途扫描与预览/书签
+    // 下拉（换工程后旧工程的一切解释态不得残留）。
+    void resetInterpretationState();
     // 画布拾取 → 解析测线号入会话（undo 可撤销）
     void addPickFromCanvas(int traceCol, double twtMs);
     void addPicks(const QList<SeismicPick> &picks);   // 批量（追踪结果）

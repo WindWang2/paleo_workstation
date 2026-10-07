@@ -144,6 +144,18 @@ void SeismicSectionDockWidget::computeTimeSliceAttribute(
                 return; // dock 已亡：丢弃
             if (!m_attrPanel)
                 return;
+            // #236：工程/体世代守卫——请求时快照的体路径与当前不符（工程
+            // 切换后旧在途扫描迟到）即丢弃：旧工程产物不得登记/上图到新
+            // 工程。面板如实收尾忙态，不冒充成功。
+            const QString currentPath =
+                m_volume ? QString::fromStdString(m_volume->Path().string())
+                         : QString();
+            if (currentPath != sourcePath)
+            {
+                m_attrPanel->showResult(
+                    false, tr("剖面/工程已切换，本次时间切片扫描结果丢弃"));
+                return;
+            }
             if (ok) {
                 const QString suffix =
                     r.cacheHit ? tr("（缓存命中）") : QString();
@@ -218,10 +230,24 @@ void SeismicSectionDockWidget::computeAttributeVolume(
         [this, guard, taskSvc = QPointer<SeismicTaskService>(m_taskService), kind,
          params, sourcePath, outputDir, catalog, assetId,
          versionId](bool ok, const SeismicTaskService::SeismicAttrVolumeResult &r) {
-            if (guard && !ok) {
+            if (!guard || !m_attrPanel)
+                return;
+            // #236：工程/体世代守卫——快照体路径与当前不符（中途关/换工程，
+            // 新工程回调照常走）即静默丢弃：旧工程属性体不得贴进已重置的
+            // 3D 视口、不得登记进新工程 catalog。放在 !ok 分支之前——取消
+            // （含工程边界取消）同样走此守卫，不弹误导性的 3D 失败提示。
+            const QString currentPath =
+                m_volume ? QString::fromStdString(m_volume->Path().string())
+                         : QString();
+            if (currentPath != sourcePath)
+            {
+                m_attrPanel->showResult(
+                    false, tr("剖面/工程已切换，本次属性体扫描结果丢弃"));
+                return;
+            }
+            if (!ok) {
                 emit attrVolumeReady({}, false, r.error);
-                if (m_attrPanel)
-                    m_attrPanel->showResult(false, r.error);
+                m_attrPanel->showResult(false, r.error);
                 return;
             }
             if (!guard || !m_attrPanel)

@@ -1911,6 +1911,14 @@ void PaleoMainWindow::resetProjectScopedState()
   else if (m_seismicSectionDock)
     m_seismicSectionDock->setVolume(nullptr);
 
+  // #236：剖面解释态跨工程残留清理——会话/可登记属性结果/在途 SATV+预览/
+  // 书签下拉清空（setVolume 只换体不清解释会话，链路在场时 dock 甚至收不到
+  // setVolume(nullptr)）；不确定性图签（集合均值 · N 成员口径签）同理——
+  // 只随集合面在画布期间存在，工程边界即关。
+  if (m_seismicSectionDock)
+    m_seismicSectionDock->resetInterpretationState();
+  if (m_decorMgr)
+    m_decorMgr->clearUncertaintyBadge();
   // #148：地图册在途一册取消（下一版边界停，不再碰旧工程图层），迟到结果
   // 作废；范围清空，新工程下次打开面板时按画布范围重新预填。
   if (m_mapBookCtl)

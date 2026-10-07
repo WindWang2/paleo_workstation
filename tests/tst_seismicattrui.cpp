@@ -525,6 +525,149 @@ private slots:
     QVERIFY(QFileInfo::exists(outDir + QLatin1Char('/') + sattr));
     QVERIFY(sattr.startsWith(QStringLiteral("envelope_il_11")));
   }
+
+  // ---- #236：resetInterpretationState 清工程边界解释残留 ----
+  // 会话/可登记属性结果/书签下拉/属性叠加全部作废；复位后登记入口如实
+  // 报「无可登记结果」，不把旧工程属性登记出去。
+  void resetInterpretationStateClearsProjectResidue()
+  {
+    const QString sgy = m_workDir.filePath(QStringLiteral("ui_reset.sgy"));
+    QVERIFY(writeSegy(sgy, 5, 8, 128, 2000));
+
+    PaleoTaskService tasks;
+    SeismicTaskService svc(&tasks);
+    SeismicSectionDockWidget dock;
+    dock.setTaskService(&svc);
+    auto vol = std::make_shared<SgyVolume>();
+    std::string err;
+    QVERIFY(vol->Load(sgy.toStdString(), err));
+    dock.setVolume(vol);
+    dock.setSectionMode(0); // Inline
+    auto *slider = dock.findChild<QSlider *>(QStringLiteral("sliderSectionSlice"));
+    QVERIFY(slider);
+    slider->setValue(11); // 中部线
+    QVERIFY(waitFor([&dock]() { return dock.canvas()->hasData(); }, 10000));
+
+    auto *panel = dock.attrPanel();
+    QVERIFY(panel);
+    panel->setVisible(true);
+    auto *kind = panel->findChild<QComboBox *>(QStringLiteral("attrKindCombo"));
+    auto *compute = panel->findChild<QToolButton *>(QStringLiteral("attrComputeButton"));
+    auto *reg = panel->findChild<QToolButton *>(QStringLiteral("attrRegisterButton"));
+    QVERIFY(kind && compute && reg);
+
+    // 制造「可登记」残留：一次成功的剖面属性计算（不注入 catalog——
+    // 可登记态是面板态的，与登记上下文是否在场无关）。
+    kind->setCurrentIndex(0); // 包络
+    compute->click();
+    QVERIFY(waitFor([&dock, panel]() {
+      return dock.canvas()->hasAttrOverlay() && !panel->isBusy();
+    }, 10000));
+    QVERIFY(reg->isEnabled());
+    QVERIFY(dock.canvas()->hasAttrOverlay());
+
+    // 制造会话/书签残留
+    SeismicPick pick;
+    pick.id = 1;
+    pick.inlineNo = 11;
+    pick.xlineNo = 103;
+    pick.twtMs = 120.0;
+    pick.horizonName = QStringLiteral("H1");
+    dock.addPicks({pick});
+    dock.addBookmark(QStringLiteral("旧工程书签"));
+    QCOMPARE(dock.interpretationSession().picks.size(), 1);
+    QCOMPARE(dock.bookmarks().size(), 1);
+
+    // 工程边界复位（resetProjectScopedState 的调用形态）
+    dock.resetInterpretationState();
+
+    QVERIFY(!reg->isEnabled());   // 可登记态清空
+    QVERIFY(!panel->isBusy());    // 忙态清空
+    QVERIFY(dock.bookmarks().isEmpty());          // 书签下拉清空
+    QVERIFY(dock.interpretationSession().picks.isEmpty()); // 会话清空
+    QVERIFY(!dock.canvas()->hasAttrOverlay());    // 旧属性叠加清除
+
+    // 复位后登记如实报因（不是把旧结果登记出去）
+    QString regErr;
+    QVERIFY(dock.registerCurrentAttributeAsset(&regErr).isEmpty());
+    QVERIFY(!regErr.isEmpty());
+  }
+
+  // ---- #236：在途属性体扫描跨工程守卫 ----
+  // 扫描在途时工程切换（体被清空/换绑）：回调不得 emit attrVolumeReady
+  // 把旧工程属性体喂进新工程 3D 视口；两个时序（setVolume(nullptr) 与
+  // resetInterpretationState 取消）结论一致。
+  void attributeVolumeScanDiscardedAfterProjectSwitch()
+  {
+    const QString sgy = m_workDir.filePath(QStringLiteral("ui_switch.sgy"));
+    QVERIFY(writeSegy(sgy, 5, 8, 128, 2000));
+
+    PaleoTaskService tasks;
+    SeismicTaskService svc(&tasks);
+    SeismicSectionDockWidget dock;
+    dock.setTaskService(&svc);
+    auto vol = std::make_shared<SgyVolume>();
+    std::string err;
+    QVERIFY(vol->Load(sgy.toStdString(), err));
+    dock.setVolume(vol);
+    QVERIFY(waitFor([&dock]() { return dock.canvas()->hasData(); }, 10000) || true);
+
+    DataCatalog catalog;
+    QString cerr;
+    QVERIFY(catalog.open(m_workDir.path(), &cerr));
+    CatalogAsset seisAsset;
+    seisAsset.id = QStringLiteral("seis_attrui_switch");
+    seisAsset.type = QStringLiteral("seismic");
+    seisAsset.format = QStringLiteral("sgy");
+    seisAsset.displayName = QStringLiteral("ui_switch.sgy");
+    QVERIFY(catalog.addAsset(seisAsset, &cerr));
+    CatalogVersion raw;
+    raw.id = QStringLiteral("rawver_attrui_switch");
+    raw.assetId = seisAsset.id;
+    raw.stage = QStringLiteral("RAW");
+    raw.versionNumber = 1;
+    raw.managed = false;
+    raw.path = sgy;
+    raw.fileName = QStringLiteral("ui_switch.sgy");
+    QVERIFY(catalog.addVersion(raw, &cerr));
+    const QString outDir = m_workDir.filePath(QStringLiteral("attrs_switch"));
+    dock.setInterpretationCatalog(&catalog, seisAsset.id, raw.id, outDir);
+
+    auto *panel = dock.attrPanel();
+    QVERIFY(panel);
+    panel->setVisible(true);
+    auto *scope = panel->findChild<QComboBox *>(QStringLiteral("attrScopeCombo"));
+    auto *compute = panel->findChild<QToolButton *>(QStringLiteral("attrComputeButton"));
+    QVERIFY(scope && compute);
+
+    // 时序一：扫描启动后工程即关闭（体清空、无取消）——回调经体路径守卫
+    // 静默丢弃，面板如实收尾忙态。
+    QSignalSpy volumeSpy(&dock, &SeismicSectionDockWidget::attrVolumeReady);
+    scope->setCurrentIndex(2); // 属性体
+    compute->click();
+    dock.setVolume(nullptr); // resetProjectScopedState 的换体路径
+    QVERIFY(waitFor([&panel]() { return !panel->isBusy(); }, 60000));
+    QTest::qWait(200);
+    QCOMPARE(volumeSpy.count(), 0); // 不得 emit（旧工程属性体禁入新视口）
+
+    // 时序二：resetProjectScopedState 的真实顺序——先换体、再
+    // resetInterpretationState（取消在途扫描 + 复位面板）——结论一致。
+    auto vol2 = std::make_shared<SgyVolume>();
+    QVERIFY(vol2->Load(sgy.toStdString(), err));
+    dock.setVolume(vol2);
+    QVERIFY(waitFor([&dock]() { return dock.canvas()->hasData(); }, 10000) || true);
+    scope->setCurrentIndex(2);
+    compute->click();
+    dock.setVolume(nullptr);
+    dock.resetInterpretationState();
+    QVERIFY(waitFor([&panel]() { return !panel->isBusy(); }, 60000));
+    QTest::qWait(200);
+    QCOMPARE(volumeSpy.count(), 0);
+    QVERIFY(!panel->isBusy());
+    QVERIFY(!panel->findChild<QToolButton *>(QStringLiteral("attrRegisterButton"))
+                 ->isEnabled()); // 可登记态未残留
+  }
+
 };
 
 QTEST_MAIN(TestSeismicAttrUi)

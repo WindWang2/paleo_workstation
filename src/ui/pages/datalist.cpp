@@ -261,6 +261,10 @@ DataListPanel::DataListPanel(QWidget *parent)
   // 动画属违例项，goal/ui-experience-polish 移除（原来开启着）。
   m_tree->setAnimated(false);
   m_tree->setAlternatingRowColors(true);
+  // #236：双击展开改由激活 handler 显式 toggle——itemActivated 在双击时也会
+  // 发；若再留 QTreeWidget 缺省 expandsOnDoubleClick，三通道奇数次翻转「凑巧
+  // 正确」，任一通道调整即坏。关缺省展开，只留 itemActivated 单通道。
+  m_tree->setExpandsOnDoubleClick(false);
   // 树 chrome 走 token（活体注册随主题）；选中态/hover/斑马纹由壳级
   // PaleoTheme::itemViewStyleSheet 统一（primary 底 + onPrimary 字）——
   // 这里不再自写 ::item:selected（原 #E6F0FA 与全局三分叉，已收敛）。
@@ -423,7 +427,9 @@ DataListPanel::DataListPanel(QWidget *parent)
     }
   };
 
-  connect(m_tree, &QTreeWidget::itemDoubleClicked, this, handleTreeActivation);
+  // #236：只留 itemActivated 单通道（双击同样会发 activated）——再连
+  // itemDoubleClicked 会让激活类信号（成员/统计叶）重复发射、让显式
+  // toggle 翻倍。
   connect(m_tree, &QTreeWidget::itemActivated, this, handleTreeActivation);
 
   // P3 D3：树拖放——资产→实体（挂接/转移）、→标签（打标签）、外部文件→导入。

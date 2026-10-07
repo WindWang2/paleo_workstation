@@ -223,14 +223,22 @@ void ScriptRunnerService::launch(Run *run)
       return;
     run->pid = run->proc->processId();
     // started 送达前已被取消/超时：terminateGracefully 已在 pid==0 时跑过
-    //（terminate 落空、killTimer 已武装），此刻 pid 就位——直接补整组
-    // SIGTERM，不再等满优雅窗口。
+    //（terminate 落空、killTimer 已武装），此刻 pid 就位——补整组 SIGTERM，
+    // 不再等满优雅窗口。若 killTimer 已耗尽（spawn 慢于优雅窗口，SIGKILL 档
+    // 在 pid==0 时落空、单发不再武装），递进链在此闭合：直接整组 SIGKILL，
+    // 保证忽略 SIGTERM 的脚本也必然了结。
     if ((run->cancelRequested || run->timedOut) && run->pid > 0)
     {
+      const bool graceElapsed = run->killTimer && !run->killTimer->isActive();
 #ifdef Q_OS_UNIX
-      ::kill(-run->pid, SIGTERM);
+      ::kill(-run->pid, graceElapsed ? SIGKILL : SIGTERM);
+      if (graceElapsed)
+        run->proc->kill();
 #else
-      run->proc->terminate();
+      if (graceElapsed)
+        run->proc->kill();
+      else
+        run->proc->terminate();
 #endif
     }
   });

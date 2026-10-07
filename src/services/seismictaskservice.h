@@ -752,12 +752,16 @@ public:
   // 转码完成后作废缓存条目：下次读取按磁盘现状重开（热切换）。
   void invalidateDataset(const QString &path);
 
-  // D5.2 任意线提取缓存查询：同（体指纹×路径）重复提取直接命中。
+  // D5.2 任意线提取缓存查询：同（体身份×路径×提取选项）重复提取直接命中。
+  // 命中时 stats 一并从缓存条目取回（真实道距；绝不合成近似值）。
   std::shared_ptr<const SgySliceImage> cachedSection(
-      const std::vector<glm::ivec2> &pathPoints, std::shared_ptr<const SgyVolume> volume) const;
+      const std::vector<glm::ivec2> &pathPoints, std::shared_ptr<const SgyVolume> volume,
+      const SgySectionOptions &options, SgySectionStats *stats) const;
   void cacheSection(const std::vector<glm::ivec2> &pathPoints,
                     std::shared_ptr<const SgyVolume> volume,
-                    std::shared_ptr<const SgySliceImage> image);
+                    std::shared_ptr<const SgySliceImage> image,
+                    std::shared_ptr<const SgySectionStats> stats,
+                    const SgySectionOptions &options);
 
 signals:
   void indexingFinished(const QString &sgyPath, bool success);
@@ -791,17 +795,19 @@ private:
   // D6.4 并发闸（类型见下方 SeismicConcurrencyGate——moc 不支持类内嵌套）
   std::shared_ptr<struct SeismicConcurrencyGate> gate_;
 
-  // D5.2 任意线 LRU（≤4；键 = 体积指纹 ^ 路径 FNV）
+  // D5.2 任意线 LRU（≤4；键 = 体路径+mtime+大小 × 提取选项 × 路径节点 FNV）
   struct SectionCacheEntry
   {
     qint64 key = 0;
     std::shared_ptr<const SgySliceImage> image;
+    std::shared_ptr<const SgySectionStats> stats;
     quint64 lastUse = 0;
   };
   mutable std::vector<SectionCacheEntry> sectionCache_;
   mutable quint64 sectionCacheClock_ = 0;
   static qint64 sectionCacheKey(const std::vector<glm::ivec2> &pathPoints,
-                                std::shared_ptr<const SgyVolume> volume);
+                                std::shared_ptr<const SgyVolume> volume,
+                                const SgySectionOptions &options);
 
   // A3（wave/deepen-perf）同路径瓦片请求取代：startTimeSliceTiled 对同一
   // .sf3p 的新请求启动即取消旧在途任务（引擎按瓦片粒度协作中止——被顶替

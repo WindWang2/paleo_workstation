@@ -668,6 +668,45 @@ private slots:
                  ->isEnabled()); // 可登记态未残留
   }
 
+  // ---- #226：未注入解释目录时扫描如实拒绝，不缺省落源数据伴生目录 ----
+  // 属性体扫描必写产物：无目录 → 服务如实拒绝；时间切片可纯扫描不落盘。
+  // 两种范围都不得在源 SEG-Y 旁造出 .attrs 目录（GB 级体量产物堆进源
+  // 数据目录且对 catalog 不可见）。
+  void attributeScanRefusesWithoutInterpretationDir()
+  {
+    const QString sgy = m_workDir.filePath(QStringLiteral("ui_nodir.sgy"));
+    QVERIFY(writeSegy(sgy, 5, 8, 128, 2000));
+
+    PaleoTaskService tasks;
+    SeismicTaskService svc(&tasks);
+    SeismicSectionDockWidget dock;
+    dock.setTaskService(&svc);
+    auto vol = std::make_shared<SgyVolume>();
+    std::string err;
+    QVERIFY(vol->Load(sgy.toStdString(), err));
+    dock.setVolume(vol);
+    QVERIFY(waitFor([&dock]() { return dock.canvas()->hasData(); }, 10000) || true);
+
+    auto *panel = dock.attrPanel();
+    QVERIFY(panel);
+    panel->setVisible(true);
+    auto *scope = panel->findChild<QComboBox *>(QStringLiteral("attrScopeCombo"));
+    auto *compute = panel->findChild<QToolButton *>(QStringLiteral("attrComputeButton"));
+    auto *status = panel->findChild<QLabel *>(QStringLiteral("attrStatus"));
+    QVERIFY(scope && compute && status);
+
+    scope->setCurrentIndex(2); // 属性体（必写产物）
+    compute->click();
+    QVERIFY(waitFor([&panel]() { return !panel->isBusy(); }, 10000));
+    QVERIFY2(status->text().contains(QStringLiteral("产物目录")),
+             qPrintable(status->text()));
+    QVERIFY(!QFileInfo::exists(sgy + QStringLiteral(".attrs")));
+
+    scope->setCurrentIndex(1); // 时间切片（可纯扫描）
+    compute->click();
+    QVERIFY(waitFor([&panel]() { return !panel->isBusy(); }, 10000));
+    QVERIFY(!QFileInfo::exists(sgy + QStringLiteral(".attrs")));
+  }
 };
 
 QTEST_MAIN(TestSeismicAttrUi)

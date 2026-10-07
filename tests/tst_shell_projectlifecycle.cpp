@@ -1,4 +1,5 @@
-// 层：测试壳（#275 UIS-07 / #282 UIS-09 / #236 工程切换残留批——真实主窗壳级回归）
+// 层：测试壳（#275 UIS-07 / #282 UIS-09 / #236 工程切换残留批 / #226 解释
+// 登记链接线——真实主窗壳级回归）
 //
 // 共用同一个 AppContext + PaleoMainWindow + attachWorkflows 真实壳，驱动
 // 「工程生命周期 × 组装根接线」边界：入口调用时现取 projectDir/gpkg（#275）、
@@ -34,6 +35,7 @@
 #include "../src/ui/notifications/paleonotify.h"
 #include "../src/ui/pages/datalist.h"
 #include "../src/ui/paleomainwindow.h"
+#include "../src/ui/seismicsection/seismicsectiondockwidget.h"
 
 #include <qgis/qgsproject.h>
 
@@ -85,6 +87,10 @@ private:
 
   DataListPanel *listPanel() const { return m_win->findChild<DataListPanel *>(); }
   LayerTreePanel *layerPanel() const { return m_win->findChild<LayerTreePanel *>(); }
+  seismic::SeismicSectionDockWidget *sectionDock() const
+  {
+    return m_win->findChild<seismic::SeismicSectionDockWidget *>();
+  }
   QListWidget *recentList() const
   {
     return m_win->findChild<QListWidget *>(QStringLiteral("recentProjectsList"));
@@ -120,6 +126,31 @@ private:
     v.sha256 = DataCatalog::sha256FileHex(abs, &err);
     if (v.sha256.isEmpty())
       return false;
+    return cat->addVersion(v, &err);
+  }
+
+  // #226：注册地震资产（合成 SGY 不必真实存在——注入只看资产/版本身份，
+  // 体加载在 syncSeismicVolumeToDocks 内部按文件存在性跳过）。
+  bool addSeismicAsset(DataCatalog *cat, const QString &assetId)
+  {
+    if (!cat)
+      return false;
+    CatalogAsset a;
+    a.id = assetId;
+    a.type = QStringLiteral("seismic");
+    a.format = QStringLiteral("sgy");
+    a.displayName = assetId + QStringLiteral(".sgy");
+    QString err;
+    if (!cat->addAsset(a, &err))
+      return false;
+    CatalogVersion v;
+    v.id = cat->nextVersionId();
+    v.assetId = assetId;
+    v.stage = QStringLiteral("RAW");
+    v.versionNumber = 1;
+    v.managed = false;
+    v.path = QStringLiteral("sg.sgy"); // 相对工程目录；不存在 → 不装体
+    v.fileName = QStringLiteral("sg.sgy");
     return cat->addVersion(v, &err);
   }
 
@@ -445,6 +476,46 @@ private slots:
     m_win->setProjectSaveAskForTesting(nullptr);
   }
 
+  // #226：解释登记链生产接线——打开工程即注入 catalog + 源体资产/版本 +
+  // 解释产物目录（工程受管 artifacts/derived/interpretation），且切工程
+  // 后跟随新工程（不钉死首工程）。
+  void interpretationCatalogFollowsProject()
+  {
+    auto *dock = sectionDock();
+    QVERIFY(dock);
+
+    QTemporaryDir dirA;
+    QVERIFY(dirA.isValid());
+    QVERIFY(m_ctx->projectSvc()->createProject(dirA.filePath(QStringLiteral("sa.qgz"))));
+    QApplication::processEvents();
+    QVERIFY(addSeismicAsset(m_ctx->importSvc()->catalog(),
+                            QStringLiteral("seis_lifecycle_a")));
+    QApplication::processEvents(); // catalog changed → syncSeismicVolumeToDocks
+
+    QCOMPARE(dock->interpretationCatalog(), m_ctx->importSvc()->catalog());
+    QCOMPARE(dock->interpretationAssetId(), QStringLiteral("seis_lifecycle_a"));
+    const QString outA = dock->interpretationOutputDir();
+    QVERIFY2(QDir::cleanPath(outA).startsWith(
+                 QDir::cleanPath(dirA.path())),
+             "解释产物目录必须落在当前工程受管区");
+    QVERIFY2(outA.endsWith(QStringLiteral("artifacts/derived/interpretation")),
+             qPrintable(QStringLiteral("实际：%1").arg(outA)));
+
+    // 切到工程 B：注入跟随新工程。
+    QTemporaryDir dirB;
+    QVERIFY(dirB.isValid());
+    QVERIFY(m_ctx->projectSvc()->createProject(dirB.filePath(QStringLiteral("sb.qgz"))));
+    QApplication::processEvents();
+    QVERIFY(addSeismicAsset(m_ctx->importSvc()->catalog(),
+                            QStringLiteral("seis_lifecycle_b")));
+    QApplication::processEvents();
+
+    QCOMPARE(dock->interpretationCatalog(), m_ctx->importSvc()->catalog());
+    QCOMPARE(dock->interpretationAssetId(), QStringLiteral("seis_lifecycle_b"));
+    QVERIFY2(QDir::cleanPath(dock->interpretationOutputDir())
+                 .startsWith(QDir::cleanPath(dirB.path())),
+             "切工程后解释目录必须跟随新工程");
+  }
 };
 
 int main(int argc, char *argv[])

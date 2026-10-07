@@ -1890,6 +1890,12 @@ void PaleoMainWindow::resetProjectScopedState()
     m_seismicSectionDock->resetInterpretationState();
   if (m_decorMgr)
     m_decorMgr->clearUncertaintyBadge();
+  // #226：登记上下文随工程边界清空（新工程由 syncSeismicVolumeToDocks 重注；
+  // 旧工程 catalog 指针下不得残留「可登记」上下文）。
+  if (m_seismicSectionDock)
+    m_seismicSectionDock->setInterpretationCatalog(nullptr, QString(), QString(),
+                                                  QString());
+
   // #148：地图册在途一册取消（下一版边界停，不再碰旧工程图层），迟到结果
   // 作废；范围清空，新工程下次打开面板时按画布范围重新预填。
   if (m_mapBookCtl)
@@ -2032,17 +2038,34 @@ void PaleoMainWindow::syncSeismicVolumeToDocks()
     if (a.type == QLatin1String("seismic"))
     {
       const CatalogVersion tv = cat->currentVersion(a.id);
+      // #226：解释登记链生产接线——dock 注入 catalog + 源体资产/版本 +
+      // 解释产物目录（工程受管 artifacts/derived/interpretation：拾取 CSV/
+      // 断层/属性扫描产物全部落此并登记 DERIVED，对 catalog/治理/版本溯源
+      // 可见）。调用时现取工程目录（attach 期没有工程——同 #275 口径）。
+      if (m_seismicSectionDock && !tv.id.isEmpty())
+      {
+        const QString projDir =
+            m_projectSvc && !m_projectSvc->projectPath().isEmpty()
+                ? QFileInfo(m_projectSvc->projectPath()).absolutePath()
+                : QString();
+        m_seismicSectionDock->setInterpretationCatalog(
+            cat, a.id, tv.id,
+            projDir.isEmpty()
+                ? QString()
+                : QDir(projDir).filePath(
+                      QStringLiteral("artifacts/derived/interpretation")));
+      }
       const QString abs = tv.id.isEmpty() ? QString() : m_previewDoc->absolutePathForVersion(tv);
       if (!abs.isEmpty() && QFile::exists(abs))
       {
         if (m_seismic3dPanel && (m_seismic3dPanel->volume() == nullptr ||
-                                 QString::fromStdString(m_seismic3dPanel->volume()->Path().string()) != abs))
+                                 paleo::fromFsPath(m_seismic3dPanel->volume()->Path()) != abs))
         {
           if (m_seismicTaskSvc)
             m_seismic3dPanel->setTaskService(m_seismicTaskSvc.get());
           auto vol = std::make_shared<seismic::SgyVolume>();
           std::string volErr;
-          if (vol->Load(abs.toStdString(), volErr))
+          if (vol->Load(paleo::toFsPath(abs), volErr))
           {
             m_seismic3dPanel->setVolume(vol);
             if (m_seismic3dPanel->viewport())

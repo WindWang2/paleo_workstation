@@ -94,17 +94,14 @@ QString SeismicSectionDockWidget::registerCurrentAttributeAsset(QString *error) 
         m_lastAttrParams, m_lastAttrSourcePath, m_interpretationDir, error);
 }
 
-// goal/attr-volume 扫描产物目录：解释目录优先（应用层注入）；未注入时
-// 落 SEG-Y 伴生目录 <sgy>.attrs（会话伴生文件 <sgy>.seispicks.json 同
-// 先例——项目无关可携带）。体扫描必写产物，无目录即被服务如实拒绝。
+// goal/attr-volume 扫描产物目录：解释目录由 app 层随 catalog 一并注入
+// （工程受管 artifacts/derived/interpretation——拾取/断层/属性扫描产物全部
+// 落此并登记 DERIVED，对 catalog/治理/版本溯源可见）。
+// #226：未注入时不再缺省落 <sgy>.attrs 伴生目录——SATV 可达 GB 级，外部
+// 数据会把体量级产物堆进源数据目录且对 catalog 完全不可见；返回空由服务
+// 如实拒绝（「属性体扫描需产物目录」），时间切片扫描仍可无目录纯扫描。
 QString SeismicSectionDockWidget::attrScanOutputDir() const {
-    if (!m_interpretationDir.isEmpty())
-        return m_interpretationDir;
-    if (!m_volume)
-        return QString();
-    const QString sgy = QString::fromStdString(m_volume->Path().string());
-    return sgy.isEmpty() ? QString()
-                         : sgy + QStringLiteral(".attrs");
+    return m_interpretationDir;
 }
 
 // goal/attr-volume：时间切片扫描编排——完成即登记（DERIVED + 层树声明）；

@@ -34,6 +34,11 @@ class WebViewPanel : public QWidget
     // http/https。file:// / smb:// / ftp:// / 自定义协议一律拒绝（不交给
     // QWebEngineView，也不交给 QDesktopServices::openUrl 的系统协议处理器）。
     static bool isAllowedUrl(const QUrl &url);
+    // #237：页内导航白名单（acceptNavigationRequest 同款口径）——setUrl 只挡
+    // 地址栏式加载，已加载页的链接/表单/302 走的是导航请求，不过同一张表
+    // 就能被带到 file:// 或任意外域。about: 放行（JS iframe/window.open 的
+    // 常规目标）。offscreen 下引擎不可建，判定必须是可独立回归的纯函数。
+    static bool isNavigationAllowed(const QUrl &url);
     QUrl url() const { return m_url; }
     bool engineAvailable() const { return m_engine != nullptr; }
     QString lastError() const { return m_lastError; }

@@ -24,6 +24,8 @@ on:
 # #237：job 超时上限按实测时长（lint≈30m / linux≈35m / perf≈31m / windows≈84m）
 # 留 2-3 倍余量，挂起不再吃默认 360 分钟。
 # #237：GITHUB_TOKEN 最小权限——各 job 只需读源码（artifact/cache 走独立 runtime token）。
+# #237：actions/* 一律 @<commit-sha> 钉死（旁注 # v4 便于识别），可变 tag 被
+# 投毒时拿不到带 full token 的 checkout；升级 = 有意改 SHA。
 permissions:
   contents: read
 
@@ -36,7 +38,7 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0 # check_tidy 需要 merge-base(origin/master)
       # clang-tidy 版本钉死：告警面随 LLVM 版本漂移，门禁必须可复现。
@@ -90,18 +92,18 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Install QGIS 4.2 development packages (QGIS 钉版本 #138)
         run: tools/ci_apt_qgis.sh libproj-dev libgeos-dev ccache qtkeychain-qt6-dev
       - name: Cache ccache
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cache/ccache
           key: ${{ runner.os }}-ccache-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-ccache-
       - name: Cache vendor artifacts
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             vendor/onnxruntime
@@ -132,7 +134,7 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         run: ./paleo-dev selfcheck
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: selfcheck-linux
@@ -150,7 +152,7 @@ jobs:
               cp -a build/golden-out build/Testing/
             fi
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: test-logs-linux
@@ -165,11 +167,11 @@ jobs:
     timeout-minutes: 120
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Install QGIS 4.2 development packages (QGIS 钉版本 #138)
         run: tools/ci_apt_qgis.sh libproj-dev libgeos-dev ccache qtkeychain-qt6-dev
       - name: Cache ccache
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cache/ccache
           key: ${{ runner.os }}-ccache-perf-${{ github.sha }}
@@ -177,7 +179,7 @@ jobs:
             ${{ runner.os }}-ccache-perf-
             ${{ runner.os }}-ccache-
       - name: Cache vendor artifacts
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             vendor/onnxruntime
@@ -191,7 +193,7 @@ jobs:
           QT_QPA_PLATFORM: offscreen
           LD_LIBRARY_PATH: ${{ github.workspace }}/vendor/onnxruntime/lib
         run: tools/ci_perf.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: perf-results-linux
@@ -204,9 +206,9 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 240
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Cache vendor artifacts
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           # #231：osgeo4w 安装树随包钉版缓存（key 已含 manifest.json 哈希，
           # 钉版变更自动 bust）；命中时 bootstrap 直接跳过 setup。
@@ -235,7 +237,7 @@ jobs:
           QT_QPA_PLATFORM: offscreen
           PALEO_CTEST_ARGS: -LE perf # #136：墙钟预算类不进必过门禁
         run: ./paleo-dev.ps1 test
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: selfcheck-windows
@@ -257,7 +259,7 @@ jobs:
               Copy-Item -Path $golden -Destination $testing -Recurse -Force
             }
           }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: test-logs-windows

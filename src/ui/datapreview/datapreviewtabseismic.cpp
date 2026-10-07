@@ -622,7 +622,9 @@ QWidget *DataPreviewTabs::buildSeismicContent(
 
   const auto installVolume = [sharedVol, sharedPaged, panel3dGuard, finishVolumeSetup](
                                  const std::shared_ptr<seismic::SgyVolume> &vol) {
-    if (*sharedVol != nullptr || !vol)
+    // #280（UIV-02）：标签页可能已被关闭、3D 面板已销毁——守卫先于一切
+    // 解引用，且在写 sharedVol 之前（没地方装的结果不占位）。
+    if (!panel3dGuard || *sharedVol != nullptr || !vol)
       return;
     *sharedVol = vol;
     // paged 通道先于 volume：初始三槽切片请求即带 LOD 映射（从最粗层起步）
@@ -632,7 +634,7 @@ QWidget *DataPreviewTabs::buildSeismicContent(
     finishVolumeSetup(vol);
   };
 
-  const auto ensureVolumeLoaded = [this, abs, sharedVol, panel3dGuard, quickInfoGuard, sectionPanelGuard, installVolume]() {
+  const auto ensureVolumeLoaded = [this, abs, sharedVol, panel3dGuard, quickInfoGuard, sectionPanelGuard, installVolume, host]() {
     if (*sharedVol != nullptr || abs.isEmpty() || !QFile::exists(abs))
       return;
     auto *svc = (m_doc ? m_doc->seismicTaskService() : nullptr);
@@ -702,20 +704,35 @@ QWidget *DataPreviewTabs::buildSeismicContent(
       }
     });
 
-    // 第二段：后台体加载（.sgyidx 命中时秒级），完成换装 3D/时间片面板
-    svc->startVolumeLoad(abs, [quickInfoGuard, installVolume](
-                                  bool ok, std::shared_ptr<seismic::SgyVolume> vol, const QString &err) {
-      if (ok)
-      {
-        installVolume(vol);
-        return;
-      }
-      if (quickInfoGuard && !err.isEmpty())
-      {
-        quickInfoGuard->setText(QObject::tr("体加载失败：%1").arg(err));
-        quickInfoGuard->setVisible(true);
-      }
-    });
+    // 第二段：后台体加载（.sgyidx 命中时秒级），完成换装 3D/时间片面板。
+    // 回调连在长寿的 SeismicTaskService 上，不随页签断开——ok 分支的
+    // QPointer 守卫与 installVolume 首行守卫是防「关标签后迟到回调对已
+    // 销毁 3D 面板调 setVolume」的双保险（#280）。
+    if (PaleoTask *volTask = svc->startVolumeLoad(
+            abs, [quickInfoGuard, panel3dGuard, installVolume](
+                     bool ok, std::shared_ptr<seismic::SgyVolume> vol, const QString &err) {
+              if (ok)
+              {
+                if (panel3dGuard)
+                  installVolume(vol);
+                return;
+              }
+              if (quickInfoGuard && !err.isEmpty())
+              {
+                quickInfoGuard->setText(QObject::tr("体加载失败：%1").arg(err));
+                quickInfoGuard->setVisible(true);
+              }
+            });
+        volTask)
+    {
+      // #280：关标签 → 页销毁即取消在途体加载（大体积不白跑）；任务终态
+      // 回收（deleteLater）由 QPointer 兜底。
+      const QPointer<PaleoTask> volTaskGuard(volTask);
+      QObject::connect(host, &QObject::destroyed, svc, [volTaskGuard] {
+        if (volTaskGuard)
+          volTaskGuard->requestCancel();
+      });
+    }
   };
   // 工区打开即启动两段式（不等页签切换）；页签切换回调只做幂等兜底与聚焦
   ensureVolumeLoaded();

@@ -1,5 +1,6 @@
 // 层：数据
 #include "rasterpyramid.h"
+#include "gdalreg_internal.h"
 
 #include "pathcanon.h"
 
@@ -23,11 +24,8 @@
 
 namespace
 {
-  void ensureGdalRegistered()
-  {
-    static std::once_flag flag;
-    std::call_once(flag, []() { GDALAllRegister(); });
-  }
+
+using paleo::io_detail::ensureGdalRegistered;
 
   constexpr int kTileSize = 256;
   const char kLevelMagic[4] = {'P', 'Y', 'R', 'L'};

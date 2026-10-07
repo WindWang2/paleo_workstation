@@ -1,5 +1,6 @@
 // 层：数据
 #include "sgsfill.h"
+#include "../algoerrors_internal.h"
 
 #include <QString>
 #include <QStringList>
@@ -17,11 +18,7 @@ namespace paleo::stratgrid
 namespace
 {
 
-void setError(QString *error, const QString &text)
-{
-  if (error)
-    *error = text;
-}
+using paleo::algo_detail::setError;
 
 // 重合种子（同 cell）合并取均值——口径同 geostat::detail::dedupeSamples。
 struct SeedAgg

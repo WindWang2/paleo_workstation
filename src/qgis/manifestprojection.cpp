@@ -1,5 +1,6 @@
 // 层：QGIS 封装
 #include "manifestprojection.h"
+#include "qgiserrors_internal.h"
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -11,11 +12,7 @@
 
 namespace
 {
-  void setError( QString *error, const QString &text )
-  {
-    if ( error )
-      *error = text;
-  }
+using paleo::qgis_detail::setError;
 
   // Stable field names — part of the persisted .qgz contract, do not rename.
   QJsonObject declToJson( const LayerDeclaration &d )

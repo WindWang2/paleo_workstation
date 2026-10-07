@@ -1,5 +1,6 @@
 // 层：数据
 #include "dlisparser.h"
+#include "parserissues_internal.h"
 
 #include "../domain/wellnumeric.h"
 #include "lasparser.h" // LasParser::fileSizeLimit（大文件防护共用口径）
@@ -28,6 +29,8 @@
 
 namespace
 {
+using paleo::io_detail::addIssue;
+
   // 表示码（RP66 v1 磁盘编号）
   enum RepCode
   {
@@ -77,7 +80,7 @@ namespace
   }
 
   // ---- 字节游标：越界置 bad，调用方统一收口报错（不抛异常） ----
-  struct Cur
+  struct DlisCur
   {
     const uchar *p = nullptr;
     const uchar *end = nullptr;
@@ -213,7 +216,7 @@ namespace
 
   // 读一个数值元素（调用方保证 repc 数值类且字节够）。校验对（FSING1/2、
   // FDOUB1/2）只取 V 值，校验位按 RP66 是写入方断言，读侧不拦截。
-  double readNumeric(Cur &c, int repc)
+  double readNumeric(DlisCur &c, int repc)
   {
     switch (repc)
     {
@@ -299,7 +302,7 @@ namespace
   // EFLR 通用机器：Set → 模板 → 对象。结构解析不了 → false（error 给因）。
   bool parseEflr(const uchar *data, int size, ElSet &out, QString *error)
   {
-    Cur c{ data, data + size, false };
+    DlisCur c{ data, data + size, false };
     const uchar desc = c.u8();
     if (c.bad)
     {
@@ -632,18 +635,6 @@ namespace
     int m_off = 0;
   };
 
-  void addIssue(QList<LasIssue> *issues, LasIssue::Severity sev,
-                LasIssue::Category cat, const QString &msg)
-  {
-    if (!issues)
-      return;
-    LasIssue issue;
-    issue.severity = sev;
-    issue.category = cat;
-    issue.message = msg;
-    issues->append(issue);
-  }
-
   struct ChannelState
   {
     DlisParser::Obname name;
@@ -664,7 +655,7 @@ namespace
     bool encrypted = false;
   };
 
-  enum class WalkResult { Ok, StoppedAtNextFile, Error };
+  enum class DlisWalkResult { Ok, StoppedAtNextFile, Error };
 
   // 单遍走查器：EFLR 状态机 + FDATA 解码（解码模式 = withData）
   struct Walker
@@ -812,7 +803,7 @@ namespace
     bool consumeFdata(const uchar *data, int size, QList<LasIssue> *issues,
                       QString *error)
     {
-      Cur c{ data, data + size, false };
+      DlisCur c{ data, data + size, false };
       const DlisParser::Obname ref = c.obname();
       if (c.bad)
       {
@@ -980,7 +971,7 @@ namespace
   }
 
   // 走查主循环。stopAtFirstFdata = parseHeader 模式。
-  WalkResult walk(QFile &f, Walker &w, bool stopAtFirstFdata,
+  DlisWalkResult walk(QFile &f, Walker &w, bool stopAtFirstFdata,
                   QList<LasIssue> *issues, QString *error)
   {
     ByteSource src(f);
@@ -989,7 +980,7 @@ namespace
     {
       if (error)
         *error = QStringLiteral("文件不足 80 字节，无 DLIS 存储标签");
-      return WalkResult::Error;
+      return DlisWalkResult::Error;
     }
     int sulOff = -1;
     const int scanMax = qMin(src.buffered(), 200);
@@ -1011,7 +1002,7 @@ namespace
     {
       if (error)
         *error = QStringLiteral("前 %1 字节未找到 DLIS 存储标签（SUL）").arg(scanMax);
-      return WalkResult::Error;
+      return DlisWalkResult::Error;
     }
     if (sulOff > 0)
       addIssue(issues, LasIssue::Severity::Info, LasIssue::Category::Format,
@@ -1030,7 +1021,7 @@ namespace
           *error = QStringLiteral("文件在可见记录头处截断");
         if (issues)
           issues->append(truncatedIssue(QStringLiteral("可见记录头截断")));
-        return WalkResult::Error;
+        return DlisWalkResult::Error;
       }
       const uchar *vh = src.ptr();
       const quint16 vrLen = quint16(vh[0]) << 8 | quint16(vh[1]);
@@ -1043,13 +1034,13 @@ namespace
           *error = QStringLiteral("可见记录头非法（0x%1 0x%2，期待 0xFF 0x01）")
                        .arg(mark, 2, 16, QLatin1Char('0'))
                        .arg(ver, 2, 16, QLatin1Char('0'));
-        return WalkResult::Error;
+        return DlisWalkResult::Error;
       }
       if (vrLen < 4)
       {
         if (error)
           *error = QStringLiteral("可见记录长度 %1 非法").arg(vrLen);
-        return WalkResult::Error;
+        return DlisWalkResult::Error;
       }
       const qint64 vrEnd = src.offset() + vrLen - 4;
 
@@ -1068,7 +1059,7 @@ namespace
             *error = QStringLiteral("文件在逻辑记录段头处截断");
           if (issues)
             issues->append(truncatedIssue(QStringLiteral("逻辑记录段头截断")));
-          return WalkResult::Error;
+          return DlisWalkResult::Error;
         }
         const uchar *lh = src.ptr();
         const quint16 segLen = quint16(lh[0]) << 8 | quint16(lh[1]);
@@ -1079,7 +1070,7 @@ namespace
         {
           if (error)
             *error = QStringLiteral("逻辑记录段长 %1 非法").arg(segLen);
-          return WalkResult::Error;
+          return DlisWalkResult::Error;
         }
         qint64 bodyLen = segLen - 4;
         qint64 roomInVr = vrEnd - src.offset();
@@ -1088,7 +1079,7 @@ namespace
           if (error)
             *error = QStringLiteral("逻辑记录段（%1 字节）越过可见记录边界")
                          .arg(segLen);
-          return WalkResult::Error;
+          return DlisWalkResult::Error;
         }
         if (!src.ensure(int(bodyLen)))
         {
@@ -1096,7 +1087,7 @@ namespace
             *error = QStringLiteral("文件在逻辑记录段体处截断（%1 字节）").arg(bodyLen);
           if (issues)
             issues->append(truncatedIssue(QStringLiteral("逻辑记录段体截断")));
-          return WalkResult::Error;
+          return DlisWalkResult::Error;
         }
         if (firstSeg)
         {
@@ -1129,7 +1120,7 @@ namespace
             {
               if (error)
                 *error = QStringLiteral("填充字节计数越界（段长 %1）").arg(segLen);
-              return WalkResult::Error;
+              return DlisWalkResult::Error;
             }
             const uchar padCount = uchar(lrBuf.at(padPos));
             trim += 1 + int(padCount);
@@ -1138,7 +1129,7 @@ namespace
           {
             if (error)
               *error = QStringLiteral("段尾（校验/尾长/填充）越界（段长 %1）").arg(segLen);
-            return WalkResult::Error;
+            return DlisWalkResult::Error;
           }
           lrBuf.chop(trim);
         }
@@ -1155,7 +1146,7 @@ namespace
             *error = QStringLiteral("可见记录尾部截断（剩 %1 字节）").arg(leftover);
           if (issues)
             issues->append(truncatedIssue(QStringLiteral("可见记录尾部截断")));
-          return WalkResult::Error;
+          return DlisWalkResult::Error;
         }
         addIssue(issues, LasIssue::Severity::Info, LasIssue::Category::Format,
                  QStringLiteral("可见记录有 %1 字节残余，跳过").arg(leftover));
@@ -1181,7 +1172,7 @@ namespace
                      QStringLiteral("遇第二个文件头（多逻辑文件）——只读第一个逻辑文件"
                                     "（白名单：多逻辑文件）"));
           }
-          return WalkResult::StoppedAtNextFile;
+          return DlisWalkResult::StoppedAtNextFile;
         }
         if (lrType == 0)
           w.sawFirstFhlr = true;
@@ -1192,7 +1183,7 @@ namespace
         {
           if (error)
             *error = QStringLiteral("EFLR（类型 %1）解析失败：%2").arg(lrType).arg(eflrErr);
-          return WalkResult::Error;
+          return DlisWalkResult::Error;
         }
         w.consumeEflr(lrType, set, issues);
       }
@@ -1205,7 +1196,7 @@ namespace
               reinterpret_cast<const uchar *>(lrBuf.constData()), lrBuf.size(),
               issues, error);
           if (!ok)
-            return WalkResult::Error;
+            return DlisWalkResult::Error;
           if (stopAtFirstFdata && !w.firstDataFrameKey.isEmpty())
           {
             // 头部模式：主帧确定即停（目录冻结点已达成）
@@ -1227,11 +1218,11 @@ namespace
             *error = QStringLiteral("隐式记录类型 %1 不在 RP66 v1 定义内（0=FDATA，"
                                     "1=NO-FORMAT）")
                          .arg(lrType);
-          return WalkResult::Error;
+          return DlisWalkResult::Error;
         }
       }
     }
-    return WalkResult::Ok;
+    return DlisWalkResult::Ok;
   }
 } // namespace
 
@@ -1293,10 +1284,10 @@ bool DlisParser::parse(const QString &path, LasHeaderInfo &header,
   }
 
   Walker w;
-  const WalkResult r = walk(f, w, /*stopAtFirstFdata=*/false, issues, error);
-  if (r == WalkResult::Error)
+  const DlisWalkResult r = walk(f, w, /*stopAtFirstFdata=*/false, issues, error);
+  if (r == DlisWalkResult::Error)
     return false;
-  if (r == WalkResult::StoppedAtNextFile)
+  if (r == DlisWalkResult::StoppedAtNextFile)
   {
     // 多逻辑文件：已解部分保留（诚实面），调用方按 issues 知晓边界
   }
@@ -1370,8 +1361,8 @@ bool DlisParser::parseHeader(const QString &path, LasHeaderInfo &out,
   }
 
   Walker w;
-  const WalkResult r = walk(f, w, /*stopAtFirstFdata=*/true, issues, error);
-  if (r == WalkResult::Error)
+  const DlisWalkResult r = walk(f, w, /*stopAtFirstFdata=*/true, issues, error);
+  if (r == DlisWalkResult::Error)
     return false;
 
   out.wellName = w.wellName;

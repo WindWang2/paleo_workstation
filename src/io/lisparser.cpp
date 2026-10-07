@@ -1,5 +1,6 @@
 // 层：数据
 #include "lisparser.h"
+#include "parserissues_internal.h"
 
 #include "../domain/wellnumeric.h"
 #include "lasparser.h" // LasParser::fileSizeLimit（大文件防护共用口径）
@@ -31,6 +32,8 @@
 
 namespace
 {
+using paleo::io_detail::addIssue;
+
   // LIS79 reprc（Appendix B 编号）
   constexpr int LisReprcI8 = 56;
   constexpr int LisReprcString = 65;
@@ -141,7 +144,7 @@ namespace
     return (sign ? -1.0 : 1.0) * (integer + real);
   }
 
-  struct Cur
+  struct LisCur
   {
     const uchar *p = nullptr;
     const uchar *end = nullptr;
@@ -184,7 +187,7 @@ namespace
     }
   };
 
-  double readLisNumeric(Cur &c, int repc)
+  double readLisNumeric(LisCur &c, int repc)
   {
     switch (repc)
     {
@@ -204,18 +207,6 @@ namespace
   {
     return double(quint32(p[0]) | quint32(p[1]) << 8 | quint32(p[2]) << 16 |
                   quint32(p[3]) << 24);
-  }
-
-  void addIssue(QList<LasIssue> *issues, LasIssue::Severity sev,
-                LasIssue::Category cat, const QString &msg)
-  {
-    if (!issues)
-      return;
-    LasIssue issue;
-    issue.severity = sev;
-    issue.category = cat;
-    issue.message = msg;
-    issues->append(issue);
   }
 
   // 首标头轻量判定（sniff 高频路径）：type∈{0,1} 且 prev<next，不建段索引
@@ -588,16 +579,16 @@ namespace
     bool stoppedAtTrailer = false;
   };
 
-  enum class WalkResult { Ok, Truncated, Invalid };
+  enum class LisWalkResult { Ok, Truncated, Invalid };
 
-  WalkResult walkRecords(QFile &f, bool stopAtFirstData, WalkOut &out,
+  LisWalkResult walkRecords(QFile &f, bool stopAtFirstData, WalkOut &out,
                          QList<LasIssue> *issues, QString *error)
   {
     TifView tif;
     bool malformed = false;
     const bool isTif = TifView::detect(f, &tif, &malformed, error);
     if (malformed)
-      return WalkResult::Invalid;
+      return LisWalkResult::Invalid;
     LogicalReader reader(f, isTif ? &tif : nullptr);
 
     int activeLogset = -1;
@@ -615,13 +606,13 @@ namespace
       {
         if (error)
           *error = QStringLiteral("文件截断：%1").arg(rerr);
-        return WalkResult::Truncated;
+        return LisWalkResult::Truncated;
       }
       if (st == LogicalReader::Status::Invalid)
       {
         if (error)
           *error = rerr;
-        return WalkResult::Invalid;
+        return LisWalkResult::Invalid;
       }
       if (!validRecordType(rec.type))
       {
@@ -629,7 +620,7 @@ namespace
           *error = QStringLiteral("记录类型 %1 不在 LIS79 表内（于 %2）")
                        .arg(int(rec.type))
                        .arg(reader.pos());
-        return WalkResult::Invalid;
+        return LisWalkResult::Invalid;
       }
 
       switch (rec.type)
@@ -647,7 +638,7 @@ namespace
         {
           if (wellNameDone)
             break;
-          Cur c{ reinterpret_cast<const uchar *>(rec.data.constData()),
+          LisCur c{ reinterpret_cast<const uchar *>(rec.data.constData()),
                  reinterpret_cast<const uchar *>(rec.data.constData()) +
                      rec.data.size(),
                  false };
@@ -691,7 +682,7 @@ namespace
         case RecDataFormatSpec:
         {
           LogSet ls;
-          Cur c{ reinterpret_cast<const uchar *>(rec.data.constData()),
+          LisCur c{ reinterpret_cast<const uchar *>(rec.data.constData()),
                  reinterpret_cast<const uchar *>(rec.data.constData()) +
                      rec.data.size(),
                  false };
@@ -703,7 +694,7 @@ namespace
             {
               if (error)
                 *error = QStringLiteral("DFSR 条目区截断");
-              return WalkResult::Truncated;
+              return LisWalkResult::Truncated;
             }
             const int eType = int(c.u8());
             const int eSize = int(c.u8());
@@ -712,7 +703,7 @@ namespace
             {
               if (error)
                 *error = QStringLiteral("DFSR 条目值区截断");
-              return WalkResult::Truncated;
+              return LisWalkResult::Truncated;
             }
             double num = 0;
             QString str;
@@ -726,13 +717,13 @@ namespace
               }
               else
               {
-                Cur vc{ c.p, c.p + eSize, false };
+                LisCur vc{ c.p, c.p + eSize, false };
                 num = readLisNumeric(vc, eReprc);
                 if (vc.bad)
                 {
                   if (error)
                     *error = QStringLiteral("DFSR 条目值表示码 %1 非法").arg(eReprc);
-                  return WalkResult::Invalid;
+                  return LisWalkResult::Invalid;
                 }
                 c.skip(eSize);
               }
@@ -754,7 +745,7 @@ namespace
           {
             if (error)
               *error = QStringLiteral("DFSR 条目区非法");
-            return WalkResult::Invalid;
+            return LisWalkResult::Invalid;
           }
           while (c.left() >= 40 && !c.bad)
           {
@@ -780,13 +771,13 @@ namespace
           {
             if (error)
               *error = QStringLiteral("DFSR Spec Block 区非法/截断");
-            return WalkResult::Truncated;
+            return LisWalkResult::Truncated;
           }
           if (ls.specs.isEmpty())
           {
             if (error)
               *error = QStringLiteral("DFSR 无 Spec Block（曲线目录为空）");
-            return WalkResult::Invalid;
+            return LisWalkResult::Invalid;
           }
           if (ls.depthMode == 0)
           {
@@ -798,7 +789,7 @@ namespace
                 *error = QStringLiteral("索引道（%1）表示码 %2 非数值")
                              .arg(idx.mnemonic)
                              .arg(idx.reprc);
-              return WalkResult::Invalid;
+              return LisWalkResult::Invalid;
             }
           }
           else
@@ -807,7 +798,7 @@ namespace
             {
               if (error)
                 *error = QStringLiteral("模式 1 缺输出深度表示码（条目 15）");
-              return WalkResult::Invalid;
+              return LisWalkResult::Invalid;
             }
             if (ls.direction != 1 && ls.direction != 255)
             {
@@ -815,7 +806,7 @@ namespace
                 *error = QStringLiteral("模式 1 且 UP/DOWN 方向未定义（%1）——"
                                         "不猜步进方向")
                              .arg(ls.direction);
-              return WalkResult::Invalid;
+              return LisWalkResult::Invalid;
             }
           }
           ls.whitelistReason = logsetWhitelistReason(ls);
@@ -831,7 +822,7 @@ namespace
           {
             if (error)
               *error = QStringLiteral("数据记录先于任何 DFSR（无格式定义）");
-            return WalkResult::Invalid;
+            return LisWalkResult::Invalid;
           }
           LogSet &ls = out.logsets[activeLogset];
           if (!primaryChosen && !ls.whitelisted)
@@ -863,7 +854,7 @@ namespace
           }
           ls.sawData = true;
 
-          Cur c{ reinterpret_cast<const uchar *>(rec.data.constData()),
+          LisCur c{ reinterpret_cast<const uchar *>(rec.data.constData()),
                  reinterpret_cast<const uchar *>(rec.data.constData()) +
                      rec.data.size(),
                  false };
@@ -875,7 +866,7 @@ namespace
             {
               if (error)
                 *error = QStringLiteral("模式 1 深度值截断");
-              return WalkResult::Truncated;
+              return LisWalkResult::Truncated;
             }
           }
           int frameSize = 0;
@@ -888,7 +879,7 @@ namespace
                 *error = QStringLiteral("通道 %1 帧宽无法确定（reprc %2）")
                              .arg(sp.mnemonic)
                              .arg(sp.reprc);
-              return WalkResult::Invalid;
+              return LisWalkResult::Invalid;
             }
             frameSize += b;
           }
@@ -905,7 +896,7 @@ namespace
                        LasIssue::Category::Truncated, msg);
               if (error)
                 *error = msg;
-              return WalkResult::Truncated;
+              return LisWalkResult::Truncated;
             }
             for (int si = 0; si < ls.specs.size(); ++si)
             {
@@ -921,7 +912,7 @@ namespace
               {
                 if (error)
                   *error = QStringLiteral("通道 %1 样本截断").arg(sp.mnemonic);
-                return WalkResult::Truncated;
+                return LisWalkResult::Truncated;
               }
               const int fixed = lisFixedRepSize(sp.reprc);
               const int slack = bytes - fixed * sp.samples;
@@ -941,7 +932,7 @@ namespace
             }
           }
           if (stopAtFirstData)
-            return WalkResult::Ok;
+            return LisWalkResult::Ok;
           break;
         }
         case RecEncTableDump:
@@ -956,7 +947,7 @@ namespace
       if (out.stoppedAtTrailer)
         break;
     }
-    return WalkResult::Ok;
+    return LisWalkResult::Ok;
   }
 } // namespace
 
@@ -1016,10 +1007,10 @@ bool LisParser::parse(const QString &path, LasHeaderInfo &header,
   }
 
   WalkOut out;
-  const WalkResult r =
+  const LisWalkResult r =
       walkRecords(f, /*stopAtFirstData=*/false, out, issues, error);
   header.wellName = out.wellName; // 截断时井名仍如实带出（诚实面）
-  if (r != WalkResult::Ok)
+  if (r != LisWalkResult::Ok)
     return false; // 截断/非法：error 已由走查给因；已解部分不冒充完整
   if (out.primaryLogset < 0)
   {
@@ -1109,9 +1100,9 @@ bool LisParser::parseHeader(const QString &path, LasHeaderInfo &out,
     return false;
   }
   WalkOut wout;
-  const WalkResult r =
+  const LisWalkResult r =
       walkRecords(f, /*stopAtFirstData=*/true, wout, issues, error);
-  if (r == WalkResult::Invalid)
+  if (r == LisWalkResult::Invalid)
     return false;
 
   out.wellName = wout.wellName;

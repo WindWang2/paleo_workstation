@@ -1,5 +1,6 @@
 // 层：数据
 #include "datacatalog.h"
+#include "../metadata/storeerrors_internal.h"
 #include "purgelease.h"
 
 #include "catalogstore.h"
@@ -24,6 +25,8 @@
 
 namespace
 {
+
+using paleo::store_detail::setError;
 
 // #155：受管目录 artifacts/<stage>/ast-N/ver-M 的盘上最大序号。提交两步
 // （先 rename 落位、后 applyJournal）之间崩溃会留下 catalog 不认识的孤儿目录；
@@ -91,12 +94,6 @@ void scanManagedSeqFloor(const QString &projectDir, int *maxAsset, int *maxVersi
     l.note = l.note.isEmpty() ? diagnosis
                               : l.note + QStringLiteral("；") + diagnosis;
     qWarning() << "catalog:" << diagnosis;
-  }
-
-  void setError(QString *error, const QString &text)
-  {
-    if (error)
-      *error = text;
   }
 
 } // namespace

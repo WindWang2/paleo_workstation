@@ -1,5 +1,6 @@
 // 层：数据
 #include "cluster.h"
+#include "cluster_internal.h"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -9,12 +10,7 @@
 namespace paleo::cluster {
 namespace {
 constexpr double pi = 3.14159265358979323846;
-bool stopped(const Control &c) { return c.cancelled && c.cancelled(); }
-void report(const Control &c, double p) {
-  if (c.progress)
-    c.progress(p);
-}
-Result failure(const std::string &e, bool cancel = false) {
+Result clusterFailure(const std::string &e, bool cancel = false) {
   Result r;
   r.error = e;
   r.cancelled = cancel;
@@ -66,7 +62,7 @@ double posterior(const double *x, const Model &m, std::vector<double> &p) {
 Result predict(const Matrix &x, const Model &m, const Control &ctl) {
   if (!valid(x) || !valid(m.centers) || m.centers.dimensions != x.dimensions ||
       (x.rows() && !m.centers.rows()))
-    return failure("Invalid matrix/model dimensions or non-finite values");
+    return clusterFailure("Invalid matrix/model dimensions or non-finite values");
   const auto n = x.rows(), d = x.dimensions, k = m.centers.rows();
   if (m.method == Method::Gmm &&
       (m.variances.size() != k * d || m.weights.size() != k ||
@@ -74,7 +70,7 @@ Result predict(const Matrix &x, const Model &m, const Control &ctl) {
                     [](double v) { return std::isfinite(v) && v > 0; }) ||
        !std::all_of(m.weights.begin(), m.weights.end(),
                     [](double v) { return std::isfinite(v) && v > 0; })))
-    return failure("Invalid Gaussian parameters");
+    return clusterFailure("Invalid Gaussian parameters");
   Result r;
   r.model = m;
   r.labels.resize(n);
@@ -84,7 +80,7 @@ Result predict(const Matrix &x, const Model &m, const Control &ctl) {
   for (std::size_t i = 0; i < n; ++i) {
     if ((i & 1023U) == 0) {
       if (stopped(ctl))
-        return failure("Cancelled", true);
+        return clusterFailure("Cancelled", true);
       report(ctl, double(i) / n);
     }
     std::size_t winner = 0;
@@ -100,7 +96,7 @@ Result predict(const Matrix &x, const Model &m, const Control &ctl) {
     }
     if (m.method == Method::Gmm) {
       if (!std::isfinite(posterior(x.row(i), m, p)))
-        return failure("Non-finite Gaussian posterior");
+        return clusterFailure("Non-finite Gaussian posterior");
       winner = std::size_t(std::max_element(p.begin(), p.end()) - p.begin());
       r.confidence[i] = p[winner];
       best = distance(x.row(i), m.centers.row(winner), d);
@@ -109,12 +105,12 @@ Result predict(const Matrix &x, const Model &m, const Control &ctl) {
           k == 1 ? 1
                  : (second > 0 ? std::clamp(1 - best / second, 0.0, 1.0) : 0);
     if (!std::isfinite(best))
-      return failure("Numerical overflow in distance");
+      return clusterFailure("Numerical overflow in distance");
     r.labels[i] = int(winner);
     r.squaredDistance[i] = best;
   }
   if (stopped(ctl))
-    return failure("Cancelled", true);
+    return clusterFailure("Cancelled", true);
   r.ok = true;
   report(ctl, 1);
   return r;
@@ -122,9 +118,9 @@ Result predict(const Matrix &x, const Model &m, const Control &ctl) {
 
 Result kmeans(const Matrix &x, const Options &o, const Control &ctl) {
   if (!valid(x) || !validOptions(o))
-    return failure("Invalid samples or clustering parameters");
+    return clusterFailure("Invalid samples or clustering parameters");
   if (stopped(ctl))
-    return failure("Cancelled", true);
+    return clusterFailure("Cancelled", true);
   const auto n = x.rows(), d = x.dimensions;
   Model m;
   m.centers.dimensions = d;
@@ -144,13 +140,13 @@ Result kmeans(const Matrix &x, const Options &o, const Control &ctl) {
     double sum = 0;
     for (std::size_t i = 0; i < n; ++i) {
       if ((i & 1023U) == 0 && stopped(ctl))
-        return failure("Cancelled", true);
+        return clusterFailure("Cancelled", true);
       nearest[i] =
           std::min(nearest[i], distance(x.row(i), m.centers.row(c - 1), d));
       sum += nearest[i];
     }
     if (!std::isfinite(sum))
-      return failure("Numerical overflow in kmeans++");
+      return clusterFailure("Numerical overflow in kmeans++");
     if (sum == 0)
       break; // fewer distinct samples than k; report the effective k
     const double target = std::uniform_real_distribution<double>(0, sum)(rng);
@@ -179,7 +175,7 @@ Result kmeans(const Matrix &x, const Options &o, const Control &ctl) {
     double sse = 0;
     for (std::size_t i = 0; i < n; ++i) {
       if ((i & 1023U) == 0 && stopped(ctl))
-        return failure("Cancelled", true);
+        return clusterFailure("Cancelled", true);
       double best = std::numeric_limits<double>::infinity();
       int winner = 0;
       for (std::size_t c = 0; c < k; ++c) {
@@ -197,7 +193,7 @@ Result kmeans(const Matrix &x, const Options &o, const Control &ctl) {
         sums[std::size_t(winner) * d + j] += x.row(i)[j];
     }
     if (!std::isfinite(sse))
-      return failure("Numerical overflow in kmeans");
+      return clusterFailure("Numerical overflow in kmeans");
     history.push_back(sse);
     double shift = 0;
     for (std::size_t c = 0; c < k; ++c)
@@ -232,7 +228,7 @@ Result kmeans(const Matrix &x, const Options &o, const Control &ctl) {
 
 Result gmm(const Matrix &x, const Options &o, const Control &ctl) {
   if (!valid(x) || !validOptions(o))
-    return failure("Invalid samples or clustering parameters");
+    return clusterFailure("Invalid samples or clustering parameters");
   Control initCtl{ctl.cancelled, {}};
   auto init = kmeans(x, o, initCtl);
   if (!init.ok)
@@ -291,7 +287,7 @@ Result gmm(const Matrix &x, const Options &o, const Control &ctl) {
         for (std::size_t r = 0; r < rows; ++r) {
           const std::size_t i = start + r;
           if ((i & 1023U) == 0 && stopped(ctl))
-            return failure("Cancelled", true);
+            return clusterFailure("Cancelled", true);
           ll += posterior(x.row(i), m, p);
           std::copy(p.begin(), p.end(),
                     block.begin() + std::ptrdiff_t(r * k));
@@ -305,11 +301,11 @@ Result gmm(const Matrix &x, const Options &o, const Control &ctl) {
           }
       }
       if (!std::isfinite(ll))
-        return failure("Non-finite Gaussian likelihood");
+        return clusterFailure("Non-finite Gaussian likelihood");
       history.push_back(ll);
       if (it &&
           ll + 1e-8 * std::max(1.0, std::abs(ll)) < history[history.size() - 2])
-        return failure("Gaussian EM likelihood decreased; model not accepted");
+        return clusterFailure("Gaussian EM likelihood decreased; model not accepted");
       if (it == o.maxIterations ||
           (it && std::abs(ll - history[history.size() - 2]) <=
                      o.tolerance * std::max(1.0, std::abs(ll))))
@@ -326,7 +322,7 @@ Result gmm(const Matrix &x, const Options &o, const Control &ctl) {
         for (std::size_t r = 0; r < rows; ++r) {
           const std::size_t i = start + r;
           if ((i & 1023U) == 0 && stopped(ctl))
-            return failure("Cancelled", true);
+            return clusterFailure("Cancelled", true);
           posterior(x.row(i), old, p);
           std::copy(p.begin(), p.end(),
                     block.begin() + std::ptrdiff_t(r * k));
@@ -353,18 +349,18 @@ Result gmm(const Matrix &x, const Options &o, const Control &ctl) {
       double ll = 0;
       for (std::size_t i = 0; i < n; ++i) {
         if ((i & 1023U) == 0 && stopped(ctl))
-          return failure("Cancelled", true);
+          return clusterFailure("Cancelled", true);
         ll += posterior(x.row(i), m, p);
         std::copy(p.begin(), p.end(),
                   responsibilities.begin() + std::ptrdiff_t(i * k));
       }
       if (!std::isfinite(ll))
-        return failure("Non-finite Gaussian likelihood");
+        return clusterFailure("Non-finite Gaussian likelihood");
       history.push_back(ll);
       if (it &&
           ll + 1e-8 * std::max(1.0, std::abs(ll)) <
                    history[history.size() - 2])
-        return failure("Gaussian EM likelihood decreased; model not accepted");
+        return clusterFailure("Gaussian EM likelihood decreased; model not accepted");
       if (it == o.maxIterations ||
           (it && std::abs(ll - history[history.size() - 2]) <=
                      o.tolerance * std::max(1.0, std::abs(ll))))
@@ -373,7 +369,7 @@ Result gmm(const Matrix &x, const Options &o, const Control &ctl) {
       std::fill(sums.begin(), sums.end(), 0);
       for (std::size_t i = 0; i < n; ++i) {
         if ((i & 1023U) == 0 && stopped(ctl))
-          return failure("Cancelled", true);
+          return clusterFailure("Cancelled", true);
         for (std::size_t c = 0; c < k; ++c) {
           const double w = responsibilities[i * k + c];
           counts[c] += w;
@@ -390,7 +386,7 @@ Result gmm(const Matrix &x, const Options &o, const Control &ctl) {
       std::fill(sums.begin(), sums.end(), 0);
       for (std::size_t i = 0; i < n; ++i) {
         if ((i & 1023U) == 0 && stopped(ctl))
-          return failure("Cancelled", true);
+          return clusterFailure("Cancelled", true);
         for (std::size_t c = 0; c < k; ++c)
           for (std::size_t j = 0; j < d; ++j) {
             const double delta = x.row(i)[j] - m.centers.values[c * d + j];

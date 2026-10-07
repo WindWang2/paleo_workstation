@@ -54,14 +54,6 @@ namespace
       *error = text;
   }
 
-  QString readFileOrEmpty(const QString &path)
-  {
-    QFile f(path);
-    if (!f.open(QIODevice::ReadOnly))
-      return QString();
-    return QString::fromUtf8(f.readAll());
-  }
-
   QString fileStem(const QString &path)
   {
     return QFileInfo(path).completeBaseName();

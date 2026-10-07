@@ -1,5 +1,6 @@
 // 层：QGIS 封装
 #include "qgislayerservice.h"
+#include "qgiserrors_internal.h"
 
 #include "qgisprojectservice.h"
 #include "qgiseditingservice.h"
@@ -15,15 +16,11 @@
 
 namespace
 {
-  void setError(QString *error, const QString &text)
-  {
-    if (error)
-      *error = text;
-  }
+using paleo::qgis_detail::setError;
 
   // The project service is the authority when present; a null service falls back
   // to the QgsProject singleton so tests/early boot can run without it.
-  QgsProject *resolveProject(QgisProjectService *svc)
+  QgsProject *svcProject(QgisProjectService *svc)
   {
     if (svc)
       return svc->project();
@@ -40,7 +37,7 @@ QgisLayerService::QgisLayerService(QgisProjectService *projectSvc, LayerManifest
   // clear()/read() and any removeMapLayer() path delete layers without asking —
   // every removal signal drops the corresponding cache entries so the hash can
   // never go dangling (instantiate() would otherwise hand out freed pointers).
-  QgsProject *proj = resolveProject(m_projectSvc);
+  QgsProject *proj = svcProject(m_projectSvc);
   if (proj)
   {
     connect(proj, &QgsProject::cleared, this, [this] { m_instances.clear(); });
@@ -88,7 +85,7 @@ bool QgisLayerService::declare(const LayerDeclaration &decl, QString *error)
     return false;
   if (replace)
   {
-    if (auto *project = resolveProject(m_projectSvc))
+    if (auto *project = svcProject(m_projectSvc))
       project->removeMapLayer(previous->id());
     // previous 此后可能已被 QgsProject 删除——不得再解引用。重建失败不回滚
     // 声明（清单已是新 source），但不能把失败文案塞进「成功」返回的 error，
@@ -109,7 +106,7 @@ QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *erro
     // Paranoia guard: compare pointer identity against the project's live set
     // without dereferencing — a layer destroyed between signal deliveries must
     // never be handed back as live.
-    QgsProject *proj = resolveProject(m_projectSvc);
+    QgsProject *proj = svcProject(m_projectSvc);
     const auto live = proj ? proj->mapLayers().values() : QList<QgsMapLayer *>();
     if (live.contains(existing))
       return existing;
@@ -147,7 +144,7 @@ QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *erro
     return nullptr;
   }
 
-  QgsProject *proj = resolveProject(m_projectSvc);
+  QgsProject *proj = svcProject(m_projectSvc);
   if (!proj)
   {
     setError(error, QStringLiteral("no QgsProject available to host '%1'").arg(layerId));
@@ -220,7 +217,7 @@ void QgisLayerService::releaseHorizon(const QString &horizon)
     if (d.horizon == horizon && isInstantiated(d.layerId))
       toRelease.append(d.layerId);
 
-  QgsProject *proj = resolveProject(m_projectSvc);
+  QgsProject *proj = svcProject(m_projectSvc);
   for (const QString &id : toRelease)
   {
     QgsMapLayer *l = m_instances.take(id).data();
@@ -276,7 +273,7 @@ void QgisLayerService::trackInstance(const QString &layerId, QgsMapLayer *layer)
 
 void QgisLayerService::purgeDanglingInstances()
 {
-  QgsProject *proj = resolveProject(m_projectSvc);
+  QgsProject *proj = svcProject(m_projectSvc);
   const QList<QgsMapLayer *> live = proj ? proj->mapLayers().values()
                                          : QList<QgsMapLayer *>();
   for (auto it = m_instances.begin(); it != m_instances.end();)
@@ -342,7 +339,7 @@ void QgisLayerService::setActiveHorizon(const QString &horizon)
     // else: target horizon or horizon-agnostic layer stays instantiated
   }
 
-  QgsProject *proj = resolveProject(m_projectSvc);
+  QgsProject *proj = svcProject(m_projectSvc);
   for (const QString &id : orphanIds)
   {
     QgsMapLayer *l = m_instances.take(id).data();

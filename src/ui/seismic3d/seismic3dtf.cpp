@@ -1,6 +1,7 @@
 // 层：视图
 // token 例外：DESIGN 数据符号例外：体渲染颜色/透明度传递函数预设，属于可导出的渲染数据。（tools/ui-token-exceptions.json 精确计数）。
 #include "seismic3dtf.h"
+#include "seismic3d_internal.h"
 
 #include <QColor>
 
@@ -10,11 +11,6 @@
 namespace seismic {
 
 namespace {
-inline unsigned char ToByte(float v)
-{
-    const int val = static_cast<int>(std::round(v * 255.0f));
-    return static_cast<unsigned char>(std::clamp(val, 0, 255));
-}
 } // namespace
 
 QStringList Seismic3DTransferFunction::presetNames()

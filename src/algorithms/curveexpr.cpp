@@ -457,17 +457,17 @@ private:
 };
 
 double evalNode(const std::vector<detail::ExprNode> &nodes, int idx,
-                const double *const *slots, int pointIdx)
+                const double *const *valueSlots, int pointIdx)
 {
   const detail::ExprNode &nd = nodes[idx];
-  const double a = nd.a >= 0 ? evalNode(nodes, nd.a, slots, pointIdx) : 0.0;
-  const double b = nd.b >= 0 ? evalNode(nodes, nd.b, slots, pointIdx) : 0.0;
-  const double c = nd.c >= 0 ? evalNode(nodes, nd.c, slots, pointIdx) : 0.0;
+  const double a = nd.a >= 0 ? evalNode(nodes, nd.a, valueSlots, pointIdx) : 0.0;
+  const double b = nd.b >= 0 ? evalNode(nodes, nd.b, valueSlots, pointIdx) : 0.0;
+  const double c = nd.c >= 0 ? evalNode(nodes, nd.c, valueSlots, pointIdx) : 0.0;
   using Op = detail::Op;
   switch (nd.op)
   {
     case Op::Num: return nd.num;
-    case Op::Var: return slots[nd.varSlot][pointIdx];
+    case Op::Var: return valueSlots[nd.varSlot][pointIdx];
     case Op::Add: return a + b;
     case Op::Sub: return a - b;
     case Op::Mul: return a * b;
@@ -540,18 +540,18 @@ bool CompiledExpr::evaluate(
       *error = "invalid (uncompiled) expression";
     return false;
   }
-  std::vector<const double *> slots(m_used.size(), nullptr);
+  std::vector<const double *> valueSlots(m_used.size(), nullptr);
   for (const auto &v : vars)
   {
     for (size_t i = 0; i < m_used.size(); ++i)
     {
       if (m_used[i] == v.first)
-        slots[i] = v.second;
+        valueSlots[i] = v.second;
     }
   }
-  for (size_t i = 0; i < slots.size(); ++i)
+  for (size_t i = 0; i < valueSlots.size(); ++i)
   {
-    if (!slots[i])
+    if (!valueSlots[i])
     {
       if (error)
         *error = "missing input curve '" + m_used[i] + "'";
@@ -559,7 +559,7 @@ bool CompiledExpr::evaluate(
     }
   }
   for (int i = 0; i < n; ++i)
-    out[i] = evalNode(m_nodes, m_root, slots.data(), i);
+    out[i] = evalNode(m_nodes, m_root, valueSlots.data(), i);
   return true;
 }
 

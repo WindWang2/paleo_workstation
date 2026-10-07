@@ -1,5 +1,6 @@
 // 层：视图
 #include "horizonsurfacerenderer.h"
+#include "seismic3d_internal.h"
 
 #include "seismic3dcolormap.h"
 #include "seismicslicerenderer.h"
@@ -18,11 +19,6 @@ struct SurfaceVertex {
     glm::vec3 position;
     glm::vec3 color;
 };
-
-float NormalizeF(float value, int minValue, int maxValue, float scale) {
-    const float range = static_cast<float>(std::max(1, maxValue - minValue));
-    return ((value - static_cast<float>(minValue)) / range - 0.5f) * scale;
-}
 
 } // namespace
 

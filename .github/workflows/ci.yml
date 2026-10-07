@@ -8,6 +8,8 @@ name: ci
 #   - ccache：launcher 由 CMakeLists 检测，CI 只管缓存与安装。
 #   - #136/#81：perf 标签（墙钟预算）不进必过门禁（-LE perf），单独跑在
 #     非阻断的 linux-perf job，JUnit/日志作 artifact 做趋势。
+#   - 方向70：linux-asan 非阻断观察档（ASAN+UBSAN 全量 + 串行 ctest；
+#     budget 断言经 PALEO_SANITIZER_BUILD 自动降档），稳定后转阻断。
 #   - #138→#76（方向 71）：QGIS 版本钉死单一来源 vendor/deb-closure.lock，
 #     三路（superbuild/deb 闭包/manifest 家族）一致性由
 #     tools/check_qgis_versions.py 门禁看守；Linux 侧不再 apt 系统 QGIS，
@@ -240,6 +242,63 @@ jobs:
           path: |
             build/perf-results/
             build/Testing/Temporary/LastTest*.log
+
+  # 方向70：sanitizer 常态化观察档（devex.md build-asan 手动轮 → CI 化）。
+  # ASAN+UBSAN 全量编译 + 串行 ctest；CMake 侧注入 PALEO_SANITIZER_BUILD，
+  # 三个 budget 测试自动降档/跳过（tests/perfbudget_relax.h）。
+  # continue-on-error 起步：先攒稳定性数据（Qt 内部 UBSAN 告警等已知面，
+  # devex 实测 3 处 qpointer.h downcast），稳定后转阻断。
+  linux-asan:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 150
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install QGIS 4.2 development packages (QGIS 钉版本 #138)
+        run: tools/ci_apt_qgis.sh libproj-dev libgeos-dev ccache qtkeychain-qt6-dev
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ${{ runner.os }}-ccache-asan-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-asan-
+            ${{ runner.os }}-ccache-
+      - name: Cache vendor artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor/onnxruntime
+          key: ${{ runner.os }}-ort-${{ hashFiles('vendor/manifest.json') }}
+      - name: Vendor dependencies
+        run: ./paleo-dev bootstrap
+      - name: Configure (ASAN+UBSAN)
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DPALEO_ENABLE_ASAN=ON -DPALEO_ENABLE_UBSAN=ON
+      - name: Build
+        run: cmake --build build
+      - name: Test (serial, LSAN off per devex 手动轮口径)
+        env:
+          QT_QPA_PLATFORM: offscreen
+          LD_LIBRARY_PATH: ${{ github.workspace }}/vendor/onnxruntime/lib
+          ASAN_OPTIONS: detect_leaks=0
+        run: ctest --test-dir build --output-on-failure -j 1
+      - name: Stage test diagnostics
+        if: always()
+        shell: bash
+        run: |
+          if [ -d build ]; then
+            mkdir -p build/Testing/result-files
+            find build -type f -name '*-result.txt' ! -path 'build/Testing/*' \
+              -exec cp -f {} build/Testing/result-files/ \;
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-logs-linux-asan
+          retention-days: 14
+          if-no-files-found: ignore
+          path: build/Testing/
 
   windows:
     runs-on: windows-latest

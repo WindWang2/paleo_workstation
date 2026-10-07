@@ -21,7 +21,7 @@ namespace
   // 层位组绑定凭据（头文件注释）；用户改组名后仍能认回。
   const QString kHorizonProp = QStringLiteral( "paleoHorizon" );
 
-  QgsProject *resolveProject( QgisProjectService *svc )
+  QgsProject *organizerProject( QgisProjectService *svc )
   {
     if ( svc )
       return svc->project();
@@ -84,7 +84,7 @@ QgisLayerOrganizer::QgisLayerOrganizer( QgisProjectService *projectSvc,
   , m_projectSvc( projectSvc )
   , m_layerSvc( layerSvc )
 {
-  QgsProject *proj = resolveProject( m_projectSvc );
+  QgsProject *proj = organizerProject( m_projectSvc );
   if ( !proj )
     return;
 
@@ -147,7 +147,7 @@ QgisLayerOrganizer::Zone QgisLayerOrganizer::zoneFor( const QString &horizon,
 
 void QgisLayerOrganizer::placeLayer( QgsMapLayer *layer )
 {
-  QgsProject *proj = resolveProject( m_projectSvc );
+  QgsProject *proj = organizerProject( m_projectSvc );
   if ( !proj || !layer || !m_layerSvc )
     return;
   const QString paleoId = paleoIdOf( layer );
@@ -192,7 +192,7 @@ void QgisLayerOrganizer::desiredSlot( const LayerDeclaration &decl,
                                       const QgsLayerTreeLayer *self,
                                       QgsLayerTreeGroup **parent, int *index )
 {
-  QgsProject *proj = resolveProject( m_projectSvc );
+  QgsProject *proj = organizerProject( m_projectSvc );
   QgsLayerTree *root = proj ? proj->layerTreeRoot() : nullptr;
   *parent = nullptr;
   *index = -1;
@@ -288,7 +288,7 @@ void QgisLayerOrganizer::desiredSlot( const LayerDeclaration &decl,
 
 QgsLayerTreeGroup *QgisLayerOrganizer::horizonGroup( const QString &horizon )
 {
-  QgsProject *proj = resolveProject( m_projectSvc );
+  QgsProject *proj = organizerProject( m_projectSvc );
   QgsLayerTree *root = proj ? proj->layerTreeRoot() : nullptr;
   if ( !root || horizon.isEmpty() )
     return nullptr;
@@ -364,7 +364,7 @@ QgsLayerTreeGroup *QgisLayerOrganizer::horizonGroup( const QString &horizon )
 
 void QgisLayerOrganizer::reorganize()
 {
-  QgsProject *proj = resolveProject( m_projectSvc );
+  QgsProject *proj = organizerProject( m_projectSvc );
   if ( !proj || !proj->layerTreeRoot() || !m_layerSvc )
     return;
   ensureHorizonGroups();
@@ -378,7 +378,7 @@ void QgisLayerOrganizer::reorganize()
 
 void QgisLayerOrganizer::ensureHorizonGroups()
 {
-  QgsProject *proj = resolveProject( m_projectSvc );
+  QgsProject *proj = organizerProject( m_projectSvc );
   if ( !proj || !proj->layerTreeRoot() || !m_layerSvc )
     return;
   for ( const LayerDeclaration &d : m_layerSvc->declared() )
@@ -388,7 +388,7 @@ void QgisLayerOrganizer::ensureHorizonGroups()
 
 void QgisLayerOrganizer::pruneVacantGroups()
 {
-  QgsProject *proj = resolveProject( m_projectSvc );
+  QgsProject *proj = organizerProject( m_projectSvc );
   QgsLayerTree *root = proj ? proj->layerTreeRoot() : nullptr;
   if ( !root || !m_layerSvc )
     return;

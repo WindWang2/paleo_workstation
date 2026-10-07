@@ -78,14 +78,14 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
     PaleoRibbon::mirror(a, b, syncText);
     return a;
   };
-  const auto large = [](SARibbonPanel *p, QAction *a, bool run = false) {
+  const auto addLarge = [](SARibbonPanel *p, QAction *a, bool run = false) {
     if (!p || !a)
       return;
     p->addLargeAction(a);
     if (run)
       PaleoRibbon::markRun(PaleoRibbon::buttonFor(p, a));
   };
-  const auto small = [](SARibbonPanel *p, QAction *a) {
+  const auto addSmall = [](SARibbonPanel *p, QAction *a) {
     if (p && a)
       p->addSmallAction(a);
   };
@@ -173,25 +173,25 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
     if (!panAct)
       return;
     SARibbonPanel *p = panel(cat, tr("地图"), "ribbonNavPanel");
-    large(p, panAct);
-    small(p, zoomInAct);
-    small(p, zoomOutAct);
-    small(p, fullAct);
+    addLarge(p, panAct);
+    addSmall(p, zoomInAct);
+    addSmall(p, zoomOutAct);
+    addSmall(p, fullAct);
   };
 
   // ================= 数据管理 =================
   if (SARibbonCategory *cat = categoryForPage(QStringLiteral("data")))
   {
     SARibbonPanel *p = panel(cat, tr("数据导入"), "ribbonPanel.data.import");
-    large(p, mirrored(data, "importFolder", tr("导入工区文件夹"), icon("mIconFolderOpen.svg"),
+    addLarge(p, mirrored(data, "importFolder", tr("导入工区文件夹"), icon("mIconFolderOpen.svg"),
                       "ribbonImportFolder"));
-    small(p, mirrored(data, "importWells", tr("导入井数据"), icon("mIconPointLayer.svg"),
+    addSmall(p, mirrored(data, "importWells", tr("导入井数据"), icon("mIconPointLayer.svg"),
                       "ribbonImportWells"));
-    small(p, mirrored(data, "importWellLogs", tr("导入测井数据"), icon("mIconLineLayer.svg"),
+    addSmall(p, mirrored(data, "importWellLogs", tr("导入测井数据"), icon("mIconLineLayer.svg"),
                       "ribbonImportWellLogs"));
-    small(p, mirrored(data, "importSeismic", tr("导入地震数据"), icon("mIconRasterLayer.svg"),
+    addSmall(p, mirrored(data, "importSeismic", tr("导入地震数据"), icon("mIconRasterLayer.svg"),
                       "ribbonImportSeismic"));
-    small(p, mirrored(data, "importBoundary", tr("导入边界数据"), icon("mIconPolygonLayer.svg"),
+    addSmall(p, mirrored(data, "importBoundary", tr("导入边界数据"), icon("mIconPolygonLayer.svg"),
                       "ribbonImportBoundary"));
 
     if (data)
@@ -204,11 +204,11 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
       // 过滤条显隐（「清除过滤」、导入确认框的「查看未决」）回写勾选态。
       if (auto *filterBar = data->findChild<QWidget *>(QStringLiteral("unresolvedFilterBar")))
         PaleoRibbon::followVisibility(unresolved, filterBar);
-      large(lp, unresolved);
+      addLarge(lp, unresolved);
       QAction *refresh = newAction(tr("刷新列表"), icon("mActionRefresh.svg"),
                                    tr("按数据目录重建列表"), "ribbonRefreshList");
       connect(refresh, &QAction::triggered, data, &DataPage::refreshAssetTable);
-      large(lp, refresh);
+      addLarge(lp, refresh);
     }
 
     auto *maxBtn = m_previewTabs
@@ -238,7 +238,7 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
       };
       connect(inner, &QTabWidget::currentChanged, maxAct, syncMax);
       syncMax();
-      large(vp, maxAct);
+      addLarge(vp, maxAct);
     }
 
     SARibbonPanel *sp = panel(cat, tr("地震视口"), "ribbonPanel.data.seismic");
@@ -255,7 +255,7 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
         }
       }
     });
-    large(sp, seismic3dAct);
+    addLarge(sp, seismic3dAct);
 
     QAction *seismic2dAct = newAction(tr("地震剖面"), icon("mIconRasterLayer.svg"),
                                       tr("打开二维地震与井震标定剖面"), "ribbonActionSeismic2D");
@@ -266,22 +266,22 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
         m_seismicSectionDock->raise();
       }
     });
-    large(sp, seismic2dAct);
+    addLarge(sp, seismic2dAct);
   }
 
   // ================= 预测编图 =================
   if (SARibbonCategory *cat = categoryForPage(QStringLiteral("predict")))
   {
     SARibbonPanel *p = panel(cat, tr("预测运行"), "ribbonPanel.predict.run");
-    large(p, mirrored(predict, "runButton", tr("运行预测"), icon("mActionStart.svg"),
+    addLarge(p, mirrored(predict, "runButton", tr("运行预测"), icon("mActionStart.svg"),
                       "ribbonRunPrediction"),
           true);
-    large(p, paramsAct);
+    addLarge(p, paramsAct);
     if (corrAct || attrAct)
     {
       SARibbonPanel *cp = panel(cat, tr("叠加对照"), "ribbonPanel.predict.compare");
-      large(cp, corrAct);
-      large(cp, attrAct);
+      addLarge(cp, corrAct);
+      addLarge(cp, attrAct);
       QAction *pSeismic3d = newAction(tr("三维地震"), icon("3d.svg"),
                                       tr("打开三维地震立体视口"), "ribbonPredictSeismic3D");
       connect(pSeismic3d, &QAction::triggered, this, [this] {
@@ -295,7 +295,7 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
           }
         }
       });
-      large(cp, pSeismic3d);
+      addLarge(cp, pSeismic3d);
       QAction *pSeismic2d = newAction(tr("地震剖面"), icon("mIconRasterLayer.svg"),
                                       tr("打开地震与井震剖面"), "ribbonPredictSeismic2D");
       connect(pSeismic2d, &QAction::triggered, this, [this] {
@@ -305,14 +305,14 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
           m_seismicSectionDock->raise();
         }
       });
-      large(cp, pSeismic2d);
+      addLarge(cp, pSeismic2d);
     }
     if (wellSectionAct)
-      large(panel(cat, tr("连井分析"), "ribbonPanel.predict.correlation"),
+      addLarge(panel(cat, tr("连井分析"), "ribbonPanel.predict.correlation"),
             wellSectionAct);
     addEditingPanel(cat, editTb);
     navPanel(cat);
-    large(panel(cat, tr("结果"), "ribbonPanel.predict.result"), toValidate);
+    addLarge(panel(cat, tr("结果"), "ribbonPanel.predict.result"), toValidate);
   }
 
   // ================= 单因素图 =================
@@ -341,48 +341,48 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
         p->addLargeAction(draw, QToolButton::MenuButtonPopup);
       }
       else
-        large(p, draw);
+        addLarge(p, draw);
     }
-    large(p, paramsAct);
+    addLarge(p, paramsAct);
     SARibbonPanel *ip = panel(cat, tr("插值计算"), "ribbonPanel.constraint.idw");
-    large(ip, mirrored(constraint, "runIdwButton", tr("计算单因素"), icon("mActionStart.svg"),
+    addLarge(ip, mirrored(constraint, "runIdwButton", tr("计算单因素"), icon("mActionStart.svg"),
                        "ribbonRunIdw"),
           true);
     if (wellSectionAct || corrAct)
     {
       SARibbonPanel *cp = panel(cat, tr("连井分析"), "ribbonPanel.constraint.correlation");
-      large(cp, wellSectionAct); // 连井剖面排在测井对比之前
-      large(cp, corrAct);
+      addLarge(cp, wellSectionAct); // 连井剖面排在测井对比之前
+      addLarge(cp, corrAct);
     }
     addEditingPanel(cat, editTb);
     navPanel(cat);
-    large(panel(cat, tr("结果"), "ribbonPanel.constraint.result"), toValidate);
+    addLarge(panel(cat, tr("结果"), "ribbonPanel.constraint.result"), toValidate);
   }
 
   // ================= 智能编图 =================
   if (SARibbonCategory *cat = categoryForPage(QStringLiteral("compose")))
   {
     SARibbonPanel *p = panel(cat, tr("编图链"), "ribbonPanel.compose.chain");
-    large(p, mirrored(compose, "thicknessChainButton", tr("生成等厚图"),
+    addLarge(p, mirrored(compose, "thicknessChainButton", tr("生成等厚图"),
                       icon("processingAlgorithm.svg"), "ribbonThicknessChain", true),
           true);
-    small(p, mirrored(compose, "fuseButton", tr("合成编图"), icon("processingModel.svg"),
+    addSmall(p, mirrored(compose, "fuseButton", tr("合成编图"), icon("processingModel.svg"),
                       "ribbonFuse"));
-    small(p, mirrored(compose, "polygonizeButton", tr("转为相多边形"),
+    addSmall(p, mirrored(compose, "polygonizeButton", tr("转为相多边形"),
                       icon("mActionCapturePolygon.svg"), "ribbonPolygonize"));
-    large(p, paramsAct);
+    addLarge(p, paramsAct);
     if (wellSectionAct)
-      large(panel(cat, tr("连井分析"), "ribbonPanel.compose.correlation"),
+      addLarge(panel(cat, tr("连井分析"), "ribbonPanel.compose.correlation"),
             wellSectionAct);
     addEditingPanel(cat, editTb);
     navPanel(cat);
 
     SARibbonPanel *op = panel(cat, tr("图件输出"), "ribbonPanel.compose.output");
-    large(op, mirrored(compose, "exportPdfButton", tr("导出 PDF"), icon("mActionSaveAsPDF.svg"),
+    addLarge(op, mirrored(compose, "exportPdfButton", tr("导出 PDF"), icon("mActionSaveAsPDF.svg"),
                        "ribbonExportPdf"));
     if (QAction *designer = findChild<QAction *>(QStringLiteral("ribbonDesignerAction")))
     {
-      large(op, designer);
+      addLarge(op, designer);
       if (auto *b = PaleoRibbon::buttonFor(op, designer))
       {
         b->setObjectName(QStringLiteral("designerButton"));
@@ -391,7 +391,7 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
     }
     if (QAction *mapBook = findChild<QAction *>(QStringLiteral("ribbonMapBookAction")))
     {
-      large(op, mapBook);
+      addLarge(op, mapBook);
       if (auto *b = PaleoRibbon::buttonFor(op, mapBook))
       {
         b->setObjectName(QStringLiteral("mapBookButton"));
@@ -400,38 +400,38 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
     }
 
     SARibbonPanel *vp = panel(cat, tr("版本"), "ribbonPanel.compose.version");
-    large(vp, mirrored(compose, "saveVersionButton", tr("保存版本"), icon("mActionFileSaveAs.svg"),
+    addLarge(vp, mirrored(compose, "saveVersionButton", tr("保存版本"), icon("mActionFileSaveAs.svg"),
                        "ribbonSaveVersion", true));
-    large(vp, mirrored(compose, "publishButton", tr("发布"), icon("mActionSharing.svg"),
+    addLarge(vp, mirrored(compose, "publishButton", tr("发布"), icon("mActionSharing.svg"),
                        "ribbonPublish"));
-    small(vp, toValidate);
+    addSmall(vp, toValidate);
   }
 
   // ================= 验证 =================
   if (SARibbonCategory *cat = categoryForPage(QStringLiteral("validate")))
   {
     SARibbonPanel *p = panel(cat, tr("验证"), "ribbonPanel.validate.run");
-    large(p, mirrored(validate, "runButton", tr("运行验证"), icon("mActionStart.svg"),
+    addLarge(p, mirrored(validate, "runButton", tr("运行验证"), icon("mActionStart.svg"),
                       "ribbonRunValidation"),
           true);
-    large(p, paramsAct);
+    addLarge(p, paramsAct);
     QAction *section = mirrored(validate, "openSeismicSectionButton", tr("看这条剖面"),
                                 icon("mIconRasterLayer.svg"), "ribbonOpenSection");
     if (section || corrAct)
     {
       SARibbonPanel *lp = panel(cat, tr("联动定位"), "ribbonPanel.validate.locate");
-      large(lp, section);
-      large(lp, corrAct);
+      addLarge(lp, section);
+      addLarge(lp, corrAct);
     }
     navPanel(cat);
     if (releaseAct)
-      large(panel(cat, tr("发布"), "ribbonPanel.validate.release"), releaseAct);
+      addLarge(panel(cat, tr("发布"), "ribbonPanel.validate.release"), releaseAct);
   }
 
   if (auto *sections = findChild<QAction *>("sectionWorkbenchAction")) {
     for (const auto &page : {"data", "predict", "constraint", "compose"})
       if (auto *cat = categoryForPage(QString::fromLatin1(page)))
-        large(panel(cat, tr("井震剖面"), "ribbonPanel.sections"), sections);
+        addLarge(panel(cat, tr("井震剖面"), "ribbonPanel.sections"), sections);
   }
 
   bar->endUpdate();

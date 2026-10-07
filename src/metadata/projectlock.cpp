@@ -1,5 +1,6 @@
 // 层：数据
 #include "projectlock.h"
+#include "storeerrors_internal.h"
 
 #include <QDir>
 #include <QFileInfo>
@@ -7,11 +8,8 @@
 
 namespace
 {
-  void setError( QString *error, const QString &text )
-  {
-    if ( error )
-      *error = text;
-  }
+using paleo::store_detail::setError;
+
 } // namespace
 
 ProjectDirLock::ProjectDirLock( const QString &projectDir )

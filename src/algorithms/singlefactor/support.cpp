@@ -1,5 +1,6 @@
 // 层：数据
 #include "support.h"
+#include "singlefactor_internal.h"
 
 #include <algorithm>
 #include <cmath>
@@ -38,6 +39,8 @@ double distanceToPolyline( Point2 point, const std::vector<Point2> &points )
 
 namespace
 {
+
+using paleo::singlefactor::cancelled;
 
 constexpr double kGiB = 1024.0 * 1024.0 * 1024.0;
 
@@ -97,7 +100,7 @@ RingClass classifyRing( const Ring &ring, Point2 point, double tolerance )
   return inside ? RingClass::In : RingClass::Out;
 }
 
-double polylineLength( const std::vector<Point2> &points )
+double polylineLengthFiltered( const std::vector<Point2> &points )
 {
   double length = 0;
   for ( std::size_t i = 1; i < points.size(); ++i )
@@ -230,11 +233,6 @@ double distanceToHull( Point2 point, const std::vector<Point2> &hull )
     }
   }
   return inside ? 0.0 : best;
-}
-
-bool cancelled( const Control *control )
-{
-  return control && control->cancelled && control->cancelled();
 }
 
 double minDistanceToLines( Point2 point, const std::vector<const ConstraintLine *> &lines )
@@ -600,7 +598,7 @@ std::string resolveParameters( const PreparedInput &input, const GridSpec &grid,
       return "directionRatio 必须在 [1,100]";
     if ( !( line.ratio > 1.0 ) || line.points.size() < 2 )
       continue;
-    const double length = polylineLength( line.points );
+    const double length = polylineLengthFiltered( line.points );
     double radius = line.influenceRadius > 0.0 ? line.influenceRadius
                                                 : std::min( std::max( 2.0 * spacing, 0.2 * length ), 0.15 * span );
     if ( !( radius > 0.0 ) || !std::isfinite( radius ) )

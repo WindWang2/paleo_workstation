@@ -27,8 +27,8 @@ namespace
 
 using paleo::workflow_detail::setError;
 
-// ---- 栅格读取（同厚度链 readGrid 口径：整幅 Float32 + geotransform）----------
-struct GridSpec
+// ---- 栅格读取（同厚度链 readDcGrid 口径：整幅 Float32 + geotransform）----------
+struct DcGridSpec
 {
   int cols = 0, rows = 0;
   double gt[6] = {0, 0, 0, 0, 0, 0};
@@ -39,7 +39,7 @@ struct GridSpec
   bool hasInlineRange = false, hasXlineRange = false;
 };
 
-bool readGrid(const QString &path, GridSpec *g)
+bool readDcGrid(const QString &path, DcGridSpec *g)
 {
   GDALAllRegister();
   GDALDatasetH ds = GDALOpen(path.toUtf8().constData(), GA_ReadOnly);
@@ -306,8 +306,8 @@ bool DepthConversionWorkflow::convertRasterToDepth(const QString &horizon,
   if (!model.isValid())
     return fail(QStringLiteral("速度模型不可用：%1").arg(modelErr));
 
-  GridSpec g;
-  if (!readGrid(timeRasterPath, &g))
+  DcGridSpec g;
+  if (!readDcGrid(timeRasterPath, &g))
     return fail(QStringLiteral("读不了时间域栅格 %1").arg(timeRasterPath));
   if (!g.hasNodata)
     g.nodata = -9999.0; // 惯用哨兵：与 horizonbinner 写出口径一致

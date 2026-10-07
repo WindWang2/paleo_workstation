@@ -43,7 +43,6 @@ QString csvField( const QString &value )
                                                                QLatin1String( "\"\"" ) ) );
   return value;
 }
-using paleo::wellsiting::Polygon;
 
 QVariantMap metricsToMap( const paleo::wellsiting::ScenarioMetrics &metrics )
 {
@@ -104,9 +103,9 @@ QJsonArray ringToJson( const std::vector<Point2> &ring )
   return coords;
 }
 
-Polygon ringFromQgs( const QgsPolylineXY &pts )
+paleo::wellsiting::Polygon ringFromQgs( const QgsPolylineXY &pts )
 {
-  Polygon polygon;
+  paleo::wellsiting::Polygon polygon;
   polygon.exterior.points.reserve( pts.size() );
   for ( const QgsPointXY &p : pts )
     polygon.exterior.points.push_back( Point2{ p.x(), p.y() } );
@@ -122,9 +121,9 @@ std::vector<Point2> lineFromQgs( const QgsPolylineXY &pts )
   return out;
 }
 
-Polygon rectDomain( double minX, double minY, double maxX, double maxY )
+paleo::wellsiting::Polygon rectDomain( double minX, double minY, double maxX, double maxY )
 {
-  Polygon domain;
+  paleo::wellsiting::Polygon domain;
   domain.exterior.points = { Point2{ minX, minY }, Point2{ maxX, minY }, Point2{ maxX, maxY },
                              Point2{ minX, maxY } };
   return domain;
@@ -141,9 +140,9 @@ std::vector<Point2> wellPoints( const QList<QVariantMap> &wells )
 }
 
 // QGIS 几何 → 核多边形外环集（multipart 一并展开）。
-std::vector<Polygon> polygonsFromWkt( const QString &wkt )
+std::vector<paleo::wellsiting::Polygon> polygonsFromWkt( const QString &wkt )
 {
-  std::vector<Polygon> out;
+  std::vector<paleo::wellsiting::Polygon> out;
   const QgsGeometry geometry = QgsGeometry::fromWkt( wkt );
   if ( geometry.isNull() || geometry.isEmpty() )
     return out;
@@ -154,7 +153,7 @@ std::vector<Polygon> polygonsFromWkt( const QString &wkt )
   {
     if ( poly.isEmpty() )
       continue;
-    Polygon kernel = ringFromQgs( poly.front() );
+    paleo::wellsiting::Polygon kernel = ringFromQgs( poly.front() );
     if ( kernel.exterior.points.size() >= 3 )
       out.push_back( std::move( kernel ) );
   }
@@ -324,7 +323,7 @@ std::vector<paleo::wellsiting::Polygon>
 WellSitingWorkflow::resolveDomain( const WellSitingParams &params,
                                    const QList<QVariantMap> &wells, QString *source ) const
 {
-  std::vector<Polygon> domain;
+  std::vector<paleo::wellsiting::Polygon> domain;
   if ( d->constraintProvider )
   {
     for ( const SitingConstraintGeometry &constraint : d->constraintProvider() )
@@ -344,7 +343,7 @@ WellSitingWorkflow::resolveDomain( const WellSitingParams &params,
   {
     for ( const CatalogEntity &e : d->catalog->entities( QStringLiteral( "seismic_survey" ) ) )
     {
-      Polygon survey;
+      paleo::wellsiting::Polygon survey;
       for ( const auto &corner : e.corners )
         survey.exterior.points.push_back( Point2{ corner.first, corner.second } );
       if ( survey.exterior.points.size() >= 3 )
@@ -380,7 +379,7 @@ bool WellSitingWorkflow::runDiagnosis( const WellSitingParams &params, QString *
 {
   const QList<QVariantMap> wells = realWellsForSiting();
   QString domainSource;
-  const std::vector<Polygon> domain = resolveDomain( params, wells, &domainSource );
+  const std::vector<paleo::wellsiting::Polygon> domain = resolveDomain( params, wells, &domainSource );
   if ( wells.isEmpty() )
   {
     if ( error )
@@ -550,7 +549,7 @@ bool WellSitingWorkflow::generateCandidates( const WellSitingParams &params, QSt
       *error = tr( "没有可定位的实井——候选生成需要实井集" );
     return false;
   }
-  const std::vector<Polygon> domain = resolveDomain( params, wells );
+  const std::vector<paleo::wellsiting::Polygon> domain = resolveDomain( params, wells );
   const paleo::wellsiting::SitingOptions options = kernelOptions( params );
   const paleo::wellsiting::SitingField field =
       paleo::wellsiting::sampleField( domain, wellPoints( wells ), options );
@@ -573,7 +572,7 @@ bool WellSitingWorkflow::generateCandidates( const WellSitingParams &params, QSt
     }
   if ( d->faultCutsProvider )
     for ( const QString &wkt : d->faultCutsProvider() )
-      for ( const Polygon &polygon : polygonsFromWkt( wkt ) )
+      for ( const paleo::wellsiting::Polygon &polygon : polygonsFromWkt( wkt ) )
         avoid.polygons.push_back( polygon );
 
   paleo::wellsiting::CandidateOptions candidateOptions;
@@ -877,7 +876,7 @@ QVariantMap WellSitingWorkflow::evaluateScenario( const WellSitingParams &params
       *error = tr( "没有可定位的实井——评估需要实井基线" );
     return QVariantMap();
   }
-  const std::vector<Polygon> domain = resolveDomain( params, wells );
+  const std::vector<paleo::wellsiting::Polygon> domain = resolveDomain( params, wells );
   const paleo::wellsiting::SitingOptions options = kernelOptions( params );
   const std::vector<Point2> wellPts = wellPoints( wells );
 

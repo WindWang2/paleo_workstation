@@ -105,7 +105,7 @@ namespace
     return true;
   }
 
-  quint16 compressionFlags()
+  quint16 lasCompressionFlags()
   {
 #ifdef PALEO_HAVE_ZSTD
     return CacheFlags::ZstdCompressed;
@@ -177,7 +177,7 @@ bool LasCache::writeDisk(const QString &fingerprint, const LasDoc &doc)
   const QString path = diskPathFor(fingerprint);
   const QByteArray payload = encodeDoc(fingerprint, doc);
   if (!writeCacheFileAtomic(path, QByteArray(kLasCacheMagic, 8), kLasCacheVersion,
-                            compressionFlags(), payload))
+                            lasCompressionFlags(), payload))
     return false; // 无缓存继续可用（D2.1 降级口径）
   return true;
 }

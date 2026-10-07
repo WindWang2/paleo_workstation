@@ -1,5 +1,6 @@
 // 层：QGIS 封装
 #include "factorcontour.h"
+#include "qgiserrors_internal.h"
 
 #include "../algorithms/singlefactor/contourlevels.h"
 #include "../algorithms/singlefactor/fieldcontours.h"
@@ -26,11 +27,8 @@
 
 namespace
 {
-  void setError( QString *error, const QString &text )
-  {
-    if ( error )
-      *error = text;
-  }
+using paleo::qgis_detail::setError;
+
 } // namespace
 
 namespace FactorContourService

@@ -1,5 +1,6 @@
 // 层：视图
 #include "layerpropertiesdialog.h"
+#include "../uienv_internal.h"
 
 #include <QCoreApplication>
 #include <QComboBox>
@@ -39,12 +40,9 @@
 namespace
 {
 
-const QString kDash = QStringLiteral("—");
+using paleo::ui_detail::isOffscreen;
 
-bool isOffscreen()
-{
-    return QGuiApplication::platformName() == QStringLiteral("offscreen");
-}
+const QString kDash = QStringLiteral("—");
 
 // layerId 解析链：a) QgisLayerService 实例缓存；b) QgsProject 工程图层按
 // customProperty("paleoLayerId")==layerId 匹配（覆盖手工加层/缺源层——

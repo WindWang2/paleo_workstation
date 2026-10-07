@@ -4,6 +4,8 @@
 #include <QDir>
 #include <QFile>
 
+#include "perfbudget_relax.h"
+
 #include "../src/catalog/datacatalog.h"
 #include "../src/io/dataimportservice.h"
 #include "../src/metadata/layermanifest.h"
@@ -163,10 +165,14 @@ private slots:
     QCOMPARE(facade.wells().size(), 20);
 
     // 量测基线（环境见文件头）：实测 1–2ms（release，NVMe）。上限钉 100ms
-    // ——对 CI 噪声留两个数量级余量，仍能拦住数量级回归。
-    qDebug() << "projectOpen(catalog+manifest, 200 versions):" << elapsedMs << "ms (budget 100 ms)";
-    QVERIFY2(elapsedMs < 100,
-             qPrintable(QStringLiteral("project open took %1 ms > 100 ms budget").arg(elapsedMs)));
+    // ——对 CI 噪声留两个数量级余量，仍能拦住数量级回归。sanitizer 档
+    //（PALEO_SANITIZER_BUILD）经 relaxedBudgetMs ×3 放宽（devex.md ASAN
+    // 实测 ~2x 减速；系数契约由 tst_sanitizer_budget(+_on) 钉住）。
+    const qint64 budgetMs = paleo::perfbudget::relaxedBudgetMs(100);
+    qDebug() << "projectOpen(catalog+manifest, 200 versions):" << elapsedMs << "ms (budget" << budgetMs << "ms)";
+    QVERIFY2(elapsedMs < budgetMs,
+             qPrintable(QStringLiteral("project open took %1 ms > %2 ms budget")
+                            .arg(elapsedMs).arg(budgetMs)));
   }
 
   // 2) folder 枚举：previewFolder 只枚举+分类（不导入），64 文件/8 目录。
@@ -207,10 +213,12 @@ private slots:
     QCOMPARE(rows.size(), 64);
 
     // 量测基线：实测 1ms（64 小文件嗅探）。预热后上限 500ms（两个数量级余量，
-    // 容忍 CI 并行负载抖动，仍能拦住病态退化）。
-    qDebug() << "folderEnumeration(64 files/8 dirs):" << elapsedMs << "ms (budget 500 ms)";
-    QVERIFY2(elapsedMs < 500,
-             qPrintable(QStringLiteral("folder enumeration took %1 ms > 500 ms budget").arg(elapsedMs)));
+    // 容忍 CI 并行负载抖动，仍能拦住病态退化）。sanitizer 档 ×3（同上）。
+    const qint64 budgetMs = paleo::perfbudget::relaxedBudgetMs(500);
+    qDebug() << "folderEnumeration(64 files/8 dirs):" << elapsedMs << "ms (budget" << budgetMs << "ms)";
+    QVERIFY2(elapsedMs < budgetMs,
+             qPrintable(QStringLiteral("folder enumeration took %1 ms > %2 ms budget")
+                            .arg(elapsedMs).arg(budgetMs)));
   }
 
   // 3) save() 在 200 版本规模的一次落盘（QSaveFile 全量序列化 + .bak 轮转复制）。
@@ -239,9 +247,12 @@ private slots:
     const qint64 elapsedMs = timer.elapsed();
 
     // 量测基线：实测 1–2ms（~330KB JSON + .bak 复制）。上限钉 100ms。
-    qDebug() << "catalogSave(200 versions):" << elapsedMs << "ms (budget 100 ms)";
-    QVERIFY2(elapsedMs < 100,
-             qPrintable(QStringLiteral("catalog save took %1 ms > 100 ms budget").arg(elapsedMs)));
+    // sanitizer 档 ×3（同上）。
+    const qint64 budgetMs = paleo::perfbudget::relaxedBudgetMs(100);
+    qDebug() << "catalogSave(200 versions):" << elapsedMs << "ms (budget" << budgetMs << "ms)";
+    QVERIFY2(elapsedMs < budgetMs,
+             qPrintable(QStringLiteral("catalog save took %1 ms > %2 ms budget")
+                            .arg(elapsedMs).arg(budgetMs)));
   }
 };
 

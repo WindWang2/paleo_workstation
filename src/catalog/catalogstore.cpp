@@ -1,5 +1,6 @@
 // 层：数据
 #include "catalogstore.h"
+#include "../metadata/storeerrors_internal.h"
 
 #include "../metadata/atomicfile.h"
 #include "../metadata/metastore.h"
@@ -20,19 +21,15 @@
 
 namespace
 {
+using paleo::store_detail::setError;
+
   // catalog.sqlite 的 user_version 版本域独立于 project.sqlite 的
   // MetaStore::kUserVersion：早期构建复用 project 版本门，把 catalog 文件
   // 标成了 1/2——兼容常量取 2 放行存量库。今后 project schema 推进不再
   // 影响 catalog；catalog 自身的 schema 演进以 meta 表 schema_epoch 为准。
   constexpr int kCatalogUserVersion = 2;
 
-  void setError(QString *error, const QString &text)
-  {
-    if (error)
-      *error = text;
-  }
-
-  QString connectionNameFor(const CatalogStore *self, const QString &path, bool readOnly)
+  QString catalogConnectionName(const CatalogStore *self, const QString &path, bool readOnly)
   {
     return QStringLiteral("paleo_catalog_%1_%2%3")
         .arg(QString::number(qHash(QFileInfo(path).absoluteFilePath()), 16),
@@ -1051,7 +1048,7 @@ bool CatalogStore::attachWritable(QString *error)
     setError(error, QStringLiteral("catalog sqlite path is empty"));
     return false;
   }
-  m_connectionName = connectionNameFor(this, m_sqlitePath, false);
+  m_connectionName = catalogConnectionName(this, m_sqlitePath, false);
   bool opened = false;
   {
     QSqlDatabase db = MetaStore::openConnection(m_sqlitePath, m_connectionName, error, false,
@@ -1139,7 +1136,7 @@ bool CatalogStore::replaceAll(const Tables &tables, QString *error)
 
 bool CatalogStore::connectPrimary(bool readOnly, QString *error)
 {
-  m_connectionName = connectionNameFor(this, m_sqlitePath, readOnly);
+  m_connectionName = catalogConnectionName(this, m_sqlitePath, readOnly);
   QString local;
   bool opened = false;
   {
@@ -1283,7 +1280,7 @@ bool CatalogStore::recover(const QString &primaryError, Tables *out, QString *er
       detail += QStringLiteral("%1: corrupt backup: cannot copy; ").arg(candidate);
       continue;
     }
-    const QString name = connectionNameFor(this, tmp, false);
+    const QString name = catalogConnectionName(this, tmp, false);
     QString localErr;
     bool loadedOk = false;
     Tables loaded;

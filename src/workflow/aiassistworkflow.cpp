@@ -148,7 +148,7 @@ bool writeBandRaster( const QString &path, int rows, int cols, GDALDataType dt,
   return true;
 }
 
-QString safeSegment( const QString &s )
+QString aiSafeSegment( const QString &s )
 {
   QString out;
   for ( const QChar &c : s )
@@ -264,7 +264,7 @@ bool AiAssistWorkflow::writeTileProducts( const QString &horizon, const QString 
   facies.layerId = QStringLiteral( "aifacies.%1.%2" ).arg( horizon, model );
   facies.assetType = QStringLiteral( "aifacies" );
   facies.title = tr( "%1 AI 相分类 %2" ).arg( horizon, model );
-  facies.fileName = QStringLiteral( "AIFACIES_%1_%2.tif" ).arg( safeSegment( horizon ), safeSegment( model ) );
+  facies.fileName = QStringLiteral( "AIFACIES_%1_%2.tif" ).arg( aiSafeSegment( horizon ), aiSafeSegment( model ) );
   facies.bytes = result.grid.argmax; // 255 已是无数据
   products.append( facies );
 
@@ -273,7 +273,7 @@ bool AiAssistWorkflow::writeTileProducts( const QString &horizon, const QString 
   masked.assetType = QStringLiteral( "aifacies_masked" );
   masked.title = tr( "%1 AI 相分类 %2（低置信掩膜）" ).arg( horizon, model );
   masked.fileName = QStringLiteral( "AIFACIES_%1_%2_MASKED.tif" )
-                      .arg( safeSegment( horizon ), safeSegment( model ) );
+                      .arg( aiSafeSegment( horizon ), aiSafeSegment( model ) );
   masked.bytes = QVector<quint8>( n, 255 );
   for ( qsizetype i = 0; i < n; ++i )
   {
@@ -289,7 +289,7 @@ bool AiAssistWorkflow::writeTileProducts( const QString &horizon, const QString 
   conf.assetType = QStringLiteral( "confidence" );
   conf.title = tr( "%1 置信度 %2" ).arg( horizon, model );
   conf.fileName = QStringLiteral( "CONFIDENCE_%1_%2.tif" )
-                    .arg( safeSegment( horizon ), safeSegment( model ) );
+                    .arg( aiSafeSegment( horizon ), aiSafeSegment( model ) );
   conf.floats = QVector<float>( n, -9999.0f );
   for ( qsizetype i = 0; i < n; ++i )
   {
@@ -660,7 +660,7 @@ bool AiAssistWorkflow::commitAccepted( const QString &horizon, QString *error )
   QString stageErr;
   const DerivedStaging st = registrar.stage(
     QStringLiteral( "aitrack" ), tr( "%1 AI 追踪拾取" ).arg( horizon ),
-    QStringLiteral( "AITRACK_%1.json" ).arg( safeSegment( horizon ) ), &stageErr );
+    QStringLiteral( "AITRACK_%1.json" ).arg( aiSafeSegment( horizon ) ), &stageErr );
   if ( !st.isValid() )
   {
     return fail( stageErr );

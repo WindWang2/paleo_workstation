@@ -1,5 +1,6 @@
 // 层：功能
 #include "layouttemplatelibrary.h"
+#include "workflowerrors_internal.h"
 
 #include "../catalog/datacatalog.h"
 #include "../metadata/atomicfile.h"
@@ -14,11 +15,8 @@
 
 namespace
 {
-  void setError( QString *error, const QString &text )
-  {
-    if ( error )
-      *error = text;
-  }
+using paleo::workflow_detail::setError;
+
 } // namespace
 
 namespace PaleoLayoutTemplateLibrary

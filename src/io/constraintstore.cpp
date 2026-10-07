@@ -1,5 +1,6 @@
 // 层：数据
 #include "constraintstore.h"
+#include "gdalreg_internal.h"
 
 #include <gdal.h>
 #include <ogr_api.h>
@@ -19,13 +20,8 @@
 
 namespace
 {
-  void ensureGdalRegistered()
-  {
-    static std::once_flag flag;
-    std::call_once(flag, []() {
-      GDALAllRegister();
-    });
-  }
+
+using paleo::io_detail::ensureGdalRegistered;
 
   bool ensureField(OGRLayerH layer, const char *name, OGRFieldType type)
   {

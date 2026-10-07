@@ -207,9 +207,19 @@ void TestSegyLines::openMemoryDoesNotScaleWithVolume()
     {
       QVERIFY2(rssAfter >= rssBefore, "rss sanity");
       const qulonglong growth = rssAfter - rssBefore;
+#ifdef PALEO_SANITIZER_BUILD
+      // 方向70（devex.md build-asan 实测）：ASAN 红区/隔离区把索引期 RSS
+      // 放大 ~5MB，3MB 绝对预算在 sanitizer 档不可测——×3 放宽（9MB）又
+      // 超过 8.2MB 样本载荷，断言变空洞。按递延 6 口径跳过增长预算，
+      // 道数/解码规模等索引行为断言全部保留（语义仍在盯「不随体增长」）。
+      qDebug() << "PALEO_SANITIZER_BUILD: skip RSS growth budget (measured growth"
+               << (growth / (1024 * 1024)) << "MB, payload"
+               << (sampleTotal / (1024 * 1024)) << "MB)";
+#else
       QVERIFY2(growth < 3ULL * 1024 * 1024,
                qPrintable(QStringLiteral("open() grew RSS by %1 MB; sample payload is %2 MB")
                               .arg(growth / (1024 * 1024)).arg(sampleTotal / (1024 * 1024))));
+#endif
     }
     // 单线解码规模符合预期（10 道 × 1024 样本）。
     QVector<SegyTrace> line;

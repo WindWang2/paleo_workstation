@@ -1,5 +1,6 @@
 // 层：数据
 #include "lowfreq.h"
+#include "inversion_internal.h"
 
 // 低频模型实现。IDW 为 inversion 内薄实现（井距 0 精确命中、无半径截断）；
 // 不复用 singlefactor 的 PreparedInput/autos 面——那套携带单因子参数语义，
@@ -12,7 +13,6 @@
 
 namespace paleo::inversion
 {
-constexpr float kNan = std::numeric_limits<float>::quiet_NaN();
 
 // 中心移动平均：见 lowfreq.h 注释（lowCut 频段语义的公共低通核）。
 void lowCutMovingAverage(const float *x, int n, int half, float *out)

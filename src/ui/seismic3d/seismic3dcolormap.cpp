@@ -1,6 +1,7 @@
 // 层：视图
 // token 例外：DESIGN 数据符号例外：地震振幅/属性色带预设（包含白色中点），主题不得改写数值映射。（tools/ui-token-exceptions.json 精确计数）。
 #include "seismic3dcolormap.h"
+#include "seismic3d_internal.h"
 
 #include <QColor>
 #include <algorithm>
@@ -9,11 +10,6 @@
 namespace seismic {
 
 namespace {
-inline unsigned char ToByte(float v)
-{
-    const int val = static_cast<int>(std::round(v * 255.0f));
-    return static_cast<unsigned char>(std::clamp(val, 0, 255));
-}
 } // namespace
 
 QStringList Seismic3DColorMap::presetNames()

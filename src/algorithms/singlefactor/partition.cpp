@@ -1,5 +1,6 @@
 // 层：数据
 #include "partition.h"
+#include "singlefactor_internal.h"
 
 #include "support.h"
 
@@ -14,12 +15,14 @@ namespace paleo::singlefactor
 namespace
 {
 
+using paleo::singlefactor::cancelled;
+
 double cross( double ax, double ay, double bx, double by )
 {
   return ax * by - ay * bx;
 }
 
-bool pointOnSegment( Point2 point, Point2 a, Point2 b, double tol )
+bool pointNearSegment( Point2 point, Point2 a, Point2 b, double tol )
 {
   const double dx = b.x - a.x;
   const double dy = b.y - a.y;
@@ -83,7 +86,7 @@ bool endpointOnDomainBoundary( Point2 point, const std::vector<Polygon> &boundar
   return false;
 }
 
-bool unitVector( double dx, double dy, double &ux, double &uy )
+bool partitionUnitVector( double dx, double dy, double &ux, double &uy )
 {
   const double length = std::hypot( dx, dy );
   if ( length <= 1e-12 )
@@ -123,11 +126,6 @@ std::optional<Point2> rayHitDomainBoundary( Point2 origin, Point2 direction,
     }
   }
   return best;
-}
-
-bool cancelled( const Control *control )
-{
-  return control && control->cancelled && control->cancelled();
 }
 
 std::vector<Point2> gridRectRing( const GridSpec &grid )
@@ -192,7 +190,7 @@ bool pointOnBarriers( Point2 point, std::span<const BarrierSpec> barriers, doubl
   {
     for ( std::size_t i = 1; i < barrier.points.size(); ++i )
     {
-      if ( pointOnSegment( point, barrier.points[i - 1], barrier.points[i], std::max( tol, 1e-9 ) ) )
+      if ( pointNearSegment( point, barrier.points[i - 1], barrier.points[i], std::max( tol, 1e-9 ) ) )
         return true;
     }
   }
@@ -238,7 +236,7 @@ ExtendResult extendBarriersToDomain( std::span<const BarrierSpec> barriers,
     std::vector<Point2> points = barrier.points;
 
     double sx = 0, sy = 0;
-    if ( unitVector( points[0].x - points[1].x, points[0].y - points[1].y, sx, sy ) &&
+    if ( partitionUnitVector( points[0].x - points[1].x, points[0].y - points[1].y, sx, sy ) &&
          !endpointOnDomainBoundary( points[0], boundaries, snapTol ) )
     {
       const std::optional<Point2> hit = rayHitDomainBoundary( points[0], { sx, sy }, boundaries, maxDist );
@@ -259,7 +257,7 @@ ExtendResult extendBarriersToDomain( std::span<const BarrierSpec> barriers,
     }
 
     double ex = 0, ey = 0;
-    if ( unitVector( barrier.points.back().x - barrier.points[barrier.points.size() - 2].x,
+    if ( partitionUnitVector( barrier.points.back().x - barrier.points[barrier.points.size() - 2].x,
                      barrier.points.back().y - barrier.points[barrier.points.size() - 2].y, ex, ey ) &&
          !endpointOnDomainBoundary( barrier.points.back(), boundaries, snapTol ) )
     {

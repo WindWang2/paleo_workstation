@@ -1,5 +1,6 @@
 // 层：QGIS 封装
 #include "qgisprocessingservice.h"
+#include "qgiserrors_internal.h"
 
 #include "../algorithms/paleoalgorithms.h"
 #include "../metadata/paleoprojectstore.h"
@@ -33,11 +34,7 @@
 
 namespace
 {
-  void setError(QString *error, const QString &text)
-  {
-    if (error)
-      *error = text;
-  }
+using paleo::qgis_detail::setError;
 
   // §41.2 temp-then-merge: outputs a caller did not pin to a destination are
   // remapped into a process-wide temp pool (auto-removed at exit). Each run

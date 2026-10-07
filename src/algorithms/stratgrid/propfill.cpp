@@ -1,5 +1,6 @@
 // 层：数据
 #include "propfill.h"
+#include "../algoerrors_internal.h"
 
 #include "../faultsurface/faultsurface.h"
 
@@ -19,11 +20,7 @@ namespace paleo::stratgrid
 namespace
 {
 
-void setError(QString *error, const QString &text)
-{
-  if (error)
-    *error = text;
-}
+using paleo::algo_detail::setError;
 
 int orient(double ax, double ay, double bx, double by, double cx, double cy)
 {

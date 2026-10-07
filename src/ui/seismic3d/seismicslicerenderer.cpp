@@ -1,5 +1,6 @@
 // 层：视图
 #include "seismicslicerenderer.h"
+#include "seismic3d_internal.h"
 
 #include "seismic3dtf.h"
 
@@ -17,11 +18,6 @@ struct SliceVertex {
     glm::vec3 position;
     glm::vec2 uv;
 };
-
-float Normalize(int value, int minValue, int maxValue, float scale) {
-    const float range = static_cast<float>(std::max(1, maxValue - minValue));
-    return ((static_cast<float>(value - minValue) / range) - 0.5f) * scale;
-}
 
 std::array<SliceVertex, 4> BuildSliceVertices(const SgyVolume &volume, SgySliceType type, int index) {
     const float horizontalScale = SeismicSliceRenderer::HorizontalScale();

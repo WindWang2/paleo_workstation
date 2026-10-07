@@ -71,6 +71,10 @@ if(PALEO_ENABLE_ASAN OR PALEO_ENABLE_UBSAN)
   endif()
   add_compile_options(-fno-omit-frame-pointer -g)
   add_link_options(-fno-omit-frame-pointer)
+  # 方向70：budget 类断言感知 sanitizer 档（墙钟预算 ×3、RSS 增长断言跳过，
+  # 见 tests/perfbudget_relax.h 与 devex.md build-asan 实测口径）。非
+  # sanitizer 构建不定义，测试行为零变化。
+  add_compile_definitions(PALEO_SANITIZER_BUILD=1)
 endif()
 if(PALEO_ENABLE_ASAN)
   add_compile_options(-fsanitize=address)
@@ -704,11 +708,16 @@ target_include_directories(paleo_core INTERFACE ${CMAKE_SOURCE_DIR}/src ${GDAL_I
 
 # ---- 实验性 unity build（devex T6）：PALEO_UNITY_BUILD=ON 时仅逐产品 target ----
 # vendor 三家（sbm/segyio/saribbon）显式排除——见顶部 option 注释。
-# 实测结论（build-unity 轮）：ON 当前**编译不过**——全仓 .cpp 惯用同名
-# 匿名 helper（setError/connectionNameFor…），metadata/catalog/qgis 等目标
-# 合批即 redefinition。开关按约定保留（默认 OFF，不影响任何现有路径），
-# 真正可用需先做 helper 去重/改名（src/ 改动归各模块方向，递延 devex.md）；
-# 逐源 SKIP_UNITY_BUILD_INCLUSION 可作局部逃生门但维护成本高于收益。
+# 实测结论（方向70，2026-10-07，MSVC/Ninja 10 目标全编过）：早期同名匿名
+# helper（setError×35 / connectionNameFor×8 / ensureOpen×7 / kNan / cluster
+# stopped·report·failure / geosArea / ensureGdalRegistered / addIssue /
+# sha256Hex / sfpkg 常量 / GridSpec·readGrid / seismic3d Normalize 族 /
+# windows 宏撞名 slots·small 等）已按「同构→共享 internal 头（*_internal.h
+# ×15）/语义不同→逐文件改名」收拢，UNITY_BUILD=ON 在 BATCH_SIZE 8 下全目标
+# 编译+链接通过。已知余量（mega-TU 超集分析，当前分批未触发、源序重排可
+# 复暴露，见 devex.md「Unity 实测」）：cluster valid/distance、PALEO_NODATA
+# 宏、datapreview qssHeight 重载歧义、previewhistogramwidget QFont helper。
+# 默认仍 OFF：未做全量 ctest 长跑对照，收益（链接期 TU 数）待量化后再定。
 if(PALEO_UNITY_BUILD)
   foreach(_t paleo_domain paleo_algorithms paleo_store paleo_qgis paleo_io
              paleo_services paleo_linkage paleo_workflow paleo_ui paleo_app)
@@ -1089,6 +1098,19 @@ add_paleo_test(tst_perfbudget LIBS paleo_services paleo_qgis)
 set_tests_properties(tst_perfbudget PROPERTIES RUN_SERIAL TRUE)     # 非 UI 性能预算：工程打开/folder 枚举/save 200 版本
 target_compile_definitions(tst_perfbudget PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
+# 方向70：预算降档系数单测（tests/perfbudget_relax.h 契约——tst_correlation_full/
+# tst_perfbudget 的墙钟预算经 relaxedBudgetMs 放宽）。默认二进制系数=1；下面
+# 同源第二二进制强制 PALEO_SANITIZER_BUILD=1（系数=3）——on/off 两档预算差在
+# 本机（含 MSVC，sanitizer 档仅 Linux）即可对拍验证。
+add_paleo_test(tst_sanitizer_budget LIBS paleo_domain)
+add_executable(tst_sanitizer_budget_on tests/tst_sanitizer_budget.cpp)
+target_link_libraries(tst_sanitizer_budget_on PRIVATE paleo_domain Qt6::Test)
+target_compile_definitions(tst_sanitizer_budget_on PRIVATE
+  PALEO_SANITIZER_BUILD=1 FIXTURE_GPKG="${FIXTURE_GPKG}")
+add_test(NAME tst_sanitizer_budget_on COMMAND tst_sanitizer_budget_on
+         -o "${PALEO_QTEST_FIRST_RUN_DIR}/tst_sanitizer_budget_on.txt,txt")
+paleo_test_sandbox(tst_sanitizer_budget_on)
+set_tests_properties(tst_sanitizer_budget_on PROPERTIES LABELS domain)
 
 # ---- data/role-registry (A 包：工程作用域角色词表) ----
 add_paleo_test(tst_roles LIBS paleo_store)

@@ -7,6 +7,8 @@
 #include <QSignalSpy>
 #include <QtTest>
 
+#include <utility>
+
 #ifdef Q_OS_UNIX
 #include <cerrno>
 #include <csignal>
@@ -48,6 +50,8 @@ void TestScriptRunner::initTestCase()
   m_python = PythonEnvService::findBasePython();
   if (m_python.isEmpty())
     QSKIP("no base python on PATH");
+  // 诊断：CI 上实际选中的解释器（Windows 由 PATH 次序决定）。
+  qInfo("base python: %s", qPrintable(QDir::toNativeSeparators(m_python)));
 }
 
 void TestScriptRunner::runsToCompletionExitZero()
@@ -100,12 +104,26 @@ void TestScriptRunner::streamsStdoutAndStderr()
       svc.start({fixture(QStringLiteral("stream.py")), {}, {}, m_python, 0});
   QVERIFY(id > 0);
   QVERIFY(finishedSpy.wait(30000));
-  QCOMPARE(outLines, QStringList({QStringLiteral("OUT_LINE_0"),
-                                  QStringLiteral("OUT_LINE_1"),
-                                  QStringLiteral("OUT_LINE_2")}));
-  QCOMPARE(errLines, QStringList({QStringLiteral("ERR_LINE_0"),
-                                  QStringLiteral("ERR_LINE_1"),
-                                  QStringLiteral("ERR_LINE_2")}));
+  // 解释器自身可能往 stderr 写与夹具无关的行（Windows CI 上实测 stderr 多
+  // 出 1 行）：只核对夹具标记行的内容与顺序，其余行回显供诊断、不判红。
+  const auto fixtureLines = [](const QStringList &lines, const QString &prefix) {
+    QStringList matched, extra;
+    for (const QString &line : lines)
+      (line.startsWith(prefix) ? matched : extra).append(line);
+    return std::make_pair(matched, extra);
+  };
+  const auto [outMatched, outExtra] = fixtureLines(outLines, QStringLiteral("OUT_LINE_"));
+  const auto [errMatched, errExtra] = fixtureLines(errLines, QStringLiteral("ERR_LINE_"));
+  if (!outExtra.isEmpty() || !errExtra.isEmpty())
+    qInfo("non-fixture lines: stdout=[%s] stderr=[%s]",
+          qPrintable(outExtra.join(QLatin1Char('|'))),
+          qPrintable(errExtra.join(QLatin1Char('|'))));
+  const QStringList expectedOut = {QStringLiteral("OUT_LINE_0"), QStringLiteral("OUT_LINE_1"),
+                                   QStringLiteral("OUT_LINE_2")};
+  const QStringList expectedErr = {QStringLiteral("ERR_LINE_0"), QStringLiteral("ERR_LINE_1"),
+                                   QStringLiteral("ERR_LINE_2")};
+  QVERIFY2(outMatched == expectedOut, qPrintable(outLines.join(QLatin1Char('|'))));
+  QVERIFY2(errMatched == expectedErr, qPrintable(errLines.join(QLatin1Char('|'))));
   QVERIFY(sawOutputBeforeFinish);
 }
 

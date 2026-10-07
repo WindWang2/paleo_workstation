@@ -23,20 +23,26 @@ using namespace paleo::pagesinternal;
 
 namespace {
 
-// 展开态快照键：资产叶用 assetId、井/实体节点用 entityId、分类组等无 id
-// 节点用类型+去计数尾巴的文本（"测井 (20 井)" → "测井"）——重建后按键
-// 找回同一节点，catalog.changed 触发的全量刷新不抹掉用户的展开。
+// 展开态快照键：沿父链拼路径（根→本节点），单节 = 类型|assetId|entityId|sub，
+// 无 id 的分类组补去计数尾巴的文本（"测井 (20 井)" → "测井"）。父链区分
+// 跨井同名分支（如各井的「岩心照片」组）——重建后按键找回同一节点，
+// catalog.changed 触发的全量刷新不抹掉用户的展开，也不串井。
 QString navExpandedKey(const QTreeWidgetItem *it)
 {
-  const QString id = it->data(0, Qt::UserRole).toString();
-  const QString eid = it->data(0, Qt::UserRole + 1).toString();
-  const QString type = it->data(0, Qt::UserRole + 2).toString();
-  const QString sub = it->data(0, Qt::UserRole + 3).toString();
-  QString key = type + QLatin1Char('|') + id + QLatin1Char('|') + eid +
-                QLatin1Char('|') + sub;
-  if (id.isEmpty() && eid.isEmpty())
-    key += QLatin1Char('|') + it->text(0).section(QStringLiteral(" ("), 0, 0);
-  return key;
+  QStringList parts;
+  for (const QTreeWidgetItem *p = it; p; p = p->parent())
+  {
+    const QString id = p->data(0, Qt::UserRole).toString();
+    const QString eid = p->data(0, Qt::UserRole + 1).toString();
+    const QString type = p->data(0, Qt::UserRole + 2).toString();
+    const QString sub = p->data(0, Qt::UserRole + 3).toString();
+    QString part = type + QLatin1Char('|') + id + QLatin1Char('|') + eid +
+                   QLatin1Char('|') + sub;
+    if (id.isEmpty() && eid.isEmpty())
+      part += QLatin1Char('|') + p->text(0).section(QStringLiteral(" ("), 0, 0);
+    parts.prepend(part);
+  }
+  return parts.join(QStringLiteral("\x1f"));
 }
 
 } // namespace
@@ -150,11 +156,19 @@ void DataListPanel::refreshAssetTree()
                        return false;
                      });
 
+    QVector<EntityAssetLink> coreLinks; // core 角色链接——收尾建分组分支用
     for (const EntityAssetLink &l : sortedLinks)
     {
       const CatalogAsset a = cat->assetById(l.assetId);
       if (a.id.isEmpty())
         continue;
+      // 岩心照片（core 角色）是高频多实例数据——不平铺进井节点，收进
+      // 末尾的「岩心照片 (N)」分组分支（L3），照片叶在第四级。
+      if (l.role == QLatin1String("core"))
+      {
+        coreLinks.append(l);
+        continue;
+      }
       auto *sub = new QTreeWidgetItem(wellItem);
       sub->setData(0, Qt::UserRole, a.id);
       sub->setData(0, Qt::UserRole + 1, w.id);
@@ -206,6 +220,40 @@ void DataListPanel::refreshAssetTree()
         PaleoTheme::setItemTextColor(sub, 0, PaleoTheme::ItemTextColor::Warning); // 待复核色（现取随主题）
         sub->setText(1, tr("未决关联"));
       }
+    }
+
+    // 「岩心照片 (N)」分组分支（L3，无 id 的 category 节点；点击只展开/收拢）。
+    // 照片叶（L4）保留 assetId/wellId/core 角色三元——激活、拖放、过滤语义
+    // 与原平铺叶完全一致。
+    if (!coreLinks.isEmpty())
+    {
+      auto *branch = new QTreeWidgetItem(wellItem);
+      branch->setData(0, Qt::UserRole + 2, QStringLiteral("category"));
+      branch->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mIconRaster.svg")));
+      int added = 0;
+      for (const EntityAssetLink &l : coreLinks)
+      {
+        const CatalogAsset a = cat->assetById(l.assetId);
+        if (a.id.isEmpty())
+          continue;
+        auto *leaf = new QTreeWidgetItem(branch);
+        leaf->setData(0, Qt::UserRole, a.id);
+        leaf->setData(0, Qt::UserRole + 1, w.id);
+        leaf->setData(0, Qt::UserRole + 2, l.role);
+        leaf->setText(0, a.displayName);
+        leaf->setText(1, tr("岩心照片"));
+        leaf->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mIconRaster.svg")));
+        if (l.unresolved)
+        {
+          PaleoTheme::setItemTextColor(leaf, 0, PaleoTheme::ItemTextColor::Warning);
+          leaf->setText(1, tr("未决关联"));
+        }
+        ++added;
+      }
+      if (added == 0)
+        delete branch;
+      else
+        branch->setText(0, tr("岩心照片 (%1)").arg(added));
     }
   }
 
@@ -308,7 +356,7 @@ void DataListPanel::refreshAssetTree()
       seisAssets.append(a);
   auto *seismicRoot = new QTreeWidgetItem(m_tree);
   seismicRoot->setText(0, tr("地震 (%1)").arg(seisAssets.size()));
-  seismicRoot->setText(1, tr("三维地震数据体"));
+  seismicRoot->setText(1, tr("三维地震体 / 层位解释"));
   seismicRoot->setData(0, Qt::UserRole + 2, QStringLiteral("category"));
   seismicRoot->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mIconPolygonLayer.svg")));
   seismicRoot->setExpanded(false);
@@ -458,7 +506,7 @@ void DataListPanel::refreshAssetTree()
     }
   }
 
-  // 4. 层位 (Horizons)
+  // 地震解释层位归入地震分类，资产仍保持 horizon 类型与层序界面关联。
   QList<CatalogAsset> horAssets;
   for (const CatalogAsset &a : cat->assets())
     if (assetVisible(a) && a.type == QLatin1String("horizon"))
@@ -466,7 +514,7 @@ void DataListPanel::refreshAssetTree()
   std::sort(horAssets.begin(), horAssets.end(), [](const CatalogAsset &a, const CatalogAsset &b) {
     return naturalNameSort(a.displayName, b.displayName);
   });
-  auto *horRoot = new QTreeWidgetItem(m_tree);
+  auto *horRoot = new QTreeWidgetItem(seismicRoot);
   horRoot->setText(0, tr("层位 (%1)").arg(horAssets.size()));
   horRoot->setText(1, tr("解释层位数据"));
   horRoot->setData(0, Qt::UserRole + 2, QStringLiteral("category"));

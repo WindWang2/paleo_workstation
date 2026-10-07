@@ -159,10 +159,9 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
   if (sourceSha.isEmpty())
     return fail(shaErr.isEmpty() ? QStringLiteral("cannot hash %1").arg(sourcePath) : shaErr);
 
-  const QByteArray xmlContent =
-      fi.suffix().compare(QStringLiteral("xml"), Qt::CaseInsensitive) == 0
-          ? readFileOrEmpty(sourcePath).toUtf8()
-          : QByteArray();
+  QFile classificationFile(sourcePath);
+  const QByteArray xmlContent = classificationFile.open(QIODevice::ReadOnly)
+                                   ? classificationFile.read(65536) : QByteArray();
   ProjectClassification cls = classifyProjectImport(sourcePath, xmlContent);
   // 确认表「改类型」：forceType 覆盖分类器结果（其余分类字段保留）。
   if (!options.forceType.isEmpty())

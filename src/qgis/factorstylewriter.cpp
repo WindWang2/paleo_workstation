@@ -1,5 +1,6 @@
 // 层：QGIS 封装
 #include "factorstylewriter.h"
+#include "qgiserrors_internal.h"
 
 #include <QColor>
 #include <QDir>
@@ -25,6 +26,8 @@
 
 namespace
 {
+using paleo::qgis_detail::setError;
+
   struct RampPreset
   {
     const char *color1;
@@ -52,11 +55,6 @@ namespace
     return true;
   }
 
-  void setError( QString *error, const QString &text )
-  {
-    if ( error )
-      *error = text;
-  }
 } // namespace
 
 namespace FactorStyleWriter

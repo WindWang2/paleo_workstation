@@ -32,12 +32,15 @@ QString folderTypeLabel(const QString &type)
       {QStringLiteral("well_log"), QObject::tr("测井")},
       {QStringLiteral("well_stratification"), QObject::tr("井分层")},
       {QStringLiteral("time_depth"), QObject::tr("时深")},
+      {QStringLiteral("well_deviation"), QObject::tr("井斜")},
       {QStringLiteral("horizon"), QObject::tr("层位")},
       {QStringLiteral("seismic"), QObject::tr("地震")},
       {QStringLiteral("tabular"), QObject::tr("表格")},
       {QStringLiteral("geojson"), QObject::tr("GeoJSON")},
       {QStringLiteral("document"), QObject::tr("文档")},
       {QStringLiteral("image_reference"), QObject::tr("图像")},
+      {QStringLiteral("single_factor_package"), QObject::tr("单因素数据包")},
+      {QStringLiteral("outsource_workbook"), QObject::tr("外部成果工作簿")},
       {QStringLiteral("reference"), QObject::tr("参考资料")},
       {QStringLiteral("unknown"), QObject::tr("未知")}};
   return kLabels.value(type, type); // 词表外类型裸显 id（type 仍存 item data）
@@ -334,6 +337,13 @@ void buildFolderConfirmDialog(QDialog *dlg, const QString &dir,
 
   QVector<QComboBox *> combos;
   populateFolderConfirmTable(table, dir, preview, &combos);
+  hint->setText(QObject::tr("1 · 自动识别与分类调整：检查每个文件的分类，必要时修改类型。"));
+  auto *review = new QLabel(dlg);
+  review->setObjectName(QStringLiteral("folderClassificationReview"));
+  review->setTextFormat(Qt::PlainText);
+  review->setWordWrap(true);
+  review->hide();
+  lay->addWidget(review);
 
   // T2 大小估算：预览期一行估算（将导入多少/多大/跳过多少）+ 每行大小进
   // 路径 tooltip——不动四列结构（既有测试与结果列控件挂点不迁移）。
@@ -410,6 +420,60 @@ void buildFolderConfirmDialog(QDialog *dlg, const QString &dir,
   auto *confirm =
       buttons->addButton(QObject::tr("确认导入"), QDialogButtonBox::AcceptRole);
   confirm->setObjectName(QStringLiteral("folderConfirmButton"));
+  confirm->setVisible(false);
+  auto *back = buttons->addButton(QObject::tr("上一步"), QDialogButtonBox::ActionRole);
+  back->setObjectName(QStringLiteral("folderBackButton"));
+  back->hide();
+  auto *next = buttons->addButton(QObject::tr("下一步"), QDialogButtonBox::ActionRole);
+  next->setObjectName(QStringLiteral("folderNextButton"));
+  next->setDefault(true);
+  QObject::connect(next, &QAbstractButton::clicked, dlg,
+                   [table, hint, review, combos, next, back, confirm, preview, forcePaths] {
+    QMap<QString, int> counts;
+    int adjusted = 0, skipped = 0;
+    for (int row = 0; row < preview.size(); ++row)
+      if (!preview[row].skipped && combos.value(row) &&
+          (preview[row].decision != QLatin1String("skip") || forcePaths->contains(preview[row].path)))
+      {
+        const QString type = combos[row]->currentData().toString();
+        ++counts[folderTypeLabel(type)];
+        adjusted += type != folderRowDisplayType(preview[row].path, preview[row].classifiedType);
+      }
+      else
+        ++skipped;
+    QStringList lines;
+    for (auto it = counts.cbegin(); it != counts.cend(); ++it)
+      lines << QObject::tr("%1：%2 个文件").arg(it.key()).arg(it.value());
+    lines << QObject::tr("手动调整 %1 项。井口数据将先导入，随后导入关联资料。").arg(adjusted);
+    if (skipped)
+      lines << QObject::tr("跳过 %1 个文件（重复或不可导入）。").arg(skipped);
+    review->setText(lines.join(QLatin1Char('\n')));
+    hint->setText(QObject::tr("2 · 确认导入：检查分类汇总；可返回上一步继续调整。"));
+    table->hide();
+    review->show();
+    next->hide();
+    back->show();
+    confirm->show();
+    confirm->setDefault(true);
+  });
+  QObject::connect(back, &QAbstractButton::clicked, dlg,
+                   [table, hint, review, next, back, confirm] {
+    hint->setText(QObject::tr("1 · 自动识别与分类调整：检查每个文件的分类，必要时修改类型。"));
+    table->show();
+    review->hide();
+    next->show();
+    back->hide();
+    confirm->hide();
+    next->setDefault(true);
+  });
+  QObject::connect(confirm, &QAbstractButton::clicked, dlg,
+                   [table, hint, review, next, back] {
+    hint->setText(QObject::tr("3 · 导入与结果：逐文件显示导入状态。"));
+    table->show();
+    review->hide();
+    next->hide();
+    back->hide();
+  });
   auto *cancel = buttons->addButton(QObject::tr("取消"), QDialogButtonBox::RejectRole);
   // T31「查看未决」：导入完成后出现——把数据页资产表过滤到未决行，直接
   // 指向「挂到这口井」的挂接入口（不留「导完了然后呢」的断头路）。

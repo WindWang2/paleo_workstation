@@ -1,5 +1,6 @@
 // 层：数据
 #include "lasparser.h"
+#include "ioerrors_internal.h"
 #include "../domain/wellnumeric.h"
 
 #include "cachebudget.h"
@@ -30,11 +31,7 @@ qint64 LasParser::s_fileSizeLimit = 500LL * 1024 * 1024;
 // ---------------------------------------------------------------------------
 namespace
 {
-  void setError(QString *error, const QString &text)
-  {
-    if (error)
-      *error = text;
-  }
+using paleo::io_detail::setError;
 
   struct LasItem
   {

@@ -71,6 +71,10 @@ if(PALEO_ENABLE_ASAN OR PALEO_ENABLE_UBSAN)
   endif()
   add_compile_options(-fno-omit-frame-pointer -g)
   add_link_options(-fno-omit-frame-pointer)
+  # 方向70：budget 类断言感知 sanitizer 档（墙钟预算 ×3、RSS 增长断言跳过，
+  # 见 tests/perfbudget_relax.h 与 devex.md build-asan 实测口径）。非
+  # sanitizer 构建不定义，测试行为零变化。
+  add_compile_definitions(PALEO_SANITIZER_BUILD=1)
 endif()
 if(PALEO_ENABLE_ASAN)
   add_compile_options(-fsanitize=address)
@@ -438,6 +442,9 @@ add_library(paleo_qgis STATIC
   src/qgis/mappingartifactwriter.cpp
   src/qgis/qgisruntime.cpp
   src/qgis/qgisprojectservice.cpp
+  src/qgis/qgisprojectservice_async.cpp
+  src/qgis/qgisprojectservice_map.cpp
+  src/qgis/projectmapreference.cpp
   src/qgis/qgislayerservice.cpp
   src/qgis/qgiscanvascontroller.cpp
   src/qgis/qgiseditingservice.cpp
@@ -494,12 +501,14 @@ target_link_libraries(paleo_io PUBLIC paleo_deps paleo_domain paleo_store)
 add_library(paleo_services STATIC
   src/services/toolavailability.cpp
   src/services/previewdoc.cpp                       # W1 数据页唯一数据门面
+  src/services/previewdoc_survey.cpp                # 完整测区范围后台恢复
   src/services/singlefactordef.cpp                  # m2：单因素定义注册表
   src/services/algoparamschema.cpp                  # m2：算法参数 schema 注册表
   src/services/projectdata.cpp                      # 读侧门面（catalog.json + LayerManifest）
   src/services/paleotaskservice.cpp                 # D1/D2 异步任务框架
   src/services/jobrunner.cpp                        # 方向20：统一三段式 JobRunner（作业框架）
   src/services/seismicmapping.cpp                   # 测网几何↔inline/xline/CDP
+  src/services/seismichorizoncluster.cpp             # 层位窗反射特征聚类（Mock 相解释）
   src/services/seismictaskservice.cpp               # sdk::Dataset 门面 + 任务编排 (Base Core)
   src/services/seismictaskservice_transcode.cpp     # 地震任务：索引与转码
   src/services/seismictaskservice_slice.cpp         # 地震任务：切片与剖面
@@ -636,6 +645,7 @@ add_library(paleo_ui STATIC
   src/ui/datapreview/previewhistogramwidget.cpp    # P2 D2.3/D5.8 直方图小图
   src/ui/datapreview/previewmapstates.cpp          # P2 D1.7/D2.x 状态页 + 会话记忆
   src/ui/dialogs/folderconfirm.cpp                 # W2 文件夹导入确认表
+  src/ui/dialogs/projectmapsettingsdialog.cpp
   src/ui/welltops/welltopseditordialog.cpp          # 方向 32：分层表编辑器
   src/ui/welltops/welltopsmergedialog.cpp           # 方向 32：导入融合逐行取舍
   src/ui/dialogs/storagegovernancedialog.cpp
@@ -701,11 +711,16 @@ target_include_directories(paleo_core INTERFACE ${CMAKE_SOURCE_DIR}/src ${GDAL_I
 
 # ---- 实验性 unity build（devex T6）：PALEO_UNITY_BUILD=ON 时仅逐产品 target ----
 # vendor 三家（sbm/segyio/saribbon）显式排除——见顶部 option 注释。
-# 实测结论（build-unity 轮）：ON 当前**编译不过**——全仓 .cpp 惯用同名
-# 匿名 helper（setError/connectionNameFor…），metadata/catalog/qgis 等目标
-# 合批即 redefinition。开关按约定保留（默认 OFF，不影响任何现有路径），
-# 真正可用需先做 helper 去重/改名（src/ 改动归各模块方向，递延 devex.md）；
-# 逐源 SKIP_UNITY_BUILD_INCLUSION 可作局部逃生门但维护成本高于收益。
+# 实测结论（方向70，2026-10-07，MSVC/Ninja 10 目标全编过）：早期同名匿名
+# helper（setError×35 / connectionNameFor×8 / ensureOpen×7 / kNan / cluster
+# stopped·report·failure / geosArea / ensureGdalRegistered / addIssue /
+# sha256Hex / sfpkg 常量 / GridSpec·readGrid / seismic3d Normalize 族 /
+# windows 宏撞名 slots·small 等）已按「同构→共享 internal 头（*_internal.h
+# ×15）/语义不同→逐文件改名」收拢，UNITY_BUILD=ON 在 BATCH_SIZE 8 下全目标
+# 编译+链接通过。已知余量（mega-TU 超集分析，当前分批未触发、源序重排可
+# 复暴露，见 devex.md「Unity 实测」）：cluster valid/distance、PALEO_NODATA
+# 宏、datapreview qssHeight 重载歧义、previewhistogramwidget QFont helper。
+# 默认仍 OFF：未做全量 ctest 长跑对照，收益（链接期 TU 数）待量化后再定。
 if(PALEO_UNITY_BUILD)
   foreach(_t paleo_domain paleo_algorithms paleo_store paleo_qgis paleo_io
              paleo_services paleo_linkage paleo_workflow paleo_ui paleo_app)
@@ -820,9 +835,17 @@ if(PALEO_PYTHON3)
            ${CMAKE_SOURCE_DIR}/tools/check_ui_tokens.py --strict)
   add_test(NAME ui_tokens_selftest COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/check_ui_tokens.py --selftest)
+  # 方向 71（#76 依赖口径统一）：三路 QGIS 版本口径一致性——superbuild 精确
+  # == deb 闭包上游 == manifest qgis_family 家族，补丁名随 superbuild 版本。
+  # 防 4.2.2/4.2.3/4.2.x 三口径再分裂；selftest 合成树验证各分裂形态能打红。
+  add_test(NAME qgis_versions COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_qgis_versions.py)
+  add_test(NAME qgis_versions_selftest COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_qgis_versions.py --selftest)
   set_tests_properties(layering layering_strict layering_selftest
                        ui_invariants ui_invariants_strict ui_invariants_selftest
                        i18n i18n_selftest ui_tokens ui_tokens_strict ui_tokens_selftest
+                       qgis_versions qgis_versions_selftest
                        PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 endif()
 
@@ -1081,6 +1104,19 @@ add_paleo_test(tst_perfbudget LIBS paleo_services paleo_qgis)
 set_tests_properties(tst_perfbudget PROPERTIES RUN_SERIAL TRUE)     # 非 UI 性能预算：工程打开/folder 枚举/save 200 版本
 target_compile_definitions(tst_perfbudget PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
+# 方向70：预算降档系数单测（tests/perfbudget_relax.h 契约——tst_correlation_full/
+# tst_perfbudget 的墙钟预算经 relaxedBudgetMs 放宽）。默认二进制系数=1；下面
+# 同源第二二进制强制 PALEO_SANITIZER_BUILD=1（系数=3）——on/off 两档预算差在
+# 本机（含 MSVC，sanitizer 档仅 Linux）即可对拍验证。
+add_paleo_test(tst_sanitizer_budget LIBS paleo_domain)
+add_executable(tst_sanitizer_budget_on tests/tst_sanitizer_budget.cpp)
+target_link_libraries(tst_sanitizer_budget_on PRIVATE paleo_domain Qt6::Test)
+target_compile_definitions(tst_sanitizer_budget_on PRIVATE
+  PALEO_SANITIZER_BUILD=1 FIXTURE_GPKG="${FIXTURE_GPKG}")
+add_test(NAME tst_sanitizer_budget_on COMMAND tst_sanitizer_budget_on
+         -o "${PALEO_QTEST_FIRST_RUN_DIR}/tst_sanitizer_budget_on.txt,txt")
+paleo_test_sandbox(tst_sanitizer_budget_on)
+set_tests_properties(tst_sanitizer_budget_on PROPERTIES LABELS domain)
 
 # ---- data/role-registry (A 包：工程作用域角色词表) ----
 add_paleo_test(tst_roles LIBS paleo_store)

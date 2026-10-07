@@ -1,5 +1,6 @@
 // 层：数据
 #include "faultsetstore.h"
+#include "storeerrors_internal.h"
 #include "metastore.h"
 #include "paleoprojectstore.h"
 
@@ -11,17 +12,13 @@
 
 namespace
 {
-constexpr auto kRowId = "current"; // 单行文档表
+using paleo::store_detail::setError;
 
-QString connectionNameFor(const QString &path)
+constexpr auto kFaultsetRowId = "current"; // 单行文档表
+
+QString faultsetConnectionName(const QString &path)
 {
     return QStringLiteral("paleo_faultset_") + QString::number(qHash(path));
-}
-
-void setError(QString *error, const QString &text)
-{
-    if (error)
-        *error = text;
 }
 
 bool columnExists(QSqlDatabase &db, const QString &column)
@@ -38,9 +35,9 @@ bool columnExists(QSqlDatabase &db, const QString &column)
 
 // 幂等建表。user_version 1→2 的列迁移：旧表没有 surface 时 ALTER 补上。
 // 棒/切割仍在 payload，断面只进 surface 列（可空）。
-bool ensureOpen(const QString &path, QString *error)
+bool faultsetEnsureOpen(const QString &path, QString *error)
 {
-    QSqlDatabase db = MetaStore::openConnection(path, connectionNameFor(path), error);
+    QSqlDatabase db = MetaStore::openConnection(path, faultsetConnectionName(path), error);
     if (!db.isValid())
         return false;
     QSqlQuery schema(db);
@@ -72,7 +69,7 @@ FaultSetStore::FaultSetStore(const QString &metaSqlitePath, PaleoProjectStore *p
 
 bool FaultSetStore::open(QString *error)
 {
-    return ensureOpen(m_dbPath, error);
+    return faultsetEnsureOpen(m_dbPath, error);
 }
 
 bool FaultSetStore::save(const paleo::fault::FaultSet &set, QString *error)
@@ -86,13 +83,13 @@ bool FaultSetStore::save(const paleo::fault::FaultSet &set, QString *error)
     const QString nowUtc = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
 
     const auto write = [&](QString *err) -> bool {
-        if (!ensureOpen(m_dbPath, err))
+        if (!faultsetEnsureOpen(m_dbPath, err))
             return false;
-        QSqlQuery q(QSqlDatabase::database(connectionNameFor(m_dbPath)));
+        QSqlQuery q(QSqlDatabase::database(faultsetConnectionName(m_dbPath)));
         q.prepare(QStringLiteral(
             "INSERT OR REPLACE INTO fault_set (id, payload, updated_utc, surface) "
             "VALUES (?, ?, ?, ?)"));
-        q.addBindValue(QString::fromLatin1(kRowId));
+        q.addBindValue(QString::fromLatin1(kFaultsetRowId));
         q.addBindValue(QString::fromUtf8(payload));
         q.addBindValue(nowUtc);
         q.addBindValue(surfaces.isEmpty() || surfaces == QByteArray("{}")
@@ -125,14 +122,14 @@ bool FaultSetStore::save(const paleo::fault::FaultSet &set, QString *error)
 
 bool FaultSetStore::load(paleo::fault::FaultSet &set, QString *error) const
 {
-    if (!ensureOpen(m_dbPath, error))
+    if (!faultsetEnsureOpen(m_dbPath, error))
         return false;
-    QSqlDatabase db = QSqlDatabase::database(connectionNameFor(m_dbPath));
+    QSqlDatabase db = QSqlDatabase::database(faultsetConnectionName(m_dbPath));
     const bool hasSurface = columnExists(db, QStringLiteral("surface"));
     QSqlQuery q(db);
     q.prepare(hasSurface ? QStringLiteral("SELECT payload, surface FROM fault_set WHERE id = ?")
                          : QStringLiteral("SELECT payload FROM fault_set WHERE id = ?"));
-    q.addBindValue(QString::fromLatin1(kRowId));
+    q.addBindValue(QString::fromLatin1(kFaultsetRowId));
     if (!q.exec()) {
         setError(error, q.lastError().text());
         return false;

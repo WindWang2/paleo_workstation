@@ -1,6 +1,7 @@
 // 层：视图
 // token 例外：DESIGN 数据符号例外：QGIS 测区空间覆盖的蓝色描边/透明填充。（tools/ui-token-exceptions.json 精确计数）。
 #include "paleomainwindow.h"
+#include "uienv_internal.h"
 #include "paleodockmanager.h"
 #include "paleoviewport.h"
 
@@ -49,6 +50,8 @@
 #include "help/whatsthiscatalog.h"     // 方向63：「这是什么？」清单回填
 #include "constraintdrawcontroller.h"
 #include "dialogs/folderconfirm.h"
+#include "dialogs/projectmapsettingsdialog.h"
+#include "qgis/projectmapreference.h"
 #include "typedconstraintdrawcontroller.h" // ---- m2(B)：物源线/展布线/控制点（块内接线用）----
 #include "correlationpanel.h"
 #include "wellsection/wellsectionpanel.h"
@@ -126,6 +129,7 @@
 #include <QTimer>
 #include <QSplitter>
 #include <QToolButton>
+#include <QProgressBar>
 #include <QSettings>
 #include <QStackedLayout>
 #include <QStackedWidget>
@@ -153,6 +157,8 @@
 // as qgiscanvascontroller.cpp).
 namespace
 {
+using paleo::ui_detail::isOffscreen;
+
   // Tab order = reading order = right-panel stack order：页序表收敛到
   // pages/pageshared.h 的 kPageIds（W4：attach 接线 TU 同查页序）。
   // ribbon 页签文案（2026-10-05：数据管理后插入独立地层对比）。
@@ -163,7 +169,7 @@ namespace
     static const QStringList labels = {
         QCoreApplication::translate("PaleoMainWindow", "数据管理"),
         QCoreApplication::translate("PaleoMainWindow", "地层对比"),
-        QCoreApplication::translate("PaleoMainWindow", "预测编图"),
+        QCoreApplication::translate("PaleoMainWindow", "智能预测"),
         QCoreApplication::translate("PaleoMainWindow", "单因素图"),
         QCoreApplication::translate("PaleoMainWindow", "智能编图"),
         QCoreApplication::translate("PaleoMainWindow", "验证"),
@@ -203,11 +209,6 @@ namespace
     QStringLiteral("constraint"),
     QStringLiteral("compose"),
   };
-
-  bool isOffscreen()
-  {
-    return QGuiApplication::platformName() == QLatin1String("offscreen");
-  }
 
   // T22/§3 契约句：工区导入统一展示的 CRS 说明（文件夹确认表 + 单文件
   // 导入确认都只读挂这句）。状态栏短句另行，与 PDF 页脚同一文案。
@@ -429,7 +430,7 @@ void PaleoMainWindow::buildShell()
   m_centerStack->addWidget(startup); // index 0
 
   // 工作区两面（用户裁决：数据管理是列表面，另外四页以 QGIS 画布为主）：
-  //   0 画布面 = 层位 chip 条 + QgsMapCanvas（预测编图/单因素图/智能编图/验证）
+  //   0 画布面 = 层位 chip 条 + QgsMapCanvas（智能预测/单因素图/智能编图/验证）
   //   1 数据面 = 可视化预览；数据列表独立停靠在主窗口左侧（数据管理）
   m_workspaceStack = new PaleoViewportStack(m_centerStack);
   m_workspaceStack->setObjectName(QStringLiteral("workspaceStack"));
@@ -567,7 +568,7 @@ void PaleoMainWindow::buildShell()
   {
     mapEmpty = new PaleoEmptyStateLabel(
         QCoreApplication::translate("PaleoMainWindow",
-                                    "地图上还没有图层 — 先在「数据管理」导入工区文件夹，或在「预测编图」运行预测"),
+                                    "地图上还没有图层 — 先在「数据管理」导入工区文件夹，或在「智能预测」运行预测"),
         m_canvasCtl->canvas());
     mapEmpty->setObjectName(QStringLiteral("mapEmptyState")); // tst_ui 依赖的稳定名
     mapEmpty->raise();
@@ -589,9 +590,7 @@ void PaleoMainWindow::buildShell()
         return;
       // §38 blocking-error contract: a failed open surfaces as a dialog, not
       // a silent no-op on the startup page.
-      if (!m_projectSvc->openProject(p) && !m_projectSvc->lastOpenCancelled()) // #152：用户取消不弹错
-        PaleoNotify::critical(this, tr("打开工程失败"),
-                              m_projectSvc->lastErrors().join(QLatin1Char('\n')));
+      openPath(p);
     });
   if (auto *newBtn = startup->findChild<QPushButton *>(QStringLiteral("newProjectButton")))
     connect(newBtn, &QPushButton::clicked, this, [this] {
@@ -627,12 +626,7 @@ void PaleoMainWindow::buildShell()
       const QString p = item ? item->data(Qt::UserRole).toString() : QString();
       if (p.isEmpty() || !m_projectSvc)
         return;
-      // #282：从最近列表切换工程前先问当前工程脏状态。
-      if (!maybeSaveProject())
-        return;
-      if (!m_projectSvc->openProject(p) && !m_projectSvc->lastOpenCancelled()) // #152：用户取消不弹错
-        PaleoNotify::critical(this, tr("打开工程失败"),
-                              m_projectSvc->lastErrors().join(QLatin1Char('\n')));
+      openPath(p); // 脏状态检查在 openPath 内（#282）
     });
 
   setCentralWidget(m_centerStack);
@@ -909,9 +903,17 @@ void PaleoMainWindow::buildShell()
     scaleLabel->setObjectName(QStringLiteral("statusScale"));
     scaleLabel->setFont(PaleoTheme::monoFont()); // T32：比例尺读数是数字面
     connect(cv, &QgsMapCanvas::xyCoordinates, this,
-            [coordLabel](const QgsPointXY &p) {
+            [coordLabel, cv](const QgsPointXY &p) {
               // 固定 3 位小数（默认 arg(double) 只有 6 位有效数字，读数
               // 位数随量级跳动）；tnum 等宽数字面下宽度稳定。
+              QgsPointXY geographic;
+              if (cv->mapSettings().destinationCrs().type() != Qgis::CrsType::Engineering &&
+                  paleo::mapreference::transformPoint(cv, p, cv->mapSettings().destinationCrs(),
+                      QgsCoordinateReferenceSystem(QStringLiteral("EPSG:4326")), &geographic)) {
+                coordLabel->setText(tr("经纬度 %1, %2").arg(QLocale().toString(geographic.x(), 'f', 6),
+                                                            QLocale().toString(geographic.y(), 'f', 6)));
+                return;
+              }
               coordLabel->setText(QStringLiteral("%1, %2")
                                       .arg(QLocale().toString(p.x(), 'f', 3),
                                            QLocale().toString(p.y(), 'f', 3)));
@@ -929,11 +931,27 @@ void PaleoMainWindow::buildShell()
     // 「工程坐标 · 米 · 未投影」（DESIGN.md 状态文字 #5D6E80，次级文案同色）。
     auto *crsLabel = new QLabel(this);
     crsLabel->setObjectName(QStringLiteral("statusCrs"));
-    crsLabel->setText(tr("工程坐标 · 米 · 未投影"));
-    crsLabel->setToolTip(tr("局部工程坐标，单位米，未投影 — 不是经纬度"));
+    const auto updateCrs = [crsLabel, cv] {
+      const auto crs = cv->mapSettings().destinationCrs();
+      crsLabel->setText(crs.type() == Qgis::CrsType::Engineering ? tr("工程坐标 · 米 · 未投影")
+          : crs.authid().isEmpty() ? crs.description() : crs.authid());
+      crsLabel->setToolTip(crs.description());
+    };
+    updateCrs();
+    connect(cv, &QgsMapCanvas::destinationCrsChanged, this, updateCrs);
     PaleoTheme::applyThemedStyleSheet(
         crsLabel, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
     statusBar()->addPermanentWidget(crsLabel);
+    auto *sources = new QLabel(this);
+    sources->setObjectName(QStringLiteral("basemapAttribution"));
+    PaleoTheme::applyThemedStyleSheet(sources, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
+    const auto updateSources = [sources, cv] {
+      sources->setText(paleo::mapreference::attribution(cv));
+      sources->setVisible(!sources->text().isEmpty());
+    };
+    connect(cv, &QgsMapCanvas::layersChanged, this, updateSources);
+    updateSources();
+    statusBar()->addWidget(sources, 1);
   }
   if (m_selection)
     connect(m_selection, &SelectionContext::activeHorizonChanged, horizonLabel,
@@ -955,6 +973,42 @@ void PaleoMainWindow::buildShell()
     }
   });
   statusBar()->addPermanentWidget(m_statusErrorBtn);
+  if (m_projectSvc) {
+    auto *openStatus = new QLabel(this);
+    openStatus->setObjectName(QStringLiteral("projectOpenStatus"));
+    auto *openProgress = new QProgressBar(this);
+    openProgress->setObjectName(QStringLiteral("projectOpenProgress"));
+    openProgress->setRange(0, 100);
+    openProgress->setMaximumWidth(160);
+    auto *cancelOpen = new QToolButton(this);
+    cancelOpen->setObjectName(QStringLiteral("cancelProjectOpenButton"));
+    cancelOpen->setText(tr("取消打开"));
+    cancelOpen->setAutoRaise(true);
+    statusBar()->addPermanentWidget(openStatus);
+    statusBar()->addPermanentWidget(openProgress);
+    statusBar()->addPermanentWidget(cancelOpen);
+    openStatus->hide(); openProgress->hide(); cancelOpen->hide();
+    connect(cancelOpen, &QToolButton::clicked, m_projectSvc, &QgisProjectService::cancelOpen);
+    connect(m_projectSvc, &QgisProjectService::openActiveChanged, this,
+            [this, openStatus, openProgress, cancelOpen](bool active) {
+      openStatus->setVisible(active); openProgress->setVisible(active); cancelOpen->setVisible(active);
+      if (active) openProgress->setValue(0);
+      for (const auto &name : {"openProjectButton", "newProjectButton", "importFromFolderButton"})
+        if (auto *button = findChild<QPushButton *>(QString::fromLatin1(name)))
+          button->setEnabled(!active);
+    });
+    connect(m_projectSvc, &QgisProjectService::openProgress, this,
+            [openStatus, openProgress, cancelOpen](int percent, const QString &status) {
+      openProgress->setValue(percent);
+      openStatus->setText(status);
+      openStatus->setToolTip(status);
+      cancelOpen->setEnabled(percent < 85);
+    });
+    connect(m_projectSvc, &QgisProjectService::openFinished, this, [this](bool success) {
+      statusBar()->showMessage(success ? tr("工程打开完成") : m_projectSvc->lastOpenCancelled()
+          ? tr("已取消打开工程") : tr("工程打开失败"), 5000);
+    });
+  }
 
   if (auto *hub = paleo::services::ErrorHub::instance()) {
     const auto syncErrorStatus = [this, hub] {
@@ -1102,6 +1156,38 @@ void PaleoMainWindow::buildRibbon()
     viaStartup(tr("打开工程(&O)…"), "mActionFileOpen.svg", "openProjectButton");
     viaStartup(tr("从工区文件夹新建(&I)…"), "mIconFolderOpen.svg", "importFromFolderButton");
     menu->addSeparator()->setObjectName(QStringLiteral("fileMenuSaveAnchor"));
+    auto *mapSettings = menu->addAction(PaleoIcons::qgisTheme(QStringLiteral("mActionMapSettings.svg")), tr("工程坐标与底图…"));
+    mapSettings->setObjectName(QStringLiteral("projectMapSettingsAction"));
+    connect(menu, &QMenu::aboutToShow, this, [this, mapSettings] {
+      mapSettings->setEnabled(m_projectSvc && !m_projectSvc->projectPath().isEmpty() && !m_projectSvc->isOpening());
+    });
+    connect(mapSettings, &QAction::triggered, this, [this] {
+      if (!m_projectSvc || m_projectSvc->projectPath().isEmpty()) return;
+      auto *dialog = new ProjectMapSettingsDialog(m_projectSvc->mapConfiguration(), this);
+      dialog->setAttribute(Qt::WA_DeleteOnClose);
+      const auto session = m_projectSvc->sessionId();
+      connect(dialog, &ProjectMapSettingsDialog::saveRequested, this, [this, dialog, session] {
+        QString error;
+        if (session != m_projectSvc->sessionId()) error = tr("工程已切换，请重新打开设置");
+        else if (m_projectSvc->updateMapConfiguration(dialog->configuration(), &error)) {
+          dialog->accept();
+          statusBar()->showMessage(tr("工程坐标与底图设置已保存"), 5000);
+          return;
+        }
+        dialog->showError(error);
+      });
+      dialog->open();
+    });
+    if (m_projectSvc)
+      connect(m_projectSvc, &QgisProjectService::mapConfigurationChanged, this, [this] {
+        if (m_previewTabs) {
+          bool surveyOpen = false;
+          for (int i = 0; i < m_previewTabs->tabCount(); ++i)
+            surveyOpen |= m_previewTabs->assetIdAt(i) == QLatin1String("survey_area");
+          if (surveyOpen) { m_previewTabs->closeAssetTab(QStringLiteral("survey_area")); m_previewTabs->openSurveyArea(); }
+        }
+        if (m_canvasCtl) QTimer::singleShot(0, this, [this] { m_canvasCtl->zoomToFullExtent(); });
+      });
     QAction *home =
         menu->addAction(PaleoIcons::qgisTheme(QStringLiteral("mIconFolderHome.svg")), tr("起始页(&H)"));
     connect(home, &QAction::triggered, this, [this] { showStartup(); });
@@ -1350,7 +1436,6 @@ void PaleoMainWindow::showPage(const QString &pageId)
   if (m_profileSvc)
     m_profileSvc->applyPageProfile(pageId);
 
-
   // 页作用域工具面：编辑命令组只在编图链三页的 ribbon 里。落到非编辑页
   // 时停用活动画布工具——各工具 deactivate() 统一发 abort 信号，约束捕获/
   // 编辑会话经 owner 的 abort 路径拆台（等价 §42.15 的 Esc）。
@@ -1482,7 +1567,7 @@ void PaleoMainWindow::flashHorizonLayer(QgsMapLayer *layer)
   band->setObjectName(QStringLiteral("horizonFlashRubberBand"));
   m_horizonFlashBand = band;
   band->setToGeometry(QgsGeometry::fromRect(layer->extent()),
-                      qobject_cast<QgsVectorLayer *>(layer));
+                      layer->crs());
   band->setColor(QColor(27, 115, 208, 60)); // #1B73D0 @ ~24% 填充透明度
   band->setStrokeColor(QColor(QStringLiteral("#1B73D0")));
   band->setWidth(2);
@@ -1778,10 +1863,11 @@ void PaleoMainWindow::saveCanvasExtent()
   if (e.isEmpty())
     return;
   const QString encoded = QStringLiteral("%1,%2,%3,%4")
-                              .arg(e.xMinimum()).arg(e.yMinimum())
-                              .arg(e.xMaximum()).arg(e.yMaximum());
+                              .arg(e.xMinimum(), 0, 'g', 17).arg(e.yMinimum(), 0, 'g', 17)
+                              .arg(e.xMaximum(), 0, 'g', 17).arg(e.yMaximum(), 0, 'g', 17);
   m_projectSvc->project()->writeEntry(QStringLiteral("paleo"),
                                       QStringLiteral("canvasExtent"), encoded);
+  m_projectSvc->project()->writeEntry("paleo", "canvasExtentCrs", cv->mapSettings().destinationCrs().toWkt());
 }
 
 void PaleoMainWindow::restoreCanvasExtent()
@@ -1791,8 +1877,10 @@ void PaleoMainWindow::restoreCanvasExtent()
   bool ok = false;
   const QString raw = m_projectSvc->project()->readEntry(
       QStringLiteral("paleo"), QStringLiteral("canvasExtent"), QString(), &ok);
-  if (!ok)
+  if (!ok) {
+    QTimer::singleShot(0, this, [this] { m_canvasCtl->zoomToFullExtent(); });
     return;
+  }
   const QStringList parts = raw.split(QLatin1Char(','));
   if (parts.size() != 4)
     return;
@@ -1803,13 +1891,16 @@ void PaleoMainWindow::restoreCanvasExtent()
   const double ymax = parts.at(3).toDouble(&conv[3]);
   if (!conv[0] || !conv[1] || !conv[2] || !conv[3])
     return;
-  const QgsRectangle e(xmin, ymin, xmax, ymax);
+  QgsRectangle e(xmin, ymin, xmax, ymax);
   if (e.isEmpty())
     return;
+  const auto savedCrs = m_projectSvc->project()->readEntry("paleo", "canvasExtentCrs");
+  const auto source = QgsCoordinateReferenceSystem::fromWkt(savedCrs.isEmpty() ? DataCatalog::localGridCrsWkt() : savedCrs);
+  e = paleo::mapreference::mapExtent(m_canvasCtl->canvas(), e, source);
+  if (e.isEmpty()) return;
   m_canvasCtl->canvas()->setExtent(e);
   m_canvasCtl->canvas()->refresh();
 }
-
 
 // ---------------------------------------------------------------------------
 // D11 临时配准（手工仿射 → DERIVED + 水印图层）
@@ -1874,6 +1965,14 @@ void PaleoMainWindow::resetProjectScopedState()
   if (m_corrPanel)
     m_corrPanel->resetProject();
 
+  ++m_seismicOpenGeneration;
+  if (m_seismicOpenTask)
+    m_seismicOpenTask->requestCancel();
+  m_seismicOpenPath.clear();
+  if (auto *status = findChild<QLabel *>(QStringLiteral("projectSeismicLoadStatus")))
+    status->hide();
+  if (auto *progress = findChild<QProgressBar *>(QStringLiteral("projectSeismicLoadProgress")))
+    progress->hide();
   // #158：3D 视图与剖面 dock 的地震体清空；新工程若有地震，打开后由
   // syncSeismicVolumeToDocks 重新装载。
   if (m_seismic3dPanel)
@@ -2032,72 +2131,104 @@ void PaleoMainWindow::refreshCorrelationWells(const QString &loadLasForAssetId,
 void PaleoMainWindow::syncSeismicVolumeToDocks()
 {
   DataCatalog *cat = m_previewDoc ? m_previewDoc->catalog() : nullptr;
-  if (!cat)
+  if (!cat || !cat->isOpen() || !m_seismicTaskSvc)
     return;
-  for (const CatalogAsset &a : cat->assets())
+  for (const CatalogAsset &asset : cat->assets())
   {
-    if (a.type == QLatin1String("seismic"))
+    if (asset.type != QLatin1String("seismic"))
+      continue;
+    const auto version = cat->currentVersion(asset.id);
+    // #226：解释登记链生产接线——dock 注入 catalog + 源体资产/版本 +
+    // 解释产物目录（工程受管 artifacts/derived/interpretation：拾取 CSV/
+    // 断层/属性扫描产物全部落此并登记 DERIVED，对 catalog/治理/版本溯源
+    // 可见）。调用时现取工程目录（attach 期没有工程——同 #275 口径）。
+    if (m_seismicSectionDock && !version.id.isEmpty())
     {
-      const CatalogVersion tv = cat->currentVersion(a.id);
-      // #226：解释登记链生产接线——dock 注入 catalog + 源体资产/版本 +
-      // 解释产物目录（工程受管 artifacts/derived/interpretation：拾取 CSV/
-      // 断层/属性扫描产物全部落此并登记 DERIVED，对 catalog/治理/版本溯源
-      // 可见）。调用时现取工程目录（attach 期没有工程——同 #275 口径）。
-      if (m_seismicSectionDock && !tv.id.isEmpty())
-      {
-        const QString projDir =
-            m_projectSvc && !m_projectSvc->projectPath().isEmpty()
-                ? QFileInfo(m_projectSvc->projectPath()).absolutePath()
-                : QString();
-        m_seismicSectionDock->setInterpretationCatalog(
-            cat, a.id, tv.id,
-            projDir.isEmpty()
-                ? QString()
-                : QDir(projDir).filePath(
-                      QStringLiteral("artifacts/derived/interpretation")));
-      }
-      const QString abs = tv.id.isEmpty() ? QString() : m_previewDoc->absolutePathForVersion(tv);
-      if (!abs.isEmpty() && QFile::exists(abs))
-      {
-        if (m_seismic3dPanel && (m_seismic3dPanel->volume() == nullptr ||
-                                 paleo::fromFsPath(m_seismic3dPanel->volume()->Path()) != abs))
-        {
-          if (m_seismicTaskSvc)
-            m_seismic3dPanel->setTaskService(m_seismicTaskSvc.get());
-          auto vol = std::make_shared<seismic::SgyVolume>();
-          std::string volErr;
-          if (vol->Load(paleo::toFsPath(abs), volErr))
-          {
-            m_seismic3dPanel->setVolume(vol);
-            if (m_seismic3dPanel->viewport())
-            {
-              m_seismic3dPanel->viewport()->setPresetView(seismic::SeismicCameraController::PresetView::Isometric);
-              m_seismic3dPanel->viewport()->fitToBounds();
-            }
-          }
-        }
-        if (m_seismicSectionDock && (m_seismicSectionDock->volume() == nullptr ||
-                                     paleo::fromFsPath(m_seismicSectionDock->volume()->Path()) != abs))
-        {
-          auto vol = std::make_shared<seismic::SgyVolume>();
-          std::string volErr;
-          if (vol->Load(paleo::toFsPath(abs), volErr))
-          {
-            double origin = 0;
-            for (const auto &link : cat->linksForAsset(a.id))
-              if (!link.unresolved && link.entityType == "seismic_survey") {
-                origin = cat->entityById(link.entityId).startTimeMs;
-                break;
-              }
-            m_seismicSectionDock->setTimeOriginMs(origin);
-            if (m_sectionLink)
-              m_sectionLink->setActiveVolume(vol);
-            else
-              m_seismicSectionDock->setVolume(vol);
-          }
-        }
+      const QString projDir =
+          m_projectSvc && !m_projectSvc->projectPath().isEmpty()
+              ? QFileInfo(m_projectSvc->projectPath()).absolutePath()
+              : QString();
+      m_seismicSectionDock->setInterpretationCatalog(
+          cat, asset.id, version.id,
+          projDir.isEmpty()
+              ? QString()
+              : QDir(projDir).filePath(
+                    QStringLiteral("artifacts/derived/interpretation")));
+    }
+    const QString path = m_previewDoc->absolutePathForVersion(version);
+    if (path.isEmpty() || !QFile::exists(path))
+      continue;
+    const auto matches = [&path](const auto &volume) {
+      return volume && paleo::fromFsPath(volume->Path()) == path;
+    };
+    const bool need3d = m_seismic3dPanel && !matches(m_seismic3dPanel->volume());
+    const bool needSection = m_seismicSectionDock && !matches(m_seismicSectionDock->volume());
+    if ((!need3d && !needSection) || (m_seismicOpenPath == path && m_seismicOpenTask && m_seismicOpenTask->running()))
+      return;
+    if (m_seismicOpenTask)
+      m_seismicOpenTask->requestCancel();
+    const quint64 generation = ++m_seismicOpenGeneration;
+    m_seismicOpenPath = path;
+    const quint64 session = m_projectSvc ? m_projectSvc->sessionId() : 0;
+    double origin = 0;
+    for (const auto &link : cat->linksForAsset(asset.id))
+      if (!link.unresolved && link.entityType == QLatin1String("seismic_survey")) {
+        origin = cat->entityById(link.entityId).startTimeMs;
         break;
       }
+    auto *status = findChild<QLabel *>(QStringLiteral("projectSeismicLoadStatus"));
+    auto *progress = findChild<QProgressBar *>(QStringLiteral("projectSeismicLoadProgress"));
+    if (!status) {
+      status = new QLabel(this);
+      status->setObjectName(QStringLiteral("projectSeismicLoadStatus"));
+      progress = new QProgressBar(this);
+      progress->setObjectName(QStringLiteral("projectSeismicLoadProgress"));
+      progress->setMaximumWidth(160);
+      statusBar()->addPermanentWidget(status);
+      statusBar()->addPermanentWidget(progress);
     }
+    status->setText(tr("后台加载地震体：%1").arg(QFileInfo(path).fileName()));
+    progress->setRange(0, 0);
+    status->show(); progress->show();
+    QPointer<PaleoMainWindow> guard(this);
+    m_seismicOpenTask = m_seismicTaskSvc->startVolumeLoad(path,
+        [guard, generation, session, origin, status, progress](bool ok,
+              std::shared_ptr<seismic::SgyVolume> volume, const QString &error) {
+      if (!guard || generation != guard->m_seismicOpenGeneration ||
+          (guard->m_projectSvc && session != guard->m_projectSvc->sessionId()))
+        return;
+      status->hide(); progress->hide();
+      guard->m_seismicOpenPath.clear();
+      if (!ok || !volume) {
+        guard->statusBar()->showMessage(error, 10000);
+        return;
+      }
+      if (guard->m_seismic3dPanel) {
+        guard->m_seismic3dPanel->setTaskService(guard->m_seismicTaskSvc.get());
+        guard->m_seismic3dPanel->setVolume(volume);
+        if (guard->m_seismic3dPanel->viewport()) {
+          guard->m_seismic3dPanel->viewport()->setPresetView(seismic::SeismicCameraController::PresetView::Isometric);
+          guard->m_seismic3dPanel->viewport()->fitToBounds();
+        }
+      }
+      if (guard->m_seismicSectionDock) {
+        guard->m_seismicSectionDock->setTimeOriginMs(origin);
+        if (guard->m_sectionLink)
+          guard->m_sectionLink->setActiveVolume(volume);
+        else
+          guard->m_seismicSectionDock->setVolume(volume);
+      }
+      guard->statusBar()->showMessage(QObject::tr("地震体加载完成"), 5000);
+    });
+    if (m_seismicOpenTask) {
+      QPointer<PaleoTask> task = m_seismicOpenTask;
+      connect(task, &PaleoTask::changed, this, [task, progress, generation, this] {
+        if (!task || generation != m_seismicOpenGeneration) return;
+        const int percent = task->percent();
+        progress->setRange(0, percent < 0 ? 0 : 100);
+        if (percent >= 0) progress->setValue(percent);
+      });
+    }
+    return;
   }
 }

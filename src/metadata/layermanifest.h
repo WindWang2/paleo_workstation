@@ -11,7 +11,7 @@
 struct LayerDeclaration {
   QString layerId;      // stable id, e.g. "facies.T1"
   QString horizon;      // horizon this layer instance belongs to ("" = horizon-agnostic)
-  QString type;         // "vector" | "raster" | "annotations" ...
+  QString type;         // "vector" | "raster" | "mbtiles"（QGIS wms provider） | "annotations" ...
   QString source;       // provider URI (gpkg table / raster path / memory)
   QString styleRef;     // style identifier in styles/
   QString group;        // layer-tree group；canonical 词表单一权威见 src/qgis/layervocabulary.h（旧名→canonical 别名同处）

@@ -1,5 +1,6 @@
 // 层：数据
 #include "perffixtures.h"
+#include "gdalreg_internal.h"
 
 #include "../catalog/datacatalog.h"
 
@@ -19,11 +20,8 @@
 
 namespace
 {
-  void ensureGdalRegistered()
-  {
-    static std::once_flag flag;
-    std::call_once(flag, []() { GDALAllRegister(); });
-  }
+
+using paleo::io_detail::ensureGdalRegistered;
 
   quint32 lcg(quint32 &state)
   {

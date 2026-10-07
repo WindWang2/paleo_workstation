@@ -1,5 +1,6 @@
 // 层：数据
 #include "wellsitingstore.h"
+#include "storeerrors_internal.h"
 #include "metastore.h"
 #include "paleoprojectstore.h"
 
@@ -13,22 +14,18 @@
 
 namespace
 {
-constexpr auto kRowId = "current"; // 单行文档表
+using paleo::store_detail::setError;
 
-QString connectionNameFor(const QString &path)
+constexpr auto kWellSitingRowId = "current"; // 单行文档表
+
+QString wellSitingConnectionName(const QString &path)
 {
     return QStringLiteral("paleo_wellsiting_") + QString::number(qHash(path));
 }
 
-void setError(QString *error, const QString &text)
+bool wellSitingEnsureOpen(const QString &path, QString *error)
 {
-    if (error)
-        *error = text;
-}
-
-bool ensureOpen(const QString &path, QString *error)
-{
-    QSqlDatabase db = MetaStore::openConnection(path, connectionNameFor(path), error);
+    QSqlDatabase db = MetaStore::openConnection(path, wellSitingConnectionName(path), error);
     if (!db.isValid())
         return false;
     QSqlQuery schema(db);
@@ -53,7 +50,7 @@ WellSitingStore::WellSitingStore(const QString &metaSqlitePath,
 
 bool WellSitingStore::open(QString *error)
 {
-    return ensureOpen(m_dbPath, error);
+    return wellSitingEnsureOpen(m_dbPath, error);
 }
 
 bool WellSitingStore::save(const paleo::siting::ScenarioSet &set, QString *error)
@@ -68,13 +65,13 @@ bool WellSitingStore::save(const paleo::siting::ScenarioSet &set, QString *error
     const QString nowUtc = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
 
     const auto write = [&](QString *err) -> bool {
-        if (!ensureOpen(m_dbPath, err))
+        if (!wellSitingEnsureOpen(m_dbPath, err))
             return false;
-        QSqlQuery q(QSqlDatabase::database(connectionNameFor(m_dbPath)));
+        QSqlQuery q(QSqlDatabase::database(wellSitingConnectionName(m_dbPath)));
         q.prepare(QStringLiteral(
             "INSERT OR REPLACE INTO well_siting_scenarios (id, payload, updated_utc) "
             "VALUES (?, ?, ?)"));
-        q.addBindValue(QString::fromLatin1(kRowId));
+        q.addBindValue(QString::fromLatin1(kWellSitingRowId));
         q.addBindValue(QString::fromUtf8(payload));
         q.addBindValue(nowUtc);
         if (!q.exec()) {
@@ -104,12 +101,12 @@ bool WellSitingStore::save(const paleo::siting::ScenarioSet &set, QString *error
 
 bool WellSitingStore::load(paleo::siting::ScenarioSet &set, QString *error) const
 {
-    if (!ensureOpen(m_dbPath, error))
+    if (!wellSitingEnsureOpen(m_dbPath, error))
         return false;
-    QSqlQuery q(QSqlDatabase::database(connectionNameFor(m_dbPath)));
+    QSqlQuery q(QSqlDatabase::database(wellSitingConnectionName(m_dbPath)));
     q.prepare(QStringLiteral(
         "SELECT payload FROM well_siting_scenarios WHERE id = ?"));
-    q.addBindValue(QString::fromLatin1(kRowId));
+    q.addBindValue(QString::fromLatin1(kWellSitingRowId));
     if (!q.exec()) {
         setError(error, q.lastError().text());
         return false;

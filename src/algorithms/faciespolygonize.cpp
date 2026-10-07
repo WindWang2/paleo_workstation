@@ -38,8 +38,10 @@
 
 // §36 — classified raster to an editable facies-polygon coverage.
 //
-// Parts smaller than MIN_AREA are absorbed on the grid (4-connected components
-// are the parts polygonize would emit). Shared edges are then simplified once
+// SMOOTH majority passes (3×3 mode filter, nodata-preserving) remove
+// salt-and-pepper noise; parts smaller than MIN_CELLS cells or MIN_AREA map
+// units² are then absorbed on the grid (4-connected components are the parts
+// polygonize would emit). Shared edges are then simplified once
 // via GEOS coverage VW and rebuilt from a boundary graph, so adjacent faces
 // cannot drift apart. Conflation replaces an arc only when every vertex lies
 // inside SNAP_TOLERANCE and the arc is parallel to the constraint.
@@ -212,12 +214,62 @@ void labelComponents( const QVector<int> &grid, int cols, int rows,
   }
 }
 
+// 3×3 majority (mode) filter: each cell adopts the modal code of its 3×3
+// neighborhood, self included. Ties keep the current code (no oscillation);
+// nodata cells never change and never cast votes, so holes cannot swallow
+// facies and facies cannot bleed into holes. Returns changed cells.
+int smoothMajority( QVector<int> &grid, int cols, int rows )
+{
+  QVector<int> next( grid );
+  int changed = 0;
+  QHash<int, int> counts;
+  for ( int y = 0; y < rows; ++y )
+  {
+    for ( int x = 0; x < cols; ++x )
+    {
+      const int i = y * cols + x;
+      if ( grid.at( i ) == kNodata )
+        continue;
+      counts.clear();
+      for ( int dy = -1; dy <= 1; ++dy )
+      {
+        for ( int dx = -1; dx <= 1; ++dx )
+        {
+          const int nx = x + dx, ny = y + dy;
+          if ( nx < 0 || ny < 0 || nx >= cols || ny >= rows )
+            continue;
+          const int v = grid.at( ny * cols + nx );
+          if ( v != kNodata )
+            ++counts[v];
+        }
+      }
+      int best = grid.at( i );
+      int bestCount = counts.value( best, 0 );
+      for ( auto it = counts.cbegin(); it != counts.cend(); ++it )
+      {
+        if ( it.value() > bestCount )
+        {
+          best = it.key();
+          bestCount = it.value();
+        }
+      }
+      next[i] = best;
+      if ( best != grid.at( i ) )
+        ++changed;
+    }
+  }
+  std::swap( grid, next );
+  return changed;
+}
+
 // Absorb parts under minArea into the largest adjacent facies. Border-touching
 // nodata is the outside of the map and is left alone. An interior speck with
-// no facies neighbor is cleared to nodata.
-int absorbSmallParts( QVector<int> &grid, int cols, int rows, double cellArea, double minArea )
+// no facies neighbor is cleared to nodata. A part is absorbable when it is
+// smaller than minCells cells (grid-scale aggregation) or its area falls under
+// minArea (map-unit aggregation) — both criteria are ORed.
+int absorbSmallParts( QVector<int> &grid, int cols, int rows, double cellArea, double minArea, int minCells )
 {
-  if ( !( minArea > 0.0 ) )
+  if ( !( minArea > 0.0 ) && minCells <= 1 )
     return 0;
   int merged = 0;
   const int guardMax = std::max( 1, cols * rows );
@@ -232,7 +284,9 @@ int absorbSmallParts( QVector<int> &grid, int cols, int rows, double cellArea, d
     {
       const Comp &c = comps.at( i );
       const double area = c.cells * cellArea;
-      if ( !( area < minArea ) || !( area > 0.0 ) )
+      const bool underThreshold = ( c.cells < minCells ) ||
+                                  ( area < minArea && area > 0.0 );
+      if ( !underThreshold )
         continue;
       if ( c.code == kNodata && c.border )
         continue;
@@ -1096,8 +1150,10 @@ QString FaciesPolygonizeAlgorithm::shortHelpString() const
 {
   return QStringLiteral(
       "Turn a facies raster into an editable polygon coverage. Cells are rounded to "
-      "integer facies codes, parts smaller than MIN_AREA are absorbed into the largest "
-      "adjacent facies, and GDALPolygonize + dissolve builds one polygon per part. "
+      "integer facies codes. SMOOTH majority passes (3×3 mode filter) remove "
+      "salt-and-pepper noise; parts smaller than MIN_CELLS cells or MIN_AREA map "
+      "units² are absorbed into the largest adjacent facies, and GDALPolygonize + "
+      "dissolve builds one polygon per part. "
       "SIMPLIFY runs GEOS coverage simplification so each shared boundary is simplified "
       "once. The polygons are then rebuilt from that boundary graph. When SNAP_TOLERANCE "
       "> 0, an arc whose vertices all lie within that distance of a constraint, and whose "
@@ -1110,6 +1166,12 @@ void FaciesPolygonizeAlgorithm::initAlgorithm( const QVariantMap & )
 {
   addParameter( new QgsProcessingParameterRasterLayer(
       QStringLiteral( "INPUT" ), QStringLiteral( "Classified facies raster" ) ) );
+  addParameter( new QgsProcessingParameterNumber(
+      QStringLiteral( "SMOOTH" ), QStringLiteral( "Majority smoothing passes (3×3)" ),
+      Qgis::ProcessingNumberParameterType::Integer, 1, true, 0.0, 10.0 ) );
+  addParameter( new QgsProcessingParameterNumber(
+      QStringLiteral( "MIN_CELLS" ), QStringLiteral( "Minimum part size (cells)" ),
+      Qgis::ProcessingNumberParameterType::Integer, 4, true, 0.0 ) );
   addParameter( new QgsProcessingParameterNumber(
       QStringLiteral( "MIN_AREA" ), QStringLiteral( "Minimum part area (map units²)" ),
       Qgis::ProcessingNumberParameterType::Double, 0.0, true, 0.0 ) );
@@ -1140,11 +1202,13 @@ QVariantMap FaciesPolygonizeAlgorithm::processAlgorithm( const QVariantMap &para
   if ( !rl || !rl->isValid() || rl->source().isEmpty() )
     throw QgsProcessingException( QStringLiteral( "Invalid input raster" ) );
   const double minArea = parameterAsDouble( parameters, QStringLiteral( "MIN_AREA" ), context );
+  const int smooth = parameterAsInt( parameters, QStringLiteral( "SMOOTH" ), context );
+  const int minCells = parameterAsInt( parameters, QStringLiteral( "MIN_CELLS" ), context );
   const double simplify = parameterAsDouble( parameters, QStringLiteral( "SIMPLIFY" ), context );
   const double snapTol = parameterAsDouble( parameters, QStringLiteral( "SNAP_TOLERANCE" ), context );
   const double angleTol = parameterAsDouble( parameters, QStringLiteral( "ANGLE_TOLERANCE" ), context );
-  if ( minArea < 0.0 || simplify < 0.0 || snapTol < 0.0 )
-    throw QgsProcessingException( QStringLiteral( "MIN_AREA, SIMPLIFY and SNAP_TOLERANCE must be >= 0" ) );
+  if ( smooth < 0 || minCells < 0 || minArea < 0.0 || simplify < 0.0 || snapTol < 0.0 )
+    throw QgsProcessingException( QStringLiteral( "SMOOTH, MIN_CELLS, MIN_AREA, SIMPLIFY and SNAP_TOLERANCE must be >= 0" ) );
 
   const QString outPath = parameterAsOutputLayer( parameters, QStringLiteral( "OUTPUT" ), context );
   if ( outPath.isEmpty() )
@@ -1213,7 +1277,21 @@ QVariantMap FaciesPolygonizeAlgorithm::processAlgorithm( const QVariantMap &para
   if ( feedback )
     feedback->setProgress( 15 );
 
-  const int slivers = absorbSmallParts( grid, cols, rows, cellArea, minArea );
+  // 平滑在聚合之前：多数滤波先去掉椒盐噪点，剩余的碎块再按 MIN_CELLS/
+  // MIN_AREA 吸收——顺序反过来会把噪声当作图斑保下来。
+  int smoothedCells = 0;
+  for ( int pass = 0; pass < smooth; ++pass )
+  {
+    const int changed = smoothMajority( grid, cols, rows );
+    smoothedCells += changed;
+    canceled( feedback );
+    if ( changed == 0 )
+      break;
+  }
+  if ( feedback )
+    feedback->setProgress( 22 );
+
+  const int slivers = absorbSmallParts( grid, cols, rows, cellArea, minArea, minCells );
   canceled( feedback );
   if ( feedback )
     feedback->setProgress( 30 );
@@ -1266,6 +1344,9 @@ QVariantMap FaciesPolygonizeAlgorithm::processAlgorithm( const QVariantMap &para
   prov.insert( QStringLiteral( "simplify" ), simplify );
   prov.insert( QStringLiteral( "snap_tolerance" ), snapTol );
   prov.insert( QStringLiteral( "angle_tolerance_deg" ), angleTol );
+  prov.insert( QStringLiteral( "smooth_passes" ), smooth );
+  prov.insert( QStringLiteral( "smoothed_cells" ), smoothedCells );
+  prov.insert( QStringLiteral( "min_cells" ), minCells );
   prov.insert( QStringLiteral( "slivers_merged" ), slivers );
   prov.insert( QStringLiteral( "faces" ), polys.size() );
   prov.insert( QStringLiteral( "arcs" ), graph.arcs.size() );

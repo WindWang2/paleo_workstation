@@ -54,14 +54,6 @@ namespace
       *error = text;
   }
 
-  QString readFileOrEmpty(const QString &path)
-  {
-    QFile f(path);
-    if (!f.open(QIODevice::ReadOnly))
-      return QString();
-    return QString::fromUtf8(f.readAll());
-  }
-
   QString fileStem(const QString &path)
   {
     return QFileInfo(path).completeBaseName();
@@ -167,7 +159,7 @@ namespace
       // .xml 看内容判定——与 importOneFile 同一分类口径；TOCTOU 复核同 T33：
       // 读字节前重取 canonical，目标被改指向就降级为跳过项。
       QByteArray xml;
-      if (fi.suffix().compare(QLatin1String("xml"), Qt::CaseInsensitive) == 0)
+      if (QStringList{"xml", "dat", "csv", "txt", "tsv"}.contains(fi.suffix().toLower()))
       {
         const QFileInfo recheck(path);
         if (!recheck.isFile() || recheck.canonicalFilePath() != canon)
@@ -177,7 +169,9 @@ namespace
           plan->skipped.append(item);
           continue;
         }
-        xml = readFileOrEmpty(path).toUtf8();
+        QFile prefix(path);
+        if (prefix.open(QIODevice::ReadOnly))
+          xml = prefix.read(65536);
       }
       const ProjectClassification cls = classifyProjectImport(path, xml);
       item.canonicalPath = canon;
@@ -495,8 +489,12 @@ IngestPlan buildIngestPlan(const QString &root, const IngestCatalogSource &catal
     item.path = rootInfo.absoluteFilePath();
     item.canonicalPath = rootInfo.canonicalFilePath();
     QByteArray xml;
-    if (rootInfo.suffix().compare(QLatin1String("xml"), Qt::CaseInsensitive) == 0)
-      xml = readFileOrEmpty(item.path).toUtf8();
+    if (QStringList{"xml", "dat", "csv", "txt", "tsv"}.contains(rootInfo.suffix().toLower()))
+    {
+      QFile prefix(item.path);
+      if (prefix.open(QIODevice::ReadOnly))
+        xml = prefix.read(65536);
+    }
     const ProjectClassification cls = classifyProjectImport(item.path, xml);
     item.type = cls.type;
     item.format = cls.format;

@@ -1,5 +1,6 @@
 // 层：数据
 #include "sparse.h"
+#include "inversion_internal.h"
 
 // 稀疏脉冲实现。褶积算子 A 与转置 Aᵀ 手写（O(n·wl)，wl ≤ 数百）；
 // FISTA 惯例记号照 Beck & Teboulle (2009)。
@@ -14,8 +15,6 @@ namespace paleo::inversion
 {
 namespace
 {
-
-constexpr float kNan = std::numeric_limits<float>::quiet_NaN();
 
 // 褶积正算子：(A·r)[i] = Σ_k r[k]·w[i−k−peakOffset]，越界忽略。
 void convSame(const std::vector<double> &r, const std::vector<double> &w, int peakOffset,

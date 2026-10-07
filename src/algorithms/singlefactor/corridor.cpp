@@ -1,5 +1,6 @@
 // 层：数据
 #include "corridor.h"
+#include "geosutil.h"
 
 #include "support.h"
 
@@ -14,9 +15,9 @@ namespace paleo::singlefactor
 namespace
 {
 
-constexpr double kInf = std::numeric_limits<double>::infinity();
+constexpr double kCorridorInf = std::numeric_limits<double>::infinity();
 
-void unitVector( double dx, double dy, double &ux, double &uy )
+void corridorUnitVector( double dx, double dy, double &ux, double &uy )
 {
   const double length = std::hypot( dx, dy );
   if ( length <= 1e-15 )
@@ -27,14 +28,6 @@ void unitVector( double dx, double dy, double &ux, double &uy )
   }
   ux = dx / length;
   uy = dy / length;
-}
-
-double polylineLength( const std::vector<Point2> &points )
-{
-  double total = 0;
-  for ( std::size_t i = 1; i < points.size(); ++i )
-    total += std::hypot( points[i].x - points[i - 1].x, points[i].y - points[i - 1].y );
-  return total;
 }
 
 std::string normalizedExtendMode( std::string mode )
@@ -207,8 +200,8 @@ PolylineGeometry buildPolylineGeometry( const DirectionLineSpec &spec, int index
   if ( extending )
   {
     double t0x = 0, t0y = 0, t1x = 0, t1y = 0;
-    unitVector( cleaned[1].x - cleaned[0].x, cleaned[1].y - cleaned[0].y, t0x, t0y );
-    unitVector( cleaned[cleaned.size() - 1].x - cleaned[cleaned.size() - 2].x,
+    corridorUnitVector( cleaned[1].x - cleaned[0].x, cleaned[1].y - cleaned[0].y, t0x, t0y );
+    corridorUnitVector( cleaned[cleaned.size() - 1].x - cleaned[cleaned.size() - 2].x,
                 cleaned[cleaned.size() - 1].y - cleaned[cleaned.size() - 2].y, t1x, t1y );
     std::vector<Point2> chain;
     chain.reserve( cleaned.size() + 2 );
@@ -257,9 +250,9 @@ PolylineProjection projectPointToPolyline( Point2 point, const PolylineGeometry 
 {
   const double px = point.x;
   const double py = point.y;
-  double bestDist = kInf;
+  double bestDist = kCorridorInf;
   PolylineProjection best;
-  best.distance = kInf;
+  best.distance = kCorridorInf;
   for ( std::size_t i = 0; i + 1 < geom.points.size(); ++i )
   {
     const double ax = geom.points[i].x;

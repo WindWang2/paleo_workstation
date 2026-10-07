@@ -731,11 +731,14 @@ private slots:
     QCOMPARE( prov.value( QStringLiteral( "faces" ) ).toInt(), 3 );
   }
 
-  // 1.4 rounds to 1, 1.6 rounds to 2.
+  // 1.4 rounds to 1, 1.6 rounds to 2.（单像元精度语义——显式关平滑/聚合）
   void faciesPolygonsRecode()
   {
     QString log;
-    const QString out = runFacies( QStringLiteral( "recode" ), 2, 1, { 1.4f, 1.6f }, {}, nullptr, &log );
+    QVariantMap params;
+    params.insert( QStringLiteral( "SMOOTH" ), 0 );
+    params.insert( QStringLiteral( "MIN_CELLS" ), 0 );
+    const QString out = runFacies( QStringLiteral( "recode" ), 2, 1, { 1.4f, 1.6f }, params, nullptr, &log );
     QVERIFY2( !out.isEmpty(), qPrintable( log ) );
     const QVector<Face> faces = readFaces( out );
     QCOMPARE( faces.size(), 2 );
@@ -743,7 +746,7 @@ private slots:
     QVERIFY( faceByCode( faces, 2 ) );
   }
 
-  // A one-cell speck is absorbed into the surrounding facies.
+  // A one-cell speck is absorbed into the surrounding facies.（关平滑，专注聚合）
   void faciesPolygonsAbsorbSliver()
   {
     const QVector<float> px = { 1, 1, 1, 1,
@@ -751,6 +754,7 @@ private slots:
                                 1, 1, 1, 1,
                                 1, 1, 1, 1 };
     QVariantMap params;
+    params.insert( QStringLiteral( "SMOOTH" ), 0 );
     params.insert( QStringLiteral( "MIN_AREA" ), 1.5 );
     QString log;
     const QString out = runFacies( QStringLiteral( "sliver" ), 4, 4, px, params, nullptr, &log );
@@ -761,6 +765,73 @@ private slots:
     QVERIFY( std::fabs( faces.at( 0 ).area - 16.0 ) < 1e-4 );
     const QJsonObject prov = QJsonDocument::fromJson( mLast.value( QStringLiteral( "PROVENANCE" ) ).toString().toUtf8() ).object();
     QVERIFY( prov.value( QStringLiteral( "slivers_merged" ) ).toInt() >= 1 );
+  }
+
+  // 默认开启的 3×3 多数滤波把椒盐噪点平滑成单一相面（用户要求：
+  // 相栅格转相矢量一定要做平滑和聚合，不然太细了）。
+  void faciesPolygonsSmoothSpeckleByDefault()
+  {
+    const QVector<float> px = { 1, 1, 1, 1, 1,
+                                1, 2, 1, 2, 1,
+                                1, 1, 1, 1, 1,
+                                1, 2, 1, 1, 1,
+                                1, 1, 1, 1, 1 };
+    QString log;
+    const QString out = runFacies( QStringLiteral( "speckle" ), 5, 5, px, {}, nullptr, &log );
+    QVERIFY2( !out.isEmpty(), qPrintable( log ) );
+    const QVector<Face> faces = readFaces( out );
+    QCOMPARE( faces.size(), 1 );
+    QCOMPARE( faces.at( 0 ).code, 1 );
+    QVERIFY( std::fabs( faces.at( 0 ).area - 25.0 ) < 1e-4 );
+    const QJsonObject prov = QJsonDocument::fromJson( mLast.value( QStringLiteral( "PROVENANCE" ) ).toString().toUtf8() ).object();
+    QCOMPARE( prov.value( QStringLiteral( "smooth_passes" ) ).toInt(), 1 );
+    QVERIFY( prov.value( QStringLiteral( "smoothed_cells" ) ).toInt() >= 3 );
+  }
+
+  // 默认 MIN_CELLS：小于阈值（像元数）的图斑被吸收进最大邻相。
+  void faciesPolygonsMinCellsAbsorbsByDefault()
+  {
+    const QVector<float> px = { 1, 1, 1, 1, 1, 1,
+                                1, 1, 1, 1, 1, 1,
+                                1, 1, 2, 2, 1, 1,
+                                1, 1, 1, 1, 1, 1,
+                                1, 1, 1, 1, 1, 1 };
+    QVariantMap params;
+    params.insert( QStringLiteral( "SMOOTH" ), 0 ); // 关平滑——专注像元数聚合
+    QString log;
+    const QString out = runFacies( QStringLiteral( "mincells" ), 6, 5, px, params, nullptr, &log );
+    QVERIFY2( !out.isEmpty(), qPrintable( log ) );
+    const QVector<Face> faces = readFaces( out );
+    QCOMPARE( faces.size(), 1 );
+    QCOMPARE( faces.at( 0 ).code, 1 );
+    const QJsonObject prov = QJsonDocument::fromJson( mLast.value( QStringLiteral( "PROVENANCE" ) ).toString().toUtf8() ).object();
+    QVERIFY( prov.value( QStringLiteral( "slivers_merged" ) ).toInt() >= 1 );
+  }
+
+  // 平滑次数可叠加：3×2 噪声条一遍后缩成 2 像元竖条，两遍清干净。
+  void faciesPolygonsSmoothTwoPasses()
+  {
+    const QVector<float> px = { 1, 1, 1, 1, 1,
+                                1, 2, 2, 2, 1,
+                                1, 2, 2, 2, 1,
+                                1, 1, 1, 1, 1 };
+    QVariantMap one;
+    one.insert( QStringLiteral( "SMOOTH" ), 1 );
+    one.insert( QStringLiteral( "MIN_CELLS" ), 0 );
+    QString log;
+    const QString out1 = runFacies( QStringLiteral( "smooth1" ), 5, 4, px, one, nullptr, &log );
+    QVERIFY2( !out1.isEmpty(), qPrintable( log ) );
+    QCOMPARE( readFaces( out1 ).size(), 2 ); // 一遍后仍残留一个 2 像元
+
+    QVariantMap two;
+    two.insert( QStringLiteral( "SMOOTH" ), 2 );
+    two.insert( QStringLiteral( "MIN_CELLS" ), 0 );
+    const QString out2 = runFacies( QStringLiteral( "smooth2" ), 5, 4, px, two, nullptr, &log );
+    QVERIFY2( !out2.isEmpty(), qPrintable( log ) );
+    const QVector<Face> faces = readFaces( out2 );
+    QCOMPARE( faces.size(), 1 );
+    QCOMPARE( faces.at( 0 ).code, 1 );
+    QVERIFY( std::fabs( faces.at( 0 ).area - 20.0 ) < 1e-4 );
   }
 
   // Coverage simplify removes staircase vertices without opening a gap.

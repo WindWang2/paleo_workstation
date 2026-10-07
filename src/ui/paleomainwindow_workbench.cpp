@@ -250,6 +250,10 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
     canvas->setObjectName("referenceCanvas");
     layer->setParent(
         canvas); // keep the layer alive until the renderer has stopped
+    if (m_projectSvc) {
+      canvas->setProject(m_projectSvc->project());
+      canvas->mapSettings().setTransformContext(m_projectSvc->project()->transformContext());
+    }
     canvas->setDestinationCrs(layer->crs());
     canvas->setCanvasColor(Qt::white);
     canvas->setLayers({layer});
@@ -557,7 +561,7 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
           const auto inputs = p.value("inputs").toStringList();
           if (action == "predict")
             ok = workbench->predict(h, p.value("kind").toString(), inputs,
-                                    &error);
+                                    &error, p.value("horizon_file").toString());
           else if (action == "cancel")
             workbench->cancelPrediction();
           else if (action == "show")

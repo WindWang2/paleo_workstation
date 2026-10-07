@@ -47,7 +47,8 @@ paleo_has_jobs_arg() {
 
 usage() { awk '/^# paleo-dev —/{print;next} /^# verbs:/{p=1} p&&/^$/{exit} p' "$0"; exit "${1:-0}"; }
 # verbs:
-#   bootstrap    preflight -> vendor fetch/build -> selfcheck (the one-command TTHW path)
+#   bootstrap [fetch-only]  preflight -> vendor fetch/build -> selfcheck (the one-command TTHW path)
+#                           （fetch-only：只取依赖跳过尾部 build/selfcheck，透传 vendor/bootstrap.sh）
 #   build        incremental build
 #   test         QT_QPA_PLATFORM=offscreen ctest
 #   selfcheck    provider/srs.db/render check -> vendor/logs/map.png

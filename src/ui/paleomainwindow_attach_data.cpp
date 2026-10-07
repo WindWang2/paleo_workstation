@@ -33,6 +33,9 @@
 #include <QStatusBar>
 #include <QTabWidget>
 #include <QVBoxLayout>
+#include <QWizard>
+#include <QWizardPage>
+#include <QComboBox>
 
 // ---------------------------------------------------------------------------
 // 数据页接线：门面绑定 / catalog 联动 / 预览分栏 / 导入意图（W4 拆分段）
@@ -237,41 +240,64 @@ void PaleoMainWindow::attachDataPage(DataPage *dataPage,
                   this, tr("导入 %1").arg(kind), QString(), filter);
               if (path.isEmpty())
                 return;
-              // T22：单文件导入同样展示 CRS 契约句（确认一步，含识别类型）。
-              {
-                QDialog confirmDlg(this);
-                confirmDlg.setObjectName(QStringLiteral("singleImportDialog"));
-                confirmDlg.setWindowTitle(tr("导入数据"));
-                auto *cl = new QVBoxLayout(&confirmDlg);
-                const QString recogType = classifyProjectImport(path).type;
-                auto *fileLabel = new QLabel(
-                    tr("文件：%1\n识别类型：%2").arg(path, PaleoFolderConfirm::folderTypeLabel(recogType)),
-                    &confirmDlg);
-                fileLabel->setWordWrap(true);
-                cl->addWidget(fileLabel);
-                auto *crsNote = new QLabel(PaleoFolderConfirm::engineeringCrsSentence(), &confirmDlg);
-                crsNote->setObjectName(QStringLiteral("singleImportCrsNote"));
-                crsNote->setWordWrap(true);
-                PaleoTheme::applyThemedStyleSheet(
-                    crsNote, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
-                cl->addWidget(crsNote);
-                auto *bb = new QDialogButtonBox(&confirmDlg);
-                bb->addButton(tr("导入"), QDialogButtonBox::AcceptRole);
-                bb->addButton(tr("取消"), QDialogButtonBox::RejectRole);
-                QObject::connect(bb, &QDialogButtonBox::accepted, &confirmDlg,
-                                 &QDialog::accept);
-                QObject::connect(bb, &QDialogButtonBox::rejected, &confirmDlg,
-                                 &QDialog::reject);
-                cl->addWidget(bb);
-                if (confirmDlg.exec() != QDialog::Accepted)
-                  return;
-              }
+              auto *wf = folderImportWorkflow();
+              if (!wf)
+                return;
+              QString effectiveType = wf->classifyFile(path);
+              QWizard wizard(this);
+              wizard.setObjectName(QStringLiteral("singleImportDialog"));
+              wizard.setWindowTitle(tr("导入数据"));
+              wizard.setButtonText(QWizard::NextButton, tr("下一步"));
+              wizard.setButtonText(QWizard::BackButton, tr("上一步"));
+              wizard.setButtonText(QWizard::FinishButton, tr("确认导入"));
+              wizard.setButtonText(QWizard::CancelButton, tr("取消"));
+              auto *classifyPage = new QWizardPage(&wizard);
+              classifyPage->setTitle(tr("1 · 自动识别与分类调整"));
+              auto *classifyLayout = new QVBoxLayout(classifyPage);
+              const int spacing = PaleoTheme::tokens().spacingSm;
+              classifyLayout->setContentsMargins(spacing, spacing, spacing, spacing);
+              classifyLayout->setSpacing(spacing);
+              auto *fileLabel = new QLabel(tr("文件：%1\n识别类型：%2")
+                  .arg(path, PaleoFolderConfirm::folderTypeLabel(effectiveType)), classifyPage);
+              fileLabel->setTextFormat(Qt::PlainText);
+              fileLabel->setWordWrap(true);
+              classifyLayout->addWidget(fileLabel);
+              auto *typeCombo = new QComboBox(classifyPage);
+              typeCombo->setObjectName(QStringLiteral("singleImportTypeCombo"));
+              typeCombo->setAccessibleName(tr("导入分类"));
+              for (const auto &type : projectClassifierTypes())
+                typeCombo->addItem(PaleoFolderConfirm::folderTypeLabel(type), type);
+              typeCombo->setCurrentIndex(typeCombo->findData(effectiveType));
+              classifyLayout->addWidget(typeCombo);
+              wizard.addPage(classifyPage);
+              auto *reviewPage = new QWizardPage(&wizard);
+              reviewPage->setTitle(tr("2 · 确认导入"));
+              auto *reviewLayout = new QVBoxLayout(reviewPage);
+              reviewLayout->setContentsMargins(spacing, spacing, spacing, spacing);
+              reviewLayout->setSpacing(spacing);
+              auto *review = new QLabel(reviewPage);
+              review->setTextFormat(Qt::PlainText);
+              review->setWordWrap(true);
+              reviewLayout->addWidget(review);
+              auto *crsNote = new QLabel(PaleoFolderConfirm::engineeringCrsSentence(), reviewPage);
+              crsNote->setObjectName(QStringLiteral("singleImportCrsNote"));
+              crsNote->setWordWrap(true);
+              PaleoTheme::applyThemedStyleSheet(crsNote, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
+              reviewLayout->addWidget(crsNote);
+              wizard.addPage(reviewPage);
+              connect(&wizard, &QWizard::currentIdChanged, &wizard, [=](int) {
+                review->setText(tr("%1\n将作为「%2」导入工程。")
+                    .arg(path, PaleoFolderConfirm::folderTypeLabel(typeCombo->currentData().toString())));
+              });
+              if (wizard.exec() != QDialog::Accepted)
+                return;
+              effectiveType = typeCombo->currentData().toString();
               // D1b：LAS 解析/SEG-Y 索引等大文件在任务池跑——无任务服务时保持
               // 同步旧路径。imported 信号照常排队回 GUI（预览标签在终态后开）。
               // D1b：LAS 解析/SEG-Y 索引等大文件在任务池跑（编排在
               // FolderImportWorkflow）；imported 信号照常排队回 GUI。
               if (auto *wf = folderImportWorkflow())
-                wf->importFile(kind, path, [](const QString &assetId,
+                wf->importFile(effectiveType, path, [](const QString &assetId,
                                               const QString &err) {
                   if (assetId.isEmpty())
                     QgsMessageLog::logMessage(

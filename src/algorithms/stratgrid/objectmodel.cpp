@@ -1,5 +1,6 @@
 // 层：数据
 #include "objectmodel.h"
+#include "../algoerrors_internal.h"
 
 #include <QString>
 #include <QStringList>
@@ -16,11 +17,7 @@ namespace paleo::stratgrid
 namespace
 {
 
-void setError(QString *error, const QString &text)
-{
-  if (error)
-    *error = text;
-}
+using paleo::algo_detail::setError;
 
 struct ChannelPath
 {

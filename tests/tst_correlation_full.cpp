@@ -27,6 +27,7 @@
 #include <limits>
 
 #include "../src/io/lasdoc.h" // LasCurve（曲线值类型）
+#include "perfbudget_relax.h"
 #include "../src/linkage/selectioncontext.h"
 #include "../src/ui/correlationpanel.h"
 #include "../src/ui/correlation/correlationtrack.h"
@@ -2522,18 +2523,21 @@ class TestCorrPanelFull : public QObject
           panel.reorder(0, 49);
         QVERIFY(!panel.grab().toImage().isNull());
         if (attempt == 1)
-          QVERIFY2(t.elapsed() < 1000,
+          QVERIFY2(t.elapsed() < paleo::perfbudget::relaxedBudgetMs(1000),
                    qPrintable(QStringLiteral("10 warm reorders took %1 ms").arg(t.elapsed())));
       }
       // 50 井建+渲染预算：Linux CI 4 核 3s；Windows runner 2 核 + offscreen
       // 光栅更慢（实测 7.2s），按平台放缩——预算语义是回归门不是绝对性能。
+      // sanitizer 档（PALEO_SANITIZER_BUILD）再 ×3（devex.md ASAN 实测 ~2x
+      // 减速；系数契约由 tst_sanitizer_budget(+_on) 钉住）。
       const bool isOffscreen = QGuiApplication::platformName() == QLatin1String("offscreen");
-      const qint64 budgetMs =
+      const qint64 budgetMs = paleo::perfbudget::relaxedBudgetMs(
 #ifdef Q_OS_WIN
-          9000;
+          9000
 #else
-          isOffscreen ? 12000 : 3000;
+          isOffscreen ? 12000 : 3000
 #endif
+      );
       QVERIFY2(best < budgetMs,
                qPrintable(QStringLiteral("50-well setup+render took %1 ms (best of 2)").arg(best)));
     }

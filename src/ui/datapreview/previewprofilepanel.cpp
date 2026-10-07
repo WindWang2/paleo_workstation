@@ -1,6 +1,7 @@
 // 层：视图
 // token 例外：DESIGN 数据符号例外：多剖面系列色保持固定，低对比度仅添加中性轮廓。（tools/ui-token-exceptions.json 精确计数）。
 #include "previewprofilepanel.h"
+#include "datapreview_internal.h"
 
 #include "../paleotheme.h"
 
@@ -23,6 +24,8 @@
 
 namespace
 {
+using paleo::ui_detail::mono8;
+
   const QVector<QColor> &seriesPalette()
   {
     static const QVector<QColor> palette = {
@@ -31,13 +34,6 @@ namespace
         QColor( QStringLiteral( "#C2185B" ) ), QColor( QStringLiteral( "#388E3C" ) ),
     };
     return palette;
-  }
-
-  QFont mono8()
-  {
-    QFont f = PaleoTheme::monoFont();
-    f.setPointSize(PaleoTheme::tokens().labelPt);
-    return f;
   }
 
   double niceStep( double raw )

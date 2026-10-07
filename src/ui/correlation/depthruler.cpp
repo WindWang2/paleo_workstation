@@ -1,5 +1,6 @@
 // 层：视图
 #include "depthruler.h"
+#include "correlation_internal.h"
 #include "../paleotheme.h"
 
 #include <QFont>
@@ -11,9 +12,10 @@
 
 namespace
 {
+using paleo::ui_detail::kTextMuted;
+using paleo::ui_detail::kBorder;
+
   // DESIGN.md tokens — the only colors this ruler ever paints.
-  QColor kTextMuted() { return PaleoTheme::tokens().textMuted; }
-  QColor kBorder() { return PaleoTheme::tokens().border; }
 
   // Tick geometry (scene px): marks hang off the label column's right edge.
   constexpr qreal kMajorTickLen = 8.0;

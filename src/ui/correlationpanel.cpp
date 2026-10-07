@@ -1,5 +1,6 @@
 // 层：视图
 #include "correlationpanel.h"
+#include "correlation/correlation_internal.h"
 #include "paleotheme.h"
 
 #include "../linkage/selectioncontext.h"
@@ -42,6 +43,8 @@
 // ---------------------------------------------------------------------------
 namespace
 {
+using paleo::ui_detail::kBorder;
+
   constexpr qreal kColumnGap     = 16.0; // spacing.md
   constexpr qreal kMargin        = 12.0;
   constexpr qreal kLabelBand     = 24.0;
@@ -65,7 +68,6 @@ namespace
 
   // DESIGN.md token 出口（调用时现取——暗色翻案后随主题翻转）。
   QColor kSurfaceAlt() { return PaleoTheme::tokens().surfaceAlt; }
-  QColor kBorder() { return PaleoTheme::tokens().border; }
   QColor kPrimary() { return PaleoTheme::tokens().primary; }
   QColor kText() { return PaleoTheme::tokens().text; }
 

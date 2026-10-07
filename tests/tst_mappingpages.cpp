@@ -26,7 +26,7 @@
 // QSignalSpy + objectName 子件查找（plain QApplication，无 QisRuntime）。
 // 文件内三个测试类共用一个 main（多类 qExec）；每页一个类，各任务段
 // 只改自己的类：
-//   PredictPageTests   —— 预测编图页（任务 A）
+//   PredictPageTests   —— 智能预测页（任务 A）
 //   FactorPageTests    —— 单因素图页（任务 B；ConstraintPage 重定位）
 //   ComposePageTests   —— 智能编图页（任务 C）
 
@@ -154,7 +154,31 @@ void PredictPageTests::schemaRegistryMirrorsAlgorithmTruth()
 
   const auto polygonize = AlgorithmParamSchema::fieldsFor(
       QStringLiteral("paleo:paleo_facies_polygonize"));
-  QCOMPARE(polygonize.size(), 4);
+  QCOMPARE(polygonize.size(), 6);
+  bool sawSmooth = false, sawMinCells = false;
+  for (const F &f : polygonize)
+  {
+    if (f.key == QLatin1String("SMOOTH"))
+    {
+      sawSmooth = true;
+      QCOMPARE(f.type, F::Int);
+      QCOMPARE(f.defaultValue.toInt(), 1);
+      QVERIFY(f.hasMin);
+      QCOMPARE(f.minValue, 0.0);
+      QVERIFY(f.hasMax);
+      QCOMPARE(f.maxValue, 10.0);
+    }
+    if (f.key == QLatin1String("MIN_CELLS"))
+    {
+      sawMinCells = true;
+      QCOMPARE(f.type, F::Int);
+      QCOMPARE(f.defaultValue.toInt(), 4);
+      QVERIFY(f.hasMin);
+      QCOMPARE(f.minValue, 0.0);
+    }
+  }
+  QVERIFY(sawSmooth);
+  QVERIFY(sawMinCells);
   bool sawAngle = false;
   for (const F &f : polygonize)
     if (f.key == QLatin1String("ANGLE_TOLERANCE"))

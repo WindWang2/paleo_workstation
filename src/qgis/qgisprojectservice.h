@@ -5,6 +5,8 @@
 #include <QStringList>
 #include <QVector>
 #include <functional>
+#include <QFuture>
+#include <memory>
 
 #include "../metadata/layermanifest.h"
 #include "../metadata/paleoprojectfile.h"
@@ -12,6 +14,7 @@
 #include <optional>
 
 class QgsProject;
+struct ProjectLoadState;
 
 // P0 spine service — owns QgsProject open/save. Never write .qgz directly:
 // writes are sequenced by PaleoProjectStore (gpkg commit -> .qgz backup -> atomic .qgz write).
@@ -26,6 +29,9 @@ class QgisProjectService : public QObject
 
     QgsProject *project() const;                    // never null after open/create
     bool openProject(const QString &qgzPath);       // resolves manifest placeholders on demand
+    bool openProjectAsync(const QString &path);
+    void cancelOpen();
+    bool isOpening() const { return m_opening; }
     bool createProject(const QString &qgzPath);
     bool writeProject();                            // atomic temp+rename via store ordering
     QString projectPath() const;
@@ -36,8 +42,11 @@ class QgisProjectService : public QObject
     //（工程清单是权威），本服务在 writeProject 时把它镜像进 QgsProject 自定义
     // 属性（paleo/georeference）随 .qgz 持久化。
     const std::optional<PaleoGeoreference> &georeference() const { return m_georeference; }
-    void setGeoreference(const PaleoGeoreference &g) { m_georeference = g; }
-    void clearGeoreference() { m_georeference.reset(); }
+    void setGeoreference(const PaleoGeoreference &g);
+    void clearGeoreference();
+    const PaleoProjectFile &mapConfiguration() const { return m_mapConfiguration; }
+    bool updateMapConfiguration(const PaleoProjectFile &configuration, QString *error = nullptr);
+    void setReadOnly(bool readOnly) { m_readOnly = readOnly; }
 
     // 关闭当前工程（#152/#153）：发 projectAboutToClose → clear() → 清路径
     // → 发 projectClosed。未打开工程时为空操作。关闭后 writeProject() 拒写
@@ -76,11 +85,17 @@ class QgisProjectService : public QObject
     void projectClosed();
     void projectOpened(const QString &path);
     void projectWritten(const QString &path);
+    void openActiveChanged(bool active);
+    void openProgress(int percent, const QString &status);
+    void openFinished(bool success);
+    void openAborted(); // 释放待打开工程的锁；当前工程会话仍有效
+    void mapConfigurationChanged();
 
   private:
     bool runGate( const QString &projectDir, bool creating );
     void notifyAboutToClose();
     void failAfterClose();
+    void applyMapConfiguration();
 
   QgsProject *m_project = nullptr;
   quint64 m_sessionId = 0;
@@ -89,5 +104,11 @@ class QgisProjectService : public QObject
   QString m_path;
   QStringList m_errors;
   std::optional<PaleoGeoreference> m_georeference;
+  PaleoProjectFile m_mapConfiguration;
+  bool m_readOnly = false;
   std::function<bool(QVector<LayerDeclaration> *, QString *)> m_declarationProvider;
+  bool m_opening = false;
+  quint64 m_openGeneration = 0;
+  QFuture<void> m_openFuture;
+  std::shared_ptr<ProjectLoadState> m_pendingLoad;
 };

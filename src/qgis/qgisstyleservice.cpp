@@ -1,5 +1,6 @@
 // 层：QGIS 封装
 #include "qgisstyleservice.h"
+#include "qgiserrors_internal.h"
 
 #include "geopatterns.h"
 
@@ -31,11 +32,7 @@
 
 namespace
 {
-  void setError(QString *error, const QString &text)
-  {
-    if (error)
-      *error = text;
-  }
+using paleo::qgis_detail::setError;
 
   // ---- C3：井类别符号构成件（Q/HS 1011—2016 表 K.1 调性）-------------------
   // 规范墨色 #333；流体语义色取 resources/geology/catalog.json 井型表

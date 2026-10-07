@@ -1,5 +1,6 @@
 // 层：数据
 #include "horizonbinner.h"
+#include "ioerrors_internal.h"
 
 #include "../catalog/datacatalog.h"
 
@@ -17,13 +18,9 @@
 
 namespace
 {
-  const float kNoData = -9999.0f;
+using paleo::io_detail::setError;
 
-  void setError(QString *error, const QString &text)
-  {
-    if (error)
-      *error = text;
-  }
+  const float kNoData = -9999.0f;
 
   bool grabDouble(const QString &line, int index, double *out)
   {
@@ -387,6 +384,7 @@ bool writeHorizonGeoTiff(const BinnedHorizon &b, const QString &destPath, QStrin
       !setIntMetadata("PALEO_COLLISIONS", b.collisions) ||
       !setIntMetadata("PALEO_REJECTED", b.rejected) ||
       !setIntMetadata("PALEO_FILLED_CELLS", b.filledCells) ||
+      GDALSetMetadataItem(ds, "PALEO_CRS_WKT", DataCatalog::localGridCrsWkt().toUtf8().constData(), nullptr) != CE_None ||
       (std::isfinite(b.dtMs) && !setDblMetadata("PALEO_DT_MS", b.dtMs)) ||
       (std::isfinite(b.t0Ms) && !setDblMetadata("PALEO_T0_MS", b.t0Ms)))
   {

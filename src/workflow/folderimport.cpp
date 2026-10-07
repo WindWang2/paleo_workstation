@@ -8,6 +8,8 @@
 
 #include <QFileInfo>
 #include <QPointer>
+#include <QFile>
+#include "domain/projectclassifier.h"
 
 // 审计 02 M-8：一次异步导入作业。produce 在 worker 上只碰 session；finish
 // 在 GUI 线程拿提交后的 session（行/结果已按提交结局改写）回壳。
@@ -30,6 +32,13 @@ FolderImportWorkflow::FolderImportWorkflow(DataImportService *svc,
 int FolderImportWorkflow::pendingImportJobs() const
 {
   return static_cast<int>(m_importQueue.size()) + (m_activeImport ? 1 : 0);
+}
+
+QString FolderImportWorkflow::classifyFile(const QString &path) const
+{
+  QFile file(path);
+  const QByteArray prefix = file.open(QIODevice::ReadOnly) ? file.read(65536) : QByteArray();
+  return classifyProjectImport(path, prefix).type;
 }
 
 void FolderImportWorkflow::enqueueImport(const std::shared_ptr<ImportJob> &job)
@@ -308,8 +317,11 @@ void FolderImportWorkflow::importFile(
   {
     auto job = std::make_shared<ImportJob>();
     job->title = tr("导入 %1").arg(kind);
-    job->produce = [path](ImportSession &s, PaleoTask *) {
-      DataImportService::produceFile(s, path, DataImportService::ImportOptions{});
+    job->produce = [path, kind](ImportSession &s, PaleoTask *) {
+      DataImportService::ImportOptions options;
+      if (isClassifierType(kind))
+        options.forceType = kind;
+      DataImportService::produceFile(s, path, options);
       if (!s.fileResult.assetId.isEmpty())
         s.error.clear(); // 任务态口径同旧：拿到资产 id 即成功
     };
@@ -325,7 +337,10 @@ void FolderImportWorkflow::importFile(
     return;
   }
   QString err;
-  const QString assetId = m_svc->importFile(kind, path, &err);
+  DataImportService::ImportOptions options;
+  if (isClassifierType(kind))
+    options.forceType = kind;
+  const QString assetId = m_svc->importProjectFile(path, options, &err);
   if (done)
     done(assetId, err);
 }

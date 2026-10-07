@@ -1,5 +1,6 @@
 // 层：功能
 #include "mapexport.h"
+#include "workflowerrors_internal.h"
 
 #include "../catalog/datacatalog.h"
 #include "../metadata/layermanifest.h"
@@ -17,11 +18,8 @@
 
 namespace
 {
-  void setError( QString *error, const QString &text )
-  {
-    if ( error )
-      *error = text;
-  }
+using paleo::workflow_detail::setError;
+
 } // namespace
 
 QgsPrintLayout *buildHorizonMapLayout( QgisLayerService *layers, QgisProjectService *projectSvc,

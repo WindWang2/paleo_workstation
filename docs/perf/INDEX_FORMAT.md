@@ -56,9 +56,6 @@ i32  sampleIntervalUs
 i32  formatCode
 i32  binLineNo
 i32[4] headerWordOffsets     inline/crossline/field-record/CDP 的 0 基偏移
-u32  dialectFlags           #290：bit0 crossline 取 CDP（193 恒 0 且 CDP 变化），
-                            bit1 角点取 CDP X/Y（72/76 恒 0 且 180/184 非零）——
-                            三路径（顺序/并行/续扫）同口径，随版本升级令旧缓存重建
 i64  firstTraceOffset
 f64  geometry.inlineMin/Max, xlineMin/Max     survey 几何（open 时冻结）
 f64  geometry.cornerX[4] / cornerY[4]
@@ -80,10 +77,12 @@ v2 把道字配置加入完整索引与 checkpoint 身份；`openCached` 仅恢�
 配置四个偏移全部相同的快照。v1 无配置自证信息，读侧弃用并重扫。配置
 变化只更新可再生 `.psx` 缓存，不改 SEG-Y 字节。
 
-v3（#290）追加 `dialectFlags`：方言探针结果（crossline/角点回退取 CDP 字）
-进入完整索引与 checkpoint，`resumeScan` 据此与顺序路径同口径续扫。v2 缓存
-的并行/续扫索引不含方言回退（xline 全 0、角点 (0,0)），按过版拒绝并自愈
-删除重建。
+v4（e9d17e80/#290 合并口径）：方言探针（crossline 恒 0 且 CDP 变化、
+角点 72/76 恒 0 且 180/184 非零）由命名空间级共用实现承担，顺序 open() 与
+openCached() 并行路径、resumeScan 续扫同判据；v3 及更早的大文件索引可能带
+退化号域（方言文件 xline 全 0、角点 (0,0)），按过版拒绝并自愈删除重建。
+角点由最终号域极值道头回读冻结（cornerTraceIndices/freezeCorners），扫描线
+序与分片数不影响测区范围。
 
 ### checkpoint 完整性审计（D2.8）
 

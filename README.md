@@ -29,3 +29,19 @@ git clone https://github.com/WindWang2/paleo_workstation.git && cd paleo_worksta
 `ctest --test-dir build -j8 --output-on-failure`（Windows ctest 串行）。
 独立 worktree 的 vendor symlink 与 `QGIS_PREFIX` 接线见
 [BUILDING.md 的 worktree 说明](BUILDING.md#独立-worktree-开发)。
+
+## 地震层位窗聚类（Mock）
+
+在「智能预测」选择当前层位、一个地震体及「地震层位窗聚类 → 分布图（Mock）」。
+「层位文件」可直接选择 SMI DAT（X、Y、时间 ms、Inline、Crossline，含测网文件头）；
+留空时自动使用工程中对应层位的原始数据或已有时间栅格。
+原始 DAT 按每个有效点的道号和时间直接提取 ±12 ms 反射窗，无需先生成时间栅格。
+均值振幅、RMS、过零率聚类后按原测网分辨率生成分布图，缺测位置保留为空值。
+任务支持进度与取消，保存实际使用的原始文件快照及输入谱系；相类别映射仍是 Mock，需地质复核。
+
+> **勘误（2026-10-07，方向 72）**：八、九批任务书（方向 48-72）「环境接线」
+> 段所载 Windows 命令（`CMAKE_PREFIX_PATH` 首位 `C:/deps/Qt/6.8.0/...` +
+> 运行期 PATH 前置 deps bin）是 Qt 6.8 编 / 6.11 载的混链口径，已废弃；
+> 统一链（Qt 6.11.2 编译+运行）以
+> [BUILDING.md「Windows 本机开发」](BUILDING.md#windows-本机开发localdeps-统一链方向-72)
+> 与 `./paleo-dev.ps1` 为准。原文不改，以此行为准。

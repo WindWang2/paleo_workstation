@@ -1,5 +1,6 @@
 // 层：数据
 #include "stratgrid.h"
+#include "../algoerrors_internal.h"
 
 #include <algorithm>
 #include <cmath>
@@ -10,11 +11,7 @@ namespace paleo::stratgrid
 namespace
 {
 
-void setError(QString *error, const QString &text)
-{
-  if (error)
-    *error = text;
-}
+using paleo::algo_detail::setError;
 
 bool closeEnough(double a, double b)
 {

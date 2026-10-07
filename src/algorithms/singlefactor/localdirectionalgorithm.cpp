@@ -1,6 +1,7 @@
 // 层：数据
 // Processing 包装：读图层、调用数值核、写栅格。插值公式在 localidw.cpp。
 #include "localdirectionalgorithm.h"
+#include "singlefactor_internal.h"
 #include "../paleoalgorithms.h"
 #include "../rasterout.h"
 #include "cartographicworkfile.h"
@@ -56,26 +57,14 @@ namespace sf = paleo::singlefactor;
 namespace
 {
 
+using paleo::singlefactor::utf8;
+using paleo::singlefactor::OutputGuard;
+using paleo::singlefactor::sidecarPath;
+using paleo::singlefactor::writeJson;
+using paleo::singlefactor::pointsJson;
+
 // 与既有单因素引擎的文件空值相同。内部 NaN 写成它，数值 0 保持 0。
 constexpr float kFileNodata = -9999.0f;
-
-QString utf8( const std::string &text )
-{
-  return QString::fromUtf8( text.data(), static_cast<qsizetype>( text.size() ) );
-}
-
-struct OutputGuard
-{
-  QStringList paths;
-  bool keep = false;
-  ~OutputGuard()
-  {
-    if ( keep )
-      return;
-    for ( const QString &path : paths )
-      QFile::remove( path );
-  }
-};
 
 struct GdalDataset
 {
@@ -94,18 +83,6 @@ struct GdalDataset
     }
   }
 };
-
-QVariantList pointsJson( const std::vector<sf::Point2> &points )
-{
-  QVariantList list;
-  for ( const sf::Point2 &point : points )
-  {
-    QVariantList pair;
-    pair << point.x << point.y;
-    list << QVariant( pair );
-  }
-  return list;
-}
 
 QVariantMap parametersForHash( const sf::PreparedInput &input, const sf::GridSpec &grid,
                                const sf::SurfaceResult &result, const QString &field,
@@ -305,20 +282,6 @@ void writeSupportGrid( const QString &path, const sf::GridSpec &grid, const std:
     }
   }
   GDALClose( dataset );
-}
-
-QString sidecarPath( const QString &rasterPath, const QString &suffix )
-{
-  const QFileInfo info( rasterPath );
-  return info.absolutePath() + QLatin1Char( '/' ) + info.completeBaseName() + suffix;
-}
-
-void writeJson( const QString &path, const QVariantMap &root )
-{
-  QFile file( path );
-  if ( !file.open( QIODevice::WriteOnly | QIODevice::Truncate ) )
-    throw QgsProcessingException( QStringLiteral( "Cannot write %1" ).arg( path ) );
-  file.write( QJsonDocument::fromVariant( root ).toJson( QJsonDocument::Indented ) );
 }
 
 void appendContour( OGRGeometryH geometry, double level, std::vector<sf::ContourPolyline> *out )

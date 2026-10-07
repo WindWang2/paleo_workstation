@@ -45,6 +45,9 @@ private:
   QTreeWidget *m_results;
   QComboBox *m_kind = nullptr, *m_points = nullptr, *m_factor = nullptr;
   QLineEdit *m_field = nullptr, *m_thresholds = nullptr;
+  QWidget *m_horizonSourceRow = nullptr;
+  QLineEdit *m_horizonFile = nullptr;
+  QPushButton *m_chooseHorizonFile = nullptr;
   QDoubleSpinBox *m_cell = nullptr, *m_interval = nullptr;
   QProgressBar *m_progress = nullptr;
   QTableWidget *m_facies = nullptr;

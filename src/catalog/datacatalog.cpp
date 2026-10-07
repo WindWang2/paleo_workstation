@@ -1,5 +1,6 @@
 // 层：数据
 #include "datacatalog.h"
+#include "../metadata/storeerrors_internal.h"
 #include "purgelease.h"
 
 #include "catalogstore.h"
@@ -21,9 +22,12 @@
 #include <atomic>
 #include <cmath>
 #include <memory>
+#include <limits>
 
 namespace
 {
+
+using paleo::store_detail::setError;
 
 // #155：受管目录 artifacts/<stage>/ast-N/ver-M 的盘上最大序号。提交两步
 // （先 rename 落位、后 applyJournal）之间崩溃会留下 catalog 不认识的孤儿目录；
@@ -91,12 +95,6 @@ void scanManagedSeqFloor(const QString &projectDir, int *maxAsset, int *maxVersi
     l.note = l.note.isEmpty() ? diagnosis
                               : l.note + QStringLiteral("；") + diagnosis;
     qWarning() << "catalog:" << diagnosis;
-  }
-
-  void setError(QString *error, const QString &text)
-  {
-    if (error)
-      *error = text;
   }
 
 } // namespace
@@ -1567,6 +1565,42 @@ QString DataCatalog::nextEntityId(const QString &prefix)
   // 调用即 O(N²)）。语义等价：只认「prefix 后跟 '-' 且余段纯数字」的既有 id。
   const int max = m_idx.maxEntitySeqForPrefix(prefix);
   return QStringLiteral("%1-%2").arg(prefix).arg(max + 1);
+}
+
+bool DataCatalog::writeSurveyGeoJson(const QString &path, QString *error) const
+{
+  QJsonArray features;
+  for (const auto &survey : entities(QStringLiteral("seismic_survey"))) {
+    if (survey.corners.size() < 3) continue;
+    double xmin = std::numeric_limits<double>::infinity(), ymin = xmin;
+    double xmax = -xmin, ymax = -xmin;
+    int finiteCorners = 0;
+    for (const auto &corner : survey.corners) {
+      if (!std::isfinite(corner.first) || !std::isfinite(corner.second)) continue;
+      ++finiteCorners;
+      xmin = std::min(xmin, corner.first); xmax = std::max(xmax, corner.first);
+      ymin = std::min(ymin, corner.second); ymax = std::max(ymax, corner.second);
+    }
+    if (finiteCorners < 3 || !(xmin < xmax && ymin < ymax)) continue;
+    QJsonArray ring{QJsonArray{xmin, ymin}, QJsonArray{xmax, ymin}, QJsonArray{xmax, ymax},
+                    QJsonArray{xmin, ymax}, QJsonArray{xmin, ymin}};
+    features.append(QJsonObject{{"type", "Feature"},
+        {"properties", QJsonObject{{"id", survey.id}, {"name", survey.name}}},
+        {"geometry", QJsonObject{{"type", "Polygon"}, {"coordinates", QJsonArray{ring}}}}});
+  }
+  const QJsonObject root{{"type", "FeatureCollection"},
+      {"crs", QJsonObject{{"type", "name"}, {"properties", QJsonObject{{"name", localGridCrsWkt()}}}}},
+      {"features", features}};
+  if (!QDir().mkpath(QFileInfo(path).absolutePath())) {
+    setError(error, tr("无法创建测区图层目录")); return false;
+  }
+  QSaveFile file(path);
+  file.setDirectWriteFallback(false);
+  const auto bytes = QJsonDocument(root).toJson();
+  if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size() || !file.commit()) {
+    setError(error, tr("测区图层写入失败：%1").arg(file.errorString())); return false;
+  }
+  return true;
 }
 
 bool DataCatalog::writeWellsGeoJson(const QString &path, QString *error) const

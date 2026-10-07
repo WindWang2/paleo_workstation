@@ -1,5 +1,6 @@
 // 层：数据
 #include "supervised.h"
+#include "cluster_internal.h"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -9,12 +10,7 @@
 namespace paleo::cluster {
 namespace {
 constexpr double pi = 3.14159265358979323846;
-bool stopped(const Control &c) { return c.cancelled && c.cancelled(); }
-void report(const Control &c, double p) {
-  if (c.progress)
-    c.progress(p);
-}
-SupervisedResult failure(const std::string &e, bool cancel = false) {
+SupervisedResult supervisedFailure(const std::string &e, bool cancel = false) {
   SupervisedResult r;
   r.error = e;
   r.cancelled = cancel;
@@ -228,7 +224,7 @@ void classifyKnn(const double *x, const SupervisedModel &m,
 }
 // Shared classifier for train and predict; identical inputs produce
 // bit-identical outputs, which the in-sample fit relies on. Progress and
-// cancellation follow the (i & 1023U)==0 rhythm; on failure r carries the
+// cancellation follow the (i & 1023U)==0 rhythm; on supervisedFailure r carries the
 // reason and r.ok stays false.
 bool classifyRows(const Matrix &x, const SupervisedModel &m, const Control &ctl,
                   double from, SupervisedResult &r) {
@@ -320,32 +316,32 @@ SupervisedResult trainSupervised(const Matrix &x,
                                  const SupervisedOptions &o,
                                  const Control &ctl) {
   if (!validMatrix(x))
-    return failure("Non-finite sample values or zero dimensions");
+    return supervisedFailure("Non-finite sample values or zero dimensions");
   if (labels.size() != x.rows())
-    return failure("Label count does not match sample matrix rows");
+    return supervisedFailure("Label count does not match sample matrix rows");
   if (!validOptions(o))
-    return failure("Invalid supervised options: check variance floor and "
+    return supervisedFailure("Invalid supervised options: check variance floor and "
                    "kNN neighbor count");
   if (stopped(ctl))
-    return failure("Cancelled", true);
+    return supervisedFailure("Cancelled", true);
   const auto d = x.dimensions;
   const Labeled set = labeled(x, labels);
   if (set.rows.empty())
-    return failure("All samples are unlabeled");
+    return supervisedFailure("All samples are unlabeled");
   const std::size_t c = set.classIds.size();
   if (c < 2)
-    return failure("Fewer than two labeled classes");
+    return supervisedFailure("Fewer than two labeled classes");
   const std::size_t n = set.rows.size();
   std::vector<std::size_t> counts(c, 0);
   for (int t : set.rowClass)
     counts[std::size_t(t)] += 1;
   if (o.method == SupervisedMethod::Lda && n - c < d)
-    return failure("LDA requires labeled samples minus classes to be at "
+    return supervisedFailure("LDA requires labeled samples minus classes to be at "
                    "least the dimension count (pooled covariance degrees "
                    "of freedom)");
   if (o.method == SupervisedMethod::Qda &&
       *std::min_element(counts.begin(), counts.end()) < d + 1)
-    return failure("QDA requires at least dimensions + 1 samples per class");
+    return supervisedFailure("QDA requires at least dimensions + 1 samples per class");
   SupervisedModel model;
   model.method = o.method;
   model.dimensions = d;
@@ -373,7 +369,7 @@ SupervisedResult trainSupervised(const Matrix &x,
   for (std::size_t idx = 0; idx < n; ++idx) {
     if ((idx & 1023U) == 0) {
       if (stopped(ctl))
-        return failure("Cancelled", true);
+        return supervisedFailure("Cancelled", true);
       report(ctl, double(idx) / double(6 * n));
     }
     const std::size_t k = std::size_t(set.rowClass[idx]);
@@ -395,7 +391,7 @@ SupervisedResult trainSupervised(const Matrix &x,
   for (std::size_t idx = 0; idx < n; ++idx) {
     if ((idx & 1023U) == 0) {
       if (stopped(ctl))
-        return failure("Cancelled", true);
+        return supervisedFailure("Cancelled", true);
       report(ctl, (2.0 + double(idx) / double(n)) / 6.0);
     }
     const std::size_t own = std::size_t(set.rowClass[idx]);
@@ -421,7 +417,7 @@ SupervisedResult trainSupervised(const Matrix &x,
     std::vector<double> covariance;
     double logDet = 0;
     if (!factorScatter(block, d, o.varianceFloor, covariance, logDet))
-      return failure("Covariance matrix is not positive definite after "
+      return supervisedFailure("Covariance matrix is not positive definite after "
                      "variance floor retries");
     model.covariances.insert(model.covariances.end(), covariance.begin(),
                              covariance.end());
@@ -438,13 +434,13 @@ SupervisedResult predictSupervised(const Matrix &x,
                                    const SupervisedModel &m,
                                    const Control &ctl) {
   if (!validMatrix(x))
-    return failure("Non-finite sample values or zero dimensions");
+    return supervisedFailure("Non-finite sample values or zero dimensions");
   if (!m.dimensions || m.dimensions != x.dimensions)
-    return failure("Model dimensions do not match sample matrix");
+    return supervisedFailure("Model dimensions do not match sample matrix");
   if (!consistentModel(m, m.dimensions))
-    return failure("Model parameters are inconsistent with its class list");
+    return supervisedFailure("Model parameters are inconsistent with its class list");
   if (stopped(ctl))
-    return failure("Cancelled", true);
+    return supervisedFailure("Cancelled", true);
   SupervisedResult r = classified(x, m, ctl, 0);
   if (r.ok)
     report(ctl, 1);

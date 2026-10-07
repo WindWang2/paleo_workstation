@@ -21,6 +21,8 @@
 #include <qgsmaplayer.h>
 #include <qgsprintlayout.h>
 #include <qgsrectangle.h>
+#include <qgscoordinatetransform.h>
+#include <qgsproject.h>
 
 namespace
 {
@@ -48,17 +50,19 @@ namespace
     return QStringLiteral( "png" );
   }
 
-  QgsRectangle combinedExtent( const QList<QgsMapLayer *> &layers )
+  QgsRectangle combinedExtent( const QList<QgsMapLayer *> &layers, QgsLayoutItemMap *map )
   {
     QgsRectangle extent;
     for ( QgsMapLayer *layer : layers )
     {
       if ( !layer )
         continue;
+      if (layer->customProperty("paleoBasemap").toBool()) continue;
+      const auto bounds = QgsCoordinateTransform(layer->crs(), map->crs(), map->layout()->project()).transformBoundingBox(layer->extent());
       if ( extent.isNull() )
-        extent = layer->extent();
+        extent = bounds;
       else
-        extent.combineExtentWith( layer->extent() );
+        extent.combineExtentWith( bounds );
     }
     return extent;
   }
@@ -181,14 +185,17 @@ Result run( const Request &request )
     }
 
     // ---- 换内容：层集快照 + 全幅范围 + 标题 -------------------------------
-    const QgsRectangle extent = combinedExtent( layers );
+    bool extentFailed = false;
     for ( QgsLayoutItemMap *map : maps )
     {
       map->setFollowVisibilityPreset( false ); // 批量出图即快照语义
       map->setLayers( layers );
-      if ( !extent.isNull() && !extent.isEmpty() )
-        map->setExtent( extent );
+      try {
+        const auto extent = combinedExtent(layers, map);
+        if (!extent.isNull() && !extent.isEmpty()) map->setExtent(extent);
+      } catch (const QgsCsException &ex) { outcome.error = ex.what(); extentFailed = true; break; }
     }
+    if (extentFailed) { result.horizons.append(outcome); ++result.failed; continue; }
     if ( title )
       title->setText( QObject::tr( "%1 · %2" ).arg( request.projectName.isEmpty()
                                                          ? QStringLiteral( "project" )

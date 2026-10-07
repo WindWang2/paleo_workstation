@@ -4,8 +4,15 @@
 # On hosts where qgis is already installed at the exact pin (e.g. Arch pacman 4.2.x),
 # detection short-circuits the QGIS leg. Fallback route (source superbuild) is NOT
 # implemented here — see docs/phase0/et0-vendor-comparison.md fallback clause.
+#
+# 用法：bootstrap.sh [fetch-only]
+#   fetch-only  只取依赖（deb 闭包 + ONNX Runtime），跳过尾部的 configure/
+#               build/selfcheck——CI lint job 用（compile_commands 场景无需
+#               全量编译；与 paleo-dev.ps1 bootstrap fetch-only 同语义）。
 set -euo pipefail
 cd "$(dirname "$0")/.."
+FETCH_ONLY=0
+if [ "${1:-}" = "fetch-only" ]; then FETCH_ONLY=1; fi
 LOG_DIR=vendor/logs; mkdir -p "$LOG_DIR"
 fail() { echo "FAIL preflight: $1" >&2; echo "       fix: $2" >&2; exit 1; }
 note() { echo "  .. $1"; }
@@ -60,6 +67,11 @@ else
   else
     echo "  !! no onnxruntime url in vendor/manifest.json — spike3 agent populates it"
   fi
+fi
+
+if [ "$FETCH_ONLY" = 1 ]; then
+  echo "== fetch-only: skip configure/build/selfcheck (deps vendored above) =="
+  exit 0
 fi
 
 echo "== selfcheck (tail of bootstrap per §44.1) =="

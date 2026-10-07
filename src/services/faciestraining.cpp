@@ -8,7 +8,7 @@
 #include <cmath>
 namespace paleo::crossplot {
 namespace {
-Classification failed(const QString &e, bool cancel = false) {
+Classification trainingFailed(const QString &e, bool cancel = false) {
   Classification r;
   r.error = e;
   r.cancelled = cancel;
@@ -19,13 +19,13 @@ bool bad(QString *e, const QString &t) {
     *e = t;
   return false;
 }
-QVariantList list(const std::vector<double> &v) {
+QVariantList trainingList(const std::vector<double> &v) {
   QVariantList out;
   for (double x : v)
     out << x;
   return out;
 }
-QVariantList list(const std::vector<int> &v) {
+QVariantList trainingList(const std::vector<int> &v) {
   QVariantList out;
   for (int x : v)
     out << x;
@@ -276,8 +276,8 @@ bool FaciesTrainingService::train(const SampleSet &s, const TrainingSet &t,
   params.insert("standardize", o.standardize);
   params.insert("varianceFloor", 1e-6);
   if (o.standardize) {
-    params.insert("normalizationMean", list(mean));
-    params.insert("normalizationSd", list(sd));
+    params.insert("normalizationMean", trainingList(mean));
+    params.insert("normalizationSd", trainingList(sd));
   }
   params.insert("knnNeighbors", model.model.knnNeighbors);
   params.insert("cvFolds", model.cvFolds);
@@ -286,7 +286,7 @@ bool FaciesTrainingService::train(const SampleSet &s, const TrainingSet &t,
   // （直推式口径），不按折内重估。
   params.insert("cvStandardization", "full_sample_transductive");
   params.insert("seed", QString::number(o.seed));
-  params.insert("classIds", list(model.model.classIds));
+  params.insert("classIds", trainingList(model.model.classIds));
   params.insert("classNames", model.classNames);
   params.insert("classCount", precondition.classCount);
   params.insert("labeledCount", precondition.labeledCount);
@@ -331,29 +331,29 @@ FaciesTrainingService::classifyWith(const SampleSet &s, const TrainedModel &m,
                                     const cluster::Control &ctl) {
   QString validation;
   if (!CrossplotSamples::validate(s, &validation))
-    return failed(validation);
+    return trainingFailed(validation);
   if (!s.rows())
-    return failed(QStringLiteral("没有有效样本；未生成分类"));
+    return trainingFailed(QStringLiteral("没有有效样本；未生成分类"));
   if (ctl.cancelled && ctl.cancelled())
-    return failed(QStringLiteral("已取消"), true);
+    return trainingFailed(QStringLiteral("已取消"), true);
   const auto n = s.rows(), d = std::size_t(s.names.size());
   if (m.model.dimensions != d)
-    return failed(QStringLiteral("模型维度 %1 与样本维度 %2 不一致；请用当前样本重新训练")
+    return trainingFailed(QStringLiteral("模型维度 %1 与样本维度 %2 不一致；请用当前样本重新训练")
                       .arg(qsizetype(m.model.dimensions))
                       .arg(qsizetype(d)));
   if (m.classNames.size() != qsizetype(m.model.classIds.size()))
-    return failed(QStringLiteral("模型类名数与类别数不一致"));
+    return trainingFailed(QStringLiteral("模型类名数与类别数不一致"));
   if (!isSupervisedClassifier(o.method))
-    return failed(QStringLiteral("当前分类方法不是监督分类器（LDA/QDA/kNN）"));
+    return trainingFailed(QStringLiteral("当前分类方法不是监督分类器（LDA/QDA/kNN）"));
   if (supervisedMethodOf(o.method) != m.model.method)
-    return failed(QStringLiteral("模型方法与当前分类方法不一致；请重新训练"));
+    return trainingFailed(QStringLiteral("模型方法与当前分类方法不一致；请重新训练"));
   // 标准化口径一律取训练时记录：先要 standardize 标志（缺失即拒，手搓模型
   // 不放行），标志为真时强制要求落盘的 normalizationMean/Sd——绝不按推理
   // 样本重估（重估会让按原始量纲拟合的模型被强加标准化，标签漂移）。
   const auto flag = m.provenance.value(QStringLiteral("standardize"));
   if (!flag.isValid() ||
       flag.typeId() != QMetaType::Bool)
-    return failed(QStringLiteral("模型 provenance 缺少标准化口径记录；请重新训练"));
+    return trainingFailed(QStringLiteral("模型 provenance 缺少标准化口径记录；请重新训练"));
   const bool modelStandardize = flag.toBool();
   cluster::Matrix matrix{d, s.values};
   QString normalizationSource;
@@ -363,24 +363,24 @@ FaciesTrainingService::classifyWith(const SampleSet &s, const TrainedModel &m,
     const auto storedSd = m.provenance.value(QStringLiteral("normalizationSd"));
     if (!storedMean.isValid() || storedMean.typeId() != QMetaType::QVariantList ||
         !storedSd.isValid() || storedSd.typeId() != QMetaType::QVariantList)
-      return failed(
+      return trainingFailed(
           QStringLiteral("模型缺少标准化统计量（normalizationMean/Sd）；无法按训练口径推理，请重新训练"));
     const auto meanList = storedMean.toList();
     const auto sdList = storedSd.toList();
     if (meanList.size() != qsizetype(d) || sdList.size() != qsizetype(d))
-      return failed(QStringLiteral("模型标准化统计量与样本维度不一致；请重新训练"));
+      return trainingFailed(QStringLiteral("模型标准化统计量与样本维度不一致；请重新训练"));
     for (std::size_t j = 0; j < d; ++j) {
       const double m = meanList[qsizetype(j)].toDouble();
       const double v = sdList[qsizetype(j)].toDouble();
       if (!std::isfinite(m) || !std::isfinite(v) || !(v > 0))
-        return failed(
+        return trainingFailed(
             QStringLiteral("模型标准化统计量含非有限值或非正尺度；请重新训练"));
       mean[j] = m;
       sd[j] = v;
     }
     for (std::size_t i = 0; i < n; ++i) {
       if ((i & 1023U) == 0 && ctl.cancelled && ctl.cancelled())
-        return failed(QStringLiteral("已取消"), true);
+        return trainingFailed(QStringLiteral("已取消"), true);
       for (std::size_t j = 0; j < d; ++j)
         matrix.values[i * d + j] =
             (matrix.values[i * d + j] - mean[j]) / sd[j];
@@ -391,7 +391,7 @@ FaciesTrainingService::classifyWith(const SampleSet &s, const TrainedModel &m,
   }
   auto predicted = cluster::predictSupervised(matrix, m.model, ctl);
   if (!predicted.ok)
-    return failed(QString::fromStdString(predicted.error),
+    return trainingFailed(QString::fromStdString(predicted.error),
                   predicted.cancelled);
   Classification r;
   r.labels.resize(n);
@@ -403,7 +403,7 @@ FaciesTrainingService::classifyWith(const SampleSet &s, const TrainedModel &m,
   if (std::any_of(r.labels.begin(), r.labels.end(), [](int label) {
         return label < -1 || label > 254;
       }))
-    return failed(QStringLiteral("类别编号超出分类栅格编码范围"));
+    return trainingFailed(QStringLiteral("类别编号超出分类栅格编码范围"));
   int classes = 0;
   for (int l : r.labels)
     classes = std::max(classes, l + 1);

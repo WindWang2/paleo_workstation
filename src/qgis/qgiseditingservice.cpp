@@ -1,5 +1,6 @@
 // 层：QGIS 封装
 #include "qgiseditingservice.h"
+#include "qgiserrors_internal.h"
 #include "qgisconstrainteditsession.h"
 #include <QUndoStack>
 #include <QFileInfo>
@@ -13,11 +14,7 @@
 
 namespace
 {
-  void setError(QString *error, const QString &text)
-  {
-    if (error)
-      *error = text;
-  }
+using paleo::qgis_detail::setError;
 
   // Validation and tool gating key layers by manifest id. QgsMapLayer::id()
   // is a generated "name_uuid" and never matches. Layers instantiated by

@@ -1,5 +1,7 @@
 // 层：QGIS 封装
 #include "previewmapcanvas.h"
+#include "projectmapreference.h"
+#include "mappingartifactwriter.h"
 
 #include "../catalog/datacatalog.h" // localGridCrsWkt（datum-free 工程网格）
 
@@ -103,6 +105,7 @@ void PreviewMapCanvas::setLayers( const QList<QgsMapLayer *> &layers )
   m_layers = layers;
   for ( QgsMapLayer *l : layers )
   {
+    if (l && l->providerType() == QLatin1String("gdal")) MappingArtifactWriter::restoreRasterCrs(l);
     if ( !m_visible.contains( l ) )
       m_visible.insert( l, true );
     if ( !m_opacity.contains( l ) )
@@ -117,6 +120,7 @@ void PreviewMapCanvas::addLayer( QgsMapLayer *layer )
 {
   if ( !layer || m_layers.contains( layer ) )
     return;
+  if (layer->providerType() == QLatin1String("gdal")) MappingArtifactWriter::restoreRasterCrs(layer);
   m_layers.prepend( layer );
   m_visible.insert( layer, true );
   m_opacity.insert( layer, 1.0 );
@@ -128,6 +132,7 @@ void PreviewMapCanvas::insertLayer( int index, QgsMapLayer *layer )
 {
   if ( !layer || m_layers.contains( layer ) )
     return;
+  if (layer->providerType() == QLatin1String("gdal")) MappingArtifactWriter::restoreRasterCrs(layer);
   const int clamped = qBound( 0, index, m_layers.size() );
   m_layers.insert( clamped, layer );
   m_visible.insert( layer, true );
@@ -263,10 +268,15 @@ QgsRectangle PreviewMapCanvas::fullExtent() const
     if ( le.isNull() )
       continue;
     // 退化范围（单点/共线层）不视为空——井位单点层是真实场景。
+    if (l->customProperty("paleoBasemap").toBool()) continue;
+    auto bounds = le;
+    if (bounds.isEmpty()) bounds.grow(5);
+    const auto mapped = paleo::mapreference::mapExtent(m_canvas, bounds, l->crs());
+    if (mapped.isNull()) continue;
     if ( ext.isNull() )
-      ext = le;
+      ext = mapped;
     else
-      ext.combineExtentWith( le );
+      ext.combineExtentWith( mapped );
   }
   // 完全退化的联合范围（只有点层）扩 10 m 防零视口。
   if ( !ext.isNull() && ( ext.width() <= 0.0 || ext.height() <= 0.0 ) )
@@ -327,6 +337,7 @@ void PreviewMapCanvas::zoomToLayer( const QgsMapLayer *layer )
   }
   else
     ext.scale( 1.08 );
+  ext = paleo::mapreference::mapExtent(m_canvas, ext, layer->crs());
   setExtentInternal( ext );
 }
 
@@ -506,9 +517,11 @@ void PreviewMapCanvas::attachProjectLayers( QgsProject *project )
     return;
   m_projectBound = true;
   m_canvas->setProject( project );
+  m_canvas->mapSettings().setTransformContext(project->transformContext());
   m_canvas->setDestinationCrs( project->crs() );
   // 桥接管 setLayers（延迟到事件循环，与主画布同语义）。
-  new QgsLayerTreeMapCanvasBridge( project->layerTreeRoot(), m_canvas, m_canvas );
+  auto *bridge = new QgsLayerTreeMapCanvasBridge( project->layerTreeRoot(), m_canvas, m_canvas );
+  bridge->setAutoSetupOnFirstLayer(false);
   emit layersChanged();
 }
 

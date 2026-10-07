@@ -6,17 +6,21 @@
 #include "paleomainwindow.h"
 #include "qgis/qgiscanvascontroller.h"
 #include "qgis/seismicsectiontool.h"
+#include "catalog/datacatalog.h"
 #include "seismicsection/sectionsetupdialog.h"
 #include "seismicsection/seismicsectiondockwidget.h"
 #include "services/fspathutils.h" // #291 QString↔filesystem::path 走 UTF-16（MSVC 窄构造按 ANSI 解码）
 #include "services/previewdoc.h"
 #include "workflow/sectionworkbench.h"
+#include "wellcomposite/derivedsink.h"
+#include "wellcomposite/wellcompositepanel.h"
 #include <QAction>
 #include <QFileInfo>
 #include <QPointer>
 #include <QStatusBar>
 #include <qgsmapcanvas.h>
 #include <qgsrubberband.h>
+#include <qgsgeometry.h>
 
 void PaleoMainWindow::attachSections(SeismicMapLink *link) {
   m_sectionLink = link;
@@ -27,6 +31,28 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
     dock->setTaskService(m_seismicTaskSvc.get());
   auto *workbench = new SectionWorkbench(m_previewDoc->catalog(), this);
   m_sectionWorkbench = workbench; // 连井剖面共享逐井时深校正
+  if (auto *sink = WellComposite::WellCompositeDerivedSink::defaultSink()) {
+    QPointer<SectionWorkbench> guarded = workbench;
+    sink->setAlignmentProvider([guarded](WellComposite::WellCompositePanel *panel) {
+      if (!guarded || panel->isReferenceWell())
+        return;
+      const QString id = guarded->wellForSource(panel->sourceDataPath(), panel->wellName());
+      if (id.isEmpty()) {
+        panel->applyTimeDepthAlignment(std::nullopt, 0.0, QObject::tr("未关联工程井"));
+        return;
+      }
+      seismic::TimeDepthModel model;
+      double shift = 0.0;
+      QString status;
+      const bool ok = guarded->mdTimeDepth(id, &model, &shift, &status);
+      panel->applyTimeDepthAlignment(ok ? std::optional<seismic::TimeDepthModel>(model) : std::nullopt,
+                                    shift, status);
+    });
+    connect(workbench, &SectionWorkbench::alignmentsChanged, sink,
+            &WellComposite::WellCompositeDerivedSink::refreshAlignments);
+    connect(m_previewDoc->catalog(), &DataCatalog::changed, sink,
+            &WellComposite::WellCompositeDerivedSink::refreshAlignments);
+  }
   auto *setup = new SectionSetupDialog(this);
   auto route = std::make_shared<std::vector<glm::dvec2>>();
   auto routeHorizon = std::make_shared<QString>();
@@ -151,8 +177,10 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
             *routeHorizon =
                 m_selection ? m_selection->activeHorizon() : QString();
             band->reset(Qgis::GeometryType::Line);
-            for (const auto &p : line)
-              band->addPoint(QgsPointXY(p.x, p.y));
+            QgsPolylineXY path;
+            for (const auto &p : line) path << QgsPointXY(p.x, p.y);
+            band->setToGeometry(QgsGeometry::fromPolylineXY(path),
+                                QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()));
             band->show();
             dock->extractSectionFromVolumeAsync(volume, points, title, line,
                                                 workbench->sectionWells());

@@ -27,8 +27,10 @@
 #include "previewtocpanel.h"
 #include "../../qgis/factorcontour.h"
 #include "../../qgis/previewrasteranalysis.h"
+#include "../../qgis/projectmapreference.h"
 #include <qgsmapcanvas.h>
 #include <qgslayertreemapcanvasbridge.h>
+#include <qgslayertree.h>
 #include <qgsmaptoolpan.h>
 #include <qgsproject.h>
 #include <qgsrasterbandstats.h>
@@ -461,6 +463,25 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
   mapPage->setProfileEnabled(false); // 全景浏览页不开剖面工具
   QgsMapCanvas *canvas = mapPage->mapCanvas()->canvas();
   canvas->setObjectName(QStringLiteral("surveyMapCanvas"));
+  const auto localCrs = QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt());
+  if (m_project) {
+    canvas->setProject(m_project);
+    canvas->mapSettings().setTransformContext(m_project->transformContext());
+    mapPage->mapCanvas()->setOverrideCrs(m_project->crs());
+    // 独立底图实例归预览页持有，关闭标签不影响主地图。
+    const auto layers = m_project->layerTreeRoot()->findLayers();
+    for (auto it = layers.crbegin(); it != layers.crend(); ++it) {
+      auto *layer = (*it)->layer();
+      if (!layer || !layer->customProperty("paleoBasemap").toBool()) continue;
+      if (auto *base = paleo::mapreference::offlineBasemap(layer->customProperty("paleoBasemapPath").toString(), layer->name(), canvas))
+        mapPage->addMapLayer(base, base->name(), QString());
+    }
+    auto *sources = new QLabel(paleo::mapreference::attribution(canvas), w);
+    sources->setObjectName(QStringLiteral("surveyBasemapAttribution"));
+    sources->setWordWrap(true);
+    PaleoTheme::applyThemedStyleSheet(sources, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
+    lay->addWidget(sources);
+  }
 
   // 全景页不出鹰眼（固定幅面不需要总览缩略图），工具条开关一并摘掉。
   if (auto *ovAction = mapPage->findChild<QAction *>(QStringLiteral("previewOverviewAction")))
@@ -510,12 +531,12 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
   QgsGeometry surveyGeom;
   if (survey.corners.size() >= 3)
   {
-    QgsPolylineXY ring;
+    QgsRectangle bounds;
     for (const auto &c : survey.corners)
-      ring.append(QgsPointXY(c.first, c.second));
-    if (!ring.isEmpty() && ring.first() != ring.last())
-      ring.append(ring.first());
-    surveyGeom = QgsGeometry::fromPolygonXY(QgsPolygonXY{ring});
+      if (std::isfinite(c.first) && std::isfinite(c.second))
+        bounds.combineExtentWith(QgsRectangle(c.first, c.second, c.first, c.second));
+    if (!bounds.isEmpty())
+      surveyGeom = QgsGeometry::fromRect(bounds);
   }
   else if (survey.inlineMax > survey.inlineMin && survey.xlineMax > survey.xlineMin)
   {
@@ -540,7 +561,7 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
   boundaryBand->setObjectName(QStringLiteral("surveyAreaRubberBand"));
   if (!surveyGeom.isNull() && surveyGeom.isGeosValid())
   {
-    boundaryBand->setToGeometry(surveyGeom, nullptr);
+    boundaryBand->setToGeometry(surveyGeom, localCrs);
   }
   boundaryBand->setColor(QColor(27, 115, 208, 16)); // #1B73D0 浅蓝半透明填充
   boundaryBand->setStrokeColor(QColor(QStringLiteral("#1B73D0"))); // 边界线
@@ -555,8 +576,10 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
     const QgsRectangle box = surveyGeom.boundingBox();
     const double wKm = box.width() / 1000.0;
     const double hKm = box.height() / 1000.0;
-    extentStr = tr("工区范围: %1 km × %2 km · 局部工程坐标系统 (米)")
-                    .arg(QString::number(wKm, 'f', 1), QString::number(hKm, 'f', 1));
+    extentStr = tr("工区范围: %1 km × %2 km · %3")
+                    .arg(QString::number(wKm, 'f', 1), QString::number(hKm, 'f', 1),
+                         canvas->mapSettings().destinationCrs().type() == Qgis::CrsType::Engineering ? tr("局部工程坐标 (米)")
+                             : canvas->mapSettings().destinationCrs().userFriendlyIdentifier());
   }
   else
   {
@@ -574,10 +597,12 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
   lay->addWidget(new PaleoToolRow(topBar, w));
   lay->addWidget(mapPage, 1);
 
-  auto zoomFull = [canvas, surveyGeom]() {
-    if (!surveyGeom.isNull() && !surveyGeom.boundingBox().isEmpty())
+  auto completeSurvey = std::make_shared<QgsGeometry>(surveyGeom);
+  auto zoomFull = [canvas, completeSurvey, localCrs]() {
+    if (!completeSurvey->isNull() && !completeSurvey->boundingBox().isEmpty())
     {
-      QgsRectangle ext = surveyGeom.boundingBox();
+      QgsRectangle ext = paleo::mapreference::mapExtent(canvas, completeSurvey->boundingBox(), localCrs);
+      if (ext.isEmpty()) return;
       ext.grow(qMax(ext.width(), ext.height()) * 0.08);
       canvas->setExtent(ext);
       canvas->refresh();
@@ -615,6 +640,41 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
 
   // 延迟自适应全图（等几何尺寸就绪）
   QTimer::singleShot(100, mapPage, zoomFull);
+
+  if (m_doc && m_doc->catalog())
+    for (const auto &asset : m_doc->catalog()->assets())
+      if (asset.type == QLatin1String("seismic"))
+      {
+        bool matches = survey.id.isEmpty();
+        for (const auto &link : m_doc->catalog()->linksForAsset(asset.id))
+          matches = matches || (!link.unresolved && link.entityId == survey.id);
+        if (!matches)
+          continue;
+        crsLabel->setText(tr("正在后台恢复完整测区范围…"));
+        QPointer<QWidget> guard = mapPage;
+        m_doc->requestSurveyBounds(asset.id,
+            [guard, canvas, localCrs, completeSurvey, boundaryBand, btnBoundary, crsLabel, zoomFull](const auto &corners, const QString &error) {
+          if (!guard)
+            return;
+          QgsRectangle bounds;
+          for (const auto &corner : corners)
+            bounds.combineExtentWith(QgsRectangle(corner.first, corner.second, corner.first, corner.second));
+          if (!bounds.isEmpty()) {
+            *completeSurvey = QgsGeometry::fromRect(bounds);
+            boundaryBand->setToGeometry(*completeSurvey, localCrs);
+            boundaryBand->setVisible(btnBoundary->isChecked());
+            crsLabel->setText(QObject::tr("工区范围: %1 km × %2 km · %3")
+                .arg(bounds.width() / 1000.0, 0, 'f', 1).arg(bounds.height() / 1000.0, 0, 'f', 1)
+                .arg(canvas->mapSettings().destinationCrs().type() == Qgis::CrsType::Engineering ? QObject::tr("局部工程坐标 (米)")
+                    : canvas->mapSettings().destinationCrs().userFriendlyIdentifier()));
+            zoomFull();
+          } else {
+            crsLabel->setText(QObject::tr("测区范围恢复失败：%1")
+                .arg(error.isEmpty() ? QObject::tr("地震体缺少有效坐标") : error));
+          }
+        });
+        break;
+      }
 
   return w;
 }

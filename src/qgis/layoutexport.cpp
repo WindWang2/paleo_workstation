@@ -31,6 +31,7 @@
 #include <qgsrasterrenderer.h>
 #include <qgsrastertransparency.h>
 #include <qgsrectangle.h>
+#include <qgscoordinatetransform.h>
 #include <qgsprintlayout.h>
 #include <qgsvectorlayer.h>
 #include <qgsvectorlayerlabeling.h>
@@ -421,12 +422,19 @@ QgsPrintLayout *buildHorizonMapLayout( QgisLayerService *layers, QgisProjectServ
     enableWellNameLabels( wells ); // 图上有井名
     mapLayers.prepend( wells );    // 井位压在所有图层之上
   }
+  for (const auto &id : {QStringLiteral("basemap.topo"), QStringLiteral("basemap.hillshade")})
+    if (auto *base = layers->layer(id)) mapLayers.append(base);
 
   QgsRectangle extent = rasterExtent( thicknessSource );
   if ( extent.isEmpty() )
     extent = rasterExtent( horizonRasterSource );
   if ( extent.isEmpty() )
     extent = thickness->extent();
+  try {
+    QgsCoordinateTransform transform(thickness->crs(), project->crs(), project->transformContext());
+    if (!transform.isValid()) return fail(QObject::tr("无法将图件范围转换到工程地图坐标系"));
+    extent = transform.transformBoundingBox(extent);
+  } catch (const QgsCsException &ex) { return fail(ex.what()); }
 
   // A4 横版 + 地图项 + 标题 + 图例 + 比例尺 + 指北针 + CRS 说明。
   auto *layout = new QgsPrintLayout( project );
@@ -439,6 +447,7 @@ QgsPrintLayout *buildHorizonMapLayout( QgisLayerService *layers, QgisProjectServ
   auto *map = new QgsLayoutItemMap( layout );
   map->setId( QStringLiteral( "map" ) );
   map->setLayers( mapLayers );
+  map->setCrs(project->crs());
   map->setExtent( extent );
   layout->addLayoutItem( map );
   map->attemptResize( QgsLayoutSize( 277, 165, Qgis::LayoutUnit::Millimeters ) );
@@ -502,11 +511,27 @@ QgsPrintLayout *buildHorizonMapLayout( QgisLayerService *layers, QgisProjectServ
   // CRS 说明（页脚）：工程坐标 · 米 · 未投影（§227 — PDF 上印同一句话）。
   auto *crs = new QgsLayoutItemLabel( layout );
   crs->setId( QStringLiteral( "crsCaption" ) );
-  crs->setText( QObject::tr( "工程坐标 · 米 · 未投影" ) );
+  crs->setText(project->crs().type() == Qgis::CrsType::Engineering ? QObject::tr("工程坐标 · 米 · 未投影")
+                                                              : project->crs().userFriendlyIdentifier());
   crs->setTextFormat( labelFormat( QStringLiteral( "Noto Sans CJK SC" ), 9 ) );
   layout->addLayoutItem( crs );
   crs->attemptResize( QgsLayoutSize( 140, 8, Qgis::LayoutUnit::Millimeters ) );
   crs->attemptMove( QgsLayoutPoint( 10, 192, Qgis::LayoutUnit::Millimeters ) );
+
+  QStringList sources;
+  for (auto *layer : mapLayers) {
+    const auto source = layer->customProperty("paleoBasemapAttribution").toString();
+    if (!source.isEmpty() && !sources.contains(source)) sources << source;
+  }
+  if (!sources.isEmpty()) {
+    auto *attribution = new QgsLayoutItemLabel(layout);
+    attribution->setId(QStringLiteral("basemapAttribution"));
+    attribution->setText(sources.join(QStringLiteral(" · ")));
+    attribution->setTextFormat(labelFormat(QStringLiteral("Noto Sans CJK SC"), 7));
+    layout->addLayoutItem(attribution);
+    attribution->attemptResize(QgsLayoutSize(277, 8, Qgis::LayoutUnit::Millimeters));
+    attribution->attemptMove(QgsLayoutPoint(10, 200, Qgis::LayoutUnit::Millimeters));
+  }
 
   return layout;
 }

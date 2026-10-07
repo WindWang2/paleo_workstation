@@ -1,5 +1,6 @@
 // 层：数据
 #include "candidateboundaries.h"
+#include "faciesmapping_internal.h"
 
 #include "../singlefactor/geosutil.h"
 
@@ -33,14 +34,6 @@ std::vector<GeomPtr> domainRingLines( const GeosContext &ctx, const GEOSGeometry
       out.push_back( std::move( line ) );
   }
   return out;
-}
-
-double geosArea( const GeosContext &ctx, const GEOSGeometry *geometry )
-{
-  double area = 0;
-  if ( geometry )
-    GEOSArea_r( ctx.handle, geometry, &area );
-  return area;
 }
 
 } // namespace

@@ -1,5 +1,6 @@
 // 层：数据
 #include "wellsectionstore.h"
+#include "storeerrors_internal.h"
 #include "metastore.h"
 #include "paleoprojectstore.h"
 
@@ -11,6 +12,8 @@
 
 namespace
 {
+using paleo::store_detail::setError;
+
 // 井 id/顶名是任意用户文本：入库前转义分隔符（\ 前缀），读回反转义。
 // 未转义的旧行按原文读（向后兼容：安全名恒等）。
 QString escapeField(const QString &in)
@@ -78,23 +81,18 @@ QStringList splitEscaped(const QString &in, QChar sep)
         out << cur;
     return out;
 }
-QString connectionNameFor(const QString &path)
+QString wellSectionConnectionName(const QString &path)
 {
     return QStringLiteral("paleo_wellsection_") + QString::number(qHash(path));
-}
-
-void setError(QString *error, const QString &text)
-{
-    if (error)
-        *error = text;
 }
 
 // 幂等建表：section_id 主键单节一行，version 随 save 递增。
 // 前向升级：CREATE TABLE IF NOT EXISTS 对既有表不加列——depth_domain
 // （方向 69 深度域入剖面状态）靠 PRAGMA 查缺 + ALTER 补列（mapversionstore
 // 同款口径）；旧行取列默认 'MD'。
-bool ensureColumn(QSqlDatabase &db, const QString &table, const QString &name,
-                  const QString &type, QString *error)
+bool wellSectionEnsureColumn(QSqlDatabase &db, const QString &table,
+                             const QString &name, const QString &type,
+                             QString *error)
 {
     QSqlQuery info(db);
     if (!info.exec(QStringLiteral("PRAGMA table_info(%1)").arg(table)))
@@ -116,9 +114,9 @@ bool ensureColumn(QSqlDatabase &db, const QString &table, const QString &name,
     return true;
 }
 
-bool ensureOpen(const QString &path, QString *error)
+bool wellSectionEnsureOpen(const QString &path, QString *error)
 {
-    QSqlDatabase db = MetaStore::openConnection(path, connectionNameFor(path), error);
+    QSqlDatabase db = MetaStore::openConnection(path, wellSectionConnectionName(path), error);
     if (!db.isValid())
         return false;
     QSqlQuery schema(db);
@@ -134,7 +132,7 @@ bool ensureOpen(const QString &path, QString *error)
         setError(error, schema.lastError().text());
         return false;
     }
-    if (!ensureColumn(db, QStringLiteral("well_section_edits"),
+    if (!wellSectionEnsureColumn(db, QStringLiteral("well_section_edits"),
                       QStringLiteral("depth_domain"),
                       QStringLiteral("TEXT NOT NULL DEFAULT 'MD'"), error))
         return false;
@@ -143,7 +141,7 @@ bool ensureOpen(const QString &path, QString *error)
 
 int versionOf(const QString &path, const QString &sectionId, QString *error)
 {
-    QSqlQuery q(QSqlDatabase::database(connectionNameFor(path)));
+    QSqlQuery q(QSqlDatabase::database(wellSectionConnectionName(path)));
     q.prepare(QStringLiteral("SELECT version FROM well_section_edits WHERE section_id = ?"));
     q.addBindValue(sectionId);
     if (!q.exec())
@@ -180,7 +178,7 @@ bool WellSectionStore::open(QString *error)
         setError(error, QStringLiteral("WellSectionStore 未绑定工程库路径"));
         return false;
     }
-    return ensureOpen(m_dbPath, error);
+    return wellSectionEnsureOpen(m_dbPath, error);
 }
 
 WellSectionRecord WellSectionStore::save(
@@ -202,14 +200,14 @@ WellSectionRecord WellSectionStore::save(
         QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
 
     const auto write = [&](QString *err) -> WellSectionRecord {
-        if (!ensureOpen(m_dbPath, err))
+        if (!wellSectionEnsureOpen(m_dbPath, err))
             return {};
         // 写队列内读改写：版本号严格递增（round-trip 的推进口径）。
         const int current = versionOf(m_dbPath, sectionId, err);
         if (current < 0)
             return {};
         const int version = current + 1;
-        QSqlQuery q(QSqlDatabase::database(connectionNameFor(m_dbPath)));
+        QSqlQuery q(QSqlDatabase::database(wellSectionConnectionName(m_dbPath)));
         q.prepare(QStringLiteral(
             "INSERT OR REPLACE INTO well_section_edits "
             "(section_id, well_ids, link_overrides, depth_domain, version, "
@@ -283,9 +281,9 @@ WellSectionRecord WellSectionStore::load(const QString &sectionId,
         setError(error, QStringLiteral("WellSectionStore 未绑定工程库路径"));
         return rec;
     }
-    if (!ensureOpen(m_dbPath, error))
+    if (!wellSectionEnsureOpen(m_dbPath, error))
         return rec;
-    QSqlQuery q(QSqlDatabase::database(connectionNameFor(m_dbPath)));
+    QSqlQuery q(QSqlDatabase::database(wellSectionConnectionName(m_dbPath)));
     q.prepare(QStringLiteral(
         "SELECT well_ids, link_overrides, depth_domain, version FROM "
         "well_section_edits WHERE section_id = ?"));
@@ -330,9 +328,9 @@ QStringList WellSectionStore::sectionIds(QString *error) const
         setError(error, QStringLiteral("WellSectionStore 未绑定工程库路径"));
         return out;
     }
-    if (!ensureOpen(m_dbPath, error))
+    if (!wellSectionEnsureOpen(m_dbPath, error))
         return out;
-    QSqlQuery q(QSqlDatabase::database(connectionNameFor(m_dbPath)));
+    QSqlQuery q(QSqlDatabase::database(wellSectionConnectionName(m_dbPath)));
     if (!q.exec(QStringLiteral("SELECT section_id FROM well_section_edits "
                                "ORDER BY section_id")))
     {
@@ -357,9 +355,9 @@ bool WellSectionStore::remove(const QString &sectionId, QString *error)
         return false;
     }
     const auto doRemove = [&](QString *err) -> bool {
-        if (!ensureOpen(m_dbPath, err))
+        if (!wellSectionEnsureOpen(m_dbPath, err))
             return false;
-        QSqlQuery q(QSqlDatabase::database(connectionNameFor(m_dbPath)));
+        QSqlQuery q(QSqlDatabase::database(wellSectionConnectionName(m_dbPath)));
         q.prepare(QStringLiteral(
             "DELETE FROM well_section_edits WHERE section_id = ?"));
         q.addBindValue(sectionId);

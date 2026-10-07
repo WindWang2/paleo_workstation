@@ -1,5 +1,6 @@
 // 层：功能
 #include "mapversioncontroller.h"
+#include "workflowerrors_internal.h"
 #include "mappingsamples.h"
 
 #include "../io/timedeptool.h"
@@ -25,11 +26,7 @@
 
 namespace
 {
-  void setError( QString *error, const QString &text )
-  {
-    if ( error )
-      *error = text;
-  }
+using paleo::workflow_detail::setError;
 
 } // namespace
 

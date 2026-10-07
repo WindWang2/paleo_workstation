@@ -38,7 +38,7 @@ bool CrossplotMapLink::coordinate(const SampleSet &s, int index, double *x,
     if (source != m_canvas->mapSettings().destinationCrs())
       point = QgsCoordinateTransform(source,
                                      m_canvas->mapSettings().destinationCrs(),
-                                     QgsProject::instance())
+                                     m_canvas->mapSettings().transformContext())
                   .transform(point);
   } catch (const QgsCsException &ex) {
     return fail(ex.what());
@@ -102,7 +102,7 @@ bool CrossplotMapLink::highlight(const SampleSet &s,
     return false;
   }
   QgsCoordinateTransform transform(
-      source, m_canvas->mapSettings().destinationCrs(), QgsProject::instance());
+      source, m_canvas->mapSettings().destinationCrs(), m_canvas->mapSettings().transformContext());
   QgsMultiPointXY points;
   points.reserve(indices.size());
   try {

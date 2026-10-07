@@ -14,15 +14,16 @@
 #include "../domain/projectclassifier.h"
 #include "dataimportservice.h"
 #include "../domain/wellrecords.h"
+#include "ioerrors_internal.h"
 
 namespace paleo::dataimport_detail
 {
 
-inline void setError(QString *error, const QString &text)
-{
-  if (error)
-    *error = text;
-}
+// 方向70（Unity 清障）：setError 单一定义收敛到 io_detail（ioerrors_internal.h）。
+// 同目标内两个命名空间各持同签名 inline 时，unity 混批 TU 中各 .cpp 的
+// `using` 会导入不同实体致调用点歧义——这里经 using 委托，本命名空间的
+// setError 仍是有效名，dataimport 族调用点零改动。
+using paleo::io_detail::setError;
 
 inline QString readFileOrEmpty(const QString &path)
 {

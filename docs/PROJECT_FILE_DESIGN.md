@@ -90,7 +90,7 @@ sourceArea）+ `readProjectFile`/`writeProjectFile`/`missingMembers`。
 局部工程米制网格（ENGCRS，无大地基准）→ 真实地理坐标的 2D 相似变换。
 有此节的工程，`DataImportService` 建井时把井口局部网格坐标换算成 WGS84
 经纬度：`coordinateStatus="ok"`、`extra` 记 `projectLon/projectLat`
-（`surfaceX/Y` 仍存原始网格——地图渲染管线不变）；地震 survey 冻结时
+（`surfaceX/Y` 仍存原始网格）；地震 survey 冻结时
 角点换算包围盒落 `extra.wgs84Bbox*`。
 
 ```json
@@ -115,9 +115,39 @@ sourceArea）+ `readProjectFile`/`writeProjectFile`/`missingMembers`。
   打开如实进 `lastErrors`，**不拦打开**（按无配准继续）。写端拒写不完整节。
 - 分发：清单是权威；`QgisProjectService` 另把该节镜像进 QgsProject 自定义
   属性（scope `paleo`、key `georeference`）随 `.qgz` 持久化——直开 `.qgz`
-  且旁无清单时作兜底，QGIS 侧（底图/导出）未来可直接读。
+  且旁无清单时作兜底。QGIS 地图、预览、联动和导出共用工程转换上下文。
 - 序列化/反序列化复用 `paleoGeoreferenceToJson/paleoGeoreferenceFromJson`
   （清单与 `.qgz` 副本同一形状）。
+
+## map 节（地图坐标系与离线底图，可选）
+
+```json
+"map": {
+  "crs": "EPSG:3857",
+  "basemap": {
+    "enabled": true,
+    "topo": "basemap/basemap_topo.mbtiles",
+    "hillshade": "basemap/basemap_hillshade.mbtiles"
+  }
+}
+```
+
+- 界面入口为「文件 → 工程坐标与底图…」。表单编辑相似变换、WGS84 锚点、
+  度米系数、参数来源、地图 CRS 与两份 MBTiles 路径。保存前校验参数、原生
+  正反向范围转换和底图可读性，重新计算现有控制点残差，原子写入清单。
+- 地质图层继续保留局部工程 CRS，地震/测井计算仍使用原始米坐标。
+  仅在存在有效 `georeference` 时，QGIS 工程转换上下文注册显式操作并启用
+  `map.crs`；缺少配准时保持无基准工程网格，不显示真实地理底图。
+- 转换按配准公式得到 WGS84，再由 QGIS 原生投影操作转换到地图 CRS。
+  测区、井位、层位栅格、剖面拾取和定位共用该上下文；地图拾取反算到局部
+  网格后才进入地震计算。MBTiles 由 QGIS 原生 `wms` provider 加载。
+- 底图路径保存为工程根相对路径，图层声明在共享 `01_Base`，位于地质图层
+  下方；全范围定位以测区/地质图层为准，底图的全国范围不参与。
+- `map` 缺席时默认 `EPSG:3857`、空底图路径，不改变旧工程网格行为。
+  `.qgz` 的 `paleo/mapConfiguration` 保存显示配置副本；`canvasExtentCrs`
+  标记保存视野的坐标系，旧视野默认按局部网格转换。
+- 状态栏显示当前地图 CRS 和 WGS84 经纬度；无配准时保留「工程坐标 · 米 ·
+  未投影」。底图版权来源读取 MBTiles metadata，并显示在地图界面。
 
 ## 非目标
 

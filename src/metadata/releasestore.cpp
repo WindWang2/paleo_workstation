@@ -1,5 +1,6 @@
 // 层：数据
 #include "releasestore.h"
+#include "storeerrors_internal.h"
 #include "metastore.h"
 
 #include <QDateTime>
@@ -17,20 +18,16 @@
 // namespace so both stores coexist over the same sqlite file.
 namespace
 {
-  QString connectionNameFor(const QString &path)
+using paleo::store_detail::setError;
+
+  QString releaseStoreConnectionName(const QString &path)
   {
     return QStringLiteral("paleo_releasestore_") + QString::number(qHash(path));
   }
 
-  void setError(QString *error, const QString &text)
+  bool releaseEnsureOpen(const QString &path, QString *error)
   {
-    if (error)
-      *error = text;
-  }
-
-  bool ensureOpen(const QString &path, QString *error)
-  {
-    QSqlDatabase db = MetaStore::openConnection(path, connectionNameFor(path), error);
+    QSqlDatabase db = MetaStore::openConnection(path, releaseStoreConnectionName(path), error);
     if (!db.isValid())
       return false;
 
@@ -90,17 +87,17 @@ ReleaseStore::ReleaseStore(const QString &metaSqlitePath)
 
 bool ReleaseStore::open(QString *error)
 {
-  return ensureOpen(m_dbPath, error);
+  return releaseEnsureOpen(m_dbPath, error);
 }
 
 QString ReleaseStore::createRelease(const QString &name, const QString &note,
                                     const QVector<LayerDeclaration> &decls,
                                     QString *error)
 {
-  if (!ensureOpen(m_dbPath, error))
+  if (!releaseEnsureOpen(m_dbPath, error))
     return QString();
 
-  QSqlDatabase db = QSqlDatabase::database(connectionNameFor(m_dbPath));
+  QSqlDatabase db = QSqlDatabase::database(releaseStoreConnectionName(m_dbPath));
 
   int maxSeq = 0;
   {
@@ -140,9 +137,9 @@ QString ReleaseStore::createRelease(const QString &name, const QString &note,
 QVector<ReleaseInfo> ReleaseStore::releases() const
 {
   QVector<ReleaseInfo> out;
-  if (!ensureOpen(m_dbPath, nullptr))
+  if (!releaseEnsureOpen(m_dbPath, nullptr))
     return out;
-  QSqlQuery q(QSqlDatabase::database(connectionNameFor(m_dbPath)));
+  QSqlQuery q(QSqlDatabase::database(releaseStoreConnectionName(m_dbPath)));
   if (!q.exec(QStringLiteral(
           "SELECT release_id,name,note,created_utc,manifest_json FROM releases "
           "ORDER BY CAST(substr(release_id,5) AS INTEGER)")))
@@ -163,9 +160,9 @@ QVector<ReleaseInfo> ReleaseStore::releases() const
 QVector<LayerDeclaration> ReleaseStore::manifestAt(const QString &releaseId) const
 {
   QVector<LayerDeclaration> out;
-  if (!ensureOpen(m_dbPath, nullptr))
+  if (!releaseEnsureOpen(m_dbPath, nullptr))
     return out;
-  QSqlQuery q(QSqlDatabase::database(connectionNameFor(m_dbPath)));
+  QSqlQuery q(QSqlDatabase::database(releaseStoreConnectionName(m_dbPath)));
   q.prepare(QStringLiteral("SELECT manifest_json FROM releases WHERE release_id=?"));
   q.addBindValue(releaseId);
   if (!q.exec() || !q.next())
@@ -182,13 +179,13 @@ QVector<LayerDeclaration> ReleaseStore::manifestAt(const QString &releaseId) con
 bool ReleaseStore::diff(const QString &idA, const QString &idB,
                         QStringList *added, QStringList *removed, QStringList *changed) const
 {
-  if (!ensureOpen(m_dbPath, nullptr))
+  if (!releaseEnsureOpen(m_dbPath, nullptr))
     return false;
 
   // Both releases must actually exist — an empty manifest is a valid snapshot,
   // so existence is checked against the table, not the payload size.
   {
-    QSqlQuery q(QSqlDatabase::database(connectionNameFor(m_dbPath)));
+    QSqlQuery q(QSqlDatabase::database(releaseStoreConnectionName(m_dbPath)));
     q.prepare(QStringLiteral("SELECT release_id FROM releases WHERE release_id IN (?,?)"));
     q.addBindValue(idA);
     q.addBindValue(idB);

@@ -25,7 +25,7 @@
 
 namespace
 {
-constexpr double kNoData = -9999.0;
+constexpr double kRealizationNoData = -9999.0;
 // 分位数行带的常驻上限：64 成员 × 1024 列也只用 ~4 行/带。
 constexpr std::size_t kMaxBandValues = 8u * 1024u * 1024u;
 
@@ -54,7 +54,7 @@ bool writeStatRaster( const QString &path, const std::vector<double> &values,
                       const QByteArray &projectionWkt )
 {
   GDALDatasetH ds = PaleoRasterOut::createFloatRaster(
-      path, cols, rows, geoTransform, QgsCoordinateReferenceSystem(), kNoData );
+      path, cols, rows, geoTransform, QgsCoordinateReferenceSystem(), kRealizationNoData );
   if ( !ds )
     return false;
   if ( !projectionWkt.isEmpty() )
@@ -67,7 +67,7 @@ bool writeStatRaster( const QString &path, const std::vector<double> &values,
     {
       const double v = values[static_cast<std::size_t>( r ) * cols + c];
       row[static_cast<std::size_t>( c )] =
-          std::isfinite( v ) ? static_cast<float>( v ) : static_cast<float>( kNoData );
+          std::isfinite( v ) ? static_cast<float>( v ) : static_cast<float>( kRealizationNoData );
     }
     if ( GDALRasterIO( band, GF_Write, 0, r, cols, 1, row.data(), cols, 1,
                        GDT_Float32, 0, 0 ) != CE_None )

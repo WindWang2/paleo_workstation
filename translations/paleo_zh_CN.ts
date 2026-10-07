@@ -200,6 +200,10 @@
         <source>井位</source>
         <translation>井位</translation>
     </message>
+    <message>
+        <source>测区范围</source>
+        <translation>测区范围</translation>
+    </message>
 </context>
 <context>
     <name>AttributeTablePanel</name>
@@ -2753,6 +2757,14 @@
         <source>井点 GeoJSON 写入失败：%1</source>
         <translation>井点 GeoJSON 写入失败：%1</translation>
     </message>
+    <message>
+        <source>无法创建测区图层目录</source>
+        <translation>无法创建测区图层目录</translation>
+    </message>
+    <message>
+        <source>测区图层写入失败：%1</source>
+        <translation>测区图层写入失败：%1</translation>
+    </message>
 </context>
 <context>
     <name>DataImportService</name>
@@ -3294,8 +3306,8 @@
     </message>
     <message>
         <location filename="../src/ui/pages/datalist.cpp" line="1610"/>
-        <source>三维地震数据体</source>
-        <translation>三维地震数据体</translation>
+        <source>三维地震体 / 层位解释</source>
+        <translation>三维地震体 / 层位解释</translation>
     </message>
     <message>
         <location filename="../src/ui/pages/datalist.cpp" line="1635"/>
@@ -5297,6 +5309,14 @@
         <location filename="../src/ui/datapreview/datapreviewtabs.cpp" line="1148"/>
         <source>该版本暂无内嵌文档预览，可打开所选原件</source>
         <translation>该版本暂无内嵌文档预览，可打开所选原件</translation>
+    </message>
+    <message>
+        <source>工区范围: %1 km × %2 km · %3</source>
+        <translation>工区范围: %1 km × %2 km · %3</translation>
+    </message>
+    <message>
+        <source>局部工程坐标 (米)</source>
+        <translation>局部工程坐标 (米)</translation>
     </message>
 </context>
 <context>
@@ -8568,8 +8588,8 @@ Crossline: %3 ~ %4</source>
     </message>
     <message>
         <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="534"/>
-        <source>预测编图</source>
-        <translation>预测编图</translation>
+        <source>智能预测</source>
+        <translation>智能预测</translation>
     </message>
     <message>
         <location filename="../src/ui/pages/mappingworkbenchpage.cpp" line="596"/>
@@ -10443,8 +10463,8 @@ Crossline: %3 ~ %4</source>
     </message>
     <message>
         <location filename="../src/ui/paleomainwindow.cpp" line="157"/>
-        <source>预测编图</source>
-        <translation>预测编图</translation>
+        <source>智能预测</source>
+        <translation>智能预测</translation>
     </message>
     <message>
         <location filename="../src/ui/paleomainwindow.cpp" line="158"/>
@@ -10601,8 +10621,8 @@ Crossline: %3 ~ %4</source>
     </message>
     <message>
         <location filename="../src/ui/paleomainwindow.cpp" line="538"/>
-        <source>地图上还没有图层 — 先在「数据管理」导入工区文件夹，或在「预测编图」运行预测</source>
-        <translation>地图上还没有图层 — 先在「数据管理」导入工区文件夹，或在「预测编图」运行预测</translation>
+        <source>地图上还没有图层 — 先在「数据管理」导入工区文件夹，或在「智能预测」运行预测</source>
+        <translation>地图上还没有图层 — 先在「数据管理」导入工区文件夹，或在「智能预测」运行预测</translation>
     </message>
     <message>
         <location filename="../src/ui/paleomainwindow.cpp" line="559"/>
@@ -12538,6 +12558,22 @@ SHA-256：%2</translation>
         <location filename="../src/ui/paleomainwindow_wellsection.cpp" line="198"/>
         <source>先在「数据管理」导入带坐标的地震体</source>
         <translation>先在「数据管理」导入带坐标的地震体</translation>
+    </message>
+    <message>
+        <source>经纬度 %1, %2</source>
+        <translation>经纬度 %1, %2</translation>
+    </message>
+    <message>
+        <source>工程坐标与底图…</source>
+        <translation>工程坐标与底图…</translation>
+    </message>
+    <message>
+        <source>工程已切换，请重新打开设置</source>
+        <translation>工程已切换，请重新打开设置</translation>
+    </message>
+    <message>
+        <source>工程坐标与底图设置已保存</source>
+        <translation>工程坐标与底图设置已保存</translation>
     </message>
 </context>
 <context>
@@ -17851,6 +17887,42 @@ SHA-256：%2</translation>
         <source>已有证据内容不是有效列表，请先修复；原证据未覆盖</source>
         <translation>已有证据内容不是有效列表，请先修复；原证据未覆盖</translation>
     </message>
+    <message>
+        <source>工程坐标配准参数无效</source>
+        <translation>工程坐标配准参数无效</translation>
+    </message>
+    <message>
+        <source>地图坐标系无效或不是地理/投影坐标系：%1</source>
+        <translation>地图坐标系无效或不是地理/投影坐标系：%1</translation>
+    </message>
+    <message>
+        <source>无法生成地图投影操作：%1</source>
+        <translation>无法生成地图投影操作：%1</translation>
+    </message>
+    <message>
+        <source>无法注册工程坐标转换：%1</source>
+        <translation>无法注册工程坐标转换：%1</translation>
+    </message>
+    <message>
+        <source>工程坐标转换不能使用：%1</source>
+        <translation>工程坐标转换不能使用：%1</translation>
+    </message>
+    <message>
+        <source>工程坐标转换返回无效位置：%1</source>
+        <translation>工程坐标转换返回无效位置：%1</translation>
+    </message>
+    <message>
+        <source>工程坐标范围转换不可用：%1</source>
+        <translation>工程坐标范围转换不可用：%1</translation>
+    </message>
+    <message>
+        <source>工区范围: %1 km × %2 km · %3</source>
+        <translation>工区范围: %1 km × %2 km · %3</translation>
+    </message>
+    <message>
+        <source>局部工程坐标 (米)</source>
+        <translation>局部工程坐标 (米)</translation>
+    </message>
 </context>
 <context>
     <name>QgisConstraintEditSession</name>
@@ -17989,6 +18061,18 @@ SHA-256：%2</translation>
         <location filename="../src/qgis/qgislayerservice.cpp" line="82"/>
         <source>请先保存或取消该图层的编辑，再替换图件</source>
         <translation>请先保存或取消该图层的编辑，再替换图件</translation>
+    </message>
+    <message>
+        <source>离线底图不存在或无法读取</source>
+        <translation>离线底图不存在或无法读取</translation>
+    </message>
+    <message>
+        <source>离线地形底图</source>
+        <translation>离线地形底图</translation>
+    </message>
+    <message>
+        <source>离线地形阴影</source>
+        <translation>离线地形阴影</translation>
     </message>
 </context>
 <context>
@@ -18153,6 +18237,30 @@ SHA-256：%2</translation>
         <location filename="../src/qgis/qgisprojectservice.cpp" line="296"/>
         <source>Failed to replace project file %1 with %2</source>
         <translation>将工程文件 %1 替换为 %2 失败</translation>
+    </message>
+    <message>
+        <source>地图配准未启用：%1</source>
+        <translation>地图配准未启用：%1</translation>
+    </message>
+    <message>
+        <source>请先打开工程并等待读取完成</source>
+        <translation>请先打开工程并等待读取完成</translation>
+    </message>
+    <message>
+        <source>工程以只读模式打开，不能保存坐标与底图设置</source>
+        <translation>工程以只读模式打开，不能保存坐标与底图设置</translation>
+    </message>
+    <message>
+        <source>启用底图前请设置有效的工程坐标配准</source>
+        <translation>启用底图前请设置有效的工程坐标配准</translation>
+    </message>
+    <message>
+        <source>离线底图无法读取：%1</source>
+        <translation>离线底图无法读取：%1</translation>
+    </message>
+    <message>
+        <source>坐标转换超出经纬度范围：%1</source>
+        <translation>坐标转换超出经纬度范围：%1</translation>
     </message>
 </context>
 <context>
@@ -19212,6 +19320,10 @@ SHA-256：%2</translation>
         <location filename="../src/linkage/seismicmaplink.cpp" line="256"/>
         <source>地图拾取任意剖面</source>
         <translation>地图拾取任意剖面</translation>
+    </message>
+    <message>
+        <source>无法把地图位置换算到地震测网，请检查工程坐标设置</source>
+        <translation>无法把地图位置换算到地震测网，请检查工程坐标设置</translation>
     </message>
 </context>
 <context>
@@ -28145,6 +28257,109 @@ SHA-256：%2</translation>
         <location filename="../src/ui/wellsection/wellsectionscene.cpp" line="1363"/>
         <source> · 层段 %1</source>
         <translation> · 层段 %1</translation>
+    </message>
+</context>
+<context>
+    <name>ProjectMapSettingsDialog</name>
+    <message>
+        <source>工程坐标与底图</source>
+        <translation>工程坐标与底图</translation>
+    </message>
+    <message>
+        <source>参数保存在 project.paleo。原始地质数据使用局部米制网格；地图按配准参数显示真实位置。</source>
+        <translation>参数保存在 project.paleo。原始地质数据使用局部米制网格；地图按配准参数显示真实位置。</translation>
+    </message>
+    <message>
+        <source>局部网格 → WGS84 经纬度</source>
+        <translation>局部网格 → WGS84 经纬度</translation>
+    </message>
+    <message>
+        <source>启用工程坐标配准</source>
+        <translation>启用工程坐标配准</translation>
+    </message>
+    <message>
+        <source>a（缩放 × cos 旋转角）</source>
+        <translation>a（缩放 × cos 旋转角）</translation>
+    </message>
+    <message>
+        <source>b（缩放 × sin 旋转角）</source>
+        <translation>b（缩放 × sin 旋转角）</translation>
+    </message>
+    <message>
+        <source>东向平移 tE（米）</source>
+        <translation>东向平移 tE（米）</translation>
+    </message>
+    <message>
+        <source>北向平移 tN（米）</source>
+        <translation>北向平移 tN（米）</translation>
+    </message>
+    <message>
+        <source>锚点经度（度）</source>
+        <translation>锚点经度（度）</translation>
+    </message>
+    <message>
+        <source>锚点纬度（度）</source>
+        <translation>锚点纬度（度）</translation>
+    </message>
+    <message>
+        <source>每经度对应米数</source>
+        <translation>每经度对应米数</translation>
+    </message>
+    <message>
+        <source>每纬度对应米数</source>
+        <translation>每纬度对应米数</translation>
+    </message>
+    <message>
+        <source>E = a·x − b·y + tE；N = b·x + a·y + tN
+经度 = 锚点经度 + E / 每经度米数
+纬度 = 锚点纬度 + N / 每纬度米数</source>
+        <translation>E = a·x − b·y + tE；N = b·x + a·y + tN
+经度 = 锚点经度 + E / 每经度米数
+纬度 = 锚点纬度 + N / 每纬度米数</translation>
+    </message>
+    <message>
+        <source>参数来源</source>
+        <translation>参数来源</translation>
+    </message>
+    <message>
+        <source>现有控制点：%1 个；最大残差：%2 米。保存修改时重新计算残差。</source>
+        <translation>现有控制点：%1 个；最大残差：%2 米。保存修改时重新计算残差。</translation>
+    </message>
+    <message>
+        <source>地图显示与离线底图</source>
+        <translation>地图显示与离线底图</translation>
+    </message>
+    <message>
+        <source>地图坐标系</source>
+        <translation>地图坐标系</translation>
+    </message>
+    <message>
+        <source>显示离线底图</source>
+        <translation>显示离线底图</translation>
+    </message>
+    <message>
+        <source>选择…</source>
+        <translation>选择…</translation>
+    </message>
+    <message>
+        <source>选择已下载的离线底图</source>
+        <translation>选择已下载的离线底图</translation>
+    </message>
+    <message>
+        <source>离线瓦片 (*.mbtiles)</source>
+        <translation>离线瓦片 (*.mbtiles)</translation>
+    </message>
+    <message>
+        <source>地形底图</source>
+        <translation>地形底图</translation>
+    </message>
+    <message>
+        <source>地形阴影</source>
+        <translation>地形阴影</translation>
+    </message>
+    <message>
+        <source>保存失败：%1</source>
+        <translation>保存失败：%1</translation>
     </message>
 </context>
 </TS>

@@ -313,6 +313,7 @@ class DataCatalog : public QObject
     // 工程米制 WKT——OGR 认它，不落到 4326）。没有可定位的井时不写文件、
     // 返回 true（与 wells.thickness 同一约定）；写盘失败 → false + error。
     bool writeWellsGeoJson(const QString &path, QString *error = nullptr) const;
+    bool writeSurveyGeoJson(const QString &path, QString *error = nullptr) const;
 
     // 局部测网 CRS（§3 / PROJECT_AREA_PLAN autoplan-eng）：工作坐标=局部直角米。
     // WKT2 ENGCRS：EDATUM 是工程基准，不带大地基准——因此 authid 为空、

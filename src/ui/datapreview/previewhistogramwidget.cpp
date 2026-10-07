@@ -1,5 +1,6 @@
 // 层：视图
 #include "previewhistogramwidget.h"
+#include "datapreview_internal.h"
 
 #include "../paleotheme.h"
 
@@ -16,12 +17,8 @@
 
 namespace
 {
-  QFont mono8()
-  {
-    QFont f = PaleoTheme::monoFont();
-    f.setPointSize(PaleoTheme::tokens().labelPt);
-    return f;
-  }
+using paleo::ui_detail::mono8;
+
 }
 
 PreviewHistogramWidget::PreviewHistogramWidget( bool compact, QWidget *parent )

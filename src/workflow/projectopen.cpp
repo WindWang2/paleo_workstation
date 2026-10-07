@@ -14,6 +14,11 @@ ProjectOpenWorkflow::ProjectOpenWorkflow(QgisProjectService *projSvc,
                                          QObject *parent)
     : QObject(parent), m_projSvc(projSvc)
 {
+  if (m_projSvc)
+    connect(m_projSvc, &QgisProjectService::openFinished, this, [this](bool success) {
+      if (!success && !m_projSvc->lastOpenCancelled())
+        emit openFailed(tr("打开工程失败"), m_projSvc->lastErrors().join(QLatin1Char('\n')), true);
+    });
 }
 
 bool ProjectOpenWorkflow::openPath(const QString &path)
@@ -28,7 +33,7 @@ bool ProjectOpenWorkflow::openPath(const QString &path)
   }
   if (fi.isFile())
   {
-    if (!m_projSvc->openProject(fi.absoluteFilePath()))
+    if (!m_projSvc->openProjectAsync(fi.absoluteFilePath()))
     {
       if (!m_projSvc->lastOpenCancelled()) // #152：锁冲突时用户取消 → 不报错
         emit openFailed(tr("打开工程失败"),
@@ -43,7 +48,7 @@ bool ProjectOpenWorkflow::openPath(const QString &path)
     const QString paleo = paleoProjectFilePath(dir);
     if (QFile::exists(paleo))
     {
-      if (!m_projSvc->openProject(paleo))
+      if (!m_projSvc->openProjectAsync(paleo))
       {
         if (!m_projSvc->lastOpenCancelled()) // #152：锁冲突时用户取消 → 不报错
           emit openFailed(tr("打开工程失败"),
@@ -60,7 +65,7 @@ bool ProjectOpenWorkflow::openPath(const QString &path)
     {
       const QString adopt =
           QFile::exists(qgz) ? qgz : QDir(dir).filePath(qgzFiles.first());
-      if (!m_projSvc->openProject(adopt))
+      if (!m_projSvc->openProjectAsync(adopt))
       {
         if (!m_projSvc->lastOpenCancelled()) // #152：锁冲突时用户取消 → 不报错
           emit openFailed(tr("打开工程失败"),

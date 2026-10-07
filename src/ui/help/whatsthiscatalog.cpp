@@ -27,7 +27,7 @@ QList<WhatsThisEntry> whatsThisEntries()
 {
   return {
     // ---- 主窗口外壳（六页共用的 chrome 与起始页）----
-    {"PaleoMainWindow", "workflowTabs", QT_TRANSLATE_NOOP("PaleoWhatsThis", "工作流页签：按数据管理、地层对比、预测编图、单因素图、智能编图、验证的顺序切换六个工作页。"), nullptr},
+    {"PaleoMainWindow", "workflowTabs", QT_TRANSLATE_NOOP("PaleoWhatsThis", "工作流页签：按数据管理、地层对比、智能预测、单因素图、智能编图、验证的顺序切换六个工作页。"), nullptr},
     {"PaleoMainWindow", "paleoLocator", QT_TRANSLATE_NOOP("PaleoWhatsThis", "顶栏搜索：输入井名或层位名快速定位；选中层位会切换当前层位。"), "main.locator.focus"},
     {"PaleoMainWindow", "panelsMenuButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "布局菜单：显示或隐藏各停靠面板、保存与恢复布局，并可切换深色模式和紧凑密度。"), nullptr},
     {"PaleoMainWindow", "processingButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "处理算法：按提供者分组列出可用算法，点击后打开该算法的参数对话框。"), nullptr},
@@ -62,7 +62,7 @@ QList<WhatsThisEntry> whatsThisEntries()
     {"StratigraphicWebPage", "correlationWebAddress", QT_TRANSLATE_NOOP("PaleoWhatsThis", "地层对比网页工作台的服务地址。"), nullptr},
     {"StratigraphicWebPage", "correlationWebStatus", QT_TRANSLATE_NOOP("PaleoWhatsThis", "地层对比服务的连接状态与下一步提示。"), nullptr},
 
-    // ---- 预测编图页 ----
+    // ---- 智能预测页 ----
     {"PredictPage", "predictTypeCombo", QT_TRANSLATE_NOOP("PaleoWhatsThis", "选择预测类型：沉积相、地震相或测井相。"), nullptr},
     {"PredictPage", "algoCombo", QT_TRANSLATE_NOOP("PaleoWhatsThis", "选择预测算法；下方参数区按所选算法重建。"), nullptr},
     {"PredictPage", "runButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "按当前类型、算法与参数运行预测。"), nullptr},

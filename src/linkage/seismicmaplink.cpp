@@ -3,6 +3,8 @@
 #include "domain/seismic/sgycoordinatemapper.h"
 #include "domain/seismic/sgyvolume.h"
 #include "selectioncontext.h"
+#include "qgis/projectmapreference.h"
+#include "catalog/datacatalog.h"
 
 #include <QSignalBlocker>
 #include <cmath>
@@ -136,12 +138,6 @@ void SeismicMapLink::triggerSectionFromMapPolyline(const QVector<QgsPointXY> &ma
     return;
   }
 
-  if (m_canvas && m_canvas->mapSettings().destinationCrs().isGeographic()) {
-    emit sectionExtractedFromMap(
-        false,
-        tr("当前地图使用经纬度，请先切换到与井口及地震一致的米制坐标系"));
-    return;
-  }
   std::vector<glm::ivec2> pathPoints;
   std::vector<glm::dvec2> mapPolyline;
   for (const auto &pt : mapPoints)
@@ -224,7 +220,11 @@ void SeismicMapLink::onSectionTraceHovered(
     m_cursorMarker->setPenWidth(2);
   }
 
-  m_cursorMarker->setCenter(QgsPointXY(mapX, mapY));
+  QgsPointXY mapped;
+  if (!paleo::mapreference::transformPoint(m_canvas, QgsPointXY(mapX, mapY),
+      QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()),
+      m_canvas->mapSettings().destinationCrs(), &mapped)) { m_cursorMarker->hide(); return; }
+  m_cursorMarker->setCenter(mapped);
   m_cursorMarker->show();
 }
 
@@ -235,12 +235,27 @@ void SeismicMapLink::onSectionTraceClicked(
     return;
 
   if (std::isfinite(mapX) && std::isfinite(mapY)) {
-    m_canvas->setCenter(QgsPointXY(mapX, mapY));
+    QgsPointXY mapped;
+    if (!paleo::mapreference::transformPoint(m_canvas, QgsPointXY(mapX, mapY),
+        QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()),
+        m_canvas->mapSettings().destinationCrs(), &mapped)) return;
+    m_canvas->setCenter(mapped);
     m_canvas->refresh();
   }
 }
 
 void SeismicMapLink::onSectionPathCaptured(const QVector<QgsPointXY> &points)
 {
-  triggerSectionFromMapPolyline(points, tr("地图拾取任意剖面"));
+  if (!m_canvas) return;
+  QVector<QgsPointXY> local;
+  for (const auto &point : points) {
+    QgsPointXY transformed;
+    if (!paleo::mapreference::transformPoint(m_canvas, point, m_canvas->mapSettings().destinationCrs(),
+        QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()), &transformed)) {
+      emit sectionExtractedFromMap(false, tr("无法把地图位置换算到地震测网，请检查工程坐标设置"));
+      return;
+    }
+    local << transformed;
+  }
+  triggerSectionFromMapPolyline(local, tr("地图拾取任意剖面"));
 }

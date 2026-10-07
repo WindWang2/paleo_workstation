@@ -2,6 +2,7 @@
 #include "qgiscanvascontroller.h"
 
 #include "qgisprojectservice.h"
+#include "projectmapreference.h"
 #include "../catalog/datacatalog.h"
 
 #include <qgsmapcanvas.h>
@@ -11,6 +12,7 @@
 #include <qgslayertree.h>
 #include <qgslayertreemapcanvasbridge.h>
 #include <qgscoordinatereferencesystem.h>
+#include <qgscoordinatetransform.h>
 #include <qgsrectangle.h>
 #include <qgssnappingutils.h>
 
@@ -83,20 +85,18 @@ QgsMapCanvas *QgisCanvasController::canvas()
   return m_canvas;
 }
 
-void QgisCanvasController::applyLocalCrs( QgsProject *project )
+void QgisCanvasController::applyProjectCrs( QgsProject *project )
 {
   if ( !project )
     return;
-  // §3 / PROJECT_AREA_PLAN: layers, project and canvas share ONE datum-free
-  // engineering meter CRS — never an implied EPSG:4326. Pinned on every open:
-  // a .qgz read() can carry whatever CRS the file was saved with.
-  const QgsCoordinateReferenceSystem local =
-      QgsCoordinateReferenceSystem::fromWkt( DataCatalog::localGridCrsWkt() );
-  if ( !local.isValid() )
-    return;
-  project->setCrs( local );
+  // 工程服务已按显式配准设置 CRS 和转换上下文；无配准才使用局部网格。
+  if (!project->crs().isValid())
+    project->setCrs(QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()));
   if ( m_canvas )
-    m_canvas->setDestinationCrs( local );
+  {
+    m_canvas->mapSettings().setTransformContext(project->transformContext());
+    m_canvas->setDestinationCrs(project->crs());
+  }
 }
 
 void QgisCanvasController::bindProject()
@@ -118,9 +118,9 @@ void QgisCanvasController::bindProject()
   if ( !proj )
     return;
 
-  // Pin the engineering CRS BEFORE creating the bridge: the bridge snapshots
+  // Apply the configured project CRS BEFORE creating the bridge: it snapshots
   // first-layer CRS state at construction and on the first setCanvasLayers.
-  applyLocalCrs( proj );
+  applyProjectCrs( proj );
   m_canvas->setProject( proj ); // canvas-scoped lookups resolve against this project
 
   // The bridge watches the layer tree and defers canvas-layer updates onto the
@@ -128,18 +128,37 @@ void QgisCanvasController::bindProject()
   // disappear, and project clear/read wipes the set. No manual setLayers needed.
   delete m_bridge;
   m_bridge = new QgsLayerTreeMapCanvasBridge( proj->layerTreeRoot(), m_canvas, this );
+  m_bridge->setAutoSetupOnFirstLayer(false);
 
   if ( svc )
     connect( svc, &QgisProjectService::projectOpened, this, [this, svc] {
       QgsProject *p = svc->project();
-      applyLocalCrs( p );
+      applyProjectCrs( p );
       // Rebind defensively: read() may rebuild the tree under the bridge.
       if ( p && m_canvas )
       {
         delete m_bridge;
         m_bridge = new QgsLayerTreeMapCanvasBridge( p->layerTreeRoot(), m_canvas, this );
+        m_bridge->setAutoSetupOnFirstLayer(false);
       }
     } );
+  if (svc)
+    connect(svc, &QgisProjectService::mapConfigurationChanged, this, [this, svc] {
+      if (!m_canvas) return;
+      const auto oldCrs = m_canvas->mapSettings().destinationCrs();
+      const auto newCrs = svc->project()->crs();
+      auto extent = m_canvas->extent();
+      try {
+        auto context = svc->project()->transformContext();
+        if (!context.hasTransform(oldCrs, newCrs)) context = m_canvas->mapSettings().transformContext();
+        QgsCoordinateTransform transform(oldCrs, newCrs, context);
+        if (transform.isValid()) extent = transform.transformBoundingBox(extent);
+      } catch (const QgsCsException &) { extent = {}; }
+      applyProjectCrs(svc->project());
+      if (!extent.isEmpty()) m_canvas->setExtent(extent);
+      else zoomToFullExtent();
+      m_canvas->refresh();
+    });
 }
 
 void QgisCanvasController::setMapTool( QgsMapTool *tool )
@@ -165,8 +184,19 @@ void QgisCanvasController::deactivateTool()
 
 void QgisCanvasController::zoomToFullExtent()
 {
-  if ( m_canvas )
-    m_canvas->zoomToFullExtent();
+  if (!m_canvas) return;
+  QgsRectangle extent;
+  for (auto *layer : m_canvas->layers())
+    if (!layer->customProperty("paleoBasemap").toBool()) {
+      auto bounds = layer->extent();
+      if (!bounds.isNull() && bounds.isEmpty()) bounds.grow(50);
+      extent.combineExtentWith(paleo::mapreference::mapExtent(m_canvas, bounds, layer->crs()));
+    }
+  if (!extent.isEmpty()) {
+    extent.scale(1.08);
+    m_canvas->setExtent(extent);
+    m_canvas->refresh();
+  } else m_canvas->zoomToFullExtent();
 }
 
 void QgisCanvasController::setLayerResolver( LayerResolver resolver )
@@ -186,7 +216,7 @@ void QgisCanvasController::zoomToLayer( const QString &layerId )
   QgsMapLayer *l = m_layerResolver ? m_layerResolver( layerId ) : nullptr;
   if ( !l )
     return;
-  const QgsRectangle ext = l->extent();
+  const QgsRectangle ext = paleo::mapreference::mapExtent(m_canvas, l->extent(), l->crs());
   if ( ext.isEmpty() )
     return;
   m_canvas->setExtent( ext );
@@ -198,11 +228,16 @@ void QgisCanvasController::zoomToPoint( double x, double y )
   if ( !m_canvas )
     return;
   // 保留当前视野宽高（用户选好的比例尺），视野无效时给一个 ~1km 的
-  // 工程网格窗口 —— 坐标是局部米，任何投影换算都不参与（§3）。
+  // 工程网格窗口，先按工程转换上下文换算到画布坐标。
+  const auto local = QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt());
+  QgsPointXY center;
+  if (!paleo::mapreference::transformPoint(m_canvas, QgsPointXY(x, y), local,
+                                          m_canvas->mapSettings().destinationCrs(), &center)) return;
+  const auto fallback = paleo::mapreference::mapExtent(m_canvas, QgsRectangle(x-500, y-500, x+500, y+500), local);
   QgsRectangle e = m_canvas->extent();
-  const double hw = ( e.isEmpty() || e.width() <= 0.0 ) ? 500.0 : e.width() / 2.0;
-  const double hh = ( e.isEmpty() || e.height() <= 0.0 ) ? 500.0 : e.height() / 2.0;
-  m_canvas->setExtent( QgsRectangle( x - hw, y - hh, x + hw, y + hh ) );
+  const double hw = e.isEmpty() ? fallback.width()/2 : e.width()/2;
+  const double hh = e.isEmpty() ? fallback.height()/2 : e.height()/2;
+  m_canvas->setExtent(QgsRectangle(center.x()-hw, center.y()-hh, center.x()+hw, center.y()+hh));
   m_canvas->refresh();
 }
 

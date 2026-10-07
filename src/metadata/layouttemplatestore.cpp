@@ -1,5 +1,6 @@
 // 层：数据
 #include "layouttemplatestore.h"
+#include "storeerrors_internal.h"
 #include "metastore.h"
 
 #include <QDateTime>
@@ -12,20 +13,16 @@
 // namespace so the project.sqlite stores coexist over the same sqlite file.
 namespace
 {
-  QString connectionNameFor(const QString &path)
+using paleo::store_detail::setError;
+
+  QString layoutTemplateConnectionName(const QString &path)
   {
     return QStringLiteral("paleo_layouttemplatestore_") + QString::number(qHash(path));
   }
 
-  void setError(QString *error, const QString &text)
+  bool layoutTemplateEnsureOpen(const QString &path, QString *error)
   {
-    if (error)
-      *error = text;
-  }
-
-  bool ensureOpen(const QString &path, QString *error)
-  {
-    QSqlDatabase db = MetaStore::openConnection(path, connectionNameFor(path), error);
+    QSqlDatabase db = MetaStore::openConnection(path, layoutTemplateConnectionName(path), error);
     if (!db.isValid())
       return false;
 
@@ -73,7 +70,7 @@ LayoutTemplateStore::LayoutTemplateStore(const QString &metaSqlitePath)
 
 bool LayoutTemplateStore::open(QString *error)
 {
-  return ensureOpen(m_dbPath, error);
+  return layoutTemplateEnsureOpen(m_dbPath, error);
 }
 
 QString LayoutTemplateStore::create(const QString &name, const QString &kind,
@@ -86,7 +83,7 @@ QString LayoutTemplateStore::create(const QString &name, const QString &kind,
     setError(error, QStringLiteral("template name is empty"));
     return QString();
   }
-  if (!ensureOpen(m_dbPath, error))
+  if (!layoutTemplateEnsureOpen(m_dbPath, error))
     return QString();
   if (nameExists(name))
   {
@@ -94,7 +91,7 @@ QString LayoutTemplateStore::create(const QString &name, const QString &kind,
     return QString();
   }
 
-  QSqlDatabase db = QSqlDatabase::database(connectionNameFor(m_dbPath));
+  QSqlDatabase db = QSqlDatabase::database(layoutTemplateConnectionName(m_dbPath));
 
   int maxSeq = 0;
   {
@@ -135,9 +132,9 @@ QString LayoutTemplateStore::create(const QString &name, const QString &kind,
 bool LayoutTemplateStore::updateContent(const QString &id, const QString &versionId,
                                         const QString &sha256, QString *error)
 {
-  if (!ensureOpen(m_dbPath, error))
+  if (!layoutTemplateEnsureOpen(m_dbPath, error))
     return false;
-  QSqlQuery q(QSqlDatabase::database(connectionNameFor(m_dbPath)));
+  QSqlQuery q(QSqlDatabase::database(layoutTemplateConnectionName(m_dbPath)));
   q.prepare(QStringLiteral(
       "UPDATE layout_templates SET version_id=?,sha256=?,updated_utc=? WHERE template_id=?"));
   q.addBindValue(versionId);
@@ -160,14 +157,14 @@ bool LayoutTemplateStore::rename(const QString &id, const QString &newName, QStr
     setError(error, QStringLiteral("template name is empty"));
     return false;
   }
-  if (!ensureOpen(m_dbPath, error))
+  if (!layoutTemplateEnsureOpen(m_dbPath, error))
     return false;
   if (nameExists(newName))
   {
     setError(error, QStringLiteral("template name already exists: %1").arg(newName));
     return false;
   }
-  QSqlQuery q(QSqlDatabase::database(connectionNameFor(m_dbPath)));
+  QSqlQuery q(QSqlDatabase::database(layoutTemplateConnectionName(m_dbPath)));
   q.prepare(QStringLiteral(
       "UPDATE layout_templates SET name=?,updated_utc=? WHERE template_id=?"));
   q.addBindValue(newName);
@@ -184,9 +181,9 @@ bool LayoutTemplateStore::rename(const QString &id, const QString &newName, QStr
 
 bool LayoutTemplateStore::remove(const QString &id, QString *error)
 {
-  if (!ensureOpen(m_dbPath, error))
+  if (!layoutTemplateEnsureOpen(m_dbPath, error))
     return false;
-  QSqlQuery q(QSqlDatabase::database(connectionNameFor(m_dbPath)));
+  QSqlQuery q(QSqlDatabase::database(layoutTemplateConnectionName(m_dbPath)));
   q.prepare(QStringLiteral("DELETE FROM layout_templates WHERE template_id=?"));
   q.addBindValue(id);
   if (!q.exec() || q.numRowsAffected() != 1)
@@ -201,9 +198,9 @@ bool LayoutTemplateStore::remove(const QString &id, QString *error)
 QVector<LayoutTemplateInfo> LayoutTemplateStore::templates() const
 {
   QVector<LayoutTemplateInfo> out;
-  if (!ensureOpen(m_dbPath, nullptr))
+  if (!layoutTemplateEnsureOpen(m_dbPath, nullptr))
     return out;
-  QSqlQuery q(QSqlDatabase::database(connectionNameFor(m_dbPath)));
+  QSqlQuery q(QSqlDatabase::database(layoutTemplateConnectionName(m_dbPath)));
   if (!q.exec(QStringLiteral(
           "SELECT template_id,name,kind,page_size,landscape,asset_id,version_id,sha256,"
           "created_utc,updated_utc FROM layout_templates ORDER BY name COLLATE NOCASE")))
@@ -215,9 +212,9 @@ QVector<LayoutTemplateInfo> LayoutTemplateStore::templates() const
 
 LayoutTemplateInfo LayoutTemplateStore::byName(const QString &name) const
 {
-  if (!ensureOpen(m_dbPath, nullptr))
+  if (!layoutTemplateEnsureOpen(m_dbPath, nullptr))
     return LayoutTemplateInfo{};
-  QSqlQuery q(QSqlDatabase::database(connectionNameFor(m_dbPath)));
+  QSqlQuery q(QSqlDatabase::database(layoutTemplateConnectionName(m_dbPath)));
   q.prepare(QStringLiteral(
       "SELECT template_id,name,kind,page_size,landscape,asset_id,version_id,sha256,"
       "created_utc,updated_utc FROM layout_templates WHERE name=?"));
@@ -229,9 +226,9 @@ LayoutTemplateInfo LayoutTemplateStore::byName(const QString &name) const
 
 LayoutTemplateInfo LayoutTemplateStore::byId(const QString &id) const
 {
-  if (!ensureOpen(m_dbPath, nullptr))
+  if (!layoutTemplateEnsureOpen(m_dbPath, nullptr))
     return LayoutTemplateInfo{};
-  QSqlQuery q(QSqlDatabase::database(connectionNameFor(m_dbPath)));
+  QSqlQuery q(QSqlDatabase::database(layoutTemplateConnectionName(m_dbPath)));
   q.prepare(QStringLiteral(
       "SELECT template_id,name,kind,page_size,landscape,asset_id,version_id,sha256,"
       "created_utc,updated_utc FROM layout_templates WHERE template_id=?"));

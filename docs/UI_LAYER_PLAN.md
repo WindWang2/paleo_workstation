@@ -166,7 +166,7 @@ src/
 
 | 冻结面 | 现状行为（不可回归） |
 |---|---|
-| 五页 Ribbon 页签 | 数据管理/预测编图/单因素图/智能编图/验证；objectName 与类目名不变 |
+| 六页 Ribbon 页签 | 数据管理/地层对比/智能预测/单因素图/智能编图/验证；页面 ID 与 objectName 保持稳定 |
 | 数据页三栏 | 中央 `dataListHost`（导入行+列表+搜索/筛选）/ `dataListPreviewSplit` / 右 dock 第 0 页「数据属性」 |
 | `folderImportDialog`（T22 确认表） | 提示语→CRS 句→4 列表（路径/类型/实体/结果）→汇总行→确认/取消/查看未决；锁定行、跳过行、行级重试按钮、`folderShowUnresolvedButton` 显隐、`folderCrsNote` |
 | 导入完成后副作用 | 「查看未决」跳数据页 + `setUnresolvedFilter(true)`；刚导入的井头资产自动开预览；`m_folderImportActive` 期间的重试语义 |

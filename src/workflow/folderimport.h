@@ -51,6 +51,7 @@ class FolderImportWorkflow : public QObject
 
     // 确认表预览：与 importFolder 同一枚举/分类口径，只列行不导入。
     QVector<FolderPreviewRow> previewFolder(const QString &dir, QString *error = nullptr);
+    QString classifyFile(const QString &path) const;
     // 预览异步（T2）：任务池在场时扫描/分类/哈希跑 worker（GUI 只收任务
     // 页进度行），done(rows, err) 总在 GUI 线程回调；无任务服务同步旧路径。
     void previewFolderAsync(

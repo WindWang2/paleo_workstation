@@ -1,11 +1,15 @@
 // 层：QGIS 封装
 #include "qgislayerservice.h"
+#include "qgiserrors_internal.h"
 
 #include "qgisprojectservice.h"
 #include "qgiseditingservice.h"
 #include "mappingartifactwriter.h"
+#include "projectmapreference.h"
 
 #include <QSet>
+#include <QDir>
+#include <QFileInfo>
 #include <QtGlobal>
 
 #include <qgsmaplayer.h>
@@ -15,15 +19,11 @@
 
 namespace
 {
-  void setError(QString *error, const QString &text)
-  {
-    if (error)
-      *error = text;
-  }
+using paleo::qgis_detail::setError;
 
   // The project service is the authority when present; a null service falls back
   // to the QgsProject singleton so tests/early boot can run without it.
-  QgsProject *resolveProject(QgisProjectService *svc)
+  QgsProject *svcProject(QgisProjectService *svc)
   {
     if (svc)
       return svc->project();
@@ -40,7 +40,7 @@ QgisLayerService::QgisLayerService(QgisProjectService *projectSvc, LayerManifest
   // clear()/read() and any removeMapLayer() path delete layers without asking —
   // every removal signal drops the corresponding cache entries so the hash can
   // never go dangling (instantiate() would otherwise hand out freed pointers).
-  QgsProject *proj = resolveProject(m_projectSvc);
+  QgsProject *proj = svcProject(m_projectSvc);
   if (proj)
   {
     connect(proj, &QgsProject::cleared, this, [this] { m_instances.clear(); });
@@ -76,7 +76,9 @@ bool QgisLayerService::declare(const LayerDeclaration &decl, QString *error)
     return false;
   }
   QgsMapLayer *previous = m_instances.value(decl.layerId).data();
-  const bool replace = previous && previous->source() != decl.source;
+  const bool replace = previous && (decl.type == QLatin1String("mbtiles")
+      ? previous->customProperty("paleoBasemapPath").toString() != QFileInfo(QDir(QFileInfo(svcProject(m_projectSvc)->fileName()).absolutePath()).filePath(decl.source)).absoluteFilePath()
+      : previous->source() != decl.source);
   if (replace)
   {
     if (auto *vector = qobject_cast<QgsVectorLayer *>(previous))
@@ -92,7 +94,7 @@ bool QgisLayerService::declare(const LayerDeclaration &decl, QString *error)
     return false;
   if (replace)
   {
-    if (auto *project = resolveProject(m_projectSvc))
+    if (auto *project = svcProject(m_projectSvc))
       project->removeMapLayer(previous->id());
     // previous 此后可能已被 QgsProject 删除——不得再解引用。重建失败不回滚
     // 声明（清单已是新 source），但不能把失败文案塞进「成功」返回的 error，
@@ -113,7 +115,7 @@ QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *erro
     // Paranoia guard: compare pointer identity against the project's live set
     // without dereferencing — a layer destroyed between signal deliveries must
     // never be handed back as live.
-    QgsProject *proj = resolveProject(m_projectSvc);
+    QgsProject *proj = svcProject(m_projectSvc);
     const auto live = proj ? proj->mapLayers().values() : QList<QgsMapLayer *>();
     if (live.contains(existing))
       return existing;
@@ -151,7 +153,7 @@ QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *erro
     return nullptr;
   }
 
-  QgsProject *proj = resolveProject(m_projectSvc);
+  QgsProject *proj = svcProject(m_projectSvc);
   if (!proj)
   {
     setError(error, QStringLiteral("no QgsProject available to host '%1'").arg(layerId));
@@ -159,20 +161,23 @@ QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *erro
   }
 
   std::unique_ptr<QgsMapLayer> layer;
-  if (decl->type.compare(QStringLiteral("raster"), Qt::CaseInsensitive) == 0)
+  if (decl->type == QLatin1String("mbtiles"))
+    layer.reset(paleo::mapreference::offlineBasemap(
+        QDir(QFileInfo(proj->fileName()).absolutePath()).filePath(decl->source), decl->title));
+  else if (decl->type.compare(QStringLiteral("raster"), Qt::CaseInsensitive) == 0)
     layer.reset(new QgsRasterLayer(decl->source, decl->layerId, QStringLiteral("gdal")));
   else
     layer.reset(new QgsVectorLayer(decl->source, decl->layerId, QStringLiteral("ogr")));
 
-  if (!layer->isValid())
+  if (!layer || !layer->isValid())
   {
-    const QString detail = layer->error().message();
+    const QString detail = layer ? layer->error().message() : tr("离线底图不存在或无法读取");
     setError(error, QStringLiteral("failed to instantiate layer '%1': %2")
                         .arg(layerId, detail.isEmpty() ? QStringLiteral("provider rejected source '%1'").arg(decl->source) : detail));
     return nullptr;
   }
 
-  MappingArtifactWriter::restoreRasterCrs(layer.get());
+  if (decl->type != QLatin1String("mbtiles")) MappingArtifactWriter::restoreRasterCrs(layer.get());
 
   // paleoLayerId/显示名在 addMapLayer 之前落——legendLayersAdded 在注册期
   // 即发（图层树布局器此刻归位，须已能认出声明归属）。
@@ -200,6 +205,46 @@ QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *erro
   return added;
 }
 
+bool QgisLayerService::removeDeclaration(const QString &layerId, QString *error)
+{
+  if (!m_manifest->remove(layerId, error)) return false;
+  if (auto *project = svcProject(m_projectSvc))
+    for (auto *layer : project->mapLayers())
+      if (layer->customProperty("paleoLayerId").toString() == layerId)
+        project->removeMapLayer(layer);
+  emit layerDeclared(layerId);
+  return true;
+}
+
+void QgisLayerService::refreshBasemaps()
+{
+  if (!m_projectSvc || m_projectSvc->projectPath().isEmpty()) return;
+  const auto &config = m_projectSvc->mapConfiguration();
+  const bool enabled = config.basemapEnabled && config.georeference &&
+      m_projectSvc->project()->crs().type() != Qgis::CrsType::Engineering;
+  for (const auto &id : {QStringLiteral("basemap.hillshade"), QStringLiteral("basemap.topo")}) {
+    const auto source = id.endsWith("topo") ? config.basemapTopo : config.basemapHillshade;
+    // 配准缺席时也卸下 .qgz 已保存的底图，避免把投影数据混进局部坐标。
+    if (!enabled || source.isEmpty()) {
+      if (!m_manifest->isReadOnly()) removeDeclaration(id);
+      else if (auto *project = svcProject(m_projectSvc))
+        for (auto *layer : project->mapLayers())
+          if (layer->customProperty("paleoLayerId").toString() == id) project->removeMapLayer(layer);
+      continue;
+    }
+    LayerDeclaration declaration;
+    declaration.layerId = id;
+    declaration.type = QStringLiteral("mbtiles");
+    declaration.source = source;
+    declaration.group = QStringLiteral("01_Base");
+    declaration.title = id.endsWith("topo") ? tr("离线地形底图") : tr("离线地形阴影");
+    QString error;
+    if (!m_manifest->isReadOnly() && !declare(declaration, &error))
+      qWarning() << "Offline basemap declaration:" << error;
+    if (!instantiate(id, &error)) qWarning() << "Offline basemap:" << error;
+  }
+}
+
 int QgisLayerService::instantiateHorizon(const QString &horizon)
 {
   int count = 0;
@@ -224,7 +269,7 @@ void QgisLayerService::releaseHorizon(const QString &horizon)
     if (d.horizon == horizon && isInstantiated(d.layerId))
       toRelease.append(d.layerId);
 
-  QgsProject *proj = resolveProject(m_projectSvc);
+  QgsProject *proj = svcProject(m_projectSvc);
   for (const QString &id : toRelease)
   {
     QgsMapLayer *l = m_instances.take(id).data();
@@ -280,7 +325,7 @@ void QgisLayerService::trackInstance(const QString &layerId, QgsMapLayer *layer)
 
 void QgisLayerService::purgeDanglingInstances()
 {
-  QgsProject *proj = resolveProject(m_projectSvc);
+  QgsProject *proj = svcProject(m_projectSvc);
   const QList<QgsMapLayer *> live = proj ? proj->mapLayers().values()
                                          : QList<QgsMapLayer *>();
   for (auto it = m_instances.begin(); it != m_instances.end();)
@@ -289,6 +334,14 @@ void QgisLayerService::purgeDanglingInstances()
       it = m_instances.erase(it);
     else
       ++it;
+  }
+  // .qgz 已恢复的实例归同一个服务缓存；再次打开不得为同一声明再造一层。
+  for (auto *layer : live) {
+    const auto id = layer->customProperty("paleoLayerId").toString();
+    if (!id.isEmpty() && layer->isValid() && !m_instances.contains(id)) {
+      if (layer->providerType() == QLatin1String("gdal")) MappingArtifactWriter::restoreRasterCrs(layer);
+      trackInstance(id, layer);
+    }
   }
 }
 
@@ -367,7 +420,7 @@ void QgisLayerService::setActiveHorizon(const QString &horizon)
     // else: target horizon or horizon-agnostic layer stays instantiated
   }
 
-  QgsProject *proj = resolveProject(m_projectSvc);
+  QgsProject *proj = svcProject(m_projectSvc);
   for (const QString &id : orphanIds)
   {
     QgsMapLayer *l = m_instances.take(id).data();

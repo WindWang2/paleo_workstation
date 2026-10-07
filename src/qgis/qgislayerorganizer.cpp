@@ -21,7 +21,7 @@ namespace
   // 层位组绑定凭据（头文件注释）；用户改组名后仍能认回。
   const QString kHorizonProp = QStringLiteral( "paleoHorizon" );
 
-  QgsProject *resolveProject( QgisProjectService *svc )
+  QgsProject *organizerProject( QgisProjectService *svc )
   {
     if ( svc )
       return svc->project();
@@ -84,7 +84,7 @@ QgisLayerOrganizer::QgisLayerOrganizer( QgisProjectService *projectSvc,
   , m_projectSvc( projectSvc )
   , m_layerSvc( layerSvc )
 {
-  QgsProject *proj = resolveProject( m_projectSvc );
+  QgsProject *proj = organizerProject( m_projectSvc );
   if ( !proj )
     return;
 
@@ -147,7 +147,7 @@ QgisLayerOrganizer::Zone QgisLayerOrganizer::zoneFor( const QString &horizon,
 
 void QgisLayerOrganizer::placeLayer( QgsMapLayer *layer )
 {
-  QgsProject *proj = resolveProject( m_projectSvc );
+  QgsProject *proj = organizerProject( m_projectSvc );
   if ( !proj || !layer || !m_layerSvc )
     return;
   const QString paleoId = paleoIdOf( layer );
@@ -192,7 +192,7 @@ void QgisLayerOrganizer::desiredSlot( const LayerDeclaration &decl,
                                       const QgsLayerTreeLayer *self,
                                       QgsLayerTreeGroup **parent, int *index )
 {
-  QgsProject *proj = resolveProject( m_projectSvc );
+  QgsProject *proj = organizerProject( m_projectSvc );
   QgsLayerTree *root = proj ? proj->layerTreeRoot() : nullptr;
   *parent = nullptr;
   *index = -1;
@@ -243,7 +243,12 @@ void QgisLayerOrganizer::desiredSlot( const LayerDeclaration &decl,
     *parent = root;
     // 共享平铺区在全部层位组之下：越过 SharedData/HorizonGroup/Unmanaged，
     // 在本区成员上按 groupRank 找首个秩更大者之前插入。
-    const int rank = groupRank( decl.group );
+    const auto sharedRank = [](const LayerDeclaration &d) {
+      // 底图始终垫底，地形图压在阴影上；刷新/重开也保持确定顺序。
+      return d.type == QLatin1String("mbtiles") ? 1000 + (d.layerId.endsWith("hillshade") ? 1 : 0)
+                                              : groupRank(d.group);
+    };
+    const int rank = sharedRank(decl);
     for ( int i = 0; i < kids.size(); ++i )
     {
       QgsLayerTreeNode *n = kids.at( i );
@@ -251,7 +256,7 @@ void QgisLayerOrganizer::desiredSlot( const LayerDeclaration &decl,
         continue;
       const auto it = declById.constFind(
           paleoIdOf( qobject_cast<QgsLayerTreeLayer *>( n )->layer() ) );
-      if ( it != declById.constEnd() && groupRank( it.value().group ) > rank )
+      if ( it != declById.constEnd() && sharedRank(it.value()) > rank )
       {
         *index = i;
         return;
@@ -288,7 +293,7 @@ void QgisLayerOrganizer::desiredSlot( const LayerDeclaration &decl,
 
 QgsLayerTreeGroup *QgisLayerOrganizer::horizonGroup( const QString &horizon )
 {
-  QgsProject *proj = resolveProject( m_projectSvc );
+  QgsProject *proj = organizerProject( m_projectSvc );
   QgsLayerTree *root = proj ? proj->layerTreeRoot() : nullptr;
   if ( !root || horizon.isEmpty() )
     return nullptr;
@@ -364,7 +369,7 @@ QgsLayerTreeGroup *QgisLayerOrganizer::horizonGroup( const QString &horizon )
 
 void QgisLayerOrganizer::reorganize()
 {
-  QgsProject *proj = resolveProject( m_projectSvc );
+  QgsProject *proj = organizerProject( m_projectSvc );
   if ( !proj || !proj->layerTreeRoot() || !m_layerSvc )
     return;
   ensureHorizonGroups();
@@ -378,7 +383,7 @@ void QgisLayerOrganizer::reorganize()
 
 void QgisLayerOrganizer::ensureHorizonGroups()
 {
-  QgsProject *proj = resolveProject( m_projectSvc );
+  QgsProject *proj = organizerProject( m_projectSvc );
   if ( !proj || !proj->layerTreeRoot() || !m_layerSvc )
     return;
   for ( const LayerDeclaration &d : m_layerSvc->declared() )
@@ -388,7 +393,7 @@ void QgisLayerOrganizer::ensureHorizonGroups()
 
 void QgisLayerOrganizer::pruneVacantGroups()
 {
-  QgsProject *proj = resolveProject( m_projectSvc );
+  QgsProject *proj = organizerProject( m_projectSvc );
   QgsLayerTree *root = proj ? proj->layerTreeRoot() : nullptr;
   if ( !root || !m_layerSvc )
     return;

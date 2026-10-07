@@ -1,5 +1,6 @@
 // 层：视图
 #include "entitypanel.h"
+#include "datalistops.h"
 #include "derivationgraph.h"
 #include "pageshared.h"
 #include "../paleotheme.h"
@@ -69,13 +70,6 @@ namespace
           w->setParent(nullptr);
           w->deleteLater();
         }
-  }
-  QTableWidgetItem *mutedCell(const QString &text)
-  {
-    auto *it = new QTableWidgetItem(text);
-    it->setFlags(Qt::NoItemFlags);
-    PaleoTheme::setItemTextColor(it, PaleoTheme::ItemTextColor::Muted); // text-muted（现取随主题）
-    return it;
   }
 } // namespace
 

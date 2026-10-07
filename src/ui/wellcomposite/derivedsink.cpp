@@ -112,7 +112,23 @@ void WellCompositeDerivedSink::watch(WellCompositePanel *panel)
   // 装载完成 → 井斜/时深自动喂表（壳注入的 io 解析器；缺表/缺注入如实回空）
   connect(panel, &WellCompositePanel::wellLoaded, this, [this, panel](const QString &) {
     feedDepthTables(panel, panel->sourceDataPath());
+    if (m_alignmentProvider)
+      m_alignmentProvider(panel);
   });
+}
+
+void WellCompositeDerivedSink::setAlignmentProvider(std::function<void(WellCompositePanel *)> provider)
+{
+  m_alignmentProvider = std::move(provider);
+  refreshAlignments();
+}
+
+void WellCompositeDerivedSink::refreshAlignments()
+{
+  if (m_alignmentProvider)
+    for (const auto &panel : livePanels())
+      if (panel)
+        m_alignmentProvider(panel);
 }
 
 void WellCompositeDerivedSink::feedDepthTables(WellCompositePanel *panel,

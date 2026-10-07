@@ -606,6 +606,12 @@ bool SegyReader::open(const QString &path, QString *error,
     m_geometry.cornerX[2] = ordX.at(lastLine + jMax);  m_geometry.cornerY[2] = ordY.at(lastLine + jMax);
     m_geometry.cornerX[3] = ordX.at(lastLine + jMin);  m_geometry.cornerY[3] = ordY.at(lastLine + jMin);
   }
+  if (!ordinalIndex && !freezeCornersFromFile(file, cornerFromCdpXY))
+  {
+    if (error)
+      *error = QStringLiteral("无法读取测区四角的道头");
+    return false;
+  }
   m_geometry.startTimeMs = delayMs;
 
   // 行/道索引（排序，供测线级读取）。
@@ -1099,6 +1105,7 @@ bool SegyReader::scanParallel(QFile &file, qint64 firstTraceOffset, qint64 trace
       m_geometry.cornerY[slot] = ys.at(i);
     }
   }
+  freezeCorners(xs, ys);
   // 首道 delay（字 109-110）：重读一次首道头。
   {
     QFile local(path);
@@ -1200,6 +1207,12 @@ bool SegyReader::resumeScan(QFile &file, const SegyIndexStore::StoredIndex &part
     }
     m_index.append(e);
     offset += traceSize;
+  }
+  if (!freezeCornersFromFile(file))
+  {
+    if (error)
+      *error = QStringLiteral("无法读取测区四角的道头");
+    return false;
   }
   m_lastScanPartial = false;
   m_scannedOffset = fileSize;
@@ -1386,4 +1399,59 @@ bool SegyReader::openCached(const QString &path, const QString &indexCacheDir,
     }
   }
   return false;
+}
+
+// 在最终号域内找四个极值角；道头顺序和扫描线程数不改变测区范围。
+QVector<int> SegyReader::cornerTraceIndices() const
+{
+  QVector<int> indices(4, -1);
+  const qint32 targetI[4] = {m_geometry.inlineMin, m_geometry.inlineMin,
+                            m_geometry.inlineMax, m_geometry.inlineMax};
+  const qint32 targetX[4] = {m_geometry.xlineMin, m_geometry.xlineMax,
+                            m_geometry.xlineMax, m_geometry.xlineMin};
+  for (int corner = 0; corner < 4; ++corner)
+  {
+    long double best = std::numeric_limits<long double>::infinity();
+    for (int i = 0; i < m_index.size(); ++i)
+    {
+      const long double di = static_cast<long double>(m_index[i].inlineNo) - targetI[corner];
+      const long double dx = static_cast<long double>(m_index[i].xlineNo) - targetX[corner];
+      const long double distance = di * di + dx * dx;
+      if (distance < best)
+      {
+        best = distance;
+        indices[corner] = i;
+      }
+    }
+  }
+  return indices;
+}
+
+void SegyReader::freezeCorners(const QVector<double> &xs, const QVector<double> &ys)
+{
+  if (xs.size() != m_index.size() || ys.size() != m_index.size())
+    return;
+  const auto indices = cornerTraceIndices();
+  for (int corner = 0; corner < indices.size(); ++corner)
+    if (indices[corner] >= 0) {
+      m_geometry.cornerX[corner] = xs[indices[corner]];
+      m_geometry.cornerY[corner] = ys[indices[corner]];
+    }
+}
+
+bool SegyReader::freezeCornersFromFile(QFile &file, bool fromCdpXY)
+{
+  // 标准顺序扫描不保留全体坐标数组，只重读四个极值道头（大体不增加线性内存）。
+  const auto indices = cornerTraceIndices();
+  uchar header[240];
+  for (int corner = 0; corner < indices.size(); ++corner) {
+    if (indices[corner] < 0 || !file.seek(m_index[indices[corner]].offset) ||
+        file.read(reinterpret_cast<char *>(header), sizeof(header)) != sizeof(header))
+      return false;
+    const qint16 scale = beI16(header + 70);
+    const double factor = scale == 0 ? 1.0 : scale > 0 ? double(scale) : 1.0 / -double(scale);
+    m_geometry.cornerX[corner] = beI32(header + (fromCdpXY ? 180 : 72)) * factor;
+    m_geometry.cornerY[corner] = beI32(header + (fromCdpXY ? 184 : 76)) * factor;
+  }
+  return true;
 }

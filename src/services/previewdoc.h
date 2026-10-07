@@ -197,6 +197,9 @@ class PreviewDocService : public QObject
                         bool isInline, int lineNo);
     // 标签关闭时释放该资产的索引缓存/世代号/进行中任务。
     void releaseSection(const QString &assetId);
+    // 后台从完整道索引恢复测区四角，旧工程中的缩小角点不再决定全景范围。
+    void requestSurveyBounds(const QString &assetId,
+        std::function<void(const QVector<QPair<double, double>> &, const QString &)> done);
 
     // ---- LAS 数据异步填充（T1：GUI 线程零同步整文件解析）----
     // requestLas 在任务池整份解析 LAS（协作取消 + 每 key 世代号防陈旧），
@@ -272,6 +275,8 @@ class PreviewDocService : public QObject
     QHash<QString, std::shared_ptr<SegyReader>> m_segyReaders;
     QHash<QString, int> m_decodeSeq;
     QHash<QString, QPointer<PaleoTask>> m_decodeTask;
+    int m_surveyGeneration = 0;
+    QPointer<PaleoTask> m_surveyTask;
     // assetId → 本会话已过 SHA 复验（mutable：verifyExternalSha 是 const——
     // 会话级缓存不算对象逻辑状态，seismicTieMarker 等 const 读路径可用）。
     mutable QHash<QString, bool> m_shaVerified;

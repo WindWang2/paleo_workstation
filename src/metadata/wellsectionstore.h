@@ -1,5 +1,6 @@
 // 层：数据
 #pragma once
+#include "domain/wellsection.h"
 #include <QString>
 #include <QStringList>
 #include <QVector>
@@ -8,8 +9,8 @@ class PaleoProjectStore;
 
 // metadata/wellsectionstore — 连井剖面编辑产物在 project.sqlite 的持久化
 // 面（goal/wellsection-deep）。单节一行：井序（有序井 id 集）+ 层位连线
-// 改接集 + 版本号——每次 save 版本递增（剖面编辑产物的 manifest 版本口径，
-// 同 MapVersionStore::saveVersion 语义）。写一律经
+// 改接集 + 深度显示域（方向 69）+ 版本号——每次 save 版本递增（剖面编辑
+// 产物的 manifest 版本口径，同 MapVersionStore::saveVersion 语义）。写一律经
 // PaleoProjectStore::enqueueWrite（§41.2 单写纪律）；无注入（测试直用）
 // 同步直写。经 MetaStore user_version 门与 LayerManifest/MapVersionStore/
 // FaultSetStore 共库。
@@ -33,6 +34,8 @@ struct WellSectionRecord
 {
     QStringList wellIds;                    // 剖面井序（用户编辑产物）
     QVector<WellSectionLinkOverride> linkOverrides;
+    // 深度显示域（方向 69：工程级 round-trip；旧库缺列 → MD 默认）。
+    wellsection::DepthDomain depthDomain = wellsection::DepthDomain::MD;
     int version = 0;                        // save 递增（首存 = 1）；0 = 库中无行
     bool valid() const { return version > 0; }
 };
@@ -55,8 +58,11 @@ public:
     bool isReadOnly() const { return m_readOnly; }
 
     // 落盘：version = 现值 + 1（写队列内读改写），返回落盘后记录。
+    // depthDomain 进剖面状态（方向 69）：缺省 MD；旧库行按列默认 MD 读回。
     WellSectionRecord save(const QString &sectionId, const QStringList &wellIds,
                            const QVector<WellSectionLinkOverride> &links,
+                           wellsection::DepthDomain depthDomain =
+                               wellsection::DepthDomain::MD,
                            QString *error = nullptr);
     // 读回；库中无行 → version 0 + 空集（新工程首用）。
     WellSectionRecord load(const QString &sectionId,

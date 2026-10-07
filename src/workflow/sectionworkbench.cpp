@@ -29,6 +29,9 @@ void SectionWorkbench::syncProject() {
     m_logs.clear();
     m_parentVersion.clear();
     m_catalogPath = path;
+    QFile stored(QDir(projectDir()).filePath("artifacts/metadata/well_time_depth_alignment.json"));
+    if (!path.isEmpty() && stored.open(QIODevice::ReadOnly))
+      m_calibrations = QJsonDocument::fromJson(stored.readAll()).toVariant().toMap();
   }
   m_data.setCatalog(m_catalog, projectDir());
 }
@@ -58,7 +61,7 @@ bool SectionWorkbench::setCalibration(const QString &id, bool constant,
                                       double velocity, double shift,
                                       QString *error) {
   syncProject();
-  if (!m_catalog || !m_catalog->hasEntity(id) || !std::isfinite(velocity) ||
+  if (!m_catalog || m_catalog->entityById(id).entityType != QLatin1String("well") || !std::isfinite(velocity) ||
       velocity <= 100 || velocity >= 20000 || !std::isfinite(shift) ||
       std::abs(shift) > 10000) {
     if (error)
@@ -66,9 +69,49 @@ bool SectionWorkbench::setCalibration(const QString &id, bool constant,
           "请选择有效井，速度需在 100–20000 m/s 之间，时间平移在 ±10000 ms 内");
     return false;
   }
-  m_calibrations[id] = QVariantMap{
+  if (m_catalog->refusesWrites()) {
+    if (error)
+      *error = tr("工程为只读，不能保存时深校正");
+    return false;
+  }
+  auto updated = m_calibrations;
+  updated[id] = QVariantMap{
       {"constant", constant}, {"velocity", velocity}, {"shift", shift}};
+  if (!storeCalibrations(updated, error))
+    return false;
+  m_calibrations = updated;
+  emit alignmentsChanged();
   return true;
+}
+
+bool SectionWorkbench::storeCalibrations(const QVariantMap &calibrations, QString *error) const {
+  const auto bytes = QJsonDocument::fromVariant(calibrations).toJson();
+  QSaveFile stored(QDir(projectDir()).filePath("artifacts/metadata/well_time_depth_alignment.json"));
+  if (!stored.open(QIODevice::WriteOnly) || stored.write(bytes) != bytes.size() || !stored.commit()) {
+    if (error)
+      *error = tr("时深校正保存失败：%1").arg(stored.errorString());
+    return false;
+  }
+  return true;
+}
+
+QString SectionWorkbench::wellForSource(const QString &path, const QString &name) {
+  syncProject();
+  if (!m_catalog || !m_catalog->isOpen())
+    return {};
+  for (const auto &version : m_catalog->versions())
+    if (!path.isEmpty() && QDir::cleanPath(DataCatalog::resolvedVersionPath(projectDir(), version)) == QDir::cleanPath(path))
+      for (const auto &link : m_catalog->linksForAsset(version.assetId))
+        if (!link.unresolved && link.entityType == QLatin1String("well"))
+          return link.entityId;
+  QString found;
+  for (const auto &well : m_catalog->entities(QStringLiteral("well")))
+    if (!name.isEmpty() && well.name.compare(name, Qt::CaseInsensitive) == 0) {
+      if (!found.isEmpty())
+        return {}; // 同名井不能猜关联
+      found = well.id;
+    }
+  return found;
 }
 QVariantList SectionWorkbench::wells() {
   syncProject();
@@ -414,7 +457,11 @@ QVariantMap SectionWorkbench::restore(const QString &id, QString *error,
                    .arg(result.value("seismic_path").toString());
     return {};
   }
-  m_calibrations = v.extra.value("calibrations").toMap();
+  const auto restored = v.extra.value("calibrations").toMap();
+  if (!m_catalog->refusesWrites() && !storeCalibrations(restored, error))
+    return {};
+  m_calibrations = restored;
   m_parentVersion = id;
+  emit alignmentsChanged();
   return result;
 }

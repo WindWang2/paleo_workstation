@@ -7,6 +7,8 @@
 #include <QObject>
 #include <QPointer>
 #include <QVariantMap>
+#include <atomic>
+#include <memory>
 class QgisLayerService;
 class QgisProcessingService;
 class QgisProjectService;
@@ -20,6 +22,7 @@ public:
   MappingWorkbench(QgisLayerService *layers, QgisProcessingService *processing,
                    QgisProjectService *project, ConstraintWorkflow *constraints,
                    QObject *parent = nullptr);
+  ~MappingWorkbench() override;
   void bindCatalog(DataCatalog *catalog, const QString &projectDir);
   void setPredictionService(RemotePredictionService *service);
   RemotePredictionService *predictionService() const { return m_remote.data(); }
@@ -121,6 +124,7 @@ private:
   double m_displayScale = 0;
   bool m_catalogSyncQueued = false;
   RemotePredictionRequest m_request;
+  std::shared_ptr<std::atomic_bool> m_mockCancelled;
   QString m_predictionHint;
   mutable QString m_logVersion;
   mutable LasDoc m_logCache;

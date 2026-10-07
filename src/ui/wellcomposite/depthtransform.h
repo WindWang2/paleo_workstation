@@ -10,6 +10,7 @@
 
 #include "domain/deviationsurvey.h"
 #include "domain/wellcompositemodel.h"
+#include "domain/seismic/timedepthmodel.h"
 
 // ui/wellcomposite/depthtransform — D6.x 深度变换与查询
 //
@@ -52,7 +53,9 @@ public:
   // ---- D6.5 TWT ----
   // pairs: (TVD m, TWT ms)；存在时启用并列显示
   void setTimeDepthTable(const QVector<QPair<double, double>> &tvdTwtPairs);
-  bool hasTimeDepthTable() const { return !m_twtStations.isEmpty(); }
+  bool hasTimeDepthTable() const { return m_mdTimeDepth.has_value() || m_twtStations.size() >= 2; }
+  void setMdTimeDepth(const std::optional<seismic::TimeDepthModel> &model, double shiftMs);
+  double twtAtMd(double md) const;
   QString twtUnavailableReason() const;
   double twtAtTvd(double tvd) const;
 
@@ -87,6 +90,8 @@ private:
   std::optional<paleo::WellDeviationSurvey> m_survey;
   QString m_deviationInvalidReason;
   QVector<QPair<double, double>> m_twtStations;
+  std::optional<seismic::TimeDepthModel> m_mdTimeDepth;
+  double m_timeShiftMs = 0.0;
   bool m_hasKb = false;
   double m_kb = 0.0;
 };

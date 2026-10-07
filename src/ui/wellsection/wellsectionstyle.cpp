@@ -29,6 +29,8 @@ QString TrackSpec::displayTitle() const
       return QObject::tr("岩性");
     case TrackKind::Facies:
       return QObject::tr("相代码");
+    case TrackKind::Image:
+      return QObject::tr("图片");
     case TrackKind::Curve:
     {
       QStringList labels;
@@ -141,6 +143,7 @@ const char *kindKey(TrackKind k)
     case TrackKind::Depth: return "depth";
     case TrackKind::Lithology: return "lithology";
     case TrackKind::Facies: return "facies";
+    case TrackKind::Image: return "image";
   }
   return "curve";
 }
@@ -152,6 +155,7 @@ bool kindFromKey(const QString &s, TrackKind *k)
   if (s == QLatin1String("depth")) { *k = TrackKind::Depth; return true; }
   if (s == QLatin1String("lithology")) { *k = TrackKind::Lithology; return true; }
   if (s == QLatin1String("facies")) { *k = TrackKind::Facies; return true; }
+  if (s == QLatin1String("image")) { *k = TrackKind::Image; return true; }
   return false;
 }
 

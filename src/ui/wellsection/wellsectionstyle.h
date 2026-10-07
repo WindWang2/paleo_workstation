@@ -13,8 +13,9 @@
 // （DESIGN.md 2026-09-29 决策，同 wellcomposite 画布口径）。
 namespace wellsection {
 
-// 井道种类：层段名 | 曲线道 | 深度尺 | 岩性柱 | 相代码充填。
-enum class TrackKind { Zone, Curve, Depth, Lithology, Facies };
+// 井道种类：层段名 | 曲线道 | 深度尺 | 岩性柱 | 相代码充填 | 图片道
+//（core/lab_analysis 井附件照片按 depthMd 锚定，编排层经 Well::images 喂入）。
+enum class TrackKind { Zone, Curve, Depth, Lithology, Facies, Image };
 
 // 一条曲线的显示式样：label 空 → 用 mnemonic；min/max 为道内刻度范围；
 // logScale 时对数值取 log10 归一。

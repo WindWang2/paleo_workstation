@@ -7,6 +7,7 @@
 #include <QGraphicsView>
 #include <QImage>
 #include <QWidget>
+#include <cmath>
 #include <functional>
 
 // ui/wellsection — 剖面渲染核：面板持有一份渲染状态（过滤后的井集、
@@ -16,10 +17,35 @@
 // 版头不是场景项：它是视图上方的一个 QWidget，水平滚动跟随视图。
 namespace wellsectionui {
 
+// TVD 域名行角标文本：无测斜/坏表井如实标注「TVD 不可用」（MD 域或
+// survey 正常井 → 空串）。版头绘制与面板测试钩子共用同一口径。
+QString tvdBadgeText(const wellsection::Well &w,
+                     wellsection::DepthDomain domain);
+// 深度道题注文本（随基准面模式与深度域：垂深/m、海拔垂深/m…）——
+// paintContents 与字符串断言通道共用，导出图随版头自然携带口径词。
+QString depthTrackCaption(const wellsection::TrackSpec &tr,
+                          wellsection::DepthDomain domain,
+                          const wellsection::Datum &datum);
+// hover 井柱读数文案（方向 69 R2 收口：单源供 View 的 hoverChanged 与
+// 面板测试钩子共用）：井名 + MD 读数 + TVD 域口径（正常井出 TVD 数值；
+// 无测斜注明「按井深绘制」——恒等值冒充垂深会与角标抵触；坏表井域反解
+// 不出 md（NaN）→ 如实说明无读数）+ 层段名。
+QString hoverReadoutText(const wellsection::Well &w,
+                         wellsection::DepthDomain domain, double md,
+                         const QString &zoneName);
+
+// 岩性道题注文本（方向 69 来源标注）：解释段带资产来源（如
+// 「解释·welllogfacies 测试微相 v1」；无 provenance 回落「解释」）；
+// 无解释资产 → 「推断·<曲线> 截断」（GR 二分回落，如实不混充解释）。
+// paintContents/headerHeight 与面板测试钩子共用同一口径。
+QString lithoTrackCaptionText(const wellsection::Well &w,
+                              const QString &sourceMnemonic);
+
 // 渲染共享状态（panel 拥有；item/header 持指针只读）。
 struct RenderState {
   QVector<wellsection::Well> wells;    // tops 已按模板过滤
-  QVector<double> offsets;             // 每井拉平偏移（与 wells 等长）
+  QVector<double> offsets;             // 每井基准面偏移（当前域空间，与 wells 等长）
+  wellsection::DepthDomain domain = wellsection::DepthDomain::MD; // 深度显示域
   wellsection::DepthWindow window;     // 显示深度窗口
   wellsection::Datum datum;            // 基准面（深度道轴标签随模式切换）
   wellsection::SectionTemplate tpl;
@@ -40,6 +66,7 @@ struct RenderState {
   quint64 layoutVersion = 0;           // 几何/井集/模板变更递增（缓存键）
   quint64 curveVersion = 0;            // 曲线几何变更递增（px/m、偏移、数据、模板）——gapPx 不属其中
   quint64 stripVersion = 0;            // 地震缝数据变更递增（缓存键）
+  quint64 imageVersion = 0;            // 图片道数据变更递增（QPixmap 缓存键）
 
   double columnWidth() const { return tpl.columnWidth(); }
   double gapWidth(int i) const {
@@ -59,9 +86,33 @@ struct RenderState {
     return (displayDepth - window.top) * pxPerMeter;
   }
   double displayAtY(double y) const { return window.top + y / pxPerMeter; }
+  // 深度域映射（TVD/MD，井斜在 Well 内）+ 基准面偏移 → 显示深。
+  // 井序越界/坏表井 → NaN（painter 自行跳过，不伪造几何）。
+  double displayOfMd(int well, double md) const
+  {
+    if (well < 0 || well >= wells.size())
+      return qQNaN();
+    const double d = domain == wellsection::DepthDomain::TVD
+                         ? wells.at(well).tvdOf(md)
+                         : md;
+    if (!std::isfinite(d))
+      return qQNaN();
+    return d - offsets.value(well, 0.0);
+  }
+  // 显示深 → MD（域反解：TVD 经井斜 tvdToMd；直井/坏表井语义同 Well）。
+  double mdOfDisplay(int well, double display) const
+  {
+    if (well < 0 || well >= wells.size())
+      return qQNaN();
+    const double d = display + offsets.value(well, 0.0);
+    const double md = domain == wellsection::DepthDomain::TVD
+                          ? wells.at(well).mdOf(d)
+                          : d;
+    return std::isfinite(md) ? md : qQNaN();
+  }
   double yForMd(int well, double md) const
   {
-    return yForDisplay(md - offsets.value(well, 0.0));
+    return yForDisplay(displayOfMd(well, md));
   }
   // 命中测试：返回井序号或 -1（缝/边缘内）。
   int columnAtX(double x) const;
@@ -94,6 +145,7 @@ class ColumnItem : public QGraphicsItem
                              const wellsection::TrackSpec &tr);
     void paintFaciesTrack(QPainter *p, const QRectF &trackRect,
                           const QRectF &exposed);
+    void paintImageTrack(QPainter *p, const QRectF &trackRect, const QRectF &exposed);
 
     RenderState *m_st;
     int m_index;
@@ -101,6 +153,9 @@ class ColumnItem : public QGraphicsItem
     // 不重算——拉伸只动列位置不动路径）。
     mutable quint64 m_pathVersion = ~quint64(0);
     mutable QHash<quint64, QPainterPath> m_pathCache; // (trackIdx<<8|curveIdx) → path
+    // 图片道位图缓存：((wellIdx<<16)|anchorIdx)<<8 | 低 8 位 imageVersion 截断
+    // ——QImage(任务线程装载) → QPixmap(GUI 线程) 只转一次，换数据即失效。
+    mutable QHash<quint64, QPixmap> m_pixmapCache;
     mutable QHash<quint64, QPainterPath> m_sandCache;
 };
 
@@ -191,6 +246,9 @@ class HeaderWidget : public QWidget
     static constexpr int kHeight = 70; // 版头最小高
     // 与 renderImage 共用：在 (0,0,w×headerHeight) 内按状态画版头内容。
     void paintContents(QPainter *p, double xOffset) const;
+    // 深度道题注文本（随基准面模式与深度域）——导出/截图的口径标签
+    // 字符串级断言通道（比像素断言稳；无深度道 → 空串）。
+    QString depthCaptionText() const;
 
   signals:
     void wellClicked(int index);

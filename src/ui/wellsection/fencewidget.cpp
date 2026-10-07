@@ -366,6 +366,22 @@ void WellSectionFenceWidget::rebuild()
                         emit sectionsChanged();
                     }
                 });
+        // 用户域/井距动作 → 同步其余剖面面板（三处一致性）并向上传播
+        //（壳层接主面板；各面板的程序化 setter 不发信号，无回声环路）。
+        connect(ctl.panel, &WellSectionPanel::depthDomainChanged, this,
+                [this, index](wellsection::DepthDomain domain) {
+                    for (int j = 0; j < m_sections.size(); ++j)
+                        if (j != index)
+                            m_sections[j].panel->setDepthDomain(domain);
+                    emit depthDomainChanged(domain);
+                });
+        connect(ctl.panel, &WellSectionPanel::spacingModeChanged, this,
+                [this, index](wellsection::SpacingMode mode) {
+                    for (int j = 0; j < m_sections.size(); ++j)
+                        if (j != index)
+                            m_sections[j].panel->setSpacingMode(mode);
+                    emit spacingModeChanged(mode);
+                });
 
         // 先入表再喂井集：setWellIds 同步发 dataRequested，回调按 index
         // 取 m_sections——push 前访问会越界。
@@ -423,10 +439,15 @@ void WellSectionFenceWidget::saveToStore()
     if (m_persistedIds == m_wellIds)
         return; // 无变化不落盘（版本只随真实编辑推进）
     // fence-<n> 节逐条写（版本随每次落盘推进）；条数收缩 → 尾节删除。
+    // 深度域随 fence 当前域落库（方向 69 剖面状态口径；读回路径暂只取
+    // 井序，域一致性走主面板同步信号）。
+    const wellsection::DepthDomain domain =
+        m_sections.isEmpty() ? wellsection::DepthDomain::MD
+                             : m_sections.first().panel->depthDomain();
     QString err;
     for (int i = 0; i < m_wellIds.size(); ++i)
         m_params.store->save(QStringLiteral("fence-%1").arg(i + 1),
-                             m_wellIds.at(i), {}, &err);
+                             m_wellIds.at(i), {}, domain, &err);
     const QStringList ids = m_params.store->sectionIds(&err);
     for (const QString &id : ids)
         if (id.startsWith(QLatin1String("fence-"))) {
@@ -451,6 +472,18 @@ void WellSectionFenceWidget::setChoices(
     for (auto &sec : m_sections)
         sec.panel->setWellChoices(choices);
     static_cast<FencePreview *>(m_preview)->setModel(choices, m_wellIds);
+}
+
+void WellSectionFenceWidget::setDepthDomain(wellsection::DepthDomain domain)
+{
+    for (auto &sec : m_sections)
+        sec.panel->setDepthDomain(domain);
+}
+
+void WellSectionFenceWidget::setSpacingMode(wellsection::SpacingMode mode)
+{
+    for (auto &sec : m_sections)
+        sec.panel->setSpacingMode(mode);
 }
 
 void WellSectionFenceWidget::setStore(metadata::WellSectionStore *store)

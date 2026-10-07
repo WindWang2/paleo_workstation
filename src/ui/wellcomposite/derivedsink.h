@@ -73,6 +73,8 @@ public:
   // registerDerived/自动喂表按错误路径回报，不造数据）。
   void setSerializer(SerializeFn fn);
   void setDepthTableParsers(DeviationParseFn deviation, TimeDepthParseFn timeDepth);
+  void setAlignmentProvider(std::function<void(WellCompositePanel *)> provider);
+  void refreshAlignments();
   bool hasSerializer() const { return bool(m_serialize); }
   bool hasDepthTableParsers() const { return bool(m_parseDeviation) && bool(m_parseTimeDepth); }
 
@@ -104,6 +106,7 @@ private:
   SerializeFn m_serialize;
   DeviationParseFn m_parseDeviation;
   TimeDepthParseFn m_parseTimeDepth;
+  std::function<void(WellCompositePanel *)> m_alignmentProvider;
 
   static WellCompositeDerivedSink *s_default;
   static QList<QPointer<WellCompositePanel>> &livePanels();

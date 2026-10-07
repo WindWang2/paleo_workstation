@@ -65,8 +65,9 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
     wf->setSeismicTaskService(m_seismicTaskSvc.get());
   wf->setSectionWorkbench(m_sectionWorkbench);
 
-  // 剖面编辑产物落库（井序 + 连线改接；每次落盘版本 +1——Oracle #2）。
-  // 无工程库（store 空/未开工程）时编辑仅驻内存。
+  // 剖面编辑产物落库（井序 + 连线改接 + 深度域；每次落盘版本 +1——Oracle
+  // #2）。深度域进剖面状态（方向 69 工程级 round-trip）：用户域动作与
+  // 井序/改接同一保存钩子。无工程库（store 空/未开工程）时编辑仅驻内存。
 
   const auto rebindFenceStore = [this]() {
     // 换工程：打开中的栅状图换到新 store（否则继续写旧工程的库）。
@@ -126,13 +127,26 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
             panel->setFaultTraces(fp.traces, fp.status);
           });
 
+  // 三处一致性：主面板的用户域/井距动作 → 打开中的栅状图各剖面同步；
+  // 反向（fence 内动作 → 主面板）在 fence 创建处接线。
+  connect(panel, &WellSectionPanel::depthDomainChanged, this,
+          [this](wellsection::DepthDomain domain) {
+            if (m_wellSectionFence)
+              m_wellSectionFence->setDepthDomain(domain);
+          });
+  connect(panel, &WellSectionPanel::spacingModeChanged, this,
+          [this](wellsection::SpacingMode mode) {
+            if (m_wellSectionFence)
+              m_wellSectionFence->setSpacingMode(mode);
+          });
+
   // #128：结果按 workflow 的当前世代过滤（wf->currentGeneration()），不记
   // request() 的返回值——同步/早退路径在返回前就已 emit，旧实现把那一次
   // 结果当陈旧丢掉（面板卡在忙碌、地震缝状态不显示）。
   auto catalogPath =
       std::make_shared<QString>(m_previewDoc->catalog()->catalogPath());
 
-  // 井集/连线改接持久化：用户改动才写（程序化恢复不发这两个信号）。
+  // 井集/连线改接/深度域持久化：用户改动才写（程序化恢复不发这些信号）。
   const auto saveSectionEdits = [this, panel] {
     if (!m_wellSectionStore)
       return;
@@ -140,7 +154,7 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
     const metadata::WellSectionRecord rec =
         m_wellSectionStore->save(QString::fromLatin1(kSectionId), panel->wellIds(),
                                  toStoreOverrides(panel->linkOverrides()),
-                                 &err);
+                                 panel->depthDomain(), &err);
     if (!rec.valid())
       QgsMessageLog::logMessage(tr("连井剖面编辑保存失败：%1").arg(err),
                                 QStringLiteral("Paleo"));
@@ -149,6 +163,10 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
           [saveSectionEdits](const QStringList &) { saveSectionEdits(); });
   connect(panel, &WellSectionPanel::linkOverridesChanged, this,
           [saveSectionEdits](const QVector<wellsection::LinkOverride> &) {
+            saveSectionEdits();
+          });
+  connect(panel, &WellSectionPanel::depthDomainChanged, this,
+          [saveSectionEdits](wellsection::DepthDomain) {
             saveSectionEdits();
           });
 
@@ -228,6 +246,13 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
           m_wellSectionStore->load(QString::fromLatin1(kSectionId), &err);
       saved = rec.wellIds;
       overrides = fromStoreOverrides(rec.linkOverrides);
+      // 深度域是剖面状态（方向 69）：仅库中有记录（version>0）才以工程级
+      // 覆盖面板；无记录时保留面板现状——应用级 QSettings 偏好就是缺省，
+      // 不得被 store 缺省 MD 静默盖回（R1-3 M1）。程序化 setter 不发信号、
+      // 不重发数据请求之外的持久化钩子；此时面板井集已清（setDepthDomain
+      // 不触发在途请求）。
+      if (rec.valid())
+        panel->setDepthDomain(rec.depthDomain);
     }
     QSet<QString> existing;
     for (const auto &c : wf->wellChoices())
@@ -273,6 +298,9 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
           });
   connect(m_previewDoc->catalog(), &DataCatalog::changed, debounce,
           qOverload<>(&QTimer::start));
+  if (m_sectionWorkbench)
+    connect(m_sectionWorkbench, &SectionWorkbench::alignmentsChanged, debounce,
+            qOverload<>(&QTimer::start));
 
   // 剖面-平面联动：剖面线位高亮（井序连线）+ 点名反向闪烁。线位随
   // 井集/井序/取数回填刷新；闪烁经 well 层 fid 解析。
@@ -305,7 +333,7 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
 
   // 栅状图（fence）：面板入口 → 单实例窗（交点井联动在部件内部接线）。
   connect(panel, &WellSectionPanel::fenceRequested, this,
-          [this, wf, taskSvc, toChoices] {
+          [this, wf, taskSvc, toChoices, panel, saveSectionEdits] {
             if (m_wellSectionFence)
             {
               m_wellSectionFence->raise();
@@ -324,6 +352,18 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
             fence->setWindowFlags(Qt::Window);
             fence->resize(1100, 700);
             m_wellSectionFence = fence;
+            // 反向一致性：fence 内用户域/井距动作 → 主面板（程序化 setter
+            // 不发信号，与正向接线无环路）。域动作同属用户驱动 → 一并落库
+            // （深度域是剖面状态，方向 69）。
+            connect(fence, &WellSectionFenceWidget::depthDomainChanged, panel,
+                    [panel, saveSectionEdits](wellsection::DepthDomain domain) {
+                      panel->setDepthDomain(domain);
+                      saveSectionEdits();
+                    });
+            connect(fence, &WellSectionFenceWidget::spacingModeChanged, panel,
+                    [panel](wellsection::SpacingMode mode) {
+                      panel->setSpacingMode(mode);
+                    });
             connect(fence, &QObject::destroyed, this,
                     [this] { m_wellSectionFence = nullptr; });
             fence->show();

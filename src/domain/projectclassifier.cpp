@@ -6,6 +6,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QStringList>
+#include <QRegularExpression>
 
 #include <algorithm>
 
@@ -114,7 +115,31 @@ ProjectClassification classifyProjectImport(const QString &path, const QByteArra
       return {QStringLiteral("well_deviation"), ext, QStringLiteral("input")};
     // 判不出 → 参考（§3）
   }
-  return classifyProjectPath(path);
+  const auto byPath = classifyProjectPath(path);
+  if ((ext == QLatin1String("dat") || ext == QLatin1String("csv") ||
+       ext == QLatin1String("txt") || ext == QLatin1String("tsv")) &&
+      (byPath.type == QLatin1String("tabular") || byPath.type == QLatin1String("unknown")))
+  {
+    const QString header = QString::fromUtf8(content.left(65536)).toUpper();
+    const auto has = [&header](const QString &column) {
+      return header.contains(QRegularExpression(QStringLiteral("\\b%1\\b").arg(column)));
+    };
+    QString type;
+    if (header.contains("GRID_SIZE") && header.contains("P1:") && header.contains("Z_UNITS"))
+      type = QStringLiteral("horizon");
+    else if ((has("TIME") || has("TWT")) && (has("TVD") || has("MD")))
+      type = QStringLiteral("time_depth");
+    else if (has("MD") && (has("INCL") || has("INCLINATION")) &&
+             (has("AZI") || has("AZIM") || has("AZIMUTH")))
+      type = QStringLiteral("well_deviation");
+    else if ((has("HORIZON") || has("TOP") || has("LAYER")) && (has("MD") || has("TVD")))
+      type = QStringLiteral("well_stratification");
+    else if ((has("WELL") || has("NAME")) && has("X") && has("Y"))
+      type = QStringLiteral("well_head");
+    if (!type.isEmpty())
+      return {type, ext, QStringLiteral("input")};
+  }
+  return byPath;
 }
 
 QStringList projectClassifierTypes()

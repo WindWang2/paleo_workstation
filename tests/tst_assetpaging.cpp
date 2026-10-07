@@ -213,6 +213,42 @@ private slots:
     QVERIFY(pager->isVisibleTo(&panel));
   }
 
+  // 回归：树内点选三级资产（井 → 测井曲线）触发的选中联动不得把用户手动
+  // 展开的一级组收掉——原实现 applyListFilter 的 !filtering 分支每次都把
+  // 全部一级收拢，点击三级节点会把树跳回一级。
+  void navTreeSelectionKeepsExpandedGroups()
+  {
+    QTemporaryDir dir; QVERIFY(PerfFixtures::makeSyntheticCatalogDir(dir.path(), 300));
+    DataImportService importer; importer.setProjectDir(dir.path()); PreviewDocService doc(&importer);
+    DataListPanel panel; panel.setDocService(&doc); panel.resize(640, 740); panel.setViewMode(0); panel.show();
+    panel.refreshAssetTable(); panel.applyListFilter(); QCoreApplication::processEvents();
+
+    auto *tree = panel.findChild<QTreeWidget *>(QStringLiteral("dataTree"));
+    QVERIFY(tree);
+    QTreeWidgetItem *wellRoot = tree->topLevelItem(1);
+    wellRoot->setExpanded(true);
+    wellRoot->child(0)->setExpanded(true);
+    const QString lasId =
+        wellRoot->child(0)->child(0)->data(0, Qt::UserRole).toString();
+    QVERIFY(!lasId.isEmpty());
+
+    panel.selectAssetInViews(lasId);
+    QVERIFY2(wellRoot->isExpanded(),
+             "tree-sourced selection must not collapse expanded top-level groups");
+    QVERIFY2(wellRoot->child(0)->isExpanded(),
+             "selected child's parent chain must stay expanded");
+
+    // catalog.changed → refreshAssetTable → refreshAssetTree 全量重建路径
+    // 同样不得抹掉展开态（重建前快照、建后按键还原）。
+    panel.refreshAssetTable();
+    auto *tree2 = panel.findChild<QTreeWidget *>(QStringLiteral("dataTree"));
+    QVERIFY(tree2);
+    QVERIFY2(tree2->topLevelItem(1)->isExpanded(),
+             "rebuild must preserve expanded top-level groups");
+    QVERIFY2(tree2->topLevelItem(1)->child(0)->isExpanded(),
+             "rebuild must preserve expanded child nodes");
+  }
+
   void governanceUiPreviewCancelAndTokens() {
     paleo::storage::Report report; report.complete = true; report.scannedRoots = {"artifacts/RAW"};
     paleo::storage::FileFact f; f.relativePath = "artifacts/RAW/unreferenced.bin"; f.sizeBytes = 42;

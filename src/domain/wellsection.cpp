@@ -29,6 +29,23 @@ const Curve *Well::curve(const QString &mnemonic) const {
   return nullptr;
 }
 
+double Well::tvdOf(double md) const {
+  if (!surveyError.isEmpty())
+    return qQNaN();
+  if (!survey)
+    return md; // 无链接 = 无测斜（NoSurvey）：几何恒等按 MD 绘制，TVD 域
+               // 如实标注不可用（见 .h TvdStatus 三态注释）。
+  return survey->tvdAt(md);
+}
+
+double Well::mdOf(double tvd) const {
+  if (!surveyError.isEmpty())
+    return qQNaN();
+  if (!survey)
+    return tvd;
+  return survey->tvdToMd(tvd);
+}
+
 QVector<Zone> zones(const Well &w, double bottomMd) {
   QVector<Zone> out;
   for (int i = 0; i < w.tops.size(); ++i) {
@@ -90,46 +107,54 @@ QVector<double> gapWidthsFor(const QVector<Well> &wells, SpacingMode mode,
   if (gaps < 1)
     return out;
   out.fill(0.0, gaps);
+  const double equalW = qBound(minGap, totalGap / gaps, maxGap);
   if (mode == SpacingMode::Equal || totalGap <= 0.0) {
-    out.fill(qBound(minGap, totalGap / gaps, maxGap), gaps);
+    out.fill(equalW, gaps);
     return out;
   }
-  // 相邻井地图距离（勾股；缺坐标段先记 NaN）。
+  // 契约 v2：相邻两井都有坐标的缝才进比例分摊（真实地图距离）；任一端
+  // 缺坐标的缝不参与比例轴——固定等距宽，已知段分摊剩余预算。
   QVector<double> dist(gaps, qQNaN());
-  int known = 0;
   for (int i = 0; i < gaps; ++i)
     if (wells[i].hasCoordinates() && wells[i + 1].hasCoordinates()) {
       const double dx = wells[i + 1].x - wells[i].x;
       const double dy = wells[i + 1].y - wells[i].y;
       dist[i] = std::sqrt(dx * dx + dy * dy);
-      ++known;
     }
-  if (known == 0) {
-    out.fill(qBound(minGap, totalGap / gaps, maxGap), gaps);
+  int unknown = 0;
+  double sumKnown = 0.0;
+  for (double d : dist) {
+    if (std::isfinite(d))
+      sumKnown += d;
+    else
+      ++unknown;
+  }
+  if (unknown == gaps || !(sumKnown > 1e-12)) {
+    // 全缺坐标 / 已知段全零距（同平台井）：比例无意义，退化等距防 NaN
+    // 毒化布局。
+    out.fill(equalW, gaps);
     return out;
   }
-  // 缺段用已知段中位距离补（保守：非零、抗离群）。
-  if (known < gaps) {
-    QVector<double> sorted;
-    for (double d : dist)
-      if (std::isfinite(d))
-        sorted << d;
-    std::sort(sorted.begin(), sorted.end());
-    const double med = sorted.isEmpty() ? 1.0 : sorted.at(sorted.size() / 2);
-    for (double &d : dist)
-      if (!std::isfinite(d))
-        d = qMax(1e-6, med);
+  const double budget = std::max(0.0, totalGap - unknown * equalW);
+  for (int i = 0; i < gaps; ++i) {
+    if (!std::isfinite(dist[i]))
+      out[i] = equalW;
+    else
+      out[i] = budget > 1e-12
+                   ? qBound(minGap, budget * dist[i] / sumKnown, maxGap)
+                   : equalW;
   }
-  double sum = 0.0;
-  for (double d : dist)
-    sum += d;
-  if (!(sum > 1e-12)) {
-    // 全零距离（同平台井/重复坐标）：比例无意义，退化等距防 NaN 毒化布局。
-    out.fill(qBound(minGap, totalGap / gaps, maxGap), gaps);
+  return out;
+}
+
+QStringList unpositionedWellNames(const QVector<Well> &wells,
+                                  SpacingMode mode) {
+  QStringList out;
+  if (mode != SpacingMode::Proportional)
     return out;
-  }
-  for (int i = 0; i < gaps; ++i)
-    out[i] = qBound(minGap, totalGap * dist[i] / sum, maxGap);
+  for (const Well &w : wells)
+    if (!w.hasCoordinates())
+      out << w.name;
   return out;
 }
 
@@ -161,10 +186,13 @@ double flattenOffset(const Well &w, const QString &flattenTop) {
   return std::isfinite(md) ? md : 0.0;
 }
 
-double datumOffset(const Well &w, const Datum &d) {
+double datumOffset(const Well &w, const Datum &d, DepthDomain domain) {
   switch (d.mode) {
-  case DatumMode::Flatten:
+  case DatumMode::Flatten: {
+    if (domain == DepthDomain::TVD)
+      return w.tvdOf(flattenOffset(w, d.flattenTop));
     return flattenOffset(w, d.flattenTop);
+  }
   case DatumMode::Elevation:
     return std::isfinite(w.kb) ? w.kb : 0.0;
   case DatumMode::Depth:
@@ -173,49 +201,63 @@ double datumOffset(const Well &w, const Datum &d) {
   return 0.0;
 }
 
-QString datumLabel(DatumMode mode) {
+QString datumLabel(DatumMode mode, DepthDomain domain) {
+  const bool tvd = domain == DepthDomain::TVD;
   switch (mode) {
   case DatumMode::Elevation:
-    return QStringLiteral("海拔 m");
+    return tvd ? QStringLiteral("海拔垂深 m") : QStringLiteral("海拔 m");
   case DatumMode::Flatten:
     return QStringLiteral("拉平 m");
   case DatumMode::Depth:
     break;
   }
-  return QStringLiteral("井深 m");
+  return tvd ? QStringLiteral("垂深 m") : QStringLiteral("井深 m");
 }
 
 DepthWindow depthWindow(const QVector<Well> &wells, const QString &flattenTop) {
   return depthWindow(wells, Datum{DatumMode::Flatten, flattenTop});
 }
 
-DepthWindow depthWindow(const QVector<Well> &wells, const Datum &datum) {
-  double top = qQNaN(), base = qQNaN();
+DepthWindow depthWindow(const QVector<Well> &wells, const Datum &datum,
+                        DepthDomain domain) {
+  const bool tvd = domain == DepthDomain::TVD;
+  // 域深：TVD 域先把 MD 值换到垂深（坏表井 NaN → 整井跳过，不下拽邻居）。
+  const auto domainDepth = [&](const Well &w, double md) {
+    return tvd ? w.tvdOf(md) : md;
+  };
   bool anyTops = false;
   for (const Well &w : wells)
     anyTops = anyTops || !w.tops.isEmpty();
-  for (const Well &w : wells) {
-    const double off = datumOffset(w, datum);
-    double lo = qQNaN(), hi = qQNaN();
+  auto wellRange = [&](const Well &w, double &lo, double &hi) -> bool {
     if (anyTops) {
       for (const Top &t : w.tops) {
-        lo = std::isfinite(lo) ? std::min(lo, t.md) : t.md;
-        hi = std::isfinite(hi) ? std::max(hi, t.md) : t.md;
+        const double d = domainDepth(w, t.md);
+        if (!std::isfinite(d))
+          continue;
+        lo = std::isfinite(lo) ? std::min(lo, d) : d;
+        hi = std::isfinite(hi) ? std::max(hi, d) : d;
       }
-      if (!std::isfinite(lo))
-        continue;
     } else {
       for (const Curve &c : w.curves)
-        for (const float d : c.depths)
-          if (std::isfinite(d)) {
-            lo = std::isfinite(lo) ? std::min(lo, double(d)) : double(d);
-            hi = std::isfinite(hi) ? std::max(hi, double(d)) : double(d);
-          }
-      if (!std::isfinite(lo))
-        continue;
+        for (const float f : c.depths) {
+          if (!std::isfinite(f))
+            continue;
+          const double d = domainDepth(w, double(f));
+          if (!std::isfinite(d))
+            continue;
+          lo = std::isfinite(lo) ? std::min(lo, d) : d;
+          hi = std::isfinite(hi) ? std::max(hi, d) : d;
+        }
     }
-    lo -= off;
-    hi -= off;
+    return std::isfinite(lo);
+  };
+  double top = qQNaN(), base = qQNaN();
+  for (const Well &w : wells) {
+    double lo = qQNaN(), hi = qQNaN();
+    if (!wellRange(w, lo, hi))
+      continue;
+    lo -= datumOffset(w, datum, domain);
+    hi -= datumOffset(w, datum, domain);
     top = std::isfinite(top) ? std::min(top, lo) : lo;
     base = std::isfinite(base) ? std::max(base, hi) : hi;
   }
@@ -276,23 +318,40 @@ QString csvCell(const QString &s) {
 }
 } // namespace
 
-TopsTable topsTable(const QVector<Well> &wells, const Datum &datum) {
+TopsTable topsTable(const QVector<Well> &wells, const Datum &datum,
+                    DepthDomain domain) {
+  const bool tvd = domain == DepthDomain::TVD;
   TopsTable t;
-  if (datum.mode == DatumMode::Flatten && !datum.flattenTop.isEmpty())
+  if (tvd) {
+    if (datum.mode == DatumMode::Flatten && !datum.flattenTop.isEmpty())
+      t.header = {QStringLiteral("井名"), QStringLiteral("顶名"),
+                  QStringLiteral("MD(m)"), QStringLiteral("TVD(m)"),
+                  QStringLiteral("基准面"), datum.flattenTop};
+    else
+      t.header = {QStringLiteral("井名"), QStringLiteral("顶名"),
+                  QStringLiteral("MD(m)"), QStringLiteral("TVD(m)"),
+                  QStringLiteral("基准面"), datumLabel(datum.mode, domain)};
+  } else if (datum.mode == DatumMode::Flatten && !datum.flattenTop.isEmpty()) {
     t.header = {QStringLiteral("井名"), QStringLiteral("顶名"),
                 QStringLiteral("MD(m)"),
                 QStringLiteral("基准面"), datum.flattenTop};
-  else
+  } else {
     t.header = {QStringLiteral("井名"), QStringLiteral("顶名"),
                 QStringLiteral("MD(m)"), QStringLiteral("基准面"),
-                datumLabel(datum.mode)};
+                datumLabel(datum.mode, domain)};
+  }
   t.rows.reserve(wells.size() * 8);
   for (const Well &w : wells)
     for (const Top &top : w.tops) {
       if (!std::isfinite(top.md))
         continue;
-      t.rows.push_back({w.name, top.name,
-                        QString::number(top.md, 'f', 2)});
+      QStringList row{w.name, top.name, QString::number(top.md, 'f', 2)};
+      if (tvd) {
+        const double tv = w.tvdOf(top.md);
+        row << (std::isfinite(tv) ? QString::number(tv, 'f', 2)
+                                  : QString()); // 坏表井留空不伪造
+      }
+      t.rows.push_back(row);
     }
   return t;
 }
@@ -570,6 +629,27 @@ QVector<LithoInterval> inferSandShale(const Curve &gr, double cutoff,
   return out;
 }
 
+GrCutoffLithologyProvider::GrCutoffLithologyProvider(
+    const Curve &gr, double cutoff, double minThicknessM,
+    const QString &sourceName)
+    : m_intervals(inferSandShale(gr, cutoff, minThicknessM)),
+      m_sourceName(sourceName) {}
+
+QVector<LithoSegment>
+GrCutoffLithologyProvider::lithologyFor(const QString &) const {
+  QVector<LithoSegment> out;
+  out.reserve(m_intervals.size());
+  for (const LithoInterval &iv : m_intervals) {
+    LithoSegment seg;
+    seg.topMd = iv.topMd;
+    seg.baseMd = iv.baseMd;
+    seg.litho = iv.sand ? sandWord() : shaleWord();
+    seg.source = LithoSource::Inferred;
+    out.push_back(seg);
+  }
+  return out;
+}
+
 bool SeismicGap::valid() const {
   return reason.isEmpty() && columns > 0 && samples > 0 && stepMs > 0.0 &&
          values.size() == static_cast<size_t>(columns) * samples;
@@ -632,11 +712,18 @@ float adaptiveClip(const QVector<SeismicGap> &gaps, double percentile) {
 }
 
 double gapTwtMs(const Well &a, double offA, const Well &b, double offB,
-                double f, double displayDepth) {
+                double f, double displayDepth, DepthDomain domain) {
   if (!a.timeDepth || !b.timeDepth)
     return qQNaN();
-  const double tA = a.timeDepth->twtAt(displayDepth + offA);
-  const double tB = b.timeDepth->twtAt(displayDepth + offB);
+  // 显示深 → 域深 → MD（TVD 域经井斜反解；坏表 → NaN）。
+  const double mdA = domain == DepthDomain::TVD ? a.mdOf(displayDepth + offA)
+                                                : displayDepth + offA;
+  const double mdB = domain == DepthDomain::TVD ? b.mdOf(displayDepth + offB)
+                                                : displayDepth + offB;
+  if (!std::isfinite(mdA) || !std::isfinite(mdB))
+    return qQNaN();
+  const double tA = a.timeDepth->twtAt(mdA);
+  const double tB = b.timeDepth->twtAt(mdB);
   if (!std::isfinite(tA) || !std::isfinite(tB))
     return qQNaN();
   return (1.0 - f) * tA + f * tB;

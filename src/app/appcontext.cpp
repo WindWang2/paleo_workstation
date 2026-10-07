@@ -332,6 +332,10 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   });
   connect(m_projectSvc, &QgisProjectService::projectClosed, this,
           [this]() { releaseProjectSession(); });
+  connect(m_projectSvc, &QgisProjectService::openAborted, this, [this] {
+    m_pendingLock.reset();
+    m_pendingLockReuse = false;
+  });
 
   // ensureManifest-on-open: first point a per-project path is derivable.
   connect(m_projectSvc, &QgisProjectService::projectOpened, this,

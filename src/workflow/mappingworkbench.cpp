@@ -15,6 +15,9 @@
 #include "constraintimport.h"
 #include "derivedassets.h"
 #include "workflows.h"
+#include "services/seismichorizoncluster.h"
+#include <QFutureWatcher>
+#include <QtConcurrent>
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
@@ -76,8 +79,8 @@ MappingWorkbench::MappingWorkbench(QgisLayerService *layers,
       m_project(project), m_constraints(constraints) {
   // 方向51：不再自装测试替身（原先这里 setPredictionService(new <替身>(this))，
   // 产品里的远端预测就这样悄悄跑着假数据）。
-  // 预测服务由装配根显式注入（app/aiwiring.cpp）；未注入时 bench 如实报告
-  // 「远端预测未配置，走本地引擎」，predict() 直接失败而不是给出假结果。
+  // 远端预测由装配根显式注入（app/aiwiring.cpp）；本地层位窗聚类是用户
+  // 显式选择的 Mock 模式，产物记录真实反射特征来源与 Mock 类别解释。
   connect(m_layers, &QgisLayerService::layerInstantiated, this,
           &MappingWorkbench::styleLayer);
   connect(m_layers, &QgisLayerService::layerDeclared, this,
@@ -86,6 +89,10 @@ MappingWorkbench::MappingWorkbench(QgisLayerService *layers,
   // 会刷屏图层树。快照只在使用点做——generateFactor/importConstraints
   // 前置 snapshotConstraints（谱系语义：被计算的约束状态）；实时显示走
   // constraints.<horizon> 声明图层（直读 store，reload 即新）。
+}
+MappingWorkbench::~MappingWorkbench() {
+  if (m_mockCancelled)
+    m_mockCancelled->store(true);
 }
 void MappingWorkbench::bindCatalog(DataCatalog *catalog, const QString &dir) {
   cancelPrediction();
@@ -492,7 +499,9 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
                                const QStringList &ids, QString *error) {
   if (!ready(h, error))
     return false;
-  if (kind != "wells" && kind != "seismic") {
+  const bool mock = kind == QLatin1String("seismic_mock");
+  const bool seismicInput = kind == QLatin1String("seismic") || mock;
+  if (kind != "wells" && !seismicInput) {
     fail(error, tr("未知预测类型"));
     return false;
   }
@@ -500,12 +509,12 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
     fail(error, tr("已有预测运行中"));
     return false;
   }
-  if (!m_remote) {
-    // 诚实：没有装配预测服务就不给结果（不管是 Mock 还是别的什么）。
+  if (!m_remote && !mock) {
+    // 远端预测需要装配服务；本地层位窗聚类独立运行。
     fail(error, tr("远端预测未配置，走本地引擎"));
     return false;
   }
-  if (ids.isEmpty() || (kind == "seismic" && ids.size() != 1)) {
+  if (ids.isEmpty() || (seismicInput && ids.size() != 1)) {
     fail(error, tr("地震预测选择一个地震体；测井预测至少选择一口井"));
     return false;
   }
@@ -514,7 +523,7 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
   RemotePredictionRequest request;
   request.id = uid();
   request.horizon = h;
-  request.kind = kind;
+  request.kind = seismicInput ? QStringLiteral("seismic") : kind;
   request.facies = facies(h);
   const auto choices = inputs(kind);
   QSet<QString> seen;
@@ -547,7 +556,7 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
   }
   request.sourceVersionIds << schemaVersion(h);
   request.sourceVersionIds.removeDuplicates();
-  if (kind == "seismic") {
+  if (seismicInput && !mock) {
     for (const auto &l : m_catalog->linksForAsset(ids.first()))
       if (!l.unresolved) {
         const auto entity = m_catalog->entityById(l.entityId);
@@ -576,13 +585,82 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
       return false;
     }
   }
+  if (mock) {
+    // 只从当前层位的时间网格取窗，不用其它预测/单因素栅格冒充层位。
+    QString horizonPath, horizonVersion;
+    for (const auto &d : m_layers->declared())
+      if (d.horizon == h && d.type == QLatin1String("raster") &&
+          d.layerId.startsWith(QLatin1String("horizon."))) {
+        if (horizonPath.isEmpty() || d.layerId == QStringLiteral("horizon.") + h) {
+          horizonPath = filePath(d.source);
+          const auto version = versionForLayer(d.layerId);
+          horizonVersion = version.id;
+        }
+      }
+    if (horizonPath.isEmpty() || !QFileInfo::exists(horizonPath)) {
+      fail(error, tr("当前层位没有时间栅格，请先导入并网格化该层位"));
+      return false;
+    }
+    if (!horizonVersion.isEmpty())
+      request.sourceVersionIds << horizonVersion;
+    request.sourceVersionIds.removeDuplicates();
+    QVector<int> codes;
+    for (const auto &f : request.facies)
+      codes << f.toMap().value("code").toInt();
+    const auto seismicVersion = m_catalog->currentVersion(ids.first());
+    const QString seismicPath = DataCatalog::resolvedVersionPath(m_dir, seismicVersion);
+    const QString cacheDir = QDir(m_dir).filePath("artifacts/cache/segy-index");
+    m_request = request;
+    m_mockCancelled = std::make_shared<std::atomic_bool>(false);
+    auto cancelled = m_mockCancelled;
+    auto *watcher = new QFutureWatcher<SeismicClusterResult>(this);
+    connect(watcher, &QFutureWatcherBase::progressValueChanged, this,
+            [this, request](int value) {
+      if (m_request.id == request.id)
+        emit predictionProgress(value);
+    });
+    connect(watcher, &QFutureWatcherBase::finished, this,
+            [this, watcher, request, cancelled] {
+      const auto clustered = watcher->result();
+      watcher->deleteLater();
+      if (m_request.id != request.id || cancelled->load())
+        return;
+      if (!clustered.error.isEmpty()) {
+        m_request = {};
+        emit predictionBusyChanged(false);
+        emit errorOccurred(clustered.error);
+        return;
+      }
+      m_request.extent = clustered.extent;
+      m_request.rows = clustered.rows;
+      m_request.columns = clustered.columns;
+      RemotePredictionResult result;
+      result.request = m_request;
+      result.cells = clustered.cells;
+      result.mock = true;
+      result.method = QStringLiteral("mock-horizon-window-kmeans-v1");
+      finishPrediction(result);
+    });
+    emit predictionBusyChanged(true);
+    watcher->setFuture(QtConcurrent::run(
+        [seismicPath, horizonPath, cacheDir, codes, cancelled](QPromise<SeismicClusterResult> &promise) {
+          promise.setProgressRange(0, 100);
+          promise.addResult(clusterSeismicHorizon(seismicPath, horizonPath, cacheDir, codes,
+              [&promise](int value) { promise.setProgressValue(value); },
+              [cancelled] { return cancelled->load(); }));
+        }));
+    return true;
+  }
+  m_mockCancelled.reset();
   m_request = request;
   emit predictionBusyChanged(true);
   m_remote->start(request);
   return true;
 }
 void MappingWorkbench::cancelPrediction() {
-  if (m_remote)
+  if (m_mockCancelled)
+    m_mockCancelled->store(true);
+  else if (m_remote)
     m_remote->cancel();
   bool was = busy();
   m_request = {};
@@ -603,7 +681,8 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &result) {
   if (request.kind == "seismic") {
     valid = valid && result.cells.size() == request.rows * request.columns;
     for (int code : result.cells)
-      valid = valid && codes.contains(code);
+      valid = valid && (codes.contains(code) ||
+          (result.mock && result.method == QLatin1String("mock-horizon-window-kmeans-v1") && code == -9999));
   } else {
     valid = valid && result.points.size() == request.wells.size();
     for (int i = 0; i < result.points.size() && valid; ++i) {
@@ -675,6 +754,7 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &result) {
              request.sourceVersionIds,
              {{"mock", result.mock},
               {"method", result.method},
+              {"window_half_ms", result.method == QLatin1String("mock-horizon-window-kmeans-v1") ? 12.0 : 0.0},
               {"request_id", request.id},
               {"facies", request.facies},
               {"wells", request.wells},

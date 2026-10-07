@@ -23,7 +23,7 @@ class ProjectOpenWorkflow : public QObject
     explicit ProjectOpenWorkflow(QgisProjectService *projSvc,
                                  QObject *parent = nullptr);
 
-    // 打开/新建工程路径（同步）。返回值仅供壳判断「要不要做后续视图动作」。
+    // 打开工程异步提交；返回 true 表示读取已启动。新建目录保持原有创建流程。
     bool openPath(const QString &path);
 
     // 「从工区文件夹新建」回写 sourceArea：工程目录 == 导入目录才写（目录

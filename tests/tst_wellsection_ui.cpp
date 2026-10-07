@@ -157,6 +157,49 @@ class TestWellSectionUi : public QObject
     }
 
   private slots:
+    // 图片道渲染：Well::images（预解码 QImage）+ 模板加 Image 道 →
+    // renderImage 照片区为照片色而非纸底/占位灰框。
+    void imageTrackRendersPhotosAtDepth()
+    {
+      SelectionContext ctx;
+      WellSectionPanel panel(&ctx);
+      auto wells = wells4();
+      // C-2 两张纯色照片：1850m 红、1955m 蓝（层位窗 1800-2000 内，8x8）。
+      QImage red(8, 8, QImage::Format_RGB32);
+      red.fill(qRgb(220, 20, 20));
+      QImage blue(8, 8, QImage::Format_RGB32);
+      blue.fill(qRgb(20, 20, 220));
+      wells[0].images << wellsection::ImageAnchor{1850.0, QStringLiteral("core_red.png"), red}
+                      << wellsection::ImageAnchor{1955.0, QStringLiteral("core_blue.png"), blue};
+      auto tpl = wellsection::SectionTemplate::defaults();
+      wellsection::TrackSpec imgTrack;
+      imgTrack.kind = wellsection::TrackKind::Image;
+      imgTrack.title = QStringLiteral("照片");
+      imgTrack.width = 90;
+      tpl.tracks.append(imgTrack);
+      panel.setSectionTemplate(tpl);
+      panel.setSection(wells);
+
+      const QImage img = panel.renderImage();
+      // 图片道在模板末位：x = margin + 前序道宽和 + 道宽/2。defaults =
+      // 小层(56)|GR(56)|深度(56)|岩性(56)|RD/RS(56) → 16+280+45。
+      const int px = 16 + 280 + 45;
+      const int hh = panel.findChild<wellsectionui::HeaderWidget *>(
+                            QStringLiteral("wellSectionHeader"))
+                         ->headerHeight();
+      const double yTop = panel.topLineY(QStringLiteral("C-2"),
+                                         QStringLiteral("C3"));
+      const auto yAt = [&panel, hh, yTop](double md) {
+        return hh + yTop + (md - 1800.0) * panel.pxPerMeter();
+      };
+      const QColor cRed = img.pixelColor(px, int(yAt(1854.0)));
+      const QColor cBlue = img.pixelColor(px, int(yAt(1959.0)));
+      QVERIFY2(cRed.red() > cRed.blue() + 20,
+               qPrintable(QStringLiteral("red zone %1").arg(cRed.name())));
+      QVERIFY2(cBlue.blue() > cBlue.red() + 20,
+               qPrintable(QStringLiteral("blue zone %1").arg(cBlue.name())));
+    }
+
     void initTestCase()
     {
       PaleoTheme::pinRenderEnvironment();
@@ -456,6 +499,457 @@ class TestWellSectionUi : public QObject
       // 井序无关键：井对从任一方向查都命中（C-2/A5 断开 D62）。
       QVERIFY(panel.linkOverrides().first().leftWellId ==
               QStringLiteral("A5"));
+    }
+
+    // ---- TVD 域切换（Oracle 1：round-trip + 世代重发；直井恒等）----
+    void tvdDomainSwitch()
+    {
+      SelectionContext ctx;
+      WellSectionPanel panel(&ctx);
+      auto wells = wells4();
+      QString err;
+      const auto survey = paleo::WellDeviationSurvey::fromStations(
+          {{0, 0, 0}, {1000, 30, 0}, {2000, 30, 0}}, &err);
+      QVERIFY2(survey.has_value(), qPrintable(err));
+      wells[0].survey = survey; // C-2 造斜；其余直井
+      panel.resize(1400, 720);
+      panel.setSection(wells);
+      panel.show();
+      QVERIFY(QTest::qWaitForWindowExposed(&panel));
+      panel.fitToView();
+      QCOMPARE(panel.depthDomain(), wellsection::DepthDomain::MD);
+      const qreal yMd =
+          panel.topLineY(QStringLiteral("C-2"), QStringLiteral("D61"));
+      const qreal yVertMd =
+          panel.topLineY(QStringLiteral("A5"), QStringLiteral("D61"));
+      QVERIFY(std::isfinite(yMd) && std::isfinite(yVertMd));
+
+      QSignalSpy dataSpy(&panel, &WellSectionPanel::dataRequested);
+      panel.setDepthDomain(wellsection::DepthDomain::TVD);
+      QCOMPARE(panel.depthDomain(), wellsection::DepthDomain::TVD);
+      QCOMPARE(dataSpy.size(), 1); // 域切换重发请求 → 作废在途代
+      // 造斜井：TVD < MD → 同层顶相对直井的落差显著拉大（TVD 域的真实
+      // 地质效果；绝对 y 随深度窗/缩放变化，不作跨域断言）。
+      const qreal yTvd =
+          panel.topLineY(QStringLiteral("C-2"), QStringLiteral("D61"));
+      const qreal yVertTvd =
+          panel.topLineY(QStringLiteral("A5"), QStringLiteral("D61"));
+      QVERIFY(std::isfinite(yTvd) && std::isfinite(yVertTvd));
+      QVERIFY(yTvd < yMd - 1.0);
+      QVERIFY((yVertTvd - yTvd) > (yVertMd - yMd) + 10.0);
+
+      // CSV round-trip：TVD 列数值与源站表换算一致；MD 列不随域变。
+      const double md61 = wells[0].topMd(QStringLiteral("D61"));
+      const double tvd61 = survey->tvdAt(md61);
+      const QString csv = panel.topsCsv();
+      QVERIFY(csv.contains(QStringLiteral("TVD(m)")));
+      QVERIFY(csv.contains(QStringLiteral("C-2,D61,%1,%2")
+                               .arg(QString::number(md61, 'f', 2),
+                                    QString::number(tvd61, 'f', 2))));
+      // 直井行 MD 与 TVD 数值相等。
+      const double vmd = wells[1].topMd(QStringLiteral("D61"));
+      QVERIFY(csv.contains(QStringLiteral("A5,D61,%1,%2")
+                               .arg(QString::number(vmd, 'f', 2),
+                                    QString::number(vmd, 'f', 2))));
+      // 切回 MD：几何还原（模式切换可逆，井数据不动）。
+      panel.setDepthDomain(wellsection::DepthDomain::MD);
+      QVERIFY(std::fabs(panel.topLineY(QStringLiteral("C-2"),
+                                       QStringLiteral("D61")) -
+                        yMd) <= 0.5);
+    }
+
+    // ---- TVD 域诚实面：坏表井不出几何、名录进状态行、不下拽邻居 ----
+    void tvdBrokenWellHonesty()
+    {
+      SelectionContext ctx;
+      WellSectionPanel panel(&ctx);
+      auto wells = wells4();
+      wells[2].surveyError = QStringLiteral("测斜站表无效：重复 MD");
+      panel.resize(1400, 720);
+      panel.setSection(wells);
+      panel.show();
+      QVERIFY(QTest::qWaitForWindowExposed(&panel));
+      panel.fitToView();
+      panel.setDepthDomain(wellsection::DepthDomain::TVD);
+      // 坏表井（C-1）：层顶不出几何（NaN，不伪造）。
+      QVERIFY(qIsNaN(panel.topLineY(QStringLiteral("C-1"),
+                                    QStringLiteral("D61"))));
+      // 邻居不受牵连（深度窗按可用井取并）。
+      for (const char *id : {"C-2", "A5", "C-4"})
+        QVERIFY(std::isfinite(panel.topLineY(QLatin1String(id),
+                                             QStringLiteral("D61"))));
+      // 状态行如实名录。
+      QVERIFY(panel.statusText().contains(QStringLiteral("不可换算")));
+      QVERIFY(panel.statusText().contains(QStringLiteral("C-1")));
+      // 全渲染冒烟：连线/层段带/高亮带走空路径分支，无 NaN 几何、无异常。
+      const QImage img = panel.renderImage(1.0);
+      QVERIFY(!img.isNull());
+      QVERIFY(img.width() > 100 && img.height() > 100);
+      // CSV：坏表井 TVD 格留空。
+      const QString csv = panel.topsCsv();
+      const QString md53 = QString::number(
+          wells[2].topMd(QStringLiteral("D53")), 'f', 2);
+      QVERIFY(csv.contains(QStringLiteral("C-1,D53,%1,").arg(md53)));
+      // MD 域：坏表井正常出几何（换算只在 TVD 域）。
+      panel.setDepthDomain(wellsection::DepthDomain::MD);
+      QVERIFY(std::isfinite(panel.topLineY(QStringLiteral("C-1"),
+                                           QStringLiteral("D61"))));
+    }
+
+    // ---- 深度域题注/轴口径同步（方向 69）：字符串级断言 + 头部像素差分 ----
+    // depthCaption 与版头绘制/导出共用同一口径——导出 PNG/SVG/PDF 自然
+    // 携带域标签（renderImage 把 paintContents 画进图首）。
+    void tvdDepthCaptionSync()
+    {
+      SelectionContext ctx;
+      WellSectionPanel panel(&ctx);
+      panel.setSection(wells4()); // 无测斜直井：TVD 几何恒等，只有口径词变
+      QCOMPARE(panel.depthCaption(), QStringLiteral("深度/m"));
+      const QImage imgMd = panel.renderImage(1.0);
+      QVERIFY(!imgMd.isNull());
+
+      panel.setDepthDomain(wellsection::DepthDomain::TVD);
+      QCOMPARE(panel.depthCaption(), QStringLiteral("垂深/m"));
+      panel.setDatum({wellsection::DatumMode::Elevation, QString()});
+      QCOMPARE(panel.depthCaption(), QStringLiteral("海拔垂深/m"));
+      const QImage imgTvd = panel.renderImage(1.0);
+      QVERIFY(!imgTvd.isNull());
+      QCOMPARE(imgTvd.size(), imgMd.size()); // 恒等几何 → 同图幅
+      QVERIFY2(imgTvd != imgMd,
+               "TVD 域题注/角标须随图导出（头部像素差分）");
+
+      // MD 域复原：题注回井深口径、像素级还原。
+      panel.setDepthDomain(wellsection::DepthDomain::MD);
+      QCOMPARE(panel.depthCaption(), QStringLiteral("海拔/m")); // 基准面仍海拔
+      panel.setDatum({wellsection::DatumMode::Depth, QString()});
+      QCOMPARE(panel.depthCaption(), QStringLiteral("深度/m"));
+      QCOMPARE(panel.renderImage(1.0), imgMd);
+      // 拉平基准面题注（MD 域；TVD×拉平双口径词不丢拉平语义——绘制与
+      // accessor 同走 depthTrackCaption，R1-2 L1）。
+      panel.setFlattenTop(QStringLiteral("D61"));
+      QCOMPARE(panel.depthCaption(), QStringLiteral("拉平/m"));
+      panel.setDepthDomain(wellsection::DepthDomain::TVD);
+      QCOMPARE(panel.depthCaption(), QStringLiteral("拉平·垂深/m"));
+      panel.setDepthDomain(wellsection::DepthDomain::MD);
+      QCOMPARE(panel.depthCaption(), QStringLiteral("拉平/m"));
+    }
+
+    // ---- 方向 69：无测斜井如实标注（角标 + 名录 + 像素差分 + 不冒充）----
+    void tvdNoSurveyWellHonesty()
+    {
+      SelectionContext ctx;
+      WellSectionPanel panel(&ctx);
+      auto wells = wells4();
+      QString err;
+      const auto survey = paleo::WellDeviationSurvey::fromStations(
+          {{0, 0, 0}, {1000, 30, 0}, {2000, 30, 0}}, &err);
+      QVERIFY2(survey.has_value(), qPrintable(err));
+      wells[0].survey = survey; // C-2 正常测斜
+      wells[2].surveyError = QStringLiteral("测斜站表无效：重复 MD"); // C-1 坏表
+      // A5/C-4 无 survey 链接（无测斜）。
+      panel.resize(1400, 720);
+      panel.setSection(wells);
+      panel.show();
+      QVERIFY(QTest::qWaitForWindowExposed(&panel));
+      panel.fitToView();
+
+      // MD 域：无角标、状态行无 TVD 措辞（域专属诚实面）。
+      QCOMPARE(panel.depthDomain(), wellsection::DepthDomain::MD);
+      for (const char *id : {"C-2", "A5", "C-1", "C-4"})
+        QCOMPARE(panel.headerBadgeText(QLatin1String(id)), QString());
+      QVERIFY(!panel.statusText().contains(QStringLiteral("无测斜")));
+      const QImage imgMd = panel.renderImage(1.0);
+
+      panel.setDepthDomain(wellsection::DepthDomain::TVD);
+      // 角标文本：正常井空、无测斜/坏表各如实措辞。
+      QCOMPARE(panel.headerBadgeText(QStringLiteral("C-2")), QString());
+      QCOMPARE(panel.headerBadgeText(QStringLiteral("A5")),
+               QStringLiteral("TVD 不可用（无测斜）"));
+      QCOMPARE(panel.headerBadgeText(QStringLiteral("C-1")),
+               QStringLiteral("TVD 不可用（井斜表损坏）"));
+      QCOMPARE(panel.headerBadgeText(QStringLiteral("C-4")),
+               QStringLiteral("TVD 不可用（无测斜）"));
+      // 状态行名录：两类原因分措辞点名。
+      QVERIFY(panel.statusText().contains(QStringLiteral("无测斜")));
+      QVERIFY(panel.statusText().contains(QStringLiteral("A5")));
+      QVERIFY(panel.statusText().contains(QStringLiteral("井斜表损坏")));
+      QVERIFY(panel.statusText().contains(QStringLiteral("C-1")));
+      // 几何诚实：无测斜井按 MD 恒等绘制（不出 NaN）；坏表井 NaN 不伪造。
+      QVERIFY(std::isfinite(panel.topLineY(QStringLiteral("A5"),
+                                           QStringLiteral("D61"))));
+      QVERIFY(qIsNaN(panel.topLineY(QStringLiteral("C-1"),
+                                    QStringLiteral("D61"))));
+      // 全渲染冒烟 + 头部标记带与 MD 域的像素差分（名行角标新增）。
+      const QImage imgTvd = panel.renderImage(1.0);
+      QVERIFY(!imgTvd.isNull());
+      QVERIFY(imgTvd.width() > 100 && imgTvd.height() > 100);
+      const int bandH = qMin(imgMd.height(), imgTvd.height());
+      int headerDiffs = 0;
+      for (int y = 0; y < qMin(bandH, 26); ++y)
+        for (int x = 0; x < qMin(imgMd.width(), imgTvd.width()); ++x)
+          if (imgMd.pixel(x, y) != imgTvd.pixel(x, y))
+            ++headerDiffs;
+      QVERIFY2(headerDiffs > 20,
+               qPrintable(QStringLiteral("名行角标带应有像素差分，实得 %1")
+                              .arg(headerDiffs)));
+
+      // 回 MD 域：标记全消失。
+      panel.setDepthDomain(wellsection::DepthDomain::MD);
+      for (const char *id : {"C-2", "A5", "C-1", "C-4"})
+        QCOMPARE(panel.headerBadgeText(QLatin1String(id)), QString());
+      QVERIFY(!panel.statusText().contains(QStringLiteral("无测斜")));
+      QVERIFY(!panel.statusText().contains(QStringLiteral("井斜表损坏")));
+    }
+
+    // ---- 方向 69 R2 收口：hover 三态文案如实（单源自由函数断言）----
+    void tvdHoverReadoutHonesty()
+    {
+      SelectionContext ctx;
+      WellSectionPanel panel(&ctx);
+      auto wells = wells4();
+      QString err;
+      const auto survey = paleo::WellDeviationSurvey::fromStations(
+          {{0, 0, 0}, {1000, 30, 0}, {2000, 30, 0}}, &err);
+      QVERIFY2(survey.has_value(), qPrintable(err));
+      wells[0].survey = survey; // C-2 Surveyed
+      wells[2].surveyError = QStringLiteral("测斜站表无效：重复 MD"); // C-1
+      panel.setSection(wells);  // A5/C-4 无链接 = 无测斜
+
+      // MD 域：不出 TVD 口径词，层段名照常附。
+      QCOMPARE(panel.hoverReadoutTextFor(QStringLiteral("A5"), 1500.0),
+               QStringLiteral("A5 · MD 1500.0 m"));
+      QCOMPARE(panel.hoverReadoutTextFor(QStringLiteral("A5"), 1500.0,
+                                         QStringLiteral("D61")),
+               QStringLiteral("A5 · MD 1500.0 m · 层段 D61"));
+
+      panel.setDepthDomain(wellsection::DepthDomain::TVD);
+      // Surveyed：如实出 TVD 数值（与源站表换算一致）。
+      QCOMPARE(panel.hoverReadoutTextFor(QStringLiteral("C-2"), 1500.0),
+               QStringLiteral("C-2 · MD 1500.0 m · TVD %1 m")
+                   .arg(QString::number(survey->tvdAt(1500.0), 'f', 1)));
+      // NoSurvey：不出恒等值冒充垂深，如实注明按井深绘制。
+      QCOMPARE(panel.hoverReadoutTextFor(QStringLiteral("A5"), 1500.0),
+               QStringLiteral("A5 · MD 1500.0 m · "
+                              "TVD 不可用（无测斜，按井深绘制）"));
+      // BrokenSurvey：域反解不出读数——如实说明，不出「nan」。
+      QCOMPARE(panel.hoverReadoutTextFor(QStringLiteral("C-1"), qQNaN()),
+               QStringLiteral("C-1 · 井斜不可用，TVD 域无深度读数"));
+
+      panel.setDepthDomain(wellsection::DepthDomain::MD);
+      QCOMPARE(panel.hoverReadoutTextFor(QStringLiteral("A5"), 1500.0),
+               QStringLiteral("A5 · MD 1500.0 m"));
+    }
+
+    // ---- 方向 69：域切换保持剖面状态（井序/拉平基准/选中 + 世代重发）----
+    void tvdSwitchPreservesSectionState()
+    {
+      SelectionContext ctx;
+      WellSectionPanel panel(&ctx);
+      panel.setSection(wells4());
+      panel.setFlattenTop(QStringLiteral("D61"));
+      panel.selectWell(QStringLiteral("C-1"));
+      QVERIFY(panel.isWellSelected(QStringLiteral("C-1")));
+
+      const QStringList before = panel.wellIds();
+      const double flatRef =
+          panel.topLineY(QStringLiteral("C-2"), QStringLiteral("D61"));
+      // 拉平确实生效（各井 D61 同 y）。
+      for (const char *id : {"A5", "C-1", "C-4"})
+        QVERIFY(std::fabs(panel.topLineY(QLatin1String(id),
+                                         QStringLiteral("D61")) -
+                          flatRef) <= 0.5);
+
+      QSignalSpy dataSpy(&panel, &WellSectionPanel::dataRequested);
+      panel.setDepthDomain(wellsection::DepthDomain::TVD);
+      QCOMPARE(dataSpy.size(), 1); // 域切换重发数据请求（世代作废口径）
+      // 井序/基准面/选中保持。
+      QCOMPARE(panel.wellIds(), before);
+      QCOMPARE(panel.flattenTop(), QStringLiteral("D61"));
+      QVERIFY(panel.isWellSelected(QStringLiteral("C-1")));
+      for (const char *id : {"C-2", "A5", "C-1", "C-4"})
+        QVERIFY(std::fabs(panel.topLineY(QLatin1String(id),
+                                         QStringLiteral("D61")) -
+                          panel.topLineY(QStringLiteral("C-2"),
+                                         QStringLiteral("D61"))) <= 0.5);
+
+      panel.setDepthDomain(wellsection::DepthDomain::MD);
+      QCOMPARE(dataSpy.size(), 2);
+      QCOMPARE(panel.wellIds(), before);
+      QCOMPARE(panel.flattenTop(), QStringLiteral("D61"));
+      QVERIFY(panel.isWellSelected(QStringLiteral("C-1")));
+      // 同域再切 = 无操作（不发请求）。
+      panel.setDepthDomain(wellsection::DepthDomain::MD);
+      QCOMPARE(dataSpy.size(), 2);
+    }
+
+    // ---- 比例井距名录：缺坐标井不参与比例轴 + 状态行点名（Oracle 2）----
+    void spacingUnpositionedRoster()
+    {
+      SelectionContext ctx;
+      WellSectionPanel panel(&ctx);
+      auto wells = wells4();
+      wells[1].x = 150.0;        // 拉开已知段距离差（首段 ~192、次段 ~466）
+      wells[3].x = qQNaN();      // C-4 缺坐标（尾段未知）
+      wells[3].y = qQNaN();
+      panel.resize(1400, 720);
+      panel.setSection(wells);
+      panel.show();
+      QVERIFY(QTest::qWaitForWindowExposed(&panel));
+      panel.fitToView();
+      panel.setSpacingMode(wellsection::SpacingMode::Proportional);
+      QVERIFY(panel.statusText().contains(QStringLiteral("未定位井")));
+      QVERIFY(panel.statusText().contains(QStringLiteral("C-4")));
+      // 已知段按真距分摊剩余预算（466 段 > 192 段）；缺坐标段 = 等距宽。
+      QVERIFY(panel.gapWidthAt(1) > panel.gapWidthAt(0) + 1.0);
+      QVERIFY(std::fabs(panel.gapWidthAt(2) - panel.gapWidth()) <= 0.5);
+      // 等距模式：名录消失、缝宽均一。
+      panel.setSpacingMode(wellsection::SpacingMode::Equal);
+      QVERIFY(!panel.statusText().contains(QStringLiteral("未定位井")));
+      QVERIFY(std::fabs(panel.gapWidthAt(0) - panel.gapWidthAt(2)) <= 0.5);
+    }
+
+    // ---- 解释岩性道（Oracle 3）：有资产画解释段、无资产回落 GR 推断 ----
+    void lithoTrackInterpreted()
+    {
+      SelectionContext ctx;
+      WellSectionPanel panel(&ctx);
+      auto wells = wells4();
+      panel.resize(1400, 720);
+      panel.setSection(wells); // 先无资产：GR 推断
+      panel.show();
+      QVERIFY(QTest::qWaitForWindowExposed(&panel));
+      panel.fitToView();
+      const QImage inferred = panel.renderImage(1.0);
+      // 挂解释段（词面命中工程图式 + 未命中词面各一）；首井带 provenance
+      // （方向 69：题注来源标注），其余解释井无 provenance。
+      for (int i = 0; i < wells.size(); ++i) {
+        auto &w = wells[i];
+        wellsection::LithoSegment s1, s2;
+        s1.topMd = w.tops.first().md;
+        s1.baseMd = w.tops.at(2).md;
+        s1.litho = QStringLiteral("细砂岩");
+        s2.topMd = w.tops.at(2).md;
+        s2.baseMd = w.tops.last().md + 40.0;
+        s2.litho = QStringLiteral("未知岩性X");
+        if (i == 0)
+          s1.provenance = s2.provenance =
+              QStringLiteral("welllogfacies 测试微相 v2");
+        w.litho = {s1, s2};
+      }
+      panel.setSection(wells);
+      panel.fitToView();
+      const QImage interpreted = panel.renderImage(1.0);
+      // 版头高度随行来源标注按井取长（方向 69：解释·<来源> 比「推断」
+      // 题注更宽更高）——只要求同宽且不低，像素差分裁到重叠高。
+      QCOMPARE(interpreted.width(), inferred.width());
+      QVERIFY(interpreted.height() >= inferred.height());
+      const int cmpH = qMin(inferred.height(), interpreted.height());
+      // 岩性道列区必变（解释段花纹 ≠ GR 砂泥二分）；逐像素找差异并核对
+      // 落点都在岩性道 x 带内（题注行「推断/解释」差异在版头，跳过头部）。
+      const auto &tpl = panel.sectionTemplate();
+      double lithoLeft = -1, lithoRight = -1;
+      {
+        double x = panel.columnX(0);
+        for (const auto &tr : tpl.tracks) {
+          const double w = qBound(24, tr.width, 200);
+          if (tr.kind == wellsection::TrackKind::Lithology) {
+            lithoLeft = x + 2;
+            lithoRight = x + w - 2;
+            break;
+          }
+          x += w;
+        }
+      }
+      QVERIFY(lithoLeft >= 0);
+      int lithoDiffs = 0;
+      bool anyDiff = false;
+      for (int y = 160; y < cmpH; ++y)
+        for (int x = 0; x < inferred.width(); ++x) {
+          if (inferred.pixel(x, y) == interpreted.pixel(x, y))
+            continue;
+          anyDiff = true;
+          if (double(x) >= lithoLeft && double(x) <= lithoRight)
+            ++lithoDiffs;
+        }
+      QVERIFY(anyDiff);
+      QVERIFY(lithoDiffs > 50); // 岩性道本体确实换了内容（非仅题注）
+      // ---- 方向 69 题注来源标注（字符串断言通道，与版头绘制同一口径）----
+      // 解释井：带 provenance → 「解释·<来源>」；无 provenance → 「解释」。
+      QVERIFY(panel.lithoTrackCaption(QStringLiteral("C-2"))
+                  .contains(QStringLiteral("解释")));
+      QVERIFY(panel.lithoTrackCaption(QStringLiteral("C-2"))
+                  .contains(QStringLiteral("welllogfacies 测试微相 v2")));
+      QCOMPARE(panel.lithoTrackCaption(QStringLiteral("A5")),
+               QStringLiteral("解释"));
+      // 混合井：后两井去掉资产 → 各自如实——解释井题注不变，无资产井
+      // 题注「推断·GR 截断」（GR 二分回落，不混充解释）。
+      wells[2].litho.clear();
+      wells[3].litho.clear();
+      panel.setSection(wells);
+      QVERIFY(panel.lithoTrackCaption(QStringLiteral("C-2"))
+                  .contains(QStringLiteral("解释")));
+      QVERIFY(panel.lithoTrackCaption(QStringLiteral("C-1"))
+                  .contains(QStringLiteral("推断")));
+      QVERIFY(panel.lithoTrackCaption(QStringLiteral("C-1"))
+                  .contains(QStringLiteral("GR")));
+      QVERIFY(panel.lithoTrackCaption(QStringLiteral("C-4"))
+                  .contains(QStringLiteral("推断")));
+      // 回落井（去掉资产）：渲染回到推断口径。
+      for (auto &w : wells)
+        w.litho.clear();
+      panel.setSection(wells);
+      panel.fitToView();
+      const QImage fallback = panel.renderImage(1.0);
+      QCOMPARE(fallback, inferred);
+    }
+
+    // ---- 栅状图三处一致性：剖面面板域/井距用户动作 → 其余剖面同步 ----
+    void fenceViewPrefSync()
+    {
+      QVector<WellSectionPanel::WellChoice> choices;
+      const char *ids[2] = {"a1", "b2"};
+      for (int i = 0; i < 2; ++i) {
+        WellSectionPanel::WellChoice c;
+        c.id = QLatin1String(ids[i]);
+        c.name = c.id;
+        c.hasCoordinates = true;
+        c.x = i * 200.0;
+        c.y = 0;
+        choices << c;
+      }
+      WellSectionFenceWidget::Params fp;
+      fp.choices = choices;
+      WellSectionFenceWidget fence(fp);
+      fence.setSections({QStringList({"a1", "b2"}), QStringList({"b2", "a1"})});
+      QCOMPARE(fence.sectionCount(), 2);
+      auto *pa = fence.sectionPanel(0);
+      auto *pb = fence.sectionPanel(1);
+      QVERIFY(pa && pb);
+      qRegisterMetaType<wellsection::DepthDomain>();
+      qRegisterMetaType<wellsection::SpacingMode>();
+      QSignalSpy domSpy(&fence,
+                        &WellSectionFenceWidget::depthDomainChanged);
+      // 剖面 A 的用户域动作（菜单路径 = setter + 信号）→ B 同步 + fence
+      // 向上发信号（壳层接主面板）。
+      pa->setDepthDomain(wellsection::DepthDomain::TVD);
+      QMetaObject::invokeMethod(
+          pa, "depthDomainChanged",
+          Q_ARG(wellsection::DepthDomain, wellsection::DepthDomain::TVD));
+      QCOMPARE(domSpy.size(), 1);
+      QCOMPARE(pb->depthDomain(), wellsection::DepthDomain::TVD);
+      QCOMPARE(pa->depthDomain(), wellsection::DepthDomain::TVD);
+      // 程序化同步（fence 入口）：全部面板应用、不再回发（无环路）。
+      fence.setDepthDomain(wellsection::DepthDomain::MD);
+      QCOMPARE(domSpy.size(), 1);
+      QCOMPARE(pa->depthDomain(), wellsection::DepthDomain::MD);
+      QCOMPARE(pb->depthDomain(), wellsection::DepthDomain::MD);
+      // 井距同口径。
+      pa->setSpacingMode(wellsection::SpacingMode::Proportional);
+      QMetaObject::invokeMethod(
+          pa, "spacingModeChanged",
+          Q_ARG(wellsection::SpacingMode,
+                wellsection::SpacingMode::Proportional));
+      QCOMPARE(pb->spacingMode(), wellsection::SpacingMode::Proportional);
     }
 
     // ---- 相代码充填道 + 三曲线叠加道（渲染冒烟 + 模板 round-trip）----

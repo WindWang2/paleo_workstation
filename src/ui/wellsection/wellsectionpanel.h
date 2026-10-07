@@ -76,6 +76,10 @@ class WellSectionPanel : public QWidget
     // 井距模式：等距 / 按井口距离比例（视图偏好，QSettings 持久化）。
     wellsection::SpacingMode spacingMode() const { return m_spacing; }
     void setSpacingMode(wellsection::SpacingMode mode);
+    // 深度显示域：MD / TVD（井斜换算在渲染映射，井数据不动）。切域重发
+    // 数据请求——在途旧结果按 workflow 世代丢弃（一致性口径）。
+    wellsection::DepthDomain depthDomain() const { return m_domain; }
+    void setDepthDomain(wellsection::DepthDomain domain);
     // 层位连线改接（用户编辑产物；井对无序键，井序重排不失效）。
     QVector<wellsection::LinkOverride> linkOverrides() const { return m_linkOverrides; }
     void setLinkOverrides(const QVector<wellsection::LinkOverride> &overrides);
@@ -97,6 +101,17 @@ class WellSectionPanel : public QWidget
     qreal topLineY(const QString &wellId, const QString &top) const;
     QString gapReason(int gap) const;
     QString statusText() const;
+    // 深度道题注文本（随基准面/域；导出图口径标签的字符串断言通道）。
+    QString depthCaption() const;
+    // TVD 域名行角标文本（无测斜/坏表如实标注；MD 域/正常井 → 空串）。
+    QString headerBadgeText(const QString &wellId) const;
+    // hover 井柱读数文案（TVD 域三态如实口径：数值/无测斜注明按井深绘
+    // 制/坏表无读数）——字符串断言通道，与 View 的 hoverChanged 同一单源。
+    QString hoverReadoutTextFor(const QString &wellId, double md,
+                                const QString &zoneName = QString()) const;
+    // 岩性道题注文本（方向 69 来源标注：解释段带资产来源 / 无资产回落
+    // 「推断·<曲线> 截断」）——字符串断言通道，与版头绘制同一口径。
+    QString lithoTrackCaption(const QString &wellId) const;
     double pxPerMeter() const { return m_st.pxPerMeter; }
     qreal gapWidth() const { return m_st.gapPx; }
     // 测试钩子：列左缘 x / 第 i 缝宽（比例井距模式的断言面）。
@@ -114,6 +129,10 @@ class WellSectionPanel : public QWidget
     // 仅用户驱动（连线断开/重连）——持久化钩子（store 版本推进）。
     void linkOverridesChanged(const QVector<wellsection::LinkOverride> &overrides);
     void wellClicked(const QString &wellId);
+    // 仅用户驱动（域/井距菜单动作）——fence 三处一致性传播钩子（程序化
+    // setter 不发，防回声环路）。
+    void depthDomainChanged(wellsection::DepthDomain domain);
+    void spacingModeChanged(wellsection::SpacingMode mode);
 
   private:
     void rebuildFiltered();   // wells → 过滤 + 偏移 + 窗口 + 顶名序
@@ -162,6 +181,7 @@ class WellSectionPanel : public QWidget
     QString m_selectedId;
     wellsection::Datum m_datum; // 基准面（默认井深；空 flattenTop 的 Flatten 视作 Depth）
     wellsection::SpacingMode m_spacing = wellsection::SpacingMode::Equal;
+    wellsection::DepthDomain m_domain = wellsection::DepthDomain::MD;
     QVector<wellsection::LinkOverride> m_linkOverrides;
 
     QGraphicsScene *m_scene = nullptr;

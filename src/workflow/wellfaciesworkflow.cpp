@@ -1,10 +1,13 @@
 // 层：功能
 #include "wellfaciesworkflow.h"
 #include "ai/wellfacieskeystore.h"
+#include "../catalog/datacatalog.h"
+#include "derivedassets.h"
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QSaveFile>
 #include <QStandardPaths>
@@ -65,13 +68,21 @@ WellFaciesWorkflow::WellFaciesWorkflow(QObject *parent) : QObject(parent) {
             QJsonDocument(result.response).toJson(QJsonDocument::Compact);
         const bool saved = file.open(QIODevice::WriteOnly) &&
                            file.write(bytes) == bytes.size() && file.commit();
+        // 方向 69 生产者路：预测成功（保留缓存写入）→ catalog DERIVED 解释
+        // 岩性资产 + per-well interpretation 链接；失败/取消不写资产（诚实面）。
+        const QString publishNote = publishLithoAsset(result);
         updateInput(false);
         emit resultReady(result);
-        emit statusChanged(saved ? tr("预测完成：%1 个深度点 · %2；结果已保存")
-                                       .arg(m_input.rows.size())
-                                       .arg(result.modelName)
-                                 : tr("预测完成，但结果缓存保存失败：%1")
-                                       .arg(file.errorString()));
+        QString note = saved ? tr("结果已保存") : tr("结果缓存保存失败：%1")
+                                                      .arg(file.errorString());
+        if (!publishNote.isEmpty())
+          note += tr("；解释岩性未登记 catalog：%1").arg(publishNote);
+        else if (m_catalog)
+          note += tr("；解释岩性已登记 catalog");
+        emit statusChanged(tr("预测完成：%1 个深度点 · %2；%3")
+                               .arg(m_input.rows.size())
+                               .arg(result.modelName)
+                               .arg(note));
       });
 }
 void WellFaciesWorkflow::loadKeyFromKeychain() {
@@ -141,6 +152,99 @@ void WellFaciesWorkflow::configure(const WellFaciesConfig &config,
   emit modelsChanged({});
   refreshModels();
 }
+void WellFaciesWorkflow::setCatalog(DataCatalog *catalog,
+                                    const QString &projectDir) {
+  m_catalog = catalog;
+  m_projectDir = projectDir;
+  // 工程目录未显式给：按 catalog 当前打开工程解析（与 WellSectionWorkflow
+  // 同一推导口径，换工程自适应）。
+  if (m_projectDir.isEmpty() && m_catalog)
+    m_projectDir =
+        QDir::cleanPath(m_catalog->catalogPath() + QStringLiteral("/../../.."));
+}
+
+QString
+WellFaciesWorkflow::publishLithoAsset(const WellFaciesResult &result) {
+  if (!m_catalog || m_catalog->refusesWrites() || m_projectDir.isEmpty())
+    return tr("工程 catalog 不可写或未绑定");
+  // 井 id 解析：井名规范化后唯一命中才挂链接（§3 身份解析口径——不猜不并）。
+  const QStringList wellIds = m_catalog->wellsMatchingName(m_data.wellName);
+  if (wellIds.size() != 1)
+    return tr("井名 %1 在 catalog 中未唯一解析（%2 个候选），未登记")
+        .arg(m_data.wellName)
+        .arg(wellIds.size());
+  const QString wellId = wellIds.first();
+  // 消费契约（与剖面 attachLithoSegments 严格同构）：
+  // {schema:1, provenance:{source,modelName,modelVersion,jobId},
+  //  intervals:[{wellId,top,base,litho}]} —— litho 为预测相中文自由词面。
+  QJsonArray intervals;
+  int dropped = 0;
+  for (const WellComposite::TextInterval &iv : result.intervals) {
+    const QString word = iv.text.trimmed();
+    if (word.isEmpty() || !(iv.bottomDepth > iv.topDepth)) {
+      ++dropped;
+      continue;
+    }
+    intervals.append(QJsonObject{
+        {QStringLiteral("wellId"), wellId},
+        {QStringLiteral("top"), iv.topDepth},
+        {QStringLiteral("base"), iv.bottomDepth},
+        {QStringLiteral("litho"), word}});
+  }
+  if (intervals.isEmpty())
+    return dropped > 0 ? tr("预测段全部无效（空词面/逆序），未登记")
+                       : tr("预测结果无岩性段，未登记");
+  const QJsonObject provenance{
+      {QStringLiteral("source"), QStringLiteral("welllogfacies")},
+      {QStringLiteral("modelName"), result.modelName},
+      {QStringLiteral("modelVersion"), result.modelVersion},
+      {QStringLiteral("jobId"), result.jobId}};
+  const QJsonObject root{{QStringLiteral("schema"), 1},
+                         {QStringLiteral("provenance"), provenance},
+                         {QStringLiteral("intervals"), intervals}};
+  DerivedAssetRegistrar registrar(m_catalog, m_projectDir);
+  QString error;
+  const QString displayName =
+      tr("测井相解释岩性 %1").arg(m_data.wellName);
+  const DerivedStaging stage = registrar.stage(
+      QStringLiteral("well_litho_intervals"), displayName,
+      QStringLiteral("well-litho-intervals.json"), &error);
+  if (!stage.isValid())
+    return error;
+  const QByteArray bytes =
+      QJsonDocument(root).toJson(QJsonDocument::Compact);
+  QSaveFile file(stage.absolutePath);
+  if (!file.open(QIODevice::WriteOnly) ||
+      file.write(bytes) != bytes.size() || !file.commit()) {
+    QFile::remove(stage.absolutePath);
+    return tr("资产文件写入失败：%1").arg(file.errorString());
+  }
+  QVariantMap extra;
+  extra.insert(QStringLiteral("source"),
+               QStringLiteral("welllogfacies"));
+  extra.insert(QStringLiteral("modelName"), result.modelName);
+  extra.insert(QStringLiteral("modelVersion"), result.modelVersion);
+  extra.insert(QStringLiteral("jobId"), result.jobId);
+  extra.insert(QStringLiteral("droppedIntervals"), dropped);
+  if (!registrar.commit(stage, {},
+                        QStringLiteral("welllogfacies://%1")
+                            .arg(result.jobId),
+                        extra, &error)) {
+    QFile::remove(stage.absolutePath);
+    return error;
+  }
+  EntityAssetLink link;
+  link.entityType = QStringLiteral("well");
+  link.entityId = wellId;
+  link.assetId = stage.assetId;
+  link.role = QStringLiteral("interpretation");
+  link.note = tr("测井相解释岩性（%1 %2）")
+                  .arg(result.modelName, result.modelVersion);
+  if (!m_catalog->addLink(link, &error))
+    return tr("成果已登记，但井关联失败：%1").arg(error);
+  return QString();
+}
+
 void WellFaciesWorkflow::setData(
     const WellComposite::ComprehensiveWellData &data) {
   if (m_busy)

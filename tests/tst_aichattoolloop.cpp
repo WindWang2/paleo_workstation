@@ -190,6 +190,9 @@ private slots:
 
   void fullTileLoopExecutesFeedsBackAndAnswers();
   void multiCallRoundAnswersEveryToolCallId();
+  // #281：一轮首个调用同步失败时，派发循环不得被重入改容器（迭代器失效
+  // UB / 漏派后续调用卡在「正在执行领域工具…」）。
+  void syncFailingFirstCallStillDispatchesRestOfRound();
   void unboundFaciesIsHonestErrorNotFakeSuccess();
   void cancelDuringToolExecutionInvalidatesAndKeepsProtocolValid();
   void toolRoundCapStopsEndlessLooping();
@@ -421,6 +424,57 @@ void TestAiChatToolLoop::multiCallRoundAnswersEveryToolCallId() {
   QCOMPARE(answeredIds,
            QStringList({QStringLiteral("call-a"), QStringLiteral("call-b")}));
   QCOMPARE(erroredIds, QStringList{QStringLiteral("call-b")}); // facies 如实报错
+}
+
+// #281（ABA-02 复现形状）：一轮两个调用，**第一个**同步失败（tile 缺必填
+// 实参 → 执行器同步错误回报）。旧实现里 run() 在同一栈 emit toolFinished，
+// 控制器 range-for 遍历 m_unansweredCalls 中被重入 removeAt——迭代器失效
+// UB，第二个调用漏派、pending 永不归零卡死。断言：收敛 + 两个 id 都有
+// role=tool 应答（失败如实带 error，成功带结果）。
+void TestAiChatToolLoop::syncFailingFirstCallStillDispatchesRestOfRound() {
+  Fixture f;
+  QVERIFY(initFixture(f));
+  ScriptedLlmServer server;
+  QVERIFY(server.start());
+  // 第一个：tile 实参缺 model（必填）→ 同步失败；第二个：正常 tile 调用。
+  server.enqueue(toolCallsSse(
+    {{QStringLiteral("call-first"),
+      QStringLiteral("paleo.tile_classification|{\"grid_rows\":32,"
+                     "\"grid_columns\":24}")},
+     {QStringLiteral("call-second"), tileArgs()}}));
+  server.enqueue(textAnswerSse(QStringLiteral("已完成能执行的那一项。")));
+
+  AiChatController controller;
+  controller.setConfig(baseConfig(server.endpoint()));
+  m_createdSessions.append(controller.session().id);
+  controller.toolRunner()->setWorkflow(&f.wf);
+  AiChatToolContext context;
+  context.horizon = QStringLiteral("T1");
+  context.gridFetch = &syntheticFetch;
+  controller.toolRunner()->setContext(context);
+
+  controller.sendUserText(QStringLiteral("跑两项分类"));
+  QVERIFY2(spinUntil([&controller] { return !controller.streaming(); }),
+           "首调同步失败的多工具轮必须收敛（不漏派、不卡死）");
+  QCOMPARE(server.requestCount(), 2);
+  const QJsonArray messages2 =
+    server.body(1).value(QStringLiteral("messages")).toArray();
+  QStringList answeredIds, erroredIds;
+  for (const QJsonValue &value : messages2) {
+    const QJsonObject message = value.toObject();
+    if (message.value(QStringLiteral("role")).toString() != QStringLiteral("tool"))
+      continue;
+    answeredIds.append(message.value(QStringLiteral("tool_call_id")).toString());
+    const QJsonObject payload = QJsonDocument::fromJson(
+                                  message.value(QStringLiteral("content")).toString().toUtf8())
+                                  .object();
+    if (payload.contains("error"))
+      erroredIds.append(message.value(QStringLiteral("tool_call_id")).toString());
+  }
+  answeredIds.sort();
+  QCOMPARE(answeredIds,
+           QStringList({QStringLiteral("call-first"), QStringLiteral("call-second")}));
+  QCOMPARE(erroredIds, QStringList{QStringLiteral("call-first")}); // 缺实参如实报错
 }
 
 // Oracle 5：未配置的远端工具 → 错误结果回灌 + UI 失败态，不冒充成功；

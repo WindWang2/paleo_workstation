@@ -35,6 +35,84 @@ class TestStorageGovernance : public QObject {
     return cat.markDownstreamStale(raw.id, "上游源字节改变");
   }
 private slots:
+  // #283：shapefile 族附属文件（.shx/.dbf/.prj/.cpg）无 catalog 记录但与主
+  // .shp 同生共死——scan 不得列为孤儿；purge 过期版本时成员一并回收、目录
+  // 无残留；已单独登记为其他版本的成员不被连带删。
+  void shapefileSidecarsStayReferencedAndPurgeTogether() {
+    QTemporaryDir dir; DataCatalog cat; QVERIFY(cat.open(dir.path()));
+    CatalogAsset shp; shp.id = "shp-asset"; shp.type = "horizon"; shp.displayName = "boundary.shp";
+    QVERIFY(cat.addAsset(shp));
+    CatalogVersion raw; raw.id = "shp-raw"; raw.assetId = shp.id; raw.stage = "RAW";
+    raw.path = DataCatalog::managedPath(raw.stage, raw.assetId, raw.id, "boundary.shp");
+    QVERIFY(!raw.path.isEmpty());
+    QVERIFY(write(QDir(dir.path()).filePath(raw.path), 11));
+    QVERIFY(cat.addVersion(raw));
+    CatalogVersion derived = raw; derived.id = "shp-derived"; derived.versionNumber = 2;
+    derived.stage = "DERIVED";
+    derived.path = DataCatalog::managedPath(derived.stage, derived.assetId, derived.id, "boundary.shp");
+    derived.parentVersionIds = {raw.id};
+    QVERIFY(!derived.path.isEmpty());
+    QVERIFY(write(QDir(dir.path()).filePath(derived.path), 23));
+    QVERIFY(cat.addVersion(derived));
+    // 族附属文件落位（模拟 copyBundleMembersIntoVersion 拷进受管版本目录）。
+    const QString derivedAbs = QDir(dir.path()).filePath(derived.path);
+    const QDir vdir = QFileInfo(derivedAbs).absoluteDir();
+    for (const char *ext : {"shx", "dbf", "prj", "cpg"})
+      QVERIFY(write(vdir.filePath(QStringLiteral("boundary.%1").arg(QLatin1String(ext))), 7));
+    // boundary.dbf 另有人单独登记为版本字节：是别人的主件，不能连带删。
+    CatalogAsset dbf; dbf.id = "dbf-asset"; dbf.type = "table"; QVERIFY(cat.addAsset(dbf));
+    CatalogVersion dbfVer; dbfVer.id = "dbf-ver"; dbfVer.assetId = dbf.id; dbfVer.stage = "RAW";
+    dbfVer.managed = false; // 外链版本：绝对源路径
+    dbfVer.path = vdir.filePath(QStringLiteral("boundary.dbf"));
+    QString addErr; QVERIFY2(cat.addVersion(dbfVer, &addErr), qPrintable(addErr));
+    // 大写族：ingestplan 归组大小写不敏感（.SHP/.SHX/.DBF 同主名即成族），
+    // 成员按原名落位受管版本目录——探测也必须大小写不敏感，否则 AREA.SHX
+    // 等仍是孤儿、仍会被误删。
+    CatalogAsset area; area.id = "area-asset"; area.type = "horizon";
+    area.displayName = QStringLiteral("AREA.SHP"); QVERIFY(cat.addAsset(area));
+    CatalogVersion areaVer; areaVer.id = "area-ver"; areaVer.assetId = area.id;
+    areaVer.stage = "RAW";
+    areaVer.path = DataCatalog::managedPath(areaVer.stage, areaVer.assetId, areaVer.id,
+                                            QStringLiteral("AREA.SHP"));
+    QVERIFY(!areaVer.path.isEmpty());
+    const QString areaAbs = QDir(dir.path()).filePath(areaVer.path);
+    QVERIFY(write(areaAbs, 31));
+    QVERIFY(cat.addVersion(areaVer));
+    const QDir areaDir = QFileInfo(areaAbs).absoluteDir();
+    for (const char *ext : {"SHX", "DBF", "PRJ", "CPG"})
+      QVERIFY(write(areaDir.filePath(QStringLiteral("AREA.%1").arg(QLatin1String(ext))), 5));
+    QVERIFY(cat.markDownstreamStale(raw.id, "上游源字节改变"));
+    const auto r = scan(snapshot(&cat)); QVERIFY(r.complete);
+    QCOMPARE(r.orphans.size(), 0);
+    QVERIFY(r.versionSidecars.contains("shp-derived"));
+    QCOMPARE(r.versionSidecars.value("shp-derived").size(), 4);
+    QCOMPARE(r.versionSidecars.value("area-ver").size(), 4); // 大写族同样随主件
+    // 主 .shp + shx/prj/cpg 三个附属；dbf 已登记为别人版本，不进待删清单。
+    const auto plan = preview(r, {"shp-derived"}, {});
+    QVERIFY(plan.valid); QCOMPARE(plan.affectedVersions, 1);
+    QCOMPARE(plan.files.size(), 4); QCOMPARE(plan.bytes, 23 + 7 * 3);
+    QString err; QVERIFY(validate(plan, {}, &err));
+    // 控制器全链路：确认回收后成员一并消失、保留者无损、复扫无残留孤儿。
+    StorageGovernanceController controller; controller.setCatalog(&cat);
+    QSignalSpy scanned(&controller, &StorageGovernanceController::reportReady);
+    QSignalSpy planned(&controller, &StorageGovernanceController::previewReady);
+    QSignalSpy cleaned(&controller, &StorageGovernanceController::cleanupFinished);
+    controller.scan(); QTRY_COMPARE(scanned.size(), 1);
+    controller.requestPreview({"shp-derived"}, {}); QCOMPARE(planned.size(), 1);
+    const auto live = qvariant_cast<Preview>(planned.first().first());
+    QVERIFY(live.valid); QCOMPARE(live.files.size(), 4);
+    controller.confirmPreview(); QTRY_COMPARE(cleaned.size(), 1);
+    const auto out = qvariant_cast<paleo::assetops::PurgeOutcome>(cleaned.first().first());
+    QVERIFY(out.leftoverFiles.isEmpty());
+    QVERIFY(!QFileInfo::exists(derivedAbs));
+    for (const char *ext : {"shx", "prj", "cpg"})
+      QVERIFY(!QFileInfo::exists(vdir.filePath(QStringLiteral("boundary.%1").arg(QLatin1String(ext)))));
+    QVERIFY(QFileInfo::exists(vdir.filePath(QStringLiteral("boundary.dbf"))));
+    QCOMPARE(cat.versions().size(), 3);
+    controller.scan(); QTRY_COMPARE(scanned.size(), 2);
+    const auto after = qvariant_cast<Report>(scanned.last().first());
+    QVERIFY(after.complete); QCOMPARE(after.orphans.size(), 0);
+  }
   void exactAggregationOrphansAndReasons() {
     QTemporaryDir dir; DataCatalog cat; QVERIFY(cat.open(dir.path())); QVERIFY(seed(cat, dir.path()));
     const QString orphan = "raw/unregistered/file.dat";

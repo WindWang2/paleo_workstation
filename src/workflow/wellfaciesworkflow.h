@@ -16,7 +16,8 @@ public:
   void cancel();
   // 方向 69：预测成功落 catalog DERIVED 解释岩性资产（well_litho_intervals
   // schema 1）+ per-well interpretation 链接。projectDir 空 = 按 catalog
-  // 当前工程解析（换工程自适应）。未绑定 → 生产者路静默不跑（缓存面保留）。
+  // 当前工程解析（换工程自适应）。未绑定/不可写 → completed 仍调
+  // publishLithoAsset，失败原因如实进状态行（不静默跳过）。
   void setCatalog(DataCatalog *catalog, const QString &projectDir = QString());
   // 预测结果 → DERIVED 资产（与 completed 信号同一条生产者路；测试直达缝）。
   // 成功返回空串；未登记返回如实原因（无 catalog/井名未解析/无有效段/

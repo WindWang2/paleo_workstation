@@ -1020,14 +1020,19 @@ void WellSectionPanel::updateStatus()
     m_status->setText(tr("%1 条提示").arg(m_warnings.size()));
     m_status->setToolTip(m_warnings.join(QLatin1Char('\n')));
   }
-  else if (m_wells.size() == 1)
+  else if (m_wells.isEmpty())
   {
-    m_status->setText(tr("再选一口井即可连井"));
+    m_status->setText(QString());
     m_status->setToolTip(QString());
   }
-  else if (m_wells.size() >= 2)
+  else
   {
-    QString s = tr("%1 口井").arg(m_wells.size());
+    // 井集非空（含单井）：单井给连接提示；TVD 域名录、基准面、井距、
+    // 高亮各附注随井集走——单井 TVD 域同样如实点名无测斜/坏表井
+    // （R1-3 L5：名录不再圈在 ≥2 井分支内）。
+    QString s = m_wells.size() == 1
+                    ? tr("再选一口井即可连井")
+                    : tr("%1 口井").arg(m_wells.size());
     if (m_datum.mode == wellsection::DatumMode::Elevation)
       s += tr(" · 海拔基准");
     else if (m_datum.mode == wellsection::DatumMode::Flatten)
@@ -1052,25 +1057,21 @@ void WellSectionPanel::updateStatus()
       if (broken.isEmpty() && noSurvey.isEmpty())
         s += tr(" · TVD 域");
     }
-    if (m_spacing == wellsection::SpacingMode::Proportional)
+    if (m_wells.size() >= 2 &&
+        m_spacing == wellsection::SpacingMode::Proportional)
     {
       const QStringList unpos =
           wellsection::unpositionedWellNames(m_st.wells, m_spacing);
       if (!unpos.isEmpty())
         s += tr(" · 未定位井 %1（不参与比例井距）").arg(unpos.join(u'、'));
     }
-    if (!highlightedFormation().isEmpty())
+    if (m_wells.size() >= 2 && !highlightedFormation().isEmpty())
     {
       s += tr(" · 高亮 %1").arg(m_st.activeTop);
       if (!m_st.baseTop.isEmpty())
         s += QStringLiteral("–%1").arg(m_st.baseTop);
     }
     m_status->setText(s);
-    m_status->setToolTip(QString());
-  }
-  else
-  {
-    m_status->setText(QString());
     m_status->setToolTip(QString());
   }
 }

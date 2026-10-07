@@ -480,8 +480,9 @@ private:
     file.close();
     const QJsonValue schema = root.value(QLatin1String("schema"));
     if (!schema.isNull() && schema.toInt(-1) != 1) {
-      warn(WellSectionWorkflow::tr("解释岩性资产 schema 版本不支持（%1），已忽略")
-               .arg(QString::number(schema.toDouble())));
+      warn(WellSectionWorkflow::tr(
+               "解释岩性资产 schema 版本不支持（%1），已忽略：%2")
+               .arg(QString::number(schema.toDouble()), v.fileName));
       m_parsed.insert(v.id, p);
       return p;
     }
@@ -515,8 +516,9 @@ private:
                .arg(v.fileName));
     if (p.dropped > 0)
       warn(WellSectionWorkflow::tr(
-               "解释岩性资产有 %1 个无效段（逆序/空词面）已跳过")
-               .arg(p.dropped));
+               "解释岩性资产有 %1 个无效段（逆序/空词面）已跳过：%2")
+               .arg(p.dropped)
+               .arg(v.fileName));
     p.readable = true;
     m_parsed.insert(v.id, p);
     return p;

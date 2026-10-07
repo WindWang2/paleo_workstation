@@ -581,8 +581,13 @@ class TestWellSectionUi : public QObject
       panel.setDatum({wellsection::DatumMode::Depth, QString()});
       QCOMPARE(panel.depthCaption(), QStringLiteral("深度/m"));
       QCOMPARE(panel.renderImage(1.0), imgMd);
-      // 拉平基准面题注（MD 域）。
+      // 拉平基准面题注（MD 域；TVD×拉平双口径词不丢拉平语义——绘制与
+      // accessor 同走 depthTrackCaption，R1-2 L1）。
       panel.setFlattenTop(QStringLiteral("D61"));
+      QCOMPARE(panel.depthCaption(), QStringLiteral("拉平/m"));
+      panel.setDepthDomain(wellsection::DepthDomain::TVD);
+      QCOMPARE(panel.depthCaption(), QStringLiteral("拉平·垂深/m"));
+      panel.setDepthDomain(wellsection::DepthDomain::MD);
       QCOMPARE(panel.depthCaption(), QStringLiteral("拉平/m"));
     }
 

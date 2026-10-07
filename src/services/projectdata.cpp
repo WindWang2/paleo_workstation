@@ -210,7 +210,7 @@ ProjectDataFacade::trajectoryFor(const QString &wellId, QString *error) const
     error->clear();
   const QString path = assetFilePathFor(wellId, QStringLiteral("trajectory"));
   if (path.isEmpty() || !QFile::exists(path))
-    return std::nullopt; // 无链接 = 直井语义，不记错误（与 topsFor/tdTableFor 同口径）
+    return std::nullopt; // 无链接 = 直井（显式语义，不告警；与 topsFor/tdTableFor 同口径）
 
   QFile f(path);
   if (!f.open(QIODevice::ReadOnly))

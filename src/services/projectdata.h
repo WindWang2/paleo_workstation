@@ -95,10 +95,11 @@ class ProjectDataFacade : public QObject
     QVector<WellTop> topsFor(const QString &wellId, WellParseReport *report) const;
     QVector<TdSample> tdTableFor(const QString &wellId) const;  // empty when unlinked — callers must not fabricate times
     // 主 trajectory 链接（primary、非 unresolved）的测斜站表 → 三维轨迹。
-    // 无链接/文件不可读/站表无效 → nullopt（直井回退是显式语义：调用方保持
-    // 原垂直路径，绝不虚构造斜）；error 非空时按本次调用写明原因（无链接 =
-    // 空串、直井语义；坏文件/坏表 = 具体原因）——不依赖 lastError 跨调用
-    // 残留。失败原因同样记 lastError。
+    // 三态（方向 69）：有效站表 → survey；无链接 → nullopt（= 直井，显式
+    // 语义不告警：调用方保持原垂直路径，绝不虚构造斜）；文件不可读/站表
+    // 无效 → nullopt + 记因。error 出参按本次调用写明（无链接 = 空串；
+    // 坏文件/坏表 = 具体原因）——不依赖 lastError 跨调用残留。失败原因
+    // 同样记 lastError。
     std::optional<paleo::WellDeviationSurvey> trajectoryFor(
         const QString &wellId, QString *error = nullptr) const;
     HorizonRasterInfo horizonRasterDecl(const QString &horizon) const;

@@ -359,9 +359,8 @@ private slots:
     // 可显示性：无测斜可出几何（按 MD），坏表不出。
     QVERIFY(noSurvey.tvdDisplayable());
     QVERIFY(!broken.tvdDisplayable());
-    // 纯垂井表是合法 survey 数据（≠ 无测斜）。
+    // 纯垂井表是合法 survey 数据（≠ 无测斜）；tvdStatus 已在三态断言圈定。
     QVERIFY(verticalTable->isVertical());
-    QCOMPARE(vertTable.tvdStatus(), TvdStatus::Surveyed);
   }
 
   void topsTableTvdColumn() {
@@ -398,8 +397,7 @@ private slots:
 
   void gapTwtTvdDomain() {
     // TVD 域：显示深（垂深）先经井斜反解回 MD 再走时深——与 MD 域路径
-    // 数值可区分（造斜井同屏深换出的 TWT 更小不会，因 MD > TVD → TWT 更
-    // 大；断言精确换算值）。
+    // 数值可区分：同屏深下 MD ≥ TVD → 换算 TWT 更大；断言精确换算值。
     QString err;
     const auto survey = paleo::WellDeviationSurvey::fromStations(
         {{0, 0, 0}, {1000, 30, 0}, {2000, 30, 0}}, &err);

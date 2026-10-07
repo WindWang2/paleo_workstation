@@ -59,6 +59,15 @@
   - `WellDeviationSurvey::tvdToMd` 每调用 O(站数)+百次二分且 pointAt 线性
     扫段；wellsection 地震缝侧已用行级 LUT 绕开（scene 内注释），治本
     （站点二分查找 + 段内缓存）留 deviationsurvey 专项。CC: S，P3。
+  - fence 读回路径只取井序、深度域不回读：fencewidget loadFromStore 恢复
+    节井集，域/间距仍跟主面板工程级状态——读回语义半面（域改动不落
+    fence 节是同族既有口径）。P3。
+  - 同井多份解释资产（per-well interpretation 链接挂多个版本）取最新
+    版本号消费，无多解释合并语义——多解释者并行工作需显式合并策略
+    再立。P3。
+  - wellfacies completed → publishLithoAsset 生产者接线无端到端测试：
+    publishLithoAsset 直达缝已测，completed 信号缝（缓存写入 + 登记 +
+    状态行原因追加全链）未钉。P3。
 - **Why:** 首版先打通按地层连井 + 井间地震 + 编图层位高亮；TVD 域、解释岩性数据源、模板随工程走都需要额外数据契约。
 - **Pros:** 不编造岩性/时深，缺时深的井间段如实标原因；**Cons:** 斜井连井有 MD 失真，岩性道分辨力有限。
 - **Context:** src/domain/wellsection.*、src/workflow/wellsectionworkflow.*、src/ui/wellsection/。

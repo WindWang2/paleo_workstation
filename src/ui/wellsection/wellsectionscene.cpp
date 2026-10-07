@@ -53,9 +53,13 @@ QString depthTrackCaption(const wellsection::TrackSpec &tr,
   {
     if (domain == wellsection::DepthDomain::TVD)
     {
-      title = datum.mode == wellsection::DatumMode::Elevation
-                  ? QObject::tr("海拔垂深/m")
-                  : QObject::tr("垂深/m");
+      // 拉平语义不随域切换丢失（R1-2 L1）：TVD×拉平题注双口径词。
+      if (datum.mode == wellsection::DatumMode::Elevation)
+        title = QObject::tr("海拔垂深/m");
+      else if (datum.mode == wellsection::DatumMode::Flatten)
+        title = QObject::tr("拉平·垂深/m");
+      else
+        title = QObject::tr("垂深/m");
     }
     else if (datum.mode == wellsection::DatumMode::Elevation)
       title = QObject::tr("海拔/m");
@@ -150,6 +154,21 @@ QStringList wrapCaption(const QString &text, double w, const QFontMetricsF &fm)
   for (QString &l : lines)
     if (fm.horizontalAdvance(l) > w)
       l = fm.elidedText(l, Qt::ElideRight, int(w));
+  return lines;
+}
+
+// 题注行数上限（R1-4）：版头高取全井题注行数最大——单井长 provenance
+// 不得拖高全部列。超限截断 + 行尾省略号；计数（headerHeight）与绘制
+// （paintContents 岩性题注）共用本函数，口径单源。
+QStringList wrapCaptionClamped(const QString &text, double w,
+                               const QFontMetricsF &fm)
+{
+  QStringList lines = wrapCaption(text, w, fm);
+  if (lines.size() <= 4)
+    return lines;
+  lines = lines.mid(0, 4);
+  lines.last() = fm.elidedText(lines.last() + QStringLiteral("…"),
+                               Qt::ElideRight, int(w));
   return lines;
 }
 } // namespace
@@ -1240,11 +1259,14 @@ int HeaderWidget::headerHeight() const
         n += wrapCaption(scaleOf(tr.curves.first()), w, fm).size();
       else if (tr.kind == wellsection::TrackKind::Lithology)
       {
-        // 题注随行来源标注按井变化（方向 69）——行数取全井最大，防裁切。
+        // 题注随行来源标注按井变化（方向 69）——行数取全井最大（有上限，
+        // 超限 elide 见 wrapCaptionClamped），防裁切、不拖高全部列。
         int capLines = 1;
         for (const auto &well : m_st->wells)
-          capLines = qMax(capLines, wrapCaption(lithoTrackCaptionText(
-                                         well, tr.sourceMnemonic), w, fm)
+          capLines = qMax(capLines, wrapCaptionClamped(
+                                         lithoTrackCaptionText(
+                                             well, tr.sourceMnemonic),
+                                         w, fm)
                                         .size());
         n += capLines;
       }
@@ -1384,8 +1406,9 @@ void HeaderWidget::paintContents(QPainter *p, double xOffset) const
         {
           // 口径诚实（方向 69 来源标注）：解释段带资产来源；回落 GR
           // 二分 → 「推断·<曲线> 截断」。题注级分色：推断灰 / 解释正文色。
-          ls += wrapCaption(lithoTrackCaptionText(w, tr.sourceMnemonic), twIn,
-                            cfm);
+          // 行数与 headerHeight 同走 wrapCaptionClamped（≤4 行 + elide）。
+          ls += wrapCaptionClamped(
+              lithoTrackCaptionText(w, tr.sourceMnemonic), twIn, cfm);
           col = w.litho.isEmpty() ? QColor(QStringLiteral("#7A7A7A"))
                                   : m_st->theme.text;
         }
@@ -1596,8 +1619,16 @@ void View::mouseMoveEvent(QMouseEvent *e)
     text = w.name + QStringLiteral(" · MD ") +
            QString::number(md, 'f', 1) + QStringLiteral(" m");
     if (m_st->domain == wellsection::DepthDomain::TVD)
-      text += QStringLiteral(" · TVD ") +
-              QString::number(w.tvdOf(md), 'f', 1) + QStringLiteral(" m");
+    {
+      // 无测斜井 TVD 读数是恒等值（= 按井深绘制），出数值会与角标
+      // 「TVD 不可用（无测斜）」抵触——如实注明口径（坏表井走上方
+      // 无读数分支，措辞同款）。
+      if (w.tvdStatus() == wellsection::TvdStatus::NoSurvey)
+        text += tr(" · TVD 不可用（无测斜，按井深绘制）");
+      else
+        text += QStringLiteral(" · TVD ") +
+                QString::number(w.tvdOf(md), 'f', 1) + QStringLiteral(" m");
+    }
   }
   if (!zoneName.isEmpty())
     text += tr(" · 层段 %1").arg(zoneName);

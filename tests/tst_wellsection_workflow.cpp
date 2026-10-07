@@ -501,6 +501,25 @@ private slots:
     QVERIFY(rec.valid());
     QCOMPARE(reopened.load(QStringLiteral("fence-1"), &err).depthDomain,
              wellsection::DepthDomain::MD);
+
+    // 无记录 ≠ MD 覆盖（R1-3 M1）：壳层恢复分支据 rec.valid() 判别——
+    // 无行时 load 返回 version 0（invalid），面板保留 QSettings 缺省偏好，
+    // 不得被 store 缺省 MD 静默盖回；显式落过库的记录（哪怕 MD）valid() 为
+    // 真，恢复路径才以工程级覆盖。壳层 lambda 不可测，此处钉 store 层判别
+    // 语义。
+    const QString freshPath = QDir(dir.path()).filePath(QStringLiteral(
+        "fresh.project.sqlite"));
+    metadata::WellSectionStore fresh(freshPath);
+    QVERIFY2(fresh.open(&err), qPrintable(err));
+    rec = fresh.load(QStringLiteral("default"), &err);
+    QVERIFY(!rec.valid());
+    QCOMPARE(rec.version, 0);
+    QCOMPARE(rec.depthDomain, wellsection::DepthDomain::MD); // 结构缺省
+    rec = fresh.save(QStringLiteral("default"), {QStringLiteral("well-1")},
+                     {}, wellsection::DepthDomain::MD, &err);
+    QVERIFY2(rec.valid(), qPrintable(err)); // 显式 MD = 有效工程级状态
+    QCOMPARE(fresh.load(QStringLiteral("default"), &err).depthDomain,
+             wellsection::DepthDomain::MD);
   }
 
   // 断层投绘：FaultSetStore 断面 mesh ∩ 井径 curtain → FaultTrace 集。

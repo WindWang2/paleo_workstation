@@ -246,11 +246,13 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
           m_wellSectionStore->load(QString::fromLatin1(kSectionId), &err);
       saved = rec.wellIds;
       overrides = fromStoreOverrides(rec.linkOverrides);
-      // 深度域是剖面状态（方向 69）：库中有记录即以工程级为准恢复
-      // （应用级 QSettings 偏好只做无记录时的缺省）。程序化 setter 不发
-      // 信号、不重发数据请求之外的持久化钩子；此时面板井集已清
-      // （setDepthDomain 不触发在途请求）。
-      panel->setDepthDomain(rec.depthDomain);
+      // 深度域是剖面状态（方向 69）：仅库中有记录（version>0）才以工程级
+      // 覆盖面板；无记录时保留面板现状——应用级 QSettings 偏好就是缺省，
+      // 不得被 store 缺省 MD 静默盖回（R1-3 M1）。程序化 setter 不发信号、
+      // 不重发数据请求之外的持久化钩子；此时面板井集已清（setDepthDomain
+      // 不触发在途请求）。
+      if (rec.valid())
+        panel->setDepthDomain(rec.depthDomain);
     }
     QSet<QString> existing;
     for (const auto &c : wf->wellChoices())

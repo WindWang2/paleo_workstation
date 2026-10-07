@@ -130,6 +130,11 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
       constraintPage->bindLayerService(m_layerSvc);
     // 生成链：本地方向走任务池（准备/发布留在 catalog 所属线程）。
     // 其它方法仍同步调用 generateFactor。
+    connect(constraintPage, &ConstraintPage::extractWellFactorsRequested, this,
+            [constraint](const QString &factorId, const QString &horizon, const QVariantMap &params) {
+              QString error;
+              constraint->extractWellFactors(horizon, factorId, params, &error);
+            });
     connect(constraintPage, &ConstraintPage::generateFactorRequested, this,
             [this, constraint, constraintPage](const QString &factorId, const QString &horizon,
                                                const QVariantMap &params) {
@@ -519,9 +524,9 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
                QStringLiteral("paleo-editing-cad-dock")))
         typedCtl->shareCadDock(dock);
       connect(constraintPage, &ConstraintPage::drawTypedConstraintRequested, typedCtl,
-              [typedCtl](const QString &horizon, const QString &shape,
+              [typedCtl, constraintPage](const QString &horizon, const QString &shape,
                          const QString &constraintType, int faciesCode) {
-                typedCtl->startCapture(horizon, shape, constraintType, faciesCode);
+                typedCtl->startCapture(horizon, shape, constraintType, faciesCode, constraintPage->newConstraintLineParams(constraintType));
               });
       connect(typedCtl, &TypedConstraintDrawController::captureFailed, this,
               [](const QString &err) {

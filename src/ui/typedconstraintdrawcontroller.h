@@ -2,6 +2,7 @@
 #pragma once
 #include <QObject>
 #include <QString>
+#include <QVariantMap>
 
 class QgisCanvasController;
 class ConstraintWorkflow;
@@ -27,7 +28,7 @@ class TypedConstraintDrawController : public QObject
     // shape: "line" | "point"（工具选择）；constraintType 进 store 词表。
     // 未知 shape → captureFailed，不装工具。
     void startCapture(const QString &horizon, const QString &shape,
-                      const QString &constraintType, int faciesCode);
+                      const QString &constraintType, int faciesCode, const QVariantMap &lineParams = {});
     void cancel();
     bool active() const { return m_tool != nullptr; }
     QgsMapTool *currentTool() const { return m_tool; } // test seam
@@ -54,4 +55,5 @@ class TypedConstraintDrawController : public QObject
     QString m_shape;
     QString m_constraintType;
     int m_faciesCode = -1;
+    QVariantMap m_lineParams;
 };

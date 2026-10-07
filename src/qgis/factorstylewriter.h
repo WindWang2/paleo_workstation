@@ -32,3 +32,15 @@ QString writeStyleQml(const QString &factorId, const QString &rasterPath,
                       const QString &styleDir, QString *error = nullptr);
 
 } // namespace FactorStyleWriter
+
+// 地图域数字与线面协调规范（DESIGN.md「单因素地图符号」）；UI 主题不改数值语义色。
+class QgsVectorLayer;
+namespace FactorStyleWriter {
+inline constexpr double contourWidthMm = 0.25;
+inline constexpr double contourCasingWidthMm = 0.55;
+inline constexpr double contourLabelSizePt = 9.0;
+inline constexpr double contourLabelBufferMm = 0.6;
+inline constexpr double contourLabelRepeatMm = 60.0;
+inline constexpr double contourMinimumLengthMm = 10.0;
+bool applyContours(QgsVectorLayer *layer);
+}

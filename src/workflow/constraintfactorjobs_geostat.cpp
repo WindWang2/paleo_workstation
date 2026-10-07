@@ -144,9 +144,10 @@ bool writeJsonFile( const QString &path, const QVariantMap &payload )
 } // namespace
 
 bool ConstraintWorkflow::prepareGeostatJob( const QString &horizon, const QString &factorId,
-                                            const QString &method, const QVariantMap &params,
+                                            const QString &method, const QVariantMap &inputParams,
                                             GeostatJob *job, QString *error )
 {
+  QVariantMap params = inputParams;
   if ( !job )
   {
     paleo::workflow_detail::setError( error, tr( "缺少地质统计任务" ) );
@@ -157,6 +158,8 @@ bool ConstraintWorkflow::prepareGeostatJob( const QString &horizon, const QStrin
     paleo::workflow_detail::setError( error, tr( "未知地质统计方法：%1" ).arg( method ) );
     return false;
   }
+  if (!prepareFactorInputs(horizon, factorId, params, error))
+    return false;
   *job = GeostatJob();
   job->generation = ++m_publishGeneration;
   job->horizon = horizon;

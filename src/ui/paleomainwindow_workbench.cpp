@@ -76,8 +76,13 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
     auto *tabs = new QTabWidget(host);
     tabs->setObjectName("workbenchTabs." + modes[i]);
     auto *page = new MappingWorkbenchPage(modes[i], workbench, tabs);
-    tabs->addTab(page, tr("编图流程"));
-    tabs->addTab(old, tr("高级工具"));
+    if (modes[i] == QLatin1String("constraint")) {
+      tabs->addTab(old, tr("编图流程"));
+      tabs->addTab(page, tr("图件与版本"));
+    } else {
+      tabs->addTab(page, tr("编图流程"));
+      tabs->addTab(old, tr("高级工具"));
+    }
     stack->insertWidget(index, tabs);
     pages << page;
   }
@@ -817,6 +822,8 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
       {"ribbonPolygonize", 2, "polygonize", "polygonizeButton"},
       {"ribbonSaveVersion", 2, "save", "saveVersionButton"}};
   for (const auto &b : bindings) {
+    // 单因素主流程与 ribbon 已绑定同一 ConstraintPage；图件页不替换方法入口。
+    if (b.page == 1) continue;
     auto *action = findChild<QAction *>(b.action);
     auto *tabs = findChild<QTabWidget *>("workbenchTabs." + modes[b.page]);
     if (!action || !tabs)

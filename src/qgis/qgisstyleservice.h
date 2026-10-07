@@ -42,7 +42,7 @@ class QgisStyleService : public QObject
     // type=line 走常规细墨线。字段缺失 → 无操作。
     static void applyConstraintLayerStyle(class QgsVectorLayer *layer);
 
-    // 等值线图层：细灰线 + ELEV 小字号沿线标注（标注随图层 z 序补丁下
+    // 等值线图层：统一 FactorStyleWriter 双描边线 + ELEV/level 等宽数字（标注随图层 z 序补丁下
     // 标注只压在同层等值线上）。字段缺失 → 只换线型不标注。
     static void applyContourLayerStyle(class QgsVectorLayer *layer);
 

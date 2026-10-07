@@ -53,6 +53,11 @@ class ConstraintPage : public QWidget
     void setRunBusy(bool busy);
     void noteRunStage(const QString &stage, int percent);
     void refreshConstraintList();
+    void setWellFactorFields(const QVariantList &fields);
+    QVariantMap wellFactorParams() const;
+    QVariantMap newConstraintLineParams(const QString &type) const;
+    void refreshWellFactorFields();
+    void refreshWellFactorResults();
   signals:
     void drawConstraintRequested(const QString &horizon, const QString &shape, int faciesCode);
     void runIdwRequested(const QString &horizon);
@@ -62,6 +67,7 @@ class ConstraintPage : public QWidget
     // WS-C5：测区边界面图层导入入口（结构 IDW 边界行的「导入…」按钮）。
     // 壳侧接文件对话框 → MappingWorkbench::importBoundaryLayer。
     void boundaryImportRequested();
+    void extractWellFactorsRequested(const QString &factorId, const QString &horizon, const QVariantMap &params);
     void contourRequested(const QString &factorLayerId, double interval);
     void interpretiveContourRequested(const QString &factorLayerId, const QVector<double> &levels);
     void runCancelRequested();
@@ -82,6 +88,8 @@ class ConstraintPage : public QWidget
     void updateFactorActionStates();
     // 主线6：等厚引擎行（顶/底构造面选择）的可见性与清单填充。
     void updateEngineRows();
+    void invalidateWellFactors();
+    void updateWellFactorActionState();
     void markInputsStale();
     void loadSelectedConstraintLine();
     QVariantMap selectedLineParams() const;

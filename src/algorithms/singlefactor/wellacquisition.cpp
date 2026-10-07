@@ -261,6 +261,8 @@ double pointDistanceToRing( Point2 point, const Ring &ring )
 std::optional<double> resolveDirectFactorValue( const FeatureAttributes &attributes,
                                                 const WellAcquisitionRequest &request )
 {
+  if ( request.strictFields )
+    return parseNumeric( attrValue( attributes, { request.valueField } ) );
   const QVariant raw = attrValue( attributes,
                                   { request.valueField,
                                     request.factorName,
@@ -301,14 +303,14 @@ std::optional<double> resolveCurrentFactorValue( const FeatureAttributes &attrib
         parseNumeric( attrValue( attributes, { request.denominatorField } ) );
     if ( numerator && denominator && *denominator != 0.0 )
       value = *numerator / *denominator;
-    else
+    else if ( !request.strictFields )
       value = resolveDirectFactorValue( attributes, request );
   }
   else
   {
     value = resolveDirectFactorValue( attributes, request );
   }
-  if ( !value )
+  if ( !value || !std::isfinite(*value) )
     return std::nullopt;
   // 值域裁剪：仅对「确实落在 0–1 附近」的比值类数据生效。
   // 厚度类（如 102、279）若仍按 0–1 硬裁会全部变成 1.0，趋势面一片平、像“井没参与”。

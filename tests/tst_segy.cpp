@@ -234,7 +234,8 @@ class TestSegy : public QObject
     }
 
     // b) Traces() data and sample values for IEEE format:
-    //    check CDP at bytes 20-23, lineNo (fallback vs inline override), tracl at bytes 0-3, sample values
+    //    check CDP at bytes 20-23, lineNo (real inline word; #233：inline 0 是
+    //    合法编号，不再回退二进制头行号), tracl at bytes 0-3, sample values
     void tracesDataAndSampleValuesIeee()
     {
       QTemporaryDir dir;
@@ -250,7 +251,7 @@ class TestSegy : public QObject
       SyntheticSegyConfig::TraceData t0;
       t0.tracl = 11;
       t0.cdp = 201;
-      t0.lineNo = 0; // fallback to binLineNo 5000
+      t0.lineNo = 0; // inline 字 = 0：0 基测网的合法编号（#233 起如实返回 0）
       t0.samples.resize(64);
       t0.samples[0] = 1.25f;
       t0.samples[1] = -3.5f;
@@ -268,7 +269,7 @@ class TestSegy : public QObject
       SyntheticSegyConfig::TraceData t2;
       t2.tracl = 13;
       t2.cdp = 203;
-      t2.lineNo = 0; // fallback to binLineNo 5000
+      t2.lineNo = 0; // 同上：lineNo 如实为 0
       t2.samples.resize(64);
       t2.samples[0] = -0.5f;
       t2.samples[1] = 1000.0f;
@@ -288,7 +289,7 @@ class TestSegy : public QObject
       // Trace 0
       QCOMPARE(traces[0].tracl, 11);
       QCOMPARE(traces[0].cdp, 201);
-      QCOMPARE(traces[0].lineNo, 5000);
+      QCOMPARE(traces[0].lineNo, 0);
       QCOMPARE(traces[0].samples.size(), 64);
       QCOMPARE(traces[0].samples[0], 1.25f);
       QCOMPARE(traces[0].samples[1], -3.5f);
@@ -306,7 +307,7 @@ class TestSegy : public QObject
       // Trace 2
       QCOMPARE(traces[2].tracl, 13);
       QCOMPARE(traces[2].cdp, 203);
-      QCOMPARE(traces[2].lineNo, 5000);
+      QCOMPARE(traces[2].lineNo, 0);
       QCOMPARE(traces[2].samples.size(), 64);
       QCOMPARE(traces[2].samples[0], -0.5f);
       QCOMPARE(traces[2].samples[1], 1000.0f);
@@ -382,7 +383,9 @@ class TestSegy : public QObject
       QString error;
       QVERIFY2(reader.open(path, &error), qPrintable(error));
       QCOMPARE(reader.traceCount(), 3);
-      QCOMPARE(reader.traces()[0].lineNo, 8008);
+      // #233：inline 字恒 0 → ordinal 道号索引首线编号 0；lineNo 如实返回 0，
+      // 不再回退二进制头行号 8008。
+      QCOMPARE(reader.traces()[0].lineNo, 0);
     }
 
     void variableExtendedTextHeadersSkipped()

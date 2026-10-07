@@ -99,12 +99,81 @@ configure（已知接线问题，见 TODOS.md）。QScintilla 缺头 warning 在
 QGIS 代码编辑器头的 Linux 构建中允许降级；Windows 使用已有 `CMAKE_PREFIX_PATH`
 前缀或显式 `-DQSCINTILLA_INCLUDE_DIR=<安装目录>/include` 提供头，详见任务框架历史账本。
 
+## Windows 本机开发（localdeps 统一链，方向 72）
+
+**背景（历史注记，勿再踩）**：本机曾以 `C:/deps/Qt/6.8.0/msvc2022_64` 编译、
+而 QGIS 前缀与依赖闭包按 Qt 6.11 构建——两版 Qt 同进程混载，全量回归长期
+185 红/293（含 5 个伞式测试 0xc0000139 ENTRYPOINT_NOT_FOUND），只能靠
+「改前/改后红集合 diff」承载验收。「PATH 前置 `paleo-qgis-deps/Library/bin`
+让进程能启动」的旧技巧只解决启动、不解决混链，已废弃。
+
+**统一口径（2026-10-07 起）**：编译与运行同链 Qt 6.11.2，三方来源如下——
+
+| 角色 | 位置 | 内容 |
+|------|------|------|
+| Qt 全家 + GDAL/GEOS/sqlite/keychain 闭包 | `~/paleo-qgis-deps`（conda 环境，qt6-main 6.11.2） | 头 + cmake 配置 + 运行 DLL（`Library/bin`，PATH 前置） |
+| QGIS 4.2.0 前缀 | `~/paleo-qgis-prefix` | qgis_core/gui/analysis，按 Qt 6.11.2 构建 |
+| qtpdf 覆盖层 | `C:/deps/Qt/6.11.2/msvc2022_64` | 官方 Qt 6.11.2 qtpdf 扩展（conda 闭包不含 Qt6Pdf；Qt6Config 只在自身前缀内找组件，故走 `QT_ADDITIONAL_PACKAGES_PREFIX_PATH` 补位） |
+
+日常入口 `./paleo-dev.ps1`（build/test/selfcheck 自动进 localdeps 路线；
+`vendor/osgeo4w` 存在时 vendored 路线优先，CI 口径不变）。等价手工接线：
+
+```powershell
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo `
+  "-DCMAKE_PREFIX_PATH=$HOME/paleo-qgis-deps/Library" `
+  "-DQT_ADDITIONAL_PACKAGES_PREFIX_PATH=C:/deps/Qt/6.11.2/msvc2022_64" `
+  "-DQGIS_PREFIX=$HOME/paleo-qgis-prefix" `
+  "-DQSCINTILLA_PREFIX=$HOME/paleo-qgis-deps/Library/include/qt6"
+# 构建/测试时 PATH 前置（qt6 工具 lrelease/moc 也依赖它解析 DLL）：
+#   $HOME/paleo-qgis-deps;$HOME/paleo-qgis-deps/Library/bin;$HOME/paleo-qgis-prefix/bin;C:/deps/Qt/6.11.2/msvc2022_64/bin
+# 并设 GDAL_DATA=$HOME/paleo-qgis-deps/Library/share/gdal、
+# PROJ_LIB=$HOME/paleo-qgis-deps/Library/share/proj（./paleo-dev.ps1 已内置）。
+# 测试还需（ps1 test 已内置）：TEMP/TMP 与 SEISMIC_INDEX_CACHE_DIR 指到
+# build/paleo-tmp 内子目录（沙箱监狱对策，见下）、PALEO_PYTHON=
+# $HOME/paleo-qgis-deps/python.exe（conda 布局 python 在根不在 Library/bin）。
+```
+
+要点：
+
+- cmake ≥3.28（工程要求；VS 自带 3.27 不够——本机用 `C:/Qt/Tools/CMake_64`
+  的 3.29）。
+- conda 布局里 Qt6 工具在 `Library/lib/qt6[/bin]`，其 DLL 依赖由
+  `Library/bin` 供给——configure/build/test 全程都要 PATH 前置 deps bin，
+  否则 lrelease 段错误式失败、MOC 偶发崩。
+- `Library/bin` 同时住着 qt5 工具（本 env 含 qt5 包）——lrelease 5.15.15
+  与 6.11.2 并存，勿用 PATH 裸调 `lrelease`，CMake 钉的是 qt6 绝对路径。
+- 退役项：`C:/deps/Qt/6.8.0/msvc2022_64` 与 `C:/deps/qscintilla-install`
+  不再进任何 CMAKE_PREFIX_PATH/PATH（QScintilla 头随 conda Qt 走
+  `Library/include/qt6/Qsci`，2.14.1 同版）。
+- 根位置可用 `PALEO_LOCAL_DEPS` / `PALEO_QGIS_PREFIX` / `PALEO_QTPDF_PREFIX`
+  覆盖（paleo-dev.ps1 localdeps 路线）。
+
+qtpdf 覆盖层一次性安装（已在 `C:/deps/Qt/6.11.2/msvc2022_64` 就位的可跳过）：
+官方 extensions 仓库取 6.11.2 msvc2022_64 的 qtpdf 7z（ Updates.xml 里
+`extensions.qtpdf.6112.win64_msvc2022_64`，版本 `6.11.2-0-202608131017`），
+按同目录 `.7z.sha1` 校验后解压覆盖到该前缀。aqtinstall≤3.3 不识别 6.10+
+的新仓库布局，`-m qtpdf` 会 404，需手工取档或升级 aqt。
+
+**防回归自检**：`./paleo-dev.ps1 checkenv`（`tools/check_qt_env.ps1`）比对
+CMakeCache 的编译侧 Qt 与 DLL 搜索序解析到的运行侧 Qt：major.minor 不一致
+即报警退出非零（混链特征）；patch 不一致给警告。构建机换 Qt 后先跑它。
+
+**本机沙箱文件监狱（历代「QTemporaryDir 红脸」真身，2026-10-07 定案）**：
+本机安全策略对**镜像文件位于仓库树内的进程**实施写限制——只能写树内路径；
+`%TEMP%` 在树外 → `QTemporaryDir`/`QFile` 构造即「拒绝访问」（isValid()=FALSE
+无 syscall，cmd.exe 拷入树内同样写不了 %TEMP%，拷出树外全绿——OS 级实证，
+与 Qt/QGIS/混链无关；历代 185 红的主体即此）。junction 伪装出树无效（策略
+解析真实路径）。**对策**：localdeps 路线下 `paleo-dev.ps1 test/selfcheck`
+自动把 `TEMP/TMP` 重定向到 `build/paleo-tmp`（树内、浅层，远离
+CMakeLists 注记的 MAX_PATH 深路径顾虑）。根治需在沙箱策略侧放行本仓库
+的 `%TEMP%` 写——机器配置问题，移交用户决策。
+
 ## 平台 × 版本矩阵
 
 | 平台 | 状态 | 依赖来源 |
 |------|------|----------|
 | Linux x86_64：deb 闭包需 glibc≥2.43（Ubuntu 26.04 / 同代 Arch）；Debian 13（glibc 2.41）不能运行该闭包，须走 superbuild | Arch 本机通过；Ubuntu 26.04 CI（系统包，见上） | superbuild 自编译 prefix（首选）→ deb 闭包 `vendor/prefix/usr`（加速档）；发行版 QGIS 4.2.x 仅兜底 |
-| Windows x86_64 | CI leg（本机未实测） | OSGeo4W `qgis` + `qgis-devel` 4.2.x + `qt6-devel`，MSVC /MD |
+| Windows x86_64 | CI leg + 本机 localdeps（Qt 6.11.2 统一链，方向 72；全量回归本机可信） | CI：OSGeo4W `qgis` + `qgis-devel` 4.2.x + `qt6-devel`，MSVC /MD；本机：`~/paleo-qgis-deps`（conda qt6-main 6.11.2）+ `~/paleo-qgis-prefix` + qtpdf 官方覆盖层（见上节） |
 | 更低 glibc 宿主 | 不支持 | superbuild-on-oldest-target（ExternalProject） |
 
 ## 依赖（vendor manifest pin）

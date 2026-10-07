@@ -246,10 +246,21 @@ void ScriptRunnerService::launch(Run *run)
           [this, run] { drainChannel(run, false, false); });
   connect(proc, &QProcess::readyReadStandardError, this,
           [this, run] { drainChannel(run, true, false); });
-  connect(proc, &QProcess::errorOccurred, this, [this, run](QProcess::ProcessError err) {
-    if (err == QProcess::FailedToStart)
-      finishRun(run, -1, true);
-  });
+  // FailedToStart 一律排队送达：Windows 上 CreateProcess 失败在 start()
+  // 内同步发出 errorOccurred，直连会让 finishRun 在 start() 返回前就发
+  // runFinished 并释放 run——launch() 尾部的 runStarted 随之读到已释放
+  // 内存，且顺序倒成「先结束后开始」。排队后两端恒为 runStarted→
+  // runFinished；按 id 回查而非捕获裸指针，run 已了结则静默。
+  const qint64 runId = run->id;
+  connect(
+      proc, &QProcess::errorOccurred, this,
+      [this, runId](QProcess::ProcessError err) {
+        if (err != QProcess::FailedToStart)
+          return;
+        if (Run *r = findRun(runId))
+          finishRun(r, -1, true);
+      },
+      Qt::QueuedConnection);
   connect(proc, qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
           [this, run](int exitCode, QProcess::ExitStatus status) {
             finishRun(run, exitCode, status != QProcess::NormalExit);
@@ -264,9 +275,10 @@ void ScriptRunnerService::launch(Run *run)
     });
     run->timeoutTimer->start(run->request.timeoutMs);
   }
-  proc->start(run->request.interpreter,
-              QStringList{run->request.scriptPath} + run->request.args);
-  emit runStarted(run->id, run->request.scriptPath);
+  // start() 之后不再触碰 run：先取走发信号所需的值（防御同步回调路径）。
+  const QString scriptPath = run->request.scriptPath;
+  proc->start(run->request.interpreter, QStringList{scriptPath} + run->request.args);
+  emit runStarted(runId, scriptPath);
 }
 
 void ScriptRunnerService::drainChannel(Run *run, bool stderrChannel, bool flush)

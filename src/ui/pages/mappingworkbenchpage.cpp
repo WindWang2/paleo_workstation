@@ -10,6 +10,7 @@
 #include "ui/paleotheme.h"
 #include <QComboBox>
 #include <QDoubleSpinBox>
+#include <QFileDialog>
 #include <QFormLayout>
 #include <QGridLayout>
 #include <QGroupBox>
@@ -95,6 +96,29 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
     m_kind->addItem(tr("地震体 → 相栅格（预测服务）"), "seismic");
     m_kind->addItem(tr("测井 → 预测相点"), "wells");
     form->addRow(tr("预测类型"), m_kind);
+    m_horizonSourceRow = new QWidget(body);
+    auto *horizonSource = new QHBoxLayout(m_horizonSourceRow);
+    horizonSource->setContentsMargins(0, 0, 0, 0);
+    horizonSource->setSpacing(PaleoTheme::tokens().spacingSm);
+    horizonSource->addWidget(new QLabel(tr("层位文件"), m_horizonSourceRow));
+    m_horizonFile = new QLineEdit(m_horizonSourceRow);
+    m_horizonFile->setObjectName("workbenchHorizonFile");
+    m_horizonFile->setAccessibleName(tr("当前层位原始文件"));
+    m_horizonFile->setPlaceholderText(tr("自动使用已导入层位，或直接选择 DAT"));
+    m_horizonFile->setToolTip(tr("按文件中的 Inline、Crossline、时间（ms）直接提取地震窗；无需预先生成时间栅格。"));
+    horizonSource->addWidget(m_horizonFile, 1);
+    m_chooseHorizonFile = new QPushButton(tr("选择…"), m_horizonSourceRow);
+    m_chooseHorizonFile->setObjectName("workbenchChooseHorizonFile");
+    m_chooseHorizonFile->setAccessibleName(tr("选择当前层位原始文件"));
+    horizonSource->addWidget(m_chooseHorizonFile);
+    form->addRow(m_horizonSourceRow);
+    connect(m_chooseHorizonFile, &QPushButton::clicked, this, [this] {
+      const auto path = QFileDialog::getOpenFileName(this,
+          tr("选择 %1 的层位时间文件").arg(m_horizon), m_horizonFile->text(),
+          tr("SMI 层位文件 (*.dat *.txt);;所有文件 (*)"));
+      if (!path.isEmpty()) m_horizonFile->setText(path);
+    });
+    connect(workbench, &MappingWorkbench::catalogBound, m_horizonFile, &QLineEdit::clear);
     connect(m_kind, &QComboBox::currentIndexChanged, this, showStatus);
     showStatus();
     m_inputs = new QListWidget(body);
@@ -493,6 +517,7 @@ void MappingWorkbenchPage::setHorizon(const QString &h) {
   if (m_horizon == h)
     return;
   m_horizon = h;
+  if (m_horizonFile) m_horizonFile->clear();
   showMessage(QString());
   refresh();
   const auto schema = m_workbench->facies(h);
@@ -645,6 +670,14 @@ void MappingWorkbenchPage::updateState() {
   if (m_kind) {
     m_kind->setEnabled(!busy);
     m_kind->setToolTip(busy ? readiness : tr("选择预测所用的数据类型"));
+  }
+  if (m_horizonSourceRow) {
+    m_horizonSourceRow->setVisible(m_kind->currentData() == "seismic_mock");
+    m_horizonFile->setEnabled(horizon && !busy);
+    m_chooseHorizonFile->setEnabled(horizon && !busy);
+    m_chooseHorizonFile->setToolTip(horizon && !busy
+        ? tr("选择 %1 的原始层位时间文件，直接从地震体提取").arg(m_horizon)
+        : readiness);
   }
   if (m_inputs) {
     m_inputs->setEnabled(m_mode != "predict" || !busy);
@@ -811,8 +844,11 @@ void MappingWorkbenchPage::issue(const QString &action, QVariantMap p) {
   p.insert("layer", selectedLayer());
   p.insert("inputs", action == "copy" && m_mode != "compose" ? QStringList()
                                                              : checkedInputs());
-  if (action == "predict")
+  if (action == "predict") {
     p.insert("kind", m_kind->currentData());
+    if (m_kind->currentData() == "seismic_mock")
+      p.insert("horizon_file", m_horizonFile->text().trimmed());
+  }
   if (action == "factor") {
     p.insert("factor", m_factor->currentData());
     p.insert("pointsLayerId", m_points->currentData());

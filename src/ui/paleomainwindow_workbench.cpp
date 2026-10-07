@@ -557,7 +557,7 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
           const auto inputs = p.value("inputs").toStringList();
           if (action == "predict")
             ok = workbench->predict(h, p.value("kind").toString(), inputs,
-                                    &error);
+                                    &error, p.value("horizon_file").toString());
           else if (action == "cancel")
             workbench->cancelPrediction();
           else if (action == "show")

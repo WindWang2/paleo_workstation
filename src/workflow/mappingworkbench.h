@@ -43,7 +43,8 @@ public:
   LayerDeclaration declaration(const QString &id) const;
   QString layerForVersion(const QString &versionId, QString *error = nullptr);
   bool predict(const QString &horizon, const QString &kind,
-               const QStringList &ids, QString *error);
+               const QStringList &ids, QString *error,
+               const QString &horizonFile = {});
   void cancelPrediction();
   bool busy() const { return !m_request.id.isEmpty(); }
   QString polygonize(const QString &layerId, QString *error);
@@ -93,6 +94,7 @@ public:
   int labelMode(const QString &id) const;
   bool setLabelMode(const QString &id, int mode, QString *error);
 signals:
+  void catalogBound();
   void changed();
   void faciesEdited(const QString &layerId);
   void displayChanged(const QString &layerId);
@@ -124,6 +126,7 @@ private:
   double m_displayScale = 0;
   bool m_catalogSyncQueued = false;
   RemotePredictionRequest m_request;
+  QVariantMap m_predictionParameters;
   std::shared_ptr<std::atomic_bool> m_mockCancelled;
   QString m_predictionHint;
   mutable QString m_logVersion;

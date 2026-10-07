@@ -27,6 +27,7 @@
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QSet>
+#include <QTemporaryDir>
 #include <QUuid>
 #include <cmath>
 #include <gdal.h>
@@ -125,6 +126,7 @@ void MappingWorkbench::bindCatalog(DataCatalog *catalog, const QString &dir) {
           Qt::QueuedConnection);
     });
   synchronizeCatalogLayers();
+  emit catalogBound();
   emit changed();
 }
 void MappingWorkbench::synchronizeCatalogLayers() {
@@ -496,7 +498,8 @@ QString MappingWorkbench::record(const QString &path, const QString &h,
   return id;
 }
 bool MappingWorkbench::predict(const QString &h, const QString &kind,
-                               const QStringList &ids, QString *error) {
+                               const QStringList &ids, QString *error,
+                               const QString &horizonFile) {
   if (!ready(h, error))
     return false;
   const bool mock = kind == QLatin1String("seismic_mock");
@@ -586,22 +589,68 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
     }
   }
   if (mock) {
-    // 只从当前层位的时间网格取窗，不用其它预测/单因素栅格冒充层位。
-    QString horizonPath, horizonVersion;
-    for (const auto &d : m_layers->declared())
-      if (d.horizon == h && d.type == QLatin1String("raster") &&
-          d.layerId.startsWith(QLatin1String("horizon."))) {
-        if (horizonPath.isEmpty() || d.layerId == QStringLiteral("horizon.") + h) {
-          horizonPath = filePath(d.source);
-          const auto version = versionForLayer(d.layerId);
-          horizonVersion = version.id;
-        }
-      }
-    if (horizonPath.isEmpty() || !QFileInfo::exists(horizonPath)) {
-      fail(error, tr("当前层位没有时间栅格，请先导入并网格化该层位"));
+    // 原始层位的道号/TWT 可直接提取；时间栅格只作为已有工程的兼容输入。
+    QString horizonPath = horizonFile, horizonVersion;
+    auto source = SeismicHorizonSource::Scatter;
+    const QString selectedName = QFileInfo(horizonFile).completeBaseName().toUpper();
+    if (!horizonFile.isEmpty() && isMappingHorizon(selectedName) && selectedName != h) {
+      fail(error, tr("所选文件属于 %1，当前编图层位是 %2，请选择对应层位的文件").arg(selectedName, h));
       return false;
     }
-    if (!horizonVersion.isEmpty())
+    if (horizonPath.isEmpty()) {
+      QMap<QString, QString> originals;
+      CatalogVersion snapshot;
+      for (const auto &asset : m_catalog->assets()) {
+        if (asset.type != QLatin1String("horizon")) continue;
+        bool linked = false;
+        for (const auto &link : m_catalog->linksForAsset(asset.id))
+          if (!link.unresolved && link.role == QLatin1String("horizon") &&
+              m_catalog->entityById(link.entityId).name.compare(h, Qt::CaseInsensitive) == 0)
+            linked = true;
+        CatalogVersion raw;
+        for (const auto &version : m_catalog->versionsForAsset(asset.id)) {
+          const QString path = DataCatalog::resolvedVersionPath(m_dir, version);
+          if (!QFileInfo(path).isFile()) continue;
+          if (version.extra.value("horizon_input_snapshot").toBool() &&
+              version.extra.value("horizon").toString() == h) {
+            if (snapshot.id.isEmpty() || version.versionNumber > snapshot.versionNumber)
+              snapshot = version;
+          } else if (version.stage == QLatin1String("RAW") &&
+                     (linked || QFileInfo(version.fileName).completeBaseName().compare(h, Qt::CaseInsensitive) == 0) &&
+                     (raw.id.isEmpty() || version.versionNumber > raw.versionNumber)) {
+            raw = version;
+          }
+        }
+        if (!raw.id.isEmpty())
+          originals.insert(DataCatalog::resolvedVersionPath(m_dir, raw), raw.id);
+      }
+      if (originals.size() > 1) {
+        fail(error, tr("%1 有多个原始层位文件，请在「层位文件」选择本次使用的文件").arg(h));
+        return false;
+      }
+      if (!originals.isEmpty()) {
+        horizonPath = originals.firstKey(); horizonVersion = originals.first();
+      } else if (!snapshot.id.isEmpty()) {
+        horizonPath = DataCatalog::resolvedVersionPath(m_dir, snapshot);
+        horizonVersion = snapshot.id;
+      } else {
+        source = SeismicHorizonSource::TimeRaster;
+        for (const auto &d : m_layers->declared())
+          if (d.horizon == h && d.type == QLatin1String("raster") &&
+              d.layerId.startsWith(QLatin1String("horizon.")) &&
+              QFileInfo(filePath(d.source)).isFile()) {
+            if (horizonPath.isEmpty() || d.layerId == QStringLiteral("horizon.") + h) {
+              horizonPath = filePath(d.source);
+              horizonVersion = versionForLayer(d.layerId).id;
+            }
+          }
+      }
+    }
+    if (!QFileInfo(horizonPath).isFile() || !QFileInfo(horizonPath).isReadable()) {
+      fail(error, tr("未找到 %1 的可读层位数据，请在「层位文件」直接选择 DAT，或在数据管理中导入层位资料").arg(h));
+      return false;
+    }
+    if (!horizonVersion.isEmpty() && source == SeismicHorizonSource::TimeRaster)
       request.sourceVersionIds << horizonVersion;
     request.sourceVersionIds.removeDuplicates();
     QVector<int> codes;
@@ -610,7 +659,20 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
     const auto seismicVersion = m_catalog->currentVersion(ids.first());
     const QString seismicPath = DataCatalog::resolvedVersionPath(m_dir, seismicVersion);
     const QString cacheDir = QDir(m_dir).filePath("artifacts/cache/segy-index");
+    std::shared_ptr<QTemporaryDir> inputSnapshot;
+    if (source == SeismicHorizonSource::Scatter) {
+      const QString staging = QDir(m_dir).filePath("artifacts/staging");
+      QDir().mkpath(staging);
+      inputSnapshot = std::make_shared<QTemporaryDir>(staging + "/horizon-input-XXXXXX");
+      if (!inputSnapshot->isValid()) {
+        fail(error, tr("无法创建层位输入快照目录"));
+        return false;
+      }
+    }
     m_request = request;
+    m_predictionParameters = {
+      {"horizon_source_format", source == SeismicHorizonSource::Scatter ? "smi_xyz_inline_crossline" : "time_raster"},
+      {"horizon_source_uri", QFileInfo(horizonPath).absoluteFilePath()}};
     m_mockCancelled = std::make_shared<std::atomic_bool>(false);
     auto cancelled = m_mockCancelled;
     auto *watcher = new QFutureWatcher<SeismicClusterResult>(this);
@@ -620,17 +682,37 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
         emit predictionProgress(value);
     });
     connect(watcher, &QFutureWatcherBase::finished, this,
-            [this, watcher, request, cancelled] {
+            [this, watcher, request, cancelled, inputSnapshot, horizonPath, horizonVersion] {
       const auto clustered = watcher->result();
       watcher->deleteLater();
       if (m_request.id != request.id || cancelled->load())
         return;
       if (!clustered.error.isEmpty()) {
         m_request = {};
+        m_predictionParameters.clear();
         emit predictionBusyChanged(false);
         emit errorOccurred(clustered.error);
         return;
       }
+      if (inputSnapshot) {
+        // 保存本次实际使用的原始字节，形成可追溯输入；不生成时间栅格。
+        DerivedAssetRegistrar registrar(m_catalog, m_dir);
+        QString error;
+        const auto st = registrar.stage("horizon", request.horizon + "-prediction-input",
+                                        request.horizon + ".dat", &error);
+        const QStringList parents = horizonVersion.isEmpty() ? QStringList() : QStringList{horizonVersion};
+        if (!st.isValid() || !registrar.commitExternal(st, inputSnapshot->filePath("horizon.dat"),
+            parents, horizonPath, {{"horizon", request.horizon}, {"horizon_input_snapshot", true},
+                                  {"z_units", "ms"}}, &error)) {
+          m_request = {};
+          m_predictionParameters.clear();
+          emit predictionBusyChanged(false);
+          emit errorOccurred(error);
+          return;
+        }
+        m_request.sourceVersionIds << st.versionId;
+      }
+      m_predictionParameters.insert("valid_cells", clustered.validCells);
       m_request.extent = clustered.extent;
       m_request.rows = clustered.rows;
       m_request.columns = clustered.columns;
@@ -643,15 +725,32 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
     });
     emit predictionBusyChanged(true);
     watcher->setFuture(QtConcurrent::run(
-        [seismicPath, horizonPath, cacheDir, codes, cancelled](QPromise<SeismicClusterResult> &promise) {
+        [seismicPath, horizonPath, cacheDir, codes, cancelled, source, inputSnapshot](QPromise<SeismicClusterResult> &promise) {
           promise.setProgressRange(0, 100);
-          promise.addResult(clusterSeismicHorizon(seismicPath, horizonPath, cacheDir, codes,
+          QString inputPath = horizonPath;
+          if (inputSnapshot) {
+            inputPath = inputSnapshot->filePath("horizon.dat");
+            const QFileInfo before(horizonPath);
+            const qint64 sourceSize = before.size();
+            const auto modified = before.lastModified();
+            if (!QFile::copy(horizonPath, inputPath) ||
+                sourceSize != QFileInfo(inputPath).size() ||
+                sourceSize != QFileInfo(horizonPath).size() ||
+                modified != QFileInfo(horizonPath).lastModified()) {
+              SeismicClusterResult failed;
+              failed.error = tr("层位文件复制失败或复制期间被修改，请重试");
+              promise.addResult(failed);
+              return;
+            }
+          }
+          promise.addResult(clusterSeismicHorizon(seismicPath, inputPath, cacheDir, codes,
               [&promise](int value) { promise.setProgressValue(value); },
-              [cancelled] { return cancelled->load(); }));
+              [cancelled] { return cancelled->load(); }, source));
         }));
     return true;
   }
   m_mockCancelled.reset();
+  m_predictionParameters.clear();
   m_request = request;
   emit predictionBusyChanged(true);
   m_remote->start(request);
@@ -664,6 +763,7 @@ void MappingWorkbench::cancelPrediction() {
     m_remote->cancel();
   bool was = busy();
   m_request = {};
+  m_predictionParameters.clear();
   if (was)
     emit predictionBusyChanged(false);
 }
@@ -744,14 +844,9 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &result) {
                               path, result.cells, request.columns, request.rows,
                               request.extent, &error)
                         : MappingArtifactWriter::points(path, points, &error);
-    if (ok)
-      record(path, request.horizon, request.kind + "_prediction",
-             tr("%1 %2预测%3")
-                 .arg(request.horizon,
-                      request.kind == "seismic" ? tr("地震相") : tr("测井相"),
-                      result.mock ? tr("（Mock）") : QString()),
-             request.kind == "seismic" ? "raster" : "vector",
-             request.sourceVersionIds,
+    if (ok) {
+      auto parameters = m_predictionParameters;
+      const QVariantMap common =
              {{"mock", result.mock},
               {"method", result.method},
               {"window_half_ms", result.method == QLatin1String("mock-horizon-window-kmeans-v1") ? 12.0 : 0.0},
@@ -760,12 +855,23 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &result) {
               {"wells", request.wells},
               {"columns", request.columns},
               {"rows", request.rows},
-              {"extent",
-               QVariantList{request.extent.left(), request.extent.top(),
-                            request.extent.width(), request.extent.height()}}},
+              {"extent", QVariantList{request.extent.left(), request.extent.top(),
+                                      request.extent.width(), request.extent.height()}}};
+      for (auto it = common.cbegin(); it != common.cend(); ++it)
+        parameters.insert(it.key(), it.value());
+      record(path, request.horizon, request.kind + "_prediction",
+             tr("%1 %2预测%3")
+                 .arg(request.horizon,
+                      request.kind == "seismic" ? tr("地震相") : tr("测井相"),
+                      result.mock ? tr("（Mock）") : QString()),
+             request.kind == "seismic" ? "raster" : "vector",
+             request.sourceVersionIds,
+             parameters,
              &error);
+    }
   }
   m_request = {};
+  m_predictionParameters.clear();
   emit predictionBusyChanged(false);
   if (!error.isEmpty())
     emit errorOccurred(error);

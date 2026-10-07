@@ -6,6 +6,7 @@
 #include <QtTest>
 #include <QApplication>
 #include <QElapsedTimer>
+#include <QFile>
 #include <QFileInfo>
 #include <QOffscreenSurface>
 #include <QOpenGLContext>
@@ -16,6 +17,10 @@
 #include <atomic>
 #include <cmath>
 #include <filesystem>
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
 
 #include "Engine/Sdk.h"
 
@@ -334,6 +339,72 @@ private slots:
     QVERIFY(SeismicTaskService::loadSession(session.sourceSgyPath, restored, &err));
     QCOMPARE(restored.picks.size(), 1);
     QCOMPARE(restored.picks.first().twtMs, 64.0);
+  }
+
+  // ---- #284 自动保存原子性：写失败如实上报且旧会话一字节不丢 ----
+  // 旧实现先 Truncate 再写、不查返回值、恒返回 true——崩溃/磁盘满即丢全部
+  // 人工拾取。QSaveFile 旁写+提交替换：失败时旧文件原样，loadSession 仍可读回。
+  void sessionSaveFailureKeepsPrevious()
+  {
+    QTemporaryDir dir;
+    SeismicInterpretationSession session;
+    session.sourceSgyPath = dir.filePath("auto.sgy");
+    session.picks.append({1, 1000, 2000, 64.0, 32, 1.0f, QStringLiteral("A"), QStringLiteral("H1")});
+    QString err;
+    QVERIFY2(SeismicTaskService::saveSession(session, &err), qPrintable(err));
+
+    const QString sidePath = session.sourceSgyPath + QStringLiteral(".seispicks.json");
+    QByteArray good;
+    {
+      QFile f(sidePath);
+      QVERIFY(f.open(QIODevice::ReadOnly));
+      good = f.readAll();
+    }
+    QVERIFY(!good.isEmpty());
+
+    // 注入写失败：POSIX 目录只读 → QSaveFile 开不出临时文件；
+    // Windows 目录只读属性不挡创建文件，改为对目标文件持零共享句柄——
+    // QSaveFile 提交阶段的替换必败。两种注入下旧文件字节都必须原样
+    // （先例：tst_catalog 的 QSaveFile 失败注入）。
+#ifdef Q_OS_WIN
+    HANDLE lock = CreateFileW(reinterpret_cast<const wchar_t *>(sidePath.utf16()),
+                              GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                              FILE_ATTRIBUTE_NORMAL, nullptr);
+    QVERIFY(lock != INVALID_HANDLE_VALUE);
+#else
+    QVERIFY(QFile::setPermissions(dir.path(), QFileDevice::ReadOwner | QFileDevice::ExeOwner |
+                                                  QFileDevice::ReadGroup | QFileDevice::ExeGroup |
+                                                  QFileDevice::ReadOther | QFileDevice::ExeOther));
+#endif
+
+    session.picks.clear();
+    session.picks.append({2, 1001, 2001, 100.0, 40, 1.0f, QStringLiteral("B"), QStringLiteral("H2")});
+    QVERIFY2(!SeismicTaskService::saveSession(session, &err),
+             "只读介质上保存必须如实失败，不得恒返回 true");
+    QVERIFY(!err.isEmpty());
+    {
+      QFile f(sidePath);
+      QVERIFY(f.open(QIODevice::ReadOnly));
+      QCOMPARE(f.readAll(), good); // 关键断言：没有截断/半截文件
+    }
+
+    // 失败存档后 loadSession 仍读回原来的 1 个拾取（人工成果不丢）
+    SeismicInterpretationSession restored;
+    QVERIFY(SeismicTaskService::loadSession(session.sourceSgyPath, restored, &err));
+    QCOMPARE(restored.picks.size(), 1);
+    QCOMPARE(restored.picks.first().twtMs, 64.0);
+    QCOMPARE(restored.picks.first().interpreter, QStringLiteral("A"));
+
+#ifdef Q_OS_WIN
+    CloseHandle(lock);
+#else
+    QVERIFY(QFile::setPermissions(dir.path(), QFileDevice::ReadOwner | QFileDevice::WriteOwner |
+                                                  QFileDevice::ExeOwner |
+                                                  QFileDevice::ReadGroup | QFileDevice::WriteGroup |
+                                                  QFileDevice::ExeGroup |
+                                                  QFileDevice::ReadOther | QFileDevice::WriteOther |
+                                                  QFileDevice::ExeOther));
+#endif
   }
 
   // ---- CONC-02: 信号量槽位在异常下必须自动释放（RAII 防死锁）----

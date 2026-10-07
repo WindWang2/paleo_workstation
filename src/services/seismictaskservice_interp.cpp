@@ -15,6 +15,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QSaveFile>
 #include <QUuid>
 
 #include <algorithm>
@@ -998,8 +999,10 @@ bool SeismicTaskService::saveSession(const SeismicInterpretationSession &session
     return false;
   }
   const QString path = session.sourceSgyPath + QStringLiteral(".seispicks.json");
-  QFile f(path);
-  if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+  // QSaveFile：旁写临时文件 + 提交时原子替换——崩溃/被杀/磁盘满只会留下
+  // 完整旧档，绝不产生截断的半截会话（#284）。
+  QSaveFile f(path);
+  if (!f.open(QIODevice::WriteOnly))
   {
     if (error)
       *error = QStringLiteral("无法写会话文件 %1").arg(path);
@@ -1045,8 +1048,20 @@ bool SeismicTaskService::saveSession(const SeismicInterpretationSession &session
     faultArr.append(o);
   }
   root.insert("faults", faultArr);
-  f.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
-  f.close();
+  const QByteArray payload = QJsonDocument(root).toJson(QJsonDocument::Indented);
+  if (f.write(payload) != qint64(payload.size()))
+  {
+    f.cancelWriting();
+    if (error)
+      *error = QStringLiteral("会话文件写入失败（磁盘满？）%1").arg(path);
+    return false;
+  }
+  if (!f.commit())
+  {
+    if (error)
+      *error = QStringLiteral("会话文件提交失败 %1").arg(path);
+    return false;
+  }
   return true;
 }
 

@@ -50,7 +50,9 @@ QString PaleoDistanceTransformAlgorithm::shortHelpString() const
     "to the closest INPUT point (map units). When CONSTRAINTS contain 'break_line' "
     "features, those lines are hard barriers and the cell value becomes the "
     "barrier-avoiding path distance: an 8-connected Dijkstra over the output grid "
-    "(edge costs 1 and sqrt(2) cells, well cells seeded at 0). Barrier cells and "
+    "(edge costs 1 and sqrt(2) cells, well cells seeded at 0; diagonal moves are "
+    "disallowed when either orthogonal side cell is a barrier, so walls rasterized "
+    "to corner-touching cells still seal). Barrier cells and "
     "cells with no path to any well become nodata. Grid covers the input extent "
     "grown by 10%% per side using CELL_SIZE cells." );
 }
@@ -227,7 +229,8 @@ QVariantMap PaleoDistanceTransformAlgorithm::processAlgorithm( const QVariantMap
       }
     }
 
-  // ---- multi-source Dijkstra（8 邻接，边权 1 / √2 格）-----------------------
+  // ---- multi-source Dijkstra（8 邻接，边权 1 / √2 格；对角步穿角检查见
+  //      下方松弛循环）---------------------------------------------------------
   std::vector<double> dist( static_cast<size_t>( cellCount ),
                             std::numeric_limits<double>::infinity() );
   using Item = std::pair<double, qsizetype>;
@@ -276,6 +279,13 @@ QVariantMap PaleoDistanceTransformAlgorithm::processAlgorithm( const QVariantMap
           continue;
         const qsizetype n = static_cast<qsizetype>( nr ) * nCols + nc;
         if ( blocked[static_cast<size_t>( n )] )
+          continue;
+        // 斜墙角点密封（issue #292）：半格采样栅格化的障碍链只保证 8 连通
+        // （相邻障碍格可能仅角接），对角步若两侧正交格任一被挡则禁行，否则
+        // 路径会从两个角接障碍格之间斜穿，绕障距离退化成近欧氏距离。
+        if ( dr != 0 && dc != 0 &&
+             ( blocked[static_cast<size_t>( cr * nCols + cc + dc )] ||
+               blocked[static_cast<size_t>( ( cr + dr ) * nCols + cc )] ) )
           continue;
         const double nd = cur.first + ( ( dr != 0 && dc != 0 ) ? diag : ortho );
         if ( nd < dist[static_cast<size_t>( n )] )

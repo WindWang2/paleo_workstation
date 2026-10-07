@@ -573,6 +573,86 @@ private slots:
     delete empty;
   }
 
+  // 1d-2) issue #292：斜向 break_line 角点密封。30°/60° 贯穿网格的断层
+  //     半格采样栅格化只保证障碍格 8 连通（相邻障碍格仅角接），8 邻接
+  //     Dijkstra 若不做对角穿角检查会经角点缝隙斜穿、退化成近欧氏
+  //     距离。两口井分居墙两侧：探测格取墙根下侧、欧氏上离对侧井
+  //     很近的一格——密封时它只能在本侧区内绕行（30°≈8.7、60°≈9.7），
+  //     泄漏时穿角抄近路取对侧井（30°≈4.2、60°≈3.8）。无约束输出
+  //     同格 ≈3.1/3.3，作对照。
+  void distanceTransformDiagonalBarrier()
+  {
+    auto baseParams = []( QgsVectorLayer *input, const QString &out ) {
+      QVariantMap params;
+      params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( input ) );
+      params.insert( QStringLiteral( "CELL_SIZE" ), 1.0 );
+      params.insert( QStringLiteral( "OUTPUT" ), out );
+      return params;
+    };
+    // 井 (6,0.5)/(14,7) → 网格 11×8：xMin=5.2、xMax=15.8、yMax=7.65
+    // （10% 外扩，extent [5.2,15.8]×[-0.15,7.65]）。
+    auto *wells = AlgorithmTestBase::makePointLayer(
+        QStringLiteral( "wellsDiag" ),
+        { { QgsPointXY( 6, 0.5 ), 0.0 }, { QgsPointXY( 14, 7 ), 0.0 } } );
+    QVERIFY( wells->isValid() );
+
+    const QString outPlain = mDir.filePath( QStringLiteral( "dt_diag_plain.tif" ) );
+    QString log;
+    QVERIFY2( !AlgorithmTestBase::run(
+                  QStringLiteral( "paleo:paleo_distance_transform" ),
+                  baseParams( wells, outPlain ), &log ).isEmpty(),
+              qPrintable( log ) );
+
+    struct DiagCase
+    {
+      double angleDeg;
+      QList<QgsPointXY> line;
+      int probeRow, probeCol; // 墙根下侧、贴近对侧井的探测格
+      double sealedMin;       // 密封时探测格距离下界（本侧区内绕行）
+    };
+    constexpr double kPi = 3.14159265358979323846;
+    const double tan30 = std::tan( 30.0 * kPi / 180.0 ); // ≈0.5774
+    const double tan60 = std::tan( 60.0 * kPi / 180.0 ); // ≈1.7321
+    const QList<DiagCase> cases = {
+        // 30°：左缘 (c0,r6) → 右缘角格 (c10,r0)，整幅分隔下/上两侧
+        { 30.0,
+          { QgsPointXY( 5.2, 1.0 ), QgsPointXY( 15.8, 1.0 + 10.6 * tan30 ) },
+          3, 7, 6.5 },
+        // 60°：底缘 (r7,c2) → 顶缘 (r0,c6)，整幅分隔左/右两侧
+        { 60.0,
+          { QgsPointXY( 7.55, 0.4 ), QgsPointXY( 7.55 + 7.2 / tan60, 7.6 ) },
+          0, 5, 7.0 },
+    };
+    for ( const DiagCase &tc : cases )
+    {
+      auto *typed = AlgorithmTestBase::makeTypedLineLayer(
+          QStringLiteral( "diag%1" ).arg( tc.angleDeg ), { tc.line },
+          QStringList{ QStringLiteral( "break_line" ) } );
+      QVERIFY( typed->isValid() );
+      const QString out = mDir.filePath(
+          QStringLiteral( "dt_diag_%1.tif" ).arg( tc.angleDeg ) );
+      QVariantMap params = baseParams( wells, out );
+      params.insert( QStringLiteral( "CONSTRAINTS" ), QVariant::fromValue( typed ) );
+      QVERIFY2( !AlgorithmTestBase::run(
+                    QStringLiteral( "paleo:paleo_distance_transform" ), params, &log ).isEmpty(),
+                qPrintable( log ) );
+
+      // 泄漏判定：密封时探测格只能在本侧区内绕行（>sealedMin）；穿角
+      // 缝隙会把它抄近路拉到对侧井（≈4.2/3.8，低于下界）
+      const float probe = AlgorithmTestBase::rasterCell( out, tc.probeRow, tc.probeCol );
+      QVERIFY2( std::isfinite( probe ) && probe > static_cast<float>( tc.sealedMin ),
+                qPrintable( QStringLiteral( "angle=%1 probe=%2 (leak: 穿角缝隙)" )
+                                .arg( tc.angleDeg )
+                                .arg( probe ) ) );
+      // 无约束输出同格是对侧井的近欧氏距离（远小于密封绕障距离）
+      const float plain = AlgorithmTestBase::rasterCell( outPlain, tc.probeRow, tc.probeCol );
+      QVERIFY2( std::isfinite( plain ) && plain < 5.0f,
+                qPrintable( QStringLiteral( "angle=%1 plain=%2" ).arg( tc.angleDeg ).arg( plain ) ) );
+      delete typed;
+    }
+    delete wells;
+  }
+
   // ---- WP3 Round 1：输入域/预算/取消/CRS 守卫 --------------------------------
 
   // 1d) 网格预算守卫：极小 CELL_SIZE × 常规范围（>1 亿像元）必须显式拒绝，

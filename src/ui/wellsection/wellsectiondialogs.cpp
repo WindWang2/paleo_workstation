@@ -313,6 +313,7 @@ WellSectionTracksDialog::WellSectionTracksDialog(
   addAction(tr("深度"), wellsection::TrackKind::Depth);
   addAction(tr("岩性"), wellsection::TrackKind::Lithology);
   addAction(tr("相代码充填"), wellsection::TrackKind::Facies);
+  addAction(tr("图片道（岩心/薄片照片）"), wellsection::TrackKind::Image);
   addBtn->setMenu(addMenu);
   auto *removeBtn = new QToolButton(this);
   removeBtn->setObjectName(QStringLiteral("wellSectionTrackRemoveButton"));
@@ -681,6 +682,8 @@ void WellSectionTracksDialog::addTrack(wellsection::TrackKind kind)
   wellsection::TrackSpec t;
   t.kind = kind;
   t.width = 56;
+  if (kind == wellsection::TrackKind::Image)
+    t.width = 90; // 照片道宽（等比缩放基准）
   if (kind == wellsection::TrackKind::Curve)
   {
     wellsection::CurveStyle c;

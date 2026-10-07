@@ -10,6 +10,9 @@
 #include <QFile>
 #include <QFileInfo>
 
+#include <algorithm>
+#include <cmath>
+
 #include <gdal.h>
 
 // ---------------------------------------------------------------------------
@@ -200,6 +203,43 @@ QVector<TdSample> ProjectDataFacade::tdTableFor(const QString &wellId) const
     s.md = row.hasMd ? row.md : qQNaN();
     out.append(s);
   }
+  return out;
+}
+
+QVector<WellImageAnchor> ProjectDataFacade::imagesFor(const QString &wellId) const
+{
+  QVector<WellImageAnchor> out;
+  if (!m_catalog || wellId.isEmpty())
+    return out;
+  for (const EntityAssetLink &l : m_catalog->linksForEntity(wellId))
+  {
+    if (l.unresolved ||
+        (l.role != QStringLiteral("core") &&
+         l.role != QStringLiteral("lab_analysis")))
+      continue;
+    const CatalogVersion v = m_catalog->currentVersion(l.assetId);
+    if (v.id.isEmpty())
+      continue;
+    // 深度锚是图片道的存在前提——extra 无 depthMd（薄片照片深度在文件名
+    // 无单位）不收，不猜。
+    const QVariant depth = v.extra.value(QStringLiteral("depthMd"));
+    if (!depth.isValid() || !std::isfinite(depth.toDouble()) ||
+        depth.toDouble() <= 0.0)
+      continue;
+    const QString path = DataCatalog::resolvedVersionPath(projectDir(), v);
+    if (path.isEmpty() || !QFile::exists(path))
+      continue;
+    WellImageAnchor a;
+    a.assetId = l.assetId;
+    a.path = path;
+    a.depthMd = depth.toDouble();
+    a.caption = v.fileName.isEmpty() ? l.assetId : v.fileName;
+    out.append(a);
+  }
+  std::sort(out.begin(), out.end(),
+            [](const WellImageAnchor &a, const WellImageAnchor &b) {
+              return a.depthMd < b.depthMd;
+            });
   return out;
 }
 

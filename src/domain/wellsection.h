@@ -1,6 +1,7 @@
 // 层：数据
 #pragma once
 #include "domain/seismic/timedepthmodel.h"
+#include <QImage>
 #include <QMetaType>
 #include <QString>
 #include <QStringList>
@@ -41,6 +42,14 @@ struct TimeDepth {
 
 // 相代码充填段：交会分类（crossplot 井层段）产物的按井深度段。
 // classId 对 12 色Wheel 取色（数据符号色，视图侧解析）。
+// 图片道锚（core/lab_analysis 井附件照片）：md 锚定 + 预解码位图
+//（编排层任务线程装载；QtGui 于数据层无禁令——纯数据无 UI 语义）。
+struct ImageAnchor {
+  double md = 0.0;
+  QString caption;
+  QImage image;
+};
+
 struct FaciesSegment {
   double topMd = 0;
   double baseMd = 0;
@@ -57,6 +66,7 @@ struct Well {
   QVector<Top> tops;
   QVector<Curve> curves;
   QVector<FaciesSegment> facies; // 交会分类井层段（catalog 派生资产）
+  QVector<ImageAnchor> images;   // 图片道锚（岩心/薄片照片，md 升序）
   std::optional<TimeDepth> timeDepth;
   bool hasCoordinates() const; // 有限 x && y
   double topMd(const QString &name) const;            // 精确匹配；缺失 → NaN

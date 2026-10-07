@@ -406,6 +406,39 @@ QWidget *DataPreviewTabs::buildWellLogContent(
     }
   }
 
+  // 图片道锚（岩心/薄片照片）：core/lab_analysis 角色井附件 + 导入侧
+  // extra["depthMd"]（<井名>,<深度>m 文件名惯例）。无锚照片不收——不猜。
+  QVector<WellComposite::ImageDepthItem> coreImages;
+  if (!linkedWell.isEmpty())
+  {
+    for (const auto &lk : cat->linksForEntity(linkedWell))
+    {
+      if (lk.unresolved ||
+          (lk.role != QLatin1String("core") && lk.role != QLatin1String("lab_analysis")))
+        continue;
+      const CatalogVersion ver = cat->currentVersion(lk.assetId);
+      if (ver.id.isEmpty())
+        continue;
+      const QVariant depth = ver.extra.value(QLatin1String("depthMd"));
+      if (!depth.isValid() || depth.toDouble() <= 0.0)
+        continue;
+      const QString imgPath = m_doc->absolutePathForVersion(ver);
+      if (imgPath.isEmpty())
+        continue;
+      QImage img(imgPath);
+      if (img.isNull())
+        continue;
+      // 缩到道宽 2 倍位图（110px 道 ×2 余量），装载其余交给道内绘制缩放。
+      WellComposite::ImageDepthItem it;
+      it.topDepth = it.bottomDepth = static_cast<float>(depth.toDouble());
+      it.imagePath = imgPath;
+      it.caption = ver.fileName;
+      it.pixmap = QPixmap::fromImage(
+          img.scaledToWidth(220, Qt::SmoothTransformation));
+      coreImages.append(it);
+    }
+  }
+
   const QString wellTitle = wells.isEmpty() ? asset.displayName : wells.front().second;
 
   // 两段式期间如实占位：数据行池内解析中（DESIGN.md 诚实状态；秒级内
@@ -452,7 +485,7 @@ QWidget *DataPreviewTabs::buildWellLogContent(
   const QPointer<CurvePanel> panelFill(panel);
   const QPointer<WellComposite::WellCompositePanel> compFill(compPanel);
   const std::function<void(const QList<LasCurve> &, const QHash<QString, LasDoc> &)> fillCurves =
-      [panelFill, compFill, chipMapFill = chipMap, hintFill, names, defaultShown,
+      [panelFill, compFill, chipMapFill = chipMap, hintFill, names, defaultShown, coreImages,
        wellTitle, formationIntervals, wellCurves, compositeFromWell, abs](
           const QList<LasCurve> &curves, const QHash<QString, LasDoc> &siblings) {
         if (hintFill)
@@ -532,6 +565,8 @@ QWidget *DataPreviewTabs::buildWellLogContent(
             }
           }
           compFill->loadLasCurves(wellTitle, compCurves, formationIntervals);
+          if (compFill && !coreImages.isEmpty())
+            compFill->setCoreImages(coreImages);
         }
       };
 

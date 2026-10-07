@@ -353,7 +353,7 @@ void QgisLayerService::adoptProjectLayers()
   // 源重复 addMapLayer（图层树/画布出现双份）；恢复的副本对 layer()、
   // isEditingAnyLayer()、releaseHorizon 和编辑忙闸全部不可见，在它上面的
   // 编辑不受保护也不回滚。createProject 时 mapLayers 为空，收编是 no-op。
-  QgsProject *proj = resolveProject(m_projectSvc);
+  QgsProject *proj = svcProject(m_projectSvc);
   if (!proj)
     return;
   const auto layers = proj->mapLayers();

@@ -28,6 +28,7 @@ struct ProjectLoadState {
   QString input, path, error;
   QStringList warnings;
   std::optional<PaleoGeoreference> georeference;
+  PaleoProjectFile mapConfiguration;
   std::unique_ptr<QgsProject> project;
   QDomDocument document;
   QDomDocument treeDocument;
@@ -162,7 +163,8 @@ bool QgisProjectService::openProjectAsync(const QString &input)
         emit m_project->readProject(state->document);
         emit m_project->readProjectWithContext(state->document, context);
         m_georeference = state->georeference;
-        if (!m_georeference) {
+        m_mapConfiguration = state->mapConfiguration;
+        if (!m_georeference && m_mapConfiguration.name.isEmpty()) {
           const auto json = m_project->readEntry("paleo", "georeference");
           PaleoGeoreference reference;
           QString error;
@@ -172,14 +174,23 @@ bool QgisProjectService::openProjectAsync(const QString &input)
         if (m_georeference)
           m_project->writeEntry("paleo", "georeference", QString::fromUtf8(
               QJsonDocument(paleoGeoreferenceToJson(*m_georeference)).toJson(QJsonDocument::Compact)));
+        else m_project->removeEntry("paleo", "georeference");
         m_path = state->path;
+        applyMapConfiguration();
         ++m_sessionId;
         // 清单收养在主线程/锁决策之后。
         const QString dir = QFileInfo(m_path).absolutePath();
         if (!QFile::exists(paleoProjectFilePath(dir))) {
+          auto adopted = projectFileForQgz(m_path);
+          adopted.georeference = m_georeference;
+          adopted.mapCrs = m_mapConfiguration.mapCrs;
+          adopted.basemapEnabled = m_mapConfiguration.basemapEnabled;
+          adopted.basemapTopo = m_mapConfiguration.basemapTopo;
+          adopted.basemapHillshade = m_mapConfiguration.basemapHillshade;
           QString error;
-          if (!writeProjectFile(dir, projectFileForQgz(m_path), &error))
+          if (!writeProjectFile(dir, adopted, &error))
             m_errors << tr("无法收养工程清单：%1").arg(error);
+          else m_mapConfiguration = adopted;
         }
         m_project->setDirty(false);
         emit openProgress(96, tr("装配工程数据与面板"));
@@ -220,6 +231,7 @@ bool QgisProjectService::openProjectAsync(const QString &input)
         state->warnings << QStringLiteral("工程清单无法读取：%1").arg(error);
       if (ok) {
         state->georeference = pf.georeference;
+        state->mapConfiguration = pf;
         if (!pf.georeferenceError.isEmpty()) state->warnings << pf.georeferenceError;
         if (state->input.endsWith(".paleo", Qt::CaseInsensitive))
           state->path = QDir(dir).filePath(pf.qgz);

@@ -249,6 +249,89 @@ private slots:
              "rebuild must preserve expanded child nodes");
   }
 
+  // 岩心照片（core 角色，高频多实例）收第四级：井 → 「岩心照片 (N)」分支
+  // （L3，category 无 id）→ 照片叶（L4，assetId/wellId/core 三元不变——
+  // 激活/拖放/过滤语义与平铺叶一致）；无照片井不出分支；跨井同名分支
+  // 经父链键区分，重建后展开态互不串。
+  void navTreeCorePhotosFourthLevel()
+  {
+    QTemporaryDir dir; QVERIFY(PerfFixtures::makeSyntheticCatalogDir(dir.path(), 300));
+    DataImportService importer; importer.setProjectDir(dir.path()); PreviewDocService doc(&importer);
+    auto *cat = importer.catalog();
+    const auto wells = cat->entities(QStringLiteral("well"));
+    QVERIFY(wells.size() >= 3);
+    QString err;
+    for (int wIdx = 0; wIdx < 2; ++wIdx)
+      for (int p = 0; p < 2; ++p)
+      {
+        CatalogAsset a;
+        a.id = QStringLiteral("photo-%1-%2").arg(wIdx).arg(p);
+        a.type = QStringLiteral("image");
+        a.format = QStringLiteral("jpg");
+        a.displayName = QStringLiteral("井%1,%2m.JPG").arg(wIdx + 1).arg(1250 + p * 10);
+        QVERIFY2(cat->addAsset(a, &err), qPrintable(err));
+        EntityAssetLink l;
+        l.entityType = QStringLiteral("well");
+        l.entityId = wells.at(wIdx).id;
+        l.assetId = a.id;
+        l.role = QStringLiteral("core");
+        l.isPrimary = false;
+        l.ordinal = p;
+        QVERIFY2(cat->addLink(l, &err), qPrintable(err));
+      }
+
+    DataListPanel panel; panel.setDocService(&doc); panel.resize(640, 740); panel.setViewMode(0); panel.show();
+    panel.refreshAssetTable(); panel.applyListFilter(); QCoreApplication::processEvents();
+    auto *tree = panel.findChild<QTreeWidget *>(QStringLiteral("dataTree"));
+    QVERIFY(tree);
+    const auto findWell = [](QTreeWidgetItem *root, const QString &wid) -> QTreeWidgetItem * {
+      for (int i = 0; i < root->childCount(); ++i)
+        if (root->child(i)->data(0, Qt::UserRole + 1).toString() == wid)
+          return root->child(i);
+      return nullptr;
+    };
+    QTreeWidgetItem *wellRoot = tree->topLevelItem(1);
+    QTreeWidgetItem *w0 = findWell(wellRoot, wells.at(0).id);
+    QTreeWidgetItem *w1 = findWell(wellRoot, wells.at(1).id);
+    QTreeWidgetItem *w2 = findWell(wellRoot, wells.at(2).id);
+    QVERIFY(w0 && w1 && w2);
+
+    // w0：LAS 平铺叶 + 末尾「岩心照片 (2)」分支；照片叶在第四级。
+    QCOMPARE(w0->childCount(), 2);
+    QCOMPARE(w0->child(0)->data(0, Qt::UserRole + 2).toString(), QStringLiteral("well_log"));
+    QTreeWidgetItem *branch0 = w0->child(1);
+    QCOMPARE(branch0->text(0), QStringLiteral("岩心照片 (2)"));
+    QVERIFY(branch0->data(0, Qt::UserRole).toString().isEmpty());
+    QCOMPARE(branch0->data(0, Qt::UserRole + 2).toString(), QStringLiteral("category"));
+    QCOMPARE(branch0->childCount(), 2);
+    for (int p = 0; p < 2; ++p)
+    {
+      QTreeWidgetItem *leaf = branch0->child(p);
+      QCOMPARE(leaf->data(0, Qt::UserRole).toString(), QStringLiteral("photo-0-%1").arg(p));
+      QCOMPARE(leaf->data(0, Qt::UserRole + 1).toString(), wells.at(0).id);
+      QCOMPARE(leaf->data(0, Qt::UserRole + 2).toString(), QStringLiteral("core"));
+      QCOMPARE(leaf->text(0), QStringLiteral("井1,%1m.JPG").arg(1250 + p * 10));
+    }
+    // 无照片井不出分支。
+    QCOMPARE(w2->childCount(), 1);
+
+    // 跨井同名分支的展开态还原互不串（父链键）：只展开 w0 的分支 →
+    // 全量重建后 w0 分支仍展开、w1 分支保持收拢。
+    wellRoot->setExpanded(true);
+    w0->setExpanded(true);
+    branch0->setExpanded(true);
+    panel.refreshAssetTable();
+    auto *tree2 = panel.findChild<QTreeWidget *>(QStringLiteral("dataTree"));
+    QTreeWidgetItem *wellRoot2 = tree2->topLevelItem(1);
+    QTreeWidgetItem *w0r = findWell(wellRoot2, wells.at(0).id);
+    QTreeWidgetItem *w1r = findWell(wellRoot2, wells.at(1).id);
+    QVERIFY(w0r && w1r);
+    QVERIFY2(w0r->isExpanded() && w0r->child(1)->isExpanded(),
+             "expanded photo branch must survive rebuild");
+    QVERIFY2(!w1r->child(1)->isExpanded(),
+             "sibling well's collapsed branch must not be restored by key collision");
+  }
+
   void governanceUiPreviewCancelAndTokens() {
     paleo::storage::Report report; report.complete = true; report.scannedRoots = {"artifacts/RAW"};
     paleo::storage::FileFact f; f.relativePath = "artifacts/RAW/unreferenced.bin"; f.sizeBytes = 42;

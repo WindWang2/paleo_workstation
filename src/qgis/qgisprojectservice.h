@@ -42,8 +42,11 @@ class QgisProjectService : public QObject
     //（工程清单是权威），本服务在 writeProject 时把它镜像进 QgsProject 自定义
     // 属性（paleo/georeference）随 .qgz 持久化。
     const std::optional<PaleoGeoreference> &georeference() const { return m_georeference; }
-    void setGeoreference(const PaleoGeoreference &g) { m_georeference = g; }
-    void clearGeoreference() { m_georeference.reset(); }
+    void setGeoreference(const PaleoGeoreference &g);
+    void clearGeoreference();
+    const PaleoProjectFile &mapConfiguration() const { return m_mapConfiguration; }
+    bool updateMapConfiguration(const PaleoProjectFile &configuration, QString *error = nullptr);
+    void setReadOnly(bool readOnly) { m_readOnly = readOnly; }
 
     // 关闭当前工程（#152/#153）：发 projectAboutToClose → clear() → 清路径
     // → 发 projectClosed。未打开工程时为空操作。关闭后 writeProject() 拒写
@@ -84,11 +87,13 @@ class QgisProjectService : public QObject
     void openProgress(int percent, const QString &status);
     void openFinished(bool success);
     void openAborted(); // 释放待打开工程的锁；当前工程会话仍有效
+    void mapConfigurationChanged();
 
   private:
     bool runGate( const QString &projectDir, bool creating );
     void notifyAboutToClose();
     void failAfterClose();
+    void applyMapConfiguration();
 
   QgsProject *m_project = nullptr;
   quint64 m_sessionId = 0;
@@ -97,6 +102,8 @@ class QgisProjectService : public QObject
   QString m_path;
   QStringList m_errors;
   std::optional<PaleoGeoreference> m_georeference;
+  PaleoProjectFile m_mapConfiguration;
+  bool m_readOnly = false;
   std::function<bool(QVector<LayerDeclaration> *, QString *)> m_declarationProvider;
   bool m_opening = false;
   quint64 m_openGeneration = 0;

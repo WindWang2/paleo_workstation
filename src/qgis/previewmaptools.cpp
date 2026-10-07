@@ -20,7 +20,17 @@
 namespace
 {
   // 量测距离（平面局部网格，米制）。
-  double planarLength( const QVector<QgsPointXY> &pts )
+  QgsDistanceArea measurement(QgsMapCanvas *canvas)
+  {
+    QgsDistanceArea distance;
+    if (canvas) {
+      distance.setSourceCrs(canvas->mapSettings().destinationCrs(), canvas->mapSettings().transformContext());
+      if (canvas->mapSettings().destinationCrs().type() != Qgis::CrsType::Engineering)
+        distance.setEllipsoid(QStringLiteral("WGS84"));
+    }
+    return distance;
+  }
+  double planarLength( const QVector<QgsPointXY> &pts, QgsMapCanvas *canvas )
   {
     if ( pts.size() < 2 )
       return 0.0;
@@ -29,11 +39,11 @@ namespace
     for ( const QgsPointXY &p : pts )
       line.append( p );
     const QgsGeometry geom = QgsGeometry::fromPolylineXY( line );
-    QgsDistanceArea da; // 不设椭球 → 平面（工程网格语义）
+    auto da = measurement(canvas);
     return da.measureLength( geom );
   }
 
-  double planarArea( const QVector<QgsPointXY> &pts )
+  double planarArea( const QVector<QgsPointXY> &pts, QgsMapCanvas *canvas )
   {
     if ( pts.size() < 3 )
       return 0.0;
@@ -46,11 +56,11 @@ namespace
       boundary.append( boundary.first() );
     ring.append( boundary );
     const QgsGeometry geom = QgsGeometry::fromPolygonXY( ring );
-    QgsDistanceArea da;
+    auto da = measurement(canvas);
     return da.measureArea( geom );
   }
 
-  double planarPerimeter( const QVector<QgsPointXY> &pts )
+  double planarPerimeter( const QVector<QgsPointXY> &pts, QgsMapCanvas *canvas )
   {
     if ( pts.size() < 3 )
       return 0.0;
@@ -61,7 +71,7 @@ namespace
     if ( line.first() != line.last() )
       line.append( line.first() );
     const QgsGeometry geom = QgsGeometry::fromPolylineXY( line );
-    QgsDistanceArea da;
+    auto da = measurement(canvas);
     return da.measureLength( geom );
   }
 } // namespace
@@ -112,12 +122,12 @@ PreviewMeasureTool::~PreviewMeasureTool()
 
 double PreviewMeasureTool::currentLength() const
 {
-  return m_areaMode ? planarPerimeter( m_points ) : planarLength( m_points );
+  return m_areaMode ? planarPerimeter( m_points, canvas() ) : planarLength( m_points, canvas() );
 }
 
 double PreviewMeasureTool::currentArea() const
 {
-  return m_areaMode ? planarArea( m_points ) : 0.0;
+  return m_areaMode ? planarArea( m_points, canvas() ) : 0.0;
 }
 
 void PreviewMeasureTool::canvasPressEvent( QgsMapMouseEvent *e )

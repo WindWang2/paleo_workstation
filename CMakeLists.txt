@@ -443,6 +443,8 @@ add_library(paleo_qgis STATIC
   src/qgis/qgisruntime.cpp
   src/qgis/qgisprojectservice.cpp
   src/qgis/qgisprojectservice_async.cpp
+  src/qgis/qgisprojectservice_map.cpp
+  src/qgis/projectmapreference.cpp
   src/qgis/qgislayerservice.cpp
   src/qgis/qgiscanvascontroller.cpp
   src/qgis/qgiseditingservice.cpp
@@ -643,6 +645,7 @@ add_library(paleo_ui STATIC
   src/ui/datapreview/previewhistogramwidget.cpp    # P2 D2.3/D5.8 直方图小图
   src/ui/datapreview/previewmapstates.cpp          # P2 D1.7/D2.x 状态页 + 会话记忆
   src/ui/dialogs/folderconfirm.cpp                 # W2 文件夹导入确认表
+  src/ui/dialogs/projectmapsettingsdialog.cpp
   src/ui/welltops/welltopseditordialog.cpp          # 方向 32：分层表编辑器
   src/ui/welltops/welltopsmergedialog.cpp           # 方向 32：导入融合逐行取舍
   src/ui/dialogs/storagegovernancedialog.cpp

@@ -2,6 +2,7 @@
 #include "qgisprojectservice.h"
 
 #include "manifestprojection.h"
+#include "projectmapreference.h"
 #include "../metadata/atomicfile.h"
 #include "../metadata/paleoprojectfile.h"
 #include "../metadata/projectlock.h"
@@ -112,6 +113,7 @@ void QgisProjectService::closeProject()
   m_project->clear();
   m_path.clear();
   m_georeference.reset();
+  m_mapConfiguration = {};
   ++m_sessionId;
   emit projectClosed();
 }
@@ -132,6 +134,7 @@ bool QgisProjectService::openProject( const QString &qgzPath )
   // project.paleo 清单入口（PROJECT_FILE_DESIGN）：.paleo → 解析出 qgz 成员
   // 再开；qgz 成员缺席 = 束损坏，拒开。其他成员缺失如实报 lastErrors 仍开。
   m_georeference.reset();
+  m_mapConfiguration = {};
   QString qgzFile = qgzPath;
   if ( qgzPath.endsWith( QLatin1String( ".paleo" ) ) )
   {
@@ -145,6 +148,7 @@ bool QgisProjectService::openProject( const QString &qgzPath )
       return false;
     }
     m_georeference = pf.georeference;
+    m_mapConfiguration = pf;
     if ( !pf.georeferenceError.isEmpty() )
       m_errors << tr( "georeference 节无效: %1（按无配准继续）" ).arg( pf.georeferenceError );
     const QString dir = QFileInfo( qgzPath ).absolutePath();
@@ -180,6 +184,7 @@ bool QgisProjectService::openProject( const QString &qgzPath )
       if ( ok )
       {
         m_georeference = pf.georeference;
+        m_mapConfiguration = pf;
         if ( !pf.georeferenceError.isEmpty() )
           m_errors << tr( "georeference 节无效: %1（按无配准继续）" ).arg( pf.georeferenceError );
         for ( const QString &m : missingMembers( dir, pf ) )
@@ -187,14 +192,6 @@ bool QgisProjectService::openProject( const QString &qgzPath )
       }
       else
         m_errors << tr( "project manifest unreadable: %1" ).arg( perr );
-    }
-    else
-    {
-      QString werr;
-      if ( !writeProjectFile( dir, projectFileForQgz( qgzFile ), &werr ) )
-        m_errors << tr( "could not adopt project manifest: %1" ).arg( werr );
-      else
-        qInfo() << "QgisProjectService: adopted" << paleoPath;
     }
   }
 
@@ -211,7 +208,7 @@ bool QgisProjectService::openProject( const QString &qgzPath )
 
   // 配准兜底链：清单（已取）→ .qgz 内嵌副本。取到后回写属性，保证
   // read() 清空过的 QgsProject 里副本与清单一致。
-  if ( !m_georeference )
+  if ( !m_georeference && m_mapConfiguration.name.isEmpty() )
   {
     bool propOk = false;
     const QString json =
@@ -229,6 +226,25 @@ bool QgisProjectService::openProject( const QString &qgzPath )
   }
   if ( m_georeference )
     embedGeoreferenceProperty( m_project, *m_georeference );
+  else
+    m_project->removeEntry(kGeoScope, kGeoKey);
+
+  applyMapConfiguration();
+
+  // 成功读完后才收养裸 QGZ，并将其已恢复的配准/底图一起写入权威清单。
+  const QString directory = QFileInfo(m_path).absolutePath();
+  if (!QFile::exists(paleoProjectFilePath(directory))) {
+    auto adopted = projectFileForQgz(m_path);
+    adopted.georeference = m_georeference;
+    adopted.mapCrs = m_mapConfiguration.mapCrs;
+    adopted.basemapEnabled = m_mapConfiguration.basemapEnabled;
+    adopted.basemapTopo = m_mapConfiguration.basemapTopo;
+    adopted.basemapHillshade = m_mapConfiguration.basemapHillshade;
+    QString error;
+    if (!writeProjectFile(directory, adopted, &error))
+      m_errors << tr("could not adopt project manifest: %1").arg(error);
+    else m_mapConfiguration = adopted;
+  }
 
   ++m_sessionId;
   emit projectOpened( m_path );
@@ -275,6 +291,8 @@ bool QgisProjectService::createProject( const QString &qgzPath )
   m_project->clear();
   m_path = qgzPath;
   m_georeference.reset();
+  m_mapConfiguration = {};
+  applyMapConfiguration();
 
   // Materialize the file immediately so the path is authoritative from t=0 and
   // later saveAll() cycles always have an existing .qgz to back up.

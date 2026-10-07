@@ -49,6 +49,8 @@
 #include "help/whatsthiscatalog.h"     // 方向63：「这是什么？」清单回填
 #include "constraintdrawcontroller.h"
 #include "dialogs/folderconfirm.h"
+#include "dialogs/projectmapsettingsdialog.h"
+#include "qgis/projectmapreference.h"
 #include "typedconstraintdrawcontroller.h" // ---- m2(B)：物源线/展布线/控制点（块内接线用）----
 #include "correlationpanel.h"
 #include "wellsection/wellsectionpanel.h"
@@ -887,9 +889,17 @@ void PaleoMainWindow::buildShell()
     scaleLabel->setObjectName(QStringLiteral("statusScale"));
     scaleLabel->setFont(PaleoTheme::monoFont()); // T32：比例尺读数是数字面
     connect(cv, &QgsMapCanvas::xyCoordinates, this,
-            [coordLabel](const QgsPointXY &p) {
+            [coordLabel, cv](const QgsPointXY &p) {
               // 固定 3 位小数（默认 arg(double) 只有 6 位有效数字，读数
               // 位数随量级跳动）；tnum 等宽数字面下宽度稳定。
+              QgsPointXY geographic;
+              if (cv->mapSettings().destinationCrs().type() != Qgis::CrsType::Engineering &&
+                  paleo::mapreference::transformPoint(cv, p, cv->mapSettings().destinationCrs(),
+                      QgsCoordinateReferenceSystem(QStringLiteral("EPSG:4326")), &geographic)) {
+                coordLabel->setText(tr("经纬度 %1, %2").arg(QLocale().toString(geographic.x(), 'f', 6),
+                                                            QLocale().toString(geographic.y(), 'f', 6)));
+                return;
+              }
               coordLabel->setText(QStringLiteral("%1, %2")
                                       .arg(QLocale().toString(p.x(), 'f', 3),
                                            QLocale().toString(p.y(), 'f', 3)));
@@ -907,11 +917,27 @@ void PaleoMainWindow::buildShell()
     // 「工程坐标 · 米 · 未投影」（DESIGN.md 状态文字 #5D6E80，次级文案同色）。
     auto *crsLabel = new QLabel(this);
     crsLabel->setObjectName(QStringLiteral("statusCrs"));
-    crsLabel->setText(tr("工程坐标 · 米 · 未投影"));
-    crsLabel->setToolTip(tr("局部工程坐标，单位米，未投影 — 不是经纬度"));
+    const auto updateCrs = [crsLabel, cv] {
+      const auto crs = cv->mapSettings().destinationCrs();
+      crsLabel->setText(crs.type() == Qgis::CrsType::Engineering ? tr("工程坐标 · 米 · 未投影")
+          : crs.authid().isEmpty() ? crs.description() : crs.authid());
+      crsLabel->setToolTip(crs.description());
+    };
+    updateCrs();
+    connect(cv, &QgsMapCanvas::destinationCrsChanged, this, updateCrs);
     PaleoTheme::applyThemedStyleSheet(
         crsLabel, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
     statusBar()->addPermanentWidget(crsLabel);
+    auto *sources = new QLabel(this);
+    sources->setObjectName(QStringLiteral("basemapAttribution"));
+    PaleoTheme::applyThemedStyleSheet(sources, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
+    const auto updateSources = [sources, cv] {
+      sources->setText(paleo::mapreference::attribution(cv));
+      sources->setVisible(!sources->text().isEmpty());
+    };
+    connect(cv, &QgsMapCanvas::layersChanged, this, updateSources);
+    updateSources();
+    statusBar()->addWidget(sources, 1);
   }
   if (m_selection)
     connect(m_selection, &SelectionContext::activeHorizonChanged, horizonLabel,
@@ -1116,6 +1142,38 @@ void PaleoMainWindow::buildRibbon()
     viaStartup(tr("打开工程(&O)…"), "mActionFileOpen.svg", "openProjectButton");
     viaStartup(tr("从工区文件夹新建(&I)…"), "mIconFolderOpen.svg", "importFromFolderButton");
     menu->addSeparator()->setObjectName(QStringLiteral("fileMenuSaveAnchor"));
+    auto *mapSettings = menu->addAction(PaleoIcons::qgisTheme(QStringLiteral("mActionMapSettings.svg")), tr("工程坐标与底图…"));
+    mapSettings->setObjectName(QStringLiteral("projectMapSettingsAction"));
+    connect(menu, &QMenu::aboutToShow, this, [this, mapSettings] {
+      mapSettings->setEnabled(m_projectSvc && !m_projectSvc->projectPath().isEmpty() && !m_projectSvc->isOpening());
+    });
+    connect(mapSettings, &QAction::triggered, this, [this] {
+      if (!m_projectSvc || m_projectSvc->projectPath().isEmpty()) return;
+      auto *dialog = new ProjectMapSettingsDialog(m_projectSvc->mapConfiguration(), this);
+      dialog->setAttribute(Qt::WA_DeleteOnClose);
+      const auto session = m_projectSvc->sessionId();
+      connect(dialog, &ProjectMapSettingsDialog::saveRequested, this, [this, dialog, session] {
+        QString error;
+        if (session != m_projectSvc->sessionId()) error = tr("工程已切换，请重新打开设置");
+        else if (m_projectSvc->updateMapConfiguration(dialog->configuration(), &error)) {
+          dialog->accept();
+          statusBar()->showMessage(tr("工程坐标与底图设置已保存"), 5000);
+          return;
+        }
+        dialog->showError(error);
+      });
+      dialog->open();
+    });
+    if (m_projectSvc)
+      connect(m_projectSvc, &QgisProjectService::mapConfigurationChanged, this, [this] {
+        if (m_previewTabs) {
+          bool surveyOpen = false;
+          for (int i = 0; i < m_previewTabs->tabCount(); ++i)
+            surveyOpen |= m_previewTabs->assetIdAt(i) == QLatin1String("survey_area");
+          if (surveyOpen) { m_previewTabs->closeAssetTab(QStringLiteral("survey_area")); m_previewTabs->openSurveyArea(); }
+        }
+        if (m_canvasCtl) QTimer::singleShot(0, this, [this] { m_canvasCtl->zoomToFullExtent(); });
+      });
     QAction *home =
         menu->addAction(PaleoIcons::qgisTheme(QStringLiteral("mIconFolderHome.svg")), tr("起始页(&H)"));
     connect(home, &QAction::triggered, this, [this] { showStartup(); });
@@ -1495,7 +1553,7 @@ void PaleoMainWindow::flashHorizonLayer(QgsMapLayer *layer)
   band->setObjectName(QStringLiteral("horizonFlashRubberBand"));
   m_horizonFlashBand = band;
   band->setToGeometry(QgsGeometry::fromRect(layer->extent()),
-                      qobject_cast<QgsVectorLayer *>(layer));
+                      layer->crs());
   band->setColor(QColor(27, 115, 208, 60)); // #1B73D0 @ ~24% 填充透明度
   band->setStrokeColor(QColor(QStringLiteral("#1B73D0")));
   band->setWidth(2);
@@ -1836,10 +1894,11 @@ void PaleoMainWindow::saveCanvasExtent()
   if (e.isEmpty())
     return;
   const QString encoded = QStringLiteral("%1,%2,%3,%4")
-                              .arg(e.xMinimum()).arg(e.yMinimum())
-                              .arg(e.xMaximum()).arg(e.yMaximum());
+                              .arg(e.xMinimum(), 0, 'g', 17).arg(e.yMinimum(), 0, 'g', 17)
+                              .arg(e.xMaximum(), 0, 'g', 17).arg(e.yMaximum(), 0, 'g', 17);
   m_projectSvc->project()->writeEntry(QStringLiteral("paleo"),
                                       QStringLiteral("canvasExtent"), encoded);
+  m_projectSvc->project()->writeEntry("paleo", "canvasExtentCrs", cv->mapSettings().destinationCrs().toWkt());
 }
 
 void PaleoMainWindow::restoreCanvasExtent()
@@ -1849,8 +1908,10 @@ void PaleoMainWindow::restoreCanvasExtent()
   bool ok = false;
   const QString raw = m_projectSvc->project()->readEntry(
       QStringLiteral("paleo"), QStringLiteral("canvasExtent"), QString(), &ok);
-  if (!ok)
+  if (!ok) {
+    QTimer::singleShot(0, this, [this] { m_canvasCtl->zoomToFullExtent(); });
     return;
+  }
   const QStringList parts = raw.split(QLatin1Char(','));
   if (parts.size() != 4)
     return;
@@ -1861,9 +1922,13 @@ void PaleoMainWindow::restoreCanvasExtent()
   const double ymax = parts.at(3).toDouble(&conv[3]);
   if (!conv[0] || !conv[1] || !conv[2] || !conv[3])
     return;
-  const QgsRectangle e(xmin, ymin, xmax, ymax);
+  QgsRectangle e(xmin, ymin, xmax, ymax);
   if (e.isEmpty())
     return;
+  const auto savedCrs = m_projectSvc->project()->readEntry("paleo", "canvasExtentCrs");
+  const auto source = QgsCoordinateReferenceSystem::fromWkt(savedCrs.isEmpty() ? DataCatalog::localGridCrsWkt() : savedCrs);
+  e = paleo::mapreference::mapExtent(m_canvasCtl->canvas(), e, source);
+  if (e.isEmpty()) return;
   m_canvasCtl->canvas()->setExtent(e);
   m_canvasCtl->canvas()->refresh();
 }

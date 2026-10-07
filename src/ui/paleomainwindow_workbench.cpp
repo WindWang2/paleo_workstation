@@ -250,6 +250,10 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
     canvas->setObjectName("referenceCanvas");
     layer->setParent(
         canvas); // keep the layer alive until the renderer has stopped
+    if (m_projectSvc) {
+      canvas->setProject(m_projectSvc->project());
+      canvas->mapSettings().setTransformContext(m_projectSvc->project()->transformContext());
+    }
     canvas->setDestinationCrs(layer->crs());
     canvas->setCanvasColor(Qt::white);
     canvas->setLayers({layer});

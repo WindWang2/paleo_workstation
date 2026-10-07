@@ -243,7 +243,12 @@ void QgisLayerOrganizer::desiredSlot( const LayerDeclaration &decl,
     *parent = root;
     // 共享平铺区在全部层位组之下：越过 SharedData/HorizonGroup/Unmanaged，
     // 在本区成员上按 groupRank 找首个秩更大者之前插入。
-    const int rank = groupRank( decl.group );
+    const auto sharedRank = [](const LayerDeclaration &d) {
+      // 底图始终垫底，地形图压在阴影上；刷新/重开也保持确定顺序。
+      return d.type == QLatin1String("mbtiles") ? 1000 + (d.layerId.endsWith("hillshade") ? 1 : 0)
+                                              : groupRank(d.group);
+    };
+    const int rank = sharedRank(decl);
     for ( int i = 0; i < kids.size(); ++i )
     {
       QgsLayerTreeNode *n = kids.at( i );
@@ -251,7 +256,7 @@ void QgisLayerOrganizer::desiredSlot( const LayerDeclaration &decl,
         continue;
       const auto it = declById.constFind(
           paleoIdOf( qobject_cast<QgsLayerTreeLayer *>( n )->layer() ) );
-      if ( it != declById.constEnd() && groupRank( it.value().group ) > rank )
+      if ( it != declById.constEnd() && sharedRank(it.value()) > rank )
       {
         *index = i;
         return;

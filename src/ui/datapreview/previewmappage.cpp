@@ -104,6 +104,7 @@ class PreviewMapPage::PreviewOverviewMap : public QWidget
       QgsRectangle grown = full;
       grown.scale( 1.15 );
       m_canvas->setDestinationCrs( m_host->m_canvas->crs() );
+      m_canvas->mapSettings().setTransformContext(m_host->m_canvas->canvas()->mapSettings().transformContext());
       m_canvas->setExtent( grown );
       m_canvas->refresh();
       updateViewportRect();

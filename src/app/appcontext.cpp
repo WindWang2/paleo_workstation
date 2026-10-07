@@ -72,6 +72,7 @@
 #include <qgsmessagelog.h>
 #include <qgsvectorlayer.h>
 #include <qgsmarkersymbol.h>
+#include <qgsfillsymbol.h>
 #include <qgssinglesymbolrenderer.h>
 #include <qgspallabeling.h>
 #include <qgsvectorlayerlabeling.h>
@@ -203,6 +204,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   // geojson，范围不变不抢视野）。
   connect(m_import->catalog(), &DataCatalog::changed, this, [this] {
     refreshWellsLayer(true);
+    refreshSurveyLayer();
     refreshWellTrajectoriesLayer();
   });
 
@@ -361,6 +363,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
             // 图层清单（manifest sqlite）、版本库（map_versions）。读面照常。
             const bool writable = m_projectLock->isHeld();
             m_store->setReadOnly(!writable);
+            m_projectSvc->setReadOnly(!writable);
             if (DataCatalog *cat = m_import->catalog())
               cat->setLockedReadOnly(!writable); // 实例级模式，open() 不清除
             // 广播去重：同工程重复打开（理论不可达）不重复弹。
@@ -530,6 +533,8 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
             // §4 井位图层（预览壳重排）：catalog 已随 setProjectDir 打开——
             // 井点写 GeoJSON、声明「wells」、实例化后绑给 WellMapLink。
             m_projectDir = fi.absolutePath();
+            m_layerSvc->refreshBasemaps();
+            refreshSurveyLayer();
             refreshWellsLayer(false); // 打开时视野归 .qgz 恢复态，不抢
             refreshWellTrajectoriesLayer();
 
@@ -575,7 +580,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
               }
             }
             if (m_faultCtl->faultSet().faultCount() > 0)
-              m_faultCtl->ensureMapLayer(m_projectSvc->project()->crs().authid());
+              m_faultCtl->ensureMapLayer(DataCatalog::localGridCrsWkt());
 
             // 图层树规整：manifest/目录都重绑完后跑一次全量归位——旧工程
             // 的平铺树收成「置顶共享 + 层位组」，未实例化层位补齐占位组。
@@ -583,6 +588,40 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
               m_layerOrganizer->reorganize();
           });
   StartupTrace::mark(QStringLiteral("services_ready")); // 服务装配完（簇1 仪表）
+  connect(m_projectSvc, &QgisProjectService::mapConfigurationChanged, this, [this] {
+    if (m_projectSvc->georeference()) m_import->setGeoreference(*m_projectSvc->georeference());
+    else m_import->clearGeoreference();
+    m_layerSvc->refreshBasemaps();
+  });
+}
+
+void AppContext::refreshSurveyLayer()
+{
+  if (m_projectDir.isEmpty() || !m_import || !m_import->catalog() || !m_layerSvc) return;
+  const QString path = QDir(m_projectDir).filePath(QStringLiteral("artifacts/layers/survey_area.geojson"));
+  QString error;
+  if (!isProjectReadOnly()) {
+    if (!m_import->catalog()->writeSurveyGeoJson(path, &error)) {
+      qWarning() << "Survey layer:" << error; return;
+    }
+    LayerDeclaration declaration;
+    declaration.layerId = QStringLiteral("survey.area");
+    declaration.type = QStringLiteral("vector");
+    declaration.source = path;
+    declaration.group = QStringLiteral("00_Data");
+    declaration.title = tr("测区范围");
+    if (!m_layerSvc->declare(declaration, &error)) {
+      qWarning() << "Survey declaration:" << error; return;
+    }
+  }
+  if (auto *layer = qobject_cast<QgsVectorLayer *>(m_layerSvc->instantiate(QStringLiteral("survey.area"), &error))) {
+    layer->reload();
+    // 原生符号保持透明内部，矩形范围和底图同时可读。
+    auto symbol = QgsFillSymbol::createSimple({{"color", "transparent"}, {"outline_color", "27,115,208,255"},
+                                               {"outline_style", "dash"}, {"outline_width", "0.5"}});
+    layer->setRenderer(new QgsSingleSymbolRenderer(symbol.release()));
+    layer->triggerRepaint();
+  }
 }
 
 bool AppContext::isProjectReadOnly() const

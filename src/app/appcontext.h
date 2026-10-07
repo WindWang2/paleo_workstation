@@ -151,6 +151,7 @@ class AppContext : public QObject
     // zoom-to-content——无关联导入只重写同一份 geojson，范围不变不抢视野；
     // 工程打开路径传 false，让位于 .qgz 里恢复的视野。
     void refreshWellsLayer(bool zoomOnGrowth);
+    void refreshSurveyLayer();
     // goal/well-trajectory：井底位移轨迹线层（surface→TD 投影）。无任何
     // 已决测斜时不写文件不声明层（诚实空，同 wells 的约定）。
     void refreshWellTrajectoriesLayer();

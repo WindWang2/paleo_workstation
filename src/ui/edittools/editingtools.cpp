@@ -1,5 +1,7 @@
 // 层：视图
 #include "editingtools.h"
+#include <qgscoordinatetransform.h>
+#include <qgsexception.h>
 #include "../maptools/capturehelpers.h"
 
 #include "../../qgis/qgiseditingservice.h"
@@ -538,7 +540,14 @@ void PaleoDeleteFeatureTool::canvasReleaseEvent( QgsMapMouseEvent *e )
   // 整个选区。搜索半径用原生顶点搜索容差（地图单位），点/线/面统一走
   // 容差圆盘 intersects。
   const double radius = QgsTolerance::vertexSearchRadius( canvas()->mapSettings() );
-  const QgsGeometry disc = QgsGeometry::fromPointXY( e->mapPoint() ).buffer( radius, 8 );
+  QgsGeometry disc = QgsGeometry::fromPointXY( e->mapPoint() ).buffer( radius, 8 );
+  try {
+    disc.transform(QgsCoordinateTransform(canvas()->mapSettings().destinationCrs(), vl->crs(),
+                                          canvas()->mapSettings().transformContext()));
+  } catch (const QgsCsException &ex) {
+    emit messageEmitted(ex.what(), Qgis::MessageLevel::Warning);
+    return;
+  }
   QgsFeatureIds hits;
   QgsFeature feature;
   QgsFeatureIterator it = vl->getFeatures( QgsFeatureRequest()

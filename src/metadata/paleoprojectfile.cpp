@@ -146,6 +146,7 @@ bool paleoGeoreferenceFromJson(const QJsonObject &o, PaleoGeoreference *g,
   }
   g->formula = o.value(QStringLiteral("formula")).toString();
   g->provenance = o.value(QStringLiteral("provenance")).toString();
+  g->controlPoints.clear();
   g->maxResidualM = o.value(QStringLiteral("maxResidualM")).toDouble(0.0);
   const QJsonArray cps = o.value(QStringLiteral("controlPoints")).toArray();
   for (const QJsonValue &v : cps)
@@ -162,7 +163,7 @@ bool paleoGeoreferenceFromJson(const QJsonObject &o, PaleoGeoreference *g,
   }
   if (!g->isComplete())
   {
-    setErr(error, QStringLiteral("georeference 参数不完整（度米系数须为正）"));
+    setErr(error, QStringLiteral("georeference 参数无效（须使用 EPSG:4326、有效锚点、正度米系数和非零缩放）"));
     return false;
   }
   return true;
@@ -171,23 +172,28 @@ bool paleoGeoreferenceFromJson(const QJsonObject &o, PaleoGeoreference *g,
 bool PaleoGeoreference::isComplete() const
 {
   return std::isfinite(anchorLonDeg) && std::isfinite(anchorLatDeg) &&
+         std::abs(anchorLonDeg) <= 180.0 && std::abs(anchorLatDeg) < 90.0 &&
          std::isfinite(metersPerDegLon) && metersPerDegLon > 0.0 &&
          std::isfinite(metersPerDegLat) && metersPerDegLat > 0.0 &&
          std::isfinite(a) && std::isfinite(b) && std::isfinite(tE) &&
-         std::isfinite(tN) && !targetCrs.isEmpty();
+         std::isfinite(tN) && std::hypot(a, b) > 1e-12 &&
+         kind == QLatin1String("similarity2d") &&
+         targetCrs.compare(QLatin1String("EPSG:4326"), Qt::CaseInsensitive) == 0;
 }
 
 bool applyGeoreference(const PaleoGeoreference &g, double x, double y,
                        double *lonDeg, double *latDeg)
 {
-  if (!g.isComplete())
+  if (!g.isComplete() || !std::isfinite(x) || !std::isfinite(y))
     return false;
   const double e = g.a * x - g.b * y + g.tE;
   const double n = g.b * x + g.a * y + g.tN;
-  if (lonDeg)
-    *lonDeg = g.anchorLonDeg + e / g.metersPerDegLon;
-  if (latDeg)
-    *latDeg = g.anchorLatDeg + n / g.metersPerDegLat;
+  const double lon = g.anchorLonDeg + e / g.metersPerDegLon;
+  const double lat = g.anchorLatDeg + n / g.metersPerDegLat;
+  if (!std::isfinite(lon) || !std::isfinite(lat) || std::abs(lon) > 180.0 || std::abs(lat) >= 90.0)
+    return false;
+  if (lonDeg) *lonDeg = lon;
+  if (latDeg) *latDeg = lat;
   return true;
 }
 
@@ -236,6 +242,12 @@ bool writeProjectFile(const QString &projectDir, const PaleoProjectFile &file,
   o.insert(QStringLiteral("projectId"), file.projectId);
   o.insert(QStringLiteral("createdUtc"), file.createdUtc);
   o.insert(QStringLiteral("members"), membersToJson(file));
+  o.insert(QStringLiteral("map"), QJsonObject{
+      {QStringLiteral("crs"), file.mapCrs},
+      {QStringLiteral("basemap"), QJsonObject{
+          {QStringLiteral("enabled"), file.basemapEnabled},
+          {QStringLiteral("topo"), file.basemapTopo},
+          {QStringLiteral("hillshade"), file.basemapHillshade}}}});
   if (!file.sourceAreaRoot.isEmpty())
   {
     QJsonObject s;
@@ -338,6 +350,12 @@ PaleoProjectFile readProjectFile(const QString &path, bool *ok, QString *error)
   f.sourceAreaRoot = s.value(QStringLiteral("root")).toString();
   f.sourceAreaImportedUtc = s.value(QStringLiteral("importedUtc")).toString();
   f.sourceStats = s.value(QStringLiteral("stats")).toObject().toVariantMap();
+  const auto map = o.value(QStringLiteral("map")).toObject();
+  f.mapCrs = map.value(QStringLiteral("crs")).toString(QStringLiteral("EPSG:3857"));
+  const auto basemap = map.value(QStringLiteral("basemap")).toObject();
+  f.basemapEnabled = basemap.value(QStringLiteral("enabled")).toBool(true);
+  f.basemapTopo = basemap.value(QStringLiteral("topo")).toString();
+  f.basemapHillshade = basemap.value(QStringLiteral("hillshade")).toString();
   if (o.contains(QStringLiteral("georeference")))
   {
     PaleoGeoreference g;

@@ -22,6 +22,7 @@
 #include <qgsrendercontext.h>
 #include <qgsrectangle.h>
 #include <qgsunittypes.h>
+#include <qgsdistancearea.h>
 
 namespace
 {
@@ -82,7 +83,17 @@ void PaleoScaleBarDecoration::render( const QgsMapSettings &mapSettings, QgsRend
   if ( !painter || !painter->device() )
     return;
 
-  const double mupp = mapSettings.mapUnitsPerPixel();
+  double mupp = mapSettings.mapUnitsPerPixel();
+  Qgis::DistanceUnit shownUnit = mapSettings.mapUnits();
+  if (mapSettings.destinationCrs().type() != Qgis::CrsType::Engineering) {
+    QgsDistanceArea distance;
+    distance.setSourceCrs(mapSettings.destinationCrs(), mapSettings.transformContext());
+    distance.setEllipsoid(QStringLiteral("WGS84"));
+    const auto &pixels = mapSettings.mapToPixel();
+    mupp = distance.measureLine(pixels.toMapCoordinates(12, painter->device()->height()-12),
+                                pixels.toMapCoordinates(92, painter->device()->height()-12)) / 80.0;
+    shownUnit = Qgis::DistanceUnit::Meters;
+  }
   if ( !( mupp > 0 ) || !std::isfinite( mupp ) )
     return;
 
@@ -93,7 +104,6 @@ void PaleoScaleBarDecoration::render( const QgsMapSettings &mapSettings, QgsRend
     return;
   const double barPx = dist / mupp;
 
-  Qgis::DistanceUnit shownUnit = mapSettings.mapUnits();
   double shown = dist;
   if ( shownUnit == Qgis::DistanceUnit::Meters && dist >= 1000.0 )
   {

@@ -37,8 +37,13 @@ void restoreRasterCrs(QgsMapLayer *layer) {
   if (!ds)
     return;
   const char *stored = GDALGetMetadataItem(ds, "PALEO_CRS_WKT", nullptr);
-  const auto wkt = stored ? QString::fromUtf8(stored) : QString();
+  auto wkt = stored ? QString::fromUtf8(stored) : QString();
   GDALClose(ds);
+  // 老层位 TIFF 未保存原始 WKT，GeoTIFF 将 EDATUM 降成 Unknown。
+  // Paleo 命名的局部网格仍采用工程约定，恢复后才能匹配显式配准操作。
+  if (wkt.isEmpty() && raster->crs().type() == Qgis::CrsType::Engineering &&
+      raster->crs().toWkt().contains(QStringLiteral("Paleo local engineering grid")))
+    wkt = DataCatalog::localGridCrsWkt();
   const auto crs = QgsCoordinateReferenceSystem::fromWkt(wkt);
   if (!wkt.isEmpty() && crs.isValid())
     raster->setCrs(crs);

@@ -49,7 +49,7 @@ struct PaleoGeoreference
   QVector<ControlPoint> controlPoints;
   double maxResidualM = 0.0;
 
-  // 数值字段全有限且度米系数为正 → 可用。
+  // WGS84、有效锚点、有限参数、正度米系数及非零缩放 → 可用。
   bool isComplete() const;
 };
 
@@ -88,6 +88,12 @@ struct PaleoProjectFile
   // 不完整时读端置 georeferenceError（打开如实报 lastErrors，不拦打开）。
   std::optional<PaleoGeoreference> georeference;
   QString georeferenceError;
+
+  // 地图显示配置独立于原始地质网格；底图路径为工程根相对路径。
+  QString mapCrs = QStringLiteral("EPSG:3857");
+  QString basemapTopo;
+  QString basemapHillshade;
+  bool basemapEnabled = true;
 };
 
 // <dir>/project.paleo 的路径。

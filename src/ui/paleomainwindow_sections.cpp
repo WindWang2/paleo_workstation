@@ -6,6 +6,7 @@
 #include "paleomainwindow.h"
 #include "qgis/qgiscanvascontroller.h"
 #include "qgis/seismicsectiontool.h"
+#include "catalog/datacatalog.h"
 #include "seismicsection/sectionsetupdialog.h"
 #include "seismicsection/seismicsectiondockwidget.h"
 #include "services/previewdoc.h"
@@ -18,6 +19,7 @@
 #include <QStatusBar>
 #include <qgsmapcanvas.h>
 #include <qgsrubberband.h>
+#include <qgsgeometry.h>
 
 void PaleoMainWindow::attachSections(SeismicMapLink *link) {
   m_sectionLink = link;
@@ -174,8 +176,10 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
             *routeHorizon =
                 m_selection ? m_selection->activeHorizon() : QString();
             band->reset(Qgis::GeometryType::Line);
-            for (const auto &p : line)
-              band->addPoint(QgsPointXY(p.x, p.y));
+            QgsPolylineXY path;
+            for (const auto &p : line) path << QgsPointXY(p.x, p.y);
+            band->setToGeometry(QgsGeometry::fromPolylineXY(path),
+                                QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()));
             band->show();
             dock->extractSectionFromVolumeAsync(volume, points, title, line,
                                                 workbench->sectionWells());

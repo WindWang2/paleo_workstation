@@ -29,6 +29,8 @@ class QgisLayerService : public QObject
     void setEditingService(QgisEditingService *editSvc) { m_editSvc = editSvc; }
 
     bool declare(const LayerDeclaration &decl, QString *error = nullptr);
+    bool removeDeclaration(const QString &layerId, QString *error = nullptr);
+    void refreshBasemaps();
     QVector<LayerDeclaration> declared() const { return m_manifest->all(); }
     // False when the manifest cannot be read. Callers must not treat that as
     // an empty declaration set.

@@ -56,17 +56,26 @@ void SeismicSectionDockWidget::runTracking() {
     if (m_pickPanel)
         m_pickPanel->setTrackingActive(true);
     QPointer<SeismicSectionDockWidget> guard(this); // 注入共享服务时迟到回调守卫
+    // #285：会话身份快照——换体后 m_session.sourceSgyPath 已指向新体的
+    // 伴生文件，迟到回调必须丢弃（否则 A 体剖面上追出的拾取被并入 B 体
+    // 会话并自动落盘）。按会话路径而非世代号守卫：同体内换线不丢结果。
+    const QString sessionPath = m_session.sourceSgyPath;
     SeismicTrackOptions trackOptions = m_trackOptions;
     trackOptions.columnLines = ref.colLines; // #147
     trackOptions.startTimeMs = ref.t0Ms;     // #146
     m_trackTask = m_taskService->startHorizonTracking(
         m_lastSlice, ref.type, ref.index, ref.colMin, ref.colMax, seeds,
         trackOptions, interpreter, horizon, dtMs,
-        [this, guard, ref, horizon, colOf, onSection](bool ok, const QList<SeismicPick> &picks,
+        [this, guard, ref, horizon, colOf, onSection, sessionPath](bool ok, const QList<SeismicPick> &picks,
                                                       const SeismicTrackReport &report,
                                                       const QString &error) {
             if (!guard)
                 return; // dock 已亡（取消后迟到回调）：丢弃
+            // #285：换体后迟到丢弃——m_session 已锚到新体伴生文件，A 体
+            // 追出的拾取不得并入 B 会话并自动落盘；陈旧完成报告同样不得
+            // 闪现面板（结果已丢弃，报了反而误导）。
+            if (m_session.sourceSgyPath != sessionPath)
+                return;
             m_trackTask = nullptr;
             m_lastTrackReport = report;
             if (m_pickPanel)
@@ -211,13 +220,19 @@ void SeismicSectionDockWidget::runVolumePropagation() {
     if (m_pickPanel)
         m_pickPanel->setPropagateActive(true);
     QPointer<SeismicSectionDockWidget> guard(this); // 迟到回调守卫（同 runTracking）
+    // #285：会话身份快照——换体后迟到丢弃，层位面资产不得登记到旧体谱系。
+    const QString sessionPath = m_session.sourceSgyPath;
     m_propTask = m_taskService->startVolumePropagation(
         m_volume, req,
-        [this, guard, horizon](bool ok, const QList<SeismicPick> &picks,
+        [this, guard, horizon, sessionPath](bool ok, const QList<SeismicPick> &picks,
                                const SeismicTrackReport &report,
                                const QString &error) {
             if (!guard)
                 return; // dock 已亡：丢弃
+            // #285：换体后迟到丢弃——层位面资产不得登记到旧体谱系，陈旧
+            // 完成报告同样不得闪现面板（m_propTask 已由 setVolume 摘牌取消）。
+            if (m_session.sourceSgyPath != sessionPath)
+                return;
             m_propTask = nullptr;
             if (m_pickPanel) {
                 m_pickPanel->setPropagateActive(false);

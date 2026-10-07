@@ -622,6 +622,104 @@ private slots:
     QCOMPARE(dock.interpretationSession().picks.size(), 8);
   }
 
+  // ---- #285：换体清 undo 栈——旧体命令不得经 Ctrl+Z 写进新会话 ----
+  void volumeSwitchClearsUndoStack()
+  {
+    QTemporaryDir dir;
+    const QString sgyA = dir.filePath("swa.sgy");
+    const QString sgyB = dir.filePath("swb.sgy");
+    QVERIFY(writeTestSegy(sgyA, 6, 6, 64));
+    QVERIFY(writeTestSegy(sgyB, 6, 6, 64));
+    auto volumeA = std::make_shared<SgyVolume>();
+    auto volumeB = std::make_shared<SgyVolume>();
+    std::string verr;
+    QVERIFY(volumeA->Load(sgyA.toStdString(), verr));
+    QVERIFY(volumeB->Load(sgyB.toStdString(), verr));
+
+    SeismicSectionDockWidget dock;
+    dock.resize(900, 650);
+    QSignalSpy finishedSpy(&dock, &SeismicSectionDockWidget::sectionExtractionFinished);
+    dock.setVolume(volumeA);
+    QVERIFY(finishedSpy.wait(10000)); // 初始剖面提取（等 SectionRef 就位）
+
+    QUndoStack *stack = dock.findChild<QUndoStack *>();
+    QVERIFY(stack != nullptr);
+
+    dock.setPickMode(SectionPickMode::Seed);
+    dock.addPickFromCanvas(2, 64.0);
+    QCOMPARE(dock.interpretationSession().picks.size(), 1);
+    dock.removePick(dock.interpretationSession().picks.first().id);
+    QCOMPARE(dock.interpretationSession().picks.size(), 0);
+    QVERIFY(stack->count() >= 2); // add + remove 两条命令在栈
+
+    // 换体即换解释会话（pick id 两会话都从 1 起）——undo 栈必须清空
+    dock.setVolume(volumeB);
+    QVERIFY(finishedSpy.wait(10000));
+    QCOMPARE(stack->count(), 0);
+
+    // 换体后的 Ctrl+Z 是空栈 no-op：B 会话不变、B 的伴生文件不产生
+    stack->undo();
+    QCOMPARE(dock.interpretationSession().picks.size(), 0);
+    QVERIFY(!QFileInfo::exists(dock.sessionFilePath()));
+  }
+
+  // ---- #285：追踪在途时换体——任务取消 + 迟到结果丢弃，不串写新会话 ----
+  void volumeSwitchCancelsInFlightTracking()
+  {
+    QTemporaryDir dir;
+    const QString sgyA = dir.filePath("trka.sgy");
+    const QString sgyB = dir.filePath("trkb.sgy");
+    // 事件峰 = 40 + xlIdx（与 dockTrackingMergeUndoRedo 同构造）
+    QVERIFY(writeEventSegy(sgyA, 6, 8, 128, [](int, int xl) { return 40 + xl; }));
+    QVERIFY(writeEventSegy(sgyB, 6, 8, 128, [](int, int xl) { return 40 + xl; }));
+    auto volumeA = std::make_shared<SgyVolume>();
+    auto volumeB = std::make_shared<SgyVolume>();
+    std::string verr;
+    QVERIFY(volumeA->Load(sgyA.toStdString(), verr));
+    QVERIFY(volumeB->Load(sgyB.toStdString(), verr));
+
+    PaleoTaskService tasks;
+    SeismicTaskService svc(&tasks);
+    SeismicSectionDockWidget dock;
+    dock.setTaskService(&svc);
+    dock.resize(900, 650);
+    QSignalSpy doneSpy(&dock, &SeismicSectionDockWidget::sectionExtractionFinished);
+    dock.setVolume(volumeA);
+    QVERIFY(doneSpy.wait(10000)); // 初始剖面就位
+
+    dock.setPickMode(SectionPickMode::Seed);
+    dock.addPickFromCanvas(2, 84.0); // 列 2 峰位 42 样 = 84ms
+    QCOMPARE(dock.interpretationSession().picks.size(), 1);
+
+    // 占满并发闸 → 追踪任务确定性地排队（在途窗口内换体）
+    for (int i = 0; i < SeismicTaskService::kMaxConcurrentTasks; ++i) {
+      svc.startBounded(QStringLiteral("filler-%1").arg(i),
+                       [](PaleoTask *) {
+                         QThread::msleep(600);
+                         return QString();
+                       },
+                       QString(), /*quiet=*/true);
+    }
+    dock.setTrackSeedPick(dock.interpretationSession().picks.first().id);
+    dock.setTrackOptions({24, 12, 0.6});
+    dock.runTracking();
+    QVERIFY(dock.trackingActive());
+
+    dock.setVolume(volumeB); // 换体：追踪取消 + 会话身份作废
+    QVERIFY(!dock.trackingActive());
+    QVERIFY(doneSpy.wait(10000)); // B 剖面提取完成 = 任务全部收敛
+
+    // 迟到追踪结果不得并入 B 会话，B 的伴生文件不得产生
+    QCOMPARE(dock.interpretationSession().picks.size(), 0);
+    QVERIFY(!QFileInfo::exists(dock.sessionFilePath()));
+    // A 的会话文件仍是那 1 个手动拾取——机器拾取未跨体串写
+    SeismicInterpretationSession sessionA;
+    sessionA.sourceSgyPath = sgyA;
+    QVERIFY(SeismicTaskService::loadSession(sgyA, sessionA, nullptr));
+    QCOMPARE(sessionA.picks.size(), 1);
+    QCOMPARE(sessionA.picks.first().confidence, 1.0f);
+  }
+
   // ---- goal/horizon-autotrack Oracle#2：剖面种子 → 追踪 → 拾取集成层位 →
   //      GeoTIFF + LayerDeclaration → QgisLayerService 上图（offscreen）----
   void trackedHorizonToMapClosure()

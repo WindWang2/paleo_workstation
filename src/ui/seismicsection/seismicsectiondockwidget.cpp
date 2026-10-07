@@ -14,6 +14,10 @@
 #include "../notifications/paleonotify.h"
 #include <QSpinBox>
 
+#include "ui/seismicsection/seismicpickpanel.h"
+
+#include <QUndoStack>
+
 #include "domain/seismic/sectiongeometry.h"
 #include "domain/seismic/sgysectionbuilder.h"
 #include "services/seismictaskservice.h"
@@ -83,6 +87,28 @@ void SeismicSectionDockWidget::setVolume(std::shared_ptr<const SgyVolume> volume
   if (m_compareTask) {
     m_compareTask->requestCancel();
     m_compareTask.clear();
+  }
+  // #285：换体即换解释会话（m_session 重置、落另一个 .seispicks.json，pick id
+  // 两会话都从 1 起）——旧体攒下的 undo 命令全部作废，不清栈的话一条
+  // Ctrl+Z 就把 A 体的拾取写进 B 体会话并自动落盘；在途追踪/传播/反演
+  // 一并协作取消，迟到回调由会话身份守卫丢弃（track TU）。
+  if (m_undoStack)
+    m_undoStack->clear();
+  if (m_trackTask) {
+    m_trackTask->requestCancel();
+    m_trackTask.clear();
+  }
+  if (m_propTask) {
+    m_propTask->requestCancel();
+    m_propTask.clear();
+  }
+  if (m_invTask) {
+    m_invTask->requestCancel();
+    m_invTask.clear();
+  }
+  if (m_pickPanel) { // 在途被取消：面板活跃态复位（同取消按钮语义）
+    m_pickPanel->setTrackingActive(false);
+    m_pickPanel->setPropagateActive(false);
   }
   m_sliceIndex = -1; // 去抖键随体身份作废（同号线也不再等价）
   ++m_generation;

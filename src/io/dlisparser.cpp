@@ -13,7 +13,8 @@
 // RP66 v1 字节布局（全大端；dlisparser.h 头注释 + ledger 逐条对账）：
 //   SUL 80B：[0..3] 序号 [4..8] "V1.00" [9..14] "RECORD" [15..19] VR 上限
 //            [20..79] 存储单元标识。
-//   VR：[len u16][0xFF][0x01]，len 含 4B 头；一个 VR 恰含一个 LR 的全部段。
+//   VR：[len u16][0xFF][0x01]，len 含 4B 头；一个 VR 装整数个 LRS——可来自
+//        多个 LR，一个 LR 也可跨多个 VR 分段（前驱/后继位 0x40/0x20）。
 //   LRS：[len u16][attrs u8][type u8][body][trailer]，len 含头尾；attrs 位
 //        0x80=EFLR 0x40=前驱 0x20=后继 0x10=加密 0x08=加密包
 //        0x04=校验和 0x02=尾长 0x01=填充；trailer 自尾部剥：
@@ -1019,7 +1020,16 @@ namespace
     src.advance(sulOff + 80);
 
     // ---- VR / LRS 循环 ----
+    // RP66 §2.2.3：一个 VR 装整数个 LRS——这些段可来自多个 LR，一个 LR 也
+    // 可跨多个 VR 分段（前驱/后继位 0x40/0x20）。段流跨 VR 边界累积进
+    // lrBuf，遇无后继段即分派，随后在同一 VR 内继续读下一个 LRS。
     bool stopped = false;
+    QByteArray lrBuf;
+    int lrType = -1;
+    bool explicitRec = false;
+    bool encryptedRec = false;
+    bool firstSeg = true;
+    bool continuation = false; // 上段带后继位：期待下一段（可跨 VR）带前驱位
     while (!stopped)
     {
       if (src.atEnd())
@@ -1053,15 +1063,9 @@ namespace
       }
       const qint64 vrEnd = src.offset() + vrLen - 4;
 
-      // 一个 VR 恰含一个 LR（RP66 §2.2.3）：段循环到无后继
-      QByteArray lrBuf;
-      int lrType = -1;
-      bool explicitRec = false;
-      bool encryptedRec = false;
-      bool firstSeg = true;
+      // ---- LRS 循环：一个 VR 内可装多个 LR 的段（多 LR 打包）----
       while (src.offset() < vrEnd)
       {
-        const qint64 room = vrEnd - src.offset();
         if (!src.ensure(4))
         {
           if (error)
@@ -1079,6 +1083,13 @@ namespace
         {
           if (error)
             *error = QStringLiteral("逻辑记录段长 %1 非法").arg(segLen);
+          return WalkResult::Error;
+        }
+        if ((attrs & 0x40) && !continuation)
+        {
+          // 段声明前驱却无待续 LR——分段状态与字节流不一致（结构损坏）
+          if (error)
+            *error = QStringLiteral("逻辑记录段带前驱位但无待续逻辑记录");
           return WalkResult::Error;
         }
         qint64 bodyLen = segLen - 4;
@@ -1142,94 +1153,95 @@ namespace
           }
           lrBuf.chop(trim);
         }
-        if (!(attrs & 0x20)) // 无后继
-          break;
-      }
-      // VR 残余对齐（段总和短于 VR：Info 提示）
-      const qint64 leftover = vrEnd - src.offset();
-      if (leftover > 0)
-      {
-        if (!src.ensure(int(leftover)))
-        {
-          if (error)
-            *error = QStringLiteral("可见记录尾部截断（剩 %1 字节）").arg(leftover);
-          if (issues)
-            issues->append(truncatedIssue(QStringLiteral("可见记录尾部截断")));
-          return WalkResult::Error;
-        }
-        addIssue(issues, LasIssue::Severity::Info, LasIssue::Category::Format,
-                 QStringLiteral("可见记录有 %1 字节残余，跳过").arg(leftover));
-        src.advance(int(leftover));
-      }
+        continuation = attrs & 0x20;
+        if (continuation)
+          continue; // LR 未完：续读同 VR 下一段，或跨 VR 读下一可见记录
 
-      // ---- 分派 ----
-      if (encryptedRec)
-      {
-        addIssue(issues, LasIssue::Severity::Warning, LasIssue::Category::Format,
-                 QStringLiteral("逻辑记录类型 %1 加密——跳过（白名单：加密记录）")
-                     .arg(lrType));
-        continue;
-      }
-      if (explicitRec)
-      {
-        if (lrType == 0 && w.sawFirstFhlr)
+        // ---- 分派（无后继段：LR 至此完整）----
+        if (encryptedRec)
         {
-          if (!w.multiLfNoted)
+          addIssue(issues, LasIssue::Severity::Warning, LasIssue::Category::Format,
+                   QStringLiteral("逻辑记录类型 %1 加密——跳过（白名单：加密记录）")
+                       .arg(lrType));
+        }
+        else if (explicitRec)
+        {
+          if (lrType == 0 && w.sawFirstFhlr)
           {
-            w.multiLfNoted = true;
-            addIssue(issues, LasIssue::Severity::Warning, LasIssue::Category::Truncated,
-                     QStringLiteral("遇第二个文件头（多逻辑文件）——只读第一个逻辑文件"
-                                    "（白名单：多逻辑文件）"));
+            if (!w.multiLfNoted)
+            {
+              w.multiLfNoted = true;
+              addIssue(issues, LasIssue::Severity::Warning, LasIssue::Category::Truncated,
+                       QStringLiteral("遇第二个文件头（多逻辑文件）——只读第一个逻辑文件"
+                                      "（白名单：多逻辑文件）"));
+            }
+            return WalkResult::StoppedAtNextFile;
           }
-          return WalkResult::StoppedAtNextFile;
-        }
-        if (lrType == 0)
-          w.sawFirstFhlr = true;
-        ElSet set;
-        QString eflrErr;
-        if (!parseEflr(reinterpret_cast<const uchar *>(lrBuf.constData()),
-                       lrBuf.size(), set, &eflrErr))
-        {
-          if (error)
-            *error = QStringLiteral("EFLR（类型 %1）解析失败：%2").arg(lrType).arg(eflrErr);
-          return WalkResult::Error;
-        }
-        w.consumeEflr(lrType, set, issues);
-      }
-      else
-      {
-        if (lrType == 0)
-        {
-          w.sawAnyFdata = true;
-          const bool ok = w.consumeFdata(
-              reinterpret_cast<const uchar *>(lrBuf.constData()), lrBuf.size(),
-              issues, error);
-          if (!ok)
+          if (lrType == 0)
+            w.sawFirstFhlr = true;
+          ElSet set;
+          QString eflrErr;
+          if (!parseEflr(reinterpret_cast<const uchar *>(lrBuf.constData()),
+                         lrBuf.size(), set, &eflrErr))
+          {
+            if (error)
+              *error = QStringLiteral("EFLR（类型 %1）解析失败：%2").arg(lrType).arg(eflrErr);
             return WalkResult::Error;
-          if (stopAtFirstFdata && !w.firstDataFrameKey.isEmpty())
-          {
-            // 头部模式：主帧确定即停（目录冻结点已达成）
-            stopped = true;
           }
-        }
-        else if (lrType == 1)
-        {
-          if (!w.noFormatNoted)
-          {
-            w.noFormatNoted = true;
-            addIssue(issues, LasIssue::Severity::Warning, LasIssue::Category::Format,
-                     QStringLiteral("NO-FORMAT 记录不读（白名单：RP66 不定义其布局）"));
-          }
+          w.consumeEflr(lrType, set, issues);
         }
         else
         {
-          if (error)
-            *error = QStringLiteral("隐式记录类型 %1 不在 RP66 v1 定义内（0=FDATA，"
-                                    "1=NO-FORMAT）")
-                         .arg(lrType);
-          return WalkResult::Error;
+          if (lrType == 0)
+          {
+            w.sawAnyFdata = true;
+            const bool ok = w.consumeFdata(
+                reinterpret_cast<const uchar *>(lrBuf.constData()), lrBuf.size(),
+                issues, error);
+            if (!ok)
+              return WalkResult::Error;
+            if (stopAtFirstFdata && !w.firstDataFrameKey.isEmpty())
+            {
+              // 头部模式：主帧确定即停（目录冻结点已达成）
+              stopped = true;
+            }
+          }
+          else if (lrType == 1)
+          {
+            if (!w.noFormatNoted)
+            {
+              w.noFormatNoted = true;
+              addIssue(issues, LasIssue::Severity::Warning, LasIssue::Category::Format,
+                       QStringLiteral("NO-FORMAT 记录不读（白名单：RP66 不定义其布局）"));
+            }
+          }
+          else
+          {
+            if (error)
+              *error = QStringLiteral("隐式记录类型 %1 不在 RP66 v1 定义内（0=FDATA，"
+                                      "1=NO-FORMAT）")
+                           .arg(lrType);
+            return WalkResult::Error;
+          }
         }
+        lrBuf.clear();
+        firstSeg = true;
+        if (stopped)
+          break;
       }
+      if (stopped)
+        break;
+      // VR 结束而 continuation 仍为真 = LR 跨 VR 分段（前驱/后继位闭合）：
+      // 直接读下一个 VR 头继续累积——段必须落在单个 VR 内，VR 头即边界
+    }
+    if (continuation)
+    {
+      // 文件结束但 LR 未闭合（末段后继位悬置）——半截 LR 不得当完整数据交出
+      if (error)
+        *error = QStringLiteral("文件结束时逻辑记录后继位悬置（跨可见记录未闭合）");
+      if (issues)
+        issues->append(truncatedIssue(QStringLiteral("逻辑记录跨可见记录未闭合")));
+      return WalkResult::Error;
     }
     return WalkResult::Ok;
   }

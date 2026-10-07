@@ -159,15 +159,35 @@ lint（clang-tidy 增量门禁 + deb 闭包冒烟）/ linux（编译+测试）/ 
   测试侧感知编译开关（`PALEO_SANITIZER_BUILD` 定义），改动在 tests
   属主方向，递延 6。
 
+**方向70 收口（2026-10-07）**：递延 6 已落地——CMake 在 ASAN/UBSAN 任一
+开启时全局注入 `PALEO_SANITIZER_BUILD=1`；墙钟预算经
+`tests/perfbudget_relax.h` 的 `relaxedBudgetMs()` ×3 放宽（tst_perfbudget
+100/500/100ms、tst_correlation_full 1000/3000/9000/12000ms），RSS 增长
+断言在 sanitizer 档跳过（3MB×3=9MB 超过 8.2MB 样本载荷会变空洞，索引
+行为断言保留）；on/off 两档系数由 tst_sanitizer_budget(+_on 强制注入
+定义的第二二进制) 钉住，本机（含 MSVC）可验证。CI 侧 ci.yml 新增非阻断
+`linux-asan` job（观察档起步，复用 linux 模板 + ASAN+UBSAN + 串行 ctest +
+LSAN off 口径）。
+
 ## Unity 实测
 
-`PALEO_UNITY_BUILD=ON`（独立 build-unity 目录）**编译不过，结论如实记录**：
-全仓 .cpp 惯用同名匿名 namespace helper（`setError(QString*, const
-QString&)`、`connectionNameFor(const QString&)` 等），paleo_store（metadata×
-catalog）与 paleo_qgis 首轮合批即 redefinition，逐批粒度调小/逐源
-`SKIP_UNITY_BUILD_INCLUSION` 的维护成本高于 unity 收益。开关按任务约定
-保留（默认 OFF 不影响现有路径），真正启用前置条件 = helper 去重/改名——
-src/ 改动归各模块方向，见文末递延 5。
+~~`PALEO_UNITY_BUILD=ON`（独立 build-unity 目录）**编译不过**~~
+**方向70 清障后（2026-10-07）10 目标 BATCH_SIZE=8 全编过**：早期同名匿名
+helper 已按两口径收拢——同构实现进共享 internal 头（store/qgis/algo/io/
+workflow 的 `*errors_internal.h` + inversion/cluster/faciesmapping/
+singlefactor/gdalreg/parserissues/sfpkg/seismic3d/correlation/uienv 共
+×15 个），语义不同的逐文件唯一改名（connectionNameFor×8 / ensureOpen×7 /
+failure×3 / GridSpec·readGrid / safeSegment / kNoData / kRowId /
+WalkResult / compressionFlags / pointOnSegment / polylineLength / kInf /
+kFileNodata / resolveProject / Cur 等）；另修两处 Windows 宏撞名
+（Qt `#define slots` 抹掉 curveexpr 参数名、rpcndr `small` 撞 ribbonpanels
+lambda 名）。**已知余量（mega-TU 超集分析暴露、当前分批未触发，源序
+重排可复暴露，后续跟进）**：cluster `valid`/`distance`、`PALEO_NODATA`
+宏双定义、datapreview `qssHeight` 重载歧义、
+previewhistogramwidget 的 QFont helper 同名。开关默认仍 OFF——全量 ctest
+长跑对照未做，TU 合并的链接期收益未量化，启用决策留待有数据时再定；
+启用前置（同名符号收敛）已大幅完成，新代码请沿用「helper 进
+`*_internal.h` 或取文件唯一名」的约定防回升。
 
 ## 本方向新增递延（不入 TODOS，属主方向跟进）
 
@@ -176,8 +196,10 @@ src/ 改动归各模块方向，见文末递延 5。
 3. Windows leg 的 QSettings 注册表沙箱（需 qt.conf 或 NativeFormat→IniFormat
    全局切换，跨方向决策）。
 4. 上游模块（domain/store）relink 扇出压减——需 DAG 分层评审。
-5. 匿名 helper 去重（setError/connectionNameFor 等同名符号收拢到共享
-   internal 工具）——unity build 启用前置（数据/QGIS 封装方向）。
-6. 资源预算类断言（墙钟/RSS）感知 sanitizer 档：注入
-   `PALEO_SANITIZER_BUILD` 编译定义 + budget 测试自行降档/跳过
-   （tests 属主方向；布线侧已留 paleo_test_sandbox 注入点）。
+5. ~~匿名 helper 去重~~ **方向70 已收口（2026-10-07）**：setError×35/
+   connectionNameFor×8 及后续 30+ 处同名符号按「同构→共享 internal 头 ×15 /
+   语义不同→逐文件唯一名」收拢，unity 10 目标全编过（见上节；余量清单
+   同上）。新增同名 helper 请进 `*_internal.h` 或取文件唯一名。
+6. ~~资源预算类断言感知 sanitizer 档~~ **方向70 已收口（2026-10-07）**：
+   `PALEO_SANITIZER_BUILD` 全局注入 + 墙钟 ×3/RSS 跳过 + 双二进制单测
+   （见上节 ASAN/UBSAN 段收口注）。

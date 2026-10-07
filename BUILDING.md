@@ -179,10 +179,21 @@ Debian 闭包升级时，在目标发行版且已配置 QGIS 官方 apt 源的�
 - superbuild 首轮全量 ≈ 56min（含一次 libspatialindex 门禁失败重试）；主构建
   切 `vendor/superbuild/prefix` 重编 789 targets ≈ 11min；ctest 129/129 ≈ 37s；
   `paleo_selfcheck` 8/8，357ms（底账 docs/progress/vendor-superbuild.md）
-- 首次 configure+build（3 个目标）：<1min（依赖已装）
+- 首次 configure+build（3 个目标）：<1min（依赖已装）——Phase 0 规模口径
 - `tst_boot`：init+providers+srs.db+渲染 非均匀像素断言 — PASS（102ms）
 - `tst_polygonize`：provider 注册+GDALPolygonize C++ 路径 — PASS
 - `spikes/onnx/ort_check`：进程内 toy 推理 2.0→42.0 — PASS
 - 全套 ctest（wave4 起 62 测试，offscreen）：~48s（TTHW 预算内）；设
   `PALEO_REAL_PROJECT_AREA` 跑真数据档时全套 ~110–130s（wave3 实测
   109.3s/133.1s）
+
+### 增量构建基线（ET14 刷新，方向70 2026-10-07）
+
+Phase 0 的「3 目标 <1min」早已失真；当前规模（475 TU / 5743 ninja 目标），
+`tools/measure_incremental.sh` 钉口径：touch 组装根 `src/app/appcontext.cpp`
+（叶子层，扇出上限样本）→ 1 TU 重编 + 18 个下游 exe relink = 20 步，本机
+MSVC/Ninja -j8 实测 ~15s（链接占绝对大头，编译 <2s）。绝对时长跨机不可比
+（仅记录，不是门）；回归口径用比率：tu_ratio=1/475、step_ratio=20/5743，
+JSON 落 `build/incremental-baseline.jsonl` 可追趋势。Linux 无 MSVC 增量
+链接开销，预计显著低于此；PLAN ET14「单文件改动增量 ≤60s」在当前规模
+下仍成立。

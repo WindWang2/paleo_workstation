@@ -155,6 +155,9 @@ void SeismicSectionCanvas::setTimeSliceData(
         (image.width != m_zoneOverlay.width || image.height != m_zoneOverlay.height))
         clearZoneOverlay();
 
+    // #286：显示缓冲（AGC/增益曲线/极性）随切片内容重建——旧实现沿用
+    // 上一条剖面的缓冲，按新网格索引会显示旧数据甚至越界读。
+    rebuildDisplayValues();
     rebuildImage();
     fitToWindow();
     update();
@@ -184,6 +187,9 @@ void SeismicSectionCanvas::beginTimeSliceTiled(
     m_slice.valueMin = 0.0f;
     m_slice.valueMax = 1.0f;
 
+    // #286：与 setTimeSliceData 同口径——瓦片流先建全网格显示缓冲，
+    // 瓦片到达时在 appendTimeSliceTile 里同步改写对应区域。
+    rebuildDisplayValues();
     rebuildImage();
     fitToWindow();
     update();
@@ -212,6 +218,24 @@ void SeismicSectionCanvas::appendTimeSliceTile(const SgySliceImage &tile, int x,
         }
     }
 
+    // #286：显示缓冲与 m_slice 逐位同步——时间切片方向 AGC/增益曲线
+    // 已关（见 rebuildDisplayValues），显示值 = 极性处理后的原始值。
+    if (m_displayValues.size() ==
+        static_cast<std::size_t>(m_traces) * static_cast<std::size_t>(m_samples)) {
+        for (int ty = 0; ty < tile.height; ++ty) {
+            const std::size_t srcRow = static_cast<std::size_t>(ty) * tile.width;
+            const std::size_t dstRow = static_cast<std::size_t>(y + ty) * m_traces + x;
+            for (int tx = 0; tx < tile.width; ++tx) {
+                float v = tile.values[srcRow + tx];
+                if (m_polarityInverted && std::isfinite(v))
+                    v = -v;
+                m_displayValues[dstRow + tx] = v;
+            }
+        }
+    } else {
+        m_displayValues.clear(); // 尺寸失配兜底：直通原始值
+    }
+
     paintValueRegion(x, y, tile.width, tile.height);
     update();
 }
@@ -224,6 +248,8 @@ void SeismicSectionCanvas::finishTimeSliceTiled(const SgySliceImage &full)
     m_slice = full;
     m_traces = full.width;
     m_samples = full.height;
+    // #286：整体替换同样重建显示缓冲（setTimeSliceData 同口径）。
+    rebuildDisplayValues();
     rebuildImage();
     update();
 }

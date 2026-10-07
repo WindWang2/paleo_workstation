@@ -14,16 +14,52 @@
 #include <functional>
 #include <QInputDialog>
 #include <QLineEdit>
+#include <QScrollBar>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QTreeWidgetItemIterator>
 
 using namespace paleo::pagesinternal;
 
+namespace {
+
+// 展开态快照键：资产叶用 assetId、井/实体节点用 entityId、分类组等无 id
+// 节点用类型+去计数尾巴的文本（"测井 (20 井)" → "测井"）——重建后按键
+// 找回同一节点，catalog.changed 触发的全量刷新不抹掉用户的展开。
+QString navExpandedKey(const QTreeWidgetItem *it)
+{
+  const QString id = it->data(0, Qt::UserRole).toString();
+  const QString eid = it->data(0, Qt::UserRole + 1).toString();
+  const QString type = it->data(0, Qt::UserRole + 2).toString();
+  const QString sub = it->data(0, Qt::UserRole + 3).toString();
+  QString key = type + QLatin1Char('|') + id + QLatin1Char('|') + eid +
+                QLatin1Char('|') + sub;
+  if (id.isEmpty() && eid.isEmpty())
+    key += QLatin1Char('|') + it->text(0).section(QStringLiteral(" ("), 0, 0);
+  return key;
+}
+
+} // namespace
+
 void DataListPanel::refreshAssetTree()
 {
   if (!m_tree)
     return;
+  // 快照当前展开态与滚动位，函数尾还原——refreshAssetTable/catalog.changed
+  // 引起的重建不得把树跳回一级收拢态。
+  QSet<QString> expandedKeys;
+  {
+    QTreeWidgetItemIterator it(m_tree);
+    while (*it)
+    {
+      if ((*it)->isExpanded())
+        expandedKeys.insert(navExpandedKey(*it));
+      ++it;
+    }
+  }
+  const int vpos = m_tree->verticalScrollBar()
+                       ? m_tree->verticalScrollBar()->value()
+                       : 0;
   m_tree->clear();
   PreviewDocService *svc = m_doc;
   if (!svc)
@@ -538,6 +574,19 @@ void DataListPanel::refreshAssetTree()
       // 点击标签节点 = 按标签过滤（与标签云同语义）。
     }
   }
+
+  // 还原展开态与滚动位（快照见函数头）——无匹配键的项保持构建默认态。
+  {
+    QTreeWidgetItemIterator it(m_tree);
+    while (*it)
+    {
+      if (expandedKeys.contains(navExpandedKey(*it)))
+        (*it)->setExpanded(true);
+      ++it;
+    }
+  }
+  if (auto *sb = m_tree->verticalScrollBar())
+    sb->setValue(qMin(vpos, sb->maximum()));
 }
 
 void DataListPanel::setTreeSort(paleo::dataops::TreeSortKind kind)

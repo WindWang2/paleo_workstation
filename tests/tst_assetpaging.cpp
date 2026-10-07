@@ -237,6 +237,16 @@ private slots:
              "tree-sourced selection must not collapse expanded top-level groups");
     QVERIFY2(wellRoot->child(0)->isExpanded(),
              "selected child's parent chain must stay expanded");
+
+    // catalog.changed → refreshAssetTable → refreshAssetTree 全量重建路径
+    // 同样不得抹掉展开态（重建前快照、建后按键还原）。
+    panel.refreshAssetTable();
+    auto *tree2 = panel.findChild<QTreeWidget *>(QStringLiteral("dataTree"));
+    QVERIFY(tree2);
+    QVERIFY2(tree2->topLevelItem(1)->isExpanded(),
+             "rebuild must preserve expanded top-level groups");
+    QVERIFY2(tree2->topLevelItem(1)->child(0)->isExpanded(),
+             "rebuild must preserve expanded child nodes");
   }
 
   void governanceUiPreviewCancelAndTokens() {

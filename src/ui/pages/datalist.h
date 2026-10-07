@@ -230,6 +230,7 @@ class DataListPanel : public QWidget
     paleo::dataops::RecycleBin m_recycle;              // D1.6
     paleo::dataops::FilterGroup m_filter;              // D2
     QString m_activeTag;                               // D2.4 标签云激活
+    bool m_treeWasFiltering = false;                   // 「清空搜索即收拢」只在过滤态退出那一跳执行
     QVector<paleo::dataops::AssetRowInfo> m_rows;      // 行快照（过滤输入）
     paleo::dataops::SelectionKeeper m_selKeep;         // D1.10
     paleo::dataops::TreeSortKind m_treeSort = paleo::dataops::TreeSortKind::Name; // D2.5

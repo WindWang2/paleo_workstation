@@ -29,3 +29,10 @@ git clone https://github.com/WindWang2/paleo_workstation.git && cd paleo_worksta
 `ctest --test-dir build -j8 --output-on-failure`（Windows ctest 串行）。
 独立 worktree 的 vendor symlink 与 `QGIS_PREFIX` 接线见
 [BUILDING.md 的 worktree 说明](BUILDING.md#独立-worktree-开发)。
+
+> **勘误（2026-10-07，方向 72）**：八、九批任务书（方向 48-72）「环境接线」
+> 段所载 Windows 命令（`CMAKE_PREFIX_PATH` 首位 `C:/deps/Qt/6.8.0/...` +
+> 运行期 PATH 前置 deps bin）是 Qt 6.8 编 / 6.11 载的混链口径，已废弃；
+> 统一链（Qt 6.11.2 编译+运行）以
+> [BUILDING.md「Windows 本机开发」](BUILDING.md#windows-本机开发localdeps-统一链方向-72)
+> 与 `./paleo-dev.ps1` 为准。原文不改，以此行为准。

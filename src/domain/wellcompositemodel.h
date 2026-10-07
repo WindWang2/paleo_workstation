@@ -166,6 +166,9 @@ struct ComprehensiveWellData
   QVector<TextInterval> textIntervals;
   QVector<SymbolItem> symbolItems;
   QVector<CoreBarrel> coreBarrels;
+  // 图片道（catalog core/lab_analysis 角色井附件，depthMd 锚）——paneldata
+  // 装载时填；topDepth=bottomDepth=锚深（paintBody 自带最小显示高度）。
+  QVector<ImageDepthItem> images;
   QVector<QPair<double, QString>> standardHorizons;
   QVector<StratigraphyInterval> stratigraphyIntervals;
   QVector<FaciesInterval> faciesIntervals;

@@ -11,6 +11,8 @@
 
 // 方向68：PythonReplSession（实验性 REPL 桥）进程级验收——基本往返、
 // exit() 正常退出、析构强制回收不留孤儿。
+// Windows 上 QProcess::started 在 start() 内同步发出（Unix 经事件循环），
+// 故一律「先查计数再等」，两种时序都成立。
 class TestPythonRepl : public QObject
 {
   Q_OBJECT
@@ -38,7 +40,7 @@ void TestPythonRepl::roundTrip()
   QSignalSpy startedSpy(&repl, &PythonReplSession::started);
   QSignalSpy finishedSpy(&repl, &PythonReplSession::finished);
   repl.start(m_python);
-  QVERIFY(startedSpy.wait(10000));
+  QVERIFY(startedSpy.count() == 1 || startedSpy.wait(10000));
   QVERIFY(repl.isRunning());
   QVERIFY(repl.processId() > 0);
   QString acc;
@@ -60,7 +62,7 @@ void TestPythonRepl::stopExitsCleanly()
   QSignalSpy startedSpy(&repl, &PythonReplSession::started);
   QSignalSpy finishedSpy(&repl, &PythonReplSession::finished);
   repl.start(m_python);
-  QVERIFY(startedSpy.wait(10000));
+  QVERIFY(startedSpy.count() == 1 || startedSpy.wait(10000));
   repl.stop();
   QVERIFY(finishedSpy.wait(15000));
   QCOMPARE(finishedSpy.takeFirst().at(1).toBool(), false);
@@ -75,7 +77,7 @@ void TestPythonRepl::destroyKillsProcess()
   auto *repl = new PythonReplSession;
   QSignalSpy startedSpy(repl, &PythonReplSession::started);
   repl->start(m_python);
-  QVERIFY(startedSpy.wait(10000));
+  QVERIFY(startedSpy.count() == 1 || startedSpy.wait(10000));
   const qint64 pid = repl->processId();
   QVERIFY(pid > 0);
   delete repl; // 析构须强制整组回收（不等 exit()）

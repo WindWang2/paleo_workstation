@@ -168,9 +168,6 @@ int main(int argc, char *argv[])
   // 这里已解析出的路径）。
   QCoreApplication::setApplicationName(QStringLiteral("paleo_workbench"));
   QCoreApplication::setOrganizationName(QStringLiteral("paleo"));
-  WellComposite::WellCompositePanel::setFaciesWorkflowFactory([](QObject *parent) {
-    return new WellFaciesWorkflow(parent);
-  });
   const CrashReport::SessionStart session = CrashReport::installCrashHandler(
       QStandardPaths::writableLocation(QStandardPaths::AppDataLocation));
   StartupTrace::mark(QStringLiteral("pre_qt_ready"));
@@ -182,6 +179,17 @@ int main(int argc, char *argv[])
                  qPrintable(qgisPrefix));
     return 1;
   }
+
+  // 方向 69：井综合页的测井相 workflow 由面板工厂创建（时机在 AppContext
+  // 之后）——工厂里注入共享 catalog，预测成功即落 DERIVED 解释岩性资产
+  // （projectDir 由 workflow 按 catalog 当前工程自适应解析）。
+  WellComposite::WellCompositePanel::setFaciesWorkflowFactory(
+      [&ctx](QObject *parent) {
+        auto *wf = new WellFaciesWorkflow(parent);
+        if (ctx.importSvc() && ctx.importSvc()->catalog())
+          wf->setCatalog(ctx.importSvc()->catalog());
+        return wf;
+      });
 
   // --- Dynamic Locale & Translation Initialization (R4) ---
   // Precedence: CLI option (--lang/--locale) > PALEO_LOCALE > QLocale::system().name()

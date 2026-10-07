@@ -10,6 +10,9 @@
 #include <QFile>
 #include <QFileInfo>
 
+#include <algorithm>
+#include <cmath>
+
 #include <gdal.h>
 
 // ---------------------------------------------------------------------------
@@ -203,17 +206,58 @@ QVector<TdSample> ProjectDataFacade::tdTableFor(const QString &wellId) const
   return out;
 }
 
-std::optional<paleo::WellDeviationSurvey>
-ProjectDataFacade::trajectoryFor(const QString &wellId) const
+QVector<WellImageAnchor> ProjectDataFacade::imagesFor(const QString &wellId) const
 {
+  QVector<WellImageAnchor> out;
+  if (!m_catalog || wellId.isEmpty())
+    return out;
+  for (const EntityAssetLink &l : m_catalog->linksForEntity(wellId))
+  {
+    if (l.unresolved ||
+        (l.role != QStringLiteral("core") &&
+         l.role != QStringLiteral("lab_analysis")))
+      continue;
+    const CatalogVersion v = m_catalog->currentVersion(l.assetId);
+    if (v.id.isEmpty())
+      continue;
+    // 深度锚是图片道的存在前提——extra 无 depthMd（薄片照片深度在文件名
+    // 无单位）不收，不猜。
+    const QVariant depth = v.extra.value(QStringLiteral("depthMd"));
+    if (!depth.isValid() || !std::isfinite(depth.toDouble()) ||
+        depth.toDouble() <= 0.0)
+      continue;
+    const QString path = DataCatalog::resolvedVersionPath(projectDir(), v);
+    if (path.isEmpty() || !QFile::exists(path))
+      continue;
+    WellImageAnchor a;
+    a.assetId = l.assetId;
+    a.path = path;
+    a.depthMd = depth.toDouble();
+    a.caption = v.fileName.isEmpty() ? l.assetId : v.fileName;
+    out.append(a);
+  }
+  std::sort(out.begin(), out.end(),
+            [](const WellImageAnchor &a, const WellImageAnchor &b) {
+              return a.depthMd < b.depthMd;
+            });
+  return out;
+}
+
+std::optional<paleo::WellDeviationSurvey>
+ProjectDataFacade::trajectoryFor(const QString &wellId, QString *error) const
+{
+  if (error)
+    error->clear();
   const QString path = assetFilePathFor(wellId, QStringLiteral("trajectory"));
   if (path.isEmpty() || !QFile::exists(path))
-    return std::nullopt; // 无链接 = 直井语义，不记错误（与 topsFor/tdTableFor 同口径）
+    return std::nullopt; // 无链接 = 直井（显式语义，不告警；与 topsFor/tdTableFor 同口径）
 
   QFile f(path);
   if (!f.open(QIODevice::ReadOnly))
   {
     m_lastError = tr("测斜文件无法读取：%1").arg(path);
+    if (error)
+      *error = m_lastError;
     return std::nullopt;
   }
   const QByteArray text = f.readAll();
@@ -227,6 +271,8 @@ ProjectDataFacade::trajectoryFor(const QString &wellId) const
     if (!WellComposite::parseDeviationSurvey(path, parsed, &perr))
     {
       m_lastError = tr("测斜 XML 解析失败：%1（%2）").arg(path, perr);
+      if (error)
+        *error = m_lastError;
       return std::nullopt;
     }
     stations.reserve(parsed.size());
@@ -246,6 +292,8 @@ ProjectDataFacade::trajectoryFor(const QString &wellId) const
   if (!survey)
   {
     m_lastError = tr("测斜站表无效：%1（%2）").arg(path, serr);
+    if (error)
+      *error = m_lastError;
     return std::nullopt;
   }
   return survey;

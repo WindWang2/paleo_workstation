@@ -68,6 +68,110 @@ class TestWellCompositeVisual : public QObject
   Q_OBJECT
 
 private slots:
+  // 图片道（setCoreImages）：LAS 装配后喂入深度锚照片 → 画布出现图片道且
+  // 预览位图对应深度带照片色（红），深度范围扩到盖住锚位。
+  void coreImagesRenderImageTrack()
+  {
+    WellCompositePanel panel;
+    panel.setProjectName(QStringLiteral("ImageTrackCase"));
+    panel.resize(900, 600);
+    panel.show();
+    QApplication::processEvents();
+    const auto d = syntheticWell();
+    QVERIFY(panel.loadLasCurves(QStringLiteral("SYN-1"),
+                                d.continuousCurves, d.formationIntervals));
+    QCOMPARE(panel.currentData().images.size(), 0);
+
+    QImage red(8, 8, QImage::Format_RGB32);
+    red.fill(qRgb(230, 20, 20));
+    WellComposite::ImageDepthItem it;
+    it.topDepth = it.bottomDepth = 1100.0f;
+    it.imagePath = QStringLiteral("synthetic://core_red.png");
+    it.caption = QStringLiteral("core_red.png");
+    it.pixmap = QPixmap::fromImage(red);
+    panel.setCoreImages({it});
+    QCOMPARE(panel.currentData().images.size(), 1);
+    QCOMPARE(panel.currentData().minDepth, d.minDepth); // 锚在曲线范围内不扩
+    QVERIFY(panel.currentData().maxDepth >= d.maxDepth);
+
+    // 画布含图片道（typeId image）且预览渲染非空。
+    bool hasImageTrack = false;
+    for (const auto &t : panel.canvas()->tracks())
+      hasImageTrack |= t->type() == WellComposite::TrackType::Image;
+    QVERIFY(hasImageTrack);
+    const QImage preview = ExportEngine::renderPreview(*panel.canvas(), panel.currentData(), 320);
+    QVERIFY(!preview.isNull());
+    QVERIFY(preview.size() != QSize(0, 0));
+  }
+
+  // 图片道等比渲染：单点锚照片宽度撑满按原图纵横比定高、锚深居中，
+  // 不再横向拉伸压成 20px 条（修复前 drawPixmap(rect,pm) 非等比变形）。
+  void imageTrackPreservesAspectAtAnchor()
+  {
+    QImage canvas(200, 400, QImage::Format_ARGB32_Premultiplied);
+    canvas.fill(Qt::white);
+    ImageTrack track(QStringLiteral("岩心照片"), 110.0);
+    QImage photo(100, 50, QImage::Format_RGB32); // 2:1 横图
+    photo.fill(qRgb(30, 60, 200));
+    ImageDepthItem it;
+    it.topDepth = it.bottomDepth = 1000.0f;
+    it.pixmap = QPixmap::fromImage(photo);
+    track.setItems({it});
+
+    {
+      QPainter p(&canvas);
+      // 视窗 800~1200m（pxPerMeter=1.0）→ 锚深 1000m 落在画布正中 y=200。
+      track.paintBody(p, QRectF(0, 0, 110, 400), 800.0, 1200.0, 1.0);
+    }
+
+    const auto isPhoto = [&canvas](int x, int y) {
+      const QColor c = canvas.pixelColor(x, y);
+      return c.blue() > 150 && c.red() < 100;
+    };
+    int top = -1, bot = -1;
+    for (int y = 0; y < canvas.height(); ++y)
+    {
+      if (!isPhoto(55, y)) continue;
+      if (top < 0) top = y;
+      bot = y;
+    }
+    QVERIFY(top >= 0);
+    // tw=106 → 等比高 106*50/100=53px；锚深居中 → 中心 ~y200。
+    QVERIFY(std::abs((bot - top + 1) - 53) <= 2);
+    QVERIFY(std::abs((top + bot) / 2.0 - 200.0) <= 2.0);
+  }
+
+  // 图片道等比渲染：超高（窄长）照片封顶 4 倍道宽并按比缩窄，
+  // 防止单张照片吃掉整道；宽度收缩后仍居中于道内。
+  void imageTrackCapsTallPhoto()
+  {
+    QImage canvas(200, 400, QImage::Format_ARGB32_Premultiplied);
+    canvas.fill(Qt::white);
+    ImageTrack track(QStringLiteral("岩心照片"), 110.0);
+    QImage photo(50, 400, QImage::Format_RGB32); // 1:8 竖图
+    photo.fill(qRgb(200, 40, 40));
+    ImageDepthItem it;
+    it.topDepth = it.bottomDepth = 1000.0f;
+    it.pixmap = QPixmap::fromImage(photo);
+    track.setItems({it});
+
+    {
+      QPainter p(&canvas);
+      track.paintBody(p, QRectF(0, 0, 110, 400), 800.0, 1200.0, 1.0);
+    }
+
+    const auto isPhoto = [&canvas](int x, int y) {
+      const QColor c = canvas.pixelColor(x, y);
+      return c.red() > 150 && c.blue() < 100;
+    };
+    // 等比高 848px > 4×106=424 → 高 424（画布外裁切），宽缩到 ~53px：
+    // 道左缘 x=10 处锚深行应为白色（宽度收缩后居中），中心 x=55 为照片色。
+    QVERIFY(isPhoto(55, 200));
+    QVERIFY(!isPhoto(10, 200));
+    QVERIFY(!isPhoto(100, 200));
+  }
+
+
   // 渲染环境钉死（fe7f226 同款）：vendor 字体 + Fusion + 浅色 palette——
   // 黄金图跨机器可复现的前提（本 wave 前缺此钉死，跨机色差 10-66/255
   // 超 22 容差；基线图随本提交在钉死环境重生成）。

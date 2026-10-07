@@ -44,6 +44,17 @@ struct ProjectWell
   QString coordinateStatus;   // ok | untransformed | invalid | missing
 };
 
+// 图片道数据锚（core/lab_analysis 角色井附件图片）：深度锚来自导入侧
+// version.extra["depthMd"]（<井名>,<深度>m 文件名惯例）。无深度锚的图片
+// 不收录——不猜（薄片照片深度在文件名无单位，留待深度来源定了再收）。
+struct WellImageAnchor
+{
+  QString assetId;
+  QString path;      // 绝对路径（受管相对路径解析 / 外链原路径）
+  double depthMd = 0.0;
+  QString caption;   // 文件名（道内标注）
+};
+
 struct WellTop
 {
   QString horizon;            // boundary name as picked, e.g. "D61"
@@ -94,10 +105,18 @@ class ProjectDataFacade : public QObject
     // 文件级解析诊断（筛井前）；保留旧入口，报告每次复位。
     QVector<WellTop> topsFor(const QString &wellId, WellParseReport *report) const;
     QVector<TdSample> tdTableFor(const QString &wellId) const;  // empty when unlinked — callers must not fabricate times
+    // 图片道锚（core/lab_analysis 角色井附件图片，多成员全量——与 tops 的
+    // primary 语义不同：一口井的岩心照片每张都是道内容）。按 depthMd 升序；
+    // 无深度锚/链接未决不收。综合柱状图图片道与连井剖面图片道共用此查询。
+    QVector<WellImageAnchor> imagesFor(const QString &wellId) const;
     // 主 trajectory 链接（primary、非 unresolved）的测斜站表 → 三维轨迹。
-    // 无链接/文件不可读/站表无效 → nullopt（直井回退是显式语义：调用方保持
-    // 原垂直路径，绝不虚构造斜）；失败原因记 lastError。
-    std::optional<paleo::WellDeviationSurvey> trajectoryFor(const QString &wellId) const;
+    // 三态（方向 69）：有效站表 → survey；无链接 → nullopt（= 直井，显式
+    // 语义不告警：调用方保持原垂直路径，绝不虚构造斜）；文件不可读/站表
+    // 无效 → nullopt + 记因。error 出参按本次调用写明（无链接 = 空串；
+    // 坏文件/坏表 = 具体原因）——不依赖 lastError 跨调用残留。失败原因
+    // 同样记 lastError。
+    std::optional<paleo::WellDeviationSurvey> trajectoryFor(
+        const QString &wellId, QString *error = nullptr) const;
     HorizonRasterInfo horizonRasterDecl(const QString &horizon) const;
 
     QString lastError() const { return m_lastError; }

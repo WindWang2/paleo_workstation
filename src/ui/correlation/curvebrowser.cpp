@@ -1,5 +1,6 @@
 // 层：视图
 #include "curvebrowser.h"
+#include "correlation_internal.h"
 #include "../paleotheme.h"
 
 #include <QAbstractItemView>
@@ -26,11 +27,12 @@
 
 namespace
 {
+using paleo::ui_detail::kTextMuted;
+
   constexpr int kMnemonicRole = Qt::UserRole + 1;
 
   // DESIGN.md tokens (colors / typography).
   // DESIGN.md token 出口（调用时现取——随主题翻转；checked/selected 专用 primary）。
-  QColor kTextMuted() { return PaleoTheme::tokens().textMuted; }
 
   // 9pt body / 8pt secondary labels, OS-DPI-friendly pointSize.
   QFont pointFont(int pt)

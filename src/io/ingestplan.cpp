@@ -54,7 +54,7 @@ namespace
       *error = text;
   }
 
-  QString readFileOrEmpty(const QString &path)
+  QString readTextOrEmpty(const QString &path)
   {
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly))
@@ -177,7 +177,7 @@ namespace
           plan->skipped.append(item);
           continue;
         }
-        xml = readFileOrEmpty(path).toUtf8();
+        xml = readTextOrEmpty(path).toUtf8();
       }
       const ProjectClassification cls = classifyProjectImport(path, xml);
       item.canonicalPath = canon;
@@ -496,7 +496,7 @@ IngestPlan buildIngestPlan(const QString &root, const IngestCatalogSource &catal
     item.canonicalPath = rootInfo.canonicalFilePath();
     QByteArray xml;
     if (rootInfo.suffix().compare(QLatin1String("xml"), Qt::CaseInsensitive) == 0)
-      xml = readFileOrEmpty(item.path).toUtf8();
+      xml = readTextOrEmpty(item.path).toUtf8();
     const ProjectClassification cls = classifyProjectImport(item.path, xml);
     item.type = cls.type;
     item.format = cls.format;

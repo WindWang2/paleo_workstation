@@ -1,5 +1,6 @@
 // 层：数据
 #include "bandlimit.h"
+#include "inversion_internal.h"
 
 // 带限反演实现。FFT 用 dsp/fft.h；反褶积 water-level = 1%（|W|² 分母下限），
 // 子波带外噪声不被放大（分母被抬到 1% 峰值能量，带外输出自然衰减）。
@@ -17,8 +18,6 @@ namespace paleo::inversion
 {
 namespace
 {
-
-constexpr float kNan = std::numeric_limits<float>::quiet_NaN();
 
 // reflect 镜像索引（与 seismicattr 同式：周期 2(n-1) 三角波）。
 int reflectIndex(int q, int n)

@@ -5,6 +5,7 @@
 // TU 的 setSectionData 与本 TU 的 rebuildImage 两处组装，语义注释随指纹走）。
 // token 例外：DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。（tools/ui-token-exceptions.json 精确计数）。
 #include "ui/seismicsection/seismicsectioncanvas.h"
+#include "../seismic3d/seismic3d_internal.h"
 #include "ui/seismicsection/seismicsectioncanvas_internal.h"
 
 #include <QPainter>
@@ -17,11 +18,6 @@
 namespace seismic {
 
 namespace {
-
-inline unsigned char ToByte(float v) {
-    const int val = static_cast<int>(std::round(v * 255.0f));
-    return static_cast<unsigned char>(std::clamp(val, 0, 255));
-}
 
 // D2.8：colormap 采样（t ∈ [-1,1] → RGB），预设 8 档
 inline QRgb SampleColorMap(SectionColorMapType type, float t) {

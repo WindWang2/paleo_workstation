@@ -1,5 +1,6 @@
 // 层：数据
 #include "sfpkgwriter.h"
+#include "sfpkg_internal.h"
 
 #include <QCryptographicHash>
 #include <QFile>
@@ -18,10 +19,10 @@ namespace paleo::io
 namespace
 {
 
-QString sha256Hex( const QByteArray &bytes )
-{
-  return QString::fromLatin1( QCryptographicHash::hash( bytes, QCryptographicHash::Sha256 ).toHex() );
-}
+using paleo::io_detail::sha256Hex;
+using paleo::io_detail::kManifestEntry;
+using paleo::io_detail::kNpzEntry;
+using paleo::io_detail::kChecksumEntry;
 
 // 值 → 定宽整型（合法性先行：有限、无小数部分、在 [lo, hi] 内）。
 bool integralValue( double value, double lo, double hi, const QString &dtype, const QString &name,
@@ -147,9 +148,6 @@ QByteArray buildNpy( const SfPackageArrayInput &array, QString *error )
   return out;
 }
 
-const QString kManifestEntry = QStringLiteral( "manifest.json" );
-const QString kNpzEntry = QStringLiteral( "surface.npz" );
-const QString kChecksumEntry = QStringLiteral( "checksum.json" );
 
 } // namespace
 

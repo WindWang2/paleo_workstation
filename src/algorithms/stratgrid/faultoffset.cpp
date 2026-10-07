@@ -1,5 +1,6 @@
 // 层：数据
 #include "faultoffset.h"
+#include "../algoerrors_internal.h"
 
 #include <QString>
 
@@ -12,11 +13,7 @@ namespace paleo::stratgrid
 namespace
 {
 
-void setError(QString *error, const QString &text)
-{
-  if (error)
-    *error = text;
-}
+using paleo::algo_detail::setError;
 
 // 柱心到段的最近点参数 t（钳到 [0,1]）与距离²。零长度段返回 false。
 bool projectOnSegment(double px, double py, const FaultThrow &fault, double *t, double *dist2)

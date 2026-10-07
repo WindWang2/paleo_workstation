@@ -1,6 +1,7 @@
 // 层：视图
 // token 例外：DESIGN 数据符号例外：QGIS 测区空间覆盖的蓝色描边/透明填充。（tools/ui-token-exceptions.json 精确计数）。
 #include "paleomainwindow.h"
+#include "uienv_internal.h"
 #include "paleodockmanager.h"
 #include "paleoviewport.h"
 
@@ -152,6 +153,8 @@
 // as qgiscanvascontroller.cpp).
 namespace
 {
+using paleo::ui_detail::isOffscreen;
+
   // Tab order = reading order = right-panel stack order：页序表收敛到
   // pages/pageshared.h 的 kPageIds（W4：attach 接线 TU 同查页序）。
   // ribbon 页签文案（2026-10-05：数据管理后插入独立地层对比）。
@@ -202,11 +205,6 @@ namespace
     QStringLiteral("constraint"),
     QStringLiteral("compose"),
   };
-
-  bool isOffscreen()
-  {
-    return QGuiApplication::platformName() == QLatin1String("offscreen");
-  }
 
   // T22/§3 契约句：工区导入统一展示的 CRS 说明（文件夹确认表 + 单文件
   // 导入确认都只读挂这句）。状态栏短句另行，与 PDF 页脚同一文案。
@@ -1333,7 +1331,6 @@ void PaleoMainWindow::showPage(const QString &pageId)
   if (m_profileSvc)
     m_profileSvc->applyPageProfile(pageId);
 
-
   // 页作用域工具面：编辑命令组只在编图链三页的 ribbon 里。落到非编辑页
   // 时停用活动画布工具——各工具 deactivate() 统一发 abort 信号，约束捕获/
   // 编辑会话经 owner 的 abort 路径拆台（等价 §42.15 的 Esc）。
@@ -1837,7 +1834,6 @@ void PaleoMainWindow::restoreCanvasExtent()
   m_canvasCtl->canvas()->setExtent(e);
   m_canvasCtl->canvas()->refresh();
 }
-
 
 // ---------------------------------------------------------------------------
 // D11 临时配准（手工仿射 → DERIVED + 水印图层）

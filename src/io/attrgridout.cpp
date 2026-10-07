@@ -1,5 +1,6 @@
 // 层：数据
 #include "io/attrgridout.h"
+#include "ioerrors_internal.h"
 
 #include <QDir>
 #include <QFileInfo>
@@ -19,13 +20,9 @@ namespace paleo::sattr
 namespace
 {
 
-constexpr float kNoData = -9999.f;
+using paleo::io_detail::setError;
 
-void setError(QString *error, const QString &text)
-{
-  if (error)
-    *error = text;
-}
+constexpr float kNoData = -9999.f;
 
 // 轴均值步长（稀疏/非均匀轴的 geotransform 是均值近似——元数据里另记
 // PALEO_AXIS_REGULAR 让消费方知情，不冒充精确）。

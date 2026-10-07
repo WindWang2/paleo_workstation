@@ -1,5 +1,6 @@
 // 层：数据
 #include "io/sattrio.h"
+#include "ioerrors_internal.h"
 
 #include <QDataStream>
 #include <QDateTime>
@@ -21,11 +22,7 @@ namespace paleo::sattr
 namespace
 {
 
-void setError(QString *error, const QString &text)
-{
-  if (error)
-    *error = text;
-}
+using paleo::io_detail::setError;
 
 // 小端 f32 块的快路径：小端宿主直写内存像，大端逐值换序（正确性优先，
 // 热路径在主流小端平台零拷贝）。

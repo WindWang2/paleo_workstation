@@ -2,6 +2,7 @@
 // Processing 包装：读图层、调用结构面核、写 Float64 栅格与 sidecar。
 // 上游语义移植见 structural.cpp / wellacquisition.cpp。
 #include "structuralalgorithm.h"
+#include "singlefactor_internal.h"
 #include "../rasterout.h"
 #include "constraintparse.h"
 #include "structural.h"
@@ -37,38 +38,13 @@ namespace sf = paleo::singlefactor;
 
 namespace
 {
-constexpr double kFileNodata = -9999.0;
+using paleo::singlefactor::utf8;
+using paleo::singlefactor::OutputGuard;
+using paleo::singlefactor::sidecarPath;
+using paleo::singlefactor::writeJson;
+using paleo::singlefactor::pointsJson;
 
-QString utf8( const std::string &text )
-{
-  return QString::fromUtf8( text.data(), static_cast<qsizetype>( text.size() ) );
-}
-
-QString sidecarPath( const QString &rasterPath, const QString &suffix )
-{
-  const QFileInfo info( rasterPath );
-  return info.absolutePath() + QLatin1Char( '/' ) + info.completeBaseName() + suffix;
-}
-
-void writeJson( const QString &path, const QVariantMap &root )
-{
-  QFile file( path );
-  if ( !file.open( QIODevice::WriteOnly | QIODevice::Truncate ) )
-    throw QgsProcessingException( QStringLiteral( "Cannot write %1" ).arg( path ) );
-  file.write( QJsonDocument::fromVariant( root ).toJson( QJsonDocument::Indented ) );
-}
-
-QVariantList pointsJson( const std::vector<sf::Point2> &points )
-{
-  QVariantList list;
-  for ( const sf::Point2 &point : points )
-  {
-    QVariantList pair;
-    pair << point.x << point.y;
-    list << QVariant( pair );
-  }
-  return list;
-}
+constexpr double kStructNodata = -9999.0;
 
 QVariantMap polygonJson( const sf::Polygon &polygon )
 {
@@ -80,19 +56,6 @@ QVariantMap polygonJson( const sf::Polygon &polygon )
   item.insert( QStringLiteral( "holes" ), holes );
   return item;
 }
-
-struct OutputGuard
-{
-  QStringList paths;
-  bool keep = false;
-  ~OutputGuard()
-  {
-    if ( keep )
-      return;
-    for ( const QString &path : paths )
-      QFile::remove( path );
-  }
-};
 
 // 上游 _extract_current_boundaries：面要素外环+孔；闭合线要素按外环处理。
 void appendGeometryBoundary( const QgsGeometry &geometry, std::vector<sf::Polygon> *out )
@@ -184,7 +147,7 @@ void writeDoubleGrid( const QString &path, int cols, int rows, double originX, d
 {
   const double geoTransform[6] = { originX, pixelWidth, 0.0, originY, 0.0, pixelHeight };
   GDALDatasetH dataset =
-      PaleoRasterOut::createDoubleRaster( path, cols, rows, geoTransform, crs, kFileNodata, canonicalCrsWkt );
+      PaleoRasterOut::createDoubleRaster( path, cols, rows, geoTransform, crs, kStructNodata, canonicalCrsWkt );
   if ( !dataset )
     throw QgsProcessingException( QStringLiteral( "Cannot create output raster %1" ).arg( path ) );
   GDALSetMetadataItem( dataset, "PALEO_VALUE_SOURCE", "analysis", nullptr );
@@ -198,7 +161,7 @@ void writeDoubleGrid( const QString &path, int cols, int rows, double originX, d
       const double value =
           values[static_cast<std::size_t>( r ) * static_cast<std::size_t>( cols ) +
                  static_cast<std::size_t>( c )];
-      row[static_cast<std::size_t>( c )] = std::isfinite( value ) ? value : kFileNodata;
+      row[static_cast<std::size_t>( c )] = std::isfinite( value ) ? value : kStructNodata;
     }
     if ( GDALRasterIO( band, GF_Write, 0, r, cols, 1, row.data(), cols, 1, GDT_Float64, 0, 0 ) !=
          CE_None )

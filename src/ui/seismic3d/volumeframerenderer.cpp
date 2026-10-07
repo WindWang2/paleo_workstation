@@ -1,6 +1,7 @@
 // 层：视图
 // token 例外：DESIGN 数据符号例外：体框架上地层位置的缺省蓝色数据标记，非面板文字。（tools/ui-token-exceptions.json 精确计数）。
 #include "volumeframerenderer.h"
+#include "seismic3d_internal.h"
 
 #include <algorithm>
 #include <cmath>
@@ -20,16 +21,6 @@ struct LineVertex {
     glm::vec3 position;
     glm::vec3 color;
 };
-
-float Normalize(int value, int minValue, int maxValue, float scale) {
-    const float range = static_cast<float>(std::max(1, maxValue - minValue));
-    return ((static_cast<float>(value - minValue) / range) - 0.5f) * scale;
-}
-
-float NormalizeF(float value, int minValue, int maxValue, float scale) {
-    const float range = static_cast<float>(std::max(1, maxValue - minValue));
-    return ((value - static_cast<float>(minValue)) / range - 0.5f) * scale;
-}
 
 glm::vec3 FrameInk() {
     const QColor ink = PaleoTheme::tokens().textMuted;

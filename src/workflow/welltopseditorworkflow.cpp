@@ -1,5 +1,6 @@
 // 层：功能
 #include "welltopseditorworkflow.h"
+#include "workflowerrors_internal.h"
 
 #include "../catalog/datacatalog.h"
 #include "../domain/arearules.h"
@@ -15,11 +16,7 @@
 
 namespace
 {
-void setError(QString *error, const QString &text)
-{
-  if (error)
-    *error = text;
-}
+using paleo::workflow_detail::setError;
 
 bool readAllBytes(const QString &path, QByteArray *out, QString *error)
 {

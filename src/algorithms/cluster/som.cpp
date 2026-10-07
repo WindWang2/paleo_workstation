@@ -1,5 +1,6 @@
 // 层：数据
 #include "som.h"
+#include "cluster_internal.h"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -8,12 +9,7 @@
 
 namespace paleo::cluster {
 namespace {
-bool stopped(const Control &c) { return c.cancelled && c.cancelled(); }
-void report(const Control &c, double p) {
-  if (c.progress)
-    c.progress(p);
-}
-SomResult failure(const std::string &e, bool cancel = false) {
+SomResult somFailure(const std::string &e, bool cancel = false) {
   SomResult r;
   r.error = e;
   r.cancelled = cancel;
@@ -25,7 +21,7 @@ bool valid(const Matrix &x) {
                      [](double v) { return std::isfinite(v); });
 }
 // Grids beyond this cap cannot train in bounded memory; reject up front
-// rather than overflowing the cell product or throwing out of the failure
+// rather than overflowing the cell product or throwing out of the somFailure
 // path — every rejection must travel back as SomResult::error.
 constexpr std::size_t maxGridCells = 1'000'000;
 constexpr std::size_t maxPrototypeValues = 100'000'000;
@@ -70,17 +66,17 @@ void nearest(const Matrix &protos, const double *sample, std::size_t &winner,
 
 SomResult som(const Matrix &x, const SomOptions &o, const Control &ctl) {
   if (!valid(x) || !validOptions(o))
-    return failure("Invalid samples or SOM parameters");
+    return somFailure("Invalid samples or SOM parameters");
   if (stopped(ctl))
-    return failure("Cancelled", true);
+    return somFailure("Cancelled", true);
   const auto n = x.rows(), d = x.dimensions;
   if (!n)
-    return failure("Empty sample matrix");
+    return somFailure("Empty sample matrix");
   const auto units = std::size_t(o.width) * std::size_t(o.height);
   // Keep the prototype buffer inside the memory budget; a bad_alloc here
   // would escape the "failures come back as SomResult" convention.
   if (units > maxPrototypeValues / d)
-    return failure("Prototype grid too large for the sample dimension");
+    return somFailure("Prototype grid too large for the sample dimension");
   SomResult r;
   r.width = o.width;
   r.height = o.height;
@@ -122,7 +118,7 @@ SomResult som(const Matrix &x, const SomOptions &o, const Control &ctl) {
     std::shuffle(sequence.begin(), sequence.end(), rng);
     for (std::size_t s = 0; s < n; ++s) {
       if ((s & 1023U) == 0 && stopped(ctl))
-        return failure("Cancelled", true);
+        return somFailure("Cancelled", true);
       const double *sample = x.row(sequence[s]);
       std::size_t winner = 0;
       double best = 0, second = 0;
@@ -142,12 +138,12 @@ SomResult som(const Matrix &x, const SomOptions &o, const Control &ctl) {
     double total = 0;
     for (std::size_t i = 0; i < n; ++i) {
       if ((i & 1023U) == 0 && stopped(ctl))
-        return failure("Cancelled", true);
+        return somFailure("Cancelled", true);
       std::size_t winner = 0;
       double best = 0, second = 0;
       nearest(r.prototypes, x.row(i), winner, best, second);
       if (!std::isfinite(best))
-        return failure("Numerical overflow in distance");
+        return somFailure("Numerical overflow in distance");
       labels[i] = int(winner);
       squared[i] = best;
       total += best;
@@ -160,7 +156,7 @@ SomResult som(const Matrix &x, const SomOptions &o, const Control &ctl) {
     report(ctl, 0.9 * double(e + 1) / double(o.epochs));
   }
   if (stopped(ctl))
-    return failure("Cancelled", true);
+    return somFailure("Cancelled", true);
   r.labels = std::move(labels);
   r.confidence = std::move(confidence);
   r.squaredDistance = std::move(squared);

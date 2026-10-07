@@ -1,5 +1,6 @@
 // 层：数据
 #include "sfpkgreader.h"
+#include "sfpkg_internal.h"
 
 #include "ziparchive.h"
 
@@ -23,14 +24,11 @@ namespace paleo::io
 namespace
 {
 
-const QString kManifestEntry = QStringLiteral( "manifest.json" );
-const QString kNpzEntry = QStringLiteral( "surface.npz" );
-const QString kChecksumEntry = QStringLiteral( "checksum.json" );
+using paleo::io_detail::sha256Hex;
+using paleo::io_detail::kManifestEntry;
+using paleo::io_detail::kNpzEntry;
+using paleo::io_detail::kChecksumEntry;
 
-QString sha256Hex( const QByteArray &bytes )
-{
-  return QString::fromLatin1( QCryptographicHash::hash( bytes, QCryptographicHash::Sha256 ).toHex() );
-}
 
 // ZIP 容器判据由 ziparchive 的中央目录解析给出：非 ZIP（没有中央目录结束记录）
 // 在这里如实失败，不依赖 QMimeDatabase 的扩展名/mime 判定。

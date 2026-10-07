@@ -1,5 +1,6 @@
 // 层：数据
 #include "horizonbinner.h"
+#include "ioerrors_internal.h"
 
 #include "../catalog/datacatalog.h"
 
@@ -17,13 +18,9 @@
 
 namespace
 {
-  const float kNoData = -9999.0f;
+using paleo::io_detail::setError;
 
-  void setError(QString *error, const QString &text)
-  {
-    if (error)
-      *error = text;
-  }
+  const float kNoData = -9999.0f;
 
   bool grabDouble(const QString &line, int index, double *out)
   {

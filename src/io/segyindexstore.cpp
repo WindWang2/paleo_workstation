@@ -19,7 +19,7 @@ namespace
   constexpr quint16 kSegyIndexVersion = 2;
   const char kSegyIndexMagic[8] = {'P', 'S', 'G', 'Y', 'I', 'D', 'X', '1'};
 
-  quint16 compressionFlags()
+  quint16 segyIndexCompressionFlags()
   {
 #ifdef PALEO_HAVE_ZSTD
     return CacheFlags::ZstdCompressed;
@@ -302,7 +302,7 @@ bool SegyIndexStore::save(const StoredIndex &index, QString *error) const
   }
   const QByteArray payload = encodePayload(index);
   if (!writeCacheFileAtomic(path, QByteArray(kSegyIndexMagic, 8), kSegyIndexVersion,
-                            compressionFlags(), payload, error))
+                            segyIndexCompressionFlags(), payload, error))
     return false; // 调用方降级为无缓存（D2.1）
   return true;
 }

@@ -1,5 +1,6 @@
 // 层：数据
 #include "faciesqa.h"
+#include "faciesmapping_internal.h"
 
 #include "../singlefactor/geosutil.h"
 
@@ -30,14 +31,6 @@ Point2 pointOnSurface( const GeosContext &ctx, const GEOSGeometry *geometry )
     GEOSGeomGetY_r( ctx.handle, point.get(), &out.y );
   }
   return out;
-}
-
-double geosArea( const GeosContext &ctx, const GEOSGeometry *geometry )
-{
-  double area = 0;
-  if ( geometry )
-    GEOSArea_r( ctx.handle, geometry, &area );
-  return area;
 }
 
 } // namespace

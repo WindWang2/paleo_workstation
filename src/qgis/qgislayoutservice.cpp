@@ -1,5 +1,6 @@
 // 层：QGIS 封装
 #include "qgislayoutservice.h"
+#include "qgiserrors_internal.h"
 
 #include <qgslayout.h>
 #include <qgslayoutexporter.h>
@@ -9,11 +10,7 @@
 
 namespace
 {
-  void setError(QString *error, const QString &text)
-  {
-    if (error)
-      *error = text;
-  }
+using paleo::qgis_detail::setError;
 
   QString exportResultString(QgisLayoutService *svc, QgsLayoutExporter::ExportResult res)
   {

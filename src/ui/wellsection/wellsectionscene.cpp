@@ -202,6 +202,9 @@ void ColumnItem::paint(QPainter *p, const QStyleOptionGraphicsItem *option,
       case wellsection::TrackKind::Facies:
         paintFaciesTrack(p, trRect, exposed);
         break;
+      case wellsection::TrackKind::Image:
+        paintImageTrack(p, trRect, exposed);
+        break;
     }
     x += tw;
     ++trackIdx;
@@ -535,6 +538,49 @@ void ColumnItem::paintFaciesTrack(QPainter *p, const QRectF &trackRect,
                   QString::number(seg.classId));
     }
   }
+}
+
+// 图片道：core/lab_analysis 井附件照片按 depthMd 锚定。QImage 在任务线程
+// 装载（workflow），此处转 QPixmap 一次并缓存（imageVersion 失效）；等比
+// 缩到道宽、最小高 20px（同 composite 图片道口径），下方 6pt 标注文件名。
+void ColumnItem::paintImageTrack(QPainter *p, const QRectF &trackRect,
+                                 const QRectF &exposed)
+{
+  p->save();
+  p->setClipRect(trackRect);
+  const wellsection::Well &w = m_st->wells.value(m_index);
+  for (int i = 0; i < w.images.size(); ++i)
+  {
+    const double y = m_st->yForMd(m_index, w.images.at(i).md);
+    if (y < exposed.top() - 80 || y > exposed.bottom() + 20)
+      continue;
+    const quint64 key = (quint64(m_index) << 16 | quint64(i)) << 8 |
+                        (m_st->imageVersion & 0xFF);
+    QPixmap pm = m_pixmapCache.value(key);
+    if (pm.isNull() && !w.images.at(i).image.isNull())
+    {
+      pm = QPixmap::fromImage(w.images.at(i).image);
+      m_pixmapCache.insert(key, pm);
+    }
+    const double tw = trackRect.width() - 4.0;
+    if (!pm.isNull())
+    {
+      const double ph = qMax(20.0, tw * pm.height() / pm.width());
+      const QRectF r(trackRect.left() + 2.0, y, tw, ph);
+      p->drawPixmap(r, pm, pm.rect());
+      p->setPen(QPen(m_st->theme.frame, 1.0));
+      p->drawRect(r);
+    }
+    else
+    {
+      // 无位图（装载失败/缺文件）：灰底占位如实示缺。
+      const QRectF r(trackRect.left() + 2.0, y, tw, 20.0);
+      p->fillRect(r, m_st->theme.paper);
+      p->setPen(QPen(m_st->theme.frame, 1.0));
+      p->drawRect(r);
+    }
+  }
+  p->restore();
 }
 
 // ---------------------------------------------------------------------------

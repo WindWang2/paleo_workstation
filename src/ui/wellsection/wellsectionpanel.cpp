@@ -838,6 +838,7 @@ void WellSectionPanel::rebuildFiltered()
     if (m_st.wells[i].id == m_selectedId)
       m_st.selected = i;
   ++m_st.curveVersion; // 井集/偏移/窗口可能变 → 曲线路径重建
+  ++m_st.imageVersion; // 图片道位图随井集/数据变更失效
   updateHighlight();
 }
 

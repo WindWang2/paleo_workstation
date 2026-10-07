@@ -74,6 +74,9 @@ private:
   QString projectDir() const;
   static void loadCurveBodies(Shared &shared, PaleoTask *task);
   void attachFaciesSegments(QVector<wellsection::Well> &wells) const;
+  // 图片道清单（GUI 步）：core/lab_analysis 深度锚图片的路径/深度/标注——
+  // QImage 装载在任务线程（loadCurveBodies 尾段）。
+  void collectCoreImages(Shared &shared) const;
 
   QPointer<DataCatalog> m_catalog;
   mutable ProjectDataFacade m_data;

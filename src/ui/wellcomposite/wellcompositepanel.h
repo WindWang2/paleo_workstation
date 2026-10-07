@@ -69,6 +69,10 @@ public:
   // 加载并装配单井 LAS 曲线（支持关联地层分层道与 1-4 根曲线分道合并显示）
   bool loadLasCurves(const QString &wellName, const QVector<CurveData> &curves,
                      const QVector<FormationInterval> &formations = {});
+  // 图片道（catalog core/lab_analysis 井附件照片，depthMd 锚）——LAS 装配后
+  // 由壳喂入：留档 m_data.images、深度范围扩到盖住锚位、追加一条 ImageTrack
+  //（默认标题「岩心照片」，可删/复制走既有 trackops）。空集 = 空操作。
+  void setCoreImages(const QVector<ImageDepthItem> &items);
 
   // 设置并显示井名；reference=true 时徽章标识为参考井（辅助资料内的井，非测区井序列）
   void setWellName(const QString &name, bool reference = false);

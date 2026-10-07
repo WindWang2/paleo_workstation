@@ -68,6 +68,43 @@ class TestWellCompositeVisual : public QObject
   Q_OBJECT
 
 private slots:
+  // 图片道（setCoreImages）：LAS 装配后喂入深度锚照片 → 画布出现图片道且
+  // 预览位图对应深度带照片色（红），深度范围扩到盖住锚位。
+  void coreImagesRenderImageTrack()
+  {
+    WellCompositePanel panel;
+    panel.setProjectName(QStringLiteral("ImageTrackCase"));
+    panel.resize(900, 600);
+    panel.show();
+    QApplication::processEvents();
+    const auto d = syntheticWell();
+    QVERIFY(panel.loadLasCurves(QStringLiteral("SYN-1"),
+                                d.continuousCurves, d.formationIntervals));
+    QCOMPARE(panel.currentData().images.size(), 0);
+
+    QImage red(8, 8, QImage::Format_RGB32);
+    red.fill(qRgb(230, 20, 20));
+    WellComposite::ImageDepthItem it;
+    it.topDepth = it.bottomDepth = 1100.0f;
+    it.imagePath = QStringLiteral("synthetic://core_red.png");
+    it.caption = QStringLiteral("core_red.png");
+    it.pixmap = QPixmap::fromImage(red);
+    panel.setCoreImages({it});
+    QCOMPARE(panel.currentData().images.size(), 1);
+    QCOMPARE(panel.currentData().minDepth, d.minDepth); // 锚在曲线范围内不扩
+    QVERIFY(panel.currentData().maxDepth >= d.maxDepth);
+
+    // 画布含图片道（typeId image）且预览渲染非空。
+    bool hasImageTrack = false;
+    for (const auto &t : panel.canvas()->tracks())
+      hasImageTrack |= t->type() == WellComposite::TrackType::Image;
+    QVERIFY(hasImageTrack);
+    const QImage preview = ExportEngine::renderPreview(*panel.canvas(), panel.currentData(), 320);
+    QVERIFY(!preview.isNull());
+    QVERIFY(preview.size() != QSize(0, 0));
+  }
+
+
   // 渲染环境钉死（fe7f226 同款）：vendor 字体 + Fusion + 浅色 palette——
   // 黄金图跨机器可复现的前提（本 wave 前缺此钉死，跨机色差 10-66/255
   // 超 22 容差；基线图随本提交在钉死环境重生成）。

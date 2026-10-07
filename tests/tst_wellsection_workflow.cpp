@@ -4,6 +4,7 @@
 #include "metadata/faultsetstore.h"
 #include "metadata/wellsectionstore.h"
 #include "services/paleotaskservice.h"
+#include "services/projectdata.h"
 #include "services/seismictaskservice.h"
 #include "workflow/sectionworkbench.h"
 #include "workflow/wellsectionworkflow.h"
@@ -249,6 +250,86 @@ wellsection::Well gridWell(const QString &name, int inl, int xl, bool withTd) {
 class TestWellSectionWorkflow : public QObject {
   Q_OBJECT
 private slots:
+  // 图片道（core 井附件 + depthMd 锚）：facade imagesFor 收录/排除面 +
+  // workflow 全链（collectCoreImages 清单 → 任务线程 QImage 装载 →
+  // sectionReady 带 Well::images，md 升序）。无锚/未决/坏文件如实跳过。
+  void coreImageAttachmentFlow() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    DataCatalog cat;
+    QString err;
+    QVERIFY2(cat.open(dir.path(), &err), qPrintable(err));
+    QVERIFY2(buildCatalog(cat, QDir(dir.path()), &err), qPrintable(err));
+
+    // 三张 8x8 测试图（PNG，可解码），深度锚经 extra["depthMd"]。
+    const auto writePng = [&dir](const QString &name, QRgb color) {
+      QImage img(8, 8, QImage::Format_RGB32);
+      img.fill(color);
+      const QString p = dir.filePath(name);
+      return img.save(p, "PNG") ? p : QString();
+    };
+    const QString imgDeep = writePng(QStringLiteral("core_deep.png"), qRgb(200, 30, 30));
+    const QString imgShallow = writePng(QStringLiteral("core_shallow.png"), qRgb(30, 30, 200));
+    const QString imgNoAnchor = writePng(QStringLiteral("core_noanchor.png"), qRgb(30, 200, 30));
+    QVERIFY(!imgDeep.isEmpty() && !imgShallow.isEmpty() && !imgNoAnchor.isEmpty());
+    const auto addCore = [&](const QString &assetId, const QString &path,
+                             const QVariant &depth, bool unresolved) {
+      CatalogAsset a;
+      a.id = assetId;
+      a.type = QStringLiteral("image_reference");
+      a.displayName = QFileInfo(path).fileName();
+      if (!cat.addAsset(a, &err))
+        return false;
+      CatalogVersion v;
+      v.id = "v-" + assetId;
+      v.assetId = assetId;
+      v.managed = false;
+      v.path = path;
+      v.fileName = QFileInfo(path).fileName();
+      v.stage = QStringLiteral("RAW");
+      if (depth.isValid())
+        v.extra.insert(QStringLiteral("depthMd"), depth);
+      if (!cat.addVersion(v, &err))
+        return false;
+      EntityAssetLink l;
+      l.entityId = QStringLiteral("well-1");
+      l.entityType = QStringLiteral("well");
+      l.role = QStringLiteral("core");
+      l.assetId = assetId;
+      l.isPrimary = false;
+      l.unresolved = unresolved;
+      return cat.addLink(l, &err);
+    };
+    QVERIFY2(addCore(QStringLiteral("ast-img1"), imgDeep, 1800.0, false), qPrintable(err));
+    QVERIFY2(addCore(QStringLiteral("ast-img2"), imgShallow, 1200.0, false), qPrintable(err));
+    QVERIFY2(addCore(QStringLiteral("ast-img3"), imgNoAnchor, {}, false), qPrintable(err)); // 无锚不收
+    QVERIFY2(addCore(QStringLiteral("ast-img4"), imgDeep, 1500.0, true), qPrintable(err)); // 未决不收
+
+    // facade 查询面：收录两张（升序），无锚/未决排除。
+    ProjectDataFacade facade;
+    facade.setCatalog(&cat, dir.path());
+    const QVector<WellImageAnchor> anchors =
+        facade.imagesFor(QStringLiteral("well-1"));
+    QCOMPARE(anchors.size(), 2);
+    QCOMPARE(anchors.at(0).depthMd, 1200.0);
+    QCOMPARE(anchors.at(1).depthMd, 1800.0);
+    QCOMPARE(anchors.at(1).caption, QStringLiteral("core_deep.png"));
+
+    // workflow 全链（同步路径：无任务服务 → loadCurveBodies 直跑）。
+    WellSectionWorkflow wf(&cat);
+    QSignalSpy spy(&wf, &WellSectionWorkflow::sectionReady);
+    wf.request({QStringLiteral("well-1")}, {QStringLiteral("GR")});
+    QTRY_COMPARE(spy.size(), 1);
+    const QVector<wellsection::Well> wells =
+        spy.at(0).at(1).value<QVector<wellsection::Well>>();
+    QCOMPARE(wells.size(), 1);
+    QCOMPARE(wells.at(0).images.size(), 2);
+    QCOMPARE(wells.at(0).images.at(0).md, 1200.0);
+    QCOMPARE(wells.at(0).images.at(1).md, 1800.0);
+    QVERIFY(!wells.at(0).images.at(0).image.isNull());
+    QCOMPARE(wells.at(0).images.at(1).image.size(), QSize(8, 8));
+  }
+
   void syncBuild() {
     QTemporaryDir dir;
     QVERIFY(dir.isValid());

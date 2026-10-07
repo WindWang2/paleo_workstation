@@ -242,6 +242,28 @@ bool WellCompositePanel::loadLasCurves(const QString &wellName, const QVector<Cu
   return true;
 }
 
+void WellCompositePanel::setCoreImages(const QVector<ImageDepthItem> &items)
+{
+  if (items.isEmpty())
+    return;
+  m_data.images = items;
+  double lo = m_canvas->minDepth();
+  double hi = m_canvas->maxDepth();
+  for (const ImageDepthItem &im : items)
+  {
+    lo = qMin(lo, double(im.topDepth));
+    hi = qMax(hi, double(im.bottomDepth));
+  }
+  m_canvas->setDepthRange(lo, hi);
+  m_data.minDepth = lo;
+  m_data.maxDepth = hi;
+  auto track = std::make_shared<ImageTrack>(tr("岩心照片"), 110.0);
+  track->setItems(items);
+  m_canvas->addTrack(track);
+  if (m_legendWidget)
+    m_legendWidget->setWellData(m_data);
+}
+
 void WellCompositePanel::setupTracksFromData(const ComprehensiveWellData &data)
 {
   m_canvas->clearTracks();

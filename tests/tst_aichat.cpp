@@ -20,6 +20,9 @@ private slots:
   void sessionRoundTripAndStoreLivesOutsideProject();
   void streamParserReassemblesSplitChunksAndDone();
   void streamParserAccumulatesToolCallArguments();
+  // #278：首帧 arguments:"" 是「分片未齐」不是「无参」——不得提前派发。
+  void streamParserDefersEmptyArgumentsUntilFlush();
+  void streamParserEmitsArglessCallAtFlush();
   void streamParserReportsMalformedEvent();
   void configRejectsEmptyEndpointModelAndPlainHttp();
   void configBuildsCompletionsUrl();
@@ -174,6 +177,65 @@ void TestAiChat::streamParserAccumulatesToolCallArguments() {
   // 取过即不再取（防重复 emit）。
   QVERIFY(parser.takeCompleteCalls().isEmpty());
   QVERIFY(parser.flush().isEmpty());
+}
+
+// #278 复现（ABA-01）：真实服务流式 tool_calls 首帧固定是
+// {id,name,arguments:""}，实参后续分片补齐。旧实现把空串当「无参调用」
+// 立即派发并擦除草稿，后续分片落进无 name 新草稿被静默丢弃——整个工具
+// 以空实参执行。断言：首帧不产出，分片拼齐后恰产出一次且实参完整。
+void TestAiChat::streamParserDefersEmptyArgumentsUntilFlush() {
+  LlmStreamParser parser;
+  QStringList deltas;
+  bool done = false;
+  QString error;
+  parser.feed(QByteArrayLiteral(
+                "data: {\"choices\":[{\"delta\":{\"tool_calls\":["
+                "{\"index\":0,\"id\":\"c1\",\"type\":\"function\",\"function\":"
+                "{\"name\":\"paleo.tile_classification\",\"arguments\":\"\"}}]}}]}\n\n"),
+              &deltas, &done, &error);
+  QVERIFY2(error.isEmpty(), qPrintable(error));
+  // 空实参 = 分片未齐，绝不能当无参调用派发（#278 根因断言）。
+  QVERIFY(parser.takeCompleteCalls().isEmpty());
+
+  parser.feed(QByteArrayLiteral(
+                "data: {\"choices\":[{\"delta\":{\"tool_calls\":["
+                "{\"index\":0,\"function\":{\"arguments\":\"{\\\"model\\\"\"}}]}}]}\n\n"),
+              &deltas, &done, &error);
+  QVERIFY(parser.takeCompleteCalls().isEmpty()); // 仍没拼完
+  parser.feed(QByteArrayLiteral(
+                "data: {\"choices\":[{\"delta\":{\"tool_calls\":["
+                "{\"index\":0,\"function\":{\"arguments\":\":\\\"seg3\\\"}\"}}]}}]}\n\n"),
+              &deltas, &done, &error);
+  const QVector<ChatToolCall> calls = parser.takeCompleteCalls();
+  QCOMPARE(calls.size(), 1); // 全过程只产出这一个调用
+  QCOMPARE(calls.first().id, QStringLiteral("c1"));
+  QCOMPARE(calls.first().argumentsJson, QStringLiteral("{\"model\":\"seg3\"}"));
+  parser.feed(QByteArrayLiteral("data: [DONE]\n\n"), &deltas, &done, &error);
+  QVERIFY(done);
+  QVERIFY(parser.flush().isEmpty()); // 不得再冒出第二个（空实参）调用
+}
+
+// 真无参工具（arguments 全程缺席/空串）：流中途不产出，flush() 兜底一次。
+void TestAiChat::streamParserEmitsArglessCallAtFlush() {
+  LlmStreamParser parser;
+  QStringList deltas;
+  bool done = false;
+  QString error;
+  parser.feed(QByteArrayLiteral(
+                "data: {\"choices\":[{\"delta\":{\"tool_calls\":["
+                "{\"index\":0,\"id\":\"c2\",\"type\":\"function\",\"function\":"
+                "{\"name\":\"paleo.horizon_tracking_suggestion\",\"arguments\":\"\"}}]}}]}\n\n"),
+              &deltas, &done, &error);
+  QVERIFY2(error.isEmpty(), qPrintable(error));
+  QVERIFY(parser.takeCompleteCalls().isEmpty());
+  parser.feed(QByteArrayLiteral("data: [DONE]\n\n"), &deltas, &done, &error);
+  QVERIFY(done);
+  const QVector<ChatToolCall> flushed = parser.flush();
+  QCOMPARE(flushed.size(), 1); // 无参调用不丢：流结束兜底产出
+  QCOMPARE(flushed.first().id, QStringLiteral("c2"));
+  QCOMPARE(flushed.first().name,
+           QStringLiteral("paleo.horizon_tracking_suggestion"));
+  QVERIFY(flushed.first().hasValidArguments()); // 空实参合法（无参）
 }
 
 void TestAiChat::streamParserReportsMalformedEvent() {

@@ -51,6 +51,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QHash>
 #include "notifications/paleonotify.h"
 #include <QStackedLayout>
 #include <QStatusBar>
@@ -457,11 +458,30 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
                         ? catPath.left(catPath.size() - catSuffix.size())
                         : QString();
                 QStringList missing;
+                // #276：面板井表是资产 id（ast-N），resolveWellLas 要井实体 id
+                // （well-N）——先映射再解析；成果回填时按映射反向键回资产 id
+                // （mergeComputedCurves 以面板井 id 为键）。同实体在面板重复
+                // 出现（资产 id + 直传实体 id）时只解析一次，回填键取先出现
+                // 的面板 id（生产面板全是资产 id，资产行赢）。
+                QHash<QString, QString> entityToPanel;
+                QStringList entityIds;
+                if (catalog)
+                {
+                  const auto mapped = paleo::petrophys::PetroPhysTaskService::
+                      mapPanelWellsToEntities(catalog, wellIds, &missing);
+                  for (const auto &m : mapped)
+                  {
+                    if (entityToPanel.contains(m.entityId))
+                      continue;
+                    entityToPanel.insert(m.entityId, m.panelId);
+                    entityIds.append(m.entityId);
+                  }
+                }
                 paleo::petrophys::PetroPhysTaskService::BatchRequest req = intent;
                 if (catalog && !projDir.isEmpty())
                 {
                   req.wells = paleo::petrophys::PetroPhysTaskService::resolveWellLas(
-                      catalog, projDir, wellIds, &missing);
+                      catalog, projDir, entityIds, &missing);
                 }
                 petroPanel->setWellScope(corrPanel->wellCount(), req.wells.size());
                 if (req.wells.isEmpty())
@@ -473,7 +493,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
                 petroPanel->setBusy(true);
                 m_petroPhysTask = m_petroPhysSvc->startBatch(
                     req, catalog, projDir + QStringLiteral("/artifacts/derived/petrophys"),
-                    [this, petroPanel, corrPanel, req](
+                    [this, petroPanel, corrPanel, req, entityToPanel](
                         bool ok, const paleo::petrophys::PetroPhysTaskService::BatchResult &res) {
                       int merged = 0;
                       if (corrPanel)
@@ -490,7 +510,10 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
                           c.unit = req.outputUnit;
                           c.descr = req.outputDescr;
                           c.values = w.values;
-                          corrPanel->mergeComputedCurves(w.wellId, {depth, c});
+                          // #276：成果里的 wellId 是井实体 id，面板键是资产 id——
+                          // 按映射反查（未映射到则原样，兼容直传实体 id 的旧路径）。
+                          corrPanel->mergeComputedCurves(
+                              entityToPanel.value(w.wellId, w.wellId), {depth, c});
                           ++merged;
                         }
                       }

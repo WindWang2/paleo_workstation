@@ -14,3 +14,6 @@ add_paleo_test(tst_petrophyspanel LIBS paleo_ui)      # 参数面板（意图信
 add_paleo_test(tst_petrophysperf LIBS paleo_services) # 20 井批跑实测档案（BASELINE 行，比率门）
 target_compile_definitions(tst_petrophysperf PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")
+# #276：测井计算装配缝回归（真实 PaleoMainWindow + attachWorkflows +
+# PaleoTaskService——连井面板资产 id ast-N → 井实体 id well-N 映射回填）。
+add_paleo_test(tst_petrophys_assembly LIBS paleo_ui)

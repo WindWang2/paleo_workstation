@@ -29,11 +29,12 @@ private slots:
 void TestRoles::defaultsContainWellAndSurveyVocab()
 {
   const RoleRegistry reg = RoleRegistry::defaults();
-  // well 9 角色 + survey 7 角色全量已知——缺一个都算词表缺口。
+  // well 11 角色 + survey 7 角色全量已知——缺一个都算词表缺口。
   const QStringList wellRoles{
       QStringLiteral("well_head"), QStringLiteral("well_log"),
       QStringLiteral("trajectory"), QStringLiteral("tops"),
       QStringLiteral("time_depth"), QStringLiteral("core"),
+      QStringLiteral("cuttings"), QStringLiteral("lab_analysis"),
       QStringLiteral("interpretation"), QStringLiteral("qc"),
       QStringLiteral("other")};
   const QStringList surveyRoles{
@@ -72,7 +73,7 @@ void TestRoles::forEntityFiltersByEntityType()
 {
   const RoleRegistry reg = RoleRegistry::defaults();
   const QVector<RoleDef> wellDefs = reg.forEntity(QStringLiteral("well"));
-  QCOMPARE(wellDefs.size(), 9);
+  QCOMPARE(wellDefs.size(), 11);
   QCOMPARE(wellDefs.first().role, QStringLiteral("well_head"));
   QCOMPARE(wellDefs.last().role, QStringLiteral("other")); // other 收尾
   for (const RoleDef &d : wellDefs)
@@ -87,8 +88,11 @@ void TestRoles::forEntityFiltersByEntityType()
     QVERIFY(d.entityTypes.contains(QStringLiteral("seismic_survey")));
 
   // 同名跨表角色过滤后各归各域。
-  QCOMPARE(wellDefs.at(6).role, QStringLiteral("interpretation"));
-  QCOMPARE(wellDefs.at(6).display, QStringLiteral("井周解释"));
+  QCOMPARE(wellDefs.at(5).role, QStringLiteral("core"));
+  QCOMPARE(wellDefs.at(6).role, QStringLiteral("cuttings"));
+  QCOMPARE(wellDefs.at(7).role, QStringLiteral("lab_analysis"));
+  QCOMPARE(wellDefs.at(8).role, QStringLiteral("interpretation"));
+  QCOMPARE(wellDefs.at(8).display, QStringLiteral("井周解释"));
   QCOMPARE(surveyDefs.at(5).role, QStringLiteral("interpretation"));
   QCOMPARE(surveyDefs.at(5).display, QStringLiteral("调查解释"));
 
@@ -149,7 +153,7 @@ void TestRoles::fromJsonOverridesAndAdds()
   QVERIFY(log->ordered);                                           // 未写字段保留
 
   QCOMPARE(reg.find(QStringLiteral("tops"))->display, QStringLiteral("分层顶"));
-  QCOMPARE(reg.forEntity(QStringLiteral("well")).size(), 10);     // 9 + custom
+  QCOMPARE(reg.forEntity(QStringLiteral("well")).size(), 12);     // 11 + custom
   QCOMPARE(reg.forEntity(QStringLiteral("seismic_survey")).size(), 8); // 7 + tops
   QCOMPARE(reg.forEntity(QStringLiteral("seismic_survey")).last().display,
            QStringLiteral("调查分层"));
@@ -172,7 +176,7 @@ void TestRoles::fromJsonOverridesAndAdds()
   QVERIFY(!junkReg.isKnown(QStringLiteral("not_an_object")));
   QVERIFY(!junkReg.isKnown(QString()));
   const RoleRegistry plain = RoleRegistry::fromJson(QJsonObject());
-  QCOMPARE(plain.forEntity(QStringLiteral("well")).size(), 9);
+  QCOMPARE(plain.forEntity(QStringLiteral("well")).size(), 11);
 }
 
 // catalog.open() 读 <projectDir>/project_area.json 的 roles 节——工程自定义
@@ -216,7 +220,7 @@ void TestRoles::openWithoutAreaFileYieldsDefaults()
   QVERIFY(cat.roleRegistry().isKnown(QStringLiteral("well_head")));
   QVERIFY(cat.roleRegistry().isKnown(QStringLiteral("seismic_volume")));
   QVERIFY(!cat.roleRegistry().isKnown(QStringLiteral("survey_bom")));
-  QCOMPARE(cat.roleRegistry().forEntity(QStringLiteral("well")).size(), 9);
+  QCOMPARE(cat.roleRegistry().forEntity(QStringLiteral("well")).size(), 11);
 }
 
 void TestRoles::corruptAreaFileStillOpensWithDefaults()

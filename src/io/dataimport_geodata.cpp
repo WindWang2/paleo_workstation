@@ -60,6 +60,70 @@ namespace
   {
     return AreaRules::active().sequenceBoundaries.contains(stem.toUpper());
   }
+
+  // ASCII 字母数字才当井名边界的一部分：井名常与中文目录词直接相连
+  //（A1岩屑录井数据——岩是字母但不是 ASCII 字母，是合法边界）；而
+  // A31868.62…（薄片：井名 A3 + 深度）里的 '1' 是 ASCII 数字，绝不能当边界。
+  bool asciiAlnum(QChar c)
+  {
+    const ushort u = c.unicode();
+    return (u >= '0' && u <= '9') || (u >= 'A' && u <= 'Z') || (u >= 'a' && u <= 'z');
+  }
+
+  // 井附件前缀识井：candidates（文件主名/父目录名）任一以「井名+边界」开头
+  // → 命中。井名长者先试（A10 先于 A1；边界判也独立挡掉 A10→A1 误配）。
+  // 返回唯一井实体 id；命中井名经 matchedNames 带出（≥2 口不同井 → 返回空
+  // id，调用方按双候选不猜）。
+  QString wellAttachmentTarget(const DataCatalog *cat, const QStringList &candidates,
+                               QStringList *matchedNames)
+  {
+    struct Cand
+    {
+      QString id, name;
+    };
+    QVector<Cand> wells;
+    for (const CatalogEntity &w : cat->entities(QStringLiteral("well")))
+      if (!w.name.isEmpty())
+        wells.append({w.id, w.name});
+    std::sort(wells.begin(), wells.end(),
+              [](const Cand &a, const Cand &b) { return a.name.size() > b.name.size(); });
+    QHash<QString, QString> idToName; // 命中井 id → 名（去重）
+    for (const QString &cand : candidates)
+    {
+      if (cand.isEmpty())
+        continue;
+      for (const Cand &w : wells)
+      {
+        if (!cand.startsWith(w.name, Qt::CaseInsensitive))
+          continue;
+        const int pos = w.name.size();
+        if (pos < cand.size() && asciiAlnum(cand.at(pos)))
+          continue; // A1 撞 A10/A31868… 前缀——边界判
+        if (!idToName.contains(w.id))
+          idToName.insert(w.id, w.name);
+      }
+    }
+    if (idToName.isEmpty())
+      return QString();
+    for (auto it = idToName.cbegin(); it != idToName.cend(); ++it)
+      matchedNames->append(it.value());
+    return idToName.size() == 1 ? idToName.cbegin().key() : QString();
+  }
+
+  // 井附件角色（目录段关键词表——与 AreaRules 默认目录词表同思路，工区
+  // 方言）：岩心照片→core（图片井道）、岩屑录井→cuttings（岩性道）、
+  // 薄片/粒度→lab_analysis；无关键词 → 井域 reference。只看目录段——
+  // 文件名是自由文本（薄片描述「富含白云岩屑.JPG」会误中「岩屑」）。
+  QString attachmentRoleForKeywords(const QString &dirPath)
+  {
+    if (dirPath.contains(QStringLiteral("岩心")))
+      return QStringLiteral("core");
+    if (dirPath.contains(QStringLiteral("岩屑")))
+      return QStringLiteral("cuttings");
+    if (dirPath.contains(QStringLiteral("薄片")) || dirPath.contains(QStringLiteral("粒度")))
+      return QStringLiteral("lab_analysis");
+    return QStringLiteral("reference");
+  }
 } // namespace
 
 namespace paleo::dataimport_detail {
@@ -263,6 +327,41 @@ QString importAuxReferenceFamily(FamilyContext &ctx)
   QString *const error = ctx.error;
   const QString &stem = ctx.stem;
   const ProjectClassification &cls = ctx.cls;
+
+  // 井附件优先挂井（竞赛工区数据形态）：兜底类型（image_reference/document/
+  // outsource_workbook/tabular/unknown）若能从「文件名主名或父目录名」唯一
+  // 识井——前缀 = 既有井名 + 非 ASCII 字母数字边界，如 A1,1849.35m.JPG /
+  // A1岩屑录井数据.xlsx / A3薄片鉴定/A31868.62粒间孔.JPG——挂井链接而不是
+  // 落辅助实体。角色按路径关键词表（岩心→core、岩屑→cuttings、薄片/粒度→
+  // lab_analysis），无关键词 → 井域 reference。双候选 → 未决井链接（§3 不
+  // 猜）；零匹配 → 原辅助实体路径不变。
+  {
+    QStringList matchedNames;
+    const QString wellId = wellAttachmentTarget(cat, {stem, ctx.fi.dir().dirName()},
+                                                &matchedNames);
+    if (!wellId.isEmpty() || matchedNames.size() >= 2)
+    {
+      EntityAssetLink link;
+      link.entityType = QStringLiteral("well");
+      link.assetId = assetId;
+      link.role = attachmentRoleForKeywords(ctx.fi.absolutePath());
+      if (!wellId.isEmpty())
+      {
+        link.entityId = wellId;
+        link.isPrimary = true;
+      }
+      else
+      {
+        link.unresolved = true;
+        link.note = QStringLiteral("井附件双候选: %1").arg(matchedNames.join(
+            QStringLiteral("、")));
+      }
+      if (!cat->addLink(link, error))
+        return *error;
+      return QString();
+    }
+  }
+
     // document / image_reference / geojson / unknown / 参考资料 XML：辅助实体 + reference。
     const QString auxId =
         cat->nextEntityId(QStringLiteral("aux"));

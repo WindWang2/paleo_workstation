@@ -4,6 +4,7 @@
 
 #include "../src/algorithms/ensemblestats.h"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
@@ -216,17 +217,25 @@ void EnsembleStatsTests::scalesLinearlyWithCells()
     }
     return compute( members, cells, StatsRequest{ true, true, true, true } );
   };
-  QElapsedTimer timer;
-  timer.start();
-  const StatsResult small = run( 64 * 1024 );
-  const qint64 smallMs = timer.elapsed();
-  QCOMPARE( small.validCount[0], 8 );
-  timer.restart();
-  const StatsResult big = run( 256 * 1024 );
-  const qint64 bigMs = timer.elapsed();
-  QCOMPARE( big.validCount[0], 8 );
+  // 纳秒计时 + 各取 3 次最小值：整毫秒量化下 small≈1–2ms，比率会在
+  // 1ms 抖动下跳过门限（Windows CI 偶发红、直跑即过）。
+  constexpr int kRepeats = 3;
+  qint64 smallNs = std::numeric_limits<qint64>::max();
+  qint64 bigNs = std::numeric_limits<qint64>::max();
+  for ( int rep = 0; rep < kRepeats; ++rep )
+  {
+    QElapsedTimer timer;
+    timer.start();
+    const StatsResult small = run( 64 * 1024 );
+    smallNs = std::min( smallNs, timer.nsecsElapsed() );
+    QCOMPARE( small.validCount[0], 8 );
+    timer.restart();
+    const StatsResult big = run( 256 * 1024 );
+    bigNs = std::min( bigNs, timer.nsecsElapsed() );
+    QCOMPARE( big.validCount[0], 8 );
+  }
   const double ratio =
-      static_cast<double>( bigMs ) / static_cast<double>( std::max<qint64>( smallMs, 1 ) );
+      static_cast<double>( bigNs ) / static_cast<double>( std::max<qint64>( smallNs, 1 ) );
   qWarning( "%s",
             qPrintable( QStringLiteral( "BASELINE ensemble_stats_scale_ratio = %1" ).arg( ratio ) ) );
   QVERIFY2( ratio <= 4.0 * 1.5,

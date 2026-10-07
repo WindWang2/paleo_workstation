@@ -2,6 +2,7 @@
 #pragma once
 #include "domain/deviationsurvey.h"
 #include "domain/seismic/timedepthmodel.h"
+#include <QImage>
 #include <QMetaType>
 #include <QString>
 #include <QStringList>
@@ -42,6 +43,14 @@ struct TimeDepth {
 
 // 相代码充填段：交会分类（crossplot 井层段）产物的按井深度段。
 // classId 对 12 色Wheel 取色（数据符号色，视图侧解析）。
+// 图片道锚（core/lab_analysis 井附件照片）：md 锚定 + 预解码位图
+//（编排层任务线程装载；QtGui 于数据层无禁令——纯数据无 UI 语义）。
+struct ImageAnchor {
+  double md = 0.0;
+  QString caption;
+  QImage image;
+};
+
 struct FaciesSegment {
   double topMd = 0;
   double baseMd = 0;
@@ -97,6 +106,7 @@ struct Well {
   QVector<Curve> curves;
   QVector<FaciesSegment> facies; // 交会分类井层段（catalog 派生资产）
   QVector<LithoSegment> litho;   // 解释岩性段（catalog 资产，可空 = GR 回落）
+  QVector<ImageAnchor> images;   // 图片道锚（岩心/薄片照片，md 升序）
   std::optional<TimeDepth> timeDepth;
   // 井斜轨迹（catalog trajectory 角色）。无链接 = 直井几何（TVD≡MD，
   // 按 MD 绘制不变）；surveyError 非空 = 资产在但不可解析——TVD 域该井

@@ -66,6 +66,7 @@ struct RenderState {
   quint64 layoutVersion = 0;           // 几何/井集/模板变更递增（缓存键）
   quint64 curveVersion = 0;            // 曲线几何变更递增（px/m、偏移、数据、模板）——gapPx 不属其中
   quint64 stripVersion = 0;            // 地震缝数据变更递增（缓存键）
+  quint64 imageVersion = 0;            // 图片道数据变更递增（QPixmap 缓存键）
 
   double columnWidth() const { return tpl.columnWidth(); }
   double gapWidth(int i) const {
@@ -144,6 +145,7 @@ class ColumnItem : public QGraphicsItem
                              const wellsection::TrackSpec &tr);
     void paintFaciesTrack(QPainter *p, const QRectF &trackRect,
                           const QRectF &exposed);
+    void paintImageTrack(QPainter *p, const QRectF &trackRect, const QRectF &exposed);
 
     RenderState *m_st;
     int m_index;
@@ -151,6 +153,9 @@ class ColumnItem : public QGraphicsItem
     // 不重算——拉伸只动列位置不动路径）。
     mutable quint64 m_pathVersion = ~quint64(0);
     mutable QHash<quint64, QPainterPath> m_pathCache; // (trackIdx<<8|curveIdx) → path
+    // 图片道位图缓存：((wellIdx<<16)|anchorIdx)<<8 | 低 8 位 imageVersion 截断
+    // ——QImage(任务线程装载) → QPixmap(GUI 线程) 只转一次，换数据即失效。
+    mutable QHash<quint64, QPixmap> m_pixmapCache;
     mutable QHash<quint64, QPainterPath> m_sandCache;
 };
 

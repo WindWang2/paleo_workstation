@@ -26,7 +26,10 @@ class PythonEnvService : public QObject
     // 基底解释器：<root>/base 内置 Python（conda-forge 版，Tk 带 Xft 才能
     // 渲染中文 GUI）> PALEO_PYTHON 环境变量 > PATH 上的 python3/python。
     QString basePython() const;
-    static QString findBasePython(); // PATH 兜底（测试/诊断用）
+    static QString findBasePython(); // 无 root 语境的环境发现序：PALEO_PYTHON
+                                     // → PATH（不含 <root>/base 内置解释器，
+                                     // 需要内置首选的走 basePython()）——脚本
+                                     // 控制台/REPL 与 MAMCL 测试均用此序。
 
   public slots:
     // step 标签随 stepFinished 回传，供编排层对号入座。

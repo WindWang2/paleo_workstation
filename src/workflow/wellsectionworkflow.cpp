@@ -36,6 +36,8 @@ struct WellSectionWorkflow::Shared {
   };
   QVector<Entry> entries;
   QVector<std::optional<wellsection::Curve>> curves; // 与 entries 同序
+  // 图片道清单（GUI 步收集，任务线程装载）：井 id → (路径, depthMd, caption)。
+  QHash<QString, QVector<std::tuple<QString, double, QString>>> pendingImages;
 };
 
 namespace {
@@ -279,6 +281,7 @@ int WellSectionWorkflow::request(const QStringList &wellIds,
   }
   attachFaciesSegments(shared->wells);
   attachLithoSegments(shared->wells, &shared->warnings);
+  collectCoreImages(*shared);
   shared->curves.resize(shared->entries.size());
   if (!m_tasks) {
     loadCurveBodies(*shared, nullptr);
@@ -361,10 +364,45 @@ void WellSectionWorkflow::loadCurveBodies(Shared &shared,
     if (shared.curves[i])
       shared.wells[shared.entries[i].wellIndex].curves.push_back(
           *shared.curves[i]);
+
+  // 图片道装载（任务线程）：QImage 是非 GUI 类型， QPixmap 转换归视图线程。
+  // 单张失败跳过（坏图不让整段剖面失败——warnings 如实记）。
+  for (wellsection::Well &w : shared.wells) {
+    QVector<wellsection::ImageAnchor> loaded;
+    for (const auto &pending : shared.pendingImages.value(w.id)) {
+      QImage img(std::get<0>(pending));
+      if (img.isNull()) {
+        shared.warnings << tr("图片道装载失败：%1").arg(std::get<0>(pending));
+        continue;
+      }
+      wellsection::ImageAnchor a;
+      a.md = std::get<1>(pending);
+      a.caption = std::get<2>(pending);
+      a.image = img;
+      loaded.append(a);
+    }
+    if (!loaded.isEmpty()) {
+      std::sort(loaded.begin(), loaded.end(),
+                [](const wellsection::ImageAnchor &a, const wellsection::ImageAnchor &b) {
+                  return a.md < b.md;
+                });
+      w.images = loaded;
+    }
+  }
 }
 
 // 交会分类井层段（catalog 派生资产 well_facies_intervals 的最新版本）挂到
 // 各井 facies；文件缺/坏 → 静默跳过（相代码道显示空，不出告警）。
+// 图片道清单（GUI 计划步）：经 facade imagesFor 拿 core/lab_analysis 角色
+// 深度锚图片的绝对路径——只记清单，QImage 装载在任务线程（loadCurveBodies）。
+void WellSectionWorkflow::collectCoreImages(Shared &shared) const
+{
+  for (const wellsection::Well &w : shared.wells) {
+    for (const WellImageAnchor &a : m_data.imagesFor(w.id))
+      shared.pendingImages[w.id].append({a.path, a.depthMd, a.caption});
+  }
+}
+
 void WellSectionWorkflow::attachFaciesSegments(
     QVector<wellsection::Well> &wells) const {
   if (!m_catalog || wells.isEmpty())

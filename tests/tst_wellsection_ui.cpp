@@ -157,6 +157,49 @@ class TestWellSectionUi : public QObject
     }
 
   private slots:
+    // 图片道渲染：Well::images（预解码 QImage）+ 模板加 Image 道 →
+    // renderImage 照片区为照片色而非纸底/占位灰框。
+    void imageTrackRendersPhotosAtDepth()
+    {
+      SelectionContext ctx;
+      WellSectionPanel panel(&ctx);
+      auto wells = wells4();
+      // C-2 两张纯色照片：1850m 红、1955m 蓝（层位窗 1800-2000 内，8x8）。
+      QImage red(8, 8, QImage::Format_RGB32);
+      red.fill(qRgb(220, 20, 20));
+      QImage blue(8, 8, QImage::Format_RGB32);
+      blue.fill(qRgb(20, 20, 220));
+      wells[0].images << wellsection::ImageAnchor{1850.0, QStringLiteral("core_red.png"), red}
+                      << wellsection::ImageAnchor{1955.0, QStringLiteral("core_blue.png"), blue};
+      auto tpl = wellsection::SectionTemplate::defaults();
+      wellsection::TrackSpec imgTrack;
+      imgTrack.kind = wellsection::TrackKind::Image;
+      imgTrack.title = QStringLiteral("照片");
+      imgTrack.width = 90;
+      tpl.tracks.append(imgTrack);
+      panel.setSectionTemplate(tpl);
+      panel.setSection(wells);
+
+      const QImage img = panel.renderImage();
+      // 图片道在模板末位：x = margin + 前序道宽和 + 道宽/2。defaults =
+      // 小层(56)|GR(56)|深度(56)|岩性(56)|RD/RS(56) → 16+280+45。
+      const int px = 16 + 280 + 45;
+      const int hh = panel.findChild<wellsectionui::HeaderWidget *>(
+                            QStringLiteral("wellSectionHeader"))
+                         ->headerHeight();
+      const double yTop = panel.topLineY(QStringLiteral("C-2"),
+                                         QStringLiteral("C3"));
+      const auto yAt = [&panel, hh, yTop](double md) {
+        return hh + yTop + (md - 1800.0) * panel.pxPerMeter();
+      };
+      const QColor cRed = img.pixelColor(px, int(yAt(1854.0)));
+      const QColor cBlue = img.pixelColor(px, int(yAt(1959.0)));
+      QVERIFY2(cRed.red() > cRed.blue() + 20,
+               qPrintable(QStringLiteral("red zone %1").arg(cRed.name())));
+      QVERIFY2(cBlue.blue() > cBlue.red() + 20,
+               qPrintable(QStringLiteral("blue zone %1").arg(cBlue.name())));
+    }
+
     void initTestCase()
     {
       PaleoTheme::pinRenderEnvironment();

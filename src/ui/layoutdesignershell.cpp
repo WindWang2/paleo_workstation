@@ -222,6 +222,15 @@ PaleoLayoutDesignerShell::PaleoLayoutDesignerShell( QgsLayout *layout, QWidget *
   if ( m_layout )
     m_view->setCurrentLayout( m_layout );
 
+  // UIS-08(#279)：非模态设计器不能持有裸版面。版面被删（版面库删除/
+  // 工程切换清空 QgsLayoutManager）时销毁信号驱动关窗——开点设了
+  // WA_DeleteOnClose，close() 即回收；QPointer 同时把壳内所有
+  // `if (m_layout)` 守卫变成真守卫，迟到操作（对齐/导出/模板）不再 UAF。
+  if ( m_layout )
+  {
+    connect( m_layout, &QObject::destroyed, this, [this] { close(); } );
+  }
+
   // --- subtask C/D controller objects ---------------------------------------
 
   m_undoStack = new PaleoLayoutUndoStack( m_layout, this );
@@ -506,7 +515,7 @@ QgsLayoutItemMap *PaleoLayoutDesignerShell::targetMapItem() const
 
 void PaleoLayoutDesignerShell::addStandardElement( const QString &name )
 {
-  auto *printLayout = dynamic_cast<QgsPrintLayout *>( m_layout );
+  auto *printLayout = dynamic_cast<QgsPrintLayout *>( m_layout.data() );
   QgsLayoutItemMap *map = targetMapItem();
   if ( !printLayout || !map )
   {
@@ -776,7 +785,7 @@ void PaleoLayoutDesignerShell::connectLayoutSync()
 
 QgsMasterLayoutInterface *PaleoLayoutDesignerShell::masterLayout() const
 {
-  return dynamic_cast<QgsMasterLayoutInterface *>( m_layout );
+  return dynamic_cast<QgsMasterLayoutInterface *>( m_layout.data() );
 }
 
 void PaleoLayoutDesignerShell::selectItems( const QList<QgsLayoutItem *> &items )
@@ -800,7 +809,7 @@ void PaleoLayoutDesignerShell::selectItems( const QList<QgsLayoutItem *> &items 
 void PaleoLayoutDesignerShell::setAtlasPreviewEnabled( bool enabled )
 {
   m_atlasPreviewEnabled = enabled;
-  if ( QgsPrintLayout *printLayout = dynamic_cast<QgsPrintLayout *>( m_layout ) )
+  if ( QgsPrintLayout *printLayout = dynamic_cast<QgsPrintLayout *>( m_layout.data() ) )
   {
     if ( QgsLayoutAtlas *atlas = printLayout->atlas() )
       atlas->setEnabled( enabled );
@@ -809,7 +818,7 @@ void PaleoLayoutDesignerShell::setAtlasPreviewEnabled( bool enabled )
 
 void PaleoLayoutDesignerShell::setAtlasFeature( const QgsFeature &feature )
 {
-  if ( QgsPrintLayout *printLayout = dynamic_cast<QgsPrintLayout *>( m_layout ) )
+  if ( QgsPrintLayout *printLayout = dynamic_cast<QgsPrintLayout *>( m_layout.data() ) )
   {
     if ( QgsLayoutAtlas *atlas = printLayout->atlas() )
       atlas->seekTo( feature );

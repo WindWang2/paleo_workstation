@@ -559,6 +559,11 @@ void MappingWorkbenchPage::refreshInputs() {
         (row.value("horizon").toString() != m_horizon ||
          row.value("kind").toString().startsWith("constraint")))
       continue;
+    // 约束页输入与编图同口径：只收当前层位与无层位项（products("")
+    // 现在返回全部层位，这里显式圈回，语义与旧 products(h) 一致）。
+    if (m_mode == "constraint" && !row.value("horizon").toString().isEmpty() &&
+        row.value("horizon").toString() != m_horizon)
+      continue;
     auto *item = new QListWidgetItem(row.value("name").toString(), m_inputs);
     item->setData(Qt::UserRole, row.value("id"));
     item->setToolTip(row.value("name").toString());
@@ -585,7 +590,21 @@ void MappingWorkbenchPage::refresh() {
   m_results->clear();
   if (m_points)
     m_points->clear();
-  for (const auto &v : m_workbench->products(m_horizon)) {
+  // 结果列表显示全部层位的成果（标题自带层位名）——激活层位与预测层位
+  // 不一致时（如自动层位 C6 而成果在 D61），列表不再空。成果行排前、
+  // 源数据行（井位/测区/底图/层位栅格）排后；点约束/证据源等操作入口
+  // 仍限当前层位（跨层位输入由编图校验拒绝）。
+  QVariantList all = m_workbench->products(QString());
+  std::stable_sort(all.begin(), all.end(),
+                   [](const QVariant &x, const QVariant &y) {
+                     const auto isProduct = [](const QVariant &row) {
+                       const auto id = row.toMap().value("id").toString();
+                       return id.startsWith(QStringLiteral("product.")) ||
+                              id.startsWith(QStringLiteral("draft."));
+                     };
+                     return isProduct(x) && !isProduct(y);
+                   });
+  for (const auto &v : all) {
     auto row = v.toMap();
     auto *item = new QTreeWidgetItem(
         m_results, {row.value("name").toString(),
@@ -596,8 +615,10 @@ void MappingWorkbenchPage::refresh() {
     item->setToolTip(0, row.value("path").toString());
     if (row.value("id").toString() == selected)
       m_results->setCurrentItem(item);
+    const QString rowHorizon = row.value("horizon").toString();
     if (m_points && row.value("type") == "vector" &&
-        !row.value("kind").toString().startsWith("constraint"))
+        !row.value("kind").toString().startsWith("constraint") &&
+        (rowHorizon.isEmpty() || rowHorizon == m_horizon))
       m_points->addItem(row.value("name").toString(), row.value("id"));
   }
   if (m_points && m_points->findData(pointId) >= 0)
@@ -607,9 +628,11 @@ void MappingWorkbenchPage::refresh() {
     const QSignalBlocker block(m_evidenceSource);
     m_evidenceSource->clear();
     m_evidenceSource->addItem(tr("手工解释（无来源图件）"), QString());
-    for (const auto &entry : m_workbench->products(m_horizon)) {
+    for (const auto &entry : m_workbench->products(QString())) {
       const auto p = entry.toMap();
-      if (p.value("id").toString() != selectedLayer())
+      const QString hz = p.value("horizon").toString();
+      if (p.value("id").toString() != selectedLayer() &&
+          (hz.isEmpty() || hz == m_horizon))
         m_evidenceSource->addItem(p.value("name").toString(), p.value("id"));
     }
     m_evidenceSource->setCurrentIndex(

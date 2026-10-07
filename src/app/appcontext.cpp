@@ -598,6 +598,16 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
 void AppContext::refreshSurveyLayer()
 {
   if (m_projectDir.isEmpty() || !m_import || !m_import->catalog() || !m_layerSvc) return;
+  // 无有效测区（角点 ≥3）不落测区图层——空工程的地图/图层树保持空态
+  //（T31 契约）；测区被移除时把此前的占位层一并撤下。
+  bool hasSurvey = false;
+  for (const auto &survey : m_import->catalog()->entities(QStringLiteral("seismic_survey")))
+    if (survey.corners.size() >= 3) { hasSurvey = true; break; }
+  if (!hasSurvey) {
+    QString error;
+    m_layerSvc->removeDeclaration(QStringLiteral("survey.area"), &error);
+    return;
+  }
   const QString path = QDir(m_projectDir).filePath(QStringLiteral("artifacts/layers/survey_area.geojson"));
   QString error;
   if (!isProjectReadOnly()) {

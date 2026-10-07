@@ -388,7 +388,9 @@ CatalogVersion MappingWorkbench::versionForLayer(const QString &id) const {
 QVariantList MappingWorkbench::products(const QString &h) const {
   QVariantList rows;
   for (const auto &d : m_layers->declared()) {
-    if (!d.horizon.isEmpty() && d.horizon != h)
+    // h 为空 = 不按层位圈定（全部层位的成果都列出）；有 h 时精确匹配，
+    // 无层位声明（井位/测区/底图）在任何视图都保留。
+    if (!h.isEmpty() && !d.horizon.isEmpty() && d.horizon != h)
       continue;
     const auto v = versionForLayer(d.layerId);
     const auto e = v.extra;

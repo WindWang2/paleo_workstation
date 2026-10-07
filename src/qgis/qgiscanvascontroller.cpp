@@ -216,9 +216,16 @@ void QgisCanvasController::zoomToLayer( const QString &layerId )
   QgsMapLayer *l = m_layerResolver ? m_layerResolver( layerId ) : nullptr;
   if ( !l )
     return;
-  const QgsRectangle ext = paleo::mapreference::mapExtent(m_canvas, l->extent(), l->crs());
+  QgsRectangle ext = paleo::mapreference::mapExtent(m_canvas, l->extent(), l->crs());
   if ( ext.isEmpty() )
-    return;
+  {
+    // 图层 CRS 与画布 CRS 无可用转换（如未配准工程里的 WGS84 图层）：
+    // 回退按图层原始范围缩放——视图至少移动到图层坐标域，静默不动更糟。
+    if ( l->extent().isNull() )
+      return;
+    ext = l->extent();
+    ext.scale( 1.08 );
+  }
   m_canvas->setExtent( ext );
   m_canvas->refresh();
 }

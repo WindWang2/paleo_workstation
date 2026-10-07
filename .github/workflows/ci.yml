@@ -3,12 +3,15 @@ name: ci
 # devex 改造（build(devex) PR）：
 #   - 三段 job：lint（clang-tidy 增量门禁 + deb 闭包冒烟）→ linux（编译+测试）
 #     → windows（原样）。lint 与编译并行，不串行排队。
-#   - 不拆 per-module 测试 job：GB 级 QGIS 依赖在 runner 间流转不划算
-#     （apt 装一轮 6min+），用 ctest LABELS -L/-LE 在同机分步替代。
+#   - 不拆 per-module 测试 job：GB 级 QGIS 依赖在 runner 间流转不划算，
+#     用 ctest LABELS -L/-LE 在同机分步替代。
 #   - ccache：launcher 由 CMakeLists 检测，CI 只管缓存与安装。
 #   - #136/#81：perf 标签（墙钟预算）不进必过门禁（-LE perf），单独跑在
 #     非阻断的 linux-perf job，JUnit/日志作 artifact 做趋势。
-#   - #138：apt QGIS 版本钉死，单一来源 vendor/deb-closure.lock（tools/ci_apt_qgis.sh）。
+#   - #138→#76（方向 71）：QGIS 版本钉死单一来源 vendor/deb-closure.lock，
+#     三路（superbuild/deb 闭包/manifest 家族）一致性由
+#     tools/check_qgis_versions.py 门禁看守；Linux 侧不再 apt 系统 QGIS，
+#     统一走 deb 闭包 vendored 路（BUILDING.md「依赖来源策略」第 2 档）。
 env:
   CMAKE_BUILD_PARALLEL_LEVEL: 2
 
@@ -31,6 +34,13 @@ concurrency:
   group: ci-${{ github.ref }}-${{ github.event_name == 'pull_request' && 'pr' || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# #76（方向 71）：Linux 侧 QGIS/GDAL/PROJ/GEOS 一律 vendored（deb 闭包），
+# apt 只装政策例外面（Qt6 发行版包、qtkeychain、工具链）；QGIS 头经
+# QGIS_PREFIX_PATH 指向 vendor/prefix/usr。
+# deb 闭包缓存：缓存下载归档 vendor/cache/debs（键 = 锁+种子哈希，锁变即
+# 重下）；解包产物 vendor/prefix 不缓存（bootstrap 检测到归档在缓存后本地
+# 解包，dpkg-deb -x 是本地 CPU 面，不占 runner 网络与缓存配额）。
+
 jobs:
   lint:
     runs-on: ubuntu-26.04
@@ -43,9 +53,25 @@ jobs:
       # 升级 = 有意变更：改此包名 + 本地同步跑一轮收录新告警。
       - name: Pin clang-tidy
         run: sudo apt-get update && sudo apt-get install -y clang-tidy-20 python3
-      - name: Install QGIS/Qt headers (configure 需要 find_package 全绿才有 compile_commands；QGIS 钉版本 #138)
-        run: tools/ci_apt_qgis.sh qtkeychain-qt6-dev
+      # #76：Qt6 走发行版包（政策例外，superbuild D-QT）；QGIS/GDAL/PROJ/GEOS
+      # 由 deb 闭包 vendored 提供，不 apt 系统 QGIS。
+      - name: Install Qt6 dev packages (vendored 路只缺 Qt/工具面)
+        run: sudo apt-get install -y
+          qt6-base-dev qt6-svg-dev qt6-serialport-dev qt6-positioning-dev qt6-tools-dev
+          qt6-webengine-dev qt6-pdf-dev qtkeychain-qt6-dev ninja-build pkg-config g++
+      - name: Cache vendored deb closure
+        uses: actions/cache@v4
+        with:
+          path: vendor/cache/debs
+          key: ${{ runner.os }}-debclosure-${{ hashFiles('vendor/deb-closure.lock', 'vendor/deb-packages.txt') }}
+      # compile_commands 需要 QGIS 头——bootstrap 拉 deb 闭包到 vendor/prefix。
+      # fetch-only：只取依赖不编译（bootstrap 尾部的 build/selfcheck 属
+      # linux job，lint 只要 compile_commands）。
+      - name: Vendor dependencies (deb 闭包，QGIS 头来源 #76)
+        run: ./paleo-dev bootstrap fetch-only
       - name: Configure (compile_commands.json only)
+        env:
+          QGIS_PREFIX_PATH: ${{ github.workspace }}/vendor/prefix/usr
         run: cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
       # .cpp 内 Q_OBJECT 类靠 `#include "*.moc"`（AUTOMOC 产物）；只 configure
       # 不 build 时该文件不存在，clang-tidy 报 clang-diagnostic-error。
@@ -76,13 +102,15 @@ jobs:
           fi
           echo "tidy base: $base ($(git rev-parse --short "$base" 2>/dev/null || echo '?'))"
           python3 tools/check_tidy.py --base "$base"
-      - name: Source gates (layering / ui invariants / i18n，按脚本位置定位源码根)
+      - name: Source gates (layering / ui invariants / i18n / QGIS 版本口径，按脚本位置定位源码根)
         run: |
           python3 tools/check_layering.py --strict
           python3 tools/check_ui_invariants.py --strict
           python3 tools/check_ui_invariants.py --selftest
           python3 tools/check_i18n.py
           python3 tools/check_i18n.py --selftest
+          python3 tools/check_qgis_versions.py
+          python3 tools/check_qgis_versions.py --selftest
       - name: deb-closure smoke (ET1：锁文件可解析、条目格式合法，零下载)
         run: ./vendor/fetch-deps.sh --print-only
 
@@ -91,8 +119,13 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
-      - name: Install QGIS 4.2 development packages (QGIS 钉版本 #138)
-        run: tools/ci_apt_qgis.sh libproj-dev libgeos-dev ccache qtkeychain-qt6-dev
+      # #76（方向 71）：QGIS/GDAL/PROJ/GEOS 不再走 apt 系统 QGIS（原
+      # tools/ci_apt_qgis.sh 已删）——bootstrap 统一拉 deb 闭包；apt 只装
+      # 政策例外面（Qt6 发行版包/qtkeychain/ccache/工具链）。
+      - name: Install Qt6 dev packages (vendored 路只缺 Qt/工具面)
+        run: sudo apt-get update && sudo apt-get install -y
+          qt6-base-dev qt6-svg-dev qt6-serialport-dev qt6-positioning-dev qt6-tools-dev
+          qt6-webengine-dev qt6-pdf-dev qtkeychain-qt6-dev ccache ninja-build pkg-config
       - name: Cache ccache
         uses: actions/cache@v4
         with:
@@ -105,7 +138,8 @@ jobs:
         with:
           path: |
             vendor/onnxruntime
-          key: ${{ runner.os }}-ort-${{ hashFiles('vendor/manifest.json') }}
+            vendor/cache/debs
+          key: ${{ runner.os }}-ort-${{ hashFiles('vendor/manifest.json') }}-debclosure-${{ hashFiles('vendor/deb-closure.lock', 'vendor/deb-packages.txt') }}
       - name: Vendor dependencies
         run: ./paleo-dev bootstrap
       - name: Build
@@ -166,8 +200,12 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
-      - name: Install QGIS 4.2 development packages (QGIS 钉版本 #138)
-        run: tools/ci_apt_qgis.sh libproj-dev libgeos-dev ccache qtkeychain-qt6-dev
+      # #76（方向 71）：同 linux job——QGIS 栈 vendored（deb 闭包），apt 只装
+      # 政策例外面（Qt6 发行版包/qtkeychain/ccache/工具链）。
+      - name: Install Qt6 dev packages (vendored 路只缺 Qt/工具面)
+        run: sudo apt-get update && sudo apt-get install -y
+          qt6-base-dev qt6-svg-dev qt6-serialport-dev qt6-positioning-dev qt6-tools-dev
+          qt6-webengine-dev qt6-pdf-dev qtkeychain-qt6-dev ccache ninja-build pkg-config
       - name: Cache ccache
         uses: actions/cache@v4
         with:
@@ -181,10 +219,13 @@ jobs:
         with:
           path: |
             vendor/onnxruntime
-          key: ${{ runner.os }}-ort-${{ hashFiles('vendor/manifest.json') }}
+            vendor/cache/debs
+          key: ${{ runner.os }}-ort-${{ hashFiles('vendor/manifest.json') }}-debclosure-${{ hashFiles('vendor/deb-closure.lock', 'vendor/deb-packages.txt') }}
       - name: Vendor dependencies
         run: ./paleo-dev bootstrap
       - name: Configure
+        env:
+          QGIS_PREFIX_PATH: ${{ github.workspace }}/vendor/prefix/usr
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
       - name: Build + run perf tests (serial)
         env:

@@ -125,9 +125,12 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo `
   "-DQGIS_PREFIX=$HOME/paleo-qgis-prefix" `
   "-DQSCINTILLA_PREFIX=$HOME/paleo-qgis-deps/Library/include/qt6"
 # 构建/测试时 PATH 前置（qt6 工具 lrelease/moc 也依赖它解析 DLL）：
-#   $HOME/paleo-qgis-deps/Library/bin;$HOME/paleo-qgis-prefix/bin;C:/deps/Qt/6.11.2/msvc2022_64/bin
+#   $HOME/paleo-qgis-deps;$HOME/paleo-qgis-deps/Library/bin;$HOME/paleo-qgis-prefix/bin;C:/deps/Qt/6.11.2/msvc2022_64/bin
 # 并设 GDAL_DATA=$HOME/paleo-qgis-deps/Library/share/gdal、
 # PROJ_LIB=$HOME/paleo-qgis-deps/Library/share/proj（./paleo-dev.ps1 已内置）。
+# 测试还需（ps1 test 已内置）：TEMP/TMP 与 SEISMIC_INDEX_CACHE_DIR 指到
+# build/paleo-tmp 内子目录（沙箱监狱对策，见下）、PALEO_PYTHON=
+# $HOME/paleo-qgis-deps/python.exe（conda 布局 python 在根不在 Library/bin）。
 ```
 
 要点：

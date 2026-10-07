@@ -58,10 +58,14 @@ QgisLayerService::QgisLayerService(QgisProjectService *projectSvc, LayerManifest
             });
   }
   // openProject()/createProject() swap the layer set wholesale (read() clears
-  // first, but be explicit): drop every entry not still registered.
+  // first, but be explicit): drop every entry not still registered, then adopt
+  // the layers read() restored from the .qgz (see adoptProjectLayers).
   if (m_projectSvc)
     connect(m_projectSvc, &QgisProjectService::projectOpened, this,
-            [this] { purgeDanglingInstances(); });
+            [this] {
+              purgeDanglingInstances();
+              adoptProjectLayers();
+            });
 }
 
 bool QgisLayerService::declare(const LayerDeclaration &decl, QString *error)
@@ -285,6 +289,27 @@ void QgisLayerService::purgeDanglingInstances()
       it = m_instances.erase(it);
     else
       ++it;
+  }
+}
+
+void QgisLayerService::adoptProjectLayers()
+{
+  // #287：QgsProject::write() 会把实例化过的图层原样存进 .qgz，read() 后
+  // 它们带着 paleoLayerId 自定义属性回来，但 cleared 钩子早已清空
+  // m_instances——不收编的话：切层位时 instantiate 缓存未命中会对同一数据
+  // 源重复 addMapLayer（图层树/画布出现双份）；恢复的副本对 layer()、
+  // isEditingAnyLayer()、releaseHorizon 和编辑忙闸全部不可见，在它上面的
+  // 编辑不受保护也不回滚。createProject 时 mapLayers 为空，收编是 no-op。
+  QgsProject *proj = resolveProject(m_projectSvc);
+  if (!proj)
+    return;
+  const auto layers = proj->mapLayers();
+  for (auto it = layers.cbegin(); it != layers.cend(); ++it)
+  {
+    const QString paleoId =
+        it.value()->customProperty(QStringLiteral("paleoLayerId")).toString();
+    if (!paleoId.isEmpty())
+      trackInstance(paleoId, it.value());
   }
 }
 

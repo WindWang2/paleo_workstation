@@ -5,6 +5,7 @@
 
 #include <qgsmaplayer.h>
 #include <qgsproject.h>
+#include <qgsvectorlayer.h>
 
 #include "../src/metadata/layermanifest.h"
 #include "../src/qgis/manifestprojection.h"
@@ -151,6 +152,75 @@ private slots:
     // Runtime flag must not be persisted: everything reloads uninstantiated.
     for ( const LayerDeclaration &d : got )
       QCOMPARE( d.instantiated, false );
+  }
+
+  // #287: .qgz 恢复出来的图层必须被 QgisLayerService 收编。QgsProject::write()
+  // 会把实例化过的图层原样持久化，read() 后它们带着 paleoLayerId 回来，但
+  // cleared 钩子已清空 m_instances——不收编的话：切层位时 instantiate 缓存
+  // 未命中会对同一数据源重复 addMapLayer（图层树/画布出现双份），且恢复的
+  // 副本对 layer()/编辑闸/releaseHorizon 不可见，在它上面的编辑不受保护。
+  void restoredLayersAreAdoptedIntoLayerService()
+  {
+    QTemporaryDir dir;
+    QVERIFY( dir.isValid() );
+    const QString qgzPath = dir.filePath( QStringLiteral( "adopt.qgz" ) );
+    const QString dbPath = dir.filePath( QStringLiteral( "project.sqlite" ) );
+
+    {
+      QgisProjectService svc;
+      QVERIFY2( svc.createProject( qgzPath ),
+                qPrintable( svc.lastErrors().join( ';' ) ) );
+
+      LayerManifest manifest( dbPath );
+      QString err;
+      QVERIFY2( manifest.open( &err ), qPrintable( err ) );
+
+      QgisLayerService layerSvc( &svc, &manifest );
+      QVERIFY2( layerSvc.declare( decl( QStringLiteral( "facies.T1" ), QStringLiteral( "T1" ) ), &err ), qPrintable( err ) );
+      QVERIFY( layerSvc.declare( decl( QStringLiteral( "faults.T1" ), QStringLiteral( "T1" ) ) ) );
+      QCOMPARE( layerSvc.instantiateHorizon( QStringLiteral( "T1" ) ), 2 );
+      QVERIFY2( svc.writeProject(), qPrintable( svc.lastErrors().join( ';' ) ) );
+    } // svc destroyed with its QgsProject — reopen from disk
+
+    QgisProjectService svc2;
+    // 层服务须先构造才能在 projectOpened 上收编（AppContext 同款接线序）。
+    LayerManifest manifest2( dbPath );
+    QString err;
+    QVERIFY2( manifest2.open( &err ), qPrintable( err ) );
+    QgisLayerService layerSvc2( &svc2, &manifest2 );
+    QVERIFY2( svc2.openProject( qgzPath ),
+              qPrintable( svc2.lastErrors().join( ';' ) ) );
+
+    // 恢复出来的两个图层都被收编：再实例化同一层位命中缓存，不得新增图层。
+    // （instantiateHorizon 的返回值是「确保在场」的数量，含已缓存命中。）
+    QCOMPARE( svc2.project()->mapLayers().size(), 2 );
+    QVERIFY( layerSvc2.isInstantiated( QStringLiteral( "facies.T1" ) ) );
+    QVERIFY( layerSvc2.isInstantiated( QStringLiteral( "faults.T1" ) ) );
+    QCOMPARE( layerSvc2.instantiateHorizon( QStringLiteral( "T1" ) ), 2 );
+    QCOMPARE( svc2.project()->mapLayers().size(), 2 );
+
+    // 切层位（保存时处于激活状态的层位）同样不得再加一份。
+    layerSvc2.setActiveHorizon( QStringLiteral( "T1" ) );
+    QCOMPARE( svc2.project()->mapLayers().size(), 2 );
+
+    // layer() 返回的必须是恢复出来的那个对象，不是新副本。
+    QgsMapLayer *restored = nullptr;
+    const auto layers = svc2.project()->mapLayers();
+    for ( auto it = layers.cbegin(); it != layers.cend(); ++it )
+    {
+      if ( it.value()->customProperty( QStringLiteral( "paleoLayerId" ) ).toString()
+           == QStringLiteral( "facies.T1" ) )
+        restored = it.value();
+    }
+    QVERIFY( restored != nullptr );
+    QCOMPARE( layerSvc2.layer( QStringLiteral( "facies.T1" ) ), restored );
+
+    // 恢复的副本在编辑闸可见：startEditing 后 isEditingAnyLayer() 必须为真。
+    auto *vl = qobject_cast<QgsVectorLayer *>( restored );
+    QVERIFY( vl != nullptr );
+    QVERIFY( vl->startEditing() );
+    QVERIFY( layerSvc2.isEditingAnyLayer() );
+    vl->rollBack();
   }
 
   // An empty manifest still writes an explicit empty array that round-trips.

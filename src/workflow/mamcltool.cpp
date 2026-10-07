@@ -303,6 +303,51 @@ void MamclTool::advance()
       QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
       env.insert( QStringLiteral( "MAMCL_PYTHON" ), py );
       fixupTclEnv( m_env->venvDir( venvName() ), env );
+      // 本地 Tk 运行库（免 root 自愈）：external/mamcl/tk-runtime/usr/lib 放有
+      // libtk8.6.so（发行版 tk 包解包即得）时补进动态库/脚本库路径；系统已
+      // 装 tk 或已设路径时不干扰。
+      {
+        const QString tkLib = QDir( m_env->rootDir() ).filePath(
+            QStringLiteral( "tk-runtime/usr/lib" ) );
+        if ( QFileInfo::exists( QDir( tkLib ).filePath( QStringLiteral( "libtk8.6.so" ) ) ) )
+        {
+          const QString oldLd = env.value( QStringLiteral( "LD_LIBRARY_PATH" ) );
+          env.insert( QStringLiteral( "LD_LIBRARY_PATH" ),
+                      oldLd.isEmpty() ? tkLib
+                                      : tkLib + QLatin1Char( ':' ) + oldLd );
+          if ( !env.contains( QStringLiteral( "TK_LIBRARY" ) ) )
+            env.insert( QStringLiteral( "TK_LIBRARY" ),
+                        QDir( tkLib ).filePath( QStringLiteral( "tk8.6" ) ) );
+        }
+      }
+      // GUI 预检：MAMCL 是 tkinter 界面——缺 Tk 运行库（libtk8.6.so）时
+      // startDetached 照样返回成功，进程秒退且 ImportError 只进控制台，
+      // 用户侧表现为「已启动」但窗口永远不出现。预检失败如实报错并给
+      // 出系统依赖安装指引，不再假成功。
+      {
+        QProcess check;
+        check.setProgram( py );
+        check.setArguments( { QStringLiteral( "-c" ), QStringLiteral( "import tkinter" ) } );
+        check.setProcessEnvironment( env );
+        check.start();
+        if ( !check.waitForFinished( 15000 ) )
+        {
+          check.kill();
+          finish( false, tr( "MAMCL 启动预检超时（%1）" ).arg( py ) );
+          return;
+        }
+        if ( check.exitCode() != 0 )
+        {
+          const QString detail = QString::fromUtf8( check.readAllStandardError() )
+                                     .section( '\n', -2 )
+                                     .trimmed();
+          finish( false,
+                  tr( "MAMCL 需要 Tk 图形库，当前 Python 无法加载 tkinter：%1\n"
+                      "请安装系统 Tk 库后重试（Arch 系：sudo pacman -S tk）。" )
+                      .arg( detail ) );
+          return;
+        }
+      }
       QProcess proc;
       proc.setProgram( py );
       proc.setArguments( { appScript() } );

@@ -1627,7 +1627,7 @@ class TestPanels : public QObject
     // primary=资产名+版本号、members 按 ordinal、unresolved 落名；下游
     // DERIVED 产物 + stale「过时」标记；missingSources 诊断行；空态不崩不猜。
 
-    // 角色槽渲染：well 词表 9 槽全枚举（词表序），井头主关联带版本号，
+    // 角色槽渲染：well 词表 11 槽全枚举（词表序），井头主关联带版本号，
     // 测井成员按 ordinal 序（非入库序），未决链接落到对应槽位。
     void dataPage_entityViewRoleSlotsRender()
     {
@@ -1694,12 +1694,13 @@ class TestPanels : public QObject
       QVERIFY(header);
       QVERIFY(header->text().contains(QStringLiteral("A1")));
 
-      // 词表 9 槽仍全枚举。well_log 按文件拆行：主文件、未决、mid、old，
-      // 所以总行数是 12。井头打头，其他收尾。
-      QCOMPARE(roleTable->rowCount(), 12);
+      // 词表 11 槽仍全枚举（136e39fc 井附件通道扩位 cuttings/lab_analysis
+      // 后 9→11）。well_log 按文件拆行：主文件、未决、mid、old，
+      // 所以总行数是 14。井头打头，其他收尾。
+      QCOMPARE(roleTable->rowCount(), 14);
       QCOMPARE(roleTable->item(0, 0)->text(), QString::fromUtf8("井身/井位"));
       QCOMPARE(roleTable->item(1, 0)->text(), QString::fromUtf8("测井曲线"));
-      QCOMPARE(roleTable->item(11, 0)->text(), QString::fromUtf8("其他"));
+      QCOMPARE(roleTable->item(13, 0)->text(), QString::fromUtf8("其他"));
 
       // 井头槽：primary = 资产名 + 当前版本号（v3，非字面 v1）。
       const QString headPrimary = roleTable->item(0, 1)->text();

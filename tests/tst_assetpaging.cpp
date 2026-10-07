@@ -173,6 +173,46 @@ private slots:
     panel.resize(640, 850); QCoreApplication::processEvents();
     QVERIFY(table->rowCount() <= table->property("paleo.pageSize").toInt());
   }
+  // 数据导航树（用户契约）：大 catalog（>200，原降级分页树阈值）不再走
+  // 「测区+当页拍平」——完整实体树，顶级四组（测区/测井/地震/辅助资料）
+  // 全部默认收拢；已挂井曲线只在井节点下（无「未关联曲线」重复面）；
+  // 树形视图下分页器隐藏（树滚动，不分页）。
+  void navTreeFullStructureBeyondPagingThreshold() {
+    QTemporaryDir dir; QVERIFY(PerfFixtures::makeSyntheticCatalogDir(dir.path(), 300));
+    DataImportService importer; importer.setProjectDir(dir.path()); PreviewDocService doc(&importer);
+    DataListPanel panel; panel.setDocService(&doc); panel.resize(640, 740); panel.setViewMode(0); panel.show();
+    panel.refreshAssetTable(); panel.applyListFilter(); QCoreApplication::processEvents();
+
+    auto *tree = panel.findChild<QTreeWidget *>(QStringLiteral("dataTree"));
+    QVERIFY(tree);
+    QVERIFY2(tree->topLevelItemCount() >= 4,
+             qPrintable(QStringLiteral("top=%1").arg(tree->topLevelItemCount())));
+    QCOMPARE(tree->topLevelItem(0)->text(0), QStringLiteral("测区"));
+    QVERIFY(tree->topLevelItem(1)->text(0).startsWith(QStringLiteral("测井 (300 井)")));
+    QCOMPARE(tree->topLevelItem(2)->text(0), QStringLiteral("地震 (0)"));
+    QCOMPARE(tree->topLevelItem(3)->text(0), QStringLiteral("辅助资料 (0)"));
+    for (int i = 0; i < tree->topLevelItemCount(); ++i)
+      QVERIFY2(!tree->topLevelItem(i)->isExpanded(),
+               qPrintable(tree->topLevelItem(i)->text(0)));
+
+    // 300 口井全挂在「测井」组下（合成夹具每井一条已决 LAS，无未关联面）。
+    QTreeWidgetItem *wellRoot = tree->topLevelItem(1);
+    QCOMPARE(wellRoot->childCount(), 300);
+    for (int i = 0; i < wellRoot->childCount(); ++i) {
+      QVERIFY(!wellRoot->child(i)->text(0).startsWith(QStringLiteral("未关联曲线")));
+      QVERIFY(!wellRoot->child(i)->text(0).startsWith(QStringLiteral("综合柱状图")));
+      QVERIFY(wellRoot->child(i)->childCount() >= 1); // 曲线挂井节点下（一次，不重复）
+    }
+
+    // 树形视图（0）分页器隐藏——滚动条管全程，不翻页。
+    auto *pager = panel.findChild<QWidget *>(QStringLiteral("assetPager"));
+    QVERIFY(pager);
+    QVERIFY2(!pager->isVisibleTo(&panel), "pager must hide in tree view");
+    // 切到表视图（1）分页器回来（>200 仍分页，出界行为不变）。
+    panel.setViewMode(1); panel.applyListFilter(); QCoreApplication::processEvents();
+    QVERIFY(pager->isVisibleTo(&panel));
+  }
+
   void governanceUiPreviewCancelAndTokens() {
     paleo::storage::Report report; report.complete = true; report.scannedRoots = {"artifacts/RAW"};
     paleo::storage::FileFact f; f.relativePath = "artifacts/RAW/unreferenced.bin"; f.sizeBytes = 42;

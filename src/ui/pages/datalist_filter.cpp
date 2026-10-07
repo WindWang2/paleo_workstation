@@ -56,7 +56,10 @@ void DataListPanel::applyListFilter()
   table->setProperty("paleo.totalAssets", m_rows.size());
   table->setProperty("paleo.pageSize", pageSize);
   if (auto *pager = findChild<QWidget *>(QStringLiteral("assetPager")))
-    pager->setVisible(paged && (!m_viewStack || m_viewStack->currentIndex() != 3));
+    // 树形视图（0）永不分页（完整实体树 + 滚动）；分组视图（3）自管懒载。
+    pager->setVisible(paged && (!m_viewStack ||
+                                (m_viewStack->currentIndex() != 0 &&
+                                 m_viewStack->currentIndex() != 3)));
   if (auto *label = findChild<QLabel *>(QStringLiteral("assetPageLabel")))
     label->setText(tr("第 %1 / %2 页 · %3 项").arg(m_assetPage + 1).arg(pages).arg(shown));
   if (auto *btn = findChild<QPushButton *>(QStringLiteral("assetPreviousPage")))

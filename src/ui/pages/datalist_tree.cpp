@@ -32,38 +32,6 @@ void DataListPanel::refreshAssetTree()
   if (!cat)
     return;
 
-  if (m_rows.size() > 200)
-  {
-    // 树、图标、分组共享当前页；实体节点保留井选中与激活语义。
-    auto *survey = new QTreeWidgetItem(m_tree);
-    survey->setText(0, tr("测区")); survey->setData(0, Qt::UserRole, QStringLiteral("survey_area"));
-    survey->setData(0, Qt::UserRole + 2, QStringLiteral("survey_area"));
-    QHash<QString, QTreeWidgetItem *> entityNodes;
-    for (const auto &row : m_pageRows)
-    {
-      QTreeWidgetItem *parent = nullptr;
-      QString wellId;
-      for (const auto &link : cat->linksForAsset(row.assetId))
-        if (!link.unresolved && !link.entityId.isEmpty()) {
-          const auto entity = cat->entityById(link.entityId);
-          parent = entityNodes.value(entity.id);
-          if (!parent) {
-            parent = new QTreeWidgetItem(m_tree); parent->setText(0, m_entityOv.displayName(entity));
-            parent->setData(0, Qt::UserRole + 1, entity.id);
-            parent->setData(0, Qt::UserRole + 2, entity.entityType);
-            parent->setExpanded(true); entityNodes.insert(entity.id, parent);
-          }
-          if (entity.entityType == QLatin1String("well")) wellId = entity.id;
-          break;
-        }
-      auto *item = parent ? new QTreeWidgetItem(parent) : new QTreeWidgetItem(m_tree);
-      item->setText(0, row.displayName); item->setText(1, row.effectiveType);
-      item->setData(0, Qt::UserRole, row.assetId); item->setData(0, Qt::UserRole + 1, wellId);
-      item->setData(0, Qt::UserRole + 2, QStringLiteral("asset"));
-    }
-    return;
-  }
-
   // 0. 测区 (Survey Area) — 首项显示，双击打开测区全景地图 (QGIS 画布)
   auto *surveyRoot = new QTreeWidgetItem(m_tree);
   surveyRoot->setText(0, tr("测区"));
@@ -71,7 +39,7 @@ void DataListPanel::refreshAssetTree()
   surveyRoot->setData(0, Qt::UserRole, QStringLiteral("survey_area"));
   surveyRoot->setData(0, Qt::UserRole + 2, QStringLiteral("survey_area"));
   surveyRoot->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mIconPolygonLayer.svg")));
-  surveyRoot->setExpanded(true);
+  surveyRoot->setExpanded(false);
 
   auto *surveyMapItem = new QTreeWidgetItem(surveyRoot);
   surveyMapItem->setText(0, tr("工区全景地图"));
@@ -103,8 +71,10 @@ void DataListPanel::refreshAssetTree()
               return naturalNameSort(ovStore->displayName(a), ovStore->displayName(b));
             });
 
+  // 1. 测井（井实体树 + 多井柱状图/未关联曲线子分支）。已挂井的曲线只在
+  // 井节点下出现一次（原平铺「测井」组与其重复——去重后平铺侧只收未决）。
   auto *wellRoot = new QTreeWidgetItem(m_tree);
-  wellRoot->setText(0, tr("井 (%1)").arg(wells.size()));
+  wellRoot->setText(0, tr("测井 (%1 井)").arg(wells.size()));
   wellRoot->setText(1, tr("井位 / 测井曲线 / 分层 / 时深"));
   wellRoot->setData(0, Qt::UserRole + 2, QStringLiteral("category"));
   wellRoot->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mIconPointLayer.svg")));
@@ -217,44 +187,18 @@ void DataListPanel::refreshAssetTree()
     }
     return false;
   };
-
-  // 1b. 计划井 (Planned：方向34 布井候选)——虚拟部署实体，独立成组
-  // 与实井分组隔开；显示名同走实体改写表，软删实体不显示。
-  {
-    QVector<CatalogEntity> planned = cat->entities(QStringLiteral("planned"));
-    QVector<CatalogEntity> plannedVisible;
-    for (const CatalogEntity &e : planned)
-      if (!m_recycle.isRemoved(e.id) &&
-          (!m_plannedVisible || m_plannedVisible(e.id)))
-        plannedVisible.append(e);
-    std::sort(plannedVisible.begin(), plannedVisible.end(),
-              [ovStore](const CatalogEntity &a, const CatalogEntity &b) {
-                return naturalNameSort(ovStore->displayName(a), ovStore->displayName(b));
-              });
-    auto *plannedRoot = new QTreeWidgetItem(m_tree);
-    plannedRoot->setText(0, tr("计划井 (%1)").arg(plannedVisible.size()));
-    plannedRoot->setText(1, tr("布井候选（不进实井计算）"));
-    plannedRoot->setData(0, Qt::UserRole + 2, QStringLiteral("category"));
-    plannedRoot->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mIconPointLayer.svg")));
-    plannedRoot->setExpanded(false);
-    for (const CatalogEntity &p : plannedVisible)
+  // 已决挂井（井实体 + 非 unresolved）——这些曲线在井节点下显示，平铺侧不重复。
+  const auto linkedToWell = [cat](const QString &assetId) {
+    for (const EntityAssetLink &l : cat->linksForAsset(assetId))
     {
-      auto *item = new QTreeWidgetItem(plannedRoot);
-      item->setText(0, m_entityOv.displayName(p));
-      item->setData(0, Qt::UserRole + 1, p.id);
-      item->setData(0, Qt::UserRole + 2, QStringLiteral("planned"));
-      item->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mIconPointLayer.svg")));
-      if (p.hasSurface)
-      {
-        item->setText(1, QStringLiteral("X: %1, Y: %2")
-                                 .arg(QString::number(p.surfaceX, 'f', 1))
-                                 .arg(QString::number(p.surfaceY, 'f', 1)));
-        item->setFont(1, PaleoTheme::monoFont());
-      }
+      if (!l.unresolved && !l.entityId.isEmpty() &&
+          cat->entityById(l.entityId).entityType == QLatin1String("well"))
+        return true;
     }
-  }
+    return false;
+  };
 
-  // 2. 测井 (Well Logs: 综合柱状图 + 测井曲线)
+  // 1b. 测井组内子分支：多井综合柱状图 + 未关联曲线（挂井曲线在井节点下）。
   QList<CatalogAsset> logAssets;
   QList<CatalogAsset> compositeAssets;
   for (const CatalogAsset &a : cat->assets())
@@ -263,7 +207,8 @@ void DataListPanel::refreshAssetTree()
       continue;
     if (a.type == QLatin1String("well_log") || a.displayName.endsWith(QLatin1String(".las"), Qt::CaseInsensitive))
     {
-      logAssets.append(a);
+      if (!linkedToWell(a.id))
+        logAssets.append(a);
     }
     else if ((a.displayName.contains(QStringLiteral("柱状图")) ||
               (a.displayName.endsWith(QLatin1String(".xml"), Qt::CaseInsensitive) && a.displayName.contains(QStringLiteral("综合")))) &&
@@ -280,17 +225,9 @@ void DataListPanel::refreshAssetTree()
     return naturalNameSort(a.displayName, b.displayName);
   });
 
-  const int totalLogs = logAssets.size() + compositeAssets.size();
-  auto *logRoot = new QTreeWidgetItem(m_tree);
-  logRoot->setText(0, tr("测井 (%1)").arg(totalLogs));
-  logRoot->setText(1, tr("综合柱状图 / 测井曲线 (LAS)"));
-  logRoot->setData(0, Qt::UserRole + 2, QStringLiteral("category"));
-  logRoot->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mIconLineLayer.svg")));
-  logRoot->setExpanded(true);
-
   if (!compositeAssets.isEmpty())
   {
-    auto *compBranch = new QTreeWidgetItem(logRoot);
+    auto *compBranch = new QTreeWidgetItem(wellRoot);
     compBranch->setText(0, tr("综合柱状图 (%1)").arg(compositeAssets.size()));
     compBranch->setText(1, tr("多井道地质综合柱状图 (ResFormStar 规范)"));
     compBranch->setData(0, Qt::UserRole + 2, QStringLiteral("category"));
@@ -310,9 +247,9 @@ void DataListPanel::refreshAssetTree()
 
   if (!logAssets.isEmpty())
   {
-    auto *curveBranch = new QTreeWidgetItem(logRoot);
-    curveBranch->setText(0, tr("测井曲线 (%1)").arg(logAssets.size()));
-    curveBranch->setText(1, tr("LAS 连续测井曲线数据"));
+    auto *curveBranch = new QTreeWidgetItem(wellRoot);
+    curveBranch->setText(0, tr("未关联曲线 (%1)").arg(logAssets.size()));
+    curveBranch->setText(1, tr("无已决井链接的 LAS（拖到井节点挂接）"));
     curveBranch->setData(0, Qt::UserRole + 2, QStringLiteral("category"));
     curveBranch->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mIconLineLayer.svg")));
     curveBranch->setExpanded(true);
@@ -320,34 +257,7 @@ void DataListPanel::refreshAssetTree()
     for (const CatalogAsset &a : logAssets)
     {
       auto *it = new QTreeWidgetItem(curveBranch);
-      QString linkedWellName;
-      QString linkedWellId;
-      for (const auto &w : wells)
-      {
-        const auto links = cat->linksForEntity(w.id);
-        for (const auto &lk : links)
-        {
-          if (lk.assetId == a.id)
-          {
-            linkedWellName = w.name;
-            linkedWellId = w.id;
-            break;
-          }
-        }
-        if (!linkedWellName.isEmpty())
-          break;
-      }
-
-      if (!linkedWellName.isEmpty())
-      {
-        it->setText(0, tr("%1 · 井 %2").arg(a.displayName, linkedWellName));
-        it->setData(0, Qt::UserRole + 1, linkedWellId);
-      }
-      else
-      {
-        it->setText(0, a.displayName);
-      }
-
+      it->setText(0, a.displayName);
       it->setText(1, tr("测井曲线 (GR/AC/DEN/电阻率等)"));
       it->setData(0, Qt::UserRole, a.id);
       it->setData(0, Qt::UserRole + 2, QStringLiteral("well_log"));
@@ -365,7 +275,7 @@ void DataListPanel::refreshAssetTree()
   seismicRoot->setText(1, tr("三维地震数据体"));
   seismicRoot->setData(0, Qt::UserRole + 2, QStringLiteral("category"));
   seismicRoot->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mIconPolygonLayer.svg")));
-  seismicRoot->setExpanded(true);
+  seismicRoot->setExpanded(false);
 
   const QVector<CatalogEntity> surveys = cat->entities(QStringLiteral("seismic_survey"));
   CatalogEntity survey;
@@ -409,32 +319,6 @@ void DataListPanel::refreshAssetTree()
     }
   }
 
-  // 4. 层位 (Horizons)
-  QList<CatalogAsset> horAssets;
-  for (const CatalogAsset &a : cat->assets())
-    if (assetVisible(a) && a.type == QLatin1String("horizon"))
-      horAssets.append(a);
-  std::sort(horAssets.begin(), horAssets.end(), [](const CatalogAsset &a, const CatalogAsset &b) {
-    return naturalNameSort(a.displayName, b.displayName);
-  });
-  auto *horRoot = new QTreeWidgetItem(m_tree);
-  horRoot->setText(0, tr("层位 (%1)").arg(horAssets.size()));
-  horRoot->setText(1, tr("解释层位数据"));
-  horRoot->setData(0, Qt::UserRole + 2, QStringLiteral("category"));
-  horRoot->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mActionOpenTable.svg")));
-  horRoot->setExpanded(true);
-
-  for (const CatalogAsset &a : horAssets)
-  {
-    auto *hItem = new QTreeWidgetItem(horRoot);
-    hItem->setText(0, a.displayName);
-    hItem->setData(0, Qt::UserRole, a.id);
-    hItem->setData(0, Qt::UserRole + 2, QStringLiteral("horizon"));
-    hItem->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mActionOpenTable.svg")));
-    // 网格规格不在 catalog 里（按文件名臆造 411×641 已回收）——如实标类型。
-    hItem->setText(1, tr("层位网格"));
-  }
-
   // 5. 辅助资料 (Auxiliary)
   QList<CatalogAsset> auxAssets;
   for (const CatalogAsset &a : cat->assets())
@@ -465,7 +349,7 @@ void DataListPanel::refreshAssetTree()
   auxRoot->setText(1, tr("参考相图 / 文档 / 图片"));
   auxRoot->setData(0, Qt::UserRole + 2, QStringLiteral("category"));
   auxRoot->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mActionFolder.svg")));
-  auxRoot->setExpanded(true);
+  auxRoot->setExpanded(false);
 
   auto *faciesBranch = new QTreeWidgetItem(auxRoot);
   faciesBranch->setText(0, tr("参考相图"));
@@ -500,6 +384,68 @@ void DataListPanel::refreshAssetTree()
       it->setText(1, tr("XML 数据表"));
     else
       it->setText(1, a.type);
+  }
+
+  // 1b. 计划井 (Planned：方向34 布井候选)——虚拟部署实体，独立成组
+  // 与实井分组隔开；显示名同走实体改写表，软删实体不显示。
+  {
+    QVector<CatalogEntity> planned = cat->entities(QStringLiteral("planned"));
+    QVector<CatalogEntity> plannedVisible;
+    for (const CatalogEntity &e : planned)
+      if (!m_recycle.isRemoved(e.id) &&
+          (!m_plannedVisible || m_plannedVisible(e.id)))
+        plannedVisible.append(e);
+    std::sort(plannedVisible.begin(), plannedVisible.end(),
+              [ovStore](const CatalogEntity &a, const CatalogEntity &b) {
+                return naturalNameSort(ovStore->displayName(a), ovStore->displayName(b));
+              });
+    auto *plannedRoot = new QTreeWidgetItem(m_tree);
+    plannedRoot->setText(0, tr("计划井 (%1)").arg(plannedVisible.size()));
+    plannedRoot->setText(1, tr("布井候选（不进实井计算）"));
+    plannedRoot->setData(0, Qt::UserRole + 2, QStringLiteral("category"));
+    plannedRoot->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mIconPointLayer.svg")));
+    plannedRoot->setExpanded(false);
+    for (const CatalogEntity &p : plannedVisible)
+    {
+      auto *item = new QTreeWidgetItem(plannedRoot);
+      item->setText(0, m_entityOv.displayName(p));
+      item->setData(0, Qt::UserRole + 1, p.id);
+      item->setData(0, Qt::UserRole + 2, QStringLiteral("planned"));
+      item->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mIconPointLayer.svg")));
+      if (p.hasSurface)
+      {
+        item->setText(1, QStringLiteral("X: %1, Y: %2")
+                                 .arg(QString::number(p.surfaceX, 'f', 1))
+                                 .arg(QString::number(p.surfaceY, 'f', 1)));
+        item->setFont(1, PaleoTheme::monoFont());
+      }
+    }
+  }
+
+  // 4. 层位 (Horizons)
+  QList<CatalogAsset> horAssets;
+  for (const CatalogAsset &a : cat->assets())
+    if (assetVisible(a) && a.type == QLatin1String("horizon"))
+      horAssets.append(a);
+  std::sort(horAssets.begin(), horAssets.end(), [](const CatalogAsset &a, const CatalogAsset &b) {
+    return naturalNameSort(a.displayName, b.displayName);
+  });
+  auto *horRoot = new QTreeWidgetItem(m_tree);
+  horRoot->setText(0, tr("层位 (%1)").arg(horAssets.size()));
+  horRoot->setText(1, tr("解释层位数据"));
+  horRoot->setData(0, Qt::UserRole + 2, QStringLiteral("category"));
+  horRoot->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mActionOpenTable.svg")));
+  horRoot->setExpanded(false);
+
+  for (const CatalogAsset &a : horAssets)
+  {
+    auto *hItem = new QTreeWidgetItem(horRoot);
+    hItem->setText(0, a.displayName);
+    hItem->setData(0, Qt::UserRole, a.id);
+    hItem->setData(0, Qt::UserRole + 2, QStringLiteral("horizon"));
+    hItem->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mActionOpenTable.svg")));
+    // 网格规格不在 catalog 里（按文件名臆造 411×641 已回收）——如实标类型。
+    hItem->setText(1, tr("层位网格"));
   }
 
   // 6. 不确定性集合（方向 47）：realization_set 资产 → 父集合→成员树，
@@ -694,13 +640,9 @@ void DataListPanel::applyFilterToTree(const QSet<QString> &visibleIds, bool filt
       cat->setExpanded(true);
     else if (!filtering)
     {
-      const bool isWellCategory = cat->text(0).startsWith(tr("井 ("));
-      cat->setExpanded(!isWellCategory);
-      for (int j = 0; j < cat->childCount(); ++j)
-      {
-        auto *child = cat->child(j);
-        child->setExpanded(child->text(0).contains(QStringLiteral("综合柱状图")));
-      }
+      // 默认收拢（用户契约）：清空搜索后一级节点全部回到收拢态；子分支
+      // 维持构建态（综合柱状图等展开位不动）。
+      cat->setExpanded(false);
     }
   }
 }

@@ -17,17 +17,16 @@
 - **Priority:** P3
 - **Depends on:** #246（第 5 项）
 
-## P3 — AI 助手：图形化配置对话框 + 工具上下文补绑（from goal/ai-assist, 2026-10-06；工具闭环已由方向61 交付）
+## P3 — AI 助手：工具上下文补绑（from goal/ai-assist, 2026-10-06；工具闭环已由方向61 交付、图形化配置已由方向62 交付）
 
 - **What:** 方向61（goal/ai-toolloop）已交付 function calling 闭环：tools[] 上送
   （tool_choice=auto）、tool_calls 经 `workflow/aichattoolrunner` 真执行（tile 分类
   走 `AiAssistWorkflow::startClassification` 异步 + 协作取消，产品落 DERIVED 草稿
   通道）、结果按 role=tool + tool_call_id 回灌下轮、历史开窗与工具结果截断、取消
-  作废语义（未应答帧补「已取消」应答保协议完整）。**仍递延**：
-  1. 端点/模型/密钥的图形化配置对话框——面板「配置…」只发意图，状态栏告知配置
-     文件（`LlmConfig::path()`）与 `PALEO_LLM_ENDPOINT` / `_MODEL` / `_API_KEY`
-     环境变量；密钥已进系统钥匙串（`src/ai/chat/llmkeystore.*`），只是没有写入 UI。
-  2. 层位建议/测井相的应用级上下文绑定：`bindChatToolRunner`（app/aiwiring）目前
+  作废语义（未应答帧补「已取消」应答保协议完整）。端点/模型/密钥的图形化配置
+  对话框已由方向62（goal/ai-ux）交付——`src/ui/ai/llmconfigdialog.*`，密钥写系统
+  钥匙串不回显。**仍递延**：
+  1. 层位建议/测井相的应用级上下文绑定：`bindChatToolRunner`（app/aiwiring）目前
      只绑 horizon + 层位栅格取数；traceFetch（须地震体道窗服务）与 faciesInput
      （须井缓存曲线组装）未绑——模型点名时执行器如实报「上下文未绑定」，不冒充
      成功。补绑点即 `AiChatToolContext` 的两个 provider。

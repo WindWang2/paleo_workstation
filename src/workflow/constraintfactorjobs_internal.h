@@ -38,6 +38,15 @@ namespace paleo::constraint_detail
         extra.insert( QStringLiteral( "mock" ), true );
   }
 
+  // 方向67：策略包 id → 血缘 extra。id 已由 generateFactor 入口按
+  // singlefactorstrategy 词表校验（词表外拒绝，不回退），这里只落血缘。
+  inline void insertStrategyId( const QVariantMap &params, QVariantMap &extra )
+  {
+    const QString strategyId = params.value( QStringLiteral( "strategy_id" ) ).toString();
+    if ( !strategyId.isEmpty() )
+      extra.insert( QStringLiteral( "strategy_id" ), strategyId );
+  }
+
   inline QVariantMap contourMetadata( const QString &layerId, const QString &horizon,
                                const QString &factorLayerId )
   {

@@ -770,6 +770,7 @@ bool ConstraintWorkflow::publishGeostatJob( const GeostatJob &job, QString *erro
   extra.insert( QStringLiteral( "qc_path" ), projectDir.relativeFilePath( stagedQc ) );
   extra.insert( QStringLiteral( "qc_sha256" ), qcSha );
   inheritMockFlag( PaleoWorkflowDerivedCatalog( this ), parentIds, extra );
+  insertStrategyId( job.params, extra ); // 方向67：策略包 id 进血缘（kriging 词表项）
   QString commitErr;
   if ( !registrar.commitExternal( st, job.outputPath, parentIds, algorithmId, extra, &commitErr ) )
   {

@@ -511,7 +511,7 @@ add_library(paleo_services STATIC
   src/services/startuptrace.cpp                     # goal/perf-systematize 簇1：启动分段仪表
   src/services/storagegovernance.cpp
   src/services/cataloghealth.cpp                    # 方向30：工区资产体检（快速面 + 外链 SHA 复验）
-  src/services/errorhub.cpp                         # 方向54：ErrorHub 统一错误汇聚与历史管理
+  src/services/errorhub.cpp                         # 方向54+方向64：统一错误通道（去重/聚合/环形历史，两实现并存）
 )
 target_link_libraries(paleo_services PUBLIC paleo_deps paleo_io paleo_domain paleo_store paleo_algorithms)
 
@@ -562,6 +562,10 @@ target_link_libraries(paleo_workflow PUBLIC paleo_deps paleo_qgis paleo_store pa
 
 # ---- 视图层 ----
 add_library(paleo_ui STATIC
+  src/ui/notifications/notificationcenter.cpp      # 方向64：错误呈现（通知卡/severe 模态/状态栏）
+  src/ui/notifications/toastcard.cpp               # 方向64：通知卡（预建池复用）
+  src/ui/notifications/paleonotify.cpp             # 方向64：视图层错误/确认统一出口
+  src/ui/notifications/errorhistorypanel.cpp       # 方向64：错误历史面板（过滤/复制/清空）
   src/ui/pages/stratigraphicwebpage.cpp
   src/ui/symbols/symbolpickerpanel.cpp             # 方向31：符号选择器面板（花纹/线型浏览 + 语义过滤）
   src/ui/pages/mappingworkbenchpage.cpp
@@ -637,9 +641,20 @@ add_library(paleo_ui STATIC
   src/ui/dialogs/storagegovernancedialog.cpp
   src/ui/dialogs/cataloghealthdialog.cpp           # 方向30：工区体检对话框（分类计数 + 跳转意图）
   src/ui/webviewpanel.cpp                          # embedded web shell (lazy, degradable)
-  src/ui/wellcomposite/wellcompositetrack.cpp      # ResFormStar 多道综合柱状图
-  src/ui/wellcomposite/wellcompositecanvas.cpp
-  src/ui/wellcomposite/wellcompositepanel.cpp
+  src/ui/wellcomposite/wellcompositetrack.cpp      # ResFormStar 多道综合柱状图（D1.11 道头基类）
+  src/ui/wellcomposite/trackpatterns.cpp           # 方向 66：道图案工厂（岩性/相纹理）
+  src/ui/wellcomposite/trackcolumns.cpp            # 方向 66：基础六道（标尺/文本/地层/岩性/取芯/图片）
+  src/ui/wellcomposite/trackcurves.cpp             # 方向 66：曲线充填与符号道
+  src/ui/wellcomposite/trackcompound.cpp           # 方向 66：地层系统组/沉积相复合道
+  src/ui/wellcomposite/wellcompositecanvas.cpp     # 画布主控件（视口/缩放/深度协调）
+  src/ui/wellcomposite/compositeheader.cpp         # 方向 66：置顶道头（拖拽换位/分隔线/焦点环）
+  src/ui/wellcomposite/compositebody.cpp           # 方向 66：道体渲染与手势
+  src/ui/wellcomposite/wellcompositepanel.cpp      # 综合图总装面板（编排根）
+  src/ui/wellcomposite/panelsetup.cpp              # 方向 66：面板 UI 搭建
+  src/ui/wellcomposite/paneldata.cpp               # 方向 66：数据装配（XML/LAS→道布局）
+  src/ui/wellcomposite/paneltracks.cpp             # 方向 66：道编排与会话同步
+  src/ui/wellcomposite/paneldepth.cpp              # 方向 66：深度交互（书签/pin/TWT/读数）
+  src/ui/wellcomposite/paneledit.cpp               # 方向 66：编辑会话与导出
   src/ui/wellcomposite/curveconfigdialog.cpp
   src/ui/wellcomposite/wellpositionlegendwidget.cpp
   src/ui/sequenceframeworkcolumn.cpp               # 方向28：格架柱状视图（层级色带）
@@ -883,6 +898,7 @@ add_paleo_test(tst_release LIBS paleo_store)
 add_paleo_test(tst_sequenceframework_ui LIBS paleo_ui)  # 方向28：格架面板/柱状视图无头断言
 add_paleo_test(tst_releasepanel LIBS paleo_ui)
 add_paleo_test(tst_taskpanel LIBS paleo_ui)
+add_paleo_test(tst_notifications LIBS paleo_ui)   # 方向64：通知卡/模态单弹/风暴（offscreen；同 tst_taskpanel 取 paleo_ui 的 QtWidgets 头）
 add_paleo_test(tst_attrpanel LIBS paleo_ui)
 # ---- merged worktree waves ----
 # 方向50：IO 容错、导入诊断、SDK 消费与工作簿边角回归。
@@ -1076,7 +1092,8 @@ add_paleo_test(tst_entityview LIBS paleo_store)
 # 崩溃本地转储（§38 留白按本地优先落地）+ 外链源重定位恢复路径。
 # 新增源与测试集中在此块；并行包合并冲突时保留双方行。
 add_paleo_test(tst_crashreport LIBS paleo_services)
-add_paleo_test(tst_errorhub LIBS paleo_services)   # 方向54：ErrorHub 核心数据服务与去重/环形缓冲单元测试
+add_paleo_test(tst_errorhub LIBS paleo_services)      # 方向64：去重窗口/聚合/环形逐出/并发
+add_paleo_test(tst_errorhub_d54 LIBS paleo_services)   # 方向54：ErrorHub 核心数据服务与去重/环形缓冲单元测试
 add_paleo_test(tst_notification_card LIBS paleo_ui paleo_services) # 方向54：通知卡片与管理器测试
 add_paleo_test(tst_notification_m2_challenger LIBS paleo_ui paleo_services) # 方向54：M2 Challenger 经验证套件
 add_paleo_test(tst_error_history_dock LIBS paleo_ui paleo_services) # 方向54/M4：错误历史模型与面板测试
@@ -1148,11 +1165,13 @@ set(_paleo_extra_manifest
   "${CMAKE_SOURCE_DIR}/cmake/extra-petrophys.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-property-modeling.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-prediction-facies.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-python-scripting.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-realization.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-sections-alignment.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-seismic.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-seismic-inversion.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-sf-kriging.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-sf-completion.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-shortcuts-help.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-surfaceops.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-time-depth.cmake"

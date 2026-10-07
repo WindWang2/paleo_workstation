@@ -14,7 +14,8 @@
 #include <QFileDialog>
 #include <QFormLayout>
 #include <QHeaderView>
-#include "ui/notifications/notificationmanager.h"
+#include "../notifications/paleonotify.h"
+#include <QDialogButtonBox>  // 原经 <QMessageBox> 传递引入
 #include <QPainter>
 #include <QPrinter>
 #include <QPrintDialog>
@@ -1380,9 +1381,9 @@ void SeismicSectionDockWidget::onExportSnapshot() {
     QImage img(m_canvas->size(), QImage::Format_ARGB32_Premultiplied);
     m_canvas->render(&img);
     if (img.save(filePath)) {
-        paleo::ui::NotificationManager::showInfo(this, tr("导出成功"), tr("剖面图件已成功保存到:\n%1").arg(filePath));
+        PaleoNotify::information(this, tr("导出成功"), tr("剖面图件已成功保存到:\n%1").arg(filePath));
     } else {
-        paleo::ui::NotificationManager::showError(this, tr("导出失败"), tr("保存图像文件失败，请检查文件写入权限。"));
+        PaleoNotify::critical(this, tr("导出失败"), tr("保存图像文件失败，请检查文件写入权限。"));
     }
 }
 
@@ -2667,7 +2668,7 @@ void SeismicSectionDockWidget::computeSyntheticOverlays() {
 // D5.1 任意线路径编辑器：多段折线（il xl 每行一节点）→ 提取
 void SeismicSectionDockWidget::showArbitraryLineEditor() {
     if (!m_volume || !m_volume->IsLoaded()) {
-        paleo::ui::NotificationManager::showWarning(this, tr("任意线编辑器"), tr("请先加载地震体。"));
+        PaleoNotify::information(this, tr("任意线编辑器"), tr("请先加载地震体。"));
         return;
     }
     QDialog dlg(this);
@@ -2701,7 +2702,7 @@ void SeismicSectionDockWidget::showArbitraryLineEditor() {
             pathPoints.push_back({il, xl});
     }
     if (pathPoints.size() < 2) {
-        paleo::ui::NotificationManager::showWarning(this, tr("任意线编辑器"), tr("至少需要 2 个有效节点。"));
+        PaleoNotify::warning(this, tr("任意线编辑器"), tr("至少需要 2 个有效节点。"));
         return;
     }
     const std::vector<SectionWellInfo> wells =
@@ -2713,7 +2714,7 @@ void SeismicSectionDockWidget::showArbitraryLineEditor() {
 // D5.6 井旁道小图：最近井位置的地震道 wiggle + 分层刻度
 void SeismicSectionDockWidget::showWellSideTrace() {
     if (!m_volume || !m_volume->IsLoaded() || m_candidateWells.empty()) {
-        paleo::ui::NotificationManager::showInfo(this, tr("井旁道"), tr("无可用的候选井。"));
+        PaleoNotify::information(this, tr("井旁道"), tr("无可用的候选井。"));
         return;
     }
     // 最近井（离当前剖面最近）
@@ -2724,7 +2725,7 @@ void SeismicSectionDockWidget::showWellSideTrace() {
     // 井口 XY → 测网 (IL, XL)（#129：FindNearest* 的参数是测线号，不能直接喂米制坐标；
     // 先经道头拟合的测网仿射换算，再吸附到体的实际线号）。
     if (!m_volume->Index()) {
-        paleo::ui::NotificationManager::showWarning(this, tr("井旁道"), tr("地震体无道头索引，无法把井口坐标换算到测网。"));
+        PaleoNotify::warning(this, tr("井旁道"), tr("地震体无道头索引，无法把井口坐标换算到测网。"));
         return;
     }
     // 换算/覆盖/吸附/取列统一走 domain/seismic/welltracelocate（tst_welltracelocate
@@ -2733,22 +2734,22 @@ void SeismicSectionDockWidget::showWellSideTrace() {
     const seismic::WellTraceLocation loc =
         seismic::locateWellTrace(*m_volume->Index(), mapper, best->surfaceX, best->surfaceY);
     if (!loc.ok && loc.outOfCoverage) {
-        paleo::ui::NotificationManager::showInfo(this, tr("井旁道"),
-                                                 tr("井 %1 井口 (%2, %3) 在测网覆盖范围外（连续解 IL %4 / XL %5），不取井旁道。")
-                                                     .arg(best->wellName)
-                                                     .arg(best->surfaceX, 0, 'f', 1)
-                                                     .arg(best->surfaceY, 0, 'f', 1)
-                                                     .arg(loc.inlineF, 0, 'f', 1)
-                                                     .arg(loc.xlineF, 0, 'f', 1));
+        PaleoNotify::information(this, tr("井旁道"),
+                                 tr("井 %1 井口 (%2, %3) 在测网覆盖范围外（连续解 IL %4 / XL %5），不取井旁道。")
+                                     .arg(best->wellName)
+                                     .arg(best->surfaceX, 0, 'f', 1)
+                                     .arg(best->surfaceY, 0, 'f', 1)
+                                     .arg(loc.inlineF, 0, 'f', 1)
+                                     .arg(loc.xlineF, 0, 'f', 1));
         return;
     }
     if (!loc.ok && !mapper.valid()) {
-        paleo::ui::NotificationManager::showWarning(this, tr("井旁道"),
+        PaleoNotify::warning(this, tr("井旁道"),
                              tr("测网坐标拟合不可用：%1").arg(QString::fromStdString(mapper.Describe())));
         return;
     }
     if (!loc.ok) {
-        paleo::ui::NotificationManager::showWarning(this, tr("井旁道"),
+        PaleoNotify::warning(this, tr("井旁道"),
                              tr("井口无法定位到测网道：%1").arg(QString::fromStdString(loc.error)));
         return;
     }
@@ -2759,14 +2760,14 @@ void SeismicSectionDockWidget::showWellSideTrace() {
     SgySliceImage slice;
     std::string err;
     if (!m_volume->ExtractSlice(SgySliceType::Inline, il, slice, err)) {
-        paleo::ui::NotificationManager::showWarning(this, tr("井旁道"), tr("道提取失败：%1").arg(QString::fromStdString(err)));
+        PaleoNotify::warning(this, tr("井旁道"), tr("道提取失败：%1").arg(QString::fromStdString(err)));
         return;
     }
     // 列 = xl 在体实际线号表中的位置（#147 同口径：线距可 >1）；剖面宽度须与
     // 线号表一致，否则列轴对不上——如实拒绝，不按单位线距猜。
     const int col = int(m_volume->XlineValues().size()) == slice.width ? loc.column : -1;
     if (col < 0 || col >= slice.width) {
-        paleo::ui::NotificationManager::showWarning(this, tr("井旁道"), tr("XL %1 不在 IL %2 剖面列轴上").arg(xl).arg(il));
+        PaleoNotify::warning(this, tr("井旁道"), tr("XL %1 不在 IL %2 剖面列轴上").arg(xl).arg(il));
         return;
     }
 

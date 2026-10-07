@@ -30,8 +30,8 @@ private slots:
   void init()
   {
     QCursor::setPos(1000, 1000);
-    if (ErrorHub::instance()) {
-      ErrorHub::instance()->clear();
+    if (paleo::services::ErrorHub::instance()) {
+      paleo::services::ErrorHub::instance()->clear();
     }
     if (NotificationManager::instance()) {
       NotificationManager::instance()->clearAll();
@@ -47,8 +47,8 @@ private slots:
     }
     NotificationManager::setConfirmHookForTesting(nullptr);
     NotificationManager::setOffscreenAutoAnswer(true);
-    if (ErrorHub::instance()) {
-      ErrorHub::instance()->clear();
+    if (paleo::services::ErrorHub::instance()) {
+      paleo::services::ErrorHub::instance()->clear();
     }
   }
 
@@ -102,12 +102,12 @@ private slots:
     QWidget mainWindow;
     mainWindow.resize(1000, 700);
     mainWindow.show();
-    NotificationManager mgr(&mainWindow, ErrorHub::instance());
+    NotificationManager mgr(&mainWindow, paleo::services::ErrorHub::instance());
 
     const QString dedupKey = QStringLiteral("challenge.agg.key");
 
     // 1. 首次上报
-    ErrorHub::instance()->reportWarning(ErrorDomain::General, QStringLiteral("标准去重告警文案"),
+    paleo::services::ErrorHub::instance()->reportWarning(ErrorDomain::General, QStringLiteral("标准去重告警文案"),
                                          QStringLiteral("详情1"), dedupKey);
     QCoreApplication::processEvents();
 
@@ -127,8 +127,8 @@ private slots:
     QTest::qWait(120);
     QVERIFY(card->remainingMs() < initialRemaining);
 
-    // 3. 再次上报相同 dedupKey -> ErrorHub 聚合触发 errorAggregated 信号
-    ErrorHub::instance()->reportWarning(ErrorDomain::General, QStringLiteral("标准去重告警文案"),
+    // 3. 再次上报相同 dedupKey -> paleo::services::ErrorHub 聚合触发 errorAggregated 信号
+    paleo::services::ErrorHub::instance()->reportWarning(ErrorDomain::General, QStringLiteral("标准去重告警文案"),
                                          QStringLiteral("详情2"), dedupKey);
     QCoreApplication::processEvents();
 
@@ -145,7 +145,7 @@ private slots:
     QTest::qWait(80);
     QVERIFY(card->remainingMs() < card->totalTimeoutMs());
 
-    ErrorHub::instance()->reportWarning(ErrorDomain::General, QStringLiteral("标准去重告警文案"),
+    paleo::services::ErrorHub::instance()->reportWarning(ErrorDomain::General, QStringLiteral("标准去重告警文案"),
                                          QStringLiteral("详情3"), dedupKey);
     QCoreApplication::processEvents();
 
@@ -161,11 +161,11 @@ private slots:
     QWidget mainWindow;
     mainWindow.resize(1000, 700);
     mainWindow.show();
-    NotificationManager mgr(&mainWindow, ErrorHub::instance());
+    NotificationManager mgr(&mainWindow, paleo::services::ErrorHub::instance());
 
     // 填满 5 张活跃卡片
     for (int i = 0; i < 5; ++i) {
-      ErrorHub::instance()->reportInfo(ErrorDomain::General, QStringLiteral("Active %1").arg(i),
+      paleo::services::ErrorHub::instance()->reportInfo(ErrorDomain::General, QStringLiteral("Active %1").arg(i),
                                        QString(), QStringLiteral("active.%1").arg(i));
     }
     QCoreApplication::processEvents();
@@ -175,14 +175,14 @@ private slots:
     const QString pendingKey = QStringLiteral("pending.agg.key");
 
     // 注入第 6 条（进入排队）
-    ErrorHub::instance()->reportInfo(ErrorDomain::General, QStringLiteral("Queued Msg 1"),
+    paleo::services::ErrorHub::instance()->reportInfo(ErrorDomain::General, QStringLiteral("Queued Msg 1"),
                                      QString(), pendingKey);
     QCoreApplication::processEvents();
     QCOMPARE(mgr.activeCardCount(), 5);
     QCOMPARE(mgr.pendingQueueCount(), 1);
 
     // 再次上报相同 key，排队中更新
-    ErrorHub::instance()->reportInfo(ErrorDomain::General, QStringLiteral("Queued Msg 1"),
+    paleo::services::ErrorHub::instance()->reportInfo(ErrorDomain::General, QStringLiteral("Queued Msg 1"),
                                      QString(), pendingKey);
     QCoreApplication::processEvents();
     // 排队项依然只有 1 项，没有重复入队
@@ -218,7 +218,7 @@ private slots:
   {
     QWidget mainWindow;
     mainWindow.resize(1000, 700);
-    NotificationManager mgr(&mainWindow, ErrorHub::instance());
+    NotificationManager mgr(&mainWindow, paleo::services::ErrorHub::instance());
 
     constexpr int kNumThreads = 6;
     constexpr int kReportsPerThread = 20;
@@ -234,12 +234,12 @@ private slots:
         for (int i = 0; i < kReportsPerThread; ++i) {
           // 混合上报：部分共享 key 测试并发聚合，部分独立 key 测试并发排队
           if (i % 2 == 0) {
-            ErrorHub::postWarning(ErrorDomain::IO,
+            paleo::services::ErrorHub::postWarning(ErrorDomain::IO,
                                   QStringLiteral("Worker shared error"),
                                   QStringLiteral("details from thread %1").arg(t),
                                   QStringLiteral("worker.shared.key"));
           } else {
-            ErrorHub::postError(ErrorDomain::IO,
+            paleo::services::ErrorHub::postError(ErrorDomain::IO,
                                 QStringLiteral("Worker unique error %1-%2").arg(t).arg(i),
                                 QString(),
                                 QStringLiteral("worker.unique.%1.%2").arg(t).arg(i));
@@ -276,7 +276,7 @@ private slots:
     QWidget mainWindow;
     mainWindow.resize(1000, 700);
     mainWindow.show();
-    NotificationManager mgr(&mainWindow, ErrorHub::instance());
+    NotificationManager mgr(&mainWindow, paleo::services::ErrorHub::instance());
 
     const QString modalKey = QStringLiteral("modal.flow.key");
     ErrorEntry modalEntry;
@@ -289,7 +289,7 @@ private slots:
 
     // 1. 首次触发模态错误
     QVERIFY(!mgr.shouldSuppressModal(modalKey));
-    ErrorHub::instance()->report(modalEntry);
+    paleo::services::ErrorHub::instance()->report(modalEntry);
     QCoreApplication::processEvents();
 
     // 首次发生时记录了弹窗时间戳，但因为是模态弹窗，不会直接生成非模态浮动卡片
@@ -297,7 +297,7 @@ private slots:
     QCOMPARE(mgr.activeCardCount(), 0);
 
     // 2. 60s 内第二次触发相同模态错误：被抑制，转为非模态卡片呈现！
-    ErrorHub::instance()->report(modalEntry);
+    paleo::services::ErrorHub::instance()->report(modalEntry);
     QCoreApplication::processEvents();
 
     QCOMPARE(mgr.activeCardCount(), 1);
@@ -308,8 +308,8 @@ private slots:
     // 第二次发生时（首次转为卡片），卡片初始化计数为 1
     QCOMPARE(suppressedCard->aggregationCount(), 1);
 
-    // 3. 60s 内第三次触发相同模态错误：命中 errorAggregated，卡片角标更新为 ErrorHub 总计数 3
-    ErrorHub::instance()->report(modalEntry);
+    // 3. 60s 内第三次触发相同模态错误：命中 errorAggregated，卡片角标更新为 paleo::services::ErrorHub 总计数 3
+    paleo::services::ErrorHub::instance()->report(modalEntry);
     QCoreApplication::processEvents();
 
     QCOMPARE(mgr.activeCardCount(), 1);
@@ -325,11 +325,11 @@ private slots:
   {
     QWidget mainWindow;
     mainWindow.resize(1000, 700);
-    NotificationManager mgr(&mainWindow, ErrorHub::instance());
+    NotificationManager mgr(&mainWindow, paleo::services::ErrorHub::instance());
 
     // 高频连续注入 200 条不同 key 的错误
     for (int i = 0; i < 200; ++i) {
-      ErrorHub::instance()->reportWarning(ErrorDomain::General,
+      paleo::services::ErrorHub::instance()->reportWarning(ErrorDomain::General,
                                            QStringLiteral("Storm msg %1").arg(i),
                                            QString(),
                                            QStringLiteral("storm.key.%1").arg(i));
@@ -375,7 +375,7 @@ private slots:
   {
     auto *parentWin = new QWidget();
     parentWin->resize(800, 600);
-    auto *mgr = new NotificationManager(parentWin, ErrorHub::instance());
+    auto *mgr = new NotificationManager(parentWin, paleo::services::ErrorHub::instance());
 
     // 注入多张卡片
     for (int i = 0; i < 5; ++i) {
@@ -569,7 +569,7 @@ private slots:
   {
     QWidget mainWindow;
     mainWindow.resize(1000, 700);
-    NotificationManager mgr(&mainWindow, ErrorHub::instance());
+    NotificationManager mgr(&mainWindow, paleo::services::ErrorHub::instance());
 
     constexpr int kTotalMessages = 1000;
     for (int i = 0; i < kTotalMessages; ++i) {

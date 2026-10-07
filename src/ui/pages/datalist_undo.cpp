@@ -26,7 +26,8 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonValue>
-#include "ui/notifications/notificationmanager.h"
+#include "../notifications/paleonotify.h"
+#include <QDialog>  // 原经 <QMessageBox> 传递引入
 #include <QPushButton>
 
 using namespace paleo::pagesinternal;
@@ -436,7 +437,7 @@ void DataListPanel::showRecycleBin()
         lines << tr("· 被拒：%1").arg(f);
       for (const QString &f : out.leftoverFiles)
         lines << tr("· 残留文件（请手动清理）：%1").arg(f);
-      paleo::ui::NotificationManager::showWarning(&dlg, tr("物理删除（部分未完成）"), lines.join(QLatin1Char('\n')));
+      PaleoNotify::warning(&dlg, tr("物理删除（部分未完成）"), lines.join(QLatin1Char('\n')));
     }
     else
       emit statusMessage(msg);
@@ -478,7 +479,7 @@ void DataListPanel::resolvePendingLinks()
             if (n > 0)
               emit statusMessage(tr("已归位 %1 条未决链接（单事务落盘）").arg(n));
             if (!err.isEmpty())
-              paleo::ui::NotificationManager::showWarning(&dlg, tr("归位失败"), err);
+              PaleoNotify::warning(&dlg, tr("归位失败"), err);
           });
   dlg.exec();
 }
@@ -560,7 +561,7 @@ void DataListPanel::showVersionTable()
                 paleo::assetops::rollbackToVersion(cat, pd, assetId, versionId, &err);
             if (out.versionId.isEmpty())
             {
-              paleo::ui::NotificationManager::showWarning(&dlg, tr("回滚失败"), err);
+              PaleoNotify::warning(&dlg, tr("回滚失败"), err);
               return;
             }
             dlg.setRowsRefreshed(

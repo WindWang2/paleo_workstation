@@ -1,5 +1,6 @@
 // 层：组装根
 #include "appcontext.h"
+#include "../services/errorhub.h"                 // 方向64：统一错误通道
 #include "aiwiring.h"                          // 方向51：远端预测装配（唯一入口）
 #include "../ai/remotepredictconfig.h"
 #include "../ai/chat/llmclient.h"              // 方向51：LLM 配置 + 助手编排
@@ -23,6 +24,9 @@
 #include "../qgis/qgisstyleservice.h"
 #include "../services/toolavailability.h"
 #include "../services/paleotaskservice.h"
+#include "../services/scriptrunner.h"  // 方向68：Python 脚本运行服务
+#include "../services/pythonrepl.h"    // 方向68：REPL 会话桥（实验性）
+#include "../workflow/pythonconsolecontroller.h" // 方向68：脚本面编排
 #include "../services/startuptrace.h" // goal/perf-systematize 簇1：启动分段打点
 #include "../services/crashreport.h" // wave4：projectOpened → 报告头工程路径
 #include "../domain/arearules.h"         // wave4 接线点：projectOpened → setProjectDir
@@ -173,6 +177,9 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   m_editSvc = new QgisEditingService(m_store, this);
   m_styleSvc = new QgisStyleService(this);
   m_toolSvc = new ToolAvailabilityService(m_store, this);
+  // 方向64：统一错误通道——视图层 PaleoNotify 经 ErrorHub::global() 入账。
+  m_errorHub = new ErrorHub(this);
+  ErrorHub::installGlobal(m_errorHub);
   m_selection = new SelectionContext(this);
 
   // goal/fault-interpretation：断层解释编排器（存储值成员在 projectOpened
@@ -249,6 +256,12 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
         m_aiChat->setConfig(llm);
     });
   }
+  // 方向68：Python 脚本面三件。脚本执行恒为显式用户动作（控制台面板
+  // 触发）；无沙箱，脚本安全性用户自担（面板提示 +
+  // tools/reference/scripts/README.md 同步声明）。
+  m_scriptRunner = new ScriptRunnerService(this);
+  m_pythonRepl = new PythonReplSession(this);
+  m_pythonConsole = new PythonConsoleController(m_scriptRunner, m_pythonRepl, this);
   m_compositionWf = new CompositionWorkflow(m_procSvc, m_layerSvc, this);
   m_validationWf = new ValidationWorkflow(m_layerSvc, m_store, this);
 

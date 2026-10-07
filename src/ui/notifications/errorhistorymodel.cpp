@@ -10,13 +10,13 @@ using namespace paleo::services;
 
 static const ErrorEntry s_emptyEntry{};
 
-ErrorHistoryModel::ErrorHistoryModel(ErrorHub *hub, QObject *parent)
+ErrorHistoryModel::ErrorHistoryModel(paleo::services::ErrorHub *hub, QObject *parent)
   : QAbstractTableModel(parent)
 {
-  setHub(hub ? hub : ErrorHub::instance());
+  setHub(hub ? hub : paleo::services::ErrorHub::instance());
 }
 
-void ErrorHistoryModel::setHub(ErrorHub *hub)
+void ErrorHistoryModel::setHub(paleo::services::ErrorHub *hub)
 {
   if (m_hub == hub) {
     return;
@@ -29,9 +29,9 @@ void ErrorHistoryModel::setHub(ErrorHub *hub)
   m_hub = hub;
 
   if (m_hub) {
-    connect(m_hub, &ErrorHub::errorRaised, this, &ErrorHistoryModel::onErrorRaised, Qt::QueuedConnection);
-    connect(m_hub, &ErrorHub::errorAggregated, this, &ErrorHistoryModel::onErrorAggregated, Qt::QueuedConnection);
-    connect(m_hub, &ErrorHub::historyCleared, this, &ErrorHistoryModel::onHistoryCleared, Qt::QueuedConnection);
+    connect(m_hub, &paleo::services::ErrorHub::errorRaised, this, &ErrorHistoryModel::onErrorRaised, Qt::QueuedConnection);
+    connect(m_hub, &paleo::services::ErrorHub::errorAggregated, this, &ErrorHistoryModel::onErrorAggregated, Qt::QueuedConnection);
+    connect(m_hub, &paleo::services::ErrorHub::historyCleared, this, &ErrorHistoryModel::onHistoryCleared, Qt::QueuedConnection);
   }
 
   reload();
@@ -191,7 +191,7 @@ std::optional<ErrorEntry> ErrorHistoryModel::entryById(qint64 id) const
 
 void ErrorHistoryModel::onErrorRaised(const ErrorEntry &entry)
 {
-  int maxCap = m_hub ? m_hub->maxCapacity() : ErrorHub::kDefaultMaxHistory;
+  int maxCap = m_hub ? m_hub->maxCapacity() : paleo::services::ErrorHub::kDefaultMaxHistory;
 
   // 严格 FIFO 逐出协议：当缓冲已满上限时，首先逐出第 0 行
   while (static_cast<int>(m_entries.size()) >= maxCap && !m_entries.isEmpty()) {

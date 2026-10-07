@@ -15,6 +15,7 @@
 
 #include <QScrollArea>
 
+#include "../src/domain/singlefactorstrategy.h" // 方向67：策略包词表（下拉单一真源对拍）
 #include "../src/services/singlefactordef.h"
 #include "../src/ui/pages/pagepanels.h"
 #include "../src/ui/paleotheme.h"
@@ -451,6 +452,7 @@ class FactorPageTests : public QObject
     void thicknessSamplesInsideCollapsibleSection();
     void typedDrawEntries();
     void nativeMethodContourAndBusyStates();
+    void strategyPackDrivesMethodCombo(); // 方向67：词表驱动下拉 + 参数预览 + strategy_id 载荷
 };
 
 void FactorPageTests::constructsWithNullServices()
@@ -863,6 +865,56 @@ void FactorPageTests::nativeMethodContourAndBusyStates()
   QCOMPARE( PaleoTheme::kColorPrimary, QColor( QStringLiteral( "#1B73D0" ) ) );
   PaleoTheme::applyLightTheme();
   QVERIFY( page.findChild<QPushButton *>( QStringLiteral( "generateFactorButton" ) ) != nullptr );
+}
+
+// 方向67 Oracle 5：方法下拉由 singlefactorstrategy 词表驱动——标签/参数预览/
+// strategy_id 载荷三面一致；SGS 不在词表内不冒充（无预览、无 strategy_id）。
+void FactorPageTests::strategyPackDrivesMethodCombo()
+{
+  ConstraintPage page( nullptr );
+  page.show();
+  auto *method = page.findChild<QComboBox *>( QStringLiteral( "factorMethodCombo" ) );
+  auto *note = page.findChild<QLabel *>( QStringLiteral( "factorStrategyNote" ) );
+  QVERIFY( method && note );
+  // 6 个词表策略 + 页面专属 SGS = 7 项；标签与词表逐项一致（单一真源）。
+  QCOMPARE( method->count(), 7 );
+  for ( const paleo::singlefactor::SurfaceMethodPack &pack : paleo::singlefactor::surfaceMethodPacks() )
+  {
+    const QString methodId =
+        pack.id == QLatin1String( "idw" ) ? QStringLiteral( "legacy" ) : pack.id;
+    const int index = method->findData( methodId );
+    QVERIFY2( index >= 0, qPrintable( QStringLiteral( "词表策略 %1 未出现在下拉" ).arg( pack.id ) ) );
+    QCOMPARE( method->itemText( index ), pack.label );
+  }
+  QCOMPARE( method->currentData().toString(), QStringLiteral( "local_direction_idw" ) );
+  // 默认项参数预览 = 词表 geologicalNote。
+  const paleo::singlefactor::SurfaceMethodPack *defaultPack =
+      paleo::singlefactor::surfaceMethodPack( QStringLiteral( "local_direction_idw" ) );
+  QVERIFY( defaultPack );
+  QCOMPARE( note->text(), defaultPack->geologicalNote );
+
+  // SGS：不在曲面词表 → 无预览文本。
+  method->setCurrentIndex( method->findData( QStringLiteral( "sgs" ) ) );
+  QVERIFY( note->text().isEmpty() );
+
+  // 载荷：legacy（词表 id="idw"）→ strategy_id 写词表 id 且不写 method。
+  auto *factors = page.findChild<QTableWidget *>( QStringLiteral( "factorTable" ) );
+  auto *horizons = page.findChild<QComboBox *>( QStringLiteral( "horizonCombo" ) );
+  horizons->addItem( QStringLiteral( "T1" ) );
+  factors->item( 0, 0 )->setCheckState( Qt::Checked );
+  method->setCurrentIndex( method->findData( QStringLiteral( "legacy" ) ) );
+  QSignalSpy generated( &page, &ConstraintPage::generateFactorRequested );
+  page.findChild<QPushButton *>( QStringLiteral( "generateFactorButton" ) )->click();
+  QCOMPARE( generated.count(), 1 );
+  const QVariantMap legacyParams = generated.at( 0 ).at( 2 ).toMap();
+  QVERIFY( !legacyParams.contains( QStringLiteral( "method" ) ) );
+  QCOMPARE( legacyParams.value( QStringLiteral( "strategy_id" ) ).toString(), QStringLiteral( "idw" ) );
+
+  // 载荷：local_direction_kriging → strategy_id 同名进参数。
+  method->setCurrentIndex( method->findData( QStringLiteral( "local_direction_kriging" ) ) );
+  page.findChild<QPushButton *>( QStringLiteral( "generateFactorButton" ) )->click();
+  QCOMPARE( generated.at( 1 ).at( 2 ).toMap().value( QStringLiteral( "strategy_id" ) ).toString(),
+            QStringLiteral( "local_direction_kriging" ) );
 }
 
 // ---- 任务 C（智能编图页）：融合清单栅格过滤/参考图/相属性/设计器入口。--

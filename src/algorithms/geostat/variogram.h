@@ -1,6 +1,7 @@
 // 层：数据
 #pragma once
 
+#include "faultpath.h"
 #include "types.h"
 
 #include <string>
@@ -21,6 +22,21 @@ struct VariogramDirection
   double toleranceDeg = 22.5;
 };
 
+// 隔断感知档（方向67，双轨不是替换）：
+//   enabled 且 polygons 非空时，样本对的滞后距改用绕障测地距离（faultpath 的
+//   barrier Dijkstra，每样本一个距离场）；测地不可达（隔断完全隔开两侧）的对
+//   不进实验变差累积——两侧不属于同一连通结构域。方向过滤仍按欧氏位移判。
+//   代价 O(n · 格网单元数)：本核限 n ≤ 512（超限 InvalidInput，如实报因）。
+//   gridResolution = 测地场沿样本范围最长边的格数（0 = 默认 256；钳到 [32,1024]，
+//   总单元数再钳 ≤ 4×10⁶）。
+//   enabled = false（默认）或 polygons 为空 → 走既有欧氏距口径，逐位不变。
+struct VariogramBarriers
+{
+  bool enabled = false;
+  std::vector<BarrierPolygon> polygons;
+  int gridResolution = 0;
+};
+
 struct ExperimentalVariogram
 {
   Status status = Status::InvalidInput;
@@ -30,10 +46,13 @@ struct ExperimentalVariogram
   std::vector<double> lagDistance;  // 每 lag 的平均对距（pairCount=0 的 lag 为 0）
   std::vector<double> semivariance; // 每 lag 的半方差（pairCount=0 的 lag 为 0）
   std::vector<int> pairCount;
+  bool barrierAware = false;  // true = 本次累积走测地滞后距（血缘 method 细分用）
+  int unreachablePairs = 0;   // 隔断感知档下跨隔断（测地不可达）被跳过的对数
 };
 
 ExperimentalVariogram experimentalVariogram( const std::vector<Sample> &samples,
-    double lag, int nLags, const VariogramDirection &direction = {} );
+    double lag, int nLags, const VariogramDirection &direction = {},
+    const VariogramBarriers &barriers = {} );
 
 enum class VariogramModelType
 {

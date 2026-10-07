@@ -12,7 +12,7 @@
 #include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
-#include "ui/notifications/notificationmanager.h"
+#include "../notifications/paleonotify.h"
 #include <QSpinBox>
 #include <QTableWidget>
 #include <QToolButton>
@@ -274,9 +274,9 @@ void SeismicPickPanel::onExportCsv()
         return;
     QString err;
     if (!SeismicTaskService::exportPicksCsv(dock_->interpretationSession().picks, path, &err))
-        paleo::ui::NotificationManager::showWarning(this, tr("导出失败"), err);
+        PaleoNotify::warning(this, tr("导出失败"), err);
     else
-        paleo::ui::NotificationManager::showInfo(this, tr("已导出"), tr("拾取已保存到:\n%1").arg(path));
+        PaleoNotify::information(this, tr("已导出"), tr("拾取已保存到:\n%1").arg(path));
 }
 
 void SeismicPickPanel::onRegisterHorizon()
@@ -286,9 +286,9 @@ void SeismicPickPanel::onRegisterHorizon()
     QString err;
     const QString path = dock_->registerCurrentHorizonAsset(&err);
     if (path.isEmpty())
-        paleo::ui::NotificationManager::showWarning(this, tr("层位资产登记失败"), err);
+        PaleoNotify::warning(this, tr("层位资产登记失败"), err);
     else
-        paleo::ui::NotificationManager::showInfo(this, tr("层位资产已登记"),
+        PaleoNotify::information(this, tr("层位资产已登记"),
                                  tr("DERIVED 版本已登记 catalog:\n%1").arg(path));
 }
 
@@ -299,9 +299,9 @@ void SeismicPickPanel::onRegisterFault()
     QString err;
     const QString path = dock_->registerCurrentFaultAsset(&err);
     if (path.isEmpty() && !err.isEmpty())
-        paleo::ui::NotificationManager::showWarning(this, tr("断层资产登记失败"), err);
+        PaleoNotify::warning(this, tr("断层资产登记失败"), err);
     else if (!path.isEmpty())
-        paleo::ui::NotificationManager::showInfo(this, tr("断层资产已登记"),
+        PaleoNotify::information(this, tr("断层资产已登记"),
                                  tr("DERIVED 版本已登记 catalog:\n%1").arg(path));
 }
 
@@ -311,9 +311,9 @@ void SeismicPickPanel::onSaveSession()
         return;
     QString err;
     if (!dock_->saveInterpretationSession(&err))
-        paleo::ui::NotificationManager::showWarning(this, tr("会话保存失败"), err);
+        PaleoNotify::warning(this, tr("会话保存失败"), err);
     else
-        paleo::ui::NotificationManager::showInfo(this, tr("会话已保存"),
+        PaleoNotify::information(this, tr("会话已保存"),
                                  tr("解释会话已写入:\n%1").arg(dock_->sessionFilePath()));
 }
 
@@ -323,7 +323,7 @@ void SeismicPickPanel::onLoadSession()
         return;
     QString err;
     if (!dock_->loadInterpretationSession(&err) && !err.isEmpty())
-        paleo::ui::NotificationManager::showWarning(this, tr("会话载入失败"), err);
+        PaleoNotify::warning(this, tr("会话载入失败"), err);
     refreshFromSession();
 }
 

@@ -37,10 +37,10 @@ private slots:
 
   void init()
   {
-    if (ErrorHub::instance()) {
-      ErrorHub::instance()->clear();
-      ErrorHub::instance()->setMaxCapacity(ErrorHub::kDefaultMaxHistory);
-      ErrorHub::instance()->setDedupWindowSecs(ErrorHub::kDefaultDedupWindowSecs);
+    if (paleo::services::ErrorHub::instance()) {
+      paleo::services::ErrorHub::instance()->clear();
+      paleo::services::ErrorHub::instance()->setMaxCapacity(paleo::services::ErrorHub::kDefaultMaxHistory);
+      paleo::services::ErrorHub::instance()->setDedupWindowSecs(paleo::services::ErrorHub::kDefaultDedupWindowSecs);
     }
     if (NotificationManager::instance()) {
       NotificationManager::instance()->clearAll();
@@ -54,8 +54,8 @@ private slots:
     if (NotificationManager::instance()) {
       NotificationManager::instance()->clearAll();
     }
-    if (ErrorHub::instance()) {
-      ErrorHub::instance()->clear();
+    if (paleo::services::ErrorHub::instance()) {
+      paleo::services::ErrorHub::instance()->clear();
     }
   }
 
@@ -68,9 +68,9 @@ private slots:
     QWidget mainWindow;
     mainWindow.resize(1000, 700);
     mainWindow.show();
-    NotificationManager mgr(&mainWindow, ErrorHub::instance());
+    NotificationManager mgr(&mainWindow, paleo::services::ErrorHub::instance());
 
-    QSignalSpy spy(ErrorHub::instance(), &ErrorHub::errorRaised);
+    QSignalSpy spy(paleo::services::ErrorHub::instance(), &paleo::services::ErrorHub::errorRaised);
     QVERIFY(spy.isValid());
 
     constexpr int kThreadCount = 8;
@@ -86,7 +86,7 @@ private slots:
           std::this_thread::yield();
         }
         for (int i = 0; i < kPerThreadErrors; ++i) {
-          ErrorHub::postError(
+          paleo::services::ErrorHub::postError(
               ErrorDomain::AI,
               QStringLiteral("线程 %1 任务 %2").arg(t).arg(i),
               QStringLiteral("详情"),
@@ -117,10 +117,10 @@ private slots:
     QCOMPARE(spy.count(), 1000);
 
     // Assert ring buffer capacity is capped at 500
-    QCOMPARE(ErrorHub::instance()->count(), 500);
+    QCOMPARE(paleo::services::ErrorHub::instance()->count(), 500);
 
     // Assert newest entry has id == 1000
-    const auto history = ErrorHub::instance()->history();
+    const auto history = paleo::services::ErrorHub::instance()->history();
     QCOMPARE(history.size(), 500);
     QCOMPARE(history.last().id, 1000);
     // Oldest retained is id 501
@@ -140,9 +140,9 @@ private slots:
     QWidget mainWindow;
     mainWindow.resize(1000, 700);
     mainWindow.show();
-    NotificationManager mgr(&mainWindow, ErrorHub::instance());
+    NotificationManager mgr(&mainWindow, paleo::services::ErrorHub::instance());
 
-    QSignalSpy spy(ErrorHub::instance(), &ErrorHub::errorRaised);
+    QSignalSpy spy(paleo::services::ErrorHub::instance(), &paleo::services::ErrorHub::errorRaised);
     QVERIFY(spy.isValid());
 
     constexpr int kThreadCount = 16;
@@ -158,7 +158,7 @@ private slots:
           std::this_thread::yield();
         }
         for (int i = 0; i < kPerThreadErrors; ++i) {
-          ErrorHub::postError(
+          paleo::services::ErrorHub::postError(
               ErrorDomain::AI,
               QStringLiteral("重载线程 %1 任务 %2").arg(t).arg(i),
               QStringLiteral("详情"),
@@ -185,8 +185,8 @@ private slots:
     QCOMPARE(completedWorkers.load(), kThreadCount);
     // All 4,000 signals must arrive without any loss or deadlock
     QCOMPARE(spy.count(), 4000);
-    QCOMPARE(ErrorHub::instance()->count(), 500);
-    const auto history = ErrorHub::instance()->history();
+    QCOMPARE(paleo::services::ErrorHub::instance()->count(), 500);
+    const auto history = paleo::services::ErrorHub::instance()->history();
     QCOMPARE(history.size(), 500);
     // Initial nextId was 1000, plus 4000 new errors = 5000
     QCOMPARE(history.last().id, 5000);
@@ -199,7 +199,7 @@ private slots:
   // -------------------------------------------------------------------------
   void verifyComplete1500ItemFifoEvictionAndQuery()
   {
-    ErrorHub hub;
+    paleo::services::ErrorHub hub;
     hub.setMaxCapacity(500);
 
     constexpr int kTotalInjections = 1500;
@@ -251,11 +251,11 @@ private slots:
     QWidget mainWindow;
     mainWindow.resize(1000, 700);
     mainWindow.show();
-    NotificationManager mgr(&mainWindow, ErrorHub::instance());
+    NotificationManager mgr(&mainWindow, paleo::services::ErrorHub::instance());
 
     // Inject 100 errors: drain.0 .. drain.99
     for (int i = 0; i < 100; ++i) {
-      ErrorHub::postInfo(ErrorDomain::General,
+      paleo::services::ErrorHub::postInfo(ErrorDomain::General,
                          QStringLiteral("消息 %1").arg(i),
                          QString(),
                          QStringLiteral("drain.%1").arg(i));

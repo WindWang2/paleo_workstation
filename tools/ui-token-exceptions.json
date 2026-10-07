@@ -828,13 +828,6 @@
   {
     "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
     "rule": "hex",
-    "source": "p.setPen(QPen(QColor(QStringLiteral(\"#1B73D0\")), 2.0));",
-    "count": 1,
-    "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
-  },
-  {
-    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
-    "rule": "hex",
     "source": "p.setPen(QPen(curve.color.isValid() ? curve.color : QColor(QStringLiteral(\"#43A047\")), 1.5));",
     "count": 1,
     "reason": "DESIGN 数据符号例外：地震振幅密度/wiggle 图像、拾取置信度/断层/井曲线及图像上交互标记，保持地震数据视觉映射。"
@@ -1158,13 +1151,6 @@
     "file": "src/ui/wellcomposite/exportengine.cpp",
     "rule": "hex",
     "source": "e.swatch = QColor(QStringLiteral(\"#B45309\"));",
-    "count": 1,
-    "reason": "DESIGN 地质文档纸面例外：输出井柱状图/图例的固定纸面与数据标记。"
-  },
-  {
-    "file": "src/ui/wellcomposite/exportengine.cpp",
-    "rule": "hex",
-    "source": "painter.setPen(QColor(QStringLiteral(\"#9AA7B4\")));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：输出井柱状图/图例的固定纸面与数据标记。"
   },
@@ -1512,493 +1498,479 @@
     "reason": "DESIGN 数据符号例外：曲线样式预设编辑器的数据色值，使用者选择后写入曲线配置。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositecanvas.cpp",
+    "file": "src/ui/wellcomposite/compositebody.cpp",
     "rule": "hex",
     "source": ": QColor(QStringLiteral(\"#B45309\")),",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：纸面上的地层编辑/拾取/深度范围标记与透明承载层；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositecanvas.cpp",
+    "file": "src/ui/wellcomposite/compositebody.cpp",
     "rule": "hex",
     "source": "p.setPen(QColor(QStringLiteral(\"#1B73D0\")));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：纸面上的地层编辑/拾取/深度范围标记与透明承载层；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositecanvas.cpp",
+    "file": "src/ui/wellcomposite/compositebody.cpp",
     "rule": "hex",
     "source": "p.setPen(QColor(QStringLiteral(\"#92400E\")));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：纸面上的地层编辑/拾取/深度范围标记与透明承载层；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositecanvas.cpp",
+    "file": "src/ui/wellcomposite/compositebody.cpp",
     "rule": "hex",
     "source": "p.setPen(QColor(QStringLiteral(\"#B45309\")));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：纸面上的地层编辑/拾取/深度范围标记与透明承载层；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositecanvas.cpp",
+    "file": "src/ui/wellcomposite/compositebody.cpp",
     "rule": "hex",
     "source": "p.setPen(QPen(QColor(QStringLiteral(\"#1B73D0\")), 1.0, Qt::DashLine));",
     "count": 2,
     "reason": "DESIGN 地质文档纸面例外：纸面上的地层编辑/拾取/深度范围标记与透明承载层；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositecanvas.cpp",
+    "file": "src/ui/wellcomposite/compositebody.cpp",
     "rule": "hex",
     "source": "p.setPen(QPen(QColor(QStringLiteral(\"#1B73D0\")), 1.0, Qt::DotLine));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：纸面上的地层编辑/拾取/深度范围标记与透明承载层；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositecanvas.cpp",
+    "file": "src/ui/wellcomposite/compositeheader.cpp",
     "rule": "hex",
     "source": "p.setPen(QPen(QColor(QStringLiteral(\"#1B73D0\")), 1.5));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：纸面上的地层编辑/拾取/深度范围标记与透明承载层；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositecanvas.cpp",
-    "rule": "hex",
-    "source": "p.setPen(QPen(QColor(QStringLiteral(\"#1B73D0\")), 2.0));",
-    "count": 2,
-    "reason": "DESIGN 地质文档纸面例外：纸面上的地层编辑/拾取/深度范围标记与透明承载层；标准纸面中性色已转 Light token。"
-  },
-  {
-    "file": "src/ui/wellcomposite/wellcompositecanvas.cpp",
+    "file": "src/ui/wellcomposite/compositebody.cpp",
     "rule": "hex",
     "source": "p.setPen(QPen(dragging ? QColor(QStringLiteral(\"#E53935\"))",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：纸面上的地层编辑/拾取/深度范围标记与透明承载层；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositecanvas.cpp",
+    "file": "src/ui/wellcomposite/compositeheader.cpp",
     "rule": "qt-color",
     "source": "p.setPen(Qt::white);",
-    "count": 2,
+    "count": 1,
     "reason": "DESIGN 地质文档纸面例外：纸面上的地层编辑/拾取/深度范围标记与透明承载层；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositecanvas.cpp",
+    "file": "src/ui/wellcomposite/compositebody.cpp",
     "rule": "rgb",
     "source": "p.fillRect(bandRect, QColor(242, 153, 0, 26));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：纸面上的地层编辑/拾取/深度范围标记与透明承载层；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositecanvas.cpp",
+    "file": "src/ui/wellcomposite/compositebody.cpp",
     "rule": "rgb",
     "source": "p.fillRect(cardRect, QColor(255, 255, 255, 235));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：纸面上的地层编辑/拾取/深度范围标记与透明承载层；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositecanvas.cpp",
+    "file": "src/ui/wellcomposite/compositebody.cpp",
     "rule": "rgb",
     "source": "p.fillRect(flagRect, QColor(27, 115, 208, 215));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：纸面上的地层编辑/拾取/深度范围标记与透明承载层；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositecanvas.cpp",
+    "file": "src/ui/wellcomposite/compositeheader.cpp",
     "rule": "rgb",
     "source": "p.fillRect(ghost, QColor(27, 115, 208, 200));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：纸面上的地层编辑/拾取/深度范围标记与透明承载层；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositecanvas.cpp",
+    "file": "src/ui/wellcomposite/compositebody.cpp",
     "rule": "rgb",
     "source": "p.fillRect(rb, QColor(27, 115, 208, 30));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：纸面上的地层编辑/拾取/深度范围标记与透明承载层；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositecanvas.cpp",
+    "file": "src/ui/wellcomposite/compositebody.cpp",
     "rule": "rgb",
     "source": "p.setPen(QPen(QColor(242, 153, 0, 140), 1.0, Qt::DotLine));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：纸面上的地层编辑/拾取/深度范围标记与透明承载层；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "hex",
     "source": "QColor bg = baseBg.isValid() ? baseBg : QColor(QStringLiteral(\"#ECEFF1\"));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "hex",
     "source": "QColor bg = baseBg.isValid() ? baseBg : QColor(QStringLiteral(\"#FFE082\"));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "hex",
     "source": "QColor fg = QColor(QStringLiteral(\"#455A64\"));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "hex",
     "source": "QColor fg = QColor(QStringLiteral(\"#E65100\"));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "hex",
     "source": "bg = QColor(QStringLiteral(\"#FFE082\"));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "hex",
     "source": "fg = QColor(QStringLiteral(\"#006064\"));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "hex",
     "source": "fg = QColor(QStringLiteral(\"#00838F\"));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "hex",
     "source": "fg = QColor(QStringLiteral(\"#212121\"));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "hex",
     "source": "fg = QColor(QStringLiteral(\"#2E7D32\"));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "hex",
     "source": "fg = QColor(QStringLiteral(\"#33691E\"));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "hex",
     "source": "fg = QColor(QStringLiteral(\"#37474F\"));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "hex",
     "source": "fg = QColor(QStringLiteral(\"#4E342E\"));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "hex",
     "source": "fg = QColor(QStringLiteral(\"#546E7A\"));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "hex",
     "source": "fg = QColor(QStringLiteral(\"#5D4037\"));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "hex",
     "source": "fg = QColor(QStringLiteral(\"#6A1B9A\"));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "hex",
     "source": "fg = QColor(QStringLiteral(\"#6D4C41\"));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "hex",
     "source": "fg = QColor(QStringLiteral(\"#8D6E63\"));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "hex",
     "source": "fg = QColor(QStringLiteral(\"#BF360C\"));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "hex",
     "source": "fg = QColor(QStringLiteral(\"#D84315\"));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "hex",
     "source": "fg = QColor(QStringLiteral(\"#E65100\"));",
     "count": 2,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "hex",
     "source": "fg = QColor(QStringLiteral(\"#F57F17\"));",
     "count": 2,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "hex",
     "source": "fg = QColor(QStringLiteral(\"#F9A825\"));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "hex",
     "source": "if (!baseBg.isValid()) bg = QColor(QStringLiteral(\"#80DEEA\"));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "hex",
     "source": "if (!baseBg.isValid()) bg = QColor(QStringLiteral(\"#B0BEC5\"));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "hex",
     "source": "if (!baseBg.isValid()) bg = QColor(QStringLiteral(\"#C8E6C9\"));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "hex",
     "source": "if (!baseBg.isValid()) bg = QColor(QStringLiteral(\"#CFD8DC\"));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "hex",
     "source": "if (!baseBg.isValid()) bg = QColor(QStringLiteral(\"#D7CCC8\"));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "hex",
     "source": "if (!baseBg.isValid()) bg = QColor(QStringLiteral(\"#E0F7FA\"));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "hex",
     "source": "if (!baseBg.isValid()) bg = QColor(QStringLiteral(\"#E6EE9C\"));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "hex",
     "source": "if (!baseBg.isValid()) bg = QColor(QStringLiteral(\"#ECEFF1\"));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "hex",
     "source": "if (!baseBg.isValid()) bg = QColor(QStringLiteral(\"#F3E5F5\"));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "hex",
     "source": "if (!baseBg.isValid()) bg = QColor(QStringLiteral(\"#FFCC80\"));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "hex",
     "source": "if (!baseBg.isValid()) bg = QColor(QStringLiteral(\"#FFE082\"));",
     "count": 2,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "hex",
     "source": "if (!baseBg.isValid()) bg = QColor(QStringLiteral(\"#FFE0B2\"));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "hex",
     "source": "if (!baseBg.isValid()) bg = QColor(QStringLiteral(\"#FFF176\"));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "hex",
     "source": "if (!baseBg.isValid()) bg = QColor(QStringLiteral(\"#FFF8E1\"));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "hex",
     "source": "if (!baseBg.isValid()) bg = QColor(QStringLiteral(\"#FFF9C4\"));",
     "count": 2,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "hex",
     "source": "if (!baseBg.isValid()) bg = QColor(QStringLiteral(\"#FFFDE7\"));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcolumns.cpp",
     "rule": "hex",
     "source": "painter.fillRect(QRectF(barLeft, barrelRect.top() + 2, recWidth, barrelRect.height() - 4), QColor(QStringLiteral(\"#43A047\")));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcolumns.cpp",
     "rule": "hex",
     "source": "painter.fillRect(bodyRect, QColor(QStringLiteral(\"#FAFAFA\")));",
     "count": 2,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcolumns.cpp",
     "rule": "hex",
     "source": "painter.fillRect(imgRect, QColor(QStringLiteral(\"#E0E0E0\")));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcurves.cpp",
     "rule": "hex",
     "source": "painter.setBrush(QColor(QStringLiteral(\"#1976D2\")));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcurves.cpp",
     "rule": "hex",
     "source": "painter.setBrush(QColor(QStringLiteral(\"#D32F2F\")));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcurves.cpp",
     "rule": "hex",
     "source": "painter.setBrush(QColor(QStringLiteral(\"#DBEAFE\")));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcurves.cpp",
     "rule": "hex",
     "source": "painter.setBrush(QColor(QStringLiteral(\"#E1BEE7\")));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcolumns.cpp",
     "rule": "hex",
     "source": "painter.setBrush(QColor(QStringLiteral(\"#E8F5E9\")));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcurves.cpp",
     "rule": "hex",
     "source": "painter.setBrush(QColor(QStringLiteral(\"#FEF3C7\")));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcurves.cpp",
     "rule": "hex",
     "source": "painter.setBrush(QColor(QStringLiteral(\"#FFEBEE\")));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcompound.cpp",
     "rule": "hex",
     "source": "painter.setPen(QColor(QStringLiteral(\"#1A237E\")));",
-    "count": 3,
+    "count": 2,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcolumns.cpp",
     "rule": "hex",
     "source": "painter.setPen(QColor(QStringLiteral(\"#1B5E20\")));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcolumns.cpp",
     "rule": "hex",
     "source": "painter.setPen(QColor(QStringLiteral(\"#263238\")));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcolumns.cpp",
     "rule": "hex",
     "source": "painter.setPen(QColor(QStringLiteral(\"#757575\")));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
-    "rule": "hex",
-    "source": "painter.setPen(QColor(QStringLiteral(\"#9AA7B4\")));",
-    "count": 1,
-    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
-  },
-  {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcompound.cpp",
     "rule": "hex",
     "source": "painter.setPen(QColor(QStringLiteral(\"#B0BEC5\")));",
-    "count": 2,
+    "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
@@ -2009,196 +1981,196 @@
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcolumns.cpp",
     "rule": "hex",
     "source": "painter.setPen(QColor(m_highContrast ? QStringLiteral(\"#24303E\") : QStringLiteral(\"#5D6E80\")));",
     "count": 2,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcolumns.cpp",
     "rule": "hex",
     "source": "painter.setPen(QColor(m_highContrast ? QStringLiteral(\"#5D6E80\") : QStringLiteral(\"#9AA7B4\")));",
     "count": 2,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcurves.cpp",
     "rule": "hex",
     "source": "painter.setPen(QPen(QColor(QStringLiteral(\"#2563EB\")), 1.5));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcolumns.cpp",
     "rule": "hex",
     "source": "painter.setPen(QPen(QColor(QStringLiteral(\"#2E7D32\")), 1.5));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcompound.cpp",
     "rule": "hex",
     "source": "painter.setPen(QPen(QColor(QStringLiteral(\"#546E7A\")), 1.4));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcompound.cpp",
     "rule": "hex",
     "source": "painter.setPen(QPen(QColor(QStringLiteral(\"#78909C\")), 1.0));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcolumns.cpp",
     "rule": "hex",
     "source": "painter.setPen(QPen(QColor(QStringLiteral(\"#78909C\")), 1.0, Qt::SolidLine));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcompound.cpp",
     "rule": "hex",
     "source": "painter.setPen(QPen(QColor(QStringLiteral(\"#78909C\")), 1.2));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcurves.cpp",
     "rule": "hex",
     "source": "painter.setPen(QPen(QColor(QStringLiteral(\"#7B1FA2\")), 1.5));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcompound.cpp",
     "rule": "hex",
     "source": "painter.setPen(QPen(QColor(QStringLiteral(\"#90A4AE\")), 1.0));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcompound.cpp",
     "rule": "hex",
     "source": "painter.setPen(QPen(QColor(QStringLiteral(\"#B0BEC5\")), 0.8));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcolumns.cpp",
     "rule": "hex",
     "source": "painter.setPen(QPen(QColor(QStringLiteral(\"#CFD8DC\")), 1.0, Qt::DashLine));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcurves.cpp",
     "rule": "hex",
     "source": "painter.setPen(QPen(QColor(QStringLiteral(\"#D32F2F\")), 1.5));",
     "count": 2,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcurves.cpp",
     "rule": "hex",
     "source": "painter.setPen(QPen(QColor(QStringLiteral(\"#D32F2F\")), 2.0));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcurves.cpp",
     "rule": "hex",
     "source": "painter.setPen(QPen(QColor(QStringLiteral(\"#D97706\")), 1.5));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcurves.cpp",
     "rule": "hex",
     "source": "painter.setPen(QPen(isMinor ? QColor(QStringLiteral(\"#F8FAFB\")) : QColor(QStringLiteral(\"#F1F3F5\")),",
     "count": 2,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcompound.cpp",
     "rule": "hex",
     "source": "si.seriesColor = QColor(QStringLiteral(\"#C8E6C9\"));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcompound.cpp",
     "rule": "hex",
     "source": "si.seriesColor = QColor(QStringLiteral(\"#FFA726\"));",
     "count": 2,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcompound.cpp",
     "rule": "hex",
     "source": "si.seriesColor = QColor(QStringLiteral(\"#FFCC80\"));",
     "count": 2,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcompound.cpp",
     "rule": "hex",
     "source": "si.seriesColor = QColor(QStringLiteral(\"#FFD54F\"));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcompound.cpp",
     "rule": "hex",
     "source": "si.seriesColor = QColor(QStringLiteral(\"#FFE082\"));",
     "count": 2,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcompound.cpp",
     "rule": "hex",
     "source": "si.seriesColor = QColor(QStringLiteral(\"#FFF59D\"));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcompound.cpp",
     "rule": "hex",
     "source": "si.systemColor = QColor(QStringLiteral(\"#E8F5E9\"));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcompound.cpp",
     "rule": "hex",
     "source": "si.systemColor = QColor(QStringLiteral(\"#FFF3E0\"));",
     "count": 4,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcompound.cpp",
     "rule": "hex",
     "source": "si.systemColor = QColor(QStringLiteral(\"#FFF9C4\"));",
     "count": 4,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackpatterns.cpp",
     "rule": "qt-color",
     "source": "tile.fill(baseBg.isValid() ? baseBg : Qt::white);",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcompound.cpp",
     "rule": "rgb",
     "source": "painter.fillRect(pill, QColor(255, 255, 255, 220));",
     "count": 1,
     "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
   },
   {
-    "file": "src/ui/wellcomposite/wellcompositetrack.cpp",
+    "file": "src/ui/wellcomposite/trackcolumns.cpp",
     "rule": "rgb",
     "source": "painter.fillRect(tagRect, QColor(255, 255, 255, 180));",
     "count": 1,
@@ -2483,5 +2455,54 @@
     "source": "print.fault = QColor(QStringLiteral(\"#000000\"));",
     "count": 1,
     "reason": "方向 27 连井相图/剖面断层的地质数据符号色（DESIGN.md 数据配色不随 UI 主题改写）；精确登记既有源码。"
+  },
+  {
+    "file": "src/ui/wellcomposite/compositebody.cpp",
+    "rule": "qt-color",
+    "source": "p.setPen(Qt::white);",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：纸面上的地层编辑/拾取/深度范围标记与透明承载层；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/trackcolumns.cpp",
+    "rule": "hex",
+    "source": "painter.setPen(QColor(QStringLiteral(\"#1A237E\")));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/trackcolumns.cpp",
+    "rule": "hex",
+    "source": "painter.setPen(QColor(QStringLiteral(\"#B0BEC5\")));",
+    "count": 1,
+    "reason": "DESIGN 地质文档纸面例外：岩性/地层/曲线域配色、纸面纹理与数据标注，保持导出一致；标准纸面中性色已转 Light token。"
+  },
+  {
+    "file": "src/ui/wellcomposite/compositeheader.cpp",
+    "rule": "hex",
+    "source": "p.setPen(QPen(QColor(QStringLiteral(\"#1B73D0\")), 2.0));",
+    "count": 2,
+    "reason": "DESIGN 数据符号例外：井综合图头对比带的既定强调蓝（自 wellcompositecanvas.cpp 拆分平移）。"
+  },
+  {
+    "file": "src/ui/seismicsection/seismicsectioncanvas.cpp",
+    "rule": "hex",
+    "source": "p.setPen(QPen(QColor(QStringLiteral(\"#1B73D0\")), 2.0));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：剖面 A/B 对比帘线强调蓝。"
+  },
+  {
+    "file": "src/ui/wellcomposite/trackcolumns.cpp",
+    "rule": "hex",
+    "source": "painter.setPen(QColor(QStringLiteral(\"#9AA7B4\")));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：道列图例边框中性灰（自 wellcompositetrack.cpp 拆分平移）。"
+  },
+  {
+    "file": "src/ui/wellcomposite/exportengine.cpp",
+    "rule": "hex",
+    "source": "painter.setPen(QColor(QStringLiteral(\"#9AA7B4\")));",
+    "count": 1,
+    "reason": "DESIGN 数据符号例外：导出图例色板描边中性灰。"
   }
 ]

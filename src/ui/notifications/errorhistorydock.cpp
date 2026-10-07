@@ -22,9 +22,9 @@ namespace paleo::ui {
 
 using namespace paleo::services;
 
-ErrorHistoryDock::ErrorHistoryDock(QWidget *parent, ErrorHub *hub)
+ErrorHistoryDock::ErrorHistoryDock(QWidget *parent, paleo::services::ErrorHub *hub)
   : QDockWidget(parent)
-  , m_hub(hub ? hub : ErrorHub::instance())
+  , m_hub(hub ? hub : paleo::services::ErrorHub::instance())
 {
   setObjectName(QStringLiteral("errorHistoryDock"));
   setWindowTitle(tr("错误历史"));
@@ -427,7 +427,7 @@ void ErrorHistoryDock::clearHistory()
 
   if (m_hub) {
     m_hub->clear();
-  } else if (auto *hub = ErrorHub::instance()) {
+  } else if (auto *hub = paleo::services::ErrorHub::instance()) {
     hub->clear();
   }
 }

@@ -38,10 +38,10 @@ private slots:
 
   void init()
   {
-    if (ErrorHub::instance()) {
-      ErrorHub::instance()->clear();
-      ErrorHub::instance()->setMaxCapacity(ErrorHub::kDefaultMaxHistory);
-      ErrorHub::instance()->setDedupWindowSecs(ErrorHub::kDefaultDedupWindowSecs);
+    if (paleo::services::ErrorHub::instance()) {
+      paleo::services::ErrorHub::instance()->clear();
+      paleo::services::ErrorHub::instance()->setMaxCapacity(paleo::services::ErrorHub::kDefaultMaxHistory);
+      paleo::services::ErrorHub::instance()->setDedupWindowSecs(paleo::services::ErrorHub::kDefaultDedupWindowSecs);
     }
     NotificationManager::setConfirmHookForTesting(nullptr);
     NotificationManager::setOffscreenAutoAnswer(true);
@@ -49,14 +49,14 @@ private slots:
 
   void cleanup()
   {
-    if (ErrorHub::instance()) {
-      ErrorHub::instance()->clear();
+    if (paleo::services::ErrorHub::instance()) {
+      paleo::services::ErrorHub::instance()->clear();
     }
     NotificationManager::setConfirmHookForTesting(nullptr);
     NotificationManager::setOffscreenAutoAnswer(true);
   }
 
-  // Test Case 1: Model initial state against empty ErrorHub
+  // Test Case 1: Model initial state against empty paleo::services::ErrorHub
   void testModelInitialStateEmpty()
   {
     ErrorHistoryModel model;
@@ -72,14 +72,14 @@ private slots:
     QVERIFY(!model.data(model.index(0, 0), Qt::DisplayRole).isValid());
   }
 
-  // Test Case 2: Model updates dynamically when ErrorHub emits signals
+  // Test Case 2: Model updates dynamically when paleo::services::ErrorHub emits signals
   void testModelDynamicUpdatesAndAggregation()
   {
     ErrorHistoryModel model;
     QSignalSpy rowsInsertedSpy(&model, &QAbstractItemModel::rowsInserted);
     QSignalSpy dataChangedSpy(&model, &QAbstractItemModel::dataChanged);
 
-    ErrorHub::instance()->reportError(
+    paleo::services::ErrorHub::instance()->reportError(
       ErrorDomain::Seismic,
       QStringLiteral("SEGY测网解析失败"),
       QStringLiteral("文件格式不合法: /data/survey.sgy"),
@@ -93,7 +93,7 @@ private slots:
     QCOMPARE(model.data(model.index(0, ErrorHistoryModel::ColCount)).toInt(), 1);
 
     // 60s 去重聚合命中
-    ErrorHub::instance()->reportError(
+    paleo::services::ErrorHub::instance()->reportError(
       ErrorDomain::Seismic,
       QStringLiteral("SEGY测网解析失败"),
       QStringLiteral("重试失败"),
@@ -106,7 +106,7 @@ private slots:
     QCOMPARE(model.data(model.index(0, ErrorHistoryModel::ColCount)).toInt(), 2);
 
     // 新增独立警告
-    ErrorHub::instance()->reportWarning(
+    paleo::services::ErrorHub::instance()->reportWarning(
       ErrorDomain::Well,
       QStringLiteral("井斜角异常"),
       QStringLiteral("井名 W-01"),
@@ -121,16 +121,16 @@ private slots:
   // Test Case 3: Ring buffer FIFO eviction stability (500 -> 600 items)
   void testFifoEvictionStabilityAndBoundary()
   {
-    ErrorHub::instance()->clear();
-    ErrorHub::instance()->setMaxCapacity(500);
-    ErrorHub::instance()->setDedupWindowSecs(0); // 禁用聚合，确保每条独立
+    paleo::services::ErrorHub::instance()->clear();
+    paleo::services::ErrorHub::instance()->setMaxCapacity(500);
+    paleo::services::ErrorHub::instance()->setDedupWindowSecs(0); // 禁用聚合，确保每条独立
     ErrorHistoryModel model;
     QTableView tableView;
     tableView.setModel(&model);
 
     // 填满 500 条
     for (int i = 1; i <= 500; ++i) {
-      ErrorHub::instance()->reportError(
+      paleo::services::ErrorHub::instance()->reportError(
         ErrorDomain::General,
         QStringLiteral("Error_%1").arg(i),
         QStringLiteral("Detail_%1").arg(i),
@@ -144,7 +144,7 @@ private slots:
 
     // 连续再注入 100 条 (501 -> 600)
     for (int i = 501; i <= 600; ++i) {
-      ErrorHub::instance()->reportWarning(
+      paleo::services::ErrorHub::instance()->reportWarning(
         ErrorDomain::IO,
         QStringLiteral("Error_%1").arg(i),
         QStringLiteral("Detail_%1").arg(i),
@@ -169,8 +169,8 @@ private slots:
   // Test Case 4: Filtering by Domain and Level
   void testFilteringByDomainAndLevel()
   {
-    ErrorHub::instance()->clear();
-    ErrorHub::instance()->setDedupWindowSecs(0);
+    paleo::services::ErrorHub::instance()->clear();
+    paleo::services::ErrorHub::instance()->setDedupWindowSecs(0);
 
     // 预填充:
     // 2 Info (General, Seismic)
@@ -178,19 +178,19 @@ private slots:
     // 4 Error (Seismic, Well, IO, Catalog)
     // 1 Critical (Project)
     // 共 10 条
-    ErrorHub::instance()->reportInfo(ErrorDomain::General, QStringLiteral("Info 1"));
-    ErrorHub::instance()->reportInfo(ErrorDomain::Seismic, QStringLiteral("Info 2"));
+    paleo::services::ErrorHub::instance()->reportInfo(ErrorDomain::General, QStringLiteral("Info 1"));
+    paleo::services::ErrorHub::instance()->reportInfo(ErrorDomain::Seismic, QStringLiteral("Info 2"));
 
-    ErrorHub::instance()->reportWarning(ErrorDomain::General, QStringLiteral("Warn 1"));
-    ErrorHub::instance()->reportWarning(ErrorDomain::Seismic, QStringLiteral("Warn 2"));
-    ErrorHub::instance()->reportWarning(ErrorDomain::Well, QStringLiteral("Warn 3"));
+    paleo::services::ErrorHub::instance()->reportWarning(ErrorDomain::General, QStringLiteral("Warn 1"));
+    paleo::services::ErrorHub::instance()->reportWarning(ErrorDomain::Seismic, QStringLiteral("Warn 2"));
+    paleo::services::ErrorHub::instance()->reportWarning(ErrorDomain::Well, QStringLiteral("Warn 3"));
 
-    ErrorHub::instance()->reportError(ErrorDomain::Seismic, QStringLiteral("Err 1"));
-    ErrorHub::instance()->reportError(ErrorDomain::Well, QStringLiteral("Err 2"));
-    ErrorHub::instance()->reportError(ErrorDomain::IO, QStringLiteral("Err 3"));
-    ErrorHub::instance()->reportError(ErrorDomain::Catalog, QStringLiteral("Err 4"));
+    paleo::services::ErrorHub::instance()->reportError(ErrorDomain::Seismic, QStringLiteral("Err 1"));
+    paleo::services::ErrorHub::instance()->reportError(ErrorDomain::Well, QStringLiteral("Err 2"));
+    paleo::services::ErrorHub::instance()->reportError(ErrorDomain::IO, QStringLiteral("Err 3"));
+    paleo::services::ErrorHub::instance()->reportError(ErrorDomain::Catalog, QStringLiteral("Err 4"));
 
-    ErrorHub::instance()->reportCritical(ErrorDomain::Project, QStringLiteral("Crit 1"));
+    paleo::services::ErrorHub::instance()->reportCritical(ErrorDomain::Project, QStringLiteral("Crit 1"));
     QCoreApplication::processEvents();
 
     ErrorHistoryDock dock;
@@ -236,8 +236,8 @@ private slots:
     QClipboard *clipboard = QGuiApplication::clipboard();
     clipboard->clear();
 
-    ErrorHub::instance()->reportError(ErrorDomain::Seismic, QStringLiteral("地震测网解析失败"), QStringLiteral("path=/data/1.sgy"), QStringLiteral("copy.1"));
-    ErrorHub::instance()->reportWarning(ErrorDomain::Well, QStringLiteral("分层标定超限"), QStringLiteral("well=W-02"), QStringLiteral("copy.2"));
+    paleo::services::ErrorHub::instance()->reportError(ErrorDomain::Seismic, QStringLiteral("地震测网解析失败"), QStringLiteral("path=/data/1.sgy"), QStringLiteral("copy.1"));
+    paleo::services::ErrorHub::instance()->reportWarning(ErrorDomain::Well, QStringLiteral("分层标定超限"), QStringLiteral("well=W-02"), QStringLiteral("copy.2"));
     QCoreApplication::processEvents();
 
     ErrorHistoryDock dock;
@@ -262,14 +262,14 @@ private slots:
     QVERIFY(allCopied.contains(QStringLiteral("Well")));
   }
 
-  // Test Case 6: Clear history button clears both ErrorHub and UI model
+  // Test Case 6: Clear history button clears both paleo::services::ErrorHub and UI model
   void testClearHistoryTwoWaySync()
   {
     for (int i = 0; i < 15; ++i) {
-      ErrorHub::instance()->reportInfo(ErrorDomain::General, QStringLiteral("Msg %1").arg(i), QString(), QStringLiteral("key.%1").arg(i));
+      paleo::services::ErrorHub::instance()->reportInfo(ErrorDomain::General, QStringLiteral("Msg %1").arg(i), QString(), QStringLiteral("key.%1").arg(i));
     }
     QCoreApplication::processEvents();
-    QCOMPARE(ErrorHub::instance()->count(), 15);
+    QCOMPARE(paleo::services::ErrorHub::instance()->count(), 15);
 
     ErrorHistoryDock dock;
     QCOMPARE(dock.tableView()->model()->rowCount(), 15);
@@ -279,14 +279,14 @@ private slots:
     clearBtn->click();
     QCoreApplication::processEvents();
 
-    QCOMPARE(ErrorHub::instance()->count(), 0);
-    QVERIFY(ErrorHub::instance()->history().isEmpty());
+    QCOMPARE(paleo::services::ErrorHub::instance()->count(), 0);
+    QVERIFY(paleo::services::ErrorHub::instance()->history().isEmpty());
     QCOMPARE(dock.tableView()->model()->rowCount(), 0);
 
     // 清空后再次写入
-    ErrorHub::instance()->reportInfo(ErrorDomain::General, QStringLiteral("清空后新消息"), QString(), QStringLiteral("new.1"));
+    paleo::services::ErrorHub::instance()->reportInfo(ErrorDomain::General, QStringLiteral("清空后新消息"), QString(), QStringLiteral("new.1"));
     QCoreApplication::processEvents();
-    QCOMPARE(ErrorHub::instance()->count(), 1);
+    QCOMPARE(paleo::services::ErrorHub::instance()->count(), 1);
     QCOMPARE(dock.tableView()->model()->rowCount(), 1);
   }
 
@@ -330,9 +330,9 @@ private slots:
   // Robustness Edge Case: 活跃过滤条件下的 FIFO 逐出稳定性
   void testFilteringDuringActiveFifoEviction()
   {
-    ErrorHub::instance()->clear();
-    ErrorHub::instance()->setMaxCapacity(50);
-    ErrorHub::instance()->setDedupWindowSecs(0);
+    paleo::services::ErrorHub::instance()->clear();
+    paleo::services::ErrorHub::instance()->setMaxCapacity(50);
+    paleo::services::ErrorHub::instance()->setDedupWindowSecs(0);
 
     ErrorHistoryDock dock;
     dock.setDomainFilter(ErrorDomain::Seismic);
@@ -340,7 +340,7 @@ private slots:
     // 注入交替 domain 的消息，触发 FIFO 逐出
     for (int i = 0; i < 120; ++i) {
       QString domain = (i % 2 == 0) ? ErrorDomain::Seismic : ErrorDomain::Well;
-      ErrorHub::instance()->reportInfo(domain, QStringLiteral("Evict_%1").arg(i), QString(), QString::number(i));
+      paleo::services::ErrorHub::instance()->reportInfo(domain, QStringLiteral("Evict_%1").arg(i), QString(), QString::number(i));
       if (i % 10 == 0) {
         QCoreApplication::processEvents();
       }
@@ -370,9 +370,9 @@ private slots:
   // Challenger 1: 500-item circular buffer FIFO eviction stress (2,000 errors sequentially)
   void testAdversarialSequentialFifoHeavyLoad2000Items()
   {
-    ErrorHub::instance()->clear();
-    ErrorHub::instance()->setMaxCapacity(500);
-    ErrorHub::instance()->setDedupWindowSecs(0);
+    paleo::services::ErrorHub::instance()->clear();
+    paleo::services::ErrorHub::instance()->setMaxCapacity(500);
+    paleo::services::ErrorHub::instance()->setDedupWindowSecs(0);
 
     ErrorHistoryModel model;
     QTableView tableView;
@@ -380,7 +380,7 @@ private slots:
 
     // Push 2,000 unique errors sequentially
     for (int i = 1; i <= 2000; ++i) {
-      ErrorHub::instance()->reportError(
+      paleo::services::ErrorHub::instance()->reportError(
         ErrorDomain::General,
         QStringLiteral("HeavyErr_%1").arg(i),
         QStringLiteral("HeavyDetail_%1").arg(i),
@@ -451,9 +451,9 @@ private slots:
   // Challenger 1: Selection model and clipboard survival under heavy FIFO eviction
   void testAdversarialSelectionSurvivalAcrossMassiveEvictions()
   {
-    ErrorHub::instance()->clear();
-    ErrorHub::instance()->setMaxCapacity(500);
-    ErrorHub::instance()->setDedupWindowSecs(0);
+    paleo::services::ErrorHub::instance()->clear();
+    paleo::services::ErrorHub::instance()->setMaxCapacity(500);
+    paleo::services::ErrorHub::instance()->setDedupWindowSecs(0);
 
     ErrorHistoryDock dock;
     dock.show();
@@ -461,7 +461,7 @@ private slots:
 
     // Populate initial 500 items
     for (int i = 1; i <= 500; ++i) {
-      ErrorHub::instance()->reportError(
+      paleo::services::ErrorHub::instance()->reportError(
         ErrorDomain::IO,
         QStringLiteral("InitErr_%1").arg(i),
         QStringLiteral("InitDetail_%1").arg(i),
@@ -482,7 +482,7 @@ private slots:
 
     // Push 1,500 new errors, triggering 1,500 evictions at row 0
     for (int i = 501; i <= 2000; ++i) {
-      ErrorHub::instance()->reportWarning(
+      paleo::services::ErrorHub::instance()->reportWarning(
         ErrorDomain::Seismic,
         QStringLiteral("StormErr_%1").arg(i),
         QStringLiteral("StormDetail_%1").arg(i),
@@ -504,7 +504,7 @@ private slots:
     dock.tableView()->selectRow(0);
     QVERIFY(selModel->hasSelection());
 
-    ErrorHub::instance()->reportCritical(
+    paleo::services::ErrorHub::instance()->reportCritical(
       ErrorDomain::System,
       QStringLiteral("EvictRow0"),
       QStringLiteral("DetailRow0"),
@@ -522,9 +522,9 @@ private slots:
   // Challenger 1: Active proxy filtering and dynamic sorting under continuous eviction
   void testAdversarialProxySortingAndFilteringDuringEvictionStorm()
   {
-    ErrorHub::instance()->clear();
-    ErrorHub::instance()->setMaxCapacity(500);
-    ErrorHub::instance()->setDedupWindowSecs(0);
+    paleo::services::ErrorHub::instance()->clear();
+    paleo::services::ErrorHub::instance()->setMaxCapacity(500);
+    paleo::services::ErrorHub::instance()->setDedupWindowSecs(0);
 
     ErrorHistoryDock dock;
     dock.show();
@@ -546,7 +546,7 @@ private slots:
       e.details = QStringLiteral("CycleDetail_%1").arg(i);
       e.deduplicationKey = QStringLiteral("cycle_%1").arg(i);
       e.timestamp = QDateTime::currentDateTime().addMSecs(i * 10);
-      ErrorHub::instance()->report(e);
+      paleo::services::ErrorHub::instance()->report(e);
 
       if (i % 60 == 0) {
         QCoreApplication::processEvents();
@@ -598,9 +598,9 @@ private slots:
   // Challenger 1: Dynamic deduplication aggregation (repeated errors within 60s) updates in-place
   void testAdversarialDynamicDedupInPlaceAggregationNoRowDuplication()
   {
-    ErrorHub::instance()->clear();
-    ErrorHub::instance()->setMaxCapacity(500);
-    ErrorHub::instance()->setDedupWindowSecs(60);
+    paleo::services::ErrorHub::instance()->clear();
+    paleo::services::ErrorHub::instance()->setMaxCapacity(500);
+    paleo::services::ErrorHub::instance()->setDedupWindowSecs(60);
 
     ErrorHistoryModel model;
     QSignalSpy rowsInsertedSpy(&model, &QAbstractItemModel::rowsInserted);
@@ -609,7 +609,7 @@ private slots:
 
     // 1. Report 5 base errors
     for (int i = 0; i < 5; ++i) {
-      ErrorHub::instance()->reportError(
+      paleo::services::ErrorHub::instance()->reportError(
         ErrorDomain::Catalog,
         QStringLiteral("BaseError_%1").arg(i),
         QStringLiteral("Detail_%1").arg(i),
@@ -627,7 +627,7 @@ private slots:
 
     // 2. Hammer entry #2 with 200 repeated reports within 60s window
     for (int rep = 1; rep <= 200; ++rep) {
-      ErrorHub::instance()->reportError(
+      paleo::services::ErrorHub::instance()->reportError(
         ErrorDomain::Catalog,
         QStringLiteral("BaseError_2"),
         QStringLiteral("RepeatAppend_%1").arg(rep),
@@ -662,15 +662,15 @@ private slots:
   // Challenger 1: Interleaving dynamic deduplication and FIFO eviction boundaries
   void testAdversarialInterleavedDedupAndFifoEviction()
   {
-    ErrorHub::instance()->clear();
-    ErrorHub::instance()->setMaxCapacity(500);
-    ErrorHub::instance()->setDedupWindowSecs(60);
+    paleo::services::ErrorHub::instance()->clear();
+    paleo::services::ErrorHub::instance()->setMaxCapacity(500);
+    paleo::services::ErrorHub::instance()->setDedupWindowSecs(60);
 
     ErrorHistoryModel model;
 
     // Fill 490 unique items
     for (int i = 1; i <= 490; ++i) {
-      ErrorHub::instance()->reportInfo(
+      paleo::services::ErrorHub::instance()->reportInfo(
         ErrorDomain::General,
         QStringLiteral("Pre_%1").arg(i),
         QString(),
@@ -678,7 +678,7 @@ private slots:
     }
 
     // Item 491: target key
-    ErrorHub::instance()->reportError(
+    paleo::services::ErrorHub::instance()->reportError(
       ErrorDomain::Well,
       QStringLiteral("TargetPinned"),
       QStringLiteral("OriginalDetail"),
@@ -686,7 +686,7 @@ private slots:
 
     // Fill remaining 9 items up to 500
     for (int i = 1; i <= 9; ++i) {
-      ErrorHub::instance()->reportInfo(
+      paleo::services::ErrorHub::instance()->reportInfo(
         ErrorDomain::General,
         QStringLiteral("Post_%1").arg(i),
         QString(),
@@ -698,7 +698,7 @@ private slots:
 
     // Aggregate target 20 times (remains at row 490, count increases)
     for (int i = 0; i < 20; ++i) {
-      ErrorHub::instance()->reportError(
+      paleo::services::ErrorHub::instance()->reportError(
         ErrorDomain::Well,
         QStringLiteral("TargetPinned"),
         QStringLiteral("More"),
@@ -710,7 +710,7 @@ private slots:
 
     // Push 100 new unique items -> items 1..100 evicted, target shifts to row 390
     for (int i = 1; i <= 100; ++i) {
-      ErrorHub::instance()->reportWarning(
+      paleo::services::ErrorHub::instance()->reportWarning(
         ErrorDomain::IO,
         QStringLiteral("Shift_%1").arg(i),
         QString(),
@@ -722,7 +722,7 @@ private slots:
     QCOMPARE(model.data(model.index(390, ErrorHistoryModel::ColCount)).toInt(), 21);
 
     // Aggregate again while shifted: should update in-place at row 390
-    ErrorHub::instance()->reportError(
+    paleo::services::ErrorHub::instance()->reportError(
       ErrorDomain::Well,
       QStringLiteral("TargetPinned"),
       QString(),
@@ -732,7 +732,7 @@ private slots:
 
     // Push 450 more items -> target at row 390 is eventually evicted
     for (int i = 1; i <= 450; ++i) {
-      ErrorHub::instance()->reportInfo(
+      paleo::services::ErrorHub::instance()->reportInfo(
         ErrorDomain::System,
         QStringLiteral("EvictAll_%1").arg(i),
         QString(),
@@ -742,7 +742,7 @@ private slots:
     QCOMPARE(model.rowCount(), 500);
 
     // Target has been evicted. Reporting it again now should create a brand new entry (count 1)
-    ErrorHub::instance()->reportError(
+    paleo::services::ErrorHub::instance()->reportError(
       ErrorDomain::Well,
       QStringLiteral("TargetPinned"),
       QStringLiteral("Reborn"),
@@ -757,9 +757,9 @@ private slots:
   // Challenger 1: Multi-threaded concurrency stress (4 worker threads reporting 2,000 errors)
   void testAdversarialConcurrentMultiThreadedStress()
   {
-    ErrorHub::instance()->clear();
-    ErrorHub::instance()->setMaxCapacity(500);
-    ErrorHub::instance()->setDedupWindowSecs(60);
+    paleo::services::ErrorHub::instance()->clear();
+    paleo::services::ErrorHub::instance()->setMaxCapacity(500);
+    paleo::services::ErrorHub::instance()->setDedupWindowSecs(60);
 
     ErrorHistoryDock dock;
     dock.show();
@@ -783,14 +783,14 @@ private slots:
           if (t < 2) {
             // Threads 0 & 1: report to 5 shared keys (concurrent aggregation)
             int keyId = i % 5;
-            ErrorHub::instance()->reportWarning(
+            paleo::services::ErrorHub::instance()->reportWarning(
               ErrorDomain::AI,
               QStringLiteral("SharedWarn_%1").arg(keyId),
               QStringLiteral("Thread_%1_iter_%2").arg(t).arg(i),
               QStringLiteral("shared.key.%1").arg(keyId));
           } else {
             // Threads 2 & 3: report unique keys (concurrent FIFO eviction)
-            ErrorHub::instance()->reportError(
+            paleo::services::ErrorHub::instance()->reportError(
               ErrorDomain::Gridding,
               QStringLiteral("UniqueErr_t%1_i%2").arg(t).arg(i),
               QStringLiteral("Detail_t%1_i%2").arg(t).arg(i),
@@ -846,16 +846,16 @@ private slots:
   // Challenger 1: Rapid clearHistory during heavy traffic does not deadlock or corrupt state
   void testAdversarialRapidClearDuringEvictionAndAggregation()
   {
-    ErrorHub::instance()->clear();
-    ErrorHub::instance()->setMaxCapacity(500);
-    ErrorHub::instance()->setDedupWindowSecs(60);
+    paleo::services::ErrorHub::instance()->clear();
+    paleo::services::ErrorHub::instance()->setMaxCapacity(500);
+    paleo::services::ErrorHub::instance()->setDedupWindowSecs(60);
 
     ErrorHistoryDock dock;
     dock.show();
 
     // Pump 300 items
     for (int i = 0; i < 300; ++i) {
-      ErrorHub::instance()->reportInfo(
+      paleo::services::ErrorHub::instance()->reportInfo(
         ErrorDomain::General,
         QStringLiteral("PreClear_%1").arg(i),
         QString(),
@@ -870,11 +870,11 @@ private slots:
 
     QCOMPARE(dock.model()->rowCount(), 0);
     QCOMPARE(dock.proxyModel()->rowCount(), 0);
-    QCOMPARE(ErrorHub::instance()->count(), 0);
+    QCOMPARE(paleo::services::ErrorHub::instance()->count(), 0);
 
     // Subsequent traffic after clear
     for (int i = 0; i < 600; ++i) {
-      ErrorHub::instance()->reportError(
+      paleo::services::ErrorHub::instance()->reportError(
         ErrorDomain::Project,
         QStringLiteral("PostClear_%1").arg(i),
         QString(),

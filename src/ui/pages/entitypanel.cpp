@@ -17,7 +17,8 @@
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QInputDialog>
-#include "ui/notifications/notificationmanager.h"
+#include "../notifications/paleonotify.h"
+#include <QDialog>  // 原经 <QMessageBox> 传递引入
 #include <QPointer>
 #include <QPushButton>
 #include <QScrollArea>
@@ -457,11 +458,13 @@ void EntityPanel::buildD4Ui()
       if (dlg.exec() != QDialog::Accepted || dlg.newRole() == l.role)
         return;
       // D5.5：addLink 无删除对偶 → 不可撤销确认。
-      if (!paleo::ui::NotificationManager::confirmYesNo(
+      if (!PaleoNotify::ask(
               this, tr("角色变更（不可撤销）"),
               tr("将为「%1」新增角色关联 %2（原 %3 关联保留）。\n"
                  "此操作不可撤销。继续？")
-                  .arg(m_assetId, dlg.newRole(), l.role)))
+                  .arg(m_assetId, dlg.newRole(), l.role),
+              PaleoNotify::AskButtons::YesNo, PaleoNotify::AskDefault::Platform,
+              PaleoNotify::AskIcon::Warning))
         return;
       EntityAssetLink nl = l;
       nl.role = dlg.newRole();
@@ -601,7 +604,7 @@ void EntityPanel::beginCreateEntity()
                                  : e.name;
     if (existing.compare(name, Qt::CaseInsensitive) == 0)
     {
-      paleo::ui::NotificationManager::showWarning(this, tr("重名"),
+      PaleoNotify::warning(this, tr("重名"),
                            tr("已存在同名实体「%1」").arg(name));
       return;
     }
@@ -661,7 +664,7 @@ void EntityPanel::beginRenameEntity(const QString &entityId)
                                    : o.name;
       if (existing.compare(newName, Qt::CaseInsensitive) == 0)
       {
-        paleo::ui::NotificationManager::showWarning(this, tr("重名"),
+        PaleoNotify::warning(this, tr("重名"),
                              tr("已存在同名实体「%1」").arg(newName));
         return;
       }

@@ -51,8 +51,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
-#include "notifications/notificationmanager.h"
-
+#include "notifications/paleonotify.h"
 #include <QStackedLayout>
 #include <QStatusBar>
 #include <QTabWidget>
@@ -83,15 +82,13 @@ bool readHorizonAssetText(PaleoMainWindow *win, DataCatalog *catalog,
   const CatalogAsset a = catalog->assetById(assetId);
   if (a.id.isEmpty())
   {
-    paleo::ui::NotificationManager::showWarning(
-        win, QObject::tr("网格化"), QObject::tr("资产不存在：%1").arg(assetId));
+    PaleoNotify::warning(win, QObject::tr("网格化"), QObject::tr("资产不存在：%1").arg(assetId));
     return false;
   }
   if (a.type != QLatin1String("horizon"))
   {
-    paleo::ui::NotificationManager::showWarning(
-        win, QObject::tr("网格化"),
-        QObject::tr("「网格化」只适用于层位资产（%1 是 %2）").arg(a.displayName, a.type));
+    PaleoNotify::warning(win, QObject::tr("网格化"),
+                         QObject::tr("「网格化」只适用于层位资产（%1 是 %2）").arg(a.displayName, a.type));
     return false;
   }
   const CatalogVersion v = catalog->currentVersion(assetId);
@@ -99,9 +96,8 @@ bool readHorizonAssetText(PaleoMainWindow *win, DataCatalog *catalog,
   QFile f(src);
   if (!f.open(QIODevice::ReadOnly))
   {
-    paleo::ui::NotificationManager::showWarning(
-        win, QObject::tr("网格化"),
-        QObject::tr("无法读取层位文件：%1").arg(src));
+    PaleoNotify::warning(win, QObject::tr("网格化"),
+                         QObject::tr("无法读取层位文件：%1").arg(src));
     return false;
   }
   *out = f.readAll();
@@ -151,9 +147,8 @@ void runHorizonGridding(PaleoMainWindow *win, DataCatalog *catalog, const QStrin
       SurfaceGriddingWorkflow::inspectHorizonText(text, constraintGpkg);
   if (!ctxIn.ok)
   {
-    paleo::ui::NotificationManager::showWarning(
-        win, QObject::tr("网格化"),
-        QObject::tr("层位 %1：%2").arg(a.displayName, ctxIn.error));
+    PaleoNotify::warning(win, QObject::tr("网格化"),
+                         QObject::tr("层位 %1：%2").arg(a.displayName, ctxIn.error));
     return;
   }
   PaleoGriddingDialog::RequestContext ctx;
@@ -235,7 +230,7 @@ void runHorizonGridding(PaleoMainWindow *win, DataCatalog *catalog, const QStrin
     SurfaceGriddingWorkflow::Outcome o;
     const QString err = wf->gridHorizonText(horizon, text, opt, nullptr, nullptr, &o);
     if (!err.isEmpty())
-      paleo::ui::NotificationManager::showWarning(win, QObject::tr("网格化失败"), err);
+      PaleoNotify::warning(win, QObject::tr("网格化失败"), err);
   }
 }
 
@@ -247,7 +242,7 @@ void runSurfaceOps(PaleoMainWindow *win, QgisLayerService *layerSvc, DataCatalog
   QString readErr;
   if (!layerSvc || !layerSvc->tryDeclared(&decls, &readErr))
   {
-    paleo::ui::NotificationManager::showWarning(win, QObject::tr("面运算"), readErr);
+    PaleoNotify::warning(win, QObject::tr("面运算"), readErr);
     return;
   }
   QVector<QPair<QString, QString>> candidates; // (title, source)
@@ -276,7 +271,7 @@ void runSurfaceOps(PaleoMainWindow *win, QgisLayerService *layerSvc, DataCatalog
       sel.writeManaged, nullptr);
   if (!err.isEmpty())
   {
-    paleo::ui::NotificationManager::showWarning(win, QObject::tr("面运算失败"), err);
+    PaleoNotify::warning(win, QObject::tr("面运算失败"), err);
     return;
   }
   QVector<QPair<QString, QString>> metrics;

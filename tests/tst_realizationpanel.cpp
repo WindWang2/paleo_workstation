@@ -91,6 +91,7 @@ class RealizationPanelTests : public QObject
     void animationTicksInFrameOrder();
     void diffIntentRequiresTwoDistinctSets();
     void rebindDropsStaleSelection();
+    void busyStateDisablesControls();
 };
 
 void RealizationPanelTests::emptyCatalogHonestState()
@@ -290,6 +291,57 @@ void RealizationPanelTests::rebindDropsStaleSelection()
   QCOMPARE( panel.currentSetId(), b );
   panel.bindCatalog( &catalog );
   QCOMPARE( panel.currentSetId(), combo->itemData( 0 ).toString() );
+}
+
+void RealizationPanelTests::busyStateDisablesControls()
+{
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  DataCatalog catalog;
+  QVERIFY( catalog.open( dir.path() ) );
+  const QString a = makeSet( catalog, QStringLiteral( "A" ), { 0, 1 }, 2 );
+  const QString b = makeSet( catalog, QStringLiteral( "B" ), { 0, 1 }, 2 );
+
+  RealizationPanel panel;
+  panel.bindCatalog( &catalog );
+  auto *deriveBtn = panel.findChild<QPushButton *>( QStringLiteral( "realizationDeriveButton" ) );
+  auto *diffBtn = panel.findChild<QPushButton *>( QStringLiteral( "realizationDiffButton" ) );
+  auto *diffA = panel.findChild<QComboBox *>( QStringLiteral( "realizationDiffA" ) );
+  auto *diffB = panel.findChild<QComboBox *>( QStringLiteral( "realizationDiffB" ) );
+  QVERIFY( deriveBtn && diffBtn && diffA && diffB );
+
+  diffA->setCurrentIndex( diffA->findData( a ) );
+  diffB->setCurrentIndex( diffB->findData( b ) );
+
+  QVERIFY( !panel.isBusy() );
+  QVERIFY( deriveBtn->isEnabled() );
+
+  QSignalSpy busySpy( &panel, &RealizationPanel::busyChanged );
+  QSignalSpy deriveSpy( &panel, &RealizationPanel::deriveStatsRequested );
+  QSignalSpy diffSpy( &panel, &RealizationPanel::diffRequested );
+
+  // 置忙：按钮禁用，点击不发射 intent
+  panel.setBusy( true );
+  QVERIFY( panel.isBusy() );
+  QCOMPARE( busySpy.count(), 1 );
+  QCOMPARE( busySpy.last().at( 0 ).toBool(), true );
+  QVERIFY( !deriveBtn->isEnabled() );
+  QVERIFY( !diffBtn->isEnabled() );
+
+  deriveBtn->click();
+  diffBtn->click();
+  QCOMPARE( deriveSpy.count(), 0 );
+  QCOMPARE( diffSpy.count(), 0 );
+
+  // 解忙：恢复可用
+  panel.setBusy( false );
+  QVERIFY( !panel.isBusy() );
+  QCOMPARE( busySpy.count(), 2 );
+  QCOMPARE( busySpy.last().at( 0 ).toBool(), false );
+  QVERIFY( deriveBtn->isEnabled() );
+
+  deriveBtn->click();
+  QCOMPARE( deriveSpy.count(), 1 );
 }
 
 int main( int argc, char *argv[] )

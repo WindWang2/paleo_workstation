@@ -174,7 +174,7 @@ WellFaciesWorkflow::publishLithoAsset(const WellFaciesResult &result) {
     return tr("井名 %1 在 catalog 中未唯一解析（%2 个候选），未登记")
         .arg(m_data.wellName)
         .arg(wellIds.size());
-  const QString wellId = wellIds.first();
+  const QString &wellId = wellIds.first();
   // 消费契约（与剖面 attachLithoSegments 严格同构）：
   // {schema:1, provenance:{source,modelName,modelVersion,jobId},
   //  intervals:[{wellId,top,base,litho}]} —— litho 为预测相中文自由词面。

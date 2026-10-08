@@ -706,7 +706,7 @@ target_link_libraries(paleo_ui PUBLIC paleo_deps paleo_ui_deps paleo_qgis paleo_
   paleo_store paleo_linkage paleo_domain paleo_io paleo_ai paleo_saribbon paleo_sbm)
 
 # ---- 组装根 ----
-add_library(paleo_app STATIC src/app/appcontext.cpp)
+add_library(paleo_app STATIC src/app/appcontext.cpp src/app/onnxwiring.cpp) # onnxwiring：模型注册表装配（方向83 装配根瘦身）
 target_link_libraries(paleo_app PUBLIC paleo_ui paleo_workflow paleo_linkage paleo_services
   paleo_io paleo_qgis paleo_store paleo_domain paleo_ai)
 

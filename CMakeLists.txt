@@ -581,6 +581,13 @@ add_library(paleo_ui STATIC
   src/ui/pages/mappingworkbenchpage.cpp
   src/ui/paleomainwindow_workbench.cpp
   src/ui/paleomainwindow.cpp
+  src/ui/paleomainwindow_docks.cpp               # 壳构建：中央面与 dock 族（方向83）
+  src/ui/paleomainwindow_status.cpp              # 状态栏族（方向83）
+  src/ui/paleomainwindow_errorhub.cpp            # 错误呈现域（方向64/83）
+  src/ui/paleomainwindow_ribbon.cpp              # ribbon 骨架与面板菜单（方向83）
+  src/ui/paleomainwindow_shortcuts.cpp           # 页快捷键注册（方向63/83）
+  src/ui/paleomainwindow_pages.cpp               # 页切换域（方向83）
+  src/ui/paleomainwindow_project.cpp             # 工程打开/导入编排入口（方向83）
   src/ui/paleomainwindow_attach.cpp                # 壳接线聚合胶水层
   src/ui/paleomainwindow_attach_data.cpp           # 数据管理页接线
   src/ui/paleomainwindow_attach_predict.cpp        # 智能预测页接线

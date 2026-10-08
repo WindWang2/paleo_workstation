@@ -316,6 +316,16 @@ class PaleoMainWindow : public SARibbonMainWindow
     // 页签内的命令组依赖页面板与服务，由 buildRibbonPanels 在 attachWorkflows
     // 末尾填充。
     void buildRibbon();
+    // 方向 83 拆 TU：buildShell 按原文行序分解为下列构建段（初始化序/
+    // 连接序逐行保持；实现分布 paleomainwindow_docks/_status/_errorhub/
+    // _ribbon/_shortcuts.cpp）。
+    void buildCenterArea();       // 中央面：启动页/画布面/数据面/地层对比页
+    void buildLayerTreeDock();    // 左 dock 图层平台 + 空态同步
+    void buildPageDocks();        // 右栏占位/底栏/地震剖面/连井/3D/Web dock 族
+    void buildStatusBar();        // 状态栏族（层位/坐标/比例尺/CRS/打开进度）
+    void buildErrorHistoryDock(); // 错误历史 dock（方向 64 呈现域）
+    void wireErrorHubStatus();    // 状态栏错误胶囊 + ErrorHub 计数同步
+    void registerPageShortcuts(); // Ctrl+1..6 / Ctrl+Tab（方向 63 注册表）
     void restoreCorrelationDocks();
     void buildRibbonPanels(DataPage *data, PredictPage *predict, ConstraintPage *constraint,
                            ComposePage *compose, ValidatePage *validate,

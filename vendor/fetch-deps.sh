@@ -204,7 +204,8 @@ for libdir in "$PREFIX/usr/lib" "$PREFIX"/usr/lib/*-linux-gnu; do
   sort | while read -r lib; do
     b=$(basename "$lib"); sub=$(basename "$(dirname "$lib")")
     case "$sub" in *-linux-gnu) continue;; esac   # multiarch 目录不是 alternatives 子目录
-    [ -e "$libdir/$b" ] || ln -s "$sub/$b" "$libdir/$b"
+    # -e 对悬空符号链接返回假——deb 可能自带顶层链接，-L 一并认作已存在
+    [ -e "$libdir/$b" ] || [ -L "$libdir/$b" ] || ln -s "$sub/$b" "$libdir/$b"
   done
 done
 

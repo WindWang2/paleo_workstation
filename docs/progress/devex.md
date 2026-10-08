@@ -203,3 +203,24 @@ previewhistogramwidget 的 QFont helper 同名。开关默认仍 OFF——全量
 6. ~~资源预算类断言感知 sanitizer 档~~ **方向70 已收口（2026-10-07）**：
    `PALEO_SANITIZER_BUILD` 全局注入 + 墙钟 ×3/RSS 跳过 + 双二进制单测
    （见上节 ASAN/UBSAN 段收口注）。
+
+## 方向 78：mkproject 夹具工厂化（测试面新增）
+
+`paleo_mkproject` 清单外置（`--manifest`）+ 微型合成数据集后，「真跑生产
+导入路径」的夹具面进树（synthetic `PerfFixtures` 只灌 catalog，绕过 io
+解析/QGIS 面）：
+
+- **布线**：`tst_mkprojectfixture` 手动注册（非 `add_paleo_test`——需要
+  `fixtures/mkprojectfixture.cpp` 第二源 + `MKPROJECT_BIN` 生成器表达式）；
+  LABEL `services`（core 段，不进 perf）；`RUN_SERIAL TRUE`（QProcess 子
+  进程 + 子进程内 QgsApplication init 的资源面，对齐 tst_perfbudget 先例，
+  CI 并行负载防抖）。
+- **沙箱口径**：QProcess 默认继承父环境——ctest 的 XDG 沙箱/
+  QGIS_PREFIX_PATH 与 paleo-dev 的树内 TEMP/TMP 同监子进程（方向 72 监狱
+  口径下 QTemporaryDir/QProcess 可用，无需注入；实测两连实例通过）。
+- **夹具资产**：`tools/reference/mkproject/mini/`（~150 KiB，stdlib-only
+  生成器可复现；SEG-Y 复用 `tools/make_segy_fixture.py` 道头约定单一真源）。
+- **覆盖增量**（io 解析面从 synthetic-only → 生产路径）：wellfileparsers
+  位置/头驱动双面、readWorkbook SpreadsheetML、lasparser、segyreader、
+  cuttingsdoc、井附件角色词表（目录关键词）、outsource 外链——文件:行号
+  对照见方向 78 ledger。

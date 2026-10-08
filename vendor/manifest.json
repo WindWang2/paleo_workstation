@@ -158,6 +158,21 @@
         "note": "official manylinux_2_28 build; host glibc 2.44 OK"
       }
     },
+    "libreoffice": {
+      "version": "26.2.6.3",
+      "platform": "linux-x64",
+      "url": "https://download.documentfoundation.org/libreoffice/stable/26.2.6/deb/x86_64/LibreOffice_26.2.6_Linux_x86-64_deb.tar.gz",
+      "archive": {
+        "sha256": "fd0e8f8f2408dd2e5b90286e60f3f97cf566ba441cd48cfc5bcc68067303e0bc",
+        "size_bytes": 217285735
+      },
+      "layout": {
+        "root": "vendor/libreoffice",
+        "soffice": "program/soffice"
+      },
+      "license": "MPL-2.0 (see vendor/libreoffice/LICENSE after extract; binary redistribution permitted)",
+      "notes": "Official self-contained build (ORIGIN-relative; glibc floor far below host floor). fetch-libreoffice.sh extracts only the headless --convert-to subset (core/ure/writer/impress/draw/calc/images/en-us/ooofonts/graphicfilter + brand deb) — used by resolveDocumentConverter for doc/docx/ppt/pptx/xls/xlsx -> PDF preview. Windows leg: MSI admin-extract deferred; resolver falls back to PATH soffice there."
+    },
     "onnxruntime_win": {
       "version": "1.30.0",
       "platform": "windows-x64",

@@ -407,17 +407,27 @@ void DataListPanel::refreshAssetTree()
   //     副本。过程快照（input_snapshot/constraint_*）是追溯机器，不进用户面。
   //     双击走通用资产预览（assetActivated），tif 出栅格页、gpkg 出矢量页。
   {
-    const auto isMapProduct = [](const QString &type) {
-      return type == QLatin1String("seismic_prediction") ||
-             type == QLatin1String("wells_prediction") ||
-             type == QLatin1String("composed_facies") ||
-             type == QLatin1String("facies_polygons") ||
-             type == QLatin1String("edited_facies");
+    const auto isMapProduct = [](const CatalogAsset &a, const CatalogVersion &v) {
+      return a.type == QLatin1String("seismic_prediction") ||
+             a.type == QLatin1String("wells_prediction") ||
+             a.type == QLatin1String("composed_facies") ||
+             a.type == QLatin1String("facies_polygons") ||
+             a.type == QLatin1String("edited_facies") ||
+             a.type == QLatin1String("single_factor_raster") ||
+             a.type == QLatin1String("contour_lines") ||
+             a.type == QLatin1String("single_factor_cartographic_work") ||
+             a.type == QLatin1String("single_factor_cartographic_contour") ||
+             a.type == QLatin1String("facies_fusion_raster") ||
+             v.extra.value(QStringLiteral("mapping_product")).toBool();
     };
     QList<QPair<CatalogAsset, CatalogVersion>> products;
     for (const CatalogAsset &a : cat->assets())
-      if (assetVisible(a) && isMapProduct(a.type))
-        products.append({a, cat->currentVersion(a.id)});
+      if (assetVisible(a))
+      {
+        const auto v = cat->currentVersion(a.id);
+        if (isMapProduct(a, v))
+          products.append({a, v});
+      }
     std::sort(products.begin(), products.end(),
               [](const auto &x, const auto &y) {
                 return naturalNameSort(x.first.displayName, y.first.displayName);

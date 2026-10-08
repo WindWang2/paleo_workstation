@@ -756,7 +756,7 @@ public:
   // 命中时 stats 一并从缓存条目取回（真实道距；绝不合成近似值）。
   std::shared_ptr<const SgySliceImage> cachedSection(
       const std::vector<glm::ivec2> &pathPoints, std::shared_ptr<const SgyVolume> volume,
-      const SgySectionOptions &options, SgySectionStats *stats) const;
+      const SgySectionOptions &options, SgySectionStats *stats = nullptr) const;
   void cacheSection(const std::vector<glm::ivec2> &pathPoints,
                     std::shared_ptr<const SgyVolume> volume,
                     std::shared_ptr<const SgySliceImage> image,

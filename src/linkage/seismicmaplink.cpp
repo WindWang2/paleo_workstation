@@ -220,10 +220,13 @@ void SeismicMapLink::onSectionTraceHovered(
     m_cursorMarker->setPenWidth(2);
   }
 
-  QgsPointXY mapped;
-  if (!paleo::mapreference::transformPoint(m_canvas, QgsPointXY(mapX, mapY),
-      QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()),
-      m_canvas->mapSettings().destinationCrs(), &mapped)) { m_cursorMarker->hide(); return; }
+  QgsPointXY mapped(mapX, mapY);
+  const auto destCrs = m_canvas->mapSettings().destinationCrs();
+  if (destCrs.isValid()) {
+    if (!paleo::mapreference::transformPoint(m_canvas, QgsPointXY(mapX, mapY),
+        QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()),
+        destCrs, &mapped)) { m_cursorMarker->hide(); return; }
+  }
   m_cursorMarker->setCenter(mapped);
   m_cursorMarker->show();
 }
@@ -235,10 +238,13 @@ void SeismicMapLink::onSectionTraceClicked(
     return;
 
   if (std::isfinite(mapX) && std::isfinite(mapY)) {
-    QgsPointXY mapped;
-    if (!paleo::mapreference::transformPoint(m_canvas, QgsPointXY(mapX, mapY),
-        QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()),
-        m_canvas->mapSettings().destinationCrs(), &mapped)) return;
+    QgsPointXY mapped(mapX, mapY);
+    const auto destCrs = m_canvas->mapSettings().destinationCrs();
+    if (destCrs.isValid()) {
+      if (!paleo::mapreference::transformPoint(m_canvas, QgsPointXY(mapX, mapY),
+          QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()),
+          destCrs, &mapped)) return;
+    }
     m_canvas->setCenter(mapped);
     m_canvas->refresh();
   }

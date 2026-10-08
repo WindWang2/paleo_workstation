@@ -19,6 +19,7 @@
 #include <QUndoStack>
 
 #include "domain/seismic/sectiongeometry.h"
+#include "domain/seismic/sgycoordinatemapper.h"
 #include "domain/seismic/sgysectionbuilder.h"
 #include "services/fspathutils.h" // #291 QString↔filesystem::path 走 UTF-16（MSVC 窄构造按 ANSI 解码）
 #include "services/seismictaskservice.h"
@@ -539,9 +540,21 @@ void SeismicSectionDockWidget::extractSectionFromVolumeAsync(
           emit guard->sectionExtractionFinished(false, error);
           return;
         }
+        std::vector<glm::dvec2> route = mapPolyline;
+        if (route.size() != pathPoints.size() && volume && volume->Index()) {
+          const auto mapper = SgyCoordinateMapper::Fit(*volume->Index());
+          if (mapper.valid()) {
+            route.clear();
+            for (const auto &p : pathPoints) {
+              double x = 0.0, y = 0.0;
+              if (mapper.MapInlineXline(p.x, p.y, x, y))
+                route.push_back({x, y});
+            }
+          }
+        }
         const auto geometry = SectionGeometry::fromColumns(
-            pathPoints, mapPolyline, stats.columnDistances);
-        guard->m_route = mapPolyline;
+            pathPoints, route, stats.columnDistances);
+        guard->m_route = route;
         guard->m_distances = geometry.distancesM;
         guard->m_canvas->setSectionData(
             *image, volume->SampleIntervalUs() / 1000.0f, origin,
@@ -554,7 +567,7 @@ void SeismicSectionDockWidget::extractSectionFromVolumeAsync(
         guard->m_candidateWells = candidateWells;
         // D5.3/D5.4：井轨迹投影 + 合成记录（任意线链路，wave/seismic-chain-deep）
         if (!candidateWells.empty()) {
-          guard->computeWellTrajectories(mapPolyline);
+          guard->computeWellTrajectories(route);
           guard->computeSyntheticOverlays();
         }
         // 与切片路径同拍刷新解释叠加：剖面身份变了（任意线），

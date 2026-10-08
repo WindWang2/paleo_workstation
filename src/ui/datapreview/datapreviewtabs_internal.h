@@ -1576,4 +1576,32 @@ inline WellComposite::CurveData compositeCurve(const QString &name, const QStrin
 }
 
 
+inline bool isMapProductAsset(const CatalogAsset &asset, const CatalogVersion &v)
+{
+  if (v.extra.value(QStringLiteral("mapping_product")).toBool())
+    return true;
+  const QString &t = asset.type;
+  if (t == QLatin1String("seismic_prediction") ||
+      t == QLatin1String("wells_prediction") ||
+      t == QLatin1String("composed_facies") ||
+      t == QLatin1String("facies_polygons") ||
+      t == QLatin1String("edited_facies") ||
+      t == QLatin1String("single_factor_raster") ||
+      t == QLatin1String("contour_lines") ||
+      t == QLatin1String("single_factor_cartographic_work") ||
+      t == QLatin1String("single_factor_cartographic_contour") ||
+      t == QLatin1String("facies_fusion_raster"))
+    return true;
+  const QString kind = v.extra.value(QStringLiteral("kind")).toString();
+  if (kind == QLatin1String("seismic_prediction") ||
+      kind == QLatin1String("wells_prediction") ||
+      kind == QLatin1String("composed_facies") ||
+      kind == QLatin1String("facies_polygons") ||
+      kind == QLatin1String("edited_facies") ||
+      kind == QLatin1String("single_factor_raster") ||
+      kind == QLatin1String("contour_lines"))
+    return true;
+  return false;
+}
+
 } // namespace paleo::datapreview_detail

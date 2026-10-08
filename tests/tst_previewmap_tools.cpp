@@ -214,7 +214,8 @@ void TestPreviewMapTools::measureAreaComputesAreaAndPerimeter()
   firePress(tool, QPoint(110, 10));
   firePress(tool, QPoint(110, 110));
   firePress(tool, QPoint(10, 110));
-  QVERIFY(qAbs(tool->currentArea() - w * h) < 1.0); // 矩形面积（同源变换）
+  // EPSG:3857 网格与 WGS84 椭球计算差异（1 - e² ≈ 0.9933，偏差约 0.67%）
+  QVERIFY(qAbs(tool->currentArea() - w * h) / (w * h) < 0.02);
   QVERIFY(tool->currentLength() > 2 * (w + h) * 0.95); // 周长口径
 }
 

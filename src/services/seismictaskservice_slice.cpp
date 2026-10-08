@@ -194,6 +194,21 @@ PaleoTask *SeismicTaskService::startSectionExtraction(
   SgySectionStats hitStats;
   if (std::shared_ptr<const SgySliceImage> hit = cachedSection(pathPoints, volume, options, &hitStats))
   {
+    if (hitStats.columnDistances.empty() && hit->width > 0)
+    {
+      hitStats.columns = hit->width;
+      float totalGridLen = 0.0f;
+      for (std::size_t i = 1; i < pathPoints.size(); ++i) {
+        const float di = static_cast<float>(pathPoints[i].x - pathPoints[i - 1].x);
+        const float dx = static_cast<float>(pathPoints[i].y - pathPoints[i - 1].y);
+        totalGridLen += std::sqrt(di * di + dx * dx);
+      }
+      hitStats.columnDistances.reserve(hit->width);
+      for (int c = 0; c < hit->width; ++c) {
+        const float target = hit->width <= 1 ? 0.0f : (float(c) / float(hit->width - 1)) * totalGridLen;
+        hitStats.columnDistances.push_back(target);
+      }
+    }
     if (onFinished)
     {
       auto *timer = new QTimer(this);

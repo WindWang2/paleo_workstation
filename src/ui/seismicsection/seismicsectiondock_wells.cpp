@@ -114,13 +114,24 @@ void SeismicSectionDockWidget::setCandidateWells(const std::vector<SectionWellIn
     computeSyntheticOverlays();
 }
 
-// 点到折线的最近投影（剖面横向比例 0..1）
-static double ProjectPointOntoPolyline(const std::vector<glm::dvec2> &poly,
-                                       const glm::dvec2 &pt, double *offsetOut = nullptr) {
-    double bestT = 0.0, bestDist = std::numeric_limits<double>::max(), bestOffset = 0.0;
-    double total = 0.0;
+// 点到折线的投影并换算为道序号（与 SectionWellProjector 同口径）
+static double ProjectPointToTracePos(const std::vector<glm::dvec2> &poly,
+                                     const std::vector<double> &traceDistancesM,
+                                     int totalTraces,
+                                     const glm::dvec2 &pt,
+                                     double *offsetOut = nullptr) {
+    if (poly.size() < 2)
+        return 0.0;
+    double bestCumDist = 0.0, bestDist = std::numeric_limits<double>::max(), bestOffset = 0.0;
+    double cum = 0.0;
+    std::vector<double> vDist(poly.size(), 0.0);
     for (std::size_t i = 1; i < poly.size(); ++i) {
-        const glm::dvec2 a = poly[i - 1], b = poly[i];
+        cum += glm::length(poly[i] - poly[i - 1]);
+        vDist[i] = cum;
+    }
+    const double totalLengthM = cum;
+    for (std::size_t i = 0; i + 1 < poly.size(); ++i) {
+        const glm::dvec2 a = poly[i], b = poly[i + 1];
         const glm::dvec2 ab = b - a;
         const double len2 = glm::dot(ab, ab);
         const double t = len2 > 1e-12 ? std::clamp(glm::dot(pt - a, ab) / len2, 0.0, 1.0) : 0.0;
@@ -128,27 +139,43 @@ static double ProjectPointOntoPolyline(const std::vector<glm::dvec2> &poly,
         const double d = glm::length(pt - proj);
         if (d < bestDist) {
             bestDist = d;
-            bestT = (total + t * std::sqrt(len2));
+            bestCumDist = vDist[i] + t * (vDist[i + 1] - vDist[i]);
             bestOffset = d;
         }
-        total += std::sqrt(len2);
     }
     if (offsetOut)
         *offsetOut = bestOffset;
-    return total > 1e-9 ? bestT / total : 0.0;
+    if (totalTraces > 1 && !traceDistancesM.empty()) {
+        auto it = std::lower_bound(traceDistancesM.begin(), traceDistancesM.end(), bestCumDist);
+        if (it == traceDistancesM.begin())
+            return 0.0;
+        if (it == traceDistancesM.end())
+            return static_cast<double>(totalTraces - 1);
+        const std::size_t idx = std::distance(traceDistancesM.begin(), it);
+        const double d0 = traceDistancesM[idx - 1];
+        const double d1 = traceDistancesM[idx];
+        const double span = std::max(1e-4, d1 - d0);
+        const double frac = std::clamp((bestCumDist - d0) / span, 0.0, 1.0);
+        return static_cast<double>(idx - 1) + frac;
+    } else if (totalLengthM > 1e-4 && totalTraces > 0) {
+        return (bestCumDist / totalLengthM) * static_cast<double>(totalTraces - 1);
+    }
+    return 0.0;
 }
 
 void SeismicSectionDockWidget::computeWellTrajectories(const std::vector<glm::dvec2> &mapPolyline) {
     m_lastMapPolyline = mapPolyline;
     std::vector<SeismicSectionCanvas::WellTrajectory> trajectories;
     if (mapPolyline.size() >= 2) {
+        const std::vector<double> distances(m_distances.begin(), m_distances.end());
+        const int totalTraces = m_canvas ? m_canvas->traceCount() : 0;
         for (const SectionWellInfo &well : m_candidateWells) {
             SeismicSectionCanvas::WellTrajectory t;
             t.wellId = well.wellId;
-            t.topTracePos = ProjectPointOntoPolyline(mapPolyline, {well.surfaceX, well.surfaceY});
+            t.topTracePos = ProjectPointToTracePos(mapPolyline, distances, totalTraces, {well.surfaceX, well.surfaceY});
             const glm::dvec2 bottom(well.bottomX != 0.0 ? well.bottomX : well.surfaceX,
                                     well.bottomY != 0.0 ? well.bottomY : well.surfaceY);
-            t.bottomTracePos = ProjectPointOntoPolyline(mapPolyline, bottom);
+            t.bottomTracePos = ProjectPointToTracePos(mapPolyline, distances, totalTraces, bottom);
             t.topTwtMs = 0.0;
             t.bottomTwtMs = m_canvas->timeDepthModel().DepthToTwtMs(well.totalDepth);
             // goal/well-trajectory：测斜站逐点投影成折线（twt 用 workbench
@@ -156,7 +183,7 @@ void SeismicSectionDockWidget::computeWellTrajectories(const std::vector<glm::dv
             const TimeDepthModel &td = m_canvas->timeDepthModel();
             for (const WellTrajSample &s : well.trajectory) {
                 SeismicSectionCanvas::TrajVertex v;
-                v.tracePos = ProjectPointOntoPolyline(mapPolyline, {s.x, s.y});
+                v.tracePos = ProjectPointToTracePos(mapPolyline, distances, totalTraces, {s.x, s.y});
                 v.twtMs = std::isfinite(s.twtMs) && s.twtMs > 0.0
                               ? s.twtMs
                               : (s.tvd > 0.0 ? td.DepthToTwtMs(s.tvd) : s.twtMs);

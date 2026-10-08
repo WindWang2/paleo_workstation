@@ -66,8 +66,10 @@ jobs:
       - name: Cache vendored deb closure
         uses: actions/cache@v4
         with:
-          path: vendor/cache/debs
-          key: ${{ runner.os }}-debclosure-${{ hashFiles('vendor/deb-closure.lock', 'vendor/deb-packages.txt') }}
+          path: |
+            vendor/cache/debs
+            vendor/cache/lo
+          key: ${{ runner.os }}-debclosure-${{ hashFiles('vendor/deb-closure.lock', 'vendor/deb-packages.txt') }}-lo-${{ hashFiles('vendor/manifest.json') }}
       # compile_commands 需要 QGIS 头——bootstrap 拉 deb 闭包到 vendor/prefix。
       # fetch-only：只取依赖不编译（bootstrap 尾部的 build/selfcheck 属
       # linux job，lint 只要 compile_commands）。
@@ -143,6 +145,7 @@ jobs:
           path: |
             vendor/onnxruntime
             vendor/cache/debs
+            vendor/cache/lo
           key: ${{ runner.os }}-ort-${{ hashFiles('vendor/manifest.json') }}-debclosure-${{ hashFiles('vendor/deb-closure.lock', 'vendor/deb-packages.txt') }}
       - name: Vendor dependencies
         run: ./paleo-dev bootstrap
@@ -224,6 +227,7 @@ jobs:
           path: |
             vendor/onnxruntime
             vendor/cache/debs
+            vendor/cache/lo
           key: ${{ runner.os }}-ort-${{ hashFiles('vendor/manifest.json') }}-debclosure-${{ hashFiles('vendor/deb-closure.lock', 'vendor/deb-packages.txt') }}
       - name: Vendor dependencies
         run: ./paleo-dev bootstrap

@@ -366,6 +366,20 @@ switch ($Verb) {
       }
       $names = @( & ctest --test-dir $Build --rerun-failed -N @ctestExtra 2>$null |
         ForEach-Object { if ($_ -match 'Test\s+#\d+:\s+(\S+)') { $Matches[1] } } )
+      # 方向 81：环境债红名单（tools/env_redset.json）先分类——豁免项（只限
+      # 名单 routes 内的路线、且每条 FAIL! 命中预算断言正则）放行；已修项再红
+      # / 名单外红照旧走下面的直跑复核。检查器不可用时保持原逻辑（全量直跑）。
+      $py = if ($env:PALEO_PYTHON) { $env:PALEO_PYTHON } else { 'python' }
+      $unexpectedFile = Join-Path $Build 'Testing/env-redset-unexpected.txt'
+      Remove-Item $unexpectedFile -Force -ErrorAction SilentlyContinue
+      & $py (Join-Path $Root 'tools/check_env_redset.py') --build $Build --junit $junit `
+        --route $script:DepsRoute --emit-unexpected $unexpectedFile 2>&1 | Tee-Object -FilePath $log -Append
+      $redsetExit = $LASTEXITCODE
+      if (Test-Path $unexpectedFile) {
+        if ($redsetExit -eq 0) { Write-Host '  env_redset: 全部红均为名单内豁免——放行'; return }
+        $keep = @(Get-Content $unexpectedFile | Where-Object { $_ })
+        if ($keep.Count -gt 0) { $names = @($names | Where-Object { $keep -contains $_ }) }
+      }
       $rerunFailed = $false
       $unhandled = $names.Count -eq 0
       foreach ($n in $names) {

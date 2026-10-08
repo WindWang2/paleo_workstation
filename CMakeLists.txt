@@ -879,16 +879,36 @@ if(PALEO_PYTHON3)
            ${CMAKE_SOURCE_DIR}/tools/check_qgis_versions.py)
   add_test(NAME qgis_versions_selftest COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/check_qgis_versions.py --selftest)
-  # 方向 81 环境债二期：QGIS 资源补齐工具（deb-closure.lock 同源取 srs.db）的合成夹具自检。
+  # 方向 81 环境债二期：QGIS 资源补齐工具（deb-closure.lock 同源取 srs.db）、
+  # 环境债红名单检查器、OSGeo4W pin 生成器（#297 回归：[prev] 段覆盖当前版本）
+  # 的合成夹具自检；env_redset_validate 钉名单结构 + 测试名已注册。
   add_test(NAME qgis_resources_selftest COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/ensure_qgis_resources.py --selftest)
+  add_test(NAME env_redset_validate COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_env_redset.py --validate)
+  add_test(NAME env_redset_selftest COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_env_redset.py --selftest)
+  add_test(NAME pin_osgeo4w_selftest COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/pin_osgeo4w.py --selftest)
   set_tests_properties(layering layering_strict layering_selftest
                        ui_invariants ui_invariants_strict ui_invariants_selftest
                        i18n i18n_selftest ui_tokens ui_tokens_strict ui_tokens_selftest
                        qgis_versions qgis_versions_selftest
-                       qgis_resources_selftest
+                       qgis_resources_selftest env_redset_validate env_redset_selftest
+                       pin_osgeo4w_selftest
                        PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-  set_tests_properties(qgis_resources_selftest PROPERTIES ENVIRONMENT "PYTHONUTF8=1")
+  set_tests_properties(qgis_resources_selftest env_redset_validate env_redset_selftest
+                       pin_osgeo4w_selftest PROPERTIES ENVIRONMENT "PYTHONUTF8=1")
+endif()
+# 方向 81：paleo-dev.ps1 单元自检（AST 抽函数 + 合成夹具；-Mutate 换回 #297
+# 旧 Read-InstalledDbMap 必须被抓到）。找到 pwsh/powershell 才注册——Windows
+# CI 必跑，Linux 装了 pwsh 也跑。
+find_program(PALEO_PWSH NAMES pwsh powershell)
+if(PALEO_PWSH)
+  add_test(NAME paleo_dev_ps1_selftest COMMAND ${PALEO_PWSH} -NoProfile -ExecutionPolicy Bypass
+           -File ${CMAKE_SOURCE_DIR}/tools/paleo_dev_ps1_selftest.ps1)
+  add_test(NAME paleo_dev_ps1_selftest_mutation COMMAND ${PALEO_PWSH} -NoProfile -ExecutionPolicy Bypass
+           -File ${CMAKE_SOURCE_DIR}/tools/paleo_dev_ps1_selftest.ps1 -Mutate)
 endif()
 
 # ---- 测试注册（devex T1 链接瘦身：LIBS = 各测试 include 面的最小闭包，见
@@ -1314,6 +1334,26 @@ foreach(_t IN LISTS _paleo_perf_tests)
 endforeach()
 if(TEST tst_singlefactor_perf)
   set_tests_properties(tst_singlefactor_perf PROPERTIES TIMEOUT 1200)
+endif()
+
+# ---- 方向 81：环境债红名单（tools/env_redset.json，单一真源）→ ctest 标签 ----
+# envdebt / envdebt_<category> / envdebt_<fixed|exempt>：`ctest -L envdebt` 一键
+# 重跑方向 72 的 16 红清单；判定由 tools/check_env_redset.py 做（豁免只认
+# 指定预算断言、只限指定路线）。APPEND，不覆盖既有标签。
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+             "${CMAKE_SOURCE_DIR}/tools/env_redset.json")
+file(READ "${CMAKE_SOURCE_DIR}/tools/env_redset.json" _paleo_redset)
+string(JSON _paleo_redset_n LENGTH "${_paleo_redset}" entries)
+if(_paleo_redset_n GREATER 0)
+  math(EXPR _paleo_redset_last "${_paleo_redset_n} - 1")
+  foreach(_i RANGE ${_paleo_redset_last})
+    string(JSON _t GET "${_paleo_redset}" entries ${_i} test)
+    string(JSON _c GET "${_paleo_redset}" entries ${_i} category)
+    string(JSON _s GET "${_paleo_redset}" entries ${_i} status)
+    if(TEST ${_t})
+      set_property(TEST ${_t} APPEND PROPERTY LABELS envdebt envdebt_${_c} envdebt_${_s})
+    endif()
+  endforeach()
 endif()
 if(TEST tst_singlefactor_contourbudget)
   set_tests_properties(tst_singlefactor_contourbudget PROPERTIES TIMEOUT 600)

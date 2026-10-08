@@ -169,6 +169,29 @@ lint（clang-tidy 增量门禁 + deb 闭包冒烟）/ linux（编译+测试）/ 
 `linux-asan` job（观察档起步，复用 linux 模板 + ASAN+UBSAN + 串行 ctest +
 LSAN off 口径）。
 
+**方向75 断链修复（2026-10-08）**：上述 CI 化实际从未生效——asan job 的
+安装步 run 的是方向 71 已删除的 apt 脚本（`tools/ci_apt_qgis.sh`），
+安装步即红并被 job 级 `continue-on-error` 吞掉，run 页面只显示一个静默
+的红 asan 块，**观察档自合入起从未跑进编译步**（gh api 逐 run 核对
+10/10 红在同一安装步，证据链见 `.goal-loop-ledger-ci-asan-fix.md`）。
+修复：依赖步逐行对拍 linux 主 job vendored 路（checkout/actions 钉 SHA、
+Qt6 发行版包 apt、vendor 缓存补 debs/lo 路径、`./paleo-dev bootstrap`）；
+Configure 步补 `QGIS_PREFIX_PATH`（裸 cmake 不过 paleo-dev 自动注入）；
+Test 步从裸 ctest 改 `./paleo-dev test -j 1`（vendored 路测试期需要
+deb 库路径/GDAL 驱动注入，与 linux 主 job 同源；`ASAN_OPTIONS=
+detect_leaks=0` 语义不变）。防回升：`tools/check_ci_scripts.py` 进 lint
+Source gates——静态解析 workflows `run:` 块扫 `tools/` 引用做存在性
+检查（yml 注释/shell 注释不误伤，selftest 8 例双向 + mutation 实证打红）。
+
+同轮运行侧核对的**移交项**（不属本方向修复，vendor 域）：
+- linux/linux-perf 自方向 71 合入（`27ac69d8`，10-07 13:15，最后绿
+  `61c8f287`）持续红在 bootstrap 尾部构建链接期——deb 闭包缺
+  LAPACK/BLAS（libarmadillo/libarpack 未解析符号）与 libpulsecommon，
+  需扩闭包种子重新生成锁；
+- windows 红在 OSGeo4W 钉版闸——上游全家族发版（arrow-cpp 25.0.0→
+  25.0.1、curl、gdal 等），manifest 钉版需刷新（更早 runs 红在 Test
+  步，是另一独立遗留面）。
+
 ## Unity 实测
 
 ~~`PALEO_UNITY_BUILD=ON`（独立 build-unity 目录）**编译不过**~~

@@ -293,3 +293,11 @@ MSVC/Ninja -j8 实测 ~15s（链接占绝对大头，编译 <2s）。绝对时�
 JSON 落 `build/incremental-baseline.jsonl` 可追趋势。Linux 无 MSVC 增量
 链接开销，预计显著低于此；PLAN ET14「单文件改动增量 ≤60s」在当前规模
 下仍成立。
+
+**CI 侧落点（方向75 2026-10-08）**：linux 主 job 在 Selfcheck 后追加
+`Incremental build baseline (ET14)` 步（step 级 `continue-on-error`——
+观察面不拖累合并门禁），每 run 跑一轮 `tools/measure_incremental.sh`，
+产物 `build/incremental-baseline.jsonl` 以 artifact
+`incremental-baseline-linux` 上传（retention 90 天）。看趋势：run 页面
+下载 artifact，逐行对比 tu_ratio/step_ratio；绝对时长只记录不设门
+（runner 世代不同不可比）。

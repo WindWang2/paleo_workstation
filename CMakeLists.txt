@@ -737,8 +737,22 @@ enable_testing()
 # 每测试独立 XDG/HOME 目录：QSettings NativeFormat 在 Linux 走 XDG_CONFIG_HOME，
 # tst_panels/tst_webviewpanel 等不再互踩真实 ~/.config/paleo（tst_ui/tst_procdialog
 # 曾靠 .cpp 里 setPath 自救，现收归测试布线，零 .cpp 改动）。
-# 已知边界：Windows NativeFormat 走注册表不受 env 控制——Windows 侧仍靠
-# 串行 ctest（ci.yml windows leg 未开并行）；文档见 BUILDING.md。
+# Windows（方向 81）：NativeFormat 走注册表不受 env 控制——每个测试可执行文件
+# 链入 tests/support/paleo_test_registry_sandbox.cpp（OBJECT 库，静态初始化期
+# 把本进程 HKCU 重映射到 ctest-home/<test>/registry.hiv 私有 hive），由
+# PALEO_TEST_REGISTRY_HIVE 指路；tst_test_sandbox 钉契约。决策记录见
+# .goal-loop-ledger-env-debt2.md「QSettings 三选一」。CI windows leg 的
+# 串行 ctest 本方向不改。
+if(WIN32)
+  add_library(paleo_test_registry_sandbox OBJECT tests/support/paleo_test_registry_sandbox.cpp)
+endif()
+# 测试可执行文件链入 Windows 注册表沙箱 hook（非 Windows 为空操作）。OBJECT
+# 直链进 exe（不是静态库）——静态初始化对象必定被链接、先于 main 运行。
+function(paleo_test_link_sandbox target)
+  if(WIN32)
+    target_sources(${target} PRIVATE $<TARGET_OBJECTS:paleo_test_registry_sandbox>)
+  endif()
+endfunction()
 # 注意 set_tests_properties 的 ENVIRONMENT 是整体覆盖非追加：外部对本函数
 # 注入环境做扩展，非路径变量用 set_property(TEST ... APPEND PROPERTY ...)；
 # LD_LIBRARY_PATH 等路径变量必须走 ENVIRONMENT_MODIFICATION 的
@@ -754,6 +768,9 @@ function(paleo_test_sandbox name)
     # MAX_PATH=260（tst_import 只在 ctest 下红、直跑绿）；QTemporaryDir 本身
     # 已按用例隔离，Windows 上 XDG 沙箱也不生效（QSettings 走注册表）。
     string(APPEND _env ";TEMP=${_home}/tmp;TMP=${_home}/tmp")
+  else()
+    # 私有注册表 hive（见上方 paleo_test_link_sandbox）：每次运行先删再挂载。
+    string(APPEND _env ";PALEO_TEST_REGISTRY_HIVE=${_home}/registry.hiv")
   endif()
   set_tests_properties(${name} PROPERTIES ENVIRONMENT "${_env}")
   if(QGIS_PREFIX)
@@ -790,6 +807,7 @@ function(add_paleo_test name)
     set(_libs paleo_core)
   endif()
   add_executable(${name} tests/${name}.cpp)
+  paleo_test_link_sandbox(${name})
   target_link_libraries(${name} PRIVATE ${_libs} Qt6::Test)
   target_compile_definitions(${name} PRIVATE FIXTURE_GPKG="${FIXTURE_GPKG}")
   add_test(NAME ${name} COMMAND ${name}
@@ -1081,6 +1099,7 @@ target_link_libraries(paleo_seismic_demo PRIVATE paleo_core)
 
 add_executable(tst_boot tests/tst_boot.cpp)
 target_link_libraries(tst_boot PRIVATE paleo_qgis_iface Qt6::Test)
+paleo_test_link_sandbox(tst_boot)
 target_compile_definitions(tst_boot PRIVATE FIXTURE_GPKG="${FIXTURE_GPKG}")
 add_test(NAME boot COMMAND tst_boot
          -o "${PALEO_QTEST_FIRST_RUN_DIR}/boot.txt,txt")
@@ -1088,6 +1107,7 @@ paleo_test_sandbox(boot)
 
 add_executable(tst_polygonize tests/tst_polygonize.cpp spikes/polygonize/paleopolygonize.cpp)
 target_link_libraries(tst_polygonize PRIVATE paleo_qgis_iface Qt6::Test ${GDAL_LIB})
+paleo_test_link_sandbox(tst_polygonize)
 target_include_directories(tst_polygonize PRIVATE ${GDAL_INCLUDE_DIR} ${CMAKE_SOURCE_DIR}/spikes/polygonize)
 add_test(NAME polygonize COMMAND tst_polygonize
          -o "${PALEO_QTEST_FIRST_RUN_DIR}/polygonize.txt,txt")
@@ -1095,6 +1115,7 @@ paleo_test_sandbox(polygonize)
 
 # ---- wave3/model-hardening (数据模型与测试基建加固) ----
 add_paleo_test(tst_metastore LIBS paleo_store)      # sqlite user_version：新库采纳/遗留升级/未来拒开
+add_paleo_test(tst_test_sandbox LIBS paleo_domain)  # 方向81：测试沙箱契约（XDG / Windows 私有注册表 hive）
 add_paleo_test(tst_layermanifest LIBS paleo_store)  # P1-11 / ARCH-04 LayerManifest 线程亲和性与写队列调度门禁
 add_paleo_test(tst_segy_fixture LIBS paleo_io)   # 合成最小 SEG-Y 夹具：索引/单线/角点/范围门
 target_compile_definitions(tst_segy_fixture PRIVATE
@@ -1114,6 +1135,7 @@ target_compile_definitions(tst_perfbudget PRIVATE
 add_paleo_test(tst_sanitizer_budget LIBS paleo_domain)
 add_executable(tst_sanitizer_budget_on tests/tst_sanitizer_budget.cpp)
 target_link_libraries(tst_sanitizer_budget_on PRIVATE paleo_domain Qt6::Test)
+paleo_test_link_sandbox(tst_sanitizer_budget_on)
 target_compile_definitions(tst_sanitizer_budget_on PRIVATE
   PALEO_SANITIZER_BUILD=1 FIXTURE_GPKG="${FIXTURE_GPKG}")
 add_test(NAME tst_sanitizer_budget_on COMMAND tst_sanitizer_budget_on

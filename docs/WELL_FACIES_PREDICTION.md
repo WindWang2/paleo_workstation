@@ -27,7 +27,9 @@
   用户目录 ACL，或改用环境变量。
 - 也可用 `PALEO_WELL_FACIES_URL`、`PALEO_WELL_FACIES_API_KEY` 环境变量覆盖
   （环境变量里的密钥不会写入钥匙串或文件）。`PALEO_WELL_FACIES_NO_KEYCHAIN=1`
-  可关闭钥匙串（ctest 沙箱默认设置）。
+  可关闭钥匙串（ctest 沙箱默认设置）。`PALEO_WELL_FACIES_CONFIG` 可把配置文件
+  挪到指定全路径（Windows 上配置目录是 `%LOCALAPPDATA%`，不受 `XDG_CONFIG_HOME`
+  影响；测试与便携场景用它隔离真实配置）。
 
 模型要求从 `GET /models` 获取。按钮按选中模型检查曲线、段、岩性、地层组、
 连续深度和窗口点数；不可用时面板和 tooltip 给出具体原因。

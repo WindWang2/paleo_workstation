@@ -4,6 +4,7 @@
 #include "algorithms/geostat/kriging.h"
 
 #include <cmath>
+#include <utility>
 #include <vector>
 
 using namespace paleo::geostat;
@@ -49,6 +50,9 @@ private slots:
   void radiusModeLeavesFarCellsNodata();
   void duplicatesMergeToMean();
   void cancelledAndInvalid();
+  // 方向84：点对度量变换（PairMetricWarp）——约束线消费的克里金侧接口。
+  void metricWarpIdentityMatchesPlain();
+  void metricWarpBendsEstimateTowardShortenedAxis();
 };
 
 void GeostatKrigingTests::exactAtSamplePoints()
@@ -272,6 +276,58 @@ void GeostatKrigingTests::cancelledAndInvalid()
   VariogramModel broken = model;
   broken.range = 0;
   QVERIFY( ordinaryKriging( samples, grid, broken, params ).status == Status::InvalidInput );
+}
+
+// 方向84：恒等 warp（不改位移）与无 warp 逐位一致——三参 solveAt 的默认安全性。
+void GeostatKrigingTests::metricWarpIdentityMatchesPlain()
+{
+  std::vector<Sample> samples;
+  for ( int row = 0; row < 4; ++row )
+    for ( int column = 0; column < 4; ++column )
+      samples.push_back( Sample{ column * 12.0, row * 12.0, 1.0 * row + 0.5 * column } );
+  const VariogramModel model = sphericalModel();
+  const KrigingParams params;
+  const KrigingSolver solver( samples, model, params );
+  QVERIFY( solver.valid() );
+  const PairMetricWarp identity = []( double, double, double, double, double *dx, double *dy ) {};
+  for ( const auto &[x, y] : std::vector<std::pair<double, double>>{
+            { 18.0, 18.0 }, { 6.0, 30.0 }, { -5.0, 12.0 }, { 40.0, 40.0 } } )
+  {
+    const KrigingPointResult plain = solver.solveAt( x, y );
+    const KrigingPointResult warped = solver.solveAt( x, y, identity );
+    QVERIFY( plain.ok );
+    QVERIFY( warped.ok );
+    QCOMPARE( plain.estimate, warped.estimate ); // 逐位：同一代码路径
+    QCOMPARE( plain.variance, warped.variance );
+  }
+}
+
+// 方向84：x 轴向位移 ×0.5 的 warp 使 x 方向排列的井「更近」，原点估值从对称
+// 中值偏向 x 轴井（值 1 vs y 轴井值 0）。
+void GeostatKrigingTests::metricWarpBendsEstimateTowardShortenedAxis()
+{
+  const std::vector<Sample> samples = {
+    Sample{ 20, 0, 1 }, Sample{ -20, 0, 1 },  // x 轴对（warp 缩短方向），值 1
+    Sample{ 0, 20, 0 }, Sample{ 0, -20, 0 },  // y 轴对（不动），值 0
+  };
+  const VariogramModel model = sphericalModel();
+  const KrigingParams params;
+  const KrigingSolver solver( samples, model, params );
+  QVERIFY( solver.valid() );
+
+  const KrigingPointResult plain = solver.solveAt( 0, 0 );
+  QVERIFY( plain.ok );
+  QVERIFY2( std::fabs( plain.estimate - 0.5 ) <= 1e-9,
+            qPrintable( QStringLiteral( "plain=%1（四井对称中值 0.5）" ).arg( plain.estimate ) ) );
+
+  const PairMetricWarp shrinkX = []( double ax, double ay, double bx, double by, double *dx, double *dy ) {
+    *dx = ( ax - bx ) * 0.5;
+    *dy = ay - by;
+  };
+  const KrigingPointResult warped = solver.solveAt( 0, 0, shrinkX );
+  QVERIFY( warped.ok );
+  QVERIFY2( warped.estimate > 0.55,
+            qPrintable( QStringLiteral( "warped=%1（x 轴井更近，估值应偏向 1）" ).arg( warped.estimate ) ) );
 }
 
 QTEST_MAIN( GeostatKrigingTests )

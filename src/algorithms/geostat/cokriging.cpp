@@ -72,6 +72,7 @@ CoKrigingSolver::CoKrigingSolver( const std::vector<Sample> &primarySamples,
   m_impl->params = params;
   m_impl->params.maxPrimary = clampNeighborhood( params.maxPrimary );
   m_impl->params.maxSecondary = clampNeighborhood( params.maxSecondary );
+  m_impl->params.minPrimary = std::max( params.minPrimary, 1 ); // 与 KrigingParams.minPoints 钳制同口径
   if ( params.searchRadius < 0 )
     m_impl->params.searchRadius = 0;
   m_impl->valid = model.valid() && m_impl->primary.index.size() > 0;
@@ -109,6 +110,11 @@ CoKrigingPointResult CoKrigingSolver::solveAt( double x, double y ) const
                            : static_cast<int>( m_impl->primary.index.size() );
   m_impl->primary.index.queryNearest( x, y, kPrimary, m_impl->params.searchRadius, &primaryHood );
   if ( primaryHood.empty() )
+    return result;
+  // 半径模式覆盖闸（方向84 review M4）：与 KrigingSolver.minPoints 同口径——
+  // 主邻域不足即无值，不静默给出弱覆盖解。
+  if ( m_impl->params.searchRadius > 0 &&
+       static_cast<int>( primaryHood.size() ) < m_impl->params.minPrimary )
     return result;
   std::vector<std::uint32_t> secondaryHood;
   if ( m_impl->secondary.index.size() > 0 )

@@ -19,27 +19,36 @@ namespace
 {
 
 // 解普通克里金方程组（加边 LU）。points 为邻域样本（已去重）。
+// metric 非空时井-井与井-查询点对的半方差按 warp 后的有效位移计算。
 bool solveOrdinaryKriging( const std::vector<std::uint32_t> &neighborhood,
                            const detail::NeighborIndex &index, double x0, double y0,
-                           const VariogramModel &model, KrigingPointResult *out )
+                           const VariogramModel &model, const PairMetricWarp &metric,
+                           KrigingPointResult *out )
 {
   const int n = static_cast<int>( neighborhood.size() );
   const int n1 = n + 1;
   std::vector<double> a( static_cast<std::size_t>( n1 ) * n1, 0.0 );
   std::vector<double> b( static_cast<std::size_t>( n1 ), 0.0 );
+  const auto semivarianceOf = [&]( double ax, double ay, double bx, double by ) {
+    double dx = ax - bx;
+    double dy = ay - by;
+    if ( metric )
+      metric( ax, ay, bx, by, &dx, &dy );
+    return model.semivariance( dx, dy );
+  };
   for ( int i = 0; i < n; ++i )
   {
     const Sample &si = index.point( neighborhood[static_cast<std::size_t>( i )] );
     for ( int j = i + 1; j < n; ++j )
     {
       const Sample &sj = index.point( neighborhood[static_cast<std::size_t>( j )] );
-      const double gamma = model.semivariance( si.x - sj.x, si.y - sj.y );
+      const double gamma = semivarianceOf( si.x, si.y, sj.x, sj.y );
       a[static_cast<std::size_t>( i ) * n1 + j] = gamma;
       a[static_cast<std::size_t>( j ) * n1 + i] = gamma;
     }
     a[static_cast<std::size_t>( i ) * n1 + n] = 1.0;
     a[static_cast<std::size_t>( n ) * n1 + i] = 1.0;
-    b[static_cast<std::size_t>( i )] = model.semivariance( si.x - x0, si.y - y0 );
+    b[static_cast<std::size_t>( i )] = semivarianceOf( si.x, si.y, x0, y0 );
   }
   b[static_cast<std::size_t>( n )] = 1.0;
 
@@ -169,13 +178,18 @@ int KrigingSolver::mergedDuplicates() const
 
 KrigingPointResult KrigingSolver::solveAt( double x, double y ) const
 {
+  return solveAt( x, y, PairMetricWarp() );
+}
+
+KrigingPointResult KrigingSolver::solveAt( double x, double y, const PairMetricWarp &metric ) const
+{
   KrigingPointResult result;
   if ( !m_impl )
     return result;
   std::vector<std::uint32_t> neighborhood;
   if ( !m_impl->core.neighborhood( x, y, &neighborhood ) )
     return result;
-  solveOrdinaryKriging( neighborhood, m_impl->core.index, x, y, m_impl->core.model, &result );
+  solveOrdinaryKriging( neighborhood, m_impl->core.index, x, y, m_impl->core.model, metric, &result );
   return result;
 }
 
@@ -232,7 +246,7 @@ KrigingResult ordinaryKriging( const std::vector<Sample> &samples, const GridSpe
         KrigingPointResult point;
         if ( solveOrdinaryKriging( neighborhood, core.index,
                                    grid.cellCenterX( column ), grid.cellCenterY( row ),
-                                   core.model, &point ) )
+                                   core.model, PairMetricWarp(), &point ) )
         {
           result.estimate[cell] = point.estimate;
           result.variance[cell] = point.variance;

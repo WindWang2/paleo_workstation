@@ -58,6 +58,7 @@ struct CoKrigingParams
 {
   int maxPrimary = 16;     // 主变量邻域上限，<= 0 = 全部
   int maxSecondary = 16;   // 协变量邻域上限，<= 0 = 全部
+  int minPrimary = 1;      // 半径模式下主邻域少于该值即无值（与 KrigingParams.minPoints 同口径）
   double searchRadius = 0; // <= 0 → 不过滤
 };
 

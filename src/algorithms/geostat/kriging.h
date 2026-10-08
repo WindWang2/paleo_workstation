@@ -4,6 +4,7 @@
 #include "types.h"
 #include "variogram.h"
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -30,6 +31,13 @@ struct KrigingPointResult
   double estimate = 0;
   double variance = 0;
 };
+
+// 点对度量变换（方向84）：输入两点坐标，把名义位移 (dx,dy) 改写为「有效位移」，
+// 克里金方程组的半方差按有效位移计算（井-井与井-查询点对都过同一变换）。
+// 约束：变换需对称——(a,b) 与 (b,a) 必须给出同一有效距离模长，否则方程组矩阵
+// 不对称；warp 后矩阵病态由既有 LU 失败口径回落（solveAt().ok=false），不静默输出。
+// 空 warp = 恒等，数值逐位不变。邻域选择（最近 K + 半径闸）仍按欧氏距离。
+using PairMetricWarp = std::function<void( double ax, double ay, double bx, double by, double *dx, double *dy )>;
 
 struct KrigingResult
 {
@@ -75,6 +83,9 @@ class KrigingSolver
     int mergedDuplicates() const;
 
     KrigingPointResult solveAt( double x, double y ) const;
+    // 方向84：带点对度量变换的单点求解（约束线消费入口）。metric 为空时与
+    // 上面三参重载逐位一致。
+    KrigingPointResult solveAt( double x, double y, const PairMetricWarp &metric ) const;
 
   private:
     struct Impl;

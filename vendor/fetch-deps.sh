@@ -176,23 +176,36 @@ done
 rm -rf -- "$PREFIX"
 mv "$STAGING" "$PREFIX"
 
-# Debian libpulse 把 libpulsecommon-*.so 装在 <multiarch>/pulseaudio/ 子目录，
-# 且 RUNPATH 是硬编码绝对路径 /usr/lib/x86_64-linux-gnu/pulseaudio——vendored
-# 树里该路径落空：链接期 ld 经「需要方的 RUNPATH」找依赖报 undefined
-# reference（CI 实锤 pa_cstrerror）。修 RUNPATH 为 $ORIGIN/pulseaudio；
-# 无 patchelf 的宿主在同层目录放符号链接兜运行期（LD_LIBRARY_PATH 含
-# multiarch 目录，NEEDED 查找先于绝对 RUNPATH 命中）。
+# Debian 库在解包式部署下有两类 NEEDED 断点：
+# 1) RUNPATH 硬编码系统绝对路径（libpulse → /usr/lib/.../pulseaudio，
+#    vendored 树落空 → CI 实锤 pa_cstrerror undefined）：patchelf 改
+#    $ORIGIN/pulseaudio；
+# 2) alternatives 布局——blas/lapack 等本体在 <ma>/<subdir>/，顶层同名
+#    符号链接由 update-alternatives/postinst 建，解包没有这步：为
+#    <libdir>/<subdir>/lib*.so.N 在父目录补相对符号链接，运行期
+#    LD_LIBRARY_PATH 才能命中（链接期由 CMake 侧 -rpath-link 覆盖）。
+#    只补缺失项、按序取先（确定性、幂等）；限带版本号的 lib*.so.N
+#    避免把插件类 unversioned .so 摊到顶层。
 for ma in "$PREFIX"/usr/lib/*-linux-gnu; do
   [ -d "$ma/pulseaudio" ] || continue
   if command -v patchelf >/dev/null; then
     find "$ma" -maxdepth 1 -name 'libpulse*.so*' -type f -exec \
       patchelf --set-rpath '$ORIGIN/pulseaudio' {} +
   else
-    echo "  !! patchelf absent — libpulse RUNPATH 未修，改放同层符号链接兜底"
-    for so in "$ma"/pulseaudio/*.so*; do
-      [ -e "$so" ] && ln -sfn "pulseaudio/$(basename "$so")" "$ma/$(basename "$so")"
-    done
+    echo "  !! patchelf absent — libpulse RUNPATH 未修（运行期靠下面符号链接兜底）"
   fi
+done
+#    逐 libdir（usr/lib 与 <ma>）只农场其直下子目录的 .so——SONAME 符号
+#    链接（-type l，如 blas/libblas.so.3 → .so.3.12.1）也必须抬上来，
+#    NEEDED 记的是 SONAME。
+for libdir in "$PREFIX/usr/lib" "$PREFIX"/usr/lib/*-linux-gnu; do
+  [ -d "$libdir" ] || continue
+  find "$libdir" -mindepth 2 -maxdepth 2 \( -type f -o -type l \) -name 'lib*.so*' | \
+  sort | while read -r lib; do
+    b=$(basename "$lib"); sub=$(basename "$(dirname "$lib")")
+    case "$sub" in *-linux-gnu) continue;; esac   # multiarch 目录不是 alternatives 子目录
+    [ -e "$libdir/$b" ] || ln -s "$sub/$b" "$libdir/$b"
+  done
 done
 
 # Record the resolved closure for reproducibility/audit.

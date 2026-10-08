@@ -1,5 +1,6 @@
 // 层：数据
 #include "crossplotsources.h"
+#include "fspathutils.h"
 #include "domain/seismic/sgycoordinatemapper.h"
 #include "domain/seismic/sgyvolume.h"
 #include "io/lascache.h"
@@ -99,7 +100,7 @@ bool CrossplotSources::attributeSection(const QString &path,
   seismic::SgyVolume volume;
   std::string numericError;
   if (!volume.Load(
-          std::filesystem::path(source.toStdString()), numericError,
+          paleo::toFsPath(source), numericError,
           [&](auto, auto) { return !(ctl.cancelled && ctl.cancelled()); }))
     return fail(QString::fromStdString(numericError));
   auto mapper = seismic::SgyCoordinateMapper::Fit(*volume.Index());

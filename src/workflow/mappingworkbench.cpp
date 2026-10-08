@@ -12,6 +12,7 @@
 #include "../qgis/qgisprocessingservice.h"
 #include "../qgis/qgisprojectservice.h"
 #include "../qgis/qgisstyleservice.h"
+#include "../qgis/wellattributestore.h"
 #include "constraintimport.h"
 #include "derivedassets.h"
 #include "workflows.h"
@@ -69,6 +70,29 @@ bool writeJson(const QString &path, const QVariant &value, QString *error) {
     return false;
   }
   return true;
+}
+QVariantList wellAttributeUpdates(const QVariantList &points, const QVariantList &schema,
+                                  const QString &horizon, bool predicted, const QString &method = {}, const QString &jobId = {}) {
+  QVariantList updates;
+  for (const auto &v : points) {
+    const auto point = v.toMap();
+    if (point.value("depth_mock").toBool()) continue; // 合成深度只供旧结果展示，不能维护真实井段。
+    const auto intervals = QJsonDocument::fromJson(point.value("facies_intervals").toString().toUtf8()).toVariant().toList();
+    for (const auto &value : intervals) {
+      const auto interval = value.toMap();
+      const auto code = interval.value("code");
+      const auto name = FaciesCatalog::find(schema, code).value("name").toString();
+      const auto hierarchy = FaciesCatalog::attributes(schema, code);
+      QVariantMap row{{"well_id", point.value("id")}, {"horizon", horizon},
+        {"top_md", interval.value("top")}, {"base_md", interval.value("bottom")},
+        {"facies_code", code}, {"facies", hierarchy.value("facies_name")},
+        {"sub_facies", hierarchy.value("subfacies")},
+        {"micro_facies", hierarchy.value("microfacies")}, {"facies_pattern", QStringLiteral("")}};
+      if (predicted) { row.insert("predicted_facies", name); row.insert("model", method); row.insert("job_id", jobId); }
+      updates << row;
+    }
+  }
+  return updates;
 }
 } // namespace
 MappingWorkbench::MappingWorkbench(QgisLayerService *layers,
@@ -499,6 +523,10 @@ QString MappingWorkbench::record(const QString &path, const QString &h,
                            .arg(m_project->lastErrors().join("；")));
   return id;
 }
+QString MappingWorkbench::openWellAttributes(QString *error) {
+  return WellAttributeStore::open(m_catalog, m_dir, m_layers, false, true, error)
+             ? WellAttributeStore::intervalLayerId() : QString();
+}
 bool MappingWorkbench::predict(const QString &h, const QString &kind,
                                const QStringList &ids, QString *error,
                                const QString &horizonFile) {
@@ -522,6 +550,10 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
   if (ids.isEmpty() || (seismicInput && ids.size() != 1)) {
     fail(error, tr("地震预测选择一个地震体；测井预测至少选择一口井"));
     return false;
+  }
+  if (kind == QLatin1String("wells")) {
+    auto *attributes = qobject_cast<QgsVectorLayer *>(m_layers->layer(WellAttributeStore::intervalLayerId()));
+    if (attributes && attributes->isEditable()) { fail(error, tr("测井属性表正在编辑，请先保存或放弃编辑")); return false; }
   }
   if (schemaVersion(h).isEmpty() && !saveFacies(h, facies(h), error))
     return false;
@@ -552,6 +584,8 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
       well.insert("depth_top", measured ? top : 0.0);
       well.insert("depth_bottom", measured ? bottom : 120.0);
       well.insert("depth_mock", !measured);
+      well.insert("vector_intervals", WellAttributeStore::rows(m_dir, m_layers, false, row.value("id").toString()));
+      well.insert("vector_factors", WellAttributeStore::rows(m_dir, m_layers, true, row.value("id").toString(), h));
       request.wells << well;
     }
   }
@@ -846,7 +880,11 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &result) {
                               path, result.cells, request.columns, request.rows,
                               request.extent, &error)
                         : MappingArtifactWriter::points(path, points, &error);
-    if (ok) {
+    bool maintained = ok;
+    if (ok && request.kind == "wells")
+      maintained = WellAttributeStore::mergeIntervals(m_catalog, m_dir, m_layers,
+          wellAttributeUpdates(points, request.facies, request.horizon, true, result.method, request.id), &error);
+    if (maintained) {
       auto parameters = m_predictionParameters;
       const QVariantMap common =
              {{"mock", result.mock},
@@ -1095,6 +1133,10 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
         evidenceParents << source;
     }
   }
+  if (layer->fields().indexOf("facies_intervals") >= 0) {
+    auto *attributes = qobject_cast<QgsVectorLayer *>(m_layers->layer(WellAttributeStore::intervalLayerId()));
+    if (attributes && attributes->isEditable()) { fail(error, tr("测井属性表正在编辑，请先保存或放弃编辑")); return false; }
+  }
   const auto snapshotPath = m_dir + "/artifacts/staging/" + uid() + ".gpkg";
   if (!MappingArtifactWriter::vectorSnapshot(layer, snapshotPath, error))
     return false;
@@ -1102,8 +1144,20 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
       record(snapshotPath, d.horizon, "edited_facies",
              previous.extra.value("title").toString(), "vector",
              evidenceParents, extra, error, "|layername=features", id);
-  if (!output.isEmpty())
+  if (!output.isEmpty()) {
     styleLayer(id);
+    if (layer->fields().indexOf("facies_intervals") >= 0) {
+      QVariantList points;
+      auto it = layer->getFeatures(); QgsFeature feature;
+      while (it.nextFeature(feature)) {
+        QVariantMap point;
+        for (const auto &field : {"id", "facies_intervals", "depth_mock"}) point.insert(field, feature.attribute(field));
+        points << point;
+      }
+      if (!WellAttributeStore::mergeIntervals(m_catalog, m_dir, m_layers,
+          wellAttributeUpdates(points, previous.extra.value("facies").toList(), d.horizon, false), error)) return false;
+    }
+  }
   return !output.isEmpty();
 }
 QString MappingWorkbench::snapshotConstraints(const QString &h,
@@ -1428,9 +1482,10 @@ void MappingWorkbench::styleLayer(const QString &id) {
     FactorStyleWriter::applyTo(qobject_cast<QgsRasterLayer *>(layer),
                                v.extra.value("factor_id").toString());
   if (styledKind.startsWith(QLatin1String("constraint")) || analysisRaster ||
-      cartographic || styledKind == QLatin1String("contour_lines")) {
-    // 等值线（分析与制图绕行两族）：细灰线 + ELEV 标注——制图绕行仍
-    // 挂 ELEV，同线型同标注规约。
+      cartographic || styledKind == QLatin1String("contour_lines") ||
+      styledKind == QLatin1String("well_factor_points") ||
+      styledKind == QLatin1String("single_factor_cartographic_contour")) {
+    // 分析与制图绕行等值线共用双描边和数字 halo，兼容 ELEV/level。
     if ((styledKind == QLatin1String("contour_lines") ||
          styledKind == QLatin1String("single_factor_cartographic_contour")))
       if (auto *vector = qobject_cast<QgsVectorLayer *>(layer))

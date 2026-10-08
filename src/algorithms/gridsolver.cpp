@@ -34,8 +34,10 @@
 // 边界：越界邻居取**线性外推幽灵格**（沿边一阶外推：z(−k) = z₀ − k(z₁−z₀)）。
 // 线性函数被精确保持（外推即真值），故平面在边界处仍是离散方程的精确解；
 // 曲面边界为 O(h²) 截断的自然类边界。
-// 屏障：邻居为屏障格时以中心值代入（镜像/无通量内边界）——断层两盘
-// 各自松弛，互不插值。
+// 屏障：模板足迹触及屏障的自由格整行改用调和（∇²）算子（M-矩阵，恒稳），
+// 屏障邻居以中心值代入（镜像/无通量内边界）——断层两盘各自松弛，互不
+// 插值；越墙/跨角点耦合在算子层面不存在（见 solveMinimumCurvature 处
+// 详注，issue #293）。
 //
 // 精确性基准（测试口径）：线性面使全部算子恒为零、二次面使 ∇⁴ 恒为零，
 // 故 T=0 时二者是离散方程的精确解；正弦面误差由采样密度控制。
@@ -49,6 +51,9 @@ namespace
 constexpr qint64 kMaxCellCount = 100'000'000; // 与 horizonbinner/PaleoAlgoGuards 同口径
 constexpr int kMinDim = 4;                    // i±2 模板需要的最小网格
 constexpr int kIdwNeighbors = 8;              // 初始化 IDW 的近邻数
+// 停滞守卫（issue #293）：遍数耗尽后末遍更新量仍超过数据极差的该倍数 →
+// 判失败不发布结果。收敛阈默认 1e-4 量级，1% 是「差着两个数量级」的空转。
+constexpr double kStallBudget = 1e-2;
 
 // ---- 静态 2D KD-tree（中位数分裂；仅服务本核的近邻查询）--------------------
 
@@ -455,57 +460,90 @@ bool solveMinimumCurvature(const std::vector<ScatterPoint> &points,
     const double a0 = (1.0 - T) * (6.0 * u * u + 6.0 * v * v + 8.0 * u * v) +
                       2.0 * T * gamma * (u + v);
 
-    // 邻居项求值：越界 → 线性外推幽灵格（保线性精确）；触及屏障 → 该项
-    // **丢弃**（不镜像）。行的更新量按保留项重归一：gs = Σ cₙ·vₙ / Σ cₙ
-    //（同号负系数 → 正权重凸组合，恒有界，构造性稳定）。无屏障内点
-    // Σcₙ = −a0，精确退化为原模板 −Σcₙvₙ/a0——精度口径不变。曾用「屏障
-    // 邻居取中心值」镜像（显式或折对角隐式），跨墙 ±2 项与镜像项形成正
-    // 反馈，GS/Jacobi 均发散（见 ledger Round 4 诊断），弃用。
+    // 屏障邻域的算子切换（issue #293）----------------------------------------
+    // 旧实现「丢项 + 按保留项重归一 gs = Σc_n·v_n / Σc_n」是错的：双调和模板系数
+    // 符号混合（c1x/c1y<0，c2x/c2y/cd>0），丢项后行权重不再是凸组合
+    // （|Σ| 可 >1），方程组失去对称/正定性，GS/SOR 不再保证收敛——任意斜向
+    // 屏障墙即发散或返回 ±1e22 量级离谱值。替代方案「屏障邻居=中心值」的
+    // 纯镜像也不稳：镜像只改本格对角，±2 越墙项（隔一格屏障够到对侧）保留
+    // 时与镜像形成正反馈，GS/Jacobi 均发散（ledger Round 4 诊断；本次实验
+    // 连轴向墙都复现非有限更新）。
+    // 现方案（GMT/Briggs 屏障处理同思路）：模板足迹（8 近邻 + ±2 轴向共
+    // 12 格）触及屏障的自由格，整行改用调和（∇²）算子——屏障邻居以中心值
+    // 代入（镜像/无通量内边界），四邻平均是 M-矩阵行，最大模原理保证解夹
+    // 在数据极值之间、GS/SOR 恒稳；远离屏障的格保持原 13 点双调和模板
+    // （精度口径不变）。±2 越墙项与跨角点缝隙的对角耦合（1 格宽对角相接
+    // 障碍链的泄漏路径）只可能出现在近屏障格，而这些格已整行走调和模板，
+    // 泄漏在算子层面不存在。张力 T 不作用于紧邻屏障的行（调和行即 T→1
+    // 膜方程的退化形式）。
     float *zp = z.data();
     const auto isBarrier = [&](int r, int c) -> bool
     {
       return mask && mask[static_cast<std::size_t>(r) * lcols + c];
     };
-    // 返回 false = 丢弃（屏障或幽灵锚点为屏障）。
-    const auto read = [&](int r, int c, double *out) -> bool
+    const auto barrierAt = [&](int r, int c) -> bool // 带边界检查的屏障查询
     {
-      if (isBarrier(r, c))
-        return false;
-      *out = zp[static_cast<std::size_t>(r) * lcols + c];
-      return true;
+      return r >= 0 && r < lrows && c >= 0 && c < lcols && isBarrier(r, c);
     };
-    const auto colVal = [&](int r, int c, double *out) -> bool
+    // 读取格值：屏障格在 z 里恒 NaN（初始化跳过、松弛不更新），镜像以
+    // 当前更新格的中心值代入（无通量内边界）；幽灵外推锚点同理。
+    const auto read = [&](int r, int c, double center, double *out)
+    {
+      *out = isBarrier(r, c) ? center
+                             : zp[static_cast<std::size_t>(r) * lcols + c];
+    };
+    const auto colVal = [&](int r, int c, double center, double *out)
     {
       if (c >= 0 && c < lcols)
-        return read(r, c, out);
+        return read(r, c, center, out);
       const int c0 = c < 0 ? 0 : lcols - 1;
       const int c1 = c < 0 ? 1 : lcols - 2;
       double a = 0, b = 0;
-      if (!read(r, c0, &a) || !read(r, c1, &b))
-        return false;
+      read(r, c0, center, &a);
+      read(r, c1, center, &b);
       const double k = c < 0 ? -c : c - (lcols - 1);
       *out = a + (a - b) * k;
-      return true;
     };
-    const auto val = [&](int r, int c, double *out) -> bool
+    const auto val = [&](int r, int c, double center, double *out)
     {
       if (r >= 0 && r < lrows)
-        return colVal(r, c, out);
+        return colVal(r, c, center, out);
       const int r0 = r < 0 ? 0 : lrows - 1;
       const int r1 = r < 0 ? 1 : lrows - 2;
       double a = 0, b = 0;
-      if (!colVal(r0, c, &a) || !colVal(r1, c, &b))
-        return false;
+      colVal(r0, c, center, &a);
+      colVal(r1, c, center, &b);
       const double k = r < 0 ? -r : r - (lrows - 1);
       *out = a + (a - b) * k;
-      return true;
     };
+
+    // 预计算「屏障带」：模板足迹（8 近邻 + ±2 轴向）触及屏障的自由格——
+    // 这些格整行走调和算子；无屏障时全零，松弛循环走原双调和路径。
+    std::vector<std::uint8_t> band(ln, 0);
+    if (mask)
+      for (int i = 0; i < lrows; ++i)
+        for (int j = 0; j < lcols; ++j)
+        {
+          const std::size_t idx = static_cast<std::size_t>(i) * lcols + j;
+          if (fixed[idx])
+            continue;
+          band[idx] =
+              (barrierAt(i, j + 1) || barrierAt(i, j - 1) ||
+               barrierAt(i + 1, j) || barrierAt(i - 1, j) ||
+               barrierAt(i + 1, j + 1) || barrierAt(i + 1, j - 1) ||
+               barrierAt(i - 1, j + 1) || barrierAt(i - 1, j - 1) ||
+               barrierAt(i, j + 2) || barrierAt(i, j - 2) ||
+               barrierAt(i + 2, j) || barrierAt(i - 2, j))
+                  ? 1
+                  : 0;
+        }
 
     const double omega = params.relaxation;
     const double tol = params.convergence * zRange;
+    double maxDelta = 0.0;
     for (int sweep = 1; sweep <= params.maxSweeps; ++sweep)
     {
-      double maxDelta = 0.0;
+      maxDelta = 0.0;
       for (int i = 0; i < lrows; ++i)
       {
         for (int j = 0; j < lcols; ++j)
@@ -514,31 +552,41 @@ bool solveMinimumCurvature(const std::vector<ScatterPoint> &points,
           if (fixed[idx])
             continue;
           const float center = zp[idx];
-          double sum = 0.0, coefSum = 0.0;
-          const auto add = [&](double coeff, int rr, int cc, bool drop)
+          double gs = 0.0;
+          if (band[idx])
           {
-            if (drop)
-              return; // 跨屏障泄漏项（如 j±1 是墙时的 j±2）
-            double t = 0;
-            if (!val(rr, cc, &t))
-              return; // 屏障/幽灵锚点为屏障 → 丢弃
-            sum += coeff * t;
-            coefSum += coeff;
-          };
-          add(c2x, i, j + 2, j + 1 < lcols && isBarrier(i, j + 1));
-          add(c2x, i, j - 2, j - 1 >= 0 && isBarrier(i, j - 1));
-          add(c1x, i, j + 1, false);
-          add(c1x, i, j - 1, false);
-          add(c2y, i + 2, j, i + 1 < lrows && isBarrier(i + 1, j));
-          add(c2y, i - 2, j, i - 1 >= 0 && isBarrier(i - 1, j));
-          add(c1y, i + 1, j, false);
-          add(c1y, i - 1, j, false);
-          add(cd, i + 1, j + 1, false);
-          add(cd, i + 1, j - 1, false);
-          add(cd, i - 1, j + 1, false);
-          add(cd, i - 1, j - 1, false);
-          // 重归一加权平均；全项被丢弃（厚墙包围）→ 保持原值。
-          const double gs = coefSum != 0.0 ? sum / coefSum : center;
+            // 调和（∇²）行：四邻平均，屏障邻居镜像中心值（越界仍走幽灵
+            // 外推）；全部被屏障包围时 gs=center，自然保持原值。
+            double t = 0, s = 0;
+            val(i, j + 1, center, &t); s += t;
+            val(i, j - 1, center, &t); s += t;
+            val(i + 1, j, center, &t); s += t;
+            val(i - 1, j, center, &t); s += t;
+            gs = s / 4.0;
+          }
+          else
+          {
+            // 足迹无屏障：原 13 点双调和模板，gs = −Σc_n·v_n/a0（行和为零）。
+            double sum = 0.0, t = 0;
+            const auto add = [&](double coeff, int rr, int cc)
+            {
+              val(rr, cc, center, &t);
+              sum += coeff * t;
+            };
+            add(c2x, i, j + 2);
+            add(c2x, i, j - 2);
+            add(c1x, i, j + 1);
+            add(c1x, i, j - 1);
+            add(c2y, i + 2, j);
+            add(c2y, i - 2, j);
+            add(c1y, i + 1, j);
+            add(c1y, i - 1, j);
+            add(cd, i + 1, j + 1);
+            add(cd, i + 1, j - 1);
+            add(cd, i - 1, j + 1);
+            add(cd, i - 1, j - 1);
+            gs = -sum / a0;
+          }
           const double zn = center + omega * (gs - center);
           const double d = std::fabs(zn - center);
           if (d > maxDelta)
@@ -550,8 +598,8 @@ bool solveMinimumCurvature(const std::vector<ScatterPoint> &points,
       st.finalDelta = maxDelta;
       if (!std::isfinite(maxDelta))
         return fail(QStringLiteral(
-            "iteration diverged (non-finite update) — lower the relaxation factor or "
-            "raise tension"));
+            "iteration diverged (non-finite update) — solver instability; the grid "
+            "is not published"));
       if (maxDelta < tol)
       {
         st.converged = true;
@@ -562,6 +610,17 @@ bool solveMinimumCurvature(const std::vector<ScatterPoint> &points,
       if (control.cancelRequested && control.cancelRequested())
         return fail(QStringLiteral("canceled"));
     }
+    // 停滞守卫（issue #293）：遍数耗尽而末遍最大更新量仍超过数据极差的
+    // 1%（远大于收敛阈 1e-4 量级），说明松弛在屏障邻域空转/极限环——继续
+    // 只会发布数值荒谬的栅格（旧行为 ok=true + ±1e22 量级值，只能靠
+    // PALEO_CONVERGED=0 元数据事后察觉）。如实判失败，不发布结果。
+    if (maxDelta > kStallBudget * zRange)
+      return fail(QStringLiteral(
+                      "iteration stalled: final delta %1 is %2× the data range after "
+                      "%3 sweeps — refusing to publish a non-converged grid")
+                      .arg(maxDelta)
+                      .arg(maxDelta / zRange, 0, 'g', 3)
+                      .arg(st.sweeps));
     progressDone += params.maxSweeps;
     if (finest)
     {

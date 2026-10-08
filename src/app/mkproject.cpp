@@ -8,6 +8,14 @@
 //   paleo_mkproject --out <目录> --data <paleo_data 根>    # 另建工程目录
 //   [--name 名字]（缺省 = 工程目录名）
 //
+// manifest 模式（方向 78 夹具工厂化——清单外置，离开竞赛数据可运行）：
+//   paleo_mkproject --manifest <manifest.json> [--out 目录] [--name 名字]
+// imports 里 path 相对 manifest 所在目录；type = forceType（空 = 分类器自
+// 判）；convert = 工作簿先转规范井文本；georeference 节形状与 project.paleo
+// 同源（paleoGeoreferenceFromJson）；expect 节做第 5 步自检期望。schema 说明
+// 见 tools/reference/mkproject/manifest.schema.json + README。无 --manifest
+// 时行为与竞赛口径逐字节一致（对拍口径见方向 78 ledger）。
+//
 // 全程走生产代码路径（产物与 GUI「新建工程 + 导入」等价）：
 //   1. QgisProjectService::createProject（.qgz + project.paleo 双件）；
 //   2. 井位/分层 xlsx 经 paleo::io::readWorkbook 转规范井文本
@@ -36,6 +44,10 @@
 #include <QFile>
 #include <QDirIterator>
 #include <QFileInfo>
+#include <QHash>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QTemporaryDir>
 #include <QTextStream>
 
@@ -246,6 +258,440 @@ bool importOne(DataImportService &svc, const QString &path,
               outcome);
   return true;
 }
+
+// 井名泄露兜底：~W 井名与文件名不一致（如 A18 的 LAS ~W 是原始名 zhuang181）
+// 时 resolveWell 落未决；文件名主名可前缀识井的未决 well_log 链接，按 GUI
+// 拖拽同款 attachLink 面挂回正确井——不猜（零/双匹配保持未决）。
+// 方向 78：竞赛路径原样提炼共用（verbatim move），manifest 模式同面复用。
+void attachUnresolvedWellLogByStem(DataImportService &importer)
+{
+  DataCatalog *cat2 = importer.catalog();
+  const auto wellsAll = cat2->entities(QStringLiteral("well"));
+  for (int i = 0; i < cat2->links().size(); ++i)
+  {
+    const EntityAssetLink l = cat2->links().at(i);
+    if (l.role != QStringLiteral("well_log") || !l.unresolved)
+      continue;
+    const QVector<CatalogVersion> vers = cat2->versionsForAsset(l.assetId);
+    if (vers.isEmpty())
+      continue;
+    const QString stem = QFileInfo(vers.front().fileName).completeBaseName();
+    QStringList hit;
+    for (const CatalogEntity &w : wellsAll)
+      if (stem.startsWith(w.name, Qt::CaseInsensitive) &&
+          (stem.size() == w.name.size() ||
+           !stem.at(w.name.size()).isLetterOrNumber() ||
+           stem.at(w.name.size()).toLatin1() == '_'))
+        hit.append(w.id);
+    if (hit.size() == 1)
+    {
+      QString aerr;
+      if (!cat2->attachLink(i, hit.front(), &aerr))
+        note(false, QStringLiteral("挂回未决测井链接: %1").arg(aerr));
+      else
+        std::printf("  井名泄露兜底: %s → %s\n",
+                    qPrintable(vers.front().fileName), qPrintable(hit.front()));
+    }
+  }
+}
+
+// ---- 方向 78：manifest 模式（清单外置夹具工厂化）----
+
+struct ManifestEntry
+{
+  QString path;    // manifest 相对（或绝对）
+  QString type;    // forceType；空 = 分类器自判
+  QString convert; // well_head | well_stratification：工作簿先转规范井文本
+  bool linkExternal = false;
+};
+
+struct ManifestExpect
+{
+  bool hasWells = false;
+  int wells = 0;
+  QHash<QString, int> entitiesByType; // 只收出现的键
+  bool hasUnresolved = false;
+  int unresolvedLinks = 0;
+  bool hasGeorefWells = false;
+  int georeferencedWells = 0;
+  bool hasSeismicGeometry = false;
+  int inlineMin = 0, inlineMax = 0, xlineMin = 0, xlineMax = 0;
+};
+
+// manifest JSON → 导入清单/期望。坏 manifest 如实报因（exit 2 口径由调用方）。
+bool parseManifest(const QByteArray &bytes, QVector<ManifestEntry> *entries,
+                   std::optional<PaleoGeoreference> *georef,
+                   ManifestExpect *expect, QString *error)
+{
+  QJsonParseError perr;
+  const QJsonDocument doc = QJsonDocument::fromJson(bytes, &perr);
+  if (perr.error != QJsonParseError::NoError || !doc.isObject())
+  {
+    *error = QStringLiteral("manifest JSON 解析失败: %1").arg(perr.errorString());
+    return false;
+  }
+  const QJsonObject root = doc.object();
+  if (root.value(QStringLiteral("schema")).toInt() != 1)
+  {
+    *error = QStringLiteral("manifest.schema 必须为 1（实际 %1）")
+                 .arg(root.value(QStringLiteral("schema")).toInt());
+    return false;
+  }
+  const QJsonArray imports = root.value(QStringLiteral("imports")).toArray();
+  if (imports.isEmpty())
+  {
+    *error = QStringLiteral("manifest.imports 为空——至少需要一条导入项");
+    return false;
+  }
+  for (const QJsonValue &v : imports)
+  {
+    const QJsonObject o = v.toObject();
+    ManifestEntry e;
+    e.path = o.value(QStringLiteral("path")).toString().trimmed();
+    if (e.path.isEmpty())
+    {
+      *error = QStringLiteral("imports 里存在空 path");
+      return false;
+    }
+    e.type = o.value(QStringLiteral("type")).toString().trimmed();
+    e.convert = o.value(QStringLiteral("convert")).toString().trimmed();
+    e.linkExternal = o.value(QStringLiteral("linkExternal")).toBool(false);
+    if (!e.convert.isEmpty() &&
+        e.convert != QLatin1String("well_head") &&
+        e.convert != QLatin1String("well_stratification"))
+    {
+      *error = QStringLiteral(
+                   "imports[].convert 只认 well_head|well_stratification（实际 "
+                   "%1）")
+                   .arg(e.convert);
+      return false;
+    }
+    if (!e.convert.isEmpty() && !e.type.isEmpty() && e.type != e.convert)
+    {
+      *error = QStringLiteral(
+                   "imports[].type(%1) 与 convert(%2) 冲突——convert 项按转换"
+                   "目标类型导入")
+                   .arg(e.type, e.convert);
+      return false;
+    }
+    entries->append(e);
+  }
+  if (root.contains(QStringLiteral("georeference")))
+  {
+    PaleoGeoreference g;
+    QString gerr;
+    if (!paleoGeoreferenceFromJson(
+            root.value(QStringLiteral("georeference")).toObject(), &g, &gerr))
+    {
+      *error = QStringLiteral("manifest.georeference 无效: %1").arg(gerr);
+      return false;
+    }
+    *georef = g;
+  }
+  const QJsonObject ex = root.value(QStringLiteral("expect")).toObject();
+  if (ex.contains(QStringLiteral("wells")))
+  {
+    expect->hasWells = true;
+    expect->wells = ex.value(QStringLiteral("wells")).toInt();
+  }
+  const QJsonObject ebt =
+      ex.value(QStringLiteral("entitiesByType")).toObject();
+  for (auto it = ebt.begin(); it != ebt.end(); ++it)
+    expect->entitiesByType.insert(it.key(), it.value().toInt());
+  if (ex.contains(QStringLiteral("unresolvedLinks")))
+  {
+    expect->hasUnresolved = true;
+    expect->unresolvedLinks = ex.value(QStringLiteral("unresolvedLinks")).toInt();
+  }
+  if (ex.contains(QStringLiteral("georeferencedWells")))
+  {
+    expect->hasGeorefWells = true;
+    expect->georeferencedWells =
+        ex.value(QStringLiteral("georeferencedWells")).toInt();
+  }
+  const QJsonObject sg = ex.value(QStringLiteral("seismicGeometry")).toObject();
+  if (!sg.isEmpty())
+  {
+    expect->hasSeismicGeometry = true;
+    expect->inlineMin = sg.value(QStringLiteral("inlineMin")).toInt();
+    expect->inlineMax = sg.value(QStringLiteral("inlineMax")).toInt();
+    expect->xlineMin = sg.value(QStringLiteral("xlineMin")).toInt();
+    expect->xlineMax = sg.value(QStringLiteral("xlineMax")).toInt();
+  }
+  return true;
+}
+
+// manifest 模式主流程：与竞赛路径同一套生产管线（createProject → 转换 →
+// DataImportService 显式清单导入 → georeference/sourceArea 落 project.paleo
+// → 井名泄露兜底 → 重开自校验），差异只在清单来源与自检期望。
+int runManifest(const QString &manifestPath, const QString &outDirArg,
+                const QString &nameArg)
+{
+  if (!QFile::exists(manifestPath))
+  {
+    std::printf("manifest 不存在: %s\n", qPrintable(manifestPath));
+    return 2;
+  }
+  QFile mf(manifestPath);
+  if (!mf.open(QIODevice::ReadOnly))
+  {
+    std::printf("manifest 读不了: %s\n", qPrintable(manifestPath));
+    return 2;
+  }
+  QVector<ManifestEntry> entries;
+  std::optional<PaleoGeoreference> georef;
+  ManifestExpect expect;
+  QString perr;
+  if (!parseManifest(mf.readAll(), &entries, &georef, &expect, &perr))
+  {
+    std::printf("manifest 无效: %s\n", qPrintable(perr));
+    return 2;
+  }
+  const QString manifestDir = QFileInfo(manifestPath).absolutePath();
+  // 就地工程语义与竞赛模式对称：缺省 --out = manifest 所在目录。
+  const QString outDir =
+      !outDirArg.isEmpty() ? outDirArg : manifestDir;
+  const QString name = !nameArg.isEmpty()
+                           ? nameArg
+                           : QFileInfo(outDir).fileName();
+  if (QFile::exists(QDir(outDir).filePath(
+          QString::fromLatin1(PaleoProjectFile::kFileName))))
+  {
+    std::printf("目标目录已有 project.paleo（%s）——请换目录或先删除，不覆盖"
+                "既有工程。\n",
+                qPrintable(outDir));
+    return 2;
+  }
+  if (!QDir().mkpath(outDir))
+  {
+    std::printf("工程输出目录建不了: %s\n", qPrintable(outDir));
+    return 2;
+  }
+
+  std::printf("== 1/5 创建工程 %s ==\n", qPrintable(outDir));
+  QgisProjectService projectSvc;
+  const QString qgzPath = QDir(outDir).filePath(name + ".qgz");
+  if (!projectSvc.createProject(qgzPath))
+  {
+    std::printf("createProject 失败: %s\n",
+                qPrintable(projectSvc.lastErrors().join(';')));
+    return 1;
+  }
+  note(true, QStringLiteral(".qgz + project.paleo 双件落盘"));
+
+  std::printf("== 2/5 工作簿转换（convert 项） ==\n");
+  QTemporaryDir staging;
+  // staging 产物按 imports 序号命名——两个同 basename 的 convert 项（不同
+  // 子目录的 well.xlsx）不会互相覆盖。
+  const auto stagingDat = [&staging](int idx) {
+    return staging.filePath(QStringLiteral("conv%1.dat").arg(idx));
+  };
+  int converts = 0;
+  for (int i = 0; i < entries.size(); ++i)
+  {
+    const ManifestEntry &e = entries.at(i);
+    if (e.convert.isEmpty())
+      continue;
+    const QString src = QDir::isAbsolutePath(e.path)
+                            ? e.path
+                            : QDir(manifestDir).filePath(e.path);
+    const QString dat = stagingDat(i);
+    QString cerr;
+    const bool ok = e.convert == QLatin1String("well_head")
+                        ? convertWellHeadXlsx(src, dat, &cerr)
+                        : convertStratXlsx(src, dat, &cerr);
+    if (!ok)
+    {
+      note(false, cerr);
+      return 1;
+    }
+    ++converts;
+  }
+  note(true, QStringLiteral("工作簿转换 %1 件").arg(converts)); // 无 convert 项也算过
+
+  std::printf("== 3/5 导入数据（manifest 清单 %d 项） ==\n",
+              int(entries.size()));
+  PaleoProjectStore store;
+  store.setProjectPaths(
+      qgzPath,
+      QFileInfo(qgzPath).absoluteDir().filePath(
+          QFileInfo(qgzPath).completeBaseName() + QStringLiteral(".gpkg")),
+      qgzPath + QStringLiteral(".project.sqlite"));
+  DataImportService importer(&store);
+  importer.setProjectDir(outDir);
+  if (georef.has_value())
+    importer.setGeoreference(*georef);
+  int imported = 0;
+  for (int i = 0; i < entries.size(); ++i)
+  {
+    const ManifestEntry &e = entries.at(i);
+    const QString src = QDir::isAbsolutePath(e.path)
+                            ? e.path
+                            : QDir(manifestDir).filePath(e.path);
+    if (!e.convert.isEmpty())
+    {
+      // convert 项：导入转换产物（staging 里的规范井文本）。
+      imported += importOne(importer, stagingDat(i), e.convert);
+      continue;
+    }
+    if (e.linkExternal)
+    {
+      DataImportService::ImportOptions opts;
+      opts.forceType = e.type;
+      opts.linkExternal = true;
+      QString ierr;
+      if (importer.importProjectFileEx(src, opts, &ierr).outcome ==
+          DataImportService::ImportOutcome::Failed)
+      {
+        note(false, QStringLiteral("导入 %1: %2")
+                             .arg(QFileInfo(src).fileName(), ierr));
+      }
+      else
+      {
+        ++imported;
+        std::printf("  导入 %-24s 外链\n",
+                    QFileInfo(src).fileName().toUtf8().constData());
+      }
+      continue;
+    }
+    imported += importOne(importer, src, e.type);
+  }
+  if (fails)
+    return 1;
+
+  std::printf("== 4/5 写 georeference + sourceArea ==\n");
+  {
+    bool ok = false;
+    QString rerr;
+    PaleoProjectFile pf = readProjectFile(
+        paleoProjectFilePath(outDir), &ok, &rerr);
+    if (!ok)
+    {
+      note(false, QStringLiteral("回读 project.paleo: %1").arg(rerr));
+      return 1;
+    }
+    if (georef.has_value())
+      pf.georeference = *georef;
+    pf.sourceAreaRoot = manifestDir;
+    pf.sourceAreaImportedUtc =
+        QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+    pf.sourceStats.insert(QStringLiteral("files"), imported);
+    QString werr;
+    if (!writeProjectFile(outDir, pf, &werr))
+    {
+      note(false, QStringLiteral("写 project.paleo: %1").arg(werr));
+      return 1;
+    }
+  }
+  note(true, georef.has_value()
+                 ? QStringLiteral("georeference 节 + sourceArea 溯源写入")
+                 : QStringLiteral("sourceArea 溯源写入（manifest 无 georeference）"));
+
+  attachUnresolvedWellLogByStem(importer);
+
+  std::printf("== 5/5 重开自校验 ==\n");
+  DataCatalog *cat = importer.catalog();
+  if (!cat || !cat->isOpen())
+  {
+    note(false, QStringLiteral("catalog 未打开"));
+    return 1;
+  }
+  const auto wells = cat->entities(QStringLiteral("well"));
+  std::printf("  catalog 摘要: %d 口井\n", wells.size());
+  {
+    const QHash<QString, int> byType = cat->entityCountsByType();
+    for (auto it = byType.begin(); it != byType.end(); ++it)
+      std::printf("    实体 %-16s %d\n", qPrintable(it.key()), it.value());
+    QHash<QString, int> roles;
+    int unresolved = 0;
+    for (const EntityAssetLink &l : cat->links())
+    {
+      if (l.unresolved)
+        ++unresolved;
+      roles[l.role] += 1;
+    }
+    for (auto it = roles.begin(); it != roles.end(); ++it)
+      std::printf("    链接角色 %-14s %d\n", qPrintable(it.key()), it.value());
+    std::printf("    未决链接 %d\n", unresolved);
+  }
+  if (expect.hasWells)
+    note(wells.size() == expect.wells,
+         QStringLiteral("井实体 %1（实际 %2）")
+             .arg(expect.wells)
+             .arg(wells.size()));
+  {
+    const QHash<QString, int> byType = cat->entityCountsByType();
+    for (auto it = expect.entitiesByType.begin();
+         it != expect.entitiesByType.end(); ++it)
+      note(byType.value(it.key()) == it.value(),
+           QStringLiteral("实体 %1 = %2（实际 %3）")
+               .arg(it.key())
+               .arg(it.value())
+               .arg(byType.value(it.key())));
+  }
+  if (expect.hasUnresolved)
+  {
+    int unresolved = 0;
+    for (const EntityAssetLink &l : cat->links())
+      if (l.unresolved)
+        ++unresolved;
+    note(unresolved == expect.unresolvedLinks,
+         QStringLiteral("未决链接 %1（实际 %2）")
+             .arg(expect.unresolvedLinks)
+             .arg(unresolved));
+  }
+  if (expect.hasGeorefWells)
+  {
+    int geoOk = 0;
+    for (const CatalogEntity &w : wells)
+      if (w.coordinateStatus == QStringLiteral("ok"))
+        ++geoOk;
+    note(geoOk == expect.georeferencedWells,
+         QStringLiteral("配准应用（coordinateStatus=ok）%1（实际 %2）")
+             .arg(expect.georeferencedWells)
+             .arg(geoOk));
+  }
+  if (expect.hasSeismicGeometry)
+  {
+    const auto surveys = cat->entities(QStringLiteral("seismic_survey"));
+    if (surveys.isEmpty())
+      note(false, QStringLiteral("地震 survey 实体缺失"));
+    else
+    {
+      const CatalogEntity &s = surveys.front();
+      note(s.inlineMin == expect.inlineMin && s.inlineMax == expect.inlineMax &&
+               s.xlineMin == expect.xlineMin && s.xlineMax == expect.xlineMax,
+           QStringLiteral("地震几何 inline %1-%2 × xline %3-%4（实际 %5-%6 × "
+                          "%7-%8）")
+               .arg(expect.inlineMin)
+               .arg(expect.inlineMax)
+               .arg(expect.xlineMin)
+               .arg(expect.xlineMax)
+               .arg(s.inlineMin)
+               .arg(s.inlineMax)
+               .arg(s.xlineMin)
+               .arg(s.xlineMax));
+    }
+  }
+
+  QgisProjectService reopen;
+  const bool opened =
+      reopen.openProject(paleoProjectFilePath(outDir));
+  if (!reopen.lastErrors().isEmpty())
+    std::printf("  重开 lastErrors: %s\n",
+                qPrintable(reopen.lastErrors().join(';')));
+  note(opened && (!georef.has_value() || reopen.georeference().has_value()),
+       georef.has_value()
+           ? QStringLiteral("openProject(project.paleo) 重开 + georeference 解析")
+           : QStringLiteral("openProject(project.paleo) 重开"));
+
+  if (fails)
+    std::printf("== 失败 %d 项 ==\n", fails);
+  else
+    std::printf("== 全部通过：工程就绪 %s ==\n",
+                qPrintable(paleoProjectFilePath(outDir)));
+  return fails ? 1 : 0;
+}
 } // namespace
 
 int main(int argc, char *argv[])
@@ -268,8 +714,19 @@ int main(int argc, char *argv[])
        "dir"},
       {{"d", "data"}, QStringLiteral("paleo_data 数据根目录"), "dir"},
       {{"n", "name"}, QStringLiteral("工程名（缺省=工程目录名）"), "name"},
+      {{"m", "manifest"},
+       QStringLiteral("manifest 模式：导入清单外置 JSON（imports/georeference/"
+                      "expect；path 相对 manifest 所在目录；--data 不要求）"),
+       "file"},
   });
   parser.process(app);
+  // manifest 模式早退——后续竞赛路径零改动（方向 78 向后兼容红线）。
+  if (parser.isSet("manifest"))
+  {
+    return runManifest(parser.value("manifest"),
+                       parser.isSet("out") ? parser.value("out") : QString(),
+                       parser.isSet("name") ? parser.value("name") : QString());
+  }
   const QString dataRoot = parser.value("data");
   if (dataRoot.isEmpty())
   {
@@ -480,39 +937,9 @@ int main(int argc, char *argv[])
   }
   note(true, QStringLiteral("georeference 节 + sourceArea 溯源写入"));
 
-  // 井名泄露兜底：A18 的 LAS ~W 井名是原始名（zhuang181），resolveWell 落
-  // 未决；文件名主名可前缀识井的未决 well_log 链接，按 GUI 拖拽同款
-  // attachLink 面挂回正确井——不猜（零/双匹配保持未决）。
-  {
-    DataCatalog *cat2 = importer.catalog();
-    const auto wellsAll = cat2->entities(QStringLiteral("well"));
-    for (int i = 0; i < cat2->links().size(); ++i)
-    {
-      const EntityAssetLink l = cat2->links().at(i);
-      if (l.role != QStringLiteral("well_log") || !l.unresolved)
-        continue;
-      const QVector<CatalogVersion> vers = cat2->versionsForAsset(l.assetId);
-      if (vers.isEmpty())
-        continue;
-      const QString stem = QFileInfo(vers.front().fileName).completeBaseName();
-      QStringList hit;
-      for (const CatalogEntity &w : wellsAll)
-        if (stem.startsWith(w.name, Qt::CaseInsensitive) &&
-            (stem.size() == w.name.size() ||
-             !stem.at(w.name.size()).isLetterOrNumber() ||
-             stem.at(w.name.size()).toLatin1() == '_'))
-          hit.append(w.id);
-      if (hit.size() == 1)
-      {
-        QString aerr;
-        if (!cat2->attachLink(i, hit.front(), &aerr))
-          note(false, QStringLiteral("挂回未决测井链接: %1").arg(aerr));
-        else
-          std::printf("  井名泄露兜底: %s → %s\n",
-                      qPrintable(vers.front().fileName), qPrintable(hit.front()));
-      }
-    }
-  }
+  // 井名泄露兜底（A18 的 LAS ~W 是原始名 zhuang181 等）——提炼为
+  // attachUnresolvedWellLogByStem，与 manifest 模式共用。
+  attachUnresolvedWellLogByStem(importer);
 
   std::printf("== 5/5 重开自校验 ==\n");
   DataCatalog *cat = importer.catalog();

@@ -26,6 +26,15 @@ bool inRoots(const QString &relative) {
     if (relative.startsWith(root + QLatin1Char('/'))) return true;
   return false;
 }
+// #283 shapefile 族附属后缀：成员与主 .shp 同目录同主名、无独立 catalog
+// 记录，但 OGR 打开图层缺一不可——必须随主件同生共死。覆盖 ingestplan 归组
+// 口径（shp/shx/dbf/prj）外加 .cpg 与常见索引/元数据后缀。
+const QStringList shpSidecarSuffixes = {
+  QStringLiteral("shx"), QStringLiteral("dbf"), QStringLiteral("prj"),
+  QStringLiteral("cpg"), QStringLiteral("sbn"), QStringLiteral("sbx"),
+  QStringLiteral("fbn"), QStringLiteral("fbx"), QStringLiteral("ain"),
+  QStringLiteral("aih"), QStringLiteral("atx"), QStringLiteral("qix"),
+  QStringLiteral("ixs"), QStringLiteral("mxs")};
 bool safeFile(const FileFact &f, const QString &projectDir) {
   CatalogVersion v;
   v.path = f.relativePath;
@@ -57,6 +66,7 @@ Report scan(const Snapshot &s, const Progress &progress) {
   for (const auto &l : s.links)
     if (!l.unresolved && !l.entityId.isEmpty()) entities[l.assetId].insert(l.entityId);
   QSet<QString> references;
+  const QString projectCanonical = PathCanon::canonicalize(s.projectDir);
   int done = 0;
   for (const auto &v : s.versions) {
     if (progress && !progress(done, s.versions.size(), v.fileName)) return r;
@@ -71,6 +81,34 @@ Report scan(const Snapshot &s, const Progress &progress) {
     FileFact f;
     if (!path.isEmpty()) f = fact(path, s.projectDir);
     r.versionFiles.insert(v.id, f);
+    // #283：shapefile 族附属文件（.shx/.dbf/.prj/.cpg…）没有 catalog 记录，
+    // 但与主 .shp 同生共死——主件在工程内时把同目录同主名的成员一并登记为
+    // 被引用（不进孤儿清单），并记入 versionSidecars 供 purge 连带回收。
+    // 成员若已登记为某个版本文件，登记为被引用是同值幂等，purge 侧会在
+    // preview 里跳过（它是别人的版本字节，不能连带删）。
+    if (f.sizeBytes >= 0 && !f.canonicalPath.isEmpty()
+        && f.canonicalPath.startsWith(projectCanonical + QLatin1Char('/'))
+        && QFileInfo(path).suffix().compare(QLatin1String("shp"), Qt::CaseInsensitive) == 0) {
+      const QDir vdir = QFileInfo(path).absoluteDir();
+      const QString base = QFileInfo(path).completeBaseName();
+      // ingestplan 归组大小写不敏感（.SHP/.SHX 同主名即成族），族成员按原名
+      // 落位受管版本目录——成员探测同样大小写不敏感，否则大写族附属（如
+      // BOUNDARY.SHX）仍是孤儿、仍会被误删（Linux 大小写敏感文件系统现形）。
+      const QString xmlName = base + QStringLiteral(".shp.xml");
+      for (const auto &entry : vdir.entryList(QDir::Files)) {
+        if (entry.compare(xmlName, Qt::CaseInsensitive) != 0) {
+          const QFileInfo ei(entry);
+          if (ei.completeBaseName().compare(base, Qt::CaseInsensitive) != 0) continue;
+          if (!shpSidecarSuffixes.contains(ei.suffix().toLower())) continue;
+        }
+        const QFileInfo si(vdir.filePath(entry));
+        if (!si.isFile() || si.isSymLink()) continue;
+        const QString c = PathCanon::canonicalize(si.absoluteFilePath());
+        if (c.isEmpty()) continue;
+        references.insert(c);
+        r.versionSidecars[v.id].append(fact(si.absoluteFilePath(), s.projectDir));
+      }
+    }
     if (f.sizeBytes >= 0) {
       r.versionBytes += f.sizeBytes;
       r.bytesByType[assets.value(v.assetId).type] += f.sizeBytes;
@@ -131,6 +169,10 @@ Preview preview(const Report &r, const QStringList &versionIds, const QStringLis
     const QString canonical = r.canonicalReferences.value(v.id);
     if (!selected.contains(v.id) && !canonical.isEmpty()) remainingReferences.insert(canonical);
   }
+  // 全部版本文件的身份集：附属成员若自身已登记为版本文件，是别人的版本
+  // 字节，不能随主件连带删（purgeManagedFiles 对 retained 版本引用还有
+  // 一道同值保护，这里保证它不进待删清单、不误导字节统计）。
+  const QSet<QString> registered(r.canonicalReferences.begin(), r.canonicalReferences.end());
   for (const auto &v : r.stale) {
     if (!selected.contains(v.version.id)) continue;
     p.versionIds << v.version.id;
@@ -140,6 +182,13 @@ Preview preview(const Report &r, const QStringList &versionIds, const QStringLis
     if (v.file.sizeBytes < 0) { p.blocked << QCoreApplication::translate("StorageGovernance", "文件大小未知：%1").arg(v.version.id); continue; }
     if (!selectedFiles.contains(v.file.canonicalPath)) {
       selectedFiles.insert(v.file.canonicalPath); p.files.append(v.file); p.bytes += v.file.sizeBytes;
+    }
+    // #283：shapefile 族附属文件随主件同生共死——主件入列回收时成员一并入列。
+    for (const auto &m : r.versionSidecars.value(v.version.id)) {
+      if (registered.contains(m.canonicalPath)) continue;
+      if (!selectedFiles.contains(m.canonicalPath)) {
+        selectedFiles.insert(m.canonicalPath); p.files.append(m); p.bytes += m.sizeBytes;
+      }
     }
   }
   QSet<QString> wanted(orphanPaths.begin(), orphanPaths.end());

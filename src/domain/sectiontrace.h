@@ -44,7 +44,7 @@ struct SegyOptions
 struct SegyTrace
 {
   qint32 cdp = 0;
-  qint32 lineNo = 0;   // inline（道头字节 189；0 时回退二进制头 line number）
+  qint32 lineNo = 0;   // inline（道头字节 189；索引建立后即真值，#233 起不再回退二进制头）
   qint32 xlineNo = 0;  // crossline（道头字节 193，默认）
   QVector<float> samples;
   qint64 tracl = 0;

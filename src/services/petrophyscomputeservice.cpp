@@ -994,6 +994,50 @@ bool PetroPhysTaskService::computeWell(const BatchRequest &req,
   return true;
 }
 
+QVector<PetroPhysTaskService::PanelWellMapping> PetroPhysTaskService::mapPanelWellsToEntities(
+    DataCatalog *catalog, const QStringList &panelIds, QStringList *missing)
+{
+  QVector<PanelWellMapping> out;
+  if (!catalog)
+  {
+    if (missing)
+      for (const QString &id : panelIds)
+        missing->append(QStringLiteral("%1: catalog 未绑定").arg(id));
+    return out;
+  }
+  for (const QString &id : panelIds)
+  {
+    if (!catalog->entityById(id).id.isEmpty())
+    {
+      // 已是井实体 id（历史调用/测试直传 well-N）：原样通过。
+      out.append({id, id});
+      continue;
+    }
+    const QVector<EntityAssetLink> links = catalog->linksForAsset(id);
+    QString entId, primaryId;
+    for (const EntityAssetLink &l : links)
+    {
+      if (l.entityType != QStringLiteral("well") || l.entityId.isEmpty() || l.unresolved ||
+          l.role != QStringLiteral("well_log"))
+        continue;
+      if (l.isPrimary)
+        primaryId = l.entityId;
+      else if (entId.isEmpty())
+        entId = l.entityId;
+    }
+    if (!primaryId.isEmpty())
+      entId = primaryId;
+    if (entId.isEmpty())
+    {
+      if (missing)
+        missing->append(QStringLiteral("%1: 无 well_log 井链接").arg(id));
+      continue;
+    }
+    out.append({id, entId});
+  }
+  return out;
+}
+
 QVector<PetroPhysTaskService::WellRef> PetroPhysTaskService::resolveWellLas(
     DataCatalog *catalog, const QString &projectDir, const QStringList &wellIds,
     QStringList *missing)

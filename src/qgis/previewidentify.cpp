@@ -2,6 +2,7 @@
 #include "previewidentify.h"
 
 #include <QPointer>
+#include <QSet>
 
 #include <qgsfeatureiterator.h>
 #include <qgsfeaturerequest.h>
@@ -47,7 +48,7 @@ QgsSpatialIndex *PreviewIdentifyCore::ensureIndex( QgsVectorLayer *layer )
   auto index = QSharedPointer<QgsSpatialIndex>::create( layer->getFeatures() );
   QgsSpatialIndex *raw = index.data();
   m_indexCache.insert( layer, std::move( index ) );
-  hookLayerDestruction( layer );
+  hookLayerInvalidation( layer );
   return raw;
 }
 
@@ -63,14 +64,43 @@ int PreviewIdentifyCore::indexCacheSize() const
   return m_indexCache.size();
 }
 
-void PreviewIdentifyCore::hookLayerDestruction( QgsVectorLayer *layer )
+void PreviewIdentifyCore::hookLayerInvalidation( QgsVectorLayer *layer )
 {
+  // 每层只挂一次：索引失效后 ensureIndex 会重建，重建时重复挂会让 layer 上的
+  // 连接数随编辑次数无界增长（长期共享工程层尤其明显）。m_watched 记「已挂」
+  // 的层，只在层析构时摘除。
+  if ( !layer || m_watched.contains( layer ) )
+    return;
+  m_watched.insert( layer );
+  // #235：要素编辑/提交同样让缓存索引陈旧（新要素漏报、已删要素回查落空）。
+  // 预览页当前全部传独立新建层，触发面为零；一旦接共享工程层即现症——
+  // 建索引时挂失效钩子。信号集对齐 topologicalindex.cpp 的 watchLayer
+  // （fid 重排在编辑会话边界收口，宁可多重建不可带脏查询）：任一编辑/提交
+  // 信号 → 缓存行即删（重建时按当前数据重扫）。
+  auto dropKey = [this, layer] { m_indexCache.remove( layer ); };
+  connect( layer, &QgsVectorLayer::geometryChanged, this,
+           [dropKey]( QgsFeatureId, const QgsGeometry & ) { dropKey(); } );
+  connect( layer, &QgsVectorLayer::featureAdded, this,
+           [dropKey]( QgsFeatureId ) { dropKey(); } );
+  connect( layer, &QgsVectorLayer::featureDeleted, this,
+           [dropKey]( QgsFeatureId ) { dropKey(); } );
+  connect( layer, &QgsVectorLayer::committedFeaturesAdded, this,
+           [dropKey]( const QString &, const QgsFeatureList & ) { dropKey(); } );
+  connect( layer, &QgsVectorLayer::committedFeaturesRemoved, this,
+           [dropKey]( const QString &, const QgsFeatureIds & ) { dropKey(); } );
+  connect( layer, &QgsVectorLayer::committedGeometriesChanges, this,
+           [dropKey]( const QString &, const QgsGeometryMap & ) { dropKey(); } );
+  connect( layer, &QgsVectorLayer::afterCommitChanges, this, dropKey );
+  connect( layer, &QgsVectorLayer::afterRollBack, this, dropKey );
+  connect( layer, &QgsVectorLayer::editingStarted, this, dropKey );
+  connect( layer, &QgsVectorLayer::editingStopped, this, dropKey );
   // 层析构 → 缓存行清除（QHash 键悬空是真实风险，这里根治）。
   // 注意 QPointer 在 destroyed 信号到达前已置空——按裸指针值删哈希键
   //（此时对象正在析构，键只作地址比较用）。
   QgsVectorLayer *const key = layer;
   connect( layer, &QObject::destroyed, this, [this, key] {
     m_indexCache.remove( key );
+    m_watched.remove( key );
   } );
 }
 

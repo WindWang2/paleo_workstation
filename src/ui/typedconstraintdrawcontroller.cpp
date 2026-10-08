@@ -32,7 +32,7 @@ void TypedConstraintDrawController::shareCadDock( QgsAdvancedDigitizingDockWidge
 }
 
 void TypedConstraintDrawController::startCapture( const QString &horizon, const QString &shape,
-                                                  const QString &constraintType, int faciesCode )
+                                                  const QString &constraintType, int faciesCode, const QVariantMap &lineParams )
 {
   if ( m_tool )
     teardown(); // replace any live capture; the owner clicked a new entry
@@ -79,6 +79,7 @@ void TypedConstraintDrawController::startCapture( const QString &horizon, const 
   m_shape = shape;
   m_constraintType = constraintType;
   m_faciesCode = faciesCode;
+  m_lineParams = lineParams;
 
   connect( m_tool, SIGNAL( constraintDrawn( QString ) ),
            this, SLOT( onDrawn( QString ) ) );
@@ -102,7 +103,7 @@ void TypedConstraintDrawController::onDrawn( const QString &wkt )
   QString err;
   QString constraintId;
   const bool ok = m_wf->addConstraint( m_horizon, wkt, m_constraintType, m_faciesCode,
-                                       &err, &constraintId );
+                                       &err, &constraintId, m_lineParams );
   const QString horizon = m_horizon;
   const QString type = m_constraintType;
   teardown();
@@ -128,6 +129,7 @@ void TypedConstraintDrawController::teardown()
   m_shape.clear();
   m_constraintType.clear();
   m_faciesCode = -1;
+  m_lineParams.clear();
   if ( m_canvasCtl )
     m_canvasCtl->setMapTool( nullptr );
   tool->deleteLater();

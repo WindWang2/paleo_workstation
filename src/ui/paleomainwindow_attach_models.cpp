@@ -165,21 +165,31 @@ void PaleoMainWindow::attachFaciesMapping(FaciesMappingWorkflow *wf)
             if (m_taskSvc)
             {
               // JobRunner 三段式：compute 在任务池 worker，commit 回 owner 线程
-              //（catalog 登记线程亲和由框架断言）。
+              //（catalog 登记线程亲和由框架断言）。进度接 PaleoTask::changed 读
+              // stagePercent()/stage()——不再把面板指针传进 worker（#163 形态）。
               m_faciesMappingRunner.setTaskService(m_taskSvc);
               m_faciesMappingJob.reset();
               m_faciesMappingTask = m_faciesMappingWf->startJob(
-                  m_faciesMappingRunner, request, m_faciesMappingPanel, &m_faciesMappingJob);
+                  m_faciesMappingRunner, request, &m_faciesMappingJob);
               if (m_faciesMappingTask)
+              {
+                connect(m_faciesMappingTask.data(), &PaleoTask::changed, this,
+                        [this] {
+                          if (PaleoTask *t = m_faciesMappingTask.data())
+                            if (m_faciesMappingPanel)
+                              m_faciesMappingPanel->updateProgress(t->stagePercent(),
+                                                                   t->stage());
+                        });
                 connect(m_faciesMappingTask.data(), &PaleoTask::finished, this,
                         [this] { finishFaciesMappingRun(); });
+              }
               else
                 m_faciesMappingRunning = false;
               return;
             }
 
             // 无任务池（未接线壳/旧测试）：同步直跑，不泵事件。
-            auto computed = m_faciesMappingWf->runCompute(
+            auto computed = FaciesMappingWorkflow::runCompute(
                 request, [this](double fraction, const QString &stage) {
                   if (m_faciesMappingPanel)
                     m_faciesMappingPanel->updateProgress(

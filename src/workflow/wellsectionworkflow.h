@@ -4,6 +4,7 @@
 #include "services/projectdata.h"
 #include "services/seismicmapping.h"
 #include <QObject>
+#include <QHash>
 #include <QPointer>
 #include <QVector>
 #include <memory>
@@ -43,6 +44,8 @@ public:
   // 各井曲线并集（WellCurveRef::mnemonic），大小写不敏感去重（留首个拼写）
   // 并按大小写不敏感排序。
   QStringList availableMnemonics(const QStringList &wellIds) const;
+  // 共用真实解释/岩屑 provider；不装载曲线或图片。
+  QHash<QString, QVector<wellsection::LithoSegment>> lithologiesFor(const QStringList &wellIds, QStringList *warnings = nullptr) const;
   int request(const QStringList &wellIds, const QStringList &mnemonics); // 返回世代号
   int requestSeismic(const QVector<wellsection::Well> &wells,
                      const SeismicSource &source);

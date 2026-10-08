@@ -9,6 +9,7 @@
 #include "catalog/datacatalog.h"
 #include "seismicsection/sectionsetupdialog.h"
 #include "seismicsection/seismicsectiondockwidget.h"
+#include "services/fspathutils.h" // #291 QString↔filesystem::path 走 UTF-16（MSVC 窄构造按 ANSI 解码）
 #include "services/previewdoc.h"
 #include "workflow/sectionworkbench.h"
 #include "wellcomposite/derivedsink.h"
@@ -270,9 +271,8 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
             }
             QString error;
             const auto path =
-                dock->volume()
-                    ? QString::fromStdString(dock->volume()->Path().string())
-                    : QString();
+                dock->volume() ? paleo::fromFsPath(dock->volume()->Path())
+                               : QString();
             if (!workbench->save(name, *route, path, *routeHorizon, &error)) {
               report(error);
               return;
@@ -289,7 +289,7 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
             QString error;
             const auto state = workbench->restore(
                 id, &error,
-                QString::fromStdString(link->activeVolume()->Path().string()));
+                paleo::fromFsPath(link->activeVolume()->Path()));
             if (state.isEmpty()) {
               report(error);
               return;

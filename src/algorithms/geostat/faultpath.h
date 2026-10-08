@@ -10,7 +10,8 @@
 // 距离场，供「断层两侧不互用邻域」的距离语义。
 // 算法取舍（写明）：障碍多边形栅格化（边界半像元步进标记 + 内部
 // even-odd 扫描线填充，holes 挖空）+ 8 邻接 Dijkstra（边权各向异性：
-// 横 pixelWidth、纵 |pixelHeight|、对角 hypot）。快速行进（解 eikonal）
+// 横 pixelWidth、纵 |pixelHeight|、对角 hypot；对角步两侧正交格任一被挡
+// 即禁行——防斜墙角接格缝隙穿越，issue #292）。快速行进（解 eikonal）
 // 精度略高但均匀介质下 8 邻接 Dijkstra 与库内 distancetransform 先例
 // 同口径，误差上界为斜边方向的 chamfer 偏差（~8%），简单可验。
 // 输出：地图单位的测地距离；屏障格与不可达格 NaN（计数如实）。

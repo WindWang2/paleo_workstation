@@ -23,6 +23,7 @@
 #include <qgsvectordataprovider.h>
 #include <qgsvectorlayer.h>
 #include <qgsvectorlayerlabeling.h>
+#include "services/seismictaskservice.h"
 
 class TestSectionsAlignment : public QObject {
   Q_OBJECT
@@ -312,6 +313,67 @@ private slots:
     dialog.show();
     QTest::qWait(50);
     dialog.grab().save("/tmp/paleo-section-setup.png");
+  }
+  void extractionAndCachePreserveDistanceScale() {
+    const QString catalogPath = "/home/kevin/projects/paleo_data/artifacts/metadata/catalog.sqlite";
+    if (!QFile::exists(catalogPath)) return;
+    DataCatalog catalog;
+    if (!catalog.open("/home/kevin/projects/paleo_data")) return;
+    SectionWorkbench workbench(&catalog);
+    QString error;
+    const auto points = workbench.wellRoute({"well-A1", "well-A2", "well-A3", "well-A4", "well-A5"}, &error);
+    QCOMPARE(points.size(), 5);
+    const QString sgyPath = "/home/kevin/projects/paleo_data/1.地震资料构造解释-第9届/01.三维数据、工区加载相关参数及位置图/200P_seismic.sgy";
+    auto volume = std::make_shared<seismic::SgyVolume>();
+    std::string err;
+    if (!volume->Load(sgyPath.toStdString(), err)) return;
+    QgsMapCanvas map;
+    SeismicMapLink link(&map, nullptr);
+    link.setActiveVolume(volume);
+    QVector<QgsPointXY> line;
+    for (const auto &p : points) line << QgsPointXY(p.x, p.y);
+    std::vector<glm::ivec2> pathPoints;
+    std::vector<glm::dvec2> mapPolyline;
+    connect(&link, &SeismicMapLink::sectionExtractRequested, [&](std::shared_ptr<const seismic::SgyVolume>, std::vector<glm::ivec2> p, QString, std::vector<glm::dvec2> l) {
+      pathPoints = p;
+      mapPolyline = l;
+    });
+    link.triggerSectionFromMapPolyline(line, "连井剖面 · 5 口井");
+    QCOMPARE(pathPoints.size(), 5);
+
+    PaleoTaskService paleoTasks;
+    seismic::SeismicTaskService taskSvc;
+    taskSvc.setTaskService(&paleoTasks);
+    seismic::SeismicSectionDockWidget dock;
+    dock.setTaskService(&taskSvc);
+    dock.resize(1100, 500);
+    dock.show();
+
+    // 1st extraction (fresh extraction)
+    QSignalSpy done(&dock, &seismic::SeismicSectionDockWidget::sectionExtractionFinished);
+    dock.extractSectionFromVolumeAsync(volume, pathPoints, "连井剖面 · 5 口井", mapPolyline, workbench.sectionWells());
+    QTRY_VERIFY_WITH_TIMEOUT(done.count() == 1, 30000);
+    QVERIFY(done[0][0].toBool());
+    const double dist1 = dock.canvas()->totalDistanceM();
+    QVERIFY(dist1 > 20000.0);
+    const auto wells1 = dock.canvas()->wells();
+    QVERIFY(wells1.size() >= 5);
+    // Well A5 is near 23km, should be mapped near the right end (> 700 traces)
+    const auto itA5 = std::find_if(wells1.begin(), wells1.end(), [](const auto &w) { return w.wellName == "A5"; });
+    QVERIFY(itA5 != wells1.end());
+    QVERIFY(itA5->tracePosition > 700.0);
+
+    // 2nd extraction (cache hit) must preserve identical distance scale and trace positions
+    QSignalSpy done2(&dock, &seismic::SeismicSectionDockWidget::sectionExtractionFinished);
+    dock.extractSectionFromVolumeAsync(volume, pathPoints, "连井剖面 · 5 口井", mapPolyline, workbench.sectionWells());
+    QTRY_VERIFY_WITH_TIMEOUT(done2.count() == 1, 30000);
+    QVERIFY(done2[0][0].toBool());
+    const double dist2 = dock.canvas()->totalDistanceM();
+    QCOMPARE(dist2, dist1);
+    const auto wells2 = dock.canvas()->wells();
+    const auto itA5Cached = std::find_if(wells2.begin(), wells2.end(), [](const auto &w) { return w.wellName == "A5"; });
+    QVERIFY(itA5Cached != wells2.end());
+    QVERIFY(qAbs(itA5Cached->tracePosition - itA5->tracePosition) < 1.0);
   }
 };
 int main(int argc, char **argv) {

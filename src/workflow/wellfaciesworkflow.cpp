@@ -3,6 +3,10 @@
 #include "ai/wellfacieskeystore.h"
 #include "../catalog/datacatalog.h"
 #include "derivedassets.h"
+#include "../qgis/wellattributestore.h"
+#include "../qgis/qgislayerservice.h"
+#include <qgsvectorlayer.h>
+#include <QTimer>
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
@@ -68,17 +72,16 @@ WellFaciesWorkflow::WellFaciesWorkflow(QObject *parent) : QObject(parent) {
             QJsonDocument(result.response).toJson(QJsonDocument::Compact);
         const bool saved = file.open(QIODevice::WriteOnly) &&
                            file.write(bytes) == bytes.size() && file.commit();
-        // 方向 69 生产者路：预测成功（保留缓存写入）→ catalog DERIVED 解释
-        // 岩性资产 + per-well interpretation 链接；失败/取消不写资产（诚实面）。
+        // 产品装配回写可维护矢量相属性；旧测试/无图层服务保留资产兼容路。
         const QString publishNote = publishLithoAsset(result);
         updateInput(false);
         emit resultReady(result);
         QString note = saved ? tr("结果已保存") : tr("结果缓存保存失败：%1")
                                                       .arg(file.errorString());
         if (!publishNote.isEmpty())
-          note += tr("；解释岩性未登记 catalog：%1").arg(publishNote);
+          note += tr("；地质属性未保存：%1").arg(publishNote);
         else if (m_catalog)
-          note += tr("；解释岩性已登记 catalog");
+          note += tr("；地质成果已保存");
         emit statusChanged(tr("预测完成：%1 个深度点 · %2；%3")
                                .arg(m_input.rows.size())
                                .arg(result.modelName)
@@ -156,16 +159,14 @@ void WellFaciesWorkflow::setCatalog(DataCatalog *catalog,
                                     const QString &projectDir) {
   m_catalog = catalog;
   m_projectDir = projectDir;
-  // 工程目录未显式给：按 catalog 当前打开工程解析（与 WellSectionWorkflow
-  // 同一推导口径，换工程自适应）。
-  if (m_projectDir.isEmpty() && m_catalog)
-    m_projectDir =
-        QDir::cleanPath(m_catalog->catalogPath() + QStringLiteral("/../../.."));
+  // 未显式给目录时，在访问时根据当前 catalog 解析，避免换工程后仍写旧目录。
 }
 
 QString
 WellFaciesWorkflow::publishLithoAsset(const WellFaciesResult &result) {
-  if (!m_catalog || m_catalog->refusesWrites() || m_projectDir.isEmpty())
+  if (m_layers) return publishAttributes(result);
+  const QString dir = projectDir();
+  if (!m_catalog || m_catalog->refusesWrites() || dir.isEmpty())
     return tr("工程 catalog 不可写或未绑定");
   // 井 id 解析：井名规范化后唯一命中才挂链接（§3 身份解析口径——不猜不并）。
   const QStringList wellIds = m_catalog->wellsMatchingName(m_data.wellName);
@@ -173,7 +174,7 @@ WellFaciesWorkflow::publishLithoAsset(const WellFaciesResult &result) {
     return tr("井名 %1 在 catalog 中未唯一解析（%2 个候选），未登记")
         .arg(m_data.wellName)
         .arg(wellIds.size());
-  const QString wellId = wellIds.first();
+  const QString &wellId = wellIds.first();
   // 消费契约（与剖面 attachLithoSegments 严格同构）：
   // {schema:1, provenance:{source,modelName,modelVersion,jobId},
   //  intervals:[{wellId,top,base,litho}]} —— litho 为预测相中文自由词面。
@@ -202,7 +203,7 @@ WellFaciesWorkflow::publishLithoAsset(const WellFaciesResult &result) {
   const QJsonObject root{{QStringLiteral("schema"), 1},
                          {QStringLiteral("provenance"), provenance},
                          {QStringLiteral("intervals"), intervals}};
-  DerivedAssetRegistrar registrar(m_catalog, m_projectDir);
+  DerivedAssetRegistrar registrar(m_catalog, dir);
   QString error;
   const QString displayName =
       tr("测井相解释岩性 %1").arg(m_data.wellName);
@@ -245,12 +246,82 @@ WellFaciesWorkflow::publishLithoAsset(const WellFaciesResult &result) {
   return QString();
 }
 
+QString WellFaciesWorkflow::projectDir() const {
+  return !m_projectDir.isEmpty() ? m_projectDir
+      : m_catalog && m_catalog->isOpen() ? QDir::cleanPath(m_catalog->catalogPath() + "/../../..") : QString();
+}
+void WellFaciesWorkflow::setLayerService(QgisLayerService *layers) {
+  m_layers = layers;
+}
+void WellFaciesWorkflow::refreshAttributes() {
+  if (!m_catalog || !m_layers || !m_catalog->isOpen()) {
+    emit attributeAvailabilityChanged(false, tr("请先打开工程并绑定图层服务")); return;
+  }
+  const auto ids = m_catalog->wellsMatchingName(m_sourceData.wellName);
+  if (ids.size() != 1) {
+    emit attributeAvailabilityChanged(false, tr("当前井名未在工程中唯一解析")); return;
+  }
+  emit attributeAvailabilityChanged(true, tr("打开工程矢量属性表；保存后更新井道与单因素输入"));
+  m_data = m_sourceData;
+  WellAttributeStore::apply(WellAttributeStore::rows(projectDir(), m_layers, false, ids.first()), &m_data);
+  emit attributesReady(m_data);
+  auto *layer = WellAttributeStore::open(m_catalog, projectDir(), m_layers, false, false);
+  if (layer && layer != m_attributeLayer) {
+    if (m_attributeLayer) disconnect(m_attributeLayer, nullptr, this, nullptr);
+    m_attributeLayer = layer;
+    connect(layer, &QgsVectorLayer::editingStarted, this, [this] { updateInput(false); });
+    connect(layer, &QgsVectorLayer::editingStopped, this, [this] { updateInput(false); });
+    connect(layer, &QgsVectorLayer::afterCommitChanges, this, [this] {
+      QTimer::singleShot(0, this, [this] {
+        refreshAttributes();
+        if (m_busy) {
+          for (const auto &model : m_models)
+            if (model.id == m_modelId && prepareWellFaciesInput(m_data, model).rows != m_input.rows) {
+              cancel(); return;
+            }
+        } else updateInput(false);
+      });
+    });
+  }
+}
+void WellFaciesWorkflow::requestAttributeTable(bool factors) {
+  if (factors) { emit factorMaintenanceRequested(); return; }
+  QString error;
+  auto *layer = WellAttributeStore::open(m_catalog, projectDir(), m_layers, factors, true, &error);
+  if (!layer) { emit statusChanged(error.isEmpty() ? tr("请先打开工程并绑定当前井") : error); return; }
+  emit attributeTableRequested(factors ? WellAttributeStore::factorLayerId() : WellAttributeStore::intervalLayerId());
+}
+QString WellFaciesWorkflow::publishAttributes(const WellFaciesResult &result) {
+  if (!m_catalog) return tr("工程 catalog 未绑定");
+  const auto ids = m_catalog->wellsMatchingName(m_data.wellName);
+  if (ids.size() != 1) return tr("井名未在工程中唯一解析，未更新属性");
+  QVariantList intervals;
+  for (const auto &iv : result.intervals) {
+    if (iv.text.trimmed().isEmpty()) return tr("预测相为空，未更新属性");
+    intervals << QVariantMap{{"well_id", ids.first()}, {"top_md", iv.topDepth}, {"base_md", iv.bottomDepth},
+      {"facies", iv.text}, {"predicted_facies", iv.text}, {"facies_code", QVariant()}, {"sub_facies", QString()}, {"micro_facies", QString()}, {"facies_pattern", QString()}, {"model", result.modelName + " " + result.modelVersion}, {"job_id", result.jobId}};
+  }
+  QString error;
+  if (intervals.isEmpty()) return tr("预测没有有效井段，未更新属性");
+  if (!WellAttributeStore::mergeIntervals(m_catalog, projectDir(), m_layers, intervals, &error)) return error;
+  refreshAttributes();
+  return {};
+}
+
 void WellFaciesWorkflow::setData(
     const WellComposite::ComprehensiveWellData &data) {
   if (m_busy)
     cancel();
+  m_sourceData = data;
   m_data = data;
+  if (m_layers && m_catalog && !m_catalog->refusesWrites()) {
+    const auto ids = m_catalog->wellsMatchingName(data.wellName);
+    QString error;
+    if (ids.size() == 1 && !WellAttributeStore::seed(m_catalog, projectDir(), m_layers, ids.first(), data, &error))
+      emit statusChanged(error);
+  }
   emit resultCleared();
+  refreshAttributes();
   updateInput();
   if (m_models.isEmpty() && !m_loading && m_modelError.isEmpty())
     refreshModels();
@@ -285,10 +356,11 @@ QString WellFaciesWorkflow::cachePath() const {
          QStringLiteral("/paleo/well-facies/") + hash + QStringLiteral(".json");
 }
 void WellFaciesWorkflow::updateInput(bool restoreCache) {
+  if (m_busy) { emit availabilityChanged(false, tr("测井相预测正在执行")); return; }
   m_input = {};
   QString reason;
-  if (m_busy)
-    reason = tr("测井相预测正在执行");
+  if (m_attributeLayer && m_attributeLayer->isEditable())
+    reason = tr("测井属性表正在编辑，请先保存或放弃编辑");
   else if (m_config.apiKey.isEmpty())
     reason = tr("请在「预测服务」配置 API 密钥");
   else if (m_loading)
@@ -319,7 +391,7 @@ void WellFaciesWorkflow::updateInput(bool restoreCache) {
   }
 }
 void WellFaciesWorkflow::run() {
-  if (m_busy || m_loading || !m_input.ready())
+  if (m_busy || m_loading || !m_input.ready() || (m_attributeLayer && m_attributeLayer->isEditable()))
     return;
   for (const auto &m : m_models)
     if (m.id == m_modelId) {

@@ -2,6 +2,7 @@
 // 方向 65：D4 解释会话 TU——拾取/断层的增删改（全部经 undo 栈）、FaultSet 棒
 // 回显、层位/断层资产登记。手动拾取 conf==1 的语义在这里落地。
 #include "ui/seismicsection/seismicsectiondock_internal.h"
+#include "ui/seismicsection/seismicattrpanel.h"
 
 #include "domain/seismic/sectionaxis.h"
 #include "workflow/faultinterpretationcontroller.h"
@@ -24,6 +25,36 @@ void SeismicSectionDockWidget::setInterpretationCatalog(DataCatalog *catalog,
     m_catalogAssetId = assetId;
     m_catalogVersionId = versionId;
     m_interpretationDir = outputDir;
+}
+
+// #236：工程边界复位（resetProjectScopedState 调）——旧工程的解释态全部
+// 作废：在途属性/预览任务取消（迟到回调经体路径守卫丢弃）、会话与 undo 栈
+// 清空、可登记属性结果清空（防登记错配）、书签下拉清空（书签按体 settings
+// 键存，旧体条目不得残留下拉）、属性叠加清除。
+void SeismicSectionDockWidget::resetInterpretationState() {
+    if (m_attrTask) {
+        m_attrTask->requestCancel();
+        m_attrTask.clear();
+    }
+    if (m_attrPreviewTask) {
+        m_attrPreviewTask->requestCancel();
+        m_attrPreviewTask.clear();
+    }
+    ++m_attrPreviewGen; // 迟到预览回调随世代跳号丢弃
+    m_session = SeismicInterpretationSession{};
+    if (m_undoStack)
+        m_undoStack->clear();
+    m_lastAttrResult = {};
+    m_lastAttrParams = {};
+    m_lastAttrSourcePath.clear();
+    if (m_attrPanel)
+        m_attrPanel->clearResult();
+    m_bookmarks.clear();
+    if (m_cboBookmark)
+        m_cboBookmark->clear();
+    if (m_canvas)
+        m_canvas->clearAttrOverlay();
+    refreshInterpretationOverlay(); // 会话已空 → 拾取/断层棒叠加全清
 }
 
 SeismicInterpretationSession &SeismicSectionDockWidget::mutableSession() {

@@ -682,6 +682,54 @@ class TestLayerPlatform : public QObject
       prof.setLayoutMapTheme(mapItem, QString());
       QCOMPARE(mapItem->followVisibilityPreset(), false);
     }
+
+    // ---- 基础共享数据层（00_Data）：wells 与 survey.area 必须在所有页面保持可见 ----
+    void sharedDataAlwaysVisibleInPageProfiles()
+    {
+      ProfileFixture fx;
+      QString err;
+      const LayerDeclaration dSurvey = decl(QStringLiteral("survey.area"), QString(), QStringLiteral("00_Data"));
+      const LayerDeclaration dWells = decl(QStringLiteral("wells"), QString(), QStringLiteral("00_Data"));
+      QVERIFY(fx.layerSvc.declare(dSurvey, &err));
+      QVERIFY(fx.layerSvc.declare(dWells, &err));
+      QgsMapLayer *lSurvey = fx.layerSvc.instantiate(dSurvey.layerId, &err);
+      QgsMapLayer *lWells = fx.layerSvc.instantiate(dWells.layerId, &err);
+      QVERIFY(lSurvey != nullptr);
+      QVERIFY(lWells != nullptr);
+      QgsLayerTree *root = QgsProject::instance()->layerTreeRoot();
+      moveIntoGroup(root, QStringLiteral("00_Data"), lSurvey->id());
+      moveIntoGroup(root, QStringLiteral("00_Data"), lWells->id());
+
+      // 1. 各编图页面应用档案时，survey.area 与 wells 均应被置为可见
+      const QStringList pages = {QStringLiteral("predict"), QStringLiteral("constraint"),
+                                 QStringLiteral("compose"), QStringLiteral("validate")};
+      for (const QString &page : pages)
+      {
+        QVERIFY(fx.profile.applyPageProfile(page));
+        QVERIFY2(fx.layerChecked(QStringLiteral("survey.area")),
+                 qPrintable(QStringLiteral("survey.area must be checked on page %1").arg(page)));
+        QVERIFY2(fx.layerChecked(QStringLiteral("wells")),
+                 qPrintable(QStringLiteral("wells must be checked on page %1").arg(page)));
+      }
+
+      // 2. 模拟井位被意外隐藏并捕获为主题：captureCurrentAsTheme("page:*") 应自愈
+      fx.setLayerChecked(QStringLiteral("wells"), false);
+      QVERIFY(!fx.layerChecked(QStringLiteral("wells")));
+      QVERIFY(fx.profile.captureCurrentAsTheme(QStringLiteral("page:predict")));
+      QVERIFY(fx.layerChecked(QStringLiteral("wells")));
+      QVERIFY(fx.layerChecked(QStringLiteral("survey.area")));
+
+      // 3. 模拟工程存量主题包含 unchecked wells：应用主题时必须恢复
+      fx.setLayerChecked(QStringLiteral("wells"), false);
+      QgsMapThemeCollection *col = QgsProject::instance()->mapThemeCollection();
+      const QgsMapThemeCollection::MapThemeRecord badRec =
+          QgsMapThemeCollection::createThemeFromCurrentState(root, &fx.model);
+      col->insert(QStringLiteral("page:corrupted_predict"), badRec);
+
+      QVERIFY(fx.profile.applyTheme(QStringLiteral("page:corrupted_predict")));
+      QVERIFY(fx.layerChecked(QStringLiteral("wells")));
+      QVERIFY(fx.layerChecked(QStringLiteral("survey.area")));
+    }
 };
 
 int main(int argc, char *argv[])

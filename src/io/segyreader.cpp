@@ -674,7 +674,7 @@ bool SegyReader::decodeTrace(QFile &file, const IndexEntry &e, SegyTrace *out,
   SegyTrace t;
   t.tracl = beI32(trHdr + 0);
   t.cdp = beI32(trHdr + 20);
-  t.lineNo = e.inlineNo != 0 ? e.inlineNo : m_binLineNo;
+  t.lineNo = e.inlineNo; // #233：索引建立后 inlineNo 即真值（ordinal 占位只在
   t.xlineNo = e.xlineNo;
   const qint16 traceDt = beI16(trHdr + 116);
   t.sampleIntervalUs = traceDt > 0 ? traceDt : m_sampleIntervalUs;

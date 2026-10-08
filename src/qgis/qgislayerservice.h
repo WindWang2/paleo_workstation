@@ -61,6 +61,9 @@ class QgisLayerService : public QObject
     // dangling layer (§37 spine discipline — raw pointers, project-owned).
     void purgeDanglingInstances();
     void trackInstance(const QString &layerId, QgsMapLayer *layer);
+    // Re-register .qgz-restored layers (paleoLayerId custom property) into
+    // m_instances on projectOpened — see .cpp for the full #287 rationale.
+    void adoptProjectLayers();
 
     QgisProjectService *m_projectSvc;
     LayerManifest *m_manifest;

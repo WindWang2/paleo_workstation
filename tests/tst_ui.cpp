@@ -63,6 +63,7 @@
 #include "../src/ui/pages/wellpredictionpanel.h"
 #include "../src/ui/pages/validatepage.h"
 #include "../src/services/previewdoc.h"
+#include "../src/services/errorhub.h"
 #include "../src/ui/paleomainwindow.h"
 #include "../src/ui/correlation/petrophyspanel.h"
 #include "../src/ui/correlation/curvebrowser.h"
@@ -215,6 +216,36 @@ class TestUiShell : public QObject
       QVERIFY(coords->font().families().contains(QStringLiteral("JetBrains Mono")));
       QVERIFY(scale->font().families().contains(QStringLiteral("JetBrains Mono")));
       QCOMPARE(coords->font().pointSize(), 9);
+    }
+
+    // 方向76：状态栏错误徽标订阅全局 ErrorHub（此前误接 54 系未装配的
+    // 命名空间 hub，count 恒 0 → 徽标永久隐藏——本用例是修复回归钉）。
+    // 直连同线程连接：raise/clear 同步驱动徽标刷新。
+    void statusErrorBadgeTracksGlobalErrorHub()
+    {
+      auto *btn = m_win->findChild<QToolButton *>(QStringLiteral("statusErrorHistoryButton"));
+      QVERIFY(btn);
+      ErrorHub *hub = ErrorHub::global();
+      QVERIFY(hub != nullptr); // AppContext 构造时 installGlobal，先于本窗口
+      hub->clear();
+      m_win->show();
+      QTest::qWait(10);
+      QCOMPARE(hub->size(), 0);
+      QVERIFY(!btn->isVisible()); // 0 条 → 隐藏（构造起setVisible(false)）
+
+      hub->raise(ErrorHub::Level::Error, QStringLiteral("test"),
+                 QStringLiteral("徽标接线"), QStringLiteral("正文"));
+      QCOMPARE(hub->size(), 1);
+      QVERIFY(btn->isVisible()); // count > 0 → 可见
+      QCOMPARE(btn->text(), QStringLiteral("1"));
+
+      hub->raise(ErrorHub::Level::Warning, QStringLiteral("test"),
+                 QStringLiteral("第二条"), QStringLiteral("正文2"));
+      QCOMPARE(btn->text(), QStringLiteral("2"));
+
+      hub->clear();
+      QCOMPARE(hub->size(), 0);
+      QVERIFY(!btn->isVisible()); // 清空 → 回归隐藏
     }
 
     void ribbonThemePreservesBaseStyles()
@@ -1806,6 +1837,10 @@ class TestUiShell : public QObject
         auto *modeTabs = qobject_cast<QTabWidget *>(pageStack->currentWidget());
         QVERIFY(modeTabs);
         QCOMPARE(modeTabs->objectName(), "workbenchTabs." + mode);
+        if (mode == QLatin1String("constraint")) {
+          QVERIFY(qobject_cast<ConstraintPage *>(modeTabs->widget(0)));
+          QCOMPARE(modeTabs->tabText(1), QStringLiteral("图件与版本"));
+        }
       }
       auto *d61=m_win->findChild<QToolButton *>("chip_D61");auto *d62=m_win->findChild<QToolButton *>("chip_D62");QVERIFY(d61 && d61->isEnabled());QVERIFY(d62 && d62->isEnabled());d61->click();m_win->showPage("predict");
       auto *catalog=m_ctx->importSvc()->catalog();QVERIFY(catalog && catalog->isOpen());
@@ -1983,6 +2018,51 @@ class TestUiShell : public QObject
               qEnvironmentVariable("PALEO_PREDICTION_WINDOW_CAPTURE");
           !capture.isEmpty())
         QVERIFY(m_win->grab().save(capture));
+    }
+
+    void testSimultaneousWellsAndSurveyAreaVisibility()
+    {
+      const QString paleoDataDir = QStringLiteral("/home/kevin/projects/paleo_data");
+      if (!QDir(paleoDataDir).exists())
+        QSKIP("Local paleo_data fixture not available");
+
+      m_win->resize(1600, 1000);
+      m_win->show();
+      bool ok = m_win->openPath(paleoDataDir);
+      QVERIFY(ok);
+      QTRY_VERIFY_WITH_TIMEOUT(m_ctx->layerSvc()->layer(QStringLiteral("wells")) != nullptr &&
+                               m_ctx->layerSvc()->layer(QStringLiteral("survey.area")) != nullptr, 8000);
+
+      auto *root = m_ctx->projectSvc()->project()->layerTreeRoot();
+      QVERIFY(root != nullptr);
+
+      m_win->showPage(QStringLiteral("predict"));
+      auto *sl = m_ctx->layerSvc()->layer(QStringLiteral("survey.area"));
+      auto *wl = m_ctx->layerSvc()->layer(QStringLiteral("wells"));
+      QVERIFY(sl != nullptr);
+      QVERIFY(wl != nullptr);
+
+      auto *sNode = root->findLayer(sl->id());
+      auto *wNode = root->findLayer(wl->id());
+      QVERIFY(sNode != nullptr);
+      QVERIFY(wNode != nullptr);
+
+      // Both must be checked on predict page
+      QVERIFY(sNode->itemVisibilityChecked());
+      QVERIFY(wNode->itemVisibilityChecked());
+
+      // Switch to other pages
+      m_win->showPage(QStringLiteral("constraint"));
+      QVERIFY(sNode->itemVisibilityChecked());
+      QVERIFY(wNode->itemVisibilityChecked());
+
+      m_win->showPage(QStringLiteral("compose"));
+      QVERIFY(sNode->itemVisibilityChecked());
+      QVERIFY(wNode->itemVisibilityChecked());
+
+      m_win->showPage(QStringLiteral("predict"));
+      QVERIFY(sNode->itemVisibilityChecked());
+      QVERIFY(wNode->itemVisibilityChecked());
     }
 
 };

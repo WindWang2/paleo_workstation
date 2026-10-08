@@ -54,6 +54,8 @@ private slots:
   void wallEndpointDetourMatchesAnalytic();
   void enclosedHoleIsUnreachable();
   void sourceOnBarrierSnapsOut();
+  void tiltedBandSealsCornerGaps();
+  void subCellThinBandSealsCornerGaps();
   void cancelledAndInvalid();
 };
 
@@ -133,6 +135,79 @@ void GeostatFaultPathTests::sourceOnBarrierSnapsOut()
   QVERIFY( result.sourceColumn >= 0 && result.sourceRow >= 0 );
   QVERIFY( std::isfinite( result.distance[static_cast<std::size_t>( result.sourceRow ) * grid.cols + result.sourceColumn] ) );
   QVERIFY( result.reachedCells > 1000 );
+}
+
+void GeostatFaultPathTests::tiltedBandSealsCornerGaps()
+{
+  // issue #292（回归护栏）：30° 斜穿、总宽 1.0（>1 像元）的厚断层带——
+  // 栅格化出的格子链足够厚（每列 ≥1 个内部格被 even-odd 填充命中），
+  // 不存在只角接的障碍格对，无穿角检查也不漏。本例钉的是穿角检查
+  // 不误伤粗带：修复后源（带下侧）仍不可达上侧目标，且不过度封锁。
+  // 细带（亚格宽）的角点缝隙复现见 subCellThinBandSealsCornerGaps。
+  const GridSpec grid = wallGrid(); // 81×81，x∈[0,81)，y∈[0,81)，原点 (0,81)
+  constexpr double kPi = 3.14159265358979323846;
+  const double slope = std::tan( 30.0 * kPi / 180.0 ); // ≈0.5774
+  const double yLeft = 20.0;
+  const double yRight = 20.0 + 81.0 * slope; // ≈66.79
+  // 法向半宽 0.5（> 格心最大偏离 0.5/cosθ≈0.578 的一半，保证每列至少一个
+  // 内部格），角点略外扩出网格由 cellColumn/Row 钳制到边列，带从左边封到右边。
+  const double nlen = std::hypot( 1.0, slope );
+  const double nx = -0.5 * slope / nlen;
+  const double ny = 0.5 / nlen;
+  BarrierPolygon band;
+  band.exterior.points = {
+      Point2{ 0.0 + nx, yLeft + ny },  Point2{ 81.0 + nx, yRight + ny },
+      Point2{ 81.0 - nx, yRight - ny }, Point2{ 0.0 - nx, yLeft - ny } };
+
+  const FaultPathResult result = faultPathMetric( grid, { band }, 40.5, 10.0 );
+  QCOMPARE( result.status, Status::Ok );
+  QVERIFY2( std::isnan( result.distance[cellAt( grid, 40.5, 75.0 )] ),
+            "leak: target across a tilted band must stay unreachable" );
+  QVERIFY2( result.unreachableCells > 1000,
+            qPrintable( QStringLiteral( "unreachable=%1" ).arg( result.unreachableCells ) ) );
+  QVERIFY( std::isfinite( result.distance[cellAt( grid, 40.5, 10.0 )] ) ); // 源自身
+
+  // 对照：无屏障时同一目标可达（chamfer 度量 ≈ 欧氏 65）
+  const FaultPathResult open = faultPathMetric( grid, {}, 40.5, 10.0 );
+  QCOMPARE( open.status, Status::Ok );
+  QVERIFY( std::isfinite( open.distance[cellAt( grid, 40.5, 75.0 )] ) );
+}
+
+void GeostatFaultPathTests::subCellThinBandSealsCornerGaps()
+{
+  // issue #292（复现）：30° 斜穿、总宽 0.2（<1 像元）的亚格宽薄断层带
+  // ——even-odd 填充命中不了任何格心，屏障链只剩边界半像元采样出的
+  // 单格宽斜链，相邻障碍格大量只角接。8 邻接对角步若无穿角检查会从
+  // 角点缝隙斜穿，绕障距离退化成近欧氏距离（无检查时对侧目标可达、
+  // 不可达计数归零）；修复后源（带下侧）不可达上侧目标：目标 NaN、
+  // 不可达计数如实；无屏障对照组同一目标可达。
+  const GridSpec grid = wallGrid(); // 81×81，x∈[0,81)，y∈[0,81)，原点 (0,81)
+  constexpr double kPi = 3.14159265358979323846;
+  const double slope = std::tan( 30.0 * kPi / 180.0 ); // ≈0.5774
+  const double yLeft = 20.0;
+  const double yRight = yLeft + 81.0 * slope; // ≈66.79
+  // 法向半宽 0.1（总宽 0.2 < 1 像元）：每列格心都落在带外，屏障链
+  // 完全由边界半像元采样决定——与 distancetransform 的折线采样同口径。
+  const double nlen = std::hypot( 1.0, slope );
+  const double nx = -0.1 * slope / nlen;
+  const double ny = 0.1 / nlen;
+  BarrierPolygon band;
+  band.exterior.points = {
+      Point2{ 0.0 + nx, yLeft + ny },  Point2{ 81.0 + nx, yRight + ny },
+      Point2{ 81.0 - nx, yRight - ny }, Point2{ 0.0 - nx, yLeft - ny } };
+
+  const FaultPathResult result = faultPathMetric( grid, { band }, 40.5, 10.0 );
+  QCOMPARE( result.status, Status::Ok );
+  QVERIFY2( std::isnan( result.distance[cellAt( grid, 40.5, 75.0 )] ),
+            "leak: target across a sub-cell thin tilted band must stay unreachable" );
+  QVERIFY2( result.unreachableCells > 2000,
+            qPrintable( QStringLiteral( "unreachable=%1" ).arg( result.unreachableCells ) ) );
+  QVERIFY( std::isfinite( result.distance[cellAt( grid, 40.5, 10.0 )] ) ); // 源自身
+
+  // 对照：无屏障时同一目标可达（chamfer 度量 ≈ 欧氏 65）
+  const FaultPathResult open = faultPathMetric( grid, {}, 40.5, 10.0 );
+  QCOMPARE( open.status, Status::Ok );
+  QVERIFY( std::isfinite( open.distance[cellAt( grid, 40.5, 75.0 )] ) );
 }
 
 void GeostatFaultPathTests::cancelledAndInvalid()

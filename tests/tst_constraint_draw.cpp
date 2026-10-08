@@ -79,6 +79,19 @@ private slots:
     ctl.cancel();
   }
 
+  void familyParametersPersistOnCapture() {
+    QTemporaryDir dir; QVERIFY(dir.isValid()); auto s = makeStack(dir.filePath("p")); QVERIFY(s);
+    s->ctl->startCapture("T1", "line", "direction_line", 0, {{"ratio", 6.5}, {"influenceRadius", 50.0}});
+    s->ctl->onDrawn("LineString (0 0, 1 1)");
+    s->ctl->startCapture("T1", "line", "break_line", 0, {{"blockMode", "display_only"}});
+    s->ctl->onDrawn("LineString (0 1, 1 2)");
+    const auto rows = s->wf->loadConstraints("T1"); QCOMPARE(rows.size(), 2);
+    const auto first = QJsonDocument::fromJson(rows[0].value("params_json").toString().toUtf8()).object();
+    QCOMPARE(first.value("ratio").toDouble(), 6.5); QCOMPARE(first.value("influenceRadius").toDouble(), 50.0);
+    const auto second = QJsonDocument::fromJson(rows[1].value("params_json").toString().toUtf8()).object();
+    QCOMPARE(second.value("blockMode").toString(), QStringLiteral("display_only"));
+  }
+
   // 五种语义全部可画：每个入口走 startCapture → onDrawn → 入库 → 回读一致。
   void fiveSemanticEntriesDrawAndRoundTrip()
   {

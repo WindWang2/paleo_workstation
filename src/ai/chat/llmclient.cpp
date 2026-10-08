@@ -248,11 +248,19 @@ QVector<ChatToolCall> LlmStreamParser::takeCompleteCalls() {
   QVector<ChatToolCall> out;
   for (auto it = m_drafts.begin(); it != m_drafts.end();) {
     const LlmToolDraft &draft = it.value();
+    // 空实参不是「无参工具」，而是「分片还没到货」：真实服务首帧固定发
+    // {id,name,arguments:""}，实参在后续增量里补齐——这里提前派发会把
+    // 实参全丢（#278）。只有 arguments 非空且拼成合法 JSON 对象才算完成；
+    // 真无参工具由 flush()（[DONE]/连接关闭）兜底产出。
+    if (!draft.hasIdentity() || draft.arguments.trimmed().isEmpty()) {
+      ++it;
+      continue;
+    }
     ChatToolCall call;
     call.id = draft.id;
     call.name = draft.name;
     call.argumentsJson = draft.arguments;
-    if (draft.hasIdentity() && call.hasValidArguments()) {
+    if (call.hasValidArguments()) {
       out.append(call);
       it = m_drafts.erase(it);
     } else {

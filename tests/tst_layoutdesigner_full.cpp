@@ -30,6 +30,7 @@
 #include <qgslayoutitemregistry.h>
 #include <qgslayoutitemscalebar.h>
 #include <qgslayoutitemwidget.h>
+#include <qgslayoutmanager.h>
 #include <qgslayoutpagecollection.h>
 #include <qgslayoutpoint.h>
 #include <qgslayoutsize.h>
@@ -644,6 +645,51 @@ class TestLayoutDesignerFull : public QObject
       QAction *items = shell.findChild<QAction *>( QStringLiteral( "actionSnapToItems" ) );
       QVERIFY( items->isChecked() );
       QVERIFY( layout->snapper().snapToItems() ); // 默认开
+    }
+
+    // --- UIS-08(#279)：非模态设计器不得持有裸版面 -----------------------------
+
+    // 版面库删除路径：设计器开着时 layoutManager 删除版面（removes+deletes）
+    // → 设计器必须随之关闭，之后任何操作都不再有 use-after-free。
+    void layoutRemovedClosesDesigner()
+    {
+      auto *project = new QgsProject(); // leaked on purpose（夹具纪律，见类注释）
+      auto *layout = new QgsPrintLayout( project );
+      layout->undoStack()->blockCommands( true );
+      layout->initializeDefaults();
+      layout->undoStack()->blockCommands( false );
+      project->layoutManager()->addLayout( layout );
+
+      auto *shell = new PaleoLayoutDesignerShell( layout );
+      shell->setAttribute( Qt::WA_DeleteOnClose );
+      shell->setModal( false );
+      shell->show();
+      QVERIFY( QTest::qWaitForWindowExposed( shell ) );
+      QPointer<PaleoLayoutDesignerShell> guard( shell );
+
+      QVERIFY( project->layoutManager()->removeLayout( layout ) ); // removes + deletes
+      QTRY_VERIFY( guard.isNull() ); // 设计器已随版面销毁关闭（泵事件直至回收）
+    }
+
+    // 工程切换路径：QgsProject::clear() 清空 layoutManager（连带删版面）
+    // → 旧工程的设计器不得滞留到新工程里。
+    void projectClearClosesDesigner()
+    {
+      auto *project = new QgsProject(); // leaked on purpose（夹具纪律，见类注释）
+      auto *layout = new QgsPrintLayout( project );
+      layout->undoStack()->blockCommands( true );
+      layout->initializeDefaults();
+      layout->undoStack()->blockCommands( false );
+      project->layoutManager()->addLayout( layout );
+
+      auto *shell = new PaleoLayoutDesignerShell( layout );
+      shell->setAttribute( Qt::WA_DeleteOnClose );
+      shell->show();
+      QVERIFY( QTest::qWaitForWindowExposed( shell ) );
+      QPointer<PaleoLayoutDesignerShell> guard( shell );
+
+      project->clear();
+      QTRY_VERIFY( guard.isNull() );
     }
 };
 

@@ -83,9 +83,11 @@ struct LlmToolDraft {
 //   feed()：喂任意切分的字节流（TCP 不保证按事件边界到货），产出本块里已经
 //           完整的文本增量。协议按上述 streaming-responses 文档口径：事件以
 //           空行分隔、`data:` 行是载荷、单独一行 `data: [DONE]` 收尾。
-//   takeCompleteCalls()：取出 arguments 已拼成合法 JSON 的调用帧（取出即从
-//           表移除，天然防重复 emit）。
-//   flush()：流结束时兜底——id+name 齐即算一个调用（arguments 可残缺）。
+//   takeCompleteCalls()：取出 arguments 已拼成**非空**合法 JSON 的调用帧
+//           （取出即从表移除，天然防重复 emit）。实参空串不算完成——那是
+//           分片未齐，不是无参调用（#278）；无参调用只在流结束时经 flush()
+//           产出。
+//   flush()：流结束时兜底——id+name 齐即算一个调用（arguments 可残缺/为空）。
 class LlmStreamParser {
 public:
   void feed(const QByteArray &chunk, QStringList *deltas, bool *done,

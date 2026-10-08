@@ -11,6 +11,10 @@ class QLockFile;
 // 机制：QLockFile 适配锁 <projectDir>/artifacts/metadata/.project.lock。
 //   · 原子创建（O_EXCL）；staleLockTime=0 —— 锁文件里记录的持有者进程
 //     已不存在时 tryLock 自动回收陈旧锁，崩溃不留死锁；
+//   · 方向 81：Qt 拒绝后再按 metadata/processprobe 兜底复核一次——Qt 的
+//     「同机」判据在 Windows 只认 COMPUTERNAME 全等，无 hostid 的锁会被永远
+//     判成别的机器；兜底按 hostid/大小写不敏感主机名判本机 + 跨平台 pid
+//     探测确认已死才回收（存活/无法确认/别的机器一律不抢）；
 //   · 拒绝时错误带持有者（pid@hostname、application name）——用户能看懂
 //     「另一个 Paleo 正在编辑这个工程」。
 // 接线点（集成时一行接入）：AppContext 在 projectOpened 绑定写路径处

@@ -41,7 +41,7 @@ namespace
   // factorId -> 已生成 layerId。
   constexpr const char kFactorGenProp[] = "paleo.page.factorgen";
 
-  QString factorIdOfRow( QTableWidget *table, int row )
+  QString factorIdOfRow( const QTableWidget *table, int row )
   {
     if ( !table || row < 0 || row >= table->rowCount() )
       return QString();
@@ -49,7 +49,7 @@ namespace
                                  : QString();
   }
 
-  int checkedRow( QTableWidget *table )
+  int checkedRow( const QTableWidget *table )
   {
     if ( !table )
       return -1;
@@ -150,14 +150,73 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   }
   lay->addWidget( factors, 1 );
 
-  lay->addWidget( caption( tr( "井属性字段" ), this ) );
+  auto *wellFactors = new QWidget(content);
+  wellFactors->setObjectName(QStringLiteral("wellFactorSection"));
+  auto *wellLay = panelLayout(wellFactors);
+  wellLay->addWidget(caption(tr("井点因子"), wellFactors));
+  auto *factorMode = new QComboBox(wellFactors);
+  factorMode->setObjectName(QStringLiteral("factorModeCombo"));
+  factorMode->addItem(tr("直读字段"), QStringLiteral("direct"));
+  factorMode->addItem(tr("比值（分子 ÷ 分母）"), QStringLiteral("ratio"));
+  factorMode->setAccessibleName(tr("因子提取口径"));
+  wellLay->addWidget(factorMode);
+  for (const auto &entry : QVector<QPair<QString, QString>>{
+       {QStringLiteral("factorValueFieldCombo"), tr("指标字段")},
+       {QStringLiteral("factorNumeratorFieldCombo"), tr("分子字段")},
+       {QStringLiteral("factorDenominatorFieldCombo"), tr("分母字段")}}) {
+    auto *label = caption(entry.second, wellFactors);
+    label->setObjectName(entry.first + QStringLiteral("Caption"));
+    wellLay->addWidget(label);
+    auto *combo = new QComboBox(wellFactors); combo->setObjectName(entry.first);
+    combo->setAccessibleName(entry.second); combo->setPlaceholderText(tr("请选择字段")); wellLay->addWidget(combo);
+    connect(combo, &QComboBox::currentIndexChanged, this, [this] { invalidateWellFactors(); });
+  }
+  auto *extract = new QPushButton(tr("提取井点因子"), wellFactors);
+  extract->setObjectName(QStringLiteral("extractWellFactorsButton"));
+  auto *maintain = new QPushButton(tr("维护井点属性"), wellFactors);
+  maintain->setObjectName(QStringLiteral("maintainWellFactorsButton"));
+  maintain->setToolTip(tr("按当前层位维护砂厚、层厚、砂地比与其他单因素；保存后重新提取"));
+  wellLay->addWidget(maintain);
+  connect(maintain, &QPushButton::clicked, this, [this, horizons] { emit maintainWellFactorsRequested(horizons->currentText()); });
+  wellLay->addWidget(extract);
+  auto *wellTable = new QTableWidget(0, 3, wellFactors);
+  wellTable->setObjectName(QStringLiteral("wellFactorTable"));
+  wellTable->setAccessibleName(tr("井点因子提取结果"));
+  wellTable->setHorizontalHeaderLabels({tr("井名"), tr("因子值"), tr("来源或缺失原因")});
+  wellTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+  wellTable->verticalHeader()->hide(); wellTable->horizontalHeader()->setStretchLastSection(true);
+  wellLay->addWidget(wellTable);
+  auto *wellHint = new QLabel(tr("选择字段后提取；解释砂厚和分层层厚采用 MD，同层段相除得到砂地比。"), wellFactors);
+  wellHint->setObjectName(QStringLiteral("wellFactorHint")); wellHint->setWordWrap(true);
+  PaleoTheme::applyThemedStyleSheet(wellHint, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
+  wellLay->addWidget(wellHint); lay->addWidget(wellFactors);
+  const auto modeChanged = [this, factorMode] {
+    const bool ratio = factorMode->currentData() == QStringLiteral("ratio");
+    for (const QString &name : {QStringLiteral("factorValueFieldCombo"), QStringLiteral("factorNumeratorFieldCombo"),
+                               QStringLiteral("factorDenominatorFieldCombo")}) {
+      const bool visible = (name == QLatin1String("factorValueFieldCombo")) != ratio;
+      findChild<QWidget *>(name)->setVisible(visible);
+      findChild<QWidget *>(name + QStringLiteral("Caption"))->setVisible(visible);
+    }
+    invalidateWellFactors();
+  };
+  connect(factorMode, &QComboBox::currentIndexChanged, this, modeChanged); modeChanged();
+  connect(extract, &QPushButton::clicked, this, [this, factors, horizons] {
+    const int r = checkedRow(factors); if (r < 0) return;
+    emit extractWellFactorsRequested(factorIdOfRow(factors, r), horizons->currentText(), wellFactorParams());
+  });
+
+  auto *fieldCaption = caption(tr("井属性字段"), this);
+  lay->addWidget(fieldCaption);
   auto *field = new QLineEdit( QStringLiteral( "z" ), this );
   field->setObjectName( QStringLiteral( "factorFieldEdit" ) );
   field->setPlaceholderText( tr( "井属性字段" ) );
   field->setAccessibleName( tr( "单因素插值字段" ) );
   lay->addWidget( field );
+  fieldCaption->hide(); field->hide(); // 保留旧自动化契约；可见入口由真实字段下拉承担。
 
-  lay->addWidget( caption( tr( "像元大小" ), this ) );
+  auto *cellCaption = caption(tr("像元大小"), this);
+  lay->addWidget(cellCaption);
   auto *cell = new QDoubleSpinBox( this );
   cell->setObjectName( QStringLiteral( "factorCellSizeSpin" ) );
   cell->setRange( 0.0001, 1.0e9 );
@@ -184,7 +243,8 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
     method->addItem( pack.label, methodId );
     method->setItemData( method->count() - 1, pack.geologicalNote, Qt::ToolTipRole );
   }
-  method->addItem( tr( "SGS 实现族" ), QStringLiteral( "sgs" ) );
+  method->addItem( tr( "序贯高斯模拟（SGS）" ), QStringLiteral( "sgs" ) );
+  method->setItemData(method->count() - 1, tr("序贯高斯模拟按变差模型生成实现集合，输出均值与标准差；逐线方向/屏障参数不参与地统求解。"), Qt::ToolTipRole);
   const int defaultMethod = method->findData( QStringLiteral( "local_direction_idw" ) );
   if ( defaultMethod >= 0 )
     method->setCurrentIndex( defaultMethod );
@@ -192,6 +252,7 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   lay->addWidget( method );
   // 策略参数预览（随选择联动；SGS 无词表项时隐藏）。
   auto *strategyNote = new QLabel( content );
+  PaleoTheme::applyThemedStyleSheet(strategyNote, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
   strategyNote->setObjectName( QStringLiteral( "factorStrategyNote" ) );
   strategyNote->setWordWrap( true );
   const auto updateStrategyNote = [method, strategyNote]() {
@@ -254,53 +315,55 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   gridCaption->setVisible( false );
   gridRes->setVisible( false );
 
-  auto *advanced = new CollapsibleSection( tr( "高级参数" ), content );
+  auto *advanced = new QWidget(content);
   advanced->setObjectName( QStringLiteral( "factorAdvancedSection" ) );
-  advanced->setExpanded( false );
+
   lay->addWidget( advanced );
-  auto *adv = advanced->containerLayout();
-  auto *power = new QDoubleSpinBox( advanced->container() );
+  auto *adv = new QVBoxLayout(advanced);
+  adv->setContentsMargins(0, 0, 0, 0);
+  adv->setSpacing(PaleoTheme::tokens().spacingSm);
+  auto *power = new QDoubleSpinBox( advanced );
   power->setObjectName( QStringLiteral( "factorPowerSpin" ) );
   power->setRange( 0.01, 100.0 );
   power->setDecimals( 2 );
   power->setValue( 2.0 );
   power->setToolTip( tr( "幂次建议 0.5–8。算法接受任意有限正数。" ) );
   useMono( power );
-  adv->addWidget( caption( tr( "幂次" ), advanced->container() ) );
+  adv->addWidget( caption( tr( "幂次" ), advanced ) );
   adv->addWidget( power );
-  auto *cluster = new QCheckBox( tr( "井群局部权重" ), advanced->container() );
+  auto *cluster = new QCheckBox( tr( "井群局部权重" ), advanced );
   cluster->setObjectName( QStringLiteral( "factorClusterCheck" ) );
   cluster->setChecked( false );
   cluster->setToolTip( tr( "默认关闭。打开后按井群距离降低边缘井的权重，不是无数据掩膜。" ) );
   adv->addWidget( cluster );
-  auto *ratio = new QDoubleSpinBox( advanced->container() );
+  auto *ratio = new QDoubleSpinBox( advanced );
   ratio->setObjectName( QStringLiteral( "factorDirectionRatioSpin" ) );
   ratio->setRange( 1.0, 100.0 );
   ratio->setDecimals( 2 );
   ratio->setValue( 8.0 );
   ratio->setToolTip( tr( "方向线的新任务默认比值。保存到选中的约束线。" ) );
   useMono( ratio );
-  adv->addWidget( caption( tr( "方向比值" ), advanced->container() ) );
+  adv->addWidget( caption( tr( "方向比值" ), advanced ) );
   adv->addWidget( ratio );
-  auto *influence = new QDoubleSpinBox( advanced->container() );
+  auto *influence = new QDoubleSpinBox( advanced );
   influence->setObjectName( QStringLiteral( "factorInfluenceSpin" ) );
   influence->setRange( 0.0, 1.0e12 );
   influence->setDecimals( 2 );
   influence->setSpecialValueText( tr( "自动" ) );
   influence->setToolTip( tr( "0 表示按井距和线长自动取影响半径。" ) );
   useMono( influence );
-  adv->addWidget( caption( tr( "方向影响半径" ), advanced->container() ) );
+  adv->addWidget( caption( tr( "方向影响半径" ), advanced ) );
   adv->addWidget( influence );
-  auto *core = new QDoubleSpinBox( advanced->container() );
+  auto *core = new QDoubleSpinBox( advanced );
   core->setObjectName( QStringLiteral( "factorCoreSpin" ) );
   core->setRange( 0.0, 1.0e12 );
   core->setDecimals( 2 );
   core->setSpecialValueText( tr( "自动" ) );
   core->setToolTip( tr( "0 表示核心半径取影响半径的 0.3。" ) );
   useMono( core );
-  adv->addWidget( caption( tr( "方向核心半径" ), advanced->container() ) );
+  adv->addWidget( caption( tr( "方向核心半径" ), advanced ) );
   adv->addWidget( core );
-  auto *softStrength = new QDoubleSpinBox( advanced->container() );
+  auto *softStrength = new QDoubleSpinBox( advanced );
   softStrength->setObjectName( QStringLiteral( "factorSoftStrengthSpin" ) );
   softStrength->setRange( 0.0, 0.8 );
   softStrength->setSingleStep( 0.05 );
@@ -308,56 +371,56 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   softStrength->setValue( 0.35 );
   softStrength->setToolTip( tr( "软边界强度。0 表示这条线不改变权重。" ) );
   useMono( softStrength );
-  adv->addWidget( caption( tr( "软边界强度" ), advanced->container() ) );
+  adv->addWidget( caption( tr( "软边界强度" ), advanced ) );
   adv->addWidget( softStrength );
-  auto *softRadius = new QDoubleSpinBox( advanced->container() );
+  auto *softRadius = new QDoubleSpinBox( advanced );
   softRadius->setObjectName( QStringLiteral( "factorSoftRadiusSpin" ) );
   softRadius->setRange( 0.0, 1.0e12 );
   softRadius->setDecimals( 2 );
   softRadius->setSpecialValueText( tr( "自动" ) );
   softRadius->setToolTip( tr( "0 表示自动软边界半径，与显示缓冲无关。" ) );
   useMono( softRadius );
-  adv->addWidget( caption( tr( "软边界半径" ), advanced->container() ) );
+  adv->addWidget( caption( tr( "软边界半径" ), advanced ) );
   adv->addWidget( softRadius );
 
   // 方向18：克里金/SGS 参数——变差函数模型 + 变程/块金/拱高数值输入（0=自动
   // 拟合）+ 走向方位（-1=自动全向）。仅 method=kriging/sgs 时消费这些值。
-  auto *variogramModel = new QComboBox( advanced->container() );
+  auto *variogramModel = new QComboBox( advanced );
   variogramModel->setObjectName( QStringLiteral( "factorVariogramModelCombo" ) );
   variogramModel->addItem( tr( "球状模型" ), QStringLiteral( "spherical" ) );
   variogramModel->addItem( tr( "指数模型" ), QStringLiteral( "exponential" ) );
   variogramModel->addItem( tr( "高斯模型" ), QStringLiteral( "gaussian" ) );
   variogramModel->setAccessibleName( tr( "变差函数模型" ) );
-  adv->addWidget( caption( tr( "变差函数模型" ), advanced->container() ) );
+  adv->addWidget( caption( tr( "变差函数模型" ), advanced ) );
   adv->addWidget( variogramModel );
-  auto *nugget = new QDoubleSpinBox( advanced->container() );
+  auto *nugget = new QDoubleSpinBox( advanced );
   nugget->setObjectName( QStringLiteral( "factorNuggetSpin" ) );
   nugget->setRange( 0.0, 1.0e12 );
   nugget->setDecimals( 4 );
   nugget->setSpecialValueText( tr( "自动" ) );
   nugget->setToolTip( tr( "块金。0 表示随变程/拱高一起自动拟合。" ) );
   useMono( nugget );
-  adv->addWidget( caption( tr( "块金" ), advanced->container() ) );
+  adv->addWidget( caption( tr( "块金" ), advanced ) );
   adv->addWidget( nugget );
-  auto *sill = new QDoubleSpinBox( advanced->container() );
+  auto *sill = new QDoubleSpinBox( advanced );
   sill->setObjectName( QStringLiteral( "factorSillSpin" ) );
   sill->setRange( 0.0, 1.0e12 );
   sill->setDecimals( 4 );
   sill->setSpecialValueText( tr( "自动" ) );
   sill->setToolTip( tr( "拱高（不含块金）。0 表示自动拟合。" ) );
   useMono( sill );
-  adv->addWidget( caption( tr( "拱高" ), advanced->container() ) );
+  adv->addWidget( caption( tr( "拱高" ), advanced ) );
   adv->addWidget( sill );
-  auto *rangeSpin = new QDoubleSpinBox( advanced->container() );
+  auto *rangeSpin = new QDoubleSpinBox( advanced );
   rangeSpin->setObjectName( QStringLiteral( "factorRangeSpin" ) );
   rangeSpin->setRange( 0.0, 1.0e12 );
   rangeSpin->setDecimals( 4 );
   rangeSpin->setSpecialValueText( tr( "自动" ) );
   rangeSpin->setToolTip( tr( "变程（实用变程口径）。0 表示自动拟合。" ) );
   useMono( rangeSpin );
-  adv->addWidget( caption( tr( "变程" ), advanced->container() ) );
+  adv->addWidget( caption( tr( "变程" ), advanced ) );
   adv->addWidget( rangeSpin );
-  auto *azimuth = new QDoubleSpinBox( advanced->container() );
+  auto *azimuth = new QDoubleSpinBox( advanced );
   azimuth->setObjectName( QStringLiteral( "factorAzimuthSpin" ) );
   azimuth->setRange( -1.0, 360.0 );
   azimuth->setDecimals( 1 );
@@ -365,42 +428,88 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   azimuth->setSpecialValueText( tr( "自动（各向同性）" ) );
   azimuth->setToolTip( tr( "走向方位（度，从北顺时针）。长变程方向；自动则全向拟合。" ) );
   useMono( azimuth );
-  adv->addWidget( caption( tr( "走向方位" ), advanced->container() ) );
+  adv->addWidget( caption( tr( "走向方位" ), advanced ) );
   adv->addWidget( azimuth );
-  auto *maxPoints = new QSpinBox( advanced->container() );
+  auto *maxPoints = new QSpinBox( advanced );
   maxPoints->setObjectName( QStringLiteral( "factorKrigingMaxPointsSpin" ) );
   maxPoints->setRange( 4, 64 );
   maxPoints->setValue( 16 );
   maxPoints->setToolTip( tr( "克里金/SGS 局部邻域的最近点数上限。" ) );
   useMono( maxPoints );
-  adv->addWidget( caption( tr( "邻域点数" ), advanced->container() ) );
+  adv->addWidget( caption( tr( "邻域点数" ), advanced ) );
   adv->addWidget( maxPoints );
-  auto *realizations = new QSpinBox( advanced->container() );
+  auto *realizations = new QSpinBox( advanced );
   realizations->setObjectName( QStringLiteral( "factorSgsRealizationsSpin" ) );
   realizations->setRange( 1, 16 );
   realizations->setValue( 4 );
   realizations->setToolTip( tr( "SGS 实现数。产物栅格为实现均值，离散度见旁路标准差场。" ) );
   useMono( realizations );
-  adv->addWidget( caption( tr( "SGS 实现数" ), advanced->container() ) );
+  adv->addWidget( caption( tr( "SGS 实现数" ), advanced ) );
   adv->addWidget( realizations );
-  auto *seed = new QSpinBox( advanced->container() );
+  auto *seed = new QSpinBox( advanced );
   seed->setObjectName( QStringLiteral( "factorSgsSeedSpin" ) );
   seed->setRange( 0, 2147483647 );
   seed->setValue( 42 );
   seed->setToolTip( tr( "SGS 随机种子。同种子逐位可复现。" ) );
   useMono( seed );
-  adv->addWidget( caption( tr( "SGS 种子" ), advanced->container() ) );
+  adv->addWidget( caption( tr( "SGS 种子" ), advanced ) );
   adv->addWidget( seed );
   // 方向 47：SGS 成员持久化——勾选时各实现收编为 realization_set 集合版本
   //（成员数 = 实现数），供统计面/成员切换/集合对比；取消则只产均值+标准差旁路。
   auto *persistRealizations = new QCheckBox( tr( "保留实现集合（成员可切换/派生不确定性面）" ),
-                                           advanced->container() );
+                                           advanced );
   persistRealizations->setObjectName( QStringLiteral( "factorSgsPersistRealizationsCheck" ) );
   persistRealizations->setChecked( true );
   persistRealizations->setToolTip(
       tr( "成员栅格逐实现落库为集合版本（惰性寻址）。取消时 SGS 仍产均值与标准差旁路，"
           "但集合成员不入库，后续不可成员切换/派生统计面。" ) );
   adv->addWidget( persistRealizations );
+
+  const auto parameterGroup = [advanced, adv](const char *name) {
+    auto *group = new QWidget(advanced); group->setObjectName(QString::fromLatin1(name));
+    auto *layout = new QVBoxLayout(group); layout->setContentsMargins(0,0,0,0);
+    layout->setSpacing(PaleoTheme::tokens().spacingSm); adv->addWidget(group); return layout;
+  };
+  const auto moveParam = [adv](QWidget *control, QVBoxLayout *target) {
+    const int index = adv->indexOf(control);
+    if (index > 0) {
+      auto *previous = adv->itemAt(index - 1)->widget();
+      if (qobject_cast<QLabel *>(previous)) { adv->removeWidget(previous); target->addWidget(previous); }
+    }
+    adv->removeWidget(control); target->addWidget(control);
+  };
+  auto *idwParams = parameterGroup("factorIdwParameters");
+  moveParam(power, idwParams);
+  adv->removeWidget(cluster); idwParams->addWidget(cluster);
+  auto *variogramParams = parameterGroup("factorVariogramParameters");
+  for (QWidget *w : QVector<QWidget *>{variogramModel, nugget, sill, rangeSpin, azimuth, maxPoints})
+    moveParam(w, variogramParams);
+  auto *sgsParams = parameterGroup("factorSgsParameters");
+  moveParam(realizations, sgsParams); moveParam(seed, sgsParams);
+  adv->removeWidget(persistRealizations); sgsParams->addWidget(persistRealizations);
+  auto *anisotropyParams = parameterGroup("factorAnisotropyParameters");
+  auto *globalRatio = new QDoubleSpinBox(advanced);
+  globalRatio->setObjectName(QStringLiteral("factorAnisotropyRatioSpin"));
+  globalRatio->setRange(1, 100); globalRatio->setValue(1); useMono(globalRatio);
+  anisotropyParams->addWidget(caption(tr("全局各向异性比值"), advanced)); anisotropyParams->addWidget(globalRatio);
+  auto *globalAngle = new QDoubleSpinBox(advanced);
+  globalAngle->setObjectName(QStringLiteral("factorAnisotropyAngleSpin"));
+  globalAngle->setRange(0, 360); useMono(globalAngle);
+  auto *globalAngleCaption = caption(tr("全局长轴角度（Surfer，从 X 轴逆时针）"), advanced);
+  globalAngleCaption->setObjectName(QStringLiteral("factorAnisotropyAngleCaption"));
+  anisotropyParams->addWidget(globalAngleCaption); anisotropyParams->addWidget(globalAngle);
+  auto *neighborhood = parameterGroup("factorNeighborhoodParameters");
+  auto *minimumPoints = new QSpinBox(advanced); minimumPoints->setRange(1, 64); minimumPoints->setValue(3);
+  minimumPoints->setObjectName(QStringLiteral("factorMinPointsSpin")); useMono(minimumPoints);
+  neighborhood->addWidget(caption(tr("最少支撑井点"), advanced)); neighborhood->addWidget(minimumPoints);
+  auto *maximumPoints = new QSpinBox(advanced); maximumPoints->setRange(0, 256); maximumPoints->setValue(12);
+  maximumPoints->setSpecialValueText(tr("全部井点")); maximumPoints->setObjectName(QStringLiteral("factorMaxPointsSpin")); useMono(maximumPoints);
+  neighborhood->addWidget(caption(tr("最多支撑井点"), advanced)); neighborhood->addWidget(maximumPoints);
+  auto *searchRadius = new QDoubleSpinBox(advanced); searchRadius->setRange(0, 1e12);
+  searchRadius->setSpecialValueText(tr("自动")); searchRadius->setObjectName(QStringLiteral("factorSearchRadiusSpin")); useMono(searchRadius);
+  neighborhood->addWidget(caption(tr("搜索半径"), advanced)); neighborhood->addWidget(searchRadius);
+  auto *noParameters = new QLabel(tr("此方法无可调插值参数。"), advanced);
+  noParameters->setObjectName(QStringLiteral("factorNoParametersLabel")); adv->addWidget(noParameters);
 
   // 主线6：等厚引擎（strathick）专属行——顶/底构造面栅格选择。默认隐藏，
   // 勾选等厚引擎因素时展开（updateEngineRows 管可见性）。
@@ -452,6 +561,14 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
                        ? def.defaultParams.value( QStringLiteral( "field" ) )
                        : field->text().trimmed() );
     params.insert( QStringLiteral( "cellSize" ), cell->value() );
+    if (known && interpolantEngine(def.processingAlgId)) {
+      const QVariantMap extraction = wellFactorParams();
+      // 无服务的历史调用仍可设置 factorFieldEdit；真实字段面已绑定时写明口径。
+      if (!extraction.value(QStringLiteral("valueField")).toString().isEmpty() ||
+          extraction.value(QStringLiteral("factorMode")) == QStringLiteral("ratio")) {
+        for (auto i = extraction.cbegin(); i != extraction.cend(); ++i) params.insert(i.key(), i.value());
+      }
+    }
     if ( known && interpolantEngine( def.processingAlgId ) )
     {
       const QString methodId = method->currentData().toString();
@@ -469,6 +586,13 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
       params.insert( QStringLiteral( "coverage" ), coverage->currentData().toString() );
       params.insert( QStringLiteral( "power" ), power->value() );
       params.insert( QStringLiteral( "wellClusterLocality" ), cluster->isChecked() );
+      for (const auto &entry : QVector<QPair<QString, QString>>{
+           {QStringLiteral("minPoints"), QStringLiteral("factorMinPointsSpin")},
+           {QStringLiteral("maxPoints"), QStringLiteral("factorMaxPointsSpin")}})
+        params.insert(entry.first, findChild<QSpinBox *>(entry.second)->value());
+      params.insert(QStringLiteral("searchRadius"), findChild<QDoubleSpinBox *>(QStringLiteral("factorSearchRadiusSpin"))->value());
+      params.insert(QStringLiteral("anisotropyRatio"), findChild<QDoubleSpinBox *>(QStringLiteral("factorAnisotropyRatioSpin"))->value());
+      params.insert(QStringLiteral("anisotropyAngle"), findChild<QDoubleSpinBox *>(QStringLiteral("factorAnisotropyAngleSpin"))->value());
       if ( methodId == QLatin1String( "kriging" ) || methodId == QLatin1String( "sgs" ) ||
            methodId == QLatin1String( "local_direction_kriging" ) )
       {
@@ -477,7 +601,8 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
         params.insert( QStringLiteral( "sill" ), sill->value() );
         params.insert( QStringLiteral( "range" ), rangeSpin->value() );
         params.insert( QStringLiteral( "azimuth" ), azimuth->value() );
-        params.insert( QStringLiteral( "maxPoints" ), maxPoints->value() );
+        if (methodId != QLatin1String("local_direction_kriging"))
+          params.insert( QStringLiteral( "maxPoints" ), maxPoints->value() );
         // 方向41：局部方向克里金另有自己的邻域 K（0 = 全部样本）。
         params.insert( QStringLiteral( "krigingMaxPoints" ), maxPoints->value() );
         if ( methodId == QLatin1String( "sgs" ) )
@@ -616,7 +741,8 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   // ---- m2(B) 双区 end ------------------------------------------------------
 
   lay->addSpacing(PaleoTheme::tokens().spacingMd); // spacing.md：单因素区与约束区分组
-  lay->addWidget( caption( tr( "约束" ), this ) );
+  auto *constraintCaption = caption(tr("约束线"), this);
+  lay->addWidget(constraintCaption);
   auto *list = new QListWidget( this );
   list->setObjectName( QStringLiteral( "constraintList" ) );
   list->setAccessibleName( tr( "约束列表" ) );
@@ -835,6 +961,61 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   lay->addLayout( editRow );
   // ---- 类型化约束线 end ----------------------------------------------------
 
+  auto *constraints = new QWidget(content);
+  constraints->setObjectName(QStringLiteral("constraintFamiliesSection"));
+  auto *constraintLay = panelLayout(constraints);
+  const int start = lay->indexOf(constraintCaption);
+  while (lay->count() > start) {
+    QLayoutItem *item = lay->takeAt(start);
+    constraintLay->addItem(item);
+  }
+  // 两族入口排在列表/编辑之前；通用形状与逐线编辑留在次级展开面。
+  auto *details = new CollapsibleSection(tr("编辑已绘约束 / 其他形状"), constraints);
+  details->setObjectName(QStringLiteral("constraintDetailsSection")); details->setExpanded(false);
+  while (constraintLay->count() > 1) details->containerLayout()->addItem(constraintLay->takeAt(1));
+  const auto family = [constraintLay, constraints](const char *name, const QString &title, const QString &note) {
+    auto *group = new QWidget(constraints); group->setObjectName(QString::fromLatin1(name));
+    auto *layout = panelLayout(group); layout->addWidget(caption(title, group));
+    auto *label = new QLabel(note, group); label->setWordWrap(true);
+    PaleoTheme::applyThemedStyleSheet(label, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
+    layout->addWidget(label); constraintLay->addWidget(group); return layout;
+  };
+  auto *directionFamily = family("directionFamilySection", tr("方向线族"),
+      tr("方向引导改变沿线权重；软边界减弱跨线影响；制图绕行只调整解释性等值线。"));
+  auto *directionType = new QComboBox(constraints); directionType->setObjectName(QStringLiteral("directionFamilyTypeCombo"));
+  directionType->setAccessibleName(tr("方向线族语义"));
+  directionType->addItem(tr("方向引导"), QStringLiteral("direction_line"));
+  directionType->addItem(tr("解释软边界"), QStringLiteral("interpretive_boundary"));
+  directionType->addItem(tr("制图绕行"), QStringLiteral("cartographic_detour"));
+  directionFamily->addWidget(directionType); typedRow->removeWidget(direction); directionFamily->addWidget(direction);
+  moveParam(ratio, directionFamily); moveParam(influence, directionFamily); moveParam(core, directionFamily);
+  moveParam(softStrength, details->containerLayout()); moveParam(softRadius, details->containerLayout());
+  auto *breakFamily = family("breakFamilySection", tr("打断线族"),
+      tr("硬屏障阻断跨线传播；等值停止终止提线。仅显示停线不改变插值数值。"));
+  auto *breakType = new QComboBox(constraints); breakType->setObjectName(QStringLiteral("breakFamilyTypeCombo"));
+  breakType->setAccessibleName(tr("打断线族语义"));
+  breakType->addItem(tr("硬屏障"), QStringLiteral("break_line"));
+  breakType->addItem(tr("等值停止"), QStringLiteral("contour_stop"));
+  breakFamily->addWidget(breakType); typedRow->removeWidget(breakLine); breakFamily->addWidget(breakLine);
+  details->containerLayout()->removeWidget(blockMode); breakFamily->addWidget(caption(tr("阻断方式"), constraints)); breakFamily->addWidget(blockMode);
+  constraintLay->addWidget(details);
+  lay->insertWidget(lay->indexOf(methodCaption), constraints);
+  lay->removeWidget(cellCaption); lay->removeWidget(cell);
+  lay->insertWidget(lay->indexOf(methodCaption) + 2, cellCaption);
+  lay->insertWidget(lay->indexOf(cellCaption) + 1, cell);
+  // 参数不再藏在高级区，逐线比值仍归约束族（其是否适用由方法联动说明）。
+  direction->disconnect(this); breakLine->disconnect(this);
+  connect(direction, &QPushButton::clicked, this, [this, horizons, spin, directionType] {
+    emit drawTypedConstraintRequested(horizons->currentText(), QStringLiteral("line"), directionType->currentData().toString(), spin->value());
+  });
+  connect(breakLine, &QPushButton::clicked, this, [this, horizons, spin, breakType] {
+    emit drawTypedConstraintRequested(horizons->currentText(), QStringLiteral("line"), breakType->currentData().toString(), spin->value());
+  });
+  // 将旧三个入口归入次级面，objectName 和信号兼容。
+  for (QPushButton *button : {softButton, stopButton, detourButton}) {
+    softRow->removeWidget(button); details->containerLayout()->addWidget(button);
+  }
+
   // 旧 IDW 行（objectName 保留；runIdwRequested 原语义不动）。
   lay->addSpacing(PaleoTheme::tokens().spacingMd); // spacing.md：约束区与 IDW 区分组
   auto *legacyCaption = caption( tr( "插值（IDW）" ), content );
@@ -860,6 +1041,13 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   connect( idw, &QPushButton::clicked, this, [this, horizons] {
     emit runIdwRequested( horizons->currentText() );
   } );
+  auto *legacySection = new CollapsibleSection(tr("兼容入口：原始井字段 IDW"), content);
+  legacySection->setObjectName(QStringLiteral("factorLegacySection"));
+  legacySection->setExpanded(false);
+  for (QWidget *widget : QVector<QWidget *>{legacyCaption, idwField, idwCell, idw}) {
+    lay->removeWidget(widget); legacySection->containerLayout()->addWidget(widget);
+  }
+  lay->addWidget(legacySection);
 
   auto *status = new QLabel( this );
   status->setObjectName( QStringLiteral( "statusLabel" ) );
@@ -993,6 +1181,16 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   if ( auto *horizons = child<QComboBox>( this, "horizonCombo" ) )
     connect( horizons, qOverload<int>( &QComboBox::currentIndexChanged ), this, [this]( int ) { refreshConstraintList(); } );
 
+  if (wf) {
+    connect(wf, &ConstraintWorkflow::wellAttributesChanged, this, [this] { invalidateWellFactors(); refreshWellFactorFields(); });
+    connect(wf, &ConstraintWorkflow::wellFactorsExtracted, this,
+            [this](const QString &, const QString &) { refreshWellFactorResults(); });
+  }
+  connect(horizons, &QComboBox::currentIndexChanged, this, [this] { invalidateWellFactors(); refreshWellFactorFields(); });
+  connect(factors, &QTableWidget::itemChanged, this, [this](QTableWidgetItem *item) {
+    if (item && item->column() == 0) { invalidateWellFactors(); refreshWellFactorFields(); }
+  });
+  refreshWellFactorFields();
   refreshConstraintList();
   updateFactorActionStates();
 }
@@ -1001,6 +1199,7 @@ void ConstraintPage::showEvent( QShowEvent *event )
 {
   QWidget::showEvent( event );
   refreshThicknessSamples();
+  refreshWellFactorFields();
   refreshConstraintList();
 }
 
@@ -1062,6 +1261,7 @@ void ConstraintPage::bindLayerService( QObject *layers )
   connect( svc, &QgisLayerService::layerDeclared, this,
            [this]( const QString &layerId ) {
              updateEngineRows();
+             if (layerId.startsWith(QStringLiteral("wells"))) refreshWellFactorFields();
              if ( !layerId.startsWith( QStringLiteral( "factor." ) ) )
                return;
              // "factor.<horizon>.<factorId>" → 尾段 factorId。
@@ -1187,6 +1387,32 @@ void ConstraintPage::updateEngineRows()
       widget->setVisible( interpolant );
   }
 
+  const QString selectedMethod = child<QComboBox>(this, "factorMethodCombo")->currentData().toString();
+  const bool idw = selectedMethod == QLatin1String("structural_idw") || selectedMethod == QLatin1String("local_direction_idw") || selectedMethod == QLatin1String("surfer_idw");
+  const bool kriging = selectedMethod == QLatin1String("kriging") || selectedMethod == QLatin1String("local_direction_kriging") || selectedMethod == QLatin1String("sgs");
+  for (const auto &entry : QVector<QPair<QString, bool>>{
+       {QStringLiteral("factorIdwParameters"), idw}, {QStringLiteral("factorVariogramParameters"), kriging},
+       {QStringLiteral("factorSgsParameters"), selectedMethod == QLatin1String("sgs")},
+       {QStringLiteral("factorAnisotropyParameters"), selectedMethod == QLatin1String("surfer_idw") || selectedMethod == QLatin1String("kriging") || selectedMethod == QLatin1String("sgs")},
+       {QStringLiteral("factorNeighborhoodParameters"), selectedMethod == QLatin1String("structural_idw") || selectedMethod == QLatin1String("local_direction_idw") || selectedMethod == QLatin1String("local_direction_kriging")},
+       {QStringLiteral("factorNoParametersLabel"), selectedMethod == QLatin1String("legacy")}})
+    findChild<QWidget *>(entry.first)->setVisible(interpolant && entry.second);
+  child<QCheckBox>(this, "factorClusterCheck")->setVisible(selectedMethod == QLatin1String("local_direction_idw") || selectedMethod == QLatin1String("structural_idw"));
+  const bool directionWeights = selectedMethod == QLatin1String("local_direction_idw") || selectedMethod == QLatin1String("structural_idw");
+  for (const char *name : {"factorDirectionRatioSpin", "factorInfluenceSpin", "factorCoreSpin"}) {
+    auto *w = findChild<QWidget *>(QString::fromLatin1(name));
+    w->setVisible(directionWeights);
+    auto *layout = w->parentWidget()->layout();
+    const int index = layout->indexOf(w);
+    if (index > 0) layout->itemAt(index - 1)->widget()->setVisible(directionWeights);
+  }
+  child<QDoubleSpinBox>(this, "factorAnisotropyAngleSpin")->setVisible(selectedMethod == QLatin1String("surfer_idw"));
+  child<QLabel>(this, "factorAnisotropyAngleCaption")->setVisible(selectedMethod == QLatin1String("surfer_idw"));
+  const bool coverageParameter = selectedMethod == QLatin1String("local_direction_idw") || selectedMethod == QLatin1String("local_direction_kriging") || selectedMethod == QLatin1String("structural_idw") || selectedMethod == QLatin1String("surfer_idw");
+  child<QWidget>(this, "factorCoverageCaption")->setVisible(interpolant && coverageParameter);
+  child<QWidget>(this, "factorCoverageCombo")->setVisible(interpolant && coverageParameter);
+  child<QLabel>(this, "factorStrategyNote")->setVisible(interpolant);
+  findChild<QWidget *>(QStringLiteral("wellFactorSection"))->setVisible(interpolant || isopach);
   // WS-C5：结构 IDW 专属行——成图边界（面图层）+ 格网分辨率。
   auto *method = child<QComboBox>( this, "factorMethodCombo" );
   auto *boundaryCombo = child<QComboBox>( this, "factorBoundaryCombo" );
@@ -1271,6 +1497,7 @@ void ConstraintPage::updateEngineRows()
 void ConstraintPage::updateFactorActionStates()
 {
   const bool busy = property( "paleo.page.runbusy" ).toBool();
+  updateWellFactorActionState();
   if ( auto *idw = child<QPushButton>( this, "runIdwButton" ) )
   {
     idw->setEnabled( !busy );
@@ -1340,6 +1567,16 @@ void ConstraintPage::updateFactorActionStates()
       generate->setToolTip( tr( "请先选择或导入成图边界面图层" ) );
     }
   }
+  if (known && interpolantEngine(def.processingAlgId) && property("paleo.page.fieldsbound").toBool()) {
+    auto *extract = child<QPushButton>(this, "extractWellFactorsButton");
+    if (extract && !extract->isEnabled()) {
+      generate->setEnabled(false); generate->setToolTip(extract->toolTip());
+    }
+  }
+  if (auto *interval = child<QDoubleSpinBox>(this, "contourIntervalSpin")) {
+    const QString id = factorIdOfRow(factors, r);
+    interval->setSuffix(id == QLatin1String("sandthick") || id == QLatin1String("strathick") || id == QLatin1String("welldist") ? tr(" m") : QString());
+  }
   const QString layerId = checkedFactorLayerId();
   auto *mode = child<QComboBox>( this, "factorContourModeCombo" );
   auto *levels = child<QLineEdit>( this, "factorContourLevelsEdit" );
@@ -1376,6 +1613,7 @@ void ConstraintPage::setRunBusy( bool busy )
       status->setText( tr( "正在准备" ) );
   }
   updateFactorActionStates();
+  updateWellFactorActionState();
 }
 
 void ConstraintPage::noteRunStage( const QString &stage, int percent )
@@ -1484,4 +1722,109 @@ void ConstraintPage::refreshConstraintList()
   }
   list->blockSignals( false );
   loadSelectedConstraintLine();
+}
+
+QVariantMap ConstraintPage::wellFactorParams() const {
+  const auto value = [this](const char *name) { auto *c = findChild<QComboBox *>(QString::fromLatin1(name)); return c ? c->currentData().toString() : QString(); };
+  return {{QStringLiteral("factorMode"), value("factorModeCombo")},
+          {QStringLiteral("valueField"), value("factorValueFieldCombo")},
+          {QStringLiteral("numeratorField"), value("factorNumeratorFieldCombo")},
+          {QStringLiteral("denominatorField"), value("factorDenominatorFieldCombo")}};
+}
+void ConstraintPage::refreshWellFactorFields() {
+  auto *wf = qobject_cast<ConstraintWorkflow *>(property(kWfProp).value<QObject *>());
+  auto *h = child<QComboBox>(this, "horizonCombo");
+  QString error;
+  const QVariantList fields = wf ? wf->wellFactorFields(h ? h->currentText() : QString(), &error) : QVariantList();
+  if (!error.isEmpty()) child<QLabel>(this, "wellFactorHint")->setText(error);
+  setWellFactorFields(fields);
+  setProperty("paleo.page.fieldsbound", wf != nullptr);
+  updateFactorActionStates();
+}
+void ConstraintPage::setWellFactorFields(const QVariantList &fields) {
+  setProperty("paleo.page.fieldsbound", true);
+  QVariantMap old = wellFactorParams();
+  auto *factors = child<QTableWidget>(this, "factorTable");
+  const QString factor = factorIdOfRow(factors, checkedRow(factors));
+  const bool changedFactor = property("paleo.page.extractionFactor").toString() != factor;
+  if (changedFactor) old.remove(QStringLiteral("valueField"));
+  setProperty("paleo.page.extractionFactor", factor);
+  for (const auto &entry : QVector<QPair<QString, QString>>{
+       {QStringLiteral("factorValueFieldCombo"), QStringLiteral("valueField")},
+       {QStringLiteral("factorNumeratorFieldCombo"), QStringLiteral("numeratorField")},
+       {QStringLiteral("factorDenominatorFieldCombo"), QStringLiteral("denominatorField")}}) {
+    auto *c = findChild<QComboBox *>(entry.first); if (!c) continue;
+    c->blockSignals(true); c->clear();
+    for (const QVariant &v : fields) { const auto m = v.toMap(); c->addItem(m.value(QStringLiteral("label")).toString(), m.value(QStringLiteral("id"))); }
+    QString selected = old.value(entry.second).toString();
+    if (selected.isEmpty() && entry.second == QLatin1String("valueField")) {
+      const auto *table = child<QTableWidget>(this, "factorTable"); const int r = checkedRow(table);
+      if (r >= 0) selected = SingleFactorRegistry::byId(factorIdOfRow(table, r)).defaultParams.value(QStringLiteral("field")).toString();
+    }
+    if (selected.isEmpty() && entry.second == QLatin1String("numeratorField")) selected = QStringLiteral("log_sand_thickness_md");
+    if (selected.isEmpty() && entry.second == QLatin1String("denominatorField")) selected = QStringLiteral("log_layer_thickness_md");
+    int index = c->findData(selected);
+    if (index < 0 && entry.second == QLatin1String("valueField")) {
+      if (factor == QLatin1String("sandthick")) index = c->findData(QStringLiteral("log_sand_thickness_md"));
+      if (factor == QLatin1String("strathick")) index = c->findData(QStringLiteral("log_layer_thickness_md"));
+    }
+    c->setCurrentIndex(index); c->blockSignals(false);
+  }
+  if (changedFactor) {
+    const bool direct = child<QComboBox>(this, "factorValueFieldCombo")->currentIndex() >= 0;
+    auto *mode = child<QComboBox>(this, "factorModeCombo");
+    const bool ratioAvailable = child<QComboBox>(this, "factorNumeratorFieldCombo")->currentIndex() >= 0 && child<QComboBox>(this, "factorDenominatorFieldCombo")->currentIndex() >= 0;
+    mode->setCurrentIndex(mode->findData(factor == QLatin1String("sandratio") && !direct && ratioAvailable ? QStringLiteral("ratio") : QStringLiteral("direct")));
+  }
+  updateFactorActionStates();
+}
+void ConstraintPage::invalidateWellFactors() {
+  if (auto *table = findChild<QTableWidget *>(QStringLiteral("wellFactorTable"))) table->setRowCount(0);
+  if (auto *hint = findChild<QLabel *>(QStringLiteral("wellFactorHint")))
+    hint->setText(tr("当前口径尚未提取井点因子。选择字段后提取；解释厚度采用同一 MD 层段。"));
+  markInputsStale(); updateWellFactorActionState();
+  updateFactorActionStates();
+}
+void ConstraintPage::updateWellFactorActionState() {
+  auto *button = child<QPushButton>(this, "extractWellFactorsButton"); if (!button) return;
+  const auto params = wellFactorParams(); const bool ratio = params.value(QStringLiteral("factorMode")) == QStringLiteral("ratio");
+  const bool ready = checkedRow(child<QTableWidget>(this, "factorTable")) >= 0 &&
+      (ratio ? !params.value(QStringLiteral("numeratorField")).toString().isEmpty() && !params.value(QStringLiteral("denominatorField")).toString().isEmpty()
+             : !params.value(QStringLiteral("valueField")).toString().isEmpty());
+  const bool busy = property("paleo.page.runbusy").toBool();
+  button->setEnabled(ready && !busy);
+  button->setToolTip(busy ? tr("正在计算，可取消") : ready ? QString() : tr("请勾选因子并选择真实提取字段"));
+}
+void ConstraintPage::refreshWellFactorResults() {
+  auto *wf = qobject_cast<ConstraintWorkflow *>(property(kWfProp).value<QObject *>());
+  auto *table = child<QTableWidget>(this, "wellFactorTable"); if (!wf || !table) return;
+  table->setRowCount(0);
+  const auto params = wellFactorParams();
+  table->setHorizontalHeaderItem(1, new QTableWidgetItem(params.value(QStringLiteral("factorMode")) == QStringLiteral("ratio") ? tr("比值（分子 ÷ 分母）") : tr("因子值")));
+  for (const QVariant &v : wf->wellFactorRows()) {
+    const auto m = v.toMap(); const int row = table->rowCount(); table->insertRow(row);
+    table->setItem(row, 0, new QTableWidgetItem(m.value(QStringLiteral("well_name")).toString()));
+    auto *value = new QTableWidgetItem(m.contains(QStringLiteral("value")) ? QString::number(m.value(QStringLiteral("value")).toDouble(), 'g', 8) : QStringLiteral("—"));
+    value->setFont(PaleoTheme::monoFont()); table->setItem(row, 1, value);
+    auto *detail = new QTableWidgetItem(m.value(QStringLiteral("contributing")).toBool() ? m.value(QStringLiteral("source")).toString() : m.value(QStringLiteral("reason")).toString());
+    detail->setToolTip(detail->text()); table->setItem(row, 2, detail);
+  }
+  child<QLabel>(this, "wellFactorHint")->setText(wf->wellFactorMessage());
+}
+
+QVariantMap ConstraintPage::newConstraintLineParams(const QString &type) const {
+  const auto spin = [this](const char *name) { return findChild<QDoubleSpinBox *>(QString::fromLatin1(name))->value(); };
+  QVariantMap params;
+  if (type == QLatin1String("direction_line")) {
+    params.insert(QStringLiteral("ratio"), spin("factorDirectionRatioSpin"));
+    params.insert(QStringLiteral("influenceRadius"), spin("factorInfluenceSpin"));
+    params.insert(QStringLiteral("coreRadius"), spin("factorCoreSpin"));
+  }
+  if (type == QLatin1String("interpretive_boundary")) {
+    params.insert(QStringLiteral("softStrength"), spin("factorSoftStrengthSpin"));
+    params.insert(QStringLiteral("softRadius"), spin("factorSoftRadiusSpin"));
+  }
+  if (type == QLatin1String("break_line") || type == QLatin1String("contour_stop"))
+    params.insert(QStringLiteral("blockMode"), findChild<QComboBox *>(QStringLiteral("constraintBlockModeCombo"))->currentData());
+  return params;
 }

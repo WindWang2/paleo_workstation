@@ -172,7 +172,10 @@ public:
           cb.cleanup(mutableJob);
         if (cb.onDropped)
           cb.onDropped(mutableJob, DropReason::PrepareFailed);
-        emit claimDropped(currentGeneration(), static_cast<int>(DropReason::PrepareFailed));
+        // #235：此分支尚未 claim（代号在 prepare 通过后才取）——不发
+        // currentGeneration()（那是上一代的代号，按代号对账即错），改发 0。
+        // 0 约定为「未入代」：任务根本没建，不属于任何一代。
+        emit claimDropped(0, static_cast<int>(DropReason::PrepareFailed));
         return nullptr;
       }
     }
@@ -253,7 +256,13 @@ public:
         return;
       Job &work = *job;
       const PaleoTask::State state = task->state();
-      const bool stale = !claim.current();
+      // #235：commit 入口统一比对会话号——发起会话 != 服务当前会话（工程切换
+      // beginNewSession）即按过期丢弃，与取消/陈旧同口径。现状 finished 在
+      // owner 线程同步投递、beginNewSession 也在 owner 线程，窗口已被协作
+      // 取消关闭；此比对是给「finished 改异步投递 / 非 JobRunner 路径」兜底的
+      // 显式防线，让 PaleoTask::session() 的过期语义在框架内有真实消费点。
+      const bool stale = !claim.current() ||
+                         (m_taskService && task->session() != m_taskService->session());
       // 只清理本代自己的句柄：陈旧代结束时不能把新一代的 m_task 清掉。
       const bool ownsHandle = (m_task.data() == task);
       if (state == PaleoTask::State::Cancelled || stale)

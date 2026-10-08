@@ -82,6 +82,34 @@ private slots:
     QVERIFY(!WebViewPanel::isAllowedUrl(QUrl()));
   }
 
+  // #237：页内导航白名单（acceptNavigationRequest 口径）。offscreen 下引擎
+  // 建不起来，guard 的判定只能经静态入口回归——页内链接/302 被带去
+  // file:// 或外域必须同样被拒；about:blank 放行（页内交互常规目标）。
+  void navigationGuardMatchesAddressBarAllowList_data()
+  {
+    QTest::addColumn<QString>("url");
+    QTest::addColumn<bool>("allowed");
+    QTest::newRow("http") << QStringLiteral("http://localhost:8080/x") << true;
+    QTest::newRow("https") << QStringLiteral("https://svc.internal/map") << true;
+    QTest::newRow("https-upper") << QStringLiteral("HTTPS://svc.internal/map") << true;
+    QTest::newRow("about-blank") << QStringLiteral("about:blank") << true;
+    QTest::newRow("file") << QStringLiteral("file:///etc/passwd") << false;
+    QTest::newRow("smb") << QStringLiteral("smb://host/share") << false;
+    QTest::newRow("ftp") << QStringLiteral("ftp://host/x") << false;
+    QTest::newRow("custom") << QStringLiteral("foo://bar") << false;
+    QTest::newRow("javascript") << QStringLiteral("javascript:alert(1)") << false;
+    QTest::newRow("data") << QStringLiteral("data:text/html,<b>x</b>") << false;
+    QTest::newRow("empty-host") << QStringLiteral("http://") << false;
+    QTest::newRow("empty") << QString() << false;
+  }
+
+  void navigationGuardMatchesAddressBarAllowList()
+  {
+    QFETCH(QString, url);
+    QFETCH(bool, allowed);
+    QCOMPARE(WebViewPanel::isNavigationAllowed(QUrl(url)), allowed);
+  }
+
   void emptyStateBeforeAnyUrl()
   {
     WebViewPanel panel;

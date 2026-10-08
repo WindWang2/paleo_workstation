@@ -69,6 +69,16 @@ else
   fi
 fi
 
+# LibreOffice: vendored document->PDF converter for office previews
+# (doc/docx/ppt/pptx/xls/xlsx). Pin in manifest.json deps.libreoffice; fetch
+# script extracts only the headless subset (~550MB extracted).
+if [ -x vendor/libreoffice/program/soffice ]; then
+  note "libreoffice vendored already"
+else
+  note "fetching vendored LibreOffice (manifest deps.libreoffice)"
+  bash vendor/fetch-libreoffice.sh
+fi
+
 if [ "$FETCH_ONLY" = 1 ]; then
   echo "== fetch-only: skip configure/build/selfcheck (deps vendored above) =="
   exit 0

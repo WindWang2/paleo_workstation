@@ -5,6 +5,7 @@
 #include "ui/seismicsection/seismicattrpanel.h"
 
 #include "catalog/datacatalog.h"
+#include "services/fspathutils.h" // #291 QString↔filesystem::path 走 UTF-16（MSVC 窄构造按 ANSI 解码）
 #include "services/seismictaskservice.h"
 
 #include <QPointer>
@@ -33,7 +34,7 @@ void SeismicSectionDockWidget::computeAttributeOnCurrentSection(
     const SgySliceType type = mode == 0 ? SgySliceType::Inline : SgySliceType::Xline;
     const int index = m_spinSlice ? m_spinSlice->value() : 0;
 
-    const QString sourcePath = QString::fromStdString(m_volume->Path().string());
+    const QString sourcePath = paleo::fromFsPath(m_volume->Path());
     m_attrPanel->setBusy(true);
     // #224：请求时快照剖面身份（世代号随换线/换体/任意线推进）+ 迟到回调守卫。
     // 换线换体后迟到的属性图不得贴到新剖面上，也不得顶替可登记结果。
@@ -94,17 +95,14 @@ QString SeismicSectionDockWidget::registerCurrentAttributeAsset(QString *error) 
         m_lastAttrParams, m_lastAttrSourcePath, m_interpretationDir, error);
 }
 
-// goal/attr-volume 扫描产物目录：解释目录优先（应用层注入）；未注入时
-// 落 SEG-Y 伴生目录 <sgy>.attrs（会话伴生文件 <sgy>.seispicks.json 同
-// 先例——项目无关可携带）。体扫描必写产物，无目录即被服务如实拒绝。
+// goal/attr-volume 扫描产物目录：解释目录由 app 层随 catalog 一并注入
+// （工程受管 artifacts/derived/interpretation——拾取/断层/属性扫描产物全部
+// 落此并登记 DERIVED，对 catalog/治理/版本溯源可见）。
+// #226：未注入时不再缺省落 <sgy>.attrs 伴生目录——SATV 可达 GB 级，外部
+// 数据会把体量级产物堆进源数据目录且对 catalog 完全不可见；返回空由服务
+// 如实拒绝（「属性体扫描需产物目录」），时间切片扫描仍可无目录纯扫描。
 QString SeismicSectionDockWidget::attrScanOutputDir() const {
-    if (!m_interpretationDir.isEmpty())
-        return m_interpretationDir;
-    if (!m_volume)
-        return QString();
-    const QString sgy = QString::fromStdString(m_volume->Path().string());
-    return sgy.isEmpty() ? QString()
-                         : sgy + QStringLiteral(".attrs");
+    return m_interpretationDir;
 }
 
 // goal/attr-volume：时间切片扫描编排——完成即登记（DERIVED + 层树声明）；
@@ -123,7 +121,7 @@ void SeismicSectionDockWidget::computeTimeSliceAttribute(
         m_attrPanel->showResult(false, tr("地震体未加载（先打开 SEG-Y）"));
         return;
     }
-    const QString sourcePath = QString::fromStdString(m_volume->Path().string());
+    const QString sourcePath = paleo::fromFsPath(m_volume->Path());
     const QString outputDir = attrScanOutputDir();
     const QPointer<DataCatalog> catalog = m_catalog;
     const QString assetId = m_catalogAssetId;
@@ -144,6 +142,18 @@ void SeismicSectionDockWidget::computeTimeSliceAttribute(
                 return; // dock 已亡：丢弃
             if (!m_attrPanel)
                 return;
+            // #236：工程/体世代守卫——请求时快照的体路径与当前不符（工程
+            // 切换后旧在途扫描迟到）即丢弃：旧工程产物不得登记/上图到新
+            // 工程。面板如实收尾忙态，不冒充成功。
+            const QString currentPath =
+                m_volume ? QString::fromStdString(m_volume->Path().string())
+                         : QString();
+            if (currentPath != sourcePath)
+            {
+                m_attrPanel->showResult(
+                    false, tr("剖面/工程已切换，本次时间切片扫描结果丢弃"));
+                return;
+            }
             if (ok) {
                 const QString suffix =
                     r.cacheHit ? tr("（缓存命中）") : QString();
@@ -203,7 +213,7 @@ void SeismicSectionDockWidget::computeAttributeVolume(
         m_attrPanel->showResult(false, tr("地震体未加载（先打开 SEG-Y）"));
         return;
     }
-    const QString sourcePath = QString::fromStdString(m_volume->Path().string());
+    const QString sourcePath = paleo::fromFsPath(m_volume->Path());
     const QString outputDir = attrScanOutputDir();
     const QPointer<DataCatalog> catalog = m_catalog;
     const QString assetId = m_catalogAssetId;
@@ -218,10 +228,24 @@ void SeismicSectionDockWidget::computeAttributeVolume(
         [this, guard, taskSvc = QPointer<SeismicTaskService>(m_taskService), kind,
          params, sourcePath, outputDir, catalog, assetId,
          versionId](bool ok, const SeismicTaskService::SeismicAttrVolumeResult &r) {
-            if (guard && !ok) {
+            if (!guard || !m_attrPanel)
+                return;
+            // #236：工程/体世代守卫——快照体路径与当前不符（中途关/换工程，
+            // 新工程回调照常走）即静默丢弃：旧工程属性体不得贴进已重置的
+            // 3D 视口、不得登记进新工程 catalog。放在 !ok 分支之前——取消
+            // （含工程边界取消）同样走此守卫，不弹误导性的 3D 失败提示。
+            const QString currentPath =
+                m_volume ? QString::fromStdString(m_volume->Path().string())
+                         : QString();
+            if (currentPath != sourcePath)
+            {
+                m_attrPanel->showResult(
+                    false, tr("剖面/工程已切换，本次属性体扫描结果丢弃"));
+                return;
+            }
+            if (!ok) {
                 emit attrVolumeReady({}, false, r.error);
-                if (m_attrPanel)
-                    m_attrPanel->showResult(false, r.error);
+                m_attrPanel->showResult(false, r.error);
                 return;
             }
             if (!guard || !m_attrPanel)

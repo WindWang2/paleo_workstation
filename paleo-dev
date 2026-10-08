@@ -90,10 +90,10 @@ case "$verb" in
     mkdir -p "$BUILD_DIR/Testing/qtest-first-run"
     if paleo_has_jobs_arg "$@"; then
       QT_QPA_PLATFORM=offscreen ctest --test-dir "$BUILD_DIR" --output-on-failure \
-        --output-junit "$BUILD_DIR/Testing/ctest-junit.xml" "$@"
+        --output-junit "$PWD/$BUILD_DIR/Testing/ctest-junit.xml" "$@"
     else
       QT_QPA_PLATFORM=offscreen ctest --test-dir "$BUILD_DIR" --output-on-failure \
-        --output-junit "$BUILD_DIR/Testing/ctest-junit.xml" -j "$(paleo_jobs)" "$@"
+        --output-junit "$PWD/$BUILD_DIR/Testing/ctest-junit.xml" -j "$(paleo_jobs)" "$@"
     fi
     ;;
   selfcheck)
@@ -102,13 +102,14 @@ case "$verb" in
     ;;
   clean-vendor)
     dep=${1:-}
-    if [ -z "$dep" ]; then rm -rf vendor/build vendor/prefix vendor/superbuild/prefix vendor/onnxruntime; echo "vendor build tree cleared (archives kept)";
+    if [ -z "$dep" ]; then rm -rf vendor/build vendor/prefix vendor/superbuild/prefix vendor/onnxruntime vendor/libreoffice; echo "vendor build tree cleared (archives kept)";
     else
       case "$dep" in
         .|..|*[!A-Za-z0-9._-]*) echo "invalid vendor dependency name: $dep" >&2; exit 2 ;;
       esac
       rm -rf -- "vendor/build/$dep" "vendor/prefix/$dep"
       if [ "$dep" = onnxruntime ]; then rm -rf -- vendor/onnxruntime; fi
+      if [ "$dep" = libreoffice ]; then rm -rf -- vendor/libreoffice; fi
       echo "vendor/$dep cleared"
     fi
     ;;

@@ -1,6 +1,7 @@
 // 层：数据
 #include "services/seismictaskservice.h"
 #include "services/seismictaskservice_internal.h"
+#include "services/fspathutils.h"
 #include "services/paleotaskservice.h"
 
 #include "catalog/datacatalog.h"
@@ -40,10 +41,12 @@ PaleoTask *SeismicTaskService::startSliceExtraction(
   }
 
   const char *typeStr = (type == SgySliceType::Inline) ? "inl" : ((type == SgySliceType::Xline) ? "xl" : "time");
+  // #291：缓存键的路径字节走 UTF-16 通道（path::string() 在 MSVC 上按 ACP
+  // 返回窄字节、遇无法表示的字符还会抛——键会错乱甚至崩）。
   const std::string key =
       SgyDataCache::MakeKey(typeStr, volume->Index()->fileSize,
                             static_cast<std::uint64_t>(sliceIndex)) +
-      ":" + volume->Path().string();
+      ":" + paleo::fromFsPath(volume->Path()).toStdString();
 
   // 1. 检查内存 LRU 缓存（显式 paged 通道不查直读缓存——两条通道语义独立）
   if (pagedPath.isEmpty())
@@ -187,20 +190,32 @@ PaleoTask *SeismicTaskService::startSectionExtraction(
 
   const QString title = tr("提取任意测线/过井剖面 (%1 节点)").arg(pathPoints.size());
 
-  // D5.2 任意线缓存：同体同路径重复提取即出（缓存查询+命中回调走事件循环）
-  if (std::shared_ptr<const SgySliceImage> hit = cachedSection(pathPoints, volume))
+  // D5.2 任意线缓存：同体同路径同选项重复提取即出（缓存查询+命中回调走事件循环）
+  SgySectionStats hitStats;
+  if (std::shared_ptr<const SgySliceImage> hit = cachedSection(pathPoints, volume, options, &hitStats))
   {
-    SgySectionStats stats;
-    stats.columnDistances.reserve(hit->width);
-    for (int c = 0; c < hit->width; ++c)
-      stats.columnDistances.push_back(float(c) * 25.0f); // 近似道距（缓存路径无 stats）
+    if (hitStats.columnDistances.empty() && hit->width > 0)
+    {
+      hitStats.columns = hit->width;
+      float totalGridLen = 0.0f;
+      for (std::size_t i = 1; i < pathPoints.size(); ++i) {
+        const float di = static_cast<float>(pathPoints[i].x - pathPoints[i - 1].x);
+        const float dx = static_cast<float>(pathPoints[i].y - pathPoints[i - 1].y);
+        totalGridLen += std::sqrt(di * di + dx * dx);
+      }
+      hitStats.columnDistances.reserve(hit->width);
+      for (int c = 0; c < hit->width; ++c) {
+        const float target = hit->width <= 1 ? 0.0f : (float(c) / float(hit->width - 1)) * totalGridLen;
+        hitStats.columnDistances.push_back(target);
+      }
+    }
     if (onFinished)
     {
       auto *timer = new QTimer(this);
       timer->setSingleShot(true);
-      connect(timer, &QTimer::timeout, this, [timer, hit, stats, onFinished]() {
+      connect(timer, &QTimer::timeout, this, [timer, hit, hitStats, onFinished]() {
         timer->deleteLater(); // RUNTIME-04：不能在自身 timeout 栈上同步 delete
-        onFinished(true, hit, stats, QString());
+        onFinished(true, hit, hitStats, QString());
       });
       timer->start(0);
     }
@@ -279,10 +294,10 @@ PaleoTask *SeismicTaskService::startSectionExtraction(
   // quiet：剖面条拖动是交互内嵌取数，不拉起任务中心。
   PaleoTask *task = startBounded(title, work, QString(), /*quiet=*/true); // D6.4 ≤4 并发闸
   connect(task, &PaleoTask::finished, this,
-          [this, task, outImage, outStats, onFinished, volume, pathPoints]() {
+          [this, task, outImage, outStats, onFinished, volume, pathPoints, options]() {
     if (task->state() == PaleoTask::State::Succeeded)
     {
-      cacheSection(pathPoints, volume, outImage); // D5.2 成功入 LRU
+      cacheSection(pathPoints, volume, outImage, outStats, options); // D5.2 成功入 LRU
       if (onFinished)
         onFinished(true, outImage, *outStats, QString());
     }
@@ -324,7 +339,7 @@ PaleoTask *SeismicTaskService::startVolumeLoad(
       task->reportBytes(processed, total);
       return true;
     };
-    if (!volume->Load(std::filesystem::path(sgyPath.toStdString()), err, progress))
+    if (!volume->Load(paleo::toFsPath(sgyPath), err, progress))
     {
       if (task->cancelRequested())
         return QString();
@@ -814,7 +829,8 @@ QString SeismicTaskService::registerAttributeSliceAsset(
 // ---- D5.2 任意线提取缓存 -------------------------------------------------------
 
 qint64 SeismicTaskService::sectionCacheKey(const std::vector<glm::ivec2> &pathPoints,
-                                           std::shared_ptr<const SgyVolume> volume)
+                                           std::shared_ptr<const SgyVolume> volume,
+                                           const SgySectionOptions &options)
 {
   // FNV-1a 状态用无符号：有符号乘法溢出是 UB（UBSan），无符号回绕良定义且位模式不变。
   quint64 h = 1469598103934665603ull;
@@ -822,8 +838,21 @@ qint64 SeismicTaskService::sectionCacheKey(const std::vector<glm::ivec2> &pathPo
     h ^= static_cast<quint64>(v);
     h *= 1099511628211ull;
   };
-  if (volume)
-    mix(qint64(volume->Index() ? volume->Index()->fileSize : 0));
+  if (volume && volume->Index())
+  {
+    const SgyIndex &idx = *volume->Index();
+    // 体身份：路径 + 大小 + mtime。同尺寸不同体（原始/滤波/属性体）不能只靠
+    // fileSize 区分；体被重写后 mtime 变化使旧条目自然失配。
+    const std::string p = idx.path.string();
+    for (const char ch : p)
+      mix(qint64(static_cast<quint8>(ch)));
+    mix(qint64(idx.fileSize));
+    mix(idx.modifiedTimeTicks);
+  }
+  // 提取选项：maxColumns/interpolate/keepOutsideColumns 不同则剖面不同
+  mix(options.maxColumns);
+  mix(options.interpolate ? 1 : 0);
+  mix(options.keepOutsideColumns ? 1 : 0);
   for (const glm::ivec2 &pt : pathPoints)
   {
     mix(pt.x);
@@ -834,14 +863,18 @@ qint64 SeismicTaskService::sectionCacheKey(const std::vector<glm::ivec2> &pathPo
 
 std::shared_ptr<const SgySliceImage> SeismicTaskService::cachedSection(
     const std::vector<glm::ivec2> &pathPoints,
-    std::shared_ptr<const SgyVolume> volume) const
+    std::shared_ptr<const SgyVolume> volume,
+    const SgySectionOptions &options,
+    SgySectionStats *stats) const
 {
-  const qint64 key = sectionCacheKey(pathPoints, volume);
+  const qint64 key = sectionCacheKey(pathPoints, volume, options);
   for (auto &entry : sectionCache_)
   {
     if (entry.key == key)
     {
       entry.lastUse = ++sectionCacheClock_;
+      if (stats && entry.stats)
+        *stats = *entry.stats; // 真实 stats 随图像一起入缓存，绝不合成
       return entry.image;
     }
   }
@@ -850,12 +883,14 @@ std::shared_ptr<const SgySliceImage> SeismicTaskService::cachedSection(
 
 void SeismicTaskService::cacheSection(const std::vector<glm::ivec2> &pathPoints,
                                       std::shared_ptr<const SgyVolume> volume,
-                                      std::shared_ptr<const SgySliceImage> image)
+                                      std::shared_ptr<const SgySliceImage> image,
+                                      std::shared_ptr<const SgySectionStats> stats,
+                                      const SgySectionOptions &options)
 {
-  const qint64 key = sectionCacheKey(pathPoints, volume);
+  const qint64 key = sectionCacheKey(pathPoints, volume, options);
   for (auto it = sectionCache_.begin(); it != sectionCache_.end();)
     it = (it->key == key) ? sectionCache_.erase(it) : it + 1;
-  sectionCache_.push_back({key, image, ++sectionCacheClock_});
+  sectionCache_.push_back({key, image, stats, ++sectionCacheClock_});
   while (sectionCache_.size() > 4)
   {
     // 淘汰最久未用

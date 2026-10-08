@@ -55,6 +55,9 @@ public slots:
     void updateProgress(int percent, const QString &stageLabel);
     // registrable=false：扫描类结果（自动登记，不点亮剖面登记按钮）
     void showResult(bool ok, const QString &summary, bool registrable = true);
+    // #236：工程边界复位——清忙态/可登记态/状态行。切工程后旧工程的结果
+    // 不得留在「可登记」态（接线后会把旧属性登记进新工程 catalog）。
+    void clearResult();
 
 private:
     void buildUi();

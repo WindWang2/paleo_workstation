@@ -3,15 +3,21 @@
 
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QFileInfo>
 #include <QJsonValue>
+#include <QMetaObject>
 #include <QPointer>
+
+#include <algorithm>
 
 #include "../ai/chat/domaintools.h"
 #include "../ai/wellfaciesservice.h"
+#include "../catalog/datacatalog.h"
 #include "../domain/welllogfacies.h"
+#include "../services/derivationgraph.h"
 #include "../services/paleotaskservice.h"
 
-// workflow/ — 聊天工具执行器实现（方向61）。
+// workflow/ — 聊天工具执行器实现（方向61；方向77 增只读查询/血缘两工具）。
 //
 // 结果 JSON 契约：成功 = {"tool": <名>, ...摘要}；失败 = {"tool": <名>,
 // "error": <人可读原因>}。两种都按 role=tool 回灌——协议要求每个
@@ -22,6 +28,14 @@ namespace {
 // 一致），执行面取 0.5（掩膜产品语义见 aiassistworkflow.h）。想调参走
 // 工作流面板，不走聊天。
 constexpr double kChatLowConfidenceThreshold = 0.5;
+
+// 方向77 出参列表上限（ledger 定案）：结构化截断优先于全局 4000 字符 clamp
+// ——JSON 保持合法，总数如实另报。
+constexpr int kQueryListCap = 50;
+constexpr int kWellLinksCap = 100;
+// 摘要段硬上限（预算纪律：system prompt 轻注入不喧宾夺主）。
+constexpr int kBriefCharCap = 300;
+constexpr int kBriefAssetTypes = 6;
 
 int intArg(const QJsonObject &args, const char *key, int fallback) {
   const QJsonValue value = args.value(QLatin1String(key));
@@ -127,6 +141,10 @@ void AiChatToolRunner::startNext() {
     runHorizon(m_activeCall, args);
   else if (m_activeCall.name == QStringLiteral("paleo.well_facies_prediction"))
     runFacies(m_activeCall, args);
+  else if (m_activeCall.name == QStringLiteral("paleo.query_project"))
+    runQuery(m_activeCall, args);
+  else if (m_activeCall.name == QStringLiteral("paleo.asset_lineage"))
+    runLineage(m_activeCall, args);
   else
     finishActive(false, errorPayload(tr("未登记的工具 %1").arg(m_activeCall.name)));
 }
@@ -141,15 +159,28 @@ QJsonObject AiChatToolRunner::errorPayload(const QString &message) const {
 void AiChatToolRunner::finishActive(bool ok, const QJsonObject &payload) {
   const ChatToolCall call = m_activeCall;
   const bool wasFacies = m_activeIsFacies;
+  const int generation = m_generation;
   m_active = false;
   m_activeIsFacies = false;
   m_activeTask.clear();
   if (wasFacies)
     m_facies->disconnect(this); // 单发钩子：用完即拆（串行执行下防堆积）
-  emit toolFinished(call, ok,
-                    QString::fromUtf8(QJsonDocument(payload).toJson(
-                      QJsonDocument::Compact)));
-  startNext();
+  // 统一异步回报（#281）：同步失败分支（实参非法/未路由/上下文未绑定）若
+  // 从 run() 的调用栈直接 emit，调用方（aichatcontroller 的派发循环）会在
+  // 同一栈里被重入改容器——range-for 迭代器失效 UB。toolFinished 一律经
+  // 事件循环再发，成功/失败同一语义；cancel 经世代号把在途报告作废（取消=
+  // 作废，口径见头文件），对象析构时 Qt 随 context 丢弃未投递的入队调用。
+  QMetaObject::invokeMethod(
+    this,
+    [this, generation, call, ok, payload]() {
+      if (generation != m_generation)
+        return; // 已取消/作废：在途结果不再回灌
+      emit toolFinished(call, ok,
+                        QString::fromUtf8(QJsonDocument(payload).toJson(
+                          QJsonDocument::Compact)));
+      startNext();
+    },
+    Qt::QueuedConnection);
 }
 
 void AiChatToolRunner::runTile(const ChatToolCall &call,
@@ -363,4 +394,365 @@ void AiChatToolRunner::runFacies(const ChatToolCall &call,
             finishActive(false, errorPayload(reason));
           });
   m_facies->predict(model, well, input);
+}
+
+// ---------------------------------------------------------------------------
+// 方向77：只读工程查询（query_project / asset_lineage）
+// ---------------------------------------------------------------------------
+
+namespace {
+// 资产条目的版本引用（可追溯口径）：无版本记录时字段留空——如实，不编造。
+void insertVersionCitation(QJsonObject *entry, const DataCatalog *catalog,
+                           const QString &assetId) {
+  const CatalogVersion version = catalog->currentVersion(assetId);
+  entry->insert(QStringLiteral("version_id"), version.id);
+  entry->insert(QStringLiteral("stage"), version.stage);
+  entry->insert(QStringLiteral("version_number"), version.versionNumber);
+  entry->insert(QStringLiteral("path"), version.path);
+}
+
+QString displayName(const CatalogAsset &asset) {
+  return asset.displayName.isEmpty() ? asset.id : asset.displayName;
+}
+} // namespace
+
+void AiChatToolRunner::runQuery(const ChatToolCall &call,
+                                const QJsonObject &args) {
+  Q_UNUSED(call)
+  if (!m_context.catalog || !m_context.catalog->isOpen()) {
+    finishActive(false,
+                 errorPayload(tr("未绑定工程目录（须先打开工程再查工程数据）")));
+    return;
+  }
+  const DataCatalog *catalog = m_context.catalog;
+  const QString topic = args.value(QStringLiteral("topic")).toString();
+
+  QJsonObject payload;
+  payload.insert(QStringLiteral("tool"), QStringLiteral("paleo.query_project"));
+  payload.insert(QStringLiteral("topic"), topic);
+  payload.insert(QStringLiteral("project_dir"), m_context.projectDir);
+
+  if (topic == QStringLiteral("summary")) {
+    // 先落局部再迭代——entityCountsByType 按值返回，begin/end 各取一个
+    // 临时对象是悬空迭代（UB）。
+    const QHash<QString, int> entityCounts = catalog->entityCountsByType();
+    QJsonObject entities;
+    for (auto it = entityCounts.cbegin(); it != entityCounts.cend(); ++it)
+      entities.insert(it.key(), it.value());
+    QHash<QString, int> assetCounts;
+    for (const CatalogAsset &asset : catalog->assets())
+      ++assetCounts[asset.type];
+    QJsonObject assets;
+    for (auto it = assetCounts.cbegin(); it != assetCounts.cend(); ++it)
+      assets.insert(it.key(), it.value());
+    payload.insert(QStringLiteral("entities"), entities);
+    payload.insert(QStringLiteral("assets_by_type"), assets);
+    payload.insert(QStringLiteral("revision"), catalog->catalogRevision());
+    finishActive(true, payload);
+    return;
+  }
+
+  if (topic == QStringLiteral("wells")) {
+    // 井清单 = 井族实体（well + planned；计划井语义由条目 type 区分——
+    // 测线/界面/辅助属别的实体类型，不在「有哪些井」的回答里掺沙）。
+    QVector<CatalogEntity> wellLike;
+    for (const CatalogEntity &entity : catalog->entities())
+      if (entity.entityType == QStringLiteral("well") ||
+          entity.entityType == QStringLiteral("planned"))
+        wellLike.append(entity);
+    std::sort(wellLike.begin(), wellLike.end(),
+              [](const CatalogEntity &a, const CatalogEntity &b) {
+                const QString an = a.name.isEmpty() ? a.id : a.name;
+                const QString bn = b.name.isEmpty() ? b.id : b.name;
+                return an < bn;
+              });
+    QJsonArray wells;
+    int truncatedAt = -1;
+    for (int i = 0; i < wellLike.size(); ++i) {
+      if (wells.size() >= kQueryListCap) {
+        truncatedAt = i;
+        break;
+      }
+      QJsonObject entry;
+      entry.insert(
+        QStringLiteral("name"),
+        wellLike[i].name.isEmpty() ? wellLike[i].id : wellLike[i].name);
+      entry.insert(QStringLiteral("id"), wellLike[i].id);
+      entry.insert(QStringLiteral("type"), wellLike[i].entityType);
+      entry.insert(QStringLiteral("td"), wellLike[i].td);
+      wells.append(entry);
+    }
+    payload.insert(QStringLiteral("count"), wellLike.size());
+    payload.insert(QStringLiteral("wells"), wells);
+    if (truncatedAt >= 0)
+      payload.insert(QStringLiteral("truncated"),
+                     tr("仅前 %1 条（共 %2 条）")
+                       .arg(wells.size())
+                       .arg(wellLike.size()));
+    finishActive(true, payload);
+    return;
+  }
+
+  if (topic == QStringLiteral("horizons") || topic == QStringLiteral("assets")) {
+    const QString typeFilter =
+      topic == QStringLiteral("horizons")
+        ? QStringLiteral("horizon")
+        : args.value(QStringLiteral("asset_type")).toString();
+    QVector<CatalogAsset> matched;
+    for (const CatalogAsset &asset : catalog->assets())
+      if (typeFilter.isEmpty() || asset.type == typeFilter)
+        matched.append(asset);
+    std::sort(matched.begin(), matched.end(),
+              [](const CatalogAsset &a, const CatalogAsset &b) {
+                return displayName(a) < displayName(b);
+              });
+    QJsonArray entries;
+    int truncatedAt = -1;
+    for (int i = 0; i < matched.size(); ++i) {
+      if (entries.size() >= kQueryListCap) {
+        truncatedAt = i;
+        break;
+      }
+      QJsonObject entry;
+      entry.insert(QStringLiteral("name"), displayName(matched[i]));
+      if (topic == QStringLiteral("horizons"))
+        entry.insert(QStringLiteral("asset_id"), matched[i].id);
+      else {
+        entry.insert(QStringLiteral("id"), matched[i].id);
+        entry.insert(QStringLiteral("type"), matched[i].type);
+        entry.insert(QStringLiteral("format"), matched[i].format);
+      }
+      insertVersionCitation(&entry, catalog, matched[i].id);
+      entries.append(entry);
+    }
+    payload.insert(QStringLiteral("count"), matched.size());
+    payload.insert(topic == QStringLiteral("horizons")
+                     ? QStringLiteral("horizons")
+                     : QStringLiteral("assets"),
+                   entries);
+    if (truncatedAt >= 0)
+      payload.insert(QStringLiteral("truncated"),
+                     tr("仅前 %1 条（共 %2 条）")
+                       .arg(entries.size())
+                       .arg(matched.size()));
+    finishActive(true, payload);
+    return;
+  }
+
+  if (topic == QStringLiteral("well_details")) {
+    const QString wellName = args.value(QStringLiteral("well_name")).toString();
+    if (wellName.isEmpty()) {
+      finishActive(false,
+                   errorPayload(tr("topic=well_details 须给 well_name（井名）")));
+      return;
+    }
+    const QStringList candidates = catalog->wellsMatchingName(wellName);
+    if (candidates.isEmpty()) {
+      // 如实报错并给出实证井名（截 10 个）——模型可据此向用户澄清。
+      QStringList known;
+      for (const CatalogEntity &entity : catalog->entities(QStringLiteral("well")))
+        known.append(entity.name.isEmpty() ? entity.id : entity.name);
+      known.sort();
+      finishActive(false,
+                   errorPayload(tr("井不存在：%1；工程现有井：%2")
+                                  .arg(wellName,
+                                       known.size() > 10
+                                         ? known.mid(0, 10).join(
+                                             QStringLiteral("、")) + QStringLiteral("…")
+                                         : known.join(QStringLiteral("、")))));
+      return;
+    }
+    if (candidates.size() > 1) {
+      finishActive(false,
+                   errorPayload(tr("井名匹配到多个候选（%1）——请给更精确的井名")
+                                  .arg(candidates.join(QStringLiteral("、")))));
+      return;
+    }
+    const CatalogEntity well = catalog->entityById(candidates.first());
+    const QString roleFilter = args.value(QStringLiteral("role")).toString();
+    QVector<EntityAssetLink> links = catalog->linksForEntity(well.id);
+    QJsonArray entries;
+    int truncatedAt = -1;
+    for (int i = 0; i < links.size(); ++i) {
+      if (!roleFilter.isEmpty() && links[i].role != roleFilter)
+        continue;
+      if (entries.size() >= kWellLinksCap) {
+        truncatedAt = i;
+        break;
+      }
+      const CatalogAsset asset = catalog->assetById(links[i].assetId);
+      QJsonObject entry;
+      entry.insert(QStringLiteral("role"), links[i].role);
+      entry.insert(QStringLiteral("asset"), displayName(asset));
+      entry.insert(QStringLiteral("asset_id"), links[i].assetId);
+      entry.insert(QStringLiteral("primary"), links[i].isPrimary);
+      insertVersionCitation(&entry, catalog, links[i].assetId);
+      entries.append(entry);
+    }
+    payload.insert(QStringLiteral("well"),
+                   well.name.isEmpty() ? well.id : well.name);
+    payload.insert(QStringLiteral("well_id"), well.id);
+    payload.insert(QStringLiteral("links"), entries);
+    if (truncatedAt >= 0)
+      payload.insert(QStringLiteral("truncated"),
+                     tr("仅前 %1 条关联（共 %2 条）")
+                       .arg(entries.size())
+                       .arg(links.size()));
+    finishActive(true, payload);
+    return;
+  }
+
+  finishActive(false,
+               errorPayload(tr("未知 topic：%1（合法值见工具 schema enum）")
+                              .arg(topic)));
+}
+
+void AiChatToolRunner::runLineage(const ChatToolCall &call,
+                                  const QJsonObject &args) {
+  Q_UNUSED(call)
+  if (!m_context.catalog || !m_context.catalog->isOpen()) {
+    finishActive(false,
+                 errorPayload(tr("未绑定工程目录（须先打开工程再查血缘）")));
+    return;
+  }
+  const DataCatalog *catalog = m_context.catalog;
+  const QString assetKey = args.value(QStringLiteral("asset")).toString();
+
+  // 解析序（ledger 定案）：versionId → assetId → displayName 唯一命中。
+  QString seedVersionId;
+  QString resolvedAssetId;
+  if (catalog->versionById(assetKey).id == assetKey) {
+    seedVersionId = assetKey;
+    resolvedAssetId = catalog->versionById(assetKey).assetId;
+  } else if (catalog->assetById(assetKey).id == assetKey) {
+    resolvedAssetId = assetKey;
+    seedVersionId = catalog->currentVersion(assetKey).id;
+  } else {
+    QVector<CatalogAsset> byName;
+    for (const CatalogAsset &asset : catalog->assets())
+      if (asset.displayName == assetKey)
+        byName.append(asset);
+    if (byName.size() > 1) {
+      finishActive(false,
+                   errorPayload(tr("资产名匹配到多个候选（%1）——请给 asset id")
+                                  .arg(assetKey)));
+      return;
+    }
+    if (byName.size() == 1) {
+      resolvedAssetId = byName.first().id;
+      seedVersionId = catalog->currentVersion(resolvedAssetId).id;
+    }
+  }
+  if (seedVersionId.isEmpty()) {
+    finishActive(false,
+                 errorPayload(tr("未找到资产或其版本记录：%1（可用 "
+                                 "paleo.query_project topic=assets 查资产清单）")
+                                .arg(assetKey)));
+    return;
+  }
+
+  paleo::derivation::Query query;
+  query.versionId = seedVersionId;
+  query.upstreamDepth = qBound(0, intArg(args, "upstream_depth", 3), 12);
+  query.downstreamDepth = qBound(0, intArg(args, "downstream_depth", 1), 12);
+  const paleo::derivation::Graph graph =
+    paleo::derivation::Service::build(catalog, query);
+  const QSet<QString> closure =
+    paleo::derivation::Service::selectionClosure(catalog, graph, seedVersionId);
+
+  QJsonObject payload;
+  payload.insert(QStringLiteral("tool"), QStringLiteral("paleo.asset_lineage"));
+  payload.insert(QStringLiteral("asset"), assetKey);
+  payload.insert(QStringLiteral("asset_id"), resolvedAssetId);
+  payload.insert(QStringLiteral("version_id"), seedVersionId);
+  payload.insert(QStringLiteral("available"), graph.available);
+  QJsonArray nodes;
+  for (const paleo::derivation::Node &node : graph.nodes) {
+    QJsonObject entry;
+    entry.insert(QStringLiteral("version_id"), node.versionId);
+    entry.insert(QStringLiteral("asset"), node.assetName);
+    entry.insert(QStringLiteral("asset_id"), node.assetId);
+    entry.insert(QStringLiteral("stage"), node.stage);
+    entry.insert(QStringLiteral("kind"),
+                 node.kind == paleo::derivation::Kind::Raw
+                   ? QStringLiteral("raw")
+                   : node.kind == paleo::derivation::Kind::Derived
+                       ? QStringLiteral("derived")
+                       : QStringLiteral("external"));
+    entry.insert(QStringLiteral("stale"), node.stale);
+    entry.insert(QStringLiteral("column"), node.column);
+    entry.insert(QStringLiteral("version_name"), node.versionName);
+    // 版本引用（可追溯）：路径取 catalog 版本记录，不编造。
+    entry.insert(QStringLiteral("path"),
+                 catalog->versionById(node.versionId).path);
+    nodes.append(entry);
+  }
+  payload.insert(QStringLiteral("nodes"), nodes);
+  QJsonArray edges;
+  for (const paleo::derivation::Edge &edge : graph.edges) {
+    QJsonObject entry;
+    entry.insert(QStringLiteral("parent"), edge.parentId);
+    entry.insert(QStringLiteral("child"), edge.childId);
+    edges.append(entry);
+  }
+  payload.insert(QStringLiteral("edges"), edges);
+  QStringList closureIds = closure.values();
+  closureIds.sort(); // QSet 迭代序不稳定：出参排序钉死可复现
+  QJsonObject selection;
+  selection.insert(QStringLiteral("count"), closureIds.size());
+  QJsonArray closureArray;
+  for (const QString &id : closureIds)
+    closureArray.append(id);
+  selection.insert(QStringLiteral("version_ids"), closureArray);
+  payload.insert(QStringLiteral("selection"), selection);
+  payload.insert(QStringLiteral("collapsed_upstream"), graph.collapsedUpstream);
+  payload.insert(QStringLiteral("collapsed_downstream"),
+                 graph.collapsedDownstream);
+  payload.insert(QStringLiteral("collapsed_seeds"), graph.collapsedSeeds);
+  if (!graph.message.isEmpty())
+    payload.insert(QStringLiteral("message"), graph.message);
+  finishActive(true, payload);
+}
+
+QString AiChatToolRunner::projectBrief(const DataCatalog *catalog,
+                                       const QString &projectDir) {
+  if (!catalog || !catalog->isOpen())
+    return tr("未打开——工程数据查询（query/lineage 工具）会得到如实报错。");
+  const QHash<QString, int> entities = catalog->entityCountsByType();
+  const int wells = entities.value(QStringLiteral("well"));
+  const int planned = entities.value(QStringLiteral("planned"));
+  const int surveys = entities.value(QStringLiteral("seismic_survey"));
+  const int boundaries = entities.value(QStringLiteral("sequence_boundary"));
+  const int auxiliary = entities.value(QStringLiteral("auxiliary"));
+  QHash<QString, int> assetCounts;
+  for (const CatalogAsset &asset : catalog->assets())
+    ++assetCounts[asset.type];
+  // 计数降序、同数按名稳定排序；超上限归并成「等 N 类」。
+  QList<QPair<QString, int>> ranked;
+  for (auto it = assetCounts.cbegin(); it != assetCounts.cend(); ++it)
+    ranked.append(qMakePair(it.key(), it.value()));
+  std::sort(ranked.begin(), ranked.end(),
+            [](const QPair<QString, int> &a, const QPair<QString, int> &b) {
+              return a.second == b.second ? a.first < b.first
+                                          : a.second > b.second;
+            });
+  QStringList assetParts;
+  for (int i = 0; i < ranked.size() && i < kBriefAssetTypes; ++i)
+    assetParts.append(tr("%1 %2").arg(ranked[i].first).arg(ranked[i].second));
+  if (ranked.size() > kBriefAssetTypes)
+    assetParts.append(tr("等 %1 类").arg(ranked.size()));
+  QString brief = tr("井 %1 口（其中计划井 %2）、地震测线 %3、层序界面 %4、辅助 %5；"
+                     "资产：%6；catalog 修订 %7。")
+                    .arg(wells + planned)
+                    .arg(planned)
+                    .arg(surveys)
+                    .arg(boundaries)
+                    .arg(auxiliary)
+                    .arg(assetParts.isEmpty() ? tr("（无）") : assetParts.join(QStringLiteral("、")))
+                    .arg(catalog->catalogRevision());
+  if (!projectDir.isEmpty())
+    brief = tr("工程 %1：").arg(QFileInfo(projectDir).fileName()) + brief;
+  if (brief.size() > kBriefCharCap)
+    brief = brief.left(kBriefCharCap - 1) + QStringLiteral("…");
+  return brief;
 }

@@ -351,12 +351,17 @@ void TestFaciesMappingWorkflow::jobRunnerThreeStageCommits()
   QSignalSpy draftSpy( &wf, &FaciesMappingWorkflow::draftReady );
 
   std::shared_ptr<FaciesMappingWorkflow::DraftFaciesJob> started;
-  PaleoTask *task = wf.startJob( runner, standardRequest(), nullptr, &started );
+  PaleoTask *task = wf.startJob( runner, standardRequest(), &started );
   QVERIFY2( task, "startJob 应受理任务" );
   QVERIFY( started );
+  QSignalSpy progressSpy( task, &PaleoTask::changed );
   QVERIFY2( pumpUntil( [&] { return draftSpy.count() > 0; } ), "三段式未走到 commit" );
   QVERIFY( !runner.busy() );
   QVERIFY( started->computed.ok );
+  // #235：进度改走框架 ProgressFn → PaleoTask::changed（stagePercent/stage 可读）。
+  QVERIFY( progressSpy.count() > 0 );
+  QVERIFY( task->stagePercent() > 0 );
+  QVERIFY( !task->stage().isEmpty() );
   QVERIFY2( versionOfAsset( f.catalog, f.projectDir(), QStringLiteral( "facies_draft_map" ) ),
             "commit 段未登记资产" );
   svc.shutdown( 3000, false );

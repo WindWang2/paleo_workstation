@@ -42,12 +42,18 @@ RemotePredictionAssembly installRemotePrediction(MappingWorkbench *bench,
 class AiChatController;
 class AiAssistWorkflow;
 class QgisLayerService;
+class DataCatalog;
 
 // 方向61：聊天助手的工具执行器装配——把 controller 里的 runner 绑到
 // AiAssistWorkflow 执行面 + 应用级数据上下文（活动层位 + 层位栅格取数）。
-// traceFetch（道窗，须地震体服务）与 faciesInput（井曲线，须井缓存）暂不
+// 方向77：追加只读工程上下文（catalog + projectDir）——query_project /
+// asset_lineage 两只读工具据此可用，工程摘要常驻段同时注入 system prompt。
+// traceFetch（道窗，须地震体服务）与 faciesInput（井曲线，须井缓存）仍不
 // 绑定：对应工具被点名时执行器如实报「上下文未绑定」，不冒充成功
 // （递延项见 TODOS.md）。appcontext 在启动与工程打开（AreaRules 可能换
-// 工区钉值）各调一次。
+// 工区钉值）各调一次。assist 可为空（无 ORT 构建）：只读工具照绑，
+// tile/horizon 维持执行期如实报错。
 void bindChatToolRunner(AiChatController *chat, AiAssistWorkflow *assist,
-                        QgisLayerService *layers);
+                        QgisLayerService *layers,
+                        DataCatalog *catalog = nullptr,
+                        const QString &projectDir = QString());

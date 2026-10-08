@@ -192,7 +192,10 @@ void SeismicSectionCanvas::rebuildDisplayValues() {
 float SeismicSectionCanvas::displayValue(int traceIdx, int sampleIdx) const {
     if (traceIdx < 0 || traceIdx >= m_traces || sampleIdx < 0 || sampleIdx >= m_samples)
         return std::numeric_limits<float>::quiet_NaN();
-    if (!m_displayValues.empty())
+    // #286：显示缓冲只在与当前网格逐位一致时生效——失配直通原始值，
+    // 防换网格后的越界读（上游入口已负责重建，这里是最后一道兜底）。
+    if (m_displayValues.size() ==
+        static_cast<std::size_t>(m_traces) * static_cast<std::size_t>(m_samples))
         return m_displayValues[static_cast<std::size_t>(sampleIdx) * m_traces + traceIdx];
     return m_slice.Value(traceIdx, sampleIdx);
 }
@@ -314,7 +317,9 @@ void SeismicSectionCanvas::paintValueRegion(int x0, int y0, int w, int h) {
     const float absMax = std::max(std::abs(m_slice.valueMin), std::abs(m_slice.valueMax));
     const float baseScale = absMax > 1e-8f ? 1.0f / absMax : 1.0f;
     const float effectiveScale = baseScale * m_gain;
-    const bool hasDisplay = !m_displayValues.empty();
+    // #286：显示缓冲与当前网格逐位一致才启用（失配直通原始值，防越界读）
+    const bool hasDisplay = m_displayValues.size() ==
+        static_cast<std::size_t>(m_traces) * static_cast<std::size_t>(m_samples);
 
     for (int y = y0; y < y0 + h; ++y) {
         auto *scanLine = reinterpret_cast<QRgb *>(m_cachedImage.scanLine(y));
@@ -354,7 +359,9 @@ const QImage &SeismicSectionCanvas::lodImage() const {
     m_lodCache = QImage(m_traces, outRows, QImage::Format_ARGB32_Premultiplied);
     const float absMax = std::max(std::abs(m_slice.valueMin), std::abs(m_slice.valueMax));
     const float baseScale = absMax > 1e-8f ? 1.0f / absMax : 1.0f;
-    const bool hasDisplay = !m_displayValues.empty();
+    // #286：同 paintValueRegion——显示缓冲失配时直通原始值，防越界读
+    const bool hasDisplay = m_displayValues.size() ==
+        static_cast<std::size_t>(m_traces) * static_cast<std::size_t>(m_samples);
     for (int r = 0; r < outRows; ++r) {
         auto *scan = reinterpret_cast<QRgb *>(m_lodCache.scanLine(r));
         const int yBegin = r * stride;

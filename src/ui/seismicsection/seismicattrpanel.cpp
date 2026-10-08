@@ -271,6 +271,17 @@ void SeismicAttrPanel::showResult(bool ok, const QString &summary,
     syncEnabledState();
 }
 
+// #236：工程边界复位——忙态/可登记态/状态行全部清空（切工程后旧工程的
+// 结果不得留在「可登记」态，也不得让取消按钮停在半途忙态）。
+void SeismicAttrPanel::clearResult()
+{
+    m_busy = false;
+    m_hasResult = false;
+    m_progress->setValue(0);
+    m_lblStatus->clear();
+    syncEnabledState();
+}
+
 void SeismicAttrPanel::syncEnabledState()
 {
     m_btnCompute->setEnabled(!m_busy);

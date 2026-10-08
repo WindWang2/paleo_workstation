@@ -10,11 +10,20 @@
 #include <qgsapplication.h>
 #include <qgscolorramp.h>
 #include <qgsfeature.h>
+#include <qgsgeometry.h>
+#include <qgsvectordataprovider.h>
 #include <qgsfeatureiterator.h>
 #include <qgsmaplayer.h>
+#include <qgsmapsettings.h>
+#include <qgsmaprendererparalleljob.h>
 #include <qgsproject.h>
 #include <qgsrasterlayer.h>
 #include <qgsvectorlayer.h>
+#include <qgssinglesymbolrenderer.h>
+#include <qgslinesymbol.h>
+#include <qgslinesymbollayer.h>
+#include <qgsvectorlayerlabeling.h>
+#include <qgslabelthinningsettings.h>
 
 #include <gdal.h>
 #include <cpl_conv.h>
@@ -40,6 +49,8 @@
 #include "../src/services/singlefactordef.h"
 #include "../src/workflow/workflows.h"
 #include "../src/workflow/mapversioncontroller.h"
+#include "../src/workflow/mappingworkbench.h"
+#include "../src/domain/litholexicon.h"
 #include "../src/metadata/mapversionstore.h"
 
 #include <QCoreApplication>
@@ -351,6 +362,223 @@ class TestFactorWorkflow : public QObject
     void cleanup()
     {
       QgsProject::instance()->removeAllMapLayers();
+    }
+
+    void lithoLexiconTableDrivenDisambiguation()
+    {
+      const auto lex = paleo::domain::LithoLexicon::defaultLexicon();
+      struct Row {
+        QString litho;
+        paleo::domain::LithoGroup expectedGroup;
+        bool expectedSand;
+        bool expectedKnown;
+      };
+      const QVector<Row> cases = {
+        // 歧义复合词优先级归类
+        { QStringLiteral("粉砂质泥岩"), paleo::domain::LithoGroup::Mud, false, true },
+        { QStringLiteral("砂质泥岩"), paleo::domain::LithoGroup::Mud, false, true },
+        { QStringLiteral("灰质泥岩"), paleo::domain::LithoGroup::Mud, false, true },
+        { QStringLiteral("泥质粉砂岩"), paleo::domain::LithoGroup::Sand, true, true },
+        { QStringLiteral("泥质砂岩"), paleo::domain::LithoGroup::Sand, true, true },
+        { QStringLiteral("灰质砂岩"), paleo::domain::LithoGroup::Sand, true, true },
+        { QStringLiteral("泥质灰岩"), paleo::domain::LithoGroup::Carbonate, false, true },
+        { QStringLiteral("砂质灰岩"), paleo::domain::LithoGroup::Carbonate, false, true },
+        // 基础砂族
+        { QStringLiteral("砂岩"), paleo::domain::LithoGroup::Sand, true, true },
+        { QStringLiteral("细砂岩"), paleo::domain::LithoGroup::Sand, true, true },
+        { QStringLiteral("粗砂岩"), paleo::domain::LithoGroup::Sand, true, true },
+        { QStringLiteral("砂"), paleo::domain::LithoGroup::Sand, true, true },
+        { QStringLiteral("sandstone"), paleo::domain::LithoGroup::Sand, true, true },
+        { QStringLiteral("sand"), paleo::domain::LithoGroup::Sand, true, true },
+        // 基础泥族
+        { QStringLiteral("泥岩"), paleo::domain::LithoGroup::Mud, false, true },
+        { QStringLiteral("页岩"), paleo::domain::LithoGroup::Mud, false, true },
+        { QStringLiteral("shale"), paleo::domain::LithoGroup::Mud, false, true },
+        { QStringLiteral("mudstone"), paleo::domain::LithoGroup::Mud, false, true },
+        // 碳酸盐族与砾岩族
+        { QStringLiteral("灰岩"), paleo::domain::LithoGroup::Carbonate, false, true },
+        { QStringLiteral("白云岩"), paleo::domain::LithoGroup::Carbonate, false, true },
+        { QStringLiteral("limestone"), paleo::domain::LithoGroup::Carbonate, false, true },
+        { QStringLiteral("砾岩"), paleo::domain::LithoGroup::Conglomerate, false, true },
+        // 未知词
+        { QStringLiteral("火山碎屑岩"), paleo::domain::LithoGroup::Unknown, false, false },
+        { QStringLiteral("玄武岩"), paleo::domain::LithoGroup::Unknown, false, false },
+        { QString(), paleo::domain::LithoGroup::Unknown, false, false }
+      };
+
+      for (const auto &c : cases) {
+        const auto res = lex.classify(c.litho);
+        QCOMPARE(res.group, c.expectedGroup);
+        QCOMPARE(res.isSand, c.expectedSand);
+        QCOMPARE(res.isKnown, c.expectedKnown);
+      }
+    }
+
+    void lithoLexiconProjectExtensionAndFactorSourceAudit()
+    {
+      QTemporaryDir tmp;
+      QVERIFY(tmp.isValid());
+      const QString customJson = QStringLiteral(R"({
+        "name": "volcanic_custom",
+        "rules": [
+          { "pattern": "玄武岩", "matchType": "contains", "group": "其他", "priority": 90 }
+        ]
+      })");
+      QFile f(tmp.filePath(QStringLiteral("litho_lexicon.json")));
+      QVERIFY(f.open(QIODevice::WriteOnly));
+      f.write(customJson.toUtf8());
+      f.close();
+
+      const auto lex = paleo::domain::LithoLexicon::fromProject(tmp.path());
+      QCOMPARE(lex.name(), QStringLiteral("volcanic_custom"));
+      const auto res = lex.classify(QStringLiteral("致密玄武岩"));
+      QCOMPARE(res.group, paleo::domain::LithoGroup::Other);
+      QVERIFY(res.isKnown);
+      QVERIFY(!res.isSand);
+
+      // 默认词表依然生效
+      QVERIFY(lex.isSand(QStringLiteral("细砂岩")));
+    }
+
+    void explicitWellFactorExtractionAndAllMethods() {
+      Fixture f; QVERIFY(initFixture(f)); QString err;
+      const QString path = f.dir.filePath(QStringLiteral("factors.geojson"));
+      QFile file(path); QVERIFY(file.open(QIODevice::WriteOnly));
+      file.write(R"({"type":"FeatureCollection","crs":{"type":"name","properties":{"name":"EPSG:3857"}},"features":[
+        {"type":"Feature","geometry":{"type":"Point","coordinates":[0,0]},"properties":{"well_id":"A","sand":20,"gross":100,"value":999}},
+        {"type":"Feature","geometry":{"type":"Point","coordinates":[3,0]},"properties":{"well_id":"B","sand":0,"gross":100,"value":999}},
+        {"type":"Feature","geometry":{"type":"Point","coordinates":[0,3]},"properties":{"well_id":"C","sand":40,"gross":100,"value":999}},
+        {"type":"Feature","geometry":{"type":"Point","coordinates":[3,3]},"properties":{"well_id":"D","sand":10,"gross":0,"value":999}},
+        {"type":"Feature","geometry":{"type":"Point","coordinates":[1,1]},"properties":{"well_id":"E","sand":null,"gross":100,"value":999}}]})"); file.close();
+      QVERIFY2(f.layers.declare(decl("wells.T1", "T1", "vector", path), &err), qPrintable(err));
+      ConstraintWorkflow wf(&f.proc, &f.layers); wf.setCatalog(&f.catalog, f.dir.path());
+      QVariantMap params{{"factorMode", "ratio"}, {"numeratorField", "sand"}, {"denominatorField", "gross"}, {"field", "value"}, {"cellSize", 1.0}};
+      QString points; QVERIFY2(wf.extractWellFactors("T1", "sandratio", params, &err, &points), qPrintable(err));
+      QCOMPARE(wf.wellFactorRows().size(), 5);
+      QCOMPARE(wf.wellFactorRows()[0].toMap().value("value").toDouble(), 0.2);
+      QCOMPARE(wf.wellFactorRows()[1].toMap().value("value").toDouble(), 0.0); // 真零有效
+      QVERIFY(wf.wellFactorRows()[3].toMap().value("reason").toString().contains(QStringLiteral("分母为零")));
+      QVERIFY(!wf.wellFactorRows()[3].toMap().contains("value")); // 不回落 value=999
+      auto *samples = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(points)); QVERIFY(samples);
+      QCOMPARE(samples->featureCount(), 3LL);
+      {
+        MappingWorkbench work(&f.layers, &f.proc, &f.projectSvc, &wf);
+        work.bindCatalog(&f.catalog, f.dir.path());
+        const auto version = f.catalog.versions().last();
+        const QString historical = work.layerForVersion(version.id, &err);
+        QVERIFY2(!historical.isEmpty(), qPrintable(err));
+        auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(historical, &err));
+        QVERIFY2(layer, qPrintable(err)); work.styleLayer(historical);
+        QCOMPARE(layer->featureCount(), 3LL);
+        QVERIFY(!layer->customProperty("paleo/faciesLabelMode").isValid());
+      }
+      for (const QString &method : {QStringLiteral("local_direction_idw"), QStringLiteral("local_direction_kriging"), QStringLiteral("surfer_idw")}) {
+        params.insert("method", method); ConstraintWorkflow::LocalDirectionJob job;
+        QVERIFY2(wf.prepareLocalDirectionJob("T1", "sandratio", params, &job, &err), qPrintable(err));
+        QCOMPARE(job.field, QStringLiteral("factor_value"));
+        if (method == QLatin1String("surfer_idw")) QCOMPARE(job.engineId, QStringLiteral("paleo:paleo_surfer_idw"));
+        QCOMPARE(job.params.value("extraction").toMap().value("factorMode").toString(), QStringLiteral("ratio"));
+        QgsVectorLayer snapshot(job.wellUri, "snapshot", "ogr"); QCOMPARE(snapshot.featureCount(), 3LL);
+      }
+      for (const QString &method : {QStringLiteral("kriging"), QStringLiteral("sgs")}) {
+        ConstraintWorkflow::GeostatJob job;
+        QVERIFY2(wf.prepareGeostatJob("T1", "sandratio", method, params, &job, &err), qPrintable(err));
+        QCOMPARE(job.field, QStringLiteral("factor_value"));
+      }
+      const QString boundaryPath = f.dir.filePath(QStringLiteral("boundary.geojson"));
+      QFile boundary(boundaryPath); QVERIFY(boundary.open(QIODevice::WriteOnly));
+      boundary.write(R"({"type":"FeatureCollection","crs":{"type":"name","properties":{"name":"EPSG:3857"}},"features":[{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[-1,-1],[4,-1],[4,4],[-1,4],[-1,-1]]]},"properties":{}}]})"); boundary.close();
+      QVERIFY2(f.layers.declare(decl("boundary.T1", "T1", "vector", boundaryPath), &err), qPrintable(err));
+      params.insert("method", "structural_idw"); params.insert("boundaryLayerId", "boundary.T1"); params.insert("gridResolution", 16);
+      QVERIFY2(wf.generateFactor("T1", "sandratio", params, &err), qPrintable(err));
+      params.remove("method");
+      QVERIFY2(wf.generateFactor("T1", "sandratio", params, &err), qPrintable(err));
+      params.insert("factorMode", "direct"); params.insert("valueField", "sand");
+      QVERIFY2(wf.extractWellFactors("T1", "sandthick", params, &err), qPrintable(err));
+      QCOMPARE(wf.wellFactorRows()[0].toMap().value("value").toDouble(), 20.0);
+      const auto versions = f.catalog.versions();
+      QVERIFY(std::any_of(versions.cbegin(), versions.cend(), [](const CatalogVersion &v) { return v.extra.value("extraction").toMap().value("factorMode") == QStringLiteral("ratio"); }));
+    }
+
+    void interpretedSandThicknessAndMissingCoverage() {
+      Fixture f; QVERIFY(initFixture(f)); QString err;
+      const auto linkFile = [&](const QString &id, const QString &well, const QString &role, const QString &type, const QString &text) {
+        const QString path = f.dir.filePath(id + QStringLiteral(".dat")); QFile file(path);
+        if (!file.open(QIODevice::WriteOnly)) return false; file.write(text.toUtf8()); file.close();
+        CatalogAsset a; a.id = id; a.type = type; a.displayName = id;
+        if (!f.catalog.addAsset(a, &err)) return false;
+        CatalogVersion v; v.id = "v-" + id; v.assetId = id; v.path = path; v.managed = false; v.stage = "RAW"; v.versionNumber = 1;
+        if (!f.catalog.addVersion(v, &err)) return false;
+        EntityAssetLink l; l.entityId = well; l.entityType = "well"; l.assetId = id; l.role = role; l.isPrimary = true;
+        return f.catalog.addLink(l, &err);
+      };
+      for (int i = 1; i <= 4; ++i) {
+        const QString id = QStringLiteral("well-%1").arg(i); const QString name = QStringLiteral("A%1").arg(i);
+        CatalogEntity e; e.id = id; e.entityType = "well"; e.name = name; e.hasSurface = true;
+        e.surfaceX = i * 10; e.surfaceY = i * 5; e.coordinateStatus = "untransformed";
+        QVERIFY2(f.catalog.addEntity(e, &err), qPrintable(err));
+        QVERIFY2(linkFile("tops-" + id, id, "tops", "well_tops", QStringLiteral("#WellTops File From SMI\n#WellName Name MD X Y Z TVD Time(ms)\n%1 D61 100 0 0 -100 100 -99999\n%1 D62 200 0 0 -200 200 -99999\n").arg(name)), qPrintable(err));
+      }
+      QVERIFY2(linkFile("litho-1", "well-1", "interpretation", "well_litho_intervals",
+          QStringLiteral(R"({"schema":1,"intervals":[{"wellId":"well-1","top":90,"base":130,"litho":"砂岩"},{"wellId":"well-1","top":120,"base":150,"litho":"细砂岩"},{"wellId":"well-1","top":150,"base":210,"litho":"泥岩"}]})")), qPrintable(err));
+      QVERIFY2(linkFile("litho-2", "well-2", "interpretation", "well_litho_intervals",
+          QStringLiteral(R"({"schema":1,"intervals":[{"wellId":"well-2","top":100,"base":140,"litho":"砂岩"}]})")), qPrintable(err));
+      QVERIFY2(linkFile("litho-4", "well-4", "interpretation", "well_litho_intervals",
+          QStringLiteral(R"({"schema":1,"intervals":[{"wellId":"well-4","top":100,"base":160,"litho":"砂岩"},{"wellId":"well-4","top":150,"base":200,"litho":"泥岩"}]})")), qPrintable(err));
+      const QString wellHeads = f.dir.filePath(QStringLiteral("catalog-wells.geojson"));
+      QVERIFY2(f.catalog.writeWellsGeoJson(wellHeads, &err), qPrintable(err));
+      QVERIFY2(f.layers.declare(decl("wells.D61", "D61", "vector", wellHeads), &err), qPrintable(err));
+      ConstraintWorkflow wf(&f.proc, &f.layers); wf.setCatalog(&f.catalog, f.dir.path());
+      const auto fields = wf.wellFactorFields("D61", &err);
+      QVERIFY(std::any_of(fields.begin(), fields.end(), [](const QVariant &v) { return v.toMap().value("id") == QStringLiteral("log_sand_thickness_md"); }));
+      QVariantMap params{{"factorMode", "ratio"}, {"numeratorField", "log_sand_thickness_md"}, {"denominatorField", "log_layer_thickness_md"}};
+      QVERIFY2(wf.extractWellFactors("D61", "sandratio", params, &err), qPrintable(err));
+      const auto rows = wf.wellFactorRows(); QCOMPARE(rows.size(), 4);
+      QCOMPARE(rows[0].toMap().value("value").toDouble(), 0.5); // 裁剪 + 并集，不重复计厚
+      QVERIFY(rows[0].toMap().value("source").toString().contains(QStringLiteral("词表：")));
+      QVERIFY(rows[1].toMap().value("reason").toString().contains(QStringLiteral("覆盖不完整")));
+      QVERIFY(rows[2].toMap().value("reason").toString().contains(QStringLiteral("缺少层段解释岩性")));
+      QVERIFY(rows[3].toMap().value("reason").toString().contains(QStringLiteral("解释冲突")));
+      bool parents = false;
+      for (const auto &v : f.catalog.versions()) if (v.extra.value("factor_id") == QStringLiteral("sandratio"))
+        parents = v.parentVersionIds.contains("v-tops-well-1") && v.parentVersionIds.contains("v-litho-1");
+      QVERIFY(parents);
+    }
+
+    void contourStylesForBothSchemas() {
+      for (const QString &field : {QStringLiteral("ELEV"), QStringLiteral("level")}) {
+        QgsVectorLayer layer("LineString?field=" + field + ":double", "contours", "memory");
+        QVERIFY(FactorStyleWriter::applyContours(&layer));
+        auto *renderer = dynamic_cast<QgsSingleSymbolRenderer *>(layer.renderer()); QVERIFY(renderer);
+        QCOMPARE(renderer->symbol()->symbolLayerCount(), 2);
+        QCOMPARE(static_cast<QgsLineSymbolLayer *>(renderer->symbol()->symbolLayer(1))->width(), FactorStyleWriter::contourWidthMm);
+        QVERIFY(layer.labelsEnabled()); QVERIFY(layer.labeling());
+        const auto settings = layer.labeling()->settings();
+        QVERIFY(settings.isExpression); QVERIFY(settings.fieldName.contains(field));
+        QCOMPARE(settings.format().font().family(), QStringLiteral("JetBrains Mono"));
+        QCOMPARE(settings.format().size(), FactorStyleWriter::contourLabelSizePt);
+        QVERIFY(settings.format().buffer().enabled());
+        QCOMPARE(settings.repeatDistance, FactorStyleWriter::contourLabelRepeatMm);
+        QCOMPARE(settings.thinningSettings().minimumFeatureSize(), FactorStyleWriter::contourMinimumLengthMm);
+        const QString qa = qEnvironmentVariable("PALEO_SINGLEFACTOR_QA_DIR");
+        if (!qa.isEmpty()) {
+          QDir().mkpath(qa); QTemporaryDir dir;
+          const QString rasterPath = makeSurfaceRaster(dir.filePath("ramp.tif"), {0,10,20,30,50,60,70,90,100});
+          QgsRasterLayer raster(rasterPath, "sandratio", "gdal"); QVERIFY(raster.isValid());
+          raster.setCrs(QgsCoordinateReferenceSystem::fromEpsgId(3857)); layer.setCrs(raster.crs());
+          QVERIFY(FactorStyleWriter::applyTo(&raster, "sandratio"));
+          QgsFeature feature(layer.fields()); feature.setAttribute(field, 50.0);
+          feature.setGeometry(QgsGeometry::fromWkt("LineString (-0.8 0.5, 1.5 1.1, 3.8 1.5)"));
+          QgsFeatureList features{feature}; QVERIFY(layer.dataProvider()->addFeatures(features));
+          for (bool dark : {false, true}) {
+            QgsMapSettings map; map.setLayers({&layer, &raster}); map.setDestinationCrs(raster.crs());
+            map.setExtent(QgsRectangle(-1, -1, 4, 4)); map.setOutputSize(QSize(640, 640));
+            map.setBackgroundColor(dark ? QColor("#1B212A") : QColor("#FFFFFF"));
+            QgsMapRendererParallelJob job(map); job.start(); job.waitForFinished();
+            QVERIFY(job.renderedImage().save(qa + "/contours-" + field + (dark ? "-dark.png" : "-light.png")));
+          }
+        }
+      }
     }
 
     // 注册表 processingAlgId 必须真实可用（运行时核实）。

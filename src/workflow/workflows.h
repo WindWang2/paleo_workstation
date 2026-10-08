@@ -13,9 +13,11 @@
 #include "../domain/types.h"
 #include "../metadata/paleoprojectstore.h"
 #include "../services/singlefactordef.h"
+#include "derivedassets.h" // PredictionJob 持 DerivedStaging（#277 三段式）
 
 class QgisProcessingService;
 class QgisLayerService;
+class QgsVectorLayer;
 class SelectionContext;
 class PaleoOnnxService;
 class ConstraintStore;
@@ -81,6 +83,47 @@ class PredictionWorkflow : public QObject
     void setCatalog(DataCatalog *catalog, const QString &projectDir);
 
     bool runPrediction(const QString &horizon, const QString &algorithmId, const QVariantMap &params, QString *error = nullptr);
+
+    // #277 三段式（仿约束页 prepare/compute/publish）：任务池装配下
+    // prepare 必须在 catalog 所属线程（stage → addAsset 有线程闸），compute
+    // 在 worker（Processing / ONNX 推理 + 栅格落盘，不碰 catalog/GUI 对象），
+    // publish 回 GUI 线程（commitExternal → addVersion、图层声明、
+    // predictionDone）。runPrediction = 三段同线程顺序执行，行为不变；
+    // 失败时 prepare/publish 如实发 predictionFailed（compute 在 worker
+    // 线程不发信号，错误经 job.error 交给调用侧上屏）。
+    struct PredictionJob
+    {
+        bool prepared = false;
+        bool ok = false;
+        QString error;
+        QString horizon;
+        QString algorithmId;
+        QVariantMap params;   // compute 用（Processing 路径已含 OUTPUT）
+        // prepare 阶段登记（GUI 线程）：compute 只往 staging.absolutePath 写文件。
+        DerivedStaging staging;
+        QString sourceUri;    // commit 的 sourceUri
+        QStringList parentVersionIds; // DERIVED 父版本（prepare 解析好，compute 不碰 catalog）
+        QVariantMap commitExtra;      // commit 的 extra（onnx rows/cols 等）
+        // publish 声明段（compute 填好路径，publish 声明 + 发信号）。
+        QString outputPath;   // compute 实际写出的栅格（commitExternal 会拷进受管路径）
+        QString layerId;
+        QString layerGroup;
+        QString layerTitle;
+#if PALEO_HAVE_ORT
+        // ONNX 输入与网格几何（prepare 在 GUI 线程解析，compute 只做推理+写盘）。
+        QVector<float> onnxInput;
+        QVector<int64_t> onnxShape;
+        QString onnxInputName;
+        double onnxGt[6] = { 0.0, 12793.0 / 640.0, 0.0, 16406.0, 0.0, -16406.0 / 410.0 };
+        QString onnxProjection;
+        QString onnxSourcePath;
+        bool onnxFromDecl = false;
+#endif
+    };
+    bool preparePredictionJob(const QString &horizon, const QString &algorithmId,
+                              const QVariantMap &params, PredictionJob *job, QString *error = nullptr);
+    bool computePredictionJob(PredictionJob *job);
+    bool publishPredictionJob(const PredictionJob &job, QString *error = nullptr);
 
     DataCatalog *catalog() const;
     QString projectDir() const { return m_projectDir; }
@@ -159,10 +202,24 @@ class ConstraintWorkflow : public QObject
     // declare "factor.<horizon>.<factorId>" 进 04_SingleFactor（同 id 幂等
     // upsert）。params：field/cellSize（缺省取注册表 defaultParams）+
     // pointsLayerId（可选）。
+    // 真实井点字段 + 分层/解释岩性派生字段。提取产物为不可变 DERIVED 点层。
+    bool maintainWellFactors(const QString &horizon, QString *error = nullptr);
+    QVariantList wellFactorFields(const QString &horizon, QString *error = nullptr);
+    bool extractWellFactors(const QString &horizon, const QString &factorId,
+                            const QVariantMap &params, QString *error = nullptr,
+                            QString *pointsLayerId = nullptr);
+    QVariantList wellFactorRows() const { return m_wellFactorRows; }
+    QString wellFactorMessage() const { return m_wellFactorMessage; }
     bool generateFactor(const QString &horizon, const QString &factorId,
-                        const QVariantMap &params, QString *error = nullptr);
+                        const QVariantMap &inputParams, QString *error = nullptr);
 
   private:
+    bool prepareFactorInputs(const QString &horizon, const QString &factorId,
+                             QVariantMap &params, QString *error);
+    QPointer<QgsVectorLayer> m_wellFactorAttributeLayer;
+    void watchWellFactorAttributes();
+    QVariantList m_wellFactorRows;
+    QString m_wellFactorMessage;
     QVariantList m_thicknessRows;
     QString m_thicknessMessage;
     // 主线6：strathick 的等厚引擎分派（paleo:paleo_isopach，INPUT_TOP/
@@ -261,7 +318,7 @@ class ConstraintWorkflow : public QObject
         QString qcPath;
     };
     bool prepareLocalDirectionJob(const QString &horizon, const QString &factorId,
-                                  const QVariantMap &params, LocalDirectionJob *job, QString *error = nullptr,
+                                  const QVariantMap &inputParams, LocalDirectionJob *job, QString *error = nullptr,
                                   const QString &engineId = QStringLiteral( "paleo:paleo_local_direction_idw" ));
     bool computeLocalDirectionJob(LocalDirectionJob *job, const std::function<bool()> &cancelled = {},
                                   const std::function<void(double)> &progress = {});
@@ -300,7 +357,7 @@ class ConstraintWorkflow : public QObject
         QString qcPath;
     };
     bool prepareGeostatJob(const QString &horizon, const QString &factorId, const QString &method,
-                           const QVariantMap &params, GeostatJob *job, QString *error = nullptr);
+                           const QVariantMap &inputParams, GeostatJob *job, QString *error = nullptr);
     bool computeGeostatJob(GeostatJob *job, const std::function<bool()> &cancelled = {},
                            const std::function<void(double)> &progress = {});
     bool publishGeostatJob(const GeostatJob &job, QString *error = nullptr);
@@ -417,6 +474,9 @@ class ConstraintWorkflow : public QObject
     void factorDone(const QString &horizon, const QString &resultLayerId);
 
     // ---- m2(B)：单因素页消费的新信号（factorDone 原语义不动）----
+    void wellAttributesChanged();
+    void wellAttributeTableRequested(const QString &layerId);
+    void wellFactorsExtracted(const QString &horizon, const QString &factorId);
     void factorGenerated(const QString &horizon, const QString &factorId, const QString &layerId);
     void contoursGenerated(const QString &horizon, const QString &factorLayerId,
                            const QString &contourLayerId);

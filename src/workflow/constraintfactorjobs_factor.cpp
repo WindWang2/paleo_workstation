@@ -63,8 +63,9 @@ using namespace paleo::constraint_detail;
 
 // ---- m2(B) 单因素图页：generateFactor / generateContours ---------------------
 bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &factorId,
-                                         const QVariantMap &params, QString *error )
+                                         const QVariantMap &inputParams, QString *error )
 {
+  QVariantMap params = inputParams;
   QgisProcessingService *proc = m_proc.data();
   QgisLayerService *layers = m_layers.data();
   if ( !proc || !layers )
@@ -80,6 +81,8 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
     return false;
   }
 
+  if (!prepareFactorInputs(horizon, factorId, params, error))
+    return false;
   // 主线6 + C5（wave/deepen-perf）：按引擎分派参数整形。welldist 距离变换
   // 引擎已按冻结契约实现（src/algorithms/distancetransform.cpp）——注册面
   // 缺失时仍显式拒绝（不静默降级成 IDW，那会产出语义错误的栅格）；confidence

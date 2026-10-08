@@ -1,6 +1,7 @@
 // 层：数据
 #include "services/seismictaskservice.h"
 #include "services/seismictaskservice_internal.h"
+#include "services/fspathutils.h"
 #include "services/paleotaskservice.h"
 
 #include "algorithms/seismicattr.h"
@@ -305,8 +306,7 @@ PaleoTask *SeismicTaskService::startTimeSliceAttribute(
   const QString title = tr("地震属性时间切片 %1（样 %2）")
                             .arg(seismicAttrDisplayName(kind))
                             .arg(sampleIndex);
-  const QString volumePath =
-      QString::fromStdString(volume->Path().string());
+  const QString volumePath = paleo::fromFsPath(volume->Path());
   const double dtMs = double(volume->SampleIntervalUs()) / 1000.0;
   const double t0Ms = readSgyStartTimeMs(volumePath);
 
@@ -726,7 +726,7 @@ PaleoTask *SeismicTaskService::startAttributeVolume(
 
   const QString title =
       tr("地震属性体扫描 %1").arg(seismicAttrDisplayName(kind));
-  const QString volumePath = QString::fromStdString(volume->Path().string());
+  const QString volumePath = paleo::fromFsPath(volume->Path());
   const double dtMs = double(volume->SampleIntervalUs()) / 1000.0;
   const double t0Ms = readSgyStartTimeMs(volumePath);
 

@@ -250,6 +250,79 @@ private slots:
     QCOMPARE(canvas.gainCurve().size(), std::size_t(2));
   }
 
+  // ---- #286：时间切片入口重建显示缓冲 ----
+  // 开着 AGC/极性的剖面切到时间切片：显示值必须来自新切片（时间切片方向
+  // AGC/增益曲线关闭，只保留极性）。旧实现沿用剖面缓冲，按新网格索引
+  // 显示旧数据；新网格更大时越界读（ASan 必报）。
+  void timeSliceEntryRebuildsDisplayValues()
+  {
+    SeismicSectionCanvas canvas;
+    canvas.resize(800, 600);
+    canvas.setSectionData(makeSection(100, 50), 2.0f);
+    canvas.setAgcEnabled(true, 200);
+    // 剖面显示缓冲已建立（AGC 后值与原始值不同）
+    QVERIFY(std::abs(canvas.displayValueAt(0, 25) -
+                     canvas.displayValueAt(0, 25)) < 1e30f); // 不 NaN、可读
+
+    // 已知图案时间切片：100(XL) × 200(IL)，常量 0.5
+    SgySliceImage slice;
+    slice.width = 100;
+    slice.height = 200;
+    slice.valueMin = 0.5f;
+    slice.valueMax = 0.5f;
+    slice.values.assign(std::size_t(100) * 200, 0.5f);
+    canvas.setTimeSliceData(slice, 500.0, 1000, 1005, 2000, 2099);
+
+    // 显示值来自新切片（索引 199*100+50 远超旧剖面缓冲 100*50=5000 ——
+    // 旧实现这里越界读旧 AGC 缓冲）
+    QCOMPARE(canvas.displayValueAt(50, 199), 0.5f);
+    QCOMPARE(canvas.displayValueAt(0, 0), 0.5f);
+
+    // 渲染像素同样只认新切片：与「只喂同一张切片」的参照画布逐像素一致
+    // （旧实现把 IL 剖面 AGC 缓冲按时间切片网格上色，两者必然不同）
+    SeismicSectionCanvas ref;
+    ref.resize(800, 600);
+    ref.setTimeSliceData(slice, 500.0, 1000, 1005, 2000, 2099);
+    QCOMPARE(imageDiff(renderCanvas(canvas), renderCanvas(ref)), 0);
+
+    // 极性开着时切时间切片：显示值 = -新切片值（极性是唯一保留的处理）
+    canvas.setPolarityInverted(true);
+    SgySliceImage slice2;
+    slice2.width = 100;
+    slice2.height = 200;
+    slice2.valueMin = 0.25f;
+    slice2.valueMax = 0.25f;
+    slice2.values.assign(std::size_t(100) * 200, 0.25f);
+    canvas.setTimeSliceData(slice2, 500.0, 1000, 1005, 2000, 2099);
+    QCOMPARE(canvas.displayValueAt(10, 150), -0.25f);
+    canvas.setPolarityInverted(false);
+
+    // 瓦片流路径：begin 建 NaN 底图（显示缓冲同步），append 逐瓦片改写
+    canvas.setSectionData(makeSection(100, 50), 2.0f); // 回到剖面 + AGC 缓冲
+    canvas.setAgcEnabled(true, 200);
+    canvas.beginTimeSliceTiled(100, 200, 500.0, 1000, 1005, 2000, 2099);
+    QVERIFY(std::isnan(canvas.displayValueAt(12, 22))); // 未到瓦片 = NaN
+    SgySliceImage tile;
+    tile.width = 8;
+    tile.height = 6;
+    tile.valueMin = 0.125f;
+    tile.valueMax = 0.125f;
+    tile.values.assign(std::size_t(8) * 6, 0.125f);
+    canvas.appendTimeSliceTile(tile, 10, 20); // 覆盖 (10..17, 20..25)
+    QCOMPARE(canvas.displayValueAt(12, 22), 0.125f);
+    QVERIFY(std::isnan(canvas.displayValueAt(50, 100))); // 区域外仍 NaN
+
+    // finish 整体替换同样重建显示缓冲
+    SgySliceImage full;
+    full.width = 100;
+    full.height = 200;
+    full.valueMin = -0.75f;
+    full.valueMax = -0.75f;
+    full.values.assign(std::size_t(100) * 200, -0.75f);
+    canvas.finishTimeSliceTiled(full);
+    QCOMPARE(canvas.displayValueAt(99, 199), -0.75f);
+  }
+
   // ---- D2.5 双刻度 ----
   void dualScaleRender()
   {

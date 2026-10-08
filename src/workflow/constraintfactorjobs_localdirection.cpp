@@ -61,20 +61,24 @@
 using namespace paleo::constraint_detail;
 
 bool ConstraintWorkflow::prepareLocalDirectionJob( const QString &horizon, const QString &factorId,
-                                                    const QVariantMap &params, LocalDirectionJob *job,
+                                                    const QVariantMap &inputParams, LocalDirectionJob *job,
                                                     QString *error, const QString &engineId )
 {
+  QVariantMap params = inputParams;
   if ( !job )
   {
     paleo::workflow_detail::setError( error, tr( "缺少本地方向任务" ) );
     return false;
   }
+  if (!prepareFactorInputs(horizon, factorId, params, error))
+    return false;
   *job = LocalDirectionJob();
   job->generation = ++m_publishGeneration;
   job->horizon = horizon;
   job->factorId = factorId;
   job->params = params;
-  job->engineId = engineId;
+  job->engineId = params.value(QStringLiteral("method")).toString() == QLatin1String("surfer_idw")
+      ? QStringLiteral("paleo:paleo_surfer_idw") : engineId;
 
   QgisProcessingService *proc = m_proc.data();
   QgisLayerService *layers = m_layers.data();

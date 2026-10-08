@@ -14,8 +14,14 @@
 #include "../notifications/paleonotify.h"
 #include <QSpinBox>
 
+#include "ui/seismicsection/seismicpickpanel.h"
+
+#include <QUndoStack>
+
 #include "domain/seismic/sectiongeometry.h"
+#include "domain/seismic/sgycoordinatemapper.h"
 #include "domain/seismic/sgysectionbuilder.h"
+#include "services/fspathutils.h" // #291 QString↔filesystem::path 走 UTF-16（MSVC 窄构造按 ANSI 解码）
 #include "services/seismictaskservice.h"
 
 #include <algorithm>
@@ -84,6 +90,28 @@ void SeismicSectionDockWidget::setVolume(std::shared_ptr<const SgyVolume> volume
     m_compareTask->requestCancel();
     m_compareTask.clear();
   }
+  // #285：换体即换解释会话（m_session 重置、落另一个 .seispicks.json，pick id
+  // 两会话都从 1 起）——旧体攒下的 undo 命令全部作废，不清栈的话一条
+  // Ctrl+Z 就把 A 体的拾取写进 B 体会话并自动落盘；在途追踪/传播/反演
+  // 一并协作取消，迟到回调由会话身份守卫丢弃（track TU）。
+  if (m_undoStack)
+    m_undoStack->clear();
+  if (m_trackTask) {
+    m_trackTask->requestCancel();
+    m_trackTask.clear();
+  }
+  if (m_propTask) {
+    m_propTask->requestCancel();
+    m_propTask.clear();
+  }
+  if (m_invTask) {
+    m_invTask->requestCancel();
+    m_invTask.clear();
+  }
+  if (m_pickPanel) { // 在途被取消：面板活跃态复位（同取消按钮语义）
+    m_pickPanel->setTrackingActive(false);
+    m_pickPanel->setPropagateActive(false);
+  }
   m_sliceIndex = -1; // 去抖键随体身份作废（同号线也不再等价）
   ++m_generation;
   m_route.clear();
@@ -104,7 +132,7 @@ void SeismicSectionDockWidget::setVolume(std::shared_ptr<const SgyVolume> volume
     loadBookmarksFromSettings(); // D2.12：体身份确定后才有 settings 键
     // D4.8：会话锚定到 SEG-Y 伴生文件（存在即自动恢复）
     m_session = SeismicInterpretationSession{};
-    m_session.sourceSgyPath = QString::fromStdString(m_volume->Path().string());
+    m_session.sourceSgyPath = paleo::fromFsPath(m_volume->Path());
     SeismicTaskService::loadSession(m_session.sourceSgyPath, m_session, nullptr);
     refreshInterpretationOverlay();
     // 任意线（模式 3）保持待编辑态，不强制重提剖面（wave/sections）
@@ -512,9 +540,21 @@ void SeismicSectionDockWidget::extractSectionFromVolumeAsync(
           emit guard->sectionExtractionFinished(false, error);
           return;
         }
+        std::vector<glm::dvec2> route = mapPolyline;
+        if (route.size() != pathPoints.size() && volume && volume->Index()) {
+          const auto mapper = SgyCoordinateMapper::Fit(*volume->Index());
+          if (mapper.valid()) {
+            route.clear();
+            for (const auto &p : pathPoints) {
+              double x = 0.0, y = 0.0;
+              if (mapper.MapInlineXline(p.x, p.y, x, y))
+                route.push_back({x, y});
+            }
+          }
+        }
         const auto geometry = SectionGeometry::fromColumns(
-            pathPoints, mapPolyline, stats.columnDistances);
-        guard->m_route = mapPolyline;
+            pathPoints, route, stats.columnDistances);
+        guard->m_route = route;
         guard->m_distances = geometry.distancesM;
         guard->m_canvas->setSectionData(
             *image, volume->SampleIntervalUs() / 1000.0f, origin,
@@ -527,7 +567,7 @@ void SeismicSectionDockWidget::extractSectionFromVolumeAsync(
         guard->m_candidateWells = candidateWells;
         // D5.3/D5.4：井轨迹投影 + 合成记录（任意线链路，wave/seismic-chain-deep）
         if (!candidateWells.empty()) {
-          guard->computeWellTrajectories(mapPolyline);
+          guard->computeWellTrajectories(route);
           guard->computeSyntheticOverlays();
         }
         // 与切片路径同拍刷新解释叠加：剖面身份变了（任意线），

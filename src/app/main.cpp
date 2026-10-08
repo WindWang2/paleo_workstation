@@ -1,6 +1,8 @@
 // 层：组装根
 #include "appcontext.h"
 #include "../workflow/wellfaciesworkflow.h"
+#include "../workflow/workflows.h"
+#include "../linkage/selectioncontext.h"
 #include "../ui/wellcomposite/wellcompositepanel.h"
 #include "../ui/python/pythonconsolepanel.h" // 方向68：脚本面 importRequested 接线
 #include "crossplotcontroller.h"
@@ -180,17 +182,6 @@ int main(int argc, char *argv[])
     return 1;
   }
 
-  // 方向 69：井综合页的测井相 workflow 由面板工厂创建（时机在 AppContext
-  // 之后）——工厂里注入共享 catalog，预测成功即落 DERIVED 解释岩性资产
-  // （projectDir 由 workflow 按 catalog 当前工程自适应解析）。
-  WellComposite::WellCompositePanel::setFaciesWorkflowFactory(
-      [&ctx](QObject *parent) {
-        auto *wf = new WellFaciesWorkflow(parent);
-        if (ctx.importSvc() && ctx.importSvc()->catalog())
-          wf->setCatalog(ctx.importSvc()->catalog());
-        return wf;
-      });
-
   // --- Dynamic Locale & Translation Initialization (R4) ---
   // Precedence: CLI option (--lang/--locale) > PALEO_LOCALE > QLocale::system().name()
   QString requestedLocale;
@@ -263,6 +254,20 @@ int main(int argc, char *argv[])
 
   PaleoMainWindow window(ctx.canvasCtl(), ctx.projectSvc(), ctx.layerSvc(),
                          ctx.toolSvc(), ctx.selection());
+  WellComposite::WellCompositePanel::setFaciesWorkflowFactory(
+      [&ctx, &window](QObject *parent) {
+        auto *wf = new WellFaciesWorkflow(parent);
+        if (ctx.importSvc()) wf->setCatalog(ctx.importSvc()->catalog());
+        wf->setLayerService(ctx.layerSvc());
+        QObject::connect(wf, &WellFaciesWorkflow::attributeTableRequested,
+                         &window, &PaleoMainWindow::showAttributeTable);
+        QObject::connect(wf, &WellFaciesWorkflow::factorMaintenanceRequested, &window, [&ctx, wf] {
+          QString error;
+          if (!ctx.constraintWf()->maintainWellFactors(ctx.selection()->activeHorizon(), &error))
+            emit wf->statusChanged(error);
+        });
+        return wf;
+      });
   QObject::connect(&ctx, &AppContext::projectReadOnlyChanged,
                    &window, &PaleoMainWindow::setProjectReadOnly);
   window.attachWorkflows(ctx.predictionWf(), ctx.constraintWf(),

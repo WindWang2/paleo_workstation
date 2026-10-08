@@ -595,45 +595,6 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   });
 }
 
-void AppContext::refreshSurveyLayer()
-{
-  if (m_projectDir.isEmpty() || !m_import || !m_import->catalog() || !m_layerSvc) return;
-  // 无有效测区（角点 ≥3）不落测区图层——空工程的地图/图层树保持空态
-  //（T31 契约）；测区被移除时把此前的占位层一并撤下。
-  bool hasSurvey = false;
-  for (const auto &survey : m_import->catalog()->entities(QStringLiteral("seismic_survey")))
-    if (survey.corners.size() >= 3) { hasSurvey = true; break; }
-  if (!hasSurvey) {
-    QString error;
-    m_layerSvc->removeDeclaration(QStringLiteral("survey.area"), &error);
-    return;
-  }
-  const QString path = QDir(m_projectDir).filePath(QStringLiteral("artifacts/layers/survey_area.geojson"));
-  QString error;
-  if (!isProjectReadOnly()) {
-    if (!m_import->catalog()->writeSurveyGeoJson(path, &error)) {
-      qWarning() << "Survey layer:" << error; return;
-    }
-    LayerDeclaration declaration;
-    declaration.layerId = QStringLiteral("survey.area");
-    declaration.type = QStringLiteral("vector");
-    declaration.source = path;
-    declaration.group = QStringLiteral("00_Data");
-    declaration.title = tr("测区范围");
-    if (!m_layerSvc->declare(declaration, &error)) {
-      qWarning() << "Survey declaration:" << error; return;
-    }
-  }
-  if (auto *layer = qobject_cast<QgsVectorLayer *>(m_layerSvc->instantiate(QStringLiteral("survey.area"), &error))) {
-    layer->reload();
-    // 原生符号保持透明内部，矩形范围和底图同时可读。
-    auto symbol = QgsFillSymbol::createSimple({{"color", "transparent"}, {"outline_color", "27,115,208,255"},
-                                               {"outline_style", "dash"}, {"outline_width", "0.5"}});
-    layer->setRenderer(new QgsSingleSymbolRenderer(symbol.release()));
-    layer->triggerRepaint();
-  }
-}
-
 bool AppContext::isProjectReadOnly() const
 {
   return m_projectLock && !m_projectLock->isHeld();
@@ -906,6 +867,45 @@ void AppContext::refreshWellsLayer(bool zoomOnGrowth)
     m_lastWellsExtent = ext;
     if (zoomOnGrowth && !ext.isEmpty() && m_canvasCtl)
       m_canvasCtl->zoomToLayer(QStringLiteral("wells"));
+  }
+}
+
+void AppContext::refreshSurveyLayer()
+{
+  if (m_projectDir.isEmpty() || !m_import || !m_import->catalog() || !m_layerSvc) return;
+  // 无有效测区（角点 ≥3）不落测区图层——空工程的地图/图层树保持空态
+  //（T31 契约）；测区被移除时把此前的占位层一并撤下。
+  bool hasSurvey = false;
+  for (const auto &survey : m_import->catalog()->entities(QStringLiteral("seismic_survey")))
+    if (survey.corners.size() >= 3) { hasSurvey = true; break; }
+  if (!hasSurvey) {
+    QString error;
+    m_layerSvc->removeDeclaration(QStringLiteral("survey.area"), &error);
+    return;
+  }
+  const QString path = QDir(m_projectDir).filePath(QStringLiteral("artifacts/layers/survey_area.geojson"));
+  QString error;
+  if (!isProjectReadOnly()) {
+    if (!m_import->catalog()->writeSurveyGeoJson(path, &error)) {
+      qWarning() << "Survey layer:" << error; return;
+    }
+    LayerDeclaration declaration;
+    declaration.layerId = QStringLiteral("survey.area");
+    declaration.type = QStringLiteral("vector");
+    declaration.source = path;
+    declaration.group = QStringLiteral("00_Data");
+    declaration.title = tr("测区范围");
+    if (!m_layerSvc->declare(declaration, &error)) {
+      qWarning() << "Survey declaration:" << error; return;
+    }
+  }
+  if (auto *layer = qobject_cast<QgsVectorLayer *>(m_layerSvc->instantiate(QStringLiteral("survey.area"), &error))) {
+    layer->reload();
+    // 原生符号保持透明内部，矩形范围和底图同时可读。
+    auto symbol = QgsFillSymbol::createSimple({{"color", "transparent"}, {"outline_color", "27,115,208,255"},
+                                               {"outline_style", "dash"}, {"outline_width", "0.5"}});
+    layer->setRenderer(new QgsSingleSymbolRenderer(symbol.release()));
+    layer->triggerRepaint();
   }
 }
 

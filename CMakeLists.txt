@@ -345,6 +345,7 @@ target_compile_definitions(paleo_selfcheck PRIVATE FIXTURE_GPKG="${FIXTURE_GPKG}
 
 # demo 工程无头构建工具（组装根）：xlsx 转规范井文本 + 生产导入路径 +
 # georeference 落 project.paleo + 重开自校验。用法见 src/app/mkproject.cpp 头注。
+# 方向 78：--manifest 清单外置（夹具工厂化）；无 manifest 时行为零变化。
 add_executable(paleo_mkproject src/app/mkproject.cpp)
 target_link_libraries(paleo_mkproject PRIVATE paleo_services paleo_qgis)
 
@@ -1124,6 +1125,23 @@ add_paleo_test(tst_layermanifest LIBS paleo_store)  # P1-11 / ARCH-04 LayerManif
 add_paleo_test(tst_segy_fixture LIBS paleo_io)   # 合成最小 SEG-Y 夹具：索引/单线/角点/范围门
 target_compile_definitions(tst_segy_fixture PRIVATE
   TESTDATA_DIR="${CMAKE_SOURCE_DIR}/testdata")
+# mkproject 夹具工厂消费测试（方向 78）：QProcess 驱动 paleo_mkproject
+# --manifest mini 全链（生产导入路径），四断言面（导入/round-trip/配准残差/
+# 复用性）。手动注册（非 add_paleo_test）：要带 fixtures/mkprojectfixture.cpp
+# 第二源 + MKPROJECT_BIN 生成器表达式；RUN_SERIAL 对齐 tst_perfbudget 先例
+#（QProcess 子进程 + QGIS init 的资源面，CI 并行负载下防抖）。LABEL services
+#（core 段，不进 perf）。
+add_executable(tst_mkprojectfixture tests/tst_mkprojectfixture.cpp
+               tests/fixtures/mkprojectfixture.cpp)
+target_link_libraries(tst_mkprojectfixture PRIVATE paleo_services paleo_qgis Qt6::Test)
+target_compile_definitions(tst_mkprojectfixture PRIVATE
+  MKPROJECT_BIN="$<TARGET_FILE:paleo_mkproject>"
+  MKPROJECT_MINI_DIR="${CMAKE_SOURCE_DIR}/tools/reference/mkproject/mini")
+add_test(NAME tst_mkprojectfixture COMMAND tst_mkprojectfixture
+         -o "${PALEO_QTEST_FIRST_RUN_DIR}/tst_mkprojectfixture.txt,txt")
+paleo_test_sandbox(tst_mkprojectfixture)
+set_tests_properties(tst_mkprojectfixture PROPERTIES LABELS services RUN_SERIAL TRUE)
+add_dependencies(tst_mkprojectfixture paleo_mkproject)
 add_paleo_test(tst_algorithm_harness LIBS paleo_algorithms paleo_ui_deps)  # AlgorithmTestBase harness + ≥3 算法用例
 add_paleo_test(tst_algorithm_rasterout_crs LIBS paleo_algorithms paleo_ui_deps)  # QgsApplication 需 QtWidgets（同 tst_algorithm_harness）；BIZ-11（方向58）：无 CRS 输入经共享写口带规范 CRS
 add_paleo_test(tst_perfbudget LIBS paleo_services paleo_qgis)

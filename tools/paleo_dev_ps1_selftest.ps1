@@ -15,7 +15,7 @@ if ($errs.Count) {
   $errs | ForEach-Object { Write-Host ("PARSE ERROR: {0} @ line {1}" -f $_.Message, $_.Extent.StartLineNumber) }
   exit 1
 }
-$want = 'Read-InstalledDbMap', 'Compare-PinnedClosure', 'Enter-LocalDepsEnvironment', 'Invoke-EnsureQgisResources'
+$want = 'Read-InstalledDbMap', 'Compare-PinnedClosure', 'Enter-LocalDepsEnvironment', 'Invoke-EnsureQgisResources', 'Assert-NoEnvDebtRegression'
 $fns = $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
 foreach ($f in $fns) { if ($want -contains $f.Name) { Invoke-Expression $f.Extent.Text } }
 foreach ($n in $want) { if (-not (Get-Command $n -CommandType Function -ErrorAction SilentlyContinue)) { throw "function $n not found in $Script" } }
@@ -43,6 +43,16 @@ foreach ($k in 'PALEO_LOCAL_DEPS', 'PALEO_QGIS_PREFIX', 'PALEO_QTPDF_PREFIX', 'P
   $savedEnv[$k] = [Environment]::GetEnvironmentVariable($k, 'Process')
 }
 try {
+  # 首轮已修项再红必须阻断；预算豁免和未知旧红仍交回各自判定。
+  $manifest = Join-Path $tmp 'redset.json'
+  Set-Content $manifest -Encoding utf8 -Value '{"entries":[{"test":"tst_runtime","status":"fixed"},{"test":"tst_cache_las","status":"exempt"}]}'
+  $threw = $false
+  try { Assert-NoEnvDebtRegression @('tst_runtime') $manifest } catch { $threw = $true }
+  Check $threw 'fixed environment debt must not pass through direct-run retry'
+  $ok = $true
+  try { Assert-NoEnvDebtRegression @('tst_cache_las', 'tst_other') $manifest } catch { $ok = $false }
+  Check $ok 'perf exemptions/legacy tests must reach their own classifier'
+
   # 1) installed.db：头行跳过、文件名剥 name- 与 .tar.*（#297 回归）。
   $db = Join-Path $tmp 'installed.db'
   Set-Content $db -Encoding utf8 -Value @('INSTALLED.DB 2', 'gsl gsl-2.7.101-1.tar.bz2 0',

@@ -106,6 +106,16 @@ function Enter-LocalDepsEnvironment {
   return $true
 }
 
+function Assert-NoEnvDebtRegression([string[]]$FailedTests, [string]$ManifestPath) {
+  $fixedTests = @((Get-Content $ManifestPath -Raw -Encoding utf8 | ConvertFrom-Json).entries |
+    Where-Object { $_.status -eq 'fixed' } | ForEach-Object { $_.test })
+  $regressed = @($FailedTests | Where-Object { $fixedTests -contains $_ })
+  if ($regressed.Count -gt 0) {
+    throw ("CTest failed (fixed environment debt regressed; first-run evidence retained): {0}" -f
+      ($regressed -join ', '))
+  }
+}
+
 function Invoke-EnsureQgisResources([switch]$Auto) {
   # 方向81 srs.db 族：localdeps 的 QGIS 前缀只有 bin/include/lib，缺
   # resources/srs.db（tst_runtime / tst_boot 断言）。按 vendor/deb-closure.lock
@@ -355,6 +365,9 @@ switch ($Verb) {
     $firstRunDir = Join-Path $Build 'Testing/qtest-first-run'
     New-Item -ItemType Directory -Force $firstRunDir | Out-Null
     $junit = Join-Path $Build 'Testing/ctest-junit.xml'
+    # 本轮启动失败时不得拿上一轮预算失败输出或 JUnit 当豁免证据。
+    Remove-Item (Join-Path $firstRunDir '*.txt') -Force -ErrorAction SilentlyContinue
+    Remove-Item $junit -Force -ErrorAction SilentlyContinue
     $log = Join-Path $logDir 'ctest.log'
     $ctestExtra = @()
     if ($env:PALEO_CTEST_ARGS) { $ctestExtra = $env:PALEO_CTEST_ARGS.Trim() -split '\s+' }
@@ -364,7 +377,7 @@ switch ($Verb) {
       # ctest 的 --output-on-failure 在 Windows runner 上回收不到子进程
       # 输出；失败测试逐个直跑，QtTest 的 FAIL/Loc 行直落日志与控制台。
       # 与 Linux gate 对齐：崩溃/abort 不按一次性环境抖动放行。
-      $crashPattern = '\*\*\*Exception|Subprocess aborted|Child aborted|Subprocess killed|Illegal|SegFault'
+      $crashPattern = '\*\*\*Exception|\*\*\*Timeout|Subprocess aborted|Child aborted|Subprocess killed|Illegal|SegFault'
       if (Select-String -Path $log -Pattern $crashPattern -Quiet) {
         throw 'CTest failed (crash-class failure)'
       }
@@ -382,6 +395,8 @@ switch ($Verb) {
           --route $script:DepsRoute --emit-unexpected $unexpectedFile 2>&1 | Tee-Object -FilePath $log -Append
         $redsetExit = $LASTEXITCODE
       } catch { "  (env_redset 检查器不可用：$_)" | Tee-Object -FilePath $log -Append }
+      # 即使 Python 检查器不可用，已修项的首轮红也不能被直跑绿掩盖。
+      Assert-NoEnvDebtRegression $names (Join-Path $Root 'tools/env_redset.json')
       if (Test-Path $unexpectedFile) {
         if ($redsetExit -eq 0) { Write-Host '  env_redset: 全部红均为名单内豁免——放行'; return }
         $keep = @(Get-Content $unexpectedFile | Where-Object { $_ })

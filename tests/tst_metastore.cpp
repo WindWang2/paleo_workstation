@@ -13,7 +13,11 @@
 #include "../src/metadata/releasestore.h"
 
 #include <QProcess>
+#include <QProcessEnvironment>
 #include <QSysInfo>
+#include <QEventLoop>
+#include <QElapsedTimer>
+#include <cstdio>
 
 namespace
 {
@@ -145,6 +149,54 @@ private:
   }
 
 private slots:
+  // 子进程是真实持锁者，父进程强杀后才允许接管（不只造一个已死 pid）。
+  void holdProjectLockChild()
+  {
+    const QString projectDir = qEnvironmentVariable("PALEO_TEST_LOCK_HOLDER_DIR");
+    if (projectDir.isEmpty())
+      QSKIP("parent-only lock holder fixture");
+    ProjectDirLock lock(projectDir);
+    QString error;
+    QVERIFY2(lock.tryLock(&error), qPrintable(error));
+    std::fputs("PALEO_LOCK_READY\n", stdout);
+    std::fflush(stdout);
+    QEventLoop loop;
+    loop.exec(); // 父进程 kill；析构不解锁，留下真实 QLockFile
+  }
+
+  void killedLockHolderCanBeTakenOver()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QProcess child;
+    auto env = QProcessEnvironment::systemEnvironment();
+    env.insert(QStringLiteral("PALEO_TEST_LOCK_HOLDER_DIR"), dir.path());
+    child.setProcessEnvironment(env);
+    child.start(QCoreApplication::applicationFilePath(), {QStringLiteral("holdProjectLockChild")});
+    QVERIFY(child.waitForStarted(10000));
+    QByteArray output;
+    QElapsedTimer deadline;
+    deadline.start();
+    while (!output.contains("PALEO_LOCK_READY") && deadline.elapsed() < 10000)
+    {
+      child.waitForReadyRead(100);
+      output += child.readAllStandardOutput();
+      if (child.state() == QProcess::NotRunning)
+        break;
+    }
+    QVERIFY2(output.contains("PALEO_LOCK_READY"), output.constData());
+    const qint64 pid = child.processId();
+    ProjectDirLock successor(dir.path());
+    QString error;
+    QVERIFY(!successor.tryLock(&error)); // 活持有者不可抢
+    child.kill();
+    QVERIFY(child.waitForFinished(10000));
+    QCOMPARE(paleo::proc::probeProcess(pid), paleo::proc::ProcessState::Dead);
+    QVERIFY2(successor.tryLock(&error), qPrintable(error));
+    ProjectDirLock third(dir.path());
+    QVERIFY(!third.tryLock(&error)); // 接管后仍互斥
+  }
+
   // 新库：LayerManifest open 后 user_version 被写成当前版本（2）。
   void freshDbAdoptsUserVersion()
   {
@@ -658,4 +710,3 @@ private:
 
 QTEST_MAIN(TestMetaStore)
 #include "tst_metastore.moc"
-

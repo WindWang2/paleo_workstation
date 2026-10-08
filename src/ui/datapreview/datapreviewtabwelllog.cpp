@@ -13,6 +13,7 @@ using namespace paleo::datapreview_detail;
 #include "../../domain/wellrecords.h"     // WellTopRecord/TimeDepthTable（domain 纯数据）
 #include "../../domain/sectiontrace.h"    // SegyTrace/SegySectionGrid（domain 纯数据）
 #include "../../io/lasdoc.h"              // LasCurve（白名单：数据模型）
+#include "../../services/imagelod.h"      // 图片道缩略装载（方向 79 LOD）
 #include "../../services/previewdoc.h"    // 唯一数据门面——解析/解码/SHA/PDF 编排全经它（W1）
 #include "../../services/welllogset.h"    // 井曲线并集（综合柱状图；只读 ~C 头）
 #include "../../services/paleotaskservice.h" // PaleoTask 进度/取消（地震转码区）
@@ -407,7 +408,9 @@ QWidget *DataPreviewTabs::buildWellLogContent(
   }
 
   // 图片道锚（岩心/薄片照片）：core/lab_analysis 角色井附件 + 导入侧
-  // extra["depthMd"]（<井名>,<深度>m 文件名惯例）。无锚照片不收——不猜。
+  // extra["depthMd"]（<井名>,<深度>m 文件名惯例，或后补编辑）。无锚照片
+  // 不收——道内容不猜（未锚定清单归井附件管理面板）。装载走 imagelod
+  // 缩略级（方向 79：解码期降采样 + EXIF 统一应用，不再全分辨率常驻）。
   QVector<WellComposite::ImageDepthItem> coreImages;
   if (!linkedWell.isEmpty())
   {
@@ -425,16 +428,16 @@ QWidget *DataPreviewTabs::buildWellLogContent(
       const QString imgPath = m_doc->absolutePathForVersion(ver);
       if (imgPath.isEmpty())
         continue;
-      QImage img(imgPath);
-      if (img.isNull())
+      const paleo::imagelod::TrackImage ti = paleo::imagelod::loadThumbnail(imgPath);
+      if (ti.isNull())
         continue;
-      // 缩到道宽 2 倍位图（110px 道 ×2 余量），装载其余交给道内绘制缩放。
+      // 缩略位图直接入道（道宽 110px，缩略 256px ≥ 2× 道宽——绘制端再
+      // 平滑缩到道宽）。透明图的棋盘底在道内绘制处理。
       WellComposite::ImageDepthItem it;
       it.topDepth = it.bottomDepth = static_cast<float>(depth.toDouble());
       it.imagePath = imgPath;
       it.caption = ver.fileName;
-      it.pixmap = QPixmap::fromImage(
-          img.scaledToWidth(220, Qt::SmoothTransformation));
+      it.pixmap = QPixmap::fromImage(ti.thumbnail);
       coreImages.append(it);
     }
   }

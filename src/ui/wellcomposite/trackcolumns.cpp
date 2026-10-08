@@ -1,6 +1,7 @@
 // 层：视图
 // 综合图道·基础六道（标尺/文本/地层/岩性/取芯/图片）与道内数据访问器——自 wellcompositetrack.cpp 拆出（方向 66，行为零变更）
 #include "wellcompositetrack.h"
+#include "services/imagelod.h"
 #include "ui/paleotheme.h"
 #include <QCoreApplication>
 #include <cmath>
@@ -392,6 +393,7 @@ void ImageTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
 {
   painter.save();
   painter.setClipRect(bodyRect);
+  painter.setRenderHint(QPainter::SmoothPixmapTransform, true); // minification 质量（方向 79）
   painter.fillRect(bodyRect, QColor(QStringLiteral("#FAFAFA")));
   painter.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).border);
   painter.drawLine(bodyRect.topRight(), bodyRect.bottomRight());
@@ -428,6 +430,9 @@ void ImageTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
         imgRect = QRectF(bodyRect.left() + 2.0 + (tw - drawW) / 2.0,
                          anchorY - drawH / 2.0, drawW, drawH);
       }
+      // 透明图垫中性灰棋盘底（方向 79：纸面图件口径，不随暗色翻转）。
+      if (item.pixmap.hasAlpha())
+        painter.fillRect(imgRect, paleo::imagelod::alphaCheckerboard());
       painter.drawPixmap(imgRect, item.pixmap, QRectF(item.pixmap.rect()));
     }
     else

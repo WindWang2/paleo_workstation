@@ -4,6 +4,7 @@
 #include "wellsectionstyle.h"
 
 #include <QGraphicsItem>
+#include <QGraphicsSceneEvent>
 #include <QGraphicsView>
 #include <QImage>
 #include <QWidget>
@@ -121,6 +122,8 @@ struct RenderState {
 };
 
 // 一口井的整列（纸面 + 道框 + 分层界线 + 各道内容）。expose 局部重画。
+// 图片道锚双击可拾取（imageActivateCallback——item 非 QObject，回调由
+// 面板注入，携带 assetId/md/caption 供编辑锚深对话框）。
 class ColumnItem : public QGraphicsItem
 {
   public:
@@ -131,6 +134,15 @@ class ColumnItem : public QGraphicsItem
     QRectF boundingRect() const override;
     void paint(QPainter *p, const QStyleOptionGraphicsItem *option,
                QWidget *widget) override;
+    // 图片锚激活（双击）回调：参数 = 井 id + 锚信息（assetId/md/caption）。
+    void setImageActivateCallback(
+        std::function<void(const QString &, const wellsection::ImageAnchor &)> cb)
+    {
+        m_imageActivate = std::move(cb);
+    }
+
+  protected:
+    void mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event) override;
 
   private:
     void paintCurveTrack(QPainter *p, const QRectF &trackRect,
@@ -145,7 +157,8 @@ class ColumnItem : public QGraphicsItem
                              const wellsection::TrackSpec &tr);
     void paintFaciesTrack(QPainter *p, const QRectF &trackRect,
                           const QRectF &exposed);
-    void paintImageTrack(QPainter *p, const QRectF &trackRect, const QRectF &exposed);
+    void paintImageTrack(QPainter *p, const QRectF &trackRect,
+                         const QRectF &exposed, const QTransform &world);
 
     RenderState *m_st;
     int m_index;
@@ -153,9 +166,21 @@ class ColumnItem : public QGraphicsItem
     // 不重算——拉伸只动列位置不动路径）。
     mutable quint64 m_pathVersion = ~quint64(0);
     mutable QHash<quint64, QPainterPath> m_pathCache; // (trackIdx<<8|curveIdx) → path
-    // 图片道位图缓存：((wellIdx<<16)|anchorIdx)<<8 | 低 8 位 imageVersion 截断
-    // ——QImage(任务线程装载) → QPixmap(GUI 线程) 只转一次，换数据即失效。
+    // 图片道位图缓存：键 = (wellIdx<<32)|anchorIdx（64 位无截断）；代际
+    // 失效——m_pixmapCacheVersion != imageVersion 时整体清（QImage(任务
+    // 线程装载) → QPixmap(GUI 线程) 只转一次）。旧实现把 imageVersion 截
+    // 8 位编进键，256 次数据变更后假命中（方向 79 修复）。
     mutable QHash<quint64, QPixmap> m_pixmapCache;
+    mutable quint64 m_pixmapCacheVersion = ~quint64(0);
+    // 最近一帧图片锚绘制矩形（item 坐标）+ 锚索引——双击拾取面。
+    struct ImageHit
+    {
+        QRectF rect;
+        int anchorIdx = -1;
+    };
+    QVector<ImageHit> m_imageHits;
+    std::function<void(const QString &, const wellsection::ImageAnchor &)>
+        m_imageActivate;
     mutable QHash<quint64, QPainterPath> m_sandCache;
 };
 

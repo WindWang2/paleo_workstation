@@ -10,6 +10,7 @@
 #include "io/wellfileparsers.h"
 #include "metadata/faultsetstore.h"
 #include "sectionworkbench.h"
+#include "services/imagelod.h"
 #include "services/paleotaskservice.h"
 #include "services/seismictaskservice.h"
 #include "services/welllogset.h"
@@ -37,8 +38,15 @@ struct WellSectionWorkflow::Shared {
   };
   QVector<Entry> entries;
   QVector<std::optional<wellsection::Curve>> curves; // 与 entries 同序
-  // 图片道清单（GUI 步收集，任务线程装载）：井 id → (路径, depthMd, caption)。
-  QHash<QString, QVector<std::tuple<QString, double, QString>>> pendingImages;
+  // 图片道清单（GUI 步收集，任务线程装载）：井 id → 待装图片。装载按
+  // imagelod 缩略级（LOD 口径：原图驻磁盘按需全载）。
+  struct PendingImage {
+    QString path;
+    double depthMd = 0.0;
+    QString caption;
+    QString assetId;
+  };
+  QHash<QString, QVector<PendingImage>> pendingImages;
 };
 
 namespace {
@@ -366,20 +374,26 @@ void WellSectionWorkflow::loadCurveBodies(Shared &shared,
       shared.wells[shared.entries[i].wellIndex].curves.push_back(
           *shared.curves[i]);
 
-  // 图片道装载（任务线程）：QImage 是非 GUI 类型， QPixmap 转换归视图线程。
-  // 单张失败跳过（坏图不让整段剖面失败——warnings 如实记）。
+  // 图片道装载（任务线程）：imagelod 缩略级（解码期降采样——装载内存峰值
+  // = 缩略字节而非全图字节；EXIF Orientation 在装载路径统一应用）。QImage
+  // 是非 GUI 类型，QPixmap 转换归视图线程。单张失败跳过（坏图不让整段
+  // 剖面失败——warnings 如实记）。
   for (wellsection::Well &w : shared.wells) {
     QVector<wellsection::ImageAnchor> loaded;
     for (const auto &pending : shared.pendingImages.value(w.id)) {
-      QImage img(std::get<0>(pending));
-      if (img.isNull()) {
-        shared.warnings << tr("图片道装载失败：%1").arg(std::get<0>(pending));
+      const paleo::imagelod::TrackImage ti =
+          paleo::imagelod::loadThumbnail(pending.path);
+      if (ti.isNull()) {
+        shared.warnings << tr("图片道装载失败：%1").arg(pending.path);
         continue;
       }
       wellsection::ImageAnchor a;
-      a.md = std::get<1>(pending);
-      a.caption = std::get<2>(pending);
-      a.image = img;
+      a.md = pending.depthMd;
+      a.caption = pending.caption;
+      a.image = ti.thumbnail;
+      a.assetId = pending.assetId;
+      a.path = pending.path;
+      a.fullSize = ti.fullSize;
       loaded.append(a);
     }
     if (!loaded.isEmpty()) {
@@ -399,8 +413,14 @@ void WellSectionWorkflow::loadCurveBodies(Shared &shared,
 void WellSectionWorkflow::collectCoreImages(Shared &shared) const
 {
   for (const wellsection::Well &w : shared.wells) {
-    for (const WellImageAnchor &a : m_data.imagesFor(w.id))
-      shared.pendingImages[w.id].append({a.path, a.depthMd, a.caption});
+    for (const WellImageAnchor &a : m_data.imagesFor(w.id)) {
+      Shared::PendingImage p;
+      p.path = a.path;
+      p.depthMd = a.depthMd;
+      p.caption = a.caption;
+      p.assetId = a.assetId;
+      shared.pendingImages[w.id].append(p);
+    }
   }
 }
 

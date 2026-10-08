@@ -43,12 +43,17 @@ struct TimeDepth {
 
 // 相代码充填段：交会分类（crossplot 井层段）产物的按井深度段。
 // classId 对 12 色Wheel 取色（数据符号色，视图侧解析）。
-// 图片道锚（core/lab_analysis 井附件照片）：md 锚定 + 预解码位图
-//（编排层任务线程装载；QtGui 于数据层无禁令——纯数据无 UI 语义）。
+// 图片道锚（core/lab_analysis 井附件照片）：md 锚定 + 缩略位图（编排层
+// 任务线程装载，最长边 ≤ imagelod::LodPolicy::kThumbnailEdge——原图驻磁盘
+// 按需全载，QtGui 于数据层无禁令——纯数据无 UI 语义）。assetId/path 供
+// 视图层回溯编辑锚深（双击 → 对话框）与原图全载；fullSize 是原图几何。
 struct ImageAnchor {
   double md = 0.0;
   QString caption;
-  QImage image;
+  QImage image;        // 缩略级（LOD 常驻面）
+  QString assetId;     // catalog 资产（锚深编辑回溯）
+  QString path;        // 磁盘原图绝对路径（按需全载）
+  QSize fullSize;      // 原图像素尺寸（EXIF 修正后）
 };
 
 struct FaciesSegment {

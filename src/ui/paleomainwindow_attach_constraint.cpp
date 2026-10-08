@@ -654,13 +654,19 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
         const QString projectDir =
             m_projectSvc ? QFileInfo(m_projectSvc->projectPath()).absolutePath() : QString();
         if (m_realizationWf)
+        {
           m_realizationWf->bind(cat, projectDir, m_layerSvc);
+          m_realizationWf->setTaskService(m_taskSvc);
+        }
         rsPanel->bindCatalog(cat);
       };
       if (m_projectSvc)
         connect(m_projectSvc, &QgisProjectService::projectOpened, this,
                 rebindRealization);
       rebindRealization();
+
+      connect(m_realizationWf, &RealizationWorkflow::busyChanged, rsPanel,
+              &RealizationPanel::setBusy);
 
       connect(rsPanel, &RealizationPanel::statusMessage, this,
               [this](const QString &text) { statusBar()->showMessage(text, 8000); });
@@ -672,24 +678,36 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
               [this](const QString &setId, const QString &token) {
                 showRealizationStat(setId, token);
               });
-      // 派生/差值走功能层便捷面——视图不持 algorithms 的 StatsRequest 类型。
+      // 派生/差值走异步三段式（#227：取数/计算/写盘在任务池，主线程只贴结果；面板置 busy 防连点重跑）。
       connect(rsPanel, &RealizationPanel::deriveStatsRequested, this,
-              [this](const QString &setId) {
+              [this, rsPanel](const QString &setId) {
                 if (!m_realizationWf)
                   return;
+                rsPanel->setBusy(true);
                 QString err;
-                if (!m_realizationWf->deriveAllStatistics(setId, &err))
-                  statusBar()->showMessage(
-                      err.isEmpty() ? tr("统计派生失败") : err, 8000);
+                PaleoTask *task = m_realizationWf->deriveAllStatisticsAsync(setId, &err);
+                if (!task)
+                {
+                  if (!m_realizationWf->deriveAllStatistics(setId, &err))
+                    statusBar()->showMessage(
+                        err.isEmpty() ? tr("统计派生失败") : err, 8000);
+                  rsPanel->setBusy(false);
+                }
               });
       connect(rsPanel, &RealizationPanel::diffRequested, this,
-              [this](const QString &setIdA, const QString &setIdB) {
+              [this, rsPanel](const QString &setIdA, const QString &setIdB) {
                 if (!m_realizationWf)
                   return;
+                rsPanel->setBusy(true);
                 QString err;
-                if (!m_realizationWf->differenceOfMeans(setIdA, setIdB, &err))
-                  statusBar()->showMessage(
-                      err.isEmpty() ? tr("集合差值失败") : err, 8000);
+                PaleoTask *task = m_realizationWf->differenceOfMeansAsync(setIdA, setIdB, &err);
+                if (!task)
+                {
+                  if (!m_realizationWf->differenceOfMeans(setIdA, setIdB, &err))
+                    statusBar()->showMessage(
+                        err.isEmpty() ? tr("集合差值失败") : err, 8000);
+                  rsPanel->setBusy(false);
+                }
               });
       // 派生/差值成功 → 直接上图反馈（统计亮均值面，图签口径词同源）。
       connect(m_realizationWf, &RealizationWorkflow::realizationStatsDerived, this,

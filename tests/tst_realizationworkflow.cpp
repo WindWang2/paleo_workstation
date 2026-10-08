@@ -7,6 +7,7 @@
 #include "../src/catalog/realizationset.h"
 #include "../src/workflow/realizationworkflow.h"
 #include "../src/algorithms/ensemblestats.h"
+#include "../src/services/paleotaskservice.h"
 
 #include <gdal.h>
 #include <cmath>
@@ -108,6 +109,7 @@ class RealizationWorkflowTests : public QObject
     void diffOfMeansMatchesDirect();
     void frameOrderAndSignals();
     void restartSurvival();
+    void deriveAllStatisticsAsyncWithTaskService();
 };
 
 void RealizationWorkflowTests::publishRoundTripsContract()
@@ -452,6 +454,41 @@ void RealizationWorkflowTests::restartSurvival()
   for ( int i = 0; i < 3; ++i )
     QVERIFY( QFile::exists( wf.memberRasterPath( setId, i ) ) );
   QDir( projectDir ).removeRecursively();
+}
+
+void RealizationWorkflowTests::deriveAllStatisticsAsyncWithTaskService()
+{
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  DataCatalog cat;
+  QVERIFY( cat.open( dir.path() ) );
+
+  PaleoTaskService taskService;
+  RealizationWorkflow wf;
+  wf.bind( &cat, dir.path(), nullptr );
+  wf.setTaskService( &taskService );
+
+  const auto members = makeMembers( dir.path(), 4, 8, 8, 999 );
+  QString err;
+  const QString setId = wf.publishSet( QStringLiteral( "异步统计" ),
+                                       QStringLiteral( "D61" ), members, {}, {}, &err );
+  QVERIFY( !setId.isEmpty() );
+
+  QSignalSpy derivedSpy( &wf, &RealizationWorkflow::realizationStatsDerived );
+  QSignalSpy busySpy( &wf, &RealizationWorkflow::busyChanged );
+
+  PaleoTask *task = wf.deriveAllStatisticsAsync( setId, &err );
+  QVERIFY2( task, qPrintable( err ) );
+
+  // 等待任务完成
+  QTRY_VERIFY_WITH_TIMEOUT( task->isFinished(), 10000 );
+  QCOMPARE( task->state(), PaleoTask::State::Succeeded );
+  QTRY_VERIFY( !wf.isBusy() );
+
+  // 断言发布结果
+  QCOMPARE( derivedSpy.count(), 1 );
+  const auto stats = paleo::realization::statSurfaces( cat, setId );
+  QCOMPARE( stats.size(), 4 );
 }
 
 QTEST_MAIN( RealizationWorkflowTests )

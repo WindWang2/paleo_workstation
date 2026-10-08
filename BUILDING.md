@@ -156,8 +156,11 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo `
 # 并设 GDAL_DATA=$HOME/paleo-qgis-deps/Library/share/gdal、
 # PROJ_LIB=$HOME/paleo-qgis-deps/Library/share/proj（./paleo-dev.ps1 已内置）。
 # 测试还需（ps1 test 已内置）：TEMP/TMP 与 SEISMIC_INDEX_CACHE_DIR 指到
-# build/paleo-tmp 内子目录（沙箱监狱对策，见下）、PALEO_PYTHON=
-# $HOME/paleo-qgis-deps/python.exe（conda 布局 python 在根不在 Library/bin）。
+# build/paleo-tmp 内子目录（沙箱监狱对策，见下）。PALEO_PYTHON=
+# $HOME/paleo-qgis-deps/python.exe（conda 布局 python 在根不在 Library/bin）
+# 由 ps1 localdeps 设置（方向 81 起；此前仅终跑脚本有），并经
+# -DPALEO_TEST_PYTHON 进 cache、由 ctest 注入每个测试——手工 configure 时
+# 同样加 "-DPALEO_TEST_PYTHON=$HOME/paleo-qgis-deps/python.exe"。
 ```
 
 要点：
@@ -194,6 +197,25 @@ CMakeCache 的编译侧 Qt 与 DLL 搜索序解析到的运行侧 Qt：major.min
 自动把 `TEMP/TMP` 重定向到 `build/paleo-tmp`（树内、浅层，远离
 CMakeLists 注记的 MAX_PATH 深路径顾虑）。根治需在沙箱策略侧放行本仓库
 的 `%TEMP%` 写——机器配置问题，移交用户决策。
+
+**环境债二期（方向 81）**：方向 72 终态 16 红逐条处置，名单与判定见
+`tools/env_redset.json` / `tools/check_env_redset.py`（`ctest -L envdebt`
+一键重跑 16 项）：
+
+- **srs.db**：`./paleo-dev.ps1 ensure-resources` 按 `vendor/deb-closure.lock`
+  同源取 qgis-providers-common + qgis-common（_all 包）补齐
+  `~/paleo-qgis-prefix/resources/**`，`srs.db = cp srs-template.db`
+  （Debian postinst 同义）；localdeps 的 test/selfcheck 缺 srs.db 时自动调用。
+  解 `data.tar.zst` 需 Python≥3.14、`zstandard` 模块或 PATH 上的 `zstd` 之一
+  （conda deps 的 `Library/bin` 通常带 zstd.exe）。
+- **QSettings**：测试 exe 静态初始化期把本进程 HKCU 重映射到
+  `build/ctest-home/<test>/registry.hiv` 私有 hive（产品仍 NativeFormat，
+  零迁移）；测试不再读写/清空开发者真实的 `HKCU\Software\paleo\paleo`。
+  直跑测试 exe（不经 ctest）时 hive 落 `%TEMP%\paleo-test-registry\`；
+  `PALEO_TEST_REGISTRY_HIVE=native` 可关闭。
+- **perf**：tst_cache_las / tst_singlefactor_perf / tst_startup_trace 按名单
+  豁免（只限 localdeps、只认各自预算断言文案，阈值不动）；`paleo-dev.ps1 test`
+  在 ctest 失败后先过检查器，全部为豁免即放行。
 
 ## 平台 × 版本矩阵
 

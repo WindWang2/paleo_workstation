@@ -1,5 +1,6 @@
 // 层：QGIS 封装
 #include "qgislayerservice.h"
+#include "factorstylewriter.h"
 #include "qgiserrors_internal.h"
 
 #include "qgisprojectservice.h"
@@ -180,6 +181,10 @@ QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *erro
   if (!decl->title.isEmpty())
     layer->setName(decl->title); // 显示名优先 title，机器名仍在 paleoLayerId
   layer->setCustomProperty(QStringLiteral("paleoLayerId"), decl->layerId);
+
+  if (decl->layerId.startsWith(QStringLiteral("contours.")) ||
+      (decl->layerId.startsWith(QStringLiteral("cartographic.")) && decl->layerId.endsWith(QStringLiteral(".contours"))))
+    FactorStyleWriter::applyContours(qobject_cast<QgsVectorLayer *>(layer.get()));
 
   // QgsProject takes ownership; keep only the raw pointer in the instance map.
   QgsMapLayer *added = proj->addMapLayer(layer.get());

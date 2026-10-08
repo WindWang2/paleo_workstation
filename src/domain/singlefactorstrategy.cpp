@@ -37,7 +37,7 @@ QVector<SurfaceMethodPack> makeSurfacePacks()
                       "全局各向异性由比值和角度控制；不附加方向脊、残差圆斑或背景回填。" ) } );
   packs.append( SurfaceMethodPack{
       QStringLiteral( "local_direction_idw" ),
-      QStringLiteral( "本地方向插值" ),
+      QStringLiteral( "IDW（局部方向约束）" ),
       QStringLiteral( "gridded" ),
       QStringLiteral( "paleo:paleo_local_direction_idw" ),
       QStringLiteral( "paleo:paleo_local_direction_idw" ),
@@ -55,7 +55,7 @@ QVector<SurfaceMethodPack> makeSurfacePacks()
       false,
       true,
       true,
-      QStringLiteral( "变差函数自动/显式拟合 + 普通克里金局部邻域求解（geostat 核）。"
+      QStringLiteral( "变差函数自动/显式拟合 + 普通克里金局部邻域求解（geostat 核，逐线屏障/方向参数不参与）。"
                       "有效样本不足阈值时如实回落 IDW 并记 method_actual。" ) } );
   packs.append( SurfaceMethodPack{
       QStringLiteral( "local_direction_kriging" ),

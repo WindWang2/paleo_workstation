@@ -70,12 +70,12 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
   // 镜像命令：面板按钮存在才建（空工作流的测试壳照样能跑）。
   const auto mirrored = [&newAction](QWidget *page, const char *buttonName, const QString &text,
                                      const QIcon &ic, const char *actionName,
-                                     bool syncText = false) -> QAction * {
+                                     bool syncText = false, bool hideSource = true) -> QAction * {
     auto *b = page ? page->findChild<QAbstractButton *>(QLatin1String(buttonName)) : nullptr;
     if (!b)
       return nullptr;
     QAction *a = newAction(text, ic, QString(), actionName);
-    PaleoRibbon::mirror(a, b, syncText);
+    PaleoRibbon::mirror(a, b, syncText, hideSource);
     return a;
   };
   const auto addLarge = [](SARibbonPanel *p, QAction *a, bool run = false) {
@@ -338,16 +338,24 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
             drawBtn->click();
           });
         draw->setMenu(menu);
-        p->addLargeAction(draw, QToolButton::MenuButtonPopup);
+        p->addSmallAction(draw, QToolButton::MenuButtonPopup);
       }
       else
-        addLarge(p, draw);
+        addSmall(p, draw);
     }
     addLarge(p, paramsAct);
     SARibbonPanel *ip = panel(cat, tr("插值计算"), "ribbonPanel.constraint.idw");
-    addLarge(ip, mirrored(constraint, "runIdwButton", tr("计算单因素"), icon("mActionStart.svg"),
-                       "ribbonRunIdw"),
-          true);
+    QAction *runFactor = mirrored(constraint, "generateFactorButton", tr("生成单因素图"),
+                                  icon("mActionStart.svg"), "ribbonRunIdw", false, false);
+    if (auto *method = constraint ? constraint->findChild<QComboBox *>(QStringLiteral("factorMethodCombo")) : nullptr) {
+      const auto updateMethod = [runFactor, method] {
+        if (runFactor) runFactor->setText(QObject::tr("计算 · %1").arg(method->currentText()));
+      };
+      updateMethod(); connect(method, &QComboBox::currentIndexChanged, this, updateMethod);
+    }
+    addLarge(ip, runFactor, true);
+    addLarge(p, mirrored(constraint, "directionButton", tr("方向线族"), icon("mActionCaptureLine.svg"), "ribbonDrawDirection", false, false));
+    addLarge(p, mirrored(constraint, "breakLineButton", tr("打断线族"), icon("mActionCaptureLine.svg"), "ribbonDrawBreakLine", false, false));
     if (wellSectionAct || corrAct)
     {
       SARibbonPanel *cp = panel(cat, tr("连井分析"), "ribbonPanel.constraint.correlation");

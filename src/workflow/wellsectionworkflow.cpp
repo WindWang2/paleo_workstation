@@ -658,6 +658,14 @@ private:
 // "base","litho"}]}，深度 MD 米；生产者 = wellfaciesworkflow（welllogfacies
 // 预测结果落 DERIVED）。岩屑表契约：顶深/底深/岩性必需列 + 描述可选列
 // （方言表头见 cuttingsdoc.h），一井一份。
+QHash<QString, QVector<wellsection::LithoSegment>> WellSectionWorkflow::lithologiesFor(
+    const QStringList &wellIds, QStringList *warnings) const {
+  CatalogWellLithologyProvider provider(m_catalog, projectDir(), warnings);
+  QHash<QString, QVector<wellsection::LithoSegment>> result;
+  for (const QString &id : wellIds) result.insert(id, provider.lithologyFor(id));
+  return result;
+}
+
 void WellSectionWorkflow::attachLithoSegments(
     QVector<wellsection::Well> &wells, QStringList *warnings) const {
   if (!m_catalog || wells.isEmpty())

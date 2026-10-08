@@ -102,6 +102,8 @@ void ConstraintWorkflow::setCatalog( DataCatalog *catalog, const QString &projec
 {
   m_catalog = catalog;
   m_projectDir = projectDir;
+  m_wellFactorRows.clear();
+  m_wellFactorMessage.clear();
 }
 
 void ConstraintWorkflow::setStore( PaleoProjectStore *store )

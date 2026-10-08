@@ -1428,9 +1428,10 @@ void MappingWorkbench::styleLayer(const QString &id) {
     FactorStyleWriter::applyTo(qobject_cast<QgsRasterLayer *>(layer),
                                v.extra.value("factor_id").toString());
   if (styledKind.startsWith(QLatin1String("constraint")) || analysisRaster ||
-      cartographic || styledKind == QLatin1String("contour_lines")) {
-    // 等值线（分析与制图绕行两族）：细灰线 + ELEV 标注——制图绕行仍
-    // 挂 ELEV，同线型同标注规约。
+      cartographic || styledKind == QLatin1String("contour_lines") ||
+      styledKind == QLatin1String("well_factor_points") ||
+      styledKind == QLatin1String("single_factor_cartographic_contour")) {
+    // 分析与制图绕行等值线共用双描边和数字 halo，兼容 ELEV/level。
     if ((styledKind == QLatin1String("contour_lines") ||
          styledKind == QLatin1String("single_factor_cartographic_contour")))
       if (auto *vector = qobject_cast<QgsVectorLayer *>(layer))

@@ -182,6 +182,11 @@ deb 库路径/GDAL 驱动注入，与 linux 主 job 同源；`ASAN_OPTIONS=
 detect_leaks=0` 语义不变）。防回升：`tools/check_ci_scripts.py` 进 lint
 Source gates——静态解析 workflows `run:` 块扫 `tools/` 引用做存在性
 检查（yml 注释/shell 注释不误伤，selftest 8 例双向 + mutation 实证打红）。
+修后首跑实证（PR #300，run 37727797358，2026-10-08）：asan job 安装步
+（原致命断链步）completed/success，进入 Vendor dependencies（bootstrap
+全量构建）——断链修复生效；lint job 同 run 实跑新护栏全绿。ASAN/UBSAN
+全量输出对照 80/83 基线**暂被下方移交项阻塞**（deb 闭包缺库致 bootstrap
+链接期红，与 linux 主 job 同一处），闭包修复后首跑补对照。
 
 同轮运行侧核对的**移交项**（不属本方向修复，vendor 域）：
 - linux/linux-perf 自方向 71 合入（`27ac69d8`，10-07 13:15，最后绿

@@ -139,12 +139,21 @@ switch ($Verb) {
     $installedDb = Join-Path $osgeo 'etc\setup\installed.db'
 
     function Read-InstalledDbMap([string]$path) {
-      # installed.db 每行「名称 版本 0」；返回 @{名称=版本}，空文件/缺文件返回 $null。
+      # installed.db：首行「INSTALLED.DB 2」是格式头（不是包）；其余每行
+      # 「名称 名称-版本.tar.bz2 0」——第二列是包文件名，剥掉「名称-」前缀与
+      # .tar.* 后缀才是 setup.ini/manifest 的 version 口径（方向 81：旧实现把
+      # 文件名当版本、把格式头当包，114 包全报「漂移」+「未钉版包 INSTALLED.DB」，
+      # Windows CI 在 Vendor 步必红）。同口径参考实现与 selftest 见
+      # tools/pin_osgeo4w.py installed_db_map。返回 @{名称=版本}，空/缺返回 $null。
       if (-not (Test-Path $path)) { return $null }
       $map = @{}
       foreach ($line in (Get-Content $path -Encoding utf8)) {
-        $f = $line -split '\s+'
-        if ($f.Count -ge 2 -and $f[0]) { $map[$f[0]] = $f[1] }
+        $f = @($line.Trim() -split '\s+')
+        if ($f.Count -lt 2 -or -not $f[0] -or $f[0] -eq 'INSTALLED.DB') { continue }
+        $ver = $f[1] -replace '\.tar\.(bz2|xz|gz|zst)$', ''
+        $prefix = $f[0] + '-'
+        if ($ver.StartsWith($prefix, [System.StringComparison]::Ordinal)) { $ver = $ver.Substring($prefix.Length) }
+        $map[$f[0]] = $ver
       }
       if ($map.Count -eq 0) { return $null }
       return $map

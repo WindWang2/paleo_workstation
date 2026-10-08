@@ -1,15 +1,26 @@
 // 层：数据（测试壳位于 tests/，被测对象为数据层纯数值核）
 #include <QtTest/QtTest>
 
+#include "algorithms/geostat/cokriging.h"
 #include "algorithms/geostat/variogram.h"
 #include "algorithms/singlefactor/krigingsurface.h"
+#include "algorithms/singlefactor/localdirectionalgorithm.h"
 #include "algorithms/singlefactor/localidw.h"
 #include "algorithms/singlefactor/support.h"
+
+#include <qgsrasterlayer.h>
+
+#include <QDir>
+#include <QRegularExpression>
+#include <QTemporaryDir>
+
+#include <gdal.h>
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <tuple>
 #include <vector>
 
 using namespace paleo::singlefactor;
@@ -130,6 +141,15 @@ class SingleFactorKrigingTests : public QObject
     void hardBarrierKeepsCompartmentsSeparate();
     void domainMarksUnderKriging();
     void gridScaleRatioGate();
+    // 方向84：克里金约束消费（方向线/软边界进半方差度量）与协克里金接线。
+    void directionGuideBendsKrigingWeights();
+    void softBoundaryDampsCrossSideKriging();
+    void constraintIssueReceipts();
+    void variogramBarrierAwareFitReceipt();
+    void cokrigingEndToEnd();
+    void cokrigingRejectsWithoutCovariate();
+    void cokrigingRhoZeroMatchesKriging();
+    void covariateSamplingAtWells();
 };
 
 // Oracle 1（精确性）：γ(0)=0 口径下普通克里金在采样点无误差通过——对任意块金
@@ -559,6 +579,339 @@ void SingleFactorKrigingTests::gridScaleRatioGate()
                                           .arg( small.elapsed )
                                           .arg( large.elapsed )
                                           .arg( ratio ) ) );
+}
+
+// 方向84 Oracle 1：方向线扭转克里金权重场——query 在线上，沿线切向井（A）与
+// 等距法向井（C）无方向线时严格对称（估值=中值）；竖直方向线使 A 的有效距离
+// 大幅缩短（切向张量满额扣减），估值显著偏向 A。背景井按 y=x 对称放置，
+// 保证无方向线基准的严格对称。
+void SingleFactorKrigingTests::directionGuideBendsKrigingWeights()
+{
+  std::vector<Sample> wells;
+  wells.push_back( well( "A", 100.0, 130.0, 10.0 ) ); // 沿线切向，距 Q 30
+  wells.push_back( well( "C", 130.0, 100.0, 0.0 ) );  // 垂直法向，距 Q 30
+  for ( const auto &[id, x, y] : std::vector<std::tuple<const char *, double, double>>{
+            { "b1", 40.0, 40.0 }, { "b2", 160.0, 160.0 }, { "b3", 40.0, 160.0 },
+            { "b4", 160.0, 40.0 }, { "b5", 70.0, 70.0 }, { "b6", 130.0, 130.0 } } )
+    wells.push_back( well( id, x, y, 5.0 ) );
+  const PreparedInput input = inputWithDomain( wells, rect( 0, 0, 200, 200 ) );
+
+  const GridSpec grid = gridSpec( 1, 1, 99.5, 100.5, 1.0 ); // 单格格心 (100,100)（pixelHeight<0）
+  // range=40：井距 30/42 处 γ 区分度充分（range=200 时全场 γ≈0，矩阵近全零，
+  // warp 缩距后即病态回落——不是断言想考察的路径）。
+  ResolvedParameters plain = krigingParams( 1.0, 40.0 );
+  const SurfaceResult withoutLine = evaluateLocalKriging( input, grid, plain, {} );
+  QCOMPARE( withoutLine.status, Status::Ok );
+  QCOMPARE( withoutLine.krigingCells, 1 );
+  // 对称布局 → 估值等于中性中值 5（数值精确对称：等距井的权重相等）。
+  QVERIFY2( std::fabs( withoutLine.values[0] - 5.0 ) < 1e-9,
+            qPrintable( QString::number( withoutLine.values[0] ) ) );
+
+  ResolvedParameters withLine = krigingParams( 1.0, 40.0 );
+  ResolvedDirection direction;
+  direction.id = "d1";
+  direction.ratio = 8.0;
+  direction.influence = 50.0;
+  direction.core = 15.0;
+  direction.points = { { 100.0, 20.0 }, { 100.0, 180.0 } };
+  withLine.directions.push_back( direction );
+  const SurfaceResult withLineResult = evaluateLocalKriging( input, grid, withLine, {} );
+  QCOMPARE( withLineResult.status, Status::Ok );
+  QCOMPARE( withLineResult.krigingCells, 1 );
+  // 切向井 A 的半方差点对距离从 30 缩到 ~4：估值显著偏向 A（值 10）。
+  QVERIFY2( withLineResult.values[0] > 5.5,
+            qPrintable( QStringLiteral( "with_line=%1 (expect >5.5 toward A=10)" )
+                            .arg( withLineResult.values[0] ) ) );
+}
+
+// 方向84 Oracle 2：软边界衰减——query 与两口等距井（跨线/同侧各一）在无软边界
+// 时对称；软边界放大跨线点对的半方差距离，估值显著偏向同侧井。
+void SingleFactorKrigingTests::softBoundaryDampsCrossSideKriging()
+{
+  std::vector<Sample> wells;
+  wells.push_back( well( "L", 90.0, 100.0, 10.0 ) );  // 跨线侧（左），距 Q 20
+  wells.push_back( well( "R", 130.0, 100.0, 0.0 ) );  // 同侧（右），距 Q 20
+  // 背景井全部放软边界同侧（x>100）且关于对称轴 x=110 镜像——软边界 warp 只
+  // 影响 L 相关的跨线对（query-L 与 L-背景），方向明确：λ_L 降 → 估值向同侧降。
+  for ( const auto &[id, x, y] : std::vector<std::tuple<const char *, double, double>>{
+            { "b1", 105.0, 30.0 }, { "b2", 115.0, 30.0 }, { "b3", 105.0, 160.0 },
+            { "b4", 115.0, 160.0 }, { "b5", 104.0, 60.0 }, { "b6", 116.0, 60.0 } } )
+    wells.push_back( well( id, x, y, 5.0 ) );
+  const PreparedInput input = inputWithDomain( wells, rect( 60, 0, 160, 200 ) );
+
+  const GridSpec grid = gridSpec( 1, 1, 109.5, 100.5, 1.0 ); // 单格格心 (110,100)
+  const SurfaceResult withoutSoft = evaluateLocalKriging( input, grid, krigingParams( 1.0, 40.0 ), {} );
+  QCOMPARE( withoutSoft.status, Status::Ok );
+  QVERIFY2( std::fabs( withoutSoft.values[0] - 5.0 ) < 1e-9,
+            qPrintable( QString::number( withoutSoft.values[0] ) ) );
+
+  ResolvedParameters withSoft = krigingParams( 1.0, 40.0 );
+  ResolvedSoft soft;
+  soft.id = "s1";
+  soft.radius = 60.0;
+  soft.strength = 0.8;
+  soft.points = { { 100.0, 20.0 }, { 100.0, 180.0 } };
+  withSoft.soft.push_back( soft );
+  const SurfaceResult softResult = evaluateLocalKriging( input, grid, withSoft, {} );
+  QCOMPARE( softResult.status, Status::Ok );
+  QCOMPARE( softResult.krigingCells, 1 );
+  QVERIFY2( softResult.values[0] < 4.9,
+            qPrintable( QStringLiteral( "with_soft=%1 (expect <4.9 toward same-side R=0)" )
+                            .arg( softResult.values[0] ) ) );
+}
+
+// 方向84 Oracle 3：约束消费回执逐字断言（UI 契约）——消费写消费方式，
+// 不消费写原因；旧「not_used」文案对方向线/软边界不再出现。
+void SingleFactorKrigingTests::constraintIssueReceipts()
+{
+  std::vector<Sample> wells = latticeWells( 3, 60.0, 40.0, 40.0 );
+  PreparedInput input = inputWithDomain( wells, rect( 0, 0, 240, 240 ) );
+  ConstraintLine guide;
+  guide.stableId = "d1";
+  guide.semantic = Semantic::DirectionGuide;
+  guide.points = { { 40.0, 0.0 }, { 40.0, 240.0 } };
+  guide.ratio = 8.0;
+  input.constraints.push_back( guide );
+  ConstraintLine soft;
+  soft.stableId = "s1";
+  soft.semantic = Semantic::InterpretiveBoundary;
+  soft.points = { { 200.0, 0.0 }, { 200.0, 240.0 } };
+  soft.softStrength = 0.35;
+  input.constraints.push_back( soft );
+
+  // 不经过 resolveParameters：directions/soft 手动对齐（与被测编排同构）。
+  ResolvedParameters params = krigingParams( 1.0, 200.0 );
+  ResolvedDirection direction;
+  direction.id = "d1";
+  direction.ratio = 8.0;
+  direction.influence = 80.0;
+  direction.core = 24.0;
+  direction.points = guide.points;
+  params.directions.push_back( direction );
+  ResolvedSoft boundary;
+  boundary.id = "s1";
+  boundary.radius = 60.0;
+  boundary.strength = 0.35;
+  boundary.points = soft.points;
+  params.soft.push_back( boundary );
+  params.wellClusterLocality = true;
+
+  const SurfaceResult result =
+      evaluateLocalKriging( input, gridSpec( 4, 4, 0, 240, 60 ), params, {} );
+  QCOMPARE( result.status, Status::Ok );
+
+  QString joined;
+  for ( const std::string &issue : result.issues )
+    joined += QString::fromStdString( issue ) + QLatin1Char( '\n' );
+  QVERIFY( joined.contains( QLatin1String( "d1 direction_guide_consumed_by_kriging_metric" ) ) );
+  QVERIFY( joined.contains( QLatin1String( "s1 soft_boundary_consumed_by_kriging_metric" ) ) );
+  QVERIFY( joined.contains( QLatin1String( "well_cluster_locality_not_used_by_kriging" ) ) );
+  // 中文断言走 QStringLiteral（QLatin1String 按字节一字符比较，非 ASCII 必不匹配）。
+  QVERIFY( joined.contains( QStringLiteral( "最小方差解" ) ) ); // 井群不消费的原因写清楚
+  QVERIFY( !joined.contains( QLatin1String( "direction_guide_not_used_by_kriging" ) ) );
+  QVERIFY( !joined.contains( QLatin1String( "soft_boundary_not_used_by_kriging" ) ) );
+}
+
+// 方向84 Oracle 4（D4）：硬屏障下的隔断感知变差拟合回执——interpretation_partition_v1
+// 封死语义使跨隔断样本对（测地不可达）不进结构估计，回执带 unreachable_pairs。
+void SingleFactorKrigingTests::variogramBarrierAwareFitReceipt()
+{
+  // 两侧各 4 口（共 8 口过阈值），同侧沿 y 递变（同侧结构非零信号），跨侧值差大：
+  // 跨墙对若进拟合会把两侧结构拉平；隔断感知档应剔除跨墙对。
+  std::vector<Sample> wells;
+  for ( int i = 0; i < 4; ++i )
+  {
+    wells.push_back( well( "L", 20.0 + i * 3.0, 20.0 + i * 40.0, 1.0 + i ) );
+    wells.push_back( well( "R", 180.0 + i * 3.0, 20.0 + i * 40.0, 9.0 - i ) );
+  }
+  PreparedInput input = inputWithDomain( wells, rect( 0, 0, 220, 160 ) );
+  ConstraintLine wall;
+  wall.stableId = "h1";
+  wall.semantic = Semantic::HardBarrier;
+  wall.points = { { 100.0, 0.0 }, { 100.0, 160.0 } };
+  input.constraints.push_back( wall );
+
+  ResolvedParameters params = baseParams();
+  params.methodActual = "kriging";
+  params.variogramModel = "spherical";
+  params.range = 0; // 自动拟合（显式参数不拟合实验变差，隔断感知无从生效）
+  params.hardBarrierModel = "interpretation_partition_v1"; // 封死：跨墙对不可达
+
+  const SurfaceResult result = evaluateLocalKriging( input, gridSpec( 22, 16, 0, 160, 10 ), params, {} );
+  QCOMPARE( result.status, Status::Ok );
+  QString joined;
+  for ( const std::string &issue : result.issues )
+    joined += QString::fromStdString( issue ) + QLatin1Char( '\n' );
+  QVERIFY2( joined.contains( QLatin1String( "variogram_barrier_aware geodesic_lags unreachable_pairs=" ) ),
+            qPrintable( joined ) );
+  // 数值断言（review L1）：封死墙两侧 4×4=16 对跨墙样本对必须被剔除——墙泄漏
+  // （pairs=0）时回执仍在，那只是接线绿不是语义绿（geostat 侧另有
+  // sealedWallExcludesCrossSidePairs 兜底）。
+  const QRegularExpression pairsPattern( QStringLiteral( "unreachable_pairs=(\\d+)" ) );
+  const QRegularExpressionMatch matched = pairsPattern.match( joined );
+  QVERIFY( matched.hasMatch() );
+  QVERIFY2( matched.captured( 1 ).toInt() > 0,
+            qPrintable( QStringLiteral( "unreachable_pairs=%1（封死墙应剔除跨墙对）" )
+                            .arg( matched.captured( 1 ) ) ) );
+}
+
+// 方向84 Oracle 5（D3）：协克里金端到端——合成协变量（井位采样）→ 估值面与
+// CoKrigingSolver 单点口径一致（同 γ11/γ22/ρ 回填参数）。
+void SingleFactorKrigingTests::cokrigingEndToEnd()
+{
+  const std::vector<Sample> wells = latticeWells( 4, 40.0, 20.0, 20.0 );
+  PreparedInput input = inputWithDomain( wells, rect( 0, 0, 200, 200 ) );
+  // 协变量 = 2×主值（完全线性相关）：γ22 结构是 γ11 的比例缩放，拟合稳定。
+  std::vector<Sample> covariate;
+  covariate.reserve( wells.size() );
+  for ( const Sample &sample : wells )
+  {
+    Sample co = sample;
+    co.value = 2.0 * sample.value;
+    covariate.push_back( co );
+  }
+  input.covariate = std::move( covariate );
+
+  ResolvedParameters params = krigingParams( 1.0, 120.0 );
+  params.crossCorrelation = 0.6;
+  const SurfaceResult result = evaluateLocalCokriging( input, gridSpec( 5, 5, 0, 200, 40 ), params, {} );
+  QCOMPARE( result.status, Status::Ok );
+  QCOMPARE( result.resolved.methodActual, std::string( "cokriging" ) );
+  QCOMPARE( result.resolved.algorithmId, std::string( "paleo:paleo_local_direction_cokriging" ) );
+  QVERIFY( result.krigingCells > 0 );
+
+  QString joined;
+  for ( const std::string &issue : result.issues )
+    joined += QString::fromStdString( issue ) + QLatin1Char( '\n' );
+  QVERIFY( joined.contains( QLatin1String( "covariate_variogram" ) ) );
+  QVERIFY( joined.contains( QLatin1String( "cokriging_cross_model MM1 rho=" ) ) );
+
+  // 单点对拍：用回填的 γ22/ρ 构造 CoKrigingSolver（全样本，无邻域截断），与面值一致。
+  std::vector<paleo::geostat::Sample> primary;
+  std::vector<paleo::geostat::Sample> secondary;
+  for ( std::size_t i = 0; i < wells.size(); ++i )
+  {
+    primary.push_back( { wells[i].x, wells[i].y, wells[i].value } );
+    secondary.push_back( { input.covariate[i].x, input.covariate[i].y, input.covariate[i].value } );
+  }
+  paleo::geostat::CoKrigingModel model;
+  model.primary.type = paleo::geostat::VariogramModelType::Spherical;
+  model.primary.nugget = result.resolved.nugget;
+  model.primary.sill = result.resolved.sill;
+  model.primary.range = result.resolved.range;
+  model.secondary.type = paleo::geostat::VariogramModelType::Spherical;
+  model.secondary.nugget = result.resolved.secondaryNugget;
+  model.secondary.sill = result.resolved.secondarySill;
+  model.secondary.range = result.resolved.secondaryRange;
+  model.crossCorrelation = 0.6;
+  paleo::geostat::CoKrigingParams coParams;
+  const paleo::geostat::CoKrigingSolver solver( primary, secondary, model, coParams );
+  QVERIFY( solver.valid() );
+  // 格 (2,2) 的格心 = (0+2.5·40, 200-2.5·40) = (100,100)。
+  const paleo::geostat::CoKrigingPointResult point = solver.solveAt( 100.0, 100.0 );
+  QVERIFY( point.ok );
+  const double surfaceAt = result.values[static_cast<std::size_t>( 2 ) * 5 + 2]; // 格心 (100,100)
+  QVERIFY2( std::fabs( surfaceAt - point.estimate ) <= 1e-9 * std::max( 1.0, std::fabs( point.estimate ) ),
+            qPrintable( QStringLiteral( "surface=%1 solver=%2" ).arg( surfaceAt ).arg( point.estimate ) ) );
+}
+
+// 方向84 Oracle 6：缺协变量如实拒绝（InvalidInput），不回落冒充。
+void SingleFactorKrigingTests::cokrigingRejectsWithoutCovariate()
+{
+  const std::vector<Sample> wells = latticeWells( 4, 40.0, 20.0, 20.0 );
+  const PreparedInput input = inputWithDomain( wells, rect( 0, 0, 200, 200 ) ); // covariate 空
+  ResolvedParameters params = krigingParams( 1.0, 120.0 );
+  params.crossCorrelation = 0.5;
+  const SurfaceResult result = evaluateLocalCokriging( input, gridSpec( 4, 4, 0, 200, 50 ), params, {} );
+  QCOMPARE( result.status, Status::InvalidInput );
+  QString message = QString::fromStdString( result.message );
+  QVERIFY( message.contains( QStringLiteral( "协克里金请求拒绝" ) ) );
+  QVERIFY( message.contains( QStringLiteral( "协变量有效样本" ) ) );
+}
+
+// 方向84 Oracle 7：ρ=0 时协克里金严格退化为普通克里金（MM1 交叉项消失）——
+// 面值与 evaluateLocalKriging 同参数逐点一致（容差口径）。
+void SingleFactorKrigingTests::cokrigingRhoZeroMatchesKriging()
+{
+  const std::vector<Sample> wells = latticeWells( 4, 40.0, 20.0, 20.0 );
+  PreparedInput input = inputWithDomain( wells, rect( 0, 0, 200, 200 ) );
+  std::vector<Sample> covariate;
+  covariate.reserve( wells.size() );
+  for ( const Sample &sample : wells )
+  {
+    Sample co = sample;
+    co.value = 2.0 * sample.value;
+    covariate.push_back( co );
+  }
+  input.covariate = covariate;
+
+  const ResolvedParameters params = krigingParams( 1.0, 120.0 ); // crossCorrelation 默认 0
+  const GridSpec grid = gridSpec( 5, 5, 0, 200, 40 );
+  const SurfaceResult coResult = evaluateLocalCokriging( input, grid, params, {} );
+  QCOMPARE( coResult.status, Status::Ok );
+  const SurfaceResult okResult = evaluateLocalKriging( input, grid, params, {} );
+  QCOMPARE( okResult.status, Status::Ok );
+  for ( std::size_t i = 0; i < coResult.values.size(); ++i )
+  {
+    QVERIFY2( std::fabs( coResult.values[i] - okResult.values[i] ) <=
+                  1e-9 * std::max( 1.0, std::fabs( okResult.values[i] ) ),
+              qPrintable( QStringLiteral( "cell %1: co=%2 ok=%3" )
+                              .arg( i )
+                              .arg( coResult.values[i] )
+                              .arg( okResult.values[i] ) ) );
+  }
+}
+
+// 方向84 Oracle 8（review M5）：协变量井位采样链（sampleCovariateAtWells）——
+// 合成 GeoTIFF 断言 band-1 取值、nodata→NaN、域外→NaN、CRS 双侧无效时同网格直采。
+void SingleFactorKrigingTests::covariateSamplingAtWells()
+{
+  QTemporaryDir dir;
+  if ( !dir.isValid() )
+    QSKIP( "临时目录不可用（沙箱环境）" );
+  const QString tif = QDir( dir.path() ).filePath( QStringLiteral( "cov.tif" ) );
+
+  // 3×3 格网：origin(0,0)、像元 10、值 = row*3+col（band 1），(1,1) 置 nodata。
+  GDALAllRegister(); // 本测试进程无 QgsApplication：GDAL 驱动手工注册
+  GDALDriverH driver = GDALGetDriverByName( "GTiff" );
+  QVERIFY( driver != nullptr );
+  GDALDatasetH ds = GDALCreate( driver, tif.toUtf8().constData(), 3, 3, 1, GDT_Float64, nullptr );
+  QVERIFY( ds != nullptr );
+  const double gt[6] = { 0.0, 10.0, 0.0, 30.0, 0.0, -10.0 };
+  QCOMPARE( GDALSetGeoTransform( ds, const_cast<double *>( gt ) ), CE_None );
+  GDALRasterBandH band = GDALGetRasterBand( ds, 1 );
+  GDALSetRasterNoDataValue( band, -9999.0 );
+  double values[9] = { 0, 1, 2, 3, -9999.0, 5, 6, 7, 8 };
+  QCOMPARE( GDALRasterIO( band, GF_Write, 0, 0, 3, 3, values, 3, 3, GDT_Float64, 0, 0 ), CE_None );
+  GDALClose( ds );
+
+  QgsRasterLayer layer( tif, QStringLiteral( "cov" ), QStringLiteral( "gdal" ) );
+  QVERIFY2( layer.isValid(), qPrintable( layer.error().message() ) );
+
+  const std::vector<Sample> wells{
+    well( "inside", 5.0, 25.0, 0.0 ),    // 格 (col0,row0) 中心 → 值 0
+    well( "nodata", 15.0, 15.0, 0.0 ),   // 格 (1,1) → nodata → NaN
+    well( "outside", 95.0, 5.0, 0.0 ),   // 栅格范围外 → NaN
+    well( "edge", 25.0, 5.0, 0.0 ),      // 格 (col2,row2) 中心（北边界 origin）→ 值 8
+  };
+  QString error;
+  const QgsCoordinateReferenceSystem noCrs; // 双侧无效 CRS：局部工程网格口径直采
+  const std::vector<Sample> covariate =
+      sampleCovariateAtWells( &layer, wells, noCrs, &error );
+  QVERIFY2( error.isEmpty(), qPrintable( error ) );
+  QCOMPARE( static_cast<int>( covariate.size() ), 4 );
+  QCOMPARE( covariate[0].stableRowId, std::string( "inside" ) );
+  QCOMPARE( covariate[0].x, wells[0].x ); // 井位原样保留
+  QVERIFY( std::fabs( covariate[0].value - 0.0 ) < 1e-12 );
+  QVERIFY( std::isnan( covariate[1].value ) ); // nodata → NaN
+  QVERIFY( std::isnan( covariate[2].value ) ); // 域外 → NaN
+  QVERIFY( std::fabs( covariate[3].value - 8.0 ) < 1e-12 );
+
+  // 无效栅格（空指针）→ 如实报错，不返回部分样本。
+  QString nullError;
+  const std::vector<Sample> none = sampleCovariateAtWells( nullptr, wells, noCrs, &nullError );
+  QVERIFY( !nullError.isEmpty() );
+  QVERIFY( none.empty() );
 }
 
 QTEST_MAIN( SingleFactorKrigingTests )

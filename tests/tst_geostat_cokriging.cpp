@@ -116,6 +116,7 @@ class CoKrigingTests : public QObject
     void remoteSecondaryMatchesOrdinaryKriging();
     void constrainedWeightsRespondToGroupCap();
     void constraintMappingSurvivesDedupe();
+    void fullFieldGridOrdinaryCoKriging();
 };
 
 void CoKrigingTests::rejectsInvalidInputs()
@@ -363,6 +364,86 @@ void CoKrigingTests::constraintMappingSurvivesDedupe()
   QCOMPARE( mapping[2], mapping[3] ); // (3,3) 两条重合 → 同一合并下标
   QCOMPARE( mapping[4], std::numeric_limits<std::uint32_t>::max() ); // NaN → 哨兵
   QVERIFY( mapping[0] != mapping[5] );
+}
+
+void CoKrigingTests::fullFieldGridOrdinaryCoKriging()
+{
+  const std::vector<Sample> primary = primarySamples();
+  const std::vector<Sample> secondary = secondarySamples( 9 ); // 81 个协变量点
+  const CoKrigingModel model = fixtureModel(); // rho = 0.72 > 0.7
+
+  GridSpec grid;
+  grid.cols = 10;
+  grid.rows = 10;
+  grid.originX = 0.0;
+  grid.originY = 10.0;
+  grid.pixelWidth = 1.0;
+  grid.pixelHeight = -1.0;
+
+  const CoKrigingResult coResult = ordinaryCoKriging( primary, secondary, grid, model, KrigingParams{} );
+  QCOMPARE( coResult.status, Status::Ok );
+  QCOMPARE( coResult.finiteCells, 100 );
+  QCOMPARE( coResult.nodataCells, 0 );
+  QCOMPARE( coResult.solverFailures, 0 );
+  QCOMPARE( coResult.estimates.size(), static_cast<std::size_t>( 100 ) );
+  QCOMPARE( coResult.variances.size(), static_cast<std::size_t>( 100 ) );
+
+  // 1. Assert exact interpolation at primary samples
+  const CoKrigingSolver solver( primary, secondary, model, CoKrigingParams{} );
+  for ( const Sample &s : primary )
+  {
+    const CoKrigingPointResult pt = solver.solveAt( s.x, s.y );
+    QVERIFY( pt.ok );
+    QCOMPARE( pt.estimate, s.value );
+    QVERIFY( pt.variance <= 1e-10 );
+    QVERIFY( pt.variance >= -1e-10 );
+  }
+
+  std::vector<Sample> customPrimary = primary;
+  const double center00X = grid.cellCenterX( 0 );
+  const double center00Y = grid.cellCenterY( 0 );
+  const double customVal = 42.125;
+  customPrimary.push_back( { center00X, center00Y, customVal } );
+  const CoKrigingResult exactResult = ordinaryCoKriging( customPrimary, secondary, grid, model, KrigingParams{} );
+  QCOMPARE( exactResult.status, Status::Ok );
+  QCOMPARE( exactResult.estimates[0], customVal );
+  QVERIFY( exactResult.variances[0] <= 1e-10 );
+  QVERIFY( exactResult.variances[0] >= -1e-10 );
+
+  // 2. Assert valid variance grid: all cells finite and non-negative
+  for ( double var : coResult.variances )
+  {
+    QVERIFY( std::isfinite( var ) );
+    QVERIFY( var >= 0.0 );
+  }
+
+  // 3. Assert variance reduction relative to Ordinary Kriging when rho > 0.7
+  const KrigingResult okResult = ordinaryKriging( primary, grid, model.primary, KrigingParams{} );
+  QCOMPARE( okResult.status, Status::Ok );
+
+  double sumCoVar = 0.0;
+  double sumOkVar = 0.0;
+  int cellCount = 0;
+  for ( std::size_t i = 0; i < coResult.variances.size(); ++i )
+  {
+    QVERIFY( std::isfinite( coResult.variances[i] ) );
+    QVERIFY( std::isfinite( okResult.variance[i] ) );
+    QVERIFY2( coResult.variances[i] <= okResult.variance[i] + 1e-6,
+              qPrintable( QStringLiteral( "cell %1: co-var %2 should be <= ok-var %3" )
+                              .arg( i )
+                              .arg( coResult.variances[i] )
+                              .arg( okResult.variance[i] ) ) );
+    sumCoVar += coResult.variances[i];
+    sumOkVar += okResult.variance[i];
+    ++cellCount;
+  }
+  QVERIFY( cellCount > 0 );
+  const double meanCoVar = sumCoVar / cellCount;
+  const double meanOkVar = sumOkVar / cellCount;
+  QVERIFY2( meanCoVar < 0.95 * meanOkVar,
+            qPrintable( QStringLiteral( "mean co-kriging var %1 must be lower than OK var %2" )
+                            .arg( meanCoVar )
+                            .arg( meanOkVar ) ) );
 }
 
 QTEST_MAIN( CoKrigingTests )

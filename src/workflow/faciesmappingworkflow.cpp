@@ -621,7 +621,6 @@ bool FaciesMappingWorkflow::run( const DraftFaciesRequest &request, QString *err
 
 PaleoTask *FaciesMappingWorkflow::startJob( paleo::jobs::JobRunner<DraftFaciesJob> &runner,
                                             const DraftFaciesRequest &request,
-                                            QObject *progressSink,
                                             std::shared_ptr<DraftFaciesJob> *started )
 {
   using paleo::jobs::JobRunner;
@@ -632,21 +631,17 @@ PaleoTask *FaciesMappingWorkflow::startJob( paleo::jobs::JobRunner<DraftFaciesJo
   JobRunner<DraftFaciesJob>::Callbacks cb;
   // prepare：owner 线程——输入快照已由调用方在 owner 线程抓成纯数据。
   cb.prepare = []( DraftFaciesJob &, QString * ) { return true; };
-  // compute：worker 线程纯计算（四阶段算法核，不碰 catalog/UI）。
-  auto *sink = progressSink;
-  cb.compute = [this, sink]( DraftFaciesJob &j, const paleo::jobs::CancelFn &,
-                           const paleo::jobs::ProgressFn & ) {
-    j.computed = runCompute( j.request, [sink]( double fraction, const QString &stage ) {
-      if ( sink )
-      {
-        const int pct = fraction <= 0.0
-                          ? 0
-                          : ( fraction >= 1.0 ? 100
-                                              : static_cast<int>( fraction * 100.0 + 0.5 ) );
-        QMetaObject::invokeMethod( sink, "updateProgress", Qt::QueuedConnection,
-                                  Q_ARG( int, pct ), Q_ARG( QString, stage ) );
-      }
-      return true; // 取消判定交给框架的 CancelFn
+  // compute：worker 线程纯计算（四阶段算法核，不碰 catalog/UI）。#235：
+  // 静态、不捕获 this（对齐 PropertyModelWorkflow 的 #163 形态）；进度走框架
+  // ProgressFn → PaleoTask::changed——任务对象属服务，生命周期由服务排空保证，
+  // 不再向随主窗口析构的面板 invokeMethod。取消按 #160：进度回调里轮询 CancelFn。
+  cb.compute = []( DraftFaciesJob &j, const paleo::jobs::CancelFn &cancel,
+                   const paleo::jobs::ProgressFn &report ) {
+    j.computed = runCompute( j.request, [&cancel, &report]( double fraction,
+                                                            const QString &stage ) {
+      if ( report )
+        report( fraction * 100.0, stage );
+      return !( cancel && cancel() );
     } );
     return j.computed.ok;
   };

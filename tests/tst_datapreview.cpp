@@ -4,6 +4,7 @@
 #endif
 #include <QSignalSpy>
 #include <QCryptographicHash>
+#include <QPointer>
 #include <QUuid>
 #include <QTemporaryDir>
 
@@ -77,6 +78,9 @@ private slots:
   void horizonShowsRejectedAndCollisions();
   void seismicTabLabelsAndTieMarker();
   void seismicDecodeRunsThroughTaskService();
+  // UIV-02(#280)：体加载未完成的关标签 → 页销毁取消任务；迟到回调对已
+  // 销毁 3D 面板的 QPointer 守卫早退（曾是对空 QPointer 解引用崩溃）。
+  void seismicVolumeLoadCancelledOnTabClose();
   void seismicTieShowsReasonWithoutTd();
   void seismicDefaultsToTieWellInline();
   void tamperedExternalSourceShowsShaMismatch();
@@ -941,6 +945,40 @@ void TestDataPreview::seismicDecodeRunsThroughTaskService()
   }(), 3000);
   QTRY_COMPARE_WITH_TIMEOUT(tabs->tabText(tabs->currentIndex()),
                             QStringLiteral("vol.sgy · IL1001"), 5000);
+}
+
+// UIV-02(#280)：体加载未完成就关标签 → 页销毁取消在途体加载任务；迟到完成
+// 回调对已销毁 3D 面板的 QPointer 守卫早退（曾是对空 QPointer 解引用崩溃）。
+void TestDataPreview::seismicVolumeLoadCancelledOnTabClose()
+{
+  QTemporaryDir tmp;
+  auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st != nullptr);
+  PaleoProjectStore taskStore;
+  PaleoTaskService taskSvc(&taskStore);
+  st->preview->setTaskService(&taskSvc);
+
+  const Imported ids = importAll(*st, tmp);
+  QVERIFY(!ids.sgy.isEmpty());
+  st->preview->openAsset(ids.sgy);
+
+  // 体加载任务是 buildSeismicContent 里同步登记的——openAsset 返回即存在。
+  // QPointer：终态任务会被服务 deleteLater 回收，裸指针跨事件泵会悬空。
+  QPointer<PaleoTask> volTask;
+  for (PaleoTask *t : taskSvc.tasks())
+    if (t->title().startsWith(QStringLiteral("加载地震体")))
+      volTask = t;
+  QVERIFY(volTask != nullptr);
+
+  // 加载完成前关标签：页销毁（deleteLater 泵事件后生效）→ 在途任务取消。
+  st->preview->closeAssetTab(ids.sgy);
+  QTRY_VERIFY(volTask->cancelRequested());
+
+  // 泵事件直至任务收尾（Cancelled = 取消生效；Succeeded 只可能发生在取消
+  // 之前的极小竞态窗口，同样合法）：全程不得崩溃——迟到回调里的守卫早退。
+  QTRY_VERIFY_WITH_TIMEOUT(volTask && volTask->state() != PaleoTask::State::Running, 5000);
+  QVERIFY(!volTask || volTask->state() == PaleoTask::State::Cancelled ||
+          volTask->state() == PaleoTask::State::Succeeded);
 }
 
 // §4：没有 TD 表 → 标定写原因「无时深表」，绝不造时间。

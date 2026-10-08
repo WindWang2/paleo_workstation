@@ -24,6 +24,32 @@
 #include <QWebEngineView>
 #endif
 
+#if PALEO_HAVE_WEBENGINE
+namespace {
+
+// #237：setUrl 入口的 scheme 白名单只挡地址栏式加载；已加载页里的链接
+// 点击/表单提交/302 走 acceptNavigationRequest，不拦则页面可导航到
+// file:// 或任意外域。用同一白名单（WebViewPanel::isAllowedUrl）过滤
+// 全部导航请求；about:blank 放行——JS 的 iframe/window.open 常规目标，
+// 挡了会破页内交互。createWindow 不重写：默认返回 nullptr 即拒绝新窗口。
+class GuardedWebEnginePage final : public QWebEnginePage
+{
+public:
+  explicit GuardedWebEnginePage(QWebEngineProfile *profile, QObject *parent = nullptr)
+    : QWebEnginePage(profile, parent)
+  {
+  }
+
+  bool acceptNavigationRequest(const QUrl &url, NavigationType /*type*/,
+                               bool /*isMainFrame*/) override
+  {
+    return WebViewPanel::isNavigationAllowed(url);
+  }
+};
+
+} // namespace
+#endif
+
 // DESIGN.md tokens: status/fallback text uses text-muted #5D6E80.
 // 状态文字次级色（DESIGN.md text-muted）——从 PaleoTheme 现取（随主题翻转），
 // 活体注册：切主题自动重算。
@@ -83,6 +109,16 @@ bool WebViewPanel::isAllowedUrl(const QUrl &url)
     return false;
   const QString scheme = url.scheme().toLower();
   return scheme == QLatin1String("http") || scheme == QLatin1String("https");
+}
+
+// #237：页内导航（acceptNavigationRequest）与地址栏（setUrl/isAllowedUrl）
+// 同一张白名单；about: 例外——JS iframe/window.open 的常规目标，挡了会破
+// 页内交互（about:blank 无文件/外域可达性）。
+bool WebViewPanel::isNavigationAllowed(const QUrl &url)
+{
+  if (url.scheme().toLower() == QLatin1String("about"))
+    return true;
+  return isAllowedUrl(url);
 }
 
 WebViewPanel::~WebViewPanel()
@@ -190,7 +226,9 @@ bool WebViewPanel::ensureEngine(QString *error)
   // 命名 profile 将 IndexedDB 恢复草稿留在 Qt 用户数据目录；各宿主页
   // 隔离页面存储/下载信号，切页保留同一 profile。
   m_profile = new QWebEngineProfile(QStringLiteral("paleoWebView.") + objectName(), this);
-  m_engine->setPage(new QWebEnginePage(m_profile, m_engine));
+  // #237：用带导航白名单的 page 子类——初始 setUrl 之外，页内链接/302
+  // 同样过不了 http/https 白名单。
+  m_engine->setPage(new GuardedWebEnginePage(m_profile, m_engine));
   installPageStyleSheet();
   connect(m_profile, &QWebEngineProfile::downloadRequested, this,
           [this](QWebEngineDownloadRequest *download) {

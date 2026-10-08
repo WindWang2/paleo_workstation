@@ -25,7 +25,7 @@ using namespace seismic;
 
 namespace {
 
-bool writeTestSegy(const QString &filePath, int inlines, int xlines, int ns)
+bool writeTestSegy(const QString &filePath, int inlines, int xlines, int ns, float base = 0.0f)
 {
   QFile file(filePath);
   if (!file.open(QIODevice::WriteOnly))
@@ -59,7 +59,7 @@ bool writeTestSegy(const QString &filePath, int inlines, int xlines, int ns)
       QByteArray samples(ns * 4, 0);
       for (int k = 0; k < ns; ++k)
       {
-        const float val = float((i + 1) * 100 + j) + k * 0.25f;
+        const float val = base + float((i + 1) * 100 + j) + k * 0.25f;
         quint32 bits;
         std::memcpy(&bits, &val, 4);
         bits = qToBigEndian(bits);
@@ -197,6 +197,73 @@ private slots:
     // RUNTIME-04 钉死：缓存命中的单发 QTimer 必须在事件循环回收后清干净
     // （deleteLater 的延迟删除由 QTRY 的循环处理），不得残留子对象。
     QVERIFY(svc.findChildren<QTimer *>().isEmpty());
+  }
+
+  // ---- #289 缓存键隔离：同尺寸不同体、不同提取选项互不命中 ----
+  // 旧键只混 fileSize+路径节点：同尺寸不同振幅的两个体拖同一条线会返回
+  // 先缓存体的剖面；命中时 stats 被合成为 c*25m 假道距。键含体身份+选项后
+  // 必须各自 miss/各自命中，且命中 stats 与首次提取逐元素相等。
+  void sectionCacheKeyIsolation()
+  {
+    QTemporaryDir dir;
+    // 同尺寸不同振幅：尺寸由布局决定（逐字节等长），base 错开振幅
+    const QString sgyA = dir.filePath("vol_a.sgy");
+    const QString sgyB = dir.filePath("vol_b.sgy");
+    QVERIFY(writeTestSegy(sgyA, 6, 6, 64));
+    QVERIFY(writeTestSegy(sgyB, 6, 6, 64, 10000.0f));
+    QVERIFY(QFileInfo(sgyA).size() == QFileInfo(sgyB).size());
+
+    auto volumeA = std::make_shared<SgyVolume>();
+    auto volumeB = std::make_shared<SgyVolume>();
+    std::string err;
+    QVERIFY(volumeA->Load(sgyA.toStdString(), err));
+    QVERIFY(volumeB->Load(sgyB.toStdString(), err));
+
+    PaleoTaskService tasks;
+    SeismicTaskService svc(&tasks);
+    const std::vector<glm::ivec2> path = {{1000, 2000}, {1002, 2003}, {1004, 2004}};
+
+    auto extract = [&](std::shared_ptr<SgyVolume> vol, const SgySectionOptions &opt,
+                       std::shared_ptr<const SgySliceImage> &img, SgySectionStats &stats) {
+      int done = 0;
+      svc.startSectionExtraction(vol, path, opt,
+          [&](bool ok, std::shared_ptr<const SgySliceImage> out, const SgySectionStats &s, const QString &) {
+            if (ok) { img = out; stats = s; ++done; }
+          });
+      QTRY_COMPARE_WITH_TIMEOUT(done, 1, 30000);
+    };
+
+    std::shared_ptr<const SgySliceImage> imgA, imgB, imgA2;
+    SgySectionStats statsA, statsB, statsA2;
+    extract(volumeA, SgySectionOptions{}, imgA, statsA);
+    QVERIFY(imgA != nullptr);
+    QVERIFY(!imgA->values.empty());
+    // 真实道距必须存在（命中路径不再合成 25m 近似）
+    QCOMPARE(statsA.columnDistances.size(), std::size_t(imgA->width));
+
+    // 体 B 同路径：键含体路径，不得命中体 A 的缓存
+    extract(volumeB, SgySectionOptions{}, imgB, statsB);
+    QVERIFY(imgB != nullptr);
+    QCOMPARE(imgB->values.size(), imgA->values.size());
+    QVERIFY2(imgB->values != imgA->values,
+             "同尺寸不同体的剖面互相命中缓存——振幅必须不同");
+
+    // 体 A 再来一次：必须命中缓存，图像与 stats 与首次逐元素相等
+    extract(volumeA, SgySectionOptions{}, imgA2, statsA2);
+    QCOMPARE(imgA2->values, imgA->values);
+    QCOMPARE(statsA2.columnDistances, statsA.columnDistances);
+    QCOMPARE(statsA2.columnDistances.size(), statsA.columnDistances.size());
+    QVERIFY(!statsA2.columnDistances.empty());
+
+    // 不同 maxColumns：键含提取选项，不得互相命中
+    std::shared_ptr<const SgySliceImage> imgCoarse;
+    SgySectionStats statsCoarse;
+    SgySectionOptions coarse;
+    coarse.maxColumns = 2;
+    extract(volumeB, coarse, imgCoarse, statsCoarse);
+    QVERIFY(imgCoarse != nullptr);
+    QVERIFY2(imgCoarse->width != imgB->width,
+             "不同 maxColumns 互相命中缓存——列数必须不同");
   }
 
   // ---- D5.3 井轨迹投影：顶/底到剖面折线的独立投影 ----

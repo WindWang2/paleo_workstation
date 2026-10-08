@@ -49,3 +49,17 @@ TTHW 预算：1 命令 + ≤2h 无人值守（§44.1）。
 **推荐路线（待用户批准）**：binary vendoring（混合源）——Windows 用 OSGeo4W `qgis`+`qgis-devel`+dep 闭包（URL/SHA512 pin，日期快照保证不可变）；Linux 用 qgis.org deb 闭包（`libqgis-dev`+依赖，发行版钉 resolute/trixie）解包进 vendor prefix；ONNX Runtime 用官方 release。回退条件：`apt-get download libqgis-dev=4.2.*` 验证失败，或必须支持 Ubuntu 26.04/Debian 13 之前的宿主。
 
 **待验证项**（实现时）：(a) `libqgis-dev_4.2.x` 在 qgis.org pool 的直接清单；(b) `qgis-devel-4.2.x` 的 qgis_analysis 头文件完整性；(c) OSGeo4W Qt 6.11.1 与 aqt 6.11.x 的 patch skew——最安全是直接用 OSGeo4W qt6-devel；(d) ORT 无官方校验和，vendor 时自建 SHA256。
+
+## 现行三依赖路线的 QGIS 版本与补丁矩阵（#138 收口，2026-10-07）
+
+「标注随图层 z 序」（`QGIS_PALEO_LABELS_WITH_LAYER`）依赖只存在于 superbuild 的补丁；三条依赖路线的 QGIS 版本与补丁状态如下，**差异在此显式声明**：
+
+| 路线 | 消费者 | QGIS 版本与 pin | labelsWithLayer 补丁 |
+|------|--------|-----------------|----------------------|
+| superbuild 源码构建 | 本机首选开发路（`paleo-dev` 见 `vendor/superbuild/prefix` 自动注入 `QGIS_PREFIX_PATH`） | 4.2.2，tarball URL + SHA256（`vendor/superbuild/CMakeLists.txt` 的 `URL_HASH`） | 打（`patches/qgis-4.2.2-labels-with-layer.patch`；打不上 `apply-patch.cmake` FATAL） |
+| qgis.org apt / deb 闭包 | CI lint/linux/linux-perf；Linux 本机 deb 路（`vendor/prefix/usr`） | `1:4.2.3+44resolute`，单一来源 `vendor/deb-closure.lock`（`tools/ci_apt_qgis.sh` 写 apt preferences 钉死；钉版被索引下架时 warning 回退当前版，`QGIS_PIN_STRICT=1` 转红） | 不打（原生二进制包） |
+| OSGeo4W | Windows CI 与本机（`paleo-dev.ps1`） | `4.2.x` 家族；直接包 10 个 + requires 全闭包共 114 个逐版本钉在 `vendor/manifest.json` `deps.osgeo4w`（`tools/pin_osgeo4w.py` 刷新，装后 `installed.db` 双向比对，漂移即红） | 不打 |
+
+- 未打补丁 = 标注层序特性按**可选增强**对待：`src/qgis/qgislabelzorder.cpp` 在缺补丁的构建上打一次 `qInfo` 降级提示；`tst_labelzorder` 的 `labelsStackWithLayer*` 依赖补丁床，在未打补丁的构建上 SKIP。
+- **已知缺口（#138 遗留项）**：CI 尚无构建带补丁 superbuild prefix 的 leg（冷启约 1.5–3h，缓存 key 需含 patch/版本哈希），UI 层暂无降级提示（目前只有日志）。二者落地前，`labelsStackWithLayer*` 在 CI 上保持 SKIP、补丁代码的像素回归只在超级建造本机受保护。
+- 升级口径：apt 锁改 `vendor/deb-closure.lock`（`vendor/lock-debs.py` 生成），OSGeo4W 改 `vendor/manifest.json`（`tools/pin_osgeo4w.py` 生成），superbuild 改 `vendor/superbuild/CMakeLists.txt` 的 URL/URL_HASH——三处各自单一来源，均为有意变更。

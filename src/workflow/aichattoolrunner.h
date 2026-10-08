@@ -69,6 +69,8 @@ signals:
   void toolStarted(const ChatToolCall &call);
   // ok=true：resultJson 为结果摘要（JSON object）；ok=false：resultJson 为
   // {"error": ...}（诚实错误，回灌模型由其决定如何向用户解释）。
+  // 一律异步 emit（#281）：绝不从 run() 的调用栈同步回报——同步失败分支
+  // （实参非法/未路由/上下文未绑定）与异步执行同一语义，都经事件循环派发。
   void toolFinished(const ChatToolCall &call, bool ok,
                     const QString &resultJson);
 

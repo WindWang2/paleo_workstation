@@ -4,6 +4,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QHash>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTextStream>
@@ -154,6 +155,7 @@ private slots:
   void testQcBandAndStats();
   void testArchieInlineDensity();
   void testResolveWellLas();
+  void testPanelAssetIdsMapToWellEntities();
   void testRerunAndNewMnemonicKeepCatalogConsistent();
   void testMergeNormalizesDepthUnitAndDescendingFile();
 };
@@ -659,6 +661,82 @@ void TestPetroPhysBatch::testResolveWellLas()
   QVERIFY(refs.first().lasPath.contains(QStringLiteral("r1.las")));
   QCOMPARE(missing.size(), 1);
   QVERIFY(missing.first().contains(QStringLiteral("well-Ghost")));
+}
+
+// #276 装配缝：连井面板持有资产 id（ast-N），resolveWellLas 要井实体 id
+// （well-N）。映射函数须把资产 id 反查成实体 id（isPrimary 优先、unresolved
+// 跳过）、实体 id 原样通过、解析不了如实记 missing；映射结果可直接喂
+// resolveWellLas——修前面板井表恒报「井实体不存在」。
+void TestPetroPhysBatch::testPanelAssetIdsMapToWellEntities()
+{
+  QTemporaryDir dir;
+  DataCatalog catalog;
+  QVERIFY(catalog.open(dir.path()));
+  CatalogEntity e;
+  e.id = QStringLiteral("well-R1");
+  e.entityType = QStringLiteral("well");
+  e.name = QStringLiteral("R1");
+  QString err;
+  QVERIFY(catalog.addEntity(e, &err));
+  // 资产 id 走 nextAssetId（ast-N 域），与井实体 id（well-N）不同域。
+  const QString assetId = catalog.nextAssetId();
+  QVERIFY(assetId.startsWith(QStringLiteral("ast-")));
+  CatalogAsset a;
+  a.id = assetId;
+  a.type = QStringLiteral("well_log");
+  a.format = QStringLiteral("las");
+  QVERIFY(catalog.addAsset(a, &err));
+  CatalogVersion v;
+  v.id = catalog.nextVersionId();
+  v.assetId = assetId;
+  v.stage = QStringLiteral("RAW");
+  v.versionNumber = 1;
+  v.managed = false;
+  v.path = QStringLiteral("/data/r1.las");
+  QVERIFY(catalog.addVersion(v, &err));
+  EntityAssetLink l;
+  l.entityType = QStringLiteral("well");
+  l.entityId = QStringLiteral("well-R1");
+  l.assetId = assetId;
+  l.role = QStringLiteral("well_log");
+  l.isPrimary = true;
+  QVERIFY(catalog.addLink(l, &err));
+
+  QStringList missing;
+  const auto mapped = PetroPhysTaskService::mapPanelWellsToEntities(
+      &catalog, {assetId, QStringLiteral("well-R1"), QStringLiteral("ast-Ghost")}, &missing);
+  QCOMPARE(mapped.size(), 2);
+  // 保序：资产 id → 实体 id；实体 id 原样通过。
+  QCOMPARE(mapped.at(0).panelId, assetId);
+  QCOMPARE(mapped.at(0).entityId, QStringLiteral("well-R1"));
+  QCOMPARE(mapped.at(1).panelId, QStringLiteral("well-R1"));
+  QCOMPARE(mapped.at(1).entityId, QStringLiteral("well-R1"));
+  // 解析不了的如实记 missing（装配编排会把这份清单展示给用户）。
+  QCOMPARE(missing.size(), 1);
+  QVERIFY(missing.first().contains(QStringLiteral("ast-Ghost")));
+
+  // 映射结果直接喂 resolveWellLas：不再报「井实体不存在」，LAS 解析成功。
+  QStringList entityIds;
+  for (const auto &m : mapped)
+    entityIds.append(m.entityId);
+  QStringList missing2;
+  const auto refs = PetroPhysTaskService::resolveWellLas(&catalog, dir.path(), entityIds, &missing2);
+  QCOMPARE(refs.size(), 2);
+  QVERIFY(missing2.isEmpty());
+  for (const auto &ref : refs)
+  {
+    QCOMPARE(ref.wellId, QStringLiteral("well-R1"));
+    QCOMPARE(ref.sourceVersionId, v.id);
+  }
+
+  // 反向映射键（成果回填用，与 paleomainwindow_attach.cpp 编排同构）：
+  // 先出现的面板 id 赢——生产面板只有资产 id（ast-N），混入直传实体 id
+  // （well-N）的旧路径时曲线仍并回资产行。
+  QHash<QString, QString> entityToPanel;
+  for (const auto &m : mapped)
+    if (!entityToPanel.contains(m.entityId))
+      entityToPanel.insert(m.entityId, m.panelId);
+  QCOMPARE(entityToPanel.value(QStringLiteral("well-R1")), assetId);
 }
 
 // #157：VSH → VSH（重算）→ VSHX。旧代码：1 资产 3 版本 vnum 全 1、首版 sha 失配

@@ -192,7 +192,10 @@ class PaleoLayoutDesignerShell : public QDialog
     QMenu *submenuFor( QPointer<QMenu> &member, QMenu *parent, const QString &title );
     QToolBar *toolBarFor( QPointer<QToolBar> &member, const QString &objectName );
 
-    QgsLayout *m_layout = nullptr;
+    // UIS-08(#279)：QPointer 而非裸指针——版面可能在设计器仍开着时被
+    // 版面库删除/工程切换清空 layoutManager 销毁；置空后所有
+    // `if (m_layout)` 守卫为真守卫，destroyed 信号驱动关窗（见 cpp）。
+    QPointer<QgsLayout> m_layout = nullptr;
     PaleoShellDesignerInterface *m_iface = nullptr;
 
     // --- subtask A/B/C/D components ----------------------------------------

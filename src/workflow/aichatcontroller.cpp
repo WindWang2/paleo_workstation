@@ -453,7 +453,11 @@ void AiChatController::onRoundFinished(const QString &reason) {
   m_unansweredCalls = m_session.messages.last().toolCalls;
   m_pendingToolResults = int(m_unansweredCalls.size());
   emit statusChanged(statusText());
-  for (const ChatToolCall &call : m_unansweredCalls)
+  // 遍历快照而非活容器：onToolFinished 会按到达序从 m_unansweredCalls
+  // removeAt——runner 虽已统一异步回报（#281），快照让本循环不再依赖
+  // 「run() 绝不同步回调」这一 runner 内部前提。
+  const QVector<ChatToolCall> calls = m_unansweredCalls;
+  for (const ChatToolCall &call : calls)
     m_runner.run(call);
 }
 

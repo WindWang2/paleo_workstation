@@ -217,6 +217,12 @@ FaultPathResult faultPathMetric( const GridSpec &grid,
       const std::size_t next = static_cast<std::size_t>( nr ) * grid.cols + nc;
       if ( barrier[next] )
         continue;
+      // 斜墙角点密封（issue #292）：对角步两侧正交格任一被挡即禁行，否则
+      // 路径从两个角接障碍格之间斜穿，绕障距离退化成近欧氏距离。
+      if ( neighborDr[k] != 0 && neighborDc[k] != 0 &&
+           ( barrier[static_cast<std::size_t>( row + neighborDr[k] ) * grid.cols + column] ||
+             barrier[static_cast<std::size_t>( row ) * grid.cols + column + neighborDc[k]] ) )
+        continue;
       const double candidate = dist[cell] + neighborWeight[k];
       if ( candidate < dist[next] )
       {

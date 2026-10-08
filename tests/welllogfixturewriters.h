@@ -187,19 +187,67 @@ namespace dlisfix
   }
 
   // ---- 逻辑记录 / 可见记录封装 ----
-  QByteArray wrapLogicalRecord(uchar type, bool explicitFmt, const QByteArray &body)
+  // 单 LRS 字节（attrs 由调用方给全：分段时置前驱/后继位）
+  QByteArray logicalRecordSegment(uchar type, quint8 attrs, const QByteArray &body)
   {
     QByteArray lrs;
     lrs.append(u16be(4 + quint64(body.size())));
-    lrs.append(char(explicitFmt ? 0x80 : 0x00));
+    lrs.append(char(attrs));
     lrs.append(char(type));
     lrs.append(body);
+    return lrs;
+  }
+  // 带段尾（pad/checksum/trailing-length）的 LRS：attrs 置相应位，trailer 自尾剥
+  // trailer 字节序（最尾起）：[padcount 1B][pad][traillen 2B][checksum 2B]
+  QByteArray logicalRecordSegmentTrailer(uchar type, quint8 attrs,
+                                         const QByteArray &body, int padCount,
+                                         bool withTrailLen, bool withChecksum)
+  {
+    QByteArray trailer;
+    trailer.append(char(uchar(padCount)));
+    trailer.append(QByteArray(padCount, '\0'));
+    const int trailerFixed = (withTrailLen ? 2 : 0) + (withChecksum ? 2 : 0);
+    if (withTrailLen)
+      trailer += u16be(quint16(4 + body.size() + trailer.size() + trailerFixed));
+    if (withChecksum)
+      trailer += u16be(0x1234); // 值不校验——解析只按位剥长度
+    return logicalRecordSegment(type, attrs, body + trailer);
+  }
+  // 一个 VR 装整数个 LRS（RP66 §2.2.3：多 LR 打包）
+  QByteArray visibleRecord(const QList<QByteArray> &segments)
+  {
+    QByteArray payload;
+    for (const QByteArray &s : segments)
+      payload += s;
     QByteArray vr;
-    vr.append(u16be(4 + quint64(lrs.size())));
+    vr.append(u16be(4 + quint64(payload.size())));
     vr.append(char(0xFF));
     vr.append(char(0x01));
-    vr.append(lrs);
+    vr.append(payload);
     return vr;
+  }
+  QByteArray wrapLogicalRecord(uchar type, bool explicitFmt, const QByteArray &body)
+  {
+    return visibleRecord({ logicalRecordSegment(type, explicitFmt ? 0x80 : 0x00, body) });
+  }
+  // 一个 LR 的体拆成多段跨多个 VR：除末段外带后继位，除首段外带前驱位
+  QList<QByteArray> splitLogicalRecordAcrossVrs(uchar type, bool explicitFmt,
+                                                const QByteArray &body, int chunk)
+  {
+    QList<QByteArray> vrs;
+    const quint8 base = explicitFmt ? 0x80 : 0x00;
+    const int n = qMax(body.size(), 1);
+    const int segs = (n + chunk - 1) / chunk;
+    for (int seg = 0; seg < segs; ++seg)
+    {
+      quint8 attrs = base;
+      if (seg > 0)
+        attrs |= 0x40; // 前驱
+      if (seg < segs - 1)
+        attrs |= 0x20; // 后继
+      vrs.append(visibleRecord({ logicalRecordSegment(type, attrs, body.mid(seg * chunk, chunk)) }));
+    }
+    return vrs;
   }
   QByteArray sul()
   {
@@ -227,7 +275,7 @@ namespace dlisfix
     return encoded;
   }
 
-  QByteArray buildChannelEflr(const QVector<ChannelDef> &channels)
+  QByteArray channelEflrBody(const QVector<ChannelDef> &channels)
   {
     QByteArray body = setComponent(QStringLiteral("CHANNEL"), QString());
     body += tmplAttr(QStringLiteral("LONG-NAME"), RepObname);
@@ -255,7 +303,11 @@ namespace dlisfix
       }
       // 标量无 DIMENSION 列（缺尾列 = 模板默认）
     }
-    return wrapLogicalRecord(3, true, body);
+    return body;
+  }
+  QByteArray buildChannelEflr(const QVector<ChannelDef> &channels)
+  {
+    return wrapLogicalRecord(3, true, channelEflrBody(channels));
   }
 
   struct FrameDef
@@ -316,11 +368,15 @@ namespace dlisfix
     body += valueAttr(identBytes(text));
     return wrapLogicalRecord(5, true, body);
   }
+  QByteArray fdataBody(const QString &frameId, quint64 frameNo,
+                       const QByteArray &slotBytes)
+  {
+    return obnameBytes(0, 0, frameId) + uvariBytes(frameNo) + slotBytes;
+  }
   QByteArray buildFdata(const QString &frameId, quint64 frameNo,
                         const QByteArray &slotBytes)
   {
-    QByteArray body = obnameBytes(0, 0, frameId) + uvariBytes(frameNo) + slotBytes;
-    return wrapLogicalRecord(0, false, body);
+    return wrapLogicalRecord(0, false, fdataBody(frameId, frameNo, slotBytes));
   }
 
 } // namespace dlisfix

@@ -149,6 +149,20 @@ public:
                                          const QStringList &wellIds,
                                          QStringList *missing);
 
+  // #276：连井面板持有的是资产 id（ast-N，refreshCorrelationWells 灌入），
+  // resolveWellLas 要井实体 id（well-N）。本函数做装配侧的 id 域映射：
+  // 已是实体 id 的项原样通过（向后兼容），资产 id 经已决 well_log 链接反查
+  // 井实体（isPrimary 优先）。解析不到的项记入 missing（id + 原因），返回
+  // 与输入保序的 (面板 id, 实体 id) 对——回填曲线时由调用侧反向映射回资产 id。
+  struct PanelWellMapping
+  {
+    QString panelId;   // 面板井 id（资产 id 或实体 id）
+    QString entityId;  // 井实体 id（可入 resolveWellLas）
+  };
+  static QVector<PanelWellMapping> mapPanelWellsToEntities(DataCatalog *catalog,
+                                                           const QStringList &panelIds,
+                                                           QStringList *missing);
+
   // 单井产物登记（startBatch 终态已做；公开供重放/测试）。返回资产 id，
   // 失败回空串 + error。id 幂等：同名资产已存在则复用（版本仍新增）。
   static QString registerComputedCurveAsset(DataCatalog *catalog,

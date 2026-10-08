@@ -3,6 +3,7 @@
 
 #include <QHash>
 #include <QObject>
+#include <QSet>
 #include <QSharedPointer>
 #include <QString>
 #include <QVariantMap>
@@ -57,7 +58,8 @@ class PreviewIdentifyCore : public QObject
                                                  const QgsRectangle &rect,
                                                  int maxPerLayer = 50 );
 
-    // D6.4：按层空间索引缓存（层析构自动清理；dropIndex 供换源后手工失效）。
+    // D6.4：按层空间索引缓存（层析构自动清理；要素编辑/提交自动失效——
+    // #235；dropIndex 供换源后手工失效）。
     QgsSpatialIndex *ensureIndex( QgsVectorLayer *layer );
     void dropIndex( QgsMapLayer *layer );
     int indexCacheSize() const;
@@ -67,7 +69,8 @@ class PreviewIdentifyCore : public QObject
                               double *nearest, double *bilinear );
 
   private:
-    void hookLayerDestruction( QgsVectorLayer *layer );
+    void hookLayerInvalidation( QgsVectorLayer *layer );
 
     QHash<QgsVectorLayer *, QSharedPointer<QgsSpatialIndex>> m_indexCache;
+    QSet<QgsVectorLayer *> m_watched; // 已挂失效钩子的层（防重复挂）
 };

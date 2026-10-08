@@ -35,6 +35,9 @@ Vec3 cross(Vec3 a, Vec3 b)
 double len(Vec3 a) { return std::sqrt(dot(a, a)); }
 double clamp1(double v) { return std::max(-1.0, std::min(1.0, v)); }
 
+// 世界坐标折半到 [0, n-1] 格号：floor 可能给出 -1（浮点余量）或 n（恰落上界）。
+int clampCell(int v, int n) { return std::clamp(v, 0, n - 1); }
+
 bool finite3(Vec3 a)
 {
     return std::isfinite(a.x) && std::isfinite(a.y) && std::isfinite(a.z);
@@ -971,6 +974,113 @@ bool segmentIntersectsTriangles(double ax, double ay, double az, double bx, doub
         if (segmentHitsTriangle(a, b, {t.ax, t.ay, t.az}, {t.bx, t.by, t.bz}, {t.cx, t.cy, t.cz}))
             return true;
     }
+    return false;
+}
+
+void SegmentMeshIndex::build(const std::vector<Triangle3> &tris)
+{
+    *this = SegmentMeshIndex();
+    const double inf = std::numeric_limits<double>::infinity();
+    double lo[3] = {inf, inf, inf};
+    double hi[3] = {-inf, -inf, -inf};
+    m_tris.reserve(tris.size());
+    m_aabbs.reserve(tris.size());
+    for (const Triangle3 &t : tris) {
+        // 非有限三角形线性扫描也必不命中（NaN 走不过 segmentHitsTriangle
+        // 的 t 区间判定），索引直接剔除，结果一致。注意不能只看 AABB 的
+        // isfinite——std::min/max 对 NaN 的比较语义会把 NaN 顶点吸收成
+        // 有限框，必须逐顶点判定。
+        if (!(std::isfinite(t.ax) && std::isfinite(t.ay) && std::isfinite(t.az) &&
+              std::isfinite(t.bx) && std::isfinite(t.by) && std::isfinite(t.bz) &&
+              std::isfinite(t.cx) && std::isfinite(t.cy) && std::isfinite(t.cz)))
+            continue;
+        Aabb box;
+        box.x0 = std::min({t.ax, t.bx, t.cx});
+        box.y0 = std::min({t.ay, t.by, t.cy});
+        box.z0 = std::min({t.az, t.bz, t.cz});
+        box.x1 = std::max({t.ax, t.bx, t.cx});
+        box.y1 = std::max({t.ay, t.by, t.cy});
+        box.z1 = std::max({t.az, t.bz, t.cz});
+        m_aabbs.push_back(box);
+        m_tris.push_back(t);
+        lo[0] = std::min(lo[0], box.x0);
+        lo[1] = std::min(lo[1], box.y0);
+        lo[2] = std::min(lo[2], box.z0);
+        hi[0] = std::max(hi[0], box.x1);
+        hi[1] = std::max(hi[1], box.y1);
+        hi[2] = std::max(hi[2], box.z1);
+    }
+    if (m_aabbs.empty())
+        return;
+    m_loX = lo[0];
+    m_loY = lo[1];
+    m_loZ = lo[2];
+    m_hiX = hi[0];
+    m_hiY = hi[1];
+    m_hiZ = hi[2];
+    const double ex = m_hiX - m_loX;
+    const double ey = m_hiY - m_loY;
+    const double ez = m_hiZ - m_loZ;
+    const double longest = std::max({ex, ey, ez});
+    if (!(longest > 0) || !std::isfinite(longest))
+        return; // 全体共点/退化：格架建不起来，调用方回退线性扫描
+    m_invCell = 16.0 / longest; // 最长轴 16 格
+    m_nx = std::clamp(static_cast<int>(std::ceil(ex * m_invCell)), 1, 64);
+    m_ny = std::clamp(static_cast<int>(std::ceil(ey * m_invCell)), 1, 64);
+    m_nz = std::clamp(static_cast<int>(std::ceil(ez * m_invCell)), 1, 64);
+    m_cells.assign(static_cast<std::size_t>(m_nx) * m_ny * m_nz, {});
+    for (std::size_t ti = 0; ti < m_aabbs.size(); ++ti) {
+        const Aabb &box = m_aabbs[ti];
+        const int i0 = clampCell(static_cast<int>(std::floor((box.x0 - m_loX) * m_invCell)), m_nx);
+        const int i1 = clampCell(static_cast<int>(std::floor((box.x1 - m_loX) * m_invCell)), m_nx);
+        const int j0 = clampCell(static_cast<int>(std::floor((box.y0 - m_loY) * m_invCell)), m_ny);
+        const int j1 = clampCell(static_cast<int>(std::floor((box.y1 - m_loY) * m_invCell)), m_ny);
+        const int k0 = clampCell(static_cast<int>(std::floor((box.z0 - m_loZ) * m_invCell)), m_nz);
+        const int k1 = clampCell(static_cast<int>(std::floor((box.z1 - m_loZ) * m_invCell)), m_nz);
+        for (int k = k0; k <= k1; ++k)
+            for (int j = j0; j <= j1; ++j)
+                for (int i = i0; i <= i1; ++i)
+                    m_cells[(static_cast<std::size_t>(k) * m_ny + j) * m_nx + i].push_back(
+                        static_cast<int>(ti));
+    }
+    m_ok = true;
+}
+
+bool SegmentMeshIndex::segmentIntersects(double ax, double ay, double az, double bx, double by,
+                                         double bz) const
+{
+    if (!m_ok)
+        return false; // 契约：usable() 为 false 时调用方须回退线性扫描
+    const double sloX = std::min(ax, bx), shiX = std::max(ax, bx);
+    const double sloY = std::min(ay, by), shiY = std::max(ay, by);
+    const double sloZ = std::min(az, bz), shiZ = std::max(az, bz);
+    // 整体 AABB 初筛：线段与 mesh 无公共包围盒则无交。
+    if (shiX < m_loX || sloX > m_hiX || shiY < m_loY || sloY > m_hiY || shiZ < m_loZ ||
+        sloZ > m_hiZ)
+        return false;
+    const int i0 = clampCell(static_cast<int>(std::floor((sloX - m_loX) * m_invCell)), m_nx);
+    const int i1 = clampCell(static_cast<int>(std::floor((shiX - m_loX) * m_invCell)), m_nx);
+    const int j0 = clampCell(static_cast<int>(std::floor((sloY - m_loY) * m_invCell)), m_ny);
+    const int j1 = clampCell(static_cast<int>(std::floor((shiY - m_loY) * m_invCell)), m_ny);
+    const int k0 = clampCell(static_cast<int>(std::floor((sloZ - m_loZ) * m_invCell)), m_nz);
+    const int k1 = clampCell(static_cast<int>(std::floor((shiZ - m_loZ) * m_invCell)), m_nz);
+    const Vec3 a{ax, ay, az};
+    const Vec3 b{bx, by, bz};
+    for (int k = k0; k <= k1; ++k)
+        for (int j = j0; j <= j1; ++j)
+            for (int i = i0; i <= i1; ++i) {
+                for (int ti : m_cells[(static_cast<std::size_t>(k) * m_ny + j) * m_nx + i]) {
+                    const Aabb &box = m_aabbs[static_cast<std::size_t>(ti)];
+                    // 保守必要条件：命中蕴含线段与三角形 AABB 均相交。
+                    if (shiX < box.x0 || sloX > box.x1 || shiY < box.y0 || sloY > box.y1 ||
+                        shiZ < box.z0 || sloZ > box.z1)
+                        continue;
+                    const Triangle3 &t = m_tris[static_cast<std::size_t>(ti)];
+                    if (segmentHitsTriangle(a, b, {t.ax, t.ay, t.az}, {t.bx, t.by, t.bz},
+                                            {t.cx, t.cy, t.cz}))
+                        return true;
+                }
+            }
     return false;
 }
 

@@ -48,8 +48,10 @@ public:
   // quiet：交互内嵌任务（切片/剖面解码/预取等）——照常进任务页列表、可取消，
   // 但不触发主窗口任务中心自动露出（交互控件自带进度语义，弹出会打断操作）。
   bool quiet() const { return m_quiet; }
-  // 发起时的任务会话号（PaleoTaskService::session()）。工程切换开新会话，
-  // 提交端比对 task->session() != service->session() 即知结果已过期。
+  // 发起时的任务会话号（PaleoTaskService::session()）。消费点：JobRunner
+  // 的 commit 入口比对 task->session() != service->session() 即按过期丢弃
+  // （#235——取消投递与自然完成之间的窄窗防线）。其他提交路径如需同款
+  // 防线，自行在登记入口比对，勿假设框架已兜底。
   quint64 session() const { return m_session; }
 
   Q_INVOKABLE void requestCancel() { m_cancel.store(true); }

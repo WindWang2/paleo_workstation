@@ -34,6 +34,9 @@ struct Report {
   QHash<QString, qint64> bytesByEntity, bytesByType;
   QHash<QString, FileFact> versionFiles;
   QHash<QString, QString> canonicalReferences; // Worker-normalized, including unsafe aliases.
+  // #283：与版本文件同目录同主名的 shapefile 族附属文件（.shx/.dbf/.prj/.cpg…，
+  // 无独立 catalog 记录）——登记为被引用，purge 版本时随主件一并回收。
+  QHash<QString, QVector<FileFact>> versionSidecars;
   QVector<FileFact> orphans;
   QVector<StaleVersion> stale;
   QStringList scannedRoots, uncovered;

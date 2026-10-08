@@ -13,6 +13,7 @@
 #include "../domain/types.h"
 #include "../metadata/paleoprojectstore.h"
 #include "../services/singlefactordef.h"
+#include "derivedassets.h" // PredictionJob 持 DerivedStaging（#277 三段式）
 
 class QgisProcessingService;
 class QgisLayerService;
@@ -81,6 +82,47 @@ class PredictionWorkflow : public QObject
     void setCatalog(DataCatalog *catalog, const QString &projectDir);
 
     bool runPrediction(const QString &horizon, const QString &algorithmId, const QVariantMap &params, QString *error = nullptr);
+
+    // #277 三段式（仿约束页 prepare/compute/publish）：任务池装配下
+    // prepare 必须在 catalog 所属线程（stage → addAsset 有线程闸），compute
+    // 在 worker（Processing / ONNX 推理 + 栅格落盘，不碰 catalog/GUI 对象），
+    // publish 回 GUI 线程（commitExternal → addVersion、图层声明、
+    // predictionDone）。runPrediction = 三段同线程顺序执行，行为不变；
+    // 失败时 prepare/publish 如实发 predictionFailed（compute 在 worker
+    // 线程不发信号，错误经 job.error 交给调用侧上屏）。
+    struct PredictionJob
+    {
+        bool prepared = false;
+        bool ok = false;
+        QString error;
+        QString horizon;
+        QString algorithmId;
+        QVariantMap params;   // compute 用（Processing 路径已含 OUTPUT）
+        // prepare 阶段登记（GUI 线程）：compute 只往 staging.absolutePath 写文件。
+        DerivedStaging staging;
+        QString sourceUri;    // commit 的 sourceUri
+        QStringList parentVersionIds; // DERIVED 父版本（prepare 解析好，compute 不碰 catalog）
+        QVariantMap commitExtra;      // commit 的 extra（onnx rows/cols 等）
+        // publish 声明段（compute 填好路径，publish 声明 + 发信号）。
+        QString outputPath;   // compute 实际写出的栅格（commitExternal 会拷进受管路径）
+        QString layerId;
+        QString layerGroup;
+        QString layerTitle;
+#if PALEO_HAVE_ORT
+        // ONNX 输入与网格几何（prepare 在 GUI 线程解析，compute 只做推理+写盘）。
+        QVector<float> onnxInput;
+        QVector<int64_t> onnxShape;
+        QString onnxInputName;
+        double onnxGt[6] = { 0.0, 12793.0 / 640.0, 0.0, 16406.0, 0.0, -16406.0 / 410.0 };
+        QString onnxProjection;
+        QString onnxSourcePath;
+        bool onnxFromDecl = false;
+#endif
+    };
+    bool preparePredictionJob(const QString &horizon, const QString &algorithmId,
+                              const QVariantMap &params, PredictionJob *job, QString *error = nullptr);
+    bool computePredictionJob(PredictionJob *job);
+    bool publishPredictionJob(const PredictionJob &job, QString *error = nullptr);
 
     DataCatalog *catalog() const;
     QString projectDir() const { return m_projectDir; }

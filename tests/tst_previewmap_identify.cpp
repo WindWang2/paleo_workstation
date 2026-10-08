@@ -32,6 +32,7 @@ class TestPreviewIdentify : public QObject
     void rectIdentifyCapsPerLayer();
     void spatialIndexIsCachedPerLayer();
     void indexClearedWhenLayerDestroyed();
+    void indexClearedOnFeatureEdit();
     void rasterPointGivesNearestAndBilinear();
     void rasterPointOutsideExtentIsMiss();
     void pointIdentifyAcrossMixedLayers();
@@ -150,6 +151,37 @@ void TestPreviewIdentify::indexClearedWhenLayerDestroyed()
     QCOMPARE(m_core.indexCacheSize(), 1);
     delete vl; // 层析构 → 缓存行自动清（防悬空键）
   }
+  QCOMPARE(m_core.indexCacheSize(), 0);
+}
+
+void TestPreviewIdentify::indexClearedOnFeatureEdit()
+{
+  std::unique_ptr<QgsVectorLayer> vl(makeGridLayer(2));
+  m_core.identifyPoint({vl.get()}, QgsPointXY(0, 0), 1.0);
+  QCOMPARE(m_core.indexCacheSize(), 1);
+
+  // #235：编辑缓冲加要素 → 缓存索引失效（陈旧索引会让新要素漏报）。
+  vl->startEditing();
+  QgsFeature added(vl->fields());
+  added.setAttribute(QStringLiteral("name"), QStringLiteral("late"));
+  added.setGeometry(QgsGeometry::fromPointXY(QgsPointXY(500.0, 500.0)));
+  QVERIFY(vl->addFeature(added));
+  QCOMPARE(m_core.indexCacheSize(), 0);
+  // 再查即重建索引，新要素如实命中（回归：靠陈旧索引会漏报）。
+  QCOMPARE(m_core.identifyPoint({vl.get()}, QgsPointXY(500.0, 500.0), 1.0).size(), 1);
+  QCOMPARE(m_core.indexCacheSize(), 1);
+
+  // 提交变更 → 同样失效。
+  QVERIFY(vl->commitChanges());
+  QCOMPARE(m_core.indexCacheSize(), 0);
+  m_core.identifyPoint({vl.get()}, QgsPointXY(0, 0), 1.0);
+  QCOMPARE(m_core.indexCacheSize(), 1);
+
+  // 删除路径：编辑缓冲删要素 → 失效。
+  const QgsFeatureIds ids = vl->allFeatureIds();
+  QVERIFY(!ids.isEmpty());
+  vl->startEditing();
+  QVERIFY(vl->deleteFeature(*ids.constBegin()));
   QCOMPARE(m_core.indexCacheSize(), 0);
 }
 

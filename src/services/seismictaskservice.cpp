@@ -1,6 +1,7 @@
 // 层：数据
 #include "services/seismictaskservice.h"
 #include "services/seismictaskservice_internal.h"
+#include "services/fspathutils.h"
 #include "services/paleotaskservice.h"
 
 #include <QCryptographicHash>
@@ -72,7 +73,7 @@ std::shared_ptr<SeismicDatasetEntry> datasetEntryFor(
   if (backend == sdk::Backend::Paged)
     options.progressiveLod = true; // 兄弟层级发现 + 从最粗层起步
   engine::Status openStatus;
-  auto dataset = sdk::Dataset::Open(std::filesystem::path(path.toStdString()), options, openStatus);
+  auto dataset = sdk::Dataset::Open(paleo::toFsPath(path), options, openStatus);
   if (!dataset || !openStatus.ok())
     return nullptr;
 

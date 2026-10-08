@@ -9,6 +9,7 @@
 #include <QPointer>
 
 #include "../domain/importrows.h"   // FolderPreviewRow / FolderRowResult（T22 静态面，W2 下沉 domain）
+#include "notifications/paleonotify.h" // #282 maybeSaveProject 询问三选一（SaveChoice）
 #include "../services/seismictaskservice.h" // m_seismicTaskSvc unique_ptr 需完整类型
 #include "../services/petrophyscomputeservice.h" // m_petroPhysSvc unique_ptr 需完整类型
 #include "../services/jobrunner.h" // m_propModelRunner 成员需完整类型（方向20）
@@ -169,6 +170,21 @@ class PaleoMainWindow : public SARibbonMainWindow
     // PreviewDoc 会话缓存、测井对比井集、3D/剖面地震体、属性建模在途作业。
     // 在途任务已由 AppContext 开新任务会话统一取消。
     void resetProjectScopedState();
+    // #282（UIS-09）：关窗/切换工程前的 QgsProject 脏状态三选一——版面、
+    // 图层样式、图层树顺序、地图主题只活在 .qgz 里，静默切换即丢。返回
+    // false = 用户取消（调用方不得继续关闭/切换）。offscreen 且未注入询问
+    // seam 时直接放行（保持无头自动化旧行为）。
+    bool maybeSaveProject();
+    // C1/#282：编辑中的矢量图层缓冲三选一（maybeSaveProject 的第一步）。
+    bool resolveDirtyLayerEdits();
+    // 询问 seam：生产不调即模态；壳级测试替身模态框（offscreen 无法真的弹）。
+    using ProjectSaveAsk =
+        std::function<PaleoNotify::SaveChoice(const QString &title,
+                                              const QString &text)>;
+    void setProjectSaveAskForTesting(const ProjectSaveAsk &ask)
+    {
+        m_projectSaveAsk = ask;
+    }
     // #156：测井对比井集 = catalog 全部 well_log（打开工程与导入后都走这里）。
     void refreshCorrelationWells(const QString &loadLasForAssetId = QString(),
                                  bool loadAllLas = false);
@@ -424,7 +440,12 @@ class PaleoMainWindow : public SARibbonMainWindow
     QPointer<class PaleoTask> m_petroPhysTask;
     bool m_folderImportActive = false; // 文件夹导入期间抑制逐文件开预览标签
     PaleoTaskService *m_taskSvc = nullptr; // attachWorkflows 注入；空 → 导入走同步旧路径
+    // #275：attach 期工程未开，projectDir/gpkg 必须调用时经此现取（与
+    // rebindRealization 同口径）；按值捕获会得到永久空串/旧工程路径。
+    PaleoProjectStore *m_projectStore = nullptr; // attachWorkflows 注入
     QgisEditingService *m_editSvc = nullptr; // attachShellSurfaces 注入；closeEvent 保存/放弃走它
+    // #282：脏工程「保存/放弃/取消」询问 seam（nullptr = 模态；测试替身）。
+    ProjectSaveAsk m_projectSaveAsk;
     DataImportService *m_importSvc = nullptr; // attachWorkflows 注入；启动页「从工区文件夹新建」用
     // 壳唯一数据门面（W1）：dataPage 属性与 previewTabs 共用同一实例。
     PreviewDocService *m_previewDoc = nullptr;

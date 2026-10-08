@@ -4,6 +4,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonValue>
+#include <QMetaObject>
 #include <QPointer>
 
 #include "../ai/chat/domaintools.h"
@@ -141,15 +142,28 @@ QJsonObject AiChatToolRunner::errorPayload(const QString &message) const {
 void AiChatToolRunner::finishActive(bool ok, const QJsonObject &payload) {
   const ChatToolCall call = m_activeCall;
   const bool wasFacies = m_activeIsFacies;
+  const int generation = m_generation;
   m_active = false;
   m_activeIsFacies = false;
   m_activeTask.clear();
   if (wasFacies)
     m_facies->disconnect(this); // 单发钩子：用完即拆（串行执行下防堆积）
-  emit toolFinished(call, ok,
-                    QString::fromUtf8(QJsonDocument(payload).toJson(
-                      QJsonDocument::Compact)));
-  startNext();
+  // 统一异步回报（#281）：同步失败分支（实参非法/未路由/上下文未绑定）若
+  // 从 run() 的调用栈直接 emit，调用方（aichatcontroller 的派发循环）会在
+  // 同一栈里被重入改容器——range-for 迭代器失效 UB。toolFinished 一律经
+  // 事件循环再发，成功/失败同一语义；cancel 经世代号把在途报告作废（取消=
+  // 作废，口径见头文件），对象析构时 Qt 随 context 丢弃未投递的入队调用。
+  QMetaObject::invokeMethod(
+    this,
+    [this, generation, call, ok, payload]() {
+      if (generation != m_generation)
+        return; // 已取消/作废：在途结果不再回灌
+      emit toolFinished(call, ok,
+                        QString::fromUtf8(QJsonDocument(payload).toJson(
+                          QJsonDocument::Compact)));
+      startNext();
+    },
+    Qt::QueuedConnection);
 }
 
 void AiChatToolRunner::runTile(const ChatToolCall &call,

@@ -6,6 +6,8 @@
 #include <QtMath>
 
 #include <cmath>
+#include <limits>
+#include <vector>
 
 #include "../src/algorithms/faultsurface/faultsurface.h"
 #include "../src/algorithms/stratgrid/propfill.h"
@@ -89,6 +91,8 @@ private slots:
     void constantSlipAlongIntersection();
     void sectionCutOnUnpickedInline();
     void partialDepthMeshDoesNotCurtainTheColumn();
+    void segmentMeshIndexMatchesLinearScan();
+    void segmentMeshIndexRejectsDegenerateInput();
     void hundredByTwoHundredUnderThreeSeconds();
     void polylineCurtainCut();
 };
@@ -295,6 +299,71 @@ void TestFaultSurface::partialDepthMeshDoesNotCurtainTheColumn()
     QVERIFY(!std::isfinite(sealed.values[static_cast<std::size_t>(grid.cellIndex(3, 0, 0))]));
     QVERIFY(sealed.cellBlock[static_cast<std::size_t>(grid.cellIndex(0, 0, 0))] !=
             sealed.cellBlock[static_cast<std::size_t>(grid.cellIndex(3, 0, 0))]);
+}
+
+void TestFaultSurface::segmentMeshIndexMatchesLinearScan()
+{
+    // #234 项 1：空间索引与线性扫描必须逐位一致（AABB 预筛是保守必要条件，
+    // 命中蕴含线段与三角形 AABB 均相交——剔除永不误杀真实命中）。
+    std::vector<Triangle3> tris;
+    unsigned state = 12345;
+    const auto nextUnit = [&state]() {
+        state = state * 1103515245u + 12345u;
+        return double((state >> 8) & 0xFFFFFFu) / double(0xFFFFFFu);
+    };
+    // 8×8 倾斜三角网（z 抖动 ±2.5），覆盖 [0,80]×[0,80]×[0,5]。
+    for (int r = 0; r < 8; ++r)
+        for (int c = 0; c < 8; ++c) {
+            const double x0 = c * 10.0, x1 = x0 + 10.0;
+            const double y0 = r * 10.0, y1 = y0 + 10.0;
+            const double z00 = 2.5 * nextUnit(), z10 = 2.5 * nextUnit();
+            const double z01 = 2.5 * nextUnit(), z11 = 2.5 * nextUnit();
+            tris.push_back(Triangle3{x0, y0, z00, x1, y0, z10, x0, y1, z01});
+            tris.push_back(Triangle3{x1, y0, z10, x1, y1, z11, x0, y1, z01});
+        }
+    SegmentMeshIndex index;
+    index.build(tris);
+    QVERIFY(index.usable());
+
+    bool consistent = true;
+    QString where;
+    const auto check = [&](double x1, double y1, double z1, double x2, double y2, double z2) {
+        if (!consistent)
+            return;
+        const bool linear = segmentIntersectsTriangles(x1, y1, z1, x2, y2, z2, tris);
+        const bool indexed = index.segmentIntersects(x1, y1, z1, x2, y2, z2);
+        if (indexed != linear) {
+            consistent = false;
+            where = QStringLiteral("(%1,%2,%3)->(%4,%5,%6) linear=%7 indexed=%8")
+                        .arg(x1).arg(y1).arg(z1).arg(x2).arg(y2).arg(z2)
+                        .arg(linear).arg(indexed);
+        }
+    };
+    // 短步（模拟 fillIdw 六邻 BFS 边）+ 长斜穿段，密扫全空间。
+    for (double z = -5.0; z <= 30.0; z += 5.0)
+        for (double y = -5.0; y <= 85.0; y += 5.0)
+            for (double x = -5.0; x <= 85.0; x += 5.0) {
+                check(x, y, z, x + 5.0, y, z);
+                check(x, y, z, x, y + 5.0, z);
+                check(x, y, z, x, y, z + 5.0);
+                check(x, y, z, x + 30.0, y + 17.0, z + 3.0);
+            }
+    QVERIFY2(consistent, qPrintable(where));
+}
+
+void TestFaultSurface::segmentMeshIndexRejectsDegenerateInput()
+{
+    SegmentMeshIndex empty;
+    empty.build({});
+    QVERIFY(!empty.usable()); // 空 mesh：调用方回退线性扫描（空集必不命中）
+
+    SegmentMeshIndex point;
+    point.build({Triangle3{1, 1, 1, 1, 1, 1, 1, 1, 1}});
+    QVERIFY(!point.usable()); // 全体共点：零体积格架建不起来，回退线性扫描
+
+    SegmentMeshIndex nonFinite;
+    nonFinite.build({Triangle3{0, 0, 0, 1, 0, 0, 0, 1, std::numeric_limits<double>::quiet_NaN()}});
+    QVERIFY(!nonFinite.usable()); // 全非有限三角形：索引剔除后为空，回退（线性版对 NaN 亦必不命中）
 }
 
 void TestFaultSurface::hundredByTwoHundredUnderThreeSeconds()

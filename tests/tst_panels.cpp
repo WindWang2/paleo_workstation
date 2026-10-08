@@ -2065,13 +2065,14 @@ class TestPanels : public QObject
       QVERIFY(firstItem->childCount() >= 1);
       QCOMPARE(firstItem->child(0)->text(0), QStringLiteral("工区全景地图"));
 
-      // Requirement 1: "双击后，就是整个测区的图"
+      // Requirement 1: "双击后，就是整个测区的图"（#236：激活单通道化——
+      // itemDoubleClicked 不再接线，双击经 itemActivated 到达同一 handler）。
       QSignalSpy spy(&page, &DataPage::surveyAreaActivated);
-      emit tree->itemDoubleClicked(firstItem, 0);
+      emit tree->itemActivated(firstItem, 0);
       QCOMPARE(spy.count(), 1);
 
       spy.clear();
-      emit tree->itemDoubleClicked(firstItem->child(0), 0);
+      emit tree->itemActivated(firstItem->child(0), 0);
       QCOMPARE(spy.count(), 1);
 
       // 属性面板展示测区信息

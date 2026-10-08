@@ -1,6 +1,7 @@
 // 层：数据
 #include "services/seismictaskservice.h"
 #include "services/seismictaskservice_internal.h"
+#include "services/fspathutils.h"
 #include "services/paleotaskservice.h"
 
 #include "catalog/datacatalog.h"
@@ -49,7 +50,7 @@ PaleoTask *SeismicTaskService::startQuickOpen(
     engine::CancelToken cancel;
     cancel.SetPredicate([task]() { return task->cancelRequested(); });
     const engine::QuickOpenResult quick = engine::QuickOpenSegyPreview(
-        std::filesystem::path(sgyPath.toStdString()), maxColumns, &cancel);
+        paleo::toFsPath(sgyPath), maxColumns, &cancel);
 
     if (quick.status.code == engine::StatusCode::Cancelled || task->cancelRequested())
       return QString();
@@ -410,7 +411,7 @@ PaleoTask *SeismicTaskService::startBackendProbe(
       return QString();
     sdk::OpenOptions options; // Auto：有 .sf3c 用工作区，否则直读
     engine::Status openStatus;
-    auto dataset = sdk::Dataset::Open(std::filesystem::path(sgyPath.toStdString()),
+    auto dataset = sdk::Dataset::Open(paleo::toFsPath(sgyPath),
                                       options, openStatus);
     if (!dataset || !openStatus.ok())
       return QObject::tr("打开数据集失败：%1").arg(QString::fromStdString(openStatus.message));

@@ -3,6 +3,7 @@
 // D2.13 复制·打印。卷帘与书签各有独立的在途任务与请求号守卫，语义原样保留。
 #include "ui/seismicsection/seismicsectiondockwidget.h"
 
+#include "services/fspathutils.h" // #291 QString↔filesystem::path 走 UTF-16（MSVC 窄构造按 ANSI 解码）
 #include "services/seismictaskservice.h"
 
 #include <QApplication>
@@ -65,7 +66,7 @@ QString SeismicSectionDockWidget::volumeSettingsKey() const {
     if (!m_volume || !m_volume->IsLoaded())
         return QString();
     const auto &path = m_volume->Path();
-    QString key = QString::fromStdString(path.string());
+    QString key = paleo::fromFsPath(path);
     // Windows 的 path.string() 用反斜杠——QSettings 注册表键不允许 '\'，
     // 两种分隔符都归一为 '_'（平台稳定的体身份键）。
     key.replace(QLatin1Char('/'), QLatin1Char('_'));
@@ -199,7 +200,7 @@ void SeismicSectionDockWidget::updateCompareSlice() {
 void SeismicSectionDockWidget::showTraceHeaderCard(int traceIndex) {
     if (!m_volume || !m_volume->IsLoaded())
         return;
-    const QString sgyPath = QString::fromStdString(m_volume->Path().string());
+    const QString sgyPath = paleo::fromFsPath(m_volume->Path());
     const SeismicTraceHeaderInfo info = SeismicTaskService::readTraceHeader(sgyPath, traceIndex);
 
     if (!m_traceCard) {

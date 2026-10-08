@@ -78,7 +78,8 @@ struct GriddingStats
 
 // 主入口：散点 + 网格 + 屏障掩码（rows*cols，非 0=屏障格；可空）→ 栅格。
 // outZ 尺寸 rows*cols（row-major，行 0 = 最大 y）。屏障格与无数据域外格
-// 为 NaN。points 为空 → false + error。
+// 为 NaN。points 为空 → false + error。迭代发散（非有限更新）或停滞（遍数
+// 耗尽而末遍更新量仍 ≫ 数据极差，issue #293）→ false + error，不发布结果。
 bool solveMinimumCurvature(const std::vector<ScatterPoint> &points,
                            const GridGeometry &geometry, const GriddingParams &params,
                            const std::uint8_t *barrierMask, std::vector<float> *outZ,

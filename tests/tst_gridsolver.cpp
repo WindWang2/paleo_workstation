@@ -89,6 +89,63 @@ double rmsVsTruth(const std::vector<float> &z, const GridGeometry &g,
   return std::sqrt(sumSq / m);
 }
 
+// issue #293 复现夹具：48×48 @25 m，一条过网格中心的 angle° 斜墙（半格采样
+// 栅格化，与 mincurvature.cpp 的 break_line 掩码同口径——会产出 1 格宽、
+// 对角相接的障碍链），两侧数据 0 | 100。
+struct DiagonalWall
+{
+  GridGeometry g;
+  std::vector<ScatterPoint> pts;
+  std::vector<std::uint8_t> mask;
+  double dirX = 1.0, dirY = 0.0; // 墙方向（单位向量）
+
+  explicit DiagonalWall(double angleDeg)
+  {
+    QString err;
+    g = geometryForExtent(0, 1200, 0, 1200, 25.0, &err);
+    Q_ASSERT(g.isValid());
+    const double th = angleDeg * std::numbers::pi / 180.0;
+    dirX = std::cos(th);
+    dirY = std::sin(th);
+    const double cx = 600.0, cy = 600.0;
+    mask.assign(std::size_t(g.rows) * g.cols, 0);
+    // 半格采样栅格化（照 mincurvature.cpp break_line 口径）：斜线必产出
+    // 对角相接的 1 格宽障碍链——旧核在此发散或返回 ±1e22 量级离谱值。
+    const double half = 1300.0; // 半长，保证横贯整个网格
+    const int steps = std::max(1, static_cast<int>(std::ceil(2.0 * half / (g.dx * 0.5))));
+    for (int s = 0; s <= steps; ++s)
+    {
+      const double x = cx - dirX * half + 2.0 * dirX * half * s / steps;
+      const double y = cy - dirY * half + 2.0 * dirY * half * s / steps;
+      const int c = static_cast<int>(std::floor((x - g.originX) / g.dx));
+      const int r = static_cast<int>(std::floor((g.originY - y) / g.dy));
+      if (c >= 0 && c < g.cols && r >= 0 && r < g.rows)
+        mask[std::size_t(r) * g.cols + c] = 1;
+    }
+    // 两侧散点：格中心距墙 >1.5 格才采（50 m 间隔），贴墙点留给掩码。
+    for (int i = 0; i < g.rows; i += 2)
+      for (int j = 0; j < g.cols; j += 2)
+      {
+        const double x = g.originX + (j + 0.5) * g.dx;
+        const double y = g.originY - (i + 0.5) * g.dy;
+        const double sd = sideOf(x, y);
+        if (std::fabs(sd) < 1.5 * g.dx)
+          continue;
+        ScatterPoint p;
+        p.x = x;
+        p.y = y;
+        p.z = sd < 0.0 ? 0.0 : 100.0;
+        pts.push_back(p);
+      }
+  }
+
+  // 有符号距离（dir 单位向量 → 即真实距离）；左盘负、右盘正。
+  double sideOf(double x, double y) const
+  {
+    return dirX * (y - 600.0) - dirY * (x - 600.0);
+  }
+};
+
 } // namespace
 
 class TestGridSolver : public QObject
@@ -114,6 +171,9 @@ private slots:
   void collisionsAveraged();
   void barrierBlocksInterpolation();
   void barrierOnlyAffectsMaskedCells();
+  // issue #293：斜向单格宽屏障墙发散 / 离谱值回归 + 停滞判失败。
+  void diagonalBarrierWallsConverge();
+  void stalledIterationFails();
 
   // 质量面。
   void distanceToDataAnalytic();
@@ -403,6 +463,78 @@ void TestGridSolver::barrierOnlyAffectsMaskedCells()
       solveMinimumCurvature(fx.points, fx.geom, params, mask.data(), &zBarriered, &st2, &err));
   // 全零屏障 = 无屏障：结果逐位一致。
   QCOMPARE(zPlain, zBarriered);
+}
+
+void TestGridSolver::diagonalBarrierWallsConverge()
+{
+  // issue #293 回归：斜向单格宽屏障墙（对角相接障碍链）曾令松弛发散报
+  // 「iteration diverged」，或在 ok=true 下发布 −4e22…1e37 的离谱值。
+  // 验收口径：30°/45°（另加 issue 复现过的 15°/60°/75°）必须收敛，
+  // 输出全部落在 [0,100] 容许 ±10 过冲，两盘各自保持本侧值。
+  for (const double angle : {15.0, 30.0, 45.0, 60.0, 75.0})
+  {
+    DiagonalWall w(angle);
+    GriddingParams params;
+    params.tension = 0.25; // issue 复现参数（T=0.25、ω=1.5、500 遍 × 多级）
+    std::vector<float> z;
+    GriddingStats st;
+    QString err;
+    QVERIFY2(solveMinimumCurvature(w.pts, w.g, params, w.mask.data(), &z, &st, &err),
+             qPrintable(QStringLiteral("angle %1: %2").arg(angle).arg(err)));
+    QVERIFY2(st.converged,
+             qPrintable(QStringLiteral("angle %1 not converged").arg(angle)));
+    for (int i = 0; i < w.g.rows; ++i)
+      for (int j = 0; j < w.g.cols; ++j)
+      {
+        const std::size_t idx = std::size_t(i) * w.g.cols + j;
+        if (w.mask[idx])
+        {
+          QVERIFY2(std::isnan(z[idx]),
+                   qPrintable(QStringLiteral("angle %1 barrier cell not NaN").arg(angle)));
+          continue;
+        }
+        QVERIFY2(z[idx] >= -10.0 && z[idx] <= 110.0,
+                 qPrintable(QStringLiteral("angle %1 cell (%2,%3) out of bounds: %4")
+                                .arg(angle)
+                                .arg(i)
+                                .arg(j)
+                                .arg(z[idx])));
+        // 距墙 ≥3 格的格：左盘 ≤25、右盘 ≥75（两盘隔离）。
+        const double x = w.g.originX + (j + 0.5) * w.g.dx;
+        const double y = w.g.originY - (i + 0.5) * w.g.dy;
+        const double sd = w.sideOf(x, y);
+        if (sd <= -3.0 * w.g.dx)
+          QVERIFY2(z[idx] <= 25.0,
+                   qPrintable(QStringLiteral("angle %1 left cell (%2,%3) = %4")
+                                  .arg(angle)
+                                  .arg(i)
+                                  .arg(j)
+                                  .arg(z[idx])));
+        else if (sd >= 3.0 * w.g.dx)
+          QVERIFY2(z[idx] >= 75.0,
+                   qPrintable(QStringLiteral("angle %1 right cell (%2,%3) = %4")
+                                  .arg(angle)
+                                  .arg(i)
+                                  .arg(j)
+                                  .arg(z[idx])));
+      }
+  }
+}
+
+void TestGridSolver::stalledIterationFails()
+{
+  // issue #293 验收：迭代停滞（末遍更新量仍 ≫ 数据极差）时如实判失败，
+  // 而不是 ok=true 静默发布数值荒谬的栅格（旧行为：只有 PALEO_CONVERGED=0
+  // 元数据能看出来）。maxSweeps=1 不可能收敛 → 必须 false + 报错。
+  Fixture fx(sinusoidF);
+  GriddingParams params;
+  params.maxSweeps = 1;
+  std::vector<float> z;
+  GriddingStats st;
+  QString err;
+  QVERIFY(!solveMinimumCurvature(fx.points, fx.geom, params, nullptr, &z, &st, &err));
+  QVERIFY(!err.isEmpty());
+  QVERIFY(z.empty()); // 失败路径不发布结果
 }
 
 void TestGridSolver::distanceToDataAnalytic()

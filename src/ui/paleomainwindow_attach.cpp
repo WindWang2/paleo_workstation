@@ -51,6 +51,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QHash>
 #include "notifications/paleonotify.h"
 #include <QStackedLayout>
 #include <QStatusBar>
@@ -336,6 +337,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   if (!stack)
     return;
   m_taskSvc = taskSvc; // D1b：导入任务池（nullptr 时保持同步旧路径）
+  m_projectStore = store; // #275：三入口（网格化/编辑分层/面运算）调用时现取 gpkg
   m_importSvc = importSvc; // 「从工区文件夹新建」直达入口
   if (importSvc)
     m_previewDoc = new PreviewDocService(importSvc, this); // 壳唯一数据门面（页属性/预览共用）
@@ -457,11 +459,30 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
                         ? catPath.left(catPath.size() - catSuffix.size())
                         : QString();
                 QStringList missing;
+                // #276：面板井表是资产 id（ast-N），resolveWellLas 要井实体 id
+                // （well-N）——先映射再解析；成果回填时按映射反向键回资产 id
+                // （mergeComputedCurves 以面板井 id 为键）。同实体在面板重复
+                // 出现（资产 id + 直传实体 id）时只解析一次，回填键取先出现
+                // 的面板 id（生产面板全是资产 id，资产行赢）。
+                QHash<QString, QString> entityToPanel;
+                QStringList entityIds;
+                if (catalog)
+                {
+                  const auto mapped = paleo::petrophys::PetroPhysTaskService::
+                      mapPanelWellsToEntities(catalog, wellIds, &missing);
+                  for (const auto &m : mapped)
+                  {
+                    if (entityToPanel.contains(m.entityId))
+                      continue;
+                    entityToPanel.insert(m.entityId, m.panelId);
+                    entityIds.append(m.entityId);
+                  }
+                }
                 paleo::petrophys::PetroPhysTaskService::BatchRequest req = intent;
                 if (catalog && !projDir.isEmpty())
                 {
                   req.wells = paleo::petrophys::PetroPhysTaskService::resolveWellLas(
-                      catalog, projDir, wellIds, &missing);
+                      catalog, projDir, entityIds, &missing);
                 }
                 petroPanel->setWellScope(corrPanel->wellCount(), req.wells.size());
                 if (req.wells.isEmpty())
@@ -473,7 +494,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
                 petroPanel->setBusy(true);
                 m_petroPhysTask = m_petroPhysSvc->startBatch(
                     req, catalog, projDir + QStringLiteral("/artifacts/derived/petrophys"),
-                    [this, petroPanel, corrPanel, req](
+                    [this, petroPanel, corrPanel, req, entityToPanel](
                         bool ok, const paleo::petrophys::PetroPhysTaskService::BatchResult &res) {
                       int merged = 0;
                       if (corrPanel)
@@ -490,7 +511,10 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
                           c.unit = req.outputUnit;
                           c.descr = req.outputDescr;
                           c.values = w.values;
-                          corrPanel->mergeComputedCurves(w.wellId, {depth, c});
+                          // #276：成果里的 wellId 是井实体 id，面板键是资产 id——
+                          // 按映射反查（未映射到则原样，兼容直传实体 id 的旧路径）。
+                          corrPanel->mergeComputedCurves(
+                              entityToPanel.value(w.wellId, w.wellId), {depth, c});
                           ++merged;
                         }
                       }
@@ -536,18 +560,20 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   // 受管派生 + manifest 声明上图。视图只发意图信号（gridHorizonRequested）。
   if (dataPage && dataPage->listPanel() && m_previewDoc && m_previewDoc->catalog())
   {
-    const QString projectDir =
-        m_projectSvc ? QFileInfo(m_projectSvc->projectPath()).absolutePath() : QString();
     const DataCatalog *catalogConst = m_previewDoc->catalog();
-    const QString gpkg = store ? store->gpkgPath() : QString();
+    // #275：projectDir/gpkg 调用时现取——attach 期工程未打开，按值捕获的空
+    // 串会让三入口恒报「先打开工程」，且若 attach 前已开工程会钉死旧目录。
     connect(dataPage->listPanel(), &DataListPanel::gridHorizonRequested, this,
-            [this, catalogConst, projectDir, taskSvc, gpkg](const QString &assetId)
+            [this, catalogConst, taskSvc](const QString &assetId)
             {
+              const QString projectDir =
+                  m_projectSvc ? QFileInfo(m_projectSvc->projectPath()).absolutePath() : QString();
               if (projectDir.isEmpty())
               {
                 statusBar()->showMessage(tr("先打开工程再网格化（派生产物需要受管目录）"));
                 return;
               }
+              const QString gpkg = m_projectStore ? m_projectStore->gpkgPath() : QString();
               runHorizonGridding(this, const_cast<DataCatalog *>(catalogConst), projectDir,
                                  taskSvc, m_layerSvc, gpkg, assetId);
             });
@@ -562,8 +588,10 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
             });
     // 方向 32：井分层右键「编辑分层…」→ 版本化编辑对话框（GUI 线程单事务）。
     connect(dataPage->listPanel(), &DataListPanel::topsEditRequested, this,
-            [this, catalogConst, projectDir](const QString &assetId)
+            [this, catalogConst](const QString &assetId)
             {
+              const QString projectDir =
+                  m_projectSvc ? QFileInfo(m_projectSvc->projectPath()).absolutePath() : QString();
               if (projectDir.isEmpty())
               {
                 statusBar()->showMessage(tr("先打开工程再编辑分层（新版本需要受管目录）"));
@@ -576,8 +604,10 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
     // 图层树栅格「面运算（等厚/体积）…」。
     if (m_layerPanel)
       connect(m_layerPanel, &LayerTreePanel::surfaceOpsRequested, this,
-              [this, catalogConst, projectDir](const QString &)
+              [this, catalogConst](const QString &)
               {
+                const QString projectDir =
+                    m_projectSvc ? QFileInfo(m_projectSvc->projectPath()).absolutePath() : QString();
                 if (projectDir.isEmpty() || !m_layerSvc)
                 {
                   statusBar()->showMessage(tr("面运算需要已打开的工程与图层声明"));

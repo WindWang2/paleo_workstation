@@ -4,6 +4,9 @@
 #include <QFile>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+#include <QThread>
+#include <QElapsedTimer>
+#include <atomic>
 
 #include <qgsapplication.h>
 #include <qgsmaplayer.h>
@@ -306,6 +309,118 @@ private slots:
     const QString t2Id = doneSpy.at( 1 ).at( 1 ).toString();
     QVERIFY( t2Id.startsWith( QStringLiteral( "predict.T2." ) ) );
     QVERIFY( t2Id != isoId );
+  }
+
+  // #277：三段式装配缝——prepare（catalog 所属线程）→ compute（worker 线程）
+  // → publish（catalog 所属线程）。修复前 runPrediction 整体进 worker，
+  // stage 的 addAsset 被 catalog 线程闸拒绝（成品应用恒失败）；这里用真
+  // worker 线程重放装配形状，钉住「compute 不碰 catalog、线程闸零违规」。
+  void predictionThreeStageKeepsCatalogWritesOnOwnerThread()
+  {
+    Fixture f;
+    QVERIFY( initFixture( f ) );
+
+    const QVector<float> px = { 1, 1, 1,
+                                1, 2, 1,
+                                1, 1, 1 };
+    const QString inPath = makeRaster( f.dir.filePath( QStringLiteral( "coded_in.tif" ) ), 3, 3, px );
+    QVERIFY( !inPath.isEmpty() );
+
+    QString err;
+    QVERIFY2( f.layers.declare( decl( QStringLiteral( "input.T1" ), QStringLiteral( "T1" ),
+                                      QStringLiteral( "raster" ), inPath ), &err ), qPrintable( err ) );
+    QgsMapLayer *input = f.layers.instantiate( QStringLiteral( "input.T1" ), &err );
+    QVERIFY2( input != nullptr, qPrintable( err ) );
+
+    PredictionWorkflow wf( &f.proc, &f.layers );
+    wf.setCatalog( &f.catalog, f.dir.path() );
+    QSignalSpy doneSpy( &wf, &PredictionWorkflow::predictionDone );
+    QSignalSpy failSpy( &wf, &PredictionWorkflow::predictionFailed );
+
+    const int violationsBefore = DataCatalog::threadViolationCount();
+
+    QVariantMap params;
+    params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( input ) );
+    params.insert( QStringLiteral( "PASSES" ), 1 );
+
+    // prepare：GUI 线程段——stage 即写 catalog（addAsset 线程闸在这边）。
+    PredictionWorkflow::PredictionJob job;
+    QVERIFY2( wf.preparePredictionJob( QStringLiteral( "T1" ),
+                                       QStringLiteral( "paleo:paleo_geological_smoothing" ),
+                                       params, &job, &err ),
+              qPrintable( err ) );
+    QVERIFY( job.prepared );
+    QVERIFY( job.staging.isValid() );
+    QVERIFY2( !f.catalog.assetById( job.staging.assetId ).id.isEmpty(),
+              "prepare 的 stage 应已把资产写进 catalog（GUI 线程，线程闸不拦）" );
+
+    // compute：worker 线程段——只跑 Processing + 落盘，不碰 catalog。
+    std::atomic<bool> computeDone{ false };
+    QThread *worker = QThread::create( [&] {
+      job.ok = wf.computePredictionJob( &job );
+      computeDone.store( true );
+    } );
+    worker->start();
+    {
+      QElapsedTimer clock;
+      clock.start();
+      while ( !computeDone.load() )
+      {
+        if ( clock.elapsed() > 60000 )
+          QFAIL( "computePredictionJob 在 worker 线程上超时" );
+        QCoreApplication::processEvents( QEventLoop::AllEvents, 10 );
+        QThread::msleep( 2 );
+      }
+    }
+    worker->wait();
+    delete worker;
+    QVERIFY2( job.ok, qPrintable( job.error ) );
+    QVERIFY( !job.outputPath.isEmpty() );
+    QVERIFY2( QFile::exists( job.outputPath ), qPrintable( job.outputPath ) );
+
+    // publish：回 GUI 线程段——commitExternal（addVersion）+ 图层声明 + 信号。
+    QVERIFY2( wf.publishPredictionJob( job, &err ), qPrintable( err ) );
+    QCOMPARE( failSpy.count(), 0 );
+    QCOMPARE( doneSpy.count(), 1 );
+    QCOMPARE( doneSpy.at( 0 ).at( 1 ).toString(),
+              QStringLiteral( "predict.T1.paleo.paleo_geological_smoothing" ) );
+    QVERIFY( derivedVersionRegistered( f.catalog, QStringLiteral( "prediction_raster" ),
+                                       job.staging.absolutePath ) );
+    // 装配全程 catalog 写都在所属线程：线程闸零新增违规（修复前 worker 直调
+    // runPrediction 时 stage/commit 双双被拒，计数 > 0 且任务恒失败）。
+    QCOMPARE( DataCatalog::threadViolationCount(), violationsBefore );
+  }
+
+  // #277：失败原因如实传——compute 失败时 job.error 必须带具体原因（修复前
+  // 任务路径 outErr 从不写入，界面恒为空的「预测失败：」）；compute 在
+  // worker 线程也不许发 predictionFailed（信号由 GUI 线程的调用侧上屏）。
+  void predictionComputeFailureCarriesConcreteReason()
+  {
+    Fixture f;
+    QVERIFY( initFixture( f ) );
+
+    PredictionWorkflow wf( &f.proc, &f.layers );
+    wf.setCatalog( &f.catalog, f.dir.path() );
+    QSignalSpy failSpy( &wf, &PredictionWorkflow::predictionFailed );
+
+    // 未知算法：prepare 只做登记与参数准备（不查算法表），失败发生在 compute。
+    PredictionWorkflow::PredictionJob job;
+    QString err;
+    QVERIFY2( wf.preparePredictionJob( QStringLiteral( "T1" ),
+                                       QStringLiteral( "paleo:no_such_algorithm" ), {}, &job, &err ),
+              qPrintable( err ) );
+    QVERIFY( job.prepared );
+    QVERIFY( !wf.computePredictionJob( &job ) );
+    QVERIFY2( !job.error.isEmpty(), "compute 失败必须带具体原因（供任务 errorText 上屏）" );
+    // worker 段不发信号（GUI 线程调用侧负责如实上屏）。
+    QCOMPARE( failSpy.count(), 0 );
+    // 未产出 → publish 如实拒绝且不登记版本。
+    QVERIFY( !wf.publishPredictionJob( job, &err ) );
+    QVERIFY( !err.isEmpty() );
+    QCOMPARE( failSpy.count(), 1 );
+    QVERIFY2( !derivedVersionRegistered( f.catalog, QStringLiteral( "prediction_raster" ),
+                                         job.staging.absolutePath ),
+              "compute 失败的产物不得登记 DERIVED 版本" );
   }
 
   // ②a addConstraint: ids c-1, c-2; per-horizon "constraints.<h>" decl holds WKT.

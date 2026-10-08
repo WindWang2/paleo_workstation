@@ -148,10 +148,14 @@ RealizationPanel::RealizationPanel( QWidget *parent )
       emit statShowRequested( m_currentSetId, token );
   } );
   connect( m_deriveButton, &QPushButton::clicked, this, [this] {
+    if ( m_busy )
+      return;
     if ( !m_currentSetId.isEmpty() )
       emit deriveStatsRequested( m_currentSetId );
   } );
   connect( m_diffButton, &QPushButton::clicked, this, [this] {
+    if ( m_busy )
+      return;
     const QString a = m_diffA->currentData().toString();
     const QString b = m_diffB->currentData().toString();
     if ( a.isEmpty() || b.isEmpty() )
@@ -207,6 +211,26 @@ QList<int> RealizationPanel::frameOrder() const
 void RealizationPanel::setPlayIntervalMs( int ms )
 {
   m_timer->setInterval( ms );
+}
+
+void RealizationPanel::setBusy( bool busy )
+{
+  if ( m_busy == busy )
+    return;
+  m_busy = busy;
+  if ( m_busy && m_playing )
+    setPlaying( false );
+  m_setCombo->setEnabled( !m_busy );
+  m_diffA->setEnabled( !m_busy );
+  m_diffB->setEnabled( !m_busy );
+  m_memberSlider->setEnabled( !m_busy && ( !m_missing.isEmpty() || frameOrder().size() > 1 ) );
+  m_memberCombo->setEnabled( !m_busy );
+  m_playButton->setEnabled( !m_busy && frameOrder().size() > 1 );
+  rebuildStats();
+  const QString a = m_diffA->currentData().toString();
+  const QString b = m_diffB->currentData().toString();
+  m_diffButton->setEnabled( !m_busy && !a.isEmpty() && !b.isEmpty() && a != b );
+  emit busyChanged( m_busy );
 }
 
 QString RealizationPanel::missingSummary() const
@@ -331,16 +355,22 @@ void RealizationPanel::rebuildStats()
     item->setData( Qt::UserRole, s.token );
     item->setToolTip( tr( "口径 token：%1（双击上图）" ).arg( s.token ) );
   }
-  // 派生只在成员 ≥2 时有意义（单成员/零成员如实禁用，不产「零离散」假面）。
-  const bool canDerive = set.members.size() >= 2;
+  // 派生只在非忙态且成员 ≥2 时有意义（单成员/零成员如实禁用，不产「零离散」假面）。
+  const bool canDerive = !m_busy && set.members.size() >= 2;
   m_deriveButton->setEnabled( canDerive );
   m_deriveButton->setToolTip(
-      canDerive ? tr( "为当前集合派生均值/总体标准差/P10/P90 统计面" )
-                : tr( "成员不足两个——单成员集合无不确定性可派生" ) );
+      m_busy ? tr( "正在计算中，请稍候…" )
+             : ( canDerive ? tr( "为当前集合派生均值/总体标准差/P10/P90 统计面" )
+                           : tr( "成员不足两个——单成员集合无不确定性可派生" ) ) );
 }
 
 void RealizationPanel::onTick()
 {
+  if ( m_busy )
+  {
+    setPlaying( false );
+    return;
+  }
   const QList<int> order = frameOrder();
   if ( order.size() <= 1 )
   {

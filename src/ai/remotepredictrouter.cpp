@@ -127,6 +127,22 @@ void HttpRemoteTransport::begin(int timeoutMs, Op op, QNetworkReply *reply,
       return;
     }
     const QJsonObject doc = QJsonDocument::fromJson(payload).object();
+    if (m_wellsRequest) {
+      const auto points = doc.value(QStringLiteral("points"));
+      if (!points.isArray() || points.toArray().isEmpty()) {
+        emit predictDone(runId, {}, QObject::tr("测井预测应答缺少井点和相井段"));
+        return;
+      }
+      QVariantList rows;
+      for (const auto &v : points.toArray()) {
+        auto row = v.toObject().toVariantMap();
+        if (v.toObject().value("facies_intervals").isArray())
+          row.insert("facies_intervals", QString::fromUtf8(QJsonDocument(v.toObject().value("facies_intervals").toArray()).toJson(QJsonDocument::Compact)));
+        rows << row;
+      }
+      emit wellPredictDone(runId, rows);
+      return;
+    }
     const QJsonArray got = doc.value(QStringLiteral("cells")).toArray();
     if (got.size() != m_gridColumns * m_gridRows) {
       emit predictDone(runId, {},
@@ -158,6 +174,7 @@ void HttpRemoteTransport::predict(const RemotePredictionRequest &request,
 {
   if (!m_nam)
     return;
+  m_wellsRequest = request.kind == QLatin1String("wells");
   m_gridColumns = request.columns;
   m_gridRows = request.rows;
   QJsonObject body;
@@ -170,6 +187,10 @@ void HttpRemoteTransport::predict(const RemotePredictionRequest &request,
   for (float v : request.samples)
     samples.append(std::isnan(v) ? QJsonValue() : QJsonValue(double(v)));
   body.insert(QStringLiteral("samples"), samples);
+  if (m_wellsRequest) {
+    body.insert(QStringLiteral("wells"), QJsonArray::fromVariantList(request.wells));
+    body.insert(QStringLiteral("facies"), QJsonArray::fromVariantList(request.facies));
+  }
 
   QNetworkRequest req(m_base.resolved(QUrl(QStringLiteral("/predict"))));
   req.setHeader(QNetworkRequest::ContentTypeHeader,
@@ -193,6 +214,15 @@ RemotePredictionRouter::RemotePredictionRouter(RemoteTransport *transport,
   connect(m_transport, &RemoteTransport::healthDone, this,
           [this](quint64 runId, bool ok, const QString &error) {
             onHealth(runId, ok, error);
+          });
+  connect(m_transport, &RemoteTransport::wellPredictDone, this,
+          [this](quint64 runId, const QVariantList &points) {
+            if (runId != m_runId || m_cancelled || !m_running || m_request.kind != QLatin1String("wells")) return;
+            RemotePredictionResult result;
+            result.request = m_request; result.points = points;
+            result.method = QStringLiteral("remote"); result.mock = false;
+            m_lastRoute = result.method; m_running = false;
+            emit progress(m_request.id, 100); emit completed(result);
           });
   connect(m_transport, &RemoteTransport::predictDone, this,
           [this](quint64 runId, const QVector<int> &cells,
@@ -295,7 +325,7 @@ void RemotePredictionRouter::degradeOrDie(quint64 runId, const QString &stageNam
   if (runId != m_runId)
     return;
   LocalPredictor *local = m_local;
-  const bool usable = local && m_fallbackEnabled && local->isConfigured();
+  const bool usable = m_request.kind != QLatin1String("wells") && local && m_fallbackEnabled && local->isConfigured();
   if (!usable) {
     settleFail(QObject::tr("远端不可用且降级未配置（%1）：%2")
                  .arg(stageName, stageError));

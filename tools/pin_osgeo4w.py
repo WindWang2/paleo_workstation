@@ -50,6 +50,11 @@ def parse_setup_ini(text):
             pkgs[cur] = {}
             in_current = True
             continue
+        if line.lstrip().startswith("["):
+            # [prev]/[test]/[curr] 备选版本块——字段同名会覆写主块（钉版
+            # 曾因此钉到上一代版本，上游发版即全员漂移红）。遇标记即收笔。
+            cur = None
+            continue
         if cur is None or not line.strip() or line.startswith("#"):
             continue
         if line.startswith("["):
@@ -126,6 +131,9 @@ version: 1.0-1
 
 @ liba
 version: 2.0-1
+requires: base
+[prev]
+version: 1.9-9
 requires: base
 
 @ app

@@ -195,7 +195,7 @@ switch ($Verb) {
       foreach ($line in (Get-Content $path -Encoding utf8)) {
         $f = @($line.Trim() -split '\s+')
         if ($f.Count -lt 2 -or -not $f[0] -or $f[0] -eq 'INSTALLED.DB') { continue }
-        $ver = $f[1] -replace '\.tar\.(bz2|xz|gz|zst)$', ''
+        $ver = $f[1] -replace '\.tar\.(bz2|xz|gz|zst|lz4)$', ''
         $prefix = $f[0] + '-'
         if ($ver.StartsWith($prefix, [System.StringComparison]::Ordinal)) { $ver = $ver.Substring($prefix.Length) }
         $map[$f[0]] = $ver

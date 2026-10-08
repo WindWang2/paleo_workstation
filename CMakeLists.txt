@@ -103,6 +103,29 @@ set(PALEO_QGIS_RUNTIME_PREFIX "${QGIS_PREFIX}")
 if(QGIS_PREFIX AND EXISTS "${QGIS_PREFIX}/apps/qgis/resources")
   set(PALEO_QGIS_RUNTIME_PREFIX "${QGIS_PREFIX}/apps/qgis")
 endif()
+
+# deb 闭包链接期 NEEDED 解析：Debian 库相互 NEEDED 依赖靠系统默认路径 +
+# update-alternatives 顶层链接，解包式 vendored 前缀两者皆无——ld 传递依赖
+# 只认 -rpath-link 目录（实测 -L/LIBRARY_PATH 均不参与 NEEDED 解析）。
+# 把前缀下所有含 .so 的目录统一注入（含 blas/lapack/pulseaudio 这类
+# alternatives 子目录），armadillo→blas、libpulse→pulsecommon 等链才接得上。
+if(QGIS_PREFIX AND UNIX AND NOT APPLE AND EXISTS "${QGIS_PREFIX}/lib")
+  file(GLOB_RECURSE _pal_sos "${QGIS_PREFIX}/lib/*.so*")
+  set(_pal_linkdirs "")
+  foreach(_so IN LISTS _pal_sos)
+    get_filename_component(_d "${_so}" DIRECTORY)
+    list(APPEND _pal_linkdirs "${_d}")
+  endforeach()
+  list(REMOVE_DUPLICATES _pal_linkdirs)
+  foreach(_d IN LISTS _pal_linkdirs)
+    add_link_options("-Wl,-rpath-link,${_d}")
+  endforeach()
+  list(LENGTH _pal_linkdirs _pal_n)
+  message(STATUS "deb 闭包 rpath-link 目录数: ${_pal_n}")
+  unset(_pal_sos)
+  unset(_pal_linkdirs)
+  unset(_pal_n)
+endif()
 # QScintilla：QGIS 的代码编辑器头（qgscodeeditor.h）传递包含它。它有自己的
 # 独立前缀（与 QGIS 分开安装），故也走 cache/env 解析；未显式给出时从既有的
 # CMAKE_PREFIX_PATH 逐个前缀自动发现——与上面 QGIS 的 find_* 同一套 HINTS 风格，
@@ -322,6 +345,7 @@ target_compile_definitions(paleo_selfcheck PRIVATE FIXTURE_GPKG="${FIXTURE_GPKG}
 
 # demo 工程无头构建工具（组装根）：xlsx 转规范井文本 + 生产导入路径 +
 # georeference 落 project.paleo + 重开自校验。用法见 src/app/mkproject.cpp 头注。
+# 方向 78：--manifest 清单外置（夹具工厂化）；无 manifest 时行为零变化。
 add_executable(paleo_mkproject src/app/mkproject.cpp)
 target_link_libraries(paleo_mkproject PRIVATE paleo_services paleo_qgis)
 
@@ -376,6 +400,7 @@ target_include_directories(paleo_deps INTERFACE ${CMAKE_SOURCE_DIR}/src ${GDAL_I
 add_library(paleo_domain STATIC
   src/domain/singlefactorrequest.cpp
   src/domain/types.cpp
+  src/domain/litholexicon.cpp
   src/domain/wellcompositemodel.cpp
   src/domain/wellrecords.cpp                        # 井文本记录类型 + XML 嗅探（自 io 下沉）
   src/domain/welltopsedit.cpp                       # 方向 32：分层校验/差异/合并/批量纯函数
@@ -470,6 +495,7 @@ add_library(paleo_qgis STATIC
   src/qgis/previewidentify.cpp                      # P2 D7 identify 查询核心（空间索引缓存+栅格插值）
   src/qgis/previewrendercache.cpp                   # P2 D6.2/D6.6 渲染结果缓存（内存 LRU + QTemporaryDir PNG）
   src/qgis/seismicsectiontool.cpp
+  src/qgis/wellattributestore.cpp
 )
 target_link_libraries(paleo_qgis PUBLIC paleo_deps paleo_ui_deps paleo_store paleo_algorithms paleo_io)
 
@@ -521,7 +547,7 @@ add_library(paleo_services STATIC
   src/services/startuptrace.cpp                     # goal/perf-systematize 簇1：启动分段仪表
   src/services/storagegovernance.cpp
   src/services/cataloghealth.cpp                    # 方向30：工区资产体检（快速面 + 外链 SHA 复验）
-  src/services/errorhub.cpp                         # 方向54+方向64：统一错误通道（去重/聚合/环形历史，两实现并存）
+  src/services/errorhub.cpp                         # 方向64（方向76 合流后唯一实现）：统一错误通道（去重/聚合/环形历史）
 )
 target_link_libraries(paleo_services PUBLIC paleo_deps paleo_io paleo_domain paleo_store paleo_algorithms)
 
@@ -689,10 +715,6 @@ add_library(paleo_ui STATIC
   src/ui/paleotheme.cpp                            # DESIGN.md 字体/色 token
   src/ui/paleoicons.cpp                            # ribbon 图标出口
   src/ui/paleoribbon.cpp                           # SARibbon 壳公用件
-  src/ui/notifications/notificationcard.cpp        # 方向54：ErrorHub 浮动通知卡片
-  src/ui/notifications/notificationmanager.cpp     # 方向54：ErrorHub 呈现与模态策略管理器
-  src/ui/notifications/errorhistorymodel.cpp       # 方向54：ErrorHub 错误历史模型
-  src/ui/notifications/errorhistorydock.cpp        # 方向54：ErrorHub 错误历史面板
   resources/seismic_shaders.qrc
   resources/paleo_fonts.qrc
 )
@@ -965,6 +987,7 @@ add_paleo_test(tst_panels)                                  # 伞式（全栈，
 # 的计时抖动关回串行基线先例（根治归 TEST-02 类递延）。
 set_tests_properties(tst_panels PROPERTIES RUN_SERIAL TRUE)
 add_paleo_test(tst_mappingpages LIBS paleo_ui)
+add_paleo_test(tst_wellattributes LIBS paleo_ui)
 add_paleo_test(tst_factorworkflow LIBS paleo_workflow) # m2(B)：单因素生成链真实栈（tst_workflows 模式）
 add_paleo_test(tst_composeworkflow) # m2(C)：相属性回写 edit buffer + 壳自动编辑态（tst_ui 模式；伞式兼容样本）
 add_paleo_test(tst_perf LIBS paleo_qgis)
@@ -1161,6 +1184,23 @@ add_paleo_test(tst_layermanifest LIBS paleo_store)  # P1-11 / ARCH-04 LayerManif
 add_paleo_test(tst_segy_fixture LIBS paleo_io)   # 合成最小 SEG-Y 夹具：索引/单线/角点/范围门
 target_compile_definitions(tst_segy_fixture PRIVATE
   TESTDATA_DIR="${CMAKE_SOURCE_DIR}/testdata")
+# mkproject 夹具工厂消费测试（方向 78）：QProcess 驱动 paleo_mkproject
+# --manifest mini 全链（生产导入路径），四断言面（导入/round-trip/配准残差/
+# 复用性）。手动注册（非 add_paleo_test）：要带 fixtures/mkprojectfixture.cpp
+# 第二源 + MKPROJECT_BIN 生成器表达式；RUN_SERIAL 对齐 tst_perfbudget 先例
+#（QProcess 子进程 + QGIS init 的资源面，CI 并行负载下防抖）。LABEL services
+#（core 段，不进 perf）。
+add_executable(tst_mkprojectfixture tests/tst_mkprojectfixture.cpp
+               tests/fixtures/mkprojectfixture.cpp)
+target_link_libraries(tst_mkprojectfixture PRIVATE paleo_services paleo_qgis Qt6::Test)
+target_compile_definitions(tst_mkprojectfixture PRIVATE
+  MKPROJECT_BIN="$<TARGET_FILE:paleo_mkproject>"
+  MKPROJECT_MINI_DIR="${CMAKE_SOURCE_DIR}/tools/reference/mkproject/mini")
+add_test(NAME tst_mkprojectfixture COMMAND tst_mkprojectfixture
+         -o "${PALEO_QTEST_FIRST_RUN_DIR}/tst_mkprojectfixture.txt,txt")
+paleo_test_sandbox(tst_mkprojectfixture)
+set_tests_properties(tst_mkprojectfixture PROPERTIES LABELS services RUN_SERIAL TRUE)
+add_dependencies(tst_mkprojectfixture paleo_mkproject)
 add_paleo_test(tst_algorithm_harness LIBS paleo_algorithms paleo_ui_deps)  # AlgorithmTestBase harness + ≥3 算法用例
 add_paleo_test(tst_algorithm_rasterout_crs LIBS paleo_algorithms paleo_ui_deps)  # QgsApplication 需 QtWidgets（同 tst_algorithm_harness）；BIZ-11（方向58）：无 CRS 输入经共享写口带规范 CRS
 add_paleo_test(tst_perfbudget LIBS paleo_services paleo_qgis)
@@ -1197,15 +1237,16 @@ add_paleo_test(tst_entityview LIBS paleo_store)
 # 崩溃本地转储（§38 留白按本地优先落地）+ 外链源重定位恢复路径。
 # 新增源与测试集中在此块；并行包合并冲突时保留双方行。
 add_paleo_test(tst_crashreport LIBS paleo_services)
-add_paleo_test(tst_errorhub LIBS paleo_services)      # 方向64：去重窗口/聚合/环形逐出/并发
-add_paleo_test(tst_errorhub_d54 LIBS paleo_services)   # 方向54：ErrorHub 核心数据服务与去重/环形缓冲单元测试
-add_paleo_test(tst_notification_card LIBS paleo_ui paleo_services) # 方向54：通知卡片与管理器测试
-add_paleo_test(tst_notification_m2_challenger LIBS paleo_ui paleo_services) # 方向54：M2 Challenger 经验证套件
-add_paleo_test(tst_error_history_dock LIBS paleo_ui paleo_services) # 方向54/M4：错误历史模型与面板测试
-add_paleo_test(tst_errorhub_challenger_m4 LIBS paleo_ui paleo_services) # 方向54/M4：M4 Challenger UI交互与边界测试套件
-add_paleo_test(tst_errorhub_storm LIBS paleo_ui paleo_services) # 方向54/M5：错误风暴压力与事件循环防冻结测试
+add_paleo_test(tst_errorhub LIBS paleo_services)      # 方向64：去重窗口/聚合/环形逐出/并发（方向76 并入 d54 独值并发用例）
+# 方向76 合流：54 系呈现件（notificationmanager/notificationcard/
+# errorhistorymodel/errorhistorydock）及其测试（tst_errorhub_d54 /
+# tst_notification_card / tst_notification_m2_challenger /
+# tst_error_history_dock / tst_errorhub_challenger_m4 /
+# tst_errorhub_challenger_m5_harness）删除——hub 级语义归 tst_errorhub，
+# 呈现级语义 tst_notifications（64 栈）覆盖；裁决与覆盖迁移记录见
+# .goal-loop-ledger-hub-merge.md。
+add_paleo_test(tst_errorhub_storm LIBS paleo_services) # 方向54/M5 起源，方向76 重定向至全局 hub：风暴压力（环形上限/多线程风暴）
 set_tests_properties(tst_errorhub_storm PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
-add_paleo_test(tst_errorhub_challenger_m5_harness LIBS paleo_ui paleo_services) # 方向54/M5：M5-2 Challenger 极端压力与经验证套件
 add_paleo_test(tst_relocate LIBS paleo_ui)
 
 # ---- goal/perf-systematize 簇2：UI 线程阻塞动态验证 ----

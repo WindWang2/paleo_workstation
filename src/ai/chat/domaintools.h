@@ -2,6 +2,7 @@
 #pragma once
 #include <QJsonObject>
 #include <QString>
+#include <QStringList>
 #include <QVector>
 
 // ai/chat — 领域工具描述表（方向51 建立，方向61 接入执行回路）。
@@ -13,12 +14,19 @@
 // workflow/aichattoolrunner（方向61），它把这里的表映射到 AiAssistWorkflow /
 // WellFaciesService 的既有执行面。分发函数回答「这个调用现在能否路由到
 // 入口、缺什么」，不承诺已代用户落任何库。
+//
+// 方向77 增两只读工程问答工具（query_project / asset_lineage）：同样只登记
+// 描述与可路由性——执行面在 workflow/aichattoolrunner 的 runQuery/runLineage
+//（catalog 只读查询，零登记副作用）。
 
 struct AiToolParamSpec {
   QString name;
   QString type; // JSON Schema 类型名：string / number / integer / boolean / object / array
   QString description;
   bool required = false;
+  // string 入参的封闭词表（方向77）：非空时 schema 出 "enum"、实参校验拒绝
+  // 词表外取值——模型少走一轮「取值错→报错→重试」的往返。
+  QStringList enumValues;
   QJsonObject toJsonSchema() const;
 };
 
@@ -37,7 +45,7 @@ struct AiToolSpec {
   QString validateParameters(const QJsonObject &arguments) const;
 };
 
-// 三条既有能力的工具描述（顺序稳定）。
+// 五条工具描述（三条推理能力 + 方向77 两只读工程问答；顺序稳定）。
 QVector<AiToolSpec> builtinAiToolSpecs();
 // 按名查表；未登记返回空 spec（name 为空）。
 AiToolSpec aiToolSpec(const QString &name);

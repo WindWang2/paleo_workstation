@@ -1,0 +1,122 @@
+{
+  "schema": 1,
+  "georeference": {
+    "kind": "similarity2d",
+    "targetCrs": "EPSG:4326",
+    "anchor": {
+      "lonDeg": 108.0,
+      "latDeg": 36.0,
+      "metersPerDegLon": 90000.0,
+      "metersPerDegLat": 111000.0
+    },
+    "params": {
+      "a": 1.0,
+      "b": 0.0,
+      "tE": 0.0,
+      "tN": 0.0
+    },
+    "formula": "E = a*x - b*y + tE ; N = b*x + a*y + tN ; lon = lon0 + E/mPerLon ; lat = lat0 + N/mPerLat (meters)",
+    "provenance": "mini 合成数据集生成器直写（tools/reference/mkproject/mini/generate.py）：恒等相似变换 + A3 纬度微扰 3.0m——残差断言有物理意义",
+    "controlPoints": [
+      {
+        "well": "A1",
+        "x": 1010.0,
+        "y": 5020.0,
+        "lon": 108.01122222222222,
+        "lat": 36.045225225225224,
+        "residualM": 0.0
+      },
+      {
+        "well": "A2",
+        "x": 1050.0,
+        "y": 5060.0,
+        "lon": 108.01166666666667,
+        "lat": 36.045585585585584,
+        "residualM": 0.0
+      },
+      {
+        "well": "A3",
+        "x": 1080.0,
+        "y": 5040.0,
+        "lon": 108.012,
+        "lat": 36.04543243243243,
+        "residualM": 3.0
+      }
+    ],
+    "maxResidualM": 3.0
+  },
+  "imports": [
+    {
+      "path": "well/井位坐标.xml",
+      "convert": "well_head"
+    },
+    {
+      "path": "strat/tops.dat",
+      "type": "well_stratification"
+    },
+    {
+      "path": "strat/tops_header.dat",
+      "type": "well_stratification"
+    },
+    {
+      "path": "las/A1.las"
+    },
+    {
+      "path": "las/A2.las"
+    },
+    {
+      "path": "las/A3.las"
+    },
+    {
+      "path": "las/A3_rerun.las"
+    },
+    {
+      "path": "seis/mini.sgy"
+    },
+    {
+      "path": "2.3岩心资料/A1_1610.5_岩心.jpg"
+    },
+    {
+      "path": "2.3岩心资料/A2_1625.0_岩心.jpg"
+    },
+    {
+      "path": "2.3岩心资料/A3_1640.5_岩心.jpg"
+    },
+    {
+      "path": "2.6薄片岩矿鉴定/A3_1701.0_薄片.jpg"
+    },
+    {
+      "path": "2.4岩屑录井数据/A1_岩屑录井.csv"
+    },
+    {
+      "path": "2.4岩屑录井数据/A2_岩屑录井.csv"
+    },
+    {
+      "path": "2.4岩屑录井数据/A3_岩屑录井.csv"
+    },
+    {
+      "path": "ref/工区说明.docx"
+    },
+    {
+      "path": "outsource/wg1_well.xml",
+      "type": "outsource_workbook",
+      "linkExternal": true
+    }
+  ],
+  "expect": {
+    "wells": 3,
+    "entitiesByType": {
+      "well": 3,
+      "seismic_survey": 1,
+      "auxiliary": 2
+    },
+    "unresolvedLinks": 0,
+    "georeferencedWells": 3,
+    "seismicGeometry": {
+      "inlineMin": 10,
+      "inlineMax": 13,
+      "xlineMin": 100,
+      "xlineMax": 104
+    }
+  }
+}

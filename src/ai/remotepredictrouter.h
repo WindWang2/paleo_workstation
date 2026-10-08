@@ -60,6 +60,7 @@ public:
   virtual void abort() = 0;
 signals:
   void healthDone(quint64 runId, bool ok, const QString &error);
+  void wellPredictDone(quint64 runId, const QVariantList &points);
   void predictDone(quint64 runId, const QVector<int> &cells,
                    const QString &error);
 };
@@ -89,6 +90,7 @@ private:
   int m_opTimeoutMs = 0;
   int m_gridColumns = 0;
   int m_gridRows = 0;
+  bool m_wellsRequest = false;
   QUrl m_base;
   QNetworkAccessManager *m_nam = nullptr;
   QPointer<QNetworkReply> m_reply;

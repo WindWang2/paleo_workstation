@@ -4,18 +4,30 @@
   以下几项只登记未动：
   1. **Delete 遮蔽**：图层树面板 `layers.remove` 是主窗级 `WindowShortcut` QAction，面板可见时会先吃掉数据树焦点内
      Delete（`data.assets.remove`）与节点编辑工具 Delete（`map.vertex.delete`）。启动日志以 info 报两条 shadow，
-     `tst_shortcuthelp::knownShadowsArePinned` 钉住清单。候选修法：改 `Qt::WidgetWithChildrenShortcut`（需真机核实
-     图层树内 Delete 仍可用）。
-  2. 保存按钮提示「保存工程（Ctrl+S）」、定位器占位符「搜索井位/层位  Ctrl+K」仍硬编码键名，改为取 `keyFor()`。
+     `tst_shortcuthelp::knownShadowsArePinned` 钉住清单。候选修法试修记录（方向80）：改 `Qt::WidgetWithChildrenShortcut`
+     会导致 `tst_shortcuthelp::r0SitesPreserved`（R0 25 处快捷键约束）与 `boundActionFiresOffscreen` 失败，且注册表
+     层级上下文判定（"main" 包含子路径）仍告警遮蔽；故诚实保留 pinned 清单，在 `LayerTreePanel` 补齐 `addAction` 挂载。
+  2. [已交付 方向80] 保存按钮提示「保存工程（Ctrl+S）」、定位器占位符「搜索井位/层位  Ctrl+K」已改为取 `keyFor()` 动态生成，缺省/变异自适应。
   3. 数据页「?」快捷键表（DataPage ShortcutsDialog）与 F1 总表并存，可改为打开总表并预过滤到数据页。
   4. 地图画布（主地图与预览地图都是 `QgsMapCanvas`）的 QGIS 内建按键（+ / - / 方向键 / 0 复位等，见
      `tst_previewmap_canvas::keyboardPlusMinusZero`）属第三方行为，未进注册表与总表；可补登记为 KeyHandler 条目做展示。
   5. 新增 `PaleoShortcuts` / `PaleoWhatsThis` / `tr()` 文案待 #246（zh_CN 本地化）合入后跑 lupdate 刷 `.ts`。
 - **Why:** 都是行为或文案改动，超出「收编不改行为」的边界；需要真机交互验证。
-- **Context:** ledger [方向63](.goal-loop-ledger-shortcuts-help.md#遮蔽告警启动日志-info测试钉死清单)。
+- **Context:** ledger [方向63](.goal-loop-ledger-shortcuts-help.md#遮蔽告警启动日志-info测试钉死清单)、[方向80](.goal-loop-ledger-quickfollow.md)。
 - **Effort:** human: S / CC: S
 - **Priority:** P3
 - **Depends on:** #246（第 5 项）
+
+## P3 — 同域高频补丁大文件拆分候选清单（from goal/quickfollow-20261009 方向 80）
+
+- **What:** 方向 80 对 10-07/10-08 连补高发文件进行了归并审视（零行为变更消除错位与重复），形成后续模块化拆分候选清单：
+  1. `src/ui/datapreview/datapreviewtabs.cpp`（1758 行）+ `src/ui/datapreview/datapreviewtabs_internal.h`（1607 行）：多类型数据预览 Tab 管理，建议按预览类型（las/seismic/image/table/map）拆出独立子页策略类。
+  2. `src/workflow/mappingworkbench.cpp`（1523 行）：编图工作台，融合相图、等值线、栅格计算与预测过程，建议将工区/层位推断与加工管线剥离出子控制器。
+  3. `src/app/appcontext.cpp`（951 行）：组装根上下文，涵盖全部核心服务与图层挂载，建议将图层初始化与刷新簇（wells/survey/trajectories）下沉或聚合成专门的 `MapLayerBootstrap`。
+  4. `src/ui/pages/datalist_tree.cpp`（811 行）：数据导航树，方向 80 已将层位挂接归位至地震分支内，后续可将不同实体分类（井/地震/成果/计划井/不确定性）按分支抽取为专职构建器。
+- **Why:** 这批大文件是实战批次频繁冲突和修补的震中，且已形成明显的子域聚合边界。
+- **Priority:** P3
+- **Depends on:** 无（可独立立项拆分重构）
 
 ## P3 — AI 助手：工具上下文补绑（from goal/ai-assist, 2026-10-06；工具闭环已由方向61 交付、图形化配置已由方向62 交付）
 
@@ -68,14 +80,8 @@
   - wellfacies completed → publishLithoAsset 生产者接线无端到端测试：
     publishLithoAsset 直达缝已测，completed 信号缝（缓存写入 + 登记 +
     状态行原因追加全链）未钉。P3。
-  - 岩屑录井（cuttings）第二解释源已接入（2026-10-07：role=="cuttings"
-    链接按井兜底，段 provenance=「岩屑录井」，题注呈「解释·岩屑录井」）。
-    递延：CSV/TSV 解析无引号转义——岩性/描述词面含分隔符会列右移
-    （列数不足的行被行级校验跳过，但列数恰好够的错位行进库不报警）；
-    xlsx 路径走既有 readWorkbook 面，测试只覆盖 CSV+合成表。CC: S，P3。
-  - 同井多份 cuttings 链接取 currentVersion 版本号最新者：落选文件无
-    提示、段 provenance 统一「岩屑录井」不点名具体文件——多版本并存
-    排查时需到资产表自查来源。P3。
+  - [已交付 方向80] 岩屑录井（cuttings）第二解释源已接入 RFC 4180 引号转义（支持内嵌逗号/制表符/换行/"" 转义，错位行列数不符严格拒收列因），双 cuttings 夹具验证通过。
+  - [已交付 方向80] 同井多份 cuttings 链接取最新版本：落选文件记入 warning 并回写至资产 extra（cuttings_selection="unselected"），段 provenance 明确点名具体文件名「岩屑录井（<fileName>）」，题注呈现「解释·岩屑录井（<fileName>）」。
 - **Why:** 首版先打通按地层连井 + 井间地震 + 编图层位高亮；TVD 域、解释岩性数据源、模板随工程走都需要额外数据契约。
 - **Pros:** 不编造岩性/时深，缺时深的井间段如实标原因；**Cons:** 斜井连井有 MD 失真，岩性道分辨力有限。
 - **Context:** src/domain/wellsection.*、src/workflow/wellsectionworkflow.*、src/ui/wellsection/。

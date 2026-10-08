@@ -40,11 +40,15 @@ class RealizationPanel : public QWidget
     QString currentSetId() const { return m_currentSetId; }
     int currentMemberIndex() const { return m_currentMember; }
     bool isPlaying() const { return m_playing; }
+    bool isBusy() const { return m_busy; }
+    void setBusy( bool busy );
     // 播放帧序（成员 index 升序）；供测试断言与缺号跳帧语义。
     QList<int> frameOrder() const;
     void setPlayIntervalMs( int ms );
 
   signals:
+    // 忙态变化信号
+    void busyChanged( bool busy );
     // 同画布成员切换 intent：壳侧物化 realset.<setId>.m<index> 图层并切换
     // 可见性（同集合内互斥切换）。
     void memberShowRequested( const QString &setId, int index );
@@ -71,6 +75,7 @@ class RealizationPanel : public QWidget
     QString m_currentSetId;
     int m_currentMember = -1;
     bool m_playing = false;
+    bool m_busy = false;
     int m_framePos = -1; // frameOrder 内的位置
     QList<int> m_missing;
 

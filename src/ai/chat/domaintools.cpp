@@ -5,10 +5,12 @@
 
 // ai/chat — 领域工具表实现（方向51）。
 //
-// 三条工具对应 src/ai 现存的三条推理能力：
+// 工具对应 src/ai 的推理能力与 catalog 只读查询面：
 //   1. paleo.tile_classification        → tileinference.h + PaleoOnnxService
 //   2. paleo.horizon_tracking_suggestion → horizonsuggest.h:suggestHorizonTracking
 //   3. paleo.well_facies_prediction      → wellfaciesservice.h:WellFaciesService
+//   4. paleo.query_project               → catalog/datacatalog.h 只读查询（方向77）
+//   5. paleo.asset_lineage               → services/derivationgraph.h 血缘闭包（方向77）
 // 描述的名字/入参/出参就是它们的真实签名轮廓；没有一项是本方向新发明的能力。
 
 namespace {
@@ -34,6 +36,12 @@ QJsonObject AiToolParamSpec::toJsonSchema() const {
   schema.insert(QStringLiteral("type"), type);
   if (!description.isEmpty())
     schema.insert(QStringLiteral("description"), description);
+  if (!enumValues.isEmpty()) {
+    QJsonArray allowed;
+    for (const QString &value : enumValues)
+      allowed.append(value);
+    schema.insert(QStringLiteral("enum"), allowed);
+  }
   return schema;
 }
 
@@ -72,6 +80,12 @@ QString AiToolSpec::validateParameters(const QJsonObject &arguments) const {
     if (!jsonTypeMatches(parameter.type, arguments.value(parameter.name)))
       return QObject::tr("参数 %1 类型应为 %2").arg(parameter.name,
                                                     parameter.type);
+    // 封闭词表（方向77）：词表外取值在本地就拒，省一轮工具往返。
+    if (parameter.type == QLatin1String("string") &&
+        !parameter.enumValues.isEmpty() &&
+        !parameter.enumValues.contains(arguments.value(parameter.name).toString()))
+      return QObject::tr("参数 %1 取值须为：%2")
+        .arg(parameter.name, parameter.enumValues.join(QLatin1String("、")));
   }
   for (auto it = arguments.begin(); it != arguments.end(); ++it) {
     bool known = false;
@@ -155,7 +169,65 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
   facies.resultSchemaJson = QStringLiteral(
     R"({"type":"object","properties":{"well":{"type":"string"},"intervals":{"type":"array","items":{"type":"object","properties":{"top":{"type":"number"},"bottom":{"type":"number"},"code":{"type":"integer"}}}}}})");
 
-  return {tile, horizon, facies};
+  // 4) 工程数据问答（方向77：只读——catalog 实体/资产/角色/版本摘要，
+  // 不做任何推理，不写任何库）。
+  AiToolSpec query;
+  query.name = QStringLiteral("paleo.query_project");
+  query.title = QObject::tr("工程数据查询");
+  query.description = QObject::tr(
+    "只读查询当前工程的目录事实：井清单（含计划井）、层位清单、资产清单、"
+    "单井关联明细或计数摘要。回答「工程里有哪些井/层位/资产、某井有什么"
+    "曲线」类问题用这只工具；结果带版本路径（可追溯），不写任何数据。");
+  query.requiresLocalOrt = false;
+  query.parameters = {
+    {QStringLiteral("topic"), QStringLiteral("string"),
+     QObject::tr("查询主题：summary=计数摘要；wells=井清单；horizons=层位"
+                 "资产清单；assets=资产清单；well_details=单井关联明细"),
+     true,
+     {QStringLiteral("summary"), QStringLiteral("wells"), QStringLiteral("horizons"),
+      QStringLiteral("assets"), QStringLiteral("well_details")}},
+    {QStringLiteral("well_name"), QStringLiteral("string"),
+     QObject::tr("井名（topic=well_details 时必填；按目录规范化匹配）"), false},
+    {QStringLiteral("role"), QStringLiteral("string"),
+     QObject::tr("关联角色过滤（well_head/well_log/tops/time_depth/horizon/"
+                 "seismic_volume/reference 等），作用于 well_details"), false},
+    {QStringLiteral("asset_type"), QStringLiteral("string"),
+     QObject::tr("资产类型过滤（如 well_log/horizon/seismic），作用于 assets"),
+     false},
+  };
+  query.resultSchemaJson = QStringLiteral(
+    R"({"type":"object","properties":{"tool":{"type":"string"},"topic":{"type":"string"},)"
+    R"("count":{"type":"integer"},"wells":{"type":"array","items":{"type":"object"}},)"
+    R"("horizons":{"type":"array","items":{"type":"object"}},"assets":{"type":"array","items":{"type":"object"}},)"
+    R"("links":{"type":"array","items":{"type":"object"}},"entities":{"type":"object"},)"
+    R"("assets_by_type":{"type":"object"},"revision":{"type":"integer"}}})");
+
+  // 5) 派生血缘闭包（方向77：只读——「这个图件是从哪些源来的」）。
+  AiToolSpec lineage;
+  lineage.name = QStringLiteral("paleo.asset_lineage");
+  lineage.title = QObject::tr("资产血缘查询");
+  lineage.description = QObject::tr(
+    "只读查询某资产的派生血缘：上游版本链（这个产物从哪些井点/约束/中间"
+      "产品派生）与下游版本，及选中闭包集合。入参给资产显示名或 id；节点"
+      "带版本路径与阶段（可追溯）。");
+  lineage.requiresLocalOrt = false;
+  lineage.parameters = {
+    {QStringLiteral("asset"), QStringLiteral("string"),
+     QObject::tr("资产名或 id（versionId / assetId / 显示名，按此序解析）"),
+     true},
+    {QStringLiteral("upstream_depth"), QStringLiteral("integer"),
+     QObject::tr("上游追溯深度（缺省 3，0-12）"), false},
+    {QStringLiteral("downstream_depth"), QStringLiteral("integer"),
+     QObject::tr("下游追溯深度（缺省 1，0-12）"), false},
+  };
+  lineage.resultSchemaJson = QStringLiteral(
+    R"({"type":"object","properties":{"tool":{"type":"string"},"asset":{"type":"string"},)"
+    R"("version_id":{"type":"string"},"available":{"type":"boolean"},)"
+    R"("nodes":{"type":"array","items":{"type":"object"}},"edges":{"type":"array","items":{"type":"object"}},)"
+    R"("selection":{"type":"object","properties":{"count":{"type":"integer"},)"
+    R"("version_ids":{"type":"array","items":{"type":"string"}}}}}})");
+
+  return {tile, horizon, facies, query, lineage};
 }
 
 AiToolSpec aiToolSpec(const QString &name) {
@@ -226,6 +298,24 @@ AiToolDispatch dispatchAiTool(const QString &name,
     out.status = AiToolDispatchStatus::Routed;
     out.note = QObject::tr(
       "入口已接线：须先配置测井相服务端点与密钥，并绑定井曲线数据上下文");
+    return out;
+  }
+  if (name == QStringLiteral("paleo.query_project")) {
+    out.target = QStringLiteral(
+      "catalog/datacatalog.h:DataCatalog 只读查询 + "
+      "workflow/aichattoolrunner:runQuery");
+    // 只读工具：无 ORT/远端前置——运行期缺的是工程上下文（catalog 未绑
+    // 时执行面如实报错，与 facies 的诚实口径一致）。
+    out.status = AiToolDispatchStatus::Routed;
+    out.note = QObject::tr("入口已接线：只读查询，须打开工程（未打开时如实报错）");
+    return out;
+  }
+  if (name == QStringLiteral("paleo.asset_lineage")) {
+    out.target = QStringLiteral(
+      "services/derivationgraph.h:paleo::derivation::Service::build/"
+      "selectionClosure + workflow/aichattoolrunner:runLineage");
+    out.status = AiToolDispatchStatus::Routed;
+    out.note = QObject::tr("入口已接线：只读血缘查询，须打开工程（未打开时如实报错）");
     return out;
   }
   return out;

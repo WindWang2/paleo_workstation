@@ -42,6 +42,7 @@ public:
   CatalogVersion versionForLayer(const QString &id) const;
   LayerDeclaration declaration(const QString &id) const;
   QString layerForVersion(const QString &versionId, QString *error = nullptr);
+  QString openWellAttributes(QString *error = nullptr);
   bool predict(const QString &horizon, const QString &kind,
                const QStringList &ids, QString *error,
                const QString &horizonFile = {});

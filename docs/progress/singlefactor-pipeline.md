@@ -25,3 +25,8 @@
 - `tools/check_tidy.py` 22 个 TU 通过；最后修改的 constraintpage/mappingworkbench 两处另跑 clang-tidy 通过。layering/ui_invariants/ui_tokens strict、i18n 与 `git diff --check` 均通过。
 - `PALEO_SINGLEFACTOR_QA_DIR="$PWD/build/singlefactor-qa"` 配合页面/工作流回归导出 8 张生产控件与 QGIS 渲染截图；核查 IDW/Kriging 明暗布局、等值面色带与 ELEV/level 的双描边、mono 注记和 halo。
 - 既有 `realAreaDoesNotInventWellValues` 因 `PALEO_REAL_PROJECT_AREA` 未配置跳过，不算作 O12 实区通过；本方向新增文件格式/真实 QGIS 栈回归均执行。净毛比有效层判据、LAS 孔渗统计口径、地统逐线屏障已如实登记 TODOS。
+
+2026-10-08：单因素页「维护井点属性」初始化独立 GeoPackage 的井/层位行，
+维护字段优先于自动提取（包括 NULL 与有效零值），保存属性后刷新字段并
+使旧提取状态失效。砂厚解释源可读取测井矢量表的岩性列，预测相列不作为
+岩性。参见 [矢量属性维护](../WELL_VECTOR_ATTRIBUTES.md)。

@@ -28,6 +28,8 @@ private slots:
   void cuttingsSheetMissingColumnIsHonest();
   void cuttingsSheetBadRowsSkippedIntoIssues();
   void cuttingsSheetDescriptionColumnOptional();
+  void cuttingsCsvQuotedDelimitersAndNewlines();
+  void cuttingsCsvMismatchedColumnsRejectedWithIssue();
 };
 
 void IoWorkbookEdgeTests::workbookEdgesAreHonest()
@@ -232,6 +234,74 @@ void IoWorkbookEdgeTests::cuttingsSheetDescriptionColumnOptional()
         QStringLiteral("见油斑")}}));
   QVERIFY2(withRemark.ok, qPrintable(withRemark.error));
   QCOMPARE(withRemark.intervals[0].description, QStringLiteral("见油斑"));
+}
+
+void IoWorkbookEdgeTests::cuttingsCsvQuotedDelimitersAndNewlines()
+{
+  const QString csv = QStringLiteral(
+      "顶深,底深,岩性,描述\n"
+      "100,120,\"含油,砂岩\",\"灰褐色, \"\"块状\"\", 见油斑\"\n"
+      "120,150,细砂岩,\"浅灰色,\n"
+      "细粒,\n"
+      "致密\"\n"
+      "150,180,泥岩,深灰色\n");
+
+  QStringList issues;
+  const auto sheet = paleo::io::parseTextCuttings(csv, QStringLiteral("cuttings.csv"), &issues);
+  QVERIFY2(issues.isEmpty(), qPrintable(issues.join(QLatin1Char('\n'))));
+  QCOMPARE(sheet.headers.size(), 4);
+  QCOMPARE(sheet.rows.size(), 3);
+
+  const auto table = paleo::io::parseCuttingsSheet(sheet);
+  QVERIFY2(table.ok, qPrintable(table.error));
+  QCOMPARE(table.intervals.size(), 3);
+
+  // 第一行：引号内逗号与引号转义保留，列未右移
+  QCOMPARE(table.intervals[0].topMd, 100.0);
+  QCOMPARE(table.intervals[0].baseMd, 120.0);
+  QCOMPARE(table.intervals[0].litho, QStringLiteral("含油,砂岩"));
+  QCOMPARE(table.intervals[0].description, QStringLiteral("灰褐色, \"块状\", 见油斑"));
+  QCOMPARE(table.intervals[0].rowNumber, 2);
+
+  // 第二行：引号内跨多行，换行保留，物理行号正确
+  QCOMPARE(table.intervals[1].topMd, 120.0);
+  QCOMPARE(table.intervals[1].baseMd, 150.0);
+  QCOMPARE(table.intervals[1].litho, QStringLiteral("细砂岩"));
+  QCOMPARE(table.intervals[1].description, QStringLiteral("浅灰色,\n细粒,\n致密"));
+  QCOMPARE(table.intervals[1].rowNumber, 3);
+
+  // 第三行：紧随多行字段之后，物理行号跳到 6
+  QCOMPARE(table.intervals[2].topMd, 150.0);
+  QCOMPARE(table.intervals[2].baseMd, 180.0);
+  QCOMPARE(table.intervals[2].litho, QStringLiteral("泥岩"));
+  QCOMPARE(table.intervals[2].rowNumber, 6);
+}
+
+void IoWorkbookEdgeTests::cuttingsCsvMismatchedColumnsRejectedWithIssue()
+{
+  const QString csv = QStringLiteral(
+      "顶深,底深,岩性,描述\n"
+      "100,120,细砂岩,褐灰色,多余列\n"
+      "120,150,泥岩\n"
+      "150,180,砂岩,中粒\n");
+
+  QStringList issues;
+  const auto sheet = paleo::io::parseTextCuttings(csv, QStringLiteral("mismatched.csv"), &issues);
+  QCOMPARE(sheet.headers.size(), 4);
+  // 第 2 行 5 列（超），第 3 行 3 列（缺），均应被拒；仅第 4 行 4 列入库
+  QCOMPARE(sheet.rows.size(), 1);
+  QCOMPARE(issues.size(), 2);
+  QVERIFY2(issues[0].contains(QStringLiteral("第 2 行列数不符（期望 4 列，实际 5 列）")),
+           qPrintable(issues[0]));
+  QVERIFY2(issues[1].contains(QStringLiteral("第 3 行列数不符（期望 4 列，实际 3 列）")),
+           qPrintable(issues[1]));
+
+  const auto table = paleo::io::parseCuttingsSheet(sheet);
+  QVERIFY2(table.ok, qPrintable(table.error));
+  QCOMPARE(table.intervals.size(), 1);
+  QCOMPARE(table.intervals[0].topMd, 150.0);
+  QCOMPARE(table.intervals[0].baseMd, 180.0);
+  QCOMPARE(table.intervals[0].litho, QStringLiteral("砂岩"));
 }
 QTEST_GUILESS_MAIN(IoWorkbookEdgeTests)
 #include "tst_io_workbook_edges.moc"

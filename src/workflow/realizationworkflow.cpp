@@ -6,10 +6,12 @@
 #include "../catalog/datacatalog.h"
 #include "../catalog/realizationset.h"
 #include "../qgis/qgislayerservice.h"
+#include "../services/jobrunner.h"
 #include "derivedassets.h"
 #include "workflowerrors_internal.h"
 #include "workflows_internal.h"
 
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -131,11 +133,86 @@ void closeMemberRasters( QVector<MemberRaster> *members )
   members->clear();
 }
 
+struct RealizationJob
+{
+  enum class Kind { DeriveAllStats, DifferenceOfMeans };
+  Kind kind = Kind::DeriveAllStats;
+  QString setId;
+  QString setIdB;
+
+  // Prepared data:
+  QString title;
+  QString horizon;
+  QStringList memberParentIds;
+  struct MemberData {
+    int index;
+    QString rasterPath;
+  };
+  QVector<MemberData> members;
+  int cols = 0;
+  int rows = 0;
+  double gt[6]{ 0, 1, 0, 0, 0, -1 };
+  QString projWkt;
+  paleo::ensemble::StatsRequest want;
+
+  // Difference of means prepared data:
+  QString meanPathA;
+  QString meanPathB;
+
+  // Intermediate outputs computed in worker thread:
+  struct OutputRaster {
+    QString token;
+    QString tempPath;
+  };
+  QVector<OutputRaster> outputs;
+
+  QString error;
+};
+
 } // namespace
+
+struct RealizationWorkflow::RunnerHolder
+{
+  paleo::jobs::JobRunner<RealizationJob> runner;
+  explicit RunnerHolder( QObject *parent )
+      : runner( parent )
+  {
+  }
+};
 
 RealizationWorkflow::RealizationWorkflow( QObject *parent )
     : QObject( parent )
+    , m_runnerHolder( std::make_unique<RunnerHolder>( this ) )
 {
+  connect( &m_runnerHolder->runner, &paleo::jobs::JobRunnerBase::jobCompleted, this,
+           [this]( quint64, bool ) {
+             m_busy = false;
+             emit busyChanged( false );
+           } );
+  connect( &m_runnerHolder->runner, &paleo::jobs::JobRunnerBase::claimDropped, this,
+           [this]( quint64, int ) {
+             m_busy = false;
+             emit busyChanged( false );
+           } );
+}
+
+RealizationWorkflow::~RealizationWorkflow() = default;
+
+void RealizationWorkflow::setTaskService( PaleoTaskService *tasks )
+{
+  m_tasks = tasks;
+  if ( m_runnerHolder )
+    m_runnerHolder->runner.setTaskService( tasks );
+}
+
+PaleoTaskService *RealizationWorkflow::taskService() const
+{
+  return m_tasks;
+}
+
+bool RealizationWorkflow::isBusy() const
+{
+  return m_busy || ( m_runnerHolder && m_runnerHolder->runner.busy() );
 }
 
 void RealizationWorkflow::bind( DataCatalog *catalog, const QString &projectDir,
@@ -627,4 +704,539 @@ bool RealizationWorkflow::differenceOfMeans( const QString &setIdA,
   }
   emit realizationDiffReady( setIdA, setIdB, diffLayerId( setIdA, setIdB ) );
   return true;
+}
+
+PaleoTask *RealizationWorkflow::deriveAllStatisticsAsync( const QString &setId, QString *error )
+{
+  if ( !isBound() )
+  {
+    setError( error, tr( "realization workflow 未绑定 catalog/projectDir" ) );
+    return nullptr;
+  }
+  if ( !m_tasks || !m_runnerHolder )
+  {
+    setError( error, tr( "PaleoTaskService 未注入" ) );
+    return nullptr;
+  }
+  if ( setId.isEmpty() )
+  {
+    setError( error, tr( "集合 id 为空" ) );
+    return nullptr;
+  }
+  if ( isBusy() )
+  {
+    setError( error, tr( "正在进行计算，请稍候" ) );
+    return nullptr;
+  }
+
+  const paleo::realization::RealizationSet set =
+      paleo::realization::setById( *m_catalog, setId );
+  if ( set.members.size() < 2 )
+  {
+    setError( error, tr( "集合 %1 成员不足两个（仅 %2 个）——单成员集合无不确定性可派生" )
+                         .arg( setId ).arg( set.members.size() ) );
+    return nullptr;
+  }
+
+  auto job = std::make_shared<RealizationJob>();
+  job->kind = RealizationJob::Kind::DeriveAllStats;
+  job->setId = setId;
+
+  paleo::jobs::JobRunner<RealizationJob>::Callbacks cb;
+
+  cb.prepare = [this]( RealizationJob &j, QString *err ) -> bool {
+    const paleo::realization::RealizationSet s =
+        paleo::realization::setById( *m_catalog, j.setId );
+    if ( s.members.size() < 2 )
+    {
+      setError( err, tr( "单成员集合无不确定性可派生" ) );
+      return false;
+    }
+
+    const auto existingStats = paleo::realization::statSurfaces( *m_catalog, j.setId );
+    QSet<QString> existingTokens;
+    for ( const auto &st : existingStats )
+      existingTokens.insert( st.token );
+
+    j.want.mean = !existingTokens.contains( paleo::realization::kStatMean );
+    j.want.stddev = !existingTokens.contains( paleo::realization::kStatStdDev );
+    j.want.p10 = !existingTokens.contains( paleo::realization::kStatP10 );
+    j.want.p90 = !existingTokens.contains( paleo::realization::kStatP90 );
+
+    if ( !j.want.mean && !j.want.stddev && !j.want.p10 && !j.want.p90 )
+    {
+      return true; // 幂等面，全部已存在
+    }
+
+    j.title = s.title;
+    j.horizon = m_catalog->versionById( s.members.first().versionId )
+                    .extra.value( QStringLiteral( "horizon" ) )
+                    .toString();
+    for ( const auto &m : s.members )
+    {
+      const CatalogVersion v = m_catalog->versionById( m.versionId );
+      const QString abs = DataCatalog::resolvedVersionPath( m_projectDir, v );
+      if ( abs.isEmpty() || !QFile::exists( abs ) )
+      {
+        setError( err, tr( "成员 %1 的受管栅格缺席（%2）——集合数据不全，停止派生" )
+                           .arg( m.index ).arg( v.path ) );
+        return false;
+      }
+      j.memberParentIds << m.versionId;
+      j.members.push_back( { m.index, abs } );
+    }
+
+    GDALAllRegister();
+    GDALDatasetH ds0 = GDALOpen( j.members.first().rasterPath.toUtf8().constData(), GA_ReadOnly );
+    if ( !ds0 )
+    {
+      setError( err, tr( "成员 %1 栅格打不开" ).arg( j.members.first().index ) );
+      return false;
+    }
+    j.cols = GDALGetRasterXSize( ds0 );
+    j.rows = GDALGetRasterYSize( ds0 );
+    GDALGetGeoTransform( ds0, j.gt );
+    const char *proj = GDALGetProjectionRef( ds0 );
+    j.projWkt = proj ? QString::fromUtf8( proj ) : QString();
+    GDALClose( ds0 );
+
+    for ( int i = 1; i < j.members.size(); ++i )
+    {
+      GDALDatasetH dsi = GDALOpen( j.members[i].rasterPath.toUtf8().constData(), GA_ReadOnly );
+      if ( !dsi )
+      {
+        setError( err, tr( "成员 %1 栅格打不开" ).arg( j.members[i].index ) );
+        return false;
+      }
+      const int ci = GDALGetRasterXSize( dsi );
+      const int ri = GDALGetRasterYSize( dsi );
+      GDALClose( dsi );
+      if ( ci != j.cols || ri != j.rows )
+      {
+        setError( err, tr( "成员 %1 网格（%2×%3）与成员 0（%4×%5）不一致——集合成员必须同网格，拒绝派生" )
+                           .arg( j.members[i].index ).arg( ci ).arg( ri ).arg( j.cols ).arg( j.rows ) );
+        return false;
+      }
+    }
+    return true;
+  };
+
+  cb.compute = []( RealizationJob &j, const paleo::jobs::CancelFn &cancel,
+                   const paleo::jobs::ProgressFn &progress ) -> bool {
+    if ( !j.want.mean && !j.want.stddev && !j.want.p10 && !j.want.p90 )
+      return true;
+    if ( cancel() )
+      return false;
+
+    GDALAllRegister();
+    const int cols = j.cols;
+    const int rows = j.rows;
+    const std::size_t cells = static_cast<std::size_t>( cols ) * rows;
+
+    struct OpenDataset {
+      GDALDatasetH ds = nullptr;
+      GDALRasterBandH band = nullptr;
+    };
+    QVector<OpenDataset> openDss;
+    auto closeAll = qScopeGuard( [&openDss] {
+      for ( auto &od : openDss )
+        if ( od.ds )
+          GDALClose( od.ds );
+      openDss.clear();
+    } );
+
+    for ( const auto &m : j.members )
+    {
+      if ( cancel() )
+        return false;
+      GDALDatasetH ds = GDALOpen( m.rasterPath.toUtf8().constData(), GA_ReadOnly );
+      if ( !ds )
+      {
+        j.error = QObject::tr( "成员 %1 栅格打不开" ).arg( m.index );
+        return false;
+      }
+      openDss.push_back( { ds, GDALGetRasterBand( ds, 1 ) } );
+    }
+
+    progress( 10.0, QStringLiteral( "read" ) );
+
+    std::vector<double> mean, stddev;
+    if ( j.want.mean || j.want.stddev )
+    {
+      paleo::ensemble::StreamingMoments moments( cells );
+      std::vector<double> field( cells );
+      for ( int i = 0; i < openDss.size(); ++i )
+      {
+        if ( cancel() )
+          return false;
+        if ( !readBandSlice( openDss[i].band, 0, rows, cols, field.data() ) )
+        {
+          j.error = QObject::tr( "成员 %1 栅格读失败" ).arg( j.members[i].index );
+          return false;
+        }
+        moments.addField( field.data() );
+      }
+      if ( j.want.mean )
+        mean = moments.mean();
+      if ( j.want.stddev )
+        stddev = moments.stddevPopulation();
+    }
+
+    progress( 40.0, QStringLiteral( "moments" ) );
+
+    std::vector<std::vector<double>> bands;
+    if ( j.want.p10 || j.want.p90 )
+    {
+      if ( cancel() )
+        return false;
+      std::vector<double> qs;
+      if ( j.want.p10 )
+        qs.push_back( 0.10 );
+      if ( j.want.p90 )
+        qs.push_back( 0.90 );
+      const auto readBand = [&openDss, cols]( std::size_t member, int row0, int nRows, double *out ) {
+        return readBandSlice( openDss.at( member ).band, row0, nRows, cols, out );
+      };
+      bands = paleo::ensemble::quantilesBanded( openDss.size(), cols, rows, qs, kMaxBandValues, readBand );
+      if ( bands.size() != qs.size() )
+      {
+        j.error = QObject::tr( "分位数行带计算中止（成员读失败）" );
+        return false;
+      }
+    }
+
+    progress( 70.0, QStringLiteral( "quantiles" ) );
+
+    const QString tempDir = QDir::tempPath();
+    const quint64 ts = QDateTime::currentMSecsSinceEpoch();
+    const QByteArray projWktBytes = j.projWkt.toUtf8();
+
+    const auto writeOut = [&]( const QString &token, const std::vector<double> &field ) -> bool {
+      const QString tmpFile = QDir( tempDir ).filePath(
+          QStringLiteral( "paleo_realstat_%1_%2_%3.tif" ).arg( j.setId, token ).arg( ts ) );
+      if ( !writeStatRaster( tmpFile, field, cols, rows, j.gt, projWktBytes ) )
+      {
+        j.error = QObject::tr( "统计面 %1 临时写盘失败" ).arg( token );
+        return false;
+      }
+      j.outputs.push_back( { token, tmpFile } );
+      return true;
+    };
+
+    if ( j.want.mean && !writeOut( paleo::realization::kStatMean, mean ) )
+      return false;
+    if ( j.want.stddev && !writeOut( paleo::realization::kStatStdDev, stddev ) )
+      return false;
+    int bIdx = 0;
+    if ( j.want.p10 && !writeOut( paleo::realization::kStatP10, bands[bIdx++] ) )
+      return false;
+    if ( j.want.p90 && !writeOut( paleo::realization::kStatP90, bands[bIdx++] ) )
+      return false;
+
+    progress( 100.0, QStringLiteral( "complete" ) );
+    return true;
+  };
+
+  cb.commit = [this]( RealizationJob &j, QString *err ) -> bool {
+    DerivedAssetRegistrar registrar( m_catalog.data(), m_projectDir );
+    QStringList tokens;
+    for ( const auto &out : j.outputs )
+    {
+      QString stageErr;
+      const DerivedStaging st = registrar.stage(
+          paleo::realization::kAssetTypeStat,
+          tr( "%1·%2" ).arg( j.title, paleo::realization::statisticDisplayLabel( out.token ) ),
+          QStringLiteral( "REALSTAT_%1_%2.tif" ).arg( j.setId, out.token ), &stageErr );
+      if ( !st.isValid() )
+      {
+        setError( err, stageErr );
+        return false;
+      }
+      if ( QFile::exists( st.absolutePath ) )
+        QFile::remove( st.absolutePath );
+      if ( !QFile::copy( out.tempPath, st.absolutePath ) )
+      {
+        setError( err, tr( "统计面临时文件复制到受管区失败" ) );
+        return false;
+      }
+      QFile::remove( out.tempPath );
+
+      QVariantMap extra;
+      extra.insert( paleo::realization::kKeySetId, j.setId );
+      extra.insert( paleo::realization::kKeyStatistic, out.token );
+      extra.insert( paleo::realization::kKeyMemberCount, j.members.size() );
+      extra.insert( QStringLiteral( "horizon" ), j.horizon );
+      extra.insert( QStringLiteral( "title" ),
+                    tr( "%1·%2" ).arg( j.title, paleo::realization::statisticDisplayLabel( out.token ) ) );
+      extra.insert( QStringLiteral( "layer_type" ), QStringLiteral( "raster" ) );
+      QString commitErr;
+      if ( !registrar.commit( st, j.memberParentIds,
+                              QStringLiteral( "paleo:realization_stat" ), extra, &commitErr ) )
+      {
+        setError( err, commitErr );
+        return false;
+      }
+      if ( m_layers )
+      {
+        LayerDeclaration decl;
+        decl.layerId = statLayerId( j.setId, out.token );
+        decl.horizon = j.horizon;
+        decl.type = QStringLiteral( "raster" );
+        decl.source = st.absolutePath;
+        decl.group = QStringLiteral( "04_SingleFactor/Realizations" );
+        decl.title = tr( "%1·%2" ).arg( j.title, paleo::realization::statisticDisplayLabel( out.token ) );
+        QString declErr;
+        if ( !m_layers->declare( decl, &declErr ) )
+          qWarning( "realization stat layer declare failed: %s", qPrintable( declErr ) );
+      }
+      tokens << out.token;
+    }
+    if ( !tokens.isEmpty() )
+      emit realizationStatsDerived( j.setId, tokens );
+    return true;
+  };
+
+  cb.cleanup = []( RealizationJob &j ) {
+    for ( const auto &out : j.outputs )
+      if ( QFile::exists( out.tempPath ) )
+        QFile::remove( out.tempPath );
+    j.outputs.clear();
+  };
+
+  m_busy = true;
+  emit busyChanged( true );
+
+  PaleoTask *task = m_runnerHolder->runner.start(
+      tr( "派生集合统计：%1" ).arg( set.title.isEmpty() ? setId : set.title ),
+      job, cb, QString(), true /* quiet */ );
+
+  if ( !task )
+  {
+    m_busy = false;
+    emit busyChanged( false );
+    setError( error, tr( "任务启动失败" ) );
+    return nullptr;
+  }
+  return task;
+}
+
+PaleoTask *RealizationWorkflow::differenceOfMeansAsync( const QString &setIdA, const QString &setIdB,
+                                                        QString *error )
+{
+  if ( !isBound() )
+  {
+    setError( error, tr( "realization workflow 未绑定 catalog/projectDir" ) );
+    return nullptr;
+  }
+  if ( !m_tasks || !m_runnerHolder )
+  {
+    setError( error, tr( "PaleoTaskService 未注入" ) );
+    return nullptr;
+  }
+  if ( setIdA.isEmpty() || setIdB.isEmpty() || setIdA == setIdB )
+  {
+    setError( error, tr( "差值需要两个不同的集合" ) );
+    return nullptr;
+  }
+  if ( isBusy() )
+  {
+    setError( error, tr( "正在进行计算，请稍候" ) );
+    return nullptr;
+  }
+
+  const auto ensureMean = [this]( const QString &sid, QString *err ) -> QString {
+    QString vid = paleo::realization::meanSurfaceVersionId( *m_catalog, sid );
+    if ( vid.isEmpty() )
+    {
+      paleo::ensemble::StatsRequest want;
+      want.mean = true;
+      if ( !deriveStatistics( sid, want, err ) )
+        return QString();
+      vid = paleo::realization::meanSurfaceVersionId( *m_catalog, sid );
+    }
+    return vid;
+  };
+  const QString vidA = ensureMean( setIdA, error );
+  if ( vidA.isEmpty() )
+    return nullptr;
+  const QString vidB = ensureMean( setIdB, error );
+  if ( vidB.isEmpty() )
+    return nullptr;
+
+  auto job = std::make_shared<RealizationJob>();
+  job->kind = RealizationJob::Kind::DifferenceOfMeans;
+  job->setId = setIdA;
+  job->setIdB = setIdB;
+  job->memberParentIds = { vidA, vidB };
+
+  paleo::jobs::JobRunner<RealizationJob>::Callbacks cb;
+
+  cb.prepare = [this, vidA, vidB]( RealizationJob &j, QString *err ) -> bool {
+    j.meanPathA = DataCatalog::resolvedVersionPath( m_projectDir, m_catalog->versionById( vidA ) );
+    j.meanPathB = DataCatalog::resolvedVersionPath( m_projectDir, m_catalog->versionById( vidB ) );
+    GDALAllRegister();
+    GDALDatasetH dsA = GDALOpen( j.meanPathA.toUtf8().constData(), GA_ReadOnly );
+    GDALDatasetH dsB = GDALOpen( j.meanPathB.toUtf8().constData(), GA_ReadOnly );
+    if ( !dsA || !dsB )
+    {
+      if ( dsA ) GDALClose( dsA );
+      if ( dsB ) GDALClose( dsB );
+      setError( err, tr( "集合均值面打不开：%1 / %2" ).arg( j.meanPathA, j.meanPathB ) );
+      return false;
+    }
+    j.cols = GDALGetRasterXSize( dsA );
+    j.rows = GDALGetRasterYSize( dsA );
+    if ( GDALGetRasterXSize( dsB ) != j.cols || GDALGetRasterYSize( dsB ) != j.rows )
+    {
+      GDALClose( dsA );
+      GDALClose( dsB );
+      setError( err, tr( "两集合均值面网格不一致（%1×%2 vs %3×%4）——不能差" )
+                           .arg( j.cols ).arg( j.rows )
+                           .arg( GDALGetRasterXSize( dsB ) )
+                           .arg( GDALGetRasterYSize( dsB ) ) );
+      return false;
+    }
+    GDALGetGeoTransform( dsA, j.gt );
+    const char *proj = GDALGetProjectionRef( dsA );
+    j.projWkt = proj ? QString::fromUtf8( proj ) : QString();
+    GDALClose( dsA );
+    GDALClose( dsB );
+
+    j.title = m_catalog->assetById( j.setId ).displayName;
+    const QString titleB = m_catalog->assetById( j.setIdB ).displayName;
+
+    const auto setHorizon = [this]( const QString &sid ) {
+      const paleo::realization::RealizationSet s =
+          paleo::realization::setById( *m_catalog, sid );
+      return s.members.isEmpty()
+                 ? QString()
+                 : m_catalog->versionById( s.members.first().versionId )
+                       .extra.value( QStringLiteral( "horizon" ) )
+                       .toString();
+    };
+    const QString hA = setHorizon( j.setId );
+    j.horizon = ( hA == setHorizon( j.setIdB ) ) ? hA : QString();
+    return true;
+  };
+
+  cb.compute = []( RealizationJob &j, const paleo::jobs::CancelFn &cancel,
+                   const paleo::jobs::ProgressFn &progress ) -> bool {
+    if ( cancel() )
+      return false;
+    GDALAllRegister();
+    GDALDatasetH dsA = GDALOpen( j.meanPathA.toUtf8().constData(), GA_ReadOnly );
+    GDALDatasetH dsB = GDALOpen( j.meanPathB.toUtf8().constData(), GA_ReadOnly );
+    if ( !dsA || !dsB )
+    {
+      if ( dsA ) GDALClose( dsA );
+      if ( dsB ) GDALClose( dsB );
+      j.error = QObject::tr( "集合均值面打不开" );
+      return false;
+    }
+    const auto guard = qScopeGuard( [dsA, dsB] {
+      GDALClose( dsA );
+      GDALClose( dsB );
+    } );
+    const int cols = j.cols;
+    const int rows = j.rows;
+    const std::size_t cells = static_cast<std::size_t>( cols ) * rows;
+    std::vector<double> a( cells ), b( cells ), diff( cells );
+    if ( !readBandSlice( GDALGetRasterBand( dsA, 1 ), 0, rows, cols, a.data() ) ||
+         !readBandSlice( GDALGetRasterBand( dsB, 1 ), 0, rows, cols, b.data() ) )
+    {
+      j.error = QObject::tr( "均值面读盘失败" );
+      return false;
+    }
+    for ( std::size_t i = 0; i < cells; ++i )
+      diff[i] = ( std::isfinite( a[i] ) && std::isfinite( b[i] ) )
+                    ? a[i] - b[i]
+                    : std::numeric_limits<double>::quiet_NaN();
+
+    const QString tmpFile = QDir( QDir::tempPath() ).filePath(
+        QStringLiteral( "paleo_realdiff_%1_%2_%3.tif" )
+            .arg( j.setId, j.setIdB ).arg( QDateTime::currentMSecsSinceEpoch() ) );
+    if ( !writeStatRaster( tmpFile, diff, cols, rows, j.gt, j.projWkt.toUtf8() ) )
+    {
+      j.error = QObject::tr( "差值面写盘失败" );
+      return false;
+    }
+    j.outputs.push_back( { paleo::realization::kStatMeanDiff, tmpFile } );
+    progress( 100.0, QStringLiteral( "complete" ) );
+    return true;
+  };
+
+  cb.commit = [this]( RealizationJob &j, QString *err ) -> bool {
+    DerivedAssetRegistrar registrar( m_catalog.data(), m_projectDir );
+    const QString titleB = m_catalog->assetById( j.setIdB ).displayName;
+    QString stageErr;
+    const DerivedStaging st = registrar.stage(
+        paleo::realization::kAssetTypeDiff,
+        tr( "%1 − %2 均值差" ).arg( j.title, titleB ),
+        QStringLiteral( "REALDIFF_%1_%2.tif" ).arg( j.setId, j.setIdB ), &stageErr );
+    if ( !st.isValid() )
+    {
+      setError( err, stageErr );
+      return false;
+    }
+    if ( QFile::exists( st.absolutePath ) )
+      QFile::remove( st.absolutePath );
+    if ( !QFile::copy( j.outputs.first().tempPath, st.absolutePath ) )
+    {
+      setError( err, tr( "差值面临时文件复制到受管区失败" ) );
+      return false;
+    }
+    QFile::remove( j.outputs.first().tempPath );
+
+    QVariantMap extra;
+    extra.insert( paleo::realization::kKeySetIds, QStringList{ j.setId, j.setIdB } );
+    extra.insert( paleo::realization::kKeyStatistic, paleo::realization::kStatMeanDiff );
+    extra.insert( QStringLiteral( "horizon" ), j.horizon );
+    extra.insert( QStringLiteral( "title" ), tr( "%1 − %2 均值差" ).arg( j.title, titleB ) );
+    extra.insert( QStringLiteral( "layer_type" ), QStringLiteral( "raster" ) );
+    QString commitErr;
+    if ( !registrar.commit( st, j.memberParentIds,
+                            QStringLiteral( "paleo:realization_diff" ), extra, &commitErr ) )
+    {
+      setError( err, commitErr );
+      return false;
+    }
+    if ( m_layers )
+    {
+      LayerDeclaration decl;
+      decl.layerId = diffLayerId( j.setId, j.setIdB );
+      decl.horizon = j.horizon;
+      decl.type = QStringLiteral( "raster" );
+      decl.source = st.absolutePath;
+      decl.group = QStringLiteral( "04_SingleFactor/Realizations" );
+      decl.title = tr( "%1 − %2 均值差" ).arg( j.title, titleB );
+      QString declErr;
+      if ( !m_layers->declare( decl, &declErr ) )
+        qWarning( "realization diff layer declare failed: %s", qPrintable( declErr ) );
+    }
+    emit realizationDiffReady( j.setId, j.setIdB, diffLayerId( j.setId, j.setIdB ) );
+    return true;
+  };
+
+  cb.cleanup = []( RealizationJob &j ) {
+    for ( const auto &out : j.outputs )
+      if ( QFile::exists( out.tempPath ) )
+        QFile::remove( out.tempPath );
+    j.outputs.clear();
+  };
+
+  m_busy = true;
+  emit busyChanged( true );
+
+  PaleoTask *task = m_runnerHolder->runner.start(
+      tr( "两集合均值差：%1 vs %2" ).arg( setIdA, setIdB ),
+      job, cb, QString(), true /* quiet */ );
+
+  if ( !task )
+  {
+    m_busy = false;
+    emit busyChanged( false );
+    setError( error, tr( "任务启动失败" ) );
+    return nullptr;
+  }
+  return task;
 }

@@ -433,6 +433,23 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   useMono( maxPoints );
   adv->addWidget( caption( tr( "邻域点数" ), advanced ) );
   adv->addWidget( maxPoints );
+  // 方向84（D3）：协克里金协变量——栅格资产下拉（地震属性/已算因子面），按井位
+  // 采样成 secondary 集；ρ 是 MM1 交叉相关系数（0 = 交叉项消失，退化为普通克里金）。
+  auto *covariate = new QComboBox( advanced );
+  covariate->setObjectName( QStringLiteral( "factorCovariateCombo" ) );
+  covariate->setAccessibleName( tr( "协变量栅格" ) );
+  covariate->setToolTip( tr( "协克里金软数据源：栅格按井位采样成协变量集，与井点硬数据联合估值。" ) );
+  adv->addWidget( caption( tr( "协变量栅格" ), advanced ) );
+  adv->addWidget( covariate );
+  auto *crossCorrelation = new QDoubleSpinBox( advanced );
+  crossCorrelation->setObjectName( QStringLiteral( "factorCrossCorrelationSpin" ) );
+  crossCorrelation->setRange( -1.0, 1.0 );
+  crossCorrelation->setDecimals( 2 );
+  crossCorrelation->setSingleStep( 0.05 );
+  crossCorrelation->setToolTip( tr( "交叉相关系数 ρ（MM1 模型 γ12 = ρ·γ1）。0 时协变量不参与权重。" ) );
+  useMono( crossCorrelation );
+  adv->addWidget( caption( tr( "交叉相关 ρ" ), advanced ) );
+  adv->addWidget( crossCorrelation );
   auto *realizations = new QSpinBox( advanced );
   realizations->setObjectName( QStringLiteral( "factorSgsRealizationsSpin" ) );
   realizations->setRange( 1, 16 );
@@ -477,7 +494,8 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   moveParam(power, idwParams);
   adv->removeWidget(cluster); idwParams->addWidget(cluster);
   auto *variogramParams = parameterGroup("factorVariogramParameters");
-  for (QWidget *w : QVector<QWidget *>{variogramModel, nugget, sill, rangeSpin, azimuth, maxPoints})
+  for (QWidget *w : QVector<QWidget *>{variogramModel, nugget, sill, rangeSpin, azimuth, maxPoints,
+                                       covariate, crossCorrelation})
     moveParam(w, variogramParams);
   auto *sgsParams = parameterGroup("factorSgsParameters");
   moveParam(realizations, sgsParams); moveParam(seed, sgsParams);
@@ -543,7 +561,7 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   connect( generate, &QPushButton::clicked, this,
            [this, horizons, field, cell, factors, topCombo, baseCombo, method, coverage, power, cluster,
              variogramModel, nugget, sill, rangeSpin, azimuth, maxPoints, realizations, seed,
-             persistRealizations, boundary, gridRes] {
+             persistRealizations, boundary, gridRes, covariate, crossCorrelation] {
     const int r = checkedRow( factors );
     if ( r < 0 )
       return;
@@ -589,17 +607,24 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
       params.insert(QStringLiteral("anisotropyRatio"), findChild<QDoubleSpinBox *>(QStringLiteral("factorAnisotropyRatioSpin"))->value());
       params.insert(QStringLiteral("anisotropyAngle"), findChild<QDoubleSpinBox *>(QStringLiteral("factorAnisotropyAngleSpin"))->value());
       if ( methodId == QLatin1String( "kriging" ) || methodId == QLatin1String( "sgs" ) ||
-           methodId == QLatin1String( "local_direction_kriging" ) )
+           methodId == QLatin1String( "local_direction_kriging" ) ||
+           methodId == QLatin1String( "cokriging" ) )
       {
         params.insert( QStringLiteral( "variogramModel" ), variogramModel->currentData().toString() );
         params.insert( QStringLiteral( "nugget" ), nugget->value() );
         params.insert( QStringLiteral( "sill" ), sill->value() );
         params.insert( QStringLiteral( "range" ), rangeSpin->value() );
         params.insert( QStringLiteral( "azimuth" ), azimuth->value() );
-        if (methodId != QLatin1String("local_direction_kriging"))
+        if (methodId != QLatin1String("local_direction_kriging") && methodId != QLatin1String("cokriging"))
           params.insert( QStringLiteral( "maxPoints" ), maxPoints->value() );
         // 方向41：局部方向克里金另有自己的邻域 K（0 = 全部样本）。
         params.insert( QStringLiteral( "krigingMaxPoints" ), maxPoints->value() );
+        // 方向84（D3）：协克里金——协变量栅格资产与 MM1 交叉相关系数。
+        if ( methodId == QLatin1String( "cokriging" ) )
+        {
+          params.insert( QStringLiteral( "covariateLayerId" ), covariate->currentData().toString() );
+          params.insert( QStringLiteral( "crossCorrelation" ), crossCorrelation->value() );
+        }
         if ( methodId == QLatin1String( "sgs" ) )
         {
           params.insert( QStringLiteral( "realizations" ), realizations->value() );
@@ -1383,7 +1408,7 @@ void ConstraintPage::updateEngineRows()
 
   const QString selectedMethod = child<QComboBox>(this, "factorMethodCombo")->currentData().toString();
   const bool idw = selectedMethod == QLatin1String("structural_idw") || selectedMethod == QLatin1String("local_direction_idw") || selectedMethod == QLatin1String("surfer_idw");
-  const bool kriging = selectedMethod == QLatin1String("kriging") || selectedMethod == QLatin1String("local_direction_kriging") || selectedMethod == QLatin1String("sgs");
+  const bool kriging = selectedMethod == QLatin1String("kriging") || selectedMethod == QLatin1String("local_direction_kriging") || selectedMethod == QLatin1String("cokriging") || selectedMethod == QLatin1String("sgs");
   for (const auto &entry : QVector<QPair<QString, bool>>{
        {QStringLiteral("factorIdwParameters"), idw}, {QStringLiteral("factorVariogramParameters"), kriging},
        {QStringLiteral("factorSgsParameters"), selectedMethod == QLatin1String("sgs")},
@@ -1391,6 +1416,41 @@ void ConstraintPage::updateEngineRows()
        {QStringLiteral("factorNeighborhoodParameters"), selectedMethod == QLatin1String("structural_idw") || selectedMethod == QLatin1String("local_direction_idw") || selectedMethod == QLatin1String("local_direction_kriging")},
        {QStringLiteral("factorNoParametersLabel"), selectedMethod == QLatin1String("legacy")}})
     findChild<QWidget *>(entry.first)->setVisible(interpolant && entry.second);
+  // 方向84（D3）：协克里金协变量下拉——栅格资产填充（不过滤层位：地震属性
+  // 无层位、因子面有层位，都可作为软数据源）；「（无）」占位 = 缺协变量，
+  // workflow/算法层如实拒绝。ρ 与协变量两行只在 cokriging 下可见。
+  if ( auto *covariateCombo = findChild<QComboBox *>( QStringLiteral( "factorCovariateCombo" ) ) )
+  {
+    const QString keep = covariateCombo->currentData().toString();
+    covariateCombo->blockSignals( true );
+    covariateCombo->clear();
+    covariateCombo->addItem( tr( "（无——将拒绝协克里金请求）" ), QString() );
+    if ( auto *svc = qobject_cast<QgisLayerService *>( property( kLayersProp ).value<QObject *>() ) )
+    {
+      const QVector<LayerDeclaration> declared = svc->declared();
+      for ( const LayerDeclaration &d : declared )
+      {
+        if ( d.type.compare( QStringLiteral( "raster" ), Qt::CaseInsensitive ) != 0 )
+          continue;
+        covariateCombo->addItem( d.title.isEmpty() ? d.layerId : d.title, d.layerId );
+      }
+    }
+    const int idx = covariateCombo->findData( keep );
+    if ( idx >= 0 )
+      covariateCombo->setCurrentIndex( idx );
+    covariateCombo->blockSignals( false );
+  }
+  const bool covariateVisible = selectedMethod == QLatin1String( "cokriging" );
+  for ( const char *name : { "factorCovariateCombo", "factorCrossCorrelationSpin" } )
+  {
+    auto *w = findChild<QWidget *>( QString::fromLatin1( name ) );
+    w->setVisible( interpolant && covariateVisible );
+    // 前置 caption 标签随控件一起切（方向线参数行的同款口径）。
+    auto *layout = w->parentWidget()->layout();
+    const int index = layout->indexOf( w );
+    if ( index > 0 )
+      layout->itemAt( index - 1 )->widget()->setVisible( interpolant && covariateVisible );
+  }
   child<QCheckBox>(this, "factorClusterCheck")->setVisible(selectedMethod == QLatin1String("local_direction_idw") || selectedMethod == QLatin1String("structural_idw"));
   const bool directionWeights = selectedMethod == QLatin1String("local_direction_idw") || selectedMethod == QLatin1String("structural_idw");
   for (const char *name : {"factorDirectionRatioSpin", "factorInfluenceSpin", "factorCoreSpin"}) {

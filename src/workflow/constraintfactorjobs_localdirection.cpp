@@ -159,6 +159,42 @@ bool ConstraintWorkflow::prepareLocalDirectionJob( const QString &horizon, const
     }
     job->parentPaths << job->constraintUri.section( QLatin1Char( '|' ), 0, 0 );
   }
+  // 方向84（D3）：协克里金协变量栅格——仅 METHOD=cokriging 时解析（其他方法
+  // 残留 covariateLayerId 不接线，避免未参与的资产进血缘 parentPaths——review L7）；
+  // cokriging 而缺图层由这里与算法层双重如实拒绝。
+  const QString methodText = params.value( QStringLiteral( "method" ) ).toString();
+  const QString covariateLayerId = params.value( QStringLiteral( "covariateLayerId" ) ).toString();
+  if ( methodText == QLatin1String( "cokriging" ) )
+  {
+    bool covariateDeclared = false;
+    QString covariateSource;
+    for ( const LayerDeclaration &d : declared )
+    {
+      if ( d.layerId == covariateLayerId )
+      {
+        covariateDeclared = true;
+        covariateSource = d.source;
+        break;
+      }
+    }
+    if ( covariateLayerId.isEmpty() )
+    {
+      paleo::workflow_detail::setError( error, tr( "协克里金需要协变量图层（栅格资产，如地震属性或已算因子面）" ) );
+      return false;
+    }
+    if ( !covariateDeclared )
+    {
+      paleo::workflow_detail::setError( error, tr( "协变量图层 %1 不在图层清单" ).arg( covariateLayerId ) );
+      return false;
+    }
+    if ( covariateSource.isEmpty() )
+    {
+      paleo::workflow_detail::setError( error, tr( "协变量图层 %1 没有数据源" ).arg( covariateLayerId ) );
+      return false;
+    }
+    job->covariateUri = covariateSource;
+    job->parentPaths << covariateSource.section( QLatin1Char( '|' ), 0, 0 );
+  }
   const QString snapshot = property( ( "paleo.constraint.snapshot." + horizon ).toUtf8().constData() ).toString();
   if ( !snapshot.isEmpty() )
     job->parentPaths << snapshot;
@@ -224,9 +260,13 @@ bool ConstraintWorkflow::computeLocalDirectionJob( LocalDirectionJob *job, const
   // 方向41：克里金请求与变差参数（只在本地方向面内切引擎，不改缺省 IDW 行为）。
   const QString localMethod = job->params.value( QStringLiteral( "method" ) ).toString();
   const bool localKriging = localMethod == QLatin1String( "local_direction_kriging" ) ||
-                            localMethod == QLatin1String( "kriging" );
+                            localMethod == QLatin1String( "kriging" ) ||
+                            localMethod == QLatin1String( "cokriging" );
   runParams.insert( QStringLiteral( "METHOD" ),
-                    localKriging ? QStringLiteral( "kriging" ) : QStringLiteral( "local_direction_idw" ) );
+                    localMethod == QLatin1String( "cokriging" )
+                        ? QStringLiteral( "cokriging" )
+                        : ( localKriging ? QStringLiteral( "kriging" )
+                                         : QStringLiteral( "local_direction_idw" ) ) );
   if ( localKriging )
   {
     runParams.insert( QStringLiteral( "VARIAGRAM_MODEL" ),
@@ -238,6 +278,12 @@ bool ConstraintWorkflow::computeLocalDirectionJob( LocalDirectionJob *job, const
                       job->params.value( QStringLiteral( "azimuth" ), -1.0 ) );
     runParams.insert( QStringLiteral( "KRIGING_MAX_POINTS" ),
                       job->params.value( QStringLiteral( "krigingMaxPoints" ), 16 ) );
+    if ( localMethod == QLatin1String( "cokriging" ) )
+    {
+      // 方向84（D3）：协克里金——协变量栅格与 MM1 交叉相关系数 ρ。
+      runParams.insert( QStringLiteral( "CROSS_CORRELATION" ),
+                        job->params.value( QStringLiteral( "crossCorrelation" ), 0.0 ) );
+    }
   }
   if ( job->engineId == QLatin1String( "paleo:paleo_surfer_idw" ) )
   {
@@ -264,6 +310,20 @@ bool ConstraintWorkflow::computeLocalDirectionJob( LocalDirectionJob *job, const
     }
     runParams.insert( QStringLiteral( "CONSTRAINTS" ),
                       QVariant::fromValue( static_cast<QgsMapLayer *>( constraints.get() ) ) );
+  }
+  // 方向84（D3）：协克里金协变量栅格（prepare 已解析数据源；无效由算法层拒绝）。
+  std::unique_ptr<QgsRasterLayer> covariate;
+  if ( !job->covariateUri.isEmpty() )
+  {
+    covariate = std::make_unique<QgsRasterLayer>( job->covariateUri, QStringLiteral( "covariate" ) );
+    if ( !covariate->isValid() )
+    {
+      job->error = tr( "协变量栅格无法读取：%1" ).arg( job->covariateUri );
+      QDir( tempDir ).removeRecursively();
+      return false;
+    }
+    runParams.insert( QStringLiteral( "COVARIATE" ),
+                      QVariant::fromValue( static_cast<QgsMapLayer *>( covariate.get() ) ) );
   }
 
   QgisProcessingService::ProcessingHooks hooks;

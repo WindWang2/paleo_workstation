@@ -67,7 +67,23 @@ QVector<SurfaceMethodPack> makeSurfacePacks()
       false,
       true,
       QStringLiteral( "同一本地方向插值面（成图域/硬屏障分量/覆盖标记）上用普通克里金"
-                      "权重；方向线与软边界不参与克里金权重并逐条列入 issues。" ) } );
+                      "权重；方向线与软边界经局部张量度量改写克里金半方差（与 IDW "
+                      "权重公式同源），井群去簇如实记不参与；自动拟合时变差函数按"
+                      "硬隔断测地滞后距拟合（跨隔断井对不进同一结构）。" ) } );
+  packs.append( SurfaceMethodPack{
+      QStringLiteral( "cokriging" ),
+      QStringLiteral( "克里金（协变量联合）" ),
+      QStringLiteral( "gridded" ),
+      QStringLiteral( "paleo:paleo_local_direction_idw" ),
+      QStringLiteral( "paleo:paleo_local_direction_cokriging" ),
+      true,
+      false,
+      true,
+      QStringLiteral( "井点硬数据 + 协变量栅格（地震属性/已算因子面）软数据联合估值："
+                      "协变量按井位采样成 secondary 集，交叉结构 MM1（γ12 = ρ·γ1，"
+                      "ρ 为配置点相关系数）。缺协变量或采样无有效值时如实拒绝，"
+                      "不回落冒充；方向线/软边界 v1 不进协克里金半方差并逐条记 "
+                      "issues。" ) } );
   packs.append( SurfaceMethodPack{
       QStringLiteral( "idw" ),
       QStringLiteral( "IDW 反距离加权" ),

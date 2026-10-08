@@ -307,6 +307,9 @@ class ConstraintWorkflow : public QObject
         QString wellUri;
         QString constraintUri;
         bool hasConstraints = false;
+        // 方向84（D3）：协克里金协变量栅格源（params.covariateLayerId 的解析结果）；
+        // 空串 = 无协变量（METHOD=cokriging 时算法层如实拒绝）。
+        QString covariateUri;
         QStringList parentPaths;
         QVariantMap params;
         QString outputPath;

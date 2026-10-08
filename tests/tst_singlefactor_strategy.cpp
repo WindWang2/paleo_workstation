@@ -61,6 +61,16 @@ void SingleFactorStrategyTests::surfacePacksMapToRealEngines()
   const SurfaceMethodPack *kriging = surfaceMethodPack( QStringLiteral( "kriging" ) );
   QVERIFY( kriging != nullptr );
   QVERIFY( !kriging->supportsConstraints );
+  // 方向84：协克里金包——共用局部方向 Processing 入口（METHOD=cokriging 切引擎），
+  // 血缘 id 独立；支持约束（硬屏障分量隔离 + 方向线/软边界如实记 v1 不消费）。
+  const SurfaceMethodPack *cokriging = surfaceMethodPack( QStringLiteral( "cokriging" ) );
+  QVERIFY( cokriging != nullptr );
+  QCOMPARE( cokriging->processingId, QStringLiteral( "paleo:paleo_local_direction_idw" ) );
+  QCOMPARE( cokriging->algorithmId, QStringLiteral( "paleo:paleo_local_direction_cokriging" ) );
+  QVERIFY( registeredProcessing.contains( cokriging->processingId ) );
+  QVERIFY( cokriging->supportsConstraints );
+  QVERIFY( cokriging->implemented );
+  QVERIFY( !cokriging->geologicalNote.isEmpty() );
 }
 
 // 未知 id 不静默回退（标签与算法必须一致）。

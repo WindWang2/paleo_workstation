@@ -904,8 +904,9 @@ void FactorPageTests::strategyPackDrivesMethodCombo()
   auto *method = page.findChild<QComboBox *>( QStringLiteral( "factorMethodCombo" ) );
   auto *note = page.findChild<QLabel *>( QStringLiteral( "factorStrategyNote" ) );
   QVERIFY( method && note );
-  // 6 个词表策略 + 页面专属 SGS = 7 项；标签与词表逐项一致（单一真源）。
-  QCOMPARE( method->count(), 7 );
+  // 词表策略（方向84 起 7 个：四 IDW 族 + 克里金/局部方向克里金/协克里金 + legacy）
+  // + 页面专属 SGS = packs.size()+1 项；标签与词表逐项一致（单一真源）。
+  QCOMPARE( method->count(), paleo::singlefactor::surfaceMethodPacks().size() + 1 );
   for ( const paleo::singlefactor::SurfaceMethodPack &pack : paleo::singlefactor::surfaceMethodPacks() )
   {
     const QString methodId =
@@ -999,6 +1000,14 @@ void FactorPageTests::methodParameterVisibilityAndFamilies() {
   QVERIFY(!visible("factorDirectionRatioSpin")); QVERIFY(!visible("factorSgsParameters"));
   method->setCurrentIndex(method->findData(QStringLiteral("local_direction_kriging")));
   QVERIFY(visible("factorVariogramParameters")); QVERIFY(visible("factorNeighborhoodParameters"));
+  // 方向84：协克里金同族（变差参数组可见），协变量/ρ 两行仅 cokriging 下可见。
+  method->setCurrentIndex(method->findData(QStringLiteral("cokriging")));
+  QVERIFY(visible("factorVariogramParameters"));
+  QVERIFY(visible("factorCovariateCombo")); QVERIFY(visible("factorCrossCorrelationSpin"));
+  method->setCurrentIndex(method->findData(QStringLiteral("kriging")));
+  QVERIFY(!visible("factorCovariateCombo")); QVERIFY(!visible("factorCrossCorrelationSpin"));
+  method->setCurrentIndex(method->findData(QStringLiteral("local_direction_kriging")));
+  QVERIFY(!visible("factorCovariateCombo")); QVERIFY(!visible("factorCrossCorrelationSpin"));
   method->setCurrentIndex(method->findData(QStringLiteral("sgs")));
   QVERIFY(visible("factorSgsParameters"));
   QVERIFY(!page.findChild<QLabel *>(QStringLiteral("factorStrategyNote"))->text().isEmpty());

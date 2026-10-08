@@ -55,7 +55,12 @@
 superbuild 明示禁止 qt-everywhere 整块编译；走发行版或 OSGeo4W 同源）、
 编译器工具链与构建依赖（flex/bison/nasm/python3）、glibc/libstdc++
 （ABI floor，无法 vendored）、ONNX Runtime（官方 release SHA256 pin，
-与 QGIS 路线正交）。
+与 QGIS 路线正交）、LibreOffice（官方自含 tarball SHA256 pin——
+`vendor/manifest.json` `deps.libreoffice`，`vendor/fetch-libreoffice.sh`
+解到 `vendor/libreoffice/`；只取 headless `--convert-to pdf` 子集
+core/ure/writer/impress/draw/calc/images/en-us/ooofonts/graphicfilter，
+供 document 资产预览用，探测序 `PALEO_SOFFICE` > vendored > PATH；
+Windows 侧 MSI 解包递延，走 PATH soffice）。
 
 ### glibc 三档口径（显式分层，非混乱）
 
@@ -64,6 +69,7 @@ superbuild 明示禁止 qt-everywhere 整块编译；走发行版或 OSGeo4W 同
 | binary vendoring 总地板 | 2.41 | `vendor/bootstrap.sh` preflight | 走 binary 路（deb 闭包/ORT）的宿主最低要求 |
 | deb 闭包锁 | 2.43 | `vendor/bootstrap.sh`（闭包腿）/ `fetch-deps.sh` 头注 | 已提交锁是 Ubuntu 26.04（resolute）闭包，链接 GLIBC_2.43 符号；低 glibc 宿主能解包不能运行，提前拒绝 |
 | ONNX Runtime abi_floor | 2.28 | `vendor/manifest.json` `abi_floor` | 官方 manylinux_2_28 构建；与 QGIS 路线正交 |
+| LibreOffice | ≪2.41（官方自含基线构建） | `vendor/fetch-libreoffice.sh` | 仅作外部转换进程调用，不进链接面 |
 
 更低 glibc 宿主走 superbuild（"superbuild-on-oldest-target"）。
 

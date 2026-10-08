@@ -102,13 +102,14 @@ case "$verb" in
     ;;
   clean-vendor)
     dep=${1:-}
-    if [ -z "$dep" ]; then rm -rf vendor/build vendor/prefix vendor/superbuild/prefix vendor/onnxruntime; echo "vendor build tree cleared (archives kept)";
+    if [ -z "$dep" ]; then rm -rf vendor/build vendor/prefix vendor/superbuild/prefix vendor/onnxruntime vendor/libreoffice; echo "vendor build tree cleared (archives kept)";
     else
       case "$dep" in
         .|..|*[!A-Za-z0-9._-]*) echo "invalid vendor dependency name: $dep" >&2; exit 2 ;;
       esac
       rm -rf -- "vendor/build/$dep" "vendor/prefix/$dep"
       if [ "$dep" = onnxruntime ]; then rm -rf -- vendor/onnxruntime; fi
+      if [ "$dep" = libreoffice ]; then rm -rf -- vendor/libreoffice; fi
       echo "vendor/$dep cleared"
     fi
     ;;

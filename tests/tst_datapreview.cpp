@@ -83,6 +83,8 @@ private slots:
   void document_pdfRendersInTab();
   void document_stubbedConverterYieldsDerived();
   void document_converterMissingFailsHonest();
+  void document_converterEnvOverrideWins();
+  void document_vendoredLibreOfficeConvertsDocx();
   void coordinateStatusMappingIsChinese();
   void unresolvedMultiWellTabShowsDeadEnd();
   void lasMultiCurveAndZooming();
@@ -1202,6 +1204,146 @@ void TestDataPreview::document_converterMissingFailsHonest()
   auto *state = page->findChild<QLabel *>(QStringLiteral("stateText"));
   QVERIFY(state && state->text().contains(QStringLiteral("无 PDF 预览")));
   QVERIFY(page->findChildren<QPushButton *>().size() >= 1); // 用系统程序打开
+}
+
+// RAII：测试期改 PALEO_SOFFICE，析构还原——QVERIFY 早退路径也不漏还原，
+// 避免泄漏到同进程后续用例（resolver 首次解析时才读 env）。
+struct SofficeEnvGuard
+{
+  SofficeEnvGuard()
+      : had(qEnvironmentVariableIsSet("PALEO_SOFFICE")),
+        old(qgetenv("PALEO_SOFFICE")) {}
+  ~SofficeEnvGuard()
+  {
+    if (had)
+      qputenv("PALEO_SOFFICE", old);
+    else
+      qunsetenv("PALEO_SOFFICE");
+  }
+  bool had;
+  QByteArray old;
+};
+
+void TestDataPreview::document_converterEnvOverrideWins()
+{
+  // PALEO_SOFFICE 逃生门优先于 vendored/PATH：env 指向 stub 转换器后，
+  // DERIVED.sourceUri 应如实记下该程序（CatalogVersion.sourceUri 即
+  // m_converter 的留痕面）。
+#ifdef Q_OS_WIN
+  QSKIP("stub 转换器是 POSIX shell 脚本——Windows 无 /bin/sh");
+#else
+  QTemporaryDir tmp;
+  auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st != nullptr);
+
+  const QString stub = tmp.filePath(QStringLiteral("env_soffice.sh"));
+  {
+    QFile s(stub);
+    QVERIFY(s.open(QIODevice::WriteOnly));
+    s.write(QStringLiteral("#!/bin/sh\n"
+                           "outdir=\"\"; src=\"\"\n"
+                           "while [ $# -gt 0 ]; do\n"
+                           "  if [ \"$1\" = \"--outdir\" ]; then outdir=\"$2\"; shift 2\n"
+                           "  else src=\"$1\"; shift; fi\n"
+                           "done\n"
+                           "base=$(basename \"$src\"); base=\"${base%.*}\"\n"
+                           "cp \"%1\" \"$outdir/$base.pdf\"\n")
+                .arg(fixture(QStringLiteral("tiny.pdf")))
+                .toUtf8());
+  }
+  QFile::setPermissions(stub, QFileDevice::ReadOwner | QFileDevice::WriteOwner |
+                                  QFileDevice::ExeOwner | QFileDevice::ReadGroup |
+                                  QFileDevice::ReadOther);
+  SofficeEnvGuard envGuard;
+  qputenv("PALEO_SOFFICE", stub.toUtf8()); // 不设 setDocumentConverterProgram——走 resolver
+
+  const QString docPath = tmp.filePath(QStringLiteral("env.docx"));
+  {
+    QFile f(docPath);
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    f.write("content ignored by stub");
+  }
+  QString err;
+  const QString docId = st->importSvc->importProjectFile(docPath, &err);
+  QVERIFY2(!docId.isEmpty(), qPrintable(err));
+
+  QSignalSpy readySpy(st->importSvc.get(), &DataImportService::documentPdfReady);
+  QSignalSpy failSpy(st->importSvc.get(), &DataImportService::documentPdfFailed);
+  st->preview->openAsset(docId);
+  QTRY_VERIFY_WITH_TIMEOUT(readySpy.count() >= 1, 15000);
+  QCOMPARE(failSpy.count(), 0);
+
+  for (const CatalogVersion &v : st->importSvc->catalog()->versionsForAsset(docId))
+    if (v.stage == QLatin1String("DERIVED"))
+      QCOMPARE(v.sourceUri, stub); // env 覆盖被采用且留痕
+#endif
+}
+
+void TestDataPreview::document_vendoredLibreOfficeConvertsDocx()
+{
+  // vendored LibreOffice E2E：vendor/libreoffice/program/soffice 存在时
+  // （fetch-libreoffice.sh 落过包——CI linux bootstrap 现会拉），真转
+  // mini_report.docx（最小但合法的 OOXML fixture）→ DERIVED pdf。
+  // 未 bootstrap 的宿主如实 QSKIP，不假绿。
+#ifdef Q_OS_WIN
+  QSKIP("Windows 侧 MSI 解包递延（manifest notes）；此用例验 Linux vendored 路");
+#else
+  QString soffice;
+  QDir dir(QCoreApplication::applicationDirPath());
+  for (int i = 0; i < 10; ++i)
+  {
+    const QString cand =
+        dir.absoluteFilePath(QStringLiteral("vendor/libreoffice/program/soffice"));
+    if (QFileInfo(cand).isExecutable())
+    {
+      soffice = cand;
+      break;
+    }
+    if (!dir.cdUp())
+      break;
+  }
+  if (soffice.isEmpty())
+    QSKIP("vendor/libreoffice 未 bootstrap（./vendor/fetch-libreoffice.sh）");
+
+  SofficeEnvGuard envGuard;
+  qunsetenv("PALEO_SOFFICE"); // 排除 env 干扰——本用例专验 vendored 探测
+
+  QTemporaryDir tmp;
+  auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st != nullptr);
+
+  QString err;
+  const QString docId =
+      st->importSvc->importProjectFile(fixture(QStringLiteral("mini_report.docx")),
+                                       &err);
+  QVERIFY2(!docId.isEmpty(), qPrintable(err));
+
+  QSignalSpy readySpy(st->importSvc.get(), &DataImportService::documentPdfReady);
+  QSignalSpy failSpy(st->importSvc.get(), &DataImportService::documentPdfFailed);
+  st->preview->openAsset(docId);
+  QTRY_VERIFY_WITH_TIMEOUT(readySpy.count() >= 1, 60000); // 真 LO 首转偏慢
+  QCOMPARE(failSpy.count(), 0);
+  QCOMPARE(st->importSvc->documentPdfState(docId),
+           DataImportService::DocPdfState::Ready);
+
+  QString rawId;
+  CatalogVersion derived;
+  for (const CatalogVersion &v : st->importSvc->catalog()->versionsForAsset(docId))
+  {
+    if (v.stage == QLatin1String("RAW"))
+      rawId = v.id;
+    if (v.stage == QLatin1String("DERIVED"))
+      derived = v;
+  }
+  QVERIFY(!rawId.isEmpty());
+  QVERIFY(!derived.id.isEmpty());
+  QVERIFY(derived.fileName.endsWith(QStringLiteral(".pdf")));
+  QVERIFY(derived.parentVersionIds.contains(rawId));
+  QVERIFY(derived.sourceUri.contains(QStringLiteral("vendor/libreoffice")));
+  const QString pdf = st->importSvc->documentPdfPath(docId);
+  QVERIFY(QFile::exists(pdf));
+  QVERIFY(QFileInfo(pdf).size() > 0);
+#endif
 }
 
 void TestDataPreview::lasMultiCurveAndZooming()

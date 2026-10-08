@@ -434,6 +434,7 @@ add_library(paleo_store STATIC
   src/catalog/frameworkstore.cpp                    # 方向28：格架落库（catalog 资产 + 受管版本）
   src/metadata/wellsitingstore.cpp                  # 方向34：布井方案集单行文档表
   src/metadata/projectlock.cpp                      # 两实例同开一工程写互斥（QLockFile）
+  src/metadata/processprobe.cpp                     # 方向81：锁持有者 pid 存活探测 + 同机判据（Qt 陈旧锁回收兜底）
 )
 target_link_libraries(paleo_store PUBLIC paleo_deps paleo_domain)
 

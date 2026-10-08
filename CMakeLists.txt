@@ -521,6 +521,7 @@ add_library(paleo_services STATIC
   src/services/storagegovernance.cpp
   src/services/cataloghealth.cpp                    # 方向30：工区资产体检（快速面 + 外链 SHA 复验）
   src/services/errorhub.cpp                         # 方向54+方向64：统一错误通道（去重/聚合/环形历史，两实现并存）
+  src/services/imagelod.cpp                         # 方向79：图片道装载 LOD（缩略两级 + EXIF + 原图 LRU）
 )
 target_link_libraries(paleo_services PUBLIC paleo_deps paleo_io paleo_domain paleo_store paleo_algorithms)
 
@@ -916,6 +917,7 @@ add_paleo_test(tst_correlation LIBS paleo_ui)
 add_paleo_test(tst_decorations LIBS paleo_ui)
 add_paleo_test(tst_manifestproj LIBS paleo_qgis)
 add_paleo_test(tst_import LIBS paleo_io paleo_services paleo_qgis) # 方向44：并集可达断言
+add_paleo_test(tst_imagelod LIBS paleo_services)              # 方向79：图片道 LOD/EXIF/LRU
 add_paleo_test(tst_drawctl LIBS paleo_ui)
 add_paleo_test(tst_procdialog LIBS paleo_qgis)
 add_paleo_test(tst_rehydrate)                               # 伞式（app 面全栈，兼容样本）

@@ -1,10 +1,24 @@
 // 层：数据
 #pragma once
+#include "types.h"
+
+#include <qgscoordinatereferencesystem.h>
 #include <qgsprocessingalgorithm.h>
+#include <qgsrasterlayer.h>
+
+#include <QString>
+#include <vector>
 
 // 本地方向 IDW 与制图工作场的 Processing 入口。
 // 数值核在 singlefactor/，这里只读图层并写栅格。
 // 层：数据
+
+// 方向84（D3）：协变量栅格按井位逐口采样（波段 1，最近像元；nodata/域外 →
+// NaN；CRS 双侧有效且不一致时经 QGIS 变换，失败如实报 error）。算法与回归
+// 测试共用（合成栅格断言 nodata/域外路径）。
+std::vector<paleo::singlefactor::Sample> sampleCovariateAtWells(
+    QgsRasterLayer *raster, const std::vector<paleo::singlefactor::Sample> &wells,
+    const QgsCoordinateReferenceSystem &wellCrs, QString *error );
 
 class LocalDirectionIdwAlgorithm : public QgsProcessingAlgorithm
 {

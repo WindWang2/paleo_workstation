@@ -8,9 +8,9 @@
 
 // 方向41：普通克里金走 singlefactor 本地方向插值面。
 // 数值核复用 algorithms/geostat（变差函数拟合 + 加边 LU 克里金求解器，方向18
-// 落地），这里只做三件事：把样本解析成变差函数、把 methodActual 切到 kriging
+// 落地），这里只做四件事：把样本解析成变差函数、把 methodActual 切到 kriging
 // 后跑同一 evaluateLocalIdw 面（成图域/硬屏障分量/覆盖标记逐条同口径），
-// 以及把拟合结论、未消费约束和病态回落如实写进 resolved 与 issues。
+// 把拟合结论、约束消费与病态回落如实写进 resolved 与 issues。
 //
 // 诚实面（不冒充克里金）：
 //   - 有效样本 < 8 → 变差函数欠定，整面回落 IDW，methodActual="local_direction_idw"
@@ -19,9 +19,12 @@
 //   - 单格没解出（方程奇异/病态，或半径邻域不足）→ 该格用同参数 IDW 权重，
 //     计数进 idwFallbackCells 并出 issue（两种原因不分开计数，文案按两种写全）；
 //   - 全场没有一个格解出克里金值 → 按整面回路口径处理（surfaceFallbacks=1）；
-//   - 方向线/软边界/井群权重不参与克里金权重（v1 语义）：逐条列进 issues，不静默忽略。
+//   - 方向线/软边界进克里金半方差（方向84：局部张量度量 warp，与 IDW 权重公式
+//     同源），逐条记消费方式回执；井群去簇不进（最小方差解不容去簇乘子，issue
+//     写明原因）——都不静默。
 //   - 精确性：γ(0)=0 口径下普通克里金对任意 nugget 都在采样点精确通过
 //     （λ=eᵢ、μ=0 ⇒ 估值=井值、方差=0）；块金只体现在井点之间。
+//     度量 warp 保持该性质（零位移 warp 后仍为零）。
 //   - 覆盖闸口径：克里金侧只看「半径闸 + krigingMinPoints」，与 IDW 的
 //     minPoints（正权重个数闸）不是同一个闸；生产入口固定 krigingMinPoints=1。
 // 层：数据
@@ -44,15 +47,32 @@ struct VariogramResolution
   double rmse = 0;
   int usedLags = 0;
   int sampleCount = 0;
+  // 方向84（D4）：隔断感知拟合回执。barrierAware=true 时实验变差用绕障测地
+  // 滞后距，跨隔断（测地不可达）样本对不进结构估计；variogramNote 记录
+  // 无法启用隔断感知档的原因（显式参数 / 样本超预算），不静默跳过。
+  bool barrierAware = false;
+  int unreachablePairs = 0;
+  std::string variogramNote;
 };
 
 // 只做变差函数解析（含自动滞后距），不碰网格。失败时 ok=false 并给出原因。
+// constraints 里的启用硬屏障进隔断感知档（测地滞后距，见 VariogramBarriers）；
+// 空约束向量 = 纯欧氏口径（既有调用方语义不变）。
 VariogramResolution resolveVariogram( const std::vector<Sample> &samples, const GridSpec &grid,
-                                      const ResolvedParameters &parameters );
+                                      const ResolvedParameters &parameters,
+                                      const std::vector<ConstraintLine> &constraints = {} );
 
 // 克里金插值面：SurfaceResult 契约与 evaluateLocalIdw 完全一致（成图域、硬屏障
 // 分量、井控/外推标记、无井闭合区、取消与预算）。克里金不成立时整面回落 IDW。
 SurfaceResult evaluateLocalKriging( const PreparedInput &input, const GridSpec &grid,
                                     const ResolvedParameters &parameters, const Control &control );
+
+// 方向84（D3）：协克里金插值面（普通克里金 + 井位协变量 secondary 集）。
+// input.covariate 非空且含有限值是前提（缺协变量由算法层如实拒绝，不走这里）；
+// γ11 用样本拟合（隔断感知档同 evaluateLocalKriging），γ22 用协变量样本拟合，
+// 交叉模型 MM1（γ12 = ρ·γ1，ρ = parameters.crossCorrelation）。
+// 约束线 v1 不进协克里金半方差（逐条如实记 issue）；其余诚实面与克里金一致。
+SurfaceResult evaluateLocalCokriging( const PreparedInput &input, const GridSpec &grid,
+                                      const ResolvedParameters &parameters, const Control &control );
 
 } // namespace paleo::singlefactor

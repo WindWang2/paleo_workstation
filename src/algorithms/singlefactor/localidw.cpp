@@ -1,6 +1,7 @@
 // 层：数据
 #include "localidw.h"
 
+#include "../geostat/cokriging.h"
 #include "../geostat/kriging.h"
 
 #include "curvekernel.h"
@@ -11,6 +12,7 @@
 #include <cmath>
 #include <cstddef>
 #include <limits>
+#include <map>
 #include <memory>
 #include <utility>
 
@@ -52,6 +54,10 @@ struct Engine
   // 方向41：methodActual=="kriging" 时为非空（分量样本预建邻域索引）。
   // 空 = 纯 IDW 权重路径；病态格回落时仍用同一 IDW 权重公式。
   std::unique_ptr<geostat::KrigingSolver> solver;
+  // 方向84（D3）：methodActual=="cokriging" 时为非空（普通克里金换协克里金，
+  // secondary 集为井位采样的协变量）。回落口径与 solver 相同；约束线 v1 不进
+  // 协克里金半方差（krigingsurface 逐条如实记 issue）。
+  std::unique_ptr<geostat::CoKrigingSolver> coSolver;
 };
 
 // 变差函数参数 → geostat 模型（各向异性 ratio<1 或不设方位即各向同性）。
@@ -140,7 +146,8 @@ double sideOf( const SoftTerm &soft, Point2 point )
   return std::tanh( signedCross / std::max( soft.radius * 0.25, 1e-9 ) );
 }
 
-Engine makeEngine( const std::vector<Sample> &wells, const ResolvedParameters &params )
+Engine makeEngine( const std::vector<Sample> &wells, const std::vector<Sample> &covariate,
+                   const ResolvedParameters &params )
 {
   Engine engine;
   engine.wells = wells;
@@ -201,6 +208,45 @@ Engine makeEngine( const std::vector<Sample> &wells, const ResolvedParameters &p
     if ( solver->valid() )
       engine.solver = std::move( solver );
   }
+  // 方向84（D3）：协克里金——secondary 为井位采样的协变量样本（分量切分后的
+  // 子集，与 wells 同分量），模型 γ22 由编排层（evaluateLocalCokriging）从
+  // 协变量样本拟合后经 params 透传。分量内 secondary 过滤后为空时**不放行**
+  // （review H1）：CoKrigingSolver 对空 secondary 仍 valid 且方程组退化为普通
+  // 克里金——整分量输出不含协变量信息却挂协克里金标签即冒充；不放行则该
+  // 分量逐格走 IDW 回落并计数（idwFallbackCells），与「不冒充」纪律一致。
+  if ( params.methodActual == "cokriging" && !wells.empty() )
+  {
+    std::vector<geostat::Sample> primary;
+    primary.reserve( wells.size() );
+    for ( const Sample &sample : wells )
+      primary.push_back( geostat::Sample{ sample.x, sample.y, sample.value } );
+    std::vector<geostat::Sample> secondary;
+    secondary.reserve( covariate.size() );
+    for ( const Sample &sample : covariate )
+    {
+      if ( std::isfinite( sample.value ) )
+        secondary.push_back( geostat::Sample{ sample.x, sample.y, sample.value } );
+    }
+    if ( !secondary.empty() )
+    {
+      geostat::CoKrigingModel model;
+      model.primary = variogramModelOf( params );
+      model.secondary.type = model.primary.type;
+      model.secondary.nugget = params.secondaryNugget;
+      model.secondary.sill = params.secondarySill;
+      model.secondary.range = params.secondaryRange;
+      model.crossCorrelation = params.crossCorrelation;
+      geostat::CoKrigingParams coParams;
+      coParams.maxPrimary = params.krigingMaxPoints;
+      coParams.maxSecondary = params.krigingMaxPoints;
+      coParams.minPrimary = params.krigingMinPoints;
+      if ( params.searchRadius )
+        coParams.searchRadius = *params.searchRadius;
+      auto solver = std::make_unique<geostat::CoKrigingSolver>( primary, secondary, model, coParams );
+      if ( solver->valid() )
+        engine.coSolver = std::move( solver );
+    }
+  }
   return engine;
 }
 
@@ -208,6 +254,100 @@ void evaluateBatch( const Engine &engine, const std::vector<Point2> &queries, st
                     std::vector<double> &influence, int *krigingCells = nullptr,
                     int *idwFallbackCells = nullptr )
 {
+  // 方向84：克里金约束消费——方向线张量与软边界衰减改写点对有效位移，
+  // 半方差按有效位移计算（geostat::PairMetricWarp）。方向线公式与下方 IDW
+  // 权重路径逐条同源：gate 乘积激活 + 张量两端平均 + tangentEnergy 扣减 +
+  // max(total,1) 归一。软边界按 IDW 的 max-组合（多条边界取最大 penalty 一次
+  // 衰减，不是连乘）；gate 取两端平均（IDW 只有 query 侧 gate，点对版对井-井
+  // 对的自然推广——注释与 issue 文案按此口径如实表述）。
+  // 点求值按坐标 memoize（批内共享）：同一 solveAt 内井坐标精确重复出现，
+  // 免去逐点对的核重算（review M3）。
+  struct KrigingPointEval
+  {
+    std::vector<double> dirGate;
+    std::vector<std::array<double, 3>> dirTensor;
+    std::vector<double> softGate;
+    std::vector<double> softSide;
+  };
+  std::map<std::pair<double, double>, KrigingPointEval> warpEvalCache;
+  const auto evalAt = [&]( double x, double y ) -> const KrigingPointEval & {
+    const auto key = std::make_pair( x, y );
+    const auto cached = warpEvalCache.find( key );
+    if ( cached != warpEvalCache.end() )
+      return cached->second;
+    KrigingPointEval entry;
+    entry.dirGate.resize( engine.directions.size() );
+    entry.dirTensor.resize( engine.directions.size() );
+    const Point2 point{ x, y };
+    for ( std::size_t d = 0; d < engine.directions.size(); ++d )
+    {
+      std::vector<double> gate;
+      std::vector<std::array<double, 3>> tensor;
+      engine.directions[d].kernel.evaluateInto( &point, 1, gate, tensor );
+      entry.dirGate[d] = gate.front();
+      entry.dirTensor[d] = tensor.front();
+    }
+    entry.softGate.resize( engine.soft.size() );
+    entry.softSide.resize( engine.soft.size() );
+    for ( std::size_t s = 0; s < engine.soft.size(); ++s )
+    {
+      std::vector<double> gate;
+      std::vector<std::array<double, 3>> tensor;
+      engine.soft[s].kernel.evaluateInto( &point, 1, gate, tensor );
+      entry.softGate[s] = gate.front();
+      entry.softSide[s] = sideOf( engine.soft[s], point );
+    }
+    return warpEvalCache.emplace( key, std::move( entry ) ).first->second;
+  };
+  geostat::PairMetricWarp krigingMetric;
+  // 协克里金（coSolver）v1 不消费约束线（CoKrigingSolver 无度量变换接口，
+  // krigingsurface 逐条如实记 issue）；病态方程由既有 LU 失败回落口径兜住。
+  if ( engine.solver && !engine.coSolver && ( !engine.directions.empty() || !engine.soft.empty() ) )
+  {
+    krigingMetric = [&engine, &evalAt]( double ax, double ay, double bx, double by, double *dxOut,
+                                        double *dyOut ) {
+      const double dx = ax - bx;
+      const double dy = ay - by;
+      const double euclid2 = dx * dx + dy * dy;
+      double warp2 = euclid2;
+      const KrigingPointEval &pa = evalAt( ax, ay );
+      const KrigingPointEval &pb = evalAt( bx, by );
+      if ( !engine.directions.empty() )
+      {
+        double adjustment = 0;
+        double total = 0;
+        for ( std::size_t d = 0; d < engine.directions.size(); ++d )
+        {
+          const double activation = pa.dirGate[d] * pb.dirGate[d];
+          if ( !( activation > 0.0 ) )
+            continue;
+          const std::array<double, 3> mixed{ 0.5 * ( pa.dirTensor[d][0] + pb.dirTensor[d][0] ),
+                                             0.5 * ( pa.dirTensor[d][1] + pb.dirTensor[d][1] ),
+                                             0.5 * ( pa.dirTensor[d][2] + pb.dirTensor[d][2] ) };
+          adjustment += activation * engine.directions[d].reduction * tangentEnergy( dx, dy, mixed );
+          total += activation;
+        }
+        warp2 = std::max( euclid2 - adjustment / std::max( total, 1.0 ), 0.0 );
+      }
+      if ( !engine.soft.empty() )
+      {
+        double penalty = 0;
+        for ( std::size_t s = 0; s < engine.soft.size(); ++s )
+        {
+          const double opposite = ( 1.0 - pa.softSide[s] * pb.softSide[s] ) * 0.5;
+          penalty = std::max( penalty, engine.soft[s].strength * 0.5 * ( pa.softGate[s] + pb.softGate[s] ) *
+                                           opposite );
+        }
+        // IDW 侧是权重 ×(1-penalty)；距离口径的等效放大 d/sqrt(1-penalty)。
+        // strength∈[0,0.8] ⇒ 1-penalty ≥ 0.2（penalty=0.8 时放大约 2.24 倍）。
+        if ( penalty > 0.0 )
+          warp2 /= std::max( 1.0 - penalty, 0.2 );
+      }
+      const double scale = euclid2 > 1e-24 ? std::sqrt( warp2 / euclid2 ) : 1.0;
+      *dxOut = dx * scale;
+      *dyOut = dy * scale;
+    };
+  }
   const int nQuery = static_cast<int>( queries.size() );
   const int nWell = static_cast<int>( engine.wells.size() );
   values.assign( static_cast<std::size_t>( nQuery ), std::numeric_limits<double>::quiet_NaN() );
@@ -242,10 +382,28 @@ void evaluateBatch( const Engine &engine, const std::vector<Point2> &queries, st
   for ( int q = 0; q < nQuery; ++q )
   {
     const Point2 query = queries[static_cast<std::size_t>( q )];
-    bool krigingUnavailable = false;
-    if ( engine.solver )
+    // 克里金族请求但该分量无求解器（如硬隔断分量内协变量枯竭，review M-A）：
+    // 这些格的 IDW 值计入回落——不能既保克里金标签又不计数。
+    bool krigingUnavailable = engine.params.methodActual == "kriging" ||
+                              engine.params.methodActual == "cokriging";
+    if ( engine.solver || engine.coSolver )
     {
-      const geostat::KrigingPointResult point = engine.solver->solveAt( query.x, query.y );
+      krigingUnavailable = false;
+      geostat::KrigingPointResult point;
+      if ( engine.coSolver )
+      {
+        // 协克里金与普通克里金共享「邻域 + 病态判失败」口径，估值语义一致，
+        // 计数与回落走同一分支。
+        const geostat::CoKrigingPointResult co = engine.coSolver->solveAt( query.x, query.y );
+        point.ok = co.ok;
+        point.estimate = co.estimate;
+        point.variance = co.variance;
+      }
+      else
+      {
+        point = krigingMetric ? engine.solver->solveAt( query.x, query.y, krigingMetric )
+                              : engine.solver->solveAt( query.x, query.y );
+      }
       if ( point.ok )
       {
         values[static_cast<std::size_t>( q )] = point.estimate;
@@ -448,7 +606,7 @@ QueryResult evaluateAt( const PreparedInput &input, std::span<const Point2> quer
       return result;
     }
   }
-  const Engine engine = makeEngine( input.samples, parameters );
+  const Engine engine = makeEngine( input.samples, input.covariate, parameters );
   result.values.assign( queryPoints.size(), std::numeric_limits<double>::quiet_NaN() );
   result.influence.assign( queryPoints.size(), 0 );
   const int total = static_cast<int>( queryPoints.size() );
@@ -601,9 +759,17 @@ SurfaceResult evaluateLocalIdw( const PreparedInput &input, const GridSpec &grid
   {
     std::vector<Sample> subset;
     subset.reserve( wellsOf[static_cast<std::size_t>( comp )].size() );
+    // 协变量与样本逐口对齐（同下标；nodata 井的协变量值为 NaN，引擎侧过滤）。
+    std::vector<Sample> covariateSubset;
+    covariateSubset.reserve( subset.capacity() );
+    const bool withCovariate = input.covariate.size() == input.samples.size();
     for ( int index : wellsOf[static_cast<std::size_t>( comp )] )
+    {
       subset.push_back( input.samples[static_cast<std::size_t>( index )] );
-    engines.push_back( makeEngine( subset, parameters ) );
+      if ( withCovariate )
+        covariateSubset.push_back( input.covariate[static_cast<std::size_t>( index )] );
+    }
+    engines.push_back( makeEngine( subset, covariateSubset, parameters ) );
   }
   std::vector<std::vector<int>> cellsOf( static_cast<std::size_t>( componentCount ) );
   std::vector<int> regionCells( static_cast<std::size_t>( std::max( componentCount, 1 ) ), 0 );

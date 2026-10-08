@@ -20,10 +20,13 @@
 #include <qgsfeatureiterator.h>
 #include <qgsfeaturerequest.h>
 #include <qgsgeometry.h>
+#include <qgsproject.h>
 #include <qgsprocessingcontext.h>
 #include <qgsprocessingfeedback.h>
 #include <qgsprocessingparameters.h>
 #include <qgsprocessingutils.h>
+#include <qgsrasterdataprovider.h>
+#include <qgsrasteridentifyresult.h>
 #include <qgsrasterlayer.h>
 #include <qgsrectangle.h>
 #include <qgsvectorlayer.h>
@@ -398,6 +401,91 @@ int unresolvedCrossings( GDALDatasetH dataset, const std::vector<double> &levels
 
 } // namespace
 
+// 方向84（D3）：协变量栅格按井位逐口采样（最近像元中心口径，波段 1，
+// nodata/域外 → NaN）。CRS 双侧均有效且不一致时经 QGIS 变换到栅格 CRS 再
+// 采样，变换失败如实报错；任一侧 CRS 无效（局部工程网格口径）按同坐标直采。
+// 具名导出（非匿名 namespace）供算法与回归测试共用（review M5）。
+std::vector<sf::Sample> sampleCovariateAtWells( QgsRasterLayer *raster,
+                                            const std::vector<sf::Sample> &wells,
+                                            const QgsCoordinateReferenceSystem &wellCrs,
+                                            QString *error )
+{
+  std::vector<sf::Sample> covariate;
+  if ( !error )
+    return covariate;
+  *error = QString();
+  if ( !raster || !raster->isValid() || !raster->dataProvider() )
+  {
+    *error = QStringLiteral( "协变量栅格无法读取" );
+    return covariate;
+  }
+  const QgsCoordinateReferenceSystem rasterCrs = raster->crs();
+  QgsCoordinateTransform transform;
+  bool transformPoints = rasterCrs.isValid() && wellCrs.isValid() && rasterCrs != wellCrs;
+  if ( transformPoints )
+  {
+    transform = QgsCoordinateTransform( wellCrs, rasterCrs, QgsProject::instance()->transformContext() );
+    if ( !transform.isValid() )
+    {
+      *error = QStringLiteral( "协变量栅格与井点坐标系无法互转（%1 → %2）" )
+                   .arg( wellCrs.authid(), rasterCrs.authid() );
+      return covariate;
+    }
+  }
+  const int providerBand = raster->bandCount() > 0 ? 1 : 0;
+  if ( providerBand < 1 )
+  {
+    *error = QStringLiteral( "协变量栅格缺少波段 1" );
+    return covariate;
+  }
+  covariate.reserve( wells.size() );
+  const QgsRectangle extent = raster->extent();
+  for ( sf::Sample const &well : wells )
+  {
+    double rx = well.x;
+    double ry = well.y;
+    if ( transformPoints )
+    {
+      try
+      {
+        const QgsPointXY mapped = transform.transform( QgsPointXY( well.x, well.y ) );
+        if ( !std::isfinite( mapped.x() ) || !std::isfinite( mapped.y() ) )
+          throw QgsException( QStringLiteral( "non-finite" ) );
+        rx = mapped.x();
+        ry = mapped.y();
+      }
+      catch ( const QgsException & )
+      {
+        *error = QStringLiteral( "协变量采样时井点坐标变换失败（%1, %2）" ).arg( well.x ).arg( well.y );
+        return {};
+      }
+    }
+    sf::Sample sample;
+    sample.stableRowId = well.stableRowId;
+    sample.wellId = well.wellId;
+    sample.x = well.x;
+    sample.y = well.y;
+    sample.componentOverride = well.componentOverride;
+    sample.value = std::numeric_limits<double>::quiet_NaN();
+    if ( extent.contains( QgsPointXY( rx, ry ) ) )
+    {
+      // 单点 identify 走 provider（GDAL 最近像元）；结果 map 按波段取值。
+      const QgsRasterIdentifyResult identified =
+          raster->dataProvider()->identify( QgsPointXY( rx, ry ), Qgis::RasterIdentifyFormat::Value );
+      if ( identified.isValid() )
+      {
+        const QVariant raw = identified.results().value( providerBand );
+        bool valueOk = false;
+        const double value = raw.toDouble( &valueOk );
+        if ( valueOk && std::isfinite( value ) )
+          sample.value = value;
+      }
+    }
+    covariate.push_back( std::move( sample ) );
+  }
+  return covariate;
+}
+
 QString LocalDirectionIdwAlgorithm::shortHelpString() const
 {
   return QStringLiteral(
@@ -470,6 +558,14 @@ void LocalDirectionIdwAlgorithm::initAlgorithm( const QVariantMap & )
   addParameter( new QgsProcessingParameterNumber(
       QStringLiteral( "KRIGING_MAX_POINTS" ), QStringLiteral( "Kriging neighbourhood K (0 = all samples)" ),
       Qgis::ProcessingNumberParameterType::Integer, 16 ) );
+  // 方向84（D3）：协克里金——井位协变量栅格（secondary 集）与 MM1 交叉相关系数。
+  addParameter( new QgsProcessingParameterRasterLayer(
+      QStringLiteral( "COVARIATE" ), QStringLiteral( "Covariate raster sampled at wells (cokriging)" ),
+      QVariant(), true ) );
+  addParameter( new QgsProcessingParameterNumber(
+      QStringLiteral( "CROSS_CORRELATION" ),
+      QStringLiteral( "Cross-correlation rho in [-1,1] (MM1: gamma12 = rho * gamma1)" ),
+      Qgis::ProcessingNumberParameterType::Double, 0.0 ) );
   addParameter( new QgsProcessingParameterString(
       QStringLiteral( "VALUE_UNIT" ), QStringLiteral( "Value unit (optional)" ), QString(), false, true ) );
   addParameter( new QgsProcessingParameterExtent(
@@ -636,15 +732,22 @@ QVariantMap LocalDirectionIdwAlgorithm::processAlgorithm( const QVariantMap &par
   resolved.minPoints = parameterAsInt( parameters, QStringLiteral( "MIN_POINTS" ), context );
   resolved.maxPoints = parameterAsInt( parameters, QStringLiteral( "MAX_POINTS" ), context );
   resolved.valueUnit = request.valueUnit;
-  // 方向41：克里金请求与变差参数（METHOD=kriging 时生效）。
+  // 方向41：克里金请求与变差参数（METHOD=kriging/cokriging 时生效）。
   const QString methodText = parameterAsString( parameters, QStringLiteral( "METHOD" ), context );
   bool krigingRequested = false;
+  bool cokrigingRequested = false;
   if ( methodText.isEmpty() || methodText == QLatin1String( "local_direction_idw" ) )
     krigingRequested = false;
   else if ( methodText == QLatin1String( "kriging" ) )
     krigingRequested = true;
+  else if ( methodText == QLatin1String( "cokriging" ) )
+  {
+    krigingRequested = true;
+    cokrigingRequested = true;
+  }
   else
-    throw QgsProcessingException( QStringLiteral( "未知 METHOD：%1（只接受 local_direction_idw / kriging）" )
+    throw QgsProcessingException( QStringLiteral( "未知 METHOD：%1（只接受 local_direction_idw / "
+                                                   "kriging / cokriging）" )
                                       .arg( methodText ) );
   const QString variogramModel = parameterAsString( parameters, QStringLiteral( "VARIAGRAM_MODEL" ), context );
   if ( krigingRequested )
@@ -661,6 +764,35 @@ QVariantMap LocalDirectionIdwAlgorithm::processAlgorithm( const QVariantMap &par
     resolved.variogramAzimuthDeg = parameterAsDouble( parameters, QStringLiteral( "VARIAGRAM_AZIMUTH" ), context );
     resolved.krigingMaxPoints = parameterAsInt( parameters, QStringLiteral( "KRIGING_MAX_POINTS" ), context );
     resolved.methodActual = "kriging";
+    if ( cokrigingRequested )
+    {
+      // 方向84（D3）：协克里金请求——协变量栅格按井位采样成 secondary 集；
+      // 缺栅格 / 采样无有效值 = 如实拒绝（不回落冒充，回落产物不含协变量信息）。
+      const double rho = parameterAsDouble( parameters, QStringLiteral( "CROSS_CORRELATION" ), context );
+      if ( !( std::fabs( rho ) <= 1.0 ) || !std::isfinite( rho ) )
+        throw QgsProcessingException(
+            QStringLiteral( "CROSS_CORRELATION 必须在 [-1,1]（MM1 交叉模型相关系数）" ) );
+      QgsRasterLayer *covariateLayer =
+          parameterAsRasterLayer( parameters, QStringLiteral( "COVARIATE" ), context );
+      if ( !covariateLayer )
+        throw QgsProcessingException(
+            QStringLiteral( "协克里金请求缺少 COVARIATE 栅格（井点硬数据与协变量软数据联合估值的软数据源）" ) );
+      QString covariateError;
+      std::vector<sf::Sample> covariate =
+          sampleCovariateAtWells( covariateLayer, prepared.input.samples, crs, &covariateError );
+      if ( !covariateError.isEmpty() )
+        throw QgsProcessingException( covariateError );
+      std::size_t finiteCovariate = 0;
+      for ( const sf::Sample &sample : covariate )
+        finiteCovariate += std::isfinite( sample.value ) ? 1 : 0;
+      if ( finiteCovariate < 2 )
+        throw QgsProcessingException(
+            QStringLiteral( "协变量井位采样有效值 %1 < 2（栅格在井位全为 nodata 或井在栅格范围外）" )
+                .arg( static_cast<qulonglong>( finiteCovariate ) ) );
+      prepared.input.covariate = std::move( covariate );
+      resolved.crossCorrelation = rho;
+      resolved.methodActual = "cokriging";
+    }
   }
   const double searchRadius = parameterAsDouble( parameters, QStringLiteral( "SEARCH_RADIUS" ), context );
   if ( searchRadius > 0.0 && std::isfinite( searchRadius ) )
@@ -669,7 +801,9 @@ QVariantMap LocalDirectionIdwAlgorithm::processAlgorithm( const QVariantMap &par
   if ( !resolveError.empty() )
     throw QgsProcessingException( utf8( resolveError ) );
   // resolveParameters 只管自动半径/方向余弦，这里再钉一次实际引擎标记。
-  if ( krigingRequested )
+  if ( cokrigingRequested )
+    resolved.methodActual = "cokriging";
+  else if ( krigingRequested )
     resolved.methodActual = "kriging";
   std::string budgetError;
   if ( !sf::gridBudgetOk( grid, static_cast<int>( prepared.input.samples.size() ), &budgetError ) )
@@ -684,9 +818,12 @@ QVariantMap LocalDirectionIdwAlgorithm::processAlgorithm( const QVariantMap &par
       feedback->setProgress( 25.0 + 55.0 * std::clamp( fraction, 0.0, 1.0 ) );
   };
   // 方向41：同一插值面出真克里金；克里金不成立时内部如实回落 IDW 并带原因。
-  const sf::SurfaceResult surface = krigingRequested
-                                        ? sf::evaluateLocalKriging( prepared.input, grid, resolved, control )
-                                        : sf::evaluateLocalIdw( prepared.input, grid, resolved, control );
+  // 方向84（D3）：METHOD=cokriging 走协克里金面（缺协变量已在上面拒绝）。
+  const sf::SurfaceResult surface = cokrigingRequested
+                                        ? sf::evaluateLocalCokriging( prepared.input, grid, resolved, control )
+                                        : ( krigingRequested
+                                                ? sf::evaluateLocalKriging( prepared.input, grid, resolved, control )
+                                                : sf::evaluateLocalIdw( prepared.input, grid, resolved, control ) );
   if ( surface.status != sf::Status::Ok )
   {
     if ( surface.status == sf::Status::Cancelled )
@@ -753,7 +890,10 @@ QVariantMap LocalDirectionIdwAlgorithm::processAlgorithm( const QVariantMap &par
   qc.insert( QStringLiteral( "extent_source" ), extentSource );
   qc.insert( QStringLiteral( "crs_mode" ), crsModeName );
   qc.insert( QStringLiteral( "method_requested" ),
-             krigingRequested ? QStringLiteral( "kriging" ) : QStringLiteral( "local_direction_idw" ) );
+             cokrigingRequested
+                 ? QStringLiteral( "cokriging" )
+                 : ( krigingRequested ? QStringLiteral( "kriging" )
+                                      : QStringLiteral( "local_direction_idw" ) ) );
   qc.insert( QStringLiteral( "method_actual" ), utf8( surface.resolved.methodActual ) );
   qc.insert( QStringLiteral( "algorithm_id" ), utf8( surface.resolved.algorithmId ) );
   qc.insert( QStringLiteral( "semantic_profile" ), utf8( surface.resolved.semanticProfile ) );

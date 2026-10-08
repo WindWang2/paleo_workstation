@@ -165,6 +165,13 @@ struct ResolvedParameters
   // 只作用于「半径闸」：邻域少于该值即不算克里金。IDW 侧的 minPoints 是另一口径
   //（正权重个数闸），两者不自动同步——生产入口目前固定 1。
   int krigingMinPoints = 1;
+  // 方向84（D3）：协克里金（methodActual="cokriging"）。secondary 变差参数由
+  // evaluateLocalCokriging 从协变量样本自动拟合后回填（这里只作透传通道）；
+  // crossCorrelation 是 MM1 交叉模型的 ρ（|ρ| ≤ 1），用户给定。
+  double crossCorrelation = 0;
+  double secondaryNugget = 0;
+  double secondarySill = 0;
+  double secondaryRange = 0;
   double variogramFitR2 = 0;   // 自动拟合的拟合优度（可负；未拟合时为 0）
   double variogramFitRmse = 0; // 同上
   int variogramUsedLags = 0;
@@ -179,6 +186,11 @@ struct PreparedInput
   std::vector<Sample> samples;
   std::vector<Polygon> domain;
   std::vector<ConstraintLine> constraints;
+  // 方向84（D3）：协变量样本（与 samples 逐口对齐——同井位，值为协变量栅格
+  // 在该井位的采样；井位 nodata 的井不进此表对应的协克里金 secondary 集，
+  // 采样在算法层按 prepared 样本逐口完成）。非空且 methodActual="cokriging"
+  // 时引擎把它建为 CoKrigingSolver 的 secondary 样本集。
+  std::vector<Sample> covariate;
   std::vector<std::string> ignored; // "id reason"
   int originalCount = 0;
   int validCount = 0;

@@ -60,15 +60,23 @@ RemotePredictionAssembly installRemotePrediction(MappingWorkbench *bench,
 }
 
 void bindChatToolRunner(AiChatController *chat, AiAssistWorkflow *assist,
-                        QgisLayerService *layers) {
-  if (!chat || !assist)
+                        QgisLayerService *layers, DataCatalog *catalog,
+                        const QString &projectDir) {
+  if (!chat)
     return;
-  chat->toolRunner()->setWorkflow(assist);
+  // assist 可为空（无 ORT 构建）：只绑只读工程工具；tile/horizon 执行面
+  // 缺席由执行器按调用如实报错（不因装配期缺席而误报「未接线」）。
+  if (assist)
+    chat->toolRunner()->setWorkflow(assist);
   AiChatToolContext context;
   // 层位与栅格取数在绑定/重绑时快照；horizonGridFetch 每次取数重解析声明，
   // 换工程后随 appcontext 的重绑刷新 horizon 名。
   context.horizon = AreaRules::active().targetHorizon;
   context.gridFetch = AiAssistWorkflow::horizonGridFetch(layers);
   // traceFetch / faciesInput 未绑（递延）：执行器按调用如实报错。
+  // 方向77：只读工程上下文（catalog 指针稳定性由 importSvc 保证）。
+  context.catalog = catalog;
+  context.projectDir = projectDir;
   chat->toolRunner()->setContext(context);
+  chat->setProjectBrief(AiChatToolRunner::projectBrief(catalog, projectDir));
 }

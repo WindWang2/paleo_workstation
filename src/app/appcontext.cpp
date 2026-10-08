@@ -206,6 +206,11 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
     refreshWellsLayer(true);
     refreshSurveyLayer();
     refreshWellTrajectoriesLayer();
+    // 方向77：catalog 变更（导入/登记）刷新工程摘要常驻段——system prompt
+    // 里的计数不留在旧值（工具实查永远最新，这段只是开局指北针）。
+    if (m_aiChat)
+      m_aiChat->setProjectBrief(AiChatToolRunner::projectBrief(
+        m_import->catalog(), m_projectDir));
   });
 
   // Workflow orchestrators — thin bindings over the services above.
@@ -244,10 +249,11 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   // 方向51：AI 对话助手编排。端点/模型从用户配置读，密钥由系统钥匙串异步
   // 补齐——补齐前是禁用态（UI 显示禁用原因），不静默跑假回答。
   m_aiChat = new AiChatController(this);
-#if PALEO_HAVE_ORT
-  // 方向61：工具执行回路装配（tile 分类起步；工程打开处随 AreaRules 重绑）。
-  bindChatToolRunner(m_aiChat, m_aiAssistWf, m_layerSvc);
-#endif
+  // 方向61/77：工具执行回路装配（tile 分类起步；工程打开处随 AreaRules 重绑）。
+  // 只读工程工具（query/lineage）不依赖 ORT——无 ORT 构建也绑（assist 为空
+  // 时 tile/horizon 由执行器按调用如实报错）。
+  bindChatToolRunner(m_aiChat, m_aiAssistWf, m_layerSvc,
+                     m_import->catalog(), QString());
   {
     LlmConfig llm = LlmConfig::load();
     LlmKeyStore::read(this, [this, llm](bool ok, const QByteArray &key,
@@ -478,10 +484,12 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
 #if PALEO_HAVE_ORT
               if (m_aiAssistWf)
                 m_aiAssistWf->setCatalog(derivedCatalog, fi.absolutePath());
-              // 方向61：工程打开 → 重绑聊天工具上下文（AreaRules 按工区钉
-              // targetHorizon，层位名与栅格声明都可能换了）。
-              bindChatToolRunner(m_aiChat, m_aiAssistWf, m_layerSvc);
 #endif
+              // 方向61/77：工程打开 → 重绑聊天工具上下文（AreaRules 按工区钉
+              // targetHorizon，层位名与栅格声明都可能换了；只读工程工具的
+              // catalog/projectDir 同步换绑）。无 ORT 构建也重绑（assist 为空）。
+              bindChatToolRunner(m_aiChat, m_aiAssistWf, m_layerSvc,
+                                 derivedCatalog, fi.absolutePath());
               // goal/time-depth-velocity：同一 catalog 实例纪律（整文件重写，
               // 交错写互覆）——层深转换产物落 artifacts/derived/。
               m_depthWf->rebind(derivedCatalog, fi.absolutePath());

@@ -469,6 +469,7 @@ add_library(paleo_qgis STATIC
   src/qgis/previewidentify.cpp                      # P2 D7 identify 查询核心（空间索引缓存+栅格插值）
   src/qgis/previewrendercache.cpp                   # P2 D6.2/D6.6 渲染结果缓存（内存 LRU + QTemporaryDir PNG）
   src/qgis/seismicsectiontool.cpp
+  src/qgis/wellattributestore.cpp
 )
 target_link_libraries(paleo_qgis PUBLIC paleo_deps paleo_ui_deps paleo_store paleo_algorithms paleo_io)
 
@@ -905,6 +906,7 @@ add_paleo_test(tst_panels)                                  # 伞式（全栈，
 # 的计时抖动关回串行基线先例（根治归 TEST-02 类递延）。
 set_tests_properties(tst_panels PROPERTIES RUN_SERIAL TRUE)
 add_paleo_test(tst_mappingpages LIBS paleo_ui)
+add_paleo_test(tst_wellattributes LIBS paleo_ui)
 add_paleo_test(tst_factorworkflow LIBS paleo_workflow) # m2(B)：单因素生成链真实栈（tst_workflows 模式）
 add_paleo_test(tst_composeworkflow) # m2(C)：相属性回写 edit buffer + 壳自动编辑态（tst_ui 模式；伞式兼容样本）
 add_paleo_test(tst_perf LIBS paleo_qgis)

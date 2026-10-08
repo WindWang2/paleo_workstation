@@ -52,6 +52,7 @@ public:
   static void setFaciesWorkflowFactory(FaciesWorkflowFactory factory);
   void bindFaciesWorkflow(WellFaciesWorkflow *workflow);
   void showFaciesPrediction(const WellFaciesResult &result);
+  void showWellAttributes(const ComprehensiveWellData &data);
 
   WellCompositeCanvas *canvas() const { return m_canvas; }
   WellPositionLegendWidget *legendWidget() const { return m_legendWidget; }

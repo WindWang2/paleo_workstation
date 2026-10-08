@@ -163,6 +163,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     QString currentPage() const { return m_currentPage; }
     // 页 id 的 ribbon 页签（objectName "ribbonCategory.<pageId>"）；未知 id → nullptr。
     SARibbonCategory *categoryForPage(const QString &pageId) const;
+    void showAttributeTable(const QString &layerId);
     void showStartup();            // first-run: recent projects + new/open
     void onProjectOpened();        // called after project opens: swap startup->workspace
     // #153/#154/#156/#158：工程即将关闭/切换（QgisProjectService::

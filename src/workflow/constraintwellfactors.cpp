@@ -9,6 +9,7 @@
 #include "services/projectdata.h"
 #include "services/singlefactordef.h"
 #include "derivedassets.h"
+#include "qgis/wellattributestore.h"
 #include <QSet>
 #include <qgsfeature.h>
 #include <qgsfeatureiterator.h>
@@ -29,6 +30,7 @@ struct Input {
   QVariantMap attributes;
   QgsGeometry geometry;
   QString thicknessReason, sandReason, sandSource;
+  bool maintainedThickness = false, maintainedSand = false;
 };
 struct Source {
   QVector<Input> rows;
@@ -104,6 +106,9 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
     }
   }
   if (!wf->catalog()) return out;
+  QHash<QString, QVariantList> maintainedByWell;
+  for (const auto &v : WellAttributeStore::rows(wf->projectDir(), layers, true, {}, horizon))
+    maintainedByWell[v.toMap().value("well_id").toString()] << v;
   ProjectDataFacade data; data.setCatalog(wf->catalog(), wf->projectDir());
   WellSectionWorkflow lithology(wf->catalog());
   const QString baseName = params.value(QStringLiteral("baseHorizon"), baseHorizonFor(horizon)).toString();
@@ -129,6 +134,20 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
       out.rows << row; found = out.rows.end() - 1;
     }
     Input &row = *found; row.id = well.id; row.name = well.name;
+    const auto maintained = maintainedByWell.value(well.id);
+    if (maintained.size() > 1) {
+      if (error) *error = ConstraintWorkflow::tr("井点属性表中同井/层位存在重复行，请先修正");
+      return {};
+    }
+    if (!maintained.isEmpty()) {
+      const auto values = maintained.first().toMap();
+      for (auto i = values.cbegin(); i != values.cend(); ++i)
+        if (i.key() != QLatin1String("well_id") && i.key() != QLatin1String("well_name") && i.key() != QLatin1String("horizon"))
+          row.attributes.insert(i.key(), i.value());
+      row.maintainedThickness = values.contains(layerThickness);
+      row.maintainedSand = values.contains(sandThickness);
+      row.sandSource = ConstraintWorkflow::tr("井点单因素属性表");
+    }
     if (!metrics) continue;
     double top = qQNaN(), base = qQNaN();
     for (const WellTop &t : data.topsFor(well.id)) {
@@ -138,18 +157,22 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
     row.thicknessReason = ConstraintWorkflow::tr("缺少顶/底分层 MD（%1→%2）").arg(horizon, baseName);
     row.sandReason = row.thicknessReason;
     if (std::isfinite(top) && std::isfinite(base) && base > top) {
-      row.attributes.insert(layerThickness, base - top); row.thicknessReason.clear();
+      if (!row.maintainedThickness) row.attributes.insert(layerThickness, base - top);
+      row.thicknessReason.clear();
       const auto segs = lithologies.value(well.id);
       const auto sand = sandIn(segs, top, base, &row.sandReason);
       if (sand) {
-        row.attributes.insert(sandThickness, *sand); row.sandReason.clear();
+        if (!row.maintainedSand) row.attributes.insert(sandThickness, *sand);
+        row.sandReason.clear();
         QStringList sources;
         for (const auto &s : segs) if (!s.provenance.isEmpty() && !sources.contains(s.provenance)) sources << s.provenance;
-        row.sandSource = sources.isEmpty() ? ConstraintWorkflow::tr("工程解释岩性 / 岩屑录井（MD）") : sources.join(QStringLiteral("; "));
+        if (!row.maintainedSand) row.sandSource = sources.isEmpty() ? ConstraintWorkflow::tr("工程解释岩性 / 岩屑录井（MD）") : sources.join(QStringLiteral("; "));
       } else if (!lithologyWarnings.isEmpty()) row.sandReason += QStringLiteral("; ") + lithologyWarnings.join(QStringLiteral("; "));
     } else if (std::isfinite(top) && std::isfinite(base)) {
       row.thicknessReason = ConstraintWorkflow::tr("分层倒置或层厚为零"); row.sandReason = row.thicknessReason;
     }
+    if (row.maintainedThickness) row.thicknessReason = ConstraintWorkflow::tr("维护的层厚为空或不是有限数值");
+    if (row.maintainedSand) row.sandReason = ConstraintWorkflow::tr("维护的砂厚为空或不是有限数值");
     for (const auto &link : wf->catalog()->linksForEntity(well.id))
       if (!link.unresolved && (link.role == QLatin1String("tops") || (sandMetric && (link.role == QLatin1String("interpretation") ||
                               link.role == QLatin1String("cuttings"))))) {
@@ -157,6 +180,9 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
         if (!v.id.isEmpty()) out.paths << DataCatalog::resolvedVersionPath(wf->projectDir(), v);
       }
   }
+  if (layers && !maintainedByWell.isEmpty())
+    for (const auto &declaration : layers->declared())
+      if (declaration.layerId == WellAttributeStore::factorLayerId()) out.paths << declaration.source.section('|', 0, 0);
   out.paths.removeDuplicates();
   return out;
 }
@@ -168,6 +194,7 @@ QString fieldReason(const Input &row, const QString &field) {
 } // namespace
 
 QVariantList ConstraintWorkflow::wellFactorFields(const QString &horizon, QString *error) {
+  watchWellFactorAttributes();
   const Source source = sourceFor(this, horizon, {}, error);
   QSet<QString> keys;
   for (const Input &r : source.rows)
@@ -179,6 +206,7 @@ QVariantList ConstraintWorkflow::wellFactorFields(const QString &horizon, QStrin
     QString label = name;
     if (name == layerThickness) label = tr("分层层厚（MD，m）");
     if (name == sandThickness) label = tr("解释砂岩厚度（MD，m）");
+    if (name == QLatin1String("sand_ratio")) label = tr("砂地比（属性，0–1）");
     fields << QVariantMap{{QStringLiteral("id"), name}, {QStringLiteral("label"), label}};
   }
   return fields;
@@ -236,7 +264,7 @@ bool ConstraintWorkflow::extractWellFactors(const QString &horizon, const QStrin
     if (!located) reason += (reason.isEmpty() ? QString() : QStringLiteral("; ")) + tr("缺少有效井点坐标");
     if (!value && reason.isEmpty()) reason = tr("比值不是有限数值");
     const auto sourceOfField = [&](const QString &field) {
-      if (field == layerThickness) return tr("工程分层（MD）");
+      if (field == layerThickness) return r.maintainedThickness ? tr("井点单因素属性表") : tr("工程分层（MD）");
       if (field == sandThickness) return r.sandSource;
       return tr("井点属性 · %1").arg(field);
     };
@@ -286,6 +314,44 @@ bool ConstraintWorkflow::extractWellFactors(const QString &horizon, const QStrin
   if (!layerService()->declare(d, &err)) return fail(err);
   if (pointsLayerId) *pointsLayerId = id;
   emit wellFactorsExtracted(horizon, factorId); return true;
+}
+
+void ConstraintWorkflow::watchWellFactorAttributes() {
+  auto *layer = WellAttributeStore::open(catalog(), projectDir(), layerService(), true, false);
+  if (!layer || layer == m_wellFactorAttributeLayer) return;
+  if (m_wellFactorAttributeLayer) disconnect(m_wellFactorAttributeLayer, nullptr, this, nullptr);
+  m_wellFactorAttributeLayer = layer;
+  connect(layer, &QgsVectorLayer::afterCommitChanges, this, [this] {
+    m_wellFactorRows.clear(); m_wellFactorMessage.clear();
+    emit wellAttributesChanged();
+  });
+}
+
+bool ConstraintWorkflow::maintainWellFactors(const QString &horizon, QString *error) {
+  if (horizon.isEmpty()) { if (error) *error = tr("请先选择层位"); return false; }
+  if (catalog() && catalog()->refusesWrites()) {
+    if (!WellAttributeStore::open(catalog(), projectDir(), layerService(), true, false, error)) return false;
+    emit wellAttributeTableRequested(WellAttributeStore::factorLayerId()); return true;
+  }
+  const Source source = sourceFor(this, horizon, {}, error);
+  if (error && !error->isEmpty()) return false;
+  QVariantList rows;
+  for (const auto &r : source.rows) {
+    if (!catalog() || catalog()->entityById(r.id).entityType != QLatin1String("well")) continue;
+    QVariantMap row{{"well_id", r.id}, {"horizon", horizon}};
+    for (const auto &field : {layerThickness, sandThickness, QStringLiteral("sand_ratio"), QStringLiteral("porosity"), QStringLiteral("permeability")})
+      if (r.attributes.contains(field)) row.insert(field, r.attributes.value(field));
+    const auto sand = paleo::singlefactor::parseNumeric(row.value(sandThickness));
+    const auto thickness = paleo::singlefactor::parseNumeric(row.value(layerThickness));
+    if (!row.contains("sand_ratio") && sand && thickness && *thickness > 0) row.insert("sand_ratio", *sand / *thickness);
+    rows << row;
+  }
+  if (!WellAttributeStore::seedFactors(catalog(), projectDir(), layerService(), rows, error)) return false;
+  if (!WellAttributeStore::open(catalog(), projectDir(), layerService(), true, true, error)) return false;
+  watchWellFactorAttributes();
+  emit wellAttributesChanged();
+  emit wellAttributeTableRequested(WellAttributeStore::factorLayerId());
+  return true;
 }
 
 bool ConstraintWorkflow::prepareFactorInputs(const QString &horizon, const QString &factorId,

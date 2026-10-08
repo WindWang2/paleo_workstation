@@ -67,6 +67,7 @@ class ConstraintPage : public QWidget
     // WS-C5：测区边界面图层导入入口（结构 IDW 边界行的「导入…」按钮）。
     // 壳侧接文件对话框 → MappingWorkbench::importBoundaryLayer。
     void boundaryImportRequested();
+    void maintainWellFactorsRequested(const QString &horizon);
     void extractWellFactorsRequested(const QString &factorId, const QString &horizon, const QVariantMap &params);
     void contourRequested(const QString &factorLayerId, double interval);
     void interpretiveContourRequested(const QString &factorLayerId, const QVector<double> &levels);

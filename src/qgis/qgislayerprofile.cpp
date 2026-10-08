@@ -196,7 +196,13 @@ bool QgisLayerProfileService::stageTreeVisibility(const QStringList &groups,
     // 旧名→canonical 在此吸收（主线1）：旧 .qgz/project.sqlite 里的
     // "01_Prediction" 等历史组名经 profileContains 折算，不再表外隐藏。
     bool visible = PaleoLayerVocabulary::profileContains(groups, decl.group);
-    if (!visible && mergeActiveHorizonConstraints
+    const bool isSharedData = (decl.horizon.isEmpty() &&
+        PaleoLayerVocabulary::groupRoot(PaleoLayerVocabulary::canonicalize(decl.group)) == QLatin1String("00_Data"));
+    if (isSharedData)
+    {
+      visible = true; // 井位与测区范围等基础共享数据层，作为所有编图页的基准参考叠加层始终保持可见
+    }
+    else if (!visible && mergeActiveHorizonConstraints
         && PaleoLayerVocabulary::canonicalize(decl.group) == PaleoLayerVocabulary::kConstraintsGroup
         && m_layerService && decl.horizon == activeHorizon)
     {
@@ -207,6 +213,71 @@ bool QgisLayerProfileService::stageTreeVisibility(const QStringList &groups,
 
   syncGroupCheckStates(root, declById);
   return true;
+}
+
+void QgisLayerProfileService::ensureSharedDataVisible()
+{
+  if (!m_project)
+    return;
+  QgsLayerTree *root = m_project->layerTreeRoot();
+  if (!root)
+    return;
+
+  QHash<QString, LayerDeclaration> declById;
+  if (m_layerService)
+  {
+    QVector<LayerDeclaration> decls;
+    if (m_layerService->tryDeclared(&decls, nullptr))
+    {
+      for (const auto &d : decls)
+        declById.insert(d.layerId, d);
+    }
+  }
+
+  bool anyChanged = false;
+  const QList<QgsLayerTreeLayer *> layers = root->findLayers();
+  for (QgsLayerTreeLayer *nodeLayer : layers)
+  {
+    QgsMapLayer *layer = nodeLayer->layer();
+    if (!layer)
+      continue;
+    const QString paleoId = paleoLayerIdOf(layer);
+    bool isSharedData = (paleoId == QLatin1String("wells") || paleoId == QLatin1String("survey.area"));
+    if (!isSharedData && !paleoId.isEmpty())
+    {
+      const auto it = declById.constFind(paleoId);
+      if (it != declById.constEnd())
+      {
+        const LayerDeclaration &d = it.value();
+        if (d.horizon.isEmpty() &&
+            PaleoLayerVocabulary::groupRoot(PaleoLayerVocabulary::canonicalize(d.group)) == QLatin1String("00_Data"))
+        {
+          isSharedData = true;
+        }
+      }
+    }
+
+    if (isSharedData && !nodeLayer->itemVisibilityChecked())
+    {
+      nodeLayer->setItemVisibilityChecked(true);
+      anyChanged = true;
+    }
+  }
+
+  if (anyChanged)
+  {
+    syncGroupCheckStates(root, declById);
+    if (QgsMapThemeCollection *col = themeCollection(); col && !m_currentPage.isEmpty() && m_model)
+    {
+      const QString themeName = pageThemeName(m_currentPage);
+      if (col->hasMapTheme(themeName))
+      {
+        const QgsMapThemeCollection::MapThemeRecord updatedRec =
+            QgsMapThemeCollection::createThemeFromCurrentState(root, m_model);
+        col->update(themeName, updatedRec);
+      }
+    }
+  }
 }
 
 bool QgisLayerProfileService::applyPrunedTheme(const QString &name)
@@ -240,6 +311,14 @@ bool QgisLayerProfileService::applyPrunedTheme(const QString &name)
 
   // 修剪后为空仍可应用：全隐藏语义。
   collection->applyTheme(name, m_project->layerTreeRoot(), m_model);
+
+  // 页面档案（page:*）必须保证井位与测区范围等基础共享数据层（00_Data / Zone::SharedData）可见：
+  // 避免因存量主题未记录或历史快照未勾选导致井位与测区范围互斥或丢失。
+  if (name.startsWith(QLatin1String("page:")))
+  {
+    ensureSharedDataVisible();
+  }
+
   return true;
 }
 
@@ -250,6 +329,11 @@ bool QgisLayerProfileService::captureCurrentAsTheme(const QString &name)
   QgsMapThemeCollection *collection = themeCollection();
   if (!collection)
     return false;
+
+  if (name.startsWith(QLatin1String("page:")))
+  {
+    ensureSharedDataVisible();
+  }
 
   const QgsMapThemeCollection::MapThemeRecord rec =
       QgsMapThemeCollection::createThemeFromCurrentState(m_project->layerTreeRoot(),

@@ -188,19 +188,31 @@ PaleoTask *SeismicTaskService::startSectionExtraction(
   const QString title = tr("提取任意测线/过井剖面 (%1 节点)").arg(pathPoints.size());
 
   // D5.2 任意线缓存：同体同路径重复提取即出（缓存查询+命中回调走事件循环）
-  if (std::shared_ptr<const SgySliceImage> hit = cachedSection(pathPoints, volume))
+  SgySectionStats cachedStats;
+  if (std::shared_ptr<const SgySliceImage> hit = cachedSection(pathPoints, volume, &cachedStats))
   {
-    SgySectionStats stats;
-    stats.columnDistances.reserve(hit->width);
-    for (int c = 0; c < hit->width; ++c)
-      stats.columnDistances.push_back(float(c) * 25.0f); // 近似道距（缓存路径无 stats）
+    if (cachedStats.columnDistances.empty() && hit->width > 0)
+    {
+      cachedStats.columns = hit->width;
+      float totalGridLen = 0.0f;
+      for (std::size_t i = 1; i < pathPoints.size(); ++i) {
+        const float di = static_cast<float>(pathPoints[i].x - pathPoints[i - 1].x);
+        const float dx = static_cast<float>(pathPoints[i].y - pathPoints[i - 1].y);
+        totalGridLen += std::sqrt(di * di + dx * dx);
+      }
+      cachedStats.columnDistances.reserve(hit->width);
+      for (int c = 0; c < hit->width; ++c) {
+        const float target = hit->width <= 1 ? 0.0f : (float(c) / float(hit->width - 1)) * totalGridLen;
+        cachedStats.columnDistances.push_back(target);
+      }
+    }
     if (onFinished)
     {
       auto *timer = new QTimer(this);
       timer->setSingleShot(true);
-      connect(timer, &QTimer::timeout, this, [timer, hit, stats, onFinished]() {
+      connect(timer, &QTimer::timeout, this, [timer, hit, cachedStats, onFinished]() {
         timer->deleteLater(); // RUNTIME-04：不能在自身 timeout 栈上同步 delete
-        onFinished(true, hit, stats, QString());
+        onFinished(true, hit, cachedStats, QString());
       });
       timer->start(0);
     }
@@ -282,7 +294,7 @@ PaleoTask *SeismicTaskService::startSectionExtraction(
           [this, task, outImage, outStats, onFinished, volume, pathPoints]() {
     if (task->state() == PaleoTask::State::Succeeded)
     {
-      cacheSection(pathPoints, volume, outImage); // D5.2 成功入 LRU
+      cacheSection(pathPoints, volume, outImage, *outStats); // D5.2 成功入 LRU
       if (onFinished)
         onFinished(true, outImage, *outStats, QString());
     }
@@ -834,7 +846,8 @@ qint64 SeismicTaskService::sectionCacheKey(const std::vector<glm::ivec2> &pathPo
 
 std::shared_ptr<const SgySliceImage> SeismicTaskService::cachedSection(
     const std::vector<glm::ivec2> &pathPoints,
-    std::shared_ptr<const SgyVolume> volume) const
+    std::shared_ptr<const SgyVolume> volume,
+    SgySectionStats *outStats) const
 {
   const qint64 key = sectionCacheKey(pathPoints, volume);
   for (auto &entry : sectionCache_)
@@ -842,6 +855,8 @@ std::shared_ptr<const SgySliceImage> SeismicTaskService::cachedSection(
     if (entry.key == key)
     {
       entry.lastUse = ++sectionCacheClock_;
+      if (outStats)
+        *outStats = entry.stats;
       return entry.image;
     }
   }
@@ -850,12 +865,13 @@ std::shared_ptr<const SgySliceImage> SeismicTaskService::cachedSection(
 
 void SeismicTaskService::cacheSection(const std::vector<glm::ivec2> &pathPoints,
                                       std::shared_ptr<const SgyVolume> volume,
-                                      std::shared_ptr<const SgySliceImage> image)
+                                      std::shared_ptr<const SgySliceImage> image,
+                                      const SgySectionStats &stats)
 {
   const qint64 key = sectionCacheKey(pathPoints, volume);
   for (auto it = sectionCache_.begin(); it != sectionCache_.end();)
     it = (it->key == key) ? sectionCache_.erase(it) : it + 1;
-  sectionCache_.push_back({key, image, ++sectionCacheClock_});
+  sectionCache_.push_back({key, image, stats, ++sectionCacheClock_});
   while (sectionCache_.size() > 4)
   {
     // 淘汰最久未用

@@ -31,6 +31,7 @@
 #include <qgssinglebandpseudocolorrenderer.h>
 #include <qgssinglesymbolrenderer.h>
 #include <qgsvectorlayer.h>
+#include <gdal.h>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDoubleSpinBox>
@@ -94,6 +95,8 @@ class TestPreviewMapAssets : public QObject
     void statesHelpersContract();
     void documentTabNotMapFramework();
     void wellHeadMapLabelToggleWorks();
+    void mapProductRasterPagePreview();
+    void mapProductVectorPagePreview();
 
 };
 
@@ -826,6 +829,140 @@ void TestPreviewMapAssets::wellHeadMapLabelToggleWorks()
   QVERIFY(!vl->labelsEnabled());
   toggle->setChecked(true);
   QVERIFY(vl->labelsEnabled());
+}
+
+// ---------------- 成果图件（成果图件预览） ----------------
+
+void TestPreviewMapAssets::mapProductRasterPagePreview()
+{
+  QTemporaryDir tmp;
+  auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st);
+
+  // 构造 4x4 测试 GeoTIFF 成果
+  const QString tifPath = tmp.filePath(QStringLiteral("seismic_pred.tif"));
+  GDALDriverH drv = GDALGetDriverByName("GTiff");
+  QVERIFY(drv != nullptr);
+  GDALDatasetH ds = GDALCreate(drv, tifPath.toUtf8().constData(), 4, 4, 1, GDT_Float64, nullptr);
+  QVERIFY(ds != nullptr);
+  double geo[6] = {0.0, 100.0, 0.0, 400.0, 0.0, -100.0};
+  GDALSetGeoTransform(ds, geo);
+  double vals[16] = {
+    1.0, 2.0, 3.0, 4.0,
+    2.0, 3.0, 4.0, 5.0,
+    3.0, 4.0, 5.0, 6.0,
+    4.0, 5.0, 6.0, 7.0
+  };
+  (void)GDALRasterIO(GDALGetRasterBand(ds, 1), GF_Write, 0, 0, 4, 4, vals, 4, 4, GDT_Float64, 0, 0);
+  GDALClose(ds);
+
+  CatalogAsset a;
+  a.id = QStringLiteral("asset-seis-pred");
+  a.type = QStringLiteral("seismic_prediction");
+  a.displayName = QStringLiteral("D61-seismic_prediction");
+  CatalogVersion v;
+  v.id = QStringLiteral("v-seis-pred");
+  v.assetId = a.id;
+  v.path = tifPath;
+  v.managed = false;
+  v.extra.insert(QStringLiteral("mapping_product"), true);
+  v.extra.insert(QStringLiteral("kind"), QStringLiteral("seismic_prediction"));
+  v.extra.insert(QStringLiteral("layer_type"), QStringLiteral("raster"));
+  v.extra.insert(QStringLiteral("title"), QStringLiteral("D61 地震预测"));
+
+  st->importSvc->catalog()->addAsset(a);
+  st->importSvc->catalog()->addVersion(v);
+
+  st->preview->openAsset(a.id);
+
+  auto *tabs = st->preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));
+  QVERIFY(tabs);
+  QWidget *page = tabs->widget(tabs->currentIndex());
+  QVERIFY(page);
+  // 成果图件预览页面挂载成功
+  auto *mapPage = page->findChild<QWidget *>(QStringLiteral("mapProductPreviewPage"));
+  QVERIFY(mapPage);
+  auto *canvas = mapPage->findChild<QgsMapCanvas *>(QStringLiteral("mapProductCanvas"));
+  QVERIFY(canvas);
+  QCOMPARE(canvas->layers().size(), 1);
+  auto *rl = qobject_cast<QgsRasterLayer *>(canvas->layers().first());
+  QVERIFY(rl);
+  QVERIFY(rl->isValid());
+  QCOMPARE(rl->width(), 4);
+  QCOMPARE(rl->height(), 4);
+
+  // 分析面板存在且有统计与直方图
+  auto *analysis = mapPage->findChild<QTabWidget *>(QStringLiteral("previewAnalysisTabs"));
+  QVERIFY(analysis);
+  QVERIFY(analysis->count() >= 2);
+
+  // 不存在“未配准”或“不支持预览”错误标签
+  auto *state = page->findChild<QLabel *>(QStringLiteral("stateText"));
+  QVERIFY(!state || (!state->text().contains(QStringLiteral("不支持预览")) &&
+                     !state->text().contains(QStringLiteral("未配准"))));
+}
+
+void TestPreviewMapAssets::mapProductVectorPagePreview()
+{
+  QTemporaryDir tmp;
+  auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st);
+
+  // 使用既有 facies.geojson 作为矢量成果
+  const QString vecPath = stage(tmp, QStringLiteral("artifacts"), QStringLiteral("facies.geojson"));
+  QVERIFY(!vecPath.isEmpty());
+
+  CatalogAsset a;
+  a.id = QStringLiteral("asset-facies-poly");
+  a.type = QStringLiteral("facies_polygons");
+  a.displayName = QStringLiteral("D61-facies_polygons");
+  CatalogVersion v;
+  v.id = QStringLiteral("v-facies-poly");
+  v.assetId = a.id;
+  v.path = vecPath;
+  v.managed = false;
+  v.extra.insert(QStringLiteral("mapping_product"), true);
+  v.extra.insert(QStringLiteral("kind"), QStringLiteral("facies_polygons"));
+  v.extra.insert(QStringLiteral("layer_type"), QStringLiteral("vector"));
+  v.extra.insert(QStringLiteral("title"), QStringLiteral("D61 相多边形"));
+
+  st->importSvc->catalog()->addAsset(a);
+  st->importSvc->catalog()->addVersion(v);
+
+  st->preview->openAsset(a.id);
+
+  auto *tabs = st->preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));
+  QVERIFY(tabs);
+  QWidget *page = tabs->widget(tabs->currentIndex());
+  QVERIFY(page);
+  auto *mapPage = page->findChild<QWidget *>(QStringLiteral("mapProductPreviewPage"));
+  QVERIFY(mapPage);
+  auto *canvas = mapPage->findChild<QgsMapCanvas *>(QStringLiteral("mapProductCanvas"));
+  QVERIFY(canvas);
+  QCOMPARE(canvas->layers().size(), 1);
+  auto *vl = qobject_cast<QgsVectorLayer *>(canvas->layers().first());
+  QVERIFY(vl);
+  QVERIFY(vl->isValid());
+  QVERIFY(vl->featureCount() > 0);
+
+  // 标注开关和属性表动作存在
+  auto *actLabels = page->findChild<QAction *>(QStringLiteral("previewAction_toggleLabels"));
+  auto *actAttrs = page->findChild<QAction *>(QStringLiteral("previewAction_openAttrTable"));
+  QVERIFY(actLabels);
+  QVERIFY(actAttrs);
+
+  // 测试标注开关功能
+  const bool initialLabel = vl->labelsEnabled();
+  QVERIFY(initialLabel);
+  actLabels->setChecked(!initialLabel);
+  QCOMPARE(vl->labelsEnabled(), !initialLabel);
+  actLabels->setChecked(initialLabel);
+  QCOMPARE(vl->labelsEnabled(), initialLabel);
+
+  // 不存在“未配准”或“不支持预览”
+  auto *state = page->findChild<QLabel *>(QStringLiteral("stateText"));
+  QVERIFY(!state || (!state->text().contains(QStringLiteral("不支持预览")) &&
+                     !state->text().contains(QStringLiteral("未配准"))));
 }
 
 int main(int argc, char *argv[])

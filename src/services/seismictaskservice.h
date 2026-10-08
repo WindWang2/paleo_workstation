@@ -754,10 +754,12 @@ public:
 
   // D5.2 任意线提取缓存查询：同（体指纹×路径）重复提取直接命中。
   std::shared_ptr<const SgySliceImage> cachedSection(
-      const std::vector<glm::ivec2> &pathPoints, std::shared_ptr<const SgyVolume> volume) const;
+      const std::vector<glm::ivec2> &pathPoints, std::shared_ptr<const SgyVolume> volume,
+      SgySectionStats *outStats = nullptr) const;
   void cacheSection(const std::vector<glm::ivec2> &pathPoints,
                     std::shared_ptr<const SgyVolume> volume,
-                    std::shared_ptr<const SgySliceImage> image);
+                    std::shared_ptr<const SgySliceImage> image,
+                    const SgySectionStats &stats = {});
 
 signals:
   void indexingFinished(const QString &sgyPath, bool success);
@@ -796,6 +798,7 @@ private:
   {
     qint64 key = 0;
     std::shared_ptr<const SgySliceImage> image;
+    SgySectionStats stats;
     quint64 lastUse = 0;
   };
   mutable std::vector<SectionCacheEntry> sectionCache_;

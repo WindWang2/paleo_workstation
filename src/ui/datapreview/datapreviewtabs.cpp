@@ -1268,6 +1268,9 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
        asset.displayName.endsWith(QLatin1String(".geojson"), Qt::CaseInsensitive)))
     return buildGeoJsonContent(cat, asset, v, abs, assetId, host, lay);
 
+  if (isMapProductAsset(asset, v))
+    return buildMapProductContent(cat, asset, v, abs, assetId, host, lay);
+
   // ---- 辅助/参考与未知类型（§4 阶段 D）：预览内容为主，文件名/类型等属性
   // 信息由右侧属性面板承担（不再重复占空间）；「未配准，不加入地图」警告照旧；
   // HZ28-6-1 XML 额外写「不对应 A1–A20」；无内嵌预览时留「用系统程序打开」
@@ -1329,7 +1332,11 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
         QStringLiteral("well_stratification"), QStringLiteral("time_depth"),
         QStringLiteral("horizon"),       QStringLiteral("seismic"),
         QStringLiteral("image_reference"), QStringLiteral("document"),
-        QStringLiteral("geojson"),       QStringLiteral("boundary")};
+        QStringLiteral("geojson"),       QStringLiteral("boundary"),
+        QStringLiteral("seismic_prediction"), QStringLiteral("wells_prediction"),
+        QStringLiteral("composed_facies"), QStringLiteral("facies_polygons"),
+        QStringLiteral("edited_facies"), QStringLiteral("single_factor_raster"),
+        QStringLiteral("contour_lines"), QStringLiteral("facies_fusion_raster")};
     if (!kKnownTypes.contains(asset.type))
       lay->addWidget(PreviewMapStates::buildUnsupportedPage(asset.type, host), 1);
     else

@@ -1781,8 +1781,11 @@ void PaleoMainWindow::setProjectReadOnly(bool readOnly)
 
   if (auto *saveAct = findChild<QAction *>(QStringLiteral("saveProjectAction")))
   {
-    saveAct->setEnabled(!readOnly);
-    saveAct->setToolTip(readOnly ? tr("工程处于只读模式（另一个实例持有写锁）") : tr("保存工程（Ctrl+S）"));
+    const QString saveKey = paleo::shortcuts::displayKey(
+        paleo::shortcuts::keyFor(QStringLiteral("main.project.save")));
+    const QString enabledTip =
+        saveKey.isEmpty() ? tr("保存工程") : tr("保存工程（%1）").arg(saveKey);
+    saveAct->setToolTip(readOnly ? tr("工程处于只读模式（另一个实例持有写锁）") : enabledTip);
   }
 
   if (auto *editTb = findChild<PaleoEditingToolbar *>(QStringLiteral("editingToolbar")))

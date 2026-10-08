@@ -178,58 +178,324 @@ CuttingsTable parseCuttingsSheet( const WorkbookSheet &sheet )
   return table;
 }
 
-namespace
-{
-
-// 文本表（.csv/.txt/.tsv）：自动探测逗号/制表/分号分隔（首行非空行的
-// 候选计数取大，平票按 制表 > 分号 > 逗号），首行作表头，转 WorkbookSheet
-// 走同一纯表解析。编码统一走 EncodingDetect（GB 工区表不静默变 �）。
-WorkbookSheet textSheetFromLines( const QStringList &lines, const QString &name,
-                                  QStringList *issues )
+WorkbookSheet parseTextCuttings( const QString &content, const QString &name,
+                                 QStringList *issues )
 {
   WorkbookSheet sheet;
   sheet.name = name;
-  int headerIndex = -1;
-  for ( int i = 0; i < lines.size(); ++i )
+
+  if ( content.trimmed().isEmpty() )
   {
-    if ( !lines.at( i ).trimmed().isEmpty() )
-    {
-      headerIndex = i;
-      break;
-    }
-  }
-  if ( headerIndex < 0 )
-  {
-    issues->append( QStringLiteral( "文件为空，无表头行" ) );
+    if ( issues )
+      issues->append( QStringLiteral( "文件为空，无表头行" ) );
     return sheet;
   }
-  const QString &headerLine = lines.at( headerIndex );
+
+  // 1. 探测分隔符：从首个非空行探测候选（\t, ;, ,），按计数与优先级（\t > ; > ,）
   QChar delimiter = QLatin1Char( ',' );
+  int headerStartPos = 0;
+  QString firstLine;
+  bool inQ = false;
+  for ( int i = 0; i < content.size(); ++i )
+  {
+    const QChar ch = content.at( i );
+    if ( ch == QLatin1Char( '"' ) )
+      inQ = !inQ;
+    else if ( !inQ && ( ch == QLatin1Char( '\n' ) || ch == QLatin1Char( '\r' ) ) )
+    {
+      firstLine = content.mid( headerStartPos, i - headerStartPos ).trimmed();
+      if ( !firstLine.isEmpty() )
+        break;
+      headerStartPos = i + 1;
+    }
+  }
+  if ( firstLine.isEmpty() )
+    firstLine = content.mid( headerStartPos ).trimmed();
+
+  if ( firstLine.isEmpty() )
+  {
+    if ( issues )
+      issues->append( QStringLiteral( "文件为空，无表头行" ) );
+    return sheet;
+  }
+
   int bestCount = 0;
   const QVector<QChar> candidates = { QLatin1Char( '\t' ), QLatin1Char( ';' ),
                                       QLatin1Char( ',' ) };
   for ( const QChar candidate : candidates )
   {
-    const int count = headerLine.count( candidate );
+    int count = 0;
+    bool inQuoteCount = false;
+    for ( const QChar ch : firstLine )
+    {
+      if ( ch == QLatin1Char( '"' ) )
+        inQuoteCount = !inQuoteCount;
+      else if ( !inQuoteCount && ch == candidate )
+        ++count;
+    }
     if ( count > bestCount )
     {
       bestCount = count;
       delimiter = candidate;
     }
   }
-  sheet.headerRowNumber = headerIndex + 1; // 物理行号 1 基
-  sheet.headers = headerLine.split( delimiter );
-  for ( int i = headerIndex + 1; i < lines.size(); ++i )
+
+  // 2. RFC 4180 状态机流式解析全文本为 records
+  QVector<QStringList> records;
+  QVector<int> recordLineNumbers;
+
+  int currentLineNumber = 1;
+  int recordStartLineNumber = 1;
+  QString currentField;
+  QStringList currentRecord;
+  enum State { StartOfField, InUnquoted, InQuoted, AfterQuoted };
+  State state = StartOfField;
+  bool recordHasData = false;
+
+  const int len = content.size();
+  for ( int i = 0; i < len; ++i )
   {
-    // 尾部空行（EOF 换行残留）不占行号。
-    if ( i == lines.size() - 1 && lines.at( i ).trimmed().isEmpty() )
-      break;
-    sheet.rowNumbers.append( i + 1 );
-    sheet.rows.append( lines.at( i ).split( delimiter ) );
+    const QChar ch = content.at( i );
+    const QChar nextCh = ( i + 1 < len ) ? content.at( i + 1 ) : QChar();
+
+    if ( state == StartOfField )
+    {
+      if ( currentRecord.isEmpty() && currentField.isEmpty() )
+        recordStartLineNumber = currentLineNumber;
+
+      if ( ch == QLatin1Char( '"' ) )
+      {
+        state = InQuoted;
+        recordHasData = true;
+      }
+      else if ( ch == delimiter )
+      {
+        currentRecord.append( QString() );
+        recordHasData = true;
+      }
+      else if ( ch == QLatin1Char( '\r' ) )
+      {
+        if ( nextCh == QLatin1Char( '\n' ) )
+          ++i;
+        if ( recordHasData || !currentRecord.isEmpty() )
+        {
+          currentRecord.append( QString() );
+          records.append( currentRecord );
+          recordLineNumbers.append( recordStartLineNumber );
+          currentRecord.clear();
+          recordHasData = false;
+        }
+        ++currentLineNumber;
+      }
+      else if ( ch == QLatin1Char( '\n' ) )
+      {
+        if ( recordHasData || !currentRecord.isEmpty() )
+        {
+          currentRecord.append( QString() );
+          records.append( currentRecord );
+          recordLineNumbers.append( recordStartLineNumber );
+          currentRecord.clear();
+          recordHasData = false;
+        }
+        ++currentLineNumber;
+      }
+      else
+      {
+        state = InUnquoted;
+        currentField.append( ch );
+        recordHasData = true;
+      }
+    }
+    else if ( state == InUnquoted )
+    {
+      if ( ch == delimiter )
+      {
+        currentRecord.append( currentField.trimmed() );
+        currentField.clear();
+        state = StartOfField;
+      }
+      else if ( ch == QLatin1Char( '\r' ) )
+      {
+        if ( nextCh == QLatin1Char( '\n' ) )
+          ++i;
+        currentRecord.append( currentField.trimmed() );
+        currentField.clear();
+        records.append( currentRecord );
+        recordLineNumbers.append( recordStartLineNumber );
+        currentRecord.clear();
+        recordHasData = false;
+        state = StartOfField;
+        ++currentLineNumber;
+      }
+      else if ( ch == QLatin1Char( '\n' ) )
+      {
+        currentRecord.append( currentField.trimmed() );
+        currentField.clear();
+        records.append( currentRecord );
+        recordLineNumbers.append( recordStartLineNumber );
+        currentRecord.clear();
+        recordHasData = false;
+        state = StartOfField;
+        ++currentLineNumber;
+      }
+      else
+      {
+        currentField.append( ch );
+      }
+    }
+    else if ( state == InQuoted )
+    {
+      if ( ch == QLatin1Char( '"' ) )
+      {
+        if ( nextCh == QLatin1Char( '"' ) )
+        {
+          currentField.append( QLatin1Char( '"' ) );
+          ++i;
+        }
+        else
+        {
+          state = AfterQuoted;
+        }
+      }
+      else if ( ch == QLatin1Char( '\r' ) )
+      {
+        if ( nextCh == QLatin1Char( '\n' ) )
+          ++i;
+        currentField.append( QLatin1Char( '\n' ) );
+        ++currentLineNumber;
+      }
+      else if ( ch == QLatin1Char( '\n' ) )
+      {
+        currentField.append( QLatin1Char( '\n' ) );
+        ++currentLineNumber;
+      }
+      else
+      {
+        currentField.append( ch );
+      }
+    }
+    else if ( state == AfterQuoted )
+    {
+      if ( ch == delimiter )
+      {
+        currentRecord.append( currentField );
+        currentField.clear();
+        state = StartOfField;
+      }
+      else if ( ch == QLatin1Char( '\r' ) )
+      {
+        if ( nextCh == QLatin1Char( '\n' ) )
+          ++i;
+        currentRecord.append( currentField );
+        currentField.clear();
+        records.append( currentRecord );
+        recordLineNumbers.append( recordStartLineNumber );
+        currentRecord.clear();
+        recordHasData = false;
+        state = StartOfField;
+        ++currentLineNumber;
+      }
+      else if ( ch == QLatin1Char( '\n' ) )
+      {
+        currentRecord.append( currentField );
+        currentField.clear();
+        records.append( currentRecord );
+        recordLineNumbers.append( recordStartLineNumber );
+        currentRecord.clear();
+        recordHasData = false;
+        state = StartOfField;
+        ++currentLineNumber;
+      }
+      else if ( !ch.isSpace() )
+      {
+        currentField.append( ch );
+      }
+    }
   }
+
+  if ( state == InQuoted || state == InUnquoted || state == AfterQuoted || recordHasData || !currentRecord.isEmpty() )
+  {
+    currentRecord.append( state == InUnquoted ? currentField.trimmed() : currentField );
+    records.append( currentRecord );
+    recordLineNumbers.append( recordStartLineNumber );
+  }
+
+  // 3. 提取表头和数据行
+  int headerRecordIndex = -1;
+  for ( int r = 0; r < records.size(); ++r )
+  {
+    bool hasNonEmpty = false;
+    for ( const QString &f : records.at( r ) )
+    {
+      if ( !f.trimmed().isEmpty() )
+      {
+        hasNonEmpty = true;
+        break;
+      }
+    }
+    if ( hasNonEmpty )
+    {
+      headerRecordIndex = r;
+      break;
+    }
+  }
+
+  if ( headerRecordIndex < 0 )
+  {
+    if ( issues )
+      issues->append( QStringLiteral( "文件为空，无表头行" ) );
+    return sheet;
+  }
+
+  sheet.headerRowNumber = recordLineNumbers.at( headerRecordIndex );
+  sheet.headers = records.at( headerRecordIndex );
+  const int expectedCols = sheet.headers.size();
+
+  for ( int r = headerRecordIndex + 1; r < records.size(); ++r )
+  {
+    const QStringList &row = records.at( r );
+    const int lineNo = recordLineNumbers.at( r );
+
+    bool allEmpty = true;
+    for ( const QString &f : row )
+    {
+      if ( !f.trimmed().isEmpty() )
+      {
+        allEmpty = false;
+        break;
+      }
+    }
+    if ( allEmpty )
+      continue;
+
+    // 错位行（列数不符）拒绝 + 列因（不再静默进库）
+    if ( row.size() != expectedCols )
+    {
+      if ( issues )
+      {
+        issues->append( QStringLiteral( "工作表「%1」第 %2 行列数不符（期望 %3 列，实际 %4 列），跳过该行" )
+                            .arg( name )
+                            .arg( lineNo )
+                            .arg( expectedCols )
+                            .arg( row.size() ) );
+      }
+      continue;
+    }
+
+    sheet.rowNumbers.append( lineNo );
+    sheet.rows.append( row );
+  }
+
   return sheet;
 }
 
+namespace
+{
+WorkbookSheet textSheetFromLines( const QStringList &lines, const QString &name,
+                                  QStringList *issues )
+{
+  return parseTextCuttings( lines.join( QLatin1Char( '\n' ) ), name, issues );
+}
 } // namespace
 
 CuttingsTable readCuttingsFile( const QString &path )
@@ -287,12 +553,11 @@ CuttingsTable readCuttingsFile( const QString &path )
       table.error = QStringLiteral( "文件读取失败：%1（%2）" ).arg( path, file.errorString() );
       return table;
     }
-    const QStringList lines =
-        EncodingDetect::decodeText( file.readAll() ).split( QLatin1Char( '\n' ) );
+    const QString content = EncodingDetect::decodeText( file.readAll() );
     file.close();
     QStringList textIssues;
     const WorkbookSheet sheet =
-        textSheetFromLines( lines, QFileInfo( path ).fileName(), &textIssues );
+        parseTextCuttings( content, QFileInfo( path ).fileName(), &textIssues );
     table = parseCuttingsSheet( sheet );
     table.issues.append( textIssues );
     return table;

@@ -17,6 +17,7 @@
 
 class QgisProcessingService;
 class QgisLayerService;
+class QgsVectorLayer;
 class SelectionContext;
 class PaleoOnnxService;
 class ConstraintStore;
@@ -202,6 +203,7 @@ class ConstraintWorkflow : public QObject
     // upsert）。params：field/cellSize（缺省取注册表 defaultParams）+
     // pointsLayerId（可选）。
     // 真实井点字段 + 分层/解释岩性派生字段。提取产物为不可变 DERIVED 点层。
+    bool maintainWellFactors(const QString &horizon, QString *error = nullptr);
     QVariantList wellFactorFields(const QString &horizon, QString *error = nullptr);
     bool extractWellFactors(const QString &horizon, const QString &factorId,
                             const QVariantMap &params, QString *error = nullptr,
@@ -214,6 +216,8 @@ class ConstraintWorkflow : public QObject
   private:
     bool prepareFactorInputs(const QString &horizon, const QString &factorId,
                              QVariantMap &params, QString *error);
+    QPointer<QgsVectorLayer> m_wellFactorAttributeLayer;
+    void watchWellFactorAttributes();
     QVariantList m_wellFactorRows;
     QString m_wellFactorMessage;
     QVariantList m_thicknessRows;
@@ -470,6 +474,8 @@ class ConstraintWorkflow : public QObject
     void factorDone(const QString &horizon, const QString &resultLayerId);
 
     // ---- m2(B)：单因素页消费的新信号（factorDone 原语义不动）----
+    void wellAttributesChanged();
+    void wellAttributeTableRequested(const QString &layerId);
     void wellFactorsExtracted(const QString &horizon, const QString &factorId);
     void factorGenerated(const QString &horizon, const QString &factorId, const QString &layerId);
     void contoursGenerated(const QString &horizon, const QString &factorLayerId,

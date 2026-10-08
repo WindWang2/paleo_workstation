@@ -158,7 +158,8 @@ bool AttributeTablePanel::saveEditing()
                                    : vl->commitChanges();
   if (!ok)
   {
-    emit editRefused(m_editingService ? err
+    const QString validation = vl->customProperty("paleo/wellAttributeValidationError").toString();
+    emit editRefused(!validation.isEmpty() ? validation : m_editingService ? err
                                       : tr("属性表：提交图层 %1 的编辑失败").arg(vl->name()));
     return false;
   }

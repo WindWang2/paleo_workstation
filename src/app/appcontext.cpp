@@ -1,5 +1,6 @@
 // 层：组装根
 #include "appcontext.h"
+#include "../qgis/wellattributestore.h"
 #include "../services/errorhub.h"                 // 方向64：统一错误通道
 #include "aiwiring.h"                          // 方向51：远端预测装配（唯一入口）
 #include "../ai/remotepredictconfig.h"
@@ -475,6 +476,8 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
               m_constraintWf->setCatalog(derivedCatalog, fi.absolutePath());
               m_compositionWf->setCatalog(derivedCatalog, fi.absolutePath());
               m_mappingWorkbench->bindCatalog(derivedCatalog, fi.absolutePath());
+              WellAttributeStore::open(derivedCatalog, fi.absolutePath(), m_layerSvc, false, false);
+              WellAttributeStore::open(derivedCatalog, fi.absolutePath(), m_layerSvc, true, false);
 #if PALEO_HAVE_ORT
               if (m_aiAssistWf)
                 m_aiAssistWf->setCatalog(derivedCatalog, fi.absolutePath());

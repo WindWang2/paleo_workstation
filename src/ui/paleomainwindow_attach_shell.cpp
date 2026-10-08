@@ -291,6 +291,7 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
             },
             bottomTabs);
         attrPanel->setObjectName(QStringLiteral("attributeTablePanel"));
+        attrPanel->setEditingService(editSvc);
         auto refreshIds = [this, attrPanel] {
           QVector<LayerDeclaration> declared;
           QString manifestErr;
@@ -672,4 +673,15 @@ void PaleoMainWindow::showErrorHistory()
     return;
   m_errorHistoryPanelDock->show();
   m_errorHistoryPanelDock->raise();
+}
+
+void PaleoMainWindow::showAttributeTable(const QString &layerId) {
+  auto *panel = findChild<AttributeTablePanel *>(QStringLiteral("attributeTablePanel"));
+  auto *tabs = findChild<QTabWidget *>(QStringLiteral("bottomTabs"));
+  if (!panel || !tabs || !m_bottomDock) return;
+  panel->showLayer(layerId);
+  tabs->setCurrentWidget(panel);
+  m_bottomDock->setUserWantsVisible(true);
+  m_bottomDock->setProgrammaticVisible(true);
+  m_bottomDock->raise();
 }

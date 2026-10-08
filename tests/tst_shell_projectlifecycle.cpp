@@ -37,7 +37,7 @@
 #include "../src/ui/paleomainwindow.h"
 #include "../src/ui/seismicsection/seismicsectiondockwidget.h"
 
-#include <qgis/qgsproject.h>
+#include <qgsproject.h>
 
 namespace
 {

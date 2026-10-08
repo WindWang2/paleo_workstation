@@ -145,6 +145,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
     });
     auto *run = new QHBoxLayout;
     run->addWidget(button("predict", tr("运行预测")));
+    run->addWidget(button("wellattributes", tr("岩性与相属性")));
     run->addWidget(button("cancel", tr("取消")));
     layout->addLayout(run);
     m_progress = new QProgressBar(body);
@@ -683,6 +684,7 @@ void MappingWorkbenchPage::updateState() {
           ? tr("暂无样点，请先导入带数值字段的样点图层")
           : tr("填写样点字段后生成单因素图，再选择结果提取等值线"));
   gate("predict", horizon && !busy && !checked.isEmpty(), readiness);
+  gate("wellattributes", horizon && !busy, tr("先打开工程并选择层位"));
   if (auto *select = findChild<QPushButton *>("workbenchSelectInputs")) {
     const bool wells = m_kind->currentData() == "wells";
     const bool all = !checked.isEmpty() && (!wells || checked.size() == m_inputs->count());

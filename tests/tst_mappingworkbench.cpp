@@ -7,6 +7,7 @@
 #include "../src/qgis/mapcanvaslink.h"
 #include "../src/qgis/mappingartifactwriter.h"
 #include "../src/qgis/qgislayerservice.h"
+#include "../src/qgis/wellattributestore.h"
 #include "../src/qgis/qgisprocessingservice.h"
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/ui/edittools/editingtoolbar.h"
@@ -752,6 +753,8 @@ private slots:
     auto before = f.work.wellPredictions(original);
     QCOMPARE(before.size(), 2);
     QCOMPARE(before[0].toMap().value("intervals").toList().size(), 12);
+    QCOMPARE(WellAttributeStore::rows(f.dir.path(), &f.layers, false, "A").size(), 12);
+    QCOMPARE(WellAttributeStore::rows(f.dir.path(), &f.layers, false, "B").size(), 12);
     const auto originalHash = digest(f.work.declaration(original).source);
     const auto draft = f.work.copyForEditing(original, {}, &error);
     QVERIFY2(!draft.isEmpty(), qPrintable(error));
@@ -796,6 +799,8 @@ private slots:
                  .toString());
     QVERIFY(layer->commitChanges());
     QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
+    for (const auto &v : WellAttributeStore::rows(f.dir.path(), nullptr, false, wellId))
+      QCOMPARE(v.toMap().value("facies_code").toInt(), code);
     auto saved = f.work.versionForLayer(draft);
     QCOMPARE(saved.versionNumber, version.versionNumber + 1);
     QVERIFY(saved.parentVersionIds.contains(version.id));
@@ -924,10 +929,15 @@ private slots:
     QVERIFY(!f.well("B", 500, 500).isEmpty());
     QString error;
     QVariantList facies{
-        QVariantMap{{"code", 7}, {"name", "河道"}, {"color", "#E6C875"}},
+        QVariantMap{{"code", 7}, {"name", "河道"}, {"facies", "三角洲"},
+                    {"subfacies", "三角洲前缘"}, {"microfacies", "水下分流河道"},
+                    {"color", "#E6C875"}},
         QVariantMap{{"code", 9}, {"name", "湖相"}, {"color", "#97B4CE"}}};
     QVERIFY(f.work.saveFacies("D61", facies, &error));
     QVERIFY(f.work.facies("D62") != facies);
+    QVERIFY(WellAttributeStore::mergeIntervals(&f.catalog, f.dir.path(), &f.layers,
+        {QVariantMap{{"well_id", "A"}, {"top_md", 1000.0}, {"base_md", 1120.0},
+                     {"facies", "旧相"}, {"facies_pattern", "sandstone"}}}, &error));
     QVERIFY(f.work.predict("D61", "wells", {"A"}, &error));
     QTRY_VERIFY(!f.work.busy());
     const auto first = f.latest("wells_prediction");
@@ -938,6 +948,14 @@ private slots:
     QCOMPARE(single->featureCount(), 1);
     QCOMPARE(f.work.versionForLayer(first).extra.value("facies").toList(),
              facies);
+    for (const auto &v : WellAttributeStore::rows(f.dir.path(), nullptr, false, "A")) {
+      const auto row = v.toMap();
+      const auto hierarchy = FaciesCatalog::attributes(facies, row.value("facies_code"));
+      QCOMPARE(row.value("facies"), hierarchy.value("facies_name"));
+      QCOMPARE(row.value("sub_facies").toString(), hierarchy.value("subfacies").toString());
+      QCOMPARE(row.value("micro_facies").toString(), hierarchy.value("microfacies").toString());
+      QVERIFY(row.value("facies_pattern").toString().isEmpty());
+    }
     QVERIFY(f.work.predict("D61", "wells", {"A", "B"}, &error));
     QTRY_VERIFY(!f.work.busy());
     const auto second = f.latest("wells_prediction");

@@ -1,5 +1,6 @@
 // 层：功能
 #include "wellsectionworkflow.h"
+#include "../qgis/wellattributestore.h"
 #include "algorithms/faultsurface/faultsurface.h"
 #include "catalog/datacatalog.h"
 #include "domain/faultset.h"
@@ -475,6 +476,22 @@ public:
   lithologyFor(const QString &wellId) const override {
     if (!m_catalog)
       return {};
+    const auto maintained = WellAttributeStore::rows(m_projectDir, nullptr, false, wellId);
+    if (!maintained.isEmpty()) {
+      QVector<wellsection::LithoSegment> segments;
+      bool hasMaintainedLithology = false;
+      for (const auto &v : maintained) {
+        const auto row = v.toMap();
+        hasMaintainedLithology = hasMaintainedLithology || !row.value("lithology").isNull();
+        if (row.value("lithology").toString().isEmpty()) continue;
+        wellsection::LithoSegment segment;
+        segment.topMd = row.value("top_md").toDouble(); segment.baseMd = row.value("base_md").toDouble();
+        segment.litho = row.value("lithology").toString(); segment.source = wellsection::LithoSource::Interpreted;
+        segment.provenance = WellSectionWorkflow::tr("测井矢量属性表"); segments << segment;
+      }
+      // 预测相不是岩性；仅有相而无岩性时仍允许读取已有解释源。
+      if (hasMaintainedLithology) return segments;
+    }
     QString bestAssetId;
     CatalogVersion best;
     for (const EntityAssetLink &link : m_catalog->linksForEntity(wellId)) {

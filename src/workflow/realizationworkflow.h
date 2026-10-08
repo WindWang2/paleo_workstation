@@ -7,9 +7,12 @@
 #include <QStringList>
 #include <QVariantMap>
 #include <QVector>
+#include <memory>
 
 class DataCatalog;
 class QgisLayerService;
+class PaleoTaskService;
+class PaleoTask;
 
 namespace paleo::ensemble
 {
@@ -20,8 +23,9 @@ struct StatsRequest;
 // 契约见 src/catalog/realizationset.h 头注；本类只做编排不碰数值核
 //（统计走 algorithms/ensemblestats，集合查询走 catalog/realizationset）。
 //
-// 线程/事务纪律与 ConstraintWorkflow 同：publish/derive 在 catalog 所属线程
-// 同步跑；成员逐个 commit——中途失败留下的不完整集合由缺号检测如实呈现
+// 线程/事务纪律：异步派生/差值走 PaleoTaskService + JobRunner 三段式（#227），
+// 取数/数值计算/写盘在工作线程，catalog 登记与图层声明在主线程；
+// 成员逐个 commit——中途失败留下的不完整集合由缺号检测如实呈现
 // （catalog 成员版本是不可变行，无半成品回滚——契约允许的退化形态）。
 // 内存纪律：统计派生逐成员惰性读盘（均值/标准差一次一成员；分位数按行带
 // 集齐切片），不全体驻留。
@@ -30,12 +34,18 @@ class RealizationWorkflow : public QObject
   Q_OBJECT
   public:
     explicit RealizationWorkflow( QObject *parent = nullptr );
+    ~RealizationWorkflow() override;
 
     // catalog/projectDir 供登记；layers 供图层声明（可空——空则只登记不声明，
     // 集合仍是完整 catalog 产物，图层可后补）。
     void bind( DataCatalog *catalog, const QString &projectDir,
                QgisLayerService *layers );
     bool isBound() const { return m_catalog != nullptr && !m_projectDir.isEmpty(); }
+
+    // 任务服务注入（#227 异步调度）
+    void setTaskService( PaleoTaskService *tasks );
+    PaleoTaskService *taskService() const;
+    bool isBusy() const;
 
     // 计算段已写好的成员栅格（Float32 GeoTIFF；nodata=-9999 口径与
     // constraintfactorjobs 的 writeFloatRaster 一致）。
@@ -75,6 +85,11 @@ class RealizationWorkflow : public QObject
     bool differenceOfMeans( const QString &setIdA, const QString &setIdB,
                             QString *error = nullptr );
 
+    // ---- 异步派生/差值（JobRunner 三段式，quiet 任务；#227）----
+    PaleoTask *deriveAllStatisticsAsync( const QString &setId, QString *error = nullptr );
+    PaleoTask *differenceOfMeansAsync( const QString &setIdA, const QString &setIdB,
+                                       QString *error = nullptr );
+
     // ---- 图层 id 词表（UI/测试同源）----
     static QString memberLayerId( const QString &setId, int index );
     static QString statLayerId( const QString &setId, const QString &token );
@@ -94,9 +109,16 @@ class RealizationWorkflow : public QObject
     void realizationStatsDerived( const QString &setId, const QStringList &tokens );
     void realizationDiffReady( const QString &setIdA, const QString &setIdB,
                                const QString &layerId );
+    void busyChanged( bool busy );
+    void errorOccurred( const QString &error );
 
   private:
     QPointer<DataCatalog> m_catalog;
     QPointer<QgisLayerService> m_layers;
+    QPointer<PaleoTaskService> m_tasks;
     QString m_projectDir;
+    bool m_busy = false;
+
+    struct RunnerHolder;
+    std::unique_ptr<RunnerHolder> m_runnerHolder;
 };

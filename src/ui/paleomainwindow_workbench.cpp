@@ -567,6 +567,11 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
           if (action == "predict")
             ok = workbench->predict(h, p.value("kind").toString(), inputs,
                                     &error, p.value("horizon_file").toString());
+          else if (action == "wellattributes") {
+            const auto layer = workbench->openWellAttributes(&error);
+            ok = !layer.isEmpty();
+            if (ok) showAttributeTable(layer);
+          }
           else if (action == "cancel")
             workbench->cancelPrediction();
           else if (action == "show")
@@ -709,6 +714,8 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
             message = error.isEmpty() ? tr("操作未完成，请检查输入。") : error;
           else if (action == "predict")
             message = tr("预测已提交；完成后自动登记并显示图件。");
+          else if (action == "wellattributes")
+            message = tr("已打开测井矢量属性表；保存后更新井道与单因素输入。");
           else if (action == "cancel")
             message = tr("已请求取消预测。");
           else if (action == "show")

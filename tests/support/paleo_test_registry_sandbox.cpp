@@ -21,9 +21,11 @@
 //     字体注册、Control Panel\International / Desktop 拷进沙箱——known folder
 //     （QStandardPaths 的 AppData 等）、字体与区域解析结果不变。
 //   · app hive 挂载/重映射失败时退到真实 HKCU 下的专用键
-//     Software\paleo-test-sandbox\<exe>（每次运行先整树删除；仍不碰 Software\paleo）。
+//     Software\paleo-test-sandbox\<exe>（运行前后各整树删除；仍不碰 Software\paleo）。
 //   · 生效标志：环境变量 PALEO_TEST_REGISTRY_SANDBOX_ACTIVE=<hive 路径|hkcu-key:...>
-//     ——tst_test_sandbox 据此与 RegOpenCurrentUser（真实 HKCU）双向断言。
+//     ——tst_test_sandbox 据此与 HKEY_USERS\<SID>（真实用户 hive）双向断言。
+//   · 同一测试拉起的自身子进程（如 tst_metastore 的死 pid 夹具）继承同一 hive
+//     路径：删除因占用失败、按共享方式挂同一 hive——不影响父进程。
 // 非 Windows 平台本文件为空 TU。
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -119,6 +121,7 @@ bool activate( HKEY root )
 struct RegistrySandbox
 {
   HKEY root = nullptr;
+  std::wstring fallbackKey; // 第二档生效时的 HKCU 子键（退出时删除）
 
   RegistrySandbox()
   {
@@ -158,6 +161,7 @@ struct RegistrySandbox
                             KEY_ALL_ACCESS, nullptr, &root, nullptr ) == ERROR_SUCCESS &&
          activate( root ) )
     {
+      fallbackKey = key;
       const std::wstring active = L"hkcu-key:HKCU\\" + key;
       ::SetEnvironmentVariableW( L"PALEO_TEST_REGISTRY_SANDBOX_ACTIVE", active.c_str() );
       return;
@@ -174,6 +178,8 @@ struct RegistrySandbox
       return;
     ::RegOverridePredefKey( HKEY_CURRENT_USER, nullptr );
     ::RegCloseKey( root );
+    if ( !fallbackKey.empty() )
+      ::RegDeleteTreeW( HKEY_CURRENT_USER, fallbackKey.c_str() );
   }
 };
 

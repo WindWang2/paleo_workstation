@@ -122,8 +122,12 @@ function Invoke-EnsureQgisResources([switch]$Auto) {
     return
   }
   $py = if ($env:PALEO_PYTHON) { $env:PALEO_PYTHON } else { 'python' }
-  & $py (Join-Path $Root 'tools\ensure_qgis_resources.py') --prefix $prefix --layout win
-  if ($LASTEXITCODE -ne 0) {
+  $rc = 1
+  try {
+    & $py (Join-Path $Root 'tools\ensure_qgis_resources.py') --prefix $prefix --layout win
+    $rc = $LASTEXITCODE
+  } catch { Write-Warning "ensure-resources: 无法运行 $py（$_）" }
+  if ($rc -ne 0) {
     $msg = "ensure-resources failed（$py tools\ensure_qgis_resources.py --prefix $prefix）"
     if ($Auto) { Write-Warning $msg } else { throw $msg }
   }
@@ -372,9 +376,12 @@ switch ($Verb) {
       $py = if ($env:PALEO_PYTHON) { $env:PALEO_PYTHON } else { 'python' }
       $unexpectedFile = Join-Path $Build 'Testing/env-redset-unexpected.txt'
       Remove-Item $unexpectedFile -Force -ErrorAction SilentlyContinue
-      & $py (Join-Path $Root 'tools/check_env_redset.py') --build $Build --junit $junit `
-        --route $script:DepsRoute --emit-unexpected $unexpectedFile 2>&1 | Tee-Object -FilePath $log -Append
-      $redsetExit = $LASTEXITCODE
+      $redsetExit = 1
+      try {
+        & $py (Join-Path $Root 'tools/check_env_redset.py') --build $Build --junit $junit `
+          --route $script:DepsRoute --emit-unexpected $unexpectedFile 2>&1 | Tee-Object -FilePath $log -Append
+        $redsetExit = $LASTEXITCODE
+      } catch { "  (env_redset 检查器不可用：$_)" | Tee-Object -FilePath $log -Append }
       if (Test-Path $unexpectedFile) {
         if ($redsetExit -eq 0) { Write-Host '  env_redset: 全部红均为名单内豁免——放行'; return }
         $keep = @(Get-Content $unexpectedFile | Where-Object { $_ })

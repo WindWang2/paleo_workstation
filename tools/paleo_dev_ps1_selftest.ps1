@@ -85,6 +85,12 @@ try {
   $Root = Split-Path -Parent $Script
   $ok = $true; try { Invoke-EnsureQgisResources -Auto; Invoke-EnsureQgisResources } catch { $ok = $false }
   Check $ok 'ensure-resources invoked python although srs.db exists'
+  # 解释器不存在 + srs.db 缺：-Auto 只告警不抛（test/selfcheck 不被打断），手动则抛。
+  Remove-Item (Join-Path $qgis 'resources/srs.db') -Force
+  $ok = $true; try { Invoke-EnsureQgisResources -Auto 3>$null } catch { $ok = $false }
+  Check $ok 'ensure-resources -Auto with missing python must only warn'
+  $threw = $false; try { Invoke-EnsureQgisResources 3>$null } catch { $threw = $true }
+  Check $threw 'ensure-resources (manual) with missing python must throw'
   $env:QGIS_PREFIX_PATH = $null
   $ok = $true; try { Invoke-EnsureQgisResources -Auto } catch { $ok = $false }
   Check $ok 'ensure-resources -Auto without prefix must be silent'

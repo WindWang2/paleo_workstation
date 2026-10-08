@@ -1,10 +1,12 @@
 # paleo-dev.ps1 — Windows sibling of ./paleo-dev (§44.1).
-# Verbs: bootstrap [fetch-only] | build | test | selfcheck | checkenv | clean-vendor <dep>
+# Verbs: bootstrap [fetch-only] | build | test | selfcheck | checkenv | ensure-resources | clean-vendor <dep>
 #   bootstrap fetch-only : 只取依赖（OSGeo4W + ORT），不编译不自检——CI 用它让
 #                          编译错误落在 Build 步骤而不是 Vendor 步骤（#134）。
 #   build                : $env:CI 已设时 ninja -k 0，一次暴露全部编译错误。
 #   test                 : $env:PALEO_CTEST_ARGS 透传给 ctest（如 "-LE perf"）。
 #   checkenv             : Qt 编译/运行链一致性自检（方向 72 防回归）。
+#   ensure-resources     : 补齐 QGIS 前缀 resources/**（含 srs.db；方向 81，
+#                          localdeps 的 test/selfcheck 缺 srs.db 时自动调用）。
 # 依赖路线两条（Enter-DependencyEnvironment 自动择一，vendored 优先）：
 #   vendored ：OSGeo4W qgis-devel-4.2.x 闭包（vendor/osgeo4w，CI 口径）。
 #   localdeps：本机 conda 依赖根（默认 ~/paleo-qgis-deps，qt6-main 6.11.2 全家
@@ -102,6 +104,29 @@ function Enter-LocalDepsEnvironment {
   $depsPython = Join-Path $deps 'python.exe'
   if (-not $env:PALEO_PYTHON -and (Test-Path $depsPython)) { $env:PALEO_PYTHON = $depsPython }
   return $true
+}
+
+function Invoke-EnsureQgisResources([switch]$Auto) {
+  # 方向81 srs.db 族：localdeps 的 QGIS 前缀只有 bin/include/lib，缺
+  # resources/srs.db（tst_runtime / tst_boot 断言）。按 vendor/deb-closure.lock
+  # 同源取 qgis-providers-common + qgis-common（_all 包）解出 resources/**，
+  # srs.db = cp srs-template.db（Debian postinst 同义）。已齐备即零动作。
+  # -Auto（test/selfcheck 自动调用）：失败只告警不中断，红留给测试本身。
+  $prefix = $env:QGIS_PREFIX_PATH
+  if (-not $prefix) {
+    if ($Auto) { return }
+    throw 'ensure-resources: 未探测到 QGIS 前缀（vendored/localdeps 都不在）'
+  }
+  if (Test-Path (Join-Path $prefix 'resources\srs.db')) {
+    if (-not $Auto) { Write-Host ("  OK  srs.db -> {0}" -f (Join-Path $prefix 'resources\srs.db')) }
+    return
+  }
+  $py = if ($env:PALEO_PYTHON) { $env:PALEO_PYTHON } else { 'python' }
+  & $py (Join-Path $Root 'tools\ensure_qgis_resources.py') --prefix $prefix --layout win
+  if ($LASTEXITCODE -ne 0) {
+    $msg = "ensure-resources failed（$py tools\ensure_qgis_resources.py --prefix $prefix）"
+    if ($Auto) { Write-Warning $msg } else { throw $msg }
+  }
 }
 
 function Enter-DependencyEnvironment {
@@ -316,6 +341,7 @@ switch ($Verb) {
       # 的最高优先覆盖是 SEISMIC_INDEX_CACHE_DIR——指到树内。
       $env:SEISMIC_INDEX_CACHE_DIR = Join-Path $treeTmp 'seismic-index'
       New-Item -ItemType Directory -Force $env:SEISMIC_INDEX_CACHE_DIR | Out-Null
+      Invoke-EnsureQgisResources -Auto
     }
     # Python 门禁脚本在 Windows 默认 cp1252 下读写含中文的源码/输出会抛
     # UnicodeEncodeError（ui_invariants_selftest）——统一 UTF-8 模式。
@@ -394,9 +420,14 @@ switch ($Verb) {
       $treeTmp = Join-Path $Build 'paleo-tmp'
       New-Item -ItemType Directory -Force $treeTmp | Out-Null
       $env:TEMP = $treeTmp; $env:TMP = $treeTmp
+      Invoke-EnsureQgisResources -Auto
     }
     & (Join-Path $Build 'paleo_selfcheck.exe')
     if ($LASTEXITCODE -ne 0) { throw 'Selfcheck failed' }
+  }
+  'ensure-resources' {
+    Enter-DependencyEnvironment
+    Invoke-EnsureQgisResources
   }
   'checkenv' {
     # 方向 72 防回归：编译链（CMakeCache 的 Qt6Core_DIR）vs 运行链（PATH
@@ -419,5 +450,5 @@ switch ($Verb) {
       if (Test-Path $target) { Remove-Item -Recurse -Force $target; Write-Host "removed $target" }
     }
   }
-  default { throw "unknown verb '$Verb' — bootstrap [fetch-only]|build|test|selfcheck|checkenv|clean-vendor" }
+  default { throw "unknown verb '$Verb' — bootstrap [fetch-only]|build|test|selfcheck|checkenv|ensure-resources|clean-vendor" }
 }

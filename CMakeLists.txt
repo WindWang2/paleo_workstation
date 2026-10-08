@@ -879,11 +879,16 @@ if(PALEO_PYTHON3)
            ${CMAKE_SOURCE_DIR}/tools/check_qgis_versions.py)
   add_test(NAME qgis_versions_selftest COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/check_qgis_versions.py --selftest)
+  # 方向 81 环境债二期：QGIS 资源补齐工具（deb-closure.lock 同源取 srs.db）的合成夹具自检。
+  add_test(NAME qgis_resources_selftest COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/ensure_qgis_resources.py --selftest)
   set_tests_properties(layering layering_strict layering_selftest
                        ui_invariants ui_invariants_strict ui_invariants_selftest
                        i18n i18n_selftest ui_tokens ui_tokens_strict ui_tokens_selftest
                        qgis_versions qgis_versions_selftest
+                       qgis_resources_selftest
                        PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+  set_tests_properties(qgis_resources_selftest PROPERTIES ENVIRONMENT "PYTHONUTF8=1")
 endif()
 
 # ---- 测试注册（devex T1 链接瘦身：LIBS = 各测试 include 面的最小闭包，见

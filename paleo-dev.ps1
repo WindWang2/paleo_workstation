@@ -145,7 +145,7 @@ switch ($Verb) {
       $map = @{}
       foreach ($line in (Get-Content $path -Encoding utf8)) {
         $f = $line -split '\s+'
-        if ($f.Count -ge 2 -and $f[0]) {
+        if ($f.Count -ge 2 -and $f[0] -and $f[0] -ne 'INSTALLED.DB') {
           $ver = $f[1] -replace ('^' + [regex]::Escape($f[0]) + '-'), '' `
                         -replace '\.tar\.(bz2|xz|gz|zst|lz4)$', ''
           $map[$f[0]] = $ver

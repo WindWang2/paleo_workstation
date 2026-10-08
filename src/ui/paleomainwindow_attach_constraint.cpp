@@ -45,6 +45,12 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
 {
   if (constraint && constraintPage)
   {
+    connect(constraint, &ConstraintWorkflow::wellAttributeTableRequested, this, &PaleoMainWindow::showAttributeTable);
+    connect(constraintPage, &ConstraintPage::maintainWellFactorsRequested, this, [this, constraint](const QString &horizon) {
+      QString error;
+      if (!constraint->maintainWellFactors(horizon, &error))
+        statusBar()->showMessage(error);
+    });
     // 约束页端到端: 绘制请求 → 画布上的捕获工具 → workflow 提交 (§42).
     if (m_canvasCtl)
     {

@@ -42,6 +42,7 @@ class LoopbackServer : public QObject
       return QUrl( QStringLiteral( "http://127.0.0.1:%1" ).arg( m_server.serverPort() ) );
     }
 
+    QJsonObject lastRequest;
   private:
     void serve( QTcpSocket *sock )
     {
@@ -98,13 +99,22 @@ class LoopbackServer : public QObject
       {
         ++predictHits;
         const QJsonObject req = QJsonDocument::fromJson( body ).object();
+        lastRequest = req;
         const int columns = req.value( QStringLiteral( "columns" ) ).toInt();
         const int rows = req.value( QStringLiteral( "rows" ) ).toInt();
         QJsonArray cells;
         for ( int i = 0; i < columns * rows; ++i )
           cells.append( 3 ); // 远端固定答 3——与本地模型的可区分断言
-        payload = QJsonDocument( QJsonObject { { QStringLiteral( "cells" ), cells } } )
-                    .toJson( QJsonDocument::Compact );
+        if (req.value("kind") == "wells") {
+          QJsonArray points;
+          for (const auto &v : req.value("wells").toArray()) {
+            const auto well = v.toObject();
+            points << QJsonObject{{"id", well.value("id")}, {"x", well.value("x")}, {"y", well.value("y")},
+              {"facies_code", 3}, {"facies_intervals", QJsonArray{QJsonObject{{"top", 0}, {"bottom", 10}, {"code", 3}}}}};
+          }
+          payload = QJsonDocument(QJsonObject{{"points", points}}).toJson(QJsonDocument::Compact);
+        } else
+          payload = QJsonDocument( QJsonObject { { QStringLiteral( "cells" ), cells } } ).toJson( QJsonDocument::Compact );
       }
       else
       {
@@ -206,6 +216,7 @@ class TestRemotePredictionRouter : public QObject
     void stubLocalPredictorDegradesWithoutOnnxRuntime();
     void unconfiguredLocalPredictorFailsHonestly();
     void healthyRemoteServesPredictions();
+    void wellBatchSendsAttributesAndReceivesPoints();
     void deadRemoteFallsBackToLocalOrt();
     void fallbackWithoutDataFailsHonestly();
     void remoteDownWithoutFallbackFailsHonestly();
@@ -365,6 +376,26 @@ void TestRemotePredictionRouter::unconfiguredLocalPredictorFailsHonestly()
   QCOMPARE( completed.size(), 0 );
   QVERIFY2( failed.at( 0 ).at( 1 ).toString().contains( QStringLiteral( "降级未配置" ) ),
             qPrintable( failed.at( 0 ).at( 1 ).toString() ) );
+}
+
+void TestRemotePredictionRouter::wellBatchSendsAttributesAndReceivesPoints() {
+  LoopbackServer server;
+  QVERIFY(server.start(LoopbackServer::Mode::Normal));
+  HttpRemoteTransport transport(server.baseUrl()); RemotePredictionRouter router(&transport);
+  auto request = makeRequest(1, 1, false); request.kind = "wells";
+  request.wells = {QVariantMap{{"id", "W1"}, {"x", 100.0}, {"y", 200.0},
+    {"vector_intervals", QVariantList{QVariantMap{{"lithology", "砂岩"}}}},
+    {"vector_factors", QVariantList{QVariantMap{{"sand_ratio", 0.4}}}}},
+    QVariantMap{{"id", "W2"}, {"x", 110.0}, {"y", 210.0}}};
+  request.facies = {QVariantMap{{"code", 3}, {"name", "河道"}}};
+  QSignalSpy done(&router, &RemotePredictionService::completed);
+  router.start(request); QVERIFY(waitSpy(done));
+  const auto result = qvariant_cast<RemotePredictionResult>(done.first().first());
+  QVERIFY(!result.mock); QCOMPARE(result.points.size(), 2); QVERIFY(result.cells.isEmpty());
+  const auto sent = server.lastRequest.value("wells").toArray().first().toObject();
+  QCOMPARE(sent.value("vector_intervals").toArray().first().toObject().value("lithology").toString(), QString("砂岩"));
+  QCOMPARE(sent.value("vector_factors").toArray().first().toObject().value("sand_ratio").toDouble(), 0.4);
+  QVERIFY(!result.points.first().toMap().value("facies_intervals").toString().isEmpty());
 }
 
 void TestRemotePredictionRouter::healthyRemoteServesPredictions()

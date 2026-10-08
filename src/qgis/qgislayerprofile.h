@@ -110,6 +110,10 @@ class QgisLayerProfileService : public QObject
     // predict 页并入当前层位约束图层，同名树组按组内结果同步勾选态。
     // layerService 为 null 或清单读失败 → 不动任何可见性（读失败时返回 false）。
     bool stageTreeVisibility(const QStringList &groups, bool mergeActiveHorizonConstraints);
+    // 基础共享数据层保活（00_Data / Zone::SharedData）：井位（wells）与
+    // 测区范围（survey.area）是所有编图页的基准参考叠加层，任何页面档案
+    //（page:*）应用或定格时必须保证其可见，防止因存量主题未记录或临时状态导致互斥或丢失。
+    void ensureSharedDataVisible();
 
     QgsProject *m_project = nullptr;
     QgsLayerTreeModel *m_model = nullptr;

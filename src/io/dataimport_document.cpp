@@ -59,9 +59,38 @@ void DataImportService::resolveDocumentConverter()
 {
   if (m_converterResolved)
     return;
-  m_converter = QStandardPaths::findExecutable(QStringLiteral("soffice"));
-  if (m_converter.isEmpty())
-    m_converter = QStandardPaths::findExecutable(QStringLiteral("libreoffice"));
+  // 探测序：显式环境变量 > vendored 官方包 > PATH。
+  // PALEO_SOFFICE 是部署逃生门（打包环境想钉系统 LibreOffice 时用）；
+  // vendor/libreoffice 由 vendor/fetch-libreoffice.sh 落（manifest.json
+  // deps.libreoffice pin 的官方自含构建，${ORIGIN} 相对可整体移动）；
+  // PATH 兜底覆盖未 bootstrap 的开发机与用户机上的系统 soffice。
+  const QString env = qEnvironmentVariable("PALEO_SOFFICE");
+  if (!env.isEmpty())
+    m_converter = env;
+  else
+  {
+    // 与 ai/onnxpredictionservice.cpp vendorRuntimeDir 同一惯例：从
+    // applicationDirPath 向上找 vendor/（build/ 下跑的测试也能解析到仓库根）。
+    const QString loSoffice =
+#ifdef Q_OS_WIN
+        QStringLiteral("vendor/libreoffice/program/soffice.exe");
+#else
+        QStringLiteral("vendor/libreoffice/program/soffice");
+#endif
+    QDir dir(QCoreApplication::applicationDirPath());
+    for (int i = 0; i < 10 && m_converter.isEmpty(); ++i)
+    {
+      const QString cand = dir.absoluteFilePath(loSoffice);
+      if (QFileInfo(cand).isExecutable())
+          m_converter = cand;
+      else if (!dir.cdUp())
+          break;
+    }
+    if (m_converter.isEmpty())
+      m_converter = QStandardPaths::findExecutable(QStringLiteral("soffice"));
+    if (m_converter.isEmpty())
+      m_converter = QStandardPaths::findExecutable(QStringLiteral("libreoffice"));
+  }
   m_converterResolved = true;
 }
 
@@ -111,7 +140,7 @@ void DataImportService::ensureDocumentPdf(const QString &assetId)
 
   resolveDocumentConverter();
   if (m_converter.isEmpty())
-    return failNow(tr("找不到 LibreOffice（soffice）——无法生成 PDF 预览"));
+    return failNow(tr("找不到 LibreOffice（vendor/libreoffice 或 PATH 上的 soffice）——无法生成 PDF 预览"));
 
   QString rawAbs, rawVersionId;
   CatalogVersion rawVersion;

@@ -190,6 +190,7 @@ public:
 
     // Wells and calibration
     void setWells(const std::vector<SectionWellInfo> &wells);
+    const std::vector<SectionWellInfo>& wells() const { return m_wells; }
     void setTimeDepthModel(const TimeDepthModel &model);
     const TimeDepthModel& timeDepthModel() const { return m_tdModel; }
 

@@ -1989,6 +1989,51 @@ class TestUiShell : public QObject
         QVERIFY(m_win->grab().save(capture));
     }
 
+    void testSimultaneousWellsAndSurveyAreaVisibility()
+    {
+      const QString paleoDataDir = QStringLiteral("/home/kevin/projects/paleo_data");
+      if (!QDir(paleoDataDir).exists())
+        QSKIP("Local paleo_data fixture not available");
+
+      m_win->resize(1600, 1000);
+      m_win->show();
+      bool ok = m_win->openPath(paleoDataDir);
+      QVERIFY(ok);
+      QTRY_VERIFY_WITH_TIMEOUT(m_ctx->layerSvc()->layer(QStringLiteral("wells")) != nullptr &&
+                               m_ctx->layerSvc()->layer(QStringLiteral("survey.area")) != nullptr, 8000);
+
+      auto *root = m_ctx->projectSvc()->project()->layerTreeRoot();
+      QVERIFY(root != nullptr);
+
+      m_win->showPage(QStringLiteral("predict"));
+      auto *sl = m_ctx->layerSvc()->layer(QStringLiteral("survey.area"));
+      auto *wl = m_ctx->layerSvc()->layer(QStringLiteral("wells"));
+      QVERIFY(sl != nullptr);
+      QVERIFY(wl != nullptr);
+
+      auto *sNode = root->findLayer(sl->id());
+      auto *wNode = root->findLayer(wl->id());
+      QVERIFY(sNode != nullptr);
+      QVERIFY(wNode != nullptr);
+
+      // Both must be checked on predict page
+      QVERIFY(sNode->itemVisibilityChecked());
+      QVERIFY(wNode->itemVisibilityChecked());
+
+      // Switch to other pages
+      m_win->showPage(QStringLiteral("constraint"));
+      QVERIFY(sNode->itemVisibilityChecked());
+      QVERIFY(wNode->itemVisibilityChecked());
+
+      m_win->showPage(QStringLiteral("compose"));
+      QVERIFY(sNode->itemVisibilityChecked());
+      QVERIFY(wNode->itemVisibilityChecked());
+
+      m_win->showPage(QStringLiteral("predict"));
+      QVERIFY(sNode->itemVisibilityChecked());
+      QVERIFY(wNode->itemVisibilityChecked());
+    }
+
 };
 
 int main(int argc, char *argv[])

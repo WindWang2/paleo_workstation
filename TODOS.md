@@ -100,20 +100,39 @@
 - [x] 真实井点因子直读/比值面、MD 解释砂厚/层厚链路、逐井缺失原因与父版本；两族约束入口；方法参数主流程；线面统一符号。账本：`docs/progress/singlefactor-pipeline.md`。
 - [ ] 净毛比/有效厚度：需专家明确有效层（岩性/孔渗/含油性）判据；不以砂厚代替净厚。
 - [ ] 测井曲线孔渗统计：目前只直读已有井点数值属性；待规定曲线助记名、层段加权与单位后接 LAS 统计，不以任意曲线均值冒充物性。
-- [ ] 地统 Kriging/SGS 的逐线屏障语义：现方法不消费约束线，说明如实呈现；独立算法改造递延，不借 UI 参数暗示已接入。
+- [x] 地统 Kriging 的逐线约束语义（方向84）：方向线/软边界经 `PairMetricWarp` 进克里金半方差（与 IDW 同源公式），硬屏障隔断感知拟合（测地滞后距），协克里金接线（`cokriging` 词表项 + 井位协变量采样 + MM1 交叉模型）；SGS 仍不消费约束线（如实）。
 
-## P2 — 单因素原生算法后续（from goal/single-factor-native, 2026-10-02）
+## P2 — 单因素原生算法后续（from goal/single-factor-native, 2026-10-02；方向84 对账后）
 
-- **What:** 剩余项：协克里金/带约束 OK（把方向线/软边界耦合进克里金权重）、
-  变差函数逐硬隔断分量拟合、SFPKG 写出与 ZIP64、外委表的曲线统计
+- **What:** 剩余项：SFPKG 的 ZIP64 大档支持、外委表的曲线统计
   （mean/median/min/max + 深度区间）与因素自动发现、制图策略包进 UI、
   时深域转换、监督分类、打印排版、完整 Python GUI 嵌入。
+  ~~协克里金/带约束 OK（把方向线/软边界耦合进克里金权重）~~、
+  ~~变差函数逐硬隔断分量拟合~~——方向84 落地（2026-10-09）：
+  - 方向线/软边界进克里金权重：`geostat::PairMetricWarp`（kriging.h）+
+    localidw krigingMetric 闭包（与 IDW 公式逐条同源），逐条消费回执
+    （`direction_guide_consumed_by_kriging_metric` 等）；
+  - 井群去簇不进克里金（最小方差解不容去簇乘子），issue 写明原因；
+  - 协克里金接线：`cokriging` 词表项（`paleo:paleo_local_direction_cokriging`）+
+    算法 COVARIATE/CROSS_CORRELATION 参数 + UI 协变量下拉（constraintpage
+    factorVariogramParameters 组）+ 缺协变量如实拒绝；
+  - 变差函数逐硬隔断分量拟合：resolveVariogram 隔断感知档（测地滞后距，
+    跨隔断对不进结构估计，interpretation_partition_v1 封死 / grid 模型
+    可绕行，回执 `variogram_barrier_aware unreachable_pairs=N`）；
+  - ConstrainedKrigingSolver 销账：WeightGroupConstraint 语义已由分量隔离
+    （硬屏障）/距离放大 warp（软边界）/张量 warp（方向线）更原生覆盖，
+    OK 权重可负使组上限语义失效——求解器与回归保留，不再独立接线
+    （论证全文 docs/progress/geostat-methods.md「方向84」节）。
+  回归：`tst_geostat_kriging`（warp 2 用例）、`tst_singlefactor_kriging`
+  （+7 用例：权重扭转/软边界衰减/回执逐字/隔断感知/协克里金端到端/拒绝/ρ=0 对拍）。
   已完成（原 P2 条目）：有限断层路径距离 `FaultPathMetric`
   （`src/algorithms/singlefactor/faultpath.{h,cpp}`，回归 `tst_singlefactor_faultpath`）；
   变差函数/普通克里金核（方向18 `src/algorithms/geostat/`）；
   克里金接入本地方向插值面（方向41 `krigingsurface.{h,cpp}` +
   `geostat::KrigingSolver`，`method=local_direction_kriging`，
   回落记 `method_actual`，回归 `tst_singlefactor_kriging`）；
+  SFPKG 写出（`src/io/sfpkgwriter.{h,cpp}`，回归 `tst_io_sfpkg_write`，
+  读写已对称——方向67 后落地，原条目未划）；
   完整 SFPKG 读取（`src/io/sfpkgreader.*`，回归 `tst_io_sfpkg`）；
   外委 XML/XLSX 批量读取（`src/io/outsourceworkbook.*`，回归 `tst_io_outsource`）；
   可枚举历史制图策略参数包词表
@@ -121,10 +140,11 @@
 - **Why:** 「井数 >80 各向异性路径退成 IDW、UI 标签不得冒充克里金」已在本地引擎侧
   解决：克里金不再回落成 IDW 冒充，回落时 `method_actual`/`fallback_reason`
   如实写进血缘与 QC；剩余项各需独立契约。
-- **Pros:** 沿用 local_direction_idw 插值面复算语义，克里金与 IDW 共用一套
-  成图域/硬屏障/井控标记；**Cons:** 协克里金、逐分量拟合、SFPKG 写出仍要另做。
-- **Context:** `docs/progress/sf-kriging.md`（方向41 全文口径与递延）、
-  `docs/progress/geostat-methods.md`（克里金核口径）。
+- **Pros:** 沿用 local_direction_idw 插值面复算语义，克里金/协克里金与 IDW 共用一套
+  成图域/硬屏障/井控标记；**Cons:** SFPKG 写出仍要另做（时深域转换、监督分类、
+  打印排版、完整 Python GUI 嵌入与本条目其余项已分流，各自立项）。
+- **Context:** `docs/progress/sf-kriging.md`（方向41 全文口径和递延）、
+  `docs/progress/geostat-methods.md`（克里金核口径 + 方向84 约束×方法消费矩阵）。
   当前 `localidw.h` 的旧核仍为 `grid_connectivity_v1`，生产局部方向作业已能使用
   独立的 FaultPathMetric 绕行核；两者不混称。
 - **Effort:** human: L / CC: L

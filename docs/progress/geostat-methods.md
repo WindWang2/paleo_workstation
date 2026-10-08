@@ -88,8 +88,9 @@
 - SGS 逐实现进度：核内 progress 按（实现序号+格进度）/总实现单调推进，
   任务服务壳按既有口径节流上报。
 - 栅格预算：工作流层 4M 格闸 + 核层 1e8 格闸。
-- 约束线不参与克里金/SGS 求解（v1 语义：硬屏障连通/绕距是独立度量，
-  见 faultpath），产物 extra 如实不含屏障计数——递延见下。
+- 约束线与克里金：方向84 起方向线/软边界经 `PairMetricWarp` 进克里金半方差
+  （消费矩阵见下「方向84」节）；SGS 仍不消费约束线（v1 语义：硬屏障连通/
+  绕距是独立度量，见 faultpath），产物 extra 如实不含屏障计数。
 - **「方法参数入 lineParams 持久化往返」的实现口径**：方法级参数（不是
   逐线语义参数）走 params → QC `parameters` 节 → 参数指纹 → catalog
   extra 落盘，测试断言写读一致（tst_geostat_workflow）。逐线
@@ -157,7 +158,8 @@ BASELINE geostat_sgs_scale_ratio = 4.08       # 门 ≤ 6（像元比 4×1.5）
 
 ## 递延（未做，如实）
 
-- 协克里金 / 泛克里金 / 指示克里金（方案禁区原文递延）。
+- 泛克里金 / 指示克里金（方案禁区原文递延）。**协克里金已由方向84 接线**
+  （`paleo:paleo_local_direction_cokriging`，见下「方向84」节）。
 - 交叉验证（留一法）面——gridsolver 有 `crossValidateLeaveOneOut` 先例，
   geostat 侧未接。
 - 变差函数交互式拟合 UI（拖动拟合曲线是另一立项；本轮参数面板 =
@@ -166,8 +168,38 @@ BASELINE geostat_sgs_scale_ratio = 4.08       # 门 ≤ 6（像元比 4×1.5）
   已由 faultPathMetric 供数，编图链消费属后续方向）；fault seal 定量
   另立项。
 - SGS 逐实现独立资产发布（当前产物 = 实现均值场 + 实现间标准差旁路）。
-- 克里金/SGS 求解不考虑约束线屏障（v1 语义边界，extra 如实）。
+- SGS 求解不考虑约束线屏障（v1 语义边界，extra 如实）。
 - 真工区实跑（待 PALEO_REAL_PROJECT_AREA 可用环境）。
+
+## 方向84：约束语义 × 方法消费矩阵（克里金族收口）
+
+同批约束线在各成图方法下的真实消费方式（issue 文案与这里逐条对应；
+`method_actual`/`fallback_reason` 先例不变）：
+
+| 约束语义 | local_direction_idw | local_direction_kriging | cokriging（协克里金） |
+|---|---|---|---|
+| HardBarrier | 栅格连通分量隔离（两侧井不共享） | 同左 + 变差拟合隔断感知（测地滞后距，跨隔断对不进结构估计） | 同 local_direction_kriging（分量隔离；γ22 拟合 v1 未隔断感知） |
+| DirectionGuide | CurveKernel 局部张量改写 IDW 距离（tangentEnergy 扣减） | 同公式改写克里金**半方差点对距离**（`PairMetricWarp`，井-井与井-查询同变换） | v1 不消费（issue 如实记 `*_not_used_by_cokriging`） |
+| InterpretiveBoundary | 跨线井权重 ×(1−penalty) | 跨线点对距离 ×1/√(1−penalty) 进半方差（IDW 衰减的等效距离口径） | v1 不消费（同上） |
+| wellClusterLocality | 去簇权重乘子 | 不消费——克里金权重是无偏约束下的最小方差解，去簇乘子破坏最优性；issue 写明原因 | 同左 |
+| ContourStop / CartographicDetour | 制图侧消费（不进分析场） | 同左 | 同左 |
+
+- **实现锚点**：`geostat::PairMetricWarp`（kriging.h，solveAt 三参重载）→
+  `localidw.cpp` evaluateBatch 的 krigingMetric 闭包（公式与 IDW 权重路径
+  逐条同源）→ `krigingsurface.cpp` 逐条消费回执
+  （`direction_guide_consumed_by_kriging_metric` 等）。
+- **病态口径**：warp 后方程组奇异/病态走既有 LU 失败 → `idwFallbackCells`
+  逐格回落（不新增降级机制）；精确通过井点性质保持（零位移 warp 后仍零）。
+- **协克里金**：MM1 交叉模型（γ12 = ρ·γ1），secondary = 协变量栅格井位
+  采样（CRS 不一致经 QGIS 变换），γ22 自动拟合；缺协变量 = InvalidInput
+  如实拒绝（不回落冒充——回落产物不含协变量信息）。ρ=0 严格退化为普通
+  克里金（面级对拍回归）。
+- **ConstrainedKrigingSolver（方向67 交付）销账**：其 `WeightGroupConstraint`
+  （组权重上限软罚）的三个目标语义均已有更原生表达——硬屏障 = 分量隔离
+  （比组 cap=0 更强：跨隔断井根本不进方程组）、软边界 = 距离放大 warp
+  （连续语义，无需主动集迭代）、方向线 = 张量 warp；且 OK 权重可负，
+  「组权重上限」对负权重不再表达「限制该组贡献」。求解器与回归保留
+  （可复用数值资产），TODOS 递延项划掉，不再计划独立接线。
 
 ## 尚未完成
 

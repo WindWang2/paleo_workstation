@@ -20,7 +20,7 @@
 //   · 种子：把真实 HKCU 的 Explorer\User Shell Folders / Shell Folders、每用户
 //     字体注册、Control Panel\International / Desktop 拷进沙箱——known folder
 //     （QStandardPaths 的 AppData 等）、字体与区域解析结果不变。
-//   · app hive 挂载/重映射失败时退到真实 HKCU 下的专用键
+//   · 直跑时 app hive 挂载/重映射失败才退到真实 HKCU 下的专用键
 //     Software\paleo-test-sandbox\<exe>（运行前后各整树删除；仍不碰 Software\paleo）。
 //   · 生效标志：环境变量 PALEO_TEST_REGISTRY_SANDBOX_ACTIVE=<hive 路径|hkcu-key:...>
 //     ——tst_test_sandbox 据此与 HKEY_USERS\<SID>（真实用户 hive）双向断言。
@@ -128,6 +128,8 @@ struct RegistrySandbox
     std::wstring hive = envVar( L"PALEO_TEST_REGISTRY_HIVE" );
     if ( hive == L"native" || hive == L"off" )
       return;
+    ::SetEnvironmentVariableW( L"PALEO_TEST_REGISTRY_SANDBOX_ACTIVE", nullptr );
+    const bool requiredHive = !hive.empty(); // ctest 显式路径必须第一档成功
     if ( hive.empty() )
       hive = defaultHivePath();
     for ( wchar_t &c : hive )
@@ -151,6 +153,11 @@ struct RegistrySandbox
         ::RegCloseKey( root );
       root = nullptr;
     }
+    if ( requiredHive )
+    {
+      std::fwprintf( stderr, L"[paleo-test-sandbox] required app hive unavailable — stopping before QSettings\n" );
+      ::ExitProcess( ERROR_ACCESS_DENIED );
+    }
 
     // 第二档：真实 HKCU 下的专用键 Software\paleo-test-sandbox\<exe>——每次运行
     // 先整树删除再建（不能用 REG_OPTION_VOLATILE：Qt 以非 volatile 方式建子键，
@@ -169,7 +176,8 @@ struct RegistrySandbox
     if ( root )
       ::RegCloseKey( root );
     root = nullptr;
-    std::fwprintf( stderr, L"[paleo-test-sandbox] no registry sandbox — QSettings hits the real HKCU\n" );
+    std::fwprintf( stderr, L"[paleo-test-sandbox] no registry sandbox — stopping before QSettings\n" );
+    ::ExitProcess( ERROR_ACCESS_DENIED );
   }
 
   ~RegistrySandbox()

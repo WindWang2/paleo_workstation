@@ -11,6 +11,9 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QSettings>
+#include <QProcess>
+#include <QProcessEnvironment>
+#include <QTemporaryDir>
 #include <QUuid>
 
 #ifdef Q_OS_WIN
@@ -54,6 +57,27 @@ class TestTestSandbox : public QObject
   Q_OBJECT
 
 private slots:
+  void unavailableHiveStopsBeforeTests()
+  {
+#ifdef Q_OS_WIN
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QProcess child;
+    auto env = QProcessEnvironment::systemEnvironment();
+    // 父目录不存在，挂载必失败；继承的 ACTIVE 不能充当成功证据。
+    env.insert(QStringLiteral("PALEO_TEST_REGISTRY_HIVE"),
+               dir.filePath(QStringLiteral("absent/registry.hiv")));
+    child.setProcessEnvironment(env);
+    child.start(QCoreApplication::applicationFilePath(), {QStringLiteral("-functions")});
+    QVERIFY(child.waitForStarted(10000));
+    QVERIFY(child.waitForFinished(10000));
+    QCOMPARE(child.exitCode(), int(ERROR_ACCESS_DENIED));
+    QVERIFY(child.readAllStandardError().contains("stopping before QSettings"));
+#else
+    QSKIP("Windows app hive contract");
+#endif
+  }
+
   void settingsLandInSandbox()
   {
     const QString token = QUuid::createUuid().toString(QUuid::WithoutBraces);

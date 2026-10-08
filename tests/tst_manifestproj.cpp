@@ -18,7 +18,7 @@
 // declared-but-uninstantiated layers survive a save/reopen cycle.
 // Design: JSON array in QgsProject custom properties (scope "paleo").
 
-static QString fixtureGpkg()
+static QString sourceFixtureGpkg()
 {
 #ifdef FIXTURE_GPKG
   return QStringLiteral( FIXTURE_GPKG );
@@ -26,6 +26,19 @@ static QString fixtureGpkg()
   const QString testsDir = QFileInfo( QString::fromUtf8( __FILE__ ) ).absolutePath();
   return QDir( testsDir ).absoluteFilePath( QStringLiteral( "../testdata/fixture.gpkg" ) );
 #endif
+}
+
+// 方向 81：实例化图层时 OGR provider 以更新模式打开 GPKG，会改写源码树里的
+// testdata/fixture.gpkg（全量 ctest 后工作区出现二进制改动）。用例改用进程级
+// 临时副本；拷贝失败返回空串，由 initTestCase 的存在性断言报出。
+static QString fixtureGpkg()
+{
+  static QTemporaryDir dir;
+  static const QString copy = [] {
+    const QString dst = dir.filePath( QStringLiteral( "fixture.gpkg" ) );
+    return dir.isValid() && QFile::copy( sourceFixtureGpkg(), dst ) ? dst : QString();
+  }();
+  return copy;
 }
 
 static LayerDeclaration decl( const QString &layerId, const QString &horizon,

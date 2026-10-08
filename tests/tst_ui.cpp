@@ -1806,6 +1806,10 @@ class TestUiShell : public QObject
         auto *modeTabs = qobject_cast<QTabWidget *>(pageStack->currentWidget());
         QVERIFY(modeTabs);
         QCOMPARE(modeTabs->objectName(), "workbenchTabs." + mode);
+        if (mode == QLatin1String("constraint")) {
+          QVERIFY(qobject_cast<ConstraintPage *>(modeTabs->widget(0)));
+          QCOMPARE(modeTabs->tabText(1), QStringLiteral("图件与版本"));
+        }
       }
       auto *d61=m_win->findChild<QToolButton *>("chip_D61");auto *d62=m_win->findChild<QToolButton *>("chip_D62");QVERIFY(d61 && d61->isEnabled());QVERIFY(d62 && d62->isEnabled());d61->click();m_win->showPage("predict");
       auto *catalog=m_ctx->importSvc()->catalog();QVERIFY(catalog && catalog->isOpen());

@@ -403,6 +403,60 @@ void DataListPanel::refreshAssetTree()
     }
   }
 
+  // 4b. 成果图件（智能预测/编图产物）：预测栅格、相面、综合相图、编辑
+  //     副本。过程快照（input_snapshot/constraint_*）是追溯机器，不进用户面。
+  //     双击走通用资产预览（assetActivated），tif 出栅格页、gpkg 出矢量页。
+  {
+    const auto isMapProduct = [](const QString &type) {
+      return type == QLatin1String("seismic_prediction") ||
+             type == QLatin1String("wells_prediction") ||
+             type == QLatin1String("composed_facies") ||
+             type == QLatin1String("facies_polygons") ||
+             type == QLatin1String("edited_facies");
+    };
+    QList<QPair<CatalogAsset, CatalogVersion>> products;
+    for (const CatalogAsset &a : cat->assets())
+      if (assetVisible(a) && isMapProduct(a.type))
+        products.append({a, cat->currentVersion(a.id)});
+    std::sort(products.begin(), products.end(),
+              [](const auto &x, const auto &y) {
+                return naturalNameSort(x.first.displayName, y.first.displayName);
+              });
+    auto *productRoot = new QTreeWidgetItem(m_tree);
+    productRoot->setText(0, tr("成果图件 (%1)").arg(products.size()));
+    productRoot->setText(1, tr("智能预测与编图产物"));
+    productRoot->setData(0, Qt::UserRole + 2, QStringLiteral("category"));
+    productRoot->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mActionFolder.svg")));
+    productRoot->setExpanded(false); // 顶级分组默认收拢（navTree 契约）
+    for (const auto &entry : products)
+    {
+      const auto &a = entry.first;
+      const auto &v = entry.second;
+      const QString title = v.extra.value("title").toString();
+      const QString horizon = v.extra.value("horizon").toString();
+      const bool mock = v.extra.value("mock").toBool();
+      const bool raster = v.extra.value("layer_type").toString() == QLatin1String("raster") ||
+                          a.format == QLatin1String("tif");
+      auto *item = new QTreeWidgetItem(productRoot);
+      item->setText(0, title.isEmpty() ? a.displayName : title);
+      QStringList desc;
+      if (!horizon.isEmpty())
+        desc << horizon;
+      desc << (a.type == QLatin1String("wells_prediction") ? tr("测井相预测")
+                : raster                              ? tr("相栅格")
+                                                      : tr("相矢量"));
+      if (mock)
+        desc << tr("Mock");
+      item->setText(1, desc.join(QStringLiteral(" · ")));
+      item->setToolTip(0, v.path);
+      item->setData(0, Qt::UserRole, a.id);
+      item->setData(0, Qt::UserRole + 2, QStringLiteral("map_product"));
+      item->setIcon(0, PaleoIcons::qgisTheme(
+                           raster ? QStringLiteral("mIconRasterLayer.svg")
+                                  : QStringLiteral("mIconPolygonLayer.svg")));
+    }
+  }
+
   // 5. 辅助资料 (Auxiliary)
   QList<CatalogAsset> auxAssets;
   for (const CatalogAsset &a : cat->assets())

@@ -542,6 +542,7 @@ add_library(paleo_workflow STATIC
   src/workflow/compositionworkflow.cpp               # 方向20 轮4：③综合编图（按类边界析出）
   src/workflow/predictionworkflow.cpp              # 方向20 轮4：①智能预测（按类边界析出）
   src/workflow/constraintworkflow.cpp              # 方向20 轮4：②约束与单因素（按类边界析出）
+  src/workflow/constraintwellfactors.cpp
   src/workflow/constraintfactorjobs.cpp            # 方向20 轮4：②的单因素作业面；方向57 只留统一异步面
   src/workflow/constraintfactorjobs_factor.cpp     # 方向57：基础因子生成族（idw/isopach/welldist/structural/surfer）
   src/workflow/constraintfactorjobs_localdirection.cpp # 方向57：局部方向族三段式

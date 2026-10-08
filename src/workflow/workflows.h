@@ -201,10 +201,21 @@ class ConstraintWorkflow : public QObject
     // declare "factor.<horizon>.<factorId>" 进 04_SingleFactor（同 id 幂等
     // upsert）。params：field/cellSize（缺省取注册表 defaultParams）+
     // pointsLayerId（可选）。
+    // 真实井点字段 + 分层/解释岩性派生字段。提取产物为不可变 DERIVED 点层。
+    QVariantList wellFactorFields(const QString &horizon, QString *error = nullptr);
+    bool extractWellFactors(const QString &horizon, const QString &factorId,
+                            const QVariantMap &params, QString *error = nullptr,
+                            QString *pointsLayerId = nullptr);
+    QVariantList wellFactorRows() const { return m_wellFactorRows; }
+    QString wellFactorMessage() const { return m_wellFactorMessage; }
     bool generateFactor(const QString &horizon, const QString &factorId,
-                        const QVariantMap &params, QString *error = nullptr);
+                        const QVariantMap &inputParams, QString *error = nullptr);
 
   private:
+    bool prepareFactorInputs(const QString &horizon, const QString &factorId,
+                             QVariantMap &params, QString *error);
+    QVariantList m_wellFactorRows;
+    QString m_wellFactorMessage;
     QVariantList m_thicknessRows;
     QString m_thicknessMessage;
     // 主线6：strathick 的等厚引擎分派（paleo:paleo_isopach，INPUT_TOP/
@@ -303,7 +314,7 @@ class ConstraintWorkflow : public QObject
         QString qcPath;
     };
     bool prepareLocalDirectionJob(const QString &horizon, const QString &factorId,
-                                  const QVariantMap &params, LocalDirectionJob *job, QString *error = nullptr,
+                                  const QVariantMap &inputParams, LocalDirectionJob *job, QString *error = nullptr,
                                   const QString &engineId = QStringLiteral( "paleo:paleo_local_direction_idw" ));
     bool computeLocalDirectionJob(LocalDirectionJob *job, const std::function<bool()> &cancelled = {},
                                   const std::function<void(double)> &progress = {});
@@ -342,7 +353,7 @@ class ConstraintWorkflow : public QObject
         QString qcPath;
     };
     bool prepareGeostatJob(const QString &horizon, const QString &factorId, const QString &method,
-                           const QVariantMap &params, GeostatJob *job, QString *error = nullptr);
+                           const QVariantMap &inputParams, GeostatJob *job, QString *error = nullptr);
     bool computeGeostatJob(GeostatJob *job, const std::function<bool()> &cancelled = {},
                            const std::function<void(double)> &progress = {});
     bool publishGeostatJob(const GeostatJob &job, QString *error = nullptr);
@@ -459,6 +470,7 @@ class ConstraintWorkflow : public QObject
     void factorDone(const QString &horizon, const QString &resultLayerId);
 
     // ---- m2(B)：单因素页消费的新信号（factorDone 原语义不动）----
+    void wellFactorsExtracted(const QString &horizon, const QString &factorId);
     void factorGenerated(const QString &horizon, const QString &factorId, const QString &layerId);
     void contoursGenerated(const QString &horizon, const QString &factorLayerId,
                            const QString &contourLayerId);

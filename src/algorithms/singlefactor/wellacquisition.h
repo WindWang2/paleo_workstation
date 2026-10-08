@@ -46,6 +46,7 @@ struct WellAcquisitionRequest
   QString denominatorField;
   std::optional<double> valueMin; // request.value_min（None → nullopt）
   std::optional<double> valueMax;
+  bool strictFields = false; // 显式提取不回落其它指标，旧请求保持兼容。
 };
 
 struct AcquiredWell

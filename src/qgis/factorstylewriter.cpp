@@ -4,6 +4,7 @@
 
 #include <QColor>
 #include <QDir>
+#include <QFont>
 #include <cmath>
 
 #include <qgscolorrampimpl.h>
@@ -13,8 +14,16 @@
 #include <qgsrasterlayer.h>
 #include <qgsrastershader.h>
 #include <qgssinglebandpseudocolorrenderer.h>
+#include <qgslinesymbol.h>
+#include <qgssinglesymbolrenderer.h>
+#include <qgssymbollayer.h>
+#include <qgspallabeling.h>
+#include <qgslabelthinningsettings.h>
+#include <qgstextformat.h>
+#include <qgstextbuffersettings.h>
+#include <qgsvectorlayer.h>
+#include <qgsvectorlayerlabeling.h>
 
-// 层：QGIS 封装
 // 色带语义体系（成对端点色，连续插值；地图域数据符号，非 UI token）：
 //   sandthick   砂体厚度  黄→橙棕   （碎屑供给强 → 厚）
 //   sandratio   砂地比    黄→棕红   （同族比值，端点更沉）
@@ -143,3 +152,29 @@ QString writeStyleQml( const QString &factorId, const QString &rasterPath,
 }
 
 } // namespace FactorStyleWriter
+
+bool FactorStyleWriter::applyContours(QgsVectorLayer *layer) {
+  if (!layer || !layer->isValid() || layer->geometryType() != Qgis::GeometryType::Line) return false;
+  const QColor ink(QStringLiteral("#24303E"));
+  auto symbol = QgsLineSymbol::createSimple({{QStringLiteral("line_color"), QStringLiteral("#FFFFFF")},
+      {QStringLiteral("line_width"), QString::number(contourCasingWidthMm)}});
+  auto inner = QgsLineSymbol::createSimple({{QStringLiteral("line_color"), ink.name()},
+      {QStringLiteral("line_width"), QString::number(contourWidthMm)}});
+  symbol->appendSymbolLayer(inner->takeSymbolLayer(0));
+  layer->setRenderer(new QgsSingleSymbolRenderer(symbol.release()));
+  const QString field = layer->fields().lookupField(QStringLiteral("level")) >= 0 ? QStringLiteral("level") : QStringLiteral("ELEV");
+  if (layer->fields().lookupField(field) < 0) { layer->triggerRepaint(); return true; }
+  QgsPalLayerSettings labels;
+  labels.fieldName = QStringLiteral("format_number(\"%1\", 2)").arg(field);
+  labels.isExpression = true;
+  labels.placement = Qgis::LabelPlacement::Curved;
+  labels.repeatDistance = contourLabelRepeatMm;
+  labels.repeatDistanceUnit = Qgis::RenderUnit::Millimeters;
+  labels.thinningSettings().setMinimumFeatureSize(contourMinimumLengthMm);
+  QgsTextFormat format; format.setFont(QFont(QStringLiteral("JetBrains Mono")));
+  format.setSize(contourLabelSizePt); format.setSizeUnit(Qgis::RenderUnit::Points); format.setColor(ink);
+  QgsTextBufferSettings buffer; buffer.setEnabled(true); buffer.setSize(contourLabelBufferMm);
+  buffer.setSizeUnit(Qgis::RenderUnit::Millimeters); buffer.setColor(Qt::white); format.setBuffer(buffer);
+  labels.setFormat(format); layer->setLabeling(new QgsVectorLayerSimpleLabeling(labels));
+  layer->setLabelsEnabled(true); layer->triggerRepaint(); return true;
+}

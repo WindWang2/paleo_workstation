@@ -174,9 +174,9 @@ private slots:
     QVERIFY(table->rowCount() <= table->property("paleo.pageSize").toInt());
   }
   // 数据导航树（用户契约）：大 catalog（>200，原降级分页树阈值）不再走
-  // 「测区+当页拍平」——完整实体树，顶级四组（测区/测井/地震/辅助资料）
-  // 全部默认收拢；已挂井曲线只在井节点下（无「未关联曲线」重复面）；
-  // 树形视图下分页器隐藏（树滚动，不分页）。
+  // 「测区+当页拍平」——完整实体树，顶级五组（测区/测井/地震/成果图件/
+  // 辅助资料）全部默认收拢；已挂井曲线只在井节点下（无「未关联曲线」
+  // 重复面）；树形视图下分页器隐藏（树滚动，不分页）。
   void navTreeFullStructureBeyondPagingThreshold() {
     QTemporaryDir dir; QVERIFY(PerfFixtures::makeSyntheticCatalogDir(dir.path(), 300));
     DataImportService importer; importer.setProjectDir(dir.path()); PreviewDocService doc(&importer);
@@ -185,12 +185,13 @@ private slots:
 
     auto *tree = panel.findChild<QTreeWidget *>(QStringLiteral("dataTree"));
     QVERIFY(tree);
-    QVERIFY2(tree->topLevelItemCount() >= 4,
+    QVERIFY2(tree->topLevelItemCount() >= 5,
              qPrintable(QStringLiteral("top=%1").arg(tree->topLevelItemCount())));
     QCOMPARE(tree->topLevelItem(0)->text(0), QStringLiteral("测区"));
     QVERIFY(tree->topLevelItem(1)->text(0).startsWith(QStringLiteral("测井 (300 井)")));
     QCOMPARE(tree->topLevelItem(2)->text(0), QStringLiteral("地震 (0)"));
-    QCOMPARE(tree->topLevelItem(3)->text(0), QStringLiteral("辅助资料 (0)"));
+    QCOMPARE(tree->topLevelItem(3)->text(0), QStringLiteral("成果图件 (0)"));
+    QCOMPARE(tree->topLevelItem(4)->text(0), QStringLiteral("辅助资料 (0)"));
     for (int i = 0; i < tree->topLevelItemCount(); ++i)
       QVERIFY2(!tree->topLevelItem(i)->isExpanded(),
                qPrintable(tree->topLevelItem(i)->text(0)));

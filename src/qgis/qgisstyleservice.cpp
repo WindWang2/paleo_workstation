@@ -1,5 +1,6 @@
 // 层：QGIS 封装
 #include "qgisstyleservice.h"
+#include "factorstylewriter.h"
 #include "qgiserrors_internal.h"
 
 #include "geopatterns.h"
@@ -460,33 +461,7 @@ void QgisStyleService::applyConstraintLayerStyle(QgsVectorLayer *layer)
 
 void QgisStyleService::applyContourLayerStyle(QgsVectorLayer *layer)
 {
-  if (!layer || !layer->isValid())
-    return;
-  if (layer->geometryType() != Qgis::GeometryType::Line)
-    return;
-  QVariantMap props;
-  props.insert(QStringLiteral("line_color"), QStringLiteral("#5D6E80"));
-  props.insert(QStringLiteral("line_width"), QStringLiteral("0.25"));
-  layer->setRenderer(
-      new QgsSingleSymbolRenderer(QgsLineSymbol::createSimple(props).release()));
-
-  if (layer->fields().lookupField(QStringLiteral("ELEV")) < 0)
-    return; // 无高程字段：只换线型
-  QgsPalLayerSettings lbl;
-  lbl.fieldName = QStringLiteral("ELEV");
-  lbl.isExpression = false;
-  QgsTextFormat fmt;
-  fmt.setSize(7.0);
-  fmt.setSizeUnit(Qgis::RenderUnit::Points);
-  fmt.setColor(QColor(QStringLiteral("#5D6E80")));
-  QgsTextBufferSettings buffer;
-  buffer.setEnabled(true);
-  buffer.setSize(0.6);
-  buffer.setColor(Qt::white);
-  fmt.setBuffer(buffer);
-  lbl.setFormat(fmt);
-  layer->setLabeling(new QgsVectorLayerSimpleLabeling(lbl));
-  layer->setLabelsEnabled(true);
+  FactorStyleWriter::applyContours(layer);
 }
 
 // ---- C2（wave/deepen-perf）：相界地质语义符号 --------------------------------

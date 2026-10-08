@@ -337,8 +337,10 @@ void PreviewMapCanvas::zoomToLayer( const QgsMapLayer *layer )
   }
   else
     ext.scale( 1.08 );
-  ext = paleo::mapreference::mapExtent(m_canvas, ext, layer->crs());
-  setExtentInternal( ext );
+  const QgsRectangle mapped = paleo::mapreference::mapExtent(m_canvas, ext, layer->crs());
+  // 无可用 CRS 转换（如未配准工程里的 WGS84 图层）：回退图层原始范围——
+  // 静默不缩放比缩到「坐标数字本身」更糟。
+  setExtentInternal( mapped.isEmpty() ? ext : mapped );
 }
 
 void PreviewMapCanvas::zoomToRect( const QgsRectangle &rect )

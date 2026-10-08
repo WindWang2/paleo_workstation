@@ -14,6 +14,8 @@
 #include <QVariantMap>
 
 #include <QScrollArea>
+#include <QDir>
+#include <QScrollBar>
 
 #include "../src/domain/singlefactorstrategy.h" // 方向67：策略包词表（下拉单一真源对拍）
 #include "../src/services/singlefactordef.h"
@@ -476,6 +478,8 @@ class FactorPageTests : public QObject
     void thicknessSamplesInsideCollapsibleSection();
     void typedDrawEntries();
     void nativeMethodContourAndBusyStates();
+    void wellFactorExtractionPayload();
+    void methodParameterVisibilityAndFamilies();
     void strategyPackDrivesMethodCombo(); // 方向67：词表驱动下拉 + 参数预览 + strategy_id 载荷
 };
 
@@ -811,7 +815,7 @@ void FactorPageTests::nativeMethodContourAndBusyStates()
   QCOMPARE( power->value(), 2.0 );
   QVERIFY( power->toolTip().contains( QStringLiteral( "0.5" ) ) );
   QCOMPARE( power->font().family(), PaleoTheme::monoFont().family() );
-  QVERIFY( !power->isVisibleTo( advanced ) );
+  QVERIFY( power->isVisibleTo( advanced ) );
   QVERIFY( !cancel->isEnabled() );
   QVERIFY( cancel->toolTip().contains( QStringLiteral( "没有正在运行" ) ) );
   QVERIFY( !save->isEnabled() );
@@ -892,7 +896,7 @@ void FactorPageTests::nativeMethodContourAndBusyStates()
 }
 
 // 方向67 Oracle 5：方法下拉由 singlefactorstrategy 词表驱动——标签/参数预览/
-// strategy_id 载荷三面一致；SGS 不在词表内不冒充（无预览、无 strategy_id）。
+// strategy_id 载荷三面一致；SGS 不在词表内，显示其自身说明。
 void FactorPageTests::strategyPackDrivesMethodCombo()
 {
   ConstraintPage page( nullptr );
@@ -917,9 +921,9 @@ void FactorPageTests::strategyPackDrivesMethodCombo()
   QVERIFY( defaultPack );
   QCOMPARE( note->text(), defaultPack->geologicalNote );
 
-  // SGS：不在曲面词表 → 无预览文本。
+  // SGS：不在曲面词表，仍须在主流程明确其模拟语义。
   method->setCurrentIndex( method->findData( QStringLiteral( "sgs" ) ) );
-  QVERIFY( note->text().isEmpty() );
+  QVERIFY( note->text().contains( QStringLiteral( "模拟" ) ) );
 
   // 载荷：legacy（词表 id="idw"）→ strategy_id 写词表 id 且不写 method。
   auto *factors = page.findChild<QTableWidget *>( QStringLiteral( "factorTable" ) );
@@ -943,6 +947,96 @@ void FactorPageTests::strategyPackDrivesMethodCombo()
 
 // ---- 任务 C（智能编图页）：融合清单栅格过滤/参考图/相属性/设计器入口。--
 // 真实栈（属性回写 edit buffer、壳自动编辑态）在 tst_composeworkflow.cpp。
+void FactorPageTests::wellFactorExtractionPayload() {
+  ConstraintPage page(nullptr);
+  auto *h = page.findChild<QComboBox *>(QStringLiteral("horizonCombo")); h->addItem(QStringLiteral("D61"));
+  page.findChild<QTableWidget *>(QStringLiteral("factorTable"))->item(1, 0)->setCheckState(Qt::Checked);
+  page.setWellFactorFields({QVariantMap{{"id", "sand"}, {"label", "砂厚"}},
+                            QVariantMap{{"id", "gross"}, {"label", "层厚"}},
+                            QVariantMap{{"id", "ratio"}, {"label", "砂地比"}}});
+  auto *mode = page.findChild<QComboBox *>(QStringLiteral("factorModeCombo"));
+  auto *value = page.findChild<QComboBox *>(QStringLiteral("factorValueFieldCombo"));
+  auto *num = page.findChild<QComboBox *>(QStringLiteral("factorNumeratorFieldCombo"));
+  auto *den = page.findChild<QComboBox *>(QStringLiteral("factorDenominatorFieldCombo"));
+  auto *extract = page.findChild<QPushButton *>(QStringLiteral("extractWellFactorsButton"));
+  value->setCurrentIndex(value->findData(QStringLiteral("ratio")));
+  QSignalSpy extracted(&page, &ConstraintPage::extractWellFactorsRequested);
+  QSignalSpy generated(&page, &ConstraintPage::generateFactorRequested);
+  extract->click(); QCOMPARE(extracted.count(), 1);
+  QCOMPARE(extracted[0][0].toString(), QStringLiteral("sandratio"));
+  QCOMPARE(extracted[0][2].toMap().value("factorMode").toString(), QStringLiteral("direct"));
+  QCOMPARE(extracted[0][2].toMap().value("valueField").toString(), QStringLiteral("ratio"));
+  mode->setCurrentIndex(mode->findData(QStringLiteral("ratio")));
+  QVERIFY(!extract->isEnabled());
+  num->setCurrentIndex(num->findData(QStringLiteral("sand")));
+  den->setCurrentIndex(den->findData(QStringLiteral("gross")));
+  extract->click(); QCOMPARE(extracted.count(), 2);
+  const auto params = extracted[1][2].toMap();
+  QCOMPARE(params.value("factorMode").toString(), QStringLiteral("ratio"));
+  QCOMPARE(params.value("numeratorField").toString(), QStringLiteral("sand"));
+  QCOMPARE(params.value("denominatorField").toString(), QStringLiteral("gross"));
+  page.findChild<QPushButton *>(QStringLiteral("generateFactorButton"))->click();
+  QCOMPARE(generated.count(), 1);
+  QCOMPARE(generated[0][2].toMap().value("numeratorField").toString(), QStringLiteral("sand"));
+  page.setRunBusy(true); QVERIFY(!extract->isEnabled());
+  QVERIFY(!extract->toolTip().isEmpty());
+  page.setRunBusy(false);
+  page.setWellFactorFields({});
+  QVERIFY(!page.findChild<QPushButton *>(QStringLiteral("generateFactorButton"))->isEnabled());
+  page.findChild<QTableWidget *>(QStringLiteral("factorTable"))->item(0, 0)->setCheckState(Qt::Checked);
+  QCOMPARE(mode->currentData().toString(), QStringLiteral("direct"));
+}
+
+void FactorPageTests::methodParameterVisibilityAndFamilies() {
+  ConstraintPage page(nullptr); page.show();
+  auto *method = page.findChild<QComboBox *>(QStringLiteral("factorMethodCombo"));
+  const auto visible = [&page](const char *name) { return page.findChild<QWidget *>(QString::fromLatin1(name))->isVisibleTo(&page); };
+  QVERIFY(visible("factorIdwParameters")); QVERIFY(!visible("factorVariogramParameters"));
+  QVERIFY(visible("factorDirectionRatioSpin"));
+  QVERIFY(!visible("runIdwButton")); // 原始字段旧入口收起；主流程走统一提取。
+  method->setCurrentIndex(method->findData(QStringLiteral("kriging")));
+  QVERIFY(!visible("factorIdwParameters")); QVERIFY(visible("factorVariogramParameters"));
+  QVERIFY(!visible("factorDirectionRatioSpin")); QVERIFY(!visible("factorSgsParameters"));
+  method->setCurrentIndex(method->findData(QStringLiteral("local_direction_kriging")));
+  QVERIFY(visible("factorVariogramParameters")); QVERIFY(visible("factorNeighborhoodParameters"));
+  method->setCurrentIndex(method->findData(QStringLiteral("sgs")));
+  QVERIFY(visible("factorSgsParameters"));
+  QVERIFY(!page.findChild<QLabel *>(QStringLiteral("factorStrategyNote"))->text().isEmpty());
+  method->setCurrentIndex(method->findData(QStringLiteral("legacy")));
+  QVERIFY(visible("factorNoParametersLabel")); QVERIFY(!visible("factorVariogramParameters"));
+  auto *h = page.findChild<QComboBox *>(QStringLiteral("horizonCombo")); h->addItem(QStringLiteral("D61"));
+  auto *directionType = page.findChild<QComboBox *>(QStringLiteral("directionFamilyTypeCombo"));
+  auto *breakType = page.findChild<QComboBox *>(QStringLiteral("breakFamilyTypeCombo"));
+  QVERIFY(visible("directionFamilySection")); QVERIFY(visible("breakFamilySection"));
+  QSignalSpy draw(&page, &ConstraintPage::drawTypedConstraintRequested);
+  directionType->setCurrentIndex(directionType->findData(QStringLiteral("cartographic_detour")));
+  page.findChild<QPushButton *>(QStringLiteral("directionButton"))->click();
+  QCOMPARE(draw.last()[2].toString(), QStringLiteral("cartographic_detour"));
+  breakType->setCurrentIndex(breakType->findData(QStringLiteral("contour_stop")));
+  page.findChild<QPushButton *>(QStringLiteral("breakLineButton"))->click();
+  QCOMPARE(draw.last()[2].toString(), QStringLiteral("contour_stop"));
+  page.findChild<QComboBox *>(QStringLiteral("constraintBlockModeCombo"))->setCurrentIndex(1);
+  QCOMPARE(page.newConstraintLineParams(QStringLiteral("contour_stop")).value("blockMode").toString(), QStringLiteral("display_only"));
+  page.findChild<QDoubleSpinBox *>(QStringLiteral("factorDirectionRatioSpin"))->setValue(6.5);
+  QCOMPARE(page.newConstraintLineParams(QStringLiteral("direction_line")).value("ratio").toDouble(), 6.5);
+  const QString qa = qEnvironmentVariable("PALEO_SINGLEFACTOR_QA_DIR");
+  if (!qa.isEmpty()) {
+    QDir().mkpath(qa); page.resize(420, 960);
+    for (const auto theme : {PaleoTheme::Theme::Light, PaleoTheme::Theme::Dark}) {
+      PaleoTheme::applyTheme(theme);
+      method->setCurrentIndex(method->findData(QStringLiteral("local_direction_idw")));
+      QCoreApplication::processEvents();
+      auto *body = page.findChild<QWidget *>(QStringLiteral("constraintPageBody"));
+      const QString name = theme == PaleoTheme::Theme::Light ? QStringLiteral("light") : QStringLiteral("dark");
+      QVERIFY(body->grab().save(qa + QStringLiteral("/pipeline-") + name + QStringLiteral(".png")));
+      method->setCurrentIndex(method->findData(QStringLiteral("kriging")));
+      QCoreApplication::processEvents();
+      QVERIFY(body->grab().save(qa + QStringLiteral("/kriging-") + name + QStringLiteral(".png")));
+    }
+    PaleoTheme::applyTheme(PaleoTheme::Theme::Light);
+  }
+}
+
 class ComposePageTests : public QObject
 {
   Q_OBJECT

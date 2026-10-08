@@ -1073,7 +1073,8 @@ private slots:
     QVERIFY(hint->text().contains(QStringLiteral("数据管理")));
     QVERIFY(!f.well("A", 10, 20).isEmpty());
     QVERIFY(!f.well("B", 30, 40).isEmpty());
-    kind->setCurrentIndex(1);
+    // 预测类型下拉新增本地 Mock 首项后按下标定位会错位——按 data 取。
+    kind->setCurrentIndex(kind->findData(QStringLiteral("wells")));
     const int inputHeight = inputs->minimumHeight();
     inputs->item(0)->setCheckState(Qt::Checked);
     select->click(); // A partial selection becomes all, not none.
@@ -1163,7 +1164,7 @@ private slots:
     page.setHorizon("D61");
     auto *kind = page.findChild<QComboBox *>("predictionKind");
     QVERIFY(kind);
-    kind->setCurrentIndex(1);
+    kind->setCurrentIndex(kind->findData(QStringLiteral("wells")));
     auto *list = page.findChild<QListWidget *>("workbenchInputs");
     QCOMPARE(list->count(), 1);
     QVERIFY(!page.commandButton("predict")->isEnabled());
@@ -1181,8 +1182,10 @@ private slots:
     page.setHorizon("D62");
     QTRY_VERIFY(!f.work.busy());
     QCOMPARE(page.horizon(), QString("D62"));
-    QCOMPARE(
-        page.findChild<QTreeWidget *>("workbenchResults")->topLevelItemCount(),
+    // 结果列表跨层位列出成果（激活层位与预测层位不一致时不再清空）：
+    // D62 视图下 D61 的井预测成果仍在列表里。
+    QVERIFY(
+        page.findChild<QTreeWidget *>("workbenchResults")->topLevelItemCount() >
         0);
     page.setHorizon("D61");
     QVERIFY(

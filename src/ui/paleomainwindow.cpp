@@ -9,8 +9,6 @@
 #include "paleoemptystate.h" // T31 空态卡片共享组件（本文件旧匿名类收敛于此）
 #include "paleoicons.h" // ribbon 图标：QGIS 主题直取（暗色再着色）+ 自绘补缺
 #include "paleoribbon.h" // SARibbon 壳公用件：主题/命令镜像
-#include "notifications/notificationmanager.h"
-#include "notifications/errorhistorydock.h"
 #include "../services/errorhub.h"
 #include "../services/fspathutils.h" // #291 QString↔filesystem::path 走 UTF-16（MSVC 窄构造按 ANSI 解码）
 
@@ -794,20 +792,6 @@ void PaleoMainWindow::buildShell()
   m_wellSectionDock->setUserWantsVisible(false);
   m_wellSectionDock->setProgrammaticVisible(false);
 
-  // ---- 错误历史 dock ----
-  m_errorHistoryDock = new paleo::ui::ErrorHistoryDock(this);
-  m_errorHistoryDock->setObjectName(QStringLiteral("errorHistoryDock"));
-  QAction *errAct = m_errorHistoryDock->toggleViewAction();
-  errAct->setObjectName(QStringLiteral("actionViewErrorHistory"));
-  errAct->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionHistory.svg")));
-  errAct->setText(tr("错误历史"));
-  errAct->setToolTip(tr("显示/隐藏错误与警告历史面板"));
-  addDockWidget(Qt::BottomDockWidgetArea, m_errorHistoryDock);
-  if (m_bottomDock) {
-    tabifyDockWidget(m_bottomDock, m_errorHistoryDock);
-  }
-  m_errorHistoryDock->hide();
-
   // ---- seismic 3D viewport dock ----
   m_seismic3dDock = new QDockWidget(tr("三维地震视口 (3D)"), this);
   m_seismic3dDock->setObjectName(QStringLiteral("seismic3dDock"));
@@ -1010,11 +994,14 @@ void PaleoMainWindow::buildShell()
     });
   }
 
-  if (auto *hub = paleo::services::ErrorHub::instance()) {
+  // 方向76：徽标与「错误历史」dock 同源——订阅全局 ErrorHub（AppContext 的
+  // installGlobal 先于本窗口构造；未装配时 global()==nullptr，徽标保持隐藏）。
+  // 计数 = 环形历史条目数，与 ErrorHistoryPanel 同源。
+  if (ErrorHub *hub = ErrorHub::global()) {
     const auto syncErrorStatus = [this, hub] {
       if (!m_statusErrorBtn)
         return;
-      const int count = hub->count();
+      const int count = hub->size();
       if (count <= 0) {
         m_statusErrorBtn->setVisible(false);
       } else {
@@ -1023,8 +1010,9 @@ void PaleoMainWindow::buildShell()
         m_statusErrorBtn->setToolTip(tr("错误与警告历史（共 %1 条记录），点击查看").arg(count));
       }
     };
-    connect(hub, &paleo::services::ErrorHub::historyChanged, this, syncErrorStatus);
-    connect(hub, &paleo::services::ErrorHub::historyCleared, this, syncErrorStatus);
+    connect(hub, &ErrorHub::errorRaised, this,
+            [syncErrorStatus](const ErrorHub::Entry &, bool) { syncErrorStatus(); });
+    connect(hub, &ErrorHub::historyCleared, this, syncErrorStatus);
     syncErrorStatus();
   }
 

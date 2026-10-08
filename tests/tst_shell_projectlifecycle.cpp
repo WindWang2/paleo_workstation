@@ -363,13 +363,6 @@ private slots:
     QApplication::processEvents();
     QCOMPARE(m_ctx->projectSvc()->projectPath(), m_qgzA);
 
-    // 真实用户动作改脏：翻转工程吸附开关（setSnappingConfig → setDirty）。
-    QgsProject *proj = m_ctx->projectSvc()->project();
-    auto snap = proj->snappingConfig();
-    snap.setEnabled(!snap.enabled());
-    proj->setSnappingConfig(snap);
-    QVERIFY2(proj->isDirty(), "吸附开关切换后工程应为脏状态");
-
     // 第二个工程完整落成（createProject 自带 manifest/受管目录结构——
     // writeProject 需要它）。当前工程切到 B。
     QVERIFY(m_dirB.isValid());
@@ -377,6 +370,14 @@ private slots:
     QVERIFY(m_ctx->projectSvc()->createProject(m_qgzB));
     QApplication::processEvents();
     QCOMPARE(m_ctx->projectSvc()->projectPath(), m_qgzB);
+
+    // 真实用户动作改脏当前工程 B：翻转工程吸附开关（setSnappingConfig →
+    // setDirty）。询问语义针对「切走前在场的工程」，造脏必须落在 B 上。
+    QgsProject *proj = m_ctx->projectSvc()->project();
+    auto snap = proj->snappingConfig();
+    snap.setEnabled(!snap.enabled());
+    proj->setSnappingConfig(snap);
+    QVERIFY2(proj->isDirty(), "吸附开关切换后工程应为脏状态");
 
     auto *list = recentList();
     QVERIFY(list);
@@ -398,13 +399,14 @@ private slots:
     QCOMPARE(m_ctx->projectSvc()->projectPath(), m_qgzB);
 
     // 「保存」：先写当前工程（B 的 .qgz mtime 更新）再切到 A，只问一次。
+    // 切换经 ProjectOpenWorkflow 异步打开（openProjectAsync）——等终态。
     QTest::qWait(60); // 保证 mtime 可辨
     const QDateTime before = QFileInfo(m_qgzB).lastModified();
     choice = PaleoNotify::SaveChoice::Save;
     emit list->itemActivated(item);
     QApplication::processEvents();
     QCOMPARE(askCount, 2);
-    QCOMPARE(m_ctx->projectSvc()->projectPath(), m_qgzA);
+    QTRY_VERIFY_WITH_TIMEOUT(m_ctx->projectSvc()->projectPath() == m_qgzA, 5000);
     QVERIFY2(QFileInfo(m_qgzB).lastModified() > before,
              "选保存后当前工程 .qgz 必须落盘（mtime 更新）");
 
@@ -438,15 +440,17 @@ private slots:
     auto *item = new QListWidgetItem(target, list);
     item->setData(Qt::UserRole, target);
     emit list->itemActivated(item);
-    QApplication::processEvents();
+    // 切换经 ProjectOpenWorkflow 异步打开——等终态再断言（不脏则一次都不问）。
+    QTRY_VERIFY_WITH_TIMEOUT(m_ctx->projectSvc()->projectPath() == m_qgzB, 5000);
     QCOMPARE(askCount, 0); // 不脏不问
-    QCOMPARE(m_ctx->projectSvc()->projectPath(), m_qgzB);
     m_win->setProjectSaveAskForTesting(nullptr);
   }
 
   // #282：关窗同样查工程脏状态——取消不关、保存关且落盘。
   void closeWindowAsksWhenDirty()
   {
+    // 上一用例异步切到 B 后它完整落成——等尾事件稳定再开始。
+    QApplication::processEvents();
     const QString qgz = m_ctx->projectSvc()->projectPath();
     QVERIFY(!qgz.isEmpty());
     QgsProject *proj = m_ctx->projectSvc()->project();
@@ -470,7 +474,7 @@ private slots:
     const QDateTime before = QFileInfo(qgz).lastModified();
     choice = PaleoNotify::SaveChoice::Save;
     m_win->close(); // 保存 → 关 + 落盘
-    QVERIFY(!m_win->isVisible());
+    QVERIFY2(!m_win->isVisible(), "选保存后关窗必须真正关闭");
     QCOMPARE(askCount, 2);
     QVERIFY(QFileInfo(qgz).lastModified() > before);
     m_win->setProjectSaveAskForTesting(nullptr);

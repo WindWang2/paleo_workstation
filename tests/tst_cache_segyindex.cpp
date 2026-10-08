@@ -603,37 +603,48 @@ void CacheSegyIndexTests::parallelDialectMatchesSequential()
 
 void CacheSegyIndexTests::parallelShortTraceMatchesSequential()
 {
-  // 固定道长文件中部（首 8 道资格抽查之外）一道 ns 字变短、载荷不动（文件
-  // 整体仍整道对齐）——修复前并行路径接受它为参差好道（decode 只读短 ns
-  // 个采样），顺序路径则错位报错；修复后两条路径一致判为坏道跳过。
+  // 中部道 ns 变短且载荷物理同步压缩（文件整体仍是合法变行长布局）——顺序
+  // 与并行两路径口径一致：都识别为 variable-trace-length，逐道推进，无坏道，
+  // 解码长度按各道 ns（合并口径：中部短道不再按「坏道跳过」，那会让扫描错位）。
   const QString sgy = m_dir.filePath("r.sgy");
   const int inl = 40, xl = 60, samples = 100; // 同上：>1MiB → 并行资格
   QVERIFY(PerfFixtures::makeSyntheticSegy(sgy, inl, xl, samples) > 0);
   const qint64 traceSize = 240 + qint64(samples) * 4;
   const qint64 shortOffset = 3600 + 1000 * traceSize;
   patchTraceNs(sgy, shortOffset, samples - 10);
+  // 同步移除该道多出来的 40 字节载荷：后续道头回到正确边界。
+  {
+    QFile f(sgy);
+    QVERIFY(f.open(QIODevice::ReadOnly));
+    QByteArray bytes = f.readAll();
+    f.close();
+    bytes.remove(shortOffset + 240 + (samples - 10) * 4, 10 * 4);
+    QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    QVERIFY(f.write(bytes) == bytes.size());
+  }
 
   SegyReader seq;
   QString err;
   QVERIFY2(seq.open(sgy, &err), qPrintable(err));
-  QCOMPARE(seq.traceCount(), inl * xl - 1);
-  QCOMPARE(seq.badTraceOffsets().size(), 1);
-  QCOMPARE(seq.badTraceOffsets().first(), shortOffset);
-  QCOMPARE(seq.variableTraceLayout(), false);
+  QCOMPARE(seq.traceCount(), inl * xl);
+  QVERIFY2(seq.badTraceOffsets().isEmpty(), qPrintable(err));
+  QCOMPARE(seq.variableTraceLayout(), true);
 
   SegyReader par;
   QVERIFY2(par.openCached(sgy, cacheDir(), &err), qPrintable(err));
   QCOMPARE(par.traceCount(), seq.traceCount());
+  QCOMPARE(par.variableTraceLayout(), seq.variableTraceLayout());
   QCOMPARE(par.badTraceOffsets(), seq.badTraceOffsets());
   QCOMPARE(par.inlineNumbers(), seq.inlineNumbers());
   QCOMPARE(par.crosslineNumbers(), seq.crosslineNumbers());
 
-  // 索引内不再有参差道：任一线解码全部统一 samplesPerTrace 长。
+  // 索引内短道按其真实 ns 解码（不一致即伪）。
   QVector<SegyTrace> line;
   QVERIFY2(par.readInline(1000, &line, &err), qPrintable(err));
   QCOMPARE(line.size(), xl);
   for (const SegyTrace &t : line)
-    QCOMPARE(t.samples.size(), samples);
+    QVERIFY2(t.samples.size() == samples || t.samples.size() == samples - 10,
+             qPrintable(QStringLiteral("unexpected ns %1").arg(t.samples.size())));
 }
 
 QTEST_MAIN(CacheSegyIndexTests)

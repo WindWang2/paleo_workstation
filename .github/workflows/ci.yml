@@ -64,7 +64,7 @@ jobs:
           qt6-base-dev qt6-svg-dev qt6-serialport-dev qt6-positioning-dev qt6-tools-dev
           qt6-webengine-dev qt6-pdf-dev qtkeychain-qt6-dev ninja-build pkg-config g++ patchelf
       - name: Cache vendored deb closure
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             vendor/cache/debs
@@ -117,6 +117,8 @@ jobs:
           python3 tools/check_i18n.py --selftest
           python3 tools/check_qgis_versions.py
           python3 tools/check_qgis_versions.py --selftest
+          python3 tools/check_ci_scripts.py
+          python3 tools/check_ci_scripts.py --selftest
       - name: deb-closure smoke (ET1：锁文件可解析、条目格式合法，零下载)
         run: ./vendor/fetch-deps.sh --print-only
 
@@ -125,8 +127,8 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      # #76（方向 71）：QGIS/GDAL/PROJ/GEOS 不再走 apt 系统 QGIS（原
-      # tools/ci_apt_qgis.sh 已删）——bootstrap 统一拉 deb 闭包；apt 只装
+      # #76（方向 71）：QGIS/GDAL/PROJ/GEOS 不再走 apt 系统 QGIS（原 apt
+      # 安装脚本已删）——bootstrap 统一拉 deb 闭包；apt 只装
       # 政策例外面（Qt6 发行版包/qtkeychain/ccache/工具链）。
       - name: Install Qt6 dev packages (vendored 路只缺 Qt/工具面)
         run: sudo apt-get update && sudo apt-get install -y
@@ -178,6 +180,22 @@ jobs:
         with:
           name: selfcheck-linux
           path: vendor/logs/
+      # 方向75：增量构建基线首测（PLAN ET14 口径）——全量树 touch 单文件
+      # 计时。绝对时长只记录不设门（跨机不可比），tu_ratio/step_ratio 才是
+      # 趋势口径（BUILDING.md「增量基线」段）。step 级 continue-on-error：
+      # 观察面不许拖累合并门禁（preflight no-op 校验对 CONFIGURE_DEPENDS
+      # 重扫抖动敏感，红了只丢趋势数据）。
+      - name: Incremental build baseline (ET14)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        continue-on-error: true
+        run: tools/measure_incremental.sh build src/app/appcontext.cpp build/incremental-baseline.jsonl
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: incremental-baseline-linux
+          if-no-files-found: ignore
+          retention-days: 90
+          path: build/incremental-baseline.jsonl
       # #150/#151：失败现场——ctest 完整日志、QtTest 落盘结果、黄金图当前渲染/差分。
       - name: Stage test diagnostics
         if: always()
@@ -259,11 +277,19 @@ jobs:
     timeout-minutes: 150
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
-      - name: Install QGIS 4.2 development packages (QGIS 钉版本 #138)
-        run: tools/ci_apt_qgis.sh libproj-dev libgeos-dev ccache qtkeychain-qt6-dev
+      # 方向75：原「Install QGIS 4.2 development packages」步 run 的是方向 71
+      # 已删除的 apt 安装脚本（该死脚本名已从全文清除，rg 零命中），安装步
+      # 即红并被 continue-on-error 吞掉——asan 档自方向 70 合入起从未跑进编译
+      # 步。依赖步顺序现逐行对拍 linux 主 job vendored 路：apt 只装政策例外
+      # 面，QGIS 栈走 bootstrap 拉 deb 闭包（tools/check_ci_scripts.py 守
+      # 引用存在性，防再断链）。
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install Qt6 dev packages (vendored 路只缺 Qt/工具面)
+        run: sudo apt-get update && sudo apt-get install -y
+          qt6-base-dev qt6-svg-dev qt6-serialport-dev qt6-positioning-dev qt6-tools-dev
+          qt6-webengine-dev qt6-pdf-dev qtkeychain-qt6-dev ccache ninja-build pkg-config
       - name: Cache ccache
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cache/ccache
           key: ${{ runner.os }}-ccache-asan-${{ github.sha }}
@@ -271,24 +297,33 @@ jobs:
             ${{ runner.os }}-ccache-asan-
             ${{ runner.os }}-ccache-
       - name: Cache vendor artifacts
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             vendor/onnxruntime
-          key: ${{ runner.os }}-ort-${{ hashFiles('vendor/manifest.json') }}
+            vendor/cache/debs
+            vendor/cache/lo
+          key: ${{ runner.os }}-ort-${{ hashFiles('vendor/manifest.json') }}-debclosure-${{ hashFiles('vendor/deb-closure.lock', 'vendor/deb-packages.txt') }}
       - name: Vendor dependencies
         run: ./paleo-dev bootstrap
+      # 裸跑 cmake 不经 paleo-dev 顶部的 QGIS_PREFIX_PATH 自动注入（linux
+      # 主 job 用 ./paleo-dev build 自带；linux-perf 的 Configure 同样显式给）。
       - name: Configure (ASAN+UBSAN)
+        env:
+          QGIS_PREFIX_PATH: ${{ github.workspace }}/vendor/prefix/usr
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
           -DPALEO_ENABLE_ASAN=ON -DPALEO_ENABLE_UBSAN=ON
       - name: Build
         run: cmake --build build
+      # 走 ./paleo-dev test 而非裸 ctest：vendored 路测试期需要 deb 库路径 /
+      # QGIS_PREFIX_PATH / GDAL_DRIVER_PATH 注入（与 linux 主 job 同源）；
+      # ASAN_OPTIONS 经 env 透传，串行 -j 1 语义不变。
       - name: Test (serial, LSAN off per devex 手动轮口径)
         env:
           QT_QPA_PLATFORM: offscreen
           LD_LIBRARY_PATH: ${{ github.workspace }}/vendor/onnxruntime/lib
           ASAN_OPTIONS: detect_leaks=0
-        run: ctest --test-dir build --output-on-failure -j 1
+        run: ./paleo-dev test -j 1 --output-on-failure
       - name: Stage test diagnostics
         if: always()
         shell: bash
@@ -298,7 +333,7 @@ jobs:
             find build -type f -name '*-result.txt' ! -path 'build/Testing/*' \
               -exec cp -f {} build/Testing/result-files/ \;
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: test-logs-linux-asan

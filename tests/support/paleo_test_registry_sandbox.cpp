@@ -155,7 +155,7 @@ struct RegistrySandbox
     }
     if ( requiredHive )
     {
-      std::fwprintf( stderr, L"[paleo-test-sandbox] required app hive unavailable — stopping before QSettings\n" );
+      std::fwprintf( stderr, L"[paleo-test-sandbox] required app hive unavailable; stopping before QSettings\n" );
       ::ExitProcess( ERROR_ACCESS_DENIED );
     }
 
@@ -176,7 +176,7 @@ struct RegistrySandbox
     if ( root )
       ::RegCloseKey( root );
     root = nullptr;
-    std::fwprintf( stderr, L"[paleo-test-sandbox] no registry sandbox — stopping before QSettings\n" );
+    std::fwprintf( stderr, L"[paleo-test-sandbox] no registry sandbox; stopping before QSettings\n" );
     ::ExitProcess( ERROR_ACCESS_DENIED );
   }
 

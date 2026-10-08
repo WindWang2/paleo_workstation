@@ -130,6 +130,11 @@ class SingleFactorKrigingTests : public QObject
     void hardBarrierKeepsCompartmentsSeparate();
     void domainMarksUnderKriging();
     void gridScaleRatioGate();
+    void directionGuideAsymmetricWeight();
+    void softBoundaryDistanceAttenuation();
+    void softBoundaryContinuityAcrossBoundary();
+    void constraintReceiptHonesty();
+    void softBoundaryClusterContinuity();
 };
 
 // Oracle 1（精确性）：γ(0)=0 口径下普通克里金在采样点无误差通过——对任意块金
@@ -559,6 +564,476 @@ void SingleFactorKrigingTests::gridScaleRatioGate()
                                           .arg( small.elapsed )
                                           .arg( large.elapsed )
                                           .arg( ratio ) ) );
+}
+
+void SingleFactorKrigingTests::directionGuideAsymmetricWeight()
+{
+  // 样本 A 沿走向 (10, 0)，值 100；样本 B 垂直走向 (0, 10)，值 0；距原点欧氏距离均为 10。
+  // 额外提供 6 口远离 (0,0) 的背景井（距离 > 500），满足全场 >= 8 口欠定门槛，
+  // 通过 searchRadius=30 或 krigingMaxPoints=2 确保原点邻域仅由 A、B 构成。
+  std::vector<Sample> wells;
+  wells.push_back( well( "A", 10.0, 0.0, 100.0 ) );
+  wells.push_back( well( "B", 0.0, 10.0, 0.0 ) );
+  for ( int i = 0; i < 6; ++i )
+    wells.push_back( well( ( "bg_" + std::to_string( i ) ).c_str(), 500.0 + 20.0 * i, 500.0, 50.0 ) );
+
+  ConstraintLine guide;
+  guide.stableId = "guide_x";
+  guide.semantic = Semantic::DirectionGuide;
+  guide.points = { { -50.0, 0.0 }, { 50.0, 0.0 } };
+  guide.ratio = 4.0;
+  guide.influenceRadius = 30.0;
+  guide.coreRadius = 0.0;
+  guide.enabled = true;
+
+  PreparedInput input = inputWithDomain( wells, rect( -60, -60, 650, 650 ) );
+  input.constraints = { guide };
+
+  ResolvedParameters params = krigingParams( 1.0, 25.0, 0.0 );
+  params.searchRadius = 30.0;
+  params.krigingMaxPoints = 2;
+  params.wellClusterLocality = true;
+
+  // 1. 全网格插值：原点 (0,0) 为像元中心
+  const GridSpec grid = gridSpec( 1, 1, -1.0, 1.0, 2.0 );
+  const SurfaceResult result = evaluateLocalKriging( input, grid, params, {} );
+
+  QCOMPARE( result.status, Status::Ok );
+  QCOMPARE( result.resolved.methodActual, std::string( "kriging" ) );
+  QVERIFY( result.krigingCells > 0 );
+  QCOMPARE( result.idwFallbackCells, 0 );
+
+  // 断言：回执存在且旧未消费 issue 缺席
+  const bool hasApplied = std::any_of( result.issues.begin(), result.issues.end(), []( const std::string &issue ) {
+    return issue.find( "direction_guide_applied:1" ) != std::string::npos;
+  } );
+  const bool hasNotUsed = std::any_of( result.issues.begin(), result.issues.end(), []( const std::string &issue ) {
+    return issue.find( "direction_guide_not_used_by_kriging" ) != std::string::npos;
+  } );
+  QVERIFY( hasApplied );
+  QVERIFY( !hasNotUsed );
+
+  // 断言：wellClusterLocality 说明 issue
+  const bool hasClusterIssue = std::any_of( result.issues.begin(), result.issues.end(), []( const std::string &issue ) {
+    return issue.find( "well_cluster_locality_not_used_by_kriging（克里金方程组已通过样本协方差矩阵内置筛选/去聚类效应，不叠加几何去聚类权重）" ) != std::string::npos;
+  } );
+  QVERIFY( hasClusterIssue );
+
+  const double z0 = result.values[0];
+  QVERIFY2( z0 > 75.0, qPrintable( QStringLiteral( "Expected z0 > 75.0, got %1" ).arg( z0 ) ) );
+
+  const double lambdaA = z0 / 100.0;
+  const double lambdaB = 1.0 - lambdaA;
+  QVERIFY2( lambdaA > 0.75, qPrintable( QStringLiteral( "Expected lambdaA > 0.75, got %1" ).arg( lambdaA ) ) );
+  QVERIFY2( lambdaB < 0.25, qPrintable( QStringLiteral( "Expected lambdaB < 0.25, got %1" ).arg( lambdaB ) ) );
+
+  // 2. 点查询核验
+  const std::vector<Point2> qPts = { Point2{ 0.0, 0.0 } };
+  const QueryResult qr = evaluateAt( input, qPts, params, {} );
+  QCOMPARE( qr.status, Status::Ok );
+  QCOMPARE( qr.krigingCells, 1 );
+  QCOMPARE( qr.idwFallbackCells, 0 );
+  QVERIFY( qr.values[0] > 75.0 );
+}
+
+void SingleFactorKrigingTests::softBoundaryDistanceAttenuation()
+{
+  // 软边界沿 Y 轴 (x=0)；查询点置于 (5, 0)；
+  // 同侧样本 S1 (15, 0)，值 100；异侧样本 S2 (-5, 0)，值 0；欧氏距离均为 10。
+  // 额外提供 6 口远离 (5,0) 的背景井（距离 > 500），满足全场 >= 8 口欠定门槛。
+  std::vector<Sample> wells;
+  wells.push_back( well( "S1", 15.0, 0.0, 100.0 ) );
+  wells.push_back( well( "S2", -5.0, 0.0, 0.0 ) );
+  for ( int i = 0; i < 6; ++i )
+    wells.push_back( well( ( "bg_" + std::to_string( i ) ).c_str(), 500.0 + 20.0 * i, 500.0, 50.0 ) );
+
+  ConstraintLine softLine;
+  softLine.stableId = "soft_y";
+  softLine.semantic = Semantic::InterpretiveBoundary;
+  softLine.points = { { 0.0, -50.0 }, { 0.0, 50.0 } };
+  softLine.softStrength = 0.6;
+  softLine.softRadius = 25.0;
+  softLine.enabled = true;
+
+  PreparedInput input = inputWithDomain( wells, rect( -60, -60, 650, 650 ) );
+  input.constraints = { softLine };
+
+  ResolvedParameters params = krigingParams( 1.0, 25.0, 0.0 );
+  params.searchRadius = 30.0;
+  params.krigingMaxPoints = 2;
+
+  // 1. 全网格插值：查询点 (5, 0) 为像元中心
+  const GridSpec grid = gridSpec( 1, 1, 4.0, 1.0, 2.0 );
+  const SurfaceResult result = evaluateLocalKriging( input, grid, params, {} );
+
+  QCOMPARE( result.status, Status::Ok );
+  QCOMPARE( result.resolved.methodActual, std::string( "kriging" ) );
+  QVERIFY( result.krigingCells > 0 );
+  QCOMPARE( result.idwFallbackCells, 0 );
+
+  // 断言：回执存在且旧未消费 issue 缺席
+  const bool hasApplied = std::any_of( result.issues.begin(), result.issues.end(), []( const std::string &issue ) {
+    return issue.find( "soft_boundary_applied:1" ) != std::string::npos;
+  } );
+  const bool hasNotUsed = std::any_of( result.issues.begin(), result.issues.end(), []( const std::string &issue ) {
+    return issue.find( "soft_boundary_not_used_by_kriging" ) != std::string::npos;
+  } );
+  QVERIFY( hasApplied );
+  QVERIFY( !hasNotUsed );
+
+  const double z0 = result.values[0];
+  QVERIFY2( z0 > 55.0, qPrintable( QStringLiteral( "Expected z0 > 55.0, got %1" ).arg( z0 ) ) );
+
+  const double lambda1 = z0 / 100.0;
+  const double lambda2 = 1.0 - lambda1;
+  QVERIFY2( lambda1 > 0.55, qPrintable( QStringLiteral( "Expected lambda1 > 0.55, got %1" ).arg( lambda1 ) ) );
+  QVERIFY2( lambda2 < 0.45, qPrintable( QStringLiteral( "Expected lambda2 < 0.45, got %1" ).arg( lambda2 ) ) );
+
+  // 2. 采样点精确性核验：Z(S1) == 100, Z(S2) == 0
+  const std::vector<Point2> samplePts = { Point2{ 15.0, 0.0 }, Point2{ -5.0, 0.0 } };
+  const QueryResult sampleQr = evaluateAt( input, samplePts, params, {} );
+  QCOMPARE( sampleQr.status, Status::Ok );
+  QCOMPARE( sampleQr.krigingCells, 2 );
+  QCOMPARE( sampleQr.idwFallbackCells, 0 );
+  QVERIFY2( std::fabs( sampleQr.values[0] - 100.0 ) <= 1e-9,
+            qPrintable( QStringLiteral( "Expected Z(S1) == 100.0, got %1" ).arg( sampleQr.values[0] ) ) );
+  QVERIFY2( std::fabs( sampleQr.values[1] - 0.0 ) <= 1e-9,
+            qPrintable( QStringLiteral( "Expected Z(S2) == 0.0, got %1" ).arg( sampleQr.values[1] ) ) );
+
+  // 3. 边界线正上方采样点精确性核验：即使样本井直接落在软边界线上，也必须精确无误差通过
+  std::vector<Sample> wellsWithOnBoundary = wells;
+  wellsWithOnBoundary.push_back( well( "S0_on_line", 0.0, 0.0, 42.0 ) );
+  PreparedInput inputOnBoundary = inputWithDomain( wellsWithOnBoundary, rect( -60, -60, 650, 650 ) );
+  inputOnBoundary.constraints = { softLine };
+  const std::vector<Point2> onBoundaryPts = { Point2{ 0.0, 0.0 } };
+  const QueryResult onBoundaryQr = evaluateAt( inputOnBoundary, onBoundaryPts, params, {} );
+  QCOMPARE( onBoundaryQr.status, Status::Ok );
+  QVERIFY2( std::fabs( onBoundaryQr.values[0] - 42.0 ) <= 1e-9,
+            qPrintable( QStringLiteral( "Expected Z(S0 on boundary) == 42.0, got %1" ).arg( onBoundaryQr.values[0] ) ) );
+}
+
+void SingleFactorKrigingTests::softBoundaryContinuityAcrossBoundary()
+{
+  // 对称双井跨越软边界场景：
+  // 软边界沿 Y 轴 (x=0)；
+  // 样本 S1 位于 (+10, 0)，值 100.0；样本 S2 位于 (-10, 0)，值 0.0；
+  // 背景井 6 口位于远场 (500+, 500)，满足欠定门槛，searchRadius=30 限制邻域仅为 S1 与 S2。
+  std::vector<Sample> wells;
+  wells.push_back( well( "S1_pos", 10.0, 0.0, 100.0 ) );
+  wells.push_back( well( "S2_neg", -10.0, 0.0, 0.0 ) );
+  for ( int i = 0; i < 6; ++i )
+    wells.push_back( well( ( "bg_" + std::to_string( i ) ).c_str(), 500.0 + 20.0 * i, 500.0, 50.0 ) );
+
+  ConstraintLine softLine;
+  softLine.stableId = "soft_continuity";
+  softLine.semantic = Semantic::InterpretiveBoundary;
+  softLine.points = { { 0.0, -50.0 }, { 0.0, 50.0 } };
+  softLine.softStrength = 0.6;
+  softLine.softRadius = 25.0;
+  softLine.enabled = true;
+
+  PreparedInput input = inputWithDomain( wells, rect( -60, -60, 650, 650 ) );
+  input.constraints = { softLine };
+
+  ResolvedParameters params = krigingParams( 1.0, 25.0, 0.0 );
+  params.searchRadius = 30.0;
+  params.krigingMaxPoints = 2;
+
+  // 1. 微元跨界连续性核验 (Micro-scale continuity: eps = 1e-5)
+  // 阶跃 Heaviside 实现会导致跨界 26.93% 悬崖跳跃，连续衰减公式保证跳跃 <= 0.001
+  const std::vector<Point2> microPts = {
+    Point2{ -1e-5, 0.0 },
+    Point2{ 0.0, 0.0 },
+    Point2{ +1e-5, 0.0 }
+  };
+  const QueryResult microQr = evaluateAt( input, microPts, params, {} );
+  QCOMPARE( microQr.status, Status::Ok );
+  QCOMPARE( microQr.krigingCells, 3 );
+  QCOMPARE( microQr.idwFallbackCells, 0 );
+
+  const double zNeg = microQr.values[0];
+  const double zZero = microQr.values[1];
+  const double zPos = microQr.values[2];
+
+  // 断言：跨界微元跳跃 < 0.01（阶跃 bug 会给出 26.93，连续实现 < 0.0002）
+  const double crossJump = std::fabs( zPos - zNeg );
+  QVERIFY2( crossJump < 0.01,
+            qPrintable( QStringLiteral( "Cross-boundary step cliff detected: |Z(+1e-5) - Z(-1e-5)| = %1 (must be < 0.01)" )
+                            .arg( crossJump ) ) );
+
+  // 断言：边界线上无 V 形脊线突跳 (No V-notch on boundary line: Z(0,0) == 50.0)
+  // 阶跃 bug 在 x=0 处两边 penalty 均归零，但在 x->0^- 为 36.54，产生 13.46 的 V 形折痕
+  const double notchZero = std::fabs( zZero - 50.0 );
+  QVERIFY2( notchZero < 0.01,
+            qPrintable( QStringLiteral( "V-notch crease detected at boundary: |Z(0) - 50.0| = %1 (must be < 0.01)" )
+                            .arg( notchZero ) ) );
+
+  // 断言：边界线上点与邻域点连续过渡 (C0 continuity from either side into the boundary)
+  const double jumpToZeroPos = std::fabs( zPos - zZero );
+  const double jumpToZeroNeg = std::fabs( zZero - zNeg );
+  QVERIFY2( jumpToZeroPos < 0.01,
+            qPrintable( QStringLiteral( "|Z(+1e-5) - Z(0)| = %1 (must be < 0.01)" ).arg( jumpToZeroPos ) ) );
+  QVERIFY2( jumpToZeroNeg < 0.01,
+            qPrintable( QStringLiteral( "|Z(0) - Z(-1e-5)| = %1 (must be < 0.01)" ).arg( jumpToZeroNeg ) ) );
+
+  // 2. 宏观跨界截线单调性与反对称性核验 (Macro transect x in [-1.0, 1.0])
+  const std::vector<double> xs = { -1.0, -0.5, -0.1, -0.01, 0.0, 0.01, 0.1, 0.5, 1.0 };
+  std::vector<Point2> transectPts;
+  for ( double x : xs )
+    transectPts.push_back( Point2{ x, 0.0 } );
+
+  const QueryResult transectQr = evaluateAt( input, transectPts, params, {} );
+  QCOMPARE( transectQr.status, Status::Ok );
+
+  for ( std::size_t i = 1; i < xs.size(); ++i )
+  {
+    QVERIFY2( transectQr.values[i] > transectQr.values[i - 1],
+              qPrintable( QStringLiteral( "Monotonicity violated across soft boundary: Z(x=%1)=%2 <= Z(x=%3)=%4" )
+                              .arg( xs[i] )
+                              .arg( transectQr.values[i] )
+                              .arg( xs[i - 1] )
+                              .arg( transectQr.values[i - 1] ) ) );
+  }
+
+  // 反对称性：以 50.0 为中心对称，Z(+x) + Z(-x) 应等于 100.0
+  for ( std::size_t i = 0; i < xs.size() / 2; ++i )
+  {
+    const double sum = transectQr.values[i] + transectQr.values[xs.size() - 1 - i];
+    QVERIFY2( std::fabs( sum - 100.0 ) < 0.01,
+              qPrintable( QStringLiteral( "Symmetry violated: Z(%1) + Z(%2) = %3 != 100.0" )
+                              .arg( xs[i] )
+                              .arg( xs[xs.size() - 1 - i] )
+                              .arg( sum ) ) );
+  }
+
+  // 3. 全网格剖面连续性：网格跨边界不应出现离散阶跃撕裂
+  // 网格覆盖 x in [-5, 5]，列宽 0.5，行宽 1.0
+  const GridSpec grid = gridSpec( 20, 1, -5.0, 0.5, 0.5 );
+  const SurfaceResult gridRes = evaluateLocalKriging( input, grid, params, {} );
+  QCOMPARE( gridRes.status, Status::Ok );
+  QCOMPARE( gridRes.resolved.methodActual, std::string( "kriging" ) );
+  for ( int c = 1; c < grid.cols; ++c )
+  {
+    const double step = std::fabs( gridRes.values[c] - gridRes.values[c - 1] );
+    // dx = 0.5，在平滑曲面上单步变化应严格 < 5.0，绝对不能出现 > 20 的断崖
+    QVERIFY2( step < 5.0,
+              qPrintable( QStringLiteral( "Grid surface tearing between col %1 and %2: step = %3" )
+                              .arg( c - 1 )
+                              .arg( c )
+                              .arg( step ) ) );
+  }
+}
+
+void SingleFactorKrigingTests::constraintReceiptHonesty()
+{
+  std::vector<Sample> wells;
+  wells.push_back( well( "S1", 15.0, 0.0, 100.0 ) );
+  wells.push_back( well( "S2", -5.0, 0.0, 0.0 ) );
+  for ( int i = 0; i < 6; ++i )
+    wells.push_back( well( ( "bg_" + std::to_string( i ) ).c_str(), 500.0 + 20.0 * i, 500.0, 50.0 ) );
+
+  PreparedInput input = inputWithDomain( wells, rect( -60, -60, 650, 650 ) );
+  ResolvedParameters params = krigingParams( 1.0, 25.0, 0.0 );
+  params.searchRadius = 30.0;
+  params.krigingMaxPoints = 2;
+  const GridSpec grid = gridSpec( 1, 1, 4.0, 1.0, 2.0 );
+
+  // 基准：无约束纯欧氏克里金
+  const SurfaceResult baseline = evaluateLocalKriging( input, grid, params, {} );
+  QCOMPARE( baseline.status, Status::Ok );
+  const double baselineZ = baseline.values[0];
+
+  auto hasReceipt = []( const std::vector<std::string> &issues, const std::string &prefix ) {
+    return std::any_of( issues.begin(), issues.end(), [&]( const std::string &iss ) {
+      return iss.find( prefix ) != std::string::npos;
+    } );
+  };
+
+  // Case 1: softStrength = 0.0 时，不得输出 soft_boundary_applied，数值必须与基准一致
+  {
+    ConstraintLine softZero;
+    softZero.stableId = "soft_zero";
+    softZero.semantic = Semantic::InterpretiveBoundary;
+    softZero.points = { { 0.0, -50.0 }, { 0.0, 50.0 } };
+    softZero.softStrength = 0.0;
+    softZero.softRadius = 25.0;
+    softZero.enabled = true;
+
+    PreparedInput inp = input;
+    inp.constraints = { softZero };
+    const SurfaceResult res = evaluateLocalKriging( inp, grid, params, {} );
+    QCOMPARE( res.status, Status::Ok );
+    QVERIFY2( !hasReceipt( res.issues, "soft_boundary_applied" ),
+              "Fabricated receipt: soft_boundary_applied emitted when softStrength == 0.0" );
+    QVERIFY2( std::fabs( res.values[0] - baselineZ ) < 1e-6,
+              "Numerical corruption: softStrength == 0.0 modified Kriging estimate" );
+  }
+
+  // Case 2: softStrength < 0.0（如 -0.5）时，不得输出 soft_boundary_applied
+  {
+    ConstraintLine softNeg;
+    softNeg.stableId = "soft_neg";
+    softNeg.semantic = Semantic::InterpretiveBoundary;
+    softNeg.points = { { 0.0, -50.0 }, { 0.0, 50.0 } };
+    softNeg.softStrength = -0.5;
+    softNeg.softRadius = 25.0;
+    softNeg.enabled = true;
+
+    PreparedInput inp = input;
+    inp.constraints = { softNeg };
+    const SurfaceResult res = evaluateLocalKriging( inp, grid, params, {} );
+    QCOMPARE( res.status, Status::Ok );
+    QVERIFY2( !hasReceipt( res.issues, "soft_boundary_applied" ),
+              "Fabricated receipt: soft_boundary_applied emitted when softStrength < 0" );
+  }
+
+  // Case 3: softLine.enabled == false 时，不得输出 soft_boundary_applied
+  {
+    ConstraintLine softDisabled;
+    softDisabled.stableId = "soft_disabled";
+    softDisabled.semantic = Semantic::InterpretiveBoundary;
+    softDisabled.points = { { 0.0, -50.0 }, { 0.0, 50.0 } };
+    softDisabled.softStrength = 0.6;
+    softDisabled.softRadius = 25.0;
+    softDisabled.enabled = false;
+
+    PreparedInput inp = input;
+    inp.constraints = { softDisabled };
+    const SurfaceResult res = evaluateLocalKriging( inp, grid, params, {} );
+    QCOMPARE( res.status, Status::Ok );
+    QVERIFY2( !hasReceipt( res.issues, "soft_boundary_applied" ),
+              "Fabricated receipt: soft_boundary_applied emitted when enabled == false" );
+    QVERIFY2( std::fabs( res.values[0] - baselineZ ) < 1e-6,
+              "Disabled constraint affected Kriging estimate" );
+  }
+
+  // Case 4: softLine 折线仅含 1 个点（几何退化）时，不得输出 soft_boundary_applied
+  {
+    ConstraintLine softDegen;
+    softDegen.stableId = "soft_degen";
+    softDegen.semantic = Semantic::InterpretiveBoundary;
+    softDegen.points = { { 0.0, 0.0 } };
+    softDegen.softStrength = 0.6;
+    softDegen.softRadius = 25.0;
+    softDegen.enabled = true;
+
+    PreparedInput inp = input;
+    inp.constraints = { softDegen };
+    const SurfaceResult res = evaluateLocalKriging( inp, grid, params, {} );
+    QCOMPARE( res.status, Status::Ok );
+    QVERIFY2( !hasReceipt( res.issues, "soft_boundary_applied" ),
+              "Fabricated receipt: soft_boundary_applied emitted for single-point boundary" );
+  }
+
+  // Case 5: directionGuide.ratio <= 1.0 时，不得输出 direction_guide_applied
+  {
+    ConstraintLine guideIso;
+    guideIso.stableId = "guide_iso";
+    guideIso.semantic = Semantic::DirectionGuide;
+    guideIso.points = { { -50.0, 0.0 }, { 50.0, 0.0 } };
+    guideIso.ratio = 1.0;
+    guideIso.influenceRadius = 30.0;
+    guideIso.enabled = true;
+
+    PreparedInput inp = input;
+    inp.constraints = { guideIso };
+    const SurfaceResult res = evaluateLocalKriging( inp, grid, params, {} );
+    QCOMPARE( res.status, Status::Ok );
+    QVERIFY2( !hasReceipt( res.issues, "direction_guide_applied" ),
+              "Fabricated receipt: direction_guide_applied emitted when ratio <= 1.0" );
+  }
+
+  // Case 6: directionGuide 折线仅含 1 点时，不得输出 direction_guide_applied
+  {
+    ConstraintLine guideDegen;
+    guideDegen.stableId = "guide_degen";
+    guideDegen.semantic = Semantic::DirectionGuide;
+    guideDegen.points = { { 0.0, 0.0 } };
+    guideDegen.ratio = 4.0;
+    guideDegen.influenceRadius = 30.0;
+    guideDegen.enabled = true;
+
+    PreparedInput inp = input;
+    inp.constraints = { guideDegen };
+    const SurfaceResult res = evaluateLocalKriging( inp, grid, params, {} );
+    QCOMPARE( res.status, Status::Ok );
+    QVERIFY2( !hasReceipt( res.issues, "direction_guide_applied" ),
+              "Fabricated receipt: direction_guide_applied emitted for single-point guide" );
+  }
+
+  // Case 7: 真实有效约束必须诚实输出正确计数回执
+  {
+    ConstraintLine validSoft;
+    validSoft.stableId = "valid_soft";
+    validSoft.semantic = Semantic::InterpretiveBoundary;
+    validSoft.points = { { 0.0, -50.0 }, { 0.0, 50.0 } };
+    validSoft.softStrength = 0.6;
+    validSoft.softRadius = 25.0;
+    validSoft.enabled = true;
+
+    ConstraintLine validGuide;
+    validGuide.stableId = "valid_guide";
+    validGuide.semantic = Semantic::DirectionGuide;
+    validGuide.points = { { -50.0, 0.0 }, { 50.0, 0.0 } };
+    validGuide.ratio = 3.0;
+    validGuide.influenceRadius = 30.0;
+    validGuide.enabled = true;
+
+    PreparedInput inp = input;
+    inp.constraints = { validSoft, validGuide };
+    const SurfaceResult res = evaluateLocalKriging( inp, grid, params, {} );
+    QCOMPARE( res.status, Status::Ok );
+    QVERIFY( hasReceipt( res.issues, "soft_boundary_applied:1" ) );
+    QVERIFY( hasReceipt( res.issues, "direction_guide_applied:1" ) );
+  }
+}
+
+void SingleFactorKrigingTests::softBoundaryClusterContinuity()
+{
+  // 密集井丛跨边界场景（左侧 5 口井值 0，右侧 5 口井值 100，软边界位于 x=0）
+  std::vector<Sample> wells;
+  for ( int i = 0; i < 5; ++i )
+  {
+    const double y = -8.0 + 4.0 * i;
+    wells.push_back( well( ( "L_" + std::to_string( i ) ).c_str(), -15.0 + 0.5 * ( i % 2 ), y, 0.0 ) );
+    wells.push_back( well( ( "R_" + std::to_string( i ) ).c_str(), 15.0 - 0.5 * ( i % 2 ), y, 100.0 ) );
+  }
+
+  ConstraintLine softLine;
+  softLine.stableId = "soft_cluster";
+  softLine.semantic = Semantic::InterpretiveBoundary;
+  softLine.points = { { 0.0, -50.0 }, { 0.0, 50.0 } };
+  softLine.softStrength = 0.6;
+  softLine.softRadius = 25.0;
+  softLine.enabled = true;
+
+  PreparedInput input = inputWithDomain( wells, rect( -50, -50, 50, 50 ) );
+  input.constraints = { softLine };
+
+  ResolvedParameters params = krigingParams( 1.0, 50.0, 0.0 );
+  params.krigingMaxPoints = 10;
+  params.searchRadius = 40.0;
+
+  // 查询跨越 x=0 的微元邻域
+  const std::vector<Point2> qPts = {
+    Point2{ -0.01, 0.0 },
+    Point2{ 0.0, 0.0 },
+    Point2{ +0.01, 0.0 }
+  };
+  const QueryResult qr = evaluateAt( input, qPts, params, {} );
+  QCOMPARE( qr.status, Status::Ok );
+  QCOMPARE( qr.krigingCells, 3 );
+  QCOMPARE( qr.idwFallbackCells, 0 );
+
+  // 在阶跃实现下，跳跃差值高达 39.904410
+  // 在连续实现下，双侧井丛关于 x=0 对称，Z(-0.01) 与 Z(+0.01) 应平滑对称且差值 < 0.2
+  const double clusterJump = std::fabs( qr.values[2] - qr.values[0] );
+  QVERIFY2( clusterJump < 0.2,
+            qPrintable( QStringLiteral( "Dense cluster boundary jump = %1 (must be < 0.2)" ).arg( clusterJump ) ) );
+
+  // 边界线上值严格保持 50.0
+  QVERIFY2( std::fabs( qr.values[1] - 50.0 ) < 0.05,
+            qPrintable( QStringLiteral( "Dense cluster boundary line Z(0) = %1 (expected 50.0)" ).arg( qr.values[1] ) ) );
 }
 
 QTEST_MAIN( SingleFactorKrigingTests )

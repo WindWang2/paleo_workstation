@@ -2,6 +2,9 @@
 #include "localidw.h"
 
 #include "../geostat/kriging.h"
+#include "../geostat/linsolve.h"
+#include "../geostat/neighborhood.h"
+#include "../geostat/variogram.h"
 
 #include "curvekernel.h"
 #include "partition.h"
@@ -22,6 +25,27 @@ namespace
 
 constexpr int kBatch = 512;
 
+void clampKrigingParams( geostat::KrigingParams *params )
+{
+  if ( params->maxPoints > 0 )
+  {
+    params->maxPoints = std::clamp( params->maxPoints, 1, 64 );
+    params->minPoints = std::clamp( params->minPoints, 1, params->maxPoints );
+  }
+  else
+  {
+    params->minPoints = std::max( params->minPoints, 1 );
+  }
+  if ( params->searchRadius < 0 )
+    params->searchRadius = 0;
+}
+
+bool isVariogramUsable( const geostat::VariogramModel &model )
+{
+  return model.range > 0 && std::isfinite( model.range ) && model.nugget >= 0 &&
+         model.sill >= 0 && std::isfinite( model.nugget ) && std::isfinite( model.sill );
+}
+
 struct DirTerm
 {
   CurveKernel kernel;
@@ -40,6 +64,7 @@ struct SoftTerm
   std::vector<Point2> points;
   std::vector<double> station;
   std::vector<double> wellSides;
+  std::vector<double> krigingSides;
 };
 
 struct Engine
@@ -52,6 +77,12 @@ struct Engine
   // 方向41：methodActual=="kriging" 时为非空（分量样本预建邻域索引）。
   // 空 = 纯 IDW 权重路径；病态格回落时仍用同一 IDW 权重公式。
   std::unique_ptr<geostat::KrigingSolver> solver;
+
+  std::vector<geostat::Sample> krigingSamples;
+  geostat::detail::NeighborIndex krigingIndex;
+  geostat::VariogramModel variogramModel;
+  geostat::KrigingParams krigingParams;
+  bool krigingValid = false;
 };
 
 // 变差函数参数 → geostat 模型（各向异性 ratio<1 或不设方位即各向同性）。
@@ -190,14 +221,34 @@ Engine makeEngine( const std::vector<Sample> &wells, const ResolvedParameters &p
     std::vector<geostat::Sample> geostatSamples;
     geostatSamples.reserve( wells.size() );
     for ( const Sample &sample : wells )
-      geostatSamples.push_back( geostat::Sample{ sample.x, sample.y, sample.value } );
-    geostat::KrigingParams krigingParams;
-    krigingParams.maxPoints = params.krigingMaxPoints;
-    krigingParams.minPoints = params.krigingMinPoints;
+    {
+      if ( std::isfinite( sample.x ) && std::isfinite( sample.y ) && std::isfinite( sample.value ) )
+        geostatSamples.push_back( geostat::Sample{ sample.x, sample.y, sample.value } );
+    }
+    engine.variogramModel = variogramModelOf( params );
+    engine.krigingParams.maxPoints = params.krigingMaxPoints;
+    engine.krigingParams.minPoints = params.krigingMinPoints;
     if ( params.searchRadius )
-      krigingParams.searchRadius = *params.searchRadius;
-    auto solver = std::make_unique<geostat::KrigingSolver>( geostatSamples, variogramModelOf( params ),
-                                                            krigingParams );
+      engine.krigingParams.searchRadius = *params.searchRadius;
+    clampKrigingParams( &engine.krigingParams );
+
+    int merged = 0;
+    engine.krigingSamples = geostat::detail::dedupeSamples( geostatSamples, &merged );
+    if ( !engine.krigingSamples.empty() && isVariogramUsable( engine.variogramModel ) )
+    {
+      engine.krigingIndex = geostat::detail::NeighborIndex::build( engine.krigingSamples );
+      engine.krigingValid = true;
+    }
+
+    for ( SoftTerm &term : engine.soft )
+    {
+      term.krigingSides.reserve( engine.krigingSamples.size() );
+      for ( const geostat::Sample &s : engine.krigingSamples )
+        term.krigingSides.push_back( sideOf( term, Point2{ s.x, s.y } ) );
+    }
+
+    auto solver = std::make_unique<geostat::KrigingSolver>( geostatSamples, engine.variogramModel,
+                                                            engine.krigingParams );
     if ( solver->valid() )
       engine.solver = std::move( solver );
   }
@@ -242,20 +293,170 @@ void evaluateBatch( const Engine &engine, const std::vector<Point2> &queries, st
   for ( int q = 0; q < nQuery; ++q )
   {
     const Point2 query = queries[static_cast<std::size_t>( q )];
-    bool krigingUnavailable = false;
-    if ( engine.solver )
+    for ( std::size_t d = 0; d < engine.directions.size(); ++d )
     {
-      const geostat::KrigingPointResult point = engine.solver->solveAt( query.x, query.y );
-      if ( point.ok )
+      if ( engine.directions[d].anyWellGate )
+        influence[static_cast<std::size_t>( q )] =
+            std::max( influence[static_cast<std::size_t>( q )], dirGate[d][static_cast<std::size_t>( q )] );
+    }
+
+    bool krigingUnavailable = false;
+    if ( engine.krigingValid )
+    {
+      // 1. 采样点精确内插：如果查询点在某样本坐标容差内，直接返回精确真值
+      bool exactSampleFound = false;
+      for ( const geostat::Sample &sample : engine.krigingSamples )
       {
-        values[static_cast<std::size_t>( q )] = point.estimate;
-        if ( krigingCells )
-          ++( *krigingCells );
-        continue;
+        const double dx = query.x - sample.x;
+        const double dy = query.y - sample.y;
+        if ( dx * dx + dy * dy <= 1e-18 )
+        {
+          values[static_cast<std::size_t>( q )] = sample.value;
+          if ( krigingCells )
+            ++( *krigingCells );
+          exactSampleFound = true;
+          break;
+        }
       }
-      // 方程奇异/病态（或半径闸不足）：落到下面的 IDW 权重。只有在确实给出
-      // 有限 IDW 值时才算一次「回落」，两种都无值的格保持 NaN 不计数。
-      krigingUnavailable = true;
+      if ( exactSampleFound )
+        continue;
+
+      // 2. 邻域搜索
+      std::vector<std::uint32_t> neighborhood;
+      const int k = engine.krigingParams.maxPoints > 0
+                        ? engine.krigingParams.maxPoints
+                        : static_cast<int>( engine.krigingIndex.size() );
+      engine.krigingIndex.queryNearest( query.x, query.y, k, engine.krigingParams.searchRadius, &neighborhood );
+
+      if ( ( engine.krigingParams.searchRadius > 0 &&
+             static_cast<int>( neighborhood.size() ) < engine.krigingParams.minPoints ) ||
+           neighborhood.empty() )
+      {
+        krigingUnavailable = true;
+      }
+      else
+      {
+        const int n = static_cast<int>( neighborhood.size() );
+        const int n1 = n + 1;
+        std::vector<double> a( static_cast<std::size_t>( n1 ) * n1, 0.0 );
+        std::vector<double> b( static_cast<std::size_t>( n1 ), 0.0 );
+
+        // 方向引导线：局部张量场改造距离度量 (MLA)
+        double totalGate = 0.0;
+        for ( std::size_t d = 0; d < engine.directions.size(); ++d )
+          totalGate += dirGate[d][static_cast<std::size_t>( q )];
+
+        auto metricDistance2 = [&]( double dx, double dy ) -> double {
+          const double euc2 = dx * dx + dy * dy;
+          if ( engine.directions.empty() || !( totalGate > 0.0 ) )
+            return euc2;
+          double adj = 0.0;
+          for ( std::size_t d = 0; d < engine.directions.size(); ++d )
+          {
+            const double g = dirGate[d][static_cast<std::size_t>( q )];
+            if ( !( g > 0.0 ) )
+              continue;
+            const double r = engine.directions[d].reduction;
+            const auto &T = dirTensor[d][static_cast<std::size_t>( q )];
+            adj += g * r * tangentEnergy( dx, dy, T );
+          }
+          adj /= std::max( totalGate, 1.0 );
+          return std::max( euc2 - adj, 0.0 );
+        };
+
+        for ( int i = 0; i < n; ++i )
+        {
+          const geostat::Sample &si = engine.krigingSamples[neighborhood[static_cast<std::size_t>( i )]];
+          for ( int j = i + 1; j < n; ++j )
+          {
+            const geostat::Sample &sj = engine.krigingSamples[neighborhood[static_cast<std::size_t>( j )]];
+            double gamma = 0.0;
+            if ( !engine.directions.empty() && totalGate > 0.0 )
+            {
+              const double d2 = metricDistance2( si.x - sj.x, si.y - sj.y );
+              gamma = engine.variogramModel.semivariance( std::sqrt( d2 ) );
+            }
+            else
+            {
+              gamma = engine.variogramModel.semivariance( si.x - sj.x, si.y - sj.y );
+            }
+            a[static_cast<std::size_t>( i ) * n1 + j] = gamma;
+            a[static_cast<std::size_t>( j ) * n1 + i] = gamma;
+          }
+          a[static_cast<std::size_t>( i ) * n1 + n] = 1.0;
+          a[static_cast<std::size_t>( n ) * n1 + i] = 1.0;
+
+          // 软边界：跨界样本有效距离膨胀衰减
+          const std::uint32_t sampleIdx = neighborhood[static_cast<std::size_t>( i )];
+          double penalty = 0.0;
+          for ( std::size_t s = 0; s < engine.soft.size(); ++s )
+          {
+            const double qSide = softSide[s][static_cast<std::size_t>( q )];
+            const double wSide = engine.soft[s].krigingSides[sampleIdx];
+            const double opposite = ( 1.0 - qSide * wSide ) * 0.5;
+            penalty = std::max( penalty, engine.soft[s].strength * softGate[s][static_cast<std::size_t>( q )] * opposite );
+          }
+          penalty = std::clamp( penalty, 0.0, 0.99 );
+
+          const double dx = si.x - query.x;
+          const double dy = si.y - query.y;
+          double gamma_i = 0.0;
+          if ( !engine.directions.empty() && totalGate > 0.0 )
+          {
+            const double d2 = metricDistance2( dx, dy );
+            const double hEff = std::sqrt( d2 ) / std::sqrt( 1.0 - penalty );
+            gamma_i = engine.variogramModel.semivariance( hEff );
+          }
+          else
+          {
+            const double factor = 1.0 / std::sqrt( 1.0 - penalty );
+            gamma_i = engine.variogramModel.semivariance( dx * factor, dy * factor );
+          }
+          b[static_cast<std::size_t>( i )] = gamma_i;
+        }
+        b[static_cast<std::size_t>( n )] = 1.0;
+
+        std::vector<double> solution;
+        if ( !geostat::solveDenseLu( a, n1, b, solution ) )
+        {
+          krigingUnavailable = true;
+        }
+        else
+        {
+          double estimate = 0.0;
+          double variance = 0.0;
+          for ( int i = 0; i < n; ++i )
+          {
+            const double weight = solution[static_cast<std::size_t>( i )];
+            estimate += weight * engine.krigingSamples[neighborhood[static_cast<std::size_t>( i )]].value;
+            variance += weight * b[static_cast<std::size_t>( i )];
+          }
+          variance += solution[static_cast<std::size_t>( n )]; // + μ
+
+          if ( !std::isfinite( estimate ) || !std::isfinite( variance ) )
+          {
+            krigingUnavailable = true;
+          }
+          else
+          {
+            const double varianceScale = std::max( 1.0, engine.variogramModel.nugget + engine.variogramModel.sill );
+            if ( variance < 0.0 )
+            {
+              if ( variance < -1e-9 * varianceScale )
+                krigingUnavailable = true;
+              else
+                variance = 0.0;
+            }
+            if ( !krigingUnavailable )
+            {
+              values[static_cast<std::size_t>( q )] = estimate;
+              if ( krigingCells )
+                ++( *krigingCells );
+              continue;
+            }
+          }
+        }
+      }
     }
     double nearest = std::numeric_limits<double>::infinity();
     for ( int w = 0; w < nWell; ++w )
@@ -448,7 +649,56 @@ QueryResult evaluateAt( const PreparedInput &input, std::span<const Point2> quer
       return result;
     }
   }
-  const Engine engine = makeEngine( input.samples, parameters );
+  ResolvedParameters effectiveParams = parameters;
+  for ( const ConstraintLine &line : input.constraints )
+  {
+    if ( !line.enabled )
+      continue;
+    if ( line.semantic == Semantic::DirectionGuide && line.ratio > 1.0 && line.points.size() >= 2 )
+    {
+      bool found = false;
+      for ( const auto &d : effectiveParams.directions )
+      {
+        if ( d.id == line.stableId )
+        {
+          found = true;
+          break;
+        }
+      }
+      if ( !found )
+      {
+        ResolvedDirection resolved;
+        resolved.id = line.stableId;
+        resolved.ratio = line.ratio;
+        resolved.influence = line.influenceRadius > 0.0 ? line.influenceRadius : 50.0;
+        resolved.core = line.coreRadius > 0.0 ? line.coreRadius : 0.0;
+        resolved.points = line.points;
+        effectiveParams.directions.push_back( std::move( resolved ) );
+      }
+    }
+    else if ( line.semantic == Semantic::InterpretiveBoundary && line.softStrength > 0.0 && line.points.size() >= 2 )
+    {
+      bool found = false;
+      for ( const auto &s : effectiveParams.soft )
+      {
+        if ( s.id == line.stableId )
+        {
+          found = true;
+          break;
+        }
+      }
+      if ( !found )
+      {
+        ResolvedSoft resolved;
+        resolved.id = line.stableId;
+        resolved.radius = line.softRadius > 0.0 ? line.softRadius : 25.0;
+        resolved.strength = std::clamp( line.softStrength, 0.0, 0.8 );
+        resolved.points = line.points;
+        effectiveParams.soft.push_back( std::move( resolved ) );
+      }
+    }
+  }
+  const Engine engine = makeEngine( input.samples, effectiveParams );
   result.values.assign( queryPoints.size(), std::numeric_limits<double>::quiet_NaN() );
   result.influence.assign( queryPoints.size(), 0 );
   const int total = static_cast<int>( queryPoints.size() );

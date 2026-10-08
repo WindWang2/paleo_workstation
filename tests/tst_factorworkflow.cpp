@@ -1624,6 +1624,143 @@ class TestFactorWorkflow : public QObject
                                .arg( numeric.join( QLatin1Char( ',' ) ) ) ) );
       }
     }
+
+    static bool setupGridWells( Fixture &f, int side, QString *err )
+    {
+      const QString ptsPath = f.dir.filePath( QStringLiteral( "cokriging_wells.geojson" ) );
+      QFile file( ptsPath );
+      if ( !file.open( QIODevice::WriteOnly ) )
+        return false;
+      QString features;
+      for ( int row = 0; row < side; ++row )
+      {
+        for ( int col = 0; col < side; ++col )
+        {
+          const double x = 10.0 * col;
+          const double y = 10.0 * row;
+          const double z = std::sin( 0.3 * col ) + 0.2 * row + 10.0;
+          if ( !features.isEmpty() )
+            features += QLatin1Char( ',' );
+          features += QStringLiteral( "{\"type\":\"Feature\",\"properties\":{\"z\":%1},"
+                                      "\"geometry\":{\"type\":\"Point\",\"coordinates\":[%2,%3]}}" )
+                          .arg( z )
+                          .arg( x )
+                          .arg( y );
+        }
+      }
+      file.write( QStringLiteral( "{\"type\":\"FeatureCollection\",\"features\":[%1]}" ).arg( features ).toUtf8() );
+      file.close();
+      return f.layers.declare( decl( QStringLiteral( "wells.T1" ), QStringLiteral( "T1" ),
+                                      QStringLiteral( "vector" ), ptsPath ),
+                               err );
+    }
+
+    static QString createCovariateRaster( const QString &path, int cols, int rows, double originX, double originY, double pixelSize )
+    {
+      GDALDriverH drv = GDALGetDriverByName( "GTiff" );
+      GDALDatasetH ds = GDALCreate( drv, path.toUtf8().constData(), cols, rows, 1, GDT_Float32, nullptr );
+      if ( !ds )
+        return QString();
+      const double gt[6] = { originX, pixelSize, 0.0, originY, 0.0, -pixelSize };
+      GDALSetGeoTransform( ds, const_cast<double *>( gt ) );
+      QVector<float> px( cols * rows );
+      for ( int r = 0; r < rows; ++r )
+      {
+        for ( int c = 0; c < cols; ++c )
+        {
+          px[r * cols + c] = static_cast<float>( 0.5 * c + 0.3 * r + 5.0 );
+        }
+      }
+      GDALRasterBandH band = GDALGetRasterBand( ds, 1 );
+      const CPLErr err = GDALRasterIO( band, GF_Write, 0, 0, cols, rows, px.data(), cols, rows, GDT_Float32, 0, 0 );
+      GDALClose( ds );
+      return err == CE_None ? path : QString();
+    }
+
+    void cokrigingRejectsMissingCovariateHonestly()
+    {
+      Fixture f;
+      QVERIFY( initFixture( f ) );
+      QString err;
+      QVERIFY2( setupWells( f, &err ), qPrintable( err ) );
+      ConstraintWorkflow wf( &f.proc, &f.layers );
+      wf.setCatalog( &f.catalog, f.dir.path() );
+
+      // Case 1: covariateLayerId omitted
+      QVariantMap params;
+      params.insert( QStringLiteral( "method" ), QStringLiteral( "cokriging" ) );
+      params.insert( QStringLiteral( "field" ), QStringLiteral( "z" ) );
+      params.insert( QStringLiteral( "cellSize" ), 2.0 );
+      QVERIFY( !wf.generateFactor( QStringLiteral( "T1" ), QStringLiteral( "sandthick" ), params, &err ) );
+      QVERIFY2( err.contains( QStringLiteral( "covariateLayerId" ) ), qPrintable( err ) );
+      QVERIFY( findDecl( f.layers, QStringLiteral( "factor.T1.sandthick" ) ) == nullptr );
+
+      // Case 2: covariateLayerId empty string
+      params.insert( QStringLiteral( "covariateLayerId" ), QString() );
+      err.clear();
+      QVERIFY( !wf.generateFactor( QStringLiteral( "T1" ), QStringLiteral( "sandthick" ), params, &err ) );
+      QVERIFY2( err.contains( QStringLiteral( "covariateLayerId" ) ), qPrintable( err ) );
+
+      // Case 3: covariateLayerId points to non-existent layer
+      params.insert( QStringLiteral( "covariateLayerId" ), QStringLiteral( "non_existent_raster" ) );
+      err.clear();
+      QVERIFY( !wf.generateFactor( QStringLiteral( "T1" ), QStringLiteral( "sandthick" ), params, &err ) );
+      QVERIFY2( err.contains( QStringLiteral( "covariateLayerId" ) ), qPrintable( err ) );
+    }
+
+    void cokrigingSuccessfulExecutionWithValidRaster()
+    {
+      Fixture f;
+      QVERIFY( initFixture( f ) );
+      QString err;
+      // 16 wells (4x4) >= 8 minimum samples threshold
+      QVERIFY2( setupGridWells( f, 4, &err ), qPrintable( err ) );
+
+      const QString rasterPath = f.dir.filePath( QStringLiteral( "seismic_amplitude.tif" ) );
+      QVERIFY( !createCovariateRaster( rasterPath, 50, 50, -5.0, 45.0, 1.0 ).isEmpty() );
+      QVERIFY( f.layers.declare( decl( QStringLiteral( "seismic.covariate" ), QStringLiteral( "T1" ),
+                                      QStringLiteral( "raster" ), rasterPath ),
+                                 &err ) );
+
+      ConstraintWorkflow wf( &f.proc, &f.layers );
+      wf.setCatalog( &f.catalog, f.dir.path() );
+      QSignalSpy generated( &wf, &ConstraintWorkflow::factorGenerated );
+
+      QVariantMap params;
+      params.insert( QStringLiteral( "method" ), QStringLiteral( "cokriging" ) );
+      params.insert( QStringLiteral( "field" ), QStringLiteral( "z" ) );
+      params.insert( QStringLiteral( "cellSize" ), 2.0 );
+      params.insert( QStringLiteral( "covariateLayerId" ), QStringLiteral( "seismic.covariate" ) );
+
+      QVERIFY2( wf.generateFactor( QStringLiteral( "T1" ), QStringLiteral( "sandthick" ), params, &err ),
+                qPrintable( err ) );
+      QCOMPARE( generated.count(), 1 );
+
+      const LayerDeclaration *declResult = findDecl( f.layers, QStringLiteral( "factor.T1.sandthick" ) );
+      QVERIFY( declResult != nullptr );
+      delete declResult;
+
+      bool foundVersion = false;
+      for ( const CatalogAsset &asset : f.catalog.assets() )
+      {
+        if ( asset.type != QLatin1String( "single_factor_raster" ) )
+          continue;
+        for ( const CatalogVersion &version : f.catalog.versionsForAsset( asset.id ) )
+        {
+          if ( version.extra.value( QStringLiteral( "algorithm_id" ) ).toString() ==
+               QStringLiteral( "paleo:geostat_cokriging" ) )
+          {
+            foundVersion = true;
+            QCOMPARE( version.extra.value( QStringLiteral( "method" ) ).toString(), QStringLiteral( "cokriging" ) );
+            QCOMPARE( version.extra.value( QStringLiteral( "method_actual" ) ).toString(), QStringLiteral( "cokriging" ) );
+            QVERIFY( version.extra.contains( QStringLiteral( "support_sha256" ) ) );
+            QVERIFY( version.extra.contains( QStringLiteral( "qc_sha256" ) ) );
+            QVERIFY( version.extra.contains( QStringLiteral( "parameter_hash" ) ) );
+          }
+        }
+      }
+      QVERIFY2( foundVersion, "paleo:geostat_cokriging catalog version must be registered" );
+    }
 };
 
 int main( int argc, char *argv[] )

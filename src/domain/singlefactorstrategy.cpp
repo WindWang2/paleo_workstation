@@ -78,6 +78,18 @@ QVector<SurfaceMethodPack> makeSurfacePacks()
       false,
       true,
       QStringLiteral( "局部控制强，适合井较密的工区（本仓旧约束 IDW 保持缺省口径）。" ) } );
+  packs.append( SurfaceMethodPack{
+      QStringLiteral( "cokriging" ),
+      QStringLiteral( "协克里金 (Co-Kriging)" ),
+      QStringLiteral( "gridded" ),
+      QStringLiteral( "paleo:geostat_cokriging" ),
+      QStringLiteral( "paleo:geostat_cokriging" ),
+      false,
+      false,
+      true,
+      QStringLiteral( "主变量（稀疏井点）与协变量（高密地震属性栅格或副因子）联合插值；"
+                      "基于 Markov MM1 简化协同模型。协变量图层缺席或无效时如实拒绝，"
+                      "不冒充普通克里金。" ) } );
   return packs;
 }
 

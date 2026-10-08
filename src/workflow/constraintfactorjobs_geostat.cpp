@@ -6,6 +6,7 @@
 #include "constraintworkflow_internal.h"
 #include "workflows_internal.h"
 #include "../algorithms/geostat/kriging.h"     // KrigingParams / KrigingResult（方向18）
+#include "../algorithms/geostat/cokriging.h"   // CoKrigingModel / ordinaryCoKriging
 #include "../algorithms/geostat/sgs.h"         // SgsParams / SgsResult（方向18）
 #include "../algorithms/geostat/variogram.h"   // 变差函数模型（方向18）
 #include "../algorithms/rasterout.h"          // PaleoRasterOut / createFloatRaster
@@ -152,7 +153,8 @@ bool ConstraintWorkflow::prepareGeostatJob( const QString &horizon, const QStrin
     paleo::workflow_detail::setError( error, tr( "缺少地质统计任务" ) );
     return false;
   }
-  if ( method != QLatin1String( "kriging" ) && method != QLatin1String( "sgs" ) )
+  if ( method != QLatin1String( "kriging" ) && method != QLatin1String( "sgs" ) &&
+       method != QLatin1String( "cokriging" ) )
   {
     paleo::workflow_detail::setError( error, tr( "未知地质统计方法：%1" ).arg( method ) );
     return false;
@@ -219,6 +221,24 @@ bool ConstraintWorkflow::prepareGeostatJob( const QString &horizon, const QStrin
     return false;
   }
   job->parentPaths << job->wellUri.section( QLatin1Char( '|' ), 0, 0 );
+  if ( method == QLatin1String( "cokriging" ) )
+  {
+    const QString covariateLayerId = params.value( QStringLiteral( "covariateLayerId" ) ).toString();
+    if ( covariateLayerId.trimmed().isEmpty() )
+    {
+      paleo::workflow_detail::setError( error, tr( "协克里金方法需要有效的次级协变量图层 (covariateLayerId)" ) );
+      return false;
+    }
+    QString instErr;
+    QgsMapLayer *covLayer = layers->instantiate( covariateLayerId, &instErr );
+    auto *covRaster = qobject_cast<QgsRasterLayer *>( covLayer );
+    if ( !covRaster || !covRaster->isValid() )
+    {
+      paleo::workflow_detail::setError( error, tr( "协克里金方法需要有效的次级协变量图层 (covariateLayerId)" ) );
+      return false;
+    }
+    job->parentPaths << covRaster->source().section( QLatin1Char( '|' ), 0, 0 );
+  }
   job->prepared = true;
   return true;
 }
@@ -493,6 +513,162 @@ bool ConstraintWorkflow::computeGeostatJob( GeostatJob *job, const std::function
     counts.insert( QStringLiteral( "nodata" ), result.nodataCells );
     counts.insert( QStringLiteral( "solver_failures" ), result.solverFailures );
   }
+  else if ( job->method == QLatin1String( "cokriging" ) )
+  {
+    const QString covariateLayerId = job->params.value( QStringLiteral( "covariateLayerId" ) ).toString();
+    QgisLayerService *layers = m_layers.data();
+    QgsRasterLayer *covRaster = nullptr;
+    std::unique_ptr<QgsRasterLayer> ownedRaster;
+    if ( layers )
+      covRaster = qobject_cast<QgsRasterLayer *>( layers->instantiate( covariateLayerId ) );
+    if ( !covRaster && !job->parentPaths.isEmpty() )
+    {
+      ownedRaster = std::make_unique<QgsRasterLayer>( job->parentPaths.last(), QStringLiteral( "covariate" ) );
+      if ( ownedRaster && ownedRaster->isValid() )
+        covRaster = ownedRaster.get();
+    }
+    if ( !covRaster || !covRaster->isValid() )
+    {
+      cleanupTemp();
+      job->error = tr( "协克里金方法需要有效的次级协变量图层 (covariateLayerId)" );
+      return false;
+    }
+
+    std::vector<double> primaryZ;
+    std::vector<double> secondaryZ;
+    primaryZ.reserve( samples.size() );
+    secondaryZ.reserve( samples.size() );
+    for ( const paleo::geostat::Sample &s : samples )
+    {
+      bool ok = false;
+      const double v2 = covRaster->dataProvider()->sample( QgsPointXY( s.x, s.y ), 1, &ok );
+      if ( ok && std::isfinite( v2 ) )
+      {
+        primaryZ.push_back( s.value );
+        secondaryZ.push_back( v2 );
+      }
+    }
+
+    double rho = 0.0;
+    if ( job->params.contains( QStringLiteral( "crossCorrelation" ) ) )
+    {
+      rho = job->params.value( QStringLiteral( "crossCorrelation" ) ).toDouble();
+    }
+    else if ( job->params.contains( QStringLiteral( "cross_correlation" ) ) )
+    {
+      rho = job->params.value( QStringLiteral( "cross_correlation" ) ).toDouble();
+    }
+    else if ( primaryZ.size() >= 3 )
+    {
+      const std::size_t n = primaryZ.size();
+      double sum1 = 0, sum2 = 0;
+      for ( std::size_t i = 0; i < n; ++i )
+      {
+        sum1 += primaryZ[i];
+        sum2 += secondaryZ[i];
+      }
+      const double mean1 = sum1 / static_cast<double>( n );
+      const double mean2 = sum2 / static_cast<double>( n );
+      double cov = 0, var1 = 0, var2 = 0;
+      for ( std::size_t i = 0; i < n; ++i )
+      {
+        const double d1 = primaryZ[i] - mean1;
+        const double d2 = secondaryZ[i] - mean2;
+        cov += d1 * d2;
+        var1 += d1 * d1;
+        var2 += d2 * d2;
+      }
+      if ( var1 > 1e-12 && var2 > 1e-12 )
+        rho = cov / std::sqrt( var1 * var2 );
+      else
+        rho = 0.0;
+    }
+    rho = std::clamp( rho, -0.99, 0.99 );
+
+    std::vector<paleo::geostat::Sample> secondarySamples;
+    const int totalCells = grid.cols * grid.rows;
+    const int maxSec = job->params.value( QStringLiteral( "covariateMaxSamples" ), 2048 ).toInt();
+    const int step = std::max( 1, static_cast<int>( std::ceil( std::sqrt( static_cast<double>( totalCells ) / std::max( 64, maxSec ) ) ) ) );
+    for ( int r = 0; r < grid.rows; r += step )
+    {
+      for ( int c = 0; c < grid.cols; c += step )
+      {
+        const double gx = grid.cellCenterX( c );
+        const double gy = grid.cellCenterY( r );
+        bool ok = false;
+        const double gv = covRaster->dataProvider()->sample( QgsPointXY( gx, gy ), 1, &ok );
+        if ( ok && std::isfinite( gv ) )
+          secondarySamples.push_back( paleo::geostat::Sample{ gx, gy, gv } );
+      }
+    }
+    if ( secondarySamples.empty() )
+    {
+      cleanupTemp();
+      job->error = tr( "协变量栅格在计算网格范围内无有效数据" );
+      return false;
+    }
+
+    paleo::geostat::CoKrigingModel coModel;
+    coModel.primary = model;
+    coModel.secondary = model;
+    if ( !secondaryZ.empty() )
+    {
+      double secMean = 0;
+      for ( double val : secondaryZ )
+        secMean += val;
+      secMean /= secondaryZ.size();
+      double secVar = 0;
+      for ( double val : secondaryZ )
+        secVar += ( val - secMean ) * ( val - secMean );
+      secVar /= secondaryZ.size();
+      if ( secVar > 1e-6 )
+      {
+        coModel.secondary.sill = secVar;
+        coModel.secondary.nugget = 0.0;
+      }
+    }
+    coModel.crossCorrelation = rho;
+
+    paleo::geostat::KrigingParams krigingParams;
+    krigingParams.maxPoints = maxPoints;
+    const paleo::geostat::CoKrigingResult result =
+        paleo::geostat::ordinaryCoKriging( samples, secondarySamples, grid, coModel, krigingParams,
+                                           [&control]( double frac ) -> bool {
+                                             if ( control.cancelled && control.cancelled() )
+                                               return false;
+                                             if ( control.progress )
+                                               control.progress( frac );
+                                             return true;
+                                           } );
+    if ( result.status == paleo::geostat::Status::Cancelled )
+    {
+      cleanupTemp();
+      job->error = tr( "已取消" );
+      return false;
+    }
+    if ( result.status != paleo::geostat::Status::Ok )
+    {
+      cleanupTemp();
+      job->error = tr( "协克里金失败：%1" ).arg( QString::fromStdString( result.message ) );
+      return false;
+    }
+    job->supportPath = QDir( tempDir ).filePath( QStringLiteral( "variance.tif" ) );
+    if ( !writeFloatRaster( job->outputPath, result.estimates, grid.cols, grid.rows, geoTransform, crs,
+                            DataCatalog::localGridCrsWkt() ) ||
+         !writeFloatRaster( job->supportPath, result.variances, grid.cols, grid.rows, geoTransform, crs,
+                            DataCatalog::localGridCrsWkt() ) )
+    {
+      cleanupTemp();
+      job->error = tr( "协克里金栅格写盘失败" );
+      return false;
+    }
+    counts.insert( QStringLiteral( "finite" ), result.finiteCells );
+    counts.insert( QStringLiteral( "nodata" ), result.nodataCells );
+    counts.insert( QStringLiteral( "solver_failures" ), result.solverFailures );
+    counts.insert( QStringLiteral( "secondary_samples" ), static_cast<int>( secondarySamples.size() ) );
+    qcParameters.insert( QStringLiteral( "cross_correlation" ), rho );
+    qcParameters.insert( QStringLiteral( "covariate_layer_id" ), covariateLayerId );
+  }
   else
   {
     paleo::geostat::SgsParams sgsParams;
@@ -762,6 +938,12 @@ bool ConstraintWorkflow::publishGeostatJob( const GeostatJob &job, QString *erro
   extra.insert( QStringLiteral( "finite_cells" ), counts.value( QStringLiteral( "finite" ) ) );
   extra.insert( QStringLiteral( "nodata_cells" ), counts.value( QStringLiteral( "nodata" ) ) );
   extra.insert( QStringLiteral( "solver_failures" ), counts.value( QStringLiteral( "solver_failures" ) ) );
+  if ( qc.contains( QStringLiteral( "parameters" ) ) )
+  {
+    const QVariantMap qcP = qc.value( QStringLiteral( "parameters" ) ).toMap();
+    if ( qcP.contains( QStringLiteral( "cross_correlation" ) ) )
+      extra.insert( QStringLiteral( "cross_correlation" ), qcP.value( QStringLiteral( "cross_correlation" ) ) );
+  }
   if ( !stagedSupport.isEmpty() )
   {
     extra.insert( QStringLiteral( "support_path" ), projectDir.relativeFilePath( stagedSupport ) );

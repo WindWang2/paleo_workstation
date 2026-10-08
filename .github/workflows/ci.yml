@@ -117,6 +117,8 @@ jobs:
           python3 tools/check_i18n.py --selftest
           python3 tools/check_qgis_versions.py
           python3 tools/check_qgis_versions.py --selftest
+          python3 tools/check_ci_scripts.py
+          python3 tools/check_ci_scripts.py --selftest
       - name: deb-closure smoke (ET1：锁文件可解析、条目格式合法，零下载)
         run: ./vendor/fetch-deps.sh --print-only
 

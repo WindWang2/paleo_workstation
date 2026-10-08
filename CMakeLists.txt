@@ -758,6 +758,18 @@ endfunction()
 # LD_LIBRARY_PATH 等路径变量必须走 ENVIRONMENT_MODIFICATION 的
 # path_list_prepend（APPEND 一条整体赋值仍会替换外部注入值，见下方
 # tst_onnx 的修复注记）。
+# 方向81：PALEO_PYTHON 在 ctest 下可达。configure 时 env PALEO_PYTHON（paleo-dev.ps1
+# localdeps 路线指向 deps 根 python.exe）作缺省进 cache；非空即注入每个测试的
+# ENVIRONMENT，并把期望路径编进 tst_pythonrepl/tst_scriptrunner 断言——
+# 裸 ctest / IDE 跑测试不再依赖调用者 shell 的 PATH（Windows 上 PATH 首个
+# python 常是 WindowsApps 商店桩）。留空 = 保持 PATH 发现（Linux/CI 缺省）。
+set(PALEO_TEST_PYTHON "$ENV{PALEO_PYTHON}" CACHE FILEPATH
+  "Python interpreter injected as PALEO_PYTHON into every ctest (empty = PATH discovery)")
+set(PALEO_TEST_PYTHON_NORM "")
+if(PALEO_TEST_PYTHON)
+  file(TO_CMAKE_PATH "${PALEO_TEST_PYTHON}" PALEO_TEST_PYTHON_NORM)
+endif()
+
 function(paleo_test_sandbox name)
   set(_home ${CMAKE_BINARY_DIR}/ctest-home/${name})
   file(MAKE_DIRECTORY "${_home}/config" "${_home}/data" "${_home}/cache" "${_home}/tmp")
@@ -778,6 +790,10 @@ function(paleo_test_sandbox name)
     # RUNPATH 一致），不借系统 /usr 栈——裸 ctest 即全 vendored。
     set_property(TEST ${name} APPEND PROPERTY ENVIRONMENT
       "QGIS_PREFIX_PATH=${PALEO_QGIS_RUNTIME_PREFIX}")
+  endif()
+  if(PALEO_TEST_PYTHON_NORM)
+    set_property(TEST ${name} APPEND PROPERTY ENVIRONMENT
+      "PALEO_PYTHON=${PALEO_TEST_PYTHON_NORM}")
   endif()
   if(PALEO_ENABLE_ASAN)
     set_property(TEST ${name} APPEND PROPERTY ENVIRONMENT

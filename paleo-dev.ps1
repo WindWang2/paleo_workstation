@@ -95,6 +95,12 @@ function Enter-LocalDepsEnvironment {
   if (Test-Path $gdalData) { $env:GDAL_DATA = $gdalData }
   $projData = Join-Path $deps 'Library\share\proj'
   if (Test-Path $projData) { $env:PROJ_LIB = $projData }
+  # 方向81：PALEO_PYTHON 显式指向 deps 根 python.exe（findBasePython 的最高
+  # 优先）——不靠 PATH 发现（WindowsApps 商店桩会抢先）。build 时它作为
+  # -DPALEO_TEST_PYTHON 进 cache，ctest 对每个测试注入同值并断言。用户已设
+  # 的 PALEO_PYTHON 不覆盖。
+  $depsPython = Join-Path $deps 'python.exe'
+  if (-not $env:PALEO_PYTHON -and (Test-Path $depsPython)) { $env:PALEO_PYTHON = $depsPython }
   return $true
 }
 
@@ -271,7 +277,8 @@ switch ($Verb) {
         "-DCMAKE_PREFIX_PATH=$env:CMAKE_PREFIX_PATH" `
         "-DQT_ADDITIONAL_PACKAGES_PREFIX_PATH=$env:QT_ADDITIONAL_PACKAGES_PREFIX_PATH" `
         "-DQGIS_PREFIX=$script:LocalQgis" `
-        "-DQSCINTILLA_PREFIX=$env:QSCINTILLA_PREFIX_PATH"
+        "-DQSCINTILLA_PREFIX=$env:QSCINTILLA_PREFIX_PATH" `
+        "-DPALEO_TEST_PYTHON=$env:PALEO_PYTHON"
     } else {
       cmake -S $Root -B $Build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo "-DQGIS_PREFIX=$(Join-Path $Vendor 'osgeo4w')"
     }

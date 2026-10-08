@@ -180,6 +180,22 @@ jobs:
         with:
           name: selfcheck-linux
           path: vendor/logs/
+      # 方向75：增量构建基线首测（PLAN ET14 口径）——全量树 touch 单文件
+      # 计时。绝对时长只记录不设门（跨机不可比），tu_ratio/step_ratio 才是
+      # 趋势口径（BUILDING.md「增量基线」段）。step 级 continue-on-error：
+      # 观察面不许拖累合并门禁（preflight no-op 校验对 CONFIGURE_DEPENDS
+      # 重扫抖动敏感，红了只丢趋势数据）。
+      - name: Incremental build baseline (ET14)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        continue-on-error: true
+        run: tools/measure_incremental.sh build src/app/appcontext.cpp build/incremental-baseline.jsonl
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: incremental-baseline-linux
+          if-no-files-found: ignore
+          retention-days: 90
+          path: build/incremental-baseline.jsonl
       # #150/#151：失败现场——ctest 完整日志、QtTest 落盘结果、黄金图当前渲染/差分。
       - name: Stage test diagnostics
         if: always()

@@ -185,6 +185,7 @@ QWidget *LayerTreePanel::buildToolbar()
   // goal/ui-experience-polish：Delete 键直达删除（桌面列表惯例；QAction 挂
   // 键后菜单/工具条按钮同步显示快捷键提示）。
   paleo::shortcuts::bindAction(QStringLiteral("layers.remove"), m_removeAction); // 方向63 登记
+  addAction(m_removeAction);
   connect(m_removeAction, &QAction::triggered, this, [this, removeAction] {
     QList<QgsMapLayer *> selected =
         m_view ? m_view->selectedLayers() : QList<QgsMapLayer *>();

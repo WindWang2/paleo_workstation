@@ -62,7 +62,7 @@ jobs:
       - name: Install Qt6 dev packages (vendored 路只缺 Qt/工具面)
         run: sudo apt-get install -y
           qt6-base-dev qt6-svg-dev qt6-serialport-dev qt6-positioning-dev qt6-tools-dev
-          qt6-webengine-dev qt6-pdf-dev qtkeychain-qt6-dev ninja-build pkg-config g++
+          qt6-webengine-dev qt6-pdf-dev qtkeychain-qt6-dev ninja-build pkg-config g++ patchelf
       - name: Cache vendored deb closure
         uses: actions/cache@v4
         with:
@@ -131,7 +131,7 @@ jobs:
       - name: Install Qt6 dev packages (vendored 路只缺 Qt/工具面)
         run: sudo apt-get update && sudo apt-get install -y
           qt6-base-dev qt6-svg-dev qt6-serialport-dev qt6-positioning-dev qt6-tools-dev
-          qt6-webengine-dev qt6-pdf-dev qtkeychain-qt6-dev ccache ninja-build pkg-config
+          qt6-webengine-dev qt6-pdf-dev qtkeychain-qt6-dev ccache ninja-build pkg-config patchelf
       - name: Cache ccache
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
@@ -212,7 +212,7 @@ jobs:
       - name: Install Qt6 dev packages (vendored 路只缺 Qt/工具面)
         run: sudo apt-get update && sudo apt-get install -y
           qt6-base-dev qt6-svg-dev qt6-serialport-dev qt6-positioning-dev qt6-tools-dev
-          qt6-webengine-dev qt6-pdf-dev qtkeychain-qt6-dev ccache ninja-build pkg-config
+          qt6-webengine-dev qt6-pdf-dev qtkeychain-qt6-dev ccache ninja-build pkg-config patchelf
       - name: Cache ccache
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:

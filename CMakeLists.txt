@@ -103,6 +103,29 @@ set(PALEO_QGIS_RUNTIME_PREFIX "${QGIS_PREFIX}")
 if(QGIS_PREFIX AND EXISTS "${QGIS_PREFIX}/apps/qgis/resources")
   set(PALEO_QGIS_RUNTIME_PREFIX "${QGIS_PREFIX}/apps/qgis")
 endif()
+
+# deb 闭包链接期 NEEDED 解析：Debian 库相互 NEEDED 依赖靠系统默认路径 +
+# update-alternatives 顶层链接，解包式 vendored 前缀两者皆无——ld 传递依赖
+# 只认 -rpath-link 目录（实测 -L/LIBRARY_PATH 均不参与 NEEDED 解析）。
+# 把前缀下所有含 .so 的目录统一注入（含 blas/lapack/pulseaudio 这类
+# alternatives 子目录），armadillo→blas、libpulse→pulsecommon 等链才接得上。
+if(QGIS_PREFIX AND UNIX AND NOT APPLE AND EXISTS "${QGIS_PREFIX}/lib")
+  file(GLOB_RECURSE _pal_sos "${QGIS_PREFIX}/lib/*.so*")
+  set(_pal_linkdirs "")
+  foreach(_so IN LISTS _pal_sos)
+    get_filename_component(_d "${_so}" DIRECTORY)
+    list(APPEND _pal_linkdirs "${_d}")
+  endforeach()
+  list(REMOVE_DUPLICATES _pal_linkdirs)
+  foreach(_d IN LISTS _pal_linkdirs)
+    add_link_options("-Wl,-rpath-link,${_d}")
+  endforeach()
+  list(LENGTH _pal_linkdirs _pal_n)
+  message(STATUS "deb 闭包 rpath-link 目录数: ${_pal_n}")
+  unset(_pal_sos)
+  unset(_pal_linkdirs)
+  unset(_pal_n)
+endif()
 # QScintilla：QGIS 的代码编辑器头（qgscodeeditor.h）传递包含它。它有自己的
 # 独立前缀（与 QGIS 分开安装），故也走 cache/env 解析；未显式给出时从既有的
 # CMAKE_PREFIX_PATH 逐个前缀自动发现——与上面 QGIS 的 find_* 同一套 HINTS 风格，

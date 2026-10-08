@@ -139,12 +139,17 @@ switch ($Verb) {
     $installedDb = Join-Path $osgeo 'etc\setup\installed.db'
 
     function Read-InstalledDbMap([string]$path) {
-      # installed.db 每行「名称 版本 0」；返回 @{名称=版本}，空文件/缺文件返回 $null。
+      # installed.db 每行「名称 包文件名 0」——第二列是 tar 包文件名
+      # （name-version.tar.bz2）不是裸版本，须剥前后缀再比对，否则全员误报漂移。
       if (-not (Test-Path $path)) { return $null }
       $map = @{}
       foreach ($line in (Get-Content $path -Encoding utf8)) {
         $f = $line -split '\s+'
-        if ($f.Count -ge 2 -and $f[0]) { $map[$f[0]] = $f[1] }
+        if ($f.Count -ge 2 -and $f[0]) {
+          $ver = $f[1] -replace ('^' + [regex]::Escape($f[0]) + '-'), '' `
+                        -replace '\.tar\.(bz2|xz|gz|zst|lz4)$', ''
+          $map[$f[0]] = $ver
+        }
       }
       if ($map.Count -eq 0) { return $null }
       return $map

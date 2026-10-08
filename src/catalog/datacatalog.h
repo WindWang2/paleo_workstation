@@ -101,7 +101,8 @@ struct CatalogOp
     AttachLink,
     SetLinkUnresolved,
     SetLinkPrimary,
-    MarkDownstreamStale
+    MarkDownstreamStale,
+    UpdateVersionExtra // 方向 79：版本 extra 就地更新（锚深后补编辑）
   };
   Kind kind = Kind::AddAsset;
   CatalogEntity entity;
@@ -109,8 +110,10 @@ struct CatalogOp
   CatalogVersion version;
   EntityAssetLink link;
   int index = -1;   // Attach/SetLink*：links() 序号（基线 mutationSeq 下有效）
-  QString id;       // AttachLink 实体 id；MarkDownstreamStale 版本 id
+  QString id;       // AttachLink 实体 id；MarkDownstreamStale/UpdateVersionExtra 版本 id
   QString reason;   // MarkDownstreamStale
+  QString extraKey; // UpdateVersionExtra：extra 键
+  QVariant extraValue; // UpdateVersionExtra：新值（无效 QVariant = 删键）
 };
 
 class DataCatalog : public QObject
@@ -134,6 +137,9 @@ class DataCatalog : public QObject
     bool refusesWrites() const { return !m_isOpen || m_lockedReadOnly; }
     QString openError() const { return m_openError; } // open() 失败原因（无则空）
     QString catalogPath() const { return m_dir + QStringLiteral("/artifacts/metadata/catalog.json"); }
+    // 工程根目录（open 的入参原样；未 open = 空）。受管相对路径解析与
+    // 面板路径问答用（resolvedVersionPath 的第一参）。
+    QString projectDir() const { return m_dir; }
     // 即使 store 还没建也返回该路径。不表示文件一定存在。
     QString sqliteCatalogPath() const
     {
@@ -205,6 +211,21 @@ class DataCatalog : public QObject
     bool addAsset(const CatalogAsset &a, QString *error = nullptr);
     bool addVersion(const CatalogVersion &v, QString *error = nullptr);
     bool addLink(const EntityAssetLink &l, QString *error = nullptr);
+
+    // 版本 extra 就地更新（方向 79 锚深后补编辑通道）。契约（定案判据
+    // 「审计面与撤销语义」记录于 ledger 与 docs/progress）：导入元数据
+    // 修正走就地 update——不新建版本、不动 versionNumber/path/sha256/
+    // parentVersionIds（锚深是导入元数据而非派生结果；落 DERIVED 新版本
+    // 会 fork 血统且让 currentVersion 读取面复杂化）。审计：改前值压入
+    // extra["<key>#history"]（{v,at} 数组，FIFO 至多 8 条），
+    // extra["<key>#source"]="manual"（导入侧写 "filename"）。
+    // value 为无效 QVariant → 删除键（清锚 = 回到「未锚定」态）。
+    // 撤销 = 用 history 旧值再调本函数（对称操作）。未知 versionId /
+    // 空 key / 带 '#' 保留字 → false + error（#history/#source 是审计面，
+    // 不开放为用户键）。staging 副本上正常可用（journal 记 op；重放重算
+    // history——值序确定，时间戳取重放时刻，审计语义不变）。
+    bool updateVersionExtra(const QString &versionId, const QString &key,
+                            const QVariant &value, QString *error = nullptr);
 
     // 把 links() 序中第 index 条未决链接挂到 entityId：置已决、清备注。
     // 方向 44 挂接契约（收口）：主文件只由显式操作变更——挂接不夺主。

@@ -132,6 +132,8 @@ private slots:
   void stagingCopyJournalsWithoutTouchingLive();
   void applyJournalIsAtomicOnFailure();
   void liveWritesRefusedOffOwnerThread();
+  // 方向 79：版本 extra 就地更新通道（锚深后补编辑）契约。
+  void updateVersionExtraContract();
 };
 
 void TestCatalog::roundTripsThroughJson()
@@ -2323,6 +2325,153 @@ void TestCatalog::sqliteOpenCostAttribution()
                           .arg(openMs)));
   // sanity 上限：只拦挂死，不做性能门。
   QVERIFY2(openMs < 5000, qPrintable(QString::number(openMs)));
+}
+
+
+// 方向 79：版本 extra 就地更新通道（锚深后补编辑）契约——就地不 fork
+// 版本、#history/#source 审计、清锚、拒收面、journal 重放。
+void TestCatalog::updateVersionExtraContract()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  DataCatalog cat;
+  QString err;
+  QVERIFY2(cat.open(dir.path(), &err), qPrintable(err));
+
+  CatalogAsset a;
+  a.id = QStringLiteral("ast-1");
+  a.type = QStringLiteral("image_reference");
+  a.displayName = QStringLiteral("A1,1849.35m.JPG");
+  QVERIFY(cat.addAsset(a, &err));
+  CatalogVersion v;
+  v.id = QStringLiteral("ver-1");
+  v.assetId = a.id;
+  v.stage = QStringLiteral("RAW");
+  v.managed = false;
+  v.path = QStringLiteral("C:/nowhere/a1.jpg");
+  v.fileName = a.displayName;
+  // 导入侧形态：文件名正则提取的锚 + 来源标注。
+  v.extra.insert(QStringLiteral("depthMd"), 1849.35);
+  v.extra.insert(QStringLiteral("depthMd#source"), QStringLiteral("filename"));
+  QVERIFY(cat.addVersion(v, &err));
+  const int revision0 = cat.catalogRevision();
+
+  // 拒收面：未知版本 / 空 key / '#' 保留字。
+  QVERIFY(!cat.updateVersionExtra(QStringLiteral("ver-nope"),
+                                  QStringLiteral("depthMd"), 1.0, &err));
+  QVERIFY(!err.isEmpty());
+  err.clear();
+  QVERIFY(!cat.updateVersionExtra(QStringLiteral("ver-1"), QString(), 1.0, &err));
+  QVERIFY(!cat.updateVersionExtra(QStringLiteral("ver-1"),
+                                  QStringLiteral("depthMd#history"), 1.0, &err));
+  QCOMPARE(cat.catalogRevision(), revision0); // 拒收不落盘不涨 revision
+
+  // 就地修正：versionNumber/path 不动（不 fork 版本）；来源翻 manual；
+  // 改前值进 #history（had=true——此前有文件名锚）。
+  QVERIFY(cat.updateVersionExtra(QStringLiteral("ver-1"),
+                                 QStringLiteral("depthMd"), 1851.0, &err));
+  {
+    const CatalogVersion got = cat.versionById(QStringLiteral("ver-1"));
+    QCOMPARE(got.extra.value(QStringLiteral("depthMd")).toDouble(), 1851.0);
+    QCOMPARE(got.extra.value(QStringLiteral("depthMd#source")).toString(),
+             QStringLiteral("manual"));
+    QCOMPARE(got.versionNumber, 1); // 就地更新不升版本号
+    QCOMPARE(got.path, QStringLiteral("C:/nowhere/a1.jpg"));
+    const QVariantList hist =
+        got.extra.value(QStringLiteral("depthMd#history")).toList();
+    QCOMPARE(hist.size(), 1);
+    QCOMPARE(hist.at(0).toMap().value(QStringLiteral("v")).toDouble(), 1849.35);
+    QCOMPARE(hist.at(0).toMap().value(QStringLiteral("had")).toBool(), true);
+  }
+  QVERIFY(cat.catalogRevision() > revision0);
+
+  // 无变化不空涨 revision（与 markDownstreamStale 同口径）。
+  const int revision1 = cat.catalogRevision();
+  QVERIFY(cat.updateVersionExtra(QStringLiteral("ver-1"),
+                                 QStringLiteral("depthMd"), 1851.0, &err));
+  QCOMPARE(cat.catalogRevision(), revision1);
+
+  // 清锚：无效 QVariant = 删键；#source 一并清；#history 保留（审计面）。
+  QVERIFY(cat.updateVersionExtra(QStringLiteral("ver-1"),
+                                 QStringLiteral("depthMd"), {}, &err));
+  {
+    const CatalogVersion got = cat.versionById(QStringLiteral("ver-1"));
+    QVERIFY(!got.extra.contains(QStringLiteral("depthMd")));
+    QVERIFY(!got.extra.contains(QStringLiteral("depthMd#source")));
+    QCOMPARE(got.extra.value(QStringLiteral("depthMd#history")).toList().size(),
+             2);
+  }
+
+  // 补锚（此前无键）：history 记 had=false 且不带 v。
+  CatalogAsset a2;
+  a2.id = QStringLiteral("ast-2");
+  a2.type = QStringLiteral("image_reference");
+  a2.displayName = QStringLiteral("A31868.62粒间孔.JPG");
+  QVERIFY(cat.addAsset(a2, &err));
+  CatalogVersion v2;
+  v2.id = QStringLiteral("ver-2");
+  v2.assetId = a2.id;
+  v2.stage = QStringLiteral("RAW");
+  v2.managed = false;
+  v2.path = QStringLiteral("C:/nowhere/a2.jpg");
+  v2.fileName = a2.displayName;
+  QVERIFY(cat.addVersion(v2, &err));
+  QVERIFY(cat.updateVersionExtra(QStringLiteral("ver-2"),
+                                 QStringLiteral("depthMd"), 31868.62, &err));
+  {
+    const QVariantList hist = cat.versionById(QStringLiteral("ver-2"))
+                                  .extra.value(QStringLiteral("depthMd#history"))
+                                  .toList();
+    QCOMPARE(hist.size(), 1);
+    QCOMPARE(hist.at(0).toMap().value(QStringLiteral("had")).toBool(), false);
+    QVERIFY(!hist.at(0).toMap().contains(QStringLiteral("v")));
+  }
+
+  // FIFO 封顶：10 次改值 → history ≤8 条，尾条是最新改前值。
+  for (int i = 0; i < 10; ++i)
+    QVERIFY(cat.updateVersionExtra(QStringLiteral("ver-2"),
+                                   QStringLiteral("depthMd"), 40000.0 + i, &err));
+  {
+    const QVariantList hist = cat.versionById(QStringLiteral("ver-2"))
+                                  .extra.value(QStringLiteral("depthMd#history"))
+                                  .toList();
+    QCOMPARE(hist.size(), 8);
+    QCOMPARE(hist.last().toMap().value(QStringLiteral("v")).toDouble(), 40008.0);
+  }
+
+  // round-trip：重开 catalog（sqlite 主库），extra 全量还原。
+  const int revBefore = cat.catalogRevision();
+  QVERIFY(cat.open(dir.path(), &err));
+  {
+    const CatalogVersion got = cat.versionById(QStringLiteral("ver-1"));
+    QVERIFY(!got.extra.contains(QStringLiteral("depthMd"))); // 清锚后保持清锚
+    QCOMPARE(got.extra.value(QStringLiteral("depthMd#history")).toList().size(), 2);
+    const CatalogVersion got2 = cat.versionById(QStringLiteral("ver-2"));
+    QCOMPARE(got2.extra.value(QStringLiteral("depthMd")).toDouble(), 40009.0);
+    QCOMPARE(got2.extra.value(QStringLiteral("depthMd#source")).toString(),
+             QStringLiteral("manual"));
+  }
+  QCOMPARE(cat.catalogRevision(), revBefore); // 重开不涨
+
+  // journal 重放：staging 副本上的锚深编辑经 applyJournal 落到 owner，
+  // 值序确定（时间戳取重放时刻——审计语义不变）。
+  {
+    auto staging = cat.createStagingCopy(dir.filePath(QStringLiteral("overlay")));
+    QVERIFY(staging->updateVersionExtra(QStringLiteral("ver-2"),
+                                        QStringLiteral("depthMd"), 41000.0, &err));
+    const auto ops = staging->journal();
+    QCOMPARE(ops.size(), 1);
+    QCOMPARE(ops.at(0).kind, CatalogOp::Kind::UpdateVersionExtra);
+    QVERIFY(cat.applyJournal(ops, &err));
+    const CatalogVersion got = cat.versionById(QStringLiteral("ver-2"));
+    QCOMPARE(got.extra.value(QStringLiteral("depthMd")).toDouble(), 41000.0);
+    QCOMPARE(got.extra.value(QStringLiteral("depthMd#source")).toString(),
+             QStringLiteral("manual"));
+    const QVariantList hist =
+        got.extra.value(QStringLiteral("depthMd#history")).toList();
+    QCOMPARE(hist.size(), 8); // FIFO 封顶保持
+    QCOMPARE(hist.last().toMap().value(QStringLiteral("v")).toDouble(), 40009.0);
+  }
 }
 
 QTEST_MAIN(TestCatalog)

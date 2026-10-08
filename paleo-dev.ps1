@@ -1,10 +1,12 @@
 # paleo-dev.ps1 — Windows sibling of ./paleo-dev (§44.1).
-# Verbs: bootstrap [fetch-only] | build | test | selfcheck | checkenv | clean-vendor <dep>
+# Verbs: bootstrap [fetch-only] | build | test | selfcheck | checkenv | ensure-resources | clean-vendor <dep>
 #   bootstrap fetch-only : 只取依赖（OSGeo4W + ORT），不编译不自检——CI 用它让
 #                          编译错误落在 Build 步骤而不是 Vendor 步骤（#134）。
 #   build                : $env:CI 已设时 ninja -k 0，一次暴露全部编译错误。
 #   test                 : $env:PALEO_CTEST_ARGS 透传给 ctest（如 "-LE perf"）。
 #   checkenv             : Qt 编译/运行链一致性自检（方向 72 防回归）。
+#   ensure-resources     : 补齐 QGIS 前缀 resources/**（含 srs.db；方向 81，
+#                          localdeps 的 test/selfcheck 缺 srs.db 时自动调用）。
 # 依赖路线两条（Enter-DependencyEnvironment 自动择一，vendored 优先）：
 #   vendored ：OSGeo4W qgis-devel-4.2.x 闭包（vendor/osgeo4w，CI 口径）。
 #   localdeps：本机 conda 依赖根（默认 ~/paleo-qgis-deps，qt6-main 6.11.2 全家
@@ -95,7 +97,50 @@ function Enter-LocalDepsEnvironment {
   if (Test-Path $gdalData) { $env:GDAL_DATA = $gdalData }
   $projData = Join-Path $deps 'Library\share\proj'
   if (Test-Path $projData) { $env:PROJ_LIB = $projData }
+  # 方向81：PALEO_PYTHON 显式指向 deps 根 python.exe（findBasePython 的最高
+  # 优先）——不靠 PATH 发现（WindowsApps 商店桩会抢先）。build 时它作为
+  # -DPALEO_TEST_PYTHON 进 cache，ctest 对每个测试注入同值并断言。用户已设
+  # 的 PALEO_PYTHON 不覆盖。
+  $depsPython = Join-Path $deps 'python.exe'
+  if (-not $env:PALEO_PYTHON -and (Test-Path $depsPython)) { $env:PALEO_PYTHON = $depsPython }
   return $true
+}
+
+function Assert-NoEnvDebtRegression([string[]]$FailedTests, [string]$ManifestPath) {
+  $fixedTests = @((Get-Content $ManifestPath -Raw -Encoding utf8 | ConvertFrom-Json).entries |
+    Where-Object { $_.status -eq 'fixed' } | ForEach-Object { $_.test })
+  $regressed = @($FailedTests | Where-Object { $fixedTests -contains $_ })
+  if ($regressed.Count -gt 0) {
+    throw ("CTest failed (fixed environment debt regressed; first-run evidence retained): {0}" -f
+      ($regressed -join ', '))
+  }
+}
+
+function Invoke-EnsureQgisResources([switch]$Auto) {
+  # 方向81 srs.db 族：localdeps 的 QGIS 前缀只有 bin/include/lib，缺
+  # resources/srs.db（tst_runtime / tst_boot 断言）。按 vendor/deb-closure.lock
+  # 同源取 qgis-providers-common + qgis-common（_all 包）解出 resources/**，
+  # srs.db = cp srs-template.db（Debian postinst 同义）。已齐备即零动作。
+  # -Auto（test/selfcheck 自动调用）：失败只告警不中断，红留给测试本身。
+  $prefix = $env:QGIS_PREFIX_PATH
+  if (-not $prefix) {
+    if ($Auto) { return }
+    throw 'ensure-resources: 未探测到 QGIS 前缀（vendored/localdeps 都不在）'
+  }
+  if (Test-Path (Join-Path $prefix 'resources\srs.db')) {
+    if (-not $Auto) { Write-Host ("  OK  srs.db -> {0}" -f (Join-Path $prefix 'resources\srs.db')) }
+    return
+  }
+  $py = if ($env:PALEO_PYTHON) { $env:PALEO_PYTHON } else { 'python' }
+  $rc = 1
+  try {
+    & $py (Join-Path $Root 'tools\ensure_qgis_resources.py') --prefix $prefix --layout win
+    $rc = $LASTEXITCODE
+  } catch { Write-Warning "ensure-resources: 无法运行 $py（$_）" }
+  if ($rc -ne 0) {
+    $msg = "ensure-resources failed（$py tools\ensure_qgis_resources.py --prefix $prefix）"
+    if ($Auto) { Write-Warning $msg } else { throw $msg }
+  }
 }
 
 function Enter-DependencyEnvironment {
@@ -139,17 +184,21 @@ switch ($Verb) {
     $installedDb = Join-Path $osgeo 'etc\setup\installed.db'
 
     function Read-InstalledDbMap([string]$path) {
-      # installed.db 每行「名称 包文件名 0」——第二列是 tar 包文件名
-      # （name-version.tar.bz2）不是裸版本，须剥前后缀再比对，否则全员误报漂移。
+      # installed.db：首行「INSTALLED.DB 2」是格式头（不是包）；其余每行
+      # 「名称 名称-版本.tar.bz2 0」——第二列是包文件名，剥掉「名称-」前缀与
+      # .tar.* 后缀才是 setup.ini/manifest 的 version 口径（方向 81：旧实现把
+      # 文件名当版本、把格式头当包，114 包全报「漂移」+「未钉版包 INSTALLED.DB」，
+      # Windows CI 在 Vendor 步必红）。同口径参考实现与 selftest 见
+      # tools/pin_osgeo4w.py installed_db_map。返回 @{名称=版本}，空/缺返回 $null。
       if (-not (Test-Path $path)) { return $null }
       $map = @{}
       foreach ($line in (Get-Content $path -Encoding utf8)) {
-        $f = $line -split '\s+'
-        if ($f.Count -ge 2 -and $f[0] -and $f[0] -ne 'INSTALLED.DB') {
-          $ver = $f[1] -replace ('^' + [regex]::Escape($f[0]) + '-'), '' `
-                        -replace '\.tar\.(bz2|xz|gz|zst|lz4)$', ''
-          $map[$f[0]] = $ver
-        }
+        $f = @($line.Trim() -split '\s+')
+        if ($f.Count -lt 2 -or -not $f[0] -or $f[0] -eq 'INSTALLED.DB') { continue }
+        $ver = $f[1] -replace '\.tar\.(bz2|xz|gz|zst|lz4)$', ''
+        $prefix = $f[0] + '-'
+        if ($ver.StartsWith($prefix, [System.StringComparison]::Ordinal)) { $ver = $ver.Substring($prefix.Length) }
+        $map[$f[0]] = $ver
       }
       if ($map.Count -eq 0) { return $null }
       return $map
@@ -267,7 +316,8 @@ switch ($Verb) {
         "-DCMAKE_PREFIX_PATH=$env:CMAKE_PREFIX_PATH" `
         "-DQT_ADDITIONAL_PACKAGES_PREFIX_PATH=$env:QT_ADDITIONAL_PACKAGES_PREFIX_PATH" `
         "-DQGIS_PREFIX=$script:LocalQgis" `
-        "-DQSCINTILLA_PREFIX=$env:QSCINTILLA_PREFIX_PATH"
+        "-DQSCINTILLA_PREFIX=$env:QSCINTILLA_PREFIX_PATH" `
+        "-DPALEO_TEST_PYTHON=$env:PALEO_PYTHON"
     } else {
       cmake -S $Root -B $Build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo "-DQGIS_PREFIX=$(Join-Path $Vendor 'osgeo4w')"
     }
@@ -305,6 +355,7 @@ switch ($Verb) {
       # 的最高优先覆盖是 SEISMIC_INDEX_CACHE_DIR——指到树内。
       $env:SEISMIC_INDEX_CACHE_DIR = Join-Path $treeTmp 'seismic-index'
       New-Item -ItemType Directory -Force $env:SEISMIC_INDEX_CACHE_DIR | Out-Null
+      Invoke-EnsureQgisResources -Auto
     }
     # Python 门禁脚本在 Windows 默认 cp1252 下读写含中文的源码/输出会抛
     # UnicodeEncodeError（ui_invariants_selftest）——统一 UTF-8 模式。
@@ -314,6 +365,9 @@ switch ($Verb) {
     $firstRunDir = Join-Path $Build 'Testing/qtest-first-run'
     New-Item -ItemType Directory -Force $firstRunDir | Out-Null
     $junit = Join-Path $Build 'Testing/ctest-junit.xml'
+    # 本轮启动失败时不得拿上一轮预算失败输出或 JUnit 当豁免证据。
+    Remove-Item (Join-Path $firstRunDir '*.txt') -Force -ErrorAction SilentlyContinue
+    Remove-Item $junit -Force -ErrorAction SilentlyContinue
     $log = Join-Path $logDir 'ctest.log'
     $ctestExtra = @()
     if ($env:PALEO_CTEST_ARGS) { $ctestExtra = $env:PALEO_CTEST_ARGS.Trim() -split '\s+' }
@@ -323,12 +377,31 @@ switch ($Verb) {
       # ctest 的 --output-on-failure 在 Windows runner 上回收不到子进程
       # 输出；失败测试逐个直跑，QtTest 的 FAIL/Loc 行直落日志与控制台。
       # 与 Linux gate 对齐：崩溃/abort 不按一次性环境抖动放行。
-      $crashPattern = '\*\*\*Exception|Subprocess aborted|Child aborted|Subprocess killed|Illegal|SegFault'
+      $crashPattern = '\*\*\*Exception|\*\*\*Timeout|Subprocess aborted|Child aborted|Subprocess killed|Illegal|SegFault'
       if (Select-String -Path $log -Pattern $crashPattern -Quiet) {
         throw 'CTest failed (crash-class failure)'
       }
       $names = @( & ctest --test-dir $Build --rerun-failed -N @ctestExtra 2>$null |
         ForEach-Object { if ($_ -match 'Test\s+#\d+:\s+(\S+)') { $Matches[1] } } )
+      # 方向 81：环境债红名单（tools/env_redset.json）先分类——豁免项（只限
+      # 名单 routes 内的路线、且每条 FAIL! 命中预算断言正则）放行；已修项再红
+      # / 名单外红照旧走下面的直跑复核。检查器不可用时保持原逻辑（全量直跑）。
+      $py = if ($env:PALEO_PYTHON) { $env:PALEO_PYTHON } else { 'python' }
+      $unexpectedFile = Join-Path $Build 'Testing/env-redset-unexpected.txt'
+      Remove-Item $unexpectedFile -Force -ErrorAction SilentlyContinue
+      $redsetExit = 1
+      try {
+        & $py (Join-Path $Root 'tools/check_env_redset.py') --build $Build --junit $junit `
+          --route $script:DepsRoute --emit-unexpected $unexpectedFile 2>&1 | Tee-Object -FilePath $log -Append
+        $redsetExit = $LASTEXITCODE
+      } catch { "  (env_redset 检查器不可用：$_)" | Tee-Object -FilePath $log -Append }
+      # 即使 Python 检查器不可用，已修项的首轮红也不能被直跑绿掩盖。
+      Assert-NoEnvDebtRegression $names (Join-Path $Root 'tools/env_redset.json')
+      if (Test-Path $unexpectedFile) {
+        if ($redsetExit -eq 0) { Write-Host '  env_redset: 全部红均为名单内豁免——放行'; return }
+        $keep = @(Get-Content $unexpectedFile | Where-Object { $_ })
+        if ($keep.Count -gt 0) { $names = @($names | Where-Object { $keep -contains $_ }) }
+      }
       $rerunFailed = $false
       $unhandled = $names.Count -eq 0
       foreach ($n in $names) {
@@ -383,9 +456,14 @@ switch ($Verb) {
       $treeTmp = Join-Path $Build 'paleo-tmp'
       New-Item -ItemType Directory -Force $treeTmp | Out-Null
       $env:TEMP = $treeTmp; $env:TMP = $treeTmp
+      Invoke-EnsureQgisResources -Auto
     }
     & (Join-Path $Build 'paleo_selfcheck.exe')
     if ($LASTEXITCODE -ne 0) { throw 'Selfcheck failed' }
+  }
+  'ensure-resources' {
+    Enter-DependencyEnvironment
+    Invoke-EnsureQgisResources
   }
   'checkenv' {
     # 方向 72 防回归：编译链（CMakeCache 的 Qt6Core_DIR）vs 运行链（PATH
@@ -408,5 +486,5 @@ switch ($Verb) {
       if (Test-Path $target) { Remove-Item -Recurse -Force $target; Write-Host "removed $target" }
     }
   }
-  default { throw "unknown verb '$Verb' — bootstrap [fetch-only]|build|test|selfcheck|checkenv|clean-vendor" }
+  default { throw "unknown verb '$Verb' — bootstrap [fetch-only]|build|test|selfcheck|checkenv|ensure-resources|clean-vendor" }
 }

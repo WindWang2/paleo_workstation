@@ -459,6 +459,7 @@ add_library(paleo_store STATIC
   src/catalog/frameworkstore.cpp                    # 方向28：格架落库（catalog 资产 + 受管版本）
   src/metadata/wellsitingstore.cpp                  # 方向34：布井方案集单行文档表
   src/metadata/projectlock.cpp                      # 两实例同开一工程写互斥（QLockFile）
+  src/metadata/processprobe.cpp                     # 方向81：锁持有者 pid 存活探测 + 同机判据（Qt 陈旧锁回收兜底）
 )
 target_link_libraries(paleo_store PUBLIC paleo_deps paleo_domain)
 
@@ -758,13 +759,39 @@ enable_testing()
 # 每测试独立 XDG/HOME 目录：QSettings NativeFormat 在 Linux 走 XDG_CONFIG_HOME，
 # tst_panels/tst_webviewpanel 等不再互踩真实 ~/.config/paleo（tst_ui/tst_procdialog
 # 曾靠 .cpp 里 setPath 自救，现收归测试布线，零 .cpp 改动）。
-# 已知边界：Windows NativeFormat 走注册表不受 env 控制——Windows 侧仍靠
-# 串行 ctest（ci.yml windows leg 未开并行）；文档见 BUILDING.md。
+# Windows（方向 81）：NativeFormat 走注册表不受 env 控制——每个测试可执行文件
+# 链入 tests/support/paleo_test_registry_sandbox.cpp（OBJECT 库，静态初始化期
+# 把本进程 HKCU 重映射到 ctest-home/<test>/registry.hiv 私有 hive），由
+# PALEO_TEST_REGISTRY_HIVE 指路；tst_test_sandbox 钉契约。决策记录见
+# .goal-loop-ledger-env-debt2.md「QSettings 三选一」。CI windows leg 的
+# 串行 ctest 本方向不改。
+if(WIN32)
+  add_library(paleo_test_registry_sandbox OBJECT tests/support/paleo_test_registry_sandbox.cpp)
+endif()
+# 测试可执行文件链入 Windows 注册表沙箱 hook（非 Windows 为空操作）。OBJECT
+# 直链进 exe（不是静态库）——静态初始化对象必定被链接、先于 main 运行。
+function(paleo_test_link_sandbox target)
+  if(WIN32)
+    target_sources(${target} PRIVATE $<TARGET_OBJECTS:paleo_test_registry_sandbox>)
+  endif()
+endfunction()
 # 注意 set_tests_properties 的 ENVIRONMENT 是整体覆盖非追加：外部对本函数
 # 注入环境做扩展，非路径变量用 set_property(TEST ... APPEND PROPERTY ...)；
 # LD_LIBRARY_PATH 等路径变量必须走 ENVIRONMENT_MODIFICATION 的
 # path_list_prepend（APPEND 一条整体赋值仍会替换外部注入值，见下方
 # tst_onnx 的修复注记）。
+# 方向81：PALEO_PYTHON 在 ctest 下可达。configure 时 env PALEO_PYTHON（paleo-dev.ps1
+# localdeps 路线指向 deps 根 python.exe）作缺省进 cache；非空即注入每个测试的
+# ENVIRONMENT，并把期望路径编进 tst_pythonrepl/tst_scriptrunner 断言——
+# 裸 ctest / IDE 跑测试不再依赖调用者 shell 的 PATH（Windows 上 PATH 首个
+# python 常是 WindowsApps 商店桩）。留空 = 保持 PATH 发现（Linux/CI 缺省）。
+set(PALEO_TEST_PYTHON "$ENV{PALEO_PYTHON}" CACHE FILEPATH
+  "Python interpreter injected as PALEO_PYTHON into every ctest (empty = PATH discovery)")
+set(PALEO_TEST_PYTHON_NORM "")
+if(PALEO_TEST_PYTHON)
+  file(TO_CMAKE_PATH "${PALEO_TEST_PYTHON}" PALEO_TEST_PYTHON_NORM)
+endif()
+
 function(paleo_test_sandbox name)
   set(_home ${CMAKE_BINARY_DIR}/ctest-home/${name})
   file(MAKE_DIRECTORY "${_home}/config" "${_home}/data" "${_home}/cache" "${_home}/tmp")
@@ -775,6 +802,9 @@ function(paleo_test_sandbox name)
     # MAX_PATH=260（tst_import 只在 ctest 下红、直跑绿）；QTemporaryDir 本身
     # 已按用例隔离，Windows 上 XDG 沙箱也不生效（QSettings 走注册表）。
     string(APPEND _env ";TEMP=${_home}/tmp;TMP=${_home}/tmp")
+  else()
+    # 私有注册表 hive（见上方 paleo_test_link_sandbox）：每次运行先删再挂载。
+    string(APPEND _env ";PALEO_TEST_REGISTRY_HIVE=${_home}/registry.hiv")
   endif()
   set_tests_properties(${name} PROPERTIES ENVIRONMENT "${_env}")
   if(QGIS_PREFIX)
@@ -782,6 +812,10 @@ function(paleo_test_sandbox name)
     # RUNPATH 一致），不借系统 /usr 栈——裸 ctest 即全 vendored。
     set_property(TEST ${name} APPEND PROPERTY ENVIRONMENT
       "QGIS_PREFIX_PATH=${PALEO_QGIS_RUNTIME_PREFIX}")
+  endif()
+  if(PALEO_TEST_PYTHON_NORM)
+    set_property(TEST ${name} APPEND PROPERTY ENVIRONMENT
+      "PALEO_PYTHON=${PALEO_TEST_PYTHON_NORM}")
   endif()
   if(PALEO_ENABLE_ASAN)
     set_property(TEST ${name} APPEND PROPERTY ENVIRONMENT
@@ -811,6 +845,7 @@ function(add_paleo_test name)
     set(_libs paleo_core)
   endif()
   add_executable(${name} tests/${name}.cpp)
+  paleo_test_link_sandbox(${name})
   target_link_libraries(${name} PRIVATE ${_libs} Qt6::Test)
   target_compile_definitions(${name} PRIVATE FIXTURE_GPKG="${FIXTURE_GPKG}")
   add_test(NAME ${name} COMMAND ${name}
@@ -866,11 +901,36 @@ if(PALEO_PYTHON3)
            ${CMAKE_SOURCE_DIR}/tools/check_qgis_versions.py)
   add_test(NAME qgis_versions_selftest COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/check_qgis_versions.py --selftest)
+  # 方向 81 环境债二期：QGIS 资源补齐工具（deb-closure.lock 同源取 srs.db）、
+  # 环境债红名单检查器、OSGeo4W pin 生成器（#297 回归：[prev] 段覆盖当前版本）
+  # 的合成夹具自检；env_redset_validate 钉名单结构 + 测试名已注册。
+  add_test(NAME qgis_resources_selftest COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/ensure_qgis_resources.py --selftest)
+  add_test(NAME env_redset_validate COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_env_redset.py --validate)
+  add_test(NAME env_redset_selftest COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_env_redset.py --selftest)
+  add_test(NAME pin_osgeo4w_selftest COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/pin_osgeo4w.py --selftest)
   set_tests_properties(layering layering_strict layering_selftest
                        ui_invariants ui_invariants_strict ui_invariants_selftest
                        i18n i18n_selftest ui_tokens ui_tokens_strict ui_tokens_selftest
                        qgis_versions qgis_versions_selftest
+                       qgis_resources_selftest env_redset_validate env_redset_selftest
+                       pin_osgeo4w_selftest
                        PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+  set_tests_properties(qgis_resources_selftest env_redset_validate env_redset_selftest
+                       pin_osgeo4w_selftest PROPERTIES ENVIRONMENT "PYTHONUTF8=1")
+endif()
+# 方向 81：paleo-dev.ps1 单元自检（AST 抽函数 + 合成夹具；-Mutate 换回 #297
+# 旧 Read-InstalledDbMap 必须被抓到）。找到 pwsh/powershell 才注册——Windows
+# CI 必跑，Linux 装了 pwsh 也跑。
+find_program(PALEO_PWSH NAMES pwsh powershell)
+if(PALEO_PWSH)
+  add_test(NAME paleo_dev_ps1_selftest COMMAND ${PALEO_PWSH} -NoProfile -ExecutionPolicy Bypass
+           -File ${CMAKE_SOURCE_DIR}/tools/paleo_dev_ps1_selftest.ps1)
+  add_test(NAME paleo_dev_ps1_selftest_mutation COMMAND ${PALEO_PWSH} -NoProfile -ExecutionPolicy Bypass
+           -File ${CMAKE_SOURCE_DIR}/tools/paleo_dev_ps1_selftest.ps1 -Mutate)
 endif()
 
 # ---- 测试注册（devex T1 链接瘦身：LIBS = 各测试 include 面的最小闭包，见
@@ -1103,6 +1163,7 @@ target_link_libraries(paleo_seismic_demo PRIVATE paleo_core)
 
 add_executable(tst_boot tests/tst_boot.cpp)
 target_link_libraries(tst_boot PRIVATE paleo_qgis_iface Qt6::Test)
+paleo_test_link_sandbox(tst_boot)
 target_compile_definitions(tst_boot PRIVATE FIXTURE_GPKG="${FIXTURE_GPKG}")
 add_test(NAME boot COMMAND tst_boot
          -o "${PALEO_QTEST_FIRST_RUN_DIR}/boot.txt,txt")
@@ -1110,6 +1171,7 @@ paleo_test_sandbox(boot)
 
 add_executable(tst_polygonize tests/tst_polygonize.cpp spikes/polygonize/paleopolygonize.cpp)
 target_link_libraries(tst_polygonize PRIVATE paleo_qgis_iface Qt6::Test ${GDAL_LIB})
+paleo_test_link_sandbox(tst_polygonize)
 target_include_directories(tst_polygonize PRIVATE ${GDAL_INCLUDE_DIR} ${CMAKE_SOURCE_DIR}/spikes/polygonize)
 add_test(NAME polygonize COMMAND tst_polygonize
          -o "${PALEO_QTEST_FIRST_RUN_DIR}/polygonize.txt,txt")
@@ -1117,6 +1179,7 @@ paleo_test_sandbox(polygonize)
 
 # ---- wave3/model-hardening (数据模型与测试基建加固) ----
 add_paleo_test(tst_metastore LIBS paleo_store)      # sqlite user_version：新库采纳/遗留升级/未来拒开
+add_paleo_test(tst_test_sandbox LIBS paleo_domain)  # 方向81：测试沙箱契约（XDG / Windows 私有注册表 hive）
 add_paleo_test(tst_layermanifest LIBS paleo_store)  # P1-11 / ARCH-04 LayerManifest 线程亲和性与写队列调度门禁
 add_paleo_test(tst_segy_fixture LIBS paleo_io)   # 合成最小 SEG-Y 夹具：索引/单线/角点/范围门
 target_compile_definitions(tst_segy_fixture PRIVATE
@@ -1153,6 +1216,7 @@ target_compile_definitions(tst_perfbudget PRIVATE
 add_paleo_test(tst_sanitizer_budget LIBS paleo_domain)
 add_executable(tst_sanitizer_budget_on tests/tst_sanitizer_budget.cpp)
 target_link_libraries(tst_sanitizer_budget_on PRIVATE paleo_domain Qt6::Test)
+paleo_test_link_sandbox(tst_sanitizer_budget_on)
 target_compile_definitions(tst_sanitizer_budget_on PRIVATE
   PALEO_SANITIZER_BUILD=1 FIXTURE_GPKG="${FIXTURE_GPKG}")
 add_test(NAME tst_sanitizer_budget_on COMMAND tst_sanitizer_budget_on
@@ -1311,6 +1375,26 @@ foreach(_t IN LISTS _paleo_perf_tests)
 endforeach()
 if(TEST tst_singlefactor_perf)
   set_tests_properties(tst_singlefactor_perf PROPERTIES TIMEOUT 1200)
+endif()
+
+# ---- 方向 81：环境债红名单（tools/env_redset.json，单一真源）→ ctest 标签 ----
+# envdebt / envdebt_<category> / envdebt_<fixed|exempt>：`ctest -L envdebt` 一键
+# 重跑方向 72 的 16 红清单；判定由 tools/check_env_redset.py 做（豁免只认
+# 指定预算断言、只限指定路线）。APPEND，不覆盖既有标签。
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+             "${CMAKE_SOURCE_DIR}/tools/env_redset.json")
+file(READ "${CMAKE_SOURCE_DIR}/tools/env_redset.json" _paleo_redset)
+string(JSON _paleo_redset_n LENGTH "${_paleo_redset}" entries)
+if(_paleo_redset_n GREATER 0)
+  math(EXPR _paleo_redset_last "${_paleo_redset_n} - 1")
+  foreach(_i RANGE ${_paleo_redset_last})
+    string(JSON _t GET "${_paleo_redset}" entries ${_i} test)
+    string(JSON _c GET "${_paleo_redset}" entries ${_i} category)
+    string(JSON _s GET "${_paleo_redset}" entries ${_i} status)
+    if(TEST ${_t})
+      set_property(TEST ${_t} APPEND PROPERTY LABELS envdebt envdebt_${_c} envdebt_${_s})
+    endif()
+  endforeach()
 endif()
 if(TEST tst_singlefactor_contourbudget)
   set_tests_properties(tst_singlefactor_contourbudget PROPERTIES TIMEOUT 600)

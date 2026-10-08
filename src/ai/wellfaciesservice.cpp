@@ -12,6 +12,13 @@
 #include <QStandardPaths>
 
 QString WellFaciesConfig::path() {
+  // PALEO_WELL_FACIES_CONFIG：配置文件全路径覆盖（同 _URL/_API_KEY 一族）。
+  // Windows 的 GenericConfigLocation 是 known folder（%LOCALAPPDATA%），不看
+  // XDG_CONFIG_HOME——测试/便携场景只能经此把文件挪离用户真实配置（方向 81）。
+  const QString overridePath =
+      qEnvironmentVariable("PALEO_WELL_FACIES_CONFIG").trimmed();
+  if (!overridePath.isEmpty())
+    return overridePath;
   return QStandardPaths::writableLocation(
              QStandardPaths::GenericConfigLocation) +
          QStringLiteral("/paleo/well-facies.json");

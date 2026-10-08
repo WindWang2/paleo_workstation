@@ -369,7 +369,7 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         run: ./paleo-dev.ps1 selfcheck
-      - name: Test (headless；Windows NativeFormat 走注册表，QSettings 沙箱不适用，保持串行)
+      - name: Test (headless；QSettings 走测试私有注册表 hive（方向 81），保持串行)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         shell: pwsh
         env:

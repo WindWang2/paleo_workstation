@@ -173,6 +173,11 @@ mkdir -p "$STAGING"
 printf '%s\n' "$URIS" | while read -r quoted name size hash; do
   dpkg-deb -x "$CACHE/$name" "$STAGING"
 done
+# 方向 81：dpkg-deb -x 不跑 postinst——qgis-providers-common 的 postinst 才
+# `cp srs-template.db srs.db`，缺了它 tst_runtime/boot 的 srs.db 断言必红。
+# 同一工具（Windows localdeps 也用它）在解包前缀上补这一步，不联网。
+python3 tools/ensure_qgis_resources.py --prefix "$STAGING/usr" --layout deb ||
+  fail "cannot create srs.db in $STAGING" "check that qgis-providers-common is in $LOCK"
 rm -rf -- "$PREFIX"
 mv "$STAGING" "$PREFIX"
 

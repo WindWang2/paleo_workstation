@@ -21,6 +21,8 @@ struct WellFaciesConfig {
   QUrl baseUrl;
   QByteArray apiKey;
   bool allowInsecureHttp = false;
+  // 缺省 <GenericConfigLocation>/paleo/well-facies.json；
+  // PALEO_WELL_FACIES_CONFIG 非空时用其全路径。
   static QString path();
   // 读 JSON + 环境变量（PALEO_WELL_FACIES_URL / _API_KEY /
   // _ALLOW_INSECURE_HTTP=1）。钥匙串里的密钥由 WellFaciesKeyStore 异步补齐。

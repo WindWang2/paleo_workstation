@@ -17,6 +17,7 @@ CI/本机 bootstrap——漂移会被 paleo-dev.ps1 的装后校验打红，刷�
   3. 只写 deps.osgeo4w 的 packages/closure 两个键，其余键原样保留。
 """
 import json
+import re
 import sys
 import urllib.request
 from pathlib import Path
@@ -34,13 +35,20 @@ DIRECT_PACKAGES = [
 
 
 def parse_setup_ini(text):
-    """@-格式 → {包名: {字段: 值}}。"""
+    """@-格式 → {包名: {字段: 值}}（只取当前版本段）。
+
+    记录内 `[prev]` / `[test]` 之后是旧版/测试版的 version/install 行——必须
+    跳过，否则后出现的 [prev] version 会覆盖当前 version（方向 81 实锤：
+    钉版整体落到上一版，OSGeo4W setup 装的是当前版 → 每包「漂移」必红）。
+    """
     pkgs = {}
     cur = None
+    in_current = False
     for line in text.splitlines():
         if line.startswith("@ "):
             cur = line[2:].strip()
             pkgs[cur] = {}
+            in_current = True
             continue
         if line.lstrip().startswith("["):
             # [prev]/[test]/[curr] 备选版本块——字段同名会覆写主块（钉版
@@ -49,10 +57,36 @@ def parse_setup_ini(text):
             continue
         if cur is None or not line.strip() or line.startswith("#"):
             continue
-        if ":" in line:
+        if line.startswith("["):
+            in_current = False  # [prev] / [test] / 其他版本段
+            continue
+        if in_current and ":" in line:
             key, _, value = line.partition(":")
             pkgs[cur][key.strip()] = value.strip()
     return pkgs
+
+
+_PKG_SUFFIX = re.compile(r"\.tar\.(bz2|xz|gz|zst)$")
+
+
+def installed_db_map(text):
+    """OSGeo4W etc/setup/installed.db → {包名: version}（paleo-dev.ps1
+    Read-InstalledDbMap 的同口径参考实现，selftest 钉格式）。
+
+    格式：首行「INSTALLED.DB 2」是格式头（不是包）；其余每行
+    「<名称> <名称>-<version>.tar.bz2 0」——第二列是包文件名，剥掉
+    「<名称>-」前缀与 .tar.* 后缀才是 setup.ini 的 version 口径。
+    """
+    out = {}
+    for line in text.splitlines():
+        f = line.split()
+        if len(f) < 2 or not f[0] or f[0] == "INSTALLED.DB":
+            continue
+        ver = _PKG_SUFFIX.sub("", f[1])
+        if ver.startswith(f[0] + "-"):
+            ver = ver[len(f[0]) + 1:]
+        out[f[0]] = ver
+    return out
 
 
 def resolve_closure(pkgs, direct):
@@ -109,9 +143,29 @@ requires: liba libb
 @ libb
 version: 4.0-1
 requires: base
+[prev]
+version: 3.9-1
+install: x86_64/release/libb/libb-3.9-1.tar.bz2 1 0
+
+@ libc
+version: 5.0-1
+[test]
+version: 5.1-0
 """
     pkgs = parse_setup_ini(fixture)
     assert pkgs["app"]["requires"] == "liba libb"
+    # [prev]/[test] 段不得覆盖当前版本（方向 81 回归钉）。
+    assert pkgs["libb"]["version"] == "4.0-1", pkgs["libb"]
+    assert "install" not in pkgs["libb"], "prev 段的 install 行不得混入当前段"
+    assert pkgs["libc"]["version"] == "5.0-1", pkgs["libc"]
+    # installed.db：格式头不是包；文件名剥成 version 口径。
+    db = installed_db_map(
+        "INSTALLED.DB 2\n"
+        "libb libb-4.0-1.tar.bz2 0\n"
+        "gsl gsl-2.7.101-1.tar.bz2 0\n"
+        "python3-core python3-core-3.12.7-1.tar.xz 0\n")
+    assert db == {"libb": "4.0-1", "gsl": "2.7.101-1",
+                  "python3-core": "3.12.7-1"}, db
     closure = resolve_closure(pkgs, ["app"])
     assert closure == {"app": "3.0-1", "liba": "2.0-1", "libb": "4.0-1",
                        "base": "1.0-1"}, closure

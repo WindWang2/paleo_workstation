@@ -46,6 +46,9 @@ target_sources(paleo_ui PRIVATE
 # 刻意不走 ORT 门：异步路由/降级语义用桩 LocalPredictor 即可覆盖，
 # 有无 ONNX 运行库的构建都跑同一套断言。
 add_paleo_test(tst_aichat LIBS paleo_ai)
+# 方向77：工程上下文只读工具（query_project / asset_lineage）——纯 catalog 面，
+# 无 ORT 依赖，有无运行库的构建都跑同一套断言。
+add_paleo_test(tst_aichatprojectquery LIBS paleo_workflow paleo_ai)
 # 装配断言：产品与测试同源（app/aiwiring.cpp）。用 paleo_app 最小链接集，
 # 绕开伞式 paleo_core 在本机的 0xc0000139（见 ledger「宿主红项」）。
 add_paleo_test(tst_aiwiring LIBS paleo_app)

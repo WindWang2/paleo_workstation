@@ -122,7 +122,9 @@ if(QGIS_PREFIX AND UNIX AND NOT APPLE AND EXISTS "${QGIS_PREFIX}/lib")
   endforeach()
   list(LENGTH _pal_linkdirs _pal_n)
   message(STATUS "deb 闭包 rpath-link 目录数: ${_pal_n}")
-  unset(_pal_sos _pal_linkdirs _d _pal_n)
+  unset(_pal_sos)
+  unset(_pal_linkdirs)
+  unset(_pal_n)
 endif()
 # QScintilla：QGIS 的代码编辑器头（qgscodeeditor.h）传递包含它。它有自己的
 # 独立前缀（与 QGIS 分开安装），故也走 cache/env 解析；未显式给出时从既有的

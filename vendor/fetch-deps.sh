@@ -176,6 +176,25 @@ done
 rm -rf -- "$PREFIX"
 mv "$STAGING" "$PREFIX"
 
+# Debian libpulse 把 libpulsecommon-*.so 装在 <multiarch>/pulseaudio/ 子目录，
+# 且 RUNPATH 是硬编码绝对路径 /usr/lib/x86_64-linux-gnu/pulseaudio——vendored
+# 树里该路径落空：链接期 ld 经「需要方的 RUNPATH」找依赖报 undefined
+# reference（CI 实锤 pa_cstrerror）。修 RUNPATH 为 $ORIGIN/pulseaudio；
+# 无 patchelf 的宿主在同层目录放符号链接兜运行期（LD_LIBRARY_PATH 含
+# multiarch 目录，NEEDED 查找先于绝对 RUNPATH 命中）。
+for ma in "$PREFIX"/usr/lib/*-linux-gnu; do
+  [ -d "$ma/pulseaudio" ] || continue
+  if command -v patchelf >/dev/null; then
+    find "$ma" -maxdepth 1 -name 'libpulse*.so*' -type f -exec \
+      patchelf --set-rpath '$ORIGIN/pulseaudio' {} +
+  else
+    echo "  !! patchelf absent — libpulse RUNPATH 未修，改放同层符号链接兜底"
+    for so in "$ma"/pulseaudio/*.so*; do
+      [ -e "$so" ] && ln -sfn "pulseaudio/$(basename "$so")" "$ma/$(basename "$so")"
+    done
+  fi
+done
+
 # Record the resolved closure for reproducibility/audit.
 if [ "$UPDATE_LOCK" = 1 ]; then
   mv "$LOCK.tmp" "$LOCK"

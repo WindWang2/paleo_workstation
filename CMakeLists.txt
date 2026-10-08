@@ -376,6 +376,7 @@ target_include_directories(paleo_deps INTERFACE ${CMAKE_SOURCE_DIR}/src ${GDAL_I
 add_library(paleo_domain STATIC
   src/domain/singlefactorrequest.cpp
   src/domain/types.cpp
+  src/domain/litholexicon.cpp
   src/domain/wellcompositemodel.cpp
   src/domain/wellrecords.cpp                        # 井文本记录类型 + XML 嗅探（自 io 下沉）
   src/domain/welltopsedit.cpp                       # 方向 32：分层校验/差异/合并/批量纯函数

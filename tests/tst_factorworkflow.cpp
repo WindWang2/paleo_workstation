@@ -50,6 +50,7 @@
 #include "../src/workflow/workflows.h"
 #include "../src/workflow/mapversioncontroller.h"
 #include "../src/workflow/mappingworkbench.h"
+#include "../src/domain/litholexicon.h"
 #include "../src/metadata/mapversionstore.h"
 
 #include <QCoreApplication>
@@ -363,6 +364,82 @@ class TestFactorWorkflow : public QObject
       QgsProject::instance()->removeAllMapLayers();
     }
 
+    void lithoLexiconTableDrivenDisambiguation()
+    {
+      const auto lex = paleo::domain::LithoLexicon::defaultLexicon();
+      struct Row {
+        QString litho;
+        paleo::domain::LithoGroup expectedGroup;
+        bool expectedSand;
+        bool expectedKnown;
+      };
+      const QVector<Row> cases = {
+        // 歧义复合词优先级归类
+        { QStringLiteral("粉砂质泥岩"), paleo::domain::LithoGroup::Mud, false, true },
+        { QStringLiteral("砂质泥岩"), paleo::domain::LithoGroup::Mud, false, true },
+        { QStringLiteral("灰质泥岩"), paleo::domain::LithoGroup::Mud, false, true },
+        { QStringLiteral("泥质粉砂岩"), paleo::domain::LithoGroup::Sand, true, true },
+        { QStringLiteral("泥质砂岩"), paleo::domain::LithoGroup::Sand, true, true },
+        { QStringLiteral("灰质砂岩"), paleo::domain::LithoGroup::Sand, true, true },
+        { QStringLiteral("泥质灰岩"), paleo::domain::LithoGroup::Carbonate, false, true },
+        { QStringLiteral("砂质灰岩"), paleo::domain::LithoGroup::Carbonate, false, true },
+        // 基础砂族
+        { QStringLiteral("砂岩"), paleo::domain::LithoGroup::Sand, true, true },
+        { QStringLiteral("细砂岩"), paleo::domain::LithoGroup::Sand, true, true },
+        { QStringLiteral("粗砂岩"), paleo::domain::LithoGroup::Sand, true, true },
+        { QStringLiteral("砂"), paleo::domain::LithoGroup::Sand, true, true },
+        { QStringLiteral("sandstone"), paleo::domain::LithoGroup::Sand, true, true },
+        { QStringLiteral("sand"), paleo::domain::LithoGroup::Sand, true, true },
+        // 基础泥族
+        { QStringLiteral("泥岩"), paleo::domain::LithoGroup::Mud, false, true },
+        { QStringLiteral("页岩"), paleo::domain::LithoGroup::Mud, false, true },
+        { QStringLiteral("shale"), paleo::domain::LithoGroup::Mud, false, true },
+        { QStringLiteral("mudstone"), paleo::domain::LithoGroup::Mud, false, true },
+        // 碳酸盐族与砾岩族
+        { QStringLiteral("灰岩"), paleo::domain::LithoGroup::Carbonate, false, true },
+        { QStringLiteral("白云岩"), paleo::domain::LithoGroup::Carbonate, false, true },
+        { QStringLiteral("limestone"), paleo::domain::LithoGroup::Carbonate, false, true },
+        { QStringLiteral("砾岩"), paleo::domain::LithoGroup::Conglomerate, false, true },
+        // 未知词
+        { QStringLiteral("火山碎屑岩"), paleo::domain::LithoGroup::Unknown, false, false },
+        { QStringLiteral("玄武岩"), paleo::domain::LithoGroup::Unknown, false, false },
+        { QString(), paleo::domain::LithoGroup::Unknown, false, false }
+      };
+
+      for (const auto &c : cases) {
+        const auto res = lex.classify(c.litho);
+        QCOMPARE(res.group, c.expectedGroup);
+        QCOMPARE(res.isSand, c.expectedSand);
+        QCOMPARE(res.isKnown, c.expectedKnown);
+      }
+    }
+
+    void lithoLexiconProjectExtensionAndFactorSourceAudit()
+    {
+      QTemporaryDir tmp;
+      QVERIFY(tmp.isValid());
+      const QString customJson = QStringLiteral(R"({
+        "name": "volcanic_custom",
+        "rules": [
+          { "pattern": "玄武岩", "matchType": "contains", "group": "其他", "priority": 90 }
+        ]
+      })");
+      QFile f(tmp.filePath(QStringLiteral("litho_lexicon.json")));
+      QVERIFY(f.open(QIODevice::WriteOnly));
+      f.write(customJson.toUtf8());
+      f.close();
+
+      const auto lex = paleo::domain::LithoLexicon::fromProject(tmp.path());
+      QCOMPARE(lex.name(), QStringLiteral("volcanic_custom"));
+      const auto res = lex.classify(QStringLiteral("致密玄武岩"));
+      QCOMPARE(res.group, paleo::domain::LithoGroup::Other);
+      QVERIFY(res.isKnown);
+      QVERIFY(!res.isSand);
+
+      // 默认词表依然生效
+      QVERIFY(lex.isSand(QStringLiteral("细砂岩")));
+    }
+
     void explicitWellFactorExtractionAndAllMethods() {
       Fixture f; QVERIFY(initFixture(f)); QString err;
       const QString path = f.dir.filePath(QStringLiteral("factors.geojson"));
@@ -458,6 +535,7 @@ class TestFactorWorkflow : public QObject
       QVERIFY2(wf.extractWellFactors("D61", "sandratio", params, &err), qPrintable(err));
       const auto rows = wf.wellFactorRows(); QCOMPARE(rows.size(), 4);
       QCOMPARE(rows[0].toMap().value("value").toDouble(), 0.5); // 裁剪 + 并集，不重复计厚
+      QVERIFY(rows[0].toMap().value("source").toString().contains(QStringLiteral("词表：")));
       QVERIFY(rows[1].toMap().value("reason").toString().contains(QStringLiteral("覆盖不完整")));
       QVERIFY(rows[2].toMap().value("reason").toString().contains(QStringLiteral("缺少层段解释岩性")));
       QVERIFY(rows[3].toMap().value("reason").toString().contains(QStringLiteral("解释冲突")));

@@ -4,6 +4,7 @@
 #include "workflows_internal.h"
 #include "wellsectionworkflow.h"
 #include "algorithms/singlefactor/wellacquisition.h"
+#include "domain/litholexicon.h"
 #include "domain/mappinghorizons.h"
 #include "domain/singlefactorstrategy.h"
 #include "services/projectdata.h"
@@ -38,7 +39,9 @@ struct Source {
 
 // 同类重叠合并；跨岩性重叠拒绝。覆盖不足不把未解释区间当泥岩。
 std::optional<double> sandIn(const QVector<wellsection::LithoSegment> &segments,
-                             double top, double base, QString *reason) {
+                             double top, double base, QString *reason,
+                             const paleo::domain::LithoLexicon &lexicon = paleo::domain::LithoLexicon::defaultLexicon(),
+                             QStringList *auditRules = nullptr) {
   struct Span { double a, b; bool sand; };
   QVector<Span> spans;
   for (const auto &s : segments) {
@@ -47,14 +50,15 @@ std::optional<double> sandIn(const QVector<wellsection::LithoSegment> &segments,
       continue;
     const double a = std::max(top, s.topMd), b = std::min(base, s.baseMd);
     if (b <= a) continue;
-    const QString litho = s.litho.trimmed().toLower();
-    const bool sand = litho.contains(QStringLiteral("砂岩")) || litho == QStringLiteral("砂") ||
-                      litho.contains(QStringLiteral("sandstone")) || litho == QStringLiteral("sand");
-    const bool known = sand || litho.contains(QStringLiteral("泥")) || litho.contains(QStringLiteral("页岩")) ||
-                       litho.contains(QStringLiteral("灰岩")) || litho.contains(QStringLiteral("白云岩")) ||
-                       litho.contains(QStringLiteral("砾岩")) || litho.contains(QStringLiteral("shale")) ||
-                       litho.contains(QStringLiteral("mudstone")) || litho.contains(QStringLiteral("limestone"));
-    if (known) spans.push_back({a, b, sand});
+    const auto cl = lexicon.classify(s.litho);
+    if (cl.isKnown) {
+      spans.push_back({a, b, cl.isSand});
+      if (auditRules && !cl.matchedPattern.isEmpty()) {
+        const QString ruleDesc = QStringLiteral("%1→%2").arg(s.litho.trimmed(), cl.groupName);
+        if (!auditRules->contains(ruleDesc))
+          auditRules->append(ruleDesc);
+      }
+    }
   }
   std::sort(spans.begin(), spans.end(), [](const Span &a, const Span &b) { return a.a < b.a; });
   double coveredTo = top, sand = 0;
@@ -140,12 +144,20 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
     if (std::isfinite(top) && std::isfinite(base) && base > top) {
       row.attributes.insert(layerThickness, base - top); row.thicknessReason.clear();
       const auto segs = lithologies.value(well.id);
-      const auto sand = sandIn(segs, top, base, &row.sandReason);
+      QStringList auditRules;
+      const paleo::domain::LithoLexicon lex = (wf && wf->catalog())
+          ? paleo::domain::LithoLexicon::fromProject(wf->projectDir(), wf->catalog())
+          : paleo::domain::LithoLexicon::defaultLexicon();
+      const auto sand = sandIn(segs, top, base, &row.sandReason, lex, &auditRules);
       if (sand) {
         row.attributes.insert(sandThickness, *sand); row.sandReason.clear();
         QStringList sources;
         for (const auto &s : segs) if (!s.provenance.isEmpty() && !sources.contains(s.provenance)) sources << s.provenance;
-        row.sandSource = sources.isEmpty() ? ConstraintWorkflow::tr("工程解释岩性 / 岩屑录井（MD）") : sources.join(QStringLiteral("; "));
+        QString sourceBase = sources.isEmpty() ? ConstraintWorkflow::tr("工程解释岩性 / 岩屑录井（MD）") : sources.join(QStringLiteral("; "));
+        if (!auditRules.isEmpty()) {
+          sourceBase += QStringLiteral(" [词表：%1]").arg(auditRules.join(QStringLiteral(", ")));
+        }
+        row.sandSource = sourceBase;
       } else if (!lithologyWarnings.isEmpty()) row.sandReason += QStringLiteral("; ") + lithologyWarnings.join(QStringLiteral("; "));
     } else if (std::isfinite(top) && std::isfinite(base)) {
       row.thicknessReason = ConstraintWorkflow::tr("分层倒置或层厚为零"); row.sandReason = row.thicknessReason;

@@ -46,6 +46,10 @@ public:
   QString statusText() const;
   // 系统提示：领域工具表 + 地质解释红线（建议不自动落库）。
   QString systemPrompt() const;
+  // 方向77：工程摘要常驻轻注入（井数/层位数/资产计数一行式，由装配根经
+  // AiChatToolRunner::projectBrief 算好送入；空 = 无工程/未注入，不占预算）。
+  void setProjectBrief(const QString &brief) { m_projectBrief = brief; }
+  QString projectBrief() const { return m_projectBrief; }
   QVector<AiToolSpec> tools() const { return builtinAiToolSpecs(); }
   // 工具执行器（组合成员；装配根/测试经此绑定执行面与数据上下文）。
   AiChatToolRunner *toolRunner() { return &m_runner; }
@@ -109,6 +113,7 @@ private:
   LlmClient m_client;
   AiChatToolRunner m_runner;
   ChatSession m_session;
+  QString m_projectBrief; // 方向77：工程概况常驻段（system prompt 尾部轻注入）
   bool m_streaming = false;
   int m_pendingToolResults = 0; // 工具相：等待回灌的未应答帧数
   int m_toolRound = 0;          // 本用户轮内已发生的模型↔工具往返数

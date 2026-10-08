@@ -38,6 +38,7 @@ import sys
 import tarfile
 import tempfile
 import urllib.request
+from urllib.parse import urlsplit
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -88,19 +89,42 @@ def sha256_of(path):
     return h.hexdigest()
 
 
-def fetch(entry, cache):
+def snapshot_url_for(url, snapshot):
+    """同 fetch-deps.sh：只给 Ubuntu 官方 pool 加锁时快照回退。"""
+    parsed = urlsplit(url)
+    if (parsed.scheme not in ("http", "https") or
+            parsed.netloc not in ("archive.ubuntu.com", "security.ubuntu.com") or
+            not parsed.path.startswith("/ubuntu/pool/")):
+        return None
+    stamp = os.environ.get("PALEO_DEB_SNAPSHOT")
+    if not stamp:
+        stamp = Path(snapshot).read_text(encoding="utf-8").strip() if Path(snapshot).is_file() else "20260926T000000Z"
+    if not re.fullmatch(r"\d{8}T\d{6}Z", stamp):
+        raise Fail(f"非法 deb snapshot 时间戳：{stamp!r}")
+    return f"https://snapshot.ubuntu.com/ubuntu/{stamp}/pool/{parsed.path[len('/ubuntu/pool/'):]}"
+
+
+def fetch(entry, cache, snapshot=DEFAULT_LOCK.with_suffix(".snapshot")):
     """取 .deb 到 cache（已缓存且校验通过则复用），返回路径；大小/SHA-256 不符即拒。"""
     cache.mkdir(parents=True, exist_ok=True)
     dest = cache / entry["file"]
     if dest.exists() and dest.stat().st_size == entry["size"] and sha256_of(dest) == entry["sha256"]:
         return dest
     tmp = dest.with_suffix(dest.suffix + ".part")
-    try:
-        with urllib.request.urlopen(entry["url"], timeout=120) as resp, open(tmp, "wb") as f:
-            shutil.copyfileobj(resp, f)
-    except OSError as e:
-        raise Fail(f"下载失败 {entry['url']}: {e}——可先在 Linux 上 ./vendor/fetch-deps.sh 取档，"
-                   f"或把 {entry['file']} 放进 {cache}")
+    urls = [entry["url"]]
+    fallback = snapshot_url_for(entry["url"], snapshot)
+    if fallback:
+        urls.append(fallback)
+    for url in urls:
+        try:
+            with urllib.request.urlopen(url, timeout=120) as resp, open(tmp, "wb") as f:
+                shutil.copyfileobj(resp, f)
+            break
+        except OSError as e:
+            tmp.unlink(missing_ok=True)
+            if url == urls[-1]:
+                raise Fail(f"下载失败 {url}: {e}——可先在 Linux 上 ./vendor/fetch-deps.sh 取档，"
+                           f"或把 {entry['file']} 放进 {cache}") from e
     size, sha = tmp.stat().st_size, sha256_of(tmp)
     if size != entry["size"] or sha != entry["sha256"]:
         tmp.unlink(missing_ok=True)
@@ -208,7 +232,7 @@ def ensure(prefix, layout="auto", cache=DEFAULT_CACHE, lock=DEFAULT_LOCK, force=
         res.mkdir(parents=True, exist_ok=True)
         files = []
         for e in entries:
-            deb = fetch(e, Path(cache))
+            deb = fetch(e, Path(cache), Path(lock).with_suffix(".snapshot"))
             files += extract_resources(deb, res)
         make_srs_db(res)
         files.append("srs.db")
@@ -269,6 +293,8 @@ def _deb(files, zst=False):
 
 
 def selftest():
+    from unittest.mock import patch
+    from urllib.error import HTTPError
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         cache = tmp / "cache"          # 本地缓存（起始为空：首轮必走「下载」）
@@ -291,6 +317,30 @@ def selftest():
         lock = tmp / "deb-closure.lock"
         lock.write_text("\n".join(lock_lines) + "\n", encoding="utf-8")
         quiet = lambda *_: None
+
+        # pool 被安全更新删档时仍取同一锁时快照，并继续检验摘要。
+        snap = tmp / "deb-closure.snapshot"
+        snap.write_text("20260926T000000Z\n", encoding="utf-8")
+        entry = resource_entries(lock.read_text(encoding="utf-8"))[0]
+        entry["url"] = "https://archive.ubuntu.com/ubuntu/pool/main/q/qgis/" + entry["file"]
+        with patch.dict(os.environ, {"PALEO_DEB_SNAPSHOT": "20260926T000000Z"}):
+            fallback = snapshot_url_for(entry["url"], snap)
+            assert fallback.startswith("https://snapshot.ubuntu.com/ubuntu/20260926T000000Z/pool/")
+            assert snapshot_url_for("https://qgis.org/ubuntu/pool/pkg.deb", snap) is None
+            assert snapshot_url_for("https://archive.ubuntu.com.evil/ubuntu/pool/pkg.deb", snap) is None
+            blob = debs[entry["package"]]
+            with patch.object(urllib.request, "urlopen", side_effect=[
+                    HTTPError(entry["url"], 404, "gone", {}, None), io.BytesIO(blob)]) as get:
+                assert fetch(entry, tmp / "snapcache", snap).read_bytes() == blob
+                assert [call.args[0] for call in get.call_args_list] == [entry["url"], fallback]
+            with patch.object(urllib.request, "urlopen", side_effect=[
+                    HTTPError(entry["url"], 404, "gone", {}, None), io.BytesIO(b"bad snapshot")]):
+                try:
+                    fetch(entry, tmp / "badsnapcache", snap)
+                except Fail as e:
+                    assert "校验不符" in str(e), e
+                else:
+                    raise AssertionError("快照摘要不符必须拒绝")
 
         # 1) Windows 布局全量补齐：资源 + srs.db + 清单；越界路径被拒。
         prefix = tmp / "winprefix"

@@ -206,6 +206,8 @@ CMakeLists 注记的 MAX_PATH 深路径顾虑）。根治需在沙箱策略侧�
   同源取 qgis-providers-common + qgis-common（_all 包）补齐
   `~/paleo-qgis-prefix/resources/**`，`srs.db = cp srs-template.db`
   （Debian postinst 同义）；localdeps 的 test/selfcheck 缺 srs.db 时自动调用。
+  Ubuntu pool 失效时按同一 `vendor/deb-closure.snapshot` 回退，摘要仍取锁内值；
+  `PALEO_DEB_SNAPSHOT` 覆盖口径与 `fetch-deps.sh` 一致。
   解 `data.tar.zst` 需 Python≥3.14、`zstandard` 模块或 PATH 上的 `zstd` 之一
   （conda deps 的 `Library/bin` 通常带 zstd.exe）。
 - **QSettings**：测试 exe 静态初始化期把本进程 HKCU 重映射到
@@ -213,9 +215,36 @@ CMakeLists 注记的 MAX_PATH 深路径顾虑）。根治需在沙箱策略侧�
   零迁移）；测试不再读写/清空开发者真实的 `HKCU\Software\paleo\paleo`。
   直跑测试 exe（不经 ctest）时 hive 落 `%TEMP%\paleo-test-registry\`；
   `PALEO_TEST_REGISTRY_HIVE=native` 可关闭。
+  ctest 指定的 hive 挂载失败时在进入测试前退出；直跑两档沙箱都失败时也退出，
+  避免 `.clear()` 落回真实用户配置。
 - **perf**：tst_cache_las / tst_singlefactor_perf / tst_startup_trace 按名单
   豁免（只限 localdeps、只认各自预算断言文案，阈值不动）；`paleo-dev.ps1 test`
   在 ctest 失败后先过检查器，全部为豁免即放行。
+
+本机 Oracle 双遍（完整范围，含 perf，强制串行；每遍保存自己的首轮证据）：
+
+```powershell
+$savedArgs = $env:PALEO_CTEST_ARGS
+$evidence = Join-Path $PWD ("build/envdebt-evidence/" + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+try {
+  $env:PALEO_CTEST_ARGS = '-j 1'
+  ./paleo-dev.ps1 checkenv
+  foreach ($i in 1..2) {
+    ./paleo-dev.ps1 test
+    $run = Join-Path $evidence "run$i/Testing"
+    New-Item -ItemType Directory -Force $run | Out-Null
+    Copy-Item build/Testing/ctest-junit.xml $run
+    Copy-Item build/Testing/qtest-first-run $run -Recurse
+  }
+  & $env:PALEO_PYTHON tools/check_env_redset.py --build "$evidence/run2" `
+    --compare-build "$evidence/run1" --route localdeps
+  if ($LASTEXITCODE -ne 0) { throw '环境债双遍结果未满足 Oracle' }
+} finally { $env:PALEO_CTEST_ARGS = $savedArgs }
+```
+
+检查器要求双遍测试名集合相同、16 项齐全、13 个已修项连续通过（至少 10 的
+收敛门），其余只允许三项指定预算豁免。平台与实际全量范围须在 ledger 中
+记录；Linux 报告和 CI 的 `-LE perf` 子集不能替代 Windows localdeps 验收。
 
 ## 平台 × 版本矩阵
 

@@ -30,8 +30,12 @@ class QgisProjectService : public QObject
     QgsProject *project() const;                    // never null after open/create
     bool openProject(const QString &qgzPath);       // resolves manifest placeholders on demand
     bool openProjectAsync(const QString &path);
+    // Called on the owner thread to capture a worker-only preparation closure.
+    using OpenPreparation = std::function<std::function<void()>(const QString &projectDir)>;
+    void setOpenPreparation(const OpenPreparation &prepare) { m_openPreparation = prepare; }
     void cancelOpen();
     bool isOpening() const { return m_opening; }
+    bool isBackgroundOpenRunning() const { return m_openFuture.isRunning(); }
     bool createProject(const QString &qgzPath);
     bool writeProject();                            // atomic temp+rename via store ordering
     QString projectPath() const;
@@ -88,10 +92,12 @@ class QgisProjectService : public QObject
     void openActiveChanged(bool active);
     void openProgress(int percent, const QString &status);
     void openFinished(bool success);
-    void openAborted(); // 释放待打开工程的锁；当前工程会话仍有效
+    void openAborted(); // 取消接管；后台读写结束后才能释放工程锁
+    void openWorkerFinished();
     void mapConfigurationChanged();
 
   private:
+    void adoptBackgroundOpen(const std::shared_ptr<ProjectLoadState> &state, quint64 generation, int phase);
     bool runGate( const QString &projectDir, bool creating );
     void notifyAboutToClose();
     void failAfterClose();
@@ -111,4 +117,5 @@ class QgisProjectService : public QObject
   quint64 m_openGeneration = 0;
   QFuture<void> m_openFuture;
   std::shared_ptr<ProjectLoadState> m_pendingLoad;
+  OpenPreparation m_openPreparation;
 };

@@ -262,9 +262,12 @@ void OutsourceWorkbookTests::registersFormatsInClassifierVocabulary()
   QCOMPARE( workbook.type, QStringLiteral( "outsource_workbook" ) );
   QCOMPARE( workbook.role, QStringLiteral( "input" ) );
 
-  // 旧二进制 .xls 不给假能力：仍是未知类型/参考资料。
+  // 旧二进制 .xls 同档归工作簿：原生读面不覆盖，预览经 LibreOffice 转
+  // DERIVED .xlsx 再渲染（转换编排、非原生解析能力）。
   QCOMPARE( classifyProjectPath( QStringLiteral( "/外委/旧表.xls" ) ).type,
-            QStringLiteral( "unknown" ) );
+            QStringLiteral( "outsource_workbook" ) );
+  QCOMPARE( classifyProjectPath( QStringLiteral( "/外委/旧表.xls" ) ).format,
+            QStringLiteral( "xls" ) );
 
   // SpreadsheetML 的 .xml 仍按内容嗅探判为测井类（既有行为与既有断言一致），
   // 本方向不改判；批量读取走 scanWorkbookDirectory 独立面。

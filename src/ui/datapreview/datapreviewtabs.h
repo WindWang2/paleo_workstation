@@ -2,6 +2,7 @@
 #pragma once
 #include <QHash>
 #include <QPointer>
+#include <QSet>
 #include <QString>
 #include <QWidget>
 #include <functional>
@@ -121,6 +122,15 @@ class DataPreviewTabs : public QWidget
                                     const CatalogVersion &v, const QString &abs,
                                     const QString &assetId,
                                     QWidget *host, QVBoxLayout *lay);
+    // outsource_workbook 分支：原生 sheet 表格预览（datapreviewtabworkbook.cpp）。
+    QWidget *buildOutsourceWorkbookContent(const QString &abs, QWidget *host,
+                                           QVBoxLayout *lay);
+    // 表格预览内容本体（sheet 表 + 截断/issues 说明行，无页尾警告）——
+    // .xml「井道图/表格」切换档复用；返回工作簿是否解析成功。
+    bool buildWorkbookTable(const QString &abs, QWidget *host, QVBoxLayout *lay);
+    bool buildWorkbookTable(const PreviewDocService::WorkbookPreview &data, QWidget *host, QVBoxLayout *lay);
+    QWidget *buildAuxiliaryXmlContent(const QString &abs, const QString &assetId, QWidget *host, QVBoxLayout *lay,
+                                      const QString &expectedSha = QString());
     // 方向20 轮4：buildContent 的「geojson / boundary(.geojson)」分支析出到
     // datapreviewtabgeojson.cpp。双条件匹配（geojson 类型，或 boundary 类型且
     // 文件名以 .geojson 结尾）仍留在 buildContent 调用点。
@@ -153,7 +163,13 @@ class DataPreviewTabs : public QWidget
                                  const QVector<EntityAssetLink> &links,
                                  QWidget *host, QVBoxLayout *lay);
     QWidget *buildSurveyAreaContent(QWidget *page);
-    void rebuildAssetTab(const QString &assetId); // 「重试」/PDF 转换完成后重建内容
+    void rebuildAssetTab(const QString &assetId); // 重试或切换版本后重建内容
+    // buildContent 在途时收到的重建请求（服务层转换失败信号在 ensure* 内
+    // 同步发射会重入到这里）——外层 buildContent 读到的已是最终态，顺延到
+    // 外层收尾后统一重建，避免一页挂两份内容。
+    void drainDeferredRebuilds();
+    bool m_buildingContent = false;
+    QSet<QString> m_rebuildDeferred;
     void focusWellIfNeeded(const QString &assetId, QWidget *page);
     void updateTabTitle(const QString &assetId); // 文件名 + 过滤后缀（井/测线）
     // 井过滤型正文（well_head / well_stratification / time_depth）：

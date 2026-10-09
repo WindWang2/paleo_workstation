@@ -171,7 +171,7 @@
         "soffice": "program/soffice"
       },
       "license": "MPL-2.0 (see vendor/libreoffice/LICENSE after extract; binary redistribution permitted)",
-      "notes": "Official self-contained build (ORIGIN-relative; glibc floor far below host floor). fetch-libreoffice.sh extracts only the headless --convert-to subset (core/ure/writer/impress/draw/calc/images/en-us/ooofonts/graphicfilter + brand deb) — used by resolveDocumentConverter for doc/docx/ppt/pptx/xls/xlsx -> PDF preview. Windows leg: MSI admin-extract deferred; resolver falls back to PATH soffice there."
+      "notes": "Legacy explicitly requested conversion API only. Office preview excludes LibreOffice as of 2026-10-09; it uses the source-built Calligra engine. This optional legacy package is not needed for preview."
     },
     "onnxruntime_win": {
       "version": "1.30.0",
@@ -186,6 +186,45 @@
         "lib": "onnxruntime/lib",
         "bin": "onnxruntime/lib/onnxruntime.dll"
       }
+    },
+    "calligra": {
+      "version": "26.08.2",
+      "upstream_commit": "72123cc643f6625351139e7df294544255a1056f",
+      "url": "https://download.kde.org/stable/release-service/26.08.2/src/calligra-26.08.2.tar.xz",
+      "sha256": "f4b9c11f5957798face6cf29834695d76506c5e28049e21abcb62884ce9cc96c",
+      "layout": {
+        "root": "vendor/calligra",
+        "renderer": "bin/paleo_office_renderer"
+      },
+      "license": "GPL-2.0-or-later / LGPL-2.0-or-later; retain installed COPYING and source notices",
+      "notes": "Offline Qt6 Office preview engine. Built from source with Words/Sheets/Stage and six Microsoft import filters; child process renders requested pages, without PDF or LibreOffice.",
+      "build_deps": [
+        {
+          "name": "extra-cmake-modules",
+          "version": "6.30.0",
+          "url": "https://download.kde.org/stable/frameworks/6.30/extra-cmake-modules-6.30.0.tar.xz",
+          "sha256": "22c9f7ff930dae7329faebf2942d2424f4a298c43bb3f11e217be6b12f227f6e"
+        },
+        {
+          "name": "boost",
+          "version": "1.90.0",
+          "url": "https://archives.boost.io/release/1.90.0/source/boost_1_90_0.tar.bz2",
+          "sha256": "49551aff3b22cbc5c5a9ed3dbc92f0e23ea50a0f7325b0d198b705e8ee3fc305",
+          "directory": "boost_1_90_0"
+        },
+        {
+          "name": "eigen",
+          "version": "5.0.0",
+          "url": "https://gitlab.com/libeigen/eigen/-/archive/5.0.0/eigen-5.0.0.tar.gz",
+          "sha256": "315c881e19e17542a7d428c5aa37d113c89b9500d350c433797b730cd449c056"
+        },
+        {
+          "name": "kdiagram",
+          "version": "3.0.1",
+          "url": "https://download.kde.org/stable/kdiagram/3.0.1/kdiagram-3.0.1.tar.xz",
+          "sha256": "4659b0c2cd9db18143f5abd9c806091c3aab6abc1a956bbf82815ab3d3189c6d"
+        }
+      ]
     }
   }
 }

@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+<Worksheet ss:Name="数据表"><Table>
+<Row><Cell><Data>样品号</Data></Cell><Cell><Data>深度</Data></Cell><Cell><Data>孔隙度</Data></Cell></Row>
+<Row><Cell><Data>S1</Data></Cell><Cell><Data>2000</Data></Cell><Cell><Data>0.12</Data></Cell></Row>
+<Row><Cell><Data>S2</Data></Cell><Cell><Data>2010</Data></Cell><Cell><Data>0.15</Data></Cell></Row>
+</Table></Worksheet>
+<Worksheet ss:Name="岩性"><Table>
+<Row><Cell><Data>顶深</Data></Cell><Cell><Data>底深</Data></Cell><Cell><Data>岩性</Data></Cell></Row>
+<Row><Cell><Data>2000</Data></Cell><Cell><Data>2050</Data></Cell><Cell><Data>砂岩</Data></Cell></Row>
+</Table></Worksheet>
+</Workbook>

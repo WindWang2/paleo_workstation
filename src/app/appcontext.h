@@ -11,6 +11,8 @@
 #include "metadata/faultsetstore.h"
 #include "metadata/wellsitingstore.h"
 class ProjectDirLock;
+class ProjectLayerRefreshWorkflow;
+struct AppProjectOpenData;
 class QgisRuntime;
 class QgisCanvasController;
 class QgisProjectService;
@@ -150,17 +152,22 @@ class AppContext : public QObject
     // D6：zoomOnGrowth 为真（catalog 变更路径）且井点范围实际变大时
     // zoom-to-content——无关联导入只重写同一份 geojson，范围不变不抢视野；
     // 工程打开路径传 false，让位于 .qgz 里恢复的视野。
-    void refreshWellsLayer(bool zoomOnGrowth);
+    void refreshWellsLayer(bool zoomOnGrowth, bool dataPrepared = false);
     void refreshSurveyLayer();
+    void restoreProjectLayers(const QString &directory, quint64 session, bool wellsPrepared,
+                              bool trajectoriesPrepared, int phase = 0);
     // goal/well-trajectory：井底位移轨迹线层（surface→TD 投影）。无任何
     // 已决测斜时不写文件不声明层（诚实空，同 wells 的约定）。
-    void refreshWellTrajectoriesLayer();
+    void refreshWellTrajectoriesLayer(bool dataPrepared = false);
     // #152 打开闸门：在读新工程前为 projectDir 取锁（或复用/降级只读/取消）。
     bool acquireProjectLock(const QString &projectDir, bool creating, QString *error,
                             bool *cancelled);
     void releaseProjectSession();
 
     bool m_ready = false;
+    bool m_bindingProject = false;
+    ProjectLayerRefreshWorkflow *m_projectLayerRefresh = nullptr;
+    std::shared_ptr<AppProjectOpenData> m_preparedOpenData;
     QgisProjectService *m_projectSvc = nullptr;
     QgisLayerService *m_layerSvc = nullptr;
     QgisCanvasController *m_canvasCtl = nullptr;

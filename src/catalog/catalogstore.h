@@ -86,6 +86,7 @@ class CatalogStore
     bool rewritePrimary(const Tables &tables, bool quarantineCorrupt, QString *error);
 
     void close();
+    bool resumeConnection(bool readOnly, int expectedRevision, QString *error);
 
     static QString sqlitePathFor(const QString &projectDir);
     static QString jsonPathFor(const QString &projectDir);

@@ -445,6 +445,8 @@ inline QStringList contextMenuActions(const ContextMenuSpec &spec)
     if (spec.assetCount > 1)
       acts << QStringLiteral("exportManifest") << QStringLiteral("removeSoft");
     acts << QStringLiteral("showInFolder");
+    if (spec.assetCount == 1)
+      acts << QStringLiteral("openExternal"); // 单资产：系统程序打开原件
   }
   if (spec.hasEntities && !spec.hasAssets)
   {

@@ -9,6 +9,7 @@
 #include "../io/geojsonaffine.h"
 #include "../io/lascache.h"
 #include "../io/lasdoc.h" // LasCurve/LasDoc/LasHeaderInfo（契约类型；解析入口不再直触）
+#include "../io/outsourceworkbook.h" // readWorkbook（workbookPreviewAt 出参来源）
 #include "../io/welllogread.h" // 方向44：格式分派
 #include "../io/segyreader.h"
 #include "../io/streaming.h" // F3：GeoJSON 流式统计（无 DOM 增量扫描）
@@ -23,6 +24,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QSet>
+#include <QTimer>
 
 namespace
 {
@@ -104,6 +106,12 @@ PreviewDocService::PreviewDocService(DataImportService *svc, QObject *parent)
     connect(m_svc, &DataImportService::documentPdfFailed, this,
             [this](const QString &assetId, const QString &error) {
               emit documentPdfFailed(assetId, error);
+            });
+    connect(m_svc, &DataImportService::workbookXlsxReady, this,
+            [this](const QString &assetId) { emit workbookXlsxReady(assetId); });
+    connect(m_svc, &DataImportService::workbookXlsxFailed, this,
+            [this](const QString &assetId, const QString &error) {
+              emit workbookXlsxFailed(assetId, error);
             });
     // 壳侧转发：catalog 打开失败 / .bak 恢复告警 / 资产入库（主窗不直连
     // io 服务）。
@@ -475,6 +483,61 @@ QString PreviewDocService::documentPdfError(const QString &assetId) const
   return m_svc ? m_svc->documentPdfError(assetId) : QString();
 }
 
+void PreviewDocService::ensureWorkbookXlsx(const QString &assetId)
+{
+  if (m_svc)
+    m_svc->ensureWorkbookXlsx(assetId);
+}
+
+PreviewDocService::WorkbookXlsxState
+PreviewDocService::workbookXlsxState(const QString &assetId) const
+{
+  if (!m_svc)
+    return WorkbookXlsxState::None;
+  switch (m_svc->workbookXlsxState(assetId))
+  {
+    case DataImportService::WorkbookXlsxState::Pending:
+      return WorkbookXlsxState::Pending;
+    case DataImportService::WorkbookXlsxState::Ready:
+      return WorkbookXlsxState::Ready;
+    case DataImportService::WorkbookXlsxState::Failed:
+      return WorkbookXlsxState::Failed;
+    default:
+      return WorkbookXlsxState::None;
+  }
+}
+
+QString PreviewDocService::workbookXlsxPath(const QString &assetId) const
+{
+  return m_svc ? m_svc->workbookXlsxPath(assetId) : QString();
+}
+
+QString PreviewDocService::workbookXlsxError(const QString &assetId) const
+{
+  return m_svc ? m_svc->workbookXlsxError(assetId) : QString();
+}
+
+PreviewDocService::WorkbookPreview
+PreviewDocService::workbookPreviewAt(const QString &absPath)
+{
+  WorkbookPreview out;
+  const paleo::io::WorkbookReadResult wb = paleo::io::readWorkbook(absPath);
+  out.ok = wb.ok;
+  out.error = wb.error;
+  out.format = wb.format;
+  out.issues = wb.issues;
+  out.sheets.reserve(wb.sheets.size());
+  for (const paleo::io::WorkbookSheet &s : wb.sheets)
+  {
+    WorkbookSheetPreview sp;
+    sp.name = s.name;
+    sp.headers = s.headers;
+    sp.rows = s.rows;
+    out.sheets.append(sp);
+  }
+  return out;
+}
+
 PreviewDocService::TieMarker
 PreviewDocService::seismicTieMarker(const QString &assetId) const
 {
@@ -815,7 +878,17 @@ void PreviewDocService::requestLas(const QString &key, const QString &absPath,
         QString(), /*quiet=*/true);
     m_lasTask[key] = task;
     connect(task, &PaleoTask::finished, this,
-            [apply, task]() { apply(task->state(), task->errorText()); });
+            [this, apply, task]() {
+      // 多口井同时解析完成时，每帧只移交一份结果。消费者的 GUI 装配
+      // 不在一个任务完成事件里连跑；真正发射前仍由 apply 复核世代。
+      m_lasDeliveryQueue.enqueue([apply, state = task->state(), error = task->errorText()] {
+        apply(state, error);
+      });
+      if (!m_lasDeliveryScheduled) {
+        m_lasDeliveryScheduled = true;
+        QTimer::singleShot(16, this, &PreviewDocService::deliverNextLasResult);
+      }
+    });
   }
   else
   {
@@ -824,6 +897,13 @@ void PreviewDocService::requestLas(const QString &key, const QString &absPath,
     apply(err.isEmpty() ? PaleoTask::State::Succeeded : PaleoTask::State::Failed,
           err);
   }
+}
+
+void PreviewDocService::deliverNextLasResult()
+{
+  if (!m_lasDeliveryQueue.isEmpty()) m_lasDeliveryQueue.dequeue()();
+  if (m_lasDeliveryQueue.isEmpty()) m_lasDeliveryScheduled = false;
+  else QTimer::singleShot(16, this, &PreviewDocService::deliverNextLasResult);
 }
 
 QHash<QString, LasDoc> PreviewDocService::lasSiblingDocs(const QString &key) const
@@ -856,6 +936,7 @@ void PreviewDocService::resetProjectState()
   m_segyReaders.clear();
   m_shaVerified.clear();
   m_lasSiblings.clear();
+  m_lasDeliveryQueue.clear();
   m_pyramidState.clear();
 }
 

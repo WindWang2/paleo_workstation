@@ -1,5 +1,6 @@
 // 层：组装根
 #include "appcontext.h"
+#include <QTimer>
 #include "../qgis/wellattributestore.h"
 #include "../services/errorhub.h"                 // 方向64：统一错误通道
 #include "aiwiring.h"                          // 方向51：远端预测装配（唯一入口）
@@ -9,6 +10,7 @@
 #include "../workflow/aichatcontroller.h"
 #include "../workflow/mappingworkbench.h"
 #include "../workflow/welltrajectorylayer.h" // goal/well-trajectory 轨迹线层组装
+#include "../workflow/projectlayerrefresh.h"
 
 #include "../ai/onnxpredictionservice.h" // ORT-free header; instantiation is PALEO_HAVE_ORT-guarded
 #if PALEO_HAVE_ORT
@@ -60,6 +62,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSaveFile>
+#include <QScopedValueRollback>
 #include <QFile>
 #include <QFileInfo>
 #include <QGuiApplication>
@@ -84,6 +87,26 @@
 // ctor does; everything else hangs off `this` as a QObject child and dies in
 // the dtor before QgisRuntime::shutdown().
 //
+struct AppProjectOpenData {
+  QString directory;
+  std::shared_ptr<DataCatalog> catalog;
+  QByteArray wellsBytes, trajectoryBytes;
+  bool wellsPrepared = false, trajectoriesPrepared = false;
+#if PALEO_HAVE_ORT
+  ModelRegistryScan models;
+#endif
+};
+
+// Only final atomic publication touches the active directory. Preparation can
+// be canceled without writing into a project whose lock has been released.
+static bool publishPreparedLayer(const QString &path, const QByteArray &bytes)
+{
+  if (bytes.isEmpty()) return true;
+  if (!QDir().mkpath(QFileInfo(path).absolutePath())) return false;
+  QSaveFile file(path); file.setDirectWriteFallback(false);
+  return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size() && file.commit();
+}
+
 // Manifest: §37 declares the manifest the layer-set authority, persisted per
 // project at "<qgz>.project.sqlite" (interim convention; the full
 // metadata/project.sqlite layout from §4 lands with the store migration). A
@@ -203,10 +226,22 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   // 刷新图层——稳定指针（catalog 由 importSvc 持有，open 原地重绑）。
   // D6：导入使井点范围变大时 zoom-to-content（无关变更只重写同一份
   // geojson，范围不变不抢视野）。
+  m_projectLayerRefresh = new ProjectLayerRefreshWorkflow(this);
+  connect(m_projectLayerRefresh, &ProjectLayerRefreshWorkflow::prepared, this,
+          [this](const QString &directory, quint64 sequence, const ProjectLayerData &data) {
+    if (directory != m_projectDir || m_projectSvc->projectPath().isEmpty() ||
+        sequence != m_import->catalog()->mutationSeq()) return;
+    for (const auto &warning : data.warnings) qWarning() << "project layer refresh:" << warning;
+    const bool readOnly = isProjectReadOnly();
+    if (readOnly || (data.wellsPrepared && publishPreparedLayer(directory + "/artifacts/layers/wells.geojson", data.wellsBytes)))
+      refreshWellsLayer(true, true);
+    if (readOnly || (data.trajectoriesPrepared && publishPreparedLayer(directory + "/artifacts/layers/well_trajectories.geojson", data.trajectoryBytes)))
+      refreshWellTrajectoriesLayer(true);
+  });
   connect(m_import->catalog(), &DataCatalog::changed, this, [this] {
-    refreshWellsLayer(true);
+    if (m_bindingProject) return; // new tables must never write into the old directory
+    m_projectLayerRefresh->request(m_import->catalog(), m_projectDir);
     refreshSurveyLayer();
-    refreshWellTrajectoriesLayer();
     // 方向77：catalog 变更（导入/登记）刷新工程摘要常驻段——system prompt
     // 里的计数不留在旧值（工具实查永远最新，这段只是开局指北针）。
     if (m_aiChat)
@@ -336,19 +371,31 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
     return acquireProjectLock(projectDir, creating, error, cancelled);
   });
   connect(m_projectSvc, &QgisProjectService::projectAboutToClose, this, [this]() {
+    m_projectLayerRefresh->cancel();
     if (m_taskSvc)
       m_taskSvc->beginNewSession();
   });
   connect(m_projectSvc, &QgisProjectService::projectClosed, this,
           [this]() { releaseProjectSession(); });
   connect(m_projectSvc, &QgisProjectService::openAborted, this, [this] {
+    if (m_projectSvc->isBackgroundOpenRunning()) return;
     m_pendingLock.reset();
     m_pendingLockReuse = false;
+    m_preparedOpenData.reset();
+  });
+  connect(m_projectSvc, &QgisProjectService::openWorkerFinished, this, [this] {
+    if (m_projectSvc->isOpening()) return;
+    m_pendingLock.reset();
+    m_pendingLockReuse = false;
+    m_preparedOpenData.reset();
   });
 
   // ensureManifest-on-open: first point a per-project path is derivable.
   connect(m_projectSvc, &QgisProjectService::projectOpened, this,
           [this](const QString &qgzPath) {
+            QScopedValueRollback<bool> binding(m_bindingProject, true);
+            const auto prepared = m_preparedOpenData;
+            m_preparedOpenData.reset();
             // #152：锁已由打开闸门（acquireProjectLock）在 read() 之前取好；
             // 这里只接管。同目录重开时闸门复用现有锁（QLockFile 同进程不可
             // 重入，先放后取会在窗口期丢锁）。无闸门结果（理论不可达）时
@@ -459,7 +506,8 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
                       .arg(AreaRules::lastError()),
                   QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
             }
-            m_import->setProjectDir(fi.absolutePath());
+            m_import->setProjectDir(fi.absolutePath(),
+                prepared && prepared->directory == fi.absolutePath() ? prepared->catalog : nullptr);
             // 工程级地理配准（project.paleo georeference 节）：导入服务带上
             // 局部网格→WGS84 变换——建井时写 coordinateStatus=ok + extra
             // 经纬度；无配准工程保持 untransformed 现状。
@@ -511,7 +559,8 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
               m_onnxSvc->setModelRoot(modelsDir);
               // 模型注册表如实扫描（范围5）：未装模型静默降级；manifest 在而
               // 坏/缺文件/指纹不符 → 消息日志逐条说明，不报错轰炸。
-              const ModelRegistryScan registry = ModelRegistry::scan(modelsDir);
+              const ModelRegistryScan registry = prepared && prepared->directory == fi.absolutePath()
+                  ? prepared->models : ModelRegistry::scan(modelsDir);
               // #145：扫描结果门控模型可见性与加载（只放行 status==Ok；加载时复核钉哈希）。
               m_onnxSvc->setModelRegistry(registry);
               if (!registry.manifestFound)
@@ -536,18 +585,35 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
             QString versionErr;
             if (!m_versionStore->open(&versionErr))
               qWarning() << "AppContext: map version store open failed" << metaPath << versionErr;
-            QString facadeErr;
-            if (!m_projectData->setProjectDir(fi.absolutePath()))
-              qWarning() << "AppContext: project data facade:" << m_projectData->lastError();
+            // Use the already-loaded catalog; never open/read a second copy.
+            m_projectData->setCatalog(m_import->catalog(), fi.absolutePath());
             m_projectData->setManifest(m_manifest);
 
             // §4 井位图层（预览壳重排）：catalog 已随 setProjectDir 打开——
             // 井点写 GeoJSON、声明「wells」、实例化后绑给 WellMapLink。
             m_projectDir = fi.absolutePath();
-            m_layerSvc->refreshBasemaps();
-            refreshSurveyLayer();
-            refreshWellsLayer(false); // 打开时视野归 .qgz 恢复态，不抢
-            refreshWellTrajectoriesLayer();
+            if (prepared && prepared->directory == m_projectDir && m_import->catalog()->isOpen()) {
+              if (prepared->wellsPrepared)
+                prepared->wellsPrepared = publishPreparedLayer(m_projectDir + "/artifacts/layers/wells.geojson", prepared->wellsBytes);
+              if (prepared->trajectoriesPrepared)
+                prepared->trajectoriesPrepared = publishPreparedLayer(m_projectDir + "/artifacts/layers/well_trajectories.geojson", prepared->trajectoryBytes);
+            }
+            const bool wellsPrepared = prepared && prepared->wellsPrepared;
+            const bool trajectoriesPrepared = prepared && prepared->trajectoriesPrepared;
+            if (m_projectSvc->isOpening()) {
+              const auto directory = m_projectDir;
+              const auto session = m_projectSvc->sessionId();
+              QTimer::singleShot(16, this, [this, directory, session, wellsPrepared, trajectoriesPrepared] {
+                restoreProjectLayers(directory, session, wellsPrepared, trajectoriesPrepared);
+              });
+            } else {
+              m_layerSvc->refreshBasemaps();
+              refreshSurveyLayer();
+              if (m_import->catalog()->isOpen()) {
+                refreshWellsLayer(false, wellsPrepared);
+                refreshWellTrajectoriesLayer(trajectoriesPrepared);
+              }
+            }
 
             // goal/fault-interpretation：FaultSet 存储值重绑本工程 meta 库并
             // 读回；工程有断层时切割镜像层上图（内存层由模型整刷）。
@@ -598,6 +664,29 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
             if (m_layerOrganizer)
               m_layerOrganizer->reorganize();
           });
+  m_projectSvc->setOpenPreparation([this](const QString &directory) {
+    auto data = std::make_shared<AppProjectOpenData>();
+    data->directory = directory;
+    m_preparedOpenData = data;
+    const bool readOnly = m_pendingLock ? !m_pendingLock->isHeld() : isProjectReadOnly();
+    const bool projectChanged = QDir::cleanPath(directory) != QDir::cleanPath(m_projectDir);
+    // No live QObject/service is captured by the worker closure.
+    return [data, readOnly, projectChanged] {
+      data->catalog = DataCatalog::prepareOpen(data->directory, readOnly);
+      if (data->catalog->isOpen() && !readOnly) {
+        if (projectChanged) DataImportService::sweepStaleStaging(data->directory);
+        const auto layers = ProjectLayerRefreshWorkflow::prepare(*data->catalog, data->directory);
+        data->wellsBytes = layers.wellsBytes;
+        data->trajectoryBytes = layers.trajectoryBytes;
+        data->wellsPrepared = layers.wellsPrepared;
+        data->trajectoriesPrepared = layers.trajectoriesPrepared;
+        for (const auto &warning : layers.warnings) qWarning() << "project open:" << warning;
+      }
+#if PALEO_HAVE_ORT
+      data->models = ModelRegistry::scan(QDir(data->directory).filePath("models"));
+#endif
+    };
+  });
   StartupTrace::mark(QStringLiteral("services_ready")); // 服务装配完（簇1 仪表）
   connect(m_projectSvc, &QgisProjectService::mapConfigurationChanged, this, [this] {
     if (m_projectSvc->georeference()) m_import->setGeoreference(*m_projectSvc->georeference());
@@ -682,16 +771,21 @@ void AppContext::closeProject()
   // 经工程服务关闭：发 projectAboutToClose（面板清状态、在途任务取消）→
   // 清 QgsProject → projectClosed → releaseProjectSession()。工程服务已无
   // 工程时直接释放会话资源（幂等）。
-  if (m_projectSvc && !m_projectSvc->projectPath().isEmpty())
-    m_projectSvc->closeProject();
-  else
+  const bool hadProject = m_projectSvc && !m_projectSvc->projectPath().isEmpty();
+  if (m_projectSvc) m_projectSvc->closeProject();
+  if (!hadProject)
     releaseProjectSession();
 }
 
 void AppContext::releaseProjectSession()
 {
-  m_pendingLock.reset();
-  m_pendingLockReuse = false;
+  if (m_projectSvc && m_projectSvc->isBackgroundOpenRunning()) {
+    // 同目录重开复用当前锁；关闭会话也要等后台读写退出才放锁。
+    if (m_pendingLockReuse && !m_pendingLock) m_pendingLock = std::move(m_projectLock);
+  } else {
+    m_pendingLock.reset();
+    m_pendingLockReuse = false;
+  }
   // #80：关闭工程即释放本线程持有的 project.sqlite 句柄（Windows 上旧句柄
   // 会阻止删除/移动刚关闭的工程目录）。
   if (!m_metaPath.isEmpty())
@@ -711,7 +805,28 @@ void AppContext::releaseProjectSession()
   emit projectReadOnlyChanged(false);
 }
 
-void AppContext::refreshWellTrajectoriesLayer()
+void AppContext::restoreProjectLayers(const QString &directory, quint64 session, bool wellsPrepared,
+                                     bool trajectoriesPrepared, int phase)
+{
+  if (directory != m_projectDir || session != m_projectSvc->sessionId() ||
+      m_projectSvc->isOpening() || m_projectSvc->projectPath().isEmpty() ||
+      !m_import->catalog()->isOpen()) return;
+  // QGIS 的图层接管/样式只在 GUI；各层分拍恢复，避免与目录面板及地震体
+  // 就绪结果挤成一次长回调。切工程后定时回调按会话身份失效。
+  if (phase == 0) m_layerSvc->refreshBasemaps();
+  else if (phase == 1) refreshSurveyLayer();
+  else if (phase == 2) refreshWellsLayer(false, wellsPrepared);
+  else {
+    refreshWellTrajectoriesLayer(trajectoriesPrepared);
+    if (m_layerOrganizer) m_layerOrganizer->reorganize();
+    return;
+  }
+  QTimer::singleShot(16, this, [this, directory, session, wellsPrepared, trajectoriesPrepared, phase] {
+    restoreProjectLayers(directory, session, wellsPrepared, trajectoriesPrepared, phase + 1);
+  });
+}
+
+void AppContext::refreshWellTrajectoriesLayer(bool dataPrepared)
 {
   if (m_projectDir.isEmpty() || !m_import || !m_layerSvc || !m_projectData)
     return;
@@ -722,68 +837,18 @@ void AppContext::refreshWellTrajectoriesLayer()
 
   const QString trajPath = QDir(m_projectDir).filePath(
       QStringLiteral("artifacts/layers/well_trajectories.geojson"));
-  if (!readOnly)
-  {
-    // 组装在功能层纯函数（wellTrajectoriesGeoJson，可测）；这里只落盘 +
-    // 声明 + 上图。读坏测斜的井如实进日志（不阻断其余井的层产出）。
-    QString terr;
-    const QByteArray bytes = paleo::wellTrajectoriesGeoJson(m_projectData, cat, &terr);
-    if (!terr.isEmpty())
-      qWarning() << "AppContext: well trajectories skipped broken surveys:" << terr;
-    const QByteArray finalBytes = bytes.isEmpty()
-                                      ? QByteArray() // 无任何已决测斜
-                                      : bytes;
-    if (!finalBytes.isEmpty())
-    {
-      QDir().mkpath(QFileInfo(trajPath).absolutePath());
-      QSaveFile file(trajPath);
-      file.setDirectWriteFallback(false);
-      if (file.open(QIODevice::WriteOnly | QIODevice::Truncate))
-      {
-        if (file.write(finalBytes) == finalBytes.size() && file.commit())
-        {
-          LayerDeclaration decl;
-          decl.layerId = QStringLiteral("well_trajectories");
-          decl.type = QStringLiteral("vector");
-          decl.source = trajPath;
-          decl.group = QStringLiteral("00_Data");
-          decl.title = tr("井轨迹投影");
-          QString derr;
-          if (!m_layerSvc->declare(decl, &derr))
-            qWarning() << "AppContext: well trajectories layer declare failed:" << derr;
-        }
-        else
-        {
-          qWarning() << "AppContext: well trajectories geojson write failed";
-        }
-      }
-    }
-    else if (QFile::exists(trajPath))
-    {
-      // 曾有轨迹、现已全部解除：覆写空 FeatureCollection——声明保留（无
-      // undeclare 面），图层如实渲染零要素，不留旧轨迹假象。
-      QJsonObject root;
-      root.insert(QStringLiteral("type"), QStringLiteral("FeatureCollection"));
-      QJsonObject crsProps;
-      crsProps.insert(QStringLiteral("name"), DataCatalog::localGridCrsWkt());
-      QJsonObject crs;
-      crs.insert(QStringLiteral("type"), QStringLiteral("name"));
-      crs.insert(QStringLiteral("properties"), crsProps);
-      root.insert(QStringLiteral("crs"), crs);
-      root.insert(QStringLiteral("features"), QJsonArray());
-      QSaveFile file(trajPath);
-      file.setDirectWriteFallback(false);
-      if (file.open(QIODevice::WriteOnly | QIODevice::Truncate))
-      {
-        const QByteArray emptyBytes = QJsonDocument(root).toJson();
-        if (!(file.write(emptyBytes) == emptyBytes.size() && file.commit()))
-          qWarning() << "AppContext: well trajectories geojson rewrite failed";
-      }
-    }
+  if (!readOnly && !dataPrepared) {
+    m_projectLayerRefresh->request(cat, m_projectDir);
+    return;
   }
-  else if (!QFile::exists(trajPath))
-  {
-    return; // 只读且无可复用产物——不造数据，也不算失败
+  if (!QFile::exists(trajPath)) return;
+  if (!readOnly && dataPrepared && QFile::exists(trajPath)) {
+    LayerDeclaration decl;
+    decl.layerId = QStringLiteral("well_trajectories");
+    decl.type = QStringLiteral("vector"); decl.source = trajPath;
+    decl.group = QStringLiteral("00_Data"); decl.title = tr("井轨迹投影");
+    QString error;
+    if (!m_layerSvc->declare(decl, &error)) qWarning() << error;
   }
   QString ierr;
   auto *layer = qobject_cast<QgsVectorLayer *>(
@@ -798,7 +863,7 @@ void AppContext::refreshWellTrajectoriesLayer()
   layer->triggerRepaint();
 }
 
-void AppContext::refreshWellsLayer(bool zoomOnGrowth)
+void AppContext::refreshWellsLayer(bool zoomOnGrowth, bool dataPrepared)
 {
   if (m_projectDir.isEmpty() || !m_import || !m_layerSvc)
     return;
@@ -817,10 +882,8 @@ void AppContext::refreshWellsLayer(bool zoomOnGrowth)
       QStringLiteral("artifacts/layers/wells.geojson"));
   if (!readOnly)
   {
-    QString werr;
-    if (!cat->writeWellsGeoJson(wellsPath, &werr))
-    {
-      qWarning() << "AppContext: wells geojson write failed:" << werr;
+    if (!dataPrepared) {
+      m_projectLayerRefresh->request(cat, m_projectDir);
       return;
     }
     if (!QFile::exists(wellsPath))

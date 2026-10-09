@@ -1,6 +1,7 @@
 // 层：视图
 // token 例外：DESIGN 数据符号例外：QGIS 测区空间覆盖的蓝色描边/透明填充。（tools/ui-token-exceptions.json 精确计数）。
 #include "paleomainwindow.h"
+#include "../workflow/sectionworkbench.h"
 #include "uienv_internal.h"
 #include "paleodockmanager.h"
 #include "paleoviewport.h"
@@ -105,6 +106,7 @@
 #include <qgsmaptoolzoom.h>
 
 #include <QApplication>
+#include <QEvent>
 #include <QCoreApplication>
 #include <QCloseEvent>
 #include <QContextMenuEvent>
@@ -156,6 +158,39 @@
 namespace
 {
 using paleo::ui_detail::isOffscreen;
+
+// 短暂的 QGIS 接管期拦住编辑输入，保留绘制、计时器与关闭事件。
+// 不逐个禁用整窗控件，避免全树 EnabledChange 引发重排/重绘风暴。
+class ProjectHandoffInputGuard final : public QObject {
+public:
+  explicit ProjectHandoffInputGuard(QWidget *window) : QObject(window), m_window(window) {}
+  void setActive(bool active) { m_active = active; }
+protected:
+  bool eventFilter(QObject *receiver, QEvent *event) override {
+    if (!m_active || !m_window) return false;
+    switch (event->type()) {
+    case QEvent::KeyPress: case QEvent::KeyRelease: case QEvent::ShortcutOverride:
+    case QEvent::Shortcut:
+    case QEvent::MouseButtonPress: case QEvent::MouseButtonRelease:
+    case QEvent::MouseButtonDblClick: case QEvent::MouseMove: case QEvent::Wheel:
+    case QEvent::TouchBegin: case QEvent::TouchUpdate: case QEvent::TouchEnd:
+    case QEvent::TabletPress: case QEvent::TabletMove: case QEvent::TabletRelease:
+    case QEvent::DragEnter: case QEvent::DragMove: case QEvent::Drop:
+      break;
+    default: return false;
+    }
+    auto *widget = qobject_cast<QWidget *>(receiver);
+    if ((widget && (widget == m_window || m_window->isAncestorOf(widget))) ||
+        (event->type() == QEvent::Shortcut && QApplication::activeWindow() == m_window)) {
+      event->accept();
+      return true;
+    }
+    return false;
+  }
+private:
+  QPointer<QWidget> m_window;
+  bool m_active = false;
+};
 
   // Tab order = reading order = right-panel stack order：页序表收敛到
   // pages/pageshared.h 的 kPageIds（W4：attach 接线 TU 同查页序）。
@@ -972,9 +1007,12 @@ void PaleoMainWindow::buildShell()
     statusBar()->addPermanentWidget(openProgress);
     statusBar()->addPermanentWidget(cancelOpen);
     openStatus->hide(); openProgress->hide(); cancelOpen->hide();
+    auto *handoffGuard = new ProjectHandoffInputGuard(this);
+    qApp->installEventFilter(handoffGuard);
     connect(cancelOpen, &QToolButton::clicked, m_projectSvc, &QgisProjectService::cancelOpen);
     connect(m_projectSvc, &QgisProjectService::openActiveChanged, this,
-            [this, openStatus, openProgress, cancelOpen](bool active) {
+            [this, openStatus, openProgress, cancelOpen, handoffGuard](bool active) {
+      if (!active) handoffGuard->setActive(false);
       openStatus->setVisible(active); openProgress->setVisible(active); cancelOpen->setVisible(active);
       if (active) openProgress->setValue(0);
       for (const auto &name : {"openProjectButton", "newProjectButton", "importFromFolderButton"})
@@ -982,11 +1020,12 @@ void PaleoMainWindow::buildShell()
           button->setEnabled(!active);
     });
     connect(m_projectSvc, &QgisProjectService::openProgress, this,
-            [openStatus, openProgress, cancelOpen](int percent, const QString &status) {
+            [openStatus, openProgress, cancelOpen, handoffGuard](int percent, const QString &status) {
       openProgress->setValue(percent);
       openStatus->setText(status);
       openStatus->setToolTip(status);
       cancelOpen->setEnabled(percent < 85);
+      handoffGuard->setActive(percent >= 85);
     });
     connect(m_projectSvc, &QgisProjectService::openFinished, this, [this](bool success) {
       statusBar()->showMessage(success ? tr("工程打开完成") : m_projectSvc->lastOpenCancelled()
@@ -1957,6 +1996,7 @@ void PaleoMainWindow::resetProjectScopedState()
     m_corrPanel->resetProject();
 
   ++m_seismicOpenGeneration;
+  if (m_sectionWorkbench) m_sectionWorkbench->cancelPreviewData();
   if (m_seismicOpenTask)
     m_seismicOpenTask->requestCancel();
   m_seismicOpenPath.clear();
@@ -2121,6 +2161,7 @@ void PaleoMainWindow::refreshCorrelationWells(const QString &loadLasForAssetId,
 
 void PaleoMainWindow::syncSeismicVolumeToDocks()
 {
+  if (m_projectSvc && m_projectSvc->isOpening()) return;
   DataCatalog *cat = m_previewDoc ? m_previewDoc->catalog() : nullptr;
   if (!cat || !cat->isOpen() || !m_seismicTaskSvc)
     return;
@@ -2210,7 +2251,7 @@ void PaleoMainWindow::syncSeismicVolumeToDocks()
           guard->m_seismicSectionDock->setVolume(volume);
       }
       guard->statusBar()->showMessage(QObject::tr("地震体加载完成"), 5000);
-    });
+    }, /*quiet=*/true); // 状态栏已有进度；自动加载不反复展开/收起底栏。
     if (m_seismicOpenTask) {
       QPointer<PaleoTask> task = m_seismicOpenTask;
       connect(task, &PaleoTask::changed, this, [task, progress, generation, this] {

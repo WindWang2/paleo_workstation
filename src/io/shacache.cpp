@@ -48,13 +48,14 @@ ShaCache &ShaCache::shared()
   return inst;
 }
 
-void ShaCache::setDiskFile(const QString &path)
+void ShaCache::setDiskFile(const QString &path, bool lazy)
 {
   QMutexLocker lock(&m_mutex);
   m_diskFile = path;
   m_disk.clear();
   m_diskAge.clear();
-  if (!path.isEmpty())
+  m_diskPending = lazy && !path.isEmpty();
+  if (!lazy && !path.isEmpty())
     loadDiskLocked();
 }
 
@@ -80,6 +81,7 @@ QString ShaCache::sha256Hex(const QString &path, QString *error)
 
   {
     QMutexLocker lock(&m_mutex);
+    if (m_diskPending) { m_diskPending = false; loadDiskLocked(); }
     const auto it = m_mem.constFind(fp);
     if (it != m_mem.constEnd())
     {
@@ -152,6 +154,7 @@ QString ShaCache::sha256Hex(const QString &path, QString *error)
 void ShaCache::invalidate(const QString &path)
 {
   QMutexLocker lock(&m_mutex);
+  if (m_diskPending) { m_diskPending = false; if (!path.isEmpty()) loadDiskLocked(); }
   if (path.isEmpty())
   {
     m_mem.clear();

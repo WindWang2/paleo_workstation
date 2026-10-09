@@ -44,29 +44,30 @@ DataImportService::~DataImportService()
   // 语义保留：kill() 照旧强杀；QProcess 交 deleteLater 异步回收（与
   // setProjectDir 的工程切换清理同一模式）。2s 等待上限的取消是本方向显式
   // 授权的行为变更——进程终止由 OS 异步完成，资源回收不阻塞析构。
-  if (m_pdfProc)
+  if (m_convProc)
   {
-    m_pdfProc->disconnect(this);
-    m_pdfProc->kill();
-    m_pdfProc->deleteLater();
-    m_pdfProc = nullptr;
+    m_convProc->disconnect(this);
+    m_convProc->kill();
+    m_convProc->deleteLater();
+    m_convProc = nullptr;
   }
 }
 
-void DataImportService::setProjectDir(const QString &dir)
+void DataImportService::setProjectDir(const QString &dir, const std::shared_ptr<DataCatalog> &prepared)
 {
   // 工程切换时丢弃在途/排队转换——它们写向旧工程目录，且状态随之失效。
-  if (m_pdfProc)
+  if (m_convProc)
   {
-    m_pdfProc->disconnect(this);
-    m_pdfProc->kill();
-    m_pdfProc->deleteLater();
-    m_pdfProc = nullptr;
+    m_convProc->disconnect(this);
+    m_convProc->kill();
+    m_convProc->deleteLater();
+    m_convProc = nullptr;
   }
-  m_pdfQueue.clear();
-  m_pdfCurrent.clear();
-  m_pdfPending.clear();
-  m_pdfErrors.clear();
+  m_convQueue.clear();
+  m_convCurrent.clear();
+  m_convCurrentExt.clear();
+  m_convPending.clear();
+  m_convErrors.clear();
 
   const bool projectChanged = QDir::cleanPath(m_projectDir) != QDir::cleanPath(dir);
   m_projectDir = dir;
@@ -79,12 +80,12 @@ void DataImportService::setProjectDir(const QString &dir)
   if (!dir.trimmed().isEmpty())
   {
     LasCache::shared().setDiskRoot(dir + QStringLiteral("/artifacts/index/las"));
-    ShaCache::shared().setDiskFile(dir + QStringLiteral("/artifacts/index/sha.json"));
+    ShaCache::shared().setDiskFile(dir + QStringLiteral("/artifacts/index/sha.json"), bool(prepared));
     SegyIndexStore::ensureLegacyGlobalCacheDir();
   }
   m_catalogReady = false;
   QString err;
-  m_catalogReady = m_catalog->open(dir, &err);
+  m_catalogReady = prepared ? m_catalog->adoptPrepared(prepared, &err) : m_catalog->open(dir, &err);
   // T20a：记错误面 + 发信号——catalog 已进入拒绝写入态，后续 mutator
   // 都如实失败。状态栏/消息区接线归 paleomainwindow。
   m_catalogOpenError = m_catalogReady ? QString() : err;
@@ -96,7 +97,7 @@ void DataImportService::setProjectDir(const QString &dir)
   // #155：上次进程崩溃残留的 artifacts/staging/<uuid> 无人回收。只在真正
   // 切到另一工程、且本实例拿到写锁（无别的进程在用该工程）时清扫——本进程
   // 的在途 session 都属于旧工程目录，同目录重设不扫。
-  else if (projectChanged && !m_catalog->isLockedReadOnly())
+  else if (!prepared && projectChanged && !m_catalog->isLockedReadOnly())
     sweepStaleStaging(dir);
 }
 

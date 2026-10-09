@@ -19,6 +19,7 @@
 #include "../src/services/paleotaskservice.h"
 
 #include <QElapsedTimer>
+#include <QTimer>
 
 class TestPreviewDoc : public QObject
 {
@@ -93,6 +94,7 @@ private slots:
   void lasHeaderFacadeMatchesAndIsFast();     // T1：header-only 出参一致且快
   void requestLasSyncFallbackEmitsBeforeReturn(); // T1：无任务服务同步降级
   void requestLasGenerationsDiscardStale();   // T1：世代号压制陈旧结果
+  void simultaneousLasResultsKeepUiResponsive();
   void catalogRecoveredFromBackupForwards();  // T5：门面转发恢复告警
 
   // 解析门面：lasAt 成功返回曲线名+曲线；坏路径 false + errorString。
@@ -396,6 +398,45 @@ void TestPreviewDoc::requestLasSyncFallbackEmitsBeforeReturn()
   }
 
   // T1：任务池路径——同 key 新请求作废旧代（陈旧 lasReady 压制在发射前）。
+void TestPreviewDoc::simultaneousLasResultsKeepUiResponsive()
+{
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    auto stack = TestPreviewDoc::makeStack(tmp.path());
+    QVERIFY(stack != nullptr);
+    PaleoTaskService tasks(stack->store.get());
+    PreviewDocService doc(stack->importSvc.get());
+    doc.setTaskService(&tasks);
+
+    int received = 0;
+    connect(&doc, &PreviewDocService::lasReady, this, [&] {
+      // 模拟每份曲线结果触发的 GUI 装配，验证一批完成事件不会连续占满主线程。
+      QTest::qSleep(25);
+      ++received;
+    });
+    for (int i = 0; i < 12; ++i)
+      doc.requestLas(QString::number(i), fixture(QStringLiteral("A1.Las")));
+    // 让任务池形成同时完成的一批；测量只覆盖后续 GUI 结果移交。
+    QTest::qSleep(100);
+    QElapsedTimer clock;
+    clock.start();
+    qint64 previous = 0, maximumGap = 0;
+    int ticks = 0;
+    QTimer heartbeat;
+    heartbeat.setInterval(10);
+    connect(&heartbeat, &QTimer::timeout, this, [&] {
+      const qint64 now = clock.elapsed();
+      maximumGap = qMax(maximumGap, now - previous);
+      previous = now;
+      ++ticks;
+    });
+    heartbeat.start();
+    QTRY_COMPARE_WITH_TIMEOUT(received, 12, 10000);
+    QTRY_VERIFY(!doc.hasPendingLasResults());
+    QVERIFY(ticks > 4);
+    QVERIFY2(maximumGap < 200, qPrintable(QStringLiteral("GUI heartbeat gap: %1 ms").arg(maximumGap)));
+}
+
 void TestPreviewDoc::requestLasGenerationsDiscardStale()
 {
     QTemporaryDir tmp;

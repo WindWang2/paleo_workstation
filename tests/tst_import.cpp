@@ -6,6 +6,7 @@
 #include <QDirIterator>
 #include <QSqlDatabase>
 #include <QSqlQuery>
+#include <QPdfDocument>
 
 #include <algorithm>
 #include <atomic>
@@ -224,6 +225,125 @@ private slots:
     stack.reset(); // 析构：旧实现在此 waitForFinished(2000)
     const qint64 elapsed = t0.elapsed();
     QVERIFY2(elapsed < 1500, qPrintable(QStringLiteral("destroy blocked %1ms").arg(elapsed)));
+  }
+
+  // 方向 94：resolver 三级探测序 env(PALEO_SOFFICE) > vendored
+  // (vendor/libreoffice/program/soffice[.exe] 自应用目录向上找) > PATH。
+  // env 层无条件赢（部署逃生门，即使路径尚不存在）；vendored 树在场时
+  // 必须命中且不得越级掉 PATH；vendored 缺席的瘦宿主不强断言 PATH 层
+  //（宿主装没装 soffice 不是本测试的语义面）。
+  void converterResolutionThreeTierOrder()
+  {
+    // tier 1：独立服务栈——探测结果会缓存（m_converterResolved），
+    // 每层用新栈观测，避免上一层的缓存污染。
+    {
+      QTemporaryDir tmp;
+      const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+      QVERIFY(QDir().mkpath(projectDir));
+      auto stack = makeStack(projectDir);
+      QVERIFY(stack != nullptr);
+      qputenv("PALEO_SOFFICE", "/nonexistent/escape/hatch/soffice");
+      const QString resolved = stack->importSvc->documentConverterProgram();
+      qunsetenv("PALEO_SOFFICE");
+      QCOMPARE(resolved, QStringLiteral("/nonexistent/escape/hatch/soffice"));
+    }
+    // tier 2/3：无 env——vendored 命中断言（fetch 过即树在）。
+    {
+      QTemporaryDir tmp;
+      const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+      QVERIFY(QDir().mkpath(projectDir));
+      auto stack = makeStack(projectDir);
+      QVERIFY(stack != nullptr);
+      QDir appDir(QCoreApplication::applicationDirPath());
+      QString vendored;
+      for (int i = 0; i < 10 && vendored.isEmpty(); ++i)
+      {
+        const QString cand = appDir.absoluteFilePath(
+#ifdef Q_OS_WIN
+            QStringLiteral("vendor/libreoffice/program/soffice.exe"));
+#else
+            QStringLiteral("vendor/libreoffice/program/soffice"));
+#endif
+        if (QFileInfo(cand).isExecutable())
+          vendored = cand;
+        else if (!appDir.cdUp())
+          break;
+      }
+      const QString resolved = stack->importSvc->documentConverterProgram();
+      if (vendored.isEmpty())
+        QSKIP("vendored LibreOffice absent (run vendor/fetch-libreoffice.sh to enable the vendored-tier assertion)");
+      QCOMPARE(resolved, vendored);
+    }
+  }
+
+  // 方向 94：vendored LibreOffice 真转换 round-trip（Linux deb 子集 /
+  // Windows msi 子集同一管线）。仅探测到真实 vendored 转换器时跑；断言
+  // PDF 字节头 + 页数 > 0（QtPdf）+ DERIVED 版本血统（generator/
+  // converterVersion/converterPlatform——跨平台差异可追溯）。
+  void vendoredDocumentConversionRoundTrip()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+
+    const QString converter = svc.documentConverterProgram();
+    const bool vendored =
+        converter.endsWith(QStringLiteral("vendor/libreoffice/program/soffice"),
+                           Qt::CaseInsensitive) ||
+        converter.endsWith(QStringLiteral("vendor/libreoffice/program/soffice.exe"),
+                           Qt::CaseInsensitive);
+    if (!vendored)
+      QSKIP("vendored LibreOffice absent (run vendor/fetch-libreoffice.sh first)");
+
+    // docx 与 xlsx 双格式走同一条 ensureDocumentPdf 线。
+    const QString officeDir = QFileInfo(
+        QFINDTESTDATA("fixtures/office/sample.docx")).absolutePath();
+    for (const char *ext : {"docx", "xlsx"})
+    {
+      const QString src = officeDir + QStringLiteral("/sample.") + QLatin1String(ext);
+      QVERIFY2(QFile::exists(src), qPrintable(src));
+      QString err;
+      const QString assetId = svc.importProjectFile(src, &err);
+      QVERIFY2(!assetId.isEmpty(), qPrintable(err));
+
+      QSignalSpy ready(&svc, &DataImportService::documentPdfReady);
+      QSignalSpy failed(&svc, &DataImportService::documentPdfFailed);
+      svc.ensureDocumentPdf(assetId);
+      QVERIFY2(ready.wait(180000),
+               qPrintable(svc.documentPdfError(assetId)));
+      QCOMPARE(svc.documentPdfState(assetId), DataImportService::DocPdfState::Ready);
+
+      QFile pdf(svc.documentPdfPath(assetId));
+      QVERIFY2(pdf.open(QIODevice::ReadOnly), qPrintable(pdf.errorString()));
+      QVERIFY2(pdf.read(5).startsWith("%PDF"), "PDF magic");
+      pdf.close();
+
+      QPdfDocument doc;
+      QCOMPARE(doc.load(svc.documentPdfPath(assetId)), QPdfDocument::Error::None);
+      QVERIFY2(doc.pageCount() > 0, "page count > 0");
+
+      // DERIVED 血统：generator + 转换器版本/平台（方向 94 PROVENANCE）。
+      const auto versions = svc.catalog()->versionsForAsset(assetId);
+      const auto it = std::find_if(versions.cbegin(), versions.cend(),
+                                   [](const CatalogVersion &v) {
+                                     return v.stage == QLatin1String("DERIVED") &&
+                                            v.fileName.endsWith(QLatin1String(".pdf"),
+                                                                Qt::CaseInsensitive);
+                                   });
+      QVERIFY(it != versions.cend());
+      QCOMPARE(it->extra.value(QStringLiteral("generator")).toString(),
+               QStringLiteral("libreoffice"));
+      QVERIFY2(!it->extra.value(QStringLiteral("converterVersion")).toString().isEmpty(),
+               "converterVersion recorded");
+      QVERIFY2(it->extra.value(QStringLiteral("converterVersion")).toString() !=
+                   QStringLiteral("unknown"),
+               "converterVersion resolved from vendored version metadata");
+      QVERIFY2(!it->extra.value(QStringLiteral("converterPlatform")).toString().isEmpty(),
+               "converterPlatform recorded");
+    }
   }
 
   void lockedReadOnlyImportRefusedEarly()

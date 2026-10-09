@@ -194,6 +194,9 @@ class DataImportService : public QObject
     // 部署/测试注入：替代 PATH 上的 soffice/libreoffice 探测（可指向 stub）。
     // 空串 = 强制不可用（走 Failed 降级）。
     void setDocumentConverterProgram(const QString &program);
+    // resolveDocumentConverter 的探测结果（未解析时先解析）。三级序
+    // env > vendored > PATH 的可观测面——vendored 探测命中测试用。
+    QString documentConverterProgram();
 
     // ---- 兼容面（bottom-dock 面板仍在用）----
     QStringList assets(const QString &type = QString()) const;   // asset ids（按分类类型过滤）

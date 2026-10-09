@@ -31,6 +31,8 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QProcess>
+#include <QSettings>
+#include <QSysInfo>
 #include <QThread>
 #include <QUuid>
 
@@ -101,6 +103,44 @@ void DataImportService::setDocumentConverterProgram(const QString &program)
 {
   m_converter = program;
   m_converterResolved = true;
+}
+
+QString DataImportService::documentConverterProgram()
+{
+  resolveDocumentConverter();
+  return m_converter;
+}
+
+// DERIVED 版本血统补充（方向 94）：soffice 版本 + 平台随产物入库——跨平台
+// （linux deb 子集 / windows msi 子集）转换细节可能有差，追溯面要能区分。
+// 版本取转换器旁的 bootstrap(.ini/.rc) ProductKey + version(.ini/.rc) buildid
+// （sal 的 SAL_CONFIGFILE 后缀：Windows ini / Unix rc；vendored 树与系统
+// 安装都带）；任一读不到如实记 unknown（stub/异形转换器不猜版本）。
+static QString loIniValue(const QDir &dir, const QString &base, const QString &key)
+{
+  for (const QString &suffix : {QStringLiteral("ini"), QStringLiteral("rc")})
+  {
+    const QString path = dir.filePath(base + QLatin1Char('.') + suffix);
+    if (!QFile::exists(path))
+      continue;
+    QSettings s(path, QSettings::IniFormat);
+    const QString v = s.value(key).toString();
+    if (!v.isEmpty())
+      return v;
+  }
+  return QString();
+}
+
+static QString converterVersionString(const QString &program)
+{
+  const QDir dir = QFileInfo(program).absoluteDir();
+  const QString productKey = loIniValue(dir, QStringLiteral("bootstrap"),
+                                        QStringLiteral("Bootstrap/ProductKey"));
+  const QString buildid = loIniValue(dir, QStringLiteral("version"),
+                                     QStringLiteral("Version/buildid"));
+  if (productKey.isEmpty() || buildid.isEmpty())
+    return QStringLiteral("unknown");
+  return QStringLiteral("%1 (%2)").arg(productKey, buildid.left(8));
 }
 
 DataImportService::DocPdfState
@@ -303,6 +343,12 @@ void DataImportService::finishConversion(int exitCode)
       d.fileName = QFileInfo(m_convOutFile).fileName();
       d.parentVersionIds = QStringList{m_convRawVersionId};
       d.extra.insert(QStringLiteral("generator"), QStringLiteral("libreoffice"));
+      // 血统（方向 94）：转换器版本/平台随 DERIVED 入库，跨平台差异可追溯。
+      d.extra.insert(QStringLiteral("converterVersion"),
+                     converterVersionString(m_converter));
+      d.extra.insert(QStringLiteral("converterPlatform"),
+                     QStringLiteral("%1/%2").arg(QSysInfo::productType(),
+                                                  QSysInfo::buildCpuArchitecture()));
       ok = m_catalog->addVersion(d, &err);
     }
     else

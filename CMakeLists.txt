@@ -646,7 +646,12 @@ add_library(paleo_ui STATIC
   src/ui/pages/wellsitingpanel.cpp                 # 方向34：布井辅助面板（验证页页签）
   src/ui/pages/datapage.cpp                        # W5 DataPage 兼容薄壳
   src/ui/pages/predictpage.cpp                     # W5b ①智能预测
-  src/ui/pages/constraintpage.cpp                  # W5b ②约束与单因素
+  src/ui/pages/constraintpage.cpp                  # W5b ②约束与单因素（方向96：ctor 编排 + 因子清单面）
+  src/ui/pages/constraintpage_wellfactors.cpp      # 方向96：井点因子域 TU
+  src/ui/pages/constraintpage_interpolation.cpp    # 方向96：插值方法参数域 TU
+  src/ui/pages/constraintpage_generate.cpp         # 方向96：生成动作/等值线域 TU
+  src/ui/pages/constraintpage_constraints.cpp      # 方向96：约束线域 TU
+  src/ui/pages/constraintpage_sections.cpp         # 方向96：页尾段/反馈接线域 TU
   src/ui/pages/composepage.cpp                     # W5b ③综合编图
   src/ui/pages/validatepage.cpp                    # W5b ④验证
   src/ui/typedconstraintdrawcontroller.cpp         # m2(B)：物源线/展布线/控制点捕获

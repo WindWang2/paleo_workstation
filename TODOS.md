@@ -28,6 +28,11 @@
 - **Why:** 这批大文件是实战批次频繁冲突和修补的震中，且已形成明显的子域聚合边界。
 - **Priority:** P3
 - **Depends on:** 无（可独立立项拆分重构）
+- **已完成（方向 96，2026-10-10）：** 全仓头号 `src/ui/pages/constraintpage.cpp`
+  （1893 行，#316 后口径）已按 #312 主窗先例拆为 ctor 编排主文件（338 行）+
+  5 域 TU（_wellfactors/_interpolation/_generate/_constraints/_sections，各 ≤557）
+  + constraintpage_internal.h——本清单后续立项时可参照其「构建段成员函数 +
+  objectName 事件期解析」模式；榜首 datapreviewtabs 同族为其下一个对位目标。
 
 ## P3 — AI 助手：工具上下文补绑（from goal/ai-assist, 2026-10-06；工具闭环已由方向61 交付、图形化配置已由方向62 交付）
 

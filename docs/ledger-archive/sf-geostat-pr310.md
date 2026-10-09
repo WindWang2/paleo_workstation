@@ -1,0 +1,87 @@
+<!--
+档案收编（方向 100，2026-10-10）：本文件是 **PR #310 的账本档案**，不是 #308 的账本。
+
+- 来源分支：`goal/sf-geostat-20261009`（分支末梢 `1db03ec5`，2026-10-08）；
+  自称「方向 84（执行 74 号任务书）」——74 号任务书由两路平行实现执行，
+  master 合入的是 **#308**（squash `82ea9cd9`），**#310 分支未合入**。
+  #316（方向 91）提交说明自记「不引入 #310 的 PairMetricWarp」，可为佐证。
+- 原文全文保留于下方（含第 5 轮 review 1H/5M/7L、第 6 轮 0H/1M/5L——
+  这些是 **#310 自身的 review 轮次记录，不得充当 #308 的验收证据**；
+  #308 的交付说明另见 sf-geostat-pr308-delivery.md）。
+- 勘察失实注记：第 3 轮记录中「MAPPING_WORKBENCH.md 不存在于 master——
+  方法矩阵由 geostat-methods.md 承载（74 任务书引用失准，账本记）」一句
+  **失实**——`docs/workflows/MAPPING_WORKBENCH.md` 在该账本基线 f31ee461
+  时已存在于 master，且被 #308（`82ea9cd9`）修改过（diffstat 内 +57 行）。
+  这是 #310 勘察时的错误结论，按原文保留并在此注记，不改记到 #308。
+- 采信边界：本账本记录的代码事实（PairMetricWarp 方案 A、D1–D5 决策、
+  333/369 全量判别等）描述的是 #310 分支的实现，与 master 现行代码
+  （#308 + #316 的 variogramBarrierAware 链）**不是同一实现**；引用技术
+  细节时以 master 代码为准。
+
+以下为账本原文，未做任何改写。
+-->
+
+# 方向 84（执行 74 号任务书）账本 — 克里金约束消费 + 协克里金接线
+
+分支 `goal/sf-geostat-20261009`，基线 origin/master f31ee461（e3c8d31d + #297）。
+Oracle：74 号任务书全项 + 补充对账项（三条 `*_not_used_by_kriging` 终态 +
+克里金档端到端回归绿 + 两轮 review 零 High/Medium）。
+
+## R0 勘察结论（2026-10-08）
+
+**断点实现位置**：克里金经 `evaluateLocalKriging` → `evaluateLocalIdw`（methodActual 切引擎）
+→ `makeEngine`（逐硬屏障分量建 `geostat::KrigingSolver`）→ `evaluateBatch` 里
+`solver->solveAt(query)` 直接解方程组，**DirTerm/SoftTerm/clusterW 只在 IDW 权重路径生效**
+（localidw.cpp:246-259 克里金分支在权重调整之前 continue）。
+
+**#297 增量冲突**：无。faultpath.cpp 斜墙角点密封（接口不变）；sgs 测试改容差锚（不相关）。
+方向 73 的 constraintpage 两族布局（factorIdwParameters/factorVariogramParameters 组）为
+协变量入口挂载点，不回退布局。
+
+**三条 issue 文案无逐字测试断言**（tst_singlefactor_kriging 全文核实）——可安全改文案。
+
+**variogram_barrier 覆盖面**：geostat 核已有 VariogramBarriers（测地滞后距 + 不可达对
+剔除 + fitVariogram 组合已测）；缺口只在 krigingsurface 的 resolveVariogram 不传
+barriers（跨隔断样本对仍进同一结构拟合）。
+
+## R0 决策
+
+- **D1 方向线/软边界进克里金 = 方案 A（点对度量 warp）**：
+  geostat::KrigingSolver 加 `PairMetricWarp`（点对坐标→有效位移）可选参数；
+  方程组装配的两处 `model.semivariance(dx,dy)` 前过 warp；邻域选择仍欧氏（如实记录）。
+  singlefactor 侧 warp 闭包与 IDW 公式逐条同源（gate 乘积激活、张量两端平均、
+  distance2=max(euclid²−adj/total,0)；软边界跨线距离 ×1/sqrt(1−penalty)）。
+  病态由既有 LU 失败→idwFallbackCells 回落口径天然兜住，不新增降级机制。
+  弃案 B（逐线分区拟合 variogram）：分区后样本 <8 欠定；逐隔断分量语义由分量隔离
+  （方程组已按分量建）+ D4 barrier-aware 拟合覆盖。
+- **D2 well_cluster_locality 不进克里金**：克里金权重=无偏约束下最小方差解，去簇乘子
+  破坏最优性（不冒充）；邻域 K + 分量隔离已提供局部性。保留诚实 issue，文案写明原因。
+- **D3 协克里金接线**：METHOD=cokriging 复用 LocalDirectionIdwAlgorithm（同插值面家族）；
+  新算法参数 COVARIATE（栅格源）+ CROSS_CORRELATION(ρ)；secondary 样本=主井位采协变量
+  栅格值；γ11 复用 resolveVariogram、γ22 从 secondary 拟合；词表项 `cokriging`
+  （requestAlgorithmId=paleo:paleo_local_direction_idw、committed=paleo:paleo_local_direction_cokriging）；
+  UI 在 factorVariogramParameters 组加协变量下拉（复用栅格资产 fill 模式）；缺协变量如实拒绝。
+- **D4 逐硬隔断分量拟合**：resolveVariogram 加 barriers 参数（HardBarrier 折线 →
+  tolerance 宽窄墙多边形，两端外延封死），拟合回执加 barrier_aware/unreachable_pairs；
+  样本 >512 预算闸时如实回落欧氏口径并记 issue。
+- **D5 ConstrainedKrigingSolver 销账（保留代码）**：WeightGroupConstraint 的三个目标语义
+  均已有更原生表达——硬屏障=分量隔离（比组 cap=0 更强：跨隔断井根本不进方程组）、
+  软边界=D1 距离放大（连续语义）、方向线=D1 张量 warp；且 OK 权重可负，
+  「组权重上限」对负权重不再表达「限制该组贡献」。TODOS 划掉 + geostat-methods.md 记论证。
+
+## 轮次记录
+
+第1轮 | R0 勘察（74 任务书 + 断点位置 + #297 冲突 + 测试断言面 + UI 挂载点） | 完成 | 通过 | D1-D5 定案如上；开始实现
+第2轮 | D1a geostat PairMetricWarp + D1b localidw krigingMetric + krigingsurface 回执终态 + D4 隔断感知拟合 + D3 协克里金全链（types/krigingsurface/localidw/算法参数/词表/workflow/UI） | 首轮编译 2 类错（Point2 命名空间 / lambda 声明 / QGIS4 API 用法）已修 | 编译中 | 等全量构建
+第3轮 | 测试：tst_geostat_kriging +2（warp 恒等/扭转）、tst_singlefactor_kriging +7（方向线扭转权重场/软边界衰减/回执逐字/隔断感知回执/协克里金端到端对拍/缺协变量拒绝/ρ=0 对拍）；文档：geostat-methods.md 约束×方法消费矩阵 + ConstrainedKrigingSolver 销账论证、TODOS P2 重写（含 SFPKG 写出划线）。MAPPING_WORKBENCH.md 不存在于 master——方法矩阵由 geostat-methods.md 承载（74 任务书引用失准，账本记） | 待构建+回归 | 进行中 | 环境注记：worktree 缺 gitignored vendor/onnxruntime → localdeps 构建走无 ORT 分支 → paleo_ai 符号缺失链接红（基线即红，非本方向引入）；按 manifest.json 钉哈希取 ORT 1.30.0 归档（SHA256 核对一致）后重建
+第4轮 | 测试首跑 6 红：格心 origin 漏 pixelHeight 负号（×2）/ soft 背景井跨线方向不稳 / QLatin1String 非 ASCII 比较必败（×2）/ barrier 同侧值无变化零信号 / 对拍坐标错。全修后 20/20 绿 | 通过 | 通过 | 受影响面 ctest 首跑：tst_mappingpages 下拉计数 7→8（词表加项）改动态断言 + 补协变量可见性断言；tst_singlefactor_perf 30s 超时=本机负载环境红（IDW 路径与本方向正交，复核见第 7 轮）
+第5轮 | review 第 1 轮（general-purpose agent）：1H/5M/7L。修复：H1 分量协变量枯竭两级闸（尺寸不齐拒绝 + makeEngine 空 secondary 不放行）/ M1 软边界改 max-组合对齐 IDW / M2 钳值 0.2 真实下界 / M3 warp 点求值 memoize（批内 map 缓存）/ M4 CoKrigingParams.minPrimary 半径闸 / M5 sampleCovariateAtWells 具名导出+采样链测试 / L1 unreachable_pairs>0 数值断言 / L2 reject 血缘三件套 / L3 词表「自动拟合时」限定 / L4 provider 护栏 / L5 协克里金 K=0 提示 / L7 workflow 条件收紧。修后受影响面 21/21 绿（2 个过程红：H1 闸序文案、测试缺 GDALAllRegister+格值换算，均即修） | 通过 | 通过 | L6（sealEnds 生产不可达——support.cpp 覆写 hardBarrierModel）为既有行为非本方向引入，递延
+第6轮 | review 第 2 轮（验收轮）：0H/1M/5L。修复：M-A 克里金族请求但分量无求解器的格计入 idwFallbackCells（混合面不再静默 IDW）/ L-A qc method_requested 三分支 / L-B minPrimary 钳 1 / L-C 半径模式 μ2 省略披露进 cross_model 回执 / L-D 协克里金 variogram 回执补 ratio/azimuth / L-E fixture.gpkg 恢复+ninja-run.bat 提交剔除。修后受影响面 21/21 绿 | 通过 | 通过 | 两轮 review 达成零 High/Medium
+第7轮 | 原子提交 ×5（geostat 接口 / singlefactor 算法 / workflow+UI 接线 / docs 对账 / 回归测试面）+ 最终全量回归启动 | 全量进行中 | 进行中 | perf 环境红单跑复核与全量结果见第 8 轮
+第8轮 | 最终全量回归（提交后二进制）：333/369 过，36 失败。**判别**（改前/改后红集合 diff 口径）：
+  (a) 文件闭包零交集——36 失败模块（AI/ONNX 族、facies/QA、seismic、metastore、errorhub、UI offscreen 族、perf 超时族）与本方向 touched files 的依赖闭包无交集；
+  (b) 错误类别全为环境特征——ONNX/AI 族 SEGFAULT（vendored ORT 1.30 DLL 搜索序，无 ORT 构建下这些测试根本无法链接，本方向未触 AI 代码）；tst_workflows/tst_composeworkflow 直跑复现 PROJ 报错（"CRS has no geodetic CRS"）与 GDAL 3.11 行为差异（memory driver 弃用警告、tms_NZTM2000.json），facies polygonize/QA 数量差源于此；tst_singlefactor_perf 为纯 IDW 路径 30s QTest 函数超时（本机多轮构建后负载压制，断言面与克里金零交集）；
+  (c) 本方向受影响面 21 项两轮全绿（review 修复前后各一轮）；
+  (d) 方向 73 链直跑绿：parity_completion 3/3（井点提取）、factorworkflow（local_direction_kriging 档 prepare 端到端）、contours 8/8、asynccontour 9/9；
+  (e) 终极裁决交 CI vendored 钉哈希环境——PR 描述如实列 36 项清单与判别依据。
+  两遍验证：受影响面第 5/6 轮后各跑一次均 21/21 ✓。 | 完成判定：通过 | 通过 | Oracle 全项满足（74 任务书 + 补充对账项）；推分支开 PR

@@ -1,4 +1,4 @@
-# Goal-Loop Prompts — 84 个方向（自治迭代任务包）
+# Goal-Loop Prompts — 94 份编号任务书（自治迭代任务包）
 
 第一批 01–05 已发 fleet 并落地（PR #70–#73 全合）。第二至七批为追加方向。
 第八批 48–57 为 2026-10-05 三路深度代码审计（技术债/架构/质量）后的
@@ -6,8 +6,13 @@
 错误面分散等），每个 prompt 内含开发量预算（agent tokens 上限 3 亿 +
 执行花费轮次/墙钟估计）。
 
-本目录保存十批 01–84 的任务书快照（含方向 73/74 单因素专项任务书）；目录名为 `goal-loop-prompts/`，
-编号文件与下表一一对应。表中「新增」「在飞」是任务书发出时的状态，
+编号任务书份数：94
+
+本目录现有编号任务书 **94** 份：`01`–`84` 与 `91`–`100`（含方向 73/74 单因素专项任务书）。
+**85–90 没有立项，目录里没有这些文件，不要补造。** 「100 个方向」「01–100 与目录一一对应」是错的。
+下表是分批索引，不是全目录清单（36–47、73/74 在目录中，不在下表）；份数以本段「编号任务书份数：94」为准，
+不要用表行数、也不要把期望值写死成 100。方向 100 的漂移护栏必须读取这一写明份数，
+与目录中 `^[0-9]+-*.md` 的实数比较。表中「新增」「在飞」是任务书发出时的状态，
 当前交付与递延以 `docs/progress/` 对应账本及 `TODOS.md` 为准。
 
 每个 .md 是一个完整的 /goal-loop 开放 prompt：交给一个自治 agent 会话直接执行。
@@ -198,6 +203,29 @@ project_area 导入路径分类器（非交会分类核，交会核是 algorithm
 + FaciesClassificationService）；地震聚类取窗契约为层位 TWT ±12ms
 确定性 k-means（与交会分类是独立链）。
 
+
+### 第十一批（新增，2026-10-09 四轮盘点驱动：第十批合并后现势十方向，按开发量升序）
+
+| # | 文件 | 方向 | 性质 |
+|---|------|------|------|
+| 91 | `91-cokriging-ui.md` | #310 处置与方向 84 增量收口：UI 协变量面（现死选项）+ 隔断感知拟合——摘 #310 真增量弃重复实现 | 功能补完 |
+| 92 | `92-tree-roles-incremental.md` | 数据树角色词表单源化（消费/扩展 RoleRegistry，禁止平行 catalogRoles()）+ 树增量通道（现全量重建） | 架构治理 |
+| 93 | `93-ai-resultviz.md` | AI 工具结果结构化呈现：血缘图/资产表进对话卡片（现仅 JSON 文本回灌） | 功能补完 |
+| 94 | `94-lo-win.md` | Windows vendored LibreOffice：MSI 解包路径 + resolver 统一（现 Windows 预览依赖 PATH 兜底） | 功能补完 |
+| 95 | `95-mkproject-spread.md` | mkproject 夹具扩散：tst_import/tst_aiwiring 等高价值测试改吃 mini 夹具 | 测试基建 |
+| 96 | `96-constraintpage-split.md` | constraintpage 1,830 行拆分——全仓新头号巨兽（#312 拆完主窗后登顶） | 重构 |
+| 97 | `97-previewtabs-split.md` | datapreviewtabs 家族拆分：cpp 1,758 + internal.h 1,607 双体（候选清单榜首） | 重构 |
+| 98 | `98-wellsection-deep.md` | wellsection 家族深化：scene 1,762 拆分 + tvdToMd 治本 + fence 读回 + 多解释仲裁 | 重构 |
+| 99 | `99-catalog-split.md` | catalog 层深化：datacatalog 1,795 + catalogstore 1,605 双巨兽（全仓底座，回归面最广） | 重构 |
+| 100 | `100-docs-drift.md` | 文档漂移与账本入库纪律：PLAN/层计划刷新 + 三份脱队账本收编 + 漂移护栏 + lupdate 骨架 | 文档治理 |
+
+第十一批并行纪律：91 与 96 都触 constraintpage——**91 先行**
+（协变量面是小增量），96 拆分后行；92 与 99 都触 catalog——
+92 的 RoleRegistry 消费/扩展先落、99 拆分消费之；93/94/95 文件面互不
+重叠可并行；98 与在飞图片道增量（#311 已合）同域但文件面
+（scene 拆分 vs imagelod）无冲突；100 的 lupdate 依赖工具链
+且与 91/96/98 的新 tr() 有先后——**100 最后发车**或各方向合后
+跑标准 lupdate。同机并行重构建建议 ≤2 个会话。
 ## 使用方式
 
 每个 prompt 直接喂给一个自治 agent 会话（如 devin/claude/zcode 新 session）：

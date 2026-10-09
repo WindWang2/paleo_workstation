@@ -247,7 +247,8 @@ private slots:
       qunsetenv("PALEO_SOFFICE");
       QCOMPARE(resolved, QStringLiteral("/nonexistent/escape/hatch/soffice"));
     }
-    // tier 2/3：无 env——vendored 命中断言（fetch 过即树在）。
+    // tier 2/3：无 env——PATH 前置一个假 soffice，断言 vendored 仍赢
+    //（真序验证：不是「PATH 恰好没有」，而是「有也不让」）。
     {
       QTemporaryDir tmp;
       const QString projectDir = tmp.filePath(QStringLiteral("proj"));
@@ -269,9 +270,29 @@ private slots:
         else if (!appDir.cdUp())
           break;
       }
-      const QString resolved = stack->importSvc->documentConverterProgram();
       if (vendored.isEmpty())
         QSKIP("vendored LibreOffice absent (run vendor/fetch-libreoffice.sh to enable the vendored-tier assertion)");
+      // PATH 首位放假 soffice：Windows 用零字节 .exe（isExecutable 只看
+      // 扩展名）；POSIX 需要 +x 位。
+      const QString fakeBin = tmp.filePath(QStringLiteral("fake-bin"));
+      QVERIFY(QDir().mkpath(fakeBin));
+      const QString fake = fakeBin + QLatin1Char('/') +
+#ifdef Q_OS_WIN
+                           QStringLiteral("soffice.exe");
+#else
+                           QStringLiteral("soffice");
+#endif
+      QVERIFY(writeFile(fake, QByteArray()));
+#ifndef Q_OS_WIN
+      QFile::setPermissions(fake, QFileDevice::ExeOwner | QFileDevice::ReadOwner);
+#endif
+      const QString oldPath = qEnvironmentVariable("PATH");
+      qputenv("PATH", QDir::toNativeSeparators(fakeBin).toUtf8().constData());
+      const QString resolved = stack->importSvc->documentConverterProgram();
+      if (!oldPath.isEmpty())
+        qputenv("PATH", oldPath.toUtf8().constData());
+      else
+        qunsetenv("PATH");
       QCOMPARE(resolved, vendored);
     }
   }
@@ -344,6 +365,39 @@ private slots:
       QVERIFY2(!it->extra.value(QStringLiteral("converterPlatform")).toString().isEmpty(),
                "converterPlatform recorded");
     }
+  }
+
+  // 方向 94 Oracle：失败降级如实——转换器不可用（vendored 缺席且 PATH 无
+  // soffice，或部署显式置空）时，ensureDocumentPdf 不装死：Pending 不进、
+  // Failed 即刻落账 + 信号带「找不到 LibreOffice」文案（UI 降级「用系统
+  // 程序打开」的驱动面）。空串注入 = 强制不可用（部署/测试出口语义）。
+  void converterUnavailableFailsHonestly()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+    svc.setDocumentConverterProgram(QString());
+
+    const QString officeDir = QFileInfo(
+        QFINDTESTDATA("fixtures/office/sample.docx")).absolutePath();
+    const QString src = officeDir + QStringLiteral("/sample.docx");
+    QVERIFY2(QFile::exists(src), qPrintable(src));
+    QString err;
+    const QString assetId = svc.importProjectFile(src, &err);
+    QVERIFY2(!assetId.isEmpty(), qPrintable(err));
+
+    QSignalSpy failed(&svc, &DataImportService::documentPdfFailed);
+    svc.ensureDocumentPdf(assetId);
+    QCOMPARE(failed.count(), 1);
+    QCOMPARE(svc.documentPdfState(assetId), DataImportService::DocPdfState::Failed);
+    QVERIFY2(svc.documentPdfError(assetId).contains(QStringLiteral("找不到 LibreOffice")),
+             qPrintable(svc.documentPdfError(assetId)));
+    // catalog 侧不留半成品 DERIVED。
+    for (const CatalogVersion &v : svc.catalog()->versionsForAsset(assetId))
+      QVERIFY(v.stage != QLatin1String("DERIVED"));
   }
 
   void lockedReadOnlyImportRefusedEarly()

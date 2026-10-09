@@ -1504,20 +1504,26 @@ STAGE          | DEV DOES                          | STATUS
   只读透传 + 静态解析门面 lasAt/wellHeadAt/wellTopsAt/timeDepthAt/
   geoJsonBounds/geoJsonDocument/seismicTieMarker/decodeSectionAsync/
   wellCompositeAt + absolutePathForVersion/relocateVersionSource）。
+  catalog 新面（方向 47 起）：多 realization 契约与查询（realizationset）、
+  实现资产分页与预览式存储治理（purgelease）、entityview 自视图层归位。
 - **功能层** `src/workflow` `src/linkage` `src/ai`：编排服务与操作。
   `folderimport`（导入编排）/`projectopen`（打开/新建工程）/`registration`
   （临时配准）；禁 QtWidgets 与 `ui/`——联动器改发意图信号由壳订阅
-  （threewaylocator/seismicmaplink）。
+  （threewaylocator/seismicmaplink）。`src/ai/chat`（方向 51/61）：LLM
+  地质对话助手——对话域模型/客户端/领域工具描述表与执行回路，纯功能层。
 - **QGIS 封装** `src/qgis`：QtWidgets 豁免（Qgs* 接口所需），仍禁 `ui/`。
   `layoutexport`（PDF/PNG 导出核心，ui/layout 壳委托）。
 - **视图** `src/ui/**`：渲染 + 输入 + 意图信号。`io/*` 白名单仅
   `io/lasdoc.h`；`metadata/*` 白名单六头（layermanifest/paleoprojectstore/
   mapversionstore/releasestore/wellsectionstore/faultsetstore，
   单点事实在 `tools/layering_vocab.json`）；`algorithms/*` 全禁。
-  `PaleoMainWindow` 是壳：attachWorkflows 按页拆 `attach*Page` +
-  attachShellSurfaces（`paleomainwindow_attach.cpp`），attachMapping 三段
-  （发布门/导出接线/版本状态机），ribbon 命令组在 `ribbonpanels.cpp`；
-  DataPage 分家 = DataListPanel + EntityPanel + 兼容薄壳 `datapage`。
+  `PaleoMainWindow` 是壳：#312（方向 83）二次拆分后为本体 + 21 家族 TU
+  （attach* 按页/域拆 + docks/ribbon/pages/project/status/errorhub/
+  shortcuts 七域 TU），跨 TU 文件域助手在 `paleomainwindow_internal.h`
+  （现行实测口径见 docs/UI_LAYER_PLAN.md §4 W8）；attachMapping 三段
+  （发布门/导出接线/版本状态机），ribbon 命令组构建在 `paleoribbon.cpp`/
+  `ribbonpanels.cpp`；DataPage 分家 = DataListPanel + EntityPanel + 兼容薄壳
+  `datapage`。
 - **组装根** `src/app`：唯一允许 include `ui/` 的非视图目录；
   `src/selfcheck`（测试壳）同豁免。
 - **机械执行**：`tools/check_layering.py`（include 归一化 + io/metadata

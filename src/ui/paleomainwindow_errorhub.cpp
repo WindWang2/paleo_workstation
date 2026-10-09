@@ -7,7 +7,7 @@
 // 本窗口（视图层不持有服务生命周期）。
 #include "paleomainwindow.h"
 
-#include "paleoicons.h"
+#include "paleoicons.h" // 状态胶囊图标（方向 83 拆 TU 后 include 自带；MSVC 非 unity 链缺此头即 C2653）
 #include "notifications/errorhistorypanel.h"
 #include "notifications/notificationcenter.h"
 #include "../services/errorhub.h"

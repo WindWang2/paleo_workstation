@@ -31,7 +31,8 @@ enum ColumnRole
   TopColumn = 1,
   BaseColumn = 2,
   LithoColumn = 3,
-  DescriptionColumn = 4
+  DescriptionColumn = 4,
+  ColorColumn = 5
 };
 
 QHash<QString, int> cuttingsDialect()
@@ -48,11 +49,14 @@ QHash<QString, int> cuttingsDialect()
                        QStringLiteral( "底界" ), QStringLiteral( "base" ),
                        QStringLiteral( "bot" ) } );
     add( LithoColumn, { QStringLiteral( "岩性" ), QStringLiteral( "定名" ),
-                        QStringLiteral( "岩性定名" ), QStringLiteral( "岩性名称" ),
+                        QStringLiteral( "岩性定名" ), QStringLiteral( "岩石定名" ),
+                        QStringLiteral( "岩性名称" ),
                         QStringLiteral( "岩性段" ), QStringLiteral( "litho" ),
                         QStringLiteral( "lithology" ) } );
     add( DescriptionColumn, { QStringLiteral( "描述" ), QStringLiteral( "岩性描述" ),
                               QStringLiteral( "备注" ) } );
+    add( ColorColumn, { QStringLiteral( "颜色" ), QStringLiteral( "色" ),
+                        QStringLiteral( "color" ) } );
     return d;
   }();
   return dialect;
@@ -79,7 +83,7 @@ CuttingsTable parseCuttingsSheet( const WorkbookSheet &sheet )
   table.sheetName = sheet.name;
 
   const QHash<QString, int> dialect = cuttingsDialect();
-  int topColumn = -1, baseColumn = -1, lithoColumn = -1, descriptionColumn = -1;
+  int topColumn = -1, baseColumn = -1, lithoColumn = -1, descriptionColumn = -1, colorColumn = -1;
   for ( int c = 0; c < sheet.headers.size(); ++c )
   {
     const auto it = dialect.constFind( normalizeCuttingsHeader( sheet.headers.at( c ) ).toLower() );
@@ -98,6 +102,10 @@ CuttingsTable parseCuttingsSheet( const WorkbookSheet &sheet )
       case LithoColumn:
         if ( lithoColumn < 0 )
           lithoColumn = c;
+        break;
+      case ColorColumn:
+        if ( colorColumn < 0 )
+          colorColumn = c;
         break;
       default:
         if ( descriptionColumn < 0 )
@@ -129,6 +137,7 @@ CuttingsTable parseCuttingsSheet( const WorkbookSheet &sheet )
     const QString rawTop = cell( topColumn );
     const QString rawBase = cell( baseColumn );
     const QString rawLitho = cell( lithoColumn );
+    const QString rawColor = cell( colorColumn );
     if ( rawTop.isEmpty() && rawBase.isEmpty() && rawLitho.isEmpty() )
       continue; // 全空行：无信息可判，直接跳过（与上游口径一致）
     const int rowNumber =
@@ -165,7 +174,9 @@ CuttingsTable parseCuttingsSheet( const WorkbookSheet &sheet )
     CuttingsInterval interval;
     interval.topMd = topMd;
     interval.baseMd = baseMd;
-    interval.litho = rawLitho;
+    interval.litho = ( !rawColor.isEmpty() && !rawLitho.startsWith( rawColor ) )
+                         ? rawColor + rawLitho
+                         : rawLitho;
     interval.description = cell( descriptionColumn );
     interval.rowNumber = rowNumber;
     table.intervals.append( interval );

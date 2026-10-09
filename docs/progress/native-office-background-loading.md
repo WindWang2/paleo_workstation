@@ -1,7 +1,21 @@
 # Office 离线预览与后台工程数据加载（2026-10-09）
 
-用户排除 LibreOffice，选择兼容 Qt 的本地离线开源方案，保留不转 PDF 的要求。
-Office 预览改为 Calligra 26.08.2；后台工程与地震数据加载、辅助 XML 双视图继续保留。
+用户排除 LibreOffice，随后要求原件能编辑，而不是只看页面图。
+Office 原件改为本机 ranuts/document 编辑页（OnlyOffice WASM，无文档服务器）。
+后台工程与地震数据加载、辅助 XML 双视图继续保留。不转 PDF。保存另登记 DERIVED 版本。
+
+## 2026-10-09 跟进：ranuts/document 编辑页
+
+- 六种原件仍由 `OfficePreviewWidget` 打开。功能层 `OfficePreviewSession` 只监听
+  `127.0.0.1`，托管 `vendor/ranuts-document/` 里的静态编辑页，并给出当前原件的一次性地址。
+- 视图沿用 `WebViewPanel`。无 WebEngine 或无屏时显示原因，并用系统浏览器打开同一地址。
+- 页内宿主把编辑器以 `embed=1` 放进 iframe，用 `document:open-url` 打开原件。
+  `document:saved` 把字节 POST 回本机；会话写入临时文件后，预览标签把它登记为同一资产的
+  DERIVED 版本，父版本是打开时的 RAW。原件字节不改。
+- 关闭标签或再次打开会停掉监听，旧地址失效。路径段里的 `..` 不映射到编辑器目录之外。
+- 安装：`vendor/fetch-ranuts-document.sh`。覆盖目录用 `PALEO_OFFICE_EDITOR`。
+- 协议是 AGPL-3.0。编辑器头部的 ONLYOFFICE 标识保留。静态树不入库。
+- 下方 Calligra 页图记录是同一天更早的实现，预览链已经不再调用它。
 
 ## 原件预览
 

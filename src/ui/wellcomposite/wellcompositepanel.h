@@ -74,6 +74,8 @@ public:
   // 由壳喂入：留档 m_data.images、深度范围扩到盖住锚位、追加一条 ImageTrack
   //（默认标题「岩心照片」，可删/复制走既有 trackops）。空集 = 空操作。
   void setCoreImages(const QVector<ImageDepthItem> &items);
+  // 岩性道（解释岩性或岩屑录井）。LAS 装配后喂入；空集不造道。
+  void setLithologyIntervals(const QVector<LithologyInterval> &items);
 
   // 设置并显示井名；reference=true 时徽章标识为参考井（辅助资料内的井，非测区井序列）
   void setWellName(const QString &name, bool reference = false);

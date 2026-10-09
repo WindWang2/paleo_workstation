@@ -2,6 +2,7 @@
 #include "webviewpanel.h"
 #include "paleotheme.h"
 
+#include <QCoreApplication>
 #include <QDesktopServices>
 #include <QGuiApplication>
 #include <QDir>
@@ -124,10 +125,19 @@ bool WebViewPanel::isNavigationAllowed(const QUrl &url)
 WebViewPanel::~WebViewPanel()
 {
 #if PALEO_HAVE_WEBENGINE
-  // QWebEngineProfile 必须比使用它的 page 活得更久。
+  // 页面先于配置销毁。共享的离线配置不归本视图所有，不能在这里删。
   delete m_engine;
-  delete m_profile;
+  m_engine = nullptr;
+  if (m_ownsProfile)
+    delete m_profile;
+  m_profile = nullptr;
 #endif
+}
+
+void WebViewPanel::setOffTheRecord(bool off)
+{
+  if (!m_engine)
+    m_offTheRecord = off;
 }
 
 void WebViewPanel::setPageStyleSheet(const QString &css)
@@ -223,13 +233,27 @@ bool WebViewPanel::ensureEngine(QString *error)
 
   m_engine = new QWebEngineView(this);
   m_engine->setObjectName(QStringLiteral("embeddedWebEngine"));
-  // 命名 profile 将 IndexedDB 恢复草稿留在 Qt 用户数据目录；各宿主页
-  // 隔离页面存储/下载信号，切页保留同一 profile。
-  m_profile = new QWebEngineProfile(QStringLiteral("paleoWebView.") + objectName(), this);
+  if (m_offTheRecord)
+  {
+    // 进程内只留一份无痕配置。具名持久配置在第二个 Office 视图创建时
+    // 会和尚未析构的上一份撞名，页面停在加载。
+    static QWebEngineProfile *shared = new QWebEngineProfile(QCoreApplication::instance());
+    m_profile = shared;
+    m_ownsProfile = false;
+  }
+  else
+  {
+    // 命名 profile 将 IndexedDB 恢复草稿留在 Qt 用户数据目录；各宿主页
+    // 隔离页面存储/下载信号，切页保留同一 profile。
+    m_profile = new QWebEngineProfile(QStringLiteral("paleoWebView.") + objectName(), this);
+    m_ownsProfile = true;
+  }
   // #237：用带导航白名单的 page 子类——初始 setUrl 之外，页内链接/302
   // 同样过不了 http/https 白名单。
   m_engine->setPage(new GuardedWebEnginePage(m_profile, m_engine));
   installPageStyleSheet();
+  if (m_ownsProfile)
+  {
   connect(m_profile, &QWebEngineProfile::downloadRequested, this,
           [this](QWebEngineDownloadRequest *download) {
     const QString path = QFileDialog::getSaveFileName(this, tr("保存 Web 工作台成果"),
@@ -243,6 +267,7 @@ bool WebViewPanel::ensureEngine(QString *error)
     download->setDownloadFileName(QFileInfo(path).fileName());
     download->accept();
   });
+  }
   if (m_stack)
     m_stack->addWidget(m_engine);
 

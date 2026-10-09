@@ -19,6 +19,7 @@
 #include "../src/qgis/qgisruntime.h"
 #include "../src/services/paleotaskservice.h"
 #include "../src/ui/datapreview/datapreviewtabs.h"
+#include "../src/ui/wellcomposite/wellcompositepanel.h"
 #include "../src/ui/decorations/paleodecorations.h"
 #include <qgsmapcanvas.h>
 #include <qgsrubberband.h>
@@ -65,6 +66,7 @@ private slots:
   void missingExternalSourceShowsState();
   void horizonTabOffersShowOnMap();
   void everyTypeOpensContent();
+  void wellLogPreviewShowsCuttingsLithologyTrack();
   void captureSynchronousLoadingState();
   void topsTimeColumnStaysBlank();
   void multiWellTabComboAndTitle();
@@ -247,6 +249,66 @@ void TestDataPreview::horizonTabOffersShowOnMap()
   QVERIFY2(nonWhite > 5000,
            qPrintable(QStringLiteral("horizon canvas rendered blank "
                                      "(nonWhite=%1)").arg(nonWhite)));
+}
+
+void TestDataPreview::wellLogPreviewShowsCuttingsLithologyTrack()
+{
+  QTemporaryDir tmp;
+  auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st != nullptr);
+  const Imported ids = importAll(*st, tmp);
+  DataCatalog *cat = st->importSvc->catalog();
+  QVERIFY(cat);
+  const QStringList wells = cat->wellsMatchingName(QStringLiteral("A1"));
+  QCOMPARE(wells.size(), 1);
+
+  const QString csv = tmp.filePath(QStringLiteral("A1岩屑录井数据.csv"));
+  QFile file(csv);
+  QVERIFY(file.open(QIODevice::WriteOnly));
+  file.write("顶深,底深,岩性,描述\n1000,1012,细砂岩,A1岩屑\n1012,1030,泥岩,\n");
+  file.close();
+
+  QString error;
+  CatalogAsset asset;
+  asset.id = cat->nextAssetId();
+  asset.type = QStringLiteral("document");
+  asset.format = QStringLiteral("csv");
+  asset.displayName = QStringLiteral("A1岩屑录井数据");
+  QVERIFY2(cat->addAsset(asset, &error), qPrintable(error));
+  CatalogVersion version;
+  version.id = cat->nextVersionId();
+  version.assetId = asset.id;
+  version.stage = QStringLiteral("RAW");
+  version.managed = false;
+  version.path = csv;
+  version.fileName = QStringLiteral("A1岩屑录井数据.csv");
+  version.versionNumber = 1;
+  QVERIFY2(cat->addVersion(version, &error), qPrintable(error));
+  EntityAssetLink link;
+  link.entityType = QStringLiteral("well");
+  link.entityId = wells.front();
+  link.assetId = asset.id;
+  link.role = QStringLiteral("cuttings");
+  QVERIFY2(cat->addLink(link, &error), qPrintable(error));
+
+  st->preview->openAsset(ids.las);
+  auto *tabs = st->preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));
+  QVERIFY(tabs);
+  auto *panel = tabs->widget(tabs->currentIndex())
+                    ->findChild<WellComposite::WellCompositePanel *>(QStringLiteral("wellCompositePanel"));
+  QVERIFY2(panel, "well log preview needs the composite panel");
+  bool hasLithology = false;
+  for (const auto &track : panel->canvas()->tracks())
+  {
+    if (track->type() != WellComposite::TrackType::Lithology)
+      continue;
+    hasLithology = true;
+    QCOMPARE(track->title(), QStringLiteral("岩性道"));
+  }
+  QVERIFY2(hasLithology, "cuttings linked to the well must produce a lithology track");
+  QCOMPARE(panel->currentData().lithologyIntervals.size(), 2);
+  QCOMPARE(panel->currentData().lithologyIntervals.at(0).lithoName, QStringLiteral("细砂岩"));
+  QCOMPARE(panel->currentData().lithologyIntervals.at(1).lithoName, QStringLiteral("泥岩"));
 }
 
 void TestDataPreview::everyTypeOpensContent()

@@ -4,12 +4,7 @@
 class OfficePreviewSession;
 class QLabel;
 class QPushButton;
-class QToolButton;
-class QComboBox;
-class QGraphicsView;
-class QGraphicsPixmapItem;
-class QResizeEvent;
-class QEvent;
+class WebViewPanel;
 
 class OfficePreviewWidget : public QWidget
 {
@@ -17,27 +12,16 @@ class OfficePreviewWidget : public QWidget
 public:
   explicit OfficePreviewWidget(const QString &path, const QString &expectedSha = {}, QWidget *parent = nullptr);
   ~OfficePreviewWidget() override;
+  void showMessage(const QString &text, bool error = false);
 signals:
-  void previewRequested(const QString &path, const QString &expectedSha);
-  void pageRequested(int index);
+  void editSaved(const QString &path);
   void previewClosed();
-protected:
-  void resizeEvent(QResizeEvent *event) override;
-  bool eventFilter(QObject *object, QEvent *event) override;
 private:
   void open();
-  void selectPage(int index);
-  void updateZoom();
-  void showStatus(const QString &text, bool error);
   QString m_path, m_sha;
   OfficePreviewSession *m_session;
-  QWidget *m_statusHost = nullptr;
+  WebViewPanel *m_web;
   QLabel *m_status;
   QPushButton *m_retry;
   bool m_statusIsError = false;
-  QToolButton *m_previous, *m_next;
-  QComboBox *m_pages, *m_zoom;
-  QGraphicsView *m_view;
-  QGraphicsPixmapItem *m_image;
-  double m_pageScale = 1.0;
 };

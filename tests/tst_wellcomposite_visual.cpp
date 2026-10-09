@@ -104,6 +104,42 @@ private slots:
     QVERIFY(preview.size() != QSize(0, 0));
   }
 
+  void lithologyIntervalsRenderBeforeCurves()
+  {
+    WellCompositePanel panel;
+    panel.setProjectName(QStringLiteral("LithologyTrackCase"));
+    panel.resize(900, 600);
+    panel.show();
+    QApplication::processEvents();
+    const auto d = syntheticWell();
+    QVERIFY(panel.loadLasCurves(QStringLiteral("SYN-1"), d.continuousCurves, d.formationIntervals));
+    WellComposite::LithologyInterval sand;
+    sand.topDepth = 1000.0f;
+    sand.bottomDepth = 1100.0f;
+    sand.lithoName = QStringLiteral("细砂岩");
+    WellComposite::LithologyInterval mud;
+    mud.topDepth = 1100.0f;
+    mud.bottomDepth = 1200.0f;
+    mud.lithoName = QStringLiteral("泥岩");
+    panel.setLithologyIntervals({sand, mud});
+    QCOMPARE(panel.currentData().lithologyIntervals.size(), 2);
+    int lithologyAt = -1;
+    int firstCurve = -1;
+    const auto tracks = panel.canvas()->tracks();
+    for (int i = 0; i < tracks.size(); ++i)
+    {
+      if (tracks.at(i)->type() == WellComposite::TrackType::Lithology)
+      {
+        lithologyAt = i;
+        QCOMPARE(tracks.at(i)->title(), QStringLiteral("岩性道"));
+      }
+      if (firstCurve < 0 && tracks.at(i)->type() == WellComposite::TrackType::Curve)
+        firstCurve = i;
+    }
+    QVERIFY(lithologyAt >= 0);
+    QVERIFY(firstCurve > lithologyAt);
+  }
+
   // 图片道等比渲染：单点锚照片宽度撑满按原图纵横比定高、锚深居中，
   // 不再横向拉伸压成 20px 条（修复前 drawPixmap(rect,pm) 非等比变形）。
   void imageTrackPreservesAspectAtAnchor()

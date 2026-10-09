@@ -1029,8 +1029,8 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
   CatalogVersion sourceVersion = v; // abs 实际对应的版本（文档标签锚回 RAW 原件）
   QString abs = m_doc->absolutePathForVersion(v);
   // 文档/工作簿资产：RAW 原件是规范来源——currentVersion 可能已指向
-  // DERIVED PDF 转换件，缺失检查与「用系统程序打开」必须锚在原件上；
-  // 工作簿预览同样锚回原件，Office 原件交 Calligra。
+  // DERIVED 转换件，缺失检查与「用系统程序打开」必须锚在原件上；
+  // Office 原件交给本机编辑页。
   if ((asset.type == QLatin1String("document") ||
        asset.type == QLatin1String("outsource_workbook")) &&
       chosenId.isEmpty())
@@ -1119,11 +1119,22 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
     }
   }
 
-  // Office 原件直接交给隔离的 Calligra 页面渲染进程；SHA 校验与文档
-  // 读取在后台/外部进程进行，包括历史版本。不生成任何转换件。
+  // Office 原件交给本机编辑页。SHA 在后台核对。编辑结果另存为
+  // DERIVED 版本，不覆盖 RAW，也不生成 PDF。
   if (OfficePreviewSession::supports(abs))
   {
-    lay->addWidget(new OfficePreviewWidget(abs, sourceVersion.managed ? QString() : sourceVersion.sha256, host), 1);
+    auto *office = new OfficePreviewWidget(abs, sourceVersion.managed ? QString() : sourceVersion.sha256, host);
+    const QString editAsset = assetId;
+    const QString editParent = sourceVersion.id;
+    connect(office, &OfficePreviewWidget::editSaved, host, [this, office, editAsset, editParent](const QString &saved) {
+      if (!m_doc || !m_doc->catalog()) return;
+      QString error;
+      if (OfficePreviewSession::commitEdit(m_doc->catalog(), editAsset, editParent, saved, &error))
+        office->showMessage(tr("已另存为工程中的新版本，原件未改"));
+      else
+        office->showMessage(error, true);
+    });
+    lay->addWidget(office, 1);
     return host;
   }
 

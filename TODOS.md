@@ -437,7 +437,7 @@ master 的 `41feecf`，catalog 行序修复来自 `e8da8cf`，不归入本 PR �
 
 - **2026-09-26 · project_area 数据底座 + D61 编图链**（p1/p2 双包并入 master）：catalog 实体/资产/版本/显式关联 + SHA-256 受管 RAW；分类器与井口/分层/时深解析；D61 装箱时间栅格；SEG-Y 道索引单测线解码；9 类数据页预览；读侧 facade、D61→D62 厚度→凸包约束 IDW→相多边形；TD 残差验证、三视图联动、PDF 导出、8 层位 chip、版本状态机。`424e185` `f3d9b83` `c994d21`
 - **2026-09-26 · 集成接缝 + 清单读错误诚实化**：ComposePage 经 `layerDeclared` 信号跟随新声明；生产路径全改 `tryDeclared`/错误通道（清单损坏不再被当成空清单）。`fdd2f99` `217502a`
-- **2026-10-09 · Office 离线页面预览**：用户排除 LibreOffice，六格式 RAW 原件交源码构建的 Calligra 26.08.2 独立进程解析，Qt 控件按需显示页面并提供页码/工作表、缩放、滚动；无 PDF 转换或派生 Office 版本。依赖有固定 URL/SHA，关闭标签异步取消进程；Windows/macOS 打包待实机验证。见 `docs/progress/native-office-background-loading.md`。
+- **2026-10-09 · Office 本机编辑页**：用户排除 LibreOffice，并认为 Calligra 页图的操作太少。六种 RAW 原件改由钉死版本的 ranuts/document（OnlyOffice WASM，无文档服务器）在本机 HTTP 上打开；Qt WebEngine 只做宿主。不转 PDF。保存另登记 DERIVED 版本，不覆盖原件。编辑器静态树由 `vendor/fetch-ranuts-document.sh` 安装，不入库。Windows/macOS 的 WebEngine 与该静态树仍待实机验证。见 `docs/progress/native-office-background-loading.md`。
 - **2026-10-09 · 工程接管响应与辅助 XML 双视图**：井曲线/时深/轨迹候选预览按目录快照后台准备，GUI 工程接管与底图/井图层恢复分拍执行，地震任务在接管完成后启动；迟到结果按工程会话/世代丢弃。辅助 XML 默认井道图，可切数据列表；解析和外链校验均在后台，普通 XML 提供路径/内容列表。验证记录见 `docs/progress/native-office-background-loading.md`。
 - **2026-09-26 · WebEngine 嵌壳组件**：`WebViewPanel` 懒加载孤岛（offscreen/渲染进程终止降级为外部浏览器兜底）+ `AA_ShareOpenGLContexts`。`96ba726`（宿主入口见 goal/webui-host）
 - **2026-09-26 · 井文件解析 BOM 剥离**：三个入口统一去 U+FEFF（trimmed() 不去它），plan §3 要求。

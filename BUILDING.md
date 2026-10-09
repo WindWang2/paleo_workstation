@@ -55,25 +55,24 @@
 superbuild 明示禁止 qt-everywhere 整块编译；走发行版或 OSGeo4W 同源）、
 编译器工具链与构建依赖（flex/bison/nasm/python3）、glibc/libstdc++
 （ABI floor，无法 vendored）、ONNX Runtime（官方 release SHA256 pin，
-与 QGIS 路线正交）。Office 预览使用源码构建的 **Calligra 26.08.2**，
-不依赖 LibreOffice。Calligra、ECM、Boost、Eigen、KDiagram 的 URL / SHA256
-固定在 `vendor/manifest.json`；`vendor/fetch-calligra.sh` 安装到 `vendor/calligra/`。
-Qt6 与 KDE Frameworks 6 开发依赖优先由 `PALEO_KF6_PREFIX` 指定前缀，系统开发包
-为兜底；Qt/KF6 必须与主程序保持 ABI 一致。当前 Linux 构建使用 Qt 6.11.2、
-KF6 6.30.0，Qt ≥6.5 / KF6 ≥6.0 是上游最低要求。
+与 QGIS 路线正交）。Office 原件使用钉死提交的 **ranuts/document**
+静态编辑页（OnlyOffice WASM，无文档服务器），不依赖 LibreOffice，也不把原件转成 PDF。
+`vendor/fetch-ranuts-document.sh` 把构建结果装到 `vendor/ranuts-document/`（gitignored）。
+该目录是 AGPL-3.0 派生作品，分发应用时必须带上对应源码，并保留编辑器里的 ONLYOFFICE 标识。
+运行时先查 `PALEO_OFFICE_EDITOR`（指向含 `index.html` 的目录），再查应用同目录
+`office-editor/`、`../vendor/ranuts-document/`、`../libexec/office-editor/`。
+主程序只在 `127.0.0.1` 上打开这个目录和当前原件。无 WebEngine 时同一地址交给系统浏览器。
 
 ```bash
-# 首次编译 Words / Sheets / Stage 及六种导入滤镜；并行度最多 8
-vendor/fetch-calligra.sh
-cmake --build build -j8
+# 需要 Node 与 pnpm。产物不入库。
+vendor/fetch-ranuts-document.sh
 ```
 
-`paleo_office_renderer` 在独立 offscreen 进程中解析原件，按需渲染页面；Qt Widgets
-显示页码、缩放与滚动，不生成 PDF，也不登记派生 Office 版本。运行时先查
-`PALEO_OFFICE_RENDERER`，再查应用同目录、`../vendor/calligra/bin/`、`../libexec/`。
-部署须同时带上 `vendor/calligra` 的库、`lib/plugins`、`share` 和许可证；不能只复制
-helper 二进制。当前 Linux 已验证；Windows/macOS 的 Calligra 依赖打包尚需实机验收。
-旧 `vendor/fetch-libreoffice.sh` 仅服务显式调用的历史转换 API，不是 Office 预览依赖。
+`vendor/fetch-calligra.sh` 仍可源码构建 Calligra 26.08.2，但 Office 预览不再调用它。
+旧 `vendor/fetch-libreoffice.sh` 仅服务显式调用的历史转换 API。
+Qt6 与 KDE Frameworks 6 开发依赖优先由 `PALEO_KF6_PREFIX` 指定前缀，系统开发包
+为兜底；Qt/KF6 必须与主程序保持 ABI 一致。当前 Linux 构建使用 Qt 6.11.2、
+KF6 6.30.0，Qt ≥6.5 / KF6 ≥6.0 是 Calligra 上游最低要求，与 Office 编辑页无关。
 
 ### glibc 三档口径（显式分层，非混乱）
 

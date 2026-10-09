@@ -129,6 +129,10 @@ class WellSectionPanel : public QWidget
     // 仅用户驱动（连线断开/重连）——持久化钩子（store 版本推进）。
     void linkOverridesChanged(const QVector<wellsection::LinkOverride> &overrides);
     void wellClicked(const QString &wellId);
+    // 图片道锚双击（方向 79）：壳层打开锚深编辑对话框（catalog 经壳持有，
+    // 视图不碰数据）。depthMd 为当前锚深（双击语境即已锚定照片）。
+    void imageAnchorEditRequested(const QString &wellId,
+                                  const QString &assetId, double depthMd);
     // 仅用户驱动（域/井距菜单动作）——fence 三处一致性传播钩子（程序化
     // setter 不发，防回声环路）。
     void depthDomainChanged(wellsection::DepthDomain domain);

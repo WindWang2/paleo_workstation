@@ -222,13 +222,14 @@ void DataListPanel::refreshAssetTree()
       }
     }
 
-    // 「岩心照片 (N)」分组分支（L3，无 id 的 category 节点；点击只展开/收拢）。
-    // 照片叶（L4）保留 assetId/wellId/core 角色三元——激活、拖放、过滤语义
-    // 与原平铺叶完全一致。
+    // 「岩心照片 (N)」分组分支（L3，无 id 的 category 节点；双击跳井附件
+    // 管理面板——方向 79）。照片叶（L4）保留 assetId/wellId/core 角色三元
+    // ——激活、拖放、过滤语义与原平铺叶完全一致。
     if (!coreLinks.isEmpty())
     {
       auto *branch = new QTreeWidgetItem(wellItem);
       branch->setData(0, Qt::UserRole + 2, QStringLiteral("category"));
+      branch->setData(0, Qt::UserRole + 3, QStringLiteral("well_attachments"));
       branch->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mIconRaster.svg")));
       int added = 0;
       for (const EntityAssetLink &l : coreLinks)

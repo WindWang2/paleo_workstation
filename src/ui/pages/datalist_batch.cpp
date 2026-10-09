@@ -17,8 +17,13 @@
 #include <QInputDialog>
 #include <QLineEdit>
 #include <QMenu>
+#include "../dialogs/depthanchordialog.h"
 #include "../notifications/paleonotify.h"
 #include <QUrl>
+#include "wellattachmentpanel.h"
+#include "../../workflow/wellattachmentops.h"
+
+#include <cmath>
 
 void DataListPanel::batchAttachToEntity()
 {
@@ -123,7 +128,7 @@ void DataListPanel::batchRemoveSoft()
 {
   using namespace paleo::dataops;
   const QSet<QString> ids = currentAssetSelection();
-  if (ids.isEmpty() || !m_ctx.valid())
+  if (ids.isEmpty())
     return;
   // D5.5：软删可撤销——确认说明这一点（不是破坏性删除）。
   if (!PaleoNotify::ask(this, tr("移除资产"),
@@ -131,10 +136,18 @@ void DataListPanel::batchRemoveSoft()
                            "（软删：可从「可回收清单」恢复，可撤销；"
                            "catalog 记录保留）").arg(ids.size())))
     return;
-  // 方向 30：单命令批量软删（一次落盘、整组可撤销）——逐项命令会随 N 放大
-  // recycle_bin.json 重写次数（tst_ui_blocking 探针的非空转门槛）。
+  removeAssetsSoft(QStringList(ids.constBegin(), ids.constEnd()));
+}
+
+// 软删执行面（树多选与井附件面板 removeRequested 共用）：单命令批量
+//（一次落盘、整组可撤销）。
+void DataListPanel::removeAssetsSoft(const QStringList &assetIds)
+{
+  using namespace paleo::dataops;
+  if (assetIds.isEmpty() || !m_ctx.valid())
+    return;
   QVector<std::pair<QString, RecycleEntry>> entries;
-  for (const QString &id : ids)
+  for (const QString &id : assetIds)
   {
     const CatalogAsset a = m_ctx.cat->assetById(id);
     RecycleEntry e;
@@ -143,11 +156,38 @@ void DataListPanel::batchRemoveSoft()
     e.displayName = a.displayName;
     entries.append({id, e});
   }
-  const QStringList idList(ids.constBegin(), ids.constEnd());
-  pushCommand(new BatchRemoveCmd(m_ctx, idList, entries, tr("批量移除")));
+  pushCommand(new BatchRemoveCmd(m_ctx, assetIds, entries, tr("批量移除")));
   if (m_history)
-    m_history->push(tr("批量移除 %1 项（软删）").arg(ids.size()));
-  emit statusMessage(tr("已移除 %1 个资产到可回收清单（可撤销）").arg(ids.size()));
+    m_history->push(tr("批量移除 %1 项（软删）").arg(assetIds.size()));
+  emit statusMessage(tr("已移除 %1 个资产到可回收清单（可撤销）")
+                         .arg(assetIds.size()));
+}
+
+// 井附件管理面板（方向 79）：树「岩心照片 (N)」双击跳转入口。面板按需
+// 创建（非模态、复用同一实例），软删意图回本命令栈执行。
+void DataListPanel::showWellAttachments(const QString &wellId)
+{
+  if (!m_ctx.valid())
+    return;
+  if (!m_attachments)
+  {
+    m_attachments = new WellAttachmentPanel(
+        m_ctx.cat, m_ctx.cat->projectDir(), &m_recycle, this);
+    connect(m_attachments, &WellAttachmentPanel::removeRequested, this,
+            [this](const QStringList &ids) {
+              if (PaleoNotify::ask(
+                      this, tr("移除附件"),
+                      tr("把 %1 个附件移入可回收清单？\n"
+                         "（软删：可从「可回收清单」恢复，可撤销；"
+                         "磁盘文件不动）").arg(ids.size())))
+              {
+                removeAssetsSoft(ids);
+                m_attachments->refresh();
+                refreshAssetTable();
+              }
+            });
+  }
+  m_attachments->setWell(wellId);
 }
 
 void DataListPanel::batchExportManifest()
@@ -248,6 +288,67 @@ void DataListPanel::setPrimaryForSelection()
   emit statusMessage(tr("选中资产没有可提升的非主关联"));
 }
 
+void DataListPanel::editDepthAnchorForSelection()
+{
+  const QSet<QString> ids = currentAssetSelection();
+  if (ids.isEmpty() || !m_ctx.valid() || ids.size() != 1)
+    return;
+  const QString assetId = *ids.constBegin();
+  const CatalogVersion v = m_ctx.cat->currentVersion(assetId);
+  if (v.id.isEmpty())
+  {
+    emit statusMessage(tr("该附件没有版本可编辑"));
+    return;
+  }
+  // 标题语境：挂接井名（core/lab_analysis 任一已决链接）。
+  QString wellName;
+  for (const EntityAssetLink &l : m_ctx.cat->linksForAsset(assetId))
+    if (!l.unresolved && !l.entityId.isEmpty())
+    {
+      wellName = m_ctx.cat->entityById(l.entityId).name;
+      break;
+    }
+  const QVariant depth = v.extra.value(QLatin1String("depthMd"));
+  const bool hasAnchor =
+      depth.isValid() && depth.toDouble() > 0.0 && std::isfinite(depth.toDouble());
+  PaleoDepthAnchorDialog::Context ctx;
+  ctx.wellName = wellName;
+  ctx.fileName = v.fileName.isEmpty() ? m_ctx.cat->assetById(assetId).displayName
+                                      : v.fileName;
+  ctx.hasAnchor = hasAnchor;
+  ctx.currentDepth = hasAnchor ? depth.toDouble() : 0.0;
+  ctx.anchorSource = v.extra.value(QLatin1String("depthMd#source")).toString();
+  ctx.imagePath = m_doc ? m_doc->absolutePathForVersion(v) : QString();
+
+  PaleoDepthAnchorDialog::Result res;
+  if (!PaleoDepthAnchorDialog::prompt(this, ctx, &res))
+    return;
+  paleo::WellAttachmentOps ops(m_ctx.cat);
+  paleo::DepthInputStatus st = paleo::DepthInputStatus::Ok;
+  QString err;
+  const bool ok =
+      ops.setDepthAnchor(v.id, res.clear ? QString() : QString::number(res.depth),
+                         &st, &err);
+  if (!ok)
+  {
+    const QString reason = paleo::WellAttachmentOps::reasonText(st);
+    emit statusMessage(tr("锚深更新失败：%1").arg(reason.isEmpty() ? err : reason));
+    return;
+  }
+  if (m_history)
+    m_history->push(tr("锚深编辑 %1：%2 → %3")
+                        .arg(assetId,
+                             hasAnchor ? QString::number(depth.toDouble(), 'f', 2)
+                                       : tr("未锚定"),
+                             res.clear ? tr("未锚定")
+                                       : QString::number(res.depth, 'f', 2)));
+  refreshAssetTable();
+  emit entityRefreshRequested();
+  emit statusMessage(res.clear
+                         ? tr("已清除锚深（%1 回到未锚定，可随时再补）").arg(ctx.fileName)
+                         : tr("已更新锚深：%1 → %2 m").arg(ctx.fileName).arg(res.depth));
+}
+
 void DataListPanel::editRoleForSelection()
 {
   using namespace paleo::dataops;
@@ -335,6 +436,7 @@ void DataListPanel::showAssetContextMenu(QObject *source, const QPoint &pos)
         spec.singleAssetResolved = !r.entityNames.isEmpty();
         spec.singleAssetIsHorizon = r.effectiveType == QLatin1String("horizon");
         spec.singleAssetIsTops = r.effectiveType == QLatin1String("well_stratification");
+        spec.singleAssetIsImage = r.effectiveType == QLatin1String("image_reference");
         break;
       }
   }
@@ -353,6 +455,7 @@ void DataListPanel::showAssetContextMenu(QObject *source, const QPoint &pos)
     {"showVersions", QT_TR_NOOP("版本与回滚…")},
     {"gridHorizon", QT_TR_NOOP("网格化…")},
     {"editTops", QT_TR_NOOP("编辑分层…")},
+    {"editDepthAnchor", QT_TR_NOOP("编辑锚深…")},
     {"openPreviewAll", QT_TR_NOOP("批量打开预览（前 8 项）")},
     {"attachToEntity", QT_TR_NOOP("挂接到实体…")},
     {"detachLink", QT_TR_NOOP("解除挂接")},
@@ -400,6 +503,8 @@ void DataListPanel::showAssetContextMenu(QObject *source, const QPoint &pos)
     emit gridHorizonRequested(*mix.assetIds.constBegin()); // 意图信号回壳（视图不干活）
   else if (key == QLatin1String("editTops"))
     emit topsEditRequested(*mix.assetIds.constBegin()); // 意图信号回壳（视图不干活）
+  else if (key == QLatin1String("editDepthAnchor"))
+    editDepthAnchorForSelection(); // 方向 79：图片附件锚深后补编辑
   else if (key == QLatin1String("attachToEntity"))
     batchAttachToEntity();
   else if (key == QLatin1String("detachLink"))

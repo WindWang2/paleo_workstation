@@ -940,6 +940,11 @@ void WellSectionPanel::rebuildItems()
   for (int i = 0; i < m_st.wells.size(); ++i)
   {
     auto *col = new wellsectionui::ColumnItem(&m_st, i);
+    // 图片锚双击 → 意图信号出壳（编辑锚深对话框；视图不碰 catalog）。
+    col->setImageActivateCallback(
+        [this](const QString &wellId, const wellsection::ImageAnchor &a) {
+          emit imageAnchorEditRequested(wellId, a.assetId, a.md);
+        });
     m_scene->addItem(col);
     m_colItems << col;
     if (i + 1 < m_st.wells.size())

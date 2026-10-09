@@ -1014,6 +1014,7 @@ add_paleo_test(tst_wellfileparsers LIBS paleo_io)
 add_paleo_test(tst_io_importledger LIBS paleo_workflow)
 add_paleo_test(tst_io_robustness LIBS paleo_io paleo_algorithms)
 add_paleo_test(tst_io_seismicquality LIBS paleo_services paleo_algorithms)
+add_paleo_test(tst_seismichorizoncluster LIBS paleo_services) # 取窗契约锚（f0e7b10d ±12ms）
 add_paleo_test(tst_io_workbook_edges LIBS paleo_io)
 add_paleo_test(tst_segy LIBS paleo_io)
 add_paleo_test(tst_las LIBS paleo_io)

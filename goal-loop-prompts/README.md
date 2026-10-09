@@ -185,6 +185,19 @@ io（cuttings 解析）——80 的引号转义先行、78 的夹具消费在其
 任务书执行（UI 面从方向 73 两族布局长出来，勿回退布局）。
 同机并行重构建建议 ≤2 个会话。
 
+### 实战系补账注记（2026-10-08，方向 82）
+
+01–72 之外，10-07/10-08 实战系（#261/#262/40398d20/f0e7b10d/
+3e8988cd/e9d17e80/10cdb8cb/12346066 等）新增约 2,000+ 行核心逻辑
+**不在任何方向任务书内**——当时零 progress 文档，已由 goal/
+basemap-docs-20261009 补账立档（docs/progress/ 六篇：seismichorizoncluster
+/project-file-mapreference/qgisprojectservice-async/offline-basemap/
+datanav-tree/segy-dialects）。后续任务书涉及这些面时**先读对应文档**，
+勿再当未知领域重勘察；两处易混口径已定案——「projectclassifier」是
+project_area 导入路径分类器（非交会分类核，交会核是 algorithms/cluster
++ FaciesClassificationService）；地震聚类取窗契约为层位 TWT ±12ms
+确定性 k-means（与交会分类是独立链）。
+
 ## 使用方式
 
 每个 prompt 直接喂给一个自治 agent 会话（如 devin/claude/zcode 新 session）：

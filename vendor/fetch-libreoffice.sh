@@ -93,9 +93,14 @@ if [ "$PRINT_ONLY" = "1" ]; then
   exit 0
 fi
 
-SOFFICE_CHECK="$PREFIX/program/soffice"
-[ "$WINDOWS" = "1" ] && SOFFICE_CHECK="$PREFIX/program/soffice.exe"
-if [ -e "$SOFFICE_CHECK" ] && [ "$FORCE" != "1" ]; then
+if [ "$WINDOWS" = "1" ]; then
+  # Windows 可执行位不可靠（admin 解包默认无 +x 语义），存在即算；POSIX
+  # 保持 -x（与 vendor/bootstrap.sh 的在场检查同口径）。
+  if [ -e "$PREFIX/program/soffice.exe" ] && [ "$FORCE" != "1" ]; then
+    echo "  .. vendored libreoffice present ($PREFIX) — skip (use --force to re-fetch)"
+    exit 0
+  fi
+elif [ -x "$PREFIX/program/soffice" ] && [ "$FORCE" != "1" ]; then
   echo "  .. vendored libreoffice present ($PREFIX) — skip (use --force to re-fetch)"
   exit 0
 fi
@@ -181,5 +186,10 @@ if ls resources/fonts/NotoSansSC-*.otf >/dev/null 2>&1; then
 fi
 
 rm -rf -- "$STAGING"
-[ -e "$SOFFICE_CHECK" ] || fail "$SOFFICE_CHECK missing after extract" "inspect $LOG_DIR and the member whitelist/prune list"
-echo "  OK vendored LibreOffice $LO_VER -> $PREFIX (license: $PREFIX, MPL-2.0)"
+if [ "$WINDOWS" = "1" ]; then
+  [ -e "$PREFIX/program/soffice.exe" ] || fail "$PREFIX/program/soffice.exe missing after extract" "inspect $LOG_DIR and the prune list"
+  echo "  OK vendored LibreOffice $LO_VER -> $PREFIX (license: license.txt/NOTICE/LICENSE.html, MPL-2.0)"
+else
+  [ -x "$PREFIX/program/soffice" ] || fail "$PREFIX/program/soffice missing after extract" "inspect $LOG_DIR and the member whitelist"
+  echo "  OK vendored LibreOffice $LO_VER -> $PREFIX (license: $PREFIX/LICENSE, MPL-2.0)"
+fi

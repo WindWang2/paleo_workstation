@@ -56,7 +56,9 @@ struct EntityAssetLink
   QString entityType;
   QString entityId;     // unresolved 链接允许为空（§3：资产保留、实体留空、不新建不合并）
   QString assetId;
-  QString role;         // well_head | well_log | tops | time_depth | horizon | seismic_volume | reference
+  QString role;         // 链接角色——分组/树排序序/显示名的唯一权威是
+                        // catalogroles.h 的 catalogRoles()（方向 92 单源：
+                        // 树角色序与 AI 工具描述共用，新增角色先入表）
   bool isPrimary = true;
   bool unresolved = false;
   int ordinal = 0;      // B 包：同 (entity,role) 成员内业务序（如多 LAS 加载顺序）

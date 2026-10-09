@@ -371,7 +371,10 @@ if(ORT_INCLUDE AND ORT_LIB AND (NOT WIN32 OR ORT_DLL))
   add_library(paleo_ai STATIC src/ai/onnxpredictionservice.cpp src/ai/onnxfixture.cpp
     src/ai/tileinference.cpp src/ai/horizonsuggest.cpp src/ai/modelregistry.cpp
     src/ai/remotepredictionservice.cpp src/ai/remotepredictrouter.cpp)
-  target_link_libraries(paleo_ai PUBLIC paleo_deps ort_vendored)
+  # 方向 92：domaintools 角色清单单源消费 catalogRoles()（catalogroles.cpp
+  # 在 paleo_store）——ai(功能) → store(数据) 属允许的向下依赖（层 DAG 同层
+  # 邻接，无环：store 不含 ai）。
+  target_link_libraries(paleo_ai PUBLIC paleo_deps paleo_store ort_vendored)
   target_compile_definitions(paleo_ai PUBLIC PALEO_HAVE_ORT=1)
   # 审计 01 M5：vendorRuntimeDir() 从可执行文件往上找 vendor/onnxruntime，构建目录在
   # 源码树外（-B ../b-asan）时找不到——编译期注入 ORT 根作为向上查找后的回落。
@@ -382,7 +385,7 @@ if(ORT_INCLUDE AND ORT_LIB AND (NOT WIN32 OR ORT_DLL))
 else()
   set(PALEO_HAVE_ORT FALSE)
   add_library(paleo_ai STATIC src/ai/remotepredictionservice.cpp)
-  target_link_libraries(paleo_ai PUBLIC Qt6::Core Qt6::Gui) # 无 ORT 时为空壳，消费方链接名不变
+  target_link_libraries(paleo_ai PUBLIC Qt6::Core Qt6::Gui paleo_store) # 无 ORT 时为空壳，消费方链接名不变
   message(STATUS "onnxruntime not vendored — local ONNX inference disabled; remote services remain available (run ./paleo-dev bootstrap for ONNX)")
 endif()
 
@@ -448,6 +451,7 @@ add_library(paleo_store STATIC
   src/catalog/purgelease.cpp
   src/catalog/datacatalog.cpp                       # entity/link/asset/version + catalog.json
   src/catalog/roleregistry.cpp                      # RoleDef/RoleRegistry 词表 + project_area.json 覆盖
+  src/catalog/catalogroles.cpp                      # 方向92：树/AI 角色词表单源（分组/树序/显示名）
   src/catalog/entityview.cpp                        # RoleSlot/EntityView 纯查询门面
   src/metadata/paleoprojectstore.cpp
   src/metadata/paleoprojectfile.cpp
@@ -1067,6 +1071,7 @@ add_paleo_test(tst_layouttemplatelibrary LIBS paleo_workflow) # 方向25：模�
 add_paleo_test(tst_horizonbatchexport LIBS paleo_workflow) # 方向25：按层位组批量出图 + catalog 登记
 # ---- wave/data-foundation ----
 add_paleo_test(tst_catalog LIBS paleo_store)
+add_paleo_test(tst_catalogroles LIBS paleo_store)   # 方向92：角色词表单源
 add_paleo_test(tst_projectparsers LIBS paleo_io)
 target_compile_definitions(tst_projectparsers PRIVATE
   PROJECT_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/testdata/project_area")

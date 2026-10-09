@@ -236,7 +236,7 @@ void DataListPanel::renderAssetPage()
       // 下拉框：全量同类实体（井→全部井实体），默认空（哨兵项）。
       auto *combo = new QComboBox(browse);
       combo->setObjectName(QStringLiteral("resolveEntityCombo"));
-      combo->setAccessibleName(tr("挂到实体"));
+      combo->setAccessibleName(tr("挂接实体"));
       const bool isWell = unresolvedEntityType == QLatin1String("well");
       auto *choices = m_entityChoiceModels.value(unresolvedEntityType);
       if (!choices) {
@@ -295,7 +295,7 @@ void DataListPanel::renderAssetPage()
         pc.insert(QStringLiteral("entity_name"), ename);
         setProperty("paleo.page.pendingConfirm", pc);
         confirmText->setText(
-            tr("把「%1」挂到「%2」？").arg(displayName, ename));
+            tr("将「%1」挂接到「%2」？").arg(displayName, ename));
         stack->setCurrentWidget(confirmStrip);
       };
       connect(attach, &QPushButton::clicked, this, armConfirm);
@@ -365,7 +365,7 @@ void DataListPanel::renderAssetPage()
         if (comboIdx >= 0 && indexOfLink(cat, a.id, unresolvedRole, QString()) >= 0)
         {
           combo->setCurrentIndex(comboIdx);
-          confirmText->setText(tr("把「%1」挂到「%2」？")
+          confirmText->setText(tr("将「%1」挂接到「%2」？")
                                    .arg(a.displayName,
                                         pendingConfirm.value(QStringLiteral("entity_name"))
                                             .toString()));

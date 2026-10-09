@@ -239,7 +239,7 @@ bool FaultInterpretationController::renameFault(const QString &faultId, const QS
         return false; // 撞名预检：不产生空命令（模型层同样拒绝，此处防静默失败）
     const QString oldName = f->name;
     m_editStack->push(
-        tr("断层改名 %1→%2").arg(oldName, newName),
+        tr("重命名断层 %1→%2").arg(oldName, newName),
         [this, faultId, oldName] {
             m_set.renameFault(faultId, oldName);
             commitModel();

@@ -28,7 +28,7 @@ void SeismicSectionDockWidget::computeAttributeOnCurrentSection(
     const int mode = m_cboSectionMode ? m_cboSectionMode->currentIndex() : 0;
     if (mode != 0 && mode != 1) {
         m_attrPanel->showResult(
-            false, tr("属性计算支持 Inline/Crossline 剖面（时间片/任意线见 TODOS）"));
+            false, tr("属性计算当前仅支持 Inline/Crossline 剖面"));
         return;
     }
     const SgySliceType type = mode == 0 ? SgySliceType::Inline : SgySliceType::Xline;
@@ -82,7 +82,7 @@ void SeismicSectionDockWidget::computeAttributeOnCurrentSection(
 QString SeismicSectionDockWidget::registerCurrentAttributeAsset(QString *error) {
     if (!m_catalog) {
         if (error)
-            *error = tr("catalog 未注入（应用层需调 setInterpretationCatalog）");
+            *error = tr("数据目录未连接，无法登记属性成果");
         return QString();
     }
     if (!m_lastAttrResult.ok || !m_lastAttrResult.image) {
@@ -176,13 +176,13 @@ void SeismicSectionDockWidget::computeTimeSliceAttribute(
                             sourcePath, outputDir, &err, &decl);
                     if (path.isEmpty()) {
                         m_attrPanel->showResult(
-                            false, tr("✓ 扫描完成但登记失败：%1").arg(err));
+                            false, tr("扫描完成，但登记失败：%1").arg(err));
                     } else {
                         emit timeSliceAttrLayerReady(decl);
                     }
                 } else {
                     m_attrPanel->showResult(
-                        false, tr("✓ 扫描完成（catalog 未注入，未登记上图）"));
+                        false, tr("扫描完成，但数据目录未连接，结果未登记上图"));
                 }
             } else {
                 m_attrPanel->showResult(false, r.error);
@@ -260,7 +260,7 @@ void SeismicSectionDockWidget::computeAttributeVolume(
                         .isEmpty())
                     message = tr("登记失败：%1").arg(err);
             } else {
-                message = tr("catalog 未注入，未登记");
+                message = tr("数据目录未连接，结果未登记");
             }
             m_attrPanel->showResult(
                 true, tr("✓ %1 属性体完成 %2（%3×%4×%5，有效 %6）%7")

@@ -42,17 +42,17 @@ QgsLayout *QgisLayoutService::createLayout(const QString &name, QString *error)
 {
   if (!m_project)
   {
-    setError(error, tr("no QgsProject to host the layout"));
+    setError(error, tr("没有可承载图件的工程"));
     return nullptr;
   }
   if (name.isEmpty())
   {
-    setError(error, tr("cannot create a layout with an empty name"));
+    setError(error, tr("图件名称不能为空"));
     return nullptr;
   }
   if (m_project->layoutManager()->layoutByName(name))
   {
-    setError(error, tr("a layout named '%1' already exists").arg(name));
+    setError(error, tr("已存在同名图件「%1」").arg(name));
     return nullptr;
   }
 
@@ -64,7 +64,7 @@ QgsLayout *QgisLayoutService::createLayout(const QString &name, QString *error)
   QgsPrintLayout *raw = layout.get();
   if (!m_project->layoutManager()->addLayout(raw)) // takes ownership on success
   {
-    setError(error, tr("QgsLayoutManager refused layout '%1'").arg(name));
+    setError(error, tr("无法将图件「%1」加入工程").arg(name));
     return nullptr;
   }
   layout.release();
@@ -109,12 +109,12 @@ bool QgisLayoutService::exportPdf(const QString &layoutName, const QString &outP
   QgsLayout *l = layout(layoutName);
   if (!l)
   {
-    setError(error, tr("no layout named '%1'").arg(layoutName));
+    setError(error, tr("没有名为「%1」的图件").arg(layoutName));
     return false;
   }
   if (outPath.isEmpty())
   {
-    setError(error, tr("empty output path for layout '%1'").arg(layoutName));
+    setError(error, tr("图件「%1」的输出路径为空").arg(layoutName));
     return false;
   }
 
@@ -123,7 +123,7 @@ bool QgisLayoutService::exportPdf(const QString &layoutName, const QString &outP
   const QgsLayoutExporter::ExportResult res = exporter.exportToPdf(outPath, settings);
   if (res != QgsLayoutExporter::Success)
   {
-    setError(error, tr("PDF export of '%1' to %2 failed: %3")
+    setError(error, tr("图件「%1」导出 PDF 到 %2 失败：%3")
                       .arg(layoutName, outPath, exportResultString(this, res)));
     return false;
   }

@@ -194,7 +194,7 @@ WellSitingPanel::WellSitingPanel( WellSitingWorkflow *wf, QWidget *parent )
   auto *plannedOps = new QWidget( this );
   auto *opsLay = new QHBoxLayout( plannedOps );
   opsLay->setContentsMargins( 0, 0, 0, 0 );
-  auto *rename = new QPushButton( tr( "改名" ), plannedOps );
+  auto *rename = new QPushButton( tr( "重命名" ), plannedOps );
   rename->setObjectName( QStringLiteral( "sitingRenameButton" ) );
   rename->setEnabled( false ); // §35 禁用带原因
   rename->setToolTip( tr( "先在计划井表选中一行" ) );
@@ -558,13 +558,13 @@ void WellSitingPanel::renameSelectedPlanned()
   const QString id = table->item( row, 0 )->data( Qt::UserRole ).toString();
   const QString old = table->item( row, 0 )->text();
   bool ok = false;
-  const QString name = QInputDialog::getText( this, tr( "改名" ),
+  const QString name = QInputDialog::getText( this, tr( "重命名计划井" ),
                                               tr( "计划井新名称" ), QLineEdit::Normal, old, &ok );
   if ( !ok || name.trimmed().isEmpty() )
     return;
   QString error;
   if ( !m_wf->renamePlannedWell( id, name, &error ) )
-    PaleoNotify::warning( this, tr( "改名" ), error );
+    PaleoNotify::warning( this, tr( "重命名计划井" ), error );
 }
 
 void WellSitingPanel::refreshEvaluation()

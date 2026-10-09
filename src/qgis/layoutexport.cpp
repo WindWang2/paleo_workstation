@@ -66,14 +66,14 @@ namespace
     switch ( result )
     {
       case QgsLayoutExporter::Success: return QString();
-      case QgsLayoutExporter::Canceled: error = QObject::tr( "Export canceled." ); break;
-      case QgsLayoutExporter::MemoryError: error = QObject::tr( "Not enough memory to export the layout." ); break;
+      case QgsLayoutExporter::Canceled: error = QObject::tr( "导出已取消。" ); break;
+      case QgsLayoutExporter::MemoryError: error = QObject::tr( "内存不足，无法导出图件。" ); break;
       case QgsLayoutExporter::FileError:
-        error = QObject::tr( "Could not write the export file %1." ).arg( exporter.errorFile() );
+        error = QObject::tr( "无法写入导出文件 %1。" ).arg( exporter.errorFile() );
         break;
-      case QgsLayoutExporter::PrintError: error = QObject::tr( "Could not start printing the export." ); break;
-      case QgsLayoutExporter::SvgLayerError: error = QObject::tr( "Could not create the layered SVG file." ); break;
-      case QgsLayoutExporter::IteratorError: error = QObject::tr( "Error iterating over the layout." ); break;
+      case QgsLayoutExporter::PrintError: error = QObject::tr( "无法开始打印导出。" ); break;
+      case QgsLayoutExporter::SvgLayerError: error = QObject::tr( "无法创建分层 SVG 文件。" ); break;
+      case QgsLayoutExporter::IteratorError: error = QObject::tr( "遍历图件页面时出错。" ); break;
     }
     if ( !exporter.errorMessage().isEmpty() )
       error += QLatin1Char( ' ' ) + exporter.errorMessage();
@@ -120,12 +120,12 @@ ExportOutcome exportLayout( QgsLayout *layout, const QString &outPath, Format fo
 
   if ( !layout )
   {
-    outcome.error = QObject::tr( "No layout to export." );
+    outcome.error = QObject::tr( "没有可导出的图件。" );
     return outcome;
   }
   if ( outPath.isEmpty() )
   {
-    outcome.error = QObject::tr( "No destination file given." );
+    outcome.error = QObject::tr( "未指定导出文件。" );
     return outcome;
   }
 
@@ -134,7 +134,7 @@ ExportOutcome exportLayout( QgsLayout *layout, const QString &outPath, Format fo
   const int pageCount = layout->pageCollection() ? layout->pageCollection()->pageCount() : 0;
   if ( pageCount < 1 )
   {
-    outcome.error = QObject::tr( "The layout has no pages to export." );
+    outcome.error = QObject::tr( "该图件没有可导出的页面。" );
     return outcome;
   }
 
@@ -155,7 +155,7 @@ ExportOutcome exportLayout( QgsLayout *layout, const QString &outPath, Format fo
       const int to = qMin( pageCount - 1, range.toPage );
       if ( from > to )
       {
-        outcome.error = QObject::tr( "The page range selects no pages of this %1-page layout." ).arg( pageCount );
+        outcome.error = QObject::tr( "页码范围没有落在这套 %1 页的图件上。" ).arg( pageCount );
         return outcome;
       }
       for ( int i = from; i <= to; ++i )
@@ -192,7 +192,7 @@ ExportOutcome exportLayout( QgsLayout *layout, const QString &outPath, Format fo
         std::unique_ptr<QgsLayout> clone = trimmedClone( layout, pages );
         if ( !clone )
         {
-          outcome.error = QObject::tr( "Could not prepare the page selection for export." );
+          outcome.error = QObject::tr( "无法准备要导出的页面。" );
           return outcome;
         }
         QgsLayoutExporter exporter( clone.get() );
@@ -218,7 +218,7 @@ ExportOutcome exportLayout( QgsLayout *layout, const QString &outPath, Format fo
         std::unique_ptr<QgsLayout> clone = trimmedClone( layout, pages );
         if ( !clone )
         {
-          outcome.error = QObject::tr( "Could not prepare the page selection for export." );
+          outcome.error = QObject::tr( "无法准备要导出的页面。" );
           return outcome;
         }
         QgsLayoutExporter exporter( clone.get() );
@@ -244,7 +244,7 @@ ExportOutcome exportLayout( QgsLayout *layout, const QString &outPath, Format fo
         std::unique_ptr<QgsLayout> clone = trimmedClone( layout, pages );
         if ( !clone )
         {
-          outcome.error = QObject::tr( "Could not prepare the page selection for export." );
+          outcome.error = QObject::tr( "无法准备要导出的页面。" );
           return outcome;
         }
         QgsLayoutExporter exporter( clone.get() );
@@ -291,7 +291,7 @@ ExportOutcome exportLayout( QgsLayout *layout, const QString &outPath, Format fo
   }
   else
   {
-    outcome.error = extraError.isEmpty() ? QObject::tr( "Export failed." ) : extraError;
+    outcome.error = extraError.isEmpty() ? QObject::tr( "导出失败。" ) : extraError;
   }
 
   return outcome;

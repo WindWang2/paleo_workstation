@@ -137,9 +137,9 @@ void SeismicPickPanel::buildUi()
     auto *row4 = new QHBoxLayout();
     auto *btnLocate = mkBtn(tr("定位"), tr("画布跳到选中拾取（线号+TWT）"));
     auto *btnDelete = mkBtn(tr("删除"), tr("删除选中拾取"));
-    auto *btnRename = mkBtn(tr("重命名"), tr("改选中拾取所属层位名"));
+    auto *btnRename = mkBtn(tr("重命名"), tr("修改选中拾取所属的层位名称"));
     auto *btnCsv = mkBtn(tr("导出 CSV"), tr("拾取集导出 CSV"));
-    auto *btnHorizon = mkBtn(tr("生成层位资产"), tr("拾取网格化 → DERIVED 版本登记 catalog"));
+    auto *btnHorizon = mkBtn(tr("生成层位资产"), tr("将拾取网格化为层位，并登记为派生版本"));
     auto *btnFault = mkBtn(tr("登记断层"), tr("断层集 → 矢量派生资产登记"));
     auto *btnSave = mkBtn(tr("保存会话"), tr("解释会话写入 <sgy>.seispicks.json"));
     auto *btnLoad = mkBtn(tr("载入会话"), tr("从伴生文件恢复解释会话"));
@@ -289,7 +289,7 @@ void SeismicPickPanel::onRegisterHorizon()
         PaleoNotify::warning(this, tr("层位资产登记失败"), err);
     else
         PaleoNotify::information(this, tr("层位资产已登记"),
-                                 tr("DERIVED 版本已登记 catalog:\n%1").arg(path));
+                                 tr("派生版本已登记到数据目录：\n%1").arg(path));
 }
 
 void SeismicPickPanel::onRegisterFault()
@@ -302,7 +302,7 @@ void SeismicPickPanel::onRegisterFault()
         PaleoNotify::warning(this, tr("断层资产登记失败"), err);
     else if (!path.isEmpty())
         PaleoNotify::information(this, tr("断层资产已登记"),
-                                 tr("DERIVED 版本已登记 catalog:\n%1").arg(path));
+                                 tr("派生版本已登记到数据目录：\n%1").arg(path));
 }
 
 void SeismicPickPanel::onSaveSession()

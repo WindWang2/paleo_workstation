@@ -249,8 +249,8 @@ void WellCompositePanel::setupUi()
   m_btnSaveDerived->setObjectName(QStringLiteral("btnCompSaveDerived"));
   m_btnSaveDerived->setText(tr("保存派生"));
   m_btnSaveDerived->setToolTip(
-      tr("把当前编辑保存为派生版本：壳登记 catalog（父版本=源井数据 RAW），"
-         "审计历史写入派生 XML 的「编辑审计」工作表"));
+      tr("将当前编辑保存为派生版本。父版本为源井数据的原始版本，"
+         "审计记录写入派生文件的「编辑审计」工作表"));
   PaleoTheme::applyThemedStyleSheet(m_btnSaveDerived, themedBtnStyle);
   connect(m_btnSaveDerived, &QToolButton::clicked, this, [this]() {
     if (!saveDerived())

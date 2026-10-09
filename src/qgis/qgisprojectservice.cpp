@@ -127,7 +127,7 @@ bool QgisProjectService::openProject( const QString &qgzPath )
 
   if ( qgzPath.isEmpty() || !QFile::exists( qgzPath ) )
   {
-    m_errors << tr( "Project file does not exist: %1" ).arg( qgzPath );
+    m_errors << tr( "工程文件不存在：%1" ).arg( qgzPath );
     return false;
   }
 
@@ -143,26 +143,26 @@ bool QgisProjectService::openProject( const QString &qgzPath )
     const PaleoProjectFile pf = readProjectFile( qgzPath, &ok, &perr );
     if ( !ok )
     {
-      m_errors << ( perr.isEmpty() ? tr( "Cannot read project file %1" ).arg( qgzPath )
+      m_errors << ( perr.isEmpty() ? tr( "无法读取工程文件 %1" ).arg( qgzPath )
                                    : perr );
       return false;
     }
     m_georeference = pf.georeference;
     m_mapConfiguration = pf;
     if ( !pf.georeferenceError.isEmpty() )
-      m_errors << tr( "georeference 节无效: %1（按无配准继续）" ).arg( pf.georeferenceError );
+      m_errors << tr( "配准节无效：%1（按无配准继续）" ).arg( pf.georeferenceError );
     const QString dir = QFileInfo( qgzPath ).absolutePath();
     if ( pf.qgz.isEmpty() ||
          !QFile::exists( QDir( dir ).filePath( pf.qgz ) ) )
     {
-      m_errors << tr( "Project bundle is damaged: qgz member missing (%1)" )
+      m_errors << tr( "工程包已损坏：缺少 qgz 成员（%1）" )
                       .arg( pf.qgz.isEmpty() ? QStringLiteral( "not declared" )
                                              : pf.qgz );
       return false;
     }
     qgzFile = QDir( dir ).filePath( pf.qgz );
     for ( const QString &m : missingMembers( dir, pf ) )
-      m_errors << tr( "project member missing: %1" ).arg( m ); // 如实报，不拦开
+      m_errors << tr( "工程包缺少成员：%1" ).arg( m ); // 如实报，不拦开
   }
 
   // #152：锁/只读决策在任何落盘（清单收养）与 read() 之前——拒绝或用户
@@ -186,12 +186,12 @@ bool QgisProjectService::openProject( const QString &qgzPath )
         m_georeference = pf.georeference;
         m_mapConfiguration = pf;
         if ( !pf.georeferenceError.isEmpty() )
-          m_errors << tr( "georeference 节无效: %1（按无配准继续）" ).arg( pf.georeferenceError );
+          m_errors << tr( "配准节无效：%1（按无配准继续）" ).arg( pf.georeferenceError );
         for ( const QString &m : missingMembers( dir, pf ) )
-          m_errors << tr( "project member missing: %1" ).arg( m );
+          m_errors << tr( "工程包缺少成员：%1" ).arg( m );
       }
       else
-        m_errors << tr( "project manifest unreadable: %1" ).arg( perr );
+        m_errors << tr( "工程清单无法读取：%1" ).arg( perr );
     }
   }
 
@@ -199,7 +199,7 @@ bool QgisProjectService::openProject( const QString &qgzPath )
   if ( !m_project->read( qgzFile ) )
   {
     const QString err = m_project->error();
-    m_errors << ( err.isEmpty() ? tr( "Failed to read project: %1" ).arg( qgzFile ) : err );
+    m_errors << ( err.isEmpty() ? tr( "读取工程失败：%1" ).arg( qgzFile ) : err );
     failAfterClose();
     return false;
   }
@@ -242,7 +242,7 @@ bool QgisProjectService::openProject( const QString &qgzPath )
     adopted.basemapHillshade = m_mapConfiguration.basemapHillshade;
     QString error;
     if (!writeProjectFile(directory, adopted, &error))
-      m_errors << tr("could not adopt project manifest: %1").arg(error);
+      m_errors << tr("无法接管工程清单：%1").arg(error);
     else m_mapConfiguration = adopted;
   }
 
@@ -263,7 +263,7 @@ bool QgisProjectService::createProject( const QString &qgzPath )
 
   if ( qgzPath.isEmpty() )
   {
-    m_errors << tr( "Cannot create a project with an empty path" );
+    m_errors << tr( "工程路径为空，无法创建" );
     return false;
   }
 
@@ -310,7 +310,7 @@ bool QgisProjectService::createProject( const QString &qgzPath )
     QString werr;
     if ( !writeProjectFile( QFileInfo( qgzPath ).absolutePath(),
                             projectFileForQgz( qgzPath ), &werr ) )
-      m_errors << tr( "project manifest write failed: %1" ).arg( werr );
+      m_errors << tr( "写入工程清单失败：%1" ).arg( werr );
   }
 
   ++m_sessionId;
@@ -328,7 +328,7 @@ bool QgisProjectService::writeProject()
 
   if ( m_path.isEmpty() )
   {
-    m_errors << tr( "No project path set — open or create a project first" );
+    m_errors << tr( "尚未设置工程路径，请先打开或创建工程" );
     return false;
   }
 
@@ -342,13 +342,13 @@ bool QgisProjectService::writeProject()
     QString providerError;
     if ( !m_declarationProvider( &decls, &providerError ) )
     {
-      m_errors << tr( "Failed to read manifest declarations: %1" ).arg( providerError );
+      m_errors << tr( "读取清单声明失败：%1" ).arg( providerError );
       return false;
     }
     QString embedError;
     if ( !ManifestProjection::embedDeclarations( m_project, decls, &embedError ) )
     {
-      m_errors << tr( "Failed to embed manifest declarations: %1" ).arg( embedError );
+      m_errors << tr( "写入清单声明失败：%1" ).arg( embedError );
       return false;
     }
   }
@@ -367,7 +367,7 @@ bool QgisProjectService::writeProject()
   if ( !m_project->write( tmpPath ) )
   {
     const QString err = m_project->error();
-    m_errors << ( err.isEmpty() ? tr( "Failed to write project: %1" ).arg( tmpPath ) : err );
+    m_errors << ( err.isEmpty() ? tr( "写入工程失败：%1" ).arg( tmpPath ) : err );
     QFile::remove( tmpPath );
     return false;
   }
@@ -381,7 +381,7 @@ bool QgisProjectService::writeProject()
   // the live .qgz first: a crash in that window deletes the project.
   if ( !paleoReplaceFile( tmpPath, m_path ) )
   {
-    m_errors << tr( "Failed to replace project file %1 with %2" ).arg( m_path, tmpPath );
+    m_errors << tr( "无法用 %2 替换工程文件 %1" ).arg( m_path, tmpPath );
     return false;
   }
 

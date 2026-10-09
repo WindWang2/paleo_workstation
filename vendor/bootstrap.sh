@@ -92,4 +92,7 @@ case "$_jobs" in ''|*[!0-9]*) _jobs=4 ;; esac
 [ "$_jobs" -gt 8 ] && _jobs=8
 [ "$_jobs" -lt 1 ] && _jobs=1
 cmake --build build --parallel "$_jobs"
-QT_QPA_PLATFORM=offscreen ./build/paleo_selfcheck
+# paleo-dev 只在启动时看 prefix。fresh CI 上 prefix 是本脚本刚解出来的，
+# 外层没注入 LD_LIBRARY_PATH，直接跑二进制会在 libmeshoptimizer.so.2d 上 exit 127。
+# 再进一次 selfcheck：此时 prefix 已在，会带上 deb multiarch 路径。
+./paleo-dev selfcheck

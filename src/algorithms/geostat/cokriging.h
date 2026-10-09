@@ -33,6 +33,9 @@
 namespace paleo::geostat
 {
 
+using SamplePoint = Sample;
+using GridGeometry = GridSpec;
+
 // 二级协同模型（MM1 简化）：γ12(h) = crossCorrelation · γ1(h)。
 struct CoKrigingModel
 {
@@ -68,6 +71,19 @@ struct CoKrigingPointResult
   double variance = 0;
 };
 
+struct CoKrigingResult
+{
+  Status status = Status::InvalidInput;
+  std::string message;
+  std::vector<double> estimates; // row-major，NaN = nodata
+  std::vector<double> variances; // row-major
+  int finiteCells = 0;
+  int nodataCells = 0;
+  int solverFailures = 0;
+  int mergedPrimaryDuplicates = 0;
+  int mergedSecondaryDuplicates = 0;
+};
+
 // 普通协克里金（两变量、无趋势）：Σλ=1（主）、Σν=0（协）双 Lagrange 行。
 // 预建索引重复查询；单点函数内部走同一求解器（测试与编排复用）。
 class CoKrigingSolver
@@ -85,6 +101,8 @@ class CoKrigingSolver
     bool valid() const;
     int primaryCount() const;
     int secondaryCount() const;
+    int mergedPrimaryDuplicates() const;
+    int mergedSecondaryDuplicates() const;
 
     CoKrigingPointResult solveAt( double x, double y ) const;
 
@@ -97,8 +115,34 @@ CoKrigingPointResult coKrigingAt( double x, double y, const std::vector<Sample> 
                                   const std::vector<Sample> &secondary, const CoKrigingModel &model,
                                   const CoKrigingParams &params );
 
+// 全场网格普通协克里金插值。
+CoKrigingResult ordinaryCoKriging( const std::vector<SamplePoint> &primarySamples,
+                                   const std::vector<SamplePoint> &secondarySamples,
+                                   const GridGeometry &grid,
+                                   const CoKrigingModel &model,
+                                   const KrigingParams &params = {},
+                                   const std::function<bool( double )> &progress = nullptr );
+
+CoKrigingResult ordinaryCoKriging( const std::vector<Sample> &primarySamples,
+                                   const std::vector<Sample> &secondarySamples,
+                                   const GridSpec &grid,
+                                   const CoKrigingModel &model,
+                                   const CoKrigingParams &params,
+                                   const Control &control = {} );
+
 // 带约束 OK：样本组权重上限（软罚）。sampleIndices 引用构造时输入的
 // samples 下标（不随邻域变化）；邻域外的成员不参与该条约束（权重恒 0）。
+//
+// 架构与算法对账说明（方向 74 R3 / Milestone 2 销账定案）：
+//   ConstrainedKrigingSolver 采用样本组权重上限不等式约束（Σ_{i∈组} λᵢ ≤ cap）与单边二次软罚主动集，
+//   保留用于一维样本子集不等式数值回归（tests/tst_geostat_cokriging.cpp）。
+//   但在二维单因素曲面成图流水线中正式销账（formally retired from the 2D surface pipeline）：
+//   1. 静态样本组上限（static group caps）无法表达待估点 (x,y) 与二维断层/软边界的相对几何关系
+//      （待估点在边界左侧与右侧时，跨界受惩罚的样本子集动态反转，全局静态组无法单次适用于全场网格）；
+//   2. 单边二次软罚无法实现严格硬隔断，存在约 0.005 的残余权重泄漏（residual 0.005 penalty leakage），
+//      且破坏了最小方差最优估计（BLUE）；
+//   3. 二维曲面硬阻断已采用连通域拓扑分区（labelHardBarriers，跨界权重严格为 0 且分量内保持 BLUE），
+//      方向线与软边界已由 MLA 局部度量张量场与空间连续距离衰减更优雅地实现。
 struct WeightGroupConstraint
 {
   std::vector<std::uint32_t> sampleIndices; // 组成员（指示向量系数）

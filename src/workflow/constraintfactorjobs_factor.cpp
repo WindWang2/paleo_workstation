@@ -134,7 +134,8 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
   //（METHOD=kriging）；克里金不成立时该任务自己如实回落 IDW 并记 method_actual。
   if ( method == QLatin1String( "local_direction_idw" ) || method == QLatin1String( "local_direction_kriging" ) )
     return generateLocalDirectionFactor( horizon, factorId, def, params, error );
-  if ( method == QLatin1String( "kriging" ) || method == QLatin1String( "sgs" ) )
+  if ( method == QLatin1String( "kriging" ) || method == QLatin1String( "sgs" ) ||
+       method == QLatin1String( "cokriging" ) )
     return generateGeostatFactor( horizon, factorId, method, def, params, error );
   if ( method == QLatin1String( "surfer_idw" ) )
     return generateSurferIdwFactor( horizon, factorId, def, params, error );

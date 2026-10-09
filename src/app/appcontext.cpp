@@ -1,5 +1,6 @@
 // 层：组装根
 #include "appcontext.h"
+#include "../qgis/wellattributestore.h"
 #include "../services/errorhub.h"                 // 方向64：统一错误通道
 #include "aiwiring.h"                          // 方向51：远端预测装配（唯一入口）
 #include "onnxwiring.h"                         // 方向83：ONNX 模型注册表装配
@@ -207,6 +208,11 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
     refreshWellsLayer(true);
     refreshSurveyLayer();
     refreshWellTrajectoriesLayer();
+    // 方向77：catalog 变更（导入/登记）刷新工程摘要常驻段——system prompt
+    // 里的计数不留在旧值（工具实查永远最新，这段只是开局指北针）。
+    if (m_aiChat)
+      m_aiChat->setProjectBrief(AiChatToolRunner::projectBrief(
+        m_import->catalog(), m_projectDir));
   });
 
   // Workflow orchestrators — thin bindings over the services above.
@@ -245,10 +251,11 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   // 方向51：AI 对话助手编排。端点/模型从用户配置读，密钥由系统钥匙串异步
   // 补齐——补齐前是禁用态（UI 显示禁用原因），不静默跑假回答。
   m_aiChat = new AiChatController(this);
-#if PALEO_HAVE_ORT
-  // 方向61：工具执行回路装配（tile 分类起步；工程打开处随 AreaRules 重绑）。
-  bindChatToolRunner(m_aiChat, m_aiAssistWf, m_layerSvc);
-#endif
+  // 方向61/77：工具执行回路装配（tile 分类起步；工程打开处随 AreaRules 重绑）。
+  // 只读工程工具（query/lineage）不依赖 ORT——无 ORT 构建也绑（assist 为空
+  // 时 tile/horizon 由执行器按调用如实报错）。
+  bindChatToolRunner(m_aiChat, m_aiAssistWf, m_layerSvc,
+                     m_import->catalog(), QString());
   {
     LlmConfig llm = LlmConfig::load();
     LlmKeyStore::read(this, [this, llm](bool ok, const QByteArray &key,
@@ -476,13 +483,17 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
               m_constraintWf->setCatalog(derivedCatalog, fi.absolutePath());
               m_compositionWf->setCatalog(derivedCatalog, fi.absolutePath());
               m_mappingWorkbench->bindCatalog(derivedCatalog, fi.absolutePath());
+              WellAttributeStore::open(derivedCatalog, fi.absolutePath(), m_layerSvc, false, false);
+              WellAttributeStore::open(derivedCatalog, fi.absolutePath(), m_layerSvc, true, false);
 #if PALEO_HAVE_ORT
               if (m_aiAssistWf)
                 m_aiAssistWf->setCatalog(derivedCatalog, fi.absolutePath());
-              // 方向61：工程打开 → 重绑聊天工具上下文（AreaRules 按工区钉
-              // targetHorizon，层位名与栅格声明都可能换了）。
-              bindChatToolRunner(m_aiChat, m_aiAssistWf, m_layerSvc);
 #endif
+              // 方向61/77：工程打开 → 重绑聊天工具上下文（AreaRules 按工区钉
+              // targetHorizon，层位名与栅格声明都可能换了；只读工程工具的
+              // catalog/projectDir 同步换绑）。无 ORT 构建也重绑（assist 为空）。
+              bindChatToolRunner(m_aiChat, m_aiAssistWf, m_layerSvc,
+                                 derivedCatalog, fi.absolutePath());
               // goal/time-depth-velocity：同一 catalog 实例纪律（整文件重写，
               // 交错写互覆）——层深转换产物落 artifacts/derived/。
               m_depthWf->rebind(derivedCatalog, fi.absolutePath());
@@ -571,45 +582,6 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
     else m_import->clearGeoreference();
     m_layerSvc->refreshBasemaps();
   });
-}
-
-void AppContext::refreshSurveyLayer()
-{
-  if (m_projectDir.isEmpty() || !m_import || !m_import->catalog() || !m_layerSvc) return;
-  // 无有效测区（角点 ≥3）不落测区图层——空工程的地图/图层树保持空态
-  //（T31 契约）；测区被移除时把此前的占位层一并撤下。
-  bool hasSurvey = false;
-  for (const auto &survey : m_import->catalog()->entities(QStringLiteral("seismic_survey")))
-    if (survey.corners.size() >= 3) { hasSurvey = true; break; }
-  if (!hasSurvey) {
-    QString error;
-    m_layerSvc->removeDeclaration(QStringLiteral("survey.area"), &error);
-    return;
-  }
-  const QString path = QDir(m_projectDir).filePath(QStringLiteral("artifacts/layers/survey_area.geojson"));
-  QString error;
-  if (!isProjectReadOnly()) {
-    if (!m_import->catalog()->writeSurveyGeoJson(path, &error)) {
-      qWarning() << "Survey layer:" << error; return;
-    }
-    LayerDeclaration declaration;
-    declaration.layerId = QStringLiteral("survey.area");
-    declaration.type = QStringLiteral("vector");
-    declaration.source = path;
-    declaration.group = QStringLiteral("00_Data");
-    declaration.title = tr("测区范围");
-    if (!m_layerSvc->declare(declaration, &error)) {
-      qWarning() << "Survey declaration:" << error; return;
-    }
-  }
-  if (auto *layer = qobject_cast<QgsVectorLayer *>(m_layerSvc->instantiate(QStringLiteral("survey.area"), &error))) {
-    layer->reload();
-    // 原生符号保持透明内部，矩形范围和底图同时可读。
-    auto symbol = QgsFillSymbol::createSimple({{"color", "transparent"}, {"outline_color", "27,115,208,255"},
-                                               {"outline_style", "dash"}, {"outline_width", "0.5"}});
-    layer->setRenderer(new QgsSingleSymbolRenderer(symbol.release()));
-    layer->triggerRepaint();
-  }
 }
 
 bool AppContext::isProjectReadOnly() const
@@ -884,6 +856,45 @@ void AppContext::refreshWellsLayer(bool zoomOnGrowth)
     m_lastWellsExtent = ext;
     if (zoomOnGrowth && !ext.isEmpty() && m_canvasCtl)
       m_canvasCtl->zoomToLayer(QStringLiteral("wells"));
+  }
+}
+
+void AppContext::refreshSurveyLayer()
+{
+  if (m_projectDir.isEmpty() || !m_import || !m_import->catalog() || !m_layerSvc) return;
+  // 无有效测区（角点 ≥3）不落测区图层——空工程的地图/图层树保持空态
+  //（T31 契约）；测区被移除时把此前的占位层一并撤下。
+  bool hasSurvey = false;
+  for (const auto &survey : m_import->catalog()->entities(QStringLiteral("seismic_survey")))
+    if (survey.corners.size() >= 3) { hasSurvey = true; break; }
+  if (!hasSurvey) {
+    QString error;
+    m_layerSvc->removeDeclaration(QStringLiteral("survey.area"), &error);
+    return;
+  }
+  const QString path = QDir(m_projectDir).filePath(QStringLiteral("artifacts/layers/survey_area.geojson"));
+  QString error;
+  if (!isProjectReadOnly()) {
+    if (!m_import->catalog()->writeSurveyGeoJson(path, &error)) {
+      qWarning() << "Survey layer:" << error; return;
+    }
+    LayerDeclaration declaration;
+    declaration.layerId = QStringLiteral("survey.area");
+    declaration.type = QStringLiteral("vector");
+    declaration.source = path;
+    declaration.group = QStringLiteral("00_Data");
+    declaration.title = tr("测区范围");
+    if (!m_layerSvc->declare(declaration, &error)) {
+      qWarning() << "Survey declaration:" << error; return;
+    }
+  }
+  if (auto *layer = qobject_cast<QgsVectorLayer *>(m_layerSvc->instantiate(QStringLiteral("survey.area"), &error))) {
+    layer->reload();
+    // 原生符号保持透明内部，矩形范围和底图同时可读。
+    auto symbol = QgsFillSymbol::createSimple({{"color", "transparent"}, {"outline_color", "27,115,208,255"},
+                                               {"outline_style", "dash"}, {"outline_width", "0.5"}});
+    layer->setRenderer(new QgsSingleSymbolRenderer(symbol.release()));
+    layer->triggerRepaint();
   }
 }
 

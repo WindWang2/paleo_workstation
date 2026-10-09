@@ -91,7 +91,7 @@ QString AiChatController::systemPrompt() const {
   QString tools;
   for (const AiToolSpec &spec : builtinAiToolSpecs())
     tools += QStringLiteral("  · %1 — %2\n").arg(spec.name, spec.description);
-  return tr(
+  QString prompt = tr(
     "你是 Paleo Workbench 里的地质解释助手。回答必须用中文，术语按石油地质/"
     "地震解释行业惯例。\n"
     "红线（不可越过）：\n"
@@ -104,6 +104,13 @@ QString AiChatController::systemPrompt() const {
     "  3. 涉及计算时说明所用方法与假设，不确定的地方标注不确定。\n"
     "可调用的领域工具（结果会以草稿态回传给你，由你向解释员解读）：\n%1")
     .arg(tools);
+  // 方向77：工程概况常驻轻注入（≤3 行，预算口径见 aichattoolrunner 的
+  // projectBrief；数据以工具实查为准——这段只是开局的指北针）。
+  if (!m_projectBrief.isEmpty())
+    prompt += tr("\n当前工程概况（绑定时的 catalog 计数，实查请用 "
+                 "paleo.query_project）：\n%1\n")
+                .arg(m_projectBrief);
+  return prompt;
 }
 
 QVector<ChatSession> AiChatController::recentSessions(int limit) const {

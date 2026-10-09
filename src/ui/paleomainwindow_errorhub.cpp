@@ -7,32 +7,17 @@
 // 本窗口（视图层不持有服务生命周期）。
 #include "paleomainwindow.h"
 
-#include "paleoicons.h"
-#include "notifications/errorhistorydock.h"
 #include "notifications/errorhistorypanel.h"
 #include "notifications/notificationcenter.h"
 #include "../services/errorhub.h"
 
-#include <QAction>
-#include <QDockWidget>
 #include <QStatusBar>
 #include <QToolButton>
 
-// 错误历史 dock（原 buildShell 段；与底栏 tabify、默认隐藏）。
+// 方向76 删除了旧的 ErrorHistoryDock。错误历史只剩 attachErrorHub 挂上的
+// ErrorHistoryPanel。这个入口留着，是为了 buildPageDocks 的调用序不变。
 void PaleoMainWindow::buildErrorHistoryDock()
 {
-  m_errorHistoryDock = new paleo::ui::ErrorHistoryDock(this);
-  m_errorHistoryDock->setObjectName(QStringLiteral("errorHistoryDock"));
-  QAction *errAct = m_errorHistoryDock->toggleViewAction();
-  errAct->setObjectName(QStringLiteral("actionViewErrorHistory"));
-  errAct->setIcon(PaleoIcons::qgisTheme(QStringLiteral("mActionHistory.svg")));
-  errAct->setText(tr("错误历史"));
-  errAct->setToolTip(tr("显示/隐藏错误与警告历史面板"));
-  addDockWidget(Qt::BottomDockWidgetArea, m_errorHistoryDock);
-  if (m_bottomDock) {
-    tabifyDockWidget(m_bottomDock, m_errorHistoryDock);
-  }
-  m_errorHistoryDock->hide();
 }
 
 // 状态栏错误胶囊（点击唤出错误历史面板）+ ErrorHub 计数同步。原 buildShell
@@ -58,11 +43,13 @@ void PaleoMainWindow::wireErrorHubStatus()
   });
   statusBar()->addPermanentWidget(m_statusErrorBtn);
 
-  if (auto *hub = paleo::services::ErrorHub::instance()) {
+  // 方向76：徽标与错误历史同源，订阅全局 ErrorHub。未装配时 global()
+  // 为空，徽标保持隐藏。计数是环形历史条数。
+  if (ErrorHub *hub = ErrorHub::global()) {
     const auto syncErrorStatus = [this, hub] {
       if (!m_statusErrorBtn)
         return;
-      const int count = hub->count();
+      const int count = hub->size();
       if (count <= 0) {
         m_statusErrorBtn->setVisible(false);
       } else {
@@ -71,8 +58,9 @@ void PaleoMainWindow::wireErrorHubStatus()
         m_statusErrorBtn->setToolTip(tr("错误与警告历史（共 %1 条记录），点击查看").arg(count));
       }
     };
-    connect(hub, &paleo::services::ErrorHub::historyChanged, this, syncErrorStatus);
-    connect(hub, &paleo::services::ErrorHub::historyCleared, this, syncErrorStatus);
+    connect(hub, &ErrorHub::errorRaised, this,
+            [syncErrorStatus](const ErrorHub::Entry &, bool) { syncErrorStatus(); });
+    connect(hub, &ErrorHub::historyCleared, this, syncErrorStatus);
     syncErrorStatus();
   }
 }

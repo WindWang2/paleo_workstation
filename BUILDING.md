@@ -156,8 +156,11 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo `
 # 并设 GDAL_DATA=$HOME/paleo-qgis-deps/Library/share/gdal、
 # PROJ_LIB=$HOME/paleo-qgis-deps/Library/share/proj（./paleo-dev.ps1 已内置）。
 # 测试还需（ps1 test 已内置）：TEMP/TMP 与 SEISMIC_INDEX_CACHE_DIR 指到
-# build/paleo-tmp 内子目录（沙箱监狱对策，见下）、PALEO_PYTHON=
-# $HOME/paleo-qgis-deps/python.exe（conda 布局 python 在根不在 Library/bin）。
+# build/paleo-tmp 内子目录（沙箱监狱对策，见下）。PALEO_PYTHON=
+# $HOME/paleo-qgis-deps/python.exe（conda 布局 python 在根不在 Library/bin）
+# 由 ps1 localdeps 设置（方向 81 起；此前仅终跑脚本有），并经
+# -DPALEO_TEST_PYTHON 进 cache、由 ctest 注入每个测试——手工 configure 时
+# 同样加 "-DPALEO_TEST_PYTHON=$HOME/paleo-qgis-deps/python.exe"。
 ```
 
 要点：
@@ -194,6 +197,54 @@ CMakeCache 的编译侧 Qt 与 DLL 搜索序解析到的运行侧 Qt：major.min
 自动把 `TEMP/TMP` 重定向到 `build/paleo-tmp`（树内、浅层，远离
 CMakeLists 注记的 MAX_PATH 深路径顾虑）。根治需在沙箱策略侧放行本仓库
 的 `%TEMP%` 写——机器配置问题，移交用户决策。
+
+**环境债二期（方向 81）**：方向 72 终态 16 红逐条处置，名单与判定见
+`tools/env_redset.json` / `tools/check_env_redset.py`（`ctest -L envdebt`
+一键重跑 16 项）：
+
+- **srs.db**：`./paleo-dev.ps1 ensure-resources` 按 `vendor/deb-closure.lock`
+  同源取 qgis-providers-common + qgis-common（_all 包）补齐
+  `~/paleo-qgis-prefix/resources/**`，`srs.db = cp srs-template.db`
+  （Debian postinst 同义）；localdeps 的 test/selfcheck 缺 srs.db 时自动调用。
+  Ubuntu pool 失效时按同一 `vendor/deb-closure.snapshot` 回退，摘要仍取锁内值；
+  `PALEO_DEB_SNAPSHOT` 覆盖口径与 `fetch-deps.sh` 一致。
+  解 `data.tar.zst` 需 Python≥3.14、`zstandard` 模块或 PATH 上的 `zstd` 之一
+  （conda deps 的 `Library/bin` 通常带 zstd.exe）。
+- **QSettings**：测试 exe 静态初始化期把本进程 HKCU 重映射到
+  `build/ctest-home/<test>/registry.hiv` 私有 hive（产品仍 NativeFormat，
+  零迁移）；测试不再读写/清空开发者真实的 `HKCU\Software\paleo\paleo`。
+  直跑测试 exe（不经 ctest）时 hive 落 `%TEMP%\paleo-test-registry\`；
+  `PALEO_TEST_REGISTRY_HIVE=native` 可关闭。
+  ctest 指定的 hive 挂载失败时在进入测试前退出；直跑两档沙箱都失败时也退出，
+  避免 `.clear()` 落回真实用户配置。
+- **perf**：tst_cache_las / tst_singlefactor_perf / tst_startup_trace 按名单
+  豁免（只限 localdeps、只认各自预算断言文案，阈值不动）；`paleo-dev.ps1 test`
+  在 ctest 失败后先过检查器，全部为豁免即放行。
+
+本机 Oracle 双遍（完整范围，含 perf，强制串行；每遍保存自己的首轮证据）：
+
+```powershell
+$savedArgs = $env:PALEO_CTEST_ARGS
+$evidence = Join-Path $PWD ("build/envdebt-evidence/" + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+try {
+  $env:PALEO_CTEST_ARGS = '-j 1'
+  ./paleo-dev.ps1 checkenv
+  foreach ($i in 1..2) {
+    ./paleo-dev.ps1 test
+    $run = Join-Path $evidence "run$i/Testing"
+    New-Item -ItemType Directory -Force $run | Out-Null
+    Copy-Item build/Testing/ctest-junit.xml $run
+    Copy-Item build/Testing/qtest-first-run $run -Recurse
+  }
+  & $env:PALEO_PYTHON tools/check_env_redset.py --build "$evidence/run2" `
+    --compare-build "$evidence/run1" --route localdeps
+  if ($LASTEXITCODE -ne 0) { throw '环境债双遍结果未满足 Oracle' }
+} finally { $env:PALEO_CTEST_ARGS = $savedArgs }
+```
+
+检查器要求双遍测试名集合相同、16 项齐全、13 个已修项连续通过（至少 10 的
+收敛门），其余只允许三项指定预算豁免。平台与实际全量范围须在 ledger 中
+记录；Linux 报告和 CI 的 `-LE perf` 子集不能替代 Windows localdeps 验收。
 
 ## 平台 × 版本矩阵
 
@@ -293,3 +344,11 @@ MSVC/Ninja -j8 实测 ~15s（链接占绝对大头，编译 <2s）。绝对时�
 JSON 落 `build/incremental-baseline.jsonl` 可追趋势。Linux 无 MSVC 增量
 链接开销，预计显著低于此；PLAN ET14「单文件改动增量 ≤60s」在当前规模
 下仍成立。
+
+**CI 侧落点（方向75 2026-10-08）**：linux 主 job 在 Selfcheck 后追加
+`Incremental build baseline (ET14)` 步（step 级 `continue-on-error`——
+观察面不拖累合并门禁），每 run 跑一轮 `tools/measure_incremental.sh`，
+产物 `build/incremental-baseline.jsonl` 以 artifact
+`incremental-baseline-linux` 上传（retention 90 天）。看趋势：run 页面
+下载 artifact，逐行对比 tu_ratio/step_ratio；绝对时长只记录不设门
+（runner 世代不同不可比）。

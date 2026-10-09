@@ -89,7 +89,11 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
       auto *locatorWidget = new QgsLocatorWidget(topBar);
       locatorWidget->setObjectName(QStringLiteral("paleoLocator"));
       locatorWidget->setMapCanvas(m_canvasCtl->canvas());
-      locatorWidget->setPlaceholderText(tr("搜索井位/层位  Ctrl+K"));
+      const QString locatorKey = paleo::shortcuts::displayKey(
+          paleo::shortcuts::keyFor(QStringLiteral("main.locator.focus")));
+      locatorWidget->setPlaceholderText(
+          locatorKey.isEmpty() ? tr("搜索井位/层位")
+                               : tr("搜索井位/层位  %1").arg(locatorKey));
       locatorWidget->setMinimumWidth(220);
 
       // Wells filter: resolve the declared "wells" layer lazily (instantiate
@@ -171,7 +175,10 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
       saveAct->setObjectName(QStringLiteral("saveProjectAction"));
       paleo::shortcuts::setActionShortcutActive(QStringLiteral("main.project.save"), saveAct,
                                                 m_currentPage != QLatin1String("correlation"));
-      saveAct->setToolTip(tr("保存工程（Ctrl+S）"));
+      const QString saveKey = paleo::shortcuts::displayKey(
+          paleo::shortcuts::keyFor(QStringLiteral("main.project.save")));
+      saveAct->setToolTip(
+          saveKey.isEmpty() ? tr("保存工程") : tr("保存工程（%1）").arg(saveKey));
       // §41.2 ordering through the write queue: gpkg commit (no-op until edit
       // buffers report dirty state) then the atomic .qgz write.
       auto saveFn = [this, store]() {
@@ -282,6 +289,7 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
             },
             bottomTabs);
         attrPanel->setObjectName(QStringLiteral("attributeTablePanel"));
+        attrPanel->setEditingService(editSvc);
         auto refreshIds = [this, attrPanel] {
           QVector<LayerDeclaration> declared;
           QString manifestErr;
@@ -639,4 +647,15 @@ void PaleoMainWindow::attachAiAssistant(AiChatController *controller)
               statusBar()->showMessage(
                 error.isEmpty() ? tr("删除会话失败") : error, 6000);
           });
+}
+
+void PaleoMainWindow::showAttributeTable(const QString &layerId) {
+  auto *panel = findChild<AttributeTablePanel *>(QStringLiteral("attributeTablePanel"));
+  auto *tabs = findChild<QTabWidget *>(QStringLiteral("bottomTabs"));
+  if (!panel || !tabs || !m_bottomDock) return;
+  panel->showLayer(layerId);
+  tabs->setCurrentWidget(panel);
+  m_bottomDock->setUserWantsVisible(true);
+  m_bottomDock->setProgrammaticVisible(true);
+  m_bottomDock->raise();
 }

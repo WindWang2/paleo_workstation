@@ -49,6 +49,10 @@ struct CuttingsTable
 // 行级校验：深度数值有限（parseNumericCell）、baseMd>topMd、岩性词面非空。
 CuttingsTable parseCuttingsSheet( const WorkbookSheet &sheet );
 
+// 文本表（CSV/TSV）RFC4180 引号解析（"" 转义、跨行字段、字段内分隔符保护、错位行列数校验）
+WorkbookSheet parseTextCuttings( const QString &content, const QString &name,
+                                 QStringList *issues = nullptr );
+
 // 按扩展名分派：.xlsx/.xml → readWorkbook，取首个可解析的 sheet（其余
 // sheet 进 issues 说明跳过）；.csv/.txt/.tsv → 文本表（自动探测
 // 逗号/制表/分号分隔，首行表头）转 WorkbookSheet 后走同一纯表解析。

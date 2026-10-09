@@ -830,7 +830,7 @@ private slots:
   void cuttingsLithoSecondSource() {
     const auto seedCuttings = [](DataCatalog &cat, const QString &wellId,
                                  const QString &assetId, const QString &path,
-                                 QString *err) {
+                                 QString *err, int versionNumber = 1) {
       CatalogAsset a;
       a.id = assetId;
       a.type = QStringLiteral("cuttings");
@@ -840,6 +840,7 @@ private slots:
       CatalogVersion v;
       v.id = QStringLiteral("v-") + assetId;
       v.assetId = assetId;
+      v.versionNumber = versionNumber;
       v.managed = false;
       v.path = path;
       v.fileName = QFileInfo(path).fileName();
@@ -887,7 +888,7 @@ private slots:
       QCOMPARE(wells[0].litho[1].litho, QStringLiteral("泥岩"));
       for (const auto &seg : wells[0].litho) {
         QCOMPARE(seg.source, wellsection::LithoSource::Interpreted);
-        QCOMPARE(seg.provenance, QStringLiteral("岩屑录井"));
+        QCOMPARE(seg.provenance, QStringLiteral("岩屑录井（cuttings.csv）"));
       }
       // well-2 无 cuttings 链接 → 空（GR 回落是正常态，不告警）。
       QVERIFY(wells[1].litho.isEmpty());
@@ -991,12 +992,66 @@ private slots:
       QCOMPARE(wells[0].litho[0].litho, QStringLiteral("细砂岩"));
       for (const auto &seg : wells[0].litho) {
         QCOMPARE(seg.source, wellsection::LithoSource::Interpreted);
-        QCOMPARE(seg.provenance, QStringLiteral("岩屑录井"));
+        QCOMPARE(seg.provenance, QStringLiteral("岩屑录井（cuttings.csv）"));
       }
       for (const QString &w : spy[0][2].toStringList())
         QVERIFY2(!w.contains(QStringLiteral("解释岩性资产")) &&
                      !w.contains(QStringLiteral("岩屑")),
                  "无该井段的按井兜底不应新增告警");
+    }
+
+    // 多份 cuttings 链接：取最新版本，落选版本进警告 + 写入 asset extra
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      DataCatalog cat;
+      QString err;
+      QVERIFY2(cat.open(dir.path(), &err), qPrintable(err));
+      QVERIFY2(buildCatalog(cat, QDir(dir.path()), &err), qPrintable(err));
+
+      const QString csvOldPath = dir.filePath(QStringLiteral("cuttings_v1.csv"));
+      const QString csvNewPath = dir.filePath(QStringLiteral("cuttings_v2.csv"));
+      QVERIFY(writeText(csvOldPath, csvText));
+      QVERIFY(writeText(csvNewPath, QStringLiteral(
+                                        "顶深,底深,岩性,描述\n"
+                                        "80,120,白云岩,灰白色\n")));
+      QVERIFY2(seedCuttings(cat, QStringLiteral("well-1"),
+                            QStringLiteral("cut-old"), csvOldPath, &err, 1),
+               qPrintable(err));
+      QVERIFY2(seedCuttings(cat, QStringLiteral("well-1"),
+                            QStringLiteral("cut-new"), csvNewPath, &err, 2),
+               qPrintable(err));
+
+      WellSectionWorkflow wf(&cat);
+      QSignalSpy spy(&wf, &WellSectionWorkflow::sectionReady);
+      wf.request({QStringLiteral("well-1")}, {});
+      QCOMPARE(spy.size(), 1);
+      const auto wells = spy[0][1].value<QVector<wellsection::Well>>();
+      QCOMPARE(wells.size(), 1);
+      QCOMPARE(wells[0].litho.size(), 1);
+      QCOMPARE(wells[0].litho[0].litho, QStringLiteral("白云岩"));
+      QCOMPARE(wells[0].litho[0].provenance,
+               QStringLiteral("岩屑录井（cuttings_v2.csv）"));
+
+      // 警告中包含多份提示、选用与落选文件名及版本号
+      bool multiWarned = false;
+      const QStringList warnings = spy[0][2].toStringList();
+      for (const QString &w : warnings) {
+        if (w.contains(QStringLiteral("多份岩屑录井数据")) &&
+            w.contains(QStringLiteral("cuttings_v2.csv")) &&
+            w.contains(QStringLiteral("cuttings_v1.csv"))) {
+          multiWarned = true;
+          break;
+        }
+      }
+      QVERIFY2(multiWarned, "多份 cuttings 必须发出警告点名选用与落选版本");
+
+      // 验证落选版本的 extra 记录
+      const CatalogVersion oldVer = cat.currentVersion(QStringLiteral("cut-old"));
+      QCOMPARE(oldVer.extra.value(QStringLiteral("cuttings_selection")).toString(),
+               QStringLiteral("unselected"));
+      QCOMPARE(oldVer.extra.value(QStringLiteral("unselected_superseded_by")).toString(),
+               QStringLiteral("cuttings_v2.csv"));
     }
   }
 

@@ -7,6 +7,9 @@
 #include <QObject>
 #include <QPointer>
 #include <QVariantList>
+#include <atomic>
+#include <functional>
+#include <memory>
 
 // Project-bound section interpretation. UI supplies intentions; this layer
 // reads, calibrates and versions well data without holding widgets.
@@ -14,12 +17,19 @@ class SectionWorkbench : public QObject {
   Q_OBJECT
 public:
   explicit SectionWorkbench(DataCatalog *catalog, QObject *parent = nullptr);
-  QVariantList wells();
+  QVariantList wells(const std::shared_ptr<std::atomic_bool> &stop = {});
   QVariantList savedSections() const;
   QVariantMap calibration(const QString &wellId) const;
   bool setCalibration(const QString &wellId, bool constant, double velocity,
                       double shiftMs, QString *error);
-  std::vector<seismic::SectionWellInfo> sectionWells();
+  std::vector<seismic::SectionWellInfo> sectionWells(
+      const std::shared_ptr<std::atomic_bool> &stop = {});
+  struct PreviewData {
+    QVariantList wells;
+    std::vector<seismic::SectionWellInfo> sectionWells;
+  };
+  void requestPreviewData(std::function<void(const PreviewData &)> ready);
+  void cancelPreviewData();
   // MD 域时深：逐井校正优先（常速校正 → 常速模型），否则主时深表 MD 列严格表；
   // shift 为校正时间平移。false = 无可用时深，status 写原因
   // （「无时深表」/「时深表无序或有效样点不足」）。
@@ -45,4 +55,8 @@ private:
   QString m_catalogPath, m_parentVersion;
   QVariantMap m_calibrations;
   QHash<QString, LasDoc> m_logs;
+  quint64 m_previewGeneration = 0;
+  bool m_previewRunning = false, m_previewPending = false;
+  std::shared_ptr<std::atomic_bool> m_previewStop;
+  std::function<void(const PreviewData &)> m_previewReady;
 };

@@ -14,12 +14,50 @@
 #include <qgsmapcanvas.h>
 #include <qgspointxy.h>
 
+#include <QApplication>
+#include <QEvent>
 #include <QLabel>
 #include <QLocale>
+#include <QPointer>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QStatusBar>
 #include <QToolButton>
+
+namespace {
+// 短暂的 QGIS 接管期拦住编辑输入，保留绘制、计时器与关闭事件。
+// 不逐个禁用整窗控件，避免全树 EnabledChange 引发重排/重绘风暴。
+class ProjectHandoffInputGuard final : public QObject {
+public:
+  explicit ProjectHandoffInputGuard(QWidget *window) : QObject(window), m_window(window) {}
+  void setActive(bool active) { m_active = active; }
+protected:
+  bool eventFilter(QObject *receiver, QEvent *event) override {
+    if (!m_active || !m_window) return false;
+    switch (event->type()) {
+    case QEvent::KeyPress: case QEvent::KeyRelease: case QEvent::ShortcutOverride:
+    case QEvent::Shortcut:
+    case QEvent::MouseButtonPress: case QEvent::MouseButtonRelease:
+    case QEvent::MouseButtonDblClick: case QEvent::MouseMove: case QEvent::Wheel:
+    case QEvent::TouchBegin: case QEvent::TouchUpdate: case QEvent::TouchEnd:
+    case QEvent::TabletPress: case QEvent::TabletMove: case QEvent::TabletRelease:
+    case QEvent::DragEnter: case QEvent::DragMove: case QEvent::Drop:
+      break;
+    default: return false;
+    }
+    auto *widget = qobject_cast<QWidget *>(receiver);
+    if ((widget && (widget == m_window || m_window->isAncestorOf(widget))) ||
+        (event->type() == QEvent::Shortcut && QApplication::activeWindow() == m_window)) {
+      event->accept();
+      return true;
+    }
+    return false;
+  }
+private:
+  QPointer<QWidget> m_window;
+  bool m_active = false;
+};
+}
 
 // 状态栏族（原行序 883-1011；错误胶囊/ErrorHub 同步两段由 wireErrorHubStatus
 // 在 horizon/coords 段之后、工程打开进度段之前接入——见该函数注记）。
@@ -120,9 +158,12 @@ void PaleoMainWindow::buildStatusBar()
     statusBar()->addPermanentWidget(openProgress);
     statusBar()->addPermanentWidget(cancelOpen);
     openStatus->hide(); openProgress->hide(); cancelOpen->hide();
+    auto *handoffGuard = new ProjectHandoffInputGuard(this);
+    qApp->installEventFilter(handoffGuard);
     connect(cancelOpen, &QToolButton::clicked, m_projectSvc, &QgisProjectService::cancelOpen);
     connect(m_projectSvc, &QgisProjectService::openActiveChanged, this,
-            [this, openStatus, openProgress, cancelOpen](bool active) {
+            [this, openStatus, openProgress, cancelOpen, handoffGuard](bool active) {
+      if (!active) handoffGuard->setActive(false);
       openStatus->setVisible(active); openProgress->setVisible(active); cancelOpen->setVisible(active);
       if (active) openProgress->setValue(0);
       for (const auto &name : {"openProjectButton", "newProjectButton", "importFromFolderButton"})
@@ -130,11 +171,12 @@ void PaleoMainWindow::buildStatusBar()
           button->setEnabled(!active);
     });
     connect(m_projectSvc, &QgisProjectService::openProgress, this,
-            [openStatus, openProgress, cancelOpen](int percent, const QString &status) {
+            [openStatus, openProgress, cancelOpen, handoffGuard](int percent, const QString &status) {
       openProgress->setValue(percent);
       openStatus->setText(status);
       openStatus->setToolTip(status);
       cancelOpen->setEnabled(percent < 85);
+      handoffGuard->setActive(percent >= 85);
     });
     connect(m_projectSvc, &QgisProjectService::openFinished, this, [this](bool success) {
       statusBar()->showMessage(success ? tr("工程打开完成") : m_projectSvc->lastOpenCancelled()

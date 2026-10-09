@@ -251,6 +251,7 @@ QStringList supportedPreviewTypes()
            QObject::tr("image_reference — 平面图（配准后栅格上图，否则图片查看器）"),
            QObject::tr("geojson — 相图/矢量（分类渲染地图 + 属性表）"),
            QObject::tr("document — 文档（PDF 预览）"),
+           QObject::tr("outsource_workbook — 外委工作簿（表格预览）"),
            QObject::tr("成果图件 — 智能预测与编图成果地图（相栅格/相面矢量/单因素图）") };
 }
 

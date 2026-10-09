@@ -579,17 +579,7 @@ QWidget *DataPreviewTabs::buildWellLogContent(
   auto *switchLay = new QHBoxLayout(viewSwitchBar);
   switchLay->setContentsMargins(0, 0, 0, 0);
   switchLay->setSpacing(PaleoTheme::tokens().spacingSm);
-  PaleoTheme::applyThemedStyleSheet(viewSwitchBar, [] {
-    const PaleoTheme::ThemeTokens &t = PaleoTheme::tokens();
-    return PaleoTheme::metricStyleSheet(QStringLiteral(
-        "QToolButton { background: %1; border: 1px solid %2; border-radius: {rounded.sm}px;"
-        " padding: {spacing.xs}px {spacing.md}px; font-size: {typography.label}pt; color: %3; }"
-        "QToolButton:hover { background: %4; }"
-        "QToolButton:checked { background: %4; border-color: %5; color: %6;"
-        " font-weight: 600; }"))
-        .arg(qssHex(t.surface), qssHex(t.border), qssHex(t.text),
-             qssHex(t.surfaceAltRaised), qssHex(t.primary), qssHex(t.primaryText));
-  });
+  styleViewSwitchBar(viewSwitchBar);
 
   auto *btnResForm = new QToolButton(viewSwitchBar);
   btnResForm->setObjectName(QStringLiteral("btnResFormView"));

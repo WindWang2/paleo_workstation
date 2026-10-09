@@ -318,7 +318,8 @@ PaleoTask *SeismicTaskService::startSectionExtraction(
 
 PaleoTask *SeismicTaskService::startVolumeLoad(
     const QString &sgyPath,
-    std::function<void(bool, std::shared_ptr<SgyVolume>, const QString &)> onFinished)
+    std::function<void(bool, std::shared_ptr<SgyVolume>, const QString &)> onFinished,
+    bool quiet)
 {
   if (!taskService_)
   {
@@ -349,7 +350,7 @@ PaleoTask *SeismicTaskService::startVolumeLoad(
     return QString();
   };
 
-  PaleoTask *task = startBounded(title, work); // D6.4 ≤4 并发闸
+  PaleoTask *task = startBounded(title, work, QString(), quiet); // D6.4 ≤4 并发闸
   connect(task, &PaleoTask::finished, this, [task, outVolume, onFinished]() {
     if (!onFinished)
       return;

@@ -11,12 +11,49 @@
 #include <QJsonDocument>
 #include <QStringList>
 #include <QSaveFile>
+#include <QFutureWatcher>
+#include <QtConcurrent>
 #include <algorithm>
 #include <cmath>
 
 SectionWorkbench::SectionWorkbench(DataCatalog *catalog, QObject *parent)
     : QObject(parent), m_catalog(catalog) {
   syncProject();
+}
+void SectionWorkbench::requestPreviewData(std::function<void(const PreviewData &)> ready) {
+  m_previewReady = std::move(ready);
+  ++m_previewGeneration;
+  if (!m_catalog || !m_catalog->isOpen()) { m_previewReady = {}; return; }
+  if (m_previewRunning) { m_previewPending = true; return; }
+  m_previewRunning = true; m_previewPending = false;
+  const auto generation = m_previewGeneration;
+  const auto sequence = m_catalog->mutationSeq();
+  const QString path = m_catalog->catalogPath();
+  auto snapshot = std::shared_ptr<DataCatalog>(m_catalog->createStagingCopy(QString()));
+  m_previewStop = std::make_shared<std::atomic_bool>(false);
+  const auto stop = m_previewStop;
+  auto *watcher = new QFutureWatcher<PreviewData>(this);
+  watcher->setObjectName("sectionWellPreviewWatcher");
+  connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, generation, sequence, path] {
+    const auto data = watcher->result(); watcher->deleteLater(); m_previewRunning = false;
+    if (generation == m_previewGeneration && m_catalog && m_catalog->catalogPath() == path &&
+        m_catalog->mutationSeq() == sequence) {
+      auto ready = std::move(m_previewReady); m_previewReady = {};
+      if (ready) ready(data);
+    } else if (generation == m_previewGeneration && m_catalog &&
+               m_catalog->catalogPath() == path && m_previewReady) {
+      m_previewPending = true; // 同目录数据已更新，重读最新快照
+    }
+    if (m_previewPending) requestPreviewData(std::move(m_previewReady));
+  });
+  watcher->setFuture(QtConcurrent::run([snapshot, stop] {
+    SectionWorkbench worker(snapshot.get());
+    return PreviewData{worker.wells(stop), worker.sectionWells(stop)};
+  }));
+}
+void SectionWorkbench::cancelPreviewData() {
+  ++m_previewGeneration; m_previewPending = false; m_previewReady = {};
+  if (m_previewStop) m_previewStop->store(true);
 }
 QString SectionWorkbench::projectDir() const {
   return m_catalog ? QDir::cleanPath(m_catalog->catalogPath() + "/../../..")
@@ -113,10 +150,11 @@ QString SectionWorkbench::wellForSource(const QString &path, const QString &name
     }
   return found;
 }
-QVariantList SectionWorkbench::wells() {
+QVariantList SectionWorkbench::wells(const std::shared_ptr<std::atomic_bool> &stop) {
   syncProject();
   QVariantList result;
   for (const auto &w : m_data.wells()) {
+    if (stop && stop->load()) return result;
     auto c = calibration(w.id);
     bool tvdOk = false, mdOk = false;
     modelFor(w.id, false, &tvdOk);
@@ -197,10 +235,12 @@ std::vector<glm::dvec2> SectionWorkbench::wellRoute(const QStringList &ids,
   }
   return route;
 }
-std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells() {
+std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
+    const std::shared_ptr<std::atomic_bool> &stop) {
   syncProject();
   std::vector<seismic::SectionWellInfo> result;
   for (const auto &w : m_data.wells()) {
+    if (stop && stop->load()) return result;
     if (w.coordinateStatus != "ok" && w.coordinateStatus != "untransformed")
       continue;
     seismic::SectionWellInfo out;

@@ -2443,6 +2443,7 @@ private:
         QVERIFY(singleActs.contains(QStringLiteral("detachLink")));
         QVERIFY(singleActs.contains(QStringLiteral("setPrimary")));
         QVERIFY(singleActs.contains(QStringLiteral("editRole")));
+        QVERIFY(singleActs.contains(QStringLiteral("openExternal")));
         QVERIFY(!singleActs.contains(QStringLiteral("removeSoft")));
         // goal/gridding-surface-ops：非层位单资产不给「网格化」。
         QVERIFY(!singleActs.contains(QStringLiteral("gridHorizon")));
@@ -2465,6 +2466,7 @@ private:
         QVERIFY(multiActs.contains(QStringLiteral("exportManifest")));
         QVERIFY(multiActs.contains(QStringLiteral("removeSoft")));
         QVERIFY(multiActs.contains(QStringLiteral("openPreviewAll")));
+        QVERIFY(!multiActs.contains(QStringLiteral("openExternal")));
         // 异构选中：资产 + 实体 → 公共子集（资产操作）+ 实体定位，不给实体 CRUD。
         ContextMenuSpec mixed;
         mixed.hasAssets = true;

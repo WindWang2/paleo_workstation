@@ -60,9 +60,13 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
       new QgsRubberBand(m_canvasCtl->canvas(), Qgis::GeometryType::Line);
   band->setColor(QColor("#1B73D0"));
   band->setWidth(2);
-  auto refresh = [workbench, setup] {
-    setup->setWells(workbench->wells());
+  auto refresh = [workbench, setup, dock, link] {
     setup->setSavedSections(workbench->savedSections());
+    workbench->requestPreviewData([setup, dock, link](const SectionWorkbench::PreviewData &data) {
+      setup->setWells(data.wells);
+      dock->setCandidateWells(link->activeVolume() ? data.sectionWells
+                                                 : std::vector<seismic::SectionWellInfo>{});
+    });
   };
   auto report = [this, setup](const QString &message) {
     setup->setMessage(message);
@@ -88,9 +92,10 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
   // #225：IL/XL 剖面同样需要候选井（井旁道 / 子波提取 / 反演低频井）——
   // 体就绪后常驻注入工程井（连接序在 setVolume 之后）。
   connect(link, &SeismicMapLink::sectionVolumeChanged, dock,
-          [dock, workbench](std::shared_ptr<const seismic::SgyVolume> volume) {
-            dock->setCandidateWells(volume ? workbench->sectionWells()
-                                           : std::vector<seismic::SectionWellInfo>{});
+          [dock, workbench, refresh](std::shared_ptr<const seismic::SgyVolume> volume) {
+            dock->setCandidateWells({});
+            if (volume) refresh();
+            else workbench->cancelPreviewData();
           });
   connect(link, &SeismicMapLink::sectionVolumeChanged, this, [route, band] {
     route->clear();
@@ -305,6 +310,8 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
                                                 QObject::tr("恢复的剖面版本"));
             *routeHorizon = state.value("horizon").toString();
           });
-  if (link->activeVolume())
+  if (link->activeVolume()) {
     dock->setVolume(link->activeVolume());
+    refresh();
+  }
 }

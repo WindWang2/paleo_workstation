@@ -173,7 +173,7 @@ inline QLabel *warnLabel(const QString &text, QWidget *parent)
 }
 
 // 「用系统程序打开」兜底行：按钮 + 就地错误文本（打开失败时浮现）。
-// 预览页不再常驻——只在无内嵌预览或需开原件（office 转换件）时用。
+// 预览页不再常驻——只在无内嵌预览或需用系统程序打开原件时用。
 inline QWidget *makeOpenExternalRow(const QString &absPath, QWidget *parent)
 {
   auto *row = new QWidget(parent);
@@ -235,6 +235,23 @@ inline void stylePreviewToolBar(QWidget *bar)
         .arg(qssHex(t.surfaceAlt), qssHex(t.border), qssHex(t.surface),
              qssHex(t.text), qssHex(t.surfaceAltRaised), qssHex(t.textDisabled),
              qssHex(t.primary), qssHex(t.primaryText));
+  });
+}
+
+// 「呈现模式」切换条（well_log 单道/综合、xml 井道图/表格共用）：chip 语义
+// checkable QToolButton——checked = primary 描边 + 浮起面底。
+inline void styleViewSwitchBar(QWidget *bar)
+{
+  PaleoTheme::applyThemedStyleSheet(bar, [] {
+    const PaleoTheme::ThemeTokens &t = PaleoTheme::tokens();
+    return PaleoTheme::metricStyleSheet(QStringLiteral(
+        "QToolButton { background: %1; border: 1px solid %2; border-radius: {rounded.sm}px;"
+        " padding: {spacing.xs}px {spacing.md}px; font-size: {typography.label}pt; color: %3; }"
+        "QToolButton:hover { background: %4; }"
+        "QToolButton:checked { background: %4; border-color: %5; color: %6;"
+        " font-weight: 600; }"))
+        .arg(qssHex(t.surface), qssHex(t.border), qssHex(t.text),
+             qssHex(t.surfaceAltRaised), qssHex(t.primary), qssHex(t.primaryText));
   });
 }
 

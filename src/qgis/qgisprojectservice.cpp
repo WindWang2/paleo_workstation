@@ -120,7 +120,7 @@ void QgisProjectService::closeProject()
 
 bool QgisProjectService::openProject( const QString &qgzPath )
 {
-  if (m_opening)
+  if (m_opening || m_openFuture.isRunning())
     return false;
   m_errors.clear();
   m_lastOpenCancelled = false;
@@ -321,6 +321,10 @@ bool QgisProjectService::createProject( const QString &qgzPath )
 bool QgisProjectService::writeProject()
 {
   m_errors.clear();
+  if (m_opening) {
+    m_errors << tr("工程正在打开，请等待接管完成后保存");
+    return false;
+  }
 
   if ( m_path.isEmpty() )
   {

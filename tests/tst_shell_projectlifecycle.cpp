@@ -12,10 +12,14 @@
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
+#include <QFutureWatcher>
+#include <QLabel>
 #include <QPushButton>
 #include <QDirIterator>
 #include <QSettings>
 #include <QSignalSpy>
+#include <QSemaphore>
+#include <QScopeGuard>
 #include <QStatusBar>
 #include <QTemporaryDir>
 #include <QTimer>
@@ -24,13 +28,16 @@
 
 #include <functional>
 #include <memory>
+#include <atomic>
 
 #include "../src/app/appcontext.h"
 #include "../src/catalog/datacatalog.h"
 #include "../src/io/dataimportservice.h"
+#include "../src/metadata/projectlock.h"
 #include "../src/qgis/qgiscanvascontroller.h"
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/services/paleotaskservice.h"
+#include "../src/services/previewdoc.h"
 #include "../src/ui/layers/layertreepanel.h"
 #include "../src/ui/notifications/paleonotify.h"
 #include "../src/ui/pages/datalist.h"
@@ -519,6 +526,136 @@ private slots:
     QVERIFY2(QDir::cleanPath(dock->interpretationOutputDir())
                  .startsWith(QDir::cleanPath(dirB.path())),
              "切工程后解释目录必须跟随新工程");
+  }
+
+  // 接管已开始（进度 85、尚未取消）时路径仍空，但 writeProject 必须先撞上
+  // m_opening 守卫，而不是「没有工程路径」。
+  void saveDuringHandoffHitsOpeningGuard()
+  {
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto path = directory.filePath(QStringLiteral("handoff-save.qgz"));
+    QVERIFY2(m_ctx->projectSvc()->createProject(path),
+             qPrintable(m_ctx->projectSvc()->lastErrors().join(QLatin1Char(';'))));
+    m_ctx->closeProject();
+    QVERIFY(m_ctx->projectSvc()->projectPath().isEmpty());
+    QVERIFY(!m_ctx->projectSvc()->isOpening());
+
+    bool sawHandoff = false;
+    bool opening = false;
+    bool pathEmpty = false;
+    bool notCancelled = false;
+    bool writeRejected = false;
+    QStringList errors;
+    const auto connection = connect(m_ctx->projectSvc(), &QgisProjectService::openProgress, this,
+        [&](int percent, const QString &) {
+          if (percent != 85 || sawHandoff)
+            return;
+          auto *svc = m_ctx->projectSvc();
+          sawHandoff = true;
+          opening = svc->isOpening();
+          pathEmpty = svc->projectPath().isEmpty();
+          notCancelled = !svc->lastOpenCancelled();
+          writeRejected = !svc->writeProject();
+          errors = svc->lastErrors();
+        });
+    const auto disconnectProgress = qScopeGuard([connection] { QObject::disconnect(connection); });
+    QSignalSpy finished(m_ctx->projectSvc(), &QgisProjectService::openFinished);
+    QVERIFY(m_ctx->projectSvc()->openProjectAsync(path));
+    QTRY_VERIFY_WITH_TIMEOUT(sawHandoff, 60000);
+    QVERIFY(opening);
+    QVERIFY(pathEmpty);
+    QVERIFY(notCancelled);
+    QVERIFY(writeRejected);
+    const QString joined = errors.join(QLatin1Char(';'));
+    QVERIFY2(joined.contains(QStringLiteral("工程正在打开")), qPrintable(joined));
+    QVERIFY2(!joined.contains(QStringLiteral("No project path")) &&
+                 !joined.contains(QStringLiteral("未设置工程路径")),
+             qPrintable(joined));
+    QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 60000);
+    m_ctx->closeProject();
+  }
+
+  void cancelledOpenKeepsDirectoryLockedUntilWorkerExits()
+  {
+    QTemporaryDir directory;
+    const QString path = directory.filePath("cancelled.qgz");
+    { QgisProjectService writer; QVERIFY(writer.createProject(path)); }
+    auto entered = std::make_shared<std::atomic_bool>(false);
+    auto release = std::make_shared<QSemaphore>();
+    const auto releaseOnExit = qScopeGuard([release] { release->release(); });
+    m_ctx->projectSvc()->setOpenPreparation([=](const QString &) {
+      return [=](const std::function<bool()> &) { entered->store(true); release->acquire(); };
+    });
+    QSignalSpy drained(m_ctx->projectSvc(), &QgisProjectService::openWorkerFinished);
+    QVERIFY(m_ctx->projectSvc()->openProjectAsync(path));
+    QTRY_VERIFY_WITH_TIMEOUT(entered->load(), 10000);
+    ProjectDirLock competitor(directory.path());
+    QVERIFY(!competitor.tryLock());
+    m_ctx->closeProject();
+    QVERIFY(!competitor.tryLock());
+    release->release();
+    QTRY_COMPARE(drained.count(), 1);
+    QVERIFY(competitor.tryLock());
+    QVERIFY(m_ctx->projectSvc()->projectPath().isEmpty());
+  }
+  void handoffBlocksEditingInputAndRestoresItOnCancel()
+  {
+    QTemporaryDir directory;
+    const auto path = directory.filePath("handoff.qgz");
+    QVERIFY(m_ctx->projectSvc()->createProject(path));
+    m_ctx->closeProject();
+    QPushButton probe("input probe", m_win); probe.show();
+    QSignalSpy clicks(&probe, &QPushButton::clicked);
+    QSignalSpy finished(m_ctx->projectSvc(), &QgisProjectService::openFinished);
+    bool blocked = false;
+    const auto connection = connect(m_ctx->projectSvc(), &QgisProjectService::openProgress, this,
+        [&](int percent, const QString &) {
+      if (percent != 85) return;
+      QTest::mouseClick(&probe, Qt::LeftButton); blocked = clicks.isEmpty();
+      QTimer::singleShot(0, m_ctx->projectSvc(), &QgisProjectService::cancelOpen);
+    });
+    const auto disconnect = qScopeGuard([connection] { QObject::disconnect(connection); });
+    QVERIFY(m_ctx->projectSvc()->openProjectAsync(path));
+    QTRY_COMPARE(finished.count(), 1); QVERIFY(blocked);
+    QVERIFY(m_ctx->projectSvc()->lastOpenCancelled());
+    QTest::mouseClick(&probe, Qt::LeftButton); QCOMPARE(clicks.count(), 1);
+  }
+
+  void realProjectBackgroundResponsiveness()
+  {
+    const QString path = qEnvironmentVariable("PALEO_BACKGROUND_PROJECT");
+    if (path.isEmpty()) QSKIP("Set PALEO_BACKGROUND_PROJECT to a disposable project copy");
+    QElapsedTimer pulse; pulse.start();
+    qint64 last = 0, maximum = 0;
+    QString stage, slowStage;
+    const auto progressConnection = connect(m_ctx->projectSvc(), &QgisProjectService::openProgress, this,
+            [&](int, const QString &text) { stage = text; });
+    const auto disconnectProgress = qScopeGuard([progressConnection] { QObject::disconnect(progressConnection); });
+    QTimer heartbeat; heartbeat.setInterval(10);
+    connect(&heartbeat, &QTimer::timeout, this, [&] {
+      const auto now = pulse.elapsed(); const auto lag = now - last; last = now;
+      if (lag > maximum) { maximum = lag; slowStage = stage; }
+    }); heartbeat.start();
+    QVERIFY(m_ctx->projectSvc()->openProjectAsync(path));
+    QTRY_VERIFY_WITH_TIMEOUT(!m_ctx->projectSvc()->isOpening(), 60000);
+    QCOMPARE(m_ctx->projectSvc()->projectPath(), QFileInfo(path).absoluteFilePath());
+    QTRY_VERIFY(m_win->findChild<QLabel *>("projectSeismicLoadStatus"));
+    auto *status = m_win->findChild<QLabel *>("projectSeismicLoadStatus");
+    stage = "seismic volume and well previews";
+    QTRY_VERIFY_WITH_TIMEOUT(status->isHidden(), 60000);
+    QTRY_COMPARE_WITH_TIMEOUT(m_ctx->taskSvc()->runningCount(), 0, 60000);
+    const auto idle = [this] {
+      for (auto *watcher : m_win->findChildren<QFutureWatcherBase *>()) if (watcher->isRunning()) return false;
+      for (auto *preview : m_win->findChildren<PreviewDocService *>())
+        if (preview->hasPendingLasResults()) return false;
+      return true;
+    };
+    QTRY_VERIFY_WITH_TIMEOUT(idle(), 60000);
+    QTest::qWait(250);
+    qInfo() << "Maximum UI heartbeat gap:" << maximum << "ms at" << slowStage;
+    QVERIFY2(maximum < 500, qPrintable(QString("UI blocked for %1 ms at %2").arg(maximum).arg(slowStage)));
+    m_ctx->closeProject();
   }
 };
 

@@ -312,6 +312,61 @@ bool DataCatalog::applyJournal(const QVector<CatalogOp> &ops, QString *error)
   return true;
 }
 
+std::shared_ptr<DataCatalog> DataCatalog::prepareOpen(const QString &projectDir, bool readOnly)
+{
+  auto prepared = std::make_shared<DataCatalog>();
+  prepared->setLockedReadOnly(readOnly);
+  QString error;
+  if (!prepared->open(projectDir, &error)) prepared->m_openError = error;
+  prepared->m_preparedOpen = true;
+  if (prepared->m_store) prepared->m_store->close();
+  prepared->moveToThread(nullptr);
+  return prepared;
+}
+
+bool DataCatalog::adoptPrepared(const std::shared_ptr<DataCatalog> &prepared, QString *error)
+{
+  if (!checkWriteThread("adoptPrepared", error)) return false;
+  if (!prepared || !prepared->m_preparedOpen || prepared.get() == this || prepared->thread() ||
+      prepared->m_lockedReadOnly != m_lockedReadOnly) {
+    setError(error, QStringLiteral("invalid prepared catalog or access mode"));
+    return false;
+  }
+  prepared->m_preparedOpen = false;
+  m_store.reset(); // old connection belongs to this owner thread
+  m_store = std::move(prepared->m_store);
+  m_dir = prepared->m_dir;
+  m_isOpen = prepared->m_isOpen;
+  m_openError = prepared->m_openError;
+  m_recoveredFromBackup = prepared->m_recoveredFromBackup;
+  m_backupRecoveryReason = prepared->m_backupRecoveryReason;
+  m_primaryCorruptOnDisk = prepared->m_primaryCorruptOnDisk;
+  m_forceFullSave = prepared->m_forceFullSave;
+  m_revision = prepared->m_revision;
+  m_mutationSeq = qMax(m_mutationSeq + 1, prepared->m_mutationSeq);
+  m_entities = std::move(prepared->m_entities);
+  m_assets = std::move(prepared->m_assets);
+  m_versions = std::move(prepared->m_versions);
+  m_links = std::move(prepared->m_links);
+  m_assetSeq = prepared->m_assetSeq; m_versionSeq = prepared->m_versionSeq;
+  m_roles = std::move(prepared->m_roles);
+  m_idx = std::move(prepared->m_idx);
+  m_backupKeep = prepared->m_backupKeep;
+  m_batchDepth = 0; m_batchDirty = false; m_batchAborted = false; m_batchSnapshot.reset();
+  m_dirtyEntities.clear(); m_dirtyAssets.clear(); m_dirtyVersions.clear(); m_dirtyLinkOrds.clear();
+  m_removedAssets.clear(); m_removedVersions.clear(); m_linksFullRewrite = false;
+  if (m_isOpen && !m_primaryCorruptOnDisk && m_store && !m_store->resumeConnection(m_lockedReadOnly, m_revision, error)) {
+    m_isOpen = false;
+    m_openError = error ? *error : QStringLiteral("catalog connection could not be resumed");
+    m_entities.clear(); m_assets.clear(); m_versions.clear(); m_links.clear(); m_idx.clear();
+    m_store->close();
+  }
+  if (!m_isOpen) { setError(error, m_openError); return false; }
+  if (m_recoveredFromBackup) emit backupRecovered(m_backupRecoveryReason);
+  emit changed();
+  return true;
+}
+
 bool DataCatalog::open(const QString &projectDir, QString *error)
 {
   if (CatalogPurgeLease::isHeld(QDir(projectDir).absoluteFilePath(QStringLiteral("artifacts/metadata/catalog.json")))) {

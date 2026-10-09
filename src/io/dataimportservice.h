@@ -40,7 +40,7 @@ class DataImportService : public QObject
     explicit DataImportService(PaleoProjectStore *store = nullptr, QObject *parent = nullptr);
     ~DataImportService() override;
 
-    void setProjectDir(const QString &dir);   // where the project lives
+    void setProjectDir(const QString &dir, const std::shared_ptr<DataCatalog> &prepared = {});
 
     // 工程级地理配准（project.paleo georeference 节注入）：建井时把局部网格
     // surfaceX/Y 换算成 WGS84 经纬度——coordinateStatus="ok"、extra 记
@@ -174,15 +174,23 @@ class DataImportService : public QObject
     // DERIVED 转换件）。
     QString absolutePathForVersion(const CatalogVersion &version) const;
 
-    // ---- 文档 PDF 预览（§4 升级：soffice headless → DERIVED 版本，懒转换）----
+    // ---- 文档/工作簿转换预览（§4 升级：soffice headless → DERIVED 版本，懒转换）----
     // document 资产（doc/docx/ppt/pptx）首次预览时调用 ensureDocumentPdf：
     // LibreOffice headless 转出的 PDF 落为受管 DERIVED 版本（parent=RAW）。
-    // 幂等——已就绪/在途/已败（会话内缓存）时不动；结果经 documentPdf* 信号。
+    // 二进制 .xls 工作簿（outsource_workbook）经 ensureWorkbookXlsx 转 DERIVED
+    // .xlsx——原生读取面不覆盖二进制格式，转换后走同一表格预览。
+    // 幂等——已就绪/在途/已败（会话内缓存）时不动；结果经 documentPdf*/
+    // workbookXlsx* 信号。
     enum class DocPdfState { None, Pending, Ready, Failed };
     void ensureDocumentPdf(const QString &assetId);
     DocPdfState documentPdfState(const QString &assetId) const;
     QString documentPdfPath(const QString &assetId) const;   // Ready 时有效
     QString documentPdfError(const QString &assetId) const;  // Failed 时有效
+    enum class WorkbookXlsxState { None, Pending, Ready, Failed };
+    void ensureWorkbookXlsx(const QString &assetId);
+    WorkbookXlsxState workbookXlsxState(const QString &assetId) const;
+    QString workbookXlsxPath(const QString &assetId) const;   // Ready 时有效
+    QString workbookXlsxError(const QString &assetId) const;  // Failed 时有效
     // 部署/测试注入：替代 PATH 上的 soffice/libreoffice 探测（可指向 stub）。
     // 空串 = 强制不可用（走 Failed 降级）。
     void setDocumentConverterProgram(const QString &program);
@@ -213,6 +221,8 @@ class DataImportService : public QObject
     void catalogRecoveredFromBackup(const QString &reason);
     void documentPdfReady(const QString &assetId);
     void documentPdfFailed(const QString &assetId, const QString &error);
+    void workbookXlsxReady(const QString &assetId);
+    void workbookXlsxFailed(const QString &assetId, const QString &error);
 
   public:
     // ---- 审计 02 M-8：produce-then-commit 导入模型 ----
@@ -289,11 +299,12 @@ class DataImportService : public QObject
     static int attachResolvableLinks(DataCatalog *cat, const CatalogAsset &asset,
                                      const QString &sourcePath, QString *error = nullptr);
 
-    // 文档 PDF 转换：LibreOffice 单实例在共享 UserInstallation 下不可靠，
-    // 一律串行（队列）。soffice 把输出写到 --outdir/<stem>.pdf。
+    // 文档/工作簿转换：LibreOffice 单实例在共享 UserInstallation 下不可靠，
+    // 一律串行（队列）。soffice 把输出写到 --outdir/<stem>.<outExt>。
     void resolveDocumentConverter();
-    void startNextDocumentPdf();
-    void finishDocumentPdf(int exitCode);
+    void queueConversion(const QString &assetId, const QString &outExt);
+    void startNextConversion();
+    void finishConversion(int exitCode);
 
     PaleoProjectStore *m_store;
     QString m_projectDir;
@@ -305,14 +316,15 @@ class DataImportService : public QObject
 
     QString m_converter;            // "" 未解析/不可用
     bool m_converterResolved = false;
-    QProcess *m_pdfProc = nullptr;  // 非空即转换在途
-    QStringList m_pdfQueue;
-    QString m_pdfCurrent;           // 在途 assetId
-    QString m_pdfCurrentVersionId;
-    QString m_pdfRawVersionId;
-    QString m_pdfOutFile;           // 期望产物绝对路径
-    QSet<QString> m_pdfPending;
-    QHash<QString, QString> m_pdfErrors;
+    QProcess *m_convProc = nullptr; // 非空即转换在途
+    QList<QPair<QString, QString>> m_convQueue; // (assetId, outExt)："pdf"|"xlsx"
+    QString m_convCurrent;          // 在途 assetId
+    QString m_convCurrentExt;       // 在途输出扩展名
+    QString m_convCurrentVersionId;
+    QString m_convRawVersionId;
+    QString m_convOutFile;          // 期望产物绝对路径
+    QSet<QString> m_convPending;
+    QHash<QString, QString> m_convErrors;
 };
 
 // ---------------------------------------------------------------------------

@@ -3,6 +3,7 @@ build/
 build-*/
 vendor/onnxruntime
 vendor/libreoffice
+vendor/calligra
 vendor/prefix
 vendor/build
 vendor/superbuild/prefix

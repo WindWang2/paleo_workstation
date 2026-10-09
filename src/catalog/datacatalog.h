@@ -130,6 +130,10 @@ class DataCatalog : public QObject
     // lastBackupRecoveryReason() 带主文件损坏原因，open 仍算成功。
     // catalogPath() 仍返回 catalog.json 路径，不表示这次打开写了 JSON。
     bool open(const QString &projectDir, QString *error = nullptr);
+    // Background preparation closes SQLite on its creating thread. Adoption
+    // transfers parsed tables/indexes to this stable QObject without re-reading.
+    static std::shared_ptr<DataCatalog> prepareOpen(const QString &projectDir, bool readOnly);
+    bool adoptPrepared(const std::shared_ptr<DataCatalog> &prepared, QString *error = nullptr);
     bool isOpen() const { return m_isOpen; }
     // 拒绝写入态：open() 失败、从未成功 open 过、或被锁降级只读 → true。
     // mutator 一律 return false + error，不落盘不改内存——绝不让空 catalog
@@ -412,6 +416,7 @@ class DataCatalog : public QObject
                               QVector<QPair<int, CatalogVersion>> *undo = nullptr);
     QString m_dir;
     bool m_isOpen = false;
+    bool m_preparedOpen = false;
     QString m_openError;         // 最近一次 open() 失败原因（成功后清空）
     bool m_lockedReadOnly = false; // 见 setLockedReadOnly——实例级只读降级
     bool m_recoveredFromBackup = false; // open() 走了 .bak 回退（本次 open 内）

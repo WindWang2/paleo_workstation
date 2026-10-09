@@ -1,6 +1,8 @@
 // 层：视图
 // token 例外：DESIGN 数据符号例外：QGIS 测区轮廓与透明填充，不改变地图符号色。（tools/ui-token-exceptions.json 精确计数）。
 #include "datapreviewtabs.h"
+#include "officepreviewwidget.h"
+#include "../../workflow/officepreviewsession.h"
 #include "../paleoviewport.h"
 
 #include "../paleotheme.h" // DESIGN.md token 出口（颜色/字阶/活体样式共用）
@@ -259,11 +261,6 @@ void DataPreviewTabs::attachDoc(PreviewDocService *doc)
     return;
   if (m_taskSvc)
     m_doc->setTaskService(m_taskSvc); // 接线顺序无关：后到的服务补进门面
-  // 文档 PDF 转换完成/失败 → 重建该资产标签（「转换中」→ 预览或降级面）。
-  connect(m_doc, &PreviewDocService::documentPdfReady, this,
-          [this](const QString &assetId) { rebuildAssetTab(assetId); });
-  connect(m_doc, &PreviewDocService::documentPdfFailed, this,
-          [this](const QString &assetId, const QString &) { rebuildAssetTab(assetId); });
   // 测线解码结果（D1/T23）：陈旧结果已在服务内按世代号丢弃。
   connect(m_doc, &PreviewDocService::seismicSectionReady, this,
           &DataPreviewTabs::onSectionReady);
@@ -856,11 +853,29 @@ void DataPreviewTabs::updateTabTitle(const QString &assetId)
   m_tabs->setTabText(idx, title);
 }
 
+void DataPreviewTabs::drainDeferredRebuilds()
+{
+  while (!m_rebuildDeferred.isEmpty())
+  {
+    const QList<QString> ids = m_rebuildDeferred.values();
+    m_rebuildDeferred.clear();
+    for (const QString &id : ids)
+      rebuildAssetTab(id); // m_buildingContent 已复位——正常重建
+  }
+}
+
 void DataPreviewTabs::rebuildAssetTab(const QString &assetId)
 {
   QWidget *page = m_pageOfAsset.value(assetId);
   if (!page || !m_doc)
     return;
+  if (m_buildingContent)
+  {
+    // 嵌套重建（转换失败信号在 ensure* 内同步发射所致）：外层
+    // buildContent 继续走完会看到服务层已写就的最终态，这里只记顺延。
+    m_rebuildDeferred.insert(assetId);
+    return;
+  }
   auto *pageLay = qobject_cast<QVBoxLayout *>(page->layout());
   if (!pageLay)
     return;
@@ -880,10 +895,13 @@ void DataPreviewTabs::rebuildAssetTab(const QString &assetId)
   QLabel *loading = loadingLabel(name.isEmpty() ? assetId : name, page);
   pageLay->addWidget(loading, 1);
   loading->repaint(); // 「正在读取」先可见，随后同步读
+  m_buildingContent = true;
   QWidget *content = buildContent(assetId, page);
+  m_buildingContent = false;
   loading->setVisible(false); // 保留在树里，便于测试/诊断读取中态
   pageLay->addWidget(content ? content : stateLabel(tr("无法生成预览"), page, true), 1);
   updateTabTitle(assetId);
+  drainDeferredRebuilds();
 }
 
 void DataPreviewTabs::openAsset(const QString &assetId)
@@ -912,11 +930,14 @@ void DataPreviewTabs::openAsset(const QString &assetId)
   m_tabs->setCurrentIndex(idx);
   loading->repaint(); // 「正在读取」+文件名在同步读取前先可见（§4）
 
+  m_buildingContent = true;
   QWidget *content = buildContent(assetId, page);
+  m_buildingContent = false;
   loading->setVisible(false); // 读取完成；隐藏但保留节点便于测试断言该状态
   pageLay->addWidget(content ? content : stateLabel(tr("无法生成预览"), page, true), 1);
   updateTabTitle(assetId);
   focusWellIfNeeded(assetId, page);
+  drainDeferredRebuilds();
 }
 
 QString DataPreviewTabs::versionIdAt(int index) const
@@ -1007,9 +1028,12 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
   page->setProperty("previewVersionId", v.id);
   CatalogVersion sourceVersion = v; // abs 实际对应的版本（文档标签锚回 RAW 原件）
   QString abs = m_doc->absolutePathForVersion(v);
-  // 文档资产：RAW 原件是规范来源——currentVersion 可能已指向 DERIVED
-  // PDF 转换件，缺失检查与「用系统程序打开」必须锚在原件上。
-  if (asset.type == QLatin1String("document") && chosenId.isEmpty())
+  // 文档/工作簿资产：RAW 原件是规范来源——currentVersion 可能已指向
+  // DERIVED PDF 转换件，缺失检查与「用系统程序打开」必须锚在原件上；
+  // 工作簿预览同样锚回原件，Office 原件交 Calligra。
+  if ((asset.type == QLatin1String("document") ||
+       asset.type == QLatin1String("outsource_workbook")) &&
+      chosenId.isEmpty())
     for (const CatalogVersion &cv : cat->versionsForAsset(assetId))
       if (cv.stage == QLatin1String("RAW"))
       {
@@ -1077,10 +1101,14 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
   // 外链完整性（§3）：入库时留过 SHA-256 的源文件被改过就不再解码——
   // 正文如实写「源文件与入库时的 SHA-256 不一致」。
   // D1：地震资产接了任务服务时把这道哈希移交异步解码任务——体量大不该堵
-  // 住建标签；其它资产类型文件小，保留同步门（会话已验过的资产直接跳过）。
+  // 住建标签；辅助 XML 的校验同样交后台解析会话。
   // 托管/无指纹/本会话已验的短路、失配后的下游标过时都在门面里。
   const bool deferShaToTask =
-      m_doc->taskService() && asset.type == QLatin1String("seismic");
+      OfficePreviewSession::supports(abs) ||
+      (abs.endsWith(QLatin1String(".xml"), Qt::CaseInsensitive) &&
+       (auxOnly || asset.type == QLatin1String("unknown") || asset.type == QLatin1String("auxiliary") ||
+        asset.type == QLatin1String("outsource_workbook"))) ||
+      (m_doc->taskService() && asset.type == QLatin1String("seismic"));
   if (!deferShaToTask)
   {
     QString verr;
@@ -1089,6 +1117,14 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       lay->addWidget(stateLabel(verr, host, true), 1);
       return host;
     }
+  }
+
+  // Office 原件直接交给隔离的 Calligra 页面渲染进程；SHA 校验与文档
+  // 读取在后台/外部进程进行，包括历史版本。不生成任何转换件。
+  if (OfficePreviewSession::supports(abs))
+  {
+    lay->addWidget(new OfficePreviewWidget(abs, sourceVersion.managed ? QString() : sourceVersion.sha256, host), 1);
+    return host;
   }
 
   if (asset.type == QLatin1String("well_log") && !auxOnly)
@@ -1196,71 +1232,34 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
 
   if (asset.type == QLatin1String("document"))
   {
-    // 文件名/类型等属性信息由右侧属性面板承担，预览页不再重复占空间；
-    // 「用系统程序打开」只在无内嵌预览（转换失败/无门面）或需要打开
-    // office 原件时作兜底出口。
-    QString pdfAbs;
-    if (asset.format == QLatin1String("pdf") ||
-        (!chosenId.isEmpty() && QFileInfo(abs).suffix().compare(QLatin1String("pdf"), Qt::CaseInsensitive) == 0))
-      pdfAbs = abs;
-    else if (!chosenId.isEmpty())
-    {
-      // 转换队列按资产而非版本键控；不能把另一版本的 PDF 冒充所选历史原件。
-      lay->addWidget(stateLabel(tr("该版本暂无内嵌文档预览，可打开所选原件"), host), 1);
-      lay->addWidget(makeOpenExternalRow(abs, host));
-    }
-    else if (m_doc)
-    {
-      m_doc->ensureDocumentPdf(assetId);
-      switch (m_doc->documentPdfState(assetId))
-      {
-        case PreviewDocService::DocPdfState::Ready:
-          pdfAbs = m_doc->documentPdfPath(assetId);
-          break;
-        case PreviewDocService::DocPdfState::Failed:
-          lay->addWidget(
-              stateLabel(tr("无 PDF 预览：%1").arg(m_doc->documentPdfError(assetId)),
-                         host, true),
-              1);
-          lay->addWidget(makeOpenExternalRow(abs, host));
-          break;
-        default: // Pending（None 不可达——ensure 刚入队或已记失败）
-          lay->addWidget(stateLabel(tr("正在转换为 PDF 预览…"), host), 1);
-          break;
-      }
-    }
-    else
-    {
-      lay->addWidget(stateLabel(tr("无法生成 PDF 预览"), host, true), 1);
-      lay->addWidget(makeOpenExternalRow(abs, host));
-    }
-
-    if (!pdfAbs.isEmpty())
+    // PDF 原件仍走 QtPdf；Office 后缀已在上方接入 Calligra，绝不转换。
+    if (QFileInfo(abs).suffix().compare(QLatin1String("pdf"), Qt::CaseInsensitive) == 0)
     {
       auto *doc = new QPdfDocument(host);
-      if (doc->load(pdfAbs) == QPdfDocument::Error::None)
+      if (doc->load(abs) == QPdfDocument::Error::None)
       {
         auto *view = new QPdfView(host);
         view->setObjectName(QStringLiteral("pdfView"));
         view->setDocument(doc);
         view->setPageMode(QPdfView::PageMode::MultiPage);
         lay->addWidget(view, 1);
-        if (asset.format != QLatin1String("pdf"))
-        {
-          lay->addWidget(
-              caption8(tr("预览为 PDF 转换件；原件经「用系统程序打开」"), host));
-          lay->addWidget(makeOpenExternalRow(abs, host), 0, Qt::AlignLeft);
-        }
       }
       else
-      {
-        lay->addWidget(
-            stateLabel(tr("PDF 转换件无法加载\n%1").arg(pdfAbs), host, true), 1);
-        lay->addWidget(makeOpenExternalRow(abs, host));
-      }
+        lay->addWidget(stateLabel(tr("PDF 原件无法加载\n%1").arg(abs), host, true), 1);
     }
-    lay->addWidget(warnLabel(tr("未配准，不加入地图"), host)); // §4
+    else
+    {
+      lay->addWidget(stateLabel(tr("该格式暂无内嵌预览"), host), 1);
+      lay->addWidget(makeOpenExternalRow(abs, host));
+    }
     return host;
+  }
+
+  // SpreadsheetML XML 保留原生数据表；xls/xlsx 已由 Calligra 直接预览。
+  if (asset.type == QLatin1String("outsource_workbook")) {
+    if (abs.endsWith(QLatin1String(".xml"), Qt::CaseInsensitive))
+      return buildAuxiliaryXmlContent(abs, assetId, host, lay, sourceVersion.managed ? QString() : sourceVersion.sha256);
+    return buildOutsourceWorkbookContent(abs, host, lay);
   }
 
   if (asset.type == QLatin1String("geojson") ||
@@ -1291,40 +1290,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
 
     if (abs.endsWith(QLatin1String(".xml"), Qt::CaseInsensitive))
     {
-      // F2 两段式（goal/perf-systematize 簇2）：XML 解析进任务池（综合图可
-      // 含数 MB 曲线数据，同步解析阻塞 UI 线程），面板骨架 + 「解析中」提示
-      // 即时上屏；无任务服务时 loadComprehensiveXmlAsync 同步执行——失败
-      // 返回 false 走原有不支持预览 fall-through（测试环境行为不变）。
-      auto *compositePanel = new WellComposite::WellCompositePanel(host);
-      compositePanel->setObjectName(QStringLiteral("wellCompositePanel"));
-      auto *xmlPendingHint = new QLabel(tr("正在后台解析综合柱状图…"), host);
-      xmlPendingHint->setObjectName(QStringLiteral("xmlPendingHint"));
-      PaleoTheme::applyThemedStyleSheet(xmlPendingHint, [] {
-        return PaleoTheme::mutedCaptionStyleSheet();
-      });
-      const QPointer<QLabel> xmlHintG(xmlPendingHint);
-      const QPointer<WellComposite::WellCompositePanel> compG(compositePanel);
-      connect(compositePanel, &WellComposite::WellCompositePanel::comprehensiveXmlLoaded,
-              host, [this, assetId, host, lay, xmlHintG, compG](bool ok) {
-                if (xmlHintG)
-                  xmlHintG->hide();
-                // 异步失败（截断/坏 XML）：换成「读取失败」面（重试=重建标签）。
-                if (!ok && compG)
-                {
-                  lay->removeWidget(compG);
-                  compG->deleteLater();
-                  lay->addWidget(failureState(assetId, tr("综合柱状图 XML 无法解析"), host), 1);
-                }
-              });
-      lay->addWidget(xmlPendingHint);
-      if (compositePanel->loadComprehensiveXmlAsync(
-              abs, m_doc ? m_doc->taskService() : nullptr))
-      {
-        lay->addWidget(compositePanel, 1);
-        return host;
-      }
-      delete compositePanel;
-      delete xmlPendingHint;
+      return buildAuxiliaryXmlContent(abs, assetId, host, lay, sourceVersion.managed ? QString() : sourceVersion.sha256);
     }
     // P2 D2.12 未知类型：统一「不支持预览」态 + 可支持类型清单（不再留白）。
     static const QStringList kKnownTypes = {
@@ -1332,6 +1298,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
         QStringLiteral("well_stratification"), QStringLiteral("time_depth"),
         QStringLiteral("horizon"),       QStringLiteral("seismic"),
         QStringLiteral("image_reference"), QStringLiteral("document"),
+        QStringLiteral("outsource_workbook"),
         QStringLiteral("geojson"),       QStringLiteral("boundary"),
         QStringLiteral("seismic_prediction"), QStringLiteral("wells_prediction"),
         QStringLiteral("composed_facies"), QStringLiteral("facies_polygons"),
@@ -1474,23 +1441,6 @@ QWidget *DataPreviewTabs::buildWellBody(const CatalogAsset &asset, const QString
     auto *hl = new QVBoxLayout(holder);
     hl->setContentsMargins(0, 0, 0, 0);
     hl->setSpacing(PaleoTheme::tokens().spacingSm);
-    auto *info = new QWidget(holder);
-    auto *grid = new QVBoxLayout(info);
-    grid->setContentsMargins(0, 0, 0, 0);
-    grid->setSpacing(PaleoTheme::tokens().spacingXs);
-    const auto addRow = [&](const QString &k, const QString &val, bool mono = false,
-                            bool muted = false) {
-      auto *row = new QWidget(info);
-      auto *rl = new QHBoxLayout(row);
-      rl->setContentsMargins(0, 0, 0, 0);
-      rl->addWidget(caption8(k, row));
-      auto *v = valueLabel(val, row, mono);
-      if (muted)
-        PaleoTheme::applyThemedStyleSheet(
-            v, [] { return PaleoTheme::mutedCaptionStyleSheet(); }); // text-muted
-      rl->addWidget(v, 1);
-      grid->addWidget(row);
-    };
     // 预览按当前井过滤（多井井位文件；井名规范化后比较）
     const WellHeadRecord *rec = nullptr;
     for (const WellHeadRecord &r : rows)
@@ -1501,29 +1451,43 @@ QWidget *DataPreviewTabs::buildWellBody(const CatalogAsset &asset, const QString
       hl->addWidget(stateLabel(tr("井 %1 不在该井位文件中").arg(wellName), holder), 1);
       return holder;
     }
+    // §4 字段不变（井名/X/Y/KB/TD/BottomX/BottomY/WellType/坐标状态），
+    // 收为单行字段条——纵列信息卡占高约十行，压缩后纵向让给地图；
+    // 数字仍 JetBrains Mono（DESIGN mono 约定）。
+    auto *info = new QWidget(holder);
+    auto *grid = new QHBoxLayout(info);
+    grid->setContentsMargins(0, 0, 0, 0);
+    grid->setSpacing(PaleoTheme::tokens().spacingSm * 2);
+    const auto addField = [&](const QString &k, const QString &val, bool mono = false,
+                              bool muted = false) {
+      grid->addWidget(caption8(k, info));
+      auto *v = valueLabel(val, info, mono);
+      if (muted)
+        PaleoTheme::applyThemedStyleSheet(
+            v, [] { return PaleoTheme::mutedCaptionStyleSheet(); }); // text-muted
+      grid->addWidget(v);
+    };
     if (rec)
     {
-      // §4：井名、X、Y、KB、TD、BottomX、BottomY、WellType、coordinate_status；
-      // 数字 JetBrains Mono 9pt 右对齐。
-      addRow(tr("井名"), rec->name);
-      addRow(tr("X"), QString::number(rec->x, 'f', 2), true);
-      addRow(tr("Y"), QString::number(rec->y, 'f', 2), true);
-      addRow(tr("KB"), QString::number(rec->kb, 'f', 2), true);
-      addRow(tr("TD"), QString::number(rec->td, 'f', 2), true);
-      addRow(tr("BottomX"),
-             rec->hasBottomX ? QString::number(rec->bottomX, 'f', 2) : QString(), true);
-      addRow(tr("BottomY"),
-             rec->hasBottomY ? QString::number(rec->bottomY, 'f', 2) : QString(), true);
-      addRow(tr("WellType"), rec->wellType);
+      addField(tr("井名"), rec->name);
+      addField(tr("X"), QString::number(rec->x, 'f', 2), true);
+      addField(tr("Y"), QString::number(rec->y, 'f', 2), true);
+      addField(tr("KB"), QString::number(rec->kb, 'f', 2), true);
+      addField(tr("TD"), QString::number(rec->td, 'f', 2), true);
+      addField(tr("BottomX"),
+               rec->hasBottomX ? QString::number(rec->bottomX, 'f', 2) : QString(), true);
+      addField(tr("BottomY"),
+               rec->hasBottomY ? QString::number(rec->bottomY, 'f', 2) : QString(), true);
+      addField(tr("WellType"), rec->wellType);
     }
     const QString status =
         wellEntityId.isEmpty()
             ? QString()
             : m_doc->catalog()->entityById(wellEntityId).coordinateStatus;
-    // T27：坐标状态行中文化 + text-muted（计划 §4：这些状态仍用 #5D6E80）。
-    addRow(tr("坐标状态"), coordinateStatusText(status), false, true);
+    // T27：坐标状态中文化 + text-muted（计划 §4：这些状态仍用 #5D6E80）。
+    addField(tr("坐标状态"), coordinateStatusText(status), false, true);
+    grid->addStretch(1);
     hl->addWidget(info);
-    hl->addWidget(caption8(tr("选中时地图同时高亮该井"), holder));
 
     // P2 D2.6 井位地图预览：全部井位打点 + 当前井高亮 + 名称标注开关。
     auto *wellsVl = makeMemoryPointLayer(tr("井位"), holder);
@@ -1537,6 +1501,37 @@ QWidget *DataPreviewTabs::buildWellBody(const CatalogAsset &asset, const QString
     mapPage->setObjectName(QStringLiteral("wellHeadPreviewPage"));
     mapPage->mapCanvas()->canvas()->setObjectName(QStringLiteral("wellHeadMapCanvas"));
     mapPage->setProfileEnabled(false);
+    QgsMapCanvas *canvas = mapPage->mapCanvas()->canvas();
+    // 与测区全景同一口径：有效配准的工程把离线底图克隆进预览画布（独立实例
+    // 随标签释放），overrideCrs 让画布跟随工程地图坐标系。
+    if (m_project)
+    {
+      canvas->setProject(m_project);
+      canvas->mapSettings().setTransformContext(m_project->transformContext());
+      mapPage->mapCanvas()->setOverrideCrs(m_project->crs());
+      const auto baseLayers = m_project->layerTreeRoot()->findLayers();
+      for (auto it = baseLayers.crbegin(); it != baseLayers.crend(); ++it)
+      {
+        auto *layer = (*it)->layer();
+        if (!layer || !layer->customProperty("paleoBasemap").toBool())
+          continue;
+        if (auto *base = paleo::mapreference::offlineBasemap(
+                layer->customProperty("paleoBasemapPath").toString(), layer->name(),
+                canvas))
+          mapPage->addMapLayer(base, base->name(), QString());
+      }
+    }
+    // 井位预览是跟随内容缩放的交互画布，不出鹰眼（同测区全景页口径）。
+    if (auto *ovAction =
+            mapPage->findChild<QAction *>(QStringLiteral("previewOverviewAction")))
+    {
+      ovAction->setChecked(false); // toggled → setOverviewVisible(false)
+      ovAction->setVisible(false);
+    }
+    else
+    {
+      mapPage->setOverviewVisible(false);
+    }
     mapPage->addMapLayer(wellsVl, tr("井位"), absPath);
     auto *labelRow = new QWidget(holder);
     auto *labelLay = new QHBoxLayout(labelRow);
@@ -1546,6 +1541,18 @@ QWidget *DataPreviewTabs::buildWellBody(const CatalogAsset &asset, const QString
     labelToggle->setChecked(true);
     labelLay->addWidget(labelToggle);
     labelLay->addStretch(1);
+    // 底图版权方标注 + 高亮提示收进同一行（不占独立行）。
+    if (m_project)
+    {
+      const QString attr = paleo::mapreference::attribution(canvas);
+      if (!attr.isEmpty())
+      {
+        auto *src = caption8(attr, labelRow);
+        src->setObjectName(QStringLiteral("wellHeadBasemapAttribution"));
+        labelLay->addWidget(src);
+      }
+    }
+    labelLay->addWidget(caption8(tr("选中时地图同时高亮该井"), labelRow));
     QObject::connect(labelToggle, &QCheckBox::toggled, mapPage,
                      [wellsVl, mapPage](bool on) {
                        wellsVl->setLabelsEnabled(on);

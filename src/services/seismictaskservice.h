@@ -307,7 +307,8 @@ public:
   // 6. 后台体加载（两段式第二段）：.sgyidx 命中时秒级完成，供 3D/时间片面板换装。
   PaleoTask *startVolumeLoad(
       const QString &sgyPath,
-      std::function<void(bool success, std::shared_ptr<SgyVolume> volume, const QString &error)> onFinished);
+      std::function<void(bool success, std::shared_ptr<SgyVolume> volume, const QString &error)> onFinished,
+      bool quiet = false);
 
   // 7. SEG-Y → .sf3p 分页工作区金字塔转码（L0+LOD，可续跑/可取消）。
   //    产出 sf3pPath 本体与 <stem>.lN.sf3p 兄弟层级；Auto 后端不变，

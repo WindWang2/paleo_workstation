@@ -20,7 +20,7 @@ class ShaCache
     static ShaCache &shared();
 
     // 指定磁盘持久化文件（如 <project>/artifacts/index/sha.json）。空 = 纯内存。
-    void setDiskFile(const QString &path);
+    void setDiskFile(const QString &path, bool lazy = false);
     // 内存条目上限（默认 16384 条，磁盘表另算）。
     void setMemoryLimit(int entries);
 
@@ -58,6 +58,8 @@ class ShaCache
     QHash<QString, QString> m_disk;      // canonical path -> "mtimeMs|size|sha"
     QHash<QString, qint64> m_diskAge;    // canonical path -> 最近命中 ms（LRU 收缩）
     QString m_diskFile;
+    quint64 m_diskGeneration = 0; // 每次 setDiskFile 递增
+    bool m_diskPending = false;
     int m_memLimit = 16384;
     int m_diskLimit = 65536;
     Counts m_counts;

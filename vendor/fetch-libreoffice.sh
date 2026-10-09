@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # vendor/fetch-libreoffice.sh — pinned official LibreOffice tarball -> vendor/libreoffice.
 #
-# 文档预览转换器（src/io/dataimport_document.cpp 的 soffice --convert-to pdf）。
+# 仅用于显式调用的旧转换 API；Office 预览已经改用 Calligra。
 # 不走 deb 闭包：官方 tarball 全自含（${ORIGIN} 相对寻址、glibc 基线老、不依赖
 # 发行版库集），且不依赖 apt 宿主重解闭包。pin 在 vendor/manifest.json 的
 # deps.libreoffice（url + archive.sha256/size_bytes；MPL-2.0 允许二进制再分发，

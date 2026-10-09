@@ -7,18 +7,13 @@
 // 本窗口（视图层不持有服务生命周期）。
 #include "paleomainwindow.h"
 
+#include "paleoicons.h"
 #include "notifications/errorhistorypanel.h"
 #include "notifications/notificationcenter.h"
 #include "../services/errorhub.h"
 
 #include <QStatusBar>
 #include <QToolButton>
-
-// 方向76 删除了旧的 ErrorHistoryDock。错误历史只剩 attachErrorHub 挂上的
-// ErrorHistoryPanel。这个入口留着，是为了 buildPageDocks 的调用序不变。
-void PaleoMainWindow::buildErrorHistoryDock()
-{
-}
 
 // 状态栏错误胶囊（点击唤出错误历史面板）+ ErrorHub 计数同步。原 buildShell
 // 的两段（状态钮 960-975 / hub 同步 1013-1029）合并入本函数：两段间原有的

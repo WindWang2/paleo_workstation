@@ -528,6 +528,7 @@ target_link_libraries(paleo_io PUBLIC paleo_deps paleo_domain paleo_store)
 add_library(paleo_services STATIC
   src/services/toolavailability.cpp
   src/services/previewdoc.cpp                       # W1 数据页唯一数据门面
+  src/services/previewdoc_xml.cpp
   src/services/previewdoc_survey.cpp                # 完整测区范围后台恢复
   src/services/singlefactordef.cpp                  # m2：单因素定义注册表
   src/services/algoparamschema.cpp                  # m2：算法参数 schema 注册表
@@ -562,6 +563,9 @@ add_library(paleo_linkage STATIC
 target_link_libraries(paleo_linkage PUBLIC paleo_deps paleo_services paleo_qgis paleo_domain)
 
 add_library(paleo_workflow STATIC
+  src/workflow/officepreviewsession.cpp
+  src/workflow/projectlayerrefresh.cpp
+  src/workflow/xmlpreviewsession.cpp
   src/workflow/stratigraphicwebsession.cpp
   src/workflow/mappingworkbench.cpp
   src/workflow/workflows.cpp
@@ -601,6 +605,8 @@ target_link_libraries(paleo_workflow PUBLIC paleo_deps paleo_qgis paleo_store pa
 
 # ---- 视图层 ----
 add_library(paleo_ui STATIC
+  src/ui/datapreview/officepreviewwidget.cpp
+  src/ui/datapreview/datapreviewtabxml.cpp
   src/ui/notifications/notificationcenter.cpp      # 方向64：错误呈现（通知卡/severe 模态/状态栏）
   src/ui/notifications/toastcard.cpp               # 方向64：通知卡（预建池复用）
   src/ui/notifications/paleonotify.cpp             # 方向64：视图层错误/确认统一出口
@@ -675,6 +681,7 @@ add_library(paleo_ui STATIC
   src/ui/datapreview/datapreviewtabwelllog.cpp      # 方向20 轮4：well_log 预览分支析出
   src/ui/datapreview/datapreviewtabimage.cpp         # 方向20 轮4：image_reference 分支析出
   src/ui/datapreview/datapreviewtabgeojson.cpp        # 方向20 轮4：geojson 分支析出
+  src/ui/datapreview/datapreviewtabworkbook.cpp       # outsource_workbook 原生表格预览 + LO 打开
   src/ui/datapreview/datapreviewtabmapproduct.cpp     # 成果图件（相栅格/相面矢量/单因素）分支析出
   src/ui/datapreview/previewmappage.cpp            # P2 D1.x/D3.x 预览地图组合页（工具条/状态条/侧栏/鹰眼/书签）
   src/ui/datapreview/previewtocpanel.cpp           # P2 D4.x 迷你 TOC + 符号快调 + 图例
@@ -948,6 +955,8 @@ endif()
 # docs/progress/devex.md 对比表；单参 = 伞式旧式契约，保留 5 个作为兼容样本）----
 add_paleo_test(tst_runtime LIBS paleo_qgis)                 # metadata,qgis
 add_paleo_test(tst_projectsvc LIBS paleo_qgis)              # metadata,qgis
+add_paleo_test(tst_background_open LIBS paleo_workflow)
+add_paleo_test(tst_officepreview LIBS paleo_ui)
 add_paleo_test(tst_layerservice LIBS paleo_qgis)            # catalog,metadata,qgis
 add_paleo_test(tst_canvas_tools LIBS paleo_services paleo_qgis) # metadata,qgis,services
 add_paleo_test(tst_domain LIBS paleo_domain)
@@ -1035,6 +1044,7 @@ add_paleo_test(tst_dlisparser LIBS paleo_io)          # 方向44：DLIS (RP66 v1
 add_paleo_test(tst_lisparser LIBS paleo_io)           # 方向44：LIS79 全集读口
 add_paleo_test(tst_lasperf LIBS paleo_io)    # 方向21：LAS 读面比率门探针（同进程参照实现）
 add_paleo_test(tst_snapshot_dedup LIBS paleo_io) # #84：快照/活对象 dedup 复核同一语义（真重哈希）
+add_paleo_test(tst_shacache LIBS paleo_io) # setDiskFile 换绑不得把在途哈希写入新 sha.json
 add_paleo_test(tst_constraintstore LIBS paleo_workflow)
 add_paleo_test(tst_constraintediting LIBS paleo_ui)
 add_paleo_test(tst_shapetools LIBS paleo_ui)

@@ -12,6 +12,7 @@
 #include <QElapsedTimer>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+#include <QTimer>
 
 #include "../src/ui/correlationpanel.h"
 #include "../src/linkage/selectioncontext.h"
@@ -60,6 +61,67 @@ class TestCorrelationAsync : public QObject
     void initTestCase()
     {
       qRegisterMetaType<QString>("QString");
+    }
+
+    void manyWellsYieldBetweenResults()
+    {
+      SelectionContext ctx;
+      PaleoTaskService svc;
+      WellCorrelationPanel panel(&ctx);
+      panel.setTaskService(&svc);
+      QList<QPair<QString, QString>> wells;
+      for (int i = 0; i < 12; ++i) wells.append({QString::number(i), QString::number(i)});
+      panel.setWells(wells);
+      QTemporaryDir dir;
+      const QString las = dir.filePath(QStringLiteral("batch.las"));
+      QVERIFY(PerfFixtures::makeSyntheticLas(las, 200));
+      int received = 0;
+      connect(&panel, &WellCorrelationPanel::lasLoadFinished, this, [&](const QString &, bool ok) {
+        QVERIFY(ok);
+        QTest::qSleep(25); // 同批多井结果触发较重 GUI 消费者。
+        ++received;
+      });
+      for (const auto &well : wells) QVERIFY(panel.loadWellLas(well.first, las, "GR"));
+      QTest::qSleep(100);
+      QElapsedTimer clock; clock.start();
+      qint64 previous = 0, maximumGap = 0;
+      int ticks = 0;
+      QTimer heartbeat; heartbeat.setInterval(10);
+      connect(&heartbeat, &QTimer::timeout, this, [&] {
+        const auto now = clock.elapsed();
+        maximumGap = qMax(maximumGap, now - previous); previous = now; ++ticks;
+      });
+      heartbeat.start();
+      QTRY_COMPARE_WITH_TIMEOUT(received, 12, 10000);
+      QVERIFY(ticks > 4);
+      QVERIFY2(maximumGap < 200, qPrintable(QString("UI heartbeat gap: %1 ms").arg(maximumGap)));
+      for (const auto &well : wells) {
+        QVERIFY(!panel.isLasLoadPending(well.first));
+        QCOMPARE(panel.wellTrackMnemonics(well.first), QStringList{QStringLiteral("GR")});
+      }
+    }
+
+    void resetDropsResultsWaitingForGui()
+    {
+      SelectionContext ctx;
+      PaleoTaskService svc;
+      WellCorrelationPanel panel(&ctx);
+      panel.setTaskService(&svc);
+      panel.setWells({{"1", "1"}, {"2", "2"}, {"3", "3"}});
+      QTemporaryDir dir;
+      const QString las = dir.filePath(QStringLiteral("reset.las"));
+      QVERIFY(PerfFixtures::makeSyntheticLas(las, 200));
+      QSignalSpy done(&panel, &WellCorrelationPanel::lasLoadFinished);
+      connect(&panel, &WellCorrelationPanel::lasLoadFinished, &panel,
+              [&] { panel.resetProject(); });
+      for (int i = 1; i <= 3; ++i) QVERIFY(panel.loadWellLas(QString::number(i), las, "GR"));
+      QTest::qSleep(100);
+      QTRY_COMPARE(done.count(), 1);
+      QTRY_COMPARE(svc.runningCount(), 0);
+      QTest::qWait(100);
+      QCOMPARE(done.count(), 1);
+      QCOMPARE(panel.wellCount(), 0);
+      QVERIFY(!panel.hasCurves());
     }
 
     // 无任务服务：同步旧路径的返回值语义保持（正/负例）。

@@ -14,6 +14,7 @@
 #include "versiondialog.h"
 #include "pendinglinkdialog.h"
 #include "importledgerdialog.h"
+#include "wellattachmentpanel.h"
 #include "../dialogs/cataloghealthdialog.h"
 #include "../dialogs/storagegovernancedialog.h"
 
@@ -267,6 +268,9 @@ void DataListPanel::loadStoresForCatalog()
   m_ctx.assetOverrides = &m_typeOv;
   m_ctx.entityOverrides = &m_entityOv;
   m_ctx.recycle = &m_recycle;
+  // 面板跨工程复用。对象换了才改绑；原地 open 的目录由 refresh 现查。
+  if (m_attachments)
+    m_attachments->setCatalog(cat);
 }
 
 void DataListPanel::rebuildRowSnapshot()

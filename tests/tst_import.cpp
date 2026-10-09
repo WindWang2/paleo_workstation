@@ -2113,10 +2113,9 @@ private slots:
 
     const QString root = tmp.filePath(QStringLiteral("area"));
     QVERIFY(QDir().mkpath(root));
-    // 路径段没有任何语义 → 分类器落 tabular；内容却是合法井口表。
+    // 无语义路径 + 无表头 → 分类器落 tabular；固定列记录仍是合法井口表。
     const QString headsPath = QDir(root).filePath(QStringLiteral("zheads.dat"));
     QVERIFY(writeFile(headsPath, QByteArrayLiteral(
-        "#WellHead File From SMI\n#Name X Y KB TD\n"
         "B2  3.0  4.0  0.0  2100.0\n")));
     // LAS 按文件名排在 zheads.dat 前；不管顺序如何它是阶段 2，能不能挂上
     // 取决于 zheads.dat 是不是阶段 1。

@@ -1,0 +1,31 @@
+--- a/filters/sheets/xlsx/XlsxXmlWorksheetReader.cpp
++++ b/filters/sheets/xlsx/XlsxXmlWorksheetReader.cpp
+@@ -1332,6 +1332,28 @@
+         if (isStartElement()) {
+             TRY_READ_IF(f)
+             ELSE_TRY_READ_IF(v)
++            else if (name() == QLatin1String("is")) {
++                // Inline strings are used by common XLSX writers. Collect their
++                // text runs while skipping phonetic annotations, not the cell.
++                int depth = 1;
++                while (!atEnd() && depth > 0) {
++                    readNext();
++                    if (isStartElement()) {
++                        ++depth;
++                        if (name() == QLatin1String("t")) {
++                            m_value += readElementText(QXmlStreamReader::SkipChildElements);
++                            --depth;
++                        } else if (name() == QLatin1String("rPh")) {
++                            skipCurrentElement();
++                            --depth;
++                        }
++                    } else if (isEndElement()) {
++                        --depth;
++                    }
++                }
++                if (hasError())
++                    return KoFilter::ParsingError;
++            }
+             SKIP_UNKNOWN
+         }
+     }

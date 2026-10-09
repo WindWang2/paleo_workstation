@@ -7,9 +7,15 @@ target_sources(paleo_io PRIVATE src/io/cuttingsdoc.cpp)
 target_sources(paleo_store PRIVATE src/metadata/wellsectionstore.cpp)
 target_sources(paleo_qgis PRIVATE src/qgis/wellsectionmapband.cpp)
 target_link_libraries(paleo_store PUBLIC paleo_domain)
+# 方向 98 ⑤：wellsectionscene 按域分 TU（columns/images/seismicgap/faults，
+# 共享 internal.h——零改动拆分）。
 target_sources(paleo_ui PRIVATE
   src/ui/wellsection/wellsectionstyle.cpp
   src/ui/wellsection/wellsectionscene.cpp
+  src/ui/wellsection/wellsectionscene_columns.cpp
+  src/ui/wellsection/wellsectionscene_images.cpp
+  src/ui/wellsection/wellsectionscene_seismicgap.cpp
+  src/ui/wellsection/wellsectionscene_faults.cpp
   src/ui/wellsection/wellsectionpanel.cpp
   src/ui/wellsection/wellsectiondialogs.cpp
   src/ui/wellsection/fencewidget.cpp

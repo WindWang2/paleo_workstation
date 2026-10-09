@@ -2254,7 +2254,7 @@
     "reason": "DESIGN 数据符号例外：纸面地层/岩性图未知值的灰色占位符号。"
   },
   {
-    "file": "src/ui/wellsection/wellsectionscene.cpp",
+    "file": "src/ui/wellsection/wellsectionscene_seismicgap.cpp",
     "rule": "hex",
     "source": "p->setPen(QColor(QStringLiteral(\"#7A7A7A\")));",
     "count": 1,
@@ -2506,7 +2506,7 @@
     "reason": "DESIGN 数据符号例外：导出图例色板描边中性灰。"
   },
   {
-    "file": "src/ui/wellsection/wellsectionscene.cpp",
+    "file": "src/ui/wellsection/wellsectionscene_columns.cpp",
     "rule": "rgb",
     "source": "p->fillRect(band, QColor(217, 222, 228));",
     "count": 1,

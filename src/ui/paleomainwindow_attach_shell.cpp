@@ -4,8 +4,6 @@
 
 #include "paleoicons.h"
 #include "paleoribbon.h"
-#include "notifications/errorhistorypanel.h"   // 方向64
-#include "notifications/notificationcenter.h"  // 方向64
 #include "../qgis/qgiscanvascontroller.h"
 #include "../qgis/qgisprojectservice.h"
 #include "../qgis/qgislayerservice.h"
@@ -649,30 +647,6 @@ void PaleoMainWindow::attachAiAssistant(AiChatController *controller)
               statusBar()->showMessage(
                 error.isEmpty() ? tr("删除会话失败") : error, 6000);
           });
-}
-
-// 方向64：错误呈现接线。ErrorHub 由 AppContext 持有并 installGlobal；这里只把
-// 呈现层与历史面板挂到本窗口（视图层不持有服务生命周期）。
-void PaleoMainWindow::attachErrorHub(ErrorHub *hub)
-{
-  if (!hub || m_notifications)
-    return;
-  m_notifications = new NotificationCenter(this, hub);
-  m_notifications->setStatusBar(statusBar());
-  auto *panel = new ErrorHistoryPanel(hub, this);
-  m_errorHistoryPanelDock = new PaleoDockWidget(tr("错误历史"), this);
-  m_errorHistoryPanelDock->setObjectName(QStringLiteral("errorHistoryDock"));
-  m_errorHistoryPanelDock->setWidget(panel);
-  addDockWidget(Qt::BottomDockWidgetArea, m_errorHistoryPanelDock);
-  m_errorHistoryPanelDock->hide(); // 按需唤出（布局与面板菜单 / showErrorHistory）
-}
-
-void PaleoMainWindow::showErrorHistory()
-{
-  if (!m_errorHistoryPanelDock)
-    return;
-  m_errorHistoryPanelDock->show();
-  m_errorHistoryPanelDock->raise();
 }
 
 void PaleoMainWindow::showAttributeTable(const QString &layerId) {

@@ -3,6 +3,7 @@
 #include "../qgis/wellattributestore.h"
 #include "../services/errorhub.h"                 // 方向64：统一错误通道
 #include "aiwiring.h"                          // 方向51：远端预测装配（唯一入口）
+#include "onnxwiring.h"                         // 方向83：ONNX 模型注册表装配
 #include "../ai/remotepredictconfig.h"
 #include "../ai/chat/llmclient.h"              // 方向51：LLM 配置 + 助手编排
 #include "../ai/chat/llmkeystore.h"
@@ -502,32 +503,9 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
               m_faciesMappingWf->rebind(derivedCatalog, fi.absolutePath());
               m_faciesMappingWf->setConstraintStore(m_constraintWf->constraintStore());
             }
-#if PALEO_HAVE_ORT
-            // onnx:* 模型按层位钉在 <工程目录>/models/*.onnx。
-            if (m_onnxSvc)
-            {
-              const QString modelsDir =
-                fi.absoluteDir().filePath(QStringLiteral("models"));
-              m_onnxSvc->setModelRoot(modelsDir);
-              // 模型注册表如实扫描（范围5）：未装模型静默降级；manifest 在而
-              // 坏/缺文件/指纹不符 → 消息日志逐条说明，不报错轰炸。
-              const ModelRegistryScan registry = ModelRegistry::scan(modelsDir);
-              // #145：扫描结果门控模型可见性与加载（只放行 status==Ok；加载时复核钉哈希）。
-              m_onnxSvc->setModelRegistry(registry);
-              if (!registry.manifestFound)
-                QgsMessageLog::logMessage(
-                  tr("未装模型：%1 无 manifest.json——AI 辅助按无模型降级").arg(modelsDir),
-                  QStringLiteral("Paleo"));
-              if (!registry.manifestError.isEmpty())
-                QgsMessageLog::logMessage(registry.manifestError, QStringLiteral("Paleo"),
-                                          Qgis::Critical);
-              for (const ModelRegistryEntry &e : registry.entries)
-                if (e.status != ModelRegistryEntry::Status::Ok)
-                  QgsMessageLog::logMessage(
-                    tr("模型 %1: %2 (%3)").arg(e.name, ModelRegistry::statusLabel(e.status), e.detail),
-                    QStringLiteral("Paleo"), Qgis::Warning);
-            }
-#endif
+            // onnx:* 模型注册表装配（方向 83 抽至 app/onnxwiring——纯函数，
+            // 行为/调用位原样；无 ORT 构建为空实现）。
+            paleo::app::installOnnxModelsOnOpen(m_onnxSvc, fi.absolutePath());
 
             // wave/mapping-pipeline：版本存储重绑到本工程 meta 库；读侧门面
             // 接上数据底座的 catalog（<工程目录>/artifacts/metadata/catalog.json）。

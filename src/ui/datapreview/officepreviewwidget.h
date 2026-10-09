@@ -12,7 +12,7 @@ class OfficePreviewWidget : public QWidget
 public:
   explicit OfficePreviewWidget(const QString &path, const QString &expectedSha = {}, QWidget *parent = nullptr);
   ~OfficePreviewWidget() override;
-  void showMessage(const QString &text);
+  void showMessage(const QString &text, bool error = false);
 signals:
   void editSaved(const QString &path);
   void previewClosed();
@@ -23,4 +23,5 @@ private:
   WebViewPanel *m_web;
   QLabel *m_status;
   QPushButton *m_retry;
+  bool m_statusIsError = false;
 };

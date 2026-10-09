@@ -13,7 +13,7 @@ class QTcpSocket;
 class QTemporaryDir;
 
 // 本机静态页托管 ranuts/document（OnlyOffice WASM）。只绑定 127.0.0.1，
-// 一次只暴露当前原件。保存写入临时文件，不覆盖原件，也不转 PDF。
+// 一次只暴露当前原件的私有副本。保存写入临时文件，不覆盖原件，也不转 PDF。
 class OfficePreviewSession : public QObject
 {
   Q_OBJECT
@@ -51,6 +51,7 @@ private:
   QString m_token;
   QString m_documentPath;
   QString m_editorRoot;
+  std::shared_ptr<QTemporaryDir> m_sourceCopy;
   std::shared_ptr<QTemporaryDir> m_saves;
   std::shared_ptr<std::atomic_bool> m_verificationCancelled;
   quint64 m_generation = 0;

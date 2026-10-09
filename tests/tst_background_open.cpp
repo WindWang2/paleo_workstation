@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <QCoreApplication>
 #include <QFutureWatcher>
 #include <QSemaphore>
 #include <QScopeGuard>
@@ -15,6 +16,15 @@
 #include "../src/workflow/sectionworkbench.h"
 #include "../src/io/perffixtures.h"
 #include "../src/workflow/xmlpreviewsession.h"
+
+namespace {
+bool namedWatcherBusy(const QObject *owner, const QString &name)
+{
+  for (auto *watcher : owner->findChildren<QFutureWatcherBase *>(name))
+    if (!watcher->isFinished()) return true;
+  return false;
+}
+}
 
 class TestBackgroundOpen : public QObject {
   Q_OBJECT
@@ -38,22 +48,21 @@ private slots:
     int ticks = 0; QTimer heartbeat; heartbeat.setInterval(2);
     connect(&heartbeat, &QTimer::timeout, this, [&] { ++ticks; }); heartbeat.start();
     bool ready = false; SectionWorkbench::PreviewData result;
-    QElapsedTimer elapsed; elapsed.start();
     work.requestPreviewData([&](const auto &data) { result = data; ready = true; });
-    QVERIFY2(elapsed.elapsed() < 50, "Section well preparation blocked the owner thread");
     QVERIFY(!ready);
+    const int ticksAtRequest = ticks;
+    const auto previewName = QStringLiteral("sectionWellPreviewWatcher");
+    QTRY_VERIFY_WITH_TIMEOUT((namedWatcherBusy(&work, previewName) && ticks > ticksAtRequest), 30000);
     QTRY_VERIFY_WITH_TIMEOUT(ready, 30000);
     QVERIFY(ticks > 2); QCOMPARE(result.wells.size(), 1);
     QCOMPARE(result.sectionWells.size(), size_t(1));
     QVERIFY(!result.sectionWells[0].curves.empty());
-    ready = false; work.requestPreviewData([&](const auto &) { ready = true; }); work.cancelPreviewData();
-    const auto idle = [&work] {
-      for (auto *watcher : work.findChildren<QFutureWatcherBase *>())
-        if (watcher->isRunning()) return false;
-      return true;
-    };
-    QTRY_VERIFY_WITH_TIMEOUT(idle(), 30000);
-    QTest::qWait(50); QVERIFY(!ready);
+    ready = false; work.requestPreviewData([&](const auto &) { ready = true; });
+    QVERIFY(work.findChild<QFutureWatcherBase *>(previewName));
+    work.cancelPreviewData();
+    QTRY_VERIFY_WITH_TIMEOUT((!namedWatcherBusy(&work, previewName)), 30000);
+    QCoreApplication::processEvents();
+    QVERIFY(!ready);
     QCOMPARE(DataCatalog::threadViolationCount(), 0);
   }
   void xmlPreviewIsDeferredAndGenericListIsBounded() {
@@ -95,8 +104,36 @@ private slots:
     const auto data = qvariant_cast<ProjectLayerData>(ready.first().at(2));
     QVERIFY(data.wellsPrepared); QVERIFY(data.wellsBytes.contains("well-1"));
     QVERIFY(!QFileInfo::exists(directory.filePath("artifacts/layers/wells.geojson")));
-    ready.clear(); refresh.request(&catalog, directory.path()); refresh.cancel();
-    QTest::qWait(100); QCOMPARE(ready.count(), 0);
+    ready.clear(); refresh.request(&catalog, directory.path());
+    const auto refreshName = QStringLiteral("projectLayerRefreshWatcher");
+    QVERIFY(refresh.findChild<QFutureWatcherBase *>(refreshName));
+    refresh.cancel();
+    QTRY_VERIFY_WITH_TIMEOUT((!namedWatcherBusy(&refresh, refreshName)), 30000);
+    QCoreApplication::processEvents();
+    QCOMPARE(ready.count(), 0);
+  }
+  void singleCatalogMutationPublishesCurrentSequence() {
+    QTemporaryDir directory;
+    DataCatalog catalog; QVERIFY(catalog.open(directory.path()));
+    ProjectLayerRefreshWorkflow refresh;
+    QSignalSpy ready(&refresh, &ProjectLayerRefreshWorkflow::prepared);
+    connect(&catalog, &DataCatalog::changed, &refresh, [&] {
+      refresh.request(&catalog, directory.path());
+    }, Qt::DirectConnection);
+    CatalogEntity entity; entity.id = "well-1"; entity.entityType = "well"; entity.name = "A1";
+    entity.hasSurface = true; entity.surfaceX = 12; entity.surfaceY = 34;
+    QVERIFY(catalog.addEntity(entity));
+    const quint64 sequence = catalog.mutationSeq();
+    QTRY_COMPARE_WITH_TIMEOUT(ready.count(), 1, 30000);
+    const auto refreshName = QStringLiteral("projectLayerRefreshWatcher");
+    QTRY_VERIFY_WITH_TIMEOUT((!namedWatcherBusy(&refresh, refreshName)), 30000);
+    QCoreApplication::processEvents();
+    QCOMPARE(ready.count(), 1);
+    QCOMPARE(ready.first().at(1).toULongLong(), sequence);
+    QCOMPARE(catalog.mutationSeq(), sequence);
+    const auto data = qvariant_cast<ProjectLayerData>(ready.first().at(2));
+    QVERIFY(data.wellsPrepared); QVERIFY(data.wellsBytes.contains("well-1"));
+    QVERIFY(data.trajectoriesPrepared);
   }
   void preparedCatalogRetainsOwnerAndCanSave() {
     QTemporaryDir directory;

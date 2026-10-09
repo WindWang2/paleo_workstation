@@ -58,6 +58,7 @@ class ShaCache
     QHash<QString, QString> m_disk;      // canonical path -> "mtimeMs|size|sha"
     QHash<QString, qint64> m_diskAge;    // canonical path -> 最近命中 ms（LRU 收缩）
     QString m_diskFile;
+    quint64 m_diskGeneration = 0; // 每次 setDiskFile 递增
     bool m_diskPending = false;
     int m_memLimit = 16384;
     int m_diskLimit = 65536;

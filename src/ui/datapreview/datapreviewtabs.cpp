@@ -1132,7 +1132,7 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       if (OfficePreviewSession::commitEdit(m_doc->catalog(), editAsset, editParent, saved, &error))
         office->showMessage(tr("已另存为工程中的新版本，原件未改"));
       else
-        office->showMessage(error);
+        office->showMessage(error, true);
     });
     lay->addWidget(office, 1);
     return host;

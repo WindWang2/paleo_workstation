@@ -5,6 +5,7 @@
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
+#include <QFutureWatcher>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QPushButton>
@@ -80,11 +81,20 @@ private slots:
     Env env("PALEO_OFFICE_EDITOR", m_editor.path().toUtf8());
     OfficePreviewSession session;
     QSignalSpy failed(&session, &OfficePreviewSession::failed);
+    QSignalSpy ready(&session, &OfficePreviewSession::ready);
     session.open(QStringLiteral("/does-not-exist.docx"));
     session.stop();
-    QTest::qWait(100);
+    const auto idle = [&session] {
+      for (auto *watcher : session.findChildren<QFutureWatcherBase *>())
+        if (!watcher->isFinished()) return false;
+      return true;
+    };
+    QTRY_VERIFY_WITH_TIMEOUT(idle(), 5000);
+    QCoreApplication::processEvents(QEventLoop::AllEvents);
     QCOMPARE(failed.count(), 0);
+    QCOMPARE(ready.count(), 0);
     QVERIFY(session.endpoint().isEmpty());
+    QVERIFY(session.documentUrl().isEmpty());
   }
   void shaMismatchCannotLaunch() {
     Env env("PALEO_OFFICE_EDITOR", m_editor.path().toUtf8());

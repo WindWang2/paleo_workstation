@@ -2,10 +2,51 @@
 #include "imagelod.h"
 
 #include <QBrush>
+#include <QCoreApplication>
+#include <QFutureWatcher>
 #include <QImageReader>
+#include <QObject>
+#include <QSet>
+#include <QThread>
+#include <QtConcurrent>
 
 namespace paleo::imagelod
 {
+
+namespace
+{
+
+std::function<void()> g_fullLoadHook;
+
+// 解码在途表与代际。只在 GUI 线程读写（requestDecode / 完成回调 / clear）。
+struct DecodeState
+{
+  QSet<QString> pending;
+  quint64 epoch = 0;
+};
+
+DecodeState &decodeState()
+{
+  static DecodeState state;
+  return state;
+}
+
+// 完成回调的投递目标。挂在 QCoreApplication 上，跟 GUI 线程走。
+QObject *decodeHub()
+{
+  QCoreApplication *app = QCoreApplication::instance();
+  if (!app || QThread::currentThread() != app->thread())
+    return nullptr;
+  static QObject *hub = new QObject(app);
+  return hub;
+}
+
+} // namespace
+
+void setFullLoadHook(std::function<void()> hook)
+{
+  g_fullLoadHook = std::move(hook);
+}
 
 TrackImage loadThumbnail(const QString &path, int edge)
 {
@@ -40,6 +81,8 @@ TrackImage loadThumbnail(const QString &path, int edge)
 
 QImage loadFull(const QString &path)
 {
+  if (g_fullLoadHook)
+    g_fullLoadHook();
   QImageReader reader(path);
   reader.setAutoTransform(true);
   return reader.read();
@@ -50,36 +93,91 @@ QImage FullImageCache::peek(const QString &key) const
   return m_map.value(key);
 }
 
+void FullImageCache::touch(const QString &key)
+{
+  const qsizetype idx = m_order.indexOf(key);
+  if (idx >= 0)
+    m_order.removeAt(idx);
+  m_order.append(key);
+}
+
 QImage FullImageCache::acquire(const QString &key, const QString &path)
 {
   const auto it = m_map.constFind(key);
   if (it != m_map.constEnd())
   {
-    const qsizetype idx = m_order.indexOf(key);
-    if (idx >= 0)
-    {
-      m_order.removeAt(idx);
-      m_order.append(key);
-    }
+    touch(key);
     return it.value();
   }
   const QImage img = loadFull(path);
   if (img.isNull())
     return img; // 装载失败不占额（下次触发重试——文件可能已恢复）
-  m_order.append(key);
+  store(key, img);
+  return img;
+}
+
+void FullImageCache::store(const QString &key, const QImage &img)
+{
+  if (key.isEmpty() || img.isNull())
+    return;
   m_map.insert(key, img);
+  touch(key);
   while (m_order.size() > LodPolicy::kFullCacheEntries)
   {
     m_map.remove(m_order.front());
     m_order.removeFirst();
   }
-  return img;
+}
+
+bool FullImageCache::requestDecode(const QString &key, const QString &path,
+                                   std::function<void(const QImage &)> done)
+{
+  if (key.isEmpty() || path.isEmpty() || !done)
+    return false;
+  QObject *hub = decodeHub();
+  if (!hub)
+    return false;
+  DecodeState &st = decodeState();
+  if (st.pending.contains(key))
+    return false;
+  st.pending.insert(key);
+  const quint64 epoch = st.epoch;
+  auto *watcher = new QFutureWatcher<QImage>(hub);
+  // QueuedConnection：即使 future 已在 setFuture 时完成，也不在绘制栈里
+  // 跑 done（done 会 fromImage / update）。
+  QObject::connect(
+      watcher, &QFutureWatcher<QImage>::finished, hub,
+      [watcher, key, epoch, done = std::move(done)]() {
+        const QImage img = watcher->result();
+        watcher->deleteLater();
+        DecodeState &state = decodeState();
+        if (state.epoch != epoch)
+          return; // clear() 已作废这一代；pending 已清空
+        // 回调返回前保持 pending，重入绘制不会再排一次。
+        done(img);
+        if (state.epoch == epoch)
+          state.pending.remove(key);
+      },
+      Qt::QueuedConnection);
+  watcher->setFuture(QtConcurrent::run([path]() -> QImage {
+    // 工作线程只产 QImage。QPixmap 与 FullImageCache 都不是线程安全的。
+    return loadFull(path);
+  }));
+  return true;
+}
+
+bool FullImageCache::isDecodePending(const QString &key) const
+{
+  return decodeState().pending.contains(key);
 }
 
 void FullImageCache::clear()
 {
   m_order.clear();
   m_map.clear();
+  DecodeState &st = decodeState();
+  st.pending.clear();
+  ++st.epoch;
 }
 
 FullImageCache &FullImageCache::shared()

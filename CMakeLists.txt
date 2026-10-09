@@ -1044,6 +1044,7 @@ add_paleo_test(tst_dlisparser LIBS paleo_io)          # 方向44：DLIS (RP66 v1
 add_paleo_test(tst_lisparser LIBS paleo_io)           # 方向44：LIS79 全集读口
 add_paleo_test(tst_lasperf LIBS paleo_io)    # 方向21：LAS 读面比率门探针（同进程参照实现）
 add_paleo_test(tst_snapshot_dedup LIBS paleo_io) # #84：快照/活对象 dedup 复核同一语义（真重哈希）
+add_paleo_test(tst_shacache LIBS paleo_io) # setDiskFile 换绑不得把在途哈希写入新 sha.json
 add_paleo_test(tst_constraintstore LIBS paleo_workflow)
 add_paleo_test(tst_constraintediting LIBS paleo_ui)
 add_paleo_test(tst_shapetools LIBS paleo_ui)

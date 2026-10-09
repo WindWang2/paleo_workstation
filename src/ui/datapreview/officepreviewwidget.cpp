@@ -8,6 +8,14 @@
 #include <QPushButton>
 #include <QVBoxLayout>
 
+namespace {
+QString officeStatusStyleSheet(bool error)
+{
+  if (!error) return PaleoTheme::mutedCaptionStyleSheet();
+  return QStringLiteral("color: %1;").arg(PaleoTheme::tokens().errorText.name().toUpper());
+}
+}
+
 OfficePreviewWidget::OfficePreviewWidget(const QString &path, const QString &expectedSha, QWidget *parent)
     : QWidget(parent), m_path(path), m_sha(expectedSha), m_session(new OfficePreviewSession(this)),
       m_web(new WebViewPanel(this)), m_status(new QLabel(this)), m_retry(new QPushButton(tr("重试"), this))
@@ -22,7 +30,7 @@ OfficePreviewWidget::OfficePreviewWidget(const QString &path, const QString &exp
   m_status->setWordWrap(true);
   m_status->setAlignment(Qt::AlignCenter);
   m_status->setAccessibleName(tr("编辑状态"));
-  PaleoTheme::applyThemedStyleSheet(m_status, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
+  PaleoTheme::applyThemedStyleSheet(m_status, [this] { return officeStatusStyleSheet(m_statusIsError); });
   m_retry->setObjectName(QStringLiteral("officeRetry"));
   m_retry->hide();
   auto *bar = new QHBoxLayout;
@@ -40,8 +48,10 @@ OfficePreviewWidget::OfficePreviewWidget(const QString &path, const QString &exp
     m_web->setUrl(url);
   });
   connect(m_session, &OfficePreviewSession::failed, this, [this](const QString &reason) {
-    showMessage(reason);
+    showMessage(reason, true);
     m_retry->show();
+    // 失败时清掉上一份页面，避免编辑区还停在旧原件上。
+    m_web->showError(QUrl(), reason);
   });
   connect(m_session, &OfficePreviewSession::documentSaved, this, [this](const QString &path) {
     showMessage(tr("已收到编辑内容"));
@@ -52,12 +62,12 @@ OfficePreviewWidget::OfficePreviewWidget(const QString &path, const QString &exp
       showMessage(QString());
     else
     {
-      showMessage(tr("文档页面没有打开"));
+      showMessage(tr("文档页面没有打开"), true);
       m_retry->show();
     }
   });
   connect(m_web, &WebViewPanel::loadFailed, this, [this](const QString &reason) {
-    showMessage(reason);
+    showMessage(reason, true);
     m_retry->show();
   });
   open();
@@ -69,9 +79,11 @@ OfficePreviewWidget::~OfficePreviewWidget()
   emit previewClosed();
 }
 
-void OfficePreviewWidget::showMessage(const QString &text)
+void OfficePreviewWidget::showMessage(const QString &text, bool error)
 {
+  m_statusIsError = error;
   m_status->setText(text);
+  m_status->setStyleSheet(officeStatusStyleSheet(error));
   m_status->setVisible(!text.isEmpty());
 }
 

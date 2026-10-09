@@ -4,11 +4,18 @@
 //     非法输入拒收列因（状态行文案）并回滚；空输入不是清锚
 //   · 清除锚定：显式按钮 → extra 删除、#history 保留
 //   · 移除 = 软删意图信号（磁盘文件仍在——断言）
+//   · 换工程：refresh 用 catalog 当前 projectDir；RecycleBin::load 不残留旧软删
+//   · 锚深对话框：非法输入不接受；清锚与 m/米 后缀按真实 API
 #include <QtTest>
 #include <QApplication>
 #include <QComboBox>
+#include <QDialogButtonBox>
+#include <QDir>
 #include <QFile>
+#include <QFileInfo>
+#include <QImage>
 #include <QLabel>
+#include <QLineEdit>
 #include <QMessageBox>
 #include <QPointer>
 #include <QPushButton>
@@ -18,6 +25,7 @@
 #include <QTimer>
 
 #include "../src/catalog/datacatalog.h"
+#include "../src/ui/dialogs/depthanchordialog.h"
 #include "../src/ui/pages/wellattachmentpanel.h"
 #include "../src/ui/pages/dataops/dataopsmodel.h"
 
@@ -142,6 +150,114 @@ void acceptModalNextTick()
   });
 }
 
+// 受管相对路径（两工程同名 photos/shot.png）。解析结果取决于 projectDir。
+bool seedManagedShot(DataCatalog &cat, const QString &projectDir, QRgb color,
+                     QString *err)
+{
+  const QString rel = QStringLiteral("photos/shot.png");
+  const QString abs = QDir(projectDir).filePath(rel);
+  if (!QDir().mkpath(QFileInfo(abs).absolutePath()))
+  {
+    if (err)
+      *err = QStringLiteral("mkpath failed");
+    return false;
+  }
+  QImage img(8, 8, QImage::Format_RGB32);
+  img.fill(color);
+  if (!img.save(abs, "PNG"))
+  {
+    if (err)
+      *err = QStringLiteral("png save failed");
+    return false;
+  }
+  CatalogEntity e;
+  e.id = QStringLiteral("well-1");
+  e.entityType = QStringLiteral("well");
+  e.name = QStringLiteral("A1");
+  if (!cat.addEntity(e, err))
+    return false;
+  CatalogAsset a;
+  a.id = QStringLiteral("ast-shot");
+  a.type = QStringLiteral("image_reference");
+  a.displayName = QStringLiteral("shot.png");
+  if (!cat.addAsset(a, err))
+    return false;
+  CatalogVersion v;
+  v.id = QStringLiteral("v-shot");
+  v.assetId = a.id;
+  v.managed = true;
+  v.path = rel;
+  v.fileName = QStringLiteral("shot.png");
+  v.stage = QStringLiteral("RAW");
+  v.extra.insert(QStringLiteral("depthMd"), 100.0);
+  if (!cat.addVersion(v, err))
+    return false;
+  EntityAssetLink l;
+  l.entityId = e.id;
+  l.entityType = QStringLiteral("well");
+  l.role = QStringLiteral("core");
+  l.assetId = a.id;
+  return cat.addLink(l, err);
+}
+
+QString resolvedShotPath(const QString &projectDir)
+{
+  const QString root = QFileInfo(projectDir).canonicalFilePath();
+  return QDir(root).filePath(QStringLiteral("photos/shot.png"));
+}
+
+QString shownShotPath(const WellAttachmentPanel &panel)
+{
+  const QTableWidget *table = tableOf(panel);
+  if (!table || table->rowCount() < 1 || !table->item(0, 2))
+    return QString();
+  return table->item(0, 2)->data(Qt::UserRole + 2).toString();
+}
+
+// prompt() 是模态 exec。下一拍改输入并点按钮；非法 OK 不关闭，再 Cancel。
+struct DepthDrive
+{
+  QString text;
+  bool clear = false;
+  bool stayedOpen = false;
+  QString error;
+};
+
+void driveDepthPrompt(DepthDrive *drive)
+{
+  QTimer::singleShot(0, [drive] {
+    QWidget *m = QApplication::activeModalWidget();
+    if (!m || !drive)
+      return;
+    QPointer<QWidget> guard(m);
+    QTimer::singleShot(3000, m, [guard] {
+      if (guard && guard->isVisible())
+        guard->close();
+    });
+    if (drive->clear)
+    {
+      if (auto *b = m->findChild<QPushButton *>(QStringLiteral("depthAnchorClearBtn")))
+        b->click();
+      return;
+    }
+    if (auto *input = m->findChild<QLineEdit *>(QStringLiteral("depthAnchorInput")))
+      input->setText(drive->text);
+    auto *box = m->findChild<QDialogButtonBox *>();
+    if (!box)
+      return;
+    if (auto *ok = box->button(QDialogButtonBox::Ok))
+      ok->click();
+    drive->stayedOpen = m->isVisible();
+    if (auto *err = m->findChild<QLabel *>(QStringLiteral("depthAnchorError")))
+      drive->error = err->text();
+    if (m->isVisible())
+    {
+      if (auto *cancel = box->button(QDialogButtonBox::Cancel))
+        cancel->click();
+    }
+  });
+}
+
 } // namespace
 
 class TestWellAttachmentPanel : public QObject
@@ -155,7 +271,7 @@ class TestWellAttachmentPanel : public QObject
       paleo::dataops::RecycleBin recycle;
       recycle.load(&fx.cat);
 
-      WellAttachmentPanel panel(&fx.cat, fx.dir.path(), &recycle);
+      WellAttachmentPanel panel(&fx.cat, &recycle);
       panel.setWell(QStringLiteral("well-1"));
       QTableWidget *table = tableOf(panel);
       QVERIFY(table != nullptr);
@@ -281,6 +397,132 @@ class TestWellAttachmentPanel : public QObject
       QCOMPARE(v2.extra.value(QStringLiteral("depthMd")).toDouble(), 31868.62);
       QVERIFY(!fx.cat.versionById(QStringLiteral("v-ast-deep"))
                    .extra.contains(QStringLiteral("depthMd")));
+    }
+
+    void refreshUsesLiveProjectDir()
+    {
+      QTemporaryDir dirA;
+      QTemporaryDir dirB;
+      QTemporaryDir dirC;
+      QVERIFY(dirA.isValid() && dirB.isValid() && dirC.isValid());
+      DataCatalog cat;
+      DataCatalog catC;
+      QString err;
+      QVERIFY2(cat.open(dirA.path(), &err), qPrintable(err));
+      QVERIFY2(seedManagedShot(cat, dirA.path(), qRgb(200, 30, 30), &err),
+               qPrintable(err));
+      paleo::dataops::RecycleBin recycle;
+      recycle.load(&cat);
+      WellAttachmentPanel panel(&cat, &recycle);
+      panel.setWell(QStringLiteral("well-1"));
+      QCOMPARE(shownShotPath(panel), resolvedShotPath(dirA.path()));
+
+      // 同一 catalog 原地 open 到工程 B（相对路径相同）。
+      QVERIFY2(cat.open(dirB.path(), &err), qPrintable(err));
+      QVERIFY2(seedManagedShot(cat, dirB.path(), qRgb(30, 200, 30), &err),
+               qPrintable(err));
+      panel.refresh();
+      QCOMPARE(shownShotPath(panel), resolvedShotPath(dirB.path()));
+      QVERIFY(shownShotPath(panel) != resolvedShotPath(dirA.path()));
+
+      // loadStoresForCatalog 的改绑：换成另一个 catalog 对象。
+      QVERIFY2(catC.open(dirC.path(), &err), qPrintable(err));
+      QVERIFY2(seedManagedShot(catC, dirC.path(), qRgb(30, 30, 200), &err),
+               qPrintable(err));
+      panel.setCatalog(&catC);
+      panel.refresh();
+      QCOMPARE(shownShotPath(panel), resolvedShotPath(dirC.path()));
+    }
+
+    void recycleLoadDropsPreviousCatalog()
+    {
+      using namespace paleo::dataops;
+      QTemporaryDir dirA;
+      QTemporaryDir dirB;
+      QVERIFY(dirA.isValid() && dirB.isValid());
+      DataCatalog catA;
+      DataCatalog catB;
+      QString err;
+      QVERIFY2(catA.open(dirA.path(), &err), qPrintable(err));
+      QVERIFY2(catB.open(dirB.path(), &err), qPrintable(err));
+
+      RecycleBin bin;
+      bin.load(&catA);
+      bin.remove(QStringLiteral("ast-3"), QStringLiteral("image_reference"),
+                 QStringLiteral("a"), QStringLiteral("gone"));
+      QVERIFY(bin.save());
+      QVERIFY(bin.isRemoved(QStringLiteral("ast-3")));
+
+      RecycleBin other;
+      other.load(&catB);
+      other.remove(QStringLiteral("ast-9"), QStringLiteral("image_reference"),
+                   QStringLiteral("b"), QStringLiteral("gone"));
+      QVERIFY(other.save());
+
+      bin.load(&catB);
+      QVERIFY(!bin.isRemoved(QStringLiteral("ast-3")));
+      QVERIFY(bin.isRemoved(QStringLiteral("ast-9")));
+      QCOMPARE(bin.entries().size(), 1);
+
+      bin.load(&catA);
+      QVERIFY(bin.isRemoved(QStringLiteral("ast-3")));
+      QVERIFY(!bin.isRemoved(QStringLiteral("ast-9")));
+    }
+
+    void depthAnchorPromptValidation()
+    {
+      PaleoDepthAnchorDialog::Context ctx;
+      ctx.wellName = QStringLiteral("A1");
+      ctx.fileName = QStringLiteral("deep.png");
+      ctx.hasAnchor = true;
+      ctx.currentDepth = 1849.35;
+      ctx.anchorSource = QStringLiteral("manual");
+
+      const QStringList bad{QString(), QStringLiteral("abc"),
+                            QStringLiteral("100ft"), QStringLiteral("0")};
+      for (const QString &text : bad)
+      {
+        DepthDrive drive;
+        drive.text = text;
+        driveDepthPrompt(&drive);
+        PaleoDepthAnchorDialog::Result res;
+        const bool accepted = PaleoDepthAnchorDialog::prompt(nullptr, ctx, &res);
+        QVERIFY2(!accepted, qPrintable(text));
+        QVERIFY(!res.accepted);
+        QVERIFY(!res.clear);
+        QVERIFY2(drive.stayedOpen, qPrintable(text));
+        QVERIFY2(!drive.error.isEmpty(), qPrintable(text));
+      }
+
+      {
+        DepthDrive drive;
+        drive.clear = true;
+        driveDepthPrompt(&drive);
+        PaleoDepthAnchorDialog::Result res;
+        QVERIFY(PaleoDepthAnchorDialog::prompt(nullptr, ctx, &res));
+        QVERIFY(res.accepted);
+        QVERIFY(res.clear);
+      }
+      {
+        DepthDrive drive;
+        drive.text = QStringLiteral("1849.35 m");
+        driveDepthPrompt(&drive);
+        PaleoDepthAnchorDialog::Result res;
+        QVERIFY(PaleoDepthAnchorDialog::prompt(nullptr, ctx, &res));
+        QVERIFY(res.accepted);
+        QVERIFY(!res.clear);
+        QCOMPARE(res.depth, 1849.35);
+      }
+      {
+        DepthDrive drive;
+        drive.text = QStringLiteral("1850米");
+        driveDepthPrompt(&drive);
+        PaleoDepthAnchorDialog::Result res;
+        QVERIFY(PaleoDepthAnchorDialog::prompt(nullptr, ctx, &res));
+        QVERIFY(res.accepted);
+        QVERIFY(!res.clear);
+        QCOMPARE(res.depth, 1850.0);
+      }
     }
 };
 

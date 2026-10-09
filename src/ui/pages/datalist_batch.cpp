@@ -171,8 +171,7 @@ void DataListPanel::showWellAttachments(const QString &wellId)
     return;
   if (!m_attachments)
   {
-    m_attachments = new WellAttachmentPanel(
-        m_ctx.cat, m_ctx.cat->projectDir(), &m_recycle, this);
+    m_attachments = new WellAttachmentPanel(m_ctx.cat, &m_recycle, this);
     connect(m_attachments, &WellAttachmentPanel::removeRequested, this,
             [this](const QStringList &ids) {
               if (PaleoNotify::ask(

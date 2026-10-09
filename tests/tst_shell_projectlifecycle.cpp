@@ -527,6 +527,55 @@ private slots:
                  .startsWith(QDir::cleanPath(dirB.path())),
              "切工程后解释目录必须跟随新工程");
   }
+
+  // 接管已开始（进度 85、尚未取消）时路径仍空，但 writeProject 必须先撞上
+  // m_opening 守卫，而不是「没有工程路径」。
+  void saveDuringHandoffHitsOpeningGuard()
+  {
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto path = directory.filePath(QStringLiteral("handoff-save.qgz"));
+    QVERIFY2(m_ctx->projectSvc()->createProject(path),
+             qPrintable(m_ctx->projectSvc()->lastErrors().join(QLatin1Char(';'))));
+    m_ctx->closeProject();
+    QVERIFY(m_ctx->projectSvc()->projectPath().isEmpty());
+    QVERIFY(!m_ctx->projectSvc()->isOpening());
+
+    bool sawHandoff = false;
+    bool opening = false;
+    bool pathEmpty = false;
+    bool notCancelled = false;
+    bool writeRejected = false;
+    QStringList errors;
+    const auto connection = connect(m_ctx->projectSvc(), &QgisProjectService::openProgress, this,
+        [&](int percent, const QString &) {
+          if (percent != 85 || sawHandoff)
+            return;
+          auto *svc = m_ctx->projectSvc();
+          sawHandoff = true;
+          opening = svc->isOpening();
+          pathEmpty = svc->projectPath().isEmpty();
+          notCancelled = !svc->lastOpenCancelled();
+          writeRejected = !svc->writeProject();
+          errors = svc->lastErrors();
+        });
+    const auto disconnectProgress = qScopeGuard([connection] { QObject::disconnect(connection); });
+    QSignalSpy finished(m_ctx->projectSvc(), &QgisProjectService::openFinished);
+    QVERIFY(m_ctx->projectSvc()->openProjectAsync(path));
+    QTRY_VERIFY_WITH_TIMEOUT(sawHandoff, 60000);
+    QVERIFY(opening);
+    QVERIFY(pathEmpty);
+    QVERIFY(notCancelled);
+    QVERIFY(writeRejected);
+    const QString joined = errors.join(QLatin1Char(';'));
+    QVERIFY2(joined.contains(QStringLiteral("工程正在打开")), qPrintable(joined));
+    QVERIFY2(!joined.contains(QStringLiteral("No project path")) &&
+                 !joined.contains(QStringLiteral("未设置工程路径")),
+             qPrintable(joined));
+    QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 60000);
+    m_ctx->closeProject();
+  }
+
   void cancelledOpenKeepsDirectoryLockedUntilWorkerExits()
   {
     QTemporaryDir directory;
@@ -536,7 +585,7 @@ private slots:
     auto release = std::make_shared<QSemaphore>();
     const auto releaseOnExit = qScopeGuard([release] { release->release(); });
     m_ctx->projectSvc()->setOpenPreparation([=](const QString &) {
-      return [=] { entered->store(true); release->acquire(); };
+      return [=](const std::function<bool()> &) { entered->store(true); release->acquire(); };
     });
     QSignalSpy drained(m_ctx->projectSvc(), &QgisProjectService::openWorkerFinished);
     QVERIFY(m_ctx->projectSvc()->openProjectAsync(path));

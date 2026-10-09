@@ -5,15 +5,20 @@
 //   · EXIF Orientation：手工注入 APP1（tag 0x0112=6）的样张在装载路径
 //     正立（尺寸互换 + 像素采样）
 //   · FullImageCache LRU：8 张封顶、失败装载不占额
+//   · requestDecode 不在调用线程读盘；在途不重复排队；acquire 仍同步装载
 //   · 透明 PNG 棋盘底笔刷
 #include <QtTest>
 #include <QDir>
 #include <QFile>
 #include <QImageWriter>
+#include <QSemaphore>
 #include <QTemporaryDir>
+#include <QThread>
+#include <QThreadPool>
 
 #include "../src/services/imagelod.h"
 
+#include <atomic>
 #include <cmath>
 
 using namespace paleo::imagelod;
@@ -177,6 +182,79 @@ class TestImageLod : public QObject
                             dir.filePath(QStringLiteral("nope.jpg")))
                   .isNull());
       QCOMPARE(cache.size(), LodPolicy::kFullCacheEntries);
+      cache.clear();
+      QCOMPARE(cache.size(), 0);
+    }
+
+    void requestDecodeOffCallerThread()
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      const QString path = writeJpegHalves(
+          dir.filePath(QStringLiteral("async.jpg")), 64, 64);
+      QVERIFY(!path.isEmpty());
+      FullImageCache &cache = FullImageCache::shared();
+      cache.clear();
+
+      QSemaphore gate;
+      struct Guard
+      {
+        QSemaphore &gate;
+        ~Guard()
+        {
+          gate.release(32);
+          QThreadPool::globalInstance()->waitForDone(5000);
+          setFullLoadHook({});
+        }
+      } guard{gate};
+
+      std::atomic<int> guiLoads{0};
+      std::atomic<int> workerLoads{0};
+      QThread *gui = QThread::currentThread();
+      setFullLoadHook([&] {
+        if (QThread::currentThread() == gui)
+        {
+          guiLoads.fetch_add(1);
+          return;
+        }
+        workerLoads.fetch_add(1);
+        gate.acquire();
+      });
+
+      // peek 不装载。
+      QVERIFY(cache.peek(QStringLiteral("missing")).isNull());
+      QCOMPARE(guiLoads.load(), 0);
+      QCOMPARE(workerLoads.load(), 0);
+
+      const QString key = QStringLiteral("async");
+      QImage delivered;
+      QVERIFY(cache.requestDecode(key, path, [&](const QImage &img) {
+        delivered = img;
+      }));
+      QCOMPARE(guiLoads.load(), 0); // 返回前没有在调用线程 loadFull
+      QVERIFY(cache.isDecodePending(key));
+      QVERIFY(cache.peek(key).isNull());
+      QVERIFY(!cache.requestDecode(key, path, [](const QImage &) {}));
+      QTRY_COMPARE(workerLoads.load(), 1);
+      QTest::qWait(50);
+      QCOMPARE(workerLoads.load(), 1);
+      QCOMPARE(guiLoads.load(), 0);
+
+      gate.release(1);
+      QTRY_VERIFY(!delivered.isNull());
+      QVERIFY(!cache.isDecodePending(key));
+      QCOMPARE(workerLoads.load(), 1);
+      QCOMPARE(guiLoads.load(), 0);
+      // requestDecode 自己不写入 LRU。
+      QVERIFY(cache.peek(key).isNull());
+      cache.store(key, delivered);
+      QVERIFY(!cache.peek(key).isNull());
+      QCOMPARE(guiLoads.load(), 0);
+
+      // 非绘制调用方：acquire 仍在调用线程同步装载。
+      QVERIFY(!cache.acquire(QStringLiteral("sync"), path).isNull());
+      QCOMPARE(guiLoads.load(), 1);
+      QCOMPARE(workerLoads.load(), 1);
       cache.clear();
       QCOMPARE(cache.size(), 0);
     }

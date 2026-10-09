@@ -481,6 +481,7 @@ class FactorPageTests : public QObject
     void wellFactorExtractionPayload();
     void methodParameterVisibilityAndFamilies();
     void strategyPackDrivesMethodCombo(); // 方向67：词表驱动下拉 + 参数预览 + strategy_id 载荷
+    void cokrigingCovariateControls();    // 方向91：协变量下拉只在协克里金可见，并写入参数
 };
 
 void FactorPageTests::constructsWithNullServices()
@@ -904,8 +905,8 @@ void FactorPageTests::strategyPackDrivesMethodCombo()
   auto *method = page.findChild<QComboBox *>( QStringLiteral( "factorMethodCombo" ) );
   auto *note = page.findChild<QLabel *>( QStringLiteral( "factorStrategyNote" ) );
   QVERIFY( method && note );
-  // 6 个词表策略 + 页面专属 SGS = 7 项；标签与词表逐项一致（单一真源）。
-  QCOMPARE( method->count(), 7 );
+  // 词表策略 + 页面专属 SGS；标签与词表逐项一致（单一真源）。
+  QCOMPARE( method->count(), paleo::singlefactor::surfaceMethodPacks().size() + 1 );
   for ( const paleo::singlefactor::SurfaceMethodPack &pack : paleo::singlefactor::surfaceMethodPacks() )
   {
     const QString methodId =
@@ -943,6 +944,45 @@ void FactorPageTests::strategyPackDrivesMethodCombo()
   page.findChild<QPushButton *>( QStringLiteral( "generateFactorButton" ) )->click();
   QCOMPARE( generated.at( 1 ).at( 2 ).toMap().value( QStringLiteral( "strategy_id" ) ).toString(),
             QStringLiteral( "local_direction_kriging" ) );
+}
+
+void FactorPageTests::cokrigingCovariateControls()
+{
+  ConstraintPage page( nullptr );
+  page.show();
+  auto *method = page.findChild<QComboBox *>( QStringLiteral( "factorMethodCombo" ) );
+  auto *covariate = page.findChild<QComboBox *>( QStringLiteral( "factorCovariateCombo" ) );
+  auto *rho = page.findChild<QDoubleSpinBox *>( QStringLiteral( "factorCrossCorrelationSpin" ) );
+  QVERIFY( method && covariate && rho );
+  QVERIFY( !covariate->isVisibleTo( &page ) );
+  QVERIFY( !rho->isVisibleTo( &page ) );
+
+  auto *factors = page.findChild<QTableWidget *>( QStringLiteral( "factorTable" ) );
+  auto *horizons = page.findChild<QComboBox *>( QStringLiteral( "horizonCombo" ) );
+  horizons->addItem( QStringLiteral( "T1" ) );
+  factors->item( 0, 0 )->setCheckState( Qt::Checked );
+  method->setCurrentIndex( method->findData( QStringLiteral( "cokriging" ) ) );
+  QVERIFY( covariate->isVisibleTo( &page ) );
+  QVERIFY( covariate->isEnabled() );
+  QVERIFY( rho->isVisibleTo( &page ) );
+  QCOMPARE( covariate->count(), 1 );
+  QVERIFY( covariate->itemText( 0 ).contains( QStringLiteral( "无" ) ) );
+  QCOMPARE( covariate->currentData().toString(), QString() );
+  rho->setValue( 0.4 );
+
+  QSignalSpy generated( &page, &ConstraintPage::generateFactorRequested );
+  page.findChild<QPushButton *>( QStringLiteral( "generateFactorButton" ) )->click();
+  QCOMPARE( generated.count(), 1 );
+  const QVariantMap params = generated.at( 0 ).at( 2 ).toMap();
+  QCOMPARE( params.value( QStringLiteral( "method" ) ).toString(), QStringLiteral( "cokriging" ) );
+  QVERIFY( params.contains( QStringLiteral( "covariateLayerId" ) ) );
+  QCOMPARE( params.value( QStringLiteral( "covariateLayerId" ) ).toString(), QString() );
+  QCOMPARE( params.value( QStringLiteral( "crossCorrelation" ) ).toDouble(), 0.4 );
+
+  method->setCurrentIndex( method->findData( QStringLiteral( "kriging" ) ) );
+  QVERIFY( !covariate->isVisibleTo( &page ) );
+  page.findChild<QPushButton *>( QStringLiteral( "generateFactorButton" ) )->click();
+  QVERIFY( !generated.at( 1 ).at( 2 ).toMap().contains( QStringLiteral( "covariateLayerId" ) ) );
 }
 
 // ---- 任务 C（智能编图页）：融合清单栅格过滤/参考图/相属性/设计器入口。--

@@ -5,6 +5,7 @@
 #include "paleomainwindow.h"
 
 #include "catalog/datacatalog.h"
+#include "dialogs/depthanchordialog.h"
 #include "domain/faultset.h"
 #include "domain/wellsection.h"
 #include "linkage/seismicmaplink.h"
@@ -20,6 +21,7 @@
 #include "wellsection/fencewidget.h"
 #include "wellsection/wellsectionpanel.h"
 #include "workflow/sectionworkbench.h"
+#include "workflow/wellattachmentops.h"
 #include "workflow/wellsectionworkflow.h"
 
 #include <QTimer>
@@ -28,6 +30,8 @@
 #include <qgsvectorlayer.h>
 
 #include <memory>
+
+#include <cmath>
 
 namespace {
 // 连井剖面编辑产物在 project.sqlite 的节 id（单剖面 dock）。
@@ -325,6 +329,38 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
           [band](const QString &id) {
             if (band)
               band->flashWell(id);
+          });
+  // 图片锚双击（方向 79）：预览 + 深度输入 → catalog 就地更新（updateVersionExtra
+  // 通道，审计进 #history）；changed() 的防抖重载链让剖面随新锚深重摆。
+  connect(panel, &WellSectionPanel::imageAnchorEditRequested, this,
+          [this, panel](const QString &wellId, const QString &assetId, double curDepth) {
+            auto *cat = m_previewDoc ? m_previewDoc->catalog() : nullptr;
+            if (!cat)
+              return;
+            const CatalogVersion v = cat->currentVersion(assetId);
+            if (v.id.isEmpty())
+              return;
+            PaleoDepthAnchorDialog::Context ctx;
+            ctx.wellName = cat->entityById(wellId).name;
+            ctx.fileName = v.fileName.isEmpty()
+                               ? cat->assetById(assetId).displayName
+                               : v.fileName;
+            ctx.hasAnchor = curDepth > 0.0 && std::isfinite(curDepth);
+            ctx.currentDepth = curDepth;
+            ctx.anchorSource =
+                v.extra.value(QLatin1String("depthMd#source")).toString();
+            ctx.imagePath = m_previewDoc->absolutePathForVersion(v);
+            PaleoDepthAnchorDialog::Result res;
+            if (!PaleoDepthAnchorDialog::prompt(panel, ctx, &res))
+              return;
+            paleo::WellAttachmentOps ops(cat);
+            paleo::DepthInputStatus st = paleo::DepthInputStatus::Ok;
+            QString err;
+            if (!ops.setDepthAnchor(
+                    v.id, res.clear ? QString() : QString::number(res.depth),
+                    &st, &err))
+              qWarning("wellsection: anchor edit failed for %s: %s",
+                       qPrintable(v.id), qPrintable(err));
           });
   // sectionReady 回填后井位才可读——同步进现有回填槽。
   connect(wf, &WellSectionWorkflow::sectionReady, this,

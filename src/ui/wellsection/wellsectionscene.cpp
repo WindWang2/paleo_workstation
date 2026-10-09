@@ -4,6 +4,7 @@
 
 #include "domain/faciesclassification.h"
 #include "domain/seismic/nicestep.h"
+#include "services/imagelod.h"
 #include "ui/paleotheme.h"
 #include "ui/wellcomposite/patterncatalog.h"
 
@@ -238,6 +239,9 @@ double RenderState::sceneWidth() const
 ColumnItem::ColumnItem(RenderState *st, int index) : m_st(st), m_index(index)
 {
   setFlag(QGraphicsItem::ItemUsesExtendedStyleOption);
+  // 图片锚双击拾取（左键）；未命中在 handler 里 ignore——列选中在
+  // View::mousePressEvent（先于场景转发发生），不被吞。
+  setAcceptedMouseButtons(Qt::LeftButton);
 }
 
 QRectF ColumnItem::boundingRect() const
@@ -304,7 +308,7 @@ void ColumnItem::paint(QPainter *p, const QStyleOptionGraphicsItem *option,
         paintFaciesTrack(p, trRect, exposed);
         break;
       case wellsection::TrackKind::Image:
-        paintImageTrack(p, trRect, exposed);
+        paintImageTrack(p, trRect, exposed, p->worldTransform());
         break;
     }
     x += tw;
@@ -713,26 +717,59 @@ void ColumnItem::paintFaciesTrack(QPainter *p, const QRectF &trackRect,
   }
 }
 
-// 图片道：core/lab_analysis 井附件照片按 depthMd 锚定。QImage 在任务线程
-// 装载（workflow），此处转 QPixmap 一次并缓存（imageVersion 失效）；等比
-// 缩到道宽、最小高 20px（同 composite 图片道口径），下方 6pt 标注文件名。
+// 图片道：core/lab_analysis 井附件照片按 depthMd 锚定。装载两级（方向 79
+// LodPolicy，src/services/imagelod.h）：任务线程给缩略位图（≤256px 常驻），
+// 视图线程转 QPixmap 缓存（imageVersion 代际失效——版本不进键，修掉旧
+// 8 位截断假命中）；可见宽（场景宽 × 视图缩放）超缩略宽 × kFullLoadFactor
+// 时同步全载原图一次进 LRU。透明图垫中性灰棋盘底；缩小绘制开平滑变换
+//（SmoothTransformation——minification 质量）。等比缩到道宽、最小高
+// 20px；绘制矩形留作双击拾取面。
 void ColumnItem::paintImageTrack(QPainter *p, const QRectF &trackRect,
-                                 const QRectF &exposed)
+                                 const QRectF &exposed, const QTransform &world)
 {
   p->save();
   p->setClipRect(trackRect);
+  p->setRenderHint(QPainter::SmoothPixmapTransform, true);
+  if (m_pixmapCacheVersion != m_st->imageVersion)
+  {
+    m_pixmapCache.clear();
+    m_pixmapCacheVersion = m_st->imageVersion;
+  }
+  m_imageHits.clear();
   const wellsection::Well &w = m_st->wells.value(m_index);
+  const double lod = world.isIdentity() ? 1.0 : world.m11();
   for (int i = 0; i < w.images.size(); ++i)
   {
     const double y = m_st->yForMd(m_index, w.images.at(i).md);
     if (y < exposed.top() - 80 || y > exposed.bottom() + 20)
       continue;
-    const quint64 key = (quint64(m_index) << 16 | quint64(i)) << 8 |
-                        (m_st->imageVersion & 0xFF);
+    // LOD 全载判定先行（可见设备宽 > 缩略宽 × 系数 → 原图级，LRU 驻留、
+    // 键含 imageVersion）；层级编进缓存键最高位——缩略级命中不得短路
+    // 放大后的原图升级（否则首帧缩略入缓存、永不全载）。
+    const double tw0 = trackRect.width() - 4.0;
+    const bool wantFull =
+        !w.images.at(i).path.isEmpty() && lod > 1.0 &&
+        tw0 * lod > w.images.at(i).image.width() *
+                        paleo::imagelod::LodPolicy::kFullLoadFactor;
+    const quint64 key = (quint64(quint32(m_index)) << 32) |
+                        quint64(quint32(i)) |
+                        (wantFull ? (1ULL << 63) : 0ULL);
     QPixmap pm = m_pixmapCache.value(key);
-    if (pm.isNull() && !w.images.at(i).image.isNull())
+    if (pm.isNull() && (!w.images.at(i).image.isNull() || wantFull))
     {
-      pm = QPixmap::fromImage(w.images.at(i).image);
+      if (wantFull)
+      {
+        const QString fullKey = QStringLiteral("%1|%2")
+                                    .arg(w.images.at(i).path,
+                                         QString::number(m_st->imageVersion));
+        const QImage full =
+            paleo::imagelod::FullImageCache::shared().acquire(
+                fullKey, w.images.at(i).path);
+        if (!full.isNull())
+          pm = QPixmap::fromImage(full);
+      }
+      if (pm.isNull() && !w.images.at(i).image.isNull())
+        pm = QPixmap::fromImage(w.images.at(i).image);
       m_pixmapCache.insert(key, pm);
     }
     const double tw = trackRect.width() - 4.0;
@@ -740,9 +777,12 @@ void ColumnItem::paintImageTrack(QPainter *p, const QRectF &trackRect,
     {
       const double ph = qMax(20.0, tw * pm.height() / pm.width());
       const QRectF r(trackRect.left() + 2.0, y, tw, ph);
+      if (pm.hasAlpha())
+        p->fillRect(r, paleo::imagelod::alphaCheckerboard());
       p->drawPixmap(r, pm, pm.rect());
       p->setPen(QPen(m_st->theme.frame, 1.0));
       p->drawRect(r);
+      m_imageHits.append({r, i});
     }
     else
     {
@@ -751,9 +791,33 @@ void ColumnItem::paintImageTrack(QPainter *p, const QRectF &trackRect,
       p->fillRect(r, m_st->theme.paper);
       p->setPen(QPen(m_st->theme.frame, 1.0));
       p->drawRect(r);
+      m_imageHits.append({r, i});
     }
   }
   p->restore();
+}
+
+// 双击图片锚 → 激活回调（面板接：编辑锚深对话框）。命中取本帧绘制
+// 矩形（item 坐标）；空白处不拦截——列的其它交互（选中/工具）不受影响。
+void ColumnItem::mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event)
+{
+  if (!m_imageActivate)
+  {
+    event->ignore();
+    return;
+  }
+  const wellsection::Well &w = m_st->wells.value(m_index);
+  for (const ImageHit &hit : m_imageHits)
+  {
+    if (hit.anchorIdx < 0 || hit.anchorIdx >= w.images.size())
+      continue;
+    if (hit.rect.contains(event->pos()))
+    {
+      m_imageActivate(w.id, w.images.at(hit.anchorIdx));
+      return;
+    }
+  }
+  event->ignore();
 }
 
 // ---------------------------------------------------------------------------

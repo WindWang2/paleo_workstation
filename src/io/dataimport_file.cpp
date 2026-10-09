@@ -300,14 +300,19 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
   // 井附件深度锚（岩心/薄片照片的「<井名>,<深度>m」文件名惯例，如
   // A1,1849.35m.JPG / A1,1859.15m$1.JPG）：图片井道按深度挂图的元数据。
   // 只识别「数字 m」模式；不带单位的深度（薄片 A31868.62粒间孔.JPG）留在
-  // 文件名里由消费侧解析——不猜。addVersion 之后无版本更新面，须在此并入。
+  // 文件名里由消费侧解析——不猜。导入后可用 updateVersionExtra 后补/修正
+  //（#source=filename 标来源；手工编辑改写为 manual）。
   if (cls.type == QLatin1String("image_reference"))
   {
     static const QRegularExpression depthM(
         QStringLiteral("(\\d+(?:\\.\\d+)?)\\s*m(?![A-Za-z0-9])"));
     const QRegularExpressionMatch dm = depthM.match(fi.completeBaseName());
     if (dm.hasMatch())
+    {
       version.extra.insert(QStringLiteral("depthMd"), dm.captured(1).toDouble());
+      version.extra.insert(QStringLiteral("depthMd#source"),
+                           QStringLiteral("filename"));
+    }
   }
   if (!cat->addVersion(version, error))
     return fail(*error);

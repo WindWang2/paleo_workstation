@@ -951,15 +951,24 @@ if(PALEO_PYTHON3)
            ${CMAKE_SOURCE_DIR}/tools/check_docs_drift.py)
   add_test(NAME docs_drift_selftest COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/check_docs_drift.py --selftest)
+  # 方向 94：LibreOffice vendored pin 双平台（libreoffice/libreoffice_win）
+  # 一致性——版本对齐 + url/sha/layout 口径 + fetch 脚本引用面；selftest
+  # 合成 manifest 验证各漂移形态能打红。
+  add_test(NAME lo_pin COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_lo_pin.py)
+  add_test(NAME lo_pin_selftest COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_lo_pin.py --selftest)
   set_tests_properties(layering layering_strict layering_selftest
                        ui_invariants ui_invariants_strict ui_invariants_selftest
                        i18n i18n_selftest ui_tokens ui_tokens_strict ui_tokens_selftest
                        qgis_versions qgis_versions_selftest
                        qgis_resources_selftest env_redset_validate env_redset_selftest
                        pin_osgeo4w_selftest docs_drift docs_drift_selftest
+                       lo_pin lo_pin_selftest
                        PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
   set_tests_properties(qgis_resources_selftest env_redset_validate env_redset_selftest
                        pin_osgeo4w_selftest docs_drift docs_drift_selftest
+                       lo_pin lo_pin_selftest
                        PROPERTIES ENVIRONMENT "PYTHONUTF8=1")
 endif()
 # 方向 81：paleo-dev.ps1 单元自检（AST 抽函数 + 合成夹具；-Mutate 换回 #297
@@ -1040,7 +1049,7 @@ add_paleo_test(tst_maptools LIBS paleo_ui)
 add_paleo_test(tst_correlation LIBS paleo_ui)
 add_paleo_test(tst_decorations LIBS paleo_ui)
 add_paleo_test(tst_manifestproj LIBS paleo_qgis)
-add_paleo_test(tst_import LIBS paleo_io paleo_services paleo_qgis) # 方向44：并集可达断言
+add_paleo_test(tst_import LIBS paleo_io paleo_services paleo_qgis Qt6::Pdf) # 方向44：并集可达断言；方向94：转换 round-trip 页数断言用 QtPdf
 # 方向 95：mini 夹具扩散段——整工程生产产物上的导入域不变量（受管 SHA
 # 对拍/只读锁/外链 sha 冻结/A3 双 LAS 并集）。第二源 + 生成器表达式对齐
 # tst_mkprojectfixture 手动注册口径；RUN_SERIAL 同先例（QProcess 子进程 +

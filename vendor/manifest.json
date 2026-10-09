@@ -171,7 +171,30 @@
         "soffice": "program/soffice"
       },
       "license": "MPL-2.0 (see vendor/libreoffice/LICENSE after extract; binary redistribution permitted)",
-      "notes": "Legacy explicitly requested conversion API only. Office preview excludes LibreOffice as of 2026-10-09; it uses the source-built Calligra engine. This optional legacy package is not needed for preview."
+      "notes": "Legacy explicitly requested conversion API only. Office preview excludes LibreOffice as of 2026-10-09; it uses the source-built Calligra engine. This optional legacy package is not needed for preview. The Windows leg of the same converter is pinned in deps.libreoffice_win (same upstream version, msiexec /a extract; 方向 94)."
+    },
+    "libreoffice_win": {
+      "version": "26.2.6.3",
+      "platform": "windows-x64",
+      "url": "https://download.documentfoundation.org/libreoffice/stable/26.2.6/win/x86_64/LibreOffice_26.2.6_Win_x86-64.msi",
+      "archive": {
+        "sha256": "f9877032fd908beb9c0ddf06df4af5c2e85f419c42e14876c4cce5aae5fb2660",
+        "size_bytes": 373252096
+      },
+      "layout": {
+        "root": "vendor/libreoffice",
+        "soffice": "program/soffice.exe"
+      },
+      "extract": {
+        "tool": "msiexec /a (administrative install, no elevation)",
+        "prune": [
+          "help", "readmes", "share/extensions", "share/registry/res",
+          "program/python*", "program/shlxthdl*"
+        ],
+        "post": "icacls vendor/libreoffice /setintegritylevel (OI)(CI)medium"
+      },
+      "license": "MPL-2.0 (see vendor/libreoffice/license.txt and NOTICE after extract; binary redistribution permitted)",
+      "notes": "Windows leg of the legacy conversion API (same role as deps.libreoffice on Linux; version pinned to the same upstream 26.2.6.3 for cross-platform output parity). msiexec /a administrative extract needs no admin rights; the tree is self-contained and relocatable like the Linux deb subset. The icacls integrity normalization guards against Low-mandatory-label workspaces (sandboxed dev boxes) where LibreOffice user-installation bootstrap fails with exit 77."
     },
     "onnxruntime_win": {
       "version": "1.30.0",

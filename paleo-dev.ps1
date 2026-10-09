@@ -296,6 +296,20 @@ switch ($Verb) {
       }
     }
 
+    # LibreOffice（方向 94）：legacy 转换 API 的 Windows vendored 兜底。
+    # 与 Linux vendor/bootstrap.sh 同语义（存在即跳过）；下载/校验/msiexec
+    # 解包/剪裁/完整性归一单一来源在 vendor/fetch-libreoffice.sh（bash——
+    # CI 与开发机都有 Git Bash；脚本内 OSTYPE 分派 Windows 段）。
+    $loSoffice = Join-Path $Vendor 'libreoffice\program\soffice.exe'
+    if (-not (Test-Path $loSoffice)) {
+      $bash = Get-Command bash -ErrorAction SilentlyContinue
+      if (-not $bash) { throw 'vendored LibreOffice 需要bash（Git Bash）跑 vendor/fetch-libreoffice.sh' }
+      Write-Host "Fetching vendored LibreOffice (manifest deps.libreoffice_win)..."
+      & $bash.Source (Join-Path $Vendor 'fetch-libreoffice.sh')
+      if ($LASTEXITCODE -ne 0) { throw "fetch-libreoffice.sh failed (exit $LASTEXITCODE)" }
+      if (-not (Test-Path $loSoffice)) { throw "fetch-libreoffice.sh 完成但 $loSoffice 缺失" }
+    }
+
     Enter-VendorEnvironment
     if ($Arg -eq 'fetch-only') {
       Write-Host "== fetch-only: skip build/selfcheck (run 'build' then 'selfcheck') =="

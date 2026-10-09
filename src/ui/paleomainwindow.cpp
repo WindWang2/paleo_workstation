@@ -44,7 +44,7 @@
 #include "../services/paleotaskservice.h"
 #include "../services/fspathutils.h" // #291 QString↔filesystem::path 走 UTF-16（MSVC 窄构造按 ANSI 解码）
 #include "../workflow/registration.h"
-#include "../workflow/sectionworkbench.h" // resetProjectScopedState 取消在途预览（#314 起需要完整类型）
+#include "../workflow/sectionworkbench.h" // cancelPreviewData 解引用需完整类型（#156；resetProjectScopedState 同款）
 #include "domain/seismic/sgyvolume.h"
 #include "qgis/projectmapreference.h" // restoreCanvasExtent 的跨 CRS 范围换算
 

@@ -26,12 +26,15 @@ mini 数据集 19 文件 155KiB + `tests/fixtures/mkprojectfixture.{h,cpp}`
 cd C:\Users\wangj.KEVIN\projects\paleo_workstation
 git fetch origin
 git worktree add .worktrees\mkproject-spread -b goal/mkproject-spread-20261010 origin/master
-cd .worktrees\mkproject-fixtures 2>$null; cd .worktrees\mkproject-spread
+cd .worktrees\mkproject-spread
 ./paleo-dev.ps1 build
 ./paleo-dev.ps1 test
 ```
 
-等价手工接线见 BUILDING.md:140-152。
+等价手工接线见 BUILDING.md:140-152。上面不要先
+`cd .worktrees\mkproject-fixtures`：若该旧目录还在，第一次
+`cd` 会成功，随后相对的 `cd .worktrees\mkproject-spread`
+会进到旧 worktree 里面，而不是本方向的新 worktree。
 
 ## 目标形态（建议按序）
 
@@ -53,8 +56,20 @@ cd .worktrees\mkproject-fixtures 2>$null; cd .worktrees\mkproject-spread
 
 ## 通用纪律（方向内全程有效）
 
-- **分层**：只动 tests/ 与（若需要）fixtures/；零 src/ 改动
-  （发现生产 bug 记档移交）。
+- **分层**：零 src/ 业务逻辑改动（发现生产 bug 记档移交）。
+  **必须允许 CMake 改动。** 现状：只有
+  `tst_mkprojectfixture` 编译
+  `tests/fixtures/mkprojectfixture.cpp`，并拿到
+  `MKPROJECT_BIN="$<TARGET_FILE:paleo_mkproject>"`、
+  `MKPROJECT_MINI_DIR`、以及对 `paleo_mkproject` 的
+  `add_dependencies`（`CMakeLists.txt` 手动注册，约
+  1211–1227 行，刻意不走 `add_paleo_test`）。
+  `mkprojectfixture.cpp` 在缺这两个宏时 `#error`。
+  `add_paleo_test` 只编译 `tests/${name}.cpp`，不注入这些
+  定义。因此「只改 tests/ 与 fixtures/」无法让
+  `tst_import` 等吃到夹具。优先做成可复用的夹具目标接线
+  （一个 CMake 函数：附上 fixture 源、两个编译定义、
+  `paleo_mkproject` 依赖），不要每个测试复制一遍手动注册。
 - **行为红线**：既有断言语义保留（fixture 是增广）——每个
   迁移段「改前改后断言集合对照」入 ledger。
 - **资源**：`./paleo-dev.ps1` 系；ctest 串行；墙钟约束
@@ -62,7 +77,8 @@ cd .worktrees\mkproject-fixtures 2>$null; cd .worktrees\mkproject-spread
 - **无人值守**：迁移清单取舍自行定案记 ledger。
 - **ledger**：`.goal-loop-ledger-mkproject-spread.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审
-  （断言保留/墙钟/沙箱兼容/无 src 触碰/文档 五维）→ 修复 →
+  （断言保留/墙钟/沙箱兼容/无 src 业务逻辑触碰/CMake
+  夹具接线可复用/文档 五维）→ 修复 →
   再 review，至少两轮零 High/Medium；Low 记 PR body。
 - **提交**：原子提交，中文 conventional 前缀。
 

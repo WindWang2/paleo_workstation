@@ -12,9 +12,11 @@ catalog 是数据层最大的两个文件，且是全部方向的共同底座：
 - **敏感性**：catalog 是所有测试与功能的底座——拆分回归
   面最广（tst_catalog/tst_realizationset/tst_mkprojectfixture/
   几乎全部 workflow 测试间接依赖）。
-- **词表面机会**：`datacatalog.h:59` 角色注释 → 方向 92 若
-  已落 `catalogRoles()` 则对齐；realization 集合查询
-  （realizationset.h）与实体查询的边界——R0 勘察。
+- **词表面机会**：角色权威已是 `RoleRegistry` /
+  `DataCatalog::roleRegistry()`。方向 92 消费并按需扩展它，
+  **不会**新增 `catalogRoles()`——本方向不要等、也不要补造
+  那份平行常量。realization 集合查询（realizationset.h）与
+  实体查询的边界——R0 勘察。
 - **拆分先例**：方向 16 的 catalog-sqlite 迁移账本 + 方向
   55/65/66 的 TU 拆分模式；catalog 测试基础最好
  （tst_catalog + fixture 面广）。
@@ -49,9 +51,10 @@ cd .worktrees\catalog-split
   （catalogstore_schema.cpp / catalogstore_<域>.cpp）；
    SQLite 事务边界语义逐条保留（journal→事务原子化是
    方向 16 的核心承诺）。
-5. **词表面收敛**：`catalogRoles()`（若方向 92 已落）与
-   realization 集合查询对齐；`datacatalog.h` 头注释刷新
-  （当前契约描述 vs 实际查询面的漂移——R0 记录）。
+5. **词表面收敛**：与方向 92 的 `RoleRegistry` 扩展对齐
+   （谁先合谁为准；禁止另造 `catalogRoles()`）；
+   realization 集合查询边界保持；`datacatalog.h` 头注释刷新
+   （当前契约描述 vs 实际查询面的漂移——R0 记录）。
 6. **测试口径**：tst_catalog 全绿零改动×2 遍（底座回归的
    金标准）；mkprojectfixture 双实例测试（真实 SQLite 路径）
    绿；全量 ctest 两遍。
@@ -70,7 +73,7 @@ cd .worktrees\catalog-split
 - **资源**：`./paleo-dev.ps1` 系；ctest 串行；全量构建后再
   ctest。
 - **无人值守**：切分线自行定案记 ledger；与方向 92 的
-  catalogRoles 协调（谁先合谁为准）。
+  RoleRegistry 扩展协调（谁先合谁为准；不引入 catalogRoles()）。
 - **ledger**：`.goal-loop-ledger-catalog-split.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审
   （API 等价/事务边界/schema 不动/TU 边界/性能门 五维）→

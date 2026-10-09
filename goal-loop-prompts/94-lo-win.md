@@ -53,22 +53,45 @@ Windows**（Linux 侧已收口）——R0 先实测 MSI 解包可行路径。
    Windows 生效（env > vendored > PATH）——vendored 布局
    命中测试；`vendor/manifest.json` 的 libreoffice 节补
    windows 子表（msi url/sha256/解包布局）。
-4. **版本对齐**：Windows MSI 版本与 Linux 26.2.6 同版本
-  （跨平台转换结果可能有细微差异——PROVENANCE 记 soffice
-   版本与平台，预览 DERIVED 版本可追溯）。
+4. **版本对齐与结果记录**：Windows MSI 版本与 Linux 26.2.6
+   同版本（跨平台转换结果可能有细微差异）。每个生成的 PDF
+   版本必须记下 LibreOffice 版本与平台。记录点是转换结束时
+   写入 DERIVED `CatalogVersion` 的那个函数：任务书起草时
+   （`32851a1e`）叫 `DataImportService::finishDocumentPdf`；
+   origin/master `753c2768`（#314）已改名为
+   `finishConversion`（`src/io/dataimport_document.cpp`，
+   约 273 行起；旧名只留在
+   `.goal-loop-ledger-layer-split.md`）。执行时改合并后
+   master 上实际落版本的函数，不要因为找不到
+   `finishDocumentPdf` 就跳过记录。
+   该函数目前只写
+   `extra["generator"]="libreoffice"` 与
+   `sourceUri=m_converter`（转换器路径），没有版本、没有
+   平台。本方向**明确允许**改这段生产转换/结果记录（以及
+   探测 soffice 版本所需的最小 resolver 配套）。只改文档或
+   脚本不算完成。
 5. **CI**：windows leg bootstrap 增 LO 解包步（或独立步）；
    预览转换冒烟测试（docx→PDF 断言页数>0）进 Windows leg
   （可选非阻断起步）。
 6. **测试**：Windows 下 vendored 探测命中（转换器路径断言）；
    docx/xlsx 夹具转换 round-trip；失败降级如实（无
-   soffice→UI 降级路径——既有）；PROVENANCE 记平台/版本。
+   soffice→UI 降级路径——既有）；生成的 DERIVED 版本
+   extra 记下 LibreOffice 版本与平台（见目标 4，这是
+   `finishConversion` / 原 `finishDocumentPdf` 的生产记录，
+   不是另找一份叫 PROVENANCE 的文件就能交差）。
 7. **文档**：BUILDING.md vendor 段补 LibreOffice Windows
    布局；manifest notes 的「deferred」句改写。
 
 ## 通用纪律（方向内全程有效）
 
-- **分层**：resolver 在 io（既有），脚本在 vendor/；零 src/
-  业务逻辑变更（除非 resolver 需 Windows 路径适配——最小）。
+- **分层**：resolver 在 io（既有），脚本在 vendor/。
+  **允许且必须的 src/ 业务逻辑变更**：`finishConversion`
+  （起草时名 `finishDocumentPdf`；见目标 4）把 LibreOffice
+  版本与平台写进每个生成的 PDF/转换 DERIVED 版本；版本探测
+  所需的最小 resolver 配套，以及 resolver 的 Windows 路径
+  适配，保持最小。除此之外零 src/ 业务逻辑变更。
+  「零 src/ 业务逻辑变更」会使目标 4 与目标 6 无法完成，
+  本方向不采用这句。
 - **诚实面**：MSI 解包若不可行（组策略挡且无合规路径），
   如实保持 PATH 兜底 + 记因——不硬造。
 - **依赖政策**：LibreOffice 官方包延续 #296 的 vendored 口径
@@ -89,7 +112,8 @@ Windows**（Linux 侧已收口）——R0 先实测 MSI 解包可行路径。
 1. Windows vendored：本机解包产物布局与 resolver 探测命中
   （路径断言测试）；三级序生效（env > vendored > PATH）。
 2. 转换：docx/xlsx 夹具 → PDF round-trip（页数/字节头断言）；
-   PROVENANCE 记 soffice 版本+平台。
+   每个生成版本的 extra 记 soffice 版本+平台（生产记录，
+   不是只改文档）。
 3. 失败降级：故意清 PATH+vendored → UI 降级路径如实（测试）。
 4. manifest：windows 子表（msi url/sha256）入库；check 脚本
   （check_qgis_versions 同族或独立）可校验。

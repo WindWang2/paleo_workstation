@@ -32,8 +32,36 @@ cd .worktrees\ai-resultviz
 
 等价手工接线见 BUILDING.md:140-152。
 
+## 先决：完整结果通道（否则卡片断言不可能成立）
+
+origin/master `753c2768` 实测，两条现成通道都不是完整 JSON：
+
+- `AiChatController::onToolFinished`
+  （`src/workflow/aichatcontroller.cpp`）成功时
+  `toolResultReady` 只发出前 160 字符：
+  `resultJson.size() > 160 ? resultJson.left(160) + "…"`
+  （约 484–494 行）。失败走 error 字段，同样不是完整结果。
+  `AiAssistDock` 把这个信号接到 `markToolResult`。
+- 同一函数里写入会话、再由 `messageAppended` 发出的是
+  `clampToolResult(resultJson)`：超过
+  `kToolResultCharLimit`（`aichatcontroller.h`，**4000**）就
+  `content.left(4000)` 并附「结果超长已截断」标记。
+
+血缘 nodes/edges 与资产表 JSON 很容易超过 160，也经常超过
+4000。**在 UI 分派结构化卡片之前**，必须新增一条「已接受的
+完整结果」信号或模型，载荷是截断前的完整 JSON。卡片只消费
+这条载荷，不得从 160 字摘要或已 clamp 的
+`ChatMessage.content` 断言节点/边或资产表。既有
+`toolResultReady` 摘要与 `clampToolResult` 回灌保持原语义
+（模型下一轮协议面不改）。这条新信号是本方向允许且必须的
+controller 改动，不在「回灌截断语义零变更」的禁令里；它不进入
+LLM 请求体，避免把完整 JSON 塞回 4000 字预算。
+
 ## 目标形态（建议按序）
 
+0. **完整结果信号/模型先于卡片**：见上节。UI 分派表格卡/
+   血缘小图之前，测试能从这条通道读到与工具出参逐字一致的
+   JSON（合成超 160 且超 4000 的闭包仍完整）。
 1. **结果视图类型分派**：按工具/topic 分派结构化视图——
    query_project(wells/horizons/assets)→紧凑表格卡；
    asset_lineage→血缘闭包小图；well_details→键值对卡；
@@ -48,36 +76,46 @@ cd .worktrees\ai-resultviz
 4. **交互红线**：视图只读——卡片内零写操作（AI 工具只读
    纪律延续）；「跳转定位」是导航不是数据修改。
 5. **测试**：视图分派单测（工具→视图类型映射）；血缘小图
-   节点/边数与出参一致（断言）；表格卡复制到剪贴板；
-   兜底折叠块；offscreen 截图入 ledger。
+   节点/边数与**完整结果通道**里的出参一致（夹具须长于
+   160 且覆盖超过 4000，证明不是摘要/clamp）；表格卡同样
+   对完整通道；复制到剪贴板；兜底折叠块；offscreen 截图
+   入 ledger。
 6. **文档**：DESIGN.md 补「AI 结果卡片」节（若未有）——
    token/交互口径。
 
 ## 通用纪律（方向内全程有效）
 
 - **分层**：视图归 src/ui/ai（消费 derivationgraph 渲染核
-  属视图层内部复用，合法）；编排信号归 workflow（既有
-  toolFinished 链不动）；`check_layering.py --strict` 绿。
-- **行为红线**：工具执行/回灌/预算语义零变更（纯呈现层）；
-  JSON 文本回灌保留（供模型下一轮）——结构化视图是**额外**
-  用户呈现，不替换协议面。
+  属视图层内部复用，合法）。workflow 允许且必须增加「完整
+  已接受结果」信号/模型（见先决）；既有 tool 执行、160 字
+  `toolResultReady` 摘要、4000 字 `clampToolResult` 回灌
+  不改语义。`check_layering.py --strict` 绿。
+- **行为红线**：工具执行/预算/回灌截断语义零变更。结构化
+  视图是**额外**用户呈现，不替换协议面；但卡片不得把
+  `toolResultReady` 或已 clamp 的 `messageAppended` 内容
+  当成完整 nodes/edges 或资产表。
 - **DESIGN.md**：卡片视觉先提案 token 再实现。
 - **资源**：`./paleo-dev.ps1` 系；ctest 串行。
 - **无人值守**：复用度与视图形态自行定案记 ledger。
 - **ledger**：`.goal-loop-ledger-ai-resultviz.md`。
 - **多轮 review（硬要求）**：每批 → 测试全绿 → diff 自审
-  （分层/只读红线/协议面零变更/DESIGN 一致/i18n 五维）→
+  （分层/只读红线/160 与 4000 回灌语义不变且卡片走完整
+  结果通道/DESIGN 一致/i18n 五维）→
   修复 → 再 review，至少两轮零 High/Medium；Low 记 PR body。
 - **提交**：原子提交，中文 conventional 前缀。
 
 ## Oracle 验收（逐条需验证证据）
 
 1. 分派：工具→视图类型映射单测绿；未知工具兜底折叠块。
-2. 血缘小图：节点/边数与出参一致（合成闭包断言）；
-   「在血缘页打开」跳转正确（导航信号断言）。
-3. 表格卡：内容与出参一致；复制到剪贴板（QClipboard 测试）；
-   行点击定位（导航断言）。
+2. 血缘小图：节点/边数与**完整结果通道**里的出参一致
+   （合成闭包须长于 160 且覆盖超过 4000 的情形，证明不是
+   摘要/clamp）；「在血缘页打开」跳转正确（导航信号断言）。
+3. 表格卡：内容与完整结果通道里的出参一致（同样覆盖超
+   160/4000）；复制到剪贴板（QClipboard 测试）；行点击定位
+   （导航断言）。
 4. 只读：卡片内零写路径（rg + 测试——catalog 快照前后一致）。
-5. 协议零变更：aichattoolrunner/aichatcontroller 的执行与
-   回灌测试零改动通过；全量 ctest 对照 R0 红集合 diff 为空。
+5. 协议面：既有执行与 4000 字回灌/160 字摘要测试保持通过。
+   允许为新的完整结果信号加测试；禁止要求
+   aichatcontroller「零改动」——没有这条信号，卡片验收做不到。
+   全量 ctest 对照 R0 红集合 diff 为空。
 6. check_i18n 绿；layering 三档绿；DESIGN.md 节与实现一致。

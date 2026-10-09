@@ -260,7 +260,7 @@ void SeismicSectionDockWidget::runVolumePropagation() {
                 }
             } else if (m_pickPanel) {
                 m_pickPanel->showTrackError(
-                    tr("传播完成，但 catalog 未注入——层位面未登记上图"));
+                    tr("追踪完成，但数据目录未连接，层位面未登记上图"));
             }
             emit propagationFinished(true);
         });

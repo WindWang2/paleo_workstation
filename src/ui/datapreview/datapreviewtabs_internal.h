@@ -188,7 +188,7 @@ inline QWidget *makeOpenExternalRow(const QString &absPath, QWidget *parent)
   QObject::connect(btn, &QPushButton::clicked, row, [absPath, openErr]() {
     if (!QDesktopServices::openUrl(QUrl::fromLocalFile(absPath)))
     {
-      openErr->setText(QObject::tr("系统没有打开这个文件\n%1").arg(absPath));
+      openErr->setText(QObject::tr("系统未能打开该文件\n%1").arg(absPath));
       openErr->setVisible(true);
     }
   });

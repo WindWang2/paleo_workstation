@@ -1163,8 +1163,8 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
       auto *deadEnd = stateLabel(
           cat->entities(QStringLiteral("well")).isEmpty()
               ? tr("工程里还没有井 — 先导入工区文件夹（井位表会建立井）")
-              : tr("这个资产还没有挂到任何井 — 在数据页资产表的「未决」行，"
-                   "用「挂到这口井」把它挂上"),
+              : tr("该资产尚未关联到任何井。请在数据页资产表的「未决」行，"
+                   "用「挂到这口井」完成挂接"),
           host);
       deadEnd->setObjectName(QStringLiteral("deadEndText"));
       lay->addWidget(deadEnd, 1);

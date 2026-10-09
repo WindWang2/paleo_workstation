@@ -80,7 +80,7 @@ bool QgisEditingService::beginEdit(QgsVectorLayer *layer, QString *error)
 {
   if (!layer)
   {
-    setError(error, tr("cannot begin an edit session on a null layer"));
+    setError(error, tr("图层为空，无法开始编辑"));
     return false;
   }
   const QString unavailable = availabilityError(layer);
@@ -91,7 +91,7 @@ bool QgisEditingService::beginEdit(QgsVectorLayer *layer, QString *error)
   }
   if (layer->isEditable())
   {
-    setError(error, tr("layer '%1' already has an active edit session").arg(layer->id()));
+    setError(error, tr("图层「%1」已在编辑中").arg(layer->id()));
     return false;
   }
   QString busy;
@@ -103,7 +103,7 @@ bool QgisEditingService::beginEdit(QgsVectorLayer *layer, QString *error)
   layer->undoStack()->setUndoLimit(m_undoDepth);
   if (!isConstraintLayer(layer) && !layer->startEditing())
   {
-    setError(error, tr("startEditing failed for layer '%1'").arg(layer->id()));
+    setError(error, tr("图层「%1」无法进入编辑").arg(layer->id()));
     return false;
   }
 
@@ -131,7 +131,7 @@ bool QgisEditingService::beginEdit(QgsVectorLayer *layer, QString *error)
       }
     }));
   }
-  m_store->markLayerBusy(busyKey(layer), QStringLiteral("edit"), tr("editing in progress"));
+  m_store->markLayerBusy(busyKey(layer), QStringLiteral("edit"), tr("正在编辑"));
   emit editStarted(layer->id());
   return true;
 }
@@ -140,7 +140,7 @@ bool QgisEditingService::commitEdit(QgsVectorLayer *layer, QString *error)
 {
   if (!layer)
   {
-    setError(error, tr("cannot commit an edit session on a null layer"));
+    setError(error, tr("图层为空，无法保存编辑"));
     return false;
   }
 
@@ -170,9 +170,9 @@ bool QgisEditingService::commitEdit(QgsVectorLayer *layer, QString *error)
     [layer]() -> PaleoProjectStore::WriteResult
     {
       if (!layer->isEditable())
-        return {false, QObject::tr("layer '%1' has no active edit session").arg(layer->id())};
+        return {false, QObject::tr("图层「%1」没有进行中的编辑").arg(layer->id())};
       if (!layer->commitChanges())
-        return {false, QObject::tr("commitChanges failed for layer '%1'").arg(layer->id())};
+        return {false, QObject::tr("图层「%1」保存编辑失败").arg(layer->id())};
       return {true, QString()};
     });
 

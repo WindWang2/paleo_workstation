@@ -101,7 +101,7 @@ QWidget *buildUnsupportedPage( const QString &typeName, QWidget *parent )
   lay->setSpacing(PaleoTheme::tokens().spacingSm);
   lay->addStretch( 1 );
 
-  auto *title = new QLabel( QObject::tr("不支持预览这个类型") +
+  auto *title = new QLabel( QObject::tr("不支持预览该类型") +
                             ( typeName.isEmpty() ? QString() : QStringLiteral("：%1").arg(typeName) ),
                             page );
   title->setObjectName( QStringLiteral( "stateText" ) );

@@ -240,7 +240,7 @@ void SeismicSectionDockWidget::runInversion(const InversionPanelParams &params) 
             return;
         }
         if (!m_catalog) {
-            m_invPanel->showResult(false, tr("反演完成但 catalog 未注入，无法登记（体在 %1）")
+            m_invPanel->showResult(false, tr("反演完成，但数据目录未连接，无法登记（体在 %1）")
                                              .arg(job->tempVolumePath));
             return;
         }

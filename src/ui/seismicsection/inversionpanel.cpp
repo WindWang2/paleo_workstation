@@ -53,7 +53,7 @@ void InversionPanel::buildUi()
         return b;
     };
     m_btnRun = mkBtn(tr("▶ 反演"),
-                     tr("对整个地震体做确定性叠后反演（道并行，DERIVED 登记）"), /*primary=*/true);
+                     tr("对整个地震体做确定性叠后反演，结果登记为派生版本"), /*primary=*/true);
     m_btnRun->setObjectName(QStringLiteral("invRunButton"));
     row1->addWidget(m_btnRun);
     m_btnCancel = mkBtn(tr("取消"), tr("取消在途反演任务"), /*primary=*/false);
@@ -99,7 +99,7 @@ void InversionPanel::buildUi()
     // 行 3：子波（提取入口 + 文件路径 + 浏览）
     auto *row3 = new QHBoxLayout();
     m_btnExtractWavelet = mkBtn(tr("提取子波…"),
-                                tr("最近井 AC×DEN + 时深 + 井旁道最小二乘提取（DERIVED 登记）"),
+                                tr("用最近井的声波、密度、时深和井旁道做最小二乘子波提取，结果登记为派生版本"),
                                 /*primary=*/false);
     m_btnExtractWavelet->setObjectName(QStringLiteral("invExtractWaveletButton"));
     row3->addWidget(m_btnExtractWavelet);

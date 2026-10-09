@@ -26,7 +26,7 @@ bool ToolAvailabilityService::check( const QString &layerId, QString *reasonOut 
   if ( !m_globalAllowed )
   {
     if ( reasonOut )
-      *reasonOut = m_globalReason.isEmpty() ? tr( "Tools unavailable" ) : m_globalReason;
+      *reasonOut = m_globalReason.isEmpty() ? tr( "工具不可用" ) : m_globalReason;
     return false;
   }
   QString busy;
@@ -35,7 +35,7 @@ bool ToolAvailabilityService::check( const QString &layerId, QString *reasonOut 
     // Store contract: busy reason is prefixed with the task info that owns the
     // layer ("taskId — reason") so the tooltip names the blocker (§42.13).
     if ( reasonOut )
-      *reasonOut = busy.isEmpty() ? tr( "Layer busy — task in progress" ) : busy;
+      *reasonOut = busy.isEmpty() ? tr( "图层正忙，有任务进行中" ) : busy;
     return false;
   }
   if ( reasonOut )

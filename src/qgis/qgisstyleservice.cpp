@@ -204,17 +204,17 @@ bool QgisStyleService::applyStyle(QgsMapLayer *layer, const QString &styleRef, Q
 {
   if (!layer)
   {
-    setError(error, tr("cannot apply a style to a null layer"));
+    setError(error, tr("图层为空，无法应用样式"));
     return false;
   }
   if (m_stylesRoot.isEmpty())
   {
-    setError(error, tr("no styles root configured — call setStylesRoot() first"));
+    setError(error, tr("样式目录尚未配置"));
     return false;
   }
   if (styleRef.isEmpty())
   {
-    setError(error, tr("cannot apply an empty style reference"));
+    setError(error, tr("样式引用为空，无法应用"));
     return false;
   }
 
@@ -224,7 +224,7 @@ bool QgisStyleService::applyStyle(QgsMapLayer *layer, const QString &styleRef, Q
   const QString path = QDir(m_stylesRoot).filePath(fileName);
   if (!QFileInfo::exists(path))
   {
-    setError(error, tr("style '%1' not found at %2").arg(styleRef, path));
+    setError(error, tr("未找到样式「%1」（%2）").arg(styleRef, path));
     return false;
   }
 
@@ -232,8 +232,8 @@ bool QgisStyleService::applyStyle(QgsMapLayer *layer, const QString &styleRef, Q
   const QString status = layer->loadNamedStyle(path, resultFlag);
   if (!resultFlag)
   {
-    setError(error, tr("loadNamedStyle('%1') failed: %2")
-                      .arg(path, status.isEmpty() ? tr("unknown error") : status));
+    setError(error, tr("加载样式失败（%1）：%2")
+                      .arg(path, status.isEmpty() ? tr("未知错误") : status));
     return false;
   }
   return true;

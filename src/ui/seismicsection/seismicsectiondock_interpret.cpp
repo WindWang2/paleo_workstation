@@ -255,7 +255,7 @@ bool SeismicSectionDockWidget::loadInterpretationSession(QString *error) {
 QString SeismicSectionDockWidget::registerCurrentHorizonAsset(QString *error) {
     if (!m_catalog) {
         if (error)
-            *error = tr("catalog 未注入（应用层需调 setInterpretationCatalog）");
+            *error = tr("数据目录未连接，无法登记解释成果");
         return QString();
     }
     const QString horizon = m_pickPanel ? m_pickPanel->currentHorizon() : QString();
@@ -277,7 +277,7 @@ QString SeismicSectionDockWidget::registerCurrentHorizonAsset(QString *error) {
 QString SeismicSectionDockWidget::registerCurrentFaultAsset(QString *error) {
     if (!m_catalog) {
         if (error)
-            *error = tr("catalog 未注入（应用层需调 setInterpretationCatalog）");
+            *error = tr("数据目录未连接，无法登记解释成果");
         return QString();
     }
     return SeismicTaskService::registerFaultAsset(

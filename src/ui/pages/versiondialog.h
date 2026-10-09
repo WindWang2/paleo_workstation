@@ -198,7 +198,7 @@ class VersionTableDialog : public QDialog
       if (ids.size() != 2 || !m_compareHook)
       {
         m_compareSummary->setText(
-            ids.size() >= 2 ? tr("对比钩未接（壳 bug）")
+            ids.size() >= 2 ? tr("版本对比尚未接入")
                             : tr("选中两行可对比；选中单行（非当前版本）可回滚。"));
         return;
       }

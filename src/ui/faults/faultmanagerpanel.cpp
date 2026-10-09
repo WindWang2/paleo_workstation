@@ -99,7 +99,7 @@ void FaultManagerPanel::buildUi()
     auto *bar = new QHBoxLayout();
     bar->setSpacing(PaleoTheme::tokens().spacingXs);
     m_btnAdd = mkBtn(tr("+ 断层"), tr("新建命名断层"));
-    m_btnRename = mkBtn(tr("改名"), tr("重命名选中断层"));
+    m_btnRename = mkBtn(tr("重命名"), tr("重命名选中断层"));
     m_btnRemove = mkBtn(tr("删除"), tr("删除断层及其全部断层棒/切割（可撤销）"));
     m_btnUndo = mkBtn(tr("撤销"), tr("撤销最近一次断层编辑"));
     m_btnRedo = mkBtn(tr("重做"), tr("重做被撤销的断层编辑"));
@@ -188,12 +188,12 @@ void FaultManagerPanel::onRenameFault()
     if (!f)
         return;
     bool ok = false;
-    const QString name = QInputDialog::getText(this, tr("断层改名"),
+    const QString name = QInputDialog::getText(this, tr("重命名断层"),
                                                tr("新名称："), QLineEdit::Normal, f->name, &ok);
     if (!ok || name.trimmed().isEmpty() || name.trimmed() == f->name)
         return;
     if (!m_controller->renameFault(faultId, name.trimmed())) {
-        m_lblStatus->setText(tr("改名失败：名称「%1」已被占用").arg(name.trimmed()));
+        m_lblStatus->setText(tr("重命名失败：名称「%1」已被占用").arg(name.trimmed()));
         return;
     }
     m_lblStatus->clear();

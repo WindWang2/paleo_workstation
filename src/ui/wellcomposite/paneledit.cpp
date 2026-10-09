@@ -26,7 +26,7 @@ void WellCompositePanel::setEditMode(bool on)
     m_btnEdit->blockSignals(false);
     PaleoNotify::information(this, tr("不可编辑"),
                              m_editSession->readOnlyReason().isEmpty()
-                                 ? tr("当前资产为只读（RAW 或未授权路径）。")
+                                 ? tr("当前资产为只读（原始版本，或路径未授权）。")
                                  : m_editSession->readOnlyReason());
     return;
   }

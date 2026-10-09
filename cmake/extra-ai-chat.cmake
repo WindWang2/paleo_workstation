@@ -52,6 +52,15 @@ add_paleo_test(tst_aichatprojectquery LIBS paleo_workflow paleo_ai)
 # 装配断言：产品与测试同源（app/aiwiring.cpp）。用 paleo_app 最小链接集，
 # 绕开伞式 paleo_core 在本机的 0xc0000139（见 ledger「宿主红项」）。
 add_paleo_test(tst_aiwiring LIBS paleo_app)
+# 方向95：换工程重绑段吃 mkproject mini 夹具（QProcess 全链产物）——第二源
+# + 生成器表达式对齐 tst_mkprojectfixture 口径；RUN_SERIAL 同先例（QProcess
+# 子进程 + QGIS init 资源面防抖）。
+target_sources(tst_aiwiring PRIVATE tests/fixtures/mkprojectfixture.cpp)
+target_compile_definitions(tst_aiwiring PRIVATE
+  MKPROJECT_BIN="$<TARGET_FILE:paleo_mkproject>"
+  MKPROJECT_MINI_DIR="${CMAKE_SOURCE_DIR}/tools/reference/mkproject/mini")
+add_dependencies(tst_aiwiring paleo_mkproject)
+set_tests_properties(tst_aiwiring PROPERTIES RUN_SERIAL TRUE)
 add_paleo_test(tst_aichatcontroller LIBS paleo_workflow paleo_ai)
 add_paleo_test(tst_aiassistdock LIBS paleo_ui)
 # 方向62：markdown 转换器（纯逻辑，无 UI）。

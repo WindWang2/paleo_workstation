@@ -13,6 +13,13 @@ QString fixture(const QString &name)
   return QFileInfo(QString::fromUtf8(__FILE__)).dir().filePath(
       QStringLiteral("fixtures/io_robustness/") + name);
 }
+
+// mkproject mini 数据集件（方向 95 对拍样本；MKPROJECT_MINI_DIR 由 CMake 注入，
+// 与 tst_mkprojectfixture 同源指向 tools/reference/mkproject/mini）。
+QString mini(const QString &rel)
+{
+  return QDir(QString::fromLatin1(MKPROJECT_MINI_DIR)).filePath(rel);
+}
 }
 class IoWorkbookEdgeTests : public QObject
 {
@@ -33,6 +40,10 @@ private slots:
   void cuttingsSheetDescriptionColumnOptional();
   void cuttingsCsvQuotedDelimitersAndNewlines();
   void cuttingsCsvMismatchedColumnsRejectedWithIssue();
+  // 方向 95：mkproject mini 数据集对拍——生产链消费的实文件作解析样本
+  //（零 QProcess，直读仓内源；断言与 generate.py 写入字面逐一相等）。
+  void miniWellHeadSpreadsheetMlMatchesGenerator();
+  void miniCuttingsCsvsMatchGenerator();
 };
 
 void IoWorkbookEdgeTests::workbookEdgesAreHonest()
@@ -337,6 +348,85 @@ void IoWorkbookEdgeTests::cuttingsCsvMismatchedColumnsRejectedWithIssue()
   QCOMPARE(table.intervals[0].topMd, 150.0);
   QCOMPARE(table.intervals[0].baseMd, 180.0);
   QCOMPARE(table.intervals[0].litho, QStringLiteral("砂岩"));
+}
+
+// 方向 95 对拍面 1：mini 井位坐标 SpreadsheetML——paleo_mkproject 井口转换
+// 链（convertWellHeadXlsx → readWorkbook）消费的同一入口读回同一文件，
+// 单元格字面与 generate.py 写入值逐一相等（manifest 控制点同源：A1 1010/
+// 5020、A2 1050/5060、A3 1080/5040）。生成器改数 → 本测试与 mkproject 自检
+// 期望同步红，解析回归第一时间在此红而非深埋导入链。
+void IoWorkbookEdgeTests::miniWellHeadSpreadsheetMlMatchesGenerator()
+{
+  const auto wb = paleo::io::readWorkbook(
+      mini(QStringLiteral("well/井位坐标.xml")));
+  QVERIFY2(wb.ok, qPrintable(wb.error));
+  QCOMPARE(wb.format, QStringLiteral("spreadsheetml"));
+  QVERIFY(wb.issues.isEmpty());
+  QCOMPARE(int(wb.sheets.size()), 1);
+  const paleo::io::WorkbookSheet &sh = wb.sheets.first();
+  QCOMPARE(sh.name, QStringLiteral("井位坐标"));
+  QCOMPARE(sh.headerRowNumber, 1);
+  QCOMPARE(sh.headers,
+           QStringList({QStringLiteral("井号"), QStringLiteral("井口横坐标X"),
+                        QStringLiteral("井口纵坐标Y"), QStringLiteral("补心海拔"),
+                        QStringLiteral("完钻井深")}));
+  QCOMPARE(int(sh.rows.size()), 3);
+  QCOMPARE(sh.rowNumbers, QVector<int>({2, 3, 4}));
+  // 生成器字面（tools/reference/mkproject/mini/generate.py write_wellhead_xml）。
+  QCOMPARE(sh.rows.at(0),
+           QStringList({QStringLiteral("A1"), QStringLiteral("1010.0"),
+                        QStringLiteral("5020.0"), QStringLiteral("1048.5"),
+                        QStringLiteral("1820.0")}));
+  QCOMPARE(sh.rows.at(1),
+           QStringList({QStringLiteral("A2"), QStringLiteral("1050.0"),
+                        QStringLiteral("5060.0"), QStringLiteral("1052.3"),
+                        QStringLiteral("1845.0")}));
+  QCOMPARE(sh.rows.at(2),
+           QStringList({QStringLiteral("A3"), QStringLiteral("1080.0"),
+                        QStringLiteral("5040.0"), QStringLiteral("1046.9"),
+                        QStringLiteral("1802.5")}));
+}
+
+// 方向 95 对拍面 2：mini 岩屑 CSV×3——井剖面工作流第二解释源（readCuttingsFile）
+// 消费口径。逐井顶深 +12.5m 偏移（A1 1500 / A2 1512.5 / A3 1525）、四段区间
+// litho 序列与描述列字面相等；物理行号 2..5（表头行 1）。
+void IoWorkbookEdgeTests::miniCuttingsCsvsMatchGenerator()
+{
+  const struct
+  {
+    const char *file;
+    double firstTop;
+  } wells[] = {
+      {"2.4岩屑录井数据/A1_岩屑录井.csv", 1500.0},
+      {"2.4岩屑录井数据/A2_岩屑录井.csv", 1512.5},
+      {"2.4岩屑录井数据/A3_岩屑录井.csv", 1525.0},
+  };
+  const QStringList lithoSeq = {
+      QStringLiteral("灰绿色泥岩"), QStringLiteral("浅灰色细砂岩"),
+      QStringLiteral("深灰色粉砂质泥岩"), QStringLiteral("灰白色中砂岩")};
+  const QStringList descSeq = {
+      QStringLiteral("水平层理发育"), QStringLiteral("分选中等"),
+      QStringLiteral("见黄铁矿"), QStringLiteral("钙质胶结")};
+  for (const auto &w : wells)
+  {
+    const auto table = paleo::io::readCuttingsFile(
+        mini(QString::fromUtf8(w.file)));
+    QVERIFY2(table.ok, qPrintable(table.error));
+    QVERIFY2(table.issues.isEmpty(),
+             qPrintable(table.issues.join(QLatin1Char('\n'))));
+    QCOMPARE(int(table.intervals.size()), 4);
+    // 文本表 sheetName = 文件名（parseTextCuttings 分派口径）。
+    QCOMPARE(table.sheetName, QFileInfo(QString::fromUtf8(w.file)).fileName());
+    for (int i = 0; i < 4; ++i)
+    {
+      const paleo::io::CuttingsInterval &iv = table.intervals.at(i);
+      QCOMPARE(iv.topMd, w.firstTop + 62.5 * i);
+      QCOMPARE(iv.baseMd, w.firstTop + 62.5 * (i + 1));
+      QCOMPARE(iv.litho, lithoSeq.at(i));
+      QCOMPARE(iv.description, descSeq.at(i));
+      QCOMPARE(iv.rowNumber, 2 + i);
+    }
+  }
 }
 QTEST_GUILESS_MAIN(IoWorkbookEdgeTests)
 #include "tst_io_workbook_edges.moc"

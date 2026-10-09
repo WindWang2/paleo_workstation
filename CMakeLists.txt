@@ -1019,6 +1019,16 @@ add_paleo_test(tst_correlation LIBS paleo_ui)
 add_paleo_test(tst_decorations LIBS paleo_ui)
 add_paleo_test(tst_manifestproj LIBS paleo_qgis)
 add_paleo_test(tst_import LIBS paleo_io paleo_services paleo_qgis) # 方向44：并集可达断言
+# 方向 95：mini 夹具扩散段——整工程生产产物上的导入域不变量（受管 SHA
+# 对拍/只读锁/外链 sha 冻结/A3 双 LAS 并集）。第二源 + 生成器表达式对齐
+# tst_mkprojectfixture 手动注册口径；RUN_SERIAL 同先例（QProcess 子进程 +
+# QGIS init 资源面，CI 并行负载下防抖）。
+target_sources(tst_import PRIVATE tests/fixtures/mkprojectfixture.cpp)
+target_compile_definitions(tst_import PRIVATE
+  MKPROJECT_BIN="$<TARGET_FILE:paleo_mkproject>"
+  MKPROJECT_MINI_DIR="${CMAKE_SOURCE_DIR}/tools/reference/mkproject/mini")
+add_dependencies(tst_import paleo_mkproject)
+set_tests_properties(tst_import PROPERTIES RUN_SERIAL TRUE)
 add_paleo_test(tst_imagelod LIBS paleo_services)              # 方向79：图片道 LOD/EXIF/LRU
 add_paleo_test(tst_wellattachmentpanel LIBS paleo_ui)        # 方向79：井附件面板 CRUD offscreen
 add_paleo_test(tst_drawctl LIBS paleo_ui)
@@ -1038,6 +1048,10 @@ add_paleo_test(tst_io_robustness LIBS paleo_io paleo_algorithms)
 add_paleo_test(tst_io_seismicquality LIBS paleo_services paleo_algorithms)
 add_paleo_test(tst_seismichorizoncluster LIBS paleo_services) # 取窗契约锚（f0e7b10d ±12ms）
 add_paleo_test(tst_io_workbook_edges LIBS paleo_io)
+# 方向 95：mini 数据集对拍槽（SpreadsheetML/岩屑 CSV 实文件直读，零 QProcess
+#——不走 fixtures/mkprojectfixture.cpp，paleo_io 瘦链接面不动）。
+target_compile_definitions(tst_io_workbook_edges PRIVATE
+  MKPROJECT_MINI_DIR="${CMAKE_SOURCE_DIR}/tools/reference/mkproject/mini")
 add_paleo_test(tst_segy LIBS paleo_io)
 add_paleo_test(tst_las LIBS paleo_io)
 add_paleo_test(tst_dlisparser LIBS paleo_io)          # 方向44：DLIS (RP66 v1) 全集读口

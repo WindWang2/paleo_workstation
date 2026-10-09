@@ -7,6 +7,7 @@
 // 本窗口（视图层不持有服务生命周期）。
 #include "paleomainwindow.h"
 
+#include "paleoicons.h"
 #include "notifications/errorhistorypanel.h"
 #include "notifications/notificationcenter.h"
 #include "../services/errorhub.h"

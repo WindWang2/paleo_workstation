@@ -647,6 +647,7 @@ void PaleoMainWindow::resetProjectScopedState()
     m_corrPanel->resetProject();
 
   ++m_seismicOpenGeneration;
+  if (m_sectionWorkbench) m_sectionWorkbench->cancelPreviewData();
   if (m_seismicOpenTask)
     m_seismicOpenTask->requestCancel();
   m_seismicOpenPath.clear();
@@ -811,6 +812,7 @@ void PaleoMainWindow::refreshCorrelationWells(const QString &loadLasForAssetId,
 
 void PaleoMainWindow::syncSeismicVolumeToDocks()
 {
+  if (m_projectSvc && m_projectSvc->isOpening()) return;
   DataCatalog *cat = m_previewDoc ? m_previewDoc->catalog() : nullptr;
   if (!cat || !cat->isOpen() || !m_seismicTaskSvc)
     return;
@@ -900,7 +902,7 @@ void PaleoMainWindow::syncSeismicVolumeToDocks()
           guard->m_seismicSectionDock->setVolume(volume);
       }
       guard->statusBar()->showMessage(QObject::tr("地震体加载完成"), 5000);
-    });
+    }, /*quiet=*/true); // 状态栏已有进度；自动加载不反复展开/收起底栏。
     if (m_seismicOpenTask) {
       QPointer<PaleoTask> task = m_seismicOpenTask;
       connect(task, &PaleoTask::changed, this, [task, progress, generation, this] {

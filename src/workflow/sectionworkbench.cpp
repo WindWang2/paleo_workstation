@@ -11,12 +11,46 @@
 #include <QJsonDocument>
 #include <QStringList>
 #include <QSaveFile>
+#include <QFutureWatcher>
+#include <QtConcurrent>
 #include <algorithm>
 #include <cmath>
 
 SectionWorkbench::SectionWorkbench(DataCatalog *catalog, QObject *parent)
     : QObject(parent), m_catalog(catalog) {
   syncProject();
+}
+void SectionWorkbench::requestPreviewData(std::function<void(const PreviewData &)> ready) {
+  m_previewReady = std::move(ready);
+  ++m_previewGeneration;
+  if (!m_catalog || !m_catalog->isOpen()) { m_previewReady = {}; return; }
+  if (m_previewRunning) { m_previewPending = true; return; }
+  m_previewRunning = true; m_previewPending = false;
+  const auto generation = m_previewGeneration;
+  const auto sequence = m_catalog->mutationSeq();
+  const QString path = m_catalog->catalogPath();
+  auto snapshot = std::shared_ptr<DataCatalog>(m_catalog->createStagingCopy(QString()));
+  auto *watcher = new QFutureWatcher<PreviewData>(this);
+  watcher->setObjectName("sectionWellPreviewWatcher");
+  connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, generation, sequence, path] {
+    const auto data = watcher->result(); watcher->deleteLater(); m_previewRunning = false;
+    if (generation == m_previewGeneration && m_catalog && m_catalog->catalogPath() == path &&
+        m_catalog->mutationSeq() == sequence) {
+      auto ready = std::move(m_previewReady); m_previewReady = {};
+      if (ready) ready(data);
+    } else if (generation == m_previewGeneration && m_catalog &&
+               m_catalog->catalogPath() == path && m_previewReady) {
+      m_previewPending = true; // 同目录数据已更新，重读最新快照
+    }
+    if (m_previewPending) requestPreviewData(std::move(m_previewReady));
+  });
+  watcher->setFuture(QtConcurrent::run([snapshot] {
+    SectionWorkbench worker(snapshot.get());
+    return PreviewData{worker.wells(), worker.sectionWells()};
+  }));
+}
+void SectionWorkbench::cancelPreviewData() {
+  ++m_previewGeneration; m_previewPending = false; m_previewReady = {};
 }
 QString SectionWorkbench::projectDir() const {
   return m_catalog ? QDir::cleanPath(m_catalog->catalogPath() + "/../../..")

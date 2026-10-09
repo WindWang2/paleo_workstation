@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+<Worksheet ss:Name="测井曲线-补充"><Table>
+<Row><Cell><Data>井名</Data></Cell><Cell><Data>深度</Data></Cell><Cell><Data>GR</Data></Cell></Row>
+<Row><Cell><Data>A1</Data></Cell><Cell><Data>1000</Data></Cell><Cell><Data>45</Data></Cell></Row>
+<Row><Cell><Data>A1</Data></Cell><Cell><Data>1010</Data></Cell><Cell><Data>50</Data></Cell></Row>
+<Row><Cell><Data>A1</Data></Cell><Cell><Data>1020</Data></Cell><Cell><Data>55</Data></Cell></Row>
+</Table></Worksheet>
+</Workbook>

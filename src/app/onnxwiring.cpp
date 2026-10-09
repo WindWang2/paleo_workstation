@@ -13,7 +13,8 @@
 namespace paleo::app {
 
 #if PALEO_HAVE_ORT
-void installOnnxModelsOnOpen(PaleoOnnxService *onnxSvc, const QString &projectDir)
+void installOnnxModelsOnOpen(PaleoOnnxService *onnxSvc, const QString &projectDir,
+                             const ModelRegistryScan *preparedModels)
 {
   // onnx:* 模型按层位钉在 <工程目录>/models/*.onnx。
   if (!onnxSvc)
@@ -23,7 +24,9 @@ void installOnnxModelsOnOpen(PaleoOnnxService *onnxSvc, const QString &projectDi
   onnxSvc->setModelRoot(modelsDir);
   // 模型注册表如实扫描（范围5）：未装模型静默降级；manifest 在而
   // 坏/缺文件/指纹不符 → 消息日志逐条说明，不报错轰炸。
-  const ModelRegistryScan registry = ModelRegistry::scan(modelsDir);
+  // 后台准备已经扫过同一目录时直接用那份结果。
+  const ModelRegistryScan registry =
+      preparedModels ? *preparedModels : ModelRegistry::scan(modelsDir);
   // #145：扫描结果门控模型可见性与加载（只放行 status==Ok；加载时复核钉哈希）。
   onnxSvc->setModelRegistry(registry);
   if (!registry.manifestFound)
@@ -40,7 +43,8 @@ void installOnnxModelsOnOpen(PaleoOnnxService *onnxSvc, const QString &projectDi
           QStringLiteral("Paleo"), Qgis::Warning);
 }
 #else
-void installOnnxModelsOnOpen(PaleoOnnxService *, const QString &) {}
+void installOnnxModelsOnOpen(PaleoOnnxService *, const QString &,
+                             const ModelRegistryScan *) {}
 #endif
 
 } // namespace paleo::app

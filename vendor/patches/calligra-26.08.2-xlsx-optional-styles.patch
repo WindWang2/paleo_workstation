@@ -1,0 +1,11 @@
+--- a/filters/sheets/xlsx/XlsxXmlWorksheetReader.cpp
++++ b/filters/sheets/xlsx/XlsxXmlWorksheetReader.cpp
+@@ -1341,7 +1341,7 @@
+     const XlsxCellFormat *cellFormat = m_context->styles->cellFormat(styleId);
+ 
+     QString formattedStyle;
+-    if (cellFormat->applyNumberFormat)
++    if (cellFormat && cellFormat->applyNumberFormat)
+         formattedStyle = m_context->styles->numberFormatStyleName(cellFormat->numFmtId);
+ 
+     // qCDebug(lcXlsxImport) << "type=" << t << "styleId=" << styleId << "applyNumberFormat=" << cellFormat->applyNumberFormat << "numberFormat=" <<

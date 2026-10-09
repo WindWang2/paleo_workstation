@@ -5,6 +5,7 @@
 #include <QJsonDocument>
 #include <QObject>
 #include <QPointer>
+#include <QQueue>
 #include <QString>
 #include <QStringList>
 #include <QVariantMap>
@@ -164,6 +165,33 @@ class PreviewDocService : public QObject
     DocPdfState documentPdfState(const QString &assetId) const;
     QString documentPdfPath(const QString &assetId) const;
     QString documentPdfError(const QString &assetId) const;
+    // ---- 二进制 .xls 工作簿预览（soffice 懒转 DERIVED .xlsx 供表格渲染）----
+    enum class WorkbookXlsxState { None, Pending, Ready, Failed };
+    void ensureWorkbookXlsx(const QString &assetId);
+    WorkbookXlsxState workbookXlsxState(const QString &assetId) const;
+    QString workbookXlsxPath(const QString &assetId) const;   // Ready 时有效
+    QString workbookXlsxError(const QString &assetId) const;  // Failed 时有效
+
+    // ---- 外委工作簿预览（io/outsourceworkbook 的视图侧出口）----
+    // 方向59 头文件卫生：WorkbookReadResult 是 io 类型不出闸——镜像为
+    // 纯 Qt 结构，字段语义与 io/outsourceworkbook.h 一致。
+    struct WorkbookSheetPreview
+    {
+        QString name;
+        QStringList headers;         // 首个非空行（表头）
+        QVector<QStringList> rows;   // 表头之后的数据行（每行长度可与 headers 不齐）
+    };
+    struct WorkbookPreview
+    {
+        bool ok = false;
+        QString error;               // 文件级失败原因
+        QString format;              // "spreadsheetml" | "xlsx" | "xml"
+        QVector<WorkbookSheetPreview> sheets;
+        QStringList issues;          // 文件级 issues
+    };
+    static WorkbookPreview workbookPreviewAt(const QString &absPath);
+    // SpreadsheetML sheets or a bounded path/value list for ordinary XML.
+    static WorkbookPreview xmlDataListAt(const QString &absPath);
 
     // ---- 剖面标定快照（D61 标定井：分层点坐标→TD 表插值→初始测线）----
     // 一次算好 UI 需要的全部派生量；计算口径与旧 UI 内实现一致：
@@ -217,6 +245,7 @@ class PreviewDocService : public QObject
     QHash<QString, LasDoc> lasSiblingDocs(const QString &key) const;
     // 释放该 key 的世代号；进行中的解析请求取消——结果没人等了。
     void releaseLas(const QString &key);
+    bool hasPendingLasResults() const { return m_lasDeliveryScheduled || !m_lasDeliveryQueue.isEmpty(); }
     // #154：工程切换前清空所有按 assetId 键控的会话缓存（SEG-Y 索引读者、
     // SHA 已验集、金字塔状态、LAS 兄弟文档）并取消在途解码/解析/预热任务。
     // assetId（ast-N）在不同工程间会重复——不清会把旧工程的读者/已验结论
@@ -247,9 +276,11 @@ class PreviewDocService : public QObject
     // 解码失败（原因如实；SHA 失配的下游标过时已在服务内做完）。
     void seismicSectionFailed(const QString &assetId, const QString &reason);
     void seismicSectionCancelled(const QString &assetId);
-    // DataImportService 文档 PDF 信号的转发（UI 重建对应标签）。
+    // DataImportService 文档 PDF / 工作簿 XLSX 转换信号的转发（UI 重建对应标签）。
     void documentPdfReady(const QString &assetId);
     void documentPdfFailed(const QString &assetId, const QString &error);
+    void workbookXlsxReady(const QString &assetId);
+    void workbookXlsxFailed(const QString &assetId, const QString &error);
     // DataImportService 信号的壳侧转发（主窗只认门面）。
     void catalogOpenFailed(const QString &error);
     // catalog open() 经 .bak 回退恢复（T5）——「已从备份恢复，主文件损坏」
@@ -266,6 +297,7 @@ class PreviewDocService : public QObject
     void rasterPyramidFinished(const QString &assetId, bool ok);
 
   private:
+    void deliverNextLasResult();
     DataImportService *m_svc = nullptr;
     PaleoTaskService *m_taskSvc = nullptr;
     std::unique_ptr<seismic::SeismicTaskService> m_seismicTaskSvc;
@@ -286,6 +318,8 @@ class PreviewDocService : public QObject
     QHash<QString, int> m_lasSeq;
     QHash<QString, QPointer<PaleoTask>> m_lasTask;
     QHash<QString, QHash<QString, LasDoc>> m_lasSiblings;
+    QQueue<std::function<void()>> m_lasDeliveryQueue;
+    bool m_lasDeliveryScheduled = false;
 
     // B3 栅格金字塔预热：按资产的会话状态（Ready/Failed 不重复）与在途
     // 任务指针（同资产新请求合并——在途即视为已受理）。

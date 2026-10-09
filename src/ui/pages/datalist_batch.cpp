@@ -467,6 +467,7 @@ void DataListPanel::showAssetContextMenu(QObject *source, const QPoint &pos)
     {"exportManifest", QT_TR_NOOP("导出清单 CSV/JSON…")},
     {"removeSoft", QT_TR_NOOP("移除（进可回收清单）")},
     {"showInFolder", QT_TR_NOOP("在文件管理器中显示")},
+    {"openExternal", QT_TR_NOOP("用系统程序打开")},
     {"renameEntity", QT_TR_NOOP("重命名实体…")},
     {"editCoords", QT_TR_NOOP("编辑坐标/备注…")},
     {"deleteEntity", QT_TR_NOOP("删除实体…")},
@@ -532,6 +533,26 @@ void DataListPanel::showAssetContextMenu(QObject *source, const QPoint &pos)
       const QString abs = m_doc->absolutePathForVersion(v);
       if (!abs.isEmpty())
         QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(abs).absolutePath()));
+    }
+  }
+  else if (key == QLatin1String("openExternal"))
+  {
+    const QSet<QString> ids = currentAssetSelection();
+    if (!ids.isEmpty() && m_doc)
+    {
+      const QString id = *ids.constBegin();
+      // 开 RAW 原件：currentVersion 可能指向 DERIVED 转换件（如 PDF）。
+      QString abs;
+      for (const CatalogVersion &v : m_doc->catalog()->versionsForAsset(id))
+        if (v.stage == QLatin1String("RAW"))
+        {
+          abs = m_doc->absolutePathForVersion(v);
+          break;
+        }
+      if (abs.isEmpty())
+        abs = m_doc->absolutePathForVersion(m_doc->catalog()->currentVersion(id));
+      if (!abs.isEmpty())
+        QDesktopServices::openUrl(QUrl::fromLocalFile(abs));
     }
   }
   else if (key == QLatin1String("renameEntity"))

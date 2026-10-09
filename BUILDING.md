@@ -55,12 +55,25 @@
 superbuild 明示禁止 qt-everywhere 整块编译；走发行版或 OSGeo4W 同源）、
 编译器工具链与构建依赖（flex/bison/nasm/python3）、glibc/libstdc++
 （ABI floor，无法 vendored）、ONNX Runtime（官方 release SHA256 pin，
-与 QGIS 路线正交）、LibreOffice（官方自含 tarball SHA256 pin——
-`vendor/manifest.json` `deps.libreoffice`，`vendor/fetch-libreoffice.sh`
-解到 `vendor/libreoffice/`；只取 headless `--convert-to pdf` 子集
-core/ure/writer/impress/draw/calc/images/en-us/ooofonts/graphicfilter，
-供 document 资产预览用，探测序 `PALEO_SOFFICE` > vendored > PATH；
-Windows 侧 MSI 解包递延，走 PATH soffice）。
+与 QGIS 路线正交）。Office 预览使用源码构建的 **Calligra 26.08.2**，
+不依赖 LibreOffice。Calligra、ECM、Boost、Eigen、KDiagram 的 URL / SHA256
+固定在 `vendor/manifest.json`；`vendor/fetch-calligra.sh` 安装到 `vendor/calligra/`。
+Qt6 与 KDE Frameworks 6 开发依赖优先由 `PALEO_KF6_PREFIX` 指定前缀，系统开发包
+为兜底；Qt/KF6 必须与主程序保持 ABI 一致。当前 Linux 构建使用 Qt 6.11.2、
+KF6 6.30.0，Qt ≥6.5 / KF6 ≥6.0 是上游最低要求。
+
+```bash
+# 首次编译 Words / Sheets / Stage 及六种导入滤镜；并行度最多 8
+vendor/fetch-calligra.sh
+cmake --build build -j8
+```
+
+`paleo_office_renderer` 在独立 offscreen 进程中解析原件，按需渲染页面；Qt Widgets
+显示页码、缩放与滚动，不生成 PDF，也不登记派生 Office 版本。运行时先查
+`PALEO_OFFICE_RENDERER`，再查应用同目录、`../vendor/calligra/bin/`、`../libexec/`。
+部署须同时带上 `vendor/calligra` 的库、`lib/plugins`、`share` 和许可证；不能只复制
+helper 二进制。当前 Linux 已验证；Windows/macOS 的 Calligra 依赖打包尚需实机验收。
+旧 `vendor/fetch-libreoffice.sh` 仅服务显式调用的历史转换 API，不是 Office 预览依赖。
 
 ### glibc 三档口径（显式分层，非混乱）
 
@@ -69,7 +82,7 @@ Windows 侧 MSI 解包递延，走 PATH soffice）。
 | binary vendoring 总地板 | 2.41 | `vendor/bootstrap.sh` preflight | 走 binary 路（deb 闭包/ORT）的宿主最低要求 |
 | deb 闭包锁 | 2.43 | `vendor/bootstrap.sh`（闭包腿）/ `fetch-deps.sh` 头注 | 已提交锁是 Ubuntu 26.04（resolute）闭包，链接 GLIBC_2.43 符号；低 glibc 宿主能解包不能运行，提前拒绝 |
 | ONNX Runtime abi_floor | 2.28 | `vendor/manifest.json` `abi_floor` | 官方 manylinux_2_28 构建；与 QGIS 路线正交 |
-| LibreOffice | ≪2.41（官方自含基线构建） | `vendor/fetch-libreoffice.sh` | 仅作外部转换进程调用，不进链接面 |
+| Calligra | 跟随本机构建的 Qt/KF6 ABI | `vendor/fetch-calligra.sh` | 独立页面渲染进程，不进主程序链接面 |
 
 更低 glibc 宿主走 superbuild（"superbuild-on-oldest-target"）。
 

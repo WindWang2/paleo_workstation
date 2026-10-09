@@ -43,6 +43,7 @@ class DepthRuler;
 class HorizonMarkerSet;
 class PaleoTask;
 class PaleoTaskService;
+class PreviewDocService;
 struct LasCurve;
 
 class WellCorrelationPanel : public QWidget
@@ -171,11 +172,11 @@ class WellCorrelationPanel : public QWidget
     QList<QPair<QString, QString>> m_wells;     // (id, name), section order
     QHash<QString, CorrelationWellColumn *> m_columns;      // id → column
     QHash<QString, QList<LasCurve>> m_lasByWell;            // id → last parsed LAS
-    // B1：quiet LAS 异步——任务服务、按井世代号（陈旧结果发射前丢弃）、在途
-    // 任务指针（同井新请求协作取消旧任务）。
+    // LAS 解析与结果移交由数据门面统一编排；视图只记录对应的呈现意图。
     QPointer<PaleoTaskService> m_taskSvc;
-    QHash<QString, int> m_lasSeq;
-    QHash<QString, QPointer<PaleoTask>> m_lasTask;
+    PreviewDocService *m_lasDoc = nullptr;
+    struct LasPresentation { bool withTrack; QString mnemonic; };
+    QHash<QString, LasPresentation> m_pendingLas;
     QList<QGraphicsPathItem *> m_columnItems;              // current scene columns
     QList<HorizonMarkerSet::ColumnGeom> m_lastGeoms;        // geoms matching m_columnItems
     QGraphicsRectItem *m_chrome = nullptr;     // marker parent; only while markers visible

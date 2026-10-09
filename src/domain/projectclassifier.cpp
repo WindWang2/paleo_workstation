@@ -51,10 +51,11 @@ ProjectClassification classifyProjectPath(const QString &path)
     return make(QStringLiteral("geojson"), ext, QStringLiteral("input"));
   // 方向41：外委格式进词表登记（不旁路分类器）。
   // .sfpkg = 上游单因素无损包（facies_workflow/sfpkg.py），.xlsx = 外委 OOXML
-  // 工作簿。旧的二进制 .xls 不在这里——读取面没有实现它，不给假能力。
+  // 工作簿。旧的二进制 .xls 同档归 outsource_workbook——原生读取面不覆盖它，
+  // 预览交给 LibreOffice 原生只读窗口；数据解析能力独立于预览能力。
   if (ext == QLatin1String("sfpkg"))
     return make(QStringLiteral("single_factor_package"), ext, QStringLiteral("input"));
-  if (ext == QLatin1String("xlsx"))
+  if (ext == QLatin1String("xlsx") || ext == QLatin1String("xls"))
     return make(QStringLiteral("outsource_workbook"), ext, QStringLiteral("input"));
   if (ext == QLatin1String("dat"))
   {

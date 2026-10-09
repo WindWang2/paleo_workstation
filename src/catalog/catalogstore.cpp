@@ -805,6 +805,23 @@ void CatalogStore::close()
   m_connectionName.clear();
 }
 
+bool CatalogStore::resumeConnection(bool readOnly, int expectedRevision, QString *error)
+{
+  // Only reconnect. openProject already did migration/integrity/backup work.
+  if (readOnly && !QFileInfo::exists(m_sqlitePath)) return true;
+  if (!connectPrimary(readOnly, error)) return false;
+  m_open = true;
+  m_writable = !readOnly;
+  QSqlDatabase db = QSqlDatabase::database(m_connectionName);
+  QSqlQuery revision(db);
+  if (!revision.exec(QStringLiteral("SELECT value FROM catalog_meta WHERE key='catalog_revision'")) ||
+      !revision.next() || revision.value(0).toInt() != expectedRevision) {
+    setError(error, QStringLiteral("目录库在后台读取期间已变化，请重新打开工程"));
+    return false;
+  }
+  return readOnly || applyWritablePragmas(db, error);
+}
+
 bool CatalogStore::begin(QString *error)
 {
   if (m_inTxn)

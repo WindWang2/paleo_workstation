@@ -384,26 +384,47 @@ WellCorrelationPanel::WellCorrelationPanel(SelectionContext *ctx, QWidget *paren
   // grabber alive (rebuildScene never clears the chrome layer).
   connect(m_markers, &HorizonMarkerSet::markerDepthChanged, this,
           [this](const QString &, const QString &, float) { rebuildScene(); });
+
+  m_lasDoc = new PreviewDocService(nullptr, this);
+  connect(m_lasDoc, &PreviewDocService::lasReady, this,
+          [this](const QString &wellId, const QStringList &names, const QList<LasCurve> &curves) {
+    if (!m_pendingLas.contains(wellId)) return;
+    const auto presentation = m_pendingLas.take(wellId);
+    if (curves.isEmpty()) {
+      emit lasLoadFinished(wellId, false);
+      emit lasLoadError(wellId, tr("LAS 无数据曲线"));
+      showEmptyErrorIfIdle(wellId, tr("LAS 无数据曲线"));
+    } else if (presentation.withTrack) {
+      const bool ok = applyLasTrack(wellId, names, curves, presentation.mnemonic);
+      emit lasLoadFinished(wellId, ok);
+      if (!ok) emit lasLoadError(wellId, tr("曲线不存在：%1").arg(presentation.mnemonic));
+    } else {
+      applyLasCurves(wellId, curves);
+      emit lasLoadFinished(wellId, true);
+    }
+  });
+  const auto failed = [this](const QString &wellId, const QString &reason) {
+    if (!m_pendingLas.remove(wellId)) return;
+    emit lasLoadFinished(wellId, false);
+    emit lasLoadError(wellId, reason);
+    showEmptyErrorIfIdle(wellId, reason);
+  };
+  connect(m_lasDoc, &PreviewDocService::lasFailed, this, failed);
+  connect(m_lasDoc, &PreviewDocService::lasCancelled, this,
+          [this, failed](const QString &wellId) { failed(wellId, tr("测井读取已取消")); });
 }
 
 WellCorrelationPanel::~WellCorrelationPanel()
 {
-  // B1：在途 LAS 解析请求协作取消（结果没人等了）；任务对象归任务服务所有。
-  for (auto it = m_lasTask.constBegin(); it != m_lasTask.constEnd(); ++it)
-    if (auto *t = it.value().data(); t && t->running())
-      t->requestCancel();
+  m_lasDoc->resetProjectState();
   qDeleteAll(m_columns);
   delete m_ruler;
 }
 
 void WellCorrelationPanel::resetProject()
 {
-  for (auto it = m_lasTask.constBegin(); it != m_lasTask.constEnd(); ++it)
-    if (auto *t = it.value().data(); t && t->running())
-      t->requestCancel();
-  m_lasTask.clear();
-  for (auto it = m_lasSeq.begin(); it != m_lasSeq.end(); ++it)
-    ++it.value();
+  m_lasDoc->resetProjectState();
+  m_pendingLas.clear();
   m_lasByWell.clear();
   if (m_browser)
     m_browser->setCurves(QString(), {});
@@ -413,12 +434,12 @@ void WellCorrelationPanel::resetProject()
 void WellCorrelationPanel::setTaskService(PaleoTaskService *svc)
 {
   m_taskSvc = svc;
+  m_lasDoc->setTaskService(svc);
 }
 
 bool WellCorrelationPanel::isLasLoadPending(const QString &wellId) const
 {
-  const auto *t = m_lasTask.value(wellId).data();
-  return t && t->running();
+  return m_pendingLas.contains(wellId);
 }
 
 // B1：解析结果的回填出口——browser 列表 + m_lasByWell 快照。
@@ -497,72 +518,9 @@ bool WellCorrelationPanel::submitLasLoad(const QString &wellId,
 {
   if (lasPath.isEmpty() || !QFile::exists(lasPath))
     return false; // 快速失败留在同步侧：调用方当场拿到 false
-  PaleoTaskService *svc = m_taskSvc;
-  if (!svc)
-    return false;
-
-  const int seq = ++m_lasSeq[wellId];
-  if (auto *old = m_lasTask.value(wellId).data(); old && old->running())
-    old->requestCancel();
-
-  // worker 产出（跨线程交接；LasDoc 值拷贝经 LasCache 的 COW QVector 浅拷）。
-  struct Outcome
-  {
-    QStringList names;
-    QList<LasCurve> curves;
-    QString error;
-  };
-  auto out = std::make_shared<Outcome>();
-  auto *task = svc->start(
-      tr("解析测井 %1").arg(QFileInfo(lasPath).fileName()),
-      [lasPath, out](PaleoTask *) -> QString {
-        // 纯解析在池线程跑（LasCache 线程安全 + 同文件并发合并）。
-        if (!PreviewDocService::lasAt(lasPath, &out->names, &out->curves,
-                                      &out->error))
-          return out->error.isEmpty() ? tr("无法解析 LAS 文件")
-                                      : out->error;
-        return QString();
-      },
-      QString(), /*quiet=*/true); // 交互内嵌取数——不拉起任务中心
-  m_lasTask[wellId] = task;
-  connect(task, &PaleoTask::finished, this,
-          [this, wellId, seq, withTrack, mnemonic, out, task] {
-            if (seq != m_lasSeq.value(wellId))
-              return; // 陈旧结果丢弃：更新一代请求已接管
-            const bool ok = task->state() == PaleoTask::State::Succeeded;
-            if (ok && out->curves.isEmpty())
-            {
-              // lasAt 成功但 ~A 无曲线：与同步路径同语义（false）。
-              emit lasLoadFinished(wellId, false);
-              emit lasLoadError(wellId, tr("LAS 无数据曲线"));
-              showEmptyErrorIfIdle(wellId, tr("LAS 无数据曲线"));
-              return;
-            }
-            if (!ok)
-            {
-              const QString why = task->errorText().isEmpty()
-                                      ? tr("无法解析 LAS 文件")
-                                      : task->errorText();
-              emit lasLoadFinished(wellId, false);
-              emit lasLoadError(wellId, why);
-              showEmptyErrorIfIdle(wellId, why);
-              return;
-            }
-            if (withTrack)
-            {
-              const bool trackOk = applyLasTrack(wellId, out->names, out->curves,
-                                                 mnemonic);
-              emit lasLoadFinished(wellId, trackOk);
-              if (!trackOk)
-                emit lasLoadError(wellId,
-                                  tr("曲线不存在：%1").arg(mnemonic));
-            }
-            else
-            {
-              applyLasCurves(wellId, out->curves);
-              emit lasLoadFinished(wellId, true);
-            }
-          });
+  if (!m_taskSvc) return false;
+  m_pendingLas.insert(wellId, {withTrack, mnemonic});
+  m_lasDoc->requestLas(wellId, lasPath);
   return true;
 }
 

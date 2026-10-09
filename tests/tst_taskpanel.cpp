@@ -1,4 +1,8 @@
 #include <QtTest>
+#include <QSemaphore>
+#include <QScopeGuard>
+#include <memory>
+#include "../src/services/paleotaskservice.h"
 #include <QLabel>
 #include <QTreeWidget>
 
@@ -12,6 +16,25 @@ class TestTaskPanel : public QObject
 {
   Q_OBJECT
 private slots:
+  void hiddenTasksBuildRowsOnlyWhenShown()
+  {
+    PaleoTaskService service;
+    TaskPanel panel(nullptr, &service);
+    auto *list = panel.findChild<QTreeWidget *>(QStringLiteral("busyList"));
+    QVERIFY(list);
+    auto gate = std::make_shared<QSemaphore>();
+    const auto releaseOnExit = qScopeGuard([gate] { gate->release(); });
+    auto *task = service.start("background load", [gate](PaleoTask *task) {
+      task->reportBytes(512, 1024); gate->acquire(); return QString();
+    });
+    QTest::qWait(25); QCOMPARE(list->topLevelItemCount(), 0);
+    panel.show();
+    QTRY_COMPARE(list->topLevelItemCount(), 1);
+    gate->release(); QTRY_VERIFY(!task->running());
+    panel.hide(); service.clearFinished(); QTest::qWait(25);
+    QCOMPARE(list->topLevelItemCount(), 1);
+    panel.show(); QTRY_COMPARE(list->topLevelItemCount(), 0);
+  }
 
   void reflectsBusyRegistry()
   {

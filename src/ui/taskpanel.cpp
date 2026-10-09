@@ -60,7 +60,14 @@ TaskPanel::TaskPanel(PaleoProjectStore *store, PaleoTaskService *tasks,
     connect(clearBtn, &QPushButton::clicked, m_tasks,
             &PaleoTaskService::clearFinished);
     connect(m_tasks, &PaleoTaskService::tasksChanged, this,
-            &TaskPanel::refresh);
+            [this] {
+      if (!isVisible() || m_refreshPending) return;
+      m_refreshPending = true;
+      QTimer::singleShot(16, this, [this] {
+        m_refreshPending = false;
+        if (isVisible()) refresh();
+      });
+    });
   }
   else
     clearBtn->setVisible(false);

@@ -38,6 +38,7 @@ class TaskPanel : public QWidget
     PaleoProjectStore *m_store;
     PaleoTaskService *m_tasks;
     QTimer *m_pollTimer = nullptr;
+    bool m_refreshPending = false;
     // #164：子控件构造时缓存——refresh 每行一次 findChild 是 O(子对象数)，
     // 行数 × 子控件数（每行两个 itemWidget）即 O(N²)。
     class QTreeWidget *m_list = nullptr;

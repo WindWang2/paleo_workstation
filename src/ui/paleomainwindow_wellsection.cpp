@@ -24,6 +24,7 @@
 #include "workflow/wellattachmentops.h"
 #include "workflow/wellsectionworkflow.h"
 
+#include <QInputDialog>
 #include <QTimer>
 #include <qgsmessagelog.h>
 #include <qgsproject.h>
@@ -69,9 +70,10 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
     wf->setSeismicTaskService(m_seismicTaskSvc.get());
   wf->setSectionWorkbench(m_sectionWorkbench);
 
-  // 剖面编辑产物落库（井序 + 连线改接 + 深度域；每次落盘版本 +1——Oracle
-  // #2）。深度域进剖面状态（方向 69 工程级 round-trip）：用户域动作与
-  // 井序/改接同一保存钩子。无工程库（store 空/未开工程）时编辑仅驻内存。
+  // 剖面编辑产物落库（井序 + 连线改接 + 深度域 + 井间距；每次落盘版本 +1
+  // ——Oracle #2）。深度域/间距进剖面状态（方向 69/98 工程级 round-trip）：
+  // 用户域/井距动作与井序/改接同一保存钩子。无工程库（store 空/未开工程）
+  // 时编辑仅驻内存。
 
   const auto rebindFenceStore = [this]() {
     // 换工程：打开中的栅状图换到新 store（否则继续写旧工程的库）。
@@ -158,7 +160,8 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
     const metadata::WellSectionRecord rec =
         m_wellSectionStore->save(QString::fromLatin1(kSectionId), panel->wellIds(),
                                  toStoreOverrides(panel->linkOverrides()),
-                                 panel->depthDomain(), &err);
+                                 panel->depthDomain(), panel->spacingMode(),
+                                 &err);
     if (!rec.valid())
       QgsMessageLog::logMessage(tr("连井剖面编辑保存失败：%1").arg(err),
                                 QStringLiteral("Paleo"));
@@ -171,6 +174,11 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
           });
   connect(panel, &WellSectionPanel::depthDomainChanged, this,
           [saveSectionEdits](wellsection::DepthDomain) {
+            saveSectionEdits();
+          });
+  // 井间距同为剖面状态（方向 98）：用户动作与域/井序同一保存钩子。
+  connect(panel, &WellSectionPanel::spacingModeChanged, this,
+          [saveSectionEdits](wellsection::SpacingMode) {
             saveSectionEdits();
           });
 
@@ -254,9 +262,23 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
       // 覆盖面板；无记录时保留面板现状——应用级 QSettings 偏好就是缺省，
       // 不得被 store 缺省 MD 静默盖回（R1-3 M1）。程序化 setter 不发信号、
       // 不重发数据请求之外的持久化钩子；此时面板井集已清（setDepthDomain
-      // 不触发在途请求）。
+      // 不触发在途请求）。井间距同口径（方向 98）：行里存过才回读，缺档
+      //（旧库行）保持面板现状。
       if (rec.valid())
+      {
         panel->setDepthDomain(rec.depthDomain);
+        if (rec.spacing.has_value())
+          panel->setSpacingMode(*rec.spacing);
+      }
+      // 解释来源选择整表灌入（方向 98）：无行 = 全默认取最新；选择失效
+      //（资产删链）由消费侧回落 + 告警。
+      QString selErr;
+      wf->setLithoAssetSelections(
+          m_wellSectionStore->loadInterpretationSelections(&selErr));
+      if (!selErr.isEmpty())
+        QgsMessageLog::logMessage(
+            tr("解释岩性来源读回失败：%1").arg(selErr),
+            QStringLiteral("Paleo"));
     }
     QSet<QString> existing;
     for (const auto &c : wf->wellChoices())
@@ -362,6 +384,58 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
               qWarning("wellsection: anchor edit failed for %s: %s",
                        qPrintable(v.id), qPrintable(err));
           });
+  // 解释岩性来源（方向 98 多解释显式选择）：枚举该井解释资产（版本降序）
+  // → 选择对话框（首项 = 默认取最新，当前选择预选）→ workflow 选择 + 工程
+  // 库落表 + 重取剖面（多份时题注/告警点名消费与落选来源）。无解释资产
+  // 如实提示（岩屑/GR 推断兜底是正常态），不开对话框。
+  connect(panel, &WellSectionPanel::lithoSourceEditRequested, this,
+          [this, wf, panel](const QString &wellId) {
+            if (wellId.isEmpty())
+              return;
+            const auto choices = wf->lithoSourceChoices(wellId);
+            if (choices.isEmpty())
+            {
+              QgsMessageLog::logMessage(
+                  tr("井 %1 无解释岩性资产（岩屑/GR 推断兜底是正常态）")
+                      .arg(wellId),
+                  QStringLiteral("Paleo"));
+              return;
+            }
+            const QString def = tr("默认（最新版本）");
+            QStringList items;
+            items << def;
+            const QString current = wf->lithoAssetSelections().value(wellId);
+            int selected = 0;
+            for (int i = 0; i < choices.size(); ++i)
+            {
+              items << choices.at(i).label;
+              if (choices.at(i).assetId == current)
+                selected = i + 1;
+            }
+            bool ok = false;
+            const QString picked = QInputDialog::getItem(
+                panel, tr("解释岩性来源"), tr("消费的解释资产："), items,
+                selected, /*editable=*/false, &ok);
+            if (!ok)
+              return;
+            const int idx = items.indexOf(picked);
+            const QString assetId =
+                idx <= 0 ? QString() : choices.at(idx - 1).assetId;
+            wf->setLithoAssetSelection(wellId, assetId);
+            if (m_wellSectionStore)
+            {
+              QString storeErr;
+              if (!m_wellSectionStore->saveInterpretationSelection(
+                      wellId, assetId, &storeErr))
+                QgsMessageLog::logMessage(
+                    tr("解释岩性来源保存失败：%1").arg(storeErr),
+                    QStringLiteral("Paleo"));
+            }
+            panel->setBusy(true);
+            wf->request(panel->wellIds(),
+                        panel->sectionTemplate().mnemonics());
+          });
+
   // sectionReady 回填后井位才可读——同步进现有回填槽。
   connect(wf, &WellSectionWorkflow::sectionReady, this,
           [syncBand](int, const QVector<wellsection::Well> &,

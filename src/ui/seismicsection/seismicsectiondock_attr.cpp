@@ -145,9 +145,10 @@ void SeismicSectionDockWidget::computeTimeSliceAttribute(
             // #236：工程/体世代守卫——请求时快照的体路径与当前不符（工程
             // 切换后旧在途扫描迟到）即丢弃：旧工程产物不得登记/上图到新
             // 工程。面板如实收尾忙态，不冒充成功。
+            // #320：走 fromFsPath，不用 path::string()——MSVC 上那是 ACP 字节，
+            // 与 UTF-16 快照永远不相等，中文路径下时间切片会被误判成已切换。
             const QString currentPath =
-                m_volume ? QString::fromStdString(m_volume->Path().string())
-                         : QString();
+                m_volume ? paleo::fromFsPath(m_volume->Path()) : QString();
             if (currentPath != sourcePath)
             {
                 m_attrPanel->showResult(
@@ -234,9 +235,10 @@ void SeismicSectionDockWidget::computeAttributeVolume(
             // 新工程回调照常走）即静默丢弃：旧工程属性体不得贴进已重置的
             // 3D 视口、不得登记进新工程 catalog。放在 !ok 分支之前——取消
             // （含工程边界取消）同样走此守卫，不弹误导性的 3D 失败提示。
+            // #320：两边都走 fromFsPath。MSVC 上 path::string() 是 ACP 字节，
+            // 跟 UTF-16 快照永远不相等，中文路径的迟到结果会被误判成已切换。
             const QString currentPath =
-                m_volume ? QString::fromStdString(m_volume->Path().string())
-                         : QString();
+                m_volume ? paleo::fromFsPath(m_volume->Path()) : QString();
             if (currentPath != sourcePath)
             {
                 m_attrPanel->showResult(

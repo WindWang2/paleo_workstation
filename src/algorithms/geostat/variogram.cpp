@@ -66,7 +66,8 @@ double VariogramModel::semivariance( double dx, double dy, double dz ) const
 }
 
 ExperimentalVariogram experimentalVariogram( const std::vector<Sample> &samples,
-    double lag, int nLags, const VariogramDirection &direction, const VariogramBarriers &barriers )
+    double lag, int nLags, const VariogramDirection &direction, const VariogramBarriers &barriers,
+    const Control &control )
 {
   ExperimentalVariogram result;
   result.lag = lag;
@@ -142,6 +143,14 @@ ExperimentalVariogram experimentalVariogram( const std::vector<Sample> &samples,
     barrierFields.reserve( samples.size() );
     for ( const Sample &sample : samples )
     {
+      // #327：隔断档每个样本一次全网格 Dijkstra，512 样本上限下这段是长任务。
+      // 取消必须能在这里打断，否则要等拟合结束，evaluateLocalKriging 才会看到。
+      if ( control.cancelled && control.cancelled() )
+      {
+        result.status = Status::Cancelled;
+        result.message = "cancelled";
+        return result;
+      }
       if ( !std::isfinite( sample.x ) || !std::isfinite( sample.y ) ||
            !std::isfinite( sample.value ) )
       {
@@ -149,7 +158,7 @@ ExperimentalVariogram experimentalVariogram( const std::vector<Sample> &samples,
         continue;
       }
       const FaultPathResult field =
-          faultPathMetric( barrierGrid, barriers.polygons, sample.x, sample.y );
+          faultPathMetric( barrierGrid, barriers.polygons, sample.x, sample.y, control );
       if ( field.status != Status::Ok )
       {
         result.message = "barrier distance field failed: " + field.message;

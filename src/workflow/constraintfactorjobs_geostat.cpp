@@ -613,7 +613,14 @@ bool ConstraintWorkflow::computeGeostatJob( GeostatJob *job, const std::function
 
     paleo::geostat::CoKrigingModel coModel;
     coModel.primary = model;
+    // #326：次级自变差必须与交叉项同单位。交叉项是 ρ·γ1（主变量单位，
+    // cokriging.h crossSemivariance），所以 γ22 也要落在主变量基台上——
+    // 即 scaled MM1 的两基台相等那种退化。原实现把 γ22 的拱高换成协变量
+    // 井点原始方差，地震属性与孔隙度/厚度差几个数量级时，方程组里混了两
+    // 种单位：Pearson ρ 不再是那个 ρ，次级块还会主导条件数。测得的协变量
+    // 方差只进 QC 参数，不改模型。
     coModel.secondary = model;
+    coModel.secondary.nugget = 0.0;
     if ( !secondaryZ.empty() )
     {
       double secMean = 0;
@@ -624,11 +631,8 @@ bool ConstraintWorkflow::computeGeostatJob( GeostatJob *job, const std::function
       for ( double val : secondaryZ )
         secVar += ( val - secMean ) * ( val - secMean );
       secVar /= secondaryZ.size();
-      if ( secVar > 1e-6 )
-      {
-        coModel.secondary.sill = secVar;
-        coModel.secondary.nugget = 0.0;
-      }
+      job->params.insert( QStringLiteral( "covariate_sample_variance" ),
+                          QString::number( secVar, 'g', 10 ) );
     }
     coModel.crossCorrelation = rho;
 

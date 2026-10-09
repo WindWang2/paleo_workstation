@@ -67,7 +67,8 @@ QVector<SurfaceMethodPack> makeSurfacePacks()
       false,
       true,
       QStringLiteral( "同一本地方向插值面（成图域/硬屏障分量/覆盖标记）上用普通克里金"
-                      "权重；方向线与软边界不参与克里金权重并逐条列入 issues。" ) } );
+                      "权重；方向线与软边界参与权重：方向线进 MLA 各向异性张量，"
+                      "软边界按跨界距离放大，逐条记 applied 回执。" ) } );
   packs.append( SurfaceMethodPack{
       QStringLiteral( "idw" ),
       QStringLiteral( "IDW 反距离加权" ),

@@ -52,7 +52,7 @@ struct ExperimentalVariogram
 
 ExperimentalVariogram experimentalVariogram( const std::vector<Sample> &samples,
     double lag, int nLags, const VariogramDirection &direction = {},
-    const VariogramBarriers &barriers = {} );
+    const VariogramBarriers &barriers = {}, const Control &control = {} );
 
 enum class VariogramModelType
 {

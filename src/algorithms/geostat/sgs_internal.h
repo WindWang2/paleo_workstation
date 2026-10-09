@@ -156,6 +156,46 @@ struct NormalScoreTable
 
 // 简单克里金（高斯域，均值 0 已知）：C(h) = S − γ(h)，解 Cw = c0。
 // 估计 = Σwᵢyᵢ，方差 = S − Σwᵢc0ᵢ。三维坐标；dz=0 时 γ 走 2D 重载（恒等）。
+//
+// #325：SGS 在这里跑的是正态得分域，模型必须也标定到该域。正态得分后方差
+// 约 1，原值域基台差几个量级；条件方差 = S − Σwᵢc0ᵢ 用错域时，权重对整体
+// 缩放不敏感（比值不变），但 sqrt(variance) 的随机振幅整体缩放错误——基台
+// 远小于 1 时实现几乎没有随机性，远大于 1 时反变换把模拟值甩出样本直方图。
+// 所以调用方应传 rescaleToGaussianDomain 之后的模型，而不是原值域模型。
+inline VariogramModel rescaleToGaussianDomain( const VariogramModel &model,
+                                               double targetVariance )
+{
+  const double sill = model.nugget + model.sill;
+  if ( !( sill > 0.0 ) || !( targetVariance > 0.0 ) )
+    return model;
+  const double factor = targetVariance / sill;
+  VariogramModel out = model;
+  out.nugget = model.nugget * factor;
+  out.sill = model.sill * factor;
+  return out;
+}
+
+// 高斯域样本方差：正态得分理论上为 1，按变换后的样本实测（端部线性外推会
+// 带来小漂移，用实测值标定更稳）。
+inline double gaussianDomainVariance( const NormalScoreTable &table,
+                                      const std::vector<double> &values )
+{
+  if ( values.empty() )
+    return 1.0;
+  double sum = 0;
+  double sumSq = 0;
+  for ( const double value : values )
+  {
+    const double g = table.forward( value );
+    sum += g;
+    sumSq += g * g;
+  }
+  const double n = static_cast<double>( values.size() );
+  const double mean = sum / n;
+  const double variance = sumSq / n - mean * mean;
+  return variance > 0.0 ? variance : 1.0;
+}
+
 inline bool solveSimpleKriging( const std::vector<CondPoint> &data, double x0, double y0,
                                 double z0, const VariogramModel &model, double *estimate,
                                 double *variance )

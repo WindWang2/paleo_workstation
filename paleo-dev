@@ -97,6 +97,18 @@ case "$verb" in
     fi
     ;;
   selfcheck)
+    # #319：bootstrap.sh 在调子进程前已导出 QGIS_PREFIX_PATH，顶部注入块被跳过，
+    # 直接跑二进制会在 libmeshoptimizer.so.2d 上 exit 127。deb multiarch 必须进
+    # LD_LIBRARY_PATH——CMAKE_BUILD_RPATH 只含 onnxruntime，链接期 -rpath-link
+    # 不进 RUNPATH，覆盖不到传递依赖。
+    if [ -d vendor/prefix/usr ]; then
+      case "${QGIS_PREFIX_PATH:-}" in
+        "$PWD"/vendor/prefix/usr|"")
+          [ -n "${QGIS_PREFIX_PATH:-}" ] || export QGIS_PREFIX_PATH="$PWD/vendor/prefix/usr"
+          export LD_LIBRARY_PATH="$(paleo_deb_libpath)${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          ;;
+      esac
+    fi
     mkdir -p vendor/logs
     QT_QPA_PLATFORM=offscreen "$BUILD_DIR/paleo_selfcheck" "$@"
     ;;

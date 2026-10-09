@@ -162,8 +162,12 @@ std::string number( double value )
 
 VariogramResolution resolveVariogram( const std::vector<Sample> &samples, const GridSpec &grid,
                                       const ResolvedParameters &parameters,
-                                      const std::vector<ConstraintLine> &constraints )
+                                      const std::vector<ConstraintLine> &constraints,
+                                      const Control &control )
 {
+  // #327：singlefactor::Control → geostat::Control。两个同名结构字段一致，
+  // 在这里转一次，隔断拟合的长测地距计算才能被取消打断。
+  const geostat::Control geostatControl{ control.cancelled, control.progress };
   VariogramResolution result;
   result.modelName = modelNameOf( modelTypeOf( parameters.variogramModel ) );
   result.sampleCount = static_cast<int>( samples.size() );
@@ -232,11 +236,19 @@ VariogramResolution resolveVariogram( const std::vector<Sample> &samples, const 
     geostat::VariogramDirection across = along;
     across.azimuthDeg = std::fmod( parameters.variogramAzimuthDeg + 90.0, 360.0 );
     const geostat::ExperimentalVariogram experimentalAlong =
-        geostat::experimentalVariogram( converted, lag, kAutoLags, along, barriers );
+        geostat::experimentalVariogram( converted, lag, kAutoLags, along, barriers, geostatControl );
     const geostat::ExperimentalVariogram experimentalAcross =
-        geostat::experimentalVariogram( converted, lag, kAutoLags, across, barriers );
+        geostat::experimentalVariogram( converted, lag, kAutoLags, across, barriers, geostatControl );
     const geostat::VariogramFit fitAlong = geostat::fitVariogram( experimentalAlong, type );
     const geostat::VariogramFit fitAcross = geostat::fitVariogram( experimentalAcross, type );
+    if ( experimentalAlong.status == geostat::Status::Cancelled ||
+        experimentalAcross.status == geostat::Status::Cancelled )
+    {
+      // #327：取消不是失败。标 cancelled 让调用方原样上报，不回落 IDW。
+      result.cancelled = true;
+      result.message = "变差函数拟合已取消";
+      return result;
+    }
     if ( fitAlong.status != geostat::Status::Ok || fitAcross.status != geostat::Status::Ok )
     {
       result.message = "方向变差函数拟合失败：" + fitAlong.message + " / " + fitAcross.message;
@@ -259,8 +271,15 @@ VariogramResolution resolveVariogram( const std::vector<Sample> &samples, const 
   else
   {
     const geostat::ExperimentalVariogram experimental =
-        geostat::experimentalVariogram( converted, lag, kAutoLags, {}, barriers );
+        geostat::experimentalVariogram( converted, lag, kAutoLags, {}, barriers, geostatControl );
     const geostat::VariogramFit fit = geostat::fitVariogram( experimental, type );
+    if ( experimental.status == geostat::Status::Cancelled )
+    {
+      // #327：同上，取消原样上报，不回落 IDW。
+      result.cancelled = true;
+      result.message = "变差函数拟合已取消";
+      return result;
+    }
     if ( fit.status != geostat::Status::Ok )
     {
       result.message = "变差函数拟合失败：" + fit.message;
@@ -317,7 +336,16 @@ SurfaceResult evaluateLocalKriging( const PreparedInput &input, const GridSpec &
                           std::to_string( kMinKrigingSamples ) + "，变差函数欠定" );
   }
   const VariogramResolution resolution =
-      resolveVariogram( input.samples, grid, parameters, input.constraints );
+      resolveVariogram( input.samples, grid, parameters, input.constraints, control );
+  if ( resolution.cancelled )
+  {
+    // #327：取消要原样上报，不能画成一张 IDW 面冒充完成。
+    SurfaceResult cancelled;
+    cancelled.status = Status::Cancelled;
+    cancelled.resolved = parameters;
+    cancelled.message = resolution.message;
+    return cancelled;
+  }
   if ( !resolution.ok )
     return fallbackToIdw( resolution.message );
 
@@ -431,9 +459,13 @@ SurfaceResult evaluateLocalKriging( const PreparedInput &input, const GridSpec &
                            number( resolution.r2 ) + " lags=" + std::to_string( resolution.usedLags ) );
   if ( resolution.barrierAware )
   {
+    // #328：措辞跟 unreachablePairs 走。零剔除时是「绕障可达、按测地滞后距
+    // 参与拟合」，不能写成跨隔断对没进拟合——那会在 QC 里记失实的拟合历史。
     result.issues.push_back( "barrierAware:true unreachable_pairs=" +
                              std::to_string( resolution.unreachablePairs ) +
-                             "（跨硬隔断样本对不进变差结构拟合）" );
+                             ( resolution.unreachablePairs > 0
+                                 ? "（跨硬隔断样本对不进变差结构拟合）"
+                                 : "（绕障可达样本对按测地滞后距参与变差结构拟合）" ) );
   }
   else if ( !resolution.variogramNote.empty() )
   {

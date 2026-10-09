@@ -158,6 +158,10 @@ SgsResult sgs( const std::vector<Sample> &samples, const GridSpec &grid,
   const detail::NormalScoreTable table = detail::NormalScoreTable::build( sampleValues );
   result.sampleMean = table.sampleMean;
   result.sampleStd = table.sampleStd;
+  // #325：模型标定到正态得分域。原值域基台与该域方差差几个量级，直接用会
+  // 让 sqrt(variance) 的随机振幅整体缩放错误。块金/拱高比保持不变。
+  const VariogramModel gaussianModel =
+      detail::rescaleToGaussianDomain( model, detail::gaussianDomainVariance( table, sampleValues ) );
 
   // 静态样本邻域按索引原位取 deduped（detail::NeighborIndex 语义）。
   const detail::NeighborIndex index = detail::NeighborIndex::build( deduped );
@@ -254,7 +258,7 @@ SgsResult sgs( const std::vector<Sample> &samples, const GridSpec &grid,
       double estimate = 0;
       double variance = 0;
       if ( !neighborhood.empty() &&
-           detail::solveSimpleKriging( neighborhood, x0, y0, 0.0, model, &estimate, &variance ) )
+           detail::solveSimpleKriging( neighborhood, x0, y0, 0.0, gaussianModel, &estimate, &variance ) )
       {
         const double draw = estimate + std::sqrt( variance ) * detail::gaussianRandom( rng );
         gaussianField[cell] = draw;

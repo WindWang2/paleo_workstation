@@ -3,6 +3,8 @@
 
 #include <QSignalSpy>
 #include <QtTest>
+#include <QDir>
+#include <QFileInfo>
 
 #ifdef Q_OS_UNIX
 #include <cerrno>
@@ -29,6 +31,19 @@ private:
 
 void TestPythonRepl::initTestCase()
 {
+#ifdef PALEO_TEST_PYTHON
+  // 方向81：configure 钉了解释器 → ctest 必须把它作为 PALEO_PYTHON 注入。
+  QCOMPARE(QDir::fromNativeSeparators(qEnvironmentVariable("PALEO_PYTHON")),
+           QStringLiteral(PALEO_TEST_PYTHON));
+#endif
+  // PALEO_PYTHON 一旦设置就必须可用且被选中——不许静默退回 PATH 发现
+  //（Windows PATH 首个 python 常是 WindowsApps 商店桩）。
+  if (const QString pinned = qEnvironmentVariable("PALEO_PYTHON").trimmed(); !pinned.isEmpty())
+  {
+    QVERIFY2(QFileInfo::exists(pinned), qPrintable(QStringLiteral("PALEO_PYTHON missing: ") + pinned));
+    QCOMPARE(QDir::fromNativeSeparators(PythonEnvService::findBasePython()),
+             QDir::fromNativeSeparators(pinned));
+  }
   m_python = PythonEnvService::findBasePython();
   if (m_python.isEmpty())
     QSKIP("no base python on PATH");

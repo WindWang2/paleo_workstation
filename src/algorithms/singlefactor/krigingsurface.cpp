@@ -221,6 +221,56 @@ SurfaceResult evaluateLocalKriging( const PreparedInput &input, const GridSpec &
   // preserve_rows 口径不同，如实改名进血缘。
   kriging.duplicatePolicy = "dedupe_exact_mean";
 
+  // 确保当输入含启用方向线或软边界但参数中尚未解析时，能正确进入克里金插值引擎
+  for ( const ConstraintLine &line : input.constraints )
+  {
+    if ( !line.enabled )
+      continue;
+    if ( line.semantic == Semantic::DirectionGuide && line.ratio > 1.0 && line.points.size() >= 2 )
+    {
+      bool found = false;
+      for ( const auto &d : kriging.directions )
+      {
+        if ( d.id == line.stableId )
+        {
+          found = true;
+          break;
+        }
+      }
+      if ( !found )
+      {
+        ResolvedDirection resolved;
+        resolved.id = line.stableId;
+        resolved.ratio = line.ratio;
+        resolved.influence = line.influenceRadius > 0.0 ? line.influenceRadius : 50.0;
+        resolved.core = line.coreRadius > 0.0 ? line.coreRadius : 0.0;
+        resolved.points = line.points;
+        kriging.directions.push_back( std::move( resolved ) );
+      }
+    }
+    else if ( line.semantic == Semantic::InterpretiveBoundary && line.softStrength > 0.0 && line.points.size() >= 2 )
+    {
+      bool found = false;
+      for ( const auto &s : kriging.soft )
+      {
+        if ( s.id == line.stableId )
+        {
+          found = true;
+          break;
+        }
+      }
+      if ( !found )
+      {
+        ResolvedSoft resolved;
+        resolved.id = line.stableId;
+        resolved.radius = line.softRadius > 0.0 ? line.softRadius : 25.0;
+        resolved.strength = std::clamp( line.softStrength, 0.0, 0.8 );
+        resolved.points = line.points;
+        kriging.soft.push_back( std::move( resolved ) );
+      }
+    }
+  }
+
   SurfaceResult result = evaluateLocalIdw( input, grid, kriging, control );
   if ( result.status != Status::Ok )
     return result;
@@ -263,18 +313,13 @@ SurfaceResult evaluateLocalKriging( const PreparedInput &input, const GridSpec &
                            number( resolution.r2 ) + " lags=" + std::to_string( resolution.usedLags ) );
   result.issues.push_back( "kriging_dedupes_coincident_samples（重合井按精确均值合并）" );
 
-  // 不参与克里金权重的输入逐条列出，不静默忽略（v1 语义，同 geostat 方向口径）。
-  for ( const ConstraintLine &line : input.constraints )
-  {
-    if ( !line.enabled )
-      continue;
-    if ( line.semantic == Semantic::DirectionGuide )
-      result.issues.push_back( line.stableId + " direction_guide_not_used_by_kriging" );
-    else if ( line.semantic == Semantic::InterpretiveBoundary )
-      result.issues.push_back( line.stableId + " soft_boundary_not_used_by_kriging" );
-  }
+  // 约束语义消费回执与不可耦合项诚实记录
+  if ( !kriging.directions.empty() )
+    result.issues.push_back( "direction_guide_applied:" + std::to_string( kriging.directions.size() ) );
+  if ( !kriging.soft.empty() )
+    result.issues.push_back( "soft_boundary_applied:" + std::to_string( kriging.soft.size() ) );
   if ( kriging.wellClusterLocality )
-    result.issues.push_back( "well_cluster_locality_not_used_by_kriging" );
+    result.issues.push_back( "well_cluster_locality_not_used_by_kriging（克里金方程组已通过样本协方差矩阵内置筛选/去聚类效应，不叠加几何去聚类权重）" );
   return result;
 }
 

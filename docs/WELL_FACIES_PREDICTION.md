@@ -27,7 +27,9 @@
   用户目录 ACL，或改用环境变量。
 - 也可用 `PALEO_WELL_FACIES_URL`、`PALEO_WELL_FACIES_API_KEY` 环境变量覆盖
   （环境变量里的密钥不会写入钥匙串或文件）。`PALEO_WELL_FACIES_NO_KEYCHAIN=1`
-  可关闭钥匙串（ctest 沙箱默认设置）。
+  可关闭钥匙串（ctest 沙箱默认设置）。`PALEO_WELL_FACIES_CONFIG` 可把配置文件
+  挪到指定全路径（Windows 上配置目录是 `%LOCALAPPDATA%`，不受 `XDG_CONFIG_HOME`
+  影响；测试与便携场景用它隔离真实配置）。
 
 模型要求从 `GET /models` 获取。按钮按选中模型检查曲线、段、岩性、地层组、
 连续深度和窗口点数；不可用时面板和 tooltip 给出具体原因。
@@ -86,3 +88,8 @@ build/tst_wellfacies realReferenceDirectory
 全部 17 口可用井均在辅助井和测区井入口通过本地测试服务验证结果显示；
 真实服务对 HZ19-1-1A（5827 点）和 XJ24-6-2D（4429 点）的推理请求
 均返回 HTTP 500 / INTERNAL，真实预测结果仍未验证。
+
+2026-10-08 增补：工程井的测井页增加「岩性与相属性」和「井点因子属性」。
+产品装配的预测结果回写可编辑井段矢量表，后续模型输入读取维护的岩性；
+维护相和原始预测相分别显示。砂厚、层厚、砂地比等按井/层位维护，入口、
+字段与批量服务契约见 [测井与单因素的矢量属性维护](WELL_VECTOR_ATTRIBUTES.md)。

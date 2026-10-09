@@ -96,6 +96,16 @@ int CoKrigingSolver::secondaryCount() const
   return m_impl ? static_cast<int>( m_impl->secondary.index.size() ) : 0;
 }
 
+int CoKrigingSolver::mergedPrimaryDuplicates() const
+{
+  return m_impl ? m_impl->primary.merged : 0;
+}
+
+int CoKrigingSolver::mergedSecondaryDuplicates() const
+{
+  return m_impl ? m_impl->secondary.merged : 0;
+}
+
 CoKrigingPointResult CoKrigingSolver::solveAt( double x, double y ) const
 {
   CoKrigingPointResult result;
@@ -208,6 +218,185 @@ CoKrigingPointResult coKrigingAt( double x, double y, const std::vector<Sample> 
 {
   const CoKrigingSolver solver( primary, secondary, model, params );
   return solver.solveAt( x, y );
+}
+
+CoKrigingResult ordinaryCoKriging( const std::vector<Sample> &primarySamples,
+                                   const std::vector<Sample> &secondarySamples,
+                                   const GridSpec &grid,
+                                   const CoKrigingModel &model,
+                                   const CoKrigingParams &params,
+                                   const Control &control )
+{
+  CoKrigingResult result;
+  if ( !grid.isValid() )
+  {
+    result.message = "grid is not valid";
+    return result;
+  }
+  const std::int64_t cells = static_cast<std::int64_t>( grid.rows ) * grid.cols;
+  if ( cells > 100'000'000 )
+  {
+    result.message = "grid budget exceeded (cells > 1e8)";
+    return result;
+  }
+  if ( !model.valid() )
+  {
+    result.message = "cokriging model invalid";
+    return result;
+  }
+
+  const CoKrigingSolver solver( primarySamples, secondarySamples, model, params );
+  result.mergedPrimaryDuplicates = solver.mergedPrimaryDuplicates();
+  result.mergedSecondaryDuplicates = solver.mergedSecondaryDuplicates();
+  if ( !solver.valid() )
+  {
+    result.message = "no finite primary samples or invalid model";
+    return result;
+  }
+
+  const std::size_t total = static_cast<std::size_t>( cells );
+  result.estimates.assign( total, std::numeric_limits<double>::quiet_NaN() );
+  result.variances.assign( total, std::numeric_limits<double>::quiet_NaN() );
+
+  std::size_t sinceCheck = 0;
+  const std::size_t checkInterval = 2048;
+  for ( int row = 0; row < grid.rows; ++row )
+  {
+    for ( int column = 0; column < grid.cols; ++column )
+    {
+      const std::size_t cell = static_cast<std::size_t>( row ) * grid.cols + column;
+      const CoKrigingPointResult pt =
+          solver.solveAt( grid.cellCenterX( column ), grid.cellCenterY( row ) );
+      if ( pt.ok )
+      {
+        result.estimates[cell] = pt.estimate;
+        result.variances[cell] = pt.variance;
+      }
+      else
+      {
+        ++result.solverFailures;
+      }
+
+      ++sinceCheck;
+      if ( sinceCheck >= checkInterval )
+      {
+        sinceCheck = 0;
+        if ( control.cancelled && control.cancelled() )
+        {
+          result.status = Status::Cancelled;
+          result.message = "cancelled";
+          return result;
+        }
+        if ( control.progress )
+          control.progress( 0.02 + 0.98 * static_cast<double>( cell + 1 ) / static_cast<double>( total ) );
+      }
+    }
+  }
+
+  for ( double value : result.estimates )
+  {
+    if ( std::isfinite( value ) )
+      ++result.finiteCells;
+    else
+      ++result.nodataCells;
+  }
+  if ( control.progress )
+    control.progress( 1.0 );
+  result.status = Status::Ok;
+  return result;
+}
+
+CoKrigingResult ordinaryCoKriging( const std::vector<SamplePoint> &primarySamples,
+                                   const std::vector<SamplePoint> &secondarySamples,
+                                   const GridGeometry &grid,
+                                   const CoKrigingModel &model,
+                                   const KrigingParams &params,
+                                   const std::function<bool( double )> &progress )
+{
+  CoKrigingParams coParams;
+  coParams.maxPrimary = params.maxPoints;
+  coParams.maxSecondary = params.maxPoints;
+  coParams.searchRadius = params.searchRadius;
+
+  CoKrigingResult result;
+  if ( !grid.isValid() )
+  {
+    result.message = "grid is not valid";
+    return result;
+  }
+  const std::int64_t cells = static_cast<std::int64_t>( grid.rows ) * grid.cols;
+  if ( cells > 100'000'000 )
+  {
+    result.message = "grid budget exceeded (cells > 1e8)";
+    return result;
+  }
+  if ( !model.valid() )
+  {
+    result.message = "cokriging model invalid";
+    return result;
+  }
+
+  const CoKrigingSolver solver( primarySamples, secondarySamples, model, coParams );
+  result.mergedPrimaryDuplicates = solver.mergedPrimaryDuplicates();
+  result.mergedSecondaryDuplicates = solver.mergedSecondaryDuplicates();
+  if ( !solver.valid() )
+  {
+    result.message = "no finite primary samples or invalid model";
+    return result;
+  }
+
+  const std::size_t total = static_cast<std::size_t>( cells );
+  result.estimates.assign( total, std::numeric_limits<double>::quiet_NaN() );
+  result.variances.assign( total, std::numeric_limits<double>::quiet_NaN() );
+
+  std::size_t sinceCheck = 0;
+  const std::size_t checkInterval = 2048;
+  for ( int row = 0; row < grid.rows; ++row )
+  {
+    for ( int column = 0; column < grid.cols; ++column )
+    {
+      const std::size_t cell = static_cast<std::size_t>( row ) * grid.cols + column;
+      const CoKrigingPointResult pt =
+          solver.solveAt( grid.cellCenterX( column ), grid.cellCenterY( row ) );
+      if ( pt.ok )
+      {
+        result.estimates[cell] = pt.estimate;
+        result.variances[cell] = pt.variance;
+      }
+      else
+      {
+        ++result.solverFailures;
+      }
+
+      ++sinceCheck;
+      if ( sinceCheck >= checkInterval )
+      {
+        sinceCheck = 0;
+        if ( progress )
+        {
+          const double frac = 0.02 + 0.98 * static_cast<double>( cell + 1 ) / static_cast<double>( total );
+          if ( !progress( frac ) )
+          {
+            result.status = Status::Cancelled;
+            result.message = "cancelled";
+            return result;
+          }
+        }
+      }
+    }
+  }
+
+  for ( double value : result.estimates )
+  {
+    if ( std::isfinite( value ) )
+      ++result.finiteCells;
+    else
+      ++result.nodataCells;
+  }
+  if ( progress )
+    progress( 1.0 );
+  result.status = Status::Ok;
+  return result;
 }
 
 // ---- 带约束普通克里金（软罚主动集）----

@@ -173,6 +173,11 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   }
   auto *extract = new QPushButton(tr("提取井点因子"), wellFactors);
   extract->setObjectName(QStringLiteral("extractWellFactorsButton"));
+  auto *maintain = new QPushButton(tr("维护井点属性"), wellFactors);
+  maintain->setObjectName(QStringLiteral("maintainWellFactorsButton"));
+  maintain->setToolTip(tr("按当前层位维护砂厚、层厚、砂地比与其他单因素；保存后重新提取"));
+  wellLay->addWidget(maintain);
+  connect(maintain, &QPushButton::clicked, this, [this, horizons] { emit maintainWellFactorsRequested(horizons->currentText()); });
   wellLay->addWidget(extract);
   auto *wellTable = new QTableWidget(0, 3, wellFactors);
   wellTable->setObjectName(QStringLiteral("wellFactorTable"));
@@ -1177,6 +1182,7 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
     connect( horizons, qOverload<int>( &QComboBox::currentIndexChanged ), this, [this]( int ) { refreshConstraintList(); } );
 
   if (wf) {
+    connect(wf, &ConstraintWorkflow::wellAttributesChanged, this, [this] { invalidateWellFactors(); refreshWellFactorFields(); });
     connect(wf, &ConstraintWorkflow::wellFactorsExtracted, this,
             [this](const QString &, const QString &) { refreshWellFactorResults(); });
   }

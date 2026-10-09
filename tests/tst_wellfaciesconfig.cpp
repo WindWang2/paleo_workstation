@@ -14,16 +14,45 @@ class TestWellFaciesConfig : public QObject
 {
   Q_OBJECT
   QTemporaryDir m_home;
+  QString m_config;
 
 private slots:
   void initTestCase()
   {
     QVERIFY(m_home.isValid());
-    qputenv("XDG_CONFIG_HOME", m_home.path().toUtf8());
-    QStandardPaths::setTestModeEnabled(false);
+    // 方向 81：配置文件经 PALEO_WELL_FACIES_CONFIG 钉进本用例临时目录——
+    // Windows 的 GenericConfigLocation 是 %LOCALAPPDATA%（known folder，不看
+    // XDG_CONFIG_HOME），旧写法在本机读写开发者真实的
+    // %LOCALAPPDATA%/paleo/well-facies.json：已配置过服务的机器上
+    // saveRejectsCleartextPublicHttp 的 !exists 断言必红、
+    // saveWithoutKeyForKeychainRoute 覆盖真实配置；仓库树内进程的文件监狱
+    // 也拒写树外 %LOCALAPPDATA%。全平台同一路径，CI 可验。
+    m_config = m_home.filePath(QStringLiteral("cfg/paleo/well-facies.json"));
+    qputenv("PALEO_WELL_FACIES_CONFIG", QFile::encodeName(m_config));
+    QCOMPARE(WellFaciesConfig::path(), m_config);
+    // 自洽前提：从「无配置文件」开始（不依赖上一轮/他测试留下的状态）。
+    QFile::remove(WellFaciesConfig::path());
+    QVERIFY2(!QFile::exists(WellFaciesConfig::path()), qPrintable(WellFaciesConfig::path()));
     qunsetenv("PALEO_WELL_FACIES_URL");
     qunsetenv("PALEO_WELL_FACIES_API_KEY");
     qunsetenv("PALEO_WELL_FACIES_ALLOW_INSECURE_HTTP");
+  }
+
+  void cleanupTestCase()
+  {
+    QFile::remove(WellFaciesConfig::path());
+    qunsetenv("PALEO_WELL_FACIES_CONFIG");
+  }
+
+  void defaultPathIsGenericConfig()
+  {
+    // 覆盖关掉即回到产品缺省位置（只算路径，不读写）。
+    const QByteArray saved = qgetenv("PALEO_WELL_FACIES_CONFIG");
+    qunsetenv("PALEO_WELL_FACIES_CONFIG");
+    const QString def = WellFaciesConfig::path();
+    qputenv("PALEO_WELL_FACIES_CONFIG", saved);
+    QCOMPARE(def, QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) +
+                      QStringLiteral("/paleo/well-facies.json"));
   }
 
   void noHardcodedDefault()

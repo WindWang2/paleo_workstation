@@ -177,26 +177,24 @@ QGIS 标准解剖：左 dock（资源管理器/图层树）、中央 `QgsMapCanv
 
 ### 1. 三级呈现架构 (3-Tier Hierarchy)
 
-- **Tier 1 (轻量通知): 通知卡片 (`NotificationCard` & `NotificationManager`)**
+- **Tier 1 (轻量通知): 通知卡片 (`NotificationCenter` & `ToastCard`)**
   - **交互语义**: 非模态、右下角悬浮堆叠呈现。适用于常规操作反馈、后台任务告警及非破坏性错误。
-  - **生命周期与倒计时**: 支持基于严重级别的自动倒计时关闭（Info: 4s / Warning: 7s / Error: 10s / Critical: 10s）。
-  - **悬停交互控制**: 鼠标光标悬停（Hover）在卡片上时即时暂停倒计时计时器；光标离开后从暂停的剩余时长恢复倒计时。
-  - **去重与聚合角标**: 相同去重键（deduplicationKey）的高频消息不重复弹出新卡片，就地更新卡片文案并累加聚合角标（`×N`），且重置倒计时。
-  - **屏幕并发与排队屏障**: 屏幕最大并发上限为 5 张卡片（`kMaxVisibleCards = 5`）；超出并发时进入 FIFO 等待队列，队列容量上限为 50 条（`kMaxPendingQueue = 50`），满额时 FIFO 逐出最早排队项，防止内存泄露与屏幕溢出。
-  - **动效规范**: 零 `QPropertyAnimation` / `QEasingCurve` 动效（严格符合 `minimal-functional` 即时切换规范）。底部采用 2px 高度微步递减进度条（50ms 刷新），无跳跃与无编排动画。
+  - **生命周期与倒计时**: 支持基于严重级别的自动倒计时关闭（info 5s 状态栏 / warning 8s / error 12s）。
+  - **去重与聚合角标**: 相同去重键（`ErrorHub` 缺省键 = 级别|来源|标题|正文）的高频消息不重复弹出新卡片，就地更新卡片文案并累加聚合角标（`×N`），且重置倒计时。
+  - **屏幕并发屏障**: 预建池 4 张卡片并发上限；第 5 张到来时最旧一张提前收起（不排队、不溢出）。
+  - **动效规范**: 零 `QPropertyAnimation` / `QEasingCurve` 动效（严格符合 `minimal-functional` 即时切换规范）。
 
-- **Tier 2 (阻断决策): 模态确认对话框 (`PaleoConfirmDialog` & `NotificationManager` 确认契约)**
+- **Tier 2 (阻断决策): 模态确认对话框 (`PaleoNotify::ask*`)**
   - **交互语义**: 仅用于不可逆、破坏性操作二次确认或致命业务阻断。
-  - **收敛契约**: 全局统一走 `NotificationManager` 封装的 `PaleoConfirmDialog`（`confirmOkCancel` / `confirmYesNo` / `confirmDestructive`），消除散弹式裸 `QMessageBox` 调用。
-  - **去重抑制保护**: 引入 60 秒时间窗口的模态弹窗去重保护机制（相同去重键 60 秒内仅允许弹窗一次，后续相同错误降级为非模态卡片或静默记录，杜绝错误风暴下的模态弹窗洪泛）。
-  - **无头测试钩子**: 提供 `setConfirmHookForTesting` 与 `setOffscreenAutoAnswer` 自动化应答注入探针，保证离线与无头测试环境下不会死锁或阻塞事件循环。
+  - **收敛契约**: 全局统一走 `ui/notifications/paleonotify.h` 的 `ask` / `askSaveDiscard` 收口，消除散弹式裸 `QMessageBox` 调用。
+  - **去重抑制保护**: severe 错误（原 `critical`）的模态呈现受 60 s 去重窗口保护（相同去重键 60 秒内只弹一次，后续相同错误降级为非模态卡片或静默记录），杜绝错误风暴下的模态弹窗洪泛。
 
-- **Tier 3 (全局审计): 错误历史抽屉面板 (`ErrorHistoryDockWidget` / `ErrorHistoryDock` & `ErrorHistoryModel`)**
-  - **交互语义**: 集中式全局停靠（Dock）面板，挂载于主窗口底栏及「视图」菜单。
-  - **环形缓冲区**: 底层由 `ErrorHub` 维护上限为 500 条的环形历史缓冲区（`kDefaultMaxHistory = 500`），满额时严格按 FIFO 逐出最早记录。
-  - **多维过滤与检索**: 支持按来源领域（Domain）、错误等级（Level）、关键字文本模糊搜索等实时组合过滤，支持各列数据类型感知排序。
-  - **多行详情复制与清空**: 支持单行/多行选中的格式化错误详情一键复制到剪贴板，支持全局一键清空历史（通过二次破坏性确认）。
-  - **实时联动与无感逐出**: 订阅 `ErrorHub::errorRaised` / `errorAggregated` 信号，在 500 条满额逐出与高频注入时，通过精准的 `beginRemoveRows` / `beginInsertRows` 保证 TableView 视图实时更新、无抖动且零越界崩溃。
+- **Tier 3 (全局审计): 错误历史抽屉面板 (`ErrorHistoryPanel`)**
+  - **交互语义**: 集中式全局停靠（Dock）面板，挂载于主窗口底栏及「布局与面板」菜单。
+  - **环形缓冲区**: 底层由 `ErrorHub` 维护上限为 500 条的环形历史缓冲区（`ErrorHub::kCapacity = 500`），满额时严格按 FIFO 逐出最早记录。
+  - **多维过滤与检索**: 支持按级别（下拉）与关键字文本（标题/正文/来源子串，大小写不敏感）实时组合过滤。
+  - **多行详情复制与清空**: 支持选中行（无选中则全部可见行）的格式化错误详情一键复制到剪贴板（TSV），支持全局一键清空历史。
+  - **实时联动与刷新合并**: 订阅 `ErrorHub::errorRaised` / `historyCleared` 信号，高频注入下只置脏 + 单发 150 ms 定时器整表重建（隐藏时不重建），无越界风险。
 
 ### 2. 错误呈现 UI 令牌与布局规范 (UI Tokens & Layout)
 
@@ -279,3 +277,4 @@ QGIS 标准解剖：左 dock（资源管理器/图层树）、中央 `QgsMapCanv
 | 2026-09-28 | 控件映射与页签文案偏离确认 (#43) | 1. 工作流页签文案根据用户裁决确定为「数据管理 / 预测编图 / 单因素图 / 智能编图 / 验证」五页；2. 状态栏采用 QStatusBar + 坐标/比例尺/CRS（QGIS 4.2 中 QgsScaleWidget 等专有状态栏控件为 QGIS 应用内实现，libqgis_gui 未导出）；3. 右侧 dock 采用 QDockWidget+QStackedLayout，任务面板采用 QTreeWidget 以满足非模态展示与无头测试需求。 |
 | 2026-10-06 | 统一错误呈现架构与 QMessageBox 收敛 | 建立统一 ErrorHub 服务与三级错误呈现（Tier 1 通知卡片非模态浮动 / Tier 2 PaleoConfirmDialog 模态阻断二次确认 / Tier 3 错误历史 Dock 全局审计面板）。将 UI 层现存 169 处 QMessageBox 散弹调用降幅达 81.66%（保留 31 处关键决策并在 NotificationManager 设立 60s 模态去重抑制与 setConfirmHookForTesting 无头自动化应答钩子）。通知卡片并发上限 5 张、排队上限 50 条 FIFO 逐出、零 QPropertyAnimation 动效；ErrorHub 500 条环形缓冲区 FIFO 逐出。严格符合 DESIGN.md 配色、圆角与 minimal-functional 动效规范。 |
 | 2026-10-07 | 工程配准与底图（用户要求） | 文件菜单增加「工程坐标与底图…」，使用原生 Qt 表单与 QgsProjectionSelectionWidget，沿用字体、间距和次级文字 token。有效配准工程的状态栏显示地图 CRS、WGS84 经纬度及底图来源；无配准工程保留局部米坐标文案。 |
+| 2026-10-08 | 错误呈现唯一真源（方向 76） | 方向 54 并行 ErrorHub 及未装配呈现栈（NotificationManager/NotificationCard/ErrorHistoryModel/ErrorHistoryDock）删除；全局 `ErrorHub` 为唯一错误真源，三级呈现归 `NotificationCenter`/`ToastCard`/`ErrorHistoryPanel`/`PaleoNotify`；状态栏错误徽标改订全局 hub（此前误订未装配 hub，count 恒 0 永久隐藏）|

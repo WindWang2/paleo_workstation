@@ -20,7 +20,6 @@
 #include "notifications/paleonotify.h"
 #include <QStackedLayout>
 
-#include "notifications/notificationmanager.h"
 #include <QStatusBar>
 #include <QTabWidget>
 

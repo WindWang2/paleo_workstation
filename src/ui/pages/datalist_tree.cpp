@@ -403,7 +403,33 @@ void DataListPanel::refreshAssetTree()
     }
   }
 
-  // 4b. 成果图件（智能预测/编图产物）：预测栅格、相面、综合相图、编辑
+  // 地震解释层位归入地震分类，资产仍保持 horizon 类型与层序界面关联。
+  QList<CatalogAsset> horAssets;
+  for (const CatalogAsset &a : cat->assets())
+    if (assetVisible(a) && a.type == QLatin1String("horizon"))
+      horAssets.append(a);
+  std::sort(horAssets.begin(), horAssets.end(), [](const CatalogAsset &a, const CatalogAsset &b) {
+    return naturalNameSort(a.displayName, b.displayName);
+  });
+  auto *horRoot = new QTreeWidgetItem(seismicRoot);
+  horRoot->setText(0, tr("层位 (%1)").arg(horAssets.size()));
+  horRoot->setText(1, tr("解释层位数据"));
+  horRoot->setData(0, Qt::UserRole + 2, QStringLiteral("category"));
+  horRoot->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mActionOpenTable.svg")));
+  horRoot->setExpanded(false);
+
+  for (const CatalogAsset &a : horAssets)
+  {
+    auto *hItem = new QTreeWidgetItem(horRoot);
+    hItem->setText(0, a.displayName);
+    hItem->setData(0, Qt::UserRole, a.id);
+    hItem->setData(0, Qt::UserRole + 2, QStringLiteral("horizon"));
+    hItem->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mActionOpenTable.svg")));
+    // 网格规格不在 catalog 里（按文件名臆造 411×641 已回收）——如实标类型。
+    hItem->setText(1, tr("层位网格"));
+  }
+
+  // 4. 成果图件（智能预测/编图产物）：预测栅格、相面、综合相图、编辑
   //     副本。过程快照（input_snapshot/constraint_*）是追溯机器，不进用户面。
   //     双击走通用资产预览（assetActivated），tif 出栅格页、gpkg 出矢量页。
   {
@@ -568,32 +594,6 @@ void DataListPanel::refreshAssetTree()
         item->setFont(1, PaleoTheme::monoFont());
       }
     }
-  }
-
-  // 地震解释层位归入地震分类，资产仍保持 horizon 类型与层序界面关联。
-  QList<CatalogAsset> horAssets;
-  for (const CatalogAsset &a : cat->assets())
-    if (assetVisible(a) && a.type == QLatin1String("horizon"))
-      horAssets.append(a);
-  std::sort(horAssets.begin(), horAssets.end(), [](const CatalogAsset &a, const CatalogAsset &b) {
-    return naturalNameSort(a.displayName, b.displayName);
-  });
-  auto *horRoot = new QTreeWidgetItem(seismicRoot);
-  horRoot->setText(0, tr("层位 (%1)").arg(horAssets.size()));
-  horRoot->setText(1, tr("解释层位数据"));
-  horRoot->setData(0, Qt::UserRole + 2, QStringLiteral("category"));
-  horRoot->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mActionOpenTable.svg")));
-  horRoot->setExpanded(false);
-
-  for (const CatalogAsset &a : horAssets)
-  {
-    auto *hItem = new QTreeWidgetItem(horRoot);
-    hItem->setText(0, a.displayName);
-    hItem->setData(0, Qt::UserRole, a.id);
-    hItem->setData(0, Qt::UserRole + 2, QStringLiteral("horizon"));
-    hItem->setIcon(0, PaleoIcons::qgisTheme(QStringLiteral("mActionOpenTable.svg")));
-    // 网格规格不在 catalog 里（按文件名臆造 411×641 已回收）——如实标类型。
-    hItem->setText(1, tr("层位网格"));
   }
 
   // 6. 不确定性集合（方向 47）：realization_set 资产 → 父集合→成员树，

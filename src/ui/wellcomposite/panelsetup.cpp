@@ -271,6 +271,16 @@ void WellCompositePanel::setupUi()
   });
   topLay->addWidget(m_lblReadout);
 
+  for (const auto &entry : {qMakePair(QStringLiteral("btnWellAttributes"), tr("岩性与相属性")),
+                            qMakePair(QStringLiteral("btnWellFactors"), tr("井点因子属性"))}) {
+    auto *button = new QToolButton(topBar);
+    button->setObjectName(entry.first); button->setText(entry.second);
+    button->setAccessibleName(entry.second); button->setEnabled(false);
+    button->setToolTip(tr("请先打开工程并绑定当前井"));
+    PaleoTheme::applyThemedStyleSheet(button, themedBtnStyle);
+    topLay->addWidget(button);
+  }
+
   // 状态信息显示（悬停深度等）
   m_lblStatus = new QLabel(tr("就绪 | 支持按住拖拽漫游，Ctrl+滚轮缩放"), topBar);
   m_lblStatus->setObjectName(QStringLiteral("lblStatus"));

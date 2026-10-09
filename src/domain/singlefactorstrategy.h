@@ -37,7 +37,7 @@ struct SurfaceMethodPack
   QString geologicalNote;
 };
 
-// 上游 SINGLE_FACTOR_METHODS 的四条 + 本仓克里金接入后新增的局部方向克里金。
+// 上游 SINGLE_FACTOR_METHODS 的四条 + 本仓新增的局部方向克里金与协克里金。
 const QVector<SurfaceMethodPack> &surfaceMethodPacks();
 // 未登记 id → nullptr（调用方必须报错，不得回退）。
 const SurfaceMethodPack *surfaceMethodPack( const QString &id );

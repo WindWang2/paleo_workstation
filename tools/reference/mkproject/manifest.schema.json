@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://paleo.example/schemas/mkproject-manifest-1.json",
+  "title": "paleo_mkproject manifest（方向 78 夹具工厂化）",
+  "description": "paleo_mkproject --manifest 的导入清单：声明实体类型/数据文件相对路径/配准参数/自检期望。path 相对 manifest 文件所在目录解析；imports 顺序即导入顺序（井口先行契约由排序承载）。与 project.paleo 的 georeference 节同形状（paleoGeoreferenceFromJson 同一解析器）。",
+  "type": "object",
+  "required": ["schema", "imports"],
+  "properties": {
+    "schema": {
+      "const": 1,
+      "description": "manifest 版本；目前只有 1"
+    },
+    "georeference": {
+      "description": "工程级地理配准（可选）。形状与 project.paleo georeference 节一致；缺省 = 不写 georeference（井坐标 untransformed）",
+      "type": "object",
+      "required": ["anchor", "params"],
+      "properties": {
+        "kind": { "const": "similarity2d", "description": "唯一支持的变换族" },
+        "targetCrs": { "type": "string", "description": "如 EPSG:4326" },
+        "anchor": {
+          "type": "object",
+          "required": ["lonDeg", "latDeg", "metersPerDegLon", "metersPerDegLat"],
+          "properties": {
+            "lonDeg": { "type": "number" },
+            "latDeg": { "type": "number" },
+            "metersPerDegLon": { "type": "number", "exclusiveMinimum": 0 },
+            "metersPerDegLat": { "type": "number", "exclusiveMinimum": 0 }
+          }
+        },
+        "params": {
+          "type": "object",
+          "required": ["a", "b", "tE", "tN"],
+          "properties": {
+            "a": { "type": "number", "description": "旋转+缩放阵 [a -b; b a] 的对角元" },
+            "b": { "type": "number", "description": "反对角元" },
+            "tE": { "type": "number" },
+            "tN": { "type": "number" }
+          }
+        },
+        "formula": { "type": "string", "description": "人类可读公式（展示用，机器不解析）" },
+        "provenance": { "type": "string", "description": "参数来源说明（拟合方法/日期/控制点出处）" },
+        "controlPoints": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["well", "x", "y", "lon", "lat", "residualM"],
+            "properties": {
+              "well": { "type": "string" },
+              "x": { "type": "number", "description": "局部网格坐标" },
+              "y": { "type": "number" },
+              "lon": { "type": "number", "description": "实测经度（WGS84）" },
+              "lat": { "type": "number" },
+              "residualM": { "type": "number", "description": "拟合残差（米）" }
+            }
+          }
+        },
+        "maxResidualM": { "type": "number" }
+      }
+    },
+    "imports": {
+      "type": "array",
+      "minItems": 1,
+      "description": "有序导入清单。井口（well_head）建议排最前（两阶段导入的井建齐约定）",
+      "items": {
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "数据文件路径，相对 manifest 所在目录（绝对路径直用）"
+          },
+          "type": {
+            "type": "string",
+            "description": "DataImportService forceType（well_head/well_stratification/well_log/outsource_workbook/…）；缺省 = 分类器自判（图片/SEG-Y/文档走这条）"
+          },
+          "convert": {
+            "enum": ["well_head", "well_stratification"],
+            "description": "输入是工作簿（.xlsx/.xml）时先走竞赛同款转换（readWorkbook → 规范井文本）再按该类型导入；与 type 不同值即冲突（manifest 拒绝）"
+          },
+          "linkExternal": {
+            "type": "boolean",
+            "default": false,
+            "description": "true = ImportOptions.linkExternal（外链入库不复制，外委工作簿口径）"
+          }
+        }
+      }
+    },
+    "expect": {
+      "description": "第 5 步重开自检的期望值（可选；只断言出现的键）",
+      "type": "object",
+      "properties": {
+        "wells": { "type": "integer", "minimum": 0, "description": "井实体总数" },
+        "entitiesByType": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 },
+          "description": "按实体类型的期望计数（如 {\"well\": 3, \"seismic_survey\": 1}）"
+        },
+        "unresolvedLinks": { "type": "integer", "minimum": 0 },
+        "georeferencedWells": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "coordinateStatus=ok 的井数（要求 georeference 节存在）"
+        },
+        "seismicGeometry": {
+          "type": "object",
+          "required": ["inlineMin", "inlineMax", "xlineMin", "xlineMax"],
+          "properties": {
+            "inlineMin": { "type": "integer" },
+            "inlineMax": { "type": "integer" },
+            "xlineMin": { "type": "integer" },
+            "xlineMax": { "type": "integer" }
+          }
+        }
+      }
+    }
+  }
+}

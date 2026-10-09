@@ -7,12 +7,53 @@
 #include "../src/metadata/layermanifest.h"
 #include "../src/metadata/mapversionstore.h"
 #include "../src/metadata/metastore.h"
+#include "../src/metadata/processprobe.h"
 #include "../src/metadata/projectlock.h"
 #include "../src/metadata/paleoprojectstore.h"
 #include "../src/metadata/releasestore.h"
 
 #include <QProcess>
+#include <QProcessEnvironment>
 #include <QSysInfo>
+#include <QEventLoop>
+#include <QElapsedTimer>
+#include <cstdio>
+
+namespace
+{
+// 拿一个「刚退出且已被回收」的 pid：起一个立即退出的子进程（复用本测试
+// 可执行文件的 QtTest -functions：列完函数即 exit 0——跨平台、不依赖 sh；
+// 方向 81 前用 `sh -c exit 0`，Windows 本机无 sh 时直接红在夹具上）。
+qint64 spawnDeadPid()
+{
+  QProcess child;
+  child.start(QCoreApplication::applicationFilePath(), {QStringLiteral("-functions")});
+  if (!child.waitForStarted(10000))
+    return -1;
+  const qint64 pid = child.processId();
+  if (!child.waitForFinished(30000))
+    return -1;
+  return pid;
+}
+
+// QLockFile 磁盘格式（qlockfile.cpp lockFileContents）：pid\n应用名\n主机名
+// [\nmachineUniqueId\nbootUniqueId]。hostId 为空 = Qt<5.10 / 手写三行旧格式。
+bool writeLockFile(const QString &projectDir, qint64 pid, const QString &host,
+                          const QByteArray &hostId = {})
+{
+  const QString lockPath = QDir(projectDir).filePath(
+      QStringLiteral("artifacts/metadata/.project.lock"));
+  if (!QDir().mkpath(QFileInfo(lockPath).absolutePath()))
+    return false;
+  QFile f(lockPath);
+  if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+    return false;
+  QByteArray body = QByteArray::number(pid) + '\n' + "paleo-test\n" + host.toUtf8() + '\n';
+  if (!hostId.isEmpty())
+    body += hostId + '\n';
+  return f.write(body) == body.size();
+}
+} // namespace
 
 // wave3/model-hardening — metadata/project.sqlite 的 PRAGMA user_version 门
 // （docs/SCHEMA_MIGRATION.md 最小落地）。三个 store（LayerManifest /
@@ -108,6 +149,54 @@ private:
   }
 
 private slots:
+  // 子进程是真实持锁者，父进程强杀后才允许接管（不只造一个已死 pid）。
+  void holdProjectLockChild()
+  {
+    const QString projectDir = qEnvironmentVariable("PALEO_TEST_LOCK_HOLDER_DIR");
+    if (projectDir.isEmpty())
+      QSKIP("parent-only lock holder fixture");
+    ProjectDirLock lock(projectDir);
+    QString error;
+    QVERIFY2(lock.tryLock(&error), qPrintable(error));
+    std::fputs("PALEO_LOCK_READY\n", stdout);
+    std::fflush(stdout);
+    QEventLoop loop;
+    loop.exec(); // 父进程 kill；析构不解锁，留下真实 QLockFile
+  }
+
+  void killedLockHolderCanBeTakenOver()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QProcess child;
+    auto env = QProcessEnvironment::systemEnvironment();
+    env.insert(QStringLiteral("PALEO_TEST_LOCK_HOLDER_DIR"), dir.path());
+    child.setProcessEnvironment(env);
+    child.start(QCoreApplication::applicationFilePath(), {QStringLiteral("holdProjectLockChild")});
+    QVERIFY(child.waitForStarted(10000));
+    QByteArray output;
+    QElapsedTimer deadline;
+    deadline.start();
+    while (!output.contains("PALEO_LOCK_READY") && deadline.elapsed() < 10000)
+    {
+      child.waitForReadyRead(100);
+      output += child.readAllStandardOutput();
+      if (child.state() == QProcess::NotRunning)
+        break;
+    }
+    QVERIFY2(output.contains("PALEO_LOCK_READY"), output.constData());
+    const qint64 pid = child.processId();
+    ProjectDirLock successor(dir.path());
+    QString error;
+    QVERIFY(!successor.tryLock(&error)); // 活持有者不可抢
+    child.kill();
+    QVERIFY(child.waitForFinished(10000));
+    QCOMPARE(paleo::proc::probeProcess(pid), paleo::proc::ProcessState::Dead);
+    QVERIFY2(successor.tryLock(&error), qPrintable(error));
+    ProjectDirLock third(dir.path());
+    QVERIFY(!third.tryLock(&error)); // 接管后仍互斥
+  }
+
   // 新库：LayerManifest open 后 user_version 被写成当前版本（2）。
   void freshDbAdoptsUserVersion()
   {
@@ -366,32 +455,99 @@ private slots:
   {
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
-    // 手写一份「持有者已退出」的锁文件（QLockFile 文本格式：pid\t主机\t应用）。
-    // 拿一个「刚退出」的 pid：先起再收 processId，等它退出后写进锁文件。
-    QProcess killer;
-    killer.start(QStringLiteral("sh"), {QStringLiteral("-c"), QStringLiteral("exit 0")});
-    QVERIFY2(killer.waitForStarted(5000), "cannot spawn a short-lived pid");
-    const qint64 deadPid = killer.processId();
-    QVERIFY(deadPid > 0);
-    QVERIFY(killer.waitForFinished(5000));
-    const QString lockPath = QDir(dir.path()).filePath(
-        QStringLiteral("artifacts/metadata/.project.lock"));
-    QVERIFY(QDir().mkpath(QFileInfo(lockPath).absolutePath()));
-    {
-      QFile f(lockPath);
-      QVERIFY(f.open(QIODevice::WriteOnly));
-      // QLockFile 的磁盘格式是三行：pid\n应用名\n主机名（getLockInfo 的
-      // 顺序实证：line2→appname、line3→hostname；主机行必须与本机一致——
-      // 跨主机无法证明持有者存活，QLockFile 不回收）。
-      f.write((QString::number(deadPid) + QLatin1Char('\n') +
-               QStringLiteral("paleo-test") + QLatin1Char('\n') +
-               QSysInfo::machineHostName() + QLatin1Char('\n'))
-                  .toUtf8());
-    }
+    const qint64 deadPid = spawnDeadPid();
+    QVERIFY2(deadPid > 0, "cannot spawn a short-lived pid");
+    // 主机行写 QSysInfo::machineHostName()（POSIX 上即 Qt 的比较口径）。
+    QVERIFY(writeLockFile(dir.path(), deadPid, QSysInfo::machineHostName()));
     ProjectDirLock lock(dir.path());
     QString err;
     QVERIFY2(lock.tryLock(&err), qPrintable(err)); // 死持有者 → 陈旧锁回收
     QVERIFY(lock.isHeld());
+  }
+
+  // ---- 方向 81：Windows「pid 不存在却判存活」真修的跨平台钉 ------------
+  // 复刻 Windows 本机形态：锁无 hostid 行，主机行与 Qt 的比较口径（Windows=
+  // COMPUTERNAME 环境变量、POSIX=machineHostName）大小写/域后缀不一致——Qt
+  // 判「别的机器」永不回收（旧逻辑在此必红，Linux 上同样可复现）。兜底按
+  // 大小写不敏感短名判本机 + pid 探测确认已死 → 回收。
+  void staleLockRecoveredDespiteHostSpelling()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const qint64 deadPid = spawnDeadPid();
+    QVERIFY2(deadPid > 0, "cannot spawn a short-lived pid");
+    const QString host = QSysInfo::machineHostName().section(QLatin1Char('.'), 0, 0).toUpper() +
+                         QStringLiteral(".paleo-lock-test.invalid");
+    QVERIFY(writeLockFile(dir.path(), deadPid, host));
+    QCOMPARE(paleo::proc::probeProcess(deadPid), paleo::proc::ProcessState::Dead);
+    ProjectDirLock lock(dir.path());
+    QString err;
+    QVERIFY2(lock.tryLock(&err), qPrintable(err));
+    QVERIFY(lock.isHeld());
+    // 新锁归本进程：再开一个实例必须被拒（回收后互斥语义不变）。
+    ProjectDirLock second(dir.path());
+    QString err2;
+    QVERIFY(!second.tryLock(&err2));
+    QVERIFY2(err2.contains(QString::number(QCoreApplication::applicationPid())), qPrintable(err2));
+  }
+
+  // 存活持有者绝不抢：pid=本进程（活的），主机行同样是变体拼写。
+  void liveLockHolderNotStolen()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    // 主机行取「Qt 判别的机器、兜底判本机」的变体拼写，确保走到兜底复核
+    //（若 Qt 判同机，会因应用名不符按「pid 被复用」回收——那是 Qt 自身口径）。
+    const QString host = QSysInfo::machineHostName().section(QLatin1Char('.'), 0, 0).toUpper() +
+                         QStringLiteral(".paleo-lock-test.invalid");
+    QVERIFY(writeLockFile(dir.path(), QCoreApplication::applicationPid(), host));
+    ProjectDirLock lock(dir.path());
+    QString err;
+    QVERIFY(!lock.tryLock(&err));
+    QVERIFY(!lock.isHeld());
+    QVERIFY2(err.contains(QString::number(QCoreApplication::applicationPid())), qPrintable(err));
+  }
+
+  // 别的机器（hostid 不同）上的持有者：即使本机查无此 pid 也不回收——共享盘
+  // 上本机无法证明对方已死。
+  void foreignHostIdLockNotStolen()
+  {
+    if (QSysInfo::machineUniqueId().isEmpty())
+      QSKIP("machineUniqueId unavailable on this host — hostid rule not applicable");
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const qint64 deadPid = spawnDeadPid();
+    QVERIFY2(deadPid > 0, "cannot spawn a short-lived pid");
+    QVERIFY(writeLockFile(dir.path(), deadPid, QSysInfo::machineHostName(),
+                          QByteArrayLiteral("paleo-foreign-machine-id-0000")));
+    ProjectDirLock lock(dir.path());
+    QString err;
+    QVERIFY(!lock.tryLock(&err));
+    QVERIFY(!lock.isHeld());
+  }
+
+  // pid 探测本身（Linux/Windows 同一组断言）。
+  void processProbeStates()
+  {
+    using paleo::proc::ProcessState;
+    QCOMPARE(paleo::proc::probeProcess(QCoreApplication::applicationPid()), ProcessState::Alive);
+    const qint64 deadPid = spawnDeadPid();
+    QVERIFY2(deadPid > 0, "cannot spawn a short-lived pid");
+    QCOMPARE(paleo::proc::probeProcess(deadPid), ProcessState::Dead);
+    QCOMPARE(paleo::proc::probeProcess(0), ProcessState::Unknown);
+    QCOMPARE(paleo::proc::probeProcess(-42), ProcessState::Unknown);
+    // 同机判据：空主机名=本机（Qt 同义）；大小写/短名变体=本机；陌生名≠本机。
+    QVERIFY(paleo::proc::lockHostIsThisMachine(QString(), {}));
+    QVERIFY(paleo::proc::lockHostIsThisMachine(QSysInfo::machineHostName().toUpper(), {}));
+    QVERIFY(!paleo::proc::lockHostIsThisMachine(
+        QStringLiteral("paleo-definitely-not-this-host.invalid"), {}));
+    if (!QSysInfo::machineUniqueId().isEmpty())
+    {
+      QVERIFY(paleo::proc::lockHostIsThisMachine(QStringLiteral("other-name"),
+                                                 QSysInfo::machineUniqueId()));
+      QVERIFY(!paleo::proc::lockHostIsThisMachine(QSysInfo::machineHostName(),
+                                                  QByteArrayLiteral("foreign-id")));
+    }
   }
 
   // ---- T4：只读降级门——三个存储的写面如实拒绝、读面照常 ------------------
@@ -554,4 +710,3 @@ private:
 
 QTEST_MAIN(TestMetaStore)
 #include "tst_metastore.moc"
-

@@ -90,10 +90,10 @@ case "$verb" in
     mkdir -p "$BUILD_DIR/Testing/qtest-first-run"
     if paleo_has_jobs_arg "$@"; then
       QT_QPA_PLATFORM=offscreen ctest --test-dir "$BUILD_DIR" --output-on-failure \
-        --output-junit "$BUILD_DIR/Testing/ctest-junit.xml" "$@"
+        --output-junit "$PWD/$BUILD_DIR/Testing/ctest-junit.xml" "$@"
     else
       QT_QPA_PLATFORM=offscreen ctest --test-dir "$BUILD_DIR" --output-on-failure \
-        --output-junit "$BUILD_DIR/Testing/ctest-junit.xml" -j "$(paleo_jobs)" "$@"
+        --output-junit "$PWD/$BUILD_DIR/Testing/ctest-junit.xml" -j "$(paleo_jobs)" "$@"
     fi
     ;;
   selfcheck)

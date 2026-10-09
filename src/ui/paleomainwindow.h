@@ -52,10 +52,6 @@ class FaultInterpretationController;
 class FaultManagerPanel;
 }
 
-namespace paleo::ui {
-class ErrorHistoryDock;
-}
-
 class PaleoDockWidget : public QDockWidget
 {
   Q_OBJECT
@@ -163,6 +159,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     QString currentPage() const { return m_currentPage; }
     // 页 id 的 ribbon 页签（objectName "ribbonCategory.<pageId>"）；未知 id → nullptr。
     SARibbonCategory *categoryForPage(const QString &pageId) const;
+    void showAttributeTable(const QString &layerId);
     void showStartup();            // first-run: recent projects + new/open
     void onProjectOpened();        // called after project opens: swap startup->workspace
     // #153/#154/#156/#158：工程即将关闭/切换（QgisProjectService::
@@ -299,7 +296,6 @@ class PaleoMainWindow : public SARibbonMainWindow
     seismic::SeismicSectionDockWidget *seismicSectionDock() const { return m_seismicSectionDock; }
     QDockWidget *seismic3dDock() const { return m_seismic3dDock; }
     seismic::Seismic3DViewPanel *seismic3dPanel() const { return m_seismic3dPanel; }
-    paleo::ui::ErrorHistoryDock *errorHistoryDock() const { return m_errorHistoryDock; }
     QAction *errorHistoryAction() const;
 
   protected:
@@ -426,7 +422,6 @@ class PaleoMainWindow : public SARibbonMainWindow
     seismic::SeismicSectionDockWidget *m_seismicSectionDock = nullptr;
     QDockWidget *m_seismic3dDock = nullptr;
     seismic::Seismic3DViewPanel *m_seismic3dPanel = nullptr;
-    paleo::ui::ErrorHistoryDock *m_errorHistoryDock = nullptr;
     QToolButton *m_statusErrorBtn = nullptr;
     // goal/fault-interpretation：断层管理面板 dock（attachFaults 建一次）
     QDockWidget *m_faultPanelDock = nullptr;

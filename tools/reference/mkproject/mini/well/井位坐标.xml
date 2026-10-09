@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+ <Worksheet ss:Name="井位坐标">
+  <Table>
+   <Row>
+    <Cell><Data ss:Type="String">井号</Data></Cell>
+    <Cell><Data ss:Type="String">井口横坐标X</Data></Cell>
+    <Cell><Data ss:Type="String">井口纵坐标Y</Data></Cell>
+    <Cell><Data ss:Type="String">补心海拔</Data></Cell>
+    <Cell><Data ss:Type="String">完钻井深</Data></Cell>
+   </Row>
+   <Row>
+    <Cell><Data ss:Type="String">A1</Data></Cell>
+    <Cell><Data ss:Type="Number">1010.0</Data></Cell>
+    <Cell><Data ss:Type="Number">5020.0</Data></Cell>
+    <Cell><Data ss:Type="Number">1048.5</Data></Cell>
+    <Cell><Data ss:Type="Number">1820.0</Data></Cell>
+   </Row>
+   <Row>
+    <Cell><Data ss:Type="String">A2</Data></Cell>
+    <Cell><Data ss:Type="Number">1050.0</Data></Cell>
+    <Cell><Data ss:Type="Number">5060.0</Data></Cell>
+    <Cell><Data ss:Type="Number">1052.3</Data></Cell>
+    <Cell><Data ss:Type="Number">1845.0</Data></Cell>
+   </Row>
+   <Row>
+    <Cell><Data ss:Type="String">A3</Data></Cell>
+    <Cell><Data ss:Type="Number">1080.0</Data></Cell>
+    <Cell><Data ss:Type="Number">5040.0</Data></Cell>
+    <Cell><Data ss:Type="Number">1046.9</Data></Cell>
+    <Cell><Data ss:Type="Number">1802.5</Data></Cell>
+   </Row>
+  </Table>
+ </Worksheet>
+</Workbook>

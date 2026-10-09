@@ -260,6 +260,10 @@ class DataCatalog : public QObject
     // Retained descendants block removal; asset/link identities remain intact.
     bool removeStaleVersions(const QStringList &versionIds, QString *error = nullptr);
 
+    // 更新版本 / 资产当前版本 extra 字典（合并键值，落盘原子写）
+    bool updateVersionExtra(const QString &versionId, const QVariantMap &extra, QString *error = nullptr);
+    bool updateAssetExtra(const QString &assetId, const QVariantMap &extra, QString *error = nullptr);
+
     // SHA-256 已在库（dedup，§3）：返回第一个匹配版本；sha 为空或无匹配回空版本。
     CatalogVersion versionBySha256(const QString &sha256) const;
     // Returns an empty path for an unsafe managed path, including symlinked

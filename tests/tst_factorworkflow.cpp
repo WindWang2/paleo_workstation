@@ -50,6 +50,7 @@
 #include "../src/workflow/workflows.h"
 #include "../src/workflow/mapversioncontroller.h"
 #include "../src/workflow/mappingworkbench.h"
+#include "../src/domain/litholexicon.h"
 #include "../src/metadata/mapversionstore.h"
 
 #include <QCoreApplication>
@@ -363,6 +364,82 @@ class TestFactorWorkflow : public QObject
       QgsProject::instance()->removeAllMapLayers();
     }
 
+    void lithoLexiconTableDrivenDisambiguation()
+    {
+      const auto lex = paleo::domain::LithoLexicon::defaultLexicon();
+      struct Row {
+        QString litho;
+        paleo::domain::LithoGroup expectedGroup;
+        bool expectedSand;
+        bool expectedKnown;
+      };
+      const QVector<Row> cases = {
+        // 歧义复合词优先级归类
+        { QStringLiteral("粉砂质泥岩"), paleo::domain::LithoGroup::Mud, false, true },
+        { QStringLiteral("砂质泥岩"), paleo::domain::LithoGroup::Mud, false, true },
+        { QStringLiteral("灰质泥岩"), paleo::domain::LithoGroup::Mud, false, true },
+        { QStringLiteral("泥质粉砂岩"), paleo::domain::LithoGroup::Sand, true, true },
+        { QStringLiteral("泥质砂岩"), paleo::domain::LithoGroup::Sand, true, true },
+        { QStringLiteral("灰质砂岩"), paleo::domain::LithoGroup::Sand, true, true },
+        { QStringLiteral("泥质灰岩"), paleo::domain::LithoGroup::Carbonate, false, true },
+        { QStringLiteral("砂质灰岩"), paleo::domain::LithoGroup::Carbonate, false, true },
+        // 基础砂族
+        { QStringLiteral("砂岩"), paleo::domain::LithoGroup::Sand, true, true },
+        { QStringLiteral("细砂岩"), paleo::domain::LithoGroup::Sand, true, true },
+        { QStringLiteral("粗砂岩"), paleo::domain::LithoGroup::Sand, true, true },
+        { QStringLiteral("砂"), paleo::domain::LithoGroup::Sand, true, true },
+        { QStringLiteral("sandstone"), paleo::domain::LithoGroup::Sand, true, true },
+        { QStringLiteral("sand"), paleo::domain::LithoGroup::Sand, true, true },
+        // 基础泥族
+        { QStringLiteral("泥岩"), paleo::domain::LithoGroup::Mud, false, true },
+        { QStringLiteral("页岩"), paleo::domain::LithoGroup::Mud, false, true },
+        { QStringLiteral("shale"), paleo::domain::LithoGroup::Mud, false, true },
+        { QStringLiteral("mudstone"), paleo::domain::LithoGroup::Mud, false, true },
+        // 碳酸盐族与砾岩族
+        { QStringLiteral("灰岩"), paleo::domain::LithoGroup::Carbonate, false, true },
+        { QStringLiteral("白云岩"), paleo::domain::LithoGroup::Carbonate, false, true },
+        { QStringLiteral("limestone"), paleo::domain::LithoGroup::Carbonate, false, true },
+        { QStringLiteral("砾岩"), paleo::domain::LithoGroup::Conglomerate, false, true },
+        // 未知词
+        { QStringLiteral("火山碎屑岩"), paleo::domain::LithoGroup::Unknown, false, false },
+        { QStringLiteral("玄武岩"), paleo::domain::LithoGroup::Unknown, false, false },
+        { QString(), paleo::domain::LithoGroup::Unknown, false, false }
+      };
+
+      for (const auto &c : cases) {
+        const auto res = lex.classify(c.litho);
+        QCOMPARE(res.group, c.expectedGroup);
+        QCOMPARE(res.isSand, c.expectedSand);
+        QCOMPARE(res.isKnown, c.expectedKnown);
+      }
+    }
+
+    void lithoLexiconProjectExtensionAndFactorSourceAudit()
+    {
+      QTemporaryDir tmp;
+      QVERIFY(tmp.isValid());
+      const QString customJson = QStringLiteral(R"({
+        "name": "volcanic_custom",
+        "rules": [
+          { "pattern": "玄武岩", "matchType": "contains", "group": "其他", "priority": 90 }
+        ]
+      })");
+      QFile f(tmp.filePath(QStringLiteral("litho_lexicon.json")));
+      QVERIFY(f.open(QIODevice::WriteOnly));
+      f.write(customJson.toUtf8());
+      f.close();
+
+      const auto lex = paleo::domain::LithoLexicon::fromProject(tmp.path());
+      QCOMPARE(lex.name(), QStringLiteral("volcanic_custom"));
+      const auto res = lex.classify(QStringLiteral("致密玄武岩"));
+      QCOMPARE(res.group, paleo::domain::LithoGroup::Other);
+      QVERIFY(res.isKnown);
+      QVERIFY(!res.isSand);
+
+      // 默认词表依然生效
+      QVERIFY(lex.isSand(QStringLiteral("细砂岩")));
+    }
+
     void explicitWellFactorExtractionAndAllMethods() {
       Fixture f; QVERIFY(initFixture(f)); QString err;
       const QString path = f.dir.filePath(QStringLiteral("factors.geojson"));
@@ -458,6 +535,7 @@ class TestFactorWorkflow : public QObject
       QVERIFY2(wf.extractWellFactors("D61", "sandratio", params, &err), qPrintable(err));
       const auto rows = wf.wellFactorRows(); QCOMPARE(rows.size(), 4);
       QCOMPARE(rows[0].toMap().value("value").toDouble(), 0.5); // 裁剪 + 并集，不重复计厚
+      QVERIFY(rows[0].toMap().value("source").toString().contains(QStringLiteral("词表：")));
       QVERIFY(rows[1].toMap().value("reason").toString().contains(QStringLiteral("覆盖不完整")));
       QVERIFY(rows[2].toMap().value("reason").toString().contains(QStringLiteral("缺少层段解释岩性")));
       QVERIFY(rows[3].toMap().value("reason").toString().contains(QStringLiteral("解释冲突")));
@@ -1773,6 +1851,143 @@ class TestFactorWorkflow : public QObject
                                            "Do not invent values or treat this as a pass." )
                                .arg( numeric.join( QLatin1Char( ',' ) ) ) ) );
       }
+    }
+
+    static bool setupGridWells( Fixture &f, int side, QString *err )
+    {
+      const QString ptsPath = f.dir.filePath( QStringLiteral( "cokriging_wells.geojson" ) );
+      QFile file( ptsPath );
+      if ( !file.open( QIODevice::WriteOnly ) )
+        return false;
+      QString features;
+      for ( int row = 0; row < side; ++row )
+      {
+        for ( int col = 0; col < side; ++col )
+        {
+          const double x = 10.0 * col;
+          const double y = 10.0 * row;
+          const double z = std::sin( 0.3 * col ) + 0.2 * row + 10.0;
+          if ( !features.isEmpty() )
+            features += QLatin1Char( ',' );
+          features += QStringLiteral( "{\"type\":\"Feature\",\"properties\":{\"z\":%1},"
+                                      "\"geometry\":{\"type\":\"Point\",\"coordinates\":[%2,%3]}}" )
+                          .arg( z )
+                          .arg( x )
+                          .arg( y );
+        }
+      }
+      file.write( QStringLiteral( "{\"type\":\"FeatureCollection\",\"features\":[%1]}" ).arg( features ).toUtf8() );
+      file.close();
+      return f.layers.declare( decl( QStringLiteral( "wells.T1" ), QStringLiteral( "T1" ),
+                                      QStringLiteral( "vector" ), ptsPath ),
+                               err );
+    }
+
+    static QString createCovariateRaster( const QString &path, int cols, int rows, double originX, double originY, double pixelSize )
+    {
+      GDALDriverH drv = GDALGetDriverByName( "GTiff" );
+      GDALDatasetH ds = GDALCreate( drv, path.toUtf8().constData(), cols, rows, 1, GDT_Float32, nullptr );
+      if ( !ds )
+        return QString();
+      const double gt[6] = { originX, pixelSize, 0.0, originY, 0.0, -pixelSize };
+      GDALSetGeoTransform( ds, const_cast<double *>( gt ) );
+      QVector<float> px( cols * rows );
+      for ( int r = 0; r < rows; ++r )
+      {
+        for ( int c = 0; c < cols; ++c )
+        {
+          px[r * cols + c] = static_cast<float>( 0.5 * c + 0.3 * r + 5.0 );
+        }
+      }
+      GDALRasterBandH band = GDALGetRasterBand( ds, 1 );
+      const CPLErr err = GDALRasterIO( band, GF_Write, 0, 0, cols, rows, px.data(), cols, rows, GDT_Float32, 0, 0 );
+      GDALClose( ds );
+      return err == CE_None ? path : QString();
+    }
+
+    void cokrigingRejectsMissingCovariateHonestly()
+    {
+      Fixture f;
+      QVERIFY( initFixture( f ) );
+      QString err;
+      QVERIFY2( setupWells( f, &err ), qPrintable( err ) );
+      ConstraintWorkflow wf( &f.proc, &f.layers );
+      wf.setCatalog( &f.catalog, f.dir.path() );
+
+      // Case 1: covariateLayerId omitted
+      QVariantMap params;
+      params.insert( QStringLiteral( "method" ), QStringLiteral( "cokriging" ) );
+      params.insert( QStringLiteral( "field" ), QStringLiteral( "z" ) );
+      params.insert( QStringLiteral( "cellSize" ), 2.0 );
+      QVERIFY( !wf.generateFactor( QStringLiteral( "T1" ), QStringLiteral( "sandthick" ), params, &err ) );
+      QVERIFY2( err.contains( QStringLiteral( "covariateLayerId" ) ), qPrintable( err ) );
+      QVERIFY( findDecl( f.layers, QStringLiteral( "factor.T1.sandthick" ) ) == nullptr );
+
+      // Case 2: covariateLayerId empty string
+      params.insert( QStringLiteral( "covariateLayerId" ), QString() );
+      err.clear();
+      QVERIFY( !wf.generateFactor( QStringLiteral( "T1" ), QStringLiteral( "sandthick" ), params, &err ) );
+      QVERIFY2( err.contains( QStringLiteral( "covariateLayerId" ) ), qPrintable( err ) );
+
+      // Case 3: covariateLayerId points to non-existent layer
+      params.insert( QStringLiteral( "covariateLayerId" ), QStringLiteral( "non_existent_raster" ) );
+      err.clear();
+      QVERIFY( !wf.generateFactor( QStringLiteral( "T1" ), QStringLiteral( "sandthick" ), params, &err ) );
+      QVERIFY2( err.contains( QStringLiteral( "covariateLayerId" ) ), qPrintable( err ) );
+    }
+
+    void cokrigingSuccessfulExecutionWithValidRaster()
+    {
+      Fixture f;
+      QVERIFY( initFixture( f ) );
+      QString err;
+      // 16 wells (4x4) >= 8 minimum samples threshold
+      QVERIFY2( setupGridWells( f, 4, &err ), qPrintable( err ) );
+
+      const QString rasterPath = f.dir.filePath( QStringLiteral( "seismic_amplitude.tif" ) );
+      QVERIFY( !createCovariateRaster( rasterPath, 50, 50, -5.0, 45.0, 1.0 ).isEmpty() );
+      QVERIFY( f.layers.declare( decl( QStringLiteral( "seismic.covariate" ), QStringLiteral( "T1" ),
+                                      QStringLiteral( "raster" ), rasterPath ),
+                                 &err ) );
+
+      ConstraintWorkflow wf( &f.proc, &f.layers );
+      wf.setCatalog( &f.catalog, f.dir.path() );
+      QSignalSpy generated( &wf, &ConstraintWorkflow::factorGenerated );
+
+      QVariantMap params;
+      params.insert( QStringLiteral( "method" ), QStringLiteral( "cokriging" ) );
+      params.insert( QStringLiteral( "field" ), QStringLiteral( "z" ) );
+      params.insert( QStringLiteral( "cellSize" ), 2.0 );
+      params.insert( QStringLiteral( "covariateLayerId" ), QStringLiteral( "seismic.covariate" ) );
+
+      QVERIFY2( wf.generateFactor( QStringLiteral( "T1" ), QStringLiteral( "sandthick" ), params, &err ),
+                qPrintable( err ) );
+      QCOMPARE( generated.count(), 1 );
+
+      const LayerDeclaration *declResult = findDecl( f.layers, QStringLiteral( "factor.T1.sandthick" ) );
+      QVERIFY( declResult != nullptr );
+      delete declResult;
+
+      bool foundVersion = false;
+      for ( const CatalogAsset &asset : f.catalog.assets() )
+      {
+        if ( asset.type != QLatin1String( "single_factor_raster" ) )
+          continue;
+        for ( const CatalogVersion &version : f.catalog.versionsForAsset( asset.id ) )
+        {
+          if ( version.extra.value( QStringLiteral( "algorithm_id" ) ).toString() ==
+               QStringLiteral( "paleo:geostat_cokriging" ) )
+          {
+            foundVersion = true;
+            QCOMPARE( version.extra.value( QStringLiteral( "method" ) ).toString(), QStringLiteral( "cokriging" ) );
+            QCOMPARE( version.extra.value( QStringLiteral( "method_actual" ) ).toString(), QStringLiteral( "cokriging" ) );
+            QVERIFY( version.extra.contains( QStringLiteral( "support_sha256" ) ) );
+            QVERIFY( version.extra.contains( QStringLiteral( "qc_sha256" ) ) );
+            QVERIFY( version.extra.contains( QStringLiteral( "parameter_hash" ) ) );
+          }
+        }
+      }
+      QVERIFY2( foundVersion, "paleo:geostat_cokriging catalog version must be registered" );
     }
 };
 

@@ -1265,6 +1265,50 @@ bool DataCatalog::removeStaleVersions(const QStringList &versionIds, QString *er
   return false;
 }
 
+bool DataCatalog::updateVersionExtra(const QString &versionId, const QVariantMap &extra, QString *error)
+{
+  if (!checkWriteThread("updateVersionExtra", error) || !ensureOpen(error))
+    return false;
+  if (versionId.isEmpty())
+  {
+    setError(error, QStringLiteral("cannot update extra of an empty version id"));
+    return false;
+  }
+  const int row = m_idx.versionRow(versionId);
+  if (row < 0 || row >= m_versions.size())
+  {
+    setError(error, QStringLiteral("unknown version id: %1").arg(versionId));
+    return false;
+  }
+  for (auto it = extra.begin(); it != extra.end(); ++it)
+    m_versions[row].extra.insert(it.key(), it.value());
+  m_dirtyVersions.insert(versionId);
+  if (save(error))
+  {
+    ++m_mutationSeq;
+    return true;
+  }
+  return false;
+}
+
+bool DataCatalog::updateAssetExtra(const QString &assetId, const QVariantMap &extra, QString *error)
+{
+  if (!checkWriteThread("updateAssetExtra", error) || !ensureOpen(error))
+    return false;
+  if (assetId.isEmpty())
+  {
+    setError(error, QStringLiteral("cannot update extra of an empty asset id"));
+    return false;
+  }
+  const CatalogVersion v = currentVersion(assetId);
+  if (v.id.isEmpty())
+  {
+    setError(error, QStringLiteral("asset has no current version: %1").arg(assetId));
+    return false;
+  }
+  return updateVersionExtra(v.id, extra, error);
+}
+
 QString DataCatalog::resolvedVersionPath(const QString &projectDir, const CatalogVersion &version)
 {
   if (version.path.isEmpty()) return QString();

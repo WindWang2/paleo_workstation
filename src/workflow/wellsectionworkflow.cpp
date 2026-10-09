@@ -1,5 +1,6 @@
 // 层：功能
 #include "wellsectionworkflow.h"
+#include "../qgis/wellattributestore.h"
 #include "algorithms/faultsurface/faultsurface.h"
 #include "catalog/datacatalog.h"
 #include "domain/faultset.h"
@@ -495,6 +496,22 @@ public:
   lithologyFor(const QString &wellId) const override {
     if (!m_catalog)
       return {};
+    const auto maintained = WellAttributeStore::rows(m_projectDir, nullptr, false, wellId);
+    if (!maintained.isEmpty()) {
+      QVector<wellsection::LithoSegment> segments;
+      bool hasMaintainedLithology = false;
+      for (const auto &v : maintained) {
+        const auto row = v.toMap();
+        hasMaintainedLithology = hasMaintainedLithology || !row.value("lithology").isNull();
+        if (row.value("lithology").toString().isEmpty()) continue;
+        wellsection::LithoSegment segment;
+        segment.topMd = row.value("top_md").toDouble(); segment.baseMd = row.value("base_md").toDouble();
+        segment.litho = row.value("lithology").toString(); segment.source = wellsection::LithoSource::Interpreted;
+        segment.provenance = WellSectionWorkflow::tr("测井矢量属性表"); segments << segment;
+      }
+      // 预测相不是岩性；仅有相而无岩性时仍允许读取已有解释源。
+      if (hasMaintainedLithology) return segments;
+    }
     QString bestAssetId;
     CatalogVersion best;
     for (const EntityAssetLink &link : m_catalog->linksForEntity(wellId)) {
@@ -606,22 +623,54 @@ private:
 
   QVector<wellsection::LithoSegment>
   cuttingsLithologyFor(const QString &wellId) const {
-    QString bestAssetId;
-    CatalogVersion best;
+    struct Candidate {
+      QString assetId;
+      CatalogVersion version;
+    };
+    QVector<Candidate> candidates;
     for (const EntityAssetLink &link : m_catalog->linksForEntity(wellId)) {
       if (link.role != QLatin1String("cuttings"))
         continue;
       const CatalogVersion v = m_catalog->currentVersion(link.assetId);
       if (v.id.isEmpty())
         continue;
-      if (bestAssetId.isEmpty() || v.versionNumber > best.versionNumber) {
-        best = v;
-        bestAssetId = link.assetId;
+      candidates.push_back({link.assetId, v});
+    }
+    if (candidates.isEmpty())
+      return {}; // 无 cuttings 链接井静默留空（GR 回落是正常态，不告警）
+
+    std::sort(candidates.begin(), candidates.end(),
+              [](const Candidate &a, const Candidate &b) {
+                if (a.version.versionNumber != b.version.versionNumber)
+                  return a.version.versionNumber > b.version.versionNumber;
+                return a.version.id > b.version.id;
+              });
+
+    const Candidate &best = candidates.first();
+    if (candidates.size() > 1) {
+      for (int i = 1; i < candidates.size(); ++i) {
+        const Candidate &unselected = candidates[i];
+        if (m_warnings) {
+          *m_warnings << WellSectionWorkflow::tr(
+              "井 %1 存在多份岩屑录井数据，已优先选用最新版本 %2（版本号 %3）；未选用：%4（版本号 %5）")
+                             .arg(wellId, best.version.fileName)
+                             .arg(best.version.versionNumber)
+                             .arg(unselected.version.fileName)
+                             .arg(unselected.version.versionNumber);
+        }
+        if (m_catalog) {
+          QVariantMap extraPatch;
+          extraPatch.insert(QStringLiteral("cuttings_selection"),
+                            QStringLiteral("unselected"));
+          extraPatch.insert(QStringLiteral("unselected_reason"),
+                            QStringLiteral("superseded_by_newer_version"));
+          extraPatch.insert(QStringLiteral("unselected_superseded_by"),
+                            best.version.fileName);
+          m_catalog->updateAssetExtra(unselected.assetId, extraPatch);
+        }
       }
     }
-    if (bestAssetId.isEmpty())
-      return {}; // 无 cuttings 链接井静默留空（GR 回落是正常态，不告警）
-    return parseCuttings(best);
+    return parseCuttings(best.version);
   }
 
   // 解析结果按 version id 缓存（与解释资产 m_parsed 同款）：共享文件的多
@@ -657,7 +706,9 @@ private:
       seg.baseMd = interval.baseMd;
       seg.litho = interval.litho;
       seg.source = wellsection::LithoSource::Interpreted;
-      seg.provenance = WellSectionWorkflow::tr("岩屑录井");
+      seg.provenance = v.fileName.isEmpty()
+                           ? WellSectionWorkflow::tr("岩屑录井")
+                           : WellSectionWorkflow::tr("岩屑录井（%1）").arg(v.fileName);
       segments.push_back(seg);
     }
     m_cuttingsParsed.insert(v.id, segments);

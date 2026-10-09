@@ -4,18 +4,30 @@
   以下几项只登记未动：
   1. **Delete 遮蔽**：图层树面板 `layers.remove` 是主窗级 `WindowShortcut` QAction，面板可见时会先吃掉数据树焦点内
      Delete（`data.assets.remove`）与节点编辑工具 Delete（`map.vertex.delete`）。启动日志以 info 报两条 shadow，
-     `tst_shortcuthelp::knownShadowsArePinned` 钉住清单。候选修法：改 `Qt::WidgetWithChildrenShortcut`（需真机核实
-     图层树内 Delete 仍可用）。
-  2. 保存按钮提示「保存工程（Ctrl+S）」、定位器占位符「搜索井位/层位  Ctrl+K」仍硬编码键名，改为取 `keyFor()`。
+     `tst_shortcuthelp::knownShadowsArePinned` 钉住清单。候选修法试修记录（方向80）：改 `Qt::WidgetWithChildrenShortcut`
+     会导致 `tst_shortcuthelp::r0SitesPreserved`（R0 25 处快捷键约束）与 `boundActionFiresOffscreen` 失败，且注册表
+     层级上下文判定（"main" 包含子路径）仍告警遮蔽；故诚实保留 pinned 清单，在 `LayerTreePanel` 补齐 `addAction` 挂载。
+  2. [已交付 方向80] 保存按钮提示「保存工程（Ctrl+S）」、定位器占位符「搜索井位/层位  Ctrl+K」已改为取 `keyFor()` 动态生成，缺省/变异自适应。
   3. 数据页「?」快捷键表（DataPage ShortcutsDialog）与 F1 总表并存，可改为打开总表并预过滤到数据页。
   4. 地图画布（主地图与预览地图都是 `QgsMapCanvas`）的 QGIS 内建按键（+ / - / 方向键 / 0 复位等，见
      `tst_previewmap_canvas::keyboardPlusMinusZero`）属第三方行为，未进注册表与总表；可补登记为 KeyHandler 条目做展示。
   5. 新增 `PaleoShortcuts` / `PaleoWhatsThis` / `tr()` 文案待 #246（zh_CN 本地化）合入后跑 lupdate 刷 `.ts`。
 - **Why:** 都是行为或文案改动，超出「收编不改行为」的边界；需要真机交互验证。
-- **Context:** ledger [方向63](.goal-loop-ledger-shortcuts-help.md#遮蔽告警启动日志-info测试钉死清单)。
+- **Context:** ledger [方向63](.goal-loop-ledger-shortcuts-help.md#遮蔽告警启动日志-info测试钉死清单)、[方向80](.goal-loop-ledger-quickfollow.md)。
 - **Effort:** human: S / CC: S
 - **Priority:** P3
 - **Depends on:** #246（第 5 项）
+
+## P3 — 同域高频补丁大文件拆分候选清单（from goal/quickfollow-20261009 方向 80）
+
+- **What:** 方向 80 对 10-07/10-08 连补高发文件进行了归并审视（零行为变更消除错位与重复），形成后续模块化拆分候选清单：
+  1. `src/ui/datapreview/datapreviewtabs.cpp`（1758 行）+ `src/ui/datapreview/datapreviewtabs_internal.h`（1607 行）：多类型数据预览 Tab 管理，建议按预览类型（las/seismic/image/table/map）拆出独立子页策略类。
+  2. `src/workflow/mappingworkbench.cpp`（1523 行）：编图工作台，融合相图、等值线、栅格计算与预测过程，建议将工区/层位推断与加工管线剥离出子控制器。
+  3. `src/app/appcontext.cpp`（951 行）：组装根上下文，涵盖全部核心服务与图层挂载，建议将图层初始化与刷新簇（wells/survey/trajectories）下沉或聚合成专门的 `MapLayerBootstrap`。
+  4. `src/ui/pages/datalist_tree.cpp`（811 行）：数据导航树，方向 80 已将层位挂接归位至地震分支内，后续可将不同实体分类（井/地震/成果/计划井/不确定性）按分支抽取为专职构建器。
+- **Why:** 这批大文件是实战批次频繁冲突和修补的震中，且已形成明显的子域聚合边界。
+- **Priority:** P3
+- **Depends on:** 无（可独立立项拆分重构）
 
 ## P3 — AI 助手：工具上下文补绑（from goal/ai-assist, 2026-10-06；工具闭环已由方向61 交付、图形化配置已由方向62 交付）
 
@@ -68,14 +80,8 @@
   - wellfacies completed → publishLithoAsset 生产者接线无端到端测试：
     publishLithoAsset 直达缝已测，completed 信号缝（缓存写入 + 登记 +
     状态行原因追加全链）未钉。P3。
-  - 岩屑录井（cuttings）第二解释源已接入（2026-10-07：role=="cuttings"
-    链接按井兜底，段 provenance=「岩屑录井」，题注呈「解释·岩屑录井」）。
-    递延：CSV/TSV 解析无引号转义——岩性/描述词面含分隔符会列右移
-    （列数不足的行被行级校验跳过，但列数恰好够的错位行进库不报警）；
-    xlsx 路径走既有 readWorkbook 面，测试只覆盖 CSV+合成表。CC: S，P3。
-  - 同井多份 cuttings 链接取 currentVersion 版本号最新者：落选文件无
-    提示、段 provenance 统一「岩屑录井」不点名具体文件——多版本并存
-    排查时需到资产表自查来源。P3。
+  - [已交付 方向80] 岩屑录井（cuttings）第二解释源已接入 RFC 4180 引号转义（支持内嵌逗号/制表符/换行/"" 转义，错位行列数不符严格拒收列因），双 cuttings 夹具验证通过。
+  - [已交付 方向80] 同井多份 cuttings 链接取最新版本：落选文件记入 warning 并回写至资产 extra（cuttings_selection="unselected"），段 provenance 明确点名具体文件名「岩屑录井（<fileName>）」，题注呈现「解释·岩屑录井（<fileName>）」。
 - **Why:** 首版先打通按地层连井 + 井间地震 + 编图层位高亮；TVD 域、解释岩性数据源、模板随工程走都需要额外数据契约。
 - **Pros:** 不编造岩性/时深，缺时深的井间段如实标原因；**Cons:** 斜井连井有 MD 失真，岩性道分辨力有限。
 - **Context:** src/domain/wellsection.*、src/workflow/wellsectionworkflow.*、src/ui/wellsection/。
@@ -102,34 +108,31 @@
 - [ ] 测井曲线孔渗统计：目前只直读已有井点数值属性；待规定曲线助记名、层段加权与单位后接 LAS 统计，不以任意曲线均值冒充物性。
 - [ ] 地统 Kriging/SGS 的逐线屏障语义：现方法不消费约束线，说明如实呈现；独立算法改造递延，不借 UI 参数暗示已接入。
 
-## P2 — 单因素原生算法后续（from goal/single-factor-native, 2026-10-02）
+## ~~P2 — 单因素原生算法后续~~ → P2 — 单因素原生算法收口（from goal/single-factor-native, 2026-10-02；方向 74 对账归档）
 
-- **What:** 剩余项：协克里金/带约束 OK（把方向线/软边界耦合进克里金权重）、
-  变差函数逐硬隔断分量拟合、SFPKG 写出与 ZIP64、外委表的曲线统计
-  （mean/median/min/max + 深度区间）与因素自动发现、制图策略包进 UI、
-  时深域转换、监督分类、打印排版、完整 Python GUI 嵌入。
-  已完成（原 P2 条目）：有限断层路径距离 `FaultPathMetric`
-  （`src/algorithms/singlefactor/faultpath.{h,cpp}`，回归 `tst_singlefactor_faultpath`）；
-  变差函数/普通克里金核（方向18 `src/algorithms/geostat/`）；
-  克里金接入本地方向插值面（方向41 `krigingsurface.{h,cpp}` +
-  `geostat::KrigingSolver`，`method=local_direction_kriging`，
-  回落记 `method_actual`，回归 `tst_singlefactor_kriging`）；
-  完整 SFPKG 读取（`src/io/sfpkgreader.*`，回归 `tst_io_sfpkg`）；
-  外委 XML/XLSX 批量读取（`src/io/outsourceworkbook.*`，回归 `tst_io_outsource`）；
-  可枚举历史制图策略参数包词表
-  （`src/domain/singlefactorstrategy.*`，回归 `tst_singlefactor_strategy`）。
-- **Why:** 「井数 >80 各向异性路径退成 IDW、UI 标签不得冒充克里金」已在本地引擎侧
-  解决：克里金不再回落成 IDW 冒充，回落时 `method_actual`/`fallback_reason`
-  如实写进血缘与 QC；剩余项各需独立契约。
-- **Pros:** 沿用 local_direction_idw 插值面复算语义，克里金与 IDW 共用一套
-  成图域/硬屏障/井控标记；**Cons:** 协克里金、逐分量拟合、SFPKG 写出仍要另做。
-- **Context:** `docs/progress/sf-kriging.md`（方向41 全文口径与递延）、
-  `docs/progress/geostat-methods.md`（克里金核口径）。
-  当前 `localidw.h` 的旧核仍为 `grid_connectivity_v1`，生产局部方向作业已能使用
-  独立的 FaultPathMetric 绕行核；两者不混称。
-- **Effort:** human: L / CC: L
-- **Priority:** P2
-- **Depends on:** 单因素原生 P0 分析场进入目标基线
+- **What:** 原列入后续的 10 项中，7 项已在历史方向与方向 74 全部落完成并归档；1 项约束解法器核销；3 项保留递延并明确分流归宿。
+  - **已落地归档（7 项）**：
+    1. ~~SFPKG 写出与 ZIP64~~：`src/io/sfpkgwriter.{h,cpp}` + `src/io/ziparchive.{h,cpp}`，回归 `tests/tst_io_sfpkg_write.cpp`。
+    2. ~~外委表的曲线统计与因素自动发现~~：`src/io/outsourceworkbook.{h,cpp}`（`curveSheetStatistics`、`discoverFactorCandidates`），回归 `tests/tst_io_outsource_stats.cpp`。
+    3. ~~监督分类~~：方向 46 已落地于 `src/services/faciestraining.*` + `src/workflow/faciesclassify.*`，回归 `tests/tst_faciessupervised.cpp`（TODOS 行 229 已对账）。
+    4. ~~时深域转换~~：2026-10-02 已落地于 `src/algorithms/velocitymodel/` + `src/workflow/depthconversionworkflow.*`（TODOS 行 498 已对账）。
+    5. ~~制图策略包进 UI~~：`src/ui/pages/constraintpage.cpp` 通过 `surfaceMethodPacks()` 驱动成图方法下拉框与描述。
+    6. ~~方向线与软边界耦合进克里金权重~~：方向 74 落地——`src/algorithms/singlefactor/localidw.cpp`（Moving Local Anisotropy 张量场 + 连续软边界距离膨胀，消除 Heaviside step cliff 与 V-notch）+ `src/algorithms/singlefactor/krigingsurface.cpp`（生成 `direction_guide_applied:N` 与 `soft_boundary_applied:N` 诚实回执，消除历史未消费 issue）。
+    7. ~~协克里金求解核与工作流接线~~：方向 74 落地——`src/algorithms/geostat/cokriging.{h,cpp}`（`ordinaryCoKriging` 全场网格求解）+ `src/domain/singlefactorstrategy.{h,cpp}`（`surfaceMethodPacks()` 词表项）+ `src/workflow/constraintfactorjobs_*.cpp`（工作流接线、`covariateLayerId` 契约、次级变量采样计算 Pearson rho、缺失协变量诚实报错拒绝、`factor.tif` 与 `variance.tif` 双输出）。
+  - **解法器对账与核销（`ConstrainedKrigingSolver`）**：
+    - `src/algorithms/geostat/cokriging.{h,cpp}` 中保留 1D 样本子集不等式约束回归测试（`tests/tst_geostat_cokriging.cpp`）；
+    - 正式从 2D 成图曲面管线中退役销账：静态样本索引组上限约束（$\sum_{i \in \text{group}} \lambda_i \le \text{cap}$）无法刻画随待估点 $(x, y)$ 连续变化的 2D 空间相对边界几何，且二次罚函数法存在 0.005 残留权重泄漏；2D 阻隔由拓扑断块连通域划分 `labelHardBarriers` 与 `FaultPathMetric` 测地距离严格保证零泄漏最优估计。
+  - **保留递延（3 项，明确分流去向）**：
+    1. **变差函数逐硬隔断分量拟合**：已实装 `VariogramBarriers`（`src/algorithms/geostat/variogram.{h,cpp}`）测地距离屏障与跨隔断对过滤；分量独立拟合因复杂断块油藏小断块井数普遍稀疏（$<8$ 井导致拟合欠定退化），维持全场汇聚隔断过滤 + 分量独立求解架构，分量独立拟合递延并分流至精细构造地质建模专题。
+    2. **打印排版**：递延并分流至 Mapbook 方向（TODOS.md 行 243）。
+    3. **完整 Python GUI 嵌入**：方向 68 已落地外部进程级运行器与控制台，独立 Python C-API 解释器进程内嵌入另立项。
+  - **已完成历史项（原 P2 条目回顾）**：有限断层路径距离 `FaultPathMetric`（`src/algorithms/singlefactor/faultpath.{h,cpp}`，回归 `tst_singlefactor_faultpath`）；变差函数/普通克里金核（方向18 `src/algorithms/geostat/`）；克里金接入本地方向插值面（方向41 `krigingsurface.{h,cpp}` + `geostat::KrigingSolver`，`method=local_direction_kriging`，回落记 `method_actual`，回归 `tst_singlefactor_kriging`）；完整 SFPKG 读取（`src/io/sfpkgreader.*`，回归 `tst_io_sfpkg`）；外委 XML/XLSX 批量读取（`src/io/outsourceworkbook.*`，回归 `tst_io_outsource`）；可枚举历史制图策略参数包词表（`src/domain/singlefactorstrategy.*`，回归 `tst_singlefactor_strategy`）。
+- **Why:** 「井数 >80 各向异性路径退成 IDW、UI 标签不得冒充克里金」已在本地引擎侧解决：克里金不再回落成 IDW 冒充，回落时 `method_actual`/`fallback_reason` 如实写进血缘与 QC；方向 74 进一步收口了克里金对约束线（方向线/软边界）的真消费与回执，并打通了次级栅格驱动的协克里金工作流。
+- **Pros:** 沿用 local_direction_idw 插值面复算语义，克里金与 IDW 共用一套成图域/硬屏障/井控标记；克里金与 IDW 拥有对称的 MLA 各向异性与软边界约束消费能力；协克里金具备完整的次级属性栅格驱动；**Cons:** 逐断块变差拟合需等精细构造建模井数扩充。
+- **Context:** `docs/progress/sf-kriging.md`（方向41 全文口径与递延）、`docs/progress/geostat-methods.md`（克里金与协克里金核口径）、`docs/workflows/MAPPING_WORKBENCH.md`。当前生产局部方向作业使用独立的 FaultPathMetric 绕行核与 VariogramBarriers 屏障。
+- **Effort:** human: Done / CC: Done
+- **Priority:** P2（收口归档）
+- **Depends on:** 方向 74（M1、M2、M3）已落地
 
 ## P3 — 多文件井曲线其余读口（from goal/well-logset, 2026-10-02；方向 44 已结）
 

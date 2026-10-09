@@ -3,6 +3,7 @@
 #include "wellcompositepanel.h"
 #include "../../workflow/wellfaciesworkflow.h"
 #include "editsession.h"
+#include "wellpositionlegendwidget.h"
 #include "trackconfigdialog.h"
 #include "hiddentrackbar.h"
 #include "trackops.h"
@@ -88,7 +89,41 @@ void WellCompositePanel::bindFaciesWorkflow(WellFaciesWorkflow *workflow) {
   connect(workflow, &WellFaciesWorkflow::statusChanged, m_faciesStatus, &QLabel::setText);
   connect(workflow, &WellFaciesWorkflow::resultReady, this, &WellCompositePanel::showFaciesPrediction);
   connect(workflow, &WellFaciesWorkflow::resultCleared, this, &WellCompositePanel::clearFaciesPrediction);
+  connect(workflow, &WellFaciesWorkflow::attributeAvailabilityChanged, this, [this](bool available, const QString &reason) {
+    for (const auto &name : {"btnWellAttributes", "btnWellFactors"}) if (auto *button = findChild<QToolButton *>(name)) {
+      button->setEnabled(available); button->setToolTip(reason);
+    }
+  });
+  connect(workflow, &WellFaciesWorkflow::attributesReady, this, &WellCompositePanel::showWellAttributes);
+  for (const auto &entry : {qMakePair(QStringLiteral("btnWellAttributes"), false), qMakePair(QStringLiteral("btnWellFactors"), true)})
+    if (auto *button = findChild<QToolButton *>(entry.first))
+      connect(button, &QToolButton::clicked, workflow, [workflow, factors = entry.second] { workflow->requestAttributeTable(factors); });
   workflow->setData(m_data);
+}
+void WellCompositePanel::showWellAttributes(const ComprehensiveWellData &data) {
+  m_data.lithologyIntervals = data.lithologyIntervals;
+  m_data.faciesIntervals = data.faciesIntervals;
+  bool hasLithology = false, hasFacies = false;
+  for (int i = m_canvas->trackCount() - 1; i >= 0; --i) {
+    const auto track = m_canvas->tracks().at(i);
+    if (track->type() == TrackType::Lithology) {
+      if (data.lithologyIntervals.isEmpty()) m_canvas->removeTrack(i);
+      else { std::static_pointer_cast<LithologyTrack>(track)->setIntervals(data.lithologyIntervals); hasLithology = true; }
+    } else if (track->type() == TrackType::FaciesCompound) {
+      if (data.faciesIntervals.isEmpty()) m_canvas->removeTrack(i);
+      else { std::static_pointer_cast<FaciesCompoundTrack>(track)->setIntervals(data.faciesIntervals); hasFacies = true; }
+    }
+  }
+  if (!hasLithology && !data.lithologyIntervals.isEmpty()) {
+    auto track = std::make_shared<LithologyTrack>(tr("岩性分析"), 80.0);
+    track->setIntervals(data.lithologyIntervals); m_canvas->addTrack(track);
+  }
+  if (!hasFacies && !data.faciesIntervals.isEmpty()) {
+    auto track = std::make_shared<FaciesCompoundTrack>(tr("维护相"), 180.0);
+    track->setIntervals(data.faciesIntervals); m_canvas->addTrack(track);
+  }
+  if (m_legendWidget) m_legendWidget->setWellData(m_data);
+  m_canvas->updateAll();
 }
 void WellCompositePanel::clearFaciesPrediction() {
   for (int i=m_canvas->trackCount()-1; i>=0; --i) {

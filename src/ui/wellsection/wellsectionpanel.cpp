@@ -124,6 +124,16 @@ WellSectionPanel::WellSectionPanel(SelectionContext *ctx, QWidget *parent)
           [this] { generateFromSelection(); });
   m_tracksBtn = mkBtn("wellSectionTracksButton", "mActionFilterTableFields.svg",
                       tr("设置显示的井道与参与连井的分层"));
+  // 解释岩性来源（方向 98）：同井多份解释资产时选择消费版本——枚举/落库
+  // /重取都在壳层（catalog 视图不碰），面板只发请求。
+  m_lithoBtn = mkBtn("wellSectionLithoSourceButton", "mActionHistory.svg",
+                     tr("解释岩性来源（同井多份解释资产时选择消费版本）"));
+  connect(m_lithoBtn, &QToolButton::clicked, this, [this] {
+    const QString wellId = !m_selectedId.isEmpty()
+                               ? m_selectedId
+                               : (m_ids.isEmpty() ? QString() : m_ids.first());
+    emit lithoSourceEditRequested(wellId);
+  });
   m_themeBtn = mkBtn("wellSectionThemeButton", "propertyicons/symbology.svg",
                      tr("剖面显示主题与高亮"));
   m_flattenBtn = mkBtn("wellSectionFlattenButton", "mActionAlignTop.svg",
@@ -474,6 +484,12 @@ void WellSectionPanel::setSeismicAvailable(bool available,
   m_seismicAvailable = available;
   m_seismicReason = reason;
   syncToolbarState();
+}
+
+void WellSectionPanel::setLithoSourceButtonVisible(bool visible)
+{
+  if (m_lithoBtn)
+    m_lithoBtn->setVisible(visible);
 }
 
 void WellSectionPanel::selectWell(const QString &wellId)

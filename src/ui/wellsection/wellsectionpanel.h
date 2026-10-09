@@ -118,6 +118,9 @@ class WellSectionPanel : public QWidget
     qreal columnX(int i) const { return m_st.columnLeft(i); }
     qreal gapWidthAt(int i) const { return m_st.gapWidth(i); }
     int faultTraceCount() const { return m_st.faultTraces.size(); }
+    // 解释来源按钮可见性（fence 剖面隐藏——选择态语义面在主剖面 workflow
+    // + 工程库，栅内不放死按钮；方向 98）。
+    void setLithoSourceButtonVisible(bool visible);
 
   signals:
     void dataRequested(const QStringList &wellIds, const QStringList &mnemonics);
@@ -133,6 +136,9 @@ class WellSectionPanel : public QWidget
     // 视图不碰数据）。depthMd 为当前锚深（双击语境即已锚定照片）。
     void imageAnchorEditRequested(const QString &wellId,
                                   const QString &assetId, double depthMd);
+    // 解释岩性来源编辑（方向 98）：壳层枚举该井解释资产（workflow 供给）、
+    // 弹选择对话框、落库并重取。wellId = 当前选中井（无选中 = 首井）。
+    void lithoSourceEditRequested(const QString &wellId);
     // 仅用户驱动（域/井距菜单动作）——fence 三处一致性传播钩子（程序化
     // setter 不发，防回声环路）。
     void depthDomainChanged(wellsection::DepthDomain domain);
@@ -198,6 +204,7 @@ class WellSectionPanel : public QWidget
     QToolButton *m_wellsBtn = nullptr;
     QToolButton *m_fromSelBtn = nullptr;
     QToolButton *m_tracksBtn = nullptr;
+    QToolButton *m_lithoBtn = nullptr;
     QToolButton *m_themeBtn = nullptr;
     QToolButton *m_flattenBtn = nullptr;
     QToolButton *m_spacingBtn = nullptr;

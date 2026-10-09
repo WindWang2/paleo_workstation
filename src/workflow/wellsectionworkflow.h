@@ -46,6 +46,22 @@ public:
   QStringList availableMnemonics(const QStringList &wellIds) const;
   // 共用真实解释/岩屑 provider；不装载曲线或图片。
   QHash<QString, QVector<wellsection::LithoSegment>> lithologiesFor(const QStringList &wellIds, QStringList *warnings = nullptr) const;
+  // ---- 解释岩性来源仲裁（方向 98：同井多份解释资产显式选择）----
+  struct LithoSourceChoice {
+    QString assetId;      // 消费指向的资产 id
+    QString label;        // displayName（vN）——选择面与题注/告警同名
+    int versionNumber = 0;
+  };
+  // 同井候选（interpretation 角色 + well_litho_intervals 类型），版本号降序
+  //（最新在前）。空 = 无解释资产（岩屑兜底/GR 回落是正常态）。
+  QVector<LithoSourceChoice> lithoSourceChoices(const QString &wellId) const;
+  // 显式选择（assetId 空 = 回落默认「取最新」）。仅记 workflow 内存态——
+  // 持久化归壳层（WellSectionStore 解释选择表）；消费时选择不在候选内
+  // → 回落默认并如实告警。默认仲裁规则不变（无选择 = 最新版本号）。
+  void setLithoAssetSelection(const QString &wellId, const QString &assetId);
+  // 整表恢复（开工程/换工程时壳层灌入；清空传空表）。
+  void setLithoAssetSelections(const QHash<QString, QString> &selection);
+  QHash<QString, QString> lithoAssetSelections() const { return m_lithoSelection; }
   int request(const QStringList &wellIds, const QStringList &mnemonics); // 返回世代号
   int requestSeismic(const QVector<wellsection::Well> &wells,
                      const SeismicSource &source);
@@ -70,6 +86,9 @@ signals:
   void sectionReady(int generation, const QVector<wellsection::Well> &wells,
                     const QStringList &warnings);
   void seismicReady(int generation, const wellsection::SeismicStrip &strip);
+  // 解释来源选择变化（wellId + 新 assetId；空 = 回落默认）。壳层接：落库 +
+  // 重取剖面。程序化 setLithoAssetSelections（恢复路径）不发本信号。
+  void lithoSelectionChanged(const QString &wellId, const QString &assetId);
 
 private:
   struct Shared;
@@ -93,4 +112,6 @@ private:
   int m_seismicGeneration = 0;
   QPointer<PaleoTask> m_sectionTask;
   QVector<QPointer<PaleoTask>> m_gapTasks;
+  // 解释岩性显式选择（wellId → assetId；无条目 = 默认取最新）。
+  QHash<QString, QString> m_lithoSelection;
 };

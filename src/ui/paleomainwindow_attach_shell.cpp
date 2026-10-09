@@ -24,6 +24,7 @@
 #include "layoutdesignershell.h"
 #include "ai/aiassistdock.h"                    // 方向51：AI 助手 dock
 #include "ai/llmconfigdialog.h"                 // 方向62：图形化配置对话框
+#include "pages/datapage.h"                     // 方向93：结果卡导航 → 数据页定位
 #include "../workflow/aichatcontroller.h"
 #include "../ai/chat/llmclient.h"               // LlmConfig（对话框装配面 + path() 配置说明）
 #include "shortcuts/shortcutcatalog.h" // 方向63：快捷键中央注册表
@@ -646,6 +647,32 @@ void PaleoMainWindow::attachAiAssistant(AiChatController *controller)
             if (!controller->removeSession(sessionId, &error) && statusBar())
               statusBar()->showMessage(
                 error.isEmpty() ? tr("删除会话失败") : error, 6000);
+          });
+  // 方向 93：结果卡导航意图 → 数据页定位（先例：assetActivated 通道与
+  // showPage("data") 的既有跳转口径）。跳转定位是导航不是数据修改。
+  connect(dock, &AiAssistDock::assetNavigateRequested, this,
+          [this](const QString &assetId) {
+            if (assetId.isEmpty())
+              return;
+            showPage(QStringLiteral("data"));
+            if (auto *dataPage = findChild<DataPage *>())
+              dataPage->selectAsset(assetId);
+          });
+  connect(dock, &AiAssistDock::entityNavigateRequested, this,
+          [this](const QString &entityId) {
+            if (entityId.isEmpty())
+              return;
+            showPage(QStringLiteral("data"));
+            if (auto *dataPage = findChild<DataPage *>())
+              dataPage->selectAssetsForEntities({entityId});
+          });
+  connect(dock, &AiAssistDock::lineageNavigateRequested, this,
+          [this](const QString &assetId, const QString &versionId) {
+            if (assetId.isEmpty() || versionId.isEmpty())
+              return;
+            showPage(QStringLiteral("data"));
+            if (auto *dataPage = findChild<DataPage *>())
+              dataPage->focusVersion(assetId, versionId);
           });
 }
 

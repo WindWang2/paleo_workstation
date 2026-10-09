@@ -47,6 +47,11 @@ signals:
   void openSessionRequested(const QString &sessionId);
   void renameSessionRequested(const QString &sessionId, const QString &title);
   void deleteSessionRequested(const QString &sessionId);
+  // 方向 93：结果卡导航意图（定位不是数据修改）——宿主接线消费
+  // （先例：DataPage::assetActivated 通道 / focusVersion / selectAssetsForEntities）。
+  void assetNavigateRequested(const QString &assetId);
+  void entityNavigateRequested(const QString &entityId);
+  void lineageNavigateRequested(const QString &assetId, const QString &versionId);
 
 private:
   void sendCurrentText();
@@ -56,6 +61,10 @@ private:
   void addToolCard(const ChatToolCall &call, const QString &statusText);
   void markToolRunning(const ChatToolCall &call);
   void markToolResult(const ChatToolCall &call, bool ok, const QString &summary);
+  // 方向 93：完整出参 → 卡内结构化视图（表格/键值对/血缘小图/兜底折叠）。
+  // 直连 AiChatToolRunner::toolFinished（全量 JSON；toolResultReady 只有
+  // 160 字符摘要）——workflow 零改动，呈现层自取所需。
+  void showToolResult(const ChatToolCall &call, bool ok, const QString &resultJson);
   void clearToolCards();
   void writeBlock(const QString &html);
   void bindController();
@@ -71,11 +80,13 @@ private:
 
   // 工具卡两态（方向61）：同一张卡上「执行中 → 结果」翻面；胶囊状态色随
   // CapsuleKind 重建（capsuleLabel 的样式在构造时按 kind 钉死）。
+  // 方向 93：结果态在卡内追加结构化视图（AiToolResultView）。
   struct ToolCard {
     QFrame *card = nullptr;
     class QHBoxLayout *row = nullptr;
     QLabel *capsule = nullptr;
     QLabel *summary = nullptr;
+    class AiToolResultView *resultView = nullptr;
   };
   void swapCapsule(ToolCard &card, const QString &text,
                    PaleoTheme::CapsuleKind kind);

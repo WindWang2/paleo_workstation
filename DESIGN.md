@@ -171,6 +171,27 @@ QGIS 标准解剖：左 dock（资源管理器/图层树）、中央 `QgsMapCanv
 - **状态标签:** 浅色底+深色字的小胶囊（通过/待复核/未执行），永远带数字。
 - **画布内装饰:** 指北针左上、比例尺左下、图例右上、图件标题 chip 左上——白底半透明卡片承载。
 
+### AI 结果卡片（方向 93）
+
+AI 助手工具卡的结果态在卡内追加**结构化视图**，按工具/话题分派；不新增
+token——沿用 surface-alt 卡底 + border 1px + rounded.md（卡片既有口径，
+同工具卡两态），内容控件用原生 QTableWidget/原生 QGraphicsView。
+
+- **分派表（工具 → 视图）：** query_project(wells/horizons/assets) →
+  紧凑表格；query_project(summary) → 键值对；query_project(well_details)
+  → 键值对头 + 内嵌关联表；asset_lineage → 血缘小图；其余/未知/失败 →
+  JSON 折叠块（默认收起，摘要行为既有 160 字符形态）。
+- **紧凑表格：** label-pt 字号、只读、无焦点框装饰；「复制」出 TSV 进
+  剪贴板；行点击是**导航**（跳数据页定位，同 assetActivated 通道），不是
+  数据修改。
+- **键值对：** 两列（text-muted 键 / text 值），label-pt，纵向 xs 间距。
+- **血缘小图：** 复用数据页血缘图渲染核（DerivationGraph），闭包内节点
+  不透明、闭包外 25% 不透明（同数据页高亮口径）；节点悬停显示版本信息
+  （tooltip，同数据页）；「在血缘页打开」跳转数据页血缘区（全功能交互）。
+  节点 > 40 时降级折叠块（dock 卡内可读性优先，注记如实）。
+- **交互红线：** 结果卡片一律只读——零写路径；复制/跳转是用户显式动作。
+  结构化视图是**额外**呈现，协议面（JSON 回灌给模型）不变。
+
 ## 错误呈现 (Error Presentation)
 
 为彻底解决散弹式弹窗导致的交互打断与状态丢失问题，Paleo Workbench 采用统一的 ErrorHub 汇聚与三级呈现（3-tier hierarchy）体系：

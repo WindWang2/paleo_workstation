@@ -4,6 +4,8 @@
 #include <QPointer>
 #include <QByteArray>
 #include <QStringList>
+#include <atomic>
+#include <memory>
 class DataCatalog;
 struct ProjectLayerData {
   QByteArray wellsBytes, trajectoryBytes;
@@ -20,7 +22,9 @@ public:
   explicit ProjectLayerRefreshWorkflow(QObject *parent = nullptr);
   void request(DataCatalog *catalog, const QString &directory);
   void cancel();
-  static ProjectLayerData prepare(DataCatalog &snapshot, const QString &directory);
+  // Empty stop skips the check; the synchronous open-project caller omits it.
+  static ProjectLayerData prepare(DataCatalog &snapshot, const QString &directory,
+                                  const std::shared_ptr<std::atomic_bool> &stop = {});
 signals:
   void prepared(const QString &directory, quint64 mutationSeq, const ProjectLayerData &data);
 private:
@@ -28,4 +32,5 @@ private:
   QString m_directory;
   quint64 m_generation = 0;
   bool m_running = false, m_pending = false;
+  std::shared_ptr<std::atomic_bool> m_stop;
 };

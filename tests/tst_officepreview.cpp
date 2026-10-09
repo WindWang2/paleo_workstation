@@ -2,9 +2,12 @@
 #include <QApplication>
 #include <QComboBox>
 #include <QCryptographicHash>
+#include <QCoreApplication>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
+#include <QFutureWatcher>
+#include <QGraphicsPixmapItem>
 #include <QGraphicsView>
 #include <QPointer>
 #include <QProcess>
@@ -50,12 +53,36 @@ private slots:
   }
   void cancelledVerificationCannotLaunch() {
     if (OfficePreviewSession::rendererPath().isEmpty()) QSKIP("Build vendor/fetch-calligra.sh first");
-    OfficePreviewSession session;
-    QSignalSpy failed(&session, &OfficePreviewSession::failed);
-    session.open("/does-not-exist.docx"); session.stop();
-    QTest::qWait(100);
+    OfficePreviewWidget preview(QStringLiteral("/does-not-exist.docx"));
+    auto *session = preview.findChild<OfficePreviewSession *>();
+    QVERIFY(session);
+    QVERIFY(disconnect(&preview, &OfficePreviewWidget::previewRequested,
+                       session, &OfficePreviewSession::open));
+    QCoreApplication::processEvents(QEventLoop::AllEvents);
+    QSignalSpy failed(session, &OfficePreviewSession::failed);
+    QSignalSpy ready(session, &OfficePreviewSession::ready);
+    QSignalSpy pages(session, &OfficePreviewSession::pageReady);
+    session->open(QStringLiteral("/does-not-exist.docx"));
+    session->stop();
+    const auto idle = [session] {
+      if (session->findChild<QProcess *>()) return false;
+      for (auto *watcher : session->findChildren<QFutureWatcherBase *>())
+        if (!watcher->isFinished()) return false;
+      return true;
+    };
+    QTRY_VERIFY_WITH_TIMEOUT(idle(), 5000);
+    QCoreApplication::processEvents(QEventLoop::AllEvents);
     QCOMPARE(failed.count(), 0);
-    QVERIFY(!session.findChild<QProcess *>());
+    QCOMPARE(ready.count(), 0);
+    QCOMPARE(pages.count(), 0);
+    QVERIFY(!session->findChild<QProcess *>());
+    auto *view = preview.findChild<QGraphicsView *>(QStringLiteral("officePageView"));
+    QVERIFY(view);
+    QVERIFY(view->isHidden());
+    for (auto *item : view->scene()->items()) {
+      if (auto *pix = qgraphicsitem_cast<QGraphicsPixmapItem *>(item))
+        QVERIFY(pix->pixmap().isNull());
+    }
   }
   void shaMismatchCannotLaunch() {
     if (OfficePreviewSession::rendererPath().isEmpty()) QSKIP("Build vendor/fetch-calligra.sh first");

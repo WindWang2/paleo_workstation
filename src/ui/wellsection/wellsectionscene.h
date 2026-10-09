@@ -7,9 +7,11 @@
 #include <QGraphicsSceneEvent>
 #include <QGraphicsView>
 #include <QImage>
+#include <QSet>
 #include <QWidget>
 #include <cmath>
 #include <functional>
+#include <memory>
 
 // ui/wellsection — 剖面渲染核：面板持有一份渲染状态（过滤后的井集、
 // 拉平偏移、深度窗口、模板、主题、高亮、地震缝、布局版本），列项与
@@ -128,7 +130,10 @@ class ColumnItem : public QGraphicsItem
 {
   public:
     ColumnItem(RenderState *st, int index);
+    ~ColumnItem() override;
     int index() const { return m_index; }
+    // 原图级 QPixmap 驻留张数（与 FullImageCache 同一上限）。
+    int retainedFullPixmapCount() const { return m_fullPixmapOrder.size(); }
     // 布局参数变了（不是井集重建）：prepareGeometryChange + 重画。
     void relayout() { prepareGeometryChange(); update(); }
     QRectF boundingRect() const override;
@@ -159,19 +164,33 @@ class ColumnItem : public QGraphicsItem
                           const QRectF &exposed);
     void paintImageTrack(QPainter *p, const QRectF &trackRect,
                          const QRectF &exposed, const QTransform &world);
+    // 原图 QPixmap 命中挪到 LRU 尾；新图插入并按 kFullCacheEntries 淘汰
+    // （优先丢不在当前可见原图集合里的）。
+    void noteFullPixmapUse(quint64 key);
+    void retainFullPixmap(quint64 key, const QPixmap &pm);
+    // peek 未命中：同一 cacheKey 至多一次后台解码。回调里才 fromImage。
+    void scheduleFullDecode(const QString &cacheKey, const QString &path,
+                            quint64 pixmapKey);
 
+    struct ImageDecodeHost;
     RenderState *m_st;
     int m_index;
     // 曲线路径按曲线几何版本缓存（curveVersion 变 → 失效重算；井间距变化
     // 不重算——拉伸只动列位置不动路径）。
     mutable quint64 m_pathVersion = ~quint64(0);
     mutable QHash<quint64, QPainterPath> m_pathCache; // (trackIdx<<8|curveIdx) → path
-    // 图片道位图缓存：键 = (wellIdx<<32)|anchorIdx（64 位无截断）；代际
-    // 失效——m_pixmapCacheVersion != imageVersion 时整体清（QImage(任务
-    // 线程装载) → QPixmap(GUI 线程) 只转一次）。旧实现把 imageVersion 截
-    // 8 位编进键，256 次数据变更后假命中（方向 79 修复）。
+    // 图片道位图缓存：键 = (wellIdx<<32)|anchorIdx（64 位无截断），原图
+    // 级另置最高位。代际失效——m_pixmapCacheVersion != imageVersion 时
+    // 整体清。缩略 QPixmap 来自井上已有位图，可常驻；原图 QPixmap 与
+    // FullImageCache 共用 kFullCacheEntries，超出淘汰，不把每张原图都
+    // 留下。旧实现把 imageVersion 截 8 位编进键，256 次数据变更后假命中。
     mutable QHash<quint64, QPixmap> m_pixmapCache;
+    mutable QVector<quint64> m_fullPixmapOrder; // 尾 = 最近使用的原图键
+    mutable QSet<QString> m_fullDecodeFailed;   // 本代际读盘失败，避免每帧重排
+    mutable QSet<quint64> m_visibleFullKeys;    // 本帧可见且要原图的键
     mutable quint64 m_pixmapCacheVersion = ~quint64(0);
+    // 后台解码回调用：析构先把 self 置空，队列里的结果不再碰已死的项。
+    std::shared_ptr<ImageDecodeHost> m_imageDecodeHost;
     // 最近一帧图片锚绘制矩形（item 坐标）+ 锚索引——双击拾取面。
     struct ImageHit
     {

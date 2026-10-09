@@ -653,19 +653,26 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
     const bool readOnly = m_pendingLock ? !m_pendingLock->isHeld() : isProjectReadOnly();
     const bool projectChanged = QDir::cleanPath(directory) != QDir::cleanPath(m_projectDir);
     // No live QObject/service is captured by the worker closure.
-    return [data, readOnly, projectChanged] {
+    return [data, readOnly, projectChanged](const std::function<bool()> &cancelled) {
+      const auto stopped = [&cancelled] { return cancelled && cancelled(); };
+      if (stopped()) return;
       data->catalog = DataCatalog::prepareOpen(data->directory, readOnly);
+      if (stopped()) return;
       if (data->catalog->isOpen() && !readOnly) {
         if (projectChanged) DataImportService::sweepStaleStaging(data->directory);
+        if (stopped()) return;
         const auto layers = ProjectLayerRefreshWorkflow::prepare(*data->catalog, data->directory);
         data->wellsBytes = layers.wellsBytes;
         data->trajectoryBytes = layers.trajectoryBytes;
         data->wellsPrepared = layers.wellsPrepared;
         data->trajectoriesPrepared = layers.trajectoriesPrepared;
         for (const auto &warning : layers.warnings) qWarning() << "project open:" << warning;
+        if (stopped()) return;
       }
 #if PALEO_HAVE_ORT
+      if (stopped()) return;
       data->models = ModelRegistry::scan(QDir(data->directory).filePath("models"));
+      if (stopped()) return;
 #endif
     };
   });

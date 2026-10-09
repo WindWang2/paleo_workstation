@@ -527,9 +527,6 @@ void PaleoMainWindow::buildPageDocks()
   m_wellSectionDock->setUserWantsVisible(false);
   m_wellSectionDock->setProgrammaticVisible(false);
 
-  // ---- 错误历史 dock（方向 64 呈现域；实现在 paleomainwindow_errorhub.cpp）----
-  buildErrorHistoryDock();
-
   // ---- seismic 3D viewport dock ----
   m_seismic3dDock = new QDockWidget(tr("三维地震视口 (3D)"), this);
   m_seismic3dDock->setObjectName(QStringLiteral("seismic3dDock"));

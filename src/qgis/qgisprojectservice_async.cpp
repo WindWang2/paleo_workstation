@@ -39,6 +39,22 @@ struct ProjectLoadState {
   qint64 size = 0;
 };
 
+void QgisProjectService::setOpenPreparation(
+    const std::function<std::function<void()>(const QString &projectDir)> &prepare)
+{
+  if (!prepare) {
+    m_openPreparation = {};
+    return;
+  }
+  m_openPreparation = [prepare](const QString &projectDir) {
+    const auto work = prepare(projectDir);
+    return [work](const std::function<bool()> &) {
+      if (work)
+        work();
+    };
+  };
+}
+
 void QgisProjectService::cancelOpen()
 {
   if (!m_opening)
@@ -80,7 +96,9 @@ bool QgisProjectService::openProjectAsync(const QString &input)
     return false;
   auto state = std::make_shared<ProjectLoadState>();
   state->input = source.absoluteFilePath();
-  const auto prepareData = m_openPreparation ? m_openPreparation(source.absolutePath()) : std::function<void()>();
+  const auto prepareData = m_openPreparation
+                               ? m_openPreparation(source.absolutePath())
+                               : std::function<void(const std::function<bool()> &)>();
   m_pendingLoad = state;
   const quint64 generation = ++m_openGeneration;
   QThread *ownerThread = thread();
@@ -157,7 +175,7 @@ bool QgisProjectService::openProjectAsync(const QString &input)
     if (state->cancelled.load()) { state->project.reset(); return; }
     if (prepareData) {
       promise.setProgressValueAndText(76, QStringLiteral("后台读取目录库、井数据与模型索引"));
-      prepareData();
+      prepareData([state] { return state->cancelled.load(); });
     }
     if (state->cancelled.load()) { state->project.reset(); return; }
     // 冻结完成引用解析后的图层树（含嵌入组和自定义绘制顺序）。接管图层会改变旧树。

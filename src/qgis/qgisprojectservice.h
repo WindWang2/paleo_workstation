@@ -31,8 +31,14 @@ class QgisProjectService : public QObject
     bool openProject(const QString &qgzPath);       // resolves manifest placeholders on demand
     bool openProjectAsync(const QString &path);
     // Called on the owner thread to capture a worker-only preparation closure.
-    using OpenPreparation = std::function<std::function<void()>(const QString &projectDir)>;
+    // The worker receives a cancel predicate and must stop between stages.
+    using OpenPreparation =
+        std::function<std::function<void(const std::function<bool()> &cancelled)>(
+            const QString &projectDir)>;
     void setOpenPreparation(const OpenPreparation &prepare) { m_openPreparation = prepare; }
+    // 旧工厂不接收谓词（工人闭包看不到取消）。适配后仍可登记，谓词被忽略。
+    void setOpenPreparation(
+        const std::function<std::function<void()>(const QString &projectDir)> &prepare);
     void cancelOpen();
     bool isOpening() const { return m_opening; }
     bool isBackgroundOpenRunning() const { return m_openFuture.isRunning(); }

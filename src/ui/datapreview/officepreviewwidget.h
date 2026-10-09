@@ -28,10 +28,13 @@ private:
   void open();
   void selectPage(int index);
   void updateZoom();
+  void showStatus(const QString &text, bool error);
   QString m_path, m_sha;
   OfficePreviewSession *m_session;
+  QWidget *m_statusHost = nullptr;
   QLabel *m_status;
   QPushButton *m_retry;
+  bool m_statusIsError = false;
   QToolButton *m_previous, *m_next;
   QComboBox *m_pages, *m_zoom;
   QGraphicsView *m_view;

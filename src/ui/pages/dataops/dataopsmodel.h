@@ -396,14 +396,18 @@ public:
   {
     m_cat = cat;
     m_entries.clear();
+    // ast-N 跨工程复用。只清 entries 会让上一工程的软删 id 继续挡住新工程。
+    m_removed.clear();
     const QJsonObject root =
         loadSidecarObject(cat, QStringLiteral("recycle_bin.json"));
     for (const auto &v : root.value(QStringLiteral("removed")).toArray())
     {
       const RecycleEntry e =
           RecycleEntry::fromVariant(v.toObject().toVariantMap());
-      if (!e.assetId.isEmpty())
-        m_entries.append(e);
+      if (e.assetId.isEmpty())
+        continue;
+      m_entries.append(e);
+      m_removed.insert(e.assetId);
     }
   }
   bool save() const

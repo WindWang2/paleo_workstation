@@ -21,6 +21,7 @@ QWidget *DataPreviewTabs::buildAuxiliaryXmlContent(const QString &abs, const QSt
   tableLayout->setContentsMargins(0, 0, 0, 0);
   tableLayout->setSpacing(PaleoTheme::tokens().spacingSm);
   auto *tableHint = new QLabel(tr("正在后台读取数据列表…"), tableHost);
+  PaleoTheme::applyThemedStyleSheet(tableHint, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
   tableLayout->addWidget(tableHint);
   auto *stack = new QStackedWidget(host);
   stack->setObjectName("xmlViewStack"); stack->addWidget(chart); stack->addWidget(tableHost);

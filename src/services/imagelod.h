@@ -6,6 +6,8 @@
 #include <QString>
 #include <QVector>
 
+#include <functional>
+
 class QBrush;
 
 // services/imagelod — 图片道装载 LOD（方向 79）：岩心/薄片照片的统一装载
@@ -16,9 +18,12 @@ class QBrush;
 // LodPolicy（定案口径，改动前先对照 ledger 与 docs/progress 注记）：
 //   两级装载——缩略级：最长边 256px，装载即生成、常驻内存（道内容常态
 //   只需要道宽 ~110-220px 的显示）；原图级：驻磁盘，按需全载。
-//   全载触发：道内「可见宽度」（场景宽 × 视图缩放）> 缩略宽 × 2.0 时，
-//   绘制路径同步全载一次并进 LRU（8 张，按最后使用淘汰）。放大检视是
-//   单张行为，同步装载可接受；批量路径（剖面装载）永不触发原图级。
+//   全载触发：道内「可见宽度」（场景宽 × 视图缩放）> 缩略宽 × 2.0。
+//   绘制路径只 peek 原图 LRU（8 张）；未命中则 requestDecode 后台全载
+//   （同一 key 在途不重复排队）。工作线程只返回 QImage。QPixmap 不是
+//   线程安全的，fromImage 只能在 GUI 线程、且调用方确认场景/视图仍在、
+//   imageVersion 未变之后做。acquire 留给非绘制调用方同步全载。批量
+//   路径（剖面装载）永不触发原图级。
 //   解码期降采样：QImageReader::setScaledSize——装载内存峰值 = 缩略字节
 //   而非全图字节（JPEG 走 libjpeg 1/2^n 快速路径，其余格式解码后缩放，
 //   峰值仍受 QImageReader 内部单图约束）。
@@ -49,22 +54,40 @@ TrackImage loadThumbnail(const QString &path,
                          int edge = LodPolicy::kThumbnailEdge);
 
 // 原图全载（EXIF 同口径）。放大检视/预览对话框用；不做驻留。
+// 会读盘。绘制路径禁止调用——观察钩子见 setFullLoadHook。
 QImage loadFull(const QString &path);
 
-// 原图级 LRU：道内放大按需全载的驻留面。GUI 线程持有（绘制路径专用；
-// 无锁——不跨线程）。key 惯例 "path|imageVersion"（数据变更即换键）。
+// loadFull 入口观察（测试断言「调用线程没有读盘」）。生产保持空。
+// 可能在工作线程被调用；与在途 loadFull 并发替换钩子是数据竞争。
+void setFullLoadHook(std::function<void()> hook);
+
+// 原图级 LRU。缓存表只在 GUI 线程读写（无锁——不跨线程）。key 惯例
+// "path|imageVersion"（数据变更即换键）。peek 不装载；acquire 在调用
+// 线程装载（非绘制方）；requestDecode 把 loadFull 放到线程池，完成回调
+// 回到发起线程，只交 QImage——回调内不得碰 QPixmap。
 class FullImageCache
 {
   public:
     // 命中即回，不装载、不刷新使用序（绘制命中路径 O(1)）。
     QImage peek(const QString &key) const;
-    // 命中刷新 LRU；未命中装载（失败回空图不占额）。
+    // 命中刷新 LRU；未命中在调用线程装载（失败回空图不占额）。
+    // 非绘制调用方用。绘制路径禁止 acquire。
     QImage acquire(const QString &key, const QString &path);
+    // 放入已解码原图（不读盘）。空图不占额。须在缓存所属线程（GUI）调用。
+    void store(const QString &key, const QImage &img);
+    // 后台全载。同一 key 已在途 → false，不再开第二次解码。
+    // 新排队 → true。完成时在发起线程调用 done(图)；失败图为空。
+    // 工作线程只调用 loadFull，不碰缓存与 QPixmap。
+    bool requestDecode(const QString &key, const QString &path,
+                       std::function<void(const QImage &)> done);
+    // 该 key 是否已有未完成的 requestDecode（绘制去重）。
+    bool isDecodePending(const QString &key) const;
     void clear();
     int size() const { return m_map.size(); }
     static FullImageCache &shared(); // 视图侧共用单例（井面板/剖面/柱状图）
 
   private:
+    void touch(const QString &key);
     QVector<QString> m_order;            // 尾 = 最近使用
     QHash<QString, QImage> m_map; // path|version → 原图（EXIF 已应用）
 };

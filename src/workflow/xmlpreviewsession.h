@@ -3,6 +3,9 @@
 #include "../services/previewdoc.h"
 #include "../domain/wellcompositemodel.h"
 #include <QObject>
+#include <atomic>
+#include <memory>
+class QTemporaryDir;
 
 struct XmlPreviewData {
   WellComposite::ComprehensiveWellData chart;
@@ -20,5 +23,7 @@ public:
 signals:
   void ready(const XmlPreviewData &data);
 private:
+  std::shared_ptr<QTemporaryDir> m_directory;
+  std::shared_ptr<std::atomic_bool> m_verificationCancelled;
   quint64 m_generation = 0;
 };

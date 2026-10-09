@@ -16,6 +16,14 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 
+namespace {
+QString officeStatusStyleSheet(bool error)
+{
+  if (!error) return PaleoTheme::mutedCaptionStyleSheet();
+  return QStringLiteral("color: %1;").arg(PaleoTheme::tokens().errorText.name().toUpper());
+}
+}
+
 OfficePreviewWidget::OfficePreviewWidget(const QString &path, const QString &expectedSha, QWidget *parent)
     : QWidget(parent), m_path(path), m_sha(expectedSha), m_session(new OfficePreviewSession(this)),
       m_status(new QLabel(this)), m_retry(new QPushButton(tr("重试"), this)),
@@ -33,6 +41,8 @@ OfficePreviewWidget::OfficePreviewWidget(const QString &path, const QString &exp
   toolbar->setContentsMargins(tokens.spacingSm, tokens.spacingSm, tokens.spacingSm, 0);
   toolbar->setSpacing(tokens.spacingSm);
   m_previous->setText(tr("上一页")); m_next->setText(tr("下一页"));
+  PaleoTheme::applyThemedStyleSheet(m_previous, [] { return PaleoTheme::toolButtonStyleSheet(); });
+  PaleoTheme::applyThemedStyleSheet(m_next, [] { return PaleoTheme::toolButtonStyleSheet(); });
   m_pages->setObjectName(QStringLiteral("officePageSelector"));
   m_pages->setAccessibleName(tr("文档页码或工作表"));
   m_pages->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
@@ -46,7 +56,16 @@ OfficePreviewWidget::OfficePreviewWidget(const QString &path, const QString &exp
   layout->addLayout(toolbar);
   m_status->setWordWrap(true); m_status->setAlignment(Qt::AlignCenter);
   m_status->setAccessibleName(tr("预览状态"));
-  layout->addWidget(m_status);
+  PaleoTheme::applyThemedStyleSheet(m_status, [this] { return officeStatusStyleSheet(m_statusIsError); });
+  m_statusHost = new QWidget(this);
+  auto *statusLayout = new QVBoxLayout(m_statusHost);
+  statusLayout->setContentsMargins(tokens.spacingSm, 0, tokens.spacingSm, 0);
+  statusLayout->setSpacing(tokens.spacingXs);
+  statusLayout->addStretch(1);
+  statusLayout->addWidget(m_status);
+  statusLayout->addWidget(m_retry, 0, Qt::AlignHCenter);
+  statusLayout->addStretch(1);
+  layout->addWidget(m_statusHost, 1);
   auto *scene = new QGraphicsScene(m_view);
   m_image = scene->addPixmap(QPixmap());
   m_view->setScene(scene);
@@ -58,7 +77,6 @@ OfficePreviewWidget::OfficePreviewWidget(const QString &path, const QString &exp
   m_view->setDragMode(QGraphicsView::ScrollHandDrag);
   m_view->viewport()->installEventFilter(this);
   layout->addWidget(m_view, 1);
-  layout->addWidget(m_retry, 0, Qt::AlignLeft);
   connect(this, &OfficePreviewWidget::previewRequested, m_session, &OfficePreviewSession::open);
   connect(this, &OfficePreviewWidget::pageRequested, m_session, &OfficePreviewSession::requestPage);
   connect(this, &OfficePreviewWidget::previewClosed, m_session, &OfficePreviewSession::stop);
@@ -69,7 +87,7 @@ OfficePreviewWidget::OfficePreviewWidget(const QString &path, const QString &exp
   connect(m_zoom, &QComboBox::currentIndexChanged, this, &OfficePreviewWidget::updateZoom);
   connect(m_session, &OfficePreviewSession::failed, this, [this](const QString &error) {
     m_image->setPixmap(QPixmap()); m_view->scene()->setSceneRect(QRectF());
-    m_status->setText(error); m_status->show(); m_retry->show();
+    showStatus(error, true);
     m_pages->setEnabled(false); m_previous->setEnabled(false); m_next->setEnabled(false);
   });
   connect(m_session, &OfficePreviewSession::ready, this, [this](const QStringList &labels) {
@@ -82,9 +100,10 @@ OfficePreviewWidget::OfficePreviewWidget(const QString &path, const QString &exp
     m_pageScale = image.dotsPerMeterX() > 0 ? logicalDpiX() / (image.dotsPerMeterX() * 0.0254) : 1.0;
     m_image->setPixmap(QPixmap::fromImage(image));
     m_view->scene()->setSceneRect(m_image->boundingRect());
-    m_status->hide(); m_retry->hide();
+    m_statusHost->hide(); m_retry->hide(); m_view->show();
     updateZoom();
   });
+  showStatus(tr("正在打开 Office 原件…"), false);
   QTimer::singleShot(0, this, &OfficePreviewWidget::open);
 }
 OfficePreviewWidget::~OfficePreviewWidget() { emit previewClosed(); }
@@ -93,8 +112,18 @@ void OfficePreviewWidget::open()
   { const QSignalBlocker blocker(m_pages); m_pages->clear(); }
   m_pages->setEnabled(false); m_previous->setEnabled(false); m_next->setEnabled(false);
   m_image->setPixmap(QPixmap()); m_view->scene()->setSceneRect(QRectF());
-  m_status->setText(tr("正在打开 Office 原件…")); m_status->show(); m_retry->hide();
+  showStatus(tr("正在打开 Office 原件…"), false);
   emit previewRequested(m_path, m_sha);
+}
+void OfficePreviewWidget::showStatus(const QString &text, bool error)
+{
+  m_statusIsError = error;
+  m_status->setText(text);
+  m_status->setStyleSheet(officeStatusStyleSheet(error));
+  m_status->show();
+  m_retry->setVisible(error);
+  m_statusHost->show();
+  m_view->setVisible(!m_image->pixmap().isNull());
 }
 void OfficePreviewWidget::selectPage(int index)
 {
@@ -102,7 +131,7 @@ void OfficePreviewWidget::selectPage(int index)
   m_previous->setEnabled(index > 0); m_next->setEnabled(index + 1 < m_pages->count());
   m_image->setPixmap(QPixmap());
   m_view->scene()->setSceneRect(QRectF());
-  m_status->setText(tr("正在加载第 %1 / %2 页…").arg(index + 1).arg(m_pages->count())); m_status->show();
+  showStatus(tr("正在加载第 %1 / %2 页…").arg(index + 1).arg(m_pages->count()), false);
   emit pageRequested(index);
 }
 void OfficePreviewWidget::resizeEvent(QResizeEvent *event)

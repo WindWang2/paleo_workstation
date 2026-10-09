@@ -319,7 +319,6 @@ class PaleoMainWindow : public SARibbonMainWindow
     void buildLayerTreeDock();    // 左 dock 图层平台 + 空态同步
     void buildPageDocks();        // 右栏占位/底栏/地震剖面/连井/3D/Web dock 族
     void buildStatusBar();        // 状态栏族（层位/坐标/比例尺/CRS/打开进度）
-    void buildErrorHistoryDock(); // 错误历史 dock（方向 64 呈现域）
     void wireErrorHubStatus();    // 状态栏错误胶囊 + ErrorHub 计数同步
     void registerPageShortcuts(); // Ctrl+1..6 / Ctrl+Tab（方向 63 注册表）
     void restoreCorrelationDocks();

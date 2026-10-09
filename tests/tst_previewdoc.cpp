@@ -18,8 +18,8 @@
 #include "../src/services/sectiondoc.h" // SectionDoc 完整定义（QSignalSpy 取参）
 #include "../src/services/paleotaskservice.h"
 
+#include <QCoreApplication>
 #include <QElapsedTimer>
-#include <QTimer>
 
 class TestPreviewDoc : public QObject
 {
@@ -417,24 +417,26 @@ void TestPreviewDoc::simultaneousLasResultsKeepUiResponsive()
     for (int i = 0; i < 12; ++i)
       doc.requestLas(QString::number(i), fixture(QStringLiteral("A1.Las")));
     // 让任务池形成同时完成的一批；测量只覆盖后续 GUI 结果移交。
+    // 分拍正确时，一次 processEvents 必须在仍有结果未移交时返回。
+    // 不用固定毫秒上限——忙机器上单次装配变慢并不表示整批占满主线程。
     QTest::qSleep(100);
+    bool yieldedWhileOutstanding = false;
     QElapsedTimer clock;
     clock.start();
-    qint64 previous = 0, maximumGap = 0;
-    int ticks = 0;
-    QTimer heartbeat;
-    heartbeat.setInterval(10);
-    connect(&heartbeat, &QTimer::timeout, this, [&] {
-      const qint64 now = clock.elapsed();
-      maximumGap = qMax(maximumGap, now - previous);
-      previous = now;
-      ++ticks;
-    });
-    heartbeat.start();
+    while (clock.elapsed() < 10000 && !yieldedWhileOutstanding) {
+      const int before = received;
+      QCoreApplication::processEvents(QEventLoop::AllEvents);
+      if (received > before && received < 12)
+        yieldedWhileOutstanding = true;
+      else if (received >= 12)
+        break;
+      else
+        QTest::qSleep(10);
+    }
+    QVERIFY2(yieldedWhileOutstanding,
+             "paced GUI handoff did not return from processEvents while work remained");
     QTRY_COMPARE_WITH_TIMEOUT(received, 12, 10000);
     QTRY_VERIFY(!doc.hasPendingLasResults());
-    QVERIFY(ticks > 4);
-    QVERIFY2(maximumGap < 200, qPrintable(QStringLiteral("GUI heartbeat gap: %1 ms").arg(maximumGap)));
 }
 
 void TestPreviewDoc::requestLasGenerationsDiscardStale()

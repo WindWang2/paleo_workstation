@@ -10,6 +10,7 @@
 
 #include <QComboBox>
 #include <QFile>
+#include <QHBoxLayout>
 #include <QHeaderView>
 #include <QIcon>
 #include <QLabel>
@@ -60,21 +61,17 @@ QString sourceText(const QString &source)
 } // namespace
 
 WellAttachmentPanel::WellAttachmentPanel(
-    DataCatalog *cat, const QString &projectDir,
-    const paleo::dataops::RecycleBin *recycle, QWidget *parent)
-  : QDialog(parent), m_cat(cat), m_projectDir(projectDir), m_recycle(recycle)
+    DataCatalog *cat, const paleo::dataops::RecycleBin *recycle, QWidget *parent)
+  : QDialog(parent), m_recycle(recycle)
 {
   setObjectName(QStringLiteral("wellAttachmentPanel"));
   setModal(false);
   setWindowTitle(tr("井附件管理"));
   setMinimumSize(QSize(720, 420));
   buildUi();
-  reloadWells();
-  refresh();
   // 锚深编辑走 catalog mutator（changed() 触发 refresh）；软删不落
   // catalog（sidecar），由属主在命令完成后显式调 refresh()。
-  if (m_cat)
-    connect(m_cat, &DataCatalog::changed, this, &WellAttachmentPanel::refresh);
+  setCatalog(cat);
 }
 
 WellAttachmentPanel::~WellAttachmentPanel() = default;
@@ -139,7 +136,7 @@ void WellAttachmentPanel::buildUi()
   lay->addWidget(m_table, 1);
 
   auto *btnRow = new QWidget(this);
-  auto *btnLay = new QVBoxLayout(btnRow);
+  auto *btnLay = new QHBoxLayout(btnRow);
   btnLay->setContentsMargins(0, 0, 0, 0);
   btnLay->setSpacing(PaleoTheme::tokens().spacingXs);
   m_editBtn = new QPushButton(tr("编辑锚深…"), btnRow);
@@ -172,8 +169,23 @@ void WellAttachmentPanel::buildUi()
 
   m_status = new QLabel(this);
   m_status->setObjectName(QStringLiteral("wellAttachmentStatus"));
-  m_status->setFont(PaleoTheme::monoFont(PaleoTheme::kLabelPt));
+  m_status->setFont(PaleoTheme::bodyFont(PaleoTheme::kLabelPt));
+  m_status->setWordWrap(true);
+  PaleoTheme::applyThemedStyleSheet(m_status, [this] { return statusStyleSheet(); });
   lay->addWidget(m_status);
+}
+
+void WellAttachmentPanel::setCatalog(DataCatalog *cat)
+{
+  if (m_cat == cat)
+    return;
+  if (m_cat)
+    disconnect(m_cat, &DataCatalog::changed, this, &WellAttachmentPanel::refresh);
+  m_cat = cat;
+  if (m_cat)
+    connect(m_cat, &DataCatalog::changed, this, &WellAttachmentPanel::refresh);
+  reloadWells();
+  refresh();
 }
 
 void WellAttachmentPanel::reloadWells()
@@ -225,7 +237,9 @@ void WellAttachmentPanel::refresh()
   if (!m_cat)
     return;
   const QString wellId = m_wellBox->currentData().toString();
-  m_rows = paleo::WellAttachmentOps(m_cat).rowsForWell(wellId, m_projectDir);
+  // 不缓存工程目录：catalog 原地 open 到另一工程后，版本来自新库，路径必须
+  // 用当前 projectDir()，否则同相对路径会显示/写到上一工程。
+  m_rows = paleo::WellAttachmentOps(m_cat).rowsForWell(wellId, m_cat->projectDir());
   m_updating = true;
   m_table->setRowCount(0);
   // 实际显示行（软删过滤后）——表行号 ↔ 数据索引靠它对齐。
@@ -312,7 +326,7 @@ void WellAttachmentPanel::applyCellEdit(int row, QTableWidgetItem *item,
       paleo::WellAttachmentOps::parseDepthInput(text, nullptr);
   if (pre == paleo::DepthInputStatus::Clear)
   {
-    setStatus(tr("输入为空：填新深度，或用「清除锚定」按钮"));
+    setStatus(tr("输入为空：填新深度，或用「清除锚定」按钮"), false);
     m_updating = true;
     item->setText(r.hasAnchor ? QString::number(r.depthMd, 'f', 2) : QString());
     m_updating = false;
@@ -328,11 +342,11 @@ void WellAttachmentPanel::applyCellEdit(int row, QTableWidgetItem *item,
   {
     // 成功：catalog changed() 同步触发 refresh 已重建表（item 换新）——
     // 状态行出结果，不碰旧 item。
-    setStatus(tr("已更新锚深：%1 → %2 m").arg(r.fileName).arg(applied, 0, 'f', 2));
+    setStatus(tr("已更新锚深：%1 → %2 m").arg(r.fileName).arg(applied, 0, 'f', 2), true);
     return;
   }
   const QString reason = paleo::WellAttachmentOps::reasonText(st);
-  setStatus(reason.isEmpty() ? err : reason);
+  setStatus(reason.isEmpty() ? err : reason, false);
   // 拒收无 catalog 变更、无 refresh——item 仍存活，回滚到改前值。
   m_updating = true;
   item->setText(r.hasAnchor ? QString::number(r.depthMd, 'f', 2) : QString());
@@ -362,11 +376,12 @@ void WellAttachmentPanel::openEditorForRow(int row)
                           &st, &err))
   {
     const QString reason = paleo::WellAttachmentOps::reasonText(st);
-    setStatus(tr("锚深更新失败：%1").arg(reason.isEmpty() ? err : reason));
+    setStatus(tr("锚深更新失败：%1").arg(reason.isEmpty() ? err : reason), false);
     return;
   }
   setStatus(res.clear ? tr("已清除锚深（%1 回到未锚定）").arg(r.fileName)
-                      : tr("已更新锚深：%1 → %2 m").arg(r.fileName).arg(res.depth));
+                      : tr("已更新锚深：%1 → %2 m").arg(r.fileName).arg(res.depth),
+            true);
 }
 
 void WellAttachmentPanel::clearAnchorForRow(int row)
@@ -385,10 +400,10 @@ void WellAttachmentPanel::clearAnchorForRow(int row)
   if (!m_cat->updateVersionExtra(r.versionId, QStringLiteral("depthMd"), {},
                                  &err))
   {
-    setStatus(tr("清除锚深失败：%1").arg(err));
+    setStatus(tr("清除锚深失败：%1").arg(err), false);
     return;
   }
-  setStatus(tr("已清除锚深（%1 回到未锚定）").arg(r.fileName));
+  setStatus(tr("已清除锚深（%1 回到未锚定）").arg(r.fileName), true);
 }
 
 void WellAttachmentPanel::removeSelected()
@@ -408,7 +423,19 @@ void WellAttachmentPanel::removeSelected()
   emit removeRequested(ids);
 }
 
-void WellAttachmentPanel::setStatus(const QString &text)
+QString WellAttachmentPanel::statusStyleSheet() const
+{
+  if (m_statusTone == StatusTone::Success)
+    return QStringLiteral("color: %1;").arg(PaleoTheme::tokens().successText.name());
+  if (m_statusTone == StatusTone::Error)
+    return QStringLiteral("color: %1;").arg(PaleoTheme::tokens().errorText.name());
+  return QString();
+}
+
+void WellAttachmentPanel::setStatus(const QString &text, bool success)
 {
   m_status->setText(text);
+  m_statusTone = text.isEmpty() ? StatusTone::Clear
+                                : (success ? StatusTone::Success : StatusTone::Error);
+  m_status->setStyleSheet(statusStyleSheet());
 }

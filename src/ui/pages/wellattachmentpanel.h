@@ -31,7 +31,9 @@ class WellAttachmentPanel : public QDialog
   public:
     // cat 只读 + mutator（锚深就地更新，与 DataListPanel 直改 catalog 同
     // 口径）；recycle 只用于过滤已软删行（移除执行归属主）。
-    WellAttachmentPanel(DataCatalog *cat, const QString &projectDir,
+    // 工程目录不在这里缓存：换工程会原地 open 同一 catalog，refresh 每次
+    // 读 cat->projectDir()。
+    WellAttachmentPanel(DataCatalog *cat,
                         const paleo::dataops::RecycleBin *recycle,
                         QWidget *parent = nullptr);
     ~WellAttachmentPanel() override;
@@ -39,6 +41,8 @@ class WellAttachmentPanel : public QDialog
     // 属主指定井（树「岩心照片 (N)」双击跳转）；不重载已选井。
     void setWell(const QString &wellId);
     void refresh();
+    // catalog 对象换成另一个时改绑（原地 open 不必调用）。指针不变则空操作。
+    void setCatalog(DataCatalog *cat);
 
   signals:
     // 软删意图（属主走 BatchRemoveCmd——可撤销、共享可回收清单）。
@@ -51,15 +55,18 @@ class WellAttachmentPanel : public QDialog
     void openEditorForRow(int row);          // 预览 + 深度输入对话框
     void clearAnchorForRow(int row);
     void removeSelected();
-    void setStatus(const QString &text);     // 空串 = 清
+    void setStatus(const QString &text, bool success); // 空串 = 清
+    QString statusStyleSheet() const;
+
+    enum class StatusTone { Clear, Success, Error };
 
     DataCatalog *m_cat = nullptr;
-    QString m_projectDir;
     const paleo::dataops::RecycleBin *m_recycle = nullptr;
     QVector<paleo::WellAttachmentRow> m_rows;
     QComboBox *m_wellBox = nullptr;
     QTableWidget *m_table = nullptr;
     QLabel *m_status = nullptr;
+    StatusTone m_statusTone = StatusTone::Clear;
     QPushButton *m_editBtn = nullptr;
     QPushButton *m_clearBtn = nullptr;
     QPushButton *m_removeBtn = nullptr;

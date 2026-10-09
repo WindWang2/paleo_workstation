@@ -51,6 +51,7 @@ ShaCache &ShaCache::shared()
 void ShaCache::setDiskFile(const QString &path, bool lazy)
 {
   QMutexLocker lock(&m_mutex);
+  ++m_diskGeneration;
   m_diskFile = path;
   m_disk.clear();
   m_diskAge.clear();
@@ -79,6 +80,7 @@ QString ShaCache::sha256Hex(const QString &path, QString *error)
   const qint64 size = info.size();
   const QString fp = QStringLiteral("%1|%2|%3").arg(canon).arg(mtime).arg(size);
 
+  quint64 diskGen = 0;
   {
     QMutexLocker lock(&m_mutex);
     if (m_diskPending) { m_diskPending = false; loadDiskLocked(); }
@@ -106,6 +108,7 @@ QString ShaCache::sha256Hex(const QString &path, QString *error)
       m_disk.remove(canon);
       m_diskAge.remove(canon);
     }
+    diskGen = m_diskGeneration;
   }
 
   QString sha;
@@ -122,7 +125,8 @@ QString ShaCache::sha256Hex(const QString &path, QString *error)
   QMutexLocker lock(&m_mutex);
   ++m_counts.misses;
   m_mem.insert(fp, sha);
-  if (!m_diskFile.isEmpty())
+  // setDiskFile 换代后不得把这次哈希写入新 sha.json（内存指纹仍保留）。
+  if (diskGen == m_diskGeneration && !m_diskFile.isEmpty())
   {
     m_disk.insert(canon, QStringLiteral("%1|%2|%3").arg(mtime).arg(size).arg(sha));
     m_diskAge.insert(canon, QDateTime::currentMSecsSinceEpoch());
@@ -132,21 +136,24 @@ QString ShaCache::sha256Hex(const QString &path, QString *error)
   // ——哈希重算成本有限，不值得为它建完整 LRU）。
   while (m_mem.size() > m_memLimit)
     m_mem.erase(m_mem.begin());
-  while (m_disk.size() > m_diskLimit)
+  if (diskGen == m_diskGeneration)
   {
-    // 磁盘层按最近命中时间收缩。
-    QString oldest;
-    qint64 best = std::numeric_limits<qint64>::max();
-    for (auto it = m_diskAge.constBegin(); it != m_diskAge.constEnd(); ++it)
-      if (it.value() < best)
-      {
-        best = it.value();
-        oldest = it.key();
-      }
-    if (oldest.isEmpty())
-      break;
-    m_diskAge.remove(oldest);
-    m_disk.remove(oldest);
+    while (m_disk.size() > m_diskLimit)
+    {
+      // 磁盘层按最近命中时间收缩。
+      QString oldest;
+      qint64 best = std::numeric_limits<qint64>::max();
+      for (auto it = m_diskAge.constBegin(); it != m_diskAge.constEnd(); ++it)
+        if (it.value() < best)
+        {
+          best = it.value();
+          oldest = it.key();
+        }
+      if (oldest.isEmpty())
+        break;
+      m_diskAge.remove(oldest);
+      m_disk.remove(oldest);
+    }
   }
   return sha;
 }

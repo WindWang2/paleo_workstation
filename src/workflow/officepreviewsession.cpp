@@ -1,6 +1,6 @@
 // 层：功能
 #include "officepreviewsession.h"
-#include <QCryptographicHash>
+#include "../catalog/datacatalog.h"
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
@@ -14,6 +14,17 @@
 #include <QProcessEnvironment>
 #include <QTemporaryDir>
 #include <QtConcurrent>
+#ifdef Q_OS_UNIX
+#include <csignal>
+#include <unistd.h>
+#endif
+
+namespace {
+struct VerifiedOfficeSource {
+  QString error;
+  QString path;
+};
+}
 
 OfficePreviewSession::OfficePreviewSession(QObject *parent) : QObject(parent)
 {
@@ -46,39 +57,59 @@ void OfficePreviewSession::open(const QString &path, const QString &expectedSha)
   stop();
   if (!supports(path)) { fail(tr("不支持的 Office 文件格式")); return; }
   if (rendererPath().isEmpty()) { fail(tr("Office 预览组件未安装，请联系管理员安装文档预览组件")); return; }
+  // Private copy first: hash that copy and hand the same path to the renderer.
+  m_directory = std::make_shared<QTemporaryDir>(QDir::tempPath() + QStringLiteral("/paleo-office-XXXXXX"));
+  if (!m_directory->isValid()) { fail(tr("无法创建 Office 预览临时目录")); return; }
   const quint64 generation = m_generation;
   m_verificationCancelled = std::make_shared<std::atomic_bool>(false);
   const auto cancelled = m_verificationCancelled;
-  auto *watcher = new QFutureWatcher<QString>(this);
-  connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, generation, path] {
-    const QString error = watcher->result();
+  const auto directory = m_directory;
+  auto *watcher = new QFutureWatcher<VerifiedOfficeSource>(this);
+  connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, generation] {
+    const VerifiedOfficeSource verified = watcher->result();
     watcher->deleteLater();
     if (generation != m_generation) return;
-    if (!error.isEmpty()) { fail(error); return; }
-    launch(path);
+    if (!verified.error.isEmpty()) { fail(verified.error); return; }
+    launch(verified.path);
   });
-  watcher->setFuture(QtConcurrent::run([path, expectedSha, cancelled] {
-    QFile file(path);
-    if (!file.open(QIODevice::ReadOnly)) return tr("无法读取 Office 原件：%1").arg(path);
-    if (!expectedSha.isEmpty()) {
-      QCryptographicHash hash(QCryptographicHash::Sha256);
-      while (!file.atEnd()) {
-        if (cancelled->load()) return QString();
-        const QByteArray block = file.read(1024 * 1024);
-        if (block.isEmpty() && file.error() != QFileDevice::NoError) return tr("无法读取 Office 原件：%1").arg(path);
-        hash.addData(block);
-      }
-      if (QString::fromLatin1(hash.result().toHex()).compare(expectedSha, Qt::CaseInsensitive))
-        return tr("Office 原件与入库时的 SHA-256 不一致，请重新导入");
+  watcher->setFuture(QtConcurrent::run([path, expectedSha, cancelled, directory] {
+    VerifiedOfficeSource verified;
+    const QFileInfo info(path);
+    if (!directory || !directory->isValid() || !info.isFile() || info.isSymLink()) {
+      verified.error = tr("无法读取 Office 原件：%1").arg(path);
+      return verified;
     }
-    return QString();
+    const QString suffix = info.suffix();
+    const QString copyName = suffix.isEmpty() ? QStringLiteral("source")
+                                               : QStringLiteral("source.") + suffix;
+    const QString copyPath = directory->filePath(copyName);
+    if (!QFile::copy(info.absoluteFilePath(), copyPath)) {
+      verified.error = tr("无法读取 Office 原件：%1").arg(path);
+      return verified;
+    }
+    if (!expectedSha.isEmpty()) {
+      QString hashError;
+      const QString actual = DataCatalog::sha256FileHex(copyPath, &hashError, [cancelled] {
+        return cancelled->load();
+      });
+      if (cancelled->load()) return VerifiedOfficeSource{};
+      if (actual.isEmpty()) {
+        verified.error = tr("无法读取 Office 原件：%1").arg(path);
+        return verified;
+      }
+      if (actual.compare(expectedSha, Qt::CaseInsensitive) != 0) {
+        verified.error = tr("Office 原件与入库时的 SHA-256 不一致，请重新导入");
+        return verified;
+      }
+    }
+    verified.path = copyPath;
+    return verified;
   }));
 }
 void OfficePreviewSession::launch(const QString &path)
 {
-  m_directory = std::make_shared<QTemporaryDir>(QDir::tempPath() + "/paleo-office-XXXXXX");
-  if (!m_directory->isValid()) { fail(tr("无法创建 Office 预览临时目录")); return; }
-  const QString temporaryFiles = m_directory->path() + "/tmp";
+  if (!m_directory || !m_directory->isValid()) { fail(tr("无法创建 Office 预览临时目录")); return; }
+  const QString temporaryFiles = m_directory->path() + QStringLiteral("/tmp");
   if (!QDir().mkpath(temporaryFiles)) { fail(tr("无法创建 Office 预览临时目录")); return; }
   auto *process = new QProcess(this);
   m_process = process;
@@ -95,6 +126,10 @@ void OfficePreviewSession::launch(const QString &path)
   env.insert("TMP", temporaryFiles);
   env.insert("TEMP", temporaryFiles);
   process->setProcessEnvironment(env);
+#ifdef Q_OS_UNIX
+  // Own process group so stop() can reap helpers the renderer spawns.
+  process->setChildProcessModifier([] { ::setsid(); });
+#endif
   connect(process, &QProcess::readyReadStandardError, this, [process] { process->readAllStandardError(); });
   connect(process, &QProcess::readyReadStandardOutput, this, &OfficePreviewSession::readMessages);
   connect(process, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
@@ -183,7 +218,13 @@ void OfficePreviewSession::stop()
     connect(process, qOverload<int, QProcess::ExitStatus>(&QProcess::finished), process,
             [process, directory] { process->deleteLater(); });
     if (process->state() == QProcess::NotRunning) process->deleteLater();
-    else process->kill(); // closing a tab never waits for the engine
+    else {
+#ifdef Q_OS_UNIX
+      const auto group = static_cast<pid_t>(process->processId());
+      if (group > 0) ::kill(-group, SIGKILL);
+#endif
+      process->kill(); // closing a tab never waits for the engine
+    }
   }
   m_directory.reset();
 }

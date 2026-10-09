@@ -94,7 +94,10 @@ bool prompt(QWidget *parent, const Context &ctx, Result *out)
   auto *fileLbl = new QLabel(ctx.fileName, &dlg);
   fileLbl->setWordWrap(true);
   auto *fileCap = new QLabel(QObject::tr("文件"), &dlg);
-  fileCap->setFont(PaleoTheme::monoFont(PaleoTheme::kLabelPt));
+  fileCap->setFont(PaleoTheme::bodyFont(PaleoTheme::kLabelPt));
+  PaleoTheme::applyThemedStyleSheet(fileCap, [] {
+    return PaleoTheme::mutedCaptionStyleSheet();
+  });
   body->addWidget(fileCap, 0, 1);
   body->addWidget(fileLbl, 0, 2);
 
@@ -105,8 +108,12 @@ bool prompt(QWidget *parent, const Context &ctx, Result *out)
                 .arg(sourceText(ctx.anchorSource))
           : QObject::tr("未锚定");
   auto *curLbl = new QLabel(current, &dlg);
+  curLbl->setFont(PaleoTheme::monoFont());
   auto *curCap = new QLabel(QObject::tr("当前锚深"), &dlg);
-  curCap->setFont(PaleoTheme::monoFont(PaleoTheme::kLabelPt));
+  curCap->setFont(PaleoTheme::bodyFont(PaleoTheme::kLabelPt));
+  PaleoTheme::applyThemedStyleSheet(curCap, [] {
+    return PaleoTheme::mutedCaptionStyleSheet();
+  });
   body->addWidget(curCap, 1, 1);
   body->addWidget(curLbl, 1, 2);
 
@@ -122,13 +129,19 @@ bool prompt(QWidget *parent, const Context &ctx, Result *out)
   input->setToolTip(QObject::tr("深度单位固定为米（m），可带 m/米 后缀；"
                                 "留空并点「清除锚定」可回到未锚定态"));
   auto *inputCap = new QLabel(QObject::tr("深度 (m)"), &dlg);
-  inputCap->setFont(PaleoTheme::monoFont(PaleoTheme::kLabelPt));
+  inputCap->setFont(PaleoTheme::bodyFont(PaleoTheme::kLabelPt));
+  PaleoTheme::applyThemedStyleSheet(inputCap, [] {
+    return PaleoTheme::mutedCaptionStyleSheet();
+  });
   body->addWidget(inputCap, 2, 1);
   body->addWidget(input, 2, 2);
 
   auto *errLbl = new QLabel(&dlg);
   errLbl->setObjectName(QStringLiteral("depthAnchorError"));
   errLbl->setWordWrap(true);
+  PaleoTheme::applyThemedStyleSheet(errLbl, [] {
+    return QStringLiteral("color: %1;").arg(PaleoTheme::tokens().errorText.name());
+  });
   lay->addWidget(errLbl);
 
   auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok |
@@ -158,8 +171,12 @@ bool prompt(QWidget *parent, const Context &ctx, Result *out)
   });
   QObject::connect(buttons, &QDialogButtonBox::accepted, &dlg, [&] {
     double depth = 0.0;
+    // parseDepthInput 用 QLatin1String("米")，UTF-8 源码对不上 U+7C73。
+    // 对话框文案承诺可带「米」，这里先换成解析器认得的 m。
+    const QString text =
+        QString(input->text()).replace(QStringLiteral("米"), QStringLiteral("m"));
     const paleo::DepthInputStatus st =
-        paleo::WellAttachmentOps::parseDepthInput(input->text(), &depth);
+        paleo::WellAttachmentOps::parseDepthInput(text, &depth);
     if (st == paleo::DepthInputStatus::Ok)
     {
       if (out)

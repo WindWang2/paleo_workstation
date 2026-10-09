@@ -1053,6 +1053,43 @@ private slots:
       QCOMPARE(oldVer.extra.value(QStringLiteral("unselected_superseded_by")).toString(),
                QStringLiteral("cuttings_v2.csv"));
     }
+
+    // 同一资产上版本号更高的 PDF 派生件不能盖住岩屑表。
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      DataCatalog cat;
+      QString err;
+      QVERIFY2(cat.open(dir.path(), &err), qPrintable(err));
+      QVERIFY2(buildCatalog(cat, QDir(dir.path()), &err), qPrintable(err));
+      const QString csvPath = dir.filePath(QStringLiteral("A1岩屑录井数据.csv"));
+      QVERIFY(writeText(csvPath, csvText));
+      QVERIFY2(seedCuttings(cat, QStringLiteral("well-1"),
+                            QStringLiteral("cut-1"), csvPath, &err, 1),
+               qPrintable(err));
+      const QString pdfPath = dir.filePath(QStringLiteral("A1岩屑录井数据.pdf"));
+      QVERIFY(writeText(pdfPath, QStringLiteral("%PDF-1.4")));
+      CatalogVersion pdf;
+      pdf.id = QStringLiteral("v-pdf");
+      pdf.assetId = QStringLiteral("cut-1");
+      pdf.versionNumber = 2;
+      pdf.managed = false;
+      pdf.path = pdfPath;
+      pdf.fileName = QStringLiteral("A1岩屑录井数据.pdf");
+      pdf.stage = QStringLiteral("DERIVED");
+      QVERIFY2(cat.addVersion(pdf, &err), qPrintable(err));
+
+      WellSectionWorkflow wf(&cat);
+      QSignalSpy spy(&wf, &WellSectionWorkflow::sectionReady);
+      wf.request({QStringLiteral("well-1")}, {});
+      QCOMPARE(spy.size(), 1);
+      const auto wells = spy[0][1].value<QVector<wellsection::Well>>();
+      QCOMPARE(wells.size(), 1);
+      QCOMPARE(wells[0].litho.size(), 2);
+      QCOMPARE(wells[0].litho[0].litho, QStringLiteral("细砂岩"));
+      QCOMPARE(wells[0].litho[0].provenance,
+               QStringLiteral("岩屑录井（A1岩屑录井数据.csv）"));
+    }
   }
 
   // 解释岩性段：catalog 资产 well_litho_intervals 按井 interpretation 链接

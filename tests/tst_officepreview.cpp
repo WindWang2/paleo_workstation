@@ -1,215 +1,268 @@
 #include <QtTest>
-#include <QApplication>
-#include <QComboBox>
+#include <QCoreApplication>
 #include <QCryptographicHash>
+#include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
-#include <QGraphicsView>
-#include <QPointer>
-#include <QProcess>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QPushButton>
 #include <QSignalSpy>
+#include <QTcpSocket>
 #include <QTemporaryDir>
-#include <QTimer>
-#include "../src/workflow/officepreviewsession.h"
+#include "../src/catalog/datacatalog.h"
 #include "../src/ui/datapreview/officepreviewwidget.h"
 #include "../src/ui/paleotheme.h"
+#include "../src/ui/webviewpanel.h"
+#include "../src/workflow/officepreviewsession.h"
 
 class TestOfficePreview : public QObject {
   Q_OBJECT
+  struct Env {
+    QByteArray key, previous;
+    bool had = false;
+    Env(const char *name, const QByteArray &value)
+        : key(name), previous(qgetenv(name)), had(qEnvironmentVariableIsSet(name))
+    {
+      qputenv(key, value);
+    }
+    ~Env()
+    {
+      if (had) qputenv(key, previous);
+      else qunsetenv(key.constData());
+    }
+  };
   QString fixture(const QString &ext) const {
     QString directory = qEnvironmentVariable("PALEO_OFFICE_FIXTURE_DIR");
     if (directory.isEmpty()) directory = QFileInfo(QFINDTESTDATA("fixtures/office/sample.docx")).absolutePath();
     return directory + "/sample." + ext;
   }
-  QByteArray hash(const QString &path) const {
+  QByteArray hashOf(const QString &path) const {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) return {};
-    QCryptographicHash sha(QCryptographicHash::Sha256); sha.addData(&file);
+    QCryptographicHash sha(QCryptographicHash::Sha256);
+    sha.addData(&file);
     return sha.result().toHex();
   }
-  bool hasInk(const QImage &image) const {
-    int pixels = 0;
-    for (int y = 0; y < image.height(); ++y)
-      for (int x = 0; x < image.width(); ++x)
-        if (qGray(image.pixel(x, y)) < 230 && ++pixels > 20) return true;
-    return false;
+  QByteArray readAll(const QString &path) const {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) return {};
+    return file.readAll();
   }
+  QTemporaryDir m_editor;
 private slots:
-  void initTestCase() { PaleoTheme::applyLightTheme(); }
-  void missingComponentIsExplicit() {
-    const auto previous = qgetenv("PALEO_OFFICE_RENDERER");
-    qputenv("PALEO_OFFICE_RENDERER", "/does-not-exist/renderer");
+  void initTestCase() {
+    PaleoTheme::applyLightTheme();
+    QVERIFY(m_editor.isValid());
+    QFile index(m_editor.filePath(QStringLiteral("index.html")));
+    QVERIFY(index.open(QIODevice::WriteOnly));
+    index.write("editor-shell");
+    index.close();
+    QFile editorPage(m_editor.filePath(QStringLiteral("editor.html")));
+    QVERIFY(editorPage.open(QIODevice::WriteOnly));
+    editorPage.write("editor-app");
+    editorPage.close();
+    QFile worker(m_editor.filePath(QStringLiteral("sw.js")));
+    QVERIFY(worker.open(QIODevice::WriteOnly));
+    worker.write("worker-should-not-be-served");
+  }
+  void missingEditorIsExplicit() {
+    Env env("PALEO_OFFICE_EDITOR", "/does-not-exist/office-editor");
     OfficePreviewSession session;
     QSignalSpy failed(&session, &OfficePreviewSession::failed);
-    session.open(fixture("docx"));
-    qputenv("PALEO_OFFICE_RENDERER", previous);
+    session.open(fixture(QStringLiteral("docx")));
     QCOMPARE(failed.count(), 1);
-    QVERIFY(failed.first().first().toString().contains("未安装"));
-    QVERIFY(!session.findChild<QProcess *>());
+    QVERIFY(failed.first().first().toString().contains(QStringLiteral("未安装")));
+    QVERIFY(session.endpoint().isEmpty());
   }
   void cancelledVerificationCannotLaunch() {
-    if (OfficePreviewSession::rendererPath().isEmpty()) QSKIP("Build vendor/fetch-calligra.sh first");
+    Env env("PALEO_OFFICE_EDITOR", m_editor.path().toUtf8());
     OfficePreviewSession session;
     QSignalSpy failed(&session, &OfficePreviewSession::failed);
-    session.open("/does-not-exist.docx"); session.stop();
+    session.open(QStringLiteral("/does-not-exist.docx"));
+    session.stop();
     QTest::qWait(100);
     QCOMPARE(failed.count(), 0);
-    QVERIFY(!session.findChild<QProcess *>());
+    QVERIFY(session.endpoint().isEmpty());
   }
   void shaMismatchCannotLaunch() {
-    if (OfficePreviewSession::rendererPath().isEmpty()) QSKIP("Build vendor/fetch-calligra.sh first");
+    Env env("PALEO_OFFICE_EDITOR", m_editor.path().toUtf8());
     OfficePreviewSession session;
     QSignalSpy failed(&session, &OfficePreviewSession::failed);
-    session.open(fixture("docx"), QString(64, '0'));
+    session.open(fixture(QStringLiteral("docx")), QString(64, QLatin1Char('0')));
     QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 2000);
-    QVERIFY(failed.first().first().toString().contains("SHA-256"));
-    QVERIFY(!session.findChild<QProcess *>());
+    QVERIFY(failed.first().first().toString().contains(QStringLiteral("SHA-256")));
+    QVERIFY(session.endpoint().isEmpty());
   }
-  void realPages_data() {
-    QTest::addColumn<QString>("extension");
-    for (const QString &ext : {"doc", "docx", "xls", "xlsx", "ppt", "pptx"})
-      QTest::newRow(qPrintable(ext)) << ext;
-  }
-  void realPages() {
-    if (OfficePreviewSession::rendererPath().isEmpty()) QSKIP("Build vendor/fetch-calligra.sh first");
-    QFETCH(QString, extension);
-    const QString path = fixture(extension);
-    const QByteArray before = hash(path); QVERIFY(!before.isEmpty());
-    QPointer<QProcess> process;
-    qint64 processId = 0;
-    int ticks = 0; qint64 maximumGap = 0;
-    QElapsedTimer elapsed; elapsed.start(); qint64 previous = 0;
-    QTimer heartbeat; heartbeat.setInterval(10);
-    connect(&heartbeat, &QTimer::timeout, this, [&] {
-      const qint64 now = elapsed.elapsed(); maximumGap = qMax(maximumGap, now - previous); previous = now; ++ticks;
-    });
-    heartbeat.start();
+  void servesOnlyTheOpenedFile() {
+    Env env("PALEO_OFFICE_EDITOR", m_editor.path().toUtf8());
+    const QString path = fixture(QStringLiteral("docx"));
+    const QByteArray before = hashOf(path);
+    const QByteArray original = readAll(path);
+    QVERIFY(!before.isEmpty());
+    QVERIFY(!original.isEmpty());
+    OfficePreviewSession session;
+    QSignalSpy ready(&session, &OfficePreviewSession::ready);
+    QSignalSpy failed(&session, &OfficePreviewSession::failed);
+    session.open(path, QString::fromLatin1(before));
+    QTRY_VERIFY_WITH_TIMEOUT(!ready.isEmpty() || !failed.isEmpty(), 2000);
+    QVERIFY2(failed.isEmpty(), failed.isEmpty() ? "" : qPrintable(failed.first().first().toString()));
+    QCOMPARE(session.endpoint().host(), QStringLiteral("127.0.0.1"));
+    QCOMPARE(session.endpoint().scheme(), QStringLiteral("http"));
+
+    QNetworkAccessManager network;
+    QNetworkReply *document = network.get(QNetworkRequest(session.documentUrl()));
+    QTRY_VERIFY_WITH_TIMEOUT(document->isFinished(), 3000);
+    QCOMPARE(document->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 200);
+    QCOMPARE(document->readAll(), original);
+    document->deleteLater();
+
+    QUrl shell = session.endpoint();
+    shell.setPath(QStringLiteral("/index.html"));
+    QNetworkReply *index = network.get(QNetworkRequest(shell));
+    QTRY_VERIFY_WITH_TIMEOUT(index->isFinished(), 3000);
+    QCOMPARE(index->readAll(), QByteArray("editor-shell"));
+    index->deleteLater();
+    QUrl editorPage = session.endpoint();
+    editorPage.setPath(QStringLiteral("/editor"));
+    editorPage.setQuery(QStringLiteral("embed=1"));
+    QNetworkReply *editor = network.get(QNetworkRequest(editorPage));
+    QTRY_VERIFY_WITH_TIMEOUT(editor->isFinished(), 3000);
+    QCOMPARE(editor->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 200);
+    QCOMPARE(editor->readAll(), QByteArray("editor-app"));
+    editor->deleteLater();
+    QUrl worker = session.endpoint();
+    worker.setPath(QStringLiteral("/sw.js"));
+    QNetworkReply *sw = network.get(QNetworkRequest(worker));
+    QTRY_VERIFY_WITH_TIMEOUT(sw->isFinished(), 3000);
+    QCOMPARE(sw->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 404);
+    sw->deleteLater();
+
+    const QString token = session.documentUrl().path().section(QLatin1Char('/'), 2, 2);
+    QTcpSocket socket;
+    socket.connectToHost(QStringLiteral("127.0.0.1"), static_cast<quint16>(session.endpoint().port()));
+    QVERIFY(socket.waitForConnected(1000));
+    const QByteArray request = QByteArray("GET /paleo-doc/") + token.toUtf8()
+                               + "/../../index.html HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
+    QCOMPARE(socket.write(request), request.size());
+    QVERIFY(socket.flush());
+    QByteArray response;
+    QElapsedTimer timer;
+    timer.start();
+    while (timer.elapsed() < 2000 && !response.contains("\r\n\r\n"))
     {
-      OfficePreviewWidget preview(path, QString::fromLatin1(before));
-      preview.resize(1000, 700); preview.show();
-      auto *session = preview.findChild<OfficePreviewSession *>(); QVERIFY(session);
-      QSignalSpy pages(session, &OfficePreviewSession::pageReady), failed(session, &OfficePreviewSession::failed);
-      QTRY_VERIFY_WITH_TIMEOUT(!pages.isEmpty() || !failed.isEmpty(), 130000);
-      QVERIFY2(failed.isEmpty(), failed.isEmpty() ? "" : qPrintable(failed.first().first().toString()));
-      const QImage image = qvariant_cast<QImage>(pages.last().at(1));
-      QVERIFY(!image.isNull()); QVERIFY(hasInk(image));
-      QVERIFY(preview.findChild<QGraphicsView *>("officePageView"));
-      process = session->findChild<QProcess *>(); QVERIFY(process);
-      processId = process->processId(); QVERIFY(processId > 0);
-      QVERIFY(QFileInfo(process->program()).fileName().startsWith("paleo_office_renderer"));
-      QCOMPARE(process->arguments().size(), 2);
-      auto *selector = preview.findChild<QComboBox *>("officePageSelector"); QVERIFY(selector);
-      QVERIFY(selector->count() > 0);
-      if (extension == "xlsx" || extension == "xls") QVERIFY(selector->count() >= 2);
-      if (selector->count() > 1) {
-        const int count = pages.count();
-        selector->setCurrentIndex(selector->count() - 1);
-        QTRY_VERIFY_WITH_TIMEOUT(pages.count() > count || !failed.isEmpty(), 60000);
-        QVERIFY2(failed.isEmpty(), failed.isEmpty() ? "" : qPrintable(failed.first().first().toString()));
-        QCOMPARE(pages.last().at(0).toInt(), selector->count() - 1);
-        QVERIFY(hasInk(qvariant_cast<QImage>(pages.last().at(1))));
-      }
-      QVERIFY(ticks > 5);
-      QVERIFY2(maximumGap < 500, qPrintable(QString::number(maximumGap)));
-      if (extension == "docx" && !qEnvironmentVariable("PALEO_OFFICE_SCREENSHOT").isEmpty())
-        QVERIFY(preview.grab().save(qEnvironmentVariable("PALEO_OFFICE_SCREENSHOT")));
+      QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+      response += socket.readAll();
     }
-    QTRY_VERIFY_WITH_TIMEOUT(process.isNull(), 5000);
-#ifdef Q_OS_LINUX
-    QVERIFY(!QFileInfo::exists(QStringLiteral("/proc/%1").arg(processId)));
-#endif
-    QCOMPARE(hash(path), before);
+    QVERIFY2(response.startsWith("HTTP/1.1 404"), response.constData());
+    QVERIFY(!response.contains("editor-shell"));
+    QCOMPARE(hashOf(path), before);
   }
-  void corruptDocumentFailsWithoutBlocking() {
-    if (OfficePreviewSession::rendererPath().isEmpty()) QSKIP("Build vendor/fetch-calligra.sh first");
-    QTemporaryDir directory;
-    const QString path = directory.filePath("broken.docx");
-    QFile file(path); QVERIFY(file.open(QIODevice::WriteOnly)); file.write("not a document"); file.close();
+  void saveRoundTripLeavesOriginalUntouched() {
+    Env env("PALEO_OFFICE_EDITOR", m_editor.path().toUtf8());
+    const QString path = fixture(QStringLiteral("xlsx"));
+    const QByteArray before = hashOf(path);
     OfficePreviewSession session;
-    QSignalSpy ready(&session, &OfficePreviewSession::ready), failed(&session, &OfficePreviewSession::failed);
-    session.open(path);
-    QTRY_VERIFY_WITH_TIMEOUT(!failed.isEmpty(), 130000);
-    QCOMPARE(ready.count(), 0);
+    QSignalSpy ready(&session, &OfficePreviewSession::ready);
+    QSignalSpy saved(&session, &OfficePreviewSession::documentSaved);
+    QSignalSpy failed(&session, &OfficePreviewSession::failed);
+    session.open(path, QString::fromLatin1(before));
+    QTRY_VERIFY_WITH_TIMEOUT(!ready.isEmpty() || !failed.isEmpty(), 2000);
+    QVERIFY(failed.isEmpty());
+    QUrl save = session.endpoint();
+    save.setPath(QStringLiteral("/paleo-save/") + session.documentUrl().path().section(QLatin1Char('/'), 2, 2));
+    QNetworkRequest request(save);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/octet-stream"));
+    QNetworkAccessManager network;
+    QNetworkReply *reply = network.post(request, QByteArray("edited-bytes"));
+    QTRY_VERIFY_WITH_TIMEOUT(reply->isFinished(), 3000);
+    QCOMPARE(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 204);
+    QCOMPARE(saved.count(), 1);
+    QCOMPARE(readAll(saved.first().first().toString()), QByteArray("edited-bytes"));
+    QCOMPARE(hashOf(path), before);
+    reply->deleteLater();
   }
-  void longWorkbookRendersLaterPagesAndCoalescesNavigation() {
-    if (OfficePreviewSession::rendererPath().isEmpty()) QSKIP("Build vendor/fetch-calligra.sh first");
+  void stopRevokesTheEndpoint() {
+    Env env("PALEO_OFFICE_EDITOR", m_editor.path().toUtf8());
     OfficePreviewSession session;
-    QSignalSpy ready(&session, &OfficePreviewSession::ready), pages(&session, &OfficePreviewSession::pageReady),
-               failed(&session, &OfficePreviewSession::failed);
-    session.open(QFileInfo(fixture("xlsx")).dir().filePath("long.xlsx"));
-    QTRY_VERIFY_WITH_TIMEOUT(!ready.isEmpty() || !failed.isEmpty(), 130000);
-    QVERIFY2(failed.isEmpty(), failed.isEmpty() ? "" : qPrintable(failed.first().first().toString()));
-    const QStringList labels = ready.first().first().toStringList();
-    QVERIFY(labels.size() > 3);
-    int lastFirstSheet = 0;
-    const QString sheetName = labels.first().section(" · ", 0, 0);
-    for (int i = 0; i < labels.size(); ++i)
-      if (labels[i].section(" · ", 0, 0) == sheetName) lastFirstSheet = i;
-    QVERIFY(lastFirstSheet > 1);
-    session.requestPage(0);
-    session.requestPage(1);
-    session.requestPage(lastFirstSheet);
-    QTRY_VERIFY_WITH_TIMEOUT(!pages.isEmpty() || !failed.isEmpty(), 60000);
-    QVERIFY2(failed.isEmpty(), failed.isEmpty() ? "" : qPrintable(failed.first().first().toString()));
-    QCOMPARE(pages.last().first().toInt(), lastFirstSheet);
-    QVERIFY(hasInk(qvariant_cast<QImage>(pages.last().at(1))));
-    QCOMPARE(pages.count(), 1); // obsolete requests never replace the selected page
+    QSignalSpy ready(&session, &OfficePreviewSession::ready);
+    session.open(fixture(QStringLiteral("ppt")));
+    QTRY_VERIFY_WITH_TIMEOUT(!ready.isEmpty(), 2000);
+    const QUrl url = session.endpoint();
+    session.stop();
+    QVERIFY(session.endpoint().isEmpty());
+    QNetworkAccessManager network;
+    QNetworkReply *reply = network.get(QNetworkRequest(url));
+    QTRY_VERIFY_WITH_TIMEOUT(reply->isFinished(), 3000);
+    QVERIFY(reply->error() != QNetworkReply::NoError);
+    reply->deleteLater();
   }
-  void inlineWorkbookShowsText() {
-    if (OfficePreviewSession::rendererPath().isEmpty()) QSKIP("Build vendor/fetch-calligra.sh first");
-    OfficePreviewSession session;
-    QSignalSpy ready(&session, &OfficePreviewSession::ready), pages(&session, &OfficePreviewSession::pageReady),
-               failed(&session, &OfficePreviewSession::failed);
-    session.open(QFileInfo(fixture("xlsx")).dir().filePath("inline.xlsx"));
-    QTRY_VERIFY_WITH_TIMEOUT(!ready.isEmpty() || !failed.isEmpty(), 130000);
+  void widgetUsesLocalHttpAndFallsBackHeadless() {
+    Env env("PALEO_OFFICE_EDITOR", m_editor.path().toUtf8());
+    const QString path = fixture(QStringLiteral("pptx"));
+    OfficePreviewWidget preview(path, QString::fromLatin1(hashOf(path)));
+    preview.resize(800, 600);
+    preview.show();
+    auto *session = preview.findChild<OfficePreviewSession *>();
+    QVERIFY(session);
+    QSignalSpy failed(session, &OfficePreviewSession::failed);
+    QTRY_VERIFY_WITH_TIMEOUT(session->endpoint().isValid() || !failed.isEmpty(), 2000);
     QVERIFY2(failed.isEmpty(), failed.isEmpty() ? "" : qPrintable(failed.first().first().toString()));
-    session.requestPage(0);
-    QTRY_VERIFY_WITH_TIMEOUT(!pages.isEmpty() || !failed.isEmpty(), 60000);
-    QVERIFY2(failed.isEmpty(), failed.isEmpty() ? "" : qPrintable(failed.first().first().toString()));
-    QVERIFY(hasInk(qvariant_cast<QImage>(pages.first().at(1))));
+    auto *web = preview.findChild<WebViewPanel *>(QStringLiteral("officeEditor"));
+    QVERIFY(web);
+    QCOMPARE(web->url().host(), QStringLiteral("127.0.0.1"));
+    if (!web->engineAvailable())
+    {
+      auto *external = preview.findChild<QPushButton *>(QStringLiteral("webExternalButton"));
+      QVERIFY(external);
+      QVERIFY(external->isVisible());
+    }
   }
-  void concurrentWordPreviewsKeepPagesStable() {
-    if (OfficePreviewSession::rendererPath().isEmpty()) QSKIP("Build vendor/fetch-calligra.sh first");
-    QList<std::shared_ptr<OfficePreviewSession>> sessions;
-    int completed = 0;
+  void commitEditRegistersDerivedVersion() {
+    QTemporaryDir project;
+    QVERIFY(project.isValid());
+    DataCatalog catalog;
     QString error;
-    for (int i = 0; i < 3; ++i) {
-      auto session = std::make_shared<OfficePreviewSession>();
-      auto *worker = session.get();
-      auto firstImage = std::make_shared<QImage>();
-      auto rendered = std::make_shared<int>(0);
-      connect(worker, &OfficePreviewSession::ready, this, [&, worker](const QStringList &labels) {
-        if (labels.size() != 1) error = "Unexpected pagination of a one-paragraph document";
-        worker->requestPage(0);
-      });
-      connect(session.get(), &OfficePreviewSession::failed, this, [&](const QString &reason) { error = reason; });
-      connect(worker, &OfficePreviewSession::pageReady, this, [&, worker, firstImage, rendered](int, const QImage &image) {
-        if (!hasInk(image)) error = "Empty Word page";
-        if (*rendered == 0) *firstImage = image;
-        else if (image != *firstImage && error.isEmpty()) error = "Rendering changed the document layout";
-        if (++*rendered < 3) worker->requestPage(0);
-        else ++completed;
-      });
-      sessions.append(session);
-      session->open(fixture("docx"));
-    }
-    QTRY_VERIFY_WITH_TIMEOUT(completed == 3 || !error.isEmpty(), 130000);
-    QVERIFY2(error.isEmpty(), qPrintable(error));
-    for (const auto &session : sessions) session->stop();
-  }
-  void closingDuringLoadDropsResults() {
-    if (OfficePreviewSession::rendererPath().isEmpty()) QSKIP("Build vendor/fetch-calligra.sh first");
-    OfficePreviewSession session;
-    QSignalSpy ready(&session, &OfficePreviewSession::ready), failed(&session, &OfficePreviewSession::failed);
-    session.open(fixture("docx"));
-    QTRY_VERIFY_WITH_TIMEOUT(session.findChild<QProcess *>(), 2000);
-    QPointer<QProcess> process = session.findChild<QProcess *>();
-    QElapsedTimer elapsed; elapsed.start(); session.stop();
-    QVERIFY(elapsed.elapsed() < 100);
-    QTRY_VERIFY_WITH_TIMEOUT(process.isNull(), 5000);
-    QCOMPARE(ready.count(), 0); QCOMPARE(failed.count(), 0);
+    QVERIFY2(catalog.open(project.path(), &error), qPrintable(error));
+    CatalogAsset asset;
+    asset.id = catalog.nextAssetId();
+    asset.type = QStringLiteral("document");
+    asset.format = QStringLiteral("docx");
+    asset.displayName = QStringLiteral("sample.docx");
+    QVERIFY2(catalog.addAsset(asset, &error), qPrintable(error));
+    const QString rawPath = fixture(QStringLiteral("docx"));
+    const QByteArray before = hashOf(rawPath);
+    CatalogVersion raw;
+    raw.id = catalog.nextVersionId();
+    raw.assetId = asset.id;
+    raw.stage = QStringLiteral("RAW");
+    raw.managed = false;
+    raw.path = rawPath;
+    raw.fileName = QStringLiteral("sample.docx");
+    raw.sha256 = QString::fromLatin1(before);
+    QVERIFY2(catalog.addVersion(raw, &error), qPrintable(error));
+    QTemporaryDir edits;
+    QVERIFY(edits.isValid());
+    const QString saved = edits.filePath(QStringLiteral("saved.docx"));
+    QFile out(saved);
+    QVERIFY(out.open(QIODevice::WriteOnly));
+    out.write("new-bytes");
+    out.close();
+    QVERIFY2(OfficePreviewSession::commitEdit(&catalog, asset.id, raw.id, saved, &error), qPrintable(error));
+    const QVector<CatalogVersion> versions = catalog.versionsForAsset(asset.id);
+    QCOMPARE(versions.size(), 2);
+    const CatalogVersion derived = versions.last();
+    QCOMPARE(derived.stage, QStringLiteral("DERIVED"));
+    QCOMPARE(derived.parentVersionIds, QStringList{raw.id});
+    QCOMPARE(derived.extra.value(QStringLiteral("producer")).toString(), QStringLiteral("ranuts-document"));
+    const QString stored = DataCatalog::resolvedVersionPath(project.path(), derived);
+    QCOMPARE(readAll(stored), QByteArray("new-bytes"));
+    QCOMPARE(hashOf(rawPath), before);
+    QVERIFY2(!OfficePreviewSession::commitEdit(nullptr, asset.id, raw.id, saved, &error), qPrintable(error));
+    QVERIFY(error.contains(QStringLiteral("未打开")));
   }
 };
+
 QTEST_MAIN(TestOfficePreview)
 #include "tst_officepreview.moc"

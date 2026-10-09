@@ -20,6 +20,7 @@
 #include "../src/ui/dialogs/cataloghealthdialog.h"
 #include "../src/services/previewdoc.h"
 #include "../src/ui/datapreview/datapreviewtabs.h"
+#include "../src/ui/datapreview/officepreviewwidget.h"
 #include "../src/ui/pages/datapage.h"
 #include "../src/ui/pages/entitypanel.h"
 #include "../src/ui/pages/derivationgraph.h"
@@ -199,10 +200,7 @@ private slots:
     PreviewDocService doc(&import); DataPreviewTabs preview; preview.setDocService(&doc); preview.openVersion(raw.id);
     auto *tabs = preview.findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs")); QVERIFY(tabs);
     QCOMPARE(preview.versionIdAt(tabs->currentIndex()), raw.id);
-    bool honest = false;
-    for (QLabel *label : tabs->currentWidget()->findChildren<QLabel *>())
-      honest |= label->text().contains(QStringLiteral("该版本暂无内嵌文档预览"));
-    QVERIFY(honest);
+    QVERIFY(tabs->currentWidget()->findChild<OfficePreviewWidget *>());
   }
   void forkMergeSelectionAndDedup()
   {

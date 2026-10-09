@@ -44,8 +44,9 @@ struct CuttingsTable
 // 必需列表头方言（去空白与括号单位后大小写不敏感匹配）：
 //   顶深 ∈ {顶深, 顶界深度, 顶界, top}
 //   底深 ∈ {底深, 底界深度, 底界, base, bot}
-//   岩性 ∈ {岩性, 定名, 岩性定名, 岩性名称, 岩性段, litho, lithology}
+//   岩性 ∈ {岩性, 定名, 岩性定名, 岩石定名, 岩性名称, 岩性段, litho, lithology}
 //   描述（可选）∈ {描述, 岩性描述, 备注}
+//   颜色（可选）∈ {颜色, 色, color}；有颜色时拼在定名前面，如「浅灰色细砂岩」
 // 行级校验：深度数值有限（parseNumericCell）、baseMd>topMd、岩性词面非空。
 CuttingsTable parseCuttingsSheet( const WorkbookSheet &sheet );
 

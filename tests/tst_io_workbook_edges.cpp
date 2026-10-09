@@ -1,5 +1,6 @@
 // 层：测试壳
 #include <QtTest>
+#include <QFile>
 #include <QFileInfo>
 #include <QDir>
 #include "io/cuttingsdoc.h"
@@ -25,6 +26,8 @@ private slots:
   // 方向 69 第二解释源：岩屑录井纯表解析（合成 WorkbookSheet 直调）。
   void cuttingsSheetStandardHeaders();
   void cuttingsSheetDialectHeaders();
+  void cuttingsSheetRockNameAndColor();
+  void cuttingsRealA1WorkbookIfPresent();
   void cuttingsSheetMissingColumnIsHonest();
   void cuttingsSheetBadRowsSkippedIntoIssues();
   void cuttingsSheetDescriptionColumnOptional();
@@ -177,6 +180,38 @@ void IoWorkbookEdgeTests::cuttingsSheetDialectHeaders()
   QCOMPARE(b.intervals[0].topMd, 100.0);
   QCOMPARE(b.intervals[0].baseMd, 150.0);
   QCOMPARE(b.intervals[0].litho, QStringLiteral("细砂岩"));
+}
+
+void IoWorkbookEdgeTests::cuttingsSheetRockNameAndColor()
+{
+  // A1岩屑录井数据.xlsx 的表头：顶深(m)、底深(m)、岩石定名、颜色、岩性描述。
+  const auto table = paleo::io::parseCuttingsSheet(cuttingsSheet(
+      {QStringLiteral("顶深(m)"), QStringLiteral("底深(m)"), QStringLiteral("岩石定名"),
+       QStringLiteral("颜色"), QStringLiteral("含油级别"), QStringLiteral("岩性描述")},
+      {{QStringLiteral("1847"), QStringLiteral("1847.12"), QStringLiteral("细砂岩"),
+        QStringLiteral("浅灰色"), QString(), QStringLiteral("泥质胶结")},
+       {QStringLiteral("1847.12"), QStringLiteral("1847.24"), QStringLiteral("浅灰色细砂岩"),
+        QStringLiteral("浅灰色"), QString(), QString()}}));
+  QVERIFY2(table.ok, qPrintable(table.error));
+  QCOMPARE(table.intervals.size(), 2);
+  QCOMPARE(table.intervals[0].litho, QStringLiteral("浅灰色细砂岩"));
+  QCOMPARE(table.intervals[0].description, QStringLiteral("泥质胶结"));
+  QCOMPARE(table.intervals[1].litho, QStringLiteral("浅灰色细砂岩"));
+}
+
+void IoWorkbookEdgeTests::cuttingsRealA1WorkbookIfPresent()
+{
+  const QString path = QStringLiteral(
+      "/home/kevin/projects/paleo_data/2.沉积相分析-第9届/2.4岩屑录井数据/A1岩屑录井数据.xlsx");
+  if (!QFile::exists(path))
+    QSKIP("local A1 cuttings workbook is not on this machine");
+  const auto table = paleo::io::readCuttingsFile(path);
+  QVERIFY2(table.ok, qPrintable(table.error));
+  QVERIFY(table.intervals.size() > 10);
+  bool sawSand = false;
+  for (const auto &interval : table.intervals)
+    sawSand = sawSand || interval.litho == QStringLiteral("浅灰色细砂岩");
+  QVERIFY2(sawSand, "A1 cuttings must keep 颜色+岩石定名, e.g. 浅灰色细砂岩");
 }
 
 void IoWorkbookEdgeTests::cuttingsSheetMissingColumnIsHonest()

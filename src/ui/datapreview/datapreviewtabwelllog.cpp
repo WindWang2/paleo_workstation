@@ -16,6 +16,7 @@ using namespace paleo::datapreview_detail;
 #include "../../services/imagelod.h"      // 图片道缩略装载（方向 79 LOD）
 #include "../../services/previewdoc.h"    // 唯一数据门面——解析/解码/SHA/PDF 编排全经它（W1）
 #include "../../services/welllogset.h"    // 井曲线并集（综合柱状图；只读 ~C 头）
+#include "../../workflow/wellsectionworkflow.h" // 岩性道：解释岩性 / 岩屑录井
 #include "../../services/paleotaskservice.h" // PaleoTask 进度/取消（地震转码区）
 #include "../seismic3d/seismic3dviewpanel.h"
 #include "../seismicsection/seismicsectioncanvas.h"
@@ -442,6 +443,25 @@ QWidget *DataPreviewTabs::buildWellLogContent(
     }
   }
 
+  // 岩性道：与连井同一来源。解释岩性优先，没有则用挂在这口井上的岩屑录井
+  // （例如 A1岩屑录井数据）。没有段就不造空道。
+  QVector<WellComposite::LithologyInterval> lithology;
+  if (!linkedWell.isEmpty())
+  {
+    WellSectionWorkflow lithoSource(cat);
+    const QVector<wellsection::LithoSegment> segments =
+        lithoSource.lithologiesFor({linkedWell}).value(linkedWell);
+    lithology.reserve(segments.size());
+    for (const wellsection::LithoSegment &segment : segments)
+    {
+      WellComposite::LithologyInterval interval;
+      interval.topDepth = static_cast<float>(segment.topMd);
+      interval.bottomDepth = static_cast<float>(segment.baseMd);
+      interval.lithoName = segment.litho;
+      lithology.append(interval);
+    }
+  }
+
   const QString wellTitle = wells.isEmpty() ? asset.displayName : wells.front().second;
 
   // 两段式期间如实占位：数据行池内解析中（DESIGN.md 诚实状态；秒级内
@@ -489,7 +509,7 @@ QWidget *DataPreviewTabs::buildWellLogContent(
   const QPointer<WellComposite::WellCompositePanel> compFill(compPanel);
   const std::function<void(const QList<LasCurve> &, const QHash<QString, LasDoc> &)> fillCurves =
       [panelFill, compFill, chipMapFill = chipMap, hintFill, names, defaultShown, coreImages,
-       wellTitle, formationIntervals, wellCurves, compositeFromWell, abs](
+       wellTitle, formationIntervals, lithology, wellCurves, compositeFromWell, abs](
           const QList<LasCurve> &curves, const QHash<QString, LasDoc> &siblings) {
         if (hintFill)
           hintFill->hide(); // 数据到齐，占位提示退场
@@ -568,7 +588,11 @@ QWidget *DataPreviewTabs::buildWellLogContent(
             }
           }
           compFill->loadLasCurves(wellTitle, compCurves, formationIntervals);
-          if (compFill && !coreImages.isEmpty())
+          if (!compFill)
+            return;
+          if (!lithology.isEmpty())
+            compFill->setLithologyIntervals(lithology);
+          if (!coreImages.isEmpty())
             compFill->setCoreImages(coreImages);
         }
       };

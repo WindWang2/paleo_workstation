@@ -18,6 +18,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -631,10 +632,22 @@ private:
     for (const EntityAssetLink &link : m_catalog->linksForEntity(wellId)) {
       if (link.role != QLatin1String("cuttings"))
         continue;
-      const CatalogVersion v = m_catalog->currentVersion(link.assetId);
-      if (v.id.isEmpty())
+      // currentVersion 会选到版本号更高的 PDF 派生件。岩性只读表文件。
+      CatalogVersion table;
+      for (const CatalogVersion &v : m_catalog->versionsForAsset(link.assetId)) {
+        const QString name = v.fileName.isEmpty() ? v.path : v.fileName;
+        const QString ext = QFileInfo(name).suffix().toLower();
+        if (ext != QLatin1String("xlsx") && ext != QLatin1String("xls")
+            && ext != QLatin1String("xml") && ext != QLatin1String("csv")
+            && ext != QLatin1String("txt") && ext != QLatin1String("tsv"))
+          continue;
+        if (table.id.isEmpty() || v.versionNumber > table.versionNumber
+            || (v.versionNumber == table.versionNumber && v.id > table.id))
+          table = v;
+      }
+      if (table.id.isEmpty())
         continue;
-      candidates.push_back({link.assetId, v});
+      candidates.push_back({link.assetId, table});
     }
     if (candidates.isEmpty())
       return {}; // 无 cuttings 链接井静默留空（GR 回落是正常态，不告警）

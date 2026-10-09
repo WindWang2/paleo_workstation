@@ -44,6 +44,9 @@ class WebViewPanel : public QWidget
     QString lastError() const { return m_lastError; }
     void showError(const QUrl &url, const QString &reason);
     void setPageStyleSheet(const QString &css);
+    // 在 setUrl 之前调用。Office 编辑页每次新建视图都要独立浏览器配置：
+    // 复用同一个具名持久配置时，第二个视图会卡在加载。
+    void setOffTheRecord(bool off);
 
   signals:
     void loadFinished(bool ok);           // 透传 QWebEngineView::loadFinished
@@ -63,4 +66,6 @@ class WebViewPanel : public QWidget
     QString m_lastError;
     QUrl m_url;
     QString m_pageCss;
+    bool m_offTheRecord = false;
+    bool m_ownsProfile = false;
 };

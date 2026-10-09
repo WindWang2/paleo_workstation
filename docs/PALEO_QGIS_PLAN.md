@@ -6,10 +6,11 @@
 适用范围：Paleo Workbench C++ 主程序 / QGIS Vendor 集成层
 核心原则：QGIS 负责 GIS，Paleo Workbench 负责地质业务。
 
-2026-10-09 增补（用户排除 LibreOffice）：DOC/DOCX/XLS/XLSX/PPT/PPTX 原件由
-源码构建的 Calligra 26.08.2 独立进程解析并按需渲染页面，不生成 PDF 或登记
-派生 Office 版本。功能层管理进程、异步 SHA 校验和页面解码；视图仅显示结果与
-发出切页信号，Qt 纸面控件兼容 xcb/Wayland，无外部窗口接管。工程打开的 QGIS 数据源读取、目录库
+2026-10-09 增补（用户排除 LibreOffice，并要求原件可编辑）：DOC/DOCX/XLS/XLSX/PPT/PPTX
+原件由本机静态页 ranuts/document（OnlyOffice WASM，无文档服务器）打开。功能层只在
+127.0.0.1 上托管编辑页和当前原件，异步核对 SHA；视图用既有 WebViewPanel 显示页面。
+不生成 PDF。编辑结果另登记为同一资产的 DERIVED 版本，不覆盖 RAW。关闭标签即关闭监听。
+无 WebEngine 或无屏时，同一地址交给系统浏览器。工程打开的 QGIS 数据源读取、目录库
 校验与索引、井轨迹解析及模型扫描在后台完成；数据导入后的井图层重建也消费后台
 快照。QWidget、布局和图层最终接管留在 GUI 线程。取消及切换工程丢弃过期结果，
 工程写锁保留到后台读取退出。实现与验证见 `docs/progress/native-office-background-loading.md`。

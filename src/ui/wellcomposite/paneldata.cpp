@@ -242,6 +242,38 @@ bool WellCompositePanel::loadLasCurves(const QString &wellName, const QVector<Cu
   return true;
 }
 
+void WellCompositePanel::setLithologyIntervals(const QVector<LithologyInterval> &items)
+{
+  if (items.isEmpty() || !m_canvas)
+    return;
+  m_data.lithologyIntervals = items;
+  double lo = m_canvas->minDepth();
+  double hi = m_canvas->maxDepth();
+  for (const LithologyInterval &interval : items)
+  {
+    lo = qMin(lo, double(interval.topDepth));
+    hi = qMax(hi, double(interval.bottomDepth));
+  }
+  m_canvas->setDepthRange(lo, hi);
+  m_data.minDepth = lo;
+  m_data.maxDepth = hi;
+  auto track = std::make_shared<LithologyTrack>(tr("岩性道"), 80.0);
+  track->setIntervals(items);
+  int insertAt = m_canvas->tracks().size();
+  const auto tracks = m_canvas->tracks();
+  for (int i = 0; i < tracks.size(); ++i)
+  {
+    if (tracks.at(i)->type() == TrackType::Curve)
+    {
+      insertAt = i;
+      break;
+    }
+  }
+  m_canvas->insertTrack(insertAt, track);
+  if (m_legendWidget)
+    m_legendWidget->setWellData(m_data);
+}
+
 void WellCompositePanel::setCoreImages(const QVector<ImageDepthItem> &items)
 {
   if (items.isEmpty())

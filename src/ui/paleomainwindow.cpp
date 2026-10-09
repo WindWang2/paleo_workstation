@@ -33,6 +33,7 @@
 #include "../domain/mappinghorizons.h" // baseHorizonFor（工程打开后的层位文案）
 #include "../linkage/seismicmaplink.h"
 #include "../linkage/selectioncontext.h" // ctor 的 activeHorizonChanged 接线
+#include "../workflow/sectionworkbench.h" // m_sectionWorkbench->cancelPreviewData（resetProjectScopedState）
 #include "../qgis/qgiscanvascontroller.h"
 #include "../qgis/qgisprojectservice.h"
 #include "../qgis/qgislayerservice.h"

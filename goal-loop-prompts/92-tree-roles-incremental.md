@@ -25,8 +25,8 @@
 2. **树零增量通道**：`datalist_tree.cpp` 全文件 dataChanged
    零命中——`refreshAssetTree`（`:50`）全量重建模式；
    方向 52 交付的 dataChanged 增量通道只接了 FlatAssetModel；
-   #270 修展开态保留正是全量重建之痛的补偿。方向 90（perf
-   round2）未发车，树的增量通道一直空着。
+   #270 修展开态保留正是全量重建之痛的补偿——树的增量
+   通道一直空着。
 
 ## 环境接线（Windows 本机实测口径；方向 72 后统一链）
 

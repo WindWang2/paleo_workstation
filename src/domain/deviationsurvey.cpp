@@ -55,15 +55,7 @@ double wrappedAzimuthDelta(double a1Deg, double a2Deg)
 // #168/#126：一段最小曲率圆弧的几何框架。切向 T(φ) = cosφ·t1 + sinφ·n，
 // φ∈[0,β]，弧长 s = φ/β·ΔMD；位置 = R·(sinφ·t1 + (1−cosφ)·n)，R = ΔMD/β。
 // 分量顺序 (north, east, down)。degenerate：β≈0（直线）或 β≈π（掉头，n 无定义）。
-struct ArcFrame
-{
-  double t1[3] = {0, 0, 0};
-  double n[3] = {0, 0, 0};
-  double beta = 0.0;
-  bool straight = false;
-  bool reversal = false;
-};
-
+// 装进 detail::DeviationSegment（splitMd 由 fromStations 的切分遍历后填）。
 void unitTangent(double incDeg, double aziDeg, double out[3])
 {
   const double i = incDeg * kDeg2Rad;
@@ -73,9 +65,10 @@ void unitTangent(double incDeg, double aziDeg, double out[3])
   out[2] = std::cos(i);
 }
 
-ArcFrame arcFrame(const DeviationStation &a, const DeviationStation &b)
+detail::DeviationSegment arcFrame(const DeviationStation &a,
+                                  const DeviationStation &b)
 {
-  ArcFrame f;
+  detail::DeviationSegment f;
   double t2[3];
   unitTangent(a.inclinationDeg, a.azimuthDeg, f.t1);
   unitTangent(b.inclinationDeg, b.azimuthDeg, t2);
@@ -182,6 +175,44 @@ std::optional<WellDeviationSurvey> WellDeviationSurvey::fromStations(
     p.east = prev.east + dEast;
     survey.m_points.append(p);
   }
+
+  // 逐段缓存（方向 98 治本，契约见 .h）：先建全部圆弧框架，再算段内垂深
+  // 极值切分点——切分遍历里的 pointAt 依赖框架就位。掉头段（β≈π，圆弧
+  // 平面不定）退回 64 等分粗扫描取极值（罕见路径，结果与站表同为常量）。
+  survey.m_segments.reserve(stations.size() - 1);
+  for (int i = 1; i < stations.size(); ++i)
+    survey.m_segments.append(arcFrame(stations.at(i - 1), stations.at(i)));
+  for (int i = 1; i < stations.size(); ++i)
+  {
+    detail::DeviationSegment &seg = survey.m_segments[i - 1];
+    if (!seg.straight && !seg.reversal)
+    {
+      // 圆弧上垂向切分量 cosφ·t1v + sinφ·nv 至多变号一次（β<π）→ 至多
+      // 一个垂深极值；φ∈(1e-12, β-1e-12) 才落在段内。
+      double phi = std::atan2(-seg.t1[2], seg.n[2]);
+      if (phi < 0.0)
+        phi += std::numbers::pi;
+      if (phi > 1e-12 && phi < seg.beta - 1e-12)
+        seg.splitMd = stations.at(i - 1).md +
+                      phi / seg.beta * (stations.at(i).md - stations.at(i - 1).md);
+    }
+    else if (seg.reversal)
+    {
+      const TrajectoryPoint &a = survey.m_points.at(i - 1);
+      const TrajectoryPoint &b = survey.m_points.at(i);
+      double best = a.tvd;
+      for (int k = 1; k < 64; ++k)
+      {
+        const double m = a.md + (b.md - a.md) * k / 64.0;
+        const double v = survey.pointAt(m).tvd;
+        if ((b.tvd >= a.tvd) ? v < best : v > best)
+        {
+          best = v;
+          seg.splitMd = m;
+        }
+      }
+    }
+  }
   return survey;
 }
 
@@ -239,60 +270,68 @@ TrajectoryPoint WellDeviationSurvey::pointAt(double md) const
     return p;
   }
 
-  for (int i = 1; i < m_stations.size(); ++i)
+  // 站点二分定位（方向 98 治本）：站表按 MD 严格递增，找首站 st.md ≥ md
+  // ——O(log N)，替代逐段线性扫。此处必有 first.md < md < last.md（两端
+  // 已在上面处理），故定位结果 i ∈ [1, n-1]。
+  const DeviationStation *const st = m_stations.constData();
+  int lo = 0, hi = m_stations.size();
+  while (lo < hi)
   {
+    const int mid = lo + (hi - lo) / 2;
+    if (st[mid].md < md)
+      lo = mid + 1;
+    else
+      hi = mid;
+  }
+  if (st[lo].md == md)
+    return m_points.at(lo); // 站点 MD 精确命中（查询用存储值时免 ULP 差）
+  {
+    const int i = lo;
     const DeviationStation &a = m_stations.at(i - 1);
     const DeviationStation &b = m_stations.at(i);
-    if (md == b.md)
-      return m_points.at(i); // 站点 MD 精确命中（查询用存储值时免 ULP 差）
-    if (md <= b.md)
+    const double span = b.md - a.md;
+    const double t = (md - a.md) / span;
+    const TrajectoryPoint &base = m_points.at(i - 1);
+    const detail::DeviationSegment &f = m_segments.at(i - 1);
+    if (!f.reversal)
     {
-      const double span = b.md - a.md;
-      const double t = (md - a.md) / span;
-      const TrajectoryPoint &base = m_points.at(i - 1);
-      const ArcFrame f = arcFrame(a, b);
-      if (!f.reversal)
+      // #168：沿站间最小曲率圆弧精确取点（切向 slerp），而非把井斜/方位线性
+      // 内插后另算子段——后者偏离圆弧，起点近直井（方位无意义）时水平误差达米级。
+      double dN, dE, dV;
+      if (f.straight)
       {
-        // #168：沿站间最小曲率圆弧精确取点（切向 slerp），而非把井斜/方位线性
-        // 内插后另算子段——后者偏离圆弧，起点近直井（方位无意义）时水平误差达米级。
-        double dN, dE, dV;
-        if (f.straight)
-        {
-          const double s = t * span;
-          dN = s * f.t1[0];
-          dE = s * f.t1[1];
-          dV = s * f.t1[2];
-        }
-        else
-        {
-          const double r = span / f.beta;
-          const double phi = t * f.beta;
-          const double sp = std::sin(phi), cp = 1.0 - std::cos(phi);
-          dN = r * (sp * f.t1[0] + cp * f.n[0]);
-          dE = r * (sp * f.t1[1] + cp * f.n[1]);
-          dV = r * (sp * f.t1[2] + cp * f.n[2]);
-        }
-        p.tvd = base.tvd + dV;
-        p.north = base.north + dN;
-        p.east = base.east + dE;
-        return p;
+        const double s = t * span;
+        dN = s * f.t1[0];
+        dE = s * f.t1[1];
+        dV = s * f.t1[2];
       }
-      // β≈π（原地掉头，圆弧平面不定）：退回角度内插子段。
-      const double iEnd = a.inclinationDeg +
-                          t * (b.inclinationDeg - a.inclinationDeg);
-      const double aEnd =
-          a.azimuthDeg + t * wrappedAzimuthDelta(a.azimuthDeg, b.azimuthDeg);
-      double dTvd = 0, dNorth = 0, dEast = 0;
-      segmentIncrement(t * span, a.inclinationDeg, a.azimuthDeg, iEnd,
-                       aEnd, &dTvd, &dNorth, &dEast);
-      p.tvd = base.tvd + dTvd;
-      p.north = base.north + dNorth;
-      p.east = base.east + dEast;
+      else
+      {
+        const double r = span / f.beta;
+        const double phi = t * f.beta;
+        const double sp = std::sin(phi), cp = 1.0 - std::cos(phi);
+        dN = r * (sp * f.t1[0] + cp * f.n[0]);
+        dE = r * (sp * f.t1[1] + cp * f.n[1]);
+        dV = r * (sp * f.t1[2] + cp * f.n[2]);
+      }
+      p.tvd = base.tvd + dV;
+      p.north = base.north + dN;
+      p.east = base.east + dE;
       return p;
     }
+    // β≈π（原地掉头，圆弧平面不定）：退回角度内插子段。
+    const double iEnd = a.inclinationDeg +
+                        t * (b.inclinationDeg - a.inclinationDeg);
+    const double aEnd =
+        a.azimuthDeg + t * wrappedAzimuthDelta(a.azimuthDeg, b.azimuthDeg);
+    double dTvd = 0, dNorth = 0, dEast = 0;
+    segmentIncrement(t * span, a.inclinationDeg, a.azimuthDeg, iEnd,
+                     aEnd, &dTvd, &dNorth, &dEast);
+    p.tvd = base.tvd + dTvd;
+    p.north = base.north + dNorth;
+    p.east = base.east + dEast;
+    return p;
   }
-  // 排序后严格递增保证上面必命中；此处不可达，保底末站值。
-  return m_points.constLast();
 }
 
 double WellDeviationSurvey::tvdToMd(double tvd) const
@@ -336,36 +375,12 @@ double WellDeviationSurvey::tvdToMd(double tvd) const
   double deepestTvd = fp.tvd;
   for (int i = 1; i < m_points.size(); ++i)
   {
-    const DeviationStation &sa = m_stations.at(i - 1);
-    const DeviationStation &sb = m_stations.at(i);
     const TrajectoryPoint &a = m_points.at(i - 1);
     const TrajectoryPoint &b = m_points.at(i);
-    // 圆弧上垂向切分量 cosφ·t1v + sinφ·nv 至多变号一次（β<π）→ 至多一个垂深极值。
-    double split = std::numeric_limits<double>::quiet_NaN();
-    const ArcFrame f = arcFrame(sa, sb);
-    if (!f.straight && !f.reversal)
-    {
-      double phi = std::atan2(-f.t1[2], f.n[2]);
-      if (phi < 0.0)
-        phi += std::numbers::pi;
-      if (phi > 1e-12 && phi < f.beta - 1e-12)
-        split = a.md + phi / f.beta * (b.md - a.md);
-    }
-    else if (f.reversal)
-    {
-      // 掉头段：退回粗扫描找极值（罕见；保守取 64 等分中垂深最极端处）。
-      double best = a.tvd;
-      for (int k = 1; k < 64; ++k)
-      {
-        const double m = a.md + (b.md - a.md) * k / 64.0;
-        const double v = pointAt(m).tvd;
-        if ((b.tvd >= a.tvd) ? v < best : v > best)
-        {
-          best = v;
-          split = m;
-        }
-      }
-    }
+    // 段内垂深极值切分点自缓存取（fromStations 预建，算式与旧逐调用版
+    // 逐字一致——圆弧上垂向切分量至多变号一次（β<π）→ 至多一个极值；
+    // 掉头段粗扫描同缓存）。
+    const double split = m_segments.at(i - 1).splitMd;
     double m0 = a.md, t0 = a.tvd;
     if (std::isfinite(split))
     {

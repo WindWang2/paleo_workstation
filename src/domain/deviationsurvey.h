@@ -4,6 +4,7 @@
 #include <QString>
 #include <QVector>
 
+#include <limits>
 #include <optional>
 
 // domain/deviationsurvey — 测斜站表 → 三维轨迹（最小曲率法，行业标准）。
@@ -24,9 +25,32 @@
 // 首站前按首站姿态直线（井口锚 (0,0,0)@MD0）；末站后按末站姿态直线延伸。
 // 水平段（cos i → 0）外延无垂深增量。tvdToMd 返回首次到达该垂深的 MD；
 // 轨迹到不了的垂深返回最接近处（最深点 MD），不外推猜值（#126）。
+//
+// 性能契约（方向 98 治本）：survey 自 fromStations 起不可变（无 mutator；
+// 拷贝随行缓存），构造时预建逐段缓存——最小曲率圆弧框架 + 段内垂深极值
+// 切分点（掉头段粗扫描同缓存）。pointAt 站点定位为二分查找（O(log N)），
+// tvdToMd 的二分反解逐次调 pointAt——单次反解 O(段数 + 100·log N)，不再
+// 每调用重算段几何（旧实现 O(站数)·三角 + 100·O(站数) 线性扫段）。
 
 namespace paleo
 {
+
+namespace detail
+{
+// 逐段几何缓存（deviationsurvey.cpp 内部装配；此处定义以作 QVector 成员）。
+// t1/n/beta 与圆弧框架同 #168 注；splitMd = 段内垂深极值 MD（无极值 → NaN，
+// 含掉头段 64 等分粗扫描结果）。
+struct DeviationSegment
+{
+  double t1[3] = {0, 0, 0};
+  double n[3] = {0, 0, 0};
+  double beta = 0.0;
+  double splitMd = std::numeric_limits<double>::quiet_NaN();
+  bool straight = false;
+  bool reversal = false;
+};
+} // namespace detail
+
 
 struct DeviationStation
 {
@@ -77,6 +101,8 @@ public:
 private:
   QVector<DeviationStation> m_stations;
   QVector<TrajectoryPoint> m_points;
+  // 逐段缓存（fromStations 预建；与 stations 同步不可变，见性能契约注释）。
+  QVector<detail::DeviationSegment> m_segments;
 };
 
 } // namespace paleo

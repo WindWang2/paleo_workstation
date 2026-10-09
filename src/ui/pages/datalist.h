@@ -134,6 +134,10 @@ class DataListPanel : public QWidget
     void detachSingleAssetLink();        // 解挂（首个选中资产的已决链接）
     void setPrimaryForSelection();       // 设为主版本
     void editRoleForSelection();         // D4.7（不可撤销确认）
+    void editDepthAnchorForSelection();  // 方向 79：图片附件锚深后补编辑
+    // ---- 方向 79：井附件管理 ----
+    void showWellAttachments(const QString &wellId); // 树「岩心照片」双击入口
+    void removeAssetsSoft(const QStringList &assetIds); // 软删执行面（树/面板共用）
     // ---- D3.2 外部文件拖入 → 导入队列 ----
     void handleExternalFiles(const QStringList &paths);
     // ---- D7 视图形态 ----
@@ -228,6 +232,7 @@ class DataListPanel : public QWidget
     paleo::dataops::AssetOverrideStore m_typeOv;       // D1.5
     paleo::dataops::EntityOverrideStore m_entityOv;    // D4.1/D4.2
     paleo::dataops::RecycleBin m_recycle;              // D1.6
+    class WellAttachmentPanel *m_attachments = nullptr; // 方向 79（按需建）
     paleo::dataops::FilterGroup m_filter;              // D2
     QString m_activeTag;                               // D2.4 标签云激活
     bool m_treeWasFiltering = false;                   // 「清空搜索即收拢」只在过滤态退出那一跳执行

@@ -549,6 +549,7 @@ add_library(paleo_services STATIC
   src/services/storagegovernance.cpp
   src/services/cataloghealth.cpp                    # 方向30：工区资产体检（快速面 + 外链 SHA 复验）
   src/services/errorhub.cpp                         # 方向64（方向76 合流后唯一实现）：统一错误通道（去重/聚合/环形历史）
+  src/services/imagelod.cpp                         # 方向79：图片道装载 LOD（缩略两级 + EXIF + 原图 LRU）
 )
 target_link_libraries(paleo_services PUBLIC paleo_deps paleo_io paleo_domain paleo_store paleo_algorithms)
 
@@ -598,6 +599,7 @@ add_library(paleo_workflow STATIC
   src/workflow/assetops.cpp                        # 方向30：版本回滚/对比 + 物理清理 + 未决归位
   src/workflow/importledger.cpp                    # 方向30：文件夹导入批次台账（sidecar 持久化）
   src/workflow/boundaryeditrules.cpp               # 方向39：相界类型编辑规则（赋类/带域/开放端）
+  src/workflow/wellattachmentops.cpp               # 方向79：井附件锚深后补编辑编排（校验/列表面）
 )
 target_link_libraries(paleo_workflow PUBLIC paleo_deps paleo_qgis paleo_store paleo_io paleo_services paleo_domain paleo_ai)
 
@@ -614,6 +616,13 @@ add_library(paleo_ui STATIC
   src/ui/pages/mappingworkbenchpage.cpp
   src/ui/paleomainwindow_workbench.cpp
   src/ui/paleomainwindow.cpp
+  src/ui/paleomainwindow_docks.cpp               # 壳构建：中央面与 dock 族（方向83）
+  src/ui/paleomainwindow_status.cpp              # 状态栏族（方向83）
+  src/ui/paleomainwindow_errorhub.cpp            # 错误呈现域（方向64/83）
+  src/ui/paleomainwindow_ribbon.cpp              # ribbon 骨架与面板菜单（方向83）
+  src/ui/paleomainwindow_shortcuts.cpp           # 页快捷键注册（方向63/83）
+  src/ui/paleomainwindow_pages.cpp               # 页切换域（方向83）
+  src/ui/paleomainwindow_project.cpp             # 工程打开/导入编排入口（方向83）
   src/ui/paleomainwindow_attach.cpp                # 壳接线聚合胶水层
   src/ui/paleomainwindow_attach_data.cpp           # 数据管理页接线
   src/ui/paleomainwindow_attach_predict.cpp        # 智能预测页接线
@@ -686,6 +695,8 @@ add_library(paleo_ui STATIC
   src/ui/welltops/welltopsmergedialog.cpp           # 方向 32：导入融合逐行取舍
   src/ui/dialogs/storagegovernancedialog.cpp
   src/ui/dialogs/cataloghealthdialog.cpp           # 方向30：工区体检对话框（分类计数 + 跳转意图）
+  src/ui/dialogs/depthanchordialog.cpp            # 方向79：井附件锚深编辑（预览+输入+清锚）
+  src/ui/pages/wellattachmentpanel.cpp           # 方向79：井附件管理面板（清单/行内编辑/软删意图）
   src/ui/webviewpanel.cpp                          # embedded web shell (lazy, degradable)
   src/ui/wellcomposite/wellcompositetrack.cpp      # ResFormStar 多道综合柱状图（D1.11 道头基类）
   src/ui/wellcomposite/trackpatterns.cpp           # 方向 66：道图案工厂（岩性/相纹理）
@@ -729,7 +740,7 @@ target_link_libraries(paleo_ui PUBLIC paleo_deps paleo_ui_deps paleo_qgis paleo_
   paleo_store paleo_linkage paleo_domain paleo_io paleo_ai paleo_saribbon paleo_sbm)
 
 # ---- 组装根 ----
-add_library(paleo_app STATIC src/app/appcontext.cpp)
+add_library(paleo_app STATIC src/app/appcontext.cpp src/app/onnxwiring.cpp) # onnxwiring：模型注册表装配（方向83 装配根瘦身）
 target_link_libraries(paleo_app PUBLIC paleo_ui paleo_workflow paleo_linkage paleo_services
   paleo_io paleo_qgis paleo_store paleo_domain paleo_ai)
 
@@ -1008,6 +1019,8 @@ add_paleo_test(tst_correlation LIBS paleo_ui)
 add_paleo_test(tst_decorations LIBS paleo_ui)
 add_paleo_test(tst_manifestproj LIBS paleo_qgis)
 add_paleo_test(tst_import LIBS paleo_io paleo_services paleo_qgis) # 方向44：并集可达断言
+add_paleo_test(tst_imagelod LIBS paleo_services)              # 方向79：图片道 LOD/EXIF/LRU
+add_paleo_test(tst_wellattachmentpanel LIBS paleo_ui)        # 方向79：井附件面板 CRUD offscreen
 add_paleo_test(tst_drawctl LIBS paleo_ui)
 add_paleo_test(tst_procdialog LIBS paleo_qgis)
 add_paleo_test(tst_rehydrate)                               # 伞式（app 面全栈，兼容样本）
@@ -1023,6 +1036,7 @@ add_paleo_test(tst_wellfileparsers LIBS paleo_io)
 add_paleo_test(tst_io_importledger LIBS paleo_workflow)
 add_paleo_test(tst_io_robustness LIBS paleo_io paleo_algorithms)
 add_paleo_test(tst_io_seismicquality LIBS paleo_services paleo_algorithms)
+add_paleo_test(tst_seismichorizoncluster LIBS paleo_services) # 取窗契约锚（f0e7b10d ±12ms）
 add_paleo_test(tst_io_workbook_edges LIBS paleo_io)
 add_paleo_test(tst_segy LIBS paleo_io)
 add_paleo_test(tst_las LIBS paleo_io)

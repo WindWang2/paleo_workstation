@@ -394,6 +394,14 @@ DataListPanel::DataListPanel(QWidget *parent)
       emit seismicLineActivated(assetId, lineMode);
       return;
     }
+    // 「岩心照片 (N)」分支：双击跳井附件管理面板（方向 79）——面板是这组
+    // 数据的管理面（清单/补锚/移除），展开折叠留给指示箭头。
+    if (nodeType == QLatin1String("category") &&
+        lineMode == QLatin1String("well_attachments") && !wellId.isEmpty())
+    {
+      showWellAttachments(wellId);
+      return;
+    }
     if (!wellId.isEmpty() && !assetId.isEmpty())
     {
       emit assetWellActivated(assetId, wellId);

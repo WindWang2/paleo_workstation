@@ -6,6 +6,7 @@
 #include "catalogstore.h"
 
 #include <QCryptographicHash>
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -28,6 +29,10 @@ namespace
 {
 
 using paleo::store_detail::setError;
+
+// updateVersionExtra 的 #history 审计保留条数（FIFO）——足够覆盖「改错
+// 再改回」的常见往返，又不让长期反复编辑的 extra 无界膨胀。
+constexpr int kExtraHistoryKeep = 8;
 
 // #155：受管目录 artifacts/<stage>/ast-N/ver-M 的盘上最大序号。提交两步
 // （先 rename 落位、后 applyJournal）之间崩溃会留下 catalog 不认识的孤儿目录；
@@ -273,6 +278,9 @@ bool DataCatalog::applyJournal(const QVector<CatalogOp> &ops, QString *error)
       case CatalogOp::Kind::SetLinkPrimary: ok = setLinkPrimary(op.index, &opErr); break;
       case CatalogOp::Kind::MarkDownstreamStale:
         ok = markDownstreamStale(op.id, op.reason, &opErr);
+        break;
+      case CatalogOp::Kind::UpdateVersionExtra:
+        ok = updateVersionExtra(op.id, op.extraKey, op.extraValue, &opErr);
         break;
     }
     if (!ok)
@@ -944,6 +952,77 @@ bool DataCatalog::addLink(const EntityAssetLink &l, QString *error)
     m_links[i].isPrimary = true;
   m_links.removeLast();
   m_idx.linksMutated(m_links);
+  return false;
+}
+
+// 方向 79：版本 extra 就地更新（锚深后补编辑）。就地 vs 新版本的定案
+// 与审计/撤销判据见 datacatalog.h 契约注与 ledger——不 fork 血统、不动
+// versionNumber/path/sha256；改前值进 #history（FIFO ≤8）、来源标 #source。
+// history 条目 {v, had, at}：had=false 表示此前无值（补锚场景），v 省略——
+// 无效 QVariant 转 JSON 会整键消失，不用 null 冒充。
+bool DataCatalog::updateVersionExtra(const QString &versionId, const QString &key,
+                                     const QVariant &value, QString *error)
+{
+  if (!checkWriteThread("updateVersionExtra", error))
+    return false;
+  if (!ensureOpen(error))
+    return false;
+  if (key.isEmpty() || key.contains(QLatin1Char('#')))
+  {
+    setError(error, QStringLiteral("extra key 不能为空、不能含 '#'（#history/#source 是审计保留字）"));
+    return false;
+  }
+  const int row = m_idx.versionRow(versionId);
+  if (row < 0 || row >= m_versions.size() || m_versions.at(row).id != versionId)
+  {
+    setError(error, QStringLiteral("unknown version id: %1").arg(versionId));
+    return false;
+  }
+  const CatalogVersion undo = m_versions.at(row);
+  CatalogVersion next = undo;
+  const QVariant old = next.extra.value(key);
+  // 真 no-op：同值重写（含清不存在的键）不动 catalog——不涨 revision、
+  // 不留 history 噪声（用户打开编辑器没改值点确定，不是一次编辑）。
+  const bool sameValue =
+      value.isValid() == old.isValid() &&
+      (!value.isValid() || value == old);
+  if (sameValue)
+    return true;
+  QVariantList history = next.extra.value(QStringLiteral("%1#history").arg(key)).toList();
+  QVariantMap entry;
+  if (old.isValid())
+    entry.insert(QStringLiteral("v"), old);
+  entry.insert(QStringLiteral("had"), old.isValid());
+  entry.insert(QStringLiteral("at"),
+               QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs));
+  history.append(entry);
+  while (history.size() > kExtraHistoryKeep)
+    history.removeFirst();
+  next.extra.insert(QStringLiteral("%1#history").arg(key), history);
+  if (value.isValid())
+  {
+    next.extra.insert(key, value);
+    next.extra.insert(QStringLiteral("%1#source").arg(key),
+                      QStringLiteral("manual"));
+  }
+  else
+  {
+    next.extra.remove(key);
+    next.extra.remove(QStringLiteral("%1#source").arg(key));
+  }
+  m_versions[row] = next;
+  m_dirtyVersions.insert(versionId);
+  if (save(error))
+  {
+    CatalogOp op;
+    op.kind = CatalogOp::Kind::UpdateVersionExtra;
+    op.id = versionId;
+    op.extraKey = key;
+    op.extraValue = value;
+    recordOp(std::move(op));
+    return true;
+  }
+  m_versions[row] = undo; // save 失败：内存还原，盘上不动
   return false;
 }
 

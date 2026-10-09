@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <cmath>
 #include <QFile>
 #include <QFileInfo>
 #include <QRegularExpression>
@@ -7,9 +8,12 @@
 
 #include "../src/qgis/qgisruntime.h"
 #include "../src/qgis/qgisprojectservice.h"
+#include "../src/qgis/projectmapreference.h"
+#include "../src/catalog/datacatalog.h"
 #include "../src/metadata/paleoprojectfile.h"
 #include "../src/metadata/projectlock.h"
 
+#include <qgscoordinatetransform.h>
 #include <qgsmaplayer.h>
 #include <qgsproject.h>
 #include <qgsvectorlayer.h>
@@ -292,6 +296,46 @@ private slots:
     QString werr;
     QVERIFY( !writeProjectFile( dir.path(), pf2, &werr ) );
     QVERIFY( werr.contains( QStringLiteral( "georeference" ) ) );
+  }
+
+  // mapreference::configure（3e8988cd）：局部 ENGCRS → {4326,3857,mapCrs}
+  // 三目标 PROJ 管线注册（affine 米制 + inv eqc R=6378137，projectmapreference.cpp:20-31）。
+  // 管线与 applyGeoreference 纯函数是同一配准的两种实现——在控制点互证；
+  // 反向回投 ≤0.001m 是 configure 内部闸门（:108-121）的外部复证。
+  void mapreferenceConfigureRegistersPipeline()
+  {
+    PaleoGeoreference g;
+    g.kind = QStringLiteral( "similarity2d" );
+    g.targetCrs = QStringLiteral( "EPSG:4326" );
+    g.anchorLonDeg = 108.05;
+    g.anchorLatDeg = 36.10;
+    g.metersPerDegLon = 90049.687955;
+    g.metersPerDegLat = 110960.830261;
+    g.a = 1.000896238;
+    g.b = 0.030275703;
+    g.tE = -6182.244744;
+    g.tN = -9871.264523;
+
+    QgsProject project;
+    QString error;
+    QVERIFY2( paleo::mapreference::configure( &project, g, QStringLiteral( "EPSG:3857" ), &error ),
+              qPrintable( error ) );
+    QCOMPARE( project.crs().authid(), QStringLiteral( "EPSG:3857" ) );
+
+    const QgsPointXY probe( 3720.83, 3899.60 );
+    const auto local = QgsCoordinateReferenceSystem::fromWkt( DataCatalog::localGridCrsWkt() );
+    QgsCoordinateTransform toWgs( local, QgsCoordinateReferenceSystem( QStringLiteral( "EPSG:4326" ) ),
+                                  project.transformContext() );
+    QVERIFY( toWgs.isValid() );
+    const auto wgs = toWgs.transform( probe );
+    double lon = 0, lat = 0;
+    QVERIFY( applyGeoreference( g, probe.x(), probe.y(), &lon, &lat ) );
+    QVERIFY2( std::abs( wgs.x() - lon ) < 1e-9, qPrintable( QStringLiteral( "lon %1 vs %2" ).arg( wgs.x() ).arg( lon ) ) );
+    QVERIFY2( std::abs( wgs.y() - lat ) < 1e-9, qPrintable( QStringLiteral( "lat %1 vs %2" ).arg( wgs.y() ).arg( lat ) ) );
+
+    const auto back = toWgs.transform( wgs, Qgis::TransformDirection::Reverse );
+    QVERIFY2( std::hypot( back.x() - probe.x(), back.y() - probe.y() ) <= 0.001,
+              qPrintable( QStringLiteral( "roundtrip %1,%2" ).arg( back.x() ).arg( back.y() ) ) );
   }
 
   // ---- Issue #26: 工程目录锁互斥与并发创建/打开检测 ----

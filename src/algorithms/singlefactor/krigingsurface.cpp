@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -21,6 +22,101 @@ namespace
 constexpr int kMinKrigingSamples = 8;
 constexpr int kAutoLags = 12;
 constexpr double kAutoToleranceDeg = 22.5;
+// 与 geostat 实验变差隔断档同一预算：超限不进测地场，回落欧氏口径。
+constexpr int kBarrierSampleBudget = 512;
+
+// 硬屏障折线展成测地墙。interpretation_partition_v1 把首尾沿端段外延封死；
+// grid_connectivity_v1 保持有限端，样本可以绕过墙头。
+geostat::BarrierPolygon wallPolygonOf( const std::vector<Point2> &points, double width,
+                                       bool sealEnds, double extend )
+{
+  std::vector<Point2> path = points;
+  if ( sealEnds && path.size() >= 2 )
+  {
+    const Point2 headDir{ path[0].x - path[1].x, path[0].y - path[1].y };
+    const double headLen = std::max( std::hypot( headDir.x, headDir.y ), 1e-12 );
+    path.insert( path.begin(),
+                 Point2{ path[0].x + headDir.x / headLen * extend,
+                         path[0].y + headDir.y / headLen * extend } );
+    const std::size_t last = path.size() - 1;
+    const Point2 tailDir{ path[last].x - path[last - 1].x, path[last].y - path[last - 1].y };
+    const double tailLen = std::max( std::hypot( tailDir.x, tailDir.y ), 1e-12 );
+    path.push_back( Point2{ path[last].x + tailDir.x / tailLen * extend,
+                            path[last].y + tailDir.y / tailLen * extend } );
+  }
+  const auto offsetChain = [&]( double side ) {
+    std::vector<Point2> chain( path.size() );
+    for ( std::size_t i = 0; i < path.size(); ++i )
+    {
+      double nx = 0;
+      double ny = 0;
+      if ( i > 0 )
+      {
+        nx += -( path[i].y - path[i - 1].y );
+        ny += path[i].x - path[i - 1].x;
+      }
+      if ( i + 1 < path.size() )
+      {
+        nx += -( path[i + 1].y - path[i].y );
+        ny += path[i + 1].x - path[i].x;
+      }
+      const double len = std::max( std::hypot( nx, ny ), 1e-12 );
+      chain[i] = Point2{ path[i].x + side * nx / len * width * 0.5,
+                         path[i].y + side * ny / len * width * 0.5 };
+    }
+    return chain;
+  };
+  geostat::BarrierPolygon polygon;
+  std::vector<Point2> left = offsetChain( 1.0 );
+  std::vector<Point2> right = offsetChain( -1.0 );
+  left.insert( left.end(), right.rbegin(), right.rend() );
+  polygon.exterior.points.reserve( left.size() );
+  for ( const Point2 &point : left )
+    polygon.exterior.points.push_back( geostat::Point2{ point.x, point.y } );
+  return polygon;
+}
+
+geostat::VariogramBarriers barriersFor( const std::vector<geostat::Sample> &samples,
+                                        const std::vector<ConstraintLine> &constraints,
+                                        const ResolvedParameters &parameters, std::string *note )
+{
+  geostat::VariogramBarriers barriers;
+  if ( !parameters.variogramBarrierAware )
+    return barriers;
+  double minX = std::numeric_limits<double>::infinity();
+  double minY = minX;
+  double maxX = -minX;
+  double maxY = -minX;
+  for ( const geostat::Sample &sample : samples )
+  {
+    minX = std::min( minX, sample.x );
+    maxX = std::max( maxX, sample.x );
+    minY = std::min( minY, sample.y );
+    maxY = std::max( maxY, sample.y );
+  }
+  const double span = std::max( maxX - minX, maxY - minY );
+  const bool sealEnds = parameters.hardBarrierModel == "interpretation_partition_v1";
+  std::vector<geostat::BarrierPolygon> walls;
+  for ( const ConstraintLine &line : constraints )
+  {
+    if ( !line.enabled || line.semantic != Semantic::HardBarrier || line.points.size() < 2 )
+      continue;
+    walls.push_back( wallPolygonOf( line.points, span / 64.0 + 1e-9, sealEnds, span * 1.5 + 1.0 ) );
+  }
+  if ( walls.empty() )
+    return barriers;
+  if ( static_cast<int>( samples.size() ) > kBarrierSampleBudget )
+  {
+    if ( note )
+      *note = "variogram_barrier_aware_skipped_samples_over_budget（样本 " +
+              std::to_string( samples.size() ) + " > " + std::to_string( kBarrierSampleBudget ) +
+              "，回落欧氏滞后距口径）";
+    return barriers;
+  }
+  barriers.enabled = true;
+  barriers.polygons = std::move( walls );
+  return barriers;
+}
 
 geostat::VariogramModelType modelTypeOf( const std::string &name )
 {
@@ -65,7 +161,8 @@ std::string number( double value )
 } // namespace
 
 VariogramResolution resolveVariogram( const std::vector<Sample> &samples, const GridSpec &grid,
-                                      const ResolvedParameters &parameters )
+                                      const ResolvedParameters &parameters,
+                                      const std::vector<ConstraintLine> &constraints )
 {
   VariogramResolution result;
   result.modelName = modelNameOf( modelTypeOf( parameters.variogramModel ) );
@@ -99,9 +196,21 @@ VariogramResolution resolveVariogram( const std::vector<Sample> &samples, const 
     result.anisotropyRatio =
         parameters.variogramAnisotropyRatio >= 1.0 ? parameters.variogramAnisotropyRatio : 1.0;
     result.azimuthDeg = parameters.variogramAzimuthDeg >= 0.0 ? parameters.variogramAzimuthDeg : 0.0;
+    for ( const ConstraintLine &line : constraints )
+    {
+      if ( line.enabled && line.semantic == Semantic::HardBarrier && line.points.size() >= 2 &&
+           parameters.variogramBarrierAware )
+      {
+        result.variogramNote = "variogram_explicit_skips_barrier_aware_fit（显式参数不拟合，"
+                               "硬屏障两侧样本仍进同一结构参数）";
+        break;
+      }
+    }
     result.ok = true;
     return result;
   }
+
+  const geostat::VariogramBarriers barriers = barriersFor( converted, constraints, parameters, &result.variogramNote );
 
   // ---- 自动拟合：滞后距取 max(像元, sqrt(面积/井数))，12 档（方向18 同口径） ----
   const double area = std::fabs( grid.pixelWidth * grid.pixelHeight ) *
@@ -122,10 +231,12 @@ VariogramResolution resolveVariogram( const std::vector<Sample> &samples, const 
     along.toleranceDeg = kAutoToleranceDeg;
     geostat::VariogramDirection across = along;
     across.azimuthDeg = std::fmod( parameters.variogramAzimuthDeg + 90.0, 360.0 );
-    const geostat::VariogramFit fitAlong =
-        geostat::fitVariogram( geostat::experimentalVariogram( converted, lag, kAutoLags, along ), type );
-    const geostat::VariogramFit fitAcross =
-        geostat::fitVariogram( geostat::experimentalVariogram( converted, lag, kAutoLags, across ), type );
+    const geostat::ExperimentalVariogram experimentalAlong =
+        geostat::experimentalVariogram( converted, lag, kAutoLags, along, barriers );
+    const geostat::ExperimentalVariogram experimentalAcross =
+        geostat::experimentalVariogram( converted, lag, kAutoLags, across, barriers );
+    const geostat::VariogramFit fitAlong = geostat::fitVariogram( experimentalAlong, type );
+    const geostat::VariogramFit fitAcross = geostat::fitVariogram( experimentalAcross, type );
     if ( fitAlong.status != geostat::Status::Ok || fitAcross.status != geostat::Status::Ok )
     {
       result.message = "方向变差函数拟合失败：" + fitAlong.message + " / " + fitAcross.message;
@@ -141,11 +252,15 @@ VariogramResolution resolveVariogram( const std::vector<Sample> &samples, const 
     result.r2 = fitAlong.r2;
     result.rmse = fitAlong.rmse;
     result.usedLags = fitAlong.usedLags;
+    result.barrierAware = experimentalAlong.barrierAware || experimentalAcross.barrierAware;
+    result.unreachablePairs =
+        std::max( experimentalAlong.unreachablePairs, experimentalAcross.unreachablePairs );
   }
   else
   {
-    const geostat::VariogramFit fit =
-        geostat::fitVariogram( geostat::experimentalVariogram( converted, lag, kAutoLags ), type );
+    const geostat::ExperimentalVariogram experimental =
+        geostat::experimentalVariogram( converted, lag, kAutoLags, {}, barriers );
+    const geostat::VariogramFit fit = geostat::fitVariogram( experimental, type );
     if ( fit.status != geostat::Status::Ok )
     {
       result.message = "变差函数拟合失败：" + fit.message;
@@ -157,6 +272,8 @@ VariogramResolution resolveVariogram( const std::vector<Sample> &samples, const 
     result.r2 = fit.r2;
     result.rmse = fit.rmse;
     result.usedLags = fit.usedLags;
+    result.barrierAware = experimental.barrierAware;
+    result.unreachablePairs = experimental.unreachablePairs;
   }
   if ( !( model.nugget + model.sill > 0.0 ) )
   {
@@ -199,7 +316,8 @@ SurfaceResult evaluateLocalKriging( const PreparedInput &input, const GridSpec &
     return fallbackToIdw( "有效样本 " + std::to_string( input.samples.size() ) + " < " +
                           std::to_string( kMinKrigingSamples ) + "，变差函数欠定" );
   }
-  const VariogramResolution resolution = resolveVariogram( input.samples, grid, parameters );
+  const VariogramResolution resolution =
+      resolveVariogram( input.samples, grid, parameters, input.constraints );
   if ( !resolution.ok )
     return fallbackToIdw( resolution.message );
 
@@ -311,6 +429,16 @@ SurfaceResult evaluateLocalKriging( const PreparedInput &input, const GridSpec &
                            " azimuth=" + number( kriging.variogramAzimuthDeg ) +
                            ( resolution.fitted ? " fitted=auto r2=" : " fitted=explicit r2=" ) +
                            number( resolution.r2 ) + " lags=" + std::to_string( resolution.usedLags ) );
+  if ( resolution.barrierAware )
+  {
+    result.issues.push_back( "barrierAware:true unreachable_pairs=" +
+                             std::to_string( resolution.unreachablePairs ) +
+                             "（跨硬隔断样本对不进变差结构拟合）" );
+  }
+  else if ( !resolution.variogramNote.empty() )
+  {
+    result.issues.push_back( resolution.variogramNote );
+  }
   result.issues.push_back( "kriging_dedupes_coincident_samples（重合井按精确均值合并）" );
 
   // 约束语义消费回执与不可耦合项诚实记录

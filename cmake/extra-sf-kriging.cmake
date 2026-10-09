@@ -28,6 +28,7 @@ else()
 endif()
 
 add_paleo_test(tst_singlefactor_kriging LIBS paleo_algorithms)
+add_paleo_test(tst_singlefactor_variogram_barrier LIBS paleo_algorithms)
 add_paleo_test(tst_io_sfpkg LIBS paleo_io)
 add_paleo_test(tst_io_outsource LIBS paleo_io)
 

@@ -44,11 +44,19 @@ struct VariogramResolution
   double rmse = 0;
   int usedLags = 0;
   int sampleCount = 0;
+  // 隔断感知拟合回执。barrierAware 为真时实验变差用绕障测地滞后距，
+  // 跨隔断不可达的样本对不进结构估计。variogramNote 记录未能启用的原因。
+  bool barrierAware = false;
+  int unreachablePairs = 0;
+  std::string variogramNote;
 };
 
 // 只做变差函数解析（含自动滞后距），不碰网格。失败时 ok=false 并给出原因。
+// constraints 里启用的硬屏障，在 variogramBarrierAware 且自动拟合时进入
+// 测地滞后距档。空约束或开关关闭 = 纯欧氏口径，与旧调用逐位一致。
 VariogramResolution resolveVariogram( const std::vector<Sample> &samples, const GridSpec &grid,
-                                      const ResolvedParameters &parameters );
+                                      const ResolvedParameters &parameters,
+                                      const std::vector<ConstraintLine> &constraints = {} );
 
 // 克里金插值面：SurfaceResult 契约与 evaluateLocalIdw 完全一致（成图域、硬屏障
 // 分量、井控/外推标记、无井闭合区、取消与预算）。克里金不成立时整面回落 IDW。

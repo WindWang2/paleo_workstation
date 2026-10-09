@@ -144,6 +144,9 @@ struct ResolvedParameters
   std::vector<ResolvedDirection> directions;
   std::vector<ResolvedSoft> soft;
   std::string hardBarrierModel = "grid_connectivity_v1";
+  // 自动拟合变差时，启用的硬屏障是否改用测地滞后距。false = 欧氏口径，
+  // 与未接隔断档的结果逐位一致。显式 range>0 不拟合，此开关不起作用。
+  bool variogramBarrierAware = true;
   std::string duplicatePolicy = "preserve_rows_exact_mean";
   std::string algorithmId = "paleo:paleo_local_direction_idw";
   std::string algorithmVersion = "1.0.0";

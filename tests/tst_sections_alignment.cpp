@@ -14,6 +14,7 @@
 #include <QTemporaryDir>
 #include <QtEndian>
 #include <QtTest>
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <qgsapplication.h>
@@ -127,6 +128,23 @@ private slots:
     QVERIFY(rows[0].toMap().value("status").toString().contains("TVD / MD"));
     auto data = work.sectionWells();
     QCOMPARE(data[0].bottomTwtMs, 200.0);
+    CatalogEntity bare;
+    bare.id = QStringLiteral("well-3");
+    bare.name = QStringLiteral("Z9");
+    bare.entityType = QStringLiteral("well");
+    bare.hasSurface = true;
+    bare.surfaceX = 300;
+    bare.surfaceY = 0;
+    bare.coordinateStatus = QStringLiteral("untransformed");
+    bare.td = 350;
+    QVERIFY(catalog.addEntity(bare));
+    const auto placed = work.sectionWells();
+    const auto bareWell = std::find_if(placed.begin(), placed.end(), [](const auto &well) {
+      return well.wellId == QLatin1String("well-3");
+    });
+    QVERIFY(bareWell != placed.end());
+    QCOMPARE(bareWell->bottomTwtMs, 280.0); // 350 m × 2000 / 2500 m/s
+    QVERIFY(bareWell->alignmentStatus.contains(QStringLiteral("常速近似")));
     QVERIFY(work.setCalibration("well-1", false, 2500, 25, &error));
     data = work.sectionWells();
     QCOMPARE(data[0].bottomTwtMs, 225.0);

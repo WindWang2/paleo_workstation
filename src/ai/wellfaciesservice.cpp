@@ -56,6 +56,12 @@ WellFaciesConfig WellFaciesConfig::load() {
       c.baseUrl = QUrl(j.value("baseUrl").toString());
     c.apiKey = j.value("apiKey").toString().toUtf8();
     c.allowInsecureHttp = j.value("allowInsecureHttp").toBool(false);
+    // 旧配置只存了 http 地址和密钥，没有「允许不加密」开关。那是用户已经
+    // 选定的服务，按明文传输继续用，否则「预测相」会一直停在地址校验。
+    if (!j.contains(QLatin1String("allowInsecureHttp"))
+        && c.baseUrl.scheme().compare(QLatin1String("http"), Qt::CaseInsensitive) == 0
+        && !c.apiKey.trimmed().isEmpty())
+      c.allowInsecureHttp = true;
   }
   if (qEnvironmentVariableIsSet("PALEO_WELL_FACIES_URL"))
     c.baseUrl = QUrl(qEnvironmentVariable("PALEO_WELL_FACIES_URL"));

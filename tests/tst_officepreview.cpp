@@ -148,6 +148,19 @@ private slots:
     QTRY_VERIFY_WITH_TIMEOUT(sw->isFinished(), 3000);
     QCOMPARE(sw->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 404);
     sw->deleteLater();
+    QDir(m_editor.path()).mkpath(QStringLiteral("assets"));
+    QFile bundle(m_editor.filePath(QStringLiteral("assets/document-stub.js")));
+    QVERIFY(bundle.open(QIODevice::WriteOnly));
+    bundle.write("features:{spellcheck:{mode:!1,change:!1}}");
+    bundle.close();
+    QUrl script = session.endpoint();
+    script.setPath(QStringLiteral("/assets/document-stub.js"));
+    QNetworkReply *scriptReply = network.get(QNetworkRequest(script));
+    QTRY_VERIFY_WITH_TIMEOUT(scriptReply->isFinished(), 3000);
+    QCOMPARE(scriptReply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 200);
+    QCOMPARE(scriptReply->readAll(),
+             QByteArray("features:{spellcheck:{mode:!1,change:!1},featuresTips:!1}"));
+    scriptReply->deleteLater();
 
     const QString token = session.documentUrl().path().section(QLatin1Char('/'), 2, 2);
     QTcpSocket socket;

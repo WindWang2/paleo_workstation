@@ -171,7 +171,6 @@ void WellCompositePanel::setupUi()
     PaleoTheme::applyThemedStyleSheet(button, themedBtnStyle); topLay->addWidget(button); return button;
   };
   m_btnPredictFacies = faciesButton(QStringLiteral("btnPredictFacies"), tr("预测相"));
-  m_btnPredictFacies->setEnabled(false);
   m_btnPredictFacies->setToolTip(tr("测井相预测服务尚未连接"));
   m_btnCancelFacies = faciesButton(QStringLiteral("btnCancelFacies"), tr("停止等待"));
   m_btnCancelFacies->setEnabled(false); m_btnCancelFacies->setToolTip(tr("没有正在等待的预测"));
@@ -182,7 +181,27 @@ void WellCompositePanel::setupUi()
   m_btnRefreshFacies->setToolTip(tr("获取网络服务当前可调用的模型及输入要求"));
   m_btnFaciesService = faciesButton(QStringLiteral("btnFaciesService"), tr("预测服务"));
   m_btnFaciesService->setToolTip(tr("设置测井相预测服务地址与 API 密钥"));
-  connect(m_btnPredictFacies, &QToolButton::clicked, this, &WellCompositePanel::faciesPredictionRequested);
+  connect(m_btnPredictFacies, &QToolButton::clicked, this, [this] {
+    if (!m_faciesWorkflow)
+    {
+      m_faciesStatus->setText(tr("测井相预测尚未接入"));
+      return;
+    }
+    if (!m_faciesReady)
+    {
+      const QString reason = m_btnPredictFacies->toolTip();
+      m_faciesStatus->setText(reason);
+      // 只在缺密钥、地址或明文 HTTP 未放行时打开配置。
+      // 不能用「预测服务」子串：未就绪说明和 https 提示里都有这四个字，
+      // 一点「预测相」就会反复弹出配置框，预测本身不会发出去。
+      if (reason.contains(QStringLiteral("API 密钥"))
+          || reason.contains(QStringLiteral("服务地址"))
+          || reason.contains(QStringLiteral("允许不加密")))
+        m_btnFaciesService->click();
+      return;
+    }
+    emit faciesPredictionRequested();
+  });
   connect(m_btnCancelFacies, &QToolButton::clicked, this, &WellCompositePanel::faciesCancelRequested);
   connect(m_btnRefreshFacies, &QToolButton::clicked, this, &WellCompositePanel::faciesModelsRequested);
   connect(m_faciesModel, &QComboBox::currentIndexChanged, this, [this] {

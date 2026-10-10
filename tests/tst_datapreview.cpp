@@ -309,6 +309,15 @@ void TestDataPreview::wellLogPreviewShowsCuttingsLithologyTrack()
   QCOMPARE(panel->currentData().lithologyIntervals.size(), 2);
   QCOMPARE(panel->currentData().lithologyIntervals.at(0).lithoName, QStringLiteral("细砂岩"));
   QCOMPARE(panel->currentData().lithologyIntervals.at(1).lithoName, QStringLiteral("泥岩"));
+  QVERIFY2(!panel->currentData().formationIntervals.isEmpty(),
+           "the current well log needs its formation track before prediction");
+  for (const auto &interval : panel->currentData().formationIntervals)
+  {
+    if (interval.name.trimmed().endsWith(QStringLiteral("组")))
+      QCOMPARE(interval.unitType, QStringLiteral("组"));
+    else
+      QCOMPARE(interval.unitType, QStringLiteral("段"));
+  }
 }
 
 void TestDataPreview::everyTypeOpensContent()
@@ -716,7 +725,7 @@ void TestDataPreview::unresolvedMultiWellTabShowsDeadEnd()
     QWidget *page = tabs->widget(tabs->currentIndex());
     auto *deadEnd = page->findChild<QLabel *>(QStringLiteral("deadEndText"));
     QVERIFY2(deadEnd, "unresolved multi-well tab must explain the dead end");
-    QVERIFY(deadEnd->text().contains(QString::fromUtf8("还没有挂到任何井")));
+    QVERIFY(deadEnd->text().contains(QString::fromUtf8("尚未关联到任何井")));
     QVERIFY(deadEnd->text().contains(QString::fromUtf8("挂到这口井")));
   }
 

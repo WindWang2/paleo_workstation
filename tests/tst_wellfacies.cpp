@@ -221,9 +221,44 @@ private slots:
     QVERIFY(prepareWellFaciesInput(d, model())
                 .reason.contains(QStringLiteral("缺口")));
     d = well();
+    d.formationIntervals.clear();
+    FormationInterval memberCode;
+    memberCode.name = QStringLiteral("D61");
+    memberCode.unitType = QStringLiteral("段");
+    memberCode.topDepth = 1000;
+    memberCode.bottomDepth = 1016;
+    d.formationIntervals = {memberCode};
+    d.continuousCurves[0].name = QStringLiteral("GR(API)");
+    input = prepareWellFaciesInput(d, model());
+    QVERIFY2(input.ready(), qPrintable(input.reason));
+    QCOMPARE(input.rows.first().toObject().value(QStringLiteral("段")).toString(),
+             QStringLiteral("D61"));
+    d.lithologyIntervals[0].topDepth = 1008;
+    QVERIFY(prepareWellFaciesInput(d, model()).reason.contains(QStringLiteral("128")));
+    d = well();
     d.continuousCurves[0].depths.removeLast();
     d.continuousCurves[0].values.removeLast();
     QVERIFY(prepareWellFaciesInput(d, model()).reason.contains("128"));
+    QTemporaryDir configDir;
+    QVERIFY(configDir.isValid());
+    const QString configPath = configDir.filePath(QStringLiteral("well-facies.json"));
+    QFile configFile(configPath);
+    QVERIFY(configFile.open(QIODevice::WriteOnly));
+    configFile.write(
+        "{\"baseUrl\":\"http://203.0.113.10:3100/api/v1\",\"apiKey\":\"test-key\"}");
+    configFile.close();
+    const QByteArray previous = qgetenv("PALEO_WELL_FACIES_CONFIG");
+    qputenv("PALEO_WELL_FACIES_CONFIG", configPath.toUtf8());
+    qunsetenv("PALEO_WELL_FACIES_URL");
+    qunsetenv("PALEO_WELL_FACIES_API_KEY");
+    qunsetenv("PALEO_WELL_FACIES_ALLOW_INSECURE_HTTP");
+    const WellFaciesConfig loaded = WellFaciesConfig::load();
+    if (previous.isEmpty())
+      qunsetenv("PALEO_WELL_FACIES_CONFIG");
+    else
+      qputenv("PALEO_WELL_FACIES_CONFIG", previous);
+    QVERIFY(loaded.allowInsecureHttp);
+    QVERIFY(WellFaciesConfig::validateUrl(loaded.baseUrl, loaded.allowInsecureHttp).isEmpty());
   }
   void labelRemainsVisibleInsideLongInterval() {
     TextTrack track(QStringLiteral("预测相"), 100);
@@ -381,7 +416,8 @@ private slots:
     QVERIFY(panel.loadComprehensiveXml(path));
     auto *run = panel.findChild<QToolButton *>("btnPredictFacies");
     QVERIFY(run);
-    QTRY_VERIFY2(run->isEnabled(), qPrintable(run->toolTip()));
+    QTRY_VERIFY2(run->toolTip().startsWith(QStringLiteral("提交当前井")),
+                 qPrintable(run->toolTip()));
     QVERIFY(panel.isReferenceWell());
     const auto observed = panel.currentData().faciesIntervals;
     run->click();
@@ -411,7 +447,7 @@ private slots:
         QVERIFY(!t->isVisible());
     QVERIFY(panel.loadLasCurves("another", well().continuousCurves,
                                 well().formationIntervals));
-    QVERIFY(!run->isEnabled());
+    QVERIFY(run->isEnabled());
     QVERIFY(run->toolTip().contains(QStringLiteral("岩性")));
     QCOMPARE(count(), 0);
     QVERIFY(panel.currentData().lithologyIntervals.isEmpty());
@@ -501,7 +537,7 @@ private slots:
     for (bool reference : {true, false}) {
       QVERIFY(panel.loadWellData(data, path, reference));
       QCOMPARE(panel.isReferenceWell(), reference);
-      QCOMPARE(run->isEnabled(), input.ready());
+      QVERIFY(run->isEnabled());
       if (!input.ready()) {
         QCOMPARE(run->toolTip(), input.reason);
         continue;

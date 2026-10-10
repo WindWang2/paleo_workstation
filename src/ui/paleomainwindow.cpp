@@ -759,11 +759,15 @@ bool PaleoMainWindow::resolveDirtyLayerEdits()
 // 返回 false = 取消。offscreen 且无 seam 时直接放行（无头自动化旧行为）。
 bool PaleoMainWindow::maybeSaveProject()
 {
+  // 没有打开工程文件时，QgsProject 仍可能被标脏（空工程、标题 [*]）。
+  // 关窗和换工程直接放行，不弹保存/放弃。
+  if (!m_projectSvc || m_projectSvc->projectPath().isEmpty())
+    return true;
   if (!resolveDirtyLayerEdits())
     return false;
-  QgsProject *proj = m_projectSvc ? m_projectSvc->project() : nullptr;
+  QgsProject *proj = m_projectSvc->project();
   if (!proj || !proj->isDirty())
-    return true; // 无工程/不脏：直接放行
+    return true; // 不脏：直接放行
   if (isOffscreen() && !m_projectSaveAsk)
     return true;
   const QString text =

@@ -248,6 +248,7 @@ private:
   QComboBox *m_faciesModel = nullptr;
   QLabel *m_faciesStatus = nullptr;
   QPointer<WellFaciesWorkflow> m_faciesWorkflow;
+  bool m_faciesReady = false;
   std::shared_ptr<WellTrack> m_predictionTrack, m_confidenceTrack;
 
   WellCompositeCanvas *m_canvas = nullptr;

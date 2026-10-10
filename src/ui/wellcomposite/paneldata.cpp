@@ -272,6 +272,7 @@ void WellCompositePanel::setLithologyIntervals(const QVector<LithologyInterval> 
   m_canvas->insertTrack(insertAt, track);
   if (m_legendWidget)
     m_legendWidget->setWellData(m_data);
+  emit faciesDataChanged(m_data);
 }
 
 void WellCompositePanel::setCoreImages(const QVector<ImageDepthItem> &items)

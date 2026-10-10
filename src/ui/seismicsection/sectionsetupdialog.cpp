@@ -86,8 +86,9 @@ SectionSetupDialog::SectionSetupDialog(QWidget *parent) : QDialog(parent) {
   apply->setObjectName("applyAlignment");
   form->addRow(apply);
   auto *note = new QLabel(tr("正值向下平移。分层优先 TVD，测井按 "
-                             "MD；缺表或超出范围不绘制。左侧深度尺仅为公共常速"
-                             "参考，地震图像仍按 TWT 排列。"),
+                             "MD。没有本井时深表时，井道和分层按近似速度画在剖面上，"
+                             "并标明需复核。时深表范围外的点不绘制。左侧深度尺与"
+                             "该近似速度一致，地震图像仍按 TWT 排列。"),
                           right);
   note->setWordWrap(true);
   form->addRow(note);

@@ -88,8 +88,10 @@ QString wellSectionConnectionName(const QString &path)
 
 // 幂等建表：section_id 主键单节一行，version 随 save 递增。
 // 前向升级：CREATE TABLE IF NOT EXISTS 对既有表不加列——depth_domain
-// （方向 69 深度域入剖面状态）靠 PRAGMA 查缺 + ALTER 补列（mapversionstore
-// 同款口径）；旧行取列默认 'MD'。
+// （方向 69 深度域入剖面状态）/ spacing（方向 98 井间距入剖面状态）靠
+// PRAGMA 查缺 + ALTER 补列（mapversionstore 同款口径）。depth_domain 旧行
+// 取列默认 'MD'；spacing 列可空、无默认——旧行 NULL 读回 nullopt
+//（「缺」与「等距」可区分，fence 侧据此回落并如实标注）。
 bool wellSectionEnsureColumn(QSqlDatabase &db, const QString &table,
                              const QString &name, const QString &type,
                              QString *error)
@@ -136,6 +138,22 @@ bool wellSectionEnsureOpen(const QString &path, QString *error)
                       QStringLiteral("depth_domain"),
                       QStringLiteral("TEXT NOT NULL DEFAULT 'MD'"), error))
         return false;
+    if (!wellSectionEnsureColumn(db, QStringLiteral("well_section_edits"),
+                                 QStringLiteral("spacing"),
+                                 QStringLiteral("TEXT"), error))
+        return false;
+    // 方向 98：解释岩性来源显式选择（well_id → asset_id；行存在即显式
+    // 选择，删行 = 回落默认取最新）。
+    QSqlQuery selection(db);
+    if (!selection.exec(QStringLiteral(
+            "CREATE TABLE IF NOT EXISTS well_litho_selection ("
+            "well_id TEXT PRIMARY KEY, "
+            "asset_id TEXT NOT NULL, "
+            "updated_utc TEXT NOT NULL)")))
+    {
+        setError(error, selection.lastError().text());
+        return false;
+    }
     return true;
 }
 
@@ -184,7 +202,8 @@ bool WellSectionStore::open(QString *error)
 WellSectionRecord WellSectionStore::save(
     const QString &sectionId, const QStringList &wellIds,
     const QVector<WellSectionLinkOverride> &links,
-    wellsection::DepthDomain depthDomain, QString *error)
+    wellsection::DepthDomain depthDomain,
+    std::optional<wellsection::SpacingMode> spacing, QString *error)
 {
     if (m_readOnly)
     {
@@ -210,8 +229,8 @@ WellSectionRecord WellSectionStore::save(
         QSqlQuery q(QSqlDatabase::database(wellSectionConnectionName(m_dbPath)));
         q.prepare(QStringLiteral(
             "INSERT OR REPLACE INTO well_section_edits "
-            "(section_id, well_ids, link_overrides, depth_domain, version, "
-            "updated_utc) VALUES (?, ?, ?, ?, ?, ?)"));
+            "(section_id, well_ids, link_overrides, depth_domain, spacing, "
+            "version, updated_utc) VALUES (?, ?, ?, ?, ?, ?, ?)"));
         q.addBindValue(sectionId);
         // 空 join 是 null QString（QSql 绑成 NULL 撞 NOT NULL）——钉空串；
         // 字段先转义（id/顶名可含分隔符）。
@@ -235,6 +254,12 @@ WellSectionRecord WellSectionStore::save(
         q.addBindValue(depthDomain == wellsection::DepthDomain::TVD
                            ? QStringLiteral("TVD")
                            : QStringLiteral("MD"));
+        // nullopt 落 NULL（旧行缺列同语义）；值落 'EQUAL'/'PROPORTIONAL'。
+        q.addBindValue(spacing.has_value()
+                           ? (*spacing == wellsection::SpacingMode::Proportional
+                                  ? QStringLiteral("PROPORTIONAL")
+                                  : QStringLiteral("EQUAL"))
+                           : QVariant());
         q.addBindValue(version);
         q.addBindValue(nowUtc);
         if (!q.exec())
@@ -246,6 +271,7 @@ WellSectionRecord WellSectionStore::save(
         rec.wellIds = wellIds;
         rec.linkOverrides = links;
         rec.depthDomain = depthDomain;
+        rec.spacing = spacing;
         rec.version = version;
         return rec;
     };
@@ -285,7 +311,7 @@ WellSectionRecord WellSectionStore::load(const QString &sectionId,
         return rec;
     QSqlQuery q(QSqlDatabase::database(wellSectionConnectionName(m_dbPath)));
     q.prepare(QStringLiteral(
-        "SELECT well_ids, link_overrides, depth_domain, version FROM "
+        "SELECT well_ids, link_overrides, depth_domain, spacing, version FROM "
         "well_section_edits WHERE section_id = ?"));
     q.addBindValue(sectionId);
     if (!q.exec())
@@ -316,7 +342,14 @@ WellSectionRecord WellSectionStore::load(const QString &sectionId,
     rec.depthDomain = q.value(2).toString() == QLatin1String("TVD")
                           ? wellsection::DepthDomain::TVD
                           : wellsection::DepthDomain::MD;
-    rec.version = q.value(3).toInt();
+    // spacing 可空：NULL（旧库行/显式缺省落库）→ nullopt；值域外按缺处理
+    //（坏值不冒充等距）。
+    const QString spacingText = q.value(3).toString();
+    if (spacingText == QLatin1String("PROPORTIONAL"))
+        rec.spacing = wellsection::SpacingMode::Proportional;
+    else if (spacingText == QLatin1String("EQUAL"))
+        rec.spacing = wellsection::SpacingMode::Equal;
+    rec.version = q.value(4).toInt();
     return rec;
 }
 
@@ -385,6 +418,92 @@ bool WellSectionStore::remove(const QString &sectionId, QString *error)
         return true;
     }
     return doRemove(error);
+}
+
+bool WellSectionStore::saveInterpretationSelection(const QString &wellId,
+                                                   const QString &assetId,
+                                                   QString *error)
+{
+    if (m_readOnly)
+    {
+        setError(error, QStringLiteral("WellSectionStore 只读（工程被其他实例锁定）"));
+        return false;
+    }
+    if (m_dbPath.isEmpty())
+    {
+        setError(error, QStringLiteral("WellSectionStore 未绑定工程库路径"));
+        return false;
+    }
+    const QString nowUtc =
+        QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+    const auto write = [&](QString *err) -> bool {
+        if (!wellSectionEnsureOpen(m_dbPath, err))
+            return false;
+        QSqlQuery q(
+            QSqlDatabase::database(wellSectionConnectionName(m_dbPath)));
+        if (assetId.trimmed().isEmpty())
+        {
+            // 空 = 回落默认「取最新」：删行（无行也成功——幂等）。
+            q.prepare(QStringLiteral(
+                "DELETE FROM well_litho_selection WHERE well_id = ?"));
+            q.addBindValue(wellId);
+        }
+        else
+        {
+            q.prepare(QStringLiteral(
+                "INSERT OR REPLACE INTO well_litho_selection "
+                "(well_id, asset_id, updated_utc) VALUES (?, ?, ?)"));
+            q.addBindValue(wellId);
+            q.addBindValue(assetId.trimmed());
+            q.addBindValue(nowUtc);
+        }
+        if (!q.exec())
+        {
+            setError(err, q.lastError().text());
+            return false;
+        }
+        return true;
+    };
+    if (m_store)
+    {
+        const PaleoProjectStore::WriteResult result = m_store->enqueueWrite(
+            [&write]() -> PaleoProjectStore::WriteResult {
+                QString err;
+                return write(&err)
+                           ? PaleoProjectStore::WriteResult{true, QString()}
+                           : PaleoProjectStore::WriteResult{false, err};
+            });
+        if (!result.ok)
+        {
+            setError(error, result.error);
+            return false;
+        }
+        return true;
+    }
+    return write(error);
+}
+
+QHash<QString, QString> WellSectionStore::loadInterpretationSelections(
+    QString *error) const
+{
+    QHash<QString, QString> out;
+    if (m_dbPath.isEmpty())
+    {
+        setError(error, QStringLiteral("WellSectionStore 未绑定工程库路径"));
+        return out;
+    }
+    if (!wellSectionEnsureOpen(m_dbPath, error))
+        return out;
+    QSqlQuery q(QSqlDatabase::database(wellSectionConnectionName(m_dbPath)));
+    if (!q.exec(QStringLiteral(
+            "SELECT well_id, asset_id FROM well_litho_selection")))
+    {
+        setError(error, q.lastError().text());
+        return out;
+    }
+    while (q.next())
+        out.insert(q.value(0).toString(), q.value(1).toString());
+    return out;
 }
 
 } // namespace metadata

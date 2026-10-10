@@ -481,6 +481,10 @@ void WellSectionWorkflow::attachFaciesSegments(
 // 资产取 currentVersion 版本号最新者 → resolvedVersionPath → 解析 schema 1
 // JSON → Interpreted 段（provenance 带上资产来源标注）。版本解析结果按
 // version id 缓存：共享资产的多口井不重复读盘/重复告警。
+// 来源仲裁（方向 98 显式选择）：调用方可给 wellId → assetId 选择表——
+// 选择在候选内则消费该资产（非最新亦可）；无选择/选择失效 → 默认取最新
+//（原行为不变）。多份候选时消费对象与落选对象都点名（告警 + provenance
+// 后缀——TODOS:75「落选文件无提示」收口）；单份候选零改动。
 // 第二解释源（69 扩展）：解释资产无该井段命中 → role=="cuttings" 链接
 // （岩屑录井表，readCuttingsFile）→ Interpreted 段（provenance=「岩屑录井」）。
 // 优先级（按井）：有该井段的 well_litho_intervals 解释资产 > cuttings >
@@ -488,10 +492,11 @@ void WellSectionWorkflow::attachFaciesSegments(
 class CatalogWellLithologyProvider
     : public wellsection::WellLithologyProvider {
 public:
-  CatalogWellLithologyProvider(DataCatalog *catalog,
-                               const QString &projectDir, QStringList *warnings)
+  CatalogWellLithologyProvider(
+      DataCatalog *catalog, const QString &projectDir, QStringList *warnings,
+      const QHash<QString, QString> *selection = nullptr)
       : m_catalog(catalog), m_projectDir(projectDir),
-        m_warnings(warnings) {}
+        m_warnings(warnings), m_selection(selection) {}
 
   QVector<wellsection::LithoSegment>
   lithologyFor(const QString &wellId) const override {
@@ -513,8 +518,12 @@ public:
       // 预测相不是岩性；仅有相而无岩性时仍允许读取已有解释源。
       if (hasMaintainedLithology) return segments;
     }
-    QString bestAssetId;
-    CatalogVersion best;
+    // 候选收集：interpretation 角色 + well_litho_intervals 类型 + 有版本。
+    struct Cand {
+      QString assetId, displayName;
+      CatalogVersion version;
+    };
+    QVector<Cand> cands;
     for (const EntityAssetLink &link : m_catalog->linksForEntity(wellId)) {
       if (link.role != QLatin1String("interpretation"))
         continue;
@@ -524,20 +533,88 @@ public:
       const CatalogVersion v = m_catalog->currentVersion(link.assetId);
       if (v.id.isEmpty())
         continue;
-      if (bestAssetId.isEmpty() || v.versionNumber > best.versionNumber) {
-        best = v;
-        bestAssetId = link.assetId;
+      cands.push_back({link.assetId, a.displayName, v});
+    }
+    // 仲裁（方向 98）：显式选择优先（须在候选内——资产删链后回落默认并
+    // 告警）；无选择 → 最新版本号（默认行为不变）。多份候选时消费对象与
+    // 落选对象点名（来源可见）。
+    QString chosenAssetId;
+    CatalogVersion chosen;
+    if (!cands.isEmpty()) {
+      const Cand *latest = &cands.first();
+      for (const Cand &c : cands)
+        if (c.version.versionNumber > latest->version.versionNumber)
+          latest = &c;
+      const QString wanted =
+          m_selection ? m_selection->value(wellId) : QString();
+      const Cand *picked = nullptr;
+      if (!wanted.isEmpty())
+        for (const Cand &c : cands)
+          if (c.assetId == wanted)
+            picked = &c;
+      if (picked) {
+        chosenAssetId = picked->assetId;
+        chosen = picked->version;
+      } else {
+        chosenAssetId = latest->assetId;
+        chosen = latest->version;
+        if (!wanted.isEmpty() && m_warnings)
+          *m_warnings << WellSectionWorkflow::tr(
+              "所选解释岩性资产已不在井 %1 的链接中，回落最新版本")
+                             .arg(wellId);
+      }
+      if (cands.size() > 1 && m_warnings) {
+        const auto label = [](const Cand &c) {
+          return WellSectionWorkflow::tr("%1（v%2）")
+              .arg(c.displayName.isEmpty() ? c.assetId : c.displayName)
+              .arg(c.version.versionNumber);
+        };
+        QStringList dropped;
+        for (const Cand &c : cands)
+          if (c.assetId != chosenAssetId)
+            dropped << label(c);
+        *m_warnings << (picked
+                            ? WellSectionWorkflow::tr(
+                  "井 %1 解释岩性按显式选择消费 %2；另有 %3 份落选：%4")
+                                  .arg(wellId, label(*picked))
+                                  .arg(dropped.size())
+                                  .arg(dropped.join(QStringLiteral("、")))
+                            : WellSectionWorkflow::tr(
+                  "井 %1 有 %2 份解释岩性资产，默认取最新 %3；落选：%4"
+                  "（可在剖面「解释来源」改选）")
+                                  .arg(wellId)
+                                  .arg(cands.size())
+                                  .arg(label(*latest))
+                                  .arg(dropped.join(QStringLiteral("、"))));
       }
     }
     // 第二解释源（方向 69 扩展）按井兜底：解释资产未链接、读失败（parse
     // 已告警）或不含该井段 → role=="cuttings" 链接（岩屑录井，一井一份）→
     // 无 → 静默留空（GR 回落是正常态，不告警）。cuttings 多份取
     // currentVersion 版本号最新者，与解释资产同确定性口径。
-    if (!bestAssetId.isEmpty()) {
-      const QVector<wellsection::LithoSegment> segs =
-          parse(best).byWell.value(wellId);
-      if (!segs.isEmpty())
+    if (!chosenAssetId.isEmpty()) {
+      QVector<wellsection::LithoSegment> segs =
+          parse(chosen).byWell.value(wellId);
+      if (!segs.isEmpty()) {
+        // 多份候选时 provenance 点名消费资产（题注可见具体来源）；单份
+        // 候选零改动（默认路径对拍不变）。parse 返回副本，后缀不污染缓存。
+        if (cands.size() > 1) {
+          QString displayName;
+          for (const Cand &c : cands)
+            if (c.assetId == chosenAssetId)
+              displayName = c.displayName;
+          const QString suffix =
+              WellSectionWorkflow::tr("%1（v%2）")
+                  .arg(displayName.isEmpty() ? chosenAssetId : displayName)
+                  .arg(chosen.versionNumber);
+          for (wellsection::LithoSegment &seg : segs)
+            seg.provenance = seg.provenance.isEmpty()
+                                 ? suffix
+                                 : seg.provenance + QStringLiteral(" · ") +
+                                       suffix;
+        }
         return segs;
+      }
       // 资产读失败（已告警）或无该井段：落 cuttings 兜底（不重复告警）。
     }
     return cuttingsLithologyFor(wellId);
@@ -618,6 +695,9 @@ private:
   DataCatalog *m_catalog;
   QString m_projectDir;
   QStringList *m_warnings;
+  // 方向 98 显式选择表（wellId → assetId；拥有方 WellSectionWorkflow，
+  // 指针共享——provider 构造后选择变化同样生效）。
+  const QHash<QString, QString> *m_selection = nullptr;
   mutable QHash<QString, Parsed> m_parsed;
 
   // ---- 第二解释源：岩屑录井（cuttings）文件（一井一份，readCuttingsFile） ----
@@ -744,17 +824,69 @@ private:
 // （方言表头见 cuttingsdoc.h），一井一份。
 QHash<QString, QVector<wellsection::LithoSegment>> WellSectionWorkflow::lithologiesFor(
     const QStringList &wellIds, QStringList *warnings) const {
-  CatalogWellLithologyProvider provider(m_catalog, projectDir(), warnings);
+  CatalogWellLithologyProvider provider(m_catalog, projectDir(), warnings,
+                                        &m_lithoSelection);
   QHash<QString, QVector<wellsection::LithoSegment>> result;
   for (const QString &id : wellIds) result.insert(id, provider.lithologyFor(id));
   return result;
+}
+
+QVector<WellSectionWorkflow::LithoSourceChoice>
+WellSectionWorkflow::lithoSourceChoices(const QString &wellId) const {
+  QVector<LithoSourceChoice> out;
+  if (!m_catalog)
+    return out;
+  for (const EntityAssetLink &link : m_catalog->linksForEntity(wellId)) {
+    if (link.role != QLatin1String("interpretation"))
+      continue;
+    const CatalogAsset a = m_catalog->assetById(link.assetId);
+    if (a.type != QLatin1String("well_litho_intervals"))
+      continue;
+    const CatalogVersion v = m_catalog->currentVersion(link.assetId);
+    if (v.id.isEmpty())
+      continue;
+    LithoSourceChoice c;
+    c.assetId = link.assetId;
+    c.versionNumber = v.versionNumber;
+    c.label = tr("%1（v%2）")
+                  .arg(a.displayName.isEmpty() ? link.assetId : a.displayName)
+                  .arg(v.versionNumber);
+    out.push_back(c);
+  }
+  std::sort(out.begin(), out.end(),
+            [](const LithoSourceChoice &a, const LithoSourceChoice &b) {
+              return a.versionNumber > b.versionNumber; // 最新在前
+            });
+  return out;
+}
+
+void WellSectionWorkflow::setLithoAssetSelection(const QString &wellId,
+                                                 const QString &assetId) {
+  const QString current = m_lithoSelection.value(wellId);
+  const QString next = assetId.trimmed();
+  if (next.isEmpty()) {
+    if (!m_lithoSelection.contains(wellId))
+      return; // 已是默认态
+    m_lithoSelection.remove(wellId);
+  } else {
+    if (current == next)
+      return;
+    m_lithoSelection.insert(wellId, next);
+  }
+  emit lithoSelectionChanged(wellId, next);
+}
+
+void WellSectionWorkflow::setLithoAssetSelections(
+    const QHash<QString, QString> &selection) {
+  m_lithoSelection = selection; // 恢复路径：不发 lithoSelectionChanged
 }
 
 void WellSectionWorkflow::attachLithoSegments(
     QVector<wellsection::Well> &wells, QStringList *warnings) const {
   if (!m_catalog || wells.isEmpty())
     return;
-  CatalogWellLithologyProvider provider(m_catalog, projectDir(), warnings);
+  CatalogWellLithologyProvider provider(m_catalog, projectDir(), warnings,
+                                        &m_lithoSelection);
   for (wellsection::Well &w : wells) {
     QVector<wellsection::LithoSegment> segs = provider.lithologyFor(w.id);
     if (segs.isEmpty())

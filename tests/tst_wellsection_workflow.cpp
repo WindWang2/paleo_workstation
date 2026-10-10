@@ -12,15 +12,21 @@
 #include "workflow/wellsectionworkflow.h"
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSignalSpy>
 #include <QSqlDatabase>
 #include <QSqlQuery>
+#include <QTcpServer>
+#include <QTcpSocket>
 #include <QTemporaryDir>
 #include <QTextStream>
 #include <QtEndian>
 #include <QtTest>
 #include <cmath>
 #include <cstring>
+#include <memory>
 
 namespace {
 
@@ -466,7 +472,7 @@ private slots:
     rec = store.save(QStringLiteral("default"),
                      {QStringLiteral("well-2"), QStringLiteral("well-1"),
                       QStringLiteral("well-3")},
-                     links, wellsection::DepthDomain::MD, &err);
+                     links, wellsection::DepthDomain::MD, std::nullopt, &err);
     QVERIFY2(rec.valid(), qPrintable(err));
     QCOMPARE(rec.version, 1);
 
@@ -488,7 +494,7 @@ private slots:
     links[0].connected = true;
     rec = reopened.save(QStringLiteral("default"),
                         {QStringLiteral("well-3"), QStringLiteral("well-1")},
-                        links, wellsection::DepthDomain::MD, &err);
+                        links, wellsection::DepthDomain::MD, std::nullopt, &err);
     QCOMPARE(rec.version, 2);
     auto rec2 = reopened.load(QStringLiteral("default"), &err);
     QCOMPARE(rec2.version, 2);
@@ -498,7 +504,7 @@ private slots:
     // 多节互不干扰：另一节 id 各自版本从 1 起。
     rec = reopened.save(QStringLiteral("fence-1"),
                         {QStringLiteral("well-1")}, {},
-                        wellsection::DepthDomain::MD, &err);
+                        wellsection::DepthDomain::MD, std::nullopt, &err);
     QCOMPARE(rec.version, 1);
     QCOMPARE(reopened.load(QStringLiteral("default"), &err).version, 2);
 
@@ -512,7 +518,7 @@ private slots:
         QStringLiteral("default"),
         {QStringLiteral("well,a"), QStringLiteral("well;b"),
          QStringLiteral("w|3"), QStringLiteral("w;4")},
-        weird, wellsection::DepthDomain::MD, &err);
+        weird, wellsection::DepthDomain::MD, std::nullopt, &err);
     QVERIFY(escRec.valid());
     QCOMPARE(escRec.version, 3); // default 节第三次落盘
     const auto escBack =
@@ -569,7 +575,7 @@ private slots:
     // 存 TVD → 重开新实例读回 TVD（工程级 round-trip）。
     rec = store.save(QStringLiteral("default"),
                      {QStringLiteral("well-1"), QStringLiteral("well-2")}, {},
-                     wellsection::DepthDomain::TVD, &err);
+                     wellsection::DepthDomain::TVD, std::nullopt, &err);
     QVERIFY2(rec.valid(), qPrintable(err));
     QCOMPARE(rec.depthDomain, wellsection::DepthDomain::TVD);
     metadata::WellSectionStore reopened(dbPath);
@@ -578,7 +584,7 @@ private slots:
     // 缺省参数 = MD（不显式给域时落 MD）。
     rec = reopened.save(QStringLiteral("fence-1"),
                         {QStringLiteral("well-1")}, {},
-                        wellsection::DepthDomain::MD, &err);
+                        wellsection::DepthDomain::MD, std::nullopt, &err);
     QVERIFY(rec.valid());
     QCOMPARE(reopened.load(QStringLiteral("fence-1"), &err).depthDomain,
              wellsection::DepthDomain::MD);
@@ -597,7 +603,7 @@ private slots:
     QCOMPARE(rec.version, 0);
     QCOMPARE(rec.depthDomain, wellsection::DepthDomain::MD); // 结构缺省
     rec = fresh.save(QStringLiteral("default"), {QStringLiteral("well-1")},
-                     {}, wellsection::DepthDomain::MD, &err);
+                     {}, wellsection::DepthDomain::MD, std::nullopt, &err);
     QVERIFY2(rec.valid(), qPrintable(err)); // 显式 MD = 有效工程级状态
     QCOMPARE(fresh.load(QStringLiteral("default"), &err).depthDomain,
              wellsection::DepthDomain::MD);
@@ -1351,12 +1357,12 @@ private slots:
     QString err;
     QVERIFY2(store.open(&err), qPrintable(err));
     store.save(QStringLiteral("default"), {QStringLiteral("well-1")}, {},
-               wellsection::DepthDomain::MD, &err);
+               wellsection::DepthDomain::MD, std::nullopt, &err);
     store.save(QStringLiteral("fence-1"), {QStringLiteral("well-1"),
                                            QStringLiteral("well-2")},
-               {}, wellsection::DepthDomain::MD, &err);
+               {}, wellsection::DepthDomain::MD, std::nullopt, &err);
     store.save(QStringLiteral("fence-2"), {QStringLiteral("well-3")}, {},
-               wellsection::DepthDomain::MD, &err);
+               wellsection::DepthDomain::MD, std::nullopt, &err);
     const QStringList ids = store.sectionIds(&err);
     QCOMPARE(ids, QStringList({QStringLiteral("default"),
                                QStringLiteral("fence-1"),
@@ -1569,6 +1575,457 @@ private slots:
     QVERIFY(strip.clip > 0.0f);
     QVERIFY(std::isfinite(gap.sampleAt(0.0, 50.0)));
     QVERIFY(std::isfinite(gap.sampleAt(1.0, 50.0)));
+  }
+
+  // ---- 方向 98 ②：store 间距契约（可空列——「缺」与「等距」可区分）----
+  void sectionStoreSpacingContract() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString dbPath =
+        QDir(dir.path()).filePath(QStringLiteral("sp.project.sqlite"));
+    metadata::WellSectionStore store(dbPath);
+    QString err;
+    QVERIFY2(store.open(&err), qPrintable(err));
+    // 域 + 间距 round-trip。
+    auto rec = store.save(QStringLiteral("fence-1"),
+                          {QStringLiteral("well-1")}, {},
+                          wellsection::DepthDomain::TVD,
+                          wellsection::SpacingMode::Proportional, &err);
+    QVERIFY2(rec.valid(), qPrintable(err));
+    QCOMPARE(rec.depthDomain, wellsection::DepthDomain::TVD);
+    QVERIFY(rec.spacing.has_value());
+    QCOMPARE(*rec.spacing, wellsection::SpacingMode::Proportional);
+    const auto loaded = store.load(QStringLiteral("fence-1"), &err);
+    QCOMPARE(loaded.depthDomain, wellsection::DepthDomain::TVD);
+    QVERIFY(loaded.spacing.has_value());
+    QCOMPARE(*loaded.spacing, wellsection::SpacingMode::Proportional);
+    // 缺省 spacing 落库 = NULL：读回 nullopt（方向 98 前旧库行同语义——
+    // 调用方据此回落当前状态并如实标注，不拿 Equal 冒充存档）。
+    rec = store.save(QStringLiteral("fence-2"),
+                     {QStringLiteral("well-2")}, {},
+                     wellsection::DepthDomain::MD, std::nullopt, &err);
+    QVERIFY2(rec.valid(), qPrintable(err));
+    QVERIFY(!rec.spacing.has_value());
+    QVERIFY(!store.load(QStringLiteral("fence-2"), &err).spacing.has_value());
+    // 存等距再改缺档 → 覆盖 + 版本推进 + nullopt 语义恒定。
+    rec = store.save(QStringLiteral("fence-2"),
+                     {QStringLiteral("well-2")}, {},
+                     wellsection::DepthDomain::MD,
+                     wellsection::SpacingMode::Equal, &err);
+    QCOMPARE(rec.version, 2);
+    const auto updated = store.load(QStringLiteral("fence-2"), &err);
+    QVERIFY(updated.spacing.has_value());
+    QCOMPARE(*updated.spacing, wellsection::SpacingMode::Equal);
+    rec = store.save(QStringLiteral("fence-2"),
+                     {QStringLiteral("well-2")}, {},
+                     wellsection::DepthDomain::MD, std::nullopt, &err);
+    QVERIFY(!store.load(QStringLiteral("fence-2"), &err).spacing.has_value());
+  }
+
+  // ---- 方向 98 ③：多解释来源仲裁——显式选择 + 默认最新对拍 + 落选可见 ----
+  void lithoSourceSelectionArbitration() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    DataCatalog cat;
+    QString err;
+    QVERIFY2(cat.open(dir.path(), &err), qPrintable(err));
+    QVERIFY2(buildCatalog(cat, QDir(dir.path()), &err), qPrintable(err));
+
+    // 种子一份解释资产（版本号 + 段深 + 词面 + 模型名可参数化）。
+    const auto seedAsset = [&dir](DataCatalog &c, const QString &assetId,
+                                  const QString &displayName, int version,
+                                  double top, double base,
+                                  const QString &litho, const QString &model,
+                                  QString *e) {
+      const QString path =
+          QDir(dir.path()).filePath(assetId + QStringLiteral(".json"));
+      if (!writeText(path,
+                     QStringLiteral(
+                         "{\"schema\":1,"
+                         "\"provenance\":{\"source\":\"welllogfacies\","
+                         "\"modelName\":\"%1\",\"modelVersion\":\"v%2\"},"
+                         "\"intervals\":[{\"wellId\":\"well-1\","
+                         "\"top\":%3,\"base\":%4,\"litho\":\"%5\"}]}")
+                         .arg(model)
+                         .arg(version)
+                         .arg(top)
+                         .arg(base)
+                         .arg(litho)))
+        return false;
+      CatalogAsset a;
+      a.id = assetId;
+      a.type = QStringLiteral("well_litho_intervals");
+      a.format = QStringLiteral("json");
+      a.displayName = displayName;
+      if (!c.addAsset(a, e))
+        return false;
+      CatalogVersion v;
+      v.id = QStringLiteral("v-") + assetId;
+      v.assetId = a.id;
+      v.managed = false;
+      v.path = path;
+      v.stage = QStringLiteral("DERIVED");
+      v.versionNumber = version;
+      if (!c.addVersion(v, e))
+        return false;
+      EntityAssetLink l;
+      l.entityType = QStringLiteral("well");
+      l.entityId = QStringLiteral("well-1");
+      l.assetId = a.id;
+      l.role = QStringLiteral("interpretation");
+      return c.addLink(l, e);
+    };
+    // 两份同井解释资产：v1 细砂岩 100-150（模型甲）/ v2 泥岩 200-250
+    //（模型乙）——默认仲裁取 v2。
+    QVERIFY2(seedAsset(cat, QStringLiteral("li-old"), QStringLiteral("解释1"),
+                       1, 100, 150, QStringLiteral("细砂岩"),
+                       QStringLiteral("模型甲"), &err),
+             qPrintable(err));
+    QVERIFY2(seedAsset(cat, QStringLiteral("li-new"), QStringLiteral("解释2"),
+                       2, 200, 250, QStringLiteral("泥岩"),
+                       QStringLiteral("模型乙"), &err),
+             qPrintable(err));
+
+    // 消费一次（无任务服务 → 同步 emit；QCOMPARE 宏内含 return;，不可进
+    // 非 void lambda——断言移到调用侧）。
+    const auto consume =
+        [](WellSectionWorkflow &wf,
+           QStringList *warnings) -> QVector<wellsection::LithoSegment> {
+          QSignalSpy spy(&wf, &WellSectionWorkflow::sectionReady);
+          wf.request({QStringLiteral("well-1")}, {});
+          *warnings = spy[0][2].toStringList();
+          return spy[0][1].value<QVector<wellsection::Well>>().first().litho;
+        };
+    // needle 是源码 UTF-8 字面——fromUtf8 解码（QLatin1String 会把多字节
+    // 中文按单字节 Latin-1 误读，恒不命中）。
+    const auto hasWarning = [](const QStringList &ws, const char *needle) {
+      for (const QString &w : ws)
+        if (w.contains(QString::fromUtf8(needle)))
+          return true;
+      return false;
+    };
+
+    // 1) 默认仲裁对拍不变：取最新（v2 泥岩 200-250），段值与旧口径一致；
+    //    新增可见面：告警点名消费对象 + 落选对象，provenance 点名消费资产。
+    {
+      WellSectionWorkflow wf(&cat);
+      QStringList warnings;
+      const auto segs = consume(wf, &warnings);
+      QCOMPARE(segs.size(), 1);
+      QCOMPARE(segs[0].litho, QStringLiteral("泥岩"));
+      QCOMPARE(segs[0].topMd, 200.0);
+      QCOMPARE(segs[0].baseMd, 250.0);
+      QVERIFY2(hasWarning(warnings, "默认取最新"),
+               qPrintable(QStringLiteral("多份候选默认路径要点名消费对象；实得告警：%1")
+                              .arg(warnings.join(QStringLiteral(" | ")))));
+      QVERIFY2(hasWarning(warnings, "解释1（v1）"),
+               "落选资产要进告警（TODOS:75 无提示收口）");
+      QCOMPARE(segs[0].provenance,
+               QStringLiteral("welllogfacies 模型乙 v2 · 解释2（v2）"));
+      // 候选枚举面：版本降序（最新在前），label 与告警/题注同名。
+      const auto choices = wf.lithoSourceChoices(QStringLiteral("well-1"));
+      QCOMPARE(choices.size(), 2);
+      QCOMPARE(choices.first().assetId, QStringLiteral("li-new"));
+      QVERIFY(choices.first().label.contains(QStringLiteral("解释2")));
+    }
+
+    // 2) 显式选择 v1：消费切到旧资产；告警点名选择与落选；信号发出；
+    //    选择失效回落默认 + 告警；清空选择回默认仲裁。
+    {
+      WellSectionWorkflow wf(&cat);
+      QSignalSpy selSpy(&wf, &WellSectionWorkflow::lithoSelectionChanged);
+      wf.setLithoAssetSelection(QStringLiteral("well-1"),
+                                QStringLiteral("li-old"));
+      QCOMPARE(selSpy.size(), 1);
+      QCOMPARE(selSpy[0][0].toString(), QStringLiteral("well-1"));
+      QCOMPARE(selSpy[0][1].toString(), QStringLiteral("li-old"));
+      QStringList warnings;
+      const auto segs = consume(wf, &warnings);
+      QCOMPARE(segs.size(), 1);
+      QCOMPARE(segs[0].litho, QStringLiteral("细砂岩"));
+      QCOMPARE(segs[0].topMd, 100.0);
+      QVERIFY2(hasWarning(warnings, "显式选择"), "选择路径要可追溯");
+      QVERIFY2(hasWarning(warnings, "解释2（v2）"), "落选要点名");
+      QVERIFY2(segs[0].provenance.endsWith(QStringLiteral("解释1（v1）")),
+               qPrintable(segs[0].provenance));
+
+      wf.setLithoAssetSelection(QStringLiteral("well-1"),
+                                QStringLiteral("li-ghost"));
+      warnings.clear();
+      const auto fallback = consume(wf, &warnings);
+      QCOMPARE(fallback.first().litho, QStringLiteral("泥岩"));
+      QVERIFY2(hasWarning(warnings, "回落最新版本"), "失效选择要如实告警");
+
+      selSpy.clear();
+      wf.setLithoAssetSelection(QStringLiteral("well-1"), QString());
+      QCOMPARE(selSpy.size(), 1);
+      QCOMPARE(consume(wf, &warnings).first().litho,
+               QStringLiteral("泥岩"));
+    }
+
+    // 3) 选择持久化 round-trip（store 表）：落库 → 新 workflow 灌入恢复
+    //    → 消费与显式选择一致；清空选择（空 assetId）= 删行（幂等）。
+    {
+      const QString dbPath = QDir(dir.path()).filePath(QStringLiteral(
+          "sel.project.sqlite"));
+      metadata::WellSectionStore store(dbPath);
+      QString storeErr;
+      QVERIFY2(store.open(&storeErr), qPrintable(storeErr));
+      QVERIFY(store.loadInterpretationSelections(&storeErr).isEmpty());
+      QVERIFY2(store.saveInterpretationSelection(
+                   QStringLiteral("well-1"), QStringLiteral("li-old"),
+                   &storeErr),
+               qPrintable(storeErr));
+      const auto saved = store.loadInterpretationSelections(&storeErr);
+      QCOMPARE(saved.value(QStringLiteral("well-1")),
+               QStringLiteral("li-old"));
+      WellSectionWorkflow restored(&cat);
+      restored.setLithoAssetSelections(saved); // 恢复路径不发信号
+      QStringList warnings;
+      QCOMPARE(restored.lithoAssetSelections().value(
+                   QStringLiteral("well-1")),
+               QStringLiteral("li-old"));
+      QCOMPARE(consume(restored, &warnings).first().litho,
+               QStringLiteral("细砂岩"));
+      QVERIFY2(store.saveInterpretationSelection(
+                   QStringLiteral("well-1"), QString(), &storeErr),
+               qPrintable(storeErr));
+      QVERIFY(store.loadInterpretationSelections(&storeErr).isEmpty());
+      QVERIFY2(store.saveInterpretationSelection(
+                   QStringLiteral("well-1"), QString(), &storeErr),
+               qPrintable(storeErr)); // 再删幂等
+    }
+
+    // 4) 单份候选零改动（默认行为对拍）：无新增告警、provenance 无后缀
+    //    ——与方向 69 口径逐字一致。
+    {
+      QTemporaryDir d2;
+      DataCatalog c2;
+      QString e2;
+      QVERIFY2(c2.open(d2.path(), &e2), qPrintable(e2));
+      QVERIFY2(buildCatalog(c2, QDir(d2.path()), &e2), qPrintable(e2));
+      QVERIFY2(seedAsset(c2, QStringLiteral("li-only"),
+                         QStringLiteral("唯一解释"), 3, 10, 20,
+                         QStringLiteral("细砂岩"), QStringLiteral("模型甲"),
+                         &e2),
+               qPrintable(e2));
+      WellSectionWorkflow wf(&c2);
+      QStringList warnings;
+      const auto segs = consume(wf, &warnings);
+      QCOMPARE(segs.first().litho, QStringLiteral("细砂岩"));
+      QCOMPARE(segs.first().provenance,
+               QStringLiteral("welllogfacies 模型甲 v3")); // 无 · 后缀
+      QVERIFY(!hasWarning(warnings, "默认取最新"));
+      QVERIFY(!hasWarning(warnings, "落选"));
+    }
+  }
+
+  // ---- 方向 98 ④：completed 信号 → 缓存落盘 → publishLithoAsset →
+  // catalog 登记 → 剖面消费 全链（TODOS:76-78 缺的端到端缝）----
+  void wellFaciesCompletedPublishE2E() {
+    // 本机极小 HTTP 服务（models + predict 同步 200 completed）——与
+    // tst_wellfacies 同款模式，只留本链需要的最小面。
+    class MiniServer {
+      public:
+        QTcpServer server;
+        MiniServer() {
+          server.listen(QHostAddress::LocalHost);
+          QObject::connect(&server, &QTcpServer::newConnection, &server,
+                           [this] {
+                             while (server.hasPendingConnections()) {
+                               auto *s = server.nextPendingConnection();
+                               auto buffer = std::make_shared<QByteArray>();
+                               QObject::connect(s, &QTcpSocket::disconnected,
+                                                s, &QObject::deleteLater);
+                               QObject::connect(
+                                   s, &QTcpSocket::readyRead, s,
+                                   [this, s, buffer] {
+                                     *buffer += s->readAll();
+                                     const auto end =
+                                         buffer->indexOf("\r\n\r\n");
+                                     if (end < 0)
+                                       return;
+                                     const QByteArray request = *buffer;
+                                     buffer->clear();
+                                     const auto path =
+                                         request.split(' ').value(1);
+                                     QJsonObject json;
+                                     if (path.endsWith("/models")) {
+                                       json = QJsonObject{
+                                           {"models",
+                                            QJsonArray{QJsonObject{
+                                                {"id", "model-1"},
+                                                {"name",
+                                                 QStringLiteral("测试微相")},
+                                                {"version", "v1"},
+                                                {"inputSchema",
+                                                 QJsonObject{
+                                                     {"formationGroup",
+                                                      QStringLiteral(
+                                                          "恩平组")},
+                                                     {"curves",
+                                                      QJsonArray{"GR"}},
+                                                     {"categoricalFields",
+                                                      QJsonArray{
+                                                          QStringLiteral(
+                                                              "段"),
+                                                          QStringLiteral(
+                                                              "岩性")}},
+                                                     {"window", 128}}}}}}};
+                                     } else {
+                                       // predict：128 行全标「河口坝」→ 一段。
+                                       QJsonArray preds;
+                                       for (int i = 0; i < 128; ++i)
+                                         preds.append(QJsonObject{
+                                             {"wellName",
+                                              QStringLiteral("A1")},
+                                             {"depth", 1000.0 + i * 0.125},
+                                             {"label",
+                                              QStringLiteral("河口坝")},
+                                             {"confidence", 0.9}});
+                                       json = QJsonObject{
+                                           {"jobId", "job-e2e"},
+                                           {"status", "completed"},
+                                           {"model",
+                                            QJsonObject{
+                                                {"name",
+                                                 QStringLiteral("测试微相")},
+                                                {"version", "v1"}}},
+                                           {"predictions", preds}};
+                                     }
+                                     const QByteArray payload =
+                                         QJsonDocument(json)
+                                             .toJson(QJsonDocument::Compact);
+                                     s->write(
+                                         "HTTP/1.1 200 OK\r\nContent-Type: "
+                                         "application/json\r\nConnection: "
+                                         "close\r\nContent-Length: " +
+                                         QByteArray::number(payload.size()) +
+                                         "\r\n\r\n" + payload);
+                                     s->disconnectFromHost();
+                                   });
+                             }
+                           });
+        }
+        WellFaciesConfig config() const {
+          WellFaciesConfig c;
+          c.baseUrl = QUrl(QStringLiteral("http://127.0.0.1:%1/api/v1")
+                               .arg(server.serverPort()));
+          c.apiKey = "test-key";
+          return c;
+        }
+    };
+    MiniServer server;
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    DataCatalog cat;
+    QString err;
+    QVERIFY2(cat.open(dir.path(), &err), qPrintable(err));
+    QVERIFY2(buildCatalog(cat, QDir(dir.path()), &err), qPrintable(err));
+
+    // 井数据：满足模型输入（GR 128 点 + 恩平组/段 + 岩性 + 相），井名 A1
+    // 在 catalog 唯一解析到 well-1。
+    WellComposite::ComprehensiveWellData data;
+    data.wellName = QStringLiteral("A1");
+    data.minDepth = 1000;
+    data.maxDepth = 1016;
+    WellComposite::CurveData gr;
+    gr.name = "GR";
+    gr.unit = "API";
+    for (int i = 0; i < 128; ++i) {
+      gr.depths.append(1000 + i * 0.125f);
+      gr.values.append(80 + i * 0.1f);
+    }
+    data.continuousCurves = {gr};
+    WellComposite::FormationInterval group;
+    group.name = QStringLiteral("恩平组");
+    group.unitType = QStringLiteral("组");
+    group.topDepth = 1000;
+    group.bottomDepth = 1016;
+    auto member = group;
+    member.name = QStringLiteral("恩平一段");
+    member.unitType = QStringLiteral("段");
+    data.formationIntervals = {group, member};
+    WellComposite::LithologyInterval lith;
+    lith.topDepth = 1000;
+    lith.bottomDepth = 1016;
+    lith.lithoName = QStringLiteral("细砂岩");
+    data.lithologyIntervals = {lith};
+    WellComposite::FaciesInterval observed;
+    observed.topDepth = 1000;
+    observed.bottomDepth = 1016;
+    observed.microFacies = QStringLiteral("原解释");
+    data.faciesIntervals = {observed};
+
+    // 全链驱动：configure（不落盘）→ setData（触发模型拉取）→ run →
+    // 服务 completed → workflow 缓存落盘 + publish + 状态行（TODOS:76-78）。
+    WellFaciesWorkflow faciesWf;
+    QSignalSpy statusSpy(&faciesWf, &WellFaciesWorkflow::statusChanged);
+    QSignalSpy readySpy(&faciesWf, &WellFaciesWorkflow::resultReady);
+    QSignalSpy availSpy(&faciesWf,
+                        &WellFaciesWorkflow::availabilityChanged);
+    faciesWf.configure(server.config(), /*persist=*/false);
+    faciesWf.setCatalog(&cat);
+    faciesWf.setData(data);
+    // 输入就绪（模型表到达 + 输入契约满足）——run 的门禁前提。
+    QTRY_VERIFY_WITH_TIMEOUT(
+        [&] {
+          for (const auto &a : availSpy)
+            if (a.at(0).toBool() && a.at(1).toString().isEmpty())
+              return true;
+          return false;
+        }(),
+        20000);
+    faciesWf.run();
+    bool done = false;
+    QTRY_VERIFY_WITH_TIMEOUT(
+        [&] {
+          for (const auto &s : statusSpy)
+            if (s.at(0).toString().contains(QStringLiteral("预测完成")))
+              done = true;
+          return done;
+        }(),
+        20000);
+    QVERIFY(done);
+    QVERIFY(readySpy.size() >= 1);
+    QString finalNote;
+    for (const auto &s : statusSpy) {
+      const QString msg = s.at(0).toString();
+      if (msg.contains(QStringLiteral("预测完成")))
+        finalNote = msg;
+    }
+    QVERIFY2(finalNote.contains(QStringLiteral("结果已保存")),
+             qPrintable(finalNote)); // 缓存写入（不是保存失败措辞）
+    QVERIFY2(finalNote.contains(QStringLiteral("地质成果已保存")),
+             qPrintable(finalNote)); // publishLithoAsset 空返回 + catalog 绑定
+
+    // catalog 登记：DERIVED 资产 + per-well interpretation 链接。
+    QVector<CatalogAsset> lithoAssets;
+    for (const CatalogAsset &a : cat.assets())
+      if (a.type == QLatin1String("well_litho_intervals"))
+        lithoAssets << a;
+    QCOMPARE(lithoAssets.size(), 1);
+    bool linked = false;
+    for (const EntityAssetLink &l :
+         cat.linksForEntity(QStringLiteral("well-1")))
+      linked = linked || (l.assetId == lithoAssets.first().id &&
+                          l.role == QLatin1String("interpretation"));
+    QVERIFY2(linked, "completed 链必须落 per-well interpretation 链接");
+
+    // 消费面：剖面按井链接吃到预测段（河口坝 1000-1016，带来源标注）。
+    WellSectionWorkflow wf(&cat);
+    QSignalSpy sectionSpy(&wf, &WellSectionWorkflow::sectionReady);
+    wf.request({QStringLiteral("well-1")}, {});
+    QCOMPARE(sectionSpy.size(), 1);
+    const auto wells = sectionSpy[0][1].value<QVector<wellsection::Well>>();
+    QCOMPARE(wells.first().litho.size(), 1);
+    QCOMPARE(wells.first().litho.first().litho, QStringLiteral("河口坝"));
+    QCOMPARE(wells.first().litho.first().topMd, 1000.0);
+    QCOMPARE(wells.first().litho.first().source,
+             wellsection::LithoSource::Interpreted);
+    QCOMPARE(wells.first().litho.first().provenance,
+             QStringLiteral("welllogfacies 测试微相 v1"));
   }
 };
 

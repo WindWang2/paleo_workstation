@@ -3,7 +3,12 @@
 
 #include "domain/deviationsurvey.h"
 
+#include <QElapsedTimer>
+#include <QRandomGenerator>
+
+#include <algorithm>
 #include <cmath>
+#include <limits>
 #include <numbers>
 
 using paleo::DeviationStation;
@@ -11,6 +16,9 @@ using paleo::TrajectoryPoint;
 using paleo::WellDeviationSurvey;
 
 constexpr double kPi = std::numbers::pi;
+
+// 比率门防优化汇（消费面在测试槽的 isfinite 断言）。
+double g_perfSink = 0.0;
 
 namespace
 {
@@ -30,6 +38,349 @@ void appendStations(QVector<DeviationStation> &out,
     const double azi = *it++;
     out.append(st(md, incl, azi));
   }
+}
+} // namespace
+
+// ---------------------------------------------------------------------------
+// 方向 98 治本对拍基准：治本前实现（pointAt 线性扫段 + tvdToMd 逐调用重算
+// 段几何/切分）逐字拷贝，只依赖 stations()/points() 公共面。治本版与基准
+// 必须逐位一致（等价重构红线——含 NaN/边界路径）。缓存策略再变更时本基准
+// 仍是同一条对拍口径。
+// ---------------------------------------------------------------------------
+namespace {
+constexpr double kDeg2RadRef = kPi / 180.0;
+
+void refSegmentIncrement(double dMd, double i1Deg, double a1Deg, double i2Deg,
+                         double a2Deg, double *dTvd, double *dNorth,
+                         double *dEast)
+{
+  const double i1 = i1Deg * kDeg2RadRef;
+  const double i2 = i2Deg * kDeg2RadRef;
+  const double a1 = a1Deg * kDeg2RadRef;
+  const double a2 = a2Deg * kDeg2RadRef;
+
+  double cosBeta = std::cos(i1) * std::cos(i2) +
+                   std::sin(i1) * std::sin(i2) * std::cos(a2 - a1);
+  cosBeta = std::min(1.0, std::max(-1.0, cosBeta));
+  const double beta = std::acos(cosBeta);
+
+  double rf = 1.0;
+  if (beta > 1e-9)
+    rf = (2.0 / beta) * std::tan(beta * 0.5);
+
+  *dTvd = 0.5 * dMd * (std::cos(i1) + std::cos(i2)) * rf;
+  *dNorth = 0.5 * dMd * (std::sin(i1) * std::cos(a1) + std::sin(i2) * std::cos(a2)) * rf;
+  *dEast = 0.5 * dMd * (std::sin(i1) * std::sin(a1) + std::sin(i2) * std::sin(a2)) * rf;
+}
+
+double refWrappedAzimuthDelta(double a1Deg, double a2Deg)
+{
+  double d = std::fmod(a2Deg - a1Deg, 360.0);
+  if (d <= -180.0)
+    d += 360.0;
+  else if (d > 180.0)
+    d -= 360.0;
+  return d;
+}
+
+struct RefFrame
+{
+  double t1[3] = {0, 0, 0};
+  double n[3] = {0, 0, 0};
+  double beta = 0.0;
+  bool straight = false;
+  bool reversal = false;
+};
+
+void refUnitTangent(double incDeg, double aziDeg, double out[3])
+{
+  const double i = incDeg * kDeg2RadRef;
+  const double a = aziDeg * kDeg2RadRef;
+  out[0] = std::sin(i) * std::cos(a);
+  out[1] = std::sin(i) * std::sin(a);
+  out[2] = std::cos(i);
+}
+
+RefFrame refArcFrame(const DeviationStation &a, const DeviationStation &b)
+{
+  RefFrame f;
+  double t2[3];
+  refUnitTangent(a.inclinationDeg, a.azimuthDeg, f.t1);
+  refUnitTangent(b.inclinationDeg, b.azimuthDeg, t2);
+  double c = f.t1[0] * t2[0] + f.t1[1] * t2[1] + f.t1[2] * t2[2];
+  c = std::min(1.0, std::max(-1.0, c));
+  f.beta = std::acos(c);
+  const double sb = std::sin(f.beta);
+  if (f.beta < 1e-9)
+  {
+    f.straight = true;
+    return f;
+  }
+  if (sb < 1e-9)
+  {
+    f.reversal = true;
+    return f;
+  }
+  for (int k = 0; k < 3; ++k)
+    f.n[k] = (t2[k] - c * f.t1[k]) / sb;
+  return f;
+}
+
+struct RefSurvey
+{
+  QVector<DeviationStation> stations;
+  QVector<TrajectoryPoint> points;
+
+  explicit RefSurvey(const WellDeviationSurvey &s)
+      : stations(s.stations()), points(s.points()) {}
+
+  TrajectoryPoint pointAt(double md) const
+  {
+    TrajectoryPoint p;
+    p.md = md;
+    if (stations.isEmpty())
+    {
+      p.tvd = p.north = p.east = std::numeric_limits<double>::quiet_NaN();
+      return p;
+    }
+    if (!std::isfinite(md))
+    {
+      p.tvd = p.north = p.east = std::numeric_limits<double>::quiet_NaN();
+      return p;
+    }
+
+    const DeviationStation &first = stations.constFirst();
+    if (md <= first.md)
+    {
+      const double i = first.inclinationDeg * kDeg2RadRef;
+      const double a = first.azimuthDeg * kDeg2RadRef;
+      p.tvd = md * std::cos(i);
+      p.north = md * std::sin(i) * std::cos(a);
+      p.east = md * std::sin(i) * std::sin(a);
+      return p;
+    }
+    const DeviationStation &last = stations.constLast();
+    if (md >= last.md)
+    {
+      const TrajectoryPoint &lp = points.constLast();
+      const double i = last.inclinationDeg * kDeg2RadRef;
+      const double a = last.azimuthDeg * kDeg2RadRef;
+      const double d = md - last.md;
+      p.tvd = lp.tvd + d * std::cos(i);
+      p.north = lp.north + d * std::sin(i) * std::cos(a);
+      p.east = lp.east + d * std::sin(i) * std::sin(a);
+      return p;
+    }
+
+    for (int i = 1; i < stations.size(); ++i)
+    {
+      const DeviationStation &a = stations.at(i - 1);
+      const DeviationStation &b = stations.at(i);
+      if (md == b.md)
+        return points.at(i);
+      if (md <= b.md)
+      {
+        const double span = b.md - a.md;
+        const double t = (md - a.md) / span;
+        const TrajectoryPoint &base = points.at(i - 1);
+        const RefFrame f = refArcFrame(a, b);
+        if (!f.reversal)
+        {
+          double dN, dE, dV;
+          if (f.straight)
+          {
+            const double s = t * span;
+            dN = s * f.t1[0];
+            dE = s * f.t1[1];
+            dV = s * f.t1[2];
+          }
+          else
+          {
+            const double r = span / f.beta;
+            const double phi = t * f.beta;
+            const double sp = std::sin(phi), cp = 1.0 - std::cos(phi);
+            dN = r * (sp * f.t1[0] + cp * f.n[0]);
+            dE = r * (sp * f.t1[1] + cp * f.n[1]);
+            dV = r * (sp * f.t1[2] + cp * f.n[2]);
+          }
+          p.tvd = base.tvd + dV;
+          p.north = base.north + dN;
+          p.east = base.east + dE;
+          return p;
+        }
+        const double iEnd = a.inclinationDeg +
+                            t * (b.inclinationDeg - a.inclinationDeg);
+        const double aEnd =
+            a.azimuthDeg + t * refWrappedAzimuthDelta(a.azimuthDeg, b.azimuthDeg);
+        double dTvd = 0, dNorth = 0, dEast = 0;
+        refSegmentIncrement(t * span, a.inclinationDeg, a.azimuthDeg, iEnd,
+                            aEnd, &dTvd, &dNorth, &dEast);
+        p.tvd = base.tvd + dTvd;
+        p.north = base.north + dNorth;
+        p.east = base.east + dEast;
+        return p;
+      }
+    }
+    return points.constLast();
+  }
+
+  double tvdToMd(double tvd) const
+  {
+    if (stations.isEmpty() || !std::isfinite(tvd))
+      return std::numeric_limits<double>::quiet_NaN();
+
+    const DeviationStation &first = stations.constFirst();
+    const TrajectoryPoint &fp = points.constFirst();
+    const double cFirst = std::cos(first.inclinationDeg * kDeg2RadRef);
+    if (cFirst > 1e-9 && tvd <= fp.tvd)
+      return tvd / cFirst;
+
+    const auto bisect = [this, tvd](double m0, double m1, double t0, double t1) {
+      if (std::fabs(t1 - t0) <= 1e-12)
+        return m0;
+      const bool increasing = t1 > t0;
+      double lo = m0, hi = m1;
+      for (int iter = 0; iter < 100; ++iter)
+      {
+        const double mid = 0.5 * (lo + hi);
+        const double v = pointAt(mid).tvd;
+        if ((v < tvd) == increasing)
+          lo = mid;
+        else
+          hi = mid;
+      }
+      return 0.5 * (lo + hi);
+    };
+    const auto within = [tvd](double t0, double t1) {
+      const double lo = std::min(t0, t1), hi = std::max(t0, t1);
+      const double eps = 1e-9 * std::max(1.0, std::fabs(tvd));
+      return tvd >= lo - eps && tvd <= hi + eps;
+    };
+
+    double deepestMd = fp.md;
+    double deepestTvd = fp.tvd;
+    for (int i = 1; i < points.size(); ++i)
+    {
+      const DeviationStation &sa = stations.at(i - 1);
+      const DeviationStation &sb = stations.at(i);
+      const TrajectoryPoint &a = points.at(i - 1);
+      const TrajectoryPoint &b = points.at(i);
+      double split = std::numeric_limits<double>::quiet_NaN();
+      const RefFrame f = refArcFrame(sa, sb);
+      if (!f.straight && !f.reversal)
+      {
+        double phi = std::atan2(-f.t1[2], f.n[2]);
+        if (phi < 0.0)
+          phi += kPi;
+        if (phi > 1e-12 && phi < f.beta - 1e-12)
+          split = a.md + phi / f.beta * (b.md - a.md);
+      }
+      else if (f.reversal)
+      {
+        double best = a.tvd;
+        for (int k = 1; k < 64; ++k)
+        {
+          const double m = a.md + (b.md - a.md) * k / 64.0;
+          const double v = pointAt(m).tvd;
+          if ((b.tvd >= a.tvd) ? v < best : v > best)
+          {
+            best = v;
+            split = m;
+          }
+        }
+      }
+      double m0 = a.md, t0 = a.tvd;
+      if (std::isfinite(split))
+      {
+        const double ts = pointAt(split).tvd;
+        if (ts > deepestTvd)
+        {
+          deepestTvd = ts;
+          deepestMd = split;
+        }
+        if (within(t0, ts))
+          return bisect(m0, split, t0, ts);
+        m0 = split;
+        t0 = ts;
+      }
+      if (b.tvd > deepestTvd)
+      {
+        deepestTvd = b.tvd;
+        deepestMd = b.md;
+      }
+      if (within(t0, b.tvd))
+        return bisect(m0, b.md, t0, b.tvd);
+    }
+
+    const DeviationStation &last = stations.constLast();
+    const TrajectoryPoint &lp = points.constLast();
+    const double c = std::cos(last.inclinationDeg * kDeg2RadRef);
+    if ((c > 1e-9 && tvd >= lp.tvd) || (c < -1e-9 && tvd <= lp.tvd))
+      return lp.md + (tvd - lp.tvd) / c;
+    return deepestMd;
+  }
+};
+
+// 对拍形状库：垂直 / 造斜稳斜 / 上翘穿 90° / 多站三维转向 / 水平方位转 /
+// 掉头（β≈π reversal 分支）/ 首站带角表前 / 单站 / 双站水平末段。
+QVector<QVector<DeviationStation>> parityShapes()
+{
+  QVector<QVector<DeviationStation>> shapes;
+  {
+    QVector<DeviationStation> s;
+    appendStations(s, {0.0, 0.0, 0.0, 500.0, 0.0, 90.0, 1500.0, 0.0, 270.0});
+    shapes << s;
+  }
+  {
+    QVector<DeviationStation> s;
+    appendStations(s, {0.0, 0.0, 0.0, 1000.0, 90.0, 0.0, 2000.0, 90.0, 0.0});
+    shapes << s;
+  }
+  {
+    QVector<DeviationStation> s;
+    appendStations(s, {0.0, 0.0, 0.0, 1000.0, 60.0, 0.0, 2000.0, 120.0, 0.0});
+    shapes << s;
+  }
+  {
+    QVector<DeviationStation> s;
+    appendStations(s, {0.0,   0.0,  0.0,  300.0, 15.0, 30.0, 600.0, 35.0, 80.0,
+                       900.0, 70.0, 120.0, 1200.0, 95.0, 200.0, 1500.0, 110.0, 10.0,
+                       1800.0, 100.0, 350.0});
+    shapes << s;
+  }
+  {
+    QVector<DeviationStation> s;
+    appendStations(s, {0.0, 0.0, 0.0, 500.0, 90.0, 0.0, 800.0, 90.0, 90.0,
+                       1100.0, 90.0, 180.0});
+    shapes << s;
+  }
+  {
+    // 0°→180° 同方位：β=π 掉头（reversal 粗扫描分支）。
+    QVector<DeviationStation> s;
+    appendStations(s, {0.0, 0.0, 0.0, 1000.0, 180.0, 0.0, 2000.0, 175.0, 20.0});
+    shapes << s;
+  }
+  {
+    QVector<DeviationStation> s;
+    appendStations(s, {500.0, 30.0, 0.0, 1000.0, 30.0, 0.0});
+    shapes << s;
+  }
+  {
+    QVector<DeviationStation> s;
+    appendStations(s, {0.0, 45.0, 30.0});
+    shapes << s;
+  }
+  {
+    QVector<DeviationStation> s;
+    appendStations(s, {100.0, 20.0, 5.0});
+    shapes << s;
+  }
+  {
+    QVector<DeviationStation> s;
+    appendStations(s, {0.0, 0.0, 0.0, 100.0, 90.0, 45.0});
+    shapes << s;
+  }
+  return shapes;
 }
 } // namespace
 
@@ -57,6 +408,12 @@ private slots:
   void interiorPointFollowsArc();
   // #126：上翘井（井斜>90°）TVD→MD 反解满足正向换算，多解取首次到达。
   void tvdToMdUpDipWell();
+  // 方向 98 治本逐位对拍：pointAt/tvdToMd 与治本前基准（RefSurvey）在
+  // 形状库 + 种子随机表上网格全对拍（含 NaN/表前/表后/最深外目标）。
+  void tvdToMdParityWithLegacy();
+  // 方向 98 比率门：大数据量下治本版相对基准的加速系数（只断比率，
+  // 不碰绝对毫秒；旧 O(站数)·三角 + 100·O(站数) vs 新 O(段数)+100·O(log)）。
+  void tvdToMdSpeedRatioGate();
 };
 
 void tst_deviation::verticalSurveyIsIdentity()
@@ -316,6 +673,146 @@ void tst_deviation::tvdToMdUpDipWell()
   // 比最深点还深：不可达 → 最深点 MD（井斜 90° 处，1000 + 30/60·1000 = 1500）。
   const double unreachable = survey->tvdToMd(5000.0);
   QVERIFY2(std::fabs(unreachable - 1500.0) < 1e-6, qPrintable(QString::number(unreachable)));
+}
+
+void tst_deviation::tvdToMdParityWithLegacy()
+{
+  const auto exactEq = [](double a, double b) {
+    return a == b || (std::isnan(a) && std::isnan(b));
+  };
+  const auto check = [&](const WellDeviationSurvey &survey, const QString &tag) {
+    const RefSurvey ref(survey);
+    const double total = survey.totalDepth();
+    // pointAt 网格：站点精确值（命中分支）、站间步进、表前/表后/NaN/负值。
+    //（total=0 的退化表（单站 md=0）线性网格步长为 0——跳过，站点/边界
+    // 采样仍覆盖该面。）
+    QVector<double> mds;
+    for (const DeviationStation &s : survey.stations())
+      mds << s.md << s.md + 0.5 * 13.0 << s.md - 0.25;
+    if (total > 0.0)
+      for (double md = 0.0; md <= total * 1.25; md += total / 97.0)
+        mds << md;
+    mds << total * 1.5 << -1.0
+        << std::numeric_limits<double>::quiet_NaN();
+    for (const double md : mds)
+    {
+      const TrajectoryPoint got = survey.pointAt(md);
+      const TrajectoryPoint exp = ref.pointAt(md);
+      QVERIFY2(exactEq(got.tvd, exp.tvd) && exactEq(got.north, exp.north) &&
+                   exactEq(got.east, exp.east),
+               qPrintable(QStringLiteral("%1 pointAt(%2): (%3,%4,%5) vs (%6,%7,%8)")
+                              .arg(tag).arg(md).arg(got.tvd).arg(got.north)
+                              .arg(got.east).arg(exp.tvd).arg(exp.north).arg(exp.east)));
+    }
+    // tvdToMd 网格：往返目标（tvdAt 采样）+ 域线性扫描 + 边界（0/负/
+    // NaN/最深外）。
+    QVector<double> tvds;
+    if (total > 0.0)
+      for (double md = 0.0; md <= total * 1.2; md += total / 89.0)
+        tvds << survey.tvdAt(md);
+    double tvdLo = survey.points().constFirst().tvd,
+           tvdHi = tvdLo;
+    for (const TrajectoryPoint &p : survey.points())
+    {
+      tvdLo = std::min(tvdLo, p.tvd);
+      tvdHi = std::max(tvdHi, p.tvd);
+    }
+    for (int k = 0; k <= 60; ++k)
+      tvds << tvdLo + (tvdHi - tvdLo) * k / 60.0;
+    tvds << 0.0 << -10.0 << tvdHi + 500.0
+         << std::numeric_limits<double>::quiet_NaN();
+    for (const double tvd : tvds)
+    {
+      const double got = survey.tvdToMd(tvd);
+      const double exp = ref.tvdToMd(tvd);
+      QVERIFY2(exactEq(got, exp),
+               qPrintable(QStringLiteral("%1 tvdToMd(%2): %3 vs %4")
+                              .arg(tag).arg(tvd).arg(got).arg(exp)));
+    }
+  };
+
+  const auto shapes = parityShapes();
+  for (int si = 0; si < shapes.size(); ++si)
+  {
+    QString err;
+    const auto survey = WellDeviationSurvey::fromStations(shapes.at(si), &err);
+    QVERIFY2(survey.has_value(), qPrintable(err));
+    check(*survey, QStringLiteral("shape%1").arg(si));
+  }
+
+  // 种子随机表 × 8：井斜随机游走（可穿 90°、可近水平）、方位漂移、站距
+  // 不齐——覆盖 bisect/within/deepest 各路径组合。种子固定可复现。
+  for (quint32 seed = 1; seed <= 8; ++seed)
+  {
+    QRandomGenerator rng(seed);
+    QVector<DeviationStation> stations;
+    double md = 0.0, incl = rng.bounded(10.0), azi = rng.bounded(360.0);
+    const int n = 20 + int(rng.bounded(40));
+    for (int i = 0; i < n; ++i)
+    {
+      stations.append(st(md, incl, azi));
+      md += 20.0 + rng.bounded(180.0);
+      incl = std::clamp(incl + double(-8.0 + rng.bounded(16.0)), 0.0, 130.0);
+      azi += double(-25.0 + rng.bounded(50.0));
+    }
+    QString err;
+    const auto survey = WellDeviationSurvey::fromStations(stations, &err);
+    QVERIFY2(survey.has_value(), qPrintable(err));
+    check(*survey, QStringLiteral("rand%1").arg(seed));
+  }
+}
+
+void tst_deviation::tvdToMdSpeedRatioGate()
+{
+  // 大站表（随机游走，种子固定）+ 往返目标集。基准（旧实现）计时一遍
+  //（前一遍预热）；治本版同目标集跑 5 遍取最快——同进程背靠背，只断
+  // 比率不吃绝对毫秒（nsecsElapsed 全程统一单位）。
+  QRandomGenerator rng(98);
+  QVector<DeviationStation> stations;
+  double md = 0.0, incl = 0.0, azi = 0.0;
+  for (int i = 0; i < 3000; ++i)
+  {
+    stations.append(st(md, incl, azi));
+    md += 1.0 + rng.bounded(2.0);
+    incl = std::clamp(incl + double(-0.5 + rng.bounded(1.0)), 0.0, 120.0);
+    azi += double(-3.0 + rng.bounded(6.0));
+  }
+  QString err;
+  const auto survey = WellDeviationSurvey::fromStations(stations, &err);
+  QVERIFY2(survey.has_value(), qPrintable(err));
+  const RefSurvey ref(*survey);
+  const double total = survey->totalDepth();
+  QVector<double> tvds;
+  tvds.reserve(150);
+  for (int k = 0; k < 150; ++k)
+    tvds << survey->tvdAt(total * k / 149.0);
+
+  const auto runRef = [&] {
+    QElapsedTimer t;
+    t.start();
+    for (const double tvd : tvds)
+      g_perfSink += ref.tvdToMd(tvd);
+    return t.nsecsElapsed();
+  };
+  const auto runNew = [&] {
+    QElapsedTimer t;
+    t.start();
+    for (const double tvd : tvds)
+      g_perfSink += survey->tvdToMd(tvd);
+    return t.nsecsElapsed();
+  };
+  runRef(); // 预热
+  const qint64 refNs = runRef();
+  qint64 bestNew = std::numeric_limits<qint64>::max();
+  for (int rep = 0; rep < 5; ++rep)
+    bestNew = std::min(bestNew, runNew());
+  QVERIFY(std::isfinite(g_perfSink)); // 防优化：结果必须被消费
+
+  const double ratio = double(refNs) / double(bestNew);
+  qInfo("tvdToMd 治本加速系数（N=3000 站 ×150 目标）: %.1fx", ratio);
+  QVERIFY2(ratio >= 15.0,
+           qPrintable(QStringLiteral("加速系数 %1 低于门槛 15（ref=%2ns new=%3ns）")
+                          .arg(ratio).arg(refNs).arg(bestNew)));
 }
 
 QTEST_MAIN(tst_deviation)

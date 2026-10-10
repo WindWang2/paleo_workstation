@@ -73,18 +73,23 @@
     预测经 WellFaciesWorkflow::publishLithoAsset 落 DERIVED 资产 +
     per-well interpretation 链接，剖面按井链接消费；见方向 69）。仍递延：
     置信度曲线进场、岩性文件导入器。human: M / CC: M，P3。
-  - `WellDeviationSurvey::tvdToMd` 每调用 O(站数)+百次二分且 pointAt 线性
-    扫段；wellsection 地震缝侧已用行级 LUT 绕开（scene 内注释），治本
-    （站点二分查找 + 段内缓存）留 deviationsurvey 专项。CC: S，P3。
-  - fence 读回路径只取井序、深度域不回读：fencewidget loadFromStore 恢复
-    节井集，域/间距仍跟主面板工程级状态——读回语义半面（域改动不落
-    fence 节是同族既有口径）。P3。
-  - 同井多份解释资产（per-well interpretation 链接挂多个版本）取最新
-    版本号消费，无多解释合并语义——多解释者并行工作需显式合并策略
-    再立。P3。
-  - wellfacies completed → publishLithoAsset 生产者接线无端到端测试：
-    publishLithoAsset 直达缝已测，completed 信号缝（缓存写入 + 登记 +
-    状态行原因追加全链）未钉。P3。
+  - [已交付 方向98] `WellDeviationSurvey::tvdToMd` 治本：fromStations 预建
+    逐段缓存（圆弧框架 + 垂深极值切分点，掉头段粗扫描同缓存）+ pointAt
+    站点二分——单次反解 O(段数+100·log 站数)；逐位对拍 + 比率门测试
+    （tst_deviation），地震缝行级 LUT 绕开随治本删除（逐行精确直调）。
+  - [已交付 方向98] fence 读回收口：WellSectionStore 增可空 spacing 列
+    （NULL=未存档，方向 98 前旧档语义），fence-<n> 节域/间距随井序同存
+    同读；旧档缺 spacing 回落当前面板状态并如实标注（提示行 + 测试钩子）；
+    主剖面 default 节同口径。仍递延：fence 剖面消费侧跟随主解释选择。
+  - [已交付 方向98] 多解释最小语义：显式选择（workflow well→asset 表 +
+    store `well_litho_selection` 持久化 + 主面板「解释来源」对话框），默认
+    取最新不变；多份候选时消费/落选对象告警点名 + 题注 provenance 后缀
+    「· <名称>（vN）」；选择失效回落默认 + 告警。仍递延：解释成果的
+    真正合并算法（显式选择只是仲裁面，不并段）。
+  - [已交付 方向98] wellfacies completed → publishLithoAsset 端到端测试：
+    本机 HTTP 服务驱动 completed 信号全链（缓存写入 + DERIVED 登记 +
+    per-well interpretation 链接 + 状态行 + 剖面消费断言，
+    tst_wellsection_workflow::wellFaciesCompletedPublishE2E）。
   - [已交付 方向80] 岩屑录井（cuttings）第二解释源已接入 RFC 4180 引号转义（支持内嵌逗号/制表符/换行/"" 转义，错位行列数不符严格拒收列因），双 cuttings 夹具验证通过。
   - [已交付 方向80] 同井多份 cuttings 链接取最新版本：落选文件记入 warning 并回写至资产 extra（cuttings_selection="unselected"），段 provenance 明确点名具体文件名「岩屑录井（<fileName>）」，题注呈现「解释·岩屑录井（<fileName>）」。
 - **Why:** 首版先打通按地层连井 + 井间地震 + 编图层位高亮；TVD 域、解释岩性数据源、模板随工程走都需要额外数据契约。

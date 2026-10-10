@@ -250,7 +250,7 @@ WellSectionFenceWidget::WellSectionFenceWidget(const Params &params,
             qOverload<int>(&QListWidget::setCurrentRow));
 
     loadFromStore();
-    rebuild();
+    rebuild(/*persist=*/false);
 }
 
 QStringList WellSectionFenceWidget::sectionWellIds(int index) const
@@ -301,7 +301,7 @@ void WellSectionFenceWidget::setSections(const QVector<QStringList> &sections)
     rebuild();
 }
 
-void WellSectionFenceWidget::rebuild()
+void WellSectionFenceWidget::rebuild(bool persist)
 {
     // 断开旧面板（QObject 父子链统一回收）。
     for (auto &sec : m_sections) {
@@ -319,8 +319,18 @@ void WellSectionFenceWidget::rebuild()
         ctl.wf->setFaultSetStore(m_params.faultStore);
         ctl.panel = new WellSectionPanel(m_params.selection, this);
         ctl.panel->setWellChoices(m_params.choices);
+        // 解释来源选择语义面在主剖面（workflow 选择 + 工程库同表）；栅内
+        // 隐藏入口，不放不接线的死按钮（方向 98）。
+        ctl.panel->setLithoSourceButtonVisible(false);
         if (m_params.faultStore)
             ctl.panel->setFaultsAvailable(true, QString());
+        // 读回应用（方向 98）：域/间距程序化 setter 不发信号（无回声）；
+        // nullopt = 无存档或缺列——面板保持构造默认（缺距回落主面板口径，
+        // 提示行尾有标注）。
+        if (m_loadedDomain)
+            ctl.panel->setDepthDomain(*m_loadedDomain);
+        if (m_loadedSpacing)
+            ctl.panel->setSpacingMode(*m_loadedSpacing);
 
         const int index = i;
         connect(ctl.panel, &WellSectionPanel::dataRequested, this,
@@ -366,13 +376,15 @@ void WellSectionFenceWidget::rebuild()
                         emit sectionsChanged();
                     }
                 });
-        // 用户域/井距动作 → 同步其余剖面面板（三处一致性）并向上传播
-        //（壳层接主面板；各面板的程序化 setter 不发信号，无回声环路）。
+        // 用户域/井距动作 → 同步其余剖面面板（三处一致性）+ fence 节落库
+        //（方向 98：域/间距随节井集同存，读回即所见）并向上传播（壳层接
+        // 主面板；各面板的程序化 setter 不发信号，无回声环路）。
         connect(ctl.panel, &WellSectionPanel::depthDomainChanged, this,
                 [this, index](wellsection::DepthDomain domain) {
                     for (int j = 0; j < m_sections.size(); ++j)
                         if (j != index)
                             m_sections[j].panel->setDepthDomain(domain);
+                    saveToStore();
                     emit depthDomainChanged(domain);
                 });
         connect(ctl.panel, &WellSectionPanel::spacingModeChanged, this,
@@ -380,6 +392,7 @@ void WellSectionFenceWidget::rebuild()
                     for (int j = 0; j < m_sections.size(); ++j)
                         if (j != index)
                             m_sections[j].panel->setSpacingMode(mode);
+                    saveToStore();
                     emit spacingModeChanged(mode);
                 });
 
@@ -393,7 +406,8 @@ void WellSectionFenceWidget::rebuild()
                             .arg(m_wellIds.at(i).size()));
     }
     updateSync();
-    saveToStore();
+    if (persist)
+        saveToStore();
 
     m_tabs->setVisible(!m_wellIds.isEmpty());
     if (m_wellIds.isEmpty())
@@ -412,6 +426,10 @@ void WellSectionFenceWidget::rebuild()
                                   .arg(shared)
                             : tr("%1 条剖面").arg(m_wellIds.size()));
     }
+    // 读回回落标注（方向 98）：旧档缺 spacing 时的如实说明，随提示行呈现；
+    // 间距一旦随真实编辑落库（saveToStore 内）即撤下。
+    if (!m_storeNote.isEmpty())
+        m_hint->setText(m_hint->text() + QStringLiteral(" · ") + m_storeNote);
     static_cast<FencePreview *>(m_preview)->setModel(m_params.choices,
                                                      m_wellIds);
 }
@@ -436,18 +454,30 @@ void WellSectionFenceWidget::saveToStore()
 {
     if (!m_params.store)
         return;
-    if (m_persistedIds == m_wellIds)
-        return; // 无变化不落盘（版本只随真实编辑推进）
+    // 域/间距随 fence 当前首剖面状态落库（各面板经三处一致性同步，值同
+    // 一；空剖面 → 两态皆 nullopt，与空井集一同短路）。等值短路覆盖三态：
+    // 井序、域、间距任一变化才落盘（版本只随真实编辑推进）。
+    const std::optional<wellsection::DepthDomain> domain =
+        m_sections.isEmpty()
+            ? std::nullopt
+            : std::optional<wellsection::DepthDomain>(
+                  m_sections.first().panel->depthDomain());
+    const std::optional<wellsection::SpacingMode> spacing =
+        m_sections.isEmpty()
+            ? std::nullopt
+            : std::optional<wellsection::SpacingMode>(
+                  m_sections.first().panel->spacingMode());
+    if (m_persistedIds == m_wellIds && m_persistedDomain == domain &&
+        m_persistedSpacing == spacing)
+        return; // 无变化不落盘
     // fence-<n> 节逐条写（版本随每次落盘推进）；条数收缩 → 尾节删除。
-    // 深度域随 fence 当前域落库（方向 69 剖面状态口径；读回路径暂只取
-    // 井序，域一致性走主面板同步信号）。
-    const wellsection::DepthDomain domain =
-        m_sections.isEmpty() ? wellsection::DepthDomain::MD
-                             : m_sections.first().panel->depthDomain();
+    //（空态短路于上，此处必有节；域缺省仅是编译器要求的落库值。）
     QString err;
     for (int i = 0; i < m_wellIds.size(); ++i)
         m_params.store->save(QStringLiteral("fence-%1").arg(i + 1),
-                             m_wellIds.at(i), {}, domain, &err);
+                             m_wellIds.at(i), {},
+                             domain.value_or(wellsection::DepthDomain::MD),
+                             spacing, &err);
     const QStringList ids = m_params.store->sectionIds(&err);
     for (const QString &id : ids)
         if (id.startsWith(QLatin1String("fence-"))) {
@@ -456,6 +486,11 @@ void WellSectionFenceWidget::saveToStore()
                 m_params.store->remove(id, &err);
         }
     m_persistedIds = m_wellIds;
+    m_persistedDomain = domain;
+    m_persistedSpacing = spacing;
+    // 间距一旦真正落库，「旧档缺间距」的回落标注即失效，撤下。
+    if (m_persistedSpacing.has_value())
+        m_storeNote.clear();
 }
 
 void WellSectionFenceWidget::setChoices(
@@ -494,7 +529,7 @@ void WellSectionFenceWidget::setStore(metadata::WellSectionStore *store)
     m_params.store = store;
     m_persistedIds.clear();
     loadFromStore();
-    rebuild();
+    rebuild(/*persist=*/false);
 }
 
 void WellSectionFenceWidget::loadFromStore()
@@ -503,15 +538,25 @@ void WellSectionFenceWidget::loadFromStore()
         return;
     QString err;
     // 按 n 升序收全部 fence-n 节（节号有洞也继续——save 侧失败可能留洞）。
+    // 方向 98 读回收口：首节的深度域/井间距一并读回（域列方向 69 起必在，
+    // 旧行按 'MD' 列默认；spacing 可空——NULL = 旧库未存过，回落当前面板
+    // 状态并记标注，不拿 Equal 默认冒充存档）。
     QVector<QPair<int, QStringList>> rows;
+    bool haveRec = false;
     for (const QString &id : m_params.store->sectionIds(&err))
         if (id.startsWith(QLatin1String("fence-"))) {
             const int n = id.mid(QLatin1String("fence-").size()).toInt();
             if (n < 1)
                 continue;
             const auto rec = m_params.store->load(id, &err);
-            if (!rec.wellIds.isEmpty())
+            if (!rec.wellIds.isEmpty()) {
                 rows << qMakePair(n, rec.wellIds);
+                if (!haveRec && rec.valid()) {
+                    m_loadedDomain = rec.depthDomain;
+                    m_loadedSpacing = rec.spacing;
+                    haveRec = true;
+                }
+            }
         }
     std::sort(rows.begin(), rows.end(),
               [](const QPair<int, QStringList> &a,
@@ -521,6 +566,18 @@ void WellSectionFenceWidget::loadFromStore()
         sections << row.second;
     m_wellIds = sections;
     m_persistedIds = sections;
+    // 回落标注：有存档但 spacing 缺（旧库行）才说「沿用主面板」——无存档
+    // 是新工程首用，不是回落，不标。
+    m_storeNote = (haveRec && !m_loadedSpacing.has_value())
+                      ? tr("井间距未随剖面存档（旧工程文件），沿用当前主面板设置")
+                      : QString();
+    if (!haveRec) {
+        m_loadedDomain.reset();
+        m_loadedSpacing.reset();
+    }
+    // 纯读回不推进版本：落库快照与读回态对齐（rebuild 末 saveToStore 短路）。
+    m_persistedDomain = m_loadedDomain;
+    m_persistedSpacing = m_loadedSpacing;
 }
 
 void WellSectionFenceWidget::editSectionWells(int index)

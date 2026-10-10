@@ -952,6 +952,87 @@ class TestWellSectionUi : public QObject
       QCOMPARE(pb->spacingMode(), wellsection::SpacingMode::Proportional);
     }
 
+    // ---- 方向 98 ②：fence 读回收口——域/间距随节井集同存同读 + 旧档
+    //（缺 spacing 存档）回落当前面板状态并如实标注 ----
+    void fenceStoreDomainSpacingRoundTrip()
+    {
+      QVector<WellSectionPanel::WellChoice> choices;
+      const char *ids[2] = {"a1", "b2"};
+      for (int i = 0; i < 2; ++i) {
+        WellSectionPanel::WellChoice c;
+        c.id = QLatin1String(ids[i]);
+        c.name = c.id;
+        c.hasCoordinates = true;
+        c.x = i * 200.0;
+        c.y = 0;
+        choices << c;
+      }
+      qRegisterMetaType<wellsection::DepthDomain>();
+      qRegisterMetaType<wellsection::SpacingMode>();
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      const QString dbPath = QDir(dir.path()).filePath(QStringLiteral(
+          "fence-rt.project.sqlite"));
+      metadata::WellSectionStore store(dbPath);
+      QString err;
+      QVERIFY2(store.open(&err), qPrintable(err));
+      // 旧档（方向 98 前语义）：井序 + 域已存、间距未存（NULL）。
+      QVERIFY2(store.save(QStringLiteral("fence-1"),
+                          {QStringLiteral("a1"), QStringLiteral("b2")}, {},
+                          wellsection::DepthDomain::TVD, std::nullopt, &err)
+                   .valid(),
+               qPrintable(err));
+
+      // 打开：井序恢复 + 域读回生效；间距缺档回落面板当前态（默认等距）
+      // 并如实标注；纯读回不落库（版本不动、标注不被首写抹掉）。
+      WellSectionFenceWidget::Params fp;
+      fp.choices = choices;
+      fp.store = &store;
+      WellSectionFenceWidget fence(fp);
+      QCOMPARE(fence.sectionCount(), 1);
+      auto *p0 = fence.sectionPanel(0);
+      QVERIFY(p0);
+      QCOMPARE(p0->depthDomain(), wellsection::DepthDomain::TVD);
+      QCOMPARE(p0->spacingMode(), wellsection::SpacingMode::Equal);
+      QVERIFY2(!fence.storeFallbackNote().isEmpty(),
+               "缺 spacing 存档要如实标注回落");
+      QCOMPARE(store.load(QStringLiteral("fence-1"), &err).version, 1);
+      QVERIFY(!store.load(QStringLiteral("fence-1"), &err)
+                   .spacing.has_value());
+
+      // 用户井距动作（信号路径）→ fence 节随真实编辑落库（域 + 间距 +
+      // 井序），回落标注撤下。
+      p0->setSpacingMode(wellsection::SpacingMode::Proportional);
+      QMetaObject::invokeMethod(
+          p0, "spacingModeChanged",
+          Q_ARG(wellsection::SpacingMode,
+                wellsection::SpacingMode::Proportional));
+      const auto rec = store.load(QStringLiteral("fence-1"), &err);
+      QCOMPARE(rec.version, 2);
+      QVERIFY(rec.spacing.has_value());
+      QCOMPARE(*rec.spacing, wellsection::SpacingMode::Proportional);
+      QCOMPARE(rec.depthDomain, wellsection::DepthDomain::TVD);
+      QVERIFY2(fence.storeFallbackNote().isEmpty(),
+               "间距随真实编辑落库后回落标注即失效");
+
+      // 同库新实例：域 + 间距 round-trip 读回（无回落标注），纯读回不
+      // 推版本。
+      WellSectionFenceWidget fence2(fp);
+      auto *q0 = fence2.sectionPanel(0);
+      QVERIFY(q0);
+      QCOMPARE(q0->depthDomain(), wellsection::DepthDomain::TVD);
+      QCOMPARE(q0->spacingMode(), wellsection::SpacingMode::Proportional);
+      QVERIFY(fence2.storeFallbackNote().isEmpty());
+      QCOMPARE(store.load(QStringLiteral("fence-1"), &err).version, 2);
+
+      // 栅内解释来源按钮隐藏（语义面在主剖面，栅内无死按钮）。
+      // findChild 对隐藏部件同样命中——断言显式隐藏标志（isHidden）。
+      auto *lithoBtn = q0->findChild<QToolButton *>(
+          QStringLiteral("wellSectionLithoSourceButton"));
+      QVERIFY2(lithoBtn && lithoBtn->isHidden(),
+               "栅状图剖面内的解释来源按钮应显式隐藏");
+    }
+
     // ---- 相代码充填道 + 三曲线叠加道（渲染冒烟 + 模板 round-trip）----
     void faciesTrackAndTripleCurve()
     {

@@ -172,7 +172,12 @@ class ColumnItem : public QGraphicsItem
     void scheduleFullDecode(const QString &cacheKey, const QString &path,
                             quint64 pixmapKey);
 
-    struct ImageDecodeHost;
+    // 后台解码回调宿主：析构先把 self 置空，队列里的结果不再碰已死的项
+    //（完整定义在此——columns TU 构造 shared_ptr 需完整类型，方向 98 拆分）。
+    struct ImageDecodeHost
+    {
+        ColumnItem *self = nullptr;
+    };
     RenderState *m_st;
     int m_index;
     // 曲线路径按曲线几何版本缓存（curveVersion 变 → 失效重算；井间距变化
@@ -189,7 +194,6 @@ class ColumnItem : public QGraphicsItem
     mutable QSet<QString> m_fullDecodeFailed;   // 本代际读盘失败，避免每帧重排
     mutable QSet<quint64> m_visibleFullKeys;    // 本帧可见且要原图的键
     mutable quint64 m_pixmapCacheVersion = ~quint64(0);
-    // 后台解码回调用：析构先把 self 置空，队列里的结果不再碰已死的项。
     std::shared_ptr<ImageDecodeHost> m_imageDecodeHost;
     // 最近一帧图片锚绘制矩形（item 坐标）+ 锚索引——双击拾取面。
     struct ImageHit

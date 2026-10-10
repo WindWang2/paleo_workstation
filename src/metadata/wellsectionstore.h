@@ -1,9 +1,12 @@
 // 层：数据
 #pragma once
 #include "domain/wellsection.h"
+#include <QHash>
 #include <QString>
 #include <QStringList>
 #include <QVector>
+
+#include <optional>
 
 class PaleoProjectStore;
 
@@ -36,6 +39,10 @@ struct WellSectionRecord
     QVector<WellSectionLinkOverride> linkOverrides;
     // 深度显示域（方向 69：工程级 round-trip；旧库缺列 → MD 默认）。
     wellsection::DepthDomain depthDomain = wellsection::DepthDomain::MD;
+    // 井间距模式（方向 98 fence 读回收口）。缺省 nullopt = 行里没存过
+    //（方向 98 前旧库行 / 显式 nullopt 落库）——调用方回落自身状态并
+    // 如实标注，不得拿 Equal 默认值冒充已存档。
+    std::optional<wellsection::SpacingMode> spacing;
     int version = 0;                        // save 递增（首存 = 1）；0 = 库中无行
     bool valid() const { return version > 0; }
 };
@@ -59,10 +66,14 @@ public:
 
     // 落盘：version = 现值 + 1（写队列内读改写），返回落盘后记录。
     // depthDomain 进剖面状态（方向 69）：缺省 MD；旧库行按列默认 MD 读回。
+    // spacing（方向 98）：nullopt 落 NULL（旧库缺列语义）；显式值落库
+    // 供 fence 读回（load 对 NULL 回 nullopt——「缺」与「等距」可区分）。
     WellSectionRecord save(const QString &sectionId, const QStringList &wellIds,
                            const QVector<WellSectionLinkOverride> &links,
                            wellsection::DepthDomain depthDomain =
                                wellsection::DepthDomain::MD,
+                           std::optional<wellsection::SpacingMode> spacing =
+                               std::nullopt,
                            QString *error = nullptr);
     // 读回；库中无行 → version 0 + 空集（新工程首用）。
     WellSectionRecord load(const QString &sectionId,
@@ -71,6 +82,17 @@ public:
     QStringList sectionIds(QString *error = nullptr) const;
     // 删节（栅状图条数收缩时清尾行）；无该节 → true。
     bool remove(const QString &sectionId, QString *error = nullptr);
+
+    // ---- 解释岩性来源显式选择（方向 98）----
+    // 同井多份解释资产的用户选择（well_id → asset_id）。assetId 空 = 回落
+    // 默认「取最新」（删行）。消费仲裁在 WellSectionWorkflow；本表只管
+    // 工程级持久化（独立小表，随 project.sqlite 走，同库同写队列纪律）。
+    bool saveInterpretationSelection(const QString &wellId,
+                                     const QString &assetId,
+                                     QString *error = nullptr);
+    // 整表读回（开工程/换工程灌入 workflow；空表 = 全默认）。
+    QHash<QString, QString> loadInterpretationSelections(
+        QString *error = nullptr) const;
 
 private:
     QString m_dbPath;

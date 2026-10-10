@@ -198,13 +198,14 @@ namespace dlisfix
     return lrs;
   }
   // 带段尾（pad/checksum/trailing-length）的 LRS：attrs 置相应位，trailer 自尾剥
-  // trailer 字节序（最尾起）：[padcount 1B][pad][traillen 2B][checksum 2B]
+  // trailer 字节序（最尾起）：[checksum 2B][traillen 2B][pad…][padcount 1B（最前）]。
+  // RP66 口径：padcount 含计数字节自身（dlisio 同）——总 pad 区 = padcount 字节。
   QByteArray logicalRecordSegmentTrailer(uchar type, quint8 attrs,
                                          const QByteArray &body, int padCount,
                                          bool withTrailLen, bool withChecksum)
   {
     QByteArray trailer;
-    trailer.append(char(uchar(padCount)));
+    trailer.append(char(uchar(padCount + 1))); // 计数含自身：1 计数字节 + padCount 个 pad
     trailer.append(QByteArray(padCount, '\0'));
     const int trailerFixed = (withTrailLen ? 2 : 0) + (withChecksum ? 2 : 0);
     if (withTrailLen)

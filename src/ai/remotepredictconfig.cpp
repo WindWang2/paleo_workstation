@@ -37,11 +37,15 @@ bool RemotePredictConfig::isLoopbackHost(const QString &host) {
 QString RemotePredictConfig::validate() const {
   if (baseUrl.isEmpty())
     return QObject::tr("远端预测未配置，走本地引擎");
+  // 路径必须显式拒绝：路由侧 resolved("/health") 的前导斜杠是绝对路径
+  // 引用，会替换 base 路径——带路径的配置此前静默打到错误端点（404）。
+  const QString basePath = baseUrl.path();
   if (!baseUrl.isValid() || baseUrl.host().isEmpty() ||
       (baseUrl.scheme() != QLatin1String("http") &&
        baseUrl.scheme() != QLatin1String("https")) ||
       !baseUrl.userInfo().isEmpty() || baseUrl.hasQuery() ||
-      baseUrl.hasFragment())
+      baseUrl.hasFragment() ||
+      (!basePath.isEmpty() && basePath != QLatin1String("/")))
     return QObject::tr("远端推理服务地址无效（须 http(s)://host[:port]，不带路径参数）");
   if (baseUrl.scheme() == QLatin1String("http") &&
       !isLoopbackHost(baseUrl.host()))

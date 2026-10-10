@@ -308,6 +308,11 @@ void AiChatController::retryLast() {
   placeholder.timestamp = QDateTime::currentDateTime();
   appendMessage(placeholder);
 
+  // 与 sendUserText 同口径重置工具往返状态：否则上一轮打满 kMaxToolRounds
+  // 后重试，本轮首个工具请求即超限——重试轮被永久禁用工具。
+  m_toolRound = 0;
+  m_pendingToolResults = 0;
+  m_unansweredCalls.clear();
   setStreaming(true);
   m_client.setConfig(m_config);
   m_client.send(requestMessages());

@@ -399,6 +399,10 @@ QWidget *DataPreviewTabs::buildWellLogContent(
               fi.topDepth = static_cast<float>(wellTops.at(ti).md);
               fi.bottomDepth = static_cast<float>((ti + 1 < wellTops.size()) ? wellTops.at(ti + 1).md : (wellTops.at(ti).md + 50.0));
               fi.color = kFormColors.at(ti % kFormColors.size());
+              // 井道图上的分层就是这次预测的段井道。组名仍标成组，不能冒充段。
+              fi.unitType = fi.name.trimmed().endsWith(QStringLiteral("组"))
+                                ? QStringLiteral("组")
+                                : QStringLiteral("段");
               formationIntervals.append(fi);
             }
           }

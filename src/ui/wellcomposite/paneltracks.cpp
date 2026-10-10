@@ -75,7 +75,9 @@ void WellCompositePanel::bindFaciesWorkflow(WellFaciesWorkflow *workflow) {
     }
   });
   connect(workflow, &WellFaciesWorkflow::availabilityChanged, this, [this](bool ready, const QString &reason) {
-    m_btnPredictFacies->setEnabled(ready);
+    m_faciesReady = ready;
+    if (!m_btnCancelFacies->isEnabled())
+      m_btnPredictFacies->setEnabled(true);
     const QString requirements = m_faciesModel->currentData(Qt::ToolTipRole).toString();
     m_faciesModel->setToolTip(requirements);
     m_btnPredictFacies->setToolTip(ready ? tr("提交当前井的对应井段预测相：%1").arg(requirements) : reason);
@@ -83,6 +85,7 @@ void WellCompositePanel::bindFaciesWorkflow(WellFaciesWorkflow *workflow) {
   });
   connect(workflow, &WellFaciesWorkflow::busyChanged, this, [this](bool busy) {
     m_btnCancelFacies->setEnabled(busy);
+    m_btnPredictFacies->setEnabled(!busy);
     m_btnCancelFacies->setToolTip(busy ? tr("停止本地等待，服务端已受理任务继续执行") : tr("没有正在等待的预测"));
     m_faciesModel->setEnabled(!busy); m_btnFaciesService->setEnabled(!busy); m_btnRefreshFacies->setEnabled(!busy);
   });

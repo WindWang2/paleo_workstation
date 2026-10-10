@@ -487,6 +487,37 @@ private slots:
     m_win->setProjectSaveAskForTesting(nullptr);
   }
 
+  // 没有打开工程时，空 QgsProject 被标脏也不问。关窗、再开别的工程都直接放行。
+  void noOpenProjectDoesNotAskToDiscard()
+  {
+    m_ctx->closeProject();
+    QVERIFY(m_ctx->projectSvc()->projectPath().isEmpty());
+    QgsProject *proj = m_ctx->projectSvc()->project();
+    QVERIFY(proj);
+    proj->setDirty(true);
+
+    int askCount = 0;
+    m_win->setProjectSaveAskForTesting(
+        [&askCount](const QString &, const QString &) {
+          ++askCount;
+          return PaleoNotify::SaveChoice::Cancel;
+        });
+    QVERIFY(m_win->maybeSaveProject());
+    QCOMPARE(askCount, 0);
+
+    m_win->show();
+    m_win->close();
+    QVERIFY2(!m_win->isVisible(), "没有打开工程时关窗不得被放弃对话框拦住");
+    QCOMPARE(askCount, 0);
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString other = dir.filePath(QStringLiteral("other.qgz"));
+    m_win->openPath(other);
+    QCOMPARE(askCount, 0);
+    m_win->setProjectSaveAskForTesting(nullptr);
+  }
+
   // #226：解释登记链生产接线——打开工程即注入 catalog + 源体资产/版本 +
   // 解释产物目录（工程受管 artifacts/derived/interpretation），且切工程
   // 后跟随新工程（不钉死首工程）。

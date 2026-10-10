@@ -121,7 +121,14 @@ private slots:
     mud.topDepth = 1100.0f;
     mud.bottomDepth = 1200.0f;
     mud.lithoName = QStringLiteral("泥岩");
+    int dataSignals = 0;
+    QObject::connect(&panel, &WellCompositePanel::faciesDataChanged, &panel,
+                     [&dataSignals](const WellComposite::ComprehensiveWellData &data) {
+                       if (data.lithologyIntervals.size() == 2)
+                         ++dataSignals;
+                     });
     panel.setLithologyIntervals({sand, mud});
+    QCOMPARE(dataSignals, 1);
     QCOMPARE(panel.currentData().lithologyIntervals.size(), 2);
     int lithologyAt = -1;
     int firstCurve = -1;

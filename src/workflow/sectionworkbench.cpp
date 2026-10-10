@@ -15,6 +15,7 @@
 #include <QtConcurrent>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 SectionWorkbench::SectionWorkbench(DataCatalog *catalog, QObject *parent)
     : QObject(parent), m_catalog(catalog) {
@@ -160,11 +161,13 @@ QVariantList SectionWorkbench::wells(const std::shared_ptr<std::atomic_bool> &st
     modelFor(w.id, false, &tvdOk);
     modelFor(w.id, true, &mdOk);
     const auto samples = m_data.tdTableFor(w.id);
+    const double listedVelocity =
+        c.value("velocity").toDouble() > 100.0 ? c.value("velocity").toDouble() : 2500.0;
     QString status =
         c.value("constant").toBool()
             ? tr("常速近似（需复核）")
             : (samples.isEmpty()
-                   ? tr("无时深表")
+                   ? tr("无时深表，按 %1 m/s 近似叠加").arg(listedVelocity, 0, 'f', 0)
                    : (!tvdOk && !mdOk
                           ? tr("时深表无序或有效样点不足")
                           : (tvdOk && mdOk ? tr("时深表：TVD / MD")
@@ -252,18 +255,28 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
     out.calibrated = true;
     bool tvdOk = false, mdOk = false;
     auto tvd = modelFor(w.id, false, &tvdOk), md = modelFor(w.id, true, &mdOk);
-    const double shift = calibration(w.id).value("shift").toDouble();
-    out.alignmentStatus = calibration(w.id).value("constant").toBool()
+    const QVariantMap c = calibration(w.id);
+    const double shift = c.value("shift").toDouble();
+    const double velocity = c.value("velocity").toDouble();
+    out.alignmentStatus = c.value("constant").toBool()
                               ? tr("常速近似")
-                              : (tvdOk || mdOk ? tr("时深表") : tr("未对齐"));
+                              : (tvdOk || mdOk ? tr("时深表")
+                                               : tr("常速近似（无时深表，%1 m/s）")
+                                                     .arg(velocity > 100.0 ? velocity : 2500.0, 0, 'f', 0));
     bool partial = false;
     auto timeFor = [&](double d, bool useMd) {
-      const double result = (useMd ? mdOk : tvdOk)
-                                ? (useMd ? md : tvd).DepthToTwtMs(d) + shift
-                                : qQNaN();
-      if (std::isfinite(d) && !std::isfinite(result))
-        partial = true;
-      return result;
+      if (!std::isfinite(d))
+        return qQNaN();
+      if (useMd ? mdOk : tvdOk)
+      {
+        const double result = (useMd ? md : tvd).DepthToTwtMs(d) + shift;
+        if (!std::isfinite(result))
+          partial = true;
+        return result;
+      }
+      // 没有本井时深表时，用近似速度把井道和分层放到 TWT 剖面上。
+      seismic::TimeDepthModel fallback(velocity > 100.0 ? velocity : 2500.0);
+      return fallback.DepthToTwtMs(d) + shift;
     };
     out.bottomTwtMs = timeFor(out.totalDepth, true);
     // goal/well-trajectory：有测斜 → 剖面井轨按真实轨迹（xy = 井口 + 位移，
@@ -376,15 +389,25 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
       curve.curveName = curveName;
       const int size = std::min(depths.values.size(), values.values.size());
       const int step = std::max(1, size / 4000);
+      float vMin = std::numeric_limits<float>::infinity();
+      float vMax = -vMin;
       for (int i = 0; i < size; i += step) {
         const double d = depths.values[i] * scale, t = timeFor(d, true);
+        const float sample = static_cast<float>(values.values[i]);
         curve.depthsM.push_back(d);
         curve.twtMs.push_back(t);
-        curve.values.push_back(static_cast<float>(values.values[i]));
+        curve.values.push_back(sample);
+        if (std::isfinite(sample) && sample > -999.0f && sample < 99999.0f)
+        {
+          vMin = std::min(vMin, sample);
+          vMax = std::max(vMax, sample);
+        }
         if (std::isfinite(t))
           out.bottomTwtMs =
               std::isfinite(out.bottomTwtMs) ? std::max(out.bottomTwtMs, t) : t;
       }
+      curve.minVal = std::isfinite(vMin) ? vMin : 0.0f;
+      curve.maxVal = vMax > curve.minVal ? vMax : curve.minVal + 1.0f;
       out.curves.push_back(curve);
     }
     if (partial && (mdOk || tvdOk))

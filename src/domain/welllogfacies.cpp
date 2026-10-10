@@ -51,11 +51,17 @@ WellFaciesInput prepareWellFaciesInput(const ComprehensiveWellData &data,
   QVector<const CurveData *> curves;
   for (const auto &name : model.curves) {
     const CurveData *found = nullptr;
-    for (const auto &c : data.continuousCurves)
-      if (c.name.trimmed().compare(name, Qt::CaseInsensitive) == 0) {
+    for (const auto &c : data.continuousCurves) {
+      const QString curve = c.name.trimmed();
+      const bool exact = curve.compare(name, Qt::CaseInsensitive) == 0;
+      const bool withUnit =
+          curve.startsWith(name, Qt::CaseInsensitive) && curve.size() > name.size()
+          && !curve.at(name.size()).isLetterOrNumber();
+      if (exact || withUnit) {
         found = &c;
         break;
       }
+    }
     if (!found)
       return fail(tr("缺少模型所需曲线：%1").arg(name));
     if (found->depths.isEmpty() || found->depths.size() != found->values.size())
@@ -79,39 +85,60 @@ WellFaciesInput prepareWellFaciesInput(const ComprehensiveWellData &data,
       segments.append(f);
   if (segments.isEmpty())
     return fail(tr("缺少段井道（只有组分层，不能代替段）"));
+  bool namedGroup = false;
+  bool groupHit = model.formationGroup.isEmpty();
+  for (const auto &f : data.formationIntervals) {
+    if (f.unitType == QStringLiteral("组") || f.name.trimmed().endsWith(QStringLiteral("组")))
+      namedGroup = true;
+    if (!model.formationGroup.isEmpty() &&
+        (f.name == model.formationGroup ||
+         f.name.startsWith(model.formationGroup + QStringLiteral("上段")) ||
+         f.name.startsWith(model.formationGroup + QStringLiteral("下段")) ||
+         f.name.startsWith(model.formationGroup)))
+      groupHit = true;
+  }
+  for (const auto &f : data.stratigraphyIntervals)
+    if (f.formation == model.formationGroup)
+      groupHit = true;
+  // 井道图只有 C1、D61 这类段名、没有「组」时，段名就是当前图的分层，
+  // 不再因为对不上模型的组名而整井拒绝。已经标了别的组则仍然拒绝。
+  const bool restrictToGroup = !model.formationGroup.isEmpty() && (groupHit || namedGroup);
   const auto &depths = curves.first()->depths;
   double step = std::numeric_limits<double>::infinity();
   for (qsizetype i = 1; i < depths.size(); ++i)
     step = std::min(step, double(depths[i] - depths[i - 1]));
   double previous = -std::numeric_limits<double>::infinity();
   for (double depth : depths) {
-    bool inGroup = model.formationGroup.isEmpty();
-    for (const auto &f : data.formationIntervals)
-      if (depth >= f.topDepth && depth < f.bottomDepth &&
-          (f.name == model.formationGroup ||
-           f.name.startsWith(model.formationGroup + QStringLiteral("上段")) ||
-           f.name.startsWith(model.formationGroup + QStringLiteral("下段"))))
-        inGroup = true;
-    for (const auto &f : data.stratigraphyIntervals)
-      if (depth >= f.topDepth && depth < f.bottomDepth &&
-          f.formation == model.formationGroup)
-        inGroup = true;
-    if (!model.formationGroup.isEmpty())
+    bool inGroup = !restrictToGroup;
+    if (restrictToGroup) {
+      for (const auto &f : data.formationIntervals)
+        if (depth >= f.topDepth && depth < f.bottomDepth &&
+            (f.name == model.formationGroup ||
+             f.name.startsWith(model.formationGroup + QStringLiteral("上段")) ||
+             f.name.startsWith(model.formationGroup + QStringLiteral("下段"))))
+          inGroup = true;
+      for (const auto &f : data.stratigraphyIntervals)
+        if (depth >= f.topDepth && depth < f.bottomDepth &&
+            f.formation == model.formationGroup)
+          inGroup = true;
       for (const auto &f : segments)
         if (depth >= f.topDepth && depth < f.bottomDepth &&
             (f.name.startsWith(model.formationGroup) ||
              (model.formationGroup.endsWith(QStringLiteral("组")) &&
               f.name.startsWith(model.formationGroup.chopped(1)))))
           inGroup = true;
+    }
     if (!inGroup)
+      continue;
+    const auto *segment = at(segments, depth);
+    const auto *lith = at(data.lithologyIntervals, depth);
+    // 曲线比岩性道长时，岩性范围外的点跳过，不让井口那一段废掉整井。
+    // 跳过的点不计入缺口；一旦进入岩性和段都覆盖的连续段，中间再断就拒绝。
+    if (!segment || segment->name.trimmed().isEmpty() || !lith ||
+        lith->lithoName.trimmed().isEmpty())
       continue;
     if (std::isfinite(previous) && depth - previous > step * 1.5 + 0.001)
       return fail(tr("目标井段存在深度缺口，不能作为连续井段预测"));
-    const auto *segment = at(segments, depth);
-    const auto *lith = at(data.lithologyIntervals, depth);
-    if (!segment || segment->name.trimmed().isEmpty() || !lith ||
-        lith->lithoName.trimmed().isEmpty())
-      return fail(tr("深度 %1 m 缺少段或岩性").arg(depth));
     if (segment->name.size() > 128 || lith->lithoName.size() > 128)
       return fail(tr("段或岩性文本超过 128 字符"));
     QJsonObject row{{QStringLiteral("深度"), depth},

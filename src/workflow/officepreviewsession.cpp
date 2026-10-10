@@ -450,7 +450,18 @@ void OfficePreviewSession::respondFile(QTcpSocket *socket, const QString &path, 
     return;
   }
   const qint64 length = size == 0 ? 0 : end - start + 1;
-  const QByteArray body = file.read(length);
+  QByteArray body = file.read(length);
+  // OnlyOffice 第一次打开会弹出「新建功能」提示（例如单元格文本方向）。
+  // 宿主关掉 featuresTips，整页不再出现这类提示。
+  if (!partial)
+  {
+    const QString base = QFileInfo(path).fileName();
+    if (base.startsWith(QLatin1String("document-")) && base.endsWith(QLatin1String(".js")))
+    {
+      body.replace("features:{spellcheck:{mode:!1,change:!1}}",
+                   "features:{spellcheck:{mode:!1,change:!1},featuresTips:!1}");
+    }
+  }
   QByteArray extra;
   int status = 200;
   QByteArray reason = "OK";

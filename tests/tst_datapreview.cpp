@@ -725,7 +725,7 @@ void TestDataPreview::unresolvedMultiWellTabShowsDeadEnd()
     QWidget *page = tabs->widget(tabs->currentIndex());
     auto *deadEnd = page->findChild<QLabel *>(QStringLiteral("deadEndText"));
     QVERIFY2(deadEnd, "unresolved multi-well tab must explain the dead end");
-    QVERIFY(deadEnd->text().contains(QString::fromUtf8("还没有挂到任何井")));
+    QVERIFY(deadEnd->text().contains(QString::fromUtf8("尚未关联到任何井")));
     QVERIFY(deadEnd->text().contains(QString::fromUtf8("挂到这口井")));
   }
 

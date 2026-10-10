@@ -21,14 +21,14 @@
     "reason": "DESIGN 数据符号例外：QGIS 极值点高/低两组地质数据符号。"
   },
   {
-    "file": "src/ui/datapreview/datapreviewtabs.cpp",
+    "file": "src/ui/datapreview/datapreviewtabs_survey.cpp",
     "rule": "hex",
     "source": "boundaryBand->setStrokeColor(QColor(QStringLiteral(\"#1B73D0\")));",
     "count": 1,
     "reason": "DESIGN 数据符号例外：QGIS 测区轮廓与透明填充，不改变地图符号色。"
   },
   {
-    "file": "src/ui/datapreview/datapreviewtabs.cpp",
+    "file": "src/ui/datapreview/datapreviewtabs_survey.cpp",
     "rule": "rgb",
     "source": "boundaryBand->setColor(QColor(27, 115, 208, 16));",
     "count": 1,

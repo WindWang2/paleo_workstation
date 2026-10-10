@@ -78,7 +78,8 @@ private slots:
     std::string error;
     QVERIFY2(volume.Load(paleo::toFsPath(target), error),
              error.empty() ? "SgyVolume::Load failed" : error.c_str());
-    QCOMPARE(paleo::fromFsPath(volume.Path()), target);
+    // volume.Path() 存的是原生分隔符形式（Windows 反斜杠），按原生形式比较。
+    QCOMPARE(QDir::fromNativeSeparators(paleo::fromFsPath(volume.Path())), target);
 #endif
   }
 };

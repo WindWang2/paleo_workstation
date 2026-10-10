@@ -449,7 +449,13 @@ target_link_libraries(paleo_algorithms PUBLIC paleo_deps paleo_domain)
 # catalog + metadata 同库（互依环）
 add_library(paleo_store STATIC
   src/catalog/purgelease.cpp
-  src/catalog/datacatalog.cpp                       # entity/link/asset/version + catalog.json
+  src/catalog/datacatalog.cpp                       # 生命周期/open/落盘面（方向 99 拆分主 TU）
+  src/catalog/datacatalog_entities.cpp              # 实体族：add/查询/井名匹配/前缀 id
+  src/catalog/datacatalog_assets.cpp                # 资产族：add/查询/物理删除/ast-N id
+  src/catalog/datacatalog_links.cpp                 # 链接族：mutator×4/查询/role 诊断面
+  src/catalog/datacatalog_versions.cpp              # 版本族：add(supersede)/extra 就地更新/sha/路径
+  src/catalog/datacatalog_derivation.cpp            # 派生族：下游闭包/staleness-lite 标记
+  src/catalog/datacatalog_export.cpp                # 导出族：catalog.json 快照/井位/测区 GeoJSON
   src/catalog/roleregistry.cpp                      # RoleDef/RoleRegistry 词表 + project_area.json 覆盖
   src/catalog/catalogroles.cpp                      # 方向92：树/AI 角色词表单源（分组/树序/显示名）
   src/catalog/entityview.cpp                        # RoleSlot/EntityView 纯查询门面

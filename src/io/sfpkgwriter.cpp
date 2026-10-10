@@ -70,26 +70,32 @@ bool appendNumeric( QByteArray *out, const QString &dtype, double value, const Q
     return true;
   }
   std::int64_t iv = 0;
+  // 有符号 dtype 的上界此前误用无符号最大值（如 i4 用 4294967295）——
+  // 校验放行后按补码落盘，numpy 读回变负数（往返不一致）。
   if ( dtype == QLatin1String( "<i8" ) || dtype == QLatin1String( "<u8" ) )
   {
-    if ( !integralValue( value, dtype == QLatin1String( "<u8" ) ? 0.0 : -9.2233720368547758e18,
-                         9.2233720368547758e18, dtype, name, error, &iv ) )
+    // 9223372036854774784 = 2^63−1024：double 可精确表示的最大 int64 值；
+    // 更大的 double 已 ≥ 2^63，转 int64 是 UB。
+    if ( !integralValue( value, dtype == QLatin1String( "<u8" ) ? 0.0 : -9223372036854775808.0,
+                         9223372036854774784.0, dtype, name, error, &iv ) )
       return false;
     put64( static_cast<std::uint64_t>( iv ) );
     return true;
   }
   if ( dtype == QLatin1String( "<i4" ) || dtype == QLatin1String( "<u4" ) )
   {
-    if ( !integralValue( value, dtype == QLatin1String( "<u4" ) ? 0.0 : -2147483648.0, 4294967295.0,
-                         dtype, name, error, &iv ) )
+    if ( !integralValue( value, dtype == QLatin1String( "<u4" ) ? 0.0 : -2147483648.0,
+                         dtype == QLatin1String( "<u4" ) ? 4294967295.0 : 2147483647.0, dtype, name,
+                         error, &iv ) )
       return false;
     put32( static_cast<std::uint32_t>( iv ) );
     return true;
   }
   if ( dtype == QLatin1String( "<i2" ) || dtype == QLatin1String( "<u2" ) )
   {
-    if ( !integralValue( value, dtype == QLatin1String( "<u2" ) ? 0.0 : -32768.0, 65535.0, dtype,
-                         name, error, &iv ) )
+    if ( !integralValue( value, dtype == QLatin1String( "<u2" ) ? 0.0 : -32768.0,
+                         dtype == QLatin1String( "<u2" ) ? 65535.0 : 32767.0, dtype, name, error,
+                         &iv ) )
       return false;
     const std::uint16_t bits = static_cast<std::uint16_t>( iv );
     out->append( static_cast<char>( bits & 0xFF ) );
@@ -98,8 +104,9 @@ bool appendNumeric( QByteArray *out, const QString &dtype, double value, const Q
   }
   if ( dtype == QLatin1String( "<i1" ) || dtype == QLatin1String( "<u1" ) )
   {
-    if ( !integralValue( value, dtype == QLatin1String( "<u1" ) ? 0.0 : -128.0, 255.0, dtype, name,
-                         error, &iv ) )
+    if ( !integralValue( value, dtype == QLatin1String( "<u1" ) ? 0.0 : -128.0,
+                         dtype == QLatin1String( "<u1" ) ? 255.0 : 127.0, dtype, name, error,
+                         &iv ) )
       return false;
     out->append( static_cast<char>( static_cast<std::uint8_t>( iv ) ) );
     return true;

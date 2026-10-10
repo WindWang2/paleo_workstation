@@ -334,6 +334,20 @@ void SfPackageWriteTests::sfpkgWriterRefusals()
   QVERIFY( !result.ok );
   QVERIFY( result.error.contains( QStringLiteral( "region_ids" ) ) );
 
+  // 有符号 dtype 越界：旧实现上界误用无符号最大值（i4 放行 3e9，落盘回绕成
+  // 负数），读面按补码解释——校验通过但往返不一致。
+  QVector<SfPackageArrayInput> signedOverflow = demoArrays( 4, 5 );
+  SfPackageArrayInput regions;
+  regions.name = QStringLiteral( "region_ids" );
+  regions.dtype = QStringLiteral( "<i4" );
+  regions.rows = 2;
+  regions.cols = 1;
+  regions.values = { 0.0, 3000000000.0 };
+  signedOverflow.append( regions );
+  result = writeSfPackage( path, demoManifest(), signedOverflow );
+  QVERIFY( !result.ok );
+  QVERIFY( result.error.contains( QStringLiteral( "region_ids" ) ) );
+
   QVariantMap noFactor = demoManifest();
   noFactor.remove( QStringLiteral( "factor_name" ) );
   result = writeSfPackage( path, noFactor, demoArrays( 4, 5 ) );

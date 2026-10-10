@@ -63,6 +63,18 @@ def extract_placeholders(text: str) -> list[str]:
     return PLACEHOLDER_RE.findall(text or "")
 
 
+def translation_text(trans_elem) -> str:
+    """译文全文——含 numerus 复数形态（zh_CN 单复数同形，正文在
+    <numerusform> 子元素里；方向 100 起目录出现 numerus 条目，
+    只读元素直接文本会把已完成的复数译文误判为空）。"""
+    if trans_elem is None:
+        return ""
+    parts = [trans_elem.text or ""]
+    for nf in trans_elem.findall("numerusform"):
+        parts.append(nf.text or "")
+    return "".join(parts)
+
+
 def parse_glossary(glossary_path: Path) -> tuple[bool, int, list[dict], str]:
     """解析术语表文件，返回 (是否合法, 词条数, 规则列表, 错误信息)。"""
     if not glossary_path.is_file():
@@ -141,12 +153,12 @@ def check_catalog(ts_path: Path, banned_terms: list[str] = None) -> list[dict]:
                     "rule": "unfinished",
                     "context": ctx_name,
                     "source": src,
-                    "translation": trans_elem.text or "",
+                    "translation": translation_text(trans_elem),
                     "detail": '标记为 type="unfinished"'
                 })
                 continue
 
-            trans_text = trans_elem.text or ""
+            trans_text = translation_text(trans_elem)
 
             # 3. 译文为空（源非空时）
             if not trans_text.strip() and src.strip():
@@ -214,7 +226,7 @@ def audit_glossary_positive(
         ctx_name = ctx.findtext("name") or "<anonymous>"
         for msg in ctx.findall("message"):
             src = msg.findtext("source") or ""
-            tr = msg.findtext("translation") or ""
+            tr = translation_text(msg.find("translation"))
             src_lower = src.lower()
 
             for rule in term_rules:

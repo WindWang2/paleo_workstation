@@ -58,7 +58,8 @@ src/
     projectopen.{h,cpp}       # NEW 功能层：openPath + 从工区文件夹新建
     registration.{h,cpp}      # NEW 功能层：临时配准（仿射→DERIVED 登记→图层实例化）
   ui/
-    paleomainwindow.{h,cpp}   # 壳装配 + 页面切换 + dock 策略（目标 ≤ ~2200 行，实测落点 ~2128）
+    paleomainwindow.{h,cpp}   # 壳装配 + 页面切换 + dock 策略；#312（方向 83）二次拆分后为本体 + 21 家族 TU（现行实测口径见 §4 W8 与文末落点更新）
+    paleomainwindow_internal.h  # NEW（方向 83）：家族 TU 共用文件域助手（页签文案/dock 标题/最近工程读写，仅家族 TU 可 include）
     paleoribbon.{h,cpp}       # ribbon 类目/命令组构建 + 镜像绑定（buildRibbonPanels 迁入）
     dialogs/folderconfirm.{h,cpp}  # NEW 视图：T22 确认表（PaleoFolderConfirm 命名空间）
     pages/datalist.{h,cpp}    # NEW：数据列表（导入行 + 树/表 + 搜索/筛选）
@@ -184,6 +185,66 @@ src/
    - `tst_previewdoc`（新或并入 `tst_datapreview`）：在途占位→成功/失败/源缺失三态、`segyDecode` 代际丢弃、`segyRelease` 句柄释放、sha 失配→下游过时意图（解码失败/取消不产标）、无 taskSvc 同步降级。
    - `tools/check_layering.py --selftest` 入 ctest。
 
+### W8 — 主窗二次拆分（方向 83，#312 落地；本节为**现行口径**，W7 的行数预期由此 supersede）
+
+W7.2 收口后本体随方向 47/64/68/73 等持续增长至 2,234 行（全仓第一巨兽），
+#312（`32851a1e`，2026-10-09 合入）把本体按域二次拆出 7 个 TU（_docks/
+_ribbon/_pages/_project/_status/_errorhub/_shortcuts），本体收敛至 913 行
+（目标 ≤1200 且 > 家族最大 _workbench 850）。行为红线：类公共区 diff 零
+变更、buildShell 六段按原文行序分解仅加函数边界、构造期 connect 55 条
+序列对拍唯一偏移 = ErrorHub 计数两条前移（wireErrorHubStatus 合并原两段）。
+
+**实测（2026-10-10，origin/master `f474069b`）：paleomainwindow.cpp 919 行（家族 21 TU）**
+
+家族全表（`src/ui/paleomainwindow*.cpp` 共 22 TU，平铺不建子目录；行数为
+当日实测，#318 文案改动后与 #312 落点微差——漂移护栏按 ±20% 容差盯本行）：
+
+| TU | 行数 | 域（各 TU 头注释口径） |
+|---|---|---|
+| `paleomainwindow.cpp` | 919 | 本体：壳生命周期域——构造/析构/关窗、buildShell 六段编排 |
+| `_workbench.cpp` | 857 | 编图工作台 attachWorkbench（参考地图/地质预览/面成图链） |
+| `_attach.cpp` | 770 | 壳接线聚合胶水：attachWorkflows 入口 + 静态辅助 + 跨页图层显隐 |
+| `_attach_constraint.cpp` | 728 | 约束与单因素页接线（W4 段；#299 矢量属性维护/#301 realization 异步增量） |
+| `_attach_shell.cpp` | 661 | 壳面与全局组件接线（W4 段） |
+| `_attach_models.cpp` | 642 | 属性建模/相图/时深转换接线（W4 段） |
+| `_docks.cpp` | 597 | 壳构建域（#312）：中央面/左 dock/右栏/底栏/地震/连井/3D/Web dock 族 |
+| `_wellsection.cpp` | 421 | 连井剖面 dock 壳层编排：取数/井间缝/去抖刷新/逐工区井集持久化 |
+| `_attach_mapping.cpp` | 387 | 编图流水线与版本域接线（W4 段：导出接线/版本状态机/发布门） |
+| `_attach_compose.cpp` | 342 | 综合编图页接线（W4 段） |
+| `_attach_data.cpp` | 332 | 数据管理页接线（W4 段） |
+| `_sections.cpp` | 317 | 地震剖面窗壳接线（sectionsetup/剖面路径橡皮筋） |
+| `_ribbon.cpp` | 241 | ribbon 骨架域（#312）：buildRibbon 页签/文件菜单/全局按钮组 |
+| `_attach_validate.cpp` | 205 | 验证与布井辅助接线（W4 段） |
+| `_pages.cpp` | 202 | 页切换域（#312）：showPage 六页编排/dock 保存恢复/底栏自动露出 |
+| `_attach_predict.cpp` | 193 | 智能预测页接线（W4 段） |
+| `_status.cpp` | 186 | 状态栏域（#312）：层位/坐标/比例尺/CRS 读数 + 工程进度 |
+| `_project.cpp` | 153 | 工程打开/导入编排入口域（#312）：openPath/确认表/懒建编排器 |
+| `_errorhub.cpp` | 89 | 错误呈现域（方向 64，#312 自成 TU）：错误历史 dock/错误胶囊 |
+| `_attach_python.cpp` | 36 | Python 控制台/REPL 接线（方向 68） |
+| `_shortcuts.cpp` | 42 | 页快捷键域（方向 63 注册表，#312 自成 TU）：Ctrl+1..6/Ctrl+Tab |
+| `_faults.cpp` | 27 | 断层解释壳接线（方向 7）：剖面 dock 编排器 + 管理面板 dock |
+
+（`paleoribbon.cpp`/`ribbonpanels.cpp` 是 ribbon 命令组构建与镜像绑定的
+独立文件，不属 `paleomainwindow_*` 家族——W4 的「迁出主窗」落点在彼处。）
+
+**新内部契约头 `paleomainwindow_internal.h`（60 行，方向 83）**：跨 TU 文件域
+助手收敛成 `paleo::mainwindow_internal` 命名空间——`pageLabels`/`pageDockTitles`
+（翻译列表保持函数局部 static 惰性构建，防 main 前静态初始化漏翻译）、
+`readRecentProjects`/`writeRecentProjects`（QSettings）。页序表 kPageIds 仍在
+`pages/pageshared.h`。先例：方向 65 canvas 拆分的内部头；仅家族 TU 可 include。
+
+**装配根归并审视结论**（#312 同批）：`AppContext` projectOpened 巨 lambda 中
+ONNX 模型注册表装配段抽为 `src/app/onnxwiring.{h,cpp}` 纯函数（aiwiring 同构）
+已落地；工程锁/会话/journal/manifest rehydrate/catalog 九连绑等顺序敏感段的
+分段抽 wiring 递延（TODOS.md「方向 83 装配根瘦身递延」条目，需专属方向按段
+对拍承接）。配准+底图刷新两处因顺序耦合保持原地。
+
+后续拆分候选（TODOS 方向 83 条目登记，非本计划工作项）：_workbench 可再分
+「页内面板装配/画布联动」两段；_attach 若继续涨可按「入口编排/realization
+呈现/pinLayoutTheme」三分。#312 后全仓头号巨兽移位 constraintpage
+（`src/ui/pages/constraintpage.cpp`，2026-10-10 实测 1,893 行，方向 96
+任务书处置——#316 的协变量面增量也落在该文件）。
+
 ## 5. 明确不做（NOT in scope）
 
 - 不引入 MVVM/MVC 框架或接口抽象层——靠文件归属 + include 护栏，不加虚基类。
@@ -202,7 +263,7 @@ src/
 
 ## 7. 完成定义
 
-1. `src/ui/**` 零黑名单 include（`lasparser`/`segy*`/`wellfileparsers`/`timedeptool`/`geojsonaffine`/`projectclassifier`/`arearules`/`dataimportservice`/`algorithms`/`paleoprojectfile`）；非 ui 扫描目录零 `ui/` include 且零 QtWidgets（`qgis`、`app`、`selfcheck` 豁免按契约）；`paleomainwindow.cpp` ≤ ~2200 行（W1–W4 抽出 ≈1109 行，预测落点 ~2128；实测前后对比写进 Review record）。
+1. `src/ui/**` 零黑名单 include（`lasparser`/`segy*`/`wellfileparsers`/`timedeptool`/`geojsonaffine`/`projectclassifier`/`arearules`/`dataimportservice`/`algorithms`/`paleoprojectfile`）；非 ui 扫描目录零 `ui/` include 且零 QtWidgets（`qgis`、`app`、`selfcheck` 豁免按契约）；`paleomainwindow.cpp` ≤ ~2200 行（W1–W4 抽出 ≈1109 行，预测落点 ~2128；实测前后对比写进 Review record）。（W7 时点完成定义，W7.2 实测 1349 行；其后本体回涨至 2,234 行，由 #312 二次拆分收敛——现行口径以 §4 W8 的日期戳实测行为准，本行保留为历史。）
 2. `tools/check_layering.py` 接入 ctest 且绿（含 baseline 收敛）；`pagepanels.cpp` 拆分落地。
 3. 既有测试全绿；五页功能行为不变（逐页人工核对）。
 4. `AGENTS.md` + `PALEO_QGIS_PLAN.md` 写明三层契约；`TODOS.md` 收到 clang-tidy 递延项。
@@ -470,3 +531,10 @@ worktree `pw-uilayer` 与本地分支已删。合并接缝：`datapreviewtabs.cp
 （保留 previewdoc 门面 include，并入侧 WIP 工区图改经 `m_doc->catalog()`）；
 mapping-pages 合并时其三页走 m2 实装版（io/arearules.h → domain/arearules.h），
 m2 兜底 qgislayerprofile API 调用点收口为 `PaleoMainWindow::pinLayoutTheme()`。
+
+**落点更新（2026-10-10，方向 100 补账）**：W7.2 后本体回涨至 2,234 行，#312
+（方向 83）二次拆分 7 域 TU 后收敛——详见 §4 W8 段（家族全表 + internal.h
+契约 + 装配根归并审视）。W7 完成定义与 autoplan-accepted 块内「~2128 行」
+句为拆分前时点口径，保留作历史记录，不再描述现状。本计划的行数漂移教训由
+方向 100 的 `tools/check_docs_drift.py` 护栏接管：现行口径必须以 W8 段
+「实测（日期）：…行」日期戳行承载，护栏按 ±20% 容差比对实测。

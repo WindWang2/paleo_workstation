@@ -939,15 +939,24 @@ if(PALEO_PYTHON3)
            ${CMAKE_SOURCE_DIR}/tools/check_env_redset.py --selftest)
   add_test(NAME pin_osgeo4w_selftest COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/pin_osgeo4w.py --selftest)
+  # 方向 100：文档漂移护栏——任务书份数（期望值只读 goal-loop-prompts/
+  # README 的「编号任务书份数：」行，不写死）/ UI_LAYER_PLAN 主窗行数落点
+  # （日期戳现状行 ±20% 容差 + 家族 TU 精确数）/ AUDIT_ISSUES 头部计数句
+  # 必带日期戳。selftest 合成夹具含「README=100 且实数=100 应绿」反写死项。
+  add_test(NAME docs_drift COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_docs_drift.py)
+  add_test(NAME docs_drift_selftest COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_docs_drift.py --selftest)
   set_tests_properties(layering layering_strict layering_selftest
                        ui_invariants ui_invariants_strict ui_invariants_selftest
                        i18n i18n_selftest ui_tokens ui_tokens_strict ui_tokens_selftest
                        qgis_versions qgis_versions_selftest
                        qgis_resources_selftest env_redset_validate env_redset_selftest
-                       pin_osgeo4w_selftest
+                       pin_osgeo4w_selftest docs_drift docs_drift_selftest
                        PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
   set_tests_properties(qgis_resources_selftest env_redset_validate env_redset_selftest
-                       pin_osgeo4w_selftest PROPERTIES ENVIRONMENT "PYTHONUTF8=1")
+                       pin_osgeo4w_selftest docs_drift docs_drift_selftest
+                       PROPERTIES ENVIRONMENT "PYTHONUTF8=1")
 endif()
 # 方向 81：paleo-dev.ps1 单元自检（AST 抽函数 + 合成夹具；-Mutate 换回 #297
 # 旧 Read-InstalledDbMap 必须被抓到）。找到 pwsh/powershell 才注册——Windows

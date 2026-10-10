@@ -108,7 +108,7 @@ jobs:
           fi
           echo "tidy base: $base ($(git rev-parse --short "$base" 2>/dev/null || echo '?'))"
           python3 tools/check_tidy.py --base "$base"
-      - name: Source gates (layering / ui invariants / i18n / QGIS 版本口径，按脚本位置定位源码根)
+      - name: Source gates (layering / ui invariants / i18n / QGIS 版本口径 / docs drift，按脚本位置定位源码根)
         run: |
           python3 tools/check_layering.py --strict
           python3 tools/check_ui_invariants.py --strict
@@ -119,6 +119,8 @@ jobs:
           python3 tools/check_qgis_versions.py --selftest
           python3 tools/check_ci_scripts.py
           python3 tools/check_ci_scripts.py --selftest
+          python3 tools/check_docs_drift.py
+          python3 tools/check_docs_drift.py --selftest
       - name: deb-closure smoke (ET1：锁文件可解析、条目格式合法，零下载)
         run: ./vendor/fetch-deps.sh --print-only
 

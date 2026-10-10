@@ -9,8 +9,12 @@
 
 **2026-10-03 snapshot note:** This is the 2026-10-01 audit record, not a current
 open-issue list. Its file positions, C++17 reference, test counts and severity
-claims remain historical evidence; current code uses C++20 and registers 243
-CTest suites. The old `src/workflow/workflows.cpp` has been split into
+claims remain historical evidence; current code uses C++20 (CMakeLists.txt:4),
+and the suite count is a dated snapshot, not a "current" assertion:
+243 CTest suites at 2026-10-03, 383 CTest suites at 2026-10-10 (方向 100 复核
+`ctest -N`, origin/master `f474069b` + 方向 100 增量, 含 ORT 门控族与
+docs_drift 两项; 方向 100 起该头部计数句由 `tools/check_docs_drift.py`
+强制携带日期戳). The old `src/workflow/workflows.cpp` has been split into
 `validationworkflow.cpp`, `compositionworkflow.cpp`, `predictionworkflow.cpp`,
 `constraintworkflow.cpp` and `constraintfactorjobs.cpp`, with private helpers in
 `workflows_internal.h` / `constraintworkflow_internal.h`. Use `TODOS.md` and

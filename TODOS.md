@@ -434,6 +434,18 @@ master 的 `41feecf`，catalog 行序修复来自 `e8da8cf`，不归入本 PR �
 - ~~**SBM Engine 剩余入口**~~ — 已落地对账关闭（wave/deepen-perf A1）：QuickOpen/ReadTimeSliceTiled/progressiveLod+SetActiveLod 前序 wave 已接，本轮补齐唯一缺口 ReadVoxelWindow 消费侧（3D 16 层堆叠取数 16 请求→1 体窗任务）；四入口消费核账表 docs/seismic/ARCHITECTURE.md §9b。
 - **SBM 未 vendor 面**：`Mesh/`（CgalHorizonMeshBuilder，GPL/LGPL 双许可 CGAL 可选）、`Model/`、`Data/HorizonTextReader`（层位面三维渲染/文本导入——现阶段层位走 QGIS 图层，暂不引）。`Engine/SdkC.h` C ABI 已随库编译但未导出消费方。Effort: S / Priority: P3
 
+## P3 — goal-loop 账本入库映射与门禁（from 方向 100, 2026-10-10）
+
+- **「master 无对应账本的已合方向」清单无法可靠脚本化**：仓库无机器可读的
+  「方向号 → 账本文件」映射；按任务书 slug 猜测根目录账本仅命中 59/94，35 缺口
+  混合三类（92–100 在飞方向、异名账本如 74 号任务书 →
+  `.goal-loop-ledger-single-factor-native.md`、#308 squash 无账本——已由方向 100
+  以 `docs/ledger-archive/sf-geostat-pr308-delivery.md` 补交付说明）。硬门禁
+  会大量假红，定案不做。若要门禁化：先给 goal-loop-prompts/README 分批表加
+  「账本」列（或账本文件头加方向号 frontmatter），再在
+  `tools/check_docs_drift.py` 加第四项检查。触发条件：下一次批量补账本时顺手
+  建映射。Effort: M / Priority: P3
+
 ## Completed
 
 本节及下方 wave 决策记录的 commit、行号、性能值、测试数量与分支同步状态是

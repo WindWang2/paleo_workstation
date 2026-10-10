@@ -19,7 +19,9 @@
 //   - 单格没解出（方程奇异/病态，或半径邻域不足）→ 该格用同参数 IDW 权重，
 //     计数进 idwFallbackCells 并出 issue（两种原因不分开计数，文案按两种写全）；
 //   - 全场没有一个格解出克里金值 → 按整面回路口径处理（surfaceFallbacks=1）；
-//   - 方向线/软边界/井群权重不参与克里金权重（v1 语义）：逐条列进 issues，不静默忽略。
+//   - 方向线/软边界参与克里金权重（与 IDW 侧同源）：方向线进 MLA 各向异性张量，
+//     软边界按跨界距离放大半方差，各自记 direction_guide_applied /
+//     soft_boundary_applied 回执；井群权重不参与（去簇乘子破坏无偏最优性）。
 //   - 精确性：γ(0)=0 口径下普通克里金对任意 nugget 都在采样点精确通过
 //     （λ=eᵢ、μ=0 ⇒ 估值=井值、方差=0）；块金只体现在井点之间。
 //   - 覆盖闸口径：克里金侧只看「半径闸 + krigingMinPoints」，与 IDW 的
@@ -49,14 +51,20 @@ struct VariogramResolution
   bool barrierAware = false;
   int unreachablePairs = 0;
   std::string variogramNote;
+  // #327：隔断拟合期间收到取消。与 !ok 分开——取消必须原样上报 Cancelled，
+  // 不能走整面回落 IDW（那会把「用户按了停止」画成一张 IDW 面）。
+  bool cancelled = false;
 };
 
 // 只做变差函数解析（含自动滞后距），不碰网格。失败时 ok=false 并给出原因。
 // constraints 里启用的硬屏障，在 variogramBarrierAware 且自动拟合时进入
 // 测地滞后距档。空约束或开关关闭 = 纯欧氏口径，与旧调用逐位一致。
+// control 非空时，隔断拟合的长测地距计算可被打断（cancelled=true 原样上报，
+// 不回落 IDW）。
 VariogramResolution resolveVariogram( const std::vector<Sample> &samples, const GridSpec &grid,
                                       const ResolvedParameters &parameters,
-                                      const std::vector<ConstraintLine> &constraints = {} );
+                                      const std::vector<ConstraintLine> &constraints = {},
+                                      const Control &control = {} );
 
 // 克里金插值面：SurfaceResult 契约与 evaluateLocalIdw 完全一致（成图域、硬屏障
 // 分量、井控/外推标记、无井闭合区、取消与预算）。克里金不成立时整面回落 IDW。

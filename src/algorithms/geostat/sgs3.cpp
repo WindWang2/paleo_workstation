@@ -459,6 +459,9 @@ Sgs3Result sgs3( const std::vector<Sample3> &samples, const std::vector<Sgs3Targ
   const detail::NormalScoreTable table = detail::NormalScoreTable::build( sampleValues );
   result.sampleMean = table.sampleMean;
   result.sampleStd = table.sampleStd;
+  // #325：同 2D 核——模型标定到正态得分域，否则条件方差的量级是原值域的。
+  const VariogramModel gaussianModel =
+      detail::rescaleToGaussianDomain( model, detail::gaussianDomainVariance( table, sampleValues ) );
 
   const StaticIndex3 index = StaticIndex3::build( deduped );
 
@@ -587,7 +590,7 @@ Sgs3Result sgs3( const std::vector<Sample3> &samples, const std::vector<Sgs3Targ
         solved = true;
       }
       else if ( !neighborhood.empty() &&
-                detail::solveSimpleKriging( neighborhood, query.x, query.y, query.z, model,
+                detail::solveSimpleKriging( neighborhood, query.x, query.y, query.z, gaussianModel,
                                             &estimate, &variance ) )
       {
         solved = true;

@@ -186,10 +186,13 @@ namespace
   //
   // .shp/.shx/.dbf/.prj 同主名 → 单个 PlannedItem（主件 .shp，members 收全组
   // 排序路径）。必备件 .shp/.shx/.dbf 缺一不强行归组——各自成项如实单列。
+  // #321：.cpg 记 DBF 代码页，必须跟着 .dbf 走。受管副本旁缺它，OGR 按默认
+  // 代码页读 DBF，中文属性乱码；回收侧（storagegovernance）早已把它当边车。
   bool isShpMemberExt(const QString &ext)
   {
     return ext == QLatin1String("shp") || ext == QLatin1String("shx") ||
-           ext == QLatin1String("dbf") || ext == QLatin1String("prj");
+           ext == QLatin1String("dbf") || ext == QLatin1String("prj") ||
+           ext == QLatin1String("cpg");
   }
 
   void groupShapefileFamilies(QVector<PlannedItem> &items)

@@ -8,6 +8,7 @@
 #include "domain/seismic/sgycoordinatemapper.h"
 #include "io/attrgridout.h"
 #include "io/sattrio.h"
+#include "metadata/atomicfile.h"
 
 #include <QCryptographicHash>
 #include <QDateTime>
@@ -82,11 +83,21 @@ bool writeProvSidecar(const QString &provPath, const QString &paramHash,
   QFile f(partial);
   if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
     return false;
-  f.write(QJsonDocument(o).toJson(QJsonDocument::Compact));
-  f.close();
-  if (QFileInfo::exists(provPath) && !QFile::remove(provPath))
+  // #322：短写必须拦。磁盘满时旧的 remove+rename 会删掉好 sidecar，再把半份
+  // 文件改上去。改用 paleoReplaceFile——它直接用替换语义，不预删目标。
+  if (f.write(QJsonDocument(o).toJson(QJsonDocument::Compact)) < 0)
+  {
+    f.close();
+    f.remove();
     return false;
-  return QFile::rename(partial, provPath);
+  }
+  f.close();
+  if (!paleoReplaceFile(partial, provPath))
+  {
+    f.remove();
+    return false;
+  }
+  return true;
 }
 
 QString readProvSidecarHash(const QString &provPath)
@@ -575,12 +586,7 @@ PaleoTask *SeismicTaskService::startTimeSliceAttribute(
         return failCleanup(
             QStringLiteral("时间切片栅格写入失败：%1").arg(writeErr));
       }
-      if (QFileInfo::exists(cachePath) && !QFile::remove(cachePath))
-      {
-        result->error = QStringLiteral("无法替换缓存产物 %1").arg(cachePath);
-        return failCleanup(result->error);
-      }
-      if (!QFile::rename(partial, cachePath))
+      if (!paleoReplaceFile(partial, cachePath))
       {
         result->error = QStringLiteral("缓存产物落名失败：%1").arg(cachePath);
         return failCleanup(result->error);

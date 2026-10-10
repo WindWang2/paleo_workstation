@@ -844,7 +844,9 @@ qint64 SeismicTaskService::sectionCacheKey(const std::vector<glm::ivec2> &pathPo
     const SgyIndex &idx = *volume->Index();
     // 体身份：路径 + 大小 + mtime。同尺寸不同体（原始/滤波/属性体）不能只靠
     // fileSize 区分；体被重写后 mtime 变化使旧条目自然失配。
-    const std::string p = idx.path.string();
+    // #320：走 UTF-16 → UTF-8。MSVC 上 path::string() 是 ACP 字节，遇 ACP
+    // 无法表示的字符直接抛 std::system_error，缓存键构造会崩。
+    const std::string p = paleo::fromFsPath(idx.path).toUtf8().constData();
     for (const char ch : p)
       mix(qint64(static_cast<quint8>(ch)));
     mix(qint64(idx.fileSize));

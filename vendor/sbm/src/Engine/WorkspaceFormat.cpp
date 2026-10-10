@@ -7,6 +7,14 @@
 #include <cstring>
 #include <fstream>
 #include <limits>
+#include <system_error>
+
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
 
 #ifdef SEISMIC_HAVE_ZSTD
 #include <zstd.h>
@@ -30,6 +38,32 @@ void AppendU64(std::vector<unsigned char>& out, std::uint64_t value) {
 
 void AppendI32(std::vector<unsigned char>& out, std::int32_t value) {
     AppendU32(out, static_cast<std::uint32_t>(value));
+}
+
+// #323：带替换语义的原子落名。Windows 上 std::filesystem::rename 对已存在的
+// 目标会失败（MSVC CRT 同 POSIX），所以用 MoveFileExW + MOVEFILE_REPLACE_EXISTING
+// ——与 SgyIndexCache / SgySequentialScan 的同名助手一致。关键点是「不预删
+// 目标」：预删后 rename 失败会让已发布的产物消失。
+bool ReplaceFileAtomic(
+    const std::filesystem::path& from,
+    const std::filesystem::path& to,
+    std::error_code& ec) {
+#ifdef _WIN32
+    if(MoveFileExW(from.wstring().c_str(), to.wstring().c_str(),
+                   MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0) {
+        ec.clear();
+        return true;
+    }
+    ec = std::error_code(static_cast<int>(GetLastError()), std::system_category());
+    return false;
+#else
+    std::filesystem::rename(from, to, ec);
+    if(ec) {
+        return false;
+    }
+    ec.clear();
+    return true;
+#endif
 }
 
 bool ReadU32(const std::vector<unsigned char>& data, std::size_t& offset, std::uint32_t& value) {
@@ -97,7 +131,10 @@ bool WriteFileAtomic(
     if(!path.parent_path().empty()) {
         std::filesystem::create_directories(path.parent_path(), dirEc);
     }
-    const std::filesystem::path temp = path.string() + ".tmp";
+    // #323：临时路径走 operator+=（宽构造）。MSVC 上 path::string() 是 ACP
+    // 字节，中文路径上抛 std::system_error 或落到错误文件名。
+    std::filesystem::path temp = path;
+    temp += ".tmp";
     {
         std::ofstream out(temp, std::ios::binary | std::ios::trunc);
         if(!out) {
@@ -112,10 +149,10 @@ bool WriteFileAtomic(
             return false;
         }
     }
+    // #323：不预删目标。先 remove 再 rename，remove 成功而 rename 失败（或
+    // 中途崩溃）时已发布的 meta/分片就没了。替换语义由 MoveFileExW 提供。
     std::error_code ec;
-    std::filesystem::remove(path, ec);
-    std::filesystem::rename(temp, path, ec);
-    if(ec) {
+    if(!ReplaceFileAtomic(temp, path, ec)) {
         error = "cannot publish " + path.u8string() + ": " + ec.message();
         return false;
     }
@@ -156,13 +193,19 @@ std::uint64_t WorkspaceInfo::VolumeBytes() const {
 }
 
 std::filesystem::path WorkspaceMetaPath(const std::filesystem::path& basePath) {
-    return std::filesystem::path(basePath.string() + ".sf3c.meta");
+    // #320：operator+= 走宽构造。MSVC 上 string() 是 ACP 字节，中文路径抛异常
+    // 或落到错误文件名。
+    std::filesystem::path out = basePath;
+    out += ".sf3c.meta";
+    return out;
 }
 
 std::filesystem::path WorkspaceShardPath(const std::filesystem::path& basePath, std::uint32_t shardIndex) {
     char suffix[16] = {};
     std::snprintf(suffix, sizeof(suffix), ".sf3.s%03u", shardIndex);
-    return std::filesystem::path(basePath.string() + suffix);
+    std::filesystem::path out = basePath;
+    out += suffix;
+    return out;
 }
 
 std::uint64_t WorkspaceChecksum(const void* data, std::size_t bytes) {

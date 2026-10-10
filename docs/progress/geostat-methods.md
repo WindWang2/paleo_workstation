@@ -72,7 +72,7 @@
    - 支持主变量样点集 $Z_1$ 与次级变量（地震属性/地质因子）样点集 $Z_2$ 的协同估值。
    - 采用地质统计学成熟的 Markov Model 1 (MM1) 交叉协方差模型：
      $$\gamma_{12}(h) = \rho \cdot \sqrt{\text{sill}_1 \cdot \text{sill}_2} \cdot \frac{\gamma_1(h)}{\text{sill}_1} = \rho \cdot \gamma_1(h)$$
-   - 次级自变差模型由主变差基台与次级方差比率自洽自适应缩放。
+   - 次级自变差与交叉项同单位：交叉项是 $\rho\cdot\gamma_1(h)$（主变量单位），所以 $\gamma_{22}$ 取主变量基台（块金置 0），即两基台相等的 scaled MM1 退化。协变量井点实测方差只写进 QC 参数 `covariate_sample_variance`，不改模型——否则地震属性与孔隙度/厚度差几个量级时方程组混两种单位，Pearson $\rho$ 不再是方程组里的那个 $\rho$，次级块还会主导条件数。
 2. **正定性与鞍点系统稳定性保护**：
    - 为防止主次变量强线性相关时协方差矩阵奇异或非正定，对样本点共置估算出的 Pearson 相关系数 $\rho$ 实施严格钳制：$\rho \in [-0.99, 0.99]$。
    - 构建 $(n_1 + n_2 + 2) \times (n_1 + n_2 + 2)$ 鞍点方程组，引入双 Lagrange 乘子满足无偏性约束：$\sum \lambda_i = 1, \sum \nu_k = 0$。

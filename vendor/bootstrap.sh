@@ -92,7 +92,8 @@ case "$_jobs" in ''|*[!0-9]*) _jobs=4 ;; esac
 [ "$_jobs" -gt 8 ] && _jobs=8
 [ "$_jobs" -lt 1 ] && _jobs=1
 cmake --build build --parallel "$_jobs"
-# paleo-dev 只在启动时看 prefix。fresh CI 上 prefix 是本脚本刚解出来的，
-# 外层没注入 LD_LIBRARY_PATH，直接跑二进制会在 libmeshoptimizer.so.2d 上 exit 127。
-# 再进一次 selfcheck：此时 prefix 已在，会带上 deb multiarch 路径。
+# paleo-dev 只在启动时看 prefix，且 QGIS_PREFIX_PATH 已被本脚本导出时整块跳过
+# （下面 21-29 行的守卫）——所以这里不能只靠「再进一次 paleo-dev」。selfcheck
+# 动词自己按 deb multiarch 补 LD_LIBRARY_PATH（#319），否则 fresh CI 上
+# paleo_selfcheck 会在 libmeshoptimizer.so.2d 上 exit 127。
 ./paleo-dev selfcheck

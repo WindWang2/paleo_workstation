@@ -2,6 +2,7 @@
 #include "trackops.h"
 
 #include <QTextStream>
+#include <algorithm>
 
 #include "domain/wellcompositemodel.h"
 #include "wellcompositetrack.h"
@@ -30,17 +31,31 @@ QString exportTrackCsv(const WellTrack &track)
       head << (c.unit.isEmpty() ? c.name : QStringLiteral("%1(%2)").arg(c.name, c.unit));
     ts << head.join(QLatin1Char(',')) << QLatin1Char('\n');
 
-    const int rows = ct->curves().isEmpty() ? 0 : ct->curves().first().depths.size();
-    for (int r = 0; r < rows; ++r)
+    // 深度轴取各曲线的并集（多 LAS 合并的曲线各有自己的深度列）：各自
+    // 采样点如实落格，不插值、不丢样；旧实现全部对齐第一根曲线的深度
+    // 轴，采样率/范围不同即系统性错位。同轴曲线（常态）输出与旧行一致。
+    QVector<float> depthUnion;
+    for (const auto &c : ct->curves())
+      depthUnion += c.depths;
+    std::sort(depthUnion.begin(), depthUnion.end());
+    depthUnion.erase(std::unique(depthUnion.begin(), depthUnion.end()),
+                     depthUnion.end());
+    for (const float d : depthUnion)
     {
       QStringList row;
-      row << f1(ct->curves().first().depths.at(r));
+      row << f1(d);
       for (const auto &c : ct->curves())
       {
-        if (r < c.values.size() && std::isfinite(c.values.at(r)))
-          row << QString::number(c.values.at(r), 'g', 6);
-        else
-          row << QString();
+        // CurveData.depths 按升序契约（valueAtDepth 的二分依赖同一前提）
+        const auto it = std::lower_bound(c.depths.cbegin(), c.depths.cend(), d);
+        QString val;
+        if (it != c.depths.cend() && *it == d)
+        {
+          const qsizetype idx = it - c.depths.cbegin();
+          if (idx < c.values.size() && std::isfinite(c.values.at(idx)))
+            val = QString::number(c.values.at(idx), 'g', 6);
+        }
+        row << val;
       }
       ts << row.join(QLatin1Char(',')) << QLatin1Char('\n');
     }

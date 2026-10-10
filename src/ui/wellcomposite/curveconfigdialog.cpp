@@ -826,10 +826,17 @@ void CurveConfigDialog::applyConfiguration()
       if (trkCfg.curves.isEmpty())
         continue;
 
-      auto ct = std::make_shared<CurveTrack>(trkCfg.title, trkCfg.width);
+      // 复用原曲线道对象（与非曲线道同口径）：面板持有预测相/置信度道的
+      // 身份句柄（shared_ptr），每次 new 换新对象会让句柄仍指向旧道——
+      // 「清除预测」匹配不上、开关改旧道，画布里留下叠不完的僵尸道。
+      std::shared_ptr<CurveTrack> ct =
+          std::dynamic_pointer_cast<CurveTrack>(trkCfg.trackRef);
+      if (!ct)
+        ct = std::make_shared<CurveTrack>(trkCfg.title, trkCfg.width);
       ct->setVisible(trkCfg.visible);
-      for (const auto &c : trkCfg.curves)
-        ct->addCurve(c);
+      ct->setTitle(trkCfg.title);
+      ct->setWidth(trkCfg.width);
+      ct->setCurves(trkCfg.curves);
       assembledTracks.append(ct);
     }
     else

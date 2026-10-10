@@ -296,13 +296,22 @@ QString WellFaciesWorkflow::publishAttributes(const WellFaciesResult &result) {
   const auto ids = m_catalog->wellsMatchingName(m_data.wellName);
   if (ids.size() != 1) return tr("井名未在工程中唯一解析，未更新属性");
   QVariantList intervals;
+  // 与 publishLithoAsset 同口径逐段过滤（空词面/逆序段丢弃计数），不再
+  // 「任一段无效即整批放弃」；逆序段进 mergeIntervals 会被 span() 判死并
+  // 报笼统错误，用户无从定位。
+  int dropped = 0;
   for (const auto &iv : result.intervals) {
-    if (iv.text.trimmed().isEmpty()) return tr("预测相为空，未更新属性");
+    if (iv.text.trimmed().isEmpty() || !(iv.bottomDepth > iv.topDepth)) {
+      ++dropped;
+      continue;
+    }
     intervals << QVariantMap{{"well_id", ids.first()}, {"top_md", iv.topDepth}, {"base_md", iv.bottomDepth},
       {"facies", iv.text}, {"predicted_facies", iv.text}, {"facies_code", QVariant()}, {"sub_facies", QString()}, {"micro_facies", QString()}, {"facies_pattern", QString()}, {"model", result.modelName + " " + result.modelVersion}, {"job_id", result.jobId}};
   }
   QString error;
-  if (intervals.isEmpty()) return tr("预测没有有效井段，未更新属性");
+  if (intervals.isEmpty())
+    return dropped > 0 ? tr("预测段全部无效（空词面/逆序），未更新属性")
+                       : tr("预测没有有效井段，未更新属性");
   if (!WellAttributeStore::mergeIntervals(m_catalog, projectDir(), m_layers, intervals, &error)) return error;
   refreshAttributes();
   return {};

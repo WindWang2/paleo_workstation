@@ -430,11 +430,15 @@ QgsPrintLayout *buildHorizonMapLayout( QgisLayerService *layers, QgisProjectServ
     extent = rasterExtent( horizonRasterSource );
   if ( extent.isEmpty() )
     extent = thickness->extent();
-  try {
-    QgsCoordinateTransform transform(thickness->crs(), project->crs(), project->transformContext());
-    if (!transform.isValid()) return fail(QObject::tr("无法将图件范围转换到工程地图坐标系"));
-    extent = transform.transformBoundingBox(extent);
-  } catch (const QgsCsException &ex) { return fail(ex.what()); }
+  // 两侧都有真实 CRS 才做坐标转换；工程坐标（未投影）下范围即图面坐标。
+  if ( thickness->crs().isValid() && project->crs().isValid() &&
+       thickness->crs() != project->crs() ) {
+    try {
+      QgsCoordinateTransform transform(thickness->crs(), project->crs(), project->transformContext());
+      if (!transform.isValid()) return fail(QObject::tr("无法将图件范围转换到工程地图坐标系"));
+      extent = transform.transformBoundingBox(extent);
+    } catch (const QgsCsException &ex) { return fail(ex.what()); }
+  }
 
   // A4 横版 + 地图项 + 标题 + 图例 + 比例尺 + 指北针 + CRS 说明。
   auto *layout = new QgsPrintLayout( project );

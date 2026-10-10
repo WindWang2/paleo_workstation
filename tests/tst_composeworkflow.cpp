@@ -319,9 +319,10 @@ class TestComposeWorkflow : public QObject
       QVERIFY(dir.isValid());
       QVERIFY2(m_ctx->projectSvc()->createProject(dir.filePath(QStringLiteral("gate.qgz"))),
                "createProject failed");
-      const QVector<float> px = {1, 1, 2, 2};
+      // 4×4 上下两半：默认 MIN_CELLS=4 下每类 8 像元才不被小图斑聚合吃掉。
+      const QVector<float> px = {1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2};
       const QString path =
-          makeRaster(dir.filePath(QStringLiteral("coded_g.tif")), 2, 2, px);
+          makeRaster(dir.filePath(QStringLiteral("coded_g.tif")), 4, 4, px);
       QVERIFY(!path.isEmpty());
       QString err;
       QVERIFY2(m_ctx->layerSvc()->declare(
@@ -426,9 +427,10 @@ class TestComposeWorkflow : public QObject
       QVERIFY(dir.isValid());
       QVERIFY2(m_ctx->projectSvc()->createProject(dir.filePath(QStringLiteral("qa.qgz"))),
                "createProject failed");
-      const QVector<float> px = {1, 1, 2, 2};
+      // 4×4 上下两半：默认 MIN_CELLS=4 下每类 8 像元才不被小图斑聚合吃掉。
+      const QVector<float> px = {1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2};
       const QString path =
-          makeRaster(dir.filePath(QStringLiteral("coded_q.tif")), 2, 2, px);
+          makeRaster(dir.filePath(QStringLiteral("coded_q.tif")), 4, 4, px);
       QVERIFY(!path.isEmpty());
       QString err;
       QVERIFY2(m_ctx->layerSvc()->declare(

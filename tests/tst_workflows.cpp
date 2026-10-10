@@ -699,8 +699,9 @@ private slots:
   {
     Fixture f;
     QVERIFY( initFixture( f ) );
-    const QVector<float> px = { 1, 1, 2, 2 };
-    const QString path = makeRaster( f.dir.filePath( QStringLiteral( "coded.tif" ) ), 2, 2, px );
+    // 4×4 上下两半：默认 MIN_CELLS=4 下每类 8 像元才不被小图斑聚合吃掉。
+    const QVector<float> px = { 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2 };
+    const QString path = makeRaster( f.dir.filePath( QStringLiteral( "coded.tif" ) ), 4, 4, px );
     QVERIFY( !path.isEmpty() );
 
     QString err;

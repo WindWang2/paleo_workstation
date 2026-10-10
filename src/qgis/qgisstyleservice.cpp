@@ -312,7 +312,8 @@ void QgisStyleService::applyWellLayerStyle(QgsVectorLayer *layer)
   {
     // 无相字段分支也要用上面探到的井名列（well_name/井名 兜底）——硬编码
     // "name" 会让只有 well_name 的井属性层（本仓写入口径）静默无标注。
-    if (nameExpr.isEmpty())
+    // 字段恰为 name 时保持旧口径的裸字段引用（非表达式）。
+    if (nameExpr.isEmpty() || layer->fields().lookupField(QStringLiteral("name")) >= 0)
     {
       lbl.fieldName = QStringLiteral("name");
       lbl.isExpression = false;

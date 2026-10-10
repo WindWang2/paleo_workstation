@@ -204,7 +204,8 @@ private slots:
     QVERIFY(session.endpoint().isEmpty());
     QNetworkAccessManager network;
     QNetworkReply *reply = network.get(QNetworkRequest(url));
-    QTRY_VERIFY_WITH_TIMEOUT(reply->isFinished(), 3000);
+    // Windows 上对已停端点的拒绝返回耗时可达 ~3.5s——轮询提前退出，放宽无代价。
+    QTRY_VERIFY_WITH_TIMEOUT(reply->isFinished(), 10000);
     QVERIFY(reply->error() != QNetworkReply::NoError);
     reply->deleteLater();
   }

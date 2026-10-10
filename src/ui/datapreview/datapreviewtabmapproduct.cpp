@@ -9,7 +9,6 @@ using namespace paleo::datapreview_detail;
 #include "../../catalog/datacatalog.h"
 #include "../../domain/faciescatalog.h"
 #include "../../domain/singlefactorrequest.h"
-#include "../../services/previewdoc.h"
 #include "previewhistogramwidget.h"
 #include "previewidentifypanel.h"
 #include "previewmappage.h"

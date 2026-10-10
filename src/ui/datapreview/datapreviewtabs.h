@@ -174,6 +174,13 @@ class DataPreviewTabs : public QWidget
     void updateTabTitle(const QString &assetId); // 文件名 + 过滤后缀（井/测线）
     // 井过滤型正文（well_head / well_stratification / time_depth）：
     // wellName 为空 → 「先选择一口井」占位；否则按该井过滤渲染。
+    // 方向97：buildContent 的 wellFilterable 分支析出到 datapreviewtabs_well.cpp
+    //（单井直滤/死胡同/多井下拉框；输入是 buildContent 已算好的局部量）。
+    QWidget *buildWellFilteredContent(DataCatalog *cat, const CatalogAsset &asset,
+                                      const QString &abs, const QString &assetId,
+                                      const QVector<QPair<QString, QString>> &wells,
+                                      QWidget *host, QVBoxLayout *lay);
+
     QWidget *buildWellBody(const CatalogAsset &asset, const QString &absPath,
                            const QString &wellEntityId, const QString &wellName,
                            QWidget *parent);

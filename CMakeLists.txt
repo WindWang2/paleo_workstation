@@ -684,6 +684,10 @@ add_library(paleo_ui STATIC
   src/ui/layout/layoutitemtree.cpp                 # 方向25：元素树（原生 QgsLayoutModel 视图）
   src/ui/layout/mapbookcontroller.cpp               # #148：地图册面板 ↔ 批量导出队列接线
   src/ui/layout/mapbookpanel.cpp                    # goal/mapbook-reporting：批量参数面板（只发信号）
+  src/ui/datapreview/datapreviewtabs_content.cpp    # 方向97：buildContent 总分发析出
+  src/ui/datapreview/datapreviewtabs_survey.cpp     # 方向97：测区全景（openSurveyArea）析出
+  src/ui/datapreview/datapreviewtabs_well.cpp       # 方向97：井过滤族正文 + LAS 挂起应用析出
+  src/ui/datapreview/datapreviewtabs_overlay.cpp    # 方向97：D2.10 同目录组图析出
   src/ui/datapreview/datapreviewtabs.cpp           # §4 data-page preview tabs
   src/ui/datapreview/datapreviewtabseismic.cpp     # 方向20 轮4：seismic 预览分支析出
   src/ui/datapreview/datapreviewtabhorizon.cpp      # 方向20 轮4：horizon 预览分支析出

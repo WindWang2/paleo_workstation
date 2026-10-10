@@ -21,14 +21,14 @@
     "reason": "DESIGN 数据符号例外：QGIS 极值点高/低两组地质数据符号。"
   },
   {
-    "file": "src/ui/datapreview/datapreviewtabs.cpp",
+    "file": "src/ui/datapreview/datapreviewtabs_survey.cpp",
     "rule": "hex",
     "source": "boundaryBand->setStrokeColor(QColor(QStringLiteral(\"#1B73D0\")));",
     "count": 1,
     "reason": "DESIGN 数据符号例外：QGIS 测区轮廓与透明填充，不改变地图符号色。"
   },
   {
-    "file": "src/ui/datapreview/datapreviewtabs.cpp",
+    "file": "src/ui/datapreview/datapreviewtabs_survey.cpp",
     "rule": "rgb",
     "source": "boundaryBand->setColor(QColor(27, 115, 208, 16));",
     "count": 1,
@@ -168,7 +168,7 @@
     "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
   },
   {
-    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "file": "src/ui/datapreview/previewcurvepanel.h",
     "rule": "hex",
     "source": "addCurve(name, unit, values, depths, QColor(QStringLiteral(\"#1B73D0\")), true);",
     "count": 1,
@@ -413,21 +413,21 @@
     "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
   },
   {
-    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "file": "src/ui/datapreview/previewsectionpanel.h",
     "rule": "rgb",
     "source": "grad.setColorAt(0.0, QColor(220, 38, 38));",
     "count": 1,
     "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
   },
   {
-    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "file": "src/ui/datapreview/previewsectionpanel.h",
     "rule": "rgb",
     "source": "grad.setColorAt(0.5, QColor(255, 255, 255));",
     "count": 1,
     "reason": "DESIGN 数据符号例外：测井/地层调色板、QGIS 井点/轨迹/相图符号与文字缓冲、地震振幅色带；图表 chrome 已转 token。"
   },
   {
-    "file": "src/ui/datapreview/datapreviewtabs_internal.h",
+    "file": "src/ui/datapreview/previewsectionpanel.h",
     "rule": "rgb",
     "source": "grad.setColorAt(1.0, QColor(25, 118, 210));",
     "count": 1,

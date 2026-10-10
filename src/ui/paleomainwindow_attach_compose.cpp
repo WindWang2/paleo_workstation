@@ -7,7 +7,6 @@
 #include "../qgis/qgislayerservice.h"
 #include "../qgis/qgislayoutservice.h"
 #include "../linkage/selectioncontext.h"
-#include "../services/previewdoc.h"
 #include "../catalog/datacatalog.h"
 #include "../workflow/workflows.h"
 #include "../workflow/horizonbatchexport.h"

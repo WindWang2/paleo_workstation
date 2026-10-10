@@ -8,7 +8,6 @@
 #include "../metadata/layermanifest.h"
 #include "../workflow/workflows.h"
 #include "../services/paleotaskservice.h"
-#include "../services/previewdoc.h"
 #include "../catalog/datacatalog.h"
 #include "../catalog/realizationset.h"
 #include "../workflow/realizationworkflow.h"

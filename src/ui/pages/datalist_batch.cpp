@@ -1,8 +1,8 @@
 // 层：视图
 #include "datalist.h"
+#include "../../services/previewdoc.h" // m_doc->… 成员调用需完整类型
 #include "datalistops.h"
 #include "../../catalog/datacatalog.h"
-#include "../../services/previewdoc.h"
 #include "dataops/dataopscommands.h"
 #include "dataops/dataopsexport.h"
 #include "dataopspanelops.h"

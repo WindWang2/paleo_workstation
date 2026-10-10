@@ -23,6 +23,7 @@
 #include <QCloseEvent>
 #include <QVBoxLayout>
 
+#include <qgsexpression.h>
 #include <qgsvectorlayer.h>
 
 namespace
@@ -334,15 +335,17 @@ QStringList PreviewAttributeTableDialog::filteredFeatureIds() const
   QgsFeatureRequest req;
   if ( !m_filterText.isEmpty() )
   {
-    // 服务端表达式过滤（列包含）——全列时逐字段 OR。
+    // 服务端表达式过滤（列包含）——全列时逐字段 OR。文本经 quotedValue
+    // 转义：含单引号（O'Brien）的裸拼接会让表达式解析失败、结果静默为空。
+    const QString pattern = QgsExpression::quotedValue( QStringLiteral( "%%1%" ).arg( m_filterText ) );
     QStringList parts;
     if ( m_filterColumnIdx >= 0 )
-      parts << QStringLiteral( "\"%1\" ILIKE '%%2%'" )
-                   .arg( m_layer->fields().at( m_filterColumnIdx ).name(), m_filterText );
+      parts << QStringLiteral( "\"%1\" ILIKE %2" )
+                   .arg( m_layer->fields().at( m_filterColumnIdx ).name(), pattern );
     else
     {
       for ( const QgsField &f : m_layer->fields() )
-        parts << QStringLiteral( "\"%1\" ILIKE '%%2%'" ).arg( f.name(), m_filterText );
+        parts << QStringLiteral( "\"%1\" ILIKE %2" ).arg( f.name(), pattern );
     }
     req.setFilterExpression( parts.join( QStringLiteral( " OR " ) ) );
   }

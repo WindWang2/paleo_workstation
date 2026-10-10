@@ -887,7 +887,16 @@ using paleo::io_detail::addIssue;
                            .arg(ch.repc);
             return false;
           }
-          c.skip(int(elems) * fixed);
+          // 宽度用 64 位计算并先验余量：int 乘法可回绕成负值，而
+          // skip(负数) 的 need() 恒真会让游标回退到缓冲区之前（越界读）。
+          const qint64 slotBytes = elems * qint64(fixed);
+          if (slotBytes < 0 || slotBytes > c.left())
+          {
+            if (error)
+              *error = QStringLiteral("帧 %1 于通道 %2 处截断").arg(ref.id, chRef.id);
+            return false;
+          }
+          c.skip(int(slotBytes));
           if (c.bad)
           {
             if (error)
@@ -1124,7 +1133,9 @@ using paleo::io_detail::addIssue;
             trim += 2; // trailing length
           if (attrs & 0x01)
           {
-            // padcount 位于段尾（含上述 trim 之后的位置起算：从最尾剥）
+            // padcount 位于段尾（含上述 trim 之后的位置起算：从最尾剥）。
+            // RP66 口径（与 dlisio 一致）：计数含计数字节自身——总剥除 =
+            // padcount + checksum/traillen，旧实现的 +1 会把段体末字节多剥掉。
             const int padPos = lrBuf.size() - trim - 1;
             if (padPos < 0)
             {
@@ -1133,7 +1144,7 @@ using paleo::io_detail::addIssue;
               return DlisWalkResult::Error;
             }
             const uchar padCount = uchar(lrBuf.at(padPos));
-            trim += 1 + int(padCount);
+            trim += int(padCount);
           }
           if (trim > lrBuf.size())
           {

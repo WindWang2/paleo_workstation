@@ -442,10 +442,13 @@ PaleoTask *AiAssistWorkflow::startClassification( const QString &horizon, const 
   // 非线程安全）。结果经共享指针带出，取消/失败不带产品。
   auto *result = new TileInferenceResult;
   QPointer<AiAssistWorkflow> self( this );
+  // worker 只捕服务指针不捕 this：工作流若在任务运行中被析构，池线程
+  // 解引用 this->m_onnx 是悬垂读（服务生命周期由装配根/任务排空保证）。
+  PaleoOnnxService *onnx = m_onnx;
   const QString title = tr( "%1 AI 相分类 %2" ).arg( horizon, model );
   PaleoTask *task = m_tasks->start(
     title,
-    [this, model, gridRows, gridCols, tileRows, tileCols, halo, fetch, result]( PaleoTask *t ) -> QString {
+    [onnx, model, gridRows, gridCols, tileRows, tileCols, halo, fetch, result]( PaleoTask *t ) -> QString {
       TileInferenceRequest req;
       req.model = model;
       req.gridRows = gridRows;
@@ -457,7 +460,7 @@ PaleoTask *AiAssistWorkflow::startClassification( const QString &horizon, const 
       QString err;
       int lastPct = -1;
       const bool ok = runTileInference(
-        m_onnx, req, result,
+        onnx, req, result,
         [ t, &lastPct ]( int done, int total ) {
           const int pct = total > 0 ? done * 100 / total : 0;
           if ( pct != lastPct )
@@ -470,20 +473,22 @@ PaleoTask *AiAssistWorkflow::startClassification( const QString &horizon, const 
       return ok ? QString() : err;
     },
     QString(), PaleoTask::Priority::Normal, true );
-  connect( task, &PaleoTask::finished, this, [self, this, task, horizon, model, result,
+  // finished 挂 task 上下文（而非 this）：工作流先亡时收尾仍执行、result
+  // 仍被回收；触碰工作流的分支用 self 守卫。
+  connect( task, &PaleoTask::finished, task, [self, task, horizon, model, result,
                                               lowConfidenceThreshold]() {
     // result 在收尾后才删——写产品仍要读它（先删后用=UAF）。
     if ( task->state() == PaleoTask::State::Succeeded )
     {
       QString err;
-      if ( self && writeTileProducts( horizon, model, *result, lowConfidenceThreshold, &err ) )
-        emit tileClassificationDone( horizon, m_lastProductLayerIds );
+      if ( self && self->writeTileProducts( horizon, model, *result, lowConfidenceThreshold, &err ) )
+        emit self->tileClassificationDone( horizon, self->m_lastProductLayerIds );
       else if ( self )
-        emit tileClassificationFailed( horizon, err );
+        emit self->tileClassificationFailed( horizon, err );
     }
-    else if ( task->state() == PaleoTask::State::Failed )
+    else if ( task->state() == PaleoTask::State::Failed && self )
     {
-      emit tileClassificationFailed( horizon, task->errorText() );
+      emit self->tileClassificationFailed( horizon, task->errorText() );
     }
     // Cancelled：无产品、无信号（任务页已呈现取消态）。
     delete result;
@@ -536,19 +541,21 @@ PaleoTask *AiAssistWorkflow::startSuggestion( const QString &horizon, const QStr
   // 建议入队/信号回主线程。取消语义见头文件注释（算完但作废）。
   auto *result = new QVector<TrackingSuggestion>;
   QPointer<AiAssistWorkflow> self( this );
+  PaleoOnnxService *onnx = m_onnx; // worker 不捕 this（同 startClassification）
   const QString title = tr( "%1 AI 层位建议 %2" ).arg( horizon, model );
   PaleoTask *task = m_tasks->start(
     title,
-    [this, model, seeds, windowSamples, radius, fetch, result]( PaleoTask * ) -> QString {
+    [onnx, model, seeds, windowSamples, radius, fetch, result]( PaleoTask * ) -> QString {
       QString err;
       QVector<TrackingSuggestion> out;
-      if ( !suggestHorizonTracking( m_onnx, model, seeds, windowSamples, radius, fetch, &out, &err ) )
+      if ( !suggestHorizonTracking( onnx, model, seeds, windowSamples, radius, fetch, &out, &err ) )
         return err;
       *result = out;
       return QString();
     },
     QString(), PaleoTask::Priority::Normal, true );
-  connect( task, &PaleoTask::finished, this, [self, this, task, horizon, result]() {
+  // finished 挂 task 上下文：工作流先亡时 result 仍被回收（同上）。
+  connect( task, &PaleoTask::finished, task, [self, task, horizon, result]() {
     if ( task->state() == PaleoTask::State::Succeeded && self )
     {
       const QVector<TrackingSuggestion> out = *result;
@@ -556,8 +563,8 @@ PaleoTask *AiAssistWorkflow::startSuggestion( const QString &horizon, const QStr
       states.reserve( out.size() );
       for ( const TrackingSuggestion &s : out )
         states.append( SuggestionState { s, s.isSeed } );
-      m_suggestions.insert( horizon, states );
-      emit suggestionsReady( horizon, int( out.size() ) );
+      self->m_suggestions.insert( horizon, states );
+      emit self->suggestionsReady( horizon, int( out.size() ) );
     }
     delete result;
   } );

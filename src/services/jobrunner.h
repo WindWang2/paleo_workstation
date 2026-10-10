@@ -284,11 +284,33 @@ public:
         cb.cleanup(work);
       // 失败态也进 commit：Job 上已带失败态，迁移者据此如实上 UI（现状语义）。
       assertOwnerThread("JobRunner::commit");
+      bool committed = true;
       if (cb.commit)
-        cb.commit(work, nullptr);
+      {
+        // #commit 失败不再静默：给真实错误缓冲（旧实现传 nullptr，错误串被
+        // 丢弃），失败回写 Job 的 error 字段（存在时）并如实发 committed=false。
+        QString commitErr;
+        committed = cb.commit(work, &commitErr);
+        if (!committed && !commitErr.isEmpty())
+        {
+          if constexpr (requires { work.error; })
+          {
+            if constexpr (std::is_pointer_v<std::decay_t<decltype(work.error)>>)
+            {
+              if (work.error && work.error->isEmpty())
+                *work.error = commitErr;
+            }
+            else if constexpr (std::is_same_v<std::decay_t<decltype(work.error)>, QString>)
+            {
+              if (work.error.isEmpty())
+                work.error = commitErr;
+            }
+          }
+        }
+      }
       if (ownsHandle)
         clearTask();
-      emit jobCompleted(claim.myGeneration, true);
+      emit jobCompleted(claim.myGeneration, committed);
     });
     return task;
   }

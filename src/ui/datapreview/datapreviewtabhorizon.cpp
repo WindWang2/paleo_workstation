@@ -469,15 +469,11 @@ QWidget *DataPreviewTabs::buildHorizonContent(
   lay->addWidget(page, 1);
 
   // ---- D6.1/D6.2/D6.7：全图复位 → 缓存命中即上屏；未命中低清先行。 ----
-  auto *openTimer = new QElapsedTimer();
-  openTimer->start();
-  QTimer::singleShot(0, host, [page, openTimer]() {
+  QTimer::singleShot(0, host, [page]() {
     page->mapCanvas()->zoomToFullExtent();
     page->primeRenderCache();
     if (!page->mapCanvas()->overlayVisible())
       page->showLowResSnapshot(); // D6.1 低清整图先上（后台精渲随后替换）
-    openTimer->invalidate();
-    delete openTimer;
   });
   return host;
 }

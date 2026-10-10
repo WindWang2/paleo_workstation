@@ -64,8 +64,7 @@ bool suggestHorizonTracking( PaleoOnnxService *onnx, const QString &model,
                    .arg( meta.inputSignature ) );
 
   QHash<Key, TrackingSuggestion> picked; // 已定拾取（含种子）
-  QHash<Key, QPair<int, int>> anchor;    // 道 → 参考邻道
-  const auto record = [&picked, &anchor]( const TrackingSuggestion &s ) {
+  const auto record = [&picked]( const TrackingSuggestion &s ) {
     picked.insert( Key { s.inlineNo, s.xlineNo }, s );
   };
 
@@ -148,7 +147,7 @@ bool suggestHorizonTracking( PaleoOnnxService *onnx, const QString &model,
 
     int validCount = 0;
     for ( float v : window )
-      if ( !std::isnan( v ) )
+      if ( std::isfinite( v ) )
         ++validCount;
     if ( validCount < windowSamples / 2 )
       continue; // 死道：诚实留空（无建议），扩张链继续
@@ -171,8 +170,8 @@ bool suggestHorizonTracking( PaleoOnnxService *onnx, const QString &model,
     float bestProb = -1.0f;
     for ( int i = 0; i < windowSamples; ++i )
     {
-      if ( std::isnan( window[i] ) )
-        continue; // 缺失样本不参与拾取
+      if ( !std::isfinite( window[i] ) )
+        continue; // 缺失/非有限样本不参与拾取（±Inf 同 NaN 口径）
       const float p = prob.values[i];
       if ( !std::isfinite( p ) )
         continue;

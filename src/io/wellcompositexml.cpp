@@ -10,6 +10,10 @@
 namespace WellComposite
 {
 
+// 列号上限（同 outsourceworkbook 口径）：畸形 ss:Index（如 2000000000）会让
+// 补空列的分配失控（OOM/挂死）。
+constexpr int kMaxSpreadsheetColumns = 16384;
+
 static QColor pickWellCurveColor(const QString &mnemonic, int index)
 {
   const QString upper = mnemonic.toUpper();
@@ -515,11 +519,17 @@ bool parseComprehensiveWellXmlData(const QByteArray &content, ComprehensiveWellD
           xml.readNext();
           if (xml.isStartElement() && xml.name() == QLatin1String("Cell"))
           {
+            bool skipCell = false;
             for (const auto &attr : xml.attributes())
             {
               if (attr.name() == QLatin1String("Index"))
               {
                 const int explicitIndex = attr.value().toInt() - 1; // 1-indexed to 0-indexed
+                if (explicitIndex < 0 || explicitIndex >= kMaxSpreadsheetColumns)
+                {
+                  skipCell = true; // 畸形列号：跳过该格，不补空列到越界位置
+                  continue;
+                }
                 while (colIndex < explicitIndex)
                 {
                   rowCells.append(QString());
@@ -536,8 +546,11 @@ bool parseComprehensiveWellXmlData(const QByteArray &content, ComprehensiveWellD
                 cellText = xml.readElementText();
             }
 
-            rowCells.append(cellText);
-            ++colIndex;
+            if (!skipCell)
+            {
+              rowCells.append(cellText);
+              ++colIndex;
+            }
           }
         }
         sheetRows.append(rowCells);
@@ -904,11 +917,17 @@ bool collectSheetRows(const QString &filePath, const QString &sheetNamePrefix,
           xml.readNext();
           if (xml.isStartElement() && xml.name() == QLatin1String("Cell"))
           {
+            bool skipCell = false;
             for (const auto &attr : xml.attributes())
             {
               if (attr.name() == QLatin1String("Index"))
               {
                 const int explicitIndex = attr.value().toInt() - 1;
+                if (explicitIndex < 0 || explicitIndex >= kMaxSpreadsheetColumns)
+                {
+                  skipCell = true; // 畸形列号：跳过该格，不补空列到越界位置
+                  continue;
+                }
                 while (colIndex < explicitIndex)
                 {
                   rowCells.append(QString());
@@ -923,8 +942,11 @@ bool collectSheetRows(const QString &filePath, const QString &sheetNamePrefix,
               if (xml.isStartElement() && xml.name() == QLatin1String("Data"))
                 cellText = xml.readElementText();
             }
-            rowCells.append(cellText);
-            ++colIndex;
+            if (!skipCell)
+            {
+              rowCells.append(cellText);
+              ++colIndex;
+            }
           }
         }
         sheetRows.append(rowCells);

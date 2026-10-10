@@ -160,8 +160,14 @@ QgsVectorLayer *open(DataCatalog *catalog, const QString &dir,
     bool declared = false;
     for (const auto &d : layers->declared())
       declared = declared || d.layerId == id;
-    if (!declared &&
-        (catalog->refusesWrites() || !layers->declare(declaration, error)))
+    if (!declared && catalog->refusesWrites()) {
+      // 拆开短路：refusesWrites 时不落 error 会让调用方拿到「nullptr + 空
+      // 错误」的哑失败，无从给用户解释。
+      if (error)
+        *error = tr("工程目录被另一实例锁定——本实例只读，无法声明井属性图层");
+      return nullptr;
+    }
+    if (!declared && !layers->declare(declaration, error))
       return nullptr;
   }
   auto *layer = qobject_cast<QgsVectorLayer *>(layers->instantiate(id, error));

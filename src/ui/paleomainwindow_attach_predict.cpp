@@ -58,7 +58,9 @@ void PaleoMainWindow::attachPredictPage(PredictPage *predictPage,
               if (!m_taskSvc)
               {
                 QString err;
-                pred->runPrediction(horizon, algId, params, &err);
+                if (!pred->runPrediction(horizon, algId, params, &err))
+                  logFail(tr("预测失败：%1")
+                              .arg(err.isEmpty() ? tr("未知原因") : err));
                 return;
               }
               auto job = std::make_shared<PredictionWorkflow::PredictionJob>();

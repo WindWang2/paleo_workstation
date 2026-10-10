@@ -5,6 +5,7 @@
 #include "faciestraining.h"
 #include "metadata/paleoprojectstore.h"
 #include <QCryptographicHash>
+#include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -32,6 +33,14 @@ bool error(QString *e, const QString &t) {
   if (e)
     *e = t;
   return false;
+}
+// 写栅格失败回收残件：GDALCreate 已在最终路径建文件，后续失败若不删，
+// 半本 GTiff 会被按「文件存在」的消费方当有效产物。先关数据集再删
+// （Windows 下打开中的句柄不可删）。
+void removePartialGtiff(std::unique_ptr<void, decltype(&GDALClose)> &ds,
+                        const QString &path) {
+  ds.reset();
+  QFile::remove(path);
 }
 // 样本行 → 参考网格像元；越界/重复即拒绝（分类栅格与掩膜件同一映射口径）。
 bool pixelOf(const SampleSet &s, std::size_t row, const std::vector<bool> &used,
@@ -398,16 +407,22 @@ bool FaciesClassificationService::writeRaster(const QString &path,
       GDALClose);
   if (!ds)
     return error(e, QStringLiteral("无法创建分类栅格"));
-  if (!setupClassificationRaster(ds.get(), s, r, e))
+  if (!setupClassificationRaster(ds.get(), s, r, e)) {
+    removePartialGtiff(ds, path);
     return false;
+  }
   auto band = GDALGetRasterBand(ds.get(), 1);
   if (GDALRasterIO(band, GF_Write, 0, 0, s.grid.cols, s.grid.rows,
                    labels.data(), s.grid.cols, s.grid.rows, GDT_Byte, 0,
-                   0) != CE_None)
+                   0) != CE_None) {
+    removePartialGtiff(ds, path);
     return error(e, QStringLiteral("分类像元写入失败"));
-  return GDALFlushCache(ds.get()) == CE_None
-             ? true
-             : error(e, QStringLiteral("分类栅格落盘失败"));
+  }
+  if (GDALFlushCache(ds.get()) != CE_None) {
+    removePartialGtiff(ds, path);
+    return error(e, QStringLiteral("分类栅格落盘失败"));
+  }
+  return true;
 }
 bool FaciesClassificationService::writeConfidenceRaster(const QString &path,
                                                         const SampleSet &s,
@@ -440,23 +455,31 @@ bool FaciesClassificationService::writeConfidenceRaster(const QString &path,
   auto gt = s.grid.transform;
   if (GDALSetGeoTransform(ds.get(), gt.data()) != CE_None ||
       (!s.grid.crs.isEmpty() &&
-       GDALSetProjection(ds.get(), s.grid.crs.toUtf8().constData()) != CE_None))
+       GDALSetProjection(ds.get(), s.grid.crs.toUtf8().constData()) != CE_None)) {
+    removePartialGtiff(ds, path);
     return error(e, QStringLiteral("无法写栅格几何"));
+  }
   auto band = GDALGetRasterBand(ds.get(), 1);
   if (GDALSetRasterNoDataValue(band, -9999) != CE_None ||
       GDALSetMetadataItem(ds.get(), "PALEO_PROVENANCE",
                           QJsonDocument::fromVariant(r.provenance)
                               .toJson(QJsonDocument::Compact)
                               .constData(),
-                          nullptr) != CE_None)
+                          nullptr) != CE_None) {
+    removePartialGtiff(ds, path);
     return error(e, QStringLiteral("置信度 nodata 或 provenance 写入失败"));
+  }
   if (GDALRasterIO(band, GF_Write, 0, 0, s.grid.cols, s.grid.rows,
                    values.data(), s.grid.cols, s.grid.rows, GDT_Float32, 0,
-                   0) != CE_None)
+                   0) != CE_None) {
+    removePartialGtiff(ds, path);
     return error(e, QStringLiteral("置信度像元写入失败"));
-  return GDALFlushCache(ds.get()) == CE_None
-             ? true
-             : error(e, QStringLiteral("置信度栅格落盘失败"));
+  }
+  if (GDALFlushCache(ds.get()) != CE_None) {
+    removePartialGtiff(ds, path);
+    return error(e, QStringLiteral("置信度栅格落盘失败"));
+  }
+  return true;
 }
 bool FaciesClassificationService::writeMaskedRaster(const QString &path,
                                                     const SampleSet &s,
@@ -492,16 +515,22 @@ bool FaciesClassificationService::writeMaskedRaster(const QString &path,
       GDALClose);
   if (!ds)
     return error(e, QStringLiteral("无法创建掩膜栅格"));
-  if (!setupClassificationRaster(ds.get(), s, r, e))
+  if (!setupClassificationRaster(ds.get(), s, r, e)) {
+    removePartialGtiff(ds, path);
     return false;
+  }
   auto band = GDALGetRasterBand(ds.get(), 1);
   if (GDALRasterIO(band, GF_Write, 0, 0, s.grid.cols, s.grid.rows,
                    masked.data(), s.grid.cols, s.grid.rows, GDT_Byte, 0,
-                   0) != CE_None)
+                   0) != CE_None) {
+    removePartialGtiff(ds, path);
     return error(e, QStringLiteral("掩膜像元写入失败"));
-  return GDALFlushCache(ds.get()) == CE_None
-             ? true
-             : error(e, QStringLiteral("掩膜栅格落盘失败"));
+  }
+  if (GDALFlushCache(ds.get()) != CE_None) {
+    removePartialGtiff(ds, path);
+    return error(e, QStringLiteral("掩膜栅格落盘失败"));
+  }
+  return true;
 }
 bool FaciesClassificationService::writeIntervals(const QString &path,
                                                  const SampleSet &s,

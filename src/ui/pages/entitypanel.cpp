@@ -764,6 +764,10 @@ void EntityPanel::setContext(const QString &entityId, const QString &assetId)
 
 void EntityPanel::refresh()
 {
+  // 新选择作废一切在途 GeoJSON 统计：旧实现的世代号只在发起新 geojson
+  // 请求时递增——从 geojson 资产切到非 geojson 资产时在途回调照常执行，
+  // 把 A 的要素统计写进 B 的属性面板。
+  ++m_geoSeq;
   m_mappingReferenceVersion.clear();
   m_mappingReference->setEnabled(false);
   m_mappingReference->setToolTip(tr("请先选择已保存的编图或单因素图件版本"));

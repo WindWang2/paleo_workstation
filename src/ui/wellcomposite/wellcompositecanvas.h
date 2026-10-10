@@ -218,8 +218,10 @@ private:
   bool m_rubberBandActive = false;
   QRect m_rubberBandRect;
 
-  // 标志层拖拽（D3.1）：被拖标志层索引（m_markers 内）
+  // 标志层拖拽（D3.1）：被拖标志层索引（m_markers 内）。setMarkerLines 会按
+  // 深度重排序——拖过相邻线后索引会换人，故同时按名字锁定被拖线（每帧重定位）。
   int m_markerDragIndex = -1;
+  QString m_markerDragName;
   double m_markerDragGrabOffset = 0.0;
 
   QList<std::shared_ptr<WellTrack>> m_tracks;

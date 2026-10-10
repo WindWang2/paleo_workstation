@@ -82,9 +82,9 @@ qint64 estimateVolumeBytesFromSgy(const QString &sgyPath)
   };
   const int samples = be16(3220);
   const int format = be16(3224);
-  int bytesPerSample = 4; // 1=IBM 5=IEEE
-  if (format == 2 || format == 3)
-    bytesPerSample = 2;   // int16 / int32(上头是 4 字节？SEG-Y 3=INT32 —— 按字宽表处理)
+  int bytesPerSample = 4; // 1=IBM 2=int32 5=IEEE 均 4 字节
+  if (format == 3)
+    bytesPerSample = 2;   // int16
   else if (format == 8)
     bytesPerSample = 1;   // int8
   if (samples <= 0 || bytesPerSample <= 0)
@@ -885,11 +885,11 @@ SeismicTraceHeaderInfo SeismicTaskService::readTraceHeader(const QString &sgyPat
     sampleCount = be16(3220);
     formatCode = be16(3224);
   }
-  int bytesPerSample = 4;
-  if (formatCode == 2 || formatCode == 3)
-    bytesPerSample = formatCode == 3 ? 4 : 2;
+  int bytesPerSample = 4; // 1=IBM 2=int32 5=IEEE 均 4 字节
+  if (formatCode == 3)
+    bytesPerSample = 2;   // int16
   else if (formatCode == 8)
-    bytesPerSample = 1;
+    bytesPerSample = 1;   // int8
   else if (formatCode == 1 || formatCode == 5)
     bytesPerSample = 4;
 

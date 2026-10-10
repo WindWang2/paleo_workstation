@@ -556,8 +556,10 @@ SeismicTaskService::loadAttributeVolumePreview(const QString &path)
   {
     const int d = std::abs(kIdx[std::size_t(k)] - sMid);
     if (d < bestDist)
+    {
       bestDist = d;
-    best = k;
+      best = k;
+    }
   }
   preview.timeSlice = preview.stackLayers[std::size_t(best)];
   preview.sampleIdx = preview.stackKIndexes[best];

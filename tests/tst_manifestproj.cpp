@@ -352,7 +352,7 @@ private slots:
       QVERIFY( !svc.writeProject() );
       QVERIFY( !svc.lastErrors().isEmpty() );
       QVERIFY( svc.lastErrors().join( ';' ).contains(
-          QStringLiteral( "manifest declarations" ) ) );
+          QStringLiteral( "manifest db is corrupt" ) ) );
     }
   }
 };

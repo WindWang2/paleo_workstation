@@ -26,7 +26,7 @@ QString projectDirOfCatalog(const QString &catalogPath)
 }
 } // namespace
 
-WellCompositeDerivedSink *WellCompositeDerivedSink::s_default = nullptr;
+QPointer<WellCompositeDerivedSink> WellCompositeDerivedSink::s_default = nullptr;
 
 QList<QPointer<WellCompositePanel>> &WellCompositeDerivedSink::livePanels()
 {

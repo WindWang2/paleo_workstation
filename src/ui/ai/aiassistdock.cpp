@@ -1,6 +1,8 @@
 // 层：视图
 #include "aiassistdock.h"
 
+#include "aitoolresultview.h"
+
 #include "../../ai/chat/markdown.h"
 #include "../../workflow/aichatcontroller.h"
 #include "../paleotheme.h"
@@ -180,8 +182,12 @@ AiAssistDock::AiAssistDock(AiChatController *controller, QWidget *parent)
 void AiAssistDock::attachController(AiChatController *controller) {
   if (m_controller == controller)
     return;
-  if (m_controller)
+  if (m_controller) {
+    // runner 是 controller 的组合成员（非同一对象）：两处都要解绑，
+    // 否则旧 runner 的 toolFinished 会继续打到新面板（结构化视图串台）。
+    m_controller->toolRunner()->disconnect(this);
     m_controller->disconnect(this);
+  }
   m_controller = controller;
   if (m_controller) {
     bindController();
@@ -211,6 +217,11 @@ void AiAssistDock::bindController() {
           &AiAssistDock::markToolRunning);
   connect(m_controller, &AiChatController::toolResultReady, this,
           &AiAssistDock::markToolResult);
+  // 方向 93：结构化结果面取全量出参——直连执行器的 toolFinished（既有
+  // 信号，workflow 零改动；toolResultReady 只有 160 字符摘要）。连接序在
+  // controller 之后：markToolResult 先落摘要，本槽随后按结果形态翻面。
+  connect(m_controller->toolRunner(), &AiChatToolRunner::toolFinished, this,
+          &AiAssistDock::showToolResult);
   connect(m_controller, &AiChatController::statusChanged, this,
           [this](const QString &text) { m_status->setText(text); });
   connect(m_controller, &AiChatController::streamingChanged, this,
@@ -514,4 +525,33 @@ void AiAssistDock::markToolResult(const ChatToolCall &call, bool ok,
                  : PaleoTheme::CapsuleKind::Error);
   card.summary->setText(summary.toHtmlEscaped());
   card.summary->show();
+}
+
+void AiAssistDock::showToolResult(const ChatToolCall &call, bool ok,
+                                  const QString &resultJson) {
+  const auto it = m_toolCards.find(call.id);
+  if (it == m_toolCards.end())
+    return; // 卡片已随会话切换清掉（迟到帧）：不复活卡
+  ToolCard &card = it.value();
+  if (card.resultView) {
+    // 同帧重放（如未来执行器补发）：旧视图先撤再建，不叠视图。
+    card.resultView->deleteLater();
+    card.resultView = nullptr;
+  }
+  auto *view = new AiToolResultView(call.name, ok, resultJson, card.card);
+  card.resultView = view;
+  // 结构化视图（表格/键值对/血缘）信息面更全，取代 160 字符摘要行；
+  // 兜底折叠（含成功态：tile/horizon/facies 等出参）与失败态保留摘要行
+  // ——DESIGN.md「兜底 = 摘要行为既有 160 字符形态 + 折叠块补全文」。
+  if (ok && view->kind() != AiToolResultViewKind::Fallback)
+    card.summary->hide();
+  if (auto *cardLayout = qobject_cast<QVBoxLayout *>(card.card->layout()))
+    cardLayout->addWidget(view);
+  // 导航意图透传到面板级信号（宿主接线消费；面板不自己跳页）。
+  connect(view, &AiToolResultView::assetNavigateRequested, this,
+          &AiAssistDock::assetNavigateRequested);
+  connect(view, &AiToolResultView::entityNavigateRequested, this,
+          &AiAssistDock::entityNavigateRequested);
+  connect(view, &AiToolResultView::lineageNavigateRequested, this,
+          &AiAssistDock::lineageNavigateRequested);
 }

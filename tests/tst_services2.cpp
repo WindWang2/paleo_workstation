@@ -73,7 +73,7 @@ private slots:
 
     QString reason;
     QVERIFY(store.layerBusy(layer.id(), &reason));
-    QCOMPARE(reason, QStringLiteral("edit — editing in progress")); // "taskId — reason" contract
+    QCOMPARE(reason, QStringLiteral("edit — 正在编辑")); // "taskId — reason" contract
     QCOMPARE(startedSpy.count(), 1);
     QCOMPARE(startedSpy.at(0).at(0).toString(), layer.id());
 

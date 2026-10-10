@@ -209,15 +209,11 @@ QWidget *DataPreviewTabs::buildMapProductContent(
 
     lay->addWidget(page, 1);
 
-    auto *openTimer = new QElapsedTimer();
-    openTimer->start();
-    QTimer::singleShot(0, host, [page, openTimer]() {
+    QTimer::singleShot(0, host, [page]() {
       page->mapCanvas()->zoomToFullExtent();
       page->primeRenderCache();
       if (!page->mapCanvas()->overlayVisible())
         page->showLowResSnapshot();
-      openTimer->invalidate();
-      delete openTimer;
     });
 
     return host;
@@ -355,15 +351,11 @@ QWidget *DataPreviewTabs::buildMapProductContent(
 
     lay->addWidget(page, 1);
 
-    auto *openTimer = new QElapsedTimer();
-    openTimer->start();
-    QTimer::singleShot(0, host, [page, openTimer]() {
+    QTimer::singleShot(0, host, [page]() {
       page->mapCanvas()->zoomToFullExtent();
       page->primeRenderCache();
       if (!page->mapCanvas()->overlayVisible())
         page->showLowResSnapshot();
-      openTimer->invalidate();
-      delete openTimer;
     });
 
     return host;

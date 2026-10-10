@@ -162,7 +162,7 @@ private slots:
     dt.setTimeDepthTable({{1000.0, 850.0}, {2000.0, 1450.0}});
     QVERIFY(dt.hasTimeDepthTable());
     QCOMPARE(dt.twtAtTvd(1500.0), 1150.0); // 线性中点
-    QCOMPARE(dt.twtAtTvd(500.0), 850.0);   // 外推夹界内值
+    QVERIFY(std::isnan(dt.twtAtTvd(500.0))); // checkshot 域外不外推——如实 NaN
   }
 
   void testDepthSampling()

@@ -21,7 +21,7 @@
 ## P3 — 同域高频补丁大文件拆分候选清单（from goal/quickfollow-20261009 方向 80）
 
 - **What:** 方向 80 对 10-07/10-08 连补高发文件进行了归并审视（零行为变更消除错位与重复），形成后续模块化拆分候选清单：
-  1. `src/ui/datapreview/datapreviewtabs.cpp`（1758 行）+ `src/ui/datapreview/datapreviewtabs_internal.h`（1607 行）：多类型数据预览 Tab 管理，建议按预览类型（las/seismic/image/table/map）拆出独立子页策略类。
+  1. ~~`src/ui/datapreview/datapreviewtabs.cpp`（1758 行）+ `src/ui/datapreview/datapreviewtabs_internal.h`（1607 行）：多类型数据预览 Tab 管理，建议按预览类型（las/seismic/image/table/map）拆出独立子页策略类。~~（方向 97 已执行：internal.h →747（CurvePanel/SectionPanel 析出 previewcurvepanel/previewsectionpanel.h），主文件 →684 + buildContent/测区全景/井过滤族/同目录组图 4 TU，行为逐字节保留；见 `.goal-loop-ledger-previewtabs-split.md`）
   2. `src/workflow/mappingworkbench.cpp`（1523 行）：编图工作台，融合相图、等值线、栅格计算与预测过程，建议将工区/层位推断与加工管线剥离出子控制器。
   3. `src/app/appcontext.cpp`（951 行）：组装根上下文，涵盖全部核心服务与图层挂载，建议将图层初始化与刷新簇（wells/survey/trajectories）下沉或聚合成专门的 `MapLayerBootstrap`。
   4. `src/ui/pages/datalist_tree.cpp`（811 行）：数据导航树，方向 80 已将层位挂接归位至地震分支内，后续可将不同实体分类（井/地震/成果/计划井/不确定性）按分支抽取为专职构建器。

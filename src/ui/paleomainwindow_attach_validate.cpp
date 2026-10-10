@@ -4,7 +4,6 @@
 
 #include "../qgis/qgiscanvascontroller.h"
 #include "../linkage/threewaylocator.h"
-#include "../services/previewdoc.h"
 #include "../catalog/datacatalog.h"
 #include "correlationpanel.h"
 #include "datapreview/datapreviewtabs.h"

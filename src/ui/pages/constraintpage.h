@@ -6,7 +6,11 @@
 #include <QWidget>
 
 class ConstraintWorkflow;
+class QComboBox;
+class QLabel;
 class QShowEvent;
+class QTableWidget;
+class QVBoxLayout;
 
 // ui/pages/constraintpage.h — ②约束与单因素页（自 pagepanels 拆出，公共
 // 形状不变：objectName/信号签名/ctor 签名全保留）。
@@ -85,6 +89,28 @@ class ConstraintPage : public QWidget
   protected:
     void showEvent(QShowEvent *event) override;
   private:
+    // 方向 96 拆 TU：ctor 按原文行序分解为下列构建段（创建序/连接序逐行
+    // 保持；实现分布 constraintpage_wellfactors/_interpolation/_generate/
+    // _constraints/_sections.cpp）。跨段指针约定：objectName 命中控件一律
+    // findChild 就地解析（事件期/ctor 期与原捕获等价）；无 objectName 的
+    // cellCaption 经构建段返回值 → 参数传递。
+    void buildWellFactorSection(QWidget *content, QVBoxLayout *lay, QComboBox *horizons,
+                                QTableWidget *factors);
+    QLabel *buildFieldAndCellRows(QVBoxLayout *lay); // 返回 cellCaption（约束族段移动用）
+    void buildMethodSection(QWidget *content, QVBoxLayout *lay);
+    void buildBoundaryRows(QWidget *content, QVBoxLayout *lay);
+    void buildAdvancedSection(QWidget *content, QVBoxLayout *lay);
+    void buildSurfaceRow(QVBoxLayout *lay);
+    void buildGenerateSection(QWidget *content, QVBoxLayout *lay);
+    void buildContourSection(QWidget *content, QVBoxLayout *lay);
+    void wireFactorTableSelection(QTableWidget *factors);
+    void buildConstraintArea(QWidget *content, QVBoxLayout *lay, QComboBox *horizons,
+                             QLabel *cellCaption);
+    void buildTailSections(QWidget *content, QVBoxLayout *lay);
+    void wireWorkflowFeedback(ConstraintWorkflow *wf);
+    void wireInputStaleness();
+    void wireWellFactorTriggers(ConstraintWorkflow *wf, QComboBox *horizons,
+                                QTableWidget *factors);
     // 勾选/生成态 → 生成与等值线按钮可用性 + 禁用 reason tooltip（DESIGN.md）。
     void updateFactorActionStates();
     // 主线6：等厚引擎行（顶/底构造面选择）的可见性与清单填充。

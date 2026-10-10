@@ -310,8 +310,18 @@ void QgisStyleService::applyWellLayerStyle(QgsVectorLayer *layer)
   QgsPalLayerSettings lbl;
   if (faciesExprs.isEmpty())
   {
-    lbl.fieldName = QStringLiteral("name");
-    lbl.isExpression = false;
+    // 无相字段分支也要用上面探到的井名列（well_name/井名 兜底）——硬编码
+    // "name" 会让只有 well_name 的井属性层（本仓写入口径）静默无标注。
+    if (nameExpr.isEmpty())
+    {
+      lbl.fieldName = QStringLiteral("name");
+      lbl.isExpression = false;
+    }
+    else
+    {
+      lbl.fieldName = nameExpr;
+      lbl.isExpression = true;
+    }
   }
   else
   {

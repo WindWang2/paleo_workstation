@@ -74,6 +74,24 @@ Qt6 与 KDE Frameworks 6 开发依赖优先由 `PALEO_KF6_PREFIX` 指定前缀�
 为兜底；Qt/KF6 必须与主程序保持 ABI 一致。当前 Linux 构建使用 Qt 6.11.2、
 KF6 6.30.0，Qt ≥6.5 / KF6 ≥6.0 是 Calligra 上游最低要求，与 Office 编辑页无关。
 
+#### LibreOffice vendored（双平台，legacy 转换 API 专用）
+
+`vendor/fetch-libreoffice.sh` 双平台同一布局 `vendor/libreoffice/`（resolver 从应用
+目录向上探测 `program/soffice[.exe]`，三级序 env `PALEO_SOFFICE` > vendored > PATH）：
+
+| 平台 | 官方包 | 解包 | 剪裁后体量 |
+|---|---|---|---|
+| Linux x64 | deb tarball（`deps.libreoffice` pin） | ar+tar 解 12 个 headless 子集 deb | ~550MB |
+| Windows x64 | MSI（`deps.libreoffice_win` pin） | `msiexec /a` administrative extract（无需提权） | ~920MB |
+
+两平台钉同一上游版本 26.2.6.3（`tools/check_lo_pin.py` ctest 门禁看守版本对齐 +
+url/sha256/layout 口径）。Windows 段剪掉 dict-*/语言 res/python/help/shell 扩展
+（Linux 白名单本就不取的面），并在解包后做 `icacls /setintegritylevel medium`
+归一——Low 完整性标签的工作区（沙箱防护）会让 soffice 的 user-installation 引导
+以 exit 77 失败（方向 94 R0 实测，详见 PR 描述）。Windows bootstrap
+（`paleo-dev.ps1 bootstrap`）自动补这条腿；产物 DERIVED 版本带
+`converterVersion`/`converterPlatform` 血统（跨平台转换差异可追溯）。
+
 ### glibc 三档口径（显式分层，非混乱）
 
 | 档 | 下限 | 出处 | 语义 |

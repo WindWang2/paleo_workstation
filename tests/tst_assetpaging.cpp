@@ -333,6 +333,208 @@ private slots:
              "sibling well's collapsed branch must not be restored by key collision");
   }
 
+  // 方向 92：树增量通道——资产级增/改/删落节点级更新（QSignalSpy 行级证据
+  // + 结构断言 + 节点指针稳定性）；#270 展开态在增量路径原地保留；变更面
+  // 超阈值回全量兜底。
+  void navTreeIncrementalAddUpdateRemove() {
+    // 5 井夹具：初建全量插入 20 节点 > 兜底下限 16——初建必走全量通道。
+    QTemporaryDir dir; QVERIFY(PerfFixtures::makeSyntheticCatalogDir(dir.path(), 5));
+    DataImportService importer; importer.setProjectDir(dir.path()); PreviewDocService doc(&importer);
+    DataListPanel panel; panel.setDocService(&doc); panel.resize(640, 740); panel.setViewMode(0); panel.show();
+    panel.refreshAssetTable(); panel.applyListFilter(); QCoreApplication::processEvents();
+    auto *tree = panel.findChild<QTreeWidget *>(QStringLiteral("dataTree"));
+    QVERIFY(tree);
+    QTreeWidgetItem *wellRoot = tree->topLevelItem(1);
+    QCOMPARE(wellRoot->childCount(), 5);
+    // 初建（空树 → 全量插入超阈值）走全量兜底。
+    QCOMPARE(int(panel.lastTreeRefreshMode()), int(DataListPanel::TreeRefreshMode::FullRebuild));
+    // 零变更再刷 → Unchanged（不 clear、不碰展开/滚动）。
+    panel.refreshAssetTable();
+    QCOMPARE(int(panel.lastTreeRefreshMode()), int(DataListPanel::TreeRefreshMode::Unchanged));
+
+    DataCatalog *cat = importer.catalog();
+    const QString wellId = cat->entities(QStringLiteral("well")).at(1).id;
+    const auto wellItemOf = [wellRoot](const QString &wid) -> QTreeWidgetItem * {
+      for (int i = 0; i < wellRoot->childCount(); ++i)
+        if (wellRoot->child(i)->data(0, Qt::UserRole + 1).toString() == wid)
+          return wellRoot->child(i);
+      return nullptr;
+    };
+    QTreeWidgetItem *wellItem = wellItemOf(wellId);
+    QVERIFY(wellItem);
+    const int before = wellItem->childCount();
+    QCOMPARE(wellItem->child(0)->data(0, Qt::UserRole + 2).toString(), QStringLiteral("well_log"));
+
+    // ---- 增：新资产 + 词表内角色链接 → 节点级插入（井节点指针不变）----
+    QSignalSpy spyInserted(tree->model(), &QAbstractItemModel::rowsInserted);
+    QSignalSpy spyRemoved(tree->model(), &QAbstractItemModel::rowsRemoved);
+    CatalogAsset a;
+    a.id = QStringLiteral("tops-extra-1");
+    a.type = QStringLiteral("tops");
+    a.format = QStringLiteral("csv");
+    a.displayName = QStringLiteral("extra-tops.csv");
+    QString err;
+    QVERIFY2(cat->addAsset(a, &err), qPrintable(err));
+    EntityAssetLink l;
+    l.entityType = QStringLiteral("well");
+    l.entityId = wellId;
+    l.assetId = a.id;
+    l.role = QStringLiteral("tops");
+    QVERIFY2(cat->addLink(l, &err), qPrintable(err));
+    wellRoot->setExpanded(true);
+    wellItem->setExpanded(true);
+    panel.refreshAssetTable(); QCoreApplication::processEvents();
+    QCOMPARE(int(panel.lastTreeRefreshMode()), int(DataListPanel::TreeRefreshMode::Incremental));
+    // #270 语义：增量不 clear——展开态与节点身份原地保留。
+    QVERIFY(wellRoot->isExpanded());
+    QVERIFY(wellItem->isExpanded());
+    QCOMPARE(wellItemOf(wellId), wellItem);
+    QCOMPARE(wellItem->childCount(), before + 1);
+    QTreeWidgetItem *added = wellItem->child(before);
+    QCOMPARE(added->data(0, Qt::UserRole).toString(), QStringLiteral("tops-extra-1"));
+    QCOMPARE(added->data(0, Qt::UserRole + 1).toString(), wellId);
+    QCOMPARE(added->data(0, Qt::UserRole + 2).toString(), QStringLiteral("tops"));
+    QVERIFY(added->text(0).contains(QStringLiteral("井分层")));
+    QVERIFY(added->text(0).contains(QStringLiteral("extra-tops.csv")));
+    // 行级证据：一次插入、零删除（全量重建必然伴随整树删除）。
+    QCOMPARE(spyInserted.count(), 1);
+    QCOMPARE(spyRemoved.count(), 0);
+
+    // ---- 改：主文件显式切换 → 两个叶就地改文案（无增无删）----
+    CatalogAsset b;
+    b.id = QStringLiteral("log-extra-2");
+    b.type = QStringLiteral("well_log");
+    b.format = QStringLiteral("las");
+    b.displayName = QStringLiteral("extra-run2.las");
+    QVERIFY2(cat->addAsset(b, &err), qPrintable(err));
+    EntityAssetLink l2;
+    l2.entityType = QStringLiteral("well");
+    l2.entityId = wellId;
+    l2.assetId = b.id;
+    l2.role = QStringLiteral("well_log");
+    l2.isPrimary = false;
+    l2.ordinal = 1;
+    QVERIFY2(cat->addLink(l2, &err), qPrintable(err));
+    panel.refreshAssetTable();
+    QCOMPARE(int(panel.lastTreeRefreshMode()), int(DataListPanel::TreeRefreshMode::Incremental));
+    QCOMPARE(wellItem->childCount(), before + 2);
+    QVERIFY(wellItem->child(0)->text(0).contains(QStringLiteral("主文件")));
+    QVERIFY(wellItem->child(1)->text(0).contains(QStringLiteral("成员")));
+
+    QSignalSpy spyChanged(tree, &QTreeWidget::itemChanged);
+    QSignalSpy spyInserted2(tree->model(), &QAbstractItemModel::rowsInserted);
+    QSignalSpy spyRemoved2(tree->model(), &QAbstractItemModel::rowsRemoved);
+    // setLinkPrimary 的 index 是 links() 全表序（非 linksForEntity 子集序）。
+    int promotedIdx = -1;
+    const QVector<EntityAssetLink> allLinks = cat->links();
+    for (int i = 0; i < allLinks.size(); ++i)
+      if (allLinks.at(i).assetId == b.id && !allLinks.at(i).unresolved)
+        promotedIdx = i;
+    QVERIFY(promotedIdx >= 0);
+    QVERIFY2(cat->setLinkPrimary(promotedIdx, &err), qPrintable(err));
+    panel.refreshAssetTable();
+    QCOMPARE(int(panel.lastTreeRefreshMode()), int(DataListPanel::TreeRefreshMode::Incremental));
+    QCOMPARE(wellItem->childCount(), before + 2);
+    QVERIFY(wellItem->child(0)->text(0).contains(QStringLiteral("成员")));
+    QVERIFY(wellItem->child(1)->text(0).contains(QStringLiteral("主文件")));
+    // 就地改写证据：既有叶 itemChanged ≥ 2，无行增删。
+    QVERIFY2(spyChanged.count() >= 2,
+             qPrintable(QStringLiteral("itemChanged=%1").arg(spyChanged.count())));
+    QCOMPARE(spyInserted2.count(), 0);
+    QCOMPARE(spyRemoved2.count(), 0);
+
+    // ---- 删：removeAsset → 叶级删除 ----
+    QSignalSpy spyInserted3(tree->model(), &QAbstractItemModel::rowsInserted);
+    QSignalSpy spyRemoved3(tree->model(), &QAbstractItemModel::rowsRemoved);
+    QVERIFY2(cat->removeAsset(b.id, &err), qPrintable(err));
+    panel.refreshAssetTable();
+    QCOMPARE(int(panel.lastTreeRefreshMode()), int(DataListPanel::TreeRefreshMode::Incremental));
+    QCOMPARE(wellItem->childCount(), before + 1);
+    QCOMPARE(spyInserted3.count(), 0);
+    QCOMPARE(spyRemoved3.count(), 1);
+    // 删除后井节点指针与展开态仍在。
+    QCOMPARE(wellItemOf(wellId), wellItem);
+    QVERIFY(wellItem->isExpanded());
+
+    // ---- 兜底阈值：一批变更数超 max(16, 节点数/4) → 全量重建 ----
+    {
+      DataCatalog::BatchSave batch(cat);
+      for (int i = 0; i < DataListPanel::kNavReconcileFloor + 4; ++i)
+      {
+        CatalogAsset m;
+        m.id = QStringLiteral("aux-flood-%1").arg(i);
+        m.type = QStringLiteral("document");
+        m.format = QStringLiteral("pdf");
+        m.displayName = QStringLiteral("flood-%1.pdf").arg(i);
+        QVERIFY2(cat->addAsset(m, &err), qPrintable(err));
+      }
+      QVERIFY2(batch.flush(&err), qPrintable(err));
+    }
+    panel.refreshAssetTable();
+    QCOMPARE(int(panel.lastTreeRefreshMode()), int(DataListPanel::TreeRefreshMode::FullRebuild));
+    // 全量重建后结构一致（20 份文档进辅助资料参考资料分支）。
+    int auxAdded = 0;
+    for (int t = 0; t < tree->topLevelItemCount(); ++t)
+      if (tree->topLevelItem(t)->text(0).startsWith(QStringLiteral("辅助资料")))
+        for (int c = 0; c < tree->topLevelItem(t)->childCount(); ++c)
+          auxAdded += tree->topLevelItem(t)->child(c)->childCount();
+    QCOMPARE(auxAdded, DataListPanel::kNavReconcileFloor + 4);
+  }
+
+  // 方向 92：词表外角色（工程自定义）落「未分组」可见桶——不静默藏匿、
+  // 不与词表角色混排；桶分支随角色出现/消失走节点级增删。
+  void navTreeUngroupedBucketForUnknownRole() {
+    QTemporaryDir dir; QVERIFY(PerfFixtures::makeSyntheticCatalogDir(dir.path(), 3));
+    DataImportService importer; importer.setProjectDir(dir.path()); PreviewDocService doc(&importer);
+    auto *cat = importer.catalog();
+    const QString wellId = cat->entities(QStringLiteral("well")).at(0).id;
+    CatalogAsset a;
+    a.id = QStringLiteral("custom-doc-1");
+    a.type = QStringLiteral("document");
+    a.format = QStringLiteral("dat");
+    a.displayName = QStringLiteral("custom-thing.dat");
+    QString err;
+    QVERIFY2(cat->addAsset(a, &err), qPrintable(err));
+    EntityAssetLink l;
+    l.entityType = QStringLiteral("well");
+    l.entityId = wellId;
+    l.assetId = a.id;
+    l.role = QStringLiteral("my_exotic_role");
+    QVERIFY2(cat->addLink(l, &err), qPrintable(err));
+
+    DataListPanel panel; panel.setDocService(&doc); panel.resize(640, 740); panel.setViewMode(0); panel.show();
+    panel.refreshAssetTable(); panel.applyListFilter(); QCoreApplication::processEvents();
+    auto *tree = panel.findChild<QTreeWidget *>(QStringLiteral("dataTree"));
+    QVERIFY(tree);
+    QTreeWidgetItem *wellRoot = tree->topLevelItem(1);
+    QTreeWidgetItem *wellItem = nullptr;
+    for (int i = 0; i < wellRoot->childCount(); ++i)
+      if (wellRoot->child(i)->data(0, Qt::UserRole + 1).toString() == wellId)
+        wellItem = wellRoot->child(i);
+    QVERIFY(wellItem);
+    QCOMPARE(wellItem->childCount(), 2); // 词表内 LAS 叶 + 「未分组」桶
+    QTreeWidgetItem *las = wellItem->child(0);
+    QCOMPARE(las->data(0, Qt::UserRole + 2).toString(), QStringLiteral("well_log"));
+    QTreeWidgetItem *bucket = wellItem->child(1);
+    QCOMPARE(bucket->text(0), QStringLiteral("未分组 (1)"));
+    QCOMPARE(bucket->data(0, Qt::UserRole + 2).toString(), QStringLiteral("category"));
+    QCOMPARE(bucket->data(0, Qt::UserRole + 3).toString(), QStringLiteral("ungrouped"));
+    QCOMPARE(bucket->childCount(), 1);
+    QTreeWidgetItem *leaf = bucket->child(0);
+    QCOMPARE(leaf->data(0, Qt::UserRole).toString(), QStringLiteral("custom-doc-1"));
+    QCOMPARE(leaf->data(0, Qt::UserRole + 1).toString(), wellId);
+    QCOMPARE(leaf->data(0, Qt::UserRole + 2).toString(), QStringLiteral("my_exotic_role"));
+    QCOMPARE(leaf->text(0), QStringLiteral("custom-thing.dat"));
+    QCOMPARE(leaf->text(1), QStringLiteral("my_exotic_role")); // 词表外角色名如实展示
+
+    // 桶随资产删除而消失（节点级增删，不走全量）。
+    QVERIFY2(cat->removeAsset(a.id, &err), qPrintable(err));
+    panel.refreshAssetTable();
+    QCOMPARE(int(panel.lastTreeRefreshMode()), int(DataListPanel::TreeRefreshMode::Incremental));
+    QCOMPARE(wellItem->childCount(), 1);
+    QCOMPARE(wellItem->child(0)->data(0, Qt::UserRole + 2).toString(), QStringLiteral("well_log"));
+  }
+
   void governanceUiPreviewCancelAndTokens() {
     paleo::storage::Report report; report.complete = true; report.scannedRoots = {"artifacts/RAW"};
     paleo::storage::FileFact f; f.relativePath = "artifacts/RAW/unreferenced.bin"; f.sizeBytes = 42;

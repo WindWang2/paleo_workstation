@@ -3,6 +3,8 @@
 
 #include <QJsonArray>
 
+#include "../../catalog/catalogroles.h"
+
 // ai/chat — 领域工具表实现（方向51）。
 //
 // 工具对应 src/ai 的推理能力与 catalog 只读查询面：
@@ -189,8 +191,11 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
     {QStringLiteral("well_name"), QStringLiteral("string"),
      QObject::tr("井名（topic=well_details 时必填；按目录规范化匹配）"), false},
     {QStringLiteral("role"), QStringLiteral("string"),
-     QObject::tr("关联角色过滤（well_head/well_log/tops/time_depth/horizon/"
-                 "seismic_volume/reference 等），作用于 well_details"), false},
+     // 角色清单单源：catalogRoles() 生成（分组名+清单），不再手写串。
+     // 「等」字保留——工程 project_area.json 自定义角色不在词表内。
+     QObject::tr("关联角色过滤（词表角色按分组：%1 等），作用于 well_details")
+         .arg(catalogRoleListForAi()),
+     false},
     {QStringLiteral("asset_type"), QStringLiteral("string"),
      QObject::tr("资产类型过滤（如 well_log/horizon/seismic），作用于 assets"),
      false},

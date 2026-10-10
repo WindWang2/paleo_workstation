@@ -93,6 +93,19 @@ class DataListPanel : public QWidget
     // ---- 树排序（D2.5）----
     void setTreeSort(paleo::dataops::TreeSortKind kind);
 
+    // ---- 方向 92：树增量通道诊断面 ----
+    enum class TreeRefreshMode
+    {
+      Unchanged,    // 蓝图与现状零差异（不 clear、不碰展开/滚动）
+      Incremental,  // 节点级增/删/改就地落地
+      FullRebuild   // 变更面超阈值 → 全量兜底（#270 快照还原语义）
+    };
+    TreeRefreshMode lastTreeRefreshMode() const { return m_lastTreeRefreshMode; }
+    // 增量兜底阈值：节点级变更数（增+删+改）超过 max(下限, 既有节点数/除数)
+    // → 全量重建（结构性重排/大批量导入走这里）。口径定案见 ledger 方向 92。
+    static constexpr int kNavReconcileFloor = 16;
+    static constexpr int kNavReconcileDivisor = 4;
+
     // ---- D1.9 ----
     // 命令面（测试/编程式操作入口；右键菜单与拖放共用）。
     void pushCommand(paleo::dataops::DataOpCommand *cmd);
@@ -185,6 +198,18 @@ class DataListPanel : public QWidget
     std::function<bool(const QString &id)> m_plannedVisible;
     void buildDataOpsUi();          // P3 增量 UI（过滤条/队列/视图页）
     void refreshAssetTree();
+    // ---- 方向 92：树蓝图 + 增量通道（定义与实现见 datalist_tree.cpp）----
+    struct NavNodeSpec;             // 树蓝图节点（纯数据，无 widget）
+    QVector<NavNodeSpec> buildNavTreeSpec() const;
+    void renderNavChildren(QTreeWidgetItem *parent, const QVector<NavNodeSpec> &specs);
+    void rebuildNavTree(const QVector<NavNodeSpec> &specs);
+    bool reconcileNavTree(const QVector<NavNodeSpec> &specs);
+    void reconcileNavChildren(QTreeWidgetItem *parent, const QVector<NavNodeSpec> &specs,
+                              bool apply, int *changed);
+    static void applyNavSpec(QTreeWidgetItem *item, const NavNodeSpec &spec, bool newItem);
+    static int navCountSpecNodes(const NavNodeSpec &spec);
+    static bool navSpecDiffers(const QTreeWidgetItem *item, const NavNodeSpec &spec);
+    TreeRefreshMode m_lastTreeRefreshMode = TreeRefreshMode::Unchanged;
     void renderAssetPage();
     StorageGovernanceController *m_storageController = nullptr;
     QPointer<StorageGovernanceDialog> m_storageDialog;

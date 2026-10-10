@@ -20,6 +20,7 @@
 #include "../src/io/ingestplan.h"
 #include "../src/io/lasparser.h"
 #include "../src/services/welllogset.h" // 方向44：导入绑定后并集可达
+#include "fixtures/mkprojectfixture.h"  // 方向95：mini 夹具扩散（整工程生产产物）
 #include "welllogfixturewriters.h" // 方向44：DLIS/LIS 夹具写入器
 #include "../src/domain/projectclassifier.h"
 #include "../src/metadata/layermanifest.h"
@@ -2467,6 +2468,131 @@ private slots:
     std::sort(roles.begin(), roles.end());
     QCOMPARE(roles, QStringList({QStringLiteral("time_depth"), QStringLiteral("tops"),
                                  QStringLiteral("well_head"), QStringLiteral("well_log")}));
+  }
+
+  // 方向 95：mkproject mini 夹具扩散——导入域不变量在整工程生产产物上断言
+  //（QProcess 驱动 paleo_mkproject --manifest mini 全链）。tst_mkprojectfixture
+  // 盖 catalog 计数/round-trip/配准残差；本槽补 tst_import 独有面：
+  //   · 受管副本 SHA-256 与 mini 源件逐一对拍（14 件 verbatim 导入）；
+  //   · 只读锁（写权限位为零）在整工程 15 件受管副本上成立；
+  //   · 外链件 sha 冻结 = 入库时源件（mini.sgy + wg1_well.xml——seismic
+  //     类型一律外链 + manifest linkExternal，见 dataimport_file.cpp 口径）；
+  //   · A3 双测井文件曲线并集（方向44 并集可达 + 跨文件别名协议）。
+  // 断言差异如实：井口件是 convert 产物（conv0.dat——staging 转换件已随进程
+  // 退出销毁，SHA 无源可拍，只断受管在盘 + RAW 阶段）；既有 synthetic 断言
+  // 全保留（双轨：本槽是增广不是替换）。
+  void miniFixtureProjectMeetsImportDomainInvariants()
+  {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const MkProjectFixture::RunResult run =
+        MkProjectFixture::buildMiniProject(tmp.path());
+    QVERIFY2(run.ran && run.exitCode == 0,
+             qPrintable(run.errorText.isEmpty() ? run.standardOutput
+                                                : run.errorText));
+
+    DataCatalog cat;
+    QString err;
+    QVERIFY2(cat.open(run.projectDir, &err), qPrintable(err));
+    QCOMPARE(int(cat.assets().size()), 17);
+    QCOMPARE(int(cat.versions().size()), 17); // 每资产恰一个 RAW 版本
+
+    // 按文件名找版本（mini 件名在 manifest 内唯一）。
+    const auto versionFor = [&cat](const QString &fileName) {
+      for (const CatalogVersion &v : cat.versions())
+        if (v.fileName == fileName)
+          return v;
+      return CatalogVersion();
+    };
+    // QVERIFY2 宏内含 void return——不能带返回值，路径存在性由调用方断言。
+    const auto assertManagedReadOnly = [&](const CatalogVersion &v,
+                                           const QString &what) {
+      QVERIFY2(v.managed, qPrintable(what));
+      QCOMPARE(v.stage, QStringLiteral("RAW"));
+      const QString abs = DataCatalog::resolvedVersionPath(run.projectDir, v);
+      QVERIFY2(QFile::exists(abs), qPrintable(abs));
+      const QFile::Permissions perm = QFileInfo(abs).permissions();
+      QVERIFY2(int(perm & (QFile::WriteOwner | QFile::WriteUser |
+                           QFile::WriteGroup | QFile::WriteOther)) == 0,
+               qPrintable(what));
+    };
+
+    // ---- 14 件 verbatim 受管导入：SHA 对拍源件 + 只读锁 ----
+    const QStringList verbatimRel = {
+        QStringLiteral("strat/tops.dat"),
+        QStringLiteral("strat/tops_header.dat"),
+        QStringLiteral("las/A1.las"),
+        QStringLiteral("las/A2.las"),
+        QStringLiteral("las/A3.las"),
+        QStringLiteral("las/A3_rerun.las"),
+        QString::fromUtf8("2.3岩心资料/A1_1610.5_岩心.jpg"),
+        QString::fromUtf8("2.3岩心资料/A2_1625.0_岩心.jpg"),
+        QString::fromUtf8("2.3岩心资料/A3_1640.5_岩心.jpg"),
+        QString::fromUtf8("2.6薄片岩矿鉴定/A3_1701.0_薄片.jpg"),
+        QString::fromUtf8("2.4岩屑录井数据/A1_岩屑录井.csv"),
+        QString::fromUtf8("2.4岩屑录井数据/A2_岩屑录井.csv"),
+        QString::fromUtf8("2.4岩屑录井数据/A3_岩屑录井.csv"),
+        QString::fromUtf8("ref/工区说明.docx"),
+    };
+    for (const QString &rel : verbatimRel)
+    {
+      const QString fileName = QFileInfo(rel).fileName();
+      const CatalogVersion v = versionFor(fileName);
+      QVERIFY2(!v.id.isEmpty(), qPrintable(fileName));
+      assertManagedReadOnly(v, fileName);
+      const QString src = QDir(MkProjectFixture::miniDir()).filePath(rel);
+      QVERIFY2(v.sha256 == sha256OfFile(src),
+               qPrintable(QStringLiteral("%1 SHA 与 mini 源件不一致").arg(fileName)));
+    }
+
+    // ---- 井口 convert 产物（conv0.dat）：受管在盘（SHA 无源可拍，如实） ----
+    const CatalogVersion head = versionFor(QStringLiteral("conv0.dat"));
+    QVERIFY2(!head.id.isEmpty(), "manifest 首项井口 convert 产物 conv0.dat 缺失");
+    assertManagedReadOnly(head, QStringLiteral("conv0.dat"));
+
+    // ---- 外链件 ×2（mini.sgy：seismic 一律外链；wg1_well.xml：manifest
+    // linkExternal）——不入库复制，sha = 入库时源件冻结，路径指回源。 ----
+    for (const QString &rel : {QStringLiteral("seis/mini.sgy"),
+                               QStringLiteral("outsource/wg1_well.xml")})
+    {
+      const QString fileName = QFileInfo(rel).fileName();
+      const CatalogVersion v = versionFor(fileName);
+      QVERIFY2(!v.id.isEmpty(), qPrintable(fileName));
+      QVERIFY2(!v.managed, qPrintable(fileName));
+      const QString src = QDir(MkProjectFixture::miniDir()).filePath(rel);
+      QVERIFY2(v.sha256 == sha256OfFile(src),
+               qPrintable(QStringLiteral("%1 外链 sha 与源件不一致").arg(fileName)));
+      QCOMPARE(v.path, src);
+    }
+
+    // ---- A3 双测井并集（方向44：well_log 链接文件集 + 曲线并集） ----
+    QString a3Id;
+    for (const CatalogEntity &w : cat.entities(QStringLiteral("well")))
+      if (w.name == QStringLiteral("A3"))
+        a3Id = w.id;
+    QVERIFY2(!a3Id.isEmpty(), "A3 井实体缺失");
+    WellLogWarnings logWarnings;
+    const QVector<WellLogFile> files =
+        WellLogSet::wellLogFiles(&cat, run.projectDir, a3Id, &logWarnings);
+    QVERIFY2(files.size() == 2, "A3 双测井（A3.las + A3_rerun.las）");
+    QCOMPARE(logWarnings.count, 0);
+    const QVector<WellCurveRef> curves =
+        WellLogSet::wellCurveIndex(&cat, run.projectDir, a3Id);
+    QStringList mnemonicNames;
+    int canonicalCount = 0;
+    for (const WellCurveRef &c : curves)
+    {
+      mnemonicNames.append(c.mnemonic);
+      if (c.canonical)
+        ++canonicalCount;
+    }
+    // 四曲线两文件 = 并集 8 列：主文件保留原名（canonical ×4），副文件
+    // 同名列加 @basename 别名（GR@A3_rerun 等）；深度索引列不进并集。
+    QCOMPARE(int(curves.size()), 8);
+    QCOMPARE(canonicalCount, 4);
+    QVERIFY(mnemonicNames.contains(QStringLiteral("GR")));
+    QVERIFY(mnemonicNames.contains(QStringLiteral("GR@A3_rerun")));
+    QVERIFY(!mnemonicNames.contains(QStringLiteral("DEPT")));
   }
 
   // LAS: ~V/~W/~C/~A parsed; 3 curves × 4 rows; NULL token → NaN.

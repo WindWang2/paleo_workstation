@@ -18,6 +18,7 @@
 #include "../src/catalog/datacatalog.h"
 #include "../src/workflow/aichatcontroller.h"
 #include "../src/workflow/aichattoolrunner.h"
+#include "fixtures/mkprojectfixture.h" // 方向95：mini 夹具扩散（重绑段）
 
 // 方向51 Oracle①：产品装配（app/aiwiring.cpp）与测试走同一个装配函数，
 // 因此「装配出来的是 router 而不是替身 Mock」是可执行断言。
@@ -38,6 +39,7 @@ private slots:
   void statusHintIsHonestInEveryMode();
   void chatToolCatalogBindsWithoutAssistWorkflow();
   void chatToolCatalogRebindsOnProjectSwitch();
+  void chatToolRebindsOntoMkprojectFixtureProject();
 
 private:
   static bool spinUntil(const std::function<bool()> &done, int timeoutMs = 10000) {
@@ -47,7 +49,11 @@ private:
       QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
     return done();
   }
-  // 经 chat->toolRunner() 跑一次 query wells，取回首帧结果 payload。
+  // 经 chat->toolRunner() 跑一次 paleo.query_project（topic 参数化），取回首帧
+  // 结果 payload；成功位随返回值透出。
+  static bool queryProject(AiChatController &chat, const QString &topic,
+                           QJsonObject *payload);
+  // 兼容旧面：topic=wells（既有两槽的断言路径零改动）。
   static bool queryWells(AiChatController &chat, QJsonObject *payload);
 };
 
@@ -141,19 +147,24 @@ void TestAiWiring::statusHintIsHonestInEveryMode() {
            qPrintable(local.statusHint()));
 }
 
-bool TestAiWiring::queryWells(AiChatController &chat, QJsonObject *payload) {
+bool TestAiWiring::queryProject(AiChatController &chat, const QString &topic,
+                                QJsonObject *payload) {
   AiChatToolRunner *runner = chat.toolRunner();
   QSignalSpy results(runner, &AiChatToolRunner::toolFinished);
   ChatToolCall call;
   call.id = QStringLiteral("wiring-query");
   call.name = QStringLiteral("paleo.query_project");
-  call.argumentsJson = QStringLiteral("{\"topic\":\"wells\"}");
+  call.argumentsJson = QStringLiteral("{\"topic\":\"%1\"}").arg(topic);
   runner->run(call);
   if (!spinUntil([&results] { return results.size() >= 1; }))
     return false;
   *payload = QJsonDocument::fromJson(results.at(0).at(2).toString().toUtf8())
                .object();
   return results.at(0).at(1).toBool();
+}
+
+bool TestAiWiring::queryWells(AiChatController &chat, QJsonObject *payload) {
+  return queryProject(chat, QStringLiteral("wells"), payload);
 }
 
 // 方向77：catalog 经装配根注入 chat 工具上下文——assist 为空（无 ORT 构建
@@ -227,6 +238,71 @@ void TestAiWiring::chatToolCatalogRebindsOnProjectSwitch() {
   QCOMPARE(second.value(QStringLiteral("count")).toInt(), 2);
   // 摘要常驻段同刷：B 工程两井 → 「井 2 口」（A 工程是 1 口，可区分）。
   QVERIFY2(chat.systemPrompt().contains(QStringLiteral("井 2 口")),
+           qPrintable(chat.systemPrompt()));
+}
+
+// 方向95：换工程重绑吃 mkproject mini 夹具——B 工程从 synthetic 自建换成
+// 生产导入全链产物（paleo_mkproject --manifest mini：io 解析 → catalog 登记
+// → 工程文件落盘，QProcess 驱动）。重绑后工具上下文快照以生产产物为据：
+// wells 井名/summary 实体计数/systemPrompt 摘要常驻段（A 工程 1 井可区分）。
+// 上槽 synthetic A→B 语义保留（双轨：fixture 是增广不是替换）。
+void TestAiWiring::chatToolRebindsOntoMkprojectFixtureProject() {
+  QTemporaryDir dirA;
+  QVERIFY(dirA.isValid());
+  DataCatalog catalogA;
+  QVERIFY(catalogA.open(dirA.path()));
+  CatalogEntity a;
+  a.id = QStringLiteral("well-a");
+  a.entityType = QStringLiteral("well");
+  a.name = QStringLiteral("WA-1");
+  QVERIFY(catalogA.addEntity(a));
+
+  QTemporaryDir projB;
+  QVERIFY(projB.isValid());
+  const MkProjectFixture::RunResult runB =
+      MkProjectFixture::buildMiniProject(projB.path());
+  QVERIFY2(runB.ran && runB.exitCode == 0,
+           qPrintable(runB.errorText.isEmpty() ? runB.standardOutput
+                                              : runB.errorText));
+  DataCatalog catalogB;
+  QString openErr;
+  QVERIFY2(catalogB.open(runB.projectDir, &openErr), qPrintable(openErr));
+
+  AiChatController chat;
+  bindChatToolRunner(&chat, nullptr, nullptr, &catalogA, dirA.path());
+  QJsonObject first;
+  QVERIFY2(queryWells(chat, &first),
+           qPrintable(first.value(QStringLiteral("error")).toString()));
+  QCOMPARE(first.value(QStringLiteral("count")).toInt(), 1);
+
+  // 换工程：synthetic A（1 井）→ mini 生产工程 B（3 井）——同一 controller
+  // 重绑，工具看到的是生产 catalog 读回面（陈旧上下文不得残留）。
+  bindChatToolRunner(&chat, nullptr, nullptr, &catalogB, runB.projectDir);
+  QJsonObject wells;
+  QVERIFY2(queryWells(chat, &wells),
+           qPrintable(wells.value(QStringLiteral("error")).toString()));
+  QCOMPARE(wells.value(QStringLiteral("count")).toInt(), 3);
+  QStringList namesB;
+  for (const QJsonValue &value : wells.value(QStringLiteral("wells")).toArray())
+    namesB.append(value.toObject().value(QStringLiteral("name")).toString());
+  for (const QString &expected :
+       {QStringLiteral("A1"), QStringLiteral("A2"), QStringLiteral("A3")})
+    QVERIFY2(namesB.contains(expected),
+             qPrintable(namesB.join(QLatin1Char(','))));
+  QVERIFY(!namesB.contains(QStringLiteral("WA-1"))); // 旧工程实体不得残留
+
+  // summary 快照：生产工程实体面（manifest expect 同源：well 3 /
+  // seismic_survey 1 / auxiliary 2——经工具上下文而非测试直读 catalog）。
+  QJsonObject summary;
+  QVERIFY2(queryProject(chat, QStringLiteral("summary"), &summary),
+           qPrintable(summary.value(QStringLiteral("error")).toString()));
+  const QJsonObject entities = summary.value(QStringLiteral("entities")).toObject();
+  QCOMPARE(entities.value(QStringLiteral("well")).toInt(), 3);
+  QCOMPARE(entities.value(QStringLiteral("seismic_survey")).toInt(), 1);
+  QCOMPARE(entities.value(QStringLiteral("auxiliary")).toInt(), 2);
+
+  // 摘要常驻段同刷：B 工程 3 井（A 工程是 1 口，可区分）。
+  QVERIFY2(chat.systemPrompt().contains(QStringLiteral("井 3 口")),
            qPrintable(chat.systemPrompt()));
 }
 

@@ -108,7 +108,7 @@ private:
   TimeDepthParseFn m_parseTimeDepth;
   std::function<void(WellCompositePanel *)> m_alignmentProvider;
 
-  static WellCompositeDerivedSink *s_default;
+  static QPointer<WellCompositeDerivedSink> s_default;
   static QList<QPointer<WellCompositePanel>> &livePanels();
 };
 

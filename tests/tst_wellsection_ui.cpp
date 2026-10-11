@@ -1376,6 +1376,51 @@ class TestWellSectionUi : public QObject
                   .toBool());
     }
 
+    // 分层来源菜单：候选灌入前按钮禁用；点选发 topsSourceChanged + 写
+    // 设置；候选删失 → 选择回落默认（主分层）并同步清掉持久化值。
+    void topsSourceMenuSwitching()
+    {
+      QSettings(QStringLiteral("paleo"), QStringLiteral("paleo"))
+          .remove(QStringLiteral("wellSection/topsSource"));
+      SelectionContext ctx;
+      WellSectionPanel panel(&ctx);
+      panel.setSection(wells4());
+      auto *btn = toolBtn(panel, "wellSectionTopsSourceButton");
+      QVERIFY(btn);
+      QVERIFY(!btn->isEnabled()); // 无候选禁用
+      panel.setTopsSourceChoices(
+          {{QStringLiteral("ast-a"), QStringLiteral("粗分层（v1）")},
+           {QStringLiteral("ast-b"), QStringLiteral("细分层（v2）")}});
+      QVERIFY(btn->isEnabled());
+      QCOMPARE(panel.topsSource(), QString());
+
+      QSignalSpy spy(&panel, &WellSectionPanel::topsSourceChanged);
+      QMenu *menu = btn->menu();
+      QVERIFY(menu);
+      menu->popup(QPoint(0, 0)); // aboutToShow 懒重建菜单项
+      QTest::qWait(20);
+      const auto acts = menu->actions();
+      QCOMPARE(acts.size(), 4); // 默认 + 分隔 + 2 候选
+      acts.at(3)->trigger();
+      menu->hide();
+      QCOMPARE(panel.topsSource(), QStringLiteral("ast-b"));
+      QCOMPARE(spy.size(), 1);
+      QCOMPARE(spy.at(0).at(0).toString(), QStringLiteral("ast-b"));
+      QCOMPARE(QSettings(QStringLiteral("paleo"), QStringLiteral("paleo"))
+                   .value(QStringLiteral("wellSection/topsSource"))
+                   .toString(),
+               QStringLiteral("ast-b"));
+
+      // 失效回落：ast-b 不在候选 → 回默认 + 设置同步清空。
+      panel.setTopsSourceChoices(
+          {{QStringLiteral("ast-a"), QStringLiteral("粗分层（v1）")}});
+      QCOMPARE(panel.topsSource(), QString());
+      QCOMPARE(QSettings(QStringLiteral("paleo"), QStringLiteral("paleo"))
+                   .value(QStringLiteral("wellSection/topsSource"))
+                   .toString(),
+               QString());
+    }
+
     // 适应/缩放：fit 后图体高 ≈ 视口高 ±2px；Ctrl+滚轮改 px/m 且关
     // autofit；Ctrl+Shift+滚轮改井间距；fit 恢复。
     void fitAndWheelZoom()
@@ -1434,8 +1479,11 @@ class TestWellSectionUi : public QObject
       QTest::qWait(20);
       panel.fitToView();
       const double vh2 = view->viewport()->height();
-      QVERIFY(std::fabs((win.base - win.top) * panel.pxPerMeter() - vh2) <=
-              2.0);
+      QVERIFY2(std::fabs((win.base - win.top) * panel.pxPerMeter() - vh2) <=
+                   2.0,
+               qPrintable(QStringLiteral("bodyH %1 vs vh2 %2")
+                              .arg((win.base - win.top) * panel.pxPerMeter())
+                              .arg(vh2)));
     }
 
     // 拉伸超宽：autofit 把 gap 顶到 maxGap 后场景仍窄于视口 → 视图须钉
@@ -1759,6 +1807,76 @@ class TestWellSectionUi : public QObject
       QVERIFY(panel.grab().save(
           QStringLiteral("/tmp/wellsection-shots/panel_light.png")));
       QVERIFY(paleo::tests::captureVisual(&panel, QStringLiteral("wellsection"), QSize(1400, 720)));
+    }
+    // 四口井开剖面后静置：视口不应再有重绘/重排风暴（resize↔refit 自激
+    // 循环的探针——稳定后 300ms 内至多零星几次）。
+    void fourWellsSettleWithoutRepaintStorm()
+    {
+      SelectionContext ctx;
+      WellSectionPanel panel(&ctx);
+      panel.setSection(wells4());
+      panel.resize(1000, 640);
+      panel.show();
+      auto *view = panel.findChild<QGraphicsView *>(
+          QStringLiteral("wellSectionView"));
+      QVERIFY(view);
+      struct Counter : QObject
+      {
+        int paints = 0, resizes = 0, layoutReqs = 0;
+        bool eventFilter(QObject *, QEvent *e) override
+        {
+          if (e->type() == QEvent::Paint) ++paints;
+          if (e->type() == QEvent::Resize) ++resizes;
+          if (e->type() == QEvent::LayoutRequest) ++layoutReqs;
+          return false;
+        }
+      } counter;
+      view->viewport()->installEventFilter(&counter);
+      panel.installEventFilter(&counter);
+      QTest::qWait(400); // 让 initial show/setSection 的 repaint 落定
+      const int p0 = counter.paints, r0 = counter.resizes,
+                l0 = counter.layoutReqs;
+      QTest::qWait(400); // 静置窗
+      const int dp = counter.paints - p0, dr = counter.resizes - r0,
+                dl = counter.layoutReqs - l0;
+      QVERIFY2(dp <= 4 && dr <= 1 && dl <= 2,
+               qPrintable(QStringLiteral("静置窗内 paints=%1 resizes=%2 "
+                                         "layoutReqs=%3")
+                              .arg(dp).arg(dr).arg(dl)));
+    }
+    // 临界尺寸扫描：内容宽≈视口宽附近（滚动条 AsNeeded 切换临界）逐个
+    // 尺寸静置，任一尺寸下 resizes 连发即 resize↔refit 自激。
+    void resizeRefitDoesNotOscillateNearScrollbarThreshold()
+    {
+      SelectionContext ctx;
+      WellSectionPanel panel(&ctx);
+      panel.setSection(wells4());
+      struct Counter : QObject
+      {
+        int resizes = 0, paints = 0;
+        bool eventFilter(QObject *, QEvent *e) override
+        {
+          if (e->type() == QEvent::Resize) ++resizes;
+          if (e->type() == QEvent::Paint) ++paints;
+          return false;
+        }
+      } counter;
+      auto *view = panel.findChild<QGraphicsView *>(
+          QStringLiteral("wellSectionView"));
+      QVERIFY(view);
+      view->viewport()->installEventFilter(&counter);
+      panel.show();
+      // 4 井默认模板列宽 280 → 内容 32+1120+3g。地震开 minGap=140 →
+      // 恒溢出；关地震 minGap=48。扫 1100..1450（含 g≈0 临界 1152 附近）。
+      for (int w = 1100; w <= 1450; w += 25)
+      {
+        const int r0 = counter.resizes;
+        panel.resize(w, 340);
+        QTest::qWait(150);
+        const int dr = counter.resizes - r0;
+        QVERIFY2(dr <= 6,
+                 qPrintable(QStringLiteral("w=%1 resizes=%2").arg(w).arg(dr)));
+      }
     }
 };
 

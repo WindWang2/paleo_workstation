@@ -187,6 +187,27 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
             panel->setBusy(true);
             wf->request(ids, mnemonics);
           });
+
+  // 分层来源切换：面板菜单点选（已写 QSettings）→ workflow 选择 + 重取。
+  // 井集空时只记选择——下一场景恢复/选井请求自然带上。
+  const auto toTopsChoices =
+      [](const QVector<WellSectionWorkflow::TopsSourceChoice> &in) {
+        QVector<WellSectionPanel::TopsSourceChoice> out;
+        out.reserve(in.size());
+        for (const auto &c : in)
+          out.push_back({c.assetId, c.label});
+        return out;
+      };
+  connect(panel, &WellSectionPanel::topsSourceChanged, this,
+          [wf, panel](const QString &assetId) {
+            wf->setTopsSource(assetId);
+            if (!panel->wellIds().isEmpty())
+            {
+              panel->setBusy(true);
+              wf->request(panel->wellIds(),
+                          panel->sectionTemplate().mnemonics());
+            }
+          });
   connect(wf, &WellSectionWorkflow::sectionReady, this,
           [wf, panel](int gen, const QVector<wellsection::Well> &wells,
                       const QStringList &warnings) {
@@ -299,9 +320,15 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
     panel->setWellIds(ids);
   };
   connect(debounce, &QTimer::timeout, this,
-          [this, wf, panel, catalogPath, restoreWells, toChoices] {
+          [this, wf, panel, catalogPath, restoreWells, toChoices,
+           toTopsChoices] {
             const auto freshChoices = toChoices(wf->wellChoices());
             panel->setWellChoices(freshChoices);
+            // 分层来源候选随 catalog 链接刷新；面板侧对失效选择自动回落
+            // 默认——同步 workflow 保持一致。
+            panel->setTopsSourceChoices(
+                toTopsChoices(wf->topsSourceChoices({})));
+            wf->setTopsSource(panel->topsSource());
             if (m_wellSectionFence) // 栅格井选项随 catalog 刷新
               m_wellSectionFence->setChoices(freshChoices);
             const QString path = m_previewDoc->catalog()->catalogPath();
@@ -489,7 +516,10 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
       panel->setSection({});
     });
 
-  // 初始装配同恢复路径。
+  // 初始装配同恢复路径。分层来源：先喂候选（面板对失效 id 自动回落
+  // 默认），再按面板当前有效值同步 workflow——恢复口径单源在面板。
   panel->setWellChoices(toChoices(wf->wellChoices()));
+  panel->setTopsSourceChoices(toTopsChoices(wf->topsSourceChoices({})));
+  wf->setTopsSource(panel->topsSource());
   restoreWells();
 }

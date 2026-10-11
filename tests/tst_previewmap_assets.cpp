@@ -42,6 +42,7 @@
 #include <QPushButton>
 #include <QSlider>
 #include <QSpinBox>
+#include <QStackedWidget>
 #include <QTabWidget>
 #include <QTableWidget>
 #include <QToolBar>
@@ -81,6 +82,7 @@ class TestPreviewMapAssets : public QObject
     void tocRasterStretchChangesRenderer();
     void tocOpacitySliderChangesLayerOpacity();
     void tocStatePersistsAcrossRebuild();
+    void tocPropsLabelDoesNotOverlayQuickPanel();
     void geojsonLegendSidebarEntries();
     void geojsonLabelToggle();
     void geojsonTocCategorizedFieldSwitch();
@@ -471,6 +473,29 @@ void TestPreviewMapAssets::tocStatePersistsAcrossRebuild()
         list2->item(i)->checkState() == Qt::Unchecked)
       foundUnChecked = true;
   QVERIFY(foundUnChecked);
+}
+
+void TestPreviewMapAssets::tocPropsLabelDoesNotOverlayQuickPanel()
+{
+  // 回归：属性速览曾是快调堆叠的一页，被 setVisible(true) 强制显示后压在
+  // 矢量快调页上——图层名文字与「字段」行重叠（2026-10-11 用户截图）。
+  // 现在它是堆叠下方的独立恒显区块，不再占堆叠页。
+  PreviewTocPanel toc;
+  QgsVectorLayer layer(
+      QStringLiteral("Polygon?field=fid:integer&crs=EPSG:4326"),
+      QStringLiteral("D61 相面"), QStringLiteral("memory"));
+  toc.addLayer(&layer, QStringLiteral("D61 相面"), QStringLiteral("/tmp/x.gpkg"), true);
+  toc.resize(360, 700);
+  toc.show();
+  QTest::qWait(50);
+  auto *stack = toc.findChild<QStackedWidget *>(QStringLiteral("previewTocQuickStack"));
+  auto *props = toc.findChild<QLabel *>(QStringLiteral("tocPropsLabel"));
+  QVERIFY(stack);
+  QVERIFY(props);
+  QCOMPARE(stack->currentIndex(), 2); // 矢量快调页
+  QCOMPARE(stack->indexOf(props), -1); // 不再是堆叠页
+  QVERIFY(props->isVisible());
+  QVERIFY(props->geometry().top() >= stack->geometry().bottom());
 }
 
 // ---------------- geojson（D2.4/D2.6/D4.4） ----------------

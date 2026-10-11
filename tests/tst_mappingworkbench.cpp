@@ -19,6 +19,10 @@
 #include "../src/ui/wellcomposite/wellcompositecanvas.h"
 #include "../src/workflow/derivedassets.h"
 #include "../src/workflow/mappingworkbench.h"
+#include "../src/workflow/wellpredictionservice.h"
+#include <QTcpServer>
+#include <QTcpSocket>
+#include <QJsonArray>
 #include "../src/workflow/workflows.h"
 #include "mockremotepredictionservice.h"
 #include <QAction>
@@ -97,6 +101,95 @@ public:
       result.points << point;
     }
     emit completed(result);
+  }
+};
+
+// Local API 2.0 contract server: exercises production transport, real curve
+// preparation and work area persistence without uploading project data.
+class WellApiServer {
+public:
+  QTcpServer server;
+  QList<QJsonObject> bodies;
+  int modelRequests = 0;
+  bool hold = false, failPredict = false, queued = false, holdPoll = false;
+  QJsonObject pending;
+  int polls = 0;
+  WellApiServer() {
+    server.listen(QHostAddress::LocalHost);
+    QObject::connect(&server, &QTcpServer::newConnection, &server, [this] {
+      while (server.hasPendingConnections()) {
+        auto *socket = server.nextPendingConnection();
+        auto buffer = std::make_shared<QByteArray>();
+        QObject::connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+        QObject::connect(socket, &QTcpSocket::readyRead, socket, [this, socket, buffer] {
+          *buffer += socket->readAll();
+          const auto end = buffer->indexOf("\r\n\r\n");
+          if (end < 0) return;
+          int length = 0;
+          for (const auto &line : buffer->left(end).split('\n'))
+            if (line.toLower().startsWith("content-length:")) length = line.mid(15).trimmed().toInt();
+          if (buffer->size() < end + 4 + length) return;
+          const auto path = buffer->split(' ').value(1);
+          QJsonObject response;
+          int status = 200;
+          if (path.endsWith("/models")) {
+            ++modelRequests;
+            response = {{"models", QJsonArray{QJsonObject{
+              {"id", "m1"}, {"name", "test-model"}, {"version", "v2"},
+              {"inputSchema", QJsonObject{{"formationGroup", ""}, {"curves", QJsonArray{"GR"}},
+                {"categoricalFields", QJsonArray{QStringLiteral("段"), QStringLiteral("岩性")}}, {"window", 1}}}}}}};
+          } else if (path.endsWith("/predict")) {
+            const auto body = QJsonDocument::fromJson(buffer->mid(end + 4, length)).object();
+            bodies << body;
+            if (hold) { buffer->clear(); return; }
+            const auto well = body.value("wells").toArray().first().toObject();
+            QJsonArray predictions;
+            for (const auto &value : well.value("rows").toArray()) {
+              const auto row = value.toObject();
+              const auto depth = row.value(QStringLiteral("深度"));
+              predictions << QJsonObject{{"wellName", well.value("wellName")}, {"depth", depth},
+                {"label", depth.toDouble() < 1060 ? QStringLiteral("河口坝") : QStringLiteral("分流河道")},
+                {"confidence", .91}};
+            }
+            response = {{"jobId", "job-" + well.value("wellName").toString()}, {"status", "completed"},
+              {"model", QJsonObject{{"name", "test-model"}, {"version", "v2"}}}, {"predictions", predictions}};
+            if (failPredict) { status = 500; response = {{"error", "remote failure"}}; }
+            else if (queued) {
+              pending = response;
+              status = 202;
+              response = {{"jobId", pending.value("jobId")}, {"status", "predicting"}, {"pollAfterMs", 100}};
+            }
+          } else if (path.contains("/predictions/")) {
+            ++polls;
+            if (holdPoll) { buffer->clear(); return; }
+            response = pending;
+          } else { status = 404; }
+          buffer->clear();
+          const auto bytes = QJsonDocument(response).toJson(QJsonDocument::Compact);
+          socket->write("HTTP/1.1 " + QByteArray::number(status) + " OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: " + QByteArray::number(bytes.size()) + "\r\n\r\n" + bytes);
+          socket->disconnectFromHost();
+        });
+      }
+    });
+  }
+};
+class WellApiEnvironment {
+  QHash<QByteArray, QByteArray> saved;
+  QSet<QByteArray> present;
+public:
+  explicit WellApiEnvironment(const WellApiServer &server) {
+    const QHash<QByteArray, QByteArray> values{
+      {"PALEO_WELL_FACIES_URL", "http://127.0.0.1:" + QByteArray::number(server.server.serverPort()) + "/api/v1"},
+      {"PALEO_WELL_FACIES_API_KEY", "test-key"}, {"PALEO_WELL_FACIES_NO_KEYCHAIN", "1"}};
+    for (auto it = values.cbegin(); it != values.cend(); ++it) {
+      if (qEnvironmentVariableIsSet(it.key())) present.insert(it.key());
+      saved.insert(it.key(), qgetenv(it.key()));
+      qputenv(it.key(), it.value());
+    }
+  }
+  ~WellApiEnvironment() {
+    for (auto it = saved.cbegin(); it != saved.cend(); ++it)
+      if (present.contains(it.key())) qputenv(it.key(), it.value()); else qunsetenv(it.key());
   }
 };
 
@@ -916,6 +1009,150 @@ private slots:
   }
   // 智能预测的测井预测按地层（井 tops 的组/段）组织成矢量：每井每地层一行，
   // 优势微相 = 累计厚度最大的相；与数据管理的预测同一张表，请求带入该表。
+  void wellsRemoteApiProducesCurrentFormationVectorAndUpdatesArea() {
+    WellApiServer server;
+    WellApiEnvironment environment(server);
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    for (const auto &name : {"A", "B", "C"}) {
+      QVERIFY(!f.well(name, 10, 20).isEmpty());
+      QVERIFY(f.tops(name, QStringLiteral("#WellTops File From SMI\n#WellName Name MD X Y Z TVD Time(ms)\n%1 D61 1000 0 0 -1000 1000 -99999\n%1 D62 1060 0 0 -1060 1060 -99999\n").arg(name)));
+      QVERIFY(WellAttributeStore::mergeIntervals(&f.catalog, f.dir.path(), &f.layers,
+        {QVariantMap{{"well_id", name}, {"top_md", 1000.0}, {"base_md", 1120.0},
+          {"lithology", QStringLiteral("维护砂岩")}, {"facies", QStringLiteral("原解释")}}}, &error));
+    }
+    installRemotePrediction(&f.work, RemotePredictConfig{}, nullptr, {}, &f.work);
+    QVERIFY(f.work.wellPredictionStatusHint().contains("127.0.0.1"));
+    MappingWorkbenchPage page("predict", &f.work);
+    page.setHorizon("D61");
+    page.findChild<QComboBox *>("predictionKind")->setCurrentIndex(2);
+    QVERIFY(page.findChild<QLabel *>("workbenchPredictionStatus")->text().contains("127.0.0.1"));
+    QSignalSpy errors(&f.work, &MappingWorkbench::errorOccurred);
+    QVERIFY2(f.work.predict("D61", "wells", {"A", "B"}, &error), qPrintable(error));
+    QTRY_VERIFY_WITH_TIMEOUT(!f.work.busy(), 10000);
+    QVERIFY2(errors.isEmpty(), errors.isEmpty() ? "" : qPrintable(errors.first()[0].toString()));
+    QCOMPARE(server.modelRequests, 1);
+    QCOMPARE(server.bodies.size(), 2);
+    for (const auto &body : server.bodies) {
+      QCOMPARE(body.value("modelVersionId").toString(), QString("m1"));
+      const auto rows = body.value("wells").toArray().first().toObject().value("rows").toArray();
+      QVERIFY(!rows.isEmpty());
+      for (const auto &v : rows) {
+        QVERIFY(v.toObject().contains("GR"));
+        QCOMPARE(v.toObject().value(QStringLiteral("岩性")).toString(), QStringLiteral("维护砂岩"));
+      }
+    }
+    const auto product = f.latest("wells_prediction");
+    QVERIFY(!product.isEmpty());
+    const auto version = f.work.versionForLayer(product);
+    QVERIFY(!version.extra.value("mock").toBool());
+    QCOMPARE(version.extra.value("method").toString(), QString("remote-well-facies-api-v2"));
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(product));
+    QVERIFY(layer && layer->isValid());
+    QCOMPARE(layer->featureCount(), 2);
+    auto features = layer->getFeatures();
+    QgsFeature feature;
+    while (features.nextFeature(feature)) {
+      QCOMPARE(feature.attribute("facies_scope").toString(), QString("formation"));
+      QCOMPARE(feature.attribute("formation").toString(), QString("D61"));
+      QCOMPARE(feature.attribute("facies_label").toString(), QStringLiteral("河口坝"));
+      QCOMPARE(feature.attribute("dominant_facies").toString(), QStringLiteral("河口坝"));
+      QVERIFY(feature.attribute("dominant_ratio").toDouble() > .5);
+      QCOMPARE(feature.attribute("prediction_model").toString(), QString("test-model v2"));
+    }
+    const auto formations = WellAttributeStore::rows(f.dir.path(), &f.layers, WellAttributeStore::Table::Formations);
+    QCOMPARE(formations.size(), 4); // Both predicted wells and both of their strata.
+    for (const auto &v : formations) {
+      const auto row = v.toMap();
+      QVERIFY(row.value("well_id") != "C");
+      QCOMPARE(row.value("model").toString(), QString("test-model v2"));
+      QVERIFY(row.value("job_id").toString().startsWith("job-"));
+      QCOMPARE(row.value("dominant_facies").toString(), row.value("predicted_dominant").toString());
+    }
+    const auto untouched = WellAttributeStore::rows(f.dir.path(), &f.layers, false, "C");
+    QCOMPARE(untouched.size(), 1);
+    QCOMPARE(untouched.first().toMap().value("facies").toString(), QStringLiteral("原解释"));
+    const auto intervals = WellAttributeStore::rows(f.dir.path(), &f.layers, false, "A");
+    bool predicted = false;
+    for (const auto &v : intervals) {
+      const auto row = v.toMap();
+      QCOMPARE(row.value("lithology").toString(), QStringLiteral("维护砂岩"));
+      predicted |= !row.value("predicted_facies").toString().isEmpty();
+    }
+    QVERIFY(predicted);
+    // Remote strata bounds survive GeoJSON -> editing GPKG; maintained
+    // dominance changes while the original predicted dominance is retained.
+    int channel = 0;
+    for (const auto &v : version.extra.value("facies").toList())
+      if (v.toMap().value("name").toString() == QStringLiteral("分流河道")) channel = v.toMap().value("code").toInt();
+    QVERIFY(channel > 0);
+    const auto draft = f.work.copyForEditing(product, {}, &error);
+    QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    auto *draftLayer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft));
+    QVERIFY(draftLayer);
+    QVERIFY(f.work.reviseWellInterval(draft, "A", 0, channel, &error));
+    QVERIFY(draftLayer->commitChanges());
+    QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
+    const auto maintained = WellAttributeStore::rows(f.dir.path(), &f.layers,
+        WellAttributeStore::Table::Formations, "A", "D61").first().toMap();
+    QCOMPARE(maintained.value("dominant_facies").toString(), QStringLiteral("分流河道"));
+    QCOMPARE(maintained.value("predicted_dominant").toString(), QStringLiteral("河口坝"));
+    auto edited = draftLayer->getFeatures();
+    while (edited.nextFeature(feature))
+      if (feature.attribute("id") == "A") {
+        QCOMPARE(feature.attribute("dominant_facies").toString(), QStringLiteral("分流河道"));
+        QCOMPARE(feature.attribute("predicted_dominant").toString(), QStringLiteral("河口坝"));
+      }
+  }
+  void wellsRemoteApiFailureAndCancelPublishNothing() {
+    WellApiServer server;
+    WellApiEnvironment environment(server);
+    Fixture f;
+    QVERIFY(f.init());
+    QVERIFY(!f.well("A", 10, 20).isEmpty());
+    QString error;
+    installRemotePrediction(&f.work, RemotePredictConfig{}, nullptr, {}, &f.work);
+    QSignalSpy errors(&f.work, &MappingWorkbench::errorOccurred);
+    QVERIFY(f.work.predict("D61", "wells", {"A"}, &error));
+    QTRY_VERIFY(!f.work.busy());
+    QVERIFY(!errors.isEmpty());
+    QVERIFY(errors.last()[0].toString().contains(QStringLiteral("缺少当前地层")));
+    QCOMPARE(server.modelRequests, 0);
+    QVERIFY(f.latest("wells_prediction").isEmpty());
+    QVERIFY(f.tops("A", QStringLiteral("#WellTops File From SMI\n#WellName Name MD X Y Z TVD Time(ms)\nA D61 1000 0 0 -1000 1000 -99999\nA D62 1060 0 0 -1060 1060 -99999\n")));
+    QVERIFY(WellAttributeStore::mergeIntervals(&f.catalog, f.dir.path(), &f.layers,
+      {QVariantMap{{"well_id", "A"}, {"top_md", 1000.0}, {"base_md", 1120.0}, {"lithology", QStringLiteral("砂岩")}}}, &error));
+    server.failPredict = true;
+    QVERIFY(f.work.predict("D61", "wells", {"A"}, &error));
+    QTRY_VERIFY(!f.work.busy());
+    QVERIFY(errors.last()[0].toString().contains("500"));
+    QVERIFY(f.latest("wells_prediction").isEmpty());
+    QVERIFY(WellAttributeStore::rows(f.dir.path(), &f.layers, WellAttributeStore::Table::Formations).isEmpty());
+    server.failPredict = false; server.hold = true;
+    const int before = server.bodies.size();
+    QVERIFY(f.work.predict("D61", "wells", {"A"}, &error));
+    QTRY_VERIFY(server.bodies.size() > before);
+    f.work.cancelPrediction();
+    QVERIFY(!f.work.busy());
+    QVERIFY(f.latest("wells_prediction").isEmpty());
+    // New run uses a fresh generation after cancel and can complete normally.
+    server.hold = false;
+    QVERIFY(f.work.predict("D61", "wells", {"A"}, &error));
+    QTRY_VERIFY(!f.work.busy());
+    QVERIFY2(!f.latest("wells_prediction").isEmpty(), qPrintable(errors.last()[0].toString()));
+    const auto previous = f.latest("wells_prediction");
+    server.queued = true; server.holdPoll = true;
+    QVERIFY(f.work.predict("D61", "wells", {"A"}, &error));
+    QTRY_VERIFY(server.polls > 0); // Server has accepted a 202 job.
+    f.work.cancelPrediction();
+    const auto submitted = server.bodies.size();
+    server.holdPoll = false;
+    QVERIFY(f.work.predict("D61", "wells", {"A"}, &error));
+    QTRY_VERIFY(!f.work.busy());
+    QCOMPARE(server.bodies.size(), submitted); // Resume the accepted job instead of submitting twice.
+    QVERIFY(f.latest("wells_prediction") != previous);
+  }
   void wellsPredictionWritesFormationDominanceTable() {
     Fixture f;
     QVERIFY(f.init());
@@ -1765,6 +2002,159 @@ private slots:
     QCOMPARE(rt.value("ratio").toDouble(), 3.0);
     QCOMPARE(roundTrip.at(6).value("type").toString(),
              QStringLiteral("break_line"));
+  }
+  void removeProductDeletesAssetDeclarationsAndFiles() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto source = f.dir.filePath("del-samples.geojson");
+    QVERIFY(MappingArtifactWriter::points(
+        source,
+        {QVariantMap{{"x", 0}, {"y", 0}, {"z", 10}},
+         QVariantMap{{"x", 100}, {"y", 0}, {"z", 20}},
+         QVariantMap{{"x", 0}, {"y", 100}, {"z", 40}},
+         QVariantMap{{"x", 100}, {"y", 100}, {"z", 60}}},
+        &error));
+    LayerDeclaration samples;
+    samples.layerId = "wells.D61";
+    samples.horizon = "D61";
+    samples.type = "vector";
+    samples.source = source;
+    samples.title = "删除样点";
+    QVERIFY(f.layers.declare(samples, &error));
+    const QVariantMap options{
+        {"pointsLayerId", samples.layerId}, {"field", "z"}, {"cellSize", 10}};
+    QVERIFY2(f.constraints.generateFactor("D61", "sandthick", options, &error),
+             qPrintable(error));
+    const auto v1 = f.work.versionForLayer("factor.D61.sandthick");
+    const auto layer1 = "product." + v1.id;
+    QTRY_VERIFY(!f.work.declaration(layer1).layerId.isEmpty());
+    QVERIFY2(f.constraints.generateFactor("D61", "sandthick", options, &error),
+             qPrintable(error));
+    const auto v2 = f.work.versionForLayer("factor.D61.sandthick");
+    const auto layer2 = "product." + v2.id;
+    QTRY_VERIFY(!f.work.declaration(layer2).layerId.isEmpty());
+    QCOMPARE(v1.assetId, v2.assetId); // 同资产两版本各自成行
+
+    const auto managed = f.work.declaration(layer1).source.section('|', 0, 0);
+    QVERIFY(QFile::exists(managed));
+
+    // 非图件声明不受理：底图/基础图层走数据管理。
+    QVERIFY(!f.work.removeProduct("wells.D61", &error));
+    QVERIFY2(f.work.removeProduct(layer1, &error), qPrintable(error));
+    QVERIFY(f.catalog.assetById(v1.assetId).id.isEmpty());
+    QVERIFY(f.catalog.versionById(v1.id).id.isEmpty());
+    QVERIFY(f.catalog.versionById(v2.id).id.isEmpty());
+    QVERIFY(f.work.declaration(layer1).layerId.isEmpty());
+    QVERIFY(f.work.declaration(layer2).layerId.isEmpty()); // 同资产声明一并下架
+    QVERIFY(!QFile::exists(managed));
+    for (const auto &row : f.work.products("D61"))
+      QVERIFY(row.toMap().value("id").toString() != layer1);
+  }
+  void removeProductRefusesWhileReferenced() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto source = f.dir.filePath("ref-samples.geojson");
+    QVERIFY(MappingArtifactWriter::points(
+        source,
+        {QVariantMap{{"x", 0}, {"y", 0}, {"z", 10}},
+         QVariantMap{{"x", 100}, {"y", 0}, {"z", 20}}},
+        &error));
+    LayerDeclaration samples;
+    samples.layerId = "wells.D61";
+    samples.horizon = "D61";
+    samples.type = "vector";
+    samples.source = source;
+    samples.title = "样点";
+    QVERIFY(f.layers.declare(samples, &error));
+    QVERIFY2(f.constraints.generateFactor(
+                 "D61", "sandthick",
+                 {{"pointsLayerId", samples.layerId},
+                  {"field", "z"},
+                  {"cellSize", 10}},
+                 &error),
+             qPrintable(error));
+    const auto v1 = f.work.versionForLayer("factor.D61.sandthick");
+    const auto layer1 = "product." + v1.id;
+    QTRY_VERIFY(!f.work.declaration(layer1).layerId.isEmpty());
+
+    // 下游资产的版本把目标版本列为 parent → 拒绝并点名下游。
+    CatalogAsset child;
+    child.id = "ast-downstream";
+    child.type = "vector";
+    child.displayName = "下游图件";
+    QVERIFY(f.catalog.addAsset(child, &error));
+    CatalogVersion cv;
+    cv.id = "v-downstream";
+    cv.assetId = child.id;
+    cv.versionNumber = 1;
+    cv.stage = "DERIVED";
+    cv.path = "x.gpkg";
+    cv.parentVersionIds = {v1.id};
+    QVERIFY(f.catalog.addVersion(cv, &error));
+    QVERIFY(!f.work.removeProduct(layer1, &error));
+    QVERIFY(error.contains("下游图件"));
+    QVERIFY(f.catalog.removeAsset(child.id, &error));
+    QVERIFY2(f.work.removeProduct(layer1, &error), qPrintable(error));
+    QVERIFY(f.catalog.assetById(v1.assetId).id.isEmpty());
+  }
+  void removeDraftDeletesWorkingCopy() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto draft = hierarchyDraft(f, &error);
+    QVERIFY(!draft.isEmpty());
+    const auto workDir =
+        f.dir.filePath(QStringLiteral("artifacts/working/") + draft);
+    QVERIFY(QDir(workDir).exists());
+    const auto draftVersion = f.work.versionForLayer(draft);
+    QVERIFY(!draftVersion.assetId.isEmpty());
+    QVERIFY2(f.work.removeProduct(draft, &error), qPrintable(error));
+    QVERIFY(f.work.declaration(draft).layerId.isEmpty());
+    QVERIFY(f.catalog.assetById(draftVersion.assetId).id.isEmpty());
+    QVERIFY(!QDir(workDir).exists());
+  }
+  void deleteButtonGatingFollowsSelectedRow() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto source = f.dir.filePath("gate-samples.geojson");
+    QVERIFY(MappingArtifactWriter::points(
+        source,
+        {QVariantMap{{"x", 0}, {"y", 0}, {"z", 10}},
+         QVariantMap{{"x", 100}, {"y", 0}, {"z", 20}}},
+        &error));
+    LayerDeclaration samples;
+    samples.layerId = "wells.D61";
+    samples.horizon = "D61";
+    samples.type = "vector";
+    samples.source = source;
+    samples.title = "门控样点";
+    QVERIFY(f.layers.declare(samples, &error));
+    QVERIFY2(f.constraints.generateFactor(
+                 "D61", "sandthick",
+                 {{"pointsLayerId", samples.layerId},
+                  {"field", "z"},
+                  {"cellSize", 10}},
+                 &error),
+             qPrintable(error));
+    const auto v1 = f.work.versionForLayer("factor.D61.sandthick");
+    const auto layer1 = "product." + v1.id;
+    QTRY_VERIFY(!f.work.declaration(layer1).layerId.isEmpty());
+
+    MappingWorkbenchPage page("compose", &f.work);
+    page.setHorizon("D61");
+    // 无选中 → 禁用；源数据行（非 product./draft.）→ 禁用。
+    QVERIFY(!page.commandButton("delete")->isEnabled());
+    page.selectLayer("wells.D61");
+    QVERIFY(!page.commandButton("delete")->isEnabled());
+    page.selectLayer(layer1);
+    QVERIFY(page.commandButton("delete")->isEnabled());
+    QSignalSpy intent(&page, &MappingWorkbenchPage::commandRequested);
+    page.commandButton("delete")->click();
+    QCOMPARE(intent.last()[0].toString(), QString("delete"));
+    QCOMPARE(intent.last()[1].toMap().value("layer").toString(), layer1);
   }
 };
 int main(int argc, char **argv) {

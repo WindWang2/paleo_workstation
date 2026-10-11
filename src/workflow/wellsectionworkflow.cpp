@@ -233,7 +233,21 @@ int WellSectionWorkflow::request(const QStringList &wellIds,
     }
     int missingMd = 0;
     WellParseReport topsReport;
-    const auto tops = m_data.topsFor(pw->id, &topsReport);
+    // 分层来源：空 = 各井主 tops 链接（默认）；显式选择时未挂接该资产的井
+    // 如实空 tops + 点名（剖面级词表切换，不伪造别的来源）。
+    if (!m_topsSource.isEmpty()) {
+      bool linked = false;
+      for (const EntityAssetLink &l : m_catalog->linksForEntity(pw->id))
+        if (l.role == QLatin1String("tops") && !l.unresolved &&
+            l.assetId == m_topsSource) {
+          linked = true;
+          break;
+        }
+      if (!linked)
+        shared->warnings << tr("井 %1 未挂接所选分层来源，分层留空")
+                                .arg(pw->name);
+    }
+    const auto tops = m_data.topsForAsset(pw->id, m_topsSource, &topsReport);
     if (!topsReport.issues.isEmpty())
       shared->warnings << tr("井 %1 的分层文件读面：%2")
                               .arg(pw->name, wellParseSummary(topsReport));
@@ -879,6 +893,34 @@ void WellSectionWorkflow::setLithoAssetSelection(const QString &wellId,
 void WellSectionWorkflow::setLithoAssetSelections(
     const QHash<QString, QString> &selection) {
   m_lithoSelection = selection; // 恢复路径：不发 lithoSelectionChanged
+}
+
+QVector<WellSectionWorkflow::TopsSourceChoice>
+WellSectionWorkflow::topsSourceChoices(const QStringList &wellIds) const {
+  QVector<TopsSourceChoice> out;
+  if (!m_catalog)
+    return out;
+  syncData();
+  QSet<QString> ids(wellIds.begin(), wellIds.end());
+  QSet<QString> seen;
+  for (const ProjectWell &w : m_data.wells()) {
+    if (!ids.isEmpty() && !ids.contains(w.id))
+      continue;
+    for (const EntityAssetLink &l : m_catalog->linksForEntity(w.id)) {
+      if (l.role != QLatin1String("tops") || l.unresolved ||
+          seen.contains(l.assetId))
+        continue;
+      const CatalogVersion v = m_catalog->currentVersion(l.assetId);
+      if (v.id.isEmpty())
+        continue; // 无版本 = 无可消费内容，不进候选
+      seen.insert(l.assetId);
+      const QString name = m_catalog->assetById(l.assetId).displayName;
+      out.push_back({l.assetId,
+                     tr("%1（v%2）").arg(name.isEmpty() ? l.assetId : name)
+                         .arg(v.versionNumber)});
+    }
+  }
+  return out;
 }
 
 void WellSectionWorkflow::attachLithoSegments(

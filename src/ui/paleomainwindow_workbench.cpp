@@ -4,6 +4,7 @@
 #include "../domain/facieshierarchy.h"
 #include "../domain/singlefactorrequest.h"
 #include "../linkage/selectioncontext.h"
+#include "../qgis/qgislayerorganizer.h"
 #include "../qgis/facieshierarchyrenderer.h"
 #include "../qgis/factorstylewriter.h"
 #include "../qgis/mapcanvaslink.h"
@@ -240,20 +241,10 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
       } else {
         // 自定义绘制顺序一旦生效，新实例化的产层会被追加到序列表尾
         // （画在最底），落在不透明的离线地形底图/阴影之下即整层不可见。
-        // 把本图件提到首个底图层之前：压在栅格底图上、仍在井位等
-        // 共享矢量之下。
-        auto order = treeRoot->layerOrder();
-        order.removeAll(layer);
-        int slot = order.size();
-        for (int i = 0; i < order.size(); ++i)
-          if (order.at(i)->customProperty(QStringLiteral("paleoBasemap"))
-                  .toBool()) {
-            slot = i;
-            break;
-          }
-        order.insert(slot, layer);
-        treeRoot->setCustomLayerOrder(order);
-        treeRoot->setHasCustomLayerOrder(true);
+        // 按树序找位（facies-ux 2）：布局器已把图件收进所属地层组并按组序
+        // 摆好，绘制序跟随树序——相面压在同层位相栅格之上、底图之上、
+        // 井位等共享矢量之下。
+        QgisLayerOrganizer::slotIntoCustomOrder(treeRoot, layer);
       }
     }
     if (auto *tree = findChild<QgsLayerTreeView *>())
@@ -691,7 +682,7 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
           } else if (action == "compare")
             ok = compare(id, &error);
           else if (action == "polygonize")
-            ok = !workbench->polygonize(id, &error).isEmpty();
+            ok = workbench->startPolygonize(id, &error);
           else if (action == "copy") {
             const auto draft = workbench->copyForEditing(id, inputs, &error);
             ok = !draft.isEmpty();
@@ -820,6 +811,12 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
             message = error.isEmpty() ? tr("操作未完成，请检查输入。") : error;
           else if (action == "predict")
             message = tr("预测已在后台执行，进度见底栏任务中心；完成后自动登记并显示图件。");
+          else if (action == "polygonize")
+            message = workbench->polygonizeBusy()
+                          ? tr("相栅格转相面已在后台执行，进度见底栏任务中心；完成后自动登记并显示在对应地层组。")
+                          : tr("相栅格已转为相面。");
+          else if (action == "compose" && workbench->polygonizeBusy())
+            message = tr("综合相图已生成；转相面在后台执行，进度见底栏任务中心。");
           else if (action == "wellattributes")
             message = tr("已打开测井矢量属性表；保存后更新井道与单因素输入。");
           else if (action == "wellformations")
@@ -857,6 +854,18 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
             PaleoNotify::warning(this, tr("图件未删除"), message);
         });
   }
+  connect(workbench, &MappingWorkbench::polygonizeFinished, this,
+          [this, pages](const QString &, const QString &productId,
+                        const QString &error, bool cancelled) {
+            if (!productId.isEmpty())
+              return; // 成功走 productReady 收尾（上图 + 选中）
+            const QString message =
+                cancelled ? tr("相栅格转相面已取消或已过期（%1）。").arg(error)
+                          : tr("相栅格转相面失败：%1").arg(error);
+            for (auto *page : pages)
+              page->showMessage(message);
+            statusBar()->showMessage(message, 10000);
+          });
   connect(workbench, &MappingWorkbench::productReady, this,
           [this, show, pages, workbench, openWells,
            wellDock](const QString &h, const QString &id) {

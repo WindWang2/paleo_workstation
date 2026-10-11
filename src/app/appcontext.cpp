@@ -310,6 +310,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   m_pythonRepl = new PythonReplSession(this);
   m_pythonConsole = new PythonConsoleController(m_scriptRunner, m_pythonRepl, this);
   m_compositionWf = new CompositionWorkflow(m_procSvc, m_layerSvc, this);
+  m_compositionWf->setTaskService(m_taskSvc); // facies-ux 1：相多边形转换进任务中心
   m_validationWf = new ValidationWorkflow(m_layerSvc, m_store, this);
 
   // 方向34：井网辅助编排。约束/断层避让面经 provider 注入（随工程打开

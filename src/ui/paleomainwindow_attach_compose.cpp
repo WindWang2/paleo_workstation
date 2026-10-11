@@ -30,6 +30,7 @@
 #include <QLabel>
 #include "notifications/paleonotify.h"
 #include <QProgressDialog>
+#include <QStatusBar>
 
 
 // ---------------------------------------------------------------------------
@@ -55,10 +56,26 @@ void PaleoMainWindow::attachComposePage(ComposePage *composePage,
               QVariantMap params;
               params.insert(QStringLiteral("MIN_AREA"), minArea);
               params.insert(QStringLiteral("SIMPLIFY"), simplify);
-              if (compose->deriveFaciesPolygons(horizon, rasterId, params, &err))
+              // facies-ux 1：转换进任务中心后台执行（未注入任务服务时同步）；
+              // 完成经 faciesPolygonsReady 收尾，失败经 faciesPolygonsFailed。
+              if (!compose->startDeriveFaciesPolygons(horizon, rasterId, params, &err))
+              {
+                if (!err.isEmpty())
+                {
+                  QgsMessageLog::logMessage(err, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+                  statusBar()->showMessage(err, 10000);
+                }
+              }
+              else if (compose->faciesPolygonsBusy())
+                statusBar()->showMessage(
+                    tr("相栅格转相多边形已在后台执行，进度见底栏任务中心。"), 10000);
+              else
                 composePage->refreshFactors();
-              else if (!err.isEmpty())
-                QgsMessageLog::logMessage(err, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+            });
+    connect(compose, &CompositionWorkflow::faciesPolygonsFailed, this,
+            [this](const QString &, const QString &error) {
+              if (!error.isEmpty())
+                statusBar()->showMessage(tr("相多边形转换未完成：%1").arg(error), 10000);
             });
 
     // ---- m2(C): 矢量化成功 → 自动进入相界编辑态（z3 PaleoVertexTool）------
@@ -75,6 +92,7 @@ void PaleoMainWindow::attachComposePage(ComposePage *composePage,
     connect(compose, &CompositionWorkflow::faciesPolygonsReady, this,
             [this, compose, composePage](const QString &h, const QString &layerId) {
               Q_UNUSED(h);
+              composePage->refreshFactors();
               composePage->setFaciesEditTarget(layerId);
               if (!m_layerSvc)
                 return;

@@ -21,6 +21,7 @@
 #include "derivedassets.h"
 #include "workflows.h"
 #include "../io/lasparser.h"
+#include "../services/jobrunner.h"
 #include "../services/paleotaskservice.h"
 #include "services/projectdata.h"
 #include "services/seismichorizoncluster.h"
@@ -189,6 +190,7 @@ void MappingWorkbench::cancelPredictionTask() {
 }
 void MappingWorkbench::bindCatalog(DataCatalog *catalog, const QString &dir) {
   cancelPrediction();
+  cancelPolygonize(); // 旧工程的转面结果由 commit 会话守卫丢弃
   if (m_catalog)
     disconnect(m_catalog, nullptr, this, nullptr);
   for (const auto &name : m_constraints->dynamicPropertyNames())
@@ -427,8 +429,17 @@ bool MappingWorkbench::saveFacies(const QString &h, const QVariantList &items,
   }
   const bool ok = r.commit(st, parents, "facies-schema",
                            {{"horizon", h}, {"facies", normalized}}, error);
-  if (ok)
+  if (ok) {
+    // facies-ux 3：在场的测井相点层跟随新分类重着色。
+    const auto schemas = WellAttributeStore::faciesSchemas(m_catalog);
+    if (auto *formations = qobject_cast<QgsVectorLayer *>(
+            m_layers->layer(WellAttributeStore::formationLayerId())))
+      QgisStyleService::applyWellFormationLayerStyle(formations, schemas);
+    if (auto *intervals = qobject_cast<QgsVectorLayer *>(
+            m_layers->layer(WellAttributeStore::intervalLayerId())))
+      QgisStyleService::applyWellAttributeLayerStyle(intervals, schemas);
     emit faciesChanged(h);
+  }
   return ok;
 }
 QVariantList MappingWorkbench::inputs(const QString &kind) const {
@@ -1427,65 +1438,6 @@ QString MappingWorkbench::ensureInputVersion(const QString &id,
              parents, {}, error, suffix, QStringLiteral("input-%1").arg(id));
   return versionForLayer(snapshot).id;
 }
-QString MappingWorkbench::polygonize(const QString &id, QString *error) {
-  const auto d = declaration(id);
-  if (!ready(d.horizon, error))
-    return {};
-  if (d.type != "raster") {
-    fail(error, tr("栅格转面需要选择相栅格"));
-    return {};
-  }
-  auto *layer = m_layers->instantiate(id, error);
-  if (!layer)
-    return {};
-  const auto parent = ensureInputVersion(id, error);
-  if (parent.isEmpty())
-    return {};
-  const auto sourceVersion = m_catalog->versionById(parent);
-  const auto sourceKind = sourceVersion.extra.value("kind").toString();
-  const auto valueSource = sourceVersion.extra.value("value_source").toString();
-  if (id.startsWith("factor.") ||
-      sourceKind == QLatin1String("single_factor_raster") ||
-      paleo::singlefactor::rejectsQuantitativeUse(sourceKind, valueSource)) {
-    fail(error, paleo::singlefactor::rejectsQuantitativeUse(sourceKind, valueSource)
-                    ? tr("解释性制图工作场不能参与分相或转面")
-                    : tr("连续单因素须先按阈值分相，再转为相面"));
-    return {};
-  }
-  QDir().mkpath(m_dir + "/artifacts/staging");
-  const auto path = m_dir + "/artifacts/staging/" + uid() + ".gpkg";
-  // 相栅格转面默认开平滑+聚合：逐像元聚类的椒盐噪点若直接多边形化会碎成
-  // 噪声图斑（用户要求——「一定要做平滑和聚合，不然太细了」）。MIN_FRACTION
-  // 按有效区占比吸收小斑块进最大邻斑——大栅格上固定像元数兜不住的碎斑
-  // 都能并掉（2026-10-11 用户反馈相面小斑块太多）。
-  auto output = m_processing->run("paleo:paleo_facies_polygonize",
-                                  {{"INPUT", QVariant::fromValue(layer)},
-                                   {"OUTPUT", path},
-                                   {"SMOOTH", 1},
-                                   {"MIN_CELLS", 4},
-                                   {"MIN_FRACTION", 0.0025},
-                                   {"MIN_AREA", 0.0},
-                                   {"SIMPLIFY", 0.0}},
-                                  error);
-  if (output.isEmpty())
-    return {};
-  {
-    QgsVectorLayer outputLayer(path + "|layername=facies_polygons", "facies",
-                               "ogr");
-    if (!MappingArtifactWriter::syncFaciesAttributes(
-            &outputLayer,
-            sourceVersion.extra.value("facies", facies(d.horizon)).toList(),
-            error))
-      return {};
-  }
-  return record(
-      path, d.horizon, "facies_polygons", tr("%1 相面").arg(d.title), "vector",
-      {parent},
-      {{"facies", sourceVersion.extra.value("facies", facies(d.horizon))},
-       {"method", "paleo:paleo_facies_polygonize"},
-       {"mock", sourceVersion.extra.value("mock")}},
-      error, "|layername=facies_polygons");
-}
 QString MappingWorkbench::copyForEditing(const QString &id,
                                          const QStringList &references,
                                          QString *error) {
@@ -2213,5 +2165,13 @@ QString MappingWorkbench::compose(const QString &h, const QStringList &ids,
       error);
   if (id.isEmpty())
     return {};
+  // 有任务服务时转面进后台（任务中心可见、可取消），返回综合相栅格；
+  // 相面完成后经 productReady 自动上图。无任务服务（测试壳）同步转面。
+  if (m_taskSvc) {
+    QString polyErr;
+    if (!startPolygonize(id, &polyErr))
+      emit errorOccurred(tr("综合相图已生成，但转相面未能启动：%1").arg(polyErr));
+    return id;
+  }
   return polygonize(id, error);
 }

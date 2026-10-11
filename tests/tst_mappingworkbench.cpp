@@ -39,8 +39,10 @@
 #include <QTableWidget>
 #include <QTemporaryDir>
 #include <QTreeWidget>
+#include <QThread>
 #include <QUndoStack>
 #include <QtTest>
+#include <atomic>
 #include <gdal.h>
 #include <qgsapplication.h>
 #include <qgscategorizedsymbolrenderer.h>
@@ -48,6 +50,9 @@
 #include <qgsfillsymbollayer.h>
 #include <qgsgeometry.h>
 #include <qgsmapcanvas.h>
+#include <qgsrendercontext.h>
+#include <qgsrenderer.h>
+#include <qgssymbol.h>
 #include <qgsmaprenderersequentialjob.h>
 #include <qgsmapsettings.h>
 #include <qgsmergedfeaturerenderer.h>
@@ -1434,7 +1439,49 @@ private slots:
     auto *formations = qobject_cast<QgsVectorLayer *>(
         f.layers.layer(WellAttributeStore::formationLayerId()));
     QVERIFY(formations);
-    QCOMPARE(formations->renderer()->type(), QString("singleSymbol"));
+    // facies-ux 3：相点按相分类着色（规则渲染：层位分类 → 缺省分类 → 灰）。
+    QCOMPARE(formations->renderer()->type(), QString("RuleRenderer"));
+    {
+      const auto colorOf = [](QgsVectorLayer *layer, const QgsFeature &feature) {
+        QgsRenderContext ctx;
+        ctx.expressionContext().appendScopes(
+            QgsExpressionContextUtils::globalProjectLayerScopes(layer));
+        ctx.expressionContext().setFeature(feature);
+        auto *renderer = layer->renderer();
+        renderer->startRender(ctx, layer->fields());
+        const auto symbols = renderer->originalSymbolsForFeature(feature, ctx);
+        const QColor color = symbols.isEmpty() ? QColor() : symbols.first()->color();
+        renderer->stopRender(ctx);
+        return color;
+      };
+      const auto schema = f.work.facies("D61");
+      QgsFeatureIterator it = formations->getFeatures();
+      QgsFeature feature;
+      int checked = 0;
+      while (it.nextFeature(feature)) {
+        const QVariant code = feature.attribute("facies_code");
+        const QColor expected =
+            code.isNull() ? QColor("#9AA7B4")
+                          : QColor(FaciesCatalog::find(schema, code).value("color").toString());
+        QCOMPARE(colorOf(formations, feature).name(), expected.name());
+        ++checked;
+      }
+      QVERIFY(checked > 0);
+      // 改层位分类颜色 → 在场相点层随之重着色。
+      auto edited = schema;
+      auto first = edited.first().toMap();
+      first.insert("color", "#123456");
+      edited[0] = first;
+      QString schemaErr;
+      QVERIFY2(f.work.saveFacies("D61", edited, &schemaErr), qPrintable(schemaErr));
+      QgsFeature probe;
+      probe.setFields(formations->fields(), true);
+      probe.setAttribute("formation", "D61");
+      probe.setAttribute("facies_code", first.value("code").toInt());
+      QCOMPARE(colorOf(formations, probe).name(), QString("#123456"));
+      probe.setAttribute("facies_code", QVariant());
+      QCOMPARE(colorOf(formations, probe).name(), QColor("#9AA7B4").name());
+    }
     QVERIFY(formations->labelsEnabled());
     QVERIFY(formations->labeling() != nullptr);
     auto *labels = dynamic_cast<QgsVectorLayerSimpleLabeling *>(formations->labeling());
@@ -1527,6 +1574,74 @@ private slots:
   // 2026-10-10 用户反馈「画布上没有标注」的回归闸：相面经 styleLayer 后，
   // 标注配置在位（enabled + mode 3 表达式），且离屏渲染真的放置出标注
   //（takeLabelingResults 非空）——样式应用、标注注册、渲染三段一起守。
+  // facies-ux 1：相栅格转面走任务中心（后台、可见、可取消、单飞），完成
+  // 后经 productReady 收尾；取消与工程重绑不登记任何版本。
+  void polygonizeRunsAsCancellableBackgroundTask() {
+    Fixture f;
+    QVERIFY(f.init());
+    PaleoTaskService tasks;
+    f.work.setTaskService(&tasks);
+    const auto input = f.seismic();
+    QVERIFY(!input.isEmpty());
+    QString error;
+    QVERIFY2(f.work.predict("D61", "seismic", {input}, &error),
+             qPrintable(error));
+    QTRY_VERIFY_WITH_TIMEOUT(!f.work.busy(), 5000);
+    const auto rasterId = f.latest("seismic_prediction");
+    QVERIFY(!rasterId.isEmpty());
+    QSignalSpy done(&f.work, &MappingWorkbench::polygonizeFinished);
+    const int before = tasks.tasks().size();
+    QVERIFY2(f.work.startPolygonize(rasterId, &error), qPrintable(error));
+    QVERIFY(f.work.polygonizeBusy());
+    QCOMPARE(tasks.tasks().size(), before + 1);
+    QPointer<PaleoTask> task = tasks.tasks().constLast();
+    QVERIFY(!task->quiet());
+    QVERIFY(task->title().contains(QStringLiteral("相栅格转相面")));
+    QString busyErr;
+    QVERIFY(!f.work.startPolygonize(rasterId, &busyErr));
+    QVERIFY(busyErr.contains(QStringLiteral("已有相栅格转面任务")));
+    QTRY_COMPARE_WITH_TIMEOUT(done.count(), 1, 60000);
+    auto args = done.takeFirst();
+    const auto product = args.at(1).toString();
+    QVERIFY2(!product.isEmpty(), qPrintable(args.at(2).toString()));
+    QVERIFY(task);
+    QCOMPARE(task->state(), PaleoTask::State::Succeeded);
+    QVERIFY(!f.work.polygonizeBusy());
+    const auto version = f.work.versionForLayer(product);
+    QCOMPARE(version.extra.value("kind").toString(), QString("facies_polygons"));
+    QCOMPARE(version.extra.value("source_layer").toString(), rasterId);
+    QCOMPARE(f.work.declaration(product).horizon, QString("D61"));
+    auto *poly =
+        qobject_cast<QgsVectorLayer *>(f.layers.instantiate(product, &error));
+    QVERIFY2(poly, qPrintable(error));
+    QVERIFY(poly->featureCount() > 0);
+    QVERIFY(poly->fields().indexOf("facies_name") >= 0);
+
+    // 取消 / 工程重绑：池占满让转面任务排队，确定性地在 compute 前取消。
+    tasks.setMaxWorkerThreads(1);
+    const int products = f.work.products("D61").size();
+    for (const bool rebind : {false, true}) {
+      std::atomic_bool release{false};
+      tasks.start(QStringLiteral("blocker"), [&release](PaleoTask *) {
+        while (!release.load())
+          QThread::msleep(5);
+        return QString();
+      });
+      QVERIFY2(f.work.startPolygonize(rasterId, &error), qPrintable(error));
+      if (rebind)
+        f.work.bindCatalog(&f.catalog, f.dir.path()); // 工程重绑即取消
+      else
+        f.work.cancelPolygonize();
+      release.store(true);
+      QTRY_COMPARE_WITH_TIMEOUT(done.count(), 1, 60000);
+      args = done.takeFirst();
+      QVERIFY(args.at(1).toString().isEmpty());
+      QVERIFY(args.at(3).toBool());
+      QTRY_VERIFY_WITH_TIMEOUT(!f.work.polygonizeBusy(), 5000);
+      QCOMPARE(f.work.products("D61").size(), products);
+    }
+    QVERIFY(tasks.shutdown());
+  }
   void polygonLabelsRenderAfterStyling() {
     Fixture f;
     QVERIFY(f.init());

@@ -8,6 +8,7 @@
 #include <QPointer>
 #include <QVariantMap>
 #include <atomic>
+#include <functional>
 #include <memory>
 class QgisLayerService;
 class QgisProcessingService;
@@ -16,6 +17,9 @@ class ConstraintWorkflow;
 class PaleoTask;
 class PaleoTaskService;
 class WellPredictionService;
+namespace paleo::jobs {
+template <class JobT> class JobRunner;
+}
 
 // One project-bound catalog writer; all QGIS/catalog mutations run on its GUI
 // thread.
@@ -62,7 +66,17 @@ public:
                const QString &horizonFile = {});
   void cancelPrediction();
   bool busy() const { return !m_request.id.isEmpty(); }
+  // 同步转面（无任务服务的壳/测试；自动编图在未注入任务服务时也走这里）。
   QString polygonize(const QString &layerId, QString *error);
+  // 相栅格转面后台任务（任务中心可见、可取消）：prepare 在主线程做与同步
+  // 路径相同的校验并冻结输入（栅格 URI、父版本、相分类、工程目录），worker
+  // 上独立建层跑 paleo:paleo_facies_polygonize 并同步相属性，commit 回主线程
+  // 登记版本 + 声明图层（catalog 写线程纪律，见审查 UIS-12）。工程切换或
+  // 重绑目录后完成的旧结果按过期丢弃。成功发 productReady（与同步路径同一
+  // 收尾）；返回 false = 未启动（error 给因，含「已有转面任务」）。
+  bool startPolygonize(const QString &layerId, QString *error);
+  bool polygonizeBusy() const;
+  void cancelPolygonize();
   QString copyForEditing(const QString &layerId, const QStringList &references,
                          QString *error);
   bool saveEditingVersion(const QString &draftId, QString *error);
@@ -126,6 +140,10 @@ signals:
   void predictionDetailChanged(const QString &detail);
   void predictionStatusChanged();
   void productReady(const QString &horizon, const QString &layerId);
+  // 后台转面终态（成功时 productId 非空；取消/过期 cancelled=true）。
+  void polygonizeFinished(const QString &sourceLayerId,
+                          const QString &productId, const QString &error,
+                          bool cancelled);
   void errorOccurred(const QString &message);
 
 private:
@@ -140,6 +158,26 @@ private:
                  const QString &suffix = QString(),
                  const QString &assetKey = QString());
   QString ensureInputVersion(const QString &layerId, QString *error);
+public:
+  // 转面作业快照（纯数据，跨线程安全；compute 不读成员）。
+  struct PolygonizeJob {
+    QString sourceLayerId, horizon, title, rasterUri, outputPath, parent, dir;
+    QVariantList facies;
+    QVariant mock;
+    QPointer<DataCatalog> catalog;
+    QString productId; // commit 产出
+    QString error;
+  };
+  // 三段式各段（public 便于测试直驱；UI 走 startPolygonize）。
+  bool preparePolygonize(const QString &layerId, PolygonizeJob *job,
+                         QString *error);
+  static bool computePolygonize(PolygonizeJob &job,
+                                const std::function<bool()> &cancelled,
+                                const std::function<void(double)> &progress,
+                                QgisProcessingService *processing);
+  bool commitPolygonize(PolygonizeJob &job, QString *error);
+
+private:
   void finishPrediction(const RemotePredictionResult &result);
   // 任务中心行：开一行 / 收尾（error 空 = 完成）/ 取消（取消态收尾）。
   void beginPredictionTask(const QString &title);
@@ -169,6 +207,7 @@ private:
   std::shared_ptr<std::atomic_bool> m_prepareCancelled;
   QPointer<PaleoTaskService> m_taskSvc;
   QPointer<PaleoTask> m_task;
+  std::unique_ptr<paleo::jobs::JobRunner<PolygonizeJob>> m_polygonizeRunner;
   QString m_predictionHint;
   mutable QString m_logVersion;
   mutable LasDoc m_logCache;

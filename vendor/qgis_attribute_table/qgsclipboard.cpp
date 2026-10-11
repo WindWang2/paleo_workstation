@@ -17,10 +17,6 @@
 
 #include "qgsclipboard.h"
 
-#include <fstream>
-#include <nlohmann/json.hpp>
-
-
 #include "qgsapplication.h"
 #include "qgscoordinatereferencesystem.h"
 #include "qgsfeature.h"
@@ -214,7 +210,7 @@ void QgsClipboard::generateClipboardText( QString &textContent, QString &htmlCon
 
           if ( useJSONFromVariant )
           {
-            value = QString::fromStdString( QgsJsonUtils::jsonFromVariant( variant ).dump() );
+            value = QgsJsonUtils::encodeValue( variant );
           }
           else
           {
@@ -232,7 +228,7 @@ void QgsClipboard::generateClipboardText( QString &textContent, QString &htmlCon
           }
           if ( useJSONFromVariant )
           {
-            value = QString::fromStdString( QgsJsonUtils::jsonFromVariant( variant ).dump() );
+            value = QgsJsonUtils::encodeValue( variant );
           }
           else
           {

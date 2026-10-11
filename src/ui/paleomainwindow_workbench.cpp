@@ -170,8 +170,10 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
     }
     if (product) {
       schema = workbench->displayLegend(id);
+      auto *wellLayer = qobject_cast<QgsVectorLayer *>(m_layerSvc->layer(id));
+      const bool wellResult = wellLayer && wellLayer->fields().indexOf("facies_intervals") >= 0;
       title = tr("%1 · %2 · v%3")
-                  .arg(h, FaciesHierarchy::title(workbench->resolvedLevel(id)))
+                  .arg(h, wellResult ? tr("预测相") : FaciesHierarchy::title(workbench->resolvedLevel(id)))
                   .arg(v.versionNumber);
       if (v.extra.value("mock").toBool())
         title += tr(" · Mock");
@@ -194,8 +196,10 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
     auto *layer = m_layerSvc->instantiate(id, error);
     if (!layer)
       return false;
-    workbench->styleLayer(id);
+    // 初次实例化和编辑/比例尺变化已负责样式；显示缓存图层无需重建。
     auto *canvas = m_canvasCtl->canvas();
+    const bool wasFrozen = canvas->isFrozen();
+    canvas->freeze(true);
     if (!canvas->mapTool()) {
       auto *pan = canvas->findChild<QgsMapToolPan *>("workbenchPan");
       if (!pan) {
@@ -242,7 +246,8 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
       m_profileSvc->captureCurrentAsTheme(
           QgisLayerProfileService::pageThemeName(currentPage()));
     m_canvasCtl->zoomToLayer(id);
-    canvas->refresh();
+    canvas->freeze(wasFrozen);
+    if (!wasFrozen) canvas->refresh();
     legend(id);
     shown->insert(d.horizon, id);
     return true;
@@ -359,7 +364,7 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
     canvas->refresh();
     return true;
   };
-  auto *wellDock = new QDockWidget(tr("测井相预测与修订"), this);
+  auto *wellDock = new QDockWidget(tr("测井预测相与修订"), this);
   wellDock->setObjectName("wellPredictionDock");
   auto *wellPanel = new WellPredictionPanel(wellDock);
   wellDock->setWidget(wellPanel);
@@ -446,7 +451,7 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
             if (beginEdit(id) &&
                 workbench->reviseWellInterval(id, well, interval, code, &error))
               statusBar()->showMessage(
-                  tr("井段与地图相点已更新；保存修订版本后登记文件。"), 10000);
+                  tr("当前地层的预测相已更新；保存修订版本后登记文件。"), 10000);
             else
               statusBar()->showMessage(
                   error.isEmpty() ? tr("请先结束其他图层的编辑") : error,
@@ -718,7 +723,12 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
                     PaleoNotify::AskIcon::Warning))
               return;
             else {
+              auto *deleteCanvas = m_canvasCtl->canvas();
+              const bool wasFrozen = deleteCanvas->isFrozen();
+              deleteCanvas->freeze(true);
               ok = workbench->removeProduct(id, &error, true);
+              deleteCanvas->freeze(wasFrozen);
+              if (!wasFrozen) deleteCanvas->refresh();
               if (ok) {
                 for (auto *dialog : findChildren<QDialog *>("mappingReferenceWindow"))
                   if (versionIds.contains(dialog->property("paleo.referenceVersion").toString()))
@@ -819,9 +829,9 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
           else if (action == "assignFacies")
             message = tr("选中要素的相类别已更新，请保存编辑以登记新版本。");
           else if (action == "welltracks")
-            message = tr("已打开井道与测井相修订面板。");
+            message = tr("已打开井道与预测相修订面板。");
           else if (action == "delete")
-            message = tr("已删除图件，其版本与受管文件一并移除。");
+            message = tr("已删除图件及版本记录，受管文件正在后台清理。");
           else
             message = tr("操作完成，图件与版本已更新。");
           page->showMessage(message);

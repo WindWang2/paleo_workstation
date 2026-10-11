@@ -130,24 +130,16 @@ QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *erro
   // A manifest read failure is a READ failure, not "no declaration" — report
   // the store error so callers don't misdiagnose a corrupt/unreadable manifest
   // as an undeclared layer.
-  QVector<LayerDeclaration> decls;
+  LayerDeclaration stored;
   QString readError;
-  if (!m_manifest->readAll(&decls, &readError))
+  if (!m_manifest->find(layerId, &stored, &readError))
   {
     setError(error, readError.isEmpty()
                         ? QStringLiteral("failed to read layer manifest")
                         : QStringLiteral("failed to read layer manifest: %1").arg(readError));
     return nullptr;
   }
-  const LayerDeclaration *decl = nullptr;
-  for (const LayerDeclaration &d : decls)
-  {
-    if (d.layerId == layerId)
-    {
-      decl = &d;
-      break;
-    }
-  }
+  const LayerDeclaration *decl = stored.layerId.isEmpty() ? nullptr : &stored;
   if (!decl)
   {
     setError(error, QStringLiteral("no layer declaration for '%1'").arg(layerId));
@@ -212,22 +204,37 @@ QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *erro
 
 bool QgisLayerService::removeDeclaration(const QString &layerId, QString *error)
 {
+  return removeDeclarations({layerId}, error);
+}
+
+LayerDeclaration QgisLayerService::declaration(const QString &layerId) const
+{
+  LayerDeclaration result;
+  m_manifest->find(layerId, &result);
+  return result;
+}
+
+bool QgisLayerService::removeDeclarations(const QStringList &layerIds, QString *error)
+{
+  if (layerIds.isEmpty()) return true;
+  const QSet<QString> selected(layerIds.begin(), layerIds.end());
+  auto *project = svcProject(m_projectSvc);
+  QStringList nativeIds;
   // 与 declare() 替换路径同口径：编辑中的层不可静默销毁——未提交的编辑
   // 缓冲会直接丢失，且编辑会话的 busy 标记无人释放（Issue #27 同族）。
-  if (auto *project = svcProject(m_projectSvc))
+  if (project)
     for (auto *layer : project->mapLayers())
-      if (layer->customProperty("paleoLayerId").toString() == layerId)
+      if (selected.contains(layer->customProperty("paleoLayerId").toString())) {
         if (auto *vector = qobject_cast<QgsVectorLayer *>(layer); vector && vector->isEditable())
         {
           setError(error, tr("请先保存或取消该图层的编辑，再移除图件"));
           return false;
         }
-  if (!m_manifest->remove(layerId, error)) return false;
-  if (auto *project = svcProject(m_projectSvc))
-    for (auto *layer : project->mapLayers())
-      if (layer->customProperty("paleoLayerId").toString() == layerId)
-        project->removeMapLayer(layer);
-  emit layerDeclared(layerId);
+        nativeIds << layer->id();
+      }
+  if (!m_manifest->removeMany(layerIds, error)) return false;
+  if (project && !nativeIds.isEmpty()) project->removeMapLayers(nativeIds);
+  emit layerDeclared(layerIds.size() == 1 ? layerIds.first() : QString());
   return true;
 }
 

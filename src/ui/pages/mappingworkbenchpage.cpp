@@ -24,6 +24,8 @@
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QSignalBlocker>
+#include <QShowEvent>
+#include <QTimer>
 #include <QTableWidget>
 #include <QTreeWidget>
 #include <QVBoxLayout>
@@ -35,6 +37,9 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
                                            MappingWorkbench *workbench,
                                            QWidget *parent)
     : QWidget(parent), m_workbench(workbench), m_mode(mode) {
+  m_refreshTimer = new QTimer(this);
+  m_refreshTimer->setSingleShot(true);
+  connect(m_refreshTimer, &QTimer::timeout, this, [this] { if (isVisible()) refresh(); });
   setObjectName("mappingWorkbench." + mode);
   // The dock manager owns the viewport. A second scroll area here traps the
   // wheel between nested ranges when the parameter groups are expanded.
@@ -74,7 +79,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
     label(tr("地震层位窗聚类／预测服务 · 结果待复核\n"
              "选择一个地震体，或勾选一口／多口井。结果按当前层位与相分类"
              "生成。测井仅节选当前地层顶底深范围调用远端服务，"
-             "每口井显示一个优势相点，"
+             "每口井显示一个预测相点，"
              "并同步工区井段与地层预测信息。"));
     m_status = new QLabel(body);
     m_status->setObjectName("workbenchPredictionStatus");
@@ -97,7 +102,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
     m_kind->setAccessibleName(tr("预测类型"));
     m_kind->addItem(tr("地震层位窗聚类 → 分布图（Mock）"), "seismic_mock");
     m_kind->addItem(tr("地震体 → 相栅格（预测服务）"), "seismic");
-    m_kind->addItem(tr("测井 → 当前地层优势相"), "wells");
+    m_kind->addItem(tr("测井 → 当前地层预测相"), "wells");
     // 井点的相 = 该井在当前层位地层（本层位顶 → 下一层位顶）内厚度最大的相，
     // 与数据管理逐组预测写同一张「测井地层相属性」表。
     m_kind->setItemData(m_kind->count() - 1,
@@ -155,7 +160,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
     auto *run = new QHBoxLayout;
     run->addWidget(button("predict", tr("运行预测")));
     run->addWidget(button("wellattributes", tr("岩性与相属性")));
-    // 预测输出的就是该地层的优势相——页面措辞直接说「相」，不再说「优势相」。
+    // 与工区维护的地层相表共用一条最终结果。
     run->addWidget(button("wellformations", tr("地层相属性")));
     run->addWidget(button("cancel", tr("取消")));
     layout->addLayout(run);
@@ -318,7 +323,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   actions->addWidget(button("catalog", tr("在数据管理中定位")), 2, 1);
   actions->addWidget(button("delete", tr("删除图件")), 3, 0, 1, 2);
   if (mode == "predict")
-    actions->addWidget(button("welltracks", tr("查看井道 / 修订测井相")), 4, 0,
+    actions->addWidget(button("welltracks", tr("查看井道 / 修订预测相")), 4, 0,
                        1, 2);
   layout->addLayout(actions);
   auto *appearance = new QgsCollapsibleGroupBox(tr("相类别与标注"), body);
@@ -517,7 +522,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
               updateState();
           });
   connect(workbench, &MappingWorkbench::changed, this,
-          &MappingWorkbenchPage::refresh);
+          &MappingWorkbenchPage::scheduleRefresh);
   connect(workbench, &MappingWorkbench::faciesChanged, this,
           [this](const QString &h) {
             if (h != m_horizon)
@@ -609,7 +614,17 @@ void MappingWorkbenchPage::refreshInputs() {
   }
   updateState();
 }
+void MappingWorkbenchPage::scheduleRefresh() {
+  m_refreshPending = true;
+  if (isVisible() && !m_refreshTimer->isActive()) m_refreshTimer->start(0);
+}
+void MappingWorkbenchPage::showEvent(QShowEvent *event) {
+  QWidget::showEvent(event);
+  if (m_refreshPending) refresh();
+}
 void MappingWorkbenchPage::refresh() {
+  m_refreshPending = false;
+  m_refreshTimer->stop();
   m_heading->setText(m_horizon.isEmpty()
                          ? tr("请选择编图层位")
                          : tr("%1 · %2").arg(m_horizon, m_mode == "predict"
@@ -621,6 +636,7 @@ void MappingWorkbenchPage::refresh() {
   const auto pointId =
       m_points ? m_points->currentData().toString() : QString();
   QSignalBlocker block(m_results);
+  QSignalBlocker pointsBlock(m_points);
   m_results->clear();
   if (m_points)
     m_points->clear();
@@ -662,7 +678,7 @@ void MappingWorkbenchPage::refresh() {
     const QSignalBlocker block(m_evidenceSource);
     m_evidenceSource->clear();
     m_evidenceSource->addItem(tr("手工解释（无来源图件）"), QString());
-    for (const auto &entry : m_workbench->products(QString())) {
+    for (const auto &entry : all) {
       const auto p = entry.toMap();
       const QString hz = p.value("horizon").toString();
       if (p.value("id").toString() != selectedLayer() &&
@@ -778,18 +794,21 @@ void MappingWorkbenchPage::updateState() {
   const auto selectedSchema = m_workbench->versionForLayer(selectedLayer())
                                   .extra.value("facies")
                                   .toList();
+  const bool wellResult = selected && m_workbench->isWellPrediction(selectedLayer());
   const QSignalBlocker displayBlock(m_displayLevel);
+  const QSignalBlocker editBlock(m_editLevel);
+  if (wellResult) m_editLevel->setCurrentIndex(2);
   m_displayLevel->setCurrentIndex(qMax(
       0, m_displayLevel->findData(m_workbench->displayMode(selectedLayer()))));
-  m_displayLevel->setEnabled(!selectedSchema.isEmpty());
+  m_displayLevel->setEnabled(!wellResult && !selectedSchema.isEmpty());
   m_displayLevel->setToolTip(
-      selectedSchema.isEmpty()
+      wellResult ? tr("测井图件只显示最终预测相") : selectedSchema.isEmpty()
           ? tr("请先选择相图件")
           : tr("当前显示：%1；自动阈值为 1:800 万与 1:400 万")
                 .arg(FaciesHierarchy::title(
                     m_workbench->resolvedLevel(selectedLayer()))));
-  m_editLevel->setEnabled(row.value("draft").toBool());
-  m_editLevel->setToolTip(m_editLevel->isEnabled()
+  m_editLevel->setEnabled(!wellResult && row.value("draft").toBool());
+  m_editLevel->setToolTip(wellResult ? tr("每井每地层只修订一个预测相") : m_editLevel->isEnabled()
                               ? tr("选择要修改的相层级")
                               : tr("请先复制相图为编辑副本"));
   const auto oldCode = m_editFacies->currentData();
@@ -804,7 +823,7 @@ void MappingWorkbenchPage::updateState() {
     editKeys.insert(key);
     m_editFacies->addItem(QIcon(FaciesCatalog::resourcePath(
                               f.value("icon", f.value("texture")).toString())),
-                          FaciesHierarchy::path(f)
+                          wellResult ? f.value("name").toString() : FaciesHierarchy::path(f)
                               .mid(0, m_editLevel->currentIndex() + 1)
                               .join(" / "),
                           f.value("code").toInt());
@@ -857,8 +876,8 @@ void MappingWorkbenchPage::updateState() {
   gate("removeEvidence", editableEvidence && m_evidence->currentItem(),
        tr("请选择编辑副本中的证据"));
   gate("welltracks",
-       selected && !m_workbench->wellPredictions(selectedLayer()).isEmpty(),
-       tr("选择包含井段的测井相预测或修订结果"));
+       wellResult,
+       tr("选择测井预测相或修订结果"));
   gate("labels",
        selected && row.value("type") == "vector" && !selectedSchema.isEmpty(),
        tr("请选择矢量相面或测井相点图"));
@@ -963,6 +982,7 @@ void MappingWorkbenchPage::issue(const QString &action, QVariantMap p) {
 }
 
 void MappingWorkbenchPage::selectLayer(const QString &id) {
+  if (m_refreshPending) refresh();
   for (int i = 0; i < m_results->topLevelItemCount(); ++i) {
     auto *item = m_results->topLevelItem(i);
     if (item->data(0, Qt::UserRole).toMap().value("id").toString() == id) {

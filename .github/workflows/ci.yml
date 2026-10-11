@@ -61,7 +61,7 @@ jobs:
       # 由 deb 闭包 vendored 提供，不 apt 系统 QGIS。
       - name: Install Qt6 dev packages (vendored 路只缺 Qt/工具面)
         run: sudo apt-get install -y
-          qt6-base-dev qt6-svg-dev qt6-serialport-dev qt6-positioning-dev qt6-tools-dev
+          qt6-base-dev qt6-5compat-dev qt6-svg-dev qt6-serialport-dev qt6-positioning-dev qt6-tools-dev
           qt6-webengine-dev qt6-pdf-dev qtkeychain-qt6-dev ninja-build pkg-config g++ patchelf
       - name: Cache vendored deb closure
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -134,7 +134,7 @@ jobs:
       # 政策例外面（Qt6 发行版包/qtkeychain/ccache/工具链）。
       - name: Install Qt6 dev packages (vendored 路只缺 Qt/工具面)
         run: sudo apt-get update && sudo apt-get install -y
-          qt6-base-dev qt6-svg-dev qt6-serialport-dev qt6-positioning-dev qt6-tools-dev
+          qt6-base-dev qt6-5compat-dev qt6-svg-dev qt6-serialport-dev qt6-positioning-dev qt6-tools-dev
           qt6-webengine-dev qt6-pdf-dev qtkeychain-qt6-dev ccache ninja-build pkg-config patchelf
       - name: Cache ccache
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -231,7 +231,7 @@ jobs:
       # 政策例外面（Qt6 发行版包/qtkeychain/ccache/工具链）。
       - name: Install Qt6 dev packages (vendored 路只缺 Qt/工具面)
         run: sudo apt-get update && sudo apt-get install -y
-          qt6-base-dev qt6-svg-dev qt6-serialport-dev qt6-positioning-dev qt6-tools-dev
+          qt6-base-dev qt6-5compat-dev qt6-svg-dev qt6-serialport-dev qt6-positioning-dev qt6-tools-dev
           qt6-webengine-dev qt6-pdf-dev qtkeychain-qt6-dev ccache ninja-build pkg-config patchelf
       - name: Cache ccache
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -288,7 +288,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Install Qt6 dev packages (vendored 路只缺 Qt/工具面)
         run: sudo apt-get update && sudo apt-get install -y
-          qt6-base-dev qt6-svg-dev qt6-serialport-dev qt6-positioning-dev qt6-tools-dev
+          qt6-base-dev qt6-5compat-dev qt6-svg-dev qt6-serialport-dev qt6-positioning-dev qt6-tools-dev
           qt6-webengine-dev qt6-pdf-dev qtkeychain-qt6-dev ccache ninja-build pkg-config
       - name: Cache ccache
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4

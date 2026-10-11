@@ -273,7 +273,7 @@ VersionCompare compareVersions(const QString &projectDir, const CatalogVersion &
 }
 
 PurgeOutcome purgeAssets(DataCatalog *cat, const QString &projectDir,
-                         const QStringList &assetIds, bool atomic)
+                         const QStringList &assetIds, bool atomic, bool deferFiles)
 {
   PurgeOutcome out;
   if (!cat || !cat->isOpen())
@@ -354,6 +354,11 @@ PurgeOutcome purgeAssets(DataCatalog *cat, const QString &projectDir,
   QStringList paths;
   for (const Target &t : targets)
     if (doomed.contains(t.assetId)) paths.append(t.managedFiles);
+  if (deferFiles) {
+    out.pendingFiles = paths;
+    out.purgedAssetIds = doomed;
+    return out;
+  }
   const auto files = purgeManagedFiles(projectDir, paths, cat->versions());
   out.bytesFreed = files.bytesFreed;
   out.leftoverFiles = files.leftoverFiles;

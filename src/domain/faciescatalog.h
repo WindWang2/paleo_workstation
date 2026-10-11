@@ -21,6 +21,9 @@ int dominantCode(const QVariantList &intervals, double top, double base);
 // 保留，井段仍首尾相接。
 QVariantList recodeIntervals(const QVariantList &intervals, int code,
                              double top, double base);
+// 测井最终结果：按地层范围及最终编码生成唯一预测相记录，兼容旧井段结果。
+QVariantMap formationPrediction(const QVariantMap &point, const QVariantList &schema,
+                               const QString &horizon = {});
 // 点要素的地层范围（formation_top / formation_base）；缺失或无效即整井。
 void formationRange(const QVariant &top, const QVariant &base, double *outTop,
                     double *outBase);

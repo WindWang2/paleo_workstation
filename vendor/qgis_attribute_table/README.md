@@ -29,6 +29,8 @@ Embedding changes:
   field calculator enters editing through that service before changing fields.
 - App-only feature creation uses QGIS's feature defaults and attribute dialog.
 - The clipboard's coordinate transform uses the project's transform context.
+- Clipboard collection values use QGIS's exported `encodeValue` JSON serializer
+  so the embedded app does not need QGIS's private nlohmann JSON headers on Windows.
 - Upstream explicit moc includes are replaced by CMake AUTOMOC.
 
 The layer picker is application chrome; the table's toolbar, filter bar and

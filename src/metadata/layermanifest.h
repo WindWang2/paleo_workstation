@@ -39,6 +39,8 @@ class LayerManifest
 
     bool upsert(const LayerDeclaration &decl, QString *error = nullptr);
     bool remove(const QString &layerId, QString *error = nullptr);
+    bool removeMany(const QStringList &layerIds, QString *error = nullptr);
+    bool find(const QString &layerId, LayerDeclaration *out, QString *error = nullptr) const;
     QVector<LayerDeclaration> all() const;                       // full declared set; empty on failure
     // False on open/query failure. Empty success is a zero-length vector.
     bool readAll(QVector<LayerDeclaration> *out, QString *error = nullptr) const;

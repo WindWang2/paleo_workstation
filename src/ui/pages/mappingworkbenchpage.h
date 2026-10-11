@@ -13,6 +13,8 @@ class QPushButton;
 class QProgressBar;
 class QTableWidget;
 class QPlainTextEdit;
+class QTimer;
+class QShowEvent;
 class MappingWorkbenchPage : public QWidget {
   Q_OBJECT
 public:
@@ -28,8 +30,12 @@ public:
 signals:
   void commandRequested(const QString &action, const QVariantMap &parameters);
 
+protected:
+  void showEvent(QShowEvent *event) override;
+
 private:
   void refreshInputs();
+  void scheduleRefresh();
   void updateState();
   QStringList checkedInputs() const;
   void issue(const QString &action, QVariantMap parameters = {});
@@ -55,4 +61,6 @@ private:
   QComboBox *m_displayLevel = nullptr, *m_editLevel = nullptr, *m_evidenceSource = nullptr;
   QPlainTextEdit *m_evidenceText = nullptr;
   QListWidget *m_evidence = nullptr;
+  QTimer *m_refreshTimer = nullptr;
+  bool m_refreshPending = false;
 };

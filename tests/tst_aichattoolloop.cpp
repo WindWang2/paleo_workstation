@@ -129,8 +129,13 @@ private:
       if (headerEnd < 0)
         return;
       const QString header = QString::fromUtf8(buf->left(headerEnd));
+      // HTTP 头名大小写不敏感（RFC 9110 §5.1）：QNetworkAccessManager 在部分 Qt
+      // 版本发小写 "content-length:"（6.8.2 实测），大小写敏感匹配会读成 0 → 空请求体。
       const int contentLength =
-        header.section("Content-Length:", 1, 1).section("\r", 0, 0).trimmed().toInt();
+        header.section("Content-Length:", 1, 1, QString::SectionCaseInsensitiveSeps)
+          .section("\r", 0, 0)
+          .trimmed()
+          .toInt();
       if (buf->mid(headerEnd + 4).size() < contentLength)
         return;
       const QByteArray bodyBytes = buf->mid(headerEnd + 4, contentLength);

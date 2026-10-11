@@ -171,6 +171,7 @@ public:
   // 转面作业快照（纯数据，跨线程安全；compute 不读成员）。
   struct PolygonizeJob {
     QString sourceLayerId, horizon, title, rasterUri, outputPath, parent, dir;
+    QString crsWkt; // 声明层 CRS（数据源无 CRS 时 worker 侧补齐）
     QVariantList facies;
     QVariant mock;
     QPointer<DataCatalog> catalog;

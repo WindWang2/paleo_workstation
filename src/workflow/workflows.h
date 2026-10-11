@@ -538,6 +538,7 @@ class CompositionWorkflow : public QObject
     {
       QString horizon, rasterLayerId, rasterUri, constraintUri, constraintProvider;
       QString projectDir, outputPath, layerId, error;
+      QString rasterCrsWkt; // 声明层 CRS（数据源无 CRS 时 worker 侧补齐）
       QStringList parentPaths;
       QVariantMap algParams;
       bool constrained = false;

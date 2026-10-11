@@ -11,6 +11,7 @@
 #include <QDir>
 #include <QFile>
 #include <QUuid>
+#include <qgscoordinatereferencesystem.h>
 #include <qgsrasterlayer.h>
 #include <qgsvectorlayer.h>
 
@@ -56,6 +57,7 @@ bool MappingWorkbench::preparePolygonize(const QString &id, PolygonizeJob *job,
   job->title = d.title;
   // worker 上独立建层：只交 URI（图层对象属主线程，不得跨线程传）。
   job->rasterUri = layer->source();
+  job->crsWkt = layer->crs().toWkt();
   job->outputPath = m_dir + "/artifacts/staging/" +
                     QUuid::createUuid().toString(QUuid::WithoutBraces) + ".gpkg";
   job->parent = parent;
@@ -84,6 +86,8 @@ bool MappingWorkbench::computePolygonize(PolygonizeJob &job,
     job.error = tr("无法读取相栅格：%1").arg(job.rasterUri);
     return false;
   }
+  if (!raster.crs().isValid() && !job.crsWkt.isEmpty())
+    raster.setCrs(QgsCoordinateReferenceSystem::fromWkt(job.crsWkt));
   QgisProcessingService::ProcessingHooks hooks;
   hooks.cancelled = cancelled;
   hooks.progress = [progress](double p) {

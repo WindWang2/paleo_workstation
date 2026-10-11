@@ -35,6 +35,7 @@
 #include <qgsmultipolygon.h>
 #include <qgspoint.h>
 #include <qgspolygon.h>
+#include <qgscoordinatereferencesystem.h>
 #include <qgsrasterlayer.h>
 #include <qgsvectorlayer.h>
 #include <memory>
@@ -336,6 +337,7 @@ bool CompositionWorkflow::prepareFaciesPolygons( const QString &horizon, const Q
   job->projectDir = m_projectDir;
   // worker 上独立建层：只冻结 URI（图层对象属主线程）。
   job->rasterUri = raster->source();
+  job->rasterCrsWkt = raster->crs().toWkt();
   job->parentPaths = QStringList{ raster->source().section( QLatin1Char( '|' ), 0, 0 ) };
   job->algParams.clear();
   job->algParams.insert( QStringLiteral( "OUTPUT" ), job->staging.absolutePath );
@@ -382,6 +384,8 @@ bool CompositionWorkflow::computeFaciesPolygons( FaciesPolygonJob &job, QgisProc
     job.error = tr( "failed to instantiate raster '%1'" ).arg( job.rasterLayerId );
     return false;
   }
+  if ( !raster.crs().isValid() && !job.rasterCrsWkt.isEmpty() )
+    raster.setCrs( QgsCoordinateReferenceSystem::fromWkt( job.rasterCrsWkt ) );
   std::unique_ptr<QgsVectorLayer> constraints;
   QVariantMap alg = job.algParams;
   alg.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( static_cast<QgsMapLayer *>( &raster ) ) );

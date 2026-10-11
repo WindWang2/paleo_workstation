@@ -307,7 +307,8 @@ void WellPredictionPanel::rebuildTracks() {
     item.topDepth = float(top); item.bottomDepth = float(base);
     item.text = well.value("facies_label").toString();
     auto f = FaciesCatalog::find(m_schema, well.value("facies_code"));
-    item.bgColor = QColor(f.value("color", "#EDF1F5").toString());
+    item.bgColor = f.contains("color") ? QColor(f.value("color").toString())
+                                        : PaleoTheme::tokens().surfaceAlt;
     track->setIntervals({item});
     m_canvas->setDepthRange(top, base);
   }

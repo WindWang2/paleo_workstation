@@ -51,6 +51,8 @@
 #include <memory>
 #include <qgslayertree.h>
 #include <qgslayertreeview.h>
+#include <qgscoordinatetransform.h>
+#include <qgsexception.h>
 #include <qgsmapcanvas.h>
 #include <qgsmapmouseevent.h>
 #include <qgsmaptoolidentify.h>
@@ -736,7 +738,18 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
                       [this, show, wellLayer](const QString &, double x, double y) {
                         QString ignored;
                         show(wellLayer, &ignored);
-                        m_canvasCtl->canvas()->setCenter(QgsPointXY(x, y));
+                        QgsPointXY point(x, y);
+                        auto *canvas = m_canvasCtl->canvas();
+                        if (auto *layer = m_layerSvc->layer(wellLayer)) {
+                          try {
+                            point = QgsCoordinateTransform(
+                                        layer->crs(), canvas->mapSettings().destinationCrs(),
+                                        m_projectSvc->project())
+                                        .transform(point);
+                          } catch (const QgsCsException &) {
+                          }
+                        }
+                        canvas->setCenter(point);
                         m_canvasCtl->canvas()->refresh();
                       });
               dialog->show();

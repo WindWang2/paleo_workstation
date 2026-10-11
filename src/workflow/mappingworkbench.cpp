@@ -49,6 +49,7 @@
 #include <qgsrasterlayer.h>
 #include <qgsunittypes.h>
 #include <qgseditorwidgetsetup.h>
+#include "evidencerecord.h"
 #include <qgsvectorlayer.h>
 
 namespace {
@@ -620,6 +621,9 @@ QString MappingWorkbench::record(const QString &path, const QString &h,
       extra.insert("mock", true);
   if (!extra.contains("facies"))
     extra.insert("facies", facies(h));
+  // facies-ux 5：证据链（输入版本 + 模型/参数指纹 + 支撑井/地震属性 + 软件版本）。
+  if (!extra.contains("evidence"))
+    extra.insert("evidence", paleo::workflow_detail::evidenceRecord(m_catalog, parents, extra));
   if (!r.commitExternal(st, path, parents,
                         extra.value("method", kind).toString(), extra, error))
     return {};
@@ -1365,6 +1369,32 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &result) {
       if (request.kind == "wells") {
         parameters.insert("predicted_well_count", points.size() - skippedWells);
         parameters.insert("skipped_well_count", skippedWells);
+        // facies-ux 5：支撑井与模型名进证据链（逐井：预测相 / 跳过原因）。
+        QVariantList supporting, skipped;
+        QStringList models;
+        for (const auto &value : points) {
+          const auto point = value.toMap();
+          const auto model = point.value("prediction_model").toString();
+          if (!model.isEmpty())
+            for (const auto &name : model.split(QStringLiteral("；"), Qt::SkipEmptyParts))
+              if (!models.contains(name))
+                models << name;
+          const QVariantMap well{{"id", point.value("id")},
+                                 {"name", point.value("name")},
+                                 {"facies_code", point.value("facies_code")},
+                                 {"log_version_id", point.value("log_version_id")}};
+          if (point.value("facies_code").isNull() ||
+              point.value("prediction_status").toString() == QStringLiteral("未预测"))
+            skipped << QVariantMap{{"id", point.value("id")},
+                                   {"name", point.value("name")},
+                                   {"reason", point.value("prediction_reason")}};
+          else
+            supporting << well;
+        }
+        parameters.insert("supporting_wells", supporting);
+        parameters.insert("skipped_wells", skipped);
+        if (!models.isEmpty())
+          parameters.insert("model_names", models);
       }
       const QVariantMap common =
              {{"mock", result.mock},

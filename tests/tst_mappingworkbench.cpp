@@ -1513,6 +1513,20 @@ private slots:
     QVERIFY(!wells.isEmpty());
     QVERIFY(f.work.faciesConsistency(wells, &error).isEmpty());
     QVERIFY(error.contains(QStringLiteral("地震相")));
+    // facies-ux 5：预测版本带证据链（输入版本、模型、参数指纹、支撑井）。
+    {
+      const auto evidence = f.work.versionForLayer(wells).extra.value("evidence").toMap();
+      QCOMPARE(evidence.value("schema").toString(), QString("paleo_evidence_v1"));
+      QVERIFY(!evidence.value("inputs").toList().isEmpty());
+      for (const auto &in : evidence.value("inputs").toList())
+        QVERIFY(!in.toMap().value("version_id").toString().isEmpty());
+      QCOMPARE(evidence.value("parameter_hash").toString().size(), 64);
+      QVERIFY(!evidence.value("model").toMap().value("method").toString().isEmpty());
+      const auto support = evidence.value("support").toMap().value("wells").toMap();
+      QCOMPARE(support.value("supporting_wells").toList().size() +
+                   support.value("skipped_wells").toList().size(),
+               2);
+    }
     const auto input = f.seismic();
     QVERIFY(!input.isEmpty());
     QVERIFY2(f.work.predict("D61", "seismic", {input}, &error), qPrintable(error));
@@ -1561,6 +1575,13 @@ private slots:
     const auto viaPolygon = f.work.faciesConsistency(wells, &error, polygon);
     QVERIFY2(!viaPolygon.isEmpty(), qPrintable(error));
     QCOMPARE(viaPolygon.value("seismic_layer").toString(), polygon);
+    {
+      const auto evidence = f.work.versionForLayer(polygon).extra.value("evidence").toMap();
+      QCOMPARE(evidence.value("inputs").toList().size(), 1);
+      QCOMPARE(evidence.value("inputs").toList().first().toMap().value("version_id").toString(),
+               f.work.versionForLayer(raster).id);
+      QCOMPARE(evidence.value("support").toMap().value("source_layer").toString(), raster);
+    }
     QCOMPARE(viaPolygon.value("rows").toList().size(), 2);
     // 属性表改相：工作副本 facies_code 用相名下拉（值映射到编码）。
     const auto draft = f.work.copyForEditing(polygon, {}, &error);

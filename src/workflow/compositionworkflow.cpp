@@ -1,5 +1,6 @@
 // 层：功能
 #include "workflows.h"
+#include "evidencerecord.h"
 #include "workflows_internal.h"
 
 #include "../catalog/datacatalog.h"
@@ -238,8 +239,13 @@ bool CompositionWorkflow::fuseFactors( const QString &horizon, const QStringList
   }
   QVariantMap fusionExtra;
   fusionExtra.insert( QStringLiteral( "factors" ), factorLayerIds );
+  fusionExtra.insert( QStringLiteral( "horizon" ), horizon );
+  fusionExtra.insert( QStringLiteral( "method" ), QStringLiteral( "paleo:paleo_facies_fusion" ) );
+  const QStringList fusionParents = registrar.parentVersionIdsFor( parentPaths );
+  fusionExtra.insert( QStringLiteral( "evidence" ),
+                      paleo::workflow_detail::evidenceRecord( m_catalog, fusionParents, fusionExtra ) );
   QString commitErr;
-  if ( !registrar.commitExternal( st, outPath, registrar.parentVersionIdsFor( parentPaths ),
+  if ( !registrar.commitExternal( st, outPath, fusionParents,
                                   QStringLiteral( "paleo:paleo_facies_fusion" ), fusionExtra,
                                   &commitErr ) )
   {
@@ -430,9 +436,17 @@ bool CompositionWorkflow::commitFaciesPolygons( FaciesPolygonJob &job, QString *
   QVariantMap faciesExtra;
   faciesExtra.insert( QStringLiteral( "raster_layer" ), job.rasterLayerId );
   faciesExtra.insert( QStringLiteral( "constrained" ), job.constrained );
+  faciesExtra.insert( QStringLiteral( "horizon" ), job.horizon );
+  faciesExtra.insert( QStringLiteral( "method" ), QStringLiteral( "paleo:paleo_facies_polygonize" ) );
+  QVariantMap algorithmParameters = job.algParams;
+  algorithmParameters.remove( QStringLiteral( "OUTPUT" ) ); // staging 路径不进参数指纹
+  faciesExtra.insert( QStringLiteral( "algorithm_parameters" ), algorithmParameters );
+  const QStringList faciesParents = job.registrar.parentVersionIdsFor( job.parentPaths );
+  faciesExtra.insert( QStringLiteral( "evidence" ),
+                      paleo::workflow_detail::evidenceRecord( m_catalog, faciesParents, faciesExtra ) );
   QString commitErr;
   if ( !job.registrar.commitExternal( job.staging, job.outputPath,
-                                      job.registrar.parentVersionIdsFor( job.parentPaths ),
+                                      faciesParents,
                                       QStringLiteral( "paleo:paleo_facies_polygonize" ), faciesExtra,
                                       &commitErr ) )
     return fail( commitErr );

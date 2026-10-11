@@ -1,6 +1,7 @@
 // 层：视图
 // token 例外：DESIGN 数据符号例外：地质相模型表格中可编辑的颜色值。（tools/ui-token-exceptions.json 精确计数）。
 #include "mappingworkbenchpage.h"
+#include "../../domain/predictionevidence.h"
 #include "../../domain/faciescatalog.h"
 #include "../../domain/facieshierarchy.h"
 #include "../../domain/singlefactorrequest.h"
@@ -913,12 +914,16 @@ void MappingWorkbenchPage::updateState() {
                   : tr("预测运行中，完成后可删除图件"));
   if (selected) {
     m_details->setText(
-        tr("%1\n来源：%2\n后续派生：%5\n方法：%3\n文件：%4")
+        tr("%1\n来源：%2\n后续派生：%5\n方法：%3\n文件：%4\n证据链：%6")
             .arg(row.value("mock").toBool() ? tr("模拟派生图件 · 待地质复核")
                                             : tr("已关联工程文件"),
                  row.value("parent_names").toStringList().join("；"),
                  row.value("method").toString(), row.value("path").toString(),
-                 row.value("children").toStringList().join("；")));
+                 row.value("children").toStringList().join("；"),
+                 paleo::evidence::summary(row.value("parameters")
+                                              .toMap()
+                                              .value("evidence")
+                                              .toMap())));
     m_details->setToolTip(QString::fromUtf8(
         QJsonDocument::fromVariant(row.value("parameters")).toJson()));
   } else {

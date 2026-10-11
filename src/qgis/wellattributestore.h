@@ -1,6 +1,7 @@
 // 层：QGIS 封装
 #pragma once
 #include "../domain/wellcompositemodel.h"
+#include <QHash>
 #include <QVariantList>
 class DataCatalog;
 class QgisLayerService;
@@ -12,6 +13,9 @@ class QgsVectorLayer;
 // 占比与来源——数据管理的逐组预测与智能预测的测井预测都写这一张表。
 namespace WellAttributeStore {
 enum class Table { Intervals, Factors, Formations };
+// facies-ux 3：工程内各层位的当前相分类（facies_schema 资产，displayName
+// = facies-schema-<层位>）；测井相点着色与图例用。
+QHash<QString, QVariantList> faciesSchemas(DataCatalog *catalog);
 QString intervalLayerId();
 QString factorLayerId();
 QString formationLayerId();

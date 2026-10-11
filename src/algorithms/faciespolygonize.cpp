@@ -1,5 +1,6 @@
 // 层：数据
 #include "paleoalgorithms.h"
+#include "faciessliver.h"
 
 #include <qgsabstractgeometry.h>
 #include <qgscurve.h>
@@ -135,86 +136,6 @@ void canceled( QgsProcessingFeedback *feedback )
     throw QgsProcessingException( QStringLiteral( "Canceled" ) );
 }
 
-struct Comp
-{
-  int code = 0;
-  int cells = 0;
-  bool border = false;
-  QSet<int> neighbors;
-};
-
-void labelComponents( const QVector<int> &grid, int cols, int rows,
-                      QVector<int> &lab, QVector<Comp> &comps )
-{
-  lab.fill( -1, grid.size() );
-  comps.clear();
-  const int dx[4] = { 1, -1, 0, 0 };
-  const int dy[4] = { 0, 0, 1, -1 };
-  for ( int y = 0; y < rows; ++y )
-  {
-    for ( int x = 0; x < cols; ++x )
-    {
-      const int start = y * cols + x;
-      if ( lab[start] != -1 )
-        continue;
-      Comp c;
-      c.code = grid[start];
-      const int id = comps.size();
-      QVector<int> stack;
-      stack.append( start );
-      lab[start] = id;
-      while ( !stack.isEmpty() )
-      {
-        const int k = stack.takeLast();
-        const int cx = k % cols;
-        const int cy = k / cols;
-        ++c.cells;
-        if ( cx == 0 || cy == 0 || cx == cols - 1 || cy == rows - 1 )
-          c.border = true;
-        for ( int d = 0; d < 4; ++d )
-        {
-          const int nx = cx + dx[d];
-          const int ny = cy + dy[d];
-          if ( nx < 0 || ny < 0 || nx >= cols || ny >= rows )
-            continue;
-          const int j = ny * cols + nx;
-          if ( grid[j] == grid[k] && lab[j] == -1 )
-          {
-            lab[j] = id;
-            stack.append( j );
-          }
-        }
-      }
-      comps.append( c );
-    }
-  }
-  for ( int y = 0; y < rows; ++y )
-  {
-    for ( int x = 0; x < cols; ++x )
-    {
-      const int i = y * cols + x;
-      if ( x + 1 < cols )
-      {
-        const int j = i + 1;
-        if ( lab[i] != lab[j] )
-        {
-          comps[lab[i]].neighbors.insert( lab[j] );
-          comps[lab[j]].neighbors.insert( lab[i] );
-        }
-      }
-      if ( y + 1 < rows )
-      {
-        const int j = i + cols;
-        if ( lab[i] != lab[j] )
-        {
-          comps[lab[i]].neighbors.insert( lab[j] );
-          comps[lab[j]].neighbors.insert( lab[i] );
-        }
-      }
-    }
-  }
-}
-
 // 3×3 majority (mode) filter: each cell adopts the modal code of its 3×3
 // neighborhood, self included. Ties keep the current code (no oscillation);
 // nodata cells never change and never cast votes, so holes cannot swallow
@@ -261,79 +182,6 @@ int smoothMajority( QVector<int> &grid, int cols, int rows )
   }
   std::swap( grid, next );
   return changed;
-}
-
-// Absorb parts under minArea into the largest adjacent facies. Border-touching
-// nodata is the outside of the map and is left alone. An interior speck with
-// no facies neighbor is cleared to nodata. A part is absorbable when it is
-// smaller than minCells cells (grid-scale aggregation) or its area falls under
-// minArea (map-unit aggregation) — both criteria are ORed.
-int absorbSmallParts( QVector<int> &grid, int cols, int rows, double cellArea, double minArea, int minCells )
-{
-  if ( !( minArea > 0.0 ) && minCells <= 1 )
-    return 0;
-  int merged = 0;
-  const int guardMax = std::max( 1, cols * rows );
-  for ( int pass = 0; pass < guardMax; ++pass )
-  {
-    QVector<int> lab;
-    QVector<Comp> comps;
-    labelComponents( grid, cols, rows, lab, comps );
-    int victim = -1;
-    double victimArea = std::numeric_limits<double>::max();
-    for ( int i = 0; i < comps.size(); ++i )
-    {
-      const Comp &c = comps.at( i );
-      const double area = c.cells * cellArea;
-      const bool underThreshold = ( c.cells < minCells ) ||
-                                  ( area < minArea && area > 0.0 );
-      if ( !underThreshold )
-        continue;
-      if ( c.code == kNodata && c.border )
-        continue;
-      bool can = c.code != kNodata;
-      if ( !can )
-      {
-        for ( int n : c.neighbors )
-        {
-          if ( comps.at( n ).code != kNodata )
-            can = true;
-        }
-      }
-      if ( !can )
-        continue;
-      if ( area < victimArea )
-      {
-        victimArea = area;
-        victim = i;
-      }
-    }
-    if ( victim < 0 )
-      break;
-    const Comp &v = comps.at( victim );
-    int target = kNodata;
-    int bestCells = -1;
-    int bestCode = std::numeric_limits<int>::max();
-    for ( int n : v.neighbors )
-    {
-      const Comp &nb = comps.at( n );
-      if ( nb.code == kNodata )
-        continue;
-      if ( nb.cells > bestCells || ( nb.cells == bestCells && nb.code < bestCode ) )
-      {
-        bestCells = nb.cells;
-        bestCode = nb.code;
-        target = nb.code;
-      }
-    }
-    for ( int i = 0; i < grid.size(); ++i )
-    {
-      if ( lab[i] == victim )
-        grid[i] = target;
-    }
-    ++merged;
-  }
-  return merged;
 }
 
 void collectPolygons( const QgsGeometry &g, int code, QVector<CodedPoly> &out )
@@ -1308,8 +1156,13 @@ QVariantMap FaciesPolygonizeAlgorithm::processAlgorithm( const QVariantMap &para
       ++validCells;
   const int minCellsEffective = std::max(
       minCells, static_cast<int>( std::ceil( minFraction * validCells ) ) );
-  const int slivers = absorbSmallParts( grid, cols, rows, cellArea, minArea,
-                                        minCellsEffective );
+  // A11：吸收步一次标号 + 并查集（旧实现逐斑全图重标号），并可取消。
+  static_assert( paleo::facies::kSliverNodata == kNodata, "nodata sentinel must agree" );
+  const int slivers = paleo::facies::absorbSmallParts(
+      grid, cols, rows, cellArea, minArea, minCellsEffective,
+      [feedback] { return feedback && feedback->isCanceled(); } );
+  if ( slivers < 0 )
+    throw QgsProcessingException( QStringLiteral( "Canceled" ) );
   canceled( feedback );
   if ( feedback )
     feedback->setProgress( 30 );

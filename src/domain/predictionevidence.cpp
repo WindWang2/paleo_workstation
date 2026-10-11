@@ -1,0 +1,141 @@
+// 层：数据
+#include "predictionevidence.h"
+
+#include <QCoreApplication>
+#include <QCryptographicHash>
+#include <QJsonDocument>
+#include <QSet>
+
+namespace paleo::evidence
+{
+namespace
+{
+QString tr( const char *text )
+{
+  return QCoreApplication::translate( "PredictionEvidence", text );
+}
+// 登记簿记字段：与「怎么算出来的」无关，进指纹会让同参数结果指纹漂移。
+const QSet<QString> &bookkeeping()
+{
+  static const QSet<QString> keys{
+    QStringLiteral( "mapping_product" ), QStringLiteral( "layer_id" ),
+    QStringLiteral( "title" ), QStringLiteral( "group" ),
+    QStringLiteral( "created_at" ), QStringLiteral( "layer_type" ),
+    QStringLiteral( "source_suffix" ), QStringLiteral( "evidence" ),
+    QStringLiteral( "facies" ), QStringLiteral( "request_id" ),
+    QStringLiteral( "manifest_layer_id" ), QStringLiteral( "display_mode" ),
+    QStringLiteral( "label_mode" ) };
+  return keys;
+}
+QVariant pick( const QVariantMap &extra, std::initializer_list<const char *> keys )
+{
+  QVariantMap out;
+  for ( const char *k : keys )
+  {
+    const QString key = QString::fromLatin1( k );
+    if ( extra.contains( key ) && !extra.value( key ).isNull() )
+      out.insert( key, extra.value( key ) );
+  }
+  return out.isEmpty() ? QVariant() : QVariant( out );
+}
+} // namespace
+
+QVariantMap parameters( const QVariantMap &extra )
+{
+  QVariantMap out;
+  for ( auto it = extra.cbegin(); it != extra.cend(); ++it )
+    if ( !bookkeeping().contains( it.key() ) )
+      out.insert( it.key(), it.value() );
+  return out;
+}
+
+QString fingerprint( const QVariant &value )
+{
+  // QJsonDocument 的对象键天然排序 → 规范 JSON。
+  const QByteArray json = QJsonDocument::fromVariant(
+                              value.typeId() == QMetaType::QVariantMap || value.typeId() == QMetaType::QVariantList
+                                  ? value
+                                  : QVariant( QVariantList{ value } ) )
+                              .toJson( QJsonDocument::Compact );
+  return QString::fromLatin1( QCryptographicHash::hash( json, QCryptographicHash::Sha256 ).toHex() );
+}
+
+QVariantMap build( const QVector<InputRef> &inputs, const QVariantMap &extra,
+                   const QVariantMap &software )
+{
+  QVariantList inputList;
+  QVariantList seismic;
+  for ( const InputRef &in : inputs )
+  {
+    QVariantMap m{ { QStringLiteral( "version_id" ), in.versionId },
+                   { QStringLiteral( "asset_id" ), in.assetId },
+                   { QStringLiteral( "name" ), in.name },
+                   { QStringLiteral( "asset_type" ), in.assetType },
+                   { QStringLiteral( "kind" ), in.kind },
+                   { QStringLiteral( "version_number" ), in.versionNumber },
+                   { QStringLiteral( "sha256" ), in.sha256 },
+                   { QStringLiteral( "stage" ), in.stage },
+                   { QStringLiteral( "mock" ), in.mock } };
+    inputList << m;
+    if ( in.assetType.contains( QLatin1String( "seismic" ) ) || in.kind.contains( QLatin1String( "seismic" ) ) ||
+         in.assetType == QLatin1String( "horizon" ) )
+      seismic << m;
+  }
+  const QVariantMap params = parameters( extra );
+  QVariantMap model{ { QStringLiteral( "method" ), extra.value( QStringLiteral( "method" ), extra.value( QStringLiteral( "kind" ) ) ) } };
+  for ( const char *k : { "model_names", "prediction_model", "algorithm_id", "request_id", "hierarchy_model" } )
+    if ( extra.contains( QLatin1String( k ) ) && !extra.value( QLatin1String( k ) ).isNull() )
+      model.insert( QLatin1String( k ), extra.value( QLatin1String( k ) ) );
+  model.insert( QStringLiteral( "mock" ), extra.value( QStringLiteral( "mock" ), false ).toBool() );
+
+  QVariantMap support;
+  QVariantMap wells;
+  if ( extra.contains( QStringLiteral( "wells" ) ) )
+    wells.insert( QStringLiteral( "requested" ), extra.value( QStringLiteral( "wells" ) ) );
+  for ( const char *k : { "supporting_wells", "skipped_wells", "predicted_well_count", "skipped_well_count" } )
+    if ( extra.contains( QLatin1String( k ) ) )
+      wells.insert( QLatin1String( k ), extra.value( QLatin1String( k ) ) );
+  if ( !wells.isEmpty() )
+    support.insert( QStringLiteral( "wells" ), wells );
+  const QVariant window = pick( extra, { "window_half_ms", "horizon_source_format", "horizon_source_uri",
+                                          "seismic_attributes", "valid_cells" } );
+  if ( !seismic.isEmpty() || window.isValid() )
+  {
+    QVariantMap s{ { QStringLiteral( "inputs" ), seismic } };
+    if ( window.isValid() )
+      s.insert( QStringLiteral( "parameters" ), window );
+    support.insert( QStringLiteral( "seismic_attributes" ), s );
+  }
+  if ( extra.contains( QStringLiteral( "source_layer" ) ) )
+    support.insert( QStringLiteral( "source_layer" ), extra.value( QStringLiteral( "source_layer" ) ) );
+
+  QVariantMap out{ { QStringLiteral( "schema" ), QStringLiteral( "paleo_evidence_v1" ) },
+                   { QStringLiteral( "inputs" ), inputList },
+                   { QStringLiteral( "model" ), model },
+                   { QStringLiteral( "parameters" ), params },
+                   { QStringLiteral( "parameter_hash" ), fingerprint( params ) },
+                   { QStringLiteral( "support" ), support },
+                   { QStringLiteral( "software" ), software } };
+  if ( extra.contains( QStringLiteral( "facies" ) ) )
+    out.insert( QStringLiteral( "facies_schema_hash" ), fingerprint( extra.value( QStringLiteral( "facies" ) ) ) );
+  return out;
+}
+
+QString summary( const QVariantMap &evidence )
+{
+  if ( evidence.isEmpty() )
+    return tr( "无证据链记录（早期版本）" );
+  const QVariantMap model = evidence.value( QStringLiteral( "model" ) ).toMap();
+  const QVariantMap wells = evidence.value( QStringLiteral( "support" ) ).toMap().value( QStringLiteral( "wells" ) ).toMap();
+  QString text = tr( "输入 %1 个版本 · 方法 %2 · 参数指纹 %3" )
+                     .arg( evidence.value( QStringLiteral( "inputs" ) ).toList().size() )
+                     .arg( model.value( QStringLiteral( "method" ) ).toString(),
+                           evidence.value( QStringLiteral( "parameter_hash" ) ).toString().left( 12 ) );
+  const QString models = model.value( QStringLiteral( "model_names" ) ).toStringList().join( QStringLiteral( "、" ) );
+  if ( !models.isEmpty() )
+    text += tr( " · 模型 %1" ).arg( models );
+  if ( wells.contains( QStringLiteral( "supporting_wells" ) ) )
+    text += tr( " · 支撑井 %1 口" ).arg( wells.value( QStringLiteral( "supporting_wells" ) ).toList().size() );
+  return text;
+}
+} // namespace paleo::evidence

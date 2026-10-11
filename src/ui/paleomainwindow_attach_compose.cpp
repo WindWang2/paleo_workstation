@@ -30,6 +30,8 @@
 #include <QLabel>
 #include "notifications/paleonotify.h"
 #include <QProgressDialog>
+#include <QPointer>
+#include <QStatusBar>
 
 
 // ---------------------------------------------------------------------------
@@ -55,10 +57,26 @@ void PaleoMainWindow::attachComposePage(ComposePage *composePage,
               QVariantMap params;
               params.insert(QStringLiteral("MIN_AREA"), minArea);
               params.insert(QStringLiteral("SIMPLIFY"), simplify);
-              if (compose->deriveFaciesPolygons(horizon, rasterId, params, &err))
+              // facies-ux 1：转换进任务中心后台执行（未注入任务服务时同步）；
+              // 完成经 faciesPolygonsReady 收尾，失败经 faciesPolygonsFailed。
+              if (!compose->startDeriveFaciesPolygons(horizon, rasterId, params, &err))
+              {
+                if (!err.isEmpty())
+                {
+                  QgsMessageLog::logMessage(err, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+                  statusBar()->showMessage(err, 10000);
+                }
+              }
+              else if (compose->faciesPolygonsBusy())
+                statusBar()->showMessage(
+                    tr("相栅格转相多边形已在后台执行，进度见底栏任务中心。"), 10000);
+              else
                 composePage->refreshFactors();
-              else if (!err.isEmpty())
-                QgsMessageLog::logMessage(err, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+            });
+    connect(compose, &CompositionWorkflow::faciesPolygonsFailed, this,
+            [this](const QString &, const QString &error) {
+              if (!error.isEmpty())
+                statusBar()->showMessage(tr("相多边形转换未完成：%1").arg(error), 10000);
             });
 
     // ---- m2(C): 矢量化成功 → 自动进入相界编辑态（z3 PaleoVertexTool）------
@@ -75,6 +93,7 @@ void PaleoMainWindow::attachComposePage(ComposePage *composePage,
     connect(compose, &CompositionWorkflow::faciesPolygonsReady, this,
             [this, compose, composePage](const QString &h, const QString &layerId) {
               Q_UNUSED(h);
+              composePage->refreshFactors();
               composePage->setFaciesEditTarget(layerId);
               if (!m_layerSvc)
                 return;
@@ -318,7 +337,31 @@ void PaleoMainWindow::attachComposePage(ComposePage *composePage,
               request.dpi = 300.0;
               request.format = PaleoHorizonBatchExport::Format::Pdf;
 
-              // 同步核心 + 模态忙等（复用无任务池导出路径的口径）。
+              const QPointer<QWidget> page(composePage);
+              const auto report = [this, page](const PaleoHorizonBatchExport::Result &result,
+                                               bool cancelled) {
+                QStringList lines{result.summary()};
+                if (cancelled)
+                  lines << tr("（已取消或工程已切换，未出图层位已入账为失败；版面已复原）");
+                for (const auto &outcome : result.horizons)
+                  lines << (outcome.ok ? tr("· %1 → %2").arg(outcome.horizon, outcome.file)
+                                       : tr("· %1 失败：%2").arg(outcome.horizon, outcome.error));
+                PaleoNotify::report(this, tr("批量出图"), lines.join(QLatin1Char('\n')));
+                if (page)
+                  if (auto *status = page->findChild<QLabel *>(QStringLiteral("statusLabel")))
+                    status->setText(result.summary());
+              };
+              // UIS-03：任务中心驱动（逐层位出图，层位间界面可响应、可取消）；
+              // 无任务服务时保留同步旧路径。
+              if (m_taskSvc) {
+                QString error;
+                if (!PaleoHorizonBatchExport::startAsync(request, m_taskSvc, report, &error))
+                  PaleoNotify::warning(this, tr("批量出图"), error);
+                else
+                  statusBar()->showMessage(
+                      tr("批量出图已在后台按层位执行，进度见底栏任务中心；期间请勿编辑该版面。"), 10000);
+                return;
+              }
               QProgressDialog progress(tr("正在按层位组批量出图…"), QString(), 0, 0, this);
               progress.setWindowTitle(tr("批量出图"));
               progress.setWindowModality(Qt::WindowModal);
@@ -326,15 +369,7 @@ void PaleoMainWindow::attachComposePage(ComposePage *composePage,
               QCoreApplication::processEvents();
               const auto result = PaleoHorizonBatchExport::run(request);
               progress.cancel();
-
-              QStringList lines{result.summary()};
-              for (const auto &outcome : result.horizons)
-                lines << (outcome.ok ? tr("· %1 → %2").arg(outcome.horizon, outcome.file)
-                                     : tr("· %1 失败：%2").arg(outcome.horizon, outcome.error));
-              PaleoNotify::report(this, tr("批量出图"), lines.join(QLatin1Char('\n')));
-              if (auto *status = composePage->findChild<QLabel *>(
-                      QStringLiteral("statusLabel")))
-                status->setText(result.summary());
+              report(result, false);
             });
     // ---- 方向 25 M6 end ----
   }

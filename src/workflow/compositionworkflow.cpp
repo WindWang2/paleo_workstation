@@ -1,5 +1,6 @@
 // 层：功能
 #include "workflows.h"
+#include "evidencerecord.h"
 #include "workflows_internal.h"
 
 #include "../catalog/datacatalog.h"
@@ -8,6 +9,8 @@
 #include "../qgis/qgislayerservice.h"
 #include "../qgis/qgisprocessingservice.h"
 #include "../qgis/qgisstyleservice.h"       // applyFaciesBoundaryStyle
+#include "../services/jobrunner.h"          // facies-ux 1：相多边形后台任务
+#include "../services/paleotaskservice.h"
 #include "../services/projectdata.h"
 #include "../algorithms/faciesmapping/faciesqa.h" // 方向 39：边界核查引擎（只接不重写）
 #include "boundaryeditrules.h"              // 方向 39：相界类型编辑语义门禁
@@ -32,7 +35,10 @@
 #include <qgsmultipolygon.h>
 #include <qgspoint.h>
 #include <qgspolygon.h>
+#include <qgscoordinatereferencesystem.h>
+#include <qgsrasterlayer.h>
 #include <qgsvectorlayer.h>
+#include <memory>
 
 // 综合编图工作流（③）。
 // 方向20 轮4：按类边界从 workflows.cpp 析出。头文件契约不动。
@@ -234,8 +240,13 @@ bool CompositionWorkflow::fuseFactors( const QString &horizon, const QStringList
   }
   QVariantMap fusionExtra;
   fusionExtra.insert( QStringLiteral( "factors" ), factorLayerIds );
+  fusionExtra.insert( QStringLiteral( "horizon" ), horizon );
+  fusionExtra.insert( QStringLiteral( "method" ), QStringLiteral( "paleo:paleo_facies_fusion" ) );
+  const QStringList fusionParents = registrar.parentVersionIdsFor( parentPaths );
+  fusionExtra.insert( QStringLiteral( "evidence" ),
+                      paleo::workflow_detail::evidenceRecord( m_catalog, fusionParents, fusionExtra ) );
   QString commitErr;
-  if ( !registrar.commitExternal( st, outPath, registrar.parentVersionIdsFor( parentPaths ),
+  if ( !registrar.commitExternal( st, outPath, fusionParents,
                                   QStringLiteral( "paleo:paleo_facies_fusion" ), fusionExtra,
                                   &commitErr ) )
   {
@@ -257,8 +268,9 @@ bool CompositionWorkflow::fuseFactors( const QString &horizon, const QStringList
   return true;
 }
 
-bool CompositionWorkflow::deriveFaciesPolygons( const QString &horizon, const QString &rasterLayerId,
-                                               const QVariantMap &params, QString *error )
+bool CompositionWorkflow::prepareFaciesPolygons( const QString &horizon, const QString &rasterLayerId,
+                                                const QVariantMap &params, FaciesPolygonJob *job,
+                                                QString *error )
 {
   const auto fail = [this, &horizon, error]( const QString &msg ) {
     paleo::workflow_detail::setError( error, msg );
@@ -311,19 +323,24 @@ bool CompositionWorkflow::deriveFaciesPolygons( const QString &horizon, const QS
   // T26：相多边形 gpkg 落 artifacts/derived + DERIVED 版本（父版本 = 被多边形
   // 化的栅格与约束图层的文件源版本）。
   QString regErr;
-  DerivedAssetRegistrar registrar = paleo::workflow_detail::derivedRegistrarOf( this, &regErr );
-  if ( !registrar.isBound() )
+  job->registrar = paleo::workflow_detail::derivedRegistrarOf( this, &regErr );
+  if ( !job->registrar.isBound() )
     return fail( regErr );
-  const DerivedStaging st = registrar.stage(
+  job->staging = job->registrar.stage(
       QStringLiteral( "facies_polygons" ), tr( "%1 相多边形" ).arg( h ),
       QStringLiteral( "FACIES_%1.gpkg" ).arg( h ), &regErr );
-  if ( !st.isValid() )
+  if ( !job->staging.isValid() )
     return fail( regErr );
-  QStringList parentPaths{ raster->source().section( QLatin1Char( '|' ), 0, 0 ) };
-
-  QVariantMap alg;
-  alg.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( raster ) );
-  alg.insert( QStringLiteral( "OUTPUT" ), st.absolutePath );
+  job->horizon = h;
+  job->rasterLayerId = rasterLayerId;
+  job->catalog = m_catalog;
+  job->projectDir = m_projectDir;
+  // worker 上独立建层：只冻结 URI（图层对象属主线程）。
+  job->rasterUri = raster->source();
+  job->rasterCrsWkt = raster->crs().toWkt();
+  job->parentPaths = QStringList{ raster->source().section( QLatin1Char( '|' ), 0, 0 ) };
+  job->algParams.clear();
+  job->algParams.insert( QStringLiteral( "OUTPUT" ), job->staging.absolutePath );
   const QStringList forwarded = {
       QStringLiteral( "SMOOTH" ), QStringLiteral( "MIN_CELLS" ),
       QStringLiteral( "MIN_FRACTION" ), QStringLiteral( "MIN_AREA" ),
@@ -332,9 +349,10 @@ bool CompositionWorkflow::deriveFaciesPolygons( const QString &horizon, const QS
   for ( const QString &key : forwarded )
   {
     if ( params.contains( key ) )
-      alg.insert( key, params.value( key ) );
+      job->algParams.insert( key, params.value( key ) );
   }
   const QString constraintId = params.value( QStringLiteral( "CONSTRAINT_LAYER" ) ).toString();
+  job->constrained = !constraintId.isEmpty();
   if ( !constraintId.isEmpty() )
   {
     QgsMapLayer *constraints = layers->instantiate( constraintId, error );
@@ -344,44 +362,193 @@ bool CompositionWorkflow::deriveFaciesPolygons( const QString &horizon, const QS
                        ? *error
                        : tr( "failed to instantiate constraints '%1'" ).arg( constraintId ) );
     }
-    alg.insert( QStringLiteral( "CONSTRAINTS" ), QVariant::fromValue( constraints ) );
-    parentPaths.append( constraints->source().section( QLatin1Char( '|' ), 0, 0 ) );
+    job->constraintUri = constraints->source();
+    job->constraintProvider = constraints->providerType();
+    job->parentPaths.append( constraints->source().section( QLatin1Char( '|' ), 0, 0 ) );
   }
+  return true;
+}
 
-  const QVariantMap results = proc->run( QStringLiteral( "paleo:paleo_facies_polygonize" ), alg, error );
+bool CompositionWorkflow::computeFaciesPolygons( FaciesPolygonJob &job, QgisProcessingService *proc,
+                                                const std::function<bool()> &cancelled,
+                                                const std::function<void( double )> &progress )
+{
+  if ( !proc )
+  {
+    job.error = tr( "composition workflow is not bound to services" );
+    return false;
+  }
+  QgsRasterLayer raster( job.rasterUri, QStringLiteral( "facies" ), QStringLiteral( "gdal" ) );
+  if ( !raster.isValid() )
+  {
+    job.error = tr( "failed to instantiate raster '%1'" ).arg( job.rasterLayerId );
+    return false;
+  }
+  if ( !raster.crs().isValid() && !job.rasterCrsWkt.isEmpty() )
+    raster.setCrs( QgsCoordinateReferenceSystem::fromWkt( job.rasterCrsWkt ) );
+  std::unique_ptr<QgsVectorLayer> constraints;
+  QVariantMap alg = job.algParams;
+  alg.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( static_cast<QgsMapLayer *>( &raster ) ) );
+  if ( !job.constraintUri.isEmpty() )
+  {
+    constraints = std::make_unique<QgsVectorLayer>(
+        job.constraintUri, QStringLiteral( "constraints" ),
+        job.constraintProvider.isEmpty() ? QStringLiteral( "ogr" ) : job.constraintProvider );
+    if ( !constraints->isValid() )
+    {
+      job.error = tr( "failed to instantiate constraints '%1'" ).arg( job.constraintUri );
+      return false;
+    }
+    alg.insert( QStringLiteral( "CONSTRAINTS" ),
+                QVariant::fromValue( static_cast<QgsMapLayer *>( constraints.get() ) ) );
+  }
+  QgisProcessingService::ProcessingHooks hooks;
+  hooks.cancelled = cancelled;
+  hooks.progress = progress;
+  QString runErr;
+  const QVariantMap results = proc->run( QStringLiteral( "paleo:paleo_facies_polygonize" ), alg, &runErr, hooks );
   if ( results.isEmpty() )
   {
-    return fail( ( error && !error->isEmpty() )
-                     ? *error
-                     : tr( "facies polygonize produced no results" ) );
+    job.error = !runErr.isEmpty() ? runErr : tr( "facies polygonize produced no results" );
+    return false;
   }
-  const QString outPath = paleo::workflow_detail::outputPathOf( results );
-  if ( outPath.isEmpty() )
-    return fail( tr( "facies polygonize returned no output path" ) );
+  job.outputPath = paleo::workflow_detail::outputPathOf( results );
+  if ( job.outputPath.isEmpty() )
+  {
+    job.error = tr( "facies polygonize returned no output path" );
+    return false;
+  }
+  return true;
+}
+
+bool CompositionWorkflow::commitFaciesPolygons( FaciesPolygonJob &job, QString *error )
+{
+  const auto fail = [this, &job, error]( const QString &msg ) {
+    job.error = msg;
+    paleo::workflow_detail::setError( error, msg );
+    emit faciesPolygonsFailed( job.horizon, msg );
+    return false;
+  };
+  if ( !job.error.isEmpty() )
+    return fail( job.error );
+  QgisLayerService *layers = m_layers.data();
+  if ( !layers )
+    return fail( tr( "composition workflow is not bound to services" ) );
+  // 会话守卫：任务期间工程切换/目录重绑 → 旧结果不写进新工程。
+  if ( !m_catalog || m_catalog != job.catalog || m_projectDir != job.projectDir )
+    return fail( tr( "工程已切换，相多边形结果已丢弃" ) );
   QVariantMap faciesExtra;
-  faciesExtra.insert( QStringLiteral( "raster_layer" ), rasterLayerId );
-  faciesExtra.insert( QStringLiteral( "constrained" ), !constraintId.isEmpty() );
+  faciesExtra.insert( QStringLiteral( "raster_layer" ), job.rasterLayerId );
+  faciesExtra.insert( QStringLiteral( "constrained" ), job.constrained );
+  faciesExtra.insert( QStringLiteral( "horizon" ), job.horizon );
+  faciesExtra.insert( QStringLiteral( "method" ), QStringLiteral( "paleo:paleo_facies_polygonize" ) );
+  QVariantMap algorithmParameters = job.algParams;
+  algorithmParameters.remove( QStringLiteral( "OUTPUT" ) ); // staging 路径不进参数指纹
+  faciesExtra.insert( QStringLiteral( "algorithm_parameters" ), algorithmParameters );
+  const QStringList faciesParents = job.registrar.parentVersionIdsFor( job.parentPaths );
+  faciesExtra.insert( QStringLiteral( "evidence" ),
+                      paleo::workflow_detail::evidenceRecord( m_catalog, faciesParents, faciesExtra ) );
   QString commitErr;
-  if ( !registrar.commitExternal( st, outPath, registrar.parentVersionIdsFor( parentPaths ),
-                                  QStringLiteral( "paleo:paleo_facies_polygonize" ), faciesExtra,
-                                  &commitErr ) )
+  if ( !job.registrar.commitExternal( job.staging, job.outputPath,
+                                      faciesParents,
+                                      QStringLiteral( "paleo:paleo_facies_polygonize" ), faciesExtra,
+                                      &commitErr ) )
     return fail( commitErr );
 
   LayerDeclaration decl;
-  decl.layerId = QStringLiteral( "facies.%1" ).arg( h );
-  decl.horizon = h;
+  decl.layerId = QStringLiteral( "facies.%1" ).arg( job.horizon );
+  decl.horizon = job.horizon;
   decl.type = QStringLiteral( "vector" );
-  decl.source = QStringLiteral( "%1|layername=facies_polygons" ).arg( st.absolutePath );
+  decl.source = QStringLiteral( "%1|layername=facies_polygons" ).arg( job.staging.absolutePath );
   decl.group = QStringLiteral( "05_PaleoMap" );
-  if ( !layers->declare( decl, error ) )
+  QString declErr;
+  if ( !layers->declare( decl, &declErr ) )
   {
-    return fail( ( error && !error->isEmpty() )
-                     ? *error
+    return fail( !declErr.isEmpty()
+                     ? declErr
                      : tr( "failed to declare facies layer '%1'" ).arg( decl.layerId ) );
   }
 
-  paleo::workflow_detail::stampLayerAssetLink( layers, decl.layerId, st.assetId ); // C4：已实例化层补盖资产关联
-  emit faciesPolygonsReady( h, decl.layerId );
+  paleo::workflow_detail::stampLayerAssetLink( layers, decl.layerId, job.staging.assetId ); // C4：已实例化层补盖资产关联
+  job.layerId = decl.layerId;
+  emit faciesPolygonsReady( job.horizon, decl.layerId );
+  return true;
+}
+
+bool CompositionWorkflow::deriveFaciesPolygons( const QString &horizon, const QString &rasterLayerId,
+                                               const QVariantMap &params, QString *error )
+{
+  FaciesPolygonJob job;
+  if ( !prepareFaciesPolygons( horizon, rasterLayerId, params, &job, error ) )
+    return false;
+  if ( !computeFaciesPolygons( job, m_proc.data(), {}, {} ) )
+  {
+    paleo::workflow_detail::setError( error, job.error );
+    emit faciesPolygonsFailed( job.horizon, job.error );
+    return false;
+  }
+  return commitFaciesPolygons( job, error );
+}
+
+void CompositionWorkflow::setTaskService( PaleoTaskService *tasks )
+{
+  m_taskSvc = tasks;
+}
+
+bool CompositionWorkflow::faciesPolygonsBusy() const
+{
+  return m_polygonRunner && m_polygonRunner->busy();
+}
+
+void CompositionWorkflow::cancelFaciesPolygons()
+{
+  if ( m_polygonRunner )
+    m_polygonRunner->requestCancel();
+}
+
+bool CompositionWorkflow::startDeriveFaciesPolygons( const QString &horizon, const QString &rasterLayerId,
+                                                    const QVariantMap &params, QString *error )
+{
+  if ( !m_taskSvc )
+    return deriveFaciesPolygons( horizon, rasterLayerId, params, error );
+  using paleo::jobs::JobRunner;
+  if ( !m_polygonRunner )
+    m_polygonRunner = std::make_unique<JobRunner<FaciesPolygonJob>>( this );
+  m_polygonRunner->setTaskService( m_taskSvc );
+  if ( m_polygonRunner->busy() )
+  {
+    const QString msg = tr( "已有相多边形转换任务在进行，请等待完成或在任务中心取消" );
+    paleo::workflow_detail::setError( error, msg );
+    return false;
+  }
+  auto job = std::make_shared<FaciesPolygonJob>();
+  if ( !prepareFaciesPolygons( horizon, rasterLayerId, params, job.get(), error ) )
+    return false;
+  JobRunner<FaciesPolygonJob>::Callbacks cb;
+  QgisProcessingService *proc = m_proc.data();
+  cb.compute = [proc]( FaciesPolygonJob &j, const paleo::jobs::CancelFn &cancel,
+                       const paleo::jobs::ProgressFn &report ) {
+    return computeFaciesPolygons( j, proc, cancel, [&report]( double p ) {
+      if ( report )
+        report( p, QStringLiteral( "build" ) );
+    } );
+  };
+  cb.commit = [this]( FaciesPolygonJob &j, QString *err ) { return commitFaciesPolygons( j, err ); };
+  cb.cleanup = []( FaciesPolygonJob &j ) {
+    if ( j.layerId.isEmpty() && j.staging.isValid() )
+      QFile::remove( j.staging.absolutePath );
+  };
+  cb.onDropped = [this]( FaciesPolygonJob &j, paleo::jobs::DropReason reason ) {
+    emit faciesPolygonsFailed( j.horizon, paleo::jobs::dropReasonText( reason ) );
+  };
+  PaleoTask *task = m_polygonRunner->start( tr( "相栅格转相多边形 · %1" ).arg( job->horizon ), job, cb,
+                                            QString(), /*quiet=*/false );
+  if ( !task )
+  {
+    const QString msg = tr( "相多边形转换任务未能启动" );
+    paleo::workflow_detail::setError( error, msg );
+    return false;
+  }
   return true;
 }
 

@@ -108,6 +108,21 @@ const QVariantMap *at(const QVector<QVariantMap> &rows, double depth) {
 } // namespace
 
 namespace WellAttributeStore {
+QHash<QString, QVariantList> faciesSchemas(DataCatalog *catalog) {
+  QHash<QString, QVariantList> out;
+  if (!catalog || !catalog->isOpen())
+    return out;
+  const QString prefix = QStringLiteral("facies-schema-");
+  for (const auto &a : catalog->assets()) {
+    if (a.type != QLatin1String("facies_schema") || !a.displayName.startsWith(prefix))
+      continue;
+    const auto schema =
+        catalog->currentVersion(a.id).extra.value(QStringLiteral("facies")).toList();
+    if (!schema.isEmpty())
+      out.insert(a.displayName.mid(prefix.size()), schema);
+  }
+  return out;
+}
 QString intervalLayerId() { return QStringLiteral("welllog.attributes"); }
 QString factorLayerId() { return QStringLiteral("wellfactor.attributes"); }
 QString formationLayerId() { return QStringLiteral("welllog.formations"); }
@@ -239,10 +254,11 @@ QgsVectorLayer *open(DataCatalog *catalog, const QString &dir,
   }
   // 地图符号与文字标注（2026-10-10）：地层点标注地层名绕点排开；
   // 井段/井点单因素点小空心点不标注（多行同位堆叠，文字在属性表读）。
+  // facies-ux 3：相点按层位相分类着色（与相栅格/相面同色）。
   if (table == Table::Formations)
-    QgisStyleService::applyWellFormationLayerStyle(layer);
+    QgisStyleService::applyWellFormationLayerStyle(layer, faciesSchemas(catalog));
   else
-    QgisStyleService::applyWellAttributeLayerStyle(layer);
+    QgisStyleService::applyWellAttributeLayerStyle(layer, faciesSchemas(catalog));
   const QMap<QString, QString> aliases{
       {"well_id", tr("井 ID")},
       {"well_name", tr("井名")},

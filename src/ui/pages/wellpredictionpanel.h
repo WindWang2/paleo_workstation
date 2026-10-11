@@ -33,12 +33,15 @@ signals:
 private:
   void refreshWell();
   void rebuildTracks();
+  void rebuildList();
   QString m_layer;
   bool m_mock = false;
   QVariantList m_wells, m_schema;
   LasDoc m_log;
   QComboBox *m_well, *m_facies;
   QTableWidget *m_intervals;
+  // facies-ux 4：全部井一览，逐行下拉直接改相（改动自动保存到修订副本）。
+  QTableWidget *m_list;
   QLabel *m_status;
   QPushButton *m_apply, *m_save, *m_undo;
   WellComposite::WellCompositeCanvas *m_canvas;

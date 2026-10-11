@@ -1,7 +1,9 @@
 // 层：QGIS 封装
 #pragma once
+#include <QHash>
 #include <QString>
 #include <QStringList>
+#include <QVariantList>
 #include <QVariantMap>
 
 class QgsMapLayer;
@@ -29,10 +31,24 @@ class QgisStyleService : public QObject
     // 测井基础点图层（2026-10-10 用户要求：地层点不能只有颜色没文字）：
     // 井旁按地层组织的点用空心小点区别实井，formation 名绕点标注——
     // 同一井位的组/段多行靠 OrderedPositionsAroundPoint 排开可读。
-    static void applyWellFormationLayerStyle(class QgsVectorLayer *layer);
-    // 井段/井点单因素属性层：更小更淡的空心点（每井多行同位堆叠，
-    // 不标注——文字在属性表与综合图里读）。
-    static void applyWellAttributeLayerStyle(class QgsVectorLayer *layer);
+    //
+    // facies-ux 3：带 facies_code 的测井相点按相分类着色——与相栅格/相面
+    // 同一张分类色表。schemas = 层位/地层名 → 该层位相分类（facies_schema
+    // 资产）；点按其 formation（地层表）/horizon（井段表）匹配对应分类，
+    // 无匹配分类按 FaciesCatalog::defaults() 着色，无编码（未预测）中性灰。
+    static void applyWellFormationLayerStyle(class QgsVectorLayer *layer,
+                                             const QHash<QString, QVariantList> &schemas = {});
+    // 井段/井点单因素属性层：更小更淡的点（每井多行同位堆叠，
+    // 不标注——文字在属性表与综合图里读）。有 facies_code 字段（井段表）
+    // 同上按相着色；井点单因素表无相字段保持空心点。
+    static void applyWellAttributeLayerStyle(class QgsVectorLayer *layer,
+                                             const QHash<QString, QVariantList> &schemas = {});
+    // 测井相点的规则渲染器：keyField（"formation"/"horizon"）= 层位名时用
+    // 该层位分类，其余落 else 规则按缺省分类、再 else 灰色。marker 为基础
+    // 简单标记属性（size/outline_*），color 由相色覆盖。调用方接管所有权。
+    static class QgsFeatureRenderer *wellFaciesRenderer(const QString &keyField,
+                                                        const QHash<QString, QVariantList> &schemas,
+                                                        const QVariantMap &marker);
 
     // 测区范围/成图边界面：空心填 + text 墨色描边——置顶共享层上不遮
     // 盖因素图与井点（地图域样式，DESIGN.md 例外条款）。

@@ -23,6 +23,12 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QFileInfo>
+#include <cmath>
+#include <qgsrasterdataprovider.h>
+#include <qgseditorwidgetsetup.h>
 #include "../src/workflow/workflows.h"
 #include "mockremotepredictionservice.h"
 #include <QAction>
@@ -39,8 +45,10 @@
 #include <QTableWidget>
 #include <QTemporaryDir>
 #include <QTreeWidget>
+#include <QThread>
 #include <QUndoStack>
 #include <QtTest>
+#include <atomic>
 #include <gdal.h>
 #include <qgsapplication.h>
 #include <qgscategorizedsymbolrenderer.h>
@@ -48,6 +56,9 @@
 #include <qgsfillsymbollayer.h>
 #include <qgsgeometry.h>
 #include <qgsmapcanvas.h>
+#include <qgsrendercontext.h>
+#include <qgsrenderer.h>
+#include <qgssymbol.h>
 #include <qgsmaprenderersequentialjob.h>
 #include <qgsmapsettings.h>
 #include <qgsmergedfeaturerenderer.h>
@@ -1434,7 +1445,49 @@ private slots:
     auto *formations = qobject_cast<QgsVectorLayer *>(
         f.layers.layer(WellAttributeStore::formationLayerId()));
     QVERIFY(formations);
-    QCOMPARE(formations->renderer()->type(), QString("singleSymbol"));
+    // facies-ux 3：相点按相分类着色（规则渲染：层位分类 → 缺省分类 → 灰）。
+    QCOMPARE(formations->renderer()->type(), QString("RuleRenderer"));
+    {
+      const auto colorOf = [](QgsVectorLayer *layer, const QgsFeature &feature) {
+        QgsRenderContext ctx;
+        ctx.expressionContext().appendScopes(
+            QgsExpressionContextUtils::globalProjectLayerScopes(layer));
+        ctx.expressionContext().setFeature(feature);
+        auto *renderer = layer->renderer();
+        renderer->startRender(ctx, layer->fields());
+        const auto symbols = renderer->originalSymbolsForFeature(feature, ctx);
+        const QColor color = symbols.isEmpty() ? QColor() : symbols.first()->color();
+        renderer->stopRender(ctx);
+        return color;
+      };
+      const auto schema = f.work.facies("D61");
+      QgsFeatureIterator it = formations->getFeatures();
+      QgsFeature feature;
+      int checked = 0;
+      while (it.nextFeature(feature)) {
+        const QVariant code = feature.attribute("facies_code");
+        const QColor expected =
+            code.isNull() ? QColor("#9AA7B4")
+                          : QColor(FaciesCatalog::find(schema, code).value("color").toString());
+        QCOMPARE(colorOf(formations, feature).name(), expected.name());
+        ++checked;
+      }
+      QVERIFY(checked > 0);
+      // 改层位分类颜色 → 在场相点层随之重着色。
+      auto edited = schema;
+      auto first = edited.first().toMap();
+      first.insert("color", "#123456");
+      edited[0] = first;
+      QString schemaErr;
+      QVERIFY2(f.work.saveFacies("D61", edited, &schemaErr), qPrintable(schemaErr));
+      QgsFeature probe;
+      probe.setFields(formations->fields(), true);
+      probe.setAttribute("formation", "D61");
+      probe.setAttribute("facies_code", first.value("code").toInt());
+      QCOMPARE(colorOf(formations, probe).name(), QString("#123456"));
+      probe.setAttribute("facies_code", QVariant());
+      QCOMPARE(colorOf(formations, probe).name(), QColor("#9AA7B4").name());
+    }
     QVERIFY(formations->labelsEnabled());
     QVERIFY(formations->labeling() != nullptr);
     auto *labels = dynamic_cast<QgsVectorLayerSimpleLabeling *>(formations->labeling());
@@ -1445,6 +1498,102 @@ private slots:
         f.layers.layer(WellAttributeStore::intervalLayerId()));
     QVERIFY(intervals);
     QVERIFY(!intervals->labelsEnabled());
+  }
+  void faciesConsistencyReportsWellVsSeismic() {
+    // facies-ux 4：选任一侧，另一侧自动取同层位最新结果；逐井取样与栅格
+    // 一致、混淆矩阵计数守恒、报告 JSON 原子留档。
+    Fixture f;
+    QVERIFY(f.init());
+    QVERIFY(!f.well("A", 10, 20).isEmpty());
+    QVERIFY(!f.well("B", 300, 200).isEmpty());
+    QString error;
+    QVERIFY(f.work.predict("D61", "wells", {"A", "B"}, &error));
+    QTRY_VERIFY(!f.work.busy());
+    const auto wells = f.latest("wells_prediction");
+    QVERIFY(!wells.isEmpty());
+    QVERIFY(f.work.faciesConsistency(wells, &error).isEmpty());
+    QVERIFY(error.contains(QStringLiteral("地震相")));
+    // facies-ux 5：预测版本带证据链（输入版本、模型、参数指纹、支撑井）。
+    {
+      const auto evidence = f.work.versionForLayer(wells).extra.value("evidence").toMap();
+      QCOMPARE(evidence.value("schema").toString(), QString("paleo_evidence_v1"));
+      QVERIFY(!evidence.value("inputs").toList().isEmpty());
+      for (const auto &in : evidence.value("inputs").toList())
+        QVERIFY(!in.toMap().value("version_id").toString().isEmpty());
+      QCOMPARE(evidence.value("parameter_hash").toString().size(), 64);
+      QVERIFY(!evidence.value("model").toMap().value("method").toString().isEmpty());
+      const auto support = evidence.value("support").toMap().value("wells").toMap();
+      QCOMPARE(support.value("supporting_wells").toList().size() +
+                   support.value("skipped_wells").toList().size(),
+               2);
+    }
+    const auto input = f.seismic();
+    QVERIFY(!input.isEmpty());
+    QVERIFY2(f.work.predict("D61", "seismic", {input}, &error), qPrintable(error));
+    QTRY_VERIFY_WITH_TIMEOUT(!f.work.busy(), 5000);
+    const auto raster = f.latest("seismic_prediction");
+    QVERIFY(!raster.isEmpty());
+    error.clear();
+    const auto report = f.work.faciesConsistency(wells, &error);
+    QVERIFY2(!report.isEmpty(), qPrintable(error));
+    QCOMPARE(report.value("well_layer").toString(), wells);
+    QCOMPARE(report.value("seismic_layer").toString(), raster);
+    QCOMPARE(report.value("schema").toString(), QString("paleo_facies_consistency_v1"));
+    const auto rows = report.value("rows").toList();
+    QCOMPARE(rows.size(), 2);
+    QCOMPARE(report.value("compared").toInt() + report.value("uncompared").toInt(), 2);
+    int total = 0;
+    for (const auto &line : report.value("confusion").toList())
+      for (const auto &cell : line.toList())
+        total += cell.toInt();
+    QCOMPARE(total, report.value("compared").toInt());
+    auto *r = qobject_cast<QgsRasterLayer *>(f.layers.instantiate(raster));
+    QVERIFY(r);
+    for (const auto &row : rows) {
+      const auto m = row.toMap();
+      bool ok = false;
+      const double v = r->dataProvider()->sample(
+          QgsPointXY(m.value("x").toDouble(), m.value("y").toDouble()), 1, &ok);
+      if (ok && std::isfinite(v))
+        QCOMPARE(m.value("seismic_code").toInt(), int(std::lround(v)));
+      else
+        QVERIFY(m.value("seismic_code").isNull());
+    }
+    const auto path = report.value("report_path").toString();
+    QVERIFY(QFileInfo::exists(path));
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const auto json = QJsonDocument::fromJson(file.readAll()).object();
+    QCOMPARE(json.value("seismic_version").toString(), f.work.versionForLayer(raster).id);
+    QCOMPARE(json.value("rows").toArray().size(), 2);
+    // 从地震相一侧发起：反查到同一测井相结果。
+    const auto reverse = f.work.faciesConsistency(raster, &error);
+    QCOMPARE(reverse.value("well_layer").toString(), wells);
+    // 相面一侧（多边形取样）：编码与栅格一侧一致（转面保持编码）。
+    const auto polygon = f.work.polygonize(raster, &error);
+    QVERIFY2(!polygon.isEmpty(), qPrintable(error));
+    const auto viaPolygon = f.work.faciesConsistency(wells, &error, polygon);
+    QVERIFY2(!viaPolygon.isEmpty(), qPrintable(error));
+    QCOMPARE(viaPolygon.value("seismic_layer").toString(), polygon);
+    {
+      const auto evidence = f.work.versionForLayer(polygon).extra.value("evidence").toMap();
+      QCOMPARE(evidence.value("inputs").toList().size(), 1);
+      QCOMPARE(evidence.value("inputs").toList().first().toMap().value("version_id").toString(),
+               f.work.versionForLayer(raster).id);
+      QCOMPARE(evidence.value("support").toMap().value("source_layer").toString(), raster);
+    }
+    QCOMPARE(viaPolygon.value("rows").toList().size(), 2);
+    // 属性表改相：工作副本 facies_code 用相名下拉（值映射到编码）。
+    const auto draft = f.work.copyForEditing(polygon, {}, &error);
+    QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    f.work.styleLayer(draft);
+    auto *draftLayer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft));
+    QVERIFY(draftLayer);
+    const auto setup = draftLayer->editorWidgetSetup(draftLayer->fields().indexOf("facies_code"));
+    QCOMPARE(setup.type(), QString("ValueMap"));
+    QVERIFY(!setup.config().value("map").toList().isEmpty());
+    // 非相结果被拒。
+    QVERIFY(f.work.faciesConsistency(QStringLiteral("nope"), &error).isEmpty());
   }
   void seismicToPolygonToEditableVersions() {
     Fixture f;
@@ -1527,6 +1676,74 @@ private slots:
   // 2026-10-10 用户反馈「画布上没有标注」的回归闸：相面经 styleLayer 后，
   // 标注配置在位（enabled + mode 3 表达式），且离屏渲染真的放置出标注
   //（takeLabelingResults 非空）——样式应用、标注注册、渲染三段一起守。
+  // facies-ux 1：相栅格转面走任务中心（后台、可见、可取消、单飞），完成
+  // 后经 productReady 收尾；取消与工程重绑不登记任何版本。
+  void polygonizeRunsAsCancellableBackgroundTask() {
+    Fixture f;
+    QVERIFY(f.init());
+    PaleoTaskService tasks;
+    f.work.setTaskService(&tasks);
+    const auto input = f.seismic();
+    QVERIFY(!input.isEmpty());
+    QString error;
+    QVERIFY2(f.work.predict("D61", "seismic", {input}, &error),
+             qPrintable(error));
+    QTRY_VERIFY_WITH_TIMEOUT(!f.work.busy(), 5000);
+    const auto rasterId = f.latest("seismic_prediction");
+    QVERIFY(!rasterId.isEmpty());
+    QSignalSpy done(&f.work, &MappingWorkbench::polygonizeFinished);
+    const int before = tasks.tasks().size();
+    QVERIFY2(f.work.startPolygonize(rasterId, &error), qPrintable(error));
+    QVERIFY(f.work.polygonizeBusy());
+    QCOMPARE(tasks.tasks().size(), before + 1);
+    QPointer<PaleoTask> task = tasks.tasks().constLast();
+    QVERIFY(!task->quiet());
+    QVERIFY(task->title().contains(QStringLiteral("相栅格转相面")));
+    QString busyErr;
+    QVERIFY(!f.work.startPolygonize(rasterId, &busyErr));
+    QVERIFY(busyErr.contains(QStringLiteral("已有相栅格转面任务")));
+    QTRY_COMPARE_WITH_TIMEOUT(done.count(), 1, 60000);
+    auto args = done.takeFirst();
+    const auto product = args.at(1).toString();
+    QVERIFY2(!product.isEmpty(), qPrintable(args.at(2).toString()));
+    QVERIFY(task);
+    QCOMPARE(task->state(), PaleoTask::State::Succeeded);
+    QVERIFY(!f.work.polygonizeBusy());
+    const auto version = f.work.versionForLayer(product);
+    QCOMPARE(version.extra.value("kind").toString(), QString("facies_polygons"));
+    QCOMPARE(version.extra.value("source_layer").toString(), rasterId);
+    QCOMPARE(f.work.declaration(product).horizon, QString("D61"));
+    auto *poly =
+        qobject_cast<QgsVectorLayer *>(f.layers.instantiate(product, &error));
+    QVERIFY2(poly, qPrintable(error));
+    QVERIFY(poly->featureCount() > 0);
+    QVERIFY(poly->fields().indexOf("facies_name") >= 0);
+
+    // 取消 / 工程重绑：池占满让转面任务排队，确定性地在 compute 前取消。
+    tasks.setMaxWorkerThreads(1);
+    const int products = f.work.products("D61").size();
+    for (const bool rebind : {false, true}) {
+      std::atomic_bool release{false};
+      tasks.start(QStringLiteral("blocker"), [&release](PaleoTask *) {
+        while (!release.load())
+          QThread::msleep(5);
+        return QString();
+      });
+      QVERIFY2(f.work.startPolygonize(rasterId, &error), qPrintable(error));
+      if (rebind)
+        f.work.bindCatalog(&f.catalog, f.dir.path()); // 工程重绑即取消
+      else
+        f.work.cancelPolygonize();
+      release.store(true);
+      QTRY_COMPARE_WITH_TIMEOUT(done.count(), 1, 60000);
+      args = done.takeFirst();
+      QVERIFY(args.at(1).toString().isEmpty());
+      QVERIFY(args.at(3).toBool());
+      QTRY_VERIFY_WITH_TIMEOUT(!f.work.polygonizeBusy(), 5000);
+      QCOMPARE(f.work.products("D61").size(), products);
+    }
+    QVERIFY(tasks.shutdown());
+  }
   void polygonLabelsRenderAfterStyling() {
     Fixture f;
     QVERIFY(f.init());

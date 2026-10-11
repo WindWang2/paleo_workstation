@@ -14,6 +14,9 @@
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/qgis/qgisruntime.h"
 #include "../src/workflow/depthconversionworkflow.h"
+#include "../src/services/paleotaskservice.h"
+#include <QThread>
+#include <atomic>
 
 #include <gdal.h>
 
@@ -93,6 +96,7 @@ private slots:
   void fullChainBuildsModelAndConvertsHorizon();
   void repeatedBuildAndConversionAreIdempotent();
   void latestModelPathUsesCommitOrderAcrossAssets();
+  void backgroundConversionRunsInTaskCenter();
 };
 
 void TestDepthConversion::fullChainBuildsModelAndConvertsHorizon()
@@ -376,3 +380,101 @@ int main(int argc, char *argv[])
 }
 
 #include "tst_depthconversion.moc"
+
+// facies-ux 6 / UIS-20：建模 + 换算走任务中心（非 quiet 行、可取消、工程重绑
+// 作废），结果与同步路径字节一致，登记在 GUI 线程。
+void TestDepthConversion::backgroundConversionRunsInTaskCenter()
+{
+  QTemporaryDir tmp;
+  QVERIFY(tmp.isValid());
+  const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+  QVERIFY(QDir().mkpath(projectDir));
+  auto stack = makeStack(projectDir);
+  QVERIFY(stack != nullptr);
+  DataCatalog *catalog = stack->importSvc->catalog();
+  QString err;
+  QStringList staged;
+  staged << stageFixture(tmp, QStringLiteral("井位"), QStringLiteral("ExportWellHead.dat"));
+  staged << stageFixture(tmp, QStringLiteral("井分层"), QStringLiteral("DC.dat"));
+  staged << stageFixture(tmp, QStringLiteral("时深"), QStringLiteral("A1_TD.dat"));
+  staged << stageFixture(tmp, QStringLiteral("层位"), QStringLiteral("D61_sample.dat"),
+                        QStringLiteral("D61.dat"));
+  for (const QString &p : staged)
+    QVERIFY2(!stack->importSvc->importProjectFile(p, &err).isEmpty(), qPrintable(err));
+  LayerDeclaration timeDecl;
+  for (const LayerDeclaration &d : stack->manifest->all())
+    if (d.layerId == QLatin1String("horizon.D61"))
+      timeDecl = d;
+  QVERIFY(!timeDecl.source.isEmpty());
+
+  PaleoTaskService tasks;
+  DepthConversionWorkflow workflow(catalog, projectDir);
+  workflow.setLayerService(stack->layerSvc.get());
+  workflow.setTaskService(&tasks);
+  QSignalSpy stored(&workflow, &DepthConversionWorkflow::modelStored);
+  QSignalSpy done(&workflow, &DepthConversionWorkflow::conversionDone);
+  QSignalSpy failed(&workflow, &DepthConversionWorkflow::conversionFailed);
+  // 无模型存档 → 后台先建模再换算。
+  QVERIFY(workflow.latestModelPath().isEmpty());
+  QVERIFY2(workflow.startConvertRasterToDepth(QStringLiteral("D61"), timeDecl.source, QString(), &err),
+           qPrintable(err));
+  QVERIFY(workflow.depthBusy());
+  bool listed = false;
+  for (const PaleoTask *t : tasks.tasks())
+    listed = listed || (t->title().contains(QStringLiteral("D61")) && !t->quiet());
+  QVERIFY(listed);
+  // 单飞：在途时拒绝第二个。
+  QVERIFY(!workflow.startConvertRasterToDepth(QStringLiteral("D61"), timeDecl.source, QString(), &err));
+  QTRY_COMPARE_WITH_TIMEOUT(done.count(), 1, 60000);
+  QCOMPARE(stored.count(), 1);
+  QCOMPARE(failed.count(), 0);
+  QTRY_VERIFY(!workflow.depthBusy());
+  const QString model = workflow.latestModelPath();
+  QVERIFY(!model.isEmpty());
+  QString asyncDepth;
+  for (const LayerDeclaration &d : stack->manifest->all())
+    if (d.layerId == QLatin1String("depth.D61"))
+      asyncDepth = d.source;
+  QVERIFY(QFile::exists(asyncDepth));
+  // 同步路径同模型 → 字节一致。
+  QVERIFY2(workflow.convertRasterToDepth(QStringLiteral("D61"), timeDecl.source, model, nullptr, &err),
+           qPrintable(err));
+  QString syncDepth;
+  for (const LayerDeclaration &d : stack->manifest->all())
+    if (d.layerId == QLatin1String("depth.D61"))
+      syncDepth = d.source;
+  QVERIFY(syncDepth != asyncDepth);
+  QCOMPARE(readFile(asyncDepth), readFile(syncDepth));
+
+  // 取消 / 工程重绑：池占满让任务排队，确定性地在 compute 前作废；不新增版本。
+  const auto depthVersions = [catalog] {
+    int n = 0;
+    for (const CatalogAsset &asset : catalog->assets())
+      if (asset.type == QLatin1String("depth_raster"))
+        n += catalog->versionsForAsset(asset.id).size();
+    return n;
+  };
+  const int before = depthVersions();
+  tasks.setMaxWorkerThreads(1);
+  for (const bool rebind : {false, true})
+  {
+    std::atomic_bool release{false};
+    tasks.start(QStringLiteral("blocker"), [&release](PaleoTask *) {
+      while (!release.load())
+        QThread::msleep(5);
+      return QString();
+    });
+    failed.clear();
+    QVERIFY2(workflow.startConvertRasterToDepth(QStringLiteral("D61"), timeDecl.source, model, &err),
+             qPrintable(err));
+    if (rebind)
+      workflow.rebind(catalog, projectDir);
+    else
+      workflow.cancelDepth();
+    release.store(true);
+    QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 60000);
+    QTRY_VERIFY(!workflow.depthBusy());
+    QCOMPARE(depthVersions(), before);
+  }
+  QVERIFY(tasks.shutdown());
+}

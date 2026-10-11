@@ -24,6 +24,7 @@ class ConstraintStore;
 class ProjectDataFacade;
 class DataCatalog;
 class PaleoTask;
+class PaleoTaskService;
 struct ValidationIssue;
 namespace paleo::jobs {
 template <class JobT>
@@ -522,6 +523,37 @@ class CompositionWorkflow : public QObject
     bool deriveFaciesPolygons(const QString &horizon, const QString &rasterLayerId,
                               const QVariantMap &params = QVariantMap(), QString *error = nullptr);
 
+    // facies-ux 1：同一转换的后台任务形态（任务中心可见、可取消、单飞）。
+    // 未注入任务服务时同步跑（测试壳）。终态：成功 faciesPolygonsReady，
+    // 失败/取消/过期 faciesPolygonsFailed。工程切换后完成的旧结果被丢弃。
+    void setTaskService(PaleoTaskService *tasks);
+    bool startDeriveFaciesPolygons(const QString &horizon, const QString &rasterLayerId,
+                                   const QVariantMap &params = QVariantMap(),
+                                   QString *error = nullptr);
+    bool faciesPolygonsBusy() const;
+    void cancelFaciesPolygons();
+
+    // 三段式各段（纯数据快照；compute 不读成员、worker 安全）。
+    struct FaciesPolygonJob
+    {
+      QString horizon, rasterLayerId, rasterUri, constraintUri, constraintProvider;
+      QString projectDir, outputPath, layerId, error;
+      QString rasterCrsWkt; // 声明层 CRS（数据源无 CRS 时 worker 侧补齐）
+      QStringList parentPaths;
+      QVariantMap algParams;
+      bool constrained = false;
+      DerivedAssetRegistrar registrar;
+      DerivedStaging staging;
+      QPointer<DataCatalog> catalog;
+    };
+    bool prepareFaciesPolygons(const QString &horizon, const QString &rasterLayerId,
+                               const QVariantMap &params, FaciesPolygonJob *job,
+                               QString *error = nullptr);
+    static bool computeFaciesPolygons(FaciesPolygonJob &job, QgisProcessingService *proc,
+                                      const std::function<bool()> &cancelled,
+                                      const std::function<void(double)> &progress);
+    bool commitFaciesPolygons(FaciesPolygonJob &job, QString *error = nullptr);
+
     // ---- m2(C)：相属性回写（编辑态页「相属性」区的落库侧）----
     // 页面拿不到选中要素 id——这里按图层当前选中集解析（无选中 → 拒绝）。
     // attrs 携 facies_code(int)/facies_type/comment/boundary_kind(词表)/
@@ -567,6 +599,8 @@ class CompositionWorkflow : public QObject
     QPointer<QgisLayerService> m_layers;
     QPointer<DataCatalog> m_catalog;
     QString m_projectDir;
+    QPointer<PaleoTaskService> m_taskSvc;
+    std::shared_ptr<paleo::jobs::JobRunner<FaciesPolygonJob>> m_polygonRunner;
 };
 
 // ④验证 — run cross-horizon validation rules; instantiate layers on demand.

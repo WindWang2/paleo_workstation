@@ -160,6 +160,50 @@ QString aiSafeSegment( const QString &s )
   }
   return out.toUpper();
 }
+
+// 推理入口收口：非 ORT 构建（CMakeLists.txt 的 PALEO_HAVE_ORT=FALSE 分支）的
+// paleo_ai 不编 ai/tileinference.cpp 与 ai/horizonsuggest.cpp，本 TU 若直接
+// 引用两者的符号，链接 paleo_workflow 的所有可执行目标都会失败。四个调用点
+// 统一经这两个包装；非 ORT 构建诚实报不可用（口径同 ai/chat/domaintools.cpp
+// 对这两个工具的 Disabled 说明），不伪造结果。
+bool inferTiles( PaleoOnnxService *onnx, const TileInferenceRequest &req,
+                 TileInferenceResult *result, const std::function<void( int, int )> &progress,
+                 const std::function<bool()> &cancelled, QString *error )
+{
+#if PALEO_HAVE_ORT
+  return runTileInference( onnx, req, result, progress, cancelled, error );
+#else
+  Q_UNUSED( onnx );
+  Q_UNUSED( req );
+  Q_UNUSED( result );
+  Q_UNUSED( progress );
+  Q_UNUSED( cancelled );
+  if ( error )
+    *error = QObject::tr( "本构建未编译 ONNX Runtime，AI 相分类不可用" );
+  return false;
+#endif
+}
+
+bool suggestTrack( PaleoOnnxService *onnx, const QString &model,
+                   const QVector<TrackingSeed> &seeds, int windowSamples, int radius,
+                   const TraceWindowFetcher &fetch, QVector<TrackingSuggestion> *out,
+                   QString *error )
+{
+#if PALEO_HAVE_ORT
+  return suggestHorizonTracking( onnx, model, seeds, windowSamples, radius, fetch, out, error );
+#else
+  Q_UNUSED( onnx );
+  Q_UNUSED( model );
+  Q_UNUSED( seeds );
+  Q_UNUSED( windowSamples );
+  Q_UNUSED( radius );
+  Q_UNUSED( fetch );
+  Q_UNUSED( out );
+  if ( error )
+    *error = QObject::tr( "本构建未编译 ONNX Runtime，AI 层位追踪建议不可用" );
+  return false;
+#endif
+}
 } // namespace
 
 AiAssistWorkflow::AiAssistWorkflow( QgisLayerService *layers, QObject *parent )
@@ -215,7 +259,7 @@ bool AiAssistWorkflow::classifyTiles( const QString &horizon, const QString &mod
 
   TileInferenceResult result;
   QString runErr;
-  if ( !runTileInference( m_onnx, req, &result, {}, nullptr, &runErr ) )
+  if ( !inferTiles( m_onnx, req, &result, {}, nullptr, &runErr ) )
     return fail( runErr );
 
   if ( !writeTileProducts( horizon, model, result, lowConfidenceThreshold, error ) )
@@ -459,7 +503,7 @@ PaleoTask *AiAssistWorkflow::startClassification( const QString &horizon, const 
       req.fetch = fetch;
       QString err;
       int lastPct = -1;
-      const bool ok = runTileInference(
+      const bool ok = inferTiles(
         onnx, req, result,
         [ t, &lastPct ]( int done, int total ) {
           const int pct = total > 0 ? done * 100 / total : 0;
@@ -504,7 +548,7 @@ bool AiAssistWorkflow::suggestTracking( const QString &horizon, const QString &m
   if ( error )
     error->clear();
   QVector<TrackingSuggestion> out;
-  if ( !suggestHorizonTracking( m_onnx, model, seeds, windowSamples, radius, fetch, &out, error ) )
+  if ( !suggestTrack( m_onnx, model, seeds, windowSamples, radius, fetch, &out, error ) )
     return false;
 
   QVector<SuggestionState> states;
@@ -548,7 +592,7 @@ PaleoTask *AiAssistWorkflow::startSuggestion( const QString &horizon, const QStr
     [onnx, model, seeds, windowSamples, radius, fetch, result]( PaleoTask * ) -> QString {
       QString err;
       QVector<TrackingSuggestion> out;
-      if ( !suggestHorizonTracking( onnx, model, seeds, windowSamples, radius, fetch, &out, &err ) )
+      if ( !suggestTrack( onnx, model, seeds, windowSamples, radius, fetch, &out, &err ) )
         return err;
       *result = out;
       return QString();

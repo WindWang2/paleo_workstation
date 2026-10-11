@@ -73,7 +73,9 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   if (mode == "predict") {
     label(tr("地震层位窗聚类／预测服务 · 结果待复核\n"
              "选择一个地震体，或勾选一口／多口井。结果按当前层位与相分类"
-             "生成。"));
+             "生成。测井仅节选当前地层顶底深范围调用远端服务，"
+             "每口井显示一个优势相点，"
+             "并同步工区井段与地层预测信息。"));
     m_status = new QLabel(body);
     m_status->setObjectName("workbenchPredictionStatus");
     m_status->setWordWrap(true);
@@ -84,7 +86,8 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
       if (m_status && m_workbench)
         m_status->setText(m_kind && m_kind->currentData() == "seismic_mock"
           ? tr("Mock：沿当前层位提取 ±12 ms 地震反射窗，聚类生成分布图；相类别映射需地质复核。")
-          : m_workbench->predictionStatusHint());
+          : m_kind && m_kind->currentData() == "wells"
+              ? m_workbench->wellPredictionStatusHint() : m_workbench->predictionStatusHint());
     };
     showStatus();
     connect(workbench, &MappingWorkbench::predictionStatusChanged, this,
@@ -94,7 +97,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
     m_kind->setAccessibleName(tr("预测类型"));
     m_kind->addItem(tr("地震层位窗聚类 → 分布图（Mock）"), "seismic_mock");
     m_kind->addItem(tr("地震体 → 相栅格（预测服务）"), "seismic");
-    m_kind->addItem(tr("测井 → 地层预测相点"), "wells");
+    m_kind->addItem(tr("测井 → 当前地层优势相"), "wells");
     // 井点的相 = 该井在当前层位地层（本层位顶 → 下一层位顶）内厚度最大的相，
     // 与数据管理逐组预测写同一张「测井地层相属性」表。
     m_kind->setItemData(m_kind->count() - 1,
@@ -157,16 +160,37 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
     run->addWidget(button("cancel", tr("取消")));
     layout->addLayout(run);
     m_progress = new QProgressBar(body);
+    m_progress->setObjectName("workbenchPredictionProgress");
+    m_progress->setAccessibleName(tr("预测进度"));
     m_progress->setRange(0, 100);
     m_progress->setVisible(false);
     layout->addWidget(m_progress);
-    connect(workbench, &MappingWorkbench::predictionProgress, m_progress,
-            &QProgressBar::setValue);
+    connect(workbench, &MappingWorkbench::predictionProgress, this, [this](int percent) {
+      m_progress->setRange(0, 100);
+      m_progress->setValue(percent);
+    });
+    connect(workbench, &MappingWorkbench::predictionDetailChanged, this, [this](const QString &detail) {
+      m_progress->setFormat(detail + tr(" · %p%"));
+      m_progress->setToolTip(detail);
+    });
+    connect(workbench, &MappingWorkbench::errorOccurred, this, [this](const QString &error) {
+      if (!m_progress->isHidden() && m_progress->value() < 100) {
+        m_progress->setRange(0, 100);
+        m_progress->setFormat(tr("预测未完成 · %p%"));
+        m_progress->setToolTip(error);
+      }
+    });
     connect(workbench, &MappingWorkbench::predictionBusyChanged, this,
             [this](bool busy) {
-              m_progress->setVisible(busy);
-              if (busy)
+              if (busy) {
+                m_progress->show();
+                m_progress->setFormat(tr("准备预测 · %p%"));
+                m_progress->setRange(0, 0);
                 m_progress->setValue(0);
+              } else if (m_progress->maximum() == 0 || m_progress->value() < 100) {
+                m_progress->setRange(0, 100);
+                m_progress->setFormat(tr("预测已停止 · %p%"));
+              }
               updateState();
             });
   } else if (mode == "constraint") {
@@ -292,8 +316,9 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   actions->addWidget(button("copy", tr("复制底图并编辑")), 1, 1);
   actions->addWidget(button("save", tr("保存图件新版本")), 2, 0);
   actions->addWidget(button("catalog", tr("在数据管理中定位")), 2, 1);
+  actions->addWidget(button("delete", tr("删除图件")), 3, 0, 1, 2);
   if (mode == "predict")
-    actions->addWidget(button("welltracks", tr("查看井道 / 修订测井相")), 3, 0,
+    actions->addWidget(button("welltracks", tr("查看井道 / 修订测井相")), 4, 0,
                        1, 2);
   layout->addLayout(actions);
   auto *appearance = new QgsCollapsibleGroupBox(tr("相类别与标注"), body);
@@ -856,6 +881,13 @@ void MappingWorkbenchPage::updateState() {
        tr("选择相矢量底图；栅格须先转相面"));
   gate("save", row.value("draft").toBool(),
        tr("选择人工编辑工作副本，先保存画布编辑，再生成新版本"));
+  const auto rowId = row.value("id").toString();
+  const bool product = rowId.startsWith("product.") ||
+                      rowId.startsWith("draft.");
+  gate("delete", selected && product && !busy,
+       !selected ? tr("请先选择图件")
+       : !product ? tr("底图与基础图层请在「数据管理」中移除")
+                  : tr("预测运行中，完成后可删除图件"));
   if (selected) {
     m_details->setText(
         tr("%1\n来源：%2\n后续派生：%5\n方法：%3\n文件：%4")

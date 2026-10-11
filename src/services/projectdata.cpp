@@ -100,7 +100,8 @@ QVector<ProjectWell> ProjectDataFacade::wells() const
   return out;
 }
 
-QString ProjectDataFacade::assetFilePathFor(const QString &wellId, const QString &role) const
+QString ProjectDataFacade::assetFilePathFor(const QString &wellId, const QString &role,
+                                            const QString &assetId) const
 {
   if (!m_catalog)
     return QString();
@@ -109,18 +110,23 @@ QString ProjectDataFacade::assetFilePathFor(const QString &wellId, const QString
   if (wellId.isEmpty())
     return QString();
 
-  QString assetId;
+  QString found;
   for (const EntityAssetLink &l : m_catalog->linksForEntity(wellId))
   {
-    if (l.role != role || l.unresolved || !l.isPrimary)
+    // 显式 assetId：只要该井挂着此资产（非 unresolved），primary 与否都行；
+    // 空 assetId 沿用主链接语义。
+    if (l.role != role || l.unresolved)
       continue;
-    assetId = l.assetId;
-    break;
+    if (!assetId.isEmpty() ? l.assetId == assetId : l.isPrimary)
+    {
+      found = l.assetId;
+      break;
+    }
   }
-  if (assetId.isEmpty())
+  if (found.isEmpty())
     return QString();
 
-  const CatalogVersion v = m_catalog->currentVersion(assetId);
+  const CatalogVersion v = m_catalog->currentVersion(found);
   if (v.id.isEmpty())
     return QString();
   return DataCatalog::resolvedVersionPath(projectDir(), v);
@@ -133,13 +139,26 @@ QVector<WellTop> ProjectDataFacade::topsFor(const QString &wellId) const
 
 QVector<WellTop> ProjectDataFacade::topsFor(const QString &wellId, WellParseReport *report) const
 {
+  return topsForAsset(wellId, QString(), report);
+}
+
+QVector<WellTop> ProjectDataFacade::topsForAsset(const QString &wellId,
+                                                 const QString &assetId,
+                                                 WellParseReport *report) const
+{
   if (report)
     *report = {};
-  QVector<WellTop> out;
-  const QString path = assetFilePathFor(wellId, QStringLiteral("tops"));
+  const QString path = assetFilePathFor(wellId, QStringLiteral("tops"), assetId);
   if (path.isEmpty() || !QFile::exists(path))
-    return out;
+    return {};
+  return topsFromFile(path, wellId, report);
+}
 
+QVector<WellTop> ProjectDataFacade::topsFromFile(const QString &path,
+                                                 const QString &wellId,
+                                                 WellParseReport *report) const
+{
+  QVector<WellTop> out;
   QFile f(path);
   if (!f.open(QIODevice::ReadOnly))
     return out;

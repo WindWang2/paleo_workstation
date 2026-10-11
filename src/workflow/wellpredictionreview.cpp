@@ -59,7 +59,7 @@ QVariantList MappingWorkbench::wellPredictions(const QString &id) const {
   while (it.nextFeature(feature)) {
     QVariantMap row;
     for (const auto &name :
-         {"id", "name", "facies_code", "log_version_id", "depth_mock"})
+         {"id", "name", "facies_code", "log_version_id", "depth_mock", "prediction_status", "prediction_reason"})
       row.insert(name, feature.attribute(name));
     row.insert("intervals", intervals(feature.attribute("facies_intervals")));
     row.insert("predicted",

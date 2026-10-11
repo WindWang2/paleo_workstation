@@ -138,7 +138,7 @@ if(QSCINTILLA_PREFIX)
   list(PREPEND CMAKE_PREFIX_PATH "${QSCINTILLA_PREFIX}")
 endif()
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Test Sql Xml Concurrent Svg PrintSupport Network SerialPort Positioning UiTools OpenGLWidgets Pdf PdfWidgets)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Test Sql Xml Concurrent Svg PrintSupport Network SerialPort Positioning UiTools OpenGLWidgets Pdf PdfWidgets Core5Compat)
 # ---- wave3/ux-consistency D14 ----
 # WebEngineWidgets is optional: without it WebViewPanel compiles its
 # external-browser fallback and the build must still succeed.
@@ -509,6 +509,23 @@ add_library(paleo_qgis STATIC
 )
 target_link_libraries(paleo_qgis PUBLIC paleo_deps paleo_ui_deps paleo_store paleo_algorithms paleo_io)
 
+# QGIS 4.2.2 original attribute table dialog, embedded with a small app host.
+# App-only source is vendored because libqgis_app requires a QgisApp singleton.
+find_package(Qt6 REQUIRED COMPONENTS Core5Compat)
+add_library(paleo_qgis_attribute_table STATIC
+  vendor/qgis_attribute_table/qgsattributetabledialog.cpp
+  vendor/qgis_attribute_table/qgsattributetabledialog.h
+  vendor/qgis_attribute_table/qgsclipboard.cpp
+  vendor/qgis_attribute_table/qgsclipboard.h
+  vendor/qgis_attribute_table/qgsdelattrdialog.cpp
+  vendor/qgis_attribute_table/qgsdelattrdialog.h
+  src/qgis/nativeattributetablehost.cpp
+  src/qgis/nativeattributetablehost.h)
+target_include_directories(paleo_qgis_attribute_table PUBLIC
+  ${CMAKE_SOURCE_DIR}/vendor/qgis_attribute_table
+  ${CMAKE_SOURCE_DIR}/src/qgis)
+target_link_libraries(paleo_qgis_attribute_table PUBLIC paleo_qgis Qt6::Core5Compat)
+
 add_library(paleo_io STATIC
   src/io/dataimportservice.cpp                      # 方向57：生命周期 + 入口 wrapper
   src/io/dataimport_session.cpp                     # 方向57：会话/登记基座（plan/RAW/commit 面）
@@ -578,6 +595,7 @@ add_library(paleo_workflow STATIC
   src/workflow/xmlpreviewsession.cpp
   src/workflow/stratigraphicwebsession.cpp
   src/workflow/mappingworkbench.cpp
+  src/workflow/wellpredictionservice.cpp
   src/workflow/workflows.cpp
   src/workflow/constraintimport.cpp                 # WS-C：约束 SHP 角色化导入（方向/打断）
   src/workflow/validationworkflow.cpp                # 方向20 轮4：④验证（按类边界析出）
@@ -756,7 +774,7 @@ add_library(paleo_ui STATIC
   resources/paleo_fonts.qrc
 )
 target_link_libraries(paleo_ui PUBLIC paleo_deps paleo_ui_deps paleo_qgis paleo_workflow paleo_services
-  paleo_store paleo_linkage paleo_domain paleo_io paleo_ai paleo_saribbon paleo_sbm)
+  paleo_store paleo_linkage paleo_domain paleo_io paleo_ai paleo_saribbon paleo_sbm paleo_qgis_attribute_table)
 
 # ---- 组装根 ----
 add_library(paleo_app STATIC src/app/appcontext.cpp src/app/onnxwiring.cpp) # onnxwiring：模型注册表装配（方向83 装配根瘦身）

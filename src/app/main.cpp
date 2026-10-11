@@ -26,6 +26,7 @@
 #include <QString>
 #include <QSurfaceFormat>
 #include <QTranslator>
+#include <qgsapplication.h>
 #include <cstdio>
 
 namespace
@@ -224,6 +225,14 @@ int main(int argc, char *argv[])
                qPrintable(qtTransDir));
       delete qtTranslator;
     }
+
+    // QGIS native dialogs and their original action names use QGIS contexts.
+    auto *qgisTranslator = new QTranslator(QCoreApplication::instance());
+    if (qgisTranslator->load(QStringLiteral("qgis_zh-Hans"), QgsApplication::i18nPath()) ||
+        qgisTranslator->load(QStringLiteral("qgis_zh_CN"), QgsApplication::i18nPath()))
+      QCoreApplication::installTranslator(qgisTranslator);
+    else
+      delete qgisTranslator;
 
     // 2. Load Paleo Workstation application translations from embedded resource
     auto *paleoTranslator = new QTranslator(QCoreApplication::instance());

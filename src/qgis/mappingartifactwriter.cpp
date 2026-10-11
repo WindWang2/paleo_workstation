@@ -2,6 +2,7 @@
 #include "mappingartifactwriter.h"
 #include "../catalog/datacatalog.h"
 #include "../domain/faciescatalog.h"
+#include "../algorithms/faciesmapping/formationdominance.h"
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -198,7 +199,25 @@ bool syncFaciesAttributes(QgsVectorLayer *layer, const QVariantList &facies,
       FaciesCatalog::formationRange(feature.attribute("formation_top"),
                                     feature.attribute("formation_base"), &top,
                                     &base);
-      const int dominant = FaciesCatalog::dominantCode(intervals, top, base);
+      // Remote well vectors expose the same formation dominance as the work
+      // area table, including its shallowest-observation tie rule.
+      const auto dominance = [&](const QVariantList &rows) {
+        QVector<FaciesSpan> spans;
+        for (const auto &v : rows) {
+          const auto row = v.toMap();
+          const int code = row.value("code").toInt();
+          spans.append({row.value("top").toDouble(), row.value("bottom").toDouble(),
+                        FaciesCatalog::find(facies, code).value("name").toString(), code});
+        }
+        WellComposite::FormationInterval formation;
+        formation.name = feature.attribute("formation").toString();
+        formation.topDepth = float(top); formation.bottomDepth = float(base);
+        return paleo::faciesmapping::dominantFaciesByFormation({formation}, spans);
+      };
+      auto ranked = layer->fields().indexOf("dominant_facies") >= 0
+                        ? dominance(intervals) : QVector<FormationDominance>();
+      const int dominant = !ranked.isEmpty() ? ranked.first().dominantCode
+                                             : FaciesCatalog::dominantCode(intervals, top, base);
       if (dominant) {
         if (dominant != feature.attribute("facies_code").toInt()) {
           intervals = FaciesCatalog::recodeIntervals(
@@ -209,6 +228,18 @@ bool syncFaciesAttributes(QgsVectorLayer *layer, const QVariantList &facies,
                        QJsonDocument::fromVariant(intervals).toJson(
                            QJsonDocument::Compact))) &&
                ok;
+        }
+      }
+      if (!ranked.isEmpty()) {
+        ranked = dominance(intervals);
+        const auto &d = ranked.first();
+        const QVariantMap stats{{"dominant_facies", d.dominant},
+          {"dominant_thickness_md", d.dominantThickness}, {"dominant_ratio", d.ratio},
+          {"facies_ratio", d.ratio}, {"coverage", d.coverage}, {"tie", d.tie},
+          {"facies_composition", d.composition}};
+        for (auto field = stats.cbegin(); field != stats.cend(); ++field) {
+          const int index = layer->fields().indexOf(field.key());
+          if (index >= 0) ok = layer->changeAttributeValue(feature.id(), index, field.value()) && ok;
         }
       }
     }
@@ -264,8 +295,13 @@ void applyFaciesLabels(QgsVectorLayer *layer, int mode) {
           .arg(field("facies_label"), field("microfacies"), field("subfacies"),
                field("facies_name"),
                QgsExpression::quotedString(QObject::tr("其他 / 未分类")));
-  const QString facies = layer->customProperty("paleo/faciesDisplayExpression", defaultFacies).toString();
+  QString facies = layer->customProperty("paleo/faciesDisplayExpression", defaultFacies).toString();
+  if (layer->fields().indexOf("prediction_status") >= 0)
+    facies = QStringLiteral("CASE WHEN \"prediction_status\" = %1 THEN %1 ELSE (%2) END")
+        .arg(QgsExpression::quotedString(QObject::tr("未预测")), facies);
   QgsPalLayerSettings settings;
+  if (layer->fields().indexOf("facies_intervals") >= 0)
+    settings.priority = 10;
   settings.isExpression = true;
   settings.fieldName =
       mode == 1   ? identifier
@@ -414,7 +450,8 @@ void applyFaciesStyle(QgsMapLayer *layer, const QVariantList &facies) {
         }
       }
       categories.append(QgsRendererCategory(QVariant(), fallback,
-                                            QObject::tr("其他 / 未分类")));
+                                            vector->fields().indexOf("prediction_status") >= 0
+                                                ? QObject::tr("未预测") : QObject::tr("其他 / 未分类")));
     }
     vector->setRenderer(
         new QgsCategorizedSymbolRenderer("facies_code", categories));
@@ -423,10 +460,10 @@ void applyFaciesStyle(QgsMapLayer *layer, const QVariantList &facies) {
                                              defaultFaciesLabelMode(vector))
                           .toInt());
     const QStringList names{"facies_code", "facies_name",  "subfacies",
-                            "microfacies", "facies_label", "texture", "facies_evidence"};
+                            "microfacies", "facies_label", "texture", "facies_evidence", "prediction_status", "prediction_reason"};
     const QStringList labels{QObject::tr("相编码"),   QObject::tr("相"),
                              QObject::tr("亚相"),     QObject::tr("微相"),
-                             QObject::tr("类别名称"), QObject::tr("纹理"), QObject::tr("解释证据")};
+                             QObject::tr("类别名称"), QObject::tr("纹理"), QObject::tr("解释证据"), QObject::tr("预测状态"), QObject::tr("未预测原因")};
     for (int i = 0; i < names.size(); ++i)
       if (int index = vector->fields().indexOf(names[i]); index >= 0)
         vector->setFieldAlias(index, labels[i]);

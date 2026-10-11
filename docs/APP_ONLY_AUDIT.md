@@ -26,7 +26,7 @@ app-only 能力以源码移植或自研等价物落地。
 | 编辑工具（顶点/移动/环/部件…） | 基类 `QgsMapToolCapture` 系 gui；具体几何编辑工具 app-only（~3 QgisApp 引用/个） | `src/ui/edittools/{editingtools,vertexeditortools}.cpp` 基于 gui 基类自研；`vertexeditorshim.cpp` 等价顶点编辑 | app 层自研·必要 |
 | Shape 数字化工具 | 框架 gui；24 个具体工具 app-only（薄，96–250 行/个） | `src/ui/maptools/paleoshapetools.cpp` 自研所需子集 | app 层自研·必要 |
 | Undo 面板 | `QgsUndoWidget` app-only（trivial，0 引用） | `src/ui/edittools/editingundostack.cpp`（跨层栈）+ `src/ui/pages/`（W5b 拆分后的页文件集）的 `.paleo/undo_stack.json` vault | app 层自研·必要（含跨会话，超出上游能力） |
-| 属性表 | 内件 `QgsAttributeTableView/Model/FilterModel/DualView` 全 gui；容器 dialog app-only（23 引用） | `src/ui/attributetablepanel.cpp` 用 gui 内件自组容器 | 已用 gui + 容器 app 层自研·必要 |
+| 属性表 | 内件 `QgsAttributeTableView/Model/FilterModel/DualView` 全 gui；容器 dialog app-only（23 引用） | `vendor/qgis_attribute_table` 复用 QGIS 4.2.2 原版 dialog；`src/qgis/nativeattributetablehost.cpp` 仅适配 QgisApp 入口，`src/ui/attributetablepanel.cpp` 提供图层选择 | 上游原版 dialog 源码嵌入 + gui 原生组件 |
 | Canvas 装饰（坐标/比例/指北针…） | 16 个 decoration app-only（painter overlay，薄） | `src/ui/decorations/paleodecorations.cpp` 自研 painter overlay | app 层自研·必要 |
 | 状态栏坐标/比例 widget | `QgsStatusBar` gui；三个具体 widget app-only | mainwindow 自研 `statusCoords`/`statusScale`（mono 主题） | app 层自研·必要（与 DESIGN.md 主题绑定） |
 | 消息日志查看 | `QgsMessageLogViewer` gui | mainwindow 直用 | 已用 gui |

@@ -400,11 +400,15 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   attachWellSection(taskSvc, store); // 连井剖面 dock ← workflow + 编辑产物落库（store）
   attachWellCompositeDerived(this, m_previewDoc ? m_previewDoc->catalog() : nullptr);
   WellCorrelationPanel *corrPanel = nullptr;
-  if (auto *bottomTabs = findChild<QTabWidget *>(QStringLiteral("bottomTabs")))
+  if (findChild<QTabWidget *>(QStringLiteral("bottomTabs")))
   {
     if (m_selection)
     {
-      corrPanel = new WellCorrelationPanel(m_selection, bottomTabs);
+      // This retained controller view is not a tab page. Keep it outside the
+      // tab container and explicitly hidden: an unmanaged child of QTabWidget
+      // would be shown over whichever bottom page the user opens.
+      corrPanel = new WellCorrelationPanel(m_selection, this);
+      corrPanel->hide();
       corrPanel->setObjectName(QStringLiteral("correlationPanel"));
       corrPanel->setTaskService(taskSvc); // B1：大 LAS 解析走 quiet 异步（nullptr 保持同步旧路径）
       // goal/ui-experience-polish：异步 LAS 解析失败此前全仓无消费者——井列

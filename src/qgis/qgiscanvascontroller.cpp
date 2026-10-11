@@ -216,15 +216,28 @@ void QgisCanvasController::zoomToLayer( const QString &layerId )
   QgsMapLayer *l = m_layerResolver ? m_layerResolver( layerId ) : nullptr;
   if ( !l )
     return;
-  QgsRectangle ext = paleo::mapreference::mapExtent(m_canvas, l->extent(), l->crs());
+  auto sourceExtent = l->extent();
+  const bool pointExtent = sourceExtent.width() == 0 && sourceExtent.height() == 0;
+  // 单井相点的范围宽高均为零。先在源坐标域给它有效范围，再转换到
+  // 地图 CRS，避免退回局部井坐标后把 EPSG:3857 画布定位到错误位置。
+  if (!sourceExtent.isNull() && sourceExtent.isEmpty())
+    sourceExtent.grow(l->crs().isGeographic() ? 0.005 : 500.0);
+  QgsRectangle ext = paleo::mapreference::mapExtent(m_canvas, sourceExtent, l->crs());
   if ( ext.isEmpty() )
   {
     // 图层 CRS 与画布 CRS 无可用转换（如未配准工程里的 WGS84 图层）：
     // 回退按图层原始范围缩放——视图至少移动到图层坐标域，静默不动更糟。
     if ( l->extent().isNull() )
       return;
-    ext = l->extent();
+    ext = sourceExtent;
     ext.scale( 1.08 );
+  }
+  else if (pointExtent && !m_canvas->extent().isEmpty()) {
+    const auto center = ext.center();
+    const double halfWidth = m_canvas->extent().width() / 2;
+    const double halfHeight = m_canvas->extent().height() / 2;
+    ext = QgsRectangle(center.x() - halfWidth, center.y() - halfHeight,
+                       center.x() + halfWidth, center.y() + halfHeight);
   }
   m_canvas->setExtent( ext );
   m_canvas->refresh();

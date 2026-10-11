@@ -5,6 +5,8 @@
 
 #include <qgsapplication.h>
 #include <qgsproviderregistry.h>
+#include <qgsgui.h>
+#include <qgseditorwidgetregistry.h>
 
 // P0 spine service — owns QgsApplication lifecycle and vendor prefix resolution.
 //
@@ -49,6 +51,9 @@ bool QgisRuntime::initialize( const QString &prefixPath )
                             prefixPath.isEmpty() ? defaultPrefixPath() : prefixPath ),
       /*useDefaultPaths=*/true );
   QgsApplication::initQgis();
+  // Embedding applications must register QGIS's native attribute editors;
+  // initQgis() initializes providers, while QgisApp normally does this step.
+  QgsGui::editorWidgetRegistry()->initEditors();
   return true;
 }
 

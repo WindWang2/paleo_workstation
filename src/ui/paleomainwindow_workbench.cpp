@@ -13,11 +13,13 @@
 #include "../qgis/qgislayerservice.h"
 #include "../qgis/qgisprojectservice.h"
 #include "../services/paleotaskservice.h" // QPointer<PaleoTask>::running 需完整类型
+#include "../services/previewdoc.h"
 #include "../workflow/mappingworkbench.h"
 #include "datapreview/datapreviewtabs.h"
 #include "decorations/paleodecorations.h"
 #include "edittools/editingtoolbar.h"
 #include "horizonchipbar.h"
+#include "notifications/paleonotify.h"
 #include "pages/composepage.h"
 #include "pages/constraintpage.h"
 #include "pages/datapage.h"
@@ -222,6 +224,16 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
         }
       if (auto *node = treeRoot->findLayer(layer->id()))
         node->setItemVisibilityCheckedParentRecursive(true);
+      if (auto *vector = qobject_cast<QgsVectorLayer *>(layer);
+          vector && vector->fields().indexOf("facies_intervals") >= 0) {
+        // 共享井位/维护表位于树顶部；显示预测时把本图件放到绘制顺序首位，
+        // 否则同坐标的基础井点会盖住预测点及其相标注。
+        auto order = treeRoot->layerOrder();
+        order.removeAll(layer);
+        order.prepend(layer);
+        treeRoot->setCustomLayerOrder(order);
+        treeRoot->setHasCustomLayerOrder(true);
+      }
     }
     if (auto *tree = findChild<QgsLayerTreeView *>())
       tree->setCurrentLayer(layer);
@@ -387,7 +399,8 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
       return;
     wellPanel->setResult(
         id, wells,
-        workbench->versionForLayer(id).extra.value("facies").toList());
+        workbench->versionForLayer(id).extra.value("facies").toList(),
+        workbench->versionForLayer(id).extra.value("mock").toBool());
     if (auto *v = qobject_cast<QgsVectorLayer *>(m_layerSvc->layer(id)))
       wellPanel->setUndoAvailable(v->isEditable() && v->undoStack()->canUndo());
     wellDock->show();
@@ -471,7 +484,8 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
         if (wellPanel->layerId() == id) {
           wellPanel->setResult(
               id, workbench->wellPredictions(id),
-              workbench->versionForLayer(id).extra.value("facies").toList());
+              workbench->versionForLayer(id).extra.value("facies").toList(),
+              workbench->versionForLayer(id).extra.value("mock").toBool());
           if (auto *v = qobject_cast<QgsVectorLayer *>(m_layerSvc->layer(id)))
             wellPanel->setUndoAvailable(v->isEditable() &&
                                         v->undoStack()->canUndo());
@@ -575,7 +589,7 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
     connect(
         page, &MappingWorkbenchPage::commandRequested, this,
         [this, workbench, page, show, compare, edit, constraint, legend,
-         openWells, beginEdit](const QString &action, const QVariantMap &p) {
+         openWells, beginEdit, shown, wellPanel, wellDock](const QString &action, const QVariantMap &p) {
           QString error;
           bool ok = true;
           const auto h = p.value("horizon").toString(),
@@ -680,6 +694,49 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
               }
             } else
               ok = workbench->saveEditingVersion(id, &error);
+          } else if (action == "delete") {
+            const auto title = workbench->declaration(id).title;
+            const auto products = workbench->removalProducts(id, &error);
+            QStringList entries, versionIds;
+            for (const auto &value : products) {
+              const auto product = value.toMap();
+              entries << tr("• %1（%2 个版本）").arg(product.value("title").toString())
+                             .arg(product.value("versions").toInt());
+              if (m_previewDoc && m_previewDoc->catalog())
+                for (const auto &version : m_previewDoc->catalog()->versionsForAsset(
+                         product.value("asset_id").toString())) versionIds << version.id;
+            }
+            if (products.isEmpty()) {
+              ok = false;
+            } else if (!PaleoNotify::ask(
+                    this, tr("删除图件"),
+                    tr("永久删除图件「%1」？\n"
+                       "以下图件（含关联派生图件）的全部版本、数据管理记录与受管文件将一并删除，不可恢复：\n%2")
+                        .arg(title.isEmpty() ? id : title, entries.join("\n")),
+                    PaleoNotify::AskButtons::OkCancel,
+                    PaleoNotify::AskDefault::Reject,
+                    PaleoNotify::AskIcon::Warning))
+              return;
+            else {
+              ok = workbench->removeProduct(id, &error, true);
+              if (ok) {
+                for (auto *dialog : findChildren<QDialog *>("mappingReferenceWindow"))
+                  if (versionIds.contains(dialog->property("paleo.referenceVersion").toString()))
+                    dialog->close();
+                if (!wellPanel->layerId().isEmpty() &&
+                    workbench->versionForLayer(wellPanel->layerId()).id.isEmpty()) {
+                  wellPanel->clear();
+                  wellDock->hide();
+                }
+                for (auto it = shown->begin(); it != shown->end();)
+                  if (workbench->declaration(it.value()).layerId.isEmpty()) it = shown->erase(it);
+                  else ++it;
+                auto *canvas = m_canvasCtl->canvas();
+                legend(canvas->currentLayer()
+                           ? canvas->currentLayer()->customProperty("paleoLayerId").toString() : QString());
+                canvas->refresh();
+              }
+            }
           } else if (action == "import") {
             const auto path = QFileDialog::getOpenFileName(
                 this, tr("导入局部米制约束线"), QString(),
@@ -763,10 +820,14 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
             message = tr("选中要素的相类别已更新，请保存编辑以登记新版本。");
           else if (action == "welltracks")
             message = tr("已打开井道与测井相修订面板。");
+          else if (action == "delete")
+            message = tr("已删除图件，其版本与受管文件一并移除。");
           else
             message = tr("操作完成，图件与版本已更新。");
           page->showMessage(message);
           statusBar()->showMessage(message, 10000);
+          if (!ok && action == "delete")
+            PaleoNotify::warning(this, tr("图件未删除"), message);
         });
   }
   connect(workbench, &MappingWorkbench::productReady, this,
@@ -777,13 +838,18 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
               if (!show(id, &error))
                 statusBar()->showMessage(error, 10000);
             }
-            if (h == m_selection->activeHorizon() &&
-                !workbench->wellPredictions(id).isEmpty())
-              openWells(id);
+            if (h == m_selection->activeHorizon()) {
+              if (workbench->versionForLayer(id).extra.value("result_scope").toString() == "current_formation")
+                wellDock->hide();
+              else if (!workbench->wellPredictions(id).isEmpty())
+                openWells(id);
+            }
             for (auto *page : pages) {
               page->refresh();
-              if (page->horizon() == h)
+              if (page->horizon() == h) {
                 page->selectLayer(id);
+                page->showMessage(tr("已生成图件：%1").arg(workbench->declaration(id).title));
+              }
             }
           });
   connect(workbench, &MappingWorkbench::errorOccurred, this,
@@ -791,6 +857,7 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
             statusBar()->showMessage(error, 15000);
             for (auto *page : pages)
               page->showMessage(error);
+            PaleoNotify::warning(this, tr("编图操作未完成"), error);
           });
   connect(m_selection, &SelectionContext::activeHorizonChanged, this,
           [legend] { legend(); });

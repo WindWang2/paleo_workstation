@@ -328,6 +328,79 @@ WellFaciesPlan planWellFaciesRuns(const ComprehensiveWellData &data,
                    });
   return plan;
 }
+WellFaciesPlan planWellFaciesFormationRun(const ComprehensiveWellData &data,
+                                          const QVector<WellFaciesModel> &models,
+                                          const QString &horizon) {
+  WellFaciesPlan plan;
+  const auto current = std::find_if(data.formationIntervals.cbegin(), data.formationIntervals.cend(),
+      [&horizon](const auto &f) { return f.name.compare(horizon, Qt::CaseInsensitive) == 0; });
+  if (current == data.formationIntervals.cend() ||
+      !std::isfinite(current->topDepth) || !std::isfinite(current->bottomDepth) ||
+      current->bottomDepth <= current->topDepth) {
+    plan.reason = tr("当前地层 %1 缺少有效顶底深").arg(horizon);
+    return plan;
+  }
+  const double top = current->topDepth, base = current->bottomDepth;
+  ComprehensiveWellData scoped = data;
+  scoped.minDepth = top; scoped.maxDepth = base;
+  // 保留每根曲线在当前地层内的原始采样，不向层外扩窗或补模拟数据。
+  for (auto &curve : scoped.continuousCurves) {
+    const auto original = curve;
+    curve.depths.clear(); curve.values.clear();
+    for (qsizetype i = 0; i < original.depths.size(); ++i) {
+      const double depth = original.depths[i];
+      if (!std::isfinite(depth) || depth < top || depth >= base) continue;
+      curve.depths << original.depths[i];
+      if (i < original.values.size()) curve.values << original.values[i];
+      // 保留不完整状态，后续仅在模型确实需要这根曲线时拒绝。
+    }
+  }
+  const auto clip = [top, base](auto &intervals) {
+    intervals.erase(std::remove_if(intervals.begin(), intervals.end(), [top, base](const auto &v) {
+      return !std::isfinite(v.topDepth) || !std::isfinite(v.bottomDepth) ||
+             v.bottomDepth <= top || v.topDepth >= base || v.bottomDepth <= v.topDepth;
+    }), intervals.end());
+    for (auto &v : intervals) {
+      v.topDepth = float(std::max(top, double(v.topDepth)));
+      v.bottomDepth = float(std::min(base, double(v.bottomDepth)));
+    }
+  };
+  clip(scoped.formationIntervals);
+  clip(scoped.stratigraphyIntervals);
+  clip(scoped.lithologyIntervals);
+  if (!isGroupName(*current))
+    scoped.formationIntervals.erase(std::remove_if(scoped.formationIntervals.begin(), scoped.formationIntervals.end(),
+        [&horizon](const auto &f) { return !isGroupName(f) && f.name.compare(horizon, Qt::CaseInsensitive) != 0; }),
+        scoped.formationIntervals.end());
+  // 模型只从当前范围包含的地层组匹配；未标组的编图段名沿用服务默认模型。
+  const QStringList groups = wellGroups(scoped);
+  const WellFaciesModel *model = nullptr;
+  for (const auto &candidate : models) {
+    if (candidate.formationGroup.isEmpty()) continue;
+    if (groups.contains(candidate.formationGroup) ||
+        horizon.startsWith(candidate.formationGroup)) {
+      model = &candidate;
+      break;
+    }
+  }
+  if (!model)
+    for (const auto &candidate : models)
+      if (candidate.formationGroup.isEmpty()) { model = &candidate; break; }
+  if (!model && groups.isEmpty() && !models.isEmpty()) model = &models.first();
+  if (!model) {
+    plan.reason = models.isEmpty() ? tr("没有可调用的测井相模型")
+                                  : tr("当前地层 %1 没有对应模型").arg(horizon);
+    return plan;
+  }
+  auto input = prepareWellFaciesInput(scoped, *model);
+  if (!input.ready()) {
+    plan.reason = input.reason;
+    return plan;
+  }
+  plan.runs.append({horizon, *model, input});
+  return plan;
+}
+
 WellFaciesResult mergeWellFaciesResults(const QVector<WellFaciesResult> &parts) {
   if (parts.size() < 2)
     return parts.isEmpty() ? WellFaciesResult() : parts.first();

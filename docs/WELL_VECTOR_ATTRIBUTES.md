@@ -94,31 +94,31 @@
 - 数据管理：逐组预测全部走完后，按井的地层道（组、段）对合并结果统计，与井段表
   一起回写；综合图同时多出「优势相」道（组、段两级都有时各一道，文字为优势微相
   与占比）。
-- 智能预测：「测井 → 地层预测相点」完成后，按该井 tops 的地层单位（顶 = 本层位顶，
-  底 = 下一层位顶，最末取预测底）对各层位井段统计后回写；地图井点的相取本层位那一行
-  的优势相（同一口径）；没有 tops 的井没有
-  地层可组织，不出行。人工修订预测井段并保存图件版本时，同步更新维护的
+- 智能预测：「测井 → 当前地层优势相」只截取当前地层顶底深范围，每井提交一次，
+  按相的累计厚度统计优势相；地图矢量每井一个点，工区地层表只回写当前地层一行。
+  单井缺少当前分层、曲线不可用或远端失败时跳过并继续：输出保留该井点，预测相为
+  NULL，状态为「未预测」并记录原因；工区对应层位旧预测值清空。
+  人工修订预测井段并保存图件版本时，同步更新维护的
   `dominant_facies`，不动 `predicted_dominant`。
-- 智能预测请求的每口井带 `vector_formations`（该井全部地层行，含手工维护值），
-  服务端可作输入。
+- 编图输入冻结每口井的 `vector_intervals`、`vector_factors`、`vector_formations`
+  与源版本；API 2.0 测井模型实际输入使用曲线、段和维护岩性。
 
 ## 批量预测传输契约
 
-既有智能预测的 `/health`、`/predict` 路由在 `kind=wells` 时提交 `wells` 与
-`facies`。每口井包含冻结的 `vector_intervals`、当前层位 `vector_factors`、
-该井全部地层行 `vector_formations`、曲线版本 ID 和深度范围。服务端可使用这些属性作为输入。
+智能预测的测井入口复用测井面板的 API 2.0 服务配置与钥匙串密钥：
+`GET /models` 读取模型要求，每井在当前地层范围匹配一个模型并执行一次 `POST /predict`，
+202 时查询 `GET /predictions/{jobId}`。提交前将真实曲线、实际段分层和维护岩性裁剪到
+当前地层 [顶深, 底深) 范围；层外的缺口和无效值不影响该地层预测。模型返回自由文字类别按名称匹配分类，未匹配类别追加到
+本次不可变图件的相分类快照，不套用默认大相类别。相点属性包含
+`dominant_facies`、`predicted_dominant`、相厚度/占比/覆盖率、地层范围及
+`prediction_model` / `prediction_job_id`。服务只覆盖部分有效井段时如实保存
+覆盖率，不合成整井结果。完成后一次发布当前地层矢量，同时回写共用属性表。
 
-服务返回 `points` 数组，每个井点含 `id`、`x`、`y`、`facies_code` 与
-`facies_intervals`；井段支持 JSON 数组或编码后的 JSON 字符串，其中各段为
-`{top, bottom, code}`。工程侧检查井集合、坐标、相编码与深度覆盖后回写。
-测井响应不走栅格本地降级。单井测井服务仍使用已有 API 2.0 模型契约。
+地震远端入口继续使用独立的 `/health`、`/predict` 网格协议；
+`RemotePredictionService` 保留通用井点响应的测试/扩展注入能力。
 
-验证使用本地 HTTP 服务及临时工程，未调用真实外网预测服务：
+本次已编译 `paleo`，尚未执行当前地层范围的远端预测验证。构建命令：
 
 ```sh
-cmake --build build --target paleo tst_wellattributes tst_wellfacies \
-  tst_wellfaciesconfig tst_factorworkflow tst_mappingworkbench \
-  tst_remotepredictrouter tst_wellsection_workflow -j8
-ctest --test-dir build -j8 --output-on-failure \
-  -R '^(tst_(wellattributes|wellfacies|wellfaciesconfig|factorworkflow|mappingworkbench|remotepredictrouter|wellsection_workflow)|layering.*)$'
+cmake --build build --target paleo -j8
 ```

@@ -276,7 +276,8 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   m_mappingWorkbench->setTaskService(m_taskSvc); // 智能预测进任务中心（后台执行、可取消）
   // 方向51：远端预测装配—— MappingWorkbench 自己的那份替身 Mock 已删除，
   // 这里显式装入 RemotePredictionRouter。端点未配置时 router 不带传输，
-  // 任何预测请求如实失败；UI 侧显示「远端预测未配置，走本地引擎」。
+  // 地震请求由该 router 执行；测井另接 API 2.0 服务，与测井面板共用
+  // 配置和密钥。未配置的对应入口如实失败并显示其服务状态。
   {
     const RemotePredictConfig remoteConfig = RemotePredictConfig::load();
     const RemotePredictionAssembly assembly = installRemotePrediction(

@@ -273,7 +273,7 @@ VersionCompare compareVersions(const QString &projectDir, const CatalogVersion &
 }
 
 PurgeOutcome purgeAssets(DataCatalog *cat, const QString &projectDir,
-                         const QStringList &assetIds)
+                         const QStringList &assetIds, bool atomic)
 {
   PurgeOutcome out;
   if (!cat || !cat->isOpen())
@@ -311,11 +311,23 @@ PurgeOutcome purgeAssets(DataCatalog *cat, const QString &projectDir,
   }
   if (targets.isEmpty())
     return out;
+  if (atomic && !out.failedAssets.isEmpty())
+    return out;
 
   // 单事务：全部 removeAsset 并入一个 BatchSave，flush 失败整批回滚零文件动作。
   DataCatalog::BatchSave batch(cat);
   QStringList doomed; // flush 成功后才动文件的 id
-  for (const Target &t : targets)
+  if (atomic) {
+    QStringList ids;
+    for (const auto &target : targets) ids << target.assetId;
+    QString error;
+    if (!cat->removeAssets(ids, &error)) {
+      out.failedAssets << error;
+      return out;
+    }
+    doomed = ids;
+  }
+  else for (const Target &t : targets)
   {
     QString err;
     if (cat->removeAsset(t.assetId, &err))

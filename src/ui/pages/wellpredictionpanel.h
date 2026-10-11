@@ -15,7 +15,7 @@ class WellPredictionPanel : public QWidget {
 public:
   explicit WellPredictionPanel(QWidget *parent = nullptr);
   void setResult(const QString &id, const QVariantList &wells,
-                 const QVariantList &schema);
+                 const QVariantList &schema, bool mock = false);
   void setLog(const LasDoc &log);
   QString layerId() const { return m_layer; }
   void clear();
@@ -34,6 +34,7 @@ private:
   void refreshWell();
   void rebuildTracks();
   QString m_layer;
+  bool m_mock = false;
   QVariantList m_wells, m_schema;
   LasDoc m_log;
   QComboBox *m_well, *m_facies;

@@ -74,8 +74,10 @@ struct PurgeOutcome
 // 残留如实报）。外链版本源文件永远不删（工程外的字节不是我们的）。目标版本
 // 被其他资产的 DERIVED 版本引用（parentVersionIds）时 removeAsset 拒绝——
 // 血统保护在 catalog 层，这里只透传原因。
+// atomic=true：整个资产集合一次 removeAssets，允许集合内部相互引用；
+// 任一目标不可删除时整组不动，用于确认后的图件级联删除。
 PurgeOutcome purgeAssets(DataCatalog *cat, const QString &projectDir,
-                         const QStringList &assetIds);
+                         const QStringList &assetIds, bool atomic = false);
 
 struct PurgeFileExpectation { QString path; qint64 sizeBytes = -1; QDateTime modified; };
 // Shared physical purge phase, worker-safe: no live catalog. Retained references

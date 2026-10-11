@@ -30,6 +30,12 @@ struct RemotePredictionResult {
   RemotePredictionRequest request;
   QVector<int> cells;
   QVariantList points;
+  // API 2.0 测井模型返回文字类别，可扩展冻结的输入分类；井段仅覆盖实际
+  // 可预测范围（不能用合成段补齐整井）。
+  QVariantList facies;
+  bool partialWellCoverage = false;
+  // 编图测井仅请求当前地层；输出为每井一个优势相点。
+  bool currentFormationOnly = false;
   QString method;
   // true = 结果由替身（test double）产生，不是真实推理——上层不得把它当
   // 产品结论展示。走 router/真实服务端时置 false。

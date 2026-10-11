@@ -122,7 +122,9 @@ void TaskPanel::updateTaskRow(QTreeWidgetItem *row, PaleoTask *task)
 
   row->setText(0, task->layerId().isEmpty() ? QStringLiteral("—")
                                           : task->layerId());
-  row->setText(1, task->title());
+  row->setText(1, task->title() + (task->detailText().isEmpty()
+                                    ? QString() : "\n" + task->detailText()));
+  row->setToolTip(1, task->detailText());
   row->setText(3, task->running() ? task->etaText() : QString());
 
   // Progress column: indeterminate tasks get a marquee bar.

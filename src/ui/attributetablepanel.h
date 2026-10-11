@@ -4,6 +4,7 @@
 #include <QString>
 #include <QVariant>
 #include <QVector>
+#include <QPointer>
 #include <functional>
 #include <tuple>
 
@@ -11,23 +12,13 @@ class QgsAttributeTableFilterModel;
 class QgsAttributeTableModel;
 class QgsMapCanvas;
 class QgsVectorLayer;
-class QgsVectorLayerCache;
+class QgsAttributeTableDialog;
+class PaleoAttributeTableHost;
 class QgisEditingService;
 
-// ui/ — AttributeTablePanel: QGIS-native attribute table (QgsAttributeTableView
-// over QgsVectorLayerCache + QgsAttributeTableModel + filter model) for any
-// instantiated project layer. Layer resolution is injected as a provider so
-// the panel never reaches into the layer service itself.
-//
-// 编辑管线（mapping 主线4）：面板自带显式会话入口（编辑/保存/放弃按钮 +
-// beginEditing/saveEditing/cancelEditing API）。会话优先经注入的
-// QgisEditingService 走 beginEdit/commitEdit/rollbackEdit——busy 标记
-//（markLayerBusy）与释放（markLayerFree）时机由服务统一落，与
-// MapVersionController::saveVersion 的提交语义一致（saveVersion 也走
-// commitEdit）；无服务时直连 startEditing/commitChanges/rollBack（无 busy
-// 标记，与编辑工具条的无服务降级一致）。单元格值改动经原生
-// QgsAttributeTableModel 落进图层 edit command/undo 栈；面板从不绕过
-// edit buffer 直写 provider。
+// Layer selection and application edit-service injection around the original
+// QGIS attribute table dialog. QGIS owns the dual view, filters, field tools,
+// selection, form validation and edit-buffer updates.
 class AttributeTablePanel : public QWidget
 {
   Q_OBJECT
@@ -37,6 +28,7 @@ class AttributeTablePanel : public QWidget
     AttributeTablePanel(QgsMapCanvas *canvas,
                         std::function<QgsVectorLayer *(const QString &)> layerProvider,
                         QWidget *parent = nullptr);
+    ~AttributeTablePanel() override;
 
     // populate the layer picker；names 与 ids 同序，显示图层列表里的图层名
     //（缺省/空名退回 id）。
@@ -57,7 +49,7 @@ class AttributeTablePanel : public QWidget
     QgsAttributeTableFilterModel *filterModel() const { return m_filter; }
 
   public slots:
-    // 显式会话入口（与按钮同路径）。当前层未解析/不可写 → 拒绝并 editRefused。
+    // 兼容调用入口；界面编辑动作由 QGIS 原版工具栏提供。
     bool beginEditing();
     bool saveEditing();
     bool cancelEditing();
@@ -70,13 +62,17 @@ class AttributeTablePanel : public QWidget
   private:
     QgsVectorLayer *currentLayer() const;
     void clearTable();
-    void buildEditRow();
     void updateEditRowStates();
 
     QgsMapCanvas *m_canvas;
     std::function<QgsVectorLayer *(const QString &)> m_layerProvider;
     QgisEditingService *m_editingService = nullptr; // not owned, optional
-    QgsVectorLayerCache *m_cache = nullptr;
+    QPointer<QgsVectorLayer> m_currentLayer;
+    QString m_currentLayerId;
+    PaleoAttributeTableHost *m_host = nullptr;
+    QWidget *m_tableHost = nullptr;
+    QgsAttributeTableDialog *m_nativeDialog = nullptr;
+    QMetaObject::Connection m_layerDestroyed;
     QgsAttributeTableModel *m_model = nullptr;
     QgsAttributeTableFilterModel *m_filter = nullptr;
 };

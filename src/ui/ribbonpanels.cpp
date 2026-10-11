@@ -134,6 +134,15 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
   QAction *attrAct = bottomAction(findChild<QWidget *>(QStringLiteral("attributeTablePanel")),
                                   tr("属性表"), icon("mActionOpenTable.svg"),
                                   tr("在底部面板打开图层属性表"), "ribbonAttributeTableAction");
+  if (attrAct)
+    connect(attrAct, &QAction::triggered, this, [this] {
+      if (!m_canvasCtl)
+        return;
+      if (auto *layer = qobject_cast<QgsVectorLayer *>(m_canvasCtl->canvas()->currentLayer())) {
+        const QString id = layer->customProperty(QStringLiteral("paleoLayerId")).toString();
+        showAttributeTable(id.isEmpty() ? layer->id() : id);
+      }
+    });
   QAction *releaseAct = bottomAction(findChild<QWidget *>(QStringLiteral("releasePanel")),
                                      tr("发布记录"), icon("mActionHistory.svg"),
                                      tr("在底部面板查看已发布的版本"), "ribbonReleaseAction");

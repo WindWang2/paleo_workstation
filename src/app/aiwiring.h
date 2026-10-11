@@ -32,7 +32,8 @@ RemotePredictionAssembly assembleRemotePrediction(
     const QString &localModel, QObject *parent);
 
 // 装配 + 接到 MappingWorkbench（appcontext 走这条）。永远返回非空 router：
-// 未配置时它由 router 自己如实失败。
+// 未配置时地震由 router 自己如实失败；同时注入复用测井面板配置的
+// WellPredictionService，测井入口独立使用 API 2.0 模型契约。
 RemotePredictionAssembly installRemotePrediction(MappingWorkbench *bench,
                                                  const RemotePredictConfig &config,
                                                  PaleoOnnxService *onnx,

@@ -15,6 +15,7 @@ class QgisProjectService;
 class ConstraintWorkflow;
 class PaleoTask;
 class PaleoTaskService;
+class WellPredictionService;
 
 // One project-bound catalog writer; all QGIS/catalog mutations run on its GUI
 // thread.
@@ -27,6 +28,8 @@ public:
   ~MappingWorkbench() override;
   void bindCatalog(DataCatalog *catalog, const QString &projectDir);
   void setPredictionService(RemotePredictionService *service);
+  void setWellPredictionService(WellPredictionService *service);
+  QString wellPredictionStatusHint() const;
   RemotePredictionService *predictionService() const { return m_remote.data(); }
   // 智能预测进任务中心：每次预测一行（进度/取消/终态），装配根注入；
   // 未注入时预测照常运行，只是不出任务行。
@@ -63,6 +66,12 @@ public:
   QString copyForEditing(const QString &layerId, const QStringList &references,
                          QString *error);
   bool saveEditingVersion(const QString &draftId, QString *error);
+  // 永久删除生成的图件/编辑副本（product.*/draft.* 才受理）：下架该资产
+  // 全部图层声明、删 catalog 资产与受管文件、清草稿工作目录。
+  // 级联删除需由 UI 展示 removalProducts 的完整清单并取得确认。
+  QVariantList removalProducts(const QString &layerId, QString *error) const;
+  bool removeProduct(const QString &layerId, QString *error,
+                     bool includeDerived = false);
   // role: "direction" | "barrier" | "auto"（auto 无法判定时返回错误，
   // 调用侧应询问用户后重试）。
   bool importConstraints(const QString &horizon, const QString &path,
@@ -113,11 +122,13 @@ signals:
   void faciesChanged(const QString &horizon);
   void predictionBusyChanged(bool busy);
   void predictionProgress(int percent);
+  void predictionDetailChanged(const QString &detail);
   void predictionStatusChanged();
   void productReady(const QString &horizon, const QString &layerId);
   void errorOccurred(const QString &message);
 
 private:
+  void connectPredictionService(RemotePredictionService *service);
   void synchronizeCatalogLayers();
   bool ready(const QString &horizon, QString *error) const;
   QString schemaVersion(const QString &horizon) const;
@@ -145,6 +156,7 @@ private:
   ConstraintWorkflow *m_constraints;
   QPointer<DataCatalog> m_catalog;
   QPointer<RemotePredictionService> m_remote;
+  QPointer<WellPredictionService> m_wellRemote;
   QString m_dir;
   double m_displayScale = 0;
   bool m_catalogSyncQueued = false;

@@ -104,6 +104,11 @@ class ProjectDataFacade : public QObject
     QVector<WellTop> topsFor(const QString &wellId) const;      // empty when unlinked
     // 文件级解析诊断（筛井前）；保留旧入口，报告每次复位。
     QVector<WellTop> topsFor(const QString &wellId, WellParseReport *report) const;
+    // 指定 tops 资产的分层（连井剖面「分层来源」切换）：assetId 空 = 主 tops
+    // 链接（与 topsFor 同口径）；非空时要求该井确有指向此资产的 tops 链接
+    //（非 unresolved）——无链接/资产无版本 → 空，不跨井偷读别的资产。
+    QVector<WellTop> topsForAsset(const QString &wellId, const QString &assetId,
+                                  WellParseReport *report = nullptr) const;
     QVector<TdSample> tdTableFor(const QString &wellId) const;  // empty when unlinked — callers must not fabricate times
     // 图片道锚（core/lab_analysis 角色井附件图片，多成员全量——与 tops 的
     // primary 语义不同：一口井的岩心照片每张都是道内容）。按 depthMd 升序；
@@ -129,8 +134,13 @@ class ProjectDataFacade : public QObject
     QVector<CatalogVersion> downstreamClosureOf(const QString &versionId) const;
 
   private:
-    // 主关联（primary、非 unresolved）最新版本的绝对路径；空 = 无该角色关联。
-    QString assetFilePathFor(const QString &wellId, const QString &role) const;
+    // 关联资产最新版本的绝对路径：assetId 空 = 主关联（primary）；非空 =
+    // 该井指向此资产的同角色链接（非 unresolved）。空 = 无该关联。
+    QString assetFilePathFor(const QString &wellId, const QString &role,
+                             const QString &assetId = QString()) const;
+    // tops 文件 → 该井行（井名规范化匹配）；解析诊断记 report。
+    QVector<WellTop> topsFromFile(const QString &path, const QString &wellId,
+                                  WellParseReport *report) const;
     QString projectDir() const;
 
     DataCatalog *m_catalog = nullptr;   // setProjectDir 时为自有子对象

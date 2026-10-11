@@ -56,6 +56,11 @@ bool parseWellFaciesResult(const QJsonObject &json, const QString &wellName,
 WellFaciesPlan planWellFaciesRuns(const WellComposite::ComprehensiveWellData &data,
                                   const QVector<WellFaciesModel> &models,
                                   const QString &preferredModelId);
+// 编图按当前地层预测：先把曲线、岩性、分层裁到该地层的 [顶深, 底深)，
+// 只匹配一个模型并提交一次；当前范围外的曲线缺口不影响本次输入。
+WellFaciesPlan planWellFaciesFormationRun(const WellComposite::ComprehensiveWellData &data,
+                                        const QVector<WellFaciesModel> &models,
+                                        const QString &horizon);
 // 把逐组返回的结果并成一份供显示/导出：区间按井深排序，置信度曲线按深度拼接。
 // 只有一份时原样返回。
 WellFaciesResult mergeWellFaciesResults(const QVector<WellFaciesResult> &parts);

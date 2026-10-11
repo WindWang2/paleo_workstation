@@ -285,6 +285,8 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
             [this](const QString &layerId) -> QgsVectorLayer * {
               QgsMapLayer *l = m_layerSvc->layer(layerId);
               if (!l)
+                l = QgsProject::instance()->mapLayer(layerId);
+              if (!l)
                 l = m_layerSvc->instantiate(layerId);
               return qobject_cast<QgsVectorLayer *>(l);
             },

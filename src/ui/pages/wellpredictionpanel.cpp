@@ -125,10 +125,11 @@ void WellPredictionPanel::setUndoAvailable(bool available) {
 void WellPredictionPanel::clear() { setResult({}, {}, {}); }
 void WellPredictionPanel::setResult(const QString &id,
                                     const QVariantList &wells,
-                                    const QVariantList &schema) {
+                                    const QVariantList &schema, bool mock) {
   const auto selected = m_well->currentData();
   const int interval = m_intervals->currentRow();
   m_layer = id;
+  m_mock = mock;
   m_wells = wells;
   m_schema = schema;
   {
@@ -136,7 +137,9 @@ void WellPredictionPanel::setResult(const QString &id,
     m_well->clear();
     for (const auto &v : wells) {
       auto w = v.toMap();
-      m_well->addItem(w.value("name").toString(), w.value("id"));
+      const bool skipped = w.value("prediction_status").toString() == QStringLiteral("未预测");
+      m_well->addItem(w.value("name").toString() + (skipped ? tr("（未预测）") : QString()), w.value("id"));
+      m_well->setItemData(m_well->count() - 1, w.value("prediction_reason"), Qt::ToolTipRole);
     }
     int index = m_well->findData(selected);
     m_well->setCurrentIndex(index >= 0 ? index : 0);
@@ -174,13 +177,15 @@ void WellPredictionPanel::refreshWell() {
   }
   const auto well = m_wells[m_well->currentIndex()].toMap();
   const auto rows = well.value("intervals").toList();
-  m_status->setText(tr("预测为 "
-                       "Mock；地图相点按井段累计厚度最大的类别显示并在画布标"
-                       "注类别。%1点击井道或表格选择井段，选择相类别后直接应"
+  m_status->setText(tr("%1；地图相点显示当前地层内的预测相。%2点击井道或表格选择井段，选择相类别后直接应"
                        "用修订；首次修订自动保留预测原件。")
-                        .arg(well.value("depth_mock").toBool()
+                        .arg(m_mock ? tr("Mock 预测") : tr("远端测井预测"),
+                             well.value("depth_mock").toBool()
                                  ? tr("当前深度为模拟范围 0–120 m。 ")
                                  : QString()));
+  if (well.value("prediction_status").toString() == QStringLiteral("未预测"))
+    m_status->setText(tr("%1：未预测（预测相为 NULL）。原因：%2")
+        .arg(well.value("name").toString(), well.value("prediction_reason").toString()));
   m_intervals->setRowCount(rows.size());
   for (int i = 0; i < rows.size(); ++i) {
     auto r = rows[i].toMap();

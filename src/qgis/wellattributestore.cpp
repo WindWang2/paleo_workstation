@@ -223,6 +223,20 @@ QgsVectorLayer *open(DataCatalog *catalog, const QString &dir,
   if (layer->name() != declaration.title && !catalog->refusesWrites())
     layer->setName(declaration.title);
   layer->setReadOnly(catalog->refusesWrites());
+  // 旧工程在首次写入预测时补齐状态字段，保留原有属性和行。
+  if (create && table != Table::Factors && !catalog->refusesWrites()) {
+    QList<QgsField> missing;
+    for (const auto &name : {"prediction_status", "prediction_reason"})
+      if (layer->fields().indexOf(name) < 0)
+        missing << QgsField(name, QMetaType::QString);
+    if (!missing.isEmpty()) {
+      if (layer->isEditable() || !layer->dataProvider()->addAttributes(missing)) {
+        fail(error, tr("无法添加预测状态字段，请先结束属性表编辑"));
+        return nullptr;
+      }
+      layer->updateFields();
+    }
+  }
   // 地图符号与文字标注（2026-10-10）：地层点标注地层名绕点排开；
   // 井段/井点单因素点小空心点不标注（多行同位堆叠，文字在属性表读）。
   if (table == Table::Formations)
@@ -238,6 +252,8 @@ QgsVectorLayer *open(DataCatalog *catalog, const QString &dir,
       {"lithology", tr("岩性")},
       {"facies", tr("维护相")},
       {"predicted_facies", tr("预测相")},
+      {"prediction_status", tr("预测状态")},
+      {"prediction_reason", tr("未预测原因")},
       {"facies_code", tr("相编码")},
       {"log_layer_thickness_md", tr("层厚 MD（m）")},
       {"log_sand_thickness_md", tr("砂厚 MD（m）")},

@@ -6,6 +6,7 @@
 #include "../workflow/aichatcontroller.h"
 #include "../workflow/aiassistworkflow.h"
 #include "../workflow/mappingworkbench.h"
+#include "../workflow/wellpredictionservice.h"
 #include "../qgis/qgislayerservice.h"
 #if PALEO_HAVE_ORT
 #include "../ai/onnxlocalpredictor.h"
@@ -55,6 +56,7 @@ RemotePredictionAssembly installRemotePrediction(MappingWorkbench *bench,
   if (bench) {
     bench->setPredictionService(assembled.service);
     bench->setPredictionStatusHint(assembled.statusHint);
+    bench->setWellPredictionService(new WellPredictionService(parent ? parent : bench));
   }
   return assembled;
 }

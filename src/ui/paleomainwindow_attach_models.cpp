@@ -57,32 +57,32 @@ void PaleoMainWindow::attachDepthConversion(DepthConversionWorkflow *depth)
       return;
     }
     // 模型优先复用最新存档；缺则从 catalog 井控制数据先建层间平均模型。
-    QString modelPath = depth->latestModelPath();
-    if (modelPath.isEmpty())
+    // UIS-20：建模 + 换算在任务中心后台执行（可取消），登记在 GUI 线程。
+    QString err;
+    if (!depth->startConvertRasterToDepth(horizon, timeRaster, depth->latestModelPath(), &err))
     {
-      const VelocityModelBuildRequest req = depth->requestFromCatalog();
-      if (req.topsFilePaths.isEmpty() && req.tdFilePaths.isEmpty())
-      {
-        status(tr("没有可用的井分层/校验炮数据——先导入再转换"), true);
-        return;
-      }
-      QString err;
-      modelPath = depth->buildAndStoreModel(req, &err);
-      if (modelPath.isEmpty())
-      {
-        status(tr("速度模型建立失败：%1").arg(err), true);
-        return;
-      }
-      status(tr("已建立并存档速度模型（层间平均）"), false);
-    }
-    QString convertedId, err;
-    if (!depth->convertRasterToDepth(horizon, timeRaster, modelPath, &convertedId, &err))
-    {
-      status(tr("深度域转换失败：%1").arg(err), true);
+      status(tr("深度域转换未启动：%1").arg(err), true);
       return;
     }
-    status(tr("深度域转换完成：%1 → %2").arg(horizon, convertedId), false);
+    status(tr("深度域转换已在后台执行，进度见底栏任务中心。"), false);
   });
+  const auto report = [this](const QString &text, bool warn) {
+    QgsMessageLog::logMessage(text, QStringLiteral("Paleo"),
+                              warn ? Qgis::MessageLevel::Warning : Qgis::MessageLevel::Info);
+    if (statusBar())
+      statusBar()->showMessage(text, 8000);
+  };
+  connect(depth, &DepthConversionWorkflow::modelStored, this, [report](const QString &) {
+    report(tr("已建立并存档速度模型（层间平均）"), false);
+  });
+  connect(depth, &DepthConversionWorkflow::conversionDone, this,
+          [report](const QString &horizon, const QString &id) {
+            report(tr("深度域转换完成：%1 → %2").arg(horizon, id), false);
+          });
+  connect(depth, &DepthConversionWorkflow::conversionFailed, this,
+          [report](const QString &, const QString &why) {
+            report(tr("深度域转换失败：%1").arg(why), true);
+          });
 }
 
 // ---------------------------------------------------------------------------

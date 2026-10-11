@@ -347,6 +347,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   m_projectData = new ProjectDataFacade(this);
   m_mappingWf = new MappingWorkflow(m_constraintWf, m_compositionWf, m_layerSvc, this);
   m_depthWf = new DepthConversionWorkflow(nullptr, QString(), this); // catalog 绑定随工程打开
+  m_depthWf->setTaskService(m_taskSvc); // facies-ux 6 / UIS-20：建模 + 换算走任务中心
   m_propModelWf = new PropertyModelWorkflow(nullptr, QString(), this); // catalog 绑定随工程打开
   // goal/facies-automapping：catalog/约束库绑定随工程打开（rebind 块）。
   m_faciesMappingWf = new FaciesMappingWorkflow(nullptr, QString(), this);

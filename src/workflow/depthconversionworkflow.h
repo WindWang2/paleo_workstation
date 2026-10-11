@@ -1,14 +1,23 @@
 // 层：功能
 #pragma once
 #include <QObject>
+#include <QPointer>
 #include <QString>
 #include <QStringList>
+#include <QVariantMap>
+#include <functional>
+#include <memory>
 
 #include "../algorithms/velocitymodel.h"
 #include "derivedassets.h"
 
 class DataCatalog;
 class QgisLayerService;
+class PaleoTaskService;
+namespace paleo::jobs
+{
+template <class Job> class JobRunner;
+}
 
 // workflow/ — 时深转换编排（goal/time-depth-velocity）。视图只发意图信号，
 // 本层把井控制数据（分层/校验炮）拟合成速度模型并落 catalog；把时间域层位
@@ -31,6 +40,7 @@ class DepthConversionWorkflow : public QObject
 public:
   explicit DepthConversionWorkflow(DataCatalog *catalog, const QString &projectDir,
                                    QObject *parent = nullptr);
+  ~DepthConversionWorkflow() override;
 
   void setLayerService(QgisLayerService *layers) { m_layers = layers; }
   // 工程打开时重绑 catalog/工程目录（QObject 不可赋值；registrar 原地重建）。
@@ -59,6 +69,31 @@ public:
   static VelocityModelBuildRequest requestFromCatalog(DataCatalog *catalog,
                                                       const QString &projectDir);
 
+  // facies-ux 6 / UIS-20：任务中心版「（必要时建模）+ 时深换算」。prepare
+  // （GUI 线程：校验、冻结路径、预分配受管落位）→ compute（worker：建模、
+  // 换算、写 GeoTIFF，可取消）→ commit（GUI 线程：catalog 登记 + 图层声明，
+  // UIS-12 纪律；会话 / 工程切换守卫）。modelJsonPath 为空 = 按 catalog
+  // 井控制数据先建层间平均模型。结果走 modelStored / conversionDone /
+  // conversionFailed 信号。无任务服务时同步执行。
+  void setTaskService(PaleoTaskService *tasks);
+  bool startConvertRasterToDepth(const QString &horizon, const QString &timeRasterPath,
+                                 const QString &modelJsonPath, QString *error = nullptr);
+  bool depthBusy() const;
+  void cancelDepth();
+
+  struct DepthJob
+  {
+    QString horizon, timeRasterPath, modelJsonPath;
+    bool buildModel = false;
+    VelocityModelBuildRequest buildRequest;
+    DerivedStaging modelStaging, depthStaging;
+    QPointer<DataCatalog> catalog;
+    QString projectDir;
+    QVariantMap modelExtra, depthExtra;
+    QString error;
+  };
+  static bool computeDepth(DepthJob &job, const std::function<bool()> &cancelled);
+
   // 绑定实例的便捷面（壳层不重复持有 catalog/projectDir）。
   QString latestModelPath() const;
   VelocityModelBuildRequest requestFromCatalog() const;
@@ -69,6 +104,9 @@ signals:
   void conversionFailed(const QString &horizon, const QString &reason);
 
 private:
+  bool commitDepth(DepthJob &job, QString *error);
+  QPointer<PaleoTaskService> m_taskSvc;
+  std::unique_ptr<paleo::jobs::JobRunner<DepthJob>> m_depthRunner;
   DataCatalog *m_catalog = nullptr;
   QString m_projectDir;
   QgisLayerService *m_layers = nullptr;

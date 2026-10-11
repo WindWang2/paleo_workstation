@@ -96,6 +96,7 @@ class TestLayerOrganizer : public QObject
     void unmanagedLayerUntouched();
     void sameParentReorderKeepsLayersInProject();
     void customLayerOrderMirrorsTreeAfterReorganize();
+    void newLayerSlotsIntoCustomOrderByTree();
 };
 
 // 2026-10-10 用户实测：编图三页图层列表里井位/测井属性层「闪一下就没了」。
@@ -463,6 +464,51 @@ void TestLayerOrganizer::customLayerOrderMirrorsTreeAfterReorganize()
   fx.organizer.reorganize();
   const auto healed = fx.root()->layerOrder();
   QVERIFY(healed.indexOf(product) < healed.indexOf(basemap));
+}
+
+// facies-ux 2：自定义绘制顺序已生效时，转面产出的相面（05_PaleoMap）
+// 新落树——须收进所属地层组，绘制序按树序插位：压在同层位相栅格
+//（02_Prediction）与底图之上，而不是被 QGIS 追加到表尾画在最底。
+void TestLayerOrganizer::newLayerSlotsIntoCustomOrderByTree()
+{
+  OrganizerFixture fx;
+  QVERIFY(fx.layerSvc.declare(decl(QStringLiteral("product.raster"),
+                                   QStringLiteral("D61"),
+                                   QStringLiteral("02_Prediction"))));
+  QVERIFY(fx.layerSvc.declare(decl(QStringLiteral("basemap.topo"),
+                                   QString(), QStringLiteral("05_PaleoMap"))));
+  QVERIFY(fx.layerSvc.declare(decl(QStringLiteral("wells"), QString(),
+                                   QStringLiteral("00_Data"))));
+  QVERIFY(fx.layerSvc.declare(decl(QStringLiteral("product.polygons"),
+                                   QStringLiteral("D61"),
+                                   QStringLiteral("05_PaleoMap"))));
+  QgsMapLayer *raster = fx.instantiate(QStringLiteral("product.raster"));
+  QgsMapLayer *basemap = fx.instantiate(QStringLiteral("basemap.topo"));
+  QgsMapLayer *wells = fx.instantiate(QStringLiteral("wells"));
+  QVERIFY(raster && basemap && wells);
+  fx.organizer.reorganize();
+  // 「显示预测点位」启用自定义序（以当前树序为起点）。
+  fx.root()->setCustomLayerOrder(fx.root()->layerOrder());
+  fx.root()->setHasCustomLayerOrder(true);
+
+  QgsMapLayer *polygons = fx.instantiate(QStringLiteral("product.polygons"));
+  QVERIFY(polygons);
+  QCoreApplication::processEvents();
+  // 树位：在 D61 层位组内，且在相栅格之上（组秩 05 > 02）。
+  QgsLayerTreeLayer *node = fx.root()->findLayer(polygons->id());
+  QVERIFY(node);
+  auto *group = qobject_cast<QgsLayerTreeGroup *>(node->parent());
+  QVERIFY(group);
+  QCOMPARE(group->customProperty(QStringLiteral("paleoHorizon")).toString(),
+           QStringLiteral("D61"));
+  // 绘制序（index 0 = 最上）：井位 < 相面 < 相栅格 < 底图。
+  const auto order = fx.root()->layerOrder();
+  QVERIFY(order.contains(polygons));
+  QVERIFY(order.indexOf(wells) < order.indexOf(polygons));
+  QVERIFY(order.indexOf(polygons) < order.indexOf(raster));
+  QVERIFY(order.indexOf(raster) < order.indexOf(basemap));
+  // 幂等：重复找位不改序。
+  QVERIFY(!QgisLayerOrganizer::slotIntoCustomOrder(fx.root(), polygons));
 }
 
 int main(int argc, char *argv[])

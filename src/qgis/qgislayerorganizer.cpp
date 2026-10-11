@@ -175,11 +175,41 @@ void QgisLayerOrganizer::placeLayer( QgsMapLayer *layer )
   auto *currentParent = qobject_cast<QgsLayerTreeGroup *>( node->parent() );
   if ( !currentParent )
     return;
-  if ( currentParent == targetParent
-       && targetParent->children().indexOf( node ) == targetIndex )
-    return; // 已在位——归位幂等
+  if ( !( currentParent == targetParent
+          && targetParent->children().indexOf( node ) == targetIndex ) )
+    moveNode( currentParent, node, targetParent, targetIndex ); // 已在位——归位幂等
+  slotIntoCustomOrder( root, layer );
+}
 
-  moveNode( currentParent, node, targetParent, targetIndex );
+bool QgisLayerOrganizer::slotIntoCustomOrder( QgsLayerTree *root, QgsMapLayer *layer )
+{
+  if ( !root || !layer || !root->hasCustomLayerOrder() )
+    return false;
+  QList<QgsMapLayer *> treeOrder;
+  for ( QgsLayerTreeLayer *ln : root->findLayers() )
+    if ( ln->layer() )
+      treeOrder.append( ln->layer() );
+  const int self = treeOrder.indexOf( layer );
+  if ( self < 0 )
+    return false;
+  const QList<QgsMapLayer *> before = root->customLayerOrder();
+  QList<QgsMapLayer *> order = before;
+  order.removeAll( layer );
+  int slot = order.size();
+  for ( int j = self + 1; j < treeOrder.size(); ++j )
+  {
+    const int pos = order.indexOf( treeOrder.at( j ) );
+    if ( pos >= 0 )
+    {
+      slot = pos;
+      break;
+    }
+  }
+  order.insert( slot, layer );
+  if ( order == before )
+    return false;
+  root->setCustomLayerOrder( order );
+  return true;
 }
 
 // 受管/非受管分区：Unmanaged（无声明）节点对摆放透明——既不参与区界也

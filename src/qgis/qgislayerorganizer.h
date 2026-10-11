@@ -6,6 +6,7 @@
 
 #include "../metadata/layermanifest.h"
 
+class QgsLayerTree;
 class QgsLayerTreeGroup;
 class QgsLayerTreeLayer;
 class QgsMapLayer;
@@ -60,6 +61,13 @@ class QgisLayerOrganizer : public QObject
     //（树底层位组之下）/ Unmanaged（无声明，不参与摆放）。
     enum class Zone { SharedData, HorizonGroup, SharedFlat, Unmanaged };
     static Zone zoneFor( const QString &horizon, const QString &group );
+
+    // 自定义绘制顺序生效时（「显示预测点位」会启用它），新落树的图层会被
+    // QGIS 追加到序列表尾 = 画在最底。按树序给它找位：插到树序中位于它之下
+    // 的首个已入序图层之前——相面（05_PaleoMap）压在同层位的相栅格
+    //（02_Prediction）之上、仍在置顶共享数据之下。未启用自定义序时不动。
+    // 返回是否改了序。
+    static bool slotIntoCustomOrder( QgsLayerTree *root, QgsMapLayer *layer );
 
   private:
     void placeLayer( QgsMapLayer *layer );

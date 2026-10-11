@@ -4,21 +4,9 @@
 #include "../qgis/mappingartifactwriter.h"
 #include "../qgis/qgislayerservice.h"
 #include "mappingworkbench.h"
-#include <QJsonDocument>
-#include <QMap>
-#include <limits>
 #include <qgsvectorlayer.h>
 
 namespace {
-QVariantList intervals(const QVariant &value) {
-  return QJsonDocument::fromJson(value.toString().toUtf8())
-      .toVariant()
-      .toList();
-}
-QString encodeIntervals(const QVariantList &value) {
-  return QString::fromUtf8(
-      QJsonDocument::fromVariant(value).toJson(QJsonDocument::Compact));
-}
 bool setAttribute(QgsVectorLayer *layer, QgsFeatureId id, const QString &name,
                   const QVariant &value) {
   const int field = layer->fields().indexOf(name);
@@ -47,6 +35,14 @@ LasDoc MappingWorkbench::predictionLog(const QString &versionId) const {
   m_logCache = result;
   return result;
 }
+bool MappingWorkbench::isWellPrediction(const QString &id) const {
+  if (auto *layer = qobject_cast<QgsVectorLayer *>(m_layers->layer(id)))
+    return layer->fields().indexOf("facies_intervals") >= 0;
+  const auto extra = versionForLayer(id).extra;
+  return extra.value("kind") == "wells_prediction" ||
+      extra.value("result_kind") == "formation_prediction" ||
+      extra.value("result_kind") == "dominant_facies";
+}
 QVariantList MappingWorkbench::wellPredictions(const QString &id) const {
   QVariantList out;
   if (!m_catalog || !m_catalog->isOpen() || declaration(id).type != "vector")
@@ -55,15 +51,18 @@ QVariantList MappingWorkbench::wellPredictions(const QString &id) const {
   if (!layer || layer->fields().indexOf("facies_intervals") < 0)
     return out;
   auto it = layer->getFeatures();
+  const auto schema = versionForLayer(id).extra.value("facies").toList();
+  const auto horizon = declaration(id).horizon;
   QgsFeature feature;
   while (it.nextFeature(feature)) {
-    QVariantMap row;
-    for (const auto &name :
-         {"id", "name", "facies_code", "log_version_id", "depth_mock", "prediction_status", "prediction_reason"})
-      row.insert(name, feature.attribute(name));
-    row.insert("intervals", intervals(feature.attribute("facies_intervals")));
-    row.insert("predicted",
-               intervals(feature.attribute("predicted_intervals")));
+    QVariantMap source;
+    for (int i = 0; i < feature.fields().size(); ++i)
+      source.insert(feature.fields().at(i).name(), feature.attribute(i));
+    auto row = FaciesCatalog::formationPrediction(source, schema, horizon);
+    // 旧图件也只读最终相及当前地层范围；不向井道返回逐采样井段。
+    row.insert("intervals", QVariantList{QVariantMap{
+        {"top", row.value("formation_top")}, {"bottom", row.value("formation_base")},
+        {"code", row.value("facies_code")}, {"label", row.value("facies_label")}}});
     row.insert("feature_id", feature.id());
     out << row;
   }
@@ -98,18 +97,16 @@ bool MappingWorkbench::assignFacies(const QString &id, const QList<qint64> &ids,
   for (auto fid : ids) {
     ok = setCode(layer, fid, code, schema) && ok;
     if (layer->fields().indexOf("facies_intervals") >= 0) {
-      // 井点的相 = 该井在本层位地层内的相：整点改相只改地层范围内的井段
-      //（无地层范围的旧结果仍是整井）。
       const auto feature = layer->getFeature(fid);
-      double top = 0, base = 0;
-      FaciesCatalog::formationRange(feature.attribute("formation_top"),
-                                    feature.attribute("formation_base"), &top,
-                                    &base);
-      const auto rows = FaciesCatalog::recodeIntervals(
-          intervals(feature.attribute("facies_intervals")), code, top, base);
-      ok =
-          setAttribute(layer, fid, "facies_intervals", encodeIntervals(rows)) &&
-          ok;
+      QVariantMap source;
+      for (int i = 0; i < feature.fields().size(); ++i)
+        source.insert(feature.fields().at(i).name(), feature.attribute(i));
+      source.insert("prediction_status", QStringLiteral("已修订"));
+      source.insert("prediction_reason", QString());
+      const auto final = FaciesCatalog::formationPrediction(source, schema, declaration(id).horizon);
+      for (auto a = final.cbegin(); a != final.cend(); ++a)
+        if (layer->fields().indexOf(a.key()) >= 0)
+          ok = setAttribute(layer, fid, a.key(), a.value()) && ok;
     }
   }
   if (!ok) {
@@ -130,7 +127,7 @@ bool MappingWorkbench::reviseWellInterval(const QString &id,
     return false;
   };
   if (!id.startsWith("draft."))
-    return reject(tr("先复制预测结果，再修订井段"));
+    return reject(tr("先复制预测结果，再修订预测相"));
   const auto schema = versionForLayer(id).extra.value("facies").toList();
   bool defined = false;
   for (const auto &v : schema)
@@ -152,30 +149,7 @@ bool MappingWorkbench::reviseWellInterval(const QString &id,
     }
   if (!found)
     return reject(tr("该井不在当前预测结果中"));
-  auto rows = intervals(f.attribute("facies_intervals"));
-  if (index < 0 || index >= rows.size())
-    return reject(tr("请选择有效井段"));
-  auto row = rows[index].toMap();
-  row.insert("code", code);
-  rows[index] = row;
-  double top = 0, base = 0;
-  FaciesCatalog::formationRange(f.attribute("formation_top"),
-                                f.attribute("formation_base"), &top, &base);
-  int dominant = FaciesCatalog::dominantCode(rows, top, base);
-  if (!dominant) // 地层范围内无井段（旧数据/越界）：退回整井口径
-    dominant = FaciesCatalog::dominantCode(
-        rows, -std::numeric_limits<double>::infinity(),
-        std::numeric_limits<double>::infinity());
-  if (!layer->isEditable() && !layer->startEditing())
-    return reject(tr("无法开始编辑"));
-  layer->beginEditCommand(tr("修订测井相井段"));
-  if (!setAttribute(layer, f.id(), "facies_intervals", encodeIntervals(rows)) ||
-      !setCode(layer, f.id(), dominant, schema)) {
-    layer->destroyEditCommand();
-    return reject(tr("井段修订失败，已撤销本次修改"));
-  }
-  layer->endEditCommand();
-  layer->triggerRepaint();
-  emit faciesEdited(id);
-  return true;
+  if (index != 0)
+    return reject(tr("每井每地层只有一条预测相，请选择该结果"));
+  return assignFacies(id, {f.id()}, code, error);
 }

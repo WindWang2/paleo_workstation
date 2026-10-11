@@ -3,6 +3,7 @@
 #include "wellpredictionservice.h"
 #include "../algorithms/faciesmapping/formationdominance.h"
 #include "../domain/faciescatalog.h"
+#include "../catalog/purgelease.h"
 #include "../domain/mappinghorizons.h"
 #include "../domain/singlefactorrequest.h"
 #include "../io/constraintstore.h"
@@ -137,7 +138,7 @@ MappingWorkbench::MappingWorkbench(QgisLayerService *layers,
             },
             Qt::QueuedConnection);
   connect(m_layers, &QgisLayerService::layerDeclared, this,
-          &MappingWorkbench::changed);
+          [this] { m_productsValid = false; emit changed(); });
   connect(this, &MappingWorkbench::predictionProgress, this, [this](int p) {
     if (m_task)
       m_task->reportBytes(std::clamp(p, 0, 100), 100);
@@ -196,12 +197,14 @@ void MappingWorkbench::bindCatalog(DataCatalog *catalog, const QString &dir) {
   m_catalog = catalog;
   m_catalogSyncQueued = false;
   m_dir = dir;
+  m_versionIndexValid = m_productsValid = false;
+  m_aliasVersions.clear(); m_pathVersions.clear(); m_productsCache.clear();
   if (m_wellRemote) m_wellRemote->bindCatalog(catalog, dir);
   m_logVersion.clear();
   m_logCache = {};
   if (catalog)
     connect(catalog, &DataCatalog::changed, this, [this] {
-      emit changed();
+      m_versionIndexValid = m_productsValid = false;
       if (m_catalogSyncQueued)
         return;
       m_catalogSyncQueued = true;
@@ -263,6 +266,7 @@ void MappingWorkbench::synchronizeCatalogLayers() {
       d.group = e.value("group").toString();
       d.title = e.value("title", a.displayName).toString() +
                 tr(" · v%1").arg(v.versionNumber);
+      d.title.replace(QStringLiteral("测井优势相"), QStringLiteral("测井相"));
       declareMissing(d);
       if (e.value("kind") == "constraint_snapshot" &&
           m_catalog->currentVersion(a.id).id == v.id)
@@ -280,6 +284,7 @@ void MappingWorkbench::synchronizeCatalogLayers() {
           d.layerId = draftId;
           d.source = wp + QStringLiteral("|layername=features");
           d.title = e.value("title").toString() + tr(" · 工作副本");
+          d.title.replace(QStringLiteral("测井优势相"), QStringLiteral("测井相"));
           declareMissing(d);
         }
       }
@@ -471,39 +476,64 @@ QVariantList MappingWorkbench::inputs(const QString &kind) const {
   return out;
 }
 LayerDeclaration MappingWorkbench::declaration(const QString &id) const {
-  for (const auto &d : m_layers->declared())
-    if (d.layerId == id)
-      return d;
-  return {};
+  auto result = m_layers->declaration(id);
+  result.title.replace(QStringLiteral("测井优势相"), QStringLiteral("测井相"));
+  return result;
+}
+void MappingWorkbench::ensureVersionIndex() const {
+  if (!m_catalog) return;
+  if (m_versionIndexValid && m_versionIndexSeq == m_catalog->mutationSeq() &&
+      m_versionIndexRevision == m_catalog->catalogRevision()) return;
+  m_aliasVersions.clear(); m_pathVersions.clear(); m_productsValid = false;
+  const auto insert = [](auto &index, const QString &key, const CatalogVersion &v) {
+    if (key.isEmpty()) return;
+    auto it = index.find(key);
+    if (it == index.end() || it->versionNumber < v.versionNumber) index.insert(key, v);
+  };
+  for (const auto &v : m_catalog->versions()) {
+    insert(m_aliasVersions, v.extra.value("layer_id").toString(), v);
+    insert(m_aliasVersions, v.extra.value("draft_id").toString(), v);
+    insert(m_pathVersions, DataCatalog::resolvedVersionPath(m_dir, v), v);
+  }
+  m_versionIndexSeq = m_catalog->mutationSeq();
+  m_versionIndexRevision = m_catalog->catalogRevision();
+  m_versionIndexValid = true;
 }
 CatalogVersion MappingWorkbench::versionForLayer(const QString &id) const {
-  CatalogVersion found;
-  if (!m_catalog)
-    return found;
+  if (!m_catalog || id.isEmpty()) return {};
   if (id.startsWith("product.")) {
     const auto exact = m_catalog->versionById(id.mid(8));
-    if (!exact.id.isEmpty())
-      return exact;
+    if (!exact.id.isEmpty()) return exact;
   }
-  const auto d = declaration(id);
-  const auto path = filePath(d.source);
-  for (const auto &a : m_catalog->assets())
-    for (const auto &v : m_catalog->versionsForAsset(a.id))
-      if (v.extra.value("layer_id").toString() == id ||
-          (!id.isEmpty() && v.extra.value("draft_id").toString() == id) ||
-          (!path.isEmpty() &&
-           DataCatalog::resolvedVersionPath(m_dir, v) == path))
-        if (found.id.isEmpty() || v.versionNumber > found.versionNumber)
-          found = v;
+  ensureVersionIndex();
+  auto found = m_aliasVersions.value(id);
+  const auto byPath = m_pathVersions.value(filePath(declaration(id).source));
+  if (found.id.isEmpty() || byPath.versionNumber > found.versionNumber) found = byPath;
   return found;
 }
 QVariantList MappingWorkbench::products(const QString &h) const {
+  ensureVersionIndex();
+  const auto filter = [&h](const QVariantList &all) {
+    if (h.isEmpty()) return all;
+    QVariantList out;
+    for (const auto &v : all) {
+      const auto horizon = v.toMap().value("horizon").toString();
+      if (horizon.isEmpty() || horizon == h) out << v;
+    }
+    return out;
+  };
+  if (m_productsValid) return filter(m_productsCache);
+  QHash<QString, QStringList> children;
+  if (m_catalog)
+    for (const auto &v : m_catalog->versions()) {
+      const auto asset = m_catalog->assetById(v.assetId);
+      const auto title = tr("%1 · v%2").arg(v.extra.value("title", asset.displayName).toString()).arg(v.versionNumber);
+      for (const auto &parent : v.parentVersionIds) children[parent] << title;
+    }
   QVariantList rows;
   for (const auto &d : m_layers->declared()) {
     // h 为空 = 不按层位圈定（全部层位的成果都列出）；有 h 时精确匹配，
     // 无层位声明（井位/测区/底图）在任何视图都保留。
-    if (!h.isEmpty() && !d.horizon.isEmpty() && d.horizon != h)
-      continue;
     const auto v = versionForLayer(d.layerId);
     const auto e = v.extra;
     // Current aliases remain in the layer tree; the result list shows one row
@@ -522,18 +552,10 @@ QVariantList MappingWorkbench::products(const QString &h) const {
                    .arg(p.extra.value("title", asset.displayName).toString())
                    .arg(p.versionNumber);
       }
-      if (!v.id.isEmpty())
-        for (const auto &asset : m_catalog->assets())
-          for (const auto &child : m_catalog->versionsForAsset(asset.id))
-            if (child.parentVersionIds.contains(v.id))
-              childNames << tr("%1 · v%2")
-                                .arg(child.extra
-                                         .value("title", asset.displayName)
-                                         .toString())
-                                .arg(child.versionNumber);
+      childNames = children.value(v.id);
     }
     rows << QVariantMap{{"id", d.layerId},
-                        {"name", d.title.isEmpty() ? d.layerId : d.title},
+                        {"name", d.title.isEmpty() ? d.layerId : QString(d.title).replace(QStringLiteral("测井优势相"), QStringLiteral("测井相"))},
                         {"horizon", d.horizon},
                         {"type", d.type},
                         {"version", v.versionNumber},
@@ -549,7 +571,9 @@ QVariantList MappingWorkbench::products(const QString &h) const {
                         {"parameters", e},
                         {"draft", d.layerId.startsWith("draft.")}};
   }
-  return rows;
+  m_productsCache = rows;
+  m_productsValid = true;
+  return filter(rows);
 }
 QString MappingWorkbench::record(const QString &path, const QString &h,
                                  const QString &kind, const QString &title,
@@ -982,7 +1006,7 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
   m_predictionParameters.clear();
   m_request = request;
   beginPredictionTask(request.kind == "wells"
-                          ? tr("智能预测 · %1 · 测井 %2 口井（每井一个优势相）")
+                          ? tr("智能预测 · %1 · 测井 %2 口井（每井一个预测相）")
                                 .arg(h).arg(request.wells.size())
                           : tr("智能预测 · %1 · 地震相（预测服务）").arg(h));
   emit predictionBusyChanged(true);
@@ -1187,8 +1211,7 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &result) {
       points[i] = point;
     }
   // 智能预测的井点相 = 该井在本层位地层（tops：本层位顶 → 下一层位顶）内
-  // 厚度最大的相（优势相）；与数据管理逐组预测共用「测井地层相属性」表的
-  // 同一口径。井上没有本层位分层时退回整井口径并如实标注 facies_scope。
+  // 厚度最大的相；统计后仅发布每井每地层的一条预测相。不能预测的井保留 NULL。
   QVariantList formationRows, skippedIntervalRows;
   int skippedWells = 0;
   if (valid && request.kind == "wells") {
@@ -1284,6 +1307,15 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &result) {
       value = point;
     }
   }
+  if (valid && request.kind == "wells") {
+    for (auto &point : points)
+      point = FaciesCatalog::formationPrediction(point.toMap(), schema, request.horizon);
+    for (auto &value : formationRows) {
+      auto row = value.toMap();
+      row.insert("facies_composition", QVariant());
+      value = row;
+    }
+  }
   QString error;
   if (!valid)
     error = tr("预测服务返回的网格、井集合或相编码与请求不一致，未发布");
@@ -1316,7 +1348,7 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &result) {
       auto parameters = m_predictionParameters;
       if (result.currentFormationOnly) {
         parameters.insert("result_scope", QStringLiteral("current_formation"));
-        parameters.insert("result_kind", QStringLiteral("dominant_facies"));
+        parameters.insert("result_kind", QStringLiteral("formation_prediction"));
       }
       if (request.kind == "wells") {
         parameters.insert("predicted_well_count", points.size() - skippedWells);
@@ -1344,7 +1376,7 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &result) {
              tr("%1 %2预测%3")
                  .arg(request.horizon,
                       request.kind == "seismic" ? tr("地震相")
-                          : result.currentFormationOnly ? tr("测井优势相") : tr("测井相"),
+                          : tr("测井相"),
                       result.mock ? tr("（Mock）") : QString()),
              request.kind == "seismic" ? "raster" : "vector",
              sourceVersions,
@@ -1507,9 +1539,11 @@ QString MappingWorkbench::copyForEditing(const QString &id,
       {"display_mode", displayMode(id)},
       {"hierarchy_model", "shared-polygon-partition-v1"},
       {"mock", source.extra.value("mock")},
+      {"result_scope", layer->fields().indexOf("facies_intervals") >= 0 ? QStringLiteral("current_formation") : source.extra.value("result_scope").toString()},
+      {"result_kind", layer->fields().indexOf("facies_intervals") >= 0 ? QStringLiteral("formation_prediction") : source.extra.value("result_kind").toString()},
       {"method", "manual-edit-copy"}};
   const auto editTitle = layer->fields().indexOf("facies_intervals") >= 0
-                             ? tr("%1 测井相修订").arg(d.horizon)
+                             ? tr("%1 测井预测相修订").arg(d.horizon)
                              : tr("%1 相图修订").arg(d.horizon);
   const auto snapshot =
       record(path, d.horizon, "edited_facies", editTitle, "vector", parents,
@@ -1631,15 +1665,21 @@ QVariantList MappingWorkbench::removalProducts(const QString &layerId, QString *
     fail(error, tr("所选图件尚未登记到数据管理"));
     return {};
   }
+  // 一次建反向谱系，按资产广度遍历；每条版本边只处理一次。
+  QHash<QString, QVector<CatalogVersion>> childrenByAsset;
+  for (const auto &child : m_catalog->versions()) {
+    QSet<QString> parents;
+    for (const auto &parent : child.parentVersionIds) {
+      const auto asset = m_catalog->versionById(parent).assetId;
+      if (!asset.isEmpty()) parents.insert(asset);
+    }
+    for (const auto &asset : parents) childrenByAsset[asset] << child;
+  }
   QStringList assets{target.assetId};
-  QSet<QString> selected{target.assetId}, versions;
-  for (qsizetype i = 0; i < assets.size(); ++i) {
-    for (const auto &version : m_catalog->versionsForAsset(assets[i])) versions.insert(version.id);
-    for (const auto &child : m_catalog->versions()) {
+  QSet<QString> selected{target.assetId};
+  for (qsizetype i = 0; i < assets.size(); ++i)
+    for (const auto &child : childrenByAsset.value(assets[i])) {
       if (selected.contains(child.assetId)) continue;
-      const bool dependent = std::any_of(child.parentVersionIds.cbegin(), child.parentVersionIds.cend(),
-        [&versions](const QString &parent) { return versions.contains(parent); });
-      if (!dependent) continue;
       if (!child.extra.value("mapping_product").toBool()) {
         fail(error, tr("图件被数据管理中的「%1」引用，请先处理该派生资产")
                         .arg(m_catalog->assetById(child.assetId).displayName));
@@ -1648,7 +1688,6 @@ QVariantList MappingWorkbench::removalProducts(const QString &layerId, QString *
       selected.insert(child.assetId);
       assets << child.assetId;
     }
-  }
   QVariantList products;
   for (const auto &asset : assets) {
     const auto version = m_catalog->currentVersion(asset);
@@ -1659,6 +1698,10 @@ QVariantList MappingWorkbench::removalProducts(const QString &layerId, QString *
   return products;
 }
 bool MappingWorkbench::removeProduct(const QString &layerId, QString *error, bool includeDerived) {
+  if (m_catalog && CatalogPurgeLease::isHeld(m_catalog->catalogPath())) {
+    fail(error, tr("受管文件正在清理，请完成后再删除图件"));
+    return false;
+  }
   const auto products = removalProducts(layerId, error);
   if (products.isEmpty()) return false;
   if (products.size() > 1 && !includeDerived) {
@@ -1684,16 +1727,18 @@ bool MappingWorkbench::removeProduct(const QString &layerId, QString *error, boo
   if (!m_layers->tryDeclared(&declared, error)) return false;
   QVector<LayerDeclaration> declarations;
   QStringList declIds;
+  const QSet<QString> selectedAssets(assetIds.begin(), assetIds.end());
   for (const auto &d : declared)
-    if (assetIds.contains(versionForLayer(d.layerId).assetId)) {
+    if (selectedAssets.contains(versionForLayer(d.layerId).assetId)) {
       declarations << d;
       declIds << d.layerId;
     }
   // 编辑中的实例不可销毁（removeDeclaration 自身也拦，前置校验让整组
   // 声明要么全下架要么不动）。
+  const QSet<QString> selectedDeclarations(declIds.begin(), declIds.end());
   if (auto *project = m_project ? m_project->project() : nullptr)
     for (auto *layer : project->mapLayers())
-      if (declIds.contains(
+      if (selectedDeclarations.contains(
               layer->customProperty("paleoLayerId").toString()))
         if (auto *vector = qobject_cast<QgsVectorLayer *>(layer);
             vector && vector->isEditable()) {
@@ -1706,30 +1751,41 @@ bool MappingWorkbench::removeProduct(const QString &layerId, QString *error, boo
     for (const auto &d : declarations) m_layers->declare(d);
     emit changed();
   };
-  for (const auto &declId : declIds)
-    if (!m_layers->removeDeclaration(declId, error)) {
-      restoreDeclarations();
-      return false;
-    }
-  const auto outcome =
-      paleo::assetops::purgeAssets(m_catalog, m_dir, assetIds, true);
+  if (!m_layers->removeDeclarations(declIds, error)) return false;
+  const auto outcome = paleo::assetops::purgeAssets(m_catalog, m_dir, assetIds, true, true);
   if (outcome.purgedAssetIds.size() != assetIds.size()) {
     restoreDeclarations();
-    fail(error, outcome.failedAssets.isEmpty()
-                    ? tr("图件删除失败")
-                    : outcome.failedAssets.constFirst());
+    fail(error, outcome.failedAssets.isEmpty() ? tr("图件删除失败") : outcome.failedAssets.constFirst());
     return false;
   }
-  // 草稿工作副本不在受管目录（artifacts/working/draft.<uid>/），catalog
-  // 行与声明已清，工作目录一并删。
+  // 主线程只提交目录并释放 QGIS provider。物理清理使用值快照，后台不访问活 catalog。
   if (layerId.startsWith("draft."))
-    QDir(QDir(m_dir).filePath(QStringLiteral("artifacts/working/") + layerId))
-        .removeRecursively();
+    workingPaths << QDir(m_dir).filePath(QStringLiteral("artifacts/working/") + layerId);
   workingPaths.removeDuplicates();
-  for (const auto &working : workingPaths) QDir(working).removeRecursively();
-  if (!outcome.leftoverFiles.isEmpty())
-    emit errorOccurred(tr("图件记录已删除，以下受管文件未能移除：%1")
-                         .arg(outcome.leftoverFiles.join("；")));
+  const auto projectDir = m_dir;
+  const auto retained = m_catalog->versions();
+  const auto lease = CatalogPurgeLease::acquire(m_catalog->catalogPath());
+  if (!lease) {
+    emit errorOccurred(tr("图件记录已删除，后台文件清理未启动，请检查残留文件"));
+  } else {
+    auto *cleanup = new QFutureWatcher<paleo::assetops::PurgeOutcome>(this);
+    connect(cleanup, &QFutureWatcher<paleo::assetops::PurgeOutcome>::finished, this,
+        [this, cleanup, projectDir] {
+          const auto result = cleanup->result();
+          cleanup->deleteLater();
+          if (!result.leftoverFiles.isEmpty()) {
+            const auto message = tr("图件记录已删除，以下受管文件未能移除：%1").arg(result.leftoverFiles.join("；"));
+            if (m_dir == projectDir) emit errorOccurred(message);
+            else qWarning("%s", qPrintable(message));
+          }
+        });
+    cleanup->setFuture(QtConcurrent::run([projectDir, paths = outcome.pendingFiles, retained, workingPaths, lease] {
+      auto result = paleo::assetops::purgeManagedFiles(projectDir, paths, retained);
+      for (const auto &working : workingPaths)
+        if (QDir(working).exists() && !QDir(working).removeRecursively()) result.leftoverFiles << working;
+      return result;
+    }));
+  }
   emit changed();
   if (m_project && !m_project->projectPath().isEmpty() &&
       !m_project->writeProject())
@@ -2012,6 +2068,8 @@ void MappingWorkbench::styleLayer(const QString &id) {
   auto *layer = m_layers->layer(id);
   if (!layer)
     return;
+  if (layer->name().contains(QStringLiteral("测井优势相")))
+    layer->setName(QString(layer->name()).replace(QStringLiteral("测井优势相"), QStringLiteral("测井相")));
   layer->setCustomProperty("paleoAssetId", v.assetId);
   layer->setCustomProperty("paleoVersionId", v.id);
   const auto styledKind = v.extra.value("kind").toString();

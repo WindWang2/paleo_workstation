@@ -145,6 +145,66 @@ QVariantList recodeIntervals(const QVariantList &intervals, int code,
   }
   return out;
 }
+QVariantMap formationPrediction(const QVariantMap &source, const QVariantList &schema,
+                                const QString &horizon) {
+  auto point = source;
+  const QString formation = horizon.isEmpty()
+      ? point.value("formation", point.value("horizon")).toString() : horizon;
+  double top = 0, base = 0;
+  formationRange(point.value("formation_top"), point.value("formation_base"), &top, &base);
+  QVariantMap unit;
+  const auto stored = point.value("formation_intervals");
+  const auto formations = stored.metaType().id() == QMetaType::QVariantList ? stored.toList()
+      : QJsonDocument::fromJson(stored.toString().toUtf8()).toVariant().toList();
+  for (const auto &v : formations) {
+    const auto f = v.toMap();
+    if (f.value("name").toString().compare(formation, Qt::CaseInsensitive) != 0) continue;
+    unit = f;
+    if (!std::isfinite(top) || !std::isfinite(base))
+      formationRange(f.value("top"), f.value("bottom"), &top, &base);
+    break;
+  }
+  const bool range = std::isfinite(top) && std::isfinite(base) && base > top;
+  const auto code = point.value("facies_code");
+  const bool predicted = range && !code.isNull() && code.toInt() > 0 &&
+      point.value("prediction_status").toString() != QStringLiteral("未预测");
+  const auto attrs = attributes(schema, code);
+  const QString label = predicted ? attrs.value("facies_label").toString() : QStringLiteral("未预测");
+  for (auto a = attrs.cbegin(); a != attrs.cend(); ++a)
+    point.insert(a.key(), predicted ? a.value() : QVariant());
+  point.insert("facies_label", label);
+  point.insert("predicted_facies", predicted ? QVariant(label) : QVariant());
+  point.insert("facies_code", predicted ? code : QVariant());
+  point.insert("formation", formation);
+  point.insert("facies_scope", QStringLiteral("formation"));
+  point.insert("result_scope", QStringLiteral("current_formation"));
+  point.insert("result_kind", QStringLiteral("formation_prediction"));
+  if (range) {
+    point.insert("formation_top", top); point.insert("formation_base", base);
+    unit.insert("name", formation); unit.insert("top", top); unit.insert("bottom", base);
+  } else {
+    point.insert("formation_top", QVariant());
+    point.insert("formation_base", QVariant());
+  }
+  if (!predicted) {
+    point.insert("prediction_status", QStringLiteral("未预测"));
+    if (point.value("prediction_reason").toString().isEmpty())
+      point.insert("prediction_reason", range ? QObject::tr("当前地层没有预测相")
+                                              : QObject::tr("缺少当前地层的有效顶底深"));
+  }
+  QVariantList final;
+  if (predicted && range) final << QVariantMap{{"top", top}, {"bottom", base}, {"code", code}};
+  const auto encode = [](const QVariantList &v) {
+    return QString::fromUtf8(QJsonDocument::fromVariant(v).toJson(QJsonDocument::Compact));
+  };
+  point.insert("facies_intervals", encode(final));
+  point.insert("predicted_intervals", encode(final));
+  point.insert("formation_intervals", encode(range ? QVariantList{unit} : QVariantList{}));
+  for (const auto &key : {"dominant_facies", "predicted_dominant", "dominant_thickness_md",
+      "dominant_ratio", "facies_ratio", "facies_composition", "tie"}) point.remove(key);
+  return point;
+}
+
 void formationRange(const QVariant &top, const QVariant &base, double *outTop,
                     double *outBase) {
   bool topOk = false, baseOk = false;

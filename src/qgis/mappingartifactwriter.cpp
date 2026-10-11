@@ -2,12 +2,12 @@
 #include "mappingartifactwriter.h"
 #include "../catalog/datacatalog.h"
 #include "../domain/faciescatalog.h"
-#include "../algorithms/faciesmapping/formationdominance.h"
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSaveFile>
 #include <gdal.h>
+#include <qgsattributetableconfig.h>
 #include <qgscategorizedsymbolrenderer.h>
 #include <qgscoordinatetransform.h>
 #include <qgsexpression.h>
@@ -183,72 +183,37 @@ bool syncFaciesAttributes(QgsVectorLayer *layer, const QVariantList &facies,
        {"facies_name", "subfacies", "microfacies", "facies_label", "texture"})
     if (layer->fields().indexOf(name) < 0)
       ok = layer->addAttribute(QgsField(name, QMetaType::Type::QString)) && ok;
+  if (layer->fields().indexOf("facies_intervals") >= 0) {
+    if (layer->fields().indexOf("predicted_facies") < 0)
+      ok = layer->addAttribute(QgsField("predicted_facies", QMetaType::Type::QString)) && ok;
+    for (const auto &name : {"dominant_facies", "predicted_dominant", "dominant_thickness_md", "dominant_ratio", "facies_ratio", "facies_composition", "tie"})
+      if (const int index = layer->fields().indexOf(name); index >= 0)
+        ok = layer->deleteAttribute(index) && ok;
+  }
   auto it = layer->getFeatures();
   QgsFeature feature;
   while (ok && it.nextFeature(feature)) {
-    // Direct attribute-table changes to a well point apply to the intervals
-    // of the point's formation (formation_top/base; whole well when absent).
-    // Interval edits already keep the formation's dominant point code in sync.
     if (layer->fields().indexOf("facies_intervals") >= 0) {
-      auto intervals =
-          QJsonDocument::fromJson(
-              feature.attribute("facies_intervals").toString().toUtf8())
-              .toVariant()
-              .toList();
-      double top = 0, base = 0;
-      FaciesCatalog::formationRange(feature.attribute("formation_top"),
-                                    feature.attribute("formation_base"), &top,
-                                    &base);
-      // Remote well vectors expose the same formation dominance as the work
-      // area table, including its shallowest-observation tie rule.
-      const auto dominance = [&](const QVariantList &rows) {
-        QVector<FaciesSpan> spans;
-        for (const auto &v : rows) {
-          const auto row = v.toMap();
-          const int code = row.value("code").toInt();
-          spans.append({row.value("top").toDouble(), row.value("bottom").toDouble(),
-                        FaciesCatalog::find(facies, code).value("name").toString(), code});
-        }
-        WellComposite::FormationInterval formation;
-        formation.name = feature.attribute("formation").toString();
-        formation.topDepth = float(top); formation.bottomDepth = float(base);
-        return paleo::faciesmapping::dominantFaciesByFormation({formation}, spans);
-      };
-      auto ranked = layer->fields().indexOf("dominant_facies") >= 0
-                        ? dominance(intervals) : QVector<FormationDominance>();
-      const int dominant = !ranked.isEmpty() ? ranked.first().dominantCode
-                                             : FaciesCatalog::dominantCode(intervals, top, base);
-      if (dominant) {
-        if (dominant != feature.attribute("facies_code").toInt()) {
-          intervals = FaciesCatalog::recodeIntervals(
-              intervals, feature.attribute("facies_code").toInt(), top, base);
-          ok = layer->changeAttributeValue(
-                   feature.id(), layer->fields().indexOf("facies_intervals"),
-                   QString::fromUtf8(
-                       QJsonDocument::fromVariant(intervals).toJson(
-                           QJsonDocument::Compact))) &&
-               ok;
-        }
+      QVariantMap source;
+      for (int i = 0; i < feature.fields().size(); ++i)
+        source.insert(feature.fields().at(i).name(), feature.attribute(i));
+      // 属性表直接改编码时，空值状态也同步到最终预测相。
+      source.insert("prediction_status", feature.attribute("facies_code").isNull()
+          ? QStringLiteral("未预测") : QStringLiteral("已修订"));
+      const auto final = FaciesCatalog::formationPrediction(source, facies);
+      for (auto a = final.cbegin(); a != final.cend(); ++a) {
+        const int index = layer->fields().indexOf(a.key());
+        if (index >= 0) ok = layer->changeAttributeValue(feature.id(), index, a.value()) && ok;
       }
-      if (!ranked.isEmpty()) {
-        ranked = dominance(intervals);
-        const auto &d = ranked.first();
-        const QVariantMap stats{{"dominant_facies", d.dominant},
-          {"dominant_thickness_md", d.dominantThickness}, {"dominant_ratio", d.ratio},
-          {"facies_ratio", d.ratio}, {"coverage", d.coverage}, {"tie", d.tie},
-          {"facies_composition", d.composition}};
-        for (auto field = stats.cbegin(); field != stats.cend(); ++field) {
-          const int index = layer->fields().indexOf(field.key());
-          if (index >= 0) ok = layer->changeAttributeValue(feature.id(), index, field.value()) && ok;
-        }
-      }
+      feature = layer->getFeature(feature.id());
     }
     const auto attrs =
         FaciesCatalog::attributes(facies, feature.attribute("facies_code"));
     for (auto a = attrs.cbegin(); a != attrs.cend(); ++a)
       ok = layer->changeAttributeValue(
-               feature.id(), layer->fields().indexOf(a.key()), a.value()) &&
-           ok;
+               feature.id(), layer->fields().indexOf(a.key()),
+               feature.attribute("facies_code").isNull() && layer->fields().indexOf("facies_intervals") >= 0
+                   ? (a.key() == "facies_label" ? QVariant(QObject::tr("未预测")) : QVariant()) : a.value()) && ok;
   }
   if (!ok) {
     layer->destroyEditCommand();
@@ -404,12 +369,9 @@ void applyFaciesStyle(QgsMapLayer *layer, const QVariantList &facies) {
       if (!symbol)
         continue;
       const bool point = vector->geometryType() == Qgis::GeometryType::Point;
-      // 测井点标记统一：不按相改颜色、不换 SVG。相名走文字标注。
-      // 面仍用相色和纹理填充。
-      if (!point)
-        symbol->setColor(QColor(f.value("color").toString()));
-      else
-        symbol->setColor(QColor(QStringLiteral("#24303E")));
+      // 预测点与相面、井道共用分类的纹理底色；圆点保留白色描边。
+      const auto faciesColor = QColor(f.value("color").toString());
+      symbol->setColor(faciesColor.isValid() ? faciesColor : QColor(QStringLiteral("#9AA7B4")));
       const auto texture =
           FaciesCatalog::fillPath(f.value("texture").toString());
       if (!texture.isEmpty() && !point) {
@@ -422,7 +384,6 @@ void applyFaciesStyle(QgsMapLayer *layer, const QVariantList &facies) {
       if (point) {
         auto *marker = static_cast<QgsMarkerSymbol *>(symbol);
         marker->setSize(3.2);
-        marker->setColor(QColor(QStringLiteral("#24303E")));
         if (auto *simple =
                 dynamic_cast<QgsSimpleMarkerSymbolLayer *>(marker->symbolLayer(0))) {
           simple->setStrokeColor(QColor(QStringLiteral("#FFFFFF")));
@@ -436,8 +397,7 @@ void applyFaciesStyle(QgsMapLayer *layer, const QVariantList &facies) {
     auto *fallback = QgsSymbol::defaultSymbol(vector->geometryType());
     if (fallback) {
       const bool point = vector->geometryType() == Qgis::GeometryType::Point;
-      fallback->setColor(point ? QColor(QStringLiteral("#24303E"))
-                               : QColor(QStringLiteral("#9AA7B4")));
+      fallback->setColor(QColor(QStringLiteral("#9AA7B4")));
       if (vector->geometryType() == Qgis::GeometryType::Polygon)
         applyFaciesEdge(fallback, QColor(QStringLiteral("#9AA7B4")));
       if (point) {
@@ -460,13 +420,35 @@ void applyFaciesStyle(QgsMapLayer *layer, const QVariantList &facies) {
                                              defaultFaciesLabelMode(vector))
                           .toInt());
     const QStringList names{"facies_code", "facies_name",  "subfacies",
-                            "microfacies", "facies_label", "texture", "facies_evidence", "prediction_status", "prediction_reason"};
+                            "microfacies", "facies_label", "texture", "facies_evidence", "prediction_status", "prediction_reason", "predicted_facies"};
     const QStringList labels{QObject::tr("相编码"),   QObject::tr("相"),
                              QObject::tr("亚相"),     QObject::tr("微相"),
-                             QObject::tr("类别名称"), QObject::tr("纹理"), QObject::tr("解释证据"), QObject::tr("预测状态"), QObject::tr("未预测原因")};
+                             QObject::tr("类别名称"), QObject::tr("纹理"), QObject::tr("解释证据"), QObject::tr("预测状态"), QObject::tr("未预测原因"), QObject::tr("预测相")};
     for (int i = 0; i < names.size(); ++i)
       if (int index = vector->fields().indexOf(names[i]); index >= 0)
         vector->setFieldAlias(index, labels[i]);
+    if (vector->fields().indexOf("facies_intervals") >= 0) {
+      // 原版 QGIS 属性表只展示一列最终相；历史图件不改写源文件。
+      if (vector->fields().indexOf("predicted_facies") < 0)
+        vector->addExpressionField("CASE WHEN \"facies_code\" IS NULL THEN NULL ELSE \"facies_label\" END",
+                                  QgsField("predicted_facies", QMetaType::Type::QString));
+      vector->setFieldAlias(vector->fields().indexOf("predicted_facies"), QObject::tr("预测相"));
+      if (!vector->customProperty("paleo/finalPredictionTableConfigured").toBool()) {
+        auto config = vector->attributeTableConfig();
+        config.update(vector->fields());
+        auto columns = config.columns();
+        const QSet<QString> hidden{
+            "facies_name", "subfacies", "microfacies", "facies_label", "texture",
+            "facies_intervals", "predicted_intervals", "formation_intervals",
+            "dominant_facies", "predicted_dominant", "dominant_thickness_md",
+            "dominant_ratio", "facies_ratio", "facies_composition", "tie"};
+        for (auto &column : columns)
+          if (hidden.contains(column.name)) column.hidden = true;
+        config.setColumns(columns);
+        vector->setAttributeTableConfig(config);
+        vector->setCustomProperty("paleo/finalPredictionTableConfigured", true);
+      }
+    }
   } else if (auto *raster = qobject_cast<QgsRasterLayer *>(layer)) {
     QgsPalettedRasterRenderer::ClassData classes;
     QSet<int> defined;

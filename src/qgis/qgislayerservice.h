@@ -30,6 +30,8 @@ class QgisLayerService : public QObject
 
     bool declare(const LayerDeclaration &decl, QString *error = nullptr);
     bool removeDeclaration(const QString &layerId, QString *error = nullptr);
+    bool removeDeclarations(const QStringList &layerIds, QString *error = nullptr);
+    LayerDeclaration declaration(const QString &layerId) const;
     void refreshBasemaps();
     QVector<LayerDeclaration> declared() const { return m_manifest->all(); }
     // False when the manifest cannot be read. Callers must not treat that as
@@ -51,7 +53,7 @@ class QgisLayerService : public QObject
     void layerInstantiated(const QString &layerId);
     void horizonReleased(const QString &horizon);
     // Emitted after a declaration lands in the manifest; consumers listing
-    // declared layers (e.g. ComposePage) refresh off this.
+    // declared layers (e.g. ComposePage) refresh off this. Empty id denotes a bulk removal.
     void layerDeclared(const QString &layerId);
 
   private:

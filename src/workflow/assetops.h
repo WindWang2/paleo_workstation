@@ -67,6 +67,7 @@ struct PurgeOutcome
   QStringList failedAssets;   // "<资产名>: 原因"（血缘保护/不存在/落盘失败）
   QStringList leftoverFiles;  // catalog 已删但文件删不掉的残留绝对路径
   qint64 bytesFreed = 0;      // 实际删掉的受管文件字节（外链源不计——不碰工程外文件）
+  QStringList pendingFiles; // deferFiles=true 时，已提交删除记录、尚待后台清理的受管路径
 };
 
 // 物理删除：一次 BatchSave 里 removeAsset 全部入选资产（单事务——flush 失败
@@ -76,8 +77,10 @@ struct PurgeOutcome
 // 血统保护在 catalog 层，这里只透传原因。
 // atomic=true：整个资产集合一次 removeAssets，允许集合内部相互引用；
 // 任一目标不可删除时整组不动，用于确认后的图件级联删除。
+// deferFiles=true：只提交目录删除，将受管路径放入 pendingFiles，供后台物理清理。
 PurgeOutcome purgeAssets(DataCatalog *cat, const QString &projectDir,
-                         const QStringList &assetIds, bool atomic = false);
+                         const QStringList &assetIds, bool atomic = false,
+                         bool deferFiles = false);
 
 struct PurgeFileExpectation { QString path; qint64 sizeBytes = -1; QDateTime modified; };
 // Shared physical purge phase, worker-safe: no live catalog. Retained references

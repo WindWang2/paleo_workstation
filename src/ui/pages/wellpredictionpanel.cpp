@@ -51,7 +51,7 @@ WellPredictionPanel::WellPredictionPanel(QWidget *parent) : QWidget(parent) {
   m_intervals = new QTableWidget(0, 3, right);
   m_intervals->setObjectName("predictionIntervals");
   m_intervals->setHorizontalHeaderLabels(
-      {tr("顶深 m"), tr("底深 m"), tr("相类别")});
+      {tr("顶深 m"), tr("底深 m"), tr("预测相")});
   m_intervals->setSelectionBehavior(QAbstractItemView::SelectRows);
   m_intervals->setSelectionMode(QAbstractItemView::SingleSelection);
   m_intervals->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -62,7 +62,7 @@ WellPredictionPanel::WellPredictionPanel(QWidget *parent) : QWidget(parent) {
   m_facies = new QComboBox(right);
   m_facies->setObjectName("wellFaciesChoice");
   edit->addWidget(m_facies, 1);
-  m_apply = new QPushButton(tr("应用到选中井段"), right);
+  m_apply = new QPushButton(tr("应用预测相"), right);
   edit->addWidget(m_apply);
   m_apply->setObjectName("applyWellFacies");
   split->setStretchFactor(0, 3);
@@ -107,7 +107,7 @@ WellPredictionPanel::WellPredictionPanel(QWidget *parent) : QWidget(parent) {
           }
         }
       });
-  auto *fit = new QPushButton(tr("适应井段"), this);
+  auto *fit = new QPushButton(tr("适应当前地层"), this);
   bar->addWidget(fit);
   connect(fit, &QPushButton::clicked, m_canvas,
           &WellCompositeCanvas::resetZoom);
@@ -168,21 +168,17 @@ void WellPredictionPanel::refreshWell() {
   m_intervals->setRowCount(0);
   m_apply->setEnabled(false);
   m_apply->setToolTip(
-      tr("选择井段与相类别；首次修订自动保留预测原件并切换到修订副本"));
+      tr("修订当前井在该地层的预测相；首次修订保留原件并创建副本"));
   m_log = {};
   if (m_well->currentIndex() < 0) {
     m_canvas->clearTracks();
-    m_status->setText(tr("选择测井预测结果以查看井道与相井段。"));
+    m_status->setText(tr("选择测井预测结果以查看当前地层的预测相。"));
     return;
   }
   const auto well = m_wells[m_well->currentIndex()].toMap();
   const auto rows = well.value("intervals").toList();
-  m_status->setText(tr("%1；地图相点显示当前地层内的预测相。%2点击井道或表格选择井段，选择相类别后直接应"
-                       "用修订；首次修订自动保留预测原件。")
-                        .arg(m_mock ? tr("Mock 预测") : tr("远端测井预测"),
-                             well.value("depth_mock").toBool()
-                                 ? tr("当前深度为模拟范围 0–120 m。 ")
-                                 : QString()));
+  m_status->setText(tr("%1 · %2 · 预测相：%3。每井每地层一条结果。")
+      .arg(well.value("name").toString(), well.value("formation").toString(), well.value("facies_label").toString()));
   if (well.value("prediction_status").toString() == QStringLiteral("未预测"))
     m_status->setText(tr("%1：未预测（预测相为 NULL）。原因：%2")
         .arg(well.value("name").toString(), well.value("prediction_reason").toString()));
@@ -190,17 +186,15 @@ void WellPredictionPanel::refreshWell() {
   for (int i = 0; i < rows.size(); ++i) {
     auto r = rows[i].toMap();
     m_intervals->setItem(i, 0,
-                         new QTableWidgetItem(QString::number(
-                             r.value("top").toDouble(), 'f', 2)));
+                         new QTableWidgetItem(r.value("top").isNull() ? tr("未提供") : QString::number(r.value("top").toDouble(), 'f', 2)));
     m_intervals->setItem(i, 1,
-                         new QTableWidgetItem(QString::number(
-                             r.value("bottom").toDouble(), 'f', 2)));
+                         new QTableWidgetItem(r.value("bottom").isNull() ? tr("未提供") : QString::number(r.value("bottom").toDouble(), 'f', 2)));
     auto f = FaciesCatalog::find(m_schema, r.value("code"));
     m_intervals->setItem(
         i, 2,
         new QTableWidgetItem(
             QIcon(FaciesCatalog::resourcePath(f.value("icon", f.value("texture")).toString())),
-            f.value("name").toString()));
+            r.value("label", f.value("name")).toString()));
   }
   rebuildTracks();
   m_intervals->selectRow(0);
@@ -220,8 +214,13 @@ void WellPredictionPanel::rebuildTracks() {
       curve.name = c.name;
       curve.unit = c.unit;
       double low = INFINITY, high = -INFINITY;
-      for (int j = 0; j < c.values.size(); ++j) {
-        curve.depths << m_log.curves.first().values[j];
+      const auto scope = m_wells[m_well->currentIndex()].toMap();
+      double top = 0, base = 0;
+      FaciesCatalog::formationRange(scope.value("formation_top"), scope.value("formation_base"), &top, &base);
+      for (int j = 0; j < qMin(c.values.size(), m_log.curves.first().values.size()); ++j) {
+        const double depth = m_log.curves.first().values[j];
+        if (!std::isfinite(top) || !std::isfinite(base) || depth < top || depth >= base) continue;
+        curve.depths << depth;
         curve.values << c.values[j];
         if (std::isfinite(c.values[j])) {
           low = std::min(low, c.values[j]);
@@ -237,30 +236,19 @@ void WellPredictionPanel::rebuildTracks() {
     m_canvas->addTrack(track);
   }
   const auto well = m_wells[m_well->currentIndex()].toMap();
-  // 单一预测相道（井道图式样 相|亚|微）：显示当前生效井段；修订直接在预测相
-  // 上进行，首次修订由主窗自动保留预测原件并切换到修订副本。
-  auto track = std::make_shared<FaciesCompoundTrack>(tr("预测相"), 240);
-  QVector<FaciesInterval> items;
-  for (const auto &v : well.value("intervals").toList()) {
-    auto r = v.toMap();
-    auto f = FaciesCatalog::find(m_schema, r.value("code"));
-    FaciesInterval item;
-    item.topDepth = r.value("top").toDouble();
-    item.bottomDepth = r.value("bottom").toDouble();
-    item.majorFacies = f.value("facies", f.value("name")).toString();
-    item.subFacies = f.value("subfacies").toString();
-    item.microFacies = f.value("microfacies").toString();
-    if (item.microFacies.isEmpty())
-      item.microFacies = f.value("name").toString();
-    item.patternType = f.value("texture").toString();
-    item.majorColor = item.subColor = item.microColor =
-        QColor(f.value("color").toString());
-    items << item;
+  auto track = std::make_shared<TextTrack>(tr("预测相"), 180);
+  track->setKeepTextVisible(true);
+  const auto topValue = well.value("formation_top"), baseValue = well.value("formation_base");
+  const double top = topValue.toDouble(), base = baseValue.toDouble();
+  if (!topValue.isNull() && !baseValue.isNull() && std::isfinite(top) && std::isfinite(base) && base > top) {
+    TextInterval item;
+    item.topDepth = float(top); item.bottomDepth = float(base);
+    item.text = well.value("facies_label").toString();
+    auto f = FaciesCatalog::find(m_schema, well.value("facies_code"));
+    item.bgColor = QColor(f.value("color", "#EDF1F5").toString());
+    track->setIntervals({item});
+    m_canvas->setDepthRange(top, base);
   }
-  track->setIntervals(items);
   m_canvas->addTrack(track);
-  auto rows = well.value("intervals").toList();
-  if (!rows.isEmpty())
-    m_canvas->setDepthRange(rows.first().toMap().value("top").toDouble(),
-                            rows.last().toMap().value("bottom").toDouble());
+  m_canvas->resetZoom();
 }

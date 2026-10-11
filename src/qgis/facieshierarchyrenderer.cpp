@@ -8,6 +8,8 @@
 #include <qgsexpression.h>
 #include <qgsgeometrycollection.h>
 #include <qgsmergedfeaturerenderer.h>
+#include <qgsmarkersymbol.h>
+#include <qgsmarkersymbollayer.h>
 #include <qgspalettedrasterrenderer.h>
 #include <qgsrasterlayer.h>
 #include <qgssymbol.h>
@@ -31,12 +33,35 @@ QVariantList codes(QgsMapLayer *layer) {
 }
 QVariantList legend(QgsMapLayer *layer, const QVariantList &schema,
                     const QString &level) {
-  auto entries = FaciesHierarchy::legend(schema, level, codes(layer));
+  const auto present = codes(layer);
+  QVariantList entries;
+  if (auto *v = qobject_cast<QgsVectorLayer *>(layer);
+      v && v->fields().indexOf("facies_intervals") >= 0) {
+    // 测井只按最终分类编码显示，不随比例尺聚合到相或亚相。
+    QSet<QString> used, known;
+    for (const auto &code : present) used.insert(code.isNull() ? QString() : code.toString());
+    for (const auto &f : schema) known.insert(f.toMap().value("code").toString());
+    const bool unknown = !(used - known).isEmpty();
+    for (const auto &f : schema) {
+      auto row = f.toMap();
+      const auto code = row.value("code");
+      if (code.isNull() || !used.contains(code.toString())) continue;
+      row.insert("key", QStringLiteral("prediction_%1").arg(code.toString()));
+      row.insert("codes", QVariantList{code});
+      entries << row;
+    }
+    if (unknown) entries << QVariantMap{{"key", "unknown"}, {"name", QObject::tr("未预测")}, {"codes", QVariantList()}};
+  } else {
+    entries = FaciesHierarchy::legend(schema, level, present);
+  }
   if (auto *v = qobject_cast<QgsVectorLayer *>(layer);
       v && v->geometryType() == Qgis::GeometryType::Point)
     for (auto &entry : entries) {
       auto row = entry.toMap();
-      row.insert("color", "#24303E");
+      if (v->fields().indexOf("facies_intervals") >= 0 && row.value("key") == "unknown")
+        row.insert("name", QObject::tr("未预测"));
+      if (!QColor(row.value("color").toString()).isValid())
+        row.insert("color", "#9AA7B4");
       row.insert("texture", QString());
       entry = row;
     }
@@ -47,6 +72,7 @@ QVariantList apply(QgsMapLayer *layer, const QVariantList &schema,
   MappingArtifactWriter::applyFaciesStyle(layer, schema);
   const auto entries = legend(layer, schema, level);
   if (auto *v = qobject_cast<QgsVectorLayer *>(layer)) {
+    const bool wellResult = v->fields().indexOf("facies_intervals") >= 0;
     auto *base = dynamic_cast<QgsCategorizedSymbolRenderer *>(v->renderer());
     if (!base)
       return entries;
@@ -64,6 +90,12 @@ QVariantList apply(QgsMapLayer *layer, const QVariantList &schema,
       if (!symbol)
         symbol = QgsSymbol::defaultSymbol(v->geometryType());
       symbol->setColor(QColor(row.value("color").toString()));
+      if (v->geometryType() == Qgis::GeometryType::Point)
+        if (auto *marker = dynamic_cast<QgsMarkerSymbol *>(symbol))
+          if (auto *simple = dynamic_cast<QgsSimpleMarkerSymbolLayer *>(marker->symbolLayer(0))) {
+            simple->setStrokeColor(QColor(QStringLiteral("#FFFFFF")));
+            simple->setStrokeWidth(0.6);
+          }
       // setColor 会把描边层一并刷成相色——补回边缘描边（相面每个相的
       // 边缘要可见，2026-10-11 用户口径）。
       if (v->geometryType() == Qgis::GeometryType::Polygon)
@@ -90,6 +122,9 @@ QVariantList apply(QgsMapLayer *layer, const QVariantList &schema,
       nameExpression =
           QgsExpression::quotedString(QObject::tr("其他 / 未分类"));
     }
+    if (wellResult)
+      nameExpression = QStringLiteral("coalesce(\"facies_label\", %1)")
+          .arg(QgsExpression::quotedString(QObject::tr("未预测")));
     auto *renderer =
         new QgsCategorizedSymbolRenderer(keyExpression, categories);
     v->setRenderer(v->geometryType() == Qgis::GeometryType::Polygon

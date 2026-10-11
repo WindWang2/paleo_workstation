@@ -92,6 +92,7 @@ public:
   QString snapshotConstraints(const QString &horizon,
                               const QStringList &parents, QString *error);
   QVariantList wellPredictions(const QString &layerId) const;
+  bool isWellPrediction(const QString &layerId) const;
   LasDoc predictionLog(const QString &versionId) const;
   bool assignFacies(const QString &draftId, const QList<qint64> &featureIds,
                     int code, QString *error);
@@ -130,6 +131,7 @@ signals:
 private:
   void connectPredictionService(RemotePredictionService *service);
   void synchronizeCatalogLayers();
+  void ensureVersionIndex() const;
   bool ready(const QString &horizon, QString *error) const;
   QString schemaVersion(const QString &horizon) const;
   QString record(const QString &path, const QString &horizon,
@@ -170,4 +172,9 @@ private:
   QString m_predictionHint;
   mutable QString m_logVersion;
   mutable LasDoc m_logCache;
+  mutable bool m_versionIndexValid = false, m_productsValid = false;
+  mutable quint64 m_versionIndexSeq = 0;
+  mutable int m_versionIndexRevision = 0;
+  mutable QHash<QString, CatalogVersion> m_aliasVersions, m_pathVersions;
+  mutable QVariantList m_productsCache;
 };

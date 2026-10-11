@@ -144,6 +144,11 @@ bool LayerManifest::upsert(const LayerDeclaration &decl, QString *error)
 
 bool LayerManifest::remove(const QString &layerId, QString *error)
 {
+  return removeMany({layerId}, error);
+}
+
+bool LayerManifest::removeMany(const QStringList &layerIds, QString *error)
+{
   if (m_readOnly)
   {
     setError(error, QStringLiteral("工程目录被另一个实例锁定——本实例只读，图层清单写入被拒绝"));
@@ -160,14 +165,32 @@ bool LayerManifest::remove(const QString &layerId, QString *error)
   if (!manifestEnsureOpen(m_dbPath, m_readOnly, error))
     return false;
 
-  QSqlQuery q(QSqlDatabase::database(manifestConnectionName(m_dbPath, m_readOnly)));
+  auto db = QSqlDatabase::database(manifestConnectionName(m_dbPath, m_readOnly));
+  if (!db.transaction()) { setError(error, db.lastError().text()); return false; }
+  QSqlQuery q(db);
   q.prepare(QStringLiteral("DELETE FROM layer_declarations WHERE layer_id=?"));
-  q.addBindValue(layerId);
-  if (!q.exec())
-  {
-    setError(error, q.lastError().text());
-    return false;
+  for (const auto &layerId : layerIds) {
+    q.bindValue(0, layerId);
+    if (!q.exec()) {
+      setError(error, q.lastError().text());
+      db.rollback();
+      return false;
+    }
   }
+  if (!db.commit()) { setError(error, db.lastError().text()); db.rollback(); return false; }
+  return true;
+}
+
+bool LayerManifest::find(const QString &layerId, LayerDeclaration *out, QString *error) const
+{
+  if (!out) { setError(error, QStringLiteral("find requires an output declaration")); return false; }
+  *out = {};
+  if (!manifestEnsureOpen(m_dbPath, m_readOnly, error)) return false;
+  QSqlQuery q(QSqlDatabase::database(manifestConnectionName(m_dbPath, m_readOnly)));
+  q.prepare(QStringLiteral("SELECT ") + kColumns + QStringLiteral(" FROM layer_declarations WHERE layer_id=?"));
+  q.addBindValue(layerId);
+  if (!q.exec()) { setError(error, q.lastError().text()); return false; }
+  if (q.next()) *out = rowToDecl(q);
   return true;
 }
 

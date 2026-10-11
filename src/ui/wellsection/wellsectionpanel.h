@@ -85,6 +85,17 @@ class WellSectionPanel : public QWidget
     // 数据请求——在途旧结果按 workflow 世代丢弃（一致性口径）。
     wellsection::DepthDomain depthDomain() const { return m_domain; }
     void setDepthDomain(wellsection::DepthDomain domain);
+    // ---- 分层来源（多份 tops 资产选层序词表）----
+    // 候选由壳层供给（workflow 枚举 catalog 链接）；空 = 各井主分层链接。
+    struct TopsSourceChoice {
+      QString assetId;
+      QString label;
+    };
+    void setTopsSourceChoices(const QVector<TopsSourceChoice> &choices);
+    QString topsSource() const { return m_topsSourceId; }
+    // 程序化恢复/校正：不发 topsSourceChanged；id 不在候选内 → 回落空
+    //（默认主分层），与 workflow 的失效回落同口径。
+    void setTopsSource(const QString &assetId);
     // 层位连线改接（用户编辑产物；井对无序键，井序重排不失效）。
     QVector<wellsection::LinkOverride> linkOverrides() const { return m_linkOverrides; }
     void setLinkOverrides(const QVector<wellsection::LinkOverride> &overrides);
@@ -148,6 +159,9 @@ class WellSectionPanel : public QWidget
     // setter 不发，防回声环路）。
     void depthDomainChanged(wellsection::DepthDomain domain);
     void spacingModeChanged(wellsection::SpacingMode mode);
+    // 仅用户驱动（分层来源菜单点选）——壳层接：workflow 选择 + 重取剖面。
+    // 空 assetId = 各井主分层链接（默认）。
+    void topsSourceChanged(const QString &assetId);
 
   private:
     void rebuildFiltered();   // wells → 过滤 + 偏移 + 窗口 + 顶名序
@@ -168,6 +182,7 @@ class WellSectionPanel : public QWidget
     void openTracksDialog();
     void applyThemeFromMenu(const QString &id); // 用户动作 → 写设置
     void applySeismicCmapFromMenu(int cmap);    // 用户动作 → 写设置
+    void applyTopsSourceFromMenu(const QString &assetId); // 用户动作 → 写设置
     void applyDatumFromMenu(const wellsection::Datum &d); // 用户动作 → 写设置
     void applyTemplateFromDialog(const wellsection::SectionTemplate &t);
     void syncToolbarState();
@@ -213,6 +228,7 @@ class WellSectionPanel : public QWidget
     QToolButton *m_fromSelBtn = nullptr;
     QToolButton *m_tracksBtn = nullptr;
     QToolButton *m_lithoBtn = nullptr;
+    QToolButton *m_topsBtn = nullptr;
     QToolButton *m_themeBtn = nullptr;
     QToolButton *m_flattenBtn = nullptr;
     QToolButton *m_spacingBtn = nullptr;
@@ -229,4 +245,8 @@ class WellSectionPanel : public QWidget
     QMenu *m_seismicCmapMenu = nullptr;
     QMenu *m_flattenMenu = nullptr;
     QMenu *m_spacingMenu = nullptr;
+    QMenu *m_topsMenu = nullptr;
+    // 分层来源：候选（壳层灌入）+ 当前选择（空 = 各井主分层链接）。
+    QVector<TopsSourceChoice> m_topsChoices;
+    QString m_topsSourceId;
 };

@@ -2027,6 +2027,107 @@ private slots:
     QCOMPARE(wells.first().litho.first().provenance,
              QStringLiteral("welllogfacies 测试微相 v1"));
   }
+
+  // 分层来源切换（用户：两套层序可切）——剖面井集 tops 链接并集入候选；
+  // 空选择 = 各井主链接（默认）；显式选择只消费该资产，未挂接的井如实
+  // 空 tops + 告警；选回空恢复原口径。
+  void topsSourceSwitching() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    DataCatalog cat;
+    QString err;
+    QVERIFY2(cat.open(dir.path(), &err), qPrintable(err));
+    QVERIFY2(buildCatalog(cat, QDir(dir.path()), &err), qPrintable(err));
+
+    // 再挂一份非主「细分层」tops 资产给 well-1/well-2（不同层名 D61/D62；
+    // well-3 不挂——未挂接告警的断言面）。
+    const QString finePath = dir.filePath(QStringLiteral("tops_fine.dat"));
+    QVERIFY2(writeText(finePath,
+                       QStringLiteral(
+                           "#WellTops File From SMI\n"
+                           "#WellName    Name         MD           X            Y            Z            TVD          Time(ms)\n"
+                           "A1           D61          150.000      100.000      0.000        -140.000     140.000      -99999.000\n"
+                           "A1           D62          250.000      100.000      0.000        -240.000     240.000      -99999.000\n"
+                           "A2           D61          160.000      200.000      0.000        -150.000     150.000      -99999.000\n"
+                           "A2           D62          260.000      200.000      0.000        -250.000     250.000      -99999.000\n")),
+             qPrintable(err));
+    CatalogAsset a;
+    a.id = QStringLiteral("ast-tops-fine");
+    a.type = QStringLiteral("well_stratification");
+    a.displayName = QStringLiteral("细分层.dat");
+    QVERIFY2(cat.addAsset(a, &err), qPrintable(err));
+    CatalogVersion v;
+    v.id = QStringLiteral("v-tops-fine");
+    v.assetId = a.id;
+    v.managed = false;
+    v.path = finePath;
+    v.stage = QStringLiteral("RAW");
+    v.versionNumber = 1;
+    QVERIFY2(cat.addVersion(v, &err), qPrintable(err));
+    for (const QString &wid : {QStringLiteral("well-1"), QStringLiteral("well-2")})
+    {
+      EntityAssetLink l;
+      l.entityId = wid;
+      l.entityType = QStringLiteral("well");
+      l.role = QStringLiteral("tops");
+      l.assetId = a.id;
+      l.isPrimary = false; // 非主：主链接仍是 buildCatalog 的 ast-tops-*
+      QVERIFY2(cat.addLink(l, &err), qPrintable(err));
+    }
+
+    WellSectionWorkflow wf(&cat);
+    // 候选 = 剖面井集 tops 链接并集：well-1/well-2 各自主 tops +
+    // 共享细分层 = 3 份；名字带 displayName。
+    const auto choices =
+        wf.topsSourceChoices({QStringLiteral("well-1"), QStringLiteral("well-2")});
+    QCOMPARE(choices.size(), 3);
+    QVERIFY([&] {
+      for (const auto &c : choices)
+        if (c.assetId == QLatin1String("ast-tops-fine"))
+          return c.label.contains(QStringLiteral("细分层.dat"));
+      return false;
+    }());
+
+    const auto topsNames = [](WellSectionWorkflow &w,
+                              const QString &wellId,
+                              QStringList *warnings) -> QStringList {
+      QSignalSpy spy(&w, &WellSectionWorkflow::sectionReady);
+      w.request({wellId}, {});
+      const auto wells = spy.at(0).at(1).value<QVector<wellsection::Well>>();
+      QStringList names;
+      for (const auto &t : wells.first().tops)
+        names << t.name;
+      *warnings = spy.at(0).at(2).toStringList();
+      return names;
+    };
+
+    // 默认：主分层（A/B；C 缺 MD 被剔）。
+    QStringList warnings;
+    QStringList names = topsNames(wf, QStringLiteral("well-1"), &warnings);
+    QVERIFY(names.contains(QStringLiteral("A")));
+    QVERIFY(names.contains(QStringLiteral("B")));
+    QVERIFY(!names.contains(QStringLiteral("D61")));
+
+    // 切到细分层：D61/D62，主层名不再出现。
+    wf.setTopsSource(QStringLiteral("ast-tops-fine"));
+    names = topsNames(wf, QStringLiteral("well-1"), &warnings);
+    QCOMPARE(names, QStringList({QStringLiteral("D61"), QStringLiteral("D62")}));
+
+    // 未挂接所选资产的井：空 tops + 点名告警（不伪造别的来源）。
+    names = topsNames(wf, QStringLiteral("well-3"), &warnings);
+    QVERIFY(names.isEmpty());
+    QVERIFY([&] {
+      for (const QString &w : warnings)
+        if (w.contains(QStringLiteral("未挂接所选分层来源")))
+          return true;
+      return false;
+    }());
+
+    // 选回默认恢复主分层。
+    wf.setTopsSource(QString());
+    names = topsNames(wf, QStringLiteral("well-1"), &warnings);
+    QVERIFY(names.contains(QStringLiteral("A")));
+  }
 };
 
 QTEST_GUILESS_MAIN(TestWellSectionWorkflow)

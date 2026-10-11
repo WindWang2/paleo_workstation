@@ -47,6 +47,10 @@ WellSectionPanel::WellSectionPanel(SelectionContext *ctx, QWidget *parent)
         s.value(QStringLiteral("wellSection/highlight"), true).toBool();
     m_seismicOn =
         s.value(QStringLiteral("wellSection/seismic"), false).toBool();
+    // 分层来源恢复：此时尚无候选（catalog 未灌）——原样读入，失效 id 在
+    // setTopsSourceChoices 喂候选时清掉。
+    m_topsSourceId =
+        s.value(QStringLiteral("wellSection/topsSource")).toString();
     // 缝内地震色标：-1 = 跟随主题；0..7 = 剖面画布同款预设。
     m_seismicCmap = s.value(QStringLiteral("wellSection/seismicCmap"), -1).toInt();
     if (m_seismicCmap < -1 || m_seismicCmap >= seismic::kSectionColorMapCount)
@@ -143,6 +147,32 @@ WellSectionPanel::WellSectionPanel(SelectionContext *ctx, QWidget *parent)
                                : (m_ids.isEmpty() ? QString() : m_ids.first());
     emit lithoSourceEditRequested(wellId);
   });
+  // 分层来源（用户要求两套层序可切换）：剖面井集 tops 链接并集喂进来，
+  // 菜单懒重建；空选择 = 各井主分层链接。取数/落库归壳层
+  // （topsSourceChanged），面板只记选择与写偏好。
+  m_topsBtn = mkBtn("wellSectionTopsSourceButton", "mActionShowAllLayers.svg",
+                    tr("分层来源（多份分层资产时选择层序）"));
+  m_topsBtn->setEnabled(false); // 候选未灌入前不可点
+  m_topsMenu = new QMenu(m_topsBtn);
+  connect(m_topsMenu, &QMenu::aboutToShow, this, [this] {
+    m_topsMenu->clear();
+    QAction *def = m_topsMenu->addAction(tr("主分层（默认）"));
+    def->setCheckable(true);
+    def->setChecked(m_topsSourceId.isEmpty());
+    connect(def, &QAction::triggered, this,
+            [this] { applyTopsSourceFromMenu(QString()); });
+    m_topsMenu->addSeparator();
+    for (const TopsSourceChoice &c : m_topsChoices)
+    {
+      QAction *a = m_topsMenu->addAction(c.label);
+      a->setCheckable(true);
+      a->setChecked(m_topsSourceId == c.assetId);
+      connect(a, &QAction::triggered, this,
+              [this, id = c.assetId] { applyTopsSourceFromMenu(id); });
+    }
+  });
+  m_topsBtn->setMenu(m_topsMenu);
+  m_topsBtn->setPopupMode(QToolButton::InstantPopup);
   m_themeBtn = mkBtn("wellSectionThemeButton", "propertyicons/symbology.svg",
                      tr("剖面显示主题与高亮"));
   m_flattenBtn = mkBtn("wellSectionFlattenButton", "mActionAlignTop.svg",
@@ -798,15 +828,13 @@ QString WellSectionPanel::topsCsv() const
 void WellSectionPanel::fitToView()
 {
   m_autofit = true;
-  const int vh = m_view->viewport()->height();
-  const int vw = m_view->viewport()->width();
-  const double span = m_st.window.base - m_st.window.top;
-  const double ppm = (vh > 4 && span > 0) ? vh / span : m_st.pxPerMeter;
-  if (ppm != m_st.pxPerMeter)
-  {
-    m_st.pxPerMeter = ppm;
-    ++m_st.curveVersion; // 曲线几何变了才重建路径——只拉宽不动路径
-  }
+  // 拟合口径用「无滚动条视口」+显式扣条：AsNeeded 滚动条本身吃视口——
+  // 按带条视口铺排会让内容恰好卡在条界上，条显隐↔resize↔refit 自激
+  // 闪动（4 井内容宽≈视口宽时恒发）。条是否常驻可由布局确定推出：
+  // 宽溢出 → 横条常驻吃高；高恒被拟合拉满 → 竖条永不出。据此一次算清，
+  // 同一尺寸下每趟 refit 得同一布局 → 收敛不动点，不再闪动。
+  const QSize vp = m_view->maximumViewportSize();
+  const int vw = vp.width();
   const int n = m_st.wells.size();
   if (n >= 2 && vw > 0)
   {
@@ -814,7 +842,37 @@ void WellSectionPanel::fitToView()
         (vw - 2.0 * m_st.margin - n * m_st.columnWidth()) / (n - 1);
     m_st.gapPx = qBound(m_st.minGap(), g, m_st.maxGap());
   }
+  rebuildGapWidths(); // 逐缝宽落定（applyLayout 内会再算一次，幂等）
+  int vh = vp.height();
+  // 隐藏面板视口是退化尺寸（如 100x30），条永不上屏——扣条只会让
+  // ppm 无谓缩水；仅在可见时按溢出预测扣条高。
+  if (m_view->isVisible() && m_st.sceneWidth() > vw + 0.5)
+  {
+    // 横向条必出 → 纵向视口实高要扣条高，否则拟合后竖条必现、再激一轮。
+    vh -= m_view->horizontalScrollBar()->sizeHint().height();
+  }
+  const double span = m_st.window.base - m_st.window.top;
+  const double ppm = (vh > 4 && span > 0) ? vh / span : m_st.pxPerMeter;
+  if (ppm != m_st.pxPerMeter)
+  {
+    m_st.pxPerMeter = ppm;
+    ++m_st.curveVersion; // 曲线几何变了才重建路径——只拉宽不动路径
+  }
   applyLayout();
+  // 双条自锁逃逸：若拟合结果表明内容已可全收（无条口径），而条仍在场，
+  // 则两「条」互为对方的存在依据（竖条在场→宽缩→横条要留→高缩→竖条
+  // 要留），旧按视口拟合的口径正是在此边界自激闪动。强制摘条一拍让
+  // 视图按无条视口重算；确实需要时 AsNeeded 会立刻补回、不再互锁。
+  if ((m_view->horizontalScrollBar()->isVisible() ||
+       m_view->verticalScrollBar()->isVisible()) &&
+      m_st.sceneWidth() <= vp.width() + 0.5 &&
+      m_st.sceneHeight() <= vp.height() + 0.5)
+  {
+    m_view->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_view->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_view->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_view->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+  }
   m_view->verticalScrollBar()->setValue(0);
   m_view->horizontalScrollBar()->setValue(0);
 }
@@ -1333,6 +1391,43 @@ void WellSectionPanel::applySeismicCmapFromMenu(int cmap)
   setSeismicColorMap(cmap);
   panelSettings().setValue(QStringLiteral("wellSection/seismicCmap"),
                          m_seismicCmap);
+}
+
+void WellSectionPanel::setTopsSourceChoices(
+    const QVector<TopsSourceChoice> &choices)
+{
+  m_topsChoices = choices;
+  // 选择失效（资产删链/换工程）→ 回落默认主分层，如实不残留死 id。
+  if (!m_topsSourceId.isEmpty())
+  {
+    bool known = false;
+    for (const TopsSourceChoice &c : m_topsChoices)
+      if (c.assetId == m_topsSourceId)
+        known = true;
+    if (!known)
+    {
+      setTopsSource(QString());
+      panelSettings().setValue(QStringLiteral("wellSection/topsSource"),
+                               QString()); // 持久化值与回落口径保持一致
+    }
+  }
+  if (m_topsBtn)
+    m_topsBtn->setEnabled(!m_topsChoices.isEmpty());
+}
+
+void WellSectionPanel::setTopsSource(const QString &assetId)
+{
+  m_topsSourceId = assetId; // 程序化：不发信号、不写设置（恢复路径）
+}
+
+void WellSectionPanel::applyTopsSourceFromMenu(const QString &assetId)
+{
+  if (m_topsSourceId == assetId)
+    return;
+  setTopsSource(assetId);
+  panelSettings().setValue(QStringLiteral("wellSection/topsSource"),
+                           m_topsSourceId);
+  emit topsSourceChanged(m_topsSourceId);
 }
 
 void WellSectionPanel::applyTemplateFromDialog(

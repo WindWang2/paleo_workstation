@@ -62,6 +62,18 @@ public:
   // 整表恢复（开工程/换工程时壳层灌入；清空传空表）。
   void setLithoAssetSelections(const QHash<QString, QString> &selection);
   QHash<QString, QString> lithoAssetSelections() const { return m_lithoSelection; }
+  // ---- 分层来源切换（剖面级：同井多份 tops 资产显式选择层序）----
+  struct TopsSourceChoice {
+    QString assetId;      // 消费指向的资产 id
+    QString label;        // displayName（vN）
+  };
+  // 剖面井集（空 = 全部工程井）tops 链接的并集，去重按资产 id——层序词表
+  // 是文件级的，不同井可能挂不同文件（主分层/细分层并存是常态）。
+  QVector<TopsSourceChoice> topsSourceChoices(const QStringList &wellIds) const;
+  // 空 = 各井主分层链接（默认，旧行为）。选择对未挂接该资产的井不伪造分
+  // 层——如实空 tops + 告警点名。
+  void setTopsSource(const QString &assetId) { m_topsSource = assetId; }
+  QString topsSource() const { return m_topsSource; }
   int request(const QStringList &wellIds, const QStringList &mnemonics); // 返回世代号
   int requestSeismic(const QVector<wellsection::Well> &wells,
                      const SeismicSource &source);
@@ -114,4 +126,6 @@ private:
   QVector<QPointer<PaleoTask>> m_gapTasks;
   // 解释岩性显式选择（wellId → assetId；无条目 = 默认取最新）。
   QHash<QString, QString> m_lithoSelection;
+  // 分层来源显式选择（剖面级；空 = 各井主 tops 链接）。
+  QString m_topsSource;
 };

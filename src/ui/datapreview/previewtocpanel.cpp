@@ -172,14 +172,18 @@ PreviewTocPanel::PreviewTocPanel( QWidget *parent )
     m_quickPanel->addWidget( page );
   }
 
-  // 页 3：属性速览（D4.5）
-  m_propsLabel = new QLabel( m_quickPanel );
+  lay->addWidget( m_quickPanel, 3 );
+
+  // 属性速览（D4.5：源路径/类型/范围/单元大小）——放在快调堆叠下方、随
+  // 选中层恒显，不占堆叠页：stacked 页 setVisible(true) 会压到当前页上，
+  // 文字与「字段」行重叠（2026-10-11 用户截图反馈）。
+  m_propsLabel = new QLabel( this );
   m_propsLabel->setObjectName( QStringLiteral( "tocPropsLabel" ) );
   m_propsLabel->setWordWrap( true );
   m_propsLabel->setTextFormat( Qt::RichText );
   m_propsLabel->setAlignment( Qt::AlignTop | Qt::AlignLeft );
-  m_quickPanel->addWidget( m_propsLabel );
-  lay->addWidget( m_quickPanel, 3 );
+  m_propsLabel->setVisible( false );
+  lay->addWidget( m_propsLabel );
 
   // ---- 通用层调节（透明度 D4.2 / 混合 D4.8，选中层任意类型可用）----
   {
@@ -457,6 +461,7 @@ void PreviewTocPanel::rebuildQuickPanel()
   if ( !l )
   {
     m_quickPanel->setCurrentIndex( 0 );
+    m_propsLabel->setVisible( false );
     return;
   }
   m_suppressSignals = true;
@@ -481,7 +486,7 @@ void PreviewTocPanel::rebuildQuickPanel()
   }
   else
   {
-    m_quickPanel->setCurrentIndex( 3 );
+    m_quickPanel->setCurrentIndex( 0 );
   }
 
   // 属性速览（D4.5：源路径/类型/范围/单元大小）。
@@ -503,7 +508,7 @@ void PreviewTocPanel::rebuildQuickPanel()
                                    QObject::tr( "范围" ), formatExtent( l->extent() ),
                                    QObject::tr( "源" ), l->source().toHtmlEscaped() ) +
                              ( extraText.isEmpty() ? QString() : QStringLiteral( "<br>%1" ).arg( extraText ) ) );
-  m_propsLabel->setVisible( true ); // 属性页恒显（旧代码的 || true 条件是残留）
+  m_propsLabel->setVisible( true );
   m_suppressSignals = false;
 }
 

@@ -959,7 +959,6 @@ bool LasParser::parseDepthRange(const QString &path, double fromDepth, double to
   // 截断点落在深度 token 中间时还会拼出越界深度、触发「越界即停」静默截断。
   constexpr qint64 kChunk = 4 * 1024 * 1024;
   bool stopped = false;
-  std::vector<double> rowVals(nCurves);
   while (pos < fileSize && !stopped)
   {
     f.seek(pos);

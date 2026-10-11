@@ -503,7 +503,7 @@ void PreviewTocPanel::rebuildQuickPanel()
                                    QObject::tr( "范围" ), formatExtent( l->extent() ),
                                    QObject::tr( "源" ), l->source().toHtmlEscaped() ) +
                              ( extraText.isEmpty() ? QString() : QStringLiteral( "<br>%1" ).arg( extraText ) ) );
-  m_propsLabel->setVisible( m_quickPanel->currentIndex() == 3 || true );
+  m_propsLabel->setVisible( true ); // 属性页恒显（旧代码的 || true 条件是残留）
   m_suppressSignals = false;
 }
 

@@ -212,6 +212,16 @@ QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *erro
 
 bool QgisLayerService::removeDeclaration(const QString &layerId, QString *error)
 {
+  // 与 declare() 替换路径同口径：编辑中的层不可静默销毁——未提交的编辑
+  // 缓冲会直接丢失，且编辑会话的 busy 标记无人释放（Issue #27 同族）。
+  if (auto *project = svcProject(m_projectSvc))
+    for (auto *layer : project->mapLayers())
+      if (layer->customProperty("paleoLayerId").toString() == layerId)
+        if (auto *vector = qobject_cast<QgsVectorLayer *>(layer); vector && vector->isEditable())
+        {
+          setError(error, tr("请先保存或取消该图层的编辑，再移除图件"));
+          return false;
+        }
   if (!m_manifest->remove(layerId, error)) return false;
   if (auto *project = svcProject(m_projectSvc))
     for (auto *layer : project->mapLayers())
@@ -433,8 +443,15 @@ void QgisLayerService::setActiveHorizon(const QString &horizon)
     {
       if (auto *vl = qobject_cast<QgsVectorLayer *>(l))
       {
+        // 经服务回滚：busy 标记随会话释放（Issue #27——与 releaseHorizon
+        // 同口径，直接 rollBack 会让「editing in progress」门控永久滞留）。
         if (vl->isEditable())
-          vl->rollBack();
+        {
+          if (m_editSvc)
+            m_editSvc->rollbackEdit(vl);
+          else
+            vl->rollBack();
+        }
       }
       proj->removeMapLayer(l);
     }

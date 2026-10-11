@@ -257,14 +257,27 @@ bool DataCatalog::updateVersionExtra(const QString &versionId, const QVariantMap
     setError(error, QStringLiteral("unknown version id: %1").arg(versionId));
     return false;
   }
+  // 契约同单键重载：save 失败回滚内存（h:160 mutator 契约），成功后逐键
+  // 记 journal op（staging 重放不丢 extra 补丁）。
+  const QVariantMap prevExtra = m_versions.at(row).extra;
   for (auto it = extra.begin(); it != extra.end(); ++it)
     m_versions[row].extra.insert(it.key(), it.value());
   m_dirtyVersions.insert(versionId);
   if (save(error))
   {
     ++m_mutationSeq;
+    for (auto it = extra.begin(); it != extra.end(); ++it)
+    {
+      CatalogOp op;
+      op.kind = CatalogOp::Kind::UpdateVersionExtra;
+      op.id = versionId;
+      op.extraKey = it.key();
+      op.extraValue = it.value();
+      recordOp(std::move(op));
+    }
     return true;
   }
+  m_versions[row].extra = prevExtra; // save 失败：内存还原，盘上不动
   return false;
 }
 

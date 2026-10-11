@@ -37,12 +37,15 @@ QString PreviewRenderCache::makeKey( const QString &assetId, const QString &vers
                                      const QgsRectangle &extent, int widthPx, int heightPx )
 {
   // 范围按毫米、尺寸按 8px 取整：轻微 resize/平移抖动共享同一条目。
+  // 定点格式（'f',0）：默认 'g' 只有 6 位有效数字——公里/UTM 量级坐标下
+  // 相差数米的 extent 会碰撞成同一 key，把别的范围的快照当本范围上屏；
+  // 科学计数法还会把 'e+07' 混进磁盘文件名。
   return QStringLiteral( "%1|%2|%3,%4,%5,%6|%7x%8" )
       .arg( sanitizeKey( assetId ), sanitizeKey( versionId ) )
-      .arg( QString::number( std::round( extent.xMinimum() * 1000.0 ) ),
-            QString::number( std::round( extent.yMinimum() * 1000.0 ) ),
-            QString::number( std::round( extent.width() * 1000.0 ) ),
-            QString::number( std::round( extent.height() * 1000.0 ) ) )
+      .arg( QString::number( std::round( extent.xMinimum() * 1000.0 ), 'f', 0 ),
+            QString::number( std::round( extent.yMinimum() * 1000.0 ), 'f', 0 ),
+            QString::number( std::round( extent.width() * 1000.0 ), 'f', 0 ),
+            QString::number( std::round( extent.height() * 1000.0 ), 'f', 0 ) )
       .arg( widthPx / 8 * 8 )
       .arg( heightPx / 8 * 8 );
 }

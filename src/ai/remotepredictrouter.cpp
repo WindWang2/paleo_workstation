@@ -252,9 +252,12 @@ void RemotePredictionRouter::start(const RemotePredictionRequest &request)
   m_runId = ++m_nextRunId;
   m_running = true;
   // 契约：start 立即返回；链在下一轮事件循环才起跑（对齐旧行为，取消先到
-  // 即得「已取消」）。
+  // 即得「已取消」）。轮次号按值捕获快照——触发时读 m_runId 会把旧 request
+  // 配上新一号的 runId，绕过 beginChain 的过期防线（0ms FIFO 多数情况掩盖
+  // 了它，cancel→立即 start 是现实触发路径）。
+  const quint64 runId = m_runId;
   QTimer::singleShot(
-      0, this, [this, request]() { beginChain(m_runId, request); });
+      0, this, [this, runId, request]() { beginChain(runId, request); });
 }
 
 void RemotePredictionRouter::cancel()

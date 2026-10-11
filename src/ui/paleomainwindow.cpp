@@ -201,6 +201,10 @@ PaleoMainWindow::~PaleoMainWindow()
     delete m_sectionCaptureTool;
     m_sectionCaptureTool = nullptr;
   }
+  // 剖面编辑/断层两库为裸指针（非 QObject 无父子回收），析构补口——
+  // 换工程重绑路径有 delete，进程退出前不回收会拖住 project.sqlite 句柄。
+  delete m_wellSectionStore;
+  delete m_wellSectionFaultStore;
 }
 
 void PaleoMainWindow::applyCurrentPageProfile()
@@ -689,6 +693,13 @@ void PaleoMainWindow::resetProjectScopedState()
     m_mapBookPanel->setArea(PaleoMapBook::Area());
     m_mapBookPanel->setOutputDir(QString());
   }
+
+  // 临时配准水印跨工程残留：旧工程的临时层不随新工程存在——计数清零、
+  // 水印关闭（RegistrationWorkflow 的计数只增不减且不接工程边界信号，
+  // 窗口侧收口；否则新工程被永久误标「非权威坐标」）。
+  m_provisionalLayers = 0;
+  if (m_decorMgr)
+    m_decorMgr->setWatermarkEnabled(false);
 }
 
 // C1/#282：编辑中且有未提交改动的矢量图层 → 保存/放弃/取消三选一。走编辑

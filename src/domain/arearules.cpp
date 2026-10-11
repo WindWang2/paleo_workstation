@@ -200,7 +200,12 @@ bool applyClassifier(const QJsonObject &o, ClassifierRules *out, QString *error)
 bool applyConfigObject(const QJsonObject &o, Rules *out, QString *error)
 {
   if (!checkKeys(o, {"schema_version", "sequence_boundaries", "target_horizon", "classifier",
-                     "segy_indexing", "onnx_grid"},
+                     "segy_indexing", "onnx_grid",
+                     // roles（DataCatalog::open）与 litho_lexicon（LithoLexicon::
+                     // fromProject）各自从本文件读自己的节——白名单放行，
+                     // 本解析器不消费；否则任一节在场会让整文件被拒、
+                     // AreaRules 静默退回内置默认。
+                     "roles", "litho_lexicon"},
                  QStringLiteral("project_area.json"), error))
     return false;
   const QJsonValue sv = o.value(QLatin1String("schema_version"));

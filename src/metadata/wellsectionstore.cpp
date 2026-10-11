@@ -50,8 +50,10 @@ QString unescapeField(const QString &in)
     return out;
 }
 // 按未转义 sep 切分，**保留转义序列原文**（反斜杠不剥——内层分隔符的
-// 转义要留给下一层；单元格再各自 unescapeField）。空段丢弃。
-QStringList splitEscaped(const QString &in, QChar sep)
+// 转义要留给下一层；单元格再各自 unescapeField）。默认空段丢弃；
+// keepEmpty 供定长行（如链接覆盖四字段）使用——空 topName 落库成
+// "l;r;;1"，丢空段会把行切成 3 段、整行被当坏行静默丢弃。
+QStringList splitEscaped(const QString &in, QChar sep, bool keepEmpty = false)
 {
     QStringList out;
     QString cur;
@@ -68,7 +70,7 @@ QStringList splitEscaped(const QString &in, QChar sep)
             continue;
         }
         if (c == sep) {
-            if (!cur.isEmpty())
+            if (keepEmpty || !cur.isEmpty())
                 out << cur;
             cur.clear();
             continue;
@@ -77,7 +79,7 @@ QStringList splitEscaped(const QString &in, QChar sep)
     }
     if (esc)
         cur += QLatin1Char('\\');
-    if (!cur.isEmpty())
+    if (keepEmpty || !cur.isEmpty())
         out << cur;
     return out;
 }
@@ -328,7 +330,7 @@ WellSectionRecord WellSectionStore::load(const QString &sectionId,
          splitEscaped(q.value(1).toString(), QLatin1Char('|')))
     {
         const QStringList parts =
-            splitEscaped(row, QLatin1Char(';'));
+            splitEscaped(row, QLatin1Char(';'), /*keepEmpty=*/true);
         if (parts.size() != 4)
             continue; // 坏行跳过（转义后不应出现；未转义旧库的脏名行）
         WellSectionLinkOverride o;

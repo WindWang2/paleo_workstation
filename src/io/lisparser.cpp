@@ -731,11 +731,13 @@ using paleo::io_detail::addIssue;
             switch (eType)
             {
               case 0: terminator = true; break;
-              case 4: ls.direction = int(num); break;
-              case 8: ls.spacing = num; break;
-              case 12: ls.absentValue = num; break;
-              case 13: ls.depthMode = int(num); break;
-              case 14: ls.depthUnits = str; break;
+              // LIS79：size=0 表示条目值缺席——保持缺省，不砸成 0/空
+              //（absentValue=0 会把真实 0.0 样本静默映射成 NaN）。
+              case 4: if (eSize > 0) ls.direction = int(num); break;
+              case 8: if (eSize > 0) ls.spacing = num; break;
+              case 12: if (eSize > 0) ls.absentValue = num; break;
+              case 13: if (eSize > 0) ls.depthMode = int(num); break;
+              case 14: if (eSize > 0) ls.depthUnits = str; break;
               case 15: ls.depthReprc = eReprc; break;
               case 16: if (int(num) == 1) subtype = 1; break;
               default: break;

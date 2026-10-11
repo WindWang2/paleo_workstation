@@ -300,10 +300,11 @@ static QColor pickCurveColor(const QString &name, int index)
 static QColor faciesColor(const QString &name)
 {
   const QString lower = name.toLower();
-  if (lower.contains(QStringLiteral("深湖")) || lower.contains(QStringLiteral("深盆")) || lower.contains(QStringLiteral("deep basin")))
-    return QColor(QStringLiteral("#4DD0E1"));
+  // 长关键词先判：「半深湖」包含「深湖」，先判深湖会把半深湖染成深湖色。
   if (lower.contains(QStringLiteral("半深湖")) || lower.contains(QStringLiteral("semi-deep")))
     return QColor(QStringLiteral("#80DEEA"));
+  if (lower.contains(QStringLiteral("深湖")) || lower.contains(QStringLiteral("深盆")) || lower.contains(QStringLiteral("deep basin")))
+    return QColor(QStringLiteral("#4DD0E1"));
   if (lower.contains(QStringLiteral("滨浅湖")) || lower.contains(QStringLiteral("浅湖")) || lower.contains(QStringLiteral("shallow lake")) || lower.contains(QStringLiteral("lake")))
     return QColor(QStringLiteral("#81D4FA"));
   if (lower.contains(QStringLiteral("滩坝")) || lower.contains(QStringLiteral("滩砂")) || lower.contains(QStringLiteral("beach bar")))

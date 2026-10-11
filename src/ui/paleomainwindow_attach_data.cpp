@@ -319,14 +319,17 @@ void PaleoMainWindow::attachDataPage(DataPage *dataPage,
     // preview tabs (§4: the preview tab opens only after the import is
     // confirmed; 地震预览不再走底栏面板，预览壳直接按资产渲染测线控件)。
     DataPreviewTabs *previewForImport = m_previewTabs;
-    connect(m_previewDoc, &PreviewDocService::assetImported, this,
-            [this, corrPanel, previewForImport](const QString &kind, const QString &assetId, const QString &) {
-              // 文件夹导入期间不逐文件开标签——确认后只开井口标签（§4）。
-              if (previewForImport && !m_folderImportActive)
-                previewForImport->openAsset(assetId);
-              // LAS imports pull the GR curve into the column when present
-              // (#156：井集与工程打开同一来源——catalog 全部 well_log)。
-              if (corrPanel && kind == QLatin1String("well_log"))
-                refreshCorrelationWells(assetId);
-            });
+    // m_previewDoc 只在上方 importSvc 分支里创建；无导入服务的壳在此处
+    // connect(nullptr)——产生空连接告警且接线静默失效，一并挪进守卫。
+    if (m_previewDoc)
+      connect(m_previewDoc, &PreviewDocService::assetImported, this,
+              [this, corrPanel, previewForImport](const QString &kind, const QString &assetId, const QString &) {
+                // 文件夹导入期间不逐文件开标签——确认后只开井口标签（§4）。
+                if (previewForImport && !m_folderImportActive)
+                  previewForImport->openAsset(assetId);
+                // LAS imports pull the GR curve into the column when present
+                // (#156：井集与工程打开同一来源——catalog 全部 well_log)。
+                if (corrPanel && kind == QLatin1String("well_log"))
+                  refreshCorrelationWells(assetId);
+              });
 }

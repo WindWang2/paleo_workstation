@@ -11,6 +11,7 @@
 #include <functional>
 #include <memory>
 #include <type_traits>
+#include <utility>
 
 #include "paleotaskservice.h"
 
@@ -120,6 +121,69 @@ protected:
   std::shared_ptr<Shared> m_shared = std::make_shared<Shared>();
   QPointer<PaleoTask> m_task;
 };
+
+namespace detail {
+
+/// Job 是否带 `error` 成员。用 void_t 型 trait 而不是内联 `requires { job.error; }`：
+/// MSVC 在类模板内的非泛型 lambda 里不会把依赖型 if constexpr 的弃置分支真正弃置，
+/// 对无 `error` 成员的 Job 照样报 C2039（只换成 trait、探测仍留在 lambda 里也一样）。
+/// 因此探测与读写都放进下面的独立函数模板，lambda 里只调用它们，勿内联回去。
+template <class T, class = void>
+struct has_error_member : std::false_type
+{
+};
+
+template <class T>
+struct has_error_member<T, std::void_t<decltype(std::declval<T &>().error)>> : std::true_type
+{
+};
+
+template <class T>
+inline constexpr bool has_error_member_v = has_error_member<T>::value;
+
+/// commit 失败时把错误串回写到 Job 的 `error` 字段（存在且尚为空时）。
+/// 兼容 QString 值与 QString* 两种形态；无该成员或其他形态时什么都不做。
+template <class Job>
+void writeBackCommitError(Job &job, const QString &err)
+{
+  if constexpr (has_error_member_v<Job>)
+  {
+    using ErrorT = std::decay_t<decltype(job.error)>;
+    if constexpr (std::is_pointer_v<ErrorT>)
+    {
+      if (job.error && job.error->isEmpty())
+        *job.error = err;
+    }
+    else if constexpr (std::is_same_v<ErrorT, QString>)
+    {
+      if (job.error.isEmpty())
+        job.error = err;
+    }
+  }
+}
+
+/// 读 Job 的 `error` 字段作为失败串；无该成员、为空或形态不认识时返回空串。
+template <class Job>
+QString readJobError(const Job &job)
+{
+  if constexpr (has_error_member_v<Job>)
+  {
+    using ErrorT = std::decay_t<decltype(job.error)>;
+    if constexpr (std::is_pointer_v<ErrorT>)
+    {
+      if (job.error && !job.error->isEmpty())
+        return *job.error;
+    }
+    else if constexpr (std::is_same_v<ErrorT, QString>)
+    {
+      if (!job.error.isEmpty())
+        return job.error;
+    }
+  }
+  return QString();
+}
+
+} // namespace detail
 
 /// 三段式作业契约。Job 由迁移者定义——通常是「输入快照 + 中间产物」的聚合体。
 ///
@@ -284,11 +348,19 @@ public:
         cb.cleanup(work);
       // 失败态也进 commit：Job 上已带失败态，迁移者据此如实上 UI（现状语义）。
       assertOwnerThread("JobRunner::commit");
+      bool committed = true;
       if (cb.commit)
-        cb.commit(work, nullptr);
+      {
+        // #commit 失败不再静默：给真实错误缓冲（旧实现传 nullptr，错误串被
+        // 丢弃），失败回写 Job 的 error 字段（存在时）并如实发 committed=false。
+        QString commitErr;
+        committed = cb.commit(work, &commitErr);
+        if (!committed && !commitErr.isEmpty())
+          detail::writeBackCommitError(work, commitErr);
+      }
       if (ownsHandle)
         clearTask();
-      emit jobCompleted(claim.myGeneration, true);
+      emit jobCompleted(claim.myGeneration, committed);
     });
     return task;
   }
@@ -302,20 +374,8 @@ private:
   /// 字段）。三种形态都兼容：QString 值、QString*、可选类型（无则回落通用文案）。
   static QString jobError(const Job &job)
   {
-    if constexpr (requires { job.error; })
-    {
-      if constexpr (std::is_pointer_v<std::decay_t<decltype(job.error)>>)
-      {
-        if (job.error && !job.error->isEmpty())
-          return *job.error;
-      }
-      else if constexpr (std::is_same_v<std::decay_t<decltype(job.error)>, QString>)
-      {
-        if (!job.error.isEmpty())
-          return job.error;
-      }
-    }
-    return JobRunnerBase::tr("作业失败");
+    const QString err = detail::readJobError(job);
+    return err.isEmpty() ? JobRunnerBase::tr("作业失败") : err;
   }
 
   PaleoTaskService *m_taskService = nullptr;

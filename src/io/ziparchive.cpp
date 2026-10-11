@@ -275,7 +275,8 @@ ZipListResult zipListBytes( const QByteArray &archive )
     item.compressedSize = compressed;
     item.uncompressedSize = uncompressed;
     item.localHeaderOffset = localHeaderOffset;
-    if ( localHeaderOffset + 30 > static_cast<std::uint64_t>( archive.size() ) )
+    // 用减法判界：u64 加法在 localHeaderOffset 接近 2^64 时回绕成小值绕过检查。
+    if ( localHeaderOffset > static_cast<std::uint64_t>( archive.size() ) - 30 )
     {
       result.error = QStringLiteral( "ZIP 条目「%1」本地头偏移越界" ).arg( item.name );
       result.entries.clear();
@@ -341,16 +342,20 @@ bool zipExtractBytes( const QByteArray &archive, const QString &entryName, QByte
                      .arg( entryName )
                      .arg( item->method ) );
   }
-  const qint64 headerOffset = item->localHeaderOffset;
-  if ( headerOffset + 30 > archive.size() || readU32( archive, static_cast<int>( headerOffset ) ) != kLocalHeader )
+  // 减法判界 + 负值先拒：u64 偏移换 qint64 可为负，负下标 at() 是越界读。
+  const qint64 headerOffset = static_cast<qint64>( item->localHeaderOffset );
+  const qint64 compressedSize = static_cast<qint64>( item->compressedSize );
+  if ( headerOffset < 0 || compressedSize < 0 ||
+       headerOffset > archive.size() - 30 ||
+       readU32( archive, static_cast<int>( headerOffset ) ) != kLocalHeader )
     return fail( QStringLiteral( "条目「%1」本地头签名不符" ).arg( entryName ) );
   const std::uint16_t nameLength = readU16( archive, static_cast<int>( headerOffset ) + 26 );
   const std::uint16_t extraLength = readU16( archive, static_cast<int>( headerOffset ) + 28 );
   const qint64 dataOffset = headerOffset + 30 + nameLength + extraLength;
-  if ( dataOffset + static_cast<qint64>( item->compressedSize ) > archive.size() )
+  if ( dataOffset + compressedSize > archive.size() )
     return fail( QStringLiteral( "条目「%1」数据段被截断" ).arg( entryName ) );
   const QByteArray raw = archive.mid( static_cast<int>( dataOffset ),
-                                      static_cast<int>( item->compressedSize ) );
+                                      static_cast<int>( compressedSize ) );
   if ( !out )
     return true;
   if ( item->method == 0 )

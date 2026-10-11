@@ -950,13 +950,16 @@ PaleoTask *RealizationWorkflow::deriveAllStatisticsAsync( const QString &setId, 
       if ( !st.isValid() )
       {
         setError( err, stageErr );
+        emit errorOccurred( stageErr );
         return false;
       }
       if ( QFile::exists( st.absolutePath ) )
         QFile::remove( st.absolutePath );
       if ( !QFile::copy( out.tempPath, st.absolutePath ) )
       {
-        setError( err, tr( "统计面临时文件复制到受管区失败" ) );
+        const QString msg = tr( "统计面临时文件复制到受管区失败" );
+        setError( err, msg );
+        emit errorOccurred( msg );
         return false;
       }
       QFile::remove( out.tempPath );
@@ -974,6 +977,7 @@ PaleoTask *RealizationWorkflow::deriveAllStatisticsAsync( const QString &setId, 
                               QStringLiteral( "paleo:realization_stat" ), extra, &commitErr ) )
       {
         setError( err, commitErr );
+        emit errorOccurred( commitErr );
         return false;
       }
       if ( m_layers )
@@ -1176,13 +1180,16 @@ PaleoTask *RealizationWorkflow::differenceOfMeansAsync( const QString &setIdA, c
     if ( !st.isValid() )
     {
       setError( err, stageErr );
+      emit errorOccurred( stageErr );
       return false;
     }
     if ( QFile::exists( st.absolutePath ) )
       QFile::remove( st.absolutePath );
     if ( !QFile::copy( j.outputs.first().tempPath, st.absolutePath ) )
     {
-      setError( err, tr( "差值面临时文件复制到受管区失败" ) );
+      const QString msg = tr( "差值面临时文件复制到受管区失败" );
+      setError( err, msg );
+      emit errorOccurred( msg );
       return false;
     }
     QFile::remove( j.outputs.first().tempPath );
@@ -1198,6 +1205,7 @@ PaleoTask *RealizationWorkflow::differenceOfMeansAsync( const QString &setIdA, c
                             QStringLiteral( "paleo:realization_diff" ), extra, &commitErr ) )
     {
       setError( err, commitErr );
+      emit errorOccurred( commitErr );
       return false;
     }
     if ( m_layers )

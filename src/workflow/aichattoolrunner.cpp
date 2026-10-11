@@ -120,8 +120,10 @@ void AiChatToolRunner::startNext() {
   const QJsonObject args = document.object();
   const AiToolDispatch dispatch = dispatchAiTool(m_activeCall.name, args);
   // 表驱动诚实态：未登记 / 本构建不可用 / 实参不合格 → 错误结果回灌
-  // （不冒充成功，也不静默丢帧）。
-  if (parseError.error != QJsonParseError::NoError && !document.isNull()) {
+  // （不冒充成功，也不静默丢帧）。注：fromJson 失败必返回 null 文档，
+  // 只看 parseError 即可（旧实现的 !isNull() 使该分支永不触发，坏 JSON
+  // 被误报成「缺少必填参数」）。
+  if (parseError.error != QJsonParseError::NoError) {
     finishActive(false, errorPayload(tr("实参不是合法 JSON：%1")
                                        .arg(parseError.errorString())));
     return;
@@ -376,7 +378,9 @@ void AiChatToolRunner::runFacies(const ChatToolCall &call,
               entry.insert(QStringLiteral("top"), double(interval.topDepth));
               entry.insert(QStringLiteral("bottom"),
                            double(interval.bottomDepth));
-              entry.insert(QStringLiteral("category"), interval.category);
+              // 预测管线只填 text（parseWellFaciesResult），category 恒空——
+              // 词面用 text，模型才能向用户转述预测相。
+              entry.insert(QStringLiteral("facies"), interval.text);
               sample.append(entry);
             }
             payload.insert(QStringLiteral("intervals_sample"), sample);

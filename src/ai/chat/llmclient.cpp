@@ -176,6 +176,10 @@ void LlmStreamParser::feed(const QByteArray &chunk, QStringList *deltas,
   if (deltas)
     deltas->clear();
   m_buffer.append(chunk);
+  // SSE 行结尾允许 CRLF（事件分隔为 \r\n\r\n）：归一成 LF，否则这类服务端的
+  // 流式应答整轮切不出事件（收尾兜底把整个 body 拼成非法 JSON → Malformed）。
+  // 缓冲只留最后一个不完整事件（小），JSON 文本内 \r 均为转义形式，替换安全。
+  m_buffer.replace("\r\n", "\n");
   // SSE 事件以空行分隔；最后一个不完整的事件留在缓冲里等下一块。
   int boundary;
   while ((boundary = m_buffer.indexOf("\n\n")) >= 0) {

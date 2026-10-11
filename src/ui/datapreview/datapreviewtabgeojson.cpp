@@ -410,7 +410,8 @@ QWidget *DataPreviewTabs::buildGeoJsonContent(
   page->decorations()->setObjectName(QStringLiteral("faciesDecorManager"));
   page->setProfileEnabled(false); // D1.3：矢量内容不开剖面工具
 
-  if (vlayer && vlayer->isValid())
+  bool layerInvalid = (vlayer == nullptr || !vlayer->isValid());
+  if (!layerInvalid)
   {
     applyFaciesRendererToLayer(vlayer, activeFaciesField);
     // 经纬度 GeoJSON：画布跟随层 CRS（旧语义），局部网格层保持工程网格。
@@ -486,6 +487,7 @@ QWidget *DataPreviewTabs::buildGeoJsonContent(
   {
     btnViewMap->setEnabled(false);
     btnViewTable->setChecked(true);
+    // 视图栈同步切表格页在下方两页入栈后做（此处栈还空着）。
   }
 
   viewStack->addWidget(page);
@@ -584,6 +586,11 @@ QWidget *DataPreviewTabs::buildGeoJsonContent(
 
   connect(btnViewMap, &QToolButton::clicked, host, [updateViewMode]() { updateViewMode(0); });
   connect(btnViewTable, &QToolButton::clicked, host, [updateViewMode]() { updateViewMode(1); });
+
+  // 层无效时按钮虽置了表格态，栈若仍停第 0 页会把用户留在空白地图画布上；
+  // 走 updateViewMode 连带隐藏地图专属按钮。
+  if (layerInvalid)
+    updateViewMode(1);
 
   lay->addWidget(viewStack, 1);
   return host;

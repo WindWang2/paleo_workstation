@@ -272,17 +272,21 @@ TimeDepthTool::TdResult VelocityModel::depthForTwt( const QString &wellId, doubl
   if ( !( timeMs >= tFirst && timeMs <= tLast ) )
     return { qQNaN(), TimeDepthTool::TdStatus::OutOfRange };
 
-  for ( int i = firstUsable; i < lastUsable; ++i )
+  // 相邻「可用行」间插值：缺口行（time/TVD 缺失）不构成区间端点，
+  // 否则缺口行作左端点会插出 {NaN, Ok}，查询落在可用行与缺口行之间
+  // 会漏掉所有区间、兜底静默返回最深处。
+  int prev = firstUsable;
+  for ( int i = firstUsable + 1; i <= lastUsable; ++i )
   {
-    const TdRow &r1 = rows[i];
-    const TdRow &r2 = rows[i + 1];
-    if ( !std::isfinite( r2.timeMs ) || !r2.hasTvd || !std::isfinite( r2.tvd ) )
+    const TdRow &r = rows[i];
+    if ( !std::isfinite( r.timeMs ) || !r.hasTvd || !std::isfinite( r.tvd ) )
       continue; // 不可用行不构成区间
-    if ( timeMs >= r1.timeMs && timeMs <= r2.timeMs )
+    if ( timeMs >= rows[prev].timeMs && timeMs <= r.timeMs )
     {
-      const double f = ( timeMs - r1.timeMs ) / ( r2.timeMs - r1.timeMs );
-      return { r1.tvd + f * ( r2.tvd - r1.tvd ), TimeDepthTool::TdStatus::Ok };
+      const double f = ( timeMs - rows[prev].timeMs ) / ( r.timeMs - rows[prev].timeMs );
+      return { rows[prev].tvd + f * ( r.tvd - rows[prev].tvd ), TimeDepthTool::TdStatus::Ok };
     }
+    prev = i;
   }
   // tLast 采样点本身：上面区间循环在最后一段含端点，理论到不了这里。
   return { rows[lastUsable].tvd, TimeDepthTool::TdStatus::Ok };

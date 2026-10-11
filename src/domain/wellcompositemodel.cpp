@@ -11,7 +11,7 @@ namespace WellComposite
 float CurveData::valueAtDepth(float d) const
 {
   if (depths.size() < 2 || values.size() < 2)
-    return depths.isEmpty() ? 0.0f : values.first();
+    return (depths.isEmpty() || values.isEmpty()) ? 0.0f : values.first();
 
   if (d <= depths.first())
     return values.first();

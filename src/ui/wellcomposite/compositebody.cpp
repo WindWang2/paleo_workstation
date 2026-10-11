@@ -271,6 +271,7 @@ void WellCompositeBody::mousePressEvent(QMouseEvent *event)
     if (hit >= 0)
     {
       m_canvas->m_markerDragIndex = hit;
+      m_canvas->m_markerDragName = m_canvas->markerLines().at(hit).second;
       m_canvas->m_markerDragGrabOffset =
           m_canvas->markerLines().at(hit).first - m_canvas->yToDepth(event->pos().y());
       event->accept();
@@ -309,8 +310,16 @@ void WellCompositeBody::mouseMoveEvent(QMouseEvent *event)
   if (m_canvas->m_markerDragIndex >= 0)
   {
     auto markers = m_canvas->markerLines();
-    const int idx = m_canvas->m_markerDragIndex;
-    if (idx >= 0 && idx < markers.size())
+    // setMarkerLines 按深度重排序：拖过相邻线后索引换人——按名字重定位
+    // 被拖线，否则下一帧移动的是邻居、松手上报错对象。
+    int idx = -1;
+    for (int i = 0; i < markers.size(); ++i)
+      if (markers.at(i).second == m_canvas->m_markerDragName)
+      {
+        idx = i;
+        break;
+      }
+    if (idx >= 0)
     {
       double newDepth = m_canvas->yToDepth(event->pos().y()) + m_canvas->m_markerDragGrabOffset;
       // D3.1 吸附到整刻度（6px 阈值内才贴）
@@ -318,6 +327,7 @@ void WellCompositeBody::mouseMoveEvent(QMouseEvent *event)
       const double thresholdM = 6.0 / m_canvas->pxPerMeter();
       newDepth = DepthTools::snapDepth(newDepth, {}, thresholdM, false, true, gridStep);
       markers[idx].first = qBound(m_canvas->minDepth(), newDepth, m_canvas->maxDepth());
+      m_canvas->m_markerDragIndex = idx; // 拖拽高亮跟随真实被拖线
       m_canvas->setMarkerLines(markers);
     }
     update();
@@ -379,10 +389,13 @@ void WellCompositeBody::mouseReleaseEvent(QMouseEvent *event)
   if (m_canvas->m_markerDragIndex >= 0)
   {
     const auto markers = m_canvas->markerLines();
-    const int idx = m_canvas->m_markerDragIndex;
     m_canvas->m_markerDragIndex = -1;
-    if (idx >= 0 && idx < markers.size())
-      emit m_canvas->markerMoved(markers.at(idx).second, markers.at(idx).first);
+    for (const auto &m : markers)
+      if (m.second == m_canvas->m_markerDragName)
+      {
+        emit m_canvas->markerMoved(m.second, m.first);
+        break;
+      }
     update();
     event->accept();
     return;

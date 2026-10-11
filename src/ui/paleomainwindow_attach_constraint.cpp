@@ -666,6 +666,10 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
 
       connect(m_realizationWf, &RealizationWorkflow::busyChanged, rsPanel,
               &RealizationPanel::setBusy);
+      // 异步 commit 失败（staging/复制/登记）经 errorOccurred 上状态栏，
+      // 不再静默吞掉（此前该信号从未 emit、从未接线）。
+      connect(m_realizationWf, &RealizationWorkflow::errorOccurred, this,
+              [this](const QString &text) { statusBar()->showMessage(text, 8000); });
 
       connect(rsPanel, &RealizationPanel::statusMessage, this,
               [this](const QString &text) { statusBar()->showMessage(text, 8000); });

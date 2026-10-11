@@ -48,6 +48,7 @@
 #include <qgsproject.h>
 #include <qgsrasterlayer.h>
 #include <qgsunittypes.h>
+#include <qgseditorwidgetsetup.h>
 #include <qgsvectorlayer.h>
 
 namespace {
@@ -2032,6 +2033,21 @@ void MappingWorkbench::styleLayer(const QString &id) {
       paleo::singlefactor::rejectsQuantitativeUse(styledKind, styledSource);
   if (auto *vector = qobject_cast<QgsVectorLayer *>(layer)) {
     vector->setReadOnly(!id.startsWith("draft."));
+    // facies-ux 4：属性表里 facies_code 用相名称下拉（值映射到编码），
+    // 地震相 / 测井相工作副本可直接在列表中改相（改动由 DraftAutosave 随时保存）。
+    if (const int codeField = vector->fields().indexOf("facies_code"); codeField >= 0) {
+      const auto schema = v.extra.value("facies").toList();
+      if (!schema.isEmpty()) {
+        QVariantList map;
+        for (const auto &entry : schema) {
+          const auto f = entry.toMap();
+          map << QVariantMap{{QStringLiteral("%1 · %2").arg(f.value("code").toInt()).arg(f.value("name").toString()),
+                              f.value("code").toInt()}};
+        }
+        vector->setEditorWidgetSetup(
+            codeField, QgsEditorWidgetSetup(QStringLiteral("ValueMap"), {{QStringLiteral("map"), map}}));
+      }
+    }
     if (!vector->property("faciesSelectionAttached").toBool()) {
       vector->setProperty("faciesSelectionAttached", true);
       connect(vector, &QgsVectorLayer::selectionChanged, this,

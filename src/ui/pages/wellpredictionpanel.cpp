@@ -42,6 +42,22 @@ WellPredictionPanel::WellPredictionPanel(QWidget *parent) : QWidget(parent) {
   layout->addWidget(m_status);
   auto *split = new QSplitter(this);
   layout->addWidget(split, 1);
+  m_list = new QTableWidget(0, 3, split);
+  m_list->setObjectName("wellFaciesList");
+  m_list->setHorizontalHeaderLabels({tr("井"), tr("测井相"), tr("状态")});
+  m_list->setAccessibleName(tr("全部井的测井相，下拉直接修改，自动保存到修订副本"));
+  m_list->setToolTip(tr("下拉直接修改该井当前地层的测井相；首次修改自动创建修订副本，改动随时自动保存"));
+  m_list->setSelectionBehavior(QAbstractItemView::SelectRows);
+  m_list->setSelectionMode(QAbstractItemView::SingleSelection);
+  m_list->setEditTriggers(QAbstractItemView::NoEditTriggers);
+  m_list->verticalHeader()->hide();
+  m_list->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+  m_list->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+  m_list->setMinimumWidth(240);
+  connect(m_list, &QTableWidget::currentCellChanged, this, [this](int row) {
+    if (row >= 0 && row < m_well->count() && row != m_well->currentIndex())
+      m_well->setCurrentIndex(row);
+  });
   m_canvas = new WellCompositeCanvas(split);
   m_canvas->setMinimumSize(360, 220);
   auto *right = new QWidget(split);
@@ -65,8 +81,9 @@ WellPredictionPanel::WellPredictionPanel(QWidget *parent) : QWidget(parent) {
   m_apply = new QPushButton(tr("应用预测相"), right);
   edit->addWidget(m_apply);
   m_apply->setObjectName("applyWellFacies");
-  split->setStretchFactor(0, 3);
-  split->setStretchFactor(1, 2);
+  split->setStretchFactor(0, 2);
+  split->setStretchFactor(1, 3);
+  split->setStretchFactor(2, 2);
   connect(m_well, &QComboBox::currentIndexChanged, this,
           [this] { refreshWell(); });
   connect(m_save, &QPushButton::clicked, this,
@@ -156,9 +173,50 @@ void WellPredictionPanel::setResult(const QString &id,
                          ? tr("保存修订版本并登记图件文件")
                          : tr("首次修订自动保留预测原件并切换到修订副本"));
   setUndoAvailable(false);
+  rebuildList();
   refreshWell();
   if (interval >= 0 && interval < m_intervals->rowCount())
     m_intervals->selectRow(interval);
+}
+void WellPredictionPanel::rebuildList() {
+  QSignalBlocker block(m_list);
+  m_list->setRowCount(m_wells.size());
+  for (int i = 0; i < m_wells.size(); ++i) {
+    const auto w = m_wells[i].toMap();
+    const bool skipped = w.value("prediction_status").toString() == QStringLiteral("未预测");
+    m_list->setItem(i, 0, new QTableWidgetItem(w.value("name").toString()));
+    auto *combo = new QComboBox(m_list);
+    combo->setObjectName(QStringLiteral("wellFaciesCombo_%1").arg(i));
+    combo->setAccessibleName(tr("%1 的测井相").arg(w.value("name").toString()));
+    if (skipped)
+      combo->addItem(tr("未预测"), QVariant());
+    for (const auto &v : m_schema) {
+      const auto f = v.toMap();
+      combo->addItem(
+          QIcon(FaciesCatalog::resourcePath(f.value("icon", f.value("texture")).toString())),
+          f.value("name").toString(), f.value("code").toInt());
+    }
+    const int current = skipped ? 0 : combo->findData(w.value("facies_code").toInt());
+    combo->setCurrentIndex(current >= 0 ? current : 0);
+    combo->setEnabled(!m_schema.isEmpty());
+    const QString wellId = w.value("id").toString();
+    connect(combo, &QComboBox::activated, this, [this, combo, wellId](int index) {
+      const QVariant code = combo->itemData(index);
+      if (!code.isValid() || code.isNull())
+        return;
+      emit reviseRequested(wellId, 0, code.toInt());
+    });
+    m_list->setCellWidget(i, 1, combo);
+    // 状态永远配文字（DESIGN.md：语义不单靠颜色）。
+    auto *state = new QTableWidgetItem(
+        skipped ? tr("未预测")
+        : m_layer.startsWith("draft.") ? tr("修订副本")
+                                                                       : tr("预测"));
+    state->setToolTip(w.value("prediction_reason").toString());
+    m_list->setItem(i, 2, state);
+  }
+  if (m_well->currentIndex() >= 0 && m_well->currentIndex() < m_list->rowCount())
+    m_list->selectRow(m_well->currentIndex());
 }
 void WellPredictionPanel::setLog(const LasDoc &log) {
   m_log = log;
@@ -174,6 +232,10 @@ void WellPredictionPanel::refreshWell() {
     m_canvas->clearTracks();
     m_status->setText(tr("选择测井预测结果以查看当前地层的预测相。"));
     return;
+  }
+  if (m_list->currentRow() != m_well->currentIndex()) {
+    QSignalBlocker block(m_list);
+    m_list->selectRow(m_well->currentIndex());
   }
   const auto well = m_wells[m_well->currentIndex()].toMap();
   const auto rows = well.value("intervals").toList();

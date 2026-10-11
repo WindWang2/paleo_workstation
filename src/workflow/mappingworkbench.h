@@ -127,6 +127,15 @@ public:
   bool removeEvidence(const QString &id, const QList<qint64> &ids,
                       const QString &evidenceId, QString *error);
   void styleLayer(const QString &id);
+  // facies-ux 4：地震相 × 测井相预测一致性。layerId 为任一侧（测井相点或
+  // 地震相栅格/相面），另一侧自动取同层位最新结果（工作副本优先）；
+  // counterpartId 非空时显式指定。逐井在井位取地震相，比对测井相编码，
+  // 出逐井表 + 混淆矩阵 + 一致率/κ，报告 JSON 原子写入
+  // artifacts/reports/（返回 map 带 report_path / well_layer / seismic_layer）。
+  QVariantMap faciesConsistency(const QString &layerId, QString *error,
+                                const QString &counterpartId = {});
+  // 可参与一致性比对的同层位候选（{id,name,family:"well"|"seismic"}）。
+  QVariantList consistencyCandidates(const QString &horizon) const;
   int labelMode(const QString &id) const;
   bool setLabelMode(const QString &id, int mode, QString *error);
 signals:

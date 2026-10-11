@@ -23,6 +23,12 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QFileInfo>
+#include <cmath>
+#include <qgsrasterdataprovider.h>
+#include <qgseditorwidgetsetup.h>
 #include "../src/workflow/workflows.h"
 #include "mockremotepredictionservice.h"
 #include <QAction>
@@ -1492,6 +1498,81 @@ private slots:
         f.layers.layer(WellAttributeStore::intervalLayerId()));
     QVERIFY(intervals);
     QVERIFY(!intervals->labelsEnabled());
+  }
+  void faciesConsistencyReportsWellVsSeismic() {
+    // facies-ux 4：选任一侧，另一侧自动取同层位最新结果；逐井取样与栅格
+    // 一致、混淆矩阵计数守恒、报告 JSON 原子留档。
+    Fixture f;
+    QVERIFY(f.init());
+    QVERIFY(!f.well("A", 10, 20).isEmpty());
+    QVERIFY(!f.well("B", 300, 200).isEmpty());
+    QString error;
+    QVERIFY(f.work.predict("D61", "wells", {"A", "B"}, &error));
+    QTRY_VERIFY(!f.work.busy());
+    const auto wells = f.latest("wells_prediction");
+    QVERIFY(!wells.isEmpty());
+    QVERIFY(f.work.faciesConsistency(wells, &error).isEmpty());
+    QVERIFY(error.contains(QStringLiteral("地震相")));
+    const auto input = f.seismic();
+    QVERIFY(!input.isEmpty());
+    QVERIFY2(f.work.predict("D61", "seismic", {input}, &error), qPrintable(error));
+    QTRY_VERIFY_WITH_TIMEOUT(!f.work.busy(), 5000);
+    const auto raster = f.latest("seismic_prediction");
+    QVERIFY(!raster.isEmpty());
+    error.clear();
+    const auto report = f.work.faciesConsistency(wells, &error);
+    QVERIFY2(!report.isEmpty(), qPrintable(error));
+    QCOMPARE(report.value("well_layer").toString(), wells);
+    QCOMPARE(report.value("seismic_layer").toString(), raster);
+    QCOMPARE(report.value("schema").toString(), QString("paleo_facies_consistency_v1"));
+    const auto rows = report.value("rows").toList();
+    QCOMPARE(rows.size(), 2);
+    QCOMPARE(report.value("compared").toInt() + report.value("uncompared").toInt(), 2);
+    int total = 0;
+    for (const auto &line : report.value("confusion").toList())
+      for (const auto &cell : line.toList())
+        total += cell.toInt();
+    QCOMPARE(total, report.value("compared").toInt());
+    auto *r = qobject_cast<QgsRasterLayer *>(f.layers.instantiate(raster));
+    QVERIFY(r);
+    for (const auto &row : rows) {
+      const auto m = row.toMap();
+      bool ok = false;
+      const double v = r->dataProvider()->sample(
+          QgsPointXY(m.value("x").toDouble(), m.value("y").toDouble()), 1, &ok);
+      if (ok && std::isfinite(v))
+        QCOMPARE(m.value("seismic_code").toInt(), int(std::lround(v)));
+      else
+        QVERIFY(m.value("seismic_code").isNull());
+    }
+    const auto path = report.value("report_path").toString();
+    QVERIFY(QFileInfo::exists(path));
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const auto json = QJsonDocument::fromJson(file.readAll()).object();
+    QCOMPARE(json.value("seismic_version").toString(), f.work.versionForLayer(raster).id);
+    QCOMPARE(json.value("rows").toArray().size(), 2);
+    // 从地震相一侧发起：反查到同一测井相结果。
+    const auto reverse = f.work.faciesConsistency(raster, &error);
+    QCOMPARE(reverse.value("well_layer").toString(), wells);
+    // 相面一侧（多边形取样）：编码与栅格一侧一致（转面保持编码）。
+    const auto polygon = f.work.polygonize(raster, &error);
+    QVERIFY2(!polygon.isEmpty(), qPrintable(error));
+    const auto viaPolygon = f.work.faciesConsistency(wells, &error, polygon);
+    QVERIFY2(!viaPolygon.isEmpty(), qPrintable(error));
+    QCOMPARE(viaPolygon.value("seismic_layer").toString(), polygon);
+    QCOMPARE(viaPolygon.value("rows").toList().size(), 2);
+    // 属性表改相：工作副本 facies_code 用相名下拉（值映射到编码）。
+    const auto draft = f.work.copyForEditing(polygon, {}, &error);
+    QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    f.work.styleLayer(draft);
+    auto *draftLayer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft));
+    QVERIFY(draftLayer);
+    const auto setup = draftLayer->editorWidgetSetup(draftLayer->fields().indexOf("facies_code"));
+    QCOMPARE(setup.type(), QString("ValueMap"));
+    QVERIFY(!setup.config().value("map").toList().isEmpty());
+    // 非相结果被拒。
+    QVERIFY(f.work.faciesConsistency(QStringLiteral("nope"), &error).isEmpty());
   }
   void seismicToPolygonToEditableVersions() {
     Fixture f;

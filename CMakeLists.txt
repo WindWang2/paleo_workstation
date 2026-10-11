@@ -597,6 +597,7 @@ add_library(paleo_workflow STATIC
   src/workflow/stratigraphicwebsession.cpp
   src/workflow/mappingworkbench.cpp
   src/workflow/mappingworkbench_polygonize.cpp     # 相栅格转面：同步 + 后台任务（facies-ux 1）
+  src/workflow/mappingworkbench_consistency.cpp   # 地震相×测井相一致性报告（facies-ux 4）
   src/workflow/wellpredictionservice.cpp
   src/workflow/workflows.cpp
   src/workflow/constraintimport.cpp                 # WS-C：约束 SHP 角色化导入（方向/打断）

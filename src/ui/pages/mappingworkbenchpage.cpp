@@ -325,6 +325,8 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   if (mode == "predict")
     actions->addWidget(button("welltracks", tr("查看井道 / 修订预测相")), 4, 0,
                        1, 2);
+  actions->addWidget(button("consistency", tr("地震相 × 测井相一致性报告")), 5,
+                     0, 1, 2);
   layout->addLayout(actions);
   auto *appearance = new QgsCollapsibleGroupBox(tr("相类别与标注"), body);
   appearance->setObjectName("workbenchAppearance");
@@ -878,6 +880,8 @@ void MappingWorkbenchPage::updateState() {
   gate("welltracks",
        wellResult,
        tr("选择测井预测相或修订结果"));
+  gate("consistency", selected && !selectedSchema.isEmpty(),
+       tr("选择测井相点或地震相（相栅格 / 相面）结果；另一侧自动取同层位最新结果"));
   gate("labels",
        selected && row.value("type") == "vector" && !selectedSchema.isEmpty(),
        tr("请选择矢量相面或测井相点图"));

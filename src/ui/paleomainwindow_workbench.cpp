@@ -5,6 +5,8 @@
 #include "../domain/singlefactorrequest.h"
 #include "../linkage/selectioncontext.h"
 #include "../qgis/qgislayerorganizer.h"
+#include "pages/faciesconsistencydialog.h"
+#include "../qgis/draftautosave.h"
 #include "../qgis/facieshierarchyrenderer.h"
 #include "../qgis/factorstylewriter.h"
 #include "../qgis/mapcanvaslink.h"
@@ -415,12 +417,45 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
         workbench->versionForLayer(id).extra.value("facies").toList(),
         workbench->versionForLayer(id).extra.value("mock").toBool());
     if (auto *v = qobject_cast<QgsVectorLayer *>(m_layerSvc->layer(id)))
-      wellPanel->setUndoAvailable(v->isEditable() && v->undoStack()->canUndo());
+      wellPanel->setUndoAvailable(
+          (v->isEditable() && v->undoStack()->canUndo()) ||
+          (DraftAutosave::of(v) && DraftAutosave::of(v)->canUndo()));
     wellDock->show();
     wellDock->raise();
   };
-  auto beginEdit = [this, edit](const QString &id) {
+  // facies-ux 4：工作副本属性修订随时自动保存（只在已持有编辑锁时提交）。
+  const auto attachAutosave = [this, wellPanel](QgsVectorLayer *vector) {
+    if (!vector ||
+        !vector->customProperty("paleoLayerId").toString().startsWith("draft.") ||
+        DraftAutosave::of(vector))
+      return;
+    auto *autosave = DraftAutosave::attach(vector);
+    const QPointer<QgsVectorLayer> guard(vector);
+    connect(autosave, &DraftAutosave::failed, this, [this](const QString &error) {
+      const auto text = tr("自动保存失败，修改仍保留在编辑缓冲中：%1").arg(error);
+      statusBar()->showMessage(text, 15000);
+      PaleoNotify::warning(this, tr("自动保存失败"), text);
+    });
+    connect(autosave, &DraftAutosave::historyChanged, this, [wellPanel, guard] {
+      if (guard &&
+          guard->customProperty("paleoLayerId").toString() == wellPanel->layerId())
+        wellPanel->setUndoAvailable(
+            (guard->isEditable() && guard->undoStack()->canUndo()) ||
+            DraftAutosave::of(guard)->canUndo());
+    });
+  };
+  if (m_projectSvc && m_projectSvc->project()) {
+    connect(m_projectSvc->project(), &QgsProject::layersAdded, this,
+            [attachAutosave](const QList<QgsMapLayer *> &layers) {
+              for (auto *layer : layers)
+                attachAutosave(qobject_cast<QgsVectorLayer *>(layer));
+            });
+    for (auto *layer : m_projectSvc->project()->mapLayers())
+      attachAutosave(qobject_cast<QgsVectorLayer *>(layer));
+  }
+  auto beginEdit = [this, edit, attachAutosave](const QString &id) {
     auto *vector = qobject_cast<QgsVectorLayer *>(m_layerSvc->instantiate(id));
+    attachAutosave(vector);
     if (edit && vector) {
       edit->refreshFromProject();
       edit->setCurrentLayer(vector);
@@ -459,7 +494,7 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
             if (beginEdit(id) &&
                 workbench->reviseWellInterval(id, well, interval, code, &error))
               statusBar()->showMessage(
-                  tr("当前地层的预测相已更新；保存修订版本后登记文件。"), 10000);
+                  tr("当前地层的预测相已更新并自动保存到修订副本；可撤销，保存修订版本后登记新版本。"), 10000);
             else
               statusBar()->showMessage(
                   error.isEmpty() ? tr("请先结束其他图层的编辑") : error,
@@ -486,6 +521,14 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
               v->undoStack()->undo();
               v->triggerRepaint();
               emit workbench->faciesEdited(id);
+            } else if (auto *autosave = DraftAutosave::of(v);
+                       autosave && autosave->canUndo()) {
+              // 已自动保存的修订：按自带历史写回旧值并再次自动保存。
+              QString error;
+              if (autosave->undo(&error))
+                emit workbench->faciesEdited(id);
+              else
+                statusBar()->showMessage(error, 10000);
             }
           });
   connect(
@@ -500,8 +543,9 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
               workbench->versionForLayer(id).extra.value("facies").toList(),
               workbench->versionForLayer(id).extra.value("mock").toBool());
           if (auto *v = qobject_cast<QgsVectorLayer *>(m_layerSvc->layer(id)))
-            wellPanel->setUndoAvailable(v->isEditable() &&
-                                        v->undoStack()->canUndo());
+            wellPanel->setUndoAvailable(
+                (v->isEditable() && v->undoStack()->canUndo()) ||
+                (DraftAutosave::of(v) && DraftAutosave::of(v)->canUndo()));
         }
       });
   connect(m_selection, &SelectionContext::activeHorizonChanged, wellPanel,
@@ -575,7 +619,7 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
                 else {
                   show(target, &error);
                   statusBar()->showMessage(
-                      tr("相类别已更新，可撤销；保存编辑后登记新版本。"),
+                      tr("相类别已更新并自动保存到工作副本，可撤销；保存编辑后登记新版本。"),
                       10000);
                 }
               });
@@ -681,7 +725,23 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
             }
           } else if (action == "compare")
             ok = compare(id, &error);
-          else if (action == "polygonize")
+          else if (action == "consistency") {
+            const auto report = workbench->faciesConsistency(id, &error);
+            ok = !report.isEmpty();
+            if (ok) {
+              auto *dialog = new FaciesConsistencyDialog(this);
+              dialog->setReport(report);
+              const auto wellLayer = report.value("well_layer").toString();
+              connect(dialog, &FaciesConsistencyDialog::wellActivated, this,
+                      [this, show, wellLayer](const QString &, double x, double y) {
+                        QString ignored;
+                        show(wellLayer, &ignored);
+                        m_canvasCtl->canvas()->setCenter(QgsPointXY(x, y));
+                        m_canvasCtl->canvas()->refresh();
+                      });
+              dialog->show();
+            }
+          } else if (action == "polygonize")
             ok = workbench->startPolygonize(id, &error);
           else if (action == "copy") {
             const auto draft = workbench->copyForEditing(id, inputs, &error);
@@ -844,6 +904,8 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
             message = tr("选中要素的相类别已更新，请保存编辑以登记新版本。");
           else if (action == "welltracks")
             message = tr("已打开井道与预测相修订面板。");
+          else if (action == "consistency")
+            message = tr("已生成地震相与测井相一致性报告并留档；双击逐井行可在画布定位。");
           else if (action == "delete")
             message = tr("已删除图件及版本记录，受管文件正在后台清理。");
           else

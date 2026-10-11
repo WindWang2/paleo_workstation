@@ -2,6 +2,7 @@
 qgis
 qgis-providers
 libqgis-dev
+qt6-5compat-dev
 qt6-base-dev
 qt6-svg-dev
 qt6-serialport-dev

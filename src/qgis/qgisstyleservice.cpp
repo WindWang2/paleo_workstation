@@ -4,6 +4,7 @@
 #include "qgiserrors_internal.h"
 
 #include "geopatterns.h"
+#include "../domain/faciescatalog.h"
 
 #include <QColor>
 #include <QDir>
@@ -355,7 +356,60 @@ void QgisStyleService::applyWellLayerStyle(QgsVectorLayer *layer)
   layer->setLabelsEnabled(true);
 }
 
-void QgisStyleService::applyWellFormationLayerStyle(QgsVectorLayer *layer)
+QgsFeatureRenderer *QgisStyleService::wellFaciesRenderer(const QString &keyField,
+                                                         const QHash<QString, QVariantList> &schemas,
+                                                         const QVariantMap &marker)
+{
+  const auto symbolFor = [&marker](const QString &color) {
+    QVariantMap props = marker;
+    props.insert(QStringLiteral("name"), props.value(QStringLiteral("name"), QStringLiteral("circle")));
+    props.insert(QStringLiteral("color"), color);
+    return QgsMarkerSymbol::createSimple(props).release();
+  };
+  const auto codeRules = [&symbolFor](QgsRuleBasedRenderer::Rule *parent, const QVariantList &schema,
+                                      const QString &scope) {
+    for (const QVariant &v : schema)
+    {
+      const QVariantMap f = v.toMap();
+      bool ok = false;
+      const int code = f.value(QStringLiteral("code")).toInt(&ok);
+      const QColor color(f.value(QStringLiteral("color")).toString());
+      if (!ok || !color.isValid())
+        continue;
+      QString filter = QStringLiteral("to_int(\"facies_code\") = %1").arg(code);
+      if (!scope.isEmpty())
+        filter = scope + QStringLiteral(" AND ") + filter;
+      parent->appendChild(new QgsRuleBasedRenderer::Rule(
+          symbolFor(color.name()), 0, 0, filter, f.value(QStringLiteral("name")).toString()));
+    }
+  };
+  auto *root = new QgsRuleBasedRenderer::Rule(nullptr);
+  QStringList horizons = schemas.keys();
+  std::sort(horizons.begin(), horizons.end());
+  for (const QString &h : horizons)
+  {
+    if (h.isEmpty())
+      continue;
+    const QString scope = QStringLiteral("trim(to_string(%1)) = %2")
+                              .arg(QgsExpression::quotedColumnRef(keyField),
+                                   QgsExpression::quotedString(h));
+    codeRules(root, schemas.value(h), scope);
+  }
+  // 无层位专属分类命中：缺省分类（defaults 或调用方给的 "" 键）兜底，再兜灰。
+  auto *fallback = new QgsRuleBasedRenderer::Rule(nullptr);
+  fallback->setIsElse(true);
+  codeRules(fallback, schemas.contains(QString()) ? schemas.value(QString()) : FaciesCatalog::defaults(),
+            QString());
+  auto *none = new QgsRuleBasedRenderer::Rule(symbolFor(QStringLiteral("#9AA7B4")), 0, 0, QString(),
+                                              QObject::tr("未预测 / 其他"));
+  none->setIsElse(true);
+  fallback->appendChild(none);
+  root->appendChild(fallback);
+  return new QgsRuleBasedRenderer(root);
+}
+
+void QgisStyleService::applyWellFormationLayerStyle(QgsVectorLayer *layer,
+                                                    const QHash<QString, QVariantList> &schemas)
 {
   if (!layer)
     return;
@@ -365,11 +419,26 @@ void QgisStyleService::applyWellFormationLayerStyle(QgsVectorLayer *layer)
   props.insert(QStringLiteral("outline_color"), QStringLiteral("#24303E"));
   props.insert(QStringLiteral("outline_width"), QStringLiteral("0.5"));
   props.insert(QStringLiteral("size"), QStringLiteral("2.6"));
-  layer->setRenderer(
-      new QgsSingleSymbolRenderer(QgsMarkerSymbol::createSimple(props).release()));
+  if (layer->fields().lookupField(QStringLiteral("facies_code")) >= 0)
+  {
+    // 相色实心点 + 白描边（与测井预测点、井道预测相同色；DESIGN.md 数据符号）。
+    props.insert(QStringLiteral("outline_color"), QStringLiteral("#FFFFFF"));
+    props.insert(QStringLiteral("outline_width"), QStringLiteral("0.4"));
+    props.insert(QStringLiteral("size"), QStringLiteral("3.0"));
+    layer->setRenderer(wellFaciesRenderer(
+        layer->fields().lookupField(QStringLiteral("formation")) >= 0 ? QStringLiteral("formation")
+                                                                      : QStringLiteral("horizon"),
+        schemas, props));
+  }
+  else
+    layer->setRenderer(
+        new QgsSingleSymbolRenderer(QgsMarkerSymbol::createSimple(props).release()));
 
   if (layer->fields().lookupField(QStringLiteral("formation")) < 0)
+  {
+    layer->triggerRepaint();
     return;
+  }
   // 地层名标注：同一井位一行一个地层（组/段），绕点排开——与井名（wells
   // 层）同图不撞。白晕衬底保证相面/底图之上可辨。
   QgsPalLayerSettings lbl;
@@ -391,7 +460,8 @@ void QgisStyleService::applyWellFormationLayerStyle(QgsVectorLayer *layer)
   layer->triggerRepaint();
 }
 
-void QgisStyleService::applyWellAttributeLayerStyle(QgsVectorLayer *layer)
+void QgisStyleService::applyWellAttributeLayerStyle(QgsVectorLayer *layer,
+                                                    const QHash<QString, QVariantList> &schemas)
 {
   if (!layer)
     return;
@@ -401,8 +471,15 @@ void QgisStyleService::applyWellAttributeLayerStyle(QgsVectorLayer *layer)
   props.insert(QStringLiteral("outline_color"), QStringLiteral("#78909C"));
   props.insert(QStringLiteral("outline_width"), QStringLiteral("0.35"));
   props.insert(QStringLiteral("size"), QStringLiteral("2"));
-  layer->setRenderer(
-      new QgsSingleSymbolRenderer(QgsMarkerSymbol::createSimple(props).release()));
+  if (layer->fields().lookupField(QStringLiteral("facies_code")) >= 0)
+  {
+    props.insert(QStringLiteral("outline_color"), QStringLiteral("#FFFFFF"));
+    props.insert(QStringLiteral("outline_width"), QStringLiteral("0.3"));
+    layer->setRenderer(wellFaciesRenderer(QStringLiteral("horizon"), schemas, props));
+  }
+  else
+    layer->setRenderer(
+        new QgsSingleSymbolRenderer(QgsMarkerSymbol::createSimple(props).release()));
   layer->triggerRepaint();
 }
 

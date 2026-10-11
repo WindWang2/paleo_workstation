@@ -375,6 +375,19 @@ void QgisLayerOrganizer::reorganize()
     if ( QgsMapLayer *layer = m_layerSvc->layer( d.layerId ) )
       placeLayer( layer );
   pruneVacantGroups();
+
+  // 自定义绘制顺序生效时画布完全忽略树序。它只在「显示预测点位」时
+  // 被启用（置顶图件层），此后实例化的产层会落到表尾——底图之下，
+  // 整层不可见。树序即真相：把自定义序镜像回归位后的树，重开
+  // 工程/批量重灌后自愈保存过的坏序。
+  QgsLayerTree *root = proj->layerTreeRoot();
+  if ( root->hasCustomLayerOrder() )
+  {
+    root->setHasCustomLayerOrder( false );
+    const QList<QgsMapLayer *> order = root->layerOrder();
+    root->setHasCustomLayerOrder( true );
+    root->setCustomLayerOrder( order );
+  }
 }
 
 void QgisLayerOrganizer::ensureHorizonGroups()

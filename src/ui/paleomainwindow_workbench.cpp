@@ -237,6 +237,23 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
         order.prepend(layer);
         treeRoot->setCustomLayerOrder(order);
         treeRoot->setHasCustomLayerOrder(true);
+      } else {
+        // 自定义绘制顺序一旦生效，新实例化的产层会被追加到序列表尾
+        // （画在最底），落在不透明的离线地形底图/阴影之下即整层不可见。
+        // 把本图件提到首个底图层之前：压在栅格底图上、仍在井位等
+        // 共享矢量之下。
+        auto order = treeRoot->layerOrder();
+        order.removeAll(layer);
+        int slot = order.size();
+        for (int i = 0; i < order.size(); ++i)
+          if (order.at(i)->customProperty(QStringLiteral("paleoBasemap"))
+                  .toBool()) {
+            slot = i;
+            break;
+          }
+        order.insert(slot, layer);
+        treeRoot->setCustomLayerOrder(order);
+        treeRoot->setHasCustomLayerOrder(true);
       }
     }
     if (auto *tree = findChild<QgsLayerTreeView *>())

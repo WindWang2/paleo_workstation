@@ -422,6 +422,7 @@ target_link_libraries(paleo_domain PUBLIC paleo_deps paleo_sbm paleo_segyio pale
 add_library(paleo_algorithms STATIC
   src/algorithms/paleoalgorithms.cpp
   src/algorithms/faciespolygonize.cpp
+  src/algorithms/faciessliver.cpp                   # A11：小图斑吸收（并查集 + 小顶堆，可取消）
   src/algorithms/seismicattr.cpp
   src/algorithms/singlefactor/curvekernel.cpp
   src/algorithms/singlefactor/support.cpp
@@ -1018,6 +1019,7 @@ add_paleo_test(tst_domain LIBS paleo_domain)
 add_paleo_test(tst_jobrunner LIBS paleo_services paleo_ui_deps)  # 方向20：JobRunner 三段式框架断言
 add_paleo_test(tst_linkage LIBS paleo_linkage)
 add_paleo_test(tst_algorithms LIBS paleo_algorithms paleo_ui_deps)
+add_paleo_test(tst_faciessliver LIBS paleo_algorithms)  # A11：小图斑吸收新旧实现对拍 + 可取消 + 大网格耗时
 add_paleo_test(tst_seismicattr LIBS paleo_algorithms)      # 地震属性核（纯数值，无 QGIS init）
 add_paleo_test(tst_sattrio LIBS paleo_io)                 # goal/attr-volume：SATR/SATV 容器 round-trip
 add_paleo_test(tst_seismicattrscan LIBS paleo_services)  # goal/attr-volume：时间切片/属性体扫描编排

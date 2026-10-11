@@ -322,6 +322,15 @@ PaleoTask *startAsync( const Request &request, PaleoTaskService *tasks,
   auto batch = std::make_shared<Batch>();
   batch->request = request;
   const QString titleText = QObject::tr( "按层位批量出图 · %1 个层位" ).arg( request.horizonLayers.size() );
+  // 单飞：同一版面骨架同时只跑一个后台批次（两批交错改同一版面会互相
+  // 覆盖内容、复原错乱）。
+  static const char *kBusy = "paleoBatchExportRunning";
+  if ( request.layout && request.layout->property( kBusy ).toBool() )
+  {
+    if ( error )
+      *error = QObject::tr( "该版面已有批量出图在进行，请等待完成或在任务中心取消" );
+    return nullptr;
+  }
   QPointer<PaleoTask> task = tasks->beginExternal( titleText );
   if ( !task )
   {
@@ -339,6 +348,8 @@ PaleoTask *startAsync( const Request &request, PaleoTaskService *tasks,
       done( batch->result, false );
     return task;
   }
+  if ( batch->layout )
+    batch->layout->setProperty( kBusy, true );
   task->reportBytes( 0, std::max<qint64>( 1, batch->horizons.size() ) );
   // UIS-03：版面渲染绑定 GUI 线程（QGraphicsScene 线程亲和），不能整体搬到
   // worker；改为每个事件循环回合只出一个层位——界面在层位之间保持响应，
@@ -353,6 +364,8 @@ PaleoTask *startAsync( const Request &request, PaleoTaskService *tasks,
         batch->failRemaining( stale ? QObject::tr( "工程已切换，批量出图已中止" )
                                     : QObject::tr( "已取消" ) );
       batch->finish();
+      if ( batch->layout )
+        batch->layout->setProperty( kBusy, QVariant() );
       if ( task )
         task->finishExternal( batch->result.failed > 0 && !cancelled
                                   ? batch->result.summary()

@@ -28,7 +28,7 @@ bool isSeismicKind(const QString &kind) {
   return kind == QLatin1String("seismic_prediction") ||
          kind == QLatin1String("facies_polygons") ||
          kind == QLatin1String("composed_facies") ||
-         kind == QLatin1String("facies_draft");
+         kind == QLatin1String("edited_facies");
 }
 } // namespace
 

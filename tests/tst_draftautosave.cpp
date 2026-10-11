@@ -29,9 +29,11 @@ private slots:
   void init() {
     QgsVectorLayer mem("Polygon?field=facies_code:integer&field=facies_name:string", "m", "memory");
     QgsFeature a(mem.fields()), b(mem.fields());
-    a.setAttributes({1, "A"});
+    a.setAttribute("facies_code", 1);
+    a.setAttribute("facies_name", QStringLiteral("A"));
     a.setGeometry(QgsGeometry::fromWkt("POLYGON((0 0,1 0,1 1,0 1,0 0))"));
-    b.setAttributes({2, "B"});
+    b.setAttribute("facies_code", 2);
+    b.setAttribute("facies_name", QStringLiteral("B"));
     b.setGeometry(QgsGeometry::fromWkt("POLYGON((1 0,2 0,2 1,1 1,1 0))"));
     QgsFeatureList list{a, b};
     QVERIFY(mem.dataProvider()->addFeatures(list));

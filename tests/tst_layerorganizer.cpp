@@ -95,6 +95,7 @@ class TestLayerOrganizer : public QObject
     void userDragNotReorganized();
     void unmanagedLayerUntouched();
     void sameParentReorderKeepsLayersInProject();
+    void customLayerOrderMirrorsTreeAfterReorganize();
 };
 
 // 2026-10-10 用户实测：编图三页图层列表里井位/测井属性层「闪一下就没了」。
@@ -431,6 +432,37 @@ void TestLayerOrganizer::unmanagedLayerUntouched()
   QCOMPARE(fx.root()->children().constFirst()->name(),
            QStringLiteral("manual"));
   QCOMPARE(fx.root()->children().size(), 2);
+}
+
+void TestLayerOrganizer::customLayerOrderMirrorsTreeAfterReorganize()
+{
+  OrganizerFixture fx;
+  // 层位产层 + 共享平铺「底图」：树内产层应在层位组里、压在底图之上。
+  QVERIFY(fx.layerSvc.declare(decl(QStringLiteral("product.seismic"),
+                                   QStringLiteral("D61"),
+                                   QStringLiteral("02_Prediction"))));
+  QVERIFY(fx.layerSvc.declare(decl(QStringLiteral("basemap.topo"),
+                                   QString(), QStringLiteral("05_PaleoMap"))));
+  QgsMapLayer *product = fx.instantiate(QStringLiteral("product.seismic"));
+  QgsMapLayer *basemap = fx.instantiate(QStringLiteral("basemap.topo"));
+  QVERIFY(product && basemap);
+  fx.organizer.reorganize();
+  const auto treeOrder = fx.root()->layerOrder();
+  QVERIFY(treeOrder.indexOf(product) < treeOrder.indexOf(basemap));
+
+  // 复刻回归现场：「显示预测点位」曾启用自定义绘制顺序，此后实例化
+  // 的产层落到表尾（画在最底）——被不透明底图盖住，整层不可见。
+  auto badOrder = fx.root()->layerOrder();
+  badOrder.removeAll(product);
+  badOrder.append(product);
+  fx.root()->setCustomLayerOrder(badOrder);
+  fx.root()->setHasCustomLayerOrder(true);
+  QCOMPARE(fx.root()->layerOrder().constLast(), product);
+
+  // 规整必须把自定义序镜像回树序——保存过的坏序在重开工程时自愈。
+  fx.organizer.reorganize();
+  const auto healed = fx.root()->layerOrder();
+  QVERIFY(healed.indexOf(product) < healed.indexOf(basemap));
 }
 
 int main(int argc, char *argv[])

@@ -1,14 +1,23 @@
 #include <QtTest>
 #include <QSignalSpy>
+#include <QTemporaryDir>
+
+#include <gdal.h>
+#include <cpl_error.h>
 
 #include "../src/qgis/previewmapcanvas.h"
 #include "../src/qgis/previewrendercache.h"
 #include "../src/qgis/qgisruntime.h"
+#include "../src/qgis/projectmapreference.h"
 #include "../src/catalog/datacatalog.h"
 
 #include <qgsmapcanvas.h>
 #include <qgsmaplayer.h>
 #include <qgsvectorlayer.h>
+#include <qgsrasterlayer.h>
+#include <qgsproject.h>
+#include <qgsmapsettings.h>
+#include <qgsmaprenderersequentialjob.h>
 #include <qgsrectangle.h>
 
 #include <algorithm>
@@ -51,6 +60,7 @@ class TestPreviewMapCanvas : public QObject
 
     void setViewExtentIsExact();
     void cancelRenderingWithoutJobIsSafe();
+    void localGridRasterRendersThroughGeoreference();
     void renderSignalLifecycleFires();
     void overlayFollowsCanvasResize();
 
@@ -368,6 +378,103 @@ void TestPreviewMapCanvas::cancelRenderingWithoutJobIsSafe()
   m_canvas->addLayer(a);
   m_canvas->cancelRendering(); // 无在飞 job：幂等不崩
   QVERIFY(!m_canvas->isRendering());
+}
+
+void TestPreviewMapCanvas::localGridRasterRendersThroughGeoreference()
+{
+  // 地震相产品路径回归：ENGCRS 网格栅格 + similarity 配准 + 3857 画布。
+  // 「图层勾选但画布不可见」排查的渲染期环节——验证本地网格栅格经
+  // 工程注册的仿射操作能落到投影画布并出像素。
+  QTemporaryDir tmp;
+  QVERIFY(tmp.isValid());
+  const QString tif = tmp.filePath(QStringLiteral("pred.tif"));
+  {
+    GDALDriverH drv = GDALGetDriverByName("GTiff");
+    QVERIFY(drv);
+    GDALDatasetH ds = GDALCreate(drv, tif.toUtf8().constData(), 100, 80, 1,
+                                 GDT_Byte, nullptr);
+    QVERIFY(ds);
+    double gt[6] = {0.0, 40.0, 0.0, 4000.0, 0.0, -40.0};
+    QCOMPARE(GDALSetGeoTransform(ds, gt), CE_None);
+    QCOMPARE(GDALSetProjection(ds, DataCatalog::localGridCrsWkt()
+                                        .toUtf8()
+                                        .constData()),
+             CE_None);
+    GDALRasterBandH band = GDALGetRasterBand(ds, 1);
+    QVERIFY(band);
+    // 1/2/3 变化的相编码——常数栅格在默认灰度拉伸下映射成纯黑，测不出。
+    QByteArray row(100, 0);
+    for (int x = 0; x < 100; ++x)
+      row[x] = char(1 + x % 3);
+    for (int y = 0; y < 80; ++y)
+      QCOMPARE(GDALRasterIO(band, GF_Write, 0, y, 100, 1, row.data(), 100,
+                            1, GDT_Byte, 0, 0),
+               CE_None);
+    GDALClose(ds);
+  }
+
+  QgsProject project;
+  PaleoGeoreference g;
+  g.targetCrs = QStringLiteral("EPSG:4326");
+  g.anchorLonDeg = 108.05;
+  g.anchorLatDeg = 36.1;
+  g.metersPerDegLon = 90049.687955;
+  g.metersPerDegLat = 110960.830261;
+  g.a = 1.000896238;
+  g.b = 0.030275703;
+  g.tE = -6182.244744;
+  g.tN = -9871.264523;
+  QString cfgErr;
+  QVERIFY2(paleo::mapreference::configure(
+               &project, g, QStringLiteral("EPSG:3857"), &cfgErr),
+           qPrintable(cfgErr));
+
+  auto *raster = new QgsRasterLayer(tif, QStringLiteral("pred"),
+                                    QStringLiteral("gdal"));
+  QVERIFY(raster->isValid());
+  // 等价于 restoreRasterCrs：tif 内嵌 ENGCRS 与工程局部网格同构
+  raster->setCrs(
+      QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()));
+  QVERIFY(raster->crs().isValid());
+  project.addMapLayer(raster);
+
+  // 目标范围：层范围经同一 context 变换
+  QgsCoordinateTransform tr(
+      raster->crs(), QgsCoordinateReferenceSystem(QStringLiteral("EPSG:3857")),
+      project.transformContext());
+  QVERIFY2(tr.isValid(), "local→3857 变换不可用");
+  const QgsRectangle dest = tr.transformBoundingBox(raster->extent());
+  QVERIFY2(!dest.isEmpty() && std::isfinite(dest.width()),
+           qPrintable(QStringLiteral("dest=%1,%2 %3x%4")
+                          .arg(dest.xMinimum()).arg(dest.yMinimum())
+                          .arg(dest.width()).arg(dest.height())));
+  // 落点应在 108°E 附近的 Web Mercator 米域（配准锚点 lon 108.05）
+  QVERIFY2(std::abs(dest.center().x() - 12028000.0) < 30000.0,
+           qPrintable(QStringLiteral("dest center x=%1 不在配准目标带")
+                          .arg(dest.center().x())));
+
+  QgsMapSettings ms;
+  ms.setDestinationCrs(QgsCoordinateReferenceSystem(QStringLiteral("EPSG:3857")));
+  ms.setTransformContext(project.transformContext());
+  ms.setLayers({raster});
+  ms.setExtent(dest);
+  ms.setOutputSize(QSize(640, 480));
+  ms.setBackgroundColor(QColor(0, 0, 0, 255));
+
+  QgsMapRendererSequentialJob job(ms);
+  job.start();
+  job.waitForFinished();
+  const QImage img = job.renderedImage();
+  QCOMPARE(img.size(), QSize(640, 480));
+
+  int nonBg = 0;
+  for (int y = 0; y < img.height(); ++y)
+    for (int x = 0; x < img.width(); ++x)
+      if (img.pixelColor(x, y) != QColor(0, 0, 0))
+        ++nonBg;
+  QVERIFY2(nonBg > 1000,
+           qPrintable(QStringLiteral("栅格在 3857 画布上不可见 nonBg=%1")
+                          .arg(nonBg)));
 }
 
 void TestPreviewMapCanvas::renderSignalLifecycleFires()

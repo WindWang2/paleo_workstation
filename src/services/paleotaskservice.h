@@ -54,7 +54,7 @@ public:
   // 防线，自行在登记入口比对，勿假设框架已兜底。
   quint64 session() const { return m_session; }
 
-  Q_INVOKABLE void requestCancel() { m_cancel.store(true); }
+  Q_INVOKABLE void requestCancel();
   bool cancelRequested() const { return m_cancel.load(); }
 
   // worker 侧上报：非 GUI 线程可直调，内部排队回主线程。
@@ -68,9 +68,18 @@ public:
   int stagePercent() const { return m_stagePercent; }
   bool isFinished() const { return m_state != State::Running; }
 
+  // 外部驱动任务（PaleoTaskService::beginExternal）的终态上报：主线程调用，
+  // 与 reportBytes 同走排队，保证进度先于终态落地。cancelRequested() 为真 →
+  // Cancelled（忽略 error）；error 非空 → Failed；否则 Succeeded。池内任务
+  // 由服务统一判终态，不要对 start() 出来的任务调它。
+  void finishExternal(const QString &error = QString());
+
 signals:
   void changed();
   void finished(); // 终态后读 state()/errorText()
+  // requestCancel() 首次生效时发（任务页「取消」按钮 / 会话切换 / 关停）。池内
+  // 任务靠 worker 自查 cancelRequested()；外部驱动任务靠此信号中止自己的 IO。
+  void cancelAsked();
 
 private:
   friend class PaleoTaskService;
@@ -115,6 +124,14 @@ public:
                    std::function<QString(PaleoTask *)> work,
                    const QString &layerId, PaleoTask::Priority priority,
                    bool quiet = false);
+
+  // 外部驱动任务：不占线程池，进度/终态由调用方在主线程自行上报（reportBytes
+  // /reportDetail/finishExternal）——给 QNetworkAccessManager 这类自带异步
+  // 的 IO 用（测井相预测逐层任务）。起始 0/100，任务页显示 0% 而非跑马灯；
+  // 其余语义（任务页行、取消、会话取消、保留策略）与 start() 一致。
+  PaleoTask *beginExternal(const QString &title,
+                           const QString &layerId = QString(),
+                           bool quiet = false);
 
   QVector<PaleoTask *> tasks() const { return m_tasks; }
   void clearFinished(); // 移除非运行态行（运行中任务永不删）

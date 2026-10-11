@@ -14,6 +14,7 @@
 #include "../qgis/qgislayerprofile.h" // applyPageProfile（页面档案）
 #include "../qgis/qgisprojectservice.h" // 工程在场判定（startup 逃逸）
 #include "../services/paleotaskservice.h" // PaleoTask::running/quiet
+#include "../workflow/mappingworkbench.h" // 编图链三页测井基础图层保证在场
 
 #include <QAction>
 #include <QDockWidget>
@@ -157,6 +158,13 @@ void PaleoMainWindow::showPage(const QString &pageId)
   // data 页 no-op）。
   if (m_profileSvc)
     m_profileSvc->applyPageProfile(pageId);
+
+  // 编图链三页的图层列表必须带测井基础图层（存在才物化；2026-10-10 用户
+  // 要求）。覆盖首预测落盘后与跨工程重开两种时机。
+  if (m_workbench && (pageId == QLatin1String("predict") ||
+                      pageId == QLatin1String("constraint") ||
+                      pageId == QLatin1String("compose")))
+    m_workbench->ensureWellBaseLayers();
 
   // 页作用域工具面：编辑命令组只在编图链三页的 ribbon 里。落到非编辑页
   // 时停用活动画布工具——各工具 deactivate() 统一发 abort 信号，约束捕获/

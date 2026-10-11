@@ -259,6 +259,7 @@ int main(int argc, char *argv[])
         auto *wf = new WellFaciesWorkflow(parent);
         if (ctx.importSvc()) wf->setCatalog(ctx.importSvc()->catalog());
         wf->setLayerService(ctx.layerSvc());
+        wf->setTaskService(ctx.taskSvc());
         QObject::connect(wf, &WellFaciesWorkflow::attributeTableRequested,
                          &window, &PaleoMainWindow::showAttributeTable);
         QObject::connect(wf, &WellFaciesWorkflow::factorMaintenanceRequested, &window, [&ctx, wf] {

@@ -1323,6 +1323,59 @@ class TestWellSectionUi : public QObject
       QCOMPARE(panel.gapReason(0), QString());
     }
 
+    // 井间缝地震色标：缺省跟随主题；显式预设夹取到 0..7；setter 不写
+    // 设置；菜单动作（用户驱动）写设置并同步勾选态（2026-10-11 与剖面
+    // 画布同一套预设）。
+    void seismicColorMapSelection()
+    {
+      for (const QString &k :
+           {QStringLiteral("wellSection/seismicCmap"),
+            QStringLiteral("wellSection/seismicCmapInvert")})
+        QSettings(QStringLiteral("paleo"), QStringLiteral("paleo")).remove(k);
+      SelectionContext ctx;
+      WellSectionPanel panel(&ctx);
+      panel.setSection(wells4());
+      QCOMPARE(panel.seismicColorMap(), -1);
+      QVERIFY(!panel.seismicColorMapInverted());
+
+      panel.setSeismicColorMap(3);
+      QCOMPARE(panel.seismicColorMap(), 3);
+      panel.setSeismicColorMap(99); // 越界夹取
+      QCOMPARE(panel.seismicColorMap(), 7);
+      panel.setSeismicColorMapInverted(true);
+      QVERIFY(panel.seismicColorMapInverted());
+      // 仅调 setter 不写设置。
+      QVERIFY(!QSettings(QStringLiteral("paleo"), QStringLiteral("paleo"))
+                   .contains(QStringLiteral("wellSection/seismicCmap")));
+
+      // 菜单动作（用户驱动）→ 写设置 + 勾选态同步。
+      auto *btn = toolBtn(panel, "wellSectionThemeButton");
+      QVERIFY(btn && btn->menu());
+      auto *cmapMenu = btn->menu()->findChild<QMenu *>(
+          QStringLiteral("wellSectionCmapMenu"));
+      QVERIFY(cmapMenu);
+      QAction *cmap3 = cmapMenu->findChild<QAction *>(
+          QStringLiteral("wellSectionCmap_3"));
+      QVERIFY(cmap3);
+      cmap3->trigger();
+      QCOMPARE(panel.seismicColorMap(), 3);
+      QCOMPARE(QSettings(QStringLiteral("paleo"), QStringLiteral("paleo"))
+                   .value(QStringLiteral("wellSection/seismicCmap"))
+                   .toInt(),
+               3);
+      QVERIFY(cmap3->isChecked());
+
+      QAction *invert = cmapMenu->findChild<QAction *>(
+          QStringLiteral("wellSectionCmapInvert"));
+      QVERIFY(invert);
+      panel.setSeismicColorMapInverted(false); // 回到 false 再触发 = 用户勾上
+      invert->trigger();
+      QVERIFY(panel.seismicColorMapInverted());
+      QVERIFY(QSettings(QStringLiteral("paleo"), QStringLiteral("paleo"))
+                  .value(QStringLiteral("wellSection/seismicCmapInvert"))
+                  .toBool());
+    }
+
     // 适应/缩放：fit 后图体高 ≈ 视口高 ±2px；Ctrl+滚轮改 px/m 且关
     // autofit；Ctrl+Shift+滚轮改井间距；fit 恢复。
     void fitAndWheelZoom()

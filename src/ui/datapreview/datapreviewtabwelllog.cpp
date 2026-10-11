@@ -137,225 +137,6 @@ QWidget *DataPreviewTabs::buildWellLogContent(
     return host;
   }
   const QStringList names = header.curveNames;
-  auto *singlePage = new QWidget(host);
-  auto *singleLay = new QVBoxLayout(singlePage);
-  singleLay->setContentsMargins(0, 0, 0, 0);
-  singleLay->setSpacing(PaleoTheme::tokens().spacingSm);
-
-  auto *panel = new CurvePanel(singlePage);
-  panel->setObjectName(QStringLiteral("curvePanel"));
-  panel->setEmptyText(tr("这条曲线没有有效样点")); // §4：整条 -99999 → 不绘制
-
-  // 1. 顶部控制栏（主选曲线 + 预设 + 缩放控制）
-  auto *topBar = new QWidget(singlePage);
-  auto *topLay = new QHBoxLayout(topBar);
-  topLay->setContentsMargins(0, 0, 0, 0);
-  topLay->setSpacing(PaleoTheme::tokens().spacingSm);
-
-  auto *combo = new QComboBox(topBar);
-  combo->setObjectName(QStringLiteral("curveCombo"));
-  combo->setAccessibleName(tr("曲线"));
-  for (int i = 1; i < names.size(); ++i) // curves[0] 是深度道
-    combo->addItem(names.at(i), i); // userData = curves 下标（禁用项不受序号偏移影响）
-
-  // §4：约定的 GR/AC/DEN 缺了就给禁用项，tooltip 写「这条曲线不在文件里」。
-  static const QStringList kExpected{QStringLiteral("GR"), QStringLiteral("AC"),
-                                     QStringLiteral("DEN")};
-  for (const QString &cn : kExpected)
-    if (combo->findText(cn) < 0)
-    {
-      const int j = combo->count();
-      combo->addItem(cn, -1);
-      combo->setItemData(j, tr("这条曲线不在文件里"), Qt::ToolTipRole);
-      auto *model = qobject_cast<QStandardItemModel *>(combo->model());
-      if (model && model->item(j))
-        model->item(j)->setEnabled(false);
-    }
-
-  const int def = combo->findText(QStringLiteral("GR"));
-  if (def >= 0 && combo->itemData(def).toInt() > 0) // 禁用项不当作默认曲线
-    combo->setCurrentIndex(def);
-
-  // 深度缩放按钮组
-  auto *btnZoomOut = new QToolButton(topBar);
-  btnZoomOut->setText(QStringLiteral("−"));
-  btnZoomOut->setToolTip(tr("缩小深度 (Ctrl+滚轮向下)"));
-  btnZoomOut->setStyleSheet(QStringLiteral("QToolButton { font-weight: bold; min-width: 24px; min-height: 22px; }"));
-
-  auto *lblZoom = new QLabel(QStringLiteral("100%"), topBar);
-  lblZoom->setFont(monoFont());
-  PaleoTheme::applyThemedStyleSheet(lblZoom, [] {
-    return QStringLiteral("color: %1; min-width: 44px;")
-        .arg(qssHex(PaleoTheme::tokens().textMuted));
-  });
-  lblZoom->setAlignment(Qt::AlignCenter);
-
-  auto *btnZoomIn = new QToolButton(topBar);
-  btnZoomIn->setText(QStringLiteral("+"));
-  btnZoomIn->setToolTip(tr("放大深度 (Ctrl+滚轮向上)"));
-  btnZoomIn->setStyleSheet(QStringLiteral("QToolButton { font-weight: bold; min-width: 24px; min-height: 22px; }"));
-
-  auto *btnZoomReset = new QToolButton(topBar);
-  btnZoomReset->setText(tr("1:1 适应"));
-  btnZoomReset->setToolTip(tr("重置为全井深 (双击图道重置)"));
-  btnZoomReset->setStyleSheet(PaleoTheme::metricStyleSheet(QStringLiteral("QToolButton { min-height: 22px; padding: 0 {spacing.sm}px; }")));
-
-  // 曲线快速预设按钮
-  auto *btnSelectDefault = new QToolButton(topBar);
-  btnSelectDefault->setText(tr("常规(GR/AC/DEN)"));
-  btnSelectDefault->setToolTip(tr("显示三孔隙/常规测井曲线"));
-  btnSelectDefault->setStyleSheet(PaleoTheme::metricStyleSheet(QStringLiteral("QToolButton { min-height: 22px; padding: 0 {spacing.sm}px; }")));
-
-  auto *btnSelectAll = new QToolButton(topBar);
-  btnSelectAll->setText(tr("全选"));
-  btnSelectAll->setToolTip(tr("同时显示所有曲线"));
-  btnSelectAll->setStyleSheet(PaleoTheme::metricStyleSheet(QStringLiteral("QToolButton { min-height: 22px; padding: 0 {spacing.sm}px; }")));
-
-  auto *btnClear = new QToolButton(topBar);
-  btnClear->setText(tr("仅主选"));
-  btnClear->setToolTip(tr("仅显示当前下拉框选中的单根曲线"));
-  btnClear->setStyleSheet(PaleoTheme::metricStyleSheet(QStringLiteral("QToolButton { min-height: 22px; padding: 0 {spacing.sm}px; }")));
-
-  topLay->addWidget(caption8(tr("主选曲线:"), topBar));
-  topLay->addWidget(combo);
-  topLay->addSpacing(PaleoTheme::tokens().spacingSm);
-  topLay->addWidget(btnSelectDefault);
-  topLay->addWidget(btnSelectAll);
-  topLay->addWidget(btnClear);
-  topLay->addStretch(1);
-  topLay->addWidget(caption8(tr("深度缩放:"), topBar));
-  topLay->addWidget(btnZoomOut);
-  topLay->addWidget(lblZoom);
-  topLay->addWidget(btnZoomIn);
-  topLay->addWidget(btnZoomReset);
-
-  // 初始显示曲线集合（默认优先显示 GR/AC/DEN 常规三孔隙）
-  QSet<QString> defaultShown;
-  if (combo->findText(QStringLiteral("GR")) >= 0 && combo->itemData(combo->findText(QStringLiteral("GR"))).toInt() > 0)
-    defaultShown.insert(QStringLiteral("GR"));
-  if (combo->findText(QStringLiteral("AC")) >= 0 && combo->itemData(combo->findText(QStringLiteral("AC"))).toInt() > 0)
-    defaultShown.insert(QStringLiteral("AC"));
-  if (combo->findText(QStringLiteral("DEN")) >= 0 && combo->itemData(combo->findText(QStringLiteral("DEN"))).toInt() > 0)
-    defaultShown.insert(QStringLiteral("DEN"));
-  if (defaultShown.isEmpty() && names.size() > 1)
-    defaultShown.insert(names.at(1));
-
-  // 曲线数据本体（values/unit）两段式第二段到达后经 fill 回调补装——
-  // 此处只建骨架（chips/下拉/缩放/呈现切换），不碰数据行。
-
-  // 2. 曲线多选 Chips 栏（横向滚动条，支持单击自由切换各曲线可见性）
-  auto *chipScroll = new QScrollArea(singlePage);
-  chipScroll->setWidgetResizable(true);
-  chipScroll->setFixedHeight(32);
-  chipScroll->setFrameShape(QFrame::NoFrame);
-  chipScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-  chipScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-  chipScroll->setStyleSheet(QStringLiteral("QScrollArea { background: transparent; border: none; }"));
-
-  auto *chipContainer = new QWidget(chipScroll);
-  chipContainer->setStyleSheet(QStringLiteral("background: transparent;"));
-  auto *chipLay = new QHBoxLayout(chipContainer);
-  chipLay->setContentsMargins(0, 0, 0, 0);
-  chipLay->setSpacing(PaleoTheme::tokens().spacingSm);
-  chipLay->addWidget(caption8(tr("多曲线叠合:"), chipContainer));
-
-  // 曲线 chip：描边保留曲线数据色；文字和底/边/悬停走 chrome
-  // token。切换时重算当前主题样式，活体注册保证运行中换主题跟随。
-  const auto chipStyle = [](const QColor &col, bool on) {
-    const PaleoTheme::ThemeTokens &t = PaleoTheme::tokens();
-    if (on)
-      return PaleoTheme::metricStyleSheet(QStringLiteral(
-          "QToolButton { background: %1; border: 1.5px solid %2; border-radius: {rounded.md}px; "
-          "color: %4; font-weight: bold; padding: {spacing.xs}px {spacing.sm}px; font-size: {typography.label}pt; }"
-          "QToolButton:hover { background: %3; }"))
-          .arg(qssHex(t.surface), col.name(), qssHex(t.surfaceAltRaised), qssHex(t.text));
-    return PaleoTheme::metricStyleSheet(QStringLiteral(
-        "QToolButton { background: %1; border: 1px solid %2; border-radius: {rounded.md}px; "
-        "color: %3; padding: {spacing.xs}px {spacing.sm}px; font-size: {typography.label}pt; }"
-        "QToolButton:hover { background: %4; border-color: %5; }"))
-        .arg(qssHex(t.surface), qssHex(t.border), qssHex(t.textMuted),
-             qssHex(t.surfaceAltRaised), qssHex(t.textDisabled));
-  };
-
-  auto chipMap = std::make_shared<QHash<QString, QToolButton *>>();
-  for (int i = 1; i < names.size(); ++i)
-  {
-    const QString &cname = names.at(i);
-    const QColor col = pickCurveColor(cname, i - 1);
-    auto *chip = new QToolButton(chipContainer);
-    chip->setText(cname);
-    chip->setCheckable(true);
-    const bool isChecked = defaultShown.contains(cname);
-    chip->setChecked(isChecked);
-    chip->setToolTip(cname); // 单位两段式第二段（lasReady）随数据补写
-
-    PaleoTheme::applyThemedStyleSheet(chip, [chipStyle, chip, col] {
-      return chipStyle(col, chip->isChecked());
-    });
-
-    connect(chip, &QToolButton::toggled, host, [panel, chip, cname, chipStyle, col](bool on) {
-      panel->setCurveVisible(cname, on);
-      chip->setStyleSheet(chipStyle(col, on));
-    });
-
-    (*chipMap)[cname] = chip;
-    chipLay->addWidget(chip);
-  }
-  chipLay->addStretch(1);
-  chipScroll->setWidget(chipContainer);
-
-  // 缩放接线
-  connect(btnZoomIn, &QToolButton::clicked, host, [panel]() { panel->zoomIn(); });
-  connect(btnZoomOut, &QToolButton::clicked, host, [panel]() { panel->zoomOut(); });
-  connect(btnZoomReset, &QToolButton::clicked, host, [panel]() { panel->resetZoom(); });
-  panel->onZoomChanged = [lblZoom](double z) {
-    lblZoom->setText(QStringLiteral("%1%").arg(qRound(z * 100)));
-  };
-
-  // 主选下拉框变更时，自动确保该曲线被勾选显示
-  connect(combo, &QComboBox::currentIndexChanged, host, [panel, combo, names, chipMap]() {
-    const int ci = combo->currentData().toInt();
-    if (ci <= 0 || ci >= names.size())
-      return;
-    const QString &selName = names.at(ci);
-    if (chipMap->contains(selName))
-    {
-      auto *btn = chipMap->value(selName);
-      if (!btn->isChecked())
-        btn->setChecked(true);
-    }
-  });
-
-  // 预设按钮事件
-  connect(btnSelectAll, &QToolButton::clicked, host, [chipMap]() {
-    for (auto *b : *chipMap)
-      if (!b->isChecked()) b->setChecked(true);
-  });
-
-  connect(btnSelectDefault, &QToolButton::clicked, host, [chipMap, defaultShown]() {
-    for (auto it = chipMap->begin(); it != chipMap->end(); ++it)
-    {
-      const bool on = defaultShown.contains(it.key());
-      if (it.value()->isChecked() != on)
-        it.value()->setChecked(on);
-    }
-  });
-
-  connect(btnClear, &QToolButton::clicked, host, [combo, names, chipMap]() {
-    const int ci = combo->currentData().toInt();
-    const QString activeName = (ci > 0 && ci < names.size()) ? names.at(ci) : QString();
-    for (auto it = chipMap->begin(); it != chipMap->end(); ++it)
-    {
-      const bool on = (it.key() == activeName);
-      if (it.value()->isChecked() != on)
-        it.value()->setChecked(on);
-    }
-  });
-
-  singleLay->addWidget(new PaleoToolRow(topBar, singlePage));
-  singleLay->addWidget(chipScroll);
-  singleLay->addWidget(panel, 1);
-
   // ResFormStar 多井道综合柱状图总装（骨架即建；曲线数据两段式第二段补装）
   auto *compPanel = new WellComposite::WellCompositePanel(host);
   compPanel->setObjectName(QStringLiteral("wellCompositePanel"));
@@ -506,31 +287,18 @@ QWidget *DataPreviewTabs::buildWellLogContent(
     }
   }
 
-  // ---- F1 两段式第二段挂起：数据到达后一次装齐两个消费方 ----
-  // 单道检视仍只用当前文件。无已决 well_log 时综合图与旧路径一致；
-  // 有已决链接时综合图按 wellCurveIndex，每条曲线用自己文件的深度列。
-  const QPointer<CurvePanel> panelFill(panel);
+  // ---- F1 两段式第二段挂起：数据到达后装填综合图 ----
+  // 无已决 well_log 时综合图用当前文件；有已决链接时按 wellCurveIndex，
+  // 每条曲线用自己文件的深度列。
   const QPointer<WellComposite::WellCompositePanel> compFill(compPanel);
   const std::function<void(const QList<LasCurve> &, const QHash<QString, LasDoc> &)> fillCurves =
-      [panelFill, compFill, chipMapFill = chipMap, hintFill, names, defaultShown, coreImages,
+      [compFill, hintFill, names, coreImages,
        wellTitle, formationIntervals, lithology, wellCurves, compositeFromWell, abs](
           const QList<LasCurve> &curves, const QHash<QString, LasDoc> &siblings) {
         if (hintFill)
           hintFill->hide(); // 数据到齐，占位提示退场
         if (curves.size() != names.size())
           return; // 头/整份契约：lasHeaderAt 与 lasAt 曲线名逐项一致——不符不装
-        if (panelFill)
-        {
-          for (int i = 1; i < names.size(); ++i)
-          {
-            const QString &cname = names.at(i);
-            panelFill->addCurve(cname, curves.at(i).unit, curves.at(i).values,
-                                curves.at(0).values, pickCurveColor(cname, i - 1),
-                                defaultShown.contains(cname));
-            if (auto *chip = chipMapFill->value(cname))
-              chip->setToolTip(QStringLiteral("%1 (%2)").arg(cname, curves.at(i).unit));
-          }
-        }
         if (compFill)
         {
           QVector<WellComposite::CurveData> compCurves;
@@ -601,49 +369,10 @@ QWidget *DataPreviewTabs::buildWellLogContent(
         }
       };
 
-  // 视图模式切换条与堆叠容器：选中 = chip 语义（primary 描边 + 浮起面底，
-  // 同 ribbonStyleSheet checked 范式）；样式挂切换条一份，:checked 自动生效。
-  auto *viewSwitchBar = new QWidget(host);
-  auto *switchLay = new QHBoxLayout(viewSwitchBar);
-  switchLay->setContentsMargins(0, 0, 0, 0);
-  switchLay->setSpacing(PaleoTheme::tokens().spacingSm);
-  styleViewSwitchBar(viewSwitchBar);
-
-  auto *btnResForm = new QToolButton(viewSwitchBar);
-  btnResForm->setObjectName(QStringLiteral("btnResFormView"));
-  btnResForm->setText(tr("ResFormStar 综合多井道柱状图 (推荐)"));
-  btnResForm->setCheckable(true);
-  btnResForm->setChecked(true);
-
-  auto *btnSingle = new QToolButton(viewSwitchBar);
-  btnSingle->setObjectName(QStringLiteral("btnSingleView"));
-  btnSingle->setText(tr("单道叠合检视"));
-  btnSingle->setCheckable(true);
-  btnSingle->setChecked(false);
-
+  // 综合图直接放在堆叠容器里：整份解析失败时容器内容换成「读取失败」面。
   auto *viewStack = new QStackedWidget(host);
   viewStack->setObjectName(QStringLiteral("logViewStack"));
-  viewStack->addWidget(compPanel);   // 0: ResForm 多井道柱状图（默认）
-  viewStack->addWidget(singlePage);  // 1: 单道快速检视
-
-  connect(btnResForm, &QToolButton::clicked, host, [btnResForm, btnSingle, viewStack] {
-    btnResForm->setChecked(true);
-    btnSingle->setChecked(false);
-    viewStack->setCurrentIndex(0);
-  });
-
-  connect(btnSingle, &QToolButton::clicked, host, [btnResForm, btnSingle, viewStack] {
-    btnSingle->setChecked(true);
-    btnResForm->setChecked(false);
-    viewStack->setCurrentIndex(1);
-  });
-
-  switchLay->addWidget(caption8(tr("呈现模式:"), viewSwitchBar));
-  switchLay->addWidget(btnResForm);
-  switchLay->addWidget(btnSingle);
-  switchLay->addStretch(1);
-
-  lay->addWidget(new PaleoToolRow(viewSwitchBar, host));
+  viewStack->addWidget(compPanel);
   lay->addWidget(lasPendingHint);
   lay->addWidget(viewStack, 1);
 

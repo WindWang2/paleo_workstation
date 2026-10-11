@@ -26,6 +26,14 @@ class QgisStyleService : public QObject
     // 实测轨迹不是不确定面，不用虚线）。
     static void applyTrajectoryLayerStyle(class QgsVectorLayer *layer);
 
+    // 测井基础点图层（2026-10-10 用户要求：地层点不能只有颜色没文字）：
+    // 井旁按地层组织的点用空心小点区别实井，formation 名绕点标注——
+    // 同一井位的组/段多行靠 OrderedPositionsAroundPoint 排开可读。
+    static void applyWellFormationLayerStyle(class QgsVectorLayer *layer);
+    // 井段/井点单因素属性层：更小更淡的空心点（每井多行同位堆叠，
+    // 不标注——文字在属性表与综合图里读）。
+    static void applyWellAttributeLayerStyle(class QgsVectorLayer *layer);
+
     // 测区范围/成图边界面：空心填 + text 墨色描边——置顶共享层上不遮
     // 盖因素图与井点（地图域样式，DESIGN.md 例外条款）。
     static void applyBoundaryLayerStyle(class QgsVectorLayer *layer);

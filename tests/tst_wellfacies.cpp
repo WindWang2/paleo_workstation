@@ -2,11 +2,13 @@
 #include "domain/welllogfacies.h"
 #include "io/wellcompositexml.h"
 #include "ui/paleotheme.h"
+#include "services/paleotaskservice.h"
 #include "ui/wellcomposite/wellcompositepanel.h"
 #include "workflow/wellfaciesworkflow.h"
 #include <QDir>
 #include <QFile>
 #include <QJsonDocument>
+#include <QLabel>
 #include <QPainter>
 #include <QSignalSpy>
 #include <QTcpServer>
@@ -54,12 +56,55 @@ ComprehensiveWellData well() {
   d.faciesIntervals = {observed};
   return d;
 }
-QJsonObject response(const QJsonArray &rows, const QString &name) {
+WellFaciesModel zhuhaiModel() {
+  return {"model-2", QStringLiteral("测试微相二"), "v1", QStringLiteral("珠海组"),
+          {"GR"},    {QStringLiteral("分流河道")}, 128};
+}
+// 两个地层组（珠海组 1000–1016、恩平组 1016–1032）各 128 点，另有无模型的文昌组。
+ComprehensiveWellData twoGroupWell(bool withUnmodelledGroup = false) {
+  ComprehensiveWellData d;
+  d.wellName = "W-2";
+  d.minDepth = 1000;
+  d.maxDepth = withUnmodelledGroup ? 1048 : 1032;
+  CurveData c;
+  c.name = "GR";
+  c.unit = "API";
+  for (int i = 0; i < (withUnmodelledGroup ? 384 : 256); ++i) {
+    c.depths.append(1000 + i * .125f);
+    c.values.append(80 + i * .1f);
+  }
+  d.continuousCurves = {c};
+  const auto interval = [](const QString &name, const QString &type, float top,
+                           float bottom) {
+    FormationInterval f;
+    f.name = name;
+    f.unitType = type;
+    f.topDepth = top;
+    f.bottomDepth = bottom;
+    return f;
+  };
+  d.formationIntervals = {interval(QStringLiteral("珠海组"), QStringLiteral("组"), 1000, 1016),
+                          interval(QStringLiteral("珠海一段"), QStringLiteral("段"), 1000, 1016),
+                          interval(QStringLiteral("恩平组"), QStringLiteral("组"), 1016, 1032),
+                          interval(QStringLiteral("恩平一段"), QStringLiteral("段"), 1016, 1032)};
+  if (withUnmodelledGroup) {
+    d.formationIntervals.append(interval(QStringLiteral("文昌组"), QStringLiteral("组"), 1032, 1048));
+    d.formationIntervals.append(interval(QStringLiteral("文昌一段"), QStringLiteral("段"), 1032, 1048));
+  }
+  LithologyInterval lith;
+  lith.topDepth = 1000;
+  lith.bottomDepth = d.maxDepth;
+  lith.lithoName = QStringLiteral("细砂岩");
+  d.lithologyIntervals = {lith};
+  return d;
+}
+QJsonObject response(const QJsonArray &rows, const QString &name,
+                     const QString &label = QStringLiteral("河口坝")) {
   QJsonArray p;
   for (const auto &r : rows)
     p.append(QJsonObject{{"wellName", name},
                          {"depth", r.toObject().value(QStringLiteral("深度"))},
-                         {"label", QStringLiteral("河口坝")},
+                         {"label", label},
                          {"confidence", .91}});
   return {{"jobId", "job-1"},
           {"status", "completed"},
@@ -72,6 +117,12 @@ public:
   QTcpServer server;
   QList<QByteArray> requests;
   QJsonObject result;
+  QList<WellFaciesModel> models{model()};
+  QHash<QString, QString> labels; // modelVersionId → 预测词面（缺省「河口坝」）
+  QString failModel;              // 该模型的 /predict 返回 500
+  QString holdModel;              // 该模型的 /predict 不回应
+  QStringList predictModels;      // 每次 /predict 的 modelVersionId（按到达序）
+  QList<int> predictRows;         // 每次 /predict 提交的行数
   int predictCount = 0, pollCount = 0, httpError = 0;
   bool queued = false, malformed = false, foreignPoll = false,
        terminalFailure = false, hold = false;
@@ -105,29 +156,38 @@ public:
             json = {{"code", "INVALID_INPUT"},
                     {"error", QStringLiteral("缺少岩性")}};
           } else if (path.endsWith("/models")) {
-            const auto m = model();
-            json = {{"models",
-                     QJsonArray{QJsonObject{
-                         {"id", m.id},
-                         {"name", m.name},
-                         {"version", m.version},
-                         {"inputSchema",
-                          QJsonObject{{"formationGroup", m.formationGroup},
-                                      {"curves", QJsonArray{"GR"}},
-                                      {"categoricalFields",
-                                       QJsonArray{QStringLiteral("段"),
-                                                  QStringLiteral("岩性")}},
-                                      {"window", 128}}}}}}};
+            QJsonArray list;
+            for (const auto &m : models)
+              list.append(QJsonObject{
+                  {"id", m.id},
+                  {"name", m.name},
+                  {"version", m.version},
+                  {"inputSchema",
+                   QJsonObject{{"formationGroup", m.formationGroup},
+                               {"curves", QJsonArray{"GR"}},
+                               {"categoricalFields",
+                                QJsonArray{QStringLiteral("段"),
+                                           QStringLiteral("岩性")}},
+                               {"window", 128}}}});
+            json = {{"models", list}};
           } else if (path.endsWith("/predict")) {
             ++predictCount;
             const auto body =
                 QJsonDocument::fromJson(request.mid(end + 4)).object();
             const auto w = body.value("wells").toArray().first().toObject();
+            const QString modelId = body.value("modelVersionId").toString();
+            predictModels << modelId;
+            predictRows << w.value("rows").toArray().size();
             result = response(w.value("rows").toArray(),
-                              w.value("wellName").toString());
-            if (hold)
+                              w.value("wellName").toString(),
+                              labels.value(modelId, QStringLiteral("河口坝")));
+            if (hold || (!holdModel.isEmpty() && holdModel == modelId))
               return;
-            if (queued) {
+            if (!failModel.isEmpty() && failModel == modelId) {
+              status = 500;
+              json = {{"code", "INTERNAL"},
+                      {"error", QStringLiteral("模型服务内部错误")}};
+            } else if (queued) {
               status = 202;
               json = {{"jobId", "job-1"},
                       {"status", "predicting"},
@@ -419,6 +479,11 @@ private slots:
     QTRY_VERIFY2(run->toolTip().startsWith(QStringLiteral("提交当前井")),
                  qPrintable(run->toolTip()));
     QVERIFY(panel.isReferenceWell());
+    QVERIFY(run->toolTip().contains(QStringLiteral("恩平组")));
+    auto *faciesStatus = panel.findChild<QLabel *>("lblFaciesPredictionStatus");
+    QVERIFY(faciesStatus);
+    QVERIFY2(faciesStatus->text().contains(QStringLiteral("恩平组")),
+             qPrintable(faciesStatus->text()));
     const auto observed = panel.currentData().faciesIntervals;
     run->click();
     QTRY_VERIFY(
@@ -433,8 +498,26 @@ private slots:
       return n;
     };
     QCOMPARE(count(), 1);
+    // 优势相道：well() 的地层道有 恩平组（组）和 恩平一段（段），各一道。
+    const auto dominantTracks = [&panel] {
+      QStringList titles;
+      for (const auto &t : panel.canvas()->tracks())
+        if (t->title().startsWith(QStringLiteral("优势相")))
+          titles << t->title();
+      return titles;
+    };
+    QCOMPARE(dominantTracks(),
+             (QStringList{QStringLiteral("优势相（组）"), QStringLiteral("优势相（段）")}));
+    for (const auto &t : panel.canvas()->tracks())
+      if (t->title() == QStringLiteral("优势相（组）")) {
+        const auto text = std::static_pointer_cast<TextTrack>(t)->intervals();
+        QCOMPARE(text.size(), 1);
+        QCOMPARE(text.first().text, QStringLiteral("河口坝 100%"));
+        QCOMPARE(text.first().category, QStringLiteral("恩平组"));
+      }
     workflow->setData(well());
     QTRY_COMPARE(count(), 1);
+    QCOMPARE(dominantTracks().size(), 2);
     QCOMPARE(server.predictCount, 1); // 精确输入命中缓存
     QVERIFY(panel.loadWellData(well()));
     QVERIFY(!panel.isReferenceWell());
@@ -443,13 +526,15 @@ private slots:
     auto *show = panel.findChild<QToolButton *>("btnShowPredictedFacies");
     show->click();
     for (const auto &t : panel.canvas()->tracks())
-      if (t->title() == QStringLiteral("预测相"))
+      if (t->title() == QStringLiteral("预测相") ||
+          t->title().startsWith(QStringLiteral("优势相")))
         QVERIFY(!t->isVisible());
     QVERIFY(panel.loadLasCurves("another", well().continuousCurves,
                                 well().formationIntervals));
     QVERIFY(run->isEnabled());
     QVERIFY(run->toolTip().contains(QStringLiteral("岩性")));
     QCOMPARE(count(), 0);
+    QVERIFY(dominantTracks().isEmpty());
     QVERIFY(panel.currentData().lithologyIntervals.isEmpty());
     QVERIFY(panel.currentData().faciesIntervals.isEmpty());
   }
@@ -484,6 +569,348 @@ private slots:
     QTest::qWait(150);
     QCOMPARE(server.predictCount, 1);
     QCOMPARE(done.size(), 0);
+  }
+  void planPredictsByFormationGroup() {
+    const QVector<WellFaciesModel> both{model(), zhuhaiModel()};
+    auto plan = planWellFaciesRuns(twoGroupWell(), both, "model-1");
+    QVERIFY2(plan.ready(), qPrintable(plan.reason));
+    QCOMPARE(plan.runs.size(), 2);
+    // 按井深自上而下，每组用 formationGroup 一致的模型。
+    QCOMPARE(plan.runs[0].group, QStringLiteral("珠海组"));
+    QCOMPARE(plan.runs[0].model.id, QStringLiteral("model-2"));
+    QCOMPARE(plan.runs[0].input.rows.size(), 128);
+    QCOMPARE(plan.runs[1].group, QStringLiteral("恩平组"));
+    QCOMPARE(plan.runs[1].model.id, QStringLiteral("model-1"));
+    QCOMPARE(plan.runs[1].input.rows.size(), 128);
+    QVERIFY(plan.skipped.isEmpty());
+    QCOMPARE(plan.runs[0].input.rows.first().toObject().value(QStringLiteral("段")).toString(),
+             QStringLiteral("珠海一段"));
+    QCOMPARE(plan.runs[1].input.rows.first().toObject().value(QStringLiteral("段")).toString(),
+             QStringLiteral("恩平一段"));
+
+    // 只有一个模型：另一个组如实标「无对应模型」，不拿这个模型去预测它。
+    plan = planWellFaciesRuns(twoGroupWell(), {model()}, "model-1");
+    QCOMPARE(plan.runs.size(), 1);
+    QCOMPARE(plan.runs[0].group, QStringLiteral("恩平组"));
+    QCOMPARE(plan.skipped, QStringList{QStringLiteral("珠海组（无对应模型）")});
+
+    // 井上有第三个组但没有模型：照跑有模型的两组，并在 skipped 里说明。
+    plan = planWellFaciesRuns(twoGroupWell(true), both, "model-1");
+    QCOMPARE(plan.runs.size(), 2);
+    QCOMPARE(plan.skipped, QStringList{QStringLiteral("文昌组（无对应模型）")});
+
+    // 同组多个版本：所选版本优先。
+    auto v2 = model();
+    v2.id = "model-1b";
+    v2.version = "v2";
+    plan = planWellFaciesRuns(twoGroupWell(), {model(), v2}, "model-1b");
+    QCOMPARE(plan.runs.size(), 1);
+    QCOMPARE(plan.runs[0].model.id, QStringLiteral("model-1b"));
+    plan = planWellFaciesRuns(twoGroupWell(), {model(), v2}, "");
+    QCOMPARE(plan.runs[0].model.id, QStringLiteral("model-1"));
+
+    // 某组输入不可用（点数不足）：不拖累别的组，原因写进 skipped。
+    auto shortWell = twoGroupWell();
+    shortWell.continuousCurves[0].depths.resize(128 + 64);
+    shortWell.continuousCurves[0].values.resize(128 + 64);
+    plan = planWellFaciesRuns(shortWell, both, "model-1");
+    QCOMPARE(plan.runs.size(), 1);
+    QCOMPARE(plan.runs[0].group, QStringLiteral("珠海组"));
+    QCOMPARE(plan.skipped.size(), 1);
+    QVERIFY(plan.skipped[0].startsWith(QStringLiteral("恩平组（")));
+
+    // 没有任何组命中模型：沿用所选模型的原因，不静默。
+    auto none = model();
+    none.formationGroup = QStringLiteral("沙一组");
+    plan = planWellFaciesRuns(twoGroupWell(), {none}, none.id);
+    QVERIFY(!plan.ready());
+    QVERIFY(plan.reason.contains(QStringLiteral("沙一组")));
+    QVERIFY(!planWellFaciesRuns(twoGroupWell(), {}, "").ready());
+  }
+  void mergeResultsKeepsDepthOrder() {
+    const auto make = [](const QString &group, double top, const QString &label) {
+      WellFaciesResult r;
+      r.group = group;
+      r.jobId = "job-" + group;
+      r.modelName = QStringLiteral("M");
+      r.modelVersion = "v1";
+      TextInterval i;
+      i.topDepth = top;
+      i.bottomDepth = top + 2;
+      i.text = label;
+      r.intervals = {i};
+      r.confidence.name = QStringLiteral("置信度");
+      r.confidence.depths = {float(top), float(top + 1)};
+      r.confidence.values = {50, 60};
+      r.response = {{"jobId", r.jobId}};
+      return r;
+    };
+    const auto lower = make(QStringLiteral("恩平组"), 1016, QStringLiteral("河口坝"));
+    const auto upper = make(QStringLiteral("珠海组"), 1000, QStringLiteral("分流河道"));
+    QCOMPARE(mergeWellFaciesResults({lower}).intervals.size(), 1);
+    const auto merged = mergeWellFaciesResults({lower, upper});
+    QCOMPARE(merged.intervals.size(), 2);
+    QCOMPARE(merged.intervals[0].text, QStringLiteral("分流河道"));
+    QCOMPARE(merged.intervals[1].text, QStringLiteral("河口坝"));
+    QCOMPARE(merged.confidence.depths, (QVector<float>{1000, 1001, 1016, 1017}));
+    QCOMPARE(merged.group, QStringLiteral("恩平组、珠海组"));
+    QCOMPARE(merged.modelName, QStringLiteral("M"));
+    QVERIFY(merged.jobId.contains(QStringLiteral("job-恩平组")));
+    QVERIFY(merged.jobId.contains(QStringLiteral("job-珠海组")));
+    QCOMPARE(merged.response.value("groups").toArray().size(), 2);
+  }
+  // 逐组预测：每组一次 /predict、逐组返回合并显示，每组一条任务中心任务。
+  void workflowPredictsFormationByFormation() {
+    Server server;
+    server.models = {model(), zhuhaiModel()};
+    server.labels = {{"model-1", QStringLiteral("河口坝")},
+                     {"model-2", QStringLiteral("分流河道")}};
+    PaleoTaskService tasks;
+    WellFaciesWorkflow workflow;
+    workflow.setTaskService(&tasks);
+    QSignalSpy results(&workflow, &WellFaciesWorkflow::resultReady),
+        busy(&workflow, &WellFaciesWorkflow::busyChanged),
+        status(&workflow, &WellFaciesWorkflow::statusChanged),
+        plans(&workflow, &WellFaciesWorkflow::planChanged),
+        ready(&workflow, &WellFaciesWorkflow::availabilityChanged);
+    workflow.configure(server.config(), false);
+    workflow.setData(twoGroupWell());
+    QTRY_VERIFY2(!ready.isEmpty() && ready.last()[0].toBool(),
+                 ready.isEmpty() ? "no availability"
+                                 : qPrintable(ready.last()[1].toString()));
+    QVERIFY(plans.last()[0].toString().contains(QStringLiteral("珠海组")));
+    QVERIFY(plans.last()[0].toString().contains(QStringLiteral("恩平组")));
+    results.clear();
+
+    workflow.run();
+    // 每个地层一条任务，按井深排队，进场即在任务列表里。
+    QCOMPARE(tasks.tasks().size(), 2);
+    QVERIFY(tasks.tasks()[0]->title().contains(QStringLiteral("珠海组")));
+    QVERIFY(tasks.tasks()[1]->title().contains(QStringLiteral("恩平组")));
+    QVERIFY(!tasks.tasks()[0]->quiet());
+    QCOMPARE(tasks.tasks()[0]->percent(), 0);
+
+    QTRY_COMPARE(results.size(), 2);
+    QTRY_VERIFY(!busy.last()[0].toBool());
+    QCOMPARE(server.predictCount, 2);
+    QCOMPARE(server.predictModels, (QStringList{"model-2", "model-1"}));
+    QCOMPARE(server.predictRows, (QList<int>{128, 128}));
+    // 第一组一回来就显示，第二组回来后并入。
+    const auto first = qvariant_cast<WellFaciesResult>(results[0][0]);
+    QCOMPARE(first.group, QStringLiteral("珠海组"));
+    QCOMPARE(first.intervals.size(), 1);
+    QCOMPARE(first.intervals[0].text, QStringLiteral("分流河道"));
+    const auto merged = qvariant_cast<WellFaciesResult>(results[1][0]);
+    QCOMPARE(merged.intervals.size(), 2);
+    QCOMPARE(merged.intervals[0].text, QStringLiteral("分流河道"));
+    QCOMPARE(merged.intervals[1].text, QStringLiteral("河口坝"));
+    QCOMPARE(merged.intervals[1].topDepth, 1016.f);
+    QCOMPARE(merged.confidence.depths.size(), 256);
+    // 优势相：第一组回来时只有珠海组/段，合并后四个地层单位各一行。
+    const auto firstDominant = first.dominant;
+    QCOMPARE(firstDominant.size(), 2);
+    QCOMPARE(firstDominant[0].formation, QStringLiteral("珠海组"));
+    QCOMPARE(firstDominant[0].dominant, QStringLiteral("分流河道"));
+    QCOMPARE(merged.dominant.size(), 4);
+    QHash<QString, FormationDominance> byName;
+    for (const auto &d : merged.dominant)
+      byName.insert(d.formation, d);
+    QCOMPARE(byName.value(QStringLiteral("恩平组")).dominant, QStringLiteral("河口坝"));
+    QCOMPARE(byName.value(QStringLiteral("恩平组")).unitType, QStringLiteral("组"));
+    QCOMPARE(byName.value(QStringLiteral("珠海一段")).dominant, QStringLiteral("分流河道"));
+    QCOMPARE(byName.value(QStringLiteral("珠海一段")).unitType, QStringLiteral("段"));
+    QVERIFY(byName.value(QStringLiteral("恩平组")).coverage > 0.99);
+    QTRY_VERIFY(tasks.tasks()[0]->state() == PaleoTask::State::Succeeded);
+    QTRY_VERIFY(tasks.tasks()[1]->state() == PaleoTask::State::Succeeded);
+    QCOMPARE(tasks.tasks()[1]->percent(), 100);
+    QVERIFY2(status.last()[0].toString().contains(QStringLiteral("预测完成")),
+             qPrintable(status.last()[0].toString()));
+    QVERIFY(status.last()[0].toString().contains(QStringLiteral("2 个地层")));
+
+    // 重新打开同一口井：逐组命中缓存，合并后恢复，不再请求。
+    results.clear();
+    workflow.setData(twoGroupWell());
+    QTRY_COMPARE(results.size(), 1);
+    QCOMPARE(qvariant_cast<WellFaciesResult>(results[0][0]).intervals.size(), 2);
+    QCOMPARE(server.predictCount, 2);
+  }
+  void taskProgressFollowsServerProgress() {
+    Server server;
+    server.queued = true;
+    PaleoTaskService tasks;
+    WellFaciesWorkflow workflow;
+    workflow.setTaskService(&tasks);
+    QSignalSpy ready(&workflow, &WellFaciesWorkflow::availabilityChanged),
+        results(&workflow, &WellFaciesWorkflow::resultReady);
+    workflow.configure(server.config(), false);
+    workflow.setData(well());
+    QTRY_VERIFY(!ready.isEmpty() && ready.last()[0].toBool());
+    workflow.run();
+    QCOMPARE(tasks.tasks().size(), 1);
+    PaleoTask *task = tasks.tasks()[0];
+    int runningPercent = -1;
+    connect(task, &PaleoTask::changed, &workflow, [&] {
+      if (task->running())
+        runningPercent = qMax(runningPercent, task->percent());
+    });
+    QTRY_COMPARE(results.size(), 1);
+    QTRY_VERIFY(task->state() == PaleoTask::State::Succeeded);
+    QCOMPARE(runningPercent, 45); // 服务端报的进度原样进任务行
+    QCOMPARE(task->percent(), 100);
+  }
+  // 一个地层失败不拖累其余：失败任务标失败，其余照常返回并显示。
+  void failedFormationDoesNotStopOthers() {
+    Server server;
+    server.models = {model(), zhuhaiModel()};
+    server.failModel = "model-2";
+    PaleoTaskService tasks;
+    WellFaciesWorkflow workflow;
+    workflow.setTaskService(&tasks);
+    QSignalSpy ready(&workflow, &WellFaciesWorkflow::availabilityChanged),
+        results(&workflow, &WellFaciesWorkflow::resultReady),
+        busy(&workflow, &WellFaciesWorkflow::busyChanged),
+        status(&workflow, &WellFaciesWorkflow::statusChanged);
+    workflow.configure(server.config(), false);
+    workflow.setData(twoGroupWell());
+    QTRY_VERIFY(!ready.isEmpty() && ready.last()[0].toBool());
+    workflow.run();
+    QTRY_VERIFY(!busy.isEmpty() && !busy.last()[0].toBool());
+    QCOMPARE(server.predictCount, 2);
+    QCOMPARE(results.size(), 1);
+    const auto result = qvariant_cast<WellFaciesResult>(results[0][0]);
+    QCOMPARE(result.group, QStringLiteral("恩平组"));
+    QTRY_VERIFY(tasks.tasks()[0]->state() == PaleoTask::State::Failed);
+    QVERIFY(tasks.tasks()[0]->errorText().contains(QStringLiteral("模型服务内部错误")));
+    QTRY_VERIFY(tasks.tasks()[1]->state() == PaleoTask::State::Succeeded);
+    const QString last = status.last()[0].toString();
+    QVERIFY2(last.contains(QStringLiteral("预测完成")) &&
+                 last.contains(QStringLiteral("失败：珠海组")),
+             qPrintable(last));
+  }
+  // 任务中心里取消某一个地层：只放弃它，后面的地层照常提交。
+  void cancelOneFormationTaskContinuesWithNext() {
+    Server server;
+    server.models = {model(), zhuhaiModel()};
+    server.hold = true;
+    PaleoTaskService tasks;
+    WellFaciesWorkflow workflow;
+    workflow.setTaskService(&tasks);
+    QSignalSpy ready(&workflow, &WellFaciesWorkflow::availabilityChanged),
+        busy(&workflow, &WellFaciesWorkflow::busyChanged);
+    workflow.configure(server.config(), false);
+    workflow.setData(twoGroupWell());
+    QTRY_VERIFY(!ready.isEmpty() && ready.last()[0].toBool());
+    workflow.run();
+    QTRY_COMPARE(server.predictCount, 1);
+    QCOMPARE(tasks.tasks().size(), 2);
+    tasks.tasks()[0]->requestCancel();
+    QTRY_COMPARE(server.predictCount, 2);
+    QTRY_VERIFY(tasks.tasks()[0]->state() == PaleoTask::State::Cancelled);
+    QVERIFY(tasks.tasks()[1]->running());
+    QVERIFY(busy.last()[0].toBool());
+    tasks.tasks()[1]->requestCancel();
+    QTRY_VERIFY(!busy.last()[0].toBool());
+    QTRY_VERIFY(tasks.tasks()[1]->state() == PaleoTask::State::Cancelled);
+    QCOMPARE(server.predictCount, 2);
+  }
+  // 排队中的地层被取消：轮到它时跳过，不发请求。
+  void cancelQueuedFormationTaskIsSkipped() {
+    Server server;
+    server.models = {model(), zhuhaiModel()};
+    server.hold = true;
+    PaleoTaskService tasks;
+    WellFaciesWorkflow workflow;
+    workflow.setTaskService(&tasks);
+    QSignalSpy ready(&workflow, &WellFaciesWorkflow::availabilityChanged),
+        busy(&workflow, &WellFaciesWorkflow::busyChanged);
+    workflow.configure(server.config(), false);
+    workflow.setData(twoGroupWell());
+    QTRY_VERIFY(!ready.isEmpty() && ready.last()[0].toBool());
+    workflow.run();
+    QTRY_COMPARE(server.predictCount, 1);
+    tasks.tasks()[1]->requestCancel(); // 恩平组还在排队：任务行立即结束
+    QTRY_VERIFY(tasks.tasks()[1]->state() == PaleoTask::State::Cancelled);
+    QVERIFY(tasks.tasks()[0]->running());
+    QVERIFY(busy.last()[0].toBool());
+    tasks.tasks()[0]->requestCancel();
+    QTRY_VERIFY(!busy.last()[0].toBool());
+    QTest::qWait(100);
+    QCOMPARE(server.predictCount, 1);
+    QTRY_VERIFY(tasks.tasks()[0]->state() == PaleoTask::State::Cancelled);
+    QTRY_VERIFY(tasks.tasks()[1]->state() == PaleoTask::State::Cancelled);
+  }
+  // 工程切换（任务会话号变化）：已返回的地层照常显示，但不写进新工程的属性。
+  void sessionChangeDoesNotPublishResults() {
+    Server server;
+    server.models = {model(), zhuhaiModel()};
+    server.holdModel = "model-1"; // 恩平组一直不回应
+    PaleoTaskService tasks;
+    WellFaciesWorkflow workflow;
+    workflow.setTaskService(&tasks);
+    QSignalSpy ready(&workflow, &WellFaciesWorkflow::availabilityChanged),
+        results(&workflow, &WellFaciesWorkflow::resultReady),
+        busy(&workflow, &WellFaciesWorkflow::busyChanged),
+        status(&workflow, &WellFaciesWorkflow::statusChanged);
+    workflow.configure(server.config(), false);
+    workflow.setData(twoGroupWell());
+    QTRY_VERIFY(!ready.isEmpty() && ready.last()[0].toBool());
+    workflow.run();
+    QTRY_COMPARE(results.size(), 1); // 珠海组已返回
+    QTRY_COMPARE(server.predictCount, 2);
+    tasks.beginNewSession();
+    QTRY_VERIFY(!busy.last()[0].toBool());
+    QCOMPARE(results.size(), 1);
+    const QString last = status.last()[0].toString();
+    QVERIFY2(last.contains(QStringLiteral("工程已切换")), qPrintable(last));
+    QVERIFY2(last.contains(QStringLiteral("已取消：恩平组")), qPrintable(last));
+    QTRY_VERIFY(tasks.tasks()[0]->state() == PaleoTask::State::Succeeded);
+    QTRY_VERIFY(tasks.tasks()[1]->state() == PaleoTask::State::Cancelled);
+  }
+  // 「停止等待」：全部地层任务一并结束为已取消。
+  void stopWaitingCancelsEveryFormationTask() {
+    Server server;
+    server.models = {model(), zhuhaiModel()};
+    server.hold = true;
+    PaleoTaskService tasks;
+    WellFaciesWorkflow workflow;
+    workflow.setTaskService(&tasks);
+    QSignalSpy ready(&workflow, &WellFaciesWorkflow::availabilityChanged),
+        busy(&workflow, &WellFaciesWorkflow::busyChanged);
+    workflow.configure(server.config(), false);
+    workflow.setData(twoGroupWell());
+    QTRY_VERIFY(!ready.isEmpty() && ready.last()[0].toBool());
+    workflow.run();
+    QTRY_COMPARE(server.predictCount, 1);
+    workflow.cancel();
+    QVERIFY(!busy.last()[0].toBool());
+    QTRY_VERIFY(tasks.tasks()[0]->state() == PaleoTask::State::Cancelled);
+    QTRY_VERIFY(tasks.tasks()[1]->state() == PaleoTask::State::Cancelled);
+    QTest::qWait(100);
+    QCOMPARE(server.predictCount, 1);
+  }
+  // 停掉后再点预测：在途地层续查已受理任务，不重复提交该地层。
+  void resumeInFlightFormationAfterStop() {
+    Server server;
+    server.models = {model(), zhuhaiModel()};
+    server.queued = true;
+    WellFaciesWorkflow workflow;
+    QSignalSpy ready(&workflow, &WellFaciesWorkflow::availabilityChanged),
+        results(&workflow, &WellFaciesWorkflow::resultReady),
+        status(&workflow, &WellFaciesWorkflow::statusChanged);
+    workflow.configure(server.config(), false);
+    workflow.setData(twoGroupWell());
+    QTRY_VERIFY(!ready.isEmpty() && ready.last()[0].toBool());
+    workflow.run();
+    // 等到 202 受理并回报进度（此时任务 ID 已记下），再停。
+    QTRY_VERIFY(std::any_of(status.cbegin(), status.cend(), [](const auto &s) {
+      return s[0].toString().contains(QStringLiteral("45%"));
+    }));
+    QCOMPARE(server.predictCount, 1);
+    workflow.cancel();
+    workflow.run();
+    QTRY_COMPARE_WITH_TIMEOUT(results.size(), 2, 10000);
+    // 珠海组的 job 已受理，续查而不是重新提交：两组共 2 次 /predict。
+    QCOMPARE(server.predictCount, 2);
   }
   void realReferenceDirectory_data() {
     QTest::addColumn<QString>("path");

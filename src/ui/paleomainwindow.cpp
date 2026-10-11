@@ -426,7 +426,7 @@ void PaleoMainWindow::onProjectOpened()
   restoreCanvasExtent(); // per-project display state from the .qgz
 
   // #156：测井对比井集来自 catalog（不再只由本会话的导入事件填充）。
-  refreshCorrelationWells(QString(), /*loadAllLas=*/true);
+  refreshCorrelationWells();
 
   // 工程级参数驱动的层位 UI（AreaRules 已在 AppContext::projectOpened 装载）：
   // chip 条按新词表重建；标定层位相关文案重写。
@@ -803,8 +803,7 @@ bool PaleoMainWindow::maybeSaveProject()
   return true;
 }
 
-void PaleoMainWindow::refreshCorrelationWells(const QString &loadLasForAssetId,
-                                              bool loadAllLas)
+void PaleoMainWindow::refreshCorrelationWells()
 {
   if (!m_corrPanel || !m_previewDoc)
     return;
@@ -813,18 +812,8 @@ void PaleoMainWindow::refreshCorrelationWells(const QString &loadLasForAssetId,
   for (const QString &id : ids)
     wells.append({id, m_previewDoc->assetSource(id)});
   m_corrPanel->setWells(wells);
-  const QString root = m_projectSvc && !m_projectSvc->projectPath().isEmpty()
-                           ? QFileInfo(m_projectSvc->projectPath()).absolutePath()
-                           : QString();
-  // LAS 资产把 GR 曲线拉进井列（任务服务在场时是 quiet 异步解析）。
-  for (const QString &id : ids)
-  {
-    if (!loadAllLas && id != loadLasForAssetId)
-      continue;
-    const QString src = m_previewDoc->assetSource(id);
-    if (src.endsWith(QLatin1String(".las"), Qt::CaseInsensitive))
-      m_corrPanel->loadWellLas(id, QDir(root).absoluteFilePath(src), QStringLiteral("GR"));
-  }
+  // 面板已不挂页签（2026-10-11 用户要求）：LAS 曲线只供展示轨用，这里
+  // 不再逐井解析——井集本身仍要维护（测井计算以它为计算范围）。
 }
 
 void PaleoMainWindow::syncSeismicVolumeToDocks()

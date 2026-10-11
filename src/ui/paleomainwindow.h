@@ -183,8 +183,8 @@ class PaleoMainWindow : public SARibbonMainWindow
         m_projectSaveAsk = ask;
     }
     // #156：测井对比井集 = catalog 全部 well_log（打开工程与导入后都走这里）。
-    void refreshCorrelationWells(const QString &loadLasForAssetId = QString(),
-                                 bool loadAllLas = false);
+    // 面板不挂底栏页签，只刷井集（测井计算范围来源），不再逐井加载 LAS。
+    void refreshCorrelationWells();
     void setProjectReadOnly(bool readOnly);
     bool isProjectReadOnly() const { return m_isProjectReadOnly; }
     // 打开工程文件（.paleo / .qgz）或工区目录（已有工程则打开，全新工区则建工程并唤起导入）。
@@ -255,7 +255,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     void attachComposePage(ComposePage *composePage, CompositionWorkflow *compose,
                            QgisLayoutService *layoutSvc);
     void attachValidatePage(ValidatePage *validatePage, ValidationWorkflow *validate,
-                            WellCorrelationPanel *corrPanel, DataImportService *importSvc);
+                            DataImportService *importSvc);
     // m2(C) 接缝：版面地图项钉页面档案主题。m1 档案服务在场走
     // QgisLayerProfileService::setLayoutMapTheme（含记录修剪），缺席时直写
     // QGIS 原生 follow-visibility 预设（与 m1 兜底分支同语义）。
@@ -324,7 +324,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     void restoreCorrelationDocks();
     void buildRibbonPanels(DataPage *data, PredictPage *predict, ConstraintPage *constraint,
                            ComposePage *compose, ValidatePage *validate,
-                           PaleoEditingToolbar *editTb, WellCorrelationPanel *corrPanel);
+                           PaleoEditingToolbar *editTb);
     // 三个编图页各有一组「要素编辑」：动作与编辑条共享同一批 QAction；图层
     // 下拉共享编辑条下拉的 model，选择经 setCurrentLayer 回写。
     void addEditingPanel(SARibbonCategory *category, PaleoEditingToolbar *editTb);
@@ -425,6 +425,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     // ---- wave/layer-platform：左 dock 图层平台（面板 + 档案工具条 + 服务） ----
     LayerTreePanel *m_layerPanel = nullptr;
     QgisLayerProfileService *m_profileSvc = nullptr;
+    QPointer<MappingWorkbench> m_workbench; // 编图链三页的测井基础图层保证在场
     QgisLabelZOrder *m_labelZOrder = nullptr; // 标注随图层 z 序（labelsWithLayer 打标器）
     LayerPropertiesDialog *m_layerProps = nullptr;
     bool m_profileReplayQueued = false; // 层位切换后的页面档案重放去抖旗标

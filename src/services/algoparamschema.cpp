@@ -123,6 +123,19 @@ QVector<AlgorithmParamField> polygonizeFields()
         f.minValue = 0.0;
         return f;
       }(),
+      [] {
+        AlgorithmParamField f;
+        f.key = QStringLiteral( "MIN_FRACTION" );
+        f.label = QCoreApplication::translate( "AlgorithmParamSchema", "最小图斑占有效区比例" );
+        f.type = AlgorithmParamField::Double;
+        f.defaultValue = 0.0025;
+        f.hasMin = true;
+        f.minValue = 0.0;
+        f.hasMax = true;
+        f.maxValue = 1.0;
+        f.decimals = 4;
+        return f;
+      }(),
       scalar( QStringLiteral( "MIN_AREA" ),
               QCoreApplication::translate( "AlgorithmParamSchema", "最小图斑面积" ), 0.0, 0.0,
               false, 0.0, QStringLiteral( " m²" ) ),

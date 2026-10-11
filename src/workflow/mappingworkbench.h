@@ -13,6 +13,8 @@ class QgisLayerService;
 class QgisProcessingService;
 class QgisProjectService;
 class ConstraintWorkflow;
+class PaleoTask;
+class PaleoTaskService;
 
 // One project-bound catalog writer; all QGIS/catalog mutations run on its GUI
 // thread.
@@ -26,6 +28,9 @@ public:
   void bindCatalog(DataCatalog *catalog, const QString &projectDir);
   void setPredictionService(RemotePredictionService *service);
   RemotePredictionService *predictionService() const { return m_remote.data(); }
+  // 智能预测进任务中心：每次预测一行（进度/取消/终态），装配根注入；
+  // 未注入时预测照常运行，只是不出任务行。
+  void setTaskService(PaleoTaskService *tasks);
   // 远端预测状态文案（装配根注入；既无服务又无文案时给「未配置」兜底——
   // UI 必须能显示「远端预测未配置，走本地引擎」，不许静默跑替身）。
   void setPredictionStatusHint(const QString &hint);
@@ -43,6 +48,12 @@ public:
   LayerDeclaration declaration(const QString &id) const;
   QString layerForVersion(const QString &versionId, QString *error = nullptr);
   QString openWellAttributes(QString *error = nullptr);
+  // 地层优势相矢量表（welllog.formations）：与数据管理的逐组预测同一张表。
+  QString openWellFormations(QString *error = nullptr);
+  // 测井基础图层保证在场（井位 + 岩性相属性 + 地层相属性 + 井点单因素，
+  // 产物文件存在才物化——「如果有的话」）。编图链三页进入与测井预测
+  // 落盘后调用：工程打开时文件尚不存在的首预测，从此无需重开工程。
+  void ensureWellBaseLayers();
   bool predict(const QString &horizon, const QString &kind,
                const QStringList &ids, QString *error,
                const QString &horizonFile = {});
@@ -117,6 +128,17 @@ private:
                  const QString &assetKey = QString());
   QString ensureInputVersion(const QString &layerId, QString *error);
   void finishPrediction(const RemotePredictionResult &result);
+  // 任务中心行：开一行 / 收尾（error 空 = 完成）/ 取消（取消态收尾）。
+  void beginPredictionTask(const QString &title);
+  void endPredictionTask(const QString &error = {});
+  void cancelPredictionTask();
+  // 测井相点的井段 → 每井每个地层单位（组/段）的优势相行；地层单位取自该井
+  // tops（顶 = 本层位顶，底 = 下一层位顶，最末取预测底）。predicted=false 为
+  // 人工修订：只更新维护的优势相，不动「预测优势相」。
+  QVariantList wellFormationUpdates(const QVariantList &points,
+                                    const QVariantList &schema, bool predicted,
+                                    const QString &method = {},
+                                    const QString &jobId = {}) const;
   QgisLayerService *m_layers;
   QgisProcessingService *m_processing;
   QgisProjectService *m_project;
@@ -129,6 +151,10 @@ private:
   RemotePredictionRequest m_request;
   QVariantMap m_predictionParameters;
   std::shared_ptr<std::atomic_bool> m_mockCancelled;
+  // 测井预测的取数阶段（后台读 LAS 深度范围，读完才提交预测服务）。
+  std::shared_ptr<std::atomic_bool> m_prepareCancelled;
+  QPointer<PaleoTaskService> m_taskSvc;
+  QPointer<PaleoTask> m_task;
   QString m_predictionHint;
   mutable QString m_logVersion;
   mutable LasDoc m_logCache;

@@ -3,7 +3,11 @@
 #include <QDirIterator>
 #include <QFile>
 #include <QJsonDocument>
+#include <QMap>
 #include <QObject>
+#include <algorithm>
+#include <cmath>
+#include <limits>
 static void initGeology() {
   static const bool initialized = [] {
     Q_INIT_RESOURCE(geology);
@@ -100,5 +104,54 @@ QVariantMap attributes(const QVariantList &schema, const QVariant &code) {
           {"microfacies", f.value("microfacies", QString())},
           {"facies_label", f.value("name")},
           {"texture", f.value("texture", QString())}};
+}
+int dominantCode(const QVariantList &intervals, double top, double base) {
+  QMap<int, double> thickness;
+  for (const auto &v : intervals) {
+    const auto r = v.toMap();
+    const double t = std::max(top, r.value("top").toDouble());
+    const double b = std::min(base, r.value("bottom").toDouble());
+    if (b > t)
+      thickness[r.value("code").toInt()] += b - t;
+  }
+  int dominant = 0;
+  double best = 0;
+  for (auto it = thickness.cbegin(); it != thickness.cend(); ++it)
+    if (it.value() > best) {
+      best = it.value();
+      dominant = it.key();
+    }
+  return dominant;
+}
+QVariantList recodeIntervals(const QVariantList &intervals, int code,
+                             double top, double base) {
+  QVariantList out;
+  for (const auto &v : intervals) {
+    const auto r = v.toMap();
+    const double t = r.value("top").toDouble(), b = r.value("bottom").toDouble();
+    QList<double> cuts{t};
+    for (double edge : {top, base})
+      if (edge > t && edge < b)
+        cuts << edge;
+    cuts << b;
+    for (qsizetype i = 0; i + 1 < cuts.size(); ++i) {
+      auto part = r;
+      part.insert("top", cuts[i]);
+      part.insert("bottom", cuts[i + 1]);
+      if (cuts[i] >= top && cuts[i + 1] <= base)
+        part.insert("code", code);
+      out << part;
+    }
+  }
+  return out;
+}
+void formationRange(const QVariant &top, const QVariant &base, double *outTop,
+                    double *outBase) {
+  bool topOk = false, baseOk = false;
+  const double t = top.toDouble(&topOk), b = base.toDouble(&baseOk);
+  const bool valid = !top.isNull() && !base.isNull() && topOk && baseOk &&
+                     std::isfinite(t) && std::isfinite(b) && b > t;
+  *outTop = valid ? t : -std::numeric_limits<double>::infinity();
+  *outBase = valid ? b : std::numeric_limits<double>::infinity();
 }
 } // namespace FaciesCatalog

@@ -26,6 +26,19 @@ bool addWell(WorkflowFixture &f, const QString &id) {
   well.coordinateStatus = "untransformed";
   return f.catalog.addEntity(well);
 }
+QVariantMap formationRow(const QString &id, const QString &formation,
+                         double top, double base, const QString &dominant) {
+  return {{"well_id", id},
+          {"formation", formation},
+          {"unit_type", "段"},
+          {"top_md", top},
+          {"base_md", base},
+          {"thickness_md", base - top},
+          {"dominant_facies", dominant},
+          {"predicted_dominant", dominant},
+          {"dominant_ratio", 0.6},
+          {"coverage", 1.0}};
+}
 QVariantMap interval(const QString &id, double top, double base,
                      const QString &litho) {
   return {{"well_id", id},
@@ -225,6 +238,217 @@ private slots:
                                      false)
                 ->readOnly());
     QCOMPARE(WellAttributeStore::rows(f.dir.path(), nullptr, false), before);
+  }
+  // 地层优势相表：每井每地层一行；按 well_id+formation 更新，只覆盖给出的列，
+  // 保留手工维护的优势相之外的列与自定义属性；重开工程不依赖图层服务也能读。
+  void formationTableUpsertsByWellAndFormation() {
+    WorkflowFixture f;
+    QVERIFY(initFixture(f));
+    QVERIFY(addWell(f, "W1"));
+    QVERIFY(addWell(f, "W2"));
+    QString error;
+    QVERIFY(WellAttributeStore::rows(f.dir.path(), &f.layers,
+                                     WellAttributeStore::Table::Formations)
+                .isEmpty());
+    QVERIFY2(WellAttributeStore::mergeFormations(
+                 &f.catalog, f.dir.path(), &f.layers,
+                 {formationRow("W1", "D61", 1000, 1100, "分流河道"),
+                  formationRow("W1", "D62", 1100, 1180, "河口坝"),
+                  formationRow("W2", "D61", 900, 1000, "湖泊")},
+                 &error),
+             qPrintable(error));
+    auto *layer = WellAttributeStore::open(&f.catalog, f.dir.path(), &f.layers,
+                                           WellAttributeStore::Table::Formations,
+                                           false);
+    QVERIFY(layer);
+    QCOMPARE(layer->featureCount(), 3);
+    QCOMPARE(layer->fields().indexOf("horizon"), -1); // 地层表用 formation 列
+    QVERIFY(layer->fields().indexOf("dominant_facies") >= 0);
+    QCOMPARE(layer->fields().at(layer->fields().indexOf("dominant_facies")).alias(),
+             QString("地层相")); // 智能预测侧不出现「优势」字样
+    QCOMPARE(layer->name(), QString("测井地层相属性"));
+    auto it = layer->getFeatures();
+    QgsFeature feature;
+    while (it.nextFeature(feature)) {
+      QVERIFY(feature.hasGeometry()); // 井位点：可上图、可按属性出图
+      QCOMPARE(feature.attribute("well_name").toString(),
+               feature.attribute("well_id").toString());
+    }
+
+    // 手工维护：改优势相、加自定义列；预测优势相保持原值。
+    QVERIFY(layer->startEditing());
+    QVERIFY(layer->addAttribute(QgsField("expert_note", QMetaType::QString)));
+    it = layer->getFeatures();
+    while (it.nextFeature(feature))
+      if (feature.attribute("well_id") == "W1" &&
+          feature.attribute("formation") == "D61") {
+        QVERIFY(layer->changeAttributeValue(
+            feature.id(), layer->fields().indexOf("dominant_facies"), "水下分流河道"));
+        QVERIFY(layer->changeAttributeValue(
+            feature.id(), layer->fields().indexOf("expert_note"), "复核过"));
+      }
+    QVERIFY2(layer->commitChanges(), qPrintable(layer->commitErrors().join(";")));
+
+    // 再预测一次 D62：只更新给出的列，D61 的维护值和自定义列不动。
+    QVariantMap redo = formationRow("W1", "D62", 1100, 1180, "分流河道");
+    redo.remove("predicted_dominant");
+    redo.insert("dominant_ratio", 0.75);
+    QVERIFY2(WellAttributeStore::mergeFormations(&f.catalog, f.dir.path(),
+                                                 &f.layers, {redo}, &error),
+             qPrintable(error));
+    const auto d61 = WellAttributeStore::rows(
+        f.dir.path(), nullptr, WellAttributeStore::Table::Formations, "W1", "D61");
+    QCOMPARE(d61.size(), 1);
+    QCOMPARE(d61.first().toMap().value("dominant_facies").toString(), QString("水下分流河道"));
+    QCOMPARE(d61.first().toMap().value("predicted_dominant").toString(), QString("分流河道"));
+    QCOMPARE(d61.first().toMap().value("expert_note").toString(), QString("复核过"));
+    const auto d62 = WellAttributeStore::rows(
+        f.dir.path(), nullptr, WellAttributeStore::Table::Formations, "W1", "D62");
+    QCOMPARE(d62.size(), 1); // 更新而不是新增
+    QCOMPARE(d62.first().toMap().value("dominant_facies").toString(), QString("分流河道"));
+    QCOMPARE(d62.first().toMap().value("predicted_dominant").toString(), QString("河口坝"));
+    QCOMPARE(d62.first().toMap().value("dominant_ratio").toDouble(), 0.75);
+    QCOMPARE(WellAttributeStore::rows(f.dir.path(), nullptr,
+                                      WellAttributeStore::Table::Formations)
+                 .size(),
+             3);
+    // 井段表、因子表互不串扰。
+    QVERIFY(WellAttributeStore::rows(f.dir.path(), nullptr, false).isEmpty());
+    QVERIFY(WellAttributeStore::rows(f.dir.path(), nullptr, true).isEmpty());
+  }
+  void invalidFormationBatchDoesNotWrite() {
+    WorkflowFixture f;
+    QVERIFY(initFixture(f));
+    QVERIFY(addWell(f, "W1"));
+    QString error;
+    QVERIFY(WellAttributeStore::mergeFormations(
+        &f.catalog, f.dir.path(), &f.layers,
+        {formationRow("W1", "D61", 1000, 1100, "分流河道")}, &error));
+    const auto before = WellAttributeStore::rows(
+        f.dir.path(), nullptr, WellAttributeStore::Table::Formations);
+    auto ratioTooBig = formationRow("W1", "D62", 1100, 1200, "河口坝");
+    ratioTooBig.insert("dominant_ratio", 1.4);
+    auto negative = formationRow("W1", "D62", 1100, 1200, "河口坝");
+    negative.insert("dominant_thickness_md", -3.0);
+    auto fractionalCode = formationRow("W1", "D62", 1100, 1200, "河口坝");
+    fractionalCode.insert("facies_code", 2.5);
+    for (const QVariantList &invalid :
+         {QVariantList{formationRow("W1", "D62", 1100, 1200, "河口坝"),
+                       formationRow("ghost", "D62", 1100, 1200, "河口坝")},
+          QVariantList{formationRow("W1", "D62", 1100, 1200, "河口坝"),
+                       formationRow("W1", "D62", 1200, 1300, "湖泊")}, // 同名重复
+          QVariantList{formationRow("W1", "", 1100, 1200, "河口坝")},
+          QVariantList{formationRow("W1", "D62", 1200, 1100, "河口坝")}, // 顶底倒置
+          QVariantList{ratioTooBig}, QVariantList{negative},
+          QVariantList{fractionalCode}}) {
+      QVERIFY(!WellAttributeStore::mergeFormations(&f.catalog, f.dir.path(),
+                                                   &f.layers, invalid, &error));
+      QVERIFY(!error.isEmpty());
+      QCOMPARE(WellAttributeStore::rows(f.dir.path(), nullptr,
+                                        WellAttributeStore::Table::Formations),
+               before);
+    }
+    // 手工把占比改成 >1：属性表保存被拦下，缓冲可回滚。
+    auto *layer = WellAttributeStore::open(&f.catalog, f.dir.path(), &f.layers,
+                                           WellAttributeStore::Table::Formations,
+                                           false);
+    QVERIFY(layer->startEditing());
+    auto it = layer->getFeatures();
+    QgsFeature feature;
+    while (it.nextFeature(feature))
+      QVERIFY(layer->changeAttributeValue(
+          feature.id(), layer->fields().indexOf("dominant_ratio"), 1.5));
+    QVERIFY(!layer->commitChanges());
+    QVERIFY(layer->rollBack());
+    // 表正在编辑时预测不能写入；只读工程不能写。
+    QVERIFY(layer->startEditing());
+    QVERIFY(!WellAttributeStore::mergeFormations(
+        &f.catalog, f.dir.path(), &f.layers,
+        {formationRow("W1", "D62", 1100, 1200, "河口坝")}, &error));
+    QVERIFY(layer->isEditable());
+    QVERIFY(layer->rollBack());
+    f.catalog.setLockedReadOnly(true);
+    QVERIFY(!WellAttributeStore::mergeFormations(
+        &f.catalog, f.dir.path(), &f.layers,
+        {formationRow("W1", "D62", 1100, 1200, "河口坝")}, &error));
+    QCOMPARE(WellAttributeStore::rows(f.dir.path(), nullptr,
+                                      WellAttributeStore::Table::Formations),
+             before);
+  }
+  // 数据管理的逐组预测结果 → 井段表 + 地层优势相表（组、段各一行）；
+  // 面板多出「优势相」道，按钮打开同一张表。
+  void faciesPublishWritesFormationDominance() {
+    WorkflowFixture f;
+    QVERIFY(initFixture(f));
+    QVERIFY(addWell(f, "W1"));
+    auto source = data();
+    FormationInterval group;
+    group.name = "恩平组";
+    group.unitType = "组";
+    group.topDepth = 0;
+    group.bottomDepth = 20;
+    FormationInterval upper = group;
+    upper.name = "恩平一段";
+    upper.unitType = "段";
+    upper.bottomDepth = 10;
+    FormationInterval lower = group;
+    lower.name = "恩平二段";
+    lower.unitType = "段";
+    lower.topDepth = 10;
+    source.formationIntervals = {group, upper, lower};
+    WellFaciesWorkflow wf;
+    wf.setCatalog(&f.catalog);
+    wf.setLayerService(&f.layers);
+    wf.setData(source);
+    WellFaciesResult prediction;
+    prediction.modelName = "fixture";
+    prediction.modelVersion = "v1";
+    prediction.jobId = "job1";
+    TextInterval a;
+    a.topDepth = 0;
+    a.bottomDepth = 12;
+    a.text = "分流河道";
+    TextInterval b = a;
+    b.topDepth = 12;
+    b.bottomDepth = 20;
+    b.text = "河口坝";
+    prediction.intervals = {a, b};
+    QVERIFY2(wf.publishLithoAsset(prediction).isEmpty(), "publish failed");
+    const auto rows = WellAttributeStore::rows(
+        f.dir.path(), &f.layers, WellAttributeStore::Table::Formations, "W1");
+    QCOMPARE(rows.size(), 3);
+    QHash<QString, QVariantMap> byName;
+    for (const auto &v : rows)
+      byName.insert(v.toMap().value("formation").toString(), v.toMap());
+    const auto &parent = byName.value("恩平组");
+    QCOMPARE(parent.value("unit_type").toString(), QString("组"));
+    QCOMPARE(parent.value("dominant_facies").toString(), QString("分流河道"));
+    QCOMPARE(parent.value("predicted_dominant").toString(), QString("分流河道"));
+    QCOMPARE(parent.value("dominant_thickness_md").toDouble(), 12.0);
+    QCOMPARE(parent.value("dominant_ratio").toDouble(), 0.6);
+    QCOMPARE(parent.value("coverage").toDouble(), 1.0);
+    QCOMPARE(parent.value("source").toString(), QString("welllogfacies"));
+    QCOMPARE(parent.value("model").toString(), QString("fixture v1"));
+    QCOMPARE(parent.value("job_id").toString(), QString("job1"));
+    QVERIFY(parent.value("facies_code").isNull());
+    QVERIFY(parent.value("facies_composition").toString().contains("分流河道 12.00 m"));
+    QCOMPARE(byName.value("恩平一段").value("dominant_facies").toString(), QString("分流河道"));
+    QCOMPARE(byName.value("恩平二段").value("dominant_facies").toString(), QString("河口坝"));
+
+    // 面板：优势相道随结果出现、可显隐；「地层优势相属性」打开同一张表。
+    WellCompositePanel panel;
+    auto *panelWf = new WellFaciesWorkflow(&panel);
+    panelWf->setCatalog(&f.catalog);
+    panelWf->setLayerService(&f.layers);
+    panel.bindFaciesWorkflow(panelWf);
+    QVERIFY(panel.loadWellData(source));
+    QSignalSpy table(panelWf, &WellFaciesWorkflow::attributeTableRequested);
+    auto *button = panel.findChild<QToolButton *>("btnWellFormations");
+    QVERIFY(button);
+    QTRY_VERIFY(button->isEnabled());
+    button->click();
+    QCOMPARE(table.size(), 1);
+    QCOMPARE(table.first().first().toString(), WellAttributeStore::formationLayerId());
   }
   void maintainedFactorsTakePriorityAndStayInHorizon() {
     WorkflowFixture f;

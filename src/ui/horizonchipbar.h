@@ -5,6 +5,7 @@
 
 class SelectionContext;
 class QgisLayerService;
+class QColor;
 
 // ui/horizonchipbar — 阶段E 的层位 chip 条（wave/mapping-pipeline）。
 //
@@ -43,6 +44,8 @@ class HorizonChipBar : public QWidget
     // 阶段E — 无栅格声明的层位 chip 禁用（「这一阶段还没有这个层位的栅格」），
     // layerDeclared 后重算；可用性以 LayerManifest 的 raster 声明为准。
     void applyAvailability();
+    // chip 底色 = 层段色（与连井剖面 zoneColor 同源同序，数据符号色）。
+    static QColor zoneColorOf(const QString &horizon);
     bool m_allowEmptyHorizons = false;
     SelectionContext *m_selection = nullptr;
     QgisLayerService *m_layers = nullptr;

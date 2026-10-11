@@ -355,6 +355,57 @@ void QgisStyleService::applyWellLayerStyle(QgsVectorLayer *layer)
   layer->setLabelsEnabled(true);
 }
 
+void QgisStyleService::applyWellFormationLayerStyle(QgsVectorLayer *layer)
+{
+  if (!layer)
+    return;
+  QVariantMap props;
+  props.insert(QStringLiteral("name"), QStringLiteral("circle"));
+  props.insert(QStringLiteral("color"), QStringLiteral("#FFFFFF"));
+  props.insert(QStringLiteral("outline_color"), QStringLiteral("#24303E"));
+  props.insert(QStringLiteral("outline_width"), QStringLiteral("0.5"));
+  props.insert(QStringLiteral("size"), QStringLiteral("2.6"));
+  layer->setRenderer(
+      new QgsSingleSymbolRenderer(QgsMarkerSymbol::createSimple(props).release()));
+
+  if (layer->fields().lookupField(QStringLiteral("formation")) < 0)
+    return;
+  // 地层名标注：同一井位一行一个地层（组/段），绕点排开——与井名（wells
+  // 层）同图不撞。白晕衬底保证相面/底图之上可辨。
+  QgsPalLayerSettings lbl;
+  lbl.isExpression = true;
+  lbl.fieldName = QStringLiteral("nullif(trim(to_string(\"formation\")), '')");
+  lbl.placement = Qgis::LabelPlacement::OrderedPositionsAroundPoint;
+  QgsTextFormat fmt;
+  fmt.setSize(8.5);
+  fmt.setSizeUnit(Qgis::RenderUnit::Points);
+  fmt.setColor(QColor(QStringLiteral("#24303E")));
+  QgsTextBufferSettings buffer;
+  buffer.setEnabled(true);
+  buffer.setSize(0.8);
+  buffer.setColor(Qt::white);
+  fmt.setBuffer(buffer);
+  lbl.setFormat(fmt);
+  layer->setLabeling(new QgsVectorLayerSimpleLabeling(lbl));
+  layer->setLabelsEnabled(true);
+  layer->triggerRepaint();
+}
+
+void QgisStyleService::applyWellAttributeLayerStyle(QgsVectorLayer *layer)
+{
+  if (!layer)
+    return;
+  QVariantMap props;
+  props.insert(QStringLiteral("name"), QStringLiteral("circle"));
+  props.insert(QStringLiteral("color"), QStringLiteral("#FFFFFF"));
+  props.insert(QStringLiteral("outline_color"), QStringLiteral("#78909C"));
+  props.insert(QStringLiteral("outline_width"), QStringLiteral("0.35"));
+  props.insert(QStringLiteral("size"), QStringLiteral("2"));
+  layer->setRenderer(
+      new QgsSingleSymbolRenderer(QgsMarkerSymbol::createSimple(props).release()));
+  layer->triggerRepaint();
+}
+
 void QgisStyleService::applyBoundaryLayerStyle(QgsVectorLayer *layer)
 {
   if (!layer)

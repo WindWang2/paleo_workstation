@@ -2,6 +2,7 @@
 #pragma once
 #include "domain/welllogfacies.h"
 #include <QElapsedTimer>
+#include <QHash>
 #include <QNetworkAccessManager>
 #include <QPointer>
 #include <QTimer>
@@ -62,6 +63,9 @@ private:
   QElapsedTimer m_elapsed;
   WellFaciesConfig m_config;
   WellFaciesInput m_input;
-  QString m_wellName, m_jobId, m_modelId;
+  QString m_wellName, m_jobId, m_modelId, m_key;
+  // 已受理未终态的任务，键 = 模型+井+输入的 SHA-256：逐地层组预测时停掉再点
+  // 「预测相」，能续查任一在途地层的任务而不重复提交。
+  QHash<QString, QString> m_accepted;
   int m_generation = 0;
 };

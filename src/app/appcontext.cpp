@@ -273,6 +273,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   m_constraintWf = new ConstraintWorkflow(m_procSvc, m_layerSvc, this);
   m_constraintWf->setStore(m_store); // GeoPackage constraint persistence (wave/constraint-gpkg)
   m_mappingWorkbench = new MappingWorkbench(m_layerSvc, m_procSvc, m_projectSvc, m_constraintWf, this);
+  m_mappingWorkbench->setTaskService(m_taskSvc); // 智能预测进任务中心（后台执行、可取消）
   // 方向51：远端预测装配—— MappingWorkbench 自己的那份替身 Mock 已删除，
   // 这里显式装入 RemotePredictionRouter。端点未配置时 router 不带传输，
   // 任何预测请求如实失败；UI 侧显示「远端预测未配置，走本地引擎」。
@@ -533,6 +534,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
               m_mappingWorkbench->bindCatalog(derivedCatalog, fi.absolutePath());
               WellAttributeStore::open(derivedCatalog, fi.absolutePath(), m_layerSvc, false, false);
               WellAttributeStore::open(derivedCatalog, fi.absolutePath(), m_layerSvc, true, false);
+              WellAttributeStore::open(derivedCatalog, fi.absolutePath(), m_layerSvc, WellAttributeStore::Table::Formations, false);
 #if PALEO_HAVE_ORT
               if (m_aiAssistWf)
                 m_aiAssistWf->setCatalog(derivedCatalog, fi.absolutePath());

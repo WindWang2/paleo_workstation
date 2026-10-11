@@ -19,6 +19,7 @@
 #include <qgspalettedrasterrenderer.h>
 #include <qgspallabeling.h>
 #include <qgsproject.h>
+#include <qgsproperty.h>
 #include <qgsrasterlayer.h>
 #include <qgsvectordataprovider.h>
 #include <qgsvectorfilewriter.h>
@@ -184,32 +185,24 @@ bool syncFaciesAttributes(QgsVectorLayer *layer, const QVariantList &facies,
   auto it = layer->getFeatures();
   QgsFeature feature;
   while (ok && it.nextFeature(feature)) {
-    // Direct attribute-table changes to a well point apply to its whole
-    // interval column. Interval edits already keep the dominant point code in
-    // sync.
+    // Direct attribute-table changes to a well point apply to the intervals
+    // of the point's formation (formation_top/base; whole well when absent).
+    // Interval edits already keep the formation's dominant point code in sync.
     if (layer->fields().indexOf("facies_intervals") >= 0) {
       auto intervals =
           QJsonDocument::fromJson(
               feature.attribute("facies_intervals").toString().toUtf8())
               .toVariant()
               .toList();
-      QMap<int, double> lengths;
-      for (const auto &v : intervals) {
-        auto r = v.toMap();
-        lengths[r.value("code").toInt()] +=
-            r.value("bottom").toDouble() - r.value("top").toDouble();
-      }
-      if (!lengths.isEmpty()) {
-        int dominant = lengths.firstKey();
-        for (auto i = lengths.cbegin(); i != lengths.cend(); ++i)
-          if (i.value() > lengths.value(dominant))
-            dominant = i.key();
+      double top = 0, base = 0;
+      FaciesCatalog::formationRange(feature.attribute("formation_top"),
+                                    feature.attribute("formation_base"), &top,
+                                    &base);
+      const int dominant = FaciesCatalog::dominantCode(intervals, top, base);
+      if (dominant) {
         if (dominant != feature.attribute("facies_code").toInt()) {
-          for (auto &v : intervals) {
-            auto r = v.toMap();
-            r.insert("code", feature.attribute("facies_code"));
-            v = r;
-          }
+          intervals = FaciesCatalog::recodeIntervals(
+              intervals, feature.attribute("facies_code").toInt(), top, base);
           ok = layer->changeAttributeValue(
                    feature.id(), layer->fields().indexOf("facies_intervals"),
                    QString::fromUtf8(
@@ -242,6 +235,9 @@ bool syncFaciesAttributes(QgsVectorLayer *layer, const QVariantList &facies,
     return false;
   }
   return true;
+}
+int defaultFaciesLabelMode(const QgsVectorLayer *layer) {
+  return layer && layer->geometryType() == Qgis::GeometryType::Polygon ? 2 : 3;
 }
 void applyFaciesLabels(QgsVectorLayer *layer, int mode) {
   if (!layer || (layer->geometryType() != Qgis::GeometryType::Polygon &&
@@ -288,19 +284,50 @@ void applyFaciesLabels(QgsVectorLayer *layer, int mode) {
   buffer.setSize(.8);
   buffer.setColor(Qt::white);
   format.setBuffer(buffer);
-  // 白底胶囊底衬：纹理填充之上相名/井号仍可辨。
-  QgsTextBackgroundSettings background;
-  background.setEnabled(true);
-  background.setType(QgsTextBackgroundSettings::ShapeRectangle);
-  background.setSizeType(QgsTextBackgroundSettings::SizeBuffer);
-  background.setSize(QSizeF(1.2, 0.6));
-  background.setRadii(QSizeF(0.6, 0.6)); // 圆角胶囊
-  background.setFillColor(QColor(255, 255, 255, 220));
-  format.setBackground(background);
   settings.setFormat(format);
+  // 文字标注不画底衬，直接压在相面上（2026-10-11 用户口径「标注不需要
+  // 背景」）。字号随画布比例尺自适应：@map_scale 数据定义（1:2.5万≈15pt、
+  // 1:50万≈6pt），与 qgisstyleservice 井位标记同一写法，缩放时标注跟随
+  // 图面大小变化而不是固定屏幕点号。
+  settings.dataDefinedProperties().setProperty(
+      QgsPalLayerSettings::Property::Size,
+      QgsProperty::fromExpression(QStringLiteral(
+          "clamp(6.0, scale_linear(@map_scale, 25000, 500000, 15.0, 6.0), "
+          "15.0)")));
   layer->setLabeling(new QgsVectorLayerSimpleLabeling(settings));
   layer->setLabelsEnabled(true);
   layer->triggerRepaint();
+}
+
+void applyFaciesEdge(QgsSymbol *symbol, const QColor &fillColor) {
+  if (!symbol || symbol->type() != Qgis::SymbolType::Fill)
+    return;
+  // 相面边缘：填充色同系加深一档描边（数据符号色，不入 UI token）。
+  // MergedFeatureRenderer 先把同相图斑合成一体化再画——描边落在每个相
+  // 块的外轮廓上，正是「每个相的边缘」。
+  const QColor edge = fillColor.darker(160);
+  bool stroked = false;
+  for (int i = 0; i < symbol->symbolLayerCount(); ++i) {
+    auto *fill =
+        dynamic_cast<QgsSimpleFillSymbolLayer *>(symbol->symbolLayer(i));
+    if (!fill)
+      continue;
+    fill->setStrokeStyle(Qt::SolidLine);
+    fill->setStrokeColor(edge);
+    fill->setStrokeWidth(0.3);
+    fill->setStrokeWidthUnit(Qgis::RenderUnit::Millimeters);
+    stroked = true;
+  }
+  if (!stroked) {
+    // SVG 纹理填充不含描边层——追加一个只画轮廓的符号层（透明填充）。
+    auto *outline = new QgsSimpleFillSymbolLayer();
+    outline->setBrushStyle(Qt::NoBrush);
+    outline->setStrokeStyle(Qt::SolidLine);
+    outline->setStrokeColor(edge);
+    outline->setStrokeWidth(0.3);
+    outline->setStrokeWidthUnit(Qgis::RenderUnit::Millimeters);
+    symbol->appendSymbolLayer(outline);
+  }
 }
 
 void applyFaciesStyle(QgsMapLayer *layer, const QVariantList &facies) {
@@ -353,6 +380,9 @@ void applyFaciesStyle(QgsMapLayer *layer, const QVariantList &facies) {
         if (vector->geometryType() == Qgis::GeometryType::Polygon)
           symbol->changeSymbolLayer(0, new QgsSVGFillSymbolLayer(texture, 10));
       }
+      // 相面除填充外还要能看见每个相的边缘（2026-10-11 用户口径）。
+      if (vector->geometryType() == Qgis::GeometryType::Polygon)
+        applyFaciesEdge(symbol, QColor(f.value("color").toString()));
       if (point) {
         auto *marker = static_cast<QgsMarkerSymbol *>(symbol);
         marker->setSize(3.2);
@@ -372,6 +402,8 @@ void applyFaciesStyle(QgsMapLayer *layer, const QVariantList &facies) {
       const bool point = vector->geometryType() == Qgis::GeometryType::Point;
       fallback->setColor(point ? QColor(QStringLiteral("#24303E"))
                                : QColor(QStringLiteral("#9AA7B4")));
+      if (vector->geometryType() == Qgis::GeometryType::Polygon)
+        applyFaciesEdge(fallback, QColor(QStringLiteral("#9AA7B4")));
       if (point) {
         auto *marker = static_cast<QgsMarkerSymbol *>(fallback);
         marker->setSize(3.2);
@@ -386,8 +418,10 @@ void applyFaciesStyle(QgsMapLayer *layer, const QVariantList &facies) {
     }
     vector->setRenderer(
         new QgsCategorizedSymbolRenderer("facies_code", categories));
-    applyFaciesLabels(
-        vector, vector->customProperty("paleo/faciesLabelMode", 3).toInt());
+    applyFaciesLabels(vector,
+                      vector->customProperty("paleo/faciesLabelMode",
+                                             defaultFaciesLabelMode(vector))
+                          .toInt());
     const QStringList names{"facies_code", "facies_name",  "subfacies",
                             "microfacies", "facies_label", "texture", "facies_evidence"};
     const QStringList labels{QObject::tr("相编码"),   QObject::tr("相"),

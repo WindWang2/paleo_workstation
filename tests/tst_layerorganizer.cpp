@@ -94,7 +94,77 @@ class TestLayerOrganizer : public QObject
     void reparentPreservesCheckAndReference();
     void userDragNotReorganized();
     void unmanagedLayerUntouched();
+    void sameParentReorderKeepsLayersInProject();
 };
+
+// 2026-10-10 用户实测：编图三页图层列表里井位/测井属性层「闪一下就没了」。
+// 根因：同父重排旧实现先摘再插——QGIS 注册表桥在摘节点时发现树里已无此
+// 图层，排队把图层移出工程。归位后跑一轮事件循环，图层必须仍在工程与树里。
+void TestLayerOrganizer::sameParentReorderKeepsLayersInProject()
+{
+  OrganizerFixture fx;
+  QString err;
+  QVERIFY2(fx.layerSvc.declare(decl(QStringLiteral("wells"), QString(),
+                                    QStringLiteral("00_Data")), &err),
+           qPrintable(err));
+  QVERIFY2(fx.layerSvc.declare(decl(QStringLiteral("welllog.formations"), QString(),
+                                    QStringLiteral("00_Data")), &err),
+           qPrintable(err));
+  QVERIFY2(fx.layerSvc.declare(decl(QStringLiteral("sf.flat"), QString(),
+                                    QStringLiteral("04_SingleFactor")), &err),
+           qPrintable(err));
+  // 平铺层先上图，后到的置顶层落树根顶部后再归位；平铺层被挤到下面
+  // 也是同父（根）重排。
+  QgsMapLayer *flat = fx.instantiate(QStringLiteral("sf.flat"));
+  QgsMapLayer *wells = fx.instantiate(QStringLiteral("wells"));
+  QgsMapLayer *formations = fx.instantiate(QStringLiteral("welllog.formations"));
+  QVERIFY(flat && wells && formations);
+  // 打乱：把平铺层摆到最顶，强制 reorganize 做同父下移。
+  QgsLayerTreeLayer *flatNode = fx.root()->findLayer(flat->id());
+  QVERIFY(flatNode);
+  QgsLayerTreeNode *flatClone = flatNode->clone();
+  fx.root()->insertChildNode(0, flatClone);
+  fx.root()->removeChildNode(flatNode);
+  fx.organizer.reorganize();
+  const QStringList ids{wells->id(), formations->id(), flat->id()};
+  QTest::qWait(0);
+  QCoreApplication::processEvents();
+  QCoreApplication::processEvents();
+  for (const QString &id : ids)
+  {
+    QVERIFY2(fx.project()->mapLayer(id), qPrintable(id));
+    QVERIFY2(fx.root()->findLayer(id), qPrintable(id));
+  }
+  QCOMPARE(fx.layerSvc.layer(QStringLiteral("wells")), wells);
+  const QList<QgsLayerTreeNode *> kids = fx.root()->children();
+  QCOMPARE(kids.size(), 3);
+  QCOMPARE(qobject_cast<QgsLayerTreeLayer *>(kids.at(2))->layer(), flat);
+
+  // 层位组内同父重排（智能预测相面 05 压在预测栅格 02 之上）：相面层不能
+  // 因归位被移出工程——这正是「画布上根本没有标注」的根因（层都没了）。
+  QVERIFY2(fx.layerSvc.declare(decl(QStringLiteral("d61.pred"), QStringLiteral("D61"),
+                                    QStringLiteral("02_Prediction")), &err),
+           qPrintable(err));
+  QVERIFY2(fx.layerSvc.declare(decl(QStringLiteral("d61.polygons"), QStringLiteral("D61"),
+                                    QStringLiteral("05_PaleoMap")), &err),
+           qPrintable(err));
+  QgsMapLayer *pred = fx.instantiate(QStringLiteral("d61.pred"));
+  QgsMapLayer *polygons = fx.instantiate(QStringLiteral("d61.polygons"));
+  QVERIFY(pred && polygons);
+  QgsLayerTreeLayer *polyNode = fx.root()->findLayer(polygons->id());
+  auto *grp = qobject_cast<QgsLayerTreeGroup *>(polyNode->parent());
+  QVERIFY(grp);
+  // 打乱成 [polygons, pred] 的反序再规整。
+  QgsLayerTreeLayer *predNode = fx.root()->findLayer(pred->id());
+  grp->insertChildNode(0, predNode->clone());
+  grp->removeChildNode(predNode);
+  fx.organizer.reorganize();
+  QTest::qWait(0);
+  QCoreApplication::processEvents();
+  QVERIFY(fx.project()->mapLayer(polygons->id()));
+  QVERIFY(fx.project()->mapLayer(pred->id()));
+  QCOMPARE(qobject_cast<QgsLayerTreeLayer *>(grp->children().at(0))->layer(), polygons);
+}
 
 void TestLayerOrganizer::sharedDataPinsTop()
 {

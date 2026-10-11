@@ -6,6 +6,7 @@
 #include "algorithms/faciesmapping/dominantfacies.h"
 #include "algorithms/faciesmapping/evidencesynthesis.h"
 #include "algorithms/faciesmapping/faciesqa.h"
+#include "algorithms/faciesmapping/formationdominance.h"
 
 #include <algorithm>
 #include <cmath>
@@ -80,6 +81,8 @@ class TestFaciesMappingAlgorithms : public QObject
     void dominantConfidenceWeighting();
     void dominantGatesAndEmptyEvidence();
     void dominantRejectsEmptyInput();
+    void formationDominanceByThickness();
+    void formationDominanceLevelsOverlapAndTie();
 
     // ---- 阶段2：候选相界提取 ----------------------------------------------
     void candidateRegionsSplitByContourAndZone();
@@ -230,6 +233,88 @@ void TestFaciesMappingAlgorithms::dominantRejectsEmptyInput()
 }
 
 // ---- 阶段2 ------------------------------------------------------------------
+
+// ---- 地层优势相（文字标签按地层单位统计） ---------------------------------
+
+namespace
+{
+WellComposite::FormationInterval formation( const QString &name, const QString &unit, float top,
+                                            float bottom )
+{
+  WellComposite::FormationInterval f;
+  f.name = name;
+  f.unitType = unit;
+  f.topDepth = top;
+  f.bottomDepth = bottom;
+  return f;
+}
+} // namespace
+
+void TestFaciesMappingAlgorithms::formationDominanceByThickness()
+{
+  // 地层厚 100 m：分流河道 60 m、河口坝 40 m → 优势微相 = 分流河道，占比 0.6。
+  const auto rows = dominantFaciesByFormation(
+    { formation( QStringLiteral( "D61" ), QStringLiteral( "段" ), 1000, 1100 ) },
+    { { 1000, 1030, QStringLiteral( "分流河道" ), 3 },
+      { 1030, 1070, QStringLiteral( "河口坝" ), 5 },
+      { 1070, 1100, QStringLiteral( "分流河道" ), 3 } } );
+  QCOMPARE( rows.size(), 1 );
+  const FormationDominance &d = rows.front();
+  QCOMPARE( d.formation, QStringLiteral( "D61" ) );
+  QCOMPARE( d.unitType, QStringLiteral( "段" ) );
+  QCOMPARE( d.dominant, QStringLiteral( "分流河道" ) );
+  QCOMPARE( d.dominantCode, 3 );
+  QCOMPARE( d.thickness, 100.0 );
+  QCOMPARE( d.classifiedThickness, 100.0 );
+  QCOMPARE( d.dominantThickness, 60.0 );
+  QCOMPARE( d.ratio, 0.6 );
+  QCOMPARE( d.coverage, 1.0 );
+  QVERIFY( !d.tie );
+  QCOMPARE( d.composition, QStringLiteral( "分流河道 60.00 m；河口坝 40.00 m" ) );
+}
+
+void TestFaciesMappingAlgorithms::formationDominanceLevelsOverlapAndTie()
+{
+  // 组 + 段各出一行；没有任何相观测的地层不出行；观测按地层范围裁剪；
+  // 只有文字没有编码时 dominantCode = -1；同厚并列取更浅者并标 tie。
+  const auto rows = dominantFaciesByFormation(
+    { formation( QStringLiteral( "珠海组" ), QStringLiteral( "组" ), 1000, 1100 ),
+      formation( QStringLiteral( "珠海一段" ), QStringLiteral( "段" ), 1000, 1040 ),
+      formation( QStringLiteral( "珠海二段" ), QStringLiteral( "段" ), 1040, 1100 ),
+      formation( QStringLiteral( "文昌组" ), QStringLiteral( "组" ), 1200, 1300 ),
+      formation( QString(), QStringLiteral( "段" ), 1300, 1400 ) },
+    { { 990, 1040, QStringLiteral( "河口坝" ) },    // 越出顶界，裁剪到 1000
+      { 1030, 1050, QStringLiteral( "分流河道" ) }, // 与上一段重叠 1030–1040 不双算
+      { 1050, 1100, QStringLiteral( "河口坝" ) } } );
+  QCOMPARE( rows.size(), 3 );
+  QCOMPARE( rows[0].formation, QStringLiteral( "珠海组" ) );
+  QCOMPARE( rows[0].unitType, QStringLiteral( "组" ) );
+  QCOMPARE( rows[0].dominant, QStringLiteral( "河口坝" ) );
+  QCOMPARE( rows[0].dominantCode, -1 );
+  QCOMPARE( rows[0].dominantThickness, 90.0 ); // 1000–1040 + 1050–1100
+  QCOMPARE( rows[0].classifiedThickness, 100.0 );
+  QCOMPARE( rows[1].formation, QStringLiteral( "珠海一段" ) );
+  QCOMPARE( rows[1].dominant, QStringLiteral( "河口坝" ) );
+  QCOMPARE( rows[1].ratio, 1.0 );
+  QCOMPARE( rows[2].formation, QStringLiteral( "珠海二段" ) );
+  QCOMPARE( rows[2].classifiedThickness, 60.0 );
+  QCOMPARE( rows[2].dominant, QStringLiteral( "河口坝" ) );
+
+  const auto tie = dominantFaciesByFormation(
+    { formation( QStringLiteral( "D62" ), QString(), 2000, 2100 ) },
+    { { 2000, 2040, QStringLiteral( "河口坝" ) },
+      { 2040, 2080, QStringLiteral( "分流河道" ) } } );
+  QCOMPARE( tie.size(), 1 );
+  QCOMPARE( tie.front().dominant, QStringLiteral( "河口坝" ) ); // 并列取更浅者
+  QVERIFY( tie.front().tie );
+  QCOMPARE( tie.front().unitType, QStringLiteral( "段" ) ); // 未标层级时按名称推断
+  QCOMPARE( tie.front().coverage, 0.8 );
+
+  QVERIFY( dominantFaciesByFormation( {}, {} ).isEmpty() );
+  QVERIFY( dominantFaciesByFormation(
+             { formation( QStringLiteral( "D63" ), QStringLiteral( "段" ), 1, 2 ) }, {} )
+             .isEmpty() );
+}
 
 void TestFaciesMappingAlgorithms::candidateRegionsSplitByContourAndZone()
 {

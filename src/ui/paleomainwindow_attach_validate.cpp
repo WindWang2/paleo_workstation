@@ -5,7 +5,7 @@
 #include "../qgis/qgiscanvascontroller.h"
 #include "../linkage/threewaylocator.h"
 #include "../catalog/datacatalog.h"
-#include "correlationpanel.h"
+#include "wellsection/wellsectionpanel.h"
 #include "datapreview/datapreviewtabs.h"
 #include "pages/pagepanels.h"
 #include "pages/pageshared.h"
@@ -27,7 +27,6 @@
 // ---------------------------------------------------------------------------
 void PaleoMainWindow::attachValidatePage(ValidatePage *validatePage,
                                          ValidationWorkflow *validate,
-                                         WellCorrelationPanel *corrPanel,
                                          DataImportService *importSvc)
 {
   if (validate && validatePage)
@@ -35,7 +34,6 @@ void PaleoMainWindow::attachValidatePage(ValidatePage *validatePage,
     // 问题 → 地图/连井联动（阶段C，预览壳重排）：地图移到井点 + 连井滚到
     // 井/分层；地震测线不再走底栏 gotoLine，由「在数据页看这条剖面」显式
     // 切页打开（threewaylocator.h）。缺面板的字段自动跳过。
-    auto *bottomTabs = findChild<QTabWidget *>(QStringLiteral("bottomTabs"));
     auto *threeWay = new ThreeWayLocator(m_canvasCtl, this);
     // 验证定位先挂上声明图层，再缩放。问题行的 layerId 是清单 id，不是临时画布对象。
     connect(validatePage, &ValidatePage::locateRequested, this,
@@ -44,25 +42,23 @@ void PaleoMainWindow::attachValidatePage(ValidatePage *validatePage,
             });
     connect(validatePage, &ValidatePage::locateRequested, threeWay,
             &ThreeWayLocator::locate);
-    // 联动器的意图信号回壳订阅：底栏切到连井剖面页 + 滚到井分层。
+    // 「测井对比」底栏页签已移除（2026-10-11 用户要求）：连井滚动意图落到
+    // 连井剖面 dock——多井对比的现存归宿。目标井不在当前剖面井集里就只留
+    // 地图定位，不强行换剖面。
     connect(threeWay, &ThreeWayLocator::bottomTabFocusRequested, this,
-            [this, bottomTabs, corrPanel](const QString &tabId) {
-              if (tabId == QLatin1String("correlation") && bottomTabs && corrPanel)
+            [this](const QString &tabId) {
+              if (tabId == QLatin1String("correlation") && m_wellSectionDock)
               {
-                // W4：底栏默认隐藏——定位请求是显式用户意图，连 dock 一起
-                // show+raise，不再只切一个看不见的页签。
-                if (m_bottomDock)
-                {
-                  m_bottomDock->show();
-                  m_bottomDock->raise();
-                }
-                bottomTabs->setCurrentWidget(corrPanel);
+                // 定位请求是显式用户意图：连 dock 一起 show+raise。
+                m_wellSectionDock->setVisible(true);
+                m_wellSectionDock->raise();
               }
             });
     connect(threeWay, &ThreeWayLocator::correlationFocusRequested, this,
-            [corrPanel](const QString &wellId, const QString &horizon) {
-              if (corrPanel)
-                corrPanel->scrollToWellTop(wellId, horizon);
+            [this](const QString &wellId, const QString &) {
+              if (m_wellSectionPanel &&
+                  m_wellSectionPanel->wellIds().contains(wellId))
+                m_wellSectionPanel->selectWell(wellId);
             });
     // 「在数据页看这条剖面」：切到数据管理页（预览分栏随之可见），打开/
     // 聚焦地震资产标签并把测线拨到载荷里的 inline/time_ms。载荷没有

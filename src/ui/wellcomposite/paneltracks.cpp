@@ -10,6 +10,7 @@
 #include "trackregistry.h"
 #include <QDialog>
 #include <QFileDialog>
+#include <QMap>
 #include "../notifications/paleonotify.h"
 #include <QSignalBlocker>
 
@@ -74,26 +75,27 @@ void WellCompositePanel::bindFaciesWorkflow(WellFaciesWorkflow *workflow) {
       if (m.value("selected").toBool()) m_faciesModel->setCurrentIndex(m_faciesModel->count()-1);
     }
   });
+  connect(workflow, &WellFaciesWorkflow::planChanged, this, [this](const QString &summary) { m_faciesPlan = summary; });
   connect(workflow, &WellFaciesWorkflow::availabilityChanged, this, [this](bool ready, const QString &reason) {
     m_faciesReady = ready;
     if (!m_btnCancelFacies->isEnabled())
       m_btnPredictFacies->setEnabled(true);
-    const QString requirements = m_faciesModel->currentData(Qt::ToolTipRole).toString();
-    m_faciesModel->setToolTip(requirements);
-    m_btnPredictFacies->setToolTip(ready ? tr("提交当前井的对应井段预测相：%1").arg(requirements) : reason);
-    m_faciesStatus->setText(ready ? tr("可预测：%1").arg(requirements) : reason);
+    m_faciesModel->setToolTip(tr("%1\n预测按地层组逐组进行；同一地层组有多个模型版本时使用此处所选版本")
+                                  .arg(m_faciesModel->currentData(Qt::ToolTipRole).toString()));
+    m_btnPredictFacies->setToolTip(ready ? tr("提交当前井的对应井段预测相（按地层组逐组，逐组返回）：%1").arg(m_faciesPlan) : reason);
+    m_faciesStatus->setText(ready ? tr("可预测：%1").arg(m_faciesPlan) : reason);
   });
   connect(workflow, &WellFaciesWorkflow::busyChanged, this, [this](bool busy) {
     m_btnCancelFacies->setEnabled(busy);
     m_btnPredictFacies->setEnabled(!busy);
-    m_btnCancelFacies->setToolTip(busy ? tr("停止本地等待，服务端已受理任务继续执行") : tr("没有正在等待的预测"));
+    m_btnCancelFacies->setToolTip(busy ? tr("停止本地等待（所有地层），服务端已受理任务继续执行") : tr("没有正在等待的预测"));
     m_faciesModel->setEnabled(!busy); m_btnFaciesService->setEnabled(!busy); m_btnRefreshFacies->setEnabled(!busy);
   });
   connect(workflow, &WellFaciesWorkflow::statusChanged, m_faciesStatus, &QLabel::setText);
   connect(workflow, &WellFaciesWorkflow::resultReady, this, &WellCompositePanel::showFaciesPrediction);
   connect(workflow, &WellFaciesWorkflow::resultCleared, this, &WellCompositePanel::clearFaciesPrediction);
   connect(workflow, &WellFaciesWorkflow::attributeAvailabilityChanged, this, [this](bool available, const QString &reason) {
-    for (const auto &name : {"btnWellAttributes", "btnWellFactors"}) if (auto *button = findChild<QToolButton *>(name)) {
+    for (const auto &name : {"btnWellAttributes", "btnWellFormations", "btnWellFactors"}) if (auto *button = findChild<QToolButton *>(name)) {
       button->setEnabled(available); button->setToolTip(reason);
     }
   });
@@ -101,6 +103,8 @@ void WellCompositePanel::bindFaciesWorkflow(WellFaciesWorkflow *workflow) {
   for (const auto &entry : {qMakePair(QStringLiteral("btnWellAttributes"), false), qMakePair(QStringLiteral("btnWellFactors"), true)})
     if (auto *button = findChild<QToolButton *>(entry.first))
       connect(button, &QToolButton::clicked, workflow, [workflow, factors = entry.second] { workflow->requestAttributeTable(factors); });
+  if (auto *button = findChild<QToolButton *>(QStringLiteral("btnWellFormations")))
+    connect(button, &QToolButton::clicked, workflow, &WellFaciesWorkflow::requestFormationTable);
   workflow->setData(m_data);
 }
 void WellCompositePanel::showWellAttributes(const ComprehensiveWellData &data) {
@@ -131,9 +135,9 @@ void WellCompositePanel::showWellAttributes(const ComprehensiveWellData &data) {
 void WellCompositePanel::clearFaciesPrediction() {
   for (int i=m_canvas->trackCount()-1; i>=0; --i) {
     const auto track = m_canvas->tracks().at(i);
-    if (track == m_predictionTrack || track == m_confidenceTrack) m_canvas->removeTrack(i);
+    if (track == m_predictionTrack || track == m_confidenceTrack || m_dominantTracks.contains(track)) m_canvas->removeTrack(i);
   }
-  m_predictionTrack.reset(); m_confidenceTrack.reset(); m_btnShowFacies->setEnabled(false);
+  m_predictionTrack.reset(); m_confidenceTrack.reset(); m_dominantTracks.clear(); m_btnShowFacies->setEnabled(false);
   m_btnShowFacies->setToolTip(tr("先运行测井相预测"));
 }
 void WellCompositePanel::showFaciesPrediction(const WellFaciesResult &result) {
@@ -146,8 +150,25 @@ void WellCompositePanel::showFaciesPrediction(const WellFaciesResult &result) {
   m_predictionTrack = labels; m_confidenceTrack = confidence;
   labels->setVisible(m_btnShowFacies->isChecked()); confidence->setVisible(m_btnShowFacies->isChecked());
   m_canvas->addTrack(labels); m_canvas->addTrack(confidence);
+  // 优势相道：每个地层单位一块，文字 = 优势微相 + 占比；组、段两级都有时各一道。
+  QMap<QString, QVector<TextInterval>> byLevel;
+  for (const auto &d : result.dominant) {
+    TextInterval interval;
+    interval.topDepth = d.top; interval.bottomDepth = d.bottom; interval.category = d.formation;
+    interval.text = (d.tie ? tr("%1 %2%（并列）") : tr("%1 %2%")).arg(d.dominant).arg(qRound(d.ratio * 100));
+    byLevel[d.unitType] << interval;
+  }
+  QStringList levels{QStringLiteral("组"), QStringLiteral("段")};
+  for (const auto &d : result.dominant) if (!levels.contains(d.unitType)) levels << d.unitType;
+  for (const auto &level : levels) {
+    if (!byLevel.contains(level)) continue;
+    auto dominant = std::make_shared<TextTrack>(byLevel.size() > 1 ? tr("优势相（%1）").arg(level) : tr("优势相"), 120.0);
+    dominant->setIntervals(byLevel.value(level)); dominant->setKeepTextVisible(true);
+    dominant->setVisible(m_btnShowFacies->isChecked());
+    m_dominantTracks << dominant; m_canvas->addTrack(dominant);
+  }
   m_btnShowFacies->setEnabled(true);
-  m_btnShowFacies->setToolTip(tr("显示或隐藏预测相和置信度；模型 %1 %2；任务 %3")
+  m_btnShowFacies->setToolTip(tr("显示或隐藏预测相、置信度和优势相；模型 %1 %2；任务 %3")
                             .arg(result.modelName, result.modelVersion, result.jobId));
   m_canvas->updateAll();
 }

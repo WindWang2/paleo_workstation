@@ -380,7 +380,7 @@ void DataPreviewTabs::onLasFailed(const QString &key, const QString &reason)
 {
   // 头部能解但整份解析失败（截断/坏行）：页面骨架已建好——把视图栈内容
   // 换成「读取失败」面（带重试=重建标签重走两段式），与其它失败态同一
-  // 形态（§4）。呈现切换条保留（重试成功后仍有用）。
+  // 形态（§4）。
   if (!m_pendingLas.contains(key))
     return;
   const LasPending pend = m_pendingLas.take(key);

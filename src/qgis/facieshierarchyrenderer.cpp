@@ -64,6 +64,11 @@ QVariantList apply(QgsMapLayer *layer, const QVariantList &schema,
       if (!symbol)
         symbol = QgsSymbol::defaultSymbol(v->geometryType());
       symbol->setColor(QColor(row.value("color").toString()));
+      // setColor 会把描边层一并刷成相色——补回边缘描边（相面每个相的
+      // 边缘要可见，2026-10-11 用户口径）。
+      if (v->geometryType() == Qgis::GeometryType::Polygon)
+        MappingArtifactWriter::applyFaciesEdge(
+            symbol, QColor(row.value("color").toString()));
       categories << QgsRendererCategory(row.value("key"), symbol,
                                         row.value("name").toString());
       for (const auto &code : row.value("codes").toList()) {
@@ -93,7 +98,9 @@ QVariantList apply(QgsMapLayer *layer, const QVariantList &schema,
                        : renderer);
     v->setCustomProperty("paleo/faciesDisplayExpression", nameExpression);
     MappingArtifactWriter::applyFaciesLabels(
-        v, v->customProperty("paleo/faciesLabelMode", 3).toInt());
+        v, v->customProperty("paleo/faciesLabelMode",
+                             MappingArtifactWriter::defaultFaciesLabelMode(v))
+               .toInt());
   } else if (auto *r = qobject_cast<QgsRasterLayer *>(layer)) {
     auto *renderer = dynamic_cast<QgsPalettedRasterRenderer *>(r->renderer());
     if (renderer) {

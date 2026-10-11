@@ -38,7 +38,9 @@ class AttributeTablePanel : public QWidget
                         std::function<QgsVectorLayer *(const QString &)> layerProvider,
                         QWidget *parent = nullptr);
 
-    void setLayerIds(const QStringList &ids);  // populate the layer picker
+    // populate the layer picker；names 与 ids 同序，显示图层列表里的图层名
+    //（缺省/空名退回 id）。
+    void setLayerIds(const QStringList &ids, const QStringList &names = {});
     void showLayer(const QString &layerId);    // select + load its table
     QString currentLayerId() const;
 

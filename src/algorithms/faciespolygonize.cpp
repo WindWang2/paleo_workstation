@@ -39,9 +39,10 @@
 // §36 — classified raster to an editable facies-polygon coverage.
 //
 // SMOOTH majority passes (3×3 mode filter, nodata-preserving) remove
-// salt-and-pepper noise; parts smaller than MIN_CELLS cells or MIN_AREA map
-// units² are then absorbed on the grid (4-connected components are the parts
-// polygonize would emit). Shared edges are then simplified once
+// salt-and-pepper noise; parts smaller than MIN_CELLS cells, smaller than
+// MIN_FRACTION of the valid cells, or under MIN_AREA map units² are then
+// absorbed on the grid (4-connected components are the parts polygonize
+// would emit). Shared edges are then simplified once
 // via GEOS coverage VW and rebuilt from a boundary graph, so adjacent faces
 // cannot drift apart. Conflation replaces an arc only when every vertex lies
 // inside SNAP_TOLERANCE and the arc is parallel to the constraint.
@@ -1151,7 +1152,8 @@ QString FaciesPolygonizeAlgorithm::shortHelpString() const
   return QStringLiteral(
       "Turn a facies raster into an editable polygon coverage. Cells are rounded to "
       "integer facies codes. SMOOTH majority passes (3×3 mode filter) remove "
-      "salt-and-pepper noise; parts smaller than MIN_CELLS cells or MIN_AREA map "
+      "salt-and-pepper noise; parts smaller than MIN_CELLS cells, smaller than "
+      "MIN_FRACTION of the valid cells, or under MIN_AREA map "
       "units² are absorbed into the largest adjacent facies, and GDALPolygonize + "
       "dissolve builds one polygon per part. "
       "SIMPLIFY runs GEOS coverage simplification so each shared boundary is simplified "
@@ -1172,6 +1174,10 @@ void FaciesPolygonizeAlgorithm::initAlgorithm( const QVariantMap & )
   addParameter( new QgsProcessingParameterNumber(
       QStringLiteral( "MIN_CELLS" ), QStringLiteral( "Minimum part size (cells)" ),
       Qgis::ProcessingNumberParameterType::Integer, 4, true, 0.0 ) );
+  addParameter( new QgsProcessingParameterNumber(
+      QStringLiteral( "MIN_FRACTION" ),
+      QStringLiteral( "Minimum part size (fraction of valid cells)" ),
+      Qgis::ProcessingNumberParameterType::Double, 0.0025, true, 0.0, 1.0 ) );
   addParameter( new QgsProcessingParameterNumber(
       QStringLiteral( "MIN_AREA" ), QStringLiteral( "Minimum part area (map units²)" ),
       Qgis::ProcessingNumberParameterType::Double, 0.0, true, 0.0 ) );
@@ -1204,11 +1210,13 @@ QVariantMap FaciesPolygonizeAlgorithm::processAlgorithm( const QVariantMap &para
   const double minArea = parameterAsDouble( parameters, QStringLiteral( "MIN_AREA" ), context );
   const int smooth = parameterAsInt( parameters, QStringLiteral( "SMOOTH" ), context );
   const int minCells = parameterAsInt( parameters, QStringLiteral( "MIN_CELLS" ), context );
+  const double minFraction = parameterAsDouble( parameters, QStringLiteral( "MIN_FRACTION" ), context );
   const double simplify = parameterAsDouble( parameters, QStringLiteral( "SIMPLIFY" ), context );
   const double snapTol = parameterAsDouble( parameters, QStringLiteral( "SNAP_TOLERANCE" ), context );
   const double angleTol = parameterAsDouble( parameters, QStringLiteral( "ANGLE_TOLERANCE" ), context );
-  if ( smooth < 0 || minCells < 0 || minArea < 0.0 || simplify < 0.0 || snapTol < 0.0 )
-    throw QgsProcessingException( QStringLiteral( "SMOOTH, MIN_CELLS, MIN_AREA, SIMPLIFY and SNAP_TOLERANCE must be >= 0" ) );
+  if ( smooth < 0 || minCells < 0 || minArea < 0.0 || simplify < 0.0 || snapTol < 0.0 ||
+       minFraction < 0.0 || minFraction > 1.0 )
+    throw QgsProcessingException( QStringLiteral( "SMOOTH, MIN_CELLS, MIN_AREA, SIMPLIFY and SNAP_TOLERANCE must be >= 0; MIN_FRACTION must be within [0, 1]" ) );
 
   const QString outPath = parameterAsOutputLayer( parameters, QStringLiteral( "OUTPUT" ), context );
   if ( outPath.isEmpty() )
@@ -1291,7 +1299,17 @@ QVariantMap FaciesPolygonizeAlgorithm::processAlgorithm( const QVariantMap &para
   if ( feedback )
     feedback->setProgress( 22 );
 
-  const int slivers = absorbSmallParts( grid, cols, rows, cellArea, minArea, minCells );
+  // 小图斑门限取两种口径的大者：绝对像元数（MIN_CELLS，小栅格防误并）与
+  // 有效区占比（MIN_FRACTION，大栅格防碎斑——逐像元聚类的噪声斑随栅格
+  // 变大成批出现，固定像元数兜不住）。
+  int validCells = 0;
+  for ( const int code : grid )
+    if ( code != kNodata )
+      ++validCells;
+  const int minCellsEffective = std::max(
+      minCells, static_cast<int>( std::ceil( minFraction * validCells ) ) );
+  const int slivers = absorbSmallParts( grid, cols, rows, cellArea, minArea,
+                                        minCellsEffective );
   canceled( feedback );
   if ( feedback )
     feedback->setProgress( 30 );
@@ -1347,6 +1365,8 @@ QVariantMap FaciesPolygonizeAlgorithm::processAlgorithm( const QVariantMap &para
   prov.insert( QStringLiteral( "smooth_passes" ), smooth );
   prov.insert( QStringLiteral( "smoothed_cells" ), smoothedCells );
   prov.insert( QStringLiteral( "min_cells" ), minCells );
+  prov.insert( QStringLiteral( "min_fraction" ), minFraction );
+  prov.insert( QStringLiteral( "min_cells_effective" ), minCellsEffective );
   prov.insert( QStringLiteral( "slivers_merged" ), slivers );
   prov.insert( QStringLiteral( "faces" ), polys.size() );
   prov.insert( QStringLiteral( "arcs" ), graph.arcs.size() );

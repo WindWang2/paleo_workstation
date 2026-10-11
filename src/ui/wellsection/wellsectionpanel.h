@@ -61,6 +61,11 @@ class WellSectionPanel : public QWidget
     void setHighlightEnabled(bool on);
     bool seismicEnabled() const { return m_seismicOn; }
     void setSeismicEnabled(bool on); // on + ≥2 井 → seismicRequested
+    // 缝内地震色标：-1 = 跟随主题；0..7 = 剖面画布同款预设（QSettings 持久化）。
+    int seismicColorMap() const { return m_seismicCmap; }
+    void setSeismicColorMap(int cmap);
+    bool seismicColorMapInverted() const { return m_seismicCmapInvert; }
+    void setSeismicColorMapInverted(bool inverted);
     // 断层投绘开关：on + ≥2 井 → faultsRequested（数据由壳层接 workflow）。
     bool faultsEnabled() const { return m_faultsOn; }
     void setFaultsEnabled(bool on);
@@ -162,6 +167,7 @@ class WellSectionPanel : public QWidget
     void openWellsDialog();
     void openTracksDialog();
     void applyThemeFromMenu(const QString &id); // 用户动作 → 写设置
+    void applySeismicCmapFromMenu(int cmap);    // 用户动作 → 写设置
     void applyDatumFromMenu(const wellsection::Datum &d); // 用户动作 → 写设置
     void applyTemplateFromDialog(const wellsection::SectionTemplate &t);
     void syncToolbarState();
@@ -177,6 +183,8 @@ class WellSectionPanel : public QWidget
     QString m_themeId = QStringLiteral("classic");
     bool m_highlightOn = true;
     bool m_seismicOn = false;
+    int m_seismicCmap = -1;      // -1 = 跟随主题；0..7 = SectionColorMapType
+    bool m_seismicCmapInvert = false;
     bool m_seismicAvailable = false;
     QString m_seismicReason;
     bool m_faultsOn = false;
@@ -216,7 +224,9 @@ class WellSectionPanel : public QWidget
     QLabel *m_status = nullptr;
     QWidget *m_empty = nullptr;
     QAction *m_highlightAct = nullptr;
+    QAction *m_cmapInvertAct = nullptr;
     QMenu *m_themeMenu = nullptr;
+    QMenu *m_seismicCmapMenu = nullptr;
     QMenu *m_flattenMenu = nullptr;
     QMenu *m_spacingMenu = nullptr;
 };

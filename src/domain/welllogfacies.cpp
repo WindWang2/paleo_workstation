@@ -1,6 +1,8 @@
 // 层：数据
 #include "welllogfacies.h"
 #include <QCoreApplication>
+#include <QHash>
+#include <QSet>
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -36,6 +38,34 @@ bool curveValue(const CurveData &c, double d, double *value) {
         a + (b - a) * (d - c.depths[n - 1]) / (c.depths[n] - c.depths[n - 1]);
   }
   return std::isfinite(*value) && *value != -9999 && *value != -999.25;
+}
+bool isGroupName(const FormationInterval &f) {
+  return f.unitType == QStringLiteral("组") ||
+         f.name.trimmed().endsWith(QStringLiteral("组"));
+}
+// 井上标注的地层组（组井道 + 地层系统组合道），按顶深自上而下去重。
+QStringList wellGroups(const ComprehensiveWellData &data) {
+  QVector<QPair<double, QString>> found;
+  for (const auto &f : data.formationIntervals)
+    if (isGroupName(f) && !f.name.trimmed().isEmpty())
+      found.append({f.topDepth, f.name.trimmed()});
+  for (const auto &s : data.stratigraphyIntervals)
+    if (!s.formation.trimmed().isEmpty())
+      found.append({s.topDepth, s.formation.trimmed()});
+  std::stable_sort(found.begin(), found.end(),
+                   [](const auto &a, const auto &b) { return a.first < b.first; });
+  QStringList out;
+  for (const auto &entry : found)
+    if (!out.contains(entry.second))
+      out.append(entry.second);
+  return out;
+}
+qint64 depthKey(const QJsonValue &row) {
+  return qRound64(row.toObject().value(QStringLiteral("深度")).toDouble() * 1000);
+}
+void appendUnique(QStringList &list, const QString &value) {
+  if (!value.isEmpty() && !list.contains(value))
+    list.append(value);
 }
 } // namespace
 WellFaciesInput prepareWellFaciesInput(const ComprehensiveWellData &data,
@@ -223,4 +253,120 @@ bool parseWellFaciesResult(const QJsonObject &json, const QString &wellName,
   }
   *result = out;
   return true;
+}
+WellFaciesPlan planWellFaciesRuns(const ComprehensiveWellData &data,
+                                  const QVector<WellFaciesModel> &models,
+                                  const QString &preferredModelId) {
+  WellFaciesPlan plan;
+  if (models.isEmpty()) {
+    plan.reason = tr("没有可调用的测井相模型，请刷新模型");
+    return plan;
+  }
+  const WellFaciesModel *preferred = &models.first();
+  for (const auto &m : models)
+    if (m.id == preferredModelId)
+      preferred = &m;
+  // 每个地层组取一个模型；所选模型所在的组排最前，重叠时它优先。
+  QStringList order{preferred->formationGroup};
+  QHash<QString, const WellFaciesModel *> chosen;
+  for (const auto &m : models) {
+    if (!order.contains(m.formationGroup))
+      order.append(m.formationGroup);
+    if (!chosen.contains(m.formationGroup) || m.id == preferredModelId)
+      chosen.insert(m.formationGroup, &m);
+  }
+  const QStringList groups = wellGroups(data);
+  QSet<qint64> used;
+  for (const QString &group : order) {
+    const bool present =
+        group.isEmpty() ||
+        std::any_of(groups.cbegin(), groups.cend(), [&group](const QString &w) {
+          return w.startsWith(group);
+        });
+    if (!present)
+      continue;
+    const WellFaciesModel &model = *chosen.value(group);
+    const QString label = group.isEmpty() ? tr("整井") : group;
+    WellFaciesInput input = prepareWellFaciesInput(data, model);
+    if (!input.ready()) {
+      plan.skipped << tr("%1（%2）").arg(label, input.reason);
+      continue;
+    }
+    const bool overlap = std::any_of(
+        input.rows.cbegin(), input.rows.cend(),
+        [&used](const QJsonValue &row) { return used.contains(depthKey(row)); });
+    if (overlap) {
+      plan.skipped << tr("%1（井段与其他地层组重叠）").arg(label);
+      continue;
+    }
+    for (const auto &row : input.rows)
+      used.insert(depthKey(row));
+    plan.runs.append({group, model, input});
+  }
+  if (plan.runs.isEmpty()) {
+    // 没有任何组命中模型：沿用整井口径，只用所选模型，原因也取它的。
+    plan.skipped.clear();
+    WellFaciesInput input = prepareWellFaciesInput(data, *preferred);
+    if (input.ready())
+      plan.runs.append({preferred->formationGroup, *preferred, input});
+    else
+      plan.reason = input.reason;
+    return plan;
+  }
+  for (const QString &w : groups) {
+    const bool covered =
+        std::any_of(models.cbegin(), models.cend(), [&w](const WellFaciesModel &m) {
+          return m.formationGroup.isEmpty() || w.startsWith(m.formationGroup);
+        });
+    if (!covered)
+      plan.skipped << tr("%1（无对应模型）").arg(w);
+  }
+  std::stable_sort(plan.runs.begin(), plan.runs.end(),
+                   [](const WellFaciesRun &a, const WellFaciesRun &b) {
+                     return depthKey(a.input.rows.first()) <
+                            depthKey(b.input.rows.first());
+                   });
+  return plan;
+}
+WellFaciesResult mergeWellFaciesResults(const QVector<WellFaciesResult> &parts) {
+  if (parts.size() < 2)
+    return parts.isEmpty() ? WellFaciesResult() : parts.first();
+  WellFaciesResult out;
+  QStringList groups, jobs, names, versions;
+  QJsonArray responses;
+  QVector<QPair<float, float>> samples;
+  for (const auto &part : parts) {
+    out.intervals += part.intervals;
+    appendUnique(groups, part.group);
+    appendUnique(jobs, part.jobId);
+    appendUnique(names, part.modelName);
+    appendUnique(versions, part.modelVersion);
+    responses.append(QJsonObject{{QStringLiteral("group"), part.group},
+                                 {QStringLiteral("response"), part.response}});
+    for (qsizetype i = 0; i < part.confidence.depths.size() &&
+                          i < part.confidence.values.size();
+         ++i)
+      samples.append({part.confidence.depths[i], part.confidence.values[i]});
+  }
+  std::stable_sort(out.intervals.begin(), out.intervals.end(),
+                   [](const TextInterval &a, const TextInterval &b) {
+                     return a.topDepth < b.topDepth;
+                   });
+  std::stable_sort(samples.begin(), samples.end(),
+                   [](const auto &a, const auto &b) { return a.first < b.first; });
+  out.confidence = parts.first().confidence;
+  out.confidence.depths.clear();
+  out.confidence.values.clear();
+  for (const auto &sample : samples) {
+    out.confidence.depths.append(sample.first);
+    out.confidence.values.append(sample.second);
+  }
+  const QString separator = QStringLiteral("、");
+  out.group = groups.join(separator);
+  out.jobId = jobs.join(separator);
+  out.modelName = names.join(separator);
+  out.modelVersion = versions.join(separator);
+  out.response = QJsonObject{{QStringLiteral("status"), QStringLiteral("completed")},
+                             {QStringLiteral("groups"), responses}};
+  return out;
 }

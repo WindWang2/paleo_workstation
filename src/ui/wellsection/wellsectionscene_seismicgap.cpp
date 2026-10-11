@@ -5,6 +5,7 @@
 #include "wellsectionscene.h"
 #include "wellsectionscene_internal.h"
 
+#include "../seismicsection/seismiccolormap.h"
 #include "ui/paleotheme.h"
 
 #include <QLineF>
@@ -311,31 +312,33 @@ void GapItem::paintSeismic(QPainter *p, const QRectF &exposed,
   if (devRect.isEmpty())
     return;
 
+  // 色标缓存键：主题 id + 色标选择/反转（色标变化即重建 LUT）。
+  const QString themeKey =
+      QStringLiteral("%1|%2|%3")
+          .arg(m_st->theme.id)
+          .arg(m_st->seismicCmap)
+          .arg(m_st->seismicCmapInvert ? QLatin1Char('1') : QLatin1Char('0'));
   const bool cacheHit =
       !m_img.isNull() && m_imgRect == devRect &&
       m_imgKeyLayout == m_st->layoutVersion &&
       m_imgKeyStrip == m_st->stripVersion &&
-      m_imgKeyTheme == m_st->theme.id;
+      m_imgKeyTheme == themeKey;
   if (!cacheHit)
   {
-    // 256 级 LUT：灰阶 +峰黑→白；RWB 正红/零白/负蓝。
-    const bool gray = m_st->theme.seismicGray;
+    // 256 级 LUT：与 2D 剖面画布同一套 SampleColorMap 预设（2026-10-11
+    // 用户要求观感一致）。-1 = 跟随主题（seismicGray→灰度，否则红白蓝）。
+    const seismic::SectionColorMapType cmap =
+        m_st->seismicCmap >= 0
+            ? static_cast<seismic::SectionColorMapType>(m_st->seismicCmap)
+            : (m_st->theme.seismicGray ? seismic::SectionColorMapType::Grayscale
+                                     : seismic::SectionColorMapType::RedWhiteBlue);
     QColor lut[256];
     for (int i = 0; i < 256; ++i)
     {
-      if (gray)
-        lut[i] = QColor::fromRgb(255 - i, 255 - i, 255 - i);
-      else if (i >= 128)
-      {
-        const double t = (i - 128) / 127.0;
-        lut[i] = QColor::fromRgbF(1.0, 1.0 - 0.784 * t, 1.0 - 0.843 * t);
-      }
-      else
-      {
-        const double t = i / 127.0;
-        lut[i] = QColor::fromRgbF(0.082 + 0.918 * t, 0.396 + 0.604 * t,
-                                  0.753 + 0.247 * t);
-      }
+      float t = float(i) / 127.5f - 1.0f;
+      if (m_st->seismicCmapInvert)
+        t = -t;
+      lut[i] = QColor(seismic::SampleColorMap(cmap, t));
     }
     const int alpha = int(m_st->theme.seismicOpacity * 255 + 0.5);
     const float clip = qMax(1e-6f, m_st->strip.clip);
@@ -389,7 +392,7 @@ void GapItem::paintSeismic(QPainter *p, const QRectF &exposed,
     m_imgRect = devRect;
     m_imgKeyLayout = m_st->layoutVersion;
     m_imgKeyStrip = m_st->stripVersion;
-    m_imgKeyTheme = m_st->theme.id;
+    m_imgKeyTheme = themeKey;
   }
   p->drawImage(exposed, m_img);
 }

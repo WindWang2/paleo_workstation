@@ -5,6 +5,7 @@
 
 target_sources(paleo_algorithms PRIVATE
   src/algorithms/faciesmapping/dominantfacies.cpp
+  src/algorithms/faciesmapping/formationdominance.cpp
   src/algorithms/faciesmapping/candidateboundaries.cpp
   src/algorithms/faciesmapping/evidencesynthesis.cpp
   src/algorithms/faciesmapping/faciesqa.cpp

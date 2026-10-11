@@ -223,15 +223,19 @@ void AttributeTablePanel::updateEditRowStates()
                              : tr("当前没有进行中的编辑会话"));
 }
 
-void AttributeTablePanel::setLayerIds(const QStringList &ids)
+void AttributeTablePanel::setLayerIds(const QStringList &ids, const QStringList &names)
 {
   auto *picker = findChild<QComboBox *>(QStringLiteral("attrLayerPicker"));
   if (!picker)
     return;
   const QString keep = picker->currentData().toString();
   picker->clear();
-  for (const QString &id : ids)
-    picker->addItem(id, id);
+  // 下拉显示与图层列表一致的图层名（无名才退回图层 id）；id 留在 data 里。
+  for (qsizetype i = 0; i < ids.size(); ++i)
+  {
+    const QString name = names.value(i).trimmed();
+    picker->addItem(name.isEmpty() ? ids.at(i) : name, ids.at(i));
+  }
   const int idx = picker->findData(keep);
   if (idx >= 0)
     picker->setCurrentIndex(idx);
@@ -288,6 +292,13 @@ void AttributeTablePanel::showLayer(const QString &layerId)
   }
 
   clearTable();
+  // 名字以活图层为准（图层列表显示的就是它），改名时跟随。
+  const auto syncName = [picker, layerId, vl] {
+    const int row = picker->findData(layerId);
+    if (row >= 0 && !vl->name().isEmpty())
+      picker->setItemText(row, vl->name());
+  };
+  syncName();
   connect(vl, &QObject::destroyed, this, &AttributeTablePanel::clearTable, Qt::UniqueConnection);
   // 会话状态可能被外部（编辑工具条/版本控制器）改变——按钮跟随。
   connect(vl, &QgsVectorLayer::editingStarted, this, &AttributeTablePanel::updateEditRowStates,
@@ -298,6 +309,8 @@ void AttributeTablePanel::showLayer(const QString &layerId)
                                           ? static_cast<int>(vl->featureCount()) : 1, view);
   m_model = new QgsAttributeTableModel(m_cache, view);
   m_model->loadLayer();
+  // 上下文 = 本次表模型：切图层/清表时随模型断开，不累积连接。
+  connect(vl, &QgsMapLayer::nameChanged, m_model, syncName);
   m_filter = new QgsAttributeTableFilterModel(m_canvas, m_model, view);
   view->setModel(m_filter);
   if (hint)

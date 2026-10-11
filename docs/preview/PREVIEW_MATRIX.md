@@ -8,7 +8,7 @@
 
 | 资产类型 | 当前形态（`buildContent` 分支） | 可地图化 | 缺口（本轮补齐的 D 项） |
 |---|---|---|---|
-| `well_log`（LAS） | CurvePanel 多曲线叠合 + ResFormStar 综合柱状图（双视图切换） | 否（一维曲线） | 无画布缺口；不纳入地图化 |
+| `well_log`（LAS） | ResFormStar 综合柱状图（单道叠合检视已删除，不再有双视图切换） | 否（一维曲线） | 无画布缺口；不纳入地图化 |
 | `well_head`（井位表） | 多井下拉 → 单井信息卡（X/Y/KB/TD/BottomX/Y/WellType） | **是** | D2.6/D2.8：井位打点地图（全井 + 高亮当前井 + 名称标注开关） |
 | `well_stratification`（DC.dat 分层表） | 多井下拉 → 分层表（层名/MD/TVD/X/Y/Time） | **是** | D2.8：行有坐标（X/Y）时井位落图打点 |
 | `time_depth`（时深表） | CurvePanel 单曲线 TIME–TVD | 否（一维曲线） | 无画布缺口 |
@@ -63,7 +63,7 @@ core 的 `QgsMapDecoration` + `renderComplete(QPainter*)` 钩子——自研件�
    `horizonMapCanvas`/`faciesMapCanvas`/`surveyMapCanvas`（QgsMapCanvas）、
    `faciesDecorManager`/`surveyAreaDecorManager`（装饰管理器，须是画布子对象）、
    `btnSurvey*`/`btnToggle*`/`btnSwitchToMainCanvas`/`btnViewFacies*`/`faciesViewStack`/
-   `geoJsonFeatureTable`/`showOnMapBtn`/`wellCombo`/`topsTable`/`curveCombo` 等。
+   `geoJsonFeatureTable`/`showOnMapBtn`/`wellCombo`/`topsTable` 等。
 8. **seismic 分支函数体禁改**（并行 P5 持有）：`buildContent` 内
    `asset.type=="seismic"` 分支整体不动；其前的 survey 几何、tie marker
    读取保持在分支外只读不改语义。

@@ -3,6 +3,8 @@
 #include "ai/wellfacieskeystore.h"
 #include "../catalog/datacatalog.h"
 #include "derivedassets.h"
+#include "../services/paleotaskservice.h"
+#include "../algorithms/faciesmapping/formationdominance.h"
 #include "../qgis/wellattributestore.h"
 #include "../qgis/qgislayerservice.h"
 #include <qgsvectorlayer.h>
@@ -14,6 +16,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QSaveFile>
+#include <QSet>
 #include <QStandardPaths>
 
 WellFaciesWorkflow::WellFaciesWorkflow(QObject *parent) : QObject(parent) {
@@ -47,6 +50,10 @@ WellFaciesWorkflow::WellFaciesWorkflow(QObject *parent) : QObject(parent) {
       });
   connect(&m_service, &WellFaciesService::failed, this,
           [this](const QString &reason) {
+            if (m_busy && m_runIndex >= 0) {
+              onGroupFailed(reason);
+              return;
+            }
             if (m_loading) {
               m_loading = false;
               m_modelError = reason;
@@ -58,35 +65,25 @@ WellFaciesWorkflow::WellFaciesWorkflow(QObject *parent) : QObject(parent) {
           });
   connect(&m_service, &WellFaciesService::progress, this,
           [this](int pct, const QString &message) {
-            emit statusChanged(tr("测井相预测 %1% · %2").arg(pct).arg(message));
+            if (m_runIndex < 0 || m_runIndex >= m_runs.size())
+              return;
+            if (const auto task = m_runTasks.value(m_runIndex)) {
+              task->reportBytes(pct, 100);
+              task->reportDetail(message);
+            }
+            emit statusChanged(tr("测井相预测 %1（%2/%3）%4% · %5")
+                                   .arg(runLabel(m_runs[m_runIndex]))
+                                   .arg(m_runIndex + 1)
+                                   .arg(m_runs.size())
+                                   .arg(pct)
+                                   .arg(message));
           });
-  connect(
-      &m_service, &WellFaciesService::completed, this,
-      [this](const WellFaciesResult &result) {
-        m_busy = false;
-        emit busyChanged(false);
-        const QString path = cachePath();
-        QDir().mkpath(QFileInfo(path).absolutePath());
-        QSaveFile file(path);
-        const QByteArray bytes =
-            QJsonDocument(result.response).toJson(QJsonDocument::Compact);
-        const bool saved = file.open(QIODevice::WriteOnly) &&
-                           file.write(bytes) == bytes.size() && file.commit();
-        // 产品装配回写可维护矢量相属性；旧测试/无图层服务保留资产兼容路。
-        const QString publishNote = publishLithoAsset(result);
-        updateInput(false);
-        emit resultReady(result);
-        QString note = saved ? tr("结果已保存") : tr("结果缓存保存失败：%1")
-                                                      .arg(file.errorString());
-        if (!publishNote.isEmpty())
-          note += tr("；地质属性未保存：%1").arg(publishNote);
-        else if (m_catalog)
-          note += tr("；地质成果已保存");
-        emit statusChanged(tr("预测完成：%1 个深度点 · %2；%3")
-                               .arg(m_input.rows.size())
-                               .arg(result.modelName)
-                               .arg(note));
-      });
+  connect(&m_service, &WellFaciesService::completed, this,
+          [this](const WellFaciesResult &part) { onGroupCompleted(part); });
+}
+WellFaciesWorkflow::~WellFaciesWorkflow() {
+  if (m_busy)
+    abortRun();
 }
 void WellFaciesWorkflow::loadKeyFromKeychain() {
   if (!WellFaciesKeyStore::available())
@@ -253,6 +250,9 @@ QString WellFaciesWorkflow::projectDir() const {
 void WellFaciesWorkflow::setLayerService(QgisLayerService *layers) {
   m_layers = layers;
 }
+void WellFaciesWorkflow::setTaskService(PaleoTaskService *tasks) {
+  m_taskSvc = tasks;
+}
 void WellFaciesWorkflow::refreshAttributes() {
   if (!m_catalog || !m_layers || !m_catalog->isOpen()) {
     emit attributeAvailabilityChanged(false, tr("请先打开工程并绑定图层服务")); return;
@@ -275,8 +275,8 @@ void WellFaciesWorkflow::refreshAttributes() {
       QTimer::singleShot(0, this, [this] {
         refreshAttributes();
         if (m_busy) {
-          for (const auto &model : m_models)
-            if (model.id == m_modelId && prepareWellFaciesInput(m_data, model).rows != m_input.rows) {
+          for (int i = qMax(m_runIndex, 0); i < m_runs.size(); ++i)
+            if (prepareWellFaciesInput(m_data, m_runs[i].model).rows != m_runs[i].input.rows) {
               cancel(); return;
             }
         } else updateInput(false);
@@ -290,6 +290,21 @@ void WellFaciesWorkflow::requestAttributeTable(bool factors) {
   auto *layer = WellAttributeStore::open(m_catalog, projectDir(), m_layers, factors, true, &error);
   if (!layer) { emit statusChanged(error.isEmpty() ? tr("请先打开工程并绑定当前井") : error); return; }
   emit attributeTableRequested(factors ? WellAttributeStore::factorLayerId() : WellAttributeStore::intervalLayerId());
+}
+WellFaciesResult WellFaciesWorkflow::withDominance(WellFaciesResult result) const {
+  QVector<FaciesSpan> spans;
+  for (const auto &iv : result.intervals)
+    spans.append({iv.topDepth, iv.bottomDepth, iv.text});
+  result.dominant = paleo::faciesmapping::dominantFaciesByFormation(m_data.formationIntervals, spans);
+  return result;
+}
+void WellFaciesWorkflow::requestFormationTable() {
+  QString error;
+  if (!WellAttributeStore::open(m_catalog, projectDir(), m_layers, WellAttributeStore::Table::Formations, true, &error)) {
+    emit statusChanged(error.isEmpty() ? tr("请先打开工程并绑定当前井") : error);
+    return;
+  }
+  emit attributeTableRequested(WellAttributeStore::formationLayerId());
 }
 QString WellFaciesWorkflow::publishAttributes(const WellFaciesResult &result) {
   if (!m_catalog) return tr("工程 catalog 未绑定");
@@ -313,8 +328,23 @@ QString WellFaciesWorkflow::publishAttributes(const WellFaciesResult &result) {
     return dropped > 0 ? tr("预测段全部无效（空词面/逆序），未更新属性")
                        : tr("预测没有有效井段，未更新属性");
   if (!WellAttributeStore::mergeIntervals(m_catalog, projectDir(), m_layers, intervals, &error)) return error;
+  // 地层优势相：组、段各一行（同井同名只留最上一个，名字不能重复进矢量表）。
+  QVariantList formations;
+  QSet<QString> seen;
+  const WellFaciesResult ranked = result.dominant.isEmpty() ? withDominance(result) : result;
+  for (const auto &d : ranked.dominant) {
+    if (seen.contains(d.formation)) continue;
+    seen.insert(d.formation);
+    formations << QVariantMap{{"well_id", ids.first()}, {"formation", d.formation}, {"unit_type", d.unitType},
+      {"top_md", d.top}, {"base_md", d.bottom}, {"thickness_md", d.thickness},
+      {"dominant_facies", d.dominant}, {"predicted_dominant", d.dominant}, {"facies_code", QVariant()},
+      {"dominant_thickness_md", d.dominantThickness}, {"dominant_ratio", d.ratio}, {"coverage", d.coverage},
+      {"tie", d.tie}, {"facies_composition", d.composition}, {"source", QStringLiteral("welllogfacies")},
+      {"model", result.modelName + " " + result.modelVersion}, {"job_id", result.jobId}};
+  }
+  const bool formationsSaved = WellAttributeStore::mergeFormations(m_catalog, projectDir(), m_layers, formations, &error);
   refreshAttributes();
-  return {};
+  return formationsSaved ? QString() : tr("井段属性已更新，地层优势相未更新：%1").arg(error);
 }
 
 void WellFaciesWorkflow::setData(
@@ -352,21 +382,36 @@ void WellFaciesWorkflow::refreshModels() {
   updateInput();
   m_service.fetchModels();
 }
-QString WellFaciesWorkflow::cachePath() const {
+QString WellFaciesWorkflow::cachePath(const WellFaciesRun &run) const {
   const QByteArray bytes =
       QJsonDocument(QJsonObject{{"service", m_config.baseUrl.toString()},
-                                {"modelId", m_modelId},
+                                {"modelId", run.model.id},
                                 {"wellName", m_data.wellName},
-                                {"rows", m_input.rows}})
+                                {"rows", run.input.rows}})
           .toJson(QJsonDocument::Compact);
   const QString hash = QString::fromLatin1(
       QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex());
   return QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) +
          QStringLiteral("/paleo/well-facies/") + hash + QStringLiteral(".json");
 }
+QString WellFaciesWorkflow::runLabel(const WellFaciesRun &run) const {
+  return run.group.isEmpty() ? tr("整井") : run.group;
+}
+QString WellFaciesWorkflow::planSummary() const {
+  QStringList parts;
+  for (const auto &run : m_plan.runs)
+    parts << tr("%1 %2 点（模型 %3 %4）")
+                 .arg(runLabel(run))
+                 .arg(run.input.rows.size())
+                 .arg(run.model.name, run.model.version);
+  QString text = parts.join(QStringLiteral("；"));
+  if (!text.isEmpty() && !m_plan.skipped.isEmpty())
+    text += tr("；跳过：%1").arg(m_plan.skipped.join(QStringLiteral("、")));
+  return text;
+}
 void WellFaciesWorkflow::updateInput(bool restoreCache) {
   if (m_busy) { emit availabilityChanged(false, tr("测井相预测正在执行")); return; }
-  m_input = {};
+  m_plan = {};
   QString reason;
   if (m_attributeLayer && m_attributeLayer->isEditable())
     reason = tr("测井属性表正在编辑，请先保存或放弃编辑");
@@ -377,41 +422,207 @@ void WellFaciesWorkflow::updateInput(bool restoreCache) {
   else if (!m_modelError.isEmpty())
     reason = m_modelError;
   else {
-    for (const auto &m : m_models)
-      if (m.id == m_modelId) {
-        m_input = prepareWellFaciesInput(m_data, m);
-        break;
-      }
-    reason = m_input.ready() ? QString()
-             : m_input.reason.isEmpty()
+    m_plan = planWellFaciesRuns(m_data, m_models, m_modelId);
+    reason = m_plan.ready() ? QString()
+             : m_plan.reason.isEmpty()
                  ? tr("没有可调用的测井相模型，请刷新模型")
-                 : m_input.reason;
+                 : m_plan.reason;
   }
+  emit planChanged(reason.isEmpty() ? planSummary() : QString());
   emit availabilityChanged(reason.isEmpty(), reason);
   if (!reason.isEmpty() || !restoreCache)
     return;
-  QFile file(cachePath());
-  if (file.open(QIODevice::ReadOnly)) {
+  QVector<WellFaciesResult> cached;
+  for (const auto &run : m_plan.runs) {
+    QFile file(cachePath(run));
+    if (!file.open(QIODevice::ReadOnly))
+      continue;
     WellFaciesResult result;
     QString error;
     if (parseWellFaciesResult(QJsonDocument::fromJson(file.readAll()).object(),
-                              m_data.wellName, m_input, &result, &error))
-      emit resultReady(result);
+                              m_data.wellName, run.input, &result, &error)) {
+      result.group = run.group;
+      cached.append(result);
+    }
   }
+  if (!cached.isEmpty())
+    emit resultReady(withDominance(mergeWellFaciesResults(cached)));
 }
 void WellFaciesWorkflow::run() {
-  if (m_busy || m_loading || !m_input.ready() || (m_attributeLayer && m_attributeLayer->isEditable()))
+  if (m_busy || m_loading || !m_plan.ready() || (m_attributeLayer && m_attributeLayer->isEditable()))
     return;
-  for (const auto &m : m_models)
-    if (m.id == m_modelId) {
-      m_busy = true;
-      emit busyChanged(true);
-      emit availabilityChanged(false, tr("测井相预测正在执行"));
-      emit statusChanged(
-          tr("正在提交 %1 个深度点，等待网络推理…").arg(m_input.rows.size()));
-      m_service.predict(m, m_data.wellName, m_input);
-      return;
+  m_busy = true;
+  m_runs = m_plan.runs;
+  m_runTasks.clear();
+  m_runSkip = QVector<bool>(m_runs.size(), false);
+  m_runSession = m_taskSvc ? m_taskSvc->session() : 0;
+  m_runResults.clear();
+  m_runFailures.clear();
+  m_runCancelled.clear();
+  m_runCacheError.clear();
+  m_runIndex = -1;
+  for (const auto &run : m_runs) {
+    PaleoTask *task = nullptr;
+    if (m_taskSvc) {
+      task = m_taskSvc->beginExternal(
+          tr("测井相预测 · %1 · %2").arg(m_data.wellName, runLabel(run)));
+      task->reportDetail(tr("排队等待"));
+      connect(task, &PaleoTask::cancelAsked, this,
+              [this, task] { onTaskCancelAsked(task); });
     }
+    m_runTasks.append(task);
+  }
+  emit busyChanged(true);
+  emit availabilityChanged(false, tr("测井相预测正在执行"));
+  startNextRun();
+}
+void WellFaciesWorkflow::startNextRun() {
+  while (++m_runIndex < m_runs.size()) {
+    const auto task = m_runTasks.value(m_runIndex);
+    const WellFaciesRun &run = m_runs[m_runIndex];
+    if (m_runSkip.value(m_runIndex))
+      continue;
+    if (task && task->cancelRequested()) {
+      m_runCancelled << runLabel(run);
+      finishTask(m_runIndex);
+      continue;
+    }
+    if (task)
+      task->reportDetail(
+          tr("已提交 %1 个深度点，等待网络推理").arg(run.input.rows.size()));
+    emit statusChanged(tr("正在预测 %1（%2/%3）：提交 %4 个深度点，等待网络推理…")
+                           .arg(runLabel(run))
+                           .arg(m_runIndex + 1)
+                           .arg(m_runs.size())
+                           .arg(run.input.rows.size()));
+    m_service.predict(run.model, m_data.wellName, run.input);
+    return;
+  }
+  finishRun();
+}
+void WellFaciesWorkflow::onGroupCompleted(const WellFaciesResult &part) {
+  if (!m_busy || m_runIndex < 0 || m_runIndex >= m_runs.size())
+    return;
+  const WellFaciesRun &run = m_runs[m_runIndex];
+  WellFaciesResult result = part;
+  result.group = run.group;
+  const QString path = cachePath(run);
+  QDir().mkpath(QFileInfo(path).absolutePath());
+  QSaveFile file(path);
+  const QByteArray bytes =
+      QJsonDocument(result.response).toJson(QJsonDocument::Compact);
+  if (!(file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size() &&
+        file.commit()) &&
+      m_runCacheError.isEmpty())
+    m_runCacheError = file.errorString();
+  m_runResults.append(result);
+  finishTask(m_runIndex);
+  emit resultReady(withDominance(mergeWellFaciesResults(m_runResults)));
+  if (m_runIndex + 1 < m_runs.size())
+    emit statusChanged(tr("%1 已返回（%2/%3）：%4 个深度点；继续预测下一个地层…")
+                           .arg(runLabel(run))
+                           .arg(m_runIndex + 1)
+                           .arg(m_runs.size())
+                           .arg(run.input.rows.size()));
+  startNextRun();
+}
+void WellFaciesWorkflow::onGroupFailed(const QString &reason) {
+  m_runFailures << tr("%1（%2）").arg(runLabel(m_runs[m_runIndex]), reason);
+  finishTask(m_runIndex, reason);
+  startNextRun();
+}
+void WellFaciesWorkflow::onTaskCancelAsked(PaleoTask *task) {
+  // 延后一拍：会话切换/关停会连续取消全部任务，等标记都落下再处理，避免
+  // 为已被取消的后续地层白发一次请求。
+  QMetaObject::invokeMethod(
+      this,
+      [this, guard = QPointer<PaleoTask>(task)] {
+        const int index = guard ? int(m_runTasks.indexOf(guard)) : -1;
+        if (!m_busy || index < 0 || index < m_runIndex)
+          return;
+        m_runCancelled << runLabel(m_runs[index]);
+        finishTask(index);
+        if (index > m_runIndex) {
+          m_runSkip[index] = true; // 排队中：立即结束任务行，轮到时跳过
+          return;
+        }
+        m_service.cancel(); // 只停本地等待；服务端已受理任务继续执行
+        startNextRun();
+      },
+      Qt::QueuedConnection);
+}
+void WellFaciesWorkflow::finishTask(int index, const QString &error) {
+  if (index < 0 || index >= m_runTasks.size())
+    return;
+  if (PaleoTask *task = m_runTasks[index].data()) {
+    disconnect(task, &PaleoTask::cancelAsked, this, nullptr);
+    task->finishExternal(error);
+  }
+  m_runTasks[index].clear();
+}
+void WellFaciesWorkflow::abortRun() {
+  for (int i = qMax(m_runIndex, 0); i < m_runTasks.size(); ++i)
+    if (PaleoTask *task = m_runTasks[i].data()) {
+      disconnect(task, &PaleoTask::cancelAsked, this, nullptr);
+      task->requestCancel();
+      task->finishExternal();
+      m_runTasks[i].clear();
+    }
+}
+void WellFaciesWorkflow::finishRun() {
+  const QVector<WellFaciesResult> results = m_runResults;
+  const QStringList failures = m_runFailures, cancelled = m_runCancelled;
+  const QStringList skipped = m_plan.skipped;
+  const QString cacheError = m_runCacheError;
+  m_busy = false;
+  m_runs.clear();
+  m_runTasks.clear();
+  m_runSkip.clear();
+  m_runIndex = -1;
+  emit busyChanged(false);
+  const WellFaciesResult merged = withDominance(mergeWellFaciesResults(results));
+  QString note;
+  if (!results.isEmpty()) {
+    // 产品装配回写可维护矢量相属性；旧测试/无图层服务保留资产兼容路。
+    const bool stale = m_taskSvc && m_taskSvc->session() != m_runSession;
+    const QString publishNote =
+        stale ? tr("工程已切换，结果未写入属性") : publishLithoAsset(merged);
+    note = cacheError.isEmpty() ? tr("结果已保存")
+                                : tr("结果缓存保存失败：%1").arg(cacheError);
+    if (!publishNote.isEmpty())
+      note += tr("；地质属性未保存：%1").arg(publishNote);
+    else if (m_catalog)
+      note += tr("；地质成果已保存");
+  }
+  updateInput(false);
+  if (results.isEmpty()) {
+    emit statusChanged(!failures.isEmpty()
+                           ? failures.join(QStringLiteral("；"))
+                           : tr("已取消：%1").arg(cancelled.join(QStringLiteral("、"))));
+    return;
+  }
+  qsizetype points = 0;
+  QStringList groups;
+  for (const auto &result : results) {
+    points += result.confidence.depths.size();
+    if (!result.group.isEmpty())
+      groups << result.group;
+  }
+  QString status =
+      results.size() == 1
+          ? tr("预测完成：%1 个深度点 · %2；%3").arg(points).arg(merged.modelName, note)
+          : tr("预测完成：%1 个地层（%2）· %3 个深度点 · %4；%5")
+                .arg(results.size())
+                .arg(groups.join(QStringLiteral("、")))
+                .arg(points)
+                .arg(merged.modelName, note);
+  if (!failures.isEmpty())
+    status += tr("；失败：%1").arg(failures.join(QStringLiteral("；")));
+  if (!cancelled.isEmpty())
+    status += tr("；已取消：%1").arg(cancelled.join(QStringLiteral("、")));
+  if (!skipped.isEmpty())
+    status += tr("；跳过：%1").arg(skipped.join(QStringLiteral("、")));
+  emit statusChanged(status);
 }
 void WellFaciesWorkflow::cancel() {
   if (m_loading) {
@@ -420,7 +631,13 @@ void WellFaciesWorkflow::cancel() {
   }
   m_service.cancel();
   const bool wasBusy = m_busy;
+  if (wasBusy)
+    abortRun();
   m_busy = false;
+  m_runs.clear();
+  m_runTasks.clear();
+  m_runSkip.clear();
+  m_runIndex = -1;
   emit busyChanged(false);
   updateInput();
   if (wasBusy)

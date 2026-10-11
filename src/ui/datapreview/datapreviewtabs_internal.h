@@ -243,7 +243,7 @@ inline void stylePreviewToolBar(QWidget *bar)
   });
 }
 
-// 「呈现模式」切换条（well_log 单道/综合、xml 井道图/表格共用）：chip 语义
+// 「呈现模式」切换条（xml 井道图/表格）：chip 语义
 // checkable QToolButton——checked = primary 描边 + 浮起面底。
 inline void styleViewSwitchBar(QWidget *bar)
 {

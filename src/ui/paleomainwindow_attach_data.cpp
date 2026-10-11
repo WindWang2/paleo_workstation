@@ -330,6 +330,6 @@ void PaleoMainWindow::attachDataPage(DataPage *dataPage,
                 // LAS imports pull the GR curve into the column when present
                 // (#156：井集与工程打开同一来源——catalog 全部 well_log)。
                 if (corrPanel && kind == QLatin1String("well_log"))
-                  refreshCorrelationWells(assetId);
+                  refreshCorrelationWells();
               });
 }

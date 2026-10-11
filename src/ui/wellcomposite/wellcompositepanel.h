@@ -248,8 +248,10 @@ private:
   QComboBox *m_faciesModel = nullptr;
   QLabel *m_faciesStatus = nullptr;
   QPointer<WellFaciesWorkflow> m_faciesWorkflow;
+  QString m_faciesPlan; // 逐地层组预测计划摘要（功能层给，面板只渲染）
   bool m_faciesReady = false;
   std::shared_ptr<WellTrack> m_predictionTrack, m_confidenceTrack;
+  QVector<std::shared_ptr<WellTrack>> m_dominantTracks; // 优势相道（组/段各一道）
 
   WellCompositeCanvas *m_canvas = nullptr;
   WellPositionLegendWidget *m_legendWidget = nullptr;

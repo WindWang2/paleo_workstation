@@ -55,6 +55,21 @@ private slots:
     QVERIFY(view->model());
     QCOMPARE(view->model()->rowCount(), 1);
 
+    // 2026-10-10 用户要求：属性表下拉显示的图层名与图层列表一致（活图层名；
+    // 未上图用声明标题；都没有才退回 id），图层改名时跟随。
+    auto *picker = panel.findChild<QComboBox *>(QStringLiteral("attrLayerPicker"));
+    QVERIFY(picker);
+    panel.setLayerIds({QStringLiteral("wells"), QStringLiteral("constraints.T1")},
+                      {QStringLiteral("井位"), QString()});
+    QCOMPARE(picker->itemText(0), QStringLiteral("井位"));
+    QCOMPARE(picker->itemText(1), QStringLiteral("constraints.T1"));
+    QCOMPARE(picker->itemData(0).toString(), QStringLiteral("wells"));
+    panel.showLayer(QStringLiteral("wells"));
+    QCOMPARE(picker->currentText(), vl->name());
+    vl->setName(QStringLiteral("测井地层相属性"));
+    QCOMPARE(picker->currentText(), QStringLiteral("测井地层相属性"));
+    QCOMPARE(panel.currentLayerId(), QStringLiteral("wells"));
+
     // Unknown layer id → hint visible, model cleared.
     panel.showLayer(QStringLiteral("nope"));
     QVERIFY(panel.findChild<QLabel *>(QStringLiteral("attrEmptyHint"))->isVisibleTo(&panel));

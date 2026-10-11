@@ -50,8 +50,7 @@
 // ---------------------------------------------------------------------------
 void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
                                         ConstraintPage *constraint, ComposePage *compose,
-                                        ValidatePage *validate, PaleoEditingToolbar *editTb,
-                                        WellCorrelationPanel *corrPanel)
+                                        ValidatePage *validate, PaleoEditingToolbar *editTb)
 {
   SARibbonBar *bar = ribbonBar();
   if (!bar)
@@ -117,9 +116,9 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
     });
     return a;
   };
-  QAction *corrAct = bottomAction(
-      corrPanel, tr("测井对比"), icon("mActionElevationProfile.svg"),
-      tr("在底部面板对比多口井的测井曲线与分层"), "ribbonCorrelationAction");
+  // 「测井对比」底栏页签已按用户要求移除（2026-10-11），ribbon 不再挂入口；
+  // 多井曲线对比走下面的连井剖面 dock。
+
   // 连井剖面 dock 开关（三个编图页共用同一 QAction）。
   QAction *wellSectionAct = nullptr;
   if (m_wellSectionDock)
@@ -277,10 +276,9 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
                       "ribbonRunPrediction"),
           true);
     addLarge(p, paramsAct);
-    if (corrAct || attrAct)
+    if (attrAct)
     {
       SARibbonPanel *cp = panel(cat, tr("叠加对照"), "ribbonPanel.predict.compare");
-      addLarge(cp, corrAct);
       addLarge(cp, attrAct);
       QAction *pSeismic3d = newAction(tr("三维地震"), icon("3d.svg"),
                                       tr("打开三维地震立体视口"), "ribbonPredictSeismic3D");
@@ -356,11 +354,10 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
     addLarge(ip, runFactor, true);
     addLarge(p, mirrored(constraint, "directionButton", tr("方向线族"), icon("mActionCaptureLine.svg"), "ribbonDrawDirection", false, false));
     addLarge(p, mirrored(constraint, "breakLineButton", tr("打断线族"), icon("mActionCaptureLine.svg"), "ribbonDrawBreakLine", false, false));
-    if (wellSectionAct || corrAct)
+    if (wellSectionAct)
     {
       SARibbonPanel *cp = panel(cat, tr("连井分析"), "ribbonPanel.constraint.correlation");
-      addLarge(cp, wellSectionAct); // 连井剖面排在测井对比之前
-      addLarge(cp, corrAct);
+      addLarge(cp, wellSectionAct);
     }
     addEditingPanel(cat, editTb);
     navPanel(cat);
@@ -425,11 +422,10 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
     addLarge(p, paramsAct);
     QAction *section = mirrored(validate, "openSeismicSectionButton", tr("看这条剖面"),
                                 icon("mIconRasterLayer.svg"), "ribbonOpenSection");
-    if (section || corrAct)
+    if (section)
     {
       SARibbonPanel *lp = panel(cat, tr("联动定位"), "ribbonPanel.validate.locate");
       addLarge(lp, section);
-      addLarge(lp, corrAct);
     }
     navPanel(cat);
     if (releaseAct)

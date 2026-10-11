@@ -1,6 +1,7 @@
 // 层：QGIS 封装
 #include "wellattributestore.h"
 #include "../catalog/datacatalog.h"
+#include "qgisstyleservice.h"
 #include "qgislayerservice.h"
 #include <QCoreApplication>
 #include <QDir>
@@ -28,14 +29,21 @@ bool fail(QString *error, const QString &reason) {
     *error = reason;
   return false;
 }
-QString path(const QString &dir, bool factors) {
-  return QDir(dir).filePath(factors
-                                ? "artifacts/layers/well-factors.gpkg"
-                                : "artifacts/layers/well-log-attributes.gpkg");
+using Table = WellAttributeStore::Table;
+QString path(const QString &dir, Table table) {
+  return QDir(dir).filePath(
+      table == Table::Factors     ? "artifacts/layers/well-factors.gpkg"
+      : table == Table::Formations ? "artifacts/layers/well-formation-facies.gpkg"
+                                   : "artifacts/layers/well-log-attributes.gpkg");
 }
-QString uri(const QString &dir, bool factors) {
-  return path(dir, factors) + "|layername=attributes";
+QString uri(const QString &dir, Table table) {
+  return path(dir, table) + "|layername=attributes";
 }
+Table tableOf(bool factors) { return factors ? Table::Factors : Table::Intervals; }
+// 地层优势相表的数值列：均为非负有限数，占比/覆盖率另限 0–1。
+const QStringList kFormationNumbers{"top_md", "base_md", "thickness_md",
+                                    "dominant_thickness_md", "dominant_ratio",
+                                    "coverage"};
 QVariantMap attributes(const QgsFeature &feature) {
   QVariantMap row;
   for (int i = 0; i < feature.fields().size(); ++i)
@@ -102,25 +110,54 @@ const QVariantMap *at(const QVector<QVariantMap> &rows, double depth) {
 namespace WellAttributeStore {
 QString intervalLayerId() { return QStringLiteral("welllog.attributes"); }
 QString factorLayerId() { return QStringLiteral("wellfactor.attributes"); }
+QString formationLayerId() { return QStringLiteral("welllog.formations"); }
+QString layerId(Table table) {
+  return table == Table::Factors     ? factorLayerId()
+         : table == Table::Formations ? formationLayerId()
+                                      : intervalLayerId();
+}
 QgsVectorLayer *open(DataCatalog *catalog, const QString &dir,
                      QgisLayerService *layers, bool factors, bool create,
                      QString *error) {
+  return open(catalog, dir, layers, tableOf(factors), create, error);
+}
+QgsVectorLayer *open(DataCatalog *catalog, const QString &dir,
+                     QgisLayerService *layers, Table table, bool create,
+                     QString *error) {
   if (!catalog || !catalog->isOpen() || !layers || dir.isEmpty())
     return nullptr;
-  const QString id = factors ? factorLayerId() : intervalLayerId();
-  if (!QFileInfo::exists(path(dir, factors))) {
+  const QString id = layerId(table);
+  if (!QFileInfo::exists(path(dir, table))) {
     if (!create)
       return nullptr;
     if (!writable(catalog, dir, layers, error))
       return nullptr;
-    QDir().mkpath(QFileInfo(path(dir, factors)).absolutePath());
+    QDir().mkpath(QFileInfo(path(dir, table)).absolutePath());
     QgsVectorLayer memory("Point", "attributes", "memory");
     memory.setCrs(
         QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()));
     QList<QgsField> fields{QgsField("well_id", QMetaType::QString),
                            QgsField("well_name", QMetaType::QString),
-                           QgsField("horizon", QMetaType::QString)};
-    if (factors) {
+                           QgsField(table == Table::Formations ? "formation"
+                                                               : "horizon",
+                                    QMetaType::QString)};
+    if (table == Table::Formations) {
+      fields << QgsField("unit_type", QMetaType::QString)
+             << QgsField("top_md", QMetaType::Double)
+             << QgsField("base_md", QMetaType::Double)
+             << QgsField("thickness_md", QMetaType::Double)
+             << QgsField("dominant_facies", QMetaType::QString)
+             << QgsField("facies_code", QMetaType::Int)
+             << QgsField("predicted_dominant", QMetaType::QString)
+             << QgsField("dominant_thickness_md", QMetaType::Double)
+             << QgsField("dominant_ratio", QMetaType::Double)
+             << QgsField("coverage", QMetaType::Double)
+             << QgsField("tie", QMetaType::Bool)
+             << QgsField("facies_composition", QMetaType::QString)
+             << QgsField("source", QMetaType::QString)
+             << QgsField("model", QMetaType::QString)
+             << QgsField("job_id", QMetaType::QString);
+    } else if (table == Table::Factors) {
       for (const auto &name :
            {"log_layer_thickness_md", "log_sand_thickness_md", "sand_ratio",
             "porosity", "permeability"})
@@ -145,21 +182,29 @@ QgsVectorLayer *open(DataCatalog *catalog, const QString &dir,
     options.driverName = "GPKG";
     options.layerName = "attributes";
     if (QgsVectorFileWriter::writeAsVectorFormatV3(
-            &memory, path(dir, factors),
+            &memory, path(dir, table),
             QgsProject::instance()->transformContext(), options,
             error) != QgsVectorFileWriter::NoError)
       return nullptr;
   }
+  LayerDeclaration declaration;
+  declaration.layerId = id;
+  declaration.type = "vector";
+  declaration.source = uri(dir, table);
+  declaration.group = "00_Data";
+  declaration.title = table == Table::Factors ? tr("井点单因素属性")
+                       : table == Table::Formations ? tr("测井地层相属性")
+                                                    : tr("测井岩性与相属性");
   if (!layers->layer(id)) {
-    LayerDeclaration declaration;
-    declaration.layerId = id;
-    declaration.type = "vector";
-    declaration.source = uri(dir, factors);
-    declaration.group = "00_Data";
-    declaration.title = factors ? tr("井点单因素属性") : tr("测井岩性与相属性");
     bool declared = false;
+    bool stale = false;
     for (const auto &d : layers->declared())
-      declared = declared || d.layerId == id;
+      if (d.layerId == id) {
+        declared = true;
+        // 旧工程的声明可能带旧标题（「测井地层优势相属性」）或搬家前的
+        // 绝对路径——可写时按当前口径 upsert，只读时沿用旧声明。
+        stale = d.title != declaration.title || d.source != declaration.source;
+      }
     if (!declared && catalog->refusesWrites()) {
       // 拆开短路：refusesWrites 时不落 error 会让调用方拿到「nullptr + 空
       // 错误」的哑失败，无从给用户解释。
@@ -169,11 +214,21 @@ QgsVectorLayer *open(DataCatalog *catalog, const QString &dir,
     }
     if (!declared && !layers->declare(declaration, error))
       return nullptr;
+    if (stale && !catalog->refusesWrites())
+      layers->declare(declaration);
   }
   auto *layer = qobject_cast<QgsVectorLayer *>(layers->instantiate(id, error));
   if (!layer)
     return nullptr;
+  if (layer->name() != declaration.title && !catalog->refusesWrites())
+    layer->setName(declaration.title);
   layer->setReadOnly(catalog->refusesWrites());
+  // 地图符号与文字标注（2026-10-10）：地层点标注地层名绕点排开；
+  // 井段/井点单因素点小空心点不标注（多行同位堆叠，文字在属性表读）。
+  if (table == Table::Formations)
+    QgisStyleService::applyWellFormationLayerStyle(layer);
+  else
+    QgisStyleService::applyWellAttributeLayerStyle(layer);
   const QMap<QString, QString> aliases{
       {"well_id", tr("井 ID")},
       {"well_name", tr("井名")},
@@ -188,7 +243,20 @@ QgsVectorLayer *open(DataCatalog *catalog, const QString &dir,
       {"log_sand_thickness_md", tr("砂厚 MD（m）")},
       {"sand_ratio", tr("砂地比（0–1）")},
       {"porosity", tr("孔隙度")},
-      {"permeability", tr("渗透率")}};
+      {"permeability", tr("渗透率")},
+      {"formation", tr("地层")},
+      {"unit_type", tr("层级（组/段）")},
+      {"thickness_md", tr("地层厚度 MD（m）")},
+      // 地层表的「相」就是该地层的预测输出（厚度最大者）——列名直接叫
+      // 地层相，不再出现「优势」字样（2026-10-10 用户要求）。
+      {"dominant_facies", tr("地层相")},
+      {"predicted_dominant", tr("预测相")},
+      {"dominant_thickness_md", tr("相厚度（m）")},
+      {"dominant_ratio", tr("相厚度占比（0–1）")},
+      {"coverage", tr("预测覆盖率（0–1）")},
+      {"tie", tr("厚度并列")},
+      {"facies_composition", tr("相厚度构成")},
+      {"source", tr("来源")}};
   for (auto it = aliases.cbegin(); it != aliases.cend(); ++it) {
     const int index = layer->fields().indexOf(it.key());
     if (index >= 0)
@@ -199,10 +267,10 @@ QgsVectorLayer *open(DataCatalog *catalog, const QString &dir,
     const QPointer<DataCatalog> owner(catalog);
     QObject::connect(
         layer, &QgsVectorLayer::beforeCommitChanges, layer,
-        [layer, owner, factors] {
+        [layer, owner, table] {
           QString error;
           const bool ok = owner && !owner->refusesWrites() &&
-                          validate(layer, owner, factors, &error);
+                          validate(layer, owner, table, &error);
           layer->setCustomProperty("paleo/wellAttributeValidationError", error);
           layer->setAllowCommit(ok);
           if (!ok)
@@ -213,28 +281,38 @@ QgsVectorLayer *open(DataCatalog *catalog, const QString &dir,
 }
 QVariantList rows(const QString &dir, QgisLayerService *layers, bool factors,
                   const QString &wellId, const QString &horizon) {
+  return rows(dir, layers, tableOf(factors), wellId, horizon);
+}
+QVariantList rows(const QString &dir, QgisLayerService *layers, Table table,
+                  const QString &wellId, const QString &key) {
   QVariantList out;
   std::unique_ptr<QgsVectorLayer> owned;
-  auto *layer = layers ? qobject_cast<QgsVectorLayer *>(layers->layer(
-                             factors ? factorLayerId() : intervalLayerId()))
+  auto *layer = layers ? qobject_cast<QgsVectorLayer *>(
+                             layers->layer(layerId(table)))
                        : nullptr;
-  if (!layer && QFileInfo::exists(path(dir, factors))) {
-    owned = std::make_unique<QgsVectorLayer>(uri(dir, factors), "attributes",
+  if (!layer && QFileInfo::exists(path(dir, table))) {
+    owned = std::make_unique<QgsVectorLayer>(uri(dir, table), "attributes",
                                              "ogr");
     layer = owned.get();
   }
   if (!layer || !layer->isValid())
     return out;
+  const QString keyField = table == Table::Formations ? "formation" : "horizon";
   auto it = layer->getFeatures();
   QgsFeature f;
   while (it.nextFeature(f))
     if ((wellId.isEmpty() || f.attribute("well_id").toString() == wellId) &&
-        (horizon.isEmpty() || f.attribute("horizon").toString() == horizon))
+        (key.isEmpty() || f.attribute(keyField).toString() == key))
       out << attributes(f);
   return out;
 }
 bool validate(QgsVectorLayer *layer, DataCatalog *catalog, bool factors,
               QString *error) {
+  return validate(layer, catalog, tableOf(factors), error);
+}
+bool validate(QgsVectorLayer *layer, DataCatalog *catalog, Table table,
+              QString *error) {
+  const bool factors = table == Table::Factors;
   QSet<QString> keys;
   QMap<QString, QVector<QVariantMap>> byWell;
   auto it = layer->getFeatures();
@@ -244,7 +322,30 @@ bool validate(QgsVectorLayer *layer, DataCatalog *catalog, bool factors,
     const auto id = row.value("well_id").toString();
     if (!catalog || catalog->entityById(id).entityType != "well")
       return fail(error, tr("井属性含未解析的井 ID：%1").arg(id));
-    if (!factors) {
+    if (table == Table::Formations) {
+      const auto formation = row.value("formation").toString().trimmed();
+      const auto key = id + QChar(0x1f) + formation;
+      if (formation.isEmpty() || keys.contains(key))
+        return fail(error, tr("地层相必须按井/地层唯一，地层名不能为空"));
+      keys.insert(key);
+      if (!span(row))
+        return fail(error, tr("地层顶底深必须有限且底深大于顶深"));
+      if (!faciesCode(row.value("facies_code")))
+        return fail(error, tr("相编码必须为 1–32767 的整数或空值"));
+      for (const auto &name : kFormationNumbers) {
+        const auto value = row.value(name);
+        if (value.isNull())
+          continue;
+        bool ok = false;
+        const double n = value.toDouble(&ok);
+        if (!ok || !std::isfinite(n) || n < 0 ||
+            ((name == QLatin1String("dominant_ratio") ||
+              name == QLatin1String("coverage")) &&
+             n > 1 + 1e-9))
+          return fail(error,
+                      tr("地层相的厚度必须为非负有限数值，占比和覆盖率为 0–1"));
+      }
+    } else if (!factors) {
       if (!span(row))
         return fail(error, tr("井段顶底深必须有限且底深大于顶深"));
       if (!faciesCode(row.value("facies_code")))
@@ -397,6 +498,74 @@ bool mergeIntervals(DataCatalog *catalog, const QString &dir,
     layer->destroyEditCommand();
     layer->rollBack();
     return fail(error, tr("井属性更新失败，已撤销本次更新"));
+  }
+  layer->endEditCommand();
+  return commit(layer, error);
+}
+bool mergeFormations(DataCatalog *catalog, const QString &dir,
+                     QgisLayerService *layers, const QVariantList &updates,
+                     QString *error) {
+  if (updates.isEmpty())
+    return true;
+  if (!writable(catalog, dir, layers, error))
+    return false;
+  const auto keyOf = [](const QVariantMap &row) {
+    return row.value("well_id").toString() + QChar(0x1f) +
+           row.value("formation").toString().trimmed();
+  };
+  QSet<QString> batch;
+  for (const auto &value : updates) {
+    const auto row = value.toMap();
+    if (row.value("formation").toString().trimmed().isEmpty() ||
+        !span(row) || catalog->entityById(row.value("well_id").toString())
+                              .entityType != "well")
+      return fail(error, tr("地层相的井 ID、地层名或顶底深无效"));
+    if (!faciesCode(row.value("facies_code")))
+      return fail(error, tr("相编码必须为 1–32767 的整数或空值"));
+    if (batch.contains(keyOf(row)))
+      return fail(error, tr("同一口井的地层名重复，未更新地层相"));
+    batch.insert(keyOf(row));
+  }
+  auto *layer = open(catalog, dir, layers, Table::Formations, true, error);
+  if (!layer)
+    return false;
+  if (layer->isEditable())
+    return fail(error,
+                tr("测井地层相属性表正在编辑，请先保存或放弃编辑，再运行预测"));
+  if (!validate(layer, catalog, Table::Formations, error))
+    return false;
+  QMap<QString, QgsFeatureId> existing;
+  auto it = layer->getFeatures();
+  QgsFeature f;
+  while (it.nextFeature(f))
+    existing.insert(f.attribute("well_id").toString() + QChar(0x1f) +
+                        f.attribute("formation").toString().trimmed(),
+                    f.id());
+  if (!layer->startEditing())
+    return fail(error, tr("无法开始地层相更新"));
+  layer->beginEditCommand(tr("更新测井地层相"));
+  bool ok = true;
+  for (const auto &value : updates) {
+    const auto row = value.toMap();
+    const auto found = existing.constFind(keyOf(row));
+    if (found == existing.cend()) {
+      auto next = featureFor(layer, catalog, row);
+      ok = layer->addFeature(next) && ok;
+      continue;
+    }
+    for (auto p = row.cbegin(); p != row.cend(); ++p) {
+      const int index = layer->fields().indexOf(p.key());
+      if (index >= 0 && p.key() != "well_id" && p.key() != "formation" &&
+          p.key() != "well_name")
+        ok = layer->changeAttributeValue(found.value(), index, p.value()) && ok;
+    }
+  }
+  if (!ok || !validate(layer, catalog, Table::Formations, error)) {
+    layer->destroyEditCommand();
+    layer->rollBack();
+    return fail(error, error && !error->isEmpty()
+                           ? *error
+                           : tr("地层相更新失败，已撤销本次更新"));
   }
   layer->endEditCommand();
   return commit(layer, error);

@@ -55,6 +55,10 @@ struct RenderState {
   wellsection::SectionTheme theme;
   wellsection::SeismicStrip strip;
   bool seismicOn = false;
+  // 缝内地震色标：-1 = 跟随主题（seismicGray→灰度，否则红白蓝）；
+  // >=0 = seismic::SectionColorMapType 显式预设（与剖面画布同一 LUT）。
+  int seismicCmap = -1;
+  bool seismicCmapInvert = false;
   QString activeTop, baseTop;          // 高亮地层段（activeTop 空 = 无高亮）
   int selected = -1;                   // 选中井序号（-1 无）
   QStringList zoneOrder;               // orderedTopNames → zoneFill 取色序

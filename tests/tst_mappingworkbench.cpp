@@ -10,6 +10,7 @@
 #include "../src/qgis/wellattributestore.h"
 #include "../src/qgis/qgisprocessingservice.h"
 #include "../src/qgis/qgisprojectservice.h"
+#include "../src/services/paleotaskservice.h"
 #include "../src/ui/edittools/editingtoolbar.h"
 #include "../src/ui/edittools/vertexeditortools.h"
 #include "../src/ui/pages/mappingworkbenchpage.h"
@@ -40,9 +41,13 @@
 #include <qgsapplication.h>
 #include <qgscategorizedsymbolrenderer.h>
 #include <qgsexpressioncontextutils.h>
+#include <qgsfillsymbollayer.h>
 #include <qgsgeometry.h>
 #include <qgsmapcanvas.h>
+#include <qgsmaprenderersequentialjob.h>
+#include <qgsmapsettings.h>
 #include <qgsmergedfeaturerenderer.h>
+#include <qgslabelingresults.h>
 #include <qgsproject.h>
 #include <qgsrasterlayer.h>
 #include <qgsrasterrenderer.h>
@@ -62,6 +67,35 @@ public:
     result.method = "test";
     result.points = {QVariantMap{
         {"id", "wrong"}, {"x", 100}, {"y", 100}, {"facies_code", 1}}};
+    emit completed(result);
+  }
+};
+
+// 测井预测的定制应答：整井优势相与 D61 地层内优势相刻意不同——
+// [top, top+10) 相 1、[top+10, top+60) 相 2、[top+60, bottom) 相 1。
+// 整井：相 1 厚 70 > 相 2 厚 50；D61（1000–1060）：相 2 厚 50 > 相 1 厚 10。
+class CraftedWellService : public RemotePredictionService {
+public:
+  RemotePredictionRequest request;
+  void start(const RemotePredictionRequest &r) override { request = r; }
+  void cancel() override {}
+  void deliver() {
+    RemotePredictionResult result;
+    result.request = request;
+    result.method = "crafted";
+    for (const auto &value : request.wells) {
+      auto point = value.toMap();
+      const double top = point.value("depth_top").toDouble();
+      const double bottom = point.value("depth_bottom").toDouble();
+      point.insert("facies_code", 1);
+      point.insert("facies_intervals",
+                   QString::fromUtf8(QJsonDocument::fromVariant(QVariantList{
+                       QVariantMap{{"top", top}, {"bottom", top + 10}, {"code", 1}},
+                       QVariantMap{{"top", top + 10}, {"bottom", top + 60}, {"code", 2}},
+                       QVariantMap{{"top", top + 60}, {"bottom", bottom}, {"code", 1}}})
+                                         .toJson(QJsonDocument::Compact)));
+      result.points << point;
+    }
     emit completed(result);
   }
 };
@@ -136,6 +170,35 @@ class TestMappingWorkbench : public QObject {
       if (!catalog.addLink(l))
         return {};
       return e.id;
+    }
+    bool tops(const QString &wellId, const QString &text) {
+      const QString id = "tops-" + wellId;
+      const QString path = dir.filePath(id + ".dat");
+      QFile file(path);
+      if (!file.open(QIODevice::WriteOnly))
+        return false;
+      file.write(text.toUtf8());
+      file.close();
+      CatalogAsset a;
+      a.id = id;
+      a.type = "well_tops";
+      a.displayName = id;
+      CatalogVersion v;
+      v.id = "v-" + id;
+      v.assetId = id;
+      v.path = path;
+      v.managed = false;
+      v.stage = "RAW";
+      v.versionNumber = 1;
+      EntityAssetLink l;
+      l.entityId = wellId;
+      l.entityType = "well";
+      l.assetId = id;
+      l.role = "tops";
+      l.isPrimary = true;
+      QString error;
+      return catalog.addAsset(a, &error) && catalog.addVersion(v, &error) &&
+             catalog.addLink(l, &error);
     }
     QString seismic() {
       auto asset = input("seismic", "seismic");
@@ -731,14 +794,17 @@ private slots:
     }
     renderer->stopRender(context);
     QCOMPARE(visible, 3);
-    // 相图标注：点层在 QGIS 画布上标注类别名称（白底胶囊底衬）。
+    // 相图标注：点层在 QGIS 画布上标注类别名称（无底衬、字号随
+    // @map_scale 自适应——2026-10-11 用户口径「标注不需要背景」）。
     QVERIFY(layer.labelsEnabled());
     auto *labeling =
         dynamic_cast<QgsVectorLayerSimpleLabeling *>(layer.labeling());
     QVERIFY(labeling);
     // 标注表达式按字段可用性回退，相名走 facies_label 通道。
     QVERIFY(labeling->settings().fieldName.contains(QStringLiteral("facies_label")));
-    QVERIFY(labeling->settings().format().background().enabled());
+    QVERIFY(!labeling->settings().format().background().enabled());
+    QVERIFY(labeling->settings().dataDefinedProperties().isActive(
+        QgsPalLayerSettings::Property::Size));
   }
   void wellIntervalsReviewUndoAndPersistence() {
     Fixture f;
@@ -848,6 +914,301 @@ private slots:
     QCOMPARE(table->rowCount(), 0);
     QVERIFY(!panel.findChild<QPushButton *>("applyWellFacies")->isEnabled());
   }
+  // 智能预测的测井预测按地层（井 tops 的组/段）组织成矢量：每井每地层一行，
+  // 优势微相 = 累计厚度最大的相；与数据管理的预测同一张表，请求带入该表。
+  void wellsPredictionWritesFormationDominanceTable() {
+    Fixture f;
+    QVERIFY(f.init());
+    QVERIFY(!f.well("A", 10, 20).isEmpty());
+    QVERIFY(!f.well("B", 30, 40).isEmpty());
+    QVERIFY(f.tops("A", QStringLiteral("#WellTops File From SMI\n#WellName Name MD X Y Z TVD Time(ms)\n"
+                                       "A D61 1000 0 0 -1000 1000 -99999\nA D62 1060 0 0 -1060 1060 -99999\n")));
+    QString error;
+    QVERIFY(f.work.predict("D61", "wells", {"A", "B"}, &error));
+    QTRY_VERIFY(!f.work.busy());
+    const auto original = f.latest("wells_prediction");
+    QVERIFY(!original.isEmpty());
+    const auto schema = f.work.facies("D61");
+
+    // B 没有 tops：没有地层可组织，不出行（不拿整井冒充地层）。
+    const auto rows = WellAttributeStore::rows(
+        f.dir.path(), &f.layers, WellAttributeStore::Table::Formations);
+    QCOMPARE(rows.size(), 2);
+    QHash<QString, QVariantMap> byName;
+    for (const auto &v : rows) {
+      QCOMPARE(v.toMap().value("well_id").toString(), QString("A"));
+      byName.insert(v.toMap().value("formation").toString(), v.toMap());
+    }
+    QCOMPARE(byName.keys().size(), 2);
+    // 期望值直接按预测井段独立计算：各相在地层内的累计厚度。
+    const auto intervals =
+        f.work.wellPredictions(original)[0].toMap().value("intervals").toList();
+    const auto expected = [&](double top, double base) {
+      QMap<int, double> thickness;
+      double classified = 0;
+      for (const auto &v : intervals) {
+        const auto iv = v.toMap();
+        const double a = std::max(top, iv.value("top").toDouble());
+        const double b = std::min(base, iv.value("bottom").toDouble());
+        if (b > a) {
+          thickness[iv.value("code").toInt()] += b - a;
+          classified += b - a;
+        }
+      }
+      int dominant = thickness.firstKey();
+      for (auto it = thickness.cbegin(); it != thickness.cend(); ++it)
+        if (it.value() > thickness.value(dominant) + 1e-9)
+          dominant = it.key();
+      return std::make_tuple(dominant, thickness.value(dominant), classified);
+    };
+    for (const auto &[name, top, base] :
+         {std::make_tuple(QString("D61"), 1000.0, 1060.0),
+          std::make_tuple(QString("D62"), 1060.0, 1120.0)}) {
+      const auto row = byName.value(name);
+      QVERIFY2(!row.isEmpty(), qPrintable(name));
+      const auto [code, domThickness, classified] = expected(top, base);
+      QCOMPARE(row.value("unit_type").toString(), QString("段"));
+      QCOMPARE(row.value("top_md").toDouble(), top);
+      QCOMPARE(row.value("base_md").toDouble(), base);
+      QCOMPARE(row.value("thickness_md").toDouble(), base - top);
+      QCOMPARE(row.value("facies_code").toInt(), code);
+      QCOMPARE(row.value("dominant_facies").toString(),
+               FaciesCatalog::find(schema, code).value("name").toString());
+      QCOMPARE(row.value("predicted_dominant").toString(),
+               row.value("dominant_facies").toString());
+      QCOMPARE(row.value("dominant_thickness_md").toDouble(), domThickness);
+      QVERIFY(qAbs(row.value("dominant_ratio").toDouble() - domThickness / classified) < 1e-9);
+      QVERIFY(qAbs(row.value("coverage").toDouble() - classified / (base - top)) < 1e-9);
+      QCOMPARE(row.value("source").toString(), QString("wells_prediction"));
+      QVERIFY(!row.value("job_id").toString().isEmpty());
+      QVERIFY(!row.value("model").toString().isEmpty());
+    }
+
+    // 2026-10-10 用户口径：智能预测的井点相 = 该井在本层位（D61）地层内的
+    // 优势相——与地层相属性表 D61 行同源，不是整井优势相。没有 tops 的 B
+    // 退回整井口径并如实标 facies_scope=well。
+    auto *points = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(original));
+    QVERIFY(points);
+    bool sawA = false, sawB = false;
+    auto pit = points->getFeatures();
+    QgsFeature point;
+    while (pit.nextFeature(point)) {
+      if (point.attribute("id") == "A") {
+        sawA = true;
+        QCOMPARE(point.attribute("facies_scope").toString(), QString("formation"));
+        QCOMPARE(point.attribute("formation").toString(), QString("D61"));
+        QCOMPARE(point.attribute("formation_top").toDouble(), 1000.0);
+        QCOMPARE(point.attribute("formation_base").toDouble(), 1060.0);
+        QCOMPARE(point.attribute("facies_code").toInt(),
+                 byName.value("D61").value("facies_code").toInt());
+        QCOMPARE(point.attribute("facies_label").toString(),
+                 byName.value("D61").value("dominant_facies").toString());
+      } else if (point.attribute("id") == "B") {
+        sawB = true;
+        QCOMPARE(point.attribute("facies_scope").toString(), QString("well"));
+      }
+    }
+    QVERIFY(sawA && sawB);
+
+    // 人工修订预测井段并保存图件版本：维护的优势相随之更新，预测优势相保持原值。
+    const auto draft = f.work.copyForEditing(original, {}, &error);
+    QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    auto *draftLayer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft));
+    QVERIFY(draftLayer);
+    const auto wellRow = f.work.wellPredictions(draft)[0].toMap();
+    QCOMPARE(wellRow.value("id").toString(), QString("A"));
+    int revisedCode = -1;
+    for (const auto &v : schema) {
+      const int c = v.toMap().value("code").toInt();
+      if (c != byName.value("D61").value("facies_code").toInt() &&
+          c != byName.value("D62").value("facies_code").toInt()) {
+        revisedCode = c;
+        break;
+      }
+    }
+    QVERIFY(revisedCode > 0);
+    for (int i = 0; i < intervals.size(); ++i)
+      QVERIFY2(f.work.reviseWellInterval(draft, "A", i, revisedCode, &error),
+               qPrintable(error));
+    QVERIFY(draftLayer->commitChanges());
+    QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
+    for (const QString &name : {QString("D61"), QString("D62")}) {
+      const auto row = WellAttributeStore::rows(
+          f.dir.path(), nullptr, WellAttributeStore::Table::Formations, "A", name)
+                           .first()
+                           .toMap();
+      QCOMPARE(row.value("facies_code").toInt(), revisedCode);
+      QCOMPARE(row.value("dominant_facies").toString(),
+               FaciesCatalog::find(schema, revisedCode).value("name").toString());
+      QCOMPARE(row.value("predicted_dominant").toString(),
+               byName.value(name).value("predicted_dominant").toString());
+      QCOMPARE(row.value("dominant_ratio").toDouble(), 1.0);
+      QCOMPARE(row.value("source").toString(), QString("wells_prediction"));
+    }
+
+    // 手工维护优势相后，请求把该表带给预测服务作输入（vector_formations）。
+    auto *layer = WellAttributeStore::open(&f.catalog, f.dir.path(), &f.layers,
+                                           WellAttributeStore::Table::Formations, false);
+    QVERIFY(layer);
+    QVERIFY(layer->startEditing());
+    auto it = layer->getFeatures();
+    QgsFeature feature;
+    while (it.nextFeature(feature))
+      if (feature.attribute("formation") == "D61")
+        QVERIFY(layer->changeAttributeValue(
+            feature.id(), layer->fields().indexOf("dominant_facies"), "人工维护相"));
+    QVERIFY(layer->commitChanges());
+    DelayedPredictionService service;
+    f.work.setPredictionService(&service);
+    QVERIFY(f.work.predict("D61", "wells", {"A"}, &error));
+    QTRY_VERIFY(!service.request.wells.isEmpty()); // 曲线后台读完才提交
+    const auto formations =
+        service.request.wells.first().toMap().value("vector_formations").toList();
+    QCOMPARE(formations.size(), 2);
+    bool maintained = false;
+    for (const auto &v : formations)
+      if (v.toMap().value("formation") == "D61") {
+        maintained = true;
+        QCOMPARE(v.toMap().value("dominant_facies").toString(), QString("人工维护相"));
+      }
+    QVERIFY(maintained);
+    f.work.cancelPrediction();
+
+    // 地层优势相表正在编辑：预测被拒（不会写一半）。
+    QVERIFY(layer->startEditing());
+    QVERIFY(!f.work.predict("D61", "wells", {"A"}, &error));
+    QVERIFY(layer->rollBack());
+    QVERIFY(!f.work.openWellFormations(&error).isEmpty());
+  }
+  // 2026-10-10 用户口径：智能预测里井的预测相 = 该井在本层位地层内的优势相
+  //（与数据管理逐组预测同一套地层相数据）；预测进任务中心后台执行、可取消。
+  void wellPointFaciesIsFormationDominantAndRunsAsTask() {
+    Fixture f;
+    QVERIFY(f.init());
+    PaleoTaskService tasks;
+    f.work.setTaskService(&tasks);
+    CraftedWellService service;
+    f.work.setPredictionService(&service);
+    QVERIFY(!f.well("A", 10, 20).isEmpty());
+    QVERIFY(f.tops("A", QStringLiteral("#WellTops File From SMI\n#WellName Name MD X Y Z TVD Time(ms)\n"
+                                       "A D61 1000 0 0 -1000 1000 -99999\nA D62 1060 0 0 -1060 1060 -99999\n")));
+    QString error;
+    QVERIFY2(f.work.predict("D61", "wells", {"A"}, &error), qPrintable(error));
+    // 立即返回、任务中心出一行运行中任务；曲线后台读完才提交服务。
+    QVERIFY(f.work.busy());
+    QCOMPARE(tasks.tasks().size(), 1);
+    PaleoTask *task = tasks.tasks().first();
+    QVERIFY(task->running());
+    QVERIFY(task->title().contains(QStringLiteral("D61")));
+    QTRY_VERIFY(!service.request.id.isEmpty());
+    QCOMPARE(service.request.wells.first().toMap().value("depth_top").toDouble(), 1000.0);
+    QCOMPARE(service.request.wells.first().toMap().value("depth_bottom").toDouble(), 1120.0);
+    service.deliver();
+    QVERIFY(!f.work.busy());
+    QTRY_COMPARE(task->state(), PaleoTask::State::Succeeded);
+    QCOMPARE(task->percent(), 100);
+
+    // 井点相取 D61 地层内优势相（相 2），不是整井优势相（相 1）。
+    const auto id = f.latest("wells_prediction");
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(id));
+    QVERIFY(layer);
+    QgsFeature feature;
+    QVERIFY(layer->getFeatures().nextFeature(feature));
+    QCOMPARE(feature.attribute("facies_code").toInt(), 2);
+    QCOMPARE(feature.attribute("facies_scope").toString(), QString("formation"));
+    // 与地层相属性表 D61 行同源。
+    const auto row = WellAttributeStore::rows(f.dir.path(), &f.layers,
+                                              WellAttributeStore::Table::Formations,
+                                              "A", "D61");
+    QCOMPARE(row.size(), 1);
+    QCOMPARE(row.first().toMap().value("facies_code").toInt(), 2);
+
+    // 编辑副本里属性表直接改点相：只改 D61 地层范围内的井段，范围外原样。
+    const auto draft = f.work.copyForEditing(id, {}, &error);
+    QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    auto *draftLayer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft));
+    QVERIFY(draftLayer && draftLayer->getFeatures().nextFeature(feature));
+    QVERIFY(f.work.assignFacies(draft, {feature.id()}, 3, &error));
+    const auto revised = f.work.wellPredictions(draft).first().toMap();
+    QCOMPARE(revised.value("facies_code").toInt(), 3);
+    for (const auto &v : revised.value("intervals").toList()) {
+      const auto iv = v.toMap();
+      const bool inside = iv.value("top").toDouble() >= 1000 && iv.value("bottom").toDouble() <= 1060;
+      QCOMPARE(iv.value("code").toInt(), inside ? 3 : 1);
+    }
+    QVERIFY(draftLayer->rollBack());
+
+    // 任务中心取消 = 取消预测；页面「取消」同样让任务落到已取消。
+    QVERIFY(f.work.predict("D61", "wells", {"A"}, &error));
+    PaleoTask *second = tasks.tasks().last();
+    QVERIFY(second != task && second->running());
+    second->requestCancel();
+    QTRY_VERIFY(!f.work.busy());
+    QTRY_COMPARE(second->state(), PaleoTask::State::Cancelled);
+    QVERIFY(f.work.predict("D61", "wells", {"A"}, &error));
+    PaleoTask *third = tasks.tasks().last();
+    f.work.cancelPrediction();
+    QTRY_COMPARE(third->state(), PaleoTask::State::Cancelled);
+    QVERIFY(!f.work.busy());
+  }
+  void faciesDominantCodeAndRecodeHelpers() {
+    const QVariantList iv{QVariantMap{{"top", 0.0}, {"bottom", 10.0}, {"code", 1}},
+                          QVariantMap{{"top", 10.0}, {"bottom", 60.0}, {"code", 2}},
+                          QVariantMap{{"top", 60.0}, {"bottom", 120.0}, {"code", 1}}};
+    const double inf = std::numeric_limits<double>::infinity();
+    QCOMPARE(FaciesCatalog::dominantCode(iv, -inf, inf), 1);
+    QCOMPARE(FaciesCatalog::dominantCode(iv, 0, 60), 2);
+    QCOMPARE(FaciesCatalog::dominantCode(iv, 200, 300), 0);
+    // 等厚取较小编码。
+    QCOMPARE(FaciesCatalog::dominantCode(iv, 0, 20), 1);
+    const auto recoded = FaciesCatalog::recodeIntervals(iv, 3, 5, 70);
+    QCOMPARE(recoded.size(), 5); // 两个跨界井段各切一刀
+    double last = 0;
+    for (const auto &v : recoded) {
+      const auto r = v.toMap();
+      QCOMPARE(r.value("top").toDouble(), last);
+      last = r.value("bottom").toDouble();
+      const bool inside = r.value("top").toDouble() >= 5 && r.value("bottom").toDouble() <= 70;
+      QVERIFY(inside ? r.value("code").toInt() == 3 : r.value("code").toInt() == 1);
+    }
+    QCOMPARE(last, 120.0);
+    double top = 0, base = 0;
+    FaciesCatalog::formationRange(QVariant(), 5.0, &top, &base);
+    QVERIFY(std::isinf(top) && std::isinf(base));
+  }
+  // 2026-10-10 用户要求①②：编图链三页图层列表保证测井基础图层在场（存在
+  // 才物化），地层点带文字标注（formation 名绕点排开），不只有颜色。
+  void wellBaseLayersMaterializedWithFormationLabels() {
+    Fixture f;
+    QVERIFY(f.init());
+    // 无产物文件：不造数据、不出层（「如果有的话」语义）。
+    f.work.ensureWellBaseLayers();
+    QVERIFY(!f.layers.isInstantiated(WellAttributeStore::formationLayerId()));
+    QVERIFY(!f.layers.isInstantiated(WellAttributeStore::intervalLayerId()));
+    QVERIFY(!f.well("A", 10, 20).isEmpty());
+    QVERIFY(f.tops("A", QStringLiteral("#WellTops File From SMI\n#WellName Name MD X Y Z TVD Time(ms)\n"
+                                       "A D61 1000 0 0 -1000 1000 -99999\nA D62 1060 0 0 -1060 1060 -99999\n")));
+    QString error;
+    QVERIFY2(f.work.predict("D61", "wells", {"A"}, &error), qPrintable(error));
+    QTRY_VERIFY_WITH_TIMEOUT(!f.work.busy(), 5000);
+    // 首预测落盘后立即在场（无需重开工程或切页），且地层点样式+标注就位。
+    QVERIFY(f.layers.isInstantiated(WellAttributeStore::formationLayerId()));
+    QVERIFY(f.layers.isInstantiated(WellAttributeStore::intervalLayerId()));
+    auto *formations = qobject_cast<QgsVectorLayer *>(
+        f.layers.layer(WellAttributeStore::formationLayerId()));
+    QVERIFY(formations);
+    QCOMPARE(formations->renderer()->type(), QString("singleSymbol"));
+    QVERIFY(formations->labelsEnabled());
+    QVERIFY(formations->labeling() != nullptr);
+    auto *labels = dynamic_cast<QgsVectorLayerSimpleLabeling *>(formations->labeling());
+    QVERIFY(labels);
+    QVERIFY(labels->settings().fieldName.contains(QLatin1String("formation")));
+    // 井段属性层：小空心点，不标注（每井多行同位堆叠）。
+    auto *intervals = qobject_cast<QgsVectorLayer *>(
+        f.layers.layer(WellAttributeStore::intervalLayerId()));
+    QVERIFY(intervals);
+    QVERIFY(!intervals->labelsEnabled());
+  }
   void seismicToPolygonToEditableVersions() {
     Fixture f;
     QVERIFY(f.init());
@@ -884,6 +1245,10 @@ private slots:
          {"facies_name", "subfacies", "microfacies", "texture"})
       QVERIFY(original->fields().indexOf(name) >= 0);
     QVERIFY(original->readOnly());
+    // 样式链落位：分类+合并渲染、序号+相名标注（label mode 默认 3）。
+    QCOMPARE(original->renderer()->type(), QString("mergedFeatureRenderer"));
+    QVERIFY(original->labelsEnabled());
+    QVERIFY(original->labeling());
     const auto hash = digest(original->source());
     const auto draft = f.work.copyForEditing(polygon, {}, &error);
     QVERIFY2(!draft.isEmpty(), qPrintable(error));
@@ -921,6 +1286,133 @@ private slots:
     f.work.bindCatalog(&f.catalog, f.dir.path());
     QVERIFY(!f.work.declaration(draft).source.isEmpty());
     QVERIFY(!f.work.declaration("product." + next.id).source.isEmpty());
+  }
+  // 2026-10-10 用户反馈「画布上没有标注」的回归闸：相面经 styleLayer 后，
+  // 标注配置在位（enabled + mode 3 表达式），且离屏渲染真的放置出标注
+  //（takeLabelingResults 非空）——样式应用、标注注册、渲染三段一起守。
+  void polygonLabelsRenderAfterStyling() {
+    Fixture f;
+    QVERIFY(f.init());
+    const auto input = f.seismic();
+    QVERIFY(!input.isEmpty());
+    QString error;
+    QVERIFY2(f.work.predict("D61", "seismic", {input}, &error),
+             qPrintable(error));
+    QTRY_VERIFY_WITH_TIMEOUT(!f.work.busy(), 5000);
+    const auto polygon = f.work.polygonize(f.latest("seismic_prediction"), &error);
+    QVERIFY2(!polygon.isEmpty(), qPrintable(error));
+    auto *v = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(polygon, &error));
+    QVERIFY2(v, qPrintable(error));
+    QVERIFY(v->featureCount() > 0);
+    QVERIFY(v->labelsEnabled());
+    auto *simple = dynamic_cast<QgsVectorLayerSimpleLabeling *>(v->labeling());
+    QVERIFY(simple);
+    QVERIFY(simple->settings().isExpression);
+    // 默认 label mode 2：面状相只标相名，不带 ID 序号（2026-10-10 用户
+    // 改口径「默认不要有 ID 的标注，简单的文字标注就行」）。
+    QVERIFY(simple->settings().fieldName.contains("facies_code"));
+    QVERIFY(!simple->settings().fieldName.contains("$id"));
+    QVERIFY(!simple->settings().fieldName.contains("\"fid\""));
+    QCOMPARE(v->customProperty("paleo/faciesLabelMode").toInt(), 2);
+    QCOMPARE(f.work.labelMode(polygon), 2);
+    // 显式选「序号 ＋ 相名」后照用户选择。
+    QVERIFY(f.work.setLabelMode(polygon, 3, &error));
+    QCOMPARE(f.work.labelMode(polygon), 3);
+    QVERIFY(dynamic_cast<QgsVectorLayerSimpleLabeling *>(v->labeling())
+                ->settings().fieldName.contains("$id"));
+    QVERIFY(f.work.setLabelMode(polygon, 2, &error));
+
+    // 文字标注：无底衬背景、字号随 @map_scale 数据定义自适应（2026-10-11
+    // 用户口径「标注不需要背景、自适应大小」）。
+    {
+      const auto labelSettings =
+          dynamic_cast<QgsVectorLayerSimpleLabeling *>(v->labeling())
+              ->settings();
+      QVERIFY(!labelSettings.format().background().enabled());
+      QVERIFY(labelSettings.dataDefinedProperties().isActive(
+          QgsPalLayerSettings::Property::Size));
+    }
+    // 相面边缘：分类符号带可见描边（同系加深一档，SVG 纹理层追加轮廓层），
+    // 不再是与填充同色的隐形边。
+    {
+      auto *merged =
+          dynamic_cast<QgsMergedFeatureRenderer *>(v->renderer());
+      QVERIFY(merged);
+      auto *cat = dynamic_cast<const QgsCategorizedSymbolRenderer *>(
+          merged->embeddedRenderer());
+      QVERIFY(cat);
+      bool edged = false;
+      for (const QgsRendererCategory &c : cat->categories())
+        for (int i = 0;
+             c.symbol() && i < c.symbol()->symbolLayerCount(); ++i)
+          if (auto *fl = dynamic_cast<const QgsSimpleFillSymbolLayer *>(
+                  c.symbol()->symbolLayer(i)))
+            if (fl->strokeStyle() != Qt::NoPen && fl->strokeWidth() > 0.0)
+              edged = true;
+      QVERIFY(edged);
+    }
+
+    QgsMapSettings ms;
+    ms.setLayers({v});
+    ms.setDestinationCrs(v->crs());
+    auto extent = v->extent();
+    extent.scale(1.05);
+    ms.setExtent(extent);
+    ms.setOutputSize(QSize(900, 900));
+    ms.setBackgroundColor(Qt::white);
+    QgsMapRendererSequentialJob job(ms);
+    job.start();
+    job.waitForFinished();
+    std::unique_ptr<QgsLabelingResults> labels(job.takeLabelingResults());
+    QVERIFY(labels);
+    QCOMPARE(labels->allLabels().size(), v->featureCount());
+  }
+  // 2026-10-11 用户截图反馈「相面标注还带序号」的回归闸：.qgz 烘焙的旧
+  // 默认（mode 3）图层重开后走 adopt 收编、不发 layerInstantiated，曾经
+  // 整份 styleLayer 缺席，画布一直显示序号。重开工程后必须按工程条目
+  // 重排：没显式选过的面回默认 mode 2（只标相名）。
+  void projectReopenRestylesStaleFaciesLabels() {
+    Fixture f;
+    QVERIFY(f.init());
+    const auto input = f.seismic();
+    QVERIFY(!input.isEmpty());
+    QString error;
+    QVERIFY2(f.work.predict("D61", "seismic", {input}, &error),
+             qPrintable(error));
+    QTRY_VERIFY_WITH_TIMEOUT(!f.work.busy(), 5000);
+    const auto polygon =
+        f.work.polygonize(f.latest("seismic_prediction"), &error);
+    QVERIFY2(!polygon.isEmpty(), qPrintable(error));
+    auto *v = qobject_cast<QgsVectorLayer *>(
+        f.layers.instantiate(polygon, &error));
+    QVERIFY2(v, qPrintable(error));
+    // 模拟旧版本写出的工程：mode 3 烘焙进图层自定义属性与标注表达式。
+    MappingArtifactWriter::applyFaciesLabels(v, 3);
+    QVERIFY(f.project.writeProject());
+    QVERIFY(f.project.openProject(f.project.projectPath()));
+    auto *restored = qobject_cast<QgsVectorLayer *>(f.layers.layer(polygon));
+    QVERIFY2(restored, "adopted layer missing after reopen");
+    // projectOpened → 排队 restyle。
+    QTRY_COMPARE_WITH_TIMEOUT(
+        restored->customProperty("paleo/faciesLabelMode").toInt(), 2, 5000);
+    QVERIFY(restored->labelsEnabled());
+    const auto *simple =
+        dynamic_cast<QgsVectorLayerSimpleLabeling *>(restored->labeling());
+    QVERIFY(simple);
+    QVERIFY(simple->settings().isExpression);
+    QVERIFY(!simple->settings().fieldName.contains("$id"));
+    QCOMPARE(f.work.labelMode(polygon), 2);
+    // 显式选过「序号 ＋ 相名」的工程条目不受重排影响。
+    QVERIFY(f.work.setLabelMode(polygon, 3, &error));
+    QVERIFY(f.project.writeProject());
+    QVERIFY(f.project.openProject(f.project.projectPath()));
+    auto *kept = qobject_cast<QgsVectorLayer *>(f.layers.layer(polygon));
+    QVERIFY(kept);
+    QTRY_COMPARE_WITH_TIMEOUT(
+        kept->customProperty("paleo/faciesLabelMode").toInt(), 3, 5000);
+    QVERIFY(dynamic_cast<QgsVectorLayerSimpleLabeling *>(kept->labeling())
+                ->settings()
+                .fieldName.contains("$id"));
   }
   void wellsSingleBatchCancelAndHorizonSchemas() {
     Fixture f;
@@ -1067,11 +1559,15 @@ private slots:
     QString error;
     QSignalSpy failures(&f.work, &MappingWorkbench::errorOccurred);
     QVERIFY(f.work.predict("D61", "wells", {"A"}, &error));
+    // 测井曲线在后台读完才提交预测服务。
+    QTRY_VERIFY(!service.request.id.isEmpty());
     service.deliver();
     QCOMPARE(failures.count(), 1);
     QVERIFY(!f.work.busy());
     QVERIFY(f.latest("wells_prediction").isEmpty());
+    const QString firstId = service.request.id;
     QVERIFY(f.work.predict("D61", "wells", {"A"}, &error));
+    QTRY_VERIFY(service.request.id != firstId);
     f.work.cancelPrediction();
     service.deliver();
     QVERIFY(f.latest("wells_prediction").isEmpty());

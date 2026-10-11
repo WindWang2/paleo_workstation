@@ -87,6 +87,23 @@ QString PaleoTask::etaText() const
   return tr("约 %1s").arg(qMax(1, qRound(secs)));
 }
 
+void PaleoTask::requestCancel()
+{
+  if (!m_cancel.exchange(true))
+    emit cancelAsked();
+}
+
+void PaleoTask::finishExternal(const QString &error)
+{
+  QMetaObject::invokeMethod(
+      this,
+      [this, error]() {
+        if (m_state == State::Running)
+          applyFinish(error);
+      },
+      Qt::QueuedConnection);
+}
+
 void PaleoTask::reportBytes(qint64 done, qint64 total)
 {
   QMetaObject::invokeMethod(
@@ -230,6 +247,14 @@ PaleoTask *PaleoTaskService::createTask(const QString &title,
           [this, task]() { onTaskFinished(task); });
   emit taskAdded(task);
   emit tasksChanged();
+  return task;
+}
+
+PaleoTask *PaleoTaskService::beginExternal(const QString &title,
+                                           const QString &layerId, bool quiet)
+{
+  PaleoTask *task = createTask(title, layerId, quiet);
+  task->applyProgress(0, 100);
   return task;
 }
 

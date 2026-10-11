@@ -1,5 +1,6 @@
 // 层：功能
 #include "wellfaciesservice.h"
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -115,6 +116,7 @@ void WellFaciesService::configure(const WellFaciesConfig &config) {
   cancel();
   m_config = config;
   m_jobId.clear();
+  m_accepted.clear();
 }
 void WellFaciesService::cancel() {
   ++m_generation;
@@ -137,11 +139,23 @@ void WellFaciesService::fetchModels() {
 void WellFaciesService::predict(const WellFaciesModel &model,
                                 const QString &wellName,
                                 const WellFaciesInput &input) {
-  const bool resume = !m_jobId.isEmpty() && model.id == m_modelId &&
-                      wellName == m_wellName && input.rows == m_input.rows;
+  const QString key = QString::fromLatin1(
+      QCryptographicHash::hash(
+          QJsonDocument(QJsonObject{{"modelId", model.id},
+                                    {"wellName", wellName},
+                                    {"rows", input.rows}})
+              .toJson(QJsonDocument::Compact),
+          QCryptographicHash::Sha256)
+          .toHex());
+  const QString known = m_accepted.value(key);
   cancel();
   m_elapsed.start();
-  if (resume) {
+  m_modelId = model.id;
+  m_input = input;
+  m_wellName = wellName;
+  m_key = key;
+  if (!known.isEmpty()) {
+    m_jobId = known;
     emit progress(0, tr("继续查询已受理的任务 %1").arg(m_jobId));
     request(QStringLiteral("predictions/") +
                 QString::fromLatin1(QUrl::toPercentEncoding(m_jobId)),
@@ -149,9 +163,6 @@ void WellFaciesService::predict(const WellFaciesModel &model,
     return;
   }
   m_jobId.clear();
-  m_modelId = model.id;
-  m_input = input;
-  m_wellName = wellName;
   if (!input.ready())
     return fail(input.reason);
   const QJsonObject well{{"wellName", wellName}, {"rows", input.rows}};
@@ -281,11 +292,13 @@ void WellFaciesService::handlePrediction(const QJsonObject &json) {
     QString error;
     if (!parseWellFaciesResult(json, m_wellName, m_input, &result, &error))
       return fail(error);
+    m_accepted.remove(m_key);
     m_jobId.clear();
     emit completed(result);
     return;
   }
   if (status == "failed" || status == "canceled") {
+    m_accepted.remove(m_key);
     m_jobId.clear();
     QString error = json.value("error").toString();
     if (error.isEmpty())
@@ -307,6 +320,7 @@ void WellFaciesService::handlePrediction(const QJsonObject &json) {
   }
   if (m_jobId.isEmpty())
     return fail(tr("推理已受理，但响应缺少任务 ID"));
+  m_accepted.insert(m_key, m_jobId);
   emit progress(
       qBound(0, json.value("progress").toInt(), 100),
       json.value("latestMessage")

@@ -27,6 +27,7 @@
 #include "pages/wellpredictionpanel.h"
 #include "paleomainwindow.h"
 #include "paleoribbon.h"
+#include "taskpanel.h" // 智能预测开跑切到任务页
 #include <QAction>
 #include <QCheckBox>
 #include <QDialog>
@@ -62,6 +63,22 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
   if (!stack || stack->count() < paleo::pagesinternal::kPageIds.size())
     return;
   setProperty("workbenchAttached", true);
+  m_workbench = workbench;
+  // 智能预测在后台执行：开跑即弹出底栏任务中心并切到任务页（底栏原本就
+  // 开着也切页），显示任务行与进度；收尾由 syncBottomDockForTasks 恢复。
+  connect(workbench, &MappingWorkbench::predictionBusyChanged, this,
+          [this](bool busy) {
+            if (!busy || !m_bottomDock)
+              return;
+            if (!m_bottomDock->isVisible()) {
+              m_bottomDockAutoShown = true;
+              m_bottomDock->setProgrammaticVisible(true);
+            }
+            if (auto *tabs = findChild<QTabWidget *>(QStringLiteral("bottomTabs")))
+              if (auto *panel = findChild<TaskPanel *>(QStringLiteral("taskPanel")))
+                tabs->setCurrentWidget(panel);
+            m_bottomDock->raise();
+          });
   if (auto *chips = findChild<HorizonChipBar *>())
     chips->setAllowEmptyHorizons(true);
   auto *edit = findChild<PaleoEditingToolbar *>("editingToolbar");
@@ -572,6 +589,11 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
             ok = !layer.isEmpty();
             if (ok) showAttributeTable(layer);
           }
+          else if (action == "wellformations") {
+            const auto layer = workbench->openWellFormations(&error);
+            ok = !layer.isEmpty();
+            if (ok) showAttributeTable(layer);
+          }
           else if (action == "cancel")
             workbench->cancelPrediction();
           else if (action == "show")
@@ -713,9 +735,11 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
           if (!ok)
             message = error.isEmpty() ? tr("操作未完成，请检查输入。") : error;
           else if (action == "predict")
-            message = tr("预测已提交；完成后自动登记并显示图件。");
+            message = tr("预测已在后台执行，进度见底栏任务中心；完成后自动登记并显示图件。");
           else if (action == "wellattributes")
             message = tr("已打开测井矢量属性表；保存后更新井道与单因素输入。");
+          else if (action == "wellformations")
+            message = tr("已打开地层相属性表；每口井每个地层（组/段）一行，预测输出即该地层的相，可直接维护。");
           else if (action == "cancel")
             message = tr("已请求取消预测。");
           else if (action == "show")

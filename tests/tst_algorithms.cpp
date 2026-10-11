@@ -808,6 +808,39 @@ private slots:
     QVERIFY( prov.value( QStringLiteral( "slivers_merged" ) ).toInt() >= 1 );
   }
 
+  // MIN_FRACTION：小图斑按有效区占比并入最大邻斑——12 像元斑块在
+  // MIN_CELLS=4 下保留，但 MIN_FRACTION=0.05（20×20 的 5% = 20 像元）
+  // 下被并进大斑块（2026-10-11 用户反馈大栅格相面小斑块太多）。
+  void faciesPolygonsMinFractionAbsorbsShare()
+  {
+    QVector<float> px( 400, 1.0f );
+    for ( int c = 8; c < 14; ++c )
+    {
+      px[8 * 20 + c] = 2.0f;
+      px[9 * 20 + c] = 2.0f;
+    } // 相 2 的 12 像元条带，四周全是相 1
+    QVariantMap params;
+    params.insert( QStringLiteral( "SMOOTH" ), 0 );
+    params.insert( QStringLiteral( "MIN_FRACTION" ), 0.0 );
+    QString log;
+    const QString kept = runFacies( QStringLiteral( "frac-off" ), 20, 20, px,
+                                    params, nullptr, &log );
+    QVERIFY2( !kept.isEmpty(), qPrintable( log ) );
+    QCOMPARE( readFaces( kept ).size(), 2 ); // 12 ≥ MIN_CELLS=4 → 保留
+
+    params.insert( QStringLiteral( "MIN_FRACTION" ), 0.05 );
+    const QString merged = runFacies( QStringLiteral( "frac-on" ), 20, 20, px,
+                                      params, nullptr, &log );
+    QVERIFY2( !merged.isEmpty(), qPrintable( log ) );
+    const QVector<Face> faces = readFaces( merged );
+    QCOMPARE( faces.size(), 1 );
+    QCOMPARE( faces.at( 0 ).code, 1 );
+    const QJsonObject prov = QJsonDocument::fromJson(
+        mLast.value( QStringLiteral( "PROVENANCE" ) ).toString().toUtf8() ).object();
+    QCOMPARE( prov.value( QStringLiteral( "min_cells_effective" ) ).toInt(), 20 );
+    QVERIFY( prov.value( QStringLiteral( "slivers_merged" ) ).toInt() >= 1 );
+  }
+
   // 平滑次数可叠加：3×2 噪声条一遍后缩成 2 像元竖条，两遍清干净。
   void faciesPolygonsSmoothTwoPasses()
   {

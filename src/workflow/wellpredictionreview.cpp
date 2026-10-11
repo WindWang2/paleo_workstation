@@ -6,6 +6,7 @@
 #include "mappingworkbench.h"
 #include <QJsonDocument>
 #include <QMap>
+#include <limits>
 #include <qgsvectorlayer.h>
 
 namespace {
@@ -97,13 +98,15 @@ bool MappingWorkbench::assignFacies(const QString &id, const QList<qint64> &ids,
   for (auto fid : ids) {
     ok = setCode(layer, fid, code, schema) && ok;
     if (layer->fields().indexOf("facies_intervals") >= 0) {
-      auto rows =
-          intervals(layer->getFeature(fid).attribute("facies_intervals"));
-      for (auto &v : rows) {
-        auto row = v.toMap();
-        row.insert("code", code);
-        v = row;
-      }
+      // 井点的相 = 该井在本层位地层内的相：整点改相只改地层范围内的井段
+      //（无地层范围的旧结果仍是整井）。
+      const auto feature = layer->getFeature(fid);
+      double top = 0, base = 0;
+      FaciesCatalog::formationRange(feature.attribute("formation_top"),
+                                    feature.attribute("formation_base"), &top,
+                                    &base);
+      const auto rows = FaciesCatalog::recodeIntervals(
+          intervals(feature.attribute("facies_intervals")), code, top, base);
       ok =
           setAttribute(layer, fid, "facies_intervals", encodeIntervals(rows)) &&
           ok;
@@ -155,16 +158,14 @@ bool MappingWorkbench::reviseWellInterval(const QString &id,
   auto row = rows[index].toMap();
   row.insert("code", code);
   rows[index] = row;
-  QMap<int, double> thickness;
-  for (const auto &v : rows) {
-    auto r = v.toMap();
-    thickness[r.value("code").toInt()] +=
-        r.value("bottom").toDouble() - r.value("top").toDouble();
-  }
-  int dominant = thickness.firstKey();
-  for (auto it = thickness.cbegin(); it != thickness.cend(); ++it)
-    if (it.value() > thickness.value(dominant))
-      dominant = it.key();
+  double top = 0, base = 0;
+  FaciesCatalog::formationRange(f.attribute("formation_top"),
+                                f.attribute("formation_base"), &top, &base);
+  int dominant = FaciesCatalog::dominantCode(rows, top, base);
+  if (!dominant) // 地层范围内无井段（旧数据/越界）：退回整井口径
+    dominant = FaciesCatalog::dominantCode(
+        rows, -std::numeric_limits<double>::infinity(),
+        std::numeric_limits<double>::infinity());
   if (!layer->isEditable() && !layer->startEditing())
     return reject(tr("无法开始编辑"));
   layer->beginEditCommand(tr("修订测井相井段"));

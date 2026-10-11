@@ -11,20 +11,12 @@
 #include "domain/seismic/timedepthmodel.h"
 #include "domain/seismic/sectionwellprojector.h"
 #include "services/seismictaskservice.h"
+#include "seismiccolormap.h"
 
 namespace seismic {
 
-enum class SectionColorMapType {
-    RedWhiteBlue = 0,   // Standard bipolar seismic (Peak=Red, Trough=Blue, Zero=White)
-    Grayscale = 1,      // Black/White density
-    Rainbow = 2,        // Spectrum
-    // ---- D2.8：预设扩到 8 档 ----
-    BlueWhiteRed = 3,   // 极性反转观感（Peak=Blue）
-    BlackWhiteBlue = 4, // 经典纸面（Peak=Black, Trough=Blue）
-    RedWhiteBlack = 5,  // 经典纸面镜像
-    GreenWhiteMagenta = 6,
-    CyanWhiteOrange = 7
-};
+// SectionColorMapType 8 档预设 + SampleColorMap 移到 seismiccolormap.h——
+// 连井剖面井间缝共用同一 LUT（2026-10-11 井间缝色标对齐剖面）。
 
 // 显示三模（D2.2）：密度 / wiggle 变面积 / 混合
 enum class SectionDisplayMode {

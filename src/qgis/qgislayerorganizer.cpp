@@ -55,26 +55,22 @@ namespace
     return idx >= 0 ? idx : horizons.size();
   }
 
-  // 搬移：clone+remove+insert 保勾选态/自定义属性/图层引用（与
+  // 搬移：clone+insert+remove 保勾选态/自定义属性/图层引用（与
   // LayerTreePanel::moveCurrentNode 同一 QGIS 内部搬移语义）。
-  // index 是「原节点已摘除」坐标下的目标位——同父重排先摘再插，
-  // 跨父先插后摘（下标在目标组自身坐标系内，天然无自引用偏移）。
+  // index 是「原节点已摘除」坐标下的目标位。一律先插后摘：QGIS 注册表桥
+  // 在摘节点那一刻查树里还有没有这个图层，没有就排队把图层移出工程——
+  // 同父重排若先摘再插，井位等置顶层会在归位后被静默删掉。同父时把下标
+  // 换回「原节点仍在」坐标（落在原位之后的 +1）。
   void moveNode( QgsLayerTreeGroup *from, QgsLayerTreeNode *node,
                  QgsLayerTreeGroup *to, int index )
   {
     if ( !from || !node || !to )
       return;
     QgsLayerTreeNode *placed = node->clone();
-    if ( from == to )
-    {
-      from->removeChildNode( node );
-      to->insertChildNode( index, placed );
-    }
-    else
-    {
-      to->insertChildNode( index, placed );
-      from->removeChildNode( node );
-    }
+    if ( from == to && index >= from->children().indexOf( node ) )
+      ++index;
+    to->insertChildNode( index, placed );
+    from->removeChildNode( node );
   }
 } // namespace
 

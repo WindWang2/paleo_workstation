@@ -301,10 +301,15 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
                                       QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
             return; // keep the existing layer list instead of blanking it
           }
-          QStringList ids;
+          // 下拉名与图层列表一致：已上图取活图层名，未上图取声明标题。
+          QStringList ids, names;
           for (const LayerDeclaration &d : declared)
+          {
             ids << d.layerId;
-          attrPanel->setLayerIds(ids);
+            const QgsMapLayer *live = m_layerSvc->layer(d.layerId);
+            names << (live ? live->name() : d.title);
+          }
+          attrPanel->setLayerIds(ids, names);
         };
         refreshIds();
         connect(m_layerSvc, &QgisLayerService::layerInstantiated, this,

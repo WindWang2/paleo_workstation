@@ -74,7 +74,6 @@ private slots:
   void loadingFailureAndRetryStates();
   void retryRebuildsAfterFix();
   void wellHeadShowsBottomAndTypeColumns();
-  void lasMissingCurveIsDisabled();
   void topsTableShowsXYColumns();
   void timeDepthEmptyShowsNoTable();
   void horizonShowsRejectedAndCollisions();
@@ -96,7 +95,7 @@ private slots:
   void xml_malformedXmlShowsFailureState();
   void coordinateStatusMappingIsChinese();
   void unresolvedMultiWellTabShowsDeadEnd();
-  void lasMultiCurveAndZooming();
+  void lasPreviewHasNoSingleCurveView();
   void surveyAreaOpensQgisCanvasAndEmitsShowOnMain();
 
 private:
@@ -328,13 +327,11 @@ void TestDataPreview::everyTypeOpensContent()
   const Imported ids = importAll(*st, tmp);
   auto *tabs = st->preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));
 
-  // well_log：曲线组合框默认 GR 可见
+  // well_log：只有综合多井道柱状图（单道叠合检视已删除）
   st->preview->openAsset(ids.las);
   QWidget *lasPage = tabs->widget(tabs->currentIndex());
-  auto *combo = lasPage->findChild<QComboBox *>(QStringLiteral("curveCombo"));
-  QVERIFY2(combo, "well_log tab needs curve selector");
-  QVERIFY(combo->findText(QStringLiteral("GR")) >= 0);
-  QCOMPARE(combo->currentText(), QStringLiteral("GR"));
+  QVERIFY2(lasPage->findChild<WellComposite::WellCompositePanel *>(QStringLiteral("wellCompositePanel")),
+           "well_log tab needs the composite well-log panel");
 
   // well_stratification：多井 DC.dat 自带「井」下拉框；选中 A1 后见分层表
   st->preview->openAsset(ids.tops);
@@ -425,13 +422,6 @@ void TestDataPreview::everyTypeOpensContent()
       tabs->setCurrentIndex(i);
       QVERIFY(paleo::tests::captureVisual(st->preview.get(),
           QStringLiteral("preview-") + names[i]));
-      if (i == 0)
-      {
-        auto *single = tabs->widget(i)->findChild<QToolButton *>(QStringLiteral("btnSingleView"));
-        QVERIFY(single);
-        single->click();
-        QVERIFY(paleo::tests::captureVisual(st->preview.get(), QStringLiteral("preview-log-single")));
-      }
     }
 }
 
@@ -755,59 +745,6 @@ void TestDataPreview::unresolvedMultiWellTabShowsDeadEnd()
     QVERIFY(deadEnd->text().contains(QString::fromUtf8("还没有井")));
     QVERIFY(deadEnd->text().contains(QString::fromUtf8("导入工区文件夹")));
   }
-}
-
-// §4：LAS 约定曲线 GR/AC/DEN 缺了就给禁用项，tooltip「这条曲线不在文件里」。
-void TestDataPreview::lasMissingCurveIsDisabled()
-{
-  QTemporaryDir tmp;
-  auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
-  QVERIFY(st != nullptr);
-  QString err;
-  QVERIFY(!st->importSvc->importProjectFile(fixture(QStringLiteral("ExportWellHead.dat")), &err)
-               .isEmpty());
-  const QString las = tmp.filePath(QStringLiteral("A1.las")); // 只有 DEPT+GR
-  {
-    QFile f(las);
-    QVERIFY(f.open(QIODevice::WriteOnly));
-    f.write("~Version Information\n"
-            " VERS.  2.0:\n"
-            " WRAP.  NO:\n"
-            "~Well Information\n"
-            " STRT.m 1000.0:\n"
-            " STOP.m 1005.0:\n"
-            " STEP.m 1.0:\n"
-            " NULL. -9999.99:\n"
-            " WELL. A1:\n"
-            "~Curve Information\n"
-            " DEPT.m : DEPTH\n"
-            " GR.    : GAMMA\n"
-            "~A\n"
-            "1000.0 10.0\n"
-            "1001.0 20.0\n"
-            "1002.0 30.0\n"
-            "1003.0 -9999.99\n"
-            "1004.0 40.0\n"
-            "1005.0 50.0\n");
-  }
-  const QString lasId = st->importSvc->importProjectFile(las, &err);
-  QVERIFY2(!lasId.isEmpty(), qPrintable(err));
-  st->preview->openAsset(lasId);
-  auto *tabs = st->preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs"));
-  QWidget *page = tabs->widget(tabs->currentIndex());
-  auto *combo = page->findChild<QComboBox *>(QStringLiteral("curveCombo"));
-  QVERIFY(combo);
-  auto *model = qobject_cast<QStandardItemModel *>(combo->model());
-  QVERIFY(model);
-  const int ac = combo->findText(QStringLiteral("AC"));
-  QVERIFY2(ac >= 0, "约定曲线缺了也要出现（禁用项）");
-  QVERIFY(model->item(ac) && !model->item(ac)->isEnabled());
-  QCOMPARE(combo->itemData(ac, Qt::ToolTipRole).toString(),
-           QStringLiteral("这条曲线不在文件里"));
-  const int gr = combo->findText(QStringLiteral("GR"));
-  QVERIFY(gr >= 0);
-  QVERIFY(model->item(gr)->isEnabled()); // 文件里的曲线可选
-  QCOMPARE(combo->currentText(), QStringLiteral("GR"));
 }
 
 // §4：分层表列 层名 MD TVD X Y Time(ms)；数字列 mono 右对齐。
@@ -1399,7 +1336,7 @@ void TestDataPreview::xml_malformedXmlShowsFailureState()
       QStringLiteral("retryBtn")));
 }
 
-void TestDataPreview::lasMultiCurveAndZooming()
+void TestDataPreview::lasPreviewHasNoSingleCurveView()
 {
   QTemporaryDir tmp;
   auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
@@ -1413,72 +1350,11 @@ void TestDataPreview::lasMultiCurveAndZooming()
   QWidget *page = tabs->widget(tabs->currentIndex());
   QVERIFY(page);
 
-  auto *panel = page->findChild<QWidget *>(QStringLiteral("curvePanel"));
-  QVERIFY2(panel, "well_log preview must provide curvePanel");
-
-  // Check chips:
-  const QList<QToolButton *> buttons = page->findChildren<QToolButton *>();
-  QToolButton *btnGR = nullptr;
-  QToolButton *btnAC = nullptr;
-  QToolButton *btnDEN = nullptr;
-  QToolButton *btnBoZuK = nullptr;
-  QToolButton *btnZoomIn = nullptr;
-  QToolButton *btnZoomOut = nullptr;
-  QToolButton *btnZoomReset = nullptr;
-  QToolButton *btnAll = nullptr;
-  QToolButton *btnDefault = nullptr;
-
-  for (auto *b : buttons)
-  {
-    if (b->text() == QStringLiteral("GR")) btnGR = b;
-    else if (b->text() == QStringLiteral("AC")) btnAC = b;
-    else if (b->text() == QStringLiteral("DEN")) btnDEN = b;
-    else if (b->text().compare(QStringLiteral("BoZuK"), Qt::CaseInsensitive) == 0) btnBoZuK = b;
-    else if (b->text() == QStringLiteral("+")) btnZoomIn = b;
-    else if (b->text() == QStringLiteral("−")) btnZoomOut = b;
-    else if (b->text() == QStringLiteral("1:1 适应")) btnZoomReset = b;
-    else if (b->text() == QStringLiteral("全选")) btnAll = b;
-    else if (b->text().contains(QStringLiteral("常规"))) btnDefault = b;
-  }
-
-  QVERIFY(btnGR && btnGR->isChecked());
-  QVERIFY(btnAC && btnAC->isChecked());
-  QVERIFY(btnDEN && btnDEN->isChecked());
-  QVERIFY(btnBoZuK && !btnBoZuK->isChecked());
-
-  // Test toggling BoZuK on
-  btnBoZuK->click();
-  QVERIFY(btnBoZuK->isChecked());
-
-  // Test Zoom In
-  QVERIFY(btnZoomIn && btnZoomReset);
-  btnZoomIn->click();
-  QLabel *lblZoom = nullptr;
-  for (auto *lbl : page->findChildren<QLabel *>())
-    if (lbl->text().endsWith(QLatin1Char('%')))
-      lblZoom = lbl;
-  QVERIFY(lblZoom);
-  QCOMPARE(lblZoom->text(), QStringLiteral("150%"));
-
-  // Test Reset Zoom
-  btnZoomReset->click();
-  QCOMPARE(lblZoom->text(), QStringLiteral("100%"));
-
-  // Test All preset
-  QVERIFY(btnAll);
-  btnAll->click();
-  QVERIFY(btnGR->isChecked());
-  QVERIFY(btnAC->isChecked());
-  QVERIFY(btnDEN->isChecked());
-  QVERIFY(btnBoZuK->isChecked());
-
-  // Test Default preset
-  QVERIFY(btnDefault);
-  btnDefault->click();
-  QVERIFY(btnGR->isChecked());
-  QVERIFY(btnAC->isChecked());
-  QVERIFY(btnDEN->isChecked());
-  QVERIFY(!btnBoZuK->isChecked());
+  QVERIFY(page->findChild<WellComposite::WellCompositePanel *>(QStringLiteral("wellCompositePanel")));
+  for (const char *name : {"curvePanel", "curveCombo", "btnSingleView", "btnResFormView"})
+    QVERIFY2(!page->findChild<QWidget *>(QString::fromLatin1(name)), name);
+  for (const QToolButton *button : page->findChildren<QToolButton *>())
+    QVERIFY2(button->text() != QStringLiteral("单道叠合检视"), "单道叠合检视入口应已删除");
 }
 
 void TestDataPreview::surveyAreaOpensQgisCanvasAndEmitsShowOnMain()

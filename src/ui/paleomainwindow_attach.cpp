@@ -417,7 +417,10 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
                     tr("连井剖面：井 %1 LAS 加载失败 — %2").arg(wellId, reason),
                     QStringLiteral("Paleo"));
               });
-      bottomTabs->addTab(corrPanel, tr("测井对比"));
+      // 2026-10-11 用户要求：底栏不再放「测井对比」页签——多井曲线对比走
+      // 连井剖面。面板本体保留不挂页签（常驻隐藏）：测井计算仍以它的井集
+      // 为范围、计算曲线并入它的曲线集（mergeComputedCurves），objectName
+      // 不变（测试与装配按名查找）。
       m_corrPanel = corrPanel;
     }
   }
@@ -554,7 +557,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   attachPredictPage(predictPage, pred);
   attachConstraintPage(constraintPage, constraint);
   attachComposePage(composePage, compose, layoutSvc);
-  attachValidatePage(validatePage, validate, corrPanel, importSvc);
+  attachValidatePage(validatePage, validate, importSvc);
 
   // goal/gridding-surface-ops：层位右键「网格化…」→ 参数表 → 异步任务 →
   // 受管派生 + manifest 声明上图。视图只发意图信号（gridHorizonRequested）。
@@ -621,8 +624,7 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   PaleoEditingToolbar *editTb =
       attachShellSurfaces(store, procSvc, editSvc, layoutSvc, taskSvc);
 
-  buildRibbonPanels(dataPage, predictPage, constraintPage, composePage, validatePage, editTb,
-                    corrPanel);
+  buildRibbonPanels(dataPage, predictPage, constraintPage, composePage, validatePage, editTb);
 
   // Re-sync visible page index with current tab.
   const int idx = paleo::pagesinternal::kPageIds.indexOf(m_currentPage);

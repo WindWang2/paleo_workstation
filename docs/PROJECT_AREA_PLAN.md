@@ -117,7 +117,7 @@ D61 栅格只使用层位文件头，不另设一套范围。网格 411×641。P
 
 | 资产类型 | 标签里显示什么 |
 |---|---|
-| `well_log` | 单井曲线。曲线用下拉框，默认 GR，可换 AC、DEN。缺的曲线项禁用，tooltip「这条曲线不在文件里」。整条都是 -99999 时写「这条曲线没有有效样点」，不绘制。深度和曲线值用 JetBrains Mono 9pt，右对齐。不把多井连井面板搬进这个标签 |
+| `well_log` | 综合多井道柱状图（ResFormStar）；单道叠合检视已删除，不再有曲线下拉框与多曲线叠合。曲线值 -99999 是空样，不绘制。深度和曲线值用 JetBrains Mono 9pt，右对齐。不把多井连井面板搬进这个标签 |
 | `well_stratification` | 该井的分层表：层名、MD、TVD、X、Y。Time 列为空就显示空，不填 -99999，也不填假时间。数字列用 JetBrains Mono 9pt，右对齐 |
 | `time_depth` | 该井的 TIME–TVD 曲线。没有可用样点时写「无时深表」，不画假线 |
 | `well_head` | 井名、X、Y、KB、TD、BottomX、BottomY、WellType、`coordinate_status`。选中时地图同时高亮该井。数字用 JetBrains Mono 9pt |

@@ -210,6 +210,7 @@ void WellCompositePanel::setupUi()
   connect(m_btnShowFacies, &QToolButton::toggled, this, [this](bool visible) {
     if (m_predictionTrack) m_predictionTrack->setVisible(visible);
     if (m_confidenceTrack) m_confidenceTrack->setVisible(visible);
+    for (const auto &track : m_dominantTracks) track->setVisible(visible);
     m_canvas->updateAll();
   });
   connect(m_btnFaciesService, &QToolButton::clicked, this, [this] {
@@ -291,6 +292,7 @@ void WellCompositePanel::setupUi()
   topLay->addWidget(m_lblReadout);
 
   for (const auto &entry : {qMakePair(QStringLiteral("btnWellAttributes"), tr("岩性与相属性")),
+                            qMakePair(QStringLiteral("btnWellFormations"), tr("地层优势相属性")),
                             qMakePair(QStringLiteral("btnWellFactors"), tr("井点因子属性"))}) {
     auto *button = new QToolButton(topBar);
     button->setObjectName(entry.first); button->setText(entry.second);

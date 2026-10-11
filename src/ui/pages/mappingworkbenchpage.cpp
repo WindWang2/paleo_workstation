@@ -94,7 +94,13 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
     m_kind->setAccessibleName(tr("预测类型"));
     m_kind->addItem(tr("地震层位窗聚类 → 分布图（Mock）"), "seismic_mock");
     m_kind->addItem(tr("地震体 → 相栅格（预测服务）"), "seismic");
-    m_kind->addItem(tr("测井 → 预测相点"), "wells");
+    m_kind->addItem(tr("测井 → 地层预测相点"), "wells");
+    // 井点的相 = 该井在当前层位地层（本层位顶 → 下一层位顶）内厚度最大的相，
+    // 与数据管理逐组预测写同一张「测井地层相属性」表。
+    m_kind->setItemData(m_kind->count() - 1,
+                        tr("每口井在当前层位地层内厚度最大的相作为该井该地层的预测相；"
+                           "结果按井、按地层写入「测井地层相属性」表，与数据管理共用"),
+                        Qt::ToolTipRole);
     form->addRow(tr("预测类型"), m_kind);
     m_horizonSourceRow = new QWidget(body);
     auto *horizonSource = new QHBoxLayout(m_horizonSourceRow);
@@ -146,6 +152,8 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
     auto *run = new QHBoxLayout;
     run->addWidget(button("predict", tr("运行预测")));
     run->addWidget(button("wellattributes", tr("岩性与相属性")));
+    // 预测输出的就是该地层的优势相——页面措辞直接说「相」，不再说「优势相」。
+    run->addWidget(button("wellformations", tr("地层相属性")));
     run->addWidget(button("cancel", tr("取消")));
     layout->addLayout(run);
     m_progress = new QProgressBar(body);
@@ -336,7 +344,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   });
   labelMode->addItems({tr("隐藏标注"), tr("井名 / 要素序号"), tr("相名称"),
                        tr("井名 / 序号 ＋ 相名称")});
-  labelMode->setCurrentIndex(3);
+  labelMode->setCurrentIndex(2);
   auto *labelRow = new QHBoxLayout;
   labelRow->addWidget(new QLabel(tr("画布文本标注"), body));
   labelRow->addWidget(labelMode, 1);
@@ -685,6 +693,7 @@ void MappingWorkbenchPage::updateState() {
           : tr("填写样点字段后生成单因素图，再选择结果提取等值线"));
   gate("predict", horizon && !busy && !checked.isEmpty(), readiness);
   gate("wellattributes", horizon && !busy, tr("先打开工程并选择层位"));
+  gate("wellformations", horizon && !busy, tr("先打开工程并选择层位"));
   if (auto *select = findChild<QPushButton *>("workbenchSelectInputs")) {
     const bool wells = m_kind->currentData() == "wells";
     const bool all = !checked.isEmpty() && (!wells || checked.size() == m_inputs->count());

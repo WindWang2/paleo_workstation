@@ -5,6 +5,7 @@
 #include "linkage/selectioncontext.h"
 #include "ui/paleoicons.h"
 #include "ui/paleotheme.h"
+#include "../seismicsection/seismiccolormap.h"
 #include "wellsectiondialogs.h"
 
 #include <QActionGroup>
@@ -46,6 +47,12 @@ WellSectionPanel::WellSectionPanel(SelectionContext *ctx, QWidget *parent)
         s.value(QStringLiteral("wellSection/highlight"), true).toBool();
     m_seismicOn =
         s.value(QStringLiteral("wellSection/seismic"), false).toBool();
+    // 缝内地震色标：-1 = 跟随主题；0..7 = 剖面画布同款预设。
+    m_seismicCmap = s.value(QStringLiteral("wellSection/seismicCmap"), -1).toInt();
+    if (m_seismicCmap < -1 || m_seismicCmap >= seismic::kSectionColorMapCount)
+      m_seismicCmap = -1;
+    m_seismicCmapInvert =
+        s.value(QStringLiteral("wellSection/seismicCmapInvert"), false).toBool();
     m_faultsOn =
         s.value(QStringLiteral("wellSection/faults"), false).toBool();
     const int mode = s.value(QStringLiteral("wellSection/datumMode"),
@@ -79,6 +86,8 @@ WellSectionPanel::WellSectionPanel(SelectionContext *ctx, QWidget *parent)
   m_st.theme = wellsection::SectionTheme::byId(m_themeId);
   m_st.tpl = m_tpl;
   m_st.datum = m_datum;
+  m_st.seismicCmap = m_seismicCmap;
+  m_st.seismicCmapInvert = m_seismicCmapInvert;
 
   m_scene = new QGraphicsScene(this);
   m_scene->setBackgroundBrush(m_st.theme.paper);
@@ -190,6 +199,40 @@ WellSectionPanel::WellSectionPanel(SelectionContext *ctx, QWidget *parent)
       setHighlightEnabled(on);
       panelSettings().setValue(QStringLiteral("wellSection/highlight"), on);
     });
+    // 地震色标子菜单：与 2D 剖面画布同一套预设（同名同序）——「跟随主题」
+    // 是缺省（灰度/红白蓝按主题定），显式色标即覆盖主题内置值。
+    m_themeMenu->addSeparator();
+    m_seismicCmapMenu = m_themeMenu->addMenu(tr("地震色标"));
+    m_seismicCmapMenu->setObjectName(QStringLiteral("wellSectionCmapMenu"));
+    {
+      auto *cgrp = new QActionGroup(m_seismicCmapMenu);
+      cgrp->setExclusive(true);
+      const QStringList names = {
+          tr("跟随主题"),
+          tr("红白蓝 (双极)"), tr("灰度 (单极)"), tr("彩虹谱 (相图)"),
+          tr("蓝白红 (反双极)"), tr("黑-白-蓝 (纸面)"), tr("红-白-黑 (纸面)"),
+          tr("绿-白-品红"), tr("青-白-橙")};
+      for (int i = 0; i < names.size(); ++i)
+      {
+        const int cmap = i - 1; // -1 = 跟随主题
+        QAction *a = m_seismicCmapMenu->addAction(names.at(i));
+        a->setObjectName(QStringLiteral("wellSectionCmap_%1").arg(cmap));
+        a->setCheckable(true);
+        a->setData(cmap);
+        cgrp->addAction(a);
+        connect(a, &QAction::triggered, this,
+                [this, cmap] { applySeismicCmapFromMenu(cmap); });
+      }
+      m_seismicCmapMenu->addSeparator();
+      m_cmapInvertAct = m_seismicCmapMenu->addAction(tr("反转"));
+      m_cmapInvertAct->setObjectName(QStringLiteral("wellSectionCmapInvert"));
+      m_cmapInvertAct->setCheckable(true);
+      connect(m_cmapInvertAct, &QAction::triggered, this, [this](bool on) {
+        setSeismicColorMapInverted(on);
+        panelSettings().setValue(
+            QStringLiteral("wellSection/seismicCmapInvert"), on);
+      });
+    }
   }
   m_themeBtn->setMenu(m_themeMenu);
   m_themeBtn->setPopupMode(QToolButton::InstantPopup);
@@ -549,6 +592,27 @@ void WellSectionPanel::setHighlightEnabled(bool on)
   }
   updateHighlight();
   updateStatus();
+}
+
+void WellSectionPanel::setSeismicColorMap(int cmap)
+{
+  cmap = qBound(-1, cmap, seismic::kSectionColorMapCount - 1);
+  if (m_seismicCmap == cmap)
+    return;
+  m_seismicCmap = cmap;
+  m_st.seismicCmap = cmap;
+  m_scene->update(); // 缝图缓存键含色标——重绘即重建 LUT，不碰布局
+  syncToolbarState();
+}
+
+void WellSectionPanel::setSeismicColorMapInverted(bool inverted)
+{
+  if (m_seismicCmapInvert == inverted)
+    return;
+  m_seismicCmapInvert = inverted;
+  m_st.seismicCmapInvert = inverted;
+  m_scene->update();
+  syncToolbarState();
 }
 
 void WellSectionPanel::setSeismicEnabled(bool on)
@@ -1264,6 +1328,13 @@ void WellSectionPanel::applyThemeFromMenu(const QString &id)
   panelSettings().setValue(QStringLiteral("wellSection/theme"), m_themeId);
 }
 
+void WellSectionPanel::applySeismicCmapFromMenu(int cmap)
+{
+  setSeismicColorMap(cmap);
+  panelSettings().setValue(QStringLiteral("wellSection/seismicCmap"),
+                         m_seismicCmap);
+}
+
 void WellSectionPanel::applyTemplateFromDialog(
     const wellsection::SectionTemplate &t)
 {
@@ -1325,6 +1396,12 @@ void WellSectionPanel::syncToolbarState()
         a->setChecked(a->data().toString() == m_themeId);
   if (m_highlightAct)
     m_highlightAct->setChecked(m_highlightOn);
+  if (m_seismicCmapMenu)
+    for (QAction *a : m_seismicCmapMenu->actions())
+      if (a->isCheckable() && !a->data().isNull())
+        a->setChecked(a->data().toInt() == m_seismicCmap);
+  if (m_cmapInvertAct)
+    m_cmapInvertAct->setChecked(m_seismicCmapInvert);
 }
 
 void WellSectionPanel::ensureActiveIntervalVisible()

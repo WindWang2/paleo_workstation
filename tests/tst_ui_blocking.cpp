@@ -270,13 +270,12 @@ void TestUiBlocking::wellLogPreviewBuildsHeaderOnlyWhileParsingInPool()
            qPrintable(QStringLiteral("等待期事件循环仅 %1 片——解析疑似占住 UI 线程")
                           .arg(laps)));
 
-  // 数据确已装：chip tooltip 带单位（仅 fill 会写）。
-  bool unitSeen = false;
-  const auto chips = tabs.findChildren<QToolButton *>();
-  for (QToolButton *c : chips)
-    if (c->toolTip().contains(QLatin1String(" (")))
-      unitSeen = true;
-  QVERIFY2(unitSeen, "曲线单位 tooltip 未补——数据未真正装填");
+  // 数据确已装：综合图持有整份曲线（仅 fill 会写）。
+  auto *composite = tabs.findChild<WellComposite::WellCompositePanel *>(
+      QStringLiteral("wellCompositePanel"));
+  QVERIFY2(composite, "well_log 页缺综合图");
+  QVERIFY2(!composite->currentData().continuousCurves.isEmpty(),
+           "综合图未装曲线——数据未真正装填");
   tabs.closeAssetTab(assetId);
 }
 

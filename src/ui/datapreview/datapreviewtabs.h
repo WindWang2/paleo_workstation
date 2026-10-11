@@ -238,8 +238,8 @@ class DataPreviewTabs : public QWidget
     // F1（goal/perf-systematize 簇2）：well_log 两段式——页骨架（曲线名/
     // 控件/分层）由 lasHeaderAt 秒铺（代价只与头部行数成正比），整份数据
     // 行 requestLas 池内解析，lasReady 到达后经 fill 回调补曲线数据与单位。
-    // 单道检视只用当前文件；已决 well_log 的综合柱状图用井曲线并集，兄弟
-    // 文件数据体在同一次 requestLas 里解析（失败的兄弟不在 siblings 里）。
+    // 已决 well_log 的综合柱状图用井曲线并集，兄弟文件数据体在同一次
+    // requestLas 里解析（失败的兄弟不在 siblings 里）。
     // fill 闭包内持 QPointer 护栏随页生死；页关闭/重建即作废，服务侧世代号
     // 保证到达的是最新代。无任务服务时 requestLas 同步执行、返回前信号已发。
     struct LasPending

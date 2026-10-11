@@ -222,6 +222,82 @@ private slots:
     QCOMPARE(fresh->state(), PaleoTask::State::Succeeded);
   }
 
+  // 外部驱动任务：不占池线程，进度/终态由调用方上报；任务页照常出行、
+  // 进度条跟随、完成显示「完成」；取消只发 cancelAsked，由调用方自己中止 IO。
+  void externalTaskIsDrivenByCaller()
+  {
+    PaleoProjectStore store;
+    PaleoTaskService svc(&store);
+    TaskPanel panel(&store, &svc);
+    panel.show();
+
+    QSignalSpy added(&svc, &PaleoTaskService::taskAdded);
+    PaleoTask *t = svc.beginExternal(QStringLiteral("测井相预测 · A1 · 恩平组"));
+    QCOMPARE(added.size(), 1);
+    QVERIFY(t->running());
+    QVERIFY(!t->quiet());
+    QCOMPARE(t->percent(), 0); // 起始 0%，不是跑马灯
+    QCOMPARE(svc.runningCount(), 1);
+
+    t->reportBytes(45, 100);
+    t->reportDetail(QStringLiteral("predicting"));
+    QTRY_COMPARE_WITH_TIMEOUT(t->percent(), 45, 3000);
+    QCOMPARE(t->detailText(), QStringLiteral("predicting"));
+    QProgressBar *bar = nullptr;
+    QTRY_VERIFY_WITH_TIMEOUT(
+        (bar = panel.findChild<QProgressBar *>(QStringLiteral("taskProgress"))) != nullptr, 3000);
+    QTRY_COMPARE_WITH_TIMEOUT(bar->value(), 45, 3000);
+
+    QSignalSpy fin(t, &PaleoTask::finished);
+    t->finishExternal();
+    QVERIFY(fin.wait(3000));
+    QCOMPARE(t->state(), PaleoTask::State::Succeeded);
+    QCOMPARE(t->percent(), 100);
+    QCOMPARE(svc.runningCount(), 0);
+    t->finishExternal(QStringLiteral("late")); // 终态后再报：忽略
+    QTest::qWait(30);
+    QCOMPARE(fin.size(), 1);
+    QCOMPARE(t->state(), PaleoTask::State::Succeeded);
+
+    panel.refresh();
+    auto *list = panel.findChild<QTreeWidget *>(QStringLiteral("busyList"));
+    QVERIFY(list);
+    QCOMPARE(list->topLevelItemCount(), 1);
+    QCOMPARE(list->topLevelItem(0)->text(4), QStringLiteral("完成"));
+  }
+
+  void externalTaskCancelAndFailureStates()
+  {
+    PaleoTaskService svc(nullptr);
+    PaleoTask *failed = svc.beginExternal(QStringLiteral("failed"));
+    PaleoTask *cancelled = svc.beginExternal(QStringLiteral("cancelled"));
+    QSignalSpy asked(cancelled, &PaleoTask::cancelAsked);
+    cancelled->requestCancel();
+    cancelled->requestCancel(); // 幂等：只通知一次
+    QCOMPARE(asked.size(), 1);
+    QVERIFY(cancelled->cancelRequested());
+    cancelled->finishExternal();
+    failed->finishExternal(QStringLiteral("boom"));
+    QTRY_VERIFY_WITH_TIMEOUT(!failed->running() && !cancelled->running(), 3000);
+    QCOMPARE(cancelled->state(), PaleoTask::State::Cancelled);
+    QCOMPARE(failed->state(), PaleoTask::State::Failed);
+    QCOMPARE(failed->errorText(), QStringLiteral("boom"));
+  }
+
+  // 会话切换/关停对外部任务同样发取消；外部任务不阻塞 shutdown（没有 worker）。
+  void externalTaskReceivesSessionCancel()
+  {
+    PaleoTaskService svc(nullptr);
+    PaleoTask *t = svc.beginExternal(QStringLiteral("ext"));
+    QSignalSpy asked(t, &PaleoTask::cancelAsked);
+    svc.beginNewSession();
+    QCOMPARE(asked.size(), 1);
+    QVERIFY(svc.shutdown(1000));
+    t->finishExternal();
+    QTRY_VERIFY_WITH_TIMEOUT(!t->running(), 3000);
+    QCOMPARE(t->state(), PaleoTask::State::Cancelled);
+  }
+
   // #164：终态非 quiet 任务按上限保留（删最旧），quiet 任务终态后自动移除；
   // 运行中任务永不删。
   void registryRetentionIsBounded()

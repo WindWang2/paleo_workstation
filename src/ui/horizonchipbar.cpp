@@ -5,28 +5,35 @@
 #include "../linkage/selectioncontext.h"
 #include "../qgis/qgislayerservice.h"
 #include "paleotheme.h"
+#include "wellsection/wellsectionstyle.h"
 
+#include <QColor>
 #include <QSet>
 #include <QToolButton>
 #include <QHBoxLayout>
 
-// DESIGN.md components.chip / chip-active（rounded.full = 胶囊）：色值全部
-// 走 token（applyThemedStyleSheet 活体注册——运行中切主题即时跟随）；
-// checked = chip-active（primary 底 + on-primary 字，交互蓝三用途之一）。
-static void applyChipStyle( QToolButton *chip )
+// DESIGN.md components.chip / chip-active（rounded.full = 胶囊）。未选 chip
+// 的底色 = 该层位在井道图（连井剖面）上的层段色（2026-10-10 用户要求颜色与
+// 井道图一致、文字必须保留）：数据符号色不进 UI token、不随主题明暗变，字色
+// 取同色相深色（pastel 底上明暗主题都可读）。checked 仍是 chip-active
+//（primary 底 + on-primary 字，交互蓝三用途之一），圆角/留白走 token。
+static void applyChipStyle( QToolButton *chip, const QColor &zone )
 {
-  PaleoTheme::applyThemedStyleSheet( chip, [chip] {
+  PaleoTheme::applyThemedStyleSheet( chip, [chip, zone] {
     const PaleoTheme::ThemeTokens &t = PaleoTheme::tokens();
+    const QString faded = QStringLiteral( "rgba(%1,%2,%3,0.45)" )
+                              .arg( zone.red() ).arg( zone.green() ).arg( zone.blue() );
     return PaleoTheme::metricStyleSheet(QStringLiteral(
                "QToolButton { border-radius: %8px; padding: {spacing.xs}px {spacing.md}px;"
                " background: %1; border: 1px solid %2; color: %3; }"
                "QToolButton:checked { background: %4; border-color: %4; color: %5; }"
-               "QToolButton:hover:!checked { color: %6; }"
-               "QToolButton:disabled { color: %7; }" ))
-        .arg( t.surface.name(), t.border.name(), t.textMuted.name(),
-              t.primary.name(), t.onPrimary.name(), t.text.name(),
+               "QToolButton:hover:!checked { border-color: %6; }"
+               "QToolButton:disabled { background: %9; color: %7; }" ))
+        .arg( zone.name(), zone.darker( 125 ).name(), zone.darker( 380 ).name(),
+              t.primary.name(), t.onPrimary.name(), zone.darker( 170 ).name(),
               t.textDisabled.name() )
-        .arg(PaleoTheme::chipRadius(chip->font()));
+        .arg( PaleoTheme::chipRadius( chip->font() ) )
+        .arg( faded );
   } );
 }
 
@@ -54,6 +61,13 @@ HorizonChipBar::HorizonChipBar( SelectionContext *selection, QgisLayerService *l
   applyAvailability();
 }
 
+// 层位 H 的 chip 底色 = 连井剖面上 H 顶→下一层位顶那段「层段」的底色
+//（wellsection::zoneColor 同一色板、同一浅→深序）。
+QColor HorizonChipBar::zoneColorOf( const QString &horizon )
+{
+  return wellsection::zoneColor( mappingHorizons().indexOf( horizon ) );
+}
+
 void HorizonChipBar::buildChips()
 {
   // insertWidget 在末尾 stretch 之前落 chip——reload 时 stretch 已在布局里。
@@ -65,8 +79,11 @@ void HorizonChipBar::buildChips()
     chip->setObjectName( QStringLiteral( "chip_%1" ).arg( h ) );
     chip->setText( h );
     chip->setCheckable( true );
+    // 颜色落在底色上、不另占图标位：文字始终完整可见，条宽不被色点挤到
+    // 文字省略成「…」只剩颜色（2026-10-10 用户反馈）。
     chip->setToolButtonStyle( Qt::ToolButtonTextOnly );
-    applyChipStyle( chip );
+    chip->setSizePolicy( QSizePolicy::Minimum, QSizePolicy::Fixed );
+    applyChipStyle( chip, zoneColorOf( h ) );
     chip->setAccessibleName( tr( "层位 %1" ).arg( h ) );
     connect( chip, &QToolButton::clicked, this, [this, h] {
       // 切层位 = 广播 + 懒加载（物化目标、释放其他层位实例）。

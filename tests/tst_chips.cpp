@@ -9,6 +9,7 @@
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/ui/horizonchipbar.h"
+#include "../src/ui/wellsection/wellsectionstyle.h"
 #include "uipolish_capture.h"
 
 #include <qgsapplication.h>
@@ -180,6 +181,43 @@ class TestChips : public QObject
         HorizonChipBar bar( &ctx, &layers );
         bar.setAllowEmptyHorizons( true ); // 全 chip 可点，捕获完整胶囊样式
         uipolish::capturePanel( &bar, QStringLiteral( "horizonchips" ), QSize( 560, 48 ) );
+    }
+
+    // 2026-10-10 用户要求：层位 chip 颜色与井道图（连井剖面层段底色）保持
+    // 一致，且「不要只有颜色，文字还是得有」。未选 chip 的底色取
+    // wellsection::zoneColor 同一色板、mappingHorizons() 同一浅→深序（剖面上
+    // 层段名 = 其顶界层位名）；文字完整显示、不被挤成省略号。
+    void chipsColoredLikeWellSectionAndKeepText()
+    {
+        SelectionContext ctx;
+        HorizonChipBar bar( &ctx, nullptr );
+        bar.setAllowEmptyHorizons( true );
+        // 故意给窄宽：chip 不许缩到 sizeHint 以下（否则文字省略只剩颜色）。
+        bar.resize( 120, 40 );
+        bar.show();
+        QVERIFY( QTest::qWaitForWindowExposed( &bar ) );
+        const QStringList horizons = mappingHorizons();
+        for ( int i = 0; i < horizons.size(); ++i )
+        {
+            auto *chip = bar.findChild<QToolButton *>(
+                QStringLiteral( "chip_%1" ).arg( horizons.at( i ) ) );
+            QVERIFY2( chip != nullptr, qPrintable( horizons.at( i ) ) );
+            QCOMPARE( chip->text(), horizons.at( i ) );
+            QCOMPARE( chip->toolButtonStyle(), Qt::ToolButtonTextOnly );
+            QVERIFY2( chip->width() >= chip->sizeHint().width(),
+                      qPrintable( QStringLiteral( "%1 被压窄：%2 < %3" )
+                                      .arg( horizons.at( i ) ).arg( chip->width() )
+                                      .arg( chip->sizeHint().width() ) ) );
+            // 底色 = 该层位在井道图上的层段色（取胶囊内左侧留白处，避开文字）。
+            chip->setChecked( false );
+            const QImage img = chip->grab().toImage();
+            const QColor got = img.pixelColor( img.width() / 6, img.height() / 2 );
+            const QColor want = wellsection::zoneColor( i );
+            QVERIFY2( qAbs( got.red() - want.red() ) < 10 && qAbs( got.green() - want.green() ) < 10
+                          && qAbs( got.blue() - want.blue() ) < 10,
+                      qPrintable( QStringLiteral( "%1: got %2 want %3" )
+                                      .arg( horizons.at( i ), got.name(), want.name() ) ) );
+        }
     }
 };
 

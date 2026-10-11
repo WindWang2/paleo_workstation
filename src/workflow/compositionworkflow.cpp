@@ -326,7 +326,8 @@ bool CompositionWorkflow::deriveFaciesPolygons( const QString &horizon, const QS
   alg.insert( QStringLiteral( "OUTPUT" ), st.absolutePath );
   const QStringList forwarded = {
       QStringLiteral( "SMOOTH" ), QStringLiteral( "MIN_CELLS" ),
-      QStringLiteral( "MIN_AREA" ), QStringLiteral( "SIMPLIFY" ),
+      QStringLiteral( "MIN_FRACTION" ), QStringLiteral( "MIN_AREA" ),
+      QStringLiteral( "SIMPLIFY" ),
       QStringLiteral( "SNAP_TOLERANCE" ), QStringLiteral( "ANGLE_TOLERANCE" ) };
   for ( const QString &key : forwarded )
   {

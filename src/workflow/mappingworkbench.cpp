@@ -1,5 +1,6 @@
 // 层：功能
 #include "mappingworkbench.h"
+#include "../algorithms/faciesmapping/formationdominance.h"
 #include "../domain/faciescatalog.h"
 #include "../domain/mappinghorizons.h"
 #include "../domain/singlefactorrequest.h"
@@ -16,6 +17,9 @@
 #include "constraintimport.h"
 #include "derivedassets.h"
 #include "workflows.h"
+#include "../io/lasparser.h"
+#include "../services/paleotaskservice.h"
+#include "services/projectdata.h"
 #include "services/seismichorizoncluster.h"
 #include <QFutureWatcher>
 #include <QtConcurrent>
@@ -30,6 +34,7 @@
 #include <QSet>
 #include <QTemporaryDir>
 #include <QUuid>
+#include <algorithm>
 #include <cmath>
 #include <gdal.h>
 #include <limits>
@@ -108,8 +113,29 @@ MappingWorkbench::MappingWorkbench(QgisLayerService *layers,
   // 显式选择的 Mock 模式，产物记录真实反射特征来源与 Mock 类别解释。
   connect(m_layers, &QgisLayerService::layerInstantiated, this,
           &MappingWorkbench::styleLayer);
+  // .qgz 恢复的图层由 adoptProjectLayers 收编、不发 layerInstantiated，
+  // styleLayer 永远不会跑——旧版本烘焙进图层的渲染/标注（相面默认带 ID
+  // 序号）原样残留，draft 层的编辑接线同样缺席。工程打开后对在场声明
+  // 图层补一次样式：显式选过的按工程条目，没选过的回当前默认口径。
+  // 排队连接：等 store/目录在 projectOpened 各处理器里重绑完再跑，
+  // versionForLayer 需要新工程的版本库。
+  if (m_project)
+    connect(m_project, &QgisProjectService::projectOpened, this,
+            [this] {
+              QVector<LayerDeclaration> declarations;
+              if (!m_layers->tryDeclared(&declarations, nullptr))
+                return;
+              for (const auto &d : declarations)
+                if (m_layers->layer(d.layerId))
+                  styleLayer(d.layerId);
+            },
+            Qt::QueuedConnection);
   connect(m_layers, &QgisLayerService::layerDeclared, this,
           &MappingWorkbench::changed);
+  connect(this, &MappingWorkbench::predictionProgress, this, [this](int p) {
+    if (m_task)
+      m_task->reportBytes(std::clamp(p, 0, 100), 100);
+  });
   // 不在 constraintAdded 上自动快照：每画一条线出一个「约束过程·vN」版本
   // 会刷屏图层树。快照只在使用点做——generateFactor/importConstraints
   // 前置 snapshotConstraints（谱系语义：被计算的约束状态）；实时显示走
@@ -118,6 +144,38 @@ MappingWorkbench::MappingWorkbench(QgisLayerService *layers,
 MappingWorkbench::~MappingWorkbench() {
   if (m_mockCancelled)
     m_mockCancelled->store(true);
+  if (m_prepareCancelled)
+    m_prepareCancelled->store(true);
+}
+void MappingWorkbench::setTaskService(PaleoTaskService *tasks) {
+  m_taskSvc = tasks;
+}
+void MappingWorkbench::beginPredictionTask(const QString &title) {
+  endPredictionTask();
+  if (!m_taskSvc)
+    return;
+  auto *task = m_taskSvc->beginExternal(title);
+  m_task = task;
+  connect(task, &PaleoTask::cancelAsked, this, [this, task] {
+    if (m_task == task)
+      cancelPrediction();
+  });
+}
+void MappingWorkbench::endPredictionTask(const QString &error) {
+  if (PaleoTask *task = m_task) {
+    m_task = nullptr;
+    if (error.isEmpty())
+      task->reportBytes(100, 100);
+    task->finishExternal(error);
+  }
+}
+void MappingWorkbench::cancelPredictionTask() {
+  if (PaleoTask *task = m_task) {
+    m_task = nullptr; // 先摘：requestCancel 发的 cancelAsked 不再回调取消
+    if (!task->cancelRequested())
+      task->requestCancel();
+    task->finishExternal();
+  }
 }
 void MappingWorkbench::bindCatalog(DataCatalog *catalog, const QString &dir) {
   cancelPrediction();
@@ -254,6 +312,7 @@ void MappingWorkbench::setPredictionService(RemotePredictionService *service) {
             if (id != m_request.id)
               return;
             m_request = {};
+            endPredictionTask(message);
             emit predictionBusyChanged(false);
             emit errorOccurred(message);
           });
@@ -527,6 +586,87 @@ QString MappingWorkbench::openWellAttributes(QString *error) {
   return WellAttributeStore::open(m_catalog, m_dir, m_layers, false, true, error)
              ? WellAttributeStore::intervalLayerId() : QString();
 }
+QString MappingWorkbench::openWellFormations(QString *error) {
+  return WellAttributeStore::open(m_catalog, m_dir, m_layers,
+                                  WellAttributeStore::Table::Formations, true, error)
+             ? WellAttributeStore::formationLayerId() : QString();
+}
+void MappingWorkbench::ensureWellBaseLayers() {
+  if (!m_layers)
+    return;
+  QString error;
+  for (const auto table : {WellAttributeStore::Table::Intervals,
+                           WellAttributeStore::Table::Formations,
+                           WellAttributeStore::Table::Factors})
+    WellAttributeStore::open(m_catalog, m_dir, m_layers, table,
+                             /*create=*/false, &error);
+  if (!m_layers->layer(QStringLiteral("wells")))
+    m_layers->instantiate(QStringLiteral("wells"), &error);
+}
+QVariantList MappingWorkbench::wellFormationUpdates(
+    const QVariantList &points, const QVariantList &schema, bool predicted,
+    const QString &method, const QString &jobId) const {
+  QVariantList updates;
+  if (!m_catalog)
+    return updates;
+  ProjectDataFacade data;
+  data.setCatalog(m_catalog.data(), m_dir);
+  for (const auto &v : points) {
+    const auto point = v.toMap();
+    if (point.value("depth_mock").toBool())
+      continue; // 合成深度只供旧结果展示，不能维护真实地层。
+    const QString wellId = point.value("id").toString();
+    QVector<FaciesSpan> spans;
+    double bottom = 0;
+    for (const auto &value :
+         QJsonDocument::fromJson(point.value("facies_intervals").toString().toUtf8())
+             .toVariant().toList()) {
+      const auto interval = value.toMap();
+      const auto code = interval.value("code");
+      spans.append({interval.value("top").toDouble(), interval.value("bottom").toDouble(),
+                    FaciesCatalog::find(schema, code).value("name").toString(), code.toInt()});
+      bottom = std::max(bottom, interval.value("bottom").toDouble());
+    }
+    auto tops = data.topsFor(wellId);
+    tops.erase(std::remove_if(tops.begin(), tops.end(),
+                              [](const WellTop &t) { return !std::isfinite(t.md); }),
+               tops.end());
+    std::stable_sort(tops.begin(), tops.end(),
+                     [](const WellTop &a, const WellTop &b) { return a.md < b.md; });
+    QVector<WellComposite::FormationInterval> formations;
+    QSet<QString> names;
+    for (qsizetype i = 0; i < tops.size(); ++i) {
+      const double base = i + 1 < tops.size() ? tops[i + 1].md : bottom;
+      if (tops[i].horizon.trimmed().isEmpty() || !(base > tops[i].md) ||
+          names.contains(tops[i].horizon.trimmed()))
+        continue;
+      names.insert(tops[i].horizon.trimmed());
+      WellComposite::FormationInterval f;
+      f.name = tops[i].horizon.trimmed();
+      f.topDepth = float(tops[i].md);
+      f.bottomDepth = float(base);
+      f.unitType = f.name.endsWith(QStringLiteral("组")) ? QStringLiteral("组")
+                                                         : QStringLiteral("段");
+      formations.append(f);
+    }
+    for (const auto &d : paleo::faciesmapping::dominantFaciesByFormation(formations, spans)) {
+      QVariantMap row{{"well_id", wellId}, {"formation", d.formation},
+        {"unit_type", d.unitType}, {"top_md", d.top}, {"base_md", d.bottom},
+        {"thickness_md", d.thickness}, {"dominant_facies", d.dominant},
+        {"facies_code", d.dominantCode > 0 ? QVariant(d.dominantCode) : QVariant()},
+        {"dominant_thickness_md", d.dominantThickness}, {"dominant_ratio", d.ratio},
+        {"coverage", d.coverage}, {"tie", d.tie}, {"facies_composition", d.composition}};
+      if (predicted) {
+        row.insert("predicted_dominant", d.dominant);
+        row.insert("source", QStringLiteral("wells_prediction"));
+        row.insert("model", method);
+        row.insert("job_id", jobId);
+      }
+      updates << row;
+    }
+  }
+  return updates;
+}
 bool MappingWorkbench::predict(const QString &h, const QString &kind,
                                const QStringList &ids, QString *error,
                                const QString &horizonFile) {
@@ -552,8 +692,10 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
     return false;
   }
   if (kind == QLatin1String("wells")) {
-    auto *attributes = qobject_cast<QgsVectorLayer *>(m_layers->layer(WellAttributeStore::intervalLayerId()));
-    if (attributes && attributes->isEditable()) { fail(error, tr("测井属性表正在编辑，请先保存或放弃编辑")); return false; }
+    for (const auto &id : {WellAttributeStore::intervalLayerId(), WellAttributeStore::formationLayerId()}) {
+      auto *attributes = qobject_cast<QgsVectorLayer *>(m_layers->layer(id));
+      if (attributes && attributes->isEditable()) { fail(error, tr("测井属性表正在编辑，请先保存或放弃编辑")); return false; }
+    }
   }
   if (schemaVersion(h).isEmpty() && !saveFacies(h, facies(h), error))
     return false;
@@ -564,6 +706,9 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
   request.facies = facies(h);
   const auto choices = inputs(kind);
   QSet<QString> seen;
+  // 测井曲线的深度范围放到后台读（整份 LAS 解析，多井时主线程会卡住）；
+  // 这里只在 catalog 所属线程解析出文件路径。
+  QStringList logPaths;
   for (const auto &v : choices) {
     const auto row = v.toMap();
     if (!ids.contains(row.value("id").toString()))
@@ -572,20 +717,14 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
     request.sourceVersionIds << row.value("parents").toStringList();
     if (kind == "wells") {
       auto well = row;
-      const auto log = predictionLog(row.value("log_version_id").toString());
-      double top = std::numeric_limits<double>::infinity(), bottom = -top;
-      if (log.ok && !log.curves.isEmpty())
-        for (double d : log.curves.first().values)
-          if (std::isfinite(d)) {
-            top = std::min(top, d);
-            bottom = std::max(bottom, d);
-          }
-      const bool measured = std::isfinite(top) && bottom > top;
-      well.insert("depth_top", measured ? top : 0.0);
-      well.insert("depth_bottom", measured ? bottom : 120.0);
-      well.insert("depth_mock", !measured);
+      const auto logVersion = row.value("log_version_id").toString();
+      logPaths << (logVersion.isEmpty()
+                       ? QString()
+                       : DataCatalog::resolvedVersionPath(
+                             m_dir, m_catalog->versionById(logVersion)));
       well.insert("vector_intervals", WellAttributeStore::rows(m_dir, m_layers, false, row.value("id").toString()));
       well.insert("vector_factors", WellAttributeStore::rows(m_dir, m_layers, true, row.value("id").toString(), h));
+      well.insert("vector_formations", WellAttributeStore::rows(m_dir, m_layers, WellAttributeStore::Table::Formations, row.value("id").toString()));
       request.wells << well;
     }
   }
@@ -709,6 +848,9 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
     m_predictionParameters = {
       {"horizon_source_format", source == SeismicHorizonSource::Scatter ? "smi_xyz_inline_crossline" : "time_raster"},
       {"horizon_source_uri", QFileInfo(horizonPath).absoluteFilePath()}};
+    beginPredictionTask(tr("智能预测 · %1 · 地震层位窗聚类（Mock）").arg(h));
+    if (m_task)
+      m_task->reportDetail(tr("后台读取地震道与层位窗"));
     m_mockCancelled = std::make_shared<std::atomic_bool>(false);
     auto cancelled = m_mockCancelled;
     auto *watcher = new QFutureWatcher<SeismicClusterResult>(this);
@@ -726,6 +868,7 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
       if (!clustered.error.isEmpty()) {
         m_request = {};
         m_predictionParameters.clear();
+        endPredictionTask(clustered.error);
         emit predictionBusyChanged(false);
         emit errorOccurred(clustered.error);
         return;
@@ -742,6 +885,7 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
                                   {"z_units", "ms"}}, &error)) {
           m_request = {};
           m_predictionParameters.clear();
+          endPredictionTask(error);
           emit predictionBusyChanged(false);
           emit errorOccurred(error);
           return;
@@ -788,15 +932,82 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
   m_mockCancelled.reset();
   m_predictionParameters.clear();
   m_request = request;
+  beginPredictionTask(request.kind == "wells"
+                          ? tr("智能预测 · %1 · 测井 %2 口井（按地层出相）")
+                                .arg(h).arg(request.wells.size())
+                          : tr("智能预测 · %1 · 地震相（预测服务）").arg(h));
   emit predictionBusyChanged(true);
-  m_remote->start(request);
+  if (request.kind != "wells") {
+    if (m_task)
+      m_task->reportDetail(tr("已提交预测服务，等待返回"));
+    m_remote->start(request);
+    return true;
+  }
+  // 测井：后台读各井曲线深度范围 → 回主线程补进请求 → 提交预测服务。
+  auto cancelled = std::make_shared<std::atomic_bool>(false);
+  m_prepareCancelled = cancelled;
+  if (m_task)
+    m_task->reportDetail(tr("后台读取 %1 口井的测井曲线").arg(logPaths.size()));
+  auto *watcher = new QFutureWatcher<QVector<QPair<double, double>>>(this);
+  connect(watcher, &QFutureWatcherBase::progressValueChanged, this,
+          [this, id = request.id, total = logPaths.size()](int done) {
+    if (m_task && m_request.id == id)
+      m_task->reportDetail(tr("读取测井曲线 %1/%2").arg(done).arg(total));
+  });
+  connect(watcher, &QFutureWatcherBase::finished, this,
+          [this, watcher, id = request.id, cancelled] {
+    const auto ranges = watcher->result();
+    watcher->deleteLater();
+    if (m_request.id != id || cancelled->load())
+      return;
+    m_prepareCancelled.reset();
+    for (qsizetype i = 0; i < m_request.wells.size() && i < ranges.size(); ++i) {
+      auto well = m_request.wells[i].toMap();
+      const bool measured = std::isfinite(ranges[i].first) &&
+                            ranges[i].second > ranges[i].first;
+      well.insert("depth_top", measured ? ranges[i].first : 0.0);
+      well.insert("depth_bottom", measured ? ranges[i].second : 120.0);
+      well.insert("depth_mock", !measured);
+      m_request.wells[i] = well;
+    }
+    if (m_task)
+      m_task->reportDetail(
+          tr("已提交 %1 口井，等待预测服务返回").arg(m_request.wells.size()));
+    m_remote->start(m_request);
+  });
+  watcher->setFuture(QtConcurrent::run(
+      [logPaths, cancelled](QPromise<QVector<QPair<double, double>>> &promise) {
+    promise.setProgressRange(0, int(logPaths.size()));
+    QVector<QPair<double, double>> ranges;
+    for (const auto &path : logPaths) {
+      if (cancelled->load())
+        break;
+      double top = std::numeric_limits<double>::infinity(), bottom = -top;
+      QStringList names;
+      QList<LasCurve> curves;
+      if (!path.isEmpty() && LasParser::parse(path, names, curves, nullptr) &&
+          !curves.isEmpty())
+        for (double d : curves.first().values)
+          if (std::isfinite(d)) {
+            top = std::min(top, d);
+            bottom = std::max(bottom, d);
+          }
+      ranges.append({top, bottom});
+      promise.setProgressValue(int(ranges.size()));
+    }
+    promise.addResult(ranges);
+  }));
   return true;
 }
 void MappingWorkbench::cancelPrediction() {
+  cancelPredictionTask();
   if (m_mockCancelled)
     m_mockCancelled->store(true);
+  else if (m_prepareCancelled)
+    m_prepareCancelled->store(true); // 还在读曲线，预测服务尚未提交
   else if (m_remote)
     m_remote->cancel();
+  m_prepareCancelled.reset();
   bool was = busy();
   m_request = {};
   m_predictionParameters.clear();
@@ -867,6 +1078,48 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &result) {
         point.insert(a.key(), a.value());
       points[i] = point;
     }
+  // 智能预测的井点相 = 该井在本层位地层（tops：本层位顶 → 下一层位顶）内
+  // 厚度最大的相（优势相）；与数据管理逐组预测共用「测井地层相属性」表的
+  // 同一口径。井上没有本层位分层时退回整井口径并如实标注 facies_scope。
+  QVariantList formationRows;
+  if (valid && request.kind == "wells") {
+    if (m_task)
+      m_task->reportDetail(tr("按地层统计每井的相并写入图件"));
+    formationRows = wellFormationUpdates(points, request.facies, true,
+                                         result.method, request.id);
+    for (auto &value : points) {
+      auto point = value.toMap();
+      const auto intervals =
+          QJsonDocument::fromJson(point.value("facies_intervals").toString().toUtf8())
+              .toVariant().toList();
+      QVariantMap formation;
+      for (const auto &row : formationRows)
+        if (row.toMap().value("well_id") == point.value("id") &&
+            row.toMap().value("formation").toString().compare(
+                request.horizon, Qt::CaseInsensitive) == 0)
+          formation = row.toMap();
+      double top = 0, base = 0;
+      FaciesCatalog::formationRange(formation.value("top_md"),
+                                    formation.value("base_md"), &top, &base);
+      const int code = formation.isEmpty()
+                           ? 0
+                           : FaciesCatalog::dominantCode(intervals, top, base);
+      if (code) {
+        point.insert("facies_code", code);
+        point.insert("facies_scope", QStringLiteral("formation"));
+        point.insert("formation", formation.value("formation"));
+        point.insert("formation_top", top);
+        point.insert("formation_base", base);
+        point.insert("facies_ratio", formation.value("dominant_ratio"));
+        const auto attrs = FaciesCatalog::attributes(request.facies, code);
+        for (auto a = attrs.cbegin(); a != attrs.cend(); ++a)
+          point.insert(a.key(), a.value());
+      } else {
+        point.insert("facies_scope", QStringLiteral("well"));
+      }
+      value = point;
+    }
+  }
   QString error;
   if (!valid)
     error = tr("预测服务返回的网格、井集合或相编码与请求不一致，未发布");
@@ -883,7 +1136,12 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &result) {
     bool maintained = ok;
     if (ok && request.kind == "wells")
       maintained = WellAttributeStore::mergeIntervals(m_catalog, m_dir, m_layers,
-          wellAttributeUpdates(points, request.facies, request.horizon, true, result.method, request.id), &error);
+          wellAttributeUpdates(points, request.facies, request.horizon, true, result.method, request.id), &error) &&
+        WellAttributeStore::mergeFormations(m_catalog, m_dir, m_layers,
+          formationRows, &error);
+    // 首次预测刚落盘的属性/地层表立刻进图层列表（无需重开工程或切页）。
+    if (ok && request.kind == "wells")
+      ensureWellBaseLayers();
     if (maintained) {
       auto parameters = m_predictionParameters;
       const QVariantMap common =
@@ -912,6 +1170,7 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &result) {
   }
   m_request = {};
   m_predictionParameters.clear();
+  endPredictionTask(error);
   emit predictionBusyChanged(false);
   if (!error.isEmpty())
     emit errorOccurred(error);
@@ -974,12 +1233,15 @@ QString MappingWorkbench::polygonize(const QString &id, QString *error) {
   QDir().mkpath(m_dir + "/artifacts/staging");
   const auto path = m_dir + "/artifacts/staging/" + uid() + ".gpkg";
   // 相栅格转面默认开平滑+聚合：逐像元聚类的椒盐噪点若直接多边形化会碎成
-  // 噪声图斑（用户要求——「一定要做平滑和聚合，不然太细了」）。
+  // 噪声图斑（用户要求——「一定要做平滑和聚合，不然太细了」）。MIN_FRACTION
+  // 按有效区占比吸收小斑块进最大邻斑——大栅格上固定像元数兜不住的碎斑
+  // 都能并掉（2026-10-11 用户反馈相面小斑块太多）。
   auto output = m_processing->run("paleo:paleo_facies_polygonize",
                                   {{"INPUT", QVariant::fromValue(layer)},
                                    {"OUTPUT", path},
                                    {"SMOOTH", 1},
                                    {"MIN_CELLS", 4},
+                                   {"MIN_FRACTION", 0.0025},
                                    {"MIN_AREA", 0.0},
                                    {"SIMPLIFY", 0.0}},
                                   error);
@@ -1134,8 +1396,10 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
     }
   }
   if (layer->fields().indexOf("facies_intervals") >= 0) {
-    auto *attributes = qobject_cast<QgsVectorLayer *>(m_layers->layer(WellAttributeStore::intervalLayerId()));
-    if (attributes && attributes->isEditable()) { fail(error, tr("测井属性表正在编辑，请先保存或放弃编辑")); return false; }
+    for (const auto &id : {WellAttributeStore::intervalLayerId(), WellAttributeStore::formationLayerId()}) {
+      auto *attributes = qobject_cast<QgsVectorLayer *>(m_layers->layer(id));
+      if (attributes && attributes->isEditable()) { fail(error, tr("测井属性表正在编辑，请先保存或放弃编辑")); return false; }
+    }
   }
   const auto snapshotPath = m_dir + "/artifacts/staging/" + uid() + ".gpkg";
   if (!MappingArtifactWriter::vectorSnapshot(layer, snapshotPath, error))
@@ -1155,7 +1419,9 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
         points << point;
       }
       if (!WellAttributeStore::mergeIntervals(m_catalog, m_dir, m_layers,
-          wellAttributeUpdates(points, previous.extra.value("facies").toList(), d.horizon, false), error)) return false;
+          wellAttributeUpdates(points, previous.extra.value("facies").toList(), d.horizon, false), error) ||
+          !WellAttributeStore::mergeFormations(m_catalog, m_dir, m_layers,
+          wellFormationUpdates(points, previous.extra.value("facies").toList(), false), error)) return false;
     }
   }
   return !output.isEmpty();
@@ -1398,9 +1664,14 @@ bool MappingWorkbench::generateContours(const QString &h, const QString &id,
   return true;
 }
 int MappingWorkbench::labelMode(const QString &id) const {
+  // 只有「应用标注」显式选过才写工程条目；没选过按几何给默认（面只标相名，
+  // 不带 ID 序号——2026-10-10 用户要求）。
+  const int fallback = MappingArtifactWriter::defaultFaciesLabelMode(
+      qobject_cast<QgsVectorLayer *>(m_layers ? m_layers->layer(id) : nullptr));
   return m_project && m_project->project()
-             ? m_project->project()->readNumEntry("paleo/faciesLabels", id, 3)
-             : 3;
+             ? m_project->project()->readNumEntry("paleo/faciesLabels", id,
+                                                  fallback)
+             : fallback;
 }
 bool MappingWorkbench::setLabelMode(const QString &id, int mode,
                                     QString *error) {

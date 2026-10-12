@@ -1972,7 +1972,7 @@ class TestUiShell : public QObject
       QTRY_VERIFY(wellPanel->isVisible());
       QCOMPARE(wellPanel->findChild<QTableWidget *>("predictionIntervals")
                    ->rowCount(),
-               12);
+               1);
       QVERIFY(!wellPanel->layerId().startsWith("draft."));
       // 直接在预测相上修订：首次应用自动保留预测原件并切换到修订副本。
       auto *choice = wellPanel->findChild<QComboBox *>("wellFaciesChoice");

@@ -35,6 +35,7 @@
 #include <QComboBox>
 #include <QCryptographicHash>
 #include <QDir>
+#include <QHash>
 #include <QFile>
 #include <QGraphicsScene>
 #include <QLabel>
@@ -420,6 +421,8 @@ private slots:
     QVERIFY(!first.id.isEmpty());
     const auto firstLayer = "product." + first.id;
     QTRY_VERIFY(!f.work.declaration(firstLayer).layerId.isEmpty());
+    // #346：changed→scheduleRefresh，不可见页不刷；测试页未 show，显式 refresh。
+    page.refresh();
     int checked = -1;
     for (int i = 0; i < inputs->count(); ++i)
       if (inputs->item(i)->data(Qt::UserRole).toString() == firstLayer)
@@ -433,6 +436,7 @@ private slots:
     const auto second = f.work.versionForLayer("factor.D61.sandthick");
     QVERIFY(second.id != first.id);
     QTRY_VERIFY(!f.work.declaration("product." + second.id).layerId.isEmpty());
+    page.refresh();
     QCOMPARE(f.work.versionForLayer(firstLayer).id, first.id);
     QCOMPARE(f.work.declaration(firstLayer).source, originalPath);
     QCOMPARE(digest(originalPath), hash);
@@ -795,7 +799,11 @@ private slots:
     auto *text = page.findChild<QPlainTextEdit *>("faciesEvidenceText");
     QVERIFY(text);
     QVERIFY(!page.commandButton("addEvidence")->isEnabled());
-    auto *v = qobject_cast<QgsVectorLayer *>(f.layers.layer(draft));
+    // copyForEditing 只 declare，不 instantiate；layer() 会空悬（#346 后
+    // 页面不再同步刷图层，崩溃于 getFeatures→isValid）。
+    QString layerError;
+    auto *v = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft, &layerError));
+    QVERIFY2(v, qPrintable(layerError));
     auto it = v->getFeatures();
     QgsFeature feature;
     QVERIFY(it.nextFeature(feature));

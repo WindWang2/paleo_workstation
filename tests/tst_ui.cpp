@@ -1976,8 +1976,10 @@ class TestUiShell : public QObject
       QVERIFY(catalog->addLink(wl));
       m_win->showPage("predict");
       auto *kind = page->findChild<QComboBox *>("predictionKind");
-      kind->setCurrentIndex(kind->findData("wells"));
-      QTRY_COMPARE(inputs->count(), 1);
+      QVERIFY(kind && kind->findData(QStringLiteral("wells")) >= 0);
+      kind->setCurrentIndex(kind->findData(QStringLiteral("wells")));
+      page->refresh();
+      QTRY_COMPARE_WITH_TIMEOUT(inputs->count(), 1, 5000);
       inputs->item(0)->setCheckState(Qt::Checked);
       run->trigger();
       QTRY_VERIFY(!m_ctx->mappingWorkbench()->busy());

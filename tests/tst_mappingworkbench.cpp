@@ -1365,7 +1365,13 @@ private slots:
                  byName.value("D61").value("dominant_facies").toString());
       } else if (point.attribute("id") == "B") {
         sawB = true;
-        QCOMPARE(point.attribute("facies_scope").toString(), QString("well"));
+        // #346：无 tops 的井仍发当前地层结果行（scope=formation），相码为空/未预测；
+        // 不再回退整井口径 facies_scope=well。
+        QCOMPARE(point.attribute("facies_scope").toString(), QString("formation"));
+        QVERIFY(point.attribute("facies_code").isNull()
+                || point.attribute("facies_code").toInt() <= 0
+                || point.attribute("prediction_status").toString()
+                       == QStringLiteral("未预测"));
       }
     }
     QVERIFY(sawA && sawB);

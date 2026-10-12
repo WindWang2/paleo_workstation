@@ -57,6 +57,7 @@ class LayerTreePanel : public QWidget
   signals:
     // 「属性…」→ 壳接 LayerPropertiesDialog::openLayerProperties
     void propertiesRequested(const QString &layerId);
+    void graphRequested(const QString &layerId);
     // goal/gridding-surface-ops：栅格面运算（等厚/体积）入口——意图信号回壳。
     void surfaceOpsRequested(const QString &layerId);
     // 主线5「删除选中」消歧：编辑中的图层被从树里删时拒绝并带原因
@@ -106,6 +107,7 @@ class LayerTreePanel : public QWidget
     QAction *m_moveUpAction = nullptr;         // objectName: layerTreeMoveUpAction
     QAction *m_moveDownAction = nullptr;       // objectName: layerTreeMoveDownAction
     QAction *m_moveTopAction = nullptr;        // objectName: layerTreeMoveToTopAction
+    QAction *m_graphAction = nullptr;
     QAction *m_propertiesAction = nullptr;     // objectName: layerTreePropertiesAction
     QAction *m_duplicateAction = nullptr;      // objectName: layerTreeDuplicateAction
     QAction *m_surfaceOpsAction = nullptr;     // objectName: layerTreeSurfaceOpsAction（栅格面运算）

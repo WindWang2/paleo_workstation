@@ -593,6 +593,7 @@ target_link_libraries(paleo_linkage PUBLIC paleo_deps paleo_services paleo_qgis 
 
 add_library(paleo_workflow STATIC
   src/workflow/datagraphworkflow.cpp
+  src/workflow/derivationworkflow.cpp
   src/workflow/officepreviewsession.cpp
   src/workflow/projectlayerrefresh.cpp
   src/workflow/xmlpreviewsession.cpp

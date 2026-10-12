@@ -69,6 +69,7 @@ DataPage::DataPage(QWidget *parent)
 
   connect(m_listPanel, &DataListPanel::versionActivated, this, &DataPage::versionActivated);
   connect(m_entityPanel, &EntityPanel::versionActivated, this, &DataPage::versionActivated);
+  connect(m_entityPanel, &EntityPanel::graphRequested, this, &DataPage::entityGraphRequested);
   connect(m_entityPanel, &EntityPanel::mappingReferenceRequested, this,
           &DataPage::mappingReferenceRequested);
   wireDataOps();

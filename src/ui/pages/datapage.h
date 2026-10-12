@@ -60,6 +60,7 @@ class DataPage : public QWidget
     void statusMessage(const QString &msg);        // D5.4/D8（壳接状态栏）
     void externalImportRequested(const QStringList &paths); // D3.2（壳接导入流）
     void graphRequested(const QString &assetId, const QString &versionId);
+    void entityGraphRequested(const QString &entityId, const QString &assetId, const QString &versionId);
 
   protected:
     bool event(QEvent *event) override; // 动态属性变更 → 门面下发子面板

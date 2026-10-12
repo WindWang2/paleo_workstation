@@ -2,6 +2,7 @@
 #pragma once
 #include <QHash>
 #include <QWidget>
+#include <QVariantMap>
 
 class PaleoProjectStore;
 class PaleoTaskService;
@@ -23,6 +24,9 @@ class TaskPanel : public QWidget
                        PaleoTaskService *tasks = nullptr,
                        QWidget *parent = nullptr);
     void refresh(); // reconcile rows from store->busyLayers() + tasks->tasks()
+
+  signals:
+    void graphRequested(const QVariantMap &context, const QString &layerId, quint64 session);
 
   private:
     QTreeWidgetItem *rowForTask(qint64 id);

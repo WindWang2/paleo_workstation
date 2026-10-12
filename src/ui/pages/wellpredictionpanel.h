@@ -25,6 +25,7 @@ protected:
   void showEvent(QShowEvent *event) override;
 signals:
   void logRequested(const QString &versionId);
+  void graphRequested(const QString &layerId);
   void reviseRequested(const QString &wellId, int interval, int code);
   void saveRequested();
   void undoRequested();

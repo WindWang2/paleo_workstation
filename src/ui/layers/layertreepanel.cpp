@@ -304,6 +304,16 @@ void LayerTreePanel::buildContextMenu()
     emit propertiesRequested(paleoId.isEmpty() ? layer->id() : paleoId);
   });
   m_menu->addAction(m_propertiesAction);
+  m_graphAction = m_menu->addAction(tr("资料关联 / 成果追溯"));
+  m_graphAction->setObjectName(QStringLiteral("layerTreeDataGraphAction"));
+  m_graphAction->setToolTip(tr("查看该图层登记的资料版本、输入文件与生成证据"));
+  connect(m_menu, &QMenu::aboutToShow, this, [this] {
+    m_graphAction->setProperty("graphTarget", m_graphAction->data());
+  });
+  connect(m_graphAction, &QAction::triggered, this, [this] {
+    const auto id = m_graphAction->property("graphTarget").toString();
+    if (!id.isEmpty()) emit graphRequested(id);
+  });
 
   // goal/gridding-surface-ops：栅格图层 → 面运算（等厚/体积）入口
   //（菜单每次右键重建，只对栅格当前层出现）。
@@ -432,6 +442,8 @@ void LayerTreePanel::updatePaleoActionStates()
         canUp ? tr("移到所在组的最上层。根上的图层即整个列表最上，盖住同组其他图层")
               : (hasNode ? tr("已在所在组的最上层") : tr("未选中图层或组")));
   }
+  const QString graphId = layer ? layer->customProperty(QStringLiteral("paleoLayerId")).toString() : QString();
+  m_graphAction->setEnabled(!graphId.isEmpty()); m_graphAction->setData(graphId);
   m_propertiesAction->setEnabled(layer != nullptr);
   m_duplicateAction->setEnabled(layer != nullptr);
   m_exportStyleAction->setEnabled(layer != nullptr);

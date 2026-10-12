@@ -31,6 +31,16 @@
 
 using namespace paleo::pagesinternal;
 
+paleo::datagraph::Presentation DataListPanel::graphPresentation() const
+{
+  paleo::datagraph::Presentation out;
+  out.removedIds = m_recycle.removedIds(); out.assetTypes = m_typeOv.snapshot(); out.tags = m_tags.snapshot();
+  const auto entities = m_entityOv.snapshot();
+  for (auto it = entities.cbegin(); it != entities.cend(); ++it)
+    if (!it.value().name.isEmpty()) out.entityNames.insert(it.key(), it.value().name);
+  return out;
+}
+
 void DataListPanel::refreshAssetTable()
 {
   auto *table = findChild<QTableWidget *>(QStringLiteral("assetTable"));
@@ -81,6 +91,7 @@ void DataListPanel::refreshAssetTable()
   refreshUndoButtons();
   applyListFilter();
   refreshSelectionBadge();
+  emit graphDataChanged();
 }
 
 void DataListPanel::renderAssetPage()

@@ -17,18 +17,20 @@ Kind kindOf(const CatalogVersion &v)
   return !v.managed ? Kind::External : v.stage == QLatin1String("RAW") ? Kind::Raw : Kind::Derived;
 }
 // 迭代、含种子、访问集去重；环不递归。也用于 stale 的祖先上下文。
-QSet<QString> closure(const QHash<QString, QStringList> &adj, const QStringList &seeds)
+QSet<QString> closure(const QHash<QString, QStringList> &adj, const QStringList &seeds, const std::function<bool()> &cancel = {})
 {
   QSet<QString> seen;
   QQueue<QString> queue;
   for (const QString &id : seeds)
     if (!seen.contains(id)) { seen.insert(id); queue.enqueue(id); }
-  while (!queue.isEmpty())
+  while (!queue.isEmpty()) {
+    if (cancel && cancel()) return {};
     for (const QString &id : adj.value(queue.dequeue()))
       if (!seen.contains(id)) { seen.insert(id); queue.enqueue(id); }
+  }
   return seen;
 }
-QHash<QString, int> depths(const QHash<QString, QStringList> &adj, const QStringList &seeds)
+QHash<QString, int> depths(const QHash<QString, QStringList> &adj, const QStringList &seeds, const std::function<bool()> &cancel = {})
 {
   QHash<QString, int> distance;
   QQueue<QString> queue;
@@ -36,6 +38,7 @@ QHash<QString, int> depths(const QHash<QString, QStringList> &adj, const QString
     if (!distance.contains(id)) { distance.insert(id, 0); queue.enqueue(id); }
   while (!queue.isEmpty())
   {
+    if (cancel && cancel()) return {};
     const QString parent = queue.dequeue();
     for (const QString &id : adj.value(parent))
       if (!distance.contains(id)) { distance.insert(id, distance.value(parent) + 1); queue.enqueue(id); }
@@ -44,7 +47,7 @@ QHash<QString, int> depths(const QHash<QString, QStringList> &adj, const QString
 }
 }
 
-Graph Service::build(const DataCatalog *cat, const Query &q)
+Graph Service::build(const DataCatalog *cat, const Query &q, const std::function<bool()> &cancel)
 {
   Graph out;
   if (!cat || !cat->isOpen())
@@ -54,7 +57,7 @@ Graph Service::build(const DataCatalog *cat, const Query &q)
   }
   out.available = true;
   QHash<QString, CatalogVersion> versions;
-  for (const CatalogVersion &v : cat->versions()) versions.insert(v.id, v);
+  for (const CatalogVersion &v : cat->versions()) { if (cancel && cancel()) return {}; versions.insert(v.id, v); }
   QStringList seeds;
   if (!q.versionId.isEmpty())
   {
@@ -82,19 +85,20 @@ Graph Service::build(const DataCatalog *cat, const Query &q)
   seeds.sort();
   QHash<QString, QStringList> parents, children;
   for (const CatalogVersion &v : versions)
-    for (const QString &parent : v.parentVersionIds)
+    for (const QString &parent : v.parentVersionIds) {
+      if (cancel && cancel()) return {};
       if (versions.contains(parent) && !parents[v.id].contains(parent))
       {
         parents[v.id] << parent;
         children[parent] << v.id;
       }
-  const auto up = depths(parents, seeds);
-  // 反查闭包复用既有 API；这里只算层数，绝不新增另一份 catalog 反查接口。
+    }
+  const auto up = depths(parents, seeds, cancel);
+  const auto down = depths(children, seeds, cancel);
+  if (cancel && cancel()) return {};
   QSet<QString> candidates;
   for (auto it = up.cbegin(); it != up.cend(); ++it) candidates.insert(it.key());
-  for (const QString &seed : seeds)
-    for (const CatalogVersion &v : cat->downstreamClosure(seed)) candidates.insert(v.id);
-  const auto down = depths(children, seeds);
+  for (auto it = down.cbegin(); it != down.cend(); ++it) candidates.insert(it.key());
   QStringList staleSeeds;
   QSet<QString> missing;
   QHash<QString, QStringList> entityIds;
@@ -102,6 +106,7 @@ Graph Service::build(const DataCatalog *cat, const Query &q)
   QHash<QString, QString> entityNames;
   for (const QString &id : candidates)
   {
+    if (cancel && cancel()) return {};
     const CatalogVersion &v = versions[id];
     if (v.extra.value(QStringLiteral("stale")).toBool()) staleSeeds << id;
     for (const QString &parent : v.parentVersionIds)
@@ -123,7 +128,7 @@ Graph Service::build(const DataCatalog *cat, const Query &q)
   std::sort(out.entities.begin(), out.entities.end(), [](const Choice &a, const Choice &b) {
     return a.name == b.name ? a.id < b.id : a.name < b.name;
   });
-  const QSet<QString> staleContext = q.staleOnly ? closure(parents, staleSeeds) : QSet<QString>();
+  const QSet<QString> staleContext = q.staleOnly ? closure(parents, staleSeeds, cancel) : QSet<QString>();
   QStringList ordered = candidates.values();
   // 种子优先，再按与种子的最近距离；顺序不依赖 QHash 迭代（截图/折叠可复现）。
   const auto rank = [&up, &down](const QString &id) {
@@ -137,6 +142,7 @@ Graph Service::build(const DataCatalog *cat, const Query &q)
   QSet<QString> visible;
   for (const QString &id : ordered)
   {
+    if (cancel && cancel()) return {};
     const CatalogVersion &v = versions[id];
     const CatalogAsset &asset = assets[v.assetId];
     if ((!q.entityFilter.isEmpty() && !entityIds.value(v.assetId).contains(q.entityFilter)) ||
@@ -201,6 +207,11 @@ QSet<QString> Service::selectionClosure(const DataCatalog *cat, const Graph &gra
       for (const QString &parent : cat->versionById(queue.at(head)).parentVersionIds)
         if (!seen.contains(parent)) { seen.insert(parent); queue << parent; }
     related |= seen;
+  }
+  else {
+    QHash<QString, QStringList> parents, children;
+    for (const auto &edge : graph.edges) { parents[edge.childId] << edge.parentId; children[edge.parentId] << edge.childId; }
+    related |= closure(parents, {id}); related |= closure(children, {id});
   }
   QSet<QString> visible;
   for (const Node &n : graph.nodes) if (related.contains(n.versionId)) visible.insert(n.versionId);

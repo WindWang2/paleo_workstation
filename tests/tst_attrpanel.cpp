@@ -236,8 +236,12 @@ private slots:
     QVERIFY(!vl->isEditable());
     QCOMPARE(vl->getFeature(fid).attribute(0).toString(), QStringLiteral("W1")); // 回滚还原
 
-    // 状态跟随：无会话时可重新进入编辑（#344 起编辑控件由原生表自带，
-    // 面板层不再有独立按钮）。
+    // #344 起编辑控件来自原生 QgsAttributeTableDialog，不再有
+    // attrEdit*Button；会话结束后以图层编辑态为准。
+    QVERIFY(!panel.isEditing());
+    QVERIFY(!vl->isEditable());
+
+    // 状态跟随：无会话时可重新进入编辑（面板层不再有独立按钮）。
     QVERIFY(panel.beginEditing());
     QVERIFY(vl->isEditable());
     QVERIFY(panel.cancelEditing());

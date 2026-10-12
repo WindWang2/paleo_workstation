@@ -10,6 +10,7 @@
 #           → 359（方向 38 移植：解释岩性道未命中词表段中性灰占位底
 #           QColor(217,222,228)，DESIGN 数据符号例外域评审随旧分支三轮
 #           review 已收口，非新增违规）
-#           → 358（issue-fix 清理 stale 例外：trackpatterns.cpp 的
-#           tile.fill(Qt::white) 行已改为读外观色，例外随之失效删除）。
+#           → 358（#350 trackpatterns 改为按外观色填充，Qt::white 例外过期；
+#           issue-fix 清理 stale 例外：trackpatterns.cpp 的 tile.fill(Qt::white)
+#           行已改为读外观色，例外随之失效删除）。
 358

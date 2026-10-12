@@ -156,6 +156,7 @@ public:
   {
     return m_tags.value(assetId);
   }
+  QHash<QString, QStringList> snapshot() const { return m_tags; }
   // 打/去标签（幂等：已存在则不变，返回是否有变更）。
   bool addTag(const QString &assetId, const QString &tag)
   {
@@ -246,6 +247,7 @@ public:
   {
     return m_types.value(assetId);
   }
+  QHash<QString, QString> snapshot() const { return m_types; }
   bool setType(const QString &assetId, const QString &type)
   {
     if (type.isEmpty())
@@ -336,6 +338,7 @@ public:
   {
     return m_map.value(entityId);
   }
+  QHash<QString, EntityOverride> snapshot() const { return m_map; }
   void setOverride(const QString &entityId, const EntityOverride &o)
   {
     if (o.isEmpty())
@@ -427,6 +430,7 @@ public:
   }
   QVector<RecycleEntry> entries() const { return m_entries; }
   bool isRemoved(const QString &assetId) const { return m_removed.contains(assetId); }
+  QSet<QString> removedIds() const { return m_removed; }
   void remove(const QString &assetId, const QString &type,
               const QString &displayName, const QString &reason)
   {

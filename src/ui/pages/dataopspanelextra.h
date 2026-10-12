@@ -380,7 +380,8 @@ public:
     QGraphicsEllipseItem *item = nullptr;
   };
 
-  void loadTopology(DataCatalog *cat, const EntityOverrideStore &overrides)
+  void loadTopology(DataCatalog *cat, const EntityOverrideStore &overrides,
+                    const QString &entityId = {}, const QString &assetId = {})
   {
     m_scene.clear();
     m_nodes.clear();
@@ -388,8 +389,27 @@ public:
     m_assetNodeIdx.clear();
     if (!cat)
       return;
-    const QVector<CatalogEntity> ents = cat->entities();
-    const QVector<CatalogAsset> assets = cat->assets();
+    QVector<CatalogEntity> ents;
+    QVector<CatalogAsset> assets;
+    QVector<EntityAssetLink> links;
+    // Sidebar is a bounded one-hop context; full work-area topology belongs to
+    // the background data graph. Never create thousands of GUI items here.
+    if (!assetId.isEmpty()) links = cat->linksForAsset(assetId);
+    else if (!entityId.isEmpty()) links = cat->linksForEntity(entityId);
+    QSet<QString> entitiesSeen, assetsSeen;
+    const auto addEntity = [&](const QString &id) {
+      if (id.isEmpty() || entitiesSeen.contains(id) || ents.size() >= 64) return;
+      const auto e = cat->entityById(id); if (e.id.isEmpty()) return;
+      ents.append(e); entitiesSeen.insert(id);
+    };
+    const auto addAsset = [&](const QString &id) {
+      if (id.isEmpty() || assetsSeen.contains(id) || assets.size() >= 64) return;
+      const auto a = cat->assetById(id); if (a.id.isEmpty()) return;
+      assets.append(a); assetsSeen.insert(id);
+    };
+    addEntity(entityId); addAsset(assetId);
+    for (const auto &link : links) { addEntity(link.entityId); addAsset(link.assetId); }
+    setToolTip(tr("当前资料 / 实体的一层关联，最多各 64 项；完整关联请打开资料图谱"));
     const int n = qMax(ents.size(), assets.size());
     if (n == 0)
       return;
@@ -435,7 +455,7 @@ public:
       ++row;
     }
     // 边：链接（未决 = 虚线 warning 色）。
-    for (const EntityAssetLink &l : cat->links())
+    for (const EntityAssetLink &l : links)
     {
       const Node *en = nodeById(l.entityId, true);
       const Node *an = nodeById(l.assetId, false);

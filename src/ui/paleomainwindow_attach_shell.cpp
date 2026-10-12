@@ -26,6 +26,9 @@
 #include "ai/llmconfigdialog.h"                 // 方向62：图形化配置对话框
 #include "pages/datapage.h"                     // 方向93：结果卡导航 → 数据页定位
 #include "../workflow/aichatcontroller.h"
+#include "../workflow/mappingworkbench.h"
+#include "../services/previewdoc.h"
+#include "../catalog/datacatalog.h"
 #include "../ai/chat/llmclient.h"               // LlmConfig（对话框装配面 + path() 配置说明）
 #include "shortcuts/shortcutcatalog.h" // 方向63：快捷键中央注册表
 
@@ -268,6 +271,28 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
       const int idx = bottomTabs->indexOf(
           bottomTabs->findChild<QTextEdit *>(QStringLiteral("tasksPlaceholder")));
       auto *taskPanel = new TaskPanel(store, taskSvc, bottomTabs);
+      connect(taskPanel, &TaskPanel::graphRequested, this,
+              [this, taskSvc](const QVariantMap &context, const QString &layer, quint64 session) {
+        if (!taskSvc || session != taskSvc->session() || !m_previewDoc || !m_previewDoc->catalog()) {
+          statusBar()->showMessage(tr("该任务属于已关闭的工区"), 8000); return;
+        }
+        auto *cat = m_previewDoc->catalog();
+        if (!context.value("catalog_path").toString().isEmpty() &&
+            context.value("catalog_path").toString() != cat->catalogPath()) {
+          statusBar()->showMessage(tr("该任务属于其他工区"), 8000); return;
+        }
+        const auto focus = context.value("graph_focus").toString();
+        if (focus.startsWith("version:")) openDataGraph({}, focus.mid(8));
+        else if (focus.startsWith("activity:")) openDataGraph({}, focus.mid(9));
+        else if (focus.startsWith("asset:")) openDataGraph(focus.mid(6));
+        else if (focus.startsWith("entity:")) openDataGraph({}, {}, focus.mid(7));
+        else if (!context.value("version_id").toString().isEmpty()) openDataGraph({}, context.value("version_id").toString());
+        else if (!layer.isEmpty() && m_workbench) {
+          const auto version = m_workbench->versionForLayer(layer);
+          if (version.id.isEmpty()) { statusBar()->showMessage(tr("该任务暂未登记可追溯的成果版本"), 8000); return; }
+          openDataGraph(version.assetId, version.id);
+        } else openDataGraph();
+      });
       if (idx >= 0)
       {
         QWidget *old = bottomTabs->widget(idx);
@@ -677,9 +702,7 @@ void PaleoMainWindow::attachAiAssistant(AiChatController *controller)
           [this](const QString &assetId, const QString &versionId) {
             if (assetId.isEmpty() || versionId.isEmpty())
               return;
-            showPage(QStringLiteral("data"));
-            if (auto *dataPage = findChild<DataPage *>())
-              dataPage->focusVersion(assetId, versionId);
+            openDataGraph(assetId, versionId, {}, true);
           });
 }
 

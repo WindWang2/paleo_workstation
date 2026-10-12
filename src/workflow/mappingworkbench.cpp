@@ -184,6 +184,9 @@ void MappingWorkbench::beginPredictionTask(const QString &title) {
     return;
   auto *task = m_taskSvc->beginExternal(title);
   m_task = task;
+  task->setNavigationContext({{"catalog_path", m_catalog ? m_catalog->catalogPath() : QString()},
+      {"graph_focus", m_request.sourceVersionIds.isEmpty() ? QString() : QStringLiteral("version:") + m_request.sourceVersionIds.first()},
+      {"request_id", m_request.id}, {"horizon", m_request.horizon}});
   connect(task, &PaleoTask::cancelAsked, this, [this, task] {
     if (m_task == task)
       cancelPrediction();
@@ -1466,7 +1469,7 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &result) {
         for (const auto &source : result.request.sourceVersionIds)
           if (!m_catalog->versionById(source).id.isEmpty()) sourceVersions << source;
       sourceVersions.removeDuplicates();
-      record(path, request.horizon, request.kind + "_prediction",
+      const auto outputLayer = record(path, request.horizon, request.kind + "_prediction",
              tr("%1 %2预测%3")
                  .arg(request.horizon,
                       request.kind == "seismic" ? tr("地震相")
@@ -1476,6 +1479,10 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &result) {
              sourceVersions,
              parameters,
              &error);
+      const auto outputVersion = versionForLayer(outputLayer);
+      if (m_task && !outputVersion.id.isEmpty())
+        m_task->setNavigationContext({{"catalog_path", m_catalog->catalogPath()},
+            {"version_id", outputVersion.id}, {"request_id", request.id}, {"horizon", request.horizon}});
     }
   }
   m_request = {};

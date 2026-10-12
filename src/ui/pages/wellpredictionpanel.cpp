@@ -34,6 +34,11 @@ WellPredictionPanel::WellPredictionPanel(QWidget *parent) : QWidget(parent) {
   m_save = new QPushButton(tr("保存修订版本"), this);
   bar->addWidget(m_save);
   m_save->setObjectName("saveWellPrediction");
+  auto *graph = new QPushButton(tr("资料关联 / 成果追溯"), this);
+  graph->setObjectName("wellPredictionGraph"); bar->addWidget(graph);
+  connect(graph, &QPushButton::clicked, this, [this] {
+    if (!m_layer.isEmpty()) emit graphRequested(m_layer);
+  });
   m_status = new QLabel(this);
   m_status->setWordWrap(true);
   PaleoTheme::applyThemedStyleSheet(m_status, [] {

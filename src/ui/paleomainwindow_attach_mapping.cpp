@@ -59,6 +59,11 @@ void PaleoMainWindow::attachMapping(MappingWorkflow *mapping, MapVersionControll
   if (m_projectSvc)
     connect(m_projectSvc, &QgisProjectService::projectOpened, this,
             [this]() { if (m_refreshPublishGate) m_refreshPublishGate(); });
+  // 发布门按当前层位取版本/残差——chip 切层后必须重算，否则按钮态与
+  // 版本胶囊滞留旧层位（对照下方 setThicknessHorizon 的同源联动）。
+  if (m_selection)
+    connect(m_selection, &SelectionContext::activeHorizonChanged, this,
+            [this]() { if (m_refreshPublishGate) m_refreshPublishGate(); });
   if (m_refreshPublishGate)
     m_refreshPublishGate(); // 初始态：缺什么写什么，按钮禁用
 }

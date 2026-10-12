@@ -1028,6 +1028,67 @@ class TestPanels : public QObject
       QCOMPARE(table->rowCount(), 0);
     }
 
+    void validatePage_clearResultsResetsProjectArtifacts()
+    {
+      // 工程边界（2026-10-12 深化）：切工程后问题/残差表、剖面导航 armed
+      // 载荷、摘要文案全部收回——旧工程残差不得冒充新工程状态。
+      ValidatePage page(nullptr);
+      auto *issues = page.findChild<QTableWidget *>(QStringLiteral("issueTable"));
+      auto *residuals = page.findChild<QTableWidget *>(QStringLiteral("residualTable"));
+      auto *summary = page.findChild<QLabel *>(QStringLiteral("residualSummaryLabel"));
+      auto *section =
+          page.findChild<QPushButton *>(QStringLiteral("openSeismicSectionButton"));
+      QVERIFY(issues && residuals && summary && section);
+
+      // 模拟上一工程的滞留态。
+      issues->setRowCount(1);
+      issues->setItem(0, 0, new QTableWidgetItem(QStringLiteral("SRC_MISSING")));
+      QVariantMap row;
+      row.insert(QStringLiteral("well_name"), QStringLiteral("W1"));
+      row.insert(QStringLiteral("status"), QStringLiteral("exceed"));
+      row.insert(QStringLiteral("residual_ms"), 12.0);
+      ValidatePage::fillResidualTable(residuals, {row});
+      summary->setText(QStringLiteral("3 口超过 10 ms"));
+      QVariantMap armed;
+      armed.insert(QStringLiteral("inline"), 1000);
+      section->setProperty("armedPayload", armed);
+      section->setEnabled(true);
+
+      page.clearResults();
+      QCOMPARE(issues->rowCount(), 0);
+      QCOMPARE(residuals->rowCount(), 0);
+      QVERIFY(summary->text().startsWith(QStringLiteral("还没有计算")));
+      QVERIFY(!section->isEnabled());
+      QCOMPARE(section->property("armedPayload").toMap(), QVariantMap());
+    }
+
+    void validatePage_busyWritesReasonTooltip()
+    {      // §35：验证运行中按钮禁用必须带原因 tooltip；无论 workflow 同步拒绝
+      // （立即复位）还是异步跑完（validationFinished 复位），tooltip 都要
+      // 一并恢复为空。
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      LayerManifest manifest(dir.filePath(QStringLiteral("v.sqlite")));
+      QgisLayerService layers(nullptr, &manifest);
+      ValidationWorkflow wf(&layers, nullptr);
+      ValidatePage page(&wf);
+      auto *run = page.findChild<QPushButton *>(QStringLiteral("runButton"));
+      QVERIFY(run && run->isEnabled());
+      QVERIFY(run->toolTip().isEmpty());
+
+      QSignalSpy finished(&wf, &ValidationWorkflow::validationFinished);
+      run->click();
+      if (!run->isEnabled())
+      {
+        // 异步路径：运行中禁用必须带原因 tooltip。
+        QVERIFY(!run->toolTip().isEmpty());
+        QVERIFY(finished.wait(10000));
+      }
+      QVERIFY(run->isEnabled());
+      QCOMPARE(run->text(), QStringLiteral("运行验证"));
+      QVERIFY(run->toolTip().isEmpty());
+    }
+
     void validatePage_populatesAndLocates()
     {
       QTemporaryDir dir;

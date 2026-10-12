@@ -49,6 +49,18 @@ void PaleoMainWindow::attachComposePage(ComposePage *composePage,
               const QString horizon = m_selection ? m_selection->activeHorizon() : QString();
               if (compose->fuseFactors(horizon, factorIds, &err))
                 composePage->refreshFactors();
+              else
+              {
+                // 失败原因落地到页面状态行（空清单/未声明/解释性层拒绝等
+                // 全在 workflow 的 err 里），不再静默吞掉。
+                if (!err.isEmpty())
+                  QgsMessageLog::logMessage(err, QStringLiteral("Paleo"),
+                                            Qgis::MessageLevel::Warning);
+                if (auto *status = composePage->findChild<QLabel *>(QStringLiteral("statusLabel")))
+                  status->setText(err.isEmpty()
+                                      ? tr("合成编图失败，请检查所选图层与当前层位")
+                                      : err);
+              }
             });
     connect(composePage, &ComposePage::polygonizeRequested, this,
             [this, compose, composePage](const QString &rasterId, double minArea, double simplify) {

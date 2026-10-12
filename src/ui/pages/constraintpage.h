@@ -41,6 +41,9 @@ class ConstraintPage : public QWidget
     ConstraintPage(ConstraintWorkflow *wf, QWidget *parent = nullptr);
     // 重读厚度样本属性并刷新逐井表（井名/D61 TVD/D62 TVD/层间速度或原因）。
     void refreshThicknessSamples();
+    // 填充层位下拉（工程打开后由壳按 mappingHorizons() 喂入；保留仍在
+    // 词表内的当前选择，变更链照常触发——约束列表/井因子随新层位刷新）。
+    void setHorizons(const QStringList &horizons);
 
     // ---- m2(B) ----
     // 绑定图层服务（只读门面：layerDeclared → 状态列刷新；再绑时重读清单）。

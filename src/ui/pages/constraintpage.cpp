@@ -163,6 +163,19 @@ void ConstraintPage::wireFactorTableSelection( QTableWidget *factors )
   // ---- m2(B) 双区 end ------------------------------------------------------
 }
 
+void ConstraintPage::setHorizons( const QStringList &horizons )
+{
+  auto *combo = child<QComboBox>( this, "horizonCombo" );
+  if ( !combo )
+    return;
+  const QString keep = combo->currentText();
+  combo->clear();
+  combo->addItems( horizons ); // clear/addItems 触发 currentIndexChanged → 约束列表/井因子随层位刷新
+  if ( !keep.isEmpty() )
+    if ( const int idx = combo->findText( keep ); idx >= 0 && idx != combo->currentIndex() )
+      combo->setCurrentIndex( idx );
+}
+
 void ConstraintPage::refreshThicknessSamples()
 {
   auto *table = child<QTableWidget>( this, "thicknessTable" );

@@ -373,8 +373,8 @@ bool QgisLayerProfileService::renameTheme(const QString &oldName, const QString 
       newName.startsWith(QStringLiteral("page:")))
     return false;
 
-  // 原生 renameMapTheme（QGIS ≥3.14）：单次原子操作，且发专用
-  // mapThemeRenamed 信号（insert+remove 两步发两次 mapThemesChanged）。
+  // 原生 renameMapTheme（QGIS ≥3.14）：语义单调用 + 专用 mapThemeRenamed
+  // 信号（实现内部仍走 insert/remove，但由上游保证一致性顺序与失败回滚）。
   return collection->renameMapTheme(oldName, newName);
 }
 

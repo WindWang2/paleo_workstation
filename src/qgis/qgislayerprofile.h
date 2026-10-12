@@ -82,7 +82,7 @@ class QgisLayerProfileService : public QObject
     bool captureCurrentAsTheme(const QString &name);
     bool applyTheme(const QString &name);
     bool removeMapTheme(const QString &name);
-    // 重命名（2026-10-12 深化）：走原生 renameMapTheme（≥3.14，原子操作 +
+    // 重命名（2026-10-12 深化）：走原生 renameMapTheme（≥3.14，语义单调用 +
     // 专用 mapThemeRenamed 信号）。拒绝空名/同名/新名已占用/旧名不存在，
     // 以及 page:* 前缀（任一侧）——页面档案按 pageId 重建，且 .qgz 版面地图
     // 项钉的 followVisibilityPresetName 会随改名悬空，服务层硬拒。

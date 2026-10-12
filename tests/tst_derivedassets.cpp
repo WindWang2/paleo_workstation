@@ -33,6 +33,10 @@ private slots:
   void abandonedStageLeavesNoAsset();
   void rerunAfterAbandonedStageYieldsSingleAsset();
   void commitMergesIntoAssetCreatedMeanwhile();
+  // A5 review P1：任务中心 prepare/publish 分属不同 registrar 实例——预留
+  // 信息必须随 staging 走，跨实例 commit 能结算（constraintfactorjobs_
+  // localdirection/_geostat 生产形态）。
+  void crossRegistrarCommitSettlesReservation();
 
 private:
   static bool writeBytes(const QString &path, const QByteArray &bytes)
@@ -373,6 +377,41 @@ void TestDerivedAssets::commitMergesIntoAssetCreatedMeanwhile()
   QVERIFY(f.open(QIODevice::ReadOnly));
   QCOMPARE(f.readAll(), QByteArrayLiteral("late"));
   QVERIFY(!QFile::exists(stA.absolutePath)); // 旧预留路径已让位
+}
+
+// 任务中心生产形态：prepare 阶段局部 registrar stage 后消亡，publish 阶段
+// 全新 registrar 拿着 staging commit——预留结算只认注册器私有状态时这里
+// 会 addVersion 拒绝 "version references unknown asset"（A5 review P1）。
+void TestDerivedAssets::crossRegistrarCommitSettlesReservation()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  DataCatalog cat;
+  QString err;
+  QVERIFY2(cat.open(dir.path(), &err), qPrintable(err));
+
+  DerivedStaging st;
+  {
+    DerivedAssetRegistrar preparer(&cat, dir.path()); // prepare 侧，随作用域消亡
+    st = preparer.stage(QStringLiteral("single_factor_raster"),
+                        QStringLiteral("D61 本地方向"),
+                        QStringLiteral("factor.tif"), &err);
+    QVERIFY2(st.isValid(), qPrintable(err));
+    QCOMPARE(countAssetsOfType(cat, QStringLiteral("single_factor_raster")), 0);
+  }
+  QVERIFY(writeBytes(st.absolutePath, QByteArrayLiteral("computed")));
+
+  DerivedAssetRegistrar publisher(&cat, dir.path()); // publish 侧，全新实例
+  QVERIFY2(publisher.commit(st, {}, QStringLiteral("localdirection"), {}, &err),
+           qPrintable(err));
+  QCOMPARE(countAssetsOfType(cat, QStringLiteral("single_factor_raster")), 1);
+  const CatalogVersion v = cat.currentVersion(st.assetId);
+  QVERIFY(!v.id.isEmpty());
+  QCOMPARE(v.versionNumber, 1);
+
+  DataCatalog reloaded;
+  QVERIFY2(reloaded.open(dir.path(), &err), qPrintable(err));
+  QCOMPARE(countAssetsOfType(reloaded, QStringLiteral("single_factor_raster")), 1);
 }
 
 QTEST_MAIN(TestDerivedAssets)

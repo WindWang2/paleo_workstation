@@ -1847,7 +1847,10 @@ class TestUiShell : public QObject
       DerivedAssetRegistrar registrar(catalog,dir.path());auto st=registrar.stage("seismic","示例地震体","volume.bin");QVERIFY(st.isValid());QFile source(st.absolutePath);QVERIFY(source.open(QIODevice::WriteOnly));source.write("mock volume");source.close();QVERIFY(registrar.commit(st,{},"test",{}));
       CatalogEntity e;e.id="workbench-survey";e.name="示例工区";e.entityType="seismic_survey";e.corners={{0,0},{640,0},{640,640},{0,640}};QVERIFY(catalog->addEntity(e));EntityAssetLink link;link.entityType=e.entityType;link.entityId=e.id;link.assetId=st.assetId;link.role="seismic_volume";QVERIFY(catalog->addLink(link));
       auto *page=m_win->findChild<MappingWorkbenchPage *>("mappingWorkbench.predict");QVERIFY(page);auto *inputs=page->findChild<QListWidget *>("workbenchInputs");QVERIFY(inputs);
-      // #346：catalog changed→scheduleRefresh（0ms 定时器），需事件循环落地。
+      // #346：catalog→queued sync→scheduleRefresh；测例显式切到「地震体」并 refresh。
+      auto *kind=page->findChild<QComboBox *>("predictionKind");QVERIFY(kind);
+      kind->setCurrentIndex(kind->findData(QStringLiteral("seismic")));
+      page->refresh();
       QTRY_COMPARE(inputs->count(), 1);inputs->item(0)->setCheckState(Qt::Checked);
       // 预测类型默认是本地层位窗聚类（seismic_mock，需层位数据）；本用例
       // 验证注入的远端替身——先切到「地震体 → 相栅格（预测服务）」。

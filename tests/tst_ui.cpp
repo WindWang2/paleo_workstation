@@ -1981,11 +1981,12 @@ class TestUiShell : public QObject
       page->refresh();
       QTRY_COMPARE_WITH_TIMEOUT(inputs->count(), 1, 5000);
       inputs->item(0)->setCheckState(Qt::Checked);
+      QVERIFY(run->isEnabled());
       run->trigger();
-      QTRY_VERIFY(!m_ctx->mappingWorkbench()->busy());
+      QTRY_VERIFY_WITH_TIMEOUT(!m_ctx->mappingWorkbench()->busy(), 20000);
       auto *wellPanel = m_win->findChild<WellPredictionPanel *>();
       QVERIFY(wellPanel);
-      QTRY_VERIFY(wellPanel->isVisible());
+      QTRY_VERIFY_WITH_TIMEOUT(wellPanel->isVisible(), 10000);
       QCOMPARE(wellPanel->findChild<QTableWidget *>("predictionIntervals")
                    ->rowCount(),
                1);

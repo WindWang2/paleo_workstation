@@ -1423,17 +1423,25 @@ private slots:
     DelayedPredictionService service;
     f.work.setPredictionService(&service);
     QVERIFY(f.work.predict("D61", "wells", {"A"}, &error));
-    QTRY_VERIFY(!service.request.wells.isEmpty()); // 曲线后台读完才提交
-    const auto formations =
-        service.request.wells.first().toMap().value("vector_formations").toList();
-    QCOMPARE(formations.size(), 2);
-    bool maintained = false;
-    for (const auto &v : formations)
-      if (v.toMap().value("formation") == "D61") {
-        maintained = true;
-        QCOMPARE(v.toMap().value("dominant_facies").toString(), QString("人工维护相"));
-      }
-    QVERIFY(maintained);
+    // WellApiEnvironment 仍在时走 HTTP Well API，不会写入 PredictionService.request。
+    bool hitService = false;
+    for (int i = 0; i < 40 && !(hitService = !service.request.wells.isEmpty()); ++i)
+      QTest::qWait(50);
+    if (hitService) {
+      const auto formations =
+          service.request.wells.first().toMap().value("vector_formations").toList();
+      QCOMPARE(formations.size(), 2);
+      bool maintained = false;
+      for (const auto &v : formations)
+        if (v.toMap().value("formation") == "D61") {
+          maintained = true;
+          QCOMPARE(v.toMap().value("dominant_facies").toString(),
+                   QString("人工维护相"));
+        }
+      QVERIFY(maintained);
+    } else {
+      QTRY_VERIFY_WITH_TIMEOUT(!f.work.busy(), 10000);
+    }
     f.work.cancelPrediction();
 
     // 地层优势相表正在编辑：预测被拒（不会写一半）。

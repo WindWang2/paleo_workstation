@@ -1848,8 +1848,8 @@ class TestUiShell : public QObject
       CatalogEntity e;e.id="workbench-survey";e.name="示例工区";e.entityType="seismic_survey";e.corners={{0,0},{640,0},{640,640},{0,640}};QVERIFY(catalog->addEntity(e));EntityAssetLink link;link.entityType=e.entityType;link.entityId=e.id;link.assetId=st.assetId;link.role="seismic_volume";QVERIFY(catalog->addLink(link));
       auto *page=m_win->findChild<MappingWorkbenchPage *>("mappingWorkbench.predict");QVERIFY(page);auto *inputs=page->findChild<QListWidget *>("workbenchInputs");QVERIFY(inputs);
       // #346：catalog→queued sync→scheduleRefresh；测例显式切到「地震体」并 refresh。
-      auto *kind=page->findChild<QComboBox *>("predictionKind");QVERIFY(kind);
-      kind->setCurrentIndex(kind->findData(QStringLiteral("seismic")));
+      auto *predKind=page->findChild<QComboBox *>("predictionKind");QVERIFY(predKind);
+      predKind->setCurrentIndex(predKind->findData(QStringLiteral("seismic")));
       page->refresh();
       QTRY_COMPARE(inputs->count(), 1);inputs->item(0)->setCheckState(Qt::Checked);
       // 预测类型默认是本地层位窗聚类（seismic_mock，需层位数据）；本用例
@@ -1931,7 +1931,7 @@ class TestUiShell : public QObject
         PaleoTheme::applyLightTheme();
         PaleoRibbon::applyTheme(m_win, PaleoTheme::shellStyleSheet() + PaleoTheme::focusRingStyleSheet());
       }
-      page->commandButton("polygonize")->click();QVERIFY(page->selectedLayer()!=id);QVERIFY(page->commandButton("copy")->isEnabled());
+      page->commandButton("polygonize")->click();QTRY_VERIFY_WITH_TIMEOUT(page->selectedLayer()!=id, 30000);QTRY_VERIFY_WITH_TIMEOUT(!m_ctx->mappingWorkbench()->busy(), 30000);QVERIFY(page->commandButton("copy")->isEnabled());
       page->commandButton("copy")->click();const auto draft=page->selectedLayer();QVERIFY2(draft.startsWith("draft."),qPrintable(page->findChild<QLabel *>("workbenchMessage")->text()));auto *editing=m_win->findChild<PaleoEditingToolbar *>("editingToolbar");QVERIFY(editing && editing->isEditing());auto previous=m_ctx->mappingWorkbench()->versionForLayer(draft);auto *vector=editing->currentLayer();QVERIFY(vector);
       m_win->showPage("data"); dataPage->focusVersion(mapVersion.assetId,mapVersion.id);
       dataReference->click(); QVERIFY(editing->isEditing()); QCOMPARE(editing->currentLayer(),vector);

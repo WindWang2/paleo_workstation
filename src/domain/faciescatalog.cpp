@@ -209,8 +209,12 @@ QVariantMap formationPrediction(const QVariantMap &source, const QVariantList &s
   }
   const bool range = std::isfinite(top) && std::isfinite(base) && base > top;
   const auto code = point.value("facies_code");
-  const bool predicted = range && !code.isNull() && code.toInt() > 0 &&
-      point.value("prediction_status").toString() != QStringLiteral("未预测");
+  const QString status = point.value("prediction_status").toString();
+  // 人工修订（已修订）即使缺地层顶底也保留相码——否则 assignFacies 刚写入的
+  // facies_code 会被本函数在 !range 时清空，修订面板读回永远是 0。
+  const bool predicted = !code.isNull() && code.toInt() > 0 &&
+      status != QStringLiteral("未预测") &&
+      (range || status == QStringLiteral("已修订"));
   const auto attrs = attributes(schema, code);
   const QString label = predicted ? attrs.value("facies_label").toString() : QStringLiteral("未预测");
   for (auto a = attrs.cbegin(); a != attrs.cend(); ++a)
@@ -230,7 +234,8 @@ QVariantMap formationPrediction(const QVariantMap &source, const QVariantList &s
     point.insert("formation_base", QVariant());
   }
   if (!predicted) {
-    point.insert("prediction_status", QStringLiteral("未预测"));
+    if (status != QStringLiteral("已修订"))
+      point.insert("prediction_status", QStringLiteral("未预测"));
     if (point.value("prediction_reason").toString().isEmpty())
       point.insert("prediction_reason", range ? QObject::tr("当前地层没有预测相")
                                               : QObject::tr("缺少当前地层的有效顶底深"));

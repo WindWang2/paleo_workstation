@@ -92,6 +92,7 @@
 #include <QToolButton>
 #include <QStackedWidget>
 #include <QTabWidget>
+#include <QTabBar>
 #include <QTableWidget>
 #include <QUrl>
 #include <QVBoxLayout>
@@ -164,11 +165,23 @@ DataPreviewTabs::DataPreviewTabs(QWidget *parent)
     const QString assetId = assetIdAt(index);
     if (!assetId.isEmpty())
       closeAssetTab(assetId);
+    else if (auto *page = m_tabs->widget(index); page && page->property("paleo.workspacePage").toBool()) {
+      m_tabs->removeTab(index); page->hide(); page->setParent(this);
+      if (!m_tabs->count()) { m_tabs->hide(); m_emptyLabel->show(); }
+    }
   });
   connect(m_tabs, &QTabWidget::currentChanged, this, [this](int index) {
     if (index >= 0)
       focusWellIfNeeded(assetIdAt(index), m_tabs->widget(index));
     syncDetails();
+  });
+  m_tabs->tabBar()->setContextMenuPolicy(Qt::CustomContextMenu);
+  connect(m_tabs->tabBar(), &QWidget::customContextMenuRequested, this, [this](const QPoint &point) {
+    const int index = m_tabs->tabBar()->tabAt(point); const QString asset = assetIdAt(index);
+    if (asset.isEmpty() || asset == QLatin1String("survey_area")) return;
+    const QString version = versionIdAt(index);
+    QMenu menu(this); auto *graph = menu.addAction(tr("查看资料关联图谱"));
+    if (menu.exec(m_tabs->tabBar()->mapToGlobal(point)) == graph) emit graphRequested(asset, version);
   });
   // D7 最大化 affordance：右上角 checkable 钮，切换时只发意图信号——实际
   // 分栏尺寸由 shell 决定。空态时 tabs 隐藏，按钮随之隐藏。
@@ -299,6 +312,15 @@ int DataPreviewTabs::tabCount() const
   return m_tabs->count();
 }
 
+void DataPreviewTabs::openWorkspace(QWidget *widget, const QString &title)
+{
+  if (!widget) return;
+  widget->setProperty("paleo.workspacePage", true);
+  int index = m_tabs->indexOf(widget);
+  if (index < 0) index = m_tabs->addTab(widget, title);
+  m_emptyLabel->hide(); m_tabs->show(); m_tabs->setCurrentIndex(index); widget->show();
+}
+
 QString DataPreviewTabs::assetIdAt(int index) const
 {
   QWidget *w = m_tabs->widget(index);
@@ -353,6 +375,7 @@ void DataPreviewTabs::closeAllTabs()
     m_tabs->removeTab(0);
     if (w)
     {
+      if (w->property("paleo.workspacePage").toBool()) { w->hide(); w->setParent(this); continue; }
       w->setParent(nullptr);
       w->deleteLater();
     }

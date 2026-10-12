@@ -217,6 +217,10 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
                                    tr("按数据目录重建列表"), "ribbonRefreshList");
       connect(refresh, &QAction::triggered, data, &DataPage::refreshAssetTable);
       addLarge(lp, refresh);
+      QAction *graph = newAction(tr("资料图谱"), icon("mActionAllEdits.svg"),
+                                 tr("查看文件资料关联、版本与成果来源"), "ribbonDataGraph");
+      connect(graph, &QAction::triggered, data, &DataPage::openDataGraph);
+      addLarge(lp, graph);
     }
 
     auto *maxBtn = m_previewTabs

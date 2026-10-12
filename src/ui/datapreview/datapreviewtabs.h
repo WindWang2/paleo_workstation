@@ -70,6 +70,8 @@ class DataPreviewTabs : public QWidget
     // 从资产列表选中一条资产：已有标签则聚焦，否则新开一个可关闭标签。
     void openAsset(const QString &assetId);
     void openVersion(const QString &versionId);
+    // 中央资料图谱复用同一标签宿主；工作区页不登记成文件资产。
+    void openWorkspace(QWidget *widget, const QString &title);
     // 打开指定资产并选定特定井（如 DC.dat 多井分层表或井口表预选该井）
     void openAssetForWell(const QString &assetId, const QString &wellId);
 
@@ -97,6 +99,7 @@ class DataPreviewTabs : public QWidget
                                    const QString &pickedPath);
 
   signals:
+    void graphRequested(const QString &assetId, const QString &versionId);
     void versionContextChanged(const QString &assetId, const QString &versionId);
     // well_head 标签被选中/聚焦时，地图高亮该井（§4）。
     void wellSelected(const QString &wellEntityId);

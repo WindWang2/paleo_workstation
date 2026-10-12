@@ -554,6 +554,7 @@ add_library(paleo_io STATIC
 target_link_libraries(paleo_io PUBLIC paleo_deps paleo_domain paleo_store)
 
 add_library(paleo_services STATIC
+  src/services/datagraph.cpp
   src/services/toolavailability.cpp
   src/services/previewdoc.cpp                       # W1 数据页唯一数据门面
   src/services/previewdoc_xml.cpp
@@ -591,6 +592,7 @@ add_library(paleo_linkage STATIC
 target_link_libraries(paleo_linkage PUBLIC paleo_deps paleo_services paleo_qgis paleo_domain)
 
 add_library(paleo_workflow STATIC
+  src/workflow/datagraphworkflow.cpp
   src/workflow/officepreviewsession.cpp
   src/workflow/projectlayerrefresh.cpp
   src/workflow/xmlpreviewsession.cpp
@@ -637,6 +639,7 @@ target_link_libraries(paleo_workflow PUBLIC paleo_deps paleo_qgis paleo_store pa
 
 # ---- 视图层 ----
 add_library(paleo_ui STATIC
+  src/ui/pages/datagraphpage.cpp
   src/ui/datapreview/officepreviewwidget.cpp
   src/ui/datapreview/datapreviewtabxml.cpp
   src/ui/notifications/notificationcenter.cpp      # 方向64：错误呈现（通知卡/severe 模态/状态栏）

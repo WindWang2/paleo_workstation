@@ -1,6 +1,7 @@
 // 层：视图
 // paleomainwindow_attach_data — 数据管理页接线（W4 拆分段）
 #include "paleomainwindow.h"
+#include "pages/datagraphpage.h"
 
 #include "paleotheme.h"
 #include "../qgis/qgiscanvascontroller.h"
@@ -134,6 +135,15 @@ void PaleoMainWindow::attachDataPage(DataPage *dataPage,
     {
       preview->setDocService(m_previewDoc);
       preview->setTaskService(taskSvc); // D1：剖面索引/解码异步化（nullptr 时保持同步）
+      const auto openGraph = [this, preview, dataPage](const QString &asset, const QString &version) {
+        auto *graph = dataPage->graphPage();
+        graph->setPresentation(dataPage->listPanel()->graphPresentation());
+        preview->openWorkspace(graph, tr("资料图谱"));
+        graph->openRelations(asset, version);
+        if (m_workspaceStack) m_workspaceStack->setCurrentWidget(preview);
+      };
+      connect(dataPage, &DataPage::graphRequested, this, openGraph);
+      connect(preview, &DataPreviewTabs::graphRequested, this, openGraph);
       if (m_projectSvc)
         preview->setProject(m_projectSvc->project());
       // D11 临时配准：GeoJSON 标签手工仿射 → DERIVED + 水印图层。

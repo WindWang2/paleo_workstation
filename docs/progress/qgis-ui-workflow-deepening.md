@@ -11,7 +11,7 @@ mappingworkbench 核心）零写入；Open Issues #351–#421 全量排除（矩
 `.goal-loop-ledger-qgis-ui-deepening.md`）；Open PR #422/#423/#424 占用
 文件零触碰。
 
-## 交付内容（5 commits）
+## 交付内容（7 commits）
 
 | Commit | 主题 | 对应任务线 |
 |---|---|---|
@@ -20,6 +20,8 @@ mappingworkbench 核心）零写入；Open Issues #351–#421 全量排除（矩
 | `c8805c05` | 标准导出流图签块（TODOS P3 规范图件四要素收口） | B-R4 |
 | `77fcf5f0` | 层位状态一致性（页面下拉填充/chip 联动/验证页工程复位/切页单次档案应用）+ 新 shell 测试 | B-R1/B-R5 |
 | `3d1cde81` | renameTheme 原生 renameMapTheme + page:* 服务层硬拒 | B-R2 |
+| `28d3817f` | TODOS/账本/进度文档 | 文档 |
+| `72198262`/`73078358` | attach 改动事故恢复（详见下）+ Review 注释修正 | 修复 |
 
 ### B-R1 页面状态与动作统一
 
@@ -86,32 +88,42 @@ mappingworkbench 核心）零写入；Open Issues #351–#421 全量排除（矩
   tst_wellcomposite_a11y（1200×700 缩放标签几何）、tst_mapping（图签块
   在场/空线/日期/几何/署名往返）、tst_layerplatform（page:* 双向拒绝）。
 
-## 验证记录
+## 验证记录（R7 全量重建后复核；此前一轮绿标因 stash 事故二进制陈旧而重做）
 
-- 构建：`cmake --build build --target paleo -j4`（flock 全局编译锁）exit 0；
-  受影响 7 个测试目标 + 回归 5 目标（tst_ui/tst_shell_projectlifecycle/
-  tst_composeworkflow/tst_mapbook/tst_uxtheme）全部链接成功。
-- 受影响测试：`ctest -R ^(tst_mappingpages|tst_panels|tst_previewmap_assets|
-  tst_wellcomposite_a11y|tst_mapping|tst_layerplatform|tst_shell_horizonstate)$ -j2`
-  → **7/7 通过**。
-- 回归：tst_shell_projectlifecycle/tst_composeworkflow/tst_mapbook/
-  tst_uxtheme/layering×3/ui_invariants 全绿。
+- 构建：全量 `-k 0` 333 目标，仅两个 **master 基线链接红**
+  （`tst_singlefactor_contours`/`_contourbudget`——#349 factorcontour 引入
+  PaleoTask 依赖所致，#422 账本原文确认并已在其分支修复；CMakeLists 属
+  其占用面）；其余含 `paleo` 与全部受影响测试二进制构建成功。
+- 受影响 7 套件（tst_mappingpages/tst_panels/tst_previewmap_assets/
+  tst_wellcomposite_a11y/tst_mapping/tst_layerplatform/tst_shell_horizonstate）
+  + 回归 5 套件（tst_ui/tst_shell_projectlifecycle/tst_composeworkflow/
+  tst_mapbook/tst_uxtheme）+ tst_wellcomposite_visual（golden）→ **13/13
+  通过**。
 - 护栏：`git diff --check` 0；`check_layering.py --strict` 通过；
   `check_ui_invariants.py --strict` violations=0；`check_l10n.py` 通过。
 
+### 事故记录（独立 Review 发现并已修复）
+
+bisect 排查 tst_ui 基线红时，一次 `git stash pop` 因 Bash 持久 cwd 在主
+checkout 误执行，导致三份 attach_* 改动滞留 stash、首版 c95a8feb 未包含
+其内容（提交信息与代码不一致）。独立 Review（B5 角色）以时间戳证据定案；
+改动经逐行核对后由 stash 恢复并以 `72198262` 独立提交，全部验证用恢复后
+的新二进制重做。主 checkout 现存未提交改动经文件集比对为并行任务（A）领域
+内容，未触碰。
+
 ### 双基线说明（master 自带红，非本任务引入）
 
-- **tst_ui `mappingWorkbenchCanvasRibbonAndReferences`**：在主 checkout
-  （干净 master `d230a5e7`）同样失败（同一断言 `inputs->count()==1`）；
-  本分支全量 tst_ui 与 master 逐项一致（36 passed / 1 failed（同函数）/
-  8 skipped）。该红项属 #422/#423 的修复范围（tst_ui 被其占用，本任务
-  依排除矩阵不碰）。
-- **ui_tokens**：stale exception（`trackpatterns.cpp`）在 master 同样存在；
-  #423 的修复即为此（其占用 tools/ui-token-exceptions.json）。本分支
-  violations=0，未新增任何 token 违规。
-- 二分验证：本分支曾单独回退 paleomainwindow.cpp/paleomainwindow_pages.cpp/
-  composepage.cpp/attach_*.cpp 各嫌疑文件重跑，失败恒在——最终以主
-  checkout 原样复现定案为基线红。
+- **tst_ui `mappingWorkbenchCanvasRibbonAndReferences`**：主 checkout（干净
+  master `d230a5e7`）同样失败（同一断言）；本分支 36/1/8 与 master 逐项
+  一致。#422/#423 修复范围。
+- **ui_tokens stale exception**（`trackpatterns.cpp`）：master 同样存在；
+  #423 修复即此。本分支 violations=0。
+- **contour 两测试链接失败**：#349 引入、#422 已修（见上）。
+
+### 双基线说明（master 自带红，非本任务引入）
+
+（已并入上文「验证记录」与「事故记录」小节——tst_ui/ui_tokens/contour
+三项基线红与 stash 事故恢复过程在彼处完整披露。）
 
 ## 排除与边界
 

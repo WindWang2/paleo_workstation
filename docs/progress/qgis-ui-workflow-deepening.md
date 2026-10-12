@@ -122,8 +122,16 @@ checkout 误执行，导致三份 attach_* 改动滞留 stash、首版 c95a8feb 
 
 ### 双基线说明（master 自带红，非本任务引入）
 
-（已并入上文「验证记录」与「事故记录」小节——tst_ui/ui_tokens/contour
-三项基线红与 stash 事故恢复过程在彼处完整披露。）
+全量 ctest（362 项 -LE perf）：355 通过 / 7 红，**七项均为主线基线红**
+（#422/#423 修复范围，逐项证据见账本「全量 ctest」节）：
+
+- tst_ui（`mappingWorkbenchCanvasRibbonAndReferences` 断言，master 同红，
+  双侧 36/1/8 逐项一致）；tst_attrpanel（#422 账本列出）；
+  tst_mappingworkbench（**SEGFAULT 在本 worktree 切纯净 origin/master
+  重建后同函数同指令偏移复现**——非本分支引入）；
+  tst_singlefactor_contours（链接，#349 引入 PaleoTask 依赖，#422 已修）；
+  tst_singlefactor_asynccontour（#423 账本列出）；ui_tokens/ui_tokens_strict
+  （stale exception，master 同红，#423 修复对象）。
 
 ## 排除与边界
 

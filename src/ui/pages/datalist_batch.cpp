@@ -445,6 +445,11 @@ void DataListPanel::showAssetContextMenu(QObject *source, const QPoint &pos)
     return;
   QMenu menu(this);
   menu.setObjectName(QStringLiteral("dataContextMenu"));
+  if (mix.assetIds.size() == 1) {
+    auto *graph = menu.addAction(tr("查看资料关联图谱"));
+    connect(graph, &QAction::triggered, this, [this, id = *mix.assetIds.constBegin()] { emit graphRequested(id); });
+    menu.addSeparator();
+  }
   const struct
   {
     const char *key;

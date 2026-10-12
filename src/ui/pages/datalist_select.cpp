@@ -69,7 +69,18 @@ void DataListPanel::selectAssetsForEntities(const QStringList &entityIds)
 
 void DataListPanel::selectAssetInViews(const QString &assetId)
 {
+  bool liveAsset = false;
+  for (const auto &row : m_rows) if (row.assetId == assetId) { liveAsset = true; break; }
+  if (!liveAsset) return;
+  // A single navigation target must replace selections in every view. Otherwise
+  // graph commands could silently apply to a previously selected icon/tree row.
   auto *table = findChild<QTableWidget *>(QStringLiteral("assetTable"));
+  if (table) { const QSignalBlocker block(table); table->clearSelection(); }
+  if (m_tree) { const QSignalBlocker block(m_tree); m_tree->clearSelection(); }
+  if (m_iconView) { const QSignalBlocker block(m_iconView); m_iconView->clearSelection(); }
+  if (m_groupTree) { const QSignalBlocker block(m_groupTree); m_groupTree->clearSelection(); }
+  if (m_virtualView) { const QSignalBlocker block(m_virtualView->selectionModel()); m_virtualView->clearSelection(); }
+  m_pageSelection = {assetId}; m_selKeep.snapshotIds(m_pageSelection);
   if (table && m_rows.size() > 200)
   {
     bool live = false;

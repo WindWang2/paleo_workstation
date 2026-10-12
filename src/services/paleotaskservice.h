@@ -3,6 +3,7 @@
 #include <QElapsedTimer>
 #include <QObject>
 #include <QString>
+#include <QVariantMap>
 #include <QVector>
 #include <atomic>
 #include <deque>
@@ -35,6 +36,9 @@ public:
   qint64 id() const { return m_id; }
   QString title() const { return m_title; }
   QString layerId() const { return m_layerId; }
+  // Owner-thread navigation metadata; never used as a catalog identity or worker input.
+  QVariantMap navigationContext() const { return m_navigationContext; }
+  void setNavigationContext(const QVariantMap &context) { m_navigationContext = context; emit changed(); }
   State state() const { return m_state; }
   QString errorText() const { return m_error; }
   QString detailText() const { return m_detail; }
@@ -101,6 +105,7 @@ private:
 
   qint64 m_id;
   QString m_title, m_layerId, m_error, m_detail;
+  QVariantMap m_navigationContext;
   QString m_stage;
   int m_stagePercent = -1;
   State m_state = State::Running;

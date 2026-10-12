@@ -3,6 +3,7 @@
 
 #include "datalist.h"
 #include "entitypanel.h"
+#include "datagraphpage.h"
 #include "pageshared.h"
 
 #include "../../catalog/datacatalog.h"
@@ -26,6 +27,19 @@ DataPage::DataPage(QWidget *parent)
   // 布局重新安放（entityViewSection() 返回 EntityPanel 本体，可按名摘挂）。
   m_listPanel = new DataListPanel(this);
   m_entityPanel = new EntityPanel(this);
+  m_graphPage = new DataGraphPage(this);
+  m_graphPage->hide();
+  connect(m_graphPage, &DataGraphPage::assetFocusRequested, this, &DataPage::selectAsset);
+  connect(m_graphPage, &DataGraphPage::entityFocusRequested, this, [this](const QString &id) { selectAssetsForEntities({id}); });
+  connect(m_graphPage, &DataGraphPage::versionFocusRequested, this, &DataPage::focusVersion);
+  connect(m_graphPage, &DataGraphPage::assetActivated, this, &DataPage::assetActivated);
+  connect(m_graphPage, &DataGraphPage::versionActivated, this, &DataPage::versionActivated);
+  connect(m_graphPage, &DataGraphPage::wellSelected, this, &DataPage::wellSelected);
+  connect(m_listPanel, &DataListPanel::graphRequested, this, [this](const QString &asset) {
+    selectAsset(asset); openDataGraph();
+  });
+  connect(m_listPanel, &DataListPanel::graphDataChanged, this, [this] { m_graphPage->setPresentation(m_listPanel->graphPresentation()); });
+  connect(m_listPanel, &DataListPanel::entityRefreshRequested, this, [this] { m_graphPage->setPresentation(m_listPanel->graphPresentation()); });
   lay->addWidget(m_listPanel, 1);
   lay->addSpacing(PaleoTheme::tokens().spacingMd); // spacing.md between groups
   lay->addWidget(m_entityPanel, 1);
@@ -55,6 +69,7 @@ DataPage::DataPage(QWidget *parent)
 
   connect(m_listPanel, &DataListPanel::versionActivated, this, &DataPage::versionActivated);
   connect(m_entityPanel, &EntityPanel::versionActivated, this, &DataPage::versionActivated);
+  connect(m_entityPanel, &EntityPanel::graphRequested, this, &DataPage::entityGraphRequested);
   connect(m_entityPanel, &EntityPanel::mappingReferenceRequested, this,
           &DataPage::mappingReferenceRequested);
   wireDataOps();
@@ -226,6 +241,7 @@ bool DataPage::event(QEvent *event)
         m_listPanel->setDocService(doc);
       if (m_entityPanel)
         m_entityPanel->setDocService(doc);
+      m_graphPage->setDocService(doc);
       // 门面变化（新工程/重开）→ 实体侧共享 ops 重新下发（ctx 指针随列表侧
       // refreshAssetTable 重载，这里保证面板构造后就有栈可用）。
       m_entityPanel->setSharedOps(m_listPanel->opsContext(), m_listPanel->opStack(),
@@ -276,6 +292,8 @@ void DataPage::setUnresolvedFilter(bool on)
 
 void DataPage::selectAssetsForEntities(const QStringList &entityIds)
 {
+  setProperty("paleo.page.versionId", QString());
+  m_graphPage->setSelection(entityIds.value(0), QString());
   // p5a：首个选中 id 驱动实体角色槽视图；空选择清回空态（地图取消点选）。
   setProperty("paleo.page.entityId",
               entityIds.isEmpty() ? QString() : entityIds.front());
@@ -292,6 +310,8 @@ void DataPage::selectAssetsForEntities(const QStringList &entityIds)
 
 void DataPage::selectAsset(const QString &assetId)
 {
+  setProperty("paleo.page.versionId", QString());
+  m_graphPage->setSelection(QString(), assetId);
   setProperty("paleo.page.assetId", assetId);
   PreviewDocService *svc = docService();
   const QString matchedEntity = svc ? svc->entityIdForAsset(assetId) : QString();
@@ -314,9 +334,17 @@ void DataPage::selectAsset(const QString &assetId)
 
 void DataPage::focusVersion(const QString &assetId, const QString &versionId)
 {
+  setProperty("paleo.page.versionId", versionId);
+  m_graphPage->setSelection(QString(), assetId, versionId);
   setProperty("paleo.page.assetId", assetId);
   PreviewDocService *svc = docService();
   setProperty("paleo.page.entityId", svc ? svc->entityIdForAsset(assetId) : QString());
   if (m_entityPanel) m_entityPanel->setVersionContext(assetId, versionId);
   if (m_listPanel) m_listPanel->selectAssetInViews(assetId);
+}
+
+void DataPage::openDataGraph()
+{
+  m_graphPage->setPresentation(m_listPanel->graphPresentation());
+  emit graphRequested(property("paleo.page.assetId").toString(), property("paleo.page.versionId").toString());
 }

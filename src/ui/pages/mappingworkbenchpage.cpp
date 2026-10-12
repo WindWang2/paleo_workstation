@@ -322,7 +322,8 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   actions->addWidget(button("copy", tr("复制底图并编辑")), 1, 1);
   actions->addWidget(button("save", tr("保存图件新版本")), 2, 0);
   actions->addWidget(button("catalog", tr("在数据管理中定位")), 2, 1);
-  actions->addWidget(button("delete", tr("删除图件")), 3, 0, 1, 2);
+  actions->addWidget(button("delete", tr("删除图件")), 3, 0);
+  actions->addWidget(button("graph", tr("资料关联 / 成果追溯")), 3, 1);
   if (mode == "predict")
     actions->addWidget(button("welltracks", tr("查看井道 / 修订预测相")), 4, 0,
                        1, 2);
@@ -892,6 +893,8 @@ void MappingWorkbenchPage::updateState() {
        !row.value("asset_id").toString().isEmpty() &&
            !row.value("version_id").toString().isEmpty(),
        tr("请先选择已登记的图件版本；工作副本定位到最近保存版本"));
+  gate("graph", !row.value("version_id").toString().isEmpty(),
+       tr("请选择已登记的图件版本；工作副本追溯最近保存版本"));
   gate("polygonize",
        selected && row.value("type") == "raster" && !analysisRaster &&
            !cartographic && !row.value("id").toString().startsWith("factor."),

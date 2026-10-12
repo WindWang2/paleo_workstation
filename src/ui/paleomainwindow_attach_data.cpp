@@ -1,6 +1,8 @@
 // 层：视图
 // paleomainwindow_attach_data — 数据管理页接线（W4 拆分段）
 #include "paleomainwindow.h"
+#include "pages/datagraphpage.h"
+#include "taskpanel.h"
 
 #include "paleotheme.h"
 #include "../qgis/qgiscanvascontroller.h"
@@ -134,6 +136,35 @@ void PaleoMainWindow::attachDataPage(DataPage *dataPage,
     {
       preview->setDocService(m_previewDoc);
       preview->setTaskService(taskSvc); // D1：剖面索引/解码异步化（nullptr 时保持同步）
+      const auto openGraph = [this](const QString &asset, const QString &version) {
+        openDataGraph(asset, version);
+      };
+      connect(dataPage, &DataPage::graphRequested, this, openGraph);
+      connect(dataPage, &DataPage::entityGraphRequested, this,
+              [this](const QString &entity, const QString &asset, const QString &version) { openDataGraph(asset, version, entity); });
+      connect(preview, &DataPreviewTabs::graphRequested, this, openGraph);
+      connect(dataPage->graphPage(), &DataGraphPage::taskCenterRequested,
+              this, &PaleoMainWindow::openTaskCenter);
+      connect(dataPage->graphPage(), &DataGraphPage::managementRequested, this,
+              [this, dataPage](const QString &action, const QString &asset, const QString &version) {
+        auto *list = dataPage->listPanel();
+        if (!asset.isEmpty()) {
+          if (!m_previewDoc || m_previewDoc->catalog()->assetById(asset).id.isEmpty()) return;
+          dataPage->selectAsset(asset);
+          if (!version.isEmpty()) dataPage->focusVersion(asset, version);
+          if (list->currentAssetSelection() != QSet<QString>{asset}) {
+            statusBar()->showMessage(tr("所选资料已移入回收清单，无法执行文件操作"), 8000); return;
+          }
+        }
+        if (action == "health") list->showHealthCheck();
+        else if (action == "recycle") list->showRecycleBin();
+        else if (action == "imports") list->showImportLedger();
+        else if (action == "storage") list->showStorageGovernance();
+        else if (!asset.isEmpty() && action == "versions") list->showVersionTable();
+        else if (!asset.isEmpty() && action == "role") list->editRoleForSelection();
+        else if (!asset.isEmpty() && action == "tag") list->batchAddTag();
+        else if (!asset.isEmpty() && action == "remove") list->batchRemoveSoft();
+      });
       if (m_projectSvc)
         preview->setProject(m_projectSvc->project());
       // D11 临时配准：GeoJSON 标签手工仿射 → DERIVED + 水印图层。
@@ -332,4 +363,36 @@ void PaleoMainWindow::attachDataPage(DataPage *dataPage,
                 if (corrPanel && kind == QLatin1String("well_log"))
                   refreshCorrelationWells();
               });
+}
+
+void PaleoMainWindow::openDataGraph(const QString &asset, const QString &version,
+                                   const QString &entity, bool lineage) {
+  auto *dataPage = findChild<DataPage *>();
+  if (!dataPage || !m_previewTabs || !m_previewDoc || !m_previewDoc->catalog()) return;
+  auto *catalog = m_previewDoc->catalog();
+  if ((!version.isEmpty() && catalog->versionById(version).id.isEmpty()) ||
+      (!asset.isEmpty() && catalog->assetById(asset).id.isEmpty()) ||
+      (!entity.isEmpty() && catalog->entityById(entity).id.isEmpty())) {
+    statusBar()->showMessage(tr("关联资料已移除或不属于当前工区"), 8000); return;
+  }
+  showPage(QStringLiteral("data"));
+  if (!version.isEmpty()) dataPage->focusVersion(catalog->versionById(version).assetId, version);
+  else if (!asset.isEmpty()) dataPage->selectAsset(asset);
+  else if (!entity.isEmpty()) dataPage->selectAssetsForEntities({entity});
+  auto *graph = dataPage->graphPage();
+  graph->setPresentation(dataPage->listPanel()->graphPresentation());
+  m_previewTabs->openWorkspace(graph, tr("资料图谱"));
+  if (lineage) graph->openLineage(asset, version);
+  else graph->openRelations(asset, version, entity);
+  if (m_workspaceStack) m_workspaceStack->setCurrentWidget(m_previewTabs);
+}
+void PaleoMainWindow::openTaskCenter() {
+  if (!m_bottomDock) return;
+  m_bottomDockAutoShown = false;
+  m_bottomDock->setProgrammaticVisible(true);
+  if (auto *tabs = findChild<QTabWidget *>(QStringLiteral("bottomTabs")))
+    if (auto *panel = findChild<TaskPanel *>(QStringLiteral("taskPanel"))) {
+      tabs->setCurrentWidget(panel); panel->refresh();
+    }
+  m_bottomDock->raise();
 }

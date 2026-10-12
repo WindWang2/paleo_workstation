@@ -7,6 +7,8 @@
 
 #include <QHideEvent>
 #include <QLabel>
+#include <QMenu>
+#include <QPointer>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QSet>
@@ -49,6 +51,21 @@ TaskPanel::TaskPanel(PaleoProjectStore *store, PaleoTaskService *tasks,
   list->setColumnWidth(2, 120);
   lay->addWidget(list, 1);
   m_list = list;
+  list->setContextMenuPolicy(Qt::CustomContextMenu);
+  connect(list, &QWidget::customContextMenuRequested, this, [this, list](const QPoint &point) {
+    auto *row = list->itemAt(point); if (!row || !m_tasks) return;
+    qint64 id = 0;
+    for (auto it = m_taskRows.cbegin(); it != m_taskRows.cend(); ++it) if (it.value() == row) { id = it.key(); break; }
+    QPointer<PaleoTask> task;
+    for (auto *candidate : m_tasks->tasks()) if (candidate->id() == id) { task = candidate; break; }
+    if (!task) return;
+    QMenu menu(this);
+    auto *graph = menu.addAction(tr("查看关联资料图谱"));
+    graph->setEnabled(!task->navigationContext().isEmpty() || !task->layerId().isEmpty());
+    graph->setToolTip(tr("进入任务对应的资料、成果版本及生成证据"));
+    if (menu.exec(list->viewport()->mapToGlobal(point)) == graph && task)
+      emit graphRequested(task->navigationContext(), task->layerId(), task->session());
+  });
 
   auto *empty = new QLabel(tr("（无运行中的任务）"), this);
   empty->setObjectName(QStringLiteral("busyEmptyHint"));

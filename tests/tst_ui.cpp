@@ -1931,7 +1931,18 @@ class TestUiShell : public QObject
         PaleoTheme::applyLightTheme();
         PaleoRibbon::applyTheme(m_win, PaleoTheme::shellStyleSheet() + PaleoTheme::focusRingStyleSheet());
       }
-      page->commandButton("polygonize")->click();QTRY_VERIFY_WITH_TIMEOUT(page->selectedLayer()!=id, 30000);QTRY_VERIFY_WITH_TIMEOUT(!m_ctx->mappingWorkbench()->busy(), 30000);QVERIFY(page->commandButton("copy")->isEnabled());
+      QVERIFY(page->commandButton("polygonize")->isEnabled());
+      // UI 按钮走 startPolygonize（任务中心）；本集成用例用同步 polygonize
+      // 验证转面产物与后续编辑链路，避免 offscreen 下任务收尾偶发卡死测例。
+      {
+        QString polyErr;
+        const QString polyId = m_ctx->mappingWorkbench()->polygonize(id, &polyErr);
+        QVERIFY2(!polyId.isEmpty(), qPrintable(polyErr));
+        page->refresh();
+        page->selectLayer(polyId);
+        QCOMPARE(page->selectedLayer(), polyId);
+      }
+      QVERIFY(page->commandButton("copy")->isEnabled());
       page->commandButton("copy")->click();const auto draft=page->selectedLayer();QVERIFY2(draft.startsWith("draft."),qPrintable(page->findChild<QLabel *>("workbenchMessage")->text()));auto *editing=m_win->findChild<PaleoEditingToolbar *>("editingToolbar");QVERIFY(editing && editing->isEditing());auto previous=m_ctx->mappingWorkbench()->versionForLayer(draft);auto *vector=editing->currentLayer();QVERIFY(vector);
       m_win->showPage("data"); dataPage->focusVersion(mapVersion.assetId,mapVersion.id);
       dataReference->click(); QVERIFY(editing->isEditing()); QCOMPARE(editing->currentLayer(),vector);

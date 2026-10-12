@@ -1259,7 +1259,9 @@ private slots:
     server.hold = false;
     QVERIFY(f.work.predict("D61", "wells", {"A"}, &error));
     QTRY_VERIFY(!f.work.busy());
-    QVERIFY2(!f.latest("wells_prediction").isEmpty(), qPrintable(errors.last()[0].toString()));
+    QVERIFY2(!f.latest("wells_prediction").isEmpty(),
+             errors.isEmpty() ? "predict finished with empty wells_prediction"
+                              : qPrintable(errors.last()[0].toString()));
     const auto previous = f.latest("wells_prediction");
     server.queued = true; server.holdPoll = true;
     QVERIFY(f.work.predict("D61", "wells", {"A"}, &error));

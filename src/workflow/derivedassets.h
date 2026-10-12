@@ -84,4 +84,17 @@ class DerivedAssetRegistrar
     DataCatalog *m_catalog = nullptr;
     QString m_projectDir;
     QHash<QString, int> m_pending; // assetId → 已 stage 未 commit 的最大版本号
+    // 延迟建资产（goal/core-deepening A-R4）：stage 只「find-or-reserve」，新
+    // 资产的 addAsset 推迟到 commit——计算取消/失败不再留下零版本幽灵资产
+    //（propertymodelworkflow 取消路径注释所声明的「未 commit 的 staging 随
+    // 请求作用域释放」由此成为事实）。同一注册器内同名重复 stage 复用同一
+    // 预留 id；commit 期发现外部已建同名资产则迁文件并归并到既有资产。
+    struct ReservedAsset
+    {
+      QString type;
+      QString displayName;
+      QString format;
+    };
+    QHash<QString, ReservedAsset> m_reserved;          // assetId → 预留信息
+    QHash<QString, QString> m_reservedByName;          // type ∥ name → assetId
 };

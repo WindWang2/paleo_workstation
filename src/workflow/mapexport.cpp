@@ -135,7 +135,10 @@ QString registerMapPdfAsset( DataCatalog *catalog, const QString &projectDir,
   asset.displayName = fileName;
   if ( !catalog->addAsset( asset, error ) )
   {
-    QFile::remove( dst ); // 受管副本已落位但资产没入库——不留孤儿字节
+    // 受管副本已落位但资产没入库——不留孤儿字节。dst 刚被置只读，Windows
+    // 删只读文件会失败，先恢复可写再删。
+    QFile::setPermissions( dst, QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ReadUser );
+    QFile::remove( dst );
     return fail( error ? *error : QStringLiteral( "catalog addAsset failed" ) );
   }
 
@@ -155,6 +158,7 @@ QString registerMapPdfAsset( DataCatalog *catalog, const QString &projectDir,
     // 幽灵 + 孤儿字节（零版本资产无血缘引用，removeAsset 不会被拦）。
     QString removeErr;
     catalog->removeAsset( assetId, &removeErr );
+    QFile::setPermissions( dst, QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ReadUser );
     QFile::remove( dst );
     return fail( error && !error->isEmpty() ? *error : QStringLiteral( "catalog addVersion failed" ) );
   }

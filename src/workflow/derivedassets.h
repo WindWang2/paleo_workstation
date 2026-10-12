@@ -30,6 +30,13 @@ struct DerivedStaging
   QString assetId;
   QString versionId;
   int versionNumber = 0;
+  // 延迟建资产的预留信息随 staging 本体走（跨注册器实例可见）：任务中心
+  // 作业 prepare 阶段用局部 registrar stage、publish 阶段用另一实例 commit
+  //（constraintfactorjobs_localdirection/_geostat 先例）——预留态不能只放
+  // 注册器私有成员。空 reservedType = 资产已在 catalog（stage 时即找到）。
+  QString reservedType;
+  QString reservedDisplayName;
+  QString reservedFormat;
   bool isValid() const { return !absolutePath.isEmpty(); }
 };
 

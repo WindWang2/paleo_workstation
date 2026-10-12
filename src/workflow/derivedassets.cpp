@@ -60,6 +60,16 @@ DerivedStaging DerivedAssetRegistrar::stage( const QString &assetType, const QSt
     m_reserved.insert( assetId, r );
     m_reservedByName.insert( nameKey, assetId );
   }
+  if ( m_reserved.contains( assetId ) )
+  {
+    // 预留信息随本 staging 走：跨注册器实例的 commit（任务中心 prepare/
+    // publish 分属不同 registrar——constraintfactorjobs_localdirection/
+    // _geostat 先例）也要能结算，不能只看注册器私有成员。
+    const ReservedAsset &r = m_reserved.value( assetId );
+    st.reservedType = r.type;
+    st.reservedDisplayName = r.displayName;
+    st.reservedFormat = r.format;
+  }
 
   st.assetId = assetId;
   st.versionId = m_catalog->nextVersionId();
@@ -110,12 +120,16 @@ bool DerivedAssetRegistrar::commit(const DerivedStaging &st,
   DerivedStaging eff = st;
   const DerivedFileFingerprint *fp = fingerprint;
   DerivedFileFingerprint translated;
-  if ( m_reserved.contains( st.assetId ) )
+  bool assetCreatedBySettlement = false;
+  // 预留信息以 staging 本体为准（reservedType 非空 = 延迟预留）：任务中心
+  // 作业 prepare/publish 分属不同 registrar 实例（constraintfactorjobs_
+  // localdirection/_geostat 先例），注册器私有的 m_reserved 在 commit 侧
+  // 看不到——只认它会把首算资产的结算整个跳过。
+  if ( !st.reservedType.isEmpty() )
   {
-    const ReservedAsset r = m_reserved.value( st.assetId );
     QString finalId = st.assetId;
     for ( const CatalogAsset &a : m_catalog->assets() )
-      if ( a.type == r.type && a.displayName == r.displayName )
+      if ( a.type == st.reservedType && a.displayName == st.reservedDisplayName )
       {
         finalId = a.id;
         break;
@@ -155,14 +169,15 @@ bool DerivedAssetRegistrar::commit(const DerivedStaging &st,
     {
       CatalogAsset a;
       a.id = st.assetId;
-      a.type = r.type;
-      a.format = r.format;
-      a.displayName = r.displayName;
+      a.type = st.reservedType;
+      a.format = st.reservedFormat;
+      a.displayName = st.reservedDisplayName;
       if ( !m_catalog->addAsset( a, error ) )
         return false;
+      assetCreatedBySettlement = true;
     }
     m_reserved.remove( st.assetId );
-    m_reservedByName.remove( r.type + QLatin1Char( '\x1f' ) + r.displayName );
+    m_reservedByName.remove( st.reservedType + QLatin1Char( '\x1f' ) + st.reservedDisplayName );
   }
   QString shaErr;
   if (fp && !fp->matches(eff.absolutePath)) {
@@ -192,7 +207,26 @@ bool DerivedAssetRegistrar::commit(const DerivedStaging &st,
   v.parentVersionIds = parentVersionIds;
   v.extra = extra;
   if ( !m_catalog->addVersion( v, error ) )
+  {
+    // 结算刚建的资产不因落盘失败留成零版本幽灵（P2 窗口收口）；归并分支
+    // 则把文件迁回原预留路径，staging 保持可重试。均 best-effort——失败
+    // 原因仍以 addVersion 的 error 为准上报。
+    if ( assetCreatedBySettlement )
+    {
+      QString removeErr;
+      m_catalog->removeAsset( eff.assetId, &removeErr );
+      QFile::setPermissions( eff.absolutePath,
+                             QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ReadUser );
+      QFile::remove( eff.absolutePath );
+      QDir( QFileInfo( eff.absolutePath ).absolutePath() ).rmdir( QStringLiteral( "." ) );
+    }
+    else if ( eff.absolutePath != st.absolutePath )
+    {
+      QFile::rename( eff.absolutePath, st.absolutePath );
+      QDir( QFileInfo( eff.absolutePath ).absolutePath() ).rmdir( QStringLiteral( "." ) );
+    }
     return false;
+  }
   m_pending.remove( st.assetId );
   m_pending.remove( eff.assetId );
 

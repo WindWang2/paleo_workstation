@@ -58,10 +58,17 @@
 
 ## P3 — UI 窄面布局后续（from goal/ui-visual-polish, 2026-10-04）
 
-- GeoJSON/层位预览的 QGIS 样式侧栏在 1100×700 下字段标题拥挤；另行评估侧栏宽度与表单排布。
-- 井纸面顶部单行工具条在 1200×700 下比例/缩放标签裁字、右侧动作超出可见宽度；另行评估标签宽度与工具条伸缩/滚动。
-- 资产表既有 Resize 处理器将类型/关联列上限约束为 60/75px，内嵌未决关联与确认控件横向裁切；另行评估列宽约束与单元格布局。
-- 三项均为前后实证中已有的结构问题，本轮仅归一视觉 token，未改变产品布局层级、resize 规则或交互流程。逐图证据见 [方向 29 ledger](.goal-loop-ledger-ui-visual-polish.md#low--遗留项与实证边界)。触发条件：启动对应布局改进方向。Priority: P3。
+- ~~GeoJSON/层位预览的 QGIS 样式侧栏在 1100×700 下字段标题拥挤~~（已落地
+  2026-10-12：previewtocpanel 三个快调表单 WrapLongRows+AllNonFixedFieldsGrow，
+  tst_previewmap_assets 240px 几何断言；dock 结构/页签层级未动）。
+- ~~井纸面顶部单行工具条在 1200×700 下比例/缩放标签裁字~~（已落地 2026-10-12：
+  lblCompZoomFactor 去 QSS min-width:65px（实证该值使 sizeHint 与文本长度脱钩
+  →深缩放档裁字）+ 数值面改 mono 字族；tst_wellcomposite_a11y 几何断言）。
+  右侧动作超出可见宽度一项保留：工具条已有 PaleoToolRow 横向滚动可达，
+  结构性分组重排（预测服务簇收 InstantPopup 等）需产品决策，触发条件不变。
+- 资产表既有 Resize 处理器将类型/关联列上限约束为 60/75px，内嵌未决关联与
+  确认控件横向裁切；另行评估列宽约束与单元格布局。（datalist_table.cpp 现由
+  数据图谱方向占用，该项待其落地后再启。）
 
 ## ~~P3 — 连井剖面后续（from goal/wellsection, 2026-10-03）~~（已落地：goal/wellsection-tvd, 2026-10-04）
 
@@ -323,16 +330,15 @@ master 的 `41feecf`，catalog 行序修复来自 `e8da8cf`，不归入本 PR �
 - **Priority:** P2
 - **Depends on:** 无
 
-## P3 — 标准导出流图签块（from wave/deepen-perf D4 评估, 2026-09-30）
+## ~~P3 — 标准导出流图签块（from wave/deepen-perf D4 评估, 2026-09-30）~~（已落地：goal/qgis-ui-deepening-20261012，2026-10-12）
 
-- **What:** `buildHorizonMapLayout`（workflow/mapexport.cpp）补编制/审核/日期图签块（QgsLayoutItemLabel，约 30 行）。
-- **Why:** D4 评估结论：简化 composer 不建——标准导出流已两步全自动 + 完整设计器已裁剪；四要素唯一缺口是图签。
-- **Pros:** 关闭「规范图件四要素」缺口而无需新 UI。
-- **Cons:** 图签栏目（编制/审核/日期/单位名）需业务确认字段来源。
-- **Context:** docs/progress/deepen-perf.md D4 行；触发条件：发布门要求图签或用户提出。
-- **Effort:** human: S / CC: S
-- **Priority:** P3
-- **Depends on:** 无
+- **What:** ~~`buildHorizonMapLayout` 补编制/审核/日期图签块~~已交付：真实现
+  落在 `src/qgis/layoutexport.cpp`（mapexport.cpp 仅薄转发），CRS 页脚同行
+  右段加 `signatureBlock`（8pt 两行）。编制/审核读工程 customVariables
+  （`paleoAuthor`/`paleoReviewer`，快照导出链保留），缺省留空线供手签；
+  日期取当日。测试 tst_mapping 阶段E（在场/空线/当日/页内几何/署名往返）。
+- **残留：** 单位名栏目仍缺业务确认的字段来源（Cons 原文）；需要时在同一
+  插入点扩一行即可。
 
 ## P3 — 表 K.1 十二类探井符号地质评审（from wave/deepen-perf C3, 2026-09-30）
 
@@ -424,7 +430,7 @@ master 的 `41feecf`，catalog 行序修复来自 `e8da8cf`，不归入本 PR �
 - ~~**文件夹导入扫描期进度 UX**~~ — 已落地（wave/deepen-perf B2）：队列整体进度/ETA/全部取消 + `FolderImportQueueAdapter` 生产 runner（GAPS G-2.3 收口）。
 - **include 级护栏的调用级补强**：单一 `paleo_core` 静态库下 `check_layering.py` 只挡 include 挡不住「不带 include 直接 new」；若要挡需 clang 插件或拆库。触发条件：发现绕过 include 的违规实例。Effort: M / Priority: P4
 - **图层平台 · 旧组名词表迁移**：~~`workflows.cpp` 产层仍用 `01_Prediction`/`02_Constraints`/`03_Predict`/`03_Composite`/`00_Data`，页面档案表（`QgisLayerProfileService`）按 canonical 词表（`02_Prediction`/`03_Constraints`/`05_PaleoMap`/`07_Validation`…）匹配，旧组名层在档案应用时按表外隐藏。~~ **已解决（mapping 主线1，2026-10-03 对账）**：词表收口到 `src/qgis/layervocabulary.h`——canonicalize()/groupFamily()/profileContains() 在全部消费面（档案摆树、树面板跳页、页面清单）吸收旧名，旧 .qgz 的 `01_Prediction` 产层不再被表外隐藏；旧名产点按决策保留（历史 .qgz 层引用稳定，新声明面用 canonical；structural 链新产层已直接用 `03_Constraints`）。
-- **图层平台 · 主题重命名**：QgsMapThemeCollection 无 rename API，档案工具条管理对话框已注记「重命名暂未支持」。触发条件：QGIS 提供 rename 或 `QgisLayerProfileService` 增加记录复制通道。Effort: S / Priority: P3
+- ~~**图层平台 · 主题重命名**~~ — 已落地（对账 2026-10-12）：服务层 `QgisLayerProfileService::renameTheme` 早于本条目由 `edc892c5` 交付（insert-then-remove + tst_layerplatform 拒绝矩阵）；「QgsMapThemeCollection 无 rename API」的前提对 vendored 4.2.x 不成立（原生 `renameMapTheme` ≥3.14），档案工具条管理对话框已随 `c2769d27` 移除。goal/qgis-ui-deepening-20261012 再收尾：改走原生 renameMapTheme（原子 + 专用信号）+ `page:*` 前缀服务层硬拒（防 .qgz 版面钉名悬空）。
 - ~~**图层平台 · layerId↔assetId 关联面**~~ — 已落地（wave/deepen-perf C4）：七个产物出口 commit 后盖图层自定义属性 `paleoAssetId`（随 .qgz 持久化）+ catalog extra `manifest_layer_id` 权威反链；`LayerPropertiesDialog::assetIdForLayer()` 业务页开闸。catalog 显式关联表（schema 级）仍按原触发条件递延；首跑盖章缺口（层未实例化则盖不上）由 extra 反链兜底 + 重跑幂等补章。
 - ~~**图层平台 · 图层创建时间**~~ — 已落地核实（wave/deepen-perf C4 对账）：`paleoCreatedAt` 盖章链基线已存在，业务页显示正常，无需 schema 变更。
 - **图层平台 · 「删除选中」语义**：QGIS 默认动作只摘树节点不 `removeMapLayer`；若需「删树即删层」，壳侧补工程注销接线。触发条件：用户实测困惑。Effort: S / Priority: P3

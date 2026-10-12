@@ -2,6 +2,7 @@
 #include "layoutexport.h"
 #include "standardelements.h"
 
+#include <QDate>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -528,6 +529,30 @@ QgsPrintLayout *buildHorizonMapLayout( QgisLayerService *layers, QgisProjectServ
   layout->addLayoutItem( crs );
   crs->attemptResize( QgsLayoutSize( 140, 8, Qgis::LayoutUnit::Millimeters ) );
   crs->attemptMove( QgsLayoutPoint( 10, 192, Qgis::LayoutUnit::Millimeters ) );
+
+  // 图签（TODOS P3「标准导出流图签块」，规范图件四要素收口）：编制/审核读
+  // 工程 customVariables（paleoAuthor/paleoReviewer——快照导出链保留该面，
+  // layoutexport captureProjectSnapshot 随 DOM 走），缺省留空线供手签；日期
+  // 取当日。不虚构数据、不加输入 UI；落在 CRS 页脚同行右段，不与任何既有
+  // 版面元素重叠（crsCaption 占 x≤150，底图署名行 y≥200）。
+  {
+    const QVariantMap projectVars = project->customVariables();
+    const QString blank = QStringLiteral( "________" );
+    const QString author =
+        projectVars.value( QStringLiteral( "paleoAuthor" ) ).toString();
+    const QString reviewer =
+        projectVars.value( QStringLiteral( "paleoReviewer" ) ).toString();
+    auto *signature = new QgsLayoutItemLabel( layout );
+    signature->setId( QStringLiteral( "signatureBlock" ) );
+    signature->setText( QObject::tr( "编制：%1　　审核：%2\n日期：%3" )
+                            .arg( author.isEmpty() ? blank : author,
+                                  reviewer.isEmpty() ? blank : reviewer,
+                                  QDate::currentDate().toString( Qt::ISODate ) ) );
+    signature->setTextFormat( labelFormat( QStringLiteral( "Noto Sans CJK SC" ), 8 ) );
+    layout->addLayoutItem( signature );
+    signature->attemptResize( QgsLayoutSize( 130, 10, Qgis::LayoutUnit::Millimeters ) );
+    signature->attemptMove( QgsLayoutPoint( 157, 190, Qgis::LayoutUnit::Millimeters ) );
+  }
 
   QStringList sources;
   for (auto *layer : mapLayers) {

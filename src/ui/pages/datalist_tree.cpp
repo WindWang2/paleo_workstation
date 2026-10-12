@@ -936,7 +936,11 @@ void DataListPanel::reconcileNavChildren(QTreeWidgetItem *parent,
     reconcileNavChildren(it, spec.children, apply, changed);
   }
 
-  // 现存未消费项 → 删除（含子树；diff 档按节点数计）。
+  // 现存未消费项 → 删除（含子树；diff 档按节点数计）。拖拽悬浮目标缓存
+  // 是裸指针：删 item 前先失效——QDrag::exec 嵌套循环里删到目标节点，
+  // drop/dragLeave 收尾时会对已释放 item 写背景（UAF）。
+  if (apply)
+    m_tree->invalidateDropTarget();
   for (auto kit = byKey.constBegin(); kit != byKey.constEnd(); ++kit)
   {
     for (QTreeWidgetItem *leftover : kit.value())

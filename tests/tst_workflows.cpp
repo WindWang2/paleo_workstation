@@ -961,8 +961,8 @@ private slots:
     QVERIFY( !comp.fuseFactors( QStringLiteral( "T1" ), { QStringLiteral( "f1" ) }, &err ) );
     QVERIFY( !comp.deriveFaciesPolygons( QStringLiteral( "T1" ), QStringLiteral( "comp" ), {}, &err ) );
     const QList<ValidationIssue> issues = vw.validate();
-    // No crash, runs cleanly
-    QVERIFY( issues.isEmpty() || !issues.isEmpty() );
+    // 契约：图层服务已销毁 → validate() 走空快照，返回空且不崩。
+    QVERIFY( issues.isEmpty() );
   }
 };
 

@@ -298,7 +298,9 @@ def selftest():
     failures = []
     real_entries = load_list(DEFAULT_LIST)
     green = {name: "pass" for name in real_entries}
-    assert len(compare_runs(real_entries, green, green)) == 13
+    # #420：fixed 条目数从名单实算，不写死——名单增删不再让自检假红。
+    fixed = sorted(t for t, e in real_entries.items() if e["status"] == "fixed")
+    assert sorted(compare_runs(real_entries, green, green)) == fixed
     for first, second in ((green, {**green, "new_test": "pass"}),
                           ({name: st for name, st in green.items() if name != "tst_aiassist_perf"},
                            {name: st for name, st in green.items() if name != "tst_aiassist_perf"}),

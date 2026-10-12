@@ -294,6 +294,21 @@ public:
     return -1;
   }
 
+  // #411：首个「可被终态回写」的同路径项——同路径重复入队时 first-match
+  // 会把终态写到先到的已终态行上、后到的活行永驻「导入中」。
+  int indexOfActivePath(const QString &p) const
+  {
+    for (int i = 0; i < m_items.size(); ++i)
+    {
+      const ImportItemState s = m_items.at(i).state;
+      if (m_items.at(i).path == p && s != ImportItemState::Done &&
+          s != ImportItemState::Failed && s != ImportItemState::Skipped &&
+          s != ImportItemState::Canceled)
+        return i;
+    }
+    return -1;
+  }
+
   // D8.1 单项取消：Queued/RetryWait → Canceled；Running 先调 cancelHook
   // （B2：runner 挂的底层任务协作取消）再落 Canceled——取消不是失败，
   // 不进自动重试。

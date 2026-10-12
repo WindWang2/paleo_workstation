@@ -88,6 +88,8 @@ class EntityPanel : public QWidget
     QStringList m_multiEntityIds;  // D4.9
     QStringList m_multiAssetIds;   // D4.9
     int m_geoSeq = 0;              // F3：统计世代号（新选择作废在途）
+    // #411：上限 256 条——浏览海量 GeoJSON 资产不再进程生命周期内无界累积。
+    static constexpr int kGeoSummaryCacheMax = 256;
     QHash<QString, PreviewDocService::GeoJsonSummary> m_geoSummaryCache; // 路径→统计
     paleo::dataops::DataOpsContext m_ctx;
     paleo::dataops::DataOpsUndoStack *m_stack = nullptr;

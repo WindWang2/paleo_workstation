@@ -1,5 +1,6 @@
 #include <QtTest>
 #include <QCoreApplication>
+#include <QDeadlineTimer>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QEventLoop>
@@ -12,8 +13,10 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTemporaryDir>
+#include <QThread>
 #include <QTimer>
 
+#include <atomic>
 #include <functional>
 #include <memory>
 
@@ -550,10 +553,14 @@ void TestAiChatToolLoop::cancelDuringToolExecutionInvalidatesAndKeepsProtocolVal
   controller.toolRunner()->setWorkflow(&f.wf);
   AiChatToolContext context;
   context.horizon = QStringLiteral("T1");
-  // 慢取数：每 tile 30ms——让取消稳定落进「执行中」（非计时断言，见文件头）。
-  context.gridFetch = [](int row0, int col0, int rows, int cols,
-                         QVector<float> &out, QString &) -> bool {
-    QTest::qSleep(30);
+  // #421：取消稳定落进「执行中」由门闩保证，不再靠每 tile 30ms 凑时机——
+  // cancel() 之后 release 放行，协作取消收尾；10s 保险丝防挂死。
+  std::atomic_bool fetchRelease{false};
+  context.gridFetch = [&fetchRelease](int row0, int col0, int rows, int cols,
+                                      QVector<float> &out, QString &) -> bool {
+    for (QDeadlineTimer t(10'000);
+         !fetchRelease.load(std::memory_order_acquire) && !t.hasExpired();)
+      QThread::msleep(5);
     QString unused;
     return syntheticFetch(row0, col0, rows, cols, out, unused);
   };
@@ -566,6 +573,7 @@ void TestAiChatToolLoop::cancelDuringToolExecutionInvalidatesAndKeepsProtocolVal
            "工具必须先进入执行中");
   controller.cancel();
   QVERIFY(!controller.streaming());
+  fetchRelease.store(true, std::memory_order_release); // 放行取数走协作取消收尾
 
   // 作废：无后续 LLM 请求、无结果卡片（迟到执行结果不回灌）。
   QTest::qWait(120);
@@ -576,6 +584,13 @@ void TestAiChatToolLoop::cancelDuringToolExecutionInvalidatesAndKeepsProtocolVal
   QVERIFY2(spinUntil([&f] { return f.tasks.runningCount() == 0; }, 10000),
            "任务必须终态（取消或完成），不许悬挂");
   QVERIFY(f.wf.lastProductLayerIds().isEmpty());
+
+  // #405：迟到结果断言必须在终态等待之后——取消时 tile 工作远未完成，
+  // 120ms 处 results 必然空；这里才覆盖「已取消任务的迟到结果不发布」。
+  QCoreApplication::processEvents();
+  QTest::qWait(50);
+  QCoreApplication::processEvents();
+  QCOMPARE(results.size(), 0);
 
   // 会话：assistant(toolCalls) + 一条「已取消」的 role=tool 应答。
   const QVector<ChatMessage> messages = controller.messages();

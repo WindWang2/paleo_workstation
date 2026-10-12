@@ -8,6 +8,7 @@
 
 #include <QDir>
 #include <QFile>
+#include <QScopeGuard>
 #include <QTemporaryDir>
 #include <QtConcurrent>
 #include <atomic>
@@ -145,16 +146,23 @@ void CacheCoreTests::budgetEnforceEvictsOldestAccess()
 {
   CacheBudgetManager *mgr = CacheBudgetManager::instance();
   const qint64 savedBudget = mgr->budgetBytes();
+  // #404：单例预算任何路径都复位（断言早退也不污染后续 slot）。
+  const auto restore = qScopeGuard([&] { mgr->setBudgetBytes(savedBudget); });
   // D6.3：预算超限时「最远未用」的缓存先收缩。
+  // #403：注入时钟替代 qSleep(2)——Windows 计时粒度下两插入常拿同一
+  // 毫秒戳，unstable sort 的驱逐序不确定。
+  qint64 fakeNow = 1'000'000;
+  using TestCache = LruCache<QString, QByteArray>;
+  TestCache::setClockForTest([&] { return fakeNow; });
+  const auto restoreClock = qScopeGuard([] { TestCache::setClockForTest(nullptr); });
   LruCache<QString, QByteArray> older(QStringLiteral("t7"), 100000, fixedSize);
   LruCache<QString, QByteArray> newer(QStringLiteral("t8"), 100000, fixedSize);
   older.insert(QStringLiteral("a"), QByteArray("1"));
-  QTest::qSleep(2);
+  fakeNow += 1000;
   newer.insert(QStringLiteral("b"), QByteArray("2"));
   mgr->setBudgetBytes(150); // 总 200 > 150：older 先收光，newer 收 50
   QVERIFY(!older.contains(QStringLiteral("a"))); // 最老的全逐
   QVERIFY(mgr->usedBytes() <= 150);
-  mgr->setBudgetBytes(savedBudget);
 }
 
 void CacheCoreTests::budgetPressureHandlers()
@@ -170,11 +178,14 @@ void CacheCoreTests::budgetPressureHandlers()
   LruCache<QString, QByteArray> big(QStringLiteral("t9"), 100000000, fixedSize);
   for (int i = 0; i < 30; ++i)
     big.insert(QStringLiteral("k%1").arg(i), QByteArray("x")); // 3000B
+  // #404：handler/预算 RAII 复位——断言早退不把缩水预算留给后续 slot。
+  const auto restore = qScopeGuard([&] {
+    mgr->removePressureHandler(id);
+    mgr->setBudgetBytes(saved);
+  });
   mgr->setBudgetBytes(2000); // 3000 > 2000：超限 + 广播（D6.4）
   QVERIFY(seen >= 1);
   QVERIFY(lastPct > 75);
-  mgr->removePressureHandler(id);
-  mgr->setBudgetBytes(saved);
 }
 
 void CacheCoreTests::budgetLargeAllocAudit()
@@ -232,6 +243,8 @@ void CacheCoreTests::twoPhaseLatchingAndEvictionRefCount()
 {
   CacheBudgetManager *mgr = CacheBudgetManager::instance();
   const qint64 savedBudget = mgr->budgetBytes();
+  // #404：单例预算 RAII 复位（断言早退不污染后续 slot）。
+  const auto restore = qScopeGuard([&] { mgr->setBudgetBytes(savedBudget); });
 
   auto *mock = new MockEvictableCache(QStringLiteral("mock_evict"), 2000);
   QCOMPARE(mock->activeEvictionRefs(), 0);
@@ -271,8 +284,6 @@ void CacheCoreTests::twoPhaseLatchingAndEvictionRefCount()
 
   QVERIFY(unregisterDone.load());
   delete mock;
-
-  mgr->setBudgetBytes(savedBudget);
 }
 
 void CacheCoreTests::cacheFileRoundtrip()

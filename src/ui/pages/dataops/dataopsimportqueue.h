@@ -129,7 +129,9 @@ class FolderImportQueueAdapter
                     *outId = fn(kind, path, outErr.get());
                     return outId->isEmpty() ? *outErr : QString();
                 });
-            item.cancelHook = [task] {
+            // #411：任务可被服务剪除——裸指针捕获即对已析构对象调
+            // requestCancel；QPointer 归零即诚实无操作。
+            item.cancelHook = [task = QPointer<PaleoTask>(task)] {
                 if (task)
                     task->requestCancel();
             };
@@ -159,7 +161,8 @@ class FolderImportQueueAdapter
             ImportRetryQueue *queue = hub->queue;
             if (!panel || !queue)
                 return; // 面板没了——结果没人等
-            const int idx = queue->indexOfPath(path);
+            // #411：按「活行」解析——同路径重复行时终态必须落真正在跑的那行。
+            const int idx = queue->indexOfActivePath(path);
             if (idx >= 0)
             {
                 const ImportItemState stNow = queue->items().at(idx).state;

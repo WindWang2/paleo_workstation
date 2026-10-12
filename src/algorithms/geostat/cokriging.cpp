@@ -421,6 +421,8 @@ struct ConstrainedKrigingSolver::Impl
   VariogramModel model;
   KrigingParams params;
   std::vector<WeightGroupConstraint> constraints;
+  // 去重后下标 → 首个输入下标（usedSamples 契约是输入下标，#417）。
+  std::vector<std::uint32_t> dedupedToInput;
   int merged = 0;
   bool valid = false;
 };
@@ -450,6 +452,17 @@ ConstrainedKrigingSolver::ConstrainedKrigingSolver(
                        model.sill >= 0 && std::isfinite( model.nugget ) && std::isfinite( model.sill );
   if ( deduped.empty() || !modelOk )
     return;
+  // #417：usedSamples 的公共契约是「输入下标」——去重后内部下标在此建
+  // 反向映射，solveAt 出参前翻译（重合合并样本取首个输入下标）。
+  m_impl->dedupedToInput.assign( deduped.size(),
+                                 std::numeric_limits<std::uint32_t>::max() );
+  for ( std::size_t i = 0; i < inputToDeduped.size(); ++i )
+  {
+    const std::uint32_t d = inputToDeduped[i];
+    if ( d != std::numeric_limits<std::uint32_t>::max() &&
+         m_impl->dedupedToInput[d] == std::numeric_limits<std::uint32_t>::max() )
+      m_impl->dedupedToInput[d] = static_cast<std::uint32_t>( i );
+  }
   // 非法约束（罚权非正 / 空组）剔除，不让单条坏数据拖垮整个求解器；
   // 输入下标经重合合并映射翻译（非有限样本映射为哨兵 → 组员剔除）。
   const std::uint32_t sentinel = std::numeric_limits<std::uint32_t>::max();
@@ -612,7 +625,15 @@ ConstrainedKrigingPointResult ConstrainedKrigingSolver::solveAt( double x, doubl
     return result;
   if ( std::fabs( weightSum - 1.0 ) > 1e-6 )
     return result; // 权重和无偏约束被数值破坏：如实判失败
-  result.usedSamples = neighborhood;
+  // #417：邻域返回的是去重后内部下标——翻译回输入下标（契约见头文件注释）。
+  result.usedSamples.reserve( neighborhood.size() );
+  for ( const std::uint32_t index : neighborhood )
+  {
+    result.usedSamples.push_back(
+        index < m_impl->dedupedToInput.size()
+            ? m_impl->dedupedToInput[static_cast<std::size_t>( index )]
+            : index );
+  }
   result.weights.assign( solution.begin(), solution.begin() + n );
   result.estimate = estimate;
   result.variance = variance < 0 ? 0 : variance;

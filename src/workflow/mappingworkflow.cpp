@@ -72,7 +72,15 @@ using paleo::workflow_detail::setError;
     int flag = 0;
     g->nodata = GDALGetRasterNoDataValue( band, &flag );
     g->hasNodata = flag != 0;
-    g->px.resize( g->cols * g->rows );
+    // #415：cols*rows int 乘法溢出——resize 按小尺寸分配、RasterIO 按真实
+    // 维度写即越界。预算同 depthconversion/geostat 的 4M 闸。
+    const qint64 cells = static_cast<qint64>( g->cols ) * g->rows;
+    if ( g->cols <= 0 || g->rows <= 0 || cells > 4000000LL )
+    {
+      GDALClose( ds );
+      return false;
+    }
+    g->px.resize( static_cast<size_t>( cells ) );
     const CPLErr err = GDALRasterIO( band, GF_Read, 0, 0, g->cols, g->rows,
                                      g->px.data(), g->cols, g->rows, GDT_Float32, 0, 0 );
     GDALClose( ds );
@@ -723,6 +731,17 @@ bool MappingWorkflow::runThicknessChain( const QString &horizon, QString *error 
     const double xPad = ( xmax - xmin ) > 0.0 ? ( xmax - xmin ) * 0.1 : cell;
     const double yPad = ( ymax - ymin ) > 0.0 ? ( ymax - ymin ) * 0.1 : cell;
     const double ox = xmin - xPad, oyTop = ymax + yPad;
+    // #415：跨度/cell 推 cols/rows 无预算——cols*rows int 乘法溢出后
+    // QVector 按小尺寸分配、循环按真实维度写。4M 格预算同 geostat 闸。
+    const qint64 cells64 = static_cast<qint64>(
+        std::max( 1.0, std::ceil( ( xmax + xPad - ox ) / cell ) ) ) *
+        std::max( 1.0, std::ceil( ( oyTop - ( ymin - yPad ) ) / cell ) );
+    if ( cells64 <= 0 || cells64 > 4000000LL )
+      return fail( tr( "井点 IDW 网格超出预算（%1 格 > 4M）：跨度 %2×%3、格宽 %4" )
+                       .arg( cells64 )
+                       .arg( xmax - xmin )
+                       .arg( ymax - ymin )
+                       .arg( cell ) );
     const int cols = std::max( 1, static_cast<int>( std::ceil( ( xmax + xPad - ox ) / cell ) ) );
     const int rows = std::max( 1, static_cast<int>( std::ceil( ( oyTop - ( ymin - yPad ) ) / cell ) ) );
     const double gt[6] = { ox, cell, 0.0, oyTop, 0.0, -cell };

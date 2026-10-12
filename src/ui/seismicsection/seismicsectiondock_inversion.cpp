@@ -57,8 +57,8 @@ void SeismicSectionDockWidget::extractWaveletFromNearestWell() {
     }
     const SectionWellInfo *best = nullptr;
     for (const SectionWellInfo &w : m_candidateWells)
-        if (!best || w.offsetDistanceM < best->offsetDistanceM)
-            best = &w;
+        if (!best || std::abs(w.offsetDistanceM) < std::abs(best->offsetDistanceM))
+            best = &w; // 「最近井」按绝对偏移选——有符号比较会取到最负侧
     const WellCurveItem *ac = nullptr;
     const WellCurveItem *den = nullptr;
     for (const WellCurveItem &c : best->curves) {
@@ -226,10 +226,10 @@ void SeismicSectionDockWidget::runInversion(const InversionPanelParams &params) 
     connect(m_invTask, &PaleoTask::finished, this, [this, gen, job, skippedNoTd]() {
         if (!m_invPanel || !m_invTask)
             return;
-        if (gen != m_invGeneration) {
-            m_invPanel->showResult(false, tr("已有更新的反演请求，本次结果丢弃"));
+        // #371：世代不匹配（换体/换工程/新请求已接管）——静默丢弃：面板
+        // 忙态属于新一代请求，这里再 showResult 会把它打回非忙态。
+        if (gen != m_invGeneration)
             return;
-        }
         if (m_invTask->state() == PaleoTask::State::Cancelled) {
             m_invPanel->showResult(false, tr("反演已取消"));
             return;

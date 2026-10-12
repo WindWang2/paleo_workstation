@@ -194,26 +194,30 @@ bool syncFaciesAttributes(QgsVectorLayer *layer, const QVariantList &facies,
   auto it = layer->getFeatures();
   QgsFeature feature;
   while (ok && it.nextFeature(feature)) {
+    // #419：迭代中嵌套 getFeature 对部分 provider 会重置游标/跳行——
+    // 改后的 facies_code 从写入集本身追踪，不再回读图层。
+    QVariant code = feature.attribute("facies_code");
     if (layer->fields().indexOf("facies_intervals") >= 0) {
       QVariantMap source;
       for (int i = 0; i < feature.fields().size(); ++i)
         source.insert(feature.fields().at(i).name(), feature.attribute(i));
       // 属性表直接改编码时，空值状态也同步到最终预测相。
-      source.insert("prediction_status", feature.attribute("facies_code").isNull()
+      source.insert("prediction_status", code.isNull()
           ? QStringLiteral("未预测") : QStringLiteral("已修订"));
       const auto final = FaciesCatalog::formationPrediction(source, facies);
       for (auto a = final.cbegin(); a != final.cend(); ++a) {
         const int index = layer->fields().indexOf(a.key());
         if (index >= 0) ok = layer->changeAttributeValue(feature.id(), index, a.value()) && ok;
+        if (a.key() == QLatin1String("facies_code"))
+          code = a.value();
       }
-      feature = layer->getFeature(feature.id());
     }
     const auto attrs =
-        FaciesCatalog::attributes(facies, feature.attribute("facies_code"));
+        FaciesCatalog::attributes(facies, code);
     for (auto a = attrs.cbegin(); a != attrs.cend(); ++a)
       ok = layer->changeAttributeValue(
                feature.id(), layer->fields().indexOf(a.key()),
-               feature.attribute("facies_code").isNull() && layer->fields().indexOf("facies_intervals") >= 0
+               code.isNull() && layer->fields().indexOf("facies_intervals") >= 0
                    ? (a.key() == "facies_label" ? QVariant(QObject::tr("未预测")) : QVariant()) : a.value()) && ok;
   }
   if (!ok) {

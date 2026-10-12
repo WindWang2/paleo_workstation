@@ -726,6 +726,8 @@ void EntityPanel::beginDeleteEntity(const QString &entityId)
 void EntityPanel::setDocService(PreviewDocService *doc)
 {
   m_doc = doc; m_versionId.clear(); m_graphSelected.clear(); m_preserveGraphOnce = false;
+  // #411：换服务即换工程语境——路径→统计缓存清（防跨工程错配 + 无界增长）。
+  m_geoSummaryCache.clear();
   refreshDerivation();
 }
 void EntityPanel::setVersionContext(const QString &assetId, const QString &versionId)
@@ -1562,6 +1564,8 @@ bool EntityPanel::requestGeoJsonSummary(
   {
     PreviewDocService::GeoJsonSummary sum;
     PreviewDocService::geoJsonSummaryAt(absPath, &sum, nullptr); // 失败=空 summary（回退态）
+    if (m_geoSummaryCache.size() >= kGeoSummaryCacheMax)
+      m_geoSummaryCache.clear(); // #411：无界缓存→封顶清空（摘要便宜，重建可接受）
     m_geoSummaryCache.insert(absPath, sum);
     apply(sum);
     return true;
@@ -1579,6 +1583,8 @@ bool EntityPanel::requestGeoJsonSummary(
   connect(task, &PaleoTask::finished, this, [this, seq, absPath, out, apply]() {
     if (seq != m_geoSeq)
       return; // 陈旧结果丢弃：新选择已接管
+    if (m_geoSummaryCache.size() >= kGeoSummaryCacheMax)
+      m_geoSummaryCache.clear();
     m_geoSummaryCache.insert(absPath, *out);
     apply(*out);
   });

@@ -844,8 +844,16 @@ endfunction()
 # ENVIRONMENT，并把期望路径编进 tst_pythonrepl/tst_scriptrunner 断言——
 # 裸 ctest / IDE 跑测试不再依赖调用者 shell 的 PATH（Windows 上 PATH 首个
 # python 常是 WindowsApps 商店桩）。留空 = 保持 PATH 发现（Linux/CI 缺省）。
-set(PALEO_TEST_PYTHON "$ENV{PALEO_PYTHON}" CACHE FILEPATH
-  "Python interpreter injected as PALEO_PYTHON into every ctest (empty = PATH discovery)")
+# #398：env→cache 播种要 FORCE——裸 CACHE set 在条目已存在（含 -D 建的
+# UNINITIALIZED 档）后静默失效，PALEO_PYTHON 再也进不了测试环境。与
+# QGIS_PREFIX/QSCINTILLA_PREFIX 的播种模式同构。
+if(NOT PALEO_TEST_PYTHON AND DEFINED ENV{PALEO_PYTHON})
+  set(PALEO_TEST_PYTHON "$ENV{PALEO_PYTHON}" CACHE FILEPATH
+    "Python interpreter injected as PALEO_PYTHON into every ctest (empty = PATH discovery)" FORCE)
+else()
+  set(PALEO_TEST_PYTHON "${PALEO_TEST_PYTHON}" CACHE FILEPATH
+    "Python interpreter injected as PALEO_PYTHON into every ctest (empty = PATH discovery)")
+endif()
 set(PALEO_TEST_PYTHON_NORM "")
 if(PALEO_TEST_PYTHON)
   file(TO_CMAKE_PATH "${PALEO_TEST_PYTHON}" PALEO_TEST_PYTHON_NORM)
@@ -1019,6 +1027,7 @@ add_paleo_test(tst_officepreview LIBS paleo_ui)
 add_paleo_test(tst_layerservice LIBS paleo_qgis)            # catalog,metadata,qgis
 add_paleo_test(tst_canvas_tools LIBS paleo_services paleo_qgis) # metadata,qgis,services
 add_paleo_test(tst_domain LIBS paleo_domain)
+add_paleo_test(tst_faciescatalog LIBS paleo_domain) # #409：formationPrediction 统一口径回归
 add_paleo_test(tst_jobrunner LIBS paleo_services paleo_ui_deps)  # 方向20：JobRunner 三段式框架断言
 add_paleo_test(tst_linkage LIBS paleo_linkage)
 add_paleo_test(tst_algorithms LIBS paleo_algorithms paleo_ui_deps)
@@ -1037,9 +1046,9 @@ add_paleo_test(tst_singlefactor_avoidance LIBS paleo_algorithms)
 add_paleo_test(tst_constraint_draw LIBS paleo_ui)
 add_paleo_test(tst_singlefactor_perf LIBS paleo_algorithms)
 add_paleo_test(tst_contourlevels LIBS paleo_algorithms)   # #149 级别数上限
-add_paleo_test(tst_singlefactor_contours LIBS paleo_qgis)
+add_paleo_test(tst_singlefactor_contours LIBS paleo_qgis paleo_services)
 add_paleo_test(tst_singlefactor_fieldcontours LIBS paleo_workflow)
-add_paleo_test(tst_singlefactor_contourbudget LIBS paleo_algorithms paleo_qgis)
+add_paleo_test(tst_singlefactor_contourbudget LIBS paleo_algorithms paleo_qgis paleo_services)
 add_paleo_test(tst_singlefactor_guilatency LIBS paleo_algorithms paleo_services)
 add_paleo_test(tst_singlefactor_faults LIBS paleo_workflow)
 add_paleo_test(tst_singlefactor_asynccontour LIBS paleo_workflow)
@@ -1059,7 +1068,7 @@ add_paleo_test(tst_workflows LIBS paleo_workflow)
 add_paleo_test(tst_boundaryeditrules LIBS paleo_workflow) # 方向39：相界类型编辑规则（纯语义面）
 add_paleo_test(tst_wellsiting_workflow LIBS paleo_workflow)  # 方向34：井网辅助编排（Oracle 2/4）
 add_paleo_test(tst_wellsiting_panel LIBS paleo_ui)         # 方向34：布井辅助面板（视图锚点/意图信号）
-add_paleo_test(tst_mappingworkbench)                    # 伞式（ui/pages+qgis+workflow 全栈面，兼容样本）
+add_paleo_test(tst_mappingworkbench LIBS paleo_core paleo_qgis_attribute_table) # 伞式 + #410 属性表宿主回归
 add_paleo_test(tst_ui)                                      # 伞式（app 面全栈，兼容样本）
 add_paleo_test(tst_panels)                                  # 伞式（全栈，兼容样本）
 # RUN_SERIAL 独占机器跑：dataops_d2_filterPerformance10k 的 100ms 墙钟断言
@@ -1252,6 +1261,9 @@ target_link_libraries(paleo PRIVATE paleo_core)
 # JSON → 段完整性 + 机器无关比率门（startup_ratios.json ×1.5）；另起一次
 # 注入 1500ms 劣化断言门必红（判别力）。计时面挂串行，对齐 tst_perfbudget。
 add_paleo_test(tst_startup_trace LIBS paleo_services)
+# #399：测试经 PALEO_APP_BINARY 启动真二进制——LIBS 闭包里没有 paleo，
+# 单编 target 时二进制缺席必败；与其余 $<TARGET_FILE:…> 消费者同补依赖。
+add_dependencies(tst_startup_trace paleo)
 target_compile_definitions(tst_startup_trace PRIVATE
   PALEO_APP_BINARY="$<TARGET_FILE:paleo>"
   PALEO_SOURCE_DIR="${CMAKE_SOURCE_DIR}") # 审计 01 M5：基线不靠 CWD 相对路径
@@ -1297,6 +1309,9 @@ target_compile_definitions(tst_mkprojectfixture PRIVATE
   MKPROJECT_MINI_DIR="${CMAKE_SOURCE_DIR}/tools/reference/mkproject/mini")
 add_test(NAME tst_mkprojectfixture COMMAND tst_mkprojectfixture
          -o "${PALEO_QTEST_FIRST_RUN_DIR}/tst_mkprojectfixture.txt,txt")
+# #420：add_paleo_test 等价沙箱要两条腿——ENV 沙箱 + 注册表 hive 链接库
+#（Windows NativeFormat 不走 XDG env，缺它 QSettings 会落真实注册表）。
+paleo_test_link_sandbox(tst_mkprojectfixture)
 paleo_test_sandbox(tst_mkprojectfixture)
 set_tests_properties(tst_mkprojectfixture PROPERTIES LABELS services RUN_SERIAL TRUE)
 add_dependencies(tst_mkprojectfixture paleo_mkproject)
@@ -1446,7 +1461,10 @@ endforeach()
 file(GLOB _paleo_extra_ondisk CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/cmake/extra-*.cmake")
 foreach(_f IN LISTS _paleo_extra_ondisk)
   if(NOT _f IN_LIST _paleo_extra_manifest)
-    message(FATAL_ERROR "cmake/$(notdir ${_f}) 未登记进 _paleo_extra_manifest——"
+    # #420：$(notdir ...) 是 Make 语法，在 message 里会原样输出——
+    # 用 get_filename_component 取文件名。
+    get_filename_component(_fname "${_f}" NAME)
+    message(FATAL_ERROR "cmake/${_fname} 未登记进 _paleo_extra_manifest——"
       "请补进上面的显式清单（防漂移约定不变：include 仍只走清单）")
   endif()
 endforeach()

@@ -265,7 +265,10 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
                     }
                     const double halfW = 16.0;
                     QPolygonF synWave;
-                    for (std::size_t i = 0; i < syn.twtMs.size(); ++i) {
+                    // #412：twtMs/amplitude 不等长即坏数据——按短边裁（同文件
+                    // 井曲线路径 :316 同款校验，此处补齐）。
+                    const std::size_t synN = std::min(syn.twtMs.size(), syn.amplitude.size());
+                    for (std::size_t i = 0; i < synN; ++i) {
                         const double py = timeToPixelY(syn.twtMs[i]);
                         if (py < vp.top() - 5 || py > vp.bottom() + 5)
                             continue;

@@ -5,6 +5,7 @@
 #include "dataimportservice.h"
 
 #include "lascache.h"
+#include "lasparser.h" // LasParser::fileSizeLimit（大文件防护共用口径）
 #include "rasterpyramid.h"
 #include "segyindexstore.h"
 #include "shacache.h"
@@ -188,6 +189,12 @@ DataImportService::importOneFile(ImportSession &s, const QString &sourcePath,
     if (!source.open(QIODevice::ReadOnly))
       return fail(QCoreApplication::translate("DataImportService", "无法读取井表 %1：%2")
                       .arg(sourcePath, source.errorString()));
+    // #387：井文本整读+split 无超限闸——GB 级文件直接 OOM。与 LAS 500MB
+    // 同口径（fileSizeLimit 可被测试收紧）。
+    if (source.size() > LasParser::fileSizeLimit())
+      return fail(QCoreApplication::translate("DataImportService", "井表过大（%1 MB 上限）：%2")
+                      .arg(LasParser::fileSizeLimit() / (1024 * 1024))
+                      .arg(sourcePath));
     const QByteArray bytes = source.readAll();
     if (source.error() != QFileDevice::NoError)
       return fail(QCoreApplication::translate("DataImportService", "读取井表失败 %1：%2").arg(sourcePath, source.errorString()));

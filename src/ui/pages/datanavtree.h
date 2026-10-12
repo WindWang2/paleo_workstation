@@ -77,6 +77,17 @@ public:
   // 当前拖拽悬浮的目标节点（供测试断言反馈态）。
   QTreeWidgetItem *dropTargetItem() const { return m_dropTarget; }
   QString lastDropRejectReason() const { return m_lastReject; }
+  // 树重建/删 item 前必须调：m_dropTarget 是裸 QTreeWidgetItem*（非
+  // QObject 无 QPointer 守卫），QDrag::exec 嵌套事件循环里节点被删后
+  // clearDropFeedback 会对已释放 item 调 setBackground（UAF）。
+  void invalidateDropTarget() { m_dropTarget = nullptr; }
+  // 整树清空同样先丢缓存目标（遮蔽 QTreeWidget::clear 的非虚接口——
+  // 经 DataNavTree* 调用都会走到本守卫）。
+  void clear()
+  {
+    invalidateDropTarget();
+    QTreeWidget::clear();
+  }
   // 编程式驱动面：QApplication::notify 会吞掉无拖拽会话的合成
   // DragMove/Drop（真实路由只在 QDrag::exec 会话内），测试/自动化直调。
   void handleDragMove(QDragMoveEvent *e) { dragMoveEvent(e); }

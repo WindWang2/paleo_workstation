@@ -1825,9 +1825,15 @@ class TestUiShell : public QObject
       // 能出层的预测结果——显式注入 tests/ 替身（口径同 tst_mappingworkbench）。
       MockRemotePredictionService predictionMock;
       m_ctx->mappingWorkbench()->setPredictionService(&predictionMock);
+      // 测井预测走通用远端路径交给 Mock（装配的真 WellPredictionService 走
+      // current-formation 口径——本用例断言的是逐井段预测相面板）。
+      m_ctx->mappingWorkbench()->setWellPredictionService(nullptr);
       QVERIFY(m_ctx->projectSvc()->createProject(dir.filePath("mapping.qgz")));
       m_win->attachWorkflows(m_ctx->predictionWf(),m_ctx->constraintWf(),m_ctx->compositionWf(),m_ctx->validationWf(),m_ctx->importSvc(),m_ctx->seismicLink(),m_ctx->processingSvc(),m_ctx->store(),m_ctx->editingSvc(),m_ctx->layoutSvc(),m_ctx->taskSvc());
       m_win->attachWorkbench(m_ctx->mappingWorkbench());
+      // 输入列表走「catalog changed→workbench changed→页 0ms 定时器刷新」
+      // 异步链，scheduleRefresh 只在页面可见时启动——窗口须显式 show。
+      m_win->show();
       QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
       auto *pageHost = m_win->findChild<QWidget *>("rightPanelHost");
       auto *pageStack = qobject_cast<QStackedLayout *>(pageHost->layout());
@@ -1846,7 +1852,8 @@ class TestUiShell : public QObject
       auto *catalog=m_ctx->importSvc()->catalog();QVERIFY(catalog && catalog->isOpen());
       DerivedAssetRegistrar registrar(catalog,dir.path());auto st=registrar.stage("seismic","示例地震体","volume.bin");QVERIFY(st.isValid());QFile source(st.absolutePath);QVERIFY(source.open(QIODevice::WriteOnly));source.write("mock volume");source.close();QVERIFY(registrar.commit(st,{},"test",{}));
       CatalogEntity e;e.id="workbench-survey";e.name="示例工区";e.entityType="seismic_survey";e.corners={{0,0},{640,0},{640,640},{0,640}};QVERIFY(catalog->addEntity(e));EntityAssetLink link;link.entityType=e.entityType;link.entityId=e.id;link.assetId=st.assetId;link.role="seismic_volume";QVERIFY(catalog->addLink(link));
-      auto *page=m_win->findChild<MappingWorkbenchPage *>("mappingWorkbench.predict");QVERIFY(page);auto *inputs=page->findChild<QListWidget *>("workbenchInputs");QVERIFY(inputs && inputs->count()==1);inputs->item(0)->setCheckState(Qt::Checked);
+      auto *page=m_win->findChild<MappingWorkbenchPage *>("mappingWorkbench.predict");QVERIFY(page);auto *inputs=page->findChild<QListWidget *>("workbenchInputs");QVERIFY(inputs);
+      QTRY_VERIFY_WITH_TIMEOUT(inputs->count()==1,3000);inputs->item(0)->setCheckState(Qt::Checked);
       // 预测类型默认是本地层位窗聚类（seismic_mock，需层位数据）；本用例
       // 验证注入的远端替身——先切到「地震体 → 相栅格（预测服务）」。
       auto *kindBox=page->findChild<QComboBox *>("predictionKind");QVERIFY(kindBox);QVERIFY(kindBox->findData(QStringLiteral("seismic"))>=0);kindBox->setCurrentIndex(kindBox->findData(QStringLiteral("seismic")));
@@ -1926,7 +1933,7 @@ class TestUiShell : public QObject
         PaleoTheme::applyLightTheme();
         PaleoRibbon::applyTheme(m_win, PaleoTheme::shellStyleSheet() + PaleoTheme::focusRingStyleSheet());
       }
-      page->commandButton("polygonize")->click();QVERIFY(page->selectedLayer()!=id);QVERIFY(page->commandButton("copy")->isEnabled());
+      page->commandButton("polygonize")->click();QTRY_VERIFY_WITH_TIMEOUT(page->selectedLayer()!=id,15000);QVERIFY(page->commandButton("copy")->isEnabled());
       page->commandButton("copy")->click();const auto draft=page->selectedLayer();QVERIFY2(draft.startsWith("draft."),qPrintable(page->findChild<QLabel *>("workbenchMessage")->text()));auto *editing=m_win->findChild<PaleoEditingToolbar *>("editingToolbar");QVERIFY(editing && editing->isEditing());auto previous=m_ctx->mappingWorkbench()->versionForLayer(draft);auto *vector=editing->currentLayer();QVERIFY(vector);
       m_win->showPage("data"); dataPage->focusVersion(mapVersion.assetId,mapVersion.id);
       dataReference->click(); QVERIFY(editing->isEditing()); QCOMPARE(editing->currentLayer(),vector);
@@ -1968,9 +1975,11 @@ class TestUiShell : public QObject
       auto *wellPanel = m_win->findChild<WellPredictionPanel *>();
       QVERIFY(wellPanel);
       QTRY_VERIFY(wellPanel->isVisible());
+      // #346 起井道面板只读「最终相 + 当前地层范围」一条区间，
+      // 不再回传逐采样 12 段预测。
       QCOMPARE(wellPanel->findChild<QTableWidget *>("predictionIntervals")
                    ->rowCount(),
-               12);
+               1);
       QVERIFY(!wellPanel->layerId().startsWith("draft."));
       // 直接在预测相上修订：首次应用自动保留预测原件并切换到修订副本。
       auto *choice = wellPanel->findChild<QComboBox *>("wellFaciesChoice");

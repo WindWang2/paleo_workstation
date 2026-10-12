@@ -43,9 +43,12 @@ PaleoTask *SeismicTaskService::startSliceExtraction(
   const char *typeStr = (type == SgySliceType::Inline) ? "inl" : ((type == SgySliceType::Xline) ? "xl" : "time");
   // #291：缓存键的路径字节走 UTF-16 通道（path::string() 在 MSVC 上按 ACP
   // 返回窄字节、遇无法表示的字符还会抛——键会错乱甚至崩）。
+  // #391：键并入 mtime——同路径同尺寸原地重写的体不再命中旧切片
+  //（sectionCacheKey 同款口径）。
   const std::string key =
       SgyDataCache::MakeKey(typeStr, volume->Index()->fileSize,
                             static_cast<std::uint64_t>(sliceIndex)) +
+      ":" + std::to_string(static_cast<long long>(volume->Index()->modifiedTimeTicks)) +
       ":" + paleo::fromFsPath(volume->Path()).toStdString();
 
   // 1. 检查内存 LRU 缓存（显式 paged 通道不查直读缓存——两条通道语义独立）

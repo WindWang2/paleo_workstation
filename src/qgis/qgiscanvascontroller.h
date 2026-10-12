@@ -63,5 +63,13 @@ class QgisCanvasController : public QObject
     QgsMapCanvas *m_canvas = nullptr;
     QgsLayerTreeMapCanvasBridge *m_bridge = nullptr;
     bool m_broadcasting = false;
+    // §41.3 broadcast 守卫状态——实例成员而非全局表（全局 QHash 无同步，
+    // 任何跨线程调用都让 rehash 与 find/erase 竞态）。
+    struct BroadcastGuard
+    {
+        int depth = 0;        // unmatched beginSelectionBroadcast() calls
+        bool pending = false; // a nested begin was swallowed → owe one re-broadcast
+    };
+    BroadcastGuard m_guard;
     LayerResolver m_layerResolver;
 };

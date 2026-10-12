@@ -1,6 +1,7 @@
 // 层：视图
 #pragma once
 #include <QObject>
+#include <QPointer>
 #include <QString>
 
 class QgisCanvasController;
@@ -47,9 +48,11 @@ class ConstraintDrawController : public QObject
   private:
     void teardown();                  // unset + delete the live tool
 
-    QgisCanvasController *m_canvasCtl;
-    ConstraintWorkflow *m_wf;
-    QgsAdvancedDigitizingDockWidget *m_cadDock = nullptr;
+    // #413：canvasCtl/wf/cadDock 均外建——任一先析构时裸指针即悬垂；
+    // QPointer 归零后 startCapture 走「尚未完成接线」诚实失败分支。
+    QPointer<QgisCanvasController> m_canvasCtl;
+    QPointer<ConstraintWorkflow> m_wf;
+    QPointer<QgsAdvancedDigitizingDockWidget> m_cadDock;
     QgsMapTool *m_tool = nullptr;
     QString m_horizon;
     QString m_shape;

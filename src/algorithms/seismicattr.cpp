@@ -334,23 +334,20 @@ void semblanceCoherenceWeighted(const float *volume, int nIl, int nXl, int nS,
                                 double ilSpacing, double xlSpacing,
                                 CoherenceWeightMode mode, float *out)
 {
-  if (nIl > 0 && nXl > 0 && nS > 0 &&
-      !semblanceDimsFit(nIl, nXl, nS, std::max(ilHalf, 0), std::max(xlHalf, 0),
-                        std::max(timeHalf, 0)))
-    return; // #234-2：int 索引域外拒绝，不按回绕下标写越界
-  const int nOut = nIl * nXl * nS;
+  // #417：先全量校验再算 nOut——负维在旧顺序下可凑出正乘积/溢出回绕，
+  // NaN 填充会按垃圾 nOut 越界写调用方缓冲（与未加权版同一校验顺序）。
   if (!volume || !out || nIl <= 0 || nXl <= 0 || nS <= 0 ||
       ilHalf < 0 || xlHalf < 0 || timeHalf < 0)
-  {
-    if (out && nOut > 0)
-      for (int i = 0; i < nOut; ++i)
-        out[i] = kNaN;
     return;
-  }
+  if (!semblanceDimsFit(nIl, nXl, nS, ilHalf, xlHalf, timeHalf))
+    return; // #234-2：int 索引域外拒绝，不按回绕下标写越界
+  const int nOut = nIl * nXl * nS;
   for (int i = 0; i < nOut; ++i)
     out[i] = kNaN;
   if (ilHalf == 0 && xlHalf == 0 && timeHalf == 0)
     return; // 退化窗：单道单样 semblance 恒 1 无意义，保持 NaN
+  if (2 * ilHalf >= nIl || 2 * xlHalf >= nXl)
+    return; // 窗覆盖整幅：无中心格可写，保持 NaN（也免无谓权重表分配）
   if (mode == CoherenceWeightMode::InverseDistance &&
       !(ilSpacing > 0.0 && xlSpacing > 0.0))
     return; // 道距缺失：全 NaN（诚实失败，不静默降级等权）

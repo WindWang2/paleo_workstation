@@ -174,6 +174,7 @@ class PreviewMapPage : public QWidget
     QString m_assetKey;
     QString m_cacheAssetId;
     QString m_cacheVersionId;
+    class QTimer *m_cacheSettleTimer = nullptr; // #376 渲染 settle 去抖
     QgsPointXY m_lastMousePos;
     bool m_hasMousePos = false;
 };

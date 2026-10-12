@@ -31,6 +31,7 @@ public:
     PaleoTask *t = m_task;
     if (!t)
       return;
+    QMetaObject::invokeMethod(t, "markStarted", Qt::DirectConnection);
     QString error;
     try
     {
@@ -181,8 +182,15 @@ void PaleoTask::applyStage(const QString &stage, int percent)
   emit changed();
 }
 
+void PaleoTask::markStarted()
+{
+  m_started.store(true);
+}
+
 void PaleoTask::applyFinish(const QString &error)
 {
+  if (m_state != State::Running)
+    return; // 排队丢弃补偿 / runner 回包双到——终态只落一次
   if (m_cancel.load())
     m_state = State::Cancelled;
   else if (!error.isEmpty())
@@ -240,6 +248,13 @@ bool PaleoTaskService::shutdown(int timeoutMs, bool pumpEvents)
     if (t->running())
       t->requestCancel();
   m_pool->clear(); // 未出队的任务直接丢弃（其闭包随 QRunnable 析构）
+  // #416：被 clear 丢弃的排队任务 runner 永不执行——没有它就没有终态回包，
+  // 任务行会永远挂在 Running。补发终态（m_cancel 已置 → Cancelled）；已开跑
+  // 的任务由自身回包落终态，applyFinish 的运行态闸挡双到。
+  for (PaleoTask *t : m_tasks)
+    if (t->running() && !t->m_started.load())
+      QMetaObject::invokeMethod(t, "applyFinish", Qt::QueuedConnection,
+                                Q_ARG(QString, QString()));
   if (!pumpEvents || !QCoreApplication::instance() ||
       QThread::currentThread() != QCoreApplication::instance()->thread())
     return m_pool->waitForDone(timeoutMs);
@@ -278,6 +293,7 @@ PaleoTask *PaleoTaskService::beginExternal(const QString &title,
                                            const QString &layerId, bool quiet)
 {
   PaleoTask *task = createTask(title, layerId, quiet);
+  task->m_started = true; // 外部驱动不占池——shutdown 排队补偿不适用于它
   task->applyProgress(0, 100);
   return task;
 }

@@ -18,16 +18,24 @@ using paleo::store_detail::setError;
 
 constexpr auto kWellSitingRowId = "current"; // 单行文档表
 
-QString wellSitingConnectionName(const QString &path)
+QString wellSitingConnectionName(const QString &path, bool readOnly)
 {
-    return QStringLiteral("paleo_wellsiting_") + QString::number(qHash(path));
+    // readOnly 实例走独立连接名（QSQLITE_OPEN_READONLY，#80）——同进程可写
+    // 与只读实例不得复用同一条连接（LayerManifest 同构）。
+    return QStringLiteral("paleo_wellsiting_") + QString::number(qHash(path)) +
+           (readOnly ? QStringLiteral("_ro") : QString());
 }
 
-bool wellSitingEnsureOpen(const QString &path, QString *error)
+// #395：readOnly 连接不建表/不迁移——schema 归写实例；read-write 打开会
+// 撞写实例的排他锁（整库读不出）。
+bool wellSitingEnsureOpen(const QString &path, bool readOnly, QString *error)
 {
-    QSqlDatabase db = MetaStore::openConnection(path, wellSitingConnectionName(path), error);
+    QSqlDatabase db =
+        MetaStore::openConnection(path, wellSitingConnectionName(path, readOnly), error, readOnly);
     if (!db.isValid())
         return false;
+    if (readOnly)
+        return true;
     QSqlQuery schema(db);
     if (!schema.exec(QStringLiteral(
             "CREATE TABLE IF NOT EXISTS well_siting_scenarios ("
@@ -50,7 +58,7 @@ WellSitingStore::WellSitingStore(const QString &metaSqlitePath,
 
 bool WellSitingStore::open(QString *error)
 {
-    return wellSitingEnsureOpen(m_dbPath, error);
+    return wellSitingEnsureOpen(m_dbPath, m_readOnly, error);
 }
 
 bool WellSitingStore::save(const paleo::siting::ScenarioSet &set, QString *error)
@@ -65,9 +73,9 @@ bool WellSitingStore::save(const paleo::siting::ScenarioSet &set, QString *error
     const QString nowUtc = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
 
     const auto write = [&](QString *err) -> bool {
-        if (!wellSitingEnsureOpen(m_dbPath, err))
+        if (!wellSitingEnsureOpen(m_dbPath, false, err))
             return false;
-        QSqlQuery q(QSqlDatabase::database(wellSitingConnectionName(m_dbPath)));
+        QSqlQuery q(QSqlDatabase::database(wellSitingConnectionName(m_dbPath, false)));
         q.prepare(QStringLiteral(
             "INSERT OR REPLACE INTO well_siting_scenarios (id, payload, updated_utc) "
             "VALUES (?, ?, ?)"));
@@ -101,9 +109,9 @@ bool WellSitingStore::save(const paleo::siting::ScenarioSet &set, QString *error
 
 bool WellSitingStore::load(paleo::siting::ScenarioSet &set, QString *error) const
 {
-    if (!wellSitingEnsureOpen(m_dbPath, error))
+    if (!wellSitingEnsureOpen(m_dbPath, m_readOnly, error))
         return false;
-    QSqlQuery q(QSqlDatabase::database(wellSitingConnectionName(m_dbPath)));
+    QSqlQuery q(QSqlDatabase::database(wellSitingConnectionName(m_dbPath, m_readOnly)));
     q.prepare(QStringLiteral(
         "SELECT payload FROM well_siting_scenarios WHERE id = ?"));
     q.addBindValue(QString::fromLatin1(kWellSitingRowId));

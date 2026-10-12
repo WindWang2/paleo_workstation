@@ -598,7 +598,23 @@ QVariantMap QgisProcessingService::run(const QString &algorithmId, const QVarian
 
   // create() (not createInstance()): it additionally runs initAlgorithm(),
   // which is what installs the parameter definitions we inspect below.
-  std::unique_ptr<QgsProcessingAlgorithm> instance(alg->create());
+  // #419：initAlgorithm() 可抛异常——与下方 run() 同口径捕获，不穿透进
+  // worker 线程顶层。
+  std::unique_ptr<QgsProcessingAlgorithm> instance;
+  try
+  {
+    instance.reset(alg->create());
+  }
+  catch (const QgsProcessingException &e)
+  {
+    setError(error, tr("algorithm '%1' init raised an exception: %2").arg(algorithmId, e.what()));
+    return QVariantMap();
+  }
+  catch (...)
+  {
+    setError(error, tr("algorithm '%1' init raised an unexpected exception").arg(algorithmId));
+    return QVariantMap();
+  }
   if (!instance)
   {
     setError(error, tr("algorithm '%1' could not create an instance").arg(algorithmId));

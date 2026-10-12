@@ -36,6 +36,17 @@ using paleo::ui_detail::mono8;
     return palette;
   }
 
+  // #413：剖面 CSV 字段转义（系列名用户可改，必含逗号风险）。
+  QString csvField( const QString &s )
+  {
+    if ( !s.contains( QLatin1Char( ',' ) ) && !s.contains( QLatin1Char( '"' ) ) &&
+         !s.contains( QLatin1Char( '\n' ) ) && !s.contains( QLatin1Char( '\r' ) ) )
+      return s;
+    QString out = s;
+    out.replace( QLatin1Char( '"' ), QStringLiteral( "\"\"" ) );
+    return QStringLiteral( "\"%1\"" ).arg( out );
+  }
+
   double niceStep( double raw )
   {
     if ( !( raw > 0.0 ) )
@@ -432,12 +443,13 @@ bool PreviewProfilePanel::writeCsv( const QString &path ) const
   QFile f( path );
   if ( !f.open( QIODevice::WriteOnly | QIODevice::Text ) )
     return false;
+  f.write( "\xEF\xBB\xBF" ); // UTF-8 BOM：Windows Excel 读中文不乱码（#413）
   QTextStream ts( &f ); // Qt6 默认 UTF-8
   ts << QStringLiteral( "series,distance,value\n" );
   for ( const Series &s : m_series )
     for ( const Sample &sm : s.samples )
       if ( sm.valid )
-        ts << s.name << QStringLiteral( "," ) << QString::number( sm.distance, 'f', 2 )
+        ts << csvField( s.name ) << QStringLiteral( "," ) << QString::number( sm.distance, 'f', 2 )
            << QStringLiteral( "," ) << QString::number( sm.value, 'f', 4 ) << QLatin1Char( '\n' );
   return true;
 }

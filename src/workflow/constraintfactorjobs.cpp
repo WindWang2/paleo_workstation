@@ -222,32 +222,56 @@ PaleoTask *ConstraintWorkflow::startConstraintJob( paleo::jobs::JobRunner<Constr
   // prepare 段不重复抓快照，只做一次空转确认。
   cb.prepare = []( ConstraintJob &, QString * ) { return true; };
 
-  // compute 跑在 worker 线程，但它要调用的 computeConstraintJob 是非静态成员
-  // （要访问 catalog / layers）。捕获 this 是安全的：这三组的 compute 段本来
-  // 就是「读层位文件 + GDAL 栅格运算」，不写活 catalog（#106 owner-thread 写
-  // 守卫只覆盖 commit 段的 registrar 写面），与现状 worker 直调
-  // computeXxxJob 的线程模型完全一致。
-  cb.compute = [this, shared]( ConstraintJob &j, const paleo::jobs::CancelFn &cancelled,
+  // #379：compute 跑在 worker 线程——工作流对象可能在作业在飞时被销毁，
+  // 裸捕 this 会让 pool worker 解构悬垂指针。这里只捕服务的 QPointer
+  //（死亡即空，computeXxxJobWithService 对 null proc 有显式失败路径）并
+  // 直接分派静态实现（三条 computeXxxJob 里 contour 两条本来就是 static；
+  // LocalDirection 走 *WithService 静态重载），完全不触工作流成员。
+  const QPointer<QgisProcessingService> proc = m_proc;
+  cb.compute = [proc, shared]( ConstraintJob &j, const paleo::jobs::CancelFn &cancelled,
                               const paleo::jobs::ProgressFn &progress ) {
     // 现状三处都是「把百分数映射成 stage 再 reportStage」。这里把 stageOf 的
     // 映射结果交给框架的 ProgressFn，由框架统一节流（50ms）后经
     // PaleoTask::reportStage 上任务面板——不再自行节流。
-    return computeConstraintJob(
-        j, cancelled,
-        [shared, progress]( double percent ) {
-          if ( !progress )
-            return;
-          const int pct = qBound( 0, qRound( percent ), 100 );
-          const QString stage = shared->stageOf ? shared->stageOf( percent )
-                                                : QStringLiteral( "interpolate" );
-          progress( static_cast<double>( pct ), stage );
-        } );
+    const std::function<void(double)> pct = [shared, progress]( double percent ) {
+      if ( !progress )
+        return;
+      const int p = qBound( 0, qRound( percent ), 100 );
+      const QString stage = shared->stageOf ? shared->stageOf( percent )
+                                            : QStringLiteral( "interpolate" );
+      progress( static_cast<double>( p ), stage );
+    };
+    switch ( j.kind )
+    {
+      case ConstraintJobKind::LocalDirection:
+        return computeLocalDirectionJobWithService(
+            proc.data(), &std::get<LocalDirectionJob>( j.payload ), cancelled, pct );
+      case ConstraintJobKind::AnalysisContour:
+        return computeAnalysisContourJob( &std::get<AnalysisContourJob>( j.payload ), cancelled );
+      case ConstraintJobKind::InterpretiveContour:
+        return computeInterpretiveContourJob( &std::get<InterpretiveContourJob>( j.payload ), cancelled );
+    }
+    return false;
   };
 
   // commit：owner 线程，publish 段——「发布是临界区」，框架此时已不接受取消。
-  cb.commit = [this]( ConstraintJob &j, QString * ) {
+  // 工作流在任务在飞期间被销毁时 QPointer 为空：publish 需要 catalog/store
+  // 成员，诚实失败（产物由 cleanup 钩子清），不得解悬垂。
+  const QPointer<ConstraintWorkflow> self = this;
+  // #415：commit 失败必须带原因——out 参数匿名丢弃会让 jobCompleted(gen,false)
+  // 无错误串、任务面看起来像成功（违反 jobrunner.h 发布失败契约）。
+  cb.commit = [self]( ConstraintJob &j, QString *error ) {
+    if ( !self )
+    {
+      if ( error )
+        *error = QObject::tr( "约束工作流已销毁，产物未发布" );
+      return false;
+    }
     QString err;
-    return publishConstraintJob( j, &err );
+    const bool ok = self->publishConstraintJob( j, &err );
+    if ( !ok && error )
+      *error = err.isEmpty() ? QObject::tr( "约束产物发布失败" ) : err;
+    return ok;
   };
 
   // cleanup：未成功发布时清临时产物。现状是三处内联 dropTemp，这里换成框架

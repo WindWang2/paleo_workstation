@@ -24,3 +24,6 @@ __pycache__/
 
 worktree-issues
 .worktrees/
+
+# #421：源码树内跑 ctest 的产物不进版本库
+Testing/

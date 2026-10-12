@@ -53,6 +53,23 @@ namespace
     return PaleoTheme::CapsuleKind::Neutral; // 未计算
   }
 
+  // Qt 清行不删单元格控件（setRowCount(0)/removeCellWidget 都只摘不删，控件
+  // 会活成表内孤儿叠画在表格尾部）——摘出父子树再 deleteLater：重填可能
+  // 正被这行自己的按钮触发，同步 delete 会在发件者栈上自杀。
+  void clearCellWidgets(QTableWidget *table)
+  {
+    if (!table)
+      return;
+    for (int r = 0; r < table->rowCount(); ++r)
+      for (int c = 0; c < table->columnCount(); ++c)
+        if (QWidget *w = table->cellWidget(r, c))
+        {
+          table->removeCellWidget(r, c);
+          w->setParent(nullptr);
+          w->deleteLater();
+        }
+  }
+
 } // namespace
 
 ValidatePage::ValidatePage(ValidationWorkflow *wf, QWidget *parent)
@@ -231,6 +248,7 @@ void ValidatePage::populateResult() {
     section->setToolTip(tr("先在问题表或残差表中选一条含剖面位置的行"));
   }
   table->clearSpans();
+  clearCellWidgets(table);
   table->setRowCount(0);
   auto *wf = qobject_cast<ValidationWorkflow *>(
       property(kWfProp).value<QObject *>());
@@ -277,6 +295,7 @@ void ValidatePage::populateResult() {
   auto *resSummary = child<QLabel>(this, "residualSummaryLabel");
   if (!resTable)
     return;
+  clearCellWidgets(resTable);
   resTable->setRowCount(0);
   const QVariantList rows = wf->lastResidualRows();
   if (rows.isEmpty())

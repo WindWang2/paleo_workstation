@@ -132,7 +132,10 @@ bool AttributeTablePanel::saveEditing()
   // markLayerFree）；无服务时直连 commitChanges（native 清 undo 栈同效）。
   if (m_nativeDialog) {
     m_nativeDialog->dualView()->tableView()->closeCurrentEditor();
-    if (!m_nativeDialog->dualView()->saveEditChanges()) {
+    // saveEditChanges() 只有表单视图下才有 QgsAttributeForm 可存；
+    // 表格视图下恒返 false，不能用它当保存闸门。
+    if (m_nativeDialog->dualView()->view() == QgsDualView::AttributeEditor &&
+        !m_nativeDialog->dualView()->saveEditChanges()) {
       emit editRefused(tr("属性表：表单验证未通过"));
       return false;
     }

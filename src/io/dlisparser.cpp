@@ -646,6 +646,29 @@ using paleo::io_detail::addIssue;
     bool unusableNoted = false;
   };
 
+  // #384：DIMENSION 单维上限——浮点码/NaN 的构造 EFLR 走 qint64(double)
+  // 是 UB；负值在 dimension 里作「非法」哨兵（维度语义本非负）。
+  constexpr double kMaxDim = 1e6;
+  qint64 dimFromDouble(double d)
+  {
+    if (!std::isfinite(d) || d < 0.0 || d > kMaxDim)
+      return -1;
+    return qint64(d);
+  }
+  // 乘积带溢出/哨兵检查：false = 维度非法或乘积溢出（调用方拒绝该帧）。
+  bool dimProduct(const QVector<qint64> &dim, qint64 *out)
+  {
+    qint64 elems = 1;
+    for (qint64 d : dim)
+    {
+      if (d < 0 || (d > 0 && elems > std::numeric_limits<qint64>::max() / d))
+        return false;
+      elems *= d;
+    }
+    *out = elems;
+    return true;
+  }
+
   struct FrameState
   {
     DlisParser::Obname name;
@@ -756,9 +779,9 @@ using paleo::io_detail::addIssue;
               ch.dimension.clear();
               if (v.value.kind == ElValue::NumList)
                 for (double d : v.value.numList)
-                  ch.dimension.append(qint64(d));
+                  ch.dimension.append(dimFromDouble(d));
               else if (v.value.kind == ElValue::Num)
-                ch.dimension.append(qint64(v.value.num));
+                ch.dimension.append(dimFromDouble(v.value.num));
             }
             else if (v.label == QLatin1String("LONG-NAME") &&
                      v.value.kind == ElValue::ObList && !v.value.obList.isEmpty())
@@ -858,11 +881,13 @@ using paleo::io_detail::addIssue;
           return false;
         }
         qint64 elems = 1;
-        if (!ch.dimension.isEmpty())
+        // #384：哨兵/溢出都拒绝本帧——否则槽位宽按回绕值或 0 推进，后续
+        // 通道全部从错误偏移读数（静默错值）。
+        if (!dimProduct(ch.dimension, &elems))
         {
-          elems = 1;
-          for (qint64 d : ch.dimension)
-            elems *= qMax(d, qint64(0));
+          if (error)
+            *error = QStringLiteral("通道 %1 DIMENSION 非法或元素积溢出").arg(chRef.id);
+          return false;
         }
         const int fixed = fixedRepSize(ch.repc);
         const bool usable = elems == 1 && numericRep(ch.repc) && fixed > 0;
@@ -958,12 +983,10 @@ using paleo::io_detail::addIssue;
     {
       const ChannelState ch = w.channels.value(obnameKey(chRef));
       qint64 elems = 1;
-      if (!ch.dimension.isEmpty())
-      {
-        elems = 1;
-        for (qint64 d : ch.dimension)
-          elems *= qMax(d, qint64(0));
-      }
+      // 维度非法/溢出的通道同非标量口径不进白名单（consumeFdata 已在帧
+      // 级如实报错）。
+      if (!dimProduct(ch.dimension, &elems))
+        continue;
       if (elems == 1 && numericRep(ch.repc) && fixedRepSize(ch.repc) > 0)
         names.append(chRef.id);
     }
@@ -1334,12 +1357,8 @@ bool DlisParser::parse(const QString &path, LasHeaderInfo &header,
   {
     const ChannelState ch = w.channels.value(obnameKey(chRef));
     qint64 elems = 1;
-    if (!ch.dimension.isEmpty())
-    {
-      elems = 1;
-      for (qint64 d : ch.dimension)
-        elems *= qMax(d, qint64(0));
-    }
+    if (!dimProduct(ch.dimension, &elems))
+      continue;
     if (elems != 1 || !numericRep(ch.repc) || fixedRepSize(ch.repc) <= 0)
       continue; // 白名单通道：目录里没有（catalogNames 同口径）
     LasCurve curve;

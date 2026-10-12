@@ -225,13 +225,11 @@ LowFreqModelResult lowFreqImpedance(const LowFreqModelInput &input)
   {
     const std::size_t cell = std::size_t(wellIl[m]) * std::size_t(input.nXl) +
                              std::size_t(wellXl[m]);
-    double tops[64];
-    double bots[64];
-    if (nL > 64)
-    {
-      r.reason = "层数超上限 63（层位过多）";
-      return r;
-    }
+    // #417：固定 tops[64]/bots[64] 换动态分配——64 层上限是数组尺寸的人为
+    // 约束，层位再多也不该栈越界或硬拒绝。
+    const std::size_t layerCount = std::size_t(nL);
+    std::vector<double> tops(layerCount);
+    std::vector<double> bots(layerCount);
     for (int b = 0; b < nB; ++b)
     {
       const float v = r.boundaries[std::size_t(b)].twtMs[cell];
@@ -355,8 +353,11 @@ void lowFreqTraceAt(const LowFreqModelResult &m, int il, int xl, float *out)
   const int nL = m.layersUsed;
   const int nB = nL - 1;
   std::vector<float> raw(std::size_t(n), kNan);
-  double tops[64];
-  double bots[64];
+  // #417：固定 tops[64]/bots[64] 换动态分配——layersUsed 来自结果结构体，
+  // 超 64 层的模型在此处原样栈越界（无任何闸）。
+  const std::size_t layerCount = std::size_t(nL);
+  std::vector<double> tops(layerCount);
+  std::vector<double> bots(layerCount);
   for (int b = 0; b < nB; ++b)
   {
     const float v = m.boundaries[std::size_t(b)].twtMs[cell];
@@ -364,7 +365,7 @@ void lowFreqTraceAt(const LowFreqModelResult &m, int il, int xl, float *out)
         std::isfinite(v) ? double(v) : m.boundaryMeanTwt[std::size_t(b)];
   }
   tops[0] = -std::numeric_limits<double>::infinity();
-  bots[nL - 1] = std::numeric_limits<double>::infinity();
+  bots[std::size_t(nL) - 1] = std::numeric_limits<double>::infinity();
   for (int l = 0; l + 1 < nL; ++l)
     bots[std::size_t(l)] = tops[std::size_t(l + 1)];
   for (int i = 0; i < n; ++i)

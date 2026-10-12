@@ -116,7 +116,8 @@ void SeismicSectionCanvas::setSectionData(
                        (qint64(m_cmapInverted ? 1 : 0) << 40) ^
                        (qint64(int(m_threshold * 100)) << 41) ^
                        (qint64(m_polarityInverted ? 1 : 0) << 49) ^
-                       (qint64(m_agcEnabled ? m_agcWindowMs : 0) << 50);
+                       (qint64(m_agcEnabled ? m_agcWindowMs : 0) << 50) ^
+                       GainCurveFingerprint(m_gainCurve);
     for (auto it = m_textureCache.begin(); it != m_textureCache.end(); ++it) {
         if (it->key == key && it->image.size() == QSize(m_traces, m_samples)) {
             m_cachedImage = it->image; // 命中：即出
@@ -236,6 +237,9 @@ void SeismicSectionCanvas::appendTimeSliceTile(const SgySliceImage &tile, int x,
         m_displayValues.clear(); // 尺寸失配兜底：直通原始值
     }
 
+    // 数据变了——LOD 缓存（zoomY<1 缩小态用的缩略图）随瓦片失效，
+    // 否则新 tile 在键控参数变化/整体重建前永不上屏。
+    m_lodStride = 0;
     paintValueRegion(x, y, tile.width, tile.height);
     update();
 }

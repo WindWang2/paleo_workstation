@@ -83,9 +83,12 @@ QStringList splitEscaped(const QString &in, QChar sep, bool keepEmpty = false)
         out << cur;
     return out;
 }
-QString wellSectionConnectionName(const QString &path)
+QString wellSectionConnectionName(const QString &path, bool readOnly)
 {
-    return QStringLiteral("paleo_wellsection_") + QString::number(qHash(path));
+    // readOnly 实例走独立连接名（QSQLITE_OPEN_READONLY，#80）——同进程可写
+    // 与只读实例不得复用同一条连接（LayerManifest 同构）。
+    return QStringLiteral("paleo_wellsection_") + QString::number(qHash(path)) +
+           (readOnly ? QStringLiteral("_ro") : QString());
 }
 
 // 幂等建表：section_id 主键单节一行，version 随 save 递增。
@@ -118,11 +121,16 @@ bool wellSectionEnsureColumn(QSqlDatabase &db, const QString &table,
     return true;
 }
 
-bool wellSectionEnsureOpen(const QString &path, QString *error)
+// #395：readOnly 连接不建表/不补列——schema 归写实例；read-write 打开会
+// 撞写实例的排他锁（整库读不出）。
+bool wellSectionEnsureOpen(const QString &path, bool readOnly, QString *error)
 {
-    QSqlDatabase db = MetaStore::openConnection(path, wellSectionConnectionName(path), error);
+    QSqlDatabase db =
+        MetaStore::openConnection(path, wellSectionConnectionName(path, readOnly), error, readOnly);
     if (!db.isValid())
         return false;
+    if (readOnly)
+        return true;
     QSqlQuery schema(db);
     if (!schema.exec(QStringLiteral(
             "CREATE TABLE IF NOT EXISTS well_section_edits ("
@@ -161,7 +169,7 @@ bool wellSectionEnsureOpen(const QString &path, QString *error)
 
 int versionOf(const QString &path, const QString &sectionId, QString *error)
 {
-    QSqlQuery q(QSqlDatabase::database(wellSectionConnectionName(path)));
+    QSqlQuery q(QSqlDatabase::database(wellSectionConnectionName(path, false)));
     q.prepare(QStringLiteral("SELECT version FROM well_section_edits WHERE section_id = ?"));
     q.addBindValue(sectionId);
     if (!q.exec())
@@ -198,7 +206,7 @@ bool WellSectionStore::open(QString *error)
         setError(error, QStringLiteral("WellSectionStore 未绑定工程库路径"));
         return false;
     }
-    return wellSectionEnsureOpen(m_dbPath, error);
+    return wellSectionEnsureOpen(m_dbPath, m_readOnly, error);
 }
 
 WellSectionRecord WellSectionStore::save(
@@ -221,14 +229,14 @@ WellSectionRecord WellSectionStore::save(
         QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
 
     const auto write = [&](QString *err) -> WellSectionRecord {
-        if (!wellSectionEnsureOpen(m_dbPath, err))
+        if (!wellSectionEnsureOpen(m_dbPath, false, err))
             return {};
         // 写队列内读改写：版本号严格递增（round-trip 的推进口径）。
         const int current = versionOf(m_dbPath, sectionId, err);
         if (current < 0)
             return {};
         const int version = current + 1;
-        QSqlQuery q(QSqlDatabase::database(wellSectionConnectionName(m_dbPath)));
+        QSqlQuery q(QSqlDatabase::database(wellSectionConnectionName(m_dbPath, false)));
         q.prepare(QStringLiteral(
             "INSERT OR REPLACE INTO well_section_edits "
             "(section_id, well_ids, link_overrides, depth_domain, spacing, "
@@ -309,9 +317,9 @@ WellSectionRecord WellSectionStore::load(const QString &sectionId,
         setError(error, QStringLiteral("WellSectionStore 未绑定工程库路径"));
         return rec;
     }
-    if (!wellSectionEnsureOpen(m_dbPath, error))
+    if (!wellSectionEnsureOpen(m_dbPath, m_readOnly, error))
         return rec;
-    QSqlQuery q(QSqlDatabase::database(wellSectionConnectionName(m_dbPath)));
+    QSqlQuery q(QSqlDatabase::database(wellSectionConnectionName(m_dbPath, m_readOnly)));
     q.prepare(QStringLiteral(
         "SELECT well_ids, link_overrides, depth_domain, spacing, version FROM "
         "well_section_edits WHERE section_id = ?"));
@@ -363,9 +371,9 @@ QStringList WellSectionStore::sectionIds(QString *error) const
         setError(error, QStringLiteral("WellSectionStore 未绑定工程库路径"));
         return out;
     }
-    if (!wellSectionEnsureOpen(m_dbPath, error))
+    if (!wellSectionEnsureOpen(m_dbPath, m_readOnly, error))
         return out;
-    QSqlQuery q(QSqlDatabase::database(wellSectionConnectionName(m_dbPath)));
+    QSqlQuery q(QSqlDatabase::database(wellSectionConnectionName(m_dbPath, m_readOnly)));
     if (!q.exec(QStringLiteral("SELECT section_id FROM well_section_edits "
                                "ORDER BY section_id")))
     {
@@ -390,9 +398,9 @@ bool WellSectionStore::remove(const QString &sectionId, QString *error)
         return false;
     }
     const auto doRemove = [&](QString *err) -> bool {
-        if (!wellSectionEnsureOpen(m_dbPath, err))
+        if (!wellSectionEnsureOpen(m_dbPath, false, err))
             return false;
-        QSqlQuery q(QSqlDatabase::database(wellSectionConnectionName(m_dbPath)));
+        QSqlQuery q(QSqlDatabase::database(wellSectionConnectionName(m_dbPath, false)));
         q.prepare(QStringLiteral(
             "DELETE FROM well_section_edits WHERE section_id = ?"));
         q.addBindValue(sectionId);
@@ -439,10 +447,10 @@ bool WellSectionStore::saveInterpretationSelection(const QString &wellId,
     const QString nowUtc =
         QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
     const auto write = [&](QString *err) -> bool {
-        if (!wellSectionEnsureOpen(m_dbPath, err))
+        if (!wellSectionEnsureOpen(m_dbPath, false, err))
             return false;
         QSqlQuery q(
-            QSqlDatabase::database(wellSectionConnectionName(m_dbPath)));
+            QSqlDatabase::database(wellSectionConnectionName(m_dbPath, false)));
         if (assetId.trimmed().isEmpty())
         {
             // 空 = 回落默认「取最新」：删行（无行也成功——幂等）。
@@ -494,9 +502,9 @@ QHash<QString, QString> WellSectionStore::loadInterpretationSelections(
         setError(error, QStringLiteral("WellSectionStore 未绑定工程库路径"));
         return out;
     }
-    if (!wellSectionEnsureOpen(m_dbPath, error))
+    if (!wellSectionEnsureOpen(m_dbPath, m_readOnly, error))
         return out;
-    QSqlQuery q(QSqlDatabase::database(wellSectionConnectionName(m_dbPath)));
+    QSqlQuery q(QSqlDatabase::database(wellSectionConnectionName(m_dbPath, m_readOnly)));
     if (!q.exec(QStringLiteral(
             "SELECT well_id, asset_id FROM well_litho_selection")))
     {

@@ -38,7 +38,10 @@ struct Rig
         center = new NotificationCenter(&win, &hub);
         center->setStatusBar(win.statusBar());
         win.show();
-        QVERIFY(QTest::qWaitForWindowExposed(&win) || true);
+        // #408：窗口未暴露必须报——原 `|| true` 在 fixture 里恒真，无窗
+        // 系统时 rig 静默建成、后续断言 confusing 失败。
+        QVERIFY2(QTest::qWaitForWindowExposed(&win),
+                 "主窗口未暴露（无可用窗口系统？）——后续像素/可见性断言不可信");
     }
 };
 

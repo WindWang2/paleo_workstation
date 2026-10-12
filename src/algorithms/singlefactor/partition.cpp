@@ -517,7 +517,10 @@ BarrierGrid labelInterpretationPartition( const GridSpec &grid,
   BarrierGrid out;
   std::string budgetError;
   if ( !gridBudgetOk( grid, static_cast<int>( samples.size() ), &budgetError ) )
+  {
+    out.error = budgetError; // #417：失败如实标注——空 component 歧义下游会按下标崩
     return out;
+  }
   const std::size_t cellCount =
       static_cast<std::size_t>( grid.cols ) * static_cast<std::size_t>( grid.rows );
 

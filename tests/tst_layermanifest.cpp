@@ -189,6 +189,47 @@ private slots:
     worker2.join();
     QVERIFY2(res.ok, qPrintable(res.error));
   }
+
+  // #409：removeMany/find 契约（#346 新公开面此前零覆盖）。
+  void removeManyAndFind()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString dbPath = dir.filePath(QStringLiteral("project.sqlite"));
+
+    LayerManifest manifest(dbPath);
+    QString err;
+    QVERIFY2(manifest.open(&err), qPrintable(err));
+
+    const auto decl = [](const QString &id) {
+      LayerDeclaration d;
+      d.layerId = id;
+      d.horizon = QStringLiteral("T1");
+      d.type = QStringLiteral("raster");
+      return d;
+    };
+    QVERIFY(manifest.upsert(decl(QStringLiteral("L1")), &err));
+    QVERIFY(manifest.upsert(decl(QStringLiteral("L2")), &err));
+    QVERIFY(manifest.upsert(decl(QStringLiteral("L3")), &err));
+
+    // find：命中返回声明，未命中也 true（空声明），不吞错。
+    LayerDeclaration out;
+    QVERIFY2(manifest.find(QStringLiteral("L2"), &out, &err), qPrintable(err));
+    QCOMPARE(out.layerId, QStringLiteral("L2"));
+    QVERIFY(manifest.find(QStringLiteral("不存在"), &out, &err));
+    QVERIFY(out.layerId.isEmpty());
+    QVERIFY(!manifest.find(QStringLiteral("L1"), nullptr, &err));
+
+    // removeMany：一次删多行，剩下的仍在。
+    QVERIFY2(manifest.removeMany({QStringLiteral("L1"), QStringLiteral("L3")}, &err),
+             qPrintable(err));
+    const auto all = manifest.all();
+    QCOMPARE(all.size(), 1);
+    QCOMPARE(all.first().layerId, QStringLiteral("L2"));
+    // 删不存在的 id：事务内循环照常提交（幂等），清单不变。
+    QVERIFY(manifest.removeMany({QStringLiteral("不存在")}, &err));
+    QCOMPARE(manifest.all().size(), 1);
+  }
 };
 
 QTEST_MAIN(TestLayerManifest)

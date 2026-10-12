@@ -2762,7 +2762,7 @@ private:
         c.value = QStringLiteral("A\\d\\.las");
         QVERIFY(c.matches(row));
         c.value = QStringLiteral("[bad");
-        QVERIFY(c.matches(row) || !c.matches(row)); // 无效模式退字面量（不炸）
+        QVERIFY(!c.matches(row)); // #421：无效模式退字面量——row 无 "[bad" 字面子串
         c.dim = FilterDim::Unlinked;
         QVERIFY(!c.matches(row));
         AssetRowInfo unlinked;
@@ -2826,7 +2826,7 @@ private:
         const QList<QPushButton *> chips =
             bar.findChildren<QPushButton *>(QStringLiteral("filterChip"));
         QCOMPARE(chips.size(), 2);
-        QVERIFY(bar.isVisible() || !g2.conditions.isEmpty());
+        QVERIFY(bar.isVisible());
         // 点击 chip[0] → chipRemoved 带 FilterCondition。
         chips.at(0)->click();
         QCOMPARE(removed.count(), 1);

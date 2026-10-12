@@ -627,6 +627,51 @@ private slots:
     QVERIFY(plan.reason.contains(QStringLiteral("沙一组")));
     QVERIFY(!planWellFaciesRuns(twoGroupWell(), {}, "").ready());
   }
+  // #410：编图口径——当前地层裁剪 + 单模型单 run（planWellFaciesFormationRun
+  // 此前零覆盖）。
+  void planFormationRunScopesToCurrentHorizon() {
+    const QVector<WellFaciesModel> both{model(), zhuhaiModel()};
+    // 当前地层 = 恩平组（1016–1032）：输入裁到该窗，只匹配恩平组模型、只跑一次。
+    auto plan = planWellFaciesFormationRun(twoGroupWell(), both, QStringLiteral("恩平组"));
+    QVERIFY2(plan.ready(), qPrintable(plan.reason));
+    QCOMPARE(plan.runs.size(), 1);
+    QCOMPARE(plan.runs[0].group, QStringLiteral("恩平组"));
+    QCOMPARE(plan.runs[0].model.id, QStringLiteral("model-1"));
+    QCOMPARE(plan.runs[0].input.rows.size(), 128);
+    QCOMPARE(plan.runs[0].input.rows.first().toObject().value(QStringLiteral("段")).toString(),
+             QStringLiteral("恩平一段"));
+
+    // 换当前地层到珠海组：另一组模型对应另一组窗，不串组。
+    plan = planWellFaciesFormationRun(twoGroupWell(), both, QStringLiteral("珠海组"));
+    QVERIFY2(plan.ready(), qPrintable(plan.reason));
+    QCOMPARE(plan.runs.size(), 1);
+    QCOMPARE(plan.runs[0].group, QStringLiteral("珠海组"));
+    QCOMPARE(plan.runs[0].model.id, QStringLiteral("model-2"));
+    QCOMPARE(plan.runs[0].input.rows.size(), 128);
+
+    // 当前地层给段名：仍按窗内组匹配模型（编图段名不限组模型沿用）。
+    plan = planWellFaciesFormationRun(twoGroupWell(), both, QStringLiteral("恩平一段"));
+    QVERIFY2(plan.ready(), qPrintable(plan.reason));
+    QCOMPARE(plan.runs[0].model.id, QStringLiteral("model-1"));
+
+    // 不限组模型兜底：当前地层没有组模型时用它。
+    auto generic = model();
+    generic.id = "model-g";
+    generic.formationGroup.clear();
+    plan = planWellFaciesFormationRun(twoGroupWell(), {generic}, QStringLiteral("恩平组"));
+    QVERIFY2(plan.ready(), qPrintable(plan.reason));
+    QCOMPARE(plan.runs[0].model.id, QStringLiteral("model-g"));
+
+    // 只有别的组的模型：如实拒绝，不拿错模型预测当前地层。
+    plan = planWellFaciesFormationRun(twoGroupWell(), {zhuhaiModel()}, QStringLiteral("恩平组"));
+    QVERIFY(!plan.ready());
+    QVERIFY(plan.reason.contains(QStringLiteral("恩平组")));
+
+    // 不存在的地层：如实报缺有效顶底深。
+    plan = planWellFaciesFormationRun(twoGroupWell(), both, QStringLiteral("不存在的组"));
+    QVERIFY(!plan.ready());
+    QVERIFY(!plan.reason.isEmpty());
+  }
   void mergeResultsKeepsDepthOrder() {
     const auto make = [](const QString &group, double top, const QString &label) {
       WellFaciesResult r;
@@ -688,7 +733,8 @@ private slots:
     QVERIFY(tasks.tasks()[0]->title().contains(QStringLiteral("珠海组")));
     QVERIFY(tasks.tasks()[1]->title().contains(QStringLiteral("恩平组")));
     QVERIFY(!tasks.tasks()[0]->quiet());
-    QCOMPARE(tasks.tasks()[0]->percent(), 0);
+    // #407：不钉 percent()==0——任务派发即进线程池，run() 返回瞬间 worker
+    // 可能已上报进度（负载机上间歇假红）；初始进度不是可同步断言的契约。
 
     QTRY_COMPARE(results.size(), 2);
     QTRY_VERIFY(!busy.last()[0].toBool());

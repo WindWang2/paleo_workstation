@@ -52,3 +52,14 @@ PALEO_UNITY_BUILD）见 BUILDING.md。
 选择，保留主 checkout 的未提交改动。gitignored vendor 依赖不随 worktree
 复制，共享依赖接线和显式 QGIS_PREFIX 命令见 BUILDING.md「独立 worktree 开发」。
 默认分支前缀 codex/，任务指定名字优先；仅推工作分支、提 PR，不自行合并。
+
+## PR 合并
+用户要求合并 PR 时直接合并——**默认不等 CI、不要求检查全绿**；
+只有请求明文写明「等 CI / 检查通过再合」才等待。
+required checks 挡路时的既定流程：
+`DELETE branches/master/protection/required_status_checks`
+→ `gh pr merge --squash --admin`
+→ `PUT branches/master/protection` 原样恢复
+（checks = lint/linux/windows，strict=true，enforce_admins=true）
+→ `git fetch` + `git reset --hard origin/master` 本地跟上，
+并清理已合并分支（本地+远程）。

@@ -1,9 +1,11 @@
 // 层：数据
 #include "faciescatalog.h"
 #include <QDirIterator>
+#include <QColor>
 #include <QFile>
 #include <QJsonDocument>
 #include <QMap>
+#include <QHash>
 #include <QObject>
 #include <algorithm>
 #include <cmath>
@@ -56,14 +58,55 @@ QVariantList library() {
       // 填充，缺变体即纯色填充、相名走 label 标注。
       const auto base = f.value("file").toString();
       f.insert("texture",
-               paths.value(QString(base).replace(QStringLiteral(".svg"),
-                                                 QStringLiteral("_fill.svg"))));
+               paths.value(base.endsWith(QStringLiteral("_fill.svg")) ? base
+                   : QString(base).replace(QStringLiteral(".svg"), QStringLiteral("_fill.svg"))));
       f.insert("name", f.value("chinese_name"));
       out << f;
     }
     return out;
   }();
   return items;
+}
+QVariantMap appearance(const QVariantMap &facies) {
+  struct Index {
+    QHash<QString, QVariantMap> textures, names;
+  };
+  static const Index index = [] {
+    Index out;
+    for (const auto &value : library()) {
+      const auto item = value.toMap();
+      const auto path = fillPath(item.value("texture").toString());
+      if (!path.isEmpty()) out.textures.insert(path, item);
+      if (!item.value("category").toString().contains(QStringLiteral("相"))) continue;
+      out.names.insert(item.value("name").toString(), item);
+      for (const auto &alias : item.value("aliases").toStringList()) out.names.insert(alias, item);
+    }
+    return out;
+  }();
+  auto result = facies;
+  const auto texture = facies.value("texture").toString();
+  const auto path = fillPath(texture);
+  // SVG 纹理含自己的底色；点、图例和井道使用同一纹理条目的颜色。
+  if (!path.isEmpty()) {
+    const auto item = index.textures.value(path);
+    if (!item.isEmpty()) result.insert("color", item.value("color"));
+    return result;
+  }
+  const QColor color(facies.value("color").toString());
+  if (color.isValid() && color != QColor(QStringLiteral("#9AA7B4")))
+    return result;
+  for (const auto &field : {"microfacies", "name", "subfacies", "facies"}) {
+    const auto name = facies.value(field).toString().trimmed();
+    if (name.isEmpty()) continue;
+    const auto item = index.names.value(name);
+    if (!item.isEmpty()) {
+      result.insert("color", item.value("color"));
+      result.insert("texture", item.value("texture"));
+      return result;
+    }
+  }
+  result.insert("color", QStringLiteral("#9AA7B4"));
+  return result;
 }
 QVariantList defaults() {
   QVariantList out;

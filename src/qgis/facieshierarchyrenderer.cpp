@@ -1,6 +1,7 @@
 // 层：QGIS 封装
 #include "facieshierarchyrenderer.h"
 #include "../domain/facieshierarchy.h"
+#include "../domain/faciescatalog.h"
 #include "mappingartifactwriter.h"
 #include <QUndoStack>
 #include <qgscategorizedsymbolrenderer.h>
@@ -43,7 +44,7 @@ QVariantList legend(QgsMapLayer *layer, const QVariantList &schema,
     for (const auto &f : schema) known.insert(f.toMap().value("code").toString());
     const bool unknown = !(used - known).isEmpty();
     for (const auto &f : schema) {
-      auto row = f.toMap();
+      auto row = FaciesCatalog::appearance(f.toMap());
       const auto code = row.value("code");
       if (code.isNull() || !used.contains(code.toString())) continue;
       row.insert("key", QStringLiteral("prediction_%1").arg(code.toString()));
@@ -57,12 +58,11 @@ QVariantList legend(QgsMapLayer *layer, const QVariantList &schema,
   if (auto *v = qobject_cast<QgsVectorLayer *>(layer);
       v && v->geometryType() == Qgis::GeometryType::Point)
     for (auto &entry : entries) {
-      auto row = entry.toMap();
+      auto row = FaciesCatalog::appearance(entry.toMap());
       if (v->fields().indexOf("facies_intervals") >= 0 && row.value("key") == "unknown")
         row.insert("name", QObject::tr("未预测"));
       if (!QColor(row.value("color").toString()).isValid())
         row.insert("color", "#9AA7B4");
-      row.insert("texture", QString());
       entry = row;
     }
   return entries;
@@ -89,7 +89,9 @@ QVariantList apply(QgsMapLayer *layer, const QVariantList &schema,
         }
       if (!symbol)
         symbol = QgsSymbol::defaultSymbol(v->geometryType());
-      symbol->setColor(QColor(row.value("color").toString()));
+      // 测井点克隆已配置好的纹理圆点，避免 setColor 把白色外圈也改掉。
+      if (!wellResult)
+        symbol->setColor(QColor(row.value("color").toString()));
       if (v->geometryType() == Qgis::GeometryType::Point)
         if (auto *marker = dynamic_cast<QgsMarkerSymbol *>(symbol))
           if (auto *simple = dynamic_cast<QgsSimpleMarkerSymbolLayer *>(marker->symbolLayer(0))) {

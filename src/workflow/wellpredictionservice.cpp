@@ -345,13 +345,7 @@ int WellPredictionService::codeFor(const QString &label) {
   int code = 1;
   for (const auto &value : m_schema) code = std::max(code, value.toMap().value("code").toInt() + 1);
   QVariantMap item{{"code", code}, {"name", label}, {"facies", label}, {"color", "#9AA7B4"}};
-  for (const auto &value : FaciesCatalog::library()) {
-    const auto f = value.toMap();
-    if (f.value("name").toString() == label) {
-      item.insert("texture", f.value("texture")); item.insert("color", f.value("color", "#9AA7B4"));
-      break;
-    }
-  }
+  item = FaciesCatalog::appearance(item);
   m_schema << item;
   return code;
 }

@@ -336,4 +336,9 @@
   <file alias="wells/well_water_prod.svg">geology/wells/well_water_prod.svg</file>
   <file alias="wells/well_wellhead_plat.svg">geology/wells/well_wellhead_plat.svg</file>
   <file alias="wells/well_wildcat.svg">geology/wells/well_wildcat.svg</file>
+  <file alias="strata/micro_channel_fill.svg">geology/strata/micro_channel_fill.svg</file>
+  <file alias="strata/micro_bay_fill.svg">geology/strata/micro_bay_fill.svg</file>
+  <file alias="strata/micro_levee_fill.svg">geology/strata/micro_levee_fill.svg</file>
+  <file alias="strata/micro_mouth_bar_fill.svg">geology/strata/micro_mouth_bar_fill.svg</file>
+  <file alias="strata/micro_sheet_sand_fill.svg">geology/strata/micro_sheet_sand_fill.svg</file>
 </qresource></RCC>

@@ -54,6 +54,10 @@
 #include <qgscategorizedsymbolrenderer.h>
 #include <qgsexpressioncontextutils.h>
 #include <qgsfillsymbollayer.h>
+#include <qgsmarkersymbol.h>
+#include <qgsmarkersymbollayer.h>
+#include <QSvgRenderer>
+#include <QPainter>
 #include <qgsgeometry.h>
 #include <qgsmapcanvas.h>
 #include <qgsrendercontext.h>
@@ -869,16 +873,12 @@ private slots:
         dynamic_cast<QgsCategorizedSymbolRenderer *>(layer.renderer());
     QVERIFY(renderer);
     QVERIFY(renderer->categories().last().value().isNull());
-    // 测井点标记统一成同一圆点；相名只出现在文字标注里。
-    QColor unified;
+    // 点符号与对应纹理同色；未知和 NULL 独立使用灰色。
     for (const QgsRendererCategory &cat : renderer->categories()) {
       QVERIFY(cat.symbol());
-      if (!unified.isValid())
-        unified = cat.symbol()->color();
-      else
-        QCOMPARE(cat.symbol()->color(), unified);
+      const auto expected = FaciesCatalog::appearance(FaciesCatalog::find(schema, cat.value()));
+      QCOMPARE(cat.symbol()->color(), QColor(expected.value("color").toString()));
     }
-    QCOMPARE(unified.name().toUpper(), QStringLiteral("#24303E"));
     QVERIFY(renderer->categories().last().symbol());
     QgsRenderContext context;
     renderer->startRender(context, layer.fields());
@@ -909,6 +909,89 @@ private slots:
     QVERIFY(!labeling->settings().format().background().enabled());
     QVERIFY(labeling->settings().dataDefinedProperties().isActive(
         QgsPalLayerSettings::Property::Size));
+  }
+  void wellPredictionTextureColorsSurviveRestyle() {
+    // 老服务快照：这些微相既没有纹理，也全部被写成灰色。
+    const QStringList names{QStringLiteral("水下分流河道"), QStringLiteral("水下分流间湾"), QStringLiteral("天然堤")};
+    const QStringList colors{"#FFE082", "#C8E6C9", "#E8D5B5"};
+    QVariantList schema;
+    QgsVectorLayer layer("Point?field=facies_code:integer&field=facies_intervals:string&crs=EPSG:4326", "predictions", "memory");
+    QgsFeatureList features;
+    for (int i = 0; i < names.size(); ++i) {
+      schema << QVariantMap{{"code", i + 1}, {"name", names[i]}, {"color", "#9AA7B4"}};
+      QgsFeature point(layer.fields());
+      point.setAttribute("facies_code", i + 1);
+      point.setGeometry(QgsGeometry::fromPointXY(QgsPointXY(i, 0)));
+      features << point;
+      const auto appearance = FaciesCatalog::appearance(schema.last().toMap());
+      QCOMPARE(QColor(appearance.value("color").toString()), QColor(colors[i]));
+      // 直接渲染对应 SVG，底色确实等于点的分类色，且图块包含纹理线。
+      QImage tile(80, 80, QImage::Format_ARGB32_Premultiplied);
+      tile.fill(Qt::transparent);
+      QSvgRenderer svg(FaciesCatalog::fillPath(appearance.value("texture").toString()));
+      QVERIFY(svg.isValid());
+      QPainter painter(&tile);
+      svg.render(&painter);
+      painter.end();
+      QCOMPARE(tile.pixelColor(0, 0), QColor(colors[i]));
+      int textured = 0;
+      for (int y = 0; y < tile.height(); ++y)
+        for (int x = 0; x < tile.width(); ++x)
+          textured += tile.pixelColor(x, y) != QColor(colors[i]);
+      QVERIFY(textured > 30);
+    }
+    QgsFeature empty(layer.fields());
+    empty.setGeometry(QgsGeometry::fromPointXY(QgsPointXY(3, 0)));
+    features << empty;
+    QVERIFY(layer.dataProvider()->addFeatures(features));
+    layer.updateExtents();
+    for (const auto &level : {"micro_facies", "facies", "micro_facies"}) {
+      const auto legend = FaciesHierarchyRenderer::apply(&layer, schema, level);
+      QCOMPARE(legend.size(), 4);
+      auto *renderer = dynamic_cast<QgsCategorizedSymbolRenderer *>(layer.renderer());
+      QVERIFY(renderer);
+      for (int i = 0; i < names.size(); ++i) {
+        const auto row = legend[i].toMap();
+        QCOMPARE(QColor(row.value("color").toString()), QColor(colors[i]));
+        QVERIFY(!row.value("texture").toString().isEmpty());
+        auto *marker = dynamic_cast<QgsMarkerSymbol *>(renderer->categories()[i].symbol());
+        QVERIFY(marker);
+        auto *circle = dynamic_cast<QgsFilledMarkerSymbolLayer *>(marker->symbolLayer(0));
+        QVERIFY(circle);
+        QCOMPARE(marker->color(), QColor(colors[i]));
+        auto *fill = circle->subSymbol();
+        QVERIFY(dynamic_cast<QgsSVGFillSymbolLayer *>(fill->symbolLayer(0)));
+        auto *outline = dynamic_cast<QgsSimpleFillSymbolLayer *>(fill->symbolLayer(1));
+        QVERIFY(outline);
+        QCOMPARE(outline->strokeColor(), QColor(Qt::white));
+      }
+      QCOMPARE(renderer->categories().last().symbol()->color(), QColor("#9AA7B4"));
+      MappingArtifactWriter::applyFaciesLabels(&layer, 0);
+      // 经过真实 QGIS 地图渲染，三个不同相的背景色和纹理仍然可见。
+      QgsMapSettings settings;
+      settings.setLayers({&layer});
+      settings.setDestinationCrs(layer.crs());
+      settings.setExtent(QgsRectangle(-0.5, -0.5, 3.5, 0.5));
+      settings.setOutputSize(QSize(800, 200));
+      settings.setOutputDpi(192);
+      settings.setBackgroundColor(Qt::white);
+      QgsMapRendererSequentialJob job(settings);
+      job.start();
+      job.waitForFinished();
+      const auto image = job.renderedImage();
+      for (const auto &color : colors) {
+        int count = 0;
+        for (int y = 0; y < image.height(); ++y)
+          for (int x = 0; x < image.width(); ++x)
+            count += image.pixelColor(x, y) == QColor(color);
+        QVERIFY2(count > 30, qPrintable(QString("missing facies color %1: %2 pixels").arg(color).arg(count)));
+      }
+      if (const auto path = qEnvironmentVariable("PALEO_TEST_PREDICTION_TEXTURE_IMAGE"); !path.isEmpty())
+        QVERIFY(image.save(path));
+    }
+    // 自定义颜色仍可用于没有纹理的类别；未知相不猜类别。
+    QCOMPARE(FaciesCatalog::appearance({{"name", "custom"}, {"color", "#123456"}}).value("color").toString(), QString("#123456"));
+    QCOMPARE(FaciesCatalog::appearance({{"name", "unknown"}}).value("color").toString(), QString("#9AA7B4"));
   }
   void wellIntervalsReviewUndoAndPersistence() {
     Fixture f;
@@ -1873,6 +1956,8 @@ private slots:
     QVERIFY(f.init());
     QVERIFY(!f.well("A", 100, 100).isEmpty());
     QVERIFY(!f.well("B", 500, 500).isEmpty());
+    for (const auto &name : {"A", "B"})
+      QVERIFY(f.tops(name, QStringLiteral("#WellTops File From SMI\n#WellName Name MD X Y Z TVD Time(ms)\n%1 D61 1000 0 0 -1000 1000 -99999\n%1 D62 1060 0 0 -1060 1060 -99999\n").arg(name)));
     QString error;
     QVariantList facies{
         QVariantMap{{"code", 7}, {"name", "河道"}, {"facies", "三角洲"},
@@ -1896,6 +1981,10 @@ private slots:
              facies);
     for (const auto &v : WellAttributeStore::rows(f.dir.path(), nullptr, false, "A")) {
       const auto row = v.toMap();
+      if (row.value("top_md").toDouble() >= 1060) {
+        QCOMPARE(row.value("facies").toString(), QStringLiteral("旧相"));
+        continue;
+      }
       const auto hierarchy = FaciesCatalog::attributes(facies, row.value("facies_code"));
       QCOMPARE(row.value("facies"), hierarchy.value("facies_name"));
       QCOMPARE(row.value("sub_facies").toString(), hierarchy.value("subfacies").toString());

@@ -290,10 +290,11 @@ QPixmap FaciesPatternFactory::createPatternPixmap(const QString &patternType, co
 
 QBrush FaciesPatternFactory::getBrush(const QString &patternTypeOrName, const QColor &baseBg)
 {
-  const auto path = FaciesCatalog::fillPath(patternTypeOrName);
+  const auto appearance = FaciesCatalog::appearance({{"name", patternTypeOrName}, {"texture", patternTypeOrName}});
+  const auto path = FaciesCatalog::fillPath(appearance.value("texture").toString());
   if (!path.isEmpty()) {
     QPixmap tile(96, 48);
-    tile.fill(baseBg.isValid() ? baseBg : Qt::white);
+    tile.fill(QColor(appearance.value("color").toString()));
     QSvgRenderer svg(path);
     QPainter painter(&tile);
     svg.render(&painter);

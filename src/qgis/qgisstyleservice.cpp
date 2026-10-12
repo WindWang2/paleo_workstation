@@ -370,7 +370,11 @@ QgsFeatureRenderer *QgisStyleService::wellFaciesRenderer(const QString &keyField
                                       const QString &scope) {
     for (const QVariant &v : schema)
     {
-      const QVariantMap f = v.toMap();
+      auto f = v.toMap();
+      // 维护表允许用户单独调整分类色；只补齐旧预测的灰色/缺失颜色。
+      const QColor stored(f.value("color").toString());
+      if (!stored.isValid() || stored == QColor(QStringLiteral("#9AA7B4")))
+        f = FaciesCatalog::appearance(f);
       bool ok = false;
       const int code = f.value(QStringLiteral("code")).toInt(&ok);
       const QColor color(f.value(QStringLiteral("color")).toString());

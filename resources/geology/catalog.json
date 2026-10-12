@@ -3118,5 +3118,61 @@
     "symbol_code": "STRU-M2-6H/C",
     "color": "#666",
     "usage": "小圆圈，雨痕构造。"
+  },
+  {
+    "category": "沉积微相",
+    "file": "micro_channel_fill.svg",
+    "chinese_name": "分流河道",
+    "aliases": [
+      "水下分流河道",
+      "水下河道",
+      "distributary_channel"
+    ],
+    "color": "#FFE082",
+    "usage": "测井预测、井道与相图共用的可平铺纹理。"
+  },
+  {
+    "category": "沉积微相",
+    "file": "micro_bay_fill.svg",
+    "chinese_name": "分流间湾",
+    "aliases": [
+      "水下分流间湾",
+      "interdistributary_bay"
+    ],
+    "color": "#C8E6C9",
+    "usage": "测井预测、井道与相图共用的可平铺纹理。"
+  },
+  {
+    "category": "沉积微相",
+    "file": "micro_levee_fill.svg",
+    "chinese_name": "天然堤",
+    "aliases": [
+      "自然堤",
+      "natural_levee"
+    ],
+    "color": "#E8D5B5",
+    "usage": "测井预测、井道与相图共用的可平铺纹理。"
+  },
+  {
+    "category": "沉积微相",
+    "file": "micro_mouth_bar_fill.svg",
+    "chinese_name": "河口坝",
+    "aliases": [
+      "mouth_bar",
+      "沙坝"
+    ],
+    "color": "#FFF176",
+    "usage": "测井预测、井道与相图共用的可平铺纹理。"
+  },
+  {
+    "category": "沉积微相",
+    "file": "micro_sheet_sand_fill.svg",
+    "chinese_name": "席状砂",
+    "aliases": [
+      "远砂坝",
+      "sheet_sand"
+    ],
+    "color": "#FFF9C4",
+    "usage": "测井预测、井道与相图共用的可平铺纹理。"
   }
 ]

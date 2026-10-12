@@ -364,7 +364,7 @@ void applyFaciesStyle(QgsMapLayer *layer, const QVariantList &facies) {
     }
     QgsCategoryList categories;
     for (const auto &value : facies) {
-      const auto f = value.toMap();
+      const auto f = FaciesCatalog::appearance(value.toMap());
       QgsSymbol *symbol = QgsSymbol::defaultSymbol(vector->geometryType());
       if (!symbol)
         continue;
@@ -384,6 +384,21 @@ void applyFaciesStyle(QgsMapLayer *layer, const QVariantList &facies) {
       if (point) {
         auto *marker = static_cast<QgsMarkerSymbol *>(symbol);
         marker->setSize(3.2);
+        if (!texture.isEmpty()) {
+          auto *fill = new QgsFillSymbol();
+          auto *pattern = new QgsSVGFillSymbolLayer(texture, 2.0);
+          pattern->setColor(faciesColor);
+          fill->changeSymbolLayer(0, pattern);
+          auto *outline = new QgsSimpleFillSymbolLayer();
+          outline->setBrushStyle(Qt::NoBrush);
+          outline->setStrokeColor(Qt::white);
+          outline->setStrokeWidth(0.3);
+          outline->setStrokeWidthUnit(Qgis::RenderUnit::Millimeters);
+          fill->appendSymbolLayer(outline);
+          auto *circle = new QgsFilledMarkerSymbolLayer(Qgis::MarkerShape::Circle, 3.2);
+          circle->setSubSymbol(fill);
+          marker->changeSymbolLayer(0, circle);
+        }
         if (auto *simple =
                 dynamic_cast<QgsSimpleMarkerSymbolLayer *>(marker->symbolLayer(0))) {
           simple->setStrokeColor(QColor(QStringLiteral("#FFFFFF")));

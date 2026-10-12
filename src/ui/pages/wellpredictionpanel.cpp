@@ -306,7 +306,7 @@ void WellPredictionPanel::rebuildTracks() {
     TextInterval item;
     item.topDepth = float(top); item.bottomDepth = float(base);
     item.text = well.value("facies_label").toString();
-    auto f = FaciesCatalog::find(m_schema, well.value("facies_code"));
+    auto f = FaciesCatalog::appearance(FaciesCatalog::find(m_schema, well.value("facies_code")));
     item.bgColor = f.contains("color") ? QColor(f.value("color").toString())
                                         : PaleoTheme::tokens().surfaceAlt;
     track->setIntervals({item});

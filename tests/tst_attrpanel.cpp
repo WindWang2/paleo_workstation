@@ -233,14 +233,10 @@ private slots:
     QVERIFY(!vl->isEditable());
     QCOMPARE(vl->getFeature(fid).attribute(0).toString(), QStringLiteral("W1")); // 回滚还原
 
-    // 按钮态跟随：保存/放弃禁用（无会话），编辑可用。
-    auto *save = panel.findChild<QToolButton *>(QStringLiteral("attrEditSaveButton"));
-    auto *cancel = panel.findChild<QToolButton *>(QStringLiteral("attrEditCancelButton"));
-    auto *start = panel.findChild<QToolButton *>(QStringLiteral("attrEditStartButton"));
-    QVERIFY(save && cancel && start);
-    QVERIFY(!save->isEnabled());
-    QVERIFY(!cancel->isEnabled());
-    QVERIFY(start->isEnabled());
+    // #344 起编辑控件来自原生 QgsAttributeTableDialog，不再有
+    // attrEdit*Button；会话结束后以图层编辑态为准。
+    QVERIFY(!panel.isEditing());
+    QVERIFY(!vl->isEditable());
 
     delete vl;
   }

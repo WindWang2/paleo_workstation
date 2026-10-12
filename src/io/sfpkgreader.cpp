@@ -462,6 +462,15 @@ NpyArray parseNpy( const QByteArray &bytes )
     result.error = QStringLiteral( "NPY 数据段长度与 shape 不符" );
     return result;
   }
+  // #382：长度闸按元素个数判，值存储恒为 double（8B/元素）——width-1
+  // dtype 因此有 8× 放大（shape 声明合法字节数即可撬动 8 倍内存）。对最终
+  // 分配量设限，与 zip 层 512 MiB 解压预算同口径。
+  constexpr qint64 kMaxValuesBytes = 512ll * 1024 * 1024;
+  if ( count > kMaxValuesBytes / static_cast<qint64>( sizeof( double ) ) )
+  {
+    result.error = QStringLiteral( "NPY 元素数超出内存预算" );
+    return result;
+  }
   result.values.assign( static_cast<std::size_t>( count ), 0.0 );
   const char *data = bytes.constData() + dataStart;
   for ( int row = 0; row < result.rows; ++row )

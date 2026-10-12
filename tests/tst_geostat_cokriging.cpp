@@ -342,14 +342,14 @@ void CoKrigingTests::constraintMappingSurvivesDedupe()
   QVERIFY( plainResult.ok );
   double plainWeightAt44 = 0;
   for ( std::size_t i = 0; i < plainResult.usedSamples.size(); ++i )
-    if ( plainResult.usedSamples[i] == 3 )
+    if ( plainResult.usedSamples[i] == 5 ) // usedSamples 契约=输入下标（#417）：(4,4)=5
       plainWeightAt44 = plainResult.weights[i];
   QVERIFY2( plainWeightAt44 > 0.02,
             qPrintable( QStringLiteral( "unconstrained (4,4) weight %1 should be positive" )
                             .arg( plainWeightAt44 ) ) );
   double weightAt44 = 0;
   for ( std::size_t i = 0; i < result.usedSamples.size(); ++i )
-    if ( result.usedSamples[i] == 3 ) // 合并后下标 3 = (4,4)
+    if ( result.usedSamples[i] == 5 ) // 输入下标 5 = (4,4)
       weightAt44 = result.weights[i];
   QVERIFY2( std::fabs( weightAt44 ) < 5e-3,
             qPrintable( QStringLiteral( "mapped constraint weight %1 should vanish" ).arg( weightAt44 ) ) );

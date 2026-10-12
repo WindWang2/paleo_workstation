@@ -37,7 +37,8 @@ void SeismicSectionCanvas::rebuildImage() {
                        (qint64(m_cmapInverted ? 1 : 0) << 40) ^
                        (qint64(int(m_threshold * 100)) << 41) ^
                        (qint64(m_polarityInverted ? 1 : 0) << 49) ^
-                       (qint64(m_agcEnabled ? m_agcWindowMs : 0) << 50);
+                       (qint64(m_agcEnabled ? m_agcWindowMs : 0) << 50) ^
+                       GainCurveFingerprint(m_gainCurve);
     for (auto it = m_textureCache.begin(); it != m_textureCache.end();) {
         it = (it->key == key) ? m_textureCache.erase(it) : it + 1;
     }

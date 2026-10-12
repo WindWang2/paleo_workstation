@@ -103,6 +103,9 @@ void MappingWorkbench::beginPredictionTask(const QString &title) {
     return;
   auto *task = m_taskSvc->beginExternal(title);
   m_task = task;
+  task->setNavigationContext({{"catalog_path", m_catalog ? m_catalog->catalogPath() : QString()},
+      {"graph_focus", m_request.sourceVersionIds.isEmpty() ? QString() : QStringLiteral("version:") + m_request.sourceVersionIds.first()},
+      {"request_id", m_request.id}, {"horizon", m_request.horizon}});
   connect(task, &PaleoTask::cancelAsked, this, [this, task] {
     if (m_task == task)
       cancelPrediction();
@@ -706,7 +709,22 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &result) {
     }
   }
   QString error;
-  if (!valid)
+  // 全井被跳过：产出的只会是一张「未预测」空相图——如实报错、不发布
+  // 无信息产品（部分覆盖照常发布，未预测井随行标注跳过原因）。
+  if (valid && request.kind == "wells" && !points.isEmpty() &&
+      skippedWells == points.size()) {
+    QStringList reasons;
+    for (const auto &value : points) {
+      const auto r = value.toMap().value("prediction_reason").toString();
+      if (!r.isEmpty() && !reasons.contains(r))
+        reasons << r;
+    }
+    error = tr("所选井均无法预测%1")
+                .arg(reasons.isEmpty() ? QString()
+                                       : tr("：%1").arg(reasons.join(tr("；"))));
+    valid = false;
+  }
+  if (!valid && error.isEmpty())
     error = tr("预测服务返回的网格、井集合或相编码与请求不一致，未发布");
   const auto stageDir = QDir(m_dir).filePath("artifacts/staging/" + request.id);
   QDir().mkpath(stageDir);
@@ -787,7 +805,7 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &result) {
         for (const auto &source : result.request.sourceVersionIds)
           if (!m_catalog->versionById(source).id.isEmpty()) sourceVersions << source;
       sourceVersions.removeDuplicates();
-      record(path, request.horizon, request.kind + "_prediction",
+      const auto outputLayer = record(path, request.horizon, request.kind + "_prediction",
              tr("%1 %2预测%3")
                  .arg(request.horizon,
                       request.kind == "seismic" ? tr("地震相")
@@ -797,6 +815,10 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &result) {
              sourceVersions,
              parameters,
              &error);
+      const auto outputVersion = versionForLayer(outputLayer);
+      if (m_task && !outputVersion.id.isEmpty())
+        m_task->setNavigationContext({{"catalog_path", m_catalog->catalogPath()},
+            {"version_id", outputVersion.id}, {"request_id", request.id}, {"horizon", request.horizon}});
     }
   }
   m_request = {};

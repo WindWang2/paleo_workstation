@@ -861,6 +861,9 @@ void BatchQueue::startOnSlot( int slotIndex, int itemIndex )
     m_slotItem[slotIndex] = -1;
     m_items[itemIndex].state = ItemState::Queued;
     m_fifo.prepend( itemIndex );
+    // #415：回队不泵即停摆（fifo 非空但无人再触发出队）——延迟泵，
+    // 槽位清理完再捡。
+    pumpLater();
     return;
   }
 
@@ -997,6 +1000,10 @@ bool BatchQueue::retryFailed()
     return true;
   }
 
+  // 运行中重试同样先清熔断态（与批后分支一致：重试即「前置条件已恢复」
+  // 的显式动作）——不清的话 pump 立即再熔断并把在飞项一并取消。
+  m_trippedFatal = false;
+  m_fatalReason.clear();
   for ( int i = 0; i < m_items.size(); ++i )
   {
     if ( m_items[i].state == ItemState::Pending )

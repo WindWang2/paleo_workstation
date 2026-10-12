@@ -24,6 +24,8 @@ Checks:
 
 import argparse
 from collections import Counter
+import contextlib
+import io
 import os
 from pathlib import Path
 import random
@@ -158,6 +160,19 @@ def check_catalog(ts_path: Path, banned_terms: list[str] = None) -> list[dict]:
                 })
                 continue
 
+            # #420：死串（vanished/obsolete）只记 warn 级——内容陈旧，
+            # 不再走下面的空译文/占位符/术语审计（防提示噪音）。
+            if trans_elem.get("type") in ("vanished", "obsolete"):
+                violations.append({
+                    "rule": "dead_message",
+                    "context": ctx_name,
+                    "source": src,
+                    "translation": "",
+                    "detail": f'type="{trans_elem.get("type")}" 死串待 lupdate 清理',
+                    "severity": "warn",
+                })
+                continue
+
             trans_text = translation_text(trans_elem)
 
             # 3. 译文为空（源非空时）
@@ -193,6 +208,20 @@ def check_catalog(ts_path: Path, banned_terms: list[str] = None) -> list[dict]:
                         "translation": trans_text,
                         "detail": f"命中绝对禁用术语: '{term}'"
                     })
+
+            # #420：Qt 助记符（&File/&F）计数失配——warn 级（--strict 升格
+            # 违规）。源文与译文 && 转义均不计。
+            src_acc = len(re.findall(r"&(?!&)", src))
+            trans_acc = len(re.findall(r"&(?!&)", trans_text))
+            if src_acc != trans_acc:
+                violations.append({
+                    "rule": "accelerator_mismatch",
+                    "context": ctx_name,
+                    "source": src,
+                    "translation": trans_text,
+                    "detail": f"助记符 & 计数失配: 源={src_acc} 译={trans_acc}",
+                    "severity": "warn",
+                })
 
     return violations
 
@@ -303,12 +332,23 @@ def selftest() -> int:
             '<message><source>Processed %1 wells in %2 ms</source><translation>在 %2 毫秒内处理了 %1 口井</translation></message></context>',
             None
         ),
+        (
+            # #420：warn 级规则同样要在变异面内被证明能捕获。
+            "9. 注入助记符失配 (&File -> 文件)",
+            '<context><name>TestCtx</name><message><source>&amp;File</source><translation>文件</translation></message></context>',
+            "accelerator_mismatch"
+        ),
+        (
+            "10. 注入 vanished 死串",
+            '<context><name>TestCtx</name><message><source>Legacy entry</source><translation type="vanished">旧译文</translation></message></context>',
+            "dead_message"
+        ),
     ]
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_path = Path(tmp_dir)
 
-        # 逐项验证 XML 变异用例 (用例 1..8)
+        # 逐项验证 XML 变异用例 (用例 1..10)
         for idx, (title, xml_body, expected_rule) in enumerate(mutation_cases, 1):
             full_xml = f'<?xml version="1.0" encoding="utf-8"?>\n<!DOCTYPE TS>\n<TS version="2.1" language="zh_CN">\n{xml_body}\n</TS>'
             case_file = tmp_path / f"case_{idx}.ts"
@@ -330,17 +370,17 @@ def selftest() -> int:
                     print(f"  [FAIL] 用例 {idx} ({title}): 未捕获预期规则 [{expected_rule}]，实际检出: {detected_rules}")
                     failures += 1
 
-        # 9. 格式破损 XML 健壮性
+        # 11. 格式破损 XML 健壮性
         bad_xml_file = tmp_path / "broken.ts"
         bad_xml_file.write_text("<TS><context><message><unclosed>", encoding="utf-8")
         bad_v = check_catalog(bad_xml_file)
         if any(v["rule"] == "xml_parse_error" for v in bad_v):
-            print("  [PASS] 用例 9 (格式损坏 XML 健壮性): 成功捕获 [xml_parse_error]，无未捕获异常崩溃")
+            print("  [PASS] 用例 11 (格式损坏 XML 健壮性): 成功捕获 [xml_parse_error]，无未捕获异常崩溃")
         else:
-            print("  [FAIL] 用例 9 (格式损坏 XML 健壮性): 未正常报告 [xml_parse_error]")
+            print("  [FAIL] 用例 11 (格式损坏 XML 健壮性): 未正常报告 [xml_parse_error]")
             failures += 1
 
-        # 10. 术语表词条数门限自检
+        # 12. 术语表词条数门限自检
         mock_glossary = tmp_path / "mock_glossary.md"
         mock_glossary.write_text(
             "| # | Term | Trans | Domain | Note | Banned |\n"
@@ -350,12 +390,32 @@ def selftest() -> int:
         )
         ok, count, rules, msg = parse_glossary(mock_glossary)
         if not ok and count < 120:
-            print("  [PASS] 用例 10 (术语表词条不足门限拦截): 成功拒绝不足 120 条的虚假术语表")
+            print("  [PASS] 用例 12 (术语表词条不足门限拦截): 成功拒绝不足 120 条的虚假术语表")
         else:
-            print("  [FAIL] 用例 10 (术语表词条不足门限拦截): 拦截失败")
+            print("  [FAIL] 用例 12 (术语表词条不足门限拦截): 拦截失败")
             failures += 1
 
-    total_cases = len(mutation_cases) + 2
+        # 13. #420：--strict 生效验证——仅 warn 级问题的 TS：默认 exit 0（NOTE），
+        # --strict exit 1。main() 需要真实术语表（仓内默认路径存在）。
+        warn_only = tmp_path / "warn_only.ts"
+        warn_only.write_text(
+            '<?xml version="1.0" encoding="utf-8"?>\n<!DOCTYPE TS>\n'
+            '<TS version="2.1" language="zh_CN">'
+            '<context><name>TestCtx</name>'
+            '<message><source>&amp;File</source><translation>文件</translation></message>'
+            '</context></TS>',
+            encoding="utf-8")
+        sink = io.StringIO()
+        with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
+            rc_default = main(["--ts", str(warn_only)])
+            rc_strict = main(["--ts", str(warn_only), "--strict"])
+        if rc_default == 0 and rc_strict == 1:
+            print("  [PASS] 用例 13 (--strict 升格): warn 级问题默认放行(0)、strict 拦截(1)")
+        else:
+            print(f"  [FAIL] 用例 13 (--strict 升格): 默认={rc_default} strict={rc_strict}（期望 0/1）")
+            failures += 1
+
+    total_cases = len(mutation_cases) + 3
     if failures == 0:
         print(f"\ncheck_l10n selftest 成功通过: 全部 {total_cases} 个变异/健壮性场景均按预期命中！")
         return 0
@@ -404,6 +464,11 @@ def main(argv=None) -> int:
             "detail": f"正向抽检发现术语冲突: {conflict['conflicts']}"
         })
 
+    # #420：severity=warn 为提示级——普通模式仅 NOTE 提示，--strict 按违规
+    # 计（与 check_ui_tokens ratchet 同语义；此前 --strict 声明了却是 no-op）。
+    warnings = [v for v in violations if v.get("severity") == "warn"]
+    violations = [v for v in violations if v.get("severity") != "warn"]
+
     # 统计信息
     by_rule = Counter(v["rule"] for v in violations)
 
@@ -435,6 +500,19 @@ def main(argv=None) -> int:
             print(f"  - {rule}: {count} 处")
         print("\n本地化门禁未通过！请修正上述缺陷后再行提交。", file=sys.stderr)
         return 1
+
+    if warnings:
+        head = "FAIL" if args.strict else "NOTE"
+        print(f"\n{head}: {len(warnings)} 处提示级本地化问题"
+              + ("（--strict 按违规计）：" if args.strict else "："))
+        for v in warnings[:30]:
+            print(f"  {head} [{v['rule']}] 上下文: {v['context']} | 源文: \"{v['source']}\" | 译文: \"{v['translation']}\"")
+            print(f"       -> {v['detail']}")
+        if len(warnings) > 30:
+            print(f"  ... 另有 {len(warnings) - 30} 处提示已省略。")
+        if args.strict:
+            print("\n--strict 模式：提示级问题按违规计，本地化门禁未通过！", file=sys.stderr)
+            return 1
 
     print("\n[1/3] 翻译完备性检查:")
     print(f"  - 上下文数: {context_count}")

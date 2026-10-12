@@ -1719,8 +1719,10 @@ class TestWellSectionUi : public QObject
       QCOMPARE(csvText, panel.topsCsv());
       QFile svg(svgPath);
       QVERIFY(svg.open(QIODevice::ReadOnly));
-      QVERIFY(svg.readAll().size() > 1000);
-      QVERIFY(svg.readAll().isEmpty() || true);
+      // #421：readAll 只消费一次——存下来再断言（原双重读恒真）。
+      const QByteArray svgText = svg.readAll();
+      QVERIFY(svgText.size() > 1000);
+      QVERIFY(svgText.contains("<svg"));
     }
 
     // ---- QGIS 侧联动面：剖面线位带 + 井点闪烁（offscreen canvas）----

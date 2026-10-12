@@ -321,6 +321,10 @@ bool SegyReader::open(const QString &path, QString *error,
                             fieldAllZero(sidx.crosslineWordOffset) &&
                             fieldVaries(sidx.cdpXlineOffset);
   const bool cornerFromCdpXY = fieldAllZero(72) && pairHasNonZero(180, 184);
+  // #290：方言口径快照进成员——snapshot() 随 checkpoint/完成索引落盘，
+  // restore() 后 resumeScan() 按同一口径续扫。
+  m_dialect.xlineFromCdp = xlineFromCdp;
+  m_dialect.cornerFromCdpXY = cornerFromCdpXY;
 
   // 索引道：只读 240 字节道头；样本区用 seek 跳过——打开内存不随体增长。
   uchar trHdr[240];
@@ -889,6 +893,7 @@ bool SegyReader::readCrossline(qint32 xlineNo, QVector<SegyTrace> *out,
 void SegyReader::resetState()
 {
   m_indexingRules = AreaRules::SegyIndexing{};
+  m_dialect = DialectFlags{};
   m_index.clear();
   m_byInline.clear();
   m_byXline.clear();
@@ -936,6 +941,9 @@ bool SegyReader::snapshot(SegyIndexStore::StoredIndex *out) const
   out->geometry = m_geometry;
   out->headerWordOffsets = {m_indexingRules.inlineWordOffset, m_indexingRules.crosslineWordOffset,
                             m_indexingRules.fieldRecordOffset, m_indexingRules.cdpXlineOffset};
+  out->dialectFlags = static_cast<quint8>(
+      (m_dialect.xlineFromCdp ? 0x1 : 0x0) |
+      (m_dialect.cornerFromCdpXY ? 0x2 : 0x0));
   out->inlineNos.resize(m_index.size());
   out->xlineNos.resize(m_index.size());
   out->offsets.resize(m_index.size());
@@ -960,6 +968,9 @@ bool SegyReader::restore(const SegyIndexStore::StoredIndex &in, const QString &p
     return false;
   m_indexingRules = {in.headerWordOffsets[0], in.headerWordOffsets[1],
                      in.headerWordOffsets[2], in.headerWordOffsets[3]};
+  // #290：方言口径随索引恢复——resumeScan() 按同一口径取字。
+  m_dialect.xlineFromCdp = (in.dialectFlags & 0x1) != 0;
+  m_dialect.cornerFromCdpXY = (in.dialectFlags & 0x2) != 0;
   m_samplesPerTrace = in.samplesPerTrace;
   m_sampleIntervalUs = static_cast<float>(in.sampleIntervalUs);
   m_formatCode = in.formatCode;
@@ -1164,6 +1175,12 @@ bool SegyReader::resumeScan(QFile &file, const SegyIndexStore::StoredIndex &part
     return false;
   }
   const AreaRules::SegyIndexing sidx = m_indexingRules;
+  // #290：方言口径 = 首扫快照（restore() 从 checkpoint 读回），与首扫取字
+  // 位一致——否则续扫段的 crossline/角点按标准字解码，索引自相矛盾。
+  const int xlineOff = m_dialect.xlineFromCdp ? sidx.cdpXlineOffset
+                                            : sidx.crosslineWordOffset;
+  const int coordXOff = m_dialect.cornerFromCdpXY ? 180 : 72;
+  const int coordYOff = m_dialect.cornerFromCdpXY ? 184 : 76;
   uchar trHdr[240];
   qint64 offset = partial.scannedOffset;
   while (offset + 240 <= fileSize)
@@ -1203,15 +1220,15 @@ bool SegyReader::resumeScan(QFile &file, const SegyIndexStore::StoredIndex &part
     IndexEntry e;
     e.offset = offset;
     e.inlineNo = beI32(trHdr + sidx.inlineWordOffset);
-    e.xlineNo = beI32(trHdr + sidx.crosslineWordOffset);
+    e.xlineNo = beI32(trHdr + xlineOff);
     // 几何延续（同一运行 min/max + 槽位规则）。
     const qint16 scal = beI16(trHdr + 70);
     const double coordScale =
         (scal == 0 || scal == 1) ? 1.0
                                  : (scal > 0 ? static_cast<double>(scal)
                                              : 1.0 / -static_cast<double>(scal));
-    const double cx = static_cast<double>(beI32(trHdr + 72)) * coordScale;
-    const double cy = static_cast<double>(beI32(trHdr + 76)) * coordScale;
+    const double cx = static_cast<double>(beI32(trHdr + coordXOff)) * coordScale;
+    const double cy = static_cast<double>(beI32(trHdr + coordYOff)) * coordScale;
     if (m_index.isEmpty())
     {
       m_geometry.inlineMin = m_geometry.inlineMax = e.inlineNo;
@@ -1235,7 +1252,7 @@ bool SegyReader::resumeScan(QFile &file, const SegyIndexStore::StoredIndex &part
     m_index.append(e);
     offset += traceSize;
   }
-  if (!freezeCornersFromFile(file))
+  if (!freezeCornersFromFile(file, m_dialect.cornerFromCdpXY))
   {
     if (error)
       *error = QStringLiteral("无法读取测区四角的道头");
@@ -1386,6 +1403,9 @@ bool SegyReader::openCached(const QString &path, const QString &indexCacheDir,
         const bool cornerFromCdpXY =
             probeFieldAllZero(file, firstTraceOffset, fi.size(), binNs, 72) &&
             probePairHasNonZero(file, firstTraceOffset, fi.size(), binNs, 180, 184);
+        // #290：方言口径快照进成员（checkpoint/完成索引落盘带同一口径）。
+        m_dialect.xlineFromCdp = xlineFromCdp;
+        m_dialect.cornerFromCdpXY = cornerFromCdpXY;
         if (scanParallel(file, firstTraceOffset, traceSize, traceCount, error, opts,
                          xlineFromCdp, cornerFromCdpXY))
         {

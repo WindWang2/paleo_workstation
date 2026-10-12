@@ -10,6 +10,7 @@
 
 class DataListPanel;
 class PreviewDocService;
+class DataGraphPage;
 
 // ui/pages/datapage — 数据管理兼容薄壳（W5 分家后）：内部由
 // DataListPanel（导入+列表）与 EntityPanel（实体数据视图）组成，公共
@@ -33,6 +34,7 @@ class DataPage : public QWidget
     void setVimModeEnabled(bool on);
     // B2（wave/deepen-perf）：列表面板露出——壳接导入队列生产 runner 用。
     DataListPanel *listPanel() const { return m_listPanel; }
+    DataGraphPage *graphPage() const { return m_graphPage; }
 
   public slots:
     void refreshAssetTable();                     // 资产表/树 + 实体视图一并重取
@@ -42,6 +44,7 @@ class DataPage : public QWidget
     void applyListFilter();                       // 搜索/类型筛选
     void focusVersion(const QString &assetId, const QString &versionId);
     void selectAsset(const QString &assetId);     // 选中资产 + 实体视图定位
+    void openDataGraph();
 
   signals:
     void importRequested(const QString &kind);  // "wells" | "seismic" | "boundary" | ...
@@ -56,6 +59,8 @@ class DataPage : public QWidget
     // ---- P3 新增 ----
     void statusMessage(const QString &msg);        // D5.4/D8（壳接状态栏）
     void externalImportRequested(const QStringList &paths); // D3.2（壳接导入流）
+    void graphRequested(const QString &assetId, const QString &versionId);
+    void entityGraphRequested(const QString &entityId, const QString &assetId, const QString &versionId);
 
   protected:
     bool event(QEvent *event) override; // 动态属性变更 → 门面下发子面板
@@ -67,4 +72,5 @@ class DataPage : public QWidget
 
     DataListPanel *m_listPanel = nullptr;
     EntityPanel *m_entityPanel = nullptr;
+    DataGraphPage *m_graphPage = nullptr;
 };

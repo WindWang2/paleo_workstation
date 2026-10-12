@@ -499,7 +499,9 @@ bool FaciesMappingWorkflow::commitComputed( const DraftFaciesRequest &request,
                                             DraftFaciesComputed *computed )
 {
   auto fail = [this, computed]( const QString &message ) {
-    computed->error = message;
+    // #415：computed 可为 null（null 检查只在下行消息里，解引用无守卫）。
+    if ( computed )
+      computed->error = message;
     emit draftFailed( message );
     return false;
   };

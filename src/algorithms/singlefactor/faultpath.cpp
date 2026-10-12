@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <new>
 #include <numeric>
 
 // 层：数据
@@ -13,6 +14,10 @@ namespace
 {
 
 constexpr double kInf = std::numeric_limits<double>::infinity();
+// #393：绕行节点/屏障段预算——n=2000 → 图 32MB + Floyd 8e9 内联操作，
+// 再大没有交互意义；段数限可见性扫描的 m 因子。
+constexpr std::size_t kMaxDetourNodes = 2000;
+constexpr std::size_t kMaxBarrierSegments = 20000;
 constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
 
 using Seg = FaultSegment;
@@ -196,6 +201,14 @@ FaultPathMetric::FaultPathMetric( std::span<const Point2> wells, std::span<const
   const std::size_t n = nodes.size();
   if ( n == 0 )
     return;
+  // #393：绕行图是 n² doubles + O(n²·m) 可见性 + O(n³) Floyd——节点/段
+  // 无预算时一条几千顶点的断层线即撬动 GB 级内存与分钟级挂起。超预算
+  // 不建图：调用方经 budgetExceeded() 如实拒绝，不静默退化为无绕行。
+  if ( n > kMaxDetourNodes || mSegments.size() > kMaxBarrierSegments )
+  {
+    mBudgetExceeded = true;
+    return;
+  }
 
   std::vector<double> graph( n * n, kInf );
   for ( std::size_t i = 0; i < n; ++i )
@@ -376,8 +389,24 @@ SurferIdwResult interpolateGlobalIdw( std::span<const Point2> points,
 
   // 断层绕行图（度量带各向异性；上游 surfer_idw 用 span*1e-8 的数值偏移，
   // FaultPathMetric 构造内统一取节点与图）。
-  const FaultPathMetric metric( wellXy, barriers, options.anisotropyRatio,
-                                options.anisotropyAngleDegrees );
+  std::optional<FaultPathMetric> metric;
+  try
+  {
+    metric.emplace( wellXy, barriers, options.anisotropyRatio,
+                    options.anisotropyAngleDegrees );
+  }
+  catch ( const std::bad_alloc & )
+  {
+    result.status = Status::BudgetExceeded;
+    result.message = "断层绕行图内存分配失败（屏障几何过大）";
+    return result;
+  }
+  if ( metric->budgetExceeded() )
+  {
+    result.status = Status::BudgetExceeded;
+    result.message = "断层折线节点/段数超绕行图预算（请简化断层几何）";
+    return result;
+  }
 
   const std::size_t wellCount = wellXy.size();
   result.values.assign( points.size(), kNaN );
@@ -393,7 +422,7 @@ SurferIdwResult interpolateGlobalIdw( std::span<const Point2> points,
       result.values.clear();
       return result;
     }
-    const std::vector<double> distances = metric.distances( { &points[q], 1 } );
+    const std::vector<double> distances = metric->distances( { &points[q], 1 } );
     for ( std::size_t i = 0; i < wellCount; ++i )
       row[i] = distances[i];
 

@@ -1,6 +1,7 @@
 // 层：视图
 #pragma once
 #include <QObject>
+#include <QPointer>
 #include <QString>
 
 class QAction;
@@ -67,8 +68,10 @@ class PaleoLayoutUndoStack : public QObject
     void canRedoChanged( bool canRedo );
 
   private:
-    // Layout-owned QUndoStack (owned by QgsLayoutUndoStack, not by us).
-    QUndoStack *m_stack = nullptr;
+    // Layout-owned QUndoStack (owned by QgsLayoutUndoStack, not by us)。
+    // QPointer：版面销毁时自动置空——壳只 hide 未 delete 的路径下
+    // undo/redo 退化为安全 no-op，不触悬垂栈（#413）。
+    QPointer<QUndoStack> m_stack;
     QAction *m_undoAction = nullptr;
     QAction *m_redoAction = nullptr;
 };

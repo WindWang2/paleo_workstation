@@ -12,6 +12,7 @@
 #include "../../qgis/qgislayerservice.h" // declared() — forward-declares Qgs*, none included
 #include "../../metadata/layermanifest.h" // LayerDeclaration fields
 
+#include <QAbstractItemModel>
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QHBoxLayout>
@@ -180,6 +181,40 @@ ComposePage::ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWid
   auto *fuse = new QPushButton(tr("合成编图"), this);
   fuse->setObjectName(QStringLiteral("fuseButton"));
   lay->addWidget(fuse);
+  // §35：合成编图入口随勾选态门控（禁用时 tooltip 给出原因）。经列表模型
+  // 信号驱动，不侵入 refreshFactors 的重建流程——重建后首条 rowsInserted
+  // 即恢复门控态。
+  const auto gateFuse = [this, list, fuse]() {
+    int checked = 0;
+    for (int i = 0; i < list->count(); ++i)
+      if (list->item(i)->checkState() == Qt::Checked)
+        ++checked;
+    if (list->count() == 0)
+    {
+      fuse->setEnabled(false);
+      fuse->setToolTip(tr("还没有单因素图层 — 先在单因素图页生成"));
+    }
+    else if (checked == 0)
+    {
+      fuse->setEnabled(false);
+      fuse->setToolTip(tr("先在列表勾选要融合的单因素图层"));
+    }
+    else
+    {
+      fuse->setEnabled(true);
+      fuse->setToolTip(QString());
+    }
+  };
+  connect(list->model(), &QAbstractItemModel::rowsInserted, this, gateFuse);
+  connect(list->model(), &QAbstractItemModel::rowsRemoved, this, gateFuse);
+  connect(list->model(), &QAbstractItemModel::modelReset, this, gateFuse);
+  connect(list->model(), &QAbstractItemModel::dataChanged, this,
+          [gateFuse](const QModelIndex &, const QModelIndex &,
+                     const QVector<int> &roles) {
+            if (roles.isEmpty() || roles.contains(Qt::CheckStateRole))
+              gateFuse();
+          });
+  gateFuse();
   connect(fuse, &QPushButton::clicked, this, [this, list] {
     QStringList ids;
     for (int i = 0; i < list->count(); ++i)
@@ -584,6 +619,11 @@ void ComposePage::refreshFactors()
     target = explicitTarget;
   else if (faciesDecls.size() == 1)
     target = faciesDecls.first();
+  // 兜底采纳/失效清空都写回 property——「保存相属性」「边界核查」handler
+  // 读的是它而非局部变量，UI 启用态与 handler 判据必须同源（§35：启用的
+  // 控件必须可行动）。
+  if (target != explicitTarget)
+    setProperty(kFaciesTargetProp, target);
   updateFaciesTargetUi(target);
 }
 

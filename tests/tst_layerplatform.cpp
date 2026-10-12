@@ -238,7 +238,7 @@ class TestLayerPlatform : public QObject
       QVERIFY(!fx.layerChecked(QStringLiteral("val.section"))); // 档案表语义恢复
     }
 
-    // ---- 主线5：主题重命名（insert-then-remove 记录复制）----
+    // ---- 主线5：主题重命名（原生 renameMapTheme + page:* 服务层硬拒）----
     void renameThemeCopiesRecordAndRefuses()
     {
       ProfileFixture fx;
@@ -258,6 +258,17 @@ class TestLayerPlatform : public QObject
       QVERIFY(!fx.profile.renameTheme(QStringLiteral("work2"), QString()));
       QVERIFY(!fx.profile.renameTheme(QStringLiteral("work2"), QStringLiteral("work2")));
       QVERIFY(fx.profile.hasTheme(QStringLiteral("work2"))); // 拒绝不改状态
+
+      // page:* 页面档案服务层硬拒（2026-10-12 深化）：任一侧带前缀即拒绝，
+      // 旧主题原封不动——.qgz 版面地图项钉的主题名不因改名悬空。
+      fx.profile.applyPageProfile(QStringLiteral("compose"));
+      QVERIFY(fx.profile.hasTheme(QStringLiteral("page:compose")));
+      QVERIFY(!fx.profile.renameTheme(QStringLiteral("page:compose"),
+                                      QStringLiteral("renamed")));
+      QVERIFY(!fx.profile.renameTheme(QStringLiteral("work2"),
+                                      QStringLiteral("page:work2")));
+      QVERIFY(fx.profile.hasTheme(QStringLiteral("page:compose"))); // 拒绝不改状态
+      QVERIFY(fx.profile.hasTheme(QStringLiteral("work2")));
     }
 
     // ---- 主线1：词表单一权威（canonical 七组 + 旧名别名折算 + 组→页）----

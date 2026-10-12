@@ -5,6 +5,7 @@
 #include <QString>
 #include <QStringList>
 #include <QVector>
+#include <functional>
 
 class DataCatalog;
 
@@ -30,6 +31,7 @@ struct Query
   int kindFilter = -1; // -1 = 全部，否则 Kind
   bool staleOnly = false; // stale + 在当前谱系内的源版本（解释过期原因）
   int upstreamDepth = 2, downstreamDepth = 2, maxNodes = 80;
+  bool operator==(const Query &) const = default;
 };
 struct Graph
 {
@@ -47,7 +49,8 @@ struct Graph
 class Service
 {
 public:
-  static Graph build(const DataCatalog *catalog, const Query &query);
+  static Graph build(const DataCatalog *catalog, const Query &query,
+                     const std::function<bool()> &cancel = {});
   static QSet<QString> selectionClosure(const DataCatalog *catalog, const Graph &graph, const QString &versionId);
 };
 } // namespace paleo::derivation

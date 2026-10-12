@@ -15,6 +15,15 @@ QString fmtValue(double v, const LasWriteOptions &opt)
     return QString::number(opt.nullToken, 'f', 4);
   return QString::number(v, 'f', opt.valuePrecision);
 }
+
+// #414：头字段（WELL/曲线名/描述）不得带行结构——内嵌 \r\n 折叠为空格。
+QString singleLine(const QString &s)
+{
+  QString out = s;
+  out.replace(QLatin1Char('\r'), QLatin1Char(' '));
+  out.replace(QLatin1Char('\n'), QLatin1Char(' '));
+  return out;
+}
 } // namespace
 
 bool writeLasFile(const QString &path, const QList<LasCurve> &curves,
@@ -76,10 +85,12 @@ bool writeLasFile(const QString &path, const QList<LasCurve> &curves,
   ts << "STEP ." << curves.first().unit << "  " << fmtValue(step, opt) << " :\n";
   ts << "NULL .  " << QString::number(opt.nullToken, 'f', 4) << " :\n";
   if (!opt.wellName.trimmed().isEmpty())
-    ts << "WELL.  " << opt.wellName << " :\n";
+    ts << "WELL.  " << singleLine(opt.wellName) << " :\n";
   ts << "~Curve\n";
   for (const LasCurve &c : curves)
-    ts << c.name << " ." << c.unit << " : " << c.descr << "\n";
+    // #414：名字/描述内嵌换行会破坏行结构（回读即坏）——写前折叠空白。
+    ts << singleLine(c.name) << " ." << singleLine(c.unit) << " : "
+       << singleLine(c.descr) << "\n";
   ts << "~ASCII\n";
   for (qsizetype i = 0; i < n; ++i)
   {

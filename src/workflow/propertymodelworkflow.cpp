@@ -314,8 +314,10 @@ PropertyModelWorkflow::segmentsFromWkt(const QString &wkt)
       continue;
     if (polygon)
     {
-      const auto &a = pts.front();
-      const auto &b = pts.back();
+      // #415：值拷贝而非引用——push_back(指向容器自身的引用) 在 realloc 后
+      // 拷贝的是已释放内存（引用自 pts，扩容即悬垂）。
+      const auto a = pts.front();
+      const auto b = pts.back();
       if (std::fabs(a.first - b.first) > 1e-9 || std::fabs(a.second - b.second) > 1e-9)
         pts.push_back(a);
     }

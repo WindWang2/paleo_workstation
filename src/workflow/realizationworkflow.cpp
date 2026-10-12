@@ -1170,6 +1170,13 @@ PaleoTask *RealizationWorkflow::differenceOfMeansAsync( const QString &setIdA, c
   };
 
   cb.commit = [this]( RealizationJob &j, QString *err ) -> bool {
+    // 失败态也进 commit（jobrunner.h 契约）：compute 失败时 outputs 为空，
+    // 先如实返回，不能解引用空 QVector（outputs.first() 是 UB）。
+    if ( j.outputs.isEmpty() )
+    {
+      setError( err, j.error.isEmpty() ? tr( "计算失败，无产物" ) : j.error );
+      return false;
+    }
     DerivedAssetRegistrar registrar( m_catalog.data(), m_projectDir );
     const QString titleB = m_catalog->assetById( j.setIdB ).displayName;
     QString stageErr;

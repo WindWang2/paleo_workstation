@@ -25,6 +25,7 @@
 #include "horizonchipbar.h"
 #include "evolution/evolutionplayerpanel.h"
 #include "layers/layertreepanel.h"
+#include "../workflow/mappingworkbench.h"
 #include "layers/layerpropertiesdialog.h"
 #include "pages/pageshared.h"
 #include "pages/stratigraphicwebpage.h"
@@ -389,6 +390,13 @@ void PaleoMainWindow::buildLayerTreeDock()
             &LayerPropertiesDialog::openLayerProperties);
     connect(m_layerPanel, &LayerTreePanel::mappingPageRequested, this,
             &PaleoMainWindow::showPage);
+    connect(m_layerPanel, &LayerTreePanel::graphRequested, this,
+            [this](const QString &layer) {
+      if (!m_workbench) return;
+      const auto version = m_workbench->versionForLayer(layer);
+      if (!version.id.isEmpty()) openDataGraph(version.assetId, version.id);
+      else statusBar()->showMessage(tr("该图层尚未登记资料版本，请先导入或保存图件"), 8000);
+    });
     connect(m_layerProps, &LayerPropertiesDialog::assetInspectionRequested, this,
             [this](const QString &) { showPage(QStringLiteral("data")); });
     // 层位切换 → 重放页面档案：horizonReleased 早于 activeHorizon 落位

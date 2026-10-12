@@ -799,6 +799,13 @@ private slots:
     const QByteArray content = f.readAll();
     QVERIFY(content.startsWith("id,inline,xline"));
     QVERIFY(content.contains("7,1000,2000,50.00"));
+    // #388：行体字段数必须与表头一致（8 列）——错位行曾静默通过本测试。
+    const QList<QByteArray> lines = content.split('\n');
+    QVERIFY(lines.size() >= 3);
+    for (int i = 1; i < lines.size() && !lines.at(i).isEmpty(); ++i)
+      QCOMPARE(lines.at(i).split(',').size(), 8);
+    QVERIFY(content.contains(",25,")); // sample 列
+    QVERIFY(content.contains(",A,H")); // interpreter + horizon 列
     f.close();
   }
 

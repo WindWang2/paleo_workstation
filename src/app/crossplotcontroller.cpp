@@ -22,7 +22,10 @@ CrossplotController::CrossplotController(AppContext *ctx,
                                          PaleoMainWindow *window)
     : QObject(window), m_context(ctx) {
   auto *tabs = window->findChild<QTabWidget *>(QStringLiteral("bottomTabs"));
-  m_panel = new CrossplotPanel(tabs);
+  // #418：tabs 查找失败时 nullptr 父对象的面板永不回收——挂到 window 名下
+  // 兜底（仍不进 tab 树，但随主窗口销毁不泄漏）。
+  m_panel = new CrossplotPanel(tabs ? static_cast<QWidget *>(tabs)
+                                    : static_cast<QWidget *>(window));
   if (tabs)
     tabs->addTab(m_panel, tr("交会相分类"));
   m_workflow = new FaciesClassifyWorkflow(ctx->taskSvc(), ctx->store(),

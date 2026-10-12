@@ -228,6 +228,9 @@ PaleoLayoutDesignerShell::PaleoLayoutDesignerShell( QgsLayout *layout, QWidget *
   // `if (m_layout)` 守卫变成真守卫，迟到操作（对齐/导出/模板）不再 UAF。
   if ( m_layout )
   {
+    // #413：不设 WA_DeleteOnClose——栈分配的壳 close() 会 deleteLater 栈
+    // 对象（UB）；悬垂面改由 PaleoLayoutUndoStack 的 QPointer 兜底，
+    // 堆分配开点继续显式设旗标（attach_shell/attach_compose）。
     connect( m_layout, &QObject::destroyed, this, [this] { close(); } );
   }
 

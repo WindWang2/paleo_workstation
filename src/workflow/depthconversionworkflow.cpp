@@ -65,7 +65,15 @@ bool readDcGrid(const QString &path, DcGridSpec *g)
   int flag = 0;
   g->nodata = GDALGetRasterNoDataValue(band, &flag);
   g->hasNodata = flag != 0;
-  g->px.resize(g->cols * g->rows);
+  // #415：cols*rows int 乘法无闸——46341² 回绕后 resize 按小数组分配、
+  // GDALRasterIO 按真实维度写即越界。4M cell 预算同 constraintfactorjobs。
+  const qint64 cells = static_cast<qint64>(g->cols) * g->rows;
+  if (g->cols <= 0 || g->rows <= 0 || cells > 4000000LL)
+  {
+    GDALClose(ds);
+    return false;
+  }
+  g->px.resize(static_cast<qsizetype>(cells));
   const CPLErr err = GDALRasterIO(band, GF_Read, 0, 0, g->cols, g->rows,
                                    g->px.data(), g->cols, g->rows, GDT_Float32, 0, 0);
   // PALEO_INLINE_*/PALEO_XLINE_* 测网号域透传（验证→地震剖面导航依赖）。

@@ -76,9 +76,11 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
   // 时编辑仅驻内存。
 
   const auto rebindFenceStore = [this]() {
-    // 换工程：打开中的栅状图换到新 store（否则继续写旧工程的库）。
+    // 换工程：打开中的栅状图换到新 store（否则继续写旧工程的库；断层库
+    // 一并原子换绑——fence 各节工作流的 faultStore 指针随重建更新）。
     if (m_wellSectionFence)
-      m_wellSectionFence->setStore(m_wellSectionStore);
+      m_wellSectionFence->setStore(m_wellSectionStore,
+                                   m_wellSectionFaultStore);
   };
   // band 是窗口成员（attach 中创建）——lambda 逃逸出栈帧不能按引用捕
   // 获局部变量（轮 2 High：catalog 去抖后调 bindStores 会解引用死栈槽）。

@@ -1,5 +1,8 @@
 // 层：视图
 #include "entitypanel.h"
+#include "../../workflow/derivationworkflow.h"
+#include <QHideEvent>
+#include <QShowEvent>
 #include "datalistops.h"
 #include "derivationgraph.h"
 #include "pageshared.h"
@@ -399,6 +402,16 @@ void EntityPanel::buildD4Ui()
 
       auto *secLineage = new CollapsibleSection(tr("衍生血缘"), host);
       secLineage->setObjectName(QStringLiteral("secDerivation"));
+      auto *openGraph = new QPushButton(tr("打开完整资料图谱 / 成果追溯"), secLineage->container());
+      secLineage->containerLayout()->addWidget(openGraph);
+      connect(openGraph, &QPushButton::clicked, this, [this] { emit graphRequested(m_entityId, m_assetId, m_versionId); });
+      m_derivationWorkflow = new DerivationWorkflow(this);
+      connect(m_derivationWorkflow, &DerivationWorkflow::ready, this, [this](const paleo::derivation::Graph &graph) {
+        m_derivationData = graph; m_derivation->setGraph(graph);
+        if (!m_graphSelected.isEmpty())
+          m_derivation->graphView()->highlight(m_graphSelected,
+              paleo::derivation::Service::selectionClosure(nullptr, graph, m_graphSelected));
+      });
       m_derivation = new DerivationPanel(secLineage->container());
       secLineage->containerLayout()->addWidget(m_derivation);
       sl->addWidget(secLineage);
@@ -406,7 +419,7 @@ void EntityPanel::buildD4Ui()
       connect(m_derivation, &DerivationPanel::nodeClicked, this, [this](const QString &id) {
         m_graphSelected = id;
         m_derivation->graphView()->highlight(id, paleo::derivation::Service::selectionClosure(
-            m_doc ? m_doc->catalog() : nullptr, m_derivationData, id));
+            nullptr, m_derivationData, id));
         m_preserveGraphOnce = true;
         const QPointer<EntityPanel> self(this);
         emit versionActivated(id);
@@ -726,6 +739,8 @@ void EntityPanel::beginDeleteEntity(const QString &entityId)
 void EntityPanel::setDocService(PreviewDocService *doc)
 {
   m_doc = doc; m_versionId.clear(); m_graphSelected.clear(); m_preserveGraphOnce = false;
+  // #411：换服务即换工程语境——路径→统计缓存清（防跨工程错配 + 无界增长）。
+  m_geoSummaryCache.clear();
   refreshDerivation();
 }
 void EntityPanel::setVersionContext(const QString &assetId, const QString &versionId)
@@ -745,11 +760,12 @@ void EntityPanel::refreshDerivation()
   auto query = m_derivation->query();
   query.entityId = m_entityId; query.assetId = m_assetId; query.versionId = m_versionId;
   if (m_multiAssetIds.size() > 1) { query.entityId.clear(); query.assetId.clear(); query.versionId.clear(); }
-  m_derivationData = paleo::derivation::Service::build(m_doc ? m_doc->catalog() : nullptr, query);
-  m_derivation->setGraph(m_derivationData);
-  if (!m_graphSelected.isEmpty())
-    m_derivation->graphView()->highlight(m_graphSelected, paleo::derivation::Service::selectionClosure(
-        m_doc ? m_doc->catalog() : nullptr, m_derivationData, m_graphSelected));
+  if (!m_doc || !m_doc->catalog()) { m_derivationWorkflow->cancel(); m_derivationData = {}; m_derivation->setGraph({}); return; }
+  if (isVisible()) {
+    paleo::derivation::Graph pending; pending.message = tr("正在后台查询血缘，可在任务中心查看或取消");
+    m_derivationData = {}; m_derivation->setGraph(pending);
+    m_derivationWorkflow->request(m_doc->catalog(), m_doc->taskService(), query);
+  }
 }
 
 void EntityPanel::setContext(const QString &entityId, const QString &assetId)
@@ -1218,7 +1234,7 @@ void EntityPanel::refresh()
     if (m_topology)
       m_topology->loadTopology(cat,
                                m_ctx.entityOverrides ? *m_ctx.entityOverrides
-                                                     : paleo::dataops::EntityOverrideStore());
+                                                     : paleo::dataops::EntityOverrideStore(), m_entityId, m_assetId);
     return;
   }
 
@@ -1528,7 +1544,7 @@ void EntityPanel::refresh()
     if (m_topology)
       m_topology->loadTopology(cat,
                                m_ctx.entityOverrides ? *m_ctx.entityOverrides
-                                                     : paleo::dataops::EntityOverrideStore());
+                                                     : paleo::dataops::EntityOverrideStore(), m_entityId, m_assetId);
     // D4.8 统计段：实体态摘要。
     if (auto *stats = findChild<QLabel *>(QStringLiteral("propStatsText")))
     {
@@ -1562,6 +1578,8 @@ bool EntityPanel::requestGeoJsonSummary(
   {
     PreviewDocService::GeoJsonSummary sum;
     PreviewDocService::geoJsonSummaryAt(absPath, &sum, nullptr); // 失败=空 summary（回退态）
+    if (m_geoSummaryCache.size() >= kGeoSummaryCacheMax)
+      m_geoSummaryCache.clear(); // #411：无界缓存→封顶清空（摘要便宜，重建可接受）
     m_geoSummaryCache.insert(absPath, sum);
     apply(sum);
     return true;
@@ -1579,6 +1597,8 @@ bool EntityPanel::requestGeoJsonSummary(
   connect(task, &PaleoTask::finished, this, [this, seq, absPath, out, apply]() {
     if (seq != m_geoSeq)
       return; // 陈旧结果丢弃：新选择已接管
+    if (m_geoSummaryCache.size() >= kGeoSummaryCacheMax)
+      m_geoSummaryCache.clear();
     m_geoSummaryCache.insert(absPath, *out);
     apply(*out);
   });
@@ -1590,3 +1610,11 @@ bool EntityPanel::requestGeoJsonSummary(
 #if __has_include("moc_dataopspanelextra.cpp")
 #include "moc_dataopspanelextra.cpp"
 #endif
+
+void EntityPanel::hideEvent(QHideEvent *event) {
+  if (m_derivationWorkflow) m_derivationWorkflow->cancel();
+  QWidget::hideEvent(event);
+}
+void EntityPanel::showEvent(QShowEvent *event) {
+  QWidget::showEvent(event); refreshDerivation();
+}

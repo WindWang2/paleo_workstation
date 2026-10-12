@@ -1,5 +1,6 @@
 #include "../src/qgis/layervocabulary.h"
 #include <QtTest>
+#include <QDate>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -1492,7 +1493,37 @@ class TestMapping : public QObject
             auto *map = qobject_cast<QgsLayoutItemMap *>( layout->itemById( "map" ) );
             QVERIFY2( map != nullptr, "map item missing" );
             QVERIFY( !map->layers().isEmpty() );
+
+            // 图签块（TODOS P3 收口，2026-10-12 深化）：页右下印编制/审核/
+            // 日期；工程未配 paleoAuthor/paleoReviewer 时留空线供手签，日期
+            // 恒为当日（同日断言）——不虚构责任方。
+            auto *sig =
+                qobject_cast<QgsLayoutItemLabel *>( layout->itemById( "signatureBlock" ) );
+            QVERIFY2( sig != nullptr, "signature block missing" );
+            QVERIFY( sig->text().contains( QStringLiteral( "编制：________" ) ) );
+            QVERIFY( sig->text().contains( QStringLiteral( "审核：________" ) ) );
+            QVERIFY( sig->text().contains( QDate::currentDate().toString( Qt::ISODate ) ) );
+            // 图签与 CRS 页脚同行右段、不出 A4 页面。
+            QVERIFY( sig->positionWithUnits().x() >= crs->positionWithUnits().x() + 140 );
+            QVERIFY( sig->positionWithUnits().x() + sig->sizeWithUnits().width() <= 297.0 );
+            QVERIFY( sig->positionWithUnits().y() + sig->sizeWithUnits().height() <= 210.0 );
             delete layout;
+
+            // 工程配了 paleoAuthor/paleoReviewer → 图签用真实署名。
+            QVariantMap sigVars;
+            sigVars.insert( QStringLiteral( "paleoAuthor" ), QStringLiteral( "张三" ) );
+            sigVars.insert( QStringLiteral( "paleoReviewer" ), QStringLiteral( "李四" ) );
+            f.projectSvc.project()->setCustomVariables( sigVars );
+            QgsPrintLayout *authored =
+                buildHorizonMapLayout( &f.layers, &f.projectSvc, QStringLiteral( "D61" ),
+                                       &layoutErr );
+            QVERIFY2( authored != nullptr, qPrintable( layoutErr ) );
+            auto *sigAuthored = qobject_cast<QgsLayoutItemLabel *>(
+                authored->itemById( "signatureBlock" ) );
+            QVERIFY( sigAuthored );
+            QVERIFY( sigAuthored->text().contains( QStringLiteral( "编制：张三" ) ) );
+            QVERIFY( sigAuthored->text().contains( QStringLiteral( "审核：李四" ) ) );
+            delete authored;
         }
 
         const QString pdf = f.dir.filePath( QStringLiteral( "D61_map.pdf" ) );

@@ -223,15 +223,19 @@ bool QgisLayerService::removeDeclarations(const QStringList &layerIds, QString *
   // 与 declare() 替换路径同口径：编辑中的层不可静默销毁——未提交的编辑
   // 缓冲会直接丢失，且编辑会话的 busy 标记无人释放（Issue #27 同族）。
   if (project)
-    for (auto *layer : project->mapLayers())
-      if (selected.contains(layer->customProperty("paleoLayerId").toString())) {
-        if (auto *vector = qobject_cast<QgsVectorLayer *>(layer); vector && vector->isEditable())
-        {
-          setError(error, tr("请先保存或取消该图层的编辑，再移除图件"));
-          return false;
-        }
-        nativeIds << layer->id();
+    for (auto *layer : project->mapLayers()) {
+      // #419：无 paleoLayerId 的层属性值是空串——若调用方传入空 layerId，
+      // selected.contains("") 成立，无关图层会被连带删除。
+      const QString paleoId = layer->customProperty("paleoLayerId").toString();
+      if (paleoId.isEmpty() || !selected.contains(paleoId))
+        continue;
+      if (auto *vector = qobject_cast<QgsVectorLayer *>(layer); vector && vector->isEditable())
+      {
+        setError(error, tr("请先保存或取消该图层的编辑，再移除图件"));
+        return false;
       }
+      nativeIds << layer->id();
+    }
   if (!m_manifest->removeMany(layerIds, error)) return false;
   if (project && !nativeIds.isEmpty()) project->removeMapLayers(nativeIds);
   emit layerDeclared(layerIds.size() == 1 ? layerIds.first() : QString());

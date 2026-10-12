@@ -277,11 +277,11 @@ StructuralResult buildStructuralSurface( const std::vector<AcquiredWell> &wells,
   }
 
   // _region_ids：GEOS intersectsXY（边界含）∩ 掩膜 → 区域 0
-  const GEOSPreparedGeometry *prepared = GEOSPrepare_r( geos.handle, domain.get() );
+  const PreparedPtr prepared = makePrepared( geos.handle, domain.get() );
   if ( !prepared )
     return fail( Status::NumericalFailure, "GEOS 域索引失败" );
   const auto intersectsDomain = [&]( double x, double y ) {
-    return GEOSPreparedIntersectsXY_r( geos.handle, prepared, x, y ) == 1;
+    return GEOSPreparedIntersectsXY_r( geos.handle, prepared.get(), x, y ) == 1;
   };
   for ( std::size_t r = 0; r < ys.size(); ++r )
   {
@@ -451,7 +451,6 @@ StructuralResult buildStructuralSurface( const std::vector<AcquiredWell> &wells,
       return fail( Status::Cancelled, evaluated.message );
     }
   }
-  GEOSPreparedGeom_destroy_r( geos.handle, prepared );
 
   if ( cancel() )
     return fail( Status::Cancelled, "已取消" );

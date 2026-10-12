@@ -2,6 +2,7 @@
 #include "ziparchive.h"
 
 #include <QFile>
+#include <QSaveFile>
 #include <QSet>
 #include <QFileInfo>
 
@@ -182,7 +183,10 @@ ZipListResult zipListBytes( const QByteArray &archive )
     if ( locator >= 0 && readU32( archive, locator ) == kZip64Locator )
     {
       const std::uint64_t zip64Offset = readU64( archive, locator + 8 );
-      if ( zip64Offset + 56 <= static_cast<std::uint64_t>( archive.size() ) &&
+      // #381：用减法比较——加法在 zip64Offset ≥ 2^64−56 时回绕穿闸，
+      // 随后 static_cast<int> 成负值读缓冲区之前的内存。
+      if ( zip64Offset <= static_cast<std::uint64_t>( archive.size() ) &&
+           static_cast<std::uint64_t>( archive.size() ) - zip64Offset >= 56 &&
            readU32( archive, static_cast<int>( zip64Offset ) ) == kZip64EndOfCentralDirectory )
       {
         count = readU64( archive, static_cast<int>( zip64Offset ) + 32 );
@@ -591,17 +595,19 @@ bool zipWriteArchive( const QString &path, const QVector<ZipWriteEntry> &entries
       *error = buildError;
     return false;
   }
-  QFile file( path );
-  if ( !file.open( QIODevice::WriteOnly | QIODevice::Truncate ) )
+  // #414：QSaveFile 原子写——磁盘满/IO 错不留看似完整的截断 .sfpkg
+  //（同层其它 writer 的 temp+rename 口径；commit 失败自动清暂存）。
+  QSaveFile file( path );
+  if ( !file.open( QIODevice::WriteOnly ) )
   {
     if ( error )
       *error = QStringLiteral( "无法写入文件：%1（%2）" ).arg( path, file.errorString() );
     return false;
   }
-  if ( file.write( archive ) != archive.size() || !file.flush() )
+  if ( file.write( archive ) != archive.size() || !file.commit() )
   {
     if ( error )
-      *error = QStringLiteral( "写入不完整：%1" ).arg( path );
+      *error = QStringLiteral( "写入不完整：%1（%2）" ).arg( path, file.errorString() );
     return false;
   }
   return true;

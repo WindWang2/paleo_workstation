@@ -171,6 +171,11 @@ PaleoOnnxService::PaleoOnnxService( QObject *parent )
 PaleoOnnxService::~PaleoOnnxService()
 {
   QMutexLocker lock( &m_mutex );
+  m_destroying = true; // runTensorOn 入口拒新
+  // #402：排空在飞推理——worker 拿着服务指针跑 Ort::Session::Run，直接删
+  // 会话就是 UAF；等计数归零再动池（任务排空可能失败的机制缺口在此兜底）。
+  while ( m_inFlight > 0 )
+    m_inFlightIdle.wait( &m_mutex );
   for ( PoolEntry *e : m_pool )
     delete e->session;
   qDeleteAll( m_pool );
@@ -659,22 +664,30 @@ OnnxTensor PaleoOnnxService::runTensorOn( const QString &model, const QString &i
   OnnxTensor result;
   {
     QMutexLocker lock( &m_mutex );
-    QString resolveErr;
-    const QString path = resolveModelPathLocked( model, &resolveErr );
-    PoolEntry *entry = path.isEmpty() ? nullptr : m_pool.value( path );
-    if ( !entry || !entry->session )
-    {
-      failMsg = !resolveErr.isEmpty()
-                  ? resolveErr
-                  : tr( "模型 '%1' 的会话不在池中（未加载、已被淘汰或模型目录已切换）" ).arg( model );
-    }
+    if ( m_destroying )
+      failMsg = tr( "ONNX 服务已销毁" );
     else
     {
-      entry->lru = ++m_lruCounter; // 使用中的会话刷新 LRU，降低被并发加载淘汰的概率
-      const QByteArray inNameUtf8 = inputName.toUtf8();
-      if ( !runFirstOutput( entry->session, inNameUtf8, input, shape, &result, &failMsg ) &&
-           failMsg.isEmpty() )
-        failMsg = tr( "推理失败（模型 '%1'）" ).arg( model );
+      ++m_inFlight; // #402：登记在飞——析构/setModelRoot 删池前排空
+      QString resolveErr;
+      const QString path = resolveModelPathLocked( model, &resolveErr );
+      PoolEntry *entry = path.isEmpty() ? nullptr : m_pool.value( path );
+      if ( !entry || !entry->session )
+      {
+        failMsg = !resolveErr.isEmpty()
+                    ? resolveErr
+                    : tr( "模型 '%1' 的会话不在池中（未加载、已被淘汰或模型目录已切换）" ).arg( model );
+      }
+      else
+      {
+        entry->lru = ++m_lruCounter; // 使用中的会话刷新 LRU，降低被并发加载淘汰的概率
+        const QByteArray inNameUtf8 = inputName.toUtf8();
+        if ( !runFirstOutput( entry->session, inNameUtf8, input, shape, &result, &failMsg ) &&
+             failMsg.isEmpty() )
+          failMsg = tr( "推理失败（模型 '%1'）" ).arg( model );
+      }
+      if ( --m_inFlight == 0 )
+        m_inFlightIdle.wakeAll();
     }
   }
   if ( !failMsg.isEmpty() )

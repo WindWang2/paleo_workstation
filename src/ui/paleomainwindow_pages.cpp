@@ -155,9 +155,9 @@ void PaleoMainWindow::showPage(const QString &pageId)
     m_centerStack->setCurrentIndex(0);
 
   // 图层平台：页面档案——不同页面激活不同图层组（QgsMapThemeCollection，
-  // data 页 no-op）。
-  if (m_profileSvc)
-    m_profileSvc->applyPageProfile(pageId);
+  // data 页 no-op）。本函数前段 applyCurrentPageProfile() 已按 m_currentPage
+  // 应用过同一档案（含 kPageIds 守卫）；此前这里再直调一次 = 每次切页双份
+  // 摆树 + 双份画布刷新（profileApplied ×2），已删。
 
   // 编图链三页的图层列表必须带测井基础图层（存在才物化；2026-10-10 用户
   // 要求）。覆盖首预测落盘后与跨工程重开两种时机。

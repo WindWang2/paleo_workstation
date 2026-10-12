@@ -130,11 +130,19 @@ bool AttributeTablePanel::saveEditing()
   }
   // 提交语义与 MapVersionController 一致：走服务（enqueueWrite 单写者 +
   // markLayerFree）；无服务时直连 commitChanges（native 清 undo 栈同效）。
+  // 原生 DualView 的 saveEditChanges 只服务表单视图校验；表格/API 已写入
+  // edit buffer 时（isModified）不应被空表单的 false 挡住提交（#344 后
+  // tst_attrpanel 与工具条同路径）。
   if (m_nativeDialog) {
-    m_nativeDialog->dualView()->tableView()->closeCurrentEditor();
-    if (!m_nativeDialog->dualView()->saveEditChanges()) {
-      emit editRefused(tr("属性表：表单验证未通过"));
-      return false;
+    if (auto *dv = m_nativeDialog->dualView()) {
+      if (auto *tv = dv->tableView())
+        tv->closeCurrentEditor();
+      // saveEditChanges() 只有表单视图下才有 QgsAttributeForm 可存；
+      // 表格视图下恒返 false，不能用它当保存闸门。
+      if (dv->view() == QgsDualView::AttributeEditor && !dv->saveEditChanges()) {
+        emit editRefused(tr("属性表：表单验证未通过"));
+        return false;
+      }
     }
   }
   QString err;

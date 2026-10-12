@@ -42,21 +42,29 @@ private slots:
     }
   }
 
-#ifndef PALEO_SANITIZER_BUILD
+  // 两个槽始终声明：asan 职把 PALEO_SANITIZER_BUILD 全局打开时，AUTOMOC
+  // 与目标编译定义偶发不一致，#ifndef 包住的槽会让 moc 引用不存在的成员。
   void strictBuildKeepsBudgetsUntouched()
   {
+#ifdef PALEO_SANITIZER_BUILD
+    QSKIP("strict-only slot; this binary was built with PALEO_SANITIZER_BUILD");
+#else
     // 非 sanitizer 对拍锚点：每一档基线预算必须原值通过（本二进制与
     // tst_sanitizer_budget_on 各钉一档，两绿合起来 = on/off 预算差证据）。
     for (const qint64 base : kAllBudgets)
       QCOMPARE(relaxedBudgetMs(base), base);
+#endif
   }
-#else
+
   void sanitizerBuildRelaxesEveryBudget()
   {
+#ifndef PALEO_SANITIZER_BUILD
+    QSKIP("sanitizer-only slot; this binary was built without PALEO_SANITIZER_BUILD");
+#else
     for (const qint64 base : kAllBudgets)
       QCOMPARE(relaxedBudgetMs(base), base * 3);
-  }
 #endif
+  }
 };
 
 int main(int argc, char *argv[])

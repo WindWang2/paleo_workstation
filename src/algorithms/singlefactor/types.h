@@ -251,6 +251,9 @@ struct BarrierGrid
   std::vector<int> component; // -2 屏障，>=0 连通区
   std::vector<int> sampleComponent; // -1 未归属
   std::vector<AmbiguousSample> ambiguous;
+  // 非空 = 栅格化/预算失败（#417）：空 component 不再与「成功但全屏障」歧义，
+  // 消费方必须先查此字段，再按 barrierCells<0 判取消。
+  std::string error;
   int componentCount = 0;
   int barrierCells = 0;
 };

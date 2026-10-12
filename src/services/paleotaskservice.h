@@ -3,6 +3,7 @@
 #include <QElapsedTimer>
 #include <QObject>
 #include <QString>
+#include <QVariantMap>
 #include <QVector>
 #include <atomic>
 #include <deque>
@@ -35,6 +36,9 @@ public:
   qint64 id() const { return m_id; }
   QString title() const { return m_title; }
   QString layerId() const { return m_layerId; }
+  // Owner-thread navigation metadata; never used as a catalog identity or worker input.
+  QVariantMap navigationContext() const { return m_navigationContext; }
+  void setNavigationContext(const QVariantMap &context) { m_navigationContext = context; emit changed(); }
   State state() const { return m_state; }
   QString errorText() const { return m_error; }
   QString detailText() const { return m_detail; }
@@ -98,9 +102,13 @@ private:
   Q_INVOKABLE void applyDetail(const QString &detail);
   Q_INVOKABLE void applyStage(const QString &stage, int percent);
   Q_INVOKABLE void applyFinish(const QString &error);
+  // worker 线程 DirectConnection 调用：标记任务已出队执行——shutdown() 的
+  // pool->clear() 丢弃未启动 runnable 后据此识别"永不到终态"的排队任务。
+  Q_INVOKABLE void markStarted();
 
   qint64 m_id;
   QString m_title, m_layerId, m_error, m_detail;
+  QVariantMap m_navigationContext;
   QString m_stage;
   int m_stagePercent = -1;
   State m_state = State::Running;
@@ -108,6 +116,7 @@ private:
   quint64 m_session = 0;
   std::atomic_bool m_cancel{false};
   std::atomic_bool m_cancellable{true};
+  std::atomic_bool m_started{false}; // 池内 runnable 是否已开跑（外部任务恒真）
   std::atomic<qint64> m_lastStageReport{0};
   qint64 m_bytesDone = 0, m_bytesTotal = -1;
   double m_rateBytesPerSec = -1.0; // 最近 ≤10s 窗口字节速率；-1 不可估

@@ -86,6 +86,7 @@ class TestPreviewMapAssets : public QObject
     void geojsonLegendSidebarEntries();
     void geojsonLabelToggle();
     void geojsonTocCategorizedFieldSwitch();
+    void quickStyleFormsWrapAtSidebarWidth();
     void imageUngeoreferencedShowsGuide();
     void imageWithWorldFileShowsMap();
     void wellHeadMapShowsHighlight();
@@ -562,6 +563,48 @@ void TestPreviewMapAssets::geojsonTocCategorizedFieldSwitch()
   QVERIFY(dynamic_cast<QgsCategorizedSymbolRenderer *>(vlayer->renderer()) != nullptr);
   categorized->setChecked(false); // 单色模式
   QVERIFY(dynamic_cast<QgsSingleSymbolRenderer *>(vlayer->renderer()) != nullptr);
+}
+
+// ---------------- 窄面表单（B-R3，2026-10-12 深化） ----------------
+
+void TestPreviewMapAssets::quickStyleFormsWrapAtSidebarWidth()
+{
+  // GeoJSON/层位预览样式侧栏在 1100×700 下 dock 被压到 ~240px：三个快调
+  // 表单 WrapLongRows 后，可见行内任何控件不溢出面板右缘（「字段标题拥挤/
+  // 裁切」的可回归断言）；长标签换行到字段上方而非同行挤压。
+  PreviewTocPanel toc;
+  QgsVectorLayer layer(
+      QStringLiteral("Polygon?field=fid:integer&field=name:string&crs=EPSG:4326"),
+      QStringLiteral("D61 相面"), QStringLiteral("memory"));
+  toc.addLayer(&layer, QStringLiteral("D61 相面"), QStringLiteral("/tmp/x.gpkg"), true);
+  toc.resize(240, 700);
+  toc.show();
+  QTest::qWait(50);
+  auto *stack = toc.findChild<QStackedWidget *>(QStringLiteral("previewTocQuickStack"));
+  QVERIFY(stack);
+  // 矢量快调页（当前可见页）：逐个可见控件不得越出面板右缘。
+  const int panelRight = toc.width();
+  for (QWidget *w : stack->currentWidget()->findChildren<QWidget *>())
+  {
+    if (!w->isVisible())
+      continue;
+    QVERIFY2(w->geometry().right() <= panelRight + 1,
+             qPrintable(QStringLiteral("%1 right=%2 > panel=%3")
+                            .arg(w->objectName(), QString::number(w->geometry().right()),
+                                 QString::number(panelRight))));
+  }
+  // 栅格快调页（含最长的「手动值域」双 spin 行）同口径。
+  stack->setCurrentIndex(1);
+  QTest::qWait(20);
+  for (QWidget *w : stack->currentWidget()->findChildren<QWidget *>())
+  {
+    if (!w->isVisible())
+      continue;
+    QVERIFY2(w->geometry().right() <= panelRight + 1,
+             qPrintable(QStringLiteral("%1 right=%2 > panel=%3")
+                            .arg(w->objectName(), QString::number(w->geometry().right()),
+                                 QString::number(panelRight))));
+  }
 }
 
 // ---------------- image（D2.7/D2.11） ----------------

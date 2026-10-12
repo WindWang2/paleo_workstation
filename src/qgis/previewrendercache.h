@@ -6,6 +6,8 @@
 #include <QString>
 #include <QStringList>
 
+#include <memory>
+
 class QTemporaryDir;
 
 // qgis/previewrendercache — 预览渲染结果缓存（P2 D6.2/D6.6）。
@@ -35,9 +37,12 @@ class PreviewRenderCache
 
   private:
     PreviewRenderCache();
+    ~PreviewRenderCache(); // #419：m_dir 出 unique_ptr——进程退出真正清盘
     static constexpr int kMemLimit = 16;
+    static constexpr int kDiskLimit = 64; // #376 磁盘层上限（超出逐最远删盘）
 
-    QTemporaryDir *m_dir = nullptr;
+    std::unique_ptr<QTemporaryDir> m_dir;
     QHash<QString, QImage> m_mem;
-    QStringList m_lru; // 最近使用在尾
+    QStringList m_lru;     // 最近使用在尾
+    QStringList m_diskLru; // 磁盘条目 LRU（与 m_dir 内 PNG 一一对应）
 };

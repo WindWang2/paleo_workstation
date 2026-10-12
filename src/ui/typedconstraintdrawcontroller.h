@@ -1,6 +1,7 @@
 // 层：视图
 #pragma once
 #include <QObject>
+#include <QPointer>
 #include <QString>
 #include <QVariantMap>
 
@@ -46,9 +47,11 @@ class TypedConstraintDrawController : public QObject
   private:
     void teardown();
 
-    QgisCanvasController *m_canvasCtl;
-    ConstraintWorkflow *m_wf;
-    QgsAdvancedDigitizingDockWidget *m_cadDock = nullptr; // 共享或自建
+    // #413：同 ConstraintDrawController——外建资源裸指针换 QPointer；
+    // 共享 dock 先析构时 m_cadDock 归零 → startCapture 重建自建实例。
+    QPointer<QgisCanvasController> m_canvasCtl;
+    QPointer<ConstraintWorkflow> m_wf;
+    QPointer<QgsAdvancedDigitizingDockWidget> m_cadDock; // 共享或自建
     bool m_ownCadDock = false;
     QgsMapTool *m_tool = nullptr;
     QString m_horizon;

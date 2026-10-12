@@ -36,5 +36,7 @@ if [ -d "$first_run_dir" ]; then
 fi
 # #136：perf 标签（墙钟预算）不重跑——确定性超限串行重跑只会再烧 200 s 后
 # 照样红；perf 在独立的非阻断 linux-perf job 里跑（tools/ci_perf.sh）。
-QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-offscreen}" \
-  ctest --test-dir "$build_dir" -j1 --rerun-failed -LE perf --output-on-failure
+# #397：串行重跑也走 ./paleo-dev test——裸 ctest 丢失 vendored 环境注入
+#（QGIS_PREFIX_PATH/deb 库路径/GDAL_DRIVER_PATH），重跑裁决与第一轮
+# 不同条件：加载 flake 变硬红、栅格类静默丢驱动。
+./paleo-dev test -j1 --rerun-failed -LE perf

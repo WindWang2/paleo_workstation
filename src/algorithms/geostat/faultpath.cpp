@@ -59,6 +59,8 @@ void rasterizeRingBoundary( std::vector<std::uint8_t> &barrier, const GridSpec &
 
 bool pointInRing( double x, double y, const std::vector<Point2> &ring )
 {
+  if ( ring.size() < 3 )
+    return false; // 空环 ring.size()-1 下溢 → size_t(-1) 下标 UB（#417）
   bool inside = false;
   for ( std::size_t i = 0, j = ring.size() - 1; i < ring.size(); j = i++ )
   {

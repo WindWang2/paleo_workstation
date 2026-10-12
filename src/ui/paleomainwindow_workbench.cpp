@@ -26,6 +26,7 @@
 #include "pages/composepage.h"
 #include "pages/constraintpage.h"
 #include "pages/datapage.h"
+#include "pages/datagraphpage.h"
 #include "pages/mappingworkbenchpage.h"
 #include "pages/pageshared.h"
 #include "pages/predictpage.h"
@@ -455,6 +456,37 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
     for (auto *layer : m_projectSvc->project()->mapLayers())
       attachAutosave(qobject_cast<QgsVectorLayer *>(layer));
   }
+  connect(wellPanel, &WellPredictionPanel::graphRequested, this,
+          [this, workbench](const QString &layer) {
+            const auto v = workbench->versionForLayer(layer);
+            if (!v.id.isEmpty()) openDataGraph(v.assetId, v.id);
+            else statusBar()->showMessage(tr("请先保存修订版本，再追溯其来源"), 8000);
+          });
+  if (auto *dataPage = findChild<DataPage *>())
+    connect(dataPage->graphPage(), &DataGraphPage::workspaceRequested, this,
+            [this, workbench, pages, show, compare, openWells](const QString &version, const QString &action) {
+      QString error;
+      const auto id = workbench->layerForVersion(version, &error);
+      if (id.isEmpty()) { statusBar()->showMessage(error, 15000); return; }
+      const auto declaration = workbench->declaration(id);
+      const auto metadata = workbench->versionForLayer(id).extra;
+      const auto kind = metadata.value("kind").toString();
+      const QString pageId = metadata.value("result_kind") == "formation_prediction" ||
+          kind.contains("prediction") || kind.contains("well") || kind.contains("seismic")
+          ? QStringLiteral("predict") : kind.startsWith("single_factor") || kind.startsWith("constraint") || kind == "contour_lines"
+          ? QStringLiteral("constraint") : QStringLiteral("compose");
+      if (!declaration.horizon.isEmpty()) m_selection->setActiveHorizon(declaration.horizon);
+      showPage(pageId);
+      for (auto *page : pages) {
+        page->setHorizon(m_selection->activeHorizon()); page->refresh(); page->selectLayer(id);
+      }
+      bool ok = action == "compare" ? compare(id, &error) : show(id, &error);
+      if (ok && action == "welltracks") {
+        if (workbench->wellPredictions(id).isEmpty()) { ok = false; error = tr("所选版本没有可修订的测井预测结果"); }
+        else openWells(id);
+      }
+      statusBar()->showMessage(ok ? tr("已打开图谱中选择的保存版本") : error, ok ? 8000 : 15000);
+    });
   auto beginEdit = [this, edit, attachAutosave](const QString &id) {
     auto *vector = qobject_cast<QgsVectorLayer *>(m_layerSvc->instantiate(id));
     attachAutosave(vector);
@@ -698,6 +730,11 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
             workbench->cancelPrediction();
           else if (action == "show")
             ok = show(id, &error);
+          else if (action == "graph") {
+            const auto version = workbench->versionForLayer(id);
+            if (version.id.isEmpty()) { ok = false; error = tr("所选图件尚未登记到数据管理"); }
+            else openDataGraph(version.assetId, version.id);
+          }
           else if (action == "catalog") {
             const auto version = workbench->versionForLayer(id);
             auto *dataPage = findChild<DataPage *>();

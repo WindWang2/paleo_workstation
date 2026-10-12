@@ -779,8 +779,15 @@ QWidget *DataPreviewTabs::buildSeismicContent(
       // InlineMin()+count/2 不保证存在，引擎会退回默认中心。
       const auto &inlVals = vol->InlineValues();
       const auto &xlVals = vol->XlineValues();
-      const int inlCount = qMax(1, static_cast<int>(inlVals.size()));
-      const int xlCount = qMax(1, static_cast<int>(xlVals.size()));
+      // 轴表为空时取中位会越界——给出原因态，与 interp 路径「体测网轴为空」同语义
+      if (inlVals.empty() || xlVals.empty())
+      {
+        timeCanvas->clearData();
+        timeCanvas->setNoDataReason(tr("体测网轴为空，无法定位时间切片焦点"));
+        return;
+      }
+      const int inlCount = static_cast<int>(inlVals.size());
+      const int xlCount = static_cast<int>(xlVals.size());
       const int focusInl = inlVals[static_cast<std::size_t>(inlCount / 2)];
       const int focusXl = xlVals[static_cast<std::size_t>(xlCount / 2)];
       timeCanvas->beginTimeSliceTiled(xlCount, inlCount, ms,

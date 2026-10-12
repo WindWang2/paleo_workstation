@@ -165,8 +165,12 @@ def git_changed_files(base):
     print(f"check-tidy：base {base} -> {ref[:12]}")
     committed = sh(["git", "diff", "--name-only", f"{ref}..HEAD"])
     worktree = sh(["git", "diff", "--name-only"])
+    # #420：旧口径漏两类——staged-only（git diff 不带 --cached 看不到）
+    # 与 untracked（全新 src/foo.cpp 永不进集，门禁空报绿）。
+    staged = sh(["git", "diff", "--name-only", "--cached"])
+    untracked = sh(["git", "ls-files", "--others", "--exclude-standard"])
     files = set()
-    for out in (committed.stdout, worktree.stdout):
+    for out in (committed.stdout, worktree.stdout, staged.stdout, untracked.stdout):
         files.update(l.strip() for l in out.splitlines() if l.strip())
     return files
 

@@ -44,6 +44,13 @@ class LruCache final : public EvictableCache
     LruCache(const LruCache &) = delete;
     LruCache &operator=(const LruCache &) = delete;
 
+    // #403：测试注入时钟——Windows ~15.6ms 计时粒度下 qSleep 分不出毫秒戳，
+    // 驱逐序靠注入时间确定性化（ErrorHub::setClockForTest 同款先例）。
+    static void setClockForTest(std::function<qint64()> clock)
+    {
+      clockRef() = std::move(clock);
+    }
+
     // 插入/替换：已在缓存中则换值并移到 MRU 端；随后按容量逐出（LRU 端、
     // 跳过 pinned）。返回本次插入是否触发过逐出。
     bool insert(const Key &key, Value value)
@@ -211,7 +218,17 @@ class LruCache final : public EvictableCache
         bool pinned = false;
     };
 
-    static qint64 nowMs() { return QDateTime::currentMSecsSinceEpoch(); }
+    static qint64 nowMs()
+    {
+      const std::function<qint64()> &c = clockRef();
+      return c ? c() : QDateTime::currentMSecsSinceEpoch();
+    }
+
+    static std::function<qint64()> &clockRef()
+    {
+      static std::function<qint64()> c;
+      return c;
+    }
 
     qint64 sizeOf(const Value &v) const
     {

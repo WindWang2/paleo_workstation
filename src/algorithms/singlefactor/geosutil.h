@@ -46,6 +46,27 @@ inline GeomPtr makeGeom( GEOSContextHandle_t handle, GEOSGeometry *geometry )
   return GeomPtr( geometry, GeomDeleter{ handle } );
 }
 
+// GEOSPrepare_r 的配套 RAII（#417）：取消/失败早退路径同样销毁，
+// 不再依赖每个 return 前手工 GEOSPreparedGeom_destroy_r。
+struct PreparedDeleter
+{
+  GEOSContextHandle_t handle = nullptr;
+  void operator()( const GEOSPreparedGeometry *geometry ) const
+  {
+    if ( geometry )
+      GEOSPreparedGeom_destroy_r( handle, geometry );
+  }
+};
+using PreparedPtr =
+    std::unique_ptr<const GEOSPreparedGeometry, PreparedDeleter>;
+
+inline PreparedPtr makePrepared( GEOSContextHandle_t handle,
+                                 const GEOSGeometry *geometry )
+{
+  return PreparedPtr( geometry ? GEOSPrepare_r( handle, geometry ) : nullptr,
+                      PreparedDeleter{ handle } );
+}
+
 inline GEOSCoordSequence *makeCoordSeq( GEOSContextHandle_t handle,
                                         const std::vector<Point2> &points )
 {

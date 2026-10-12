@@ -44,4 +44,25 @@ inline qint64 SliceFingerprint(const SgySliceImage &img) {
     return static_cast<qint64>(h);
 }
 
+// D2.1 键的显示参数因子：增益曲线状态指纹（控制点数 + 各点 TWT/增益的
+// FNV-1a）。空曲线 = 0——曲线有无/内容变化必变键，不同曲线烘焙的缓存
+// 图不会互相回吐。
+inline qint64 GainCurveFingerprint(const std::vector<SectionGainNode> &nodes) {
+    if (nodes.empty())
+        return 0;
+    quint64 h = 1469598103934665603ull;
+    const auto mix = [&h](double v) {
+        quint64 bits = 0;
+        std::memcpy(&bits, &v, sizeof bits);
+        h ^= bits;
+        h *= 1099511628211ull;
+    };
+    mix(static_cast<double>(nodes.size()));
+    for (const SectionGainNode &n : nodes) {
+        mix(n.twtMs);
+        mix(n.gain);
+    }
+    return static_cast<qint64>(h);
+}
+
 } // namespace seismic

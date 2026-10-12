@@ -16,11 +16,13 @@
 #include <QTemporaryDir>
 #include <QSettings>
 
+#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <limits>
 #include <functional>
 
+#include <QDeadlineTimer>
 #include <QSpinBox>
 #include <QTableWidget>
 #include <QThread>
@@ -65,6 +67,23 @@ QImage renderCanvas(SeismicSectionCanvas &canvas)
   canvas.render(&painter);
   painter.end();
   return img;
+}
+
+// #421：闸闩填料——release 置位前持续占住并发槽，被测请求确定性排队
+//（原 4×msleep(600) 全靠墙钟凑交错，重载机器可反转）；30s QDeadlineTimer
+// 保险丝防挂死。调用方在「需要排队态」的断言之后 release 放行。
+void saturateGate(SeismicTaskService &svc, std::atomic_bool &release)
+{
+  for (int i = 0; i < SeismicTaskService::kMaxConcurrentTasks; ++i)
+    svc.startBounded(QStringLiteral("filler-%1").arg(i),
+                     [&release](PaleoTask *) {
+                       for (QDeadlineTimer t(30'000);
+                            !release.load(std::memory_order_acquire) &&
+                            !t.hasExpired();)
+                         QThread::msleep(5);
+                       return QString();
+                     },
+                     QString(), /*quiet=*/true);
 }
 
 qint64 imageDiff(const QImage &a, const QImage &b)
@@ -608,16 +627,10 @@ private slots:
 
     PaleoTaskService tasks;
     SeismicTaskService svc(&tasks, 16);
-    // 饱和并发闸：4 个静默长任务占满 4 槽，切片任务确定性地排队
+    // 饱和并发闸：闸闩填料占满 4 槽，切片任务确定性地排队
     //（入池前取消 = 直接判 Cancelled 不执行，见 startBounded）。
-    for (int i = 0; i < SeismicTaskService::kMaxConcurrentTasks; ++i) {
-      svc.startBounded(QStringLiteral("filler-%1").arg(i),
-                       [](PaleoTask *) {
-                         QThread::msleep(600);
-                         return QString();
-                       },
-                       QString(), /*quiet=*/true);
-    }
+    std::atomic_bool gateRelease{false};
+    saturateGate(svc, gateRelease);
     SeismicSectionDockWidget dock;
     dock.setTaskService(&svc);
     QSignalSpy done(&dock, &SeismicSectionDockWidget::sectionExtractionFinished);
@@ -628,6 +641,7 @@ private slots:
     QVERIFY(spin);
     const int target = spin->value() + 2; // 换线：顶替排队的首请求
     spin->setValue(target);
+    gateRelease.store(true, std::memory_order_release); // 放闸：排队态已钉住
 
     QVERIFY(waitForQuiet([&] { return svc.activeTaskCount() == 0; }, 15000));
     int cancelled = 0, succeeded = 0;
@@ -661,20 +675,15 @@ private slots:
 
     PaleoTaskService tasks;
     SeismicTaskService svc(&tasks, 16);
-    for (int i = 0; i < SeismicTaskService::kMaxConcurrentTasks; ++i) {
-      svc.startBounded(QStringLiteral("filler-%1").arg(i),
-                       [](PaleoTask *) {
-                         QThread::msleep(600);
-                         return QString();
-                       },
-                       QString(), /*quiet=*/true);
-    }
+    std::atomic_bool gateRelease{false};
+    saturateGate(svc, gateRelease);
     auto *dock = new SeismicSectionDockWidget;
     dock->setTaskService(&svc);
     dock->setVolume(std::make_shared<SgyVolume>(std::move(volume)));
     QVERIFY(svc.activeTaskCount() > SeismicTaskService::kMaxConcurrentTasks);
     delete dock; // 在途即销毁（BASE 的裸 QThreadPool 路径此处在池线程
                  // invokeMethod 悬空 this 上有 UAF 窗口）
+    gateRelease.store(true, std::memory_order_release); // 放闸排空
     QVERIFY(waitForQuiet([&] { return svc.activeTaskCount() == 0; }, 15000));
   }
 
@@ -693,19 +702,14 @@ private slots:
 
     PaleoTaskService tasks;
     SeismicTaskService svc(&tasks, 16);
-    for (int i = 0; i < SeismicTaskService::kMaxConcurrentTasks; ++i) {
-      svc.startBounded(QStringLiteral("filler-%1").arg(i),
-                       [](PaleoTask *) {
-                         QThread::msleep(600);
-                         return QString();
-                       },
-                       QString(), /*quiet=*/true);
-    }
+    std::atomic_bool gateRelease{false};
+    saturateGate(svc, gateRelease);
     SeismicSectionDockWidget dock;
     dock.setTaskService(&svc);
     QSignalSpy done(&dock, &SeismicSectionDockWidget::sectionExtractionFinished);
     dock.setVolume(std::make_shared<SgyVolume>(std::move(volume1))); // T1 排队
     dock.setVolume(std::make_shared<SgyVolume>(std::move(volume2))); // T1 取消，T2 排队
+    gateRelease.store(true, std::memory_order_release); // 放闸：T2 执行
     QVERIFY(waitForQuiet([&] { return svc.activeTaskCount() == 0; }, 15000));
 
     QVERIFY(dock.canvas()->hasData());
@@ -792,14 +796,8 @@ private slots:
     PaleoTaskService tasks;
     SeismicTaskService svc(&tasks, 16);
     // 占满闸 → 任意线请求排队（迟到的完成回放可复现）
-    for (int i = 0; i < SeismicTaskService::kMaxConcurrentTasks; ++i) {
-      svc.startBounded(QStringLiteral("filler-%1").arg(i),
-                       [](PaleoTask *) {
-                         QThread::msleep(400);
-                         return QString();
-                       },
-                       QString(), /*quiet=*/true);
-    }
+    std::atomic_bool gateRelease{false};
+    saturateGate(svc, gateRelease);
     SeismicSectionDockWidget dock;
     dock.setTaskService(&svc);
     QSignalSpy done(&dock, &SeismicSectionDockWidget::sectionExtractionFinished);
@@ -811,6 +809,7 @@ private slots:
         {{0.0, 0.0}, {1500.0, 0.0}, {3000.0, 900.0}});
     // 切回 IL 模式：切片顶替任意线
     dock.setSectionMode(0);
+    gateRelease.store(true, std::memory_order_release); // 放闸：迟到结果走世代丢弃
     QVERIFY(waitForQuiet([&] { return svc.activeTaskCount() == 0; }, 15000));
 
     QVERIFY(dock.canvas()->hasData());

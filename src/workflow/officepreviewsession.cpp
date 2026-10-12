@@ -249,6 +249,9 @@ void OfficePreviewSession::acceptConnection()
     socket->setParent(m_server);
     socket->setProperty("buf", QByteArray());
     connect(socket, &QTcpSocket::readyRead, this, [this, socket] { readSocket(socket); });
+    // #380：响应以 Connection: close 结束——断开后回收 socket 与 "buf"
+    // 动态属性（部分体缓冲可达 256MB），否则每请求一个常驻到 stop()。
+    connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
   }
 }
 
@@ -414,6 +417,8 @@ void OfficePreviewSession::respond(QTcpSocket *socket, int status, const QByteAr
   head += "\r\n";
   socket->write(head);
   socket->write(body);
+  // 请求体缓冲随响应释放——不等断开（大 POST 的 "buf" 可达 256MB）。
+  socket->setProperty("buf", QByteArray());
   socket->disconnectFromHost();
 }
 

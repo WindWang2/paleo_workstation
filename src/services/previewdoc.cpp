@@ -88,7 +88,22 @@ bool externalShaMatches(const QString &absPath, const QString &expected,
 
 } // namespace
 
-PreviewDocService::~PreviewDocService() = default;
+PreviewDocService::~PreviewDocService()
+{
+  // #390：在飞任务归还并发闸并打断 worker 的同服务调用面（resetProjectState
+  // 同款取消循环——析构不能等任务自然结束）。
+  if (m_surveyTask)
+    m_surveyTask->requestCancel();
+  for (auto it = m_decodeTask.begin(); it != m_decodeTask.end(); ++it)
+    if (PaleoTask *t = it.value().data(); t && t->running())
+      t->requestCancel();
+  for (auto it = m_lasTask.begin(); it != m_lasTask.end(); ++it)
+    if (PaleoTask *t = it.value().data(); t && t->running())
+      t->requestCancel();
+  for (auto it = m_pyramidTask.begin(); it != m_pyramidTask.end(); ++it)
+    if (PaleoTask *t = it.value().data(); t && t->running())
+      t->requestCancel();
+}
 
 PreviewDocService::PreviewDocService(DataImportService *svc, QObject *parent)
   : QObject(parent)
@@ -1013,13 +1028,18 @@ void PreviewDocService::ensureRasterPyramidVersion(const QString &assetId)
   // 外链源不建 .ovr（不往用户目录写边车）；受管副本才建。
   const bool managed = version.managed;
 
-  const auto work = [io = m_svc, abs, managed](PaleoTask *t) -> QString {
+  // #390：服务销毁（切工程/拆机）时在飞 worker 不得解裸指针——QPointer
+  // 判活；服务亡即诚实失败退出。
+  const QPointer<DataImportService> svc = m_svc;
+  const auto work = [svc, abs, managed](PaleoTask *t) -> QString {
+    if (!svc)
+      return QStringLiteral("数据导入服务已销毁");
     QString err;
-    io->ensureRasterPyramids({abs}, &err);
+    svc->ensureRasterPyramids({abs}, &err);
     if (managed)
     {
       const qint64 size = QFileInfo(abs).size();
-      io->buildRasterOverviews(
+      svc->buildRasterOverviews(
           abs, &err,
           [t, size](double fraction) {
             if (t)

@@ -39,6 +39,8 @@ bool pointInRing(double px, double py, const std::vector<double> &xs,
 {
   bool inside = false;
   const std::size_t n = xs.size();
+  if (n < 3 || ys.size() != n)
+    return false; // n-1 下溢 → size_t(-1) 下标 UB（#417；调用方已挡，函数自身也挡）
   for (std::size_t i = 0, j = n - 1; i < n; j = i++)
   {
     const double yi = ys[i];

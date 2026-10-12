@@ -6,6 +6,7 @@
 #include <QString>
 #include <QStringList>
 #include <QVector>
+#include <QWaitCondition>
 
 #include "modelregistry.h"
 
@@ -120,4 +121,9 @@ class PaleoOnnxService : public QObject
     OnnxModelMeta m_lastMeta;
     bool m_lastPoolHit = false;
     mutable QMutex m_mutex;                         // 会话换装/池/Run 全互斥
+    // #402：在飞推理排空——runTensorOn 进出 m_inFlight；销毁/换模型目录先
+    // 置 m_destroying 拒新、再等计数归零，不再把悬垂会话留给 worker。
+    int m_inFlight = 0;
+    bool m_destroying = false;
+    QWaitCondition m_inFlightIdle;
 };

@@ -705,8 +705,11 @@ QList<LasCurve> LasParser::parseAsciiRows(const QByteArray &raw, qint64 asciiOff
           for (; col < nCurves; ++col)
             buckets[static_cast<std::size_t>(col)].append(nan());
       }
+      // #386：row 只计数据行——物理空行不计。流式 parseRange 的
+      // globalRow = row + 数据值下标依赖同一单位口径，空行计数会让
+      // 之后每个行窗偏移（整读/流式两路径结果不一致）。
+      ++row;
     }
-    ++row;
     if (eol >= n)
       break; // 尾行无行界符——处理完即结束
     i = eol + 1;

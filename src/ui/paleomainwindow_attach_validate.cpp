@@ -152,7 +152,12 @@ void PaleoMainWindow::attachWellSiting(WellSitingWorkflow *wf)
     connect(panel, &WellSitingPanel::mapPlacementRequested, this, [this]() {
       if (!m_canvasCtl || !m_wellSitingPanel)
         return;
+      // #411：重复请求时拆掉仍挂着的旧工具（拾取/Esc 已自清，覆盖的是
+      // 「还没点就再点一次」的替换泄漏）。
+      if (m_sitingPickTool)
+        m_sitingPickTool->deleteLater();
       auto *tool = new PaleoSitingPickTool(m_canvasCtl->canvas());
+      m_sitingPickTool = tool;
       connect(tool, &PaleoSitingPickTool::pointPicked, this,
               [this](double x, double y) {
                 if (m_wellSitingPanel)

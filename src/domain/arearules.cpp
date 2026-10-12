@@ -72,22 +72,25 @@ bool intField(const QJsonObject &o, const char *key, int minV, int maxV, int *ou
   const QJsonValue v = o.value(QLatin1String(key));
   if (v.isUndefined())
     return true;
-  if (!v.isDouble() || std::floor(v.toDouble()) != v.toDouble())
+  if (!v.isDouble() || !std::isfinite(v.toDouble()) ||
+      std::floor(v.toDouble()) != v.toDouble())
   {
     *error = errAt(where, QStringLiteral("'%1' expects an integer").arg(QLatin1String(key)));
     return false;
   }
-  const int val = static_cast<int>(v.toDouble());
-  if (val < minV || val > maxV)
+  // #418：先按 double 查范围再转 int——超 int 域的整数值（如 1e20）在
+  // static_cast<int> 是未定义收窄，转换后才查范围等于放行 UB。
+  const double raw = v.toDouble();
+  if (raw < minV || raw > maxV)
   {
     *error = errAt(where, QStringLiteral("'%1' %2 out of range [%3, %4]")
                                      .arg(QLatin1String(key))
-                                     .arg(val)
+                                     .arg(raw)
                                      .arg(minV)
                                      .arg(maxV));
     return false;
   }
-  *out = val;
+  *out = static_cast<int>(raw);
   return true;
 }
 

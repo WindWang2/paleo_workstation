@@ -1095,6 +1095,7 @@ class ComposePageTests : public QObject
     void constructsWithNullServices(); // 基座冒烟：拆分后类仍可构造
     void fusionListListsOnlyRasterFactors(); // m2(C)：contours 矢量不入融合清单
     void factorSelectAllAndClearRow();       // m2(C)：全选/清空小工具行
+    void fuseButtonGatesOnSelectionState();  // §35：合成编图随勾选态门控+原因 tooltip
     void referenceAreaListsAndSignals();     // m2(C)：06_Reference 清单 + 可见性意图
     void faciesAttrAreaSavesPayload();       // m2(C)：相属性三字段 + 保存信号载荷
     void faciesTargetAdoptsSoleDeclaredFacies(); // m2(C)：唯一 facies.* 自动成目标
@@ -1199,10 +1200,48 @@ void ComposePageTests::factorSelectAllAndClearRow()
     if (list->item(i)->checkState() == Qt::Checked)
       ++checked;
   QCOMPARE(checked, 0);
+  // §35 契约（2026-10-12 深化）：清空勾选后按钮禁用并给原因 tooltip——
+  // 空清单融合在 workflow 侧必然被拒，不再放行空意图（点击为无操作）。
+  auto *fuse = page.findChild<QPushButton *>(QStringLiteral("fuseButton"));
+  QVERIFY(!fuse->isEnabled());
+  QVERIFY(!fuse->toolTip().isEmpty());
   spy.clear();
-  page.findChild<QPushButton *>(QStringLiteral("fuseButton"))->click();
-  QCOMPARE(spy.count(), 1);
-  QVERIFY(spy.first().at(0).toStringList().isEmpty());
+  fuse->click();
+  QCOMPARE(spy.count(), 0);
+}
+
+void ComposePageTests::fuseButtonGatesOnSelectionState()
+{
+  // 空清单（无工程）→ 禁用 + 「还没有单因素图层」；有清单未勾选 → 禁用 +
+  // 「先勾选」；勾选后 → 启用且 tooltip 清空（§35：禁用必带原因）。
+  ComposePage empty(nullptr, nullptr);
+  auto *fuse = empty.findChild<QPushButton *>(QStringLiteral("fuseButton"));
+  QVERIFY(fuse);
+  QVERIFY(!fuse->isEnabled());
+  QVERIFY(fuse->toolTip().contains(QStringLiteral("单因素图层")));
+
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  LayerManifest manifest(dir.filePath(QStringLiteral("g.sqlite")));
+  QVERIFY(manifest.open());
+  QgisLayerService layers(nullptr, &manifest);
+  QString err;
+  QVERIFY(layers.declare(makeDecl(QStringLiteral("factor.T1.a"), QStringLiteral("T1"),
+                                  QStringLiteral("raster"), QStringLiteral("04_SingleFactor")), &err));
+  ComposePage page(nullptr, &layers);
+  fuse = page.findChild<QPushButton *>(QStringLiteral("fuseButton"));
+  auto *list = page.findChild<QListWidget *>(QStringLiteral("factorList"));
+  QVERIFY(fuse && list);
+  QVERIFY(!fuse->isEnabled()); // 清单在、未勾选
+  QVERIFY(fuse->toolTip().contains(QStringLiteral("勾选")));
+
+  list->item(0)->setCheckState(Qt::Checked);
+  QVERIFY(fuse->isEnabled());
+  QVERIFY(fuse->toolTip().isEmpty());
+
+  list->item(0)->setCheckState(Qt::Unchecked);
+  QVERIFY(!fuse->isEnabled());
+  QVERIFY(fuse->toolTip().contains(QStringLiteral("勾选")));
 }
 
 void ComposePageTests::referenceAreaListsAndSignals()

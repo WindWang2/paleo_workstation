@@ -160,6 +160,9 @@ class PaleoMainWindow : public SARibbonMainWindow
     // 页 id 的 ribbon 页签（objectName "ribbonCategory.<pageId>"）；未知 id → nullptr。
     SARibbonCategory *categoryForPage(const QString &pageId) const;
     void showAttributeTable(const QString &layerId);
+    void openDataGraph(const QString &assetId = {}, const QString &versionId = {},
+                       const QString &entityId = {}, bool lineage = false);
+    void openTaskCenter();
     void showStartup();            // first-run: recent projects + new/open
     void onProjectOpened();        // called after project opens: swap startup->workspace
     // #153/#154/#156/#158：工程即将关闭/切换（QgisProjectService::
@@ -399,6 +402,9 @@ class PaleoMainWindow : public SARibbonMainWindow
     QgisCanvasController *m_canvasCtl;
     class WellSitingWorkflow *m_wellSitingWf = nullptr; // 方向34（attachWellSiting 建一次）
     class WellSitingPanel *m_wellSitingPanel = nullptr;
+    // #411：在途布点工具——连续点「在地图上放置计划井」时旧工具被 setMapTool
+    // 替换而无人删（canvas 不持有 map tool）。
+    QPointer<class QgsMapTool> m_sitingPickTool;
     QgisProjectService *m_projectSvc;
     QgisLayerService *m_layerSvc;
     ToolAvailabilityService *m_tools;

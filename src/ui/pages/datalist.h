@@ -19,6 +19,7 @@
 #include "datanavtree.h"
 
 #include "../../services/cataloghealth.h"
+#include "../../services/datagraph.h"
 
 class PreviewDocService;
 class QStackedWidget;
@@ -77,6 +78,7 @@ class DataListPanel : public QWidget
     paleo::dataops::OperationsHistory *operationsHistory() const { return m_history.get(); }
     // D6.2 命令注册表（DataPage 装配命令面板时读取）。
     const paleo::dataops::CommandRegistry &commandRegistry() const { return m_reg; }
+    paleo::datagraph::Presentation graphPresentation() const;
 
     // ---- D1 选中面 ----
     QSet<QString> currentAssetSelection() const;      // 表+树聚合
@@ -159,6 +161,8 @@ class DataListPanel : public QWidget
     void openGroupConfig();              // D7.6 分组维度
 
   signals:
+    void graphRequested(const QString &assetId);
+    void graphDataChanged();
     void importRequested(const QString &kind);   // "wells" | "seismic" | "boundary" | ...
     void versionActivated(const QString &versionId); // 体检 stale 版本定位
     void assetActivated(const QString &assetId); // 列表选中 → 预览标签打开

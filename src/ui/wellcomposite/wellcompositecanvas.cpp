@@ -617,7 +617,21 @@ void WellCompositeCanvas::keyPressEvent(QKeyEvent *event)
     }
     else if (m_markerDragIndex >= 0)
     {
+      // #412：Esc 取消要回滚显示深度——拖拽改的是 setMarkerLines 的展示态
+      // （松手才发 markerMoved 写数据）；只清索引会让图与数据错位到下次刷新。
+      auto markers = m_markers;
+      bool restored = false;
+      for (auto &m : markers)
+        if (m.second == m_markerDragName)
+        {
+          m.first = m_markerDragOrigDepth;
+          restored = true;
+          break;
+        }
+      if (restored)
+        setMarkerLines(markers);
       m_markerDragIndex = -1;
+      m_markerDragName.clear();
       updateAll();
     }
     event->accept();

@@ -17,12 +17,13 @@
 #     收割；yml 注释行天然不在收割范围内（ci.yml 顶部「原 tools/… 已删」
 #     类历史注释不得误伤）；
 #   - 块内 shell 注释行（首个非空白字符为 #）剔除后再提取；
-#   - 引用形如 `tools/<name>`（允许子目录与 .sh/.py 后缀），带参数/引号
-#     包裹均可命中，尾部标点剥离。
+#   - 受守引用三类：`tools/<name>`、`vendor/<name>`（允许子目录与
+#     .sh/.py 后缀、可选 ./ 前缀）、`./paleo-dev*` 根 wrapper；
+#     带参数/引号包裹均可命中，尾部标点剥离。
 #
 # 一致性定义（任一不满足即 exit 1）：
 #   - workflows 目录存在且含至少一个 yml/yaml（整目录缺失视为树损坏）；
-#   - 每个 run: 块引用的 tools/ 路径在源码根下存在。
+#   - 每个 run: 块引用的受守脚本路径在源码根下存在。
 import re
 import sys
 import tempfile
@@ -38,7 +39,14 @@ if hasattr(sys.stdout, "reconfigure"):
 WORKFLOWS_DIR = ".github/workflows"
 
 RUN_LINE_RE = re.compile(r"^(\s*)(?:-\s+)?run:\s*(.*)$")
-TOKEN_RE = re.compile(r"tools/[A-Za-z0-9_][A-Za-z0-9_./-]*")
+# #420：守护面从 tools/ 扩到全部 repo 根相对脚本引用——vendor/ 脚本
+#（fetch-deps.sh --print-only / --check-urls）与 ./paleo-dev* 根 wrapper 断链
+# 同属本门禁要防的回归。前导 lookbehind 排除子串幻影（mytools/x.sh 里的
+# tools/ 不算根 tools 引用；vendor/foo/tools/x.sh 这类深路径组件也不算）。
+REF_RE = re.compile(
+    r"(?<![A-Za-z0-9_/.])"
+    r"((?:\./)?(?:tools|vendor)/[A-Za-z0-9_][A-Za-z0-9_./-]*"
+    r"|\./paleo-dev[A-Za-z0-9_.-]*)")
 
 
 def extract_run_texts(text: str):
@@ -74,12 +82,12 @@ def extract_run_texts(text: str):
 
 
 def extract_tokens(run_text: str):
-    """run 脚本文本 → tools/ 引用集合（shell 注释行剔除，尾部标点剥离）。"""
+    """run 脚本文本 → 受守脚本引用集合（shell 注释行剔除，尾部标点剥离）。"""
     body = "\n".join(
         ln for ln in run_text.splitlines()
         if not ln.lstrip().startswith("#")
     )
-    return {t.rstrip('.,:;)"\'') for t in TOKEN_RE.findall(body)}
+    return {t.rstrip('.,:;)"\'') for t in REF_RE.findall(body)}
 
 
 def check(root: Path):
@@ -104,9 +112,9 @@ def check(root: Path):
                 missing += 1
                 lines.append("  %-14s %s MISSING" % (yml.name, ref))
     if missing:
-        lines.append("FAIL %d/%d 个 tools/ 引用断链（脚本不存在）" % (missing, total_refs))
+        lines.append("FAIL %d/%d 个脚本引用断链（脚本不存在）" % (missing, total_refs))
         return 1, lines
-    lines.append("OK %d 个 tools/ 引用全部存在（%d 个 workflow 文件）" % (total_refs, len(ymls)))
+    lines.append("OK %d 个脚本引用全部存在（%d 个 workflow 文件）" % (total_refs, len(ymls)))
     return 0, lines
 
 
@@ -122,47 +130,60 @@ jobs:
 """
 
 
-def _selftest_write_tree(base: Path, yml: str, with_ok: bool = True):
+def _selftest_write_tree(base: Path, yml: str, files=("tools/ok.sh",)):
     (base / WORKFLOWS_DIR).mkdir(parents=True)
     (base / WORKFLOWS_DIR / "ci.yml").write_text(yml, encoding="utf-8")
-    if with_ok:
-        (base / "tools").mkdir()
-        (base / "tools" / "ok.sh").write_text(SELFTEST_OK_SCRIPT, encoding="utf-8")
+    for rel in files:
+        p = base / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(SELFTEST_OK_SCRIPT, encoding="utf-8")
 
 
 def selftest() -> int:
+    OK_FILES = ("tools/ok.sh",)
     cases = [
         ("全存在（单行+块标量）", SELFTEST_YML_BASE + """      - run: |
           tools/ok.sh --flag arg
-""", True, 0),
+""", OK_FILES, 0),
         ("单行引用缺失", SELFTEST_YML_BASE + """      - run: tools/ghost.sh
-""", True, 1),
+""", OK_FILES, 1),
         ("块标量引用缺失", SELFTEST_YML_BASE + """      - run: |
           echo start
           python3 tools/ghost.py --strict
-""", True, 1),
+""", OK_FILES, 1),
         ("折叠标量引用缺失", SELFTEST_YML_BASE + """      - run: >-
           echo start &&
           tools/ghost.sh
-""", True, 1),
+""", OK_FILES, 1),
         ("yml 注释提及不误伤", """# 原 tools/ghost.sh 已删（方向 71）
-""" + SELFTEST_YML_BASE, True, 0),
+""" + SELFTEST_YML_BASE, OK_FILES, 0),
         ("shell 注释行不误伤", SELFTEST_YML_BASE + """      - run: |
           # tools/ghost.sh 旧路已删
           tools/ok.sh
-""", True, 0),
+""", OK_FILES, 0),
         ("带参数/引号引用", SELFTEST_YML_BASE + """      - run: python3 'tools/ok.sh' --base "$BASE"
-""", True, 0),
-        ("workflows 目录缺失", None, False, 1),
+""", OK_FILES, 0),
+        # #420：vendor/ 与 ./paleo-dev* 纳入守护面；mytools 子串不产生幻影。
+        ("vendor 引用存在", SELFTEST_YML_BASE + """      - run: ./vendor/ok.sh --print-only
+""", OK_FILES + ("vendor/ok.sh",), 0),
+        ("vendor 引用缺失", SELFTEST_YML_BASE + """      - run: ./vendor/ghost.sh --check-urls
+""", OK_FILES, 1),
+        ("paleo-dev wrapper 缺失", SELFTEST_YML_BASE + """      - run: ./paleo-dev bootstrap
+""", OK_FILES, 1),
+        ("paleo-dev.ps1 存在", SELFTEST_YML_BASE + """      - run: ./paleo-dev.ps1 build
+""", OK_FILES + ("paleo-dev.ps1",), 0),
+        ("mytools 子串幻影不误伤", SELFTEST_YML_BASE + """      - run: ./mytools/ghost.sh arg
+""", OK_FILES, 0),
+        ("workflows 目录缺失", None, (), 1),
     ]
     base = Path(tempfile.mkdtemp(prefix="ci-scripts-selftest-"))
     failed = 0
     try:
-        for name, yml, with_ok, want in cases:
+        for name, yml, files, want in cases:
             tree = base / re.sub(r"[\s/]+", "_", name)
             tree.mkdir()
             if yml is not None:
-                _selftest_write_tree(tree, yml, with_ok)
+                _selftest_write_tree(tree, yml, files)
             code, _ = check(tree)
             status = "ok" if code == want else "FAIL"
             if code != want:

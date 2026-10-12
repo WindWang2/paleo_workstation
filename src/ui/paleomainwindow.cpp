@@ -23,8 +23,12 @@
 #include "layout/mapbookpanel.h"
 #include "notifications/paleonotify.h"
 #include "pages/pageshared.h" // kPageIds（W4 跨 TU 页序表）
+#include "pages/predictpage.h" // setHorizons（工程打开填充预测页层位下拉）
+#include "pages/constraintpage.h" // setHorizons（同上，单因素页）
+#include "pages/validatepage.h" // clearResults（工程边界清验证产物展示）
 #include "shortcuts/shortcutcatalog.h" // 方向63：注册表健康度进启动日志
 #include "help/whatsthiscatalog.h"     // 方向63：壳控件 whatsThis 回填
+#include <QComboBox> // findChildren<QComboBox*>（层位下拉 chip 联动）
 #include "ui/seismic3d/seismic3dviewpanel.h"
 #include "ui/seismic3d/seismic3dviewportwidget.h" // 3D 视口 presetView/fitToBounds
 #include "ui/seismicsection/seismicsectiondockwidget.h"
@@ -137,7 +141,11 @@ PaleoMainWindow::PaleoMainWindow(QgisCanvasController *canvasCtl,
     // 重应用当前页档案。deferred 到下一拍：等 chipbar 把 layerSvc 的激活
     // 层位也拨完，档案的层位过滤才读到新值。
     connect(m_selection, &SelectionContext::activeHorizonChanged, this,
-            [this](const QString &) {
+            [this](const QString &h) {
+              // 层位选择真源是顶部 chip：预测/单因素页的层位下拉跟随
+              //（setCurrentText 同值不触发信号，无回环；两页 combo 各一份）。
+              for (auto *combo : findChildren<QComboBox *>(QStringLiteral("horizonCombo")))
+                combo->setCurrentText(h);
               QMetaObject::invokeMethod(
                   this, [this] { applyCurrentPageProfile(); }, Qt::QueuedConnection);
             });
@@ -432,6 +440,18 @@ void PaleoMainWindow::onProjectOpened()
   // chip 条按新词表重建；标定层位相关文案重写。
   if (auto *bar = findChild<HorizonChipBar *>())
     bar->reloadHorizons();
+  // 同一词表填充预测/单因素页的层位下拉（此前生产链从未填充，页面发出的
+  // 意图恒携带空层位）；已选层位原样跟随，未选时下拉给词表首项。
+  {
+    const QStringList horizonWords = mappingHorizons();
+    if (auto *pp = findChild<PredictPage *>())
+      pp->setHorizons(horizonWords);
+    if (auto *cp = findChild<ConstraintPage *>())
+      cp->setHorizons(horizonWords);
+    if (m_selection && !m_selection->activeHorizon().isEmpty())
+      for (auto *combo : findChildren<QComboBox *>(QStringLiteral("horizonCombo")))
+        combo->setCurrentText(m_selection->activeHorizon());
+  }
   {
     const QString tgt = AreaRules::active().targetHorizon;
     const QString base = baseHorizonFor(tgt);
@@ -700,6 +720,12 @@ void PaleoMainWindow::resetProjectScopedState()
   m_provisionalLayers = 0;
   if (m_decorMgr)
     m_decorMgr->setWatermarkEnabled(false);
+
+  // 工程边界（2026-10-12 深化）：验证页收回上一工程的验证产物展示——
+  // 问题/残差表、剖面导航 armed 载荷与摘要随工程清空（#371 反演面板同类
+  // 缺口的非地震面；运行中验证由 workflow 会话守卫作废，页面只收展示态）。
+  if (auto *validatePage = findChild<ValidatePage *>())
+    validatePage->clearResults();
 }
 
 // C1/#282：编辑中且有未提交改动的矢量图层 → 保存/放弃/取消三选一。走编辑

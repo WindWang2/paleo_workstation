@@ -67,7 +67,18 @@ void ProjectLayerRefreshWorkflow::request(DataCatalog *catalog, const QString &d
             else if (!cancelled && generation == m_generation && m_catalog)
               m_pending = true; // changed() 取序号早于 recordOp，不发布旧快照
             if (m_pending)
-              request(m_catalog, m_directory);
+            {
+              // #415：并入的请求拿到的仍是当前目录最新快照（同目录、序号未变）
+              // ——直接交付在飞结果，不再整轮 staging 拷贝 + 重解析。
+              if (!cancelled && m_catalog && m_catalog->isOpen() &&
+                  directory == m_directory && sequence == m_catalog->mutationSeq())
+              {
+                m_pending = false;
+                emit prepared(directory, sequence, data);
+              }
+              else
+                request(m_catalog, m_directory);
+            }
           });
   const auto future = QtConcurrent::run(
       paleo::tasks::pool(m_tasks), [snapshot, directory, stop] {

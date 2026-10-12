@@ -10,6 +10,7 @@
 #include <QEventLoop>
 #include <QTemporaryDir>
 #include <QtConcurrent>
+#include <array>
 #include <atomic>
 
 class CacheAsyncTests : public QObject
@@ -66,28 +67,37 @@ void CacheAsyncTests::dedicatedPoolCapsConcurrencyAtFour()
     spinUntil(t, 10000);
   QCoreApplication::processEvents();
   QVERIFY2(peak.load() <= 4, qPrintable(QStringLiteral("peak=%1 > 4").arg(peak.load())));
-  QVERIFY2(peak.load() >= 2, "池没并行起来（单线程串行也该有并发=1……但断言≥2 宽松失败则池坏了）");
+  // 并发下限是主机属性（真单核/受限容器串行执行 peak==1 也是合法），池契约
+  // 由 maxWorkerThreads()==4 钉住——不拿宿主机核数当被测断言。
   QCOMPARE(completed.load(), 20);
   QCOMPARE(svc.runningCount(), 0);
 }
 
 void CacheAsyncTests::priorityHighBeatsLow()
 {
-  // D4.6：先排满低优（占住 4 线程），再排高优——高优应在多数低优前完成。
+  // D4.6：先排满低优（占住 4 线程），再排高优——高优应在多数低优前开始。
   PaleoTaskService svc;
-  QElapsedTimer t;
-  t.start();
-  while (t.elapsed() < 300)
-    QCoreApplication::processEvents(); // 池热身（避免线程创建抖动）
+  // 池热身：跑一轮极短任务把工作线程建起来（等终态，不赌墙钟）。
+  {
+    QVector<PaleoTask *> warm;
+    for (int i = 0; i < svc.maxWorkerThreads(); ++i)
+      warm.append(svc.start(QStringLiteral("warm%1").arg(i),
+                            [](PaleoTask *) -> QString { return QString(); }));
+    for (PaleoTask *t : warm)
+      spinUntil(t, 5000);
+  }
 
+  constexpr int kLowCount = 8;
   std::atomic_int started{0};
-  std::atomic_int highOrder{-1}, lowOrder{-1};
+  std::atomic_int highOrder{-1};
   std::atomic_int orderSeq{0};
+  std::array<std::atomic_int, kLowCount> lowOrders;
+  for (auto &o : lowOrders)
+    o.store(-1);
   QVector<PaleoTask *> lows;
-  for (int i = 0; i < 8; ++i)
-    lows.append(svc.start(QStringLiteral("low%1").arg(i), [&](PaleoTask *) -> QString {
-      if (lowOrder.load() < 0)
-        lowOrder.store(orderSeq.fetch_add(1));
+  for (int i = 0; i < kLowCount; ++i)
+    lows.append(svc.start(QStringLiteral("low%1").arg(i), [&, i](PaleoTask *) -> QString {
+      lowOrders[i].store(orderSeq.fetch_add(1)); // 每个 low 都记录自己的开始序号
       QThread::msleep(30);
       started.fetch_add(1);
       return QString();
@@ -103,9 +113,17 @@ void CacheAsyncTests::priorityHighBeatsLow()
     spinUntil(l, 10000);
   QCoreApplication::processEvents();
   // 高优任务先于至少一半低优开始。
-  QVERIFY2(highOrder.load() >= 0 && lowOrder.load() >= 0, "序号未记录");
-  QVERIFY2(highOrder.load() < lowOrder.load() + 4,
-           qPrintable(QStringLiteral("high=%1 low=%2 —— 高优被低优饿死").arg(highOrder.load()).arg(lowOrder.load())));
+  QVERIFY2(highOrder.load() >= 0, "高优序号未记录");
+  int lowsAfterHigh = 0;
+  for (const auto &o : lowOrders)
+  {
+    QVERIFY2(o.load() >= 0, "低优序号未记录");
+    if (o.load() > highOrder.load())
+      ++lowsAfterHigh;
+  }
+  QVERIFY2(lowsAfterHigh >= kLowCount / 2,
+           qPrintable(QStringLiteral("high=%1 只有 %2/%3 个低优在其后开始 —— 高优被低优饿死")
+                          .arg(highOrder.load()).arg(lowsAfterHigh).arg(kLowCount)));
 }
 
 void CacheAsyncTests::stageProgressEvents()
@@ -166,29 +184,30 @@ void CacheAsyncTests::cancelStateAndNoDangling()
 
 void CacheAsyncTests::coalescedConcurrentLasLoad()
 {
-  // D4.7：两个不同 key 的请求同时打同一文件 → 只解析一份。
+  // D4.7：并发冷加载同一文件 → 合并器只跑一份解析。
   const QString las = m_dir.filePath("coalesce.las");
   QVERIFY(PerfFixtures::makeSyntheticLas(las, 4000));
-  LasCache::shared().setDiskRoot(m_dir.filePath("idx"));
+  LasCache::shared().setDiskRoot(QString()); // 纯内存——保证走到冷解析
   LasCache::shared().invalidate();
-  LasCache::shared().load(las); // 预热一份
-  LasCache::shared().clearMemory();
 
   std::atomic_int parses{0};
-  const qint64 coldBefore = LasCache::shared().stats().misses;
+  // 冷解析钩子里睡一拍：让其余提交者赶在执行者完成前搭车，合并可观测。
+  LasCache::shared().setColdParseHookForTest([&parses] {
+    parses.fetch_add(1);
+    QThread::msleep(80);
+  });
   // 6 个线程同时冷加载（清内存后）。
   QVector<QFuture<void>> futs;
   for (int i = 0; i < 6; ++i)
     futs.append(QtConcurrent::run([&las](void) { LasCache::shared().load(las); }));
   for (auto &f : futs)
     f.waitForFinished();
-  Q_UNUSED(parses);
+  LasCache::shared().setColdParseHookForTest(nullptr);
   // 全部线程拿到结果（条目在缓存）。
   QVERIFY(LasCache::shared().isCached(las));
-  QVERIFY(LasCache::shared().stats().misses >= coldBefore); // 至少一次装载
-  const CacheStats st = LasCache::shared().stats();
-  // 合并语义：6 并发 + 1 预备 → 内存命中显著（同份结果被共享）。
-  QVERIFY(st.hits + st.misses >= 7);
+  // 合并语义：6 并发只触发一次真实解析，其余搭车。
+  QCOMPARE(parses.load(), 1);
+  QVERIFY(LasCache::shared().ridersJoinedForTest() >= 5);
 }
 
 void CacheAsyncTests::prefetchPopulatesCache()

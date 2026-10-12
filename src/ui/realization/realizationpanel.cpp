@@ -223,7 +223,9 @@ void RealizationPanel::setBusy( bool busy )
   m_setCombo->setEnabled( !m_busy );
   m_diffA->setEnabled( !m_busy );
   m_diffB->setEnabled( !m_busy );
-  m_memberSlider->setEnabled( !m_busy && ( !m_missing.isEmpty() || frameOrder().size() > 1 ) );
+  // #413：缺成员不追加可拖帧——判据与 rebuildMembers 同位
+  // （frameOrder>1）；缺席成员不是帧，旧 || 分支可拖到不存在的成员。
+  m_memberSlider->setEnabled( !m_busy && frameOrder().size() > 1 );
   m_memberCombo->setEnabled( !m_busy );
   m_playButton->setEnabled( !m_busy && frameOrder().size() > 1 );
   rebuildStats();

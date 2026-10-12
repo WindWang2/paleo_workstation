@@ -223,6 +223,7 @@ private:
   int m_markerDragIndex = -1;
   QString m_markerDragName;
   double m_markerDragGrabOffset = 0.0;
+  double m_markerDragOrigDepth = 0.0; // #412：Esc 取消时恢复拖拽前显示深度
 
   QList<std::shared_ptr<WellTrack>> m_tracks;
 

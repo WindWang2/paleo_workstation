@@ -247,7 +247,7 @@ bool buildMesh( GEOSContextHandle_t handle, TrendField *field, ContourMesh *mesh
     return false;
   }
   std::vector<const GEOSGeometry *> faces;
-  const GEOSPreparedGeometry *preparedDomain = GEOSPrepare_r( handle, field->domain.get() );
+  const PreparedPtr preparedDomain = makePrepared( handle, field->domain.get() );
   if ( !preparedDomain )
   {
     *message = "GEOS 域索引失败";
@@ -258,7 +258,7 @@ bool buildMesh( GEOSContextHandle_t handle, TrendField *field, ContourMesh *mesh
     if ( GEOSGeomTypeId_r( handle, face ) != GEOS_POLYGON )
       continue;
     GeomPtr probe = makeGeom( handle, GEOSPointOnSurface_r( handle, face ) );
-    if ( probe && GEOSPreparedCovers_r( handle, preparedDomain, probe.get() ) == 1 )
+    if ( probe && GEOSPreparedCovers_r( handle, preparedDomain.get(), probe.get() ) == 1 )
       faces.push_back( face );
   }
 
@@ -289,7 +289,7 @@ bool buildMesh( GEOSContextHandle_t handle, TrendField *field, ContourMesh *mesh
 
   const UniquePoints unique = uniquePoints( flat );
   const std::vector<double> vertexValues =
-      evaluate( handle, *field, preparedDomain, unique.values );
+      evaluate( handle, *field, preparedDomain.get(), unique.values );
 
   mesh->values.resize( mesh->xy.size() );
   for ( std::size_t t = 0; t < mesh->xy.size(); ++t )
@@ -318,16 +318,16 @@ bool buildMesh( GEOSContextHandle_t handle, TrendField *field, ContourMesh *mesh
     const double norm = std::max( std::hypot( dx, dy ), eps );
     const Point2 q{ unique.values[index].x + dx / norm * eps,
                     unique.values[index].y + dy / norm * eps };
-    const std::vector<double> z = evaluate( handle, *field, preparedDomain, { q } );
+    const std::vector<double> z = evaluate( handle, *field, preparedDomain.get(), { q } );
     for ( const int pos : positions )
       mesh->values[static_cast<std::size_t>( pos ) / 3][pos % 3] = z[0];
   }
 
   // _region_ids：三角形重心 → 首个 intersects 的区域。
   mesh->regionIds.assign( mesh->xy.size(), -1 );
-  std::vector<const GEOSPreparedGeometry *> preparedRegions;
+  std::vector<PreparedPtr> preparedRegions;
   for ( const GEOSGeometry *region : mesh->regions )
-    preparedRegions.push_back( GEOSPrepare_r( handle, region ) );
+    preparedRegions.push_back( makePrepared( handle, region ) );
   for ( std::size_t t = 0; t < mesh->xy.size(); ++t )
   {
     const auto &tri = mesh->xy[t];
@@ -335,22 +335,20 @@ bool buildMesh( GEOSContextHandle_t handle, TrendField *field, ContourMesh *mesh
     const double cy = ( tri[0].y + tri[1].y + tri[2].y ) / 3.0;
     for ( std::size_t rid = 0; rid < preparedRegions.size(); ++rid )
     {
-      if ( GEOSPreparedIntersectsXY_r( handle, preparedRegions[rid], cx, cy ) == 1 )
+      if ( preparedRegions[rid] &&
+           GEOSPreparedIntersectsXY_r( handle, preparedRegions[rid].get(), cx, cy ) == 1 )
       {
         mesh->regionIds[t] = static_cast<int>( rid );
         break;
       }
     }
   }
-  for ( const GEOSPreparedGeometry *prep : preparedRegions )
-    GEOSPreparedGeom_destroy_r( handle, prep );
   if ( std::any_of( mesh->regionIds.begin(), mesh->regionIds.end(),
                     []( int id ) { return id < 0; } ) )
   {
     *message = "打断线分区未完整覆盖提线网格，请检查边界与打断线几何";
     return false;
   }
-  GEOSPreparedGeom_destroy_r( handle, preparedDomain );
   return true;
 }
 
@@ -553,8 +551,7 @@ std::vector<ContourLevelLines> smoothContours( GEOSContextHandle_t handle,
   const double coverWidth = step * 1e-8;
   GeomPtr allowedBuffer =
       makeGeom( handle, GEOSBuffer_r( handle, field.domain.get(), coverWidth, 8 ) );
-  const GEOSPreparedGeometry *preparedAllowed =
-      allowedBuffer ? GEOSPrepare_r( handle, allowedBuffer.get() ) : nullptr;
+  const PreparedPtr preparedAllowed = makePrepared( handle, allowedBuffer.get() );
 
   std::vector<std::pair<double, Polyline>> result( raw.size() );
   for ( std::size_t i = 0; i < raw.size(); ++i )
@@ -635,7 +632,7 @@ std::vector<ContourLevelLines> smoothContours( GEOSContextHandle_t handle,
     bool valid = geometry &&
                  GEOSisSimple_r( handle, geometry.get() ) == 1 &&
                  preparedAllowed &&
-                 GEOSPreparedCovers_r( handle, preparedAllowed, geometry.get() ) == 1;
+                 GEOSPreparedCovers_r( handle, preparedAllowed.get(), geometry.get() ) == 1;
 
     const auto valueError = [&]( const Polyline &coords ) {
       std::vector<Point2> probes = coords;
@@ -657,8 +654,6 @@ std::vector<ContourLevelLines> smoothContours( GEOSContextHandle_t handle,
             candidateError <= std::max( field.tolerance * 4.0, valueError( original ) + 1e-9 );
     result[i] = { level, valid ? points : original };
   }
-  if ( preparedAllowed )
-    GEOSPreparedGeom_destroy_r( handle, preparedAllowed );
 
   // 穿线回滚：平滑引入交叉的线整组回退（上游 STRtree+predicate 同集合语义）。
   std::unordered_set<int> changed;
@@ -811,7 +806,17 @@ bool buildField( GEOSContextHandle_t handle, const FieldContourSurface &surface,
   }
   // regions = surface-stage domain（上游 field_model.regions 恒为
   // [union(boundaries) ∩ union(areas)]）→ domain ∩ unary_union(regions)。
-  GeomPtr stageDomain = unionBoundaryDomain( handle, surface.boundaries );
+  // #392：空 boundaries 时 stageDomain 沿用兜底盒状域——空几何集合求交
+  // 会把盒域擦成空域，下游零轮廓却返回 Ok。
+  GeomPtr stageDomain =
+      surface.boundaries.empty()
+          ? makeGeom( handle, GEOSGeom_clone_r( handle, field->domain.get() ) )
+          : unionBoundaryDomain( handle, surface.boundaries );
+  if ( !stageDomain )
+  {
+    *message = "成图域几何无效，请先修正自交或孔洞";
+    return false;
+  }
   if ( !surface.interpolationAreas.empty() )
   {
     GeomPtr areas = unionBoundaryDomain( handle, surface.interpolationAreas );
@@ -829,8 +834,7 @@ bool buildField( GEOSContextHandle_t handle, const FieldContourSurface &surface,
   field->domainBoundary = makeGeom( handle, GEOSBoundary_r( handle, field->domain.get() ) );
 
   // inside 节点掩膜 + tolerance。
-  const GEOSPreparedGeometry *preparedDomain =
-      GEOSPrepare_r( handle, field->domain.get() );
+  const PreparedPtr preparedDomain = makePrepared( handle, field->domain.get() );
   if ( !preparedDomain )
   {
     *message = "GEOS 域索引失败";
@@ -845,8 +849,8 @@ bool buildField( GEOSContextHandle_t handle, const FieldContourSurface &surface,
     for ( std::size_t c = 0; c < field->nx; ++c )
     {
       const std::size_t idx = r * field->nx + c;
-      if ( GEOSPreparedIntersectsXY_r( handle, preparedDomain, field->xs[c],
-                                     field->ys[r] ) == 1 )
+      if ( GEOSPreparedIntersectsXY_r( handle, preparedDomain.get(), field->xs[c],
+                                       field->ys[r] ) == 1 )
         field->inside[idx] = 1;
       const double v = field->grid[idx];
       if ( std::isfinite( v ) )
@@ -859,7 +863,6 @@ bool buildField( GEOSContextHandle_t handle, const FieldContourSurface &surface,
   }
   field->tolerance =
       anyFinite ? std::max( ( maxValue - minValue ) * 2e-4, 1e-9 ) : 1e-9;
-  GEOSPreparedGeom_destroy_r( handle, preparedDomain );
   return true;
 }
 
@@ -872,8 +875,7 @@ bool extractFieldOnly( GEOSContextHandle_t handle, const FieldContourSurface &su
   TrendField field;
   if ( !buildField( handle, surface, &field, message ) )
     return false;
-  const GEOSPreparedGeometry *preparedDomain =
-      GEOSPrepare_r( handle, field.domain.get() );
+  const PreparedPtr preparedDomain = makePrepared( handle, field.domain.get() );
   if ( !preparedDomain )
   {
     *message = "GEOS 域索引失败";
@@ -882,15 +884,11 @@ bool extractFieldOnly( GEOSContextHandle_t handle, const FieldContourSurface &su
   ContourMesh mesh;
   const bool meshed = buildMesh( handle, &field, &mesh, message );
   if ( !meshed )
-  {
-    GEOSPreparedGeom_destroy_r( handle, preparedDomain );
     return false;
-  }
   std::vector<ContourLevelLines> raw = partitionContours( handle, mesh, levels );
   raw = clipToDomain( handle, raw, field.domain.get() );
   if ( smooth )
-    raw = smoothContours( handle, raw, field, preparedDomain, mesh.step );
-  GEOSPreparedGeom_destroy_r( handle, preparedDomain );
+    raw = smoothContours( handle, raw, field, preparedDomain.get(), mesh.step );
   *out = filterContourFragments( handle, raw, mesh.step );
   *meshStep = mesh.step;
   return true;

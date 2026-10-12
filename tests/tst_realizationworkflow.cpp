@@ -342,7 +342,14 @@ void RealizationWorkflowTests::diffOfMeansMatchesDirect()
   QVERIFY( !setA.isEmpty() && !setB.isEmpty() );
   QVERIFY( setA != setB );
 
+  // #421：realizationDiffReady 在此监听（原 spy 死挂在 frameOrderAndSignals）。
+  QSignalSpy diffSpy( &wf, &RealizationWorkflow::realizationDiffReady );
   QVERIFY2( wf.differenceOfMeans( setA, setB, &err ), qPrintable( err ) );
+  QCOMPARE( diffSpy.size(), 1 );
+  QCOMPARE( diffSpy.first().at( 0 ).toString(), setA );
+  QCOMPARE( diffSpy.first().at( 1 ).toString(), setB );
+  QCOMPARE( diffSpy.first().at( 2 ).toString(),
+            RealizationWorkflow::diffLayerId( setA, setB ) );
 
   // 差值面 = A 均值 − B 均值，逐像元与直算一致（Oracle 4）。
   const QString vidA = paleo::realization::meanSurfaceVersionId( cat, setA );
@@ -388,9 +395,9 @@ void RealizationWorkflowTests::frameOrderAndSignals()
   QVERIFY( cat.open( dir.path() ) );
   RealizationWorkflow wf;
   wf.bind( &cat, dir.path(), nullptr );
+  // #421：diffSpy 删除——本用例不产 diff（diff 信号在 diffOfMeansMatchesDirect 监听）。
   QSignalSpy pubSpy( &wf, &RealizationWorkflow::realizationSetPublished );
   QSignalSpy statSpy( &wf, &RealizationWorkflow::realizationStatsDerived );
-  QSignalSpy diffSpy( &wf, &RealizationWorkflow::realizationDiffReady );
 
   const auto members = makeMembers( dir.path(), 5, 8, 8, 3 );
   QString err;

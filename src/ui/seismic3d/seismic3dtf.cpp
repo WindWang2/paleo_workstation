@@ -153,6 +153,19 @@ std::vector<unsigned char> Seismic3DTransferFunction::buildLutRgba() const
         }
         return lut;
     }
+    // #412：单 stop 不能插值（stops_[k+1] 越界）——整体取该 stop 的色与透明度。
+    if (stops_.size() == 1)
+    {
+        const QColor c(stops_.first().color);
+        for (int i = 0; i < 256; ++i)
+        {
+            lut[std::size_t(i) * 4 + 0] = ToByte(c.redF());
+            lut[std::size_t(i) * 4 + 1] = ToByte(c.greenF());
+            lut[std::size_t(i) * 4 + 2] = ToByte(c.blueF());
+            lut[std::size_t(i) * 4 + 3] = ToByte(stops_.first().alpha);
+        }
+        return lut;
+    }
     const int n = static_cast<int>(stops_.size());
     for (int i = 0; i < 256; ++i)
     {

@@ -3,6 +3,7 @@
 // 导航与异步提取 + 任意线提取。世代号 + 请求号双守卫、QPointer 迟到回调守卫
 // 是 seismic-runtime-closure 建立的红线，逐条原样保留（tst_seismic_sectionui）。
 #include "ui/seismicsection/seismicsectiondockwidget.h"
+#include "ui/seismicsection/inversionpanel.h"
 #include "ui/seismicsection/seismicattrpanel.h"
 
 #include <QComboBox>
@@ -68,6 +69,14 @@ SeismicSectionDockWidget::~SeismicSectionDockWidget() {
         m_attrPreviewTask->requestCancel();
         m_attrPreviewTask.clear();
     }
+    if (m_propTask) {
+        m_propTask->requestCancel();
+        m_propTask.clear();
+    }
+    if (m_invTask) {
+        m_invTask->requestCancel();
+        m_invTask.clear();
+    }
     if (m_extraction)
         m_extraction->requestCancel();
 }
@@ -107,6 +116,12 @@ void SeismicSectionDockWidget::setVolume(std::shared_ptr<const SgyVolume> volume
   if (m_invTask) {
     m_invTask->requestCancel();
     m_invTask.clear();
+    // #371：换体即作废在飞反演——bump 世代让迟到 finished 静默丢弃（旧体
+    // 产物不得登记进新体目录），面板忙态当场复位（finished 因 m_invTask
+    // 已空不会进 showResult，不复位则运行按钮永远禁用）。
+    ++m_invGeneration;
+    if (m_invPanel)
+      m_invPanel->setBusy(false);
   }
   if (m_pickPanel) { // 在途被取消：面板活跃态复位（同取消按钮语义）
     m_pickPanel->setTrackingActive(false);

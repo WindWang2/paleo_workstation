@@ -84,10 +84,11 @@ DerivedStaging DerivedAssetRegistrar::stage( const QString &assetType, const QSt
   return st;
 }
 
-bool DerivedAssetRegistrar::commit( const DerivedStaging &st, const QStringList &parentVersionIds,
-                                    const QString &sourceUri, const QVariantMap &extra,
-                                    QString *error )
-{
+bool DerivedAssetRegistrar::commit(const DerivedStaging &st,
+                                   const QStringList &parentVersionIds,
+                                   const QString &sourceUri,
+                                   const QVariantMap &extra, QString *error,
+                                   const DerivedFileFingerprint *fingerprint) {
   if ( !st.isValid() )
   {
     setError( error, QStringLiteral( "派生产物登记缺少落位信息" ) );
@@ -99,7 +100,13 @@ bool DerivedAssetRegistrar::commit( const DerivedStaging &st, const QStringList 
     return false;
   }
   QString shaErr;
-  const QString sha = DataCatalog::sha256FileHex( st.absolutePath, &shaErr );
+  if (fingerprint && !fingerprint->matches(st.absolutePath)) {
+    setError(error, QStringLiteral("发布前成果文件已变化，请重新计算"));
+    return false;
+  }
+  const QString sha =
+      fingerprint ? fingerprint->sha256
+                  : DataCatalog::sha256FileHex(st.absolutePath, &shaErr);
   if ( sha.isEmpty() )
   {
     setError( error, QStringLiteral( "派生产物 sha256 计算失败：%1（%2）" )
@@ -128,18 +135,18 @@ bool DerivedAssetRegistrar::commit( const DerivedStaging &st, const QStringList 
   return true;
 }
 
-bool DerivedAssetRegistrar::commitExternal( const DerivedStaging &st, const QString &actualPath,
-                                            const QStringList &parentVersionIds,
-                                            const QString &sourceUri, const QVariantMap &extra,
-                                            QString *error )
-{
+bool DerivedAssetRegistrar::commitExternal(
+    const DerivedStaging &st, const QString &actualPath,
+    const QStringList &parentVersionIds, const QString &sourceUri,
+    const QVariantMap &extra, QString *error,
+    const DerivedFileFingerprint *fingerprint) {
   if ( actualPath.isEmpty() )
   {
     setError( error, QStringLiteral( "算法产物路径为空，无法登记" ) );
     return false;
   }
   if ( QDir::cleanPath( actualPath ) == QDir::cleanPath( st.absolutePath ) )
-    return commit( st, parentVersionIds, sourceUri, extra, error );
+    return commit(st, parentVersionIds, sourceUri, extra, error, fingerprint);
 
   if ( !QFile::exists( actualPath ) )
   {
@@ -176,8 +183,7 @@ QStringList DerivedAssetRegistrar::parentVersionIdsFor( const QStringList &paths
       {
         if ( v.path.isEmpty() )
           continue;
-        const QString vp = QDir::cleanPath(
-            QDir::isAbsolutePath( v.path ) ? v.path : base.absoluteFilePath( v.path ) );
+        const QString vp = QDir::cleanPath(m_catalog->versionFilePath(v));
         if ( vp == canonical )
         {
           out.append( v.id );
@@ -190,4 +196,28 @@ QStringList DerivedAssetRegistrar::parentVersionIdsFor( const QStringList &paths
     }
   }
   return out;
+}
+
+DerivedFileFingerprint
+DerivedFileFingerprint::read(const QString &path,
+                             const std::function<bool()> &cancelled,
+                             QString *error) {
+  DerivedFileFingerprint result;
+  const QFileInfo before(path);
+  result.path = before.absoluteFilePath();
+  result.size = before.size();
+  result.modified = before.lastModified();
+  result.sha256 = DataCatalog::sha256FileHex(path, error, cancelled);
+  if (result.sha256.isEmpty() || !result.matches(path)) {
+    if (error && error->isEmpty())
+      *error = QStringLiteral("计算成果在校验期间已变化");
+    return {};
+  }
+  return result;
+}
+bool DerivedFileFingerprint::matches(const QString &path) const {
+  const QFileInfo file(path);
+  return sha256.size() == 64 && file.isFile() && !file.isSymLink() &&
+         file.absoluteFilePath() == this->path && file.size() == size &&
+         file.lastModified() == modified;
 }

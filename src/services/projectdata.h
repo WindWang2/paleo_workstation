@@ -1,13 +1,14 @@
 // 层：数据
 #pragma once
+#include "../metadata/layermanifest.h"
 #include <QObject>
 #include <QString>
 #include <QVector>
+#include <memory>
+#include <optional>
 
 #include "../catalog/entityview.h"
 #include "../domain/deviationsurvey.h"
-
-#include <optional>
 
 class LayerManifest;
 struct WellParseReport;
@@ -125,6 +126,9 @@ class ProjectDataFacade : public QObject
     HorizonRasterInfo horizonRasterDecl(const QString &horizon) const;
 
     QString lastError() const { return m_lastError; }
+    std::shared_ptr<DataCatalog> catalogSnapshot() const;
+    QString projectDirectory() const { return projectDir(); }
+    void setDeclarationSnapshot(const QVector<LayerDeclaration> &declarations);
 
     // EntityView 查询面直通（data/entity-view）：注册表全角色槽 + primary/成员/
     // 未决分桶 + 下游产物 + 悬空源诊断——DataPage 与派生链消费的稳定出口。
@@ -147,5 +151,6 @@ class ProjectDataFacade : public QObject
     bool m_ownsCatalog = false;
     QString m_projectDirOverride;
     LayerManifest *m_manifest = nullptr;
+    std::optional<QVector<LayerDeclaration>> m_declarationSnapshot;
     mutable QString m_lastError; // const readers may record lookup failures
 };

@@ -2,33 +2,35 @@
 // 方向57：从 constraintfactorjobs.cpp 按函数族析出。方法定义逐字搬迁，
 // 类契约仍在 workflows.h（公共 API 零改动）；族间共享辅助经
 // constraintfactorjobs_internal.h。
-#include "workflows.h"
-#include "constraintworkflow_internal.h"
-#include "workflows_internal.h"
-#include "../algorithms/geostat/kriging.h"     // KrigingParams / KrigingResult（方向18）
-#include "../algorithms/geostat/cokriging.h"   // CoKrigingModel / ordinaryCoKriging
-#include "../algorithms/geostat/sgs.h"         // SgsParams / SgsResult（方向18）
-#include "../algorithms/geostat/variogram.h"   // 变差函数模型（方向18）
-#include "../algorithms/rasterout.h"          // PaleoRasterOut / createFloatRaster
-#include "../algorithms/ensemblestats.h"     // StatsRequest（方向47 集合统计派生）
-#include "../catalog/datacatalog.h"
+#include "../algorithms/ensemblestats.h" // StatsRequest（方向47 集合统计派生）
+#include "../algorithms/geostat/cokriging.h" // CoKrigingModel / ordinaryCoKriging
+#include "../algorithms/geostat/kriging.h" // KrigingParams / KrigingResult（方向18）
+#include "../algorithms/geostat/sgs.h"       // SgsParams / SgsResult（方向18）
+#include "../algorithms/geostat/variogram.h" // 变差函数模型（方向18）
+#include "../algorithms/rasterout.h" // PaleoRasterOut / createFloatRaster
 #include "../algorithms/singlefactor/cartographicworkfile.h"
+#include "../catalog/datacatalog.h"
 #include "../domain/arearules.h"
-#include "../domain/singlefactorrequest.h"  // 制图工作场不进融合/分相
+#include "../domain/singlefactorrequest.h" // 制图工作场不进融合/分相
 #include "../io/constraintstore.h"
 #include "../metadata/paleoprojectstore.h"
 #include "../qgis/factorcontour.h"
 #include "../qgis/factorstylewriter.h"
-#include "../qgis/qgiseditingservice.h"    // 拓扑提交门（geometryCommitError）
+#include "../qgis/qgiseditingservice.h" // 拓扑提交门（geometryCommitError）
 #include "../qgis/qgislayerservice.h"
 #include "../qgis/qgisprocessingservice.h"
-#include "../qgis/qgisstyleservice.h"      // applyFaciesBoundaryStyle
+#include "../qgis/qgisstyleservice.h" // applyFaciesBoundaryStyle
 #include "../services/jobrunner.h"
+#include "../services/paleotaskservice.h"
 #include "../services/singlefactordef.h"
-#include "boundarysemantics.h"             // 相界地质语义类型词表
+#include "boundarysemantics.h" // 相界地质语义类型词表
+#include "constraintfactorjobs_internal.h"
+#include "constraintworkflow_internal.h"
 #include "derivedassets.h"
 #include "mappingworkflow.h"
 #include "realizationworkflow.h"
+#include "workflows.h"
+#include "workflows_internal.h"
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
@@ -40,24 +42,23 @@
 #include <QSet>
 #include <QUuid>
 #include <QVariantList>
+#include <algorithm>
+#include <cmath>
+#include <cpl_conv.h>
+#include <cstring>
+#include <gdal.h>
+#include <ogr_spatialref.h>
 #include <qgscoordinatereferencesystem.h>
-#include <qgsfield.h>
 #include <qgsfeature.h>
 #include <qgsfeatureiterator.h>
 #include <qgsfeaturerequest.h>
+#include <qgsfield.h>
 #include <qgsgeometry.h>
 #include <qgsmaplayer.h>
 #include <qgsrasterlayer.h>
 #include <qgsvectorfilewriter.h> // WS-C：参与井点 samples GPKG 写出
 #include <qgsvectorlayer.h>
-#include <gdal.h>
-#include <ogr_spatialref.h>
-#include <cpl_conv.h>
-#include <algorithm>
-#include <cmath>
-#include <cstring>
 #include <variant>
-#include "constraintfactorjobs_internal.h"
 
 using namespace paleo::constraint_detail;
 
@@ -242,20 +243,40 @@ bool ConstraintWorkflow::prepareGeostatJob( const QString &horizon, const QStrin
     }
     job->parentPaths << covRaster->source().section( QLatin1Char( '|' ), 0, 0 );
   }
+  QString stageError;
+  auto registrar =
+      paleo::workflow_detail::derivedRegistrarOf(this, &stageError);
+  if (m_factorTasks && registrar.isBound()) {
+    bool known = false;
+    const auto definition = SingleFactorRegistry::byId(factorId, &known);
+    job->staging = registrar.stage(
+        "single_factor_raster", tr("%1·%2").arg(definition.title, horizon),
+        QStringLiteral("FACTOR_%1_%2.tif").arg(factorId, horizon), &stageError);
+    if (!job->staging.isValid()) {
+      paleo::workflow_detail::setError(error, stageError);
+      return false;
+    }
+  }
   job->prepared = true;
   return true;
 }
 
-bool ConstraintWorkflow::computeGeostatJob( GeostatJob *job, const std::function<bool()> &cancelled,
-                                            const std::function<void( double )> &progress )
-{
+bool ConstraintWorkflow::computeGeostatJob(
+    GeostatJob *job, const std::function<bool()> &cancelled,
+    const std::function<void(double)> &progress) {
+  return computeGeostatJobWithService(m_proc.data(), job, cancelled, progress);
+}
+
+bool ConstraintWorkflow::computeGeostatJobWithService(
+    QgisProcessingService *proc, GeostatJob *job,
+    const std::function<bool()> &cancelled,
+    const std::function<void(double)> &progress) {
   if ( !job || !job->prepared )
   {
     if ( job )
       job->error = tr( "地质统计任务尚未准备" );
     return false;
   }
-  QgisProcessingService *proc = m_proc.data();
   if ( !proc )
   {
     job->error = tr( "constraint workflow is not bound to services" );
@@ -519,17 +540,11 @@ bool ConstraintWorkflow::computeGeostatJob( GeostatJob *job, const std::function
   else if ( job->method == QLatin1String( "cokriging" ) )
   {
     const QString covariateLayerId = job->params.value( QStringLiteral( "covariateLayerId" ) ).toString();
-    QgisLayerService *layers = m_layers.data();
-    QgsRasterLayer *covRaster = nullptr;
-    std::unique_ptr<QgsRasterLayer> ownedRaster;
-    if ( layers )
-      covRaster = qobject_cast<QgsRasterLayer *>( layers->instantiate( covariateLayerId ) );
-    if ( !covRaster && !job->parentPaths.isEmpty() )
-    {
-      ownedRaster = std::make_unique<QgsRasterLayer>( job->parentPaths.last(), QStringLiteral( "covariate" ) );
-      if ( ownedRaster && ownedRaster->isValid() )
-        covRaster = ownedRaster.get();
-    }
+    // The covariate URI was frozen in prepare; never instantiate a GUI layer
+    // through the live layer service from the worker.
+    auto ownedRaster = std::make_unique<QgsRasterLayer>(
+        job->parentPaths.last(), QStringLiteral("covariate"));
+    auto *covRaster = ownedRaster.get();
     if ( !covRaster || !covRaster->isValid() )
     {
       cleanupTemp();
@@ -781,6 +796,32 @@ bool ConstraintWorkflow::computeGeostatJob( GeostatJob *job, const std::function
     job->error = tr( "QC 写盘失败" );
     return false;
   }
+  if (job->staging.isValid()) {
+    if (cancelled && cancelled()) {
+      job->error = tr("已取消");
+      return false;
+    }
+    const QString output = job->staging.absolutePath;
+    const QString qc = fileStem(output) + ".qc.json";
+    const QString support = job->supportPath.isEmpty()
+                                ? QString()
+                                : fileStem(output) + ".support.tif";
+    if (!QFile::copy(job->outputPath, output) ||
+        !QFile::copy(job->qcPath, qc) ||
+        (!support.isEmpty() && !QFile::copy(job->supportPath, support))) {
+      job->error = tr("无法暂存计算成果");
+      return false;
+    }
+    job->fingerprint =
+        DerivedFileFingerprint::read(output, cancelled, &job->error);
+    job->stagedQcSha = DataCatalog::sha256FileHex(qc, &job->error, cancelled);
+    if (!support.isEmpty())
+      job->stagedSupportSha =
+          DataCatalog::sha256FileHex(support, &job->error, cancelled);
+    if (job->fingerprint.sha256.isEmpty() || job->stagedQcSha.isEmpty() ||
+        (!support.isEmpty() && job->stagedSupportSha.isEmpty()))
+      return false;
+  }
   job->ok = true;
   return true;
 }
@@ -826,9 +867,14 @@ bool ConstraintWorkflow::publishGeostatJob( const GeostatJob &job, QString *erro
     paleo::workflow_detail::setError( error, regErr );
     return false;
   }
-  const DerivedStaging st = registrar.stage(
-      QStringLiteral( "single_factor_raster" ), tr( "%1·%2" ).arg( def.title, job.horizon ),
-      QStringLiteral( "FACTOR_%1_%2.tif" ).arg( job.factorId, job.horizon ), &regErr );
+  const DerivedStaging st =
+      job.staging.isValid()
+          ? job.staging
+          : registrar.stage(QStringLiteral("single_factor_raster"),
+                            tr("%1·%2").arg(def.title, job.horizon),
+                            QStringLiteral("FACTOR_%1_%2.tif")
+                                .arg(job.factorId, job.horizon),
+                            &regErr);
   if ( !st.isValid() )
   {
     discardTemp();
@@ -850,14 +896,13 @@ bool ConstraintWorkflow::publishGeostatJob( const GeostatJob &job, QString *erro
     paleo::workflow_detail::setError( error, tr( "发布代次已变，丢弃这次地质统计成果" ) );
     return false;
   }
-  if ( !QFile::copy( job.qcPath, stagedQc ) )
-  {
+  if (!job.staging.isValid() && !QFile::copy(job.qcPath, stagedQc)) {
     discard();
     paleo::workflow_detail::setError( error, tr( "地质统计 QC 无法写入成果目录" ) );
     return false;
   }
-  if ( !stagedSupport.isEmpty() && !QFile::copy( job.supportPath, stagedSupport ) )
-  {
+  if (!job.staging.isValid() && !stagedSupport.isEmpty() &&
+      !QFile::copy(job.supportPath, stagedSupport)) {
     discard();
     paleo::workflow_detail::setError( error, tr( "地质统计旁路文件无法写入成果目录" ) );
     return false;
@@ -889,11 +934,15 @@ bool ConstraintWorkflow::publishGeostatJob( const GeostatJob &job, QString *erro
     return false;
   }
   QString shaErr;
-  const QString qcSha = DataCatalog::sha256FileHex( stagedQc, &shaErr );
+  const QString qcSha = job.staging.isValid()
+                            ? job.stagedQcSha
+                            : DataCatalog::sha256FileHex(stagedQc, &shaErr);
   QString supportSha;
   if ( !stagedSupport.isEmpty() )
   {
-    supportSha = DataCatalog::sha256FileHex( stagedSupport, &shaErr );
+    supportSha = job.staging.isValid()
+                     ? job.stagedSupportSha
+                     : DataCatalog::sha256FileHex(stagedSupport, &shaErr);
     if ( supportSha.isEmpty() )
     {
       discard();
@@ -961,8 +1010,10 @@ bool ConstraintWorkflow::publishGeostatJob( const GeostatJob &job, QString *erro
   inheritMockFlag( PaleoWorkflowDerivedCatalog( this ), parentIds, extra );
   insertStrategyId( job.params, extra ); // 方向67：策略包 id 进血缘（kriging 词表项）
   QString commitErr;
-  if ( !registrar.commitExternal( st, job.outputPath, parentIds, algorithmId, extra, &commitErr ) )
-  {
+  if (!registrar.commitExternal(
+          st, job.staging.isValid() ? st.absolutePath : job.outputPath,
+          parentIds, algorithmId, extra, &commitErr,
+          job.staging.isValid() ? &job.fingerprint : nullptr)) {
     discard();
     paleo::workflow_detail::setError( error, commitErr );
     return false;
@@ -1031,6 +1082,35 @@ bool ConstraintWorkflow::generateGeostatFactor( const QString &horizon, const QS
   GeostatJob job;
   if ( !prepareGeostatJob( horizon, factorId, method, params, &job, error ) )
     return false;
+  if (m_factorTasks) {
+    auto shared = std::make_shared<GeostatJob>(job);
+    return runFactorWork(
+        tr("%1 单因素计算").arg(horizon),
+        [proc = m_proc.data(), shared](PaleoTask *task) {
+          const bool ok = computeGeostatJobWithService(
+              proc, shared.get(), [task] { return task->cancelRequested(); },
+              [task](double p) {
+                task->reportStage("build", qBound(0, qRound(p), 95));
+              });
+          return ok ? QString() : shared->error;
+        },
+        [this, shared](QString *error) {
+          return publishGeostatJob(*shared, error);
+        },
+        [shared] {
+          if (shared->outputPath.contains("paleo-sf-"))
+            QDir(QFileInfo(shared->outputPath).absolutePath())
+                .removeRecursively();
+          if (shared->staging.isValid()) {
+            const auto path = shared->staging.absolutePath;
+            for (const auto &file :
+                 QStringList{path, fileStem(path) + ".qc.json",
+                             fileStem(path) + ".support.tif"})
+              QFile::remove(file);
+          }
+        },
+        error);
+  }
   if ( !computeGeostatJob( &job ) )
   {
     paleo::workflow_detail::setError( error, job.error );

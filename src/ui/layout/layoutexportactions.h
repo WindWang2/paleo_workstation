@@ -83,8 +83,10 @@ class PaleoLayoutExportActions : public QObject
 
     // 任务池导出路径（对话框之外的可测缝）。返回值：
     //   true  = 已受理——要么已排队（完成时 exportFinished + 状态条回包），
-    //           要么因已有导出进行中被拒（立即 exportFinished(outPath,false)）；
-    //   false = 无法隔离/无任务服务/版面为空，调用方应回退同步路径；
+    //           要么因已有导出进行中被拒（立即
+    //           exportFinished(outPath,false)）；
+    //   false =
+    //   无法隔离/无任务服务/版面为空，调用方应显示失败原因；无任务服务的宿主可显式同步导出；
     //           fallbackReason（可空）写入原因。
     bool exportLayoutAsync( QgsLayout *layout, const QString &outPath, Format format,
                             double dpi, const PageRange &range,
@@ -95,19 +97,9 @@ class PaleoLayoutExportActions : public QObject
 
     // #161 工程隔离快照：GUI 线程 capture，worker 线程 rebuild。值语义——
     // 抓取后与源工程/图层再无共享对象（QDomDocument 由本快照独占）。
-    struct ProjectSnapshot
-    {
-        QDomDocument xml; //!< <qgis><projectlayers/><layertree/><visibility-presets/></qgis>
-        QHash<QString, QgsFeatureList> memoryFeatures; //!< memory 图层的要素（XML 不含要素）
-        QgsCoordinateReferenceSystem crs;
-        QgsCoordinateTransformContext transformContext;
-        QString ellipsoid;
-        QString title;
-        QString homePath;
-        QVariantMap customVariables;
-    };
+    using ProjectSnapshot = PaleoLayoutExport::ProjectSnapshot;
     // 失败（插件图层、带未提交编辑的图层、序列化失败）返回 false + reason：
-    // 这些情形无法在 worker 上忠实重现，调用方回退 GUI 线程同步导出。
+    // 这些情形无法在 worker 上忠实重现；正式 UI 显示失败并要求处理后重试。
     static bool captureProjectSnapshot( const QgsProject *project, ProjectSnapshot &out,
                                         QString *reason = nullptr );
     // 在**调用线程**新建私有工程并按快照重建；返回的工程及其图层都归调用

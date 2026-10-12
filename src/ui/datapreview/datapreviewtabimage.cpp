@@ -123,6 +123,7 @@ QWidget *DataPreviewTabs::buildImageReferenceContent(
     if (raster->isValid() && !raster->extent().isEmpty())
     {
       auto *page = new PreviewMapPage(host);
+      page->setTaskService(m_doc ? m_doc->taskService() : nullptr);
       page->setObjectName(QStringLiteral("imagePreviewPage"));
       page->setAssetKey(assetId);
       page->setRenderCacheIdentity(assetId, v.id);

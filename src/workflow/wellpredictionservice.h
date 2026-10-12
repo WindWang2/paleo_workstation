@@ -7,6 +7,7 @@
 #include <atomic>
 #include <memory>
 class DataCatalog;
+class PaleoTaskService;
 
 // 编图测井入口复用测井面板的 API 2.0 服务与输入计划；只产出冻结结果，
 // 工区属性与图件统一由 MappingWorkbench 发布。
@@ -15,6 +16,7 @@ class WellPredictionService : public RemotePredictionService {
 public:
   explicit WellPredictionService(QObject *parent = nullptr);
   ~WellPredictionService() override;
+  void setTaskService(PaleoTaskService *tasks) { m_tasks = tasks; }
   void bindCatalog(DataCatalog *catalog, const QString &dir);
   QString statusHint() const;
   void start(const RemotePredictionRequest &request) override;
@@ -22,6 +24,7 @@ public:
 signals:
   void detailChanged(const QString &requestId, const QString &detail);
 private:
+  PaleoTaskService *m_tasks = nullptr;
   void configure(const WellFaciesConfig &config);
   void prepare();
   void plan(const QVector<WellFaciesModel> &models);

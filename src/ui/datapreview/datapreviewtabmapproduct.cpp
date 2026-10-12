@@ -1,6 +1,7 @@
 // 层：视图
 #include "datapreviewtabs.h"
 #include "datapreviewtabs_internal.h"
+#include <QPointer>
 
 using namespace paleo::datapreview_detail;
 
@@ -71,6 +72,7 @@ QWidget *DataPreviewTabs::buildMapProductContent(
   if (isRaster)
   {
     auto raster = std::make_unique<QgsRasterLayer>(abs, title, QStringLiteral("gdal"));
+    bool continuousStyle = false;
     if (!raster->isValid() || raster->extent().isEmpty())
     {
       lay->addWidget(PreviewMapStates::buildErrorPage(
@@ -83,6 +85,7 @@ QWidget *DataPreviewTabs::buildMapProductContent(
     addRasterPyramidHint(m_doc, raster.get(), assetId, host, lay);
 
     auto *page = new PreviewMapPage(host);
+    page->setTaskService(m_doc ? m_doc->taskService() : nullptr);
     page->setObjectName(QStringLiteral("mapProductPreviewPage"));
     page->setAssetKey(assetId);
     page->setRenderCacheIdentity(assetId, v.id);
@@ -136,14 +139,7 @@ QWidget *DataPreviewTabs::buildMapProductContent(
       }
       else
       {
-        const auto sum = PreviewRasterAnalysis::summarize(raster.get());
-        if (sum.valid)
-        {
-          PreviewRasterAnalysis::applyPseudoColorRenderer(
-              raster.get(), 1, sum.min, sum.max,
-              *PreviewRasterAnalysis::rampPreset(QStringLiteral("depthBlues")), false,
-              PreviewRasterAnalysis::Classification::Continuous);
-        }
+        continuousStyle = true;
       }
     }
 
@@ -152,7 +148,6 @@ QWidget *DataPreviewTabs::buildMapProductContent(
     page->addMapLayer(rawRaster, title, abs);
 
     // 统计面板 (D5.5)
-    const auto sum = PreviewRasterAnalysis::summarize(rawRaster);
     {
       auto *statsPage = new QWidget(page);
       auto *statsLay = new QFormLayout(statsPage);
@@ -164,13 +159,42 @@ QWidget *DataPreviewTabs::buildMapProductContent(
         l->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
         statsLay->addRow(k, l);
       };
-      addStat(tr("最小值"), QString::number(sum.min, 'f', 2), QStringLiteral("mapProductStatMin"));
-      addStat(tr("最大值"), QString::number(sum.max, 'f', 2), QStringLiteral("mapProductStatMax"));
-      addStat(tr("均值"), QString::number(sum.mean, 'f', 2), QStringLiteral("mapProductStatMean"));
-      addStat(tr("标准差"), QString::number(sum.stdDev, 'f', 2), QStringLiteral("mapProductStatStd"));
-      addStat(tr("有效像元占比"), QStringLiteral("%1%").arg(sum.validRatio() * 100.0, 0, 'f', 1),
+      addStat(tr("最小值"), tr("计算中…"), QStringLiteral("mapProductStatMin"));
+      addStat(tr("最大值"), tr("计算中…"), QStringLiteral("mapProductStatMax"));
+      addStat(tr("均值"), tr("计算中…"), QStringLiteral("mapProductStatMean"));
+      addStat(tr("标准差"), tr("计算中…"), QStringLiteral("mapProductStatStd"));
+      addStat(tr("有效像元占比"), tr("计算中…"),
               QStringLiteral("mapProductStatValid"));
       page->addAnalysisTab(tr("统计"), statsPage);
+      const QPointer<QgsRasterLayer> statsRaster = rawRaster;
+      const auto *initialRenderer = rawRaster->renderer();
+      PreviewRasterAnalysis::requestSummary(
+          abs, m_doc ? m_doc->taskService() : nullptr, page,
+          [page, statsRaster, initialRenderer,
+           continuousStyle](const PreviewRasterAnalysis::BandSummary &sum) {
+            if (!sum.valid || !statsRaster)
+              return;
+            const auto update = [page](const char *name, const QString &text) {
+              if (auto *label =
+                      page->findChild<QLabel *>(QString::fromLatin1(name)))
+                label->setText(text);
+            };
+            update("mapProductStatMin", QString::number(sum.min, 'f', 2));
+            update("mapProductStatMax", QString::number(sum.max, 'f', 2));
+            update("mapProductStatMean", QString::number(sum.mean, 'f', 2));
+            update("mapProductStatStd", QString::number(sum.stdDev, 'f', 2));
+            update(
+                "mapProductStatValid",
+                QStringLiteral("%1%").arg(sum.validRatio() * 100, 0, 'f', 1));
+            if (continuousStyle && statsRaster->renderer() == initialRenderer) {
+              PreviewRasterAnalysis::applyPseudoColorRenderer(
+                  statsRaster, 1, sum.min, sum.max,
+                  *PreviewRasterAnalysis::rampPreset(
+                      QStringLiteral("depthBlues")),
+                  false, PreviewRasterAnalysis::Classification::Continuous);
+              page->mapCanvas()->canvas()->refresh();
+            }
+          });
     }
 
     // 直方图面板 (D2.3/D5.8)
@@ -181,11 +205,27 @@ QWidget *DataPreviewTabs::buildMapProductContent(
                                   PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingXs);
       auto *hist = new PreviewHistogramWidget(false, histPage);
       hist->setObjectName(QStringLiteral("mapProductHistogram"));
-      const auto refreshHist = [hist, rawRaster](int bins) {
-        hist->setHistogram(PreviewRasterAnalysis::histogram(rawRaster, bins));
-        if (auto *r = dynamic_cast<QgsSingleBandPseudoColorRenderer *>(rawRaster->renderer()))
-          if (auto *fn = r->shader()->rasterShaderFunction())
-            hist->setStretchMarks(fn->minimumValue(), fn->maximumValue());
+      auto histogramGeneration = std::make_shared<quint64>(0);
+      auto *histogramTasks = m_doc ? m_doc->taskService() : nullptr;
+      const QPointer<QgsRasterLayer> selected = rawRaster;
+      const auto refreshHist = [hist, selected, abs, histogramGeneration,
+                                histogramTasks](int bins) {
+        if (!selected)
+          return;
+        const auto generation = ++*histogramGeneration;
+        PreviewRasterAnalysis::requestHistogram(
+            abs, bins, histogramTasks, hist,
+            [hist, selected, histogramGeneration,
+             generation](const PreviewRasterAnalysis::Histogram &result) {
+              if (!selected || generation != *histogramGeneration)
+                return;
+
+              hist->setHistogram(result);
+              if (auto *r = dynamic_cast<QgsSingleBandPseudoColorRenderer *>(
+                      selected->renderer()))
+                if (auto *fn = r->shader()->rasterShaderFunction())
+                  hist->setStretchMarks(fn->minimumValue(), fn->maximumValue());
+            });
       };
       refreshHist(64);
       QObject::connect(hist, &PreviewHistogramWidget::binsChanged, histPage, refreshHist);
@@ -196,15 +236,23 @@ QWidget *DataPreviewTabs::buildMapProductContent(
     }
 
     // 剖面功能 (D5.1)
-    QObject::connect(page, &PreviewMapPage::profileLineDrawn, host,
-                     [page, rawRaster](const QgsPointXY &p1, const QgsPointXY &p2, int total) {
-                       const auto samples = PreviewRasterAnalysis::sampleProfile(rawRaster, p1, p2, 200);
-                       QVector<PreviewProfilePanel::Sample> pts;
-                       pts.reserve(samples.size());
-                       for (const auto &sm : samples)
-                         pts.append({sm.distance, sm.value, sm.valid});
-                       page->profilePanel()->addProfile(tr("剖面 %1").arg(total), pts, p1, p2);
-                     });
+    QObject::connect(
+        page, &PreviewMapPage::profileLineDrawn, host,
+        [page, abs, tasks = m_doc ? m_doc->taskService() : nullptr](
+            const QgsPointXY &p1, const QgsPointXY &p2, int total) {
+          PreviewRasterAnalysis::requestProfile(
+              abs, p1, p2, tasks, page,
+              [page, p1, p2,
+               total](const QVector<PreviewRasterAnalysis::ProfileSample>
+                          &samples) {
+                QVector<PreviewProfilePanel::Sample> pts;
+                pts.reserve(samples.size());
+                for (const auto &sm : samples)
+                  pts.append({sm.distance, sm.value, sm.valid});
+                page->profilePanel()->addProfile(tr("剖面 %1").arg(total), pts,
+                                                 p1, p2);
+              });
+        });
     page->setProfileEnabled(true);
 
     lay->addWidget(page, 1);
@@ -253,6 +301,7 @@ QWidget *DataPreviewTabs::buildMapProductContent(
     }
 
     auto *page = new PreviewMapPage(host);
+    page->setTaskService(m_doc ? m_doc->taskService() : nullptr);
     page->setObjectName(QStringLiteral("mapProductPreviewPage"));
     page->setAssetKey(assetId);
     page->setRenderCacheIdentity(assetId, v.id);

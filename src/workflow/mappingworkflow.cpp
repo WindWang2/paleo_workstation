@@ -9,9 +9,12 @@
 #include "../io/wellfileparsers.h"
 #include "../metadata/layermanifest.h"
 #include "../qgis/qgislayerservice.h"
+#include "../services/paleotaskservice.h"
 #include "../services/projectdata.h"
 #include "derivedassets.h"
+#include "mapexport.h"
 #include "workflows.h"
+#include <QTemporaryDir>
 
 #include <QDateTime>
 #include <QDir>
@@ -323,6 +326,115 @@ MappingWorkflow::MappingWorkflow( ConstraintWorkflow *constraints, CompositionWo
 {
 }
 
+MappingWorkflow::~MappingWorkflow() {
+  if (m_chainTask)
+    m_chainTask->requestCancel();
+}
+bool MappingWorkflow::recordThicknessDeclaration(const LayerDeclaration &decl,
+                                                 QString *error) {
+  if (m_deferredDeclarations) {
+    m_preparedDeclarations.append(decl);
+    return true;
+  }
+  return m_layers && m_layers->declare(decl, error);
+}
+
+bool MappingWorkflow::startThicknessChain(const QString &horizon,
+                                          QString *error) {
+  const auto reject = [&](const QString &why) {
+    setError(error, why);
+    emit chainFailed(horizon, why);
+    return false;
+  };
+  if (!m_tasks)
+    return runThicknessChain(horizon, error);
+  if (m_chainTask && m_chainTask->running())
+    return reject(tr("已有厚度计算在进行"));
+  if (!m_catalog || !m_projectData || !m_layers)
+    return reject(tr("厚度工作流未绑定工程"));
+  struct Job {
+    std::unique_ptr<QTemporaryDir> staging;
+    std::unique_ptr<DataCatalog> catalog;
+    QVector<LayerDeclaration> inputs, outputs;
+    QVector<CatalogOp> journal;
+    QVariantList rows;
+    QString message, error;
+    bool ok = false;
+  };
+  auto job = std::make_shared<Job>();
+  job->staging =
+      std::make_unique<QTemporaryDir>(m_projectDir + "/.thickness-XXXXXX");
+  if (!job->staging->isValid())
+    return reject(tr("无法创建厚度暂存目录"));
+  job->catalog = m_catalog->createStagingCopy(job->staging->path());
+  job->inputs = m_layers->declared();
+  const QString directory = m_projectDir;
+  QPointer<DataCatalog> catalog(m_catalog);
+  auto *data = m_projectData;
+  const auto sequence = m_catalog->mutationSeq();
+  auto *task = m_tasks->start(
+      tr("%1 厚度计算").arg(horizon),
+      [job, directory, horizon](PaleoTask *task) {
+        ProjectDataFacade facade;
+        facade.setCatalog(job->catalog.get(), directory);
+        facade.setDeclarationSnapshot(job->inputs);
+        MappingWorkflow worker(nullptr, nullptr, nullptr);
+        worker.m_deferredDeclarations = true;
+        worker.m_cancel = [task] { return task->cancelRequested(); };
+        worker.m_progress = [task](double p) {
+          task->reportStage("interpolate", qRound(p));
+        };
+        worker.setProjectData(&facade);
+        worker.setCatalog(job->catalog.get(), job->staging->path());
+        task->reportStage("prepare", 0);
+        job->ok = worker.runThicknessChain(horizon, &job->error);
+        job->outputs = worker.m_preparedDeclarations;
+        job->rows = worker.thicknessSampleRows();
+        job->message = worker.thicknessSampleMessage();
+        if (job->ok)
+          job->journal = job->catalog->journal();
+        return job->error;
+      });
+  m_chainTask = task;
+  connect(task, &PaleoTask::finished, this,
+          [this, job, catalog, directory, data, sequence, horizon, task] {
+            const bool stale = task->session() != m_tasks->session() ||
+                               catalog != m_catalog || data != m_projectData ||
+                               directory != m_projectDir || !catalog ||
+                               catalog->mutationSeq() != sequence;
+            if (stale) {
+              task->discardPublication();
+              return;
+            }
+            if (task->state() == PaleoTask::State::Cancelled)
+              return;
+            m_thicknessRows = job->rows;
+            m_thicknessMessage = job->message;
+            if (m_constraints)
+              m_constraints->setThicknessSamples(job->rows, job->message);
+            QString error = job->error;
+            if (job->ok && publishMapExportJournal(catalog, directory,
+                                                   job->staging->path(),
+                                                   job->journal, &error)) {
+              for (auto decl : job->outputs) {
+                const auto relative =
+                    QDir(job->staging->path()).relativeFilePath(decl.source);
+                decl.source = QDir(directory).filePath(relative);
+                if (!m_layers->declare(decl, &error))
+                  break;
+              }
+              if (error.isEmpty())
+                emit chainDone(horizon,
+                               QStringLiteral("factor.%1.idw").arg(horizon));
+            }
+            if (!error.isEmpty()) {
+              task->failPublication(error);
+              emit chainFailed(horizon, error);
+            }
+          });
+  return true;
+}
+
 void MappingWorkflow::setProjectData( ProjectDataFacade *projectData )
 {
   m_projectData = projectData;
@@ -330,6 +442,8 @@ void MappingWorkflow::setProjectData( ProjectDataFacade *projectData )
 
 void MappingWorkflow::setCatalog( DataCatalog *catalog, const QString &projectDir )
 {
+  if (m_chainTask)
+    m_chainTask->requestCancel();
   m_catalog = catalog;
   m_projectDir = projectDir;
 }
@@ -356,6 +470,10 @@ QVector<ThicknessSample> MappingWorkflow::computeThicknessSamples( const QString
   QVector<ThicknessSample> out;
   for ( const ProjectWell &well : m_projectData->wells() )
   {
+    if (m_cancel && m_cancel()) {
+      setError(error, tr("已取消"));
+      return {};
+    }
     ThicknessSample s;
     s.wellId = well.id;
     s.wellName = well.name;
@@ -513,7 +631,7 @@ void MappingWorkflow::declareThicknessWellsLayer( const QString &horizon,
   decl.group = QStringLiteral( "04_SingleFactor" );
   decl.title = tr( "厚度井位" );
   QString declErr;
-  if ( !m_layers->declare( decl, &declErr ) )
+  if (!recordThicknessDeclaration(decl, &declErr))
     qWarning() << "thickness wells layer declare failed:" << declErr;
 }
 
@@ -531,7 +649,7 @@ bool MappingWorkflow::runThicknessChain( const QString &horizon, QString *error 
 
   if ( !m_projectData )
     return fail( tr( "未绑定项目数据（读侧门面）" ) );
-  if ( !m_constraints || !m_compose || !m_layers )
+  if (!m_deferredDeclarations && (!m_constraints || !m_compose || !m_layers))
     return fail( tr( "编图工作流未绑定服务" ) );
   if ( !m_catalog )
     return fail( tr( "编图链未绑定数据目录（catalog）——派生产物无法登记到工程" ) );
@@ -610,7 +728,11 @@ bool MappingWorkflow::runThicknessChain( const QString &horizon, QString *error 
     const double gt[6] = { ox, cell, 0.0, oyTop, 0.0, -cell };
 
     QVector<float> px( cols * rows, kNoData );
-    for ( int r = 0; r < rows; ++r )
+    for (int r = 0; r < rows; ++r) {
+      if (m_cancel && m_cancel())
+        return fail(tr("已取消"));
+      if (m_progress && r % 16 == 0)
+        m_progress(5 + 85.0 * r / rows);
       for ( int c = 0; c < cols; ++c )
       {
         const double cx = ox + ( c + 0.5 ) * cell;
@@ -619,7 +741,9 @@ bool MappingWorkflow::runThicknessChain( const QString &horizon, QString *error 
           continue;
         px[r * cols + c] = static_cast<float>( idwPower2Points( pts, cx, cy ) );
       }
-
+    }
+    if (m_cancel && m_cancel())
+      return fail(tr("已取消"));
     // 退回路径产物同样登记（无栅格输入 → 无父版本；井点 tops 是间接来源）。
     QString stageErr;
     const DerivedStaging st = registrar.stage(
@@ -646,7 +770,7 @@ bool MappingWorkflow::runThicknessChain( const QString &horizon, QString *error 
     decl.source = st.absolutePath;
     decl.group = QStringLiteral( "04_SingleFactor" );
     decl.title = QStringLiteral( "井点厚度（米，无层位栅格）" );
-    if ( !m_layers->declare( decl, error ) )
+    if (!recordThicknessDeclaration(decl, error))
       return fail( error ? *error : tr( "无法声明井点厚度图层" ) );
 
     declareThicknessWellsLayer( horizon, samples );
@@ -676,6 +800,10 @@ bool MappingWorkflow::runThicknessChain( const QString &horizon, QString *error 
   QVector<float> px( cols * rows, kNoData );
   for ( int r = 0; r < rows; ++r )
   {
+    if (m_cancel && m_cancel())
+      return fail(tr("已取消"));
+    if (m_progress && r % 16 == 0)
+      m_progress(5 + 85.0 * r / rows);
     const double cy = gTop.gt[3] + ( r + 0.5 ) * gTop.gt[5];
     for ( int c = 0; c < cols; ++c )
     {
@@ -705,6 +833,8 @@ bool MappingWorkflow::runThicknessChain( const QString &horizon, QString *error 
     }
   }
 
+  if (m_cancel && m_cancel())
+    return fail(tr("已取消"));
   // 主产物：等厚栅格落 artifacts/derived + DERIVED 版本（T26），父版本 =
   // D61/D62 时间栅格版本（provenance：这份厚度由哪两版栅格算出）。
   QString stageErr;
@@ -734,7 +864,7 @@ bool MappingWorkflow::runThicknessChain( const QString &horizon, QString *error 
   decl.source = st.absolutePath;
   decl.group = QStringLiteral( "04_SingleFactor" );
   decl.title = QStringLiteral( "%1–%2 等厚（米）" ).arg( horizon, base );
-  if ( !m_layers->declare( decl, error ) )
+  if (!recordThicknessDeclaration(decl, error))
     return fail( error ? *error : tr( "无法声明等厚图层" ) );
 
   declareThicknessWellsLayer( horizon, samples );
@@ -747,9 +877,10 @@ bool MappingWorkflow::runThicknessChain( const QString &horizon, QString *error 
 // 时间残差 — 阶段C验证（autoplan §5C）
 // ---------------------------------------------------------------------------
 
-QList<TimeResidualRow> computeTimeResiduals( const ProjectDataFacade *projectData,
-                                             const QString &horizon, double thresholdMs )
-{
+QList<TimeResidualRow>
+computeTimeResiduals(const ProjectDataFacade *projectData,
+                     const QString &horizon, double thresholdMs,
+                     const std::function<bool()> &cancelled) {
   QList<TimeResidualRow> rows;
   if ( !projectData )
     return rows;
@@ -767,6 +898,10 @@ QList<TimeResidualRow> computeTimeResiduals( const ProjectDataFacade *projectDat
                          raster.ymax > raster.ymin;
   for ( const ProjectWell &well : projectData->wells() )
   {
+    if (cancelled && cancelled()) {
+      GDALClose(ds);
+      return {};
+    }
     TimeResidualRow row;
     row.wellId = well.id;
     row.wellName = well.name;

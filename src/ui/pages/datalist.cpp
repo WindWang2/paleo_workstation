@@ -48,6 +48,7 @@ using namespace paleo::pagesinternal;
 void DataListPanel::setDocService(PreviewDocService *doc)
 {
   m_doc = doc;
+  m_storageController->setTaskService(doc ? doc->taskService() : nullptr);
   m_storageController->setCatalog(doc ? doc->catalog() : nullptr);
 }
 
@@ -55,6 +56,14 @@ DataListPanel::DataListPanel(QWidget *parent)
   : QWidget(parent)
 {
   m_storageController = new StorageGovernanceController(this);
+  connect(m_storageController, &StorageGovernanceController::assetsPurged, this,
+          [this](const QStringList &ids) {
+            for (const auto &id : ids)
+              m_recycle.purge(id);
+            m_recycle.save();
+            refreshAssetTable();
+            emit entityRefreshRequested();
+          });
   setMinimumWidth(0);
   auto *lay = panelLayout(this);
 

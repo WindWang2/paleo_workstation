@@ -23,12 +23,15 @@
 #include <qgsprintlayout.h>
 #include <qgsmessagelog.h>
 
+#include "notifications/paleonotify.h"
 #include <QDir>
 #include <QFileInfo>
 #include <QLabel>
-#include "notifications/paleonotify.h"
 #include <QPushButton>
+#include <memory>
 
+#include "../services/paleotaskservice.h"
+#include <QDateTime>
 #include <QStatusBar>
 #include <QTemporaryFile>
 
@@ -194,7 +197,7 @@ void PaleoMainWindow::attachMappingExport(ComposePage *composePage,
               return;
             }
             QString err;
-            if (!mapping->runThicknessChain(h, &err))
+            if (!mapping->startThicknessChain(h, &err))
               QgsMessageLog::logMessage(err, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
           });
 
@@ -219,79 +222,47 @@ void PaleoMainWindow::attachMappingExport(ComposePage *composePage,
                                            : QDir::temp().absolutePath();
             const QString target = QDir(projectDir).filePath(
                 QStringLiteral("%1_map.pdf").arg(h));
-            // ---- m2(C): 版面地图项钉本页主题（paleo.page.compose）---------
-            // exportHorizonMapPdf 内建布局不外露地图项，这里走同一
-            // buildHorizonMapLayout + PaleoLayoutExportActions（300dpi PDF，
-            // 与既有导出参数逐字一致），在导出前把布局里 id="map" 的地图项
-            // 钉到 compose 页主题（m1 setLayoutMapTheme 接缝；服务缺席时
-            // pinLayoutTheme 直写原生 follow-visibility 预设）。
-            const auto exportPinned = [this](const QString &horizon, const QString &outPath,
-                                             QString *errOut) -> QString {
-              QgsPrintLayout *layout = buildHorizonMapLayout(m_layerSvc, m_projectSvc,
-                                                             horizon, errOut);
-              if (!layout)
-                return QString();
-              if (QgsLayoutItemMap *mapItem = qobject_cast<QgsLayoutItemMap *>(
-                      layout->itemById(QStringLiteral("map"))))
-                pinLayoutTheme(mapItem, QStringLiteral("compose"));
-              PaleoLayoutExportActions exports;
-              const auto outcome =
-                  exports.exportLayout(layout, outPath, PaleoLayoutExportActions::Format::Pdf,
-                                       300.0, PaleoLayoutExportActions::PageRange());
-              delete layout;
-              if (!outcome.ok)
-              {
-                if (errOut)
-                  *errOut = outcome.error;
-                return QString();
-              }
-              return outcome.files.value(0);
-            };
-            QString pdf;
-            while (true) // 失败 → 重试 / 取消（§215：导出失败要写原因）
-            {
-              QString err;
-              pdf = exportPinned(h, target, &err);
-              if (!pdf.isEmpty())
-                break;
-              QgsMessageLog::logMessage(err, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
-              const bool retry = PaleoNotify::ask(
-                  this, tr("导出失败"),
-                  tr("%1\n\n导出目标：%2").arg(err, target),
-                  PaleoNotify::AskButtons::RetryCancel, PaleoNotify::AskDefault::Accept,
-                  PaleoNotify::AskIcon::Warning);
-              if (!retry)
-              {
-                status(err);
-                return;
-              }
-            }
-
-            // 阶段E：登记 catalog OUTPUT 受管资产 —— 登记失败的导出不算完成
-            // （发布门要求的是「已登记的 PDF」，不是「写出过文件」）。
-            QString sha, managedPath, regErr;
-            const QString assetId =
-                registerMapPdfAsset(catalog, projectDir, pdf, &sha, &managedPath, &regErr);
-            if (assetId.isEmpty())
-            {
-              status(regErr.isEmpty() ? tr("PDF 资产登记失败") : regErr);
-              QgsMessageLog::logMessage(regErr, QStringLiteral("Paleo"),
-                                        Qgis::MessageLevel::Warning);
+            QString error;
+            std::unique_ptr<QgsPrintLayout> layout(
+                buildHorizonMapLayout(m_layerSvc, m_projectSvc, h, &error));
+            if (!layout) {
+              status(error);
               return;
             }
-            if (versionStore)
-            {
-              QString productErr;
-              const QString recorded = managedPath.isEmpty() ? pdf : managedPath;
-              if (!versionStore->recordLayoutProduct(h, recorded, assetId, sha, &productErr))
-                QgsMessageLog::logMessage(productErr, QStringLiteral("Paleo"),
-                                          Qgis::MessageLevel::Warning);
-            }
-            status(tr("层位图已导出：%1").arg(pdf));
-            PaleoNotify::report(this, tr("导出成功"),
-                                     tr("已导出层位图：\n%1\n\nSHA-256：%2")
-                                         .arg(pdf, sha));
-            if (m_refreshPublishGate) m_refreshPublishGate();
+            if (auto *map = qobject_cast<QgsLayoutItemMap *>(
+                    layout->itemById(QStringLiteral("map"))))
+              pinLayoutTheme(map, QStringLiteral("compose"));
+            auto *task = startMapLayoutExport(
+                layout.get(), m_taskSvc, catalog, projectDir, target, this,
+                [this, versionStore, status, h,
+                 target](const MapProductExportOutcome &outcome) {
+                  if (outcome.cancelled) {
+                    status(tr("层位图导出已取消或工程已切换"));
+                    return;
+                  }
+                  if (outcome.assetId.isEmpty()) {
+                    status(outcome.error.isEmpty()
+                               ? tr("层位图导出失败，请重试")
+                               : outcome.error);
+                    return;
+                  }
+                  if (versionStore) {
+                    QString error;
+                    if (!versionStore->recordLayoutProduct(
+                            h, outcome.managedPath, outcome.assetId,
+                            outcome.sha256, &error))
+                      QgsMessageLog::logMessage(error, QStringLiteral("Paleo"),
+                                                Qgis::MessageLevel::Warning);
+                  }
+                  status(tr("层位图已导出：%1").arg(target));
+                  PaleoNotify::report(this, tr("导出成功"),
+                                      tr("已导出层位图：\n%1\n\nSHA-256：%2")
+                                          .arg(target, outcome.sha256));
+                  if (m_refreshPublishGate)
+                    m_refreshPublishGate();
+                },
+                &error);
+            status(task ? tr("层位图正在后台导出，可在任务中心查看") : error);
           });
 
   // 方向35：演化动览「定格导出」——当前帧（activeHorizon 的画布现状）抓 PNG
@@ -323,24 +294,24 @@ void PaleoMainWindow::attachMappingExport(ComposePage *composePage,
                 note(tr("未打开工程数据目录，演化帧无法登记为导出资产"));
                 return;
               }
-              QTemporaryFile tmp(QStringLiteral("XXXXXX.png"));
-              if (!tmp.open() || !m_canvasCtl->canvas()->grab().toImage().save(tmp.fileName(), "PNG"))
-              {
-                note(tr("演化帧抓取失败"));
-                return;
-              }
-              QString sha, managedPath, regErr;
-              const QString assetId = registerMapPdfAsset(catalog, projectDir, tmp.fileName(),
-                                                          &sha, &managedPath, &regErr,
-                                                          QStringLiteral("png"));
-              if (assetId.isEmpty())
-              {
-                note(regErr.isEmpty() ? tr("演化帧资产登记失败") : regErr);
-                QgsMessageLog::logMessage(regErr, QStringLiteral("Paleo"),
-                                          Qgis::MessageLevel::Warning);
-                return;
-              }
-              note(tr("演化帧已登记：%1").arg(managedPath.isEmpty() ? h : managedPath));
+              const auto image = m_canvasCtl->canvas()->grab().toImage();
+              const auto name = QStringLiteral("frame_%1_%2.png")
+                                    .arg(h)
+                                    .arg(QDateTime::currentMSecsSinceEpoch());
+              QString error;
+              auto *task = startMapFrameExport(
+                  image, m_taskSvc, catalog, projectDir, name, this,
+                  [note](const MapProductExportOutcome &outcome) {
+                    if (outcome.cancelled)
+                      note(QObject::tr("演化帧导出已取消或工程已切换"));
+                    else if (outcome.assetId.isEmpty())
+                      note(outcome.error);
+                    else
+                      note(QObject::tr("演化帧已登记：%1")
+                               .arg(outcome.managedPath));
+                  },
+                  &error);
+              note(task ? tr("演化帧正在后台导出，可在任务中心查看") : error);
             });
   }
 

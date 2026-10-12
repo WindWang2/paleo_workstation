@@ -275,9 +275,10 @@ public:
                                   if (throttleMs > 0)
                                   {
                                     const qint64 now = QDateTime::currentMSecsSinceEpoch();
-                                    const qint64 prev = lastReport->exchange(now);
+                                    const qint64 prev = lastReport->load();
                                     if (pct < 100 && now - prev < throttleMs)
                                       return;
+                                    lastReport->store(now);
                                   }
                                   running->reportStage(stage, pct);
                                 };
@@ -331,6 +332,8 @@ public:
       const bool ownsHandle = (m_task.data() == task);
       if (state == PaleoTask::State::Cancelled || stale)
       {
+        if (stale)
+          task->discardPublication();
         if (cb.cleanup)
           cb.cleanup(work);
         const DropReason reason = stale && state != PaleoTask::State::Cancelled
@@ -344,8 +347,11 @@ public:
         emit jobCompleted(claim.myGeneration, false);
         return;
       }
-      if (state == PaleoTask::State::Failed && cb.cleanup)
-        cb.cleanup(work);
+      if (state == PaleoTask::State::Failed) {
+        detail::writeBackCommitError(work, task->errorText());
+        if (cb.cleanup)
+          cb.cleanup(work);
+      }
       // 失败态也进 commit：Job 上已带失败态，迁移者据此如实上 UI（现状语义）。
       assertOwnerThread("JobRunner::commit");
       bool committed = true;
@@ -355,8 +361,12 @@ public:
         // 丢弃），失败回写 Job 的 error 字段（存在时）并如实发 committed=false。
         QString commitErr;
         committed = cb.commit(work, &commitErr);
-        if (!committed && !commitErr.isEmpty())
+        if (!committed) {
           detail::writeBackCommitError(work, commitErr);
+          task->failPublication(commitErr);
+          if (state != PaleoTask::State::Failed && cb.cleanup)
+            cb.cleanup(work);
+        }
       }
       if (ownsHandle)
         clearTask();

@@ -2,6 +2,10 @@
 #pragma once
 #include <QString>
 #include <QVector>
+#include <functional>
+#include <memory>
+class PaleoTaskService;
+class QObject;
 
 // qgis/factorcontour.h — 单因素等值线（m2/mapping-pages 任务 B）。
 // PALEO_QGIS_PLAN §12：等值线是 GIS LineString 图层，不是画布临时线。
@@ -17,8 +21,10 @@ namespace FactorContourService
 // 从 rasterPath 的 band 1 生成等值线（间距 interval，等值线基准取 0）写入
 // outputGpkg 的 "contours" 图层（字段 ID int64 / ELEV real，SRS 随栅格）。
 // 输出文件已存在则覆盖（重生成幂等由调用方按 GPKG 路径 upsert 承载）。
-bool generateContours( const QString &rasterPath, const QString &outputGpkg,
-                       double interval, QString *error = nullptr );
+bool generateContours(const QString &rasterPath, const QString &outputGpkg,
+                      double interval, QString *error = nullptr,
+                      const std::function<bool()> &cancelled = {},
+                      const std::function<void(double)> &progress = {});
 
 // 显式级别。不改间距接口的行为。级别必须非空且全部有限。
 bool generateFixedContours( const QString &rasterPath, const QString &outputGpkg,
@@ -37,4 +43,9 @@ bool generateStructuralContours( const QString &rasterPath,
                                  QVector<double> *levelsUsed = nullptr,
                                  QString *error = nullptr );
 
+void requestContours(const QString &rasterPath, const QString &outputGpkg,
+                     double interval, PaleoTaskService *tasks,
+                     QObject *receiver,
+                     std::function<void(bool, const QString &)> ready,
+                     std::shared_ptr<void> lifetime = {});
 } // namespace FactorContourService

@@ -1,17 +1,18 @@
 // 层：组装根
 #include "appcontext.h"
-#include <QTimer>
-#include "../qgis/wellattributestore.h"
-#include "../services/errorhub.h"                 // 方向64：统一错误通道
-#include "aiwiring.h"                          // 方向51：远端预测装配（唯一入口）
-#include "onnxwiring.h"                         // 方向83：ONNX 模型注册表装配
-#include "../ai/remotepredictconfig.h"
-#include "../ai/chat/llmclient.h"              // 方向51：LLM 配置 + 助手编排
+#include "../ai/chat/llmclient.h" // 方向51：LLM 配置 + 助手编排
 #include "../ai/chat/llmkeystore.h"
+#include "../ai/remotepredictconfig.h"
+#include "../qgis/wellattributestore.h"
+#include "../services/errorhub.h" // 方向64：统一错误通道
+#include "../services/imagelod.h"
 #include "../workflow/aichatcontroller.h"
 #include "../workflow/mappingworkbench.h"
-#include "../workflow/welltrajectorylayer.h" // goal/well-trajectory 轨迹线层组装
 #include "../workflow/projectlayerrefresh.h"
+#include "../workflow/welltrajectorylayer.h" // goal/well-trajectory 轨迹线层组装
+#include "aiwiring.h"                        // 方向51：远端预测装配（唯一入口）
+#include "onnxwiring.h"                      // 方向83：ONNX 模型注册表装配
+#include <QTimer>
 
 #include "../ai/onnxpredictionservice.h" // ORT-free header; instantiation is PALEO_HAVE_ORT-guarded
 #if PALEO_HAVE_ORT
@@ -166,6 +167,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
 
   m_store = new PaleoProjectStore(this);
   m_taskSvc = new PaleoTaskService(m_store, this);
+  paleo::imagelod::FullImageCache::shared().setTaskService(m_taskSvc);
   m_projectSvc = new QgisProjectService(this);
 
   // Deferred binding: constructed un-opened on an empty path; rebound (same
@@ -228,6 +230,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   // D6：导入使井点范围变大时 zoom-to-content（无关变更只重写同一份
   // geojson，范围不变不抢视野）。
   m_projectLayerRefresh = new ProjectLayerRefreshWorkflow(this);
+  m_projectLayerRefresh->setTaskService(m_taskSvc);
   connect(m_projectLayerRefresh, &ProjectLayerRefreshWorkflow::prepared, this,
           [this](const QString &directory, quint64 sequence, const ProjectLayerData &data) {
     if (directory != m_projectDir || m_projectSvc->projectPath().isEmpty() ||
@@ -271,6 +274,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
     m_aiAssistWf->setTaskService(m_taskSvc);
 #endif
   m_constraintWf = new ConstraintWorkflow(m_procSvc, m_layerSvc, this);
+  m_constraintWf->setTaskService(m_taskSvc);
   m_constraintWf->setStore(m_store); // GeoPackage constraint persistence (wave/constraint-gpkg)
   m_mappingWorkbench = new MappingWorkbench(m_layerSvc, m_procSvc, m_projectSvc, m_constraintWf, this);
   m_mappingWorkbench->setTaskService(m_taskSvc); // 智能预测进任务中心（后台执行、可取消）
@@ -312,6 +316,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   m_compositionWf = new CompositionWorkflow(m_procSvc, m_layerSvc, this);
   m_compositionWf->setTaskService(m_taskSvc); // facies-ux 1：相多边形转换进任务中心
   m_validationWf = new ValidationWorkflow(m_layerSvc, m_store, this);
+  m_validationWf->setTaskService(m_taskSvc);
 
   // 方向34：井网辅助编排。约束/断层避让面经 provider 注入（随工程打开
   // 刷新）；planned 计划井入 catalog（entityType=="planned"）。
@@ -346,6 +351,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   // 同库（meta sqlite），路径在 projectOpened 时原地重绑。
   m_projectData = new ProjectDataFacade(this);
   m_mappingWf = new MappingWorkflow(m_constraintWf, m_compositionWf, m_layerSvc, this);
+  m_mappingWf->setTaskService(m_taskSvc);
   m_depthWf = new DepthConversionWorkflow(nullptr, QString(), this); // catalog 绑定随工程打开
   m_depthWf->setTaskService(m_taskSvc); // facies-ux 6 / UIS-20：建模 + 换算走任务中心
   m_propModelWf = new PropertyModelWorkflow(nullptr, QString(), this); // catalog 绑定随工程打开

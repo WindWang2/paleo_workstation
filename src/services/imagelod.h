@@ -9,6 +9,7 @@
 #include <functional>
 
 class QBrush;
+class PaleoTaskService;
 
 // services/imagelod — 图片道装载 LOD（方向 79）：岩心/薄片照片的统一装载
 // 面，连井剖面（任务线程缩略装载）、综合柱状图（GUI 装配缩略）、井附件
@@ -68,6 +69,7 @@ void setFullLoadHook(std::function<void()> hook);
 class FullImageCache
 {
   public:
+    void setTaskService(PaleoTaskService *tasks);
     // 命中即回，不装载、不刷新使用序（绘制命中路径 O(1)）。
     QImage peek(const QString &key) const;
     // 命中刷新 LRU；未命中在调用线程装载（失败回空图不占额）。

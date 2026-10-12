@@ -16,10 +16,14 @@ QString officeStatusStyleSheet(bool error)
 }
 }
 
-OfficePreviewWidget::OfficePreviewWidget(const QString &path, const QString &expectedSha, QWidget *parent)
-    : QWidget(parent), m_path(path), m_sha(expectedSha), m_session(new OfficePreviewSession(this)),
-      m_web(new WebViewPanel(this)), m_status(new QLabel(this)), m_retry(new QPushButton(tr("重试"), this))
-{
+OfficePreviewWidget::OfficePreviewWidget(const QString &path,
+                                         const QString &expectedSha,
+                                         QWidget *parent,
+                                         PaleoTaskService *tasks)
+    : QWidget(parent), m_path(path), m_sha(expectedSha),
+      m_session(new OfficePreviewSession(this)), m_web(new WebViewPanel(this)),
+      m_status(new QLabel(this)), m_retry(new QPushButton(tr("重试"), this)) {
+  m_session->setTaskService(tasks);
   setObjectName(QStringLiteral("officePreview"));
   setAccessibleName(tr("Office 原件"));
   auto *layout = new QVBoxLayout(this);

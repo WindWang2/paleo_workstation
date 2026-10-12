@@ -4,6 +4,7 @@
 #include "../catalog/datacatalog.h"
 #include "../io/lasdoc.h"
 #include "../metadata/layermanifest.h"
+#include "derivedassets.h"
 #include <QObject>
 #include <QPointer>
 #include <QVariantMap>
@@ -101,6 +102,10 @@ public:
                       const QVariantMap &params, QString *error);
   bool generateContours(const QString &horizon, const QString &layerId,
                         double interval, QString *error);
+  bool startCompose(const QString &horizon, const QStringList &layerIds,
+                    const QVariantMap &params, QString *error);
+  bool startFaciesConsistency(const QString &layerId, QString *error,
+                              const QString &counterpartId = {});
   QString compose(const QString &horizon, const QStringList &layerIds,
                   const QVariantMap &params, QString *error);
   QString snapshotConstraints(const QString &horizon,
@@ -139,6 +144,7 @@ public:
   int labelMode(const QString &id) const;
   bool setLabelMode(const QString &id, int mode, QString *error);
 signals:
+  void consistencyReady(const QVariantMap &report);
   void catalogBound();
   void changed();
   void faciesEdited(const QString &layerId);
@@ -157,6 +163,7 @@ signals:
 
 private:
   void connectPredictionService(RemotePredictionService *service);
+  void publishFactorAlias(const QString &horizon, const QString &id);
   void synchronizeCatalogLayers();
   void ensureVersionIndex() const;
   bool ready(const QString &horizon, QString *error) const;
@@ -165,15 +172,35 @@ private:
                  const QString &kind, const QString &title, const QString &type,
                  const QStringList &parents, QVariantMap extra, QString *error,
                  const QString &suffix = QString(),
-                 const QString &assetKey = QString());
+                 const QString &assetKey = QString(),
+                 const DerivedFileFingerprint *fingerprint = nullptr);
   QString ensureInputVersion(const QString &layerId, QString *error);
 public:
+  struct ComposeJob {
+    ~ComposeJob();
+    QString horizon, dir, outputPath, error, productId;
+    QStringList ids, parents;
+    QVariantList sources, facies;
+    QList<double> thresholds;
+    QVariantMap params;
+    DerivedFileFingerprint fingerprint;
+    QPointer<DataCatalog> catalog;
+  };
+  bool prepareCompose(const QString &horizon, const QStringList &ids,
+                      const QVariantMap &params, ComposeJob &job,
+                      QString *error);
+  static bool computeCompose(ComposeJob &job,
+                             const std::function<bool()> &cancel,
+                             const std::function<void(double)> &progress);
+  bool commitCompose(ComposeJob &job, QString *error);
   // 转面作业快照（纯数据，跨线程安全；compute 不读成员）。
   struct PolygonizeJob {
+    ~PolygonizeJob();
     QString sourceLayerId, horizon, title, rasterUri, outputPath, parent, dir;
     QString crsWkt; // 声明层 CRS（数据源无 CRS 时 worker 侧补齐）
     QVariantList facies;
     QVariant mock;
+    DerivedFileFingerprint fingerprint;
     QPointer<DataCatalog> catalog;
     QString productId; // commit 产出
     QString error;
@@ -188,6 +215,8 @@ public:
   bool commitPolygonize(PolygonizeJob &job, QString *error);
 
 private:
+  QVariantMap consistencyImpl(const QString &layerId, QString *error,
+                              const QString &counterpartId, bool background);
   void finishPrediction(const RemotePredictionResult &result);
   // 任务中心行：开一行 / 收尾（error 空 = 完成）/ 取消（取消态收尾）。
   void beginPredictionTask(const QString &title);
@@ -218,6 +247,7 @@ private:
   QPointer<PaleoTaskService> m_taskSvc;
   QPointer<PaleoTask> m_task;
   std::unique_ptr<paleo::jobs::JobRunner<PolygonizeJob>> m_polygonizeRunner;
+  std::unique_ptr<paleo::jobs::JobRunner<ComposeJob>> m_composeRunner;
   QString m_predictionHint;
   mutable QString m_logVersion;
   mutable LasDoc m_logCache;

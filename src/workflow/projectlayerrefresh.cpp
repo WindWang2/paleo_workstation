@@ -1,8 +1,9 @@
 // 层：功能
 #include "projectlayerrefresh.h"
-#include "welltrajectorylayer.h"
 #include "../catalog/datacatalog.h"
+#include "../services/futuretask.h"
 #include "../services/projectdata.h"
+#include "welltrajectorylayer.h"
 #include <QFile>
 #include <QFutureWatcher>
 #include <QJsonArray>
@@ -52,20 +53,37 @@ void ProjectLayerRefreshWorkflow::request(DataCatalog *catalog, const QString &d
   const auto stop = m_stop;
   auto *watcher = new QFutureWatcher<ProjectLayerData>(this);
   watcher->setObjectName("projectLayerRefreshWatcher");
-  connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, generation, sequence, directory] {
-    const auto data = watcher->result(); watcher->deleteLater(); m_running = false;
-    if (generation == m_generation && m_catalog && sequence == m_catalog->mutationSeq())
-      emit prepared(directory, sequence, data);
-    else if (generation == m_generation && m_catalog)
-      m_pending = true; // changed() 取序号早于 recordOp，不发布旧快照
-    if (m_pending) request(m_catalog, m_directory);
-  });
-  watcher->setFuture(QtConcurrent::run([snapshot, directory, stop] {
-    return prepare(*snapshot, directory, stop);
-  }));
+  connect(watcher, &QFutureWatcherBase::finished, this,
+          [this, watcher, generation, sequence, directory] {
+            const bool cancelled = watcher->future().isCanceled();
+            const auto data = !cancelled && watcher->future().resultCount()
+                                  ? watcher->result()
+                                  : ProjectLayerData{};
+            watcher->deleteLater();
+            m_running = false;
+            if (!cancelled && generation == m_generation && m_catalog &&
+                sequence == m_catalog->mutationSeq())
+              emit prepared(directory, sequence, data);
+            else if (!cancelled && generation == m_generation && m_catalog)
+              m_pending = true; // changed() 取序号早于 recordOp，不发布旧快照
+            if (m_pending)
+              request(m_catalog, m_directory);
+          });
+  const auto future = QtConcurrent::run(
+      paleo::tasks::pool(m_tasks), [snapshot, directory, stop] {
+        return prepare(*snapshot, directory, stop);
+      });
+  auto *task = paleo::tasks::track(m_tasks, watcher, future,
+                                   tr("准备井位与井轨迹"), true);
+  if (task)
+    connect(task, &PaleoTask::cancelAsked, watcher,
+            [stop] { stop->store(true); });
+  watcher->setFuture(future);
 }
 void ProjectLayerRefreshWorkflow::cancel()
 {
   ++m_generation; m_pending = false; m_catalog.clear(); m_directory.clear();
   if (m_stop) m_stop->store(true);
 }
+
+ProjectLayerRefreshWorkflow::~ProjectLayerRefreshWorkflow() { cancel(); }

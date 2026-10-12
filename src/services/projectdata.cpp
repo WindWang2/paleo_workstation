@@ -321,7 +321,7 @@ ProjectDataFacade::trajectoryFor(const QString &wellId, QString *error) const
 HorizonRasterInfo ProjectDataFacade::horizonRasterDecl(const QString &horizon) const
 {
   HorizonRasterInfo info;
-  if (!m_manifest)
+  if (!m_manifest && !m_declarationSnapshot)
     return info;
 
   // Prefer the exact "horizon.<H>" declaration id, then any "horizon."-
@@ -331,8 +331,9 @@ HorizonRasterInfo ProjectDataFacade::horizonRasterDecl(const QString &horizon) c
   // "no raster declared for this horizon".
   QVector<LayerDeclaration> decls;
   QString readErr;
-  if (!m_manifest->readAll(&decls, &readErr))
-  {
+  if (m_declarationSnapshot)
+    decls = *m_declarationSnapshot;
+  else if (!m_manifest->readAll(&decls, &readErr)) {
     m_lastError = tr("无法读取图层清单（层位 %1 栅格声明）：%2")
                       .arg(horizon, readErr.isEmpty() ? tr("未知错误") : readErr);
     return info;
@@ -422,4 +423,14 @@ QVector<CatalogVersion> ProjectDataFacade::downstreamClosureOf(
   if (!m_catalog || !m_catalog->isOpen())
     return {};
   return m_catalog->downstreamClosure(versionId);
+}
+
+std::shared_ptr<DataCatalog> ProjectDataFacade::catalogSnapshot() const {
+  return m_catalog ? std::shared_ptr<DataCatalog>(
+                         m_catalog->createStagingCopy(QString()))
+                   : nullptr;
+}
+void ProjectDataFacade::setDeclarationSnapshot(
+    const QVector<LayerDeclaration> &declarations) {
+  m_declarationSnapshot = declarations;
 }

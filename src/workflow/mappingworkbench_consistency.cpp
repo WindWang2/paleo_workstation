@@ -1,14 +1,18 @@
 // 层：功能
 // facies-ux 4：地震相 × 测井相预测一致性报告（编排：取样在此，统计在
 // domain/faciesconsistency）。
-#include "mappingworkbench.h"
 #include "../domain/faciesconsistency.h"
 #include "../qgis/qgislayerservice.h"
 #include "../qgis/qgisprojectservice.h"
+#include "../services/paleotaskservice.h"
+#include "mappingworkbench.h"
 #include <QDateTime>
 #include <QDir>
 #include <QJsonDocument>
 #include <QSaveFile>
+#include <QTemporaryDir>
+#include <QUuid>
+#include <cmath>
 #include <qgscoordinatetransform.h>
 #include <qgsfeatureiterator.h>
 #include <qgsfeaturerequest.h>
@@ -17,7 +21,7 @@
 #include <qgsrasterdataprovider.h>
 #include <qgsrasterlayer.h>
 #include <qgsvectorlayer.h>
-#include <cmath>
+#include <qgsvectorlayerfeatureiterator.h>
 
 namespace {
 void fail(QString *error, const QString &text) {
@@ -57,9 +61,10 @@ QVariantList MappingWorkbench::consistencyCandidates(const QString &h) const {
   return out;
 }
 
-QVariantMap MappingWorkbench::faciesConsistency(const QString &layerId,
-                                                QString *error,
-                                                const QString &counterpartId) {
+QVariantMap MappingWorkbench::consistencyImpl(const QString &layerId,
+                                              QString *error,
+                                              const QString &counterpartId,
+                                              bool background) {
   const auto d = declaration(layerId);
   if (!ready(d.horizon, error))
     return {};
@@ -112,79 +117,177 @@ QVariantMap MappingWorkbench::faciesConsistency(const QString &layerId,
                                    m_project && m_project->project()
                                        ? m_project->project()->transformContext()
                                        : QgsProject::instance()->transformContext());
-  auto *raster = qobject_cast<QgsRasterLayer *>(seismic);
+  auto *rasterLayer = qobject_cast<QgsRasterLayer *>(seismic);
   auto *polygons = qobject_cast<QgsVectorLayer *>(seismic);
   if (polygons && polygons->fields().indexOf("facies_code") < 0) {
     fail(error, tr("地震相矢量缺少 facies_code 相编码字段"));
     return {};
   }
-  QVector<paleo::facies::ConsistencySample> samples;
-  QgsFeatureIterator it = wells->getFeatures();
-  QgsFeature f;
-  while (it.nextFeature(f)) {
-    paleo::facies::ConsistencySample s;
-    s.wellId = f.attribute("id").toString();
-    s.wellName = wells->fields().indexOf("name") >= 0 ? f.attribute("name").toString()
-                                                      : s.wellId;
-    if (s.wellName.isEmpty())
-      s.wellName = s.wellId;
-    bool ok = false;
-    const int code = f.attribute("facies_code").toInt(&ok);
-    if (ok && !f.attribute("facies_code").isNull())
-      s.wellCode = code;
-    if (!f.hasGeometry()) {
-      samples << s;
-      continue;
+  const QVariantMap metadata{
+      {"horizon", d.horizon},
+      {"well_layer", wellId},
+      {"well_title", declaration(wellId).title},
+      {"well_version", versionForLayer(wellId).id},
+      {"seismic_layer", seismicId},
+      {"seismic_title", declaration(seismicId).title},
+      {"seismic_version", versionForLayer(seismicId).id}};
+  auto wellSource = std::make_shared<QgsVectorLayerFeatureSource>(wells);
+  auto polygonSource =
+      polygons ? std::make_shared<QgsVectorLayerFeatureSource>(polygons)
+               : nullptr;
+  const QString rasterUri = rasterLayer ? rasterLayer->source() : QString();
+  const auto rasterCrs = seismic->crs();
+  const qint64 total = wells->featureCount();
+  auto compute = [wellSource, polygonSource, rasterUri, rasterCrs, toSeismic,
+                  schema, metadata,
+                  total](const std::function<bool()> &cancel,
+                         const std::function<void(int)> &progress,
+                         QString *error) mutable -> QVariantMap {
+    std::unique_ptr<QgsRasterLayer> raster;
+    if (!rasterUri.isEmpty()) {
+      raster =
+          std::make_unique<QgsRasterLayer>(rasterUri, "consistency", "gdal");
+      if (!raster->isValid()) {
+        fail(error, QObject::tr("无法读取地震相栅格"));
+        return {};
+      }
+      raster->setCrs(rasterCrs);
     }
-    QgsPointXY pt = f.geometry().centroid().asPoint();
-    s.x = pt.x();
-    s.y = pt.y();
-    try {
-      if (toSeismic.isValid() && !toSeismic.isShortCircuited())
-        pt = toSeismic.transform(pt);
-    } catch (...) {
-      samples << s;
-      continue;
-    }
-    if (raster && raster->dataProvider()) {
-      bool valid = false;
-      const double v = raster->dataProvider()->sample(pt, 1, &valid);
-      if (valid && std::isfinite(v))
-        s.seismicCode = static_cast<int>(std::lround(v));
-    } else if (polygons) {
-      QgsFeatureRequest req;
-      req.setFilterRect(QgsRectangle(pt.x(), pt.y(), pt.x(), pt.y()));
-      QgsFeatureIterator pit = polygons->getFeatures(req);
-      QgsFeature pf;
-      const QgsGeometry probe = QgsGeometry::fromPointXY(pt);
-      while (pit.nextFeature(pf)) {
-        if (!pf.hasGeometry() || !pf.geometry().intersects(probe))
-          continue;
-        bool cok = false;
-        const int c = pf.attribute("facies_code").toInt(&cok);
-        if (cok && !pf.attribute("facies_code").isNull()) {
-          s.seismicCode = c;
-          break;
+    QVector<paleo::facies::ConsistencySample> samples;
+    QgsFeatureIterator it = wellSource->getFeatures();
+    QgsFeature f;
+    qint64 done = 0;
+    while (it.nextFeature(f)) {
+      if (cancel && cancel()) {
+        fail(error, QObject::tr("已取消"));
+        return {};
+      }
+      if (progress && (++done % 32 == 0 || done == total))
+        progress(total > 0 ? int(95 * done / total) : 0);
+      paleo::facies::ConsistencySample s;
+      s.wellId = f.attribute("id").toString();
+      s.wellName = wellSource->fields().indexOf("name") >= 0
+                       ? f.attribute("name").toString()
+                       : s.wellId;
+      if (s.wellName.isEmpty())
+        s.wellName = s.wellId;
+      bool ok = false;
+      const int code = f.attribute("facies_code").toInt(&ok);
+      if (ok && !f.attribute("facies_code").isNull())
+        s.wellCode = code;
+      if (!f.hasGeometry()) {
+        samples << s;
+        continue;
+      }
+      QgsPointXY pt = f.geometry().centroid().asPoint();
+      s.x = pt.x();
+      s.y = pt.y();
+      try {
+        if (toSeismic.isValid() && !toSeismic.isShortCircuited())
+          pt = toSeismic.transform(pt);
+      } catch (...) {
+        samples << s;
+        continue;
+      }
+      if (raster && raster->dataProvider()) {
+        bool valid = false;
+        const double v = raster->dataProvider()->sample(pt, 1, &valid);
+        if (valid && std::isfinite(v))
+          s.seismicCode = static_cast<int>(std::lround(v));
+      } else if (polygonSource) {
+        QgsFeatureRequest req;
+        req.setFilterRect(QgsRectangle(pt.x(), pt.y(), pt.x(), pt.y()));
+        QgsFeatureIterator pit = polygonSource->getFeatures(req);
+        QgsFeature pf;
+        const QgsGeometry probe = QgsGeometry::fromPointXY(pt);
+        while (pit.nextFeature(pf)) {
+          if (cancel && cancel())
+            return {};
+          if (!pf.hasGeometry() || !pf.geometry().intersects(probe))
+            continue;
+          bool cok = false;
+          const int c = pf.attribute("facies_code").toInt(&cok);
+          if (cok && !pf.attribute("facies_code").isNull()) {
+            s.seismicCode = c;
+            break;
+          }
         }
       }
+      samples << s;
     }
-    samples << s;
+    if (samples.isEmpty()) {
+      fail(error, tr("测井相结果没有井点"));
+      return {};
+    }
+    const auto report = paleo::facies::computeConsistency(samples, schema);
+    QVariantMap out = report.toVariant(schema);
+    for (auto it = metadata.cbegin(); it != metadata.cend(); ++it)
+      out.insert(it.key(), it.value());
+    out.insert("created_at",
+               QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+    return out;
+  };
+  if (background && m_taskSvc) {
+    auto report = std::make_shared<QVariantMap>();
+    auto temporary = std::make_shared<QTemporaryDir>();
+    if (!temporary->isValid()) {
+      fail(error, tr("无法创建报告暂存目录"));
+      return {};
+    }
+    const QString tempPath = temporary->filePath("report.json");
+    const auto catalog = m_catalog;
+    const QString projectDir = m_dir;
+    const quint64 sequence = m_catalog->mutationSeq();
+    auto *task = m_taskSvc->start(
+        tr("%1 测井相与地震相一致性比较").arg(d.horizon),
+        [compute, report, temporary, tempPath](PaleoTask *running) mutable {
+          QString error;
+          *report = compute(
+              [running] { return running->cancelRequested(); },
+              [running](int p) { running->reportStage("build", p); }, &error);
+          if (!error.isEmpty() || running->cancelRequested())
+            return error;
+          if (report->isEmpty())
+            return QObject::tr("一致性比较未返回结果");
+          QSaveFile file(tempPath);
+          const auto bytes = QJsonDocument::fromVariant(*report).toJson(
+              QJsonDocument::Indented);
+          if (!file.open(QIODevice::WriteOnly) ||
+              file.write(bytes) != bytes.size() || !file.commit())
+            return file.errorString();
+          return QString();
+        });
+    connect(task, &PaleoTask::finished, this,
+            [this, task, catalog, projectDir, sequence, report, temporary,
+             tempPath] {
+              if (task->state() != PaleoTask::State::Succeeded) {
+                if (task->state() == PaleoTask::State::Failed)
+                  emit errorOccurred(task->errorText());
+                return;
+              }
+              if (catalog != m_catalog || m_dir != projectDir || !catalog ||
+                  sequence != catalog->mutationSeq() ||
+                  task->session() != m_taskSvc->session()) {
+                task->discardPublication();
+                return;
+              }
+              const QString directory = projectDir + "/artifacts/reports";
+              const QString path = directory + "/facies-consistency-" +
+                                   QUuid::createUuid().toString(QUuid::Id128) +
+                                   ".json";
+              if (!QDir().mkpath(directory) || !QFile::rename(tempPath, path)) {
+                task->failPublication(tr("一致性报告发布失败"));
+                emit errorOccurred(task->errorText());
+                return;
+              }
+              report->insert("report_path", path);
+              emit consistencyReady(*report);
+            });
+    return {{"queued", true}};
   }
-  if (samples.isEmpty()) {
-    fail(error, tr("测井相结果没有井点"));
+  QVariantMap out = compute({}, {}, error);
+  if (out.isEmpty())
     return {};
-  }
-  const auto report = paleo::facies::computeConsistency(samples, schema);
-  QVariantMap out = report.toVariant(schema);
-  out.insert("horizon", d.horizon);
-  out.insert("well_layer", wellId);
-  out.insert("well_title", declaration(wellId).title);
-  out.insert("well_version", versionForLayer(wellId).id);
-  out.insert("seismic_layer", seismicId);
-  out.insert("seismic_title", declaration(seismicId).title);
-  out.insert("seismic_version", versionForLayer(seismicId).id);
-  out.insert("created_at", QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
-  // 报告随工程留档（原子写、校验写入结果）——证据链可回看。
   const QString dir = m_dir + "/artifacts/reports";
   if (!QDir().mkpath(dir)) {
     fail(error, tr("无法创建报告目录：%1").arg(dir));
@@ -202,4 +305,17 @@ QVariantMap MappingWorkbench::faciesConsistency(const QString &layerId,
   }
   out.insert("report_path", path);
   return out;
+}
+
+QVariantMap MappingWorkbench::faciesConsistency(const QString &id,
+                                                QString *error,
+                                                const QString &other) {
+  return consistencyImpl(id, error, other, false);
+}
+bool MappingWorkbench::startFaciesConsistency(const QString &id, QString *error,
+                                              const QString &other) {
+  const auto result = consistencyImpl(id, error, other, true);
+  if (!result.isEmpty() && !result.value("queued").toBool())
+    emit consistencyReady(result);
+  return !result.isEmpty();
 }

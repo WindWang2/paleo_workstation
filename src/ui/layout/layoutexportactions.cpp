@@ -278,11 +278,17 @@ void PaleoLayoutExportActions::runExportUi( Format format )
     QString fallbackReason;
     if ( exportLayoutAsync( layout, path, format, dialog.dpi(), dialog.pageRange(), &fallbackReason ) )
       return;
-    if ( m_statusTarget && !fallbackReason.isEmpty() )
-      m_statusTarget->showMessage( tr( "%1——改为前台导出" ).arg( fallbackReason ), 4000 );
+    const ExportOutcome failure{
+        false,
+        fallbackReason.isEmpty() ? tr("无法创建后台导出任务") : fallbackReason,
+        {},
+        path};
+    emit exportFinished(path, false);
+    reportExportOutcome(failure);
+    return;
   }
 
-  // 同步路径（无任务服务的测试壳，或工程无法隔离到 worker）。#85：不再
+  // 同步路径（无任务服务的测试壳）。#85：不再
   // processEvents 泵事件「让进度框上屏」（点击回调里重入），只挂等待光标。
   QGuiApplication::setOverrideCursor( Qt::WaitCursor );
   const ExportOutcome outcome = exportLayout( layout, path, format, dialog.dpi(), dialog.pageRange() );
@@ -301,161 +307,15 @@ void PaleoLayoutExportActions::setInFlight( bool inFlight )
   }
 }
 
-namespace
-{
-  const QString kSnapRoot = QStringLiteral( "qgis" );
-  const QString kSnapLayers = QStringLiteral( "projectlayers" );
-  const QString kSnapTree = QStringLiteral( "layertree" );
-
-  QgsReadWriteContext absolutePathContext()
-  {
-    QgsReadWriteContext context;
-    context.setPathResolver( QgsPathResolver() ); // 空 base：路径原样（绝对）读写
-    return context;
-  }
-} // namespace
-
-bool PaleoLayoutExportActions::captureProjectSnapshot( const QgsProject *project,
-                                                       ProjectSnapshot &out, QString *reason )
-{
-  auto fail = [reason]( const QString &why ) {
-    if ( reason )
-      *reason = why;
-    return false;
-  };
-  out = ProjectSnapshot();
-  QDomDocument doc( kSnapRoot );
-  QDomElement root = doc.createElement( kSnapRoot );
-  doc.appendChild( root );
-  if ( !project )
-  {
-    out.xml = doc;
-    return true; // 无工程：版面只含非地图项，空私有工程即可
-  }
-
-  const QgsReadWriteContext context = absolutePathContext();
-  QDomElement layersEl = doc.createElement( kSnapLayers );
-  root.appendChild( layersEl );
-  const QMap<QString, QgsMapLayer *> layers = project->mapLayers();
-  for ( auto it = layers.cbegin(); it != layers.cend(); ++it )
-  {
-    QgsMapLayer *layer = it.value();
-    if ( !layer )
-      continue;
-    if ( layer->type() == Qgis::LayerType::Plugin )
-      return fail( tr( "图层「%1」是插件图层，无法在后台重建" ).arg( layer->name() ) );
-    auto *vector = qobject_cast<QgsVectorLayer *>( layer );
-    if ( vector && vector->isEditable() && vector->isModified() )
-      return fail( tr( "图层「%1」有未提交的编辑" ).arg( layer->name() ) );
-    QDomElement layerEl = doc.createElement( QStringLiteral( "maplayer" ) );
-    if ( !layer->writeLayerXml( layerEl, doc, context ) )
-      return fail( tr( "图层「%1」序列化失败" ).arg( layer->name() ) );
-    layersEl.appendChild( layerEl );
-    // memory 图层的 XML 只有字段定义没有要素：要素在 GUI 线程拷出（值类型，
-    // 隐式共享只读），worker 重建后灌回私有图层。
-    if ( vector && vector->providerType() == QLatin1String( "memory" ) )
-    {
-      QgsFeatureList features;
-      QgsFeature feature;
-      QgsFeatureIterator fit = vector->getFeatures();
-      while ( fit.nextFeature( feature ) )
-        features.append( feature );
-      out.memoryFeatures.insert( layer->id(), features );
-    }
-  }
-
-  QDomElement treeEl = doc.createElement( kSnapTree );
-  root.appendChild( treeEl );
-  if ( QgsLayerTree *tree = const_cast<QgsProject *>( project )->layerTreeRoot() )
-    tree->writeXml( treeEl, context );
-  if ( QgsMapThemeCollection *themes = const_cast<QgsProject *>( project )->mapThemeCollection() )
-    themes->writeXml( doc ); // 写进 <qgis><visibility-presets>
-
-  out.xml = doc;
-  out.crs = project->crs();
-  out.transformContext = project->transformContext();
-  out.ellipsoid = project->ellipsoid();
-  out.title = project->title();
-  out.homePath = project->homePath();
-  out.customVariables = project->customVariables();
-  return true;
+bool PaleoLayoutExportActions::captureProjectSnapshot(const QgsProject *project,
+                                                      ProjectSnapshot &out,
+                                                      QString *reason) {
+  return PaleoLayoutExport::captureProjectSnapshot(project, out, reason);
 }
-
-std::unique_ptr<QgsProject> PaleoLayoutExportActions::rebuildProject( const ProjectSnapshot &snapshot,
-                                                                      QString *error )
-{
-  auto project = std::make_unique<QgsProject>();
-  project->setCrs( snapshot.crs );
-  project->setTransformContext( snapshot.transformContext );
-  if ( !snapshot.ellipsoid.isEmpty() )
-    project->setEllipsoid( snapshot.ellipsoid );
-  project->setTitle( snapshot.title );
-  if ( !snapshot.homePath.isEmpty() )
-    project->setPresetHomePath( snapshot.homePath );
-  project->setCustomVariables( snapshot.customVariables );
-
-  QgsReadWriteContext context = absolutePathContext();
-  context.setTransformContext( snapshot.transformContext );
-  const QDomElement root = snapshot.xml.documentElement();
-
-  QList<QgsMapLayer *> layers;
-  const QDomElement layersEl = root.firstChildElement( kSnapLayers );
-  for ( QDomElement layerEl = layersEl.firstChildElement( QStringLiteral( "maplayer" ) ); !layerEl.isNull();
-        layerEl = layerEl.nextSiblingElement( QStringLiteral( "maplayer" ) ) )
-  {
-    bool typeOk = false;
-    const Qgis::LayerType type = QgsMapLayerFactory::typeFromString( layerEl.attribute( QStringLiteral( "type" ) ), typeOk );
-    if ( !typeOk )
-      continue;
-    QgsMapLayerFactory::LayerOptions options( snapshot.transformContext );
-    options.loadDefaultStyle = false;
-    const QString provider = layerEl.firstChildElement( QStringLiteral( "provider" ) ).text();
-    std::unique_ptr<QgsMapLayer> layer( QgsMapLayerFactory::createLayer( QString(), QString(), type, options, provider ) );
-    if ( !layer )
-      continue;
-    // readLayerXml 失败（数据源离线等）仍保留该图层：与活工程里「无效图层」
-    // 同口径，地图项照常跳过它，而不是整次导出失败。
-    layer->readLayerXml( layerEl, context );
-    if ( auto *vector = qobject_cast<QgsVectorLayer *>( layer.get() ) )
-    {
-      const auto feats = snapshot.memoryFeatures.constFind( vector->id() );
-      if ( feats != snapshot.memoryFeatures.cend() && vector->dataProvider() )
-      {
-        QgsFeatureList copy = feats.value();
-        vector->dataProvider()->addFeatures( copy );
-        vector->updateExtents();
-      }
-    }
-    layers.append( layer.release() );
-  }
-  if ( !layers.isEmpty() && project->addMapLayers( layers, false ).size() != layers.size() )
-  {
-    if ( error )
-      *error = tr( "私有工程装载图层失败" );
-    return nullptr;
-  }
-  for ( QgsMapLayer *layer : std::as_const( layers ) )
-    layer->resolveReferences( project.get() );
-
-  const QDomElement treeGroup = root.firstChildElement( kSnapTree ).firstChildElement( QStringLiteral( "layer-tree-group" ) );
-  if ( !treeGroup.isNull() )
-  {
-    QgsLayerTree *tree = project->layerTreeRoot();
-    tree->readChildrenFromXml( treeGroup, context );
-    tree->resolveReferences( project.get() );
-    const QDomElement order = treeGroup.firstChildElement( QStringLiteral( "custom-order" ) );
-    if ( !order.isNull() )
-    {
-      QStringList ids;
-      for ( QDomElement item = order.firstChildElement( QStringLiteral( "item" ) ); !item.isNull();
-            item = item.nextSiblingElement( QStringLiteral( "item" ) ) )
-        ids << item.text();
-      tree->setCustomLayerOrder( ids );
-      tree->setHasCustomLayerOrder( order.attribute( QStringLiteral( "enabled" ) ).toInt() != 0 );
-    }
-  }
-  project->mapThemeCollection()->readXml( snapshot.xml );
-  return project;
+std::unique_ptr<QgsProject>
+PaleoLayoutExportActions::rebuildProject(const ProjectSnapshot &snapshot,
+                                         QString *error) {
+  return PaleoLayoutExport::rebuildProject(snapshot, error);
 }
 
 bool PaleoLayoutExportActions::exportLayoutAsync( QgsLayout *layout, const QString &outPath,

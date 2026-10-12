@@ -119,7 +119,9 @@ QWidget *DataPreviewTabs::buildContent(const QString &assetId, QWidget *page)
   // DERIVED 版本，不覆盖 RAW，也不生成 PDF。
   if (OfficePreviewSession::supports(abs))
   {
-    auto *office = new OfficePreviewWidget(abs, sourceVersion.managed ? QString() : sourceVersion.sha256, host);
+    auto *office = new OfficePreviewWidget(
+        abs, sourceVersion.managed ? QString() : sourceVersion.sha256, host,
+        m_doc ? m_doc->taskService() : nullptr);
     const QString editAsset = assetId;
     const QString editParent = sourceVersion.id;
     connect(office, &OfficePreviewWidget::editSaved, host, [this, office, editAsset, editParent](const QString &saved) {

@@ -18,6 +18,7 @@
 #include <memory>
 #include "../services/paleotaskservice.h"
 
+#include <qgscoordinatetransform.h>
 #include <qgslayout.h>
 #include <qgslayoutitem.h>
 #include <qgslayoutitemlabel.h>
@@ -25,9 +26,9 @@
 #include <qgslayoutundostack.h>
 #include <qgsmaplayer.h>
 #include <qgsprintlayout.h>
-#include <qgsrectangle.h>
-#include <qgscoordinatetransform.h>
 #include <qgsproject.h>
+#include <qgsreadwritecontext.h>
+#include <qgsrectangle.h>
 
 namespace
 {
@@ -310,79 +311,147 @@ Result run( const Request &request )
   return batch.result;
 }
 
-PaleoTask *startAsync( const Request &request, PaleoTaskService *tasks,
-                       std::function<void( const Result &, bool cancelled )> done, QString *error )
-{
-  if ( !tasks )
-  {
-    if ( error )
-      *error = QObject::tr( "任务中心不可用" );
-    return nullptr;
-  }
-  auto batch = std::make_shared<Batch>();
-  batch->request = request;
-  const QString titleText = QObject::tr( "按层位批量出图 · %1 个层位" ).arg( request.horizonLayers.size() );
-  // 单飞：同一版面骨架同时只跑一个后台批次（两批交错改同一版面会互相
-  // 覆盖内容、复原错乱）。
+PaleoTask *startAsync(const Request &request, PaleoTaskService *tasks,
+                      std::function<void(const Result &, bool)> done,
+                      QString *error) {
   static const char *kBusy = "paleoBatchExportRunning";
-  if ( request.layout && request.layout->property( kBusy ).toBool() )
-  {
-    if ( error )
-      *error = QObject::tr( "该版面已有批量出图在进行，请等待完成或在任务中心取消" );
+  const auto reject = [&](const QString &why) -> PaleoTask * {
+    if (error)
+      *error = why;
     return nullptr;
-  }
-  QPointer<PaleoTask> task = tasks->beginExternal( titleText );
-  if ( !task )
-  {
-    if ( error )
-      *error = QObject::tr( "无法创建任务" );
-    return nullptr;
-  }
-  const quint64 session = task->session();
-  QPointer<PaleoTaskService> service( tasks );
-  if ( !batch->begin() )
-  {
-    task->finishExternal( batch->result.horizons.isEmpty() ? QObject::tr( "未提供版面或工程" )
-                                                           : batch->result.horizons.value( 0 ).error );
-    if ( done )
-      done( batch->result, false );
-    return task;
-  }
-  if ( batch->layout )
-    batch->layout->setProperty( kBusy, true );
-  task->reportBytes( 0, std::max<qint64>( 1, batch->horizons.size() ) );
-  // UIS-03：版面渲染绑定 GUI 线程（QGraphicsScene 线程亲和），不能整体搬到
-  // worker；改为每个事件循环回合只出一个层位——界面在层位之间保持响应，
-  // 任务中心可见进度并可取消；会话切换（工程关闭/切换）即中止并复原版面。
-  auto tick = std::make_shared<std::function<void()>>();
-  *tick = [batch, task, service, session, done, tick]() {
-    const bool stale = !service || service->session() != session;
-    const bool cancelled = !task || task->cancelRequested() || stale;
-    if ( cancelled || batch->done() )
-    {
-      if ( cancelled )
-        batch->failRemaining( stale ? QObject::tr( "工程已切换，批量出图已中止" )
-                                    : QObject::tr( "已取消" ) );
-      batch->finish();
-      if ( batch->layout )
-        batch->layout->setProperty( kBusy, QVariant() );
-      if ( task )
-        task->finishExternal( batch->result.failed > 0 && !cancelled
-                                  ? batch->result.summary()
-                                  : QString() );
-      if ( done )
-        done( batch->result, cancelled );
-      *tick = nullptr; // 断开自引用
-      return;
-    }
-    if ( task )
-      task->reportDetail( QObject::tr( "导出层位 %1" ).arg( batch->horizons.at( batch->next ) ) );
-    batch->step();
-    if ( task )
-      task->reportBytes( batch->next, std::max<qint64>( 1, batch->horizons.size() ) );
-    QTimer::singleShot( 0, service ? static_cast<QObject *>( service.data() ) : qApp, *tick );
   };
-  QTimer::singleShot( 0, tasks, *tick );
+  if (!tasks)
+    return reject(QObject::tr("任务中心不可用"));
+  if (!request.layout || !request.catalog || request.projectDir.isEmpty())
+    return reject(QObject::tr("未提供版面或工程数据目录"));
+  if (request.layout->property(kBusy).toBool())
+    return reject(
+        QObject::tr("该版面已有批量出图在进行，请等待完成或在任务中心取消"));
+  struct Job {
+    Request request;
+    PaleoLayoutExport::ProjectSnapshot project;
+    QDomDocument layout;
+    QMap<QString, QStringList> layerIds;
+    QPointer<QgsPrintLayout> ownerLayout;
+    QPointer<DataCatalog> ownerCatalog;
+    quint64 sequence = 0;
+    std::unique_ptr<QTemporaryDir> staging;
+    std::unique_ptr<DataCatalog> catalog;
+    QVector<CatalogOp> journal;
+    Result result;
+    QString error;
+  };
+  auto job = std::make_shared<Job>();
+  job->request = request;
+  job->request.layout = nullptr;
+  job->request.catalog = nullptr;
+  job->request.horizonLayers.clear();
+  job->ownerLayout = request.layout;
+  job->ownerCatalog = request.catalog;
+  job->sequence = request.catalog->mutationSeq();
+  for (auto it = request.horizonLayers.cbegin();
+       it != request.horizonLayers.cend(); ++it) {
+    job->layerIds[it.key()] = {};
+    for (auto *layer : it.value())
+      if (layer)
+        job->layerIds[it.key()].append(layer->id());
+  }
+  if (!PaleoLayoutExport::captureProjectSnapshot(request.layout->project(),
+                                                 job->project, &job->error))
+    return reject(job->error);
+  QgsReadWriteContext context;
+  job->layout.appendChild(request.layout->writeXml(job->layout, context));
+  job->staging = std::make_unique<QTemporaryDir>(request.projectDir +
+                                                 "/.horizon-export-XXXXXX");
+  if (!job->staging->isValid())
+    return reject(QObject::tr("无法创建出图暂存目录"));
+  job->catalog = request.catalog->createStagingCopy(job->staging->path());
+  job->result.total = job->layerIds.size();
+  request.layout->setProperty(kBusy, true);
+  auto *task = tasks->start(
+      QObject::tr("按层位批量出图 · %1 个层位").arg(job->layerIds.size()),
+      [job](PaleoTask *task) -> QString {
+        auto project =
+            PaleoLayoutExport::rebuildProject(job->project, &job->error);
+        if (!project)
+          return job->error;
+        QgsPrintLayout layout(project.get());
+        QgsReadWriteContext context;
+        if (!layout.readXml(job->layout.documentElement(), job->layout,
+                            context))
+          return job->error = QObject::tr("版面快照重建失败");
+        Batch batch;
+        batch.request = job->request;
+        batch.request.layout = &layout;
+        batch.request.catalog = job->catalog.get();
+        batch.request.projectDir = job->staging->path();
+        for (auto it = job->layerIds.cbegin(); it != job->layerIds.cend();
+             ++it) {
+          batch.request.horizonLayers[it.key()] = {};
+          for (const auto &id : it.value())
+            if (auto *layer = project->mapLayer(id))
+              batch.request.horizonLayers[it.key()].append(layer);
+        }
+        if (batch.begin()) {
+          while (!batch.done()) {
+            if (task->cancelRequested()) {
+              batch.failRemaining(QObject::tr("已取消"));
+              break;
+            }
+            task->reportDetail(
+                QObject::tr("导出层位 %1").arg(batch.horizons.at(batch.next)));
+            batch.step();
+            task->reportBytes(batch.next,
+                              std::max(1, int(batch.horizons.size())));
+          }
+          batch.finish();
+        }
+        job->result = batch.result;
+        job->journal = job->catalog->journal();
+        if (job->result.failed && !task->cancelRequested())
+          job->error = job->result.summary();
+        return job->error;
+      });
+  QObject::connect(task, &PaleoTask::finished, tasks, [job, task, tasks, done] {
+    if (job->ownerLayout)
+      job->ownerLayout->setProperty(kBusy, QVariant());
+    const bool stale =
+        task->session() != tasks->session() || !job->ownerCatalog ||
+        job->ownerCatalog->projectDir() != job->request.projectDir ||
+        job->ownerCatalog->mutationSeq() != job->sequence;
+    QString why;
+    if (stale) {
+      task->discardPublication();
+      why = QObject::tr("工程数据已变化，出图成果未登记，请重新导出");
+    } else if (!publishMapExportJournal(
+                   job->ownerCatalog, job->request.projectDir,
+                   job->staging->path(), job->journal, &why)) {
+      task->failPublication(why);
+    }
+    if (job->result.horizons.isEmpty() && !job->error.isEmpty()) {
+      for (const auto &horizon : job->layerIds.keys())
+        job->result.horizons.append({horizon, false, {}, {}, {}, job->error});
+      job->result.failed = job->result.total;
+    }
+    for (auto &outcome : job->result.horizons) {
+      if (!outcome.ok)
+        continue;
+      if (!why.isEmpty()) {
+        outcome.ok = false;
+        outcome.error = why;
+        outcome.file.clear();
+        outcome.assetId.clear();
+        outcome.sha256.clear();
+        --job->result.succeeded;
+        ++job->result.failed;
+      } else {
+        outcome.file = job->ownerCatalog->versionFilePath(
+            job->ownerCatalog->currentVersion(outcome.assetId));
+      }
+    }
+    if (done)
+      done(job->result, task->cancelRequested() || stale);
+  });
   return task;
 }
 

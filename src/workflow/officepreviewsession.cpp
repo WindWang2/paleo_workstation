@@ -1,6 +1,7 @@
 // 层：功能
 #include "officepreviewsession.h"
 #include "../catalog/datacatalog.h"
+#include "../services/futuretask.h"
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
@@ -124,59 +125,69 @@ void OfficePreviewSession::open(const QString &path, const QString &expectedSha)
   const auto cancelled = m_verificationCancelled;
   const auto directory = m_sourceCopy;
   auto *watcher = new QFutureWatcher<VerifiedOfficeSource>(this);
-  connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, generation] {
-    const VerifiedOfficeSource verified = watcher->result();
-    watcher->deleteLater();
-    if (generation != m_generation) return;
-    if (!verified.error.isEmpty())
-    {
-      fail(verified.error);
-      return;
-    }
-    if (verified.path.isEmpty()) return;
-    launch(verified.path);
-  });
-  watcher->setFuture(QtConcurrent::run([path, expectedSha, cancelled, directory] {
-    VerifiedOfficeSource verified;
-    const QFileInfo info(path);
-    if (!directory || !directory->isValid() || !info.isFile() || info.isSymLink())
-    {
-      verified.error = tr("无法读取 Office 原件：%1").arg(path);
-      return verified;
-    }
-    QString copyName = info.fileName();
-    if (!DataCatalog::isSafePathSegment(copyName))
-    {
-      const QString suffix = info.suffix();
-      copyName = suffix.isEmpty() ? QStringLiteral("source") : QStringLiteral("source.") + suffix;
-    }
-    const QString copyPath = directory->filePath(copyName);
-    if (!QFile::copy(info.absoluteFilePath(), copyPath))
-    {
-      verified.error = tr("无法读取 Office 原件：%1").arg(path);
-      return verified;
-    }
-    if (!expectedSha.isEmpty())
-    {
-      QString hashError;
-      const QString actual = DataCatalog::sha256FileHex(copyPath, &hashError, [cancelled] {
-        return cancelled->load();
+  connect(watcher, &QFutureWatcherBase::finished, this,
+          [this, watcher, generation] {
+            const VerifiedOfficeSource verified =
+                watcher->future().isCanceled() ||
+                        !watcher->future().resultCount()
+                    ? VerifiedOfficeSource{}
+                    : watcher->result();
+            watcher->deleteLater();
+            if (generation != m_generation)
+              return;
+            if (!verified.error.isEmpty()) {
+              fail(verified.error);
+              return;
+            }
+            if (verified.path.isEmpty())
+              return;
+            launch(verified.path);
+          });
+  const auto future = QtConcurrent::run(
+      paleo::tasks::pool(m_tasks), [path, expectedSha, cancelled, directory] {
+        VerifiedOfficeSource verified;
+        const QFileInfo info(path);
+        if (!directory || !directory->isValid() || !info.isFile() ||
+            info.isSymLink()) {
+          verified.error = tr("无法读取 Office 原件：%1").arg(path);
+          return verified;
+        }
+        QString copyName = info.fileName();
+        if (!DataCatalog::isSafePathSegment(copyName)) {
+          const QString suffix = info.suffix();
+          copyName = suffix.isEmpty() ? QStringLiteral("source")
+                                      : QStringLiteral("source.") + suffix;
+        }
+        const QString copyPath = directory->filePath(copyName);
+        if (!QFile::copy(info.absoluteFilePath(), copyPath)) {
+          verified.error = tr("无法读取 Office 原件：%1").arg(path);
+          return verified;
+        }
+        if (!expectedSha.isEmpty()) {
+          QString hashError;
+          const QString actual = DataCatalog::sha256FileHex(
+              copyPath, &hashError, [cancelled] { return cancelled->load(); });
+          if (cancelled->load())
+            return VerifiedOfficeSource{};
+          if (actual.isEmpty()) {
+            verified.error = tr("无法读取 Office 原件：%1").arg(path);
+            return verified;
+          }
+          if (actual.compare(expectedSha, Qt::CaseInsensitive) != 0) {
+            verified.error =
+                tr("Office 原件与入库时的 SHA-256 不一致，请重新导入");
+            return verified;
+          }
+        }
+        verified.path = copyPath;
+        return verified;
       });
-      if (cancelled->load()) return VerifiedOfficeSource{};
-      if (actual.isEmpty())
-      {
-        verified.error = tr("无法读取 Office 原件：%1").arg(path);
-        return verified;
-      }
-      if (actual.compare(expectedSha, Qt::CaseInsensitive) != 0)
-      {
-        verified.error = tr("Office 原件与入库时的 SHA-256 不一致，请重新导入");
-        return verified;
-      }
-    }
-    verified.path = copyPath;
-    return verified;
-  }));
+  auto *task = paleo::tasks::track(m_tasks, watcher, future,
+                                   tr("准备 Office 文档预览"), true);
+  if (task)
+    connect(task, &PaleoTask::cancelAsked, watcher,
+            [cancelled] { cancelled->store(true); });
+  watcher->setFuture(future);
 }
 
 void OfficePreviewSession::launch(const QString &path)

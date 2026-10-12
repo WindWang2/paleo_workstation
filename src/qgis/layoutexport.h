@@ -1,9 +1,17 @@
 // 层：QGIS 封装
 #pragma once
 
+#include <QDomDocument>
+#include <QHash>
 #include <QString>
 #include <QStringList>
+#include <QVariantMap>
+#include <memory>
+#include <qgscoordinatereferencesystem.h>
+#include <qgscoordinatetransformcontext.h>
 
+class QgsProject;
+class QgsVectorLayerFeatureSource;
 class QgsLayout;
 class QgsPrintLayout;
 class QgisLayerService;
@@ -27,6 +35,21 @@ class QgisProjectService;
 //     siblings are reported back in ExportOutcome::files.
 namespace PaleoLayoutExport
 {
+
+// Capture declarations on their owner thread; reconstruct private QGIS objects
+// in the worker. Memory features are read from immutable feature sources there.
+struct ProjectSnapshot {
+  QDomDocument xml;
+  QHash<QString, std::shared_ptr<QgsVectorLayerFeatureSource>> memorySources;
+  QgsCoordinateReferenceSystem crs;
+  QgsCoordinateTransformContext transformContext;
+  QString ellipsoid, title, homePath;
+  QVariantMap customVariables;
+};
+bool captureProjectSnapshot(const QgsProject *project, ProjectSnapshot &out,
+                            QString *reason = nullptr);
+std::unique_ptr<QgsProject> rebuildProject(const ProjectSnapshot &snapshot,
+                                           QString *error = nullptr);
 
 enum class Format { Png, Pdf, Svg };
 

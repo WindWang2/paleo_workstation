@@ -32,7 +32,11 @@ JobRunnerBase::JobRunnerBase(QObject *dispatcher, QThread *ownerThread)
   Q_ASSERT(m_dispatcher->thread() == m_ownerThread);
 }
 
-JobRunnerBase::~JobRunnerBase() = default;
+JobRunnerBase::~JobRunnerBase() {
+  requestCancel();
+  if (m_shared)
+    m_shared->generation.fetch_add(1);
+}
 
 quint64 JobRunnerBase::currentGeneration() const
 {

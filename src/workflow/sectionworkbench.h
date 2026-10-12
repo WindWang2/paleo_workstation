@@ -11,11 +11,14 @@
 #include <functional>
 #include <memory>
 
+class PaleoTaskService;
 // Project-bound section interpretation. UI supplies intentions; this layer
 // reads, calibrates and versions well data without holding widgets.
 class SectionWorkbench : public QObject {
   Q_OBJECT
 public:
+  ~SectionWorkbench() override;
+  void setTaskService(PaleoTaskService *tasks) { m_tasks = tasks; }
   explicit SectionWorkbench(DataCatalog *catalog, QObject *parent = nullptr);
   QVariantList wells(const std::shared_ptr<std::atomic_bool> &stop = {});
   QVariantList savedSections() const;
@@ -46,6 +49,7 @@ signals:
   void alignmentsChanged();
 
 private:
+  PaleoTaskService *m_tasks = nullptr;
   void syncProject();
   seismic::TimeDepthModel modelFor(const QString &id, bool md, bool *ok) const;
   QString projectDir() const;

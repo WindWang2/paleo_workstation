@@ -420,32 +420,26 @@ void DataListPanel::showRecycleBin()
     emit statusMessage(tr("可回收清单已清空（不可撤销）"));
   });
   // 方向 30：物理删除（catalog + 磁盘双清；二次确认在对话框内）。
-  connect(&dlg, &RecycleBinDialog::purgeRequested, this, [&](const QStringList &ids) {
-    if (ids.isEmpty() || !cat->isOpen())
-      return;
-    const paleo::assetops::PurgeOutcome out =
-        paleo::assetops::purgeAssets(cat, pd, ids);
-    for (const QString &id : ids)
-      m_recycle.purge(id); // 清 sidecar 条目（不可恢复路径同形）
-    m_recycle.save();
-    reload();
-    refreshAssetTable();
-    emit entityRefreshRequested();
-    QString msg = tr("物理删除完成：%1 项，释放 %2 字节。")
-                      .arg(out.purgedAssetIds.size())
-                      .arg(out.bytesFreed);
-    if (!out.failedAssets.isEmpty() || !out.leftoverFiles.isEmpty())
-    {
-      QStringList lines{msg};
-      for (const QString &f : out.failedAssets)
-        lines << tr("· 被拒：%1").arg(f);
-      for (const QString &f : out.leftoverFiles)
-        lines << tr("· 残留文件（请手动清理）：%1").arg(f);
-      PaleoNotify::warning(&dlg, tr("物理删除（部分未完成）"), lines.join(QLatin1Char('\n')));
-    }
-    else
-      emit statusMessage(msg);
-  });
+  connect(m_storageController, &StorageGovernanceController::assetsPurged, &dlg,
+          [&] { reload(); });
+  connect(m_storageController, &StorageGovernanceController::cleanupFinished,
+          &dlg, [&, this](const paleo::assetops::PurgeOutcome &out) {
+            QString msg = tr("物理删除完成：%1 项，释放 %2 字节。")
+                              .arg(out.purgedAssetIds.size())
+                              .arg(out.bytesFreed);
+            if (!out.failedAssets.isEmpty() || !out.leftoverFiles.isEmpty()) {
+              QStringList lines{msg};
+              for (const QString &f : out.failedAssets)
+                lines << tr("· 被拒：%1").arg(f);
+              for (const QString &f : out.leftoverFiles)
+                lines << tr("· 残留文件（请手动清理）：%1").arg(f);
+              PaleoNotify::warning(&dlg, tr("物理删除（部分未完成）"),
+                                   lines.join(QLatin1Char('\n')));
+            } else
+              emit statusMessage(msg);
+          });
+  connect(&dlg, &RecycleBinDialog::purgeRequested, m_storageController,
+          &StorageGovernanceController::purgeAssets);
   dlg.exec();
 }
 
@@ -628,6 +622,7 @@ void DataListPanel::showHealthCheck()
   if (!cat || !cat->isOpen()) { emit statusMessage(tr("工程未打开，无法体检")); return; }
   CatalogHealthDialog dlg(this);
   StorageGovernanceController controller;
+  controller.setTaskService(m_doc ? m_doc->taskService() : nullptr);
   controller.setCatalog(cat);
   m_healthDlg = &dlg;
   const auto quickScan = [&] {

@@ -4,6 +4,7 @@
 #include "../metadata/paleoprojectstore.h"
 
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QElapsedTimer>
 #include <QMetaObject>
 #include <QPointer>
@@ -71,6 +72,8 @@ int PaleoTask::percent() const
 {
   if (m_state == State::Succeeded)
     return 100;
+  if (m_bytesDone == 0 && m_stagePercent >= 0)
+    return qBound(0, m_stagePercent, 100);
   if (m_bytesTotal > 0)
     return static_cast<int>(m_bytesDone * 100 / m_bytesTotal);
   return -1;
@@ -89,8 +92,24 @@ QString PaleoTask::etaText() const
 
 void PaleoTask::requestCancel()
 {
-  if (!m_cancel.exchange(true))
+  if (m_cancellable.load() && !m_cancel.exchange(true))
     emit cancelAsked();
+}
+
+void PaleoTask::discardPublication() {
+  if (m_state != State::Succeeded)
+    return;
+  m_cancel.store(true);
+  m_state = State::Cancelled;
+  emit changed();
+}
+
+void PaleoTask::failPublication(const QString &error) {
+  if (m_state != State::Succeeded)
+    return;
+  m_state = State::Failed;
+  m_error = error.isEmpty() ? tr("成果发布失败") : error;
+  emit changed();
 }
 
 void PaleoTask::finishExternal(const QString &error)
@@ -119,6 +138,11 @@ void PaleoTask::reportDetail(const QString &detail)
 
 void PaleoTask::reportStage(const QString &stage, int percent)
 {
+  const qint64 now = QDateTime::currentMSecsSinceEpoch();
+  const qint64 previous = m_lastStageReport.load();
+  if (percent < 100 && now - previous < 50)
+    return;
+  m_lastStageReport.store(now);
   QMetaObject::invokeMethod(
       this, [this, stage, percent]() { applyStage(stage, percent); },
       Qt::QueuedConnection);

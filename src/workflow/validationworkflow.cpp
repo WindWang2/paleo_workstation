@@ -8,6 +8,8 @@
 #include "../services/projectdata.h"
 #include "mappingworkflow.h"          // TimeResidualRow / computeTimeResiduals
 
+#include "../catalog/datacatalog.h"
+#include "../services/paleotaskservice.h"
 #include <QFile>
 #include <QVector>
 
@@ -63,10 +65,10 @@ PaleoProjectStore *ValidationWorkflow::projectStore() const
 
 QList<ValidationIssue> ValidationWorkflow::validate()
 {
-  QList<ValidationIssue> issues;
+  QList<ValidationIssue> issues = m_snapshotIssues;
   QgisLayerService *layers = m_layers.data();
   PaleoProjectStore *store = m_store.data();
-  QVector<LayerDeclaration> decls;
+  QVector<LayerDeclaration> decls = m_snapshotDeclarations;
   if ( layers )
   {
     QString manifestErr;
@@ -161,7 +163,7 @@ QList<ValidationIssue> ValidationWorkflow::validate()
       const double prop = m_residualThresholdMs;
       const double threshold = prop > 0.0 ? prop : 10.0;
       const QList<TimeResidualRow> rows =
-          computeTimeResiduals( pd, tgtHorizon, threshold );
+          computeTimeResiduals(pd, tgtHorizon, threshold, m_cancelled);
       // 残差行所属栅格图层（问题行/残差行的地图缩放目标与联动 layerId）。
       const HorizonRasterInfo rasterInfo =
           pd->horizonRasterDecl( tgtHorizon );
@@ -242,6 +244,87 @@ QList<ValidationIssue> ValidationWorkflow::validate()
     m_residualRows = rowMaps;
   }
 
+  m_lastIssues = issues;
   emit validationDone( issues.size() );
   return issues;
+}
+
+bool ValidationWorkflow::startValidation() {
+  if (!m_tasks) {
+    validate();
+    emit validationFinished(true);
+    return true;
+  }
+  if (m_validationTask && m_validationTask->running())
+    return false;
+  QVector<LayerDeclaration> declarations;
+  QString manifestError;
+  QList<ValidationIssue> initial;
+  if (m_layers && !m_layers->tryDeclared(&declarations, &manifestError)) {
+    ValidationIssue issue;
+    issue.severity = ValidationIssue::Error;
+    issue.code = "MANIFEST_READ_FAILED";
+    issue.message = manifestError;
+    initial << issue;
+  }
+  if (m_store)
+    for (const auto &d : declarations) {
+      QString reason;
+      if (m_store->layerBusy(d.layerId, &reason)) {
+        ValidationIssue issue;
+        issue.severity = ValidationIssue::Info;
+        issue.code = "BUSY";
+        issue.message = tr("图层 %1 正忙：%2").arg(d.layerId, reason);
+        issue.layerId = d.layerId;
+        issue.horizon = d.horizon;
+        initial << issue;
+      }
+    }
+  const auto data = m_projectData;
+  auto catalog = data ? data->catalogSnapshot() : nullptr;
+  const QString dir = data ? data->projectDirectory() : QString();
+  const auto sequence = catalog ? catalog->mutationSeq() : 0;
+  const auto threshold = m_residualThresholdMs;
+  auto issues = std::make_shared<QList<ValidationIssue>>();
+  auto rows = std::make_shared<QVariantList>();
+  auto *task = m_tasks->start(
+      tr("验证工程与井上时间残差"), [catalog, dir, declarations, initial,
+                                     threshold, issues, rows](PaleoTask *task) {
+        ProjectDataFacade facade;
+        if (catalog) {
+          facade.setCatalog(catalog.get(), dir);
+          facade.setDeclarationSnapshot(declarations);
+        }
+        ValidationWorkflow worker(nullptr, nullptr);
+        worker.m_snapshotDeclarations = declarations;
+        worker.m_snapshotIssues = initial;
+        worker.m_cancelled = [task] { return task->cancelRequested(); };
+        worker.setResidualThresholdMs(threshold);
+        if (catalog)
+          worker.setProjectData(&facade);
+        task->reportStage("build", 10);
+        *issues = worker.validate();
+        *rows = worker.lastResidualRows();
+        return QString();
+      });
+  m_validationTask = task;
+  connect(task, &PaleoTask::finished, this,
+          [this, task, data, sequence, issues, rows] {
+            bool completed = task->state() == PaleoTask::State::Succeeded &&
+                             task->session() == m_tasks->session() &&
+                             data == m_projectData;
+            if (completed && data) {
+              const auto fresh = data->catalogSnapshot();
+              completed = fresh && fresh->mutationSeq() == sequence;
+            }
+            if (completed) {
+              m_lastIssues = *issues;
+              m_residualRows = *rows;
+              emit validationDone(issues->size());
+            }
+            if (!completed)
+              task->discardPublication();
+            emit validationFinished(completed);
+          });
+  return true;
 }

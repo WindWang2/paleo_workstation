@@ -1,5 +1,6 @@
 // 层：功能
 #include "../qgis/layervocabulary.h"
+#include "../services/paleotaskservice.h"
 #include "workflows.h"
 #include "workflows_internal.h"
 
@@ -100,6 +101,9 @@ void ConstraintWorkflow::setThicknessSamples( const QVariantList &rows, const QS
 
 void ConstraintWorkflow::setCatalog( DataCatalog *catalog, const QString &projectDir )
 {
+  ++m_publishGeneration;
+  if (m_factorJobTask)
+    m_factorJobTask->requestCancel();
   m_catalog = catalog;
   m_projectDir = projectDir;
   m_wellFactorRows.clear();
@@ -699,6 +703,10 @@ bool ConstraintWorkflow::runConstraintIDW( const QString &horizon, const QString
 {
   QgisProcessingService *proc = m_proc.data();
   QgisLayerService *layers = m_layers.data();
+  if (factorBusy()) {
+    paleo::workflow_detail::setError(error, tr("已有单因素任务"));
+    return false;
+  }
   if ( !proc || !layers )
   {
     paleo::workflow_detail::setError( error, tr( "constraint workflow is not bound to services" ) );
@@ -777,41 +785,50 @@ bool ConstraintWorkflow::runConstraintIDW( const QString &horizon, const QString
     parentPaths.append( constraints->source().section( QLatin1Char( '|' ), 0, 0 ) );
   }
 
-  const QVariantMap results = proc->run( QStringLiteral( "paleo:paleo_constraint_idw" ), params, error );
-  if ( results.isEmpty() )
-    return false;
+  return runFactorAlgorithm(
+      horizon, QStringLiteral("paleo:paleo_constraint_idw"), params,
+      [=, this](const QVariantMap &results, QString *error) mutable {
+        const auto fingerprint = results.value("_derived_fingerprint")
+                                     .value<DerivedFileFingerprint>();
 
-  const QString outPath = paleo::workflow_detail::outputPathOf( results );
-  if ( outPath.isEmpty() )
-  {
-    paleo::workflow_detail::setError( error, tr( "constraint IDW returned no output path" ) );
-    return false;
-  }
-  QVariantMap idwExtra;
-  idwExtra.insert( QStringLiteral( "field" ), field );
-  idwExtra.insert( QStringLiteral( "cell_size" ), cellSize );
-  idwExtra.insert( QStringLiteral( "constrained" ), hasConstraints );
-  QString commitErr;
-  if ( !registrar.commitExternal( st, outPath, registrar.parentVersionIdsFor( parentPaths ),
-                                  QStringLiteral( "paleo:paleo_constraint_idw" ), idwExtra,
-                                  &commitErr ) )
-  {
-    paleo::workflow_detail::setError( error, commitErr );
-    return false;
-  }
+        if (results.isEmpty())
+          return false;
 
-  LayerDeclaration decl;
-  decl.layerId = QStringLiteral( "factor.%1.idw" ).arg( horizon );
-  decl.horizon = horizon;
-  decl.type = QStringLiteral( "raster" );
-  decl.source = st.absolutePath;
-  decl.group = QStringLiteral( "04_SingleFactor" );
-  // 声明 factor.<层位>.idw 之前抬代次。同一字节的新文件也算改指向。
-  ++m_publishGeneration;
-  if ( !layers->declare( decl, error ) )
-    return false;
+        const QString outPath = paleo::workflow_detail::outputPathOf(results);
+        if (outPath.isEmpty()) {
+          paleo::workflow_detail::setError(
+              error, tr("constraint IDW returned no output path"));
+          return false;
+        }
+        QVariantMap idwExtra;
+        idwExtra.insert(QStringLiteral("field"), field);
+        idwExtra.insert(QStringLiteral("cell_size"), cellSize);
+        idwExtra.insert(QStringLiteral("constrained"), hasConstraints);
+        QString commitErr;
+        if (!registrar.commitExternal(
+                st, outPath, registrar.parentVersionIdsFor(parentPaths),
+                QStringLiteral("paleo:paleo_constraint_idw"), idwExtra,
+                &commitErr,
+                fingerprint.sha256.isEmpty() ? nullptr : &fingerprint)) {
+          paleo::workflow_detail::setError(error, commitErr);
+          return false;
+        }
 
-  paleo::workflow_detail::stampLayerAssetLink( layers, decl.layerId, st.assetId ); // C4：已实例化层补盖资产关联
-  emit factorDone( horizon, decl.layerId );
-  return true;
+        LayerDeclaration decl;
+        decl.layerId = QStringLiteral("factor.%1.idw").arg(horizon);
+        decl.horizon = horizon;
+        decl.type = QStringLiteral("raster");
+        decl.source = st.absolutePath;
+        decl.group = QStringLiteral("04_SingleFactor");
+        // 声明 factor.<层位>.idw 之前抬代次。同一字节的新文件也算改指向。
+        ++m_publishGeneration;
+        if (!layers->declare(decl, error))
+          return false;
+
+        paleo::workflow_detail::stampLayerAssetLink(
+            layers, decl.layerId, st.assetId); // C4：已实例化层补盖资产关联
+        emit factorDone(horizon, decl.layerId);
+        return true;
+      },
+      error);
 }

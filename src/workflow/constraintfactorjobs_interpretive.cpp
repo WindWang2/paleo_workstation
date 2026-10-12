@@ -163,13 +163,8 @@ bool ConstraintWorkflow::prepareInterpretiveContourJob( const QString &horizon, 
     }
   }
 
-  QString shaErr;
-  const QString analysisSha = DataCatalog::sha256FileHex( rasterPath, &shaErr );
-  if ( analysisSha.isEmpty() )
-  {
-    paleo::workflow_detail::setError( error, shaErr.isEmpty() ? tr( "分析场 sha256 计算失败" ) : shaErr );
-    return false;
-  }
+  const QFileInfo sourceInfo(rasterPath);
+  const QString analysisSha;
 
   QStringList parentPaths{ rasterPath };
   const QString constraintLayerId = QStringLiteral( "constraints.%1" ).arg( horizon );
@@ -239,6 +234,9 @@ bool ConstraintWorkflow::prepareInterpretiveContourJob( const QString &horizon, 
   job->hasConstraints = hasConstraints;
   job->frozenConstraints = frozenConstraints;
   job->analysisSha = analysisSha;
+  job->inputFingerprint.path = sourceInfo.absoluteFilePath();
+  job->inputFingerprint.size = sourceInfo.size();
+  job->inputFingerprint.modified = sourceInfo.lastModified();
   job->parentPaths = parentPaths;
   job->levels = levels;
   job->constraintLines = std::move( constraintLines );
@@ -271,6 +269,15 @@ bool ConstraintWorkflow::computeInterpretiveContourJob( InterpretiveContourJob *
     job->ok = false;
     return false;
   }
+  const auto input =
+      DerivedFileFingerprint::read(job->rasterPath, cancelled, &job->error);
+  if (input.sha256.isEmpty() || input.size != job->inputFingerprint.size ||
+      input.modified != job->inputFingerprint.modified) {
+    job->error = tr("分析场在任务准备后已变化");
+    return false;
+  }
+  job->inputFingerprint = input;
+  job->analysisSha = input.sha256;
   const QString tempDir = QDir( QDir::tempPath() )
                               .filePath( QStringLiteral( "paleo-sf-carto-%1" )
                                              .arg( QUuid::createUuid().toString( QUuid::Id128 ) ) );
@@ -372,6 +379,11 @@ bool ConstraintWorkflow::computeInterpretiveContourJob( InterpretiveContourJob *
     job->error = tr( "已取消" );
     return false;
   }
+  if (!job->inputFingerprint.matches(job->rasterPath)) {
+    job->error = tr("分析场在计算期间已变化");
+    discard();
+    return false;
+  }
   job->ok = true;
   job->error.clear();
   return true;
@@ -399,8 +411,9 @@ bool ConstraintWorkflow::publishInterpretiveContourJob( const InterpretiveContou
   }
 
   QString shaErr;
-  if ( !analysisShaMatches( job.rasterPath, job.analysisSha, &shaErr ) )
-  {
+  if (!(m_factorTasks
+            ? job.inputFingerprint.matches(job.rasterPath)
+            : analysisShaMatches(job.rasterPath, job.analysisSha, &shaErr))) {
     discardTemp();
     paleo::workflow_detail::setError( error, tr( "分析场在制图期间被改写，丢弃工作场" ) );
     return false;

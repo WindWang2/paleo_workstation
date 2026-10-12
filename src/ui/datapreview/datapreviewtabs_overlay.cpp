@@ -1,6 +1,7 @@
 // 层：视图
 #include "datapreviewtabs.h"
 #include "datapreviewtabs_internal.h"
+#include <qgsmapcanvas.h>
 
 #include <QAction>
 
@@ -109,12 +110,17 @@ void DataPreviewTabs::addSiblingOverlayLayer(PreviewMapPage *page, const QString
       rl->deleteLater();
       return;
     }
-    const auto sum = PreviewRasterAnalysis::summarize(rl);
-    if (sum.valid)
-      PreviewRasterAnalysis::applyPseudoColorRenderer(
-          rl, 1, sum.min, sum.max,
-          *PreviewRasterAnalysis::rampPreset(QStringLiteral("terrain")), false,
-          PreviewRasterAnalysis::Classification::Continuous);
+    PreviewRasterAnalysis::requestSummary(
+        tif, m_doc ? m_doc->taskService() : nullptr, owner,
+        [rl, page](const PreviewRasterAnalysis::BandSummary &sum) {
+          if (!sum.valid)
+            return;
+          PreviewRasterAnalysis::applyPseudoColorRenderer(
+              rl, 1, sum.min, sum.max,
+              *PreviewRasterAnalysis::rampPreset(QStringLiteral("terrain")),
+              false, PreviewRasterAnalysis::Classification::Continuous);
+          page->mapCanvas()->canvas()->refresh();
+        });
     page->addMapLayer(rl, sibName, tif);
     return;
   }

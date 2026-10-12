@@ -121,6 +121,10 @@ bool MappingWorkbench::computePolygonize(PolygonizeJob &job,
       return false;
     }
   }
+  job.fingerprint =
+      DerivedFileFingerprint::read(job.outputPath, cancelled, &job.error);
+  if (job.fingerprint.sha256.isEmpty())
+    return false;
   if (progress)
     progress(100.0);
   return true;
@@ -132,14 +136,14 @@ bool MappingWorkbench::commitPolygonize(PolygonizeJob &job, QString *error) {
     fail(error, tr("工程已切换，转面结果已丢弃"));
     return false;
   }
-  const auto id = record(
-      job.outputPath, job.horizon, "facies_polygons",
-      tr("%1 相面").arg(job.title), "vector", {job.parent},
-      {{"facies", QVariant(job.facies)},
-       {"method", "paleo:paleo_facies_polygonize"},
-       {"mock", job.mock},
-       {"source_layer", job.sourceLayerId}},
-      error, "|layername=facies_polygons");
+  const auto id =
+      record(job.outputPath, job.horizon, "facies_polygons",
+             tr("%1 相面").arg(job.title), "vector", {job.parent},
+             {{"facies", QVariant(job.facies)},
+              {"method", "paleo:paleo_facies_polygonize"},
+              {"mock", job.mock},
+              {"source_layer", job.sourceLayerId}},
+             error, "|layername=facies_polygons", {}, &job.fingerprint);
   job.productId = id;
   return !id.isEmpty();
 }
@@ -246,3 +250,5 @@ bool MappingWorkbench::startPolygonize(const QString &id, QString *error) {
   }
   return true;
 }
+
+MappingWorkbench::PolygonizeJob::~PolygonizeJob() { removeStaging(outputPath); }

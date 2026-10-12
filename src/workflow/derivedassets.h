@@ -1,9 +1,12 @@
 // 层：功能
 #pragma once
+#include <QDateTime>
 #include <QHash>
+#include <QMetaType>
 #include <QString>
 #include <QStringList>
 #include <QVariantMap>
+#include <functional>
 
 class DataCatalog;
 
@@ -30,6 +33,20 @@ struct DerivedStaging
   bool isValid() const { return !absolutePath.isEmpty(); }
 };
 
+// Attested on the worker after closing output providers. Publication only
+// validates identity; it never re-reads a multi-gigabyte raster on the UI
+// thread.
+struct DerivedFileFingerprint {
+  QString path, sha256;
+  qint64 size = -1;
+  QDateTime modified;
+  static DerivedFileFingerprint read(const QString &path,
+                                     const std::function<bool()> &cancelled,
+                                     QString *error);
+  bool matches(const QString &path) const;
+};
+Q_DECLARE_METATYPE(DerivedFileFingerprint)
+
 class DerivedAssetRegistrar
 {
   public:
@@ -46,15 +63,18 @@ class DerivedAssetRegistrar
 
     // 文件已写到 staging.absolutePath 后登记 DERIVED 版本（sha256 现算入库，
     // 成功后置只读）。文件不存在 → false + error，不登记版本行。
-    bool commit( const DerivedStaging &st, const QStringList &parentVersionIds,
-                 const QString &sourceUri, const QVariantMap &extra,
-                 QString *error = nullptr );
+    bool commit(const DerivedStaging &st, const QStringList &parentVersionIds,
+                const QString &sourceUri, const QVariantMap &extra,
+                QString *error = nullptr,
+                const DerivedFileFingerprint *fingerprint = nullptr);
 
     // 算法没有尊重预置 OUTPUT、把文件写到了别处时：先拷进受管路径再 commit。
     // actualPath == staging 路径时等价于 commit。
-    bool commitExternal( const DerivedStaging &st, const QString &actualPath,
-                         const QStringList &parentVersionIds, const QString &sourceUri,
-                         const QVariantMap &extra, QString *error = nullptr );
+    bool commitExternal(const DerivedStaging &st, const QString &actualPath,
+                        const QStringList &parentVersionIds,
+                        const QString &sourceUri, const QVariantMap &extra,
+                        QString *error = nullptr,
+                        const DerivedFileFingerprint *fingerprint = nullptr);
 
     // 绝对/工程相对路径 → catalog 版本 id（父版本 provenance 用）。
     // 无匹配的路径不出现在结果里（缺父版本不伪造）。

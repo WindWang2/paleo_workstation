@@ -9,10 +9,17 @@
 #include "../qgis/qgisprojectservice.h"
 #include "../qgis/layoutexport.h" // PaleoLayoutExport::exportLayout（QGIS 封装层导出核心）
 
+#include "../services/paleotaskservice.h"
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QImage>
+#include <QPointer>
+#include <QTemporaryDir>
+#include <qgslayout.h>
+#include <qgsproject.h>
+#include <qgsreadwritecontext.h>
 
 #include <qgsprintlayout.h>
 
@@ -84,7 +91,7 @@ QString registerMapPdfAsset( DataCatalog *catalog, const QString &projectDir,
     if ( sha256Out )
       *sha256Out = sha;
     if ( managedPathOut )
-      *managedPathOut = DataCatalog::resolvedVersionPath( projectDir, existing );
+      *managedPathOut = catalog->versionFilePath(existing);
     return existing.assetId;
   }
 
@@ -147,4 +154,185 @@ QString registerMapPdfAsset( DataCatalog *catalog, const QString &projectDir,
   if ( managedPathOut )
     *managedPathOut = dst;
   return assetId;
+}
+
+bool publishMapExportJournal(DataCatalog *catalog, const QString &projectDir,
+                             const QString &stagingRoot,
+                             const QVector<CatalogOp> &ops, QString *error) {
+  QStringList moved;
+  const auto fail = [&](const QString &why) {
+    for (const auto &path : moved)
+      QFile::remove(path);
+    if (error)
+      *error = why;
+    return false;
+  };
+  for (const auto &op : ops) {
+    if (op.kind != CatalogOp::Kind::AddVersion || !op.version.managed)
+      continue;
+    const auto source =
+        DataCatalog::resolvedVersionPath(stagingRoot, op.version);
+    const auto target =
+        DataCatalog::resolvedVersionPath(projectDir, op.version);
+    if (source.isEmpty() || target.isEmpty() || QFile::exists(target))
+      return fail(QObject::tr("导出成果路径不安全或已存在"));
+    if (!QDir().mkpath(QFileInfo(target).absolutePath()) ||
+        !QFile::rename(source, target))
+      return fail(QObject::tr("无法提交导出成果：%1").arg(target));
+    moved.append(target);
+  }
+  QString why;
+  if (!catalog || !catalog->applyJournal(ops, &why))
+    return fail(why);
+  return true;
+}
+
+namespace {
+using MapProducer = std::function<bool(const QString &, QString *)>;
+PaleoTask *startMapProductExport(MapProducer produce, PaleoTaskService *tasks,
+                                 DataCatalog *catalog, const QString &directory,
+                                 const QString &name,
+                                 const QString &destination,
+                                 const QString &format, QObject *receiver,
+                                 MapProductExportDone done, QString *error) {
+  if (!tasks || !catalog || directory.isEmpty() ||
+      !DataCatalog::isSafePathSegment(name)) {
+    setError(error, QObject::tr("未绑定工程/任务中心或导出文件名不合法"));
+    return nullptr;
+  }
+  const auto title = QObject::tr("导出图件：%1").arg(name);
+  for (auto *running : tasks->tasks()) {
+    if (running->running() && running->title() == title) {
+      setError(error, QObject::tr("该图件已有导出任务，请等待完成或取消"));
+      return nullptr;
+    }
+  }
+  struct Job {
+    std::unique_ptr<QTemporaryDir> staging;
+    std::unique_ptr<DataCatalog> catalog;
+    QVector<CatalogOp> journal;
+    MapProductExportOutcome outcome;
+  };
+  auto job = std::make_shared<Job>();
+  job->staging =
+      std::make_unique<QTemporaryDir>(directory + "/.map-export-XXXXXX");
+  if (!job->staging->isValid()) {
+    setError(error, QObject::tr("无法创建导出暂存目录"));
+    return nullptr;
+  }
+  job->catalog = catalog->createStagingCopy(job->staging->path());
+  const auto sequence = catalog->mutationSeq();
+  QPointer<DataCatalog> owner(catalog);
+  auto *task = tasks->start(title, [job, produce, name, destination,
+                                    format](PaleoTask *task) {
+    const auto path = job->staging->filePath(name);
+    task->reportStage("build", 5);
+    if (task->cancelRequested())
+      return QString();
+    if (!produce(path, &job->outcome.error))
+      return job->outcome.error;
+    if (task->cancelRequested())
+      return QString();
+    task->reportStage("hash", 80);
+    job->outcome.assetId = registerMapPdfAsset(
+        job->catalog.get(), job->staging->path(), path, &job->outcome.sha256,
+        &job->outcome.managedPath, &job->outcome.error, format);
+    if (job->outcome.assetId.isEmpty())
+      return job->outcome.error;
+    if (!destination.isEmpty()) {
+      const auto partial = destination + ".partial";
+      if (!QFile::copy(path, partial) ||
+          !paleoReplaceFile(partial, destination)) {
+        QFile::remove(partial);
+        return job->outcome.error =
+                   QObject::tr("无法写入导出目标：%1").arg(destination);
+      }
+    }
+    job->journal = job->catalog->journal();
+    return job->outcome.error;
+  });
+  // Publication belongs to the service: closing a panel must not strand a
+  // completed export. UI notification uses a separately guarded receiver.
+  QPointer<QObject> target(receiver ? receiver : tasks);
+  QObject::connect(
+      task, &PaleoTask::finished, tasks,
+      [job, task, tasks, owner, sequence, directory, target, done] {
+        const bool stale = task->session() != tasks->session() || !owner ||
+                           owner->projectDir() != directory ||
+                           owner->mutationSeq() != sequence;
+        job->outcome.cancelled = task->cancelRequested() || stale;
+        if (task->state() == PaleoTask::State::Failed &&
+            job->outcome.error.isEmpty())
+          job->outcome.error = task->errorText();
+        if (stale)
+          task->discardPublication();
+        if (!job->outcome.cancelled &&
+            task->state() == PaleoTask::State::Succeeded) {
+          if (!publishMapExportJournal(owner, directory, job->staging->path(),
+                                       job->journal, &job->outcome.error))
+            task->failPublication(job->outcome.error);
+          else
+            job->outcome.managedPath = owner->versionFilePath(
+                owner->currentVersion(job->outcome.assetId));
+        }
+        if (job->outcome.cancelled || !job->outcome.error.isEmpty()) {
+          job->outcome.assetId.clear();
+          job->outcome.managedPath.clear();
+        }
+        if (target && done)
+          done(job->outcome);
+      });
+  return task;
+}
+} // namespace
+
+PaleoTask *startMapLayoutExport(QgsLayout *layout, PaleoTaskService *tasks,
+                                DataCatalog *catalog, const QString &directory,
+                                const QString &pdfPath, QObject *receiver,
+                                MapProductExportDone done, QString *error) {
+  if (!layout) {
+    setError(error, QObject::tr("未提供版面"));
+    return nullptr;
+  }
+  PaleoLayoutExport::ProjectSnapshot snapshot;
+  if (!PaleoLayoutExport::captureProjectSnapshot(layout->project(), snapshot,
+                                                 error))
+    return nullptr;
+  QDomDocument xml;
+  QgsReadWriteContext context;
+  xml.appendChild(layout->writeXml(xml, context));
+  return startMapProductExport(
+      [snapshot, xml](const QString &path, QString *error) {
+        auto project = PaleoLayoutExport::rebuildProject(snapshot, error);
+        if (!project)
+          return false;
+        QgsPrintLayout rebuilt(project.get());
+        QgsReadWriteContext context;
+        if (!rebuilt.readXml(xml.documentElement(), xml, context)) {
+          setError(error, QObject::tr("无法重建版面快照"));
+          return false;
+        }
+        const auto output = PaleoLayoutExport::exportLayout(
+            &rebuilt, path, PaleoLayoutExport::Format::Pdf, 300,
+            PaleoLayoutExport::PageRange());
+        setError(error, output.error);
+        return output.ok;
+      },
+      tasks, catalog, directory, QFileInfo(pdfPath).fileName(), pdfPath, "pdf",
+      receiver, std::move(done), error);
+}
+PaleoTask *startMapFrameExport(const QImage &image, PaleoTaskService *tasks,
+                               DataCatalog *catalog, const QString &directory,
+                               const QString &name, QObject *receiver,
+                               MapProductExportDone done, QString *error) {
+  return startMapProductExport(
+      [image](const QString &path, QString *error) {
+        if (image.isNull() || !image.save(path, "PNG")) {
+          setError(error, QObject::tr("演化帧编码失败"));
+          return false;
+        }
+        return true;
+      },
+      tasks, catalog, directory, name, {}, "png", receiver, std::move(done),
+      error);
 }

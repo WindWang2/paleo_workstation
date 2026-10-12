@@ -1,15 +1,20 @@
 // 层：功能
 #pragma once
+#include "../metadata/layermanifest.h"
+#include <QList>
 #include <QObject>
+#include <QPointer>
 #include <QString>
 #include <QVariantList>
 #include <QVector>
-#include <QList>
+#include <functional>
 
 #include <cmath>
 
 #include "../domain/types.h"
 
+class PaleoTask;
+class PaleoTaskService;
 class ConstraintWorkflow;
 class CompositionWorkflow;
 class QgisLayerService;
@@ -63,6 +68,9 @@ class MappingWorkflow : public QObject
     MappingWorkflow( ConstraintWorkflow *constraints, CompositionWorkflow *compose,
                      QgisLayerService *layers, QObject *parent = nullptr );
 
+    ~MappingWorkflow() override;
+    void setTaskService(PaleoTaskService *tasks) { m_tasks = tasks; }
+    bool startThicknessChain(const QString &horizon, QString *error = nullptr);
     void setProjectData( ProjectDataFacade *projectData );
 
     // T26：厚度链派生产物（等厚栅格 / wells.thickness GeoJSON）的登记通道。
@@ -103,6 +111,14 @@ class MappingWorkflow : public QObject
     void declareThicknessWellsLayer( const QString &horizon,
                                      const QVector<ThicknessSample> &samples );
 
+    bool recordThicknessDeclaration(const LayerDeclaration &decl,
+                                    QString *error = nullptr);
+    bool m_deferredDeclarations = false;
+    QVector<LayerDeclaration> m_preparedDeclarations;
+    std::function<bool()> m_cancel;
+    std::function<void(double)> m_progress;
+    PaleoTaskService *m_tasks = nullptr;
+    QPointer<PaleoTask> m_chainTask;
     QVariantList m_thicknessRows;
     QString m_thicknessMessage;
 
@@ -140,5 +156,7 @@ struct TimeResidualRow
 };
 
 // 逐井残差行；无门面/无栅格/栅格打不开 → 空表（本检查不适用）。
-QList<TimeResidualRow> computeTimeResiduals( const ProjectDataFacade *projectData,
-                                             const QString &horizon, double thresholdMs );
+QList<TimeResidualRow>
+computeTimeResiduals(const ProjectDataFacade *projectData,
+                     const QString &horizon, double thresholdMs,
+                     const std::function<bool()> &cancelled = {});

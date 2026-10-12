@@ -165,6 +165,10 @@ void TaskPanel::updateTaskRow(QTreeWidgetItem *row, PaleoTask *task)
         btn->setText(tr("取消中"));
       });
     }
+    btn->setEnabled(task->cancellable() && !task->cancelRequested());
+    btn->setText(task->cancelRequested() ? tr("取消中")
+                 : task->cancellable()   ? tr("取消")
+                                         : tr("提交中"));
     const QString detail = task->detailText();
     row->setText(4, QString()); // 清掉终态/旧文本，避免在按钮底下残影
     row->setToolTip(4, detail);

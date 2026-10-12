@@ -1,5 +1,6 @@
 // 层：数据
 #include "imagelod.h"
+#include "futuretask.h"
 
 #include <QBrush>
 #include <QCoreApplication>
@@ -129,6 +130,12 @@ void FullImageCache::store(const QString &key, const QImage &img)
   }
 }
 
+namespace {
+QPointer<PaleoTaskService> imageTasks;
+}
+void FullImageCache::setTaskService(PaleoTaskService *tasks) {
+  imageTasks = tasks;
+}
 bool FullImageCache::requestDecode(const QString &key, const QString &path,
                                    std::function<void(const QImage &)> done)
 {
@@ -148,7 +155,10 @@ bool FullImageCache::requestDecode(const QString &key, const QString &path,
   QObject::connect(
       watcher, &QFutureWatcher<QImage>::finished, hub,
       [watcher, key, epoch, done = std::move(done)]() {
-        const QImage img = watcher->result();
+        const QImage img =
+            watcher->future().isCanceled() || !watcher->future().resultCount()
+                ? QImage{}
+                : watcher->result();
         watcher->deleteLater();
         DecodeState &state = decodeState();
         if (state.epoch != epoch)
@@ -159,10 +169,14 @@ bool FullImageCache::requestDecode(const QString &key, const QString &path,
           state.pending.remove(key);
       },
       Qt::QueuedConnection);
-  watcher->setFuture(QtConcurrent::run([path]() -> QImage {
-    // 工作线程只产 QImage。QPixmap 与 FullImageCache 都不是线程安全的。
-    return loadFull(path);
-  }));
+  const auto future =
+      QtConcurrent::run(paleo::tasks::pool(imageTasks), [path]() -> QImage {
+        // 工作线程只产 QImage。QPixmap 与 FullImageCache 都不是线程安全的。
+        return loadFull(path);
+      });
+  paleo::tasks::track(imageTasks, watcher, future,
+                      QStringLiteral("解码井附件原图"), true);
+  watcher->setFuture(future);
   return true;
 }
 

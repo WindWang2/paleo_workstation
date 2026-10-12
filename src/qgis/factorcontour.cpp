@@ -1,5 +1,6 @@
 // 层：QGIS 封装
 #include "factorcontour.h"
+#include "../services/paleotaskservice.h"
 #include "qgiserrors_internal.h"
 
 #include "../algorithms/singlefactor/contourlevels.h"
@@ -36,10 +37,11 @@ namespace FactorContourService
 
 namespace
 {
-bool generateWithOption( const QString &rasterPath, const QString &outputGpkg,
-                         const QByteArray &levelOption, QString *error,
-                         double capInterval = 0.0 )
-{
+bool generateWithOption(const QString &rasterPath, const QString &outputGpkg,
+                        const QByteArray &levelOption, QString *error,
+                        double capInterval = 0.0,
+                        const std::function<bool()> &cancelled = {},
+                        const std::function<void(double)> &progress = {}) {
   if ( rasterPath.isEmpty() || !QFile::exists( rasterPath ) )
   {
     setError( error, QStringLiteral( "contour input raster not found: %1" ).arg( rasterPath ) );
@@ -134,7 +136,21 @@ bool generateWithOption( const QString &rasterPath, const QString &outputGpkg,
   // GDALContourGenerateEx 认的 option 名——utility 与 C API 共用底层）。
   const char *options[] = { levelOption.constData(), "ID_FIELD=0", "ELEV_FIELD=1", nullptr };
 
-  const CPLErr rc = GDALContourGenerateEx( band, layer, options, nullptr, nullptr );
+  struct Feedback {
+    std::function<bool()> cancel;
+    std::function<void(double)> report;
+  } feedback{cancelled, progress};
+  const CPLErr rc = GDALContourGenerateEx(
+      band, layer, options,
+      [](double fraction, const char *, void *data) -> int {
+        const auto &f = *static_cast<Feedback *>(data);
+        if (f.cancel && f.cancel())
+          return FALSE;
+        if (f.report)
+          f.report(fraction * 100);
+        return TRUE;
+      },
+      &feedback);
 
   GDALClose( ds );
   GDALClose( src );
@@ -153,16 +169,18 @@ bool generateWithOption( const QString &rasterPath, const QString &outputGpkg,
 }
 } // namespace
 
-bool generateContours( const QString &rasterPath, const QString &outputGpkg,
-                       double interval, QString *error )
-{
+bool generateContours(const QString &rasterPath, const QString &outputGpkg,
+                      double interval, QString *error,
+                      const std::function<bool()> &cancelled,
+                      const std::function<void(double)> &progress) {
   if ( !( interval > 0.0 ) )
   {
     setError( error, QStringLiteral( "contour interval must be positive (got %1)" ).arg( interval ) );
     return false;
   }
   const QByteArray levelOption = QByteArray( "LEVEL_INTERVAL=" ) + QByteArray::number( interval );
-  return generateWithOption( rasterPath, outputGpkg, levelOption, error, interval );
+  return generateWithOption(rasterPath, outputGpkg, levelOption, error,
+                            interval, cancelled, progress);
 }
 
 bool generateFixedContours( const QString &rasterPath, const QString &outputGpkg,
@@ -489,4 +507,37 @@ bool generateStructuralContours( const QString &rasterPath,
   return true;
 }
 
+void requestContours(const QString &rasterPath, const QString &outputGpkg,
+                     double interval, PaleoTaskService *tasks,
+                     QObject *receiver,
+                     std::function<void(bool, const QString &)> ready,
+                     std::shared_ptr<void> lifetime) {
+  if (!tasks) {
+    QString error;
+    const bool ok = generateContours(rasterPath, outputGpkg, interval, &error);
+    ready(ok, error);
+    return;
+  }
+  auto *task = tasks->start(
+      QObject::tr("提取预览等值线"),
+      [rasterPath, outputGpkg, interval, lifetime](PaleoTask *running) {
+        QString error;
+        const bool ok = generateContours(
+            rasterPath, outputGpkg, interval, &error,
+            [running] { return running->cancelRequested(); },
+            [running](double p) { running->reportStage("build", qRound(p)); });
+        if (!ok || running->cancelRequested())
+          QFile::remove(outputGpkg);
+        return ok ? QString() : error;
+      },
+      {}, true);
+  QObject::connect(receiver, &QObject::destroyed, task,
+                   &PaleoTask::requestCancel);
+  QObject::connect(
+      task, &PaleoTask::finished, receiver, [task, ready, lifetime] {
+        if (task->state() == PaleoTask::State::Cancelled)
+          return;
+        ready(task->state() == PaleoTask::State::Succeeded, task->errorText());
+      });
+}
 } // namespace FactorContourService

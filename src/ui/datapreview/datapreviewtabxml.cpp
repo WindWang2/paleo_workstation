@@ -43,6 +43,7 @@ QWidget *DataPreviewTabs::buildAuxiliaryXmlContent(const QString &abs, const QSt
   buttons->addWidget(tableButton); buttons->addStretch(1);
   lay->addWidget(new PaleoToolRow(bar, host)); lay->addWidget(hint); lay->addWidget(stack, 1);
   auto *session = new XmlPreviewSession(host);
+  session->setTaskService(m_doc ? m_doc->taskService() : nullptr);
   connect(session, &XmlPreviewSession::ready, host,
       [this, abs, assetId, host, stack, chart, hint, tableHint, tableHost, tableLayout](const XmlPreviewData &data) {
     hint->hide(); delete tableHint;

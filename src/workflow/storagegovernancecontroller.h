@@ -7,12 +7,14 @@
 #include <QFuture>
 #include <QPointer>
 
+class PaleoTaskService;
 // No widgets. Live catalog stays on owner thread; workers receive values only.
 class StorageGovernanceController : public QObject {
   Q_OBJECT
 public:
   explicit StorageGovernanceController(QObject *parent = nullptr);
   ~StorageGovernanceController() override;
+  void setTaskService(PaleoTaskService *tasks) { m_tasks = tasks; }
   void setCatalog(DataCatalog *catalog);
   bool busy() const { return m_busy; }
   bool cancellable() const { return m_cancellable; }
@@ -21,6 +23,7 @@ public slots:
   void cancel();
   void requestPreview(const QStringList &versions, const QStringList &orphans);
   void confirmPreview();
+  void purgeAssets(const QStringList &assetIds);
   void verifySha();
   void healthScan(const QStringList &recycleAssetIds);
 signals:
@@ -29,6 +32,7 @@ signals:
   void progress(int done, int total, const QString &path);
   void stateChanged(bool busy, bool cancellable);
   void message(const QString &message);
+  void assetsPurged(const QStringList &assetIds);
   void cleanupFinished(const paleo::assetops::PurgeOutcome &outcome);
   void healthReady(const paleo::health::HealthReport &report, qint64 recycleBytes, bool complete);
   void shaReady(const QVector<paleo::health::HealthIssue> &issues, bool complete);
@@ -36,6 +40,7 @@ private:
   bool current(const paleo::storage::Snapshot &source) const;
   void setBusy(bool busy, bool cancellable = true);
   void commit(const paleo::storage::Preview &preview);
+  PaleoTaskService *m_tasks = nullptr;
   QPointer<DataCatalog> m_catalog;
   QMetaObject::Connection m_changed;
   paleo::storage::Report m_report;

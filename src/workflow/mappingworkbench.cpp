@@ -1,12 +1,12 @@
 // 层：功能
 #include "mappingworkbench.h"
-#include "wellpredictionservice.h"
 #include "../algorithms/faciesmapping/formationdominance.h"
-#include "../domain/faciescatalog.h"
 #include "../catalog/purgelease.h"
+#include "../domain/faciescatalog.h"
 #include "../domain/mappinghorizons.h"
 #include "../domain/singlefactorrequest.h"
 #include "../io/constraintstore.h"
+#include "../io/lasparser.h"
 #include "../qgis/facieshierarchyrenderer.h"
 #include "../qgis/factorstylewriter.h"
 #include "../qgis/layervocabulary.h"
@@ -16,21 +16,22 @@
 #include "../qgis/qgisprojectservice.h"
 #include "../qgis/qgisstyleservice.h"
 #include "../qgis/wellattributestore.h"
+#include "../services/futuretask.h"
+#include "../services/jobrunner.h"
+#include "../services/paleotaskservice.h"
 #include "assetops.h"
 #include "constraintimport.h"
 #include "derivedassets.h"
-#include "workflows.h"
-#include "../io/lasparser.h"
-#include "../services/jobrunner.h"
-#include "../services/paleotaskservice.h"
+#include "evidencerecord.h"
 #include "services/projectdata.h"
 #include "services/seismichorizoncluster.h"
-#include <QFutureWatcher>
-#include <QtConcurrent>
+#include "wellpredictionservice.h"
+#include "workflows.h"
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QFutureWatcher>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QRegularExpression>
@@ -38,18 +39,18 @@
 #include <QSet>
 #include <QTemporaryDir>
 #include <QUuid>
+#include <QtConcurrent>
 #include <algorithm>
 #include <cmath>
 #include <gdal.h>
 #include <limits>
 #include <qgscoordinatereferencesystem.h>
+#include <qgseditorwidgetsetup.h>
 #include <qgsgeometry.h>
 #include <qgsmaplayer.h>
 #include <qgsproject.h>
 #include <qgsrasterlayer.h>
 #include <qgsunittypes.h>
-#include <qgseditorwidgetsetup.h>
-#include "evidencerecord.h"
 #include <qgsvectorlayer.h>
 
 namespace {
@@ -121,6 +122,18 @@ MappingWorkbench::MappingWorkbench(QgisLayerService *layers,
   // 产品里的远端预测就这样悄悄跑着假数据）。
   // 远端预测由装配根显式注入（app/aiwiring.cpp）；本地层位窗聚类是用户
   // 显式选择的 Mock 模式，产物记录真实反射特征来源与 Mock 类别解释。
+  connect(m_constraints, &ConstraintWorkflow::factorJobFailed, this,
+          &MappingWorkbench::errorOccurred);
+  connect(m_constraints, &ConstraintWorkflow::factorGenerated, this,
+          [this](const QString &h, const QString &, const QString &id) {
+            if (m_constraints->factorBusy())
+              publishFactorAlias(h, id);
+          });
+  connect(m_constraints, &ConstraintWorkflow::contoursGenerated, this,
+          [this](const QString &h, const QString &, const QString &id) {
+            if (m_constraints->factorBusy())
+              publishFactorAlias(h, id);
+          });
   connect(m_layers, &QgisLayerService::layerInstantiated, this,
           &MappingWorkbench::styleLayer);
   // .qgz 恢复的图层由 adoptProjectLayers 收编、不发 layerInstantiated，
@@ -162,6 +175,8 @@ MappingWorkbench::~MappingWorkbench() {
 }
 void MappingWorkbench::setTaskService(PaleoTaskService *tasks) {
   m_taskSvc = tasks;
+  if (m_wellRemote)
+    m_wellRemote->setTaskService(tasks);
 }
 void MappingWorkbench::beginPredictionTask(const QString &title) {
   endPredictionTask();
@@ -192,6 +207,8 @@ void MappingWorkbench::cancelPredictionTask() {
 }
 void MappingWorkbench::bindCatalog(DataCatalog *catalog, const QString &dir) {
   cancelPrediction();
+  if (m_composeRunner)
+    m_composeRunner->requestCancel();
   cancelPolygonize(); // 旧工程的转面结果由 commit 会话守卫丢弃
   if (m_catalog)
     disconnect(m_catalog, nullptr, this, nullptr);
@@ -324,6 +341,7 @@ void MappingWorkbench::setWellPredictionService(WellPredictionService *service) 
   if (m_wellRemote) disconnect(m_wellRemote, nullptr, this, nullptr);
   m_wellRemote = service;
   if (service) {
+    service->setTaskService(m_taskSvc);
     service->bindCatalog(m_catalog, m_dir);
     connect(service, &WellPredictionService::detailChanged, this,
             [this](const QString &id, const QString &detail) {
@@ -593,7 +611,8 @@ QString MappingWorkbench::record(const QString &path, const QString &h,
                                  const QString &type,
                                  const QStringList &parents, QVariantMap extra,
                                  QString *error, const QString &suffix,
-                                 const QString &assetKey) {
+                                 const QString &assetKey,
+                                 const DerivedFileFingerprint *fingerprint) {
   DerivedAssetRegistrar r(m_catalog, m_dir);
   auto st = r.stage(
       kind,
@@ -624,9 +643,23 @@ QString MappingWorkbench::record(const QString &path, const QString &h,
   // facies-ux 5：证据链（输入版本 + 模型/参数指纹 + 支撑井/地震属性 + 软件版本）。
   if (!extra.contains("evidence"))
     extra.insert("evidence", paleo::workflow_detail::evidenceRecord(m_catalog, parents, extra));
-  if (!r.commitExternal(st, path, parents,
-                        extra.value("method", kind).toString(), extra, error))
+  auto attested = fingerprint ? *fingerprint : DerivedFileFingerprint{};
+  QString actual = path;
+  if (fingerprint) {
+    if (!fingerprint->matches(path) || !QFile::rename(path, st.absolutePath)) {
+      fail(error, tr("无法发布已校验的计算成果"));
+      return {};
+    }
+    actual = st.absolutePath;
+    attested.path = actual;
+  }
+  if (!r.commitExternal(st, actual, parents,
+                        extra.value("method", kind).toString(), extra, error,
+                        fingerprint ? &attested : nullptr)) {
+    if (fingerprint)
+      QFile::remove(actual);
     return {};
+  }
   LayerDeclaration d;
   d.layerId = id;
   d.horizon = h;
@@ -994,7 +1027,9 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
     });
     emit predictionBusyChanged(true);
     watcher->setFuture(QtConcurrent::run(
-        [seismicPath, horizonPath, cacheDir, codes, cancelled, source, inputSnapshot](QPromise<SeismicClusterResult> &promise) {
+        paleo::tasks::pool(m_taskSvc),
+        [seismicPath, horizonPath, cacheDir, codes, cancelled, source,
+         inputSnapshot](QPromise<SeismicClusterResult> &promise) {
           promise.setProgressRange(0, 100);
           QString inputPath = horizonPath;
           if (inputSnapshot) {
@@ -1070,27 +1105,29 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
     m_remote->start(m_request);
   });
   watcher->setFuture(QtConcurrent::run(
+      paleo::tasks::pool(m_taskSvc),
       [logPaths, cancelled](QPromise<QVector<QPair<double, double>>> &promise) {
-    promise.setProgressRange(0, int(logPaths.size()));
-    QVector<QPair<double, double>> ranges;
-    for (const auto &path : logPaths) {
-      if (cancelled->load())
-        break;
-      double top = std::numeric_limits<double>::infinity(), bottom = -top;
-      QStringList names;
-      QList<LasCurve> curves;
-      if (!path.isEmpty() && LasParser::parse(path, names, curves, nullptr) &&
-          !curves.isEmpty())
-        for (double d : curves.first().values)
-          if (std::isfinite(d)) {
-            top = std::min(top, d);
-            bottom = std::max(bottom, d);
-          }
-      ranges.append({top, bottom});
-      promise.setProgressValue(int(ranges.size()));
-    }
-    promise.addResult(ranges);
-  }));
+        promise.setProgressRange(0, int(logPaths.size()));
+        QVector<QPair<double, double>> ranges;
+        for (const auto &path : logPaths) {
+          if (cancelled->load())
+            break;
+          double top = std::numeric_limits<double>::infinity(), bottom = -top;
+          QStringList names;
+          QList<LasCurve> curves;
+          if (!path.isEmpty() &&
+              LasParser::parse(path, names, curves, nullptr) &&
+              !curves.isEmpty())
+            for (double d : curves.first().values)
+              if (std::isfinite(d)) {
+                top = std::min(top, d);
+                bottom = std::max(bottom, d);
+              }
+          ranges.append({top, bottom});
+          promise.setProgressValue(int(ranges.size()));
+        }
+        promise.addResult(ranges);
+      }));
   return true;
 }
 void MappingWorkbench::cancelPrediction() {
@@ -1762,12 +1799,26 @@ bool MappingWorkbench::removeProduct(const QString &layerId, QString *error, boo
             else qWarning("%s", qPrintable(message));
           }
         });
-    cleanup->setFuture(QtConcurrent::run([projectDir, paths = outcome.pendingFiles, retained, workingPaths, lease] {
-      auto result = paleo::assetops::purgeManagedFiles(projectDir, paths, retained);
-      for (const auto &working : workingPaths)
-        if (QDir(working).exists() && !QDir(working).removeRecursively()) result.leftoverFiles << working;
-      return result;
-    }));
+    const auto future = QtConcurrent::run(
+        paleo::tasks::pool(m_taskSvc),
+        [projectDir, paths = outcome.pendingFiles, retained, workingPaths,
+         lease] {
+          auto result =
+              paleo::assetops::purgeManagedFiles(projectDir, paths, retained);
+          for (const auto &working : workingPaths)
+            if (QDir(working).exists() && !QDir(working).removeRecursively())
+              result.leftoverFiles << working;
+          return result;
+        });
+    paleo::tasks::track(
+        m_taskSvc, cleanup, future, tr("回收已删除图件的文件"), false,
+        [future] {
+          return future.result().leftoverFiles.isEmpty()
+                     ? QString()
+                     : QStringLiteral("部分图件文件未能回收");
+        },
+        false);
+    cleanup->setFuture(future);
   }
   emit changed();
   if (m_project && !m_project->projectPath().isEmpty() &&
@@ -1965,6 +2016,8 @@ bool MappingWorkbench::generateFactor(const QString &h, const QString &factor,
   }
   if (!m_constraints->generateFactor(h, factor, options, error))
     return false;
+  if (m_taskSvc && m_constraints->factorBusy())
+    return true;
   const auto id = QStringLiteral("factor.%1.%2").arg(h, factor);
   const auto v = versionForLayer(id);
   auto d = declaration(id);
@@ -1998,6 +2051,8 @@ bool MappingWorkbench::generateContours(const QString &h, const QString &id,
   }
   if (!m_constraints->generateContours(h, id, interval, error))
     return false;
+  if (m_taskSvc && m_constraints->factorBusy())
+    return true;
   const auto prefix = QStringLiteral("factor.%1.").arg(h);
   const auto key = id.startsWith(prefix) ? id.mid(prefix.size()) : id;
   const auto output = QStringLiteral("contours.%1.%2").arg(h, key);
@@ -2141,47 +2196,61 @@ void MappingWorkbench::styleLayer(const QString &id) {
   }
 }
 
-QString MappingWorkbench::compose(const QString &h, const QStringList &ids,
-                                  const QVariantMap &params, QString *error) {
+bool MappingWorkbench::prepareCompose(const QString &h, const QStringList &ids,
+                                      const QVariantMap &params,
+                                      ComposeJob &job, QString *error) {
   if (!ready(h, error))
-    return {};
+    return false;
   if (ids.isEmpty()) {
     fail(error, tr("请选择编图输入，列表从上到下为优先级"));
-    return {};
+    return false;
   }
-  QList<QgsMapLayer *> layers;
+  job.horizon = h;
+  job.ids = ids;
+  job.params = params;
+  job.dir = m_dir;
+  job.catalog = m_catalog;
+  job.facies = facies(h);
+  QVariantList sources;
   QStringList parents;
   QSet<QString> continuous;
   for (const auto &id : ids) {
     const auto d = declaration(id);
     if (d.horizon != h) {
       fail(error, tr("自动编图输入必须属于当前层位；其他层位可在参考窗口查看"));
-      return {};
+      return false;
     }
     auto *layer = m_layers->instantiate(id, error);
     if (!layer)
-      return {};
+      return false;
     auto version = ensureInputVersion(id, error);
     if (version.isEmpty())
-      return {};
+      return false;
     parents << version;
-    layers << layer;
+
     const auto v = m_catalog->versionById(version);
     const auto inputKind = v.extra.value("kind").toString();
     const auto inputSource = v.extra.value("value_source").toString();
     if (paleo::singlefactor::rejectsQuantitativeUse(inputKind, inputSource)) {
       fail(error, tr("解释性制图工作场不能参与连续融合、分相或厚度统计"));
-      return {};
+      return false;
     }
     if (id.startsWith("factor.") || v.extra.contains("factor_id") ||
         paleo::singlefactor::isAnalysisFactorRaster(inputKind, inputSource))
-      continuous.insert(layer->id());
+      continuous.insert(id);
     else if (v.extra.contains("facies") &&
              v.extra.value("facies").toList() != facies(h)) {
       fail(error, tr("输入相分类与当前层位定义不同，请使用对应版本的相分类，或"
                      "仅作为参考"));
-      return {};
+      return false;
     }
+    const auto frozenId = v.extra.value("layer_id").toString();
+    const auto frozen = frozenId.isEmpty() ? d : declaration(frozenId);
+    sources << QVariantMap{{"source", frozen.source},
+                           {"provider", layer->providerType()},
+                           {"type", frozen.type},
+                           {"crs", layer->crs().toWkt()},
+                           {"continuous", continuous.contains(id)}};
   }
   QList<double> thresholds;
   for (const auto &v : params.value("thresholds").toList()) {
@@ -2189,35 +2258,151 @@ QString MappingWorkbench::compose(const QString &h, const QStringList &ids,
     double n = v.toDouble(&ok);
     if (!ok) {
       fail(error, tr("分相阈值必须为数字"));
-      return {};
+      return false;
     }
     thresholds << n;
   }
-  QDir().mkpath(m_dir + "/artifacts/staging");
-  const auto path = m_dir + "/artifacts/staging/" + uid() + ".tif";
-  if (!MappingArtifactWriter::composeRaster(path, layers, facies(h), thresholds,
-                                            continuous, error))
-    return {};
-  if (schemaVersion(h).isEmpty() && !saveFacies(h, facies(h), error))
-    return {};
+  if (schemaVersion(h).isEmpty() && !saveFacies(h, job.facies, error))
+    return false;
   parents << schemaVersion(h);
-  const auto id = record(
-      path, h, "composed_facies", tr("%1 综合相图").arg(h), "raster", parents,
+  if (!QDir().mkpath(m_dir + "/artifacts/staging")) {
+    fail(error, tr("无法创建暂存目录"));
+    return false;
+  }
+  job.outputPath = m_dir + "/artifacts/staging/" + uid() + ".tif";
+  job.sources = sources;
+  job.parents = parents;
+  job.thresholds = thresholds;
+  return true;
+}
+
+bool MappingWorkbench::computeCompose(
+    ComposeJob &job, const std::function<bool()> &cancel,
+    const std::function<void(double)> &progress) {
+  std::vector<std::unique_ptr<QgsMapLayer>> owned;
+  QList<QgsMapLayer *> layers;
+  QSet<QString> continuous;
+  for (const auto &entry : job.sources) {
+    if (cancel && cancel())
+      return false;
+    const auto source = entry.toMap();
+    std::unique_ptr<QgsMapLayer> layer;
+    if (source.value("type").toString() == "raster")
+      layer = std::make_unique<QgsRasterLayer>(
+          source.value("source").toString(), "compose", "gdal");
+    else
+      layer = std::make_unique<QgsVectorLayer>(
+          source.value("source").toString(), "compose",
+          source.value("provider", "ogr").toString());
+    layer->setCrs(
+        QgsCoordinateReferenceSystem::fromWkt(source.value("crs").toString()));
+    if (source.value("continuous").toBool())
+      continuous.insert(layer->id());
+    layers << layer.get();
+    owned.push_back(std::move(layer));
+  }
+  if (!MappingArtifactWriter::composeRaster(job.outputPath, layers, job.facies,
+                                            job.thresholds, continuous,
+                                            &job.error, cancel, progress))
+    return false;
+  job.fingerprint =
+      DerivedFileFingerprint::read(job.outputPath, cancel, &job.error);
+  return !job.fingerprint.sha256.isEmpty();
+}
+
+bool MappingWorkbench::commitCompose(ComposeJob &job, QString *error) {
+  if (!job.error.isEmpty()) {
+    fail(error, job.error);
+    return false;
+  }
+  if (m_catalog != job.catalog || m_dir != job.dir) {
+    fail(error, tr("工程已切换，综合编图结果已丢弃"));
+    return false;
+  }
+  for (const auto &parent : job.parents)
+    if (m_catalog->versionById(parent).id.isEmpty()) {
+      fail(error, tr("输入已删除，综合编图结果已丢弃"));
+      return false;
+    }
+  job.productId = record(
+      job.outputPath, job.horizon, "composed_facies",
+      tr("%1 综合相图").arg(job.horizon), "raster", job.parents,
       {{"method",
         "priority-first-valid; categorical-nearest; threshold-classification"},
-       {"input_layers", ids},
-       {"thresholds", params.value("thresholds")},
-       {"facies", facies(h)}},
-      error);
-  if (id.isEmpty())
+       {"input_layers", job.ids},
+       {"thresholds", job.params.value("thresholds")},
+       {"facies", job.facies}},
+      error, {}, {}, &job.fingerprint);
+  return !job.productId.isEmpty();
+}
+
+QString MappingWorkbench::compose(const QString &h, const QStringList &ids,
+                                  const QVariantMap &params, QString *error) {
+  ComposeJob job;
+  if (!prepareCompose(h, ids, params, job, error))
     return {};
-  // 有任务服务时转面进后台（任务中心可见、可取消），返回综合相栅格；
-  // 相面完成后经 productReady 自动上图。无任务服务（测试壳）同步转面。
-  if (m_taskSvc) {
-    QString polyErr;
-    if (!startPolygonize(id, &polyErr))
-      emit errorOccurred(tr("综合相图已生成，但转相面未能启动：%1").arg(polyErr));
-    return id;
+  if (!computeCompose(job, {}, {}) || !commitCompose(job, error)) {
+    QFile::remove(job.outputPath);
+    if (!job.error.isEmpty())
+      fail(error, job.error);
+    return {};
   }
-  return polygonize(id, error);
+  return polygonize(job.productId, error);
+}
+
+bool MappingWorkbench::startCompose(const QString &h, const QStringList &ids,
+                                    const QVariantMap &params, QString *error) {
+  if (!m_taskSvc)
+    return !compose(h, ids, params, error).isEmpty();
+  using Runner = paleo::jobs::JobRunner<ComposeJob>;
+  if (!m_composeRunner)
+    m_composeRunner = std::make_unique<Runner>(this);
+  m_composeRunner->setTaskService(m_taskSvc);
+  if (m_composeRunner->busy()) {
+    fail(error, tr("已有综合编图任务，请等待或在任务中心取消"));
+    return false;
+  }
+  auto job = std::make_shared<ComposeJob>();
+  if (!prepareCompose(h, ids, params, *job, error))
+    return false;
+  Runner::Callbacks cb;
+  cb.compute = [](ComposeJob &j, const paleo::jobs::CancelFn &cancel,
+                  const paleo::jobs::ProgressFn &report) {
+    return computeCompose(j, cancel,
+                          [report](double p) { report(p, "build"); });
+  };
+  cb.commit = [this](ComposeJob &j, QString *err) {
+    if (!commitCompose(j, err)) {
+      emit errorOccurred(err ? *err : j.error);
+      return false;
+    }
+    QString polyError;
+    if (!startPolygonize(j.productId, &polyError))
+      emit errorOccurred(polyError);
+    return true;
+  };
+  cb.cleanup = [](ComposeJob &j) { QFile::remove(j.outputPath); };
+  return m_composeRunner->start(tr("%1 综合编图").arg(h), job, cb) != nullptr;
+}
+
+void MappingWorkbench::publishFactorAlias(const QString &h, const QString &id) {
+  const auto v = versionForLayer(id);
+  auto d = declaration(id);
+  const auto alias = v.extra.value("layer_id").toString();
+  if (!alias.isEmpty()) {
+    d.layerId = alias;
+    d.title += tr(" · v%1").arg(v.versionNumber);
+  }
+  QString error;
+  if (!d.layerId.isEmpty() && !m_layers->declare(d, &error)) {
+    emit errorOccurred(error);
+    return;
+  }
+  emit changed();
+  emit productReady(h, d.layerId.isEmpty() ? id : d.layerId);
+}
+
+MappingWorkbench::ComposeJob::~ComposeJob() {
+  if (!outputPath.isEmpty())
+    QFile::remove(outputPath);
 }

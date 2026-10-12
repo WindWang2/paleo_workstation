@@ -11,6 +11,7 @@ class DataCatalog;
 class QTcpServer;
 class QTcpSocket;
 class QTemporaryDir;
+class PaleoTaskService;
 
 // 本机静态页托管 ranuts/document（OnlyOffice WASM）。只绑定 127.0.0.1，
 // 一次只暴露当前原件的私有副本。保存写入临时文件，不覆盖原件，也不转 PDF。
@@ -24,6 +25,7 @@ public:
   static QString editorRoot();
   QUrl endpoint() const { return m_endpoint; }
   QUrl documentUrl() const { return m_documentUrl; }
+  void setTaskService(PaleoTaskService *tasks) { m_tasks = tasks; }
   void open(const QString &path, const QString &expectedSha = {});
   void stop();
   // 把编辑结果登记为同一资产的 DERIVED 版本。原件字节保持不动。
@@ -34,6 +36,7 @@ signals:
   void failed(const QString &reason);
   void documentSaved(const QString &path);
 private:
+  PaleoTaskService *m_tasks = nullptr;
   void launch(const QString &path);
   void fail(const QString &reason);
   void acceptConnection();

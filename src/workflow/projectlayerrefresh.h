@@ -7,6 +7,7 @@
 #include <atomic>
 #include <memory>
 class DataCatalog;
+class PaleoTaskService;
 struct ProjectLayerData {
   QByteArray wellsBytes, trajectoryBytes;
   QStringList warnings;
@@ -19,6 +20,8 @@ Q_DECLARE_METATYPE(ProjectLayerData)
 class ProjectLayerRefreshWorkflow : public QObject {
   Q_OBJECT
 public:
+  ~ProjectLayerRefreshWorkflow() override;
+  void setTaskService(PaleoTaskService *tasks) { m_tasks = tasks; }
   explicit ProjectLayerRefreshWorkflow(QObject *parent = nullptr);
   void request(DataCatalog *catalog, const QString &directory);
   void cancel();
@@ -28,6 +31,7 @@ public:
 signals:
   void prepared(const QString &directory, quint64 mutationSeq, const ProjectLayerData &data);
 private:
+  PaleoTaskService *m_tasks = nullptr;
   QPointer<DataCatalog> m_catalog;
   QString m_directory;
   quint64 m_generation = 0;

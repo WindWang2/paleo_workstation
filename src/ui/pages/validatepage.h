@@ -16,6 +16,7 @@ class ValidatePage : public QWidget
   Q_OBJECT
   public:
     ValidatePage(ValidationWorkflow *wf, QWidget *parent = nullptr);
+    void populateResult();
     void populate();                              // run validate(), fill table
     // 残差表渲染（populate 复用）：行 map 契约 well_name/status/residual_ms/
     // reason/threshold_ms…。独立成静态面供测试直灌（workflow 无注入点时

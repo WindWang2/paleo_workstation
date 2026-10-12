@@ -2,6 +2,7 @@
 #pragma once
 #include <QWidget>
 class OfficePreviewSession;
+class PaleoTaskService;
 class QLabel;
 class QPushButton;
 class WebViewPanel;
@@ -10,7 +11,10 @@ class OfficePreviewWidget : public QWidget
 {
   Q_OBJECT
 public:
-  explicit OfficePreviewWidget(const QString &path, const QString &expectedSha = {}, QWidget *parent = nullptr);
+  explicit OfficePreviewWidget(const QString &path,
+                               const QString &expectedSha = {},
+                               QWidget *parent = nullptr,
+                               PaleoTaskService *tasks = nullptr);
   ~OfficePreviewWidget() override;
   void showMessage(const QString &text, bool error = false);
 signals:

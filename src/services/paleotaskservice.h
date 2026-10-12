@@ -54,6 +54,11 @@ public:
   // 防线，自行在登记入口比对，勿假设框架已兜底。
   quint64 session() const { return m_session; }
 
+  bool cancellable() const { return m_cancellable.load(); }
+  void setCancellable(bool value) {
+    m_cancellable.store(value);
+    emit changed();
+  }
   Q_INVOKABLE void requestCancel();
   bool cancelRequested() const { return m_cancel.load(); }
 
@@ -73,6 +78,10 @@ public:
   // Cancelled（忽略 error）；error 非空 → Failed；否则 Succeeded。池内任务
   // 由服务统一判终态，不要对 start() 出来的任务调它。
   void finishExternal(const QString &error = QString());
+  // Owner-thread publication may fail after worker success. Finished observers
+  // must see that failure, rather than an apparently successful computation.
+  void failPublication(const QString &error);
+  void discardPublication();
 
 signals:
   void changed();
@@ -98,6 +107,8 @@ private:
   bool m_quiet = false;
   quint64 m_session = 0;
   std::atomic_bool m_cancel{false};
+  std::atomic_bool m_cancellable{true};
+  std::atomic<qint64> m_lastStageReport{0};
   qint64 m_bytesDone = 0, m_bytesTotal = -1;
   double m_rateBytesPerSec = -1.0; // 最近 ≤10s 窗口字节速率；-1 不可估
   QElapsedTimer m_clock;
@@ -148,6 +159,7 @@ public:
 
   // D4.5 线程池纪律：本服务任务跑专用池，工作线程上限 4（j4 资源纪律精神；
   // 不再与 UI 侧共用 globalInstance 的无上限默认）。返回池配置面（测试/诊断）。
+  QThreadPool *workerPool() const { return m_pool; }
   int maxWorkerThreads() const;
   void setMaxWorkerThreads(int n); // 夹取 [1,8]；只影响之后的排队
   int runningCount() const;

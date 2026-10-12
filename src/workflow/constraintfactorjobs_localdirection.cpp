@@ -2,32 +2,34 @@
 // 方向57：从 constraintfactorjobs.cpp 按函数族析出。方法定义逐字搬迁，
 // 类契约仍在 workflows.h（公共 API 零改动）；族间共享辅助经
 // constraintfactorjobs_internal.h。
-#include "workflows.h"
-#include "constraintworkflow_internal.h"
-#include "workflows_internal.h"
-#include "../algorithms/geostat/kriging.h"     // KrigingParams / KrigingResult（方向18）
-#include "../algorithms/geostat/sgs.h"         // SgsParams / SgsResult（方向18）
-#include "../algorithms/geostat/variogram.h"   // 变差函数模型（方向18）
-#include "../algorithms/rasterout.h"          // PaleoRasterOut / createFloatRaster
-#include "../algorithms/ensemblestats.h"     // StatsRequest（方向47 集合统计派生）
-#include "../catalog/datacatalog.h"
+#include "../algorithms/ensemblestats.h" // StatsRequest（方向47 集合统计派生）
+#include "../algorithms/geostat/kriging.h" // KrigingParams / KrigingResult（方向18）
+#include "../algorithms/geostat/sgs.h"       // SgsParams / SgsResult（方向18）
+#include "../algorithms/geostat/variogram.h" // 变差函数模型（方向18）
+#include "../algorithms/rasterout.h" // PaleoRasterOut / createFloatRaster
 #include "../algorithms/singlefactor/cartographicworkfile.h"
+#include "../catalog/datacatalog.h"
 #include "../domain/arearules.h"
-#include "../domain/singlefactorrequest.h"  // 制图工作场不进融合/分相
+#include "../domain/singlefactorrequest.h" // 制图工作场不进融合/分相
 #include "../io/constraintstore.h"
 #include "../metadata/paleoprojectstore.h"
 #include "../qgis/factorcontour.h"
 #include "../qgis/factorstylewriter.h"
-#include "../qgis/qgiseditingservice.h"    // 拓扑提交门（geometryCommitError）
+#include "../qgis/qgiseditingservice.h" // 拓扑提交门（geometryCommitError）
 #include "../qgis/qgislayerservice.h"
 #include "../qgis/qgisprocessingservice.h"
-#include "../qgis/qgisstyleservice.h"      // applyFaciesBoundaryStyle
+#include "../qgis/qgisstyleservice.h" // applyFaciesBoundaryStyle
 #include "../services/jobrunner.h"
+#include "../services/paleotaskservice.h"
 #include "../services/singlefactordef.h"
-#include "boundarysemantics.h"             // 相界地质语义类型词表
+#include "boundarysemantics.h" // 相界地质语义类型词表
+#include "constraintfactorjobs_internal.h"
+#include "constraintworkflow_internal.h"
 #include "derivedassets.h"
 #include "mappingworkflow.h"
 #include "realizationworkflow.h"
+#include "workflows.h"
+#include "workflows_internal.h"
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
@@ -39,24 +41,23 @@
 #include <QSet>
 #include <QUuid>
 #include <QVariantList>
+#include <algorithm>
+#include <cmath>
+#include <cpl_conv.h>
+#include <cstring>
+#include <gdal.h>
+#include <ogr_spatialref.h>
 #include <qgscoordinatereferencesystem.h>
-#include <qgsfield.h>
 #include <qgsfeature.h>
 #include <qgsfeatureiterator.h>
 #include <qgsfeaturerequest.h>
+#include <qgsfield.h>
 #include <qgsgeometry.h>
 #include <qgsmaplayer.h>
 #include <qgsrasterlayer.h>
 #include <qgsvectorfilewriter.h> // WS-C：参与井点 samples GPKG 写出
 #include <qgsvectorlayer.h>
-#include <gdal.h>
-#include <ogr_spatialref.h>
-#include <cpl_conv.h>
-#include <algorithm>
-#include <cmath>
-#include <cstring>
 #include <variant>
-#include "constraintfactorjobs_internal.h"
 
 using namespace paleo::constraint_detail;
 
@@ -162,20 +163,41 @@ bool ConstraintWorkflow::prepareLocalDirectionJob( const QString &horizon, const
   const QString snapshot = property( ( "paleo.constraint.snapshot." + horizon ).toUtf8().constData() ).toString();
   if ( !snapshot.isEmpty() )
     job->parentPaths << snapshot;
+  QString stageError;
+  auto registrar =
+      paleo::workflow_detail::derivedRegistrarOf(this, &stageError);
+  if (m_factorTasks && registrar.isBound()) {
+    bool known = false;
+    const auto definition = SingleFactorRegistry::byId(factorId, &known);
+    job->staging = registrar.stage(
+        "single_factor_raster", tr("%1·%2").arg(definition.title, horizon),
+        QStringLiteral("FACTOR_%1_%2.tif").arg(factorId, horizon), &stageError);
+    if (!job->staging.isValid()) {
+      paleo::workflow_detail::setError(error, stageError);
+      return false;
+    }
+  }
   job->prepared = true;
   return true;
 }
 
-bool ConstraintWorkflow::computeLocalDirectionJob( LocalDirectionJob *job, const std::function<bool()> &cancelled,
-                                                   const std::function<void( double )> &progress )
-{
+bool ConstraintWorkflow::computeLocalDirectionJob(
+    LocalDirectionJob *job, const std::function<bool()> &cancelled,
+    const std::function<void(double)> &progress) {
+  return computeLocalDirectionJobWithService(m_proc.data(), job, cancelled,
+                                             progress);
+}
+
+bool ConstraintWorkflow::computeLocalDirectionJobWithService(
+    QgisProcessingService *proc, LocalDirectionJob *job,
+    const std::function<bool()> &cancelled,
+    const std::function<void(double)> &progress) {
   if ( !job || !job->prepared )
   {
     if ( job )
       job->error = tr( "本地方向任务尚未准备" );
     return false;
   }
-  QgisProcessingService *proc = m_proc.data();
   if ( !proc )
   {
     job->error = tr( "constraint workflow is not bound to services" );
@@ -291,6 +313,32 @@ bool ConstraintWorkflow::computeLocalDirectionJob( LocalDirectionJob *job, const
     job->ok = false;
     return false;
   }
+  if (job->staging.isValid()) {
+    if (cancelled && cancelled()) {
+      job->error = tr("已取消");
+      return false;
+    }
+    const QString output = job->staging.absolutePath;
+    const QString qc = fileStem(output) + ".qc.json";
+    const QString support = job->supportPath.isEmpty()
+                                ? QString()
+                                : fileStem(output) + ".support.tif";
+    if (!QFile::copy(job->outputPath, output) ||
+        !QFile::copy(job->qcPath, qc) ||
+        (!support.isEmpty() && !QFile::copy(job->supportPath, support))) {
+      job->error = tr("无法暂存计算成果");
+      return false;
+    }
+    job->fingerprint =
+        DerivedFileFingerprint::read(output, cancelled, &job->error);
+    job->stagedQcSha = DataCatalog::sha256FileHex(qc, &job->error, cancelled);
+    if (!support.isEmpty())
+      job->stagedSupportSha =
+          DataCatalog::sha256FileHex(support, &job->error, cancelled);
+    if (job->fingerprint.sha256.isEmpty() || job->stagedQcSha.isEmpty() ||
+        (!support.isEmpty() && job->stagedSupportSha.isEmpty()))
+      return false;
+  }
   job->ok = true;
   return true;
 }
@@ -336,9 +384,14 @@ bool ConstraintWorkflow::publishLocalDirectionJob( const LocalDirectionJob &job,
     paleo::workflow_detail::setError( error, regErr );
     return false;
   }
-  const DerivedStaging st = registrar.stage(
-      QStringLiteral( "single_factor_raster" ), tr( "%1·%2" ).arg( def.title, job.horizon ),
-      QStringLiteral( "FACTOR_%1_%2.tif" ).arg( job.factorId, job.horizon ), &regErr );
+  const DerivedStaging st =
+      job.staging.isValid()
+          ? job.staging
+          : registrar.stage(QStringLiteral("single_factor_raster"),
+                            tr("%1·%2").arg(def.title, job.horizon),
+                            QStringLiteral("FACTOR_%1_%2.tif")
+                                .arg(job.factorId, job.horizon),
+                            &regErr);
   if ( !st.isValid() )
   {
     discardTemp();
@@ -359,8 +412,8 @@ bool ConstraintWorkflow::publishLocalDirectionJob( const LocalDirectionJob &job,
     paleo::workflow_detail::setError( error, tr( "发布代次已变，丢弃这次本地方向成果" ) );
     return false;
   }
-  if ( !QFile::copy( job.supportPath, stagedSupport ) || !QFile::copy( job.qcPath, stagedQc ) )
-  {
+  if (!job.staging.isValid() && (!QFile::copy(job.supportPath, stagedSupport) ||
+                                 !QFile::copy(job.qcPath, stagedQc))) {
     discard();
     paleo::workflow_detail::setError( error, tr( "本地方向旁路文件无法写入成果目录" ) );
     return false;
@@ -392,8 +445,13 @@ bool ConstraintWorkflow::publishLocalDirectionJob( const LocalDirectionJob &job,
     return false;
   }
   QString shaErr;
-  const QString supportSha = DataCatalog::sha256FileHex( stagedSupport, &shaErr );
-  const QString qcSha = DataCatalog::sha256FileHex( stagedQc, &shaErr );
+  const QString supportSha =
+      job.staging.isValid()
+          ? job.stagedSupportSha
+          : DataCatalog::sha256FileHex(stagedSupport, &shaErr);
+  const QString qcSha = job.staging.isValid()
+                            ? job.stagedQcSha
+                            : DataCatalog::sha256FileHex(stagedQc, &shaErr);
   if ( supportSha.isEmpty() || qcSha.isEmpty() )
   {
     discard();
@@ -459,8 +517,10 @@ bool ConstraintWorkflow::publishLocalDirectionJob( const LocalDirectionJob &job,
   inheritMockFlag( PaleoWorkflowDerivedCatalog( this ), parentIds, extra );
   insertStrategyId( job.params, extra ); // 方向67：策略包 id 进血缘（覆盖本地方向两引擎与 surfer 委托）
   QString commitErr;
-  if ( !registrar.commitExternal( st, job.outputPath, parentIds, committedAlgorithm, extra, &commitErr ) )
-  {
+  if (!registrar.commitExternal(
+          st, job.staging.isValid() ? st.absolutePath : job.outputPath,
+          parentIds, committedAlgorithm, extra, &commitErr,
+          job.staging.isValid() ? &job.fingerprint : nullptr)) {
     discard();
     paleo::workflow_detail::setError( error, commitErr );
     return false;
@@ -478,6 +538,35 @@ bool ConstraintWorkflow::generateLocalDirectionFactor( const QString &horizon, c
   LocalDirectionJob job;
   if ( !prepareLocalDirectionJob( horizon, factorId, params, &job, error ) )
     return false;
+  if (m_factorTasks) {
+    auto shared = std::make_shared<LocalDirectionJob>(job);
+    return runFactorWork(
+        tr("%1 单因素计算").arg(horizon),
+        [proc = m_proc.data(), shared](PaleoTask *task) {
+          const bool ok = computeLocalDirectionJobWithService(
+              proc, shared.get(), [task] { return task->cancelRequested(); },
+              [task](double p) {
+                task->reportStage("build", qBound(0, qRound(p), 95));
+              });
+          return ok ? QString() : shared->error;
+        },
+        [this, shared](QString *error) {
+          return publishLocalDirectionJob(*shared, error);
+        },
+        [shared] {
+          if (shared->outputPath.contains("paleo-sf-"))
+            QDir(QFileInfo(shared->outputPath).absolutePath())
+                .removeRecursively();
+          if (shared->staging.isValid()) {
+            const auto path = shared->staging.absolutePath;
+            for (const auto &file :
+                 QStringList{path, fileStem(path) + ".qc.json",
+                             fileStem(path) + ".support.tif"})
+              QFile::remove(file);
+          }
+        },
+        error);
+  }
   if ( !computeLocalDirectionJob( &job ) )
   {
     paleo::workflow_detail::setError( error, job.error );

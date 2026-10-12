@@ -1,17 +1,18 @@
 // 层：功能
 #include "sectionworkbench.h"
 #include "../domain/wellnumeric.h"
+#include "../services/futuretask.h"
 #include "derivedassets.h"
 #include "io/lasparser.h"
 #include "io/wellfileparsers.h"
 #include "services/welllogset.h"
 #include <QDir>
 #include <QFile>
+#include <QFutureWatcher>
 #include <QHash>
 #include <QJsonDocument>
-#include <QStringList>
 #include <QSaveFile>
-#include <QFutureWatcher>
+#include <QStringList>
 #include <QtConcurrent>
 #include <algorithm>
 #include <cmath>
@@ -35,22 +36,40 @@ void SectionWorkbench::requestPreviewData(std::function<void(const PreviewData &
   const auto stop = m_previewStop;
   auto *watcher = new QFutureWatcher<PreviewData>(this);
   watcher->setObjectName("sectionWellPreviewWatcher");
-  connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, generation, sequence, path] {
-    const auto data = watcher->result(); watcher->deleteLater(); m_previewRunning = false;
-    if (generation == m_previewGeneration && m_catalog && m_catalog->catalogPath() == path &&
-        m_catalog->mutationSeq() == sequence) {
-      auto ready = std::move(m_previewReady); m_previewReady = {};
-      if (ready) ready(data);
-    } else if (generation == m_previewGeneration && m_catalog &&
-               m_catalog->catalogPath() == path && m_previewReady) {
-      m_previewPending = true; // 同目录数据已更新，重读最新快照
-    }
-    if (m_previewPending) requestPreviewData(std::move(m_previewReady));
-  });
-  watcher->setFuture(QtConcurrent::run([snapshot, stop] {
-    SectionWorkbench worker(snapshot.get());
-    return PreviewData{worker.wells(stop), worker.sectionWells(stop)};
-  }));
+  connect(watcher, &QFutureWatcherBase::finished, this,
+          [this, watcher, generation, sequence, path] {
+            const bool cancelled = watcher->future().isCanceled();
+            const auto data = !cancelled && watcher->future().resultCount()
+                                  ? watcher->result()
+                                  : PreviewData{};
+            watcher->deleteLater();
+            m_previewRunning = false;
+            if (!cancelled && generation == m_previewGeneration && m_catalog &&
+                m_catalog->catalogPath() == path &&
+                m_catalog->mutationSeq() == sequence) {
+              auto ready = std::move(m_previewReady);
+              m_previewReady = {};
+              if (ready)
+                ready(data);
+            } else if (!cancelled && generation == m_previewGeneration &&
+                       m_catalog && m_catalog->catalogPath() == path &&
+                       m_previewReady) {
+              m_previewPending = true; // 同目录数据已更新，重读最新快照
+            }
+            if (m_previewPending)
+              requestPreviewData(std::move(m_previewReady));
+          });
+  const auto future =
+      QtConcurrent::run(paleo::tasks::pool(m_tasks), [snapshot, stop] {
+        SectionWorkbench worker(snapshot.get());
+        return PreviewData{worker.wells(stop), worker.sectionWells(stop)};
+      });
+  auto *task = paleo::tasks::track(m_tasks, watcher, future,
+                                   tr("读取井震剖面测井数据"), true);
+  if (task)
+    connect(task, &PaleoTask::cancelAsked, watcher,
+            [stop] { stop->store(true); });
+  watcher->setFuture(future);
 }
 void SectionWorkbench::cancelPreviewData() {
   ++m_previewGeneration; m_previewPending = false; m_previewReady = {};
@@ -528,3 +547,5 @@ QVariantMap SectionWorkbench::restore(const QString &id, QString *error,
   emit alignmentsChanged();
   return result;
 }
+
+SectionWorkbench::~SectionWorkbench() { cancelPreviewData(); }

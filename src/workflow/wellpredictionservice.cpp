@@ -1,17 +1,18 @@
 // 层：功能
 #include "wellpredictionservice.h"
-#include "wellsectionworkflow.h"
 #include "../ai/wellfacieskeystore.h"
 #include "../domain/faciescatalog.h"
 #include "../io/welllogread.h"
+#include "../qgis/wellattributestore.h"
+#include "../services/futuretask.h"
 #include "../services/projectdata.h"
 #include "../services/welllogset.h"
-#include "../qgis/wellattributestore.h"
+#include "wellsectionworkflow.h"
 #include <QFutureWatcher>
-#include <QtConcurrent>
 #include <QJsonDocument>
 #include <QSet>
 #include <QTimer>
+#include <QtConcurrent>
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -232,55 +233,85 @@ void WellPredictionService::prepare() {
     emit progress(m_request.id, 10);
     m_service.fetchModels();
   });
-  watcher->setFuture(QtConcurrent::run([sources, cancelled](QPromise<QVector<WellComposite::ComprehensiveWellData>> &promise) {
-    promise.setProgressRange(0, int(sources.size()));
-    QVector<WellComposite::ComprehensiveWellData> data;
-    for (const auto &source : sources) {
-      if (cancelled->load()) break;
-      auto well = source.data;
-      QHash<QString, LasDoc> docs;
-      double top = std::numeric_limits<double>::infinity(), base = -top;
-      for (const auto &ref : source.curves) {
-        if (cancelled->load()) break;
-        if (!docs.contains(ref.path)) docs.insert(ref.path, WellLogRead::parseDoc(ref.path));
-        const auto &doc = docs[ref.path];
-        if (doc.curves.isEmpty() || ref.column < 1 || ref.column >= doc.curves.size()) continue;
-        // 预测输入使用测深（MD）；其他深度域不能直接当成 MD。
-        LasHeaderInfo header;
-        if (!WellLogRead::parseHeader(ref.path, header) || header.indexBasis != "MD") continue;
-        WellComposite::CurveData curve;
-        curve.name = ref.mnemonic; curve.unit = doc.curves[ref.column].unit;
-        const auto &depth = doc.curves.first();
-        const bool feet = depth.unit.compare("ft", Qt::CaseInsensitive) == 0;
-        if (!depth.unit.isEmpty() && !feet && depth.unit.compare("m", Qt::CaseInsensitive) != 0) continue;
-        for (double d : depth.values) {
-          d *= feet ? 0.3048 : 1.0;
-          curve.depths << float(d);
-          if (std::isfinite(d)) { top = std::min(top, double(curve.depths.last())); base = std::max(base, double(curve.depths.last())); }
+  watcher->setFuture(QtConcurrent::run(
+      paleo::tasks::pool(m_tasks),
+      [sources, cancelled](
+          QPromise<QVector<WellComposite::ComprehensiveWellData>> &promise) {
+        promise.setProgressRange(0, int(sources.size()));
+        QVector<WellComposite::ComprehensiveWellData> data;
+        for (const auto &source : sources) {
+          if (cancelled->load())
+            break;
+          auto well = source.data;
+          QHash<QString, LasDoc> docs;
+          double top = std::numeric_limits<double>::infinity(), base = -top;
+          for (const auto &ref : source.curves) {
+            if (cancelled->load())
+              break;
+            if (!docs.contains(ref.path))
+              docs.insert(ref.path, WellLogRead::parseDoc(ref.path));
+            const auto &doc = docs[ref.path];
+            if (doc.curves.isEmpty() || ref.column < 1 ||
+                ref.column >= doc.curves.size())
+              continue;
+            // 预测输入使用测深（MD）；其他深度域不能直接当成 MD。
+            LasHeaderInfo header;
+            if (!WellLogRead::parseHeader(ref.path, header) ||
+                header.indexBasis != "MD")
+              continue;
+            WellComposite::CurveData curve;
+            curve.name = ref.mnemonic;
+            curve.unit = doc.curves[ref.column].unit;
+            const auto &depth = doc.curves.first();
+            const bool feet =
+                depth.unit.compare("ft", Qt::CaseInsensitive) == 0;
+            if (!depth.unit.isEmpty() && !feet &&
+                depth.unit.compare("m", Qt::CaseInsensitive) != 0)
+              continue;
+            for (double d : depth.values) {
+              d *= feet ? 0.3048 : 1.0;
+              curve.depths << float(d);
+              if (std::isfinite(d)) {
+                top = std::min(top, double(curve.depths.last()));
+                base = std::max(base, double(curve.depths.last()));
+              }
+            }
+            for (double value : doc.curves[ref.column].values)
+              curve.values << float(value);
+            well.continuousCurves.append(curve);
+          }
+          well.minDepth = top;
+          well.maxDepth = base;
+          QSet<QString> names;
+          for (const auto &formation : well.formationIntervals)
+            names.insert(formation.name);
+          for (int i = 0; i < source.tops.size(); ++i) {
+            const auto &t = source.tops[i];
+            const double bottom =
+                i + 1 < source.tops.size() ? source.tops[i + 1].md : base;
+            if (t.horizon.isEmpty() || bottom <= t.md ||
+                names.contains(t.horizon))
+              continue;
+            names.insert(t.horizon);
+            WellComposite::FormationInterval formation;
+            formation.name = t.horizon;
+            formation.topDepth = float(t.md);
+            formation.bottomDepth = float(bottom);
+            formation.unitType = t.horizon.endsWith(QStringLiteral("组"))
+                                     ? QStringLiteral("组")
+                                     : QStringLiteral("段");
+            well.formationIntervals.append(formation);
+          }
+          std::stable_sort(well.formationIntervals.begin(),
+                           well.formationIntervals.end(),
+                           [](const auto &a, const auto &b) {
+                             return a.topDepth < b.topDepth;
+                           });
+          data.append(well);
+          promise.setProgressValue(int(data.size()));
         }
-        for (double value : doc.curves[ref.column].values) curve.values << float(value);
-        well.continuousCurves.append(curve);
-      }
-      well.minDepth = top; well.maxDepth = base;
-      QSet<QString> names;
-      for (const auto &formation : well.formationIntervals) names.insert(formation.name);
-      for (int i = 0; i < source.tops.size(); ++i) {
-        const auto &t = source.tops[i];
-        const double bottom = i + 1 < source.tops.size() ? source.tops[i + 1].md : base;
-        if (t.horizon.isEmpty() || bottom <= t.md || names.contains(t.horizon)) continue;
-        names.insert(t.horizon);
-        WellComposite::FormationInterval formation;
-        formation.name = t.horizon; formation.topDepth = float(t.md); formation.bottomDepth = float(bottom);
-        formation.unitType = t.horizon.endsWith(QStringLiteral("组")) ? QStringLiteral("组") : QStringLiteral("段");
-        well.formationIntervals.append(formation);
-      }
-      std::stable_sort(well.formationIntervals.begin(), well.formationIntervals.end(),
-        [](const auto &a, const auto &b) { return a.topDepth < b.topDepth; });
-      data.append(well);
-      promise.setProgressValue(int(data.size()));
-    }
-    promise.addResult(data);
-  }));
+        promise.addResult(data);
+      }));
 }
 void WellPredictionService::plan(const QVector<WellFaciesModel> &models) {
   if (m_request.id.isEmpty()) return;

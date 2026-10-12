@@ -404,6 +404,7 @@ QWidget *DataPreviewTabs::buildGeoJsonContent(
 
   // 1. P2 统一预览地图页（D1.x 工具/TOC/identify/图例全套）
   auto *page = new PreviewMapPage(viewStack);
+  page->setTaskService(m_doc ? m_doc->taskService() : nullptr);
   page->setObjectName(QStringLiteral("faciesPreviewPage"));
   page->setAssetKey(assetId);
   page->mapCanvas()->canvas()->setObjectName(QStringLiteral("faciesMapCanvas"));

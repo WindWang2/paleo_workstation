@@ -1,6 +1,14 @@
 // 层：功能
 #pragma once
 #include <QString>
+#include <QVector>
+#include <functional>
+class QObject;
+class QImage;
+class QgsLayout;
+class PaleoTask;
+class PaleoTaskService;
+struct CatalogOp;
 
 class DataCatalog;
 class QgsPrintLayout;
@@ -45,3 +53,26 @@ QString registerMapPdfAsset( DataCatalog *catalog, const QString &projectDir,
                              const QString &pdfPath, QString *sha256Out = nullptr,
                              QString *managedPathOut = nullptr, QString *error = nullptr,
                              const QString &assetFormat = QString() );
+
+// Worker has already copied and hashed files into a private root on the same
+// filesystem. Owner only renames them and applies one atomic catalogue journal.
+bool publishMapExportJournal(DataCatalog *catalog, const QString &projectDir,
+                             const QString &stagingRoot,
+                             const QVector<CatalogOp> &ops, QString *error);
+
+struct MapProductExportOutcome {
+  QString assetId, sha256, managedPath, error;
+  bool cancelled = false;
+};
+using MapProductExportDone =
+    std::function<void(const MapProductExportOutcome &)>;
+PaleoTask *startMapLayoutExport(QgsLayout *layout, PaleoTaskService *tasks,
+                                DataCatalog *catalog, const QString &projectDir,
+                                const QString &pdfPath, QObject *receiver,
+                                MapProductExportDone done,
+                                QString *error = nullptr);
+PaleoTask *startMapFrameExport(const QImage &image, PaleoTaskService *tasks,
+                               DataCatalog *catalog, const QString &projectDir,
+                               const QString &fileName, QObject *receiver,
+                               MapProductExportDone done,
+                               QString *error = nullptr);

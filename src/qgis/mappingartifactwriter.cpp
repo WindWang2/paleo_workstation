@@ -22,6 +22,7 @@
 #include <qgsproject.h>
 #include <qgsproperty.h>
 #include <qgsrasterlayer.h>
+#include <qgsspatialindex.h>
 #include <qgsvectordataprovider.h>
 #include <qgsvectorfilewriter.h>
 #include <qgsvectorlayer.h>
@@ -479,12 +480,12 @@ void applyFaciesStyle(QgsMapLayer *layer, const QVariantList &facies) {
 #include <qgsrasterblock.h>
 #include <qgsrasterdataprovider.h>
 
-bool MappingArtifactWriter::composeRaster(const QString &path,
-                                          const QList<QgsMapLayer *> &layers,
-                                          const QVariantList &facies,
-                                          const QList<double> &thresholds,
-                                          const QSet<QString> &continuous,
-                                          QString *error) {
+bool MappingArtifactWriter::composeRaster(
+    const QString &path, const QList<QgsMapLayer *> &layers,
+    const QVariantList &facies, const QList<double> &thresholds,
+    const QSet<QString> &continuous, QString *error,
+    const std::function<bool()> &cancelled,
+    const std::function<void(double)> &progress) {
   auto reject = [error](const QString &s) {
     if (error)
       *error = s;
@@ -528,7 +529,13 @@ bool MappingArtifactWriter::composeRaster(const QString &path,
   if (cols <= 0 || rows <= 0 || qint64(cols) * rows > 4 * 1024 * 1024)
     return reject(QObject::tr("编图网格超过 400 万像元，请先裁剪输入范围"));
   QVector<int> output(cols * rows, -9999);
+  int layerIndex = 0;
   for (auto *l : layers) {
+    if (cancelled && cancelled())
+      return reject(QObject::tr("已取消"));
+    const double baseProgress = 95.0 * layerIndex++ / layers.size();
+    if (progress)
+      progress(baseProgress);
     if (l->crs() != crs)
       return reject(QObject::tr("编图输入坐标不一致，请先配准"));
     if (auto *r = qobject_cast<QgsRasterLayer *>(l)) {
@@ -538,6 +545,12 @@ bool MappingArtifactWriter::composeRaster(const QString &path,
         return reject(QObject::tr("无法读取编图栅格"));
       const bool numeric = continuous.contains(l->id());
       for (int i = 0; i < output.size(); ++i) {
+        if (i % 4096 == 0) {
+          if (cancelled && cancelled())
+            return reject(QObject::tr("已取消"));
+          if (progress)
+            progress(baseProgress + 95.0 * i / output.size() / layers.size());
+        }
         if (block->isNoData(i))
           continue;
         const double v = block->value(i);
@@ -558,41 +571,57 @@ bool MappingArtifactWriter::composeRaster(const QString &path,
           v->fields().indexOf("facies_code") < 0)
         return reject(QObject::tr("自动融合支持相栅格、单因素栅格与预测相点；已"
                                   "有相面请用“复制底图并编辑”"));
-      QList<QPair<QgsPointXY, int>> points;
+      QgsSpatialIndex index;
+      QHash<QgsFeatureId, int> pointCodes;
+      QgsFeatureId pointId = 0;
       QgsFeature f;
       auto it = v->getFeatures();
       while (it.nextFeature(f)) {
+        if (cancelled && cancelled())
+          return reject(QObject::tr("已取消"));
+        if (f.attribute("facies_code").isNull())
+          continue;
         if (f.geometry().isEmpty())
           continue;
         int code = f.attribute("facies_code").toInt();
         if (!codes.contains(code))
           return reject(QObject::tr("相点含当前层位未定义的编码"));
         auto g = f.geometry().centroid();
-        points.append({g.asPoint(), code});
+        QgsFeature indexed(++pointId);
+        indexed.setGeometry(g);
+        index.addFeature(indexed);
+        pointCodes.insert(pointId, code);
       }
-      if (points.isEmpty())
+      if (pointCodes.isEmpty())
         return reject(QObject::tr("预测相点为空"));
       // Categorical nearest-neighbour: never interpolate numeric facies codes.
-      for (int y = 0; y < rows; ++y)
+      for (int y = 0; y < rows; ++y) {
+        if (cancelled && cancelled())
+          return reject(QObject::tr("已取消"));
+        if (progress)
+          progress(baseProgress + 95.0 * y / rows / layers.size());
         for (int x = 0; x < cols; ++x) {
           int i = y * cols + x;
           if (output[i] != -9999)
             continue;
           QgsPointXY p(extent.xMinimum() + (x + .5) * extent.width() / cols,
                        extent.yMaximum() - (y + .5) * extent.height() / rows);
-          double nearest = std::numeric_limits<double>::max();
-          int code = -9999;
-          for (const auto &entry : points) {
-            double d = entry.first.sqrDist(p);
-            if (d < nearest) {
-              nearest = d;
-              code = entry.second;
-            }
-          }
+          const auto nearest = index.nearestNeighbor(p, 1);
+          const int code =
+              nearest.isEmpty()
+                  ? -9999
+                  : pointCodes.value(
+                        *std::min_element(nearest.cbegin(), nearest.cend()),
+                        -9999);
           output[i] = code;
         }
+      }
     }
   }
+  if (cancelled && cancelled())
+    return reject(QObject::tr("已取消"));
+  if (progress)
+    progress(95);
   return raster(path, output, cols, rows,
                 QRectF(extent.xMinimum(), extent.yMinimum(), extent.width(),
                        extent.height()),

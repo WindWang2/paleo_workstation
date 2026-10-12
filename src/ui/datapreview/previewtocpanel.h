@@ -3,6 +3,7 @@
 
 #include <QWidget>
 
+class PaleoTaskService;
 class QLabel;
 
 #include "../../qgis/previewrasteranalysis.h"
@@ -32,6 +33,7 @@ class PreviewTocPanel : public QWidget
     Q_OBJECT
   public:
     explicit PreviewTocPanel( QWidget *parent = nullptr );
+    void setTaskService(PaleoTaskService *tasks) { m_tasks = tasks; }
 
     // assetKey 非空时启用状态记忆（层名键）。
     void setAssetKey( const QString &assetKey );
@@ -77,6 +79,8 @@ class PreviewTocPanel : public QWidget
     void attributeTableRequested( QgsVectorLayer *layer ); // D7.3 全表入口
 
   private:
+    PaleoTaskService *m_tasks = nullptr;
+    quint64 m_styleGeneration = 0;
     struct RowInfo
     {
       QgsMapLayer *layer = nullptr;

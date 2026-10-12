@@ -175,6 +175,7 @@ QWidget *DataPreviewTabs::buildWellBody(const CatalogAsset &asset, const QString
           addMemoryPoint(topsVl, t.x, t.y, t.topName, QStringLiteral("well"));
       stylePointLayer(topsVl, true);
       auto *mapPage = new PreviewMapPage(holder);
+      mapPage->setTaskService(m_doc ? m_doc->taskService() : nullptr);
       mapPage->setObjectName(QStringLiteral("topsPreviewPage"));
       mapPage->mapCanvas()->canvas()->setObjectName(QStringLiteral("topsMapCanvas"));
       mapPage->setProfileEnabled(false);
@@ -291,6 +292,7 @@ QWidget *DataPreviewTabs::buildWellBody(const CatalogAsset &asset, const QString
                                                    : QStringLiteral("well"));
     stylePointLayer(wellsVl, true);
     auto *mapPage = new PreviewMapPage(holder);
+    mapPage->setTaskService(m_doc ? m_doc->taskService() : nullptr);
     mapPage->setObjectName(QStringLiteral("wellHeadPreviewPage"));
     mapPage->mapCanvas()->canvas()->setObjectName(QStringLiteral("wellHeadMapCanvas"));
     mapPage->setProfileEnabled(false);

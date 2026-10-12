@@ -1,5 +1,9 @@
 // 层：QGIS 封装
 #include "previewrasteranalysis.h"
+#include "../services/paleotaskservice.h"
+#include <QCache>
+#include <QFileInfo>
+#include <memory>
 
 #include <QFileInfo>
 
@@ -34,6 +38,91 @@ double Histogram::maximumCount() const
   for ( qint64 c : counts )
     m = std::max( m, c );
   return double( m );
+}
+
+namespace {
+QString rasterKey(const QString &uri) {
+  const QFileInfo file(uri.section('|', 0, 0));
+  return uri + QString::number(file.size()) + ":" +
+         QString::number(file.lastModified().toMSecsSinceEpoch());
+}
+} // namespace
+void requestSummary(const QString &uri, PaleoTaskService *tasks,
+                    QObject *receiver,
+                    std::function<void(const BandSummary &)> ready) {
+  // Cache is owner-thread only and bounded; immutable versions share statistics
+  // across preview tabs and repeated TOC selection.
+  static QCache<QString, BandSummary> cache(64);
+  const auto key = rasterKey(uri);
+  if (const auto *hit = cache.object(key)) {
+    ready(*hit);
+    return;
+  }
+  if (!tasks) {
+    QgsRasterLayer layer(uri, "statistics", "gdal");
+    ready(summarize(&layer));
+    return;
+  }
+  auto summary = std::make_shared<BandSummary>();
+  auto *task = tasks->start(
+      QObject::tr("统计预览栅格"),
+      [uri, summary](PaleoTask *running) {
+        QgsRasterLayer layer(uri, "statistics", "gdal");
+        if (!layer.isValid())
+          return QStringLiteral("无法读取预览栅格");
+        running->reportStage("scan", 5);
+        *summary = summarize(&layer);
+        return QString();
+      },
+      {}, true);
+  QObject::connect(receiver, &QObject::destroyed, task,
+                   &PaleoTask::requestCancel);
+  QObject::connect(task, &PaleoTask::finished, receiver,
+                   [task, summary, ready, key, uri] {
+                     if (task->state() == PaleoTask::State::Succeeded &&
+                         rasterKey(uri) == key) {
+                       cache.insert(key, new BandSummary(*summary));
+                       ready(*summary);
+                     }
+                   });
+}
+void requestHistogram(const QString &uri, int bins, PaleoTaskService *tasks,
+                      QObject *receiver,
+                      std::function<void(const Histogram &)> ready) {
+  static QCache<QString, Histogram> cache(64);
+  const auto identity = rasterKey(uri);
+  const auto key = identity + ":" + QString::number(bins);
+  if (const auto *hit = cache.object(key)) {
+    ready(*hit);
+    return;
+  }
+  if (!tasks) {
+    QgsRasterLayer layer(uri, "histogram", "gdal");
+    ready(histogram(&layer, bins));
+    return;
+  }
+  auto result = std::make_shared<Histogram>();
+  auto *task = tasks->start(
+      QObject::tr("计算预览直方图"),
+      [uri, bins, result](PaleoTask *running) {
+        QgsRasterLayer layer(uri, "histogram", "gdal");
+        if (!layer.isValid())
+          return QStringLiteral("无法读取预览栅格");
+        running->reportStage("scan", 5);
+        *result = histogram(&layer, bins);
+        return QString();
+      },
+      {}, true);
+  QObject::connect(receiver, &QObject::destroyed, task,
+                   &PaleoTask::requestCancel);
+  QObject::connect(task, &PaleoTask::finished, receiver,
+                   [task, result, ready, key, identity, uri] {
+                     if (task->state() == PaleoTask::State::Succeeded &&
+                         rasterKey(uri) == identity) {
+                       cache.insert(key, new Histogram(*result));
+                       ready(*result);
+                     }
+                   });
 }
 
 BandSummary summarize( QgsRasterLayer *layer, int band )
@@ -266,9 +355,9 @@ QVector<ProfileSample> sampleProfile( QgsRasterLayer *layer, const QgsPointXY &p
   return out;
 }
 
-QVector<Extremum> localExtrema( QgsRasterLayer *layer, int band, int window,
-                                double prominence, int maxCount )
-{
+QVector<Extremum> localExtrema(QgsRasterLayer *layer, int band, int window,
+                               double prominence, int maxCount,
+                               const std::function<bool()> &cancelled) {
   QVector<Extremum> out;
   if ( !layer || !layer->isValid() || !layer->dataProvider() || window < 3 )
     return out;
@@ -295,6 +384,8 @@ QVector<Extremum> localExtrema( QgsRasterLayer *layer, int band, int window,
   QVector<Cand> cands;
   for ( int y = half; y < h - half; y += 1 )
   {
+    if (cancelled && cancelled())
+      return {};
     for ( int x = half; x < w - half; x += 1 )
     {
       const double v = block->value( y, x );
@@ -348,6 +439,64 @@ QVector<Extremum> localExtrema( QgsRasterLayer *layer, int band, int window,
     out.append( e );
   }
   return out;
+}
+
+void requestExtrema(const QString &uri, PaleoTaskService *tasks,
+                    QObject *receiver,
+                    std::function<void(const QVector<Extremum> &)> ready) {
+  if (!tasks) {
+    QgsRasterLayer layer(uri, "extrema", "gdal");
+    const auto stats = summarize(&layer);
+    ready(localExtrema(&layer, 1, 5, stats.valid ? stats.stdDev * .5 : 0, 100));
+    return;
+  }
+  auto result = std::make_shared<QVector<Extremum>>();
+  auto *task = tasks->start(
+      QObject::tr("计算地层栅格极值"), [uri, result](PaleoTask *running) {
+        QgsRasterLayer layer(uri, "extrema", "gdal");
+        if (!layer.isValid())
+          return QStringLiteral("无法读取地层栅格");
+        running->reportStage("scan", 5);
+        const auto stats = summarize(&layer);
+        *result =
+            localExtrema(&layer, 1, 5, stats.valid ? stats.stdDev * .5 : 0, 100,
+                         [running] { return running->cancelRequested(); });
+        return QString();
+      });
+  QObject::connect(receiver, &QObject::destroyed, task,
+                   &PaleoTask::requestCancel);
+  QObject::connect(task, &PaleoTask::finished, receiver, [task, result, ready] {
+    if (task->state() == PaleoTask::State::Succeeded)
+      ready(*result);
+  });
+}
+void requestProfile(const QString &uri, const QgsPointXY &p1,
+                    const QgsPointXY &p2, PaleoTaskService *tasks,
+                    QObject *receiver,
+                    std::function<void(const QVector<ProfileSample> &)> ready) {
+  if (!tasks) {
+    QgsRasterLayer layer(uri, "profile", "gdal");
+    ready(sampleProfile(&layer, p1, p2, 200));
+    return;
+  }
+  auto result = std::make_shared<QVector<ProfileSample>>();
+  auto *task = tasks->start(
+      QObject::tr("采样栅格剖面"),
+      [uri, p1, p2, result](PaleoTask *running) {
+        QgsRasterLayer layer(uri, "profile", "gdal");
+        if (!layer.isValid())
+          return QStringLiteral("无法读取剖面栅格");
+        running->reportStage("scan", 5);
+        *result = sampleProfile(&layer, p1, p2, 200);
+        return QString();
+      },
+      {}, true);
+  QObject::connect(receiver, &QObject::destroyed, task,
+                   &PaleoTask::requestCancel);
+  QObject::connect(task, &PaleoTask::finished, receiver, [task, result, ready] {
+    if (task->state() == PaleoTask::State::Succeeded)
+      ready(*result);
+  });
 }
 
 bool hasPyramids( QgsRasterLayer *layer )

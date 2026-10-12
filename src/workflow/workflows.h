@@ -1,5 +1,11 @@
 // 层：功能
 #pragma once
+#include "../algorithms/singlefactor/types.h"
+#include "../domain/types.h"
+#include "../metadata/layermanifest.h"
+#include "../metadata/paleoprojectstore.h"
+#include "../services/singlefactordef.h"
+#include "derivedassets.h" // PredictionJob 持 DerivedStaging（#277 三段式）
 #include <QObject>
 #include <QPointer>
 #include <QString>
@@ -9,11 +15,6 @@
 #include <functional>
 #include <memory>
 #include <variant>
-#include "../algorithms/singlefactor/types.h"
-#include "../domain/types.h"
-#include "../metadata/paleoprojectstore.h"
-#include "../services/singlefactordef.h"
-#include "derivedassets.h" // PredictionJob 持 DerivedStaging（#277 三段式）
 
 class QgisProcessingService;
 class QgisLayerService;
@@ -211,6 +212,18 @@ class ConstraintWorkflow : public QObject
                             QString *pointsLayerId = nullptr);
     QVariantList wellFactorRows() const { return m_wellFactorRows; }
     QString wellFactorMessage() const { return m_wellFactorMessage; }
+    void setTaskService(PaleoTaskService *tasks) { m_factorTasks = tasks; }
+    bool factorBusy() const;
+    void cancelFactorTask();
+    bool runFactorWork(const QString &title,
+                       std::function<QString(PaleoTask *)> compute,
+                       std::function<bool(QString *)> publish,
+                       std::function<void()> cleanup, QString *error);
+    bool runFactorAlgorithm(
+        const QString &horizon, const QString &engine,
+        const QVariantMap &params,
+        std::function<bool(const QVariantMap &, QString *)> publish,
+        QString *error);
     bool generateFactor(const QString &horizon, const QString &factorId,
                         const QVariantMap &inputParams, QString *error = nullptr);
 
@@ -300,29 +313,36 @@ class ConstraintWorkflow : public QObject
     // paleo_surfer_idw）。
     struct LocalDirectionJob
     {
-        bool prepared = false;
-        bool ok = false;
-        quint64 generation = 0;
-        QString error;
-        QString horizon;
-        QString factorId;
-        QString field;
-        double cellSize = 1.0;
-        QString engineId = QStringLiteral( "paleo:paleo_local_direction_idw" );
-        QString wellUri;
-        QString constraintUri;
-        bool hasConstraints = false;
-        QStringList parentPaths;
-        QVariantMap params;
-        QString outputPath;
-        QString supportPath;
-        QString qcPath;
+      DerivedStaging staging;
+      DerivedFileFingerprint fingerprint;
+      QString stagedSupportSha, stagedQcSha;
+      bool prepared = false;
+      bool ok = false;
+      quint64 generation = 0;
+      QString error;
+      QString horizon;
+      QString factorId;
+      QString field;
+      double cellSize = 1.0;
+      QString engineId = QStringLiteral("paleo:paleo_local_direction_idw");
+      QString wellUri;
+      QString constraintUri;
+      bool hasConstraints = false;
+      QStringList parentPaths;
+      QVariantMap params;
+      QString outputPath;
+      QString supportPath;
+      QString qcPath;
     };
     bool prepareLocalDirectionJob(const QString &horizon, const QString &factorId,
                                   const QVariantMap &inputParams, LocalDirectionJob *job, QString *error = nullptr,
                                   const QString &engineId = QStringLiteral( "paleo:paleo_local_direction_idw" ));
     bool computeLocalDirectionJob(LocalDirectionJob *job, const std::function<bool()> &cancelled = {},
                                   const std::function<void(double)> &progress = {});
+    static bool computeLocalDirectionJobWithService(
+        QgisProcessingService *proc, LocalDirectionJob *job,
+        const std::function<bool()> &cancelled,
+        const std::function<void(double)> &progress);
     bool publishLocalDirectionJob(const LocalDirectionJob &job, QString *error = nullptr);
 
     // 方向18 克里金/SGS：准备在界面线程（只解析 URI 与参数），计算可在任务
@@ -336,31 +356,38 @@ class ConstraintWorkflow : public QObject
     //   realizations/seed: SGS 实现数（缺省 4）与种子（缺省 42）
     struct GeostatJob
     {
-        bool prepared = false;
-        bool ok = false;
-        bool degraded = false; // 样本不足 → 计算段降级 IDW（method_actual="idw"）
-        quint64 generation = 0;
-        QString error;
-        QString method; // "kriging" | "sgs"
-        QString horizon;
-        QString factorId;
-        QString field;
-        double cellSize = 1.0;
-        QString wellUri;
-        QStringList parentPaths;
-        QVariantMap params;
-        QString outputPath;
-        QString supportPath; // 克里金：估计方差场；SGS：实现间标准差场；降级：空
-        // 方向 47：SGS 成员集合——计算段把各 realization 写成员栅格（同一临时
-        // 目录），发布段由 RealizationWorkflow 收编为 realization_set 成员版本。
-        QStringList memberPaths; // 按 realizationIndex 升序
-        quint64 memberSeed = 0;  // 集合基种子（SGS 共享随机流）
-        QString qcPath;
+      DerivedStaging staging;
+      DerivedFileFingerprint fingerprint;
+      QString stagedSupportSha, stagedQcSha;
+      bool prepared = false;
+      bool ok = false;
+      bool degraded = false; // 样本不足 → 计算段降级 IDW（method_actual="idw"）
+      quint64 generation = 0;
+      QString error;
+      QString method; // "kriging" | "sgs"
+      QString horizon;
+      QString factorId;
+      QString field;
+      double cellSize = 1.0;
+      QString wellUri;
+      QStringList parentPaths;
+      QVariantMap params;
+      QString outputPath;
+      QString supportPath; // 克里金：估计方差场；SGS：实现间标准差场；降级：空
+      // 方向 47：SGS 成员集合——计算段把各 realization 写成员栅格（同一临时
+      // 目录），发布段由 RealizationWorkflow 收编为 realization_set 成员版本。
+      QStringList memberPaths; // 按 realizationIndex 升序
+      quint64 memberSeed = 0;  // 集合基种子（SGS 共享随机流）
+      QString qcPath;
     };
     bool prepareGeostatJob(const QString &horizon, const QString &factorId, const QString &method,
                            const QVariantMap &inputParams, GeostatJob *job, QString *error = nullptr);
     bool computeGeostatJob(GeostatJob *job, const std::function<bool()> &cancelled = {},
                            const std::function<void(double)> &progress = {});
+    static bool
+    computeGeostatJobWithService(QgisProcessingService *proc, GeostatJob *job,
+                                 const std::function<bool()> &cancelled,
+                                 const std::function<void(double)> &progress);
     bool publishGeostatJob(const GeostatJob &job, QString *error = nullptr);
 
     // 分析场等值线：准备在调用线程，GDAL 可在任务线程，发布回到 catalog 所属线程。
@@ -369,28 +396,31 @@ class ConstraintWorkflow : public QObject
     // 提取：interval<=0 = 自动级别（对话框自适应规则），不降级到 GDAL 等值线。
     struct AnalysisContourJob
     {
-        bool prepared = false;
-        bool ok = false;
-        bool fixedLevels = false;
-        bool structural = false;
-        quint64 generation = 0;
-        QString error;
-        QString horizon;
-        QString factorLayerId;
-        QString factorId;
-        QString rasterPath;
-        QString structuralPath;
-        QString analysisSha;
-        QStringList parentPaths;
-        double interval = 0.0;
-        QVector<double> levels;
-        QVector<double> resolvedLevels;
-        QString outputPath;
+      DerivedFileFingerprint inputFingerprint;
+      bool prepared = false;
+      bool ok = false;
+      bool fixedLevels = false;
+      bool structural = false;
+      quint64 generation = 0;
+      QString error;
+      QString horizon;
+      QString factorLayerId;
+      QString factorId;
+      QString rasterPath;
+      QString structuralPath;
+      QString analysisSha;
+      QStringList parentPaths;
+      double interval = 0.0;
+      QVector<double> levels;
+      QVector<double> resolvedLevels;
+      QString outputPath;
     };
     bool prepareAnalysisContourJob(const QString &horizon, const QString &factorLayerId,
                                    double interval, const QVector<double> &levels, bool fixedLevels,
                                    AnalysisContourJob *job, QString *error = nullptr);
-    bool computeAnalysisContourJob(AnalysisContourJob *job, const std::function<bool()> &cancelled = {});
+    static bool
+    computeAnalysisContourJob(AnalysisContourJob *job,
+                              const std::function<bool()> &cancelled = {});
     bool publishAnalysisContourJob(const AnalysisContourJob &job, QString *error = nullptr);
 
     // 解释性等值线：工作场与提线可在任务线程写临时文件，登记仍回调用线程。
@@ -398,33 +428,35 @@ class ConstraintWorkflow : public QObject
     // strict 默认与 generateInterpretiveContours 相同，不改拒绝穿线的缺省。
     struct InterpretiveContourJob
     {
-        bool prepared = false;
-        bool ok = false;
-        bool strict = true;
-        bool hasConstraints = false;
-        bool frozenConstraints = false;
-        quint64 generation = 0;
-        int unresolved = 0;
-        QString error;
-        QString horizon;
-        QString factorLayerId;
-        QString factorId;
-        QString rasterPath;
-        QString constraintUri;
-        QString analysisSha;
-        QStringList parentPaths;
-        QVector<double> levels;
-        std::vector<paleo::singlefactor::ConstraintLine> constraintLines;
-        std::vector<std::string> ignoredConstraints;
-        QString workPath;
-        QString qcPath;
-        QString contourPath;
+      DerivedFileFingerprint inputFingerprint;
+      bool prepared = false;
+      bool ok = false;
+      bool strict = true;
+      bool hasConstraints = false;
+      bool frozenConstraints = false;
+      quint64 generation = 0;
+      int unresolved = 0;
+      QString error;
+      QString horizon;
+      QString factorLayerId;
+      QString factorId;
+      QString rasterPath;
+      QString constraintUri;
+      QString analysisSha;
+      QStringList parentPaths;
+      QVector<double> levels;
+      std::vector<paleo::singlefactor::ConstraintLine> constraintLines;
+      std::vector<std::string> ignoredConstraints;
+      QString workPath;
+      QString qcPath;
+      QString contourPath;
     };
     bool prepareInterpretiveContourJob(const QString &horizon, const QString &factorLayerId,
                                        const QVector<double> &levels, bool strict,
                                        InterpretiveContourJob *job, QString *error = nullptr);
-    bool computeInterpretiveContourJob(InterpretiveContourJob *job,
-                                       const std::function<bool()> &cancelled = {});
+    static bool
+    computeInterpretiveContourJob(InterpretiveContourJob *job,
+                                  const std::function<bool()> &cancelled = {});
     bool publishInterpretiveContourJob(const InterpretiveContourJob &job, QString *error = nullptr);
 
     // ---- 方向20：三组作业的统一异步面 ---------------------------------
@@ -478,6 +510,9 @@ class ConstraintWorkflow : public QObject
     void wellAttributesChanged();
     void wellAttributeTableRequested(const QString &layerId);
     void wellFactorsExtracted(const QString &horizon, const QString &factorId);
+    void factorJobFailed(const QString &error);
+    void factorJobStateChanged(bool running);
+    void factorJobProgress(int percent, const QString &stage);
     void factorGenerated(const QString &horizon, const QString &factorId, const QString &layerId);
     void contoursGenerated(const QString &horizon, const QString &factorLayerId,
                            const QString &contourLayerId);
@@ -489,6 +524,8 @@ class ConstraintWorkflow : public QObject
     void constraintRemoved(const QString &constraintId);
 
   private:
+    PaleoTaskService *m_factorTasks = nullptr;
+    QPointer<PaleoTask> m_factorJobTask;
     QPointer<QgisProcessingService> m_proc;
     QPointer<QgisLayerService> m_layers;
     QPointer<PaleoProjectStore> m_projectStore;
@@ -612,6 +649,9 @@ class ValidationWorkflow : public QObject
     // Checks: duplicate horizon names, declared-layer source missing on disk,
     // busy-layer conflicts. Returns issue list (may be empty = clean).
     QList<ValidationIssue> validate();
+    void setTaskService(PaleoTaskService *tasks) { m_tasks = tasks; }
+    bool startValidation();
+    QList<ValidationIssue> lastIssues() const { return m_lastIssues; }
 
     // wave/mapping-pipeline — 绑定读侧门面后，validate() 增加 D61 井上时间残差
     // 检查（TD 插值 vs 层位 DERIVED 栅格；见 mappingworkflow.h）。残差只评 D61。
@@ -630,8 +670,14 @@ class ValidationWorkflow : public QObject
 
   signals:
     void validationDone(int issueCount);
+    void validationFinished(bool completed);
 
   private:
+    PaleoTaskService *m_tasks = nullptr;
+    QPointer<PaleoTask> m_validationTask;
+    QVector<LayerDeclaration> m_snapshotDeclarations;
+    QList<ValidationIssue> m_snapshotIssues, m_lastIssues;
+    std::function<bool()> m_cancelled;
     QPointer<QgisLayerService> m_layers;
     QPointer<PaleoProjectStore> m_store;
     QPointer<ProjectDataFacade> m_projectData;

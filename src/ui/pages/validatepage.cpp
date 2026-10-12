@@ -66,22 +66,29 @@ ValidatePage::ValidatePage(ValidationWorkflow *wf, QWidget *parent)
   markPrimaryButton(run);
   lay->addWidget(run);
   connect(run, &QPushButton::clicked, this, [this, run] {
-    // #85：validate() 读的是 owner-thread 的 store/服务门面（不能挪
-    // worker）；processEvents 泵换成下一事件回合开跑——忙碌态照样先上屏，
-    // 但消除了重入风险（重入会在忙碌窗口里二次触发本槽）。
-    if (!run->isEnabled())
+    auto *workflow = qobject_cast<ValidationWorkflow *>(
+        property(kWfProp).value<QObject *>());
+    if (!workflow || !run->isEnabled())
       return;
     run->setEnabled(false);
     run->setText(tr("正在验证…"));
-    run->setToolTip(tr("验证正在运行——完成后自动恢复"));
-    QTimer::singleShot(0, this, [this, run] {
-      populate();
-      run->setText(tr("运行验证"));
-      run->setToolTip(QString());
+    if (!workflow->startValidation()) {
       run->setEnabled(true);
-    });
+      run->setText(tr("运行验证"));
+    }
   });
 
+  if (wf)
+    connect(wf, &ValidationWorkflow::validationFinished, this,
+            [this, run](bool completed) {
+              if (completed)
+                populateResult();
+              run->setEnabled(true);
+              run->setText(tr("运行验证"));
+              if (!completed)
+                if (auto *status = child<QLabel>(this, "statusLabel"))
+                  status->setText(tr("验证已取消或工程数据已变化，请重新运行"));
+            });
   // autoplan §5C：D61 残差表 —— 每口井一行（井名/残差或原因/阈值），
   // 状态字+颜色（通过 #43A047 / 超过阈值 #F29900 / 未计算 #5D6E80）。
   // 计数行在表头；还没跑时面板写「还没有计算 <标定层位> 残差」。
@@ -204,8 +211,13 @@ ValidatePage::ValidatePage(ValidationWorkflow *wf, QWidget *parent)
             [status](int n) { status->setText(tr("发现 %1 个问题").arg(n)); });
 }
 
-void ValidatePage::populate()
-{
+void ValidatePage::populate() {
+  auto *wf =
+      qobject_cast<ValidationWorkflow *>(property(kWfProp).value<QObject *>());
+  if (wf)
+    wf->startValidation();
+}
+void ValidatePage::populateResult() {
   auto *table = child<QTableWidget>(this, "issueTable");
   if (!table)
     return;
@@ -224,7 +236,7 @@ void ValidatePage::populate()
       property(kWfProp).value<QObject *>());
   if (!wf)
     return;
-  const QList<ValidationIssue> issues = wf->validate();
+  const QList<ValidationIssue> issues = wf->lastIssues();
   if (auto *guidance = child<QLabel>(this, "validationGuidance"))
     guidance->setText(issues.isEmpty()
         ? tr("本次验证未发现问题。请结合残差与资料覆盖情况复核成果。")

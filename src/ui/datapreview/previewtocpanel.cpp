@@ -1,6 +1,7 @@
 // 层：视图
 // token 例外：DESIGN 数据符号例外：矢量符号编辑器的默认颜色，写入 QGIS renderer。（tools/ui-token-exceptions.json 精确计数）。
 #include "previewtocpanel.h"
+#include <QPointer>
 
 #include "previewmapstates.h"
 
@@ -468,12 +469,18 @@ void PreviewTocPanel::rebuildQuickPanel()
   if ( auto *rl = qobject_cast<QgsRasterLayer *>( l ) )
   {
     m_quickPanel->setCurrentIndex( 1 );
-    const auto sum = PreviewRasterAnalysis::summarize( rl );
-    if ( sum.valid )
-    {
-      m_minSpin->setValue( sum.min );
-      m_maxSpin->setValue( sum.max );
-    }
+    const QPointer<QgsRasterLayer> selected = rl;
+    PreviewRasterAnalysis::requestSummary(
+        rl->source(), m_tasks, this,
+        [this, selected](const PreviewRasterAnalysis::BandSummary &sum) {
+          if (!sum.valid || !selected || currentLayer() != selected)
+            return;
+          const bool suppressed = m_suppressSignals;
+          m_suppressSignals = true;
+          m_minSpin->setValue(sum.min);
+          m_maxSpin->setValue(sum.max);
+          m_suppressSignals = suppressed;
+        });
   }
   else if ( auto *vl = qobject_cast<QgsVectorLayer *>( l ) )
   {
@@ -519,29 +526,39 @@ void PreviewTocPanel::applyRasterStyle( QgsRasterLayer *rl )
   if ( !preset )
     return;
   const auto stretch = PreviewRasterAnalysis::Stretch( m_stretchCombo->currentData().toInt() );
-  const auto hist = PreviewRasterAnalysis::histogram( rl, 64 );
-  const bool quantile = stretch == PreviewRasterAnalysis::Stretch::HistEq;
-  double lo = 0.0;
-  double hi = 1.0;
-  if ( quantile )
-  {
-    const auto b = PreviewRasterAnalysis::stretchBounds( hist,
-                                                          PreviewRasterAnalysis::Stretch::MinMax );
-    lo = b.first;
-    hi = b.second;
-  }
-  else
-  {
-    const auto b = PreviewRasterAnalysis::stretchBounds( hist, stretch, m_minSpin->value(),
-                                                          m_maxSpin->value() );
-    lo = b.first;
-    hi = b.second;
-  }
-  PreviewRasterAnalysis::applyPseudoColorRenderer(
-      rl, 1, lo, hi, *preset, m_invertCheck->isChecked(),
-      quantile ? PreviewRasterAnalysis::Classification::Quantile
-               : PreviewRasterAnalysis::Classification::Continuous );
-  emit rasterStyleChanged( rl );
+  const auto generation = ++m_styleGeneration;
+  const QPointer<QgsRasterLayer> selected = rl;
+  const double manualLo = m_minSpin->value(), manualHi = m_maxSpin->value();
+  const bool invert = m_invertCheck->isChecked();
+  PreviewRasterAnalysis::requestHistogram(
+      rl->source(), 64, m_tasks, this,
+      [this, selected, generation, stretch, manualLo, manualHi, invert,
+       preset](const PreviewRasterAnalysis::Histogram &hist) {
+        if (!selected || currentLayer() != selected ||
+            generation != m_styleGeneration)
+          return;
+        auto *rl = selected.data();
+
+        const bool quantile = stretch == PreviewRasterAnalysis::Stretch::HistEq;
+        double lo = 0.0;
+        double hi = 1.0;
+        if (quantile) {
+          const auto b = PreviewRasterAnalysis::stretchBounds(
+              hist, PreviewRasterAnalysis::Stretch::MinMax);
+          lo = b.first;
+          hi = b.second;
+        } else {
+          const auto b = PreviewRasterAnalysis::stretchBounds(
+              hist, stretch, manualLo, manualHi);
+          lo = b.first;
+          hi = b.second;
+        }
+        PreviewRasterAnalysis::applyPseudoColorRenderer(
+            rl, 1, lo, hi, *preset, invert,
+            quantile ? PreviewRasterAnalysis::Classification::Quantile
+                     : PreviewRasterAnalysis::Classification::Continuous);
+        emit rasterStyleChanged(rl);
+      });
 }
 
 void PreviewTocPanel::applyVectorStyle( QgsVectorLayer *vl )

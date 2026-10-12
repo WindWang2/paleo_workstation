@@ -539,11 +539,21 @@ QgisProcessingService::QgisProcessingService(PaleoProjectStore *store, QObject *
   QgsProcessingRegistry *reg = QgsApplication::processingRegistry();
   if (reg && !reg->providerById(QStringLiteral("paleo")))
     reg->addProvider(new PaleoProvider());
+  setProject(QgsProject::instance());
 }
 
 void QgisProcessingService::setProject(QgsProject *project)
 {
+  disconnect(m_contextConnection);
   m_project = project;
+  auto *source = project ? project : QgsProject::instance();
+  const auto refresh = [this, source] {
+    QMutexLocker lock(&m_contextMutex);
+    m_transformSnapshot = source->transformContext();
+  };
+  refresh();
+  m_contextConnection =
+      connect(source, &QgsProject::transformContextChanged, this, refresh);
 }
 
 QWidget *QgisProcessingService::lastAlgorithmDialog() const
@@ -617,12 +627,11 @@ QVariantMap QgisProcessingService::run(const QString &algorithmId, const QVarian
   }
 
   QgsProcessingContext context;
-  // #235：注入工程 transformContext——默认构造的空变换上下文会让需要 CRS
-  // 变换的算法静默拿到恒等变换结果。工程指针解析与对话框路径同口径
-  //（setProject 注入，空则回退单例）；run 在 worker 线程被 ConstraintWorkflow
-  // 调用，这里只在 run 起点读一次快照。
-  if ( QgsProject *project = m_project ? m_project.data() : QgsProject::instance() )
-    context.setTransformContext( project->transformContext() );
+  // Workers read a value snapshot; live QgsProject access stays on its owner.
+  {
+    QMutexLocker lock(&m_contextMutex);
+    context.setTransformContext(m_transformSnapshot);
+  }
   HookFeedback feedback(hooks);
   if (hooks.cancelled && hooks.cancelled())
   {

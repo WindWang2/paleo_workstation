@@ -1,11 +1,13 @@
 // 层：QGIS 封装
 #pragma once
+#include <QMutex>
 #include <QObject>
 #include <QPointer>
 #include <QString>
 #include <QStringList>
 #include <QVariantMap>
 #include <functional>
+#include <qgscoordinatetransformcontext.h>
 
 class QgsProject;
 
@@ -81,6 +83,9 @@ class QgisProcessingService : public QObject
     QWidget *lastAlgorithmDialog() const;
 
   private:
+    QMutex m_contextMutex;
+    QgsCoordinateTransformContext m_transformSnapshot;
+    QMetaObject::Connection m_contextConnection;
     PaleoProjectStore *m_store;
     QPointer<QgsProject> m_project;
     QPointer<QWidget> m_lastDialog;

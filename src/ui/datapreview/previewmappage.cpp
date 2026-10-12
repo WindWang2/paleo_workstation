@@ -926,3 +926,7 @@ void PreviewMapPage::copyScreenshot()
 {
   QApplication::clipboard()->setPixmap( m_canvas->canvas()->grab() );
 }
+
+void PreviewMapPage::setTaskService(PaleoTaskService *tasks) {
+  m_toc->setTaskService(tasks);
+}

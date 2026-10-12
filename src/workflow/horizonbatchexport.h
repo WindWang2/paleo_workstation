@@ -70,10 +70,9 @@ QMap<QString, QList<QgsMapLayer *>> resolveHorizonLayers( QgisLayerService *laye
 //! 同步核心：逐层位导出 + 登记。layout/catalog 缺失 → 整体失败（total=0）。
 Result run( const Request &request );
 
-//! facies-ux 6 / UIS-03：任务中心驱动版——每个事件循环回合出一个层位，
-//! 进度/取消走任务中心，会话切换即中止；结束（含取消）时版面复原并回调
-//! done(result, cancelled)。版面与图层在运行期间须保持存活（以 QPointer
-//! 守护：版面或 catalog 销毁 → 余下层位入账失败）。返回任务（null = 失败）。
+//! Task-centre worker exports a private project/layout snapshot, preserving the
+//! live layout. Owner atomically registers staged outputs after a session and
+//! catalogue-generation check. Cancellation retains already exported horizons.
 PaleoTask *startAsync( const Request &request, PaleoTaskService *tasks,
                        std::function<void( const Result &, bool cancelled )> done,
                        QString *error = nullptr );

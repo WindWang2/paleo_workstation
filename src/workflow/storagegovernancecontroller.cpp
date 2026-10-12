@@ -1,8 +1,9 @@
 // 层：功能
 #include "storagegovernancecontroller.h"
 #include "../catalog/purgelease.h"
-#include <QFutureWatcher>
+#include "../services/futuretask.h"
 #include <QFileInfo>
+#include <QFutureWatcher>
 #include <QPromise>
 #include <QtConcurrent>
 
@@ -50,17 +51,22 @@ void StorageGovernanceController::scan() {
     emit message(m_report.complete ? tr("存储扫描完成；SHA 尚未复验。")
                                    : tr("扫描未完成或结果已过期；回收不可用，请重新扫描。"));
   });
-  const auto future = QtConcurrent::run([source](QPromise<paleo::storage::Report> &promise) {
-    const auto progress = [&promise](int n, int total, const QString &path) {
-      // Check cancellation at every entry, publish bounded progress updates.
-      if (n == 0 || n == total || n % 128 == 0) {
-        promise.setProgressRange(0, qMax(n, total));
-        promise.setProgressValueAndText(n, path);
-      }
-      return !promise.isCanceled();
-    };
-    promise.addResult(paleo::storage::scan(source, progress));
-  });
+  const auto future = QtConcurrent::run(
+      paleo::tasks::pool(m_tasks),
+      [source](QPromise<paleo::storage::Report> &promise) {
+        const auto progress = [&promise](int n, int total,
+                                         const QString &path) {
+          // Check cancellation at every entry, publish bounded progress
+          // updates.
+          if (n == 0 || n == total || n % 128 == 0) {
+            promise.setProgressRange(0, qMax(n, total));
+            promise.setProgressValueAndText(n, path);
+          }
+          return !promise.isCanceled();
+        };
+        promise.addResult(paleo::storage::scan(source, progress));
+      });
+  paleo::tasks::track(m_tasks, watcher, future, tr("存储文件扫描"));
   m_work = future; watcher->setFuture(future);
 }
 void StorageGovernanceController::requestPreview(const QStringList &versions, const QStringList &orphans) {
@@ -92,14 +98,26 @@ void StorageGovernanceController::confirmPreview() {
     }
     commit(plan);
   });
-  const auto future = QtConcurrent::run([plan](QPromise<QString> &promise) {
-    QString error;
-    paleo::storage::validate(plan, [&promise](int n, int total, const QString &path) {
-      promise.setProgressRange(0, qMax(n, total)); promise.setProgressValueAndText(n, path);
-      return !promise.isCanceled();
-    }, &error);
-    promise.addResult(error);
-  });
+  const auto future = QtConcurrent::run(
+      paleo::tasks::pool(m_tasks), [plan](QPromise<QString> &promise) {
+        QString error;
+        paleo::storage::validate(
+            plan,
+            [&promise](int n, int total, const QString &path) {
+              promise.setProgressRange(0, qMax(n, total));
+              promise.setProgressValueAndText(n, path);
+              return !promise.isCanceled();
+            },
+            &error);
+        promise.addResult(error);
+      });
+  paleo::tasks::track(m_tasks, watcher, future, tr("回收前校验"), false,
+                      [watcher] {
+                        return watcher->future().isCanceled() ||
+                                       !watcher->future().resultCount()
+                                   ? QString()
+                                   : watcher->result();
+                      });
   m_work = future; watcher->setFuture(future);
 }
 void StorageGovernanceController::commit(const paleo::storage::Preview &p) {
@@ -150,9 +168,20 @@ void StorageGovernanceController::commit(const paleo::storage::Preview &p) {
     setBusy(false); m_report.complete = false;
     emit cleanupFinished(outcome);
   });
-  const auto future = QtConcurrent::run([dir = p.source.projectDir, paths, retained, expected, lease] {
-    return paleo::assetops::purgeManagedFiles(dir, paths, retained, expected);
-  });
+  const auto future = QtConcurrent::run(
+      paleo::tasks::pool(m_tasks),
+      [dir = p.source.projectDir, paths, retained, expected, lease] {
+        return paleo::assetops::purgeManagedFiles(dir, paths, retained,
+                                                  expected);
+      });
+  paleo::tasks::track(
+      m_tasks, watcher, future, tr("回收受管文件"), false,
+      [future] {
+        return future.result().leftoverFiles.isEmpty()
+                   ? QString()
+                   : QStringLiteral("部分文件回收失败");
+      },
+      false);
   m_work = future; watcher->setFuture(future);
 }
 void StorageGovernanceController::verifySha() {
@@ -168,13 +197,19 @@ void StorageGovernanceController::verifySha() {
     const auto issues = watcher->future().resultCount() ? watcher->result() : QVector<paleo::health::HealthIssue>();
     watcher->deleteLater(); setBusy(false); emit shaReady(issues, complete);
   });
-  const auto future = QtConcurrent::run([source](QPromise<QVector<paleo::health::HealthIssue>> &promise) {
-    promise.addResult(paleo::health::verifyExternalShas(source.versions,
-      [&promise](int n, int total, const QString &path) {
-        promise.setProgressRange(0, total); promise.setProgressValueAndText(n, path);
-        return !promise.isCanceled();
-      }, [&promise] { return promise.isCanceled(); }));
-  });
+  const auto future = QtConcurrent::run(
+      paleo::tasks::pool(m_tasks),
+      [source](QPromise<QVector<paleo::health::HealthIssue>> &promise) {
+        promise.addResult(paleo::health::verifyExternalShas(
+            source.versions,
+            [&promise](int n, int total, const QString &path) {
+              promise.setProgressRange(0, total);
+              promise.setProgressValueAndText(n, path);
+              return !promise.isCanceled();
+            },
+            [&promise] { return promise.isCanceled(); }));
+      });
+  paleo::tasks::track(m_tasks, watcher, future, tr("SHA-256 完整性校验"));
   m_work = future; watcher->setFuture(future);
 }
 
@@ -193,22 +228,79 @@ void StorageGovernanceController::healthScan(const QStringList &recycleAssetIds)
     const auto result = watcher->future().resultCount() ? watcher->result() : Result();
     watcher->deleteLater(); setBusy(false); emit healthReady(result.first, result.second, complete);
   });
-  const auto future = QtConcurrent::run([source, health, recycleAssetIds](QPromise<Result> &promise) {
-    const auto report = paleo::health::buildCatalogHealth(health, source.projectDir,
-      [&promise](int n, int total, const QString &path) {
-        promise.setProgressRange(0, total); promise.setProgressValueAndText(n, path);
-        return !promise.isCanceled();
+  const auto future = QtConcurrent::run(
+      paleo::tasks::pool(m_tasks),
+      [source, health, recycleAssetIds](QPromise<Result> &promise) {
+        const auto report = paleo::health::buildCatalogHealth(
+            health, source.projectDir,
+            [&promise](int n, int total, const QString &path) {
+              promise.setProgressRange(0, total);
+              promise.setProgressValueAndText(n, path);
+              return !promise.isCanceled();
+            });
+        qint64 bytes = 0;
+        const QSet<QString> removed(recycleAssetIds.begin(),
+                                    recycleAssetIds.end());
+        for (const auto &v : source.versions) {
+          if (promise.isCanceled())
+            return;
+          if (v.managed && removed.contains(v.assetId)) {
+            const QString path =
+                DataCatalog::resolvedVersionPath(source.projectDir, v);
+            if (!path.isEmpty())
+              bytes += QFileInfo(path).size();
+          }
+        }
+        promise.addResult(Result(report, bytes));
       });
-    qint64 bytes = 0;
-    const QSet<QString> removed(recycleAssetIds.begin(), recycleAssetIds.end());
-    for (const auto &v : source.versions) {
-      if (promise.isCanceled()) return;
-      if (v.managed && removed.contains(v.assetId)) {
-        const QString path = DataCatalog::resolvedVersionPath(source.projectDir, v);
-        if (!path.isEmpty()) bytes += QFileInfo(path).size();
-      }
-    }
-    promise.addResult(Result(report, bytes));
+  paleo::tasks::track(m_tasks, watcher, future, tr("目录健康扫描"));
+  m_work = future;
+  watcher->setFuture(future);
+}
+
+void StorageGovernanceController::purgeAssets(const QStringList &assetIds) {
+  if (m_busy || !m_catalog || !m_catalog->isOpen() || assetIds.isEmpty())
+    return;
+  const auto source = paleo::storage::snapshot(m_catalog);
+  setBusy(true, false);
+  auto result = std::make_shared<paleo::assetops::PurgeOutcome>(
+      paleo::assetops::purgeAssets(m_catalog, source.projectDir, assetIds,
+                                   false, true));
+  if (!result->purgedAssetIds.isEmpty())
+    emit assetsPurged(result->purgedAssetIds);
+  const auto retained = m_catalog->versions();
+  const auto lease = CatalogPurgeLease::acquire(m_catalog->catalogPath());
+  if (!lease) {
+    result->leftoverFiles = result->pendingFiles;
+    result->pendingFiles.clear();
+    setBusy(false);
+    emit cleanupFinished(*result);
+    return;
+  }
+  auto *watcher = new QFutureWatcher<paleo::assetops::PurgeOutcome>(this);
+  connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher] {
+    const auto result = watcher->result();
+    watcher->deleteLater();
+    setBusy(false);
+    emit cleanupFinished(result);
   });
+  const auto future = QtConcurrent::run(
+      paleo::tasks::pool(m_tasks), [result, retained, lease, source] {
+        const auto files = paleo::assetops::purgeManagedFiles(
+            source.projectDir, result->pendingFiles, retained);
+        result->bytesFreed += files.bytesFreed;
+        result->leftoverFiles += files.leftoverFiles;
+        result->pendingFiles.clear();
+        return *result;
+      });
+  paleo::tasks::track(
+      m_tasks, watcher, future, tr("回收站物理删除"), false,
+      [future] {
+        const auto result = future.result();
+        return result.failedAssets.isEmpty() && result.leftoverFiles.isEmpty()
+                   ? QString()
+                   : QStringLiteral("部分资产或文件未能删除");
+      },
+      false);
   m_work = future; watcher->setFuture(future);
 }

@@ -10,7 +10,7 @@
 #include <QJsonObject>
 #include <QObject>
 #include <QPointer>
-#include <QSemaphore>
+#include <QTemporaryDir>
 #include <QThread>
 #include <QTimer>
 #include <QVariantMap>
@@ -21,6 +21,7 @@
 #include "../services/paleotaskservice.h"
 #include "mapexport.h" // registerMapPdfAsset（既有产物登记管线，复用不自写）
 
+#include <qgsmaplayer.h>
 #include <qgsprintlayout.h>
 #include <qgsproject.h>
 #include <qgsrectangle.h>
@@ -165,113 +166,140 @@ struct Exporter::RunState
   PaleoLayoutExport::Format qgisFormat = PaleoLayoutExport::Format::Png;
 };
 
-// 异步一册的共享账：state 只在所属线程读写；done/stopError 是与监视任务
-// （worker）之间唯一的交接面（信号量提供 happens-before）。
-struct Exporter::AsyncRun
-{
+// Worker owns its private project, catalogue and output files. The owner only
+// applies the finished catalogue journal after checking the project generation.
+struct Exporter::AsyncRun {
+  Request request;
   RunState state;
+  PaleoLayoutExport::ProjectSnapshot snapshot;
+  QStringList layerIds;
+  std::unique_ptr<QTemporaryDir> staging;
+  std::unique_ptr<DataCatalog> catalog;
+  QVector<CatalogOp> journal;
+  QPointer<DataCatalog> ownerCatalog;
   QPointer<PaleoTask> task;
-  int next = 0;
-  bool prepared = false;
-  QSemaphore done;              // 所属线程收尾时 release(1)
-  QString monitorError;         // release 前写好，监视任务 acquire 后读
+  quint64 sequence = 0;
+  QString error;
 };
 
-Exporter::Exporter( PaleoTaskService *tasks, QgsProject *project, QObject *parent )
-  : QObject( parent ), m_tasks( tasks ), m_project( project )
-{
+Exporter::Exporter(PaleoTaskService *tasks, QgsProject *project,
+                   QObject *parent)
+    : QObject(parent), m_tasks(tasks), m_project(project) {}
+Exporter::~Exporter() {
+  if (m_async && m_async->task)
+    m_async->task->requestCancel();
 }
 
-Exporter::~Exporter()
-{
-  // 析构时还在跑：放开监视任务（它持有 shared_ptr，不会悬空）。
-  if ( m_async )
-  {
-    m_async->monitorError = QObject::tr( "地图册导出器已销毁，导出中止" );
-    m_async->done.release( 1 );
-    m_async.reset();
-  }
-}
-
-PaleoTask *Exporter::start( const Request &request )
-{
-  if ( !m_tasks || m_async )
+PaleoTask *Exporter::start(const Request &request) {
+  if (!m_tasks || m_async)
     return nullptr;
-  auto async = std::make_shared<AsyncRun>();
-  async->state.request = request;
-
-  // 监视任务：worker 上只等待所属线程的完成信号；取消后立即收尾（主线程会在
-  // 下一版边界看到同一个取消标志并停下）——不碰 QGIS/catalog，不会死锁。
-  PaleoTask *task = m_tasks->start(
-    QObject::tr( "地图册批量导出：%1" ).arg( request.book ),
-    [async]( PaleoTask *t ) -> QString {
-      while ( !async->done.tryAcquire( 1, 50 ) )
-      {
-        if ( t->cancelRequested() )
-          return QObject::tr( "已取消（已出的版保留，明细见 manifest）" );
-      }
-      return async->monitorError;
-    },
-    QString(), false );
-  async->task = task;
-  m_async = async;
-
-  // prepare 失败也走异步收尾，保证 finished 在 start() 返回后才发出。
-  async->prepared = prepareRun( async->state, task );
-  QTimer::singleShot( 0, this, &Exporter::asyncStep );
-  return task;
-}
-
-void Exporter::asyncStep()
-{
-  const std::shared_ptr<AsyncRun> async = m_async;
-  if ( !async )
-    return;
-  RunState &state = async->state;
-  PaleoTask *task = async->task.data();
-  const bool prepared = async->prepared;
-  const int total = state.request.tiles.size();
-  if ( prepared && async->next < total )
-  {
-    // 任务行被清走（QPointer 置空）视同取消。
-    bool keepGoing = true;
-    if ( !async->task )
-    {
-      state.result.cancelled += total - async->next;
-      keepGoing = false;
-    }
-    else
-    {
-      keepGoing = exportTileAt( state, async->next, task );
-    }
-    ++async->next;
-    if ( keepGoing && async->next < total )
-    {
-      QTimer::singleShot( 0, this, &Exporter::asyncStep ); // 让出事件循环：界面不冻结
-      return;
+  auto job = std::make_shared<AsyncRun>();
+  job->request = request;
+  for (auto *layer : request.layers)
+    if (layer)
+      job->layerIds.append(layer->id());
+  job->request.layers.clear();
+  job->request.catalog = nullptr;
+  if (!PaleoLayoutExport::captureProjectSnapshot(m_project, job->snapshot,
+                                                 &job->error)) {
+    // Isolation failure is an explicit failed job, never a synchronous
+    // fallback.
+  } else if (request.catalog && !request.projectDir.isEmpty()) {
+    job->staging = std::make_unique<QTemporaryDir>(request.projectDir +
+                                                   "/.mapbook-XXXXXX");
+    if (!job->staging->isValid())
+      job->error = tr("无法创建地图册暂存目录");
+    else {
+      job->catalog = request.catalog->createStagingCopy(job->staging->path());
+      job->ownerCatalog = request.catalog;
+      job->sequence = request.catalog->mutationSeq();
     }
   }
-
-  if ( prepared )
-    finishRun( state, task );
-  const Result result = state.result;
-  m_last = result;
-  m_async.reset();
-  if ( task )
-    task->reportDetail( result.summary() );
-  // 任务终态口径：一版都没出才算任务失败；部分失败不算（失败明细在
-  // Result/manifest 里留账，不谎报也不拖死整队）。
-  if ( !prepared )
-    async->monitorError = result.failures.isEmpty() ? QObject::tr( "地图册导出准备失败" )
-                                                    : result.failures.constFirst().error;
-  else if ( result.succeeded == 0 && result.total > 0 && result.cancelled < result.total )
-    async->monitorError = result.failures.isEmpty()
-                            ? QObject::tr( "全部 %1 版导出失败（明细见 manifest）" ).arg( result.total )
-                            : QObject::tr( "全部 %1 版导出失败：%2" )
-                                .arg( result.total )
-                                .arg( result.failures.constFirst().error );
-  async->done.release( 1 );
-  emit finished( result );
+  auto *task = m_tasks->start(
+      tr("地图册批量导出：%1").arg(request.book),
+      [job](PaleoTask *task) -> QString {
+        if (!job->error.isEmpty()) {
+          job->state.result.total = job->request.tiles.size();
+          job->state.result.failed = job->state.result.total;
+          job->state.result.failures.append({-1, "*", "prepare", job->error});
+          return job->error;
+        }
+        auto project =
+            PaleoLayoutExport::rebuildProject(job->snapshot, &job->error);
+        if (!project) {
+          job->state.result.total = job->request.tiles.size();
+          job->state.result.failed = job->state.result.total;
+          job->state.result.failures.append({-1, "*", "prepare", job->error});
+          return job->error;
+        }
+        Request work = job->request;
+        for (const auto &id : job->layerIds)
+          if (auto *layer = project->mapLayer(id))
+            work.layers.append(layer);
+        if (job->catalog) {
+          work.catalog = job->catalog.get();
+          work.projectDir = job->staging->path();
+        }
+        Exporter worker(nullptr, project.get());
+        job->state.request = work;
+        if (worker.prepareRun(job->state, task)) {
+          for (int i = 0; i < work.tiles.size(); ++i)
+            if (!worker.exportTileAt(job->state, i, task))
+              break;
+          worker.finishRun(job->state, task);
+        }
+        if (job->catalog)
+          job->journal = job->catalog->journal();
+        const auto &result = job->state.result;
+        if (!result.succeeded && result.failed)
+          job->error = result.failures.isEmpty()
+                           ? tr("地图册导出失败")
+                           : result.failures.first().error;
+        return job->error;
+      });
+  job->task = task;
+  m_async = job;
+  connect(task, &PaleoTask::changed, this, [this, task] {
+    emit progress(int(task->bytesDone()), int(task->bytesTotal()),
+                  task->detailText());
+  });
+  connect(task, &PaleoTask::finished, this, [this, job, task] {
+    const bool stale =
+        task->session() != m_tasks->session() ||
+        (job->catalog &&
+         (!job->ownerCatalog ||
+          job->ownerCatalog->projectDir() != job->request.projectDir ||
+          job->ownerCatalog->mutationSeq() != job->sequence));
+    auto &result = job->state.result;
+    QString error;
+    if (stale) {
+      task->discardPublication();
+      error = tr("工程数据已变化，导出成果未登记，请重新导出");
+    } else if (job->catalog && !publishMapExportJournal(job->ownerCatalog,
+                                                        job->request.projectDir,
+                                                        job->staging->path(),
+                                                        job->journal, &error)) {
+      task->failPublication(error);
+    } else if (job->catalog) {
+      result.registered.clear();
+      for (const auto &id : result.registeredIds)
+        result.registered.append(job->ownerCatalog->versionFilePath(
+            job->ownerCatalog->currentVersion(id)));
+    }
+    if (!error.isEmpty()) {
+      result.failures.append({-1, "*", "register", error});
+      result.failed += result.succeeded;
+      result.succeeded = 0;
+      result.registered.clear();
+      result.registeredIds.clear();
+      writeManifest(job->request, result, job->state.tileFiles,
+                    &result.manifest, nullptr);
+    }
+    m_last = result;
+    m_async.reset();
+    emit finished(result);
+  });
+  return task;
 }
 
 Result Exporter::run( PaleoTask *task, const Request &request )
@@ -305,8 +333,10 @@ bool Exporter::prepareRun( RunState &state, PaleoTask *task )
 
   // #148：版面/渲染用主线程 QgsProject，catalog 只收所属线程写入——跨线程直接拒绝。
   if ( QThread::currentThread() != thread() )
-    return bail( QStringLiteral( "prepare" ),
-                 QObject::tr( "地图册导出必须在导出器所属线程（GUI 线程）执行" ) );
+    return bail(
+        QStringLiteral("prepare"),
+        QObject::tr(
+            "地图册导出必须在导出器所属线程执行（使用本线程的独立工程）"));
   if ( !m_project )
     return bail( QStringLiteral( "prepare" ), QObject::tr( "未绑定 QgsProject（版面需要工程上下文）" ) );
   if ( request.book.isEmpty() || !DataCatalog::isSafePathSegment( request.book ) )

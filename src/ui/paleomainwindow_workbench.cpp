@@ -641,6 +641,33 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
                     QgisLayerProfileService::pageThemeName(currentPage()));
             }
           });
+  connect(workbench, &MappingWorkbench::consistencyReady, this,
+          [this, show](const QVariantMap &report) {
+            auto *dialog = new FaciesConsistencyDialog(this);
+            dialog->setReport(report);
+            const auto wellLayer = report.value("well_layer").toString();
+            connect(
+                dialog, &FaciesConsistencyDialog::wellActivated, this,
+                [this, show, wellLayer](const QString &, double x, double y) {
+                  QString ignored;
+                  show(wellLayer, &ignored);
+                  QgsPointXY point(x, y);
+                  auto *canvas = m_canvasCtl->canvas();
+                  if (auto *layer = m_layerSvc->layer(wellLayer)) {
+                    try {
+                      point = QgsCoordinateTransform(
+                                  layer->crs(),
+                                  canvas->mapSettings().destinationCrs(),
+                                  m_projectSvc->project())
+                                  .transform(point);
+                    } catch (const QgsCsException &) {
+                    }
+                  }
+                  canvas->setCenter(point);
+                  m_canvasCtl->canvas()->refresh();
+                });
+            dialog->show();
+          });
   for (auto *page : pages) {
     page->setHorizon(m_selection->activeHorizon());
     connect(m_selection, &SelectionContext::activeHorizonChanged, page,
@@ -728,32 +755,7 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
           } else if (action == "compare")
             ok = compare(id, &error);
           else if (action == "consistency") {
-            const auto report = workbench->faciesConsistency(id, &error);
-            ok = !report.isEmpty();
-            if (ok) {
-              auto *dialog = new FaciesConsistencyDialog(this);
-              dialog->setReport(report);
-              const auto wellLayer = report.value("well_layer").toString();
-              connect(dialog, &FaciesConsistencyDialog::wellActivated, this,
-                      [this, show, wellLayer](const QString &, double x, double y) {
-                        QString ignored;
-                        show(wellLayer, &ignored);
-                        QgsPointXY point(x, y);
-                        auto *canvas = m_canvasCtl->canvas();
-                        if (auto *layer = m_layerSvc->layer(wellLayer)) {
-                          try {
-                            point = QgsCoordinateTransform(
-                                        layer->crs(), canvas->mapSettings().destinationCrs(),
-                                        m_projectSvc->project())
-                                        .transform(point);
-                          } catch (const QgsCsException &) {
-                          }
-                        }
-                        canvas->setCenter(point);
-                        m_canvasCtl->canvas()->refresh();
-                      });
-              dialog->show();
-            }
+            ok = workbench->startFaciesConsistency(id, &error);
           } else if (action == "polygonize")
             ok = workbench->startPolygonize(id, &error);
           else if (action == "copy") {
@@ -872,7 +874,7 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
             ok = workbench->generateContours(
                 h, id, p.value("interval").toDouble(), &error);
           else if (action == "compose")
-            ok = !workbench->compose(h, inputs, p, &error).isEmpty();
+            ok = workbench->startCompose(h, inputs, p, &error);
           else if (action == "schema") {
             ok = workbench->saveFacies(h, p.value("facies").toList(), &error);
             auto *layer = m_canvasCtl->canvas()->currentLayer();
@@ -888,8 +890,10 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
             message = workbench->polygonizeBusy()
                           ? tr("相栅格转相面已在后台执行，进度见底栏任务中心；完成后自动登记并显示在对应地层组。")
                           : tr("相栅格已转为相面。");
-          else if (action == "compose" && workbench->polygonizeBusy())
-            message = tr("综合相图已生成；转相面在后台执行，进度见底栏任务中心。");
+          else if (action == "compose" || action == "consistency" ||
+                   action == "factor" || action == "contours")
+            message =
+                tr("任务已提交，进度和取消操作见任务中心；完成后显示结果。");
           else if (action == "wellattributes")
             message = tr("已打开测井矢量属性表；保存后更新井道与单因素输入。");
           else if (action == "wellformations")

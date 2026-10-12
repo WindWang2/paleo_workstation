@@ -2,32 +2,34 @@
 // 方向57：从 constraintfactorjobs.cpp 按函数族析出。方法定义逐字搬迁，
 // 类契约仍在 workflows.h（公共 API 零改动）；族间共享辅助经
 // constraintfactorjobs_internal.h。
-#include "workflows.h"
-#include "constraintworkflow_internal.h"
-#include "workflows_internal.h"
-#include "../algorithms/geostat/kriging.h"     // KrigingParams / KrigingResult（方向18）
-#include "../algorithms/geostat/sgs.h"         // SgsParams / SgsResult（方向18）
-#include "../algorithms/geostat/variogram.h"   // 变差函数模型（方向18）
-#include "../algorithms/rasterout.h"          // PaleoRasterOut / createFloatRaster
-#include "../algorithms/ensemblestats.h"     // StatsRequest（方向47 集合统计派生）
-#include "../catalog/datacatalog.h"
+#include "../algorithms/ensemblestats.h" // StatsRequest（方向47 集合统计派生）
+#include "../algorithms/geostat/kriging.h" // KrigingParams / KrigingResult（方向18）
+#include "../algorithms/geostat/sgs.h"       // SgsParams / SgsResult（方向18）
+#include "../algorithms/geostat/variogram.h" // 变差函数模型（方向18）
+#include "../algorithms/rasterout.h" // PaleoRasterOut / createFloatRaster
 #include "../algorithms/singlefactor/cartographicworkfile.h"
+#include "../catalog/datacatalog.h"
 #include "../domain/arearules.h"
-#include "../domain/singlefactorrequest.h"  // 制图工作场不进融合/分相
+#include "../domain/singlefactorrequest.h" // 制图工作场不进融合/分相
 #include "../io/constraintstore.h"
 #include "../metadata/paleoprojectstore.h"
 #include "../qgis/factorcontour.h"
 #include "../qgis/factorstylewriter.h"
-#include "../qgis/qgiseditingservice.h"    // 拓扑提交门（geometryCommitError）
+#include "../qgis/qgiseditingservice.h" // 拓扑提交门（geometryCommitError）
 #include "../qgis/qgislayerservice.h"
 #include "../qgis/qgisprocessingservice.h"
-#include "../qgis/qgisstyleservice.h"      // applyFaciesBoundaryStyle
+#include "../qgis/qgisstyleservice.h" // applyFaciesBoundaryStyle
 #include "../services/jobrunner.h"
+#include "../services/paleotaskservice.h"
 #include "../services/singlefactordef.h"
-#include "boundarysemantics.h"             // 相界地质语义类型词表
+#include "boundarysemantics.h" // 相界地质语义类型词表
+#include "constraintfactorjobs_internal.h"
+#include "constraintworkflow_internal.h"
 #include "derivedassets.h"
 #include "mappingworkflow.h"
 #include "realizationworkflow.h"
+#include "workflows.h"
+#include "workflows_internal.h"
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
@@ -39,33 +41,56 @@
 #include <QSet>
 #include <QUuid>
 #include <QVariantList>
+#include <algorithm>
+#include <cmath>
+#include <cpl_conv.h>
+#include <cstring>
+#include <gdal.h>
+#include <ogr_spatialref.h>
 #include <qgscoordinatereferencesystem.h>
-#include <qgsfield.h>
 #include <qgsfeature.h>
 #include <qgsfeatureiterator.h>
 #include <qgsfeaturerequest.h>
+#include <qgsfield.h>
 #include <qgsgeometry.h>
 #include <qgsmaplayer.h>
 #include <qgsrasterlayer.h>
 #include <qgsvectorfilewriter.h> // WS-C：参与井点 samples GPKG 写出
 #include <qgsvectorlayer.h>
-#include <gdal.h>
-#include <ogr_spatialref.h>
-#include <cpl_conv.h>
-#include <algorithm>
-#include <cmath>
-#include <cstring>
 #include <variant>
-#include "constraintfactorjobs_internal.h"
 
 using namespace paleo::constraint_detail;
 
 bool ConstraintWorkflow::generateContours( const QString &horizon, const QString &factorLayerId,
                                            double interval, QString *error )
 {
+  if (factorBusy()) {
+    paleo::workflow_detail::setError(error, tr("已有单因素任务"));
+    return false;
+  }
   AnalysisContourJob job;
   if ( !prepareAnalysisContourJob( horizon, factorLayerId, interval, {}, false, &job, error ) )
     return false;
+  if (m_factorTasks) {
+    auto shared = std::make_shared<AnalysisContourJob>(job);
+    return runFactorWork(
+        tr("%1 提取等值线").arg(horizon),
+        [shared](PaleoTask *task) {
+          task->reportStage("build", 5);
+          const bool ok = computeAnalysisContourJob(
+              shared.get(), [task] { return task->cancelRequested(); });
+          return ok ? QString() : shared->error;
+        },
+        [this, shared](QString *error) {
+          return publishAnalysisContourJob(*shared, error);
+        },
+        [shared] {
+          if (shared->outputPath.contains("paleo-sf-"))
+            QDir(QFileInfo(shared->outputPath).absolutePath())
+                .removeRecursively();
+        },
+        error);
+  }
   if ( !computeAnalysisContourJob( &job ) )
   {
     paleo::workflow_detail::setError( error, job.error );
@@ -167,13 +192,8 @@ bool ConstraintWorkflow::prepareAnalysisContourJob( const QString &horizon, cons
     return false;
   }
 
-  QString shaErr;
-  const QString analysisSha = DataCatalog::sha256FileHex( rasterPath, &shaErr );
-  if ( analysisSha.isEmpty() )
-  {
-    paleo::workflow_detail::setError( error, shaErr.isEmpty() ? tr( "分析场 sha256 计算失败" ) : shaErr );
-    return false;
-  }
+  const QFileInfo sourceInfo(rasterPath);
+  const QString analysisSha;
 
   job->generation = ++m_publishGeneration;
   job->horizon = horizon;
@@ -181,6 +201,9 @@ bool ConstraintWorkflow::prepareAnalysisContourJob( const QString &horizon, cons
   job->factorId = factorIdOf( horizon, factorLayerId );
   job->rasterPath = rasterPath;
   job->analysisSha = analysisSha;
+  job->inputFingerprint.path = sourceInfo.absoluteFilePath();
+  job->inputFingerprint.size = sourceInfo.size();
+  job->inputFingerprint.modified = sourceInfo.lastModified();
   job->parentPaths << rasterPath;
   job->interval = interval;
   job->levels = levels;
@@ -209,6 +232,15 @@ bool ConstraintWorkflow::computeAnalysisContourJob( AnalysisContourJob *job, con
     return false;
   }
 
+  const auto input =
+      DerivedFileFingerprint::read(job->rasterPath, cancelled, &job->error);
+  if (input.sha256.isEmpty() || input.size != job->inputFingerprint.size ||
+      input.modified != job->inputFingerprint.modified) {
+    job->error = tr("分析场在任务准备后已变化");
+    return false;
+  }
+  job->inputFingerprint = input;
+  job->analysisSha = input.sha256;
   const QString tempDir = QDir( QDir::tempPath() )
                               .filePath( QStringLiteral( "paleo-sf-contour-%1" )
                                              .arg( QUuid::createUuid().toString( QUuid::Id128 ) ) );
@@ -222,16 +254,18 @@ bool ConstraintWorkflow::computeAnalysisContourJob( AnalysisContourJob *job, con
 
   QString contourErr;
   // structural 因素必须走上游 field_contours 提取；绝不静默降级 GDAL。
-  const bool wrote = job->structural
-                         ? FactorContourService::generateStructuralContours(
-                               job->rasterPath, job->structuralPath, job->outputPath,
-                               job->fixedLevels ? job->levels : QVector<double>(),
-                               job->interval, &job->resolvedLevels, &contourErr )
-                     : job->fixedLevels
-                         ? FactorContourService::generateFixedContours( job->rasterPath, job->outputPath, job->levels,
-                                                                        &contourErr )
-                         : FactorContourService::generateContours( job->rasterPath, job->outputPath, job->interval,
-                                                                   &contourErr );
+  const bool wrote =
+      job->structural
+          ? FactorContourService::generateStructuralContours(
+                job->rasterPath, job->structuralPath, job->outputPath,
+                job->fixedLevels ? job->levels : QVector<double>(),
+                job->interval, &job->resolvedLevels, &contourErr)
+      : job->fixedLevels
+          ? FactorContourService::generateFixedContours(
+                job->rasterPath, job->outputPath, job->levels, &contourErr)
+          : FactorContourService::generateContours(
+                job->rasterPath, job->outputPath, job->interval, &contourErr,
+                cancelled);
   if ( cancelled && cancelled() )
   {
     discard();
@@ -242,6 +276,11 @@ bool ConstraintWorkflow::computeAnalysisContourJob( AnalysisContourJob *job, con
   {
     discard();
     job->error = contourErr;
+    return false;
+  }
+  if (!job->inputFingerprint.matches(job->rasterPath)) {
+    job->error = tr("分析场在计算期间已变化");
+    discard();
     return false;
   }
   job->ok = true;
@@ -265,8 +304,9 @@ bool ConstraintWorkflow::publishAnalysisContourJob( const AnalysisContourJob &jo
     return false;
   }
   QString shaErr;
-  if ( !analysisShaMatches( job.rasterPath, job.analysisSha, &shaErr ) )
-  {
+  if (!(m_factorTasks
+            ? job.inputFingerprint.matches(job.rasterPath)
+            : analysisShaMatches(job.rasterPath, job.analysisSha, &shaErr))) {
     discardTemp();
     paleo::workflow_detail::setError( error, tr( "分析场在等值线期间被改写，丢弃这次等值线" ) );
     return false;
@@ -315,9 +355,10 @@ bool ConstraintWorkflow::publishAnalysisContourJob( const AnalysisContourJob &jo
     paleo::workflow_detail::setError( error, tr( "发布代次已变，丢弃这次等值线" ) );
     return false;
   }
-  if ( !analysisShaMatches( job.rasterPath, job.analysisSha, &shaErr ) ||
-       !declaredFactorPathMatches( layers, job.factorLayerId, job.rasterPath ) )
-  {
+  if (!(m_factorTasks
+            ? job.inputFingerprint.matches(job.rasterPath)
+            : analysisShaMatches(job.rasterPath, job.analysisSha, &shaErr)) ||
+      !declaredFactorPathMatches(layers, job.factorLayerId, job.rasterPath)) {
     if ( !sameFile( st.absolutePath, job.rasterPath ) )
       removeIfPresent( st.absolutePath );
     discardTemp();
@@ -719,9 +760,33 @@ bool ConstraintWorkflow::generateCartographicWork( const QString &horizon, const
 bool ConstraintWorkflow::generateContoursAtLevels( const QString &horizon, const QString &factorLayerId,
                                                    const QVector<double> &levels, QString *error )
 {
+  if (factorBusy()) {
+    paleo::workflow_detail::setError(error, tr("已有单因素任务"));
+    return false;
+  }
   AnalysisContourJob job;
   if ( !prepareAnalysisContourJob( horizon, factorLayerId, 0.0, levels, true, &job, error ) )
     return false;
+  if (m_factorTasks) {
+    auto shared = std::make_shared<AnalysisContourJob>(job);
+    return runFactorWork(
+        tr("%1 提取等值线").arg(horizon),
+        [shared](PaleoTask *task) {
+          task->reportStage("build", 5);
+          const bool ok = computeAnalysisContourJob(
+              shared.get(), [task] { return task->cancelRequested(); });
+          return ok ? QString() : shared->error;
+        },
+        [this, shared](QString *error) {
+          return publishAnalysisContourJob(*shared, error);
+        },
+        [shared] {
+          if (shared->outputPath.contains("paleo-sf-"))
+            QDir(QFileInfo(shared->outputPath).absolutePath())
+                .removeRecursively();
+        },
+        error);
+  }
   if ( !computeAnalysisContourJob( &job ) )
   {
     paleo::workflow_detail::setError( error, job.error );

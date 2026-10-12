@@ -175,6 +175,7 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
 
   // P2：测区全景走统一 PreviewMapPage（工具条/状态条/鹰眼/书签/TOC 全套）。
   auto *mapPage = new PreviewMapPage(w);
+  mapPage->setTaskService(m_doc ? m_doc->taskService() : nullptr);
   mapPage->setObjectName(QStringLiteral("surveyPreviewPage"));
   mapPage->setProfileEnabled(false); // 全景浏览页不开剖面工具
   QgsMapCanvas *canvas = mapPage->mapCanvas()->canvas();

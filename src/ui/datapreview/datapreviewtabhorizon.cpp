@@ -2,6 +2,7 @@
 // token 例外：DESIGN 数据符号例外：QGIS 极值点高/低两组地质数据符号。（tools/ui-token-exceptions.json 精确计数）。
 #include "datapreviewtabs.h"
 #include "datapreviewtabs_internal.h"
+#include <QPointer>
 
 // 共享辅助来自内部头——与 datapreviewtabs.cpp 用同一 using 引入。
 using namespace paleo::datapreview_detail;
@@ -262,18 +263,13 @@ QWidget *DataPreviewTabs::buildHorizonContent(
 
   // ---- P2 地图正文：统一 PreviewMapPage（D1.x 框架全套） ----
   auto *page = new PreviewMapPage(host);
+  page->setTaskService(m_doc ? m_doc->taskService() : nullptr);
   page->setObjectName(QStringLiteral("horizonPreviewPage"));
   page->setAssetKey(assetId);
   page->setRenderCacheIdentity(assetId, chosen.id);
   page->mapCanvas()->canvas()->setObjectName(QStringLiteral("horizonMapCanvas"));
   page->decorations()->setObjectName(QStringLiteral("horizonDecorManager"));
 
-  const auto sum = PreviewRasterAnalysis::summarize(raster.get());
-  if (sum.valid)
-    PreviewRasterAnalysis::applyPseudoColorRenderer(
-        raster.get(), 1, sum.min, sum.max,
-        *PreviewRasterAnalysis::rampPreset(QStringLiteral("depthBlues")), false,
-        PreviewRasterAnalysis::Classification::Continuous);
   QgsRasterLayer *rasterRaw = raster.release();
   rasterRaw->setParent(host); // 私有层父子树托管（既有约定：不进 QgsProject）
   page->addMapLayer(rasterRaw, sb.name.isEmpty() ? asset.displayName : sb.name, tifPath);
@@ -281,27 +277,35 @@ QWidget *DataPreviewTabs::buildHorizonContent(
   // ---- D2.1 等值线 overlay + D5.7 参数化（间距/标注密度） ----
   auto contourDir = std::make_shared<QTemporaryDir>();
   auto currentContour = std::make_shared<QgsVectorLayer *>(nullptr);
+  auto contourGeneration = std::make_shared<quint64>(0);
+  auto *contourTasks = m_doc ? m_doc->taskService() : nullptr;
   const auto rebuildContours =
-      [page, rasterRaw, tifPath, contourDir, currentContour, host](double interval, int density) {
+      [page, rasterRaw, tifPath, contourDir, currentContour, host,
+       contourGeneration, contourTasks](double interval, int density) {
         if (*currentContour)
         {
           page->removeMapLayer(*currentContour); // 旧层出树（父子托管，deleteLater 由父管）
           (*currentContour)->deleteLater();
           *currentContour = nullptr;
         }
-        const QString gpkg =
-            contourDir->filePath(QStringLiteral("contours_%1.gpkg").arg(interval));
-        QString cerr;
-        if (!FactorContourService::generateContours(tifPath, gpkg, interval, &cerr))
-          return;
-        auto *cl = makeContourLayer(gpkg, host, density);
-        if (!cl->isValid())
-        {
-          cl->deleteLater();
-          return;
-        }
-        *currentContour = cl;
-        page->addMapLayer(cl, QObject::tr("等值线"), gpkg);
+        const auto generation = ++*contourGeneration;
+        const QString gpkg = contourDir->filePath(
+            QStringLiteral("contours_%1.gpkg").arg(generation));
+        FactorContourService::requestContours(
+            tifPath, gpkg, interval, contourTasks, host,
+            [page, host, currentContour, contourGeneration, generation, gpkg,
+             density](bool ok, const QString &) {
+              if (!ok || generation != *contourGeneration)
+                return;
+              auto *cl = makeContourLayer(gpkg, host, density);
+              if (!cl->isValid()) {
+                cl->deleteLater();
+                return;
+              }
+              *currentContour = cl;
+              page->addMapLayer(cl, QObject::tr("等值线"), gpkg);
+            },
+            contourDir);
       };
   rebuildContours(10.0, 1);
 
@@ -317,13 +321,41 @@ QWidget *DataPreviewTabs::buildHorizonContent(
       l->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
       statsLay->addRow(k, l);
     };
-    addStat(tr("最小值"), QString::number(sum.min, 'f', 2), QStringLiteral("horizonStatMin"));
-    addStat(tr("最大值"), QString::number(sum.max, 'f', 2), QStringLiteral("horizonStatMax"));
-    addStat(tr("均值"), QString::number(sum.mean, 'f', 2), QStringLiteral("horizonStatMean"));
-    addStat(tr("标准差"), QString::number(sum.stdDev, 'f', 2), QStringLiteral("horizonStatStd"));
-    addStat(tr("有效像元占比"), QStringLiteral("%1%").arg(sum.validRatio() * 100.0, 0, 'f', 1),
+    addStat(tr("最小值"), tr("计算中…"), QStringLiteral("horizonStatMin"));
+    addStat(tr("最大值"), tr("计算中…"), QStringLiteral("horizonStatMax"));
+    addStat(tr("均值"), tr("计算中…"), QStringLiteral("horizonStatMean"));
+    addStat(tr("标准差"), tr("计算中…"), QStringLiteral("horizonStatStd"));
+    addStat(tr("有效像元占比"), tr("计算中…"),
             QStringLiteral("horizonStatValid"));
     page->addAnalysisTab(tr("统计"), statsPage);
+    const QPointer<QgsRasterLayer> statsRaster = rasterRaw;
+    const auto *initialRenderer = rasterRaw->renderer();
+    PreviewRasterAnalysis::requestSummary(
+        tifPath, m_doc ? m_doc->taskService() : nullptr, page,
+        [page, statsRaster,
+         initialRenderer](const PreviewRasterAnalysis::BandSummary &sum) {
+          if (!sum.valid || !statsRaster)
+            return;
+          const auto update = [page](const char *name, const QString &text) {
+            if (auto *label =
+                    page->findChild<QLabel *>(QString::fromLatin1(name)))
+              label->setText(text);
+          };
+          update("horizonStatMin", QString::number(sum.min, 'f', 2));
+          update("horizonStatMax", QString::number(sum.max, 'f', 2));
+          update("horizonStatMean", QString::number(sum.mean, 'f', 2));
+          update("horizonStatStd", QString::number(sum.stdDev, 'f', 2));
+          update("horizonStatValid",
+                 QStringLiteral("%1%").arg(sum.validRatio() * 100, 0, 'f', 1));
+          if (true && statsRaster->renderer() == initialRenderer) {
+            PreviewRasterAnalysis::applyPseudoColorRenderer(
+                statsRaster, 1, sum.min, sum.max,
+                *PreviewRasterAnalysis::rampPreset(
+                    QStringLiteral("depthBlues")),
+                false, PreviewRasterAnalysis::Classification::Continuous);
+            page->mapCanvas()->canvas()->refresh();
+          }
+        });
   }
 
   // ---- D2.3/D5.8 直方图（分箱可调/对数纵轴；拉伸界随符号快调联动） ----
@@ -333,12 +365,28 @@ QWidget *DataPreviewTabs::buildHorizonContent(
     histLay->setContentsMargins(PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingXs, PaleoTheme::tokens().spacingXs);
     auto *hist = new PreviewHistogramWidget(false, histPage);
     hist->setObjectName(QStringLiteral("horizonHistogram"));
-    const auto refreshHist = [hist, rasterRaw](int bins) {
-      hist->setHistogram(PreviewRasterAnalysis::histogram(rasterRaw, bins));
-      // 当前渲染界（TOC 快调后随 renderer 读回）。
-      if (auto *r = dynamic_cast<QgsSingleBandPseudoColorRenderer *>(rasterRaw->renderer()))
-        if (auto *fn = r->shader()->rasterShaderFunction())
-          hist->setStretchMarks(fn->minimumValue(), fn->maximumValue());
+    auto histogramGeneration = std::make_shared<quint64>(0);
+    auto *histogramTasks = m_doc ? m_doc->taskService() : nullptr;
+    const QPointer<QgsRasterLayer> selected = rasterRaw;
+    const auto refreshHist = [hist, selected, tifPath, histogramGeneration,
+                              histogramTasks](int bins) {
+      if (!selected)
+        return;
+      const auto generation = ++*histogramGeneration;
+      PreviewRasterAnalysis::requestHistogram(
+          tifPath, bins, histogramTasks, hist,
+          [hist, selected, histogramGeneration,
+           generation](const PreviewRasterAnalysis::Histogram &result) {
+            if (!selected || generation != *histogramGeneration)
+              return;
+
+            hist->setHistogram(result);
+            // 当前渲染界（TOC 快调后随 renderer 读回）。
+            if (auto *r = dynamic_cast<QgsSingleBandPseudoColorRenderer *>(
+                    selected->renderer()))
+              if (auto *fn = r->shader()->rasterShaderFunction())
+                hist->setStretchMarks(fn->minimumValue(), fn->maximumValue());
+          });
     };
     refreshHist(64);
     QObject::connect(hist, &PreviewHistogramWidget::binsChanged, histPage, refreshHist);
@@ -413,36 +461,49 @@ QWidget *DataPreviewTabs::buildHorizonContent(
     lowsBand->setIconSize(6);
     lowsBand->hide();
 
-    const auto refreshExtrema = [rasterRaw, peakCheck, lowCheck, peaksBand, lowsBand, extTable, sum]() {
+    auto extremaGeneration = std::make_shared<quint64>(0);
+    auto *extremaTasks = m_doc ? m_doc->taskService() : nullptr;
+    const auto refreshExtrema = [tifPath, extPage, peakCheck, lowCheck,
+                                 peaksBand, lowsBand, extTable, extremaTasks,
+                                 extremaGeneration]() {
+      const auto generation = ++*extremaGeneration;
       peaksBand->reset(Qgis::GeometryType::Point);
       lowsBand->reset(Qgis::GeometryType::Point);
       extTable->setRowCount(0);
       if (!peakCheck->isChecked() && !lowCheck->isChecked())
         return;
-      const double prom = (sum.valid ? sum.stdDev : 0.0) * 0.5; // 显著性 = 半个标准差
-      const auto extrema =
-          PreviewRasterAnalysis::localExtrema(rasterRaw, 1, 5, prom, 100);
-      for (const auto &e : extrema)
-      {
-        if (e.peak)
-          peaksBand->addPoint(e.pos, false);
-        else
-          lowsBand->addPoint(e.pos, false);
-        const int r = extTable->rowCount();
-        extTable->insertRow(r);
-        auto *typeItem = new QTableWidgetItem(e.peak ? tr("峰") : tr("洼"));
-        auto *xItem = new QTableWidgetItem(QString::number(e.pos.x(), 'f', 1));
-        auto *yItem = new QTableWidgetItem(QString::number(e.pos.y(), 'f', 1));
-        auto *vItem = new QTableWidgetItem(QString::number(e.value, 'f', 2));
-        for (auto *it : {xItem, yItem, vItem})
-          setNumericItem(it);
-        extTable->setItem(r, 0, typeItem);
-        extTable->setItem(r, 1, xItem);
-        extTable->setItem(r, 2, yItem);
-        extTable->setItem(r, 3, vItem);
-      }
-      peaksBand->setVisible(peakCheck->isChecked());
-      lowsBand->setVisible(lowCheck->isChecked());
+      PreviewRasterAnalysis::requestExtrema(
+          tifPath, extremaTasks, extPage,
+          [peakCheck, lowCheck, peaksBand, lowsBand, extTable,
+           extremaGeneration, generation](
+              const QVector<PreviewRasterAnalysis::Extremum> &extrema) {
+            if (generation != *extremaGeneration)
+              return;
+            for (const auto &e : extrema) {
+              if (e.peak)
+                peaksBand->addPoint(e.pos, false);
+              else
+                lowsBand->addPoint(e.pos, false);
+              const int r = extTable->rowCount();
+              extTable->insertRow(r);
+              auto *typeItem =
+                  new QTableWidgetItem(e.peak ? tr("峰") : tr("洼"));
+              auto *xItem =
+                  new QTableWidgetItem(QString::number(e.pos.x(), 'f', 1));
+              auto *yItem =
+                  new QTableWidgetItem(QString::number(e.pos.y(), 'f', 1));
+              auto *vItem =
+                  new QTableWidgetItem(QString::number(e.value, 'f', 2));
+              for (auto *it : {xItem, yItem, vItem})
+                setNumericItem(it);
+              extTable->setItem(r, 0, typeItem);
+              extTable->setItem(r, 1, xItem);
+              extTable->setItem(r, 2, yItem);
+              extTable->setItem(r, 3, vItem);
+            }
+            peaksBand->setVisible(peakCheck->isChecked());
+            lowsBand->setVisible(lowCheck->isChecked());
+          });
     };
     QObject::connect(peakCheck, &QCheckBox::toggled, extPage,
                      [refreshExtrema](bool) { refreshExtrema(); });
@@ -452,15 +513,22 @@ QWidget *DataPreviewTabs::buildHorizonContent(
   }
 
   // ---- D5.1 剖面：画布拖线 → 沿线采样 → 剖面图（D5.2 悬停读数在面板内） ----
-  QObject::connect(page, &PreviewMapPage::profileLineDrawn, host,
-                   [page, rasterRaw](const QgsPointXY &p1, const QgsPointXY &p2, int total) {
-                     const auto samples = PreviewRasterAnalysis::sampleProfile(rasterRaw, p1, p2, 200);
-                     QVector<PreviewProfilePanel::Sample> pts;
-                     pts.reserve(samples.size());
-                     for (const auto &sm : samples)
-                       pts.append({sm.distance, sm.value, sm.valid});
-                     page->profilePanel()->addProfile(tr("剖面 %1").arg(total), pts, p1, p2);
-                   });
+  QObject::connect(
+      page, &PreviewMapPage::profileLineDrawn, host,
+      [page, tifPath, tasks = m_doc ? m_doc->taskService() : nullptr](
+          const QgsPointXY &p1, const QgsPointXY &p2, int total) {
+        PreviewRasterAnalysis::requestProfile(
+            tifPath, p1, p2, tasks, page,
+            [page, p1, p2, total](
+                const QVector<PreviewRasterAnalysis::ProfileSample> &samples) {
+              QVector<PreviewProfilePanel::Sample> pts;
+              pts.reserve(samples.size());
+              for (const auto &sm : samples)
+                pts.append({sm.distance, sm.value, sm.valid});
+              page->profilePanel()->addProfile(tr("剖面 %1").arg(total), pts,
+                                               p1, p2);
+            });
+      });
   page->setProfileEnabled(true); // D1.3：栅格内容才开剖面工具
 
   // ---- D2.10 同目录组图：同目录可地图化资产一键叠加 ----

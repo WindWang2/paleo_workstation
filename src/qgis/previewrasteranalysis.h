@@ -1,5 +1,8 @@
 // 层：QGIS 封装
 #pragma once
+#include <functional>
+class PaleoTaskService;
+class QObject;
 
 #include <QColor>
 #include <QPair>
@@ -31,6 +34,9 @@ struct BandSummary
   double validRatio() const { return totalPixels > 0 ? double( validPixels ) / totalPixels : 0.0; }
 };
 BandSummary summarize( QgsRasterLayer *layer, int band = 1 );
+void requestSummary(const QString &uri, PaleoTaskService *tasks,
+                    QObject *receiver,
+                    std::function<void(const BandSummary &)> ready);
 
 // ---- D2.3/D5.8 直方图 ----
 struct Histogram
@@ -44,6 +50,9 @@ struct Histogram
   double maximumCount() const;
 };
 Histogram histogram( QgsRasterLayer *layer, int bins = 64, int band = 1 );
+void requestHistogram(const QString &uri, int bins, PaleoTaskService *tasks,
+                      QObject *receiver,
+                      std::function<void(const Histogram &)> ready);
 
 // ---- D2.2 拉伸 ----
 enum class Stretch
@@ -97,9 +106,18 @@ struct Extremum
   bool peak = false; // true=峰，false=洼地
 };
 // window×window 邻域极值 + prominence（相对邻域均值的显著性，单位=值）。
-QVector<Extremum> localExtrema( QgsRasterLayer *layer, int band = 1, int window = 5,
-                                double prominence = 0.0, int maxCount = 200 );
+QVector<Extremum> localExtrema(QgsRasterLayer *layer, int band = 1,
+                               int window = 5, double prominence = 0.0,
+                               int maxCount = 200,
+                               const std::function<bool()> &cancelled = {});
 
+void requestExtrema(const QString &uri, PaleoTaskService *tasks,
+                    QObject *receiver,
+                    std::function<void(const QVector<Extremum> &)> ready);
+void requestProfile(const QString &uri, const QgsPointXY &p1,
+                    const QgsPointXY &p2, PaleoTaskService *tasks,
+                    QObject *receiver,
+                    std::function<void(const QVector<ProfileSample> &)> ready);
 // ---- D2.11 大图降级情报 ----
 bool hasPyramids( QgsRasterLayer *layer );
 qint64 fileSizeBytes( const QString &path );

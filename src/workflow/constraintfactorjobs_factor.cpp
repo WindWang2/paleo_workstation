@@ -2,33 +2,36 @@
 // 方向57：从 constraintfactorjobs.cpp 按函数族析出。方法定义逐字搬迁，
 // 类契约仍在 workflows.h（公共 API 零改动）；族间共享辅助经
 // constraintfactorjobs_internal.h。
-#include "workflows.h"
-#include "constraintworkflow_internal.h"
-#include "workflows_internal.h"
-#include "../algorithms/geostat/kriging.h"     // KrigingParams / KrigingResult（方向18）
-#include "../algorithms/geostat/sgs.h"         // SgsParams / SgsResult（方向18）
-#include "../algorithms/geostat/variogram.h"   // 变差函数模型（方向18）
-#include "../algorithms/rasterout.h"          // PaleoRasterOut / createFloatRaster
-#include "../algorithms/ensemblestats.h"     // StatsRequest（方向47 集合统计派生）
-#include "../catalog/datacatalog.h"
+#include "../algorithms/ensemblestats.h" // StatsRequest（方向47 集合统计派生）
+#include "../algorithms/geostat/kriging.h" // KrigingParams / KrigingResult（方向18）
+#include "../algorithms/geostat/sgs.h"       // SgsParams / SgsResult（方向18）
+#include "../algorithms/geostat/variogram.h" // 变差函数模型（方向18）
+#include "../algorithms/rasterout.h" // PaleoRasterOut / createFloatRaster
 #include "../algorithms/singlefactor/cartographicworkfile.h"
+#include "../catalog/datacatalog.h"
 #include "../domain/arearules.h"
-#include "../domain/singlefactorrequest.h"  // 制图工作场不进融合/分相
+#include "../domain/singlefactorrequest.h" // 制图工作场不进融合/分相
 #include "../domain/singlefactorstrategy.h" // 方向67：策略包词表（strategy_id 校验）
 #include "../io/constraintstore.h"
 #include "../metadata/paleoprojectstore.h"
 #include "../qgis/factorcontour.h"
 #include "../qgis/factorstylewriter.h"
-#include "../qgis/qgiseditingservice.h"    // 拓扑提交门（geometryCommitError）
+#include "../qgis/qgiseditingservice.h" // 拓扑提交门（geometryCommitError）
 #include "../qgis/qgislayerservice.h"
 #include "../qgis/qgisprocessingservice.h"
-#include "../qgis/qgisstyleservice.h"      // applyFaciesBoundaryStyle
+#include "../qgis/qgisstyleservice.h" // applyFaciesBoundaryStyle
+#include "../services/futuretask.h"
 #include "../services/jobrunner.h"
+#include "../services/paleotaskservice.h"
 #include "../services/singlefactordef.h"
-#include "boundarysemantics.h"             // 相界地质语义类型词表
+#include "boundarysemantics.h" // 相界地质语义类型词表
+#include "constraintfactorjobs_internal.h"
+#include "constraintworkflow_internal.h"
 #include "derivedassets.h"
 #include "mappingworkflow.h"
 #include "realizationworkflow.h"
+#include "workflows.h"
+#include "workflows_internal.h"
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
@@ -38,26 +41,29 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSet>
+#include <QTemporaryDir>
 #include <QUuid>
 #include <QVariantList>
+#include <QtConcurrent>
+#include <algorithm>
+#include <cmath>
+#include <cpl_conv.h>
+#include <cstring>
+#include <gdal.h>
+#include <ogr_spatialref.h>
 #include <qgscoordinatereferencesystem.h>
-#include <qgsfield.h>
 #include <qgsfeature.h>
 #include <qgsfeatureiterator.h>
 #include <qgsfeaturerequest.h>
+#include <qgsfield.h>
 #include <qgsgeometry.h>
 #include <qgsmaplayer.h>
 #include <qgsrasterlayer.h>
+#include <qgsvectordataprovider.h>
 #include <qgsvectorfilewriter.h> // WS-C：参与井点 samples GPKG 写出
 #include <qgsvectorlayer.h>
-#include <gdal.h>
-#include <ogr_spatialref.h>
-#include <cpl_conv.h>
-#include <algorithm>
-#include <cmath>
-#include <cstring>
+#include <qgsvectorlayerfeatureiterator.h>
 #include <variant>
-#include "constraintfactorjobs_internal.h"
 
 using namespace paleo::constraint_detail;
 
@@ -65,6 +71,11 @@ using namespace paleo::constraint_detail;
 bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &factorId,
                                          const QVariantMap &inputParams, QString *error )
 {
+  if (factorBusy()) {
+    paleo::workflow_detail::setError(
+        error, tr("已有单因素任务，请等待或在任务中心取消"));
+    return false;
+  }
   QVariantMap params = inputParams;
   QgisProcessingService *proc = m_proc.data();
   QgisLayerService *layers = m_layers.data();
@@ -218,45 +229,68 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
     parentPaths.append( constraints->source().section( QLatin1Char( '|' ), 0, 0 ) );
   }
 
-  const QVariantMap results = proc->run( def.processingAlgId, runParams, error );
-  if ( results.isEmpty() )
-    return false;
-  const QString outPath = paleo::workflow_detail::outputPathOf( results );
-  if ( outPath.isEmpty() )
-  {
-    paleo::workflow_detail::setError( error, tr( "单因素生成未返回输出路径" ) );
-    return false;
-  }
+  return runFactorAlgorithm(
+      horizon, def.processingAlgId, runParams,
+      [=, this](const QVariantMap &results, QString *error) mutable {
+        const auto fingerprint = results.value("_derived_fingerprint")
+                                     .value<DerivedFileFingerprint>();
 
-  QVariantMap extra;
-  extra.insert("mapping_product",true);extra.insert("layer_id","product."+st.versionId);
-  extra.insert("manifest_layer_id",QStringLiteral("factor.%1.%2").arg(horizon,factorId)); // C4：catalog 侧权威反链（清单 layerId）
-  extra.insert("layer_type","raster");extra.insert("title",tr("%1·%2").arg(def.title,horizon));extra.insert("group","04_SingleFactor");
-  extra.insert( QStringLiteral( "factor_id" ), factorId );
-  extra.insert( QStringLiteral( "field" ), field );
-  extra.insert( QStringLiteral( "cell_size" ), cellSize );
-  extra.insert( QStringLiteral( "constrained" ), hasConstraints );
-  extra.insert(QStringLiteral("horizon"), horizon);
-  extra.insert(QStringLiteral("kind"), QStringLiteral("single_factor_raster"));
-  parentPaths.append(property(("paleo.constraint.snapshot."+horizon).toUtf8().constData()).toString());
-  QStringList parentIds = registrar.parentVersionIdsFor(parentPaths);
-  parentIds.append(params.value("parentVersionIds").toStringList());
-  parentIds.removeDuplicates();
-  if(auto *catalog=PaleoWorkflowDerivedCatalog(this))for(const auto &id:parentIds)
-    if(catalog->versionById(id).extra.value("mock").toBool())extra.insert("mock",true);
-  insertStrategyId( params, extra ); // 方向67：策略包 id 进血缘（旧约束 IDW = 词表 "idw"）
-  QString commitErr;
-  if ( !registrar.commitExternal( st, outPath, parentIds,
-                                  def.processingAlgId, extra, &commitErr ) )
-  {
-    paleo::workflow_detail::setError( error, commitErr );
-    return false;
-  }
+        if (results.isEmpty())
+          return false;
+        const QString outPath = paleo::workflow_detail::outputPathOf(results);
+        if (outPath.isEmpty()) {
+          paleo::workflow_detail::setError(error,
+                                           tr("单因素生成未返回输出路径"));
+          return false;
+        }
 
-  // 色带样式落盘 <projectDir>/styles/factor_<factorId>.qml（best-effort）与
-  // 声明/盖章/通知收尾见 declareFactorResult（三引擎共用）。
-  return declareFactorResult( layers, horizon, factorId, def, outPath,
-                              registrar.projectDir(), st.assetId, error );
+        QVariantMap extra;
+        extra.insert("mapping_product", true);
+        extra.insert("layer_id", "product." + st.versionId);
+        extra.insert(
+            "manifest_layer_id",
+            QStringLiteral("factor.%1.%2")
+                .arg(horizon,
+                     factorId)); // C4：catalog 侧权威反链（清单 layerId）
+        extra.insert("layer_type", "raster");
+        extra.insert("title", tr("%1·%2").arg(def.title, horizon));
+        extra.insert("group", "04_SingleFactor");
+        extra.insert(QStringLiteral("factor_id"), factorId);
+        extra.insert(QStringLiteral("field"), field);
+        extra.insert(QStringLiteral("cell_size"), cellSize);
+        extra.insert(QStringLiteral("constrained"), hasConstraints);
+        extra.insert(QStringLiteral("horizon"), horizon);
+        extra.insert(QStringLiteral("kind"),
+                     QStringLiteral("single_factor_raster"));
+        parentPaths.append(
+            property(
+                ("paleo.constraint.snapshot." + horizon).toUtf8().constData())
+                .toString());
+        QStringList parentIds = registrar.parentVersionIdsFor(parentPaths);
+        parentIds.append(params.value("parentVersionIds").toStringList());
+        parentIds.removeDuplicates();
+        if (auto *catalog = PaleoWorkflowDerivedCatalog(this))
+          for (const auto &id : parentIds)
+            if (catalog->versionById(id).extra.value("mock").toBool())
+              extra.insert("mock", true);
+        insertStrategyId(
+            params,
+            extra); // 方向67：策略包 id 进血缘（旧约束 IDW = 词表 "idw"）
+        QString commitErr;
+        if (!registrar.commitExternal(
+                st, outPath, parentIds, def.processingAlgId, extra, &commitErr,
+                fingerprint.sha256.isEmpty() ? nullptr : &fingerprint)) {
+          paleo::workflow_detail::setError(error, commitErr);
+          return false;
+        }
+
+        // 色带样式落盘
+        // <projectDir>/styles/factor_<factorId>.qml（best-effort）与
+        // 声明/盖章/通知收尾见 declareFactorResult（三引擎共用）。
+        return declareFactorResult(layers, horizon, factorId, def, outPath,
+                                   registrar.projectDir(), st.assetId, error);
+      },
+      error);
 }
 
 bool ConstraintWorkflow::generateIsopachFactor( const QString &horizon, const QString &factorId,
@@ -325,34 +359,40 @@ bool ConstraintWorkflow::generateIsopachFactor( const QString &horizon, const QS
                                   def.defaultParams.value( QStringLiteral( "negativeToNodata" ), true ) ) );
   runParams.insert( QStringLiteral( "OUTPUT" ), st.absolutePath );
 
-  const QVariantMap results = proc->run( def.processingAlgId, runParams, error );
-  if ( results.isEmpty() )
-    return false;
-  const QString outPath = paleo::workflow_detail::outputPathOf( results );
-  if ( outPath.isEmpty() )
-  {
-    paleo::workflow_detail::setError( error, tr( "等厚生成未返回输出路径" ) );
-    return false;
-  }
+  const QStringList parentPaths{top->source().section(QLatin1Char('|'), 0, 0),
+                                base->source().section(QLatin1Char('|'), 0, 0)};
+  return runFactorAlgorithm(
+      horizon, def.processingAlgId, runParams,
+      [=, this](const QVariantMap &results, QString *error) mutable {
+        const auto fingerprint = results.value("_derived_fingerprint")
+                                     .value<DerivedFileFingerprint>();
 
-  const QStringList parentPaths{
-      top->source().section( QLatin1Char( '|' ), 0, 0 ),
-      base->source().section( QLatin1Char( '|' ), 0, 0 ) };
-  QVariantMap extra;
-  extra.insert( QStringLiteral( "factor_id" ), factorId );
-  extra.insert( QStringLiteral( "engine" ), def.processingAlgId );
-  extra.insert( QStringLiteral( "top_layer_id" ), topId );
-  extra.insert( QStringLiteral( "base_layer_id" ), baseId );
-  QString commitErr;
-  if ( !registrar.commitExternal( st, outPath, registrar.parentVersionIdsFor( parentPaths ),
-                                  def.processingAlgId, extra, &commitErr ) )
-  {
-    paleo::workflow_detail::setError( error, commitErr );
-    return false;
-  }
+        if (results.isEmpty())
+          return false;
+        const QString outPath = paleo::workflow_detail::outputPathOf(results);
+        if (outPath.isEmpty()) {
+          paleo::workflow_detail::setError(error, tr("等厚生成未返回输出路径"));
+          return false;
+        }
 
-  return declareFactorResult( layers, horizon, factorId, def, outPath,
-                              registrar.projectDir(), st.assetId, error );
+        QVariantMap extra;
+        extra.insert(QStringLiteral("factor_id"), factorId);
+        extra.insert(QStringLiteral("engine"), def.processingAlgId);
+        extra.insert(QStringLiteral("top_layer_id"), topId);
+        extra.insert(QStringLiteral("base_layer_id"), baseId);
+        QString commitErr;
+        if (!registrar.commitExternal(
+                st, outPath, registrar.parentVersionIdsFor(parentPaths),
+                def.processingAlgId, extra, &commitErr,
+                fingerprint.sha256.isEmpty() ? nullptr : &fingerprint)) {
+          paleo::workflow_detail::setError(error, commitErr);
+          return false;
+        }
+
+        return declareFactorResult(layers, horizon, factorId, def, outPath,
+                                   registrar.projectDir(), st.assetId, error);
+      },
+      error);
 }
 
 bool ConstraintWorkflow::generateDistanceFactor( const QString &horizon, const QString &factorId,
@@ -447,38 +487,48 @@ bool ConstraintWorkflow::generateDistanceFactor( const QString &horizon, const Q
     parentPaths.append( constraints->source().section( QLatin1Char( '|' ), 0, 0 ) );
   }
 
-  const QVariantMap results = proc->run( def.processingAlgId, runParams, error );
-  if ( results.isEmpty() )
-    return false;
-  const QString outPath = paleo::workflow_detail::outputPathOf( results );
-  if ( outPath.isEmpty() )
-  {
-    paleo::workflow_detail::setError( error, tr( "单因素生成未返回输出路径" ) );
-    return false;
-  }
+  return runFactorAlgorithm(
+      horizon, def.processingAlgId, runParams,
+      [=, this](const QVariantMap &results, QString *error) mutable {
+        const auto fingerprint = results.value("_derived_fingerprint")
+                                     .value<DerivedFileFingerprint>();
 
-  QVariantMap extra;
-  extra.insert( QStringLiteral( "factor_id" ), factorId );
-  extra.insert( QStringLiteral( "engine" ), def.processingAlgId );
-  extra.insert( QStringLiteral( "cell_size" ), cellSize );
-  extra.insert( QStringLiteral( "constrained" ), hasConstraints );
-  extra.insert( QStringLiteral( "horizon" ), horizon );
-  extra.insert( QStringLiteral( "kind" ), QStringLiteral( "single_factor_raster" ) );
-  extra.insert( QStringLiteral( "manifest_layer_id" ),
-                QStringLiteral( "factor.%1.%2" ).arg( horizon, factorId ) ); // C4 反链
-  extra.insert( QStringLiteral( "points_layer_id" ), pointsId );
-  QString commitErr;
-  if ( !registrar.commitExternal( st, outPath, registrar.parentVersionIdsFor( parentPaths ),
-                                  def.processingAlgId, extra, &commitErr ) )
-  {
-    paleo::workflow_detail::setError( error, commitErr );
-    return false;
-  }
+        if (results.isEmpty())
+          return false;
+        const QString outPath = paleo::workflow_detail::outputPathOf(results);
+        if (outPath.isEmpty()) {
+          paleo::workflow_detail::setError(error,
+                                           tr("单因素生成未返回输出路径"));
+          return false;
+        }
 
-  // 色带样式落盘（welldist 绿→灰预设已备；best-effort）与收尾同 IDW 路径
-  // （declareFactorResult，三引擎共用）。
-  return declareFactorResult( layers, horizon, factorId, def, outPath,
-                              registrar.projectDir(), st.assetId, error );
+        QVariantMap extra;
+        extra.insert(QStringLiteral("factor_id"), factorId);
+        extra.insert(QStringLiteral("engine"), def.processingAlgId);
+        extra.insert(QStringLiteral("cell_size"), cellSize);
+        extra.insert(QStringLiteral("constrained"), hasConstraints);
+        extra.insert(QStringLiteral("horizon"), horizon);
+        extra.insert(QStringLiteral("kind"),
+                     QStringLiteral("single_factor_raster"));
+        extra.insert(
+            QStringLiteral("manifest_layer_id"),
+            QStringLiteral("factor.%1.%2").arg(horizon, factorId)); // C4 反链
+        extra.insert(QStringLiteral("points_layer_id"), pointsId);
+        QString commitErr;
+        if (!registrar.commitExternal(
+                st, outPath, registrar.parentVersionIdsFor(parentPaths),
+                def.processingAlgId, extra, &commitErr,
+                fingerprint.sha256.isEmpty() ? nullptr : &fingerprint)) {
+          paleo::workflow_detail::setError(error, commitErr);
+          return false;
+        }
+
+        // 色带样式落盘（welldist 绿→灰预设已备；best-effort）与收尾同 IDW 路径
+        // （declareFactorResult，三引擎共用）。
+        return declareFactorResult(layers, horizon, factorId, def, outPath,
+                                   registrar.projectDir(), st.assetId, error);
+      },
+      error);
 }
 
 // ---- WS-C：structural_idw（上游 Drawing structural_idw 移植）----
@@ -722,128 +772,169 @@ bool ConstraintWorkflow::generateStructuralFactor( const QString &horizon, const
 
   const QString stagedQc = fileStem( st.absolutePath ) + QStringLiteral( ".qc.json" );
   const QString stagedStructural = fileStem( st.absolutePath ) + QStringLiteral( ".structural.json" );
-  auto discard = [&]() {
+  auto discard = [st, stagedQc, stagedStructural]() {
     removeIfPresent( st.absolutePath );
     removeIfPresent( stagedQc );
     removeIfPresent( stagedStructural );
   };
 
-  const QVariantMap results = proc->run( engineId, runParams, error );
-  const QString outPath = paleo::workflow_detail::outputPathOf( results );
-  if ( results.isEmpty() || outPath.isEmpty() || !QFile::exists( stagedQc )
-       || !QFile::exists( stagedStructural ) )
-  {
-    discard();
-    if ( results.isEmpty() || outPath.isEmpty() )
-      return false; // proc->run 已填 error
-    paleo::workflow_detail::setError( error, tr( "结构化插值未生成旁路成果（qc/structural json）" ) );
-    return false;
-  }
+  const auto boundaryCrs = boundary->crs();
+  return runFactorAlgorithm(
+      horizon, engineId, runParams,
+      [=, this](const QVariantMap &results, QString *error) mutable {
+        const auto fingerprint = results.value("_derived_fingerprint")
+                                     .value<DerivedFileFingerprint>();
 
-  QString jsonErr;
-  const QVariantMap qc = readJsonObject( stagedQc, &jsonErr );
-  QVariantMap hashParams = qc.value( QStringLiteral( "parameters" ) ).toMap();
-  if ( hashParams.isEmpty() )
-  {
-    discard();
-    paleo::workflow_detail::setError( error, jsonErr.isEmpty() ? tr( "结构化成果缺少参数指纹输入" ) : jsonErr );
-    return false;
-  }
-  QStringList parentIds = registrar.parentVersionIdsFor( parentPaths );
-  parentIds.append( params.value( QStringLiteral( "parentVersionIds" ) ).toStringList() );
-  parentIds.removeDuplicates();
-  parentIds.sort();
-  QVariantList parentList;
-  for ( const QString &id : parentIds )
-    parentList << id;
-  hashParams.insert( QStringLiteral( "horizon" ), horizon );
-  hashParams.insert( QStringLiteral( "factor_id" ), factorId );
-  hashParams.insert( QStringLiteral( "parent_version_ids" ), parentList );
-  const paleo::singlefactor::ParameterHash hash = paleo::singlefactor::parameterHash( hashParams );
-  if ( !hash.ok )
-  {
-    discard();
-    paleo::workflow_detail::setError( error, hash.error.isEmpty() ? tr( "参数指纹计算失败" ) : hash.error );
-    return false;
-  }
-  QString shaErr;
-  const QString qcSha = DataCatalog::sha256FileHex( stagedQc, &shaErr );
-  const QString structuralSha = DataCatalog::sha256FileHex( stagedStructural, &shaErr );
-  if ( qcSha.isEmpty() || structuralSha.isEmpty() )
-  {
-    discard();
-    paleo::workflow_detail::setError( error, shaErr.isEmpty() ? tr( "旁路文件 sha256 计算失败" ) : shaErr );
-    return false;
-  }
+        const QString outPath = paleo::workflow_detail::outputPathOf(results);
+        if (results.isEmpty() || outPath.isEmpty() ||
+            !QFile::exists(stagedQc) || !QFile::exists(stagedStructural)) {
+          discard();
+          if (results.isEmpty() || outPath.isEmpty())
+            return false; // proc->run 已填 error
+          paleo::workflow_detail::setError(
+              error, tr("结构化插值未生成旁路成果（qc/structural json）"));
+          return false;
+        }
 
-  const QDir projectDir( registrar.projectDir() );
-  const QVariantMap counts = qc.value( QStringLiteral( "counts" ) ).toMap();
-  const QVariantMap fieldModel = qc.value( QStringLiteral( "field_model" ) ).toMap();
-  QVariantMap extra;
-  extra.insert( QStringLiteral( "mapping_product" ), true );
-  extra.insert( QStringLiteral( "layer_id" ), QStringLiteral( "product." ) + st.versionId );
-  extra.insert( QStringLiteral( "manifest_layer_id" ),
-                QStringLiteral( "factor.%1.%2" ).arg( horizon, factorId ) );
-  extra.insert( QStringLiteral( "layer_type" ), QStringLiteral( "raster" ) );
-  extra.insert( QStringLiteral( "title" ), tr( "%1·%2" ).arg( def.title, horizon ) );
-  extra.insert( QStringLiteral( "group" ), QStringLiteral( "04_SingleFactor" ) );
-  extra.insert( QStringLiteral( "factor_id" ), factorId );
-  extra.insert( QStringLiteral( "field" ), field );
-  extra.insert( QStringLiteral( "method" ), QStringLiteral( "structural_idw" ) );
-  extra.insert( QStringLiteral( "grid_resolution" ),
-                runParams.value( QStringLiteral( "GRID_RESOLUTION" ) ) );
-  extra.insert( QStringLiteral( "constrained" ), hasConstraints );
-  extra.insert( QStringLiteral( "horizon" ), horizon );
-  extra.insert( QStringLiteral( "kind" ), QStringLiteral( "single_factor_raster" ) );
-  extra.insert( QStringLiteral( "value_source" ), QStringLiteral( "analysis" ) );
-  extra.insert( QStringLiteral( "parameter_hash" ), hash.sha256 );
-  extra.insert( QStringLiteral( "provenance_schema_version" ), 1 );
-  extra.insert( QStringLiteral( "algorithm_id" ), engineId );
-  extra.insert( QStringLiteral( "extent_source" ), qc.value( QStringLiteral( "extent_source" ) ) );
-  extra.insert( QStringLiteral( "crs_mode" ), qc.value( QStringLiteral( "crs_mode" ) ) );
-  extra.insert( QStringLiteral( "qc_path" ), projectDir.relativeFilePath( stagedQc ) );
-  extra.insert( QStringLiteral( "qc_sha256" ), qcSha );
-  extra.insert( QStringLiteral( "structural_path" ), projectDir.relativeFilePath( stagedStructural ) );
-  extra.insert( QStringLiteral( "structural_sha256" ), structuralSha );
-  extra.insert( QStringLiteral( "finite_cells" ), counts.value( QStringLiteral( "finite" ) ) );
-  extra.insert( QStringLiteral( "nodata_cells" ), counts.value( QStringLiteral( "nodata" ) ) );
-  extra.insert( QStringLiteral( "direction_coverage_percent" ),
-                fieldModel.value( QStringLiteral( "direction_coverage_percent" ) ) );
-  extra.insert( QStringLiteral( "barrier_buffer_distance" ),
-                qc.value( QStringLiteral( "barrier_buffer_distance" ) ) );
-  extra.insert( QStringLiteral( "contour_stop_buffer_distance" ),
-                qc.value( QStringLiteral( "contour_stop_buffer_distance" ) ) );
-  inheritMockFlag( PaleoWorkflowDerivedCatalog( this ), parentIds, extra );
-  insertStrategyId( params, extra ); // 方向67：策略包 id 进血缘（structural_idw 词表项）
-  QString commitErr;
-  if ( !registrar.commitExternal( st, outPath, parentIds, engineId, extra, &commitErr ) )
-  {
-    discard();
-    paleo::workflow_detail::setError( error, commitErr );
-    return false;
-  }
+        QString jsonErr;
+        const QVariantMap qc = m_factorTasks
+                                   ? results.value("_qc").toMap()
+                                   : readJsonObject(stagedQc, &jsonErr);
+        QVariantMap hashParams = qc.value(QStringLiteral("parameters")).toMap();
+        if (hashParams.isEmpty()) {
+          discard();
+          paleo::workflow_detail::setError(
+              error,
+              jsonErr.isEmpty() ? tr("结构化成果缺少参数指纹输入") : jsonErr);
+          return false;
+        }
+        QStringList parentIds = registrar.parentVersionIdsFor(parentPaths);
+        parentIds.append(
+            params.value(QStringLiteral("parentVersionIds")).toStringList());
+        parentIds.removeDuplicates();
+        parentIds.sort();
+        QVariantList parentList;
+        for (const QString &id : parentIds)
+          parentList << id;
+        hashParams.insert(QStringLiteral("horizon"), horizon);
+        hashParams.insert(QStringLiteral("factor_id"), factorId);
+        hashParams.insert(QStringLiteral("parent_version_ids"), parentList);
+        const paleo::singlefactor::ParameterHash hash =
+            paleo::singlefactor::parameterHash(hashParams);
+        if (!hash.ok) {
+          discard();
+          paleo::workflow_detail::setError(error, hash.error.isEmpty()
+                                                      ? tr("参数指纹计算失败")
+                                                      : hash.error);
+          return false;
+        }
+        QString shaErr;
+        const QString qcSha =
+            m_factorTasks ? results.value("_qc_sha").toString()
+                          : DataCatalog::sha256FileHex(stagedQc, &shaErr);
+        const QString structuralSha =
+            m_factorTasks
+                ? results.value("_structural_sha").toString()
+                : DataCatalog::sha256FileHex(stagedStructural, &shaErr);
+        if (qcSha.isEmpty() || structuralSha.isEmpty()) {
+          discard();
+          paleo::workflow_detail::setError(
+              error,
+              shaErr.isEmpty() ? tr("旁路文件 sha256 计算失败") : shaErr);
+          return false;
+        }
 
-  // 参与井点（非控制点）→ samples.<层位>.<因素> 点图层（样式在后续工作流）。
-  const QVariantList wells = qc.value( QStringLiteral( "wells" ) ).toList();
-  if ( !wells.isEmpty() )
-  {
-    const QString samplesPath = fileStem( st.absolutePath ) + QStringLiteral( ".samples.gpkg" );
-    QString samplesErr;
-    if ( writeStructuralSamples( samplesPath, wells, boundary->crs(), &samplesErr ) )
-    {
-      LayerDeclaration sdecl;
-      sdecl.layerId = QStringLiteral( "samples.%1.%2" ).arg( horizon, factorId );
-      sdecl.horizon = horizon;
-      sdecl.type = QStringLiteral( "vector" );
-      sdecl.source = samplesPath + QStringLiteral( "|layername=samples" );
-      sdecl.group = QStringLiteral( "04_SingleFactor" );
-      sdecl.title = tr( "参与井点" );
-      layers->declare( sdecl ); // best-effort：井点层失败不打断因素成果
-    }
-  }
+        const QDir projectDir(registrar.projectDir());
+        const QVariantMap counts = qc.value(QStringLiteral("counts")).toMap();
+        const QVariantMap fieldModel =
+            qc.value(QStringLiteral("field_model")).toMap();
+        QVariantMap extra;
+        extra.insert(QStringLiteral("mapping_product"), true);
+        extra.insert(QStringLiteral("layer_id"),
+                     QStringLiteral("product.") + st.versionId);
+        extra.insert(QStringLiteral("manifest_layer_id"),
+                     QStringLiteral("factor.%1.%2").arg(horizon, factorId));
+        extra.insert(QStringLiteral("layer_type"), QStringLiteral("raster"));
+        extra.insert(QStringLiteral("title"),
+                     tr("%1·%2").arg(def.title, horizon));
+        extra.insert(QStringLiteral("group"),
+                     QStringLiteral("04_SingleFactor"));
+        extra.insert(QStringLiteral("factor_id"), factorId);
+        extra.insert(QStringLiteral("field"), field);
+        extra.insert(QStringLiteral("method"),
+                     QStringLiteral("structural_idw"));
+        extra.insert(QStringLiteral("grid_resolution"),
+                     runParams.value(QStringLiteral("GRID_RESOLUTION")));
+        extra.insert(QStringLiteral("constrained"), hasConstraints);
+        extra.insert(QStringLiteral("horizon"), horizon);
+        extra.insert(QStringLiteral("kind"),
+                     QStringLiteral("single_factor_raster"));
+        extra.insert(QStringLiteral("value_source"),
+                     QStringLiteral("analysis"));
+        extra.insert(QStringLiteral("parameter_hash"), hash.sha256);
+        extra.insert(QStringLiteral("provenance_schema_version"), 1);
+        extra.insert(QStringLiteral("algorithm_id"), engineId);
+        extra.insert(QStringLiteral("extent_source"),
+                     qc.value(QStringLiteral("extent_source")));
+        extra.insert(QStringLiteral("crs_mode"),
+                     qc.value(QStringLiteral("crs_mode")));
+        extra.insert(QStringLiteral("qc_path"),
+                     projectDir.relativeFilePath(stagedQc));
+        extra.insert(QStringLiteral("qc_sha256"), qcSha);
+        extra.insert(QStringLiteral("structural_path"),
+                     projectDir.relativeFilePath(stagedStructural));
+        extra.insert(QStringLiteral("structural_sha256"), structuralSha);
+        extra.insert(QStringLiteral("finite_cells"),
+                     counts.value(QStringLiteral("finite")));
+        extra.insert(QStringLiteral("nodata_cells"),
+                     counts.value(QStringLiteral("nodata")));
+        extra.insert(
+            QStringLiteral("direction_coverage_percent"),
+            fieldModel.value(QStringLiteral("direction_coverage_percent")));
+        extra.insert(QStringLiteral("barrier_buffer_distance"),
+                     qc.value(QStringLiteral("barrier_buffer_distance")));
+        extra.insert(QStringLiteral("contour_stop_buffer_distance"),
+                     qc.value(QStringLiteral("contour_stop_buffer_distance")));
+        inheritMockFlag(PaleoWorkflowDerivedCatalog(this), parentIds, extra);
+        insertStrategyId(
+            params, extra); // 方向67：策略包 id 进血缘（structural_idw 词表项）
+        QString commitErr;
+        if (!registrar.commitExternal(
+                st, outPath, parentIds, engineId, extra, &commitErr,
+                fingerprint.sha256.isEmpty() ? nullptr : &fingerprint)) {
+          discard();
+          paleo::workflow_detail::setError(error, commitErr);
+          return false;
+        }
 
-  return declareFactorResult( layers, horizon, factorId, def, st.absolutePath,
-                              registrar.projectDir(), st.assetId, error );
+        // 参与井点（非控制点）→ samples.<层位>.<因素>
+        // 点图层（样式在后续工作流）。
+        const QVariantList wells = qc.value(QStringLiteral("wells")).toList();
+        if (!wells.isEmpty()) {
+          const QString samplesPath =
+              fileStem(st.absolutePath) + QStringLiteral(".samples.gpkg");
+          QString samplesErr;
+          if (m_factorTasks
+                  ? QFile::exists(samplesPath)
+                  : writeStructuralSamples(samplesPath, wells, boundaryCrs,
+                                           &samplesErr)) {
+            LayerDeclaration sdecl;
+            sdecl.layerId =
+                QStringLiteral("samples.%1.%2").arg(horizon, factorId);
+            sdecl.horizon = horizon;
+            sdecl.type = QStringLiteral("vector");
+            sdecl.source = samplesPath + QStringLiteral("|layername=samples");
+            sdecl.group = QStringLiteral("04_SingleFactor");
+            sdecl.title = tr("参与井点");
+            layers->declare(sdecl); // best-effort：井点层失败不打断因素成果
+          }
+        }
+
+        return declareFactorResult(layers, horizon, factorId, def,
+                                   st.absolutePath, registrar.projectDir(),
+                                   st.assetId, error);
+      },
+      error);
 }
 
 bool ConstraintWorkflow::generateSurferIdwFactor( const QString &horizon, const QString &factorId,
@@ -855,6 +946,35 @@ bool ConstraintWorkflow::generateSurferIdwFactor( const QString &horizon, const 
   if ( !prepareLocalDirectionJob( horizon, factorId, params, &job, error,
                                   QStringLiteral( "paleo:paleo_surfer_idw" ) ) )
     return false;
+  if (m_factorTasks) {
+    auto shared = std::make_shared<LocalDirectionJob>(job);
+    return runFactorWork(
+        tr("%1 单因素计算").arg(horizon),
+        [proc = m_proc.data(), shared](PaleoTask *task) {
+          const bool ok = computeLocalDirectionJobWithService(
+              proc, shared.get(), [task] { return task->cancelRequested(); },
+              [task](double p) {
+                task->reportStage("build", qBound(0, qRound(p), 95));
+              });
+          return ok ? QString() : shared->error;
+        },
+        [this, shared](QString *error) {
+          return publishLocalDirectionJob(*shared, error);
+        },
+        [shared] {
+          if (shared->outputPath.contains("paleo-sf-"))
+            QDir(QFileInfo(shared->outputPath).absolutePath())
+                .removeRecursively();
+          if (shared->staging.isValid()) {
+            const auto path = shared->staging.absolutePath;
+            for (const auto &file :
+                 QStringList{path, fileStem(path) + ".qc.json",
+                             fileStem(path) + ".support.tif"})
+              QFile::remove(file);
+          }
+        },
+        error);
+  }
   if ( !computeLocalDirectionJob( &job ) )
   {
     paleo::workflow_detail::setError( error, job.error );
@@ -898,3 +1018,246 @@ bool ConstraintWorkflow::declareFactorResult( QgisLayerService *layers,
   return true;
 }
 
+bool ConstraintWorkflow::factorBusy() const {
+  return m_factorJobTask && m_factorJobTask->running();
+}
+bool ConstraintWorkflow::runFactorWork(
+    const QString &title, std::function<QString(PaleoTask *)> compute,
+    std::function<bool(QString *)> publish, std::function<void()> cleanup,
+    QString *error) {
+  if (!m_factorTasks) {
+    const auto err = compute(nullptr);
+    if (!err.isEmpty()) {
+      if (cleanup)
+        cleanup();
+      paleo::workflow_detail::setError(error, err);
+      return false;
+    }
+    return publish(error);
+  }
+  if (factorBusy()) {
+    paleo::workflow_detail::setError(error, tr("已有单因素任务"));
+    return false;
+  }
+  struct Pending {
+    std::function<void()> cleanup;
+    bool published = false;
+    ~Pending() {
+      if (!published && cleanup)
+        cleanup();
+    }
+  };
+  auto pending = std::make_shared<Pending>();
+  pending->cleanup = std::move(cleanup);
+  const auto catalog = m_catalog;
+  const auto dir = m_projectDir;
+  const auto generation = m_publishGeneration;
+  const auto sequence = m_catalog ? m_catalog->mutationSeq() : 0;
+  const auto session = m_factorTasks->session();
+  QPointer<PaleoTask> task = m_factorTasks->beginExternal(title);
+  m_factorJobTask = task;
+  emit factorJobStateChanged(true);
+  connect(task, &PaleoTask::changed, this, [this, task] {
+    if (task && task->running())
+      emit factorJobProgress(task->percent(), task->stage());
+  });
+  auto *watcher = new QFutureWatcher<QString>(this);
+  connect(task, &PaleoTask::cancelAsked, watcher,
+          [watcher] { watcher->future().cancel(); });
+  connect(watcher, &QObject::destroyed, task, [task, pending] {
+    if (task && task->running()) {
+      task->requestCancel();
+      task->finishExternal();
+    }
+  });
+  connect(watcher, &QFutureWatcherBase::finished, this,
+          [this, watcher, task, catalog, dir, generation, sequence, session,
+           publish, pending] {
+            QString error;
+            if (!task || task->cancelRequested() ||
+                watcher->future().isCanceled()) {
+              if (task)
+                task->requestCancel();
+            } else if (catalog != m_catalog || dir != m_projectDir ||
+                       generation != m_publishGeneration ||
+                       (catalog && catalog->mutationSeq() != sequence) ||
+                       session != m_factorTasks->session()) {
+              task->requestCancel();
+            } else {
+              error = watcher->result();
+              if (error.isEmpty()) {
+                task->reportStage("publish", 98);
+                pending->published = publish(&error);
+              }
+              if (!pending->published && error.isEmpty())
+                error = tr("成果发布失败");
+              if (!error.isEmpty())
+                emit factorJobFailed(error);
+            }
+            if (task)
+              task->finishExternal(error);
+            emit factorJobStateChanged(false);
+            // Disconnect destruction cancellation: terminal status is queued.
+            disconnect(watcher, &QObject::destroyed, task, nullptr);
+            watcher->deleteLater();
+          });
+  watcher->setFuture(QtConcurrent::run(paleo::tasks::pool(m_factorTasks),
+                                       [task, compute, pending] {
+                                         if (!task || task->cancelRequested())
+                                           return QString();
+                                         try {
+                                           return compute(task);
+                                         } catch (const std::exception &e) {
+                                           return QString::fromUtf8(e.what());
+                                         } catch (...) {
+                                           return QStringLiteral("计算异常");
+                                         }
+                                       }));
+  return true;
+}
+bool ConstraintWorkflow::runFactorAlgorithm(
+    const QString &horizon, const QString &engine, const QVariantMap &params,
+    std::function<bool(const QVariantMap &, QString *)> publish,
+    QString *error) {
+  if (!m_factorTasks) {
+    const auto results = m_proc->run(engine, params, error);
+    return !results.isEmpty() && publish(results, error);
+  }
+  struct Source {
+    QString key, uri, provider, type, crs;
+    std::shared_ptr<QgsVectorLayerFeatureSource> features;
+    Qgis::WkbType wkb;
+  };
+  std::vector<Source> sources;
+  auto options = params;
+  for (auto it = params.cbegin(); it != params.cend(); ++it) {
+    auto *layer = it.value().value<QgsMapLayer *>();
+    if (!layer)
+      continue;
+    Source source{it.key(),
+                  layer->source(),
+                  layer->providerType(),
+                  qobject_cast<QgsRasterLayer *>(layer) ? "raster" : "vector",
+                  layer->crs().toWkt(),
+                  {},
+                  Qgis::WkbType::Unknown};
+    if (auto *vector = qobject_cast<QgsVectorLayer *>(layer)) {
+      source.features = std::make_shared<QgsVectorLayerFeatureSource>(vector);
+      source.wkb = vector->wkbType();
+    }
+    sources.push_back(std::move(source));
+    options.remove(it.key());
+  }
+  auto results = std::make_shared<QVariantMap>();
+  const QString path = params.value("OUTPUT").toString();
+  auto *proc = m_proc.data();
+  return runFactorWork(
+      tr("%1 单因素计算").arg(horizon),
+      [proc, sources, options, engine, results, path](PaleoTask *task) mutable {
+        const auto cancel = [task] { return task && task->cancelRequested(); };
+        std::vector<std::unique_ptr<QgsMapLayer>> layers;
+        for (const auto &source : sources) {
+          if (cancel())
+            return QString();
+          std::unique_ptr<QgsMapLayer> layer;
+          if (source.type == "raster")
+            layer = std::make_unique<QgsRasterLayer>(source.uri, source.key,
+                                                     source.provider);
+          else {
+            auto vector = std::make_unique<QgsVectorLayer>(
+                QgsWkbTypes::displayString(source.wkb), source.key, "memory");
+            auto *provider = vector->dataProvider();
+            if (!provider ||
+                !provider->addAttributes(source.features->fields().toList()))
+              return QStringLiteral("无法准备矢量输入");
+            vector->updateFields();
+            auto iterator = source.features->getFeatures();
+            QgsFeature feature;
+            QgsFeatureList batch;
+            while (iterator.nextFeature(feature)) {
+              if (cancel())
+                return QString();
+              batch << feature;
+              if (batch.size() == 1024) {
+                if (!provider->addFeatures(batch))
+                  return QStringLiteral("矢量输入准备失败");
+                batch.clear();
+              }
+            }
+            if (!batch.isEmpty() && !provider->addFeatures(batch))
+              return QStringLiteral("矢量输入准备失败");
+            vector->updateExtents();
+            layer = std::move(vector);
+          }
+          if (!layer->isValid())
+            return QStringLiteral("无法读取计算输入：") + source.uri;
+          layer->setCrs(QgsCoordinateReferenceSystem::fromWkt(source.crs));
+          options.insert(source.key, QVariant::fromValue(layer.get()));
+          layers.push_back(std::move(layer));
+        }
+        QgisProcessingService::ProcessingHooks hooks;
+        hooks.cancelled = cancel;
+        hooks.progress = [task](double p) {
+          if (task)
+            task->reportStage("build", qBound(0, qRound(p), 95));
+        };
+        QString error;
+        *results = proc->run(engine, options, &error, hooks);
+        if (results->isEmpty() && error.isEmpty() && !cancel())
+          error = QStringLiteral("计算没有返回成果");
+        if (!error.isEmpty() || cancel() || results->isEmpty())
+          return error;
+        const auto actual = paleo::workflow_detail::outputPathOf(*results);
+        if (QDir::cleanPath(actual) != QDir::cleanPath(path)) {
+          if (!QFile::copy(actual, path))
+            return QStringLiteral("无法暂存计算成果");
+          results->insert("OUTPUT", path);
+        }
+        task->reportStage("hash", 96);
+        const auto fingerprint =
+            DerivedFileFingerprint::read(path, cancel, &error);
+        if (fingerprint.sha256.isEmpty())
+          return error;
+        results->insert("_derived_fingerprint",
+                        QVariant::fromValue(fingerprint));
+
+        if (engine == QLatin1String("paleo:paleo_structural_idw")) {
+          const auto stem = fileStem(path);
+          results->insert("_qc_sha", DataCatalog::sha256FileHex(
+                                         stem + ".qc.json", &error, cancel));
+          results->insert("_structural_sha",
+                          DataCatalog::sha256FileHex(stem + ".structural.json",
+                                                     &error, cancel));
+          const auto qc = readJsonObject(stem + ".qc.json", &error);
+          results->insert("_qc", qc);
+          const auto wells = qc.value("wells").toList();
+          if (!cancel() && !wells.isEmpty()) {
+            const auto *boundary =
+                options.value("BOUNDARY").value<QgsMapLayer *>();
+            QString sampleError;
+            writeStructuralSamples(stem + ".samples.gpkg", wells,
+                                   boundary ? boundary->crs()
+                                            : QgsCoordinateReferenceSystem(),
+                                   &sampleError);
+          }
+        }
+
+        return error;
+      },
+      [results, publish](QString *error) { return publish(*results, error); },
+      [path] {
+        if (path.isEmpty())
+          return;
+        const auto stem = fileStem(path);
+        for (const QString &file :
+             QStringList{path, stem + ".qc.json", stem + ".structural.json",
+                         stem + ".support.tif", stem + ".samples.gpkg"})
+          QFile::remove(file);
+      },
+      error);
+}
+
+void ConstraintWorkflow::cancelFactorTask() {
+  if (m_factorJobTask)
+    m_factorJobTask->requestCancel();
+}

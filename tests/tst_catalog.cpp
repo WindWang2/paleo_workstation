@@ -1040,8 +1040,11 @@ void TestCatalog::unsafeManagedPathSkippedOnLoad()
   const auto versions = reloaded.versionsForAsset(QStringLiteral("ast-1"));
   QCOMPARE(versions.size(), 1); // ver-2 的 '..' 段、ver-3 的坏 fileName 都被跳过
   QCOMPARE(versions.front().id, QStringLiteral("ver-1"));
-  // 序号恢复只看装进内存的版本——ver-2/ver-3 被拒不占序号。
-  QCOMPARE(reloaded.nextVersionId(), QStringLiteral("ver-2"));
+  // 序号吸收契约（goal/core-deepening A-R1 收口）：被跳过的坏段行仍占住
+  // ver-N 序号——否则 nextVersionId 重发已占 id，内存 dup 检查看不见盘上
+  // 坏行，upsert 会静默覆盖它；其它版本 parentVersionIds 里指向旧 ver-N
+  // 的引用随之改接新版本（静默血缘损坏）。坏行原样留在库里（下方断言）。
+  QCOMPARE(reloaded.nextVersionId(), QStringLiteral("ver-4"));
   CatalogEntity extra;
   extra.id = QStringLiteral("well-A1");
   extra.entityType = QStringLiteral("well");

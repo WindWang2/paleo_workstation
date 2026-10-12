@@ -1332,6 +1332,9 @@ add_paleo_test(tst_commitcoord LIBS paleo_store)    # commitAll 记档生命周�
 # ---- data/entity-view (B 包：实体视图 + link ordinal + staleness-lite) ----
 add_paleo_test(tst_entityview LIBS paleo_store)
 
+# ---- data/catalog-integrity（goal/core-deepening A-R1：装载/保存契约） ----
+add_paleo_test(tst_catalog_integrity LIBS paleo_store)  # 格架保存失败回滚/坏段行序号吸收/JSON 列损坏告警/extra 保留字
+
 # ---- wave4/runtime-resilience ----
 # 崩溃本地转储（§38 留白按本地优先落地）+ 外链源重定位恢复路径。
 # 新增源与测试集中在此块；并行包合并冲突时保留双方行。

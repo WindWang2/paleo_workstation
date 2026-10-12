@@ -366,13 +366,16 @@ bool QgisLayerProfileService::renameTheme(const QString &oldName, const QString 
     return false;
   if (!collection->hasMapTheme(oldName) || collection->hasMapTheme(newName))
     return false; // 旧名不存在 / 新名已占用（不覆盖既有主题）
-
-  // insert-then-remove：新名插入失败即中止（旧主题原封不动），成功才删旧名。
-  collection->insert(newName, collection->mapThemeState(oldName));
-  if (!collection->hasMapTheme(newName))
+  // page:* 页面档案按 pageId 重建，且 .qgz 里版面地图项钉的
+  // followVisibilityPresetName 会随改名悬空——服务层直接拒绝（此前只有
+  // 头注释约定，新调用面忘滤即静默坏档）。
+  if (oldName.startsWith(QStringLiteral("page:")) ||
+      newName.startsWith(QStringLiteral("page:")))
     return false;
-  collection->removeMapTheme(oldName);
-  return !collection->hasMapTheme(oldName) && collection->hasMapTheme(newName);
+
+  // 原生 renameMapTheme（QGIS ≥3.14）：单次原子操作，且发专用
+  // mapThemeRenamed 信号（insert+remove 两步发两次 mapThemesChanged）。
+  return collection->renameMapTheme(oldName, newName);
 }
 
 bool QgisLayerProfileService::hasTheme(const QString &name) const

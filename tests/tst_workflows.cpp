@@ -343,7 +343,10 @@ private slots:
     params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( input ) );
     params.insert( QStringLiteral( "PASSES" ), 1 );
 
-    // prepare：GUI 线程段——stage 即写 catalog（addAsset 线程闸在这边）。
+    // prepare：GUI 线程段——stage 只预留（A-R4 延迟建资产后，catalog 写
+    // 从 prepare 段挪到同属 GUI 线程的 publish 段结算；#277 的「catalog 写
+    // 全在所属线程、compute 零违规」契约不变，下方 threadViolationCount
+    // 断言仍钉住）。compute 取消/失败时不再有 prepare 期幽灵资产。
     PredictionWorkflow::PredictionJob job;
     QVERIFY2( wf.preparePredictionJob( QStringLiteral( "T1" ),
                                        QStringLiteral( "paleo:paleo_geological_smoothing" ),
@@ -351,8 +354,8 @@ private slots:
               qPrintable( err ) );
     QVERIFY( job.prepared );
     QVERIFY( job.staging.isValid() );
-    QVERIFY2( !f.catalog.assetById( job.staging.assetId ).id.isEmpty(),
-              "prepare 的 stage 应已把资产写进 catalog（GUI 线程，线程闸不拦）" );
+    QVERIFY2( f.catalog.assetById( job.staging.assetId ).id.isEmpty(),
+              "prepare 的 stage 只预留不落库——资产由 publish 段结算" );
 
     // compute：worker 线程段——只跑 Processing + 落盘，不碰 catalog。
     std::atomic<bool> computeDone{ false };

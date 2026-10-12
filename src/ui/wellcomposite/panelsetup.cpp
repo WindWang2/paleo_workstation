@@ -103,7 +103,10 @@ void WellCompositePanel::setupUi()
   m_lblZoom->setObjectName(QStringLiteral("lblCompZoomFactor"));
   PaleoTheme::applyThemedStyleSheet(m_lblZoom, [] {
     const auto &t = PaleoTheme::tokens();
-    return PaleoTheme::metricStyleSheet(QStringLiteral("QLabel { color: %1; font-size: {typography.label}pt; min-width: 65px; }"))
+    // 数值读数走 mono 字族（DESIGN.md 数值/坐标条款）。去掉 min-width:65px：
+    // QSS 最小宽低于文本自然宽时，窄面（1200×700）布局把标签压到 65px 裁字；
+    // QLabel 的自然 minimumSizeHint 即完整文本宽，不需要外加最小宽。
+    return PaleoTheme::metricStyleSheet(QStringLiteral("QLabel { color: %1; font-family: {font.mono}; font-size: {typography.label}pt; }"))
         .arg(t.text.name());
   });
   m_lblZoom->setAlignment(Qt::AlignCenter);

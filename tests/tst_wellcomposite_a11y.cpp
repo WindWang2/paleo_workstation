@@ -259,6 +259,29 @@ private slots:
     QVERIFY(cfgDlg.minimumSize().width() >= 400);
   }
 
+  // ---- B-R3 窄面（2026-10-12 深化）：缩放读数在 1200×700 不裁字 ----
+  // 回归背景：旧 QSS `min-width:65px` 使 QLabel sizeHint 与文本长度脱钩
+  //（实测 hint=78 而文本需 93），深缩放档（1000% (1:2000)）被裁字；
+  // 移除后自然 minimumSizeHint 钉住完整文本宽（DESIGN.md：文字不省略）。
+  void zoomLabelNeverClipsAtNarrowWidth()
+  {
+    WellCompositePanel panel;
+    panel.setProjectName(QStringLiteral("NarrowZoom"));
+    panel.resize(1200, 700);
+    panel.show();
+    QApplication::processEvents();
+    auto *lbl = panel.findChild<QLabel *>(QStringLiteral("lblCompZoomFactor"));
+    QVERIFY(lbl);
+    QVERIFY(!lbl->text().isEmpty());
+    const int textWidth = lbl->fontMetrics().horizontalAdvance(lbl->text());
+    QVERIFY2(lbl->sizeHint().width() >= textWidth,
+             qPrintable(QStringLiteral("sizeHint=%1 < text=%2")
+                            .arg(lbl->sizeHint().width()).arg(textWidth)));
+    QVERIFY2(lbl->width() >= textWidth,
+             qPrintable(QStringLiteral("width=%1 < text=%2")
+                            .arg(lbl->width()).arg(textWidth)));
+  }
+
   // ---- D7.8/D7.10 objectName 与 i18n 就绪冒烟 ----
   void testObjectNamesAndI18n()
   {

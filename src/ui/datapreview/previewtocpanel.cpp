@@ -108,6 +108,10 @@ PreviewTocPanel::PreviewTocPanel( QWidget *parent )
     auto *page = new QWidget( m_quickPanel );
     auto *form = new QFormLayout( page );
     form->setContentsMargins(0, PaleoTheme::tokens().spacingXs, 0, PaleoTheme::tokens().spacingXs);
+    // 窄侧栏（240px 级 dock）：长标签换行到字段上方、字段占满行宽
+    // （mappingworkbenchpage 表单同款策略），消除 1100×700 下的标题拥挤。
+    form->setFieldGrowthPolicy( QFormLayout::AllNonFixedFieldsGrow );
+    form->setRowWrapPolicy( QFormLayout::WrapLongRows );
 
     m_rampCombo = new QComboBox( page );
     m_rampCombo->setObjectName( QStringLiteral( "tocRampCombo" ) );
@@ -157,6 +161,10 @@ PreviewTocPanel::PreviewTocPanel( QWidget *parent )
     auto *page = new QWidget( m_quickPanel );
     auto *form = new QFormLayout( page );
     form->setContentsMargins(0, PaleoTheme::tokens().spacingXs, 0, PaleoTheme::tokens().spacingXs);
+    // 窄侧栏（240px 级 dock）：长标签换行到字段上方、字段占满行宽
+    // （mappingworkbenchpage 表单同款策略），消除 1100×700 下的标题拥挤。
+    form->setFieldGrowthPolicy( QFormLayout::AllNonFixedFieldsGrow );
+    form->setRowWrapPolicy( QFormLayout::WrapLongRows );
 
     m_fieldCombo = new QComboBox( page );
     m_fieldCombo->setObjectName( QStringLiteral( "tocFieldCombo" ) );
@@ -191,6 +199,10 @@ PreviewTocPanel::PreviewTocPanel( QWidget *parent )
     auto *box = new QWidget( this );
     auto *form = new QFormLayout( box );
     form->setContentsMargins(0, PaleoTheme::tokens().spacingXs, 0, PaleoTheme::tokens().spacingXs);
+    // 窄侧栏（240px 级 dock）：长标签换行到字段上方、字段占满行宽
+    // （mappingworkbenchpage 表单同款策略），消除 1100×700 下的标题拥挤。
+    form->setFieldGrowthPolicy( QFormLayout::AllNonFixedFieldsGrow );
+    form->setRowWrapPolicy( QFormLayout::WrapLongRows );
 
     m_opacitySlider = new QSlider( Qt::Horizontal, box );
     m_opacitySlider->setObjectName( QStringLiteral( "tocOpacitySlider" ) );

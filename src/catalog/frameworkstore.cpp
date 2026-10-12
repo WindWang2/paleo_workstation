@@ -149,6 +149,9 @@ bool FrameworkStore::save( const Framework &fw, QString *error )
                                                payloadFileName() );
   if ( rel.isEmpty() )
   {
+    // 失败路径统一 abort 整个批次：addAsset 已进批但没有任何版本/文件
+    // 跟进时整批回滚——不留「资产入库、零版本」的幽灵（重新保存会重建）。
+    batch.abort();
     if ( error )
       *error = QStringLiteral( "格架受管路径不合法" );
     return false;
@@ -158,6 +161,7 @@ bool FrameworkStore::save( const Framework &fw, QString *error )
     const QFileInfo info( abs );
     if ( !info.dir().mkpath( QStringLiteral( "." ) ) )
     {
+      batch.abort();
       if ( error )
         *error = QStringLiteral( "格架目录创建失败：%1" ).arg( info.dir().absolutePath() );
       return false;
@@ -169,6 +173,7 @@ bool FrameworkStore::save( const Framework &fw, QString *error )
     QString writeErr;
     if ( !paleoWriteFileAtomic( abs, bytes, &writeErr ) )
     {
+      batch.abort();
       if ( error )
         *error = QStringLiteral( "格架文件写入失败：%1（%2）" ).arg( abs, writeErr );
       return false;
@@ -189,6 +194,8 @@ bool FrameworkStore::save( const Framework &fw, QString *error )
   ver.parentVersionIds = prev.id.isEmpty() ? QStringList() : QStringList{ prev.id };
   if ( ver.sha256.isEmpty() )
   {
+    batch.abort();
+    QFile::remove( abs ); // 版本不会登记——刚写的受管文件就地清掉
     if ( error )
       *error = QStringLiteral( "格架文件校验和计算失败：%1" ).arg( abs );
     return false;
@@ -197,7 +204,9 @@ bool FrameworkStore::save( const Framework &fw, QString *error )
   if ( !m_catalog->addVersion( ver, &verr ) )
   {
     // 版本没入库 → 刚写的受管文件成了孤儿字节，就地删掉（produce-then-
-    // commit：不留「字节在、元数据不在」的半截状态）。
+    // commit：不留「字节在、元数据不在」的半截状态）；批次同样整批回滚
+    //（addAsset 进了批而版本没成——资产不留零版本空壳）。
+    batch.abort();
     QFile::remove( abs );
     if ( error )
       *error = verr;
@@ -236,6 +245,10 @@ bool FrameworkStore::save( const Framework &fw, QString *error )
       QString lerr;
       if ( !m_catalog->addLink( link, &lerr ) )
       {
+        // 归属链接失败：版本/资产/已加链接全在本批——整批回滚 + 清掉刚写
+        // 的受管文件，失败保持原子（旧行为经析构 flush 落了半截状态）。
+        batch.abort();
+        QFile::remove( abs );
         if ( error )
           *error = lerr;
         return false;

@@ -124,6 +124,11 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
   QStringList ids, lithologyWarnings;
   for (const auto &well : wells) ids << well.id;
   const auto lithologies = sandMetric ? lithology.lithologiesFor(ids, &lithologyWarnings) : QHash<QString, QVector<wellsection::LithoSegment>>();
+  // 岩性词表是循环不变量（projectDir/catalog 在整轮里不变）：提前一次构造。
+  // 原实现逐井调 fromProject——W 口井 = W×(读盘+JSON 解析+两遍默认词表重建)。
+  const paleo::domain::LithoLexicon lex = metrics
+      ? paleo::domain::LithoLexicon::fromProject(wf->projectDir(), wf->catalog())
+      : paleo::domain::LithoLexicon::defaultLexicon();
   for (const ProjectWell &well : wells) {
     auto found = std::find_if(out.rows.begin(), out.rows.end(), [&](const Input &r) {
       return r.id == well.id || DataCatalog::normalizeWellName(r.name) == DataCatalog::normalizeWellName(well.name);
@@ -165,9 +170,6 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
       row.thicknessReason.clear();
       const auto segs = lithologies.value(well.id);
       QStringList auditRules;
-      const paleo::domain::LithoLexicon lex = (wf && wf->catalog())
-          ? paleo::domain::LithoLexicon::fromProject(wf->projectDir(), wf->catalog())
-          : paleo::domain::LithoLexicon::defaultLexicon();
       const auto sand = sandIn(segs, top, base, &row.sandReason, lex, &auditRules);
       if (sand) {
         if (!row.maintainedSand) row.attributes.insert(sandThickness, *sand);

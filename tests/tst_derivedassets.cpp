@@ -29,6 +29,14 @@ private slots:
   void parentVersionIdsForResolvesPaths();
   void unboundRegistrarFailsReadable();
   void restartKeepsPathAliveAndShaVerifiable();
+  // goal/core-deepening A-R4：延迟建资产——失败/取消不留幽灵、归并不分叉。
+  void abandonedStageLeavesNoAsset();
+  void rerunAfterAbandonedStageYieldsSingleAsset();
+  void commitMergesIntoAssetCreatedMeanwhile();
+  // A5 review P1：任务中心 prepare/publish 分属不同 registrar 实例——预留
+  // 信息必须随 staging 走，跨实例 commit 能结算（constraintfactorjobs_
+  // localdirection/_geostat 生产形态）。
+  void crossRegistrarCommitSettlesReservation();
 
 private:
   static bool writeBytes(const QString &path, const QByteArray &bytes)
@@ -254,6 +262,156 @@ void TestDerivedAssets::restartKeepsPathAliveAndShaVerifiable()
 
   // dedup 面：sha 检索在重开的 catalog 里同样命中。
   QCOMPARE(reopened.versionBySha256(committedSha).id, committedVersionId);
+}
+
+// ---- goal/core-deepening A-R4：stage 只 find-or-reserve，commit 才入库 ----
+
+namespace
+{
+int countAssetsOfType(const DataCatalog &cat, const QString &type)
+{
+  int n = 0;
+  for (const CatalogAsset &a : cat.assets())
+    if (a.type == type)
+      ++n;
+  return n;
+}
+} // namespace
+
+// stage 被放弃（计算取消/失败、注册器随请求作用域消亡）：零 catalog 副作用。
+// 旧实现 stage 即 addAsset——重开工程会看到零版本幽灵资产。
+void TestDerivedAssets::abandonedStageLeavesNoAsset()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  QString err;
+  {
+    DataCatalog cat;
+    QVERIFY2(cat.open(dir.path(), &err), qPrintable(err));
+    DerivedAssetRegistrar registrar(&cat, dir.path());
+    const DerivedStaging st = registrar.stage(QStringLiteral("single_factor_raster"),
+                                              QStringLiteral("D61 砂厚"),
+                                              QStringLiteral("factor.tif"), &err);
+    QVERIFY2(st.isValid(), qPrintable(err));
+    QVERIFY(!st.assetId.isEmpty());
+    QCOMPARE(countAssetsOfType(cat, QStringLiteral("single_factor_raster")), 0);
+  }
+  DataCatalog reloaded;
+  QVERIFY2(reloaded.open(dir.path(), &err), qPrintable(err));
+  QCOMPARE(countAssetsOfType(reloaded, QStringLiteral("single_factor_raster")), 0);
+  QCOMPARE(reloaded.assets().size(), 0);
+}
+
+// 放弃后重跑：一次成功 → 一条资产一条版本（不从幽灵起步）。
+void TestDerivedAssets::rerunAfterAbandonedStageYieldsSingleAsset()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  QString err;
+  {
+    DataCatalog cat;
+    QVERIFY2(cat.open(dir.path(), &err), qPrintable(err));
+    DerivedAssetRegistrar first(&cat, dir.path());
+    const DerivedStaging abandoned = first.stage(QStringLiteral("depth_raster"),
+                                                 QStringLiteral("D61 深度域"),
+                                                 QStringLiteral("depth.tif"), &err);
+    QVERIFY(abandoned.isValid());
+    // 放弃：不写文件、不 commit。
+  }
+  {
+    DataCatalog cat;
+    QVERIFY2(cat.open(dir.path(), &err), qPrintable(err));
+    DerivedAssetRegistrar second(&cat, dir.path());
+    const DerivedStaging st = second.stage(QStringLiteral("depth_raster"),
+                                           QStringLiteral("D61 深度域"),
+                                           QStringLiteral("depth.tif"), &err);
+    QVERIFY2(st.isValid(), qPrintable(err));
+    QVERIFY(writeBytes(st.absolutePath, QByteArrayLiteral("depth-1")));
+    QVERIFY2(second.commit(st, {}, QStringLiteral("depthconversion"), {}, &err),
+             qPrintable(err));
+    QCOMPARE(countAssetsOfType(cat, QStringLiteral("depth_raster")), 1);
+    QCOMPARE(cat.currentVersion(st.assetId).versionNumber, 1);
+  }
+  DataCatalog reloaded;
+  QVERIFY2(reloaded.open(dir.path(), &err), qPrintable(err));
+  QCOMPARE(countAssetsOfType(reloaded, QStringLiteral("depth_raster")), 1);
+  QCOMPARE(reloaded.versions().size(), 1);
+}
+
+// stage→commit 延迟窗口内同名资产被外部建立：迁文件归并到既有资产，
+// 不分叉第二个同 (type, displayName) 资产。
+void TestDerivedAssets::commitMergesIntoAssetCreatedMeanwhile()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  DataCatalog cat;
+  QString err;
+  QVERIFY2(cat.open(dir.path(), &err), qPrintable(err));
+
+  DerivedAssetRegistrar a(&cat, dir.path());
+  const DerivedStaging stA = a.stage(QStringLiteral("velocity_model"),
+                                     QStringLiteral("速度模型（层间平均）"),
+                                     QStringLiteral("velocity.json"), &err);
+  QVERIFY2(stA.isValid(), qPrintable(err));
+
+  DerivedAssetRegistrar b(&cat, dir.path());
+  const DerivedStaging stB = b.stage(QStringLiteral("velocity_model"),
+                                     QStringLiteral("速度模型（层间平均）"),
+                                     QStringLiteral("velocity.json"), &err);
+  QVERIFY2(stB.isValid(), qPrintable(err));
+  QVERIFY(writeBytes(stB.absolutePath, QByteArrayLiteral("external")));
+  QVERIFY2(b.commit(stB, {}, QStringLiteral("depthconversion"), {}, &err), qPrintable(err));
+
+  QVERIFY(writeBytes(stA.absolutePath, QByteArrayLiteral("late")));
+  QVERIFY2(a.commit(stA, {}, QStringLiteral("depthconversion"), {}, &err), qPrintable(err));
+
+  QCOMPARE(countAssetsOfType(cat, QStringLiteral("velocity_model")), 1);
+  QCOMPARE(cat.versionsForAsset(stB.assetId).size(), 2);
+  const CatalogVersion vA = cat.versionById(stA.versionId);
+  QVERIFY(!vA.id.isEmpty());
+  QCOMPARE(vA.assetId, stB.assetId); // 归并进外部已建资产
+  QCOMPARE(vA.versionNumber, 2);     // 取号按既有资产口径
+  const QString abs = DataCatalog::resolvedVersionPath(dir.path(), vA);
+  QVERIFY(!abs.isEmpty());
+  QFile f(abs);
+  QVERIFY(f.open(QIODevice::ReadOnly));
+  QCOMPARE(f.readAll(), QByteArrayLiteral("late"));
+  QVERIFY(!QFile::exists(stA.absolutePath)); // 旧预留路径已让位
+}
+
+// 任务中心生产形态：prepare 阶段局部 registrar stage 后消亡，publish 阶段
+// 全新 registrar 拿着 staging commit——预留结算只认注册器私有状态时这里
+// 会 addVersion 拒绝 "version references unknown asset"（A5 review P1）。
+void TestDerivedAssets::crossRegistrarCommitSettlesReservation()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  DataCatalog cat;
+  QString err;
+  QVERIFY2(cat.open(dir.path(), &err), qPrintable(err));
+
+  DerivedStaging st;
+  {
+    DerivedAssetRegistrar preparer(&cat, dir.path()); // prepare 侧，随作用域消亡
+    st = preparer.stage(QStringLiteral("single_factor_raster"),
+                        QStringLiteral("D61 本地方向"),
+                        QStringLiteral("factor.tif"), &err);
+    QVERIFY2(st.isValid(), qPrintable(err));
+    QCOMPARE(countAssetsOfType(cat, QStringLiteral("single_factor_raster")), 0);
+  }
+  QVERIFY(writeBytes(st.absolutePath, QByteArrayLiteral("computed")));
+
+  DerivedAssetRegistrar publisher(&cat, dir.path()); // publish 侧，全新实例
+  QVERIFY2(publisher.commit(st, {}, QStringLiteral("localdirection"), {}, &err),
+           qPrintable(err));
+  QCOMPARE(countAssetsOfType(cat, QStringLiteral("single_factor_raster")), 1);
+  const CatalogVersion v = cat.currentVersion(st.assetId);
+  QVERIFY(!v.id.isEmpty());
+  QCOMPARE(v.versionNumber, 1);
+
+  DataCatalog reloaded;
+  QVERIFY2(reloaded.open(dir.path(), &err), qPrintable(err));
+  QCOMPARE(countAssetsOfType(reloaded, QStringLiteral("single_factor_raster")), 1);
 }
 
 QTEST_MAIN(TestDerivedAssets)

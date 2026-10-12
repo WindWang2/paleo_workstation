@@ -134,7 +134,13 @@ QString registerMapPdfAsset( DataCatalog *catalog, const QString &projectDir,
   asset.format = format;
   asset.displayName = fileName;
   if ( !catalog->addAsset( asset, error ) )
+  {
+    // 受管副本已落位但资产没入库——不留孤儿字节。dst 刚被置只读，Windows
+    // 删只读文件会失败，先恢复可写再删。
+    QFile::setPermissions( dst, QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ReadUser );
+    QFile::remove( dst );
     return fail( error ? *error : QStringLiteral( "catalog addAsset failed" ) );
+  }
 
   CatalogVersion ver;
   ver.id = versionId;
@@ -147,7 +153,15 @@ QString registerMapPdfAsset( DataCatalog *catalog, const QString &projectDir,
   ver.sha256 = sha;
   ver.fileName = fileName;
   if ( !catalog->addVersion( ver, error ) )
-    return fail( error ? *error : QStringLiteral( "catalog addVersion failed" ) );
+  {
+    // 版本没入库：回滚刚加的资产并清掉受管副本——不留「资产在、零版本」
+    // 幽灵 + 孤儿字节（零版本资产无血缘引用，removeAsset 不会被拦）。
+    QString removeErr;
+    catalog->removeAsset( assetId, &removeErr );
+    QFile::setPermissions( dst, QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ReadUser );
+    QFile::remove( dst );
+    return fail( error && !error->isEmpty() ? *error : QStringLiteral( "catalog addVersion failed" ) );
+  }
 
   if ( sha256Out )
     *sha256Out = sha;

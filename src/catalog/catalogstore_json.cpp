@@ -20,15 +20,28 @@ QVariantMap mapFromJson(const QString &text)
   if (text.isEmpty() || text == QLatin1String("{}"))
     return {};
   const QJsonDocument doc = QJsonDocument::fromJson(text.toUtf8());
-  return doc.isObject() ? doc.object().toVariantMap() : QVariantMap();
+  if (!doc.isObject())
+  {
+    // 空/“{}”是合法空；非空却解析不出对象 = 单格损坏——如实告警，不静默丢 extra。
+    qWarning("catalog: corrupt JSON object column, dropping value: %s",
+             qPrintable(text.left(120)));
+    return {};
+  }
+  return doc.object().toVariantMap();
 }
 
 QVector<QPair<double, double>> cornersFromJsonText(const QString &text)
 {
   QVector<QPair<double, double>> cs;
+  if (text.isEmpty())
+    return cs;
   const QJsonDocument doc = QJsonDocument::fromJson(text.toUtf8());
   if (!doc.isArray())
+  {
+    qWarning("catalog: corrupt JSON corners column, dropping value: %s",
+             qPrintable(text.left(120)));
     return cs;
+  }
   for (const auto &v : doc.array())
   {
     const QJsonObject o = v.toObject();
@@ -40,9 +53,16 @@ QVector<QPair<double, double>> cornersFromJsonText(const QString &text)
 QStringList parentsFromJson(const QString &text)
 {
   QStringList ids;
+  if (text.isEmpty())
+    return ids;
   const QJsonDocument doc = QJsonDocument::fromJson(text.toUtf8());
   if (!doc.isArray())
+  {
+    // 血缘列损坏：静默返回空会把「有父版本」读成「无父版本」——必须可见。
+    qWarning("catalog: corrupt JSON parents column, dropping lineage: %s",
+             qPrintable(text.left(120)));
     return ids;
+  }
   for (const auto &v : doc.array())
     ids.append(v.toString());
   return ids;
@@ -221,6 +241,14 @@ bool loadTables(QSqlDatabase &db, CatalogStore::Tables *out, QString *error)
         // 已落盘的坏段留在库里，只从内存跳过。增量保存不会 DELETE 它。
         qWarning("catalog: skipping version %s with unsafe path segment: %s", qPrintable(v.id),
                  qPrintable(bad));
+        // 但它的 ver-N 序号必须吸收：行还在 sqlite 里占着这个 id，后续
+        // absorbSeqs 只扫内存表看不到它——不吸收会让 nextVersionId 重发
+        // 同号，dup 检查（内存）也看不见坏行 → upsert 静默覆盖坏行，其它
+        // 版本 parentVersionIds 里指向旧 ver-N 的引用随之改接新版本。
+        bool seqOk = false;
+        const int seqN = v.id.startsWith(QStringLiteral("ver-")) ? v.id.mid(4).toInt(&seqOk) : 0;
+        if (seqOk && seqN > 0)
+          out->meta.versionSeq = qMax(out->meta.versionSeq, seqN);
         continue;
       }
       out->versions.append(v);

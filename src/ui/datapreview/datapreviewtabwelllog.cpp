@@ -295,10 +295,19 @@ QWidget *DataPreviewTabs::buildWellLogContent(
       [compFill, hintFill, names, coreImages,
        wellTitle, formationIntervals, lithology, wellCurves, compositeFromWell, abs](
           const QList<LasCurve> &curves, const QHash<QString, LasDoc> &siblings) {
+        if (curves.size() != names.size())
+        {
+          // #413：头/整份曲线数契约不符——原实现先藏占位再静默 return，
+          // 面板全空白无错误无入口；占位换成如实失败文案（姊妹失败路径
+          // datapreviewtabs_well.cpp onLasFailed 同款语义）。
+          if (hintFill)
+            hintFill->setText(tr("曲线装载失败：头/整份曲线数不一致（头 %1 条，数据 %2 条）")
+                                  .arg(names.size())
+                                  .arg(curves.size()));
+          return;
+        }
         if (hintFill)
           hintFill->hide(); // 数据到齐，占位提示退场
-        if (curves.size() != names.size())
-          return; // 头/整份契约：lasHeaderAt 与 lasAt 曲线名逐项一致——不符不装
         if (compFill)
         {
           QVector<WellComposite::CurveData> compCurves;

@@ -584,6 +584,11 @@ void ComposePage::refreshFactors()
     target = explicitTarget;
   else if (faciesDecls.size() == 1)
     target = faciesDecls.first();
+  // 兜底采纳/失效清空都写回 property——「保存相属性」「边界核查」handler
+  // 读的是它而非局部变量，UI 启用态与 handler 判据必须同源（§35：启用的
+  // 控件必须可行动）。
+  if (target != explicitTarget)
+    setProperty(kFaciesTargetProp, target);
   updateFaciesTargetUi(target);
 }
 

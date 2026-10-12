@@ -432,6 +432,16 @@ PaleoTask *SeismicTaskService::startTimeSliceAttribute(
           result->error = QString::fromStdString(extractErr);
           return QStringLiteral("切片读取失败：%1").arg(result->error);
         }
+        // #416：返回几何须与测网一致——错位/截断切片按下标读会越界。
+        if (slice.width != nXl || slice.height != nS)
+        {
+          result->error = QStringLiteral("切片几何异常（%1×%2，预期 %3×%4）")
+                              .arg(slice.width)
+                              .arg(slice.height)
+                              .arg(nXl)
+                              .arg(nS);
+          return result->error;
+        }
         // 切片 [row][x]（row 0 = 最深）→ slab 道连续 [xl*slabN + w]。
         for (int xl = 0; xl < nXl; ++xl)
           for (int w = s0; w <= s1; ++w)
@@ -910,6 +920,18 @@ PaleoTask *SeismicTaskService::startAttributeVolume(
             abandonPartial();
             return QStringLiteral("切片读取失败：%1").arg(result->error);
           }
+          // #416：返回几何须与测网一致——相干窗按 nXl×nS 索引 values，
+          // 错位/截断切片会越界读。
+          if (slice.width != nXl || slice.height != nS)
+          {
+            result->error = QStringLiteral("切片几何异常（%1×%2，预期 %3×%4）")
+                                .arg(slice.width)
+                                .arg(slice.height)
+                                .arg(nXl)
+                                .arg(nS);
+            abandonPartial();
+            return result->error;
+          }
           // [row][x] → 道连续 [xl*nS+s]（转置教训同剖面路径）
           for (int xl = 0; xl < nXl; ++xl)
             for (int s = 0; s < nS; ++s)
@@ -971,6 +993,18 @@ PaleoTask *SeismicTaskService::startAttributeVolume(
             result->error = QString::fromStdString(extractErr);
             abandonPartial();
             return QStringLiteral("切片读取失败：%1").arg(result->error);
+          }
+          // #416：返回几何须与测网一致——并行分片按下标读 values，
+          // 错位/截断切片会越界读。
+          if (slice.width != nXl || slice.height != nS)
+          {
+            result->error = QStringLiteral("切片几何异常（%1×%2，预期 %3×%4）")
+                                .arg(slice.width)
+                                .arg(slice.height)
+                                .arg(nXl)
+                                .arg(nS);
+            abandonPartial();
+            return result->error;
           }
           // 列分片并行：列 → 时间序 → 整道属性 → 道连续写出位。
           auto runRange = [&](int x0, int xEnd) {

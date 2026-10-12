@@ -79,6 +79,9 @@ class TestImportQueueProgress : public QObject
       panel.enqueuePaths({QStringLiteral("/tmp/1.las"), QStringLiteral("/tmp/2.las"),
                           QStringLiteral("/tmp/3.las"), QStringLiteral("/tmp/4.las")},
                          {});
+      // #421：目标态经文档化驱动口 runPending() 显式构造，不编码
+      // enqueuePaths 的内部驱动时机。
+      panel.runPending();
       auto *overall = panel.findChild<QProgressBar *>(QStringLiteral("importQueueOverall"));
       auto *cancelAll = panel.findChild<QPushButton *>(QStringLiteral("importQueueCancelAll"));
       auto *eta = panel.findChild<QLabel *>(QStringLiteral("importQueueEta"));
@@ -101,6 +104,9 @@ class TestImportQueueProgress : public QObject
       mid.enqueuePaths({QStringLiteral("/tmp/1.las"), QStringLiteral("/tmp/2.las"),
                         QStringLiteral("/tmp/3.las"), QStringLiteral("/tmp/4.las")},
                        {});
+      // #421：半程态（恰好前两项完成）经 runPending() 显式驱动——队列驱动
+      // 改 Timer/线程时本用例仍成立，不再依赖 enqueuePaths 内同步完成。
+      mid.runPending();
       auto *overallMid = mid.findChild<QProgressBar *>(QStringLiteral("importQueueOverall"));
       auto *cancelMid = mid.findChild<QPushButton *>(QStringLiteral("importQueueCancelAll"));
       auto *etaMid = mid.findChild<QLabel *>(QStringLiteral("importQueueEta"));

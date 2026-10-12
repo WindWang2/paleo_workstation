@@ -202,12 +202,16 @@ void CurveTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
     painter.setPen(QPen(c.color, c.penWidth, c.penStyle));
     painter.setBrush(Qt::NoBrush);
 
+    // #412：depths/values 不等长属坏数据——按短边裁，release 下 at() 越界
+    // 不兜底（CurveData::isEmpty 只查非空，不查对齐）。
+    const int n = qMin(c.depths.size(), c.values.size());
+
     if (c.mode == CurveDisplayMode::Continuous)
     {
       QVector<QPointF> polyPoints;
       polyPoints.reserve(1024);
 
-      for (int i = 0; i < c.depths.size(); ++i)
+      for (int i = 0; i < n; ++i)
       {
         const float d = c.depths.at(i);
         const float v = c.values.at(i);
@@ -235,7 +239,7 @@ void CurveTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
     else if (c.mode == CurveDisplayMode::Discrete)
     {
       painter.setBrush(c.color);
-      for (int i = 0; i < c.depths.size(); ++i)
+      for (int i = 0; i < n; ++i)
       {
         const float d = c.depths.at(i);
         const float v = c.values.at(i);
@@ -251,7 +255,7 @@ void CurveTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
     else if (c.mode == CurveDisplayMode::Histogram)
     {
       painter.setBrush(QColor(c.color.red(), c.color.green(), c.color.blue(), 140));
-      for (int i = 0; i < c.depths.size() - 1; ++i)
+      for (int i = 0; i < n - 1; ++i)
       {
         const float d0 = c.depths.at(i);
         const float d1 = c.depths.at(i + 1);

@@ -122,7 +122,12 @@ def scan(root: Path):
                                        f"{rel}:{start}: {hx.group()}"))
         if path.suffix == ".cpp" and rel not in EXEMPT_FILES:
             violations.extend(scan_resizegl_dpr(text, rel))
-        for i, line in enumerate(text.splitlines(), 1):
+        # #420：motion 规则与 gl-dpr 同口径剥注释——注释里提及
+        # QPropertyAnimation 等词不算违规。剥除时保留换行维持行号。
+        stripped = CPP_COMMENT_RE.sub(
+            lambda m: "".join("\n" if c == "\n" else " " for c in m.group()),
+            text)
+        for i, line in enumerate(stripped.splitlines(), 1):
             if "setAnimated(true)" in line or any(t in line for t in MOTION_TOKENS):
                 violations.append((f"{rel}:motion", f"{rel}:{i}"))
     return violations

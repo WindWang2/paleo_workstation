@@ -538,6 +538,14 @@ bool loadWellCurves(const PetroPhysTaskService::WellRef &well, const WellMergePl
   merged.append(driver.curves.at(0));
   const int n = merged.first().values.size();
   const QVector<double> grid = merged.first().values;
+  // #389：驱动深度轴与次级走同一单调闸——乱序/重复深度上 sampleAt 的
+  // 二分给每条合并曲线静默错值，且乱序轴原样落进产品 LAS。
+  if (!depthUsable(grid))
+  {
+    *error = QStringLiteral("驱动 LAS 深度轴非严格递增或含非有限值，拒绝合并：%1")
+                 .arg(plan.driverPath);
+    return false;
+  }
 
   QVector<CurvePiece> driverPieces;
   QVector<CurvePiece> otherPieces;

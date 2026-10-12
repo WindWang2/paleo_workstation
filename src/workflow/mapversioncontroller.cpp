@@ -183,6 +183,13 @@ QString MapVersionController::publish( const QString &horizon, const QString &re
       *error = tr( "未绑定版本存储" );
     return QString();
   }
+  // #394：只读双保险——store 层同位拒绝，这里先行拦截省一次清单读。
+  if ( m_store->isReadOnly() )
+  {
+    if ( error )
+      *error = tr( "工程目录被另一个实例锁定——本实例只读，发布被拒绝" );
+    return QString();
+  }
   QVector<LayerDeclaration> declared;
   if ( m_layers && !m_layers->tryDeclared( &declared, error ) )
     return QString(); // 清单读失败时不得发布空快照

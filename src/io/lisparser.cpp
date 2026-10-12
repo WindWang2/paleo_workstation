@@ -565,9 +565,18 @@ using paleo::io_detail::addIssue;
 
   int specFrameBytes(const SpecBlock &sp)
   {
-    if (sp.suppressed || sp.reservedSize != 0)
-      return qAbs(sp.reservedSize);
     const int fixed = lisFixedRepSize(sp.reprc);
+    if (sp.reservedSize != 0)
+    {
+      const int reserved = qAbs(sp.reservedSize);
+      // #385：声明槽宽不得小于样本实宽——小了则读取越过槽界、整帧游标
+      // 漂移（slack 负值不补跳），之后每帧都从错误偏移解码。
+      if (fixed > 0 && reserved < sp.samples * fixed)
+        return -1;
+      return reserved;
+    }
+    if (sp.suppressed)
+      return 0; // 与旧口径一致：suppressed 无槽宽声明 → 调用方按不可确定报错
     return fixed > 0 ? sp.samples * fixed : -1;
   }
 

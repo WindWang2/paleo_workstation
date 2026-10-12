@@ -178,8 +178,11 @@ bool WriteGuard::acquire(int maxWaitMs)
         m_reason = QStringLiteral("被进程 %1 锁定（%2）").arg(holder).arg(m_lockPath);
         return false;
       }
-      QFile::remove(m_lockPath); // 陈锁回收——立即重试（不等轮询节拍）
-      continue;
+      // #383：回收成功才立即重试；remove 失败（只读目录/AV 占用）才落等待
+      // 节拍——否则原地自旋跳过 waited/maxWaitMs/msleep，100% CPU 死循环。
+      //（不等待模式 maxWaitMs<=0 也成立：失败即 false，不误报占锁。）
+      if (QFile::remove(m_lockPath))
+        continue;
     }
     if (maxWaitMs <= 0 || waited >= maxWaitMs)
     {

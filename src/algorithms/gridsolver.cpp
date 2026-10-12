@@ -758,8 +758,10 @@ bool crossValidateLeaveOneOut(const std::vector<ScatterPoint> &points,
     if (!solveMinimumCurvature(subset, geometry, foldParams, nullptr, &grid, nullptr,
                                &solveErr))
       return fail(QStringLiteral("fold %1 failed: %2").arg(fold).arg(solveErr));
+    if (!std::isfinite(points[hold].z))
+      continue; // #417：非有限留出观测——NaN/inf 残差会污染 mean/rms/maxAbs
     const double est = sampleBilinear(grid, geometry, points[hold].x, points[hold].y);
-    if (std::isnan(est))
+    if (!std::isfinite(est))
       continue; // 留出点落双线性窗边缘/屏障 → 该折不计（不伪造残差）
     resid.push_back(points[hold].z - est);
     res.residuals.push_back(static_cast<float>(points[hold].z - est));

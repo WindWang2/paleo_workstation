@@ -10,6 +10,7 @@
 #include <QLineEdit>
 #include <QLabel>
 #include <QPushButton>
+#include <QSignalBlocker>
 #include <QSplitter>
 #include <QTabWidget>
 #include <QTableWidget>
@@ -477,10 +478,9 @@ void SequenceFrameworkPanel::onTreeSelectionChanged()
 {
   const QString id = selectedUnitId();
   if ( m_column != nullptr && m_column->currentUnit() != id )
-  {
+    // setCurrentUnit → 列视图 currentUnitChanged → onColumnUnitChanged
+    // 已转发一次面板信号；这里再 emit 会一次选择双发。
     m_column->setCurrentUnit( id );
-    emit currentUnitChanged( id );
-  }
 }
 
 void SequenceFrameworkPanel::onColumnUnitChanged( const QString &unitId )
@@ -655,6 +655,10 @@ QTreeWidgetItem *SequenceFrameworkPanel::itemForUnit( const QString &unitId ) co
 void SequenceFrameworkPanel::rebuildTree()
 {
   const QString keep = selectedUnitId();
+  // clear() reset 模型 → selectionChanged 把 "" 广播成当前单元并清列视图
+  // 高亮；恢复 setCurrentItem 又是阻塞的。clear 期间挡信号，尾部显式把
+  // 原选中重新建立到列视图。
+  const QSignalBlocker clearBlock( m_tree );
   m_tree->clear();
   for ( const SequenceFramework::FrameworkUnit &seq : SequenceFramework::rootsOf( m_draft ) )
   {
@@ -686,6 +690,11 @@ void SequenceFrameworkPanel::rebuildTree()
     m_tree->setCurrentItem( restore );
     m_tree->blockSignals( blocked );
   }
+  // clear 期间选择被挡未广播——这里把恢复后的当前单元显式同步到列视图
+  //（原单元已删时传 "" 让列视图清掉高亮；id 未变时 setCurrentUnit 自会
+  // no-op，不双发）。
+  if ( m_column != nullptr )
+    m_column->setCurrentUnit( restore != nullptr ? keep : QString() );
 }
 
 void SequenceFrameworkPanel::rebuildMarkers()

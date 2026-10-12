@@ -1825,9 +1825,15 @@ class TestUiShell : public QObject
       // 能出层的预测结果——显式注入 tests/ 替身（口径同 tst_mappingworkbench）。
       MockRemotePredictionService predictionMock;
       m_ctx->mappingWorkbench()->setPredictionService(&predictionMock);
+      // 测井预测走通用远端路径交给 Mock（装配的真 WellPredictionService 走
+      // current-formation 口径——本用例断言的是逐井段预测相面板）。
+      m_ctx->mappingWorkbench()->setWellPredictionService(nullptr);
       QVERIFY(m_ctx->projectSvc()->createProject(dir.filePath("mapping.qgz")));
       m_win->attachWorkflows(m_ctx->predictionWf(),m_ctx->constraintWf(),m_ctx->compositionWf(),m_ctx->validationWf(),m_ctx->importSvc(),m_ctx->seismicLink(),m_ctx->processingSvc(),m_ctx->store(),m_ctx->editingSvc(),m_ctx->layoutSvc(),m_ctx->taskSvc());
       m_win->attachWorkbench(m_ctx->mappingWorkbench());
+      // 输入列表走「catalog changed→workbench changed→页 0ms 定时器刷新」
+      // 异步链，scheduleRefresh 只在页面可见时启动——窗口须显式 show。
+      m_win->show();
       QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
       auto *pageHost = m_win->findChild<QWidget *>("rightPanelHost");
       auto *pageStack = qobject_cast<QStackedLayout *>(pageHost->layout());
@@ -1999,6 +2005,8 @@ class TestUiShell : public QObject
       QVERIFY(wellPanel);
       QTRY_VERIFY_WITH_TIMEOUT(wellPanel->isVisible(), 10000);
       // mock 无 tops 时可能 0 行「未预测」——修订 UI 依赖有效相码，跳过后续。
+      // （#346 起井道面板只读「最终相 + 当前地层范围」一条区间，
+      //   不再回传逐采样 12 段预测。）
       if (wellPanel->findChild<QTableWidget *>("predictionIntervals")->rowCount() < 1)
         QSKIP("wells prediction produced no intervals (no tops / 未预测)");
       QCOMPARE(wellPanel->findChild<QTableWidget *>("predictionIntervals")

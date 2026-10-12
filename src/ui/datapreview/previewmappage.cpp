@@ -30,6 +30,7 @@
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QTabWidget>
+#include <QTimer>
 #include <QToolBar>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -282,6 +283,20 @@ PreviewMapPage::PreviewMapPage( QWidget *parent )
   connect( m_canvas, &PreviewMapCanvas::renderStarted, this, [this] {
     m_renderLabel->setText( QObject::tr( "渲染中…" ) );
   } );
+  // D6.2/#376：渲染 settle 后才缓存（去抖 300ms）——平移/缩放中间帧不再
+  // 每帧整幅 grab+PNG 编码落盘，视图稳定后缓存一次终态即可。
+  m_cacheSettleTimer = new QTimer( this );
+  m_cacheSettleTimer->setSingleShot( true );
+  m_cacheSettleTimer->setInterval( 300 );
+  connect( m_cacheSettleTimer, &QTimer::timeout, this, [this] {
+    if ( m_cacheAssetId.isEmpty() )
+      return;
+    const QSize sz = m_canvas->canvas()->size();
+    const QString key = PreviewRenderCache::makeKey(
+        m_cacheAssetId, m_cacheVersionId, m_canvas->currentExtent(), sz.width(),
+        sz.height() );
+    PreviewRenderCache::instance().store( key, m_canvas->canvas()->grab().toImage() );
+  } );
   connect( m_canvas, &PreviewMapCanvas::renderCompleted, this,
            [this]( qint64 ms, int layers, qint64 elements ) {
              m_renderLabel->setText( QObject::tr( "%1 层 · %2 图元 · %3 ms" )
@@ -290,15 +305,9 @@ PreviewMapPage::PreviewMapPage( QWidget *parent )
                                          .arg( ms ) );
              if ( m_overview )
                m_overview->updateViewportRect();
-             // D6.2：identity 在场即存渲染结果（内存 LRU + 磁盘 PNG）。
+             // identity 在场即预约缓存——中间帧只重置定时器，不落盘。
              if ( !m_cacheAssetId.isEmpty() )
-             {
-               const QSize sz = m_canvas->canvas()->size();
-               const QString key = PreviewRenderCache::makeKey(
-                   m_cacheAssetId, m_cacheVersionId, m_canvas->currentExtent(), sz.width(),
-                   sz.height() );
-               PreviewRenderCache::instance().store( key, m_canvas->canvas()->grab().toImage() );
-             }
+               m_cacheSettleTimer->start();
            } );
   connect( m_canvas, &PreviewMapCanvas::scaleChanged, this, [this]( double s ) {
     m_scaleLabel->setText( scaleText( s ) );

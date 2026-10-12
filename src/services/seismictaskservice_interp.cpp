@@ -29,12 +29,28 @@ namespace seismic {
 
 namespace {
 
+// CSV 文本字段转义（含 , " 换行 的进引号对，引号自转义）
+QString csvField(const QString &s)
+{
+  if (!s.contains(QLatin1Char(',')) && !s.contains(QLatin1Char('"')) &&
+      !s.contains(QLatin1Char('\n')) && !s.contains(QLatin1Char('\r')))
+    return s;
+  QString out = s;
+  out.replace(QLatin1Char('"'), QStringLiteral("\"\""));
+  return QStringLiteral("\"%1\"").arg(out);
+}
+
 QString horizonCsvLine(const SeismicPick &p)
 {
-  return QStringLiteral("%1,%2,%3,%4")
+  // #388：7 列与表头逐一对位（原 4 列行体让 confidence 落进 sample 列、
+  // interpreter/horizon 静默丢失）。
+  return QStringLiteral("%1,%2,%3,%4,%5,%6,%7")
       .arg(p.inlineNo).arg(p.xlineNo)
       .arg(QString::number(p.twtMs, 'f', 2))
-      .arg(QString::number(p.confidence, 'f', 3));
+      .arg(p.sampleIndex)
+      .arg(QString::number(p.confidence, 'f', 3))
+      .arg(csvField(p.interpreter))
+      .arg(csvField(p.horizonName));
 }
 
 } // namespace

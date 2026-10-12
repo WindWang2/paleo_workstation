@@ -151,6 +151,13 @@ QPair<QString, QString> stageGeorefPairIfNeeded( const QString &imagePath,
   if ( srcWld.isEmpty() )
     return { imagePath, QString() };
   auto *holder = new TempDirHolder( parent );
+  // #413：QTemporaryDir 失败（temp 不可写）时 path()=="" ——暂拷贝会落在
+  // 进程 CWD（litter）；无效即退回原位 + 无副车（与拷贝失败分支同口径）。
+  if ( !holder->dir->isValid() )
+  {
+    holder->deleteLater();
+    return { imagePath, QString() };
+  }
   const QString dirPath = holder->dir->path();
   const QString baseName = QFileInfo( imagePath ).fileName();
   const QString stagedImg = QDir( dirPath ).filePath( baseName );

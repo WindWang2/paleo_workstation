@@ -33,6 +33,18 @@ namespace
     return PaleoTheme::monoFont();
   }
 
+  // #413：CSV 字段转义（含 , " \n \r 即引号包围、"→""）——层名/字段名/值
+  // 都可能带分隔符，裸写即列错位。
+  QString csvField( const QString &s )
+  {
+    if ( !s.contains( QLatin1Char( ',' ) ) && !s.contains( QLatin1Char( '"' ) ) &&
+         !s.contains( QLatin1Char( '\n' ) ) && !s.contains( QLatin1Char( '\r' ) ) )
+      return s;
+    QString out = s;
+    out.replace( QLatin1Char( '"' ), QStringLiteral( "\"\"" ) );
+    return QStringLiteral( "\"%1\"" ).arg( out );
+  }
+
   QString resultTitle( const PreviewIdentifyResult &r )
   {
     if ( r.isRaster )
@@ -185,20 +197,22 @@ void PreviewIdentifyPanel::exportCsv()
     PaleoNotify::warning( this, QObject::tr( "导出失败" ), QObject::tr( "无法写入 %1" ).arg( path ) );
     return;
   }
+  f.write( "\xEF\xBB\xBF" ); // UTF-8 BOM：Windows Excel 读中文不乱码（#413）
   QTextStream ts( &f );
   ts << QStringLiteral( "layer,feature,field,value\n" );
   for ( const PreviewIdentifyResult &r : m_results )
   {
     if ( r.isRaster )
     {
-      ts << r.layerName << QStringLiteral( ",raster," )
+      ts << csvField( r.layerName ) << QStringLiteral( ",raster," )
          << QStringLiteral( "nearest," ) << QString::number( r.rasterValueNearest, 'f', 4 )
          << QLatin1Char( '\n' );
       continue;
     }
     for ( auto it = r.attributes.constBegin(); it != r.attributes.constEnd(); ++it )
-      ts << r.layerName << QStringLiteral( ",#%1," ).arg( r.featureId ) << it.key()
-         << QStringLiteral( "," ) << it.value().toString() << QLatin1Char( '\n' );
+      ts << csvField( r.layerName ) << QStringLiteral( ",#%1," ).arg( r.featureId )
+         << csvField( it.key() ) << QStringLiteral( "," )
+         << csvField( it.value().toString() ) << QLatin1Char( '\n' );
   }
   emit exportCsvRequested( path );
 }

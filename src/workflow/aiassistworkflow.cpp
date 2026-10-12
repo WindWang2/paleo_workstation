@@ -486,13 +486,17 @@ PaleoTask *AiAssistWorkflow::startClassification( const QString &horizon, const 
   // 非线程安全）。结果经共享指针带出，取消/失败不带产品。
   auto *result = new TileInferenceResult;
   QPointer<AiAssistWorkflow> self( this );
-  // worker 只捕服务指针不捕 this：工作流若在任务运行中被析构，池线程
-  // 解引用 this->m_onnx 是悬垂读（服务生命周期由装配根/任务排空保证）。
-  PaleoOnnxService *onnx = m_onnx;
+  // worker 只捕服务 QPointer 不捕 this：工作流若在任务运行中被析构，
+  // 池线程解引用 this->m_onnx 是悬垂读。#402：裸指针改 QPointer——
+  // 任务排空失败（~PaleoTaskService 明示可孤立 pool）时服务先亡，
+  // 入口判活即诚实失败，不再对悬垂服务跑 Ort::Session::Run。
+  const QPointer<PaleoOnnxService> onnx = m_onnx;
   const QString title = tr( "%1 AI 相分类 %2" ).arg( horizon, model );
   PaleoTask *task = m_tasks->start(
     title,
     [onnx, model, gridRows, gridCols, tileRows, tileCols, halo, fetch, result]( PaleoTask *t ) -> QString {
+      if ( !onnx )
+        return QStringLiteral( "ONNX 服务已销毁" );
       TileInferenceRequest req;
       req.model = model;
       req.gridRows = gridRows;
@@ -585,11 +589,14 @@ PaleoTask *AiAssistWorkflow::startSuggestion( const QString &horizon, const QStr
   // 建议入队/信号回主线程。取消语义见头文件注释（算完但作废）。
   auto *result = new QVector<TrackingSuggestion>;
   QPointer<AiAssistWorkflow> self( this );
-  PaleoOnnxService *onnx = m_onnx; // worker 不捕 this（同 startClassification）
+  // #402：同 startClassification——worker 捕服务 QPointer 判活，不捕 this。
+  const QPointer<PaleoOnnxService> onnx = m_onnx;
   const QString title = tr( "%1 AI 层位建议 %2" ).arg( horizon, model );
   PaleoTask *task = m_tasks->start(
     title,
     [onnx, model, seeds, windowSamples, radius, fetch, result]( PaleoTask * ) -> QString {
+      if ( !onnx )
+        return QStringLiteral( "ONNX 服务已销毁" );
       QString err;
       QVector<TrackingSuggestion> out;
       if ( !suggestTrack( onnx, model, seeds, windowSamples, radius, fetch, &out, &err ) )

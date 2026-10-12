@@ -521,12 +521,15 @@ void WellSectionFenceWidget::setSpacingMode(wellsection::SpacingMode mode)
         sec.panel->setSpacingMode(mode);
 }
 
-void WellSectionFenceWidget::setStore(metadata::WellSectionStore *store)
+void WellSectionFenceWidget::setStore(metadata::WellSectionStore *store,
+                                      FaultSetStore *faultStore)
 {
-    if (m_params.store == store)
+    if (m_params.store == store && m_params.faultStore == faultStore)
         return;
     // 换库方向：从新工程读（不是把旧工程井集写进新库——轮 2 修正）。
+    // 两库指针原子换绑（rebuild 经 m_params 下发给各节工作流）。
     m_params.store = store;
+    m_params.faultStore = faultStore;
     m_persistedIds.clear();
     loadFromStore();
     rebuild(/*persist=*/false);

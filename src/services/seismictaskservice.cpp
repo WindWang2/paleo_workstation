@@ -127,6 +127,10 @@ void SeismicTaskService::invalidateDataset(const QString &path)
   QMutexLocker lock(&registry_->mutex);
   registry_->entries.remove(entryKey(path, sdk::Backend::Auto));
   registry_->entries.remove(entryKey(path, sdk::Backend::Paged));
+  // #391：切片 LRU 同步清——转码/重写后 dataCache_ 的旧切片不得继续供
+  // 图（键虽含 mtime，注册表失效语义要求同时归还预算）。
+  lock.unlock();
+  dataCache_.Clear();
 }
 
 SeismicTaskService::SeismicTaskService(PaleoTaskService *taskService,

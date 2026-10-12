@@ -515,8 +515,9 @@ void PaleoMainWindow::finishPropertyModelRun(double overlayAlpha)
     return;
 
   seismic::Seismic3DViewPanel *panel3d = m_seismic3dPanel;
+  // #411：dock->widget() 是 DockScrollArea 包装，直 cast 恒 null——向里找真面板。
   if (!panel3d && m_seismic3dDock)
-    panel3d = qobject_cast<seismic::Seismic3DViewPanel *>(m_seismic3dDock->widget());
+    panel3d = m_seismic3dDock->findChild<seismic::Seismic3DViewPanel *>();
   seismic::Seismic3DViewportWidget *vp = panel3d ? panel3d->viewport() : nullptr;
   seismic::SeismicSectionCanvas *canvas =
       m_seismicSectionDock ? m_seismicSectionDock->canvas() : nullptr;
@@ -600,7 +601,7 @@ void PaleoMainWindow::showAttributeVolumeIn3D(
   }
   seismic::Seismic3DViewPanel *panel3d = m_seismic3dPanel;
   if (!panel3d && m_seismic3dDock)
-    panel3d = qobject_cast<seismic::Seismic3DViewPanel *>(m_seismic3dDock->widget());
+    panel3d = m_seismic3dDock->findChild<seismic::Seismic3DViewPanel *>(); // #411：同 519——widget() 是 DockScrollArea
   seismic::Seismic3DViewportWidget *vp = panel3d ? panel3d->viewport() : nullptr;
   if (!vp)
   {

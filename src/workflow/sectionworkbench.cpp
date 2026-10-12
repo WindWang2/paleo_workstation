@@ -57,7 +57,27 @@ void SectionWorkbench::requestPreviewData(std::function<void(const PreviewData &
               m_previewPending = true; // 同目录数据已更新，重读最新快照
             }
             if (m_previewPending)
-              requestPreviewData(std::move(m_previewReady));
+            {
+              // #415：并入的请求拿到的快照仍最新（同目录、序号未变）——在飞
+              // 结果直接交付，不再整轮 staging 拷贝 + LAS/井重解析。
+              if (!cancelled && m_previewReady && m_catalog &&
+                  m_catalog->catalogPath() == path &&
+                  m_catalog->mutationSeq() == sequence)
+              {
+                m_previewPending = false;
+                auto ready = std::move(m_previewReady);
+                m_previewReady = {};
+                ready(data);
+              }
+              else if (m_previewReady)
+              {
+                requestPreviewData(std::move(m_previewReady));
+              }
+              else
+              {
+                m_previewPending = false; // 无收者——重跑只会空烧
+              }
+            }
           });
   const auto future =
       QtConcurrent::run(paleo::tasks::pool(m_tasks), [snapshot, stop] {

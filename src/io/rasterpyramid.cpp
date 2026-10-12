@@ -327,10 +327,15 @@ bool RasterPyramidService::buildTile(const QString &rasterPath, const PyramidMet
     if (f.open(QIODevice::ReadWrite))
     {
       const qint64 statePos = 28 + static_cast<qint64>(y) * tilesX + x;
-        if (f.seek(statePos) && f.peek(1).at(0) == '\0')
+        // #414：peek 空结果（截断文件）不判空即 at(0) 越界——读不到就当未建。
+        if (f.seek(statePos))
         {
-          f.seek(statePos);
-          f.putChar('\2');
+          const QByteArray st = f.peek(1);
+          if (!st.isEmpty() && st.at(0) == '\0')
+          {
+            f.seek(statePos);
+            f.putChar('\2');
+          }
         }
     }
     return true;
@@ -383,7 +388,9 @@ bool RasterPyramidService::buildTile(const QString &rasterPath, const PyramidMet
   const qint64 offsetPos = 28 + n + (static_cast<qint64>(y) * tilesX + x) * 8;
   if (f.seek(statePos))
   {
-    const char st = f.peek(1).at(0);
+    // #414：peek 空结果当 state=0（未建）——截断 level 文件照重建，不越界读。
+    const QByteArray stb = f.peek(1);
+    const char st = stb.isEmpty() ? '\0' : stb.at(0);
     // 已建过——不重复落盘（并发/重复 ensure 兜底）。#215：state=1 但 offset
     // 不指向合法 payload 的是崩溃/写失败残片，必须重建覆盖而非早退。
     if (st == '\2' || (st == '\1' && payloadOffsetValid(f, offsetPos, n, tileW * tileH)))
@@ -464,7 +471,8 @@ bool RasterPyramidService::tile(const QString &rasterPath, int z, int x, int y, 
     const qint64 offsetPos = 28 + n + (static_cast<qint64>(y) * tilesX + x) * 8;
     if (f.seek(statePos))
     {
-      const char st = f.peek(1).at(0);
+      const QByteArray stb = f.peek(1); // #414：截断文件 peek 空——按无瓦片处理
+      const char st = stb.isEmpty() ? '\0' : stb.at(0);
       if (st == '\2')
       {
         out->z = z; out->x = x; out->y = y;

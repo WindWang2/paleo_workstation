@@ -424,7 +424,8 @@ void PaleoDecorationManager::setScaleBarEnabled( bool enabled )
     mOverlay->raise();
     mOverlay->update();
   }
-  mCanvas->refresh();
+  if ( mCanvas ) // #411：构造函数容忍 canvas=null，setter 不得裸解引用
+    mCanvas->refresh();
 }
 
 void PaleoDecorationManager::setNorthArrowEnabled( bool enabled )
@@ -437,7 +438,8 @@ void PaleoDecorationManager::setNorthArrowEnabled( bool enabled )
     mOverlay->raise();
     mOverlay->update();
   }
-  mCanvas->refresh();
+  if ( mCanvas )
+    mCanvas->refresh();
 }
 
 void PaleoDecorationManager::setGridEnabled( bool enabled )
@@ -450,7 +452,8 @@ void PaleoDecorationManager::setGridEnabled( bool enabled )
     mOverlay->raise();
     mOverlay->update();
   }
-  mCanvas->refresh();
+  if ( mCanvas )
+    mCanvas->refresh();
 }
 
 void PaleoDecorationManager::setWatermarkEnabled( bool enabled )
@@ -463,7 +466,8 @@ void PaleoDecorationManager::setWatermarkEnabled( bool enabled )
     mOverlay->raise();
     mOverlay->update();
   }
-  mCanvas->refresh();
+  if ( mCanvas )
+    mCanvas->refresh();
 }
 
 void PaleoDecorationManager::setWatermarkText( const QString &text )
@@ -476,7 +480,8 @@ void PaleoDecorationManager::setWatermarkText( const QString &text )
       mOverlay->raise();
       mOverlay->update();
     }
-    mCanvas->refresh();
+    if ( mCanvas )
+      mCanvas->refresh();
   }
 }
 

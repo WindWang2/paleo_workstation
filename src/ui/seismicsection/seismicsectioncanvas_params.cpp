@@ -68,11 +68,11 @@ void SeismicSectionCanvas::setGainCurve(const std::vector<SectionGainNode> &node
     m_gainCurve = nodes;
     std::sort(m_gainCurve.begin(), m_gainCurve.end(),
               [](const SectionGainNode &a, const SectionGainNode &b) { return a.twtMs < b.twtMs; });
-    if (!m_gainCurve.empty()) {
-        rebuildDisplayValues();
-        rebuildImage();
-        update();
-    }
+    // 清空曲线同样是状态变更——旧实现只在非空时重建，清空后屏幕保持旧
+    // 曲线渲染。重建先走显示缓冲（增益即作用于它），再出图。
+    rebuildDisplayValues();
+    rebuildImage();
+    update();
 }
 
 float SeismicSectionCanvas::gainAtTwt(double twtMs) const {

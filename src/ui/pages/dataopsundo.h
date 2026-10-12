@@ -58,14 +58,14 @@ public:
         m_undo.last()->id() == cmd->id() && m_undo.last()->mergeWith(cmd))
     {
       delete cmd;
-      m_redo.clear(); // 分支点作废
+      clearRedo(); // 分支点作废（指针元素须 delete，不能只 clear）
       emit stackChanged();
       return;
     }
     m_undo.append(cmd);
     if (m_undo.size() > kMaxDepth)
       delete m_undo.takeFirst(); // 弹底：最老命令的效果成为既成事实
-    m_redo.clear();
+    clearRedo();
     emit stackChanged();
   }
 
@@ -126,6 +126,13 @@ signals:
   void stackChanged();
 
 private:
+  // 作废 redo 支路：QList 的 clear 只销毁指针元素，指向对象要 qDeleteAll。
+  void clearRedo()
+  {
+    qDeleteAll(m_redo);
+    m_redo.clear();
+  }
+
   QList<DataOpCommand *> m_undo;
   QList<DataOpCommand *> m_redo;
 };

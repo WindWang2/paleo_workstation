@@ -27,6 +27,10 @@ void EditStack::push(std::unique_ptr<EditCommand> cmd)
     m_stack.erase(m_stack.begin());
     if (m_savedIndex > 0)
       --m_savedIndex;
+    else if (m_savedIndex == 0)
+      // #412：保存点本身被逐出——0 位移指到了别的命令上，undo 到那会把
+      // 文档误标 clean；置 -1 让真实保存态不可达（常驻 dirty，诚实）。
+      m_savedIndex = -1;
   }
   m_index = static_cast<int>(m_stack.size());
 

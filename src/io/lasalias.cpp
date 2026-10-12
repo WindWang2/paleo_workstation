@@ -80,7 +80,9 @@ void LasAliasMap::buildTables()
   fam("RXO", QStringLiteral("Resistivity"), {"RXOZ", "RXOT", "MSFL", "RX0"});
   fam("PE", QStringLiteral("Litho"), {"PEF", "PDPE"});
   fam("POR", QStringLiteral("Porosity"), {"PHIT", "PHIE", "PHIA", "PORO"});
-  fam("VS", QStringLiteral("Velocity"), {"Vp", "VP", "VSONIC"});
+  // #414：VS 是 S 波速度规范名——原别名 {"Vp","VP","VSONIC"} 全是 P 波词，
+  // VP 曲线会冒充满足 VS 请求；S 波别名如实收窄。
+  fam("VS", QStringLiteral("Velocity"), {"SVEL", "VSH", "SHV"});
 
   // ---- 单位 ----
   auto unit = [this](const QString &canon, std::initializer_list<const char *> aliases) {
@@ -88,7 +90,9 @@ void LasAliasMap::buildTables()
     for (const char *a : aliases)
       m_unitTable.insert(normalizeUnitKey(QString::fromLatin1(a)), canon);
   };
-  unit(QStringLiteral("m"), {"M", "METER", "METERS", "METRE", "METRES", "MM"});
+  // #414："MM" 是毫米不是米——别名表里混进它会造 1000× 深度错（不做
+  // 错误映射，MM 如实落到未知单位分支）。
+  unit(QStringLiteral("m"), {"M", "METER", "METERS", "METRE", "METRES"});
   unit(QStringLiteral("ft"), {"FT", "FEET", "F", "FOOT"});
   unit(QStringLiteral("us"), {"US", "USEC", "MICROSEC", "MICROSECONDS", "USM", "USEC/M", "US/M", "USFT", "US/FT"});
   unit(QStringLiteral("ms"), {"MS", "MSEC", "MILLISEC"});

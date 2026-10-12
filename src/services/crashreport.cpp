@@ -377,6 +377,16 @@ SessionStart installCrashHandler(const QString &baseDir)
   if (out.previousDirtyExit)
     out.lastReportPath = latestReportPath(baseDir);
 
+  const QByteArray dir8 = QFile::encodeName(dir);
+  if (dir8.size() >= static_cast<int>(sizeof s_dir))
+  {
+    // #416：路径超长时旗标绝不落盘——clearRunningFlag() 经 s_dir 寻址，
+    // s_dir 装不下就清不掉，已写的 .running* 会变成永久陈旧标记，
+    // 此后每次启动都假报脏退出。历史脏退出检测不受影响（上面已扫完）。
+    qWarning("CrashReport: crash dir path too long, handler disabled");
+    return out;
+  }
+
   const QByteArray flagContent = QStringLiteral("pid=%1\nstarted=%2\n")
                                      .arg(currentPid())
                                      .arg(QDateTime::currentDateTimeUtc().toString(
@@ -394,12 +404,6 @@ SessionStart installCrashHandler(const QString &baseDir)
   else
     qWarning("CrashReport: cannot write running flag: %s", qPrintable(flag));
 
-  const QByteArray dir8 = QFile::encodeName(dir);
-  if (dir8.size() >= static_cast<int>(sizeof s_dir))
-  {
-    qWarning("CrashReport: crash dir path too long, handler disabled");
-    return out; // 旗标逻辑已生效（脏退出检测可用），仅处理器落盘不可用
-  }
   std::memcpy(s_dir, dir8.constData(), static_cast<size_t>(dir8.size()) + 1);
   s_project.clear();
   renderHeader(); // 新会话：工程上下文从 (none) 重新开始

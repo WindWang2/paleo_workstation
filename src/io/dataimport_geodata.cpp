@@ -5,6 +5,7 @@
 #include "dataimportservice.h"
 
 #include "lascache.h"
+#include "lasparser.h" // LasParser::fileSizeLimit（大文件防护共用口径）
 #include "rasterpyramid.h"
 #include "segyindexstore.h"
 #include "shacache.h"
@@ -170,6 +171,11 @@ QString importHorizonFamily(FamilyContext &ctx)
       QFile f(sourcePath);
       if (!f.open(QIODevice::ReadOnly))
         return QStringLiteral("cannot read %1").arg(sourcePath);
+      // #387：层位散点整读无超限闸——GB 级文件 OOM。与 LAS 500MB 同口径。
+      if (f.size() > LasParser::fileSizeLimit())
+        return QStringLiteral("horizon file too large (%1 MB limit): %2")
+            .arg(LasParser::fileSizeLimit() / (1024 * 1024))
+            .arg(sourcePath);
       BinnedHorizon binned;
       if (!binHorizon(f.readAll(), &binned, error))
         return *error;
@@ -436,6 +442,11 @@ QString dedupHorizonRederive(DataCatalog *cat, ImportSession &s,
           QFile source(sourcePath);
           if (!source.open(QIODevice::ReadOnly))
             return QStringLiteral("cannot read %1").arg(sourcePath);
+          // #387：同 importHorizonFamily 主路径的超限闸（与 LAS 500MB 同口径）。
+          if (source.size() > LasParser::fileSizeLimit())
+            return QStringLiteral("horizon file too large (%1 MB limit): %2")
+                .arg(LasParser::fileSizeLimit() / (1024 * 1024))
+                .arg(sourcePath);
           BinnedHorizon binned;
           if (!binHorizon(source.readAll(), &binned, error))
             return error ? *error : QStringLiteral("horizon binning failed");

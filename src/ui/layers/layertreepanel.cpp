@@ -315,22 +315,19 @@ void LayerTreePanel::buildContextMenu()
     if (!id.isEmpty()) emit graphRequested(id);
   });
 
-  // goal/gridding-surface-ops：栅格图层 → 面运算（等厚/体积）入口
-  //（菜单每次右键重建，只对栅格当前层出现）。
-  if (QgsMapLayer *cur = m_view->layerTreeModel() ? m_view->currentLayer() : nullptr)
-  {
-    if (cur->type() == Qgis::LayerType::Raster)
-    {
-      m_surfaceOpsAction = new QAction(tr("面运算（等厚/体积）…"), m_menu);
-      m_surfaceOpsAction->setObjectName(QStringLiteral("layerTreeSurfaceOpsAction"));
-      connect(m_surfaceOpsAction, &QAction::triggered, this, [this, cur]() {
-        const QString paleoId =
-            cur->customProperty(QStringLiteral("paleoLayerId")).toString();
-        emit surfaceOpsRequested(paleoId.isEmpty() ? cur->id() : paleoId);
-      });
-      m_menu->addAction(m_surfaceOpsAction);
-    }
-  }
+  // goal/gridding-surface-ops：栅格图层 → 面运算（等厚/体积）入口。
+  // 动作常驻、显隐由 updatePaleoActionStates() 按右键当下当前层刷新；
+  // 触发时再取 currentLayer()——构造期捕获裸层指针会悬垂/点错层。
+  m_surfaceOpsAction = new QAction(tr("面运算（等厚/体积）…"), m_menu);
+  m_surfaceOpsAction->setObjectName(QStringLiteral("layerTreeSurfaceOpsAction"));
+  connect(m_surfaceOpsAction, &QAction::triggered, this, [this]() {
+    QgsMapLayer *cur = m_view->layerTreeModel() ? m_view->currentLayer() : nullptr;
+    if (!cur || cur->type() != Qgis::LayerType::Raster)
+      return;
+    const QString paleoId = cur->customProperty(QStringLiteral("paleoLayerId")).toString();
+    emit surfaceOpsRequested(paleoId.isEmpty() ? cur->id() : paleoId);
+  });
+  m_menu->addAction(m_surfaceOpsAction);
 
   m_duplicateAction = new QAction(tr("复制图层"), m_menu);
   m_duplicateAction->setObjectName(QStringLiteral("layerTreeDuplicateAction"));
@@ -445,6 +442,8 @@ void LayerTreePanel::updatePaleoActionStates()
   const QString graphId = layer ? layer->customProperty(QStringLiteral("paleoLayerId")).toString() : QString();
   m_graphAction->setEnabled(!graphId.isEmpty()); m_graphAction->setData(graphId);
   m_propertiesAction->setEnabled(layer != nullptr);
+  // 面运算只对当前栅格层可见（右键当下即时判定，不用构造期捕获）
+  m_surfaceOpsAction->setVisible(layer && layer->type() == Qgis::LayerType::Raster);
   m_duplicateAction->setEnabled(layer != nullptr);
   m_exportStyleAction->setEnabled(layer != nullptr);
   m_importStyleAction->setEnabled(layer != nullptr);

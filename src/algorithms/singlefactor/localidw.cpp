@@ -806,6 +806,17 @@ SurfaceResult evaluateLocalIdw( const PreparedInput &input, const GridSpec &grid
                                                    parameters.tolerance, &control )
                    : labelHardBarriers( grid, input.constraints, input.samples,
                                         parameters.tolerance, &control );
+    if ( !barriers.error.empty() )
+    {
+      // #417：栅格化/预算失败——如实报输入错误，不再把空 component
+      // 当成功结果逐格下标（越界）。
+      result.status = Status::InvalidInput;
+      result.message = barriers.error;
+      result.values.clear();
+      result.marks.clear();
+      result.components.clear();
+      return result;
+    }
     if ( barriers.barrierCells < 0 )
     {
       result.status = Status::Cancelled;

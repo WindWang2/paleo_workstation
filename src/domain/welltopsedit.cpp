@@ -139,6 +139,13 @@ QVector<Issue> validate(const QVector<WellTopRecord> &rows, const ValidationCont
       issues.append({IssueKind::EmptyWellName, i,
                      QStringLiteral("第 %1 行：井名为空——写盘后该行无法解析归属").arg(
                          QString::number(i + 1))});
+    // #414：井名含空白与层名同害——按空白分列的格式下 "My Well" 回读列位移、
+    // 行被拒（静默丢行）；旧代码只查层名不对称。
+    else if (std::any_of(r.wellName.cbegin(), r.wellName.cend(),
+                         [](QChar c) { return c.isSpace(); }))
+      issues.append({IssueKind::WhitespaceName, i,
+                     QStringLiteral("第 %1 行：井名「%2」含空白——按空白分列写盘即损坏")
+                         .arg(QString::number(i + 1), r.wellName)});
     if (r.hasMd)
     {
       if (r.md < 0)

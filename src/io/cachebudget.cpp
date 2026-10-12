@@ -38,11 +38,12 @@ void CacheBudgetManager::unregisterCache(EvictableCache *cache)
 
 void CacheBudgetManager::setBudgetBytes(qint64 bytes)
 {
-  QMutexLocker lock(&m_mutex);
-  m_budgetBytes = qMax<qint64>(1, bytes);
-  const qint64 budget = m_budgetBytes;
-  lock.unlock();
-  Q_UNUSED(budget);
+  {
+    QMutexLocker lock(&m_mutex);
+    m_budgetBytes = qMax<qint64>(1, bytes);
+  }
+  // #400：enforce() 内部自己加锁——「手工 unlock 再重获 + 读出即弃」的
+  // 反模式删掉，不给后续编辑留锁序陷阱。
   enforce();
 }
 

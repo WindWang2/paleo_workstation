@@ -425,14 +425,22 @@ bool EvolutionWorkflow::analyzePair( const QString &earlierHorizon, const QStrin
   if ( !metricsStaging.isValid() )
     return fail( regErr );
   {
+    // 先 append 再生成 CSV——否则写出的文件缺产生它的这一对（第 N 对
+    // CSV 只有 1..N-1 行）。写失败回滚 append，保「失败不污染累计」语义。
+    m_metricsRows.append( pendingRows );
+    const QByteArray bytes = buildMetricsCsv().toUtf8();
     QFile csv( metricsStaging.absolutePath );
     if ( !csv.open( QIODevice::WriteOnly | QIODevice::Truncate ) )
+    {
+      m_metricsRows.remove( m_metricsRows.size() - pendingRows.size(), pendingRows.size() );
       return fail( tr( "无法写指标表：%1" ).arg( metricsStaging.absolutePath ) );
-    const QByteArray bytes = buildMetricsCsv().toUtf8();
+    }
     if ( csv.write( bytes ) != bytes.size() )
+    {
+      m_metricsRows.remove( m_metricsRows.size() - pendingRows.size(), pendingRows.size() );
       return fail( tr( "指标表写入不完整：%1" ).arg( metricsStaging.absolutePath ) );
+    }
   }
-  m_metricsRows.append( pendingRows ); // CSV 写出成功后才进会话累计（失败重跑不重复）
   QVariantMap metricsExtra;
   metricsExtra.insert( QStringLiteral( "earlier_horizon" ), earlierHorizon );
   metricsExtra.insert( QStringLiteral( "later_horizon" ), laterHorizon );

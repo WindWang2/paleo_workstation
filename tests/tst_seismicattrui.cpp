@@ -610,7 +610,7 @@ private slots:
     std::string err;
     QVERIFY(vol->Load(sgy.toStdString(), err));
     dock.setVolume(vol);
-    QVERIFY(waitFor([&dock]() { return dock.canvas()->hasData(); }, 10000) || true);
+    QVERIFY(waitFor([&dock]() { return dock.canvas()->hasData(); }, 10000));
 
     DataCatalog catalog;
     QString cerr;
@@ -655,7 +655,7 @@ private slots:
     auto vol2 = std::make_shared<SgyVolume>();
     QVERIFY(vol2->Load(sgy.toStdString(), err));
     dock.setVolume(vol2);
-    QVERIFY(waitFor([&dock]() { return dock.canvas()->hasData(); }, 10000) || true);
+    QVERIFY(waitFor([&dock]() { return dock.canvas()->hasData(); }, 10000));
     scope->setCurrentIndex(2);
     compute->click();
     dock.setVolume(nullptr);
@@ -685,7 +685,7 @@ private slots:
     std::string err;
     QVERIFY(vol->Load(sgy.toStdString(), err));
     dock.setVolume(vol);
-    QVERIFY(waitFor([&dock]() { return dock.canvas()->hasData(); }, 10000) || true);
+    QVERIFY(waitFor([&dock]() { return dock.canvas()->hasData(); }, 10000));
 
     auto *panel = dock.attrPanel();
     QVERIFY(panel);

@@ -3,6 +3,7 @@
 
 #include <QHideEvent>
 #include <QHeaderView>
+#include <QSet>
 #include <QLabel>
 #include <QShowEvent>
 #include <QTimer>
@@ -208,7 +209,22 @@ void BatchJobPanel::refresh()
         m_rows.clear();
         return;
     }
+    QSet<QString> seen;
+    seen.reserve(items.size());
     for (const PaleoBatchQueue::BatchItem &it : items)
+    {
+        seen.insert(it.itemId);
         updateRow(rowFor(it.itemId), it.itemId);
+    }
+    // 队列换代（start 整体替换项集）后旧代 itemId 的行不再回来——erase
+    // 并删除，否则幽灵「完成」行永驻（同 TaskPanel::refresh 对账）。
+    for (auto it = m_rows.begin(); it != m_rows.end();)
+        if (!seen.contains(it.key()))
+        {
+            delete it.value();
+            it = m_rows.erase(it);
+        }
+        else
+            ++it;
     updateSummary();
 }

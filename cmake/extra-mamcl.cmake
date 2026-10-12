@@ -18,4 +18,9 @@ add_paleo_test(tst_pythonenv LIBS paleo_workflow)
 if(PALEO_PYTHON3)
   add_test(NAME mamcl_lock COMMAND ${PALEO_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/check_mamcl_lock.py)
   add_test(NAME mamcl_lock_selftest COMMAND ${PALEO_PYTHON3} ${CMAKE_SOURCE_DIR}/tools/check_mamcl_lock.py --selftest)
+  # #420：对齐其它 python gate——钉源码根工作目录 + UTF-8 输出
+  #（Windows cp1252 控制台下中文报告行不致 UnicodeEncodeError 假 traceback）。
+  set_tests_properties(mamcl_lock mamcl_lock_selftest
+                       PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+                                  ENVIRONMENT "PYTHONUTF8=1")
 endif()

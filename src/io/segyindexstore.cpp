@@ -18,7 +18,9 @@ namespace
 {
   // v4：并行扫描补齐 demo 工区方言（crossline 取 CDP、角点取 181-188）——
   // v3 及更早的大文件索引可能带退化号域（xline 全 0、角点全 0），过版自愈重建。
-  constexpr quint16 kSegyIndexVersion = 4;
+  // v5：dialectFlags 真正落盘/读回（#290 接线）——v4 checkpoint 没带方言口径，
+  // 续扫会按标准字错位，过版让旧缓存整体失效重建。
+  constexpr quint16 kSegyIndexVersion = 5;
   const char kSegyIndexMagic[8] = {'P', 'S', 'G', 'Y', 'I', 'D', 'X', '1'};
 
   quint16 segyIndexCompressionFlags()
@@ -85,6 +87,7 @@ QByteArray SegyIndexStore::encodePayload(const StoredIndex &index)
   cacheio::putI32(&out, index.formatCode);
   cacheio::putI32(&out, index.binLineNo);
   for (int offset : index.headerWordOffsets) cacheio::putI32(&out, offset);
+  out.append(static_cast<char>(index.dialectFlags)); // v5：方言口径随 checkpoint 持久化
   cacheio::putI64(&out, index.firstTraceOffset);
   cacheio::putF64(&out, index.geometry.inlineMin);
   cacheio::putF64(&out, index.geometry.inlineMax);
@@ -133,6 +136,10 @@ bool SegyIndexStore::decodePayload(const QByteArray &payload, StoredIndex *out)
     offset = cacheio::i32(payload, &pos, &ok);
     if (offset < 0 || offset > 236) return false;
   }
+  if (!ok || pos >= payload.size())
+    return false;
+  out->dialectFlags = static_cast<quint8>(payload.at(int(pos)));
+  ++pos;
   out->firstTraceOffset = cacheio::i64(payload, &pos, &ok);
   out->geometry.inlineMin = cacheio::f64(payload, &pos, &ok);
   out->geometry.inlineMax = cacheio::f64(payload, &pos, &ok);

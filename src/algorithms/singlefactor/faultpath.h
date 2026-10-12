@@ -39,6 +39,8 @@ public:
   std::vector<double> distances( std::span<const Point2> points ) const;
 
   bool hasDetourNodes() const { return mPaths.has_value(); }
+  // #393：节点/段超预算（未建图）——调用方应拒绝而不是拿欧氏距离冒充绕行。
+  bool budgetExceeded() const { return mBudgetExceeded; }
 
 private:
   struct NodeGraph
@@ -53,6 +55,7 @@ private:
   double mRatio = 1.0;
   double mAngleRadians = 0.0;
   std::optional<NodeGraph> mPaths;
+  bool mBudgetExceeded = false; // #393
 
   double metricDistance( Point2 a, Point2 b ) const;
 };

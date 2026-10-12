@@ -354,6 +354,13 @@ int MapVersionStore::numericResidualCount( const QString &summaryJson )
 QString MapVersionStore::publish( const QString &horizon, const QVector<LayerDeclaration> &decls,
                                   const QString &residualSummary, QString *error )
 {
+  // #394：只读守卫必须与 saveVersion 同位——缺失时先在工程目录落
+  // result/<horizon>/v<N>/ 文件树再撞 SQL 只读失败（半完成副作用）。
+  if ( m_readOnly )
+  {
+    setError( error, QStringLiteral("工程目录被另一个实例锁定——本实例只读，发布被拒绝") );
+    return QString();
+  }
   if ( !DataCatalog::isSafePathSegment( horizon ) )
   {
     setError( error, QStringLiteral( "非法层位名称：%1" ).arg( horizon ) );

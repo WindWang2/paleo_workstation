@@ -10,6 +10,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QRegularExpression>
+#include <algorithm>
 
 namespace WellComposite
 {
@@ -71,6 +72,10 @@ void WellCompositeDerivedSink::registerPanel(WellCompositePanel *panel)
   if (!panel)
     return;
   auto &panels = livePanels();
+  // #412：面板析构不注销——注册时清死 QPointer，注册表长保持有界。
+  panels.erase(std::remove_if(panels.begin(), panels.end(),
+                              [](const QPointer<WellCompositePanel> &p) { return p.isNull(); }),
+               panels.end());
   if (!panels.contains(panel))
     panels.append(panel);
   if (s_default)

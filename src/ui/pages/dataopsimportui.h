@@ -195,6 +195,13 @@ public:
       ImportQueueItem it;
       it.path = p;
       it.type = typeByExt.value(QFileInfo(p).suffix().toLower());
+      // #411：同路径已在活动队列——重复行如实标 Skipped（终态回写按活行
+      // 解析后不会抢写，但队列也不囤永不可达的重复项）。
+      if (m_queue.indexOfActivePath(p) >= 0)
+      {
+        it.state = ImportItemState::Skipped;
+        it.error = tr("同一路径已在导入队列中");
+      }
       m_queue.enqueue(it);
     }
     show();

@@ -6,6 +6,7 @@
 #include "../src/qgis/facieshierarchyrenderer.h"
 #include "../src/qgis/mapcanvaslink.h"
 #include "../src/qgis/mappingartifactwriter.h"
+#include "../src/qgis/nativeattributetablehost.h"
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/qgis/wellattributestore.h"
 #include "../src/qgis/qgisprocessingservice.h"
@@ -799,8 +800,9 @@ private slots:
     auto *text = page.findChild<QPlainTextEdit *>("faciesEvidenceText");
     QVERIFY(text);
     QVERIFY(!page.commandButton("addEvidence")->isEnabled());
-    // copyForEditing 只 declare，不 instantiate；layer() 会空悬（#346 后
-    // 页面不再同步刷图层，崩溃于 getFeatures→isValid）。
+    // #421：layer() 只回已实例化图层——先 instantiate（同文件其它用例口径），
+    // 否则 v 为 nullptr、getFeatures() 直接段错误（copyForEditing 只 declare
+    // 不 instantiate；#346 后页面不再同步刷图层，崩溃于 getFeatures→isValid）。
     QString layerError;
     auto *v = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft, &layerError));
     QVERIFY2(v, qPrintable(layerError));
@@ -1001,16 +1003,47 @@ private slots:
     QCOMPARE(FaciesCatalog::appearance({{"name", "custom"}, {"color", "#123456"}}).value("color").toString(), QString("#123456"));
     QCOMPARE(FaciesCatalog::appearance({{"name", "unknown"}}).value("color").toString(), QString("#9AA7B4"));
   }
+  // #410：原生属性表宿主的编辑契约（#344 新集成面此前零测试）——开始编辑
+  // → 属性/几何进要素 → 保存提交 → 停编回写。
+  void attributeTableHostEditContract() {
+    QgsMapCanvas canvas;
+    QgsVectorLayer layer(QStringLiteral("Point?field=name:string"), QStringLiteral("pts"),
+                         QStringLiteral("memory"));
+    QVERIFY(layer.isValid());
+    PaleoAttributeTableHost host(&canvas, nullptr);
+    QVERIFY(!layer.isEditable());
+    QVERIFY(host.startEditing(&layer));
+    QVERIFY(layer.isEditable());
+    const auto feature =
+        host.addFeature(&layer, false, nullptr, QgsAttributeMap{{0, QStringLiteral("井A")}},
+                        QgsGeometry::fromPointXY(QgsPointXY(1, 2)));
+    QVERIFY(feature.isValid());
+    // 保存提交后图层无未决修改 → stopEditing 不弹保存确认框，直接回退编辑态。
+    QVERIFY(host.saveEdits(&layer));
+    QCOMPARE(layer.featureCount(), 1);
+    QVERIFY(host.stopEditing(&layer));
+    QVERIFY(!layer.isEditable());
+    QCOMPARE(layer.featureCount(), 1);
+    // 空悬调用：无图层/未可编辑不崩，如实失败。
+    QVERIFY(!host.startEditing(nullptr));
+    QVERIFY(!host.addFeature(&layer, false, nullptr).isValid());
+  }
+
   void wellIntervalsReviewUndoAndPersistence() {
     Fixture f;
     QVERIFY(f.init());
     QVERIFY(!f.well("A", 10, 20).isEmpty());
     QVERIFY(!f.well("B", 30, 40).isEmpty());
+    for (const auto &name : {"A", "B"})
+      QVERIFY(f.tops(name, QStringLiteral("#WellTops File From SMI\n#WellName Name MD X Y Z TVD Time(ms)\n%1 D61 1000 0 0 -1000 1000 -99999\n%1 D62 1060 0 0 -1060 1060 -99999\n").arg(name)));
     QString error;
     QVERIFY(f.work.predict("D61", "wells", {"A", "B"}, &error));
     QTRY_VERIFY(!f.work.busy());
     const auto original = f.latest("wells_prediction");
     QVERIFY(!original.isEmpty());
+    // #409：isWellPrediction 契约——预测层 true、非预测层/空 id false。
+    QVERIFY(f.work.isWellPrediction(original));
+    QVERIFY(!f.work.isWellPrediction(QStringLiteral("不存在层")));
     auto before = f.work.wellPredictions(original);
     QCOMPARE(before.size(), 2);
     // #346：wellPredictions 只返回当前地层一条预测相（不再展开 12 段采样）。
@@ -1021,6 +1054,7 @@ private slots:
     const auto originalHash = digest(f.work.declaration(original).source);
     const auto draft = f.work.copyForEditing(original, {}, &error);
     QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    QVERIFY(f.work.isWellPrediction(draft));
     auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft));
     QVERIFY(layer);
     QVERIFY(f.work.setLabelMode(draft, 0, &error));
@@ -1069,12 +1103,13 @@ private slots:
     auto *table = panel.findChild<QTableWidget *>("predictionIntervals");
     QVERIFY(table);
     QCOMPARE(table->rowCount(), 1);
-    // 单一预测相道：预测与人工修订不再分道显示。
+    // 单一预测相道：预测与人工修订不再分道显示（地层级结果用文本道呈现
+    // 当前地层一条预测相，不再是逐井段的 FaciesCompound 道）。
     auto *canvas = panel.findChild<WellComposite::WellCompositeCanvas *>();
     QVERIFY(canvas);
     int faciesTracks = 0;
     for (const auto &track : canvas->tracks())
-      if (track->type() == WellComposite::TrackType::FaciesCompound)
+      if (track->type() == WellComposite::TrackType::Text)
         ++faciesTracks;
     QCOMPARE(faciesTracks, 1);
     auto *choice = panel.findChild<QComboBox *>("wellFaciesChoice");
@@ -1177,6 +1212,8 @@ private slots:
     QVERIFY(predicted);
     // Remote strata bounds survive GeoJSON -> editing GPKG; maintained
     // dominance changes while the original predicted dominance is retained.
+    // 修订成预测相以外的任一有效相码（schema 只含实际出现过的标签——
+    // 当前地层全段预测为河口坝，取码值不同的一项）。
     const int currentCode = predictedCode;
     int channel = 0;
     QString channelName;
@@ -1199,6 +1236,8 @@ private slots:
     QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
     const auto maintained = WellAttributeStore::rows(f.dir.path(), &f.layers,
         WellAttributeStore::Table::Formations, "A", "D61").first().toMap();
+    // 优势相随修订更新，预测优势相保持首次预测值（#346 口径：dominant_facies
+    // 等列已从预测矢量移除，权威数据在地层优势相表）。
     QCOMPARE(maintained.value("dominant_facies").toString(), channelName);
     QCOMPARE(maintained.value("predicted_dominant").toString(), QStringLiteral("河口坝"));
     auto edited = draftLayer->getFeatures();
@@ -1392,11 +1431,15 @@ private slots:
       }
     }
     QVERIFY(revisedCode > 0);
+    // 现行契约：每井每地层一条预测相——修订 index 恒为 0，非 0 必须拒绝。
+    QVERIFY2(!f.work.reviseWellInterval(draft, "A", 1, revisedCode, &error),
+             qPrintable(QStringLiteral("index!=0 应被拒绝")));
     QVERIFY2(f.work.reviseWellInterval(draft, "A", 0, revisedCode, &error),
              qPrintable(error));
     QVERIFY(draftLayer->commitChanges());
     QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
-    // 修订只改当前预测层位 D61；D62 行保持预测原值。
+    // 修订只改当前预测层位 D61；D62 行保持预测原值（地层域操作：
+    // D61 更新为修订相；currentFormationOnly 下 D62 行本轮可不落库）。
     const auto d61After = WellAttributeStore::rows(
         f.dir.path(), nullptr, WellAttributeStore::Table::Formations, "A",
         QStringLiteral("D61")).first().toMap();
@@ -1406,7 +1449,6 @@ private slots:
     QCOMPARE(d61After.value("predicted_dominant").toString(),
              d61.value("predicted_dominant").toString());
     QCOMPARE(d61After.value("source").toString(), QString("wells_prediction"));
-    // D62 行在 currentFormationOnly 下本轮可不落库。
 
     // 手工维护优势相后，请求把该表带给预测服务作输入（vector_formations）。
     auto *layer = WellAttributeStore::open(&f.catalog, f.dir.path(), &f.layers,
@@ -1731,6 +1773,10 @@ private slots:
     QCOMPARE(errors.count(), 0);
     const auto rasterId = f.latest("seismic_prediction");
     QVERIFY(!rasterId.isEmpty());
+    // #421：productReady spy 落地断言（原为死 spy——信号丢失无人察觉）。
+    QCOMPARE(ready.count(), 1);
+    QCOMPARE(ready.first().at(0).toString(), QString("D61"));
+    QCOMPARE(ready.first().at(1).toString(), rasterId);
     auto v = f.work.versionForLayer(rasterId);
     QVERIFY(v.parentVersionIds.contains(f.catalog.currentVersion(input).id));
     QVERIFY(v.extra.value("mock").toBool());
@@ -2205,8 +2251,13 @@ private slots:
     page.commandButton("labels")->click();
     QCOMPARE(intent.last()[1].toMap().value("label_mode").toInt(), 0);
     QVERIFY(f.work.setLabelMode(id, 0, &error));
+    // 不可见页的 changed→scheduleRefresh 不起定时器——显式同步。第一次与
+    // 待应用的 0 对齐后 dirty 清除，外部随后改的 2 才会跟随到下拉框。
+    page.refresh();
     QVERIFY(f.work.setLabelMode(id, 2, &error));
-    QCOMPARE(f.work.labelMode(id), 2); // 外部写入以 workbench 为准（combo 可脏）
+    page.refresh();
+    QCOMPARE(f.work.labelMode(id), 2); // 外部写入以 workbench 为准
+    QCOMPARE(labels->currentIndex(), 2); // saved state follows external changes
 
     MappingWorkbenchPage compose("compose", &f.work);
     compose.setHorizon("D61");

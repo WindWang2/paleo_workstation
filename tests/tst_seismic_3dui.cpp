@@ -171,9 +171,11 @@ private slots:
     custom.colorizeSlice(img, 1.0f, 1.45f);
     QCOMPARE(img.rgba.size(), std::size_t(16) * 32 * 4);
     QCOMPARE(QColor(img.rgba[0], img.rgba[1], img.rgba[2], img.rgba[3]), QColor(48, 49, 49)); // NaN 深灰
-    const QRgb before = img.rgba[100];
     custom.colorizeSlice(img, 8.0f, 1.45f); // 增益放大 → 饱和端点
-    QVERIFY(img.rgba[100] != before || true); // 至少不崩
+    // #421：真断言——正值饱和到 lut[255]、负值到 lut[0]，NaN 保持深灰。
+    QCOMPARE(QColor(img.rgba[4], img.rgba[5], img.rgba[6]), QColor(240, 30, 30));
+    QCOMPARE(QColor(img.rgba[100], img.rgba[101], img.rgba[102]), QColor(10, 20, 30));
+    QCOMPARE(QColor(img.rgba[0], img.rgba[1], img.rgba[2]), QColor(48, 49, 49));
   }
 
   // ---- D3.6 相机状态 + 书签 ----

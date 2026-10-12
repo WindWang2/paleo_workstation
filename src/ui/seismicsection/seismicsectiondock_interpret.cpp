@@ -2,6 +2,7 @@
 // 方向 65：D4 解释会话 TU——拾取/断层的增删改（全部经 undo 栈）、FaultSet 棒
 // 回显、层位/断层资产登记。手动拾取 conf==1 的语义在这里落地。
 #include "ui/seismicsection/seismicsectiondock_internal.h"
+#include "ui/seismicsection/inversionpanel.h"
 #include "ui/seismicsection/seismicattrpanel.h"
 
 #include "domain/seismic/sectionaxis.h"
@@ -41,6 +42,15 @@ void SeismicSectionDockWidget::resetInterpretationState() {
         m_attrPreviewTask.clear();
     }
     ++m_attrPreviewGen; // 迟到预览回调随世代跳号丢弃
+    // #371：在飞反演同属工程作用域——取消+世代跳号+面板复位，否则旧工程
+    // 产物会登记进新工程目录且面板永忙。
+    if (m_invTask) {
+        m_invTask->requestCancel();
+        m_invTask.clear();
+    }
+    ++m_invGeneration;
+    if (m_invPanel)
+        m_invPanel->setBusy(false);
     m_session = SeismicInterpretationSession{};
     if (m_undoStack)
         m_undoStack->clear();

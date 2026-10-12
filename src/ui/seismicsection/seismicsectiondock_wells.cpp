@@ -62,9 +62,12 @@ protected:
         QPolygonF wave;
         QPolygonF fill;
         bool fillOpen = false;
+        // #412：单样本 trace 时 size()-1==0 → 0/0=NaN 喂 drawPolyline；分母
+        // 取 max(1, n-1)，单点落在 y0。
+        const double span = std::max<std::size_t>(1, m_trace.size() - 1);
         for (std::size_t i = 0; i < m_trace.size(); ++i) {
             const float v = m_trace[i];
-            const double py = y0 + double(i) / double(m_trace.size() - 1) * (y1 - y0);
+            const double py = y0 + double(i) / span * (y1 - y0);
             const double amp = std::isfinite(v) ? std::clamp(double(v) / maxAbs, -1.0, 1.0) : 0.0;
             const double px = cx + amp * halfW;
             wave.append(QPointF(px, py));

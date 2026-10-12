@@ -246,7 +246,8 @@ private slots:
     QVERIFY2( wf.prepareAnalysisContourJob( QStringLiteral( "T1" ), QStringLiteral( "factor.T1.sandthick" ), 0.0,
                                             QVector<double>{ 2.0, 4.0 }, true, &job, &err ),
               qPrintable( err ) );
-    // #349 起 prepare 只记文件指纹（不在 GUI 线程算 sha），analysisSha 由 compute 在后台填入。
+    // #421：analysisSha 在 compute 阶段随指纹读取盖章（prepare 只钉 mtime/size
+    // 快照）——断言顺序对齐现行契约（#349 起 prepare 不在 GUI 线程算 sha）。
     QVERIFY2( wf.computeAnalysisContourJob( &job ), qPrintable( job.error ) );
     QCOMPARE( job.analysisSha, DataCatalog::sha256FileHex( rasterPath ) );
     QVERIFY( !job.analysisSha.isEmpty() );

@@ -54,8 +54,11 @@ class WellSectionFenceWidget : public QWidget
     void autoPlan(int targetSections);
     // 手工指定/整体替换：每条 = 有序井 id 集；空条目忽略；空集 → 清空。
     void setSections(const QVector<QStringList> &sections);
-    // 换工程重绑存储（壳层调用；落库目标跟随新 project.sqlite）。
-    void setStore(metadata::WellSectionStore *store);
+    // 换工程重绑存储（壳层调用；落库目标跟随新 project.sqlite）。well 节库
+    // 与断层库同源换绑——两指针原子更新，rebuild 时各节工作流取到新实例
+    //（旧实例随换工程被壳层释放，悬垂转发即 UAF）。
+    void setStore(metadata::WellSectionStore *store,
+                  FaultSetStore *faultStore);
     // 工程级剖面状态 + 视图同步（方向 69：深度域随工程落库 round-trip；
     // 方向 98：井间距同入剖面状态——域/间距随 fence-<n> 节落库并读回，
     // 旧库行缺 spacing 列回落主面板当前状态并标注。三处一致性）：应用到

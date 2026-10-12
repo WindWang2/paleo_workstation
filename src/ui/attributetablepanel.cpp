@@ -137,7 +137,9 @@ bool AttributeTablePanel::saveEditing()
     if (auto *dv = m_nativeDialog->dualView()) {
       if (auto *tv = dv->tableView())
         tv->closeCurrentEditor();
-      if (!dv->saveEditChanges() && !vl->isModified()) {
+      // saveEditChanges() 只有表单视图下才有 QgsAttributeForm 可存；
+      // 表格视图下恒返 false，不能用它当保存闸门。
+      if (dv->view() == QgsDualView::AttributeEditor && !dv->saveEditChanges()) {
         emit editRefused(tr("属性表：表单验证未通过"));
         return false;
       }

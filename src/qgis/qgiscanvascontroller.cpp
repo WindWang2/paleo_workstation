@@ -24,18 +24,8 @@
 // §41.3 SelectionContext debounce: the broadcast chain (map→well→seismic→map)
 // must not ping-pong. The header fixes m_broadcasting as the public in-flight
 // flag; nesting depth and the coalesce ("a re-broadcast is owed") bit are
-// implementation detail, kept here at file scope so the header stays untouched.
-// GUI-thread only, like every QObject service on the spine.
-namespace
-{
-  struct BroadcastGuard
-  {
-    int depth = 0;        // unmatched beginSelectionBroadcast() calls
-    bool pending = false; // a nested begin was swallowed → owe one coalesced re-broadcast
-  };
-  QHash<QgisCanvasController *, BroadcastGuard> s_guards;
-}
-
+// per-instance state (BroadcastGuard member in the header) — no shared global
+// table that could race across threads.
 QgisCanvasController::QgisCanvasController( QObject *parent )
   : QObject( parent )
 {
@@ -43,12 +33,17 @@ QgisCanvasController::QgisCanvasController( QObject *parent )
 
 QgisCanvasController::~QgisCanvasController()
 {
-  s_guards.remove( this );
+  // #419：先断 destroyed 挂钩再删——delete m_canvas 会重入该 lambda 再跑一遍
+  // delete m_bridge（成员尚活但顺序已不受控）；外部先死的场景仍由原 lambda
+  // 正常置空 m_canvas/删桥，只有自身析构路径断开。
+  if ( m_canvas )
+    QObject::disconnect( m_canvas, &QObject::destroyed, this, nullptr );
   delete m_bridge;      // references the canvas — die before it
-  m_bridge = nullptr;   // the destroyed() hook below re-runs on delete m_canvas
+  m_bridge = nullptr;
   // The canvas is created parentless; if it was embedded in a widget that died,
   // the destroyed() hook below already nulled m_canvas — no double delete.
   delete m_canvas;
+  m_canvas = nullptr;
 }
 
 QgsSnappingConfig QgisCanvasController::nativeSnappingConfig()
@@ -263,25 +258,23 @@ void QgisCanvasController::zoomToPoint( double x, double y )
 
 void QgisCanvasController::beginSelectionBroadcast()
 {
-  BroadcastGuard &g = s_guards[this];
   if ( m_broadcasting )
-    g.pending = true;    // echo arrived mid-broadcast → swallow it, owe one re-broadcast
+    m_guard.pending = true;    // echo arrived mid-broadcast → swallow it, owe one re-broadcast
   else
     m_broadcasting = true; // open the guarded window; callers check broadcasting()
-  ++g.depth;
+  ++m_guard.depth;
 }
 
 void QgisCanvasController::endSelectionBroadcast()
 {
-  auto it = s_guards.find( this );
-  if ( it == s_guards.end() || it->depth == 0 )
+  if ( m_guard.depth == 0 )
     return;                  // unmatched end — ignore, never wedges the flag
-  if ( --it->depth > 0 )
+  if ( --m_guard.depth > 0 )
     return;                  // inner end of a nested pair — outer still in flight
 
   m_broadcasting = false;    // settle first: the emit below is a fresh broadcast cycle
-  const bool oweBroadcast = it->pending;
-  s_guards.erase( it );
+  const bool oweBroadcast = m_guard.pending;
+  m_guard.pending = false;
   if ( oweBroadcast )
     emit selectionBroadcast( QStringList(), QStringLiteral( "coalesced" ) );
 }

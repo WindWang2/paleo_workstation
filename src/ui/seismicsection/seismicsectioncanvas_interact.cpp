@@ -103,30 +103,12 @@ void SeismicSectionCanvas::mouseReleaseEvent(QMouseEvent *event) {
             return;
         }
         m_faultDraft.clear();
-        // D2.11：左键原地点击（未拖动）→ 道拾取事件（道头卡/解释拾取入口）；
-        // wave/sections 的 updateHoverInfo(pos, clicked) 路径由此等价覆盖
+        // D2.11：左键原地点击（未拖动）→ 道拾取事件（道头卡/解释拾取入口）。
+        // 点击与 hover 共用同一取数函数：行号按点击像素解析（旧实现 TimeSlice
+        // 分支硬编码 sample 0，上报的是首行幅值而非点击行）。
         if (event->button() == Qt::LeftButton && !m_pressMoved && hasData() &&
             viewportRect().contains(event->pos()) && m_pickMode == SectionPickMode::None) {
-            const QPoint pos = event->pos();
-            if (m_orientation == SectionOrientation::TimeSlice) {
-                const double trace = pixelToTrace(pos.x());
-                const int colIdx = std::clamp(static_cast<int>(std::round(trace)), 0, m_traces - 1);
-                const double xlVal = m_xlineMin + (static_cast<double>(colIdx) / std::max(1, m_traces - 1)) * (m_xlineMax - m_xlineMin);
-                const double depth = m_tdModel.TwtMsToDepth(m_currentTimeMs);
-                emit traceClicked(colIdx, m_currentTimeMs, depth,
-                                  m_slice.Value(colIdx, 0), xlVal, pixelToInline(pos.y()));
-            } else {
-                const double twt = pixelToTime(pos.y());
-                const int traceIdx = std::clamp(static_cast<int>(std::round(pixelToTrace(pos.x()))), 0, m_traces - 1);
-                const int sampleIdx = std::clamp(static_cast<int>(std::round((twt - m_t0Ms) / m_dtMs)), 0, m_samples - 1);
-                double mapX = 0.0, mapY = 0.0;
-                if (traceIdx < static_cast<int>(m_mapCoords.size())) {
-                    mapX = m_mapCoords[traceIdx].x;
-                    mapY = m_mapCoords[traceIdx].y;
-                }
-                emit traceClicked(traceIdx, twt, m_tdModel.TwtMsToDepth(twt),
-                                  m_slice.Value(traceIdx, sampleIdx), mapX, mapY);
-            }
+            updateHoverInfo(event->pos(), /*clicked=*/true);
         }
     }
 }

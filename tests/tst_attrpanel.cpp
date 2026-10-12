@@ -173,6 +173,7 @@ private slots:
     panel.showLayer(QStringLiteral("wells"));
     QSignalSpy startedSpy(&panel, &AttributeTablePanel::editingStarted);
     QSignalSpy stoppedSpy(&panel, &AttributeTablePanel::editingStopped);
+    QSignalSpy refusedSpy(&panel, &AttributeTablePanel::editRefused);
 
     QVERIFY(panel.beginEditing());
     QCOMPARE(startedSpy.count(), 1);
@@ -187,7 +188,9 @@ private slots:
     QCOMPARE(vl->undoStack()->count(), 1);
     QCOMPARE(vl->getFeature(fid).attribute(0).toString(), QStringLiteral("W9"));
 
-    QVERIFY(panel.saveEditing());
+    QVERIFY2(panel.saveEditing(),
+             qPrintable(refusedSpy.isEmpty() ? QStringLiteral("no reason")
+                                           : refusedSpy.last().at(0).toString()));
     QCOMPARE(stoppedSpy.count(), 1);
     QCOMPARE(stoppedSpy.at(0).at(1).toBool(), true);
     QVERIFY(!vl->isEditable());
@@ -237,6 +240,12 @@ private slots:
     // attrEdit*Button；会话结束后以图层编辑态为准。
     QVERIFY(!panel.isEditing());
     QVERIFY(!vl->isEditable());
+
+    // 状态跟随：无会话时可重新进入编辑（面板层不再有独立按钮）。
+    QVERIFY(panel.beginEditing());
+    QVERIFY(vl->isEditable());
+    QVERIFY(panel.cancelEditing());
+    QCOMPARE(stoppedSpy.count(), 2);
 
     delete vl;
   }

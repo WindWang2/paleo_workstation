@@ -656,18 +656,51 @@ bool seed(DataCatalog *catalog, const QString &dir, QgisLayerService *layers,
                              {"base_md", iv.bottomDepth},
                              {"lithology", iv.lithoName},
                              {"lithology_pattern", iv.patternType}};
+  // #415：岩性、相两批 merge 各自提交——先备好两批并快照该井旧行，第二批
+  // 失败时回滚第一批已提交的井段，seed 不停在半更新态。
+  QString openErr;
+  auto *layer = open(catalog, dir, layers, Table::Intervals, true, &openErr);
+  QVariantList previous;
+  if (layer && layer->isValid()) {
+    auto it = layer->getFeatures();
+    QgsFeature f;
+    while (it.nextFeature(f))
+      if (f.attribute("well_id").toString() == wellId)
+        previous << attributes(f);
+  }
+  QVariantList faciesRows;
+  for (const auto &iv : data.faciesIntervals)
+    faciesRows << QVariantMap{{"well_id", wellId},
+                              {"top_md", iv.topDepth},
+                              {"base_md", iv.bottomDepth},
+                              {"facies", iv.majorFacies},
+                              {"sub_facies", iv.subFacies},
+                              {"micro_facies", iv.microFacies},
+                              {"facies_pattern", iv.patternType}};
   if (!mergeIntervals(catalog, dir, layers, intervals, error, true))
     return false;
-  intervals.clear();
-  for (const auto &iv : data.faciesIntervals)
-    intervals << QVariantMap{{"well_id", wellId},
-                             {"top_md", iv.topDepth},
-                             {"base_md", iv.bottomDepth},
-                             {"facies", iv.majorFacies},
-                             {"sub_facies", iv.subFacies},
-                             {"micro_facies", iv.microFacies},
-                             {"facies_pattern", iv.patternType}};
-  return mergeIntervals(catalog, dir, layers, intervals, error, true);
+  if (mergeIntervals(catalog, dir, layers, faciesRows, error, true))
+    return true;
+  if (layer && layer->isValid() && !layer->isEditable() &&
+      layer->startEditing()) {
+    QgsFeatureIds doomed;
+    auto it = layer->getFeatures();
+    QgsFeature f;
+    while (it.nextFeature(f))
+      if (f.attribute("well_id").toString() == wellId)
+        doomed.insert(f.id());
+    bool ok = doomed.isEmpty() || layer->deleteFeatures(doomed);
+    if (ok)
+      for (const auto &v : previous) {
+        auto next = featureFor(layer, catalog, v.toMap());
+        ok = layer->addFeature(next) && ok;
+      }
+    if (ok)
+      layer->commitChanges();
+    else
+      layer->rollBack();
+  }
+  return false;
 }
 void apply(const QVariantList &intervals,
            WellComposite::ComprehensiveWellData *data) {

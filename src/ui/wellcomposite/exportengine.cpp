@@ -45,16 +45,20 @@ class CurvePenGuard
 public:
   explicit CurvePenGuard(const QList<std::shared_ptr<WellTrack>> &tracks) : m_tracks(tracks)
   {
+    // 按 track 保存快照——扁平数组恢复时第二个 track 会错读到第一个 track 的线宽
     for (const auto &t : tracks)
     {
       if (auto ct = std::dynamic_pointer_cast<CurveTrack>(t))
       {
         QVector<CurveData> cs = ct->curves();
+        QVector<float> snapshot;
+        snapshot.reserve(cs.size());
         for (auto &c : cs)
         {
-          m_saved.append(c.penWidth);
+          snapshot.append(c.penWidth);
           c.penWidth = c.penWidth + 1.0f;
         }
+        m_saved.insert(ct.get(), snapshot);
         ct->setCurves(cs);
       }
     }
@@ -65,13 +69,12 @@ public:
     {
       if (auto ct = std::dynamic_pointer_cast<CurveTrack>(t))
       {
+        auto it = m_saved.constFind(ct.get());
+        if (it == m_saved.constEnd())
+          continue;
         QVector<CurveData> cs = ct->curves();
-        int i = 0;
-        for (auto &c : cs)
-        {
-          if (i < m_saved.size())
-            c.penWidth = m_saved.at(i++);
-        }
+        for (int i = 0; i < cs.size() && i < it.value().size(); ++i)
+          cs[i].penWidth = it.value().at(i);
         ct->setCurves(cs);
       }
     }
@@ -79,7 +82,7 @@ public:
 
 private:
   QList<std::shared_ptr<WellTrack>> m_tracks;
-  QVector<float> m_saved;
+  QHash<CurveTrack *, QVector<float>> m_saved;
 };
 
 } // namespace

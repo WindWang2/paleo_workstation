@@ -251,6 +251,15 @@ bool DataCatalog::updateVersionExtra(const QString &versionId, const QVariantMap
     setError(error, QStringLiteral("cannot update extra of an empty version id"));
     return false;
   }
+  // 保留字口径与单键重载一致：'#' 是 #history/#source 审计命名空间的分隔
+  // 符——批量合并通道绕过校验会静默污染审计面（或伪造成 history 条目）。
+  for (auto it = extra.cbegin(); it != extra.cend(); ++it)
+    if (it.key().isEmpty() || it.key().contains(QLatin1Char('#')))
+    {
+      setError(error, QStringLiteral("extra key 不能为空、不能含 '#'（#history/#source 是审计保留字）: %1")
+                               .arg(it.key()));
+      return false;
+    }
   const int row = m_idx.versionRow(versionId);
   if (row < 0 || row >= m_versions.size())
   {

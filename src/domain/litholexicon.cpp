@@ -82,8 +82,12 @@ MatchType LithoLexicon::parseMatchType(const QString &str)
 
 LithoLexicon LithoLexicon::defaultLexicon()
 {
-  LithoLexicon lex;
-  lex.setName(QStringLiteral("default"));
+  // 只构造一次（函数级 static + COW 拷贝）：fromProject 每次都以默认词表
+  // 打底（井因素表等热路径此前每口井重建一遍 30 条 addRule）。规则表是
+  // 不可变 QVector——跨线程拷贝共享安全，改动自有副本即 detach。
+  static const LithoLexicon built = [] {
+    LithoLexicon lex;
+    lex.setName(QStringLiteral("default"));
 
   // 1. 歧义复合词（优先级 100）：主要岩性由词尾定名决定
   lex.addRule({QStringLiteral("粉砂质泥岩"), MatchType::Contains, LithoGroup::Mud, 100});
@@ -115,7 +119,9 @@ LithoLexicon LithoLexicon::defaultLexicon()
   lex.addRule({QStringLiteral("砾岩"), MatchType::Contains, LithoGroup::Conglomerate, 40});
   lex.addRule({QStringLiteral("conglomerate"), MatchType::Contains, LithoGroup::Conglomerate, 40});
 
-  return lex;
+    return lex;
+  }();
+  return built;
 }
 
 LithoClassification LithoLexicon::classify(const QString &rawLitho) const

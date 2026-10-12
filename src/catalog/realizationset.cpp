@@ -150,8 +150,15 @@ QVector<StatisticSurface> statSurfaces( const DataCatalog &catalog,
     s.memberCount = v.extra.value( kKeyMemberCount ).toInt();
     out.append( s );
   }
+  // 排序前预取 versionNumber：比较器里逐次 versionById 是哈希查 + 整个
+  // CatalogVersion（含 QVariantMap extra）按值返回——O(n log n) 次比较 ×2 次
+  // 深拷贝。预取一遍后比较器只做 int 比较，全序不变。
+  QHash<QString, int> versionNumberOf;
+  versionNumberOf.reserve( out.size() * 2 );
+  for ( const StatisticSurface &s : out )
+    versionNumberOf.insert( s.versionId, catalog.versionById( s.versionId ).versionNumber );
   std::sort( out.begin(), out.end(),
-             [&catalog]( const StatisticSurface &a, const StatisticSurface &b ) {
+             [&versionNumberOf]( const StatisticSurface &a, const StatisticSurface &b ) {
                const int ra = tokenRank( a.token );
                const int rb = tokenRank( b.token );
                if ( ra != rb )
@@ -159,8 +166,8 @@ QVector<StatisticSurface> statSurfaces( const DataCatalog &catalog,
                if ( a.token != b.token )
                  return a.token < b.token;
                // 同 token 多条（重派生）→ versionNumber 高者在前（最新派生）。
-               return catalog.versionById( a.versionId ).versionNumber >
-                      catalog.versionById( b.versionId ).versionNumber;
+               return versionNumberOf.value( a.versionId, 0 ) >
+                      versionNumberOf.value( b.versionId, 0 );
              } );
   return out;
 }

@@ -500,7 +500,11 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
     connect(constraintPage, &ConstraintPage::constraintDeleteRequested, this,
             [this, constraint, constraintPage, beginConstraintEdit](const QString &horizon, const QString &id) {
               if (!beginConstraintEdit(horizon))
+              {
+                if (auto *status = constraintPage->findChild<QLabel *>(QStringLiteral("statusLabel")))
+                  status->setText(tr("约束编辑不可用，请检查编辑会话与资产状态"));
                 return;
+              }
               QString err;
               if (!constraint->removeConstraint(id, &err))
               {
@@ -525,9 +529,13 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
             });
     // 语义切换：走 updateConstraintLine 同一持久化通道（type 列 + params_json）。
     connect(constraintPage, &ConstraintPage::constraintSemanticChangeRequested, this,
-            [constraint, beginConstraintEdit](const QString &horizon, const QString &id, const QString &semantic) {
+            [this, constraint, constraintPage, beginConstraintEdit](const QString &horizon, const QString &id, const QString &semantic) {
               if (!beginConstraintEdit(horizon))
+              {
+                if (auto *status = constraintPage->findChild<QLabel *>(QStringLiteral("statusLabel")))
+                  status->setText(tr("约束编辑不可用，请检查编辑会话与资产状态"));
                 return;
+              }
               QString err;
               if (!constraint->switchConstraintSemantic(id, semantic, &err))
                 QgsMessageLog::logMessage(err.isEmpty() ? tr("切换约束语义失败") : err,
@@ -540,7 +548,11 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
       auto *layer = beginConstraintEdit(horizon);
       auto *toolbar = findChild<PaleoEditingToolbar *>(QStringLiteral("editingToolbar"));
       if (!layer || !toolbar)
+      {
+        if (auto *status = constraintPage->findChild<QLabel *>(QStringLiteral("statusLabel")))
+          status->setText(tr("约束编辑不可用，请检查编辑会话与资产状态"));
         return;
+      }
       if (layer->selectedFeatureCount() == 0)
         layer->selectAll();
       toolbar->actionVertexEdit()->trigger();

@@ -72,9 +72,12 @@ ValidatePage::ValidatePage(ValidationWorkflow *wf, QWidget *parent)
       return;
     run->setEnabled(false);
     run->setText(tr("正在验证…"));
+    // §35：禁用必须带原因 tooltip（同 predictpage busy 先例）。
+    run->setToolTip(tr("验证正在运行——完成后自动恢复"));
     if (!workflow->startValidation()) {
       run->setEnabled(true);
       run->setText(tr("运行验证"));
+      run->setToolTip(QString());
     }
   });
 
@@ -85,6 +88,7 @@ ValidatePage::ValidatePage(ValidationWorkflow *wf, QWidget *parent)
                 populateResult();
               run->setEnabled(true);
               run->setText(tr("运行验证"));
+              run->setToolTip(QString());
               if (!completed)
                 if (auto *status = child<QLabel>(this, "statusLabel"))
                   status->setText(tr("验证已取消或工程数据已变化，请重新运行"));
@@ -306,6 +310,32 @@ void ValidatePage::populateResult() {
                            .toDouble();
     resSummary->setText(tr("%1 口超过 %2 ms").arg(nExceed).arg(thr, 0, 'f', 0));
   }
+}
+
+void ValidatePage::clearResults()
+{
+  // 工程边界清空（projectAboutToClose）：收回上一工程的问题表/残差表/
+  // 剖面导航 armed 载荷/摘要文案。armed 载荷残留会让「在数据页看这条
+  // 剖面」带着旧工程坐标在新工程里跳转；摘要残留会冒充新工程的残差状态。
+  auto *section = child<QPushButton>(this, "openSeismicSectionButton");
+  if (section)
+  {
+    section->setEnabled(false);
+    section->setProperty("armedPayload", QVariantMap());
+    section->setText(tr("在数据页看这条剖面"));
+    section->setToolTip(tr("先在问题表或残差表中选一条含剖面位置的行"));
+  }
+  if (auto *issues = child<QTableWidget>(this, "issueTable"))
+  {
+    issues->clearSpans();
+    issues->setRowCount(0);
+  }
+  if (auto *residuals = child<QTableWidget>(this, "residualTable"))
+    residuals->setRowCount(0);
+  if (auto *status = child<QLabel>(this, "statusLabel"))
+    status->clear();
+  if (auto *summary = child<QLabel>(this, "residualSummaryLabel"))
+    summary->setText(tr("还没有计算 %1 残差").arg(PreviewDocService::targetHorizon()));
 }
 
 void ValidatePage::fillResidualTable(QTableWidget *resTable, const QVariantList &rows)

@@ -596,6 +596,9 @@ add_library(paleo_workflow STATIC
   src/workflow/xmlpreviewsession.cpp
   src/workflow/stratigraphicwebsession.cpp
   src/workflow/mappingworkbench.cpp
+  src/workflow/mappingworkbench_predict.cpp       # 预测管线（predict/finish/任务行）——core-deepening A-R2 拆分
+  src/workflow/mappingworkbench_edit.cpp          # 编辑副本/资产移除/约束导入——core-deepening A-R2 拆分
+  src/workflow/mappingworkbench_compose.cpp       # 融合合成管线——core-deepening A-R2 拆分
   src/workflow/mappingworkbench_polygonize.cpp     # 相栅格转面：同步 + 后台任务（facies-ux 1）
   src/workflow/mappingworkbench_consistency.cpp   # 地震相×测井相一致性报告（facies-ux 4）
   src/workflow/evidencerecord.cpp                 # 证据链组装（facies-ux 5）
@@ -781,7 +784,7 @@ target_link_libraries(paleo_ui PUBLIC paleo_deps paleo_ui_deps paleo_qgis paleo_
   paleo_store paleo_linkage paleo_domain paleo_io paleo_ai paleo_saribbon paleo_sbm paleo_qgis_attribute_table)
 
 # ---- 组装根 ----
-add_library(paleo_app STATIC src/app/appcontext.cpp src/app/onnxwiring.cpp) # onnxwiring：模型注册表装配（方向83 装配根瘦身）
+add_library(paleo_app STATIC src/app/appcontext.cpp src/app/appcontext_layers.cpp src/app/onnxwiring.cpp)  # appcontext_layers：图层刷新簇析出（core-deepening A-R2）；onnxwiring：模型注册表装配（方向83 装配根瘦身）
 target_link_libraries(paleo_app PUBLIC paleo_ui paleo_workflow paleo_linkage paleo_services
   paleo_io paleo_qgis paleo_store paleo_domain paleo_ai)
 

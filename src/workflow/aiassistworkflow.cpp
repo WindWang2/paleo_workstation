@@ -208,17 +208,6 @@ bool suggestTrack( PaleoOnnxService *onnx, const QString &model,
 #endif
 }
 
-// 模型文件字节指纹（provenance 用）：加载失败/无 ORT 时返回空串——
-// 调用方如实写入空值，不伪造。
-QString modelSha256For( PaleoOnnxService *onnx, const QString &model )
-{
-  if ( !onnx )
-    return QString();
-  OnnxModelMeta meta;
-  if ( onnx->loadModelMeta( model, &meta, nullptr ) != OnnxLoadStatus::Ok )
-    return QString();
-  return meta.sha256;
-}
 } // namespace
 
 AiAssistWorkflow::AiAssistWorkflow( QgisLayerService *layers, QObject *parent )
@@ -278,7 +267,7 @@ bool AiAssistWorkflow::classifyTiles( const QString &horizon, const QString &mod
     return fail( runErr );
 
   if ( !writeTileProducts( horizon, model, result, tileRows, tileCols, halo,
-                           modelSha256For( m_onnx, model ), lowConfidenceThreshold, error ) )
+                           result.modelSha256, lowConfidenceThreshold, error ) )
     return fail( error && !error->isEmpty() ? *error : tr( "产品写盘失败" ) );
 
   emit tileClassificationDone( horizon, m_lastProductLayerIds );
@@ -555,7 +544,7 @@ PaleoTask *AiAssistWorkflow::startClassification( const QString &horizon, const 
       QString err;
       const bool ok =
           self && self->writeTileProducts( horizon, model, *result, tileRows, tileCols, halo,
-                                           modelSha256For( self->m_onnx, model ),
+                                           result->modelSha256,
                                            lowConfidenceThreshold, &err );
       if ( ok )
         emit self->tileClassificationDone( horizon, self->m_lastProductLayerIds );

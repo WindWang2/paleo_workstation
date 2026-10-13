@@ -992,9 +992,7 @@ namespace
       double amp = 0.0;
       for (std::size_t k = 0; k < rcTwt.size(); ++k)
       {
-        const double tau = t - rcTwt[k]; // 褶积：子波平移到反射点
-        const double a = pi2 * f2 * tau * tau / 1e6; // ms² → s² 折算在分子
-        (void)a;
+        const double tau = t - rcTwt[k]; // 褶积：子波平移到反射点（ms→s 折算在 arg）
         const double arg = pi2 * f2 * (tau / 1000.0) * (tau / 1000.0);
         amp += double(rc[k]) * (1.0 - 2.0 * arg) * std::exp(-arg);
       }

@@ -224,8 +224,10 @@ void SeismicSectionDockWidget::computeSyntheticOverlays() {
             continue;
         }
         // #125：合成记录与反演/子波同口径——消费该井曲线自带的逐井时间轴
-        // （SectionWorkbench 按井时深表/平移算好），不用画布全局常速模型重算；
-        // 逐井时深无效时如实拒绝，不回退默认速度伪造等效深度。
+        // （SectionWorkbench 按井时深表/平移算好），不用画布全局常速模型重算。
+        // 该井无时深表时其 twtMs 为「常速近似+alignmentStatus 标注」的上游
+        // 口径（与轨迹/分层显示一致）；本层仅对时深对无效（不足 2 点/无有限
+        // 样）如实拒绝，不做二次伪造。
         std::vector<std::pair<double, double>> pairs;
         paleo::inv::appendTimeDepthPairs(ac->depthsM, ac->twtMs, &pairs);
         paleo::inv::appendTimeDepthPairs(den->depthsM, den->twtMs, &pairs);

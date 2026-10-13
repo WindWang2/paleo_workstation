@@ -481,66 +481,24 @@ void TestUiBlocking::topologyRebuildIsOffTheUiThread()
   paleo::dataops::EntityOverrideStore overrides;
   paleo::dataops::TopologyGraph graph;
 
+  // #424 起侧栏拓扑是有界的一层关联（各最多 64 项，全工区图交给后台资料
+  // 图谱），O(L×(N+M)) 全量重建在结构上不再发生。探针改钉这条有界契约：
+  // 无焦点不建全工区 GUI 项；聚焦单资产只画其一层关联，与工区规模无关。
+  graph.loadTopology(raw, overrides);
+  QCOMPARE(graph.nodeCount(), 0);
+
   QElapsedTimer clock;
   clock.start();
-  graph.loadTopology(raw, overrides);
+  graph.loadTopology(raw, overrides, QString(), QStringLiteral("A0"));
   const double rebuildMs = double(clock.nsecsElapsed()) / 1.0e6;
-  QCOMPARE(graph.nodeCount(), n * 2); // 实体 + 资产各一个节点
-
-  // 全部链接端点必须解析得到（链接夹具 E_i↔A_i 一一对应，端点命中数 = 2n）。
-  const QVector<EntityAssetLink> links = raw->links();
-  QCOMPARE(links.size(), n);
-
-  // A 侧（索引查找，现行实现）：nodeById 全链接端点解析一遍。
-  clock.start();
-  int hitsIndexed = 0;
-  for (const EntityAssetLink &l : links)
-  {
-    if (graph.nodeById(l.entityId, true))
-      ++hitsIndexed;
-    if (graph.nodeById(l.assetId, false))
-      ++hitsIndexed;
-  }
-  const double indexedMs = double(clock.nsecsElapsed()) / 1.0e6;
-
-  // B 侧（线性扫等价参考）：重现旧 nodeById 的逐节点比对——对同一批查询，
-  // 各自在对应 id 列表里线性找。这里按种类分列扫描（实体查实体列、资产查
-  // 资产列），比旧实现对全节点向量混扫还略乐观——门只会更保守（更难过）。
-  const QVector<CatalogEntity> ents = raw->entities();
-  const QVector<CatalogAsset> assets = raw->assets();
-  clock.start();
-  int hitsLinear = 0;
-  for (const EntityAssetLink &l : links)
-  {
-    for (const CatalogEntity &e : ents)
-      if (e.id == l.entityId)
-      {
-        ++hitsLinear;
-        break;
-      }
-    for (const CatalogAsset &a : assets)
-      if (a.id == l.assetId)
-      {
-        ++hitsLinear;
-        break;
-      }
-  }
-  const double linearMs = double(clock.nsecsElapsed()) / 1.0e6;
-
-  qInfo("拓扑重建（n=%d）：rebuild=%.1fms；端点解析 索引=%.2fms 线性参考=%.1fms"
-        "（比率 %.3f）",
-        n, rebuildMs, indexedMs, linearMs,
-        linearMs > 0 ? indexedMs / linearMs : -1.0);
-
-  QCOMPARE(hitsIndexed, n * 2);
-  QCOMPARE(hitsLinear, n * 2);
-  QVERIFY2(indexedMs < 0.5 * linearMs,
-           qPrintable(QStringLiteral(
-                          "链接端点解析 索引 %1ms ≥ 0.5×线性参考 %2ms——"
-                          "nodeById 疑似回退裸线性扫（O(L×(N+M))，开元数据页"
-                          "同步占 UI 线程）")
-                          .arg(indexedMs, 0, 'f', 2)
-                          .arg(linearMs, 0, 'f', 1)));
+  qInfo("拓扑重建（工区 n=%d，聚焦 A0）：%.2fms，节点 %d", n, rebuildMs, graph.nodeCount());
+  QCOMPARE(graph.nodeCount(), 2); // A0 + 其关联实体 E0
+  const QVector<EntityAssetLink> links = raw->linksForAsset(QStringLiteral("A0"));
+  QCOMPARE(links.size(), 1);
+  QVERIFY(graph.nodeById(links.first().entityId, true));
+  QVERIFY(graph.nodeById(links.first().assetId, false));
+  QVERIFY2(rebuildMs < 50.0, qPrintable(QStringLiteral("有界拓扑重建 %1ms ≥ 50ms——疑似回退全工区扫描")
+                                            .arg(rebuildMs, 0, 'f', 2)));
 }
 
 // ---- 探针 2：批量软删是否逐项重写 -----------------------------------------
@@ -674,9 +632,10 @@ void TestUiBlocking::metadataOpenDoesNotRebuildTopologyInline()
   qInfo("开元数据页（n=%d）耗时 %.1fms，拓扑节点 %d", n, openMs, graph->nodeCount());
 
   QVERIFY(graph->nodeCount() > 0); // 拓扑确实建起来了（否则这条探针没意义）
-  QVERIFY2(graph->nodeCount() == n * 2,
-           qPrintable(QStringLiteral("拓扑应含 %1 节点（实体+资产），实际 %2——夹具未对齐")
-                          .arg(n * 2)
+  // #424：侧栏拓扑只画当前资产的一层关联（A0 + E0），不随工区规模膨胀。
+  QVERIFY2(graph->nodeCount() == 2,
+           qPrintable(QStringLiteral("拓扑应含 %1 节点（当前资产+关联实体），实际 %2——夹具未对齐")
+                          .arg(2)
                           .arg(graph->nodeCount())));
   QVERIFY2(openMs < 400.0,
            qPrintable(QStringLiteral(

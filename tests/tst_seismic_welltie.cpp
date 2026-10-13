@@ -210,6 +210,49 @@ private slots:
             960.0 + 200.0); // 只在浅表内褶积（含 ±100ms 子波肩）
   }
 
+  // O5 基准：同一输入下 TimeDepthModel 重载与逐井时深对重载数值等价
+  // （表恰为该常速模型的解析表）+ 耗时观测（只记录，不设硬阈值——机器噪声
+  // 跨机不可比）。重构核 syntheticCore 与旧实现逐行搬移，此断言钉住两入口
+  // 在浮点求值序上的一致性。
+  void syntheticSeismogramOverloadsAgree()
+  {
+    const int n = 20000;
+    std::vector<double> depths(n);
+    std::vector<float> ac(n), den(n);
+    for (int i = 0; i < n; ++i)
+    {
+      depths[i] = 1000.0 + i;
+      ac[i] = 240.0f + 20.0f * std::sin(i / 97.0);   // 变化声波 → 密集反射
+      den[i] = 2.3f + 0.1f * std::cos(i / 131.0);
+    }
+    const TimeDepthModel td(2500.0);
+    std::vector<double> tdD(n), tdT(n);
+    for (int i = 0; i < n; ++i)
+    {
+      tdD[i] = depths[i];
+      tdT[i] = 2.0 * depths[i] / 2500.0 * 1000.0; // 与常速模型一致的解析表
+    }
+    QElapsedTimer clock;
+    clock.start();
+    const auto viaModel = SeismicTaskService::computeSyntheticSeismogram(
+        depths, ac, depths, den, td, 25.0);
+    const qint64 modelMs = clock.elapsed();
+    clock.restart();
+    const auto viaTable = SeismicTaskService::computeSyntheticSeismogram(
+        depths, ac, depths, den, tdD, tdT, 25.0);
+    const qint64 tableMs = clock.elapsed();
+    QVERIFY2(viaModel.ok && viaTable.ok,
+             qPrintable(viaModel.reason + viaTable.reason));
+    QCOMPARE(viaModel.twtMs.size(), viaTable.twtMs.size());
+    double maxAbs = 0.0;
+    for (std::size_t i = 0; i < viaModel.amplitude.size(); ++i)
+      maxAbs = std::max(maxAbs,
+                        std::abs(double(viaModel.amplitude[i]) - double(viaTable.amplitude[i])));
+    QVERIFY2(maxAbs < 1e-5, qPrintable(QStringLiteral("maxAbs=%1").arg(maxAbs)));
+    qInfo("BASELINE synthetic_overload_agreement max_abs=%g samples=%lld model_ms=%lld table_ms=%lld",
+          maxAbs, (long long)viaModel.amplitude.size(), modelMs, tableMs);
+  }
+
   // ---- D5.2 任意线提取缓存：同路径第二次命中 ----
   void sectionCacheHit()
   {

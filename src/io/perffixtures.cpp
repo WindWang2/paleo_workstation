@@ -273,6 +273,62 @@ bool makeSyntheticCatalogDir(const QString &dir, int nAssets, QString *error)
   return populateSyntheticCatalog(&catalog, nAssets, error);
 }
 
+bool populateSyntheticDerivedCatalog(DataCatalog *catalog, int nAssets,
+                                     QString *error)
+{
+  // 资料图谱规模夹具：在扁平 RAW 目录之上补真实血缘形状——
+  // 每资产 1 个 DERIVED v2（parent=RAW v1，带 paleo_evidence_v1 证据），
+  // 每 10 个资产再链 1 个 v3（parent=v2）。行进式确定性，无随机。
+  if (!populateSyntheticCatalog(catalog, nAssets, error))
+    return false;
+  DataCatalog::BatchSave batch(catalog);
+  for (int i = 0; i < nAssets; ++i)
+  {
+    const QString assetId = QStringLiteral("ast-%1").arg(i + 1);
+    CatalogVersion v2;
+    v2.id = QStringLiteral("dver-%1").arg(i + 1);
+    v2.assetId = assetId;
+    v2.stage = QStringLiteral("DERIVED");
+    v2.versionNumber = 2;
+    v2.managed = true;
+    v2.fileName = QStringLiteral("synth_%1.derived.dat").arg(i + 1);
+    v2.path = DataCatalog::managedPath(QStringLiteral("DERIVED"), assetId,
+                                       v2.id, v2.fileName);
+    v2.parentVersionIds = QStringList{QStringLiteral("ver-%1").arg(i + 1)};
+    QVariantMap evidence;
+    evidence.insert(QStringLiteral("schema"),
+                    QStringLiteral("paleo_evidence_v1"));
+    evidence.insert(QStringLiteral("model"),
+                    QVariantMap{{"method", QStringLiteral("synthetic_benchmark")}});
+    evidence.insert(QStringLiteral("inputs"),
+                    QVariantList{QVariantMap{
+                        {"version_id", QStringLiteral("ver-%1").arg(i + 1)},
+                        {"role", QStringLiteral("source")}}});
+    v2.extra.insert(QStringLiteral("evidence"), evidence);
+    if (v2.path.isEmpty() || !catalog->addVersion(v2, error))
+      return false;
+    if (i % 10 == 0)
+    {
+      CatalogVersion v3;
+      v3.id = QStringLiteral("dver3-%1").arg(i + 1);
+      v3.assetId = assetId;
+      v3.stage = QStringLiteral("DERIVED");
+      v3.versionNumber = 3;
+      v3.managed = true;
+      v3.fileName = QStringLiteral("synth_%1.merged.dat").arg(i + 1);
+      v3.path = DataCatalog::managedPath(QStringLiteral("DERIVED"), assetId,
+                                         v3.id, v3.fileName);
+      // 枢纽形状：dver-1 被同批每 10 个资产的 v3 引用为第二父版本——
+      // 模拟“一份 RAW 喂出大量派生成果”的真实星型血缘。
+      v3.parentVersionIds = QStringList{v2.id, QStringLiteral("dver-1")};
+      v3.parentVersionIds.removeDuplicates();
+      if (v3.path.isEmpty() || !catalog->addVersion(v3, error))
+        return false;
+    }
+  }
+  return batch.flush(error);
+}
+
 bool makeSyntheticWellFiles(const QString &dir, int wellCount, QString *error)
 {
   if (!QDir().mkpath(dir))

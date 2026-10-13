@@ -1418,6 +1418,7 @@ set(_paleo_extra_manifest
   "${CMAKE_SOURCE_DIR}/cmake/extra-catalog-sqlite.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-crossplot-facies.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-data.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-data-asset-deepening.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-deepen-a.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-deepen-b.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-deepen-c.cmake"

@@ -30,6 +30,11 @@ namespace PerfFixtures
   // 用 BatchSave 一次性落盘。
   bool populateSyntheticCatalog(DataCatalog *catalog, int nAssets, QString *error = nullptr);
 
+  // 血缘形状版：在 populateSyntheticCatalog 之上，每资产补 DERIVED v2
+  //（parent=RAW v1，带 paleo_evidence_v1 证据），每 10 资产再链 v3。
+  // 资料图谱（datagraph）规模基准用。
+  bool populateSyntheticDerivedCatalog(DataCatalog *catalog, int nAssets, QString *error = nullptr);
+
   // 一步到位：建 <dir> 工程目录 + 打开 catalog + 灌 nAssets + 关闭。
   bool makeSyntheticCatalogDir(const QString &dir, int nAssets, QString *error = nullptr);
 

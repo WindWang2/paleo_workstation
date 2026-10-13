@@ -96,8 +96,11 @@ void DataGraphWorkflow::launch() {
   if (m_catalog->catalogPath() != m_cachePath ||
       m_catalog->mutationSeq() != m_cacheSequence)
     m_graphCache.clear();
-  for (const auto &entry : m_graphCache)
-    if (entry.first == m_query) {
+  for (int i = 0; i < m_graphCache.size(); ++i)
+    if (m_graphCache[i].first == m_query) {
+      // LRU：命中条目移到尾部，淘汰始终从最久未用的一端发生。
+      const auto entry = m_graphCache.takeAt(i);
+      m_graphCache.append(entry);
       emit ready(entry.second);
       emit statusChanged(tr("图谱就绪（复用当前目录缓存）"), false);
       return;
@@ -183,10 +186,12 @@ void DataGraphWorkflow::exportGraph(const paleo::datagraph::Graph &graph,
     return;
   auto *service = m_tasks ? m_tasks.data() : m_fallback;
   const QString catalogPath = m_catalog->catalogPath();
-  const QString focus = m_query.focus;
-  const auto query = m_query;
+  // 元数据与图内容同源：导出描述的是产出该 Graph 的查询，而不是工作流
+  // 当前待算的新查询（180ms 合并窗口内两者可能不同）。
+  const QString focus = graph.query.focus;
+  const auto query = graph.query;
   const quint64 session = service->session();
-  const quint64 generation = m_generation;
+  const QPointer<DataCatalog> owner = m_catalog;
   auto *task =
       service->start(tr("导出资料图谱与生成证据"), [graph, path, catalogPath,
                                                     query](PaleoTask *task) {
@@ -196,6 +201,8 @@ void DataGraphWorkflow::exportGraph(const paleo::datagraph::Graph &graph,
         const QStringList relations{"linked",   "has_version", "derived",
                                     "used",     "generated",   "edit_baseline",
                                     "rollback", "grouped"};
+        const QStringList modes{"overview", "relations", "lineage",
+                                "entities"};
         QVariantList nodes, edges;
         for (const auto &n : graph.nodes) {
           if (task->cancelRequested())
@@ -237,7 +244,7 @@ void DataGraphWorkflow::exportGraph(const paleo::datagraph::Graph &graph,
              QDateTime::currentDateTimeUtc().toString(Qt::ISODate)},
             {"scope", QStringLiteral("visible_subgraph")},
             {"query", QVariantMap{{"focus", query.focus},
-                                  {"mode", int(query.mode)},
+                                  {"mode", modes.value(int(query.mode))},
                                   {"category", query.category},
                                   {"stage", query.stage},
                                   {"search", query.search},
@@ -283,10 +290,12 @@ void DataGraphWorkflow::exportGraph(const paleo::datagraph::Graph &graph,
   m_exports.append(task);
   connect(task, &PaleoTask::finished, this,
           [this, task = QPointer<PaleoTask>(task),
-           service = QPointer<PaleoTaskService>(service), session, generation,
+           service = QPointer<PaleoTaskService>(service), session, owner,
            path] {
+            // 回执只在工作流仍属于导出发起时的目录上下文时投递：
+            // 新查询不吞导出回执，换工区（owner 已换/亡）才丢弃。
             if (!task || !service || session != service->session() ||
-                generation != m_generation)
+                !owner || owner != m_catalog)
               return;
             emit exportFinished(
                 path, task->state() == PaleoTask::State::Succeeded ? QString()

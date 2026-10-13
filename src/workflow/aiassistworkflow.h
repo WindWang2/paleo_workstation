@@ -109,7 +109,8 @@ class AiAssistWorkflow : public QObject
       bool accepted = false;
     };
     bool writeTileProducts( const QString &horizon, const QString &model,
-                            const TileInferenceResult &result,
+                            const TileInferenceResult &result, int tileRows, int tileCols,
+                            int halo, const QString &modelSha256,
                             double lowConfidenceThreshold, QString *error );
 
     QgisLayerService *m_layers = nullptr;

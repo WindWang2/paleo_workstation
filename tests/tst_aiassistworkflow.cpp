@@ -269,6 +269,25 @@ void TestAiAssistWorkflow::classifyTilesProducesThreeProducts()
   }
   QVERIFY2( nodata >= 3 * 12, "NaN 像素在三件产品里都被处理为 nodata" );
   QVERIFY2( maskedLowConf > 0, "低置信区像素被掩膜处理（阈值 0.35 下确有格点）" );
+
+  // 可复现性：产品 provenance 记录切片形状/halo 与模型字节指纹——同模型名
+  // 不同切片参数（tile 形状/halo）或不同模型字节的产出可区分。
+  {
+    const LayerDeclaration *d = findDecl( f.layers, ids.first() );
+    QVERIFY( d != nullptr );
+    GDALAllRegister();
+    GDALDatasetH ds = GDALOpen( d->source.toUtf8().constData(), GA_ReadOnly );
+    QVERIFY2( ds != nullptr, qPrintable( d->source ) );
+    const char *prov = GDALGetMetadataItem( ds, "PALEO_PROVENANCE", nullptr );
+    QVERIFY2( prov != nullptr, "no PALEO_PROVENANCE metadata" );
+    const QJsonObject json = QJsonDocument::fromJson( QByteArray( prov ) ).object();
+    QCOMPARE( json.value( QStringLiteral( "tile_rows" ) ).toInt(), 20 );
+    QCOMPARE( json.value( QStringLiteral( "tile_cols" ) ).toInt(), 20 );
+    QCOMPARE( json.value( QStringLiteral( "halo" ) ).toInt(), 5 );
+    QVERIFY2( !json.value( QStringLiteral( "model_sha256" ) ).toString().isEmpty(),
+              "model byte fingerprint recorded" );
+    GDALClose( ds );
+  }
 }
 
 void TestAiAssistWorkflow::classificationFailureIsHonestAndWritesNothing()

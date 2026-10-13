@@ -9,6 +9,7 @@
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QTemporaryDir>
+#include <QThreadPool>
 #include <QtConcurrent>
 #include <array>
 #include <atomic>
@@ -196,10 +197,20 @@ void CacheAsyncTests::coalescedConcurrentLasLoad()
     parses.fetch_add(1);
     QThread::msleep(80);
   });
-  // 6 个线程同时冷加载（清内存后）。
+  // 6 个线程同时冷加载（清内存后）。用独立 6 线程池 + 起跑闸：全局池大小 =
+  // 宿主核数，2/4 核 CI 上 6 个任务排队串行，后到者走缓存命中而非搭车。
+  const int ridersBefore = LasCache::shared().ridersJoinedForTest();
+  constexpr int kLoaders = 6;
+  QThreadPool pool;
+  pool.setMaxThreadCount(kLoaders);
+  std::atomic_int ready{0};
   QVector<QFuture<void>> futs;
-  for (int i = 0; i < 6; ++i)
-    futs.append(QtConcurrent::run([&las](void) { LasCache::shared().load(las); }));
+  for (int i = 0; i < kLoaders; ++i)
+    futs.append(QtConcurrent::run(&pool, [&las, &ready](void) {
+      ready.fetch_add(1);
+      while (ready.load() < kLoaders) QThread::yieldCurrentThread();
+      LasCache::shared().load(las);
+    }));
   for (auto &f : futs)
     f.waitForFinished();
   LasCache::shared().setColdParseHookForTest(nullptr);
@@ -207,7 +218,8 @@ void CacheAsyncTests::coalescedConcurrentLasLoad()
   QVERIFY(LasCache::shared().isCached(las));
   // 合并语义：6 并发只触发一次真实解析，其余搭车。
   QCOMPARE(parses.load(), 1);
-  QVERIFY(LasCache::shared().ridersJoinedForTest() >= 5);
+  QVERIFY2(LasCache::shared().ridersJoinedForTest() - ridersBefore >= kLoaders - 1,
+           qPrintable(QStringLiteral("riders=%1").arg(LasCache::shared().ridersJoinedForTest() - ridersBefore)));
 }
 
 void CacheAsyncTests::prefetchPopulatesCache()

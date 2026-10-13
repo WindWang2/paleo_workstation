@@ -169,7 +169,25 @@ QSaveFile 只读探针、互指回滚目录新旧对跑）。结论：P0×1 / P1
 5. 图谱预算（maxNodes/maxEdges）无 UI 旋钮（API 可调、文档已声明）；
    小预算诚实性已修，暴露旋钮属产品决策。
 
-## 全量结果
+## 全量结果（O3）
 
-见 PR 描述（与本基线 clean master 对照，新增测试全绿、既有红项集合
-与 master 一致）。
+本 worktree RelWithDebInfo 全量构建成功（2122 ninja 目标，多会话并存期
+降 -j2 遵守整机 ≤4 编译任务预算；`build/paleo` 707MB 产出）。全量 ctest
+394 项：**392 过 / 2 红**，两红均为已证实的 master 既有红，与本分支无关：
+
+1. `tst_mappingpages`（ui）——#430 步骤门控后测例断言未同步 + 三测试类
+   共用 -o 文件互相覆盖；**开放 PR #432（外部会话）正在修**，按排除矩阵
+   不动。
+2. `tst_ui::testSimultaneousWellsAndSurveyAreaVisibility`（ctest 下 5min
+   超时）——**对照实验**：本分支二进制直跑 699ms 过、复刻 ctest 环境变量
+   直跑 1239ms 过；将本分支全部 6 个源文件还原为 master 源码重建后，
+   同一 ctest 整跑仍超时（321s）→ 既有红（该用例开真实工区
+   /home/kevin/projects/paleo_data，整跑态下挂起；主仓 10-12 旧构建
+   ctest 下此用例过但另一 #432 断言红，说明红项集合随近期合并漂移）。
+
+受影响面回归（本分支改动可能触及的既有测试）全绿：tst_assetops（回滚
+语义）、tst_ui_blocking（sidecar 写次数探针，dataopsmodel 消费方）、
+tst_catalog_scale / tst_perf_catalog（perffixtures 消费方）+ 新增
+tst_datagraph / tst_dataopssidecar。关键套件 review 修复后双跑全绿
+（28+6 × 2 遍）。门禁：check_layering --strict / check_ui_invariants
+--strict / git diff --check 全过。

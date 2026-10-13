@@ -259,6 +259,13 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
           LD_LIBRARY_PATH: ${{ github.workspace }}/vendor/onnxruntime/lib
+          # ci_perf.sh 走裸 ctest 不经 paleo-dev 注入——deb 闭包的
+          # PROJ/GDAL 数据目录在此显式接线（同 windows paleo-dev.ps1
+          # 口径），否则 proj.db 找不到、写栅格/CRS 用例成片红。
+          QGIS_PREFIX_PATH: ${{ github.workspace }}/vendor/prefix/usr
+          PROJ_DATA: ${{ github.workspace }}/vendor/prefix/usr/share/proj
+          PROJ_LIB: ${{ github.workspace }}/vendor/prefix/usr/share/proj
+          GDAL_DATA: ${{ github.workspace }}/vendor/prefix/usr/share/gdal
         run: tools/ci_perf.sh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()

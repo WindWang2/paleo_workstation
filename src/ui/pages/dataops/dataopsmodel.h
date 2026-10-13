@@ -22,6 +22,7 @@
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QSet>
+#include <QSaveFile>
 #include <QString>
 #include <QStringList>
 #include <QVariantMap>
@@ -66,10 +67,17 @@ inline QJsonObject loadSidecarObject(DataCatalog *cat, const QString &name)
     return QJsonObject();
   QFile f(path);
   if (!f.open(QIODevice::ReadOnly))
-    return QJsonObject();
+    return QJsonObject(); // 文件不存在 = 无 sidecar，属正常初始态
   QJsonParseError err;
   const QJsonDocument doc = QJsonDocument::fromJson(f.readAll(), &err);
-  return err.error == QJsonParseError::NoError ? doc.object() : QJsonObject();
+  if (err.error != QJsonParseError::NoError)
+  {
+    // 损坏要留痕：静默回空会把「有回收清单/有标签」读成「从未有过」。
+    qWarning() << "dataops sidecar corrupt, treated as empty:" << path
+               << err.errorString();
+    return QJsonObject();
+  }
+  return doc.object();
 }
 
 inline bool saveSidecarObject(DataCatalog *cat, const QString &name,
@@ -79,13 +87,20 @@ inline bool saveSidecarObject(DataCatalog *cat, const QString &name,
   if (path.isEmpty())
     return false;
   QDir().mkpath(QFileInfo(path).absolutePath());
-  QFile f(path);
+  // QSaveFile 原子落盘：断电/崩溃不会留下半截 JSON（回收清单/标签半截
+  // = 重开静默全丢）。提交失败自动清理临时文件，原文件保持完好。
+  QSaveFile f(path);
   if (!f.open(QIODevice::WriteOnly))
   {
     qWarning() << "dataops sidecar write failed:" << path;
     return false;
   }
   f.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
+  if (!f.commit())
+  {
+    qWarning() << "dataops sidecar commit failed:" << path;
+    return false;
+  }
   return true;
 }
 

@@ -329,6 +329,17 @@ bool computeExtraction(const Source &source, const QVariantMap &params, FactorEx
                 ConstraintWorkflow::tr("缺少有效井点坐标");
     if (!value && reason.isEmpty())
       reason = ConstraintWorkflow::tr("比值不是有限数值");
+    // 砂地比物理域门（SINGLE_FACTOR.md：砂厚/层厚 ∈ [0,1]）：分子分母正是
+    // 解释/维护砂厚与层厚时，越界说明两字段矛盾——属性表单字段校验只挡
+    // 各自非负与 sand_ratio ≤1，维护值组合（如砂厚 25/层厚 20）可绕过。
+    // 该井不参与插值并按井注明原因，不静默裁剪、不带病插值；任意其他
+    // 分子/分母字段组合无 0–1 物理域承诺，不设此门。
+    if (value && reason.isEmpty() && request.factorMode == QLatin1String("ratio") &&
+        request.numeratorField == sandThickness && request.denominatorField == layerThickness &&
+        (*value < -1e-9 || *value > 1.0 + 1e-9)) {
+      reason = ConstraintWorkflow::tr("砂地比超出 [0,1]（值 %1，砂厚与层厚数据矛盾）")
+                   .arg(QString::number(*value, 'g', 6));
+    }
     const auto sourceOfField = [&](const QString &field) {
       if (field == layerThickness)
         return r.maintainedThickness ? ConstraintWorkflow::tr("井点单因素属性表")

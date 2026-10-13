@@ -503,6 +503,50 @@ private slots:
     QVERIFY(!layer->commitChanges());
     QVERIFY(layer->rollBack());
   }
+  // 砂地比物理域门：维护值组合（砂厚 25/层厚 20——各字段单独合法，属性表
+  // 校验不查组合）绕过单字段校验后，提取端必须拒收越界比值井并注明原因，
+  // 不静默裁剪、不带病插值；合法比值（15/20=0.75）照常参与。
+  void contradictoryMaintainedThicknessRatioIsRefused() {
+    WorkflowFixture f;
+    QVERIFY(initFixture(f));
+    QVERIFY(addWell(f, "W1"));
+    QVERIFY(addWell(f, "W2"));
+    QString error;
+    QVariantList values{QVariantMap{{"well_id", "W1"},
+                                    {"horizon", "D61"},
+                                    {"log_sand_thickness_md", 25.0},
+                                    {"log_layer_thickness_md", 20.0}},
+                        QVariantMap{{"well_id", "W2"},
+                                    {"horizon", "D61"},
+                                    {"log_sand_thickness_md", 15.0},
+                                    {"log_layer_thickness_md", 20.0}}};
+    QVERIFY(WellAttributeStore::seedFactors(&f.catalog, f.dir.path(), &f.layers,
+                                            values, &error));
+    ConstraintWorkflow factors(&f.proc, &f.layers);
+    factors.setCatalog(&f.catalog, f.dir.path());
+    QVariantMap params{{"factorMode", "ratio"},
+                       {"numeratorField", "log_sand_thickness_md"},
+                       {"denominatorField", "log_layer_thickness_md"}};
+    QVERIFY2(factors.extractWellFactors("D61", "sandratio", params, &error),
+             qPrintable(error));
+    const auto rows = factors.wellFactorRows();
+    QCOMPARE(rows.size(), 2);
+    const auto rowFor = [&rows](const QString &id) {
+      for (const auto &v : rows)
+        if (v.toMap().value("well_id").toString() == id)
+          return v.toMap();
+      return QVariantMap();
+    };
+    const QVariantMap bad = rowFor("W1");
+    QVERIFY(!bad.value("contributing").toBool());
+    QVERIFY2(bad.value("reason").toString().contains(QStringLiteral("[0,1]")),
+             qPrintable(bad.value("reason").toString()));
+    QCOMPARE(bad.value("value").toDouble(), 1.25); // 值如实展示，仅不参与插值
+    const QVariantMap good = rowFor("W2");
+    QVERIFY(good.value("contributing").toBool());
+    QCOMPARE(good.value("value").toDouble(), 0.75);
+    QVERIFY(good.value("reason").toString().isEmpty());
+  }
   void panelReflectsSavedAttributes() {
     WorkflowFixture f;
     QVERIFY(initFixture(f));

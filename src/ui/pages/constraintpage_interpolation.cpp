@@ -474,7 +474,7 @@ void ConstraintPage::updateEngineRows()
   child<QWidget>(this, "factorCoverageCaption")->setVisible(interpolant && coverageParameter);
   child<QWidget>(this, "factorCoverageCombo")->setVisible(interpolant && coverageParameter);
   child<QLabel>(this, "factorStrategyNote")->setVisible(interpolant);
-  findChild<QWidget *>(QStringLiteral("wellFactorSection"))->setVisible(interpolant || isopach);
+  findChild<QWidget *>(QStringLiteral("wellFactorSection"))->setVisible(interpolant);
   // WS-C5：结构 IDW 专属行——成图边界（面图层）+ 格网分辨率。
   auto *method = child<QComboBox>( this, "factorMethodCombo" );
   auto *boundaryCombo = child<QComboBox>( this, "factorBoundaryCombo" );

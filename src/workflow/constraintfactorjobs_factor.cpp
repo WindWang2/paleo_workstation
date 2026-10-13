@@ -94,6 +94,25 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
 
   if (!prepareFactorInputs(horizon, factorId, params, error))
     return false;
+  if (def.processingAlgId == QLatin1String("paleo:paleo_constraint_idw") &&
+      params.value("method").toString() != QLatin1String("structural_idw")) {
+    const auto pointsId =
+        params.value("pointsLayerId", wellsLayerIdFor(layers, horizon)).toString();
+    auto *points = layers->instantiate(pointsId, error);
+    if (!points)
+      return false;
+    const auto extent = points->extent();
+    const double cell =
+        params.value("cellSize", def.defaultParams.value("cellSize", 1.0)).toDouble();
+    if (!std::isfinite(cell) || cell <= 0 ||
+        std::ceil(std::max(extent.width() * 1.2, cell * 2) / cell) *
+                std::ceil(std::max(extent.height() * 1.2, cell * 2) / cell) >
+            4 * 1024 * 1024) {
+      paleo::workflow_detail::setError(
+          error, tr("单因素网格超过 400 万像元，请增大像元大小或缩小输入范围"));
+      return false;
+    }
+  }
   // 主线6 + C5（wave/deepen-perf）：按引擎分派参数整形。welldist 距离变换
   // 引擎已按冻结契约实现（src/algorithms/distancetransform.cpp）——注册面
   // 缺失时仍显式拒绝（不静默降级成 IDW，那会产出语义错误的栅格）；confidence
@@ -1094,6 +1113,10 @@ bool ConstraintWorkflow::runFactorWork(
               if (!error.isEmpty())
                 emit factorJobFailed(error);
             }
+            if (pending->published)
+              emit factorJobProgress(100, QStringLiteral("publish"));
+            else if (task && task->cancelRequested())
+              emit factorJobCancelled();
             if (task)
               task->finishExternal(error);
             emit factorJobStateChanged(false);

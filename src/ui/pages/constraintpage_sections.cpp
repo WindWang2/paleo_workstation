@@ -143,12 +143,14 @@ void ConstraintPage::wireWorkflowFeedback( ConstraintWorkflow *wf )
     connect( wf, &ConstraintWorkflow::factorGenerated, status,
              [this, status]( const QString &h, const QString &fid, const QString &layerId ) {
                noteFactorLayer( fid, layerId );
-               status->setText( tr( "单因素完成：%1 %2 → %3" ).arg( h, fid, layerId ) );
+               status->setText(tr("%1 等值面已保存，可继续计算等值线并用于编图。").arg(h));
+               refreshFactorResults();
              } );
-    connect( wf, &ConstraintWorkflow::contoursGenerated, status,
-             [status]( const QString &h, const QString &, const QString &layerId ) {
-               status->setText( tr( "等值线完成：%1 → %2" ).arg( h, layerId ) );
-             } );
+    connect(wf, &ConstraintWorkflow::contoursGenerated, status,
+            [this, status](const QString &h, const QString &, const QString &layerId) {
+              status->setText(tr("%1 等值线已保存：%2，可作为后续编图证据。").arg(h, layerId));
+              refreshFactorResults();
+            });
     connect( wf, &ConstraintWorkflow::cartographicWorkGenerated, status,
              [status]( const QString &h, const QString &, const QString &layerId ) {
                status->setText( tr( "制图工作场完成：%1 → %2" ).arg( h, layerId ) );
@@ -197,6 +199,16 @@ void ConstraintPage::wireInputStaleness()
   if ( auto *spin = child<QSpinBox>( this, "factorGridResolutionSpin" ) )
     connect( spin, qOverload<int>( &QSpinBox::valueChanged ), this,
              [mark]( int ) { mark(); } );
+  for (const char *name : {"factorTopSurfaceCombo", "factorBaseSurfaceCombo"})
+    if (auto *combo = child<QComboBox>(this, name))
+      connect(combo, &QComboBox::currentIndexChanged, this, [this] {
+        markInputsStale();
+        updateFactorActionStates();
+      });
   if ( auto *horizons = child<QComboBox>( this, "horizonCombo" ) )
-    connect( horizons, qOverload<int>( &QComboBox::currentIndexChanged ), this, [this]( int ) { refreshConstraintList(); } );
+    connect(horizons, qOverload<int>(&QComboBox::currentIndexChanged), this, [this](int) {
+      refreshConstraintList();
+      refreshFactorLayers();
+      refreshFactorResults();
+    });
 }

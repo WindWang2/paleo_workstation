@@ -2,6 +2,7 @@
 #pragma once
 
 #include <QString>
+#include <functional>
 #include <QVariantMap>
 #include <QVector>
 
@@ -21,9 +22,8 @@ struct ImportedConstraintRecord
 };
 
 // 解析失败返回空列表并写 error；role=auto 且无法判定时 error 提示用户选择。
-QVector<ImportedConstraintRecord> readConstraintImportFeatures( const QString &path,
-                                                                const QString &role,
-                                                                QString *resolvedRole,
-                                                                QString *error );
+QVector<ImportedConstraintRecord>
+readConstraintImportFeatures(const QString &path, const QString &role, QString *resolvedRole,
+                             QString *error, const std::function<bool()> &cancelled = {});
 
 } // namespace paleo

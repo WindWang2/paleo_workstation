@@ -65,6 +65,8 @@ class ConstraintPage : public QWidget
     QVariantMap newConstraintLineParams(const QString &type) const;
     void refreshWellFactorFields();
     void refreshWellFactorResults();
+    void refreshFactorResults();
+    void refreshFactorLayers();
   signals:
     void drawConstraintRequested(const QString &horizon, const QString &shape, int faciesCode);
     void runIdwRequested(const QString &horizon);
@@ -74,6 +76,9 @@ class ConstraintPage : public QWidget
     // WS-C5：测区边界面图层导入入口（结构 IDW 边界行的「导入…」按钮）。
     // 壳侧接文件对话框 → MappingWorkbench::importBoundaryLayer。
     void boundaryImportRequested();
+    void constraintImportRequested(const QString &horizon, const QString &role);
+    void factorResultRequested(const QString &versionId, const QString &action);
+    void taskCenterRequested();
     void maintainWellFactorsRequested(const QString &horizon);
     void extractWellFactorsRequested(const QString &factorId, const QString &horizon, const QVariantMap &params);
     void contourRequested(const QString &factorLayerId, double interval);
@@ -109,6 +114,7 @@ class ConstraintPage : public QWidget
     void wireFactorTableSelection(QTableWidget *factors);
     void buildConstraintArea(QWidget *content, QVBoxLayout *lay, QComboBox *horizons,
                              QLabel *cellCaption);
+    void buildFactorResultsSection(QWidget *content, QVBoxLayout *lay);
     void buildTailSections(QWidget *content, QVBoxLayout *lay);
     void wireWorkflowFeedback(ConstraintWorkflow *wf);
     void wireInputStaleness();

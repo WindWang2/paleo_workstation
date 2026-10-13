@@ -27,7 +27,7 @@ void ConstraintPage::buildWellFactorSection( QWidget *content, QVBoxLayout *lay,
   auto *wellFactors = new QWidget(content);
   wellFactors->setObjectName(QStringLiteral("wellFactorSection"));
   auto *wellLay = panelLayout(wellFactors);
-  wellLay->addWidget(caption(tr("井点因子"), wellFactors));
+  wellLay->addWidget(caption(tr("砂层厚度、砂地比等井点数据"), wellFactors));
   auto *factorMode = new QComboBox(wellFactors);
   factorMode->setObjectName(QStringLiteral("factorModeCombo"));
   factorMode->addItem(tr("直读字段"), QStringLiteral("direct"));
@@ -45,7 +45,7 @@ void ConstraintPage::buildWellFactorSection( QWidget *content, QVBoxLayout *lay,
     combo->setAccessibleName(entry.second); combo->setPlaceholderText(tr("请选择字段")); wellLay->addWidget(combo);
     connect(combo, &QComboBox::currentIndexChanged, this, [this] { invalidateWellFactors(); });
   }
-  auto *extract = new QPushButton(tr("提取井点因子"), wellFactors);
+  auto *extract = new QPushButton(tr("提取并保存井点数据"), wellFactors);
   extract->setObjectName(QStringLiteral("extractWellFactorsButton"));
   auto *maintain = new QPushButton(tr("维护井点属性"), wellFactors);
   maintain->setObjectName(QStringLiteral("maintainWellFactorsButton"));
@@ -86,11 +86,26 @@ void ConstraintPage::wireWellFactorTriggers( ConstraintWorkflow *wf, QComboBox *
   if (wf) {
     connect(wf, &ConstraintWorkflow::wellAttributesChanged, this, [this] { invalidateWellFactors(); refreshWellFactorFields(); });
     connect(wf, &ConstraintWorkflow::wellFactorsExtracted, this,
-            [this](const QString &, const QString &) { refreshWellFactorResults(); });
+            [this, horizons, factors](const QString &h, const QString &f) {
+              if (h == horizons->currentText() &&
+                  f == factorIdOfRow(factors, checkedRow(factors))) {
+                refreshWellFactorResults();
+                refreshFactorResults();
+                updateFactorActionStates();
+              }
+            });
   }
-  connect(horizons, &QComboBox::currentIndexChanged, this, [this] { invalidateWellFactors(); refreshWellFactorFields(); });
+  connect(horizons, &QComboBox::currentIndexChanged, this, [this] {
+    invalidateWellFactors();
+    refreshWellFactorFields();
+    refreshFactorResults();
+  });
   connect(factors, &QTableWidget::itemChanged, this, [this](QTableWidgetItem *item) {
-    if (item && item->column() == 0) { invalidateWellFactors(); refreshWellFactorFields(); }
+    if (item && item->column() == 0) {
+      invalidateWellFactors();
+      refreshWellFactorFields();
+      refreshFactorResults();
+    }
   });
 }
 
@@ -109,6 +124,19 @@ void ConstraintPage::refreshWellFactorFields() {
   if (!error.isEmpty()) child<QLabel>(this, "wellFactorHint")->setText(error);
   setWellFactorFields(fields);
   setProperty("paleo.page.fieldsbound", wf != nullptr);
+  if (wf && h)
+    wf->restoreWellFactors(h->currentText(),
+                           factorIdOfRow(child<QTableWidget>(this, "factorTable"),
+                                         checkedRow(child<QTableWidget>(this, "factorTable"))),
+                           wellFactorParams());
+  if (wf && h &&
+      !wf->preparedWellFactorVersion(
+             h->currentText(),
+             factorIdOfRow(child<QTableWidget>(this, "factorTable"),
+                           checkedRow(child<QTableWidget>(this, "factorTable"))),
+             wellFactorParams())
+           .isEmpty())
+    refreshWellFactorResults();
   updateFactorActionStates();
 }
 void ConstraintPage::setWellFactorFields(const QVariantList &fields) {
@@ -162,8 +190,12 @@ void ConstraintPage::updateWellFactorActionState() {
       (ratio ? !params.value(QStringLiteral("numeratorField")).toString().isEmpty() && !params.value(QStringLiteral("denominatorField")).toString().isEmpty()
              : !params.value(QStringLiteral("valueField")).toString().isEmpty());
   const bool busy = property("paleo.page.runbusy").toBool();
-  button->setEnabled(ready && !busy);
-  button->setToolTip(busy ? tr("正在计算，可取消") : ready ? QString() : tr("请勾选因子并选择真实提取字段"));
+  const bool linesReady = property("paleo.page.constraintsready").toBool();
+  button->setEnabled(ready && !busy && linesReady);
+  button->setToolTip(busy          ? tr("正在计算，可取消")
+                     : !linesReady ? tr("步骤 1：先绘制或导入本层位的间隔线和方向线")
+                     : ready       ? tr("后台提取当前地层数据，保存井点版本后再计算等值面")
+                                   : tr("请勾选因子并选择真实提取字段"));
 }
 void ConstraintPage::refreshWellFactorResults() {
   auto *wf = qobject_cast<ConstraintWorkflow *>(property(kWfProp).value<QObject *>());
@@ -180,4 +212,5 @@ void ConstraintPage::refreshWellFactorResults() {
     detail->setToolTip(detail->text()); table->setItem(row, 2, detail);
   }
   child<QLabel>(this, "wellFactorHint")->setText(wf->wellFactorMessage());
+  updateFactorActionStates();
 }

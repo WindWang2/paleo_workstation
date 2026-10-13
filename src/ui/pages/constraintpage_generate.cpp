@@ -10,6 +10,12 @@
 
 #include "../../domain/singlefactorstrategy.h" // 方向67：strategy_id 血缘（生成 handler 查策略包）
 #include "../../services/singlefactordef.h"
+#include "../../workflow/workflows.h"
+#include <QHeaderView>
+#include <QProgressBar>
+#include <QHBoxLayout>
+#include <QSignalBlocker>
+#include <QFileInfo>
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -29,7 +35,7 @@ void ConstraintPage::buildGenerateSection( QWidget *content, QVBoxLayout *lay )
 {
   // 本页主操作（DESIGN.md primary 三用途之一）：生成单因素图突出；
   // 其余动作保持常规面并按组分隔。
-  auto *generate = new QPushButton( tr( "生成单因素图" ), this );
+  auto *generate = new QPushButton(tr("计算并保存等值面"), this);
   generate->setObjectName( QStringLiteral( "generateFactorButton" ) );
   generate->setEnabled( false ); // 先勾选一个单因素（updateFactorActionStates 管 tooltip）
   markPrimaryButton( generate );
@@ -37,9 +43,20 @@ void ConstraintPage::buildGenerateSection( QWidget *content, QVBoxLayout *lay )
   auto *cancel = new QPushButton( tr( "取消" ), content );
   cancel->setObjectName( QStringLiteral( "factorCancelButton" ) );
   cancel->setEnabled( false );
-  cancel->setToolTip( tr( "当前没有正在运行的成图" ) );
+  cancel->setToolTip( tr( "当前没有正在运行的单因素任务" ) );
   lay->addWidget( cancel );
   connect( cancel, &QPushButton::clicked, this, &ConstraintPage::runCancelRequested );
+  auto *progress = new QProgressBar(content);
+  progress->setObjectName(QStringLiteral("factorProgressBar"));
+  progress->setRange(0, 100);
+  progress->setValue(0);
+  progress->setVisible(false);
+  progress->setAccessibleName(tr("单因素计算进度"));
+  lay->addWidget(progress);
+  auto *tasks = new QPushButton(tr("查看任务中心"), content);
+  tasks->setObjectName(QStringLiteral("factorTaskCenterButton"));
+  lay->addWidget(tasks);
+  connect(tasks, &QPushButton::clicked, this, &ConstraintPage::taskCenterRequested);
 
   connect( generate, &QPushButton::clicked, this, [this] {
     // 方向 96：原 ctor 期捕获的 22 个控件改事件期 findChild（objectName 全部
@@ -201,7 +218,7 @@ void ConstraintPage::buildContourSection( QWidget *content, QVBoxLayout *lay )
   } );
   connect( levelsEdit, &QLineEdit::textChanged, this, [this] { updateFactorActionStates(); } );
 
-  auto *contour = new QPushButton( tr( "生成等值线" ), content );
+  auto *contour = new QPushButton(tr("计算并保存等值线"), content);
   contour->setObjectName( QStringLiteral( "contourButton" ) );
   contour->setEnabled( false ); // 勾选且已生成的因素才有可等值线的栅格
   lay->addWidget( contour );
@@ -294,10 +311,27 @@ void ConstraintPage::updateFactorActionStates()
       generate->setToolTip( tr( "请先选择或导入成图边界面图层" ) );
     }
   }
+  if (known && def.processingAlgId == QLatin1String("paleo:paleo_isopach")) {
+    const auto *top = child<QComboBox>(this, "factorTopSurfaceCombo");
+    const auto *base = child<QComboBox>(this, "factorBaseSurfaceCombo");
+    if (!top || !base || top->currentData().toString().isEmpty() ||
+        base->currentData().toString().isEmpty() || top->currentData() == base->currentData()) {
+      generate->setEnabled(false);
+      generate->setToolTip(tr("步骤 2：选择不同的顶、底构造面，按现有等厚算法计算地层厚度"));
+    }
+  }
   if (known && interpolantEngine(def.processingAlgId) && property("paleo.page.fieldsbound").toBool()) {
-    auto *extract = child<QPushButton>(this, "extractWellFactorsButton");
-    if (extract && !extract->isEnabled()) {
-      generate->setEnabled(false); generate->setToolTip(extract->toolTip());
+    auto *wf = qobject_cast<ConstraintWorkflow *>(property(kWfProp).value<QObject *>());
+    auto *h = child<QComboBox>(this, "horizonCombo");
+    if (!property("paleo.page.constraintsready").toBool()) {
+      generate->setEnabled(false);
+      generate->setToolTip(tr("步骤 1：先绘制或导入本层位的间隔线和方向线"));
+    } else if (!wf || !h ||
+               wf->preparedWellFactorVersion(h->currentText(), factorIdOfRow(factors, r),
+                                             wellFactorParams())
+                   .isEmpty()) {
+      generate->setEnabled(false);
+      generate->setToolTip(tr("步骤 2：先提取并保存当前地层的井点数据"));
     }
   }
   if (auto *interval = child<QDoubleSpinBox>(this, "contourIntervalSpin")) {
@@ -312,7 +346,7 @@ void ConstraintPage::updateFactorActionStates()
   if ( layerId.isEmpty() )
   {
     contour->setEnabled( false );
-    contour->setToolTip( tr( "该因素尚未生成——先运行「生成单因素图」" ) );
+    contour->setToolTip(tr("步骤 3：先计算并保存本层位的等值面"));
   }
   else if ( !levelsReady )
   {
@@ -329,10 +363,28 @@ void ConstraintPage::updateFactorActionStates()
 void ConstraintPage::setRunBusy( bool busy )
 {
   setProperty( "paleo.page.runbusy", busy );
+  if (busy)
+    setProperty("paleo.page.runoutcome", QString());
+  if (auto *progress = child<QProgressBar>(this, "factorProgressBar")) {
+    progress->setVisible(true);
+    if (busy) {
+      progress->setRange(0, 0);
+      progress->setFormat(tr("正在准备"));
+    } else {
+      progress->setRange(0, 100);
+      const bool complete = property("paleo.page.runoutcome").toString().isEmpty() && progress->value() >= 100;
+      progress->setFormat(complete ? tr("任务完成 · %p%") : tr("任务未完成 · %p%"));
+    }
+  }
+  // Freeze input controls while a captured request is being computed/published.
+  for (const char *name :
+       {"horizonCombo", "factorTable", "wellFactorSection", "constraintFamiliesSection"})
+    if (auto *widget = findChild<QWidget *>(QString::fromLatin1(name)))
+      widget->setEnabled(!busy);
   if ( auto *cancel = child<QPushButton>( this, "factorCancelButton" ) )
   {
     cancel->setEnabled( busy );
-    cancel->setToolTip( busy ? tr( "取消当前成图" ) : tr( "当前没有正在运行的成图" ) );
+    cancel->setToolTip( busy ? tr( "取消当前单因素任务" ) : tr( "当前没有正在运行的单因素任务" ) );
   }
   if ( busy )
   {
@@ -345,6 +397,98 @@ void ConstraintPage::setRunBusy( bool busy )
 
 void ConstraintPage::noteRunStage( const QString &stage, int percent )
 {
+  if (auto *progress = child<QProgressBar>(this, "factorProgressBar")) {
+    progress->setVisible(true);
+    progress->setRange(0, percent < 0 ? 0 : 100);
+    if (percent >= 0)
+      progress->setValue(percent);
+    progress->setFormat(percent < 0 ? stage : stage + QStringLiteral(" · %p%"));
+  }
   if ( auto *status = child<QLabel>( this, "statusLabel" ) )
-    status->setText( tr( "正在计算：%1 %2%" ).arg( stage ).arg( percent ) );
+    status->setText(percent >= 100 ? tr("计算及保存已完成")
+        : percent < 0 ? tr("正在计算：%1").arg(stage) : tr("正在计算：%1 %2%").arg(stage).arg(percent));
+}
+
+void ConstraintPage::buildFactorResultsSection(QWidget *content, QVBoxLayout *lay) {
+  lay->addWidget(caption(tr("4 · 已保存成果 / 后续编图证据"), content));
+  auto *hint = new QLabel(tr("井点数据、等值面和等值线自动保存为工程版本。后续编图引用具体版本，保"
+                             "留输入数据、约束及算法参数来源。"),
+                          content);
+  hint->setWordWrap(true);
+  lay->addWidget(hint);
+  auto *results = new QTableWidget(0, 3, content);
+  results->setObjectName(QStringLiteral("factorResultsTable"));
+  results->setHorizontalHeaderLabels({tr("成果"), tr("版本"), tr("保存状态")});
+  results->verticalHeader()->hide();
+  results->horizontalHeader()->setStretchLastSection(true);
+  results->setSelectionBehavior(QAbstractItemView::SelectRows);
+  results->setSelectionMode(QAbstractItemView::SingleSelection);
+  results->setEditTriggers(QAbstractItemView::NoEditTriggers);
+  lay->addWidget(results);
+  auto *actions = new QHBoxLayout;
+  for (const auto &entry :
+       QVector<QPair<QString, QString>>{{QStringLiteral("show"), tr("显示成果")},
+                                        {QStringLiteral("graph"), tr("追溯数据来源")},
+                                        {QStringLiteral("compose"), tr("到编图中引用")}}) {
+    auto *button = new QPushButton(entry.second, content);
+    button->setObjectName(QStringLiteral("factorResult_") + entry.first);
+    button->setEnabled(false);
+    button->setToolTip(tr("先选择一个已保存且文件可用的成果版本"));
+    actions->addWidget(button);
+    connect(button, &QPushButton::clicked, this, [this, results, action = entry.first] {
+      const auto *item = results->item(results->currentRow(), 0);
+      if (item)
+        emit factorResultRequested(item->data(Qt::UserRole).toMap().value("version_id").toString(),
+                                   action);
+    });
+    connect(results, &QTableWidget::itemSelectionChanged, button,
+            [results, button, action = entry.first] {
+              const auto *item = results->item(results->currentRow(), 0);
+              const bool available =
+                  item && item->data(Qt::UserRole).toMap().value("available").toBool();
+              const bool enabled = available || (item && action == QLatin1String("graph"));
+              button->setEnabled(enabled);
+              button->setToolTip(!enabled ? tr("先选择一个文件可用的成果版本")
+                  : action == QLatin1String("graph") ? tr("追溯所选版本的数据与约束来源")
+                  : action == QLatin1String("compose") ? tr("将所选版本设为编图解释证据来源")
+                  : tr("显示所选成果版本"));
+            });
+  }
+  lay->addLayout(actions);
+  connect(results, &QTableWidget::cellDoubleClicked, this, [this, results](int row, int) {
+    const auto data = results->item(row, 0)->data(Qt::UserRole).toMap();
+    if (data.value("available").toBool())
+      emit factorResultRequested(data.value("version_id").toString(), QStringLiteral("show"));
+  });
+}
+
+void ConstraintPage::refreshFactorResults() {
+  auto *table = child<QTableWidget>(this, "factorResultsTable");
+  auto *factors = child<QTableWidget>(this, "factorTable");
+  auto *h = child<QComboBox>(this, "horizonCombo");
+  auto *wf = qobject_cast<ConstraintWorkflow *>(property(kWfProp).value<QObject *>());
+  if (!table || !h || !factors)
+    return;
+  const auto *selected = table->item(table->currentRow(), 0);
+  const QString version =
+      selected ? selected->data(Qt::UserRole).toMap().value("version_id").toString() : QString();
+  table->setRowCount(0);
+  if (!wf)
+    return;
+  for (const auto &entry :
+       wf->savedFactorResults(h->currentText(), factorIdOfRow(factors, checkedRow(factors)))) {
+    auto row = entry.toMap();
+    const bool available = QFileInfo::exists(row.value("path").toString());
+    row.insert("available", available);
+    const int r = table->rowCount();
+    table->insertRow(r);
+    auto *item = new QTableWidgetItem(row.value("type").toString());
+    item->setData(Qt::UserRole, row);
+    item->setToolTip(row.value("path").toString());
+    table->setItem(r, 0, item);
+    table->setItem(r, 1, new QTableWidgetItem(tr("v%1").arg(row.value("version").toInt())));
+    table->setItem(r, 2, new QTableWidgetItem(available ? tr("已保存") : tr("文件缺失")));
+    if (row.value("version_id").toString() == version)
+      table->selectRow(r);
+  }
 }

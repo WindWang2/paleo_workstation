@@ -2,6 +2,7 @@
 #include "wellpredictionservice.h"
 #include "../ai/wellfacieskeystore.h"
 #include "../domain/faciescatalog.h"
+#include "../domain/welllogfacies.h"
 #include "../io/welllogread.h"
 #include "../qgis/wellattributestore.h"
 #include "../services/futuretask.h"
@@ -336,19 +337,6 @@ void WellPredictionService::next() {
       run.prediction.group).arg(m_index + 1).arg(m_runs.size()));
   m_service.predict(run.prediction.model, m_data[run.well].wellName, run.prediction.input);
 }
-int WellPredictionService::codeFor(const QString &label) {
-  for (const auto &value : m_schema) {
-    const auto f = value.toMap();
-    if (f.value("name").toString() == label || f.value("microfacies").toString() == label)
-      return f.value("code").toInt();
-  }
-  int code = 1;
-  for (const auto &value : m_schema) code = std::max(code, value.toMap().value("code").toInt() + 1);
-  QVariantMap item{{"code", code}, {"name", label}, {"facies", label}, {"color", "#9AA7B4"}};
-  item = FaciesCatalog::appearance(item);
-  m_schema << item;
-  return code;
-}
 void WellPredictionService::finish() {
   RemotePredictionResult result;
   m_request.sourceVersionIds.removeDuplicates();
@@ -376,7 +364,14 @@ void WellPredictionService::finish() {
         skip(i, tr("远端结果井段深度无效或相互重叠"));
         break;
       }
-      intervals << QVariantMap{{"top", iv.topDepth}, {"bottom", iv.bottomDepth}, {"code", codeFor(iv.text)}};
+      const int code = faciesCodeForLabel(m_schema, iv.text);
+      if (!code) {
+        // schema 外标签 → 整井拒收（宁可拒绝不预测）：未知标签无词表色标，
+        // 自增编码会随到达顺序漂移，属性表/图例无法解释。
+        skip(i, tr("远端返回了相词表外的标签「%1」，该井结果无法映射").arg(iv.text));
+        break;
+      }
+      intervals << QVariantMap{{"top", iv.topDepth}, {"bottom", iv.bottomDepth}, {"code", code}};
       previousBottom = iv.bottomDepth;
     }
     bool current = false;

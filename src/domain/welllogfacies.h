@@ -4,6 +4,7 @@
 #include "wellcompositemodel.h"
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QVariantList>
 
 struct WellFaciesModel {
   QString id, name, version, formationGroup;
@@ -64,3 +65,8 @@ WellFaciesPlan planWellFaciesFormationRun(const WellComposite::ComprehensiveWell
 // 把逐组返回的结果并成一份供显示/导出：区间按井深排序，置信度曲线按深度拼接。
 // 只有一份时原样返回。
 WellFaciesResult mergeWellFaciesResults(const QVector<WellFaciesResult> &parts);
+// 冻结相 schema（编图请求携带的 facies 词表）内查标签的相码：name 或
+// microfacies 命中即返回该 code。schema 外标签返回 0——调用方必须拒收该结果
+// （按井跳过并注明原因），不得自增编码：编码取决于到达顺序，同一井重跑会得到
+// 不同的 code，且未知标签无词表色标，属性表/图例无法解释。
+int faciesCodeForLabel(const QVariantList &schema, const QString &label);

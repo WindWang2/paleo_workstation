@@ -443,3 +443,12 @@ WellFaciesResult mergeWellFaciesResults(const QVector<WellFaciesResult> &parts) 
                              {QStringLiteral("groups"), responses}};
   return out;
 }
+
+int faciesCodeForLabel(const QVariantList &schema, const QString &label) {
+  for (const auto &value : schema) {
+    const auto f = value.toMap();
+    if (f.value("name").toString() == label || f.value("microfacies").toString() == label)
+      return f.value("code").toInt();
+  }
+  return 0;
+}

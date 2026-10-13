@@ -741,9 +741,11 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &result) {
     {
       emit predictionProgress(97);
       emit predictionDetailChanged(tr("更新工区测井及地层预测信息"));
-      maintained = WellAttributeStore::mergeIntervals(m_catalog, m_dir, m_layers,
-          wellAttributeUpdates(points, schema, request.horizon, true, result.method, request.id) + skippedIntervalRows, &error) &&
-        WellAttributeStore::mergeFormations(m_catalog, m_dir, m_layers,
+      // 井段批与地层批必须同成败——分开调时第二批失败会留半更新域
+      //（#415），由事务化包装按批前快照恢复井段。
+      maintained = WellAttributeStore::mergeIntervalsAndFormations(
+          m_catalog, m_dir, m_layers,
+          wellAttributeUpdates(points, schema, request.horizon, true, result.method, request.id) + skippedIntervalRows,
           formationRows, &error);
     }
     // 首次预测刚落盘的属性/地层表立刻进图层列表（无需重开工程或切页）。

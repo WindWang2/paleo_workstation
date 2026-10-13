@@ -217,9 +217,13 @@ private slots:
     QVERIFY(panel.findChild<QToolButton *>(QStringLiteral("attrCancelButton"))
                 ->isEnabled());
     panel.showResult(true, QStringLiteral("ok"));
-    QVERIFY(!panel.findChild<QProgressBar *>(QStringLiteral("attrProgress"))
-                 ->isEnabled()
-             || true); // 进度条只读展示
+    // showResult 复位 busy：进度定格 100、状态行落文案、计算回可用、取消回收。
+    QCOMPARE(panel.findChild<QProgressBar *>(QStringLiteral("attrProgress"))
+                 ->value(),
+             100);
+    QVERIFY(compute->isEnabled());
+    QVERIFY(!panel.findChild<QToolButton *>(QStringLiteral("attrCancelButton"))
+                 ->isEnabled());
     QVERIFY(reg->isEnabled()); // 有结果可登记
   }
 
@@ -333,8 +337,8 @@ private slots:
     std::string err;
     QVERIFY(vol->Load(sgy.toStdString(), err));
     dock.setVolume(vol);
-    QVERIFY(waitFor([&dock]() { return dock.canvas()->hasData(); }, 10000)
-            || true); // 切片未上图不影响扫描链（体已加载即可）
+    // 切片未上图不影响扫描链（体已加载即可）——有界等待但不作断言。
+    waitFor([&dock]() { return dock.canvas()->hasData(); }, 10000);
 
     // catalog 注入（登记上下文）
     DataCatalog catalog;

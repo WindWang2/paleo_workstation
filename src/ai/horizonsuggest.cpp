@@ -33,6 +33,7 @@ float bernoulliConfidence( double p )
 bool suggestHorizonTracking( PaleoOnnxService *onnx, const QString &model,
                              const QVector<TrackingSeed> &seeds, int windowSamples,
                              int radius, const TraceWindowFetcher &fetch,
+                             const std::function<bool()> &cancelled,
                              QVector<TrackingSuggestion> *out, QString *error )
 {
   const auto fail = [error]( const QString &msg ) {
@@ -112,6 +113,9 @@ bool suggestHorizonTracking( PaleoOnnxService *onnx, const QString &model,
 
   for ( const Candidate &cand : order )
   {
+    // 协作取消：逐道扩张前检查；命中即如实失败，不把半途建议当成功外发。
+    if ( cancelled && cancelled() )
+      return fail( QObject::tr( "已取消" ) );
     // 最近已拾取邻道（欧氏距离，平手取小 inline/xline——确定性）。
     const Key self { cand.il, cand.xl };
     const TrackingSuggestion *best = nullptr;

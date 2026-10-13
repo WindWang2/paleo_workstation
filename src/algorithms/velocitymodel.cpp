@@ -382,13 +382,19 @@ VelocityModel VelocityModel::fromJson(const QJsonObject &obj, QString *error)
 
 DepthGridResult convertTimeGridToDepth(const VelocityModel &model,
                                        const QVector<float> &timeMs, int rows, int cols,
-                                       const double gt[6], double nodata)
+                                       const double gt[6], double nodata,
+                                       const std::function<bool()> &cancelled)
 {
   DepthGridResult r;
   r.depthM.resize(rows * cols);
   std::fill(r.depthM.begin(), r.depthM.end(), qQNaN());
   for (int row = 0; row < rows; ++row)
   {
+    if (cancelled && cancelled())
+    {
+      r.cancelled = true;
+      return r; // 半途结果：统计不完整，调用方必须弃用
+    }
     const double cy = gt[3] + (row + 0.5) * gt[5];
     for (int col = 0; col < cols; ++col)
     {

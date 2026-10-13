@@ -5,6 +5,7 @@
 #include "../qgis/qgiscanvascontroller.h"
 #include "../qgis/qgisprojectservice.h"
 #include "../qgis/qgislayerservice.h"
+#include "../qgis/qgislayerprofile.h"
 #include "../qgis/qgislayoutservice.h"
 #include "../linkage/selectioncontext.h"
 #include "../catalog/datacatalog.h"
@@ -224,7 +225,17 @@ void PaleoMainWindow::attachComposePage(ComposePage *composePage,
                 return;
               for (QgsLayerTreeLayer *node : root->findLayers())
                 if (node->layer() == l)
-                  node->setItemVisibilityChecked(visible);
+                {
+                  if (visible)
+                    node->setItemVisibilityCheckedParentRecursive(true);
+                  else
+                    node->setItemVisibilityChecked(false);
+                }
+              // 回写页主题：切页按 page:* 主题回放树态，程序化拨勾选后不
+              // 回写会被旧主题回滚（对齐预测页「显示结果」的既有回写）。
+              if (m_profileSvc)
+                m_profileSvc->captureCurrentAsTheme(
+                    QgisLayerProfileService::pageThemeName(currentPage()));
             });
 
     // ---- m2(C): 在布局设计器中打开（layoutdesignershell 公共入口）---------

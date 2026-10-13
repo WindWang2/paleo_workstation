@@ -16,6 +16,7 @@
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/qgis/qgiscanvascontroller.h"
 #include "../src/qgis/qgisstyleservice.h" // C2：applyFaciesBoundaryStyle 断言面
+#include "../src/linkage/selectioncontext.h"
 #include "../src/metadata/layermanifest.h"
 #include "../src/workflow/workflows.h"
 
@@ -248,6 +249,10 @@ class TestComposeWorkflow : public QObject
       QVERIFY(dir.isValid());
       QVERIFY2(m_ctx->projectSvc()->createProject(dir.filePath(QStringLiteral("q.qgz"))),
                "createProject failed");
+      // 生产行走这里之前用户已在 T2 层位（chip 是唯一真源；编辑工具条的
+      // 层位过滤器只放行活动层位的声明层——editingtoolbar.h 契约）。
+      m_ctx->layerSvc()->setActiveHorizon(QStringLiteral("T2"));
+      m_ctx->selection()->setActiveHorizon(QStringLiteral("T2"));
       const QVector<float> px = {1, 1, 1, 2};
       const QString path =
           makeRaster(dir.filePath(QStringLiteral("coded2.tif")), 2, 2, px);

@@ -14,12 +14,20 @@
 #include <QTemporaryDir>
 #include <QtTest>
 
+#include <qgslayertree.h>
+#include <qgslayertreelayer.h>
+#include <qgsproject.h>
+#include <qgsvectorlayer.h>
+
 #include "../src/app/appcontext.h"
 #include "../src/domain/mappinghorizons.h"
 #include "../src/io/dataimportservice.h" // importSvc()->catalog() 需完整类型
 #include "../src/linkage/selectioncontext.h"
+#include "../src/metadata/layermanifest.h"
 #include "../src/metadata/mapversionstore.h"
+#include "../src/qgis/qgislayerservice.h"
 #include "../src/qgis/qgisprojectservice.h" // projectSvc()->createProject 需完整类型
+#include "../src/ui/edittools/editingtoolbar.h"
 #include "../src/ui/paleomainwindow.h"
 #include "../src/ui/pages/pagepanels.h"
 
@@ -34,11 +42,30 @@ class TestShellHorizonState : public QObject
     void cleanupTestCase();
     void horizonCombosFollowProjectAndChip();
     void publishGateFollowsActiveHorizon();
+    void factorVisibilitySurvivesPageSwitch();
+    void editingToolbarListsOnlyActiveHorizonLayers();
 
   private:
     AppContext *m_ctx = nullptr;
     PaleoMainWindow *m_win = nullptr;
 };
+
+// 声明一条 04_SingleFactor 组的矢量层（与生产单因素成果同组词表）。
+static LayerDeclaration factorDecl(const QString &layerId, const QString &horizon)
+{
+  LayerDeclaration d;
+  d.layerId = layerId;
+  d.horizon = horizon;
+  d.type = QStringLiteral("vector");
+#ifdef FIXTURE_GPKG
+  d.source = QStringLiteral(FIXTURE_GPKG) + QStringLiteral("|layername=basin");
+#else
+  d.source = QStringLiteral("../testdata/fixture.gpkg|layername=basin");
+#endif
+  d.group = QStringLiteral("04_SingleFactor");
+  d.title = layerId;
+  return d;
+}
 
 void TestShellHorizonState::initTestCase()
 {
@@ -125,6 +152,115 @@ void TestShellHorizonState::publishGateFollowsActiveHorizon()
   m_ctx->selection()->setActiveHorizon(hA);
   QApplication::processEvents();
   QCOMPARE(capsule->text(), QStringLiteral("编辑中 · v%1").arg(v.version));
+}
+
+// ---- 4：单因素上图后切页回放不回滚（页主题回写对称）----
+// 修复前：factorVisibilityRequested 只拨树节点、不回写 page:constraint
+// 主题；切页再回来 applyPrunedTheme 用旧主题覆盖树态——用户刚上的图被
+// 静默撤下（预测页「显示结果」同款场景已有回写，此处消除不对称）。
+void TestShellHorizonState::factorVisibilitySurvivesPageSwitch()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  QVERIFY(m_ctx->projectSvc()->createProject(dir.filePath(QStringLiteral("theme.qgz"))));
+  QApplication::processEvents();
+
+  const QStringList words = mappingHorizons();
+  QVERIFY(words.size() >= 1);
+  const QString hA = words.first();
+  m_ctx->selection()->setActiveHorizon(hA);
+  QApplication::processEvents();
+
+  // 1) 先到单因素页，让 page:constraint 主题在因子层存在之前定格
+  //   （旧主题不含该层——回放即隐藏）。
+  m_win->showPage(QStringLiteral("constraint"));
+  QApplication::processEvents();
+
+  const QString layerId = QStringLiteral("factor.shelltest.%1").arg(hA);
+  QString err;
+  QVERIFY2(m_ctx->layerSvc()->declare(factorDecl(layerId, hA), &err), qPrintable(err));
+  QgsMapLayer *layer = m_ctx->layerSvc()->instantiate(layerId, &err);
+  QVERIFY2(layer != nullptr, qPrintable(err));
+  QgsProject *proj = m_ctx->projectSvc()->project();
+  QgsLayerTreeLayer *node = proj->layerTreeRoot()->findLayer(layer->id());
+  QVERIFY(node != nullptr);
+  node->setItemVisibilityChecked(false); // 先下（模拟互斥后的旧状态）
+  QApplication::processEvents();
+
+  // 2) 经页面信号上图（与 UI 勾选同一路径）。
+  auto *constraintPage = m_win->findChild<ConstraintPage *>();
+  QVERIFY(constraintPage != nullptr);
+  QVERIFY(QMetaObject::invokeMethod(constraintPage, "factorVisibilityRequested",
+                                    Q_ARG(QString, layerId), Q_ARG(bool, true)));
+  QApplication::processEvents();
+  QVERIFY(node->isVisible());
+
+  // 3) 切走再切回：树态必须保持（修复前在此回滚为不可见）。
+  m_win->showPage(QStringLiteral("predict"));
+  QApplication::processEvents();
+  m_win->showPage(QStringLiteral("constraint"));
+  QApplication::processEvents();
+  QVERIFY2(node->isVisible(), "切页回放不得撤下用户刚上的单因素图");
+}
+
+// ---- 5：编辑工具条只列活动层位的可编辑层 ----
+// 工具条头文件契约：层位业务规则由宿主注入过滤器。修复前全仓无注入，
+// 跨层位实例化层（验证/收编场景）可在任意页签进入编辑。
+void TestShellHorizonState::editingToolbarListsOnlyActiveHorizonLayers()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  QVERIFY(m_ctx->projectSvc()->createProject(dir.filePath(QStringLiteral("filter.qgz"))));
+  QApplication::processEvents();
+
+  const QStringList words = mappingHorizons();
+  QVERIFY(words.size() >= 2);
+  const QString hA = words.first();
+  const QString hB = words.at(1);
+  m_ctx->selection()->setActiveHorizon(hA);
+  QApplication::processEvents();
+
+  auto *toolbar = m_win->findChild<PaleoEditingToolbar *>(QStringLiteral("editingToolbar"));
+  QVERIFY(toolbar != nullptr);
+
+  const QString idA = QStringLiteral("factor.edit.%1").arg(hA);
+  const QString idB = QStringLiteral("factor.edit.%1").arg(hB);
+  const QString sharedId = QStringLiteral("wells.shared");
+  QString err;
+  QVERIFY(m_ctx->layerSvc()->declare(factorDecl(idA, hA), &err));
+  LayerDeclaration shared = factorDecl(sharedId, QString());
+  shared.group = QStringLiteral("00_Data");
+  QVERIFY(m_ctx->layerSvc()->declare(shared, &err));
+  QVERIFY(m_ctx->layerSvc()->declare(factorDecl(idB, hB), &err));
+
+  QgsMapLayer *layerA = m_ctx->layerSvc()->instantiate(idA, &err);
+  QVERIFY2(layerA != nullptr, qPrintable(err));
+  QgsMapLayer *sharedLayer = m_ctx->layerSvc()->instantiate(sharedId, &err);
+  QVERIFY2(sharedLayer != nullptr, qPrintable(err));
+  // 跨层位显式实例化（验证链场景）：在工程里，但不属于活动层位。
+  QgsMapLayer *layerB = m_ctx->layerSvc()->instantiate(idB, &err);
+  QVERIFY2(layerB != nullptr, qPrintable(err));
+  toolbar->refreshFromProject();
+  QApplication::processEvents();
+
+  const auto comboLists = [toolbar](QgsMapLayer *layer) {
+    auto *combo = toolbar->layerCombo();
+    for (int i = 0; i < combo->count(); ++i)
+      if (qvariant_cast<QgsVectorLayer *>(combo->itemData(i)) == layer)
+        return true;
+    return false;
+  };
+  QVERIFY(comboLists(layerA));      // 活动层位层可编辑
+  QVERIFY(comboLists(sharedLayer)); // 层位无关共享层不受限
+  QVERIFY2(!comboLists(layerB), "非活动层位的图层不得进入编辑下拉（修复前无过滤器注入）");
+
+  // 切到 hB：hB 层进入可编辑集，hA 层退出（chipbar 同款双调——
+  // SelectionContext 是状态真源，图层服务实例化跟随 chip 入口）。
+  m_ctx->layerSvc()->setActiveHorizon(hB);
+  m_ctx->selection()->setActiveHorizon(hB);
+  QApplication::processEvents();
+  QVERIFY(comboLists(layerB));
+  QVERIFY(!comboLists(layerA));
 }
 
 int main(int argc, char *argv[])

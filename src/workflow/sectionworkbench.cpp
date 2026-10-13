@@ -423,6 +423,30 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
                                    .arg(depths.unit.trimmed().isEmpty() ? tr("空") : depths.unit);
         continue;
       }
+      // 值单位：声波/密度族按词表换算到 µs/m / g/cc（合成记录、反演与子波
+      // 提取的阻抗 Z=ρ·V 都按该口径计算；µs/ft 井不换算会给 3.28× 速度误差）。
+      // 空单位 = 遗留数据无元数据，按 µs/m、g/cc 假设；未知非空单位拒绝该曲线。
+      // 族判定取 @ 前基础助记符：跨文件重名曲线被限定为「AC@文件基名」，
+      // 整名比较会让限定名静默绕过换算。
+      double valueScale = 1.0;
+      const QString baseMnemonic = seismic::baseCurveMnemonic(curveName);
+      const bool isAcoustic = baseMnemonic.compare(QLatin1String("AC"), Qt::CaseInsensitive) == 0 ||
+                              baseMnemonic.startsWith(QLatin1String("DT"), Qt::CaseInsensitive);
+      const bool isDensity = baseMnemonic.compare(QLatin1String("DEN"), Qt::CaseInsensitive) == 0 ||
+                             baseMnemonic.compare(QLatin1String("RHOB"), Qt::CaseInsensitive) == 0 ||
+                             baseMnemonic.compare(QLatin1String("ZDEN"), Qt::CaseInsensitive) == 0;
+      if (isAcoustic || isDensity) {
+        const auto valueScaleOpt =
+            isAcoustic ? paleo::wellnumeric::acousticScaleToUsPerM(values.unit)
+                       : paleo::wellnumeric::densityScaleToGPerCc(values.unit);
+        if (!valueScaleOpt) {
+          out.alignmentStatus += tr(" · %1 单位未知（%2），曲线未叠加")
+                                     .arg(curveName,
+                                          values.unit.trimmed().isEmpty() ? tr("空") : values.unit);
+          continue;
+        }
+        valueScale = *valueScaleOpt;
+      }
       const double scale = *scaleToM;
       seismic::WellCurveItem curve;
       curve.curveName = curveName;
@@ -432,7 +456,7 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
       float vMax = -vMin;
       for (int i = 0; i < size; i += step) {
         const double d = depths.values[i] * scale, t = timeFor(d, true);
-        const float sample = static_cast<float>(values.values[i]);
+        const float sample = static_cast<float>(values.values[i] * valueScale);
         curve.depthsM.push_back(d);
         curve.twtMs.push_back(t);
         curve.values.push_back(sample);

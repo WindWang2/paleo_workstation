@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <limits>
 #include <thread>
 
@@ -910,6 +911,110 @@ void SeismicTaskService::cacheSection(const std::vector<glm::ivec2> &pathPoints,
 
 // ---- D5.4 合成记录 -------------------------------------------------------------
 
+namespace
+{
+  // 公共深度轴（两曲线深度并集排序去重）+ 线性插值对齐
+  void mergeCurveDepths(const std::vector<double> &acDepthsM,
+                        const std::vector<double> &denDepthsM, std::vector<double> *depths)
+  {
+    depths->reserve(acDepthsM.size() + denDepthsM.size());
+    depths->insert(depths->end(), acDepthsM.begin(), acDepthsM.end());
+    depths->insert(depths->end(), denDepthsM.begin(), denDepthsM.end());
+    std::sort(depths->begin(), depths->end());
+    depths->erase(std::unique(depths->begin(), depths->end()), depths->end());
+  }
+  const auto curveInterp = [](const std::vector<double> &xs, const std::vector<float> &ys,
+                              double x) -> float {
+    if (x <= xs.front())
+      return ys.front();
+    if (x >= xs.back())
+      return ys.back();
+    const auto it = std::lower_bound(xs.begin(), xs.end(), x);
+    const std::size_t hi = std::size_t(it - xs.begin());
+    const std::size_t lo = hi - 1;
+    const double t = (x - xs[lo]) / std::max(1e-9, xs[hi] - xs[lo]);
+    return float(ys[lo] + t * (ys[hi] - ys[lo]));
+  };
+
+  // 共用数值核：阻抗序列 + 任意时深映射 → 反射系数 → Ricker 褶积 → 归一化。
+  // twtAt 返回非有限值（表外不外推等）→ 该界面跳过。
+  SeismicTaskService::SeismicSyntheticResult syntheticCore(
+      const std::vector<double> &acDepthsM, const std::vector<float> &acUsPerM,
+      const std::vector<double> &denDepthsM, const std::vector<float> &denValues,
+      const std::function<double(double)> &twtAt, double rickerHz)
+  {
+    SeismicTaskService::SeismicSyntheticResult result;
+    std::vector<double> depths;
+    mergeCurveDepths(acDepthsM, denDepthsM, &depths);
+
+    // 波阻抗 Z = ρ · V（V = 1e6 / DT μs/m，m/s）
+    std::vector<double> z;
+    z.reserve(depths.size());
+    for (double d : depths)
+    {
+      const float dtUs = curveInterp(acDepthsM, acUsPerM, d);
+      const float rho = curveInterp(denDepthsM, denValues, d);
+      const double v = dtUs > 1e-6 ? 1e6 / double(dtUs) : 0.0;
+      z.push_back(double(rho) * v);
+    }
+
+    // 反射系数（层间）+ 时深转换（顶底 TWT 中点）
+    std::vector<double> rcTwt;
+    std::vector<float> rc;
+    for (std::size_t i = 1; i < z.size(); ++i)
+    {
+      const double denom = z[i] + z[i - 1];
+      if (denom < 1e-9)
+        continue;
+      const double r = (z[i] - z[i - 1]) / denom;
+      if (std::abs(r) < 1e-10)
+        continue;
+      const double twt = twtAt((depths[i] + depths[i - 1]) * 0.5);
+      if (!std::isfinite(twt) || twt <= 0.0)
+        continue;
+      rcTwt.push_back(twt);
+      rc.push_back(float(r));
+    }
+    if (rcTwt.empty())
+    {
+      result.reason = QStringLiteral("反射系数序列为空（曲线平直或时深超出范围）");
+      return result;
+    }
+
+    // Ricker 子波褶积：输出 2ms 采样网格
+    const double dtMs = 2.0;
+    const double tStart = *std::min_element(rcTwt.begin(), rcTwt.end()) - 100.0;
+    const double tEnd = *std::max_element(rcTwt.begin(), rcTwt.end()) + 100.0;
+    const double pi2 = 2.0 * std::acos(-1.0);
+    const double f2 = rickerHz * rickerHz;
+    for (double t = std::max(0.0, tStart); t <= tEnd; t += dtMs)
+    {
+      double amp = 0.0;
+      for (std::size_t k = 0; k < rcTwt.size(); ++k)
+      {
+        const double tau = t - rcTwt[k]; // 褶积：子波平移到反射点
+        const double a = pi2 * f2 * tau * tau / 1e6; // ms² → s² 折算在分子
+        (void)a;
+        const double arg = pi2 * f2 * (tau / 1000.0) * (tau / 1000.0);
+        amp += double(rc[k]) * (1.0 - 2.0 * arg) * std::exp(-arg);
+      }
+      result.twtMs.push_back(t);
+      result.amplitude.push_back(float(amp));
+    }
+    // 归一化到 [-1,1]
+    float maxAbs = 1e-12f;
+    for (float v : result.amplitude)
+      maxAbs = std::max(maxAbs, std::abs(v));
+    for (float &v : result.amplitude)
+      v /= maxAbs;
+    result.sampleCount = int(result.amplitude.size());
+    result.ok = result.sampleCount > 4;
+    if (!result.ok)
+      result.reason = QStringLiteral("褶积输出为空");
+    return result;
+  }
+} // namespace
+
 SeismicTaskService::SeismicSyntheticResult SeismicTaskService::computeSyntheticSeismogram(
     const std::vector<double> &acDepthsM, const std::vector<float> &acUsPerM,
     const std::vector<double> &denDepthsM, const std::vector<float> &denValues,
@@ -931,92 +1036,48 @@ SeismicTaskService::SeismicSyntheticResult SeismicTaskService::computeSyntheticS
     result.reason = QStringLiteral("时深表缺失或无效——合成记录需时深标定");
     return result;
   }
+  return syntheticCore(acDepthsM, acUsPerM, denDepthsM, denValues,
+                       [&tdModel](double d) { return tdModel.DepthToTwtMs(d); }, rickerHz);
+}
 
-  // 公共深度轴（两曲线深度并集排序去重）+ 线性插值对齐
-  std::vector<double> depths;
-  depths.reserve(acDepthsM.size() + denDepthsM.size());
-  depths.insert(depths.end(), acDepthsM.begin(), acDepthsM.end());
-  depths.insert(depths.end(), denDepthsM.begin(), denDepthsM.end());
-  std::sort(depths.begin(), depths.end());
-  depths.erase(std::unique(depths.begin(), depths.end()), depths.end());
-  const auto interp = [](const std::vector<double> &xs, const std::vector<float> &ys,
-                         double x) -> float {
-    if (x <= xs.front())
-      return ys.front();
-    if (x >= xs.back())
-      return ys.back();
-    const auto it = std::lower_bound(xs.begin(), xs.end(), x);
-    const std::size_t hi = std::size_t(it - xs.begin());
-    const std::size_t lo = hi - 1;
-    const double t = (x - xs[lo]) / std::max(1e-9, xs[hi] - xs[lo]);
-    return float(ys[lo] + t * (ys[hi] - ys[lo]));
-  };
-
-  // 波阻抗 Z = ρ · V（V = 1e6 / DT μs/m，m/s）
-  std::vector<double> z;
-  z.reserve(depths.size());
-  for (double d : depths)
+SeismicTaskService::SeismicSyntheticResult SeismicTaskService::computeSyntheticSeismogram(
+    const std::vector<double> &acDepthsM, const std::vector<float> &acUsPerM,
+    const std::vector<double> &denDepthsM, const std::vector<float> &denValues,
+    const std::vector<double> &tdDepthM, const std::vector<double> &tdTwtMs, double rickerHz)
+{
+  SeismicSyntheticResult result;
+  if (acDepthsM.size() < 2 || acDepthsM.size() != acUsPerM.size())
   {
-    const float dtUs = interp(acDepthsM, acUsPerM, d);
-    const float rho = interp(denDepthsM, denValues, d);
-    const double v = dtUs > 1e-6 ? 1e6 / double(dtUs) : 0.0;
-    z.push_back(double(rho) * v);
-  }
-
-  // 反射系数（层间）+ 时深转换（顶底 TWT 中点）
-  std::vector<double> rcTwt;
-  std::vector<float> rc;
-  for (std::size_t i = 1; i < z.size(); ++i)
-  {
-    const double denom = z[i] + z[i - 1];
-    if (denom < 1e-9)
-      continue;
-    const double r = (z[i] - z[i - 1]) / denom;
-    if (std::abs(r) < 1e-10)
-      continue;
-    const double twt = tdModel.DepthToTwtMs((depths[i] + depths[i - 1]) * 0.5);
-    if (!std::isfinite(twt) || twt <= 0.0)
-      continue;
-    rcTwt.push_back(twt);
-    rc.push_back(float(r));
-  }
-  if (rcTwt.empty())
-  {
-    result.reason = QStringLiteral("反射系数序列为空（曲线平直或时深超出范围）");
+    result.reason = QStringLiteral("声波曲线（AC）缺失或不足 2 个采样点");
     return result;
   }
-
-  // Ricker 子波褶积：输出 2ms 采样网格
-  const double dtMs = 2.0;
-  const double tStart = *std::min_element(rcTwt.begin(), rcTwt.end()) - 100.0;
-  const double tEnd = *std::max_element(rcTwt.begin(), rcTwt.end()) + 100.0;
-  const double pi2 = 2.0 * std::acos(-1.0);
-  const double f2 = rickerHz * rickerHz;
-  for (double t = std::max(0.0, tStart); t <= tEnd; t += dtMs)
+  if (denDepthsM.size() < 2 || denDepthsM.size() != denValues.size())
   {
-    double amp = 0.0;
-    for (std::size_t k = 0; k < rcTwt.size(); ++k)
-    {
-      const double tau = t - rcTwt[k]; // 褶积：子波平移到反射点
-      const double a = pi2 * f2 * tau * tau / 1e6; // ms² → s² 折算在分子
-      (void)a;
-      const double arg = pi2 * f2 * (tau / 1000.0) * (tau / 1000.0);
-      amp += double(rc[k]) * (1.0 - 2.0 * arg) * std::exp(-arg);
-    }
-    result.twtMs.push_back(t);
-    result.amplitude.push_back(float(amp));
+    result.reason = QStringLiteral("密度曲线（DEN）缺失或不足 2 个采样点");
+    return result;
   }
-  // 归一化到 [-1,1]
-  float maxAbs = 1e-12f;
-  for (float v : result.amplitude)
-    maxAbs = std::max(maxAbs, std::abs(v));
-  for (float &v : result.amplitude)
-    v /= maxAbs;
-  result.sampleCount = int(result.amplitude.size());
-  result.ok = result.sampleCount > 4;
-  if (!result.ok)
-    result.reason = QStringLiteral("褶积输出为空");
-  return result;
+  if (tdDepthM.size() != tdTwtMs.size() || tdDepthM.size() < 2)
+  {
+    result.reason = QStringLiteral("时深表缺失或无效——合成记录需时深标定");
+    return result;
+  }
+  // 表内线性插值；表外 → NaN（不外推，界面如实跳过）。
+  return syntheticCore(
+      acDepthsM, acUsPerM, denDepthsM, denValues,
+      [&tdDepthM, &tdTwtMs](double d) -> double {
+        if (d < tdDepthM.front() || d > tdDepthM.back())
+          return std::numeric_limits<double>::quiet_NaN();
+        const auto it = std::lower_bound(tdDepthM.begin(), tdDepthM.end(), d);
+        const std::size_t hi = std::size_t(it - tdDepthM.begin());
+        if (hi == 0)
+          return tdTwtMs.front();
+        const std::size_t lo = hi - 1;
+        if (lo + 1 >= tdTwtMs.size() || !(tdDepthM[hi] > tdDepthM[lo]))
+          return tdTwtMs[lo];
+        const double f = (d - tdDepthM[lo]) / (tdDepthM[hi] - tdDepthM[lo]);
+        return tdTwtMs[lo] + f * (tdTwtMs[hi] - tdTwtMs[lo]);
+      },
+      rickerHz);
 }
 
 } // namespace seismic

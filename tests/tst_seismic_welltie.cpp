@@ -11,6 +11,7 @@
 #include <QTemporaryDir>
 #include <QTimer>
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -151,6 +152,62 @@ private slots:
         depths, ac, depths, den, checkshots);
     QVERIFY2(cs.ok, qPrintable(cs.reason));
     QVERIFY(checkshots.hasCheckshots());
+  }
+
+  // #125：逐井时深对入口——平移/校准必须被消费（不能被画布常速抹掉），
+  // 表不足 2 点如实拒绝（不回退默认速度），表外深度不外推。
+  void syntheticSeismogramPerWellTd()
+  {
+    const std::vector<double> depths = {1000, 1100, 1200, 1300, 1400, 1500,
+                                        1600, 1700, 1800, 1900, 2000,
+                                        2100, 2200, 2300, 2400, 2500, 2600,
+                                        2700, 2800, 2900, 3000};
+    std::vector<float> ac(depths.size()), den(depths.size());
+    for (std::size_t i = 0; i < depths.size(); ++i)
+    {
+      ac[i] = depths[i] < 2000.0 ? 240.0f : 200.0f;
+      den[i] = depths[i] < 2000.0 ? 2.30f : 2.50f;
+    }
+    // 逐井校准 = 常速 2500 m/s + 40ms 平移（对齐静校正的等价简化）。
+    // 界面在 1950m 中点：常速模型给 1560ms；逐井轴必须给 1600ms。
+    const std::vector<double> tdD = {1000.0, 2000.0, 3000.0};
+    const std::vector<double> tdT = {840.0, 1640.0, 2440.0};
+    const auto shifted = SeismicTaskService::computeSyntheticSeismogram(
+        depths, ac, depths, den, tdD, tdT);
+    QVERIFY2(shifted.ok, qPrintable(shifted.reason));
+    int peakIdx = -1;
+    float peakAbs = 0;
+    for (std::size_t i = 0; i < shifted.amplitude.size(); ++i)
+      if (std::abs(shifted.amplitude[i]) > peakAbs)
+      {
+        peakAbs = std::abs(shifted.amplitude[i]);
+        peakIdx = int(i);
+      }
+    QVERIFY(peakIdx >= 0);
+    QVERIFY2(std::abs(shifted.twtMs[std::size_t(peakIdx)] - 1600.0) < 20.0,
+             qPrintable(QStringLiteral("peak %1 != 1600")
+                            .arg(shifted.twtMs[std::size_t(peakIdx)])));
+
+    // 表不足 2 点 → 拒绝且不装懂（诚实降级，交给 UI 呈现原因）
+    const std::vector<double> oneD{1000.0}, oneT{800.0};
+    const auto noTd = SeismicTaskService::computeSyntheticSeismogram(
+        depths, ac, depths, den, oneD, oneT);
+    QVERIFY(!noTd.ok);
+    QVERIFY(noTd.reason.contains(QStringLiteral("时深")));
+
+    // 表只覆盖浅段 → 深部界面如实跳过（不外推）：浅段内放一个真实对比，
+    // 输出只含浅段反射（含 ±100ms 子波肩），深部 2000m 界面绝不外推出现。
+    std::vector<float> acShallow(depths.size()), denFlat(depths.size(), 2.30f);
+    for (std::size_t i = 0; i < depths.size(); ++i)
+      acShallow[i] = depths[i] < 1100.0 ? 240.0f : 230.0f; // 对比在 1050m 中点
+    const std::vector<double> shallowD = {1000.0, 1100.0, 1200.0};
+    const std::vector<double> shallowT = {800.0, 880.0, 960.0};
+    const auto truncated = SeismicTaskService::computeSyntheticSeismogram(
+        depths, acShallow, depths, denFlat, shallowD, shallowT);
+    QVERIFY2(truncated.ok, qPrintable(truncated.reason));
+    QVERIFY(!truncated.twtMs.empty());
+    QVERIFY(*std::max_element(truncated.twtMs.begin(), truncated.twtMs.end()) <
+            960.0 + 200.0); // 只在浅表内褶积（含 ±100ms 子波肩）
   }
 
   // ---- D5.2 任意线提取缓存：同路径第二次命中 ----

@@ -19,7 +19,7 @@ struct WellTopItem {
 };
 
 struct WellCurveItem {
-    QString curveName;  // e.g. "GR", "DEN", "AC"
+    QString curveName;  // e.g. "GR", "DEN", "AC"；跨文件重名时为 "AC@文件基名"
     std::vector<double> depthsM;
     std::vector<double> twtMs;
     std::vector<float> values;
@@ -27,6 +27,12 @@ struct WellCurveItem {
     float maxVal = 100.0f;
     QColor color = QColor(QStringLiteral("#43A047"));
 };
+
+// 跨文件重名的曲线会被 WellLogSet 限定为「AC@文件基名」；按曲线族（声波/
+// 密度）匹配或单位换算时必须取 @ 前的基础助记符，否则限定名静默绕过换算。
+inline QString baseCurveMnemonic(const QString &name) {
+    return name.section(QLatin1Char('@'), 0, 0);
+}
 
 // 测斜轨迹折线顶点（goal/well-trajectory）：井口平移后绝对坐标 + 深度对。
 // twtMs NaN = 未对齐（投影端决定显示口径）；空 trajectory = 无测斜井，

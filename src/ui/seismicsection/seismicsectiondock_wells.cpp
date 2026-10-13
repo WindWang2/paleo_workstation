@@ -7,6 +7,7 @@
 #include "domain/seismic/sgycoordinatemapper.h"
 #include "domain/seismic/welltracelocate.h"
 #include "services/seismictaskservice.h"
+#include "workflow/wellimpedancetwt.h"
 
 #include "ui/paleotheme.h"
 
@@ -204,16 +205,17 @@ void SeismicSectionDockWidget::computeWellTrajectories(const std::vector<glm::dv
 
 void SeismicSectionDockWidget::computeSyntheticOverlays() {
     std::vector<SeismicSectionCanvas::SyntheticOverlay> overlays;
-    const TimeDepthModel &td = m_canvas->timeDepthModel();
     for (const SectionWellInfo &well : m_candidateWells) {
         SeismicSectionCanvas::SyntheticOverlay ov;
         ov.wellId = well.wellId;
         const WellCurveItem *ac = nullptr;
         const WellCurveItem *den = nullptr;
         for (const WellCurveItem &c : well.curves) {
-            if (c.curveName == QLatin1String("AC") && !c.values.empty())
+            if (seismic::baseCurveMnemonic(c.curveName) == QLatin1String("AC") &&
+                !c.values.empty())
                 ac = &c;
-            if ((c.curveName == QLatin1String("DEN") || c.curveName == QLatin1String("RHOB")) && !c.values.empty())
+            if ((seismic::baseCurveMnemonic(c.curveName) == QLatin1String("DEN") ||
+                 seismic::baseCurveMnemonic(c.curveName) == QLatin1String("RHOB")) && !c.values.empty())
                 den = &c;
         }
         if (!ac || !den) {
@@ -221,8 +223,20 @@ void SeismicSectionDockWidget::computeSyntheticOverlays() {
             overlays.push_back(ov);
             continue;
         }
+        // #125：合成记录与反演/子波同口径——消费该井曲线自带的逐井时间轴
+        // （SectionWorkbench 按井时深表/平移算好），不用画布全局常速模型重算；
+        // 逐井时深无效时如实拒绝，不回退默认速度伪造等效深度。
+        std::vector<std::pair<double, double>> pairs;
+        paleo::inv::appendTimeDepthPairs(ac->depthsM, ac->twtMs, &pairs);
+        paleo::inv::appendTimeDepthPairs(den->depthsM, den->twtMs, &pairs);
+        std::vector<double> tdDepthM, tdTwtMs;
+        if (!paleo::inv::buildTimeDepthTable(std::move(pairs), &tdDepthM, &tdTwtMs)) {
+            ov.reason = tr("缺有效时深（未对齐），不能生成合成记录");
+            overlays.push_back(ov);
+            continue;
+        }
         const auto result = SeismicTaskService::computeSyntheticSeismogram(
-            ac->depthsM, ac->values, den->depthsM, den->values, td, 25.0);
+            ac->depthsM, ac->values, den->depthsM, den->values, tdDepthM, tdTwtMs, 25.0);
         ov.ok = result.ok;
         ov.reason = result.reason;
         ov.twtMs = result.twtMs;

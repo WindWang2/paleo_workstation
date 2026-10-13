@@ -65,4 +65,38 @@ inline std::optional<double> depthScaleToMetres(const QString &unit)
       return 0.3048;
   return std::nullopt;
 }
+
+// 声波时差单位 → µs/m 乘数。µs/ft 井（如 US/FT）不换算会给 3.28× 速度误差，
+// 必须显式换算；空单位 = 遗留数据无元数据，按 µs/m 假设（乘 1，调用方注明）；
+// 未知非空单位 nullopt——调用方拒绝该曲线，不猜。
+inline std::optional<double> acousticScaleToUsPerM(const QString &unit)
+{
+  const QString key = unit.trimmed().toUpper();
+  if (key.isEmpty())
+    return 1.0;
+  if (key == QLatin1String("US/M") || key == QLatin1String("USEC/M") ||
+      key == QLatin1String("MICROSEC/M") || key == QLatin1String("US/METER"))
+    return 1.0;
+  if (key == QLatin1String("US/FT") || key == QLatin1String("USEC/FT") ||
+      key == QLatin1String("MICROSEC/FT") || key == QLatin1String("US/FOOT"))
+    return 1.0 / 0.3048;
+  return std::nullopt;
+}
+
+// 密度单位 → g/cc 乘数（阻抗 Z=ρ·V 的 ρ 口径）。空单位同上按 g/cc 假设。
+inline std::optional<double> densityScaleToGPerCc(const QString &unit)
+{
+  const QString key = unit.trimmed().toUpper();
+  if (key.isEmpty())
+    return 1.0;
+  if (key == QLatin1String("G/CC") || key == QLatin1String("G/CM3") ||
+      key == QLatin1String("G/C3") || key == QLatin1String("GCM3") ||
+      key == QLatin1String("G/CC3") || key == QLatin1String("GM/CC") ||
+      key == QLatin1String("GM/C3"))
+    return 1.0;
+  if (key == QLatin1String("KG/M3") || key == QLatin1String("KG/M^3") ||
+      key == QLatin1String("KGM3"))
+    return 0.001;
+  return std::nullopt;
+}
 } // namespace paleo::wellnumeric

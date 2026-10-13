@@ -52,7 +52,7 @@ class TestDerivationGraph : public QObject
   static void click(DerivationGraph *view, const QString &id)
   {
     QGraphicsItem *node = item(view, id);
-    Q_ASSERT(node);
+    if (!node) { QTest::qFail("derivation node not found", __FILE__, __LINE__); return; }
     view->ensureVisible(node);
     const QPoint at = view->mapFromScene(node->scenePos() + QPointF(80, 38));
     QTest::mouseClick(view->viewport(), Qt::LeftButton, Qt::NoModifier, at);
@@ -111,18 +111,18 @@ private slots:
     DerivationGraph chainView; chainView.loadGraph(graph); QVERIFY(screenshot(&chainView, QStringLiteral("chain")));
     DataPage page; PreviewDocService doc(&import);
     page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&doc));
-    page.show(); // 血缘走后台 DerivationWorkflow，实体面板 showEvent 才发起查询。
     page.selectAsset(QStringLiteral("a"));
     DataPreviewTabs preview; preview.setDocService(&doc);
     connect(&page, &DataPage::versionActivated, &preview, &DataPreviewTabs::openVersion);
     connect(&preview, &DataPreviewTabs::versionContextChanged, &page, &DataPage::focusVersion);
     QSignalSpy activated(&page, &DataPage::versionActivated);
     auto *view = page.findChild<DerivationGraph *>(); QVERIFY(view);
-    // 后台任务回图前 scene 为空——等 raw 节点落图再真实点击。
-    QTRY_VERIFY(item(view, raw.id));
-    view->resize(720, 350); view->show();
-    // 脱离布局给真实点击事件独立可见视口。
-    view->setParent(nullptr); view->show();
+    // #424 起实体面板血缘改为可见时经任务中心后台查询：先显示 page 触发查询并等图就绪，
+    // 再脱离布局给真实点击事件可见视口。
+    page.resize(1200, 800); page.show();
+    QTRY_VERIFY_WITH_TIMEOUT(item(view, raw.id) != nullptr, 10000);
+    view->resize(720, 350); view->setParent(nullptr); view->show();
+    QVERIFY(item(view, raw.id));
     click(view, raw.id);
     QTRY_COMPARE(activated.count(), 1);
     QCOMPARE(activated.at(0).at(0).toString(), raw.id);
@@ -160,7 +160,7 @@ private slots:
     }
     PaleoMainWindow window(nullptr, nullptr, nullptr, nullptr, nullptr);
     window.attachWorkflows(nullptr, nullptr, nullptr, nullptr, &import);
-    window.show(); // 血缘走后台 DerivationWorkflow，面板可见才发起查询。
+    window.show(); // #424 起血缘只在面板可见时经任务中心后台查询，下列断言均等待图就绪。
     auto *page = window.findChild<DataPage *>(); auto *preview = window.findChild<DataPreviewTabs *>();
     QVERIFY(page); QVERIFY(preview);
     auto *graph = window.findChild<DerivationGraph *>(); QVERIFY(graph);
@@ -170,7 +170,8 @@ private slots:
     QCOMPARE(page->property("paleo.page.assetId").toString(), QStringLiteral("a"));
     QTRY_VERIFY(item(graph, raw.id)); QCOMPARE(item(graph, raw.id)->scenePos().x(), 0.0);
     page->assetActivated(QStringLiteral("a")); // 真实主窗接线；已有标签保留 RAW。
-    QTRY_VERIFY(item(graph, raw.id)); QCOMPARE(item(graph, raw.id)->scenePos().x(), 0.0);
+    QTRY_VERIFY(item(graph, raw.id));
+    QCOMPARE(item(graph, raw.id)->scenePos().x(), 0.0);
     // 外部再次定位同 id 必须取新事实，不能误用图内点击的一次保留。
     const QString refreshedReason = QStringLiteral("当前血缘源已更新");
     QVERIFY(cat->markDownstreamStale(raw.id, refreshedReason));

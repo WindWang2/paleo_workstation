@@ -3568,6 +3568,10 @@ private:
         page->selectAsset(fx.astResolved);
         QCOMPARE(topo->nodeCount(), 2);
         QVERIFY(topo->scene()->items().size() >= 5); // 2 点 + 2 标签 + 1 边
+        const QStringList shown = [topo] { QStringList ids; for (QGraphicsItem *it : topo->scene()->items())
+            if (!it->data(0).toString().isEmpty()) ids << it->data(0).toString(); return ids; }();
+        QVERIFY(shown.contains(fx.wellA)); QVERIFY(shown.contains(fx.astResolved));
+        QVERIFY(!shown.contains(fx.wellB)); QVERIFY(!shown.contains(fx.astFree));
         // 无链接资产：一跳邻域只含自身节点、无边。
         page->selectAsset(fx.astFree);
         QCOMPARE(topo->nodeCount(), 1);

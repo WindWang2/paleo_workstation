@@ -3563,9 +3563,14 @@ private:
         page->selectAsset(fx.astResolved);
         auto *topo = page->findChild<paleo::dataops::TopologyGraph *>(QStringLiteral("topologyGraph"));
         QVERIFY(topo);
-        // D4.5：2 实体 + 3 资产节点；边 = 链接数（1 已决 + 1 未决虚线）。
-        QCOMPARE(topo->nodeCount(), 5);
+        // #424 起侧栏拓扑只画当前资料/实体的一层关联（全工区图交给后台资料图谱）：
+        // 已决资产 → 自身 + 关联井 A1；无关的 B2 / free 资产不出现。2 圆 + 2 标签 + 1 边。
+        QCOMPARE(topo->nodeCount(), 2);
         QVERIFY(topo->scene()->items().size() >= 5);
+        const QStringList shown = [topo] { QStringList ids; for (QGraphicsItem *it : topo->scene()->items())
+            if (!it->data(0).toString().isEmpty()) ids << it->data(0).toString(); return ids; }();
+        QVERIFY(shown.contains(fx.wellA)); QVERIFY(shown.contains(fx.astResolved));
+        QVERIFY(!shown.contains(fx.wellB)); QVERIFY(!shown.contains(fx.astFree));
     }
 
     void dataops_d4_multiSelectBatchSummary()

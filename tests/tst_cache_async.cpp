@@ -9,10 +9,11 @@
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QTemporaryDir>
-#include <QThreadPool>
 #include <QtConcurrent>
 #include <array>
 #include <atomic>
+#include <thread>
+#include <vector>
 
 class CacheAsyncTests : public QObject
 {
@@ -92,6 +93,7 @@ void CacheAsyncTests::priorityHighBeatsLow()
   std::atomic_int started{0};
   std::atomic_int highOrder{-1};
   std::atomic_int orderSeq{0};
+  std::atomic_bool releaseLows{false};
   std::array<std::atomic_int, kLowCount> lowOrders;
   for (auto &o : lowOrders)
     o.store(-1);
@@ -99,15 +101,24 @@ void CacheAsyncTests::priorityHighBeatsLow()
   for (int i = 0; i < kLowCount; ++i)
     lows.append(svc.start(QStringLiteral("low%1").arg(i), [&, i](PaleoTask *) -> QString {
       lowOrders[i].store(orderSeq.fetch_add(1)); // 每个 low 都记录自己的开始序号
-      QThread::msleep(30);
       started.fetch_add(1);
+      while (!releaseLows.load()) // 占住线程直到高优入队——顺序不再赌墙钟
+        QThread::msleep(1);
       return QString();
     }, QString(), PaleoTask::Priority::Low));
+  // 等首批低优把 4 个工作线程占满再投高优：队列里还剩 4 个低优，
+  // 高优必然插到它们前面，lowsAfterHigh 恒为 4 不再抖动。
+  QElapsedTimer gate;
+  gate.start();
+  while (started.load() < svc.maxWorkerThreads() && gate.elapsed() < 5000)
+    QThread::msleep(1);
+  QVERIFY2(started.load() >= svc.maxWorkerThreads(), "低优未占满线程池");
   PaleoTask *high = svc.start(QStringLiteral("high"), [&](PaleoTask *) -> QString {
     highOrder.store(orderSeq.fetch_add(1));
     QThread::msleep(10);
     return QString();
   }, QString(), PaleoTask::Priority::High);
+  releaseLows.store(true);
 
   spinUntil(high, 10000);
   for (PaleoTask *l : lows)
@@ -192,34 +203,31 @@ void CacheAsyncTests::coalescedConcurrentLasLoad()
   LasCache::shared().invalidate();
 
   std::atomic_int parses{0};
-  // 冷解析钩子里睡一拍：让其余提交者赶在执行者完成前搭车，合并可观测。
-  LasCache::shared().setColdParseHookForTest([&parses] {
+  const int riderBase = LasCache::shared().ridersJoinedForTest();
+  // 冷解析钩子等齐其余 5 个提交者搭车再返回：其余线程必然都进在途集，
+  // 合并计数与线程池容量/启动时差脱钩（10s 兜底防挂死）。
+  LasCache::shared().setColdParseHookForTest([&parses, riderBase] {
     parses.fetch_add(1);
-    QThread::msleep(80);
+    QElapsedTimer t;
+    t.start();
+    while (LasCache::shared().ridersJoinedForTest() - riderBase < 5 &&
+           t.elapsed() < 10000)
+      QThread::msleep(5);
   });
-  // 6 个线程同时冷加载（清内存后）。用独立 6 线程池 + 起跑闸：全局池大小 =
-  // 宿主核数，2/4 核 CI 上 6 个任务排队串行，后到者走缓存命中而非搭车。
-  const int ridersBefore = LasCache::shared().ridersJoinedForTest();
-  constexpr int kLoaders = 6;
-  QThreadPool pool;
-  pool.setMaxThreadCount(kLoaders);
-  std::atomic_int ready{0};
-  QVector<QFuture<void>> futs;
-  for (int i = 0; i < kLoaders; ++i)
-    futs.append(QtConcurrent::run(&pool, [&las, &ready](void) {
-      ready.fetch_add(1);
-      while (ready.load() < kLoaders) QThread::yieldCurrentThread();
-      LasCache::shared().load(las);
-    }));
-  for (auto &f : futs)
-    f.waitForFinished();
+  // 6 个真实线程同时冷加载——显式线程不受 QtConcurrent 池上限影响，
+  // 小核数 CI runner 上也能保证 5 个搭车者全部在途。
+  std::vector<std::thread> threads;
+  threads.reserve(6);
+  for (int i = 0; i < 6; ++i)
+    threads.emplace_back([&las] { LasCache::shared().load(las); });
+  for (auto &t : threads)
+    t.join();
   LasCache::shared().setColdParseHookForTest(nullptr);
   // 全部线程拿到结果（条目在缓存）。
   QVERIFY(LasCache::shared().isCached(las));
   // 合并语义：6 并发只触发一次真实解析，其余搭车。
   QCOMPARE(parses.load(), 1);
-  QVERIFY2(LasCache::shared().ridersJoinedForTest() - ridersBefore >= kLoaders - 1,
-           qPrintable(QStringLiteral("riders=%1").arg(LasCache::shared().ridersJoinedForTest() - ridersBefore)));
+  QVERIFY(LasCache::shared().ridersJoinedForTest() - riderBase >= 5);
 }
 
 void CacheAsyncTests::prefetchPopulatesCache()

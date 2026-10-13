@@ -18,6 +18,20 @@ paleo_deb_libpath() {
   local ma="$p/$(paleo_multiarch)"
   if [ -d "$ma" ]; then echo "$ma:$p"; else echo "$p"; fi
 }
+# deb 闭包里 PROJ/GDAL 是 distro 编译——默认数据路径指向 runner 上不存在的
+# /usr/share/{proj,gdal}，不显式导出则 proj.db 找不到：OSRImportFromEPSG /
+# SetProjection / GPKG SRS 全链静默 fail（写栅格类测试成片红）。按现有
+# GDAL_DRIVER_PATH 的「prefix 在则注入、用户显式给则不抢」同款规则补
+# PROJ_DATA/GDAL_DATA；superbuild/系统包路目录存在时也生效，无害。
+paleo_data_env() {
+  local prefix="$1"
+  [ -n "$prefix" ] || return 0
+  if [ -d "$prefix/share/proj" ]; then
+    [ -z "${PROJ_DATA:-}" ] && export PROJ_DATA="$prefix/share/proj"
+    [ -z "${PROJ_LIB:-}" ] && export PROJ_LIB="$prefix/share/proj"
+  fi
+  [ -z "${GDAL_DATA:-}" ] && [ -d "$prefix/share/gdal" ] && export GDAL_DATA="$prefix/share/gdal"
+}
 if [ -z "${QGIS_PREFIX_PATH:-}" ]; then
   if [ -d vendor/superbuild/prefix/lib ]; then
     export QGIS_PREFIX_PATH="$PWD/vendor/superbuild/prefix"
@@ -85,6 +99,7 @@ case "$verb" in
         if [ -d "$cand" ]; then export GDAL_DRIVER_PATH="$cand"; break; fi
       done
     fi
+    paleo_data_env "$prefix_lib"
     # ctest 默认并行 min(核数, 8)（T2：每测试有独立 XDG 沙箱，并行安全；
     # #230：-j8 上限）；传 --parallel/-j 时用户参数照传。
     mkdir -p "$BUILD_DIR/Testing/qtest-first-run"
@@ -109,6 +124,7 @@ case "$verb" in
           ;;
       esac
     fi
+    paleo_data_env "${QGIS_PREFIX_PATH:-}"
     mkdir -p vendor/logs
     QT_QPA_PLATFORM=offscreen "$BUILD_DIR/paleo_selfcheck" "$@"
     ;;

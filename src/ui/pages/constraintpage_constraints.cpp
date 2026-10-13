@@ -45,7 +45,7 @@ void ConstraintPage::buildConstraintArea( QWidget *content, QVBoxLayout *lay, QC
   auto *cell = findChild<QDoubleSpinBox *>( QStringLiteral( "factorCellSizeSpin" ) );
 
   lay->addSpacing(PaleoTheme::tokens().spacingMd); // spacing.md：单因素区与约束区分组
-  auto *constraintCaption = caption(tr("约束线"), this);
+  auto *constraintCaption = caption(tr("1 · 绘制或导入间隔线、方向线"), this);
   lay->addWidget(constraintCaption);
   auto *list = new QListWidget( this );
   list->setObjectName( QStringLiteral( "constraintList" ) );
@@ -196,14 +196,14 @@ void ConstraintPage::buildConstraintArea( QWidget *content, QVBoxLayout *lay, QC
   // 两个类型化入口是同组次要动作——归并为一行工具排，不再各占全宽。
   auto *typedRow = new QHBoxLayout();
   typedRow->setSpacing(PaleoTheme::tokens().spacingXs); // xs
-  auto *direction = new QPushButton( tr( "画方向线" ), this );
+  auto *direction = new QPushButton(tr("绘制方向线"), this);
   direction->setObjectName( QStringLiteral( "directionButton" ) );
   typedRow->addWidget( direction );
   connect( direction, &QPushButton::clicked, this, [this, horizons, spin] {
     emit drawTypedConstraintRequested( horizons->currentText(), QStringLiteral( "line" ),
                                        QStringLiteral( "direction_line" ), spin->value() );
   } );
-  auto *breakLine = new QPushButton( tr( "画打断线" ), this );
+  auto *breakLine = new QPushButton(tr("绘制间隔线"), this);
   breakLine->setObjectName( QStringLiteral( "breakLineButton" ) );
   typedRow->addWidget( breakLine );
   connect( breakLine, &QPushButton::clicked, this, [this, horizons, spin] {
@@ -294,14 +294,35 @@ void ConstraintPage::buildConstraintArea( QWidget *content, QVBoxLayout *lay, QC
   directionFamily->addWidget(directionType); typedRow->removeWidget(direction); directionFamily->addWidget(direction);
   moveParamWidget( adv, ratio, directionFamily ); moveParamWidget( adv, influence, directionFamily ); moveParamWidget( adv, core, directionFamily );
   moveParamWidget( adv, softStrength, details->containerLayout() ); moveParamWidget( adv, softRadius, details->containerLayout() );
-  auto *breakFamily = family("breakFamilySection", tr("打断线族"),
-      tr("硬屏障阻断跨线传播；等值停止终止提线。仅显示停线不改变插值数值。"));
+  auto *breakFamily =
+      family("breakFamilySection", tr("间隔线族"),
+             tr("硬屏障阻断跨线传播；等值停止终止提线。仅显示停线不改变插值数值。"));
   auto *breakType = new QComboBox(constraints); breakType->setObjectName(QStringLiteral("breakFamilyTypeCombo"));
-  breakType->setAccessibleName(tr("打断线族语义"));
+  breakType->setAccessibleName(tr("间隔线族语义"));
   breakType->addItem(tr("硬屏障"), QStringLiteral("break_line"));
   breakType->addItem(tr("等值停止"), QStringLiteral("contour_stop"));
   breakFamily->addWidget(breakType); typedRow->removeWidget(breakLine); breakFamily->addWidget(breakLine);
   details->containerLayout()->removeWidget(blockMode); breakFamily->addWidget(caption(tr("阻断方式"), constraints)); breakFamily->addWidget(blockMode);
+  for (const auto &entry :
+       QVector<QPair<QVBoxLayout *, QString>>{{breakFamily, QStringLiteral("barrier")},
+                                              {directionFamily, QStringLiteral("direction")}}) {
+    auto *import = new QPushButton(entry.second == QLatin1String("barrier") ? tr("导入间隔线…")
+                                                                            : tr("导入方向线…"),
+                                   constraints);
+    import->setObjectName(entry.second + QStringLiteral("ImportButton"));
+    import->setToolTip(
+        tr("导入本工程局部米制坐标的 GPKG、SHP 或 GeoJSON；原文件和约束快照均保存到数据管理。"));
+    entry.first->addWidget(import);
+    connect(import, &QPushButton::clicked, this, [this, horizons, role = entry.second] {
+      emit constraintImportRequested(horizons->currentText(), role);
+    });
+  }
+  auto *hint = new QLabel(constraints);
+  hint->setObjectName(QStringLiteral("factorConstraintHint"));
+  hint->setWordWrap(true);
+  constraintLay->addWidget(hint);
+  constraintLay->removeWidget(breakFamily->parentWidget());
+  constraintLay->insertWidget(1, breakFamily->parentWidget());
   constraintLay->addWidget(details);
   lay->insertWidget(lay->indexOf(methodCaption), constraints);
   lay->removeWidget(cellCaption); lay->removeWidget(cell);
@@ -381,13 +402,26 @@ void ConstraintPage::refreshConstraintList()
     selected.insert(item->data(Qt::UserRole).toString());
   list->blockSignals( true );
   list->clear();
+  int directions = 0, barriers = 0;
+  QVariantList signatureRows;
   if ( wf )
   {
     const QVector<QVariantMap> rows = wf->loadConstraints( horizon );
     for ( const QVariantMap &row : rows )
     {
+      signatureRows << row;
       const QString id = row.value( QStringLiteral( "id" ) ).toString();
       const QString type = row.value( QStringLiteral( "type" ) ).toString();
+      const auto parameters =
+          QJsonDocument::fromJson(row.value(QStringLiteral("params_json")).toString().toUtf8())
+              .object()
+              .toVariantMap();
+      if (parameters.value(QStringLiteral("enabled"), true).toBool()) {
+        if (type == QLatin1String("direction_line"))
+          ++directions;
+        if (type == QLatin1String("break_line"))
+          ++barriers;
+      }
       auto *item = new QListWidgetItem( tr( "%1 · %2" ).arg( id, type ), list );
       item->setData( Qt::UserRole, id );
       item->setData( Qt::UserRole + 1, row.value( QStringLiteral( "params_json" ) ).toString() );
@@ -397,6 +431,20 @@ void ConstraintPage::refreshConstraintList()
     }
   }
   list->blockSignals( false );
+  setProperty("paleo.page.constraintsready", directions > 0 && barriers > 0);
+  if (auto *hint = child<QLabel>(this, "factorConstraintHint"))
+    hint->setText(
+        tr("本层位：%1 条间隔线、%2 "
+           "条方向线。绘制、导入自动保存；顶点编辑需保存编辑会话。准备两类线后，再提取井点数据。间隔线采用现有硬屏障算法。")
+            .arg(barriers)
+            .arg(directions));
+  const QByteArray signature =
+      QJsonDocument::fromVariant(signatureRows).toJson(QJsonDocument::Compact);
+  const auto key = QStringLiteral("paleo.page.constraintsignature.") + horizon;
+  if (property(key.toUtf8().constData()).isValid() &&
+      property(key.toUtf8().constData()).toByteArray() != signature)
+    markInputsStale();
+  setProperty(key.toUtf8().constData(), signature);
   loadSelectedConstraintLine();
 }
 

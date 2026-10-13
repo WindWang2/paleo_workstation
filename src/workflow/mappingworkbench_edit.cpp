@@ -40,6 +40,8 @@
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QSet>
+#include <QSignalBlocker>
+#include <qgsvectorfilewriter.h>
 #include <QTemporaryDir>
 #include <QUuid>
 #include <QtConcurrent>
@@ -431,6 +433,11 @@ QString MappingWorkbench::snapshotConstraints(const QString &h,
                                               QString *error) {
   if (!ready(h, error))
     return {};
+  if (auto *editing = qobject_cast<QgsVectorLayer *>(m_layers->layer(QStringLiteral("constraints.%1").arg(h)));
+      editing && editing->isModified()) {
+    fail(error, tr("请先保存或撤销约束编辑，再计算并保存等值面"));
+    return {};
+  }
   auto *store = m_constraints->constraintStore();
   if (!store || m_constraints->loadConstraints(h).isEmpty())
     return {};
@@ -487,12 +494,20 @@ bool MappingWorkbench::importConstraints(const QString &h, const QString &path,
   const auto input = m_dir + "/artifacts/staging/" + uid() + ".gpkg";
   if (!MappingArtifactWriter::vectorSnapshot(&source, input, error))
     return false;
-  const auto inputId =
-      record(input, h, "constraint_source", tr("%1 导入约束").arg(h), "vector",
-             {}, {{"source_file", path}, {"method", "constraint-import"}},
-             error, "|layername=features");
+  return publishConstraintImport(h, input, path, records, error);
+}
+
+bool MappingWorkbench::publishConstraintImport(
+    const QString &h, const QString &input, const QString &path,
+    const QVector<paleo::ImportedConstraintRecord> &records, QString *error,
+    const DerivedFileFingerprint *fingerprint) {
+  const auto inputId = record(input, h, "constraint_source", tr("%1 导入约束").arg(h), "vector", {},
+                              {{"source_file", path}, {"method", "constraint-import"}}, error,
+                              "|layername=features", {}, fingerprint);
   if (inputId.isEmpty())
     return false;
+  QSignalBlocker workflowSignals(m_constraints);
+  QSignalBlocker layerSignals(m_layers);
   QStringList created;
   bool ok = true;
   for (const auto &record : records) {
@@ -511,8 +526,13 @@ bool MappingWorkbench::importConstraints(const QString &h, const QString &path,
     m_constraints->loadConstraints(h);
     return false;
   }
-  return !snapshotConstraints(h, {versionForLayer(inputId).id}, error)
-              .isEmpty();
+  const bool saved = !snapshotConstraints(h, {versionForLayer(inputId).id}, error).isEmpty();
+  layerSignals.unblock();
+  workflowSignals.unblock();
+  emit m_layers->layerDeclared(QStringLiteral("constraints.%1").arg(h));
+  emit m_constraints->constraintLineUpdated(QString());
+  emit changed();
+  return saved;
 }
 
 // 测区范围/成图边界导入（WS-B/WS-C）：面图层快照进 artifacts/layers/，
@@ -571,4 +591,60 @@ bool MappingWorkbench::importBoundaryLayer(const QString &path,
     emit errorOccurred(tr("边界已导入，但工程视图保存失败：%1")
                            .arg(m_project->lastErrors().join("；")));
   return true;
+}
+
+bool MappingWorkbench::startConstraintImport(const QString &h, const QString &path,
+                                             const QString &role, QString *error) {
+  if (!ready(h, error))
+    return false;
+  if (m_constraints->factorBusy()) {
+    fail(error, tr("已有单因素任务"));
+    return false;
+  }
+  if (!m_taskSvc)
+    return importConstraints(h, path, role, error);
+  struct Import {
+    QString path;
+    QVector<paleo::ImportedConstraintRecord> records;
+    DerivedFileFingerprint fingerprint;
+  };
+  auto job = std::make_shared<Import>();
+  QDir().mkpath(m_dir + "/artifacts/staging");
+  job->path = m_dir + "/artifacts/staging/" + uid() + ".gpkg";
+  return m_constraints->runFactorWork(
+      tr("%1 · 导入%2").arg(h, role == QLatin1String("barrier") ? tr("间隔线") : tr("方向线")),
+      [job, path, role](PaleoTask *task) {
+        const auto cancelled = [task] { return task && task->cancelRequested(); };
+        if (task)
+          task->reportStage("parse", 5);
+        QgsVectorLayer source(path, QStringLiteral("constraints"), QStringLiteral("ogr"));
+        if (!source.isValid())
+          return tr("请选择有效的线矢量文件");
+        if (!acceptsLocalGrid(source.crs()))
+          return tr("约束线必须采用本工程的局部米制坐标；请先完成配准");
+        if (cancelled())
+          return tr("导入已取消");
+        QgsVectorFileWriter::SaveVectorOptions options;
+        options.driverName = "GPKG";
+        options.layerName = "features";
+        QString error;
+        if (QgsVectorFileWriter::writeAsVectorFormatV3(&source, job->path,
+                                                       QgsCoordinateTransformContext(), options,
+                                                       &error) != QgsVectorFileWriter::NoError)
+          return error.isEmpty() ? tr("约束文件保存失败") : error;
+        if (task)
+          task->reportStage("parse", 50);
+        job->records = paleo::readConstraintImportFeatures(job->path + "|layername=features", role,
+                                                           nullptr, &error, cancelled);
+        if (job->records.isEmpty())
+          return error.isEmpty() ? tr("约束文件没有可导入的线") : error;
+        if (task)
+          task->reportStage("hash", 90);
+        job->fingerprint = DerivedFileFingerprint::read(job->path, cancelled, &error);
+        return error;
+      },
+      [this, job, h, path](QString *error) {
+        return publishConstraintImport(h, job->path, path, job->records, error, &job->fingerprint);
+      },
+      [job] { QFile::remove(job->path); }, error);
 }

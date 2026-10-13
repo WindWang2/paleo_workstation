@@ -106,6 +106,7 @@ void ConstraintWorkflow::setCatalog( DataCatalog *catalog, const QString &projec
     m_factorJobTask->requestCancel();
   m_catalog = catalog;
   m_projectDir = projectDir;
+  m_preparedWellFactors.clear();
   m_wellFactorRows.clear();
   m_wellFactorMessage.clear();
 }

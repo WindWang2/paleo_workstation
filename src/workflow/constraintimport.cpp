@@ -140,11 +140,9 @@ QVariantMap barrierParams( const sf::FeatureAttributes &attrs )
 
 } // namespace
 
-QVector<ImportedConstraintRecord> readConstraintImportFeatures( const QString &path,
-                                                                const QString &role,
-                                                                QString *resolvedRole,
-                                                                QString *error )
-{
+QVector<ImportedConstraintRecord>
+readConstraintImportFeatures(const QString &path, const QString &role, QString *resolvedRole,
+                             QString *error, const std::function<bool()> &cancelled) {
   QgsVectorLayer layer( path, QStringLiteral( "constraints" ), QStringLiteral( "ogr" ) );
   if ( !layer.isValid() )
   {
@@ -177,6 +175,11 @@ QVector<ImportedConstraintRecord> readConstraintImportFeatures( const QString &p
   QgsFeature feature;
   while ( it.nextFeature( feature ) )
   {
+    if (cancelled && cancelled()) {
+      if (error)
+        *error = QObject::tr("约束导入已取消");
+      return {};
+    }
     const QgsGeometry geometry = feature.geometry();
     if ( geometry.isEmpty() || QgsWkbTypes::geometryType( geometry.wkbType() ) !=
                                    Qgis::GeometryType::Line ||

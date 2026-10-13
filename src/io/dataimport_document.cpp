@@ -113,14 +113,17 @@ QString DataImportService::documentConverterProgram()
 
 // DERIVED 版本血统补充（方向 94）：soffice 版本 + 平台随产物入库——跨平台
 // （linux deb 子集 / windows msi 子集）转换细节可能有差，追溯面要能区分。
-// 版本取转换器旁的 bootstrap(.ini/.rc) ProductKey + version(.ini/.rc) buildid
-// （sal 的 SAL_CONFIGFILE 后缀：Windows ini / Unix rc；vendored 树与系统
-// 安装都带）；任一读不到如实记 unknown（stub/异形转换器不猜版本）。
+// 版本取转换器旁的 bootstrap(.ini|rc) ProductKey + version(.ini|rc) buildid
+// （sal 的 SAL_CONFIGFILE 后缀：Windows `bootstrap.ini` / Unix `bootstraprc`
+// 无分隔点——vendored 树与系统安装都带）；任一读不到如实记 unknown
+// （stub/异形转换器不猜版本）。
 static QString loIniValue(const QDir &dir, const QString &base, const QString &key)
 {
-  for (const QString &suffix : {QStringLiteral("ini"), QStringLiteral("rc")})
+  for (const QString &name : {base + QStringLiteral(".ini"),
+                              base + QStringLiteral(".rc"),
+                              base + QStringLiteral("rc")})
   {
-    const QString path = dir.filePath(base + QLatin1Char('.') + suffix);
+    const QString path = dir.filePath(name);
     if (!QFile::exists(path))
       continue;
     QSettings s(path, QSettings::IniFormat);

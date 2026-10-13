@@ -48,8 +48,14 @@ struct ProjectSnapshot {
 };
 bool captureProjectSnapshot(const QgsProject *project, ProjectSnapshot &out,
                             QString *reason = nullptr);
+// rebuilds the private worker project from a snapshot. error is only set when
+// the project itself cannot be assembled; individual layers whose source is
+// unreadable are kept as invalid layers (same semantics as the live project)
+// and appended to *warnings as "name: reason" entries — an export that
+// silently drops layers is not a clean success.
 std::unique_ptr<QgsProject> rebuildProject(const ProjectSnapshot &snapshot,
-                                           QString *error = nullptr);
+                                           QString *error = nullptr,
+                                           QStringList *warnings = nullptr);
 
 enum class Format { Png, Pdf, Svg };
 
@@ -72,6 +78,8 @@ struct ExportOutcome
     QStringList files; //!< files written: primary path first, then "_2".. siblings
     QString effectivePath; //!< destination after default-extension resolution; empty
                            //!< when layout==nullptr or outPath empty (pre-resolution errors)
+    QStringList warnings; //!< non-fatal issues (e.g. snapshot layers whose data
+                          //!< source was unreadable → map rendered without them)
 };
 
 // Logic core — synchronous, no dialogs, directly testable.

@@ -2,8 +2,10 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QFontDatabase>
 #include <QImage>
 #include <QSignalSpy>
+#include <QStatusBar>
 #include <QTemporaryDir>
 
 #include "../src/ui/paleotheme.h" // 渲染稳定化：vendor 字体钉死
@@ -11,6 +13,7 @@
 #include "../src/ui/layout/layouttemplates.h"
 #include "../src/services/paleotaskservice.h" // #85 异步导出路径
 #include "../src/qgis/qgisruntime.h"
+#include "../src/qgis/standardelements.h"
 
 #include <qgslayout.h>
 #include <qgslayoutitem.h>
@@ -501,6 +504,76 @@ class TestLayoutExport : public QObject
       QCOMPARE( spy.at( 2 ).at( 0 ).toString(), thirdPath );
       QCOMPARE( spy.at( 2 ).at( 1 ).toBool(), true );
       QVERIFY( QFile::exists( thirdPath ) );
+    }
+
+    // 缺源快照层：导出照常成功（与活工程无效层同口径），但产物少层必须
+    // 随结果可核实——rebuildProject 收集 warning、异步 outcome.warnings
+    // 携带并落到状态栏/消息日志（修复前完全静默，「导出成功」掩盖缺层）。
+    void missingSnapshotLayerSurfacesWarnings()
+    {
+      QgsProject live;
+      auto *dead = new QgsVectorLayer(
+          QStringLiteral( "/nonexistent-dir-42/ghost.gpkg|layername=x" ),
+          QStringLiteral( "相面（缺失）" ), QStringLiteral( "ogr" ) );
+      QVERIFY( !dead->isValid() ); // 缺源：进工程、渲染跳过（活工程同口径）
+      live.addMapLayer( dead, false );
+      live.layerTreeRoot()->addLayer( dead );
+      auto *alive = new QgsVectorLayer( QStringLiteral( "Point?crs=EPSG:4326&field=name:string" ),
+                                        QStringLiteral( "alive" ), QStringLiteral( "memory" ) );
+      QVERIFY( alive->isValid() );
+      live.addMapLayer( alive, false );
+      live.layerTreeRoot()->addLayer( alive );
+
+      // 同步核：rebuildProject 的 warnings 逐层点名，memory 层不误报。
+      PaleoLayoutExportActions::ProjectSnapshot snap;
+      QString reason;
+      QVERIFY2( PaleoLayoutExport::captureProjectSnapshot( &live, snap, &reason ),
+                qPrintable( reason ) );
+      QStringList warnings;
+      auto project = PaleoLayoutExport::rebuildProject( snap, &reason, &warnings );
+      QVERIFY( project != nullptr );
+      QCOMPARE( warnings.size(), 1 );
+      QVERIFY2( warnings.first().contains( QStringLiteral( "相面（缺失）" ) ),
+                qPrintable( warnings.first() ) );
+
+      // 异步面：outcome.warnings 随回包呈现到状态栏（+消息日志）。
+      PaleoTaskService tasks;
+      PaleoLayoutExportActions exports;
+      exports.setTaskService( &tasks );
+      QStatusBar status;
+      exports.setStatusTarget( &status );
+      QgsPrintLayout layout( &live );
+      layout.initializeDefaults();
+      addLabel( &layout, QStringLiteral( "WARN" ) );
+      QTemporaryDir dir;
+      QVERIFY( dir.isValid() );
+      const QString path = dir.filePath( QStringLiteral( "warn.png" ) );
+      QSignalSpy spy( &exports, &PaleoLayoutExportActions::exportFinished );
+      QVERIFY( exports.exportLayoutAsync( &layout, path,
+                                          PaleoLayoutExportActions::Format::Png, 96.0,
+                                          PaleoLayoutExportActions::PageRange() ) );
+      QVERIFY2( spy.wait( 30000 ), "exportFinished did not arrive from the worker task" );
+      QCOMPARE( spy.at( 0 ).at( 1 ).toBool(), true );
+      QVERIFY( QFile::exists( path ) );
+      QVERIFY2( status.currentMessage().contains( QStringLiteral( "1 个图层无法加载" ) ),
+                qPrintable( status.currentMessage() ) );
+    }
+
+    // 图件字体族单一事实源（standardelements.figureTextFormat）：进程内
+    // 必须解析到真实安装的族（vendored "Noto Sans SC" 优先）——修复前钉死
+    // 系统族名 "Noto Sans CJK SC"，应用内 vendored 字体不被取用，PDF 文本
+    // 落到 fontconfig 替换（fc-match 实测可解析到 KR 变体）无字体保证。
+    void figureFontFamilyResolvesToInstalledFamily()
+    {
+      const QgsTextFormat fmt = PaleoStandardElements::figureTextFormat( 9 );
+      const QString family = fmt.font().family();
+      const QFontDatabase db;
+      QVERIFY2( db.families().contains( family ),
+                qPrintable( QStringLiteral( "figure font family '%1' not installed in process" ).arg( family ) ) );
+      // DESIGN.md：图件字体 = vendored「Noto Sans SC」（跨平台一致）。
+      // 注册在场时必须取用——钉死系统族名（如 Noto Sans CJK SC）即红。
+      if ( db.families().contains( QStringLiteral( "Noto Sans SC" ) ) )
+        QCOMPARE( family, QStringLiteral( "Noto Sans SC" ) );
     }
 
     // #161：工程快照与活工程零共享——重建出的私有工程图层 id 相同但对象

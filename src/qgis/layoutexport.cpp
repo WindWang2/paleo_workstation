@@ -649,7 +649,7 @@ bool PaleoLayoutExport::captureProjectSnapshot(const QgsProject *project,
 
 std::unique_ptr<QgsProject>
 PaleoLayoutExport::rebuildProject(const ProjectSnapshot &snapshot,
-                                  QString *error) {
+                                  QString *error, QStringList *warnings) {
   auto project = std::make_unique<QgsProject>();
   project->setCrs(snapshot.crs);
   project->setTransformContext(snapshot.transformContext);
@@ -683,9 +683,26 @@ PaleoLayoutExport::rebuildProject(const ProjectSnapshot &snapshot,
         QString(), QString(), type, options, provider));
     if (!layer)
       continue;
-    // readLayerXml 失败（数据源离线等）仍保留该图层：与活工程里「无效图层」
-    // 同口径，地图项照常跳过它，而不是整次导出失败。
-    layer->readLayerXml(layerEl, context);
+    // readLayerXml 失败（XML 缺字段）或数据源离线（layer invalid）仍保留该
+    // 图层：与活工程里「无效图层」同口径，地图项照常跳过它，而不是整次导出
+    // 失败。但导出产物少层必须可核实——逐层收集 warning（调用方呈现）。
+    // memory 层无持久源、要素在下方灌回，不参与有效性判断。
+    const bool readOk = layer->readLayerXml(layerEl, context);
+    const bool memoryBacked = snapshot.memorySources.contains(layer->id());
+    if ((!readOk || !layer->isValid()) && !memoryBacked && warnings) {
+      QString name = layer->name();
+      if (name.isEmpty()) {
+        name = layerEl.attribute(QStringLiteral("title"));
+        if (name.isEmpty()) {
+          const QDomElement layerName =
+              layerEl.firstChildElement(QStringLiteral("layername"));
+          if (!layerName.isNull())
+            name = layerName.text();
+        }
+      }
+      warnings->push_back(QObject::tr("%1：数据源无法读取，导出图中不含该图层")
+                              .arg(name.isEmpty() ? QObject::tr("未命名图层") : name));
+    }
     if (auto *vector = qobject_cast<QgsVectorLayer *>(layer.get())) {
       const auto source = snapshot.memorySources.value(vector->id());
       if (source && vector->dataProvider()) {

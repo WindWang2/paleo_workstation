@@ -18,6 +18,7 @@
 #include <QPointer>
 #include <QTemporaryDir>
 #include <qgslayout.h>
+#include <qgsmessagelog.h>
 #include <qgsproject.h>
 #include <qgsreadwritecontext.h>
 
@@ -317,9 +318,14 @@ PaleoTask *startMapLayoutExport(QgsLayout *layout, PaleoTaskService *tasks,
   xml.appendChild(layout->writeXml(xml, context));
   return startMapProductExport(
       [snapshot, xml](const QString &path, QString *error) {
-        auto project = PaleoLayoutExport::rebuildProject(snapshot, error);
+        QStringList warnings;
+        auto project =
+            PaleoLayoutExport::rebuildProject(snapshot, error, &warnings);
         if (!project)
           return false;
+        // 快照层缺源不阻断导出，但产物少层必须可见（warning 档统一入账，
+        // worker 线程直报 ErrorHub，未安装时降级 stderr）。
+        paleo::workflow_detail::reportSnapshotWarnings(warnings);
         QgsPrintLayout rebuilt(project.get());
         QgsReadWriteContext context;
         if (!rebuilt.readXml(xml.documentElement(), xml, context)) {

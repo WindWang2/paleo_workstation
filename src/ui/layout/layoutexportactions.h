@@ -103,9 +103,11 @@ class PaleoLayoutExportActions : public QObject
     static bool captureProjectSnapshot( const QgsProject *project, ProjectSnapshot &out,
                                         QString *reason = nullptr );
     // 在**调用线程**新建私有工程并按快照重建；返回的工程及其图层都归调用
-    // 线程所有。失败返回 nullptr + error。
+    // 线程所有。失败返回 nullptr + error。warnings（可选）收集快照层缺源等
+    // 非致命问题——导出继续，但产物少层必须可核实。
     static std::unique_ptr<QgsProject> rebuildProject( const ProjectSnapshot &snapshot,
-                                                       QString *error = nullptr );
+                                                       QString *error = nullptr,
+                                                       QStringList *warnings = nullptr );
 
     // UI wiring. The providers are only consulted by the action handlers —
     // exportLayout() itself takes its layout explicitly.

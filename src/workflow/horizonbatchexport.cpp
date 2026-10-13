@@ -1,6 +1,8 @@
 // 层：功能
 #include "horizonbatchexport.h"
 
+#include "workflowerrors_internal.h" // reportSnapshotWarnings：缺层警告统一入账
+
 #include "mapexport.h" // registerMapPdfAsset：图件 → catalog OUTPUT 登记
 
 #include "../catalog/datacatalog.h"
@@ -371,10 +373,14 @@ PaleoTask *startAsync(const Request &request, PaleoTaskService *tasks,
   auto *task = tasks->start(
       QObject::tr("按层位批量出图 · %1 个层位").arg(job->layerIds.size()),
       [job](PaleoTask *task) -> QString {
-        auto project =
-            PaleoLayoutExport::rebuildProject(job->project, &job->error);
+        QStringList snapshotWarnings;
+        auto project = PaleoLayoutExport::rebuildProject(job->project,
+                                                         &job->error,
+                                                         &snapshotWarnings);
         if (!project)
           return job->error;
+        // 快照层缺源不阻断批量出图，但产物少层必须可见（warning 档入账）。
+        paleo::workflow_detail::reportSnapshotWarnings(snapshotWarnings);
         QgsPrintLayout layout(project.get());
         QgsReadWriteContext context;
         if (!layout.readXml(job->layout.documentElement(), job->layout,

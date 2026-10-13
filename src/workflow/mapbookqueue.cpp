@@ -1,6 +1,8 @@
 // 层：功能
 #include "mapbookqueue.h"
 
+#include "workflowerrors_internal.h" // reportSnapshotWarnings：缺层警告统一入账
+
 #include <QDate>
 #include <QDir>
 #include <QFile>
@@ -224,14 +226,18 @@ PaleoTask *Exporter::start(const Request &request) {
           job->state.result.failures.append({-1, "*", "prepare", job->error});
           return job->error;
         }
-        auto project =
-            PaleoLayoutExport::rebuildProject(job->snapshot, &job->error);
+        QStringList snapshotWarnings;
+        auto project = PaleoLayoutExport::rebuildProject(job->snapshot,
+                                                         &job->error,
+                                                         &snapshotWarnings);
         if (!project) {
           job->state.result.total = job->request.tiles.size();
           job->state.result.failed = job->state.result.total;
           job->state.result.failures.append({-1, "*", "prepare", job->error});
           return job->error;
         }
+        // 快照层缺源不阻断地图册导出，但产物少层必须可见（warning 档入账）。
+        paleo::workflow_detail::reportSnapshotWarnings(snapshotWarnings);
         Request work = job->request;
         for (const auto &id : job->layerIds)
           if (auto *layer = project->mapLayer(id))

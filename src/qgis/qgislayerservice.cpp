@@ -274,10 +274,23 @@ void QgisLayerService::refreshBasemaps()
 int QgisLayerService::instantiateHorizon(const QString &horizon)
 {
   int count = 0;
+  QStringList failures;
   const QVector<LayerDeclaration> decls = m_manifest->forHorizon(horizon);
   for (const LayerDeclaration &d : decls)
-    if (instantiate(d.layerId, nullptr))
+  {
+    QString error;
+    if (instantiate(d.layerId, &error))
+    {
       ++count;
+      continue;
+    }
+    // 失败的声明层不进工程——树/画布/属性表都无迹可寻。收集原因经信号
+    // 上抛（UI 呈现），不再无声消失（「不可用图层如实警告」口径）。
+    const QString title = d.title.isEmpty() ? d.layerId : d.title;
+    failures.push_back(tr("%1：%2").arg(title, error));
+  }
+  if (!failures.isEmpty())
+    emit horizonInstantiationFailed(horizon, failures);
   return count;
 }
 

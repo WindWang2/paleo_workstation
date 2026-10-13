@@ -21,6 +21,7 @@
 
 #include "../src/metadata/layermanifest.h"
 #include "../src/qgis/qgislayerservice.h"
+#include "../src/services/errorhub.h"
 #include "../src/ui/layers/layertreepanel.h"
 #include "uipolish_capture.h"
 
@@ -70,6 +71,38 @@ class TestLayerTreePanel : public QObject
     {
       LayerTreePanel panel(QgsProject::instance(), nullptr, nullptr);
       uipolish::capturePanel(&panel, QStringLiteral("layertree_empty"));
+    }
+
+    // R1-D1：实例化失败的声明层不进树（无 indicator 可挂）——面板在树外
+    // 把失败经全局 ErrorHub 说出来（warning 级）；修复前层位切换后缺源
+    // 图层无声消失。
+    void instantiationFailureRaisedToErrorHub()
+    {
+      QTemporaryDir tmp;
+      QVERIFY(tmp.isValid());
+      LayerManifest manifest(tmp.filePath(QStringLiteral("project.sqlite")));
+      QVERIFY(manifest.open());
+      QgisLayerService svc(nullptr, &manifest);
+      LayerDeclaration bad = decl(QStringLiteral("facies.T1"), QStringLiteral("T1"));
+      bad.title = QStringLiteral("T1 相面");
+      bad.source = QStringLiteral("/nonexistent-dir-42/ghost.gpkg|layername=x");
+      QVERIFY(svc.declare(bad));
+
+      // 作用域守卫：QVERIFY 早退也保证全局指针还原（悬空 hub 会让后续
+      // 用例 UAF）。
+      struct HubInstall
+      {
+        ErrorHub hub;
+        HubInstall() { ErrorHub::installGlobal(&hub); }
+        ~HubInstall() { ErrorHub::installGlobal(nullptr); }
+      } install;
+      LayerTreePanel panel(QgsProject::instance(), nullptr, &svc);
+      svc.setActiveHorizon(QStringLiteral("T1"));
+      QCOMPARE(install.hub.size(), 1);
+      const QVector<ErrorHub::Entry> entries = install.hub.entries();
+      QVERIFY(entries.first().title.contains(QStringLiteral("T1")));
+      QVERIFY(entries.first().text.contains(QStringLiteral("T1 相面")));
+      QCOMPARE(entries.first().level, ErrorHub::Level::Warning);
     }
 
     // goal/ui-experience-polish：Delete 键直达「删除所选图层/组」（QAction

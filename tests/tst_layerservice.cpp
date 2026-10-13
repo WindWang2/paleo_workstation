@@ -126,6 +126,43 @@ private slots:
     QCOMPARE(QgsProject::instance()->mapLayers().size(), 2);
   }
 
+  // (b2) 坏源声明：setActiveHorizon/instantiateHorizon 的失败层不进工程，
+  // 计数只算成功层，失败原因经 horizonInstantiationFailed 上抛——修复前
+  // 失败被无声吞掉（nullptr error），层位切换后缺源图层直接消失无迹。
+  void instantiateHorizonSurfacesFailures()
+  {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    LayerManifest manifest(tmp.filePath(QStringLiteral("project.sqlite")));
+    QVERIFY(manifest.open());
+    QgisLayerService svc(nullptr, &manifest);
+    QVERIFY(svc.declare(decl(QStringLiteral("facies.T1"), QStringLiteral("T1"))));
+    LayerDeclaration bad = decl(QStringLiteral("faults.T1"), QStringLiteral("T1"));
+    bad.title = QStringLiteral("T1 断层线");
+    bad.source = QStringLiteral("/nonexistent-dir-42/ghost.gpkg|layername=x");
+    QVERIFY(svc.declare(bad));
+
+    QSignalSpy failures(&svc, &QgisLayerService::horizonInstantiationFailed);
+    svc.setActiveHorizon(QStringLiteral("T1"));
+    QCOMPARE(failures.size(), 1);
+    QVERIFY(svc.isInstantiated(QStringLiteral("facies.T1")));
+    QVERIFY(!svc.isInstantiated(QStringLiteral("faults.T1"))); // 坏层不进工程
+    const QVariantList args = failures.first();
+    QCOMPARE(args.value(0).toString(), QStringLiteral("T1"));
+    const QStringList reasons = args.value(1).toStringList();
+    QCOMPARE(reasons.size(), 1);
+    QVERIFY2(reasons.first().contains(QStringLiteral("T1 断层线")),
+             qPrintable(reasons.first()));
+    QVERIFY(!reasons.first().isEmpty());
+
+    // 全部成功的层位不发信号（无噪音）。
+    QVERIFY(svc.declare(decl(QStringLiteral("facies.T2"), QStringLiteral("T2"))));
+    failures.clear();
+    svc.setActiveHorizon(QStringLiteral("T2"));
+    QCOMPARE(failures.size(), 0);
+    QVERIFY(svc.isInstantiated(QStringLiteral("facies.T2")));
+  }
+
   // (c) setActiveHorizon T1→T2 swaps instances; T1 declarations persist
   void activeHorizonSwapsInstances()
   {

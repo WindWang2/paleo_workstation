@@ -55,6 +55,12 @@ class QgisLayerService : public QObject
     // Emitted after a declaration lands in the manifest; consumers listing
     // declared layers (e.g. ComposePage) refresh off this. Empty id denotes a bulk removal.
     void layerDeclared(const QString &layerId);
+    // Emitted when instantiateHorizon could not materialize one or more
+    // declared layers (missing source, provider rejection…). failures carries
+    // one human-readable reason per layer; the layers never entered the
+    // project, so tree/canvas have no trace of them — the UI is expected to
+    // surface this instead of letting the layer vanish silently.
+    void horizonInstantiationFailed(const QString &horizon, const QStringList &failures);
 
   private:
     // The project owns every instantiated layer; project teardown (clear/read)

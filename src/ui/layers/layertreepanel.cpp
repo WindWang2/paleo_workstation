@@ -8,6 +8,7 @@
 
 #include "../../qgis/layervocabulary.h"
 #include "../../qgis/qgislayerservice.h"
+#include "../../services/errorhub.h"
 #include "../shortcuts/shortcutcatalog.h"
 
 #include <qgslayertree.h>
@@ -116,6 +117,20 @@ LayerTreePanel::LayerTreePanel(QgsProject *project, QgsMapCanvas *canvas,
             &LayerTreePanel::scheduleIndicatorRefresh);
     connect(m_layerService, &QgisLayerService::horizonReleased, this,
             &LayerTreePanel::scheduleIndicatorRefresh);
+    // 实例化失败的声明层不进树——面板必须在树外把失败说出来，否则缺源
+    // 文件在层位切换后「无声消失」。warning 级非模态通知卡（DESIGN.md
+    // 错误呈现）；未安装全局 ErrorHub（单测/组装根之前）降级 stderr。
+    connect(m_layerService, &QgisLayerService::horizonInstantiationFailed, this,
+            [this](const QString &horizon, const QStringList &failures) {
+              const QString title = tr("层位 %1 有 %n 个图层无法加载", nullptr,
+                                       failures.size()).arg(horizon);
+              if (ErrorHub *hub = ErrorHub::global())
+                hub->raise(ErrorHub::Level::Warning, QStringLiteral("layers"),
+                           title, failures.join(QLatin1Char('\n')));
+              else
+                qWarning("%s", qPrintable(QString(title + QStringLiteral(": ") +
+                                                 failures.join(QLatin1Char(';')))));
+            });
   }
   if (m_project)
   {

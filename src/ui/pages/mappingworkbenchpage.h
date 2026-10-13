@@ -25,6 +25,8 @@ public:
   void selectLayer(const QString &id);
   void showMessage(const QString &message);
   QPushButton *commandButton(const QString &name) const;
+  QString mode() const { return m_mode; }
+  void selectEvidenceSource(const QString &id);
   QString horizon() const { return m_horizon; }
   QString selectedLayer() const;
 signals:

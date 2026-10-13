@@ -210,6 +210,13 @@ class ConstraintWorkflow : public QObject
     bool extractWellFactors(const QString &horizon, const QString &factorId,
                             const QVariantMap &params, QString *error = nullptr,
                             QString *pointsLayerId = nullptr);
+    bool startWellFactorExtraction(const QString &horizon, const QString &factorId,
+                                   const QVariantMap &params, QString *error = nullptr);
+    QString preparedWellFactorVersion(const QString &horizon, const QString &factorId,
+                                      const QVariantMap &params) const;
+    void restoreWellFactors(const QString &horizon, const QString &factorId,
+                            const QVariantMap &params);
+    QVariantList savedFactorResults(const QString &horizon, const QString &factorId) const;
     QVariantList wellFactorRows() const { return m_wellFactorRows; }
     QString wellFactorMessage() const { return m_wellFactorMessage; }
     void setTaskService(PaleoTaskService *tasks) { m_factorTasks = tasks; }
@@ -228,10 +235,13 @@ class ConstraintWorkflow : public QObject
                         const QVariantMap &inputParams, QString *error = nullptr);
 
   private:
+    bool extractWellFactorsImpl(const QString &horizon, const QString &factorId,
+                                const QVariantMap &params, QString *error, bool synchronous);
     bool prepareFactorInputs(const QString &horizon, const QString &factorId,
                              QVariantMap &params, QString *error);
     QPointer<QgsVectorLayer> m_wellFactorAttributeLayer;
     void watchWellFactorAttributes();
+    QVariantMap m_preparedWellFactors;
     QVariantList m_wellFactorRows;
     QString m_wellFactorMessage;
     QVariantList m_thicknessRows;
@@ -511,6 +521,7 @@ class ConstraintWorkflow : public QObject
     void wellAttributeTableRequested(const QString &layerId);
     void wellFactorsExtracted(const QString &horizon, const QString &factorId);
     void factorJobFailed(const QString &error);
+    void factorJobCancelled();
     void factorJobStateChanged(bool running);
     void factorJobProgress(int percent, const QString &stage);
     void factorGenerated(const QString &horizon, const QString &factorId, const QString &layerId);

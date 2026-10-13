@@ -200,8 +200,9 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
               updateState();
             });
   } else if (mode == "constraint") {
-    label(tr("1 选择带数值字段的样点\n2 导入或绘制屏障约束线\n3 "
-             "生成连续单因素栅格，再提取等值线"));
+    label(
+        tr("主流程在「编图流程」页：先绘制或导入间隔线、方向线，再获取本地层的砂厚、砂地比等数据，"
+           "计算并保存等值面、等值线。此页管理已保存的图件与版本，供后续编图引用。"));
     m_points = new QComboBox(body);
     m_points->setObjectName("workbenchPoints");
     m_points->setAccessibleName(tr("样点图层"));
@@ -1003,4 +1004,13 @@ void MappingWorkbenchPage::selectLayer(const QString &id) {
       break;
     }
   }
+}
+
+void MappingWorkbenchPage::selectEvidenceSource(const QString &id) {
+  if (!m_evidenceSource)
+    return;
+  const int index = m_evidenceSource->findData(id);
+  if (index >= 0)
+    m_evidenceSource->setCurrentIndex(index);
+  updateState();
 }

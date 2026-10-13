@@ -1,5 +1,6 @@
 // 层：功能
 #pragma once
+#include "constraintimport.h"
 #include "../ai/remotepredictionservice.h"
 #include "../catalog/datacatalog.h"
 #include "../io/lasdoc.h"
@@ -91,6 +92,8 @@ public:
   // 调用侧应询问用户后重试）。
   bool importConstraints(const QString &horizon, const QString &path,
                          const QString &role, QString *error);
+  bool startConstraintImport(const QString &horizon, const QString &path, const QString &role,
+                             QString *error);
   bool importConstraints(const QString &horizon, const QString &path,
                          QString *error) {
     return importConstraints(horizon, path, QStringLiteral("auto"), error);
@@ -165,6 +168,10 @@ private:
   void connectPredictionService(RemotePredictionService *service);
   void publishFactorAlias(const QString &horizon, const QString &id);
   void synchronizeCatalogLayers();
+  bool publishConstraintImport(const QString &horizon, const QString &inputPath,
+                               const QString &sourcePath,
+                               const QVector<paleo::ImportedConstraintRecord> &records,
+                               QString *error, const DerivedFileFingerprint *fingerprint = nullptr);
   void ensureVersionIndex() const;
   bool ready(const QString &horizon, QString *error) const;
   QString schemaVersion(const QString &horizon) const;

@@ -13,6 +13,7 @@
 #include <QDoubleSpinBox>
 #include <QFileInfo>
 #include <QHeaderView>
+#include <QSignalBlocker>
 #include <QScrollArea>
 #include <QShowEvent>
 #include <QTableWidget>
@@ -50,7 +51,7 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   lay->addWidget( horizons );
 
   // ---- m2(B)：单因素清单 + 生成 双区（§10 词表驱动）------------------------
-  lay->addWidget( caption( tr( "单因素图" ), this ) );
+  lay->addWidget(caption(tr("2 · 获取当前地层的单因素数据"), this));
   auto *factors = new QTableWidget( 0, 4, this );
   factors->setObjectName( QStringLiteral( "factorTable" ) );
   factors->setAccessibleName( tr( "单因素清单" ) );
@@ -68,7 +69,11 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
     check->setCheckState( Qt::Unchecked );
     check->setData( Qt::UserRole, def.factorId );
     auto *name = new QTableWidgetItem( def.title );
-    auto *input = new QTableWidgetItem( def.inputAssetType );
+    const QString inputLabel = def.inputAssetType == QLatin1String("horizon") ? tr("顶底构造面")
+                               : def.inputAssetType == QLatin1String("prediction")
+                                   ? tr("预测数据")
+                                   : tr("当前地层井点数据");
+    auto *input = new QTableWidgetItem(inputLabel);
     auto *status = new QTableWidgetItem( tr( "未生成" ) );
     for ( auto *it : { check, name, input, status } )
       it->setFlags( it->flags() & ~Qt::ItemIsEditable );
@@ -92,16 +97,32 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   buildBoundaryRows( content, lay );
   buildAdvancedSection( content, lay );
   buildSurfaceRow( lay );
+  auto *surfaceInputs = findChild<QWidget *>(QStringLiteral("factorSurfaceRow"));
+  lay->removeWidget(surfaceInputs);
+  lay->insertWidget(lay->indexOf(findChild<QWidget *>(QStringLiteral("wellFactorSection"))) + 1,
+                    surfaceInputs);
   buildGenerateSection( content, lay );
   buildContourSection( content, lay );
   wireFactorTableSelection( factors );
   buildConstraintArea( content, lay, horizons, cellCaption );
+  // 约束区依赖已创建的算法参数控件；构造完成后移到数据提取之前。
+  auto *constraints = findChild<QWidget *>(QStringLiteral("constraintFamiliesSection"));
+  lay->removeWidget(constraints);
+  lay->insertWidget(lay->indexOf(horizons) + 1, constraints);
+  auto *methodCaption = findChild<QLabel *>(QStringLiteral("factorMethodCaption"));
+  lay->insertWidget(lay->indexOf(methodCaption), caption(tr("3 · 计算等值面和等值线"), content));
+  buildFactorResultsSection(content, lay);
   buildTailSections( content, lay );
+  auto *status = findChild<QLabel *>(QStringLiteral("statusLabel"));
+  lay->removeWidget(status);
+  lay->insertWidget(lay->indexOf(findChild<QWidget *>(QStringLiteral("factorProgressBar"))) + 1,
+                    status);
   wireWorkflowFeedback( wf );
   wireInputStaleness();
   wireWellFactorTriggers( wf, horizons, factors );
   refreshWellFactorFields();
   refreshConstraintList();
+  refreshFactorResults();
   updateFactorActionStates();
 }
 
@@ -111,6 +132,8 @@ void ConstraintPage::showEvent( QShowEvent *event )
   refreshThicknessSamples();
   refreshWellFactorFields();
   refreshConstraintList();
+  refreshFactorLayers();
+  refreshFactorResults();
 }
 
 void ConstraintPage::wireFactorTableSelection( QTableWidget *factors )
@@ -229,36 +252,43 @@ void ConstraintPage::bindLayerService( QObject *layers )
     return;
   }
   setProperty( kLayersProp, QVariant::fromValue( static_cast<QObject *>( svc ) ) );
-  // layerDeclared（任何来源——重开工程/重算/边界导入）里 factor.* 声明 →
-  // 状态列刷新；任何声明都刷引擎行（边界/构造面清单随声明补齐）。
-  connect( svc, &QgisLayerService::layerDeclared, this,
-           [this]( const QString &layerId ) {
-             updateEngineRows();
-             if (layerId.startsWith(QStringLiteral("wells"))) refreshWellFactorFields();
-             if ( !layerId.startsWith( QStringLiteral( "factor." ) ) )
-               return;
-             // "factor.<horizon>.<factorId>" → 尾段 factorId。
-             const QString factorId = layerId.mid( layerId.lastIndexOf( QLatin1Char( '.' ) ) + 1 );
-             if ( !factorId.isEmpty() )
-               noteFactorLayer( factorId, layerId );
-           } );
-  // 初绑重读清单：已声明因素直接进「已生成」态。
-  QVector<LayerDeclaration> declared;
-  if ( svc->tryDeclared( &declared ) )
-  {
-    for ( const LayerDeclaration &d : declared )
-    {
-      if ( !d.layerId.startsWith( QStringLiteral( "factor." ) ) )
-        continue;
-      const QString factorId = d.layerId.mid( d.layerId.lastIndexOf( QLatin1Char( '.' ) ) + 1 );
-      if ( !factorId.isEmpty() )
-        noteFactorLayer( factorId, d.layerId );
-    }
+  connect(svc, &QgisLayerService::layerDeclared, this, [this](const QString &id) {
+    updateEngineRows();
+    if (id.startsWith(QStringLiteral("wells")))
+      invalidateWellFactors();
+    if (id.isEmpty() || id.startsWith(QStringLiteral("factor.")))
+      refreshFactorLayers();
+    refreshFactorResults();
+  });
+  refreshFactorLayers();
+}
+
+void ConstraintPage::refreshFactorLayers() {
+  auto *svc = qobject_cast<QgisLayerService *>(property(kLayersProp).value<QObject *>());
+  auto *horizons = child<QComboBox>(this, "horizonCombo");
+  auto *table = child<QTableWidget>(this, "factorTable");
+  if (!table || !horizons)
+    return;
+  const QString prefix = QStringLiteral("factor.%1.").arg(horizons->currentText());
+  QVariantMap generated;
+  if (svc)
+    for (const auto &d : svc->declared())
+      if (d.horizon == horizons->currentText() && d.layerId.startsWith(prefix))
+        generated.insert(d.layerId.mid(prefix.size()), d.layerId);
+  setProperty(kFactorGenProp, generated);
+  const QSignalBlocker blocker(table);
+  for (int r = 0; r < table->rowCount(); ++r) {
+    const QString id = generated.value(factorIdOfRow(table, r)).toString();
+    table->item(r, 3)->setText(id.isEmpty() ? tr("未生成") : tr("等值面已保存"));
   }
+  updateFactorActionStates();
 }
 
 void ConstraintPage::noteFactorLayer( const QString &factorId, const QString &layerId )
 {
+  auto *horizons = child<QComboBox>(this, "horizonCombo");
+  if (!horizons || layerId != QStringLiteral("factor.%1.%2").arg(horizons->currentText(), factorId))
+    return;
   QVariantMap generated = property( kFactorGenProp ).toMap();
   generated.insert( factorId, layerId );
   setProperty( kFactorGenProp, generated );
@@ -274,7 +304,8 @@ void ConstraintPage::noteFactorLayer( const QString &factorId, const QString &la
       if ( status )
       {
         table->blockSignals( true ); // 状态文本不是勾选态，不触发单选逻辑
-        status->setText( tr( "已生成·%1" ).arg( layerId ) );
+        status->setText(tr("等值面已保存"));
+        status->setToolTip(layerId);
         table->blockSignals( false );
       }
       break;

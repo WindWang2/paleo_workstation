@@ -7,6 +7,8 @@
 #include "../qgis/qgislayerservice.h"
 #include "../metadata/layermanifest.h"
 #include "../workflow/workflows.h"
+#include "../workflow/mappingworkbench.h"
+#include "pages/mappingworkbenchpage.h"
 #include "../services/paleotaskservice.h"
 #include "../catalog/datacatalog.h"
 #include "../catalog/realizationset.h"
@@ -30,6 +32,7 @@
 #include <QDir>
 #include <QDoubleSpinBox>
 #include <QFileInfo>
+#include <QFileDialog>
 #include <QLabel>
 #include <QLineEdit>
 #include <QStatusBar>
@@ -45,11 +48,12 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
   if (constraint && constraintPage)
   {
     connect(constraint, &ConstraintWorkflow::wellAttributeTableRequested, this, &PaleoMainWindow::showAttributeTable);
-    connect(constraintPage, &ConstraintPage::maintainWellFactorsRequested, this, [this, constraint](const QString &horizon) {
-      QString error;
-      if (!constraint->maintainWellFactors(horizon, &error))
-        statusBar()->showMessage(error);
-    });
+    connect(constraintPage, &ConstraintPage::maintainWellFactorsRequested, this,
+            [this, constraint, constraintPage](const QString &horizon) {
+              QString error;
+              if (!constraint->maintainWellFactors(horizon, &error))
+                statusBar()->showMessage(error);
+            });
     // 约束页端到端: 绘制请求 → 画布上的捕获工具 → workflow 提交 (§42).
     if (m_canvasCtl)
     {
@@ -133,11 +137,73 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
     // 状态列刷新：页面监听 layerDeclared/factorGenerated（含重开工程重读）。
     if (m_layerSvc)
       constraintPage->bindLayerService(m_layerSvc);
-    connect(constraintPage, &ConstraintPage::extractWellFactorsRequested, this,
-            [constraint](const QString &factorId, const QString &horizon,
-                         const QVariantMap &params) {
+    connect(constraintPage, &ConstraintPage::taskCenterRequested, this,
+            &PaleoMainWindow::openTaskCenter);
+    connect(constraintPage, &ConstraintPage::constraintImportRequested, this,
+            [this, constraintPage](const QString &horizon, const QString &role) {
+              if (!m_workbench) {
+                statusBar()->showMessage(tr("约束导入服务未就绪"));
+                return;
+              }
+              const auto path = QFileDialog::getOpenFileName(
+                  this, role == QLatin1String("barrier") ? tr("导入间隔线") : tr("导入方向线"), {},
+                  tr("矢量文件 (*.gpkg *.geojson *.json *.shp)"));
+              if (path.isEmpty())
+                return;
               QString error;
-              constraint->extractWellFactors(horizon, factorId, params, &error);
+              if (!m_workbench->startConstraintImport(horizon, path, role, &error))
+                statusBar()->showMessage(error, 15000);
+              constraintPage->refreshConstraintList();
+              constraintPage->refreshFactorResults();
+            });
+    connect(constraintPage, &ConstraintPage::factorResultRequested, this,
+            [this](const QString &versionId, const QString &action) {
+              if (!m_workbench)
+                return;
+              if (action == QLatin1String("graph")) {
+                const auto version =
+                    m_workbench->versionForLayer(QStringLiteral("product.") + versionId);
+                if (!version.id.isEmpty())
+                  openDataGraph(version.assetId, version.id);
+                return;
+              }
+              QString error;
+              const auto id = m_workbench->layerForVersion(versionId, &error);
+              if (id.isEmpty()) {
+                statusBar()->showMessage(error, 15000);
+                return;
+              }
+              const auto declaration = m_workbench->declaration(id);
+              if (action == QLatin1String("compose")) {
+                showPage(QStringLiteral("compose"));
+                for (auto *page : findChildren<MappingWorkbenchPage *>())
+                  if (page->mode() == QLatin1String("compose")) {
+                    page->setHorizon(declaration.horizon);
+                    page->refresh();
+                    page->selectEvidenceSource(id);
+                    page->showMessage(tr("已将此版本设为编图证据来源。请选择目标编辑图件及要素，填写说明后添加证据。"));
+                  }
+              } else {
+                for (auto *page : findChildren<MappingWorkbenchPage *>()) {
+                  if (page->mode() == QLatin1String("constraint")) {
+                    page->setHorizon(declaration.horizon);
+                    page->refresh();
+                    page->selectLayer(id);
+                    emit page->commandRequested(QStringLiteral("show"),
+                                                {{"layer", id}, {"horizon", declaration.horizon}});
+                    break;
+                  }
+                }
+              }
+            });
+    connect(constraintPage, &ConstraintPage::extractWellFactorsRequested, this,
+            [constraint, constraintPage](const QString &factorId, const QString &horizon,
+                                         const QVariantMap &params) {
+              QString error;
+              if (!constraint->startWellFactorExtraction(horizon, factorId, params, &error))
+                if (auto *status =
+                        constraintPage->findChild<QLabel *>(QStringLiteral("statusLabel")))
+                  status->setText(error);
             });
     connect(constraint, &ConstraintWorkflow::factorJobStateChanged,
             constraintPage, &ConstraintPage::setRunBusy);
@@ -145,23 +211,34 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
             [constraintPage](int percent, const QString &stage) {
               constraintPage->noteRunStage(stage == "hash"      ? tr("校验成果")
                                            : stage == "publish" ? tr("保存成果")
+                                           : stage == "parse" ? tr("读取资料")
                                                                 : tr("计算"),
                                            percent);
             });
     connect(constraint, &ConstraintWorkflow::factorJobFailed, constraintPage,
             [constraintPage](const QString &error) {
+              constraintPage->setProperty("paleo.page.runoutcome", error);
               if (auto *status = constraintPage->findChild<QLabel *>(
                       QStringLiteral("statusLabel")))
                 status->setText(error);
             });
+    connect(constraint, &ConstraintWorkflow::factorJobCancelled, constraintPage, [constraintPage] {
+      const auto message = tr("任务已取消或输入已变更；已保存的成果仍可引用。");
+      constraintPage->setProperty("paleo.page.runoutcome", message);
+      if (auto *status = constraintPage->findChild<QLabel *>(QStringLiteral("statusLabel")))
+        status->setText(message);
+    });
     connect(
         constraintPage, &ConstraintPage::generateFactorRequested, this,
         [this, constraint, constraintPage](const QString &factorId,
                                            const QString &horizon,
                                            const QVariantMap &params) {
           QString error;
-          if ((m_factorTask && m_factorTask->running()) ||
-              !constraint->generateFactor(horizon, factorId, params, &error)) {
+          bool ready = !(m_factorTask && m_factorTask->running()) && !constraint->factorBusy();
+          // Freeze editable constraints as a managed input version before any surface calculation.
+          if (ready && m_workbench && !constraint->loadConstraints(horizon).isEmpty())
+            ready = !m_workbench->snapshotConstraints(horizon, {}, &error).isEmpty();
+          if (!ready || !constraint->generateFactor(horizon, factorId, params, &error)) {
             if (auto *status = constraintPage->findChild<QLabel *>(
                     QStringLiteral("statusLabel")))
               status->setText(error.isEmpty()

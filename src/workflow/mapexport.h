@@ -67,12 +67,12 @@ struct MapProductExportOutcome {
 using MapProductExportDone =
     std::function<void(const MapProductExportOutcome &)>;
 PaleoTask *startMapLayoutExport(QgsLayout *layout, PaleoTaskService *tasks,
-                                DataCatalog *catalog, const QString &projectDir,
+                                DataCatalog *catalog, const QString &directory,
                                 const QString &pdfPath, QObject *receiver,
                                 MapProductExportDone done,
                                 QString *error = nullptr);
 PaleoTask *startMapFrameExport(const QImage &image, PaleoTaskService *tasks,
-                               DataCatalog *catalog, const QString &projectDir,
-                               const QString &fileName, QObject *receiver,
+                               DataCatalog *catalog, const QString &directory,
+                               const QString &name, QObject *receiver,
                                MapProductExportDone done,
                                QString *error = nullptr);

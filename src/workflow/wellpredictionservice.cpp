@@ -343,6 +343,29 @@ void WellPredictionService::finish() {
   result.request = m_request; result.mock = false; result.partialWellCoverage = true;
   result.currentFormationOnly = true;
   result.method = QStringLiteral("remote-well-facies-api-v2");
+  // 词表外标签的确定性扩展：远端可返回项目词表外的真实标签（默认词表只有
+  // 3 条，图签库 appearance 按名取纹色），沿用「追加条目」契约——但码分配
+  // 不能随井处理顺序漂移（旧实现逐区间遇新标签即 max+1：同一标签集因部分
+  // 组失败重试或井序不同可得不同码，属性表/图例跨 run 不可比）。先收集全
+  // 结果的未知标签、排序后统一分配：同标签集任意重跑码一致。
+  {
+    QStringList unknown;
+    for (const auto &parts : m_results) {
+      const auto merged = mergeWellFaciesResults(parts);
+      for (const auto &iv : merged.intervals)
+        if (!faciesCodeForLabel(m_schema, iv.text) && !unknown.contains(iv.text))
+          unknown << iv.text;
+    }
+    unknown.sort();
+    int next = 1;
+    for (const auto &value : m_schema)
+      next = std::max(next, value.toMap().value("code").toInt() + 1);
+    for (const QString &label : unknown) {
+      QVariantMap item{{"code", next++}, {"name", label}, {"facies", label},
+                       {"color", "#9AA7B4"}};
+      m_schema << FaciesCatalog::appearance(item);
+    }
+  }
   for (int i = 0; i < m_data.size(); ++i) {
     const auto merged = mergeWellFaciesResults(m_results[i]);
     QVariantList intervals, formations;
@@ -365,9 +388,7 @@ void WellPredictionService::finish() {
         break;
       }
       const int code = faciesCodeForLabel(m_schema, iv.text);
-      if (!code) {
-        // schema 外标签 → 整井拒收（宁可拒绝不预测）：未知标签无词表色标，
-        // 自增编码会随到达顺序漂移，属性表/图例无法解释。
+      if (!code) { // 不可达（上方预扩展已覆盖全部在场标签）；防御性拒收
         skip(i, tr("远端返回了相词表外的标签「%1」，该井结果无法映射").arg(iv.text));
         break;
       }

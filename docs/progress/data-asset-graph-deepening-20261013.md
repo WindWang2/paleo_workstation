@@ -101,8 +101,7 @@ dver-1 枢纽星型，RelWithDebInfo，QElapsedTimer，中位数）：
 落地」原则撤销，matches() 保留即时拼接并在注释记档。教训进了 DATA_GRAPH.md
 的 A/B 引用。
 
-**测试**：`tests/tst_datagraph.cpp` 28 用例（服务 16 + 工作流 9 + 规模 1
-+ initTestCase），`cmake/extra-data-asset-deepening.cmake` 注册（LIBS
+**测试**：`tests/tst_datagraph.cpp` 28 用例（服务 16 + 工作流 9 + 规模 1 + init/cleanupTestCase），`cmake/extra-data-asset-deepening.cmake` 注册（LIBS
 paleo_workflow paleo_io）。规模测试默认 n=4000（~11s 含灌库），
 `PALEO_DATAGRAPH_SCALE=10000/100000` 可选门禁（100k 全程 ~60s）。
 
@@ -135,6 +134,24 @@ dataopscommands 的 Tag/SoftDelete/TypeOverride 消费 `save()` 失败并回滚
 - **门禁**：`python3 tools/check_layering.py --strict`、
   `check_ui_invariants.py --strict`、`git diff --check` 见 PR 描述（全过）。
 - 全量 ctest 对照见文末。
+
+## 独立 Review（O6）
+
+未参与实现的子 Agent 逐文件 diff 审查（含 layout 新旧 3000 张随机图对拍、
+QSaveFile 只读探针、互指回滚目录新旧对跑）。结论：P0×1 / P1×0 / P2×2 / P3×7。
+- P0-1（已修）tst_dataopssidecar 无平台守卫的 geteuid/unistd.h 会打断
+  Windows CI 编译——补 Q_OS_WIN 守卫（仓内 tst_singlefactor_faults 同模式）。
+- P2-1（已修）workflowExportReceiptSurvivesNewRequest 末尾等待空转
+  （漏 ++seen，断言未生效）。
+- P2-2（已修）rollback 参考边不参与环诊断的语义收窄未声明——DATA_GRAPH.md
+  补口径 + assetRollbackIsReferenceNotDerived 加 cycles==0 互指钉死。
+- P3（记档）：纯回滚版本 Lineage 回执文案变为「未登记计算输入」（技术上
+  属实，回滚不是计算，接受）；m_exports 残留 QPointer（量级极小）；
+  回执守卫保留 session 核对（session 被视作目录上下文一部分，与旧同）；
+  layout indexOf 重复 id 理论差异（add() 去重后不可达）；夹具 i=0 双父
+  去重坍缩（星型形状不受影响）；测试缩进/账本算术（已顺修）。
+- 等价性实证：layout 3000 随机图 0 不匹配；收边发射序/预算截断逐条一致；
+  预算边界 budget=34 起与旧实现逐位相同（改动严格限制在 bug 区间 ≤33）。
 
 ## 余项与阻断
 

@@ -432,6 +432,9 @@ void TestDataGraph::assetRollbackIsReferenceNotDerived() {
                   QStringLiteral("version:v3"), Relation::Rollback));
   QVERIFY(!hasEdge(index->edges, QStringLiteral("version:v1"),
                    QStringLiteral("version:v3"), Relation::Derived));
+  // 回滚参考边与 editBaseline 同口径：不参与计算血缘环诊断
+  //（手工互指目录 cycles=0；生产回滚只能引用先存版本，造不出互指）。
+  QCOMPARE(index->cycles, 0);
   // 血缘查询仍可达回滚链（Rollback 属血缘关系族）。
   Query q;
   q.mode = Mode::Lineage;
@@ -567,7 +570,7 @@ void TestDataGraph::workflowRequestReadyAndCacheReuse() {
   Query q;
   wf.request(q);
   waitNextReady(ready, base);
-    const auto g = lastGraph(ready);
+  const auto g = lastGraph(ready);
   QCOMPARE(g.totalAssets, 1);
   QCOMPARE(g.totalVersions, 1);
   // 同查询再发：命中 8 槽缓存，直接复用（状态含「复用」且不再起任务）。
@@ -742,7 +745,7 @@ void TestDataGraph::workflowExportDescribesRenderedQuery() {
   first.focus = QStringLiteral("asset:a");
   wf.request(first);
   waitNextReady(ready, seen);
-    const auto graphA = lastGraph(ready);
+  const auto graphA = lastGraph(ready);
   QVERIFY(!graphA.nodes.isEmpty());
   QVERIFY(graphA.query.focus == QStringLiteral("asset:a"));
   // 180ms 合并窗口内又请求了新查询：导出仍必须描述已渲染的图。
@@ -788,7 +791,8 @@ void TestDataGraph::workflowExportReceiptSurvivesNewRequest() {
   q.focus = QStringLiteral("asset:a");
   wf.request(q);
   waitNextReady(ready, seen);
-    const auto g = lastGraph(ready);
+  ++seen;
+  const auto g = lastGraph(ready);
   const QString path = dir.filePath(QStringLiteral("export2.json"));
   QSignalSpy exported(&wf, &DataGraphWorkflow::exportFinished);
   wf.exportGraph(g, path);
@@ -822,7 +826,7 @@ void TestDataGraph::workflowExportDroppedAfterContextSwitch() {
   q.focus = QStringLiteral("asset:a1");
   wf.request(q);
   waitNextReady(ready, seen);
-    const auto g = lastGraph(ready);
+  const auto g = lastGraph(ready);
   const QString path = dirA.filePath(QStringLiteral("export3.json"));
   QSignalSpy exported(&wf, &DataGraphWorkflow::exportFinished);
   wf.exportGraph(g, path);

@@ -10,7 +10,9 @@
 #include <QJsonObject>
 #include <QTemporaryDir>
 
+#ifndef Q_OS_WIN
 #include <unistd.h>
+#endif
 
 #include "../src/catalog/datacatalog.h"
 #include "../src/ui/pages/dataops/dataopsmodel.h"
@@ -75,7 +77,11 @@ void TestDataOpsSidecar::saveRoundTripsWithoutTempLeftovers() {
 }
 
 void TestDataOpsSidecar::failedSaveKeepsPreviousContentIntact() {
-  if (::geteuid() == 0)
+  bool elevated = false;
+#ifndef Q_OS_WIN
+  elevated = (::geteuid() == 0);
+#endif
+  if (elevated)
     QSKIP("root 不受目录权限位约束，无法注入写失败");
   QTemporaryDir dir;
   DataCatalog cat;

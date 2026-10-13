@@ -140,11 +140,20 @@
 
 ### 验收状态
 
+- **最终 HEAD 全量 ctest（-j4）：389/392 通过**（上一轮 388/392，
+  tst_mappingworkbench 由红转绿即 C3 重做的直接验证）。三个红项归因：
+  tst_ui（master 新鲜构建复现的既有挂起，见轮 5-3）、tst_mappingpages
+  （master 新鲜构建复现，PR #432 外部所有）、tst_catalog（`-j4` 负载
+  flake：本 diff 零 `src/catalog` 改动，串行重跑连续通过；上一轮全量
+  它也是绿的）。
 - 关键套件连续两遍通过：tst_mappingworkbench / tst_wellfacies /
   tst_wellattributes / tst_seismic_welltie（另 tst_algorithms、
   tst_workflows、tst_aiassistworkflow、tst_ai_horizonsuggest、
   tst_velocitymodel、tst_wellfileparsers、tst_sections_alignment 全绿）。
 - `check_tidy`（含轮 5 改动 TU）✓；`git diff --check` ✓。
+- 分支已推送：`goal/well-seismic-ai-compute-deepening`（9 提交，
+  34 文件 +1135/−122）。
+
 
 
 

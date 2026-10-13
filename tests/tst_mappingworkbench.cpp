@@ -1257,43 +1257,30 @@ private slots:
     QSignalSpy errors(&f.work, &MappingWorkbench::errorOccurred);
     QVERIFY(f.work.predict("D61", "wells", {"A"}, &error));
     QTRY_VERIFY(!f.work.busy());
-    // #346：无分层时逐井 skip 并仍可发布「未预测」点，不再走 errorOccurred 硬失败。
-    QVERIFY(errors.isEmpty());
+    // 无分层 → 全井跳过：#425 起如实报错（errorOccurred 含原因）且不发布
+    // 全空「未预测」图——部分覆盖才照常发布并随行标注跳过原因。
+    QVERIFY(!errors.isEmpty());
+    QVERIFY(errors.last()[0].toString().contains(QStringLiteral("无法预测")));
     QCOMPARE(server.modelRequests, 0);
-    const auto skipped = f.latest("wells_prediction");
-    QVERIFY(!skipped.isEmpty());
-    const auto skippedRows = f.work.wellPredictions(skipped);
-    QCOMPARE(skippedRows.size(), 1);
-    QVERIFY(skippedRows[0].toMap().value("prediction_reason").toString().contains(
-        QStringLiteral("缺少当前地层")));
+    QVERIFY(f.latest("wells_prediction").isEmpty());
     QVERIFY(f.tops("A", QStringLiteral("#WellTops File From SMI\n#WellName Name MD X Y Z TVD Time(ms)\nA D61 1000 0 0 -1000 1000 -99999\nA D62 1060 0 0 -1060 1060 -99999\n")));
     QVERIFY(WellAttributeStore::mergeIntervals(&f.catalog, f.dir.path(), &f.layers,
       {QVariantMap{{"well_id", "A"}, {"top_md", 1000.0}, {"base_md", 1120.0}, {"lithology", QStringLiteral("砂岩")}}}, &error));
     server.failPredict = true;
     QVERIFY(f.work.predict("D61", "wells", {"A"}, &error));
     QTRY_VERIFY(!f.work.busy());
-    // 硬失败（errorOccurred 含 500）或准备阶段跳过：均不得覆盖已有版本。
-    if (!errors.isEmpty())
-      QVERIFY(errors.last()[0].toString().contains("500"));
-    // 软跳过可能登记新的「未预测」版本；不得出现有效相编码。
-    {
-      const auto after = f.latest("wells_prediction");
-      QVERIFY(!after.isEmpty());
-      const auto rows = f.work.wellPredictions(after);
-      for (const auto &v : rows)
-        QVERIFY(v.toMap().value("facies_code").isNull()
-                || v.toMap().value("facies_code").toInt() <= 0
-                || v.toMap().value("prediction_status").toString()
-                       == QStringLiteral("未预测"));
-    }
+    // 硬失败 errorOccurred 含 500；仍不得落盘任何版本。
+    QVERIFY(!errors.isEmpty());
+    QVERIFY(errors.last()[0].toString().contains(QStringLiteral("500")));
+    QVERIFY(f.latest("wells_prediction").isEmpty());
     server.failPredict = false; server.hold = true;
     const int before = server.bodies.size();
     QVERIFY(f.work.predict("D61", "wells", {"A"}, &error));
     QTRY_VERIFY(server.bodies.size() > before);
     f.work.cancelPrediction();
     QVERIFY(!f.work.busy());
-    // 取消不得把 busy 卡死；版本可仍是未预测稿。
-    QVERIFY(!f.latest("wells_prediction").isEmpty());
+    // 取消不得把 busy 卡死；此前两轮均未发布，版本仍应为空。
+    QVERIFY(f.latest("wells_prediction").isEmpty());
     // New run uses a fresh generation after cancel and can complete normally.
     server.hold = false;
     QVERIFY(f.work.predict("D61", "wells", {"A"}, &error));

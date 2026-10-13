@@ -111,14 +111,17 @@ private slots:
     DerivationGraph chainView; chainView.loadGraph(graph); QVERIFY(screenshot(&chainView, QStringLiteral("chain")));
     DataPage page; PreviewDocService doc(&import);
     page.setProperty("paleo.page.importsvc", QVariant::fromValue<QObject *>(&doc));
+    page.show(); // 血缘走后台 DerivationWorkflow，实体面板 showEvent 才发起查询。
     page.selectAsset(QStringLiteral("a"));
     DataPreviewTabs preview; preview.setDocService(&doc);
     connect(&page, &DataPage::versionActivated, &preview, &DataPreviewTabs::openVersion);
     connect(&preview, &DataPreviewTabs::versionContextChanged, &page, &DataPage::focusVersion);
     QSignalSpy activated(&page, &DataPage::versionActivated);
     auto *view = page.findChild<DerivationGraph *>(); QVERIFY(view);
+    // 后台任务回图前 scene 为空——等 raw 节点落图再真实点击。
+    QTRY_VERIFY(item(view, raw.id));
     view->resize(720, 350); view->show();
-    // 实体面板在测试 page 未 show 时隐藏；脱离布局给真实点击事件可见视口。
+    // 脱离布局给真实点击事件独立可见视口。
     view->setParent(nullptr); view->show();
     click(view, raw.id);
     QTRY_COMPARE(activated.count(), 1);
@@ -157,6 +160,7 @@ private slots:
     }
     PaleoMainWindow window(nullptr, nullptr, nullptr, nullptr, nullptr);
     window.attachWorkflows(nullptr, nullptr, nullptr, nullptr, &import);
+    window.show(); // 血缘走后台 DerivationWorkflow，面板可见才发起查询。
     auto *page = window.findChild<DataPage *>(); auto *preview = window.findChild<DataPreviewTabs *>();
     QVERIFY(page); QVERIFY(preview);
     auto *graph = window.findChild<DerivationGraph *>(); QVERIFY(graph);
@@ -164,14 +168,14 @@ private slots:
     preview->openVersion(raw.id);
     QCOMPARE(page->property("paleo.page.entityId").toString(), QStringLiteral("a-well"));
     QCOMPARE(page->property("paleo.page.assetId").toString(), QStringLiteral("a"));
-    QVERIFY(item(graph, raw.id)); QCOMPARE(item(graph, raw.id)->scenePos().x(), 0.0);
+    QTRY_VERIFY(item(graph, raw.id)); QCOMPARE(item(graph, raw.id)->scenePos().x(), 0.0);
     page->assetActivated(QStringLiteral("a")); // 真实主窗接线；已有标签保留 RAW。
-    QCOMPARE(item(graph, raw.id)->scenePos().x(), 0.0);
+    QTRY_VERIFY(item(graph, raw.id)); QCOMPARE(item(graph, raw.id)->scenePos().x(), 0.0);
     // 外部再次定位同 id 必须取新事实，不能误用图内点击的一次保留。
     const QString refreshedReason = QStringLiteral("当前血缘源已更新");
     QVERIFY(cat->markDownstreamStale(raw.id, refreshedReason));
     preview->openVersion(raw.id);
-    QVERIFY(item(graph, d1.id)->toolTip().contains(refreshedReason));
+    QTRY_VERIFY(item(graph, d1.id) && item(graph, d1.id)->toolTip().contains(refreshedReason));
     preview->openAsset(QStringLiteral("other"));
     QCOMPARE(page->property("paleo.page.entityId").toString(), QStringLiteral("other-well"));
     auto *tabs = preview->findChild<QTabWidget *>(QStringLiteral("dataPreviewTabs")); QVERIFY(tabs);
@@ -179,7 +183,7 @@ private slots:
       if (preview->assetIdAt(i) == QStringLiteral("a")) tabs->setCurrentIndex(i);
     QCOMPARE(preview->versionIdAt(tabs->currentIndex()), raw.id);
     QCOMPARE(page->property("paleo.page.entityId").toString(), QStringLiteral("a-well"));
-    QVERIFY(item(graph, raw.id)); QCOMPARE(item(graph, raw.id)->scenePos().x(), 0.0);
+    QTRY_VERIFY(item(graph, raw.id)); QCOMPARE(item(graph, raw.id)->scenePos().x(), 0.0);
     PreviewDocService doc(&import);
     auto *transient = new EntityPanel; transient->setDocService(&doc); transient->setContext(QString(), QStringLiteral("a"));
     const QPointer<EntityPanel> lifetime(transient);

@@ -3560,12 +3560,20 @@ private:
         DataOpsFixture fx;
         fx.build(svc.catalog());
         std::unique_ptr<DataPage> page(fx.makePage(&svc));
-        page->selectAsset(fx.astResolved);
         auto *topo = page->findChild<paleo::dataops::TopologyGraph *>(QStringLiteral("topologyGraph"));
         QVERIFY(topo);
-        // D4.5：2 实体 + 3 资产节点；边 = 链接数（1 已决 + 1 未决虚线）。
-        QCOMPARE(topo->nodeCount(), 5);
-        QVERIFY(topo->scene()->items().size() >= 5);
+        // D4.5（#424 起）：侧栏拓扑收窄为所选对象的一跳邻域（≤64 项/侧），
+        // 全量图移交后台资料图谱——选已决资产 astResolved 出 1 实体 + 1 资产、
+        // 1 条实边。
+        page->selectAsset(fx.astResolved);
+        QCOMPARE(topo->nodeCount(), 2);
+        QVERIFY(topo->scene()->items().size() >= 5); // 2 点 + 2 标签 + 1 边
+        // 无链接资产：一跳邻域只含自身节点、无边。
+        page->selectAsset(fx.astFree);
+        QCOMPARE(topo->nodeCount(), 1);
+        // 未决资产（链接无实体端）：同样只落自身 1 节点。
+        page->selectAsset(fx.astPending);
+        QCOMPARE(topo->nodeCount(), 1);
     }
 
     void dataops_d4_multiSelectBatchSummary()

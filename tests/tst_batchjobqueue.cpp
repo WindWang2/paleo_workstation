@@ -410,7 +410,8 @@ void TestBatchJobQueue::duplicateFingerprintInSameBatchSkipped()
   m_probe->reset();
   BatchSpec s2 = s;
   s2.methodIds = QStringList{QStringLiteral("m1"), QStringLiteral("m1")};
-  // itemId 会重复（H1|m1 两次）——测试判重按指纹，展开重复项
+  // 同方法重复声明：第二项展开为 H1|m1#2（itemId 身份唯一，G4），指纹与首项
+  // 相同 → 本趟按指纹判重。
   QString err2;
   QVERIFY2(m_queue->resume(s2, &err2), qPrintable(err2));
   QVERIFY(runToCompletion());

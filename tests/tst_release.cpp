@@ -130,7 +130,8 @@ private slots:
     QVERIFY(!store.diff(a, a, nullptr, nullptr, nullptr, &errSame));
     QVERIFY(errSame.contains(QStringLiteral("同一个版本")));
 
-    // 成功路径不写 error（调用方可用它判「有没有细节」）。
+    // 成功路径清空 error（调用方可用它判「有没有细节」）——预置 stale 串
+    // 验证入口清理而非「从不写」。
     const QString b = store.createRelease(QStringLiteral("b"), QString(),
         {decl(QStringLiteral("facies.T1"), QStringLiteral("T1"))});
     QString err3 = QStringLiteral("stale");

@@ -582,6 +582,9 @@ bool BatchQueue::readState( const BatchSpec &spec, QVector<BatchItem> *out,
     if ( !ok )
       continue; // 损坏项跳过——如实丢一项，不让整批恢复失败
     byId.insert( it.itemId, it );
+    // 旧记档（G4 前写入）里重复声明的 itemId 在这里仍是 last-wins 折叠；
+    // 对不上账的项在下面按 fresh 展开重评估，被批内指纹判重兜成 Skipped——
+    // 语义安全，不做旧档迁移。
   }
 
   // 终态后不写的项在崩时是 Running/Queued——按未完成处理，重跑。

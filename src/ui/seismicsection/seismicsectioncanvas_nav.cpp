@@ -32,11 +32,15 @@ void SeismicSectionCanvas::setCompareData(const SgySliceImage &image, const QStr
         for (int y = 0; y < img.height; ++y) {
             auto *scan = reinterpret_cast<QRgb *>(m_compareImage.scanLine(y));
             for (int x = 0; x < img.width; ++x) {
-                const float raw = img.Value(x, y);
+                float raw = img.Value(x, y);
                 if (!std::isfinite(raw)) {
                     scan[x] = qRgba(48, 49, 49, 255);
                     continue;
                 }
+                // 极性与 A 图同配方（A 走 displayValues 的极性翻转）；
+                // AGC/增益曲线 B 侧不消费——既有口径。
+                if (m_polarityInverted)
+                    raw = -raw;
                 const float val = std::clamp(raw * baseScale * m_gain * m_contrast, -1.0f, 1.0f);
                 scan[x] = m_colorLut[static_cast<std::size_t>(
                     std::clamp(int((val + 1.0f) * 127.5f), 0, 255))];

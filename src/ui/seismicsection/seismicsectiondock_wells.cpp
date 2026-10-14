@@ -200,8 +200,11 @@ void SeismicSectionDockWidget::computeWellTrajectories(const std::vector<glm::dv
     }
     m_canvas->setWellTrajectories(trajectories);
 
-    // D5.3 原因态：时深无实测检查点 → 状态栏注记（仍按均速投影）
-    if (!m_candidateWells.empty() && !m_canvas->timeDepthModel().hasCheckshots())
+    // D5.3 原因态：时深无实测检查点 → 状态栏注记（仍按均速投影）。
+    // 幂等守卫：任意线提取完成都会走到这里——无守卫时后缀随每次提取
+    // 无限累积串接。
+    if (!m_candidateWells.empty() && !m_canvas->timeDepthModel().hasCheckshots() &&
+        !m_lblTitle->text().contains(QLatin1String("时深用默认均速")))
         setLineTitle(tr("%1（时深用默认均速——无实测检查点表）").arg(m_lblTitle->text()));
 }
 

@@ -287,6 +287,10 @@ private:
 
     // D2.12 书签
     QList<SectionBookmark> m_bookmarks;
+    // 换线/换模式触发的异步重提取会在到达回调里 fitToWindow 复位视口——
+    // 书签/定位的目标视口先暂存，提取完成后重放（同线不重提取则直接应用）。
+    SectionViewState m_pendingViewReplay;
+    bool m_hasPendingViewReplay = false;
 
     // D2.10 卷帘 B 图提取状态（同一切片通道，独立在途任务 + 请求号守卫）
     QPointer<PaleoTask> m_compareTask;

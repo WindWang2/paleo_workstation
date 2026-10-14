@@ -54,11 +54,24 @@ void SeismicSectionDockWidget::applyBookmark(int index) {
     if (index < 0 || index >= m_bookmarks.size())
         return;
     const SectionBookmark &bm = m_bookmarks[index];
-    if (m_cboSectionMode->currentIndex() != bm.modeIndex)
+    const bool modeChanged = m_cboSectionMode->currentIndex() != bm.modeIndex;
+    bool sliceChanged = false;
+    if (modeChanged)
         m_cboSectionMode->setCurrentIndex(bm.modeIndex); // 触发重提取
-    else if (bm.modeIndex <= 2 && m_spinSlice->value() != bm.sliceValue)
-        m_spinSlice->setValue(bm.sliceValue);
-    m_canvas->setViewState(bm.view);
+    else if (bm.modeIndex <= 2 && m_spinSlice->value() != bm.sliceValue) {
+        m_spinSlice->setValue(bm.sliceValue); // 触发重提取
+        sliceChanged = true;
+    }
+    if (modeChanged || sliceChanged) {
+        // 换线/换模式触发异步重提取：到达回调里 setSectionData/setTimeSliceData
+        // 必走 fitToWindow——此刻 setViewState 会被复位（跨线书签的缩放/平移
+        // 从不恢复）。目标视口暂存，提取完成后重放（见切片到达回调）。
+        m_pendingViewReplay = bm.view;
+        m_hasPendingViewReplay = true;
+    } else {
+        // 同线同模式（无重提取）：直接应用。
+        m_canvas->setViewState(bm.view);
+    }
 }
 
 // ---- D2.12 书签持久化 ----

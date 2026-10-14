@@ -394,6 +394,12 @@ void SeismicSectionDockWidget::extractSliceAsync(SgySliceType type, int index) {
                 if (type != SgySliceType::Time)
                     guard->m_lastSlice = *image;
             }
+            // D2.12 书签/定位重放：换线触发的重提取刚把视口 fitToWindow
+            // 复位——暂存的目标视口此刻重放（一次即清，不污染后续切片）。
+            if (guard->m_hasPendingViewReplay) {
+                guard->m_canvas->setViewState(guard->m_pendingViewReplay);
+                guard->m_hasPendingViewReplay = false;
+            }
             guard->refreshInterpretationOverlay();
             emit guard->sectionExtractionFinished(true, QString());
         });

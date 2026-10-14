@@ -25,7 +25,7 @@ C、G 以记录和证据为主，仍有未做项（见文末），不是「全�
 ## 所有权与冲突排除
 - 触及的生产/测试文件：`src/ui/paleodockmanager.{h,cpp}`、`src/ui/paleoribbon.{h,cpp}`、`src/ui/paleomainwindow{.cpp,_internal.h,_pages.cpp,_ribbon.cpp,_attach.cpp,_attach_shell.cpp}`、`src/ui/locator/paleolocatorfilters.{h,cpp}`、`src/ui/help/whatsthiscatalog.cpp`、`translations/paleo_zh_CN.ts`、`cmake/extra-ux.cmake`（只加 1 行测试登记）、`tests/tst_shell_chrome.cpp`（新）、`tests/tst_dockmanager.cpp`、`tests/tst_shortcuts_shell.cpp`；另有 `docs/progress/parallel-7/`。
 - **未改** `src/ui/paleomainwindow.h`、`paleomainwindow_attach_mapping.cpp`、`paleomainwindow_workbench.cpp`，也未改 `src/ui/pages/**`、`vendor/**`、`CMakeLists.txt`、`DESIGN.md`。
-- 开放 PR 仅 #437：与本分支改动文件交集为 0（`gh pr view 437 --json files` 实时比对，push 前再查一次）。
+- 开放 PR：#437（84 个文件）与 #446（02 方向，井 / 交会分析，16 个文件，在 `src/ui/crossplot`、`src/ui/wellcomposite` 与对应测试）。本分支改动文件与两者的交集均为 0（`gh pr view <n> --json files` 实时比对，push 前最后核对）。
 - 文件级重叠提示：`paleodockmanager.cpp` ↔ Issue #411。#411 的缺陷是 `addDock` 里 `DockScrollArea` 包装使 `m_seismic3dDock->widget()` 判空永假（`:79-83`），本 PR 未改那一段。
 - 未触碰 Issue #358/#362/#364/#373/#374/#375/#401/#411–#413；也未重复 #426/#434 的交互修复。新出现的 #438–#444 都是 #437 的 review 衍生，与本方向无交集。
 - 数据契约/Schema/图件版本/工具菜单保留；持久化只**新增**两个 QSettings 键（`windowDockIntent`、`<布局键>Intent`），旧设置缺键走「恢复前快照」兜底，旧版本读新设置会忽略未知键。

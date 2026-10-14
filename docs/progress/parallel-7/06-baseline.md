@@ -11,7 +11,7 @@ Debug / Ninja / vendored QGIS prefix（symlink 自主 checkout，只读使用）
 
 | 围栏 | 内容 | 检查方式 |
 |---|---|---|
-| 开放 PR | 仅 #437（`codex/evidence-mapping-integration`，80 个文件，PR 明写「不合并」）。其 CMakeLists.txt、`paleomainwindow.h`、`paleomainwindow_attach_mapping.cpp`、`paleomainwindow_workbench.cpp`、`pages/composepage|datagraphpage|mappingworkbenchpage.*` 等一律不写 | `gh pr view 437 --json files` 实时取；`/tmp/goal7/fence_check.py` 逐文件比对 `git diff --name-only origin/master...HEAD` |
+| 开放 PR | 开工时仅 #437（`codex/evidence-mapping-integration`，PR 明写「不合并」；任务书记 80 个文件，终查 84 个）。收尾时新出现 #446（02 方向，井 / 交会分析，16 个文件，与本分支交集 0）。其 CMakeLists.txt、`paleomainwindow.h`、`paleomainwindow_attach_mapping.cpp`、`paleomainwindow_workbench.cpp`、`pages/composepage|datagraphpage|mappingworkbenchpage.*` 等一律不写 | `gh pr view 437 --json files` 实时取；`/tmp/goal7/fence_check.py` 逐文件比对 `git diff --name-only origin/master...HEAD` |
 | 开放 Issue | 执行中 70 → 77 条（新增 #438–#444 全是 #437 的 review 项，与本方向无交集）。不认领、不修、不改任何 Issue | 抽取 Issue 正文里出现的文件路径作文件级指纹，与 diff 比对 |
 | Issue 文件级重叠（须绕开具体缺陷行） | `paleodockmanager.cpp`（#411 第 2 项：`DockScrollArea` 包装使 `m_seismic3dDock->widget()` 回退取面板永假——缺陷在 `attach_models.cpp`，本方向不动 `addDock` 的包装逻辑）；`decorations/paleodecorations.cpp`（#411 第 4 项）；`paleomainwindow_attach_models.cpp` / `attach_validate.cpp`（#411）；`taskpanel.cpp`（#374 引用）；`tests/tst_notifications.cpp`（#408 的 `\|\| true`） | 这些文件不写；`paleodockmanager.cpp` 只改布局命令路径，不碰 `addDock` |
 | 不可新增 `cmake/extra-*.cmake` | 新文件须在 `CMakeLists.txt` 的 `_paleo_extra_manifest` 登记，而 `CMakeLists.txt` 被 #437 占用。新测试只能挂进已登记的 `cmake/extra-ux.cmake` / `extra-shortcuts-help.cmake` | — |

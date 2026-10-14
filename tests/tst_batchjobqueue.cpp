@@ -105,8 +105,12 @@ bool pumpUntil(const std::function<bool()> &pred, int timeoutMs = 8000)
 
 /// compute 侧等待：闸门开 / 被取消 / 超时，三者任一即返回。上界必需。
 void waitOnGate(const std::shared_ptr<Probe> &probe,
-                const std::function<bool()> &cancelled, int timeoutMs = 4000)
+                const std::function<bool()> &cancelled, int timeoutMs = 300)
 {
+  // 门超时 300ms：够「按住执行器等外部动作」（取消/会话切换/断言出队——
+  // 这些动作都在 computeCalls 命中后同步发起，亚毫秒级落在窗内），不再让
+  // 不关心门控的用例每项白等 4s——旧值是围着「setConcurrency 下调无效、
+  // 夹具实际双槽」的调度 bug 调出来的并行擦边时长，真单槽下串行超时。
   QElapsedTimer clock;
   clock.start();
   while (clock.elapsed() < timeoutMs)

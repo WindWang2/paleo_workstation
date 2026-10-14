@@ -20,6 +20,7 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QSignalBlocker>
 #include <QVBoxLayout>
 
@@ -52,7 +53,17 @@ ComposePage::ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWid
 {
   setProperty(kLayersProp, QVariant::fromValue(static_cast<QObject *>(layers)));
 
-  auto *lay = panelLayout(this);
+  auto *scroll = new QScrollArea(this);
+  scroll->setObjectName(QStringLiteral("composePageScroll"));
+  scroll->setWidgetResizable(true);
+  scroll->setFrameShape(QFrame::NoFrame);
+  auto *content = new QWidget(scroll);
+  content->setObjectName(QStringLiteral("composePageBody"));
+  auto *lay = panelLayout(content);
+  scroll->setWidget(content);
+  auto *outer = new QVBoxLayout(this);
+  outer->setContentsMargins(0, 0, 0, 0);
+  outer->addWidget(scroll);
 
   // ---- wave/mapping-pipeline 阶段C+E：D61 编图链 / 导出 / 版本按钮块 ----
   lay->addWidget(caption(tr("编图链（等时差 × 层间速度 → 等厚图）"), this));

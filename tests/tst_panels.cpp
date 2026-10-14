@@ -1021,6 +1021,8 @@ class TestPanels : public QObject
     void validatePage_nullWorkflowIsSafe()
     {
       ValidatePage page(nullptr);
+      QVERIFY(page.findChild<QScrollArea *>(QStringLiteral("validatePageScroll")));
+      QVERIFY(page.findChild<QWidget *>(QStringLiteral("validatePageBody")));
       auto *table = page.findChild<QTableWidget *>(QStringLiteral("issueTable"));
       QVERIFY(table);
       QCOMPARE(table->columnCount(), 4);

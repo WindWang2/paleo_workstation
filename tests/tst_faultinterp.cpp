@@ -60,6 +60,7 @@ private slots:
     void persistsThroughWriteQueueAndReopens();
     void catalogFaultRoleLinkEnsured();
     void mapLayerMirrorFeatures();
+    void ensureMapLayerReusesExistingAndDeduplicatesAndResetClears();
 
 private:
     std::unique_ptr<QTemporaryDir> m_dir;
@@ -364,6 +365,39 @@ void TestFaultInterp::mapLayerMirrorFeatures()
     m_ctl.selectFaults({f1}, QStringLiteral("fault_panel"));
     QCOMPARE(layer->selectedFeatureCount(), 2); // 该断层全部切割要素
     QgsProject::instance()->removeMapLayer(layer);
+}
+
+void TestFaultInterp::ensureMapLayerReusesExistingAndDeduplicatesAndResetClears()
+{
+    // 1. ensureMapLayer 初始创建图层，打上 paleoLayerId
+    QgsVectorLayer *layer1 = m_ctl.ensureMapLayer(QStringLiteral("EPSG:3857"));
+    QVERIFY(layer1 != nullptr);
+    QCOMPARE(layer1->customProperty(QStringLiteral("paleoLayerId")).toString(), QStringLiteral("fault_cut"));
+
+    // 2. 再次调用 ensureMapLayer 返回同一图层，QgsProject 中不增加图层
+    const int countBefore = QgsProject::instance()->mapLayers().size();
+    QgsVectorLayer *layer2 = m_ctl.ensureMapLayer(QStringLiteral("EPSG:3857"));
+    QCOMPARE(layer2, layer1);
+    QCOMPARE(QgsProject::instance()->mapLayers().size(), countBefore);
+
+    // 3. reset() 清空控制器模型与图层指针
+    const QString fid = m_ctl.addFault(QStringLiteral("F_Reset"));
+    m_ctl.selectFaults({fid}, QStringLiteral("test"));
+    QVERIFY(m_ctl.faultSet().faultCount() > 0);
+    QVERIFY(!m_ctl.selectedFaultIds().isEmpty());
+    QVERIFY(m_ctl.mapLayer() != nullptr);
+
+    m_ctl.reset();
+    QVERIFY(m_ctl.faultSet().faultCount() == 0);
+    QVERIFY(m_ctl.selectedFaultIds().isEmpty());
+    QVERIFY(m_ctl.mapLayer() == nullptr);
+
+    // 4. 重置后再 ensureMapLayer 应当复用 QgsProject 中已有的 fault_cut 图层
+    QgsVectorLayer *layer3 = m_ctl.ensureMapLayer(QStringLiteral("EPSG:3857"));
+    QCOMPARE(layer3, layer1);
+    QCOMPARE(QgsProject::instance()->mapLayers().size(), countBefore);
+
+    QgsProject::instance()->removeMapLayer(layer1);
 }
 
 QTEST_MAIN(TestFaultInterp)

@@ -43,6 +43,8 @@
 #include "../src/ui/pages/datalist.h"
 #include "../src/ui/paleomainwindow.h"
 #include "../src/ui/seismicsection/seismicsectiondockwidget.h"
+#include "../src/workflow/faultinterpretationcontroller.h"
+#include "../src/workflow/wellsitingworkflow.h"
 
 #include <qgsproject.h>
 
@@ -687,6 +689,26 @@ private slots:
     qInfo() << "Maximum UI heartbeat gap:" << maximum << "ms at" << slowStage;
     QVERIFY2(maximum < 500, qPrintable(QString("UI blocked for %1 ms at %2").arg(maximum).arg(slowStage)));
     m_ctx->closeProject();
+  }
+
+  void closeProjectCleansSessionState()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const auto path = dir.filePath(QStringLiteral("clean_session.qgz"));
+    QVERIFY(m_ctx->projectSvc()->createProject(path));
+    QApplication::processEvents();
+
+    if (m_ctx->faultCtl()) {
+      m_ctx->faultCtl()->addFault(QStringLiteral("F_Session"));
+      QVERIFY(m_ctx->faultCtl()->faultSet().faultCount() > 0);
+    }
+
+    m_ctx->closeProject();
+    if (m_ctx->faultCtl())
+      QVERIFY(m_ctx->faultCtl()->faultSet().faultCount() == 0);
+    if (m_ctx->wellsitingWf())
+      QVERIFY(m_ctx->wellsitingWf()->scenarios().isEmpty());
   }
 };
 

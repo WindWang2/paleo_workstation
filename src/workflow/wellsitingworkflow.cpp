@@ -250,7 +250,14 @@ void WellSitingWorkflow::setCatalog( DataCatalog *catalog, const QString &projec
   d->catalog = catalog;
   if ( !projectDir.isEmpty() )
     d->projectDir = projectDir;
+  else if ( !catalog )
+    d->projectDir.clear();
   d->scenariosLoaded = false; // 换工程重载
+  if ( !catalog )
+  {
+    d->sitingStore = nullptr;
+    d->scenarios = {};
+  }
   m_lastDiagnosis.clear();
   m_lastHoles.clear();
   m_lastCandidates.clear();
@@ -261,6 +268,8 @@ void WellSitingWorkflow::setSitingStore( WellSitingStore *store )
 {
   d->sitingStore = store;
   d->scenariosLoaded = false;
+  if ( !store )
+    d->scenarios = {};
 }
 
 void WellSitingWorkflow::setConstraintProvider(

@@ -56,7 +56,7 @@ FolderImportWorkflow *PaleoMainWindow::folderImportWorkflow()
 void PaleoMainWindow::runFolderImportAt(DataImportService *svc,
                                         const QString &dir)
 {
-  if (!svc)
+  if (!svc || isOffscreen())
     return;
   auto *wf = folderImportWorkflow();
   QString err;

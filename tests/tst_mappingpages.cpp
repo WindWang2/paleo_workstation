@@ -103,6 +103,8 @@ void PredictPageTests::noOnnxModelsShowsHonestDegradation()
 void PredictPageTests::constructsWithNullServices()
 {
   PredictPage page(nullptr, nullptr);
+  QVERIFY(page.findChild<QScrollArea *>(QStringLiteral("predictPageScroll")));
+  QVERIFY(page.findChild<QWidget *>(QStringLiteral("predictPageBody")));
   QVERIFY(page.findChild<QComboBox *>(QStringLiteral("horizonCombo")));
   QVERIFY(page.findChild<QComboBox *>(QStringLiteral("algoCombo")));
   // m2(A) 冒烟：新面全部就位，未运行态下取消/进度隐藏、表单隐藏。
@@ -1164,6 +1166,8 @@ class ComposePageTests : public QObject
 void ComposePageTests::constructsWithNullServices()
 {
   ComposePage page(nullptr, nullptr);
+  QVERIFY(page.findChild<QScrollArea *>(QStringLiteral("composePageScroll")));
+  QVERIFY(page.findChild<QWidget *>(QStringLiteral("composePageBody")));
   QVERIFY(page.findChild<QListWidget *>(QStringLiteral("factorList")));
 }
 

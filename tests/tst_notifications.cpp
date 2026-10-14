@@ -17,6 +17,7 @@
 
 #include "../src/services/errorhub.h"
 #include "../src/ui/paleotheme.h"
+#include "../src/ui/uienv_internal.h"
 #include "../src/ui/notifications/errorhistorypanel.h"
 #include "../src/ui/notifications/notificationcenter.h"
 #include "../src/ui/notifications/paleonotify.h"
@@ -194,6 +195,18 @@ void TestNotifications::cardsAnchoredBottomRight()
 void TestNotifications::paleoNotifyFallsBackWithoutPresenter()
 {
     QVERIFY(ErrorHub::global() == nullptr);
+    if (paleo::ui_detail::isOffscreen())
+    {
+        bool sawBox = false;
+        QTimer::singleShot(0, [&] {
+            for (QWidget *w : QApplication::topLevelWidgets())
+                if (auto *mb = qobject_cast<QMessageBox *>(w); mb && mb->isVisible())
+                    sawBox = true;
+        });
+        PaleoNotify::warning(nullptr, QStringLiteral("T"), QStringLiteral("旧路径"));
+        QVERIFY(!sawBox);
+        return;
+    }
     bool sawBox = false;
     QTimer::singleShot(0, [&] {
         for (QWidget *w : QApplication::topLevelWidgets())
@@ -231,6 +244,14 @@ void TestNotifications::separateTopLevelKeepsModal()
     ErrorHub::installGlobal(&r.hub);
     QMainWindow other;  // 独立顶层（如版面设计器）
     other.show();
+    if (paleo::ui_detail::isOffscreen())
+    {
+        PaleoNotify::warning(&other, QStringLiteral("T"), QStringLiteral("另一窗"));
+        QCOMPARE(r.center->visibleCardCount(), 0);          // 主窗口不出卡
+        QCOMPARE(r.hub.entries().last().text, QStringLiteral("另一窗"));  // 仍入账历史
+        ErrorHub::installGlobal(nullptr);
+        return;
+    }
     QString seen;
     QTimer::singleShot(0, [&] {
         if (auto *mb = qobject_cast<QMessageBox *>(QApplication::activeModalWidget()))
@@ -273,6 +294,18 @@ void TestNotifications::cardFollowsThemeSwitch()
 
 void TestNotifications::askReturnsAcceptButton()
 {
+    if (paleo::ui_detail::isOffscreen())
+    {
+        // 1. 无头未驱动时：50ms 守卫自动返回默认非阻塞值（B-05）
+        QVERIFY(PaleoNotify::ask(nullptr, "T", "?", PaleoNotify::AskButtons::OkCancel,
+                                 PaleoNotify::AskDefault::Accept));
+        QVERIFY(!PaleoNotify::ask(nullptr, "T", "?", PaleoNotify::AskButtons::YesNo,
+                                  PaleoNotify::AskDefault::Reject));
+        QCOMPARE(PaleoNotify::askSaveDiscard(nullptr, PaleoNotify::AskIcon::Warning, "T", "?",
+                                             "S", "D", "C"),
+                 PaleoNotify::SaveChoice::Save);
+    }
+    // 2. 协作驱动器在场时：正常响应点击
     QTimer::singleShot(0, [] {
         if (auto *mb = qobject_cast<QMessageBox *>(QApplication::activeModalWidget()))
             mb->button(QMessageBox::Ok)->click();

@@ -160,6 +160,4 @@ class PreviewMapCanvas : public QWidget
     // 悬停节流（D6.5 ≤30Hz）：mapPositionTracked 至少间隔 33ms。
     QElapsedTimer m_trackTimer;
     qint64 m_lastTrackMs = 0;
-
-    friend class PreviewMapCanvasSelftest; // 测试直查内部栈
 };

@@ -110,8 +110,29 @@
 
 ```bash
 flock -x /tmp/paleo_workstation_global_build_j4.lock cmake --build build --target paleo -j4
-flock -x /tmp/paleo_workstation_global_build_j4.lock ctest --test-dir build -R "tst_taskservice|tst_jobrunner|tst_batchjobqueue|tst_release|tst_releasepanel|tst_layoutexport|tst_batchjobpanel|tst_taskpanel" -j4 --output-on-failure
+flock -x /tmp/paleo_workstation_global_build_j4.lock ctest --test-dir build -R "tst_taskservice|tst_jobrunner|tst_batchjobqueue|tst_release|tst_releasepanel|tst_layoutexport" -j4 --output-on-failure
 python3 tools/check_layering.py --strict
 git diff --check
 ```
 （结果见下方「构建与测试记录」；不修改 GitHub Actions，不新增 CI 相关文件。）
+
+## 构建与测试记录（2026-10-14/15 实跑）
+
+### 环境事实
+
+- 项目盘 `/home/kevin/project`（/dev/nvme0n1p2）在本轮中途 100% 满（兄弟 worktree 构建占用；非本分支行为）——本方向 build 迁至 `/home/kevin/paleo-builds/goal7-task-release`（/dev/sda2），同时回收本 worktree 旧 build 1.3G。
+- 依赖接线（对 BUILDING.md 的本机补齐）：`-DQGIS_PREFIX=<vendor>/prefix/usr`、`-DGDAL_INCLUDE_DIR=<vendor>/prefix/usr/include/gdal`、`-DGDAL_LIB=<vendor>/prefix/usr/lib/x86_64-linux-gnu/libgdal.so`、`-DGEOS_C_LIB=<vendor>/prefix/usr/lib/x86_64-linux-gnu/libgeos_c.so`、`-DGEOS_INCLUDE_DIR=<vendor>/prefix/usr/include`、`-DCMAKE_PREFIX_PATH=<vendor>/prefix/usr/lib/x86_64-linux-gnu/cmake;<goal7-deps>/qt6-5compat/extracted/.../cmake`、`-DQt6Keychain_DIR=/home/kevin/project/paleo-goal7-keychain-overlay`（方向02 overlay，vendored 0.15.0）。
+- 构建/测试运行期环境：`LD_LIBRARY_PATH=<vendor>/prefix/usr/lib/x86_64-linux-gnu:<vendor>/prefix/usr/lib`（Qt 工具 rcc/lrelease 混载系统 Qt 会 GNU_PROPERTY 拒载）+ `QT_PLUGIN_PATH=<vendor>/prefix/usr/lib/x86_64-linux-gnu/qt6/plugins`（QSQLITE 驱动）。
+
+### 结果（全部走 /tmp/paleo_workstation_global_build_j4.lock，-j4）
+
+1. configure（新位置）退出码 0。
+2. `cmake --build … --target paleo tst_taskservice tst_jobrunner tst_batchjobqueue tst_batchjobpanel tst_taskpanel tst_release tst_releasepanel tst_layoutexport -j4` → 退出码 0。
+3. `ctest -R "…8 套件…" -j4` 第一遍 → **100% tests passed, 0 failed out of 8**。
+4. 同命令第二遍 → **100% tests passed, 0 failed out of 8**（两遍均含全部新用例）。
+5. `python3 tools/check_layering.py --strict` → 通过；`git diff --check` → 通过。
+6. 中途实测红（先红后绿证据）：tst_release diffErrorNamesMissingRelease（B1，S5 实跑 7 passed/1 failed）；tst_jobrunner publicationFailure…（悬垂捕获 earlyState==Running）；tst_batchjobqueue sessionSwitch…（修复前 computeCalls==2——双槽出队，直接暴露 G5b）；G5b 修复后 4 个既有用例超时（夹具门超时 4s×串行 >10s）→ 门超时校准 300ms 后全绿、套件 108s→9s。
+
+### Round C 增补（G5b，测试实跑暴露的新生产缺陷）
+
+`BatchQueue::pump()` 出队循环按 `m_slots.size()` 遍历，而槽位在构造/setConcurrency 只扩不缩——`setConcurrency` 下调后实际并发仍是历史峰值，头文件「运行中调只影响后续出队」契约失真。修复：出队上限 `qMin(槽位数, m_concurrency)`（32a6b949）；会话守卫/熔断的 requestCancel 仍遍历全槽（超额在飞项也必须可取消）。测试价值：本修复由本方向新增 sessionSwitch 用例实测暴露（修复前 computeCalls==2），属「反例先红」链条的自然延伸。

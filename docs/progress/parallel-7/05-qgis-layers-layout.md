@@ -94,3 +94,10 @@
   - **基线对照（决定性）**：纯净 master（b0520429，主 checkout 零未提交改动）同条件 `ctest -R '^tst_ui$'` 同样 Subprocess aborted（340s）——tst_ui 为基线红，非本分支回归；docs/progress/qgis-edit-compose-deepening-20261013.md 亦载同用例 master 直跑红（历史记录）。perf 五项（singlefactor_perf[envdebt_exempt]/guilatency/segyindex/perf_regress/inversion_perf）为 ratios.json 标定比率的宿主机敏感门（docs/perf/BASELINE.md、ASSERTIONS.md），7 方向同机并发下超时/超比率属环境债；singlefactor_kriging 隔离复跑已转绿。
   - 本方向域测试（layer/layout/symbol 27 套件）在两轮全量中均全绿。
 - **ctest 第二轮（最终树 f04b8190，1454.8s）**：388/394 绿。红项 = 第一轮同集合减 tst_singlefactor_kriging（转绿）：tst_ui（基线红，master 同条件复现）+ 5 项 perf/envdebt 宿主机敏感门（均非本方向文件）。域 27 套件两轮全绿。两轮红集合一致（±1 抖动）——无新红。
+
+## 交付（2026-10-15 收官）
+
+- **PR：https://github.com/WindWang2/paleo_workstation/pull/448**（非 draft，OPEN，28 文件 = 26 改动 + 本 ledger/PR 描述/S5 报告）。
+- 提交序列（origin/master b0520429 → HEAD）：8dd8c196 R0 审计 → eaf54c16 轮1（W4+W9）→ e3fc5c34 轮2（W5+W6+W7）→ 0d703d3b 轮3（W1）→ 32ab6185 轮4（W2+W3）→ baaa2efb R7 → 80f22d5f S5 minor 闭环 + 评审报告 + PR 描述。
+- Oracle 总闸核对：①所有权/保护路径零越界（反向验证三向零交集）②构建退出 0 ③相关测试实跑绿、红测先行有记录 ④无 schema/持久化/菜单口径变化 ⑤layering --strict + diff --check + ui_invariants/i18n/ui_tokens 绿 ⑥性能 before/after 同条件实测（W2 63×、W3 2.5×，instantiate 项如实记录被 OGR 淹没）⑦S5 独立评审 PASS-with-minors、minor 闭环复验 ⑧push 成功、非 draft PR 已建。
+- 未合并、未动分支保护、未等 CI（按任务书约定）。

@@ -135,6 +135,7 @@ class SingleFactorKrigingTests : public QObject
     void softBoundaryContinuityAcrossBoundary();
     void constraintReceiptHonesty();
     void softBoundaryClusterContinuity();
+    void cancelledBarrierFitPropagatesWithoutIdwFallback();
 };
 
 // Oracle 1（精确性）：γ(0)=0 口径下普通克里金在采样点无误差通过——对任意块金
@@ -1034,6 +1035,40 @@ void SingleFactorKrigingTests::softBoundaryClusterContinuity()
   // 边界线上值严格保持 50.0
   QVERIFY2( std::fabs( qr.values[1] - 50.0 ) < 0.05,
             qPrintable( QStringLiteral( "Dense cluster boundary line Z(0) = %1 (expected 50.0)" ).arg( qr.values[1] ) ) );
+}
+
+// D3 编排面契约：障碍感知拟合阶段收到 Cancelled 时整面评估原样上报、不落
+// IDW 冒充（surfaceFallbacks==0）。注：默认 256 分辨率下取消落在 variogram
+// 的逐样本检查点上（#327 既有），真正钉住 D3 内部透传的是
+// tst_geostat_variogram_barrier 的 512 分辨率用例（S5-m2 口径澄清）。
+void SingleFactorKrigingTests::cancelledBarrierFitPropagatesWithoutIdwFallback()
+{
+  std::vector<Sample> wells;
+  for ( int i = 0; i < 3; ++i )
+  {
+    for ( int j = 0; j < 3; ++j )
+    {
+      wells.push_back( well( "L", 20.0 + 10 * j, 20.0 + 30 * i, 1.0 ) );
+      wells.push_back( well( "R", 80.0 + 10 * j, 20.0 + 30 * i, 9.0 ) );
+    }
+  }
+  ConstraintLine barrier;
+  barrier.stableId = "fault";
+  barrier.semantic = Semantic::HardBarrier;
+  barrier.points = { { 60, -10 }, { 60, 130 } };
+  const GridSpec grid = gridSpec( 60, 60, 0, 120, 2 );
+  PreparedInput input = inputWithDomain( wells, rect( 0, 0, 120, 120 ) );
+  input.constraints = { barrier };
+
+  ResolvedParameters params = krigingParams( 1.0, 60.0 );
+  params.range = 0; // 自动拟合 + 默认 variogramBarrierAware → 进入测地场路径
+  Control control;
+  int calls = 0;
+  control.cancelled = [&calls] { return ++calls > 1; }; // 首查放行，之后取消
+
+  const SurfaceResult result = evaluateLocalKriging( input, grid, params, control );
+  QCOMPARE( result.status, Status::Cancelled );
+  QCOMPARE( result.surfaceFallbacks, 0 ); // 取消不冒充 IDW 成品
 }
 
 QTEST_MAIN( SingleFactorKrigingTests )

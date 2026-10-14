@@ -15133,8 +15133,8 @@ SHA-256：%2</translation>
     </message>
     <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="38"/>
-        <source>鼠标所在位置的工程坐标，单位米。</source>
-        <translation>鼠标所在位置的工程坐标，单位米。</translation>
+        <source>鼠标所在位置的坐标：未配准的工程为局部工程坐标（单位米）；已配准的工程显示经纬度。</source>
+        <translation>鼠标所在位置的坐标：未配准的工程为局部工程坐标（单位米）；已配准的工程显示经纬度。</translation>
     </message>
     <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="39"/>
@@ -15143,8 +15143,8 @@ SHA-256：%2</translation>
     </message>
     <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="40"/>
-        <source>坐标系说明：局部工程坐标、单位米、未投影，不是经纬度。</source>
-        <translation>坐标系说明：局部工程坐标、单位米、未投影，不是经纬度。</translation>
+        <source>坐标系：未配准的工程显示「工程坐标 · 米 · 未投影」（局部坐标，不是经纬度）；已配准的工程显示地图坐标系代号（没有代号时显示坐标系名称）。</source>
+        <translation>坐标系：未配准的工程显示「工程坐标 · 米 · 未投影」（局部坐标，不是经纬度）；已配准的工程显示地图坐标系代号（没有代号时显示坐标系名称）。</translation>
     </message>
     <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="41"/>
@@ -15323,8 +15323,8 @@ SHA-256：%2</translation>
     </message>
     <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="86"/>
-        <source>发布当前版本；需先导出 PDF。</source>
-        <translation>发布当前版本；需先导出 PDF。</translation>
+        <source>发布当前版本；需先导出 PDF，并且每口井都已有验证残差或不可计算的原因（先在验证页运行验证）。</source>
+        <translation>发布当前版本；需先导出 PDF，并且每口井都已有验证残差或不可计算的原因（先在验证页运行验证）。</translation>
     </message>
     <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="89"/>

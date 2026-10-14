@@ -9,9 +9,11 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
 #include <QMessageBox>
+#include <QScopeGuard>
 #include <QSettings>
 #include <QShortcut>
 #include <QSignalSpy>
@@ -20,6 +22,7 @@
 #include <QWhatsThis>
 
 #include "../src/app/appcontext.h"
+#include "../src/qgis/qgiscanvascontroller.h"
 #include "../src/ui/help/whatsthiscatalog.h"
 #include "../src/ui/paleomainwindow.h"
 #include "../src/ui/seismicsection/seismicsectiondockwidget.h"
@@ -28,6 +31,8 @@
 #include "../src/ui/wellcomposite/wellcompositepanel.h"
 
 #include <qgslocatorwidget.h>
+#include <qgscoordinatereferencesystem.h>
+#include <qgsmapcanvas.h>
 
 using namespace paleo::shortcuts;
 
@@ -286,6 +291,58 @@ private slots:
     QCOMPARE(composite, 10);
     seismic::SeismicSectionDockWidget dock(QStringLiteral("section"));
     QCOMPARE(paleo::help::applyWhatsThis(&dock), 8);
+  }
+
+  // 目录真值：壳域条目的 whatsThis 必须真的落到一个同名控件上
+  // （剖面 dock / 综合柱状图由上面的独立槽覆盖）。
+  void everyShellScopedCatalogEntryIsApplied()
+  {
+    static const QStringList shellScopes = {
+        QStringLiteral("PaleoMainWindow"), QStringLiteral("DataListPanel"),
+        QStringLiteral("StratigraphicWebPage"), QStringLiteral("PredictPage"),
+        QStringLiteral("ConstraintPage"), QStringLiteral("ComposePage"),
+        QStringLiteral("ValidatePage")};
+    QStringList missing;
+    for (const paleo::help::WhatsThisEntry &e : paleo::help::whatsThisEntries())
+    {
+      const QString scope = QString::fromLatin1(e.scopeClass);
+      if (!shellScopes.contains(scope))
+        continue;
+      const QString text = paleo::help::whatsThisText(e);
+      bool applied = false;
+      for (QWidget *w : m_win->findChildren<QWidget *>(QString::fromLatin1(e.objectName)))
+        if (w->whatsThis() == text)
+        {
+          applied = true;
+          break;
+        }
+      if (!applied)
+        missing << QStringLiteral("%1/%2").arg(scope, QString::fromLatin1(e.objectName));
+    }
+    QVERIFY2(missing.isEmpty(), qPrintable(missing.join(QLatin1Char('\n'))));
+  }
+
+  // 状态栏坐标/坐标系帮助跟随「未配准工程坐标 / 已配准经纬度」双态；
+  // 编图页发布钮的帮助说明真实的双重门槛。
+  void statusHelpMatchesGeoreferencedBehavior()
+  {
+    QgsMapCanvas *cv = m_ctx->canvasCtl()->canvas();
+    QVERIFY(cv);
+    auto *crsLabel = m_win->findChild<QLabel *>(QStringLiteral("statusCrs"));
+    auto *coordsLabel = m_win->findChild<QLabel *>(QStringLiteral("statusCoords"));
+    auto *publish = m_win->findChild<QWidget *>(QStringLiteral("publishButton"));
+    QVERIFY(crsLabel);
+    QVERIFY(coordsLabel);
+    QVERIFY(publish);
+    const QgsCoordinateReferenceSystem before = cv->mapSettings().destinationCrs();
+    const auto restore = qScopeGuard([cv, before] { cv->setDestinationCrs(before); });
+    QCOMPARE(crsLabel->text(), QStringLiteral("工程坐标 · 米 · 未投影"));
+    QVERIFY(crsLabel->whatsThis().contains(QStringLiteral("工程坐标 · 米 · 未投影")));
+    cv->setDestinationCrs(QgsCoordinateReferenceSystem(QStringLiteral("EPSG:4326")));
+    QCOMPARE(crsLabel->text(), QStringLiteral("EPSG:4326"));
+    QVERIFY(coordsLabel->whatsThis().contains(QStringLiteral("已配准")));
+    QVERIFY(crsLabel->whatsThis().contains(QStringLiteral("已配准")));
+    QVERIFY(publish->whatsThis().contains(QStringLiteral("验证")));
   }
 };
 

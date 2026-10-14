@@ -35,9 +35,9 @@ QList<WhatsThisEntry> whatsThisEntries()
     {"PaleoMainWindow", "helpMenuButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "帮助菜单：快捷键总表、「这是什么？」模式与关于信息。"), "main.help.shortcuts"},
     {"PaleoMainWindow", "horizonChips", QT_TRANSLATE_NOOP("PaleoWhatsThis", "层位切换条：点击层位切换当前层位，地图与各页随之刷新；有图层正在编辑时会拒绝切换。"), nullptr},
     {"PaleoMainWindow", "stopMapToolButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "结束当前地图操作（绘制、编辑、拾取等）；尚未保存的图层编辑会保留。"), nullptr},
-    {"PaleoMainWindow", "statusCoords", QT_TRANSLATE_NOOP("PaleoWhatsThis", "鼠标所在位置的工程坐标，单位米。"), nullptr},
+    {"PaleoMainWindow", "statusCoords", QT_TRANSLATE_NOOP("PaleoWhatsThis", "鼠标所在位置的坐标：未配准的工程为局部工程坐标（单位米）；已配准的工程显示经纬度。"), nullptr},
     {"PaleoMainWindow", "statusScale", QT_TRANSLATE_NOOP("PaleoWhatsThis", "当前地图比例尺。"), nullptr},
-    {"PaleoMainWindow", "statusCrs", QT_TRANSLATE_NOOP("PaleoWhatsThis", "坐标系说明：局部工程坐标、单位米、未投影，不是经纬度。"), nullptr},
+    {"PaleoMainWindow", "statusCrs", QT_TRANSLATE_NOOP("PaleoWhatsThis", "坐标系：未配准的工程显示「工程坐标 · 米 · 未投影」（局部坐标，不是经纬度）；已配准的工程显示地图坐标系代号（没有代号时显示坐标系名称）。"), nullptr},
     {"PaleoMainWindow", "statusHorizon", QT_TRANSLATE_NOOP("PaleoWhatsThis", "当前层位；各页的编图与预测都针对这个层位。"), nullptr},
     {"PaleoMainWindow", "newProjectButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "新建一个空的 Paleo 工程文件（.qgz）。"), nullptr},
     {"PaleoMainWindow", "openProjectButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "打开已有的 Paleo 工程。"), nullptr},
@@ -59,7 +59,7 @@ QList<WhatsThisEntry> whatsThisEntries()
     {"DataListPanel", "storageGovernanceButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "存储治理台：汇总占用体积、扫描未引用文件、预览可回收的过时版本。"), nullptr},
 
     // ---- 地层对比页 ----
-    {"StratigraphicWebPage", "correlationWebAddress", QT_TRANSLATE_NOOP("PaleoWhatsThis", "地层对比网页工作台的服务地址。"), nullptr},
+    {"PaleoMainWindow", "correlationWebAddress", QT_TRANSLATE_NOOP("PaleoWhatsThis", "地层对比网页工作台的服务地址。"), nullptr},
     {"StratigraphicWebPage", "correlationWebStatus", QT_TRANSLATE_NOOP("PaleoWhatsThis", "地层对比服务的连接状态与下一步提示。"), nullptr},
 
     // ---- 智能预测页 ----
@@ -83,7 +83,7 @@ QList<WhatsThisEntry> whatsThisEntries()
     {"ComposePage", "exportPdfButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "把当前层位图导出为 PDF。"), nullptr},
     {"ComposePage", "openDesignerButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "在图件设计器中打开当前版面做细调。"), nullptr},
     {"ComposePage", "saveVersionButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "把当前编图保存为一个版本。"), nullptr},
-    {"ComposePage", "publishButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "发布当前版本；需先导出 PDF。"), nullptr},
+    {"ComposePage", "publishButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "发布当前版本；需先导出 PDF，并且每口井都已有验证残差或不可计算的原因（先在验证页运行验证）。"), nullptr},
 
     // ---- 验证页 ----
     {"ValidatePage", "runButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "运行验证，刷新井点残差表与问题列表。"), nullptr},

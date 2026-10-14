@@ -36,7 +36,7 @@ const char kToolChunk[] =
 class FakeLlmServer : public QObject {
   Q_OBJECT
 public:
-  enum class Mode { Stream, ToolCalls, Unauthorized, Slow };
+  enum class Mode { Stream, ToolCalls, ToolCallsHang, Unauthorized, Slow };
 
   bool start(Mode mode) {
     m_mode = mode;
@@ -75,6 +75,18 @@ private:
     ++m_requests;
     if (m_mode == Mode::Slow)
       return; // 挂起不答：逼客户端空闲超时
+    if (m_mode == Mode::ToolCallsHang) {
+      // 工具帧完整送达但流不收尾（无 [DONE]）：客户端收到 tool_calls 后
+      // 空闲超时——「错误前帧已到」的协议边界场景。
+      sock->write("HTTP/1.1 200 OK\r\nConnection: close\r\n"
+                  "Content-Type: text/event-stream\r\n\r\n");
+      const QByteArray frame =
+        "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c1\","
+        "\"type\":\"function\",\"function\":{\"name\":\"paleo.well_facies_prediction\","
+        "\"arguments\":\"{\\\"model\\\":\\\"f1\\\",\\\"well_name\\\":\\\"A\\\"}\"}}]}}]}\n\n";
+      QTimer::singleShot(20, sock, [sock, frame] { sock->write(frame); });
+      return;
+    }
     if (m_mode == Mode::Unauthorized) {
       const QByteArray body = "{\"error\":{\"message\":\"bad key\"}}";
       sock->write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n"
@@ -111,6 +123,7 @@ private slots:
   void unauthorizedResponseIsClassifiedAsAuthError();
   void idleTimeoutIsClassifiedAsTimeout();
   void cancelDropsEmptyAssistantPlaceholder();
+  void errorAfterToolFramesKeepsProtocolIntegrity();
   void disabledConfigReportsAndSendsNothing();
   // 方向62
   void switchingSessionsFlushesUnsavedContentToDisk();
@@ -272,6 +285,41 @@ void TestAiChatController::cancelDropsEmptyAssistantPlaceholder() {
   const QVector<ChatMessage> messages = controller.messages();
   QCOMPARE(messages.size(), 1); // 只剩用户那条：空白的助手占位被摘掉
   QCOMPARE(messages.first().role, ChatRole::User);
+}
+
+// 错误路径协议完整性：工具帧完整到达后请求出错（空闲超时）——历史上
+// assistant 已带 tool_calls，若不补 role=tool 应答，下轮请求原样上送即
+// 违反 OpenAI 协议（400，会话每轮复现）。cancel 路径早有同款补帧
+//（cancel 合成「已取消」），错误路径修前是裸 clear。修前红：断言
+// 每个 callId 都有应答、尾部不再挂未应答帧。
+void TestAiChatController::errorAfterToolFramesKeepsProtocolIntegrity() {
+  FakeLlmServer server;
+  QVERIFY(server.start(FakeLlmServer::Mode::ToolCallsHang));
+  AiChatController controller;
+  controller.setConfig(baseConfig(server.endpoint(), 700));
+  m_createdSessions.append(controller.session().id);
+  QSignalSpy dispatched(&controller, &AiChatController::toolCallDispatched);
+  QSignalSpy errors(&controller, &AiChatController::errorOccurred);
+  controller.sendUserText(QStringLiteral("帮我跑一下测井相"));
+  QVERIFY2(spinUntil([&dispatched] { return dispatched.size() >= 1; }),
+           "工具帧必须先完整到达");
+  QVERIFY2(spinUntil([&errors] { return errors.size() >= 1; }, 10000),
+           "挂起的流必须以错误收尾（空闲超时）");
+  QVERIFY(!controller.streaming());
+
+  const QVector<ChatMessage> messages = controller.messages();
+  QSet<QString> callIds, answered;
+  for (const ChatMessage &m : messages) {
+    if (m.role == ChatRole::Assistant)
+      for (const ChatToolCall &c : m.toolCalls)
+        callIds.insert(c.id);
+    if (m.role == ChatRole::Tool && !m.toolCallId.isEmpty())
+      answered.insert(m.toolCallId);
+  }
+  QVERIFY(!callIds.isEmpty());          // 场景自检：帧确实在历史里
+  for (const QString &id : callIds)
+    QVERIFY2(answered.contains(id),
+             qPrintable(QStringLiteral("call %1 缺 role=tool 应答").arg(id)));
 }
 
 void TestAiChatController::disabledConfigReportsAndSendsNothing() {

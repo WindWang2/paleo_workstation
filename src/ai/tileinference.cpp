@@ -191,6 +191,7 @@ bool runTileInference( PaleoOnnxService *onnx, const TileInferenceRequest &req,
     return fail( error && !error->isEmpty()
                    ? *error
                    : QObject::tr( "cannot load ONNX model '%1'" ).arg( req.model ) );
+  result->modelSha256 = meta.sha256;
 
   // 输入签名门：4 维、N=1（或动态）、C=1（或动态）——tile 读域按 H×W 喂入。
   if ( meta.inputShape.size() != 4 ||

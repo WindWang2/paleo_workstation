@@ -3,6 +3,7 @@
 #include <QString>
 #include <QVector>
 #include <QtGlobal> // qQNaN
+#include <functional>
 
 class QJsonObject;
 
@@ -100,10 +101,14 @@ struct DepthGridResult
   int convertedCells = 0;
   int nodataCells = 0;        // 输入 nodata/非有限 → 透传 NaN（不臆造深度）
   int outsideModelCells = 0;  // 输入有值但模型无答（井样点范围外）
+  bool cancelled = false;     // 协作取消命中：结果不完整，调用方必须弃用
 };
 
+// cancelled（可选）：逐行检查的协作取消谓词；命中 → r.cancelled=true 提前
+// 返回（部分 depthM 仍为 NaN，统计不完整——调用方不得把半途结果当成功）。
 DepthGridResult convertTimeGridToDepth(const VelocityModel &model,
                                        const QVector<float> &timeMs, int rows, int cols,
-                                       const double gt[6], double nodata);
+                                       const double gt[6], double nodata,
+                                       const std::function<bool()> &cancelled = {});
 
 } // namespace paleo::velmodel

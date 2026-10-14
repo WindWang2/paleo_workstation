@@ -27,6 +27,8 @@
 #include "../src/qgis/qgisprocessingservice.h"
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/workflow/workflows.h"
+#include "../src/services/paleotaskservice.h"
+#include "../src/services/projectdata.h"
 
 // Workflow-orchestrator acceptance: real services end to end — a prediction
 // run lands a declared "predict.<h>.<ts>" layer, constraints accumulate into a
@@ -695,6 +697,70 @@ private slots:
     for ( const ValidationIssue &v : again )
       QVERIFY( v.code != QStringLiteral( "SRC_MISSING" ) && v.code != QStringLiteral( "BUSY" ) );
     QCOMPARE( spy.count(), 2 );
+  }
+
+  // 异步验证的三重守卫（会话号 / 门面身份 / catalog 世代）此前零驱动：
+  // 「老结果绝不发布到新工程」在这里以确定性闸门（占池 blocker + 事件序）钉死。
+  void validationAsyncDiscardsStaleResults()
+  {
+    paleo::tests::WorkflowFixture f;
+    QVERIFY( initFixture( f ) );
+    PaleoTaskService tasks;
+    tasks.setMaxWorkerThreads( 1 );
+    ValidationWorkflow wf( &f.layers, &f.store );
+    wf.setTaskService( &tasks );
+
+    ProjectDataFacade facade;
+    facade.setCatalog( &f.catalog, f.dir.path() );
+    wf.setProjectData( &facade );
+
+    QSignalSpy done( &wf, &ValidationWorkflow::validationDone );
+    QSignalSpy finished( &wf, &ValidationWorkflow::validationFinished );
+
+    // ---- 场景 1：会话切换（工程重开）——排队中的验证不得发布
+    std::atomic_bool release1{ false };
+    tasks.start( QStringLiteral( "blocker-1" ), [&release1]( PaleoTask * ) {
+      while ( !release1.load() )
+        QThread::msleep( 5 );
+      return QString();
+    } );
+    QVERIFY( wf.startValidation() );
+    tasks.beginNewSession();
+    release1.store( true );
+    QTRY_COMPARE( finished.count(), 1 );
+    QCOMPARE( finished.at( 0 ).at( 0 ).toBool(), false );
+    QCOMPARE( done.count(), 0 );
+
+    // ---- 场景 2：catalog 世代变化（worker 持旧快照）——完成后也不得发布
+    finished.clear();
+    done.clear();
+    std::atomic_bool release2{ false };
+    tasks.start( QStringLiteral( "blocker-2" ), [&release2]( PaleoTask * ) {
+      while ( !release2.load() )
+        QThread::msleep( 5 );
+      return QString();
+    } );
+    const quint64 seqBefore = f.catalog.mutationSeq();
+    QVERIFY( wf.startValidation() );
+    CatalogEntity entity;
+    entity.id = QStringLiteral( "well-stale" );
+    entity.entityType = QStringLiteral( "well" );
+    entity.name = QStringLiteral( "StaleW" );
+    QVERIFY( f.catalog.addEntity( entity ) );
+    QVERIFY( f.catalog.mutationSeq() != seqBefore );
+    release2.store( true );
+    QTRY_COMPARE( finished.count(), 1 );
+    QCOMPARE( finished.at( 0 ).at( 0 ).toBool(), false );
+    QCOMPARE( done.count(), 0 );
+
+    // ---- 对照：无扰动时异步验证正常完成并发布
+    finished.clear();
+    done.clear();
+    QVERIFY( wf.startValidation() );
+    QTRY_COMPARE( finished.count(), 1 );
+    QCOMPARE( finished.at( 0 ).at( 0 ).toBool(), true );
+    QCOMPARE( done.count(), 1 );
+    QVERIFY( tasks.shutdown() );
   }
 
   // A classified raster becomes an editable facies-polygon layer on the manifest.

@@ -32,7 +32,6 @@ private:
   void finish();
   void fail(const QString &reason);
   void skip(int well, const QString &reason);
-  int codeFor(const QString &label);
   WellFaciesService m_service;
   WellFaciesConfig m_config;
   bool m_configured = false;

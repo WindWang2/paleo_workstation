@@ -749,6 +749,16 @@ public:
       const std::vector<double> &acDepthsM, const std::vector<float> &acUsPerM,
       const std::vector<double> &denDepthsM, const std::vector<float> &denValues,
       const TimeDepthModel &tdModel, double rickerHz = 25.0);
+  // #125 口径：生产路径（剖面井叠加）必须喂该井自己的时深对（曲线 twtMs，
+  // SectionWorkbench 按井时深表/平移算好），不用画布全局模型重算。表外深度
+  // 不外推（界面 TWT NaN → 跳过）；表不足 2 点 → 如实拒绝，不引入本层默认
+  // 速度。注意：上游逐井 twtMs 本身在该井无时深表时是「常速近似+标注」口径
+  // （alignmentStatus 注记），本重载原样消费该轴、不做二次伪造或二次校正。
+  static SeismicSyntheticResult computeSyntheticSeismogram(
+      const std::vector<double> &acDepthsM, const std::vector<float> &acUsPerM,
+      const std::vector<double> &denDepthsM, const std::vector<float> &denValues,
+      const std::vector<double> &tdDepthM, const std::vector<double> &tdTwtMs,
+      double rickerHz = 25.0);
 
   // 转码完成后作废缓存条目：下次读取按磁盘现状重开（热切换）。
   void invalidateDataset(const QString &path);

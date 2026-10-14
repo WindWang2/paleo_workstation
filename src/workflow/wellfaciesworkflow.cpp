@@ -383,9 +383,13 @@ void WellFaciesWorkflow::refreshModels() {
   m_service.fetchModels();
 }
 QString WellFaciesWorkflow::cachePath(const WellFaciesRun &run) const {
+  // 键必须含模型版本与标签词表：同 id 的服务端模型换版（或同版本换标签集）
+  // 后，旧键会回放上一版预测结果——预测结果与产它的模型不再对得上。
   const QByteArray bytes =
       QJsonDocument(QJsonObject{{"service", m_config.baseUrl.toString()},
                                 {"modelId", run.model.id},
+                                {"modelVersion", run.model.version},
+                                {"labels", run.model.labels.join(QLatin1Char(','))},
                                 {"wellName", m_data.wellName},
                                 {"rows", run.input.rows}})
           .toJson(QJsonDocument::Compact);

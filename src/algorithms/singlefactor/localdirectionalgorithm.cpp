@@ -737,6 +737,11 @@ QVariantMap LocalDirectionIdwAlgorithm::processAlgorithm( const QVariantMap &par
   QVariantList issueList;
   for ( const std::string &issue : surface.issues )
     issueList << utf8( issue );
+  // 可见性：同坐标不同值的井点行只进计数不上 issues 时，成果照常出版而
+  // 用户无从知晓（插值端 exact-hit/克里金按均值合并——需人工核对井位）。
+  if ( prepared.input.conflictRows > 0 )
+    issueList << QStringLiteral( "duplicate_rows_conflict: %1 行井点同坐标不同值，插值按均值合并，请核对井位/井名" )
+                       .arg( prepared.input.conflictRows );
   QVariantMap variogram;
   variogram.insert( QStringLiteral( "model" ), utf8( surface.resolved.variogramModel ) );
   variogram.insert( QStringLiteral( "nugget" ), surface.resolved.nugget );
@@ -1103,12 +1108,17 @@ QVariantMap SurferIdwAlgorithm::processAlgorithm( const QVariantMap &parameters,
   counts.insert( QStringLiteral( "out_of_range" ), prepared.input.outOfRangeCount );
   counts.insert( QStringLiteral( "duplicate_extra" ), prepared.input.duplicateExtraRows );
   counts.insert( QStringLiteral( "conflict" ), prepared.input.conflictRows );
+  QVariantList issueList;
+  if ( prepared.input.conflictRows > 0 )
+    issueList << QStringLiteral( "duplicate_rows_conflict: %1 行井点同坐标不同值，插值按均值合并，请核对井位/井名" )
+                       .arg( prepared.input.conflictRows );
   QVariantMap qc;
   qc.insert( QStringLiteral( "schema_version" ), 1 );
   qc.insert( QStringLiteral( "value_source" ), QStringLiteral( "analysis" ) );
   qc.insert( QStringLiteral( "extent_source" ), extentSource );
   qc.insert( QStringLiteral( "crs_mode" ), crsModeName );
   qc.insert( QStringLiteral( "counts" ), counts );
+  qc.insert( QStringLiteral( "issues" ), issueList );
   qc.insert( QStringLiteral( "parameters" ),
              parametersForHash( prepared.input, grid, surface, fieldName, cellSize, extentSource, crsModeName ) );
   writeJson( qcPath, qc );

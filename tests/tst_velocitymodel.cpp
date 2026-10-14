@@ -62,6 +62,7 @@ private slots:
   void gridConversionTwoWellsSpatialBlend();
   void gridConversionIdempotentAndCounts();
   void gridConversionNonFloatRepresentableNodata();
+  void gridConversionCancelsMidway();
 };
 
 // 用例1：恒速 2500 m/s（k=0 极限 + 层间平均同值）——z = v·twt/2000 解析。
@@ -325,6 +326,31 @@ void TestVelocityModel::gridConversionNonFloatRepresentableNodata()
     QCOMPARE(r.convertedCells, 2);
     QVERIFY(qIsNaN(r.depthM[1]));
   }
+}
+
+// 协作取消：逐行谓词命中 → cancelled=true 提前返回，统计不完整、未转换行
+// 保持 NaN——半途结果不得被当成功消费（workflow 据此弃用不落盘）。
+void TestVelocityModel::gridConversionCancelsMidway()
+{
+  const auto c = well(QStringLiteral("W1"), 50.0, 50.0, {{1000.0, 1250.0}, {2000.0, 2500.0}});
+  const VelocityModel m = VelocityModel::fit({c}, ModelType::IntervalAverage);
+  const int rows = 10, cols = 8;
+  const double gt[6] = {0.0, 100.0, 0.0, 1000.0, 0.0, -100.0};
+  QVector<float> t(rows * cols, 1600.0f);
+
+  int checks = 0;
+  const DepthGridResult r = convertTimeGridToDepth(
+      m, t, rows, cols, gt, -9999.0, [&checks]() { return ++checks >= 4; });
+  QVERIFY(r.cancelled);
+  QCOMPARE(checks, 4);              // 第 4 次行检查命中，未继续
+  QCOMPARE(r.convertedCells, 3 * cols); // 只转换了前 3 行
+  QVERIFY(r.convertedCells < rows * cols);
+  QVERIFY(qIsNaN(r.depthM[9 * cols]));  // 后续行保持 NaN
+
+  // 不传谓词 = 原语义（全量转换、不置 cancelled）。
+  const DepthGridResult full = convertTimeGridToDepth(m, t, rows, cols, gt, -9999.0);
+  QVERIFY(!full.cancelled);
+  QCOMPARE(full.convertedCells, rows * cols);
 }
 
 QTEST_MAIN(TestVelocityModel)

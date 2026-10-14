@@ -186,11 +186,13 @@ bool inferTiles( PaleoOnnxService *onnx, const TileInferenceRequest &req,
 
 bool suggestTrack( PaleoOnnxService *onnx, const QString &model,
                    const QVector<TrackingSeed> &seeds, int windowSamples, int radius,
-                   const TraceWindowFetcher &fetch, QVector<TrackingSuggestion> *out,
-                   QString *error )
+                   const TraceWindowFetcher &fetch,
+                   const std::function<bool()> &cancelled,
+                   QVector<TrackingSuggestion> *out, QString *error )
 {
 #if PALEO_HAVE_ORT
-  return suggestHorizonTracking( onnx, model, seeds, windowSamples, radius, fetch, out, error );
+  return suggestHorizonTracking( onnx, model, seeds, windowSamples, radius, fetch,
+                                 cancelled, out, error );
 #else
   Q_UNUSED( onnx );
   Q_UNUSED( model );
@@ -198,12 +200,14 @@ bool suggestTrack( PaleoOnnxService *onnx, const QString &model,
   Q_UNUSED( windowSamples );
   Q_UNUSED( radius );
   Q_UNUSED( fetch );
+  Q_UNUSED( cancelled );
   Q_UNUSED( out );
   if ( error )
     *error = QObject::tr( "本构建未编译 ONNX Runtime，AI 层位追踪建议不可用" );
   return false;
 #endif
 }
+
 } // namespace
 
 AiAssistWorkflow::AiAssistWorkflow( QgisLayerService *layers, QObject *parent )
@@ -262,7 +266,8 @@ bool AiAssistWorkflow::classifyTiles( const QString &horizon, const QString &mod
   if ( !inferTiles( m_onnx, req, &result, {}, nullptr, &runErr ) )
     return fail( runErr );
 
-  if ( !writeTileProducts( horizon, model, result, lowConfidenceThreshold, error ) )
+  if ( !writeTileProducts( horizon, model, result, tileRows, tileCols, halo,
+                           result.modelSha256, lowConfidenceThreshold, error ) )
     return fail( error && !error->isEmpty() ? *error : tr( "产品写盘失败" ) );
 
   emit tileClassificationDone( horizon, m_lastProductLayerIds );
@@ -270,7 +275,8 @@ bool AiAssistWorkflow::classifyTiles( const QString &horizon, const QString &mod
 }
 
 bool AiAssistWorkflow::writeTileProducts( const QString &horizon, const QString &model,
-                                          const TileInferenceResult &result,
+                                          const TileInferenceResult &result, int tileRows,
+                                          int tileCols, int halo, const QString &modelSha256,
                                           double lowConfidenceThreshold, QString *error )
 {
   m_lastStats = QJsonObject(); // 失败不留旧摘要（诚实：stats 只在成功后有效）
@@ -288,8 +294,14 @@ bool AiAssistWorkflow::writeTileProducts( const QString &horizon, const QString 
 
   QJsonObject provCommon;
   provCommon.insert( QStringLiteral( "model" ), model );
+  // 可复现性：同模型名不同切片参数（tile 形状/halo）产出不同栅格；模型文件
+  // 字节指纹把「模型名」钉到具体字节（注册表钉哈希口径）。
+  provCommon.insert( QStringLiteral( "model_sha256" ), modelSha256 );
   provCommon.insert( QStringLiteral( "rows" ), rows );
   provCommon.insert( QStringLiteral( "cols" ), cols );
+  provCommon.insert( QStringLiteral( "tile_rows" ), tileRows );
+  provCommon.insert( QStringLiteral( "tile_cols" ), tileCols );
+  provCommon.insert( QStringLiteral( "halo" ), halo );
   provCommon.insert( QStringLiteral( "classes" ), result.grid.classes );
   provCommon.insert( QStringLiteral( "tiles" ), result.tilesDone );
   provCommon.insert( QStringLiteral( "low_confidence_threshold" ), lowConfidenceThreshold );
@@ -524,12 +536,17 @@ PaleoTask *AiAssistWorkflow::startClassification( const QString &horizon, const 
   // finished 挂 task 上下文（而非 this）：工作流先亡时收尾仍执行、result
   // 仍被回收；触碰工作流的分支用 self 守卫。
   connect( task, &PaleoTask::finished, task, [self, task, horizon, model, result,
+                                              tileRows, tileCols, halo,
                                               lowConfidenceThreshold]() {
     // result 在收尾后才删——写产品仍要读它（先删后用=UAF）。
     if ( task->state() == PaleoTask::State::Succeeded )
     {
       QString err;
-      if ( self && self->writeTileProducts( horizon, model, *result, lowConfidenceThreshold, &err ) )
+      const bool ok =
+          self && self->writeTileProducts( horizon, model, *result, tileRows, tileCols, halo,
+                                           result->modelSha256,
+                                           lowConfidenceThreshold, &err );
+      if ( ok )
         emit self->tileClassificationDone( horizon, self->m_lastProductLayerIds );
       else if ( self )
         emit self->tileClassificationFailed( horizon, err );
@@ -552,7 +569,8 @@ bool AiAssistWorkflow::suggestTracking( const QString &horizon, const QString &m
   if ( error )
     error->clear();
   QVector<TrackingSuggestion> out;
-  if ( !suggestTrack( m_onnx, model, seeds, windowSamples, radius, fetch, &out, error ) )
+  // 同步入口无任务上下文，不支持取消（保持旧契约）；异步路径经任务取消位。
+  if ( !suggestTrack( m_onnx, model, seeds, windowSamples, radius, fetch, {}, &out, error ) )
     return false;
 
   QVector<SuggestionState> states;
@@ -586,7 +604,7 @@ PaleoTask *AiAssistWorkflow::startSuggestion( const QString &horizon, const QStr
     return nullptr;
   }
   // 同 startClassification 范式：池线程只跑纯引擎（onnx 服务线程安全），
-  // 建议入队/信号回主线程。取消语义见头文件注释（算完但作废）。
+  // 建议入队/信号回主线程。取消经任务取消位逐道检查（引擎协作取消）。
   auto *result = new QVector<TrackingSuggestion>;
   QPointer<AiAssistWorkflow> self( this );
   // #402：同 startClassification——worker 捕服务 QPointer 判活，不捕 this。
@@ -594,12 +612,13 @@ PaleoTask *AiAssistWorkflow::startSuggestion( const QString &horizon, const QStr
   const QString title = tr( "%1 AI 层位建议 %2" ).arg( horizon, model );
   PaleoTask *task = m_tasks->start(
     title,
-    [onnx, model, seeds, windowSamples, radius, fetch, result]( PaleoTask * ) -> QString {
+    [onnx, model, seeds, windowSamples, radius, fetch, result]( PaleoTask *t ) -> QString {
       if ( !onnx )
         return QStringLiteral( "ONNX 服务已销毁" );
       QString err;
       QVector<TrackingSuggestion> out;
-      if ( !suggestTrack( onnx, model, seeds, windowSamples, radius, fetch, &out, &err ) )
+      if ( !suggestTrack( onnx, model, seeds, windowSamples, radius, fetch,
+                          [t]() { return t->cancelRequested(); }, &out, &err ) )
         return err;
       *result = out;
       return QString();

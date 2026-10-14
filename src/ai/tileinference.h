@@ -73,6 +73,8 @@ struct TileInferenceResult
   int tilesDone = 0, tilesTotal = 0;
   qint64 inferenceMs = 0;            // 纯推理累计（比率门性能档案用）
   qint64 elapsedMs = 0;              // 全程（含取数/缝合）
+  QString modelSha256;               // 引擎随加载取回的模型字节指纹（provenance 用，
+                                     // 免得消费方在别的线程再整读哈希一遍）
 };
 
 // 同步执行 tile 批量推理（调用线程即执行线程——异步编排由 workflow 经

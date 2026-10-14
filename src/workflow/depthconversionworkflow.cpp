@@ -208,7 +208,8 @@ namespace
 // 任务 compute 段共用。成功时 extra 写换算统计，文件落 outPath。
 bool convertGridToDepthFile(const paleo::velmodel::VelocityModel &model,
                             const QString &horizon, const QString &timeRasterPath,
-                            const QString &outPath, QVariantMap *extra, QString *error)
+                            const QString &outPath, QVariantMap *extra, QString *error,
+                            const std::function<bool()> &cancelled = {})
 {
   const auto fail = [error](const QString &why) {
     if (error)
@@ -222,7 +223,9 @@ bool convertGridToDepthFile(const paleo::velmodel::VelocityModel &model,
     g.nodata = -9999.0; // 惯用哨兵：与 horizonbinner 写出口径一致
 
   const paleo::velmodel::DepthGridResult r = paleo::velmodel::convertTimeGridToDepth(
-      model, g.px, g.rows, g.cols, g.gt, g.nodata);
+      model, g.px, g.rows, g.cols, g.gt, g.nodata, cancelled);
+  if (r.cancelled)
+    return fail(QStringLiteral("已取消")); // 半途深度场不落盘、不进统计
 
   BinnedHorizon b;
   b.rows = g.rows;
@@ -583,7 +586,7 @@ bool DepthConversionWorkflow::computeDepth(DepthJob &job, const std::function<bo
     return fail(QStringLiteral("已取消"));
   QString err;
   if (!convertGridToDepthFile(model, job.horizon, job.timeRasterPath, job.depthStaging.absolutePath,
-                              &job.depthExtra, &err))
+                              &job.depthExtra, &err, cancelled))
     return fail(err);
   return !stop() || fail(QStringLiteral("已取消"));
 }

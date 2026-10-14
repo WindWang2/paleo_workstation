@@ -153,6 +153,95 @@ private slots:
         QStringLiteral( "paleo:paleo_facies_polygonize" ) ) != nullptr );
   }
 
+  // 同坐标不同值的井点行：插值按均值合并，但 QC issues 必须可见
+  // （此前只进 counts.conflict，成果照常出版而用户无从知晓）。
+  void constraintIdwFlagsConflictingDuplicateWells()
+  {
+    QgsApplication::processingRegistry()->addProvider( new PaleoProvider() );
+    auto *pts = new QgsVectorLayer(
+        QStringLiteral( "Point?crs=EPSG:3857&field=z:double" ),
+        QStringLiteral( "pts" ), QStringLiteral( "memory" ) );
+    QVERIFY( pts->isValid() );
+    QList<QgsFeature> feats;
+    const QList<QPair<QgsPointXY, double>> data = {
+        { QgsPointXY( 0, 0 ), 0.0 }, { QgsPointXY( 0, 0 ), 6.0 },  // 同坐标不同值
+        { QgsPointXY( 4, 0 ), 8.0 }, { QgsPointXY( 0, 4 ), 4.0 }};
+    for ( const auto &d : data )
+    {
+      QgsFeature f( pts->fields() );
+      f.setGeometry( QgsGeometry::fromPointXY( d.first ) );
+      f.setAttribute( QStringLiteral( "z" ), d.second );
+      feats << f;
+    }
+    QVERIFY( pts->dataProvider()->addFeatures( feats ) );
+    pts->updateExtents();
+
+    const QString outPath = mDir.filePath( QStringLiteral( "idw-conflict.tif" ) );
+    QgsProcessingContext ctx;
+    QgsProcessingFeedback fb;
+    QVariantMap params;
+    params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( pts ) );
+    params.insert( QStringLiteral( "FIELD" ), QStringLiteral( "z" ) );
+    params.insert( QStringLiteral( "CELL_SIZE" ), 1.0 );
+    params.insert( QStringLiteral( "OUTPUT" ), outPath );
+    const QVariantMap res = QgsApplication::processingRegistry()
+                                ->algorithmById( QStringLiteral( "paleo:paleo_local_direction_idw" ) )
+                                ->run( params, ctx, &fb );
+    QVERIFY2( !res.isEmpty(), qPrintable( fb.textLog() ) );
+    QVERIFY( QFile::exists( outPath ) );
+
+    const QString qcPath = outPath.left( outPath.lastIndexOf( QLatin1Char( '.' ) ) ) +
+                           QStringLiteral( ".qc.json" );
+    QFile qcFile( qcPath );
+    QVERIFY2( qcFile.open( QIODevice::ReadOnly ), qPrintable( qcPath ) );
+    const QJsonObject qc =
+        QJsonDocument::fromJson( qcFile.readAll() ).object();
+    QCOMPARE( qc.value( QStringLiteral( "counts" ) ).toObject()
+                  .value( QStringLiteral( "conflict" ) ).toInt(), 2 );
+    bool flagged = false;
+    for ( const QJsonValue &issue :
+          qc.value( QStringLiteral( "issues" ) ).toArray() )
+      if ( issue.toString().contains( QStringLiteral( "duplicate_rows_conflict" ) ) )
+        flagged = true;
+    QVERIFY2( flagged, "conflicting duplicate wells must surface in QC issues" );
+
+    // 同值重复行只进 duplicate_extra，不构成 issue。
+    const QString outPath2 = mDir.filePath( QStringLiteral( "idw-dup.tif" ) );
+    auto *same = new QgsVectorLayer(
+        QStringLiteral( "Point?crs=EPSG:3857&field=z:double" ),
+        QStringLiteral( "same" ), QStringLiteral( "memory" ) );
+    QList<QgsFeature> sameFeats;
+    const QList<QPair<QgsPointXY, double>> dup = {
+        { QgsPointXY( 0, 0 ), 0.0 }, { QgsPointXY( 0, 0 ), 0.0 },  // 同坐标同值
+        { QgsPointXY( 4, 0 ), 8.0 }, { QgsPointXY( 0, 4 ), 4.0 }};
+    for ( const auto &d : dup )
+    {
+      QgsFeature f( same->fields() );
+      f.setGeometry( QgsGeometry::fromPointXY( d.first ) );
+      f.setAttribute( QStringLiteral( "z" ), d.second );
+      sameFeats << f;
+    }
+    QVERIFY( same->dataProvider()->addFeatures( sameFeats ) );
+    params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( same ) );
+    params.insert( QStringLiteral( "OUTPUT" ), outPath2 );
+    const QVariantMap res2 = QgsApplication::processingRegistry()
+                                 ->algorithmById( QStringLiteral( "paleo:paleo_local_direction_idw" ) )
+                                 ->run( params, ctx, &fb );
+    QVERIFY( !res2.isEmpty() );
+    const QString qcPath2 = outPath2.left( outPath2.lastIndexOf( QLatin1Char( '.' ) ) ) +
+                            QStringLiteral( ".qc.json" );
+    QFile qcFile2( qcPath2 );
+    QVERIFY( qcFile2.open( QIODevice::ReadOnly ) );
+    const QJsonObject qc2 = QJsonDocument::fromJson( qcFile2.readAll() ).object();
+    QCOMPARE( qc2.value( QStringLiteral( "counts" ) ).toObject()
+                  .value( QStringLiteral( "conflict" ) ).toInt(), 0 );
+    QCOMPARE( qc2.value( QStringLiteral( "counts" ) ).toObject()
+                  .value( QStringLiteral( "duplicate_extra" ) ).toInt(), 1 );
+    for ( const QJsonValue &issue : qc2.value( QStringLiteral( "issues" ) ).toArray() )
+      QVERIFY2( !issue.toString().contains( QStringLiteral( "duplicate_rows_conflict" ) ),
+                "same-value duplicates must not raise a conflict issue" );
+  }
+
   // IDW over 3 points; assert weighted-average values at known cell centers.
   void constraintIdw()
   {

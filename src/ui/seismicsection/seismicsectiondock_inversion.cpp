@@ -62,9 +62,11 @@ void SeismicSectionDockWidget::extractWaveletFromNearestWell() {
     const WellCurveItem *ac = nullptr;
     const WellCurveItem *den = nullptr;
     for (const WellCurveItem &c : best->curves) {
-        if (c.curveName == QLatin1String("AC") && !c.values.empty())
+        if (seismic::baseCurveMnemonic(c.curveName) == QLatin1String("AC") &&
+                !c.values.empty())
             ac = &c;
-        if ((c.curveName == QLatin1String("DEN") || c.curveName == QLatin1String("RHOB")) &&
+        if ((seismic::baseCurveMnemonic(c.curveName) == QLatin1String("DEN") ||
+                 seismic::baseCurveMnemonic(c.curveName) == QLatin1String("RHOB")) &&
             !c.values.empty())
             den = &c;
     }
@@ -158,9 +160,11 @@ void SeismicSectionDockWidget::runInversion(const InversionPanelParams &params) 
         const WellCurveItem *ac = nullptr;
         const WellCurveItem *den = nullptr;
         for (const WellCurveItem &c : w.curves) {
-            if (c.curveName == QLatin1String("AC") && !c.values.empty())
+            if (seismic::baseCurveMnemonic(c.curveName) == QLatin1String("AC") &&
+                !c.values.empty())
                 ac = &c;
-            if ((c.curveName == QLatin1String("DEN") || c.curveName == QLatin1String("RHOB")) &&
+            if ((seismic::baseCurveMnemonic(c.curveName) == QLatin1String("DEN") ||
+                 seismic::baseCurveMnemonic(c.curveName) == QLatin1String("RHOB")) &&
                 !c.values.empty())
                 den = &c;
         }

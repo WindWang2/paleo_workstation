@@ -12,6 +12,7 @@
 #include <QListWidget>
 #include <QPushButton>
 #include <QTemporaryDir>
+#include <QTextStream>
 #include <QtEndian>
 #include <QtTest>
 #include <algorithm>
@@ -392,6 +393,109 @@ private slots:
     const auto itA5Cached = std::find_if(wells2.begin(), wells2.end(), [](const auto &w) { return w.wellName == "A5"; });
     QVERIFY(itA5Cached != wells2.end());
     QVERIFY(qAbs(itA5Cached->tracePosition - itA5->tracePosition) < 1.0);
+  }
+  // 曲线值单位：AC(US/FT) 换算到 µs/m、DEN(G/CC) 原样；未知非空单位拒绝叠加
+  // 并在 alignmentStatus 如实注明（µs/ft 不换算 → 3.28× 速度误差，乘数级）。
+  void curveValueUnitsConvertedOrRefused() {
+    QTemporaryDir dir;
+    DataCatalog catalog;
+    QVERIFY(catalog.open(dir.path()));
+    CatalogEntity e;
+    e.id = QStringLiteral("well-u");
+    e.name = QStringLiteral("U1");
+    e.entityType = QStringLiteral("well");
+    e.hasSurface = true;
+    e.surfaceX = 100;
+    e.surfaceY = 0;
+    e.coordinateStatus = QStringLiteral("untransformed");
+    e.td = 300;
+    QVERIFY(catalog.addEntity(e));
+    const auto writeLasWithUnits = [&dir](const QString &name,
+                                          const QStringList &mnems,
+                                          const QStringList &units) {
+      const QString path = dir.filePath(name);
+      QFile file(path);
+      if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        return QString();
+      QTextStream out(&file);
+      out << "~Version Information\n VERS. 2.0:\n WRAP. NO:\n";
+      out << "~Well Information Block\n STRT.M 1000.0:\n STOP.M 1004.0:\n"
+          << " STEP.M 1.0:\n NULL. -999.2500:\n WELL. U1:\n";
+      out << "~Curve Information Block\n";
+      for (int c = 0; c < mnems.size(); ++c)
+        out << " " << mnems[c] << "." << units[c] << " :\n";
+      out << "~A\n";
+      for (int r = 0; r < 5; ++r) {
+        out << QString::number(1000.0 + r, 'f', 2);
+        for (int c = 1; c < mnems.size(); ++c)
+          out << " " << QString::number(mnems[c] == QLatin1String("DEN") ? 2.35 : 55.0, 'f', 3);
+        out << "\n";
+      }
+      file.close();
+      return path;
+    };
+    const auto linkLog = [&catalog, &dir](const QString &assetId, const QString &path) {
+      CatalogAsset a;
+      a.id = assetId;
+      a.type = QStringLiteral("well_log");
+      a.displayName = assetId;
+      QVERIFY(catalog.addAsset(a));
+      CatalogVersion v;
+      v.id = "v-" + assetId;
+      v.assetId = assetId;
+      v.managed = false;
+      v.path = path;
+      v.stage = QStringLiteral("RAW");
+      QVERIFY(catalog.addVersion(v));
+      EntityAssetLink l;
+      l.entityId = QStringLiteral("well-u");
+      l.entityType = QStringLiteral("well");
+      l.role = QStringLiteral("well_log");
+      l.assetId = assetId;
+      l.isPrimary = true;
+      QVERIFY(catalog.addLink(l));
+    };
+    const QString acFt =
+        writeLasWithUnits(QStringLiteral("ac_ft.las"),
+                          {QStringLiteral("DEPT"), QStringLiteral("AC")},
+                          {QStringLiteral("M"), QStringLiteral("US/FT")});
+    const QString den =
+        writeLasWithUnits(QStringLiteral("den.las"),
+                          {QStringLiteral("DEPT"), QStringLiteral("DEN")},
+                          {QStringLiteral("M"), QStringLiteral("G/CC")});
+    const QString acBad =
+        writeLasWithUnits(QStringLiteral("ac_bad.las"),
+                          {QStringLiteral("DEPT"), QStringLiteral("AC")},
+                          {QStringLiteral("M"), QStringLiteral("QQ")});
+    QVERIFY(!acFt.isEmpty() && !den.isEmpty() && !acBad.isEmpty());
+    linkLog(QStringLiteral("ast-acft"), acFt);
+    linkLog(QStringLiteral("ast-den"), den);
+    linkLog(QStringLiteral("ast-acbad"), acBad);
+
+    SectionWorkbench work(&catalog);
+    const auto data = work.sectionWells();
+    QCOMPARE(data.size(), 1);
+    const seismic::SectionWellInfo &well = data.front();
+    // 每文件取一条曲线：AC(US/FT) 与 DEN(G/CC) 叠加，AC(QQ) 被拒。
+    QCOMPARE(well.curves.size(), size_t(2));
+    const seismic::WellCurveItem *ac = nullptr;
+    const seismic::WellCurveItem *denCurve = nullptr;
+    for (const auto &c : well.curves) {
+      if (seismic::baseCurveMnemonic(c.curveName) == QLatin1String("AC"))
+        ac = &c;
+      if (seismic::baseCurveMnemonic(c.curveName) == QLatin1String("DEN"))
+        denCurve = &c;
+    }
+    QVERIFY(ac && denCurve);
+    // 跨文件 AC 重名 → 限定名「AC@ac_ft」仍须命中声波族换算（整名比较会
+    // 静默绕过）：55 µs/ft → 55/0.3048 ≈ 180.446 µs/m（Z=ρ·V 的 µs/m 口径）。
+    QVERIFY(ac->curveName.startsWith(QStringLiteral("AC")));
+    QCOMPARE(ac->values.size(), std::size_t(5));
+    QVERIFY2(std::abs(ac->values.front() - 55.0 / 0.3048) < 1e-3,
+             qPrintable(QStringLiteral("AC value %1").arg(ac->values.front())));
+    QVERIFY(std::abs(denCurve->values.front() - 2.35) < 1e-6);
+    // 主 AC（ac_bad，单位 QQ）被拒绝叠加并如实注明。
+    QVERIFY(well.alignmentStatus.contains(QStringLiteral("单位未知")));
   }
 };
 int main(int argc, char **argv) {

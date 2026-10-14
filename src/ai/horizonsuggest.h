@@ -45,7 +45,10 @@ using TraceWindowFetcher = std::function<bool( int inlineNo, int xlineNo, int sa
 // radius：每颗种子向 inline/xline 双向扩张的道数半径；windowSamples：取窗
 // 样本数（偶数时中心偏 sampleBegin+window/2）。out 含种子行（isSeed=true）
 // 与全部扩张建议；失败 → false + error（out 内容未定义，调用方弃用）。
+// cancelled：逐道扩张前的协作取消检查（空 = 不支持取消）；命中 → 如实
+// 失败「已取消」，不把半途结果当成功外发。
 bool suggestHorizonTracking( PaleoOnnxService *onnx, const QString &model,
                              const QVector<TrackingSeed> &seeds, int windowSamples,
                              int radius, const TraceWindowFetcher &fetch,
+                             const std::function<bool()> &cancelled,
                              QVector<TrackingSuggestion> *out, QString *error );

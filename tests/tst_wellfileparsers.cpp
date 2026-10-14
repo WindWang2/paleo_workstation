@@ -36,6 +36,10 @@ private slots:
   void reportsOptionalMissingCellsWithoutRejectingGoodDepth();
   void depthAliases_data();
   void depthAliases();
+  void acousticUnitAliases_data();
+  void acousticUnitAliases();
+  void densityUnitAliases_data();
+  void densityUnitAliases();
 };
 
 void WellFileParserTests::sentinelVocabularyIsExact()
@@ -254,6 +258,58 @@ void WellFileParserTests::depthAliases()
     QCOMPARE(*parsed, scale);
     QCOMPARE(*paleo::wellnumeric::depthScaleToMetres(QStringLiteral(" ") + unit + QStringLiteral(" ")), scale);
   }
+}
+
+void WellFileParserTests::acousticUnitAliases_data()
+{
+  QTest::addColumn<QString>("unit");
+  QTest::addColumn<double>("scale");
+  for (const char *u : {"US/M", "USEC/M", "MICROSEC/M", "US/METER"})
+    QTest::newRow(u) << QString::fromLatin1(u) << 1.0;
+  for (const char *u : {"US/FT", "USEC/FT", "MICROSEC/FT", "US/FOOT"})
+    QTest::newRow(u) << QString::fromLatin1(u) << 1.0 / 0.3048;
+  // 空单位 = 遗留数据无元数据，按 µs/m 假设（乘 1）；未知非空单位拒绝。
+  QTest::newRow("empty") << QString() << 1.0;
+  for (const char *u : {"MS/M", "S/M", "FT", "US"})
+    QTest::newRow(u) << QString::fromLatin1(u) << -1.0;
+}
+
+void WellFileParserTests::acousticUnitAliases()
+{
+  QFETCH(QString, unit);
+  QFETCH(double, scale);
+  const auto parsed = paleo::wellnumeric::acousticScaleToUsPerM(unit);
+  QCOMPARE(parsed.has_value(), scale > 0);
+  if (parsed)
+    QCOMPARE(*parsed, scale);
+  // 大小写与前后空白不敏感（LAS 头字段常态）。
+  if (!unit.isEmpty() && parsed)
+    QCOMPARE(*paleo::wellnumeric::acousticScaleToUsPerM(
+                 QStringLiteral(" ") + unit.toLower() + QStringLiteral(" ")),
+             scale);
+}
+
+void WellFileParserTests::densityUnitAliases_data()
+{
+  QTest::addColumn<QString>("unit");
+  QTest::addColumn<double>("scale");
+  for (const char *u : {"G/CC", "G/CM3", "G/C3", "GCM3", "GM/CC"})
+    QTest::newRow(u) << QString::fromLatin1(u) << 1.0;
+  for (const char *u : {"KG/M3", "KG/M^3", "KGM3"})
+    QTest::newRow(u) << QString::fromLatin1(u) << 0.001;
+  QTest::newRow("empty") << QString() << 1.0;
+  for (const char *u : {"KG", "CC", "G", "N/M3"})
+    QTest::newRow(u) << QString::fromLatin1(u) << -1.0;
+}
+
+void WellFileParserTests::densityUnitAliases()
+{
+  QFETCH(QString, unit);
+  QFETCH(double, scale);
+  const auto parsed = paleo::wellnumeric::densityScaleToGPerCc(unit);
+  QCOMPARE(parsed.has_value(), scale > 0);
+  if (parsed)
+    QCOMPARE(*parsed, scale);
 }
 
 QTEST_GUILESS_MAIN(WellFileParserTests)

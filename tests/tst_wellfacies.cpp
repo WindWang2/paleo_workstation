@@ -244,6 +244,23 @@ private slots:
     const auto bytes = QJsonDocument(m_referenceReport).toJson();
     QCOMPARE(file.write(bytes), bytes.size());
   }
+  // 冻结相 schema 查码：name/microfacies 命中；schema 外标签必须返回 0，
+  // 调用方拒收（旧行为自增 code=max+1——编码随到达顺序漂移，已废止）。
+  void frozenSchemaCodeForLabel() {
+    QVariantList schema;
+    schema << QVariantMap{{"code", 1}, {"name", "辫状河"}, {"microfacies", "BR"},
+                          {"color", "#123456"}}
+           << QVariantMap{{"code", 7}, {"name", "三角洲前缘"}, {"microfacies", "DF"},
+                          {"color", "#654321"}};
+    QCOMPARE(faciesCodeForLabel(schema, QStringLiteral("辫状河")), 1);
+    QCOMPARE(faciesCodeForLabel(schema, QStringLiteral("DF")), 7);
+    QCOMPARE(faciesCodeForLabel(schema, QStringLiteral("辫状 河")), 0);
+    QCOMPARE(faciesCodeForLabel(schema, QStringLiteral("未知微相")), 0);
+    QCOMPARE(faciesCodeForLabel(schema, QString()), 0);
+    QCOMPARE(faciesCodeForLabel(QVariantList(), QStringLiteral("辫状河")), 0);
+    // 查询不改变 schema（冻结性）
+    QCOMPARE(schema.size(), 2);
+  }
   void inputContract() {
     auto d = well();
     auto input = prepareWellFaciesInput(d, model());
@@ -779,6 +796,57 @@ private slots:
     QTRY_COMPARE(results.size(), 1);
     QCOMPARE(qvariant_cast<WellFaciesResult>(results[0][0]).intervals.size(), 2);
     QCOMPARE(server.predictCount, 2);
+  }
+  // 缓存键含模型版本/标签：服务端同 id 换版后，旧键的缓存不得回放——
+  // 预测结果必须与产它的模型对得上（旧键缺版本会静默回放上一版结果）。
+  void cacheKeyIncludesModelVersion() {
+    Server server;
+    server.models = {model()};
+    server.labels = {{"model-1", QStringLiteral("河口坝")}};
+    PaleoTaskService tasks;
+    WellFaciesWorkflow workflow;
+    workflow.setTaskService(&tasks);
+    QSignalSpy results(&workflow, &WellFaciesWorkflow::resultReady),
+        ready(&workflow, &WellFaciesWorkflow::availabilityChanged);
+    workflow.configure(server.config(), false);
+    workflow.setData(well());
+    QTRY_VERIFY2(!ready.isEmpty() && ready.last()[0].toBool(),
+                 ready.isEmpty() ? "no availability"
+                                 : qPrintable(ready.last()[1].toString()));
+    workflow.run();
+    QTRY_COMPARE(results.size(), 1);
+    QCOMPARE(server.predictCount, 1);
+    QCOMPARE(qvariant_cast<WellFaciesResult>(results[0][0]).intervals.size(), 1);
+    QCOMPARE(qvariant_cast<WellFaciesResult>(results[0][0]).intervals[0].text,
+             QStringLiteral("河口坝"));
+
+    // 同一井重开：v1 缓存命中（既有行为），不重新请求。
+    results.clear();
+    workflow.setData(well());
+    QTRY_COMPARE(results.size(), 1);
+    QCOMPARE(server.predictCount, 1);
+
+    // 服务端同 id 换版（v1→v2，标签也换）：刷新模型后旧缓存必须失效——
+    // 换版后的 updateInput 不得回放 v1 结果（results 保持空），run() 重新
+    // 请求并拿到 v2 标签。
+    WellFaciesModel upgraded = model();
+    upgraded.version = QStringLiteral("v2");
+    upgraded.labels = {QStringLiteral("三角洲前缘")};
+    server.models = {upgraded};
+    server.labels = {{"model-1", QStringLiteral("三角洲前缘")}};
+    results.clear();
+    ready.clear();
+    workflow.refreshModels();
+    // 模型清单就绪且计划可用后，缓存回放只应命中 v2 键——v1 文件不再匹配。
+    QTRY_VERIFY2(!ready.isEmpty() && ready.last()[0].toBool(),
+                 ready.isEmpty() ? "no availability"
+                                 : qPrintable(ready.last()[1].toString()));
+    QVERIFY2(results.isEmpty(), "换版后旧缓存被回放（缓存键缺模型版本）");
+    workflow.run();
+    QTRY_COMPARE(results.size(), 1);
+    QCOMPARE(server.predictCount, 2);
+    QCOMPARE(qvariant_cast<WellFaciesResult>(results[0][0]).intervals[0].text,
+             QStringLiteral("三角洲前缘"));
   }
   void taskProgressFollowsServerProgress() {
     Server server;

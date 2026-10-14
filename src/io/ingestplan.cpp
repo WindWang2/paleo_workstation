@@ -1,6 +1,7 @@
 // 层：数据
 #include "ingestplan.h"
 
+#include "dataimport_internal.h" // rollbackFailedRow 声明（executePlannedItem 共用）
 #include "shacache.h"
 
 #include "welllogread.h" // 方向44：井名提取分派
@@ -781,6 +782,64 @@ QVector<EntityAssetLink> CatalogReadSnapshot::linksForEntity(const QString &enti
   return out;
 }
 
+namespace paleo::dataimport_detail
+{
+// 撤销一个失败行留在 staging 副本上的半截登记（见 executeIngestPlan 行注释）：
+// 先按检查点之后的 ops 收集该行落到暂存根的受管版本目录（回滚后 ops 就没了），
+// 再整体退回 staging 状态，最后删暂存文件并只剪暂存根内的空目录。成功行零影响。
+void rollbackFailedRow(ImportSession &session,
+                       const DataCatalog::StagingCheckpoint &cp)
+{
+  DataCatalog *cat = session.cat.get();
+  QStringList stagedDirs;
+  // resolvedVersionPath 出来的路径经 canonicalFilePath 规范化；stagingRoot
+  // 原串可能含符号链接前缀——两端统一 canonical 再比，否则 startsWith 恒假、
+  // 暂存文件漏删（随后被 moveStagedFiles 当孤儿搬进工程）。
+  const QString rootCanon = QFileInfo(session.stagingRoot).canonicalFilePath();
+  if (!rootCanon.isEmpty())
+  {
+    const QVector<CatalogOp> ops = cat->journal();
+    for (int i = cp.journalSize; i < ops.size(); ++i)
+    {
+      const CatalogOp &op = ops.at(i);
+      if (op.kind == CatalogOp::Kind::AddVersion && op.version.managed)
+      {
+        const QString abs = cat->versionFilePath(op.version);
+        if (abs.startsWith(rootCanon + QLatin1Char('/')))
+          stagedDirs.append(QFileInfo(abs).absolutePath());
+      }
+    }
+  }
+  cat->rollbackStaging(cp);
+  for (const QString &dir : std::as_const(stagedDirs))
+  {
+    QDir d(dir);
+    if (!d.exists())
+      continue;
+    for (const QFileInfo &fi :
+         d.entryInfoList(QDir::Files | QDir::NoDotAndDotDot))
+    {
+      QFile::setPermissions(fi.absoluteFilePath(),
+                            fi.permissions() | QFileDevice::WriteOwner);
+      if (!QFile::remove(fi.absoluteFilePath()))
+        qWarning("import rollback: cannot remove staged file %s",
+                 qPrintable(fi.absoluteFilePath()));
+    }
+    QDir cur = d;
+    while (cur.exists())
+    {
+      if (!cur.isEmpty())
+        break;
+      if (QFileInfo(cur.absolutePath()).canonicalFilePath() == rootCanon)
+        break; // 剪到暂存根为止，绝不越根
+      const QString name = cur.dirName();
+      if (!cur.cdUp() || !QDir(cur).rmdir(name))
+        break;
+    }
+  }
+}
+} // namespace paleo::dataimport_detail
+
 QVector<FolderRowResult>
 executeIngestPlan(const IngestPlan &plan, ImportSession &session,
                   const IngestProgress &progress, QString *error)
@@ -802,7 +861,14 @@ executeIngestPlan(const IngestPlan &plan, ImportSession &session,
   for (const PlannedItem &item : plan.items)
   {
     QString ierr;
+    // 行级失败隔离：行可能失败在 addAsset/addVersion 之后（受管复制失败、
+    // SEG-Y 打开失败等），半截 journal ops 绝不能随提交入库（否则留下零版本
+    // 资产/行报 Failed 但资产已登记）。撤回同时清掉该行落到暂存根的受管
+    // 文件，后续同内容文件也就不会 dedup 命中被撤销的版本（悬挂链接根除）。
+    const DataCatalog::StagingCheckpoint rowCheckpoint = session.cat->checkpointStaging();
     rows.append(DataImportService::produceItem(session, item, &ierr));
+    if (rows.constLast().outcome == FolderRowResult::Outcome::Failed)
+      paleo::dataimport_detail::rollbackFailedRow(session, rowCheckpoint);
     ++doneCount;
     if (progress &&
         !progress(doneCount, static_cast<int>(plan.items.size()), item.path))

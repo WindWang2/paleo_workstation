@@ -176,6 +176,79 @@ QString DataCatalog::versionFilePath(const CatalogVersion &v) const
   return resolvedVersionPath(m_dir, v);
 }
 
+// 行级失败隔离的快照体（头文件只前向声明）：全部 COW 容器/标量拷贝，
+// 逐行打点近乎零成本；回滚 = 逐字段赋回（下次写才 detach）。
+class DataCatalog::StagingCheckpointState
+{
+public:
+  QVector<CatalogEntity> entities;
+  QVector<CatalogAsset> assets;
+  QVector<CatalogVersion> versions;
+  QVector<EntityAssetLink> links;
+  int assetSeq = 0, versionSeq = 0;
+  quint64 mutationSeq = 0;
+  CatalogIndex idx;
+  QSet<QString> overlayVersionIds;
+  QVector<CatalogOp> journal;
+  QSet<QString> dirtyEntities, dirtyAssets, dirtyVersions;
+  QSet<int> dirtyLinkOrds;
+  QSet<QString> removedAssets, removedVersions;
+  bool linksFullRewrite = false;
+};
+
+DataCatalog::StagingCheckpoint DataCatalog::checkpointStaging() const
+{
+  StagingCheckpoint cp;
+  if (!m_staging)
+    return cp; // 活 catalog 的 journal 属既成事实，不可撤——无效检查点
+  auto st = std::make_shared<StagingCheckpointState>();
+  st->entities = m_entities;
+  st->assets = m_assets;
+  st->versions = m_versions;
+  st->links = m_links;
+  st->assetSeq = m_assetSeq;
+  st->versionSeq = m_versionSeq;
+  st->mutationSeq = m_mutationSeq;
+  st->idx = m_idx;
+  st->overlayVersionIds = m_overlayVersionIds;
+  st->journal = m_journal;
+  st->dirtyEntities = m_dirtyEntities;
+  st->dirtyAssets = m_dirtyAssets;
+  st->dirtyVersions = m_dirtyVersions;
+  st->dirtyLinkOrds = m_dirtyLinkOrds;
+  st->removedAssets = m_removedAssets;
+  st->removedVersions = m_removedVersions;
+  st->linksFullRewrite = m_linksFullRewrite;
+  cp.overlayDir = m_overlayDir;
+  cp.journalSize = m_journal.size();
+  cp.state = std::move(st);
+  return cp;
+}
+
+void DataCatalog::rollbackStaging(const StagingCheckpoint &cp)
+{
+  if (!m_staging || !cp.isValid() || cp.overlayDir != m_overlayDir)
+    return;
+  const StagingCheckpointState &st = *cp.state;
+  m_entities = st.entities;
+  m_assets = st.assets;
+  m_versions = st.versions;
+  m_links = st.links;
+  m_assetSeq = st.assetSeq;
+  m_versionSeq = st.versionSeq;
+  m_mutationSeq = st.mutationSeq;
+  m_idx = st.idx;
+  m_overlayVersionIds = st.overlayVersionIds;
+  m_journal = st.journal;
+  m_dirtyEntities = st.dirtyEntities;
+  m_dirtyAssets = st.dirtyAssets;
+  m_dirtyVersions = st.dirtyVersions;
+  m_dirtyLinkOrds = st.dirtyLinkOrds;
+  m_removedAssets = st.removedAssets;
+  m_removedVersions = st.removedVersions;
+  m_linksFullRewrite = st.linksFullRewrite;
+}
+
 void DataCatalog::debugAbortJournalAfter(int k)
 {
   m_debugAbortJournalAfter = k > 0 ? k : 0;
@@ -358,6 +431,12 @@ bool DataCatalog::open(const QString &projectDir, QString *error)
   m_dirtyAssets.clear();
   m_dirtyVersions.clear();
   m_dirtyLinkOrds.clear();
+  // 删除面同样要复位：活动 BatchSave 内已调 removeAssets（save 挂起）时重开
+  // 工程，残留的 removed 集会在下一次 save 把陈旧 DELETE 打到新工程的库上
+  //（ast-N/ver-N 跨工程高概率撞号）。批次已在上面归零，这里一并解除武装。
+  m_removedAssets.clear();
+  m_removedVersions.clear();
+  m_linksFullRewrite = false;
   m_forceFullSave = false;
 
   const auto fail = [&](const QString &msg) {

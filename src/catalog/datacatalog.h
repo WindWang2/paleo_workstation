@@ -392,6 +392,27 @@ class DataCatalog : public QObject
     // k<=0 记 0 并关闭。applyJournal 不自动清零（非零粘滞会让失败后的重试也中止）。
     void debugAbortJournalAfter(int k);
 
+    // ---- 行级失败隔离（staging 副本专用）----
+    // 文件夹导入逐行推进：行失败（如 addAsset 之后受管复制/族导入失败）时，
+    // 该行可能已在 staging 副本上留下半截 journal ops 与内存登记。只截 journal
+    // 不够——后续同内容文件会 dedup 命中被撤销的版本，产生悬挂链接。检查点把
+    // 四表/索引/序号/overlay 记账/journal 整体退回，保证提交侧只重放存活行。
+    struct StagingCheckpoint;
+    class StagingCheckpointState; // 定义在 datacatalog.cpp（快照体对头文件不透明）
+
+    struct StagingCheckpoint
+    {
+      QString overlayDir;           // 校验回滚目标仍是同一副本
+      int journalSize = 0;
+      std::shared_ptr<StagingCheckpointState> state; // null = 无效
+      bool isValid() const { return state != nullptr; }
+    };
+    // 非 staging 副本返回无效检查点（活 catalog 的 journal 属既成事实，不可撤）。
+    StagingCheckpoint checkpointStaging() const;
+    // 无效检查点/非 staging/跨副本 → 无操作。快照字段按 COW 共享，逐行打点
+    // 成本可忽略。
+    void rollbackStaging(const StagingCheckpoint &cp);
+
   signals:
     void changed();      // 任一变更落盘后发射（UI 刷新资产表用）
     // open() 经 .bak 回退恢复成功后发射一次（主文件损坏原因随行）——UI/

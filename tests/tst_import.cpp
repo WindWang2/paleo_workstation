@@ -2097,6 +2097,112 @@ private slots:
     checkConsistent();
   }
 
+  // A1（方向 01）：文件夹导入的行失败可能发生在 addAsset/addVersion 之后
+  //（如 SEG-Y 打开失败）——半截 journal 不得随提交入库：不留零版本资产、
+  // 不留「行报 Failed 但资产已登记」；同批同内容后续文件也不能 dedup 命中
+  // 被撤销的版本（那会挂出指向不存在资产的链接）。
+  void failedFolderRowCommitsNothing()
+  {
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+    DataCatalog *cat = svc.catalog();
+
+    const QString root = tmp.filePath(QStringLiteral("area"));
+    QVERIFY(QDir().mkpath(root));
+    // 好行：可解析 LAS。
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("A1.las")),
+        QByteArrayLiteral("~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. A1 : WELL\n"
+                          "~Curve\nDEPT.M :\n~A DEPT\n100.0\n")));
+    // 坏行：≥3600 字节但二进制头 ns=0 的 SEG-Y——按扩展名分类成 seismic，
+    // addAsset/addVersion 之后族导入里 reader.open 确定性失败。
+    const QByteArray badSegy(4000, '\0');
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("bad1.sgy")), badSegy));
+    // 同字节第二份：若坏行的半截登记没被撤销，这一行会 dedup 命中并挂出
+    // 指向已撤销资产的链接。
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("bad2.sgy")), badSegy));
+
+    const std::shared_ptr<ImportSession> s = svc.beginImport();
+    QVERIFY(s);
+    QVERIFY(produceOnWorker(s, [&](ImportSession &sess) {
+      DataImportService::produceFolder(sess, root, {}, {});
+    }));
+    int failed = 0, imported = 0;
+    for (const FolderRowResult &r : s->rows)
+    {
+      if (r.outcome == FolderRowResult::Outcome::Failed)
+        ++failed;
+      else if (r.outcome == FolderRowResult::Outcome::Imported ||
+               r.outcome == FolderRowResult::Outcome::Unresolved)
+        ++imported;
+    }
+    QCOMPARE(failed, 2); // 两份坏 SEG-Y 都如实失败，第二份不因半截登记变 dedup
+    QCOMPARE(imported, 1);
+    QString cerr;
+    QCOMPARE(svc.commitImport(*s, &cerr), DataImportService::CommitStatus::Committed);
+
+    // 只剩 LAS 资产：无 seismic 资产、无零版本资产、无悬挂链接、暂存根已清。
+    QCOMPARE(cat->assets().size(), 1);
+    QSet<QString> assetIds;
+    for (const CatalogAsset &a : cat->assets())
+    {
+      QVERIFY(a.type != QLatin1String("seismic"));
+      QVERIFY2(!cat->versionsForAsset(a.id).isEmpty(), qPrintable(a.id));
+      assetIds.insert(a.id);
+    }
+    for (const EntityAssetLink &l : cat->links())
+      QVERIFY2(assetIds.contains(l.assetId), qPrintable(l.assetId));
+    QVERIFY(!QDir(QDir(projectDir).filePath(QStringLiteral("artifacts/staging"))).exists());
+    // 重开工程对拍：盘上同样只有 1 资产。
+    DataCatalog reread;
+    QString oerr;
+    QVERIFY2(reread.open(projectDir, &oerr), qPrintable(oerr));
+    QCOMPARE(reread.assets().size(), 1);
+  }
+
+  // A1 伴随探针（env 门控）：行级检查点（COW 快照/行）的规模开销——
+  // PALEO_IMPORT_SCALE=N（N≥100）时对 N 个小 LAS 跑一次 produceFolder，
+  // 只计时打点（qInfo），无绝对断言（口径见 ledger）。
+  void folderImportCheckpointOverheadProbe()
+  {
+    bool okScale = false;
+    const int n = qEnvironmentVariableIntValue("PALEO_IMPORT_SCALE", &okScale);
+    if (!okScale || n < 100)
+      QSKIP("PALEO_IMPORT_SCALE not set — import scale probe skipped");
+    QTemporaryDir tmp;
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataImportService &svc = *stack->importSvc;
+    const QString root = tmp.filePath(QStringLiteral("scale"));
+    QVERIFY(QDir().mkpath(root));
+    const auto lasBytes = [](int i) {
+      return QByteArrayLiteral(
+                 "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. W") +
+             QByteArray::number(i) +
+             QByteArrayLiteral(" : WELL\n~Curve\nDEPT.M :\n~A DEPT\n100.0\n");
+    };
+    for (int i = 0; i < n; ++i)
+      QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("S%1.las").arg(i)),
+                        lasBytes(i)));
+    const std::shared_ptr<ImportSession> s = svc.beginImport();
+    QVERIFY(s);
+    QElapsedTimer clock;
+    clock.start();
+    QVERIFY(produceOnWorker(s, [&](ImportSession &sess) {
+      DataImportService::produceFolder(sess, root, {}, {});
+    }));
+    qInfo("PERF produceFolder %d rows(ms): %lld", n, clock.elapsed());
+    QCOMPARE(int(s->rows.size()), n);
+    QString cerr;
+    QCOMPARE(svc.commitImport(*s, &cerr), DataImportService::CommitStatus::Committed);
+    QCOMPARE(int(svc.catalog()->assets().size()), n);
+  }
+
   // 审计 02 M-8：大量并发导入不死锁。N 个 session 同时在多线程池里 produce，
   // 主线程不泵事件地 waitForDone（旧模型：worker 阻塞等 GUI、GUI 阻塞等
   // worker → 死锁）；随后 owner 线程逐个提交——基线变了的返回 Conflict，

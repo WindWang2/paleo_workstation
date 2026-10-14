@@ -3,7 +3,9 @@
 - 分支：`goal7/well-sections-crossplot-20261014`
 - 工作树：`../paleo-wt-goal7-well-sections`
 - base SHA：`b0520429c21f858a1c053b876f511680088564a9`（== origin/master，2026-10-14 复核）
-- 唯一写 owner：主 Agent（本 ledger）；子代理只读侦察 ≤3 并发 + 最终独立 review 1 个。
+- **PR：https://github.com/WindWang2/paleo_workstation/pull/446**（2026-10-14 创建，非 draft，
+  按 task 契约不自行合并）
+- 唯一写 owner：主 Agent（本 ledger）；子代理只读侦察 3 个 + 独立 review 1 个（≤5 限额内）。
 
 ## R0 基线（2026-10-14）
 
@@ -171,6 +173,34 @@ WellDeviationSurvey（最小曲率）→ wellsection::Well tvdOf/mdOf 显示期�
   Issue Agent 统一到 wellnumeric 词表。
 - 不采纳（无害、保持最小 diff）：S5-7 自适应 resize 双发 viewportChanged /
   setSources 重复 id 双选。
+
+### 轮次 8（2026-10-14）：交付闭环
+- 净基线归零实验：stash 本 diff 后重建 tst_algorithm_harness/tst_catalog/
+  tst_singlefactor_contourbudget——CRS 断言同红、writeGrid 夹具同红、catalog 直跑
+  44/0，确证全套 384 中的 7 个失败为基线既有环境红项，与本分支零因果。
+- 反向验证：`git diff origin/master...HEAD --name-only` 16 文件全部在本方向白名单；
+  与 PR #437（实时文件清单）零交集；执行期新出现的 PR #445 与 Issue #438-444 亦零交集。
+- 收官闸门（终码二遍）：领域子集 50/50（EXIT=0）、layering --strict 通过、
+  git diff --check 干净。
+- commit + push（gitconfig 死代理按命令覆盖：`git -c http.https://github.com/.proxy= push`，
+  直连实测 200）→ **PR #446**。
+
+### 产物清单对账
+- 领域 baseline 与新旧对照：本文件 R0/轮次 1-7。
+- 生产代码：8 文件（petrophys / wellsectionworkflow.{h,cpp} / crossplotpanel /
+  multiwellview.{h,cpp} / wellcompositecanvas / paneltracks）。
+- 配对测试：6 文件新增用例，六目标 7/7 + 领域 50/50×2 绿。
+- 回归/错误注入日志：/tmp/welford_check.{cpp} 红绿对拍、净基线同红三例。
+- 性能记录：解析缓存轮（告警去重 + 不重读盘为行为证据；无微基准——如实，
+  未伪报加速比）。
+- 用户手册/开发说明：PR 描述 + 本 ledger 的环境节（vendored 栈接线要点）。
+- 分阶段 ledger：本文件。
+- 独立 reviewer 问题与复核：轮次 7（blocker=0，建议 1/2/3/4/6/8 采纳）。
+- 保护路径及 Issue 去重检查表：R0 指纹表 + 轮次 8 反向验证。
+- 真实 PR URL：#446。
+- 跳过项说明：无性能微基准文件（改动以行为正确性与告警去重为主，未涉及
+  可测的吞吐变化）；无 golden 图像（本轮改动不含像素级输出变化；井道图导出
+  对拍属 #368 邻接、已避让）。
 
 ### 留给 Issue Agent / 下一阶段的发现（本方向不改，附证据）
 

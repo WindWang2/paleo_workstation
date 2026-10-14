@@ -74,9 +74,10 @@ struct Engine
   std::vector<SoftTerm> soft;
   ClusterModel clusters;
   ResolvedParameters params;
-  // 方向41：methodActual=="kriging" 时为非空（分量样本预建邻域索引）。
-  // 空 = 纯 IDW 权重路径；病态格回落时仍用同一 IDW 权重公式。
-  std::unique_ptr<geostat::KrigingSolver> solver;
+  // 方向41：methodActual=="kriging" 时 krigingValid 为真——evaluateBatch 用
+  // krigingSamples/krigingIndex 自组 OK 方程组（含 MLA/软边界改造），不经过
+  // geostat::KrigingSolver（其内部 dedupe+建索引对每分量引擎是纯重复计算，
+  // 方向04 D12 移除了该从未被消费的构造）。
 
   std::vector<geostat::Sample> krigingSamples;
   geostat::detail::NeighborIndex krigingIndex;
@@ -246,11 +247,6 @@ Engine makeEngine( const std::vector<Sample> &wells, const ResolvedParameters &p
       for ( const geostat::Sample &s : engine.krigingSamples )
         term.krigingSides.push_back( sideOf( term, Point2{ s.x, s.y } ) );
     }
-
-    auto solver = std::make_unique<geostat::KrigingSolver>( geostatSamples, engine.variogramModel,
-                                                            engine.krigingParams );
-    if ( solver->valid() )
-      engine.solver = std::move( solver );
   }
   return engine;
 }

@@ -257,3 +257,12 @@ m_lastSlice 不双翻）；failPublication 连接顺序假设成立、无重入�
   运行需 QT_PLUGIN_PATH 指向 vendored 插件目录。
 - 跨 worktree 全局锁实测有效：本轮排队等待兄弟方向（singlefactor/
   well-sections）构建释放。
+
+## 发布前指纹复核（2026-10-15 push 时点）
+
+- master 仍 `b0520429`（identical）。
+- Open PR 1→5：新增 #445（qgis-layers 方向06 壳）/ #446（well-sections 方向02）/
+  #447（codex/fix-core-issues）/ #448（qgis-layers 方向05）——逐一 `gh pr view
+  --json files` 核对，与本分支 26 文件**零交集**。
+- Open Issues 70→77：新增 #438–#444（保存版本/证据审计/图谱查询域）——
+  与本方向无文件/机制交集，全部入排除表（本 PR 不触碰）。

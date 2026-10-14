@@ -46,6 +46,13 @@ bool mergeIntervals(DataCatalog *catalog, const QString &dir,
 bool mergeFormations(DataCatalog *catalog, const QString &dir,
                      QgisLayerService *layers, const QVariantList &updates,
                      QString *error = nullptr);
+// 井段 + 地层相两批的事务化包装：井段批先提交，地层批失败时按批前快照
+// 恢复井段行（半更新域状态会让重试重复合并且读数自相矛盾）。
+bool mergeIntervalsAndFormations(DataCatalog *catalog, const QString &dir,
+                                 QgisLayerService *layers,
+                                 const QVariantList &intervalUpdates,
+                                 const QVariantList &formationUpdates,
+                                 QString *error = nullptr);
 bool seedFactors(DataCatalog *catalog, const QString &dir,
                  QgisLayerService *layers, const QVariantList &updates,
                  QString *error = nullptr);

@@ -375,6 +375,54 @@ private slots:
                                       WellAttributeStore::Table::Formations),
              before);
   }
+  // #415：组合批里地层批失败时井段批必须整体回滚——预测完成路径两表
+  // 是同一逻辑事务，留下井段半更新会让属性表与地层表永久错位。
+  void mergeIntervalsAndFormationsRollsBackIntervalsOnFormationFailure() {
+    WorkflowFixture f;
+    QVERIFY(initFixture(f));
+    QVERIFY(addWell(f, "W1"));
+    QString error;
+    QVERIFY2(WellAttributeStore::mergeIntervals(
+                 &f.catalog, f.dir.path(), &f.layers,
+                 {interval("W1", 0, 20, "泥岩")}, &error),
+             qPrintable(error));
+    const auto before = WellAttributeStore::rows(
+        f.dir.path(), nullptr, WellAttributeStore::Table::Intervals);
+    QVERIFY(!before.isEmpty());
+    // 地层批内重复 formation 名 → 整批拒绝；此时井段批已提交。
+    QVERIFY(!WellAttributeStore::mergeIntervalsAndFormations(
+        &f.catalog, f.dir.path(), &f.layers,
+        {interval("W1", 20, 40, "砂岩"), interval("W1", 40, 60, "灰岩")},
+        {formationRow("W1", "D61", 1000, 1100, "分流河道"),
+         formationRow("W1", "D61", 1100, 1200, "河口坝")},
+        &error));
+    QCOMPARE(WellAttributeStore::rows(f.dir.path(), nullptr,
+                                      WellAttributeStore::Table::Intervals),
+             before);
+    QVERIFY(WellAttributeStore::rows(f.dir.path(), nullptr,
+                                     WellAttributeStore::Table::Formations)
+                .isEmpty());
+  }
+  void mergeIntervalsAndFormationsAppliesBothOnSuccess() {
+    WorkflowFixture f;
+    QVERIFY(initFixture(f));
+    QVERIFY(addWell(f, "W1"));
+    QString error;
+    QVERIFY2(WellAttributeStore::mergeIntervalsAndFormations(
+                 &f.catalog, f.dir.path(), &f.layers,
+                 {interval("W1", 0, 20, "砂岩")},
+                 {formationRow("W1", "D61", 0, 20, "分流河道")},
+                 &error),
+             qPrintable(error));
+    QCOMPARE(WellAttributeStore::rows(f.dir.path(), nullptr,
+                                      WellAttributeStore::Table::Intervals)
+                 .size(),
+             1);
+    QCOMPARE(WellAttributeStore::rows(f.dir.path(), nullptr,
+                                      WellAttributeStore::Table::Formations)
+                 .size(),
+             1);
+  }
   // 数据管理的逐组预测结果 → 井段表 + 地层优势相表（组、段各一行）；
   // 面板多出「优势相」道，按钮打开同一张表。
   void faciesPublishWritesFormationDominance() {

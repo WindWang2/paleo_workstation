@@ -602,6 +602,56 @@ bool mergeFormations(DataCatalog *catalog, const QString &dir,
   layer->endEditCommand();
   return commit(layer, error);
 }
+bool mergeIntervalsAndFormations(DataCatalog *catalog, const QString &dir,
+                                 QgisLayerService *layers,
+                                 const QVariantList &intervalUpdates,
+                                 const QVariantList &formationUpdates,
+                                 QString *error) {
+  // #415：两表分属两个 edit buffer——地层批失败时井段批已提交，井间隔表
+  // 被改写而地层表未动即半更新（重试会重复合并）。与 seed() 同口径：先
+  // 快照受影响井的旧行，第二批失败删回本批再重加快照，等价单事务。
+  QSet<QString> wellIds;
+  for (const auto &v : intervalUpdates)
+    wellIds.insert(v.toMap().value("well_id").toString());
+  QString openErr;
+  auto *layer = wellIds.isEmpty()
+                    ? nullptr
+                    : open(catalog, dir, layers, Table::Intervals, true, &openErr);
+  QVariantList previous;
+  if (layer && layer->isValid()) {
+    auto it = layer->getFeatures();
+    QgsFeature f;
+    while (it.nextFeature(f))
+      if (wellIds.contains(f.attribute("well_id").toString()))
+        previous << attributes(f);
+  }
+  if (!mergeIntervals(catalog, dir, layers, intervalUpdates, error))
+    return false;
+  if (mergeFormations(catalog, dir, layers, formationUpdates, error))
+    return true;
+  const QString firstErr = error ? *error : QString();
+  if (layer && layer->isValid() && !layer->isEditable() &&
+      layer->startEditing()) {
+    QgsFeatureIds doomed;
+    auto it = layer->getFeatures();
+    QgsFeature f;
+    while (it.nextFeature(f))
+      if (wellIds.contains(f.attribute("well_id").toString()))
+        doomed.insert(f.id());
+    bool ok = doomed.isEmpty() || layer->deleteFeatures(doomed);
+    if (ok)
+      for (const auto &v : previous) {
+        auto next = featureFor(layer, catalog, v.toMap());
+        ok = layer->addFeature(next) && ok;
+      }
+    if (ok)
+      layer->commitChanges();
+    else
+      layer->rollBack();
+  }
+  return fail(error,
+              firstErr.isEmpty() ? tr("地层相更新失败，井段已恢复") : firstErr);
+}
 bool seedFactors(DataCatalog *catalog, const QString &dir,
                  QgisLayerService *layers, const QVariantList &updates,
                  QString *error) {

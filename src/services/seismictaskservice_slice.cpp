@@ -547,6 +547,17 @@ PaleoTask *SeismicTaskService::startAttributeSlice(
         result->error = QString::fromStdString(extractErr);
         return QStringLiteral("切片读取失败：%1").arg(result->error);
       }
+      // #416：相干分支按预期 width×height 直接索引每条邻线的 values——
+      // 任一邻线几何不符即越界读，不能只校验中线切片。
+      if (slices[std::size_t(li)].width != width ||
+          slices[std::size_t(li)].height != height)
+      {
+        result->error = QStringLiteral("切片几何异常（%1×%2，预期 %3×%4）")
+                            .arg(slices[std::size_t(li)].width)
+                            .arg(slices[std::size_t(li)].height)
+                            .arg(width).arg(height);
+        return result->error;
+      }
       done += sliceUnits;
       task->reportStage(QStringLiteral("read"), int(done * 100 / totalUnits));
       task->reportBytes(done, totalUnits);

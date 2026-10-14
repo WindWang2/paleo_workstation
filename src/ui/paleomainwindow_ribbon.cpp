@@ -9,6 +9,7 @@
 #include "paleoicons.h"
 #include "paleotheme.h"
 #include "paleodockmanager.h" // showPanelMenu 的布局菜单出口
+#include "paleoribbon.h"     // 滚动按钮命名 / 镜像重同步
 #include "dialogs/projectmapsettingsdialog.h"
 #include "help/helpsurface.h" // 方向63 帮助面（菜单 + F1 总表挂主窗）
 #include "pages/pageshared.h" // kPageIds（页签序）
@@ -179,6 +180,11 @@ void PaleoMainWindow::buildRibbon()
       webToggle->setAccessibleName(tr("Web 服务面板"));
     }
   }
+
+  // vendor SARibbon 把命令钮设成 NoFocus：补 TabFocus + 聚焦滚入；滚动按钮
+  // 是匿名图标件，命名一轮。两处都是幂等，attachWorkflows 后再补一轮。
+  PaleoRibbon::makeKeyboardReachable(this);
+  PaleoRibbon::nameScrollButtons(this);
 }
 
 SARibbonCategory *PaleoMainWindow::categoryForPage(const QString &pageId) const

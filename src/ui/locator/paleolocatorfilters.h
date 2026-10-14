@@ -3,6 +3,7 @@
 #include <qgslocatorfilter.h>
 
 class QgsFeedback;
+class QgsLocatorWidget;
 
 class QgisLayerService;
 class QgsMapCanvas;
@@ -75,3 +76,8 @@ class IssueLocatorFilter : public QgsLocatorFilter
     IssueProvider m_provider;
     LocateFn m_locate;
 };
+
+// QGIS 定位器把 Tab 留给补全/下一条、Esc 只收结果列表——键盘进了搜索框就出
+// 不来。给定位器装键盘出口：空闲（无文本、结果 0 行）时 Tab/Shift+Tab 放
+// 行到前/后一个控件，Esc 把焦点还给进入前的控件；有结果行的列表归 QGIS。
+void installLocatorKeyboardExit(QgsLocatorWidget *locator);

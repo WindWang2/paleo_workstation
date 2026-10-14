@@ -12769,6 +12769,21 @@ Crossline: %3 ~ %4</source>
         <translation>搜索井位/层位</translation>
     </message>
     <message>
+        <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="108"/>
+        <source>搜索井位 / 层位</source>
+        <translation>搜索井位 / 层位</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="522"/>
+        <source>撤销上一步编辑</source>
+        <translation>撤销上一步编辑</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="523"/>
+        <source>重做被撤销的编辑</source>
+        <translation>重做被撤销的编辑</translation>
+    </message>
+    <message>
         <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="96"/>
         <source>搜索井位/层位  %1</source>
         <translation>搜索井位/层位  %1</translation>
@@ -14435,6 +14450,19 @@ SHA-256：%2</translation>
         <location filename="../src/metadata/paleoprojectstore.cpp" line="471"/>
         <source>commit finished but final journal mark failed: %1</source>
         <translation>提交已完成，但标记最终日志状态失败：%1</translation>
+    </message>
+</context>
+<context>
+    <name>PaleoRibbon</name>
+    <message>
+        <location filename="../src/ui/paleoribbon.cpp" line="191"/>
+        <source>向左滚动工具栏</source>
+        <translation>向左滚动工具栏</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleoribbon.cpp" line="192"/>
+        <source>向右滚动工具栏</source>
+        <translation>向右滚动工具栏</translation>
     </message>
 </context>
 <context>

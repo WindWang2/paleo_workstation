@@ -4,6 +4,7 @@
 #include <QMainWindow>
 #include <QMenu>
 #include <QScrollArea>
+#include <QScreen>
 #include <QScrollBar>
 #include <QSettings>
 #include <QStackedLayout>
@@ -346,6 +347,67 @@ private slots:
     }
     QCOMPARE(window.statusBar()->currentMessage(),
              QCoreApplication::translate("PaleoDockManager", "已恢复默认布局"));
+  }
+  // B（多屏，非回归）：浮动 dock 在副屏上保存，副屏拔掉后恢复——dock 不得留在所有屏幕之外
+  // （否则用户拖不回来）。标题栏抓手区必须落进可用屏幕。当前 Qt 已保证这一点；本用例钉住它，
+  // 任何自绘恢复路径回退都会变红。前置断言保证「dock 确实先被放到屏外」，不会空洞通过。
+  void floatingDockRestoredOffScreenStaysReachable()
+  {
+    QMainWindow window;
+    window.resize(1000, 700);
+    window.setCentralWidget(new QWidget);
+    PaleoDockManager manager(&window, "test/offscreenfloat");
+    auto *dock = new QDockWidget("Panel");
+    dock->setObjectName("panel");
+    dock->setWidget(new QLabel("content"));
+    manager.addDock(Qt::LeftDockWidgetArea, dock);
+    window.show();
+    QTest::qWait(30);
+    const QRect avail = window.screen()->availableGeometry();
+    dock->setFloating(true);
+    dock->move(avail.right() + 4000, avail.bottom() + 4000); // 拔掉副屏前保存的位置
+    QTest::qWait(30);
+    QVERIFY2(!avail.intersects(dock->frameGeometry()),
+             "precondition: the platform must really keep the dock outside the screen");
+    const QByteArray state = window.saveState();
+    dock->setFloating(false);
+    QTest::qWait(30);
+    QVERIFY(manager.restoreLayout(state, nullptr));
+    QTest::qWait(30);
+    QVERIFY(dock->isFloating());
+    const QRect frame = dock->frameGeometry();
+    const QRect handle(frame.topLeft(), QSize(qMin(frame.width(), 120), 24));
+    QVERIFY2(avail.contains(handle),
+             qPrintable(QStringLiteral("floating dock frame %1,%2 %3x%4 is outside the available screen %5,%6 %7x%8")
+                            .arg(frame.x()).arg(frame.y()).arg(frame.width()).arg(frame.height())
+                            .arg(avail.x()).arg(avail.y()).arg(avail.width()).arg(avail.height())));
+  }
+
+  // 同一路径的正常场景（非回归）：屏内的浮动位置恢复后不被挪动。
+  void floatingDockInsideScreenKeepsItsPosition()
+  {
+    QMainWindow window;
+    window.resize(1000, 700);
+    window.setCentralWidget(new QWidget);
+    PaleoDockManager manager(&window, "test/insidefloat");
+    auto *dock = new QDockWidget("Panel");
+    dock->setObjectName("panel");
+    dock->setWidget(new QLabel("content"));
+    manager.addDock(Qt::LeftDockWidgetArea, dock);
+    window.show();
+    QTest::qWait(30);
+    const QRect avail = window.screen()->availableGeometry();
+    dock->setFloating(true);
+    dock->move(avail.left() + 60, avail.top() + 80);
+    QTest::qWait(30);
+    const QPoint before = dock->frameGeometry().topLeft();
+    const QByteArray state = window.saveState();
+    dock->setFloating(false);
+    QTest::qWait(30);
+    QVERIFY(manager.restoreLayout(state, nullptr));
+    QTest::qWait(30);
+    QVERIFY(dock->isFloating());
+    QCOMPARE(dock->frameGeometry().topLeft(), before);
   }
 };
 QTEST_MAIN(TestDockManager)

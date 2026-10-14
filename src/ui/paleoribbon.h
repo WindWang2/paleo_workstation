@@ -38,6 +38,18 @@ namespace PaleoRibbon
   // 如「只看未决」跟随过滤条。
   void followVisibility(QAction *checkable, QWidget *widget);
 
+  // SARibbon 类别溢出滚动按钮是匿名纯图标件：补 accessibleName/toolTip，幂等。
+  void nameScrollButtons(QWidget *root);
+
+  // applyWhatsThis 在镜像建立之后才把 whatsThis 写上面板按钮——按钮属性
+  // 变化无事件送达镜像，需对全部镜像显式重同步一轮。
+  void syncMirrors(QWidget *root);
+
+  // vendor SARibbon 给 SARibbonToolButton 一律 Qt::NoFocus——命令按钮键盘
+  // 不可达。给它们补 TabFocus，并在聚焦被裁切的按钮时把类别横向滚过去
+  // （幂等：已处理的按钮带 paleoFocusScroll 标记，可反复调用）。
+  void makeKeyboardReachable(QWidget *root);
+
   // panel 里 action 生成的那颗按钮（设 objectName / 运行类标记用）。
   SARibbonToolButton *buttonFor(SARibbonPanel *panel, QAction *action);
 

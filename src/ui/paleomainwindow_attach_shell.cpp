@@ -56,6 +56,7 @@
 #include <QDockWidget>
 #include <QFileInfo>
 #include <QGuiApplication>
+#include <QLineEdit>
 #include <QMenu>
 #include "notifications/paleonotify.h"
 #include <QShortcut>
@@ -99,6 +100,12 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
           locatorKey.isEmpty() ? tr("搜索井位/层位")
                                : tr("搜索井位/层位  %1").arg(locatorKey));
       locatorWidget->setMinimumWidth(220);
+      // QGIS 定位器把 Tab 留给补全/下一条、Esc 只收结果列表：键盘进了搜索框
+      // 就出不来。装 Esc 出口（Tab 不动）；顺手给输入框补无障碍名。
+      installLocatorKeyboardExit(locatorWidget);
+      for (auto *edit : locatorWidget->findChildren<QLineEdit *>())
+        if (edit->inherits("QgsLocatorLineEdit") && edit->accessibleName().isEmpty())
+          edit->setAccessibleName(tr("搜索井位 / 层位"));
 
       // Wells filter: resolve the declared "wells" layer lazily (instantiate
       // on demand — the search must not force materialization at open time).
@@ -510,6 +517,10 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
       statusBar()->showMessage(reason, 8000);
     });
     editTb->hide(); // 逻辑宿主，不进布局
+    // 撤销/重做动作直挂 ribbon 与快速访问栏，不经 ButtonMirror——把编辑语义
+    // 的帮助写在动作上，两侧按钮经 action 同步一起拿到。
+    editTb->actionUndo()->setWhatsThis(tr("撤销上一步编辑"));
+    editTb->actionRedo()->setWhatsThis(tr("重做被撤销的编辑"));
     if (SARibbonQuickAccessBar *qab = ribbonBar()->quickAccessBar())
     {
       qab->addAction(editTb->actionUndo());

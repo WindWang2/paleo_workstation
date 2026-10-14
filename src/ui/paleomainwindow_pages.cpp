@@ -7,6 +7,7 @@
 
 #include "datapreview/datapreviewtabs.h" // m_previewTabs 的 findChild 需完整类型（上行转换）
 #include "pages/pageshared.h" // kPageIds（页序表）
+#include "paleoribbon.h"      // makeKeyboardReachable（页签命令钮进 Tab 链）
 #include "pages/stratigraphicwebpage.h" // correlation 页 activate()
 #include "shortcuts/shortcutcatalog.h" // 方向63：Ctrl+S 让渡（correlation 页）
 #include "taskpanel.h" // syncBottomDockForTasks 切到任务页
@@ -132,6 +133,8 @@ void PaleoMainWindow::showPage(const QString &pageId)
   if (SARibbonCategory *cat = categoryForPage(pageId))
     if (ribbonBar()->currentIndex() != ribbonBar()->categoryIndex(cat))
       ribbonBar()->raiseCategory(cat);
+  // 各 attach 后续建的命令钮也要进 Tab 链（幂等，便宜的补漏点）。
+  PaleoRibbon::makeKeyboardReachable(this);
 
   // Scroll hosts isolate content hints; switching a page never resizes a dock.
   if (auto *host = findChild<QWidget *>(QStringLiteral("rightPanelHost")))

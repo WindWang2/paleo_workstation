@@ -644,6 +644,9 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   // 方向63：页面板（数据列表/五页/定位器/处理算法）此刻才建齐——按清单补
   // 一轮 whatsThis（幂等，外壳控件已在构造末尾回填过的不覆盖）。
   paleo::help::applyWhatsThis(this);
+  PaleoRibbon::syncMirrors(this);   // whatsThis 后写：镜像收不到事件，手动补同步
+  PaleoRibbon::nameScrollButtons(this); // 面板建齐后滚动按钮才现身，命名再补一轮
+  PaleoRibbon::makeKeyboardReachable(this); // 本页签新出现的命令钮补 TabFocus + 聚焦滚入
 
   m_workflowsAttached = true;
 }

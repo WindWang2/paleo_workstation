@@ -20,7 +20,14 @@ using QgsLocatorFeedback = QgsFeedback;
 #include <qgsgeometry.h>
 #include <qgsmapcanvas.h>
 #include <qgsvectorlayer.h>
+#include <qgslocatormodel.h>
+#include <qgslocatorwidget.h>
 
+#include <QAbstractItemView>
+#include <QApplication>
+#include <QKeyEvent>
+#include <QLineEdit>
+#include <QPointer>
 #include <QVariantMap>
 
 namespace
@@ -273,6 +280,121 @@ void IssueLocatorFilter::triggerResult( const QgsLocatorResult &result )
   ref.layerId = data.value( QStringLiteral( "layerId" ) ).toString();
   ref.wkt = data.value( QStringLiteral( "wkt" ) ).toString();
   m_locate( ref );
+}
+
+// ---------------------------------------------------------------------------
+// 键盘出口：QgsLocatorLineEdit 把 Tab/Shift+Tab 留给补全与下一条结果，Esc 又
+// 只收结果列表——键盘用户进到搜索框就离不开。判据看结果行数而不是浮窗可见
+// 性：QGIS 会在聚焦后 ~110ms 再把浮窗弹出来，且空查询时列表里摆的是「可用
+// 过滤器」伪结果行，不算命中。空闲（框内无文本且无真实结果行）时 Tab/
+// Shift+Tab 放行到焦点链前/后一个可聚焦控件；有结果行或文本时仍归 QGIS。
+// Esc 把焦点还给进入前的控件（没有则向后走一格）——只有可见列表里有真实
+// 结果行时才归 QGIS 收表。
+// ---------------------------------------------------------------------------
+namespace
+{
+  class LocatorKeyboardExit : public QObject
+  {
+    public:
+      LocatorKeyboardExit(QgsLocatorWidget *locator, QLineEdit *edit)
+        : QObject(locator), m_edit(edit)
+      {
+        edit->installEventFilter(this);
+        QObject::connect(qApp, &QApplication::focusChanged, this,
+                         [this](QWidget *old, QWidget *now) {
+                           if (now == m_edit && old && old != m_edit)
+                             m_prev = old;
+                         });
+      }
+
+    protected:
+      bool eventFilter(QObject *obj, QEvent *ev) override
+      {
+        if (obj != m_edit || ev->type() != QEvent::KeyPress)
+          return false;
+        auto *ke = static_cast<QKeyEvent *>(ev);
+        const bool fwd = ke->key() == Qt::Key_Tab && ke->modifiers() == Qt::NoModifier;
+        const bool bwd = ke->key() == Qt::Key_Backtab; // Qt 把 Shift+Tab 投递成 Backtab
+        if (fwd || bwd)
+        {
+          bool seen = false, visible = false;
+          int rows = 0;
+          resultsViewState(seen, visible, rows);
+          if (seen && rows == 0 && m_edit->text().trimmed().isEmpty())
+          {
+            moveFocus(fwd);
+            return true;
+          }
+          return false; // 其余情形 Tab/Shift+Tab 仍归 QGIS：补全、上/下一条结果
+        }
+        if (ke->key() == Qt::Key_Escape && ke->modifiers() == Qt::NoModifier)
+        {
+          bool seen = false, visible = false;
+          int rows = 0;
+          resultsViewState(seen, visible, rows);
+          // 列表可见且有结果行才归 QGIS 收；空行/隐藏浮窗 Esc 放行出框。
+          if (!seen || (visible && rows > 0))
+            return false;
+          if (m_prev && m_prev != m_edit && m_prev->isVisible() && m_prev->isEnabled())
+            m_prev->setFocus(Qt::OtherFocusReason);
+          else
+            moveFocus(false);
+          return true;
+        }
+        return false;
+      }
+
+    private:
+      void resultsViewState(bool &seen, bool &visible, int &rows) const
+      {
+        for (QWidget *w : m_edit->window()->findChildren<QWidget *>())
+          if (w->inherits("QgsLocatorResultsView"))
+          {
+            seen = true;
+            visible |= w->isVisible();
+            if (auto *v = qobject_cast<QAbstractItemView *>(w))
+              if (auto *m = v->model())
+                // 空查询时 QGIS 摆出来的是「可用过滤器」伪结果行——只数真实命中行
+                //（代理模型不透传 ResultFilterName 角色，取 ResultData 载荷直读）。
+                for (int r = m->rowCount() - 1; r >= 0; --r)
+                {
+                  const QgsLocatorResult res = m->data(m->index(r, 0),
+                      static_cast<int>(QgsLocatorModel::CustomRole::ResultData))
+                          .value<QgsLocatorResult>();
+                  if (!res.filter || res.filter->name() != QLatin1String("filters"))
+                    ++rows;
+                }
+          }
+      }
+
+      // focusNextPrevChild 是 protected——沿焦点链找第一个可聚焦件。
+      void moveFocus(bool forward)
+      {
+        for (QWidget *w = forward ? m_edit->nextInFocusChain() : m_edit->previousInFocusChain();
+             w && w != m_edit; w = forward ? w->nextInFocusChain() : w->previousInFocusChain())
+          if ((w->focusPolicy() & Qt::TabFocus) && w->isVisibleTo(m_edit->window()) &&
+              w->isEnabled())
+          {
+            w->setFocus(forward ? Qt::TabFocusReason : Qt::BacktabFocusReason);
+            break;
+          }
+      }
+
+      QPointer<QLineEdit> m_edit;
+      QPointer<QWidget> m_prev;
+  };
+} // namespace
+
+void installLocatorKeyboardExit(QgsLocatorWidget *locator)
+{
+  if (!locator)
+    return;
+  for (auto *edit : locator->findChildren<QLineEdit *>())
+    if (edit->inherits("QgsLocatorLineEdit"))
+    {
+      new LocatorKeyboardExit(locator, edit);
+      return;
+    }
 }
 
 // AUTOMOC: the header's Q_OBJECT classes get their metaobjects here — inside

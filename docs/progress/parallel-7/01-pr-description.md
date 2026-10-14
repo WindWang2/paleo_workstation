@@ -63,13 +63,40 @@
   readAll 无闸问题**留档不修**（避免与 #387 修复者撞车）。
 - `src/workflow/derivedassets.*`（PR #437 保护区）零触碰；图谱域零触碰。
 
-## 验证
+## 验证（实际执行记录）
 
-（交付前回填：构建退出码、ctest 命令与真实结果、layering/--diff-check、
-关键测试二次复跑。）
+- 基线 SHA：`b0520429`（= origin/master，执行期间未移动）。
+- 构建：`cmake --build build --target paleo -j4` **exit 0**（全局 flock 串行；
+  vendored 闭包 + Qt6/GEOS/GDAL/QGIS/keychain 钉扎，环境记录见 ledger 轮 1）。
+- **先红后绿**：`git stash push -- src/` 旧生产码重编后，6 个新用例全部如实
+  失败（A1 `failed=1≠2`、A2 `err 不含「已取消」`、A3 `类型列 well_log≠tops`、
+  B2 `ast-1 被误删`、B3 `depthMd=0≠1849.35`、C1 `refreshSpy 4≠1`）；恢复后
+  同六用例 0 failed。
+- 最终测试矩阵（修复后）：ctest `-j4`：tst_import ✓ tst_folderimport ✓
+  tst_assetops ✓ tst_assetpaging ✓ tst_catalog ✓（串行 ctest 13.87s + 单跑
+  45/45；七方向并发时一次无断言输出的瞬态红，复跑即绿，归因见 ledger「环境
+  事件」）。回归面：tst_catalogstore / tst_catalog_catalogindex /
+  tst_cataloghealth / tst_io_importledger / tst_dataopssidecar /
+  tst_dataops_incremental / tst_officepreview（ctest）+ tst_perf_catalog 16/16、
+  tst_projectdata 6/6、tst_datapreview 41+1skip（直跑）全部通过。
+- 门槛：`python3 tools/check_layering.py --strict` 通过；`git diff --check`
+  干净。
+- 反向验证：`git diff origin/master...HEAD --name-only` 22 文件与 PR #437 的
+  80 文件清单 `comm -12` **零交集**；全部落在方向 01 所有权内
+  （未触碰 datacatalog_versions.cpp / constraintstore / datagraph* /
+  derivedassets）。
+- 独立 review：S5（未参与实现）审出 2 个测试 blocker（不存在的
+  `hasAsset` API；A3 末条断言与 D1.10 选区语义矛盾）与 4 条非 blocker 建议，
+  blocker 已修复、NB1/NB3/NB4 已采纳（canonical 路径口径、事件取舍注释、
+  pushCommand 所有权对齐），NB2/NB5/NB6 留档于 ledger。
 
 ## 已知风险与未处理项
 
+- 性能探针 `folderImportCheckpointOverheadProbe`（PALEO_IMPORT_SCALE 门控）
+  本轮未在满载盘上采集规模数据——七方向并发把 458G 工程分区两度打满，
+  不在受压环境下伪报基准（诚实跳过；检查点为 COW 快照，理论逐行近零成本）。
 - B1/C2 为防御性加固，无直接用户可见行为变化。
 - 「留给 Issue Agent」表：geojson 图例 readAll 无超限闸（#387 同类异站）、
-  S1 审计的 S1#B/C/D/F/G/J/K 低危项（部分疑与 #418/#395 指纹重叠，保守避让）。
+  S1 审计的 S1#B/C/D/F/G/J/K 低危项（部分疑与 #418/#395 指纹重叠，保守避让）、
+  S5 的 NB2（回滚删文件失败可见性）/NB5（改型后 chipbar 徽标）/NB6（批量
+  撤销宏粒度）。

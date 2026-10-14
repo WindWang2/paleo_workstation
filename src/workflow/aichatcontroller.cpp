@@ -562,6 +562,33 @@ void AiChatController::cancel() {
     tool.timestamp = QDateTime::currentDateTime();
     appendMessage(tool);
   }
+  // 流式中途取消（轮未 finish，m_unansweredCalls 未填充）时尾部 assistant
+  // 可能已带 tool_calls——按「尾部 assistant 的 calls 是否已有应答」补齐
+  // （与 errorOccurred 同口径；只靠 m_unansweredCalls 会漏掉这批帧）。
+  if (!m_session.messages.isEmpty() &&
+      m_session.messages.last().role == ChatRole::Assistant &&
+      !m_session.messages.last().toolCalls.isEmpty()) {
+    QSet<QString> answered;
+    for (const ChatMessage &m : m_session.messages)
+      if (m.role == ChatRole::Tool && !m.toolCallId.isEmpty())
+        answered.insert(m.toolCallId);
+    const QVector<ChatToolCall> calls = m_session.messages.last().toolCalls;
+    for (const ChatToolCall &call : calls) {
+      if (answered.contains(call.id))
+        continue;
+      QJsonObject payload;
+      payload.insert(QStringLiteral("tool"), call.name);
+      payload.insert(QStringLiteral("error"),
+                     tr("用户取消：本调用未执行或结果已作废"));
+      ChatMessage tool;
+      tool.role = ChatRole::Tool;
+      tool.toolCallId = call.id;
+      tool.content = QString::fromUtf8(
+        QJsonDocument(payload).toJson(QJsonDocument::Compact));
+      tool.timestamp = QDateTime::currentDateTime();
+      appendMessage(tool);
+    }
+  }
   m_pendingToolResults = 0;
   setStreaming(false);
   // 取消后占位消息若仍为空就摘掉——不给用户留一条空白的"助手回答"。

@@ -163,14 +163,17 @@ void SeismicSectionCanvas::clearAttrOverlay() {
     update();
 }
 
-QImage SeismicSectionCanvas::bakeOverlay(const SgySliceImage &src) {
+// 烘焙叠加层 → RGBA（NaN=透明）。两种入图行序契约不同（S5 review 修正）：
+//  - attr 属性叠加：服务层扫描输出 vendor 行序（行 0=最深样）→ flipRows=true
+//    翻转对齐画布升序空间；
+//  - zone 层段叠加：属性建模 IJK 投影（stratgrid ZoneGrid）k=0 是最浅层
+//    → 本就是升序，直通不翻（翻转会把相带垂直镜像）。
+QImage SeismicSectionCanvas::bakeOverlay(const SgySliceImage &src, bool flipRows) {
     if (src.values.empty() || src.width <= 0 || src.height <= 0)
         return {};
     if (m_colorLut.empty())
         rebuildColorLut();
-    // 叠加图与底图同走 vendor 行序 → 烘焙时翻转对齐画布升序空间
-    // （契约见 seismicsectioncanvas_internal.h；attr/zone 扫描输出全线 vendor 行序）。
-    const SgySliceImage img = ToAscendingSampleRows(src);
+    const SgySliceImage img = flipRows ? ToAscendingSampleRows(src) : src;
     QImage image(img.width, img.height, QImage::Format_ARGB32_Premultiplied);
     const double lo = img.valueMin;
     const double hi = img.valueMax;
@@ -193,7 +196,7 @@ QImage SeismicSectionCanvas::bakeOverlay(const SgySliceImage &src) {
 }
 
 void SeismicSectionCanvas::rebuildAttrImage() {
-    m_attrImage = bakeOverlay(m_attrOverlay);
+    m_attrImage = bakeOverlay(m_attrOverlay, /*flipRows=*/true);
 }
 
 void SeismicSectionCanvas::setZoneOverlay(const SgySliceImage &zone) {
@@ -224,7 +227,8 @@ void SeismicSectionCanvas::clearZoneOverlay() {
 }
 
 void SeismicSectionCanvas::rebuildZoneImage() {
-    m_zoneImage = bakeOverlay(m_zoneOverlay);
+    // zone（stratgrid IJK 投影）k=0=最浅层，本就升序直通（见 bakeOverlay 注释）
+    m_zoneImage = bakeOverlay(m_zoneOverlay, /*flipRows=*/false);
 }
 
 void SeismicSectionCanvas::paintValueRegion(int x0, int y0, int w, int h) {

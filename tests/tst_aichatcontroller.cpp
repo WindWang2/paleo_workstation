@@ -123,6 +123,7 @@ private slots:
   void unauthorizedResponseIsClassifiedAsAuthError();
   void idleTimeoutIsClassifiedAsTimeout();
   void cancelDropsEmptyAssistantPlaceholder();
+  void cancelDuringStreamingAfterToolFramesKeepsProtocol();
   void errorAfterToolFramesKeepsProtocolIntegrity();
   void disabledConfigReportsAndSendsNothing();
   // 方向62
@@ -317,6 +318,39 @@ void TestAiChatController::errorAfterToolFramesKeepsProtocolIntegrity() {
       answered.insert(m.toolCallId);
   }
   QVERIFY(!callIds.isEmpty());          // 场景自检：帧确实在历史里
+  for (const QString &id : callIds)
+    QVERIFY2(answered.contains(id),
+             qPrintable(QStringLiteral("call %1 缺 role=tool 应答").arg(id)));
+}
+
+// 流式中途取消的同款协议洞（S5 review P2-2 钉子）：工具帧已完整到达、
+// 轮未 finish 时取消——m_unansweredCalls 未填充，cancel 若只靠它会留下
+// 未应答帧。每个 callId 必须有 role=tool 应答。
+void TestAiChatController::cancelDuringStreamingAfterToolFramesKeepsProtocol()
+{
+  FakeLlmServer server;
+  QVERIFY(server.start(FakeLlmServer::Mode::ToolCallsHang));
+  AiChatController controller;
+  controller.setConfig(baseConfig(server.endpoint(), 20000)); // 长超时：由 cancel 收
+  m_createdSessions.append(controller.session().id);
+  QSignalSpy dispatched(&controller, &AiChatController::toolCallDispatched);
+  controller.sendUserText(QStringLiteral("帮我跑一下测井相"));
+  QVERIFY2(spinUntil([&dispatched] { return dispatched.size() >= 1; }),
+           "工具帧必须先完整到达");
+  QVERIFY(controller.streaming());
+  controller.cancel();
+  QVERIFY(!controller.streaming());
+
+  const QVector<ChatMessage> messages = controller.messages();
+  QSet<QString> callIds, answered;
+  for (const ChatMessage &m : messages) {
+    if (m.role == ChatRole::Assistant)
+      for (const ChatToolCall &c : m.toolCalls)
+        callIds.insert(c.id);
+    if (m.role == ChatRole::Tool && !m.toolCallId.isEmpty())
+      answered.insert(m.toolCallId);
+  }
+  QVERIFY(!callIds.isEmpty());
   for (const QString &id : callIds)
     QVERIFY2(answered.contains(id),
              qPrintable(QStringLiteral("call %1 缺 role=tool 应答").arg(id)));

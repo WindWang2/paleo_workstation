@@ -90,12 +90,15 @@ protected:
         p.setPen(QPen(PaleoTheme::tokens().text, 1.0));
         p.setBrush(Qt::NoBrush);
         p.drawPolyline(wave);
-        // 分层刻度（右缘）
+        // 分层刻度（右缘）。分母与波形映射同口径 (n-1)：两式同用
+        // y0..y1 像素段，分母不一致时同一样点的像素位置差 ~1/n 面板高。
         p.setFont(PaleoTheme::bodyFont(PaleoTheme::tokens().labelPt));
         for (const WellTopItem &top : m_well->tops) {
             // 道首样 TWT = 记录延迟 t0（#146 同口径）
-            const double frac = std::clamp((top.twtMs - m_t0Ms) / double(m_trace.size() * m_dtMs),
-                                           0.0, 1.0);
+            const double frac = std::clamp(
+                (top.twtMs - m_t0Ms) /
+                    (double(std::max<std::size_t>(1, m_trace.size() - 1)) * m_dtMs),
+                0.0, 1.0);
             const double py = y0 + frac * (y1 - y0);
             p.setPen(QPen(QColor(QStringLiteral("#1B73D0")), 1.4));
             p.drawLine(QPointF(width() - 46.0, py), QPointF(width() - 6.0, py));

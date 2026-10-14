@@ -725,10 +725,10 @@ void SeismicSectionDockWidget::setupInterpretationUi(QWidget *parent) {
         // 跳到拾取所在剖面：IL 模式 + 线号 + 视口滚到拾取 TWT。
         // 旧实现 viewState() 读出又原样写回（no-op）——p->twtMs 完全没用。
         const bool modeChanged = m_cboSectionMode->currentIndex() != 0;
-        bool sliceChanged = false;
         if (modeChanged)
-            setSectionMode(0);
-        else if (m_spinSlice->value() != p->inlineNo) {
+            setSectionMode(0); // 只切模式提取中线——线号仍要落到拾取所在线
+        bool sliceChanged = false;
+        if (m_spinSlice->value() != p->inlineNo) {
             m_spinSlice->setValue(p->inlineNo);
             sliceChanged = true;
         }

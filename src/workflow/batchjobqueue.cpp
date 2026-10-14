@@ -152,7 +152,7 @@ QVector<BatchItem> BatchSpec::expand( QString *error ) const
   const QVariant perItemRaw = paramTemplates.value( QStringLiteral( "perItem" ) );
   QVariantMap perItem;
   if ( perItemRaw.canConvert<QVariantMap>() )
-    perItem = perItem.toMap();
+    perItem = perItemRaw.toMap();
 
   QSet<QString> usedIds;
   for ( const QString &horizon : horizons )

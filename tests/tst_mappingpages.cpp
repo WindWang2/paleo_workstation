@@ -15,6 +15,7 @@
 
 #include <QScrollArea>
 #include <QDir>
+#include <QFile>
 #include <QScrollBar>
 
 #include "../src/domain/singlefactorstrategy.h" // 方向67：策略包词表（下拉单一真源对拍）
@@ -560,7 +561,8 @@ void FactorPageTests::dualZoneWidgetsAndLegacyNames()
   QCOMPARE( factors->rowCount(), 7 ); // 词表行
   QCOMPARE( factors->columnCount(), 4 ); // 勾选/名称/输入/状态
   QCOMPARE( factors->item( 0, 1 )->text(), QStringLiteral( "砂体厚度" ) );
-  QCOMPARE( factors->item( 0, 2 )->text(), QStringLiteral( "wells" ) );
+  // #430：输入列改为可读词面（不再暴露 raw inputAssetType）。
+  QCOMPARE( factors->item( 0, 2 )->text(), QStringLiteral( "当前地层井点数据" ) );
   QCOMPARE( factors->item( 0, 3 )->text(), QStringLiteral( "未生成" ) );
   auto *field = page.findChild<QLineEdit *>(QStringLiteral("factorFieldEdit"));
   auto *cell = page.findChild<QDoubleSpinBox *>(QStringLiteral("factorCellSizeSpin"));
@@ -618,15 +620,51 @@ void FactorPageTests::strathickEngineRowsAndPayload()
   factors->item( 0, 0 )->setCheckState( Qt::Checked );
   QVERIFY( !surfaceRow->isVisibleTo( &page ) );
 
-  // strathick（第 3 行）勾选 → 行展开；payload 携带 topLayerId/baseLayerId。
+  // strathick（第 3 行）勾选 → 行展开；#430 要求顶/底面不同才开放生成。
   factors->item( 2, 0 )->setCheckState( Qt::Checked );
   QVERIFY( surfaceRow->isVisibleTo( &page ) );
+  auto *generate = page.findChild<QPushButton *>( QStringLiteral( "generateFactorButton" ) );
+  QVERIFY( !generate->isEnabled() );
+  QVERIFY2( generate->toolTip().contains( QStringLiteral( "顶、底构造面" ) ),
+            qPrintable( generate->toolTip() ) );
+
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  LayerManifest manifest( dir.filePath( QStringLiteral( "sf.sqlite" ) ) );
+  QVERIFY( manifest.open() );
+  QgisLayerService layers( nullptr, &manifest );
+  QString err;
+  LayerDeclaration topDecl;
+  topDecl.layerId = QStringLiteral( "struct.T1.top" );
+  topDecl.horizon = QStringLiteral( "T1" );
+  topDecl.type = QStringLiteral( "raster" );
+  topDecl.source = QStringLiteral( "/tmp/struct.T1.top.tif" );
+  topDecl.group = QStringLiteral( "01_Structure" );
+  LayerDeclaration baseDecl = topDecl;
+  baseDecl.layerId = QStringLiteral( "struct.T1.base" );
+  baseDecl.source = QStringLiteral( "/tmp/struct.T1.base.tif" );
+  QVERIFY( layers.declare( topDecl, &err ) );
+  QVERIFY( layers.declare( baseDecl, &err ) );
+  page.bindLayerService( &layers );
+  auto *top = page.findChild<QComboBox *>( QStringLiteral( "factorTopSurfaceCombo" ) );
+  auto *base = page.findChild<QComboBox *>( QStringLiteral( "factorBaseSurfaceCombo" ) );
+  QVERIFY( top && base );
+  const int topIdx = top->findData( QStringLiteral( "struct.T1.top" ) );
+  const int baseIdx = base->findData( QStringLiteral( "struct.T1.base" ) );
+  QVERIFY( topIdx >= 0 && baseIdx >= 0 );
+  top->setCurrentIndex( topIdx );
+  base->setCurrentIndex( baseIdx );
+  page.setRunBusy( false ); // 触发 updateFactorActionStates
+  QVERIFY( generate->isEnabled() );
+
   QSignalSpy spy( &page, &ConstraintPage::generateFactorRequested );
-  page.findChild<QPushButton *>( QStringLiteral( "generateFactorButton" ) )->click();
+  generate->click();
   QCOMPARE( spy.count(), 1 );
   const QVariantMap params = spy.at( 0 ).at( 2 ).toMap();
-  QVERIFY( params.contains( QStringLiteral( "topLayerId" ) ) );
-  QVERIFY( params.contains( QStringLiteral( "baseLayerId" ) ) );
+  QCOMPARE( params.value( QStringLiteral( "topLayerId" ) ).toString(),
+            QStringLiteral( "struct.T1.top" ) );
+  QCOMPARE( params.value( QStringLiteral( "baseLayerId" ) ).toString(),
+            QStringLiteral( "struct.T1.base" ) );
   QVERIFY( !params.contains( QStringLiteral( "method" ) ) );
 }
 
@@ -677,6 +715,8 @@ void FactorPageTests::factorCheckIsExclusive()
 void FactorPageTests::visibilitySignalOnCheckTransitions()
 {
   ConstraintPage page( nullptr );
+  // #430 noteFactorLayer 要求 layerId 与当前层位一致，否则直接 return。
+  page.setHorizons( { QStringLiteral( "T1" ) } );
   auto *factors = page.findChild<QTableWidget *>(QStringLiteral("factorTable"));
   QSignalSpy spy( &page, &ConstraintPage::factorVisibilityRequested );
 
@@ -708,6 +748,8 @@ void FactorPageTests::visibilitySignalOnCheckTransitions()
 void FactorPageTests::contourRowGatingAndSignal()
 {
   ConstraintPage page( nullptr );
+  // #430 noteFactorLayer 要求 layerId 与当前层位一致，否则直接 return。
+  page.setHorizons( { QStringLiteral( "T1" ) } );
   auto *factors = page.findChild<QTableWidget *>(QStringLiteral("factorTable"));
   auto *interval = page.findChild<QDoubleSpinBox *>(QStringLiteral("contourIntervalSpin"));
   auto *contour = page.findChild<QPushButton *>(QStringLiteral("contourButton"));
@@ -716,8 +758,9 @@ void FactorPageTests::contourRowGatingAndSignal()
   // 勾选但未生成 → 仍禁用，tooltip 说明原因。
   factors->item( 0, 0 )->setCheckState( Qt::Checked );
   QVERIFY( !contour->isEnabled() );
-  QVERIFY2( contour->toolTip().contains( QStringLiteral( "生成" ) ),
-            "reason tooltip should say why (not generated yet)" );
+  // #430：未生成时的原因改成步骤 3 文案（不再含「生成」字面）。
+  QVERIFY2( contour->toolTip().contains( QStringLiteral( "等值面" ) ),
+            qPrintable( contour->toolTip() ) );
 
   page.noteFactorLayer( QStringLiteral( "sandthick" ), QStringLiteral( "factor.T1.sandthick" ) );
   QVERIFY( contour->isEnabled() );
@@ -728,8 +771,9 @@ void FactorPageTests::contourRowGatingAndSignal()
   QCOMPARE( spy.at( 0 ).at( 0 ).toString(), QStringLiteral( "factor.T1.sandthick" ) );
   QCOMPARE( spy.at( 0 ).at( 1 ).toDouble(), 15.0 );
 
-  // 状态列回执：noteFactorLayer 后写「已生成·<layerId>」。
-  QCOMPARE( factors->item( 0, 3 )->text(), QStringLiteral( "已生成·factor.T1.sandthick" ) );
+  // #430：状态列回执改为「等值面已保存」（layerId 在 tooltip）。
+  QCOMPARE( factors->item( 0, 3 )->text(), QStringLiteral( "等值面已保存" ) );
+  QCOMPARE( factors->item( 0, 3 )->toolTip(), QStringLiteral( "factor.T1.sandthick" ) );
 }
 
 void FactorPageTests::thicknessSamplesInsideCollapsibleSection()
@@ -810,6 +854,8 @@ void FactorPageTests::typedDrawEntries()
 void FactorPageTests::nativeMethodContourAndBusyStates()
 {
   ConstraintPage page( nullptr );
+  // #430 noteFactorLayer 要求 layerId 与当前层位一致，否则直接 return。
+  page.setHorizons( { QStringLiteral( "T1" ) } );
   page.resize( 280, 420 );
   page.show();
   QVERIFY( page.findChild<QScrollArea *>( QStringLiteral( "constraintPageScroll" ) ) != nullptr );
@@ -1010,9 +1056,18 @@ void FactorPageTests::wellFactorExtractionPayload() {
   auto *num = page.findChild<QComboBox *>(QStringLiteral("factorNumeratorFieldCombo"));
   auto *den = page.findChild<QComboBox *>(QStringLiteral("factorDenominatorFieldCombo"));
   auto *extract = page.findChild<QPushButton *>(QStringLiteral("extractWellFactorsButton"));
+  auto *generate = page.findChild<QPushButton *>(QStringLiteral("generateFactorButton"));
   value->setCurrentIndex(value->findData(QStringLiteral("ratio")));
+  // #430：绑定真实字段后，提取/生成都先要求间隔线+方向线。
+  QVERIFY(!extract->isEnabled());
+  QVERIFY2(extract->toolTip().contains(QStringLiteral("间隔线")), qPrintable(extract->toolTip()));
+  QVERIFY(!generate->isEnabled());
+  QVERIFY2(generate->toolTip().contains(QStringLiteral("步骤 1")), qPrintable(generate->toolTip()));
+  page.setProperty("paleo.page.constraintsready", true);
+  page.setRunBusy(false);
+  QVERIFY(extract->isEnabled());
+
   QSignalSpy extracted(&page, &ConstraintPage::extractWellFactorsRequested);
-  QSignalSpy generated(&page, &ConstraintPage::generateFactorRequested);
   extract->click(); QCOMPARE(extracted.count(), 1);
   QCOMPARE(extracted[0][0].toString(), QStringLiteral("sandratio"));
   QCOMPARE(extracted[0][2].toMap().value("factorMode").toString(), QStringLiteral("direct"));
@@ -1026,14 +1081,14 @@ void FactorPageTests::wellFactorExtractionPayload() {
   QCOMPARE(params.value("factorMode").toString(), QStringLiteral("ratio"));
   QCOMPARE(params.value("numeratorField").toString(), QStringLiteral("sand"));
   QCOMPARE(params.value("denominatorField").toString(), QStringLiteral("gross"));
-  page.findChild<QPushButton *>(QStringLiteral("generateFactorButton"))->click();
-  QCOMPARE(generated.count(), 1);
-  QCOMPARE(generated[0][2].toMap().value("numeratorField").toString(), QStringLiteral("sand"));
+  // 无 ConstraintWorkflow 时无法登记 preparedWellFactorVersion → 停在步骤 2。
+  QVERIFY(!generate->isEnabled());
+  QVERIFY2(generate->toolTip().contains(QStringLiteral("井点数据")), qPrintable(generate->toolTip()));
   page.setRunBusy(true); QVERIFY(!extract->isEnabled());
   QVERIFY(!extract->toolTip().isEmpty());
   page.setRunBusy(false);
   page.setWellFactorFields({});
-  QVERIFY(!page.findChild<QPushButton *>(QStringLiteral("generateFactorButton"))->isEnabled());
+  QVERIFY(!generate->isEnabled());
   page.findChild<QTableWidget *>(QStringLiteral("factorTable"))->item(0, 0)->setCheckState(Qt::Checked);
   QCOMPARE(mode->currentData().toString(), QStringLiteral("direct"));
 }
@@ -1390,18 +1445,38 @@ int main(int argc, char *argv[])
   QgsApplication app(argc, argv, false);
   app.setPrefixPath(qEnvironmentVariable("QGIS_PREFIX_PATH", QStringLiteral("/usr")), true); // distro install
   app.initQgis();
+
+  // add_paleo_test 传入单一 -o 路径；多 qExec 会互相覆盖。每类跑完后另存一份，
+  // 保留合并文件给 ctest 门禁，失败时仍能看到 Predict/Factor 的 FAIL! 行。
+  QString sharedOut;
+  for (int i = 1; i + 1 < argc; ++i) {
+    if (qstrcmp(argv[i], "-o") == 0) {
+      sharedOut = QString::fromLocal8Bit(argv[i + 1]).section(QLatin1Char(','), 0, 0);
+      break;
+    }
+  }
+  const auto runClass = [&](QObject &t, const char *tag) {
+    const int code = QTest::qExec(&t, argc, argv);
+    if (!sharedOut.isEmpty() && QFile::exists(sharedOut)) {
+      const QString tagged = sharedOut + QLatin1Char('.') + QString::fromLatin1(tag);
+      QFile::remove(tagged);
+      QFile::copy(sharedOut, tagged);
+    }
+    return code;
+  };
+
   int status = 0;
   {
     PredictPageTests t;
-    status |= QTest::qExec(&t, argc, argv);
+    status |= runClass(t, "PredictPageTests");
   }
   {
     FactorPageTests t;
-    status |= QTest::qExec(&t, argc, argv);
+    status |= runClass(t, "FactorPageTests");
   }
   {
     ComposePageTests t;
-    status |= QTest::qExec(&t, argc, argv);
+    status |= runClass(t, "ComposePageTests");
   }
   QgsApplication::exitQgis();
   return status;

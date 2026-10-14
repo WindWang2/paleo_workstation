@@ -774,7 +774,12 @@ void BatchQueue::pump()
   int running = runningCount();
   bool yieldedToInteractive = false;
 
-  for ( int s = 0; s < static_cast<int>( m_slots.size() ); ++s )
+  // 出队上限 = 并发度，不是历史峰值槽数：槽位只扩不缩（在飞项持有槽位），
+  // 但下调后的并发度必须对「后续出队」生效（头文件契约）——旧实现遍历
+  // 全部槽位，构造默认 2 槽后再 setConcurrency(1) 实际仍双并发，测试夹具
+  // 的并发 1 语义（FIFO 顺序断言）与生产行为双双失真。
+  const int activeSlots = qMin<int>( static_cast<int>( m_slots.size() ), m_concurrency );
+  for ( int s = 0; s < activeSlots; ++s )
   {
     if ( m_slotItem[s] >= 0 )
       continue; // 槽位占用

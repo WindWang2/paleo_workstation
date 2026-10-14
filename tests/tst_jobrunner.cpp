@@ -740,9 +740,11 @@ void TestJobRunner::publicationFailureVisibleToLateObserversOnly()
   bool completedCommitted = true;
   QObject ctx;
   // 早观察者：taskAdded 里连 finished（先于 runner 在 start() 内部的连接）。
+  // task 必须按值捕获——taskAdded 槽返回后参数帧即失效，按引用捕获会让
+  // finished 回调读悬垂栈槽（首跑实测 earlyState 读成 Running）。
   connect(m_tasks.get(), &PaleoTaskService::taskAdded, &ctx,
           [&](PaleoTask *task) {
-            connect(task, &PaleoTask::finished, &ctx, [&]() {
+            connect(task, &PaleoTask::finished, &ctx, [&, task]() {
               ++earlyFinishedCalls;
               earlyState = task->state();
             });

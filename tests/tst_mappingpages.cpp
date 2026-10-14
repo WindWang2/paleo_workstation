@@ -715,6 +715,8 @@ void FactorPageTests::factorCheckIsExclusive()
 void FactorPageTests::visibilitySignalOnCheckTransitions()
 {
   ConstraintPage page( nullptr );
+  // #430 noteFactorLayer 要求 layerId 与当前层位一致，否则直接 return。
+  page.setHorizons( { QStringLiteral( "T1" ) } );
   auto *factors = page.findChild<QTableWidget *>(QStringLiteral("factorTable"));
   QSignalSpy spy( &page, &ConstraintPage::factorVisibilityRequested );
 
@@ -746,6 +748,8 @@ void FactorPageTests::visibilitySignalOnCheckTransitions()
 void FactorPageTests::contourRowGatingAndSignal()
 {
   ConstraintPage page( nullptr );
+  // #430 noteFactorLayer 要求 layerId 与当前层位一致，否则直接 return。
+  page.setHorizons( { QStringLiteral( "T1" ) } );
   auto *factors = page.findChild<QTableWidget *>(QStringLiteral("factorTable"));
   auto *interval = page.findChild<QDoubleSpinBox *>(QStringLiteral("contourIntervalSpin"));
   auto *contour = page.findChild<QPushButton *>(QStringLiteral("contourButton"));
@@ -767,8 +771,9 @@ void FactorPageTests::contourRowGatingAndSignal()
   QCOMPARE( spy.at( 0 ).at( 0 ).toString(), QStringLiteral( "factor.T1.sandthick" ) );
   QCOMPARE( spy.at( 0 ).at( 1 ).toDouble(), 15.0 );
 
-  // 状态列回执：noteFactorLayer 后写「已生成·<layerId>」。
-  QCOMPARE( factors->item( 0, 3 )->text(), QStringLiteral( "已生成·factor.T1.sandthick" ) );
+  // #430：状态列回执改为「等值面已保存」（layerId 在 tooltip）。
+  QCOMPARE( factors->item( 0, 3 )->text(), QStringLiteral( "等值面已保存" ) );
+  QCOMPARE( factors->item( 0, 3 )->toolTip(), QStringLiteral( "factor.T1.sandthick" ) );
 }
 
 void FactorPageTests::thicknessSamplesInsideCollapsibleSection()
@@ -849,6 +854,8 @@ void FactorPageTests::typedDrawEntries()
 void FactorPageTests::nativeMethodContourAndBusyStates()
 {
   ConstraintPage page( nullptr );
+  // #430 noteFactorLayer 要求 layerId 与当前层位一致，否则直接 return。
+  page.setHorizons( { QStringLiteral( "T1" ) } );
   page.resize( 280, 420 );
   page.show();
   QVERIFY( page.findChild<QScrollArea *>( QStringLiteral( "constraintPageScroll" ) ) != nullptr );

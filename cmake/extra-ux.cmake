@@ -70,6 +70,7 @@ else()
 endif()
 
 add_paleo_test(tst_dockmanager LIBS paleo_ui)
+add_paleo_test(tst_shell_chrome)   # goal7/ui-shell：真实主窗 dock 策略在保存/恢复/重置布局后保持（伞式，同 tst_ui 模式）
 
 # ---- l10n 门禁与变异自检（Milestone 5 / R5）----
 if(NOT Python3_EXECUTABLE)

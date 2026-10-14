@@ -5,12 +5,29 @@
 #include <QSettings>
 #include <QStringList>
 
+class PaleoDockWidget;
+class QMainWindow;
+
 // paleomainwindow_internal — 主窗家族 TU 共用的文件域助手（方向 83 自本体
 // 匿名 namespace 收敛成内部契约头，先例：方向 65 canvas 拆分的内部头；
 // 页序表 kPageIds 仍在 pages/pageshared.h）。翻译列表保持函数局部 static
 // 惰性构建——首调发生在 buildShell（QApplication 已在场），命名空间级
 // 常量会在 main 前静态初始化，漏翻译。
 namespace paleo::mainwindow_internal {
+
+// 页策略作用的 dock 面：showPage 与 dock 布局恢复后的策略重落共用。
+struct PageDockState
+{
+  PaleoDockWidget *left;
+  PaleoDockWidget *dataList;
+  PaleoDockWidget *bottom;
+  PaleoDockWidget *wellSection;
+  bool previewMaximized;
+  bool bottomAutoShown;
+};
+
+void applyPageDockPolicy(const QString &pageId, const PageDockState &s);
+void hideAllDocksForCorrelation(QMainWindow *win);
 
 // Tab order = reading order = right-panel stack order：页序表收敛到
 // pages/pageshared.h 的 kPageIds（W4：attach 接线 TU 同查页序）。

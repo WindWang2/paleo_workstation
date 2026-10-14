@@ -18,6 +18,7 @@
 
 #include <QAction>
 #include <QDockWidget>
+#include <QMainWindow>
 #include <QStackedLayout>
 #include <QStackedWidget>
 #include <QTabWidget>
@@ -37,6 +38,49 @@ const QStringList kEditingToolPages = {
   QStringLiteral("compose"),
 };
 } // namespace
+
+namespace paleo::mainwindow_internal
+{
+
+void applyPageDockPolicy(const QString &pageId, const PageDockState &s)
+{
+  s.dataList->setProgrammaticVisible(pageId == QLatin1String("data") &&
+                                     s.dataList->userWantsVisible() && !s.previewMaximized);
+
+  // 数据页面纯三栏布局（数据导航树 | 预览可视化 | 属性面板），不要图层树与底部的横向面板（日志/任务等）。
+  // 离开数据页面切到编图页面时，恢复用户期望的图层树与底栏状态。
+  if (pageId == QLatin1String("data"))
+  {
+    if (s.left)
+      s.left->setProgrammaticVisible(false);
+    if (s.bottom)
+      s.bottom->setProgrammaticVisible(false);
+    if (s.wellSection)
+      s.wellSection->setProgrammaticVisible(false);
+  }
+  else
+  {
+    if (s.left && s.left->userWantsVisible())
+      s.left->setProgrammaticVisible(true);
+    // W2：任务驱动露出的底栏（m_bottomDockAutoShown）不随切页收回。
+    if (s.bottom && (s.bottom->userWantsVisible() || s.bottomAutoShown))
+      s.bottom->setProgrammaticVisible(true);
+    if (s.wellSection && s.wellSection->userWantsVisible())
+      s.wellSection->setProgrammaticVisible(true);
+  }
+}
+
+void hideAllDocksForCorrelation(QMainWindow *win)
+{
+  // Web 工作台拥有井组、属性和任务面；整片中央区域让给它。
+  for (auto *dock : win->findChildren<QDockWidget *>(QString(), Qt::FindDirectChildrenOnly))
+    if (auto *paleoDock = qobject_cast<PaleoDockWidget *>(dock))
+      paleoDock->setProgrammaticVisible(false);
+    else
+      dock->hide();
+}
+
+} // namespace paleo::mainwindow_internal
 
 void PaleoMainWindow::restoreCorrelationDocks()
 {
@@ -114,39 +158,13 @@ void PaleoMainWindow::showPage(const QString &pageId)
   if (m_previewTabs)
     m_previewTabs->setVisible(pageId == QLatin1String("data"));
 
-  m_dataListDock->setProgrammaticVisible(pageId == QLatin1String("data") &&
-                                        m_dataListDock->userWantsVisible() && !m_previewMaximized);
-
-  // 数据页面纯三栏布局（数据导航树 | 预览可视化 | 属性面板），不要图层树与底部的横向面板（日志/任务等）。
-  // 离开数据页面切到编图页面时，恢复用户期望的图层树与底栏状态。
-  if (pageId == QLatin1String("data"))
-  {
-    if (m_leftDock)
-      m_leftDock->setProgrammaticVisible(false);
-    if (m_bottomDock)
-      m_bottomDock->setProgrammaticVisible(false);
-    if (m_wellSectionDock)
-      m_wellSectionDock->setProgrammaticVisible(false);
-  }
-  else
-  {
-    if (m_leftDock && m_leftDock->userWantsVisible())
-      m_leftDock->setProgrammaticVisible(true);
-    // W2：任务驱动露出的底栏（m_bottomDockAutoShown）不随切页收回。
-    if (m_bottomDock && (m_bottomDock->userWantsVisible() || m_bottomDockAutoShown))
-      m_bottomDock->setProgrammaticVisible(true);
-    if (m_wellSectionDock && m_wellSectionDock->userWantsVisible())
-      m_wellSectionDock->setProgrammaticVisible(true);
-  }
+  paleo::mainwindow_internal::applyPageDockPolicy(
+      pageId, {m_leftDock, m_dataListDock, m_bottomDock, m_wellSectionDock,
+               m_previewMaximized, m_bottomDockAutoShown});
 
   if (pageId == QLatin1String("correlation"))
   {
-    // Web 工作台拥有井组、属性和任务面；整片中央区域让给它。
-    for (auto *dock : findChildren<QDockWidget *>(QString(), Qt::FindDirectChildrenOnly))
-      if (auto *paleoDock = qobject_cast<PaleoDockWidget *>(dock))
-        paleoDock->setProgrammaticVisible(false);
-      else
-        dock->hide();
+    paleo::mainwindow_internal::hideAllDocksForCorrelation(this);
     m_centerStack->setCurrentIndex(1); // 无需先打开 QGIS/Paleo 工程
     m_stratigraphicWebPage->activate();
   }

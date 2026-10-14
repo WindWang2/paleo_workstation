@@ -10228,6 +10228,26 @@ Crossline: %3 ~ %4</source>
         <source>浮动窗口</source>
         <translation>浮动窗口</translation>
     </message>
+    <message>
+        <location filename="../src/ui/paleodockmanager.cpp" line="184"/>
+        <source>布局已保存</source>
+        <translation>布局已保存</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleodockmanager.cpp" line="195"/>
+        <source>已恢复保存的布局</source>
+        <translation>已恢复保存的布局</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleodockmanager.cpp" line="197"/>
+        <source>保存的布局与当前面板不兼容，未能恢复</source>
+        <translation>保存的布局与当前面板不兼容，未能恢复</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleodockmanager.cpp" line="120"/>
+        <source>已恢复默认布局</source>
+        <translation>已恢复默认布局</translation>
+    </message>
 </context>
 <context>
     <name>PaleoDrawCircleTool</name>

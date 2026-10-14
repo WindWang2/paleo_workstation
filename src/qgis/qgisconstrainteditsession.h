@@ -7,6 +7,7 @@
 #include <QHash>
 #include <functional>
 #include <memory>
+#include "../io/constraintstore.h"
 
 class QgsVectorLayer;
 class PaleoProjectStore;
@@ -19,14 +20,16 @@ class QgisConstraintEditSession : public QObject
   Q_OBJECT
   public:
     QgisConstraintEditSession(QgsVectorLayer *layer, PaleoProjectStore *store,
-                              std::function<void(const QString &)> failed);
+                              std::function<void(const QString &)> failed,
+                              const ConstraintStore::AuditContext &context = {});
     ~QgisConstraintEditSession() override;
     bool initialize(QString *error);
     bool finish(bool save, QString *error);
     QString horizon() const { return m_horizon; }
+    bool setAuditContext(const ConstraintStore::AuditContext &context, QString *error = nullptr);
   private:
     QVector<QVariantMap> snapshot(QString *error) const;
-    bool persist(const QVector<QVariantMap> &rows, QString *error);
+    bool persist(const QVector<QVariantMap> &rows, QString *error, const QString &action = QString());
     void synchronize(int index);
     void restoreSource();
     QPointer<QgsVectorLayer> m_layer;
@@ -42,4 +45,5 @@ class QgisConstraintEditSession : public QObject
     QMetaObject::Connection m_connection;
     int m_index = 0;
     bool m_writing = false;
+    ConstraintStore::AuditContext m_audit;
 };

@@ -36,6 +36,8 @@ EvidenceInteraction::EvidenceInteraction(MappingWorkbench *workbench, SelectionC
       const auto session = m_project->sessionId();
       QTimer::singleShot(0, this, [this, session] {
         if (!m_project || !m_selection || !m_workbench || session != m_project->sessionId()) return;
+        // Adopted qgz layers already exist and do not emit layerInstantiated.
+        if (m_layers) for (const auto &declaration : m_layers->declared()) observe(declaration.layerId);
         const auto json = m_project->project()->readEntry("paleo/evidenceTarget", "selection");
         const auto saved = QJsonDocument::fromJson(json.toUtf8()).toVariant().toMap();
         if (saved.value("project_id").toString() != projectId() ||
@@ -64,10 +66,10 @@ EvidenceInteraction::EvidenceInteraction(MappingWorkbench *workbench, SelectionC
   if (workbench) {
     connect(workbench, &MappingWorkbench::catalogBound, this, &EvidenceInteraction::reset);
     connect(workbench, &MappingWorkbench::faciesEdited, this, [this](const QString &id) {
-      if (m_selection && m_selection->target().layerId == id) capture(id);
+      if (m_selection && m_selection->target().layerId == id) refresh();
     });
     connect(workbench, &MappingWorkbench::displayChanged, this, [this](const QString &id) {
-      if (m_selection && m_selection->target().layerId == id && !m_receiving) capture(id);
+      if (m_selection && m_selection->target().layerId == id && !m_receiving) refresh();
     });
   }
 }
@@ -132,12 +134,26 @@ void EvidenceInteraction::receive(const SelectionTarget &target, const QString &
   if (layer && !target.featureUid.isEmpty()) {
     m_primary->bindLayer(layer); QString error;
     const auto fid = m_primary->featureId(target.featureUid, &error);
-    if (fid == FID_NULL) { emit navigationFailed(error); return; }
+    if (fid == FID_NULL) {
+      m_primary->clear();
+      m_snapshot = {{"project_id", target.projectId}, {"layer_id", target.layerId}, {"version_id", target.versionId},
+        {"feature_uid", target.featureUid}, {"horizon", target.horizon}, {"error", error}, {"missing_feature", true}};
+      emit detailsChanged(m_snapshot, generation); emit navigationFailed(error); return;
+    }
     ids << fid;
     if (origin != "map" && !m_primary->showFeature(target.featureUid, false, &error)) emit navigationFailed(error);
   }
   m_snapshot = m_workbench->featureEvidence(target.layerId, ids);
   m_snapshot.insert("project_id", projectId()); m_snapshot.insert("project_session", m_project ? QVariant(m_project->sessionId()) : QVariant());
+  if (!m_snapshot.contains("error") && layer) {
+    auto current = target;
+    current.assetId = m_snapshot.value("asset_id").toString(); current.versionId = m_snapshot.value("version_id").toString();
+    const auto interpretation = m_snapshot.value("interpretation").toMap();
+    current.interpretationId = interpretation.value("id").toString(); current.assertionId = interpretation.value("assertion_id").toString();
+    current.revision = interpretation.value("revision", 0).toULongLong();
+    m_selection->setTarget(current, origin == "restore" ? origin : QStringLiteral("refresh"));
+    generation = m_selection->targetGeneration();
+  }
   emit detailsChanged(m_snapshot, generation);
 }
 void EvidenceInteraction::refresh() {
@@ -156,7 +172,7 @@ void EvidenceInteraction::navigate(const QVariantMap &evidence, bool locate) {
     QString error;
     if (!m_source->showPoint(evidence.value("x").toDouble(), evidence.value("y").toDouble(), DataCatalog::localGridCrsWkt(), locate, &error)) { emit navigationFailed(error); return; }
     m_selection->setSelection({entity}, "evidence_well");
-    auto selected = m_selection->target(); selected.evidenceId = evidence.value("id", evidence.value("evidence_id")).toString();
+    auto selected = m_selection->target(); selected.evidenceId = evidence.value("evidence_id", evidence.value("id")).toString();
     m_selection->setTarget(selected, "evidence"); return;
   }
   const auto sourceVersion = evidence.value("source_version", evidence.value("version_id")).toString();
@@ -174,12 +190,15 @@ void EvidenceInteraction::navigate(const QVariantMap &evidence, bool locate) {
       : m_source->showLayer(layer, locate, &error);
   if (!ok) { emit navigationFailed(error); return; }
   auto selected = m_selection->target();
-  selected.evidenceId = evidence.value("id", evidence.value("evidence_id")).toString();
+  selected.evidenceId = evidence.value("evidence_id", evidence.value("id")).toString();
   m_selection->setTarget(selected, "evidence");
 }
 void EvidenceInteraction::navigateGraphNode(const QVariantMap &node) {
   if (!node.value("source_version").toString().isEmpty()) { navigate(node); return; }
   if (!m_workbench || !m_selection || !m_layers) return;
+  if (node.contains("project_id") && node.value("project_id").toString() != projectId()) { emit navigationFailed(tr("图谱节点属于其他工程")); return; }
+  if (node.contains("project_session") && m_project && node.value("project_session").toULongLong() != m_project->sessionId()) { emit navigationFailed(tr("图谱查询已过期，请刷新")); return; }
+  if (!node.value("horizon").toString().isEmpty() && node.value("horizon").toString() != m_selection->activeHorizon()) { emit navigationFailed(tr("图谱节点属于其他层位，请先切换层位")); return; }
   const auto version = node.value("version_id").toString(); QString error;
   QString layerId = node.value("layer_id").toString();
   if (layerId.isEmpty() || (!version.isEmpty() && m_workbench->versionForLayer(layerId).id != version)) layerId = m_workbench->layerForVersion(version, &error);

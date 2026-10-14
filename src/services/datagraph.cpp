@@ -520,7 +520,9 @@ Graph query(const Index &index, const Query &q, const Cancel &cancel,
   QHash<QString, int> visible;
   bool overlay = false;
   const int localCount = q.featureEvidence.value("records").toList().size() + q.featureEvidence.value("generation_records").toList().size();
-  const int baseBudget = q.featureEvidence.value("feature_uid").toString().isEmpty() ? budget :
+  const bool hasOverlay = q.mode != Mode::Impact && !q.featureEvidence.value("feature_uid").toString().isEmpty() &&
+      (q.horizon.isEmpty() || q.featureEvidence.value("horizon").toString() == q.horizon);
+  const int baseBudget = !hasOverlay ? budget :
       qMax(1, budget - qMin(budget - 1, 3 + qMin(localCount, 50) * 2));
   const auto add = [&](Node n) {
     if (visible.contains(n.id))
@@ -663,12 +665,12 @@ Graph query(const Index &index, const Query &q, const Cancel &cancel,
         const auto [id, distance] = queue.dequeue();
         if (distance >= depth)
           continue;
-        QVector<int> incident =
-            direction < 0 ? index.incoming.value(id) : index.outgoing.value(id);
-        if (!derivedOnly)
-          incident += direction < 0 ? index.outgoing.value(id)
-                                    : index.incoming.value(id);
-        for (int row : incident) {
+        // Implicitly shared adjacency ranges avoid detaching/copying every
+        // edge of a high-degree node before the work budget can be checked.
+        QVector<QVector<int>> incident{direction < 0 ? index.incoming.value(id) : index.outgoing.value(id)};
+        if (!derivedOnly) incident << (direction < 0 ? index.outgoing.value(id) : index.incoming.value(id));
+        for (const auto &range : incident) {
+        for (int row : range) {
           if (stopped(cancel))
             return {};
           if (++graph.examinedEdges > traversalBudget) { graph.workTruncated = true; break; }
@@ -703,6 +705,8 @@ Graph query(const Index &index, const Query &q, const Cancel &cancel,
           queue.enqueue({other, distance + 1});
         }
         if (graph.workTruncated) break;
+        }
+        if (graph.workTruncated) break;
       }
       if (graph.workTruncated) break;
     }
@@ -725,19 +729,24 @@ Graph query(const Index &index, const Query &q, const Cancel &cancel,
     if (impact) graph.message = text("来源版本的直接依赖与派生下游；仅表示需要复核的潜在影响，不代表确定的地质空间影响区。");
     else if (derivedOnly && graph.edges.isEmpty())
       graph.message = text("该版本没有记录来源或下游；不推断未记录的血缘。");
-    else if (derivedOnly && root.kind == Kind::Version &&
+    else if (derivedOnly && !graph.workTruncated && root.kind == Kind::Version &&
              root.stage != QLatin1String("RAW")) {
       bool hasInputs = false;
       for (int row : index.incoming.value(seed)) {
+        if (stopped(cancel)) return {};
+        if (++graph.examinedEdges > traversalBudget) { graph.workTruncated = true; break; }
         const Edge &e = index.edges[row];
         if (e.relation == Relation::Derived || e.relation == Relation::Used)
           hasInputs = true;
         if (e.relation == Relation::Generated)
-          for (int input : index.incoming.value(e.source))
-            if (index.edges[input].relation == Relation::Used)
-              hasInputs = true;
+          for (int input : index.incoming.value(e.source)) {
+            if (stopped(cancel)) return {};
+            if (++graph.examinedEdges > traversalBudget) { graph.workTruncated = true; break; }
+            if (index.edges[input].relation == Relation::Used) { hasInputs = true; break; }
+          }
+        if (hasInputs || graph.workTruncated) break;
       }
-      if (!hasInputs)
+      if (!hasInputs && !graph.workTruncated)
         graph.message =
             text("该版本未登记计算输入；图中仅显示已经记录的关系。");
     }
@@ -771,6 +780,7 @@ Graph query(const Index &index, const Query &q, const Cancel &cancel,
     assertion.evidence.clear();
     if (depth >= 2 && add(assertion)) edge({assertion.id, i.id, text("形成解释"), Relation::Informs});
     auto records = snapshot.value("records").toList();
+    records += snapshot.value("spatial_candidates").toList();
     records += snapshot.value("generation_records").toList();
     QVector<int> matches;
     for (int n = 0; n < records.size(); ++n) {

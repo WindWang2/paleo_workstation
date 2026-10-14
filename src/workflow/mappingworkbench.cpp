@@ -208,6 +208,8 @@ void MappingWorkbench::bindCatalog(DataCatalog *catalog, const QString &dir) {
   m_dir = dir;
   m_versionIndexValid = m_productsValid = false;
   m_aliasVersions.clear(); m_pathVersions.clear(); m_productsCache.clear();
+  for (auto adapter : std::as_const(m_evidenceSpatialAdapters)) delete adapter.data();
+  m_evidenceSpatialAdapters.clear();
   if (m_wellRemote) m_wellRemote->bindCatalog(catalog, dir);
   m_logVersion.clear();
   m_logCache = {};
@@ -303,6 +305,14 @@ QString MappingWorkbench::layerForVersion(const QString &versionId,
                                           QString *error) {
   const auto v =
       m_catalog ? m_catalog->versionById(versionId) : CatalogVersion();
+  if (!v.id.isEmpty() && !v.extra.value("mapping_product").toBool()) {
+    // Reuse an already declared spatial RAW/reference layer whose exact
+    // catalog version matches. Never guess by display name or force an editor.
+    for (const auto &decl : m_layers->declared())
+      if ((decl.type == "vector" || decl.type == "raster") && !decl.layerId.startsWith("draft.") && versionForLayer(decl.layerId).id == v.id)
+        return decl.layerId;
+    fail(error, tr("该来源版本尚未作为空间图层加载；可在数据管理查看或加载原始资料")); return {};
+  }
   if (v.id.isEmpty() || !v.extra.value("mapping_product").toBool() ||
       (v.extra.value("layer_type") != "vector" &&
        v.extra.value("layer_type") != "raster")) {

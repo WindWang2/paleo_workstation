@@ -457,6 +457,9 @@ class TestFactorWorkflow : public QObject
       QString points; QVERIFY2(wf.extractWellFactors("T1", "sandratio", params, &err, &points), qPrintable(err));
       QCOMPARE(wf.wellFactorRows().size(), 5);
       QCOMPARE(wf.wellFactorRows()[0].toMap().value("value").toDouble(), 0.2);
+      QCOMPARE(wf.wellFactorRows()[0].toMap().value("horizon").toString(), QString("T1"));
+      QVERIFY(!wf.wellFactorRows()[0].toMap().value("source_record_id").toString().isEmpty());
+      QVERIFY(wf.wellFactorRows()[0].toMap().value("participating").toBool());
       QCOMPARE(wf.wellFactorRows()[1].toMap().value("value").toDouble(), 0.0); // 真零有效
       QVERIFY(wf.wellFactorRows()[3].toMap().value("reason").toString().contains(QStringLiteral("分母为零")));
       QVERIFY(!wf.wellFactorRows()[3].toMap().contains("value")); // 不回落 value=999
@@ -512,6 +515,34 @@ class TestFactorWorkflow : public QObject
       QCOMPARE(wf.wellFactorRows()[0].toMap().value("value").toDouble(), 20.0);
       const auto versions = f.catalog.versions();
       QVERIFY(std::any_of(versions.cbegin(), versions.cend(), [](const CatalogVersion &v) { return v.extra.value("extraction").toMap().value("factorMode") == QStringLiteral("ratio"); }));
+    }
+
+    void geostatRecordsOnlyFiniteAdmittedWells() {
+      Fixture f; QVERIFY(initFixture(f)); QString error;
+      const auto path = f.dir.filePath("geostat-wells.geojson");
+      QFile file(path); QVERIFY(file.open(QIODevice::WriteOnly));
+      file.write(R"({"type":"FeatureCollection","crs":{"type":"name","properties":{"name":"EPSG:3857"}},"features":[
+        {"type":"Feature","geometry":{"type":"Point","coordinates":[0,0]},"properties":{"well_id":"A","z":0}},
+        {"type":"Feature","geometry":{"type":"Point","coordinates":[4,0]},"properties":{"well_id":"B","z":2}},
+        {"type":"Feature","geometry":{"type":"Point","coordinates":[0,4]},"properties":{"well_id":"C","z":null}},
+        {"type":"Feature","geometry":{"type":"Point","coordinates":[4,4]},"properties":{"well_id":"D","z":null}}]})");
+      file.close(); QVERIFY(f.layers.declare(decl("wells.T1", "T1", "vector", path), &error));
+      ConstraintWorkflow workflow(&f.proc, &f.layers); workflow.setCatalog(&f.catalog, f.dir.path());
+      QVERIFY2(workflow.generateFactor("T1", "sandthick", {{"method", "kriging"}, {"field", "z"}, {"cellSize", 1.0}}, &error), qPrintable(error));
+      const auto result = f.catalog.versions().last();
+      QCOMPARE(result.extra.value("samples").toInt(), 2);
+      const auto wells = result.extra.value("evidence").toMap().value("support").toMap().value("wells").toMap();
+      const auto used = wells.value("supporting_wells").toList(), skipped = wells.value("skipped_wells").toList();
+      QCOMPARE(used.size(), 2); QCOMPARE(skipped.size(), 2);
+      QCOMPARE(used.first().toMap().value("well_id").toString(), QString("A"));
+      QCOMPARE(used.first().toMap().value("value").toDouble(), 0.0); // real zero remains evidence
+      for (const auto &entry : skipped) {
+        const auto row = entry.toMap();
+        QVERIFY(!row.value("participating").toBool()); QVERIFY(!row.value("reason").toString().isEmpty());
+        QCOMPARE(row.value("horizon").toString(), QString("T1"));
+        QVERIFY(!row.value("source_record_id").toString().isEmpty());
+        QVERIFY(!row.contains("value")); // NULL is never fabricated as zero
+      }
     }
 
     void interpretedSandThicknessAndMissingCoverage() {

@@ -70,6 +70,7 @@ QVariantMap snapshot(const QgsFeature &feature) {
   };
   return {{"feature_uid", uid(feature)}, {"facies_code", value("facies_code")},
           {"parent_uids", value(ParentsField)}, {"geometry_hash", geometryFingerprint(feature)},
+          {"root_uids", value(RootsField)},
           {"geometry", feature.geometry().asWkt(17)},
           {"interpretation", value("paleo_interpretation")}, {"evidence", value("facies_evidence")}};
 }
@@ -88,30 +89,34 @@ bool ensure(QgsVectorLayer *layer, QString *error) {
   if (!layer || QThread::currentThread() != layer->thread() || !layer->isValid() || layer->readOnly())
     return fail(error, QObject::tr("图元身份只能写入有效、可写的新产物或工作副本"));
   QHash<QString, int> counts;
-  struct Row { QgsFeatureId fid; QString id; QStringList ancestors; };
+  struct Row { QgsFeatureId fid; QString id; QStringList ancestors, roots; };
   QVector<Row> rows;
   const int uidIndex = layer->fields().indexOf(UidField);
   const int parentIndex = layer->fields().indexOf(ParentsField);
+  const int rootIndex = layer->fields().indexOf(RootsField);
   QgsFeatureRequest request;
   QgsAttributeList attributes;
   if (uidIndex >= 0) attributes << uidIndex;
   if (parentIndex >= 0) attributes << parentIndex;
+  if (rootIndex >= 0) attributes << rootIndex;
   request.setSubsetOfAttributes(attributes);
   request.setFlags(Qgis::FeatureRequestFlag::NoGeometry);
   auto features = layer->getFeatures(request);
   QgsFeature feature;
   while (features.nextFeature(feature)) {
-    Row row{feature.id(), uid(feature), {}};
+    Row row{feature.id(), uid(feature), {}, {}};
     if (parentIndex >= 0 && !parents(feature.attribute(parentIndex), &row.ancestors))
       return fail(error, QObject::tr("图元来源身份损坏，原关联未覆盖"));
+    if (rootIndex >= 0 && !parents(feature.attribute(rootIndex), &row.roots))
+      return fail(error, QObject::tr("图元根来源身份损坏，原关联未覆盖"));
     if (!row.id.isEmpty()) ++counts[row.id];
     rows.append(row);
   }
   features.close();
-  bool needed = uidIndex < 0 || parentIndex < 0 || layer->fields().indexOf(ReviewField) < 0;
+  bool needed = uidIndex < 0 || parentIndex < 0 || rootIndex < 0 || layer->fields().indexOf(ReviewField) < 0;
   for (const auto &row : rows) needed |= row.id.isEmpty() || counts.value(row.id) > 1;
   if (!needed) return true;
-  struct Repair { QgsFeatureId fid; QString identity; QStringList ancestors;
+  struct Repair { QgsFeatureId fid; QString identity; QStringList ancestors, roots;
                   bool review; QString interpretation, records; };
   QVector<Repair> repairs;
   const int interpretationField = layer->fields().indexOf(QStringLiteral("paleo_interpretation"));
@@ -120,8 +125,10 @@ bool ensure(QgsVectorLayer *layer, QString *error) {
   // block normalization, never produce a successful UID-mismatched snapshot.
   for (const auto &row : rows) {
     if (!row.id.isEmpty() && counts.value(row.id) == 1) continue;
-    Repair repair{row.fid, fresh(), row.ancestors, !row.id.isEmpty(), {}, {}};
-    if (!row.id.isEmpty() && !repair.ancestors.contains(row.id)) repair.ancestors << row.id;
+    Repair repair{row.fid, fresh(), row.id.isEmpty() ? row.ancestors : QStringList{row.id},
+                  row.roots, !row.id.isEmpty(), {}, {}};
+    if (repair.roots.isEmpty()) repair.roots = row.ancestors.isEmpty()
+        ? (row.id.isEmpty() ? QStringList{repair.identity} : QStringList{row.id}) : row.ancestors;
     if (interpretationField >= 0) {
       const auto original = layer->getFeature(row.fid);
       QVariantMap inherited; QVariantList records;
@@ -158,16 +165,25 @@ bool ensure(QgsVectorLayer *layer, QString *error) {
     return fail(error, QObject::tr("无法开始图元身份编辑"));
   layer->beginEditCommand(QObject::tr("维护稳定图元身份与来源"));
   bool ok = true;
-  for (const auto &name : {UidField, ParentsField})
+  for (const auto &name : {UidField, ParentsField, RootsField})
     if (layer->fields().indexOf(name) < 0)
       ok = layer->addAttribute(QgsField(name, QMetaType::Type::QString)) && ok;
   if (layer->fields().indexOf(ReviewField) < 0)
     ok = layer->addAttribute(QgsField(ReviewField, QMetaType::Type::Bool)) && ok;
   const int u = layer->fields().indexOf(UidField), p = layer->fields().indexOf(ParentsField),
-            r = layer->fields().indexOf(ReviewField);
+            r = layer->fields().indexOf(ReviewField), root = layer->fields().indexOf(RootsField);
+  if (rootIndex < 0) {
+    for (const auto &row : rows) {
+      if (!ok) break;
+      if (row.id.isEmpty() || counts.value(row.id) > 1) continue;
+      const auto roots = row.ancestors.isEmpty() ? QStringList{row.id} : row.ancestors;
+      ok = layer->changeAttributeValue(row.fid, root, encode(roots));
+    }
+  }
   for (const auto &repair : repairs) {
     if (!ok) break;
-    QgsAttributeMap changes{{u, repair.identity}, {p, encode(repair.ancestors)}, {r, repair.review}};
+    QgsAttributeMap changes{{u, repair.identity}, {p, encode(repair.ancestors)},
+                            {root, encode(repair.roots)}, {r, repair.review}};
     if (!repair.interpretation.isEmpty()) {
       changes.insert(interpretationField, repair.interpretation);
       if (recordsField >= 0) changes.insert(recordsField, repair.records);
@@ -205,9 +221,18 @@ bool setParents(QgsVectorLayer *layer, QgsFeatureId fid,
   layer->beginEditCommand(QObject::tr("登记合并图元来源（需复核）"));
   auto *observer = Observer::of(layer);
   if (observer) observer->before(fid);
+  QStringList roots;
+  for (const auto &parent : normalized) {
+    const auto source = find(layer, parent);
+    QStringList known;
+    if (source.isValid()) parents(source.attribute(RootsField), &known);
+    if (known.isEmpty()) known << parent; // unresolved historical anchor, review stays required
+    for (const auto &root : known) if (!roots.contains(root)) roots << root;
+  }
   const bool ok = layer->changeAttributeValues(fid,
       {{layer->fields().indexOf(UidField), fresh()},
        {layer->fields().indexOf(ParentsField), encode(normalized)},
+       {layer->fields().indexOf(RootsField), encode(roots)},
        {layer->fields().indexOf(ReviewField), true}});
   if (ok && observer) {
     observer->m_touched.insert(fid);
@@ -231,7 +256,8 @@ Observer::Observer(QgsVectorLayer *layer) : QObject(layer), m_layer(layer) {
     // Unsaved spatial history survives normalization sessions and failed
     // version registration. Only successful registration acknowledges it.
     m_sessionInitial = m_initial; m_sessionRecentBefore = m_recentBefore;
-    m_known.clear(); m_before.clear(); rebuildIds();
+    m_sessionHistoryOwner = m_historyOwner; m_sessionHistoryUids = m_historyUids;
+    m_fidOwner.clear(); m_known.clear(); m_before.clear(); rebuildIds();
   });
   connect(layer, &QgsVectorLayer::editCommandStarted, this, &Observer::startCommand);
   connect(layer, &QgsVectorLayer::geometryChanged, this,
@@ -243,7 +269,10 @@ Observer::Observer(QgsVectorLayer *layer) : QObject(layer), m_layer(layer) {
   connect(layer, &QgsVectorLayer::attributeValueChanged, this,
           [this](QgsFeatureId fid, int field, const QVariant &) {
     if (!m_layer || m_writing || m_finishing) return;
-    if (field == m_layer->fields().indexOf(UidField)) m_idsDirty = true;
+    if (field == m_layer->fields().indexOf(UidField)) {
+      m_idsDirty = true;
+      trackIdentity(fid, uid(m_layer->getFeature(fid)));
+    }
     if (!m_macroOpen) { m_known.insert(fid, m_layer->getFeature(fid)); return; }
     // Evidence/review fields only refresh the immutable before cache. They
     // never produce business edits or flip the user's review conclusion.
@@ -258,7 +287,8 @@ Observer::Observer(QgsVectorLayer *layer) : QObject(layer), m_layer(layer) {
     // Provider rollback restores only this session. Earlier committed edits
     // still await version registration and must keep their audit snapshots.
     m_initial = m_sessionInitial; m_recentBefore = m_sessionRecentBefore;
-    m_known.clear(); m_before.clear(); rebuildIds();
+    m_historyOwner = m_sessionHistoryOwner; m_historyUids = m_sessionHistoryUids;
+    m_fidOwner.clear(); m_known.clear(); m_before.clear(); rebuildIds();
   });
   connect(layer, &QgsVectorLayer::editingStopped, this, [this] { m_known.clear(); rebuildIds(); });
   connect(layer, &QgsVectorLayer::beforeCommitChanges, this, [this] {
@@ -296,8 +326,7 @@ void Observer::rebuildIds() {
 QgsFeature Observer::before(QgsFeatureId fid) {
   if (m_before.contains(fid)) {
     const auto feature = m_before.value(fid);
-    if (feature.isValid() && !m_initial.contains(fid)) m_initial.insert(fid, feature);
-    if (feature.isValid()) m_recentBefore.insert(fid, feature);
+    remember(fid, feature);
     return feature;
   }
   QgsFeature feature = m_known.value(fid);
@@ -308,9 +337,25 @@ QgsFeature Observer::before(QgsFeatureId fid) {
     features.nextFeature(feature);
   }
   m_before.insert(fid, feature);
-  if (feature.isValid() && !m_initial.contains(fid)) m_initial.insert(fid, feature);
-  if (feature.isValid()) m_recentBefore.insert(fid, feature);
+  remember(fid, feature);
   return feature;
+}
+void Observer::remember(QgsFeatureId fid, const QgsFeature &feature) {
+  const auto identity = uid(feature);
+  if (!feature.isValid() || identity.isEmpty()) return;
+  const auto owner = m_historyOwner.value(identity, identity);
+  m_fidOwner.insert(fid, owner);
+  if (!m_initial.contains(owner)) m_initial.insert(owner, feature);
+  m_recentBefore.insert(owner, feature);
+  m_historyOwner.insert(identity, owner);
+  if (!m_historyUids[owner].contains(identity)) m_historyUids[owner].append(identity);
+}
+void Observer::trackIdentity(QgsFeatureId fid, const QString &identity) {
+  if (identity.isEmpty()) return;
+  const auto owner = m_fidOwner.value(fid, m_historyOwner.value(identity));
+  if (owner.isEmpty()) return; // a newly created child has no before-history yet
+  m_historyOwner.insert(identity, owner);
+  if (!m_historyUids[owner].contains(identity)) m_historyUids[owner].append(identity);
 }
 void Observer::startCommand() {
   if (!m_layer || m_finishing) return;
@@ -342,20 +387,25 @@ void Observer::startCommand() {
   // touched features; the identity index contains attributes only.
   if (m_idsDirty) rebuildIds();
 }
-bool Observer::rewrite(QgsFeatureId fid, const QStringList &ancestors) {
+bool Observer::rewrite(QgsFeatureId fid, const QStringList &ancestors, const QStringList &sourceRoots) {
   if (!m_layer || !m_macroOpen || !m_finishing) return false;
   const auto feature = m_layer->getFeature(fid);
   if (!feature.isValid()) return false;
   QScopedValueRollback<bool> guard(m_writing, true);
   const auto identity = fresh();
+  auto roots = sourceRoots;
+  if (roots.isEmpty()) parents(feature.attribute(RootsField), &roots);
+  if (roots.isEmpty()) roots = ancestors.isEmpty() ? QStringList{identity} : ancestors;
   const bool ok = m_layer->changeAttributeValues(fid,
       {{m_layer->fields().indexOf(UidField), identity},
        {m_layer->fields().indexOf(ParentsField), encode(ancestors)},
+       {m_layer->fields().indexOf(RootsField), encode(roots)},
        {m_layer->fields().indexOf(ReviewField), true}});
   if (!ok) { reportFailure(tr("原生编辑的图元来源登记失败")); return false; }
   m_ids[uid(feature)].remove(fid);
   if (m_ids[uid(feature)].isEmpty()) m_ids.remove(uid(feature));
-  m_ids[identity].insert(fid); m_roots[identity] = ancestors;
+  m_ids[identity].insert(fid); m_roots[identity] = roots;
+  trackIdentity(fid, identity);
   return true;
 }
 void Observer::changed(QgsFeatureId fid) {
@@ -378,16 +428,18 @@ void Observer::registerAdded(QgsFeatureId fid) {
   const auto siblings = m_ids.value(identity);
   if (identity.isEmpty()) rewrite(fid, {});
   else if (!siblings.isEmpty()) {
-    const auto ancestors = m_roots.value(identity, QStringList{identity});
+    const QStringList ancestors{identity}; // immediate parent, including later splits
+    QStringList roots; parents(feature.attribute(RootsField), &roots);
+    roots = m_roots.value(identity, roots.isEmpty() ? ancestors : roots);
     for (auto sibling : siblings) {
-      before(sibling); m_touched.insert(sibling); rewrite(sibling, ancestors);
+      before(sibling); m_touched.insert(sibling); rewrite(sibling, ancestors, roots);
       m_kinds.insert(sibling, QStringLiteral("split"));
     }
-    rewrite(fid, ancestors);
+    rewrite(fid, ancestors, roots);
     m_kinds.insert(fid, QStringLiteral("split"));
-    m_roots[identity] = ancestors;
+    m_roots[identity] = roots;
   } else if (m_roots.contains(identity)) {
-    rewrite(fid, m_roots.value(identity)); m_kinds.insert(fid, QStringLiteral("split"));
+    rewrite(fid, {identity}, m_roots.value(identity)); m_kinds.insert(fid, QStringLiteral("split"));
   }
   else m_ids[identity].insert(fid);
 }
@@ -406,14 +458,15 @@ void Observer::inferMerges() {
     const auto result = m_layer->getFeature(fid);
     if (!result.isValid() || result.geometry().isEmpty()) continue;
     QVector<QgsGeometry> geometries;
-    QStringList ancestors;
+    QStringList ancestors, roots;
     const auto original = before(fid);
-    if (original.isValid()) { geometries << original.geometry(); ancestors << uid(original); }
+    if (original.isValid()) { geometries << original.geometry(); ancestors << uid(original); parents(original.attribute(RootsField), &roots); }
     for (auto deletedId : m_deleted) {
       const auto removed = before(deletedId);
       if (!removed.isValid() || removed.geometry().isEmpty() ||
           !removed.geometry().boundingBox().intersects(result.geometry().boundingBox())) continue;
       geometries << removed.geometry(); ancestors << uid(removed);
+      parents(removed.attribute(RootsField), &roots);
     }
     ancestors.removeAll(QString()); ancestors.removeDuplicates();
     ancestors.sort();
@@ -424,7 +477,7 @@ void Observer::inferMerges() {
     if (!united.isEmpty() && united.isGeosEqual(result.geometry())) {
       QStringList existing;
       parents(result.attribute(ParentsField), &existing);
-      if (existing != ancestors) rewrite(fid, ancestors);
+      if (existing != ancestors) rewrite(fid, ancestors, roots);
       m_kinds.insert(fid, QStringLiteral("merge"));
     }
   }
@@ -490,15 +543,26 @@ void Observer::discardCommand() {
 void Observer::acknowledge() {
   m_initial.clear(); m_recentBefore.clear(); m_roots.clear();
   m_sessionInitial.clear(); m_sessionRecentBefore.clear();
+  m_historyOwner.clear(); m_historyUids.clear(); m_fidOwner.clear();
+  m_sessionHistoryOwner.clear(); m_sessionHistoryUids.clear();
 }
 QVariantMap Observer::editBefore(QgsFeatureId fid) const {
-  return snapshot(m_before.value(fid, m_recentBefore.value(fid)));
+  return snapshot(m_before.value(fid, m_recentBefore.value(m_fidOwner.value(fid))));
 }
 QVariantList Observer::changes() const {
   QVariantList result;
-  if (!m_layer) return result;
+  if (!m_layer || QThread::currentThread() != thread() ||
+      QThread::currentThread() != m_layer->thread()) return result;
+  if (m_idsDirty) const_cast<Observer *>(this)->rebuildIds(); // owner-thread cache only
   for (auto it = m_initial.cbegin(); it != m_initial.cend(); ++it) {
-    const auto current = m_layer->getFeature(it.key());
+    QgsFeature current;
+    const auto aliases = m_historyUids.value(it.key());
+    for (auto alias = aliases.crbegin(); alias != aliases.crend(); ++alias) {
+      const auto ids = m_ids.value(*alias);
+      if (ids.size() != 1) continue;
+      const auto candidate = m_layer->getFeature(*ids.cbegin());
+      if (candidate.isValid() && uid(candidate) == *alias) { current = candidate; break; }
+    }
     if (current.isValid() && uid(current) == uid(it.value()) &&
         geometryFingerprint(current) == geometryFingerprint(it.value())) continue;
     const auto recent = m_recentBefore.value(it.key(), it.value());
@@ -511,6 +575,8 @@ QVariantList Observer::changes() const {
         {"before_interpretation", snapshot(recent).value("interpretation")},
         {"before_facies_code", snapshot(recent).value("facies_code")},
         {"before_parent_uids", snapshot(recent).value("parent_uids")},
+        {"before_root_uids", snapshot(recent).value("root_uids")},
+        {"before_scope", "working_copy"},
         {"initial_feature", snapshot(it.value())}};
   }
   return result;

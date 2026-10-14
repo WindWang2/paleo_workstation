@@ -14,7 +14,10 @@ class QUndoCommand;
 
 namespace MappingFeatureIdentity {
 inline const QString UidField = QStringLiteral("paleo_feature_uid");
+// Direct ancestry and earliest known anchors are separate. A second split
+// must retain the intervening parent's identity instead of flattening it.
 inline const QString ParentsField = QStringLiteral("paleo_parent_uids");
+inline const QString RootsField = QStringLiteral("paleo_root_uids");
 inline const QString ReviewField = QStringLiteral("paleo_identity_review");
 // Only call on a newly generated artifact or an editable working copy.
 // Duplicate identities (native split/copy) become children requiring review.
@@ -34,7 +37,7 @@ class Observer : public QObject {
 public:
   static Observer *attach(QgsVectorLayer *layer, QString *error = nullptr);
   static Observer *of(QgsVectorLayer *layer);
-  QVariantList changes() const;
+  QVariantList changes() const; // owner-thread read; resolves provider FID remaps by UID
   QVariantMap editBefore(QgsFeatureId fid) const;
   int identityIndexBuildCount() const { return m_indexBuilds; }
   void acknowledge(); // only after the new immutable version was registered
@@ -50,16 +53,23 @@ private:
   void added(QgsFeatureId fid);
   void deleted(QgsFeatureId fid);
   void inferMerges();
-  bool rewrite(QgsFeatureId fid, const QStringList &parents);
+  bool rewrite(QgsFeatureId fid, const QStringList &parents,
+               const QStringList &roots = {});
   void rebuildIds();
   void finishCommand();
   void discardCommand();
   void registerAdded(QgsFeatureId fid);
   void reportFailure(const QString &reason);
   QPointer<QgsVectorLayer> m_layer;
-  QHash<QgsFeatureId, QgsFeature> m_known, m_before, m_initial;
-  QHash<QgsFeatureId, QgsFeature> m_recentBefore;
-  QHash<QgsFeatureId, QgsFeature> m_sessionInitial, m_sessionRecentBefore;
+  QHash<QgsFeatureId, QgsFeature> m_known, m_before;
+  // Audit ownership uses stable business identities, never provider FIDs.
+  QHash<QString, QgsFeature> m_initial, m_recentBefore;
+  QHash<QString, QgsFeature> m_sessionInitial, m_sessionRecentBefore;
+  QHash<QString, QString> m_historyOwner, m_sessionHistoryOwner;
+  QHash<QString, QStringList> m_historyUids, m_sessionHistoryUids;
+  QHash<QgsFeatureId, QString> m_fidOwner; // current edit-buffer lookup only
+  void remember(QgsFeatureId fid, const QgsFeature &feature);
+  void trackIdentity(QgsFeatureId fid, const QString &identity);
   QHash<QString, QgsFeatureIds> m_ids;
   QHash<QString, QStringList> m_roots;
   QSet<QgsFeatureId> m_touched, m_deleted;
@@ -73,7 +83,8 @@ private:
   QUndoCommand *m_wrapper = nullptr;
   struct NestedCommand {
     QUndoCommand *command = nullptr;
-    QHash<QgsFeatureId, QgsFeature> before, recentBefore;
+    QHash<QgsFeatureId, QgsFeature> before;
+    QHash<QString, QgsFeature> recentBefore;
     QSet<QgsFeatureId> touched, deleted, added, cacheTouched;
     QHash<QgsFeatureId, QString> kinds;
   };

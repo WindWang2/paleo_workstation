@@ -46,3 +46,23 @@ Vendored QGIS superbuild prefix shared read-only; independent Debug Ninja build.
 Max build/test concurrency 4; one large command at a time. Baseline logs `/tmp/paleo-evidence-baseline-build.log`.
 62 GiB RAM; 495 GiB available disk at start. gstack v1.91.95.0 installed.
 Native create_goal started the real active goal. No installed goal-loop/matt/planning-with-files SKILL.md found in enumerated Codex/Claude skill roots; no assumed slash command.
+
+## 2026-10-14 rebase receipt
+
+- Initial baseline remains `8e963cd7882db6337121547574fd328549600d79` for the original audit.
+- User requested rebase and continuation; new development baseline is `b0520429c21f858a1c053b876f511680088564a9` (`origin/master`, #432–#436).
+- All pre-rebase work is recoverable at local branch `codex/evidence-mapping-pre-rebase-20261014` (`642c38b8`). Main checkout and other worktrees were untouched.
+- Retained #433's complete `tst_datagraph` suite; renamed the new local evidence tests `tst_evidencegraph`. Merged owner-thread immutable snapshot semantics and bounded downstream work with upstream honest budgets, visible adjacency, and export query ownership.
+- #432 directly fixes the five prior `FactorPageTests` failures observed in the first integration run. Those failures were real baseline assertions, not a teardown segfault in the consistently built test. A rebased local run is still required.
+- Rebase is not acceptance: two native-edit P1 findings and one split-lineage P2 remain tracked pending fixes/tests/review.
+
+## 2026-10-14 resume continuation
+
+- `ConstraintStore::copyAudit` copies a horizon's append-only audit, including deletions, into the constraint snapshot GPKG. `snapshotConstraints` records `constraint_audit_events` when that copy is non-empty. The source GPKG is not modified.
+- Project close calls `MapVersionController::abandonForProjectClose`, which cancels the in-flight map snapshot and invalidates its epoch.
+- A saved version may still carry a short historical PDF hash. Publish compares that hash with the frozen file fingerprint only when the registered hash is a full SHA-256, so residual gates stay reachable.
+- Verified in this worktree: `tst_constraintevidence` passed; `tst_versions` passed 25 tests, including `projectCloseAbandonsInFlightSnapshot`. `paleo_app` compiled.
+- `constraintSnapshotKeepsDeletionAudit` checks the workbench snapshot: a deleted constraint's create and delete events are in the snapshot GPKG, and `constraint_audit_events` is 3. Import of an audited snapshot still round-trips in `constraintsFactorsContoursAndClassification`.
+- Native merge of a feature that had no interpretation object used to fail validation (`解释身份、状态或修订号无效`) and left `parent_interpretations` empty. The merge now opens a valid interpretation shell and records one immediate parent snapshot per parent UID, without nesting the previous parent tree. `repeatedNativeMergesKeepOneParentTreeAndReopenableHistory` passed.
+- Also passed: `tst_featureidentity` (34), `tst_evidencegraph` (10), `tst_interpretationevidence` (8), `tst_nativeevidenceguard` (4), `tst_linkage` (13), plus the workbench navigation, stale-revision, and evidence-undo cases.
+- `tst_mapsnapshot_scale` passed on this machine: 10k/100k features, 1 and 16 interpretation events, two saved versions, a 32-feature second horizon, publish, and cancel. Numbers are in `snapshot-io-risk.md`. The owner-thread prepare scan is the UI stall (about 28 s at 100k with 16 events). No wall-clock threshold was added. T9 push/PR remains open.

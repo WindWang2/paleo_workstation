@@ -24,6 +24,7 @@
 #include "../src/ui/pages/wellpredictionpanel.h"
 #include "../src/ui/paleotheme.h"
 #include "../src/ui/wellcomposite/wellcompositecanvas.h"
+#include "../src/io/constraintstore.h"
 #include "../src/workflow/derivedassets.h"
 #include "../src/workflow/mappingworkbench.h"
 #include "../src/workflow/wellpredictionservice.h"
@@ -51,6 +52,7 @@
 #include <QPushButton>
 #include <QSignalSpy>
 #include <QTableWidget>
+#include <QTabWidget>
 #include <QTemporaryDir>
 #include <QTreeWidget>
 #include <QThread>
@@ -813,12 +815,108 @@ private slots:
     QCOMPARE(selection.target().featureUid, target.featureUid);
     QCOMPARE(interaction.snapshot().value("feature_uid").toString(), target.featureUid);
     QVERIFY(!layer->isEditable()); QVERIFY(layer->selectedFeatureIds().isEmpty());
+    QVERIFY(f.work.setDisplayMode(draft, "facies", &error));
+    QCOMPARE(selection.target().featureUid, target.featureUid); // display refresh preserves graph research target
+    const auto projectPath = f.project.projectPath();
+    QVERIFY(f.project.writeProject());
+    f.project.closeProject(); QVERIFY(selection.target().isEmpty());
+    QVERIFY(f.project.openProject(projectPath));
+    QTRY_COMPARE(selection.target().featureUid, target.featureUid);
+    auto *reloaded = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft)); QVERIFY(reloaded);
+    const auto restored = MappingFeatureIdentity::find(reloaded, target.featureUid); QVERIFY(restored.isValid());
+    reloaded->selectByIds({restored.id()});
+    QCOMPARE(interaction.snapshot().value("feature_uid").toString(), target.featureUid);
     QSignalSpy failures(&interaction, &EvidenceInteraction::navigationFailed);
     graphNode.insert("horizon", "Other"); graphNode.insert("project_id", "OtherProject");
-    interaction.navigate(graphNode); QVERIFY(failures.count() > 0);
+    interaction.navigateGraphNode(graphNode); interaction.navigate(graphNode); QVERIFY(failures.count() >= 2);
     QCOMPARE(selection.target().featureUid, target.featureUid);
     selection.setActiveHorizon("Other"); QVERIFY(selection.target().isEmpty());
     f.project.closeProject(); QVERIFY(selection.target().isEmpty());
+  }
+  void repeatedNativeMergesKeepOneParentTreeAndReopenableHistory() {
+    Fixture f; QVERIFY(f.init()); QString error;
+    const auto draft = hierarchyDraft(f, &error); QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft)); QVERIFY(layer);
+    QgsFeature survivor, candidate; auto features = layer->getFeatures();
+    while (features.nextFeature(candidate)) if (!survivor.isValid() || candidate.geometry().boundingBox().xMaximum() > survivor.geometry().boundingBox().xMaximum()) survivor = candidate;
+    features.close(); QVERIFY(survivor.isValid());
+    QVERIFY(layer->startEditing()); const auto fid = survivor.id();
+    for (int n = 0; n < 20; ++n) {
+      const auto current = layer->getFeature(fid); const auto box = current.geometry().boundingBox();
+      QgsFeature adjacent(layer->fields()); adjacent.setAttribute("facies_code", current.attribute("facies_code"));
+      adjacent.setGeometry(QgsGeometry::fromRect(QgsRectangle(box.xMaximum(), box.yMinimum(), box.xMaximum() + 100, box.yMaximum())));
+      layer->beginEditCommand("new neighbouring interpretation"); QVERIFY(layer->addFeature(adjacent)); layer->endEditCommand();
+      const auto before = layer->getFeature(fid); const auto parentUid = MappingFeatureIdentity::uid(before);
+      const auto neighbourUid = MappingFeatureIdentity::uid(layer->getFeature(adjacent.id()));
+      auto united = before.geometry().combine(layer->getFeature(adjacent.id()).geometry()); QVERIFY(!united.isEmpty());
+      layer->beginEditCommand("native merge"); QVERIFY(layer->changeGeometry(fid, united)); QVERIFY(layer->deleteFeature(adjacent.id())); layer->endEditCommand();
+      const auto merged = layer->getFeature(fid); QVERIFY(MappingFeatureIdentity::uid(merged) != parentUid);
+      const auto parents = QJsonDocument::fromJson(merged.attribute(MappingFeatureIdentity::ParentsField).toString().toUtf8()).toVariant().toList();
+      QVERIFY(parents.contains(parentUid)); QVERIFY(parents.contains(neighbourUid));
+      QVERIFY2(layer->property("paleo.evidenceEditFailure").toString().isEmpty(),
+               qPrintable(layer->property("paleo.evidenceEditFailure").toString()));
+      QVariantMap interpretation; QVERIFY2(paleo::evidence::decodeInterpretation(merged.attribute("paleo_interpretation").toString(), &interpretation, &error), qPrintable(error));
+      QVERIFY(!interpretation.contains("inherited_interpretation")); QCOMPARE(interpretation.value("parent_interpretations").toList().size(), 2);
+      // Parent trees grow with actual edits, never double merely because the
+      // surviving parent appears in two top-level fields.
+      QVERIFY(merged.attribute("paleo_interpretation").toString().size() < (n + 1) * 20000);
+    }
+    QVERIFY2(layer->commitChanges(), qPrintable(layer->commitErrors().join(';')));
+    QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
+    const auto version = f.work.versionForLayer(draft);
+    QgsVectorLayer reopened(DataCatalog::resolvedVersionPath(f.dir.path(), version) + "|layername=features", "merged snapshot", "ogr"); QVERIFY(reopened.isValid());
+    const auto saved = MappingFeatureIdentity::find(&reopened, MappingFeatureIdentity::uid(layer->getFeature(fid))); QVERIFY(saved.isValid());
+    QVariantMap interpretation; QVERIFY(paleo::evidence::decodeInterpretation(saved.attribute("paleo_interpretation").toString(), &interpretation, &error));
+    QCOMPARE(interpretation.value("parent_interpretations").toList().size(), 2);
+    const auto qaDir = qEnvironmentVariable("PALEO_EVIDENCE_QA_DIR");
+    if (!qaDir.isEmpty()) {
+      QDir().mkpath(qaDir); layer->selectByIds({fid});
+      MappingWorkbenchPage page("compose", &f.work); page.setHorizon("D61"); page.selectLayer(draft);
+      auto *group = page.findChild<QWidget *>("workbenchEvidence"); QVERIFY(group);
+      page.resize(520, 1800); page.show(); QCoreApplication::processEvents();
+      auto *tabs = page.findChild<QTabWidget *>("faciesEvidenceTabs"); QVERIFY(tabs);
+      for (int n = 0; n < tabs->count(); ++n) { tabs->setCurrentIndex(n); QCoreApplication::processEvents(); QVERIFY(group->grab().save(qaDir + QString("/evidence-tab-%1.png").arg(n))); }
+    }
+  }
+  void rejectedSpatialBindingDoesNotRegisterSourceOrMutateTarget() {
+    Fixture f; QVERIFY(f.init()); QString error;
+    const auto draft = hierarchyDraft(f, &error); QVERIFY(!draft.isEmpty());
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft)); QVERIFY(layer);
+    auto features = layer->getFeatures(); QgsFeature feature; QVERIFY(features.nextFeature(feature)); features.close();
+    const auto versions = f.catalog.versions().size(); const auto sequence = f.catalog.mutationSeq();
+    const auto original = feature.attribute("facies_evidence").toString();
+    const auto artifacts = QDir(f.dir.filePath("artifacts/staging")).entryList(QDir::Files | QDir::NoDotAndDotDot);
+    QVERIFY(!f.work.addEvidence(draft, {feature.id()}, {{"text", "不存在的图元"}, {"source_layer", "input.grid"},
+      {"source_feature_uid", "no-such-uid"}, {"actor_id", "local:user"}, {"reason", "检验失败路径"}}, &error));
+    QCOMPARE(f.catalog.versions().size(), versions); QCOMPARE(f.catalog.mutationSeq(), sequence);
+    QCOMPARE(layer->getFeature(feature.id()).attribute("facies_evidence").toString(), original); QVERIFY(!layer->isEditable());
+    QCOMPARE(QDir(f.dir.filePath("artifacts/staging")).entryList(QDir::Files | QDir::NoDotAndDotDot), artifacts);
+    QVERIFY(!f.work.changeEvidence(draft, {feature.id()}, "review", {{"expected_revision", .5}, {"status", "Confirmed"},
+      {"actor_id", "local:user"}, {"reason", "非法修订号"}}, &error));
+    QCOMPARE(f.catalog.mutationSeq(), sequence);
+  }
+  void constraintSnapshotKeepsDeletionAudit() {
+    Fixture f; QVERIFY(f.init()); QString error;
+    QVERIFY2(f.constraints.addConstraint("D61", "LINESTRING(0 0,10 0)", "direction_line", 1, &error), qPrintable(error));
+    QVERIFY2(f.constraints.addConstraint("D61", "LINESTRING(0 1,10 1)", "break_line", 2, &error), qPrintable(error));
+    const auto rows = f.constraints.loadConstraints("D61"); QCOMPARE(rows.size(), 2);
+    const auto removed = rows.first().value("id").toString();
+    auto *store = f.constraints.constraintStore(); QVERIFY(store);
+    QVERIFY(store->setAuditContext({"local:geologist", "删除误绘约束", "op-delete", "edit"}, &error));
+    QVERIFY2(store->remove(removed, &error), qPrintable(error));
+    QCOMPARE(f.constraints.loadConstraints("D61").size(), 1);
+    const auto layerId = f.work.snapshotConstraints("D61", {}, &error);
+    QVERIFY2(!layerId.isEmpty(), qPrintable(error));
+    const auto version = f.work.versionForLayer(layerId);
+    QCOMPARE(version.extra.value("constraint_audit_events").toInt(), 3);
+    const auto path = DataCatalog::resolvedVersionPath(f.dir.path(), version);
+    ConstraintStore snapshotStore(path);
+    const auto deleted = snapshotStore.history(removed);
+    QCOMPARE(deleted.size(), 2);
+    QVERIFY(deleted.first().value("deleted").toBool());
+    QCOMPARE(deleted.first().value("actor_id").toString(), QString("local:geologist"));
+    QCOMPARE(snapshotStore.historyForHorizon("D61").size(), 3);
+    QCOMPARE(f.constraints.loadConstraints("D61").size(), 1);
   }
   void linkedCanvasesFollowExtentCursorAndCanDisconnect() {
     QgsMapCanvas main, reference;

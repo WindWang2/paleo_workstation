@@ -340,7 +340,7 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
       const QVariant zv = f.attribute( fieldIdx );
       bool ok = false;
       const double z = zv.toDouble( &ok );
-      if ( !ok || !std::isfinite( z ) )
+      if ( zv.isNull() || !ok || !std::isfinite( z ) )
         continue; // skip non-numeric and NaN/Inf rather than poison the grid
       samples.push_back( { p.x(), p.y(), z } );
     }

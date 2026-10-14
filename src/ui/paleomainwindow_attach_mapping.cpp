@@ -52,6 +52,16 @@ void PaleoMainWindow::attachMapping(MappingWorkflow *mapping, MapVersionControll
   attachMappingPublishGate(composePage, versions, versionStore, projectData, catalog);
   attachMappingExport(composePage, mapping, versionStore, projectData, catalog);
   attachMappingVersions(composePage, versions);
+  connect(composePage, &ComposePage::cancelSnapshotRequested, versions, &MapVersionController::cancelSnapshot);
+  connect(versions, &MapVersionController::snapshotFinished, this,
+          [this, composePage](const QString &h, const QString &operation, bool success, bool cancelled, const QString &error) {
+    if (m_selection && m_selection->activeHorizon() == h) {
+      if (auto *label = composePage->findChild<QLabel *>("statusLabel"))
+        label->setText(success ? operation == "save" ? tr("成果版本已保存") : tr("成果快照已发布") :
+            cancelled ? tr("快照任务已取消，原成果保持不变") : error);
+    }
+    if (m_refreshPublishGate) m_refreshPublishGate();
+  });
   if (m_mapBookCtl)
     m_mapBookCtl->setCatalog(catalog); // #148：逐版产物登记进 catalog
 
@@ -88,10 +98,11 @@ void PaleoMainWindow::attachMappingPublishGate(ComposePage *composePage,
   // 发布门（§177/§260）：版本行上的 PDF 资产 id + 逐井残差摘要完整性共同
   // 决定按钮状态；tooltip 写缺的那条。导出成功 / 保存 / 发布 / 验证跑完 /
   // 工程打开后都重算 —— 门是「当前状态」而不是一次性开关。
-  const auto refreshPublishGate = [this, versionStore, projectData, catalog]() {
+  const auto refreshPublishGate = [this, versions, versionStore, projectData, catalog]() {
     auto *page = findChild<ComposePage *>();
     if (!page)
       return;
+    page->setSnapshotBusy(versions->snapshotBusy());
     const QString h = m_selection ? m_selection->activeHorizon() : QString();
     const MapVersion v = (versionStore && !h.isEmpty()) ? versionStore->latest(h)
                                                        : MapVersion();
@@ -110,6 +121,7 @@ void PaleoMainWindow::attachMappingPublishGate(ComposePage *composePage,
         btn->setToolTip(btn->toolTip().isEmpty()
                             ? advisory
                             : btn->toolTip() + QLatin1Char('\n') + advisory);
+    page->setSnapshotBusy(versions->snapshotBusy());
   };
   m_refreshPublishGate = refreshPublishGate;
 
@@ -150,12 +162,7 @@ void PaleoMainWindow::attachMappingPublishGate(ComposePage *composePage,
             if (!proceed)
               return;
             QString err;
-            const QString dir = versions->publish(h, summary, &err);
-            if (!dir.isEmpty())
-            {
-              status(tr("已发布：%1 v%2 → %3").arg(h).arg(v.version).arg(dir));
-              composePage->setVersionState(v.version, true);
-            }
+            if (versions->startPublish(h, summary, &err)) status(tr("正在准备发布快照，可在任务中心查看进度或取消"));
             else
               status(err.isEmpty() ? tr("发布失败") : err);
             if (m_refreshPublishGate) m_refreshPublishGate();
@@ -349,12 +356,7 @@ void PaleoMainWindow::attachMappingVersions(ComposePage *composePage,
             provenance.insert(QStringLiteral("saved_from"),
                               QStringLiteral("compose_page"));
             QString err;
-            const MapVersion v = versions->saveVersion(h, provenance, &err);
-            if (v.version > 0)
-            {
-              status(tr("已保存版本：%1 v%2").arg(h).arg(v.version));
-              composePage->setVersionState(v.version, false);
-            }
+            if (versions->startSaveVersion(h, provenance, &err)) status(tr("正在保存成果快照，可在任务中心查看进度或取消"));
             else
               status(err.isEmpty() ? tr("保存版本失败") : err);
             if (m_refreshPublishGate) m_refreshPublishGate();

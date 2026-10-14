@@ -104,10 +104,23 @@ bool revise(const QVariantList &records, const QVariantMap &interpretation,
   auto i = interpretation;
   if (!i.isEmpty() && (i.value("feature_uid").toString() != uid || i.value("horizon").toString() != target.value("horizon").toString()))
     return fail(error, tr("解释与要素身份或层位不一致，请复核来源"));
-  const quint64 before = i.value("revision", 0).toULongLong();
+  quint64 before = i.value("revision", 0).toULongLong();
   if (before != expectedRevision) return fail(error, tr("解释已被更新，请刷新后重试"));
-  if (i.value("status").toString() == "Superseded") return fail(error, tr("已替代解释只读，请在新版本修订"));
-  if (i.value("history").toList().size() >= 10000) return fail(error, tr("解释历史达到容量上限，请保存为新成果版本"));
+  if (i.value("status").toString() == "Superseded" || i.value("history").toList().size() >= 10000) {
+    const auto oldHistory = i.value("history").toList();
+    const auto lastVersion = oldHistory.isEmpty() ? QString() : oldHistory.last().toMap().value("version_id").toString();
+    const auto savedVersion = target.value("version_id").toString();
+    if (lastVersion.isEmpty() || savedVersion.isEmpty() || lastVersion == savedVersion)
+      return fail(error, tr("已替代解释或历史容量上限只读；请保存新成果版本后在其编辑副本修订"));
+    // The target already has a distinct immutable saved snapshot. Fork only
+    // on this explicit business change, inside its native undo transaction.
+    // Never reset or rewrite the parent's audit events or published bytes.
+    const auto parent = i;
+    i = {{"id", id()}, {"assertion_id", id()}, {"feature_uid", uid}, {"horizon", target.value("horizon")},
+      {"status", "Proposed"}, {"revision", 0}, {"parent_interpretation_id", parent.value("id")},
+      {"parent_version_id", savedVersion}, {"inherited_interpretation", parent}};
+    before = 0;
+  }
   if (i.isEmpty()) i = {{"id", id()}, {"assertion_id", id()}, {"feature_uid", uid}, {"horizon", target.value("horizon")}, {"status", "Proposed"}, {"revision", 0}};
   const auto beforeState = i;
   QVariantList next = records;
@@ -129,6 +142,7 @@ bool revise(const QVariantList &records, const QVariantMap &interpretation,
     r.insert("id", key); r.insert("evidence_id", key); r.insert("text", text);
     r.insert("role", r.value("role", "REFERENCES")); r.insert("type", r.value("type", "manual"));
     r.insert("verification", "Unverified"); r.insert("revision", 1);
+    r.insert("origin", "manual_interpretation");
     r.insert("feature_uid", uid); r.insert("horizon", target.value("horizon"));
     r.insert("geometry_hash", target.value("geometry_hash")); r.insert("facies_schema_hash", target.value("facies_schema_hash"));
     r.insert("actor_id", actor.trimmed()); r.insert("created_at", QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs));
@@ -142,6 +156,15 @@ bool revise(const QVariantList &records, const QVariantMap &interpretation,
     if (action == "unlink") r.insert("unlinked", true);
     if (action == "update_evidence") {
       if (change.contains("role")) r.insert("role", change.value("role"));
+      if (change.contains("source_feature_uid")) {
+        r.insert("source_feature_uid", change.value("source_feature_uid"));
+        r.insert("source_feature_missing", false);
+        r.insert("source_feature_horizon", change.value("source_feature_horizon"));
+        if (change.contains("spatial_intersection")) r.insert("spatial_intersection", change.value("spatial_intersection"));
+        else r.remove("spatial_intersection");
+        r.insert("geometry_hash", target.value("geometry_hash"));
+        r.insert("verification", "Unverified");
+      }
       if (change.contains("text")) {
         const auto text = change.value("text").toString().trimmed();
         if (text.isEmpty() || text.size() > 10000) return fail(error, tr("证据说明须为 1–10000 字"));
@@ -169,14 +192,32 @@ bool revise(const QVariantList &records, const QVariantMap &interpretation,
   i.insert("facies_schema_hash", target.value("facies_schema_hash"));
   i.insert("facies_code", target.value("facies_code", i.value("facies_code")));
   QVariantList history = i.value("history").toList();
-  auto beforeData = beforeState; beforeData.remove("history");
-  auto afterData = i; afterData.remove("history");
+  const auto stateSummary = [](QVariantMap state) {
+    state.remove("history"); state.remove("inherited_interpretation"); state.remove("parent_interpretations");
+    return state;
+  };
+  auto beforeData = stateSummary(beforeState);
+  auto afterData = stateSummary(i);
   QVariantMap event{{"event_id", id()}, {"operation_id", change.value("operation_id", id())},
     {"target_object_id", i.value("id")}, {"target_object_type", "Interpretation"}, {"feature_uid", uid},
     {"version_id", target.value("version_id")}, {"action", action}, {"before_revision", before}, {"after_revision", before + 1},
     {"actor_id", actor.trimmed()}, {"reason", reason.trimmed()}, {"timestamp", QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)},
     {"linked_evidence_ids", linked}, {"before", beforeData}, {"after", afterData}};
-  event.insert("change", change);
+  auto eventChange = change;
+  if (action == "edit" && eventChange.value("before").typeId() == QMetaType::QVariantMap) {
+    auto nativeBefore = eventChange.value("before").toMap();
+    // The journal already retains its prior events and inherited parents.
+    // Embedding the complete prior JSON in every spatial event recursively
+    // doubles persisted history. Keep the native geometry and revision identity;
+    // complete deletion/merge snapshots belong to version spatial_edit_events.
+    const auto raw = nativeBefore.value("interpretation");
+    const auto previous = raw.typeId() == QMetaType::QVariantMap ? raw.toMap() :
+        QJsonDocument::fromJson(raw.toString().toUtf8()).toVariant().toMap();
+    nativeBefore.insert("interpretation", stateSummary(previous));
+    nativeBefore.remove("evidence");
+    eventChange.insert("before", nativeBefore);
+  }
+  event.insert("change", eventChange);
   if (!previousRecord.isEmpty()) event.insert("before_record", previousRecord);
   if (!afterRecord.isEmpty()) event.insert("after_record", afterRecord);
   history << event; i.insert("history", history);
@@ -193,11 +234,18 @@ QVariantList check(const QVariantList &records, const QVariantMap &interpretatio
   for (const auto &value : records) {
     const auto r = value.toMap(); if (r.value("unlinked").toBool()) continue;
     if (r.value("source_missing").toBool()) add("Blocking", "missing_source", r, tr("引用的来源版本已不存在"));
+    if (r.value("source_feature_missing").toBool()) add("Blocking", "missing_source_feature", r, tr("引用的来源图元不存在或稳定身份重复"));
     if (!r.value("horizon").toString().isEmpty() && r.value("horizon") != target.value("horizon")) add("Blocking", "horizon_mismatch", r, tr("证据层位与解释层位不一致"));
     if (!r.value("source_horizon").toString().isEmpty() && r.value("source_horizon") != target.value("horizon")) add("Blocking", "source_horizon_mismatch", r, tr("来源数据属于其他层位"));
+    if (!r.value("source_feature_horizon").toString().isEmpty() && r.value("source_feature_horizon") != target.value("horizon")) add("Blocking", "source_feature_horizon_mismatch", r, tr("来源图元属于其他层位"));
     if (!r.value("geometry_hash").toString().isEmpty() && r.value("geometry_hash") != target.value("geometry_hash")) add("Warning", "geometry_changed", r, tr("关联后几何已改变，空间适用范围需复核"));
     if (!r.value("facies_schema_hash").toString().isEmpty() && r.value("facies_schema_hash") != target.value("facies_schema_hash")) add("Warning", "classification_changed", r, tr("相分类表已改变，解释适用性需复核"));
     if (r.value("source_stale").toBool()) add("Warning", "stale_source", r, tr("来源已有更新或被标记过期；保留当时版本引用"));
+    else if (!r.value("source_current_version").toString().isEmpty() && r.value("source_current_version") != r.value("source_version"))
+      add("Warning", "newer_source_version", r, tr("来源资产已有较新版本；本解释仍引用当时的旧版本"));
+    if (!r.value("source_facies_schema_hash").toString().isEmpty() && !target.value("facies_schema_hash").toString().isEmpty() &&
+        r.value("source_facies_schema_hash") != target.value("facies_schema_hash"))
+      add("Warning", "source_classification_mismatch", r, tr("来源相分类表与当前解释不同，不能直接比较相编码"));
     if (r.contains("spatial_intersection") && !r.value("spatial_intersection").toBool()) add("Warning", "outside_extent", r, tr("来源有效范围与图斑范围不相交"));
     if (r.value("role").toString() == "CONTRADICTED_BY") add("Warning", "contradicting_evidence", r, tr("保留反驳证据，请查看争议来源"));
     if (r.value("verification").toString() == "Disputed") add("Warning", "disputed_observation", r, tr("数据观察本身存在争议"));

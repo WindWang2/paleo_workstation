@@ -197,12 +197,12 @@ void DataGraphWorkflow::exportGraph(const paleo::datagraph::Graph &graph,
                                                     query](PaleoTask *task) {
         task->reportStage(QStringLiteral("encode"), 5);
         const QStringList nodeKinds{"entity",   "asset", "version",
-                                    "activity", "group", "missing"};
+                                    "activity", "group", "missing", "evidence", "assertion", "interpretation", "feature"};
         const QStringList relations{"linked",   "has_version", "derived",
                                     "used",     "generated",   "edit_baseline",
-                                    "rollback", "grouped"};
+                                    "rollback", "grouped", "supported_by", "contradicted_by", "constrained_by", "references", "informs", "materializes"};
         const QStringList modes{"overview", "relations", "lineage",
-                                "entities"};
+                                "entities", "impact"};
         QVariantList nodes, edges;
         for (const auto &n : graph.nodes) {
           if (task->cancelRequested())
@@ -224,6 +224,9 @@ void DataGraphWorkflow::exportGraph(const paleo::datagraph::Graph &graph,
                            {"stale", n.stale},
                            {"unresolved", n.unresolved},
                            {"cycle", n.cycle},
+                           {"feature_uid", n.featureUid}, {"evidence_id", n.evidenceId},
+                           {"assertion_id", n.assertionId}, {"interpretation_id", n.interpretationId},
+                           {"horizon", n.horizon}, {"layer_id", n.layerId}, {"dependency_depth", n.dependencyDepth},
                            {"evidence", n.evidence}};
           nodes.append(node);
         }
@@ -249,7 +252,10 @@ void DataGraphWorkflow::exportGraph(const paleo::datagraph::Graph &graph,
                                   {"stage", query.stage},
                                   {"search", query.search},
                                   {"history", query.history},
-                                  {"depth", query.depth}}},
+                                  {"depth", query.depth}, {"horizon", query.horizon},
+                                  {"evidence_type", query.evidenceType}, {"review_state", query.reviewState},
+                                  {"evidence_offset", query.evidenceOffset}, {"evidence_limit", query.evidenceLimit},
+                                  {"max_traversal_edges", query.maxTraversalEdges}}},
             {"nodes", nodes},
             {"edges", edges},
             {"total_assets", graph.totalAssets},
@@ -257,6 +263,7 @@ void DataGraphWorkflow::exportGraph(const paleo::datagraph::Graph &graph,
             {"total_entities", graph.totalEntities},
             {"hidden_nodes", graph.hidden},
             {"hidden_edges", graph.hiddenEdges},
+            {"work_truncated", graph.workTruncated}, {"examined_edges", graph.examinedEdges},
             {"message", graph.message}};
         const auto bytes = QJsonDocument::fromVariant(document).toJson(
             QJsonDocument::Indented);

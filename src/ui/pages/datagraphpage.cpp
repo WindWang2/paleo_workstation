@@ -435,7 +435,7 @@ DataGraphPage::DataGraphPage(QWidget *parent)
             m_cancel->setEnabled(busy);
             m_view->setEnabled(!busy);
             if (busy)
-              for (auto *b : {m_open, m_locate, m_folder, m_trace, m_related,
+              for (auto *b : {m_open, m_locate, m_folder, m_trace, m_impact, m_related,
                               m_map, m_reference, m_wells, m_manage})
                 b->setEnabled(false);
             else

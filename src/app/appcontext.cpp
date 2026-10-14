@@ -369,6 +369,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   m_versionCtl = new MapVersionController(m_versionStore, m_layerSvc, this);
   m_versionCtl->setEditingService(m_editSvc);
   m_versionCtl->setProjectStore(m_store);
+  m_versionCtl->setTaskService(m_taskSvc);
   // releaseHorizon 遇编辑中图层时经服务回滚（busy 随会话释放）——与
   // versionCtl 同一编辑服务实例。
   m_layerSvc->setEditingService(m_editSvc);
@@ -386,6 +387,8 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   });
   connect(m_projectSvc, &QgisProjectService::projectAboutToClose, this, [this]() {
     m_projectLayerRefresh->cancel();
+    if (m_versionCtl)
+      m_versionCtl->abandonForProjectClose();
     if (m_taskSvc)
       m_taskSvc->beginNewSession();
   });

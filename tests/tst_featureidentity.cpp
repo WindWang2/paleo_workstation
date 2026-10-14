@@ -264,6 +264,96 @@ private slots:
     layer->undoStack()->undo(); QCOMPARE(layer->featureCount(), qint64(2));
     QCOMPARE(uid(layer->getFeature(original.id())), uid(original));
   }
+  void temporaryChildHistoryResolvesAfterRealGpkgCommit_data() {
+    QTest::addColumn<bool>("split");
+    QTest::newRow("create") << false;
+    QTest::newRow("split") << true;
+  }
+  void temporaryChildHistoryResolvesAfterRealGpkgCommit() {
+    QFETCH(bool, split);
+    QTemporaryDir directory; QString error; auto source = polygons();
+    const auto path = directory.filePath("working.gpkg");
+    QVERIFY2(MappingArtifactWriter::vectorSnapshot(source.get(), path, &error), qPrintable(error));
+    QgsVectorLayer layer(path + "|layername=features", "working", "ogr");
+    QVERIFY(layer.isValid()); auto *observer = Observer::attach(&layer, &error);
+    QVERIFY2(observer, qPrintable(error));
+    const auto original = first(&layer);
+    QVERIFY(layer.startEditing()); layer.selectByIds({original.id()});
+    layer.beginEditCommand(split ? "first split" : "create new polygon");
+    QgsFeature child(layer.fields()); child.setAttribute("facies_code", 1);
+    if (split) {
+      QVERIFY(changeGeometry(&layer, original.id(), QgsGeometry::fromWkt("POLYGON((0 0,5 0,5 10,0 10,0 0))")));
+      child = original;
+      // GPKG's provider primary key is not a copied business identity.
+      if (layer.fields().indexOf("fid") >= 0) child.setAttribute("fid", QVariant());
+    }
+    child.setGeometry(QgsGeometry::fromWkt("POLYGON((5 0,10 0,10 10,5 10,5 0))"));
+    QVERIFY(layer.addFeature(child)); QVERIFY(child.id() < 0); layer.endEditCommand();
+    const auto temporary = layer.getFeature(child.id()); const auto childUid = uid(temporary);
+    QVERIFY(!childUid.isEmpty());
+    layer.selectByIds({child.id()}); layer.beginEditCommand("second command changes temporary child");
+    QVERIFY(changeGeometry(&layer, child.id(), QgsGeometry::fromWkt("POLYGON((5 0,9 0,9 10,5 10,5 0))")));
+    layer.endEditCommand(); const auto afterHash = geometryFingerprint(layer.getFeature(child.id()));
+    QVERIFY2(layer.commitChanges(), qPrintable(layer.commitErrors().join(";")));
+    const auto committed = find(&layer, childUid); QVERIFY(committed.isValid()); QVERIFY(committed.id() >= 0);
+    bool found = false;
+    for (const auto &value : observer->changes()) {
+      const auto change = value.toMap();
+      if (change.value("initial_feature").toMap().value("feature_uid").toString() != childUid) continue;
+      found = true; QVERIFY(!change.value("deleted").toBool());
+      QCOMPARE(change.value("before_uid").toString(), childUid);
+      QCOMPARE(change.value("after_uid").toString(), childUid);
+      QCOMPARE(change.value("after_fingerprint").toString(), afterHash);
+      QCOMPARE(change.value("initial_feature").toMap().value("geometry_hash").toString(), geometryFingerprint(temporary));
+    }
+    QVERIFY(found);
+    const auto snapshotPath = directory.filePath("version.gpkg");
+    QVERIFY2(MappingArtifactWriter::vectorSnapshot(&layer, snapshotPath, &error), qPrintable(error));
+    QgsVectorLayer reopened(snapshotPath + "|layername=features", "version", "ogr"); QVERIFY(reopened.isValid());
+    QCOMPARE(geometryFingerprint(find(&reopened, childUid)), afterHash);
+    QCOMPARE(find(&reopened, childUid).attribute(ParentsField), committed.attribute(ParentsField));
+    observer->acknowledge(); QVERIFY(observer->changes().isEmpty());
+  }
+  void consecutiveRealGpkgSplitsKeepImmediateParentsAndRootLineage() {
+    QTemporaryDir directory; QString error; auto source = polygons();
+    const auto path = directory.filePath("split.gpkg");
+    QVERIFY(MappingArtifactWriter::vectorSnapshot(source.get(), path, &error));
+    QgsVectorLayer layer(path + "|layername=features", "split", "ogr");
+    QVERIFY(layer.isValid()); QVERIFY2(Observer::attach(&layer, &error), qPrintable(error));
+    const auto original = first(&layer); const auto rootUid = uid(original);
+    QVERIFY(layer.startEditing()); layer.selectByIds({original.id()});
+    layer.beginEditCommand("split root");
+    QVERIFY(changeGeometry(&layer, original.id(), QgsGeometry::fromWkt("POLYGON((0 0,5 0,5 10,0 10,0 0))")));
+    QgsFeature child(original); child.setAttribute("fid", QVariant());
+    child.setGeometry(QgsGeometry::fromWkt("POLYGON((5 0,10 0,10 10,5 10,5 0))"));
+    QVERIFY(layer.addFeature(child)); layer.endEditCommand();
+    const auto directParent = layer.getFeature(child.id()); const auto parentUid = uid(directParent);
+    QVERIFY(parentUid != rootUid);
+    layer.selectByIds({child.id()}); layer.beginEditCommand("split child again");
+    QVERIFY(changeGeometry(&layer, child.id(), QgsGeometry::fromWkt("POLYGON((5 0,7 0,7 10,5 10,5 0))")));
+    QgsFeature grandchild(directParent); grandchild.setAttribute("fid", QVariant());
+    grandchild.setGeometry(QgsGeometry::fromWkt("POLYGON((7 0,10 0,10 10,7 10,7 0))"));
+    QVERIFY(layer.addFeature(grandchild)); layer.endEditCommand();
+    const auto leftUid = uid(layer.getFeature(child.id())), rightUid = uid(layer.getFeature(grandchild.id()));
+    QVERIFY(leftUid != parentUid); QVERIFY(rightUid != parentUid); QVERIFY(leftUid != rightUid);
+    for (const auto fid : {child.id(), grandchild.id()}) {
+      const auto feature = layer.getFeature(fid);
+      QCOMPARE(QJsonDocument::fromJson(feature.attribute(ParentsField).toString().toUtf8()).toVariant().toList(), QVariantList{parentUid});
+      QCOMPARE(QJsonDocument::fromJson(feature.attribute(RootsField).toString().toUtf8()).toVariant().toList(), QVariantList{rootUid});
+    }
+    layer.undoStack()->undo(); QCOMPARE(uid(layer.getFeature(child.id())), parentUid);
+    QVERIFY(!layer.getFeature(grandchild.id()).isValid());
+    layer.undoStack()->redo(); QCOMPARE(uid(layer.getFeature(child.id())), leftUid);
+    QVERIFY2(layer.commitChanges(), qPrintable(layer.commitErrors().join(";")));
+    const auto version = directory.filePath("split-version.gpkg");
+    QVERIFY(MappingArtifactWriter::vectorSnapshot(&layer, version, &error));
+    QgsVectorLayer reopened(version + "|layername=features", "version", "ogr");
+    for (const auto &identity : {leftUid, rightUid}) {
+      const auto feature = find(&reopened, identity); QVERIFY(feature.isValid());
+      QCOMPARE(QJsonDocument::fromJson(feature.attribute(ParentsField).toString().toUtf8()).toVariant().toList(), QVariantList{parentUid});
+      QCOMPARE(QJsonDocument::fromJson(feature.attribute(RootsField).toString().toUtf8()).toVariant().toList(), QVariantList{rootUid});
+    }
+  }
   void exactNativeMergeHasAllParentsAndDeletedSnapshot() {
     auto layer = polygons(); QString error;
     auto *observer = Observer::attach(layer.get(), &error); QVERIFY2(observer, qPrintable(error));
@@ -534,14 +624,104 @@ private slots:
     QCoreApplication::processEvents();
     QCOMPARE(adapter.highlightedUid(), uid(feature));
   }
+  void spatialSnapshotAndExactCandidatesDoNotMutateSelection() {
+    auto layer = polygons(); QString error; QVERIFY(ensure(layer.get(), &error));
+    const auto feature = first(layer.get()); EvidenceMapAdapter adapter(nullptr); adapter.bindLayer(layer.get());
+    const auto snapshot = adapter.featureSnapshot(uid(feature), &error);
+    QCOMPARE(snapshot.value("state").toString(), QString("available"));
+    QCOMPARE(snapshot.value("feature_uid").toString(), uid(feature));
+    QCOMPARE(snapshot.value("geometry_hash").toString(), geometryFingerprint(feature));
+    QCOMPARE(snapshot.value("version_id").toString(), QString("version1"));
+    QVERIFY(!snapshot.value("wkb").toByteArray().isEmpty());
+    const auto target = [&](const QString &wkt) {
+      return QVariantMap{{"wkb", QgsGeometry::fromWkt(wkt).asWkb()}, {"crs_wkt", layer->crs().toWkt()}};
+    };
+    const auto local = adapter.spatialCandidates(target("POINT(1 1)"));
+    QCOMPARE(local.value("state").toString(), QString("intersects"));
+    QCOMPARE(local.value("features").toList().size(), 1);
+    const auto candidate = local.value("features").toList().first().toMap();
+    QCOMPARE(candidate.value("feature_uid").toString(), uid(feature));
+    QCOMPARE(candidate.value("identity_state").toString(), QString("stable"));
+    QCOMPARE(candidate.value("association_basis").toString(), QString("exact_geometry_intersection"));
+    QVERIFY(!candidate.contains("role")); QVERIFY(!candidate.contains("wkb"));
+    QCOMPARE(adapter.spatialCandidates(target("POINT(100 100)"), uid(feature)).value("state").toString(), QString("disjoint"));
+    QCOMPARE(adapter.spatialCandidates(target("POINT(1 1)"), "missing").value("state").toString(), QString("missing"));
+    QCOMPARE(adapter.featureSnapshot("missing").value("state").toString(), QString("missing"));
+    QCOMPARE(adapter.indexBuildCount(), 1);
+    QVERIFY(!layer->isEditable()); QVERIFY(layer->selectedFeatureIds().isEmpty()); QVERIFY(adapter.highlightedUid().isEmpty());
+    // Bounds overlap is deliberately insufficient: the triangle excludes (9,9).
+    QVERIFY(layer->startEditing());
+    QVERIFY(changeGeometry(layer.get(), feature.id(), QgsGeometry::fromWkt("POLYGON((0 0,10 0,0 10,0 0))")));
+    QVERIFY(layer->commitChanges());
+    QCOMPARE(adapter.spatialCandidates(target("POINT(9 9)"), uid(feature)).value("state").toString(), QString("disjoint"));
+    QCOMPARE(adapter.spatialCandidates(target("POINT(1 1)"), uid(feature)).value("state").toString(), QString("intersects"));
+    auto features = layer->getFeatures(); QgsFeature a, b;
+    QVERIFY(features.nextFeature(a)); QVERIFY(features.nextFeature(b)); features.close();
+    QVERIFY(layer->startEditing()); QVERIFY(layer->changeAttributeValue(b.id(), layer->fields().indexOf(UidField), uid(a)));
+    QCOMPARE(adapter.featureSnapshot(uid(a)).value("state").toString(), QString("ambiguous"));
+    QCOMPARE(adapter.spatialCandidates(target("POINT(1 1)"), uid(a)).value("state").toString(), QString("ambiguous"));
+    QVERIFY(layer->rollBack());
+  }
+  void spatialCandidatesTransformCrsAndFailHonestlyForUnknownScope() {
+    QgsVectorLayer layer("Point?crs=EPSG:3857&field=paleo_feature_uid:string", "projected", "memory");
+    QgsFeature feature(layer.fields()); feature.setAttribute(UidField, "projected-point");
+    feature.setGeometry(QgsGeometry::fromPointXY(QgsPointXY(111319.490793, 111325.142866)));
+    QgsFeatureList rows{feature}; QVERIFY(layer.dataProvider()->addFeatures(rows));
+    EvidenceMapAdapter adapter(nullptr); adapter.bindLayer(&layer);
+    QVariantMap target{{"wkb", QgsGeometry::fromWkt("POLYGON((0.999 0.999,1.001 0.999,1.001 1.001,0.999 1.001,0.999 0.999))").asWkb()},
+      {"crs_wkt", QgsCoordinateReferenceSystem("EPSG:4326").toWkt()}};
+    QCOMPARE(adapter.spatialCandidates(target, "projected-point").value("state").toString(), QString("intersects"));
+    target.insert("crs_wkt", "invalid crs"); QString error;
+    QCOMPARE(adapter.spatialCandidates(target, {}, 200, &error).value("state").toString(), QString("unknown")); QVERIFY(!error.isEmpty());
+    target.insert("crs_wkt", layer.crs().toWkt()); target.insert("wkb", QByteArray("invalid wkb"));
+    QCOMPARE(adapter.spatialCandidates(target).value("state").toString(), QString("unknown"));
+    EvidenceMapAdapter absent(nullptr);
+    QCOMPARE(absent.spatialCandidates(target).value("state").toString(), QString("unknown"));
+    auto legacy = polygons(); adapter.bindLayer(legacy.get());
+    target.insert("wkb", QgsGeometry::fromWkt("POINT(1 1)").asWkb());
+    QCOMPARE(adapter.spatialCandidates(target, "fictional-fid").value("state").toString(), QString("missing"));
+    const auto legacyRow = adapter.spatialCandidates(target).value("features").toList().first().toMap();
+    QCOMPARE(legacyRow.value("identity_state").toString(), QString("legacy_missing"));
+    legacy->setCrs(QgsCoordinateReferenceSystem());
+    QCOMPARE(adapter.spatialCandidates(target).value("state").toString(), QString("unknown"));
+  }
+  void spatialCandidatesAreBoundedAndRasterScopeIsExtentOnly() {
+    QgsVectorLayer layer("Point?crs=EPSG:3857&field=paleo_feature_uid:string", "bounded", "memory");
+    QgsFeatureList rows;
+    for (int n = 0; n < 250; ++n) {
+      QgsFeature feature(layer.fields()); feature.setAttribute(UidField, QString("point-%1").arg(n));
+      feature.setGeometry(QgsGeometry::fromPointXY(QgsPointXY(n, 1))); rows << feature;
+    }
+    QVERIFY(layer.dataProvider()->addFeatures(rows)); layer.updateExtents();
+    EvidenceMapAdapter adapter(nullptr); adapter.bindLayer(&layer);
+    const QVariantMap target{{"wkb", QgsGeometry::fromWkt("POLYGON((-1 0,300 0,300 20,-1 20,-1 0))").asWkb()},
+      {"crs_wkt", layer.crs().toWkt()}};
+    const auto limited = adapter.spatialCandidates(target, {}, 10);
+    QCOMPARE(limited.value("features").toList().size(), 10); QVERIFY(limited.value("truncated").toBool());
+    const auto capped = adapter.spatialCandidates(target, {}, 100000);
+    QCOMPARE(capped.value("features").toList().size(), 200); QVERIFY(capped.value("truncated").toBool());
+    QCOMPARE(adapter.indexBuildCount(), 1); QVERIFY(!layer.isEditable());
+    QTemporaryDir directory; const auto path = directory.filePath("extent.tif"); QString error;
+    QVERIFY(MappingArtifactWriter::raster(path, {1, 2, 3, 4}, 2, 2, QRectF(0, 0, 20, 20), &error));
+    QgsRasterLayer raster(path, "raster", "gdal"); QVERIFY(raster.isValid()); raster.setCrs(layer.crs());
+    const auto extent = adapter.spatialCandidates(&raster, target);
+    QCOMPARE(extent.value("state").toString(), QString("intersects"));
+    QCOMPARE(extent.value("scope").toString(), QString("raster_extent"));
+    QVERIFY(extent.value("features").toList().isEmpty());
+    QVERIFY(!extent.contains("role"));
+    QCOMPARE(adapter.spatialCandidates(&raster, target, "pixel-as-uid").value("state").toString(), QString("missing"));
+    QCOMPARE(adapter.layer(), &layer); // pure source query preserves the primary binding
+  }
   void editingLargeLayerDoesNotRebuildIdentityIndexPerCommand() {
     QgsVectorLayer layer("Point?crs=EPSG:3857&field=paleo_feature_uid:string&field=facies_code:integer", "large-working", "memory");
     QVERIFY(layer.dataProvider()->addAttributes({QgsField(ParentsField, QMetaType::Type::QString),
+                                                QgsField(RootsField, QMetaType::Type::QString),
                                                 QgsField(ReviewField, QMetaType::Type::Bool)}));
     layer.updateFields(); QgsFeatureList features; features.reserve(100000);
     for (int n = 0; n < 100000; ++n) {
       QgsFeature feature(layer.fields()); feature.setAttribute(UidField, QString("feature-%1").arg(n));
       feature.setAttribute("facies_code", 1); feature.setAttribute(ParentsField, "[]"); feature.setAttribute(ReviewField, false);
+      feature.setAttribute(RootsField, QString("[\"feature-%1\"]").arg(n));
       feature.setGeometry(QgsGeometry::fromPointXY(QgsPointXY(n, 0))); features << feature;
     }
     QVERIFY(layer.dataProvider()->addFeatures(features)); features.clear();

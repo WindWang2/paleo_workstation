@@ -11,6 +11,27 @@
 #include <qgsmapcanvas.h>
 #include <qgsrubberband.h>
 #include <qgsvectorlayer.h>
+#include <qgsexpression.h>
+#include <qgsrasterlayer.h>
+
+namespace {
+QVariantMap spatialFeature(const QgsFeature &feature, const QgsVectorLayer *layer) {
+  QVariantMap attributes;
+  for (const auto &name : {QStringLiteral("id"), QStringLiteral("well_id"), QStringLiteral("horizon"),
+                         QStringLiteral("facies_code"), QStringLiteral("type"), QStringLiteral("semantic")}) {
+    const int index = feature.fields().indexOf(name);
+    if (index >= 0) attributes.insert(name, feature.attribute(index));
+  }
+  const auto bounds = feature.geometry().boundingBox();
+  return {{"feature_uid", MappingFeatureIdentity::uid(feature)},
+      {"wkb", feature.geometry().asWkb()}, {"crs_wkt", layer->crs().toWkt()},
+      {"geometry_hash", MappingFeatureIdentity::geometryFingerprint(feature)},
+      {"bounds", QVariantList{bounds.xMinimum(), bounds.yMinimum(), bounds.xMaximum(), bounds.yMaximum()}},
+      {"attributes", attributes}, {"facies_code", attributes.value("facies_code")},
+      {"horizon", attributes.value("horizon")},
+      {"layer_id", layer->customProperty("paleoLayerId")}, {"version_id", layer->customProperty("paleoVersionId")}};
+}
+}
 
 EvidenceMapAdapter::EvidenceMapAdapter(QgsMapCanvas *canvas, QObject *parent)
     : QObject(parent), m_canvas(canvas) {
@@ -271,4 +292,129 @@ bool EvidenceMapAdapter::showPoint(double x, double y, const QString &sourceCrsW
     m_canvas->setExtent(extent); m_canvas->refresh();
   }
   return true;
+}
+QVariantMap EvidenceMapAdapter::featureSnapshot(const QString &featureUid, QString *error) {
+  const auto invalid = [error](const QString &state, const QString &message) {
+    if (error) *error = message;
+    return QVariantMap{{"state", state}, {"message", message}};
+  };
+  if (QThread::currentThread() != thread() || !m_layer || m_layer->thread() != QThread::currentThread())
+    return invalid("unknown", tr("空间快照需要在图层所属线程读取"));
+  if (!m_layer->isValid() || !m_layer->crs().isValid())
+    return invalid("unknown", tr("图层或坐标参考无效"));
+  rebuildIndex();
+  if (featureUid.isEmpty() || !m_index.contains(featureUid)) return invalid("missing", tr("稳定图元身份不存在"));
+  if (m_ambiguous.contains(featureUid)) return invalid("ambiguous", tr("稳定图元身份重复"));
+  const auto feature = m_layer->getFeature(m_index.value(featureUid));
+  if (!feature.isValid() || MappingFeatureIdentity::uid(feature) != featureUid)
+    return invalid("missing", tr("图层已更新，图元身份无法恢复"));
+  if (feature.geometry().isEmpty() || !feature.geometry().isGeosValid())
+    return invalid("unknown", tr("图元几何无效，不能确定空间关联"));
+  auto result = spatialFeature(feature, m_layer);
+  result.insert("state", "available"); result.insert("scope", "feature_geometry");
+  return result;
+}
+QVariantMap EvidenceMapAdapter::spatialCandidates(const QVariantMap &target, const QString &pinnedUid,
+                                                  int limit, QString *error) {
+  return spatialCandidates(m_layer.data(), target, pinnedUid, limit, error);
+}
+QVariantMap EvidenceMapAdapter::spatialCandidates(QgsMapLayer *source, const QVariantMap &target,
+                                                  const QString &pinnedUid, int limit, QString *error) {
+  QVariantMap result{{"state", "unknown"}, {"scope", "spatial_candidates"},
+      {"features", QVariantList{}}, {"unresolved", QVariantList{}}, {"truncated", false}};
+  const auto invalid = [&result, error](const QString &state, const QString &message) {
+    result.insert("state", state); result.insert("message", message);
+    if (error) *error = message;
+    return result;
+  };
+  if (QThread::currentThread() != thread() || !source || source->thread() != QThread::currentThread())
+    return invalid("unknown", tr("空间查询需要有效的所属线程图层"));
+  if (!source->isValid() || !source->crs().isValid()) return invalid("unknown", tr("来源图层或坐标参考无效"));
+  const auto targetCrs = QgsCoordinateReferenceSystem::fromWkt(target.value("crs_wkt").toString());
+  QgsGeometry geometry; geometry.fromWkb(target.value("wkb").toByteArray());
+  if (!targetCrs.isValid() || geometry.isEmpty() || !geometry.isGeosValid())
+    return invalid("unknown", tr("目标空间快照缺少有效的几何或坐标参考"));
+  try {
+    if (targetCrs != source->crs()) {
+      QgsCoordinateTransform transform(targetCrs, source->crs(), source->transformContext());
+      if (geometry.transform(transform) != Qgis::GeometryOperationResult::Success)
+        return invalid("unknown", tr("目标与来源坐标转换失败"));
+    }
+  } catch (const QgsCsException &) { return invalid("unknown", tr("目标与来源坐标转换失败")); }
+  result.insert("source_layer_id", source->customProperty("paleoLayerId"));
+  result.insert("source_version_id", source->customProperty("paleoVersionId"));
+  auto *vector = qobject_cast<QgsVectorLayer *>(source);
+  if (!vector) {
+    if (!qobject_cast<QgsRasterLayer *>(source)) return invalid("unknown", tr("该来源类型没有可核查的矢量或栅格空间范围"));
+    if (!pinnedUid.isEmpty()) return invalid("missing", tr("栅格来源没有可解析的矢量图元身份"));
+    result.insert("scope", "raster_extent");
+    result.insert("state", source->extent().isEmpty() ? "unknown"
+        : geometry.intersects(QgsGeometry::fromRect(source->extent())) ? "intersects" : "disjoint");
+    result.insert("message", tr("仅核查来源空间范围；不证明有效像元或地质支撑关系"));
+    return result;
+  }
+  const int budget = qBound(1, limit, 200), scanBudget = qMin(2000, budget * 5);
+  const int uidField = vector->fields().indexOf(MappingFeatureIdentity::UidField);
+  if (vector == m_layer && uidField >= 0) rebuildIndex();
+  QgsFeatureRequest request;
+  QgsAttributeList attributes;
+  for (const auto &name : {MappingFeatureIdentity::UidField, QStringLiteral("id"), QStringLiteral("well_id"),
+                         QStringLiteral("horizon"), QStringLiteral("facies_code"), QStringLiteral("type"), QStringLiteral("semantic")}) {
+    const int index = vector->fields().indexOf(name);
+    if (index >= 0) attributes << index;
+  }
+  request.setSubsetOfAttributes(attributes);
+  if (!pinnedUid.isEmpty()) {
+    if (uidField < 0) return invalid("missing", tr("来源图层没有稳定图元身份"));
+    if (vector == m_layer) {
+      rebuildIndex();
+      if (m_ambiguous.contains(pinnedUid)) return invalid("ambiguous", tr("来源图元身份重复"));
+      if (!m_index.contains(pinnedUid)) return invalid("missing", tr("引用的来源图元已不存在"));
+      request.setFilterFid(m_index.value(pinnedUid));
+    } else {
+      request.setFilterExpression(QStringLiteral("%1 = %2").arg(
+          QgsExpression::quotedColumnRef(MappingFeatureIdentity::UidField), QgsExpression::quotedString(pinnedUid)));
+      request.setLimit(2);
+    }
+  } else {
+    request.setFilterRect(geometry.boundingBox()); request.setLimit(scanBudget + 1);
+  }
+  auto iterator = vector->getFeatures(request); QgsFeature feature;
+  QVariantList matches, unresolved; QHash<QString, int> seen;
+  int scanned = 0;
+  while (iterator.nextFeature(feature)) {
+    if (!pinnedUid.isEmpty() && ++scanned > 1) return invalid("ambiguous", tr("来源图元身份重复"));
+    if (pinnedUid.isEmpty() && ++scanned > scanBudget) { result.insert("truncated", true); break; }
+    const auto identity = MappingFeatureIdentity::uid(feature);
+    if (!pinnedUid.isEmpty() && identity != pinnedUid) return invalid("missing", tr("来源图元身份已变化"));
+    if (feature.geometry().isEmpty() || !feature.geometry().isGeosValid()) {
+      unresolved << QVariantMap{{"feature_uid", identity}, {"state", "invalid_geometry"}}; continue;
+    }
+    if (!pinnedUid.isEmpty()) {
+      auto pinned = spatialFeature(feature, vector); pinned.remove("wkb");
+      result.insert("pinned_feature", pinned);
+    }
+    if (!geometry.intersects(feature.geometry())) continue;
+    if (matches.size() >= budget) { result.insert("truncated", true); break; }
+    auto candidate = spatialFeature(feature, vector);
+    candidate.remove("wkb"); // at most bounded facts cross the query boundary
+    candidate.insert("spatial_intersection", true); candidate.insert("association_basis", "exact_geometry_intersection");
+    if (identity.isEmpty()) candidate.insert("identity_state", "legacy_missing");
+    else if (m_layer == vector && m_ambiguous.contains(identity)) candidate.insert("identity_state", "ambiguous");
+    else if (seen.contains(identity)) {
+      candidate.insert("identity_state", "ambiguous");
+      auto previous = matches[seen.value(identity)].toMap(); previous.insert("identity_state", "ambiguous");
+      matches[seen.value(identity)] = previous;
+    } else {
+      seen.insert(identity, matches.size());
+      candidate.insert("identity_state", m_layer == vector ? "stable" : "unvalidated");
+    }
+    matches << candidate;
+  }
+  if (!pinnedUid.isEmpty() && scanned == 0) return invalid("missing", tr("引用的来源图元已不存在"));
+  result.insert("features", matches); result.insert("unresolved", unresolved); result.insert("scanned", scanned);
+  result.insert("state", !matches.isEmpty() ? "intersects"
+      : !unresolved.isEmpty() || result.value("truncated").toBool() ? "unknown" : "disjoint");
+  result.insert("message", tr("空间相交仅提供局部候选，不等同地质支持或确定影响范围"));
+  return result;
 }

@@ -5,6 +5,7 @@
 #include <QVector>
 
 #include "layermanifest.h"
+#include "mapsnapshot.h"
 
 // metadata/mapversionstore — 阶段E 版本状态机的落表（wave/mapping-pipeline；
 // PROJECT_AREA_PLAN 阶段E §177/§245/§260）。
@@ -94,6 +95,16 @@ class MapVersionStore
     // 最新版本标 Published、记录快照路径与残差摘要。返回快照目录。
     QString publish(const QString &horizon, const QVector<LayerDeclaration> &decls,
                     const QString &residualSummary, QString *error = nullptr);
+
+    // Three-stage snapshot contract: capture/commit run on the SQL owner thread;
+    // prepareMapSnapshot performs cancellable file work using value inputs only.
+    QString projectDirectory() const;
+    MapSnapshotInput snapshotInputForSave(const QString &horizon, const QString &provenanceJson,
+                                         const QVector<LayerDeclaration> &layers, QString *error = nullptr);
+    MapSnapshotInput snapshotInputForPublish(const QString &horizon, const QVector<LayerDeclaration> &layers,
+                                            const QString &residualSummary, QString *error = nullptr);
+    MapVersion commitPreparedVersion(PreparedMapSnapshot &snapshot, QString *error = nullptr);
+    QString commitPreparedPublication(PreparedMapSnapshot &snapshot, QString *error = nullptr);
 
     bool isPublished(const QString &horizon) const;
     QString publishedPath(const QString &horizon) const;     // 最新已发布快照

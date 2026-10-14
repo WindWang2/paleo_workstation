@@ -5,10 +5,12 @@
 #include "../domain/faciescatalog.h"
 #include "../domain/facieshierarchy.h"
 #include "../qgis/mappingfeatureidentity.h"
+#include "../qgis/evidencemapadapter.h"
 #include "../qgis/qgislayerservice.h"
 #include <QJsonDocument>
 #include <QSet>
 #include <QUuid>
+#include <cmath>
 #include <qgsvectorlayer.h>
 
 namespace {
@@ -114,6 +116,44 @@ QVariantMap MappingWorkbench::featureEvidence(const QString &id, const QList<qin
   for (auto it = t.cbegin(); it != t.cend(); ++it) out.insert(it.key(), it.value());
   QVariantList records; QVariantMap interpretation; QString error;
   if (!read(f, &records, &interpretation, &error)) { out.insert("error", error); return out; }
+  const QVariantMap spatialTarget{{"wkb", f.geometry().asWkb()}, {"crs_wkt", v->crs().toWkt()}};
+  int spatialWork = 0;
+  const auto spatial = [&](QVariantMap row) {
+    const auto sourceId = row.value("source_version", row.value("version_id")).toString();
+    const auto source = m_catalog ? m_catalog->versionById(sourceId) : CatalogVersion();
+    QString sourceLayer = "product." + sourceId;
+    auto *loaded = m_layers->layer(sourceLayer);
+    if (!loaded) {
+      const auto alias = row.value("source_layer", source.extra.value("layer_id")).toString();
+      if (!alias.isEmpty() && !alias.startsWith("draft.") && versionForLayer(alias).id == sourceId) {
+        auto *candidate = m_layers->layer(alias);
+        auto *vector = qobject_cast<QgsVectorLayer *>(candidate);
+        if (!vector || vector->readOnly()) { sourceLayer = alias; loaded = candidate; }
+      }
+    }
+    row.insert("spatial_state", "unknown");
+    if (!loaded || spatialWork >= 8) {
+      row.insert("spatial_message", loaded ? tr("单次详情空间查询已裁剪，请单独定位该来源后复核") : tr("来源尚未加载；定位来源后可核查局部空间关联"));
+      return row;
+    }
+    ++spatialWork;
+    auto *adapter = qobject_cast<EvidenceMapAdapter *>(m_evidenceSpatialAdapters.value(sourceLayer).data());
+    if (!adapter) {
+      if (m_evidenceSpatialAdapters.size() >= 16) {
+        const auto first = m_evidenceSpatialAdapters.begin(); delete first.value().data(); m_evidenceSpatialAdapters.erase(first);
+      }
+      adapter = new EvidenceMapAdapter(nullptr, const_cast<MappingWorkbench *>(this)); m_evidenceSpatialAdapters.insert(sourceLayer, adapter);
+    }
+    adapter->bindLayer(qobject_cast<QgsVectorLayer *>(loaded));
+    const auto result = adapter->spatialCandidates(loaded, spatialTarget, row.value("source_feature_uid").toString(), 20);
+    const auto state = result.value("state").toString();
+    row.insert("source_layer", sourceLayer); row.insert("spatial_state", state); row.insert("spatial_query", result);
+    row.insert("spatial_message", result.value("message"));
+    row.insert("source_feature_horizon", result.value("pinned_feature").toMap().value("horizon"));
+    if (state == "intersects" || state == "disjoint") row.insert("spatial_intersection", state == "intersects");
+    if (state == "missing" || state == "ambiguous") row.insert("source_feature_missing", true);
+    return row;
+  };
   // Catalog answers use stable IDs and O(1) lookups; no active QGIS object is
   // passed to the background graph workflow.
   for (auto &value : records) {
@@ -124,9 +164,26 @@ QVariantMap MappingWorkbench::featureEvidence(const QString &id, const QList<qin
       row.insert("source_asset", input.assetId);
       row.insert("source_horizon", input.extra.value("horizon"));
       row.insert("source_current_version", m_catalog->currentVersion(input.assetId).id);
+      if (input.extra.contains("facies")) row.insert("source_facies_schema_hash", paleo::evidence::fingerprint(input.extra.value("facies")));
     }
-    value = row;
+    value = spatial(row);
   }
+  QVariantList spatialCandidates;
+  for (int n = 0; n < qMin(8, int(generation.size())); ++n) {
+    auto row = spatial(generation[n].toMap()); generation[n] = row;
+    for (const auto &candidate : row.value("spatial_query").toMap().value("features").toList()) {
+      auto local = candidate.toMap();
+      if (local.value("identity_state").toString() != "stable") continue;
+      local.insert("id", "spatial:" + paleo::evidence::fingerprint(QVariantList{row.value("source_version"), local.value("feature_uid")}));
+      local.insert("source_feature_uid", local.take("feature_uid")); local.insert("source_version", row.value("source_version"));
+      local.insert("source_asset", row.value("source_asset")); local.insert("source_layer", row.value("source_layer"));
+      local.insert("source_feature_horizon", local.value("horizon"));
+      local.insert("name", tr("空间候选 · %1").arg(local.value("source_feature_uid").toString().left(12)));
+      local.insert("relation", "REFERENCES"); local.insert("origin", "spatial_candidate"); local.insert("type", row.value("type", "reference"));
+      spatialCandidates << local;
+    }
+  }
+  out.insert("generation_records", generation); out.insert("spatial_candidates", spatialCandidates);
   auto findings = paleo::evidence::check(records, interpretation, t);
   if (f.fields().indexOf(MappingFeatureIdentity::ReviewField) >= 0 && f.attribute(MappingFeatureIdentity::ReviewField).toBool())
     findings << QVariantMap{{"severity", "Warning"}, {"code", "identity_changed"}, {"message", tr("图斑经过分割或合并，继承关系和空间证据需要复核")}};
@@ -165,7 +222,7 @@ bool MappingWorkbench::changeEvidence(const QString &id, const QList<qint64> &id
       // Existing saved sources only. Adding a relationship must not create an
       // input version as a side effect of a failed revision check.
       const auto source = versionForLayer(sourceLayer);
-      if (source.id.isEmpty()) unsavedSource = sourceLayer;
+      if (source.id.isEmpty() || sourceLayer.startsWith("draft.")) unsavedSource = sourceLayer;
       else { change.insert("source_version", source.id); change.insert("source_asset", source.assetId); }
       change.insert("source_title", d.title); change.insert("source_horizon", d.horizon);
     }
@@ -188,6 +245,31 @@ bool MappingWorkbench::changeEvidence(const QString &id, const QList<qint64> &id
       value = r;
     }
     auto featureChange = change;
+    if (p.contains("source_feature_uid")) {
+      QString sourceId = change.value("source_version").toString();
+      if (action == "update_evidence") for (const auto &record : records) {
+        const auto row = record.toMap();
+        if (row.value("id").toString() == p.value("evidence_id").toString()) sourceId = row.value("source_version").toString();
+      }
+      const auto sourceUid = p.value("source_feature_uid").toString().trimmed();
+      if (!sourceUid.isEmpty()) {
+        if (sourceId.isEmpty() && unsavedSource.isEmpty()) return reject(error, tr("指定来源图元需要已保存的来源版本"));
+        const auto sourceLayer = !unsavedSource.isEmpty() ? unsavedSource : layerForVersion(sourceId, error);
+        auto *source = sourceLayer.isEmpty() ? nullptr : m_layers->instantiate(sourceLayer, error);
+        if (!source) return false;
+        EvidenceMapAdapter locator(nullptr);
+        const auto result = locator.spatialCandidates(source,
+          {{"wkb", f.geometry().asWkb()}, {"crs_wkt", v->crs().toWkt()}}, sourceUid, 1);
+        const auto state = result.value("state").toString();
+        if (state == "missing" || state == "ambiguous" || state == "unknown") return reject(error, result.value("message").toString());
+        const auto sourceHorizon = result.value("pinned_feature").toMap().value("horizon").toString();
+        if (!sourceHorizon.isEmpty() && sourceHorizon != horizon) return reject(error, tr("来源图元属于其他层位，不能关联当前解释"));
+        featureChange.insert("source_feature_uid", sourceUid);
+        featureChange.insert("source_feature_horizon", sourceHorizon);
+        featureChange.insert("spatial_intersection", state == "intersects");
+        featureChange.insert("source_feature_missing", false);
+      }
+    }
     if (action == "link") {
       const auto category = FaciesCatalog::find(version.extra.value("facies").toList(), f.attribute("facies_code"));
       featureChange.insert("category_path", FaciesHierarchy::path(category).join(" / "));
@@ -198,7 +280,11 @@ bool MappingWorkbench::changeEvidence(const QString &id, const QList<qint64> &id
     if (p.contains("target_feature_uid") && p.value("target_feature_uid").toString() != uid)
       return reject(error, tr("选中图斑已经改变，请刷新后重试"));
     if (p.contains("expected_revisions") && !expected.contains(uid)) return reject(error, tr("缺少选中要素的修订号，请刷新后重试"));
-    const auto rev = expected.contains(uid) ? expected.value(uid).toULongLong() : p.value("expected_revision", interpretation.value("revision", 0)).toULongLong();
+    const auto revisionValue = expected.contains(uid) ? expected.value(uid) : p.value("expected_revision", interpretation.value("revision", 0));
+    bool revisionOk = false; const double numericRevision = revisionValue.toDouble(&revisionOk);
+    if (!revisionOk || !std::isfinite(numericRevision) || numericRevision < 0 || numericRevision != std::floor(numericRevision) || numericRevision > 9007199254740991.0)
+      return reject(error, tr("预期修订号无效，请刷新后重试"));
+    const auto rev = revisionValue.toULongLong();
     Row row{fid, {}};
     if (!paleo::evidence::revise(records, interpretation, current, action, featureChange,
         p.value("actor_id").toString(), p.value("reason").toString(), rev, &row.revision, error)) return false;
@@ -246,46 +332,72 @@ bool MappingWorkbench::recordSpatialInterpretationEdit(const QString &id, qint64
   QVariantMap change{{"spatial_change", kind}, {"facies_code", f.attribute("facies_code")}, {"geometry_hash", t.value("geometry_hash")}};
   const auto *observer = MappingFeatureIdentity::Observer::of(v);
   if (observer) change.insert("before", observer->editBefore(fid));
-  if (!i.isEmpty() && i.value("feature_uid").toString() != currentUid) {
-    // A split/merge materializes a NEW interpretation. Preserve the parent's
-    // complete immutable record rather than rewriting its history as a child.
+  auto fresh = [] { return QUuid::createUuid().toString(QUuid::WithoutBraces); };
+  if (i.isEmpty() || i.value("feature_uid").toString() != currentUid) {
+    // A split/merge materializes a NEW interpretation. Preserve a real parent
+    // record rather than rewriting its history as a child. An empty parent is
+    // not stored as an inherited object; the new identity still needs a valid shell.
     const auto inherited = i;
-    auto fresh = [] { return QUuid::createUuid().toString(QUuid::WithoutBraces); };
     i = {{"id", fresh()}, {"assertion_id", fresh()}, {"feature_uid", currentUid},
-      {"horizon", t.value("horizon")}, {"status", "Proposed"}, {"revision", 0},
-      {"inherited_interpretation", inherited}, {"parent_interpretation_id", inherited.value("id")}};
-    change.insert("parent_interpretation_id", inherited.value("id"));
-    for (auto &value : records) {
-      auto row = value.toMap(); row.insert("inherited_from_feature_uid", row.value("feature_uid", inherited.value("feature_uid")));
-      row.insert("feature_uid", currentUid); value = row;
+      {"horizon", t.value("horizon")}, {"status", "Proposed"}, {"revision", 0}};
+    if (!inherited.isEmpty()) {
+      i.insert("inherited_interpretation", inherited);
+      i.insert("parent_interpretation_id", inherited.value("id"));
+      change.insert("parent_interpretation_id", inherited.value("id"));
+      for (auto &value : records) {
+        auto row = value.toMap(); row.insert("inherited_from_feature_uid", row.value("feature_uid", inherited.value("feature_uid")));
+        row.insert("feature_uid", currentUid); value = row;
+      }
     }
   }
   if (kind == "merge" && observer) {
     const auto parentUids = QJsonDocument::fromJson(f.attribute(MappingFeatureIdentity::ParentsField).toString().toUtf8()).toVariant().toList();
     QSet<QString> parents; for (const auto &uid : parentUids) parents.insert(uid.toString());
     QVariantList parentInterpretations;
-    QSet<QString> interpretationIds, recordIds;
+    QSet<QString> interpretationIds, seenParentUids, recordIds;
+    auto acceptParent = [&](QVariantMap inherited) {
+      inherited.remove("history");
+      inherited.remove("parent_interpretations");
+      inherited.remove("inherited_interpretation");
+      inherited.remove("inherited_evidence");
+      const auto parentUid = inherited.value("feature_uid").toString();
+      const auto parentId = inherited.value("id").toString();
+      if (parentUid.isEmpty() || !parents.contains(parentUid) || seenParentUids.contains(parentUid) ||
+          parentId.isEmpty() || interpretationIds.contains(parentId)) return;
+      interpretationIds.insert(parentId); seenParentUids.insert(parentUid);
+      parentInterpretations << inherited;
+    };
+    acceptParent(i.value("inherited_interpretation").toMap());
     for (const auto &value : records) recordIds.insert(value.toMap().value("id").toString());
     for (const auto &value : observer->changes()) {
       const auto parent = value.toMap();
-      if (!parents.contains(parent.value("before_uid").toString())) continue;
+      const auto parentUid = parent.value("before_uid").toString();
+      if (!parents.contains(parentUid)) continue;
       QVariantMap inherited; QVariantList inheritedRecords;
       if (!paleo::evidence::decodeInterpretation(parent.value("before_interpretation").toString(), &inherited, error) ||
           !paleo::evidence::decodeRecords(parent.value("before_evidence").toString(), &inheritedRecords, error)) return false;
-      if (!inherited.isEmpty() && !interpretationIds.contains(inherited.value("id").toString())) {
-        interpretationIds.insert(inherited.value("id").toString()); parentInterpretations << inherited;
+      if (inherited.isEmpty()) {
+        inherited = {{"id", fresh()}, {"assertion_id", fresh()}, {"feature_uid", parentUid},
+          {"horizon", t.value("horizon")}, {"status", "Proposed"}, {"revision", 0},
+          {"facies_code", parent.value("before_facies_code")},
+          {"geometry_hash", parent.value("before_fingerprint")},
+          {"synthesized_from_feature", true}};
       }
-      if (parent.value("before_uid").toString() == i.value("inherited_interpretation").toMap().value("feature_uid").toString()) continue;
+      acceptParent(inherited);
+      if (parentUid == i.value("inherited_interpretation").toMap().value("feature_uid").toString()) continue;
       for (const auto &value : inheritedRecords) {
         auto row = value.toMap(); const auto originalId = row.value("id").toString();
-        row.insert("inherited_from_feature_uid", parent.value("before_uid")); row.insert("feature_uid", currentUid);
+        row.insert("inherited_from_feature_uid", parentUid); row.insert("feature_uid", currentUid);
         if (recordIds.contains(originalId)) {
           row.insert("evidence_id", row.value("evidence_id", originalId));
-          row.insert("id", QUuid::createUuid().toString(QUuid::WithoutBraces));
+          row.insert("id", fresh());
         }
         recordIds.insert(row.value("id").toString()); records << row;
       }
     }
+    // Immediate parents only. Nested parent trees stay on the saved parent
+    // version; copying them here doubles the ancestry on every merge.
+    i.remove("inherited_interpretation");
     i.insert("parent_interpretations", parentInterpretations);
     change.insert("parent_interpretation_count", parentInterpretations.size());
   }

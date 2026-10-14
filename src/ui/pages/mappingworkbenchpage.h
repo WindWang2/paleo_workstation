@@ -70,7 +70,7 @@ private:
   QListWidget *m_generationEvidence = nullptr;
   QComboBox *m_evidenceRole = nullptr, *m_evidenceType = nullptr,
       *m_reviewState = nullptr, *m_verification = nullptr;
-  QLineEdit *m_evidenceActor = nullptr, *m_evidenceReason = nullptr;
+  QLineEdit *m_evidenceActor = nullptr, *m_evidenceReason = nullptr, *m_sourceFeatureUid = nullptr;
   QLabel *m_interpretationState = nullptr, *m_quality = nullptr;
   QPlainTextEdit *m_evidenceHistory = nullptr;
   QVariantMap m_evidenceSnapshot;

@@ -764,6 +764,8 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &result) {
         parameters.insert("skipped_well_count", skippedWells);
         // facies-ux 5：支撑井与模型名进证据链（逐井：预测相 / 跳过原因）。
         QVariantList supporting, skipped;
+        QHash<QString, QVariantMap> requestedWells;
+        for (const auto &entry : request.wells) requestedWells.insert(entry.toMap().value("id").toString(), entry.toMap());
         QStringList models;
         for (const auto &value : points) {
           const auto point = value.toMap();
@@ -772,17 +774,18 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &result) {
             for (const auto &name : model.split(QStringLiteral("；"), Qt::SkipEmptyParts))
               if (!models.contains(name))
                 models << name;
-          const QVariantMap well{{"id", point.value("id")},
-                                 {"name", point.value("name")},
-                                 {"facies_code", point.value("facies_code")},
-                                 {"log_version_id", point.value("log_version_id")}};
-          if (point.value("facies_code").isNull() ||
-              point.value("prediction_status").toString() == QStringLiteral("未预测"))
-            skipped << QVariantMap{{"id", point.value("id")},
-                                   {"name", point.value("name")},
-                                   {"reason", point.value("prediction_reason")}};
-          else
-            supporting << well;
+          const auto requested = requestedWells.value(point.value("id").toString());
+          const bool used = !point.value("facies_code").isNull() &&
+              point.value("prediction_status").toString() != QStringLiteral("未预测");
+          QVariantMap well{{"id", point.value("id")}, {"entity_id", point.value("id")},
+                           {"name", point.value("name", requested.value("name"))},
+                           {"horizon", request.horizon}, {"facies_code", point.value("facies_code")},
+                           {"log_version_id", requested.value("log_version_id")},
+                           {"source_version_ids", requested.value("parents")},
+                           {"source_record_id", point.value("id")}, {"participating", used}};
+          if (!used) {
+            well.insert("reason", point.value("prediction_reason")); skipped << well;
+          } else supporting << well;
         }
         parameters.insert("supporting_wells", supporting);
         parameters.insert("skipped_wells", skipped);

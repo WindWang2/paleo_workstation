@@ -32,7 +32,7 @@ const QString layerThickness = QStringLiteral("log_layer_thickness_md");
 const QString sandThickness = QStringLiteral("log_sand_thickness_md");
 struct Input {
   QString id, name;
-  QVariantMap attributes;
+  QVariantMap attributes, provenance;
   QgsGeometry geometry;
   QString thicknessReason, sandReason, sandSource;
   bool maintainedThickness = false, maintainedSand = false;
@@ -42,6 +42,7 @@ struct Source {
   QStringList paths;
   QgsCoordinateReferenceSystem crs;
   bool hasMapSource = false;
+  QString horizon;
 };
 
 // 同类重叠合并；跨岩性重叠拒绝。覆盖不足不把未解释区间当泥岩。
@@ -93,6 +94,7 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
                  const QVariantList *factorRows = nullptr,
                  const std::function<bool()> &cancelled = {}, bool captureOnly = false) {
   Source out = captured ? *captured : Source{};
+  out.horizon = horizon;
   if (!captured)
     out.crs = QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt());
   auto *layers = wf->layerService();
@@ -104,10 +106,17 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
     if (!layer || layer->geometryType() != Qgis::GeometryType::Point) return out;
     out.crs = layer->crs();
     out.paths << layer->source().section(QLatin1Char('|'), 0, 0);
+    const auto layerVersions = DerivedAssetRegistrar(wf->catalog(), wf->projectDir()).parentVersionIdsFor(out.paths);
     QgsFeature f; auto it = layer->getFeatures();
     while (it.nextFeature(f)) {
       Input row;
       row.geometry = f.geometry();
+      row.provenance = {{"source_layer_id", pointsId}, {"source_uri", layer->source()},
+                        {"source_record_id", QString::number(f.id())},
+                        {"source_record_scope", "provider_fid_with_source_version"},
+                        {"source_version_ids", layerVersions}};
+      if (layer->fields().indexOf("paleo_feature_uid") >= 0)
+        row.provenance.insert("source_feature_uid", f.attribute("paleo_feature_uid"));
       for (int i = 0; i < layer->fields().size(); ++i)
         row.attributes.insert(layer->fields().at(i).name(), f.attribute(i));
       for (const QString &key : {QStringLiteral("well_id"), QStringLiteral("id"), QStringLiteral("well_name"), QStringLiteral("name"), QStringLiteral("井名")}) {
@@ -172,6 +181,7 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
     Input &row = out.rows[index];
     row.id = well.id;
     row.name = well.name;
+    row.provenance.insert("entity_id", well.id);
     byId.insert(well.id, index);
     byName.insert(DataCatalog::normalizeWellName(well.name), index);
     const auto maintained = maintainedByWell.value(well.id);
@@ -218,11 +228,18 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
     }
     if (row.maintainedThickness) row.thicknessReason = ConstraintWorkflow::tr("维护的层厚为空或不是有限数值");
     if (row.maintainedSand) row.sandReason = ConstraintWorkflow::tr("维护的砂厚为空或不是有限数值");
+    const bool usesRawSand = sandMetric && !row.maintainedSand;
+    const bool usesRawTops = !row.maintainedThickness || usesRawSand;
     for (const auto &link : wf->catalog()->linksForEntity(well.id))
-      if (!link.unresolved && (link.role == QLatin1String("tops") || (sandMetric && (link.role == QLatin1String("interpretation") ||
-                              link.role == QLatin1String("cuttings"))))) {
+      if (!link.unresolved && ((usesRawTops && link.role == QLatin1String("tops")) ||
+          (usesRawSand && (link.role == QLatin1String("interpretation") || link.role == QLatin1String("cuttings"))))) {
         const auto v = wf->catalog()->currentVersion(link.assetId);
-        if (!v.id.isEmpty()) out.paths << DataCatalog::resolvedVersionPath(wf->projectDir(), v);
+        if (!v.id.isEmpty()) {
+          out.paths << DataCatalog::resolvedVersionPath(wf->projectDir(), v);
+          auto sourceVersions = row.provenance.value("source_version_ids").toStringList();
+          if (!sourceVersions.contains(v.id)) sourceVersions << v.id;
+          row.provenance.insert("source_version_ids", sourceVersions);
+        }
       }
   }
   if (layers && !maintainedByWell.isEmpty())
@@ -354,8 +371,12 @@ bool computeExtraction(const Source &source, const QVariantMap &params, FactorEx
                                           sourceOfField(request.denominatorField)
                                     : sourceOfField(request.valueField);
     const bool contributing = value && reason.isEmpty();
-    QVariantMap row{{QStringLiteral("well_id"), r.id}, {QStringLiteral("well_name"), r.name},
-      {QStringLiteral("reason"), reason}, {QStringLiteral("source"), valueSource}, {QStringLiteral("contributing"), contributing}};
+    QVariantMap row = r.provenance;
+    row.insert("well_id", r.id); row.insert("well_name", r.name); row.insert("horizon", source.horizon);
+    row.insert("reason", reason); row.insert("source", valueSource); row.insert("contributing", contributing);
+    row.insert("participating", contributing);
+    if (located) { const auto point = pointGeometry.asPoint(); row.insert("x", point.x()); row.insert("y", point.y()); }
+    if (!row.contains("entity_id")) row.insert("identity_scope", "source_well_identifier");
     if (value) row.insert(QStringLiteral("value"), *value);
     result.rows << row;
     if (contributing) {

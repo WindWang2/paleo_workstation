@@ -11,6 +11,6 @@ IMPLEMENTED is not DONE. DONE requires meaningful tests and independent review.
 | T4 persistent manual review/geometry changes | root | IN_PROGRESS | append history, local operator, stale revision rejection, undo/save |
 | T5 local evidence graph + three-way UI integration | root | IN_PROGRESS | source/evidence/map navigation, bounded/cancelled queries |
 | T6 publish immutable snapshot/integrity | workflow agent + root sequential | IMPLEMENTED | save binding, missing sources, published old evidence unchanged |
-| T7 full integration/failure/performance fixtures | root | TODO | 10k/100k real measurements, no asserted unmeasured timings |
+| T7 full integration/failure/performance fixtures | root | TESTED | 10k/100k measured in tst_mapsnapshot_scale; timings recorded, not asserted |
 | T8 independent read-only actual diff review | audit_model agent | IN_PROGRESS | P0/P1 fixed/reviewed and P2 addressed |
 | T9 final validation/docs/example/push/PR | root | TODO | local checks, no CI wait, attach PR, no merge |

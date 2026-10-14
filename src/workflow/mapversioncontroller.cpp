@@ -18,6 +18,7 @@
 
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QSet>
 #include <QJsonObject>
 #include <QTemporaryDir>
 #include <QDir>
@@ -44,13 +45,12 @@ MapVersionController::MapVersionController( MapVersionStore *store, QgisLayerSer
 {
 }
 
-void MapVersionController::setCatalog(DataCatalog *catalog) { m_catalog = catalog; }
+void MapVersionController::setCatalog(DataCatalog *catalog) { cancelSnapshot(); ++m_snapshotEpoch; m_catalog = catalog; }
 
-MapVersion MapVersionController::saveVersion( const QString &horizon, const QVariantMap &provenance,
-                                              QString *error )
-{
+bool MapVersionController::captureVersion(const QString &horizon, const QVariantMap &provenance,
+    QVector<LayerDeclaration> *declarations, QVariantMap *frozen, QString *error) {
+
   QVariantMap frozenProvenance = provenance;
-  QString json;
 
   // 收集属于该层位的全部矢量图层候选（无论成功失败均保证清理 busy 标记）
   QVector<QPair<QString, QPointer<QgsVectorLayer>>> horizonVectorLayers;
@@ -88,7 +88,7 @@ MapVersion MapVersionController::saveVersion( const QString &horizon, const QVar
   if ( m_layers && !declaredOk )
   {
     clearAllTokens();
-    return MapVersion(); // 清单读失败时不得在未提交编辑的情况下出版本
+    return false; // 清单读失败时不得在未提交编辑的情况下出版本
   }
 
   // Validate persisted business JSON before committing the native edit buffer.
@@ -105,9 +105,16 @@ MapVersion MapVersionController::saveVersion( const QString &horizon, const QVar
         layer->fields().indexOf("paleo_interpretation") < 0) {
       featureCount += layer->featureCount(); continue;
     }
+    QSet<QString> featureUids;
     auto features = layer->getFeatures(); QgsFeature feature;
     while (features.nextFeature(feature)) {
       ++featureCount;
+      const auto featureUid = MappingFeatureIdentity::uid(feature);
+      if (!featureUid.isEmpty() && featureUids.contains(featureUid)) {
+        setError(error, tr("证据图层中存在重复图元身份，请在工作副本中复核后保存"));
+        clearAllTokens(); return {};
+      }
+      if (!featureUid.isEmpty()) featureUids.insert(featureUid);
       QVariantList records;
       QVariantMap interpretation;
       if (layer->fields().indexOf("facies_evidence") >= 0 &&
@@ -199,7 +206,7 @@ MapVersion MapVersionController::saveVersion( const QString &horizon, const QVar
   if ( commitFailed )
   {
     clearAllTokens();
-    return MapVersion();
+    return false;
   }
 
   QVariantList versionSnapshots;
@@ -237,8 +244,28 @@ MapVersion MapVersionController::saveVersion( const QString &horizon, const QVar
     }
   }
   frozenProvenance.insert("evidence_snapshot", versionSnapshots);
-  json = QString::fromUtf8(QJsonDocument::fromVariant(frozenProvenance).toJson(QJsonDocument::Compact));
+  frozenProvenance.insert("catalog_bound", !versionSnapshots.isEmpty());
 
+
+  *declarations = declared; *frozen = frozenProvenance;
+  return true;
+}
+void MapVersionController::releaseSnapshotTokens(const QString &horizon) {
+  if (!m_projectStore || !m_layers) return;
+  for (const auto &decl : m_layers->declared()) {
+    if (decl.horizon != horizon || decl.type != "vector") continue;
+    m_projectStore->markLayerFree(decl.layerId);
+    if (auto *layer = m_layers->layer(decl.layerId)) m_projectStore->markLayerFree(layer->id());
+  }
+}
+
+MapVersion MapVersionController::saveVersion( const QString &horizon, const QVariantMap &provenance,
+                                              QString *error )
+{
+  QVector<LayerDeclaration> declared; QVariantMap frozenProvenance;
+  if (!captureVersion(horizon, provenance, &declared, &frozenProvenance, error)) return {};
+  const QString json = QString::fromUtf8(QJsonDocument::fromVariant(frozenProvenance).toJson(QJsonDocument::Compact));
+  const auto clearAllTokens = [&] { releaseSnapshotTokens(horizon); };
   // Export committed vector views rather than copying a possibly open WAL-backed GPKG.
   // This also freezes provider subsets and memory layers, preserving business attributes.
   QTemporaryDir vectorStaging;
@@ -307,6 +334,9 @@ QString MapVersionController::publish( const QString &horizon, const QString &re
   // Revalidate the saved evidence manifest; current warnings never rewrite its facts.
   const auto saved = m_store->latest(horizon);
   const auto provenance = QJsonDocument::fromJson(saved.provenance.toUtf8()).object();
+  if (provenance.value("catalog_bound").toBool() && (!m_catalog || !m_catalog->isOpen())) {
+    setError(error, tr("保存版本引用的资料目录不可用，请重新打开工程后发布")); return {};
+  }
   for (const auto &entry : provenance.value("evidence_snapshot").toArray()) {
     const auto row = entry.toObject();
     const auto evidence = row.value("evidence").toObject().toVariantMap();

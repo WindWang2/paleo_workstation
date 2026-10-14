@@ -1,5 +1,6 @@
 // 层：数据
 #include "mapversionstore.h"
+#include "mapsnapshot.h"
 #include "storeerrors_internal.h"
 #include "metastore.h"
 #include "../catalog/datacatalog.h"
@@ -490,6 +491,11 @@ QString MapVersionStore::publish( const QString &horizon, const QVector<LayerDec
   if (provenance.value("feature_summary").toObject().value("quality_counts").toObject().value("Blocking").toInt() > 0) {
     setError(error, QStringLiteral("保存版本存在阻断性证据问题，请复核后保存新版本")); return {};
   }
+  // 只有完整 SHA-256 才是科学指纹。历史短哈希仍留在版本行上，不拿来否定已冻结的文件指纹。
+  if (frozen && latestV.pdfSha256.size() == 64 &&
+      provenance.value("saved_pdf").toObject().value("sha256").toString() != latestV.pdfSha256) {
+    setError(error, QStringLiteral("保存的 PDF 指纹与成果版本绑定不一致")); return {};
+  }
   // 发布只读版本行（§260）：PDF 资产 id+SHA-256 必须由 recordLayoutProduct
   // 登记、再经 saveVersion 抄进本行；行上没有 = 没走「导出→保存」。
   if ( latestV.pdfAssetId.isEmpty() || latestV.pdfSha256.isEmpty() )
@@ -649,6 +655,187 @@ QString MapVersionStore::publish( const QString &horizon, const QVector<LayerDec
   }
   published = true;
   return snapDir;
+}
+
+QString MapVersionStore::projectDirectory() const { return QFileInfo(m_dbPath).absolutePath(); }
+MapSnapshotInput MapVersionStore::snapshotInputForSave(const QString &horizon, const QString &provenanceJson,
+    const QVector<LayerDeclaration> &layers, QString *error) {
+  MapSnapshotInput input;
+  if (m_readOnly || !DataCatalog::isSafePathSegment(horizon) || !mapVersionEnsureOpen(m_dbPath, m_readOnly, error)) {
+    setError(error, QStringLiteral("地图快照保存需要可写工程和合法层位")); return input;
+  }
+  QJsonParseError parse;
+  if (!QJsonDocument::fromJson(provenanceJson.toUtf8(), &parse).isObject() || parse.error != QJsonParseError::NoError) {
+    setError(error, QStringLiteral("地图版本来源 JSON 损坏")); return input;
+  }
+  input.projectDirectory = projectDirectory(); input.horizon = horizon; input.operation = "save"; input.provenanceJson = provenanceJson;
+  for (const auto &layer : layers) {
+    if (layer.horizon != horizon) continue;
+    const auto base = layer.source.section('|', 0, 0);
+    input.files << QVariantMap{{"layer_id", layer.layerId}, {"horizon", horizon}, {"type", layer.type},
+      {"source", base}, {"source_suffix", layer.source.mid(base.size())}};
+  }
+  QSqlQuery product(QSqlDatabase::database(mapVersionConnectionName(m_dbPath, m_readOnly)));
+  product.prepare("SELECT path,asset_id,sha256 FROM map_products WHERE horizon=? AND kind='pdf' ORDER BY id DESC LIMIT 1");
+  product.addBindValue(horizon);
+  if (!product.exec()) { setError(error, product.lastError().text()); return {}; }
+  if (product.next()) {
+    input.pdfAssetId = product.value(1).toString(); input.pdfSha256 = product.value(2).toString();
+    if (!input.pdfAssetId.isEmpty()) input.files << QVariantMap{{"source", product.value(0).toString()}, {"sha256", input.pdfSha256}, {"pdf", true}};
+  }
+  input.valid = true; return input;
+}
+MapSnapshotInput MapVersionStore::snapshotInputForPublish(const QString &horizon,
+    const QVector<LayerDeclaration> &decls, const QString &residualSummary, QString *error) {
+  // #394：只读守卫必须与 saveVersion 同位——缺失时先在工程目录落
+  // result/<horizon>/v<N>/ 文件树再撞 SQL 只读失败（半完成副作用）。
+  if ( m_readOnly )
+  {
+    setError( error, QStringLiteral("工程目录被另一个实例锁定——本实例只读，发布被拒绝") );
+    return {};
+  }
+  if ( !DataCatalog::isSafePathSegment( horizon ) )
+  {
+    setError( error, QStringLiteral( "非法层位名称：%1" ).arg( horizon ) );
+    return {};
+  }
+
+  if ( !mapVersionEnsureOpen( m_dbPath, m_readOnly, error ) )
+    return {};
+
+  const MapVersion latestV = latest( horizon );
+  if ( latestV.version <= 0 )
+  {
+    setError( error, QStringLiteral( "层位 %1 还没有保存的版本，无法发布" ).arg( horizon ) );
+    return {};
+  }
+  if ( latestV.state == QLatin1String( "Published" ) )
+  {
+    setError( error, QStringLiteral( "层位 %1 当前版本已发布 — 保存新版本后再发布" ).arg( horizon ) );
+    return {};
+  }
+  QJsonParseError provenanceError;
+  const auto savedDocument = QJsonDocument::fromJson(latestV.provenance.toUtf8(), &provenanceError);
+  if (provenanceError.error != QJsonParseError::NoError || !savedDocument.isObject()) {
+    setError(error, QStringLiteral("保存版本的来源/证据 JSON 损坏，发布被拒绝")); return {};
+  }
+  const auto provenance = savedDocument.object();
+  const bool frozen = provenance.value("snapshot_schema").toString() == "paleo_map_snapshot_v1";
+  if (provenance.contains("snapshot_schema") &&
+      (!frozen || !provenance.value("saved_layers").isArray() || !provenance.value("saved_pdf").isObject() ||
+       provenance.value("snapshot_hash").toString() != snapshotHash(provenance))) {
+    setError(error, QStringLiteral("保存版本的快照结构或证据指纹损坏，发布被拒绝")); return {};
+  }
+  if (provenance.contains("evidence_snapshot") && !provenance.value("evidence_snapshot").isArray()) {
+    setError(error, QStringLiteral("保存版本的证据清单格式损坏，发布被拒绝")); return {};
+  }
+  if (provenance.value("feature_summary").toObject().value("quality_counts").toObject().value("Blocking").toInt() > 0) {
+    setError(error, QStringLiteral("保存版本存在阻断性证据问题，请复核后保存新版本")); return {};
+  }
+  // 只有完整 SHA-256 才是科学指纹。历史短哈希仍留在版本行上，不拿来否定已冻结的文件指纹。
+  if (frozen && latestV.pdfSha256.size() == 64 &&
+      provenance.value("saved_pdf").toObject().value("sha256").toString() != latestV.pdfSha256) {
+    setError(error, QStringLiteral("保存的 PDF 指纹与成果版本绑定不一致")); return {};
+  }
+  // 发布只读版本行（§260）：PDF 资产 id+SHA-256 必须由 recordLayoutProduct
+  // 登记、再经 saveVersion 抄进本行；行上没有 = 没走「导出→保存」。
+  if ( latestV.pdfAssetId.isEmpty() || latestV.pdfSha256.isEmpty() )
+  {
+    setError( error, QStringLiteral( "层位 %1 的当前版本没有 PDF 资产记录 — 导出 PDF 后再保存" )
+                         .arg( horizon ) );
+    return {};
+  }
+  // 每口井都要有残差或原因（§177）；缺多少口写进错误文案。
+  int covered = -1, total = -1;
+  if ( !residualSummaryComplete( residualSummary, &covered, &total ) )
+  {
+    const QString missingText =
+        ( total > 0 && covered >= 0 )
+            ? QStringLiteral( "还有 %1/%2 口井没有残差或原因" ).arg( total - covered ).arg( total )
+            : QStringLiteral( "还没有残差摘要" );
+    setError( error, QStringLiteral( "层位 %1 %2 — 先在验证页运行验证" )
+                         .arg( horizon, missingText ) );
+    return {};
+  }
+  // D10：数值残差下限——完备性只保证「行或原因」，发布还要够数量的数值行
+  // （15/20 口径；差多少写进文案）。
+  {
+    const int numericCount = numericResidualCount( residualSummary );
+    const int required = requiredNumericResiduals( total );
+    if ( numericCount < required )
+    {
+      setError( error, QStringLiteral( "层位 %1 数值残差只有 %2/%3 口（发布需 ≥%4）"
+                                      " — 先在验证页运行验证，补齐井分层/时深/测网覆盖" )
+                           .arg( horizon )
+                           .arg( QString::number( numericCount ), QString::number( total ),
+                                 QString::number( required ) ) );
+      return {};
+    }
+  }
+
+  MapSnapshotInput input; input.projectDirectory = projectDirectory(); input.horizon = horizon;
+  input.operation = "publish"; input.provenanceJson = latestV.provenance; input.residualSummary = residualSummary;
+  input.versionId = latestV.id; input.versionNumber = latestV.version;
+  input.pdfAssetId = latestV.pdfAssetId; input.pdfSha256 = latestV.pdfSha256;
+  if (frozen) {
+    for (const auto &entry : provenance.value("saved_layers").toArray()) {
+      auto record = entry.toObject().toVariantMap();
+      if (record.value("missing").toBool()) { setError(error, QStringLiteral("保存版本缺少图层来源")); return {}; }
+      CatalogVersion ref; ref.managed = true; ref.path = record.value("path").toString();
+      const auto source = DataCatalog::resolvedVersionPath(input.projectDirectory, ref);
+      if (source.isEmpty()) { setError(error, QStringLiteral("保存快照路径无效")); return {}; }
+      record.insert("source", source); input.files << record;
+    }
+    auto pdf = provenance.value("saved_pdf").toObject().toVariantMap();
+    CatalogVersion ref; ref.managed = true; ref.path = pdf.value("path").toString();
+    pdf.insert("source", DataCatalog::resolvedVersionPath(input.projectDirectory, ref)); pdf.insert("pdf", true);
+    input.files << pdf;
+  } else {
+    for (const auto &layer : decls) {
+      if (layer.horizon != horizon) continue;
+      input.files << QVariantMap{{"layer_id", layer.layerId}, {"source", layer.source.section('|', 0, 0)}, {"legacy", true}};
+    }
+    QSqlQuery product(QSqlDatabase::database(mapVersionConnectionName(m_dbPath, m_readOnly)));
+    product.prepare("SELECT path FROM map_products WHERE horizon=? AND kind='pdf' AND asset_id=? ORDER BY id DESC LIMIT 1");
+    product.addBindValue(horizon); product.addBindValue(latestV.pdfAssetId);
+    if (!product.exec() || !product.next()) { setError(error, QStringLiteral("版本绑定的 PDF 产物缺失")); return {}; }
+    input.files << QVariantMap{{"source", product.value(0).toString()}, {"sha256", latestV.pdfSha256}, {"pdf", true}};
+  }
+  input.valid = true; return input;
+}
+MapVersion MapVersionStore::commitPreparedVersion(PreparedMapSnapshot &snapshot, QString *error) {
+  if (m_readOnly || snapshot.input.operation != "save" || snapshot.input.projectDirectory != projectDirectory() ||
+      !verifyPreparedMapSnapshot(snapshot, error) || !mapVersionEnsureOpen(m_dbPath, m_readOnly, error)) {
+    if (error && error->isEmpty()) *error = QStringLiteral("地图快照工程已切换或不可写"); return {};
+  }
+  auto db = QSqlDatabase::database(mapVersionConnectionName(m_dbPath, m_readOnly));
+  if (!db.transaction()) { setError(error, db.lastError().text()); return {}; }
+  const auto rollback = qScopeGuard([&] { if (!snapshot.committed) db.rollback(); });
+  QSqlQuery insert(db);
+  insert.prepare("INSERT INTO map_versions(horizon,version,provenance,state,created_utc,pdf_asset_id,pdf_sha256) VALUES(?,?,?,'Editing',?,?,?) RETURNING id");
+  insert.addBindValue(snapshot.input.horizon); insert.addBindValue(latest(snapshot.input.horizon).version + 1);
+  insert.addBindValue(QString::fromUtf8(QJsonDocument::fromVariant(snapshot.provenance).toJson(QJsonDocument::Compact)));
+  insert.addBindValue(nowUtc()); insert.addBindValue(snapshot.input.pdfAssetId.isEmpty() ? QVariant() : QVariant(snapshot.input.pdfAssetId));
+  insert.addBindValue(snapshot.input.pdfSha256.isEmpty() ? QVariant() : QVariant(snapshot.input.pdfSha256));
+  if (!insert.exec() || !insert.next()) { setError(error, insert.lastError().text()); return {}; }
+  insert.finish(); if (!db.commit()) { setError(error, db.lastError().text()); return {}; }
+  snapshot.committed = true; return latest(snapshot.input.horizon);
+}
+QString MapVersionStore::commitPreparedPublication(PreparedMapSnapshot &snapshot, QString *error) {
+  const auto latestV = latest(snapshot.input.horizon);
+  if (m_readOnly || snapshot.input.operation != "publish" || snapshot.input.projectDirectory != projectDirectory() ||
+      latestV.id != snapshot.input.versionId || latestV.state == "Published" || !verifyPreparedMapSnapshot(snapshot, error)) {
+    if (error && error->isEmpty()) *error = QStringLiteral("发布版本已变化或工程不可写"); return {};
+  }
+  if (QFileInfo::exists(snapshot.finalDirectory) || !QDir().rename(snapshot.directory, snapshot.finalDirectory)) {
+    setError(error, QStringLiteral("发布快照无法原子落位")); return {};
+  }
+  snapshot.directory = snapshot.finalDirectory;
+  QSqlQuery update(QSqlDatabase::database(mapVersionConnectionName(m_dbPath, m_readOnly)));
+  update.prepare("UPDATE map_versions SET state='Published',published_path=?,residual_summary=? WHERE id=? AND state!='Published'");
+  update.addBindValue(snapshot.directory); update.addBindValue(snapshot.input.residualSummary); update.addBindValue(snapshot.input.versionId);
+  if (!update.exec() || update.numRowsAffected() != 1) { setError(error, update.lastError().text()); return {}; }
+  snapshot.committed = true; return snapshot.directory;
 }
 
 bool MapVersionStore::isPublished( const QString &horizon ) const

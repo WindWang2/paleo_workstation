@@ -1,5 +1,8 @@
 #include <QtTest>
 #include <QTemporaryDir>
+#include <QFile>
+#include <QJsonDocument>
+#include <QSignalSpy>
 #include "../src/catalog/datacatalog.h"
 #include "../src/domain/predictionevidence.h"
 #include "../src/services/datagraph.h"
@@ -31,6 +34,73 @@ bool hasFeature(const Graph &g, const QString &uid) { for (const auto &n : g.nod
 class TestEvidenceGraph : public QObject {
   Q_OBJECT
 private slots:
+  void corruptSnapshotNeverInventsInterpretation() {
+    QTemporaryDir dir; DataCatalog cat; QVERIFY(populate(cat, dir.path()));
+    const auto index = buildIndex(cat, {}, {}, {}); QVERIFY(index);
+    Query q; q.mode = Mode::Relations; q.focus = versionKey("result-v1"); q.depth = 4;
+    q.featureEvidence = feature("broken"); q.featureEvidence.insert("error", "损坏证据");
+    const auto g = query(*index, q, {}, {});
+    QCOMPARE(count(g, Kind::Feature), 1); QCOMPARE(count(g, Kind::Interpretation), 0);
+    QCOMPARE(count(g, Kind::Assertion), 0); QCOMPARE(count(g, Kind::Evidence), 0); QVERIFY(g.unresolved > 0);
+  }
+  void downstreamIsDirectedAndRetainsSemanticDependencies() {
+    QTemporaryDir dir; DataCatalog cat; QVERIFY(populate(cat, dir.path()));
+    CatalogAsset asset; asset.id = "reviewed-map"; asset.type = "edited_facies"; QVERIFY(cat.addAsset(asset));
+    CatalogVersion version; version.id = "reviewed-v1"; version.assetId = asset.id; version.stage = "DERIVED"; version.parentVersionIds = {"input-v1"};
+    version.extra = {{"horizon", "H1"}, {"interpretation_reference_versions", QVariantList{QVariantMap{{"version_id", "input-v1"}, {"role", "CONTRADICTED_BY"}}}}};
+    QVERIFY(cat.addVersion(version));
+    const auto index = buildIndex(cat, {}, {}, {}); QVERIFY(index);
+    Query q; q.mode = Mode::Impact; q.focus = versionKey("input-v1"); q.depth = 4;
+    const auto g = query(*index, q, {}, {});
+    bool computed = false, semantic = false;
+    for (const auto &node : g.nodes) {
+      computed |= node.versionId == "result-v1";
+      if (node.versionId == version.id) { semantic = true; QCOMPARE(node.dependencyDepth, 1); QVERIFY(node.detail.contains(QStringLiteral("未确定空间影响"))); }
+    }
+    QVERIFY(computed); QVERIFY(semantic); QVERIFY(g.message.contains(QStringLiteral("潜在影响")));
+    q.maxNodes = 20; const auto ordinarySize = query(*index, q, {}, {}).nodes.size();
+    q.featureEvidence = feature("selected", 3);
+    QCOMPARE(query(*index, q, {}, {}).nodes.size(), ordinarySize); // Impact has no local overlay reservation
+    q.focus = versionKey("result-v1");
+    for (const auto &node : query(*index, q, {}, {}).nodes) QVERIFY(node.versionId != version.id); // no common-ancestor sibling promotion
+  }
+  void highDegreeQueryHasBoundedWork_data() {
+    QTest::addColumn<int>("size"); QTest::newRow("10000") << 10000; QTest::newRow("100000") << 100000;
+  }
+  void highDegreeQueryHasBoundedWork() {
+    QFETCH(int, size); Index index;
+    Node seed; seed.id = versionKey("source"); seed.versionId = "source"; seed.kind = Kind::Version; index.nodes.insert(seed.id, seed);
+    for (int n = 0; n < size; ++n) {
+      Node node; node.id = versionKey(QString::number(n)); node.versionId = QString::number(n); node.kind = Kind::Version; node.horizon = "H1";
+      index.nodes.insert(node.id, node); index.edges.append({seed.id, node.id, "计算来源", Relation::Derived});
+      index.outgoing[seed.id].append(n); index.incoming[node.id].append(n);
+    }
+    Query q; q.mode = Mode::Impact; q.focus = seed.id; q.depth = 6; q.maxNodes = 20; q.maxEdges = 20; q.maxTraversalEdges = 512;
+    QElapsedTimer time; time.start();
+    for (int n = 0; n < 100; ++n) {
+      const auto g = query(index, q, {}, {});
+      QVERIFY(g.nodes.size() <= 20); QVERIFY(g.edges.size() <= 20); QVERIFY(g.workTruncated); QVERIFY(g.examinedEdges <= 513);
+    }
+    qInfo() << "downstream scale" << size << "100 bounded queries ms" << time.elapsed();
+    int calls = 0; QVERIFY(query(index, q, [&calls] { return ++calls > 40; }, {}).nodes.isEmpty());
+  }
+  void exportedLocalGraphKeepsIdentityRelationAndQueryOwnership() {
+    QTemporaryDir dir; DataCatalog cat; QVERIFY(populate(cat, dir.path()));
+    DataGraphWorkflow workflow; workflow.setContext(&cat, nullptr);
+    Graph delivered; bool ready = false; connect(&workflow, &DataGraphWorkflow::ready, this, [&](const Graph &g) { delivered = g; ready = true; });
+    Query q; q.mode = Mode::Relations; q.focus = versionKey("result-v1"); q.depth = 4; q.featureEvidence = feature("A"); q.horizon = "H1";
+    workflow.request(q); QTRY_VERIFY_WITH_TIMEOUT(ready, 10000);
+    QSignalSpy exported(&workflow, &DataGraphWorkflow::exportFinished);
+    const auto path = dir.filePath("local-evidence.json"); workflow.exportGraph(delivered, path);
+    Query other = q; other.featureEvidence = feature("B"); workflow.request(other);
+    QTRY_COMPARE_WITH_TIMEOUT(exported.count(), 1, 10000); QVERIFY(exported[0][1].toString().isEmpty());
+    QFile file(path); QVERIFY(file.open(QIODevice::ReadOnly)); const auto document = QJsonDocument::fromJson(file.readAll()).toVariant().toMap();
+    QCOMPARE(document.value("query").toMap().value("horizon").toString(), QString("H1"));
+    bool featureA = false, conflict = false;
+    for (const auto &value : document.value("nodes").toList()) { const auto node = value.toMap(); if (node.value("kind") == "feature") { QCOMPARE(node.value("feature_uid").toString(), QString("A")); featureA = true; } }
+    for (const auto &value : document.value("edges").toList()) conflict |= value.toMap().value("relation") == "contradicted_by";
+    QVERIFY(featureA); QVERIFY(conflict);
+  }
   void localSemanticsDoNotPolluteSharedIndex() {
     QTemporaryDir dir; DataCatalog cat; QVERIFY(populate(cat, dir.path()));
     auto index = buildIndex(cat, {}, {}, {}); QVERIFY(index);

@@ -8,6 +8,43 @@ private:
   const QVariantMap target{{"feature_uid", "polygon-A"}, {"horizon", "H1"}, {"version_id", "v1"}, {"geometry_hash", "shape1"}, {"facies_schema_hash", "schema1"}};
   const QVariantMap source{{"id", "well-evidence"}, {"text", "井 A 支持河道"}, {"type", "well"}, {"role", "SUPPORTED_BY"}, {"source_version", "log-v1"}};
 private slots:
+  void fullHistoryOrSupersededForksOnlyInAnotherSavedVersion() {
+    Revision r; QString error;
+    QVERIFY(revise({}, {}, target, "review", {{"status", "Superseded"}}, "local:user", "由新解释替代", 0, &r, &error));
+    const auto parent = r.interpretation;
+    QVERIFY(!revise({}, parent, target, "edit", {}, "local:user", "继续修订", 1, &r, &error));
+    auto saved = target; saved.insert("version_id", "saved-v2");
+    QVERIFY2(revise({}, parent, saved, "edit", {}, "local:user", "在保存的新版本继续修订", 1, &r, &error), qPrintable(error));
+    QVERIFY(r.interpretation.value("id") != parent.value("id")); QCOMPARE(r.interpretation.value("revision").toInt(), 1);
+    QCOMPARE(r.interpretation.value("inherited_interpretation").toMap(), parent);
+    QCOMPARE(r.interpretation.value("parent_version_id").toString(), QString("saved-v2"));
+    auto full = parent; full.insert("status", "NeedsReview"); full.insert("revision", 10000);
+    QVariantList history;
+    for (int n = 0; n < 10000; ++n) history << QVariantMap{{"event_id", QString::number(n)}, {"actor_id", "local:user"}, {"reason", "修订"},
+      {"timestamp", "2026-10-14T00:00:00.000Z"}, {"before_revision", n}, {"after_revision", n + 1}, {"version_id", "v1"}};
+    full.insert("history", history); QVERIFY(validateInterpretation(full, &error));
+    QVERIFY(!revise({}, full, target, "edit", {}, "local:user", "满额旧解释只读", 10000, &r, &error));
+    QVERIFY2(revise({}, full, saved, "edit", {}, "local:user", "新成果修订", 10000, &r, &error), qPrintable(error));
+    QCOMPARE(r.interpretation.value("history").toList().size(), 1);
+    QCOMPARE(r.interpretation.value("inherited_interpretation").toMap().value("history").toList().size(), 10000);
+    QCOMPARE(full.value("history").toList().size(), 10000);
+  }
+  void repeatedSpatialEditsDoNotRecursivelyEmbedAuditHistory() {
+    Revision r; QString error;
+    for (int n = 0; n < 100; ++n) {
+      const auto before = encode(r.interpretation);
+      QVERIFY2(revise(r.records, r.interpretation, target, "edit",
+          {{"before", QVariantMap{{"interpretation", before}, {"evidence", encode(r.records)}, {"geometry", "POLYGON((0 0,1 0,1 1,0 0))"}}}},
+          "local:user", "调整几何", n, &r, &error), qPrintable(error));
+    }
+    QCOMPARE(r.interpretation.value("history").toList().size(), 100);
+    const auto change = r.interpretation.value("history").toList().last().toMap().value("change").toMap();
+    QVERIFY(!change.value("before").toMap().value("interpretation").toMap().contains("history"));
+    QVERIFY(!change.value("before").toMap().contains("evidence"));
+    QVERIFY(encode(r.interpretation).size() < 300000);
+    QVariantMap restored; QVERIFY(decodeInterpretation(encode(r.interpretation), &restored, &error));
+    QCOMPARE(restored.value("history").toList().size(), 100);
+  }
   void legacyAndCorruptReads() {
     QVariantList rows;
     QString error;

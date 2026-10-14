@@ -34,6 +34,7 @@ class ComposePage : public QWidget
     // 版本状态标注（还没有版本 / 编辑中·vN / 已发布·vN）；已发布后「保存版本」
     // 按钮改叫「保存新版本」——下一次保存产生新版本，不回写已发布快照。
     void setVersionState(int version, bool published);
+    void setSnapshotBusy(bool busy);
     // D8 厚度触发控件：未选层位时禁用并写原因；选中后命名「生成 <层位>
     // 等厚图」。壳在 activeHorizonChanged 时喂当前层位（空串 = 未选）。
     void setThicknessHorizon(const QString &horizon);
@@ -61,6 +62,7 @@ class ComposePage : public QWidget
     // 阶段E — 保存版本 / 发布（发布受 setPublishEnabled 门控）。
     void saveVersionRequested();
     void publishRequested();
+    void cancelSnapshotRequested();
     // m2(C)：相属性保存意图——页面拿不到选中要素 id，壳/工作流侧按图层当前
     // 选中集解析；attrs 携 facies_code(int)/facies_type/comment。
     void faciesAttributesSaveRequested(const QString &layerId, const QVariantMap &attrs);

@@ -308,9 +308,16 @@ bool QgisProjectService::createProject( const QString &qgzPath )
   // 清单写失败不拦工程创建——如实进 lastErrors。
   {
     QString werr;
+    const auto configuration = projectFileForQgz(qgzPath);
     if ( !writeProjectFile( QFileInfo( qgzPath ).absolutePath(),
-                            projectFileForQgz( qgzPath ), &werr ) )
+                            configuration, &werr ) )
       m_errors << tr( "写入工程清单失败：%1" ).arg( werr );
+    else {
+      // Consumers must see the very same stable ID that was written for a
+      // newly created project, before its first save/close/reopen cycle.
+      m_mapConfiguration = configuration;
+      applyMapConfiguration();
+    }
   }
 
   ++m_sessionId;

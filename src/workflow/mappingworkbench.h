@@ -272,5 +272,7 @@ private:
   mutable quint64 m_versionIndexSeq = 0;
   mutable int m_versionIndexRevision = 0;
   mutable QHash<QString, CatalogVersion> m_aliasVersions, m_pathVersions;
+  // Owner-thread QGIS adapters; bounded and reset with the catalog context.
+  mutable QHash<QString, QPointer<QObject>> m_evidenceSpatialAdapters;
   mutable QVariantList m_productsCache;
 };

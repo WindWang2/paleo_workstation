@@ -570,6 +570,11 @@ QString MappingWorkbench::snapshotConstraints(const QString &h,
   const auto path = m_dir + "/artifacts/staging/" + uid() + ".gpkg";
   if (!MappingArtifactWriter::vectorSnapshot(&layer, path, error))
     return {};
+  int auditEvents = 0;
+  if (!store->copyAudit(path, h, error, &auditEvents)) {
+    QFile::remove(path);
+    return {};
+  }
   QStringList upstream = parents;
   const auto old =
       m_constraints
@@ -578,9 +583,12 @@ QString MappingWorkbench::snapshotConstraints(const QString &h,
   if (!old.isEmpty())
     upstream
         << DerivedAssetRegistrar(m_catalog, m_dir).parentVersionIdsFor({old});
+  QVariantMap snapshotExtra{{"method", "constraint-snapshot"}};
+  if (auditEvents > 0)
+    snapshotExtra.insert(QStringLiteral("constraint_audit_events"), auditEvents);
   const auto id =
       record(path, h, "constraint_snapshot", tr("%1 约束过程").arg(h), "vector",
-             upstream, {{"method", "constraint-snapshot"}}, error,
+             upstream, snapshotExtra, error,
              "|layername=features");
   if (!id.isEmpty())
     m_constraints->setProperty(

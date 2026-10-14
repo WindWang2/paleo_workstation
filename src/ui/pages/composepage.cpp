@@ -103,6 +103,11 @@ ComposePage::ComposePage(CompositionWorkflow *wf, QgisLayerService *layers, QWid
   toolRow2->addWidget(saveVersion, 1);
   toolRow2->addWidget(publish, 1);
   lay->addLayout(toolRow2);
+  auto *cancelSnapshot = new QPushButton(tr("取消快照任务"), this);
+  cancelSnapshot->setObjectName("cancelSnapshotButton"); cancelSnapshot->setEnabled(false);
+  cancelSnapshot->setToolTip(tr("当前没有保存或发布任务"));
+  connect(cancelSnapshot, &QPushButton::clicked, this, &ComposePage::cancelSnapshotRequested);
+  lay->addWidget(cancelSnapshot);
 
   // 版本状态标注（已发布 / 编辑中 / 无版本），跟着 shell 的发布门刷新走。
   auto *publishState = new QLabel(this);
@@ -461,6 +466,20 @@ void ComposePage::setPublishEnabled(bool enabled)
 {
   setPublishState(enabled, -1, -1); // 旧调用形态：不带残差评估
 }
+void ComposePage::setSnapshotBusy(bool busy)
+{
+  setProperty("paleo.snapshotBusy", busy);
+  if (auto *save = child<QPushButton>(this, "saveVersionButton")) {
+    save->setEnabled(!busy);
+    if (busy) save->setToolTip(tr("保存或发布任务运行中，请等待或取消"));
+  }
+  if (busy) if (auto *publish = child<QPushButton>(this, "publishButton")) {
+    publish->setEnabled(false); publish->setToolTip(tr("保存或发布任务运行中，请等待或取消"));
+  }
+  if (auto *cancel = child<QPushButton>(this, "cancelSnapshotButton")) {
+    cancel->setEnabled(busy); cancel->setToolTip(busy ? tr("取消未完成的文件准备；已保存或已发布的成果保持不变") : tr("当前没有保存或发布任务"));
+  }
+}
 
 void ComposePage::setPublishState(bool hasPdf, int covered, int total)
 {
@@ -470,7 +489,7 @@ void ComposePage::setPublishState(bool hasPdf, int covered, int total)
   // covered<0 = 调用方没评估残差 → 不拿残差卡门；其余情形须 total>0 且全
   // 覆盖（每口井都有残差或原因，§177）。
   const bool residualsOk = covered < 0 || (total > 0 && covered == total);
-  btn->setEnabled(hasPdf && residualsOk);
+  btn->setEnabled(hasPdf && residualsOk && !property("paleo.snapshotBusy").toBool());
   QString tip;
   if (!hasPdf)
     tip = tr("导出 PDF 后再保存");
@@ -480,6 +499,7 @@ void ComposePage::setPublishState(bool hasPdf, int covered, int total)
                         .arg(total)
                     : tr("先在验证页运行验证");
   btn->setToolTip(tip);
+  if (property("paleo.snapshotBusy").toBool()) btn->setToolTip(tr("保存或发布任务运行中，请等待或取消"));
 }
 
 void ComposePage::setVersionState(int version, bool published)

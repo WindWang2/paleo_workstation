@@ -228,9 +228,17 @@ void ConstraintPage::buildContourSection( QWidget *content, QVBoxLayout *lay )
       return;
     if ( contourMode->currentData().toString() == QLatin1String( "cartographic_detour" ) )
     {
-      const QVector<double> levels = parseLevels( levelsEdit->text() );
+      int dropped = 0;
+      const QVector<double> levels = parseLevels( levelsEdit->text(), &dropped );
       if ( levels.isEmpty() )
         return;
+      if ( dropped > 0 )
+      {
+        // 静默丢 token 会让用户以为全部级别都进了提线——如实拒绝并提示。
+        if ( auto *status = child<QLabel>( this, "statusLabel" ) )
+          status->setText( tr( "等值级别含 %1 个无法识别的值，已忽略；请修正后再计算。" ).arg( dropped ) );
+        return;
+      }
       emit interpretiveContourRequested( layerId, levels );
       return;
     }
@@ -342,7 +350,9 @@ void ConstraintPage::updateFactorActionStates()
   auto *mode = child<QComboBox>( this, "factorContourModeCombo" );
   auto *levels = child<QLineEdit>( this, "factorContourLevelsEdit" );
   const bool interpretive = mode && mode->currentData().toString() == QLatin1String( "cartographic_detour" );
-  const bool levelsReady = !interpretive || ( levels && !parseLevels( levels->text() ).isEmpty() );
+  int droppedTokens = 0;
+  const bool levelsReady =
+      !interpretive || ( levels && !parseLevels( levels->text(), &droppedTokens ).isEmpty() );
   if ( layerId.isEmpty() )
   {
     contour->setEnabled( false );
@@ -352,6 +362,12 @@ void ConstraintPage::updateFactorActionStates()
   {
     contour->setEnabled( false );
     contour->setToolTip( tr( "解释性绕行需要填写等值级别" ) );
+  }
+  else if ( interpretive && droppedTokens > 0 )
+  {
+    // 部分级别可解析：允许点击（点击时拒绝并发提示），tooltip 说明脏输入。
+    contour->setEnabled( true );
+    contour->setToolTip( tr( "等值级别含 %1 个无法识别的值，计算时会要求先修正" ).arg( droppedTokens ) );
   }
   else
   {

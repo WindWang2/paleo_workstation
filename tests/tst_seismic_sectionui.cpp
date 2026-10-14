@@ -489,6 +489,84 @@ private slots:
     QCOMPARE(canvas.compareLabel(), QStringLiteral("相邻线"));
   }
 
+  // 卷帘 B 图随显示参数重烘：开启对比后改极性/增益，帘右 B 必须跟随
+  // （旧实现只重烘 A——参数变了 B 保持旧配方渲染，两半对比口径漂移）。
+  void curtainCompareFollowsDisplayParams()
+  {
+    SeismicSectionCanvas canvas;
+    canvas.resize(800, 600);
+    canvas.setSectionData(makeSection(64, 256), 2.0f);
+
+    SgySliceImage other = makeSection(64, 256);
+    for (float &v : other.values)
+      if (std::isfinite(v))
+        v = -v; // 与 A 反相：极性翻转后 B 视觉应趋近 A
+    canvas.setCompareData(other, QStringLiteral("相邻线"));
+    canvas.setCompareEnabled(true);
+    canvas.setCurtainPos(0.5);
+
+    const QImage before = renderCanvas(canvas);
+    canvas.setPolarityInverted(true);
+    const QImage flipped = renderCanvas(canvas);
+    QVERIFY2(imageDiff(before, flipped) > 500,
+             "极性翻转必须同时重烘 A/B（B 侧极性同配方）");
+    canvas.setPolarityInverted(false);
+
+    const QImage g0 = renderCanvas(canvas);
+    canvas.setGain(4.0f);
+    const QImage g4 = renderCanvas(canvas);
+    QVERIFY2(imageDiff(g0, g4) > 500, "增益变化必须同时重烘 A/B");
+  }
+
+  // 跨线书签的视口恢复：换线触发异步重提取，到达回调 fitToWindow 会复位
+  // 视口——书签视口必须重放（旧实现 apply 时提取未完成即被 fit 覆盖，
+  // 跨线书签的缩放/平移从不恢复）。同线书签（无重提取）保持直接应用。
+  void crossLineBookmarkRestoresViewport()
+  {
+    QTemporaryDir dir;
+    const QString sgy = dir.filePath("bm2.sgy");
+    QVERIFY(writeTestSegy(sgy, 6, 5, 64));
+    SgyVolume volume;
+    std::string err;
+    QVERIFY(volume.Load(sgy.toStdString(), err));
+
+    PaleoTaskService tasks;
+    SeismicTaskService svc(&tasks, 16);
+    SeismicSectionDockWidget dock;
+    dock.resize(900, 650);
+    dock.setTaskService(&svc);
+    QSignalSpy done(&dock, &SeismicSectionDockWidget::sectionExtractionFinished);
+    dock.setVolume(std::make_shared<SgyVolume>(std::move(volume)));
+    QVERIFY(waitForQuiet([&] { return !done.isEmpty(); })); // 初线（中线）
+    const int initialLine = dock.canvas()->sectionRef().index;
+
+    // 在当前线上造一个非默认视口的书签
+    dock.canvas()->setZoom(2.5, 2.5);
+    dock.canvas()->panBy(60, -40);
+    const SectionViewState saved = dock.canvas()->viewState();
+    dock.addBookmark(QStringLiteral("缩放态"));
+    QCOMPARE(dock.bookmarks().size(), 1);
+
+    // 换线（书签线 ≠ 新线）：spin 触发重提取，视口被 fit 复位
+    QSpinBox *spin = dock.findChild<QSpinBox *>();
+    QVERIFY(spin);
+    const int otherLine = initialLine + 1;
+    spin->setValue(otherLine);
+    QVERIFY(waitForQuiet([&] { return done.size() >= 2; }));
+    QVERIFY(std::abs(dock.canvas()->viewState().zoomX - saved.zoomX) > 0.5);
+
+    // 应用跨线书签：setValue 触发重提取 → 完成后视口必须重放到书签值
+    dock.applyBookmark(0);
+    QVERIFY(waitForQuiet([&] { return done.size() >= 3; }));
+    const SectionViewState restored = dock.canvas()->viewState();
+    QVERIFY2(std::abs(restored.zoomX - saved.zoomX) < 1e-6,
+             qPrintable(QStringLiteral("zoomX %1 != %2")
+                        .arg(restored.zoomX).arg(saved.zoomX)));
+    QVERIFY2(std::abs(restored.panY - saved.panY) < 1e-6,
+             qPrintable(QStringLiteral("panY %1 != %2")
+                        .arg(restored.panY).arg(saved.panY)));
+  }
+
   // ---- D2.11 道头服务 ----
   void traceHeaderService()
   {

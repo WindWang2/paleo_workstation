@@ -473,28 +473,38 @@ PaleoTask *SeismicTaskService::startAttributeSlice(
     return nullptr;
   }
 
-  // 邻线解析（相干 3 线窗）：稀疏测网按轴值表相邻位取，不臆造 ±1 号。
+  // 邻线解析（相干窗）：稀疏测网按轴值表相邻位取，不臆造 ±1 号。窗宽由
+  // 剖面法向半窗决定（IL 剖面法向=inline → coherenceIlHalf；XL 剖面反之）
+  // ——面板可调参数如实兑现（旧实现恒 ±1 线，SATR 登记参数与实算不符）。
   std::vector<int> lineValues;
   const bool needsNeighbors = seismicAttrNeedsNeighbors(kind);
+  int normalHalf = 1;
   if (needsNeighbors)
   {
+    normalHalf = isInline ? params.coherenceIlHalf : params.coherenceXlHalf;
     const std::vector<int> &axis =
         isInline ? volume->InlineValues() : volume->XlineValues();
     const auto it = std::find(axis.begin(), axis.end(), lineValue);
     const std::size_t pos = std::size_t(it - axis.begin());
-    if (axis.size() < 3 || pos == 0 || pos + 1 >= axis.size())
+    if (it == axis.end() ||
+        static_cast<std::size_t>(normalHalf) >= axis.size() ||
+        pos < static_cast<std::size_t>(normalHalf) ||
+        pos + static_cast<std::size_t>(normalHalf) >= axis.size())
     {
       if (onFinished)
       {
         SeismicAttrResult r;
-      r.error = QStringLiteral("%1 %2 处于测网边缘，无双侧邻线，相干不可用")
-                    .arg(isInline ? QStringLiteral("inline") : QStringLiteral("crossline"))
-                    .arg(lineValue);
+        r.error = QStringLiteral("%1 %2 处于测网边缘，无双侧 ±%3 邻线，相干不可用")
+                      .arg(isInline ? QStringLiteral("inline") : QStringLiteral("crossline"))
+                      .arg(lineValue)
+                      .arg(normalHalf);
         onFinished(false, r);
       }
       return nullptr;
     }
-    lineValues = {axis[pos - 1], lineValue, axis[pos + 1]};
+    lineValues.reserve(static_cast<std::size_t>(2 * normalHalf + 1));
+    for (int d = -normalHalf; d <= normalHalf; ++d)
+      lineValues.push_back(axis[pos + static_cast<std::size_t>(d)]);
   }
   else
   {
@@ -515,8 +525,64 @@ PaleoTask *SeismicTaskService::startAttributeSlice(
   const int height = volume->SampleCount();
   const int sliceCount = int(lineValues.size());
 
+  // 相干沿向窗超出剖面宽时内核循环界为空——静默产出全 NaN 的「成功」。
+  // 与时间切片/属性体路径同口径：如实拒绝（_attr.cpp 测网过小守卫）。
+  if (kind == SeismicAttrKind::Coherence)
+  {
+    const int alongHalf = isInline ? params.coherenceXlHalf : params.coherenceIlHalf;
+    if (2 * alongHalf > width - 1)
+    {
+      if (onFinished)
+      {
+        SeismicAttrResult r;
+        r.error = QStringLiteral("剖面过窄（%1 道），沿向相干窗 ±%2 道后无完整窗——拒绝产出全 NaN 图")
+                      .arg(width)
+                      .arg(alongHalf);
+        onFinished(false, r);
+      }
+      return nullptr;
+    }
+  }
+
+  // 相干道距（加权档用；等权档内核不消费）：与属性体扫描同口径——
+  // 仿射拟合的轴向量长度 × 轴值表平均步长（_attr.cpp 同式）。mini 体两轴
+  // = （法向, 剖面列向）：IL 剖→(inline, xline)，XL 剖→(xline, inline)。
+  double cohIlSpacing = 0.0, cohXlSpacing = 0.0;
+  if (kind == SeismicAttrKind::Coherence)
+  {
+    const auto mapper = seismic::SgyCoordinateMapper::Fit(*volume->Index());
+    const auto meanStep = [](const std::vector<int> &axis) -> double {
+      return axis.size() < 2
+                 ? 0.0
+                 : double(axis.back() - axis.front()) / double(axis.size() - 1);
+    };
+    if (mapper.valid())
+    {
+      const double ilSp = std::hypot(mapper.fit().a, mapper.fit().d) *
+                          meanStep(volume->InlineValues());
+      const double xlSp = std::hypot(mapper.fit().b, mapper.fit().e) *
+                          meanStep(volume->XlineValues());
+      cohIlSpacing = isInline ? ilSp : xlSp;
+      cohXlSpacing = isInline ? xlSp : ilSp;
+    }
+    else if (params.coherenceWeighting == 1)
+    {
+      // 加权需要道距而体坐标映射不可用：如实拒绝（内核对
+      // InverseDistance+非正道距是全 NaN，不静默降级等权）。
+      if (onFinished)
+      {
+        SeismicAttrResult r;
+        r.error = QStringLiteral("道距加权需要体坐标映射（%1），本体不可用——请改等权或先修坐标")
+                      .arg(QString::fromStdString(mapper.fit().rejectionReason));
+        onFinished(false, r);
+      }
+      return nullptr;
+    }
+  }
+
   auto work = [volume, kind, params, sliceType, isInline, lineValues, result,
-               dtMs, width, height, sliceCount](PaleoTask *task) -> QString {
+               dtMs, width, height, sliceCount, normalHalf, cohIlSpacing,
+               cohXlSpacing](PaleoTask *task) -> QString {
     if (task->cancelRequested())
       return QString();
 
@@ -582,9 +648,11 @@ PaleoTask *SeismicTaskService::startAttributeSlice(
 
     if (kind == SeismicAttrKind::Coherence)
     {
-      // 组装 3 线小体：布局 [(lineIdx * width + x) * height + row]（row 空间
-      // ——垂直窗对称，行序与时序等价）。邻线轴 = mini 体 IL 轴（半窗恒 1，
-      // 恰覆 3 线）；沿剖轴的半窗按剖向映射：IL 剖→XL 向，XL 剖→IL 向。
+      // 组装法向窗小体：布局 [(lineIdx * width + x) * height + row]（row 空间
+      // ——垂直窗对称，行序与时序等价）。邻线轴 = mini 体 IL 轴（半窗 =
+      // 法向半窗 normalHalf，恰覆 2·normalHalf+1 线）；沿剖轴的半窗按剖向
+      // 映射：IL 剖→XL 向，XL 剖→IL 向。法向/沿向半窗与加权档全部兑现
+      // 面板参数（与时间切片/属性体路径同语义；SATR 登记值自此可信）。
       std::vector<float> vol3(static_cast<std::size_t>(sliceCount * width * height));
       // 切片是 [row][x] 行主序，必须转置拷入（内核按「道连续」读，平铺
       // 拷贝会把行列搅混——轮2 实测教训：S=1/3 恒定假象）。
@@ -598,17 +666,21 @@ PaleoTask *SeismicTaskService::startAttributeSlice(
                              std::numeric_limits<float>::quiet_NaN());
       const int alongHalf =
           isInline ? params.coherenceXlHalf : params.coherenceIlHalf;
-      paleo::seisattr::semblanceCoherence(
+      paleo::seisattr::semblanceCoherenceWeighted(
           vol3.data(), sliceCount, width, height,
-          /*ilHalf=*/1, /*xlHalf=*/alongHalf, params.coherenceTimeHalf,
+          /*ilHalf=*/normalHalf, /*xlHalf=*/alongHalf, params.coherenceTimeHalf,
+          /*ilSpacing=*/cohIlSpacing, /*xlSpacing=*/cohXlSpacing,
+          params.coherenceWeighting == 1
+              ? paleo::seisattr::CoherenceWeightMode::InverseDistance
+              : paleo::seisattr::CoherenceWeightMode::Equal,
           coh.data());
       // 中线输出即目标线属性图（同 row-major 布局）。
-      // 中线（il=1）出图：coh 逐道连续 [x][row] → 图像行主序 [row][x]，
+      // 中线（il=normalHalf）出图：coh 逐道连续 [x][row] → 图像行主序 [row][x]，
       // 与组装侧对称的第二次转置（平铺拷贝会行列互换——轮2 教训二连）。
       for (int x = 0; x < width; ++x)
         for (int row = 0; row < height; ++row)
           out->values[static_cast<std::size_t>(row * width + x)] =
-              coh[static_cast<std::size_t>((width + x) * height + row)];
+              coh[static_cast<std::size_t>((normalHalf * width + x) * height + row)];
       task->reportBytes(totalUnits, totalUnits);
     }
     else

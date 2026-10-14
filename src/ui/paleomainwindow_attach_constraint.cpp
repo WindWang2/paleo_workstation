@@ -5,6 +5,7 @@
 #include "../qgis/qgiscanvascontroller.h"
 #include "../qgis/qgisprojectservice.h"
 #include "../qgis/qgislayerservice.h"
+#include "../qgis/qgislayerprofile.h"
 #include "../metadata/layermanifest.h"
 #include "../workflow/workflows.h"
 #include "../workflow/mappingworkbench.h"
@@ -507,12 +508,21 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
                       setNodeChecked(d.layerId, false);
                   }
                 }
-                setNodeChecked(layerId, true);
+                // 显示走 parent-recursive：互斥下勾把组三态拨成部分/全关后，
+                // 普通勾选子层不恢复祖先组——图「上了」却看不见（V3/V8 同款）。
+                if (QgsLayerTreeLayer *node = treeRoot->findLayer(layer->id()))
+                  node->setItemVisibilityCheckedParentRecursive(true);
               }
               else
               {
                 setNodeChecked(layerId, false);
               }
+              // 回写页主题：切页/换层位会按 page:* 主题回放树态；程序化拨
+              // 勾选后不回写，用户切走再回来即被旧主题静默回滚（预测页
+              // 显示结果同款场景已回写——此处对齐，消除不对称）。
+              if (m_profileSvc)
+                m_profileSvc->captureCurrentAsTheme(
+                    QgisLayerProfileService::pageThemeName(currentPage()));
             });
     // 类型化约束线五入口（五种 Semantic 各一按钮）：类型化捕获工具
     //（type 列落地质类型词表）。CAD dock 复用编辑条那只（方向23 收敛四处懒建）。

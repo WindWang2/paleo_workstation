@@ -2,12 +2,14 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QImage>
+#include <QSignalSpy>
 #include <QTemporaryDir>
 
 #include "../src/catalog/datacatalog.h"
 #include "../src/qgis/layoutexport.h"
 #include "../src/qgis/qgisruntime.h"
 #include "../src/qgis/standardelements.h"
+#include "../src/services/paleotaskservice.h"
 #include "../src/workflow/horizonbatchexport.h"
 
 #include <qgsfeature.h>
@@ -156,6 +158,91 @@ class TestHorizonBatchExport : public QObject
 
       // undo 历史不被批处理污染。
       QCOMPARE( layout->undoStack()->stack()->count(), 0 );
+    }
+
+    // startAsync（#349 后台批量出图路径）：任务化出图在 worker 私有工程上
+    // 完成、journal 经 owner 线程发布登记、结果回包带真实文件路径；同版面
+    // 重入被 busy 拒绝；完成后 busy 标记释放。修复前该路径零测试（只测
+    // 同步 run()）。
+    void startAsyncExportsPublishesAndClearsBusy()
+    {
+      QTemporaryDir projectDir;
+      QVERIFY( projectDir.isValid() );
+      DataCatalog catalog;
+      QVERIFY2( catalog.open( projectDir.path() ), qPrintable( catalog.openError() ) );
+
+      std::unique_ptr<QgsPrintLayout> layout( makeFigureLayout() );
+
+      QMap<QString, QList<QgsMapLayer *>> groups;
+      QList<QgsMapLayer *> keepAlive;
+      for ( const QString &h : { QStringLiteral( "SB1" ), QStringLiteral( "SB2" ) } )
+      {
+        auto *layer = makeLayer( h + QStringLiteral( "_layer" ) );
+        keepAlive.append( layer );
+        layout->project()->addMapLayer( layer, false ); // 快照源：须在版面工程里
+        groups.insert( h, { layer } );
+      }
+
+      PaleoHorizonBatchExport::Request request;
+      request.layout = layout.get();
+      request.projectName = QStringLiteral( "async 工程" );
+      request.horizonLayers = groups;
+      request.catalog = &catalog;
+      request.projectDir = projectDir.path();
+      request.dpi = 96.0;
+      request.format = PaleoHorizonBatchExport::Format::Png;
+      request.date = QStringLiteral( "20261013" );
+
+      PaleoTaskService tasks;
+      bool doneCalled = false;
+      PaleoHorizonBatchExport::Result result;
+      QString err;
+      PaleoTask *task = PaleoHorizonBatchExport::startAsync(
+          request, &tasks,
+          [&doneCalled, &result]( const PaleoHorizonBatchExport::Result &r, bool ) {
+            result = r;
+            doneCalled = true;
+          },
+          &err );
+      QVERIFY2( task != nullptr, qPrintable( err ) );
+
+      // busy 重入：同版面第二发起被拒（无新任务、有原因）。
+      {
+        QString busyErr;
+        QVERIFY( PaleoHorizonBatchExport::startAsync( request, &tasks, {}, &busyErr ) ==
+                 nullptr );
+        QVERIFY2( busyErr.contains( QStringLiteral( "已有批量出图" ) ),
+                  qPrintable( busyErr ) );
+        QCOMPARE( tasks.tasks().size(), 1 );
+      }
+
+      QSignalSpy finished( task, &PaleoTask::finished );
+      QVERIFY2( finished.wait( 60000 ), "async batch export never finished" );
+      QTRY_VERIFY_WITH_TIMEOUT( doneCalled, 5000 );
+      QCOMPARE( task->state(), PaleoTask::State::Succeeded );
+
+      QCOMPARE( result.total, 2 );
+      QCOMPARE( result.succeeded, 2 );
+      QCOMPARE( result.failed, 0 );
+      for ( const auto &outcome : result.horizons )
+      {
+        QVERIFY2( outcome.ok, qPrintable( outcome.error ) );
+        QVERIFY2( QFile::exists( outcome.file ),
+                  qPrintable( outcome.file ) ); // owner 线程发布后的真实路径
+        const CatalogVersion ver =
+            catalog.versionBySha256( outcome.sha256 );
+        QCOMPARE( ver.stage, QStringLiteral( "OUTPUT" ) );
+      }
+
+      // busy 释放在回包内：后续可再发起。
+      QVERIFY( !layout->property( "paleoBatchExportRunning" ).toBool() );
+      QString err2;
+      PaleoTask *second = PaleoHorizonBatchExport::startAsync(
+          request, &tasks, {}, &err2 );
+      QVERIFY2( second != nullptr, qPrintable( err2 ) );
+      second->requestCancel();
+      QSignalSpy finished2( second, &PaleoTask::finished );
+      QVERIFY( finished2.wait( 60000 ) );
     }
 
     void emptyHorizonReportedAndMissingLayoutBails()

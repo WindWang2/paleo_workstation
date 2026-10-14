@@ -31,6 +31,7 @@
 #include <qgsmaplayer.h>
 #include <qgsmaplayerfactory.h>
 #include <qgsmapthemecollection.h>
+#include <qgsmessagelog.h>
 #include <qgspathresolver.h>
 #include <qgsprintlayout.h>
 #include <qgsproject.h>
@@ -38,6 +39,7 @@
 #include <qgsvectordataprovider.h>
 #include <qgsvectorlayer.h>
 
+#include "../../services/errorhub.h"
 #include "../../services/paleotaskservice.h"
 
 namespace
@@ -314,8 +316,8 @@ bool PaleoLayoutExportActions::captureProjectSnapshot(const QgsProject *project,
 }
 std::unique_ptr<QgsProject>
 PaleoLayoutExportActions::rebuildProject(const ProjectSnapshot &snapshot,
-                                         QString *error) {
-  return PaleoLayoutExport::rebuildProject(snapshot, error);
+                                         QString *error, QStringList *warnings) {
+  return PaleoLayoutExport::rebuildProject(snapshot, error, warnings);
 }
 
 bool PaleoLayoutExportActions::exportLayoutAsync( QgsLayout *layout, const QString &outPath,
@@ -359,7 +361,9 @@ bool PaleoLayoutExportActions::exportLayoutAsync( QgsLayout *layout, const QStri
         if ( t && t->cancelRequested() )
           return QString();
         QString error;
-        std::unique_ptr<QgsProject> project = rebuildProject( job->project, &error );
+        QStringList snapshotWarnings;
+        std::unique_ptr<QgsProject> project =
+            rebuildProject( job->project, &error, &snapshotWarnings );
         if ( !project )
         {
           job->outcome = ExportOutcome{ false, error, {}, outPath };
@@ -376,6 +380,9 @@ bool PaleoLayoutExportActions::exportLayoutAsync( QgsLayout *layout, const QStri
           if ( t && t->cancelRequested() )
             return QString();
           job->outcome = PaleoLayoutExport::exportLayout( &rebuilt, outPath, format, dpi, range );
+          // 快照层缺源不阻断导出（与活工程无效层同口径），但必须随结果
+          // 呈现——否则产物少层而用户只看到「导出成功」。
+          job->outcome.warnings = snapshotWarnings;
         } // 版面先于其工程析构
         return job->outcome.ok ? QString() : job->outcome.error;
       } );
@@ -402,14 +409,29 @@ void PaleoLayoutExportActions::reportExportOutcome( const ExportOutcome &outcome
   {
     if ( outcome.ok )
     {
-      m_statusTarget->showMessage( outcome.files.size() > 1
-                                     ? tr( "已导出 %1 个文件到 %2" ).arg( outcome.files.size() ).arg( QFileInfo( outcome.files.first() ).absolutePath() )
-                                     : tr( "已导出 %1" ).arg( outcome.files.value( 0 ) ), 4000 );
+      QString message = outcome.files.size() > 1
+                          ? tr( "已导出 %1 个文件到 %2" ).arg( outcome.files.size() ).arg( QFileInfo( outcome.files.first() ).absolutePath() )
+                          : tr( "已导出 %1" ).arg( outcome.files.value( 0 ) );
+      if ( !outcome.warnings.isEmpty() )
+        message += tr( "（%1 个图层无法加载，详见消息日志）" ).arg( outcome.warnings.size() );
+      m_statusTarget->showMessage( message, outcome.warnings.isEmpty() ? 4000 : 8000 );
     }
     else
     {
       m_statusTarget->showMessage( outcome.error, 6000 );
     }
+  }
+  // 缺层警告按 DESIGN.md warning 档入账（非模态通知卡 + 环形历史）；
+  // worker 侧（mapexport/地图册/批量层位）经 ErrorHub 直报同款。未安装
+  // 全局 hub（单测）时保底消息日志，不静默。
+  if ( !outcome.warnings.isEmpty() )
+  {
+    if ( ErrorHub *hub = ErrorHub::global() )
+      hub->raise( ErrorHub::Level::Warning, QStringLiteral( "layoutexport" ),
+                  tr( "版面导出完成，但有 %1 个图层无法加载" ).arg( outcome.warnings.size() ),
+                  outcome.warnings.join( QLatin1Char( '\n' ) ) );
+    for ( const QString &warning : outcome.warnings )
+      QgsMessageLog::logMessage( warning, QStringLiteral( "Paleo" ), Qgis::MessageLevel::Warning );
   }
 
   if ( m_openFolderEnabled && outcome.ok && !outcome.files.isEmpty() )

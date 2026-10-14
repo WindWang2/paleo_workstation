@@ -432,6 +432,29 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
       editTb->setEditingService(editSvc);
     if (m_projectSvc)
       editTb->setProject(m_projectSvc->project());
+    // 层位业务规则按工具条头文件契约由宿主注入（保持工具条业务无关）：
+    // 声明了层位的图层只在它属于当前活动层位时可编辑——.qgz 收编层/跨层
+    // 位实例化层（验证等显式 instantiate）不再能从其它层位的页签进入编辑。
+    // 层位无关（共享底图/井位）与用户自建层不受限；活动层位为空（工程
+    // 刚打开、尚未点 chip）时不设限——没有可保护的层位上下文，静默清空
+    // 下拉是比不过滤更差的行为。服务缺席（裸壳/测试）同样不过滤。
+    // 生命周期：filter 归工具条所有并捕获 this——宿主必须活得比工具条久
+    //（editTb 以 this 为 parent，析构序天然满足；改 reparent 前须复核）。
+    editTb->setLayerFilter([this](const QgsVectorLayer *layer) {
+      if (!m_layerSvc || !m_selection)
+        return true;
+      const QString id =
+          layer->customProperty(QStringLiteral("paleoLayerId")).toString();
+      if (id.isEmpty())
+        return true; // 用户自建/收编层不受层位规则约束
+      const QString active = m_selection->activeHorizon();
+      if (active.isEmpty())
+        return true; // 无活动层位上下文：不设限
+      const QString horizon = m_layerSvc->declaration(id).horizon;
+      if (horizon.isEmpty())
+        return true; // 层位无关共享层
+      return horizon == active;
+    });
     editTb->refreshFromProject();
     if (m_projectSvc)
     {
@@ -445,6 +468,11 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
                 [editTb](const QStringList &) { editTb->refreshFromProject(); });
       }
     }
+    // 层位切换不必然伴随图层增删（目标层位图层已显式实例化时无信号）——
+    // 过滤器随活动层位重算需要显式触发，否则下拉滞留旧层位的可编辑集。
+    if (m_selection)
+      connect(m_selection, &SelectionContext::activeHorizonChanged, editTb,
+              [editTb](const QString &) { editTb->refreshFromProject(); });
     // The selected tree layer, canvas target and ribbon target form one context.
     QgsMapCanvas *canvas = m_canvasCtl->canvas();
     connect(canvas, &QgsMapCanvas::mapToolSet, this, [this, canvas](QgsMapTool *tool, QgsMapTool *) {
@@ -465,8 +493,10 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
               [editTb, canvas, tree](QgsMapLayer *layer) {
         auto *vector = qobject_cast<QgsVectorLayer *>(layer);
         editTb->setCurrentLayer(vector);
-        if (!editTb->isEditing() && !vector)
-          canvas->setCurrentLayer(layer); // a raster is a valid browsing target
+        // 栅格与被层位过滤挡下的矢量层仍是合法浏览目标：画布跟随树选择
+        //（工具条受理的矢量层已在 setCurrentLayer 内同步画布）。
+        if (!editTb->isEditing() && (!vector || editTb->currentLayer() != vector))
+          canvas->setCurrentLayer(layer);
         // A refused switch restores the tree as well as the ribbon.
         const QSignalBlocker block(tree);
         tree->setCurrentLayer(canvas->currentLayer());

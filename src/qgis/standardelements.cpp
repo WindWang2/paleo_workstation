@@ -6,6 +6,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFont>
+#include <QFontDatabase>
 
 #include <qgsapplication.h>
 #include <qgslayout.h>
@@ -33,10 +34,23 @@
 
 namespace
 {
-  // 图件字体族：与 layoutexport.buildHorizonMapLayout 同一选择
-  //（DESIGN.md：Noto Sans SC，Linux 退化 Noto Sans CJK SC——图件走系统族名，
-  // 由渲染环境解析）。
-  constexpr auto kFigureFontFamily = "Noto Sans CJK SC";
+  // 图件字体族（DESIGN.md：Noto Sans SC——vendored 注册，跨平台一致；Linux
+  // 无 vendored 注册的裸壳退化系统 Noto Sans CJK SC）。此前钉死系统族名
+  // "Noto Sans CJK SC"：应用内已注册 vendored "Noto Sans SC" 却不取用，
+  // 字体落到 fontconfig 替换（fc-match 实测可解析到 KR 变体），PDF 文本
+  // 无字体保证。进程内解析一次并缓存——族集合运行期只在注册字体时增长。
+  QString figureFontFamily()
+  {
+    static const QString resolved = [] {
+      const QFontDatabase db;
+      if (db.families().contains(QLatin1String("Noto Sans SC")))
+        return QStringLiteral("Noto Sans SC");
+      if (db.families().contains(QLatin1String("Noto Sans CJK SC")))
+        return QStringLiteral("Noto Sans CJK SC");
+      return QStringLiteral("Noto Sans SC"); // 交给渲染端字体替换兜底
+    }();
+    return resolved;
+  }
 
   // 整刻度间隔（1/2/5 × 10^n）：坐标网格与比例尺共用。
   double niceInterval( double raw )
@@ -143,7 +157,7 @@ bool applyPageSetup( QgsPrintLayout *layout, const PageSetup &setup )
 QgsTextFormat figureTextFormat( double sizePt )
 {
   QgsTextFormat fmt;
-  QFont font( QString::fromLatin1( kFigureFontFamily ) );
+  QFont font( figureFontFamily() );
   font.setPointSizeF( sizePt );
   fmt.setFont( font );
   fmt.setSizeUnit( Qgis::RenderUnit::Points );

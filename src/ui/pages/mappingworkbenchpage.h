@@ -43,6 +43,8 @@ private:
   void refreshInputs();
   void scheduleRefresh();
   void updateState();
+  void renderEvidenceSnapshot(const QVariantMap &snapshot);
+  bool nativeSelectionMatchesEvidence() const;
   QStringList checkedInputs() const;
   void issue(const QString &action, QVariantMap parameters = {});
   MappingWorkbench *m_workbench;
@@ -74,6 +76,7 @@ private:
   QLabel *m_interpretationState = nullptr, *m_quality = nullptr;
   QPlainTextEdit *m_evidenceHistory = nullptr;
   QVariantMap m_evidenceSnapshot;
+  bool m_evidenceSnapshotOwned = false;
   int m_historyPage = 0;
   QString m_historyTarget;
   QTimer *m_refreshTimer = nullptr;

@@ -1,6 +1,7 @@
 // 层：功能
 #include "mapversioncontroller.h"
 #include "workflowerrors_internal.h"
+#include "mapversionvalidation_internal.h"
 #include "mappingsamples.h"
 #include "../domain/interpretationevidence.h"
 #include "../qgis/mappingfeatureidentity.h"
@@ -22,6 +23,7 @@
 #include <QJsonObject>
 #include <QTemporaryDir>
 #include <QDir>
+#include <QScopeGuard>
 
 #include <gdal.h>
 
@@ -48,7 +50,7 @@ MapVersionController::MapVersionController( MapVersionStore *store, QgisLayerSer
 void MapVersionController::setCatalog(DataCatalog *catalog) { cancelSnapshot(); ++m_snapshotEpoch; m_catalog = catalog; }
 
 bool MapVersionController::captureVersion(const QString &horizon, const QVariantMap &provenance,
-    QVector<LayerDeclaration> *declarations, QVariantMap *frozen, QString *error) {
+    QVector<LayerDeclaration> *declarations, QVariantMap *frozen, QString *error, bool featurePrevalidated) {
 
   QVariantMap frozenProvenance = provenance;
 
@@ -92,9 +94,8 @@ bool MapVersionController::captureVersion(const QString &horizon, const QVariant
   }
 
   // Validate persisted business JSON before committing the native edit buffer.
-  QVariantMap statuses;
-  qint64 featureCount = 0;
-  for (const auto &item : horizonVectorLayers) {
+  MapVersionEvidenceScan scan;
+  if (!featurePrevalidated) for (const auto &item : horizonVectorLayers) {
     auto *layer = item.second.data();
     if (!layer) continue;
     if (item.first.startsWith("draft.") && layer->fields().indexOf("facies_code") >= 0 && !layer->readOnly() &&
@@ -103,58 +104,30 @@ bool MapVersionController::captureVersion(const QString &horizon, const QVariant
     }
     if (layer->fields().indexOf("facies_evidence") < 0 &&
         layer->fields().indexOf("paleo_interpretation") < 0) {
-      featureCount += layer->featureCount(); continue;
+      scan.featureCount += layer->featureCount(); continue;
     }
-    QSet<QString> featureUids;
+    scan.layerUids.clear();
     auto features = layer->getFeatures(); QgsFeature feature;
     while (features.nextFeature(feature)) {
-      ++featureCount;
-      const auto featureUid = MappingFeatureIdentity::uid(feature);
-      if (!featureUid.isEmpty() && featureUids.contains(featureUid)) {
-        setError(error, tr("证据图层中存在重复图元身份，请在工作副本中复核后保存"));
-        clearAllTokens(); return {};
-      }
-      if (!featureUid.isEmpty()) featureUids.insert(featureUid);
-      QVariantList records;
-      QVariantMap interpretation;
-      if (layer->fields().indexOf("facies_evidence") >= 0 &&
-          !paleo::evidence::decodeRecords(feature.attribute("facies_evidence").toString(), &records, error)) {
-        clearAllTokens(); return {};
-      }
-      if (layer->fields().indexOf("paleo_interpretation") >= 0 &&
-          !paleo::evidence::decodeInterpretation(feature.attribute("paleo_interpretation").toString(), &interpretation, error)) {
-        clearAllTokens(); return {};
-      }
-      const QVariantMap target{{"horizon", horizon}, {"feature_uid", MappingFeatureIdentity::uid(feature)},
-                               {"geometry_hash", MappingFeatureIdentity::geometryFingerprint(feature)}};
-      if (!interpretation.isEmpty() &&
-          (interpretation.value("feature_uid") != target.value("feature_uid") ||
-           interpretation.value("horizon") != target.value("horizon"))) {
-        setError(error, tr("解释身份或层位与当前图斑不一致，请先复核")); clearAllTokens(); return {};
-      }
-      for (const auto &finding : paleo::evidence::check(records, interpretation, target))
-        if (finding.toMap().value("severity").toString() == "Blocking") {
-          setError(error, finding.toMap().value("message").toString()); clearAllTokens(); return {};
-        }
-      const QString status = interpretation.value("status", "Proposed").toString();
-      statuses.insert(status, statuses.value(status).toLongLong() + 1);
-      if (m_catalog)
-        for (const auto &entry : records) {
-          const auto row = entry.toMap();
-          const auto source = row.value("source_version").toString();
-          if (!row.value("unlinked", row.value("tombstone", false)).toBool() && !source.isEmpty() && m_catalog->versionById(source).id.isEmpty()) {
-            setError(error, tr("图斑证据引用的来源版本缺失：%1").arg(source));
-            clearAllTokens(); return {};
-          }
-        }
+      if (!scan.append(feature, horizon, m_catalog, error, item.first.startsWith("draft."))) { clearAllTokens(); return {}; }
     }
   }
-  frozenProvenance.insert("feature_summary", QVariantMap{{"feature_count", featureCount}, {"statuses", statuses}});
+  if (!featurePrevalidated) frozenProvenance.insert("feature_summary", scan.summary());
 
   // 编辑会话 commit（§1223 版本提交边界）：该层位全部矢量图层逐一提交；
   // commitChanges 原生清 undo 栈，undoStack()->clear() 再兜底一次，保证
   // undo 不跨版本边界。栅格图层无编辑缓冲，跳过。
   bool commitFailed = false;
+  QVector<QPointer<MapVersionEvidenceCommitProof>> proofs;
+  // Bind every proof before the first native callback. Committing A must not
+  // certify changes that its callback makes to the already-scanned layer B.
+  if (featurePrevalidated)
+    for (const auto &item : horizonVectorLayers)
+      if (item.second && item.first.startsWith("draft."))
+        proofs << new MapVersionEvidenceCommitProof(item.second, horizon, m_catalog);
+  const auto expireProofs = qScopeGuard([&] {
+    for (auto &proof : proofs) if (proof) { proof->releaseGuard(); delete proof.data(); }
+  });
   for ( const auto &item : horizonVectorLayers )
   {
     auto *vl = item.second.data();

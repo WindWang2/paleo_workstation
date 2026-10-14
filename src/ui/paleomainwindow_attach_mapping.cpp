@@ -53,6 +53,17 @@ void PaleoMainWindow::attachMapping(MappingWorkflow *mapping, MapVersionControll
   attachMappingExport(composePage, mapping, versionStore, projectData, catalog);
   attachMappingVersions(composePage, versions);
   connect(composePage, &ComposePage::cancelSnapshotRequested, versions, &MapVersionController::cancelSnapshot);
+  connect(versions, &MapVersionController::snapshotQueryProgress, this,
+          [this, composePage](const QString &h, qint64 checked, qint64 total) {
+    if (m_selection && m_selection->activeHorizon() == h)
+      if (auto *label = composePage->findChild<QLabel *>("statusLabel"))
+        label->setText(tr("正在校验证据：%1/%2 个要素，可取消").arg(checked).arg(total));
+  });
+  // A terminal result from an earlier project session is deliberately dropped,
+  // but its busy transition must still release the current page's save gate.
+  connect(versions, &MapVersionController::snapshotBusyChanged, this, [this](bool) {
+    if (m_refreshPublishGate) m_refreshPublishGate();
+  });
   connect(versions, &MapVersionController::snapshotFinished, this,
           [this, composePage](const QString &h, const QString &operation, bool success, bool cancelled, const QString &error) {
     if (m_selection && m_selection->activeHorizon() == h) {

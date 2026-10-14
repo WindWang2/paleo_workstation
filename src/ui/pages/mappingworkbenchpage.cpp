@@ -547,12 +547,12 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
       m_verification->setCurrentIndex(qMax(0, m_verification->findData(row.value("verification", "Unverified"))));
     }
     auto *b = commandButton("removeEvidence");
-    b->setEnabled(selectedLayer().startsWith("draft.") &&
+    b->setEnabled(nativeSelectionMatchesEvidence() && selectedLayer().startsWith("draft.") &&
                   m_evidence->currentItem() && !row.value("quality_error").toBool());
     b->setToolTip(b->isEnabled() ? tr("移除此条证据，可撤销")
                                  : tr("请先选择编辑副本中的证据"));
     if (auto *locate = commandButton("locateEvidence")) locate->setEnabled(m_evidence->currentItem() || m_generationEvidence->currentItem());
-    const bool ready = selectedLayer().startsWith("draft.") && !row.isEmpty() && !row.value("quality_error").toBool() &&
+    const bool ready = nativeSelectionMatchesEvidence() && selectedLayer().startsWith("draft.") && !row.isEmpty() && !row.value("quality_error").toBool() &&
         m_workbench->selectedFeatures(selectedLayer()).size() == 1 && !m_evidenceReason->text().trimmed().isEmpty() && !m_evidenceActor->text().trimmed().isEmpty();
     commandButton("updateEvidence")->setEnabled(ready); commandButton("verifyEvidence")->setEnabled(ready);
   });
@@ -693,6 +693,7 @@ void MappingWorkbenchPage::setHorizon(const QString &h) {
   if (m_horizon == h)
     return;
   m_horizon = h;
+  m_evidenceSnapshotOwned = false; m_evidenceSnapshot.clear();
   if (m_horizonFile) m_horizonFile->clear();
   showMessage(QString());
   refresh();
@@ -974,51 +975,26 @@ void MappingWorkbenchPage::updateState() {
   gate("assignFacies", row.value("draft").toBool() && !selectedSchema.isEmpty(),
        tr("复制相图后，在画布选中要素，再选择相类别"));
   const auto evidenceSelection = m_workbench->selectedFeatures(selectedLayer());
-  auto detailSnapshot = evidenceSelection.isEmpty() && m_evidenceSnapshot.value("layer_id").toString() == selectedLayer() &&
-      !m_evidenceSnapshot.value("feature_uid").toString().isEmpty()
-      ? m_evidenceSnapshot : m_workbench->featureEvidence(selectedLayer(), evidenceSelection);
-  const bool editableEvidence =
-      row.value("draft").toBool() && !evidenceSelection.isEmpty();
+  // Controller snapshots describe the research target, which may differ from
+  // native editing selection after graph navigation. Text/form changes must
+  // never replace that target with the previously selected native feature.
+  const bool ownsTarget = m_evidenceSnapshotOwned &&
+      (m_evidenceSnapshot.isEmpty() || m_evidenceSnapshot.value("layer_id").toString() == selectedLayer());
+  auto detailSnapshot = ownsTarget ? m_evidenceSnapshot
+      : m_workbench->featureEvidence(selectedLayer(), evidenceSelection);
+  if (!ownsTarget && evidenceSelection.size() > 1)
+    detailSnapshot.insert("records", m_workbench->evidence(selectedLayer(), evidenceSelection));
+  renderEvidenceSnapshot(detailSnapshot);
+  const bool editableEvidence = row.value("draft").toBool() &&
+      !evidenceSelection.isEmpty() && nativeSelectionMatchesEvidence();
   gate("selectHierarchy",
        !selectedSchema.isEmpty() && !evidenceSelection.isEmpty(),
        tr("请先在画布选择相要素，再按编辑层级扩展选区"));
   gate("addEvidence",
        editableEvidence && !m_evidenceText->toPlainText().trimmed().isEmpty(),
        tr("请先在编辑副本的画布中选中要素，再填写证据"));
-  const auto currentEvidence =
-      m_evidence->currentItem()
-          ? m_evidence->currentItem()->data(Qt::UserRole).toString()
-          : QString();
-  {
-    const QSignalBlocker block(m_evidence);
-    m_evidence->clear();
-    auto displayed = evidenceSelection.isEmpty() ? detailSnapshot.value("records").toList() : m_workbench->evidence(selectedLayer(), evidenceSelection);
-    for (const auto &entry : displayed.mid(0, 200)) {
-      auto e = entry.toMap(); if (e.value("unlinked").toBool()) continue;
-      if (detailSnapshot.contains("project_id")) e.insert("project_id", detailSnapshot.value("project_id"));
-      if (detailSnapshot.contains("project_session")) e.insert("project_session", detailSnapshot.value("project_session"));
-      auto *item = new QListWidgetItem(
-          tr("%1 · 要素 %2 · %3\n%4")
-              .arg(FaciesHierarchy::title(e.value("level").toString()),
-                   e.value("feature_id").toString(),
-                   e.value("source_title", tr("手工解释")).toString(),
-                   e.value("text").toString() +
-                       (e.value("needs_review").toBool()
-                            ? tr("（分类已变更，需复核）")
-                            : QString())),
-          m_evidence);
-      item->setData(Qt::UserRole, e.value("id"));
-      item->setData(Qt::UserRole + 1, e);
-      item->setToolTip(tr("解释时分类：%1\n记录时间：%2")
-                           .arg(e.value("category_path").toString(),
-                                e.value("created_at").toString()));
-      if (e.value("id").toString() == currentEvidence)
-        m_evidence->setCurrentItem(item);
-    }
-  }
   gate("removeEvidence", editableEvidence && m_evidence->currentItem(),
-       tr("请选择编辑副本中的证据"));
-  setEvidenceSnapshot(detailSnapshot);
+       tr("请选择当前详情对应的地图要素及证据"));
   const bool accountable = !m_evidenceActor->text().trimmed().isEmpty() && !m_evidenceReason->text().trimmed().isEmpty();
   const bool singleEditable = editableEvidence && evidenceSelection.size() == 1 && !m_evidenceSnapshot.contains("error");
   gate("updateEvidence", singleEditable && accountable && m_evidence->currentItem(), tr("选择一个要素及证据，并填写操作人和修订理由"));
@@ -1084,7 +1060,7 @@ void MappingWorkbenchPage::updateState() {
 void MappingWorkbenchPage::issue(const QString &action, QVariantMap p) {
   if (action == "historyOlder" || action == "historyNewer") {
     m_historyPage += action == "historyOlder" ? 1 : -1;
-    m_historyPage = qMax(0, m_historyPage); setEvidenceSnapshot(m_evidenceSnapshot); return;
+    m_historyPage = qMax(0, m_historyPage); renderEvidenceSnapshot(m_evidenceSnapshot); return;
   }
   if (action == "evidenceGraph") { emit evidenceGraphRequested(m_evidenceSnapshot); return; }
   if (action == "locateEvidence") {
@@ -1183,9 +1159,44 @@ void MappingWorkbenchPage::selectEvidenceSource(const QString &id) {
     m_evidenceSource->setCurrentIndex(index);
   updateState();
 }
+bool MappingWorkbenchPage::nativeSelectionMatchesEvidence() const {
+  if (!m_workbench || m_evidenceSnapshot.contains("error") || m_evidenceSnapshot.isEmpty()) return false;
+  const auto ids = m_workbench->selectedFeatures(selectedLayer());
+  // This transient fid is only an owner-thread UI gate. Persisted mutations
+  // still validate target_feature_uid, version and expected revision.
+  return !ids.isEmpty() && m_evidenceSnapshot.value("layer_id").toString() == selectedLayer() &&
+      m_evidenceSnapshot.contains("feature_id") && ids.first() == m_evidenceSnapshot.value("feature_id").toLongLong();
+}
 void MappingWorkbenchPage::setEvidenceSnapshot(const QVariantMap &snapshot) {
+  m_evidenceSnapshotOwned = true;
+  m_evidenceSnapshot = snapshot;
+  updateState();
+}
+void MappingWorkbenchPage::renderEvidenceSnapshot(const QVariantMap &snapshot) {
   m_evidenceSnapshot = snapshot;
   if (!m_interpretationState) return;
+  const auto currentEvidence = m_evidence->currentItem()
+      ? m_evidence->currentItem()->data(Qt::UserRole).toString() : QString();
+  {
+    const QSignalBlocker block(m_evidence);
+    m_evidence->clear();
+    for (const auto &entry : snapshot.value("records").toList().mid(0, 200)) {
+      auto e = entry.toMap(); if (e.value("unlinked").toBool()) continue;
+      if (snapshot.contains("project_id")) e.insert("project_id", snapshot.value("project_id"));
+      if (snapshot.contains("project_session")) e.insert("project_session", snapshot.value("project_session"));
+      auto *item = new QListWidgetItem(
+          tr("%1 · 要素 %2 · %3\n%4")
+              .arg(FaciesHierarchy::title(e.value("level").toString()),
+                   e.value("feature_id", snapshot.value("feature_id")).toString(),
+                   e.value("source_title", tr("手工解释")).toString(),
+                   e.value("text").toString() +
+                       (e.value("needs_review").toBool() ? tr("（分类已变更，需复核）") : QString())), m_evidence);
+      item->setData(Qt::UserRole, e.value("id")); item->setData(Qt::UserRole + 1, e);
+      item->setToolTip(tr("解释时分类：%1\n记录时间：%2").arg(
+          e.value("category_path").toString(), e.value("created_at").toString()));
+      if (e.value("id").toString() == currentEvidence) m_evidence->setCurrentItem(item);
+    }
+  }
   const auto interpretation = snapshot.value("interpretation").toMap();
   const auto identity = interpretation.value("id").toString();
   if (m_historyTarget != identity) { m_historyTarget = identity; m_historyPage = 0; }

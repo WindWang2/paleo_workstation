@@ -8,6 +8,8 @@
 #include "derivedassets.h"
 #include <QObject>
 #include <QPointer>
+#include <QSet>
+#include <QHash>
 #include <QVariantMap>
 #include <atomic>
 #include <functional>
@@ -171,6 +173,9 @@ signals:
   void errorOccurred(const QString &message);
 
 private:
+  QVariantMap resolveEvidenceSource(const QVariantMap &record, const QVariantMap &spatialTarget,
+                                    bool loadSavedSource, QSet<QString> *spatialSources,
+                                    QHash<QString, QVariantMap> *spatialResults = nullptr) const;
   void connectPredictionService(RemotePredictionService *service);
   void publishFactorAlias(const QString &horizon, const QString &id);
   void synchronizeCatalogLayers();

@@ -74,6 +74,8 @@ class MapVersionController : public QObject
 
   signals:
     void snapshotBusyChanged(bool busy);
+    // Query batches yield to the event loop before the native commit boundary.
+    void snapshotQueryProgress(const QString &horizon, qint64 checked, qint64 total);
     void snapshotFinished(const QString &horizon, const QString &operation,
                           bool success, bool cancelled, const QString &error);
     void versionSaved( const QString &horizon, int version );
@@ -81,7 +83,11 @@ class MapVersionController : public QObject
 
   private:
     bool captureVersion(const QString &horizon, const QVariantMap &provenance,
-                        QVector<LayerDeclaration> *declarations, QVariantMap *frozen, QString *error);
+                        QVector<LayerDeclaration> *declarations, QVariantMap *frozen, QString *error,
+                        bool featurePrevalidated = false);
+    struct SavePreparation;
+    void continueSavePreparation(const std::shared_ptr<SavePreparation> &preparation);
+    bool launchSaveSnapshot(const QString &horizon, const QVariantMap &provenance, QString *error);
     void releaseSnapshotTokens(const QString &horizon);
     struct AsyncState;
     std::shared_ptr<AsyncState> m_async;

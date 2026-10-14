@@ -128,7 +128,7 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
     connect(evidence, &EvidenceInteraction::detailsChanged, this, [this, pages](const QVariantMap &snapshot, quint64) {
       for (auto *page : pages) {
         if (page->isVisible() && page->horizon() == snapshot.value("horizon").toString()) page->selectLayer(snapshot.value("layer_id").toString());
-        if (page->selectedLayer() == snapshot.value("layer_id").toString()) page->setEvidenceSnapshot(snapshot);
+        if (snapshot.isEmpty() || page->selectedLayer() == snapshot.value("layer_id").toString()) page->setEvidenceSnapshot(snapshot);
       }
       if (auto *data = findChild<DataPage *>()) data->graphPage()->setFeatureEvidence(snapshot);
     });

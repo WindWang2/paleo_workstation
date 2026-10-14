@@ -1,5 +1,6 @@
 // 层：功能
 #include "mappingworkbench.h"
+#include "mapversionvalidation_internal.h"
 #include "../algorithms/faciesmapping/formationdominance.h"
 #include "../catalog/purgelease.h"
 #include "../domain/faciescatalog.h"
@@ -73,6 +74,7 @@ void rememberNativeFailure(QgsVectorLayer *layer, const QString &target, const Q
 
 bool validWorkingEvidence(QgsVectorLayer *layer, const QString &horizon,
                           const DataCatalog *catalog, QString *error) {
+  if (MapVersionEvidenceCommitProof::validFor(layer, horizon, catalog)) return true;
   QSet<QString> identities;
   QgsFeatureRequest request;
   QgsAttributeList attributes;

@@ -372,9 +372,24 @@ QVariantMap EvidenceMapAdapter::spatialCandidates(QgsMapLayer *source, const QVa
       if (!m_index.contains(pinnedUid)) return invalid("missing", tr("引用的来源图元已不存在"));
       request.setFilterFid(m_index.value(pinnedUid));
     } else {
-      request.setFilterExpression(QStringLiteral("%1 = %2").arg(
-          QgsExpression::quotedColumnRef(MappingFeatureIdentity::UidField), QgsExpression::quotedString(pinnedUid)));
-      request.setLimit(2);
+      // Same identity rule as MappingFeatureIdentity::uid(): QString::trimmed().
+      // A provider trim() only strips ASCII spaces, so a tab or NBSP duplicate
+      // would otherwise look unique and pass confirmation.
+      QgsFeatureRequest identityRequest;
+      identityRequest.setFlags(Qgis::FeatureRequestFlag::NoGeometry);
+      identityRequest.setSubsetOfAttributes(QgsAttributeList{uidField});
+      QgsFeatureId matchedId = FID_NULL;
+      bool matched = false;
+      auto identities = vector->getFeatures(identityRequest);
+      QgsFeature candidate;
+      while (identities.nextFeature(candidate)) {
+        if (MappingFeatureIdentity::uid(candidate) != pinnedUid) continue;
+        if (matched) return invalid("ambiguous", tr("来源图元身份重复"));
+        matched = true;
+        matchedId = candidate.id();
+      }
+      if (!matched) return invalid("missing", tr("引用的来源图元已不存在"));
+      request.setFilterFid(matchedId);
     }
   } else {
     request.setFilterRect(geometry.boundingBox()); request.setLimit(scanBudget + 1);

@@ -17,3 +17,6 @@ add_paleo_test(tst_featureidentity LIBS paleo_qgis)
 
 add_paleo_test(tst_evidencegraph LIBS paleo_workflow)
 add_paleo_test(tst_nativeevidenceguard LIBS paleo_workflow)
+add_paleo_test(tst_evidenceselection LIBS paleo_ui)
+add_paleo_test(tst_evidencesourcevalidation LIBS paleo_workflow)
+add_paleo_test(tst_snapshotquery LIBS paleo_workflow)

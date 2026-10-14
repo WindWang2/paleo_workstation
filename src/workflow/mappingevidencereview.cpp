@@ -8,6 +8,8 @@
 #include "../qgis/evidencemapadapter.h"
 #include "../qgis/qgislayerservice.h"
 #include <QJsonDocument>
+#include <QFileInfo>
+#include <QCryptographicHash>
 #include <QSet>
 #include <QUuid>
 #include <cmath>
@@ -117,57 +119,13 @@ QVariantMap MappingWorkbench::featureEvidence(const QString &id, const QList<qin
   QVariantList records; QVariantMap interpretation; QString error;
   if (!read(f, &records, &interpretation, &error)) { out.insert("error", error); return out; }
   const QVariantMap spatialTarget{{"wkb", f.geometry().asWkb()}, {"crs_wkt", v->crs().toWkt()}};
-  int spatialWork = 0;
-  const auto spatial = [&](QVariantMap row) {
-    const auto sourceId = row.value("source_version", row.value("version_id")).toString();
-    const auto source = m_catalog ? m_catalog->versionById(sourceId) : CatalogVersion();
-    QString sourceLayer = "product." + sourceId;
-    auto *loaded = m_layers->layer(sourceLayer);
-    if (!loaded) {
-      const auto alias = row.value("source_layer", source.extra.value("layer_id")).toString();
-      if (!alias.isEmpty() && !alias.startsWith("draft.") && versionForLayer(alias).id == sourceId) {
-        auto *candidate = m_layers->layer(alias);
-        auto *vector = qobject_cast<QgsVectorLayer *>(candidate);
-        if (!vector || vector->readOnly()) { sourceLayer = alias; loaded = candidate; }
-      }
-    }
-    row.insert("spatial_state", "unknown");
-    if (!loaded || spatialWork >= 8) {
-      row.insert("spatial_message", loaded ? tr("单次详情空间查询已裁剪，请单独定位该来源后复核") : tr("来源尚未加载；定位来源后可核查局部空间关联"));
-      return row;
-    }
-    ++spatialWork;
-    auto *adapter = qobject_cast<EvidenceMapAdapter *>(m_evidenceSpatialAdapters.value(sourceLayer).data());
-    if (!adapter) {
-      if (m_evidenceSpatialAdapters.size() >= 16) {
-        const auto first = m_evidenceSpatialAdapters.begin(); delete first.value().data(); m_evidenceSpatialAdapters.erase(first);
-      }
-      adapter = new EvidenceMapAdapter(nullptr, const_cast<MappingWorkbench *>(this)); m_evidenceSpatialAdapters.insert(sourceLayer, adapter);
-    }
-    adapter->bindLayer(qobject_cast<QgsVectorLayer *>(loaded));
-    const auto result = adapter->spatialCandidates(loaded, spatialTarget, row.value("source_feature_uid").toString(), 20);
-    const auto state = result.value("state").toString();
-    row.insert("source_layer", sourceLayer); row.insert("spatial_state", state); row.insert("spatial_query", result);
-    row.insert("spatial_message", result.value("message"));
-    row.insert("source_feature_horizon", result.value("pinned_feature").toMap().value("horizon"));
-    if (state == "intersects" || state == "disjoint") row.insert("spatial_intersection", state == "intersects");
-    if (state == "missing" || state == "ambiguous") row.insert("source_feature_missing", true);
-    return row;
+  QSet<QString> spatialSources;
+  const auto spatial = [&](const QVariantMap &row) {
+    return resolveEvidenceSource(row, spatialTarget, false, &spatialSources);
   };
   // Catalog answers use stable IDs and O(1) lookups; no active QGIS object is
   // passed to the background graph workflow.
-  for (auto &value : records) {
-    auto row = value.toMap(); const auto source = row.value("source_version").toString();
-    if (!source.isEmpty() && m_catalog) {
-      const auto input = m_catalog->versionById(source);
-      row.insert("source_missing", input.id.isEmpty()); row.insert("source_stale", input.extra.value("stale").toBool());
-      row.insert("source_asset", input.assetId);
-      row.insert("source_horizon", input.extra.value("horizon"));
-      row.insert("source_current_version", m_catalog->currentVersion(input.assetId).id);
-      if (input.extra.contains("facies")) row.insert("source_facies_schema_hash", paleo::evidence::fingerprint(input.extra.value("facies")));
-    }
-    value = spatial(row);
-  }
+  for (auto &value : records) value = spatial(value.toMap());
   QVariantList spatialCandidates;
   for (int n = 0; n < qMin(8, int(generation.size())); ++n) {
     auto row = spatial(generation[n].toMap()); generation[n] = row;
@@ -191,6 +149,110 @@ QVariantMap MappingWorkbench::featureEvidence(const QString &id, const QList<qin
   out.insert("feature_id", f.id());
   if (MappingFeatureIdentity::uid(f).isEmpty()) out.insert("message", tr("早期图斑无稳定身份；创建编辑副本后可建立持久关联"));
   return out;
+}
+QVariantMap MappingWorkbench::resolveEvidenceSource(const QVariantMap &record,
+    const QVariantMap &spatialTarget, bool loadSavedSource, QSet<QString> *spatialSources,
+    QHash<QString, QVariantMap> *spatialResults) const {
+  auto row = record;
+  // These are query results, never caller assertions or durable observations.
+  for (const auto &key : {"source_missing", "source_stale", "source_horizon", "source_current_version",
+      "source_facies_schema_hash", "source_feature_missing", "source_feature_horizon",
+      "spatial_intersection", "spatial_state", "spatial_message", "spatial_query"}) row.remove(key);
+  row.insert("spatial_state", "unknown");
+  if (row.value("unlinked").toBool()) return row;
+  const auto sourceId = row.value("source_version", row.value("version_id")).toString();
+  const auto source = m_catalog ? m_catalog->versionById(sourceId) : CatalogVersion();
+  if (!sourceId.isEmpty()) {
+    row.insert("source_missing", source.id.isEmpty() || (!source.path.isEmpty() &&
+        !QFileInfo::exists(DataCatalog::resolvedVersionPath(m_dir, source).section('|', 0, 0))));
+    row.insert("source_stale", source.extra.value("stale").toBool());
+    row.insert("source_asset", source.assetId);
+    row.insert("source_horizon", source.extra.value("horizon"));
+    if (m_catalog && !source.id.isEmpty()) row.insert("source_current_version", m_catalog->currentVersion(source.assetId).id);
+    if (source.extra.contains("facies")) row.insert("source_facies_schema_hash", paleo::evidence::fingerprint(source.extra.value("facies")));
+  }
+  if (sourceId.isEmpty() && !row.value("source_asset").toString().isEmpty()) {
+    // Older asset-level references retain their original identity; resolving
+    // currentVersion here would silently rewrite what the reviewer accepted.
+    row.insert("source_missing", !m_catalog || m_catalog->assetById(row.value("source_asset").toString()).id.isEmpty());
+  }
+  const auto pinnedUid = row.value("source_feature_uid").toString().trimmed();
+  if (loadSavedSource && pinnedUid.isEmpty()) return row; // catalog health is enough for an unpinned reference.
+  const auto spatialKey = paleo::evidence::fingerprint(QVariantList{sourceId, pinnedUid,
+      QString::fromLatin1(QCryptographicHash::hash(spatialTarget.value("wkb").toByteArray(), QCryptographicHash::Sha256).toHex()),
+      spatialTarget.value("crs_wkt")});
+  const auto applySpatial = [&](const QString &layerId, const QVariantMap &result) {
+    const auto state = result.value("state").toString();
+    row.insert("source_layer", layerId); row.insert("spatial_state", state); row.insert("spatial_query", result);
+    row.insert("spatial_message", result.value("message"));
+    row.insert("source_feature_horizon", result.value("pinned_feature").toMap().value("horizon"));
+    if (state == "intersects" || state == "disjoint") row.insert("spatial_intersection", state == "intersects");
+    if (state == "missing" || state == "ambiguous") row.insert("source_feature_missing", true);
+  };
+  if (loadSavedSource && spatialResults && spatialResults->contains(spatialKey)) {
+    const auto cached = spatialResults->value(spatialKey);
+    applySpatial(cached.value("layer_id").toString(), cached.value("result").toMap()); return row;
+  }
+  QString sourceLayer = "product." + sourceId;
+  auto *loaded = m_layers ? m_layers->layer(sourceLayer) : nullptr;
+  if (!loaded && m_layers) {
+    const auto alias = row.value("source_layer", source.extra.value("layer_id")).toString();
+    if (!alias.isEmpty() && !alias.startsWith("draft.") && !sourceId.isEmpty() && versionForLayer(alias).id == sourceId) {
+      auto *candidate = m_layers->layer(alias);
+      auto *vector = qobject_cast<QgsVectorLayer *>(candidate);
+      if (!vector || vector->readOnly()) { sourceLayer = alias; loaded = candidate; }
+    }
+  }
+  if (loadSavedSource && !loaded && !source.id.isEmpty() && m_layers) {
+    QString error;
+    // Product IDs are exact indexed identities. For raw/reference versions,
+    // use only a declared alias recorded with that version; do not scan every
+    // project layer to guess a spatial representation.
+    if (source.extra.value("mapping_product").toBool())
+      sourceLayer = const_cast<MappingWorkbench *>(this)->layerForVersion(sourceId, &error);
+    else {
+      const auto alias = row.value("source_layer", source.extra.value("layer_id")).toString();
+      sourceLayer = !alias.startsWith("draft.") && !alias.isEmpty() && versionForLayer(alias).id == sourceId ? alias : QString();
+      if (sourceLayer.isEmpty()) error = tr("原始来源未登记可核查的空间图层；请先加载该确切版本");
+    }
+    if (!sourceLayer.isEmpty()) loaded = m_layers->instantiate(sourceLayer, &error);
+    if (!loaded) row.insert("spatial_message", error);
+  }
+  if (!loaded) {
+    if (row.value("spatial_message").toString().isEmpty())
+      row.insert("spatial_message", tr("来源尚未加载；定位来源后可核查局部空间关联"));
+    return row; // unavailable is unknown, not proof that a pinned feature was deleted.
+  }
+  if (loadSavedSource) {
+    // Acceptance checks only the pinned identity. An unbound adapter uses a
+    // provider expression with LIMIT 2, detects duplicate UIDs, and avoids
+    // building an index for every feature in a source layer. The eight-layer
+    // detail-view budget must never make a valid interpretation unconfirmable.
+    EvidenceMapAdapter exact(nullptr);
+    const auto result = exact.spatialCandidates(loaded, spatialTarget, pinnedUid, 1);
+    applySpatial(sourceLayer, result);
+    // Bound transient memory independently of selected-feature × evidence count.
+    // A full cache only costs additional exact queries; it never skips a check.
+    if (spatialResults && spatialResults->size() < 1024)
+      spatialResults->insert(spatialKey, {{"layer_id", sourceLayer}, {"result", result}});
+    return row;
+  }
+  if (spatialSources && !spatialSources->contains(sourceLayer) && spatialSources->size() >= 8) {
+    row.insert("spatial_message", tr("单次核查最多查询 8 个来源图层；请分组复核后重试"));
+    return row;
+  }
+  if (spatialSources) spatialSources->insert(sourceLayer);
+  auto *adapter = qobject_cast<EvidenceMapAdapter *>(m_evidenceSpatialAdapters.value(sourceLayer).data());
+  if (!adapter) {
+    if (m_evidenceSpatialAdapters.size() >= 16) {
+      const auto first = m_evidenceSpatialAdapters.begin(); delete first.value().data(); m_evidenceSpatialAdapters.erase(first);
+    }
+    adapter = new EvidenceMapAdapter(nullptr, const_cast<MappingWorkbench *>(this)); m_evidenceSpatialAdapters.insert(sourceLayer, adapter);
+  }
+  adapter->bindLayer(qobject_cast<QgsVectorLayer *>(loaded));
+  const auto result = adapter->spatialCandidates(loaded, spatialTarget, pinnedUid, 20);
+  applySpatial(sourceLayer, result);
+  return row;
 }
 bool MappingWorkbench::addEvidence(const QString &id, const QList<qint64> &ids, const QVariantMap &entry, QString *error) {
   auto p = entry;
@@ -230,7 +292,9 @@ bool MappingWorkbench::changeEvidence(const QString &id, const QList<qint64> &id
     if (!sourceId.isEmpty() && (!m_catalog || m_catalog->versionById(sourceId).id.isEmpty())) return reject(error, tr("引用的来源版本不存在"));
   }
   struct Row { QgsFeatureId fid; paleo::evidence::Revision revision; };
-  QVector<Row> rows; QSet<qint64> seen;
+  QVector<Row> rows; QSet<qint64> seen; QSet<QString> spatialSources;
+  QHash<QString, QVariantMap> spatialResults;
+  const bool confirming = action == "review" && p.value("status").toString() == "Confirmed";
   for (auto fid : ids) {
     if (seen.contains(fid)) continue; seen.insert(fid);
     const auto f = v->getFeature(fid);
@@ -238,36 +302,64 @@ bool MappingWorkbench::changeEvidence(const QString &id, const QList<qint64> &id
     QVariantList records; QVariantMap interpretation;
     if (!read(f, &records, &interpretation, error)) return false;
     auto current = target(f, version, horizon);
-    // Resolve live source health before acceptance, rather than trusting UI.
-    for (auto &value : records) {
-      auto r = value.toMap(); const auto source = r.value("source_version").toString();
-      if (!source.isEmpty()) r.insert("source_missing", !m_catalog || m_catalog->versionById(source).id.isEmpty());
-      value = r;
+    const QVariantMap spatialTarget{{"wkb", f.geometry().asWkb()}, {"crs_wkt", v->crs().toWkt()}};
+    // The detail view and acceptance use the same authoritative source checks.
+    // Unlink must remain available even when the source itself is gone.
+    if (action != "unlink") for (auto &value : records) {
+      auto row = resolveEvidenceSource(value.toMap(), spatialTarget, true, &spatialSources, &spatialResults);
+      if (confirming && !row.value("unlinked").toBool() && !row.value("source_feature_uid").toString().isEmpty() &&
+          row.value("spatial_state").toString() == "unknown")
+        return reject(error, tr("来源图元核查尚未完成，不能确认解释：%1").arg(row.value("spatial_message").toString()));
+      value = row;
     }
     auto featureChange = change;
-    if (p.contains("source_feature_uid")) {
-      QString sourceId = change.value("source_version").toString();
+    if (action == "link" && unsavedSource.isEmpty()) {
+      featureChange = resolveEvidenceSource(featureChange, spatialTarget, true, &spatialSources, &spatialResults);
+      auto checked = featureChange;
+      if (checked.value("id", checked.value("evidence_id")).toString().isEmpty()) checked.insert("id", "pending-link");
+      for (const auto &finding : paleo::evidence::check({checked}, {}, current))
+        if (finding.toMap().value("severity").toString() == "Blocking")
+          return reject(error, finding.toMap().value("message").toString());
+    }
+    if (p.contains("source_feature_uid") && (action == "link" || action == "update_evidence")) {
+      auto candidate = featureChange;
       if (action == "update_evidence") for (const auto &record : records) {
         const auto row = record.toMap();
-        if (row.value("id").toString() == p.value("evidence_id").toString()) sourceId = row.value("source_version").toString();
+        if (row.value("id").toString() == p.value("evidence_id").toString()) {
+          candidate = row;
+          candidate.insert("source_feature_uid", p.value("source_feature_uid").toString().trimmed());
+        }
       }
-      const auto sourceUid = p.value("source_feature_uid").toString().trimmed();
+      const auto sourceUid = candidate.value("source_feature_uid").toString().trimmed();
       if (!sourceUid.isEmpty()) {
-        if (sourceId.isEmpty() && unsavedSource.isEmpty()) return reject(error, tr("指定来源图元需要已保存的来源版本"));
-        const auto sourceLayer = !unsavedSource.isEmpty() ? unsavedSource : layerForVersion(sourceId, error);
-        auto *source = sourceLayer.isEmpty() ? nullptr : m_layers->instantiate(sourceLayer, error);
-        if (!source) return false;
-        EvidenceMapAdapter locator(nullptr);
-        const auto result = locator.spatialCandidates(source,
-          {{"wkb", f.geometry().asWkb()}, {"crs_wkt", v->crs().toWkt()}}, sourceUid, 1);
-        const auto state = result.value("state").toString();
-        if (state == "missing" || state == "ambiguous" || state == "unknown") return reject(error, result.value("message").toString());
-        const auto sourceHorizon = result.value("pinned_feature").toMap().value("horizon").toString();
+        if (!unsavedSource.isEmpty()) {
+          // Preflight the imported working layer before saving its immutable
+          // input snapshot; the recursive saved-version pass below rechecks it.
+          auto *source = m_layers->instantiate(unsavedSource, error);
+          if (!source) return false;
+          EvidenceMapAdapter locator(nullptr);
+          const auto result = locator.spatialCandidates(source, spatialTarget, sourceUid, 1);
+          candidate.insert("spatial_state", result.value("state"));
+          candidate.insert("spatial_message", result.value("message"));
+          candidate.insert("source_feature_horizon", result.value("pinned_feature").toMap().value("horizon"));
+          candidate.insert("spatial_intersection", result.value("state") == "intersects");
+        } else {
+          if (candidate.value("source_version").toString().isEmpty()) return reject(error, tr("指定来源图元需要已保存的来源版本"));
+          candidate = resolveEvidenceSource(candidate, spatialTarget, true, &spatialSources, &spatialResults);
+        }
+        const auto state = candidate.value("spatial_state").toString();
+        if (state == "missing" || state == "ambiguous" || state == "unknown") return reject(error, candidate.value("spatial_message").toString());
+        const auto sourceHorizon = candidate.value("source_feature_horizon").toString();
         if (!sourceHorizon.isEmpty() && sourceHorizon != horizon) return reject(error, tr("来源图元属于其他层位，不能关联当前解释"));
         featureChange.insert("source_feature_uid", sourceUid);
         featureChange.insert("source_feature_horizon", sourceHorizon);
         featureChange.insert("spatial_intersection", state == "intersects");
         featureChange.insert("source_feature_missing", false);
+      } else {
+        // Removing a pin removes its cached health as well.
+        featureChange.insert("source_feature_uid", QString());
+        featureChange.insert("source_feature_horizon", QString());
+        featureChange.remove("spatial_intersection");
       }
     }
     if (action == "link") {

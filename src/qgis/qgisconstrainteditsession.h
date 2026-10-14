@@ -30,7 +30,7 @@ class QgisConstraintEditSession : public QObject
   private:
     QVector<QVariantMap> snapshot(QString *error) const;
     bool persist(const QVector<QVariantMap> &rows, QString *error, const QString &action = QString());
-    void synchronize(int index);
+    void synchronize(int index, const QString &forcedAction = {});
     void restoreSource();
     QPointer<QgsVectorLayer> m_layer;
     QPointer<PaleoProjectStore> m_store;

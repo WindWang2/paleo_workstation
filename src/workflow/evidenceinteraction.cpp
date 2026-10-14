@@ -91,9 +91,12 @@ void EvidenceInteraction::observe(const QString &id) {
   if (layer->property(key.toUtf8().constData()).toBool()) return;
   layer->setProperty(key.toUtf8().constData(), true);
   connect(layer, &QgsVectorLayer::selectionChanged, this, [this, id] { capture(id); });
-  connect(layer, &QgsVectorLayer::destroyed, this, [this, id] {
+  connect(layer, &QgsVectorLayer::destroyed, this, [this, id, layer] {
+    // An old provider can finish teardown after its replacement is adopted.
+    // Its terminal signal must not clear the replacement target.
+    if (m_layers && m_layers->layer(id) && m_layers->layer(id) != layer) return;
     if (m_selection && m_selection->target().layerId == id) {
-      m_source->clear(); m_snapshot.clear();
+      m_primary->clear(); m_source->clear(); m_snapshot.clear();
       emit detailsChanged({{"layer_id", id}, {"message", tr("图层已卸载；恢复图层后将按稳定身份重新定位")}}, m_selection->targetGeneration());
     }
   });
@@ -111,6 +114,7 @@ void EvidenceInteraction::capture(const QString &id) {
   if (!h.isEmpty() && h != m_selection->activeHorizon()) return;
   const auto ids = m_workbench->selectedFeatures(id);
   m_snapshot = m_workbench->featureEvidence(id, ids);
+  if (ids.size() > 1) m_snapshot.insert("records", m_workbench->evidence(id, ids));
   m_snapshot.insert("project_id", projectId());
   m_snapshot.insert("project_session", m_project ? QVariant(m_project->sessionId()) : QVariant());
   SelectionTarget target;
@@ -121,16 +125,22 @@ void EvidenceInteraction::capture(const QString &id) {
   target.interpretationId = interpretation.value("id").toString(); target.assertionId = interpretation.value("assertion_id").toString();
   target.revision = interpretation.value("revision").toULongLong();
   m_selection->setTarget(target, "map");
+  // Native selection now owns the target. A graph/source rubber band must not
+  // continue displaying a different feature on this same provider.
+  m_primary->clear(); m_source->clear();
   if (m_layers) m_primary->bindLayer(qobject_cast<QgsVectorLayer *>(m_layers->layer(id)));
   emit detailsChanged(m_snapshot, m_selection->targetGeneration());
 }
 void EvidenceInteraction::receive(const SelectionTarget &target, const QString &origin, quint64 generation) {
   if (m_receiving || !m_workbench || !m_selection || !m_layers) return;
-  if (target.isEmpty()) { m_snapshot.clear(); m_primary->clear(); emit detailsChanged({}, generation); return; }
+  if (target.isEmpty()) { m_snapshot.clear(); m_primary->clear(); m_source->clear(); emit detailsChanged({}, generation); return; }
   if (target.projectId != projectId() || (!target.horizon.isEmpty() && target.horizon != m_selection->activeHorizon())) return;
   QScopedValueRollback<bool> guard(m_receiving, true);
+  if (target.layerId != m_snapshot.value("layer_id").toString() ||
+      target.featureUid != m_snapshot.value("feature_uid").toString()) m_source->clear();
   auto *layer = qobject_cast<QgsVectorLayer *>(m_layers->layer(target.layerId));
   QList<qint64> ids;
+  if (!layer || target.featureUid.isEmpty()) m_primary->clear();
   if (layer && !target.featureUid.isEmpty()) {
     m_primary->bindLayer(layer); QString error;
     const auto fid = m_primary->featureId(target.featureUid, &error);

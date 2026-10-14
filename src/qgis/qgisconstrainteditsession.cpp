@@ -168,7 +168,13 @@ bool QgisConstraintEditSession::initialize(QString *error)
     });
   m_current = m_initial;
   connect(m_layer, &QgsVectorLayer::editCommandStarted, this, [this] { m_newCommand = true; });
-  connect(m_layer, &QgsVectorLayer::editCommandEnded, this, [this] { m_newCommand = false; });
+  // A command is not durable until it ends. Index changes while it is open
+  // include the push and the undo performed by destroyEditCommand; persisting
+  // those would record a cancelled gesture as two edits.
+  connect(m_layer, &QgsVectorLayer::editCommandEnded, this, [this] {
+    m_newCommand = false;
+    if (m_layer) synchronize(m_layer->undoStack()->index(), QStringLiteral("edit"));
+  });
   connect(m_layer, &QgsVectorLayer::editCommandDestroyed, this, [this] { m_newCommand = false; });
   connect(m_layer, &QObject::destroyed, this, [this] {
     if (!m_finished)
@@ -209,14 +215,24 @@ bool QgisConstraintEditSession::persist(const QVector<QVariantMap> &rows, QStrin
   return store.replaceHorizon(m_horizon, rows, error);
 }
 
-void QgisConstraintEditSession::synchronize(int index)
+void QgisConstraintEditSession::synchronize(int index, const QString &forcedAction)
 {
   if (m_writing || !m_layer)
+    return;
+  // Wait until the open command ends or is destroyed. See editCommandEnded.
+  if (m_newCommand && forcedAction.isEmpty())
     return;
   m_writing = true;
   QString error;
   const auto rows = snapshot(&error);
-  const auto action = m_newCommand ? QStringLiteral("edit") : index < m_index ? QStringLiteral("undo") : QStringLiteral("redo");
+  const auto action = !forcedAction.isEmpty() ? forcedAction
+      : index < m_index ? QStringLiteral("undo") : QStringLiteral("redo");
+  if (error.isEmpty() && rows == m_current)
+  {
+    m_index = index;
+    m_writing = false;
+    return;
+  }
   if (error.isEmpty() && persist(rows, &error, action))
   {
     m_current = rows;
@@ -228,7 +244,7 @@ void QgisConstraintEditSession::synchronize(int index)
     // At a full undo limit a push keeps the numeric index unchanged.
     if (index == m_index)
     {
-      if (m_newCommand)
+      if (forcedAction == QLatin1String("edit"))
         m_layer->undoStack()->undo();
     }
     else

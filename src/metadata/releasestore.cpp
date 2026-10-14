@@ -177,10 +177,16 @@ QVector<LayerDeclaration> ReleaseStore::manifestAt(const QString &releaseId) con
 }
 
 bool ReleaseStore::diff(const QString &idA, const QString &idB,
-                        QStringList *added, QStringList *removed, QStringList *changed) const
+                        QStringList *added, QStringList *removed, QStringList *changed,
+                        QString *error) const
 {
-  if (!releaseEnsureOpen(m_dbPath, nullptr))
+  QString openErr;
+  if (!releaseEnsureOpen(m_dbPath, &openErr))
+  {
+    if (error)
+      *error = QStringLiteral("发布库打开失败：%1").arg(openErr);
     return false;
+  }
 
   // Both releases must actually exist — an empty manifest is a valid snapshot,
   // so existence is checked against the table, not the payload size.
@@ -190,11 +196,30 @@ bool ReleaseStore::diff(const QString &idA, const QString &idB,
     q.addBindValue(idA);
     q.addBindValue(idB);
     int found = 0;
+    bool seenA = false, seenB = false;
     if (q.exec())
       while (q.next())
+      {
         ++found;
+        if (q.value(0).toString() == idA)
+          seenA = true;
+        if (q.value(0).toString() == idB)
+          seenB = true;
+      }
     if (found < 2)
+    {
+      if (error)
+      {
+        QStringList missing;
+        if (!seenA)
+          missing << idA;
+        if (!seenB)
+          missing << idB;
+        *error = QStringLiteral("release 不存在：%1")
+                     .arg(missing.join(QStringLiteral(", ")));
+      }
       return false;
+    }
   }
 
   const QVector<LayerDeclaration> a = manifestAt(idA);

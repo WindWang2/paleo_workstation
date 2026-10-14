@@ -101,6 +101,37 @@ private slots:
     QVERIFY(!store.diff(a, QStringLiteral("rel-999"), nullptr, nullptr, nullptr));
   }
 
+  // 07 方向 Round E：diff 失败原因要可区分（缺哪个版本说清楚）——面板据此
+  // 给可行动提示，不再笼统「对比失败」。
+  void diffErrorNamesMissingRelease()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    ReleaseStore store(dir.filePath(QStringLiteral("meta.sqlite")));
+    QVERIFY(store.open());
+    const QString a = store.createRelease(QStringLiteral("a"), QString(),
+        {decl(QStringLiteral("facies.T1"), QStringLiteral("T1"))});
+    QVERIFY(!a.isEmpty());
+
+    QString err;
+    QVERIFY(!store.diff(a, QStringLiteral("rel-404"), nullptr, nullptr, nullptr, &err));
+    QVERIFY(err.contains(QStringLiteral("rel-404")));
+    QVERIFY(err.contains(QStringLiteral("不存在")));
+
+    // 两个都不存在：一并点名。
+    QString err2;
+    QVERIFY(!store.diff(QStringLiteral("rel-x"), QStringLiteral("rel-y"),
+                        nullptr, nullptr, nullptr, &err2));
+    QVERIFY(err2.contains(QStringLiteral("rel-x")));
+    QVERIFY(err2.contains(QStringLiteral("rel-y")));
+
+    // 成功路径不写 error（调用方可用它判「有没有细节」）。
+    QString err3 = QStringLiteral("stale");
+    QStringList added, removed, changed;
+    QVERIFY(store.diff(a, a, &added, &removed, &changed, &err3));
+    QVERIFY(err3.isEmpty());
+  }
+
   void persistsAcrossStoreInstances()
   {
     QTemporaryDir dir;

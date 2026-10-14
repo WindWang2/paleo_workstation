@@ -165,6 +165,38 @@ class TestLayoutExport : public QObject
       QVERIFY( f.readAll().contains( "<svg" ) );
     }
 
+    // 07 方向 Round F（重复导出）：同一版面重复导出到同一路径必须干净覆盖
+    // ——第二次成功、文件表只报本趟、目录里不冒充多页兄弟（base_2 之类）、
+    // 读回仍是合法 PNG。失败不能伪装成功，成功不能虚报文件。
+    void reexportToSamePathOverwritesCleanly()
+    {
+      QgsProject project;
+      QgsPrintLayout layout( &project );
+      layout.initializeDefaults();
+      addLabel( &layout, QStringLiteral( "REPEAT" ) );
+
+      QTemporaryDir dir;
+      const QString path = dir.filePath( QStringLiteral( "again.png" ) );
+      PaleoLayoutExportActions exports;
+      const auto first = exports.exportLayout( &layout, path, PaleoLayoutExportActions::Format::Png,
+                                               96.0, PaleoLayoutExportActions::PageRange() );
+      QVERIFY2( first.ok, qPrintable( first.error ) );
+      const qint64 firstSize = QFileInfo( path ).size();
+      QVERIFY( firstSize > 0 );
+
+      const auto second = exports.exportLayout( &layout, path, PaleoLayoutExportActions::Format::Png,
+                                                96.0, PaleoLayoutExportActions::PageRange() );
+      QVERIFY2( second.ok, qPrintable( second.error ) );
+      QCOMPARE( second.files, QStringList( { path } ) );
+      // 无残留兄弟文件：目录里只有这一个产物。
+      QCOMPARE( QDir( dir.path() ).entryList( QDir::Files ).size(), 1 );
+      // 覆写后仍是合法 PNG（魔数不变，非追加/半截文件）。
+      QFile f( path );
+      QVERIFY( f.open( QIODevice::ReadOnly ) );
+      QCOMPARE( f.read( 8 ), QByteArray( "\x89PNG\x0D\x0A\x1A\x0A", 8 ) );
+      QVERIFY( f.size() > 0 );
+    }
+
     void pageRangeExportsOnlyFirstPage()
     {
       QgsProject project;

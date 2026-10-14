@@ -152,9 +152,13 @@ ReleasePanel::ReleasePanel(QWidget *parent)
       return;
     }
     QStringList added, removed, changed;
-    if (!store.diff(idA, idB, &added, &removed, &changed))
+    QString diffErr;
+    if (!store.diff(idA, idB, &added, &removed, &changed, &diffErr))
     {
-      emit statusMessage(tr("版本对比失败"));
+      // 失败要可行动：缺哪个版本/库为什么打不开说清楚，不笼统「对比失败」。
+      emit statusMessage(diffErr.isEmpty()
+                             ? tr("版本对比失败")
+                             : tr("版本对比失败：%1").arg(diffErr));
       return;
     }
     for (const QString &s : added)

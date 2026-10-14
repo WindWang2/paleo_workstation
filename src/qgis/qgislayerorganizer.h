@@ -70,14 +70,18 @@ class QgisLayerOrganizer : public QObject
     static bool slotIntoCustomOrder( QgsLayerTree *root, QgsMapLayer *layer );
 
   private:
-    void placeLayer( QgsMapLayer *layer );
+    // decls 非空时复用调用方已取好的声明表（reorganize 批量归位一次取
+    // 表）；为空时现场 declared()——单事件路径语义与旧实现一致。
+    void placeLayer( QgsMapLayer *layer, const QVector<LayerDeclaration> *decls = nullptr );
     void ensureHorizonGroups();
     void pruneVacantGroups();
     // 找到或创建层位组；返回带 paleoHorizon 属性的组节点（树根直挂）。
-    QgsLayerTreeGroup *horizonGroup( const QString &horizon );
+    QgsLayerTreeGroup *horizonGroup( const QString &horizon,
+                                     const QVector<LayerDeclaration> &decls );
     // 目标父组 + 目标插入下标；parent=nullptr 表示不动。self 从扫描中
     // 排除——返回下标按「self 已摘除」坐标计（同父重排不自我引用）。
     void desiredSlot( const LayerDeclaration &decl, const QgsLayerTreeLayer *self,
+                      const QVector<LayerDeclaration> &decls,
                       QgsLayerTreeGroup **parent, int *index );
 
     QPointer<QgisProjectService> m_projectSvc;

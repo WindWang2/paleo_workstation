@@ -97,6 +97,8 @@ class TestLayerOrganizer : public QObject
     void sameParentReorderKeepsLayersInProject();
     void customLayerOrderMirrorsTreeAfterReorganize();
     void newLayerSlotsIntoCustomOrderByTree();
+    // goal7 W3（F 域）探针：批量实例化下归位不得随声明数超线性放大
+    void placementScalesWithDeclarations();
 };
 
 // 2026-10-10 用户实测：编图三页图层列表里井位/测井属性层「闪一下就没了」。
@@ -509,6 +511,54 @@ void TestLayerOrganizer::newLayerSlotsIntoCustomOrderByTree()
   QVERIFY(order.indexOf(raster) < order.indexOf(basemap));
   // 幂等：重复找位不改序。
   QVERIFY(!QgisLayerOrganizer::slotIntoCustomOrder(fx.root(), polygons));
+}
+
+// goal7 W3（F 域）：placeLayer 每次按值复制 declared() 且 desiredSlot 再
+// 复制一次重建哈希——批量实例化时归位成本随声明数超线性放大。
+// 探针：300 声明逐层实例化（每层 legendLayersAdded + layerInstantiated
+// 两路归位），qInfo 落盘（selfcheck 口径）；宽门只挡灾难性回归。
+// instantiateMs 受 OGR 建层主导（每层 fixture.gpkg 真建 QgsVectorLayer），
+// 声明表查询缩减在逐层路径上被淹没；reorganizeMs 单独计时——工程重开
+// 全量规整是声明表复用（2N+3 → 3 次 all()）的真实受益路径。
+// 修复前后量级对比记 docs/progress/parallel-7/05-qgis-layers-layout.md。
+void TestLayerOrganizer::placementScalesWithDeclarations()
+{
+  OrganizerFixture fx;
+  const int N = 300;
+  for (int i = 0; i < N; ++i)
+    QVERIFY(fx.layerSvc.declare(decl(QStringLiteral("bulk.%1").arg(i),
+                                     QStringLiteral("T1"),
+                                     QStringLiteral("05_PaleoMap"))));
+
+  QElapsedTimer timer;
+  timer.start();
+  for (int i = 0; i < N; ++i)
+    QVERIFY(fx.instantiate(QStringLiteral("bulk.%1").arg(i)));
+  const qint64 instantiateMs = timer.elapsed();
+  qInfo("goal7 W3 probe: N=%d instantiateMs=%lld", N,
+        static_cast<long long>(instantiateMs));
+  QVERIFY2(instantiateMs < 30000,
+           qPrintable(QStringLiteral("instantiateMs=%1").arg(instantiateMs)));
+
+  // 正确性守恒：300 层全收进 T1 层位组（含占位组凭据）
+  QgsLayerTreeGroup *group = nullptr;
+  for (QgsLayerTreeNode *n : fx.root()->children())
+    if (QgsLayerTree::isGroup(n) &&
+        n->customProperty(QStringLiteral("paleoHorizon")).toString() == QLatin1String("T1"))
+      group = QgsLayerTree::toGroup(n);
+  QVERIFY(group);
+  QCOMPARE(group->findLayers().size(), N);
+
+  // 工程重开路径：全量规整单独计时（声明表复用的隔离测量面）。
+  timer.restart();
+  fx.organizer.reorganize();
+  const qint64 reorganizeMs = timer.elapsed();
+  qInfo("goal7 W3 probe: N=%d reorganizeMs=%lld", N,
+        static_cast<long long>(reorganizeMs));
+  QVERIFY2(reorganizeMs < 30000,
+           qPrintable(QStringLiteral("reorganizeMs=%1").arg(reorganizeMs)));
+  // 规整幂等守恒：归位后组内成员数与组凭据不变。
+  QCOMPARE(group->findLayers().size(), N);
 }
 
 int main(int argc, char *argv[])

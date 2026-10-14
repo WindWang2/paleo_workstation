@@ -84,7 +84,9 @@ void SeismicSectionCanvas::setSectionData(
     const std::vector<glm::dvec2> &mapCoords)
 {
     m_orientation = SectionOrientation::Vertical;
-    m_slice = image;
+    // 入图行序转换：vendor 行 0=最深 → 画布行 y=采样 y 升序（标尺/hover/
+    // 拾取/井分层全链升序；契约见 seismicsectioncanvas_internal.h）。
+    m_slice = ToAscendingSampleRows(image);
     m_traces = image.width;
     m_samples = image.height;
     m_dtMs = sampleIntervalMs > 0.001f ? sampleIntervalMs : 2.0f;

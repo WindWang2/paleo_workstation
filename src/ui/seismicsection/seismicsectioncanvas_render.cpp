@@ -168,14 +168,17 @@ QImage SeismicSectionCanvas::bakeOverlay(const SgySliceImage &src) {
         return {};
     if (m_colorLut.empty())
         rebuildColorLut();
-    QImage image(src.width, src.height, QImage::Format_ARGB32_Premultiplied);
-    const double lo = src.valueMin;
-    const double hi = src.valueMax;
+    // 叠加图与底图同走 vendor 行序 → 烘焙时翻转对齐画布升序空间
+    // （契约见 seismicsectioncanvas_internal.h；attr/zone 扫描输出全线 vendor 行序）。
+    const SgySliceImage img = ToAscendingSampleRows(src);
+    QImage image(img.width, img.height, QImage::Format_ARGB32_Premultiplied);
+    const double lo = img.valueMin;
+    const double hi = img.valueMax;
     const double span = (hi > lo) ? (hi - lo) : 1.0; // 退化值域：中档色
-    for (int y = 0; y < src.height; ++y) {
+    for (int y = 0; y < img.height; ++y) {
         auto *scan = reinterpret_cast<QRgb *>(image.scanLine(y));
-        const float *row = src.values.data() + std::size_t(y) * src.width;
-        for (int x = 0; x < src.width; ++x) {
+        const float *row = img.values.data() + std::size_t(y) * img.width;
+        for (int x = 0; x < img.width; ++x) {
             const float v = row[x];
             if (std::isnan(v)) {
                 scan[x] = 0; // 缺失=透明（不盖底图）

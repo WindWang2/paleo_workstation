@@ -40,8 +40,10 @@ public:
     {
         const int h = slice.height;
         m_trace.reserve(std::size_t(h));
-        for (int y = 0; y < h; ++y)
-            m_trace.push_back(slice.Value(col, y));
+        // 行序转换：slice 行 0=最深样（vendor 契约）→ m_trace 按采样升序，
+        // 与 paint 的 frac=(twt-t0)/(n·dt) 分层刻度（物理 TWT 升序）对齐。
+        for (int s = 0; s < h; ++s)
+            m_trace.push_back(slice.Value(col, h - 1 - s));
         setMinimumSize(260, 460);
     }
 

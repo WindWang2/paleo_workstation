@@ -2,6 +2,7 @@
 // 方向 65：画布导航与坐标变换 TU——D2.10 卷帘、缩放/平移、D2.9 导出抓图、
 // 像素↔道号/时间/线号换算与视口矩形。
 #include "ui/seismicsection/seismicsectioncanvas.h"
+#include "ui/seismicsection/seismicsectioncanvas_internal.h"
 
 #include <QPainter>
 
@@ -13,6 +14,8 @@ namespace seismic {
 
 // ---- D2.10 卷帘对比 ----
 void SeismicSectionCanvas::setCompareData(const SgySliceImage &image, const QString &label) {
+    // m_compareSlice 存 vendor 行序原图（setCompareEnabled 会以它重喂本函数
+    // 重烘纹理，存储侧翻转会被二次翻转）；烘焙时统一转画布升序空间。
     m_compareSlice = image;
     m_compareLabel = label;
     m_compareImage = QImage();
@@ -20,14 +23,16 @@ void SeismicSectionCanvas::setCompareData(const SgySliceImage &image, const QStr
         !image.values.empty()) {
         if (m_colorLut.empty())
             rebuildColorLut();
-        // B 图按当前显示参数上色（复用 LUT 路径；字节级写 RGBA）
-        m_compareImage = QImage(image.width, image.height, QImage::Format_ARGB32_Premultiplied);
-        const float absMax = std::max(std::abs(image.valueMin), std::abs(image.valueMax));
+        // B 图按当前显示参数上色（复用 LUT 路径；字节级写 RGBA）；
+        // 行序与 A 图同契约：vendor 行 0=最深 → 翻转对齐升序画布。
+        const SgySliceImage img = ToAscendingSampleRows(image);
+        m_compareImage = QImage(img.width, img.height, QImage::Format_ARGB32_Premultiplied);
+        const float absMax = std::max(std::abs(img.valueMin), std::abs(img.valueMax));
         const float baseScale = absMax > 1e-8f ? 1.0f / absMax : 1.0f;
-        for (int y = 0; y < image.height; ++y) {
+        for (int y = 0; y < img.height; ++y) {
             auto *scan = reinterpret_cast<QRgb *>(m_compareImage.scanLine(y));
-            for (int x = 0; x < image.width; ++x) {
-                const float raw = image.Value(x, y);
+            for (int x = 0; x < img.width; ++x) {
+                const float raw = img.Value(x, y);
                 if (!std::isfinite(raw)) {
                     scan[x] = qRgba(48, 49, 49, 255);
                     continue;

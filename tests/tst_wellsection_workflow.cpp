@@ -169,7 +169,12 @@ bool buildCatalog(DataCatalog &cat, const QDir &dir, QString *err) {
   const QString las3 =
       writeLas(dir.filePath(QStringLiteral("a3.las")), QStringLiteral("QQ"),
                {QStringLiteral("DEPT"), QStringLiteral("SP")}, 300.0, 3);
-  if (las1.isEmpty() || las2.isEmpty() || las3.isEmpty())
+  // 规范别名 METER：与 M 同为 1.0 缩放——此前 loadCurveBodies 只认 FT/F/M，
+  // 该词表的 LAS 被整文件丢弃（与 sectionworkbench 接受面分裂）。
+  const QString las1b =
+      writeLas(dir.filePath(QStringLiteral("a1b.las")), QStringLiteral("METER"),
+               {QStringLiteral("DEPT"), QStringLiteral("DEN")}, 600.0, 3);
+  if (las1.isEmpty() || las2.isEmpty() || las3.isEmpty() || las1b.isEmpty())
     return false;
   return addFileLink(cat, QStringLiteral("well-1"), QStringLiteral("well_log"),
                      QStringLiteral("ast-las1"), las1,
@@ -179,6 +184,9 @@ bool buildCatalog(DataCatalog &cat, const QDir &dir, QString *err) {
                      QStringLiteral("well_log"), err) &&
          addFileLink(cat, QStringLiteral("well-3"), QStringLiteral("well_log"),
                      QStringLiteral("ast-las3"), las3,
+                     QStringLiteral("well_log"), err) &&
+         addFileLink(cat, QStringLiteral("well-1"), QStringLiteral("well_log"),
+                     QStringLiteral("ast-las1b"), las1b,
                      QStringLiteral("well_log"), err);
 }
 
@@ -355,13 +363,14 @@ private slots:
     QVERIFY(choices[0].hasCoordinates);
     QVERIFY(choices[2].hasCoordinates == false);
     QCOMPARE(wf.availableMnemonics({"well-1", "well-2", "well-3"}),
-             QStringList({"GR", "NGR", "NPHI", "RT", "SP"}));
+             QStringList({"DEN", "GR", "NGR", "NPHI", "RT", "SP"}));
 
     QSignalSpy spy(&wf, &WellSectionWorkflow::sectionReady);
     // 顺序按请求；well-9 不存在 → 告警跳过。
     // SP 只存在于 well-3 的未知单位文件——请求它才触发文件装载/告警。
+    // DEN 只存在于 well-1 的 METER 文件——规范别名须按米装载（回归）。
     const int gen = wf.request({"well-2", "well-1", "well-3", "well-9"},
-                               {"GR", "RT", "SP"});
+                               {"GR", "RT", "SP", "DEN"});
     QCOMPARE(spy.size(), 1); // 无任务服务 → 同步发射
     QCOMPARE(spy[0][0].toInt(), gen);
     const auto wells =
@@ -399,6 +408,15 @@ private slots:
     const auto *rt = w1.curve("RT");
     QVERIFY(rt);
     QCOMPARE(rt->sourceMnemonic, QString("RT"));
+    // METER 别名：同 M 按 1.0 缩放装载，不丢文件、不发单位告警。
+    const auto *den = w1.curve("DEN");
+    QVERIFY2(den, "METER 深度单位的 LAS 曲线须装载（规范别名）");
+    QCOMPARE(den->depths.first(), 600.0f);
+    QCOMPARE(den->depths.size(), 3);
+    QCOMPARE(den->values.first(), 10.0f);
+    // 单位告警只用井名（well-1=A1 只有 M/METER 文件；QQ 属 well-3=A3）。
+    QVERIFY2(!warnBlob.contains(QStringLiteral("A1 的测井文件深度单位未知")),
+             "METER 是规范别名，不得按未知单位丢弃");
 
     const auto &w2 = wells[0];
     QVERIFY(!w2.timeDepth.has_value()); // 无时深关联
@@ -723,6 +741,18 @@ private slots:
     QCOMPARE(wells[1].facies.size(), 1);
     QCOMPARE(wells[1].facies[0].classId, 3);
     QVERIFY(wells[1].facies[0].baseMd > wells[1].facies[0].topMd);
+
+    // 跨请求解析缓存：第二次请求走缓存命中路径，相段结果一致
+    //（此前每请求整文件重读 JSON）。
+    spy.clear();
+    wf.request({QStringLiteral("well-1"), QStringLiteral("well-2")}, {});
+    QCOMPARE(spy.size(), 1);
+    const auto wells2 = spy[0][1].value<QVector<wellsection::Well>>();
+    QCOMPARE(wells2[0].facies.size(), 2);
+    QCOMPARE(wells2[0].facies[0].topMd, 100.0);
+    QCOMPARE(wells2[0].facies[1].classId, 11);
+    QCOMPARE(wells2[1].facies.size(), 1);
+    QCOMPARE(wells2[1].facies[0].classId, 3);
   }
 
   // TVD 域数据源：trajectory 角色井斜 → 各井 survey；无链接 = 无测斜（不
@@ -1163,6 +1193,20 @@ private slots:
     for (const QString &w : warnings)
       counted = counted || w.contains(QStringLiteral("2 个无效段"));
     QVERIFY2(counted, "无效段应进告警（回落不静默吞数据质量问题）");
+
+    // 跨请求解析缓存：第二次请求结果一致，且解析告警不重复
+    //（provider 缓存此前随请求实例销毁——重复读盘 + 每次重发告警）。
+    spy.clear();
+    wf.request({QStringLiteral("well-1"), QStringLiteral("well-2")}, {});
+    QCOMPARE(spy.size(), 1);
+    const auto wells2 = spy[0][1].value<QVector<wellsection::Well>>();
+    QCOMPARE(wells2[0].litho.size(), 2);
+    QCOMPARE(wells2[0].litho[0].litho, QStringLiteral("细砂岩"));
+    QCOMPARE(wells2[0].litho[1].litho, QStringLiteral("泥岩"));
+    QVERIFY(wells2[1].litho.isEmpty());
+    for (const QString &w : spy[0][2].toStringList())
+      QVERIFY2(!w.contains(QStringLiteral("个无效段")),
+               qPrintable(QStringLiteral("缓存命中不得重复告警：") + w));
 
     // ---- 告警回归网（轮 2）：schema 不支持 / 文件读不了 → 告警 + 回落 ----
     const auto seedLithoAsset = [&dir](DataCatalog &c, const QString &assetId,

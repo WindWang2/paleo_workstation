@@ -171,7 +171,9 @@ CurveStats curveStats(const double *x, int n)
 {
   CurveStats s;
   s.n = n;
-  double sum = 0.0, sumSq = 0.0;
+  // Welford 单遍累推：sumSq - n·mean² 在大基数小差值下消碳
+  // （如 {1e9, 1e9+1, 1e9+2} 的真实 stddev=1 会被算成 0）。
+  double mean = 0.0, m2 = 0.0;
   for (int i = 0; i < n; ++i)
   {
     if (std::isnan(x[i]))
@@ -180,9 +182,10 @@ CurveStats curveStats(const double *x, int n)
       s.min = x[i];
     if (s.valid == 0 || x[i] > s.max)
       s.max = x[i];
-    sum += x[i];
-    sumSq += x[i] * x[i];
     ++s.valid;
+    const double delta = x[i] - mean;
+    mean += delta / s.valid;
+    m2 += delta * (x[i] - mean);
   }
   s.nulls = n - s.valid;
   s.nullRate = n > 0 ? static_cast<double>(s.nulls) / n : 0.0;
@@ -191,10 +194,10 @@ CurveStats curveStats(const double *x, int n)
     s.min = s.max = s.mean = s.stddev = kNan;
     return s;
   }
-  s.mean = sum / s.valid;
+  s.mean = mean;
   if (s.valid >= 2)
   {
-    const double var = (sumSq - s.valid * s.mean * s.mean) / (s.valid - 1);
+    const double var = m2 / (s.valid - 1);
     s.stddev = var > 0.0 ? std::sqrt(var) : 0.0;
   }
   else

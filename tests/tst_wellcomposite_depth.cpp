@@ -180,6 +180,30 @@ private slots:
     QVERIFY(canvas.wheelZoomAtMouse());
   }
 
+  // ---- 自适应比例尺：resize 后基准像素/米与读数同步（此前判据用错变量，
+  // 分支为死代码：resize 后道头/图例文本停在旧值）----
+  void testAdaptiveScaleRatioRefreshOnResize()
+  {
+    WellCompositeCanvas canvas;
+    canvas.resize(400, 500);
+    canvas.show();
+    QApplication::processEvents();
+    canvas.setDepthRange(1000.0, 2000.0);
+    canvas.setScaleRatio(QStringLiteral("自适应"));
+    const double ppmBefore = canvas.pxPerMeter();
+    const QString ratioBefore = canvas.scaleRatio();
+    QVERIFY(ratioBefore.startsWith(QStringLiteral("1:"))); // 计算串而非"自适应"
+
+    QSignalSpy spy(&canvas, &WellCompositeCanvas::scaleRatioChanged);
+    canvas.resize(400, 250); // 视口减半 → ppm 约减半
+    QApplication::processEvents();
+    QVERIFY2(canvas.pxPerMeter() < ppmBefore * 0.75,
+             qPrintable(QString("ppm %1 -> %2").arg(ppmBefore).arg(canvas.pxPerMeter())));
+    QVERIFY(spy.count() >= 1);
+    QVERIFY(canvas.scaleRatio() != ratioBefore);
+    QCOMPARE(canvas.scaleRatio(), spy.last().at(0).toString());
+  }
+
   // ---- D2.2 橡皮筋区间（程序化三步驱动）----
   void testRubberBandInterval()
   {

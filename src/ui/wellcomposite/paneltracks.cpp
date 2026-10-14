@@ -301,6 +301,12 @@ void WellCompositePanel::applySpecsIncrementally(const QList<TrackSpec> &specs)
         {
           ct->setShowGrid(spec.showGrid());
           ct->setGridDensity(spec.gridDensity());
+          // 曲线集/量程同样是会话记忆（TrackConfig 写进 spec.params）：
+          // 重开/数据重载后恢复用户配置的曲线，而非回退到按助记名分组的
+          // 默认道。restoreSessionState 在 m_data 填充后被调用，名字可解析；
+          // 数据未到的名字静默跳过（与 onTrackConfigRequested 同语义）。
+          if (!spec.curveNames().isEmpty())
+            TrackOps::injectCurvesFromWellData(*ct, spec, m_data);
         }
         reordered << t;
         break;

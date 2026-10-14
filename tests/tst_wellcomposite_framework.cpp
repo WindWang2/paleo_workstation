@@ -14,6 +14,7 @@
 #include "ui/wellcomposite/hiddentrackbar.h"
 #include "ui/wellcomposite/trackconfigdialog.h"
 #include "ui/wellcomposite/wellcompositestore.h"
+#include "ui/wellcomposite/wellcompositepanel.h"
 #include "domain/wellcompositemodel.h"
 #include "qgis/qgisruntime.h"
 
@@ -371,6 +372,66 @@ private slots:
     const QVariantMap back = WellCompositeStore::loadWidthSet(QStringLiteral("P1"), QStringLiteral("W2"));
     QCOMPARE(back.value(QStringLiteral("岩性分析")).toDouble(), 99.0);
     QCOMPARE(back.size(), 2);
+  }
+
+  // ---- 会话曲线配置恢复：重开后道内曲线集与用户最后一次 TrackConfig 一致 ----
+  void testSessionCurveConfigRestore()
+  {
+    const QString project = QStringLiteral("UT-CurveRestore-P");
+    const QString well = QStringLiteral("UT-CurveRestore-W");
+    WellCompositeStore::clearSessionTracks(project, well);
+
+    auto mk = [](const char *name, float lo, float hi) {
+      CurveData c;
+      c.name = QString::fromLatin1(name);
+      c.unit = QStringLiteral("API");
+      c.minScale = lo;
+      c.maxScale = hi;
+      c.depths = {1000.0f, 1100.0f};
+      c.values = {lo, hi};
+      return c;
+    };
+    QVector<CurveData> curves;
+    curves << mk("GR", 0.0f, 150.0f) << mk("DEN", 1.9f, 2.7f)
+           << mk("RT", 1.0f, 100.0f);
+    QVector<FormationInterval> forms;
+    forms.push_back({1000.0f, 1300.0f, QStringLiteral("组一"), QString(),
+                     QColor(QStringLiteral("#FFE082"))});
+
+    // 用户把默认「岩性测井」道（GR）改为 DEN+RT 并收窄 DEN 量程，记忆落盘
+    TrackSpec edited;
+    edited.typeId = QStringLiteral("curve");
+    edited.title = QStringLiteral("岩性测井");
+    edited.width = 180.0;
+    edited.setCurveNames({QStringLiteral("DEN"), QStringLiteral("RT")});
+    QVariantMap denOverride;
+    denOverride.insert(QStringLiteral("min"), 2.0);
+    denOverride.insert(QStringLiteral("max"), 2.5);
+    QVariantMap overrides;
+    overrides.insert(QStringLiteral("DEN"), denOverride);
+    edited.params.insert(QStringLiteral("curveOverrides"), overrides);
+    WellCompositeStore::saveSessionTracks(project, well, {edited});
+
+    // 重开：默认分组后 restoreSessionState 须把记忆曲线注入对应道
+    WellCompositePanel panel;
+    panel.setProjectName(project);
+    QVERIFY(panel.loadLasCurves(well, curves, forms));
+    auto *canvas = panel.findChild<WellCompositeCanvas *>();
+    QVERIFY(canvas);
+    std::shared_ptr<CurveTrack> litho;
+    for (const auto &t : canvas->tracks())
+    {
+      if (t && t->title() == QStringLiteral("岩性测井"))
+        litho = std::dynamic_pointer_cast<CurveTrack>(t);
+    }
+    QVERIFY2(litho, "默认分组须含岩性测井道");
+    QCOMPARE(litho->curves().size(), 2);
+    QCOMPARE(litho->curves().at(0).name, QStringLiteral("DEN"));
+    QCOMPARE(litho->curves().at(1).name, QStringLiteral("RT"));
+    QCOMPARE(litho->curves().at(0).minScale, 2.0f);
+    QCOMPARE(litho->curves().at(0).maxScale, 2.5f);
+
+    WellCompositeStore::clearSessionTracks(project, well);
   }
 
   // ---- D1.11 道头三行区 ----

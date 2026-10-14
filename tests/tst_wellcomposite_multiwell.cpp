@@ -55,6 +55,28 @@ private slots:
     QCOMPARE(spy.count(), 2);
   }
 
+  // ---- overlay 几何随容器 resize（correlation 线不裁剪/错位） ----
+  void testOverlayGeometryFollowsResize()
+  {
+    MultiWellView view;
+    view.resize(1200, 800);
+    view.show();
+    QApplication::processEvents();
+    view.setLayoutMode(MultiWellView::LayoutMode::Dual);
+    auto *overlay = view.findChild<QWidget *>(QStringLiteral("correlationOverlay"));
+    QVERIFY(overlay);
+    QVERIFY(overlay->isVisible()); // Dual 且默认开 correlation
+    QCOMPARE(overlay->geometry(), view.rect());
+    view.resize(600, 400);
+    QApplication::processEvents();
+    QCOMPARE(overlay->geometry(), view.rect());
+    // relayout 后仍跟随（模式切换重设一次几何）
+    view.setLayoutMode(MultiWellView::LayoutMode::Quad);
+    view.resize(1000, 700);
+    QApplication::processEvents();
+    QCOMPARE(overlay->geometry(), view.rect());
+  }
+
   void testPanelSlots()
   {
     MultiWellView view;

@@ -1,14 +1,13 @@
 // 层：QGIS 封装
 #include "mapbooklayout.h"
 
-#include <QDir>
+#include "standardelements.h" // 图件字体/指北针单一事实源（方向 25 工厂）
+
 #include <QFile>
 #include <QFileInfo>
-#include <QFont>
 #include <QImage>
 #include <QObject>
 
-#include <qgsapplication.h>
 #include <qgslayout.h>
 #include <qgslayoutitemlabel.h>
 #include <qgslayoutitemlegend.h>
@@ -35,31 +34,19 @@ namespace
   double pageHeight( bool landscape ) { return landscape ? 210.0 : 297.0; }
 
   // 标签字体（QGIS 4.x：setFont 已弃用，走 QgsTextFormat；字号单位 pt）。
+  // 字体族由 standardelements 图件工厂统一（vendored "Noto Sans SC" 优先
+  // 链，含系统回落）——与 layoutexport 的薄别名同口径；此前这里硬编码
+  // 系统族名 "Noto Sans CJK SC"，vendored 字体重叠环境下 PDF 文本无保证。
   QgsTextFormat labelFormat( const QString &family, double sizePt )
   {
-    QgsTextFormat fmt;
-    QFont font( family );
-    font.setPointSizeF( sizePt );
-    fmt.setFont( font );
-    fmt.setSizeUnit( Qgis::RenderUnit::Points );
-    fmt.setSize( sizePt );
-    return fmt;
+    Q_UNUSED( family );
+    return PaleoStandardElements::figureTextFormat( sizePt );
   }
 
-  // 指北针 SVG：QGIS 自带 arrows/NorthArrow_*.svg。
+  // 指北针 SVG：与标准图件元素工厂同一条搜索路径（单一事实源）。
   QString northArrowSvg()
   {
-    for ( const QString &root : QgsApplication::svgPaths() )
-      for ( const QString &name :
-            { QStringLiteral( "NorthArrow_04.svg" ), QStringLiteral( "NorthArrow_02.svg" ),
-              QStringLiteral( "NorthArrow_01.svg" ), QStringLiteral( "NorthArrow_03.svg" ),
-              QStringLiteral( "NorthArrow_05.svg" ), QStringLiteral( "NorthArrow_06.svg" ) } )
-      {
-        const QString path = QDir( root ).filePath( QStringLiteral( "arrows/" ) + name );
-        if ( QFile::exists( path ) )
-          return path;
-      }
-    return QString();
+    return PaleoStandardElements::northArrowSvgPath();
   }
 
   QgsLayoutItemLabel *addLabel( QgsPrintLayout *layout, const QString &id, const QString &text,
@@ -335,46 +322,95 @@ RenderOutcome renderLayout( QgsPrintLayout *layout, const QString &outPath,
     return outcome;
   }
 
-  // 回读校验（Oracle「文件头格式校验」）：PNG 验 8 字节签名 + 像素尺寸，
-  // PDF 验 %PDF 头；读不出来的产物直接判失败，不把坏文件算进成功数。
-  QFile file( path );
-  if ( !file.open( QIODevice::ReadOnly ) )
+  // PNG 期望像素 = 首页毫米规格 × dpi/25.4（多页导出的 _N 兄弟页同版
+  // 同尺寸，校验首页即代表）；页面非毫米单位时跳过尺寸校验（防御）。
+  double expectedW = -1.0, expectedH = -1.0;
+  if ( format == PaleoLayoutExport::Format::Png && layout->pageCollection() &&
+       layout->pageCollection()->pageCount() > 0 &&
+       layout->pageCollection()->page( 0 ) )
   {
-    outcome.error = QObject::tr( "导出产物无法回读：%1" ).arg( path );
+    const QgsLayoutSize pageSize = layout->pageCollection()->page( 0 )->sizeWithUnits();
+    if ( pageSize.units() == Qgis::LayoutUnit::Millimeters )
+    {
+      expectedW = pageSize.width() * dpi / 25.4;
+      expectedH = pageSize.height() * dpi / 25.4;
+    }
+  }
+  QString validationError;
+  if ( !validateExportedFile( path, format, expectedW, expectedH, &validationError ) )
+  {
+    outcome.error = validationError;
     return outcome;
   }
-  const QByteArray head = file.read( 8 );
-  file.close();
-
   if ( format == PaleoLayoutExport::Format::Png )
   {
-    if ( head != QByteArray( "\x89PNG\x0D\x0A\x1A\x0A", 8 ) )
-    {
-      outcome.error = QObject::tr( "产物不是合法 PNG（文件头不符）：%1" ).arg( path );
-      return outcome;
-    }
     const QImage image( path );
-    if ( image.isNull() )
-    {
-      outcome.error = QObject::tr( "PNG 无法解码：%1" ).arg( path );
-      return outcome;
-    }
     outcome.width = image.width();
     outcome.height = image.height();
-  }
-  else if ( format == PaleoLayoutExport::Format::Pdf )
-  {
-    if ( !head.startsWith( QByteArray( "%PDF", 4 ) ) )
-    {
-      outcome.error = QObject::tr( "产物不是合法 PDF（文件头不符）：%1" ).arg( path );
-      return outcome;
-    }
   }
 
   outcome.ok = true;
   outcome.path = path;
   outcome.bytes = info.size();
   return outcome;
+}
+
+bool validateExportedFile( const QString &path, PaleoLayoutExport::Format format,
+                           double expectedWidthPx, double expectedHeightPx, QString *error )
+{
+  const auto fail = [error, &path]( const QString &msg ) {
+    if ( error )
+      *error = msg;
+    return false;
+  };
+
+  QFile file( path );
+  if ( !file.open( QIODevice::ReadOnly ) )
+    return fail( QObject::tr( "导出产物无法回读：%1" ).arg( path ) );
+  const QByteArray head = file.read( 4096 );
+
+  if ( format == PaleoLayoutExport::Format::Png )
+  {
+    if ( !head.startsWith( QByteArray( "\x89PNG\x0D\x0A\x1A\x0A", 8 ) ) )
+      return fail( QObject::tr( "产物不是合法 PNG（文件头不符）：%1" ).arg( path ) );
+    const QImage image( path );
+    if ( image.isNull() )
+      return fail( QObject::tr( "PNG 无法解码：%1" ).arg( path ) );
+    // 像素尺寸 ≈ 页面毫米 × dpi/25.4（±2px 取整容差）——尺寸错说明 dpi
+    // 或页面规格在导出链路上丢了，「能解码」不算成功。
+    if ( expectedWidthPx > 0.0 && expectedHeightPx > 0.0 &&
+         ( qAbs( image.width() - expectedWidthPx ) > 2.0 ||
+           qAbs( image.height() - expectedHeightPx ) > 2.0 ) )
+      return fail( QObject::tr( "PNG 像素尺寸 %1×%2 与版面期望 %3×%4 不符：%5" )
+                       .arg( image.width() ).arg( image.height() )
+                       .arg( QString::number( expectedWidthPx, 'f', 1 ),
+                             QString::number( expectedHeightPx, 'f', 1 ), path ) );
+    return true;
+  }
+
+  if ( format == PaleoLayoutExport::Format::Pdf )
+  {
+    if ( !head.startsWith( QByteArray( "%PDF", 4 ) ) )
+      return fail( QObject::tr( "产物不是合法 PDF（文件头不符）：%1" ).arg( path ) );
+    // 截断的 PDF 也能过头校验——完整 PDF 必须在末尾 1KiB 内带 %%EOF
+    //（ISO 32000 trailer 标记）；缺尾即判失败，不把坏文件算进成功数。
+    const qint64 tailPos = qMax<qint64>( 0, file.size() - 1024 );
+    if ( !file.seek( tailPos ) )
+      return fail( QObject::tr( "导出产物无法定位尾部：%1" ).arg( path ) );
+    if ( !file.read( 1024 ).contains( "%%EOF" ) )
+      return fail( QObject::tr( "产物 PDF 缺尾部 %%EOF（疑似截断）：%1" ).arg( path ) );
+    return true;
+  }
+
+  if ( format == PaleoLayoutExport::Format::Svg )
+  {
+    // QGIS SVG 以 <?xml 声明开头，4KiB 头内必含 <svg 根元素。
+    if ( !head.contains( "<svg" ) )
+      return fail( QObject::tr( "产物不是合法 SVG（缺 <svg 根元素）：%1" ).arg( path ) );
+    return true;
+  }
+
+  return fail( QObject::tr( "未知导出格式，无法校验：%1" ).arg( path ) );
 }
 
 } // namespace PaleoMapBookLayout

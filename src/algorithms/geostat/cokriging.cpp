@@ -448,8 +448,11 @@ ConstrainedKrigingSolver::ConstrainedKrigingSolver(
   m_impl->constraints = constraints;
   std::vector<std::uint32_t> inputToDeduped;
   std::vector<Sample> deduped = detail::dedupeSamples( samples, &m_impl->merged, &inputToDeduped );
+  // D1/D4 同族（S5-M1）：azimuth/ratio 的 NaN 会让交叉 γ 塌缩、加边矩阵奇异
+  //（semivariance(dx,dy) 的 NaN 传播路径与 kriging/sgs 相同），一并要求有限。
   const bool modelOk = model.range > 0 && std::isfinite( model.range ) && model.nugget >= 0 &&
-                       model.sill >= 0 && std::isfinite( model.nugget ) && std::isfinite( model.sill );
+                       model.sill >= 0 && std::isfinite( model.nugget ) && std::isfinite( model.sill ) &&
+                       std::isfinite( model.azimuthDeg ) && std::isfinite( model.anisotropyRatio );
   if ( deduped.empty() || !modelOk )
     return;
   // #417：usedSamples 的公共契约是「输入下标」——去重后内部下标在此建

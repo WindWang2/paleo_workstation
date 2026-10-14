@@ -5,6 +5,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <numbers>
 #include <random>
 #include <vector>
@@ -82,6 +83,7 @@ private slots:
   void singleSampleDegeneratesHonestly();
   void goldenAnchorPinsRefactoredKernel();
   void invalidAndCancelled();
+  void nanVariogramParamsRejected();
 };
 
 void GeostatSgsTests::goldenAnchorPinsRefactoredKernel()
@@ -556,6 +558,40 @@ void GeostatSgsTests::invalidAndCancelled()
   QCOMPARE( multi.status, Status::Ok );
   QCOMPARE( multi.realizations.size(), std::size_t( 3 ) );
   QCOMPARE( multi.finiteCells, 400 );
+}
+
+void GeostatSgsTests::nanVariogramParamsRejected()
+{
+  // D1：NaN nugget/sill 穿过「< 0」「和 <= 0」比较语义放行后，SK 协方差
+  // C(0)=NaN 会让全场解 NaN 且 Status 仍 Ok（修复前实测口径）。入口必须
+  // 与 kriging 的 modelUsable 同样拒绝非有限变差参数。
+  const std::vector<Sample> samples = skewedSamples( 40, 7 );
+  const GridSpec grid = makeGrid( 24, 24, 0, 240, 10 );
+  SgsParams params;
+
+  VariogramModel nanNugget = gaussianModel();
+  nanNugget.nugget = std::numeric_limits<double>::quiet_NaN();
+  QCOMPARE( sgs( samples, grid, nanNugget, params ).status, Status::InvalidInput );
+
+  VariogramModel nanSill = gaussianModel();
+  nanSill.sill = std::numeric_limits<double>::quiet_NaN();
+  QCOMPARE( sgs( samples, grid, nanSill, params ).status, Status::InvalidInput );
+
+  // 参照：range 的 NaN 一直被 !(range > 0) 拦截（回归钉现状）。
+  VariogramModel nanRange = gaussianModel();
+  nanRange.range = std::numeric_limits<double>::quiet_NaN();
+  QCOMPARE( sgs( samples, grid, nanRange, params ).status, Status::InvalidInput );
+
+  // S5-M1：anisotropyRatio>1 + NaN azimuth 会让 γ(dx,dy) 塌缩成 0、SK 协方差
+  // 矩阵全同值必奇异（全场 nodata 冒充 Ok）——与 kriging 的 modelUsable 同口径拒绝。
+  VariogramModel nanAzimuth = gaussianModel();
+  nanAzimuth.anisotropyRatio = 2;
+  nanAzimuth.azimuthDeg = std::numeric_limits<double>::quiet_NaN();
+  QCOMPARE( sgs( samples, grid, nanAzimuth, params ).status, Status::InvalidInput );
+
+  VariogramModel nanRatio = gaussianModel();
+  nanRatio.anisotropyRatio = std::numeric_limits<double>::quiet_NaN();
+  QCOMPARE( sgs( samples, grid, nanRatio, params ).status, Status::InvalidInput );
 }
 
 QTEST_MAIN( GeostatSgsTests )

@@ -90,8 +90,15 @@ void clampParams( KrigingParams *params )
 
 bool modelUsable( const VariogramModel &model )
 {
+  // D2：零信号模型（nugget=sill=0，γ≡0）会让加边 OK 矩阵只剩 border 元素，
+  // LU 判奇异 → 每格失败而 Status 仍 Ok——入口拒绝（上游 krigingsurface 的
+  // resolveVariogram 已有同款闸，此处补裸 API 面）。
+  // D4：azimuthDeg/anisotropyRatio 非有限时 semivariance(dx,dy) 静默塌缩（NaN
+  // 传播成 γ≡0 或各向同性退化），矩阵无病征地奇异——一并拒绝。
   return model.range > 0 && std::isfinite( model.range ) && model.nugget >= 0 &&
-         model.sill >= 0 && std::isfinite( model.nugget ) && std::isfinite( model.sill );
+         model.sill >= 0 && std::isfinite( model.nugget ) && std::isfinite( model.sill ) &&
+         model.nugget + model.sill > 0 && std::isfinite( model.azimuthDeg ) &&
+         std::isfinite( model.anisotropyRatio );
 }
 
 // 邻域索引 + 参数的公共核：KrigingSolver（按分量重复查询）与 ordinaryKriging
@@ -202,9 +209,13 @@ KrigingResult ordinaryKriging( const std::vector<Sample> &samples, const GridSpe
     result.message = "grid budget exceeded (cells > 1e8)";
     return result;
   }
-  if ( !( model.range > 0 ) || model.nugget < 0 || model.sill < 0 )
+  if ( !( model.range > 0 ) || !std::isfinite( model.range ) ||
+       !std::isfinite( model.nugget ) || !std::isfinite( model.sill ) ||
+       model.nugget < 0 || model.sill < 0 || model.nugget + model.sill <= 0 ||
+       !std::isfinite( model.azimuthDeg ) || !std::isfinite( model.anisotropyRatio ) )
   {
-    result.message = "variogram model invalid (range > 0, nugget/sill >= 0)";
+    result.message =
+        "variogram model invalid (finite range > 0, nugget/sill >= 0, positive total sill)";
     return result;
   }
 

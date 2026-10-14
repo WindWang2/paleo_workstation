@@ -4,6 +4,7 @@
 #include "layervocabulary.h"
 #include "qgislayerservice.h"
 
+#include <QDebug>
 #include <QHash>
 #include <QMap>
 #include <QSet>
@@ -324,12 +325,20 @@ bool QgisLayerProfileService::applyPrunedTheme(const QString &name)
     if (m_layerService)
     {
       QVector<LayerDeclaration> decls;
-      // 读失败 ≠ 无声明：失败时 declaredIds 留空也不会错豁免——只有
-      // paleoLayerId 为空的层才进守恒集（带 id 但查证失败的层不动豁免，
-      // 交给主题记录照常裁定）。
+      // 读失败 ≠ 无声明：失败时 declaredIds 留空，带 paleoLayerId 的层随之
+      // 全部落进守恒集（快照/恢复其勾选，主题对它们空转）——重放退化为
+      // 保持现状。这是有意的 fail-safe：清单不可读时绝不让主题按记录批量
+      // 遮层。
       if (m_layerService->tryDeclared(&decls, nullptr))
         for (const LayerDeclaration &d : decls)
           declaredIds.insert(d.layerId);
+    }
+    else
+    {
+      // 无图层服务（测试裸挂/早期构造）：无法区分声明层，全部进守恒集，
+      // page:* 主题可见性记录整体不生效——留日志便于诊断空转。
+      qWarning() << "QgisLayerProfileService: page 主题" << name
+                 << "重放时图层服务为空，全部图层按无声明守恒（主题记录不生效）";
     }
     const QList<QgsLayerTreeLayer *> nodes = m_project->layerTreeRoot()->findLayers();
     for (QgsLayerTreeLayer *node : nodes)

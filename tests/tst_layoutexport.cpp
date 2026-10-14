@@ -700,6 +700,11 @@ class TestLayoutExport : public QObject
       QVERIFY2( layout, qPrintable( err ) );
 
       const QString expected = PaleoStandardElements::figureTextFormat( 9.0 ).font().family();
+      // 防同义反复：expected 取自被测工厂本身——工厂自身退化（空族/未安装
+      // 族）时本用例必须红，而不是跟着漂（S5 review minor 4）。
+      const QFontDatabase db;
+      QVERIFY2( !expected.isEmpty() && db.families().contains( expected ),
+                qPrintable( QStringLiteral( "figure font family '%1' not installed" ).arg( expected ) ) );
       QList<QgsLayoutItem *> items;
       layout->layoutItems( items );
       int checked = 0;

@@ -14,6 +14,7 @@ void DataListPanel::applyEntityDrop(const QStringList &assetIds, const QString &
     return;
   const CatalogEntity target = m_ctx.cat->entityById(entityId);
   int attached = 0, transferred = 0, skipped = 0;
+  QVector<paleo::dataops::DataOpCommand *> cmds;
   for (const QString &id : assetIds)
   {
     const QVector<EntityAssetLink> links = m_ctx.cat->linksForAsset(id);
@@ -41,7 +42,8 @@ void DataListPanel::applyEntityDrop(const QStringList &assetIds, const QString &
     {
       if (l.unresolved)
       {
-        pushCommand(new AttachLinkCmd(m_ctx, id, l.role, entityId, target.entityType));
+        cmds.append(new paleo::dataops::AttachLinkCmd(m_ctx, id, l.role, entityId,
+                                                      target.entityType));
         ++attached;
         acted = true;
         break; // 每资产处理第一条未决链接（与既有行内控件口径一致）
@@ -53,7 +55,8 @@ void DataListPanel::applyEntityDrop(const QStringList &assetIds, const QString &
     {
       if (!l.unresolved && l.entityId != entityId)
       {
-        pushCommand(new TransferLinkCmd(m_ctx, id, l.role, l.entityId, entityId));
+        cmds.append(new paleo::dataops::TransferLinkCmd(m_ctx, id, l.role, l.entityId,
+                                                        entityId));
         ++transferred;
         acted = true;
         break;
@@ -62,6 +65,8 @@ void DataListPanel::applyEntityDrop(const QStringList &assetIds, const QString &
     if (!acted)
       ++skipped; // 已挂到目标实体的资产
   }
+  // N 条命令一次收口刷新（拖多选资产不再 N 次整表重建）。
+  pushCommands(cmds);
   if (m_history)
     m_history->push(tr("批量挂接 %1（挂 %2 / 转移 %3 / 跳过 %4）")
                         .arg(entityId).arg(attached).arg(transferred).arg(skipped));

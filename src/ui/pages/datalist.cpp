@@ -456,8 +456,10 @@ DataListPanel::DataListPanel(QWidget *parent)
           });
   connect(m_tree, &paleo::dataops::DataNavTree::assetsDroppedOnTag, this,
           [this](const QStringList &assetIds, const QString &tag) {
+            QVector<paleo::dataops::DataOpCommand *> cmds;
             for (const QString &id : assetIds)
-              pushCommand(new paleo::dataops::TagCmd(m_ctx, id, tag, true));
+              cmds.append(new paleo::dataops::TagCmd(m_ctx, id, tag, true));
+            pushCommands(cmds); // 多选打标签一次收口刷新
             emit statusMessage(tr("已给 %1 个资产打标签「%2」（可撤销）")
                                    .arg(assetIds.size()).arg(tag));
           });

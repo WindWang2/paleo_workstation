@@ -107,6 +107,9 @@ void diagnoseCycles(Index &index, const Cancel &cancel) {
   }
 }
 bool matches(const Node &n, const Query &q) {
+  // 注：曾试过 buildIndex 预计算小写检索串——10k 查询省 ~20%，但索引
+  // 重建 +6~15% 且 100k 下收益被分组计数吞没（详见任务账本 A/B），按
+  // 「无量化净收益不落地」原则保持即时拼接。
   return (q.category.isEmpty() || n.categories.contains(q.category)) &&
          (q.stage.isEmpty() || n.stage == q.stage ||
           (q.stage == QLatin1String("NONE") && n.stage.isEmpty())) &&
@@ -116,12 +119,35 @@ bool matches(const Node &n, const Query &q) {
 }
 void layout(Graph &graph, const Cancel &cancel) {
   // 有界子图：稳定列布局，双向重心排序减少交叉；同名节点以稳定 ID 打破平局。
+  // 边端点一次性解析成节点行号并建邻接表：重心各趟只看相邻边，
+  // 不再对每节点全量扫边做 QString 等值比较。
   QHash<int, QVector<int>> columns;
   for (int i = 0; i < graph.nodes.size(); ++i)
     columns[graph.nodes[i].column].append(i);
   QList<int> keys = columns.keys();
   std::sort(keys.begin(), keys.end());
-  QHash<QString, int> rows;
+  const int count = graph.nodes.size();
+  QHash<QString, int> indexOf;
+  indexOf.reserve(count);
+  for (int i = 0; i < count; ++i)
+    indexOf.insert(graph.nodes[i].id, i);
+  QVector<QPair<int, int>> edgeRows;
+  QVector<QVector<int>> incident(count);
+  edgeRows.reserve(graph.edges.size());
+  for (const Edge &e : graph.edges) {
+    const auto s = indexOf.constFind(e.source);
+    const auto t = indexOf.constFind(e.target);
+    const int a = s == indexOf.cend() ? -1 : s.value();
+    const int b = t == indexOf.cend() ? -1 : t.value();
+    edgeRows.append({a, b});
+    if (a < 0 || b < 0)
+      continue;
+    incident[a].append(edgeRows.size() - 1);
+    if (a != b)
+      incident[b].append(edgeRows.size() - 1);
+  }
+  QVector<int> rows(count, 0);
+  QVector<double> scores(count, 0);
   for (int c : keys) {
     auto &items = columns[c];
     std::sort(items.begin(), items.end(), [&](int a, int b) {
@@ -130,7 +156,7 @@ void layout(Graph &graph, const Cancel &cancel) {
                  : graph.nodes[a].title < graph.nodes[b].title;
     });
     for (int i = 0; i < items.size(); ++i)
-      rows[graph.nodes[items[i]].id] = i;
+      rows[items[i]] = i;
   }
   for (int pass = 0; pass < 4 && !stopped(cancel); ++pass) {
     QList<int> order = keys;
@@ -138,33 +164,29 @@ void layout(Graph &graph, const Cancel &cancel) {
       std::reverse(order.begin(), order.end());
     for (int c : order) {
       auto &items = columns[c];
-      QHash<QString, double> scores;
       for (int i : items) {
-        const QString id = graph.nodes[i].id;
         double sum = 0;
-        int count = 0;
-        for (const Edge &e : graph.edges) {
-          if (e.source == id && rows.contains(e.target)) {
-            sum += rows[e.target];
-            ++count;
-          } else if (e.target == id && rows.contains(e.source)) {
-            sum += rows[e.source];
-            ++count;
-          }
+        int degree = 0;
+        for (int row : incident[i]) {
+          const auto endpoints = edgeRows[row];
+          const int other = endpoints.first == i ? endpoints.second
+                                                : endpoints.first;
+          if (other < 0)
+            continue;
+          sum += rows[other];
+          ++degree;
         }
-        scores[id] = count ? sum / count : rows[id];
+        scores[i] = degree ? sum / degree : rows[i];
       }
-      std::stable_sort(items.begin(), items.end(), [&](int a, int b) {
-        return scores[graph.nodes[a].id] < scores[graph.nodes[b].id];
-      });
+      std::stable_sort(items.begin(), items.end(),
+                       [&](int a, int b) { return scores[a] < scores[b]; });
       for (int i = 0; i < items.size(); ++i)
-        rows[graph.nodes[items[i]].id] = i;
+        rows[items[i]] = i;
     }
   }
   for (int c : keys)
     for (int i : columns[c])
-      graph.nodes[i].position =
-          QPointF(c * 310.0, rows[graph.nodes[i].id] * 112.0);
+      graph.nodes[i].position = QPointF(c * 310.0, rows[i] * 112.0);
 }
 } // namespace
 QString entityKey(const QString &id) { return QStringLiteral("entity:") + id; }
@@ -422,6 +444,13 @@ std::shared_ptr<const Index> buildIndex(const DataCatalog &cat,
     };
     QStringList parents = v.parentVersionIds;
     parents.removeDuplicates();
+    // 数据列表的通用回滚（assetops）把目标同时记进 parentVersionIds 与
+    // extra.rollbackOf：图谱按回滚参考边呈现（与 welltops rollbackTo 同口径），
+    // 不把回滚冒充成衍生。
+    const QString rollbackOf =
+        v.extra.value(QStringLiteral("rollbackOf")).toString();
+    if (!rollbackOf.isEmpty())
+      parents.removeAll(rollbackOf);
     QSet<QString> parentSet(parents.cbegin(), parents.cend());
     if (recorded)
       for (const QVariant &input :
@@ -439,6 +468,7 @@ std::shared_ptr<const Index> buildIndex(const DataCatalog &cat,
                   Relation::EditBaseline, text("编辑基线"));
     connectParent(v.extra.value(QStringLiteral("rollbackTo")).toString(),
                   Relation::Rollback, text("回滚目标"));
+    connectParent(rollbackOf, Relation::Rollback, text("回滚目标"));
   }
   diagnoseCycles(*index, cancel);
   if (stopped(cancel))
@@ -451,6 +481,7 @@ std::shared_ptr<const Index> buildIndex(const DataCatalog &cat,
 Graph query(const Index &index, const Query &q, const Cancel &cancel,
             const Progress &progress) {
   Graph graph;
+  graph.query = q;
   graph.totalAssets = index.assets.size();
   graph.totalVersions = index.versionCount;
   graph.totalEntities = index.entityCount;
@@ -519,7 +550,10 @@ Graph query(const Index &index, const Query &q, const Cancel &cancel,
         ++groups[stageId];
       }
       if (!summary) {
-        if (graph.nodes.size() + 2 > budget - 32) {
+        // 分组节点（类别 + 类别:阶段，理论上限 32 个）后置入画布；
+        // 预算下限 20 时至少给首份资料留 2 槽——不再把全部资料藏掉。
+        const int reserve = qMin(32, qMax(0, budget - 2));
+        if (graph.nodes.size() + 2 > budget - reserve) {
           ++graph.hidden;
           continue;
         }
@@ -550,7 +584,8 @@ Graph query(const Index &index, const Query &q, const Cancel &cancel,
           (parts.size() > 2 ? stageText(group.stage) : categoryText(parts[1])) +
           text(" · %1 项").arg(group.count);
       group.detail = text("双击展开资料");
-      add(group);
+      if (!add(group))
+        ++graph.hidden;
       if (parts.size() > 2)
         edge({QStringLiteral("group:") + parts[1], id, QString(),
               Relation::Grouped});
@@ -627,13 +662,22 @@ Graph query(const Index &index, const Query &q, const Cancel &cancel,
       }
     }
     graph.hidden = hidden.size();
-    for (const Edge &e : index.edges) {
-      if (stopped(cancel))
-        return {};
-      if (visible.contains(e.source) && visible.contains(e.target) &&
-          (!derivedOnly || lineage(e.relation)))
-        edge(e);
+    // 收边走可见端点的出边邻接（每条边恰从其源访问一次），再按边行号
+    // 排序回全局序：不再对全工区边表做逐条全量扫描。
+    QVector<int> rows;
+    for (const Node &n : graph.nodes) {
+      for (int row : index.outgoing.value(n.id)) {
+        if (stopped(cancel))
+          return {};
+        const Edge &e = index.edges[row];
+        if (visible.contains(e.target) &&
+            (!derivedOnly || lineage(e.relation)))
+          rows.append(row);
+      }
     }
+    std::sort(rows.begin(), rows.end());
+    for (int row : rows)
+      edge(index.edges[row]);
     if (derivedOnly && graph.edges.isEmpty())
       graph.message = text("该版本没有记录来源或下游；不推断未记录的血缘。");
     else if (derivedOnly && root.kind == Kind::Version &&

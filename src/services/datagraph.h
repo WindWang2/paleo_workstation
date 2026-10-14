@@ -58,6 +58,9 @@ struct Query {
 struct Graph {
   QVector<Node> nodes;
   QVector<Edge> edges;
+  // 产出该图的查询条件（含被钳制前的原始字段）：导出/回执与图内容
+  // 同源，不取工作流当前待算的新查询。
+  Query query;
   int totalAssets = 0, totalVersions = 0, totalEntities = 0;
   int unresolved = 0, missingParents = 0, cycles = 0, hidden = 0,
       hiddenEdges = 0;

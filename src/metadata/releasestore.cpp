@@ -210,13 +210,17 @@ bool ReleaseStore::diff(const QString &idA, const QString &idB,
     {
       if (error)
       {
+        // idA==idB 且存在时 IN(?,?) 只命中一行——missing 为空是「两侧同版本」，
+        // 不是「不存在」，分开说。
         QStringList missing;
         if (!seenA)
           missing << idA;
         if (!seenB)
           missing << idB;
-        *error = QStringLiteral("release 不存在：%1")
-                     .arg(missing.join(QStringLiteral(", ")));
+        *error = missing.isEmpty()
+                     ? QStringLiteral("两侧是同一个版本：%1").arg(idA)
+                     : QStringLiteral("release 不存在：%1")
+                           .arg(missing.join(QStringLiteral(", ")));
       }
       return false;
     }

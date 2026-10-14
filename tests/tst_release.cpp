@@ -125,10 +125,17 @@ private slots:
     QVERIFY(err2.contains(QStringLiteral("rel-x")));
     QVERIFY(err2.contains(QStringLiteral("rel-y")));
 
+    // 同一版本两侧：missing 为空——「两侧同版本」与「不存在」分开说。
+    QString errSame;
+    QVERIFY(!store.diff(a, a, nullptr, nullptr, nullptr, &errSame));
+    QVERIFY(errSame.contains(QStringLiteral("同一个版本")));
+
     // 成功路径不写 error（调用方可用它判「有没有细节」）。
+    const QString b = store.createRelease(QStringLiteral("b"), QString(),
+        {decl(QStringLiteral("facies.T1"), QStringLiteral("T1"))});
     QString err3 = QStringLiteral("stale");
     QStringList added, removed, changed;
-    QVERIFY(store.diff(a, a, &added, &removed, &changed, &err3));
+    QVERIFY(store.diff(a, b, &added, &removed, &changed, &err3));
     QVERIFY(err3.isEmpty());
   }
 

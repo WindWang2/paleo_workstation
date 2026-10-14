@@ -1,6 +1,8 @@
 // 层：功能
 #include "derivedassets.h"
 #include "workflowerrors_internal.h"
+#include "evidencerecord.h"
+#include "../domain/predictionevidence.h"
 
 #include "../catalog/datacatalog.h"
 
@@ -113,14 +115,34 @@ bool DerivedAssetRegistrar::commit(const DerivedStaging &st,
     setError( error, QStringLiteral( "派生产物尚未落盘：%1" ).arg( st.absolutePath ) );
     return false;
   }
+  // Validate the attested bytes and every parent before any catalog mutation.
+  if (!m_catalog || !m_catalog->isOpen()) {
+    setError(error, QStringLiteral("派生产物登记未绑定 catalog"));
+    return false;
+  }
+  for (const auto &parent : parentVersionIds)
+    if (parent.isEmpty() || m_catalog->versionById(parent).id.isEmpty()) {
+      setError(error, QStringLiteral("派生产物引用缺失的输入版本：%1").arg(parent));
+      return false;
+    }
+  if (fingerprint && !fingerprint->matches(st.absolutePath)) {
+    setError(error, QStringLiteral("发布前成果文件已变化，请重新计算"));
+    return false;
+  }
+  QString shaErr;
+  const QString sha = fingerprint ? fingerprint->sha256
+      : DataCatalog::sha256FileHex(st.absolutePath, &shaErr);
+  if (sha.isEmpty()) {
+    setError(error, QStringLiteral("派生产物 sha256 计算失败：%1（%2）")
+                        .arg(st.absolutePath, shaErr));
+    return false;
+  }
+  DataCatalog::BatchSave transaction(m_catalog);
   // 延迟建资产的 commit 期结算：预留资产此刻才入库；若 stage→commit 期间
   // 外部已建同名资产，则把成果文件迁到既有资产的受管路径下归并——同一
   // 产物的版本历史不因延迟而分叉成两个资产。结算放在文件存在性检查之后：
   // 缺文件的失败 commit 不得先建出资产。
   DerivedStaging eff = st;
-  const DerivedFileFingerprint *fp = fingerprint;
-  DerivedFileFingerprint translated;
-  bool assetCreatedBySettlement = false;
   // 预留信息以 staging 本体为准（reservedType 非空 = 延迟预留）：任务中心
   // 作业 prepare/publish 分属不同 registrar 实例（constraintfactorjobs_
   // localdirection/_geostat 先例），注册器私有的 m_reserved 在 commit 侧
@@ -147,6 +169,7 @@ bool DerivedAssetRegistrar::commit(const DerivedStaging &st,
       {
         setError( error, QStringLiteral( "归并到既有派生资产 %1 失败：%2 ← %3" )
                                  .arg( finalId, newAbs, st.absolutePath ) );
+        transaction.abort();
         return false;
       }
       QDir( QFileInfo( st.absolutePath ).absolutePath() )
@@ -157,13 +180,6 @@ bool DerivedAssetRegistrar::commit(const DerivedStaging &st,
       const CatalogVersion cur = m_catalog->currentVersion( finalId );
       const int catalogMax = cur.id.isEmpty() ? 0 : cur.versionNumber;
       eff.versionNumber = qMax( catalogMax, m_pending.value( finalId, 0 ) ) + 1;
-      if ( fingerprint )
-      {
-        // rename 不改内容元数据（size/mtime/sha）——指纹按新路径解释，防线不弱化。
-        translated = *fingerprint;
-        translated.path = newAbs;
-        fp = &translated;
-      }
     }
     else
     {
@@ -172,28 +188,14 @@ bool DerivedAssetRegistrar::commit(const DerivedStaging &st,
       a.type = st.reservedType;
       a.format = st.reservedFormat;
       a.displayName = st.reservedDisplayName;
-      if ( !m_catalog->addAsset( a, error ) )
+      if ( !m_catalog->addAsset( a, error ) ) {
+        transaction.abort();
         return false;
-      assetCreatedBySettlement = true;
+      }
     }
     m_reserved.remove( st.assetId );
     m_reservedByName.remove( st.reservedType + QLatin1Char( '\x1f' ) + st.reservedDisplayName );
   }
-  QString shaErr;
-  if (fp && !fp->matches(eff.absolutePath)) {
-    setError(error, QStringLiteral("发布前成果文件已变化，请重新计算"));
-    return false;
-  }
-  const QString sha =
-      fp ? fp->sha256
-         : DataCatalog::sha256FileHex(eff.absolutePath, &shaErr);
-  if ( sha.isEmpty() )
-  {
-    setError( error, QStringLiteral( "派生产物 sha256 计算失败：%1（%2）" )
-                            .arg( eff.absolutePath, shaErr ) );
-    return false;
-  }
-
   CatalogVersion v;
   v.id = st.versionId;
   v.assetId = eff.assetId;
@@ -206,25 +208,29 @@ bool DerivedAssetRegistrar::commit(const DerivedStaging &st,
   v.fileName = QFileInfo( eff.absolutePath ).fileName();
   v.parentVersionIds = parentVersionIds;
   v.extra = extra;
-  if ( !m_catalog->addVersion( v, error ) )
-  {
-    // 结算刚建的资产不因落盘失败留成零版本幽灵（P2 窗口收口）；归并分支
-    // 则把文件迁回原预留路径，staging 保持可重试。均 best-effort——失败
-    // 原因仍以 addVersion 的 error 为准上报。
-    if ( assetCreatedBySettlement )
-    {
-      QString removeErr;
-      m_catalog->removeAsset( eff.assetId, &removeErr );
-      QFile::setPermissions( eff.absolutePath,
-                             QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ReadUser );
-      QFile::remove( eff.absolutePath );
-      QDir( QFileInfo( eff.absolutePath ).absolutePath() ).rmdir( QStringLiteral( "." ) );
+  if (!v.extra.contains(QStringLiteral("evidence"))) {
+    QVariantMap generation = extra;
+    if (!generation.contains(QStringLiteral("method")))
+      generation.insert(QStringLiteral("method"), sourceUri);
+    v.extra.insert(QStringLiteral("evidence"),
+                   paleo::workflow_detail::evidenceRecord(m_catalog, parentVersionIds, generation));
+  }
+  for (const auto &finding : paleo::evidence::validate(v.extra.value("evidence").toMap()))
+    if (finding.toMap().value("severity").toString() == QStringLiteral("Blocking")) {
+      setError(error, finding.toMap().value("message").toString());
+      transaction.abort();
+      if (eff.absolutePath != st.absolutePath) QFile::rename(eff.absolutePath, st.absolutePath);
+      return false;
     }
-    else if ( eff.absolutePath != st.absolutePath )
-    {
-      QFile::rename( eff.absolutePath, st.absolutePath );
-      QDir( QFileInfo( eff.absolutePath ).absolutePath() ).rmdir( QStringLiteral( "." ) );
-    }
+  if (v.extra.value("evidence").typeId() != QMetaType::QVariantMap) {
+    setError(error, QStringLiteral("派生成果证据字段格式无效")); transaction.abort();
+    if (eff.absolutePath != st.absolutePath) QFile::rename(eff.absolutePath, st.absolutePath);
+    return false;
+  }
+  if (!m_catalog->addVersion(v, error) || !transaction.flush(error)) {
+    transaction.abort();
+    if (eff.absolutePath != st.absolutePath)
+      QFile::rename(eff.absolutePath, st.absolutePath);
     return false;
   }
   m_pending.remove( st.assetId );
@@ -253,6 +259,10 @@ bool DerivedAssetRegistrar::commitExternal(
     setError( error, QStringLiteral( "算法产物不存在：%1" ).arg( actualPath ) );
     return false;
   }
+  if (fingerprint && !fingerprint->matches(actualPath)) {
+    setError(error, QStringLiteral("发布前外部成果文件已变化，请重新计算"));
+    return false;
+  }
   if ( QFile::exists( st.absolutePath ) )
     QFile::remove( st.absolutePath );
   if ( !QFile::copy( actualPath, st.absolutePath ) )
@@ -260,6 +270,15 @@ bool DerivedAssetRegistrar::commitExternal(
     setError( error, QStringLiteral( "无法把算法产物收进受管路径 %1 ← %2" )
                              .arg( st.absolutePath, actualPath ) );
     return false;
+  }
+  if (fingerprint) {
+    const auto copied = DerivedFileFingerprint::read(st.absolutePath, {}, error);
+    if (copied.sha256 != fingerprint->sha256) {
+      QFile::remove(st.absolutePath);
+      setError(error, QStringLiteral("外部成果复制期间内容已变化"));
+      return false;
+    }
+    return commit(st, parentVersionIds, sourceUri, extra, error, &copied);
   }
   return commit( st, parentVersionIds, sourceUri, extra, error );
 }
@@ -269,31 +288,19 @@ QStringList DerivedAssetRegistrar::parentVersionIdsFor( const QStringList &paths
   QStringList out;
   if ( !m_catalog || paths.isEmpty() )
     return out;
-  const QDir base( m_projectDir );
-  for ( const QString &p : paths )
-  {
-    if ( p.isEmpty() )
-      continue;
-    const QString canonical = QDir::cleanPath(
-        QDir::isAbsolutePath( p ) ? p : base.absoluteFilePath( p ) );
-    bool found = false;
-    for ( const CatalogAsset &a : m_catalog->assets() )
-    {
-      for ( const CatalogVersion &v : m_catalog->versionsForAsset( a.id ) )
-      {
-        if ( v.path.isEmpty() )
-          continue;
-        const QString vp = QDir::cleanPath(m_catalog->versionFilePath(v));
-        if ( vp == canonical )
-        {
-          out.append( v.id );
-          found = true;
-          break;
-        }
-      }
-      if ( found )
-        break;
+  const QDir base(m_projectDir);
+  QHash<QString, QString> versionsByPath;
+  for (const auto &asset : m_catalog->assets())
+    for (const auto &version : m_catalog->versionsForAsset(asset.id)) {
+      if (version.path.isEmpty()) continue;
+      const auto resolved = QDir::cleanPath(m_catalog->versionFilePath(version));
+      if (!versionsByPath.contains(resolved)) versionsByPath.insert(resolved, version.id);
     }
+  for (const auto &path : paths) {
+    if (path.isEmpty()) continue;
+    const auto canonical = QDir::cleanPath(QDir::isAbsolutePath(path) ? path : base.absoluteFilePath(path));
+    const auto version = versionsByPath.value(canonical);
+    if (!version.isEmpty() && !out.contains(version)) out << version;
   }
   return out;
 }

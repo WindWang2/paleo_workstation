@@ -361,7 +361,7 @@ int main(int argc, char *argv[])
   window.attachMapping(ctx.mappingWf(), ctx.versionCtl(), ctx.versionStore(),
                        ctx.projectData(),
                        ctx.importSvc() ? ctx.importSvc()->catalog() : nullptr);
-  window.attachWorkbench(ctx.mappingWorkbench());
+  window.attachWorkbench(ctx.mappingWorkbench(), ctx.evidenceInteraction());
   StartupTrace::mark(QStringLiteral("main_window_ready"));
   window.show();
   StartupTrace::mark(QStringLiteral("window_shown"));

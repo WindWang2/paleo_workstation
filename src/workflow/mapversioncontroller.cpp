@@ -2,6 +2,10 @@
 #include "mapversioncontroller.h"
 #include "workflowerrors_internal.h"
 #include "mappingsamples.h"
+#include "../domain/interpretationevidence.h"
+#include "../qgis/mappingfeatureidentity.h"
+#include "../qgis/mappingartifactwriter.h"
+#include "../domain/predictionevidence.h"
 
 #include "../io/timedeptool.h"
 #include "../io/wellfileparsers.h"
@@ -15,6 +19,8 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QTemporaryDir>
+#include <QDir>
 
 #include <gdal.h>
 
@@ -38,11 +44,13 @@ MapVersionController::MapVersionController( MapVersionStore *store, QgisLayerSer
 {
 }
 
+void MapVersionController::setCatalog(DataCatalog *catalog) { m_catalog = catalog; }
+
 MapVersion MapVersionController::saveVersion( const QString &horizon, const QVariantMap &provenance,
                                               QString *error )
 {
-  const QString json = QJsonDocument( QJsonObject::fromVariantMap( provenance ) )
-                           .toJson( QJsonDocument::Compact );
+  QVariantMap frozenProvenance = provenance;
+  QString json;
 
   // 收集属于该层位的全部矢量图层候选（无论成功失败均保证清理 busy 标记）
   QVector<QPair<QString, QPointer<QgsVectorLayer>>> horizonVectorLayers;
@@ -82,6 +90,59 @@ MapVersion MapVersionController::saveVersion( const QString &horizon, const QVar
     clearAllTokens();
     return MapVersion(); // 清单读失败时不得在未提交编辑的情况下出版本
   }
+
+  // Validate persisted business JSON before committing the native edit buffer.
+  QVariantMap statuses;
+  qint64 featureCount = 0;
+  for (const auto &item : horizonVectorLayers) {
+    auto *layer = item.second.data();
+    if (!layer) continue;
+    if (item.first.startsWith("draft.") && layer->fields().indexOf("facies_code") >= 0 && !layer->readOnly() &&
+        !MappingFeatureIdentity::ensure(layer, error)) {
+      clearAllTokens(); return {};
+    }
+    if (layer->fields().indexOf("facies_evidence") < 0 &&
+        layer->fields().indexOf("paleo_interpretation") < 0) {
+      featureCount += layer->featureCount(); continue;
+    }
+    auto features = layer->getFeatures(); QgsFeature feature;
+    while (features.nextFeature(feature)) {
+      ++featureCount;
+      QVariantList records;
+      QVariantMap interpretation;
+      if (layer->fields().indexOf("facies_evidence") >= 0 &&
+          !paleo::evidence::decodeRecords(feature.attribute("facies_evidence").toString(), &records, error)) {
+        clearAllTokens(); return {};
+      }
+      if (layer->fields().indexOf("paleo_interpretation") >= 0 &&
+          !paleo::evidence::decodeInterpretation(feature.attribute("paleo_interpretation").toString(), &interpretation, error)) {
+        clearAllTokens(); return {};
+      }
+      const QVariantMap target{{"horizon", horizon}, {"feature_uid", MappingFeatureIdentity::uid(feature)},
+                               {"geometry_hash", MappingFeatureIdentity::geometryFingerprint(feature)}};
+      if (!interpretation.isEmpty() &&
+          (interpretation.value("feature_uid") != target.value("feature_uid") ||
+           interpretation.value("horizon") != target.value("horizon"))) {
+        setError(error, tr("解释身份或层位与当前图斑不一致，请先复核")); clearAllTokens(); return {};
+      }
+      for (const auto &finding : paleo::evidence::check(records, interpretation, target))
+        if (finding.toMap().value("severity").toString() == "Blocking") {
+          setError(error, finding.toMap().value("message").toString()); clearAllTokens(); return {};
+        }
+      const QString status = interpretation.value("status", "Proposed").toString();
+      statuses.insert(status, statuses.value(status).toLongLong() + 1);
+      if (m_catalog)
+        for (const auto &entry : records) {
+          const auto row = entry.toMap();
+          const auto source = row.value("source_version").toString();
+          if (!row.value("unlinked", row.value("tombstone", false)).toBool() && !source.isEmpty() && m_catalog->versionById(source).id.isEmpty()) {
+            setError(error, tr("图斑证据引用的来源版本缺失：%1").arg(source));
+            clearAllTokens(); return {};
+          }
+        }
+    }
+  }
+  frozenProvenance.insert("feature_summary", QVariantMap{{"feature_count", featureCount}, {"statuses", statuses}});
 
   // 编辑会话 commit（§1223 版本提交边界）：该层位全部矢量图层逐一提交；
   // commitChanges 原生清 undo 栈，undoStack()->clear() 再兜底一次，保证
@@ -141,6 +202,59 @@ MapVersion MapVersionController::saveVersion( const QString &horizon, const QVar
     return MapVersion();
   }
 
+  QVariantList versionSnapshots;
+  if (m_catalog) {
+    QHash<QString, CatalogVersion> byLayer;
+    for (const auto &version : m_catalog->versions()) {
+      const QString layer = version.extra.value("layer_id").toString();
+      const QString draft = version.extra.value("draft_id").toString();
+      if (!layer.isEmpty()) byLayer.insert(layer, version);
+      if (!draft.isEmpty()) byLayer.insert(draft, version);
+    }
+    for (const auto &decl : declared) {
+      if (decl.horizon != horizon) continue;
+      CatalogVersion version = byLayer.value(decl.layerId);
+      if (auto *layer = m_layers->layer(decl.layerId)) {
+        const auto id = layer->customProperty("paleoVersionId").toString();
+        if (!id.isEmpty()) version = m_catalog->versionById(id);
+      }
+      if (version.id.isEmpty()) continue;
+      const QVariant evidence = version.extra.value("evidence");
+      if (evidence.isValid() && evidence.typeId() != QMetaType::QVariantMap) {
+        setError(error, tr("成果版本的证据字段损坏：%1").arg(version.id));
+        clearAllTokens(); return {};
+      }
+      const auto map = evidence.toMap();
+      const auto findings = paleo::evidence::validate(map) + map.value("quality_issues").toList();
+      for (const auto &entry : findings)
+        if (entry.toMap().value("severity").toString() == "Blocking") {
+          setError(error, tr("成果证据存在阻断性来源错误：%1").arg(version.id));
+          clearAllTokens(); return {};
+        }
+      versionSnapshots << QVariantMap{{"layer_id", decl.layerId}, {"version_id", version.id},
+                                     {"asset_id", version.assetId}, {"sha256", version.sha256},
+                                     {"evidence", map}, {"stale", version.extra.value("stale")}};
+    }
+  }
+  frozenProvenance.insert("evidence_snapshot", versionSnapshots);
+  json = QString::fromUtf8(QJsonDocument::fromVariant(frozenProvenance).toJson(QJsonDocument::Compact));
+
+  // Export committed vector views rather than copying a possibly open WAL-backed GPKG.
+  // This also freezes provider subsets and memory layers, preserving business attributes.
+  QTemporaryDir vectorStaging;
+  if (!vectorStaging.isValid()) {
+    setError(error, tr("无法创建地图版本矢量暂存目录")); clearAllTokens(); return {};
+  }
+  QVector<LayerDeclaration> snapshotDeclarations = declared;
+  for (auto &decl : snapshotDeclarations) {
+    if (decl.horizon != horizon || decl.type.compare("vector", Qt::CaseInsensitive) != 0) continue;
+    auto *vector = qobject_cast<QgsVectorLayer *>(m_layers->layer(decl.layerId));
+    if (!vector) continue;
+    const QString path = vectorStaging.filePath(QString::number(&decl - snapshotDeclarations.data()) + ".gpkg");
+    if (!MappingArtifactWriter::vectorSnapshot(vector, path, error)) { clearAllTokens(); return {}; }
+    decl.source = path + "|layername=features";
+  }
+
   // §41.2 sole write choke point：saveVersion 路由进 m_projectStore->enqueueWrite
   MapVersion v;
   if ( m_projectStore )
@@ -149,7 +263,7 @@ MapVersion MapVersionController::saveVersion( const QString &horizon, const QVar
     const auto res = m_projectStore->enqueueWrite( [&]() -> PaleoProjectStore::WriteResult {
       if ( !m_store )
         return { false, QObject::tr( "MapVersionStore is null" ) };
-      v = m_store->saveVersion( horizon, json, &storeErr );
+      v = m_store->saveVersion( horizon, json, &storeErr, snapshotDeclarations );
       if ( v.version <= 0 )
         return { false, storeErr.isEmpty() ? QObject::tr( "saveVersion failed" ) : storeErr };
       return { true, QString() };
@@ -164,7 +278,7 @@ MapVersion MapVersionController::saveVersion( const QString &horizon, const QVar
   }
   else if ( m_store )
   {
-    v = m_store->saveVersion( horizon, json, error );
+    v = m_store->saveVersion( horizon, json, error, snapshotDeclarations );
   }
 
   clearAllTokens();
@@ -189,6 +303,28 @@ QString MapVersionController::publish( const QString &horizon, const QString &re
     if ( error )
       *error = tr( "工程目录被另一个实例锁定——本实例只读，发布被拒绝" );
     return QString();
+  }
+  // Revalidate the saved evidence manifest; current warnings never rewrite its facts.
+  const auto saved = m_store->latest(horizon);
+  const auto provenance = QJsonDocument::fromJson(saved.provenance.toUtf8()).object();
+  for (const auto &entry : provenance.value("evidence_snapshot").toArray()) {
+    const auto row = entry.toObject();
+    const auto evidence = row.value("evidence").toObject().toVariantMap();
+    for (const auto &finding : paleo::evidence::validate(evidence))
+      if (finding.toMap().value("severity").toString() == "Blocking") {
+        setError(error, finding.toMap().value("message").toString()); return {};
+      }
+    if (m_catalog) {
+      if (m_catalog->versionById(row.value("version_id").toString()).id.isEmpty()) {
+        setError(error, tr("保存成果的目录版本已缺失：%1").arg(row.value("version_id").toString())); return {};
+      }
+      for (const auto &input : evidence.value("inputs").toList()) {
+        const auto id = input.toMap().value("version_id").toString();
+        if (id.isEmpty() || m_catalog->versionById(id).id.isEmpty()) {
+          setError(error, tr("保存证据的来源版本已缺失：%1").arg(id)); return {};
+        }
+      }
+    }
   }
   QVector<LayerDeclaration> declared;
   if ( m_layers && !m_layers->tryDeclared( &declared, error ) )

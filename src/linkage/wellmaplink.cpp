@@ -4,6 +4,7 @@
 #include "selectioncontext.h"
 
 #include <QSignalBlocker>
+#include <QTimer>
 
 #include <qgsfeature.h>
 #include <qgsfeatureiterator.h>
@@ -44,6 +45,8 @@ void WellMapLink::setWellLayer(QgsVectorLayer *layer, const QString &idField)
 
   m_layer = layer;
   m_idField = idField;
+  m_identityIndex.clear();
+  m_indexDirty = true;
   if (!m_layer)
     return;
 
@@ -76,6 +79,43 @@ void WellMapLink::setWellLayer(QgsVectorLayer *layer, const QString &idField)
               wellIds << f.attribute(idx).toString();
             m_ctx->setSelection(wellIds, QStringLiteral("well_map"));
           });
+  connect(m_layer, &QgsVectorLayer::featureAdded, this, &WellMapLink::invalidateIndex);
+  connect(m_layer, &QgsVectorLayer::featureDeleted, this, &WellMapLink::invalidateIndex);
+  connect(m_layer, &QgsVectorLayer::updatedFields, this, &WellMapLink::invalidateIndex);
+  connect(m_layer, &QgsVectorLayer::attributeValueChanged, this,
+          [this](QgsFeatureId, int field, const QVariant &) {
+    if (m_layer && field == m_layer->fields().indexOf(m_idField)) invalidateIndex();
+  });
+  connect(m_layer, &QgsVectorLayer::editingStopped, this, &WellMapLink::invalidateIndex);
+  connect(m_layer, &QgsVectorLayer::afterRollBack, this, &WellMapLink::invalidateIndex);
+  const auto restore = [this] {
+    invalidateIndex();
+    if (m_restorePending) return;
+    m_restorePending = true;
+    QTimer::singleShot(0, this, [this] {
+      m_restorePending = false;
+      if (m_ctx) onContextSelection(m_ctx->selectedIds(), QStringLiteral("rebind"));
+    });
+  };
+  connect(m_layer, &QgsMapLayer::dataChanged, this, restore);
+  connect(m_layer, &QgsMapLayer::dataSourceChanged, this, restore);
+  if (m_ctx) onContextSelection(m_ctx->selectedIds(), QStringLiteral("rebind"));
+}
+
+void WellMapLink::invalidateIndex() { m_indexDirty = true; }
+void WellMapLink::rebuildIndex() {
+  if (!m_indexDirty || !m_layer) return;
+  m_identityIndex.clear();
+  const int index = m_layer->fields().indexOf(m_idField);
+  if (index < 0) return;
+  QgsFeatureRequest request;
+  request.setSubsetOfAttributes({index});
+  request.setFlags(Qgis::FeatureRequestFlag::NoGeometry);
+  auto features = m_layer->getFeatures(request);
+  QgsFeature feature;
+  while (features.nextFeature(feature))
+    m_identityIndex[feature.attribute(index).toString()].insert(feature.id());
+  m_indexDirty = false;
 }
 
 void WellMapLink::onContextSelection(const QStringList &ids, const QString &origin)
@@ -87,16 +127,10 @@ void WellMapLink::onContextSelection(const QStringList &ids, const QString &orig
   if (idx < 0)
     return;
 
-  // Resolve well ids -> feature ids via the id-field index.
+  // Build the stable-ID index once per provider/edit revision, not per click.
+  rebuildIndex();
   QgsFeatureIds fids;
-  QgsFeatureRequest req;
-  req.setSubsetOfAttributes(QgsAttributeList{idx});
-  req.setFlags(Qgis::FeatureRequestFlag::NoGeometry);
-  QgsFeature f;
-  QgsFeatureIterator it = m_layer->getFeatures(req);
-  while (it.nextFeature(f))
-    if (ids.contains(f.attribute(idx).toString()))
-      fids.insert(f.id());
+  for (const auto &identity : ids) fids.unite(m_identityIndex.value(identity));
 
   {
     const QSignalBlocker blocker(m_layer); // reentrancy guard — no echo into ctx

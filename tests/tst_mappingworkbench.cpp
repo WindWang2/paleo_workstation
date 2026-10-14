@@ -6,6 +6,12 @@
 #include "../src/qgis/facieshierarchyrenderer.h"
 #include "../src/qgis/mapcanvaslink.h"
 #include "../src/qgis/mappingartifactwriter.h"
+#include "../src/qgis/mappingfeatureidentity.h"
+#include "../src/qgis/qgiscanvascontroller.h"
+#include "../src/linkage/selectioncontext.h"
+#include "../src/domain/interpretationevidence.h"
+#include "../src/workflow/evidenceinteraction.h"
+#include "../src/services/datagraph.h"
 #include "../src/qgis/nativeattributetablehost.h"
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/qgis/wellattributestore.h"
@@ -751,6 +757,68 @@ private slots:
                 .value("needs_review")
                 .toBool());
     QVERIFY(v->rollBack());
+  }
+  void semanticReviewConflictUnlinkAndSnapshotRemainTraceable() {
+    Fixture f; QVERIFY(f.init()); QString error;
+    const auto draft = hierarchyDraft(f, &error); QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft)); QVERIFY(layer);
+    auto features = layer->getFeatures(); QgsFeature feature; QVERIFY(features.nextFeature(feature)); features.close();
+    const auto original = f.work.versionForLayer(draft);
+    const auto originalBytes = digest(DataCatalog::resolvedVersionPath(f.dir.path(), original));
+    QVERIFY(f.work.addEvidence(draft, {feature.id()}, {{"text", "井相与当前图斑存在冲突"}, {"role", "CONTRADICTED_BY"},
+        {"type", "well"}, {"source_layer", "input.grid"}, {"actor_id", "local:geologist"}, {"reason", "保留冲突来源"}}, &error));
+    const auto snapshot = f.work.featureEvidence(draft, {feature.id()});
+    QVERIFY(!snapshot.value("feature_uid").toString().isEmpty());
+    QCOMPARE(snapshot.value("records").toList()[0].toMap().value("role").toString(), QString("CONTRADICTED_BY"));
+    const auto revision = snapshot.value("interpretation").toMap().value("revision").toULongLong();
+    QVERIFY(revision > 0);
+    const auto beforeJson = layer->getFeature(feature.id()).attribute("paleo_interpretation");
+    QVERIFY(!f.work.changeEvidence(draft, {feature.id()}, "review", {{"actor_id", "local:reviewer"}, {"reason", "review"}, {"status", "Confirmed"}, {"expected_revision", revision - 1}}, &error));
+    QCOMPARE(layer->getFeature(feature.id()).attribute("paleo_interpretation"), beforeJson);
+    QVERIFY(f.work.changeEvidence(draft, {feature.id()}, "review", {{"actor_id", "local:reviewer"}, {"reason", "争议待新资料"}, {"status", "Disputed"}, {"expected_revision", revision}}, &error));
+    const auto evidenceId = snapshot.value("records").toList()[0].toMap().value("id").toString();
+    QVERIFY(f.work.removeEvidence(draft, {feature.id()}, evidenceId, &error));
+    QCOMPARE(f.work.evidence(draft, {feature.id()}).size(), 0);
+    auto latest = f.work.featureEvidence(draft, {feature.id()});
+    QVERIFY(latest.value("records").toList()[0].toMap().value("unlinked").toBool());
+    const auto history = latest.value("interpretation").toMap().value("history").toList();
+    QVERIFY(history.size() >= 3);
+    QCOMPARE(history.back().toMap().value("before_record").toMap().value("role").toString(), QString("CONTRADICTED_BY"));
+    QVERIFY(layer->commitChanges()); QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
+    const auto saved = f.work.versionForLayer(draft);
+    QVERIFY(saved.id != original.id);
+    QCOMPARE(digest(DataCatalog::resolvedVersionPath(f.dir.path(), original)), originalBytes);
+    QgsVectorLayer reopened(DataCatalog::resolvedVersionPath(f.dir.path(), saved) + "|layername=features", "saved", "ogr"); QVERIFY(reopened.isValid());
+    const auto restored = MappingFeatureIdentity::find(&reopened, snapshot.value("feature_uid").toString()); QVERIFY(restored.isValid());
+    QVariantMap interpretation;
+    QVERIFY(paleo::evidence::decodeInterpretation(restored.attribute("paleo_interpretation").toString(), &interpretation, &error));
+    QCOMPARE(interpretation.value("history").toList().size(), history.size());
+    QVERIFY(saved.parentVersionIds.contains(snapshot.value("records").toList()[0].toMap().value("source_version").toString()));
+  }
+  void mapEvidenceAndGraphUseOneStableTargetWithoutEditing() {
+    Fixture f; QVERIFY(f.init()); QString error;
+    const auto draft = hierarchyDraft(f, &error); QVERIFY(!draft.isEmpty());
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft)); QVERIFY(layer);
+    auto iterator = layer->getFeatures(); QgsFeature feature; QVERIFY(iterator.nextFeature(feature)); iterator.close();
+    SelectionContext selection; selection.setActiveHorizon("D61");
+    QgisCanvasController canvas; canvas.setLayerResolver([&f](const QString &id) { return f.layers.layer(id); });
+    EvidenceInteraction interaction(&f.work, &selection, &f.layers, &f.project, &canvas);
+    layer->selectByIds({feature.id()});
+    QCOMPARE(selection.target().featureUid, MappingFeatureIdentity::uid(feature));
+    QCOMPARE(selection.target().layerId, draft);
+    const auto target = selection.target(); QVERIFY(!layer->isEditable());
+    QVariantMap graphNode{{"project_id", target.projectId}, {"layer_id", draft}, {"version_id", target.versionId},
+      {"asset_id", target.assetId}, {"feature_uid", target.featureUid}, {"horizon", "D61"}};
+    layer->removeSelection(); interaction.navigateGraphNode(graphNode);
+    QCOMPARE(selection.target().featureUid, target.featureUid);
+    QCOMPARE(interaction.snapshot().value("feature_uid").toString(), target.featureUid);
+    QVERIFY(!layer->isEditable()); QVERIFY(layer->selectedFeatureIds().isEmpty());
+    QSignalSpy failures(&interaction, &EvidenceInteraction::navigationFailed);
+    graphNode.insert("horizon", "Other"); graphNode.insert("project_id", "OtherProject");
+    interaction.navigate(graphNode); QVERIFY(failures.count() > 0);
+    QCOMPARE(selection.target().featureUid, target.featureUid);
+    selection.setActiveHorizon("Other"); QVERIFY(selection.target().isEmpty());
+    f.project.closeProject(); QVERIFY(selection.target().isEmpty());
   }
   void linkedCanvasesFollowExtentCursorAndCanDisconnect() {
     QgsMapCanvas main, reference;

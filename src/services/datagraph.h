@@ -11,7 +11,7 @@
 
 class DataCatalog;
 namespace paleo::datagraph {
-enum class Kind { Entity, Asset, Version, Activity, Group, Missing };
+enum class Kind { Entity, Asset, Version, Activity, Group, Missing, Evidence, Assertion, Interpretation, Feature };
 enum class Relation {
   Linked,
   HasVersion,
@@ -20,19 +20,23 @@ enum class Relation {
   Generated,
   EditBaseline,
   Rollback,
-  Grouped
+  Grouped,
+  Supported, Contradicted, Constrained, References, Informs, Materializes
 };
-enum class Mode { Overview, Relations, Lineage, Entities };
+enum class Mode { Overview, Relations, Lineage, Entities, Impact };
 struct Node {
   QString id, title, detail, entityId, assetId, versionId, stage, path,
       sourceUri, sha256, evidenceText;
   QStringList categories;
   QVariantMap evidence;
+  QString featureUid, evidenceId, assertionId, interpretationId, horizon,
+      evidenceType, reviewState, layerId;
   Kind kind = Kind::Asset;
   bool current = false, external = false, stale = false, unresolved = false,
        cycle = false;
   QPointF position;
   int column = 0, count = 0;
+  int dependencyDepth = 0;
 };
 struct Edge {
   QString source, target, label;
@@ -53,6 +57,12 @@ struct Query {
   QString focus, category, stage, search;
   bool history = false;
   int depth = 2, maxNodes = 200, maxEdges = 600;
+  QString horizon, evidenceType, reviewState;
+  int evidenceOffset = 0, evidenceLimit = 50;
+  int maxTraversalEdges = 4000;
+  // Selected feature's immutable owner-thread snapshot only. It participates
+  // in equality/cache keys; never added to the shared project Index.
+  QVariantMap featureEvidence;
   bool operator==(const Query &) const = default;
 };
 struct Graph {
@@ -65,6 +75,8 @@ struct Graph {
   int unresolved = 0, missingParents = 0, cycles = 0, hidden = 0,
       hiddenEdges = 0;
   QString message;
+  bool workTruncated = false;
+  int examinedEdges = 0;
 };
 using Cancel = std::function<bool()>;
 using Progress = std::function<void(double, const QString &)>;

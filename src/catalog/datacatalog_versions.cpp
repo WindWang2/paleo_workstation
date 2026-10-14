@@ -18,6 +18,12 @@ using paleo::store_detail::setError;
 // updateVersionExtra 的 #history 审计保留条数（FIFO）——足够覆盖「改错
 // 再改回」的常见往返，又不让长期反复编辑的 extra 无界膨胀。
 constexpr int kExtraHistoryKeep = 8;
+bool frozenProvenanceKey(const QString &key) {
+  static const QSet<QString> keys{"evidence", "interpretation_reference_versions",
+    "ordered_inputs", "algorithm_parameters", "feature_identity", "feature_summary",
+    "interpretation_events", "spatial_edit_events"};
+  return keys.contains(key);
+}
 } // namespace
 
 // 版本族（方向 99 拆分）：addVersion（含 supersede 级联标 stale）、
@@ -150,6 +156,10 @@ bool DataCatalog::updateVersionExtra(const QString &versionId, const QString &ke
       (!value.isValid() || value == old);
   if (sameValue)
     return true;
+  if (frozenProvenanceKey(key)) {
+    setError(error, QStringLiteral("版本证据快照不可就地修改；请保存新版本: %1").arg(key));
+    return false;
+  }
   QVariantList history = next.extra.value(QStringLiteral("%1#history").arg(key)).toList();
   QVariantMap entry;
   if (old.isValid())
@@ -269,6 +279,11 @@ bool DataCatalog::updateVersionExtra(const QString &versionId, const QVariantMap
   // 契约同单键重载：save 失败回滚内存（h:160 mutator 契约），成功后逐键
   // 记 journal op（staging 重放不丢 extra 补丁）。
   const QVariantMap prevExtra = m_versions.at(row).extra;
+  for (auto it = extra.cbegin(); it != extra.cend(); ++it)
+    if (frozenProvenanceKey(it.key()) && prevExtra.value(it.key()) != it.value()) {
+      setError(error, QStringLiteral("版本证据快照不可就地修改；请保存新版本: %1").arg(it.key()));
+      return false;
+    }
   for (auto it = extra.begin(); it != extra.end(); ++it)
     m_versions[row].extra.insert(it.key(), it.value());
   m_dirtyVersions.insert(versionId);

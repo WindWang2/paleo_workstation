@@ -5,6 +5,10 @@
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QTemporaryDir>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include "../src/catalog/datacatalog.h"
 
 #include <qgsapplication.h>
 #include <qgsfeature.h>
@@ -425,6 +429,88 @@ class TestVersions : public QObject
         QCOMPARE( pf1.readAll(), v1PdfBytes );
         pf1.close();
         QVERIFY( !QFileInfo( pf1.fileName() ).isWritable() );
+    }
+
+    void savedBytesAndPdfSurviveWorkingChanges() {
+        Fixture f; QVERIFY(f.init()); QString error;
+        const auto gpkg = makeFaciesGpkg(f.dir.filePath("working.gpkg"));
+        const auto pdf = makePdf(f.dir.filePath("working.pdf"));
+        LayerDeclaration decl; decl.layerId = "facies.D61"; decl.horizon = "D61";
+        decl.type = "vector"; decl.source = gpkg + "|layername=facies_polygons";
+        QVERIFY(f.layers.declare(decl, &error));
+
+        const QString pdfSha = DataCatalog::sha256FileHex(pdf);
+        QVERIFY(f.versions.recordLayoutProduct("D61", pdf, "pdf-asset", pdfSha, &error));
+        const auto saved = f.controller.saveVersion("D61", {}, &error);
+        QVERIFY2(saved.version > 0, qPrintable(error));
+        const auto manifest = QJsonDocument::fromJson(saved.provenance.toUtf8()).object();
+        QCOMPARE(manifest.value("snapshot_schema").toString(), QString("paleo_map_snapshot_v1"));
+        QCOMPARE(manifest.value("saved_layers").toArray().size(), 1);
+        const QString gpkgSha = manifest.value("saved_layers").toArray().first().toObject().value("sha256").toString();
+        QFile changedPdf(pdf); QVERIFY(changedPdf.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        changedPdf.write("later edit"); changedPdf.close();
+        QVERIFY(QFile::remove(gpkg));
+        const QString summary = R"({"wells_total":1,"covered":1,"missing":[],"rows":[{"kind":"residual","residual_ms":1}]})";
+        const auto published = f.controller.publish("D61", summary, &error);
+        QVERIFY2(!published.isEmpty(), qPrintable(error));
+        QCOMPARE(DataCatalog::sha256FileHex(QDir(published).filePath("layout.pdf")), pdfSha);
+        const auto files = QDir(published).entryList({"*.gpkg"}, QDir::Files);
+        QCOMPARE(files.size(), 1);
+        QCOMPARE(DataCatalog::sha256FileHex(QDir(published).filePath(files.first())), gpkgSha);
+        QVERIFY(QFileInfo::exists(QDir(published).filePath("evidence-snapshot.json")));
+    }
+    void missingFrozenBytesRejectPublicationAndCleanStaging() {
+        Fixture f; QVERIFY(f.init()); QString error;
+        const auto pdf = makePdf(f.dir.filePath("map.pdf"));
+        QVERIFY(f.versions.recordLayoutProduct("D61", pdf, "pdf-asset", DataCatalog::sha256FileHex(pdf), &error));
+        const auto saved = f.controller.saveVersion("D61", {}, &error);
+        QVERIFY(saved.version > 0);
+        const auto manifest = QJsonDocument::fromJson(saved.provenance.toUtf8()).object();
+        const auto frozenPdf = f.dir.filePath(manifest.value("saved_pdf").toObject().value("path").toString());
+        QFile::setPermissions(frozenPdf, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+        QVERIFY(QFile::remove(frozenPdf));
+        const QString summary = R"({"wells_total":1,"covered":1,"missing":[],"rows":[{"kind":"residual","residual_ms":1}]})";
+        QVERIFY(f.controller.publish("D61", summary, &error).isEmpty());
+        QVERIFY(error.contains(QStringLiteral("快照")));
+        QCOMPARE(f.versions.latest("D61").state, QString("Editing"));
+        QVERIFY(QDir(f.dir.filePath("result/D61")).entryList(QDir::Dirs | QDir::NoDotAndDotDot).isEmpty());
+    }
+
+    void corruptedSavedManifestCannotFallBackToLiveFiles() {
+        Fixture f; QVERIFY(f.init()); QString error;
+        const auto pdf = makePdf(f.dir.filePath("map.pdf"));
+        QVERIFY(f.versions.recordLayoutProduct("D61", pdf, "pdf-asset", DataCatalog::sha256FileHex(pdf), &error));
+        const auto saved = f.controller.saveVersion("D61", {}, &error); QVERIFY(saved.version > 0);
+        auto manifest = QJsonDocument::fromJson(saved.provenance.toUtf8()).object();
+        manifest.insert("saved_layers", "corrupt");
+        auto db = QSqlDatabase::database("paleo_mapversions_" + QString::number(qHash(f.metaPath())));
+        QSqlQuery update(db); update.prepare("UPDATE map_versions SET provenance=? WHERE id=?");
+        update.addBindValue(QString::fromUtf8(QJsonDocument(manifest).toJson(QJsonDocument::Compact)));
+        update.addBindValue(saved.id); QVERIFY(update.exec());
+        const QString summary = R"({"wells_total":1,"covered":1,"missing":[],"rows":[{"kind":"residual","residual_ms":1}]})";
+        QVERIFY(f.controller.publish("D61", summary, &error).isEmpty());
+        QVERIFY(error.contains(QStringLiteral("损坏")));
+        QVERIFY(!QFileInfo::exists(f.dir.filePath("result/D61/v1")));
+        QCOMPARE(f.versions.latest("D61").state, QString("Editing"));
+    }
+    void corruptedVersionEvidenceIsNotCommittedAsEmpty() {
+        Fixture f; QVERIFY(f.init()); QString error;
+        DataCatalog catalog; QVERIFY(catalog.open(f.dir.path())); f.controller.setCatalog(&catalog);
+        const auto path = makeFaciesGpkg(f.dir.filePath("facies.gpkg")); QVERIFY(!path.isEmpty());
+        CatalogAsset asset; asset.id = "asset-source"; asset.type = "facies_polygons";
+        QVERIFY(catalog.addAsset(asset, &error));
+        CatalogVersion version; version.id = "version-source"; version.assetId = asset.id;
+        version.stage = "DERIVED"; version.path = path; version.managed = false;
+        version.sha256 = DataCatalog::sha256FileHex(path);
+        version.extra = {{"layer_id", "facies.D61"}, {"horizon", "D61"}, {"evidence", "broken JSON"}};
+        QVERIFY(catalog.addVersion(version, &error));
+        LayerDeclaration layer; layer.layerId = "facies.D61"; layer.horizon = "D61";
+        layer.type = "vector"; layer.source = path + "|layername=facies_polygons";
+        QVERIFY(f.layers.declare(layer, &error));
+        QVERIFY(f.controller.saveVersion("D61", {}, &error).version == 0);
+        QVERIFY(error.contains(QStringLiteral("证据字段损坏")));
+        QCOMPARE(catalog.versionById(version.id).extra.value("evidence").toString(), QString("broken JSON"));
+        QCOMPARE(f.versions.currentVersion("D61"), 0);
     }
 
     // 旧 schema 库（无 pdf_asset_id/pdf_sha256/residual_summary 列）：

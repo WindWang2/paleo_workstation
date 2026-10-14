@@ -7,6 +7,7 @@
 #include "../domain/singlefactorrequest.h"  // 制图工作场不进融合/分相
 #include "../metadata/paleoprojectstore.h"
 #include "../qgis/qgislayerservice.h"
+#include "../qgis/mappingfeatureidentity.h"
 #include "../qgis/qgisprocessingservice.h"
 #include "../qgis/qgisstyleservice.h"       // applyFaciesBoundaryStyle
 #include "../services/jobrunner.h"          // facies-ux 1：相多边形后台任务
@@ -179,6 +180,18 @@ bool CompositionWorkflow::fuseFactors( const QString &horizon, const QStringList
   QVariantList inputs;
   inputs.reserve( factorLayerIds.size() );
   QStringList parentPaths;
+  QHash<QString, CatalogVersion> sourceVersions, sourcePaths;
+  if (m_catalog)
+    for (const auto &version : m_catalog->versions()) {
+      const auto path = QDir::cleanPath(m_catalog->versionFilePath(version));
+      if (!path.isEmpty() && sourcePaths.value(path).versionNumber <= version.versionNumber)
+        sourcePaths.insert(path, version);
+      for (const auto &key : {version.extra.value("layer_id").toString(),
+                             version.extra.value("manifest_layer_id").toString()}) {
+        if (!key.isEmpty() && sourceVersions.value(key).versionNumber <= version.versionNumber)
+          sourceVersions.insert(key, version);
+      }
+    }
   for ( const QString &layerId : factorLayerIds )
   {
     const LayerDeclaration *decl = nullptr;
@@ -198,6 +211,15 @@ bool CompositionWorkflow::fuseFactors( const QString &horizon, const QStringList
     if ( paleo::singlefactor::isCartographicProductLayer( layerId, decl->group ) )
     {
       paleo::workflow_detail::setError( error, tr( "解释性制图工作场不能参与连续融合、分相或厚度统计" ) );
+      return false;
+    }
+    CatalogVersion sourceVersion = layerId.startsWith("product.") && m_catalog
+        ? m_catalog->versionById(layerId.mid(8)) : sourceVersions.value(layerId);
+    if (sourceVersion.id.isEmpty())
+      sourceVersion = sourcePaths.value(QDir::cleanPath(decl->source.section('|', 0, 0)));
+    if (paleo::singlefactor::rejectsQuantitativeUse(sourceVersion.extra.value("kind").toString(),
+                                                   sourceVersion.extra.value("value_source").toString())) {
+      paleo::workflow_detail::setError(error, tr("解释性制图工作场不能参与连续融合、分相或厚度统计"));
       return false;
     }
     QgsMapLayer *layer = layers->instantiate( layerId, error );
@@ -417,6 +439,10 @@ bool CompositionWorkflow::computeFaciesPolygons( FaciesPolygonJob &job, QgisProc
   {
     job.error = tr( "facies polygonize returned no output path" );
     return false;
+  }
+  {
+    QgsVectorLayer generated(job.outputPath + "|layername=facies_polygons", "facies", "ogr");
+    if (!MappingFeatureIdentity::ensure(&generated, &job.error)) return false;
   }
   return true;
 }

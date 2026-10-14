@@ -42,6 +42,11 @@ namespace paleo::constraint_detail
   // singlefactorstrategy 词表校验（词表外拒绝，不回退），这里只落血缘。
   inline void insertStrategyId( const QVariantMap &params, QVariantMap &extra )
   {
+    QVariantMap effective = params;
+    for (const auto &key : {QStringLiteral("OUTPUT"), QStringLiteral("output"),
+                           QStringLiteral("parentVersionIds"), QStringLiteral("pointsLayerId"),
+                           QStringLiteral("factorInputPrepared")}) effective.remove(key);
+    extra.insert(QStringLiteral("algorithm_parameters"), effective);
     if (params.contains(QStringLiteral("extraction")))
       extra.insert(QStringLiteral("extraction"), params.value(QStringLiteral("extraction")));
     const QString strategyId = params.value( QStringLiteral( "strategy_id" ) ).toString();

@@ -18,6 +18,7 @@
 #include "../services/paleotaskservice.h" // QPointer<PaleoTask>::running 需完整类型
 #include "../services/previewdoc.h"
 #include "../workflow/mappingworkbench.h"
+#include "../workflow/evidenceinteraction.h"
 #include "datapreview/datapreviewtabs.h"
 #include "decorations/paleodecorations.h"
 #include "edittools/editingtoolbar.h"
@@ -63,7 +64,7 @@
 #include <qgsrasterrenderer.h>
 #include <qgsvectorlayer.h>
 
-void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
+void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInteraction *evidence) {
   if (!workbench || property("workbenchAttached").toBool())
     return;
   auto *host = findChild<QWidget *>("rightPanelHost");
@@ -112,6 +113,28 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
     pages << page;
   }
   stack->setCurrentIndex(current);
+  if (evidence) {
+    connect(evidence, &EvidenceInteraction::navigationFailed, this, [this](const QString &error) { statusBar()->showMessage(error, 12000); });
+    for (auto *page : pages) {
+      connect(page, &MappingWorkbenchPage::targetLayerChanged, evidence, [evidence, page](const QString &id) {
+        if (page->isVisible()) evidence->setLayer(id);
+      });
+      connect(page, &MappingWorkbenchPage::evidenceActivated, evidence, [evidence](const QVariantMap &row) { evidence->navigate(row); });
+      connect(page, &MappingWorkbenchPage::evidenceGraphRequested, this, [this](const QVariantMap &snapshot) {
+        openDataGraph(snapshot.value("asset_id").toString(), snapshot.value("version_id").toString());
+        if (auto *data = findChild<DataPage *>()) data->graphPage()->setFeatureEvidence(snapshot, true);
+      });
+    }
+    connect(evidence, &EvidenceInteraction::detailsChanged, this, [this, pages](const QVariantMap &snapshot, quint64) {
+      for (auto *page : pages) {
+        if (page->isVisible() && page->horizon() == snapshot.value("horizon").toString()) page->selectLayer(snapshot.value("layer_id").toString());
+        if (page->selectedLayer() == snapshot.value("layer_id").toString()) page->setEvidenceSnapshot(snapshot);
+      }
+      if (auto *data = findChild<DataPage *>()) data->graphPage()->setFeatureEvidence(snapshot);
+    });
+    if (auto *data = findChild<DataPage *>())
+      connect(data->graphPage(), &DataGraphPage::evidenceTargetRequested, evidence, &EvidenceInteraction::navigateGraphNode);
+  }
   if (m_decorMgr) {
     m_decorMgr->setNorthArrowEnabled(true);
     m_decorMgr->setScaleBarEnabled(true);
@@ -758,17 +781,20 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench) {
           } else if (action == "displayLevel") {
             ok = workbench->setDisplayMode(
                 id, p.value("display_mode").toString(), &error);
-          } else if (action == "addEvidence" || action == "removeEvidence") {
+          } else if (action == "addEvidence" || action == "removeEvidence" || action == "updateEvidence" || action == "verifyEvidence" || action == "reviewInterpretation") {
             if (!beginEdit(id)) {
               ok = false;
               error = tr("请先结束其他图层的编辑");
             } else if (action == "addEvidence")
               ok = workbench->addEvidence(id, workbench->selectedFeatures(id),
                                           p, &error);
-            else
-              ok = workbench->removeEvidence(
-                  id, workbench->selectedFeatures(id),
-                  p.value("evidence_id").toString(), &error);
+            else {
+              auto parameters = p;
+              if (action == "removeEvidence" && parameters.value("reason").toString().trimmed().isEmpty()) parameters.insert("reason", tr("解除错误的证据关联"));
+              const auto change = action == "removeEvidence" ? QStringLiteral("unlink") : action == "updateEvidence" ? QStringLiteral("update_evidence") :
+                  action == "verifyEvidence" ? QStringLiteral("verify_evidence") : QStringLiteral("review");
+              ok = workbench->changeEvidence(id, workbench->selectedFeatures(id), change, parameters, &error);
+            }
           } else if (action == "assignFacies") {
             auto *v =
                 qobject_cast<QgsVectorLayer *>(m_layerSvc->instantiate(id));

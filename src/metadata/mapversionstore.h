@@ -57,7 +57,8 @@ class MapVersionStore
     // PDF 产物引用（asset_id + sha256）抄进新的未发布行——导出不改已冻结的
     // 版本行，下一次保存才继承产物引用（§260）。
     MapVersion saveVersion(const QString &horizon, const QString &provenanceJson,
-                           QString *error = nullptr);
+                           QString *error = nullptr,
+                           const QVector<LayerDeclaration> &layers = {});
 
     // 发布门产物登记：记录该层位导出的 PDF —— 文件路径 + catalog OUTPUT
     // 资产 id + 文件 SHA-256（注册在 mapexport.cpp 的 registerMapPdfAsset，
@@ -88,6 +89,8 @@ class MapVersionStore
     // （发布只读这一行）、且 residualSummary 完整（每口井都有残差或原因；
     // 空串/非完整 JSON → 拒绝并写明缺几口井）。把 decls 中该层位的文件图层
     // 与绑定的 PDF 快照到 <工程目录>/result/<horizon>/v<N>/ 并置只读，
+    // 新版使用 saveVersion 冻结的文件与证据，验证全部摘要；旧行保留兼容
+    // 读取。临时目录完整后原子落位，失败清理，不回写已发布成果。
     // 最新版本标 Published、记录快照路径与残差摘要。返回快照目录。
     QString publish(const QString &horizon, const QVector<LayerDeclaration> &decls,
                     const QString &residualSummary, QString *error = nullptr);

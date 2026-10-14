@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QString>
 #include <QVariantMap>
+#include <QPointer>
 
 #include "../metadata/mapversionstore.h"
 
@@ -33,6 +34,7 @@ class MapVersionController : public QObject
 
     void setEditingService( QgisEditingService *editSvc ) { m_editSvc = editSvc; }
     void setProjectStore( PaleoProjectStore *store ) { m_projectStore = store; }
+    void setCatalog(DataCatalog *catalog);
 
     MapVersion saveVersion( const QString &horizon, const QVariantMap &provenance,
                             QString *error = nullptr );
@@ -65,6 +67,7 @@ class MapVersionController : public QObject
     void published( const QString &horizon, int version, const QString &snapshotDir );
 
   private:
+    QPointer<DataCatalog> m_catalog;
     MapVersionStore *m_store = nullptr;
     QgisLayerService *m_layers = nullptr;
     QgisEditingService *m_editSvc = nullptr;

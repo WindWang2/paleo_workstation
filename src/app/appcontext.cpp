@@ -8,6 +8,7 @@
 #include "../services/imagelod.h"
 #include "../workflow/aichatcontroller.h"
 #include "../workflow/mappingworkbench.h"
+#include "../workflow/evidenceinteraction.h"
 #include "../workflow/projectlayerrefresh.h"
 #include "../workflow/welltrajectorylayer.h" // goal/well-trajectory 轨迹线层组装
 #include "aiwiring.h"                        // 方向51：远端预测装配（唯一入口）
@@ -278,6 +279,8 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   m_constraintWf->setStore(m_store); // GeoPackage constraint persistence (wave/constraint-gpkg)
   m_mappingWorkbench = new MappingWorkbench(m_layerSvc, m_procSvc, m_projectSvc, m_constraintWf, this);
   m_mappingWorkbench->setTaskService(m_taskSvc); // 智能预测进任务中心（后台执行、可取消）
+  m_evidenceInteraction = new EvidenceInteraction(m_mappingWorkbench, m_selection,
+      m_layerSvc, m_projectSvc, m_canvasCtl, this);
   // 方向51：远端预测装配—— MappingWorkbench 自己的那份替身 Mock 已删除，
   // 这里显式装入 RemotePredictionRouter。端点未配置时 router 不带传输，
   // 地震请求由该 router 执行；测井另接 API 2.0 服务，与测井面板共用
@@ -541,6 +544,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
               m_constraintWf->setCatalog(derivedCatalog, fi.absolutePath());
               m_compositionWf->setCatalog(derivedCatalog, fi.absolutePath());
               m_mappingWorkbench->bindCatalog(derivedCatalog, fi.absolutePath());
+              m_versionCtl->setCatalog(derivedCatalog);
               WellAttributeStore::open(derivedCatalog, fi.absolutePath(), m_layerSvc, false, false);
               WellAttributeStore::open(derivedCatalog, fi.absolutePath(), m_layerSvc, true, false);
               WellAttributeStore::open(derivedCatalog, fi.absolutePath(), m_layerSvc, WellAttributeStore::Table::Formations, false);

@@ -47,6 +47,7 @@ class FaultInterpretationController;
 class ProjectDataFacade;
 class MappingWorkflow;
 class MappingWorkbench;
+class EvidenceInteraction;
 class MapVersionStore;
 class MapVersionController;
 class PaleoTaskService;
@@ -103,6 +104,7 @@ class AppContext : public QObject
     // wave/mapping-pipeline 阶段C+E：读侧门面 / D61 编图链 / 版本状态机。
     ProjectDataFacade *projectData() const { return m_projectData; }
     MappingWorkbench *mappingWorkbench() const { return m_mappingWorkbench; }
+    EvidenceInteraction *evidenceInteraction() const { return m_evidenceInteraction; }
     MappingWorkflow *mappingWf() const { return m_mappingWf; }
     DepthConversionWorkflow *depthConversionWf() const { return m_depthWf; }
     PropertyModelWorkflow *propertyModelWf() const { return m_propModelWf; }
@@ -206,6 +208,7 @@ class AppContext : public QObject
     WellSitingStore m_wellsitingStore{QString(), nullptr}; // projectOpened 值重绑（FaultSetStore 同式）
     ProjectDataFacade *m_projectData = nullptr;
     MappingWorkbench *m_mappingWorkbench = nullptr;
+    EvidenceInteraction *m_evidenceInteraction = nullptr;
     MappingWorkflow *m_mappingWf = nullptr;
     DepthConversionWorkflow *m_depthWf = nullptr;
     PropertyModelWorkflow *m_propModelWf = nullptr;

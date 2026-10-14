@@ -184,7 +184,8 @@ bool generateContours(const QString &rasterPath, const QString &outputGpkg,
 }
 
 bool generateFixedContours( const QString &rasterPath, const QString &outputGpkg,
-                            const QVector<double> &levels, QString *error )
+                            const QVector<double> &levels, QString *error,
+                            const std::function<bool()> &cancelled )
 {
   if ( levels.isEmpty() )
   {
@@ -202,7 +203,7 @@ bool generateFixedContours( const QString &rasterPath, const QString &outputGpkg
     text << QString::number( level, 'g', 17 );
   }
   const QByteArray levelOption = QByteArray( "FIXED_LEVELS=" ) + text.join( QLatin1Char( ',' ) ).toUtf8();
-  return generateWithOption( rasterPath, outputGpkg, levelOption, error );
+  return generateWithOption( rasterPath, outputGpkg, levelOption, error, 0.0, cancelled );
 }
 
 namespace
@@ -283,7 +284,8 @@ bool generateStructuralContours( const QString &rasterPath,
                                  const QVector<double> &levels,
                                  double interval,
                                  QVector<double> *levelsUsed,
-                                 QString *error )
+                                 QString *error,
+                                 const std::function<bool()> &cancelled )
 {
   if ( rasterPath.isEmpty() || !QFile::exists( rasterPath ) )
   {
@@ -300,6 +302,13 @@ bool generateStructuralContours( const QString &rasterPath,
     setError( error, QStringLiteral( "contour output path is empty" ) );
     return false;
   }
+  // D8：阶段边界轮询——栅格读取（GDALRasterIO 单次调用）无法打断，读取完成
+  // 后立即给取消一个退出点，不再等到整条提线链结束才丢弃产物。
+  if ( cancelled && cancelled() )
+  {
+    setError( error, QStringLiteral( "已取消" ) );
+    return false;
+  }
 
   GDALAllRegister();
   std::vector<double> grid;
@@ -307,6 +316,13 @@ bool generateStructuralContours( const QString &rasterPath,
   OGRSpatialReferenceH srs = nullptr;
   if ( !readStructuralRaster( rasterPath, &grid, &nx, &ny, &srs, error ) )
     return false;
+  if ( cancelled && cancelled() )
+  {
+    setError( error, QStringLiteral( "已取消" ) );
+    if ( srs )
+      OSRDestroySpatialReference( srs );
+    return false;
+  }
 
   QFile file( structuralJsonPath );
   if ( !file.open( QIODevice::ReadOnly ) )
@@ -392,6 +408,13 @@ bool generateStructuralContours( const QString &rasterPath,
   if ( useLevels.empty() )
   {
     setError( error, QStringLiteral( "等值级别为空" ) );
+    OSRDestroySpatialReference( srs );
+    return false;
+  }
+  // D8：提线（extractFieldContours 内部无检查点）前最后退出点。
+  if ( cancelled && cancelled() )
+  {
+    setError( error, QStringLiteral( "已取消" ) );
     OSRDestroySpatialReference( srs );
     return false;
   }

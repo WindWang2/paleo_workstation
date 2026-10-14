@@ -27,21 +27,26 @@ bool generateContours(const QString &rasterPath, const QString &outputGpkg,
                       const std::function<void(double)> &progress = {});
 
 // 显式级别。不改间距接口的行为。级别必须非空且全部有限。
+// cancelled 透传到 GDALContourGenerateEx 的进度回调（取消即中止提线）。
 bool generateFixedContours( const QString &rasterPath, const QString &outputGpkg,
-                            const QVector<double> &levels, QString *error = nullptr );
+                            const QVector<double> &levels, QString *error = nullptr,
+                            const std::function<bool()> &cancelled = {} );
 
 // WS-C part2：structural_idw 面 → 上游 field_contours 提取（不走 GDAL 等值线，
 // 不许静默降级）。输入 = Float64 栅格 + <stem>.structural.json 侧卡。
 // levels 非空 → 显式级别（覆盖间距）；否则 interval<=0 → 自动（上游
 // ContourExtractDialog 自适应规则），interval>0 → 用户间距。
 // levelsUsed 回传实际级别（可空）。
+// cancelled 在阶段边界（读栅格/加载侧卡/级别规划后）轮询；field_contours
+// 提线内部暂无检查点，取消粒度为一整个阶段。
 bool generateStructuralContours( const QString &rasterPath,
                                  const QString &structuralJsonPath,
                                  const QString &outputGpkg,
                                  const QVector<double> &levels,
                                  double interval,
                                  QVector<double> *levelsUsed = nullptr,
-                                 QString *error = nullptr );
+                                 QString *error = nullptr,
+                                 const std::function<bool()> &cancelled = {} );
 
 void requestContours(const QString &rasterPath, const QString &outputGpkg,
                      double interval, PaleoTaskService *tasks,

@@ -367,16 +367,20 @@ bool ConstraintWorkflow::computeInterpretiveContourJob( InterpretiveContourJob *
   }
 
   QString contourErr;
-  if ( !FactorContourService::generateFixedContours( job->workPath, job->contourPath, job->levels, &contourErr ) )
-  {
-    discard();
-    job->error = contourErr;
-    return false;
-  }
+  const bool wrote =
+      FactorContourService::generateFixedContours( job->workPath, job->contourPath, job->levels, &contourErr, cancelled );
+  // 与 analysis 轮廓任务同序（S5-m4）：先认取消再认失败——GDAL 回调取消会让
+  // 返回值带 rc 错误，先报「已取消」避免任务错误串出现误导性 GDAL rc。
   if ( cancelled && cancelled() )
   {
     discard();
     job->error = tr( "已取消" );
+    return false;
+  }
+  if ( !wrote )
+  {
+    discard();
+    job->error = contourErr;
     return false;
   }
   if (!job->inputFingerprint.matches(job->rasterPath)) {

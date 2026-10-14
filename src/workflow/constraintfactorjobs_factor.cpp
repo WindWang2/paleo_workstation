@@ -254,8 +254,12 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
         const auto fingerprint = results.value("_derived_fingerprint")
                                      .value<DerivedFileFingerprint>();
 
-        if (results.isEmpty())
+        if (results.isEmpty()) {
+          if (error && error->isEmpty())
+            paleo::workflow_detail::setError(
+                error, tr("单因素引擎未返回任何成果（计算失败或被取消）"));
           return false;
+        }
         const QString outPath = paleo::workflow_detail::outputPathOf(results);
         if (outPath.isEmpty()) {
           paleo::workflow_detail::setError(error,
@@ -386,8 +390,14 @@ bool ConstraintWorkflow::generateIsopachFactor( const QString &horizon, const QS
         const auto fingerprint = results.value("_derived_fingerprint")
                                      .value<DerivedFileFingerprint>();
 
-        if (results.isEmpty())
+        // #415 同族：空成果必须带原因返回（引擎失败未设 error 时任务面会
+        // 看起来像成功）。
+        if (results.isEmpty()) {
+          if (error && error->isEmpty())
+            paleo::workflow_detail::setError(
+                error, tr("等厚因子引擎未返回任何成果（计算失败或被取消）"));
           return false;
+        }
         const QString outPath = paleo::workflow_detail::outputPathOf(results);
         if (outPath.isEmpty()) {
           paleo::workflow_detail::setError(error, tr("等厚生成未返回输出路径"));
@@ -512,8 +522,12 @@ bool ConstraintWorkflow::generateDistanceFactor( const QString &horizon, const Q
         const auto fingerprint = results.value("_derived_fingerprint")
                                      .value<DerivedFileFingerprint>();
 
-        if (results.isEmpty())
+        if (results.isEmpty()) {
+          if (error && error->isEmpty())
+            paleo::workflow_detail::setError(
+                error, tr("距离因子引擎未返回任何成果（计算失败或被取消）"));
           return false;
+        }
         const QString outPath = paleo::workflow_detail::outputPathOf(results);
         if (outPath.isEmpty()) {
           paleo::workflow_detail::setError(error,
@@ -808,8 +822,14 @@ bool ConstraintWorkflow::generateStructuralFactor( const QString &horizon, const
         if (results.isEmpty() || outPath.isEmpty() ||
             !QFile::exists(stagedQc) || !QFile::exists(stagedStructural)) {
           discard();
-          if (results.isEmpty() || outPath.isEmpty())
-            return false; // proc->run 已填 error
+          if (results.isEmpty() || outPath.isEmpty()) {
+            // proc->run 通常已填 error；同步分支失败时兜底原因，避免
+            // jobCompleted(false) 无错误串（#415 同族）。
+            if (error && error->isEmpty())
+              paleo::workflow_detail::setError(
+                  error, tr("结构化插值引擎未返回任何成果（计算失败或被取消）"));
+            return false;
+          }
           paleo::workflow_detail::setError(
               error, tr("结构化插值未生成旁路成果（qc/structural json）"));
           return false;

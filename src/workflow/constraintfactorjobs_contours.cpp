@@ -254,18 +254,20 @@ bool ConstraintWorkflow::computeAnalysisContourJob( AnalysisContourJob *job, con
 
   QString contourErr;
   // structural 因素必须走上游 field_contours 提取；绝不静默降级 GDAL。
+  // D8：三路都接取消——fixed 走 GDAL 回调真实中止，structural 在阶段边界轮询。
   const bool wrote =
       job->structural
           ? FactorContourService::generateStructuralContours(
                 job->rasterPath, job->structuralPath, job->outputPath,
                 job->fixedLevels ? job->levels : QVector<double>(),
-                job->interval, &job->resolvedLevels, &contourErr)
-      : job->fixedLevels
-          ? FactorContourService::generateFixedContours(
-                job->rasterPath, job->outputPath, job->levels, &contourErr)
-          : FactorContourService::generateContours(
-                job->rasterPath, job->outputPath, job->interval, &contourErr,
-                cancelled);
+                job->interval, &job->resolvedLevels, &contourErr, cancelled)
+          : job->fixedLevels
+              ? FactorContourService::generateFixedContours(
+                    job->rasterPath, job->outputPath, job->levels, &contourErr,
+                    cancelled)
+              : FactorContourService::generateContours(
+                    job->rasterPath, job->outputPath, job->interval, &contourErr,
+                    cancelled);
   if ( cancelled && cancelled() )
   {
     discard();

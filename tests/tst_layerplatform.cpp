@@ -78,6 +78,17 @@ static QHash<QString, bool> visibilitySnapshot(QgsLayerTree *root)
   return snap;
 }
 
+// 有效可见性 = 自身勾选 ∧ 祖先组逐层勾选（goal7 W1）。
+static bool effectivelyVisible(QgsLayerTreeLayer *node)
+{
+  if (!node || !node->itemVisibilityChecked())
+    return false;
+  for (QgsLayerTreeNode *p = node->parent(); p; p = p->parent())
+    if (!p->itemVisibilityChecked())
+      return false;
+  return true;
+}
+
 // 单测 fixture：manifest（9 声明，canonical 七组各 1-2 层，两个层位）+
 // QgisLayerService（null projectSvc → QgsProject::instance()）+ 图层树模型 +
 // 两个无声明临时图层（树根 / 02_Prediction 组内各一）。
@@ -457,6 +468,67 @@ class TestLayerPlatform : public QObject
       QVERIFY(!root->findGroup(QStringLiteral("02_Prediction"))->itemVisibilityChecked());
       QVERIFY(root->findGroup(PaleoLayerVocabulary::kConstraintsGroup)->itemVisibilityChecked());
       QVERIFY(!root->findGroup(QStringLiteral("07_Validation"))->itemVisibilityChecked());
+    }
+
+    // goal7 W1：page:* 主题重放不得动「主题创建之后才出现的无声明临时
+    // 图层」——头注释契约（qgislayerprofile.h：「落在树根、无 declaration
+    // 的临时图层（用户手加）不动其可见性」）。首建路径 stageTreeVisibility
+    // 跳过它们，但重放路径 applyPrunedTheme → QGIS applyTheme 会把不在
+    // 记录内的层一律置隐藏（修复前本用例红）。
+    void pageThemeReplayKeepsUndeclaredTempLayers()
+    {
+      ProfileFixture fx;
+      QgsLayerTree *root = QgsProject::instance()->layerTreeRoot();
+
+      // 建 page:predict（夹具两临时层此刻在场，勾选态入录）
+      QVERIFY(fx.profile.applyPageProfile(QStringLiteral("predict")));
+
+      // 主题创建之后才出现的无声明临时层（用户手加）：
+      // ①树根一个；②01_Base 组内一个（全页面档案共享组，两页都在表内）；
+      // ③主题创建后新建的纯临时组一个（组本身不在主题记录内——
+      //   applyTheme 对无记录组同样置隐藏，此路考祖先链恢复）。
+      const QString src = fixtureGpkg() + QStringLiteral("|layername=basin");
+      auto *lateRoot = new QgsVectorLayer(src, QStringLiteral("temp.lateRoot"), QStringLiteral("ogr"));
+      auto *lateBase = new QgsVectorLayer(src, QStringLiteral("temp.lateBase"), QStringLiteral("ogr"));
+      auto *lateNewGroup = new QgsVectorLayer(src, QStringLiteral("temp.lateNewGroup"), QStringLiteral("ogr"));
+      QVERIFY(lateRoot->isValid());
+      QVERIFY(lateBase->isValid());
+      QVERIFY(lateNewGroup->isValid());
+      QgsProject::instance()->addMapLayer(lateRoot);
+      QgsProject::instance()->addMapLayer(lateBase);
+      QgsProject::instance()->addMapLayer(lateNewGroup);
+      moveIntoGroup(root, QStringLiteral("01_Base"), lateBase->id());
+      moveIntoGroup(root, QStringLiteral("临时组"), lateNewGroup->id());
+      QVERIFY(effectivelyVisible(root->findLayer(lateRoot->id())));
+      QVERIFY(effectivelyVisible(root->findLayer(lateBase->id())));
+      QVERIFY(effectivelyVisible(root->findLayer(lateNewGroup->id())));
+
+      // 用户手动取消勾选的临时层（夹具 tempAtRoot）：重放不得替用户勾回
+      QgsLayerTreeLayer *atRoot = root->findLayer(fx.tempAtRoot->id());
+      QVERIFY(atRoot);
+      atRoot->setItemVisibilityChecked(false);
+
+      // 离开再回来（重放 page:predict）
+      QVERIFY(fx.profile.applyPageProfile(QStringLiteral("validate")));
+      QVERIFY(fx.profile.applyPageProfile(QStringLiteral("predict")));
+
+      // 三个后加临时层：自身勾选 + 有效可见性都保持（修复前被置隐藏）
+      QgsLayerTreeLayer *lnRoot = root->findLayer(lateRoot->id());
+      QgsLayerTreeLayer *lnBase = root->findLayer(lateBase->id());
+      QgsLayerTreeLayer *lnNewGroup = root->findLayer(lateNewGroup->id());
+      QVERIFY(lnRoot && lnBase && lnNewGroup);
+      QVERIFY(lnRoot->itemVisibilityChecked());
+      QVERIFY(lnBase->itemVisibilityChecked());
+      QVERIFY(lnNewGroup->itemVisibilityChecked());
+      QVERIFY(effectivelyVisible(lnRoot));
+      QVERIFY(effectivelyVisible(lnBase));
+      QVERIFY(effectivelyVisible(lnNewGroup));
+      QVERIFY(!atRoot->itemVisibilityChecked());
+
+      // 守恒：声明层仍按主题裁定（predict 表外层保持隐藏、表内层可见）
+      QVERIFY(!fx.layerChecked(QStringLiteral("sf.thickness")));
+      QVERIFY(!fx.layerChecked(QStringLiteral("val.section")));
+      QVERIFY(fx.layerChecked(QStringLiteral("base.boundary")));
     }
 
     // ---- 换页翻转 + 手改后显式重放覆盖（头注释语义）----

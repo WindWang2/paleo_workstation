@@ -25,7 +25,9 @@ class QgisLayerService;
 //
 // 组匹配 = 声明驱动：树里图层经 paleoLayerId 自定义属性回查 manifest
 // declaration.group；同名树组（存在时）整组一并纳入。落在树根、无
-// declaration 的临时图层（用户手加）不动其可见性。旧组名
+// declaration 的临时图层（用户手加）不动其可见性——首建摆树与重放
+// 两条路径都守恒（重放经 applyTheme 前快照/后恢复，含祖先组勾选链；
+// 仅 page:* 主题适用，用户命名主题保持 QGIS 原生语义）。旧组名
 //（01_Prediction/02_Constraints/03_Predict/03_Composite——workflows.cpp
 // 历史产点不改）在档案摆树时经 PaleoLayerVocabulary::canonicalize 折算
 // 到 canonical 组（主线1；词表单一权威见 qgis/layervocabulary.h）——

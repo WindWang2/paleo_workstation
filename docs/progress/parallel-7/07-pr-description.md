@@ -9,13 +9,13 @@
 
 只改本方向白名单内文件：`src/services/paleotaskservice.*`、`src/workflow/batchjobqueue.*`、`src/metadata/releasestore.*`、`src/ui/releasepanel.cpp` 与对应既有测试文件（`tst_taskservice/tst_jobrunner/tst_batchjobqueue/tst_release/tst_releasepanel/tst_layoutexport`）。`src/qgis/layoutexport.*` 方向05 只读——本轮零改动。根 CMakeLists.txt 在 PR #437 保护区——未动，全部新测试进既有测试文件。
 
-## 改动摘要（4 个生产修复 + 12 个新测试）
+## 改动摘要（5 个生产修复 + 13 个新测试）
 
 1. **同层位并发任务 busy 引用计数**（G1，P1）：`onTaskFinished` 不再无条件 `markLayerFree`——同 layerId 多任务（批队列同层多方法、同文件预取+解码重叠）最后一个终态才解锁；否则 §35 工具门/编辑门/校验门在第二个任务仍在写产物时误放行。
-2. **批次会话守卫**（G2，P1）：`BatchQueue` 钉起批会话号，`pump()` 单一强制点——工程切换/关闭后待跑项作废、在跑项协作取消、状态落盘收尾；不再把旧工程输入快照的产物 commit 进新工程、不再向旧工程目录续写状态。停批可在新会话重起续跑（非永久卡死）。
-3. **itemId 身份唯一**（G4，P2）：重复声明（层位/方法表重复项）确定性 `#2` 后缀——`m_indexById` 不再覆盖、面板行/单项取消/报告记账不错位；指纹判重语义不变（既有 `skipped==2` 断言原样保留）。
+2. **批次会话守卫**（G2，P1）：`BatchQueue` 钉起批会话号，`pump()` 单一强制点——工程切换/关闭后待跑项作废、在跑项协作取消、批次收尾（向旧工程目录写最后一份全终态记档，不再有后续增量写入）；不再把旧工程输入快照的产物 commit 进新工程。停批可在新会话重起续跑（非永久卡死）。
+3. **itemId 身份唯一**（G4，P2）：重复声明（层位/方法表重复项）确定性 `#2` 后缀——`m_indexById` 不再覆盖、面板行/单项取消/报告记账不错位；指纹判重语义不变（既有 `skipped==2` 断言原样保留）。旧记档恢复的 last-wins 折叠由批内指纹判重兜底（语义安全，不做旧档迁移）。
 4. **pump 让位判据排除自身任务**（G5，P2）：池被「非本批」任务占满才让位交互——旧判据把批次自身任务计入，池容量≤并发度时第二项永不出队、`pumpLater` 以事件循环频率自旋。
-5. **发布对比可诊断**（E）：`ReleaseStore::diff` 尾插可选 `error` 出参（向后兼容），缺哪个版本点名；面板提示带细节。
+5. **发布对比可诊断**（E）：`ReleaseStore::diff` 尾插可选 `error` 出参（入口清空、成功不带细节、查询失败/版本不存在/两侧同版本分开报因，向后兼容）；面板提示带细节。
 6. **测试锁定既有契约**（A/F）：`failPublication`/`discardPublication`（此前全仓零测试）的翻转/幂等/互斥/finished-不重发；早/晚观察者对发布失败的分层可见性（#159 口径文档化）；重复导出同路径干净覆盖。
 
 ## 排除与围栏核查
@@ -27,10 +27,11 @@
 ## 本地验证（实际执行）
 
 - `flock -x /tmp/paleo_workstation_global_build_j4.lock cmake --build build --target paleo -j4` → 退出码 【待填】
-- `ctest -R "tst_taskservice|tst_jobrunner|tst_batchjobqueue|tst_release|tst_releasepanel|tst_layoutexport" -j4` → 【待填】
+- `ctest -R "tst_taskservice|tst_jobrunner|tst_batchjobqueue|tst_batchjobpanel|tst_taskpanel|tst_release|tst_releasepanel|tst_layoutexport" -j4` ×两遍 → 【待填】
 - `python3 tools/check_layering.py --strict` → 通过（退出码 0）
 - `git diff --check` → 通过
-- 反例先红后绿：G1（overlappingLayerTasksHoldBusyUntilLastFinishes）、G2（sessionSwitch…executor 恰 1 次）、G5（taskAdds==2）在修复前语义下必红【回填实测】
+- 独立 review（S5）：首轮 FAIL-blockers（B1 红测试/M1 查询失败误报/文档计数）→ 全部修复（ef291929），复验见【待填】
+- 反例先红后绿：G1（overlappingLayerTasksHoldBusyUntilLastFinishes）、G2（sessionSwitch…executor 恰 1 次）、G4（ids.size()==2）、G5（taskAdds==2）在修复前语义下结构性必红（S5 逐条推演确认；B1 例由 S5 实测先红）
 
 ## 已知风险与限制
 

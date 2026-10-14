@@ -71,6 +71,158 @@ private slots:
     QVERIFY(!store.layerBusy(QStringLiteral("seismic.sgy")));
   }
 
+  // 反例（07 方向 Round A，G1）：同层位两个并发任务，先终态者不得提前解锁
+  // busy 注册表——§35 工具门/编辑门/校验门(BUSY) 在第二个任务仍在写产物时
+  // 必须继续挡该层。修复前：onTaskFinished 无条件 markLayerFree，此测试红。
+  void overlappingLayerTasksHoldBusyUntilLastFinishes()
+  {
+    PaleoProjectStore store;
+    PaleoTaskService svc(&store);
+    QSemaphore gate1, gate2;
+
+    auto *t1 = svc.start(
+        QStringLiteral("index-a"),
+        [&gate1](PaleoTask *) {
+          gate1.acquire();
+          return QString();
+        },
+        QStringLiteral("seismic.sgy"));
+    auto *t2 = svc.start(
+        QStringLiteral("index-b"),
+        [&gate2](PaleoTask *) {
+          gate2.acquire();
+          return QString();
+        },
+        QStringLiteral("seismic.sgy"));
+    QVERIFY(store.layerBusy(QStringLiteral("seismic.sgy")));
+
+    QSignalSpy fin1(t1, &PaleoTask::finished);
+    gate1.release();
+    QVERIFY(fin1.wait(5000));
+    // 第一个终态后层仍忙——第二个任务还在跑。
+    QVERIFY(store.layerBusy(QStringLiteral("seismic.sgy")));
+
+    QSignalSpy fin2(t2, &PaleoTask::finished);
+    gate2.release();
+    QVERIFY(fin2.wait(5000));
+    // 最后一个终态才解锁。
+    QVERIFY(!store.layerBusy(QStringLiteral("seismic.sgy")));
+  }
+
+  // 取消路径上的计数对账：被取消的任务同样要走一次 finished → 计数归零解锁
+  // （不能只在成功路径平衡）。
+  void cancelledOverlappingLayerTaskStillCounts()
+  {
+    PaleoProjectStore store;
+    PaleoTaskService svc(&store);
+    QSemaphore gate1, gate2;
+
+    auto *t1 = svc.start(
+        QStringLiteral("decode-a"),
+        [&gate1](PaleoTask *) {
+          gate1.acquire();
+          return QString();
+        },
+        QStringLiteral("horizon.grd"));
+    auto *t2 = svc.start(
+        QStringLiteral("decode-b"),
+        [&gate2](PaleoTask *) {
+          gate2.acquire();
+          return QString();
+        },
+        QStringLiteral("horizon.grd"));
+    QVERIFY(store.layerBusy(QStringLiteral("horizon.grd")));
+
+    // 取消第一个并放行：它以 Cancelled 终态走 finished。
+    t1->requestCancel();
+    QSignalSpy fin1(t1, &PaleoTask::finished);
+    gate1.release();
+    QVERIFY(fin1.wait(5000));
+    QCOMPARE(t1->state(), PaleoTask::State::Cancelled);
+    QVERIFY(store.layerBusy(QStringLiteral("horizon.grd")));
+
+    QSignalSpy fin2(t2, &PaleoTask::finished);
+    gate2.release();
+    QVERIFY(fin2.wait(5000));
+    QVERIFY(!store.layerBusy(QStringLiteral("horizon.grd")));
+  }
+
+  // 07 方向 Round A（G3）：发布失败翻转 Succeeded→Failed。此前 failPublication/
+  // discardPublication 全仓零测试。锁定语义：changed 发一次、finished 不重发、
+  // errorText 落位、翻转一次性（幂等）。
+  void failPublicationFlipsSucceededToFailed()
+  {
+    PaleoProjectStore store;
+    PaleoTaskService svc(&store);
+    QSemaphore gate;
+    auto *t = svc.start(QStringLiteral("export"), [&gate](PaleoTask *) {
+      gate.acquire();
+      return QString();
+    });
+    QSignalSpy fin(t, &PaleoTask::finished);
+    gate.release();
+    QVERIFY(fin.wait(5000));
+    QCOMPARE(t->state(), PaleoTask::State::Succeeded);
+
+    QSignalSpy changed(t, &PaleoTask::changed);
+    t->failPublication(QStringLiteral("登记失败"));
+    QCOMPARE(t->state(), PaleoTask::State::Failed);
+    QCOMPARE(t->errorText(), QStringLiteral("登记失败"));
+    QCOMPARE(changed.count(), 1);
+    QCOMPARE(fin.count(), 1); // finished 只发一次，不因发布翻转重发
+
+    // 一次性：非 Succeeded 态再翻是 no-op（不重复发 changed）。
+    t->failPublication(QStringLiteral("再来一次"));
+    QCOMPARE(t->state(), PaleoTask::State::Failed);
+    QCOMPARE(t->errorText(), QStringLiteral("登记失败"));
+    QCOMPARE(changed.count(), 1);
+    QVERIFY(t->isFinished());
+  }
+
+  void discardPublicationFlipsSucceededToCancelled()
+  {
+    PaleoProjectStore store;
+    PaleoTaskService svc(&store);
+    QSemaphore gate;
+    auto *t = svc.start(QStringLiteral("export"), [&gate](PaleoTask *) {
+      gate.acquire();
+      return QString();
+    });
+    QSignalSpy fin(t, &PaleoTask::finished);
+    gate.release();
+    QVERIFY(fin.wait(5000));
+
+    QSignalSpy changed(t, &PaleoTask::changed);
+    t->discardPublication();
+    QCOMPARE(t->state(), PaleoTask::State::Cancelled);
+    QVERIFY(t->cancelRequested()); // stale 语义：置取消位
+    QCOMPARE(changed.count(), 1);
+    QCOMPARE(fin.count(), 1);
+
+    // 一次性 + 与 failPublication 互斥：Cancelled 态不再翻 Failed。
+    t->failPublication(QStringLiteral("x"));
+    QCOMPARE(t->state(), PaleoTask::State::Cancelled);
+    QCOMPARE(changed.count(), 1);
+  }
+
+  // 默认文案分支：failPublication 空串 → 统一「成果发布失败」。
+  void failPublicationDefaultMessage()
+  {
+    PaleoProjectStore store;
+    PaleoTaskService svc(&store);
+    QSemaphore gate;
+    auto *t = svc.start(QStringLiteral("export"), [&gate](PaleoTask *) {
+      gate.acquire();
+      return QString();
+    });
+    QSignalSpy fin(t, &PaleoTask::finished);
+    gate.release();
+    QVERIFY(fin.wait(5000));
+    t->failPublication(QString());
+    QCOMPARE(t->state(), PaleoTask::State::Failed);
+    QVERIFY(!t->errorText().isEmpty());
+  }
+
   void cancelIsCooperative()
   {
     PaleoTaskService svc;

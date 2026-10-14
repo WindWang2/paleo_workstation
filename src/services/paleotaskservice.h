@@ -1,6 +1,7 @@
 // 层：数据
 #pragma once
 #include <QElapsedTimer>
+#include <QHash>
 #include <QObject>
 #include <QString>
 #include <QVariantMap>
@@ -82,8 +83,13 @@ public:
   // Cancelled（忽略 error）；error 非空 → Failed；否则 Succeeded。池内任务
   // 由服务统一判终态，不要对 start() 出来的任务调它。
   void finishExternal(const QString &error = QString());
-  // Owner-thread publication may fail after worker success. Finished observers
-  // must see that failure, rather than an apparently successful computation.
+  // Owner-thread publication may fail after worker success. Flips a Succeeded
+  // task to Failed/Cancelled and emits changed() — finished() is NOT re-emitted
+  // (终态信号只发一次，见 applyFinish). Ordering contract (#159): observers
+  // connected to finished() AFTER the creating start()/beginExternal() call
+  // returns are invoked after the owner's commit step and read the final state;
+  // observers connected earlier (e.g. inside a taskAdded slot) run before
+  // publication — they must re-read state()/errorText() on changed().
   void failPublication(const QString &error);
   void discardPublication();
 
@@ -132,8 +138,9 @@ public:
                             QObject *parent = nullptr);
   ~PaleoTaskService() override;
 
-  // layerId 非空时在 store busy 注册表挂账（§35 工具门在任务期挡该层），
-  // 任务终态自动 markLayerFree。返回的 task 属本服务，finished() 信号可接。
+  // layerId 非空时在 store busy 注册表挂账（§35 工具门在任务期挡该层）；
+  // 同层位并发任务按引用计数，最后一个终态才 markLayerFree。返回的 task
+  // 属本服务，finished() 信号可接。
   // quiet=true：任务仍注册/可取消，但不拉起任务中心——交互内嵌取数专用。
   PaleoTask *start(const QString &title,
                    std::function<QString(PaleoTask *)> work,
@@ -207,5 +214,6 @@ private:
   PaleoProjectStore *m_store;
   qint64 m_nextId = 1;
   QVector<PaleoTask *> m_tasks;
+  QHash<QString, int> m_layerHolds; // layerId → 在飞任务数（引用计数解锁）
   QThreadPool *m_pool = nullptr; // D4.5 专用 ≤4 工作线程池
 };

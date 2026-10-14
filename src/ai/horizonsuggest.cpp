@@ -179,6 +179,14 @@ bool suggestHorizonTracking( PaleoOnnxService *onnx, const QString &model,
       const float p = prob.values[i];
       if ( !std::isfinite( p ) )
         continue;
+      // 输出域守卫：trace scorer 契约是概率 [0,1]（fixture/注册表口径）。
+      // logits/未归一输出会得 score>1、置信恒 1——静默钳位等于向解释员
+      // 报送全置信建议。如实拒绝整个模型（宁可拒绝不建议）。
+      if ( p < -1e-3f || p > 1.0f + 1e-3f )
+        return fail( QObject::tr( "trace scorer「%1」输出 p=%2 越出概率域 [0,1]"
+                                  "（疑似 logits/未归一输出）——拒绝建议" )
+                       .arg( model )
+                       .arg( double( p ), 0, 'g', 6 ) );
       if ( p > bestProb )
       {
         bestProb = p;

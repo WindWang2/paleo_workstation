@@ -10,6 +10,8 @@
 
 #include "../src/ai/onnxfixture.h"
 #include "../src/ai/onnxpredictionservice.h"
+#include "../src/ai/onnxlocalpredictor.h"
+#include "../src/ai/remotepredictionservice.h"
 
 // goal/ai-geological-assist 轮1：微型 fixture 生成器（手写 protobuf，零网络）
 // + 会话管理（池/指纹/warmup/失败分类）。全部模型在 QTemporaryDir 内程序化
@@ -37,6 +39,12 @@ private slots:
   // #144：runTensorOn 绑定模型名——别的任务换了活动模型也不受影响；
   // 未加载的模型明确失败，不落到活动模型。
   void runTensorOnBindsToNamedModel();
+  // OnnxLocalPredictor（远端失败降级引擎）错误分支直测：此前只经
+  // tst_remotepredictrouter 的 happy path 间接覆盖。
+  void localPredictorRefusesMissingSamples();
+  void localPredictorRejectsNonGridInputModel();
+  void localPredictorRejectsOversizedClassCount();
+  void localPredictorHappyPathArgmax();
 
 private:
   // seg3: y[0,c] = gain[c]*x + bias[c]，gains {1,-1,0}、biases {0,0,0.1}——
@@ -407,6 +415,93 @@ void TestOnnxSessions::runTensorOnBindsToNamedModel()
   stop = true;
   switcher.join();
   QCOMPARE( wrong, 0 );
+}
+
+// ---- OnnxLocalPredictor（远端失败降级引擎）错误分支直测 ----
+// 此前只经 tst_remotepredictrouter 的 seg3 happy path 间接覆盖（NaN→255），
+// 错误分支零直测。
+
+void TestOnnxSessions::localPredictorRefusesMissingSamples()
+{
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  writeSeg3( dir.path() );
+  PaleoOnnxService svc;
+  svc.setModelRoot( dir.path() );
+  OnnxLocalPredictor pred( &svc, QStringLiteral( "seg3" ) );
+
+  RemotePredictionRequest req; // samples 空——红线：没有数据就不造假
+  req.columns = 4;
+  req.rows = 3;
+  QVector<int> cells;
+  QString err;
+  QVERIFY( !pred.predict( req, cells, &err ) );
+  QVERIFY2( err.contains( QStringLiteral( "不造假" ) ), qPrintable( err ) );
+}
+
+void TestOnnxSessions::localPredictorRejectsNonGridInputModel()
+{
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  // addScalar：输入 float[1]（非 [1,1,H,W] 网格模型）
+  QVERIFY( OnnxFixtureWriter::writeAddScalar(
+      dir.filePath( QStringLiteral( "scalar.onnx" ) ), 40.0f ) );
+  PaleoOnnxService svc;
+  svc.setModelRoot( dir.path() );
+  OnnxLocalPredictor pred( &svc, QStringLiteral( "scalar" ) );
+
+  RemotePredictionRequest req;
+  req.columns = 4;
+  req.rows = 3;
+  req.samples = QVector<float>( 12, 1.0f );
+  QVector<int> cells;
+  QString err;
+  QVERIFY( !pred.predict( req, cells, &err ) );
+  QVERIFY2( err.contains( QStringLiteral( "输入" ) ), qPrintable( err ) );
+}
+
+void TestOnnxSessions::localPredictorRejectsOversizedClassCount()
+{
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  // 256 类 > kMaxTileClasses(255)：tileinference 的 255=nodata 保留语义
+  QVector<float> gains( 256, 1.0f ), biases( 256, 0.0f );
+  QVERIFY( OnnxFixtureWriter::writeSeg(
+      dir.filePath( QStringLiteral( "wide.onnx" ) ), gains, biases ) );
+  PaleoOnnxService svc;
+  svc.setModelRoot( dir.path() );
+  OnnxLocalPredictor pred( &svc, QStringLiteral( "wide" ) );
+
+  RemotePredictionRequest req;
+  req.columns = 4;
+  req.rows = 3;
+  req.samples = QVector<float>( 12, 0.5f );
+  QVector<int> cells;
+  QString err;
+  QVERIFY( !pred.predict( req, cells, &err ) );
+  QVERIFY2( err.contains( QStringLiteral( "越界" ) ), qPrintable( err ) );
+}
+
+void TestOnnxSessions::localPredictorHappyPathArgmax()
+{
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  writeSeg3( dir.path() ); // y[c] = gains[c]*x + biases[c]，gains {1,-1,0}
+  PaleoOnnxService svc;
+  svc.setModelRoot( dir.path() );
+  OnnxLocalPredictor pred( &svc, QStringLiteral( "seg3" ) );
+
+  RemotePredictionRequest req;
+  req.columns = 4;
+  req.rows = 2;
+  req.samples = QVector<float>{ 2.0f, -2.0f, 0.0f, 0.05f,   // 行 0
+                                -1.5f, 3.0f, -0.02f, 1.0f }; // 行 1
+  QVector<int> cells;
+  QString err;
+  QVERIFY2( pred.predict( req, cells, &err ), qPrintable( err ) );
+  QCOMPARE( cells.size(), 8 );
+  // argmax 解析解：x>0.05 → 类 0；x<-0.05 → 类 1；其间 → 类 2（bias 0.1）
+  QCOMPARE( cells, ( QVector<int>{ 0, 1, 2, 2, 1, 0, 2, 0 } ) );
 }
 
 int main( int argc, char *argv[] )

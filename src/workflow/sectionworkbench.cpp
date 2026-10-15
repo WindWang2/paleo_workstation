@@ -363,8 +363,8 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
       top.md = t.md;
       top.tvd = t.tvd;
       // 域回退（opt-02）：目标域时深模型缺席而该行另一域值在手时，经可用
-      // 模型精确换算（与上方 trajTwt 同口径）；两域皆不可用才落常速近似，
-      // 绝不把 TVD 值当深度喂常速模型。
+      // 模型精确换算（与上方 trajTwt 同口径）；有可用模型时绝不把 TVD 值
+      // 当深度喂常速模型（两域模型皆缺的常速近似按原语义喂该域值）。
       const bool preferMd = !std::isfinite(t.tvd);
       bool useMd = preferMd;
       double depth = preferMd ? t.md : t.tvd;

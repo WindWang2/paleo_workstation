@@ -1379,9 +1379,11 @@ class TestWellSectionUi : public QObject
       QVERIFY2(hint->text().contains(QStringLiteral("落库失败")),
                qPrintable(hint->text()));
       // 后续编辑仍走保存路径（不炸、提示持续在）——快照不前进的自动
-      // 重试语义由实现保证（等值短路被失败态阻断）。
+      // 重试语义由实现保证（等值短路被失败态阻断）；连续失败提示行
+      // 不重复累积（S5 A-1：基础文本 + note 整体重组）。
       fence.setSections({QStringList({"b2", "a1"})});
       QVERIFY(hint->text().contains(QStringLiteral("落库失败")));
+      QCOMPARE(hint->text().count(QStringLiteral("上次落库失败")), 1);
     }
 
     // 地震：不可用原因进 tooltip；有效缝渲染非纸面像素；缝原因可读；

@@ -12,7 +12,11 @@ namespace WellComposite
 float CurveData::valueAtDepth(float d) const
 {
   if (depths.size() < 2 || values.size() < 2)
-    return (depths.isEmpty() || values.isEmpty()) ? 0.0f : values.first();
+    // 全空曲线 → NaN（opt-02：缺失不伪造 0，与空档口径一致）；退化单点
+    // 取首值（既有口径）。
+    return (depths.isEmpty() || values.isEmpty())
+               ? std::numeric_limits<float>::quiet_NaN()
+               : values.first();
 
   if (d <= depths.first())
     return values.first();

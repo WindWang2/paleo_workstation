@@ -508,7 +508,12 @@ void WellSectionFenceWidget::saveToStore()
     }
     if (!allOk) {
         m_storeNote = tr("上次落库失败：%1（未保存，将自动重试）").arg(firstErr);
-        m_hint->setText(m_hint->text() + QStringLiteral(" · ") + m_storeNote);
+        // 基础文本 + note 整体重组（S5 A-1）：事件路径（域/间距/井序直连）
+        // 不重置提示行——基于当前文本追加会随连续失败线性变长。
+        const QString cur = m_hint->text();
+        const int sep = cur.lastIndexOf(QStringLiteral(" · 上次落库失败"));
+        m_hint->setText((sep > 0 ? cur.left(sep) : cur) + QStringLiteral(" · ") +
+                        m_storeNote);
         QgsMessageLog::logMessage(
             tr("栅状图剖面保存失败：%1").arg(firstErr),
             QStringLiteral("Paleo"));

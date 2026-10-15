@@ -125,14 +125,12 @@ void SeismicSectionDockWidget::addPickFromCanvas(int traceCol, double twtMs) {
         pick.horizonName = QStringLiteral("H1");
 
     m_undoStack->push(new AddPicksCommand(this, {pick}));
-    refreshInterpretationOverlay();
 }
 
 void SeismicSectionDockWidget::addPicks(const QList<SeismicPick> &picks) {
     if (picks.isEmpty())
         return;
     m_undoStack->push(new AddPicksCommand(this, picks));
-    refreshInterpretationOverlay();
 }
 
 void SeismicSectionDockWidget::removePick(int id) {
@@ -140,7 +138,6 @@ void SeismicSectionDockWidget::removePick(int id) {
     if (!p)
         return;
     m_undoStack->push(new RemovePickCommand(this, *p));
-    refreshInterpretationOverlay();
 }
 
 void SeismicSectionDockWidget::renamePickHorizon(int id, const QString &newName) {
@@ -148,7 +145,6 @@ void SeismicSectionDockWidget::renamePickHorizon(int id, const QString &newName)
     if (!p)
         return;
     m_undoStack->push(new RenamePickCommand(this, id, p->horizonName, newName));
-    refreshInterpretationOverlay();
 }
 
 void SeismicSectionDockWidget::addFaultFromCanvas(const QVector<QPair<double, double>> &points) {

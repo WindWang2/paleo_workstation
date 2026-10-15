@@ -80,11 +80,17 @@ private slots:
     QVERIFY(back);
     QVERIFY(!back->isEnabled());
 
+    auto *wf = page.findChild<DataGraphWorkflow *>();
+    QVERIFY(wf);
+    QSignalSpy status(wf, &DataGraphWorkflow::statusChanged);
     page.openLineage(v.assetId, v.id);
     QCOMPARE(mode(page), Mode::Lineage);
+    QCOMPARE(prepareCount(status), 1); // 单入口只发一次查询
     QVERIFY(back->isEnabled());
+    status.clear();
     back->click();
     QCOMPARE(mode(page), Mode::Overview);
+    QCOMPARE(prepareCount(status), 1);
     QVERIFY2(!back->isEnabled(), "返回栈残留了未请求过的中间态");
     QTest::qWait(400); // 合并窗后让查询落地，页面不因回退崩溃
   }
@@ -109,16 +115,37 @@ private slots:
     page.show();
     QVERIFY(QTest::qWaitForWindowExposed(&page));
     auto *back = backButton(page);
-    QVERIFY(back);
+    auto *open = button(page, QStringLiteral("预览文件 / 版本"));
+    QVERIFY(back && open);
+    auto *wf = page.findChild<DataGraphWorkflow *>();
+    QVERIFY(wf);
+    QSignalSpy status(wf, &DataGraphWorkflow::statusChanged);
+    QSignalSpy assetAct(&page, &DataGraphPage::assetActivated);
+    QSignalSpy versionAct(&page, &DataGraphPage::versionActivated);
     page.openRelations(a.assetId);
     QCOMPARE(mode(page), Mode::Relations);
+    QCOMPARE(prepareCount(status), 1);
     page.openLineage(b.assetId, b.id);
     QCOMPARE(mode(page), Mode::Lineage);
+    QCOMPARE(prepareCount(status), 2);
+    QTRY_VERIFY_WITH_TIMEOUT(open->isEnabled(), 15000);
+    open->click(); // 追溯视图焦点 = B 的真实版本
+    QCOMPARE(versionAct.count(), 1);
+    QCOMPARE(versionAct.at(0).at(0).toString(), b.id);
+    status.clear();
     back->click();
     QCOMPARE(mode(page), Mode::Relations);
+    QCOMPARE(prepareCount(status), 1);
     QVERIFY(back->isEnabled());
+    // 返回后焦点恢复为 A 的资产节点：预览激活的是 A 的真实资产 id。
+    QTRY_VERIFY_WITH_TIMEOUT(open->isEnabled(), 15000);
+    open->click();
+    QCOMPARE(assetAct.count(), 1);
+    QCOMPARE(assetAct.at(0).at(0).toString(), a.assetId);
+    status.clear();
     back->click();
     QCOMPARE(mode(page), Mode::Overview);
+    QCOMPARE(prepareCount(status), 1);
     QVERIFY(!back->isEnabled());
     QTest::qWait(400);
   }

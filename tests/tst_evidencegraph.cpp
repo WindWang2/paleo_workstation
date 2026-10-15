@@ -40,6 +40,8 @@ private slots:
     Query q; q.mode = Mode::Relations; q.focus = versionKey("result-v1"); q.depth = 4;
     q.featureEvidence = feature("broken"); q.featureEvidence.insert("error", "损坏证据");
     const auto g = query(*index, q, {}, {});
+    QVERIFY(!g.workTruncated); // #443：历史夹具默认不封顶
+    QVERIFY(!g.workTruncated); // #443：历史夹具默认不封顶
     QCOMPARE(count(g, Kind::Feature), 1); QCOMPARE(count(g, Kind::Interpretation), 0);
     QCOMPARE(count(g, Kind::Assertion), 0); QCOMPARE(count(g, Kind::Evidence), 0); QVERIFY(g.unresolved > 0);
   }
@@ -58,6 +60,7 @@ private slots:
       if (node.versionId == version.id) { semantic = true; QCOMPARE(node.dependencyDepth, 1); QVERIFY(node.detail.contains(QStringLiteral("未确定空间影响"))); }
     }
     QVERIFY(computed); QVERIFY(semantic); QVERIFY(g.message.contains(QStringLiteral("潜在影响")));
+    QVERIFY(!g.workTruncated); // #443
     q.maxNodes = 20; const auto ordinarySize = query(*index, q, {}, {}).nodes.size();
     q.featureEvidence = feature("selected", 3);
     QCOMPARE(query(*index, q, {}, {}).nodes.size(), ordinarySize); // Impact has no local overlay reservation
@@ -107,6 +110,7 @@ private slots:
     const auto baseCount = index->nodes.size();
     Query q; q.mode = Mode::Relations; q.focus = versionKey("result-v1"); q.depth = 4; q.history = true; q.featureEvidence = feature("polygon-A");
     const auto g = query(*index, q, {}, {});
+    QVERIFY(!g.workTruncated); // #443
     QCOMPARE(count(g, Kind::Feature), 1); QCOMPARE(count(g, Kind::Interpretation), 1); QCOMPARE(count(g, Kind::Assertion), 1); QCOMPARE(count(g, Kind::Evidence), 2);
     bool supports = false, contradicts = false, missing = false;
     for (const auto &e : g.edges) { supports |= e.relation == Relation::Supported; contradicts |= e.relation == Relation::Contradicted; }

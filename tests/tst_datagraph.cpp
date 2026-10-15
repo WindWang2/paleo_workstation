@@ -273,6 +273,7 @@ void TestDataGraph::overviewSmallBudgetKeepsAssetsAndCountsHidden() {
   q.category = QStringLiteral("well"); // 进入非 summary 展开分支
   q.maxNodes = 20;                     // 钳制下限：保留槽不得吃光预算
   const auto g = query(*index, q, nullptr, nullptr);
+  QVERIFY(!g.workTruncated); // #443：默认 maxTraversalEdges=0 不封顶
   // 修前（budget-32 恒小于 0）：6 份资料全部隐藏、画布只剩分组。
   QCOMPARE(countKind(g, Kind::Asset), 1);
   QCOMPARE(g.hidden, 5);

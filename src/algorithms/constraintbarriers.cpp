@@ -10,6 +10,7 @@
 #include <qgswkbtypes.h>
 
 #include <QJsonArray>
+#include <QStringList>
 #include <QJsonDocument>
 #include <QPointF>
 
@@ -82,50 +83,138 @@ UnifiedBarrierRead readUnifiedHardBarriers( QgsFeatureSource *source, const QStr
 }
 
 int rasterizeBarrierParts( UnifiedBarrierRead &read, double originX, double originYTop, double cellSize, int cols,
-                           int rows, std::vector<std::uint8_t> &mask, const std::function<bool()> &cancelled )
+                          int rows, std::vector<std::uint8_t> &mask, const std::function<bool()> &cancelled )
 {
   mask.assign( static_cast<std::size_t>( rows ) * cols, 0 );
-  const auto cellOf = [&]( double x, double y, int &c, int &r ) {
-    c = static_cast<int>( std::floor( ( x - originX ) / cellSize ) );
-    r = static_cast<int>( std::floor( ( originYTop - y ) / cellSize ) );
-    return c >= 0 && c < cols && r >= 0 && r < rows;
+  const double gridRight = originX + static_cast<double>( cols ) * cellSize;
+  const double gridBottom = originYTop - static_cast<double>( rows ) * cellSize;
+  // 空间判定契约（P1，pr457-closure）：「触及计算域」与计划侧
+  // polylineTouchesRect 同为闭矩形；落在右/下边界上的点 clamp 进最后一列/行
+  // 格——贴边屏障影响边缘格，不是域外。完全在域外的部件才翻
+  // outside_compute_domain。
+  const auto colOf = [&]( double x ) {
+    int c = static_cast<int>( std::floor( ( x - originX ) / cellSize ) );
+    return std::clamp( c, 0, cols - 1 );
+  };
+  const auto rowOf = [&]( double y ) {
+    int r = static_cast<int>( std::floor( ( originYTop - y ) / cellSize ) );
+    return std::clamp( r, 0, rows - 1 );
+  };
+  // Liang–Barsky 裁剪到闭矩形（就地收缩 a/b；返回是否与域相交）。
+  const auto clipToGrid = [&]( QPointF &a, QPointF &b ) {
+    double t0 = 0, t1 = 1;
+    const double dx = b.x() - a.x(), dy = b.y() - a.y();
+    const double p[4] = { -dx, dx, -dy, dy };
+    const double q[4] = { a.x() - originX, gridRight - a.x(), a.y() - gridBottom, originYTop - a.y() };
+    for ( int i = 0; i < 4; ++i )
+    {
+      if ( p[i] == 0 )
+      {
+        if ( q[i] < 0 )
+          return false;
+        continue;
+      }
+      const double t = q[i] / p[i];
+      if ( p[i] < 0 )
+        t0 = std::max( t0, t );
+      else
+        t1 = std::min( t1, t );
+      if ( t0 > t1 )
+        return false;
+    }
+    const QPointF originalA = a, originalB = b;
+    a = QPointF( originalA.x() + ( originalB.x() - originalA.x() ) * t0,
+                 originalA.y() + ( originalB.y() - originalA.y() ) * t0 );
+    b = QPointF( originalA.x() + ( originalB.x() - originalA.x() ) * t1,
+                 originalA.y() + ( originalB.y() - originalA.y() ) * t1 );
+    return true;
   };
   int touchedParts = 0;
   for ( int p = 0; p < read.parts.size(); ++p )
   {
+    if ( cancelled && cancelled() )
+      return -1;
     const QgsPolylineXY line = read.parts.at( p ).asPolyline();
     bool touched = false;
+    int newCells = 0;
+    std::vector<int> marked; // 本部件落格索引（去重后即 rasterized_cells）
+    const auto mark = [&]( int c, int r ) {
+      if ( c < 0 || c >= cols || r < 0 || r >= rows )
+        return;
+      marked.push_back( r * cols + c );
+      if ( !mask[static_cast<std::size_t>( r ) * cols + c] )
+      {
+        mask[static_cast<std::size_t>( r ) * cols + c] = 1;
+        ++newCells;
+      }
+      touched = true;
+    };
     for ( int i = 1; i < line.size(); ++i )
     {
       if ( cancelled && cancelled() )
         return -1;
-      const QgsPointXY &a = line[i - 1];
-      const QgsPointXY &b = line[i];
-      const int steps = std::max( 1, static_cast<int>( std::ceil( a.distance( b ) / ( cellSize * 0.5 ) ) ) );
-      for ( int s = 0; s <= steps; ++s )
+      QPointF a( line[i - 1].x(), line[i - 1].y() ), b( line[i].x(), line[i].y() );
+      if ( !clipToGrid( a, b ) )
+        continue;
+      // supercover 格网遍历（整数误差项）：标记线段途经的全部格。穿格点
+      // （角点）时先跨竖格线再跨横格线——途经格链 (c,r)→(c+dc,r)→(c+dc,r+dr)
+      // 保持 4-连通（屏障距离场不可对角穿透，45°/陡斜线不留对角漏格）；只触
+      // 角点的另一侧格 (c,r+dr) 保持自由——贴墙探测格不因擦角被封。
+      int c = colOf( a.x() ), r = rowOf( a.y() );
+      const int cEnd = colOf( b.x() ), rEnd = rowOf( b.y() );
+      const int dc = ( cEnd > c ) ? 1 : ( cEnd < c ? -1 : 0 );
+      const int dr = ( rEnd > r ) ? 1 : ( rEnd < r ? -1 : 0 );
+      const int dx = std::abs( cEnd - c ), dy = std::abs( rEnd - r );
+      int err = dx - dy;
+      mark( c, r );
+      while ( c != cEnd || r != rEnd )
       {
-        int c = 0, r = 0;
-        if ( cellOf( a.x() + ( b.x() - a.x() ) * s / steps, a.y() + ( b.y() - a.y() ) * s / steps, c, r ) )
+        const int e2 = 2 * err;
+        const bool stepX = ( c != cEnd ) && ( e2 > -dy || r == rEnd );
+        const bool stepY = ( r != rEnd ) && ( e2 < dx || c == cEnd );
+        if ( stepX )
         {
-          mask[static_cast<std::size_t>( r ) * cols + c] = 1;
-          touched = true;
+          c += dc;
+          err -= dy;
+          mark( c, r );
         }
+        if ( stepY )
+        {
+          r += dr;
+          err += dx;
+          mark( c, r );
+        }
+        if ( !stepX && !stepY )
+          break; // 防御：不推进即退出，避免异常输入死循环
       }
     }
-    if ( touched )
-    {
-      ++touchedParts;
-      continue;
-    }
     const int index = p < read.partReceipt.size() ? read.partReceipt.at( p ) : -1;
-    if ( index >= 0 && index < read.receipts.size() )
+    if ( index < 0 || index >= read.receipts.size() )
+      continue;
+    QVariantMap receipt = read.receipts.at( index ).toMap();
+    if ( !touched )
     {
-      QVariantMap receipt = read.receipts.at( index ).toMap();
       receipt.insert( QStringLiteral( "consumed" ), false );
       receipt.insert( QStringLiteral( "role" ), QString() );
       receipt.insert( QStringLiteral( "reason" ), QStringLiteral( "outside_compute_domain" ) );
       read.receipts[index] = receipt;
+      continue;
     }
+    ++touchedParts;
+    // 引擎回执细化：落格部件带 rasterized/rasterized_cells/new_cells；
+    // new_cells=0（完全被既有屏障遮蔽）如实标注——传给算法不等于改变数值。
+    std::sort( marked.begin(), marked.end() );
+    marked.erase( std::unique( marked.begin(), marked.end() ), marked.end() );
+    receipt.insert( QStringLiteral( "rasterized" ), true );
+    receipt.insert( QStringLiteral( "rasterized_cells" ), static_cast<int>( marked.size() ) );
+    receipt.insert( QStringLiteral( "new_cells" ), newCells );
+    if ( newCells == 0 )
+    {
+      QStringList warnings = receipt.value( QStringLiteral( "warnings" ) ).toStringList();
+      warnings << QStringLiteral( "fully_shadowed_by_other_barriers" );
+      receipt.insert( QStringLiteral( "warnings" ), warnings );
+    }
+    read.receipts[index] = receipt;
   }
   return touchedParts;
 }

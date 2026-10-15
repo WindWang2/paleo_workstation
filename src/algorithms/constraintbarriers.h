@@ -27,10 +27,15 @@ struct UnifiedBarrierRead
   QVector<int> partReceipt;   // parts[i] 对应的 receipts 下标
 };
 
-// P3：把 parts 逐部件半格超采样栅格化进 mask（行主序，原点为左上角）。
-// 一个格都没落上的部件不参与隔断：其回执改为 consumed=false、
-// reason=outside_compute_domain（与曲面网格化同口径）。
-// 返回落格部件数；cancelled() 为真时返回 -1（mask 内容作废）。
+// P1（pr457-closure）：把 parts 逐部件栅格化进 mask（行主序，原点为左上角）。
+// 每段先按闭矩形裁剪到计算域（与计划侧 polylineTouchesRect 同口径，贴边点
+// clamp 进边缘格），再走 supercover 格网遍历——45°/陡斜线/穿角点不留对角
+// 漏格，屏障距离场不可对角穿透。一个格都没落上的部件不参与隔断：其回执改
+// 为 consumed=false、reason=outside_compute_domain。落格部件的回执细化：
+// rasterized=true + rasterized_cells（唯一格数）+ new_cells（本部件新置的
+// 格数）；new_cells=0 表示完全被既有屏障遮蔽（warnings 加
+// fully_shadowed_by_other_barriers）。返回落格部件数；cancelled() 为真时
+// 返回 -1（mask 内容作废）。
 int rasterizeBarrierParts( UnifiedBarrierRead &read, double originX, double originYTop, double cellSize, int cols,
                            int rows, std::vector<std::uint8_t> &mask, const std::function<bool()> &cancelled );
 

@@ -11,10 +11,12 @@
 #include "../src/catalog/datacatalog.h"
 #include "../src/io/dataimportservice.h"
 #include "../src/io/perffixtures.h"
+#include "../src/metadata/paleoprojectstore.h"
 #include "../src/services/datagraph.h"
 #include "../src/services/previewdoc.h"
 #include "../src/ui/pages/datagraphpage.h"
 #include "../src/ui/paleotheme.h"
+#include "../src/workflow/assetops.h"
 #include "../src/workflow/datagraphworkflow.h"
 
 using paleo::datagraph::Mode;
@@ -220,6 +222,173 @@ private slots:
     QCOMPARE(activated.count(), 3);
     QCOMPARE(activated.at(2).at(0).toString(), v.id);
     QVERIFY(QFile::exists(doc.absolutePathForVersion(cat->versionById(v.id))));
+  }
+  // opt-01 P1：工程数据端到端夹具 初始化→导入→关联→图谱→预览→更新→恢复→重开，
+  // 数据驱动连跑两遍（各自全新工程），两遍的结构摘要必须一致（确定性）。
+  // 全程以目录里的真实 asset/version/entity id 断言；源文件与历史版本字节不受损。
+  void projectDataEndToEndTwice_data()
+  {
+    QTest::addColumn<int>("run");
+    QTest::newRow("run1") << 1;
+    QTest::newRow("run2") << 2;
+  }
+  void projectDataEndToEndTwice()
+  {
+    QFETCH(int, run);
+    static QString firstDigest;
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString project = tmp.filePath(QStringLiteral("proj"));
+    const QString srcDir = tmp.filePath(QStringLiteral("src"));
+    QVERIFY(QDir().mkpath(project) && QDir().mkpath(srcDir));
+    const QString las = QDir(srcDir).filePath(QStringLiteral("E2E-1.las"));
+    const QByteArray v1Bytes =
+        "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. E2E-1 : WELL\n"
+        "~Curve\nDEPT.M :\nGR.API :\n~A DEPT GR\n100.0 50.0\n100.5 51.0\n";
+    auto writeSrc = [&](const QByteArray &b) {
+      QFile f(las);
+      return f.open(QIODevice::WriteOnly) && f.write(b) == b.size();
+    };
+    auto readAll = [](const QString &p) {
+      QFile f(p);
+      return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray();
+    };
+    QVERIFY(writeSrc(v1Bytes));
+
+    QString assetId, v1Id, v1Sha, entityId, recoveredId;
+    QStringList digest;
+    {
+      // 1) 初始化
+      PaleoProjectStore store;
+      DataImportService importer(&store);
+      importer.setProjectDir(project);
+      QVERIFY2(importer.catalogWritable(), qPrintable(importer.catalogOpenError()));
+      DataCatalog *cat = importer.catalog();
+      // 2) 导入
+      QString err;
+      assetId = importer.importProjectFile(las, &err);
+      QVERIFY2(!assetId.isEmpty(), qPrintable(err));
+      const CatalogVersion v1 = cat->currentVersion(assetId);
+      QVERIFY(!v1.id.isEmpty() && !v1.sha256.isEmpty());
+      v1Id = v1.id;
+      v1Sha = v1.sha256;
+      const QString v1Abs = DataCatalog::resolvedVersionPath(project, v1);
+      QVERIFY2(!v1Abs.isEmpty(), "受管版本应解析在工程内");
+      QCOMPARE(readAll(v1Abs), v1Bytes);
+      // 3) 关联：井未建时导入只留未决链接；建井后走数据管理的「未决归位」
+      //    （与导入同一判据，恰一候选才挂）把链接挂到真实井上。
+      {
+        bool pending = false;
+        for (const auto &l : cat->linksForAsset(assetId))
+          pending = pending || l.unresolved || l.entityId.isEmpty();
+        QVERIFY2(pending, "无井时 LAS 导入应留未决链接");
+        CatalogEntity w;
+        w.id = cat->nextEntityId(QStringLiteral("well"));
+        w.entityType = QStringLiteral("well");
+        w.name = QStringLiteral("E2E-1");
+        QVERIFY2(cat->addEntity(w, &err), qPrintable(err));
+        const auto proposals = paleo::assetops::proposablePendingLinks(cat);
+        QVector<int> picks;
+        for (const auto &p : proposals)
+          if (p.assetId == assetId && p.wellId == w.id)
+            picks << p.linkIndex;
+        QCOMPARE(picks.size(), 1);
+        QCOMPARE(paleo::assetops::applyPendingResolutions(cat, picks, &err), 1);
+      }
+      QVector<EntityAssetLink> links;
+      for (const auto &l : cat->linksForAsset(assetId))
+        if (!l.unresolved && !l.entityId.isEmpty())
+          links << l;
+      QVERIFY(!links.isEmpty());
+      entityId = links.first().entityId;
+      QVERIFY(cat->hasEntity(entityId));
+      // 4) 图谱：资料关联视图同时含真实版本节点与实体节点
+      {
+        using namespace paleo::datagraph;
+        const auto index = buildIndex(*cat, {}, nullptr, nullptr);
+        QVERIFY(index);
+        Query q;
+        q.mode = Mode::Relations;
+        q.focus = assetKey(assetId);
+        const Graph g = query(*index, q, nullptr, nullptr);
+        QSet<QString> ids;
+        for (const Node &n : g.nodes)
+          ids.insert(n.id);
+        QVERIFY2(ids.contains(versionKey(v1Id)), qPrintable(versionKey(v1Id)));
+        QVERIFY2(ids.contains(entityKey(entityId)), qPrintable(entityKey(entityId)));
+      }
+      // 5) 预览：预览服务解析到的就是 v1 的受管字节
+      PreviewDocService doc(&importer);
+      QCOMPARE(readAll(doc.absolutePathForVersion(v1)), v1Bytes);
+      // 6) 更新：源文件改动后再导入，库里出现内容 = 新字节的版本
+      const QByteArray v2Bytes = v1Bytes + "101.0 52.0\n";
+      QVERIFY(writeSrc(v2Bytes));
+      const QString updatedAsset = importer.importProjectFile(las, &err);
+      QVERIFY2(!updatedAsset.isEmpty(), qPrintable(err));
+      const CatalogVersion v2 = cat->currentVersion(updatedAsset);
+      QVERIFY(v2.id != v1Id);
+      QCOMPARE(readAll(DataCatalog::resolvedVersionPath(project, v2)), v2Bytes);
+      QCOMPARE(readAll(v1Abs), v1Bytes); // 历史版本字节不受更新影响
+      // 观察到的产品口径：重导改过的同一源文件登记为新资产（不并入 A 的版本链），
+      // 记入摘要。资产 A 的版本链更新走数据管理的受管版本原语：
+      CatalogVersion a2 = cat->currentVersion(assetId);
+      a2.id = cat->nextVersionId();
+      a2.versionNumber = cat->currentVersion(assetId).versionNumber + 1;
+      a2.parentVersionIds = {v1Id};
+      a2.path = DataCatalog::managedPath(QStringLiteral("RAW"), assetId, a2.id, v1.fileName);
+      {
+        const QString abs = QDir(project).filePath(a2.path);
+        QVERIFY(QDir().mkpath(QFileInfo(abs).absolutePath()));
+        QFile f(abs);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        QCOMPARE(f.write(v2Bytes), qint64(v2Bytes.size()));
+        f.close();
+        a2.sha256 = DataCatalog::sha256FileHex(abs, &err);
+      }
+      QVERIFY2(cat->addVersion(a2, &err), qPrintable(err));
+      QCOMPARE(cat->currentVersion(assetId).id, a2.id);
+      // 7) 恢复：资产 A 回滚到 v1 内容（新版本指向 v1 字节，历史保留）
+      const QString recoverAsset = assetId;
+      const auto rb = paleo::assetops::rollbackToVersion(cat, project, recoverAsset, v1Id, &err);
+      QVERIFY2(!rb.versionId.isEmpty(), qPrintable(err));
+      QCOMPARE(rb.sha256, v1Sha);
+      recoveredId = rb.versionId;
+      QCOMPARE(cat->currentVersion(recoverAsset).id, recoveredId);
+      QCOMPARE(readAll(DataCatalog::resolvedVersionPath(project, cat->versionById(recoveredId))),
+               v1Bytes);
+      QCOMPARE(readAll(v1Abs), v1Bytes);
+      digest << QStringLiteral("assets=%1").arg(cat->assets().size())
+             << QStringLiteral("versions=%1").arg(cat->versions().size())
+             << QStringLiteral("links=%1").arg(cat->links().size())
+             << QStringLiteral("sameAssetUpdate=%1").arg(updatedAsset == assetId)
+             << QStringLiteral("recoveredNo=%1").arg(rb.versionNumber)
+             << QStringLiteral("v1sha=%1").arg(v1Sha);
+    }
+    // 8) 重开：新服务实例读回同一事实
+    {
+      PaleoProjectStore store;
+      DataImportService reopened(&store);
+      reopened.setProjectDir(project);
+      DataCatalog *cat = reopened.catalog();
+      QVERIFY(cat && cat->isOpen());
+      QCOMPARE(QStringLiteral("assets=%1").arg(cat->assets().size()), digest[0]);
+      QCOMPARE(QStringLiteral("versions=%1").arg(cat->versions().size()), digest[1]);
+      QCOMPARE(QStringLiteral("links=%1").arg(cat->links().size()), digest[2]);
+      const CatalogVersion rec = cat->versionById(recoveredId);
+      QCOMPARE(rec.sha256, v1Sha);
+      QCOMPARE(cat->currentVersion(rec.assetId).id, recoveredId);
+      QVERIFY(cat->hasEntity(entityId));
+      QVERIFY(!cat->linksForAsset(assetId).isEmpty());
+      const auto index = paleo::datagraph::buildIndex(*cat, {}, nullptr, nullptr);
+      QVERIFY(index && index->nodes.contains(paleo::datagraph::versionKey(recoveredId)));
+      QCOMPARE(readAll(las).isEmpty(), false); // 源文件仍在（导入不移动/不删源）
+    }
+    const QString d = digest.join(QLatin1Char(';'));
+    qInfo().noquote() << QStringLiteral("OPT01_E2E run%1 %2").arg(run).arg(d);
+    if (run == 1)
+      firstDigest = d;
+    else
+      QCOMPARE(d, firstDigest); // 两遍确定性一致
   }
 };
 

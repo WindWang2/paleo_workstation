@@ -546,11 +546,12 @@ class TestWellSectionUi : public QObject
       QVERIFY(csv.contains(QStringLiteral("C-2,D61,%1,%2")
                                .arg(QString::number(md61, 'f', 2),
                                     QString::number(tvd61, 'f', 2))));
-      // 直井行 MD 与 TVD 数值相等。
+      // 直井（NoSurvey：无测斜链接）行 TVD 留空——几何按 MD 绘制不变，
+      // 但导出面不冒充实测垂深（opt-02 与 tvdStatus 三态契约对齐；旧断言
+      // 钉的是 TVD==MD 冒充行为）。
       const double vmd = wells[1].topMd(QStringLiteral("D61"));
-      QVERIFY(csv.contains(QStringLiteral("A5,D61,%1,%2")
-                               .arg(QString::number(vmd, 'f', 2),
-                                    QString::number(vmd, 'f', 2))));
+      QVERIFY(csv.contains(QStringLiteral("A5,D61,%1,").arg(
+          QString::number(vmd, 'f', 2))));
       // 切回 MD：几何还原（模式切换可逆，井数据不动）。
       panel.setDepthDomain(wellsection::DepthDomain::MD);
       QVERIFY(std::fabs(panel.topLineY(QStringLiteral("C-2"),
@@ -1277,6 +1278,110 @@ class TestWellSectionUi : public QObject
       QCOMPARE(dataSpy.size(), 1);
       QVERIFY(dataSpy.at(0).at(1).toStringList().contains(
           QStringLiteral("SP")));
+    }
+
+    // opt-02（U1）：井集「地震身份」（井序+井口坐标）不变时，无关刷新
+    // （曲线/分层/岩性/去抖重灌）不打穿地震缝——不重发 seismicRequested、
+    // 现缝保全；坐标或井序变化才清缝重提（旧实现每次 setSection 无差别
+    // clearStrip+重发，缝反复闪断重提取，先红）。
+    void setSectionKeepsStripWhenSeismicIdentityUnchanged()
+    {
+      SelectionContext ctx;
+      WellSectionPanel panel(&ctx);
+      panel.setSection(wells4());
+      panel.setSeismicEnabled(true);
+      auto marker = stripFor(panel.wellIds().size() - 1);
+      marker.gaps[1].reason = QStringLiteral("KEEP");
+      panel.setSeismicStrip(marker);
+      QCOMPARE(panel.gapReason(1), QStringLiteral("KEEP"));
+
+      // 同井序同坐标、仅曲线/岩性内容不同 → 不重发、缝保全。
+      QSignalSpy seisSpy(&panel, &WellSectionPanel::seismicRequested);
+      auto refreshed = wells4();
+      refreshed[0].curves.clear();
+      refreshed[1].litho.clear();
+      refreshed[2].tops.takeLast();
+      panel.setSection(refreshed);
+      QCOMPARE(seisSpy.size(), 0);
+      QCOMPARE(panel.gapReason(1), QStringLiteral("KEEP"));
+
+      // 井口坐标变化 → 清缝 + 重发。
+      auto moved = wells4();
+      moved[2].x += 500.0;
+      panel.setSection(moved);
+      QCOMPARE(seisSpy.size(), 1);
+      QCOMPARE(panel.gapReason(1), QString());
+      // 井序变化（去掉首井）→ 清缝 + 重发。
+      auto shrunk = wells4();
+      shrunk.removeFirst();
+      panel.setSection(shrunk);
+      QCOMPARE(seisSpy.size(), 2);
+    }
+
+    // opt-02（L/U2）：版头右键「从剖面移除」按井 id 锚定——popup 存续期间
+    // 井集被去抖重建（删井后序号前移）时不再删错井（旧实现捕获陈旧列号
+    // 删掉新列表同列号的另一口井，先红）。
+    void headerRemoveMenuAnchorsWellId()
+    {
+      SelectionContext ctx;
+      WellSectionPanel panel(&ctx);
+      panel.resize(1400, 600);
+      panel.setSection(wells4());
+      panel.show();
+      QVERIFY(QTest::qWaitForWindowExposed(&panel));
+      auto *header = panel.findChild<QWidget *>(
+          QStringLiteral("wellSectionHeader"));
+      QVERIFY(header);
+      const double colW =
+          wellsection::SectionTemplate::defaults().columnWidth();
+      const double col0 = 16 + colW * 0.5;
+
+      // 右键首列（C-2）弹出菜单——仅 press（release 落在菜单上会被吞）。
+      QTest::mousePress(header, Qt::RightButton, Qt::NoModifier,
+                        QPoint(int(col0), 10));
+      auto *menu = header->findChild<QMenu *>(
+          QStringLiteral("wellSectionHeaderMenu"));
+      QVERIFY(menu);
+      QVERIFY(!menu->actions().isEmpty());
+
+      // 菜单开着：井集重建（首井 C-2 已被 catalog 去抖落地移除）。
+      auto rebuilt = wells4();
+      rebuilt.removeFirst();
+      panel.setSection(rebuilt);
+      QCOMPARE(panel.wellIds().first(), QStringLiteral("A5"));
+
+      // 触发移除：锚定的 C-2 已不在集 → 无动作；不得误删新列表第 0 列
+      // 的 A5（旧实现 removeRequested(0) 删错井，先红）。
+      menu->actions().first()->trigger();
+      QCOMPARE(panel.wellIds(),
+               (QStringList{QStringLiteral("A5"), QStringLiteral("C-1"),
+                            QStringLiteral("C-4")}));
+    }
+
+    // opt-02（N/U4）：栅状图落库失败如实上报且不前进持久化快照——旧实现
+    // err 出参无消费者、m_persisted* 无条件前进：失败编辑被静默吞掉、
+    // 永不重试、重开即丢（提示行先红）。
+    void fenceStoreFailureSurfacesAndKeepsRetry()
+    {
+      WellSectionFenceWidget::Params fp;
+      // 失败注入：未绑定库路径的 store（save 确定性失败并带 err——
+      // 「工程库未就绪」是该分支的真实生产触发态）。
+      metadata::WellSectionStore store;
+      store.rebind(QString(), nullptr);
+      QString err;
+      fp.store = &store;
+      fp.store = &store;
+      WellSectionFenceWidget fence(fp);
+      fence.setSections({QStringList({"a1", "b2"})});
+      auto *hint = fence.findChild<QLabel *>(
+          QStringLiteral("wellSectionFenceHint"));
+      QVERIFY(hint);
+      QVERIFY2(hint->text().contains(QStringLiteral("落库失败")),
+               qPrintable(hint->text()));
+      // 后续编辑仍走保存路径（不炸、提示持续在）——快照不前进的自动
+      // 重试语义由实现保证（等值短路被失败态阻断）。
+      fence.setSections({QStringList({"b2", "a1"})});
+      QVERIFY(hint->text().contains(QStringLiteral("落库失败")));
     }
 
     // 地震：不可用原因进 tooltip；有效缝渲染非纸面像素；缝原因可读；

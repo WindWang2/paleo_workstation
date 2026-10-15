@@ -517,11 +517,27 @@ void WellSectionPanel::setWellIds(const QStringList &ids)
 
 void WellSectionPanel::setSection(const QVector<wellsection::Well> &wells)
 {
+  // 地震缝缓存只依赖井序 + 井口坐标（缝内波形按两端 IL/XL 提取；时深/
+  // 井斜参与的是绘制期换算，实时取 m_st.wells）。井集「地震身份」不变时
+  // 保全现缝：不闪断、不取消在途提取重算——与 setDepthDomain 的保全承诺
+  // 同口径；曲线/分层/岩性/模板等无关刷新不再打穿地震缝。
+  bool keepStrip = m_wells.size() == wells.size() && wells.size() >= 2 &&
+                   m_st.strip.gaps.size() == wells.size() - 1;
+  if (keepStrip)
+    for (int i = 0; i < wells.size(); ++i) {
+      const wellsection::Well &o = m_wells.at(i);
+      const wellsection::Well &n = wells.at(i);
+      if (o.id != n.id || o.x != n.x || o.y != n.y) {
+        keepStrip = false;
+        break;
+      }
+    }
   m_wells = wells;
   m_ids.clear();
   for (const auto &w : m_wells)
     m_ids << w.id;
-  clearStrip();
+  if (!keepStrip)
+    clearStrip();
   rebuildFiltered();
   rebuildItems();
   m_empty->setVisible(m_wells.isEmpty() && !m_busy);
@@ -533,7 +549,7 @@ void WellSectionPanel::setSection(const QVector<wellsection::Well> &wells)
   else
     applyLayout();
   syncToolbarState();
-  if (m_seismicOn && m_wells.size() >= 2)
+  if (m_seismicOn && m_wells.size() >= 2 && !keepStrip)
     emit seismicRequested();
   if (m_faultsOn && m_wells.size() >= 2)
     emit faultsRequested();

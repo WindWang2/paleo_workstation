@@ -466,11 +466,21 @@ void HeaderWidget::mousePressEvent(QMouseEvent *e)
   }
   else if (e->button() == Qt::RightButton && col >= 0)
   {
+    // 菜单动作按井 id 锚定（opt-02）：非模态 popup 存续期间井集可能被
+    // 重建（catalog 去抖重灌 / 删井后序号前移）——按 id 重定位目标列，
+    // 与 GapItem 链接菜单同口径；id 已不存在则不动作（不误删别井）。
+    const QString wellId = m_st->wells.value(col).id;
     auto *menu = new QMenu(this);
     menu->setObjectName(QStringLiteral("wellSectionHeaderMenu"));
     QAction *act = menu->addAction(tr("从剖面移除"));
-    connect(act, &QAction::triggered, this,
-            [this, col] { emit removeRequested(col); });
+    connect(act, &QAction::triggered, this, [this, wellId] {
+      for (int i = 0; i < m_st->wells.size(); ++i)
+        if (m_st->wells.at(i).id == wellId)
+        {
+          emit removeRequested(i);
+          return;
+        }
+    });
     menu->setAttribute(Qt::WA_DeleteOnClose);
     menu->popup(e->globalPosition().toPoint());
   }

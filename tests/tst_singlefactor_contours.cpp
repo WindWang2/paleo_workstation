@@ -123,6 +123,7 @@ private slots:
   void rampEndsStayOpen();
   void coneStaysNearTheCircle();
   void fixedLevelApiRejectsEmptyAndNonFinite();
+  void intervalContoursIgnoreNodata();
 };
 
 void SingleFactorContourTests::constantFieldHasNoFalseLoops()
@@ -309,6 +310,35 @@ void SingleFactorContourTests::fixedLevelApiRejectsEmptyAndNonFinite()
   QVERIFY( !FactorContourService::generateFixedContours( raster, dir.filePath( QStringLiteral( "nan.gpkg" ) ),
                                                          { std::numeric_limits<double>::quiet_NaN() }, &err ) );
   QVERIFY2( err.contains( QStringLiteral( "finite" ) ), qPrintable( err ) );
+}
+
+// P3 审计：等间距等值线必须把 nodata 当未知值，否则 -9999 洞边缘会追出
+// -9900…0 的假等值线。实测本机 GDAL 的 GDALContourGenerateEx 自动沿用波段
+// nodata（未传 NODATA= 也不追假线）；此用例作为跨 GDAL 版本的回归护栏。
+void SingleFactorContourTests::intervalContoursIgnoreNodata()
+{
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  const int cols = 40;
+  const int rows = 40;
+  const double cell = 10.0;
+  const float nodata = -9999.0f;
+  QVector<float> values( cols * rows );
+  for ( int r = 0; r < rows; ++r )
+    for ( int c = 0; c < cols; ++c )
+      values[r * cols + c] = static_cast<float>( ( c + 0.5 ) * cell );
+  for ( int r = 15; r <= 24; ++r )
+    for ( int c = 18; c <= 22; ++c )
+      values[r * cols + c] = nodata;
+  const QString raster = dir.filePath( QStringLiteral( "hole-interval.tif" ) );
+  QVERIFY( writeGrid( raster, cols, rows, 0, rows * cell, cell, values, nodata ) );
+  const QString lines = dir.filePath( QStringLiteral( "hole-interval.gpkg" ) );
+  QString err;
+  QVERIFY2( FactorContourService::generateContours( raster, lines, 100.0, &err ), qPrintable( err ) );
+  const QVector<ContourLine> contours = readContours( lines );
+  QVERIFY( !contours.isEmpty() );
+  for ( const ContourLine &line : contours )
+    QVERIFY2( line.level >= 5.0 && line.level <= 395.0, qPrintable( QString::number( line.level ) ) );
 }
 
 int main( int argc, char *argv[] )

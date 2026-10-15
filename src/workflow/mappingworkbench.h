@@ -8,6 +8,8 @@
 #include "derivedassets.h"
 #include <QObject>
 #include <QPointer>
+#include <QSet>
+#include <QHash>
 #include <QVariantMap>
 #include <atomic>
 #include <functional>
@@ -134,6 +136,12 @@ public:
                    const QVariantMap &entry, QString *error);
   bool removeEvidence(const QString &id, const QList<qint64> &ids,
                       const QString &evidenceId, QString *error);
+  // View snapshot: immutable values only; old/malformed data is explicit.
+  QVariantMap featureEvidence(const QString &id, const QList<qint64> &ids) const;
+  QString localOperator() const;
+  bool changeEvidence(const QString &id, const QList<qint64> &ids,
+                      const QString &action, const QVariantMap &parameters,
+                      QString *error);
   void styleLayer(const QString &id);
   // facies-ux 4：地震相 × 测井相预测一致性。layerId 为任一侧（测井相点或
   // 地震相栅格/相面），另一侧自动取同层位最新结果（工作副本优先）；
@@ -165,6 +173,9 @@ signals:
   void errorOccurred(const QString &message);
 
 private:
+  QVariantMap resolveEvidenceSource(const QVariantMap &record, const QVariantMap &spatialTarget,
+                                    bool loadSavedSource, QSet<QString> *spatialSources,
+                                    QHash<QString, QVariantMap> *spatialResults = nullptr) const;
   void connectPredictionService(RemotePredictionService *service);
   void publishFactorAlias(const QString &horizon, const QString &id);
   void synchronizeCatalogLayers();
@@ -182,6 +193,10 @@ private:
                  const QString &assetKey = QString(),
                  const DerivedFileFingerprint *fingerprint = nullptr);
   QString ensureInputVersion(const QString &layerId, QString *error);
+  bool recordInterpretationEdit(const QString &id, qint64 featureId,
+                                int beforeCode, int afterCode, QString *error);
+  bool recordSpatialInterpretationEdit(const QString &id, qint64 featureId,
+                                      const QString &kind, QString *error);
 public:
   struct ComposeJob {
     ~ComposeJob();
@@ -262,5 +277,7 @@ private:
   mutable quint64 m_versionIndexSeq = 0;
   mutable int m_versionIndexRevision = 0;
   mutable QHash<QString, CatalogVersion> m_aliasVersions, m_pathVersions;
+  // Owner-thread QGIS adapters; bounded and reset with the catalog context.
+  mutable QHash<QString, QPointer<QObject>> m_evidenceSpatialAdapters;
   mutable QVariantList m_productsCache;
 };

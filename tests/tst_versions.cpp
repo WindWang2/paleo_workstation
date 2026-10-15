@@ -2,9 +2,21 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QProcess>
+#include <QProcessEnvironment>
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QTemporaryDir>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <memory>
+#include <QSemaphore>
+#include <QScopeGuard>
+#include <unistd.h>
+#include "../src/services/paleotaskservice.h"
+#include "../src/metadata/mapsnapshot.h"
+#include "../src/catalog/datacatalog.h"
 
 #include <qgsapplication.h>
 #include <qgsfeature.h>
@@ -427,6 +439,131 @@ class TestVersions : public QObject
         QVERIFY( !QFileInfo( pf1.fileName() ).isWritable() );
     }
 
+    void savedBytesAndPdfSurviveWorkingChanges() {
+        Fixture f; QVERIFY(f.init()); QString error;
+        const auto gpkg = makeFaciesGpkg(f.dir.filePath("working.gpkg"));
+        const auto pdf = makePdf(f.dir.filePath("working.pdf"));
+        LayerDeclaration decl; decl.layerId = "facies.D61"; decl.horizon = "D61";
+        decl.type = "vector"; decl.source = gpkg + "|layername=facies_polygons";
+        QVERIFY(f.layers.declare(decl, &error));
+
+        const QString pdfSha = DataCatalog::sha256FileHex(pdf);
+        QVERIFY(f.versions.recordLayoutProduct("D61", pdf, "pdf-asset", pdfSha, &error));
+        const auto saved = f.controller.saveVersion("D61", {}, &error);
+        QVERIFY2(saved.version > 0, qPrintable(error));
+        const auto manifest = QJsonDocument::fromJson(saved.provenance.toUtf8()).object();
+        QCOMPARE(manifest.value("snapshot_schema").toString(), QString("paleo_map_snapshot_v1"));
+        QCOMPARE(manifest.value("saved_layers").toArray().size(), 1);
+        const QString gpkgSha = manifest.value("saved_layers").toArray().first().toObject().value("sha256").toString();
+        QFile changedPdf(pdf); QVERIFY(changedPdf.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        changedPdf.write("later edit"); changedPdf.close();
+        QVERIFY(QFile::remove(gpkg));
+        const QString summary = R"({"wells_total":1,"covered":1,"missing":[],"rows":[{"kind":"residual","residual_ms":1}]})";
+        const auto published = f.controller.publish("D61", summary, &error);
+        QVERIFY2(!published.isEmpty(), qPrintable(error));
+        QCOMPARE(DataCatalog::sha256FileHex(QDir(published).filePath("layout.pdf")), pdfSha);
+        const auto files = QDir(published).entryList({"*.gpkg"}, QDir::Files);
+        QCOMPARE(files.size(), 1);
+        QCOMPARE(DataCatalog::sha256FileHex(QDir(published).filePath(files.first())), gpkgSha);
+        QVERIFY(QFileInfo::exists(QDir(published).filePath("evidence-snapshot.json")));
+    }
+    void missingFrozenBytesRejectPublicationAndCleanStaging() {
+        Fixture f; QVERIFY(f.init()); QString error;
+        const auto pdf = makePdf(f.dir.filePath("map.pdf"));
+        QVERIFY(f.versions.recordLayoutProduct("D61", pdf, "pdf-asset", DataCatalog::sha256FileHex(pdf), &error));
+        const auto saved = f.controller.saveVersion("D61", {}, &error);
+        QVERIFY(saved.version > 0);
+        const auto manifest = QJsonDocument::fromJson(saved.provenance.toUtf8()).object();
+        const auto frozenPdf = f.dir.filePath(manifest.value("saved_pdf").toObject().value("path").toString());
+        QFile::setPermissions(frozenPdf, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+        QVERIFY(QFile::remove(frozenPdf));
+        const QString summary = R"({"wells_total":1,"covered":1,"missing":[],"rows":[{"kind":"residual","residual_ms":1}]})";
+        QVERIFY(f.controller.publish("D61", summary, &error).isEmpty());
+        QVERIFY(error.contains(QStringLiteral("快照")));
+        QCOMPARE(f.versions.latest("D61").state, QString("Editing"));
+        QVERIFY(QDir(f.dir.filePath("result/D61")).entryList(QDir::Dirs | QDir::NoDotAndDotDot).isEmpty());
+    }
+
+    void corruptedSavedManifestCannotFallBackToLiveFiles() {
+        Fixture f; QVERIFY(f.init()); QString error;
+        const auto pdf = makePdf(f.dir.filePath("map.pdf"));
+        QVERIFY(f.versions.recordLayoutProduct("D61", pdf, "pdf-asset", DataCatalog::sha256FileHex(pdf), &error));
+        const auto saved = f.controller.saveVersion("D61", {}, &error); QVERIFY(saved.version > 0);
+        auto manifest = QJsonDocument::fromJson(saved.provenance.toUtf8()).object();
+        manifest.insert("saved_layers", "corrupt");
+        auto db = QSqlDatabase::database("paleo_mapversions_" + QString::number(qHash(f.metaPath())));
+        QSqlQuery update(db); update.prepare("UPDATE map_versions SET provenance=? WHERE id=?");
+        update.addBindValue(QString::fromUtf8(QJsonDocument(manifest).toJson(QJsonDocument::Compact)));
+        update.addBindValue(saved.id); QVERIFY(update.exec());
+        const QString summary = R"({"wells_total":1,"covered":1,"missing":[],"rows":[{"kind":"residual","residual_ms":1}]})";
+        QVERIFY(f.controller.publish("D61", summary, &error).isEmpty());
+        QVERIFY(error.contains(QStringLiteral("损坏")));
+        QVERIFY(!QFileInfo::exists(f.dir.filePath("result/D61/v1")));
+        QCOMPARE(f.versions.latest("D61").state, QString("Editing"));
+    }
+    void corruptedVersionEvidenceIsNotCommittedAsEmpty() {
+        Fixture f; QVERIFY(f.init()); QString error;
+        DataCatalog catalog; QVERIFY(catalog.open(f.dir.path())); f.controller.setCatalog(&catalog);
+        const auto path = makeFaciesGpkg(f.dir.filePath("facies.gpkg")); QVERIFY(!path.isEmpty());
+        CatalogAsset asset; asset.id = "asset-source"; asset.type = "facies_polygons";
+        QVERIFY(catalog.addAsset(asset, &error));
+        CatalogVersion version; version.id = "version-source"; version.assetId = asset.id;
+        version.stage = "DERIVED"; version.path = path; version.managed = false;
+        version.sha256 = DataCatalog::sha256FileHex(path);
+        version.extra = {{"layer_id", "facies.D61"}, {"horizon", "D61"}, {"evidence", "broken JSON"}};
+        QVERIFY(catalog.addVersion(version, &error));
+        LayerDeclaration layer; layer.layerId = "facies.D61"; layer.horizon = "D61";
+        layer.type = "vector"; layer.source = path + "|layername=facies_polygons";
+        QVERIFY(f.layers.declare(layer, &error));
+        QVERIFY(f.controller.saveVersion("D61", {}, &error).version == 0);
+        QVERIFY(error.contains(QStringLiteral("证据字段损坏")));
+        QCOMPARE(catalog.versionById(version.id).extra.value("evidence").toString(), QString("broken JSON"));
+        QCOMPARE(f.versions.currentVersion("D61"), 0);
+    }
+
+    void lostCatalogRejectsBoundSnapshotPublication() {
+        Fixture f; QVERIFY(f.init()); QString error;
+        auto catalog = std::make_unique<DataCatalog>(); QVERIFY(catalog->open(f.dir.path()));
+        f.controller.setCatalog(catalog.get());
+        const auto path = makeFaciesGpkg(f.dir.filePath("facies.gpkg"));
+        CatalogAsset asset; asset.id = "asset-source"; asset.type = "facies_polygons";
+        QVERIFY(catalog->addAsset(asset, &error));
+        CatalogVersion version; version.id = "version-source"; version.assetId = asset.id;
+        version.stage = "DERIVED"; version.managed = false; version.path = path;
+        version.sha256 = DataCatalog::sha256FileHex(path);
+        version.extra = {{"layer_id", "facies.D61"}, {"horizon", "D61"}};
+        QVERIFY(catalog->addVersion(version, &error));
+        LayerDeclaration layer; layer.layerId = "facies.D61"; layer.horizon = "D61";
+        layer.type = "vector"; layer.source = path + "|layername=facies_polygons";
+        QVERIFY(f.layers.declare(layer, &error));
+        const auto pdf = makePdf(f.dir.filePath("map.pdf"));
+        QVERIFY(f.versions.recordLayoutProduct("D61", pdf, "pdf-asset", DataCatalog::sha256FileHex(pdf), &error));
+        QVERIFY2(f.controller.saveVersion("D61", {}, &error).version > 0, qPrintable(error));
+        catalog.reset();
+        const QString summary = R"({"wells_total":1,"covered":1,"missing":[],"rows":[{"kind":"residual","residual_ms":1}]})";
+        QVERIFY(f.controller.publish("D61", summary, &error).isEmpty());
+        QVERIFY(error.contains(QStringLiteral("资料目录不可用")));
+        QCOMPARE(f.versions.latest("D61").state, QString("Editing"));
+        QVERIFY(!QFileInfo::exists(f.dir.filePath("result/D61/v1")));
+    }
+    void publicationSqlFailureRollsBackFilesAndCanRetry() {
+        Fixture f; QVERIFY(f.init()); QString error;
+        const auto pdf = makePdf(f.dir.filePath("map.pdf"));
+        QVERIFY(f.versions.recordLayoutProduct("D61", pdf, "pdf-asset", DataCatalog::sha256FileHex(pdf), &error));
+        const auto saved = f.controller.saveVersion("D61", {}, &error); QVERIFY(saved.version > 0);
+        auto db = QSqlDatabase::database("paleo_mapversions_" + QString::number(qHash(f.metaPath())));
+        QSqlQuery trigger(db);
+        QVERIFY(trigger.exec("CREATE TRIGGER refuse_publish BEFORE UPDATE OF state ON map_versions WHEN NEW.state='Published' BEGIN SELECT RAISE(ABORT,'publication refused'); END"));
+        const QString summary = R"({"wells_total":1,"covered":1,"missing":[],"rows":[{"kind":"residual","residual_ms":1}]})";
+        QVERIFY(f.controller.publish("D61", summary, &error).isEmpty());
+        QVERIFY(error.contains("publication refused"));
+        QCOMPARE(f.versions.latest("D61").state, QString("Editing"));
+        QVERIFY(QDir(f.dir.filePath("result/D61")).entryList(QDir::Dirs | QDir::NoDotAndDotDot).isEmpty());
+        QVERIFY(trigger.exec("DROP TRIGGER refuse_publish")); error.clear();
+        QVERIFY2(!f.controller.publish("D61", summary, &error).isEmpty(), qPrintable(error));
+        QCOMPARE(f.versions.latest("D61").state, QString("Published"));
+    }
+
     // 旧 schema 库（无 pdf_asset_id/pdf_sha256/residual_summary 列）：
     // open() 逐列补建；旧行读成未发布（state 归一 Editing），且读/升级本身
     // 不回写旧行（§177/§260 前向兼容纪律）。
@@ -519,9 +656,13 @@ class TestVersions : public QObject
         QCOMPARE( vFail.version, 0 );
         QVERIFY( !err.isEmpty() );
 
-        // 断言：即使保存版本因写队列拒绝而失败，所有图层的 busy token 均必须被安全清除（无永久锁死）
-        QVERIFY( !f.store.layerBusy( decl.layerId ) );
-        QVERIFY( !f.store.layerBusy( vl->id() ) );
+        // 提交失败且图层仍在编辑：edit 锁仍属于这次会话，不能按图层 ID 清掉。
+        QVERIFY( vl->isEditable() );
+        QString busy;
+        QVERIFY( f.store.layerBusy( decl.layerId, &busy ) );
+        QVERIFY( busy.startsWith( QStringLiteral( "edit" ) ) );
+        if ( vl->id() != decl.layerId )
+            QVERIFY( !f.store.layerBusy( vl->id() ) );
 
         // 3. 恢复可写后正常保存版本，验证通过写队列完成保存并清空 busy 标记
         f.store.setReadOnly( false );
@@ -672,16 +813,334 @@ class TestVersions : public QObject
         QCOMPARE( v.version, 0 );
         QVERIFY( !err.isEmpty() );
 
-        // 核心断言：无论提交成功或失败，所有图层的 busy token（包括 layer1、layer2、layer3 和幽灵图层）
-        // 以及双键（manifest d.layerId 与 QgsMapLayer id）均必须被完全释放，杜绝永久锁定！
+        // 已提交的层释放双键。仍在编辑的 layer2 保留自己的 edit 锁。
+        // 无法实例化的幽灵层没有活会话，孤立 edit 标记必须释放，避免卡住后续保存。
+        QVERIFY( !vl1->isEditable() );
         QVERIFY( !f.store.layerBusy( d1.layerId ) );
         QVERIFY( !f.store.layerBusy( vl1->id() ) );
-        QVERIFY( !f.store.layerBusy( d2.layerId ) );
-        QVERIFY( !f.store.layerBusy( vl2->id() ) );
+        QVERIFY( vl2->isEditable() );
+        QVERIFY( f.store.layerBusy( d2.layerId ) );
+        QVERIFY( f.store.layerBusy( vl2->id() ) );
+        QVERIFY( !vl3->isEditable() );
         QVERIFY( !f.store.layerBusy( d3.layerId ) );
         QVERIFY( !f.store.layerBusy( vl3->id() ) );
         QVERIFY( !f.store.layerBusy( dGhost.layerId ) );
     }
+    void asyncSaveFreezesAllDeclaredProviderViewsAndPublishesSavedBytes()
+    {
+        Fixture f; QVERIFY(f.init());
+        PaleoTaskService tasks; tasks.setMaxWorkerThreads(1); f.controller.setTaskService(&tasks);
+        QString err;
+        const auto gpkg = makeFaciesGpkg(f.dir.filePath("facies-async.gpkg")); QVERIFY(!gpkg.isEmpty());
+        LayerDeclaration first; first.layerId = "facies.D61"; first.horizon = "D61"; first.type = "vector";
+        first.source = gpkg + "|layername=facies_polygons";
+        LayerDeclaration hidden = first; hidden.layerId = "reference.D61";
+        QVERIFY(f.layers.declare(first, &err)); QVERIFY(f.layers.declare(hidden, &err));
+        auto *one = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(first.layerId, &err));
+        auto *empty = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(hidden.layerId, &err));
+        QVERIFY(one && empty); QVERIFY(empty->setSubsetString("fid < 0"));
+        const auto pdf = makePdf(f.dir.filePath("async-layout.pdf"));
+        QVERIFY(f.versions.recordLayoutProduct("D61", pdf, "pdf-asset", DataCatalog::sha256FileHex(pdf), &err));
+        QSignalSpy finished(&f.controller, &MapVersionController::snapshotFinished);
+        QVERIFY2(f.controller.startSaveVersion("D61", {{"test", "async"}}, &err), qPrintable(err));
+        QTRY_VERIFY_WITH_TIMEOUT(!f.controller.snapshotBusy(), 15000);
+        QCOMPARE(finished.size(), 1); QVERIFY2(finished[0][2].toBool(), qPrintable(finished[0][4].toString()));
+        const auto version = f.versions.latest("D61"); QCOMPARE(version.version, 1);
+        const auto frozen = QJsonDocument::fromJson(version.provenance.toUtf8()).toVariant().toMap();
+        QCOMPARE(frozen.value("saved_layers").toList().size(), 2);
+        QSet<QString> paths;
+        for (const auto &entry : frozen.value("saved_layers").toList()) {
+            const auto row = entry.toMap(); const auto file = f.dir.filePath(row.value("path").toString());
+            QgsVectorLayer saved(file + row.value("source_suffix").toString(), "saved", "ogr");
+            QVERIFY(saved.isValid()); QCOMPARE(saved.featureCount(), row.value("layer_id").toString() == first.layerId ? qint64(1) : qint64(0));
+            paths.insert(file); QCOMPARE(DataCatalog::sha256FileHex(file), row.value("sha256").toString());
+        }
+        QCOMPARE(paths.size(), 2); // Distinct provider subsets are never deduplicated by URI alone.
+        QVERIFY(one->startEditing()); QgsFeature added(one->fields());
+        added.setGeometry(QgsGeometry::fromWkt("POLYGON((2 0,3 0,3 1,2 0))"));
+        QVERIFY(one->addFeature(added)); QVERIFY(one->commitChanges()); QCOMPARE(one->featureCount(), qint64(2));
+        const QString summary = "{\"wells_total\":1,\"covered\":1,\"missing\":[],\"rows\":[{\"kind\":\"residual\",\"residual_ms\":1}]}";
+        QVERIFY2(f.controller.startPublish("D61", summary, &err), qPrintable(err));
+        QTRY_VERIFY_WITH_TIMEOUT(!f.controller.snapshotBusy(), 15000);
+        QCOMPARE(finished.size(), 2); QVERIFY2(finished[1][2].toBool(), qPrintable(finished[1][4].toString()));
+        QVERIFY(f.versions.isPublished("D61"));
+        const auto published = f.versions.latest("D61");
+        QCOMPARE(published.provenance, version.provenance);
+        for (const auto &entry : frozen.value("saved_layers").toList()) {
+            const auto row = entry.toMap(); const auto immutable = f.dir.filePath(row.value("path").toString());
+            // Snapshot filenames are opaque. Locate the corresponding copied immutable bytes by hash.
+            int matches = 0;
+            for (const auto &name : QDir(published.publishedPath).entryList(QDir::Files))
+                if (DataCatalog::sha256FileHex(QDir(published.publishedPath).filePath(name)) == DataCatalog::sha256FileHex(immutable)) ++matches;
+            QCOMPARE(matches, 1);
+        }
+        QVERIFY(tasks.shutdown());
+    }
+
+    void asyncSnapshotCancellationAndProjectEpochDoNotWriteVersions_data()
+    {
+        QTest::addColumn<bool>("changeProject");
+        QTest::newRow("user-cancel") << false;
+        QTest::newRow("project-change") << true;
+    }
+    void asyncSnapshotCancellationAndProjectEpochDoNotWriteVersions()
+    {
+        QFETCH(bool, changeProject);
+        Fixture f; QVERIFY(f.init()); f.controller.setProjectStore(&f.store);
+        PaleoTaskService tasks; tasks.setMaxWorkerThreads(1); f.controller.setTaskService(&tasks);
+        const auto gate = std::make_shared<QSemaphore>(); const auto entered = std::make_shared<QSemaphore>();
+        tasks.start("hold-worker", [gate, entered](PaleoTask *) { entered->release(); gate->acquire(); return QString(); });
+        const auto release = qScopeGuard([&] { gate->release(); });
+        QTRY_VERIFY(entered->available() > 0);
+        QString err;
+        QSignalSpy finished(&f.controller, &MapVersionController::snapshotFinished);
+        QSignalSpy busy(&f.controller, &MapVersionController::snapshotBusyChanged);
+        QVERIFY2(f.controller.startSaveVersion("D61", {{"test", "cancel"}}, &err), qPrintable(err));
+        QVERIFY(f.controller.snapshotBusy());
+        if (changeProject) f.controller.setCatalog(nullptr); else f.controller.cancelSnapshot();
+        gate->release();
+        QTRY_VERIFY_WITH_TIMEOUT(!f.controller.snapshotBusy(), 15000);
+        QCOMPARE(busy.size(), 2); QVERIFY(busy[0][0].toBool()); QVERIFY(!busy[1][0].toBool());
+        QCOMPARE(f.versions.currentVersion("D61"), 0);
+        QCOMPARE(QDir(f.dir.filePath("artifacts/map-versions")).entryList(QDir::Dirs | QDir::NoDotAndDotDot).size(), 0);
+        if (changeProject) QCOMPARE(finished.size(), 0); // Old completion must not reset new same-horizon UI.
+        else { QCOMPARE(finished.size(), 1); QVERIFY(!finished[0][2].toBool()); QVERIFY(finished[0][3].toBool()); }
+        QVERIFY(tasks.shutdown());
+    }
+
+    void projectCloseAbandonsInFlightSnapshot()
+    {
+        Fixture f; QVERIFY(f.init()); f.controller.setProjectStore(&f.store);
+        PaleoTaskService tasks; tasks.setMaxWorkerThreads(1); f.controller.setTaskService(&tasks);
+        const auto gate = std::make_shared<QSemaphore>(); const auto entered = std::make_shared<QSemaphore>();
+        tasks.start("hold-worker", [gate, entered](PaleoTask *) { entered->release(); gate->acquire(); return QString(); });
+        const auto release = qScopeGuard([&] { gate->release(); });
+        QTRY_VERIFY(entered->available() > 0);
+        QString err;
+        QSignalSpy finished(&f.controller, &MapVersionController::snapshotFinished);
+        QVERIFY2(f.controller.startSaveVersion("D61", {{"test", "close"}}, &err), qPrintable(err));
+        QVERIFY(f.controller.snapshotBusy());
+        f.controller.abandonForProjectClose();
+        gate->release();
+        QTRY_VERIFY_WITH_TIMEOUT(!f.controller.snapshotBusy(), 15000);
+        QCOMPARE(f.versions.currentVersion("D61"), 0);
+        QCOMPARE(QDir(f.dir.filePath("artifacts/map-versions")).entryList(QDir::Dirs | QDir::NoDotAndDotDot).size(), 0);
+        QCOMPARE(finished.size(), 0);
+        QVERIFY(tasks.shutdown());
+    }
+
+    void asyncPublicationFailureCleansFilesAndCanRetry()
+    {
+        Fixture f; QVERIFY(f.init());
+        PaleoTaskService tasks; tasks.setMaxWorkerThreads(1); f.controller.setTaskService(&tasks);
+        QString err; const auto pdf = makePdf(f.dir.filePath("async-failure.pdf"));
+        QVERIFY(f.versions.recordLayoutProduct("D61", pdf, "pdf-asset", DataCatalog::sha256FileHex(pdf), &err));
+        QVERIFY(f.controller.saveVersion("D61", {}, &err).version > 0);
+        const QString connection = "async-publication-failure";
+        {
+            auto db = QSqlDatabase::addDatabase("QSQLITE", connection); db.setDatabaseName(f.metaPath()); QVERIFY(db.open());
+            QSqlQuery q(db); QVERIFY(q.exec("CREATE TRIGGER refuse_async_publish BEFORE UPDATE OF state ON map_versions WHEN NEW.state='Published' BEGIN SELECT RAISE(ABORT,'test publish failure'); END"));
+            QSignalSpy finished(&f.controller, &MapVersionController::snapshotFinished);
+            const QString summary = "{\"wells_total\":1,\"covered\":1,\"missing\":[],\"rows\":[{\"kind\":\"residual\",\"residual_ms\":1}]}";
+            QVERIFY2(f.controller.startPublish("D61", summary, &err), qPrintable(err));
+            QTRY_VERIFY_WITH_TIMEOUT(!f.controller.snapshotBusy(), 15000);
+            QCOMPARE(finished.size(), 1); QVERIFY(!finished[0][2].toBool()); QVERIFY(!finished[0][4].toString().isEmpty());
+            QVERIFY(!f.versions.isPublished("D61"));
+            QCOMPARE(QDir(f.dir.filePath("result/D61")).entryList(QDir::Dirs | QDir::NoDotAndDotDot).size(), 0);
+            QVERIFY(q.exec("DROP TRIGGER refuse_async_publish")); err.clear();
+            QVERIFY2(f.controller.startPublish("D61", summary, &err), qPrintable(err));
+            QTRY_VERIFY_WITH_TIMEOUT(!f.controller.snapshotBusy(), 15000);
+            QCOMPARE(finished.size(), 2); QVERIFY2(finished[1][2].toBool(), qPrintable(finished[1][4].toString()));
+            QVERIFY(f.versions.isPublished("D61")); db.close();
+        }
+        QSqlDatabase::removeDatabase(connection); QVERIFY(tasks.shutdown());
+    }
+
+    void preparedSnapshotRejectsTamperedBytesAndCancellationLeavesNoDirectory()
+    {
+        Fixture f; QVERIFY(f.init()); QString err;
+        const auto pdf = makePdf(f.dir.filePath("prepare.pdf"));
+        QVERIFY(f.versions.recordLayoutProduct("D61", pdf, "pdf-asset", DataCatalog::sha256FileHex(pdf), &err));
+        auto input = f.versions.snapshotInputForSave("D61", "{}", {}, &err); QVERIFY(input.valid);
+        const auto cancelled = prepareMapSnapshot(input, [] { return true; });
+        QVERIFY(cancelled.cancelled); QCOMPARE(f.versions.currentVersion("D61"), 0);
+        auto prepared = prepareMapSnapshot(input); QVERIFY2(prepared.isValid(), qPrintable(prepared.error));
+        const auto target = prepared.attestations.first().toMap().value("path").toString();
+        QFile::setPermissions(target, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+        QFile modified(target); QVERIFY(modified.open(QIODevice::Append)); QCOMPARE(modified.write("changed"), qint64(7)); modified.close();
+        QCOMPARE(f.versions.commitPreparedVersion(prepared, &err).version, 0); QVERIFY(!err.isEmpty());
+        discardPreparedMapSnapshot(prepared); QVERIFY(!QFileInfo::exists(prepared.directory));
+    }
+
+    void horizonlessCitationBlocksPurgeAndPublish() {
+        Fixture f; QVERIFY(f.init()); QString error;
+        DataCatalog catalog; QVERIFY(catalog.open(f.dir.path())); f.controller.setCatalog(&catalog);
+        const QString sourcePath = f.dir.filePath("manual-note.txt");
+        QFile source(sourcePath); QVERIFY(source.open(QIODevice::WriteOnly));
+        QCOMPARE(source.write("horizonless manual source"), qint64(25)); source.close();
+        CatalogAsset asset; asset.id = "asset-manual"; asset.type = "document";
+        QVERIFY(catalog.addAsset(asset, &error));
+        CatalogVersion version; version.id = "ver-manual"; version.assetId = asset.id;
+        version.stage = "RAW"; version.managed = false; version.path = sourcePath;
+        version.sha256 = DataCatalog::sha256FileHex(sourcePath);
+        QVERIFY(catalog.addVersion(version, &error));
+        const QString evidence = QString::fromUtf8(QJsonDocument(QJsonArray{QJsonObject{
+            {"id", "ev-manual"}, {"role", "REFERENCES"}, {"type", "manual"},
+            {"source_version", "ver-manual"}, {"text", "horizonless manual"}}}).toJson(QJsonDocument::Compact));
+        QgsVectorLayer memory(QStringLiteral("polygon?crs=EPSG:4326"), QStringLiteral("facies"), QStringLiteral("memory"));
+        QVERIFY(memory.dataProvider()->addAttributes({QgsField("facies_evidence", QMetaType::QString)}));
+        memory.updateFields();
+        QgsFeature feature(memory.fields());
+        feature.setAttribute("facies_evidence", evidence);
+        feature.setGeometry(QgsGeometry::fromWkt(QStringLiteral("POLYGON((0 0,1 0,1 1,0 0))")));
+        QgsFeatureList citedFeatures;
+        citedFeatures << feature;
+        QVERIFY(memory.dataProvider()->addFeatures(citedFeatures));
+        const QString gpkg = f.dir.filePath("cited-facies.gpkg");
+        QgsVectorFileWriter::SaveVectorOptions options; options.driverName = "GPKG"; options.layerName = "facies_polygons";
+        QString writerError;
+        QCOMPARE(QgsVectorFileWriter::writeAsVectorFormatV3(&memory, gpkg, QgsProject::instance()->transformContext(), options, &writerError),
+                 QgsVectorFileWriter::WriterError::NoError);
+        LayerDeclaration layer; layer.layerId = "facies.D61"; layer.horizon = "D61"; layer.type = "vector";
+        layer.source = gpkg + "|layername=facies_polygons";
+        QVERIFY(f.layers.declare(layer, &error));
+        QVERIFY(f.layers.instantiate(layer.layerId, &error));
+        const auto pdf = makePdf(f.dir.filePath("cited-map.pdf"));
+        QVERIFY(f.versions.recordLayoutProduct("D61", pdf, "pdf-asset", DataCatalog::sha256FileHex(pdf), &error));
+        const auto saved = f.controller.saveVersion("D61", {}, &error);
+        QVERIFY2(saved.version > 0, qPrintable(error));
+        const auto cited = QJsonDocument::fromJson(saved.provenance.toUtf8()).object().value("cited_sources").toArray();
+        QCOMPARE(cited.size(), 1);
+        QCOMPARE(cited.at(0).toObject().value("version_id").toString(), QString("ver-manual"));
+        QCOMPARE(cited.at(0).toObject().value("horizon").toString(), QString());
+        QVERIFY(!catalog.removeAsset("asset-manual", &error));
+        QVERIFY(error.contains(QStringLiteral("cited by map result")));
+        QCOMPARE(catalog.versionById("ver-manual").id, QString("ver-manual"));
+        QVERIFY(QFileInfo::exists(sourcePath));
+        QVERIFY(catalog.updateVersionExtra("ver-manual", {{"retained_by_map_results", QVariantList{}}}, &error));
+        error.clear();
+        QVERIFY2(catalog.removeAsset("asset-manual", &error), qPrintable(error));
+        QVERIFY(catalog.versionById("ver-manual").id.isEmpty());
+        const QString summary = QStringLiteral("{\"wells_total\":1,\"covered\":1,\"missing\":[],\"rows\":[{\"kind\":\"residual\",\"residual_ms\":1}]}");
+        QVERIFY(f.controller.publish("D61", summary, &error).isEmpty());
+        QVERIFY(error.contains(QStringLiteral("来源版本已缺失")));
+        QCOMPARE(f.versions.latest("D61").state, QString("Editing"));
+        QVERIFY(!QFileInfo::exists(f.dir.filePath("result/D61/v1")));
+    }
+    void unlinkingCitationKeepsTheSourceAsset() {
+        Fixture f; QVERIFY(f.init()); QString error;
+        DataCatalog catalog; QVERIFY(catalog.open(f.dir.path())); f.controller.setCatalog(&catalog);
+        const QString sourcePath = f.dir.filePath("manual-note.txt");
+        QFile source(sourcePath); QVERIFY(source.open(QIODevice::WriteOnly));
+        QCOMPARE(source.write("horizonless manual source"), qint64(25)); source.close();
+        CatalogAsset asset; asset.id = "asset-manual"; asset.type = "document";
+        QVERIFY(catalog.addAsset(asset, &error));
+        CatalogVersion version; version.id = "ver-manual"; version.assetId = asset.id;
+        version.stage = "RAW"; version.managed = false; version.path = sourcePath;
+        version.sha256 = DataCatalog::sha256FileHex(sourcePath);
+        QVERIFY(catalog.addVersion(version, &error));
+        QJsonObject record{{"id", "ev-manual"}, {"role", "REFERENCES"}, {"type", "manual"},
+                           {"source_version", "ver-manual"}, {"text", "horizonless manual"}};
+        const auto encode = [](const QJsonObject &row) {
+            return QString::fromUtf8(QJsonDocument(QJsonArray{row}).toJson(QJsonDocument::Compact));
+        };
+        QgsVectorLayer memory(QStringLiteral("polygon?crs=EPSG:4326"), QStringLiteral("facies"), QStringLiteral("memory"));
+        QVERIFY(memory.dataProvider()->addAttributes({QgsField("facies_evidence", QMetaType::QString)}));
+        memory.updateFields();
+        QgsFeature created(memory.fields());
+        created.setAttribute("facies_evidence", encode(record));
+        created.setGeometry(QgsGeometry::fromWkt(QStringLiteral("POLYGON((0 0,1 0,1 1,0 0))")));
+        QgsFeatureList createdFeatures;
+        createdFeatures << created;
+        QVERIFY(memory.dataProvider()->addFeatures(createdFeatures));
+        const QString gpkg = f.dir.filePath("unlink-facies.gpkg");
+        QgsVectorFileWriter::SaveVectorOptions options; options.driverName = "GPKG"; options.layerName = "facies_polygons";
+        QString writerError;
+        QCOMPARE(QgsVectorFileWriter::writeAsVectorFormatV3(&memory, gpkg, QgsProject::instance()->transformContext(), options, &writerError),
+                 QgsVectorFileWriter::WriterError::NoError);
+        LayerDeclaration declaration; declaration.layerId = "facies.D61"; declaration.horizon = "D61";
+        declaration.type = "vector"; declaration.source = gpkg + "|layername=facies_polygons";
+        QVERIFY(f.layers.declare(declaration, &error));
+        auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(declaration.layerId, &error));
+        QVERIFY(layer);
+        const auto pdf = makePdf(f.dir.filePath("unlink-map.pdf"));
+        QVERIFY(f.versions.recordLayoutProduct("D61", pdf, "pdf-asset", DataCatalog::sha256FileHex(pdf), &error));
+        QVERIFY2(f.controller.saveVersion("D61", {}, &error).version == 1, qPrintable(error));
+        QVERIFY(layer->startEditing());
+        QgsFeature current; QVERIFY(layer->getFeatures().nextFeature(current));
+        record.insert("unlinked", true);
+        QVERIFY(layer->changeAttributeValue(current.id(), layer->fields().indexOf("facies_evidence"), encode(record)));
+        const auto second = f.controller.saveVersion("D61", {}, &error);
+        QVERIFY2(second.version == 2, qPrintable(error));
+        bool stillCited = false;
+        for (const auto &entry : QJsonDocument::fromJson(second.provenance.toUtf8()).object().value("cited_sources").toArray())
+            stillCited = stillCited || entry.toObject().value("version_id").toString() == "ver-manual";
+        QVERIFY(!stillCited);
+        QVERIFY(QFileInfo::exists(sourcePath));
+        QCOMPARE(catalog.versionById("ver-manual").id, QString("ver-manual"));
+        const auto retained = catalog.versionById("ver-manual").extra.value("retained_by_map_results");
+        QStringList tokens = retained.toStringList();
+        if (tokens.isEmpty()) for (const auto &entry : retained.toList()) tokens << entry.toString();
+        QVERIFY(tokens.contains(QStringLiteral("D61/1")));
+        QVERIFY(!catalog.removeAsset("asset-manual", &error));
+        QVERIFY(QFileInfo::exists(sourcePath));
+        QCOMPARE(catalog.versionById("ver-manual").id, QString("ver-manual"));
+    }
+    void publicationCrashAfterRenameIsCompletedOnReopen() {
+        if (qEnvironmentVariableIntValue("PALEO_PUBLISH_CRASH_CHILD") == 1) {
+            const QString root = qEnvironmentVariable("PALEO_PUBLISH_DIR");
+            QVERIFY(QFileInfo(root).isDir());
+            QgisProjectService projectSvc;
+            PaleoProjectStore store;
+            LayerManifest manifest(root + "/project.sqlite");
+            QgisLayerService layers(&projectSvc, &manifest);
+            MapVersionStore versions(root + "/project.sqlite");
+            MapVersionController controller(&versions, &layers);
+            QVERIFY(projectSvc.createProject(root + "/proj.qgz"));
+            QVERIFY(manifest.open());
+            store.setProjectPaths(root + "/proj.qgz", root + "/proj.gpkg", root + "/project.sqlite");
+            QString error; QVERIFY2(versions.open(&error), qPrintable(error));
+            const auto pdf = makePdf(root + "/map.pdf");
+            QVERIFY(versions.recordLayoutProduct("D61", pdf, "pdf-asset", DataCatalog::sha256FileHex(pdf), &error));
+            QVERIFY(controller.saveVersion("D61", {}, &error).version > 0);
+            versions.setPublicationRenameProbe([] { ::_exit(86); });
+            const QString summary = QStringLiteral("{\"wells_total\":1,\"covered\":1,\"missing\":[],\"rows\":[{\"kind\":\"residual\",\"residual_ms\":1}]}");
+            controller.publish("D61", summary, &error);
+            QFAIL("publication returned without the crash probe");
+            return;
+        }
+        QTemporaryDir dir; QVERIFY(dir.isValid());
+        QProcess child;
+        auto env = QProcessEnvironment::systemEnvironment();
+        env.insert("PALEO_PUBLISH_CRASH_CHILD", "1");
+        env.insert("PALEO_PUBLISH_DIR", dir.path());
+        env.insert("QT_QPA_PLATFORM", "offscreen");
+        child.setProcessEnvironment(env);
+        child.setProcessChannelMode(QProcess::SeparateChannels);
+        child.start(QCoreApplication::applicationFilePath(), {"publicationCrashAfterRenameIsCompletedOnReopen"});
+        QVERIFY2(child.waitForFinished(180000), "publication crash child timed out");
+        if (child.exitCode() != 86) {
+            qWarning().noquote() << child.readAllStandardOutput();
+            qWarning().noquote() << child.readAllStandardError();
+        }
+        QCOMPARE(child.exitStatus(), QProcess::NormalExit);
+        QCOMPARE(child.exitCode(), 86);
+        MapVersionStore reopened(dir.filePath("project.sqlite"));
+        QString error; QVERIFY2(reopened.open(&error), qPrintable(error));
+        QCOMPARE(reopened.latest("D61").state, QString("Published"));
+        const QString published = reopened.publishedPath("D61");
+        QVERIFY(QFileInfo(published).isDir());
+        QVERIFY(QFileInfo::exists(QDir(published).filePath("evidence-snapshot.json")));
+        MapVersionStore again(dir.filePath("project.sqlite"));
+        QVERIFY2(again.open(&error), qPrintable(error));
+        QCOMPARE(again.publishedPath("D61"), published);
+        QVERIFY(QFileInfo(published).isDir());
+        const QString summary = QStringLiteral("{\"wells_total\":1,\"covered\":1,\"missing\":[],\"rows\":[{\"kind\":\"residual\",\"residual_ms\":1}]}");
+        QVERIFY(again.publish("D61", {}, summary, &error).isEmpty());
+        QVERIFY(error.contains(QStringLiteral("当前版本已发布")));
+        QVERIFY(QFileInfo(published).isDir());
+    }
+
 };
 
 int main( int argc, char *argv[] )

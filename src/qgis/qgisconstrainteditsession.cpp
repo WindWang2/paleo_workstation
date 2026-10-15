@@ -18,8 +18,9 @@
 #include <QDomDocument>
 
 QgisConstraintEditSession::QgisConstraintEditSession(QgsVectorLayer *layer, PaleoProjectStore *store,
-                                                   std::function<void(const QString &)> failed)
-  : m_layer(layer), m_store(store), m_failed(std::move(failed))
+                                                   std::function<void(const QString &)> failed,
+                                                   const ConstraintStore::AuditContext &context)
+  : m_layer(layer), m_store(store), m_failed(std::move(failed)), m_audit(context)
 {
 }
 
@@ -28,6 +29,9 @@ QgisConstraintEditSession::~QgisConstraintEditSession()
   if (m_layer && m_workingDir && !m_finished)
   {
     disconnect(m_connection);
+    QString error;
+    if (!persist(m_initial, &error, QStringLiteral("cancel")) && m_failed)
+      m_failed(tr("结束约束会话时恢复失败：%1").arg(error));
     m_layer->rollBack();
     restoreSource();
   }
@@ -86,6 +90,7 @@ QVector<QVariantMap> QgisConstraintEditSession::snapshot(QString *error) const
 
 bool QgisConstraintEditSession::initialize(QString *error)
 {
+  if (!m_layer) { *error = tr("约束编辑图层已不可用"); return false; }
   m_path = m_layer->source().section(QLatin1Char('|'), 0, 0);
   m_horizon = m_layer->customProperty(QStringLiteral("paleoLayerId")).toString().mid(12);
   if (!m_store || m_store->isReadOnly() || m_horizon.isEmpty() ||
@@ -99,6 +104,7 @@ bool QgisConstraintEditSession::initialize(QString *error)
   QString reason;
   m_initial = snapshot(&reason);
   ConstraintStore store(m_path, m_store);
+  if (!store.setAuditContext(m_audit, error)) return false;
   if (!reason.isEmpty() || m_initial.size() != store.load(m_horizon).size())
   {
     *error = reason.isEmpty() ? tr("约束图层与 store 的层位范围不一致") : reason;
@@ -162,13 +168,19 @@ bool QgisConstraintEditSession::initialize(QString *error)
     });
   m_current = m_initial;
   connect(m_layer, &QgsVectorLayer::editCommandStarted, this, [this] { m_newCommand = true; });
-  connect(m_layer, &QgsVectorLayer::editCommandEnded, this, [this] { m_newCommand = false; });
+  // A command is not durable until it ends. Index changes while it is open
+  // include the push and the undo performed by destroyEditCommand; persisting
+  // those would record a cancelled gesture as two edits.
+  connect(m_layer, &QgsVectorLayer::editCommandEnded, this, [this] {
+    m_newCommand = false;
+    if (m_layer) synchronize(m_layer->undoStack()->index(), QStringLiteral("edit"));
+  });
   connect(m_layer, &QgsVectorLayer::editCommandDestroyed, this, [this] { m_newCommand = false; });
   connect(m_layer, &QObject::destroyed, this, [this] {
     if (!m_finished)
     {
       QString error;
-      if (!persist(m_initial, &error))
+      if (!persist(m_initial, &error, QStringLiteral("cancel")) && m_failed)
         m_failed(tr("约束编辑图层移除时恢复失败：%1").arg(error));
     }
   });
@@ -178,7 +190,15 @@ bool QgisConstraintEditSession::initialize(QString *error)
   return true;
 }
 
-bool QgisConstraintEditSession::persist(const QVector<QVariantMap> &rows, QString *error)
+bool QgisConstraintEditSession::setAuditContext(const ConstraintStore::AuditContext &context, QString *error)
+{
+  ConstraintStore store(m_path, m_store);
+  if (!store.setAuditContext(context, error)) return false;
+  m_audit = context;
+  return true;
+}
+
+bool QgisConstraintEditSession::persist(const QVector<QVariantMap> &rows, QString *error, const QString &action)
 {
   if (!m_store)
   {
@@ -186,17 +206,34 @@ bool QgisConstraintEditSession::persist(const QVector<QVariantMap> &rows, QStrin
     return false;
   }
   ConstraintStore store(m_path, m_store);
+  auto context = m_audit;
+  context.action = action;
+  if (context.reason.isEmpty()) context.reason = action == QLatin1String("undo") ? tr("撤销约束修改") :
+      action == QLatin1String("redo") ? tr("重做约束修改") : action == QLatin1String("cancel") ? tr("放弃约束编辑并恢复会话起点") :
+      action == QLatin1String("restore") ? tr("恢复约束保存失败前状态") : tr("原生约束几何或语义编辑");
+  if (!store.setAuditContext(context, error)) return false;
   return store.replaceHorizon(m_horizon, rows, error);
 }
 
-void QgisConstraintEditSession::synchronize(int index)
+void QgisConstraintEditSession::synchronize(int index, const QString &forcedAction)
 {
   if (m_writing || !m_layer)
+    return;
+  // Wait until the open command ends or is destroyed. See editCommandEnded.
+  if (m_newCommand && forcedAction.isEmpty())
     return;
   m_writing = true;
   QString error;
   const auto rows = snapshot(&error);
-  if (error.isEmpty() && persist(rows, &error))
+  const auto action = !forcedAction.isEmpty() ? forcedAction
+      : index < m_index ? QStringLiteral("undo") : QStringLiteral("redo");
+  if (error.isEmpty() && rows == m_current)
+  {
+    m_index = index;
+    m_writing = false;
+    return;
+  }
+  if (error.isEmpty() && persist(rows, &error, action))
   {
     m_current = rows;
     m_index = index;
@@ -207,22 +244,23 @@ void QgisConstraintEditSession::synchronize(int index)
     // At a full undo limit a push keeps the numeric index unchanged.
     if (index == m_index)
     {
-      if (m_newCommand)
+      if (forcedAction == QLatin1String("edit"))
         m_layer->undoStack()->undo();
     }
     else
       m_layer->undoStack()->setIndex(m_index);
     m_index = m_layer->undoStack()->index();
-    m_failed(tr("约束编辑未保存：%1").arg(error));
+    if (m_failed) m_failed(tr("约束编辑未保存：%1").arg(error));
   }
   m_writing = false;
 }
 
 bool QgisConstraintEditSession::finish(bool save, QString *error)
 {
+  if (!m_layer) { *error = tr("约束编辑图层已不可用"); return false; }
   QString reason;
   const auto rows = save ? snapshot(&reason) : m_initial;
-  if (!reason.isEmpty() || !persist(rows, &reason))
+  if (!reason.isEmpty() || !persist(rows, &reason, save ? QStringLiteral("edit") : QStringLiteral("cancel")))
   {
     *error = reason;
     return false;
@@ -232,7 +270,7 @@ bool QgisConstraintEditSession::finish(bool save, QString *error)
   // flushing it again through OGR would repeat deletes and alter FIDs.
   if (!m_layer->rollBack())
   {
-    const bool restored = persist(m_current, &reason);
+    const bool restored = persist(m_current, &reason, QStringLiteral("restore"));
     m_connection = connect(m_layer->undoStack(), &QUndoStack::indexChanged, this,
                            [this](int index) { synchronize(index); });
     *error = restored ? tr("无法结束约束编辑缓冲区") : tr("无法结束约束编辑缓冲区，恢复失败：%1").arg(reason);

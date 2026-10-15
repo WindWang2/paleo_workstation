@@ -1,11 +1,15 @@
 // 层：QGIS 封装
 #include "mappingartifactwriter.h"
+#include "mappingfeatureidentity.h"
 #include "../catalog/datacatalog.h"
 #include "../domain/faciescatalog.h"
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSaveFile>
+#include <QFile>
+#include <QFileInfo>
+#include <QUuid>
 #include <gdal.h>
 #include <qgsattributetableconfig.h>
 #include <qgscategorizedsymbolrenderer.h>
@@ -96,6 +100,9 @@ bool points(const QString &path, const QVariantList &points, QString *error) {
   QJsonArray features;
   for (const auto &v : points) {
     auto props = v.toMap();
+    if (props.value(MappingFeatureIdentity::UidField).toString().trimmed().isEmpty())
+      props.insert(MappingFeatureIdentity::UidField,
+                   QUuid::createUuid().toString(QUuid::WithoutBraces));
     const double x = props.take("x").toDouble(), y = props.take("y").toDouble();
     features.append(QJsonObject{
         {"type", "Feature"},
@@ -127,13 +134,30 @@ bool vectorSnapshot(QgsVectorLayer *layer, const QString &path,
       *error = QObject::tr("矢量图层无效");
     return false;
   }
+  const auto sourcePath = QFileInfo(layer->source().section(QLatin1Char('|'), 0, 0)).canonicalFilePath();
+  const auto destinationPath = QFileInfo(path).canonicalFilePath();
+  if (!sourcePath.isEmpty() && sourcePath == destinationPath) {
+    if (error) *error = QObject::tr("图件快照必须使用新文件，不能覆盖来源版本");
+    return false;
+  }
   QgsVectorFileWriter::SaveVectorOptions options;
   options.driverName = QStringLiteral("GPKG");
   options.layerName = QStringLiteral("features");
   options.fileEncoding = QStringLiteral("UTF-8");
-  return QgsVectorFileWriter::writeAsVectorFormatV3(
+  const bool saved = QgsVectorFileWriter::writeAsVectorFormatV3(
              layer, path, QgsCoordinateTransformContext(), options, error) ==
          QgsVectorFileWriter::NoError;
+  if (!saved) return false;
+  // Identity normalization applies to the new snapshot only. In particular,
+  // exporting a legacy or published layer never modifies its source provider.
+  bool identified = false;
+  {
+    QgsVectorLayer snapshot(path + QStringLiteral("|layername=features"),
+                            QStringLiteral("snapshot"), QStringLiteral("ogr"));
+    identified = MappingFeatureIdentity::ensure(&snapshot, error);
+  }
+  if (!identified) QFile::remove(path);
+  return identified;
 }
 QVariantList constraintGeometries(const QString &path, QString *error) {
   QgsVectorLayer layer(path, QStringLiteral("constraints"),
@@ -172,6 +196,8 @@ bool syncFaciesAttributes(QgsVectorLayer *layer, const QVariantList &facies,
                           QString *error) {
   if (!layer || layer->fields().indexOf("facies_code") < 0)
     return true;
+  if (!MappingFeatureIdentity::ensure(layer, error))
+    return false;
   const bool own = !layer->isEditable();
   if (own && !layer->startEditing()) {
     if (error)

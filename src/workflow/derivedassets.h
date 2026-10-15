@@ -68,8 +68,9 @@ class DerivedAssetRegistrar
     DerivedStaging stage( const QString &assetType, const QString &displayName,
                           const QString &fileName, QString *error = nullptr );
 
-    // 文件已写到 staging.absolutePath 后登记 DERIVED 版本（sha256 现算入库，
-    // 成功后置只读）。文件不存在 → false + error，不登记版本行。
+    // 文件已写到 staging.absolutePath 后登记 DERIVED 版本。先验证指纹/SHA
+    // 与所有父版本，再原子提交资产+版本；失败不留下零版本资产。缺省补齐
+    // paleo_evidence_v1，新版本只读；历史证据从不就地升级/覆盖。
     bool commit(const DerivedStaging &st, const QStringList &parentVersionIds,
                 const QString &sourceUri, const QVariantMap &extra,
                 QString *error = nullptr,

@@ -37,6 +37,12 @@ private slots:
   // 信息必须随 staging 走，跨实例 commit 能结算（constraintfactorjobs_
   // localdirection/_geostat 生产形态）。
   void crossRegistrarCommitSettlesReservation();
+  void invalidAttestationLeavesNoAsset();
+  void missingParentLeavesNoAsset();
+  void externalAttestationCannotBeIgnored();
+  void failedCatalogWriteKeepsNoAsset();
+  void generatedEvidenceUsesActualParentsAndRoles();
+  void computationalInputAndManualRolesRemainDistinct();
 
 private:
   static bool writeBytes(const QString &path, const QByteArray &bytes)
@@ -412,6 +418,93 @@ void TestDerivedAssets::crossRegistrarCommitSettlesReservation()
   DataCatalog reloaded;
   QVERIFY2(reloaded.open(dir.path(), &err), qPrintable(err));
   QCOMPARE(countAssetsOfType(reloaded, QStringLiteral("single_factor_raster")), 1);
+}
+
+void TestDerivedAssets::invalidAttestationLeavesNoAsset() {
+  QTemporaryDir dir; DataCatalog cat; QVERIFY(cat.open(dir.path()));
+  DerivedAssetRegistrar registrar(&cat, dir.path());
+  const auto st = registrar.stage("single_factor_raster", "D61", "factor.tif");
+  QVERIFY(writeBytes(st.absolutePath, "computed"));
+  QString error;
+  const auto fingerprint = DerivedFileFingerprint::read(st.absolutePath, {}, &error);
+  QVERIFY(writeBytes(st.absolutePath, "changed bytes"));
+  QVERIFY(!registrar.commit(st, {}, "idw", {}, &error, &fingerprint));
+  QVERIFY(!error.isEmpty()); QVERIFY(cat.assets().isEmpty()); QVERIFY(cat.versions().isEmpty());
+  DataCatalog reopened; QVERIFY(reopened.open(dir.path())); QVERIFY(reopened.assets().isEmpty());
+}
+void TestDerivedAssets::missingParentLeavesNoAsset() {
+  QTemporaryDir dir; DataCatalog cat; QVERIFY(cat.open(dir.path()));
+  DerivedAssetRegistrar registrar(&cat, dir.path());
+  const auto st = registrar.stage("facies_polygons", "D61", "facies.gpkg");
+  QVERIFY(writeBytes(st.absolutePath, "facies")); QString error;
+  QVERIFY(!registrar.commit(st, {"missing-version"}, "compose", {}, &error));
+  QVERIFY(error.contains("missing-version")); QVERIFY(cat.assets().isEmpty());
+}
+void TestDerivedAssets::externalAttestationCannotBeIgnored() {
+  QTemporaryDir dir; DataCatalog cat; QVERIFY(cat.open(dir.path()));
+  DerivedAssetRegistrar registrar(&cat, dir.path());
+  const auto st = registrar.stage("facies_polygons", "D61", "facies.gpkg");
+  const auto external = dir.filePath("external.gpkg");
+  QVERIFY(writeBytes(external, "computed")); QString error;
+  const auto fingerprint = DerivedFileFingerprint::read(external, {}, &error);
+  QVERIFY(writeBytes(external, "modified external"));
+  QVERIFY(!registrar.commitExternal(st, external, {}, "compose", {}, &error, &fingerprint));
+  QVERIFY(cat.assets().isEmpty()); QVERIFY(!QFileInfo::exists(st.absolutePath));
+}
+void TestDerivedAssets::failedCatalogWriteKeepsNoAsset() {
+  QTemporaryDir dir; DataCatalog cat; QVERIFY(cat.open(dir.path()));
+  DerivedAssetRegistrar registrar(&cat, dir.path());
+  const auto st = registrar.stage("single_factor_raster", "D61", "factor.tif");
+  QVERIFY(writeBytes(st.absolutePath, "computed"));
+  cat.setLockedReadOnly(true); QString error;
+  QVERIFY(!registrar.commit(st, {}, "idw", {}, &error));
+  QVERIFY(cat.assets().isEmpty()); QVERIFY(cat.versions().isEmpty());
+  cat.setLockedReadOnly(false);
+  QVERIFY2(registrar.commit(st, {}, "idw", {}, &error), qPrintable(error));
+  QCOMPARE(cat.assets().size(), 1); QCOMPARE(cat.versions().size(), 1);
+}
+void TestDerivedAssets::generatedEvidenceUsesActualParentsAndRoles() {
+  QTemporaryDir dir; DataCatalog cat; QVERIFY(cat.open(dir.path()));
+  DerivedAssetRegistrar registrar(&cat, dir.path()); QString error;
+  const auto input = registrar.stage("well_factor_points", "D61 wells", "wells.gpkg");
+  QVERIFY(writeBytes(input.absolutePath, "well observations"));
+  const QVariantList rows{QVariantMap{{"well_id", "A"}, {"contributing", true}},
+                          QVariantMap{{"well_id", "B"}, {"contributing", false}, {"reason", "missing value"}}};
+  QVERIFY(registrar.commit(input, {}, "well-extraction", {{"kind", "well_factor_points"}, {"rows", rows}, {"horizon", "D61"}}, &error));
+  const auto output = registrar.stage("single_factor_raster", "D61 factor", "factor.tif");
+  QVERIFY(writeBytes(output.absolutePath, "factor"));
+  const QVariantList refs{QVariantMap{{"version_id", input.versionId}, {"role", "CONTRADICTED_BY"}}};
+  QVERIFY2(registrar.commit(output, {input.versionId}, "idw", {{"interpretation_reference_versions", refs}}, &error), qPrintable(error));
+  const auto evidence = cat.versionById(output.versionId).extra.value("evidence").toMap();
+  QCOMPARE(evidence.value("schema").toString(), QString("paleo_evidence_v1"));
+  const auto parent = evidence.value("inputs").toList().first().toMap();
+  QCOMPARE(parent.value("version_id").toString(), input.versionId);
+  QCOMPARE(parent.value("role").toString(), QString("CONTRADICTED_BY"));
+  QCOMPARE(parent.value("horizon").toString(), QString("D61"));
+  const auto wells = evidence.value("support").toMap().value("wells").toMap();
+  QCOMPARE(wells.value("supporting_wells").toList().size(), 1);
+  QCOMPARE(wells.value("skipped_wells").toList().first().toMap().value("reason").toString(), QString("missing value"));
+}
+
+void TestDerivedAssets::computationalInputAndManualRolesRemainDistinct() {
+  QTemporaryDir dir; DataCatalog cat; QVERIFY(cat.open(dir.path()));
+  DerivedAssetRegistrar registrar(&cat, dir.path()); QString error;
+  const auto source = registrar.stage("seismic_prediction", "source", "source.tif");
+  QVERIFY(writeBytes(source.absolutePath, "source")); QVERIFY(registrar.commit(source, {}, "predict", {}, &error));
+  const auto output = registrar.stage("edited_facies", "edited", "edited.gpkg");
+  QVERIFY(writeBytes(output.absolutePath, "edited"));
+  const QVariantList refs{
+      QVariantMap{{"version_id", source.versionId}, {"role", "SUPPORTED_BY"}, {"tombstone", false}},
+      QVariantMap{{"version_id", source.versionId}, {"role", "CONTRADICTED_BY"}, {"tombstone", false}},
+      QVariantMap{{"version_id", source.versionId}, {"role", "REFERENCES"}, {"tombstone", true}},
+      QVariantMap{{"version_id", source.versionId}, {"role", "SUPPORTED_BY"}, {"tombstone", false}}};
+  QVERIFY2(registrar.commit(output, {source.versionId}, "manual-edit-save",
+      {{"computational_parent_versions", QStringList{source.versionId}}, {"interpretation_reference_versions", refs}}, &error), qPrintable(error));
+  const auto evidence = cat.versionById(output.versionId).extra.value("evidence").toMap();
+  QCOMPARE(evidence.value("inputs").toList().first().toMap().value("role").toString(), QString("DERIVED_FROM"));
+  QCOMPARE(evidence.value("interpretation_references").toList().size(), 3);
+  QCOMPARE(evidence.value("computational_parent_versions").toStringList(), QStringList{source.versionId});
+  QVERIFY(evidence.value("interpretation_references").toList()[2].toMap().value("tombstone").toBool());
 }
 
 QTEST_MAIN(TestDerivedAssets)

@@ -33,6 +33,90 @@ class TestLinkage : public QObject
 {
   Q_OBJECT
 private slots:
+  void typedTargetsKeepLegacySelectionAndRejectOtherHorizon()
+  {
+    SelectionContext context;
+    context.setActiveHorizon(QStringLiteral("D61"));
+    context.setSelection({QStringLiteral("W1")}, QStringLiteral("well"));
+    SelectionTarget target;
+    target.projectId = "project"; target.horizon = "D61";
+    target.layerId = "product.version"; target.featureUid = "stable-feature";
+    QSignalSpy changed(&context, &SelectionContext::targetChanged);
+    QSignalSpy legacy(&context, &SelectionContext::selectionChanged);
+    context.setTarget(target, "map");
+    context.setTarget(target, "graph");
+    QCOMPARE(changed.count(), 1);
+    QCOMPARE(legacy.count(), 0);
+    QCOMPARE(context.selectedIds(), QStringList{"W1"});
+    QCOMPARE(context.targetGeneration(), quint64(1));
+    context.setActiveHorizon("D62");
+    QVERIFY(context.target().isEmpty());
+    QCOMPARE(context.targetGeneration(), quint64(2));
+    context.setTarget(target, "late response");
+    QVERIFY(context.target().isEmpty());
+    QCOMPARE(changed.count(), 2);
+  }
+  void typedTargetsCoalesceLatestAndBoundEcho()
+  {
+    SelectionContext context;
+    int count = 0;
+    const auto connection = connect(&context, &SelectionContext::targetChanged,
+        &context, [&](const SelectionTarget &, const QString &, quint64) {
+      QVERIFY(context.broadcasting());
+      SelectionTarget next; next.evidenceId = QString::number(++count);
+      context.setTarget(next, "echo");
+    });
+    QTest::ignoreMessage(QtWarningMsg,
+        "SelectionContext::setTarget: settle iteration limit reached, dropped runaway pending selection");
+    SelectionTarget target; target.featureUid = "start";
+    context.setTarget(target, "map");
+    QCOMPARE(count, 5);
+    QVERIFY(!context.broadcasting());
+    disconnect(connection);
+    context.clearTarget("close");
+    QVERIFY(context.target().isEmpty());
+  }
+  void horizonAndTargetEchoShareOneBoundedBroadcast()
+  {
+    SelectionContext context;
+    int count = 0;
+    const auto connection = connect(&context, &SelectionContext::activeHorizonChanged,
+        &context, [&](const QString &) {
+      QVERIFY(context.broadcasting());
+      context.setActiveHorizon(QString::number(++count));
+    });
+    QTest::ignoreMessage(QtWarningMsg,
+        "SelectionContext::setActiveHorizon: settle iteration limit reached, dropped runaway pending selection");
+    context.setActiveHorizon("initial"); QCOMPARE(count, 5);
+    QVERIFY(!context.broadcasting()); disconnect(connection);
+    context.setActiveHorizon("D61");
+    SelectionTarget target; target.horizon = "D61"; target.featureUid = "feature";
+    context.setTarget(target, "map");
+    connect(&context, &SelectionContext::targetChanged, &context,
+        [&](const SelectionTarget &changed, const QString &, quint64) {
+      if (changed.isEmpty()) context.setActiveHorizon("D63");
+    });
+    context.setActiveHorizon("D62");
+    QCOMPARE(context.activeHorizon(), QString("D63"));
+    QVERIFY(context.target().isEmpty());
+  }
+  void rebindRestoresBusinessWellSelection()
+  {
+    SelectionContext context;
+    context.setSelection({"W2"}, "graph");
+    WellMapLink link(nullptr, &context);
+    auto *first = new QgsVectorLayer(wellsSource(), "wells", "ogr");
+    QVERIFY(first->isValid());
+    link.setWellLayer(first, "well");
+    QCOMPARE(first->selectedFeatureIds(), QgsFeatureIds{2});
+    delete first;
+    QVERIFY(!link.wellLayer());
+    QgsVectorLayer reloaded(wellsSource(), "wells", "ogr");
+    QSignalSpy changed(&context, &SelectionContext::selectionChanged);
+    link.setWellLayer(&reloaded, "well");
+    QCOMPARE(reloaded.selectedFeatureIds(), QgsFeatureIds{2});
+    QCOMPARE(changed.count(), 0);
+  }
   void initTestCase()
   {
     QVERIFY(QgsApplication::instance() != nullptr);

@@ -4,6 +4,7 @@
 #include "mappingworkbench.h"
 #include "../domain/singlefactorrequest.h"
 #include "../qgis/mappingartifactwriter.h"
+#include "../qgis/mappingfeatureidentity.h"
 #include "../qgis/qgislayerservice.h"
 #include "../qgis/qgisprocessingservice.h"
 #include "../services/jobrunner.h"
@@ -115,6 +116,9 @@ bool MappingWorkbench::computePolygonize(PolygonizeJob &job,
     QgsVectorLayer outputLayer(job.outputPath + "|layername=facies_polygons",
                                "facies", "ogr");
     QString syncErr;
+    if (!MappingFeatureIdentity::ensure(&outputLayer, &syncErr)) {
+      job.error = syncErr; return false;
+    }
     if (!MappingArtifactWriter::syncFaciesAttributes(&outputLayer, job.facies,
                                                      &syncErr)) {
       job.error = syncErr;
@@ -140,6 +144,7 @@ bool MappingWorkbench::commitPolygonize(PolygonizeJob &job, QString *error) {
       record(job.outputPath, job.horizon, "facies_polygons",
              tr("%1 相面").arg(job.title), "vector", {job.parent},
              {{"facies", QVariant(job.facies)},
+              {"computational_parent_versions", QStringList{job.parent}},
               {"method", "paleo:paleo_facies_polygonize"},
               {"mock", job.mock},
               {"source_layer", job.sourceLayerId}},

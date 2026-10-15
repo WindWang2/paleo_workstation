@@ -29,8 +29,12 @@ public:
   void selectEvidenceSource(const QString &id);
   QString horizon() const { return m_horizon; }
   QString selectedLayer() const;
+  void setEvidenceSnapshot(const QVariantMap &snapshot);
 signals:
   void commandRequested(const QString &action, const QVariantMap &parameters);
+  void targetLayerChanged(const QString &layerId);
+  void evidenceActivated(const QVariantMap &evidence);
+  void evidenceGraphRequested(const QVariantMap &snapshot);
 
 protected:
   void showEvent(QShowEvent *event) override;
@@ -39,6 +43,8 @@ private:
   void refreshInputs();
   void scheduleRefresh();
   void updateState();
+  void renderEvidenceSnapshot(const QVariantMap &snapshot);
+  bool nativeSelectionMatchesEvidence() const;
   QStringList checkedInputs() const;
   void issue(const QString &action, QVariantMap parameters = {});
   MappingWorkbench *m_workbench;
@@ -63,6 +69,16 @@ private:
   QComboBox *m_displayLevel = nullptr, *m_editLevel = nullptr, *m_evidenceSource = nullptr;
   QPlainTextEdit *m_evidenceText = nullptr;
   QListWidget *m_evidence = nullptr;
+  QListWidget *m_generationEvidence = nullptr;
+  QComboBox *m_evidenceRole = nullptr, *m_evidenceType = nullptr,
+      *m_reviewState = nullptr, *m_verification = nullptr;
+  QLineEdit *m_evidenceActor = nullptr, *m_evidenceReason = nullptr, *m_sourceFeatureUid = nullptr;
+  QLabel *m_interpretationState = nullptr, *m_quality = nullptr;
+  QPlainTextEdit *m_evidenceHistory = nullptr;
+  QVariantMap m_evidenceSnapshot;
+  bool m_evidenceSnapshotOwned = false;
+  int m_historyPage = 0;
+  QString m_historyTarget;
   QTimer *m_refreshTimer = nullptr;
   bool m_refreshPending = false;
 };

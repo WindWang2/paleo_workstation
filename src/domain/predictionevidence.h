@@ -31,6 +31,9 @@ struct InputRef
   QString sha256;
   QString stage;
   bool mock = false;
+  QString role = QStringLiteral("DERIVED_FROM");
+  QString horizon;
+  bool missing = false;
 };
 
 // 规范化参数（去簿记字段）与其指纹。
@@ -42,4 +45,7 @@ QVariantMap build( const QVector<InputRef> &inputs, const QVariantMap &extra,
 
 // 面向界面的一行摘要（输入数 / 方法 / 参数指纹前 12 位）。
 QString summary( const QVariantMap &evidence );
+// Diagnose a stored chain without rewriting it. Unknown/malformed schema is
+// distinct from a genuinely absent early-project record.
+QVariantList validate(const QVariantMap &evidence);
 } // namespace paleo::evidence

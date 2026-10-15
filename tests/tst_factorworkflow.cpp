@@ -39,6 +39,7 @@
 #include "../src/metadata/layermanifest.h"
 #include "../src/metadata/paleoprojectstore.h"
 #include "../src/qgis/factorcontour.h"
+#include "../src/qgis/mappingartifactwriter.h"
 #include "../src/qgis/factorstylewriter.h"
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/qgis/qgisprocessingservice.h"
@@ -456,6 +457,9 @@ class TestFactorWorkflow : public QObject
       QString points; QVERIFY2(wf.extractWellFactors("T1", "sandratio", params, &err, &points), qPrintable(err));
       QCOMPARE(wf.wellFactorRows().size(), 5);
       QCOMPARE(wf.wellFactorRows()[0].toMap().value("value").toDouble(), 0.2);
+      QCOMPARE(wf.wellFactorRows()[0].toMap().value("horizon").toString(), QString("T1"));
+      QVERIFY(!wf.wellFactorRows()[0].toMap().value("source_record_id").toString().isEmpty());
+      QVERIFY(wf.wellFactorRows()[0].toMap().value("participating").toBool());
       QCOMPARE(wf.wellFactorRows()[1].toMap().value("value").toDouble(), 0.0); // 真零有效
       QVERIFY(wf.wellFactorRows()[3].toMap().value("reason").toString().contains(QStringLiteral("分母为零")));
       QVERIFY(!wf.wellFactorRows()[3].toMap().contains("value")); // 不回落 value=999
@@ -465,6 +469,11 @@ class TestFactorWorkflow : public QObject
         MappingWorkbench work(&f.layers, &f.proc, &f.projectSvc, &wf);
         work.bindCatalog(&f.catalog, f.dir.path());
         const auto version = f.catalog.versions().last();
+        const auto sourceEvidence = version.extra.value("evidence").toMap();
+        QCOMPARE(sourceEvidence.value("schema").toString(), QString("paleo_evidence_v1"));
+        const auto wellSupport = sourceEvidence.value("support").toMap().value("wells").toMap();
+        QCOMPARE(wellSupport.value("supporting_wells").toList().size(), 3);
+        QCOMPARE(wellSupport.value("skipped_wells").toList().size(), 2);
         const QString historical = work.layerForVersion(version.id, &err);
         QVERIFY2(!historical.isEmpty(), qPrintable(err));
         auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(historical, &err));
@@ -493,11 +502,47 @@ class TestFactorWorkflow : public QObject
       QVERIFY2(wf.generateFactor("T1", "sandratio", params, &err), qPrintable(err));
       params.remove("method");
       QVERIFY2(wf.generateFactor("T1", "sandratio", params, &err), qPrintable(err));
+      {
+        const auto factor = f.catalog.versions().last();
+        const auto evidence = factor.extra.value("evidence").toMap();
+        QCOMPARE(evidence.value("schema").toString(), QString("paleo_evidence_v1"));
+        QVERIFY(!evidence.value("inputs").toList().isEmpty());
+        QCOMPARE(evidence.value("support").toMap().value("wells").toMap().value("skipped_wells").toList().size(), 2);
+        QCOMPARE(factor.extra.value("algorithm_parameters").toMap().value("cellSize").toDouble(), 1.0);
+      }
       params.insert("factorMode", "direct"); params.insert("valueField", "sand");
       QVERIFY2(wf.extractWellFactors("T1", "sandthick", params, &err), qPrintable(err));
       QCOMPARE(wf.wellFactorRows()[0].toMap().value("value").toDouble(), 20.0);
       const auto versions = f.catalog.versions();
       QVERIFY(std::any_of(versions.cbegin(), versions.cend(), [](const CatalogVersion &v) { return v.extra.value("extraction").toMap().value("factorMode") == QStringLiteral("ratio"); }));
+    }
+
+    void geostatRecordsOnlyFiniteAdmittedWells() {
+      Fixture f; QVERIFY(initFixture(f)); QString error;
+      const auto path = f.dir.filePath("geostat-wells.geojson");
+      QFile file(path); QVERIFY(file.open(QIODevice::WriteOnly));
+      file.write(R"({"type":"FeatureCollection","crs":{"type":"name","properties":{"name":"EPSG:3857"}},"features":[
+        {"type":"Feature","geometry":{"type":"Point","coordinates":[0,0]},"properties":{"well_id":"A","z":0}},
+        {"type":"Feature","geometry":{"type":"Point","coordinates":[4,0]},"properties":{"well_id":"B","z":2}},
+        {"type":"Feature","geometry":{"type":"Point","coordinates":[0,4]},"properties":{"well_id":"C","z":null}},
+        {"type":"Feature","geometry":{"type":"Point","coordinates":[4,4]},"properties":{"well_id":"D","z":null}}]})");
+      file.close(); QVERIFY(f.layers.declare(decl("wells.T1", "T1", "vector", path), &error));
+      ConstraintWorkflow workflow(&f.proc, &f.layers); workflow.setCatalog(&f.catalog, f.dir.path());
+      QVERIFY2(workflow.generateFactor("T1", "sandthick", {{"method", "kriging"}, {"field", "z"}, {"cellSize", 1.0}}, &error), qPrintable(error));
+      const auto result = f.catalog.versions().last();
+      QCOMPARE(result.extra.value("samples").toInt(), 2);
+      const auto wells = result.extra.value("evidence").toMap().value("support").toMap().value("wells").toMap();
+      const auto used = wells.value("supporting_wells").toList(), skipped = wells.value("skipped_wells").toList();
+      QCOMPARE(used.size(), 2); QCOMPARE(skipped.size(), 2);
+      QCOMPARE(used.first().toMap().value("well_id").toString(), QString("A"));
+      QCOMPARE(used.first().toMap().value("value").toDouble(), 0.0); // real zero remains evidence
+      for (const auto &entry : skipped) {
+        const auto row = entry.toMap();
+        QVERIFY(!row.value("participating").toBool()); QVERIFY(!row.value("reason").toString().isEmpty());
+        QCOMPARE(row.value("horizon").toString(), QString("T1"));
+        QVERIFY(!row.value("source_record_id").toString().isEmpty());
+        QVERIFY(!row.contains("value")); // NULL is never fabricated as zero
+      }
     }
 
     void interpretedSandThicknessAndMissingCoverage() {
@@ -803,6 +848,40 @@ class TestFactorWorkflow : public QObject
 
     // 生成链：井点 → paleo 插值 → declare factor.<h>.<fid> 进 04_SingleFactor
     // + 色带 .qml 落盘 + DERIVED 版本登记。
+    void composePriorityAndParametersAreFrozen() {
+      Fixture f; QVERIFY(initFixture(f)); QString error;
+      ConstraintWorkflow constraints(&f.proc, &f.layers);
+      constraints.setCatalog(&f.catalog, f.dir.path());
+      MappingWorkbench work(&f.layers, &f.proc, &f.projectSvc, &constraints);
+      work.bindCatalog(&f.catalog, f.dir.path());
+      const auto first = f.dir.filePath("first.tif"), second = f.dir.filePath("second.tif");
+      QVERIFY(MappingArtifactWriter::raster(first, {1, 1, 1, 1}, 2, 2, QRectF(0, 0, 2, 2), &error));
+      QVERIFY(MappingArtifactWriter::raster(second, {2, 2, 2, 2}, 2, 2, QRectF(0, 0, 2, 2), &error));
+      QVERIFY(f.layers.declare(decl("prediction.first", "D61", "raster", first), &error));
+      QVERIFY(f.layers.declare(decl("prediction.second", "D61", "raster", second), &error));
+      MappingWorkbench::ComposeJob job;
+      QVERIFY2(work.prepareCompose("D61", {"prediction.second", "prediction.first"}, {{"decision_note", "ordered fixture"}}, job, &error), qPrintable(error));
+      const auto ordered = job.params.value("ordered_inputs").toList();
+      QCOMPARE(ordered.size(), 2);
+      QCOMPARE(ordered[0].toMap().value("layer_id").toString(), QString("prediction.second"));
+      QCOMPARE(ordered[0].toMap().value("version_id").toString(), job.parents[0]);
+      QCOMPARE(ordered[1].toMap().value("priority").toInt(), 2);
+      QVERIFY2(MappingWorkbench::computeCompose(job, {}, {}), qPrintable(job.error));
+      QVERIFY2(work.commitCompose(job, &error), qPrintable(error));
+      const auto version = work.versionForLayer(job.productId);
+      QCOMPARE(version.extra.value("ordered_inputs").toList(), ordered);
+      QCOMPARE(version.extra.value("input_layers").toStringList(), QStringList({"prediction.second", "prediction.first"}));
+      QCOMPARE(version.extra.value("algorithm_parameters").toMap().value("decision_note").toString(), QString("ordered fixture"));
+      QCOMPARE(version.extra.value("evidence").toMap().value("inputs").toList().first().toMap().value("version_id").toString(), job.parents[0]);
+      const QString path = DataCatalog::resolvedVersionPath(f.dir.path(), version);
+      GDALDatasetH raster = GDALOpen(path.toUtf8().constData(), GA_ReadOnly); QVERIFY(raster);
+      int code = 0;
+      const auto read = GDALRasterIO(GDALGetRasterBand(raster, 1), GF_Read, 0, 0, 1, 1, &code, 1, 1, GDT_Int32, 0, 0);
+      GDALClose(raster); QCOMPARE(read, CE_None); QCOMPARE(code, 2);
+      MappingWorkbench::ComposeJob duplicate;
+      QVERIFY(!work.prepareCompose("D61", {"prediction.first", "prediction.first"}, {}, duplicate, &error));
+    }
+
     void generateFactorDeclaresAndStyles()
     {
       Fixture f;

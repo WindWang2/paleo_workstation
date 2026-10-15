@@ -45,6 +45,7 @@ public:
 #include "../src/metadata/paleoprojectstore.h"
 #include "../src/qgis/qgiseditingservice.h"
 #include "../src/qgis/qgisruntime.h"
+#include "../src/qgis/qgisconstrainteditsession.h"
 
 class EditingLineCapture : public PaleoDrawConstraintTool
 {
@@ -120,6 +121,45 @@ class TestConstraintEditing : public QObject
     }
   };
 private slots:
+  void constraintAuditTracksNativeCompensationAndIgnoresSelection() {
+    Fixture f; QVERIFY2(f.open(), qPrintable(f.error)); QVERIFY(f.edits.rollbackEdit(f.layer.get()));
+    const auto original = f.store.load("T1"); const int initialEvents = f.store.history("c-1").size();
+    QStringList failures;
+    QgisConstraintEditSession session(f.layer.get(), &f.project,
+        [&](const QString &reason) { failures << reason; },
+        {"local:sedimentologist", "检查并纠正约束方向", "native-session", {}});
+    QVERIFY2(session.initialize(&f.error), qPrintable(f.error));
+    f.layer->selectAll(); f.layer->removeSelection();
+    QCOMPARE(f.store.history("c-1").size(), initialEvents);
+    QVERIFY(f.move(5)); QCOMPARE(f.store.history("c-1").size(), initialEvents + 1);
+    auto event = f.store.history("c-1").first();
+    QCOMPARE(event.value("actor_id").toString(), QString("local:sedimentologist"));
+    QCOMPARE(event.value("action").toString(), QString("edit"));
+    QCOMPARE(event.value("operation_id").toString(), QString("native-session"));
+    f.layer->undoStack()->undo(); QCOMPARE(f.store.load("T1"), original);
+    QCOMPARE(f.store.history("c-1").first().value("action").toString(), QString("undo"));
+    f.layer->undoStack()->redo(); QVERIFY(f.consistent());
+    QCOMPARE(f.store.history("c-1").first().value("action").toString(), QString("redo"));
+    const auto count = f.store.history("c-1").size();
+    auto geometry = f.feature().geometry(); QVERIFY(geometry.moveVertex(10, 9, 1));
+    f.layer->beginEditCommand("cancelled gesture"); QVERIFY(f.layer->changeGeometry(f.feature().id(), geometry));
+    f.layer->destroyEditCommand(); QVERIFY(f.consistent());
+    QCOMPARE(f.store.history("c-1").size(), count);
+    QVERIFY2(session.finish(false, &f.error), qPrintable(f.error));
+    QCOMPARE(f.store.load("T1"), original);
+    event = f.store.history("c-1").first(); QCOMPARE(event.value("action").toString(), QString("cancel"));
+    QVERIFY(event.value("before").toMap().value("geometry_fingerprint") != event.value("after").toMap().value("geometry_fingerprint"));
+    QVERIFY(failures.isEmpty());
+    f.layer->reload(); QVERIFY(f.consistent());
+  }
+  void constraintAuditRejectionRestoresNativeStateWithoutEvents() {
+    Fixture f; QVERIFY2(f.open(), qPrintable(f.error));
+    const auto original = f.store.load("T1"); const auto events = f.store.history("c-1");
+    f.project.setReadOnly(true); QVERIFY(f.move(8));
+    QCOMPARE(f.store.load("T1"), original); QCOMPARE(f.store.history("c-1"), events); QVERIFY(f.consistent());
+    f.project.setReadOnly(false); QVERIFY(f.edits.rollbackEdit(f.layer.get()));
+    QCOMPARE(f.store.history("c-1"), events);
+  }
   void vertexRoundTripUndoRedoSave()
   {
     Fixture f;

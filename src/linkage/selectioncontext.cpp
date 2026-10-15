@@ -9,7 +9,36 @@
 // selection is absolute state, so the most recent call describes it) and
 // fires once as a coalesced re-broadcast when the outer emission settles.
 
-SelectionContext::SelectionContext(QObject *parent) : QObject(parent) {}
+SelectionContext::SelectionContext(QObject *parent) : QObject(parent) {
+  qRegisterMetaType<SelectionTarget>();
+}
+
+void SelectionContext::setTarget(const SelectionTarget &target, const QString &origin)
+{
+  // A late response for another horizon must not replace the current target.
+  if (!target.horizon.isEmpty() && target.horizon != m_horizon)
+    return;
+  if (m_target == target && !m_targetPending)
+    return; // origins identify producers; they do not change business selection
+  if (m_broadcastDepth > 0) {
+    m_pendingTarget = target;
+    m_pendingTargetOrigin = origin;
+    m_targetPending = true;
+    return;
+  }
+  m_target = target;
+  m_targetOrigin = origin;
+  ++m_targetGeneration;
+  ++m_broadcastDepth;
+  emit targetChanged(m_target, m_targetOrigin, m_targetGeneration);
+  --m_broadcastDepth;
+  settlePending("setTarget");
+}
+
+void SelectionContext::clearTarget(const QString &origin)
+{
+  setTarget({}, origin);
+}
 
 void SelectionContext::setSelection(const QStringList &ids, const QString &origin)
 {
@@ -40,17 +69,38 @@ void SelectionContext::setSelection(const QStringList &ids, const QString &origi
 
 void SelectionContext::setActiveHorizon(const QString &horizon)
 {
-  if (m_horizon == horizon)
+  if (m_horizon == horizon && !m_horizonPending)
     return;
+  if (m_broadcastDepth > 0) {
+    m_pendingHorizon = horizon;
+    m_horizonPending = true;
+    return;
+  }
+  broadcastHorizon(horizon);
+  settlePending("setActiveHorizon");
+}
+
+void SelectionContext::broadcastHorizon(const QString &horizon)
+{
+  if (m_horizon == horizon) return;
   m_horizon = horizon;
+  ++m_broadcastDepth;
+  // Clear spatial targets before exposing the new horizon. Keep legacy wells,
+  // and fold any target/horizon callbacks into the same bounded settle loop.
+  if (!m_target.horizon.isEmpty() && m_target.horizon != horizon) {
+    m_target = {};
+    m_targetOrigin = QStringLiteral("horizon");
+    ++m_targetGeneration;
+    emit targetChanged(m_target, m_targetOrigin, m_targetGeneration);
+  }
+  if (m_targetPending && !m_pendingTarget.horizon.isEmpty() &&
+      m_pendingTarget.horizon != horizon)
+    m_targetPending = false;
 
   // Same depth guard: a slot that calls setSelection() from here coalesces
   // into the pending slot rather than re-entering; it is settled below.
-  ++m_broadcastDepth;
   emit activeHorizonChanged(m_horizon);
   --m_broadcastDepth;
-
-  settlePending("setActiveHorizon");
 }
 
 void SelectionContext::clear(const QString &origin)
@@ -65,21 +115,41 @@ void SelectionContext::settlePending(const char *caller)
   // generation still emits at most one merged payload. Bound at 4 iterations.
   int settleGenerations = 0;
   constexpr int kMaxSettleGenerations = 4;
-  while (m_pending && settleGenerations < kMaxSettleGenerations)
+  while ((m_pending || m_targetPending || m_horizonPending) && settleGenerations < kMaxSettleGenerations)
   {
     ++settleGenerations;
-    m_pending = false;
-    if (m_ids == m_pendingIds && m_origin == m_pendingOrigin)
-      break;
-    m_ids = m_pendingIds;
-    m_origin = m_pendingOrigin;
-    ++m_broadcastDepth;
-    emit selectionChanged(m_ids, m_origin);
-    --m_broadcastDepth;
+    if (m_horizonPending) {
+      m_horizonPending = false;
+      broadcastHorizon(m_pendingHorizon);
+    }
+    if (m_pending) {
+      m_pending = false;
+      if (m_ids != m_pendingIds || m_origin != m_pendingOrigin) {
+        m_ids = m_pendingIds;
+        m_origin = m_pendingOrigin;
+        ++m_broadcastDepth;
+        emit selectionChanged(m_ids, m_origin);
+        --m_broadcastDepth;
+      }
+    }
+    if (m_targetPending) {
+      m_targetPending = false;
+      if ((m_pendingTarget.horizon.isEmpty() || m_pendingTarget.horizon == m_horizon) &&
+          m_target != m_pendingTarget) {
+        m_target = m_pendingTarget;
+        m_targetOrigin = m_pendingTargetOrigin;
+        ++m_targetGeneration;
+        ++m_broadcastDepth;
+        emit targetChanged(m_target, m_targetOrigin, m_targetGeneration);
+        --m_broadcastDepth;
+      }
+    }
   }
-  if (m_pending)
+  if (m_pending || m_targetPending || m_horizonPending)
   {
     qWarning("SelectionContext::%s: settle iteration limit reached, dropped runaway pending selection", caller);
     m_pending = false;
+    m_targetPending = false;
+    m_horizonPending = false;
   }
 }

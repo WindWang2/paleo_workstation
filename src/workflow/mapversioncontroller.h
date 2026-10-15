@@ -3,6 +3,8 @@
 #include <QObject>
 #include <QString>
 #include <QVariantMap>
+#include <QPointer>
+#include <memory>
 
 #include "../metadata/mapversionstore.h"
 
@@ -11,6 +13,7 @@ class QgisEditingService;
 class PaleoProjectStore;
 class ProjectDataFacade;
 class DataCatalog;
+class PaleoTaskService;
 
 // workflow/mapversioncontroller — 「保存版本 / 发布 / Published」的编排
 // （wave/mapping-pipeline 阶段E；PALEO_QGIS_PLAN §41.7 + §1223 最小语义 +
@@ -33,6 +36,15 @@ class MapVersionController : public QObject
 
     void setEditingService( QgisEditingService *editSvc ) { m_editSvc = editSvc; }
     void setProjectStore( PaleoProjectStore *store ) { m_projectStore = store; }
+    void setCatalog(DataCatalog *catalog);
+    ~MapVersionController() override;
+    void setTaskService(PaleoTaskService *tasks);
+    bool startSaveVersion(const QString &horizon, const QVariantMap &provenance, QString *error = nullptr);
+    bool startPublish(const QString &horizon, const QString &residualSummary, QString *error = nullptr);
+    bool snapshotBusy() const;
+    void cancelSnapshot();
+    // 工程关闭：取消在途快照并作废其代次，避免关闭后仍提交到旧工程。
+    void abandonForProjectClose();
 
     MapVersion saveVersion( const QString &horizon, const QVariantMap &provenance,
                             QString *error = nullptr );
@@ -61,10 +73,27 @@ class MapVersionController : public QObject
     static QString stalePublishAdvisory( const DataCatalog *catalog );
 
   signals:
+    void snapshotBusyChanged(bool busy);
+    // Query batches yield to the event loop before the native commit boundary.
+    void snapshotQueryProgress(const QString &horizon, qint64 checked, qint64 total);
+    void snapshotFinished(const QString &horizon, const QString &operation,
+                          bool success, bool cancelled, const QString &error);
     void versionSaved( const QString &horizon, int version );
     void published( const QString &horizon, int version, const QString &snapshotDir );
 
   private:
+    bool captureVersion(const QString &horizon, const QVariantMap &provenance,
+                        QVector<LayerDeclaration> *declarations, QVariantMap *frozen, QString *error,
+                        bool featurePrevalidated = false);
+    struct SavePreparation;
+    void continueSavePreparation(const std::shared_ptr<SavePreparation> &preparation);
+    bool launchSaveSnapshot(const QString &horizon, const QVariantMap &provenance, QString *error);
+    void releaseSnapshotTokens(const QString &horizon);
+    struct AsyncState;
+    std::shared_ptr<AsyncState> m_async;
+    quint64 m_snapshotEpoch = 0;
+    QPointer<PaleoTaskService> m_tasks;
+    QPointer<DataCatalog> m_catalog;
     MapVersionStore *m_store = nullptr;
     QgisLayerService *m_layers = nullptr;
     QgisEditingService *m_editSvc = nullptr;

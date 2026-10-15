@@ -172,7 +172,34 @@ private slots:
   void workerReadsDoNotTouchSqlite();
   void failedBatchFlushRollsBackMemory();
   void openSkipsIdsOfOrphanedManagedDirs();
+  void generationEvidenceIsImmutableAfterRegistration();
 };
+
+void TestDataCatalogSqlite::generationEvidenceIsImmutableAfterRegistration()
+{
+  QTemporaryDir tmp; QVERIFY(tmp.isValid()); QString error;
+  DataCatalog catalog; QVERIFY(catalog.open(tmp.path(), &error));
+  CatalogAsset asset; asset.id = "evidence-asset"; asset.type = "map";
+  QVERIFY(catalog.addAsset(asset, &error));
+  CatalogVersion v; v.id = "evidence-version"; v.assetId = asset.id; v.stage = "DERIVED";
+  v.extra = {{"evidence", QVariantMap{{"schema", "paleo_evidence_v1"}, {"original", 1}}}};
+  QVERIFY(catalog.addVersion(v, &error));
+  const auto seq = catalog.mutationSeq();
+  QVERIFY(!catalog.updateVersionExtra(v.id, "evidence", QVariantMap{{"original", 2}}, &error));
+  QCOMPARE(catalog.mutationSeq(), seq);
+  QVERIFY(!catalog.updateVersionExtra(v.id, QVariantMap{{"evidence", QVariantMap{{"original", 2}}}, {"depthMd", 20.0}}, &error));
+  QCOMPARE(catalog.versionById(v.id).extra, v.extra);
+  QCOMPARE(catalog.mutationSeq(), seq);
+  QVERIFY(catalog.updateVersionExtra(v.id, "evidence", v.extra.value("evidence"), &error));
+  QVERIFY(catalog.updateVersionExtra(v.id, "depthMd", 20.0, &error));
+  DataCatalog reopened; QVERIFY(reopened.open(tmp.path(), &error));
+  QCOMPARE(reopened.versionById(v.id).extra.value("evidence"), v.extra.value("evidence"));
+  QCOMPARE(reopened.versionById(v.id).extra.value("depthMd").toDouble(), 20.0);
+  // Adding provenance to an early version would rewrite its historical facts.
+  CatalogVersion old; old.id = "early-version"; old.assetId = asset.id; old.stage = "RAW"; old.versionNumber = 2;
+  QVERIFY(catalog.addVersion(old, &error));
+  QVERIFY(!catalog.updateVersionExtra(old.id, "evidence", QVariantMap{{"schema", "paleo_evidence_v1"}}, &error));
+}
 
 void TestDataCatalogSqlite::abortJournalAfterKLeavesSqliteBytesIdentical()
 {

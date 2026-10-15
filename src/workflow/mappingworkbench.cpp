@@ -1,8 +1,10 @@
 // 层：功能
 #include "mappingworkbench.h"
+#include "mapversionvalidation_internal.h"
 #include "../algorithms/faciesmapping/formationdominance.h"
 #include "../catalog/purgelease.h"
 #include "../domain/faciescatalog.h"
+#include "../domain/interpretationevidence.h"
 #include "../domain/mappinghorizons.h"
 #include "../domain/singlefactorrequest.h"
 #include "../io/constraintstore.h"
@@ -11,6 +13,7 @@
 #include "../qgis/factorstylewriter.h"
 #include "../qgis/layervocabulary.h"
 #include "../qgis/mappingartifactwriter.h"
+#include "../qgis/mappingfeatureidentity.h"
 #include "../qgis/qgislayerservice.h"
 #include "../qgis/qgisprocessingservice.h"
 #include "../qgis/qgisprojectservice.h"
@@ -36,6 +39,7 @@
 #include <QJsonDocument>
 #include <QRegularExpression>
 #include <QSaveFile>
+#include <QScopeGuard>
 #include <QSet>
 #include <QTemporaryDir>
 #include <QtConcurrent>
@@ -46,6 +50,7 @@
 #include <qgscoordinatereferencesystem.h>
 #include <qgseditorwidgetsetup.h>
 #include <qgsgeometry.h>
+#include <qgsfeaturerequest.h>
 #include <qgsmaplayer.h>
 #include <qgsproject.h>
 #include <qgsrasterlayer.h>
@@ -58,6 +63,63 @@ void fail(QString *error, const QString &text) {
     *error = text;
 }
 QString filePath(const QString &source) { return source.section('|', 0, 0); }
+void rememberNativeFailure(QgsVectorLayer *layer, const QString &target, const QString &error) {
+  auto failures = layer->property("paleo.evidenceEditFailures").toMap();
+  if (error.isEmpty()) failures.remove(target); else failures.insert(target, error);
+  layer->setProperty("paleo.evidenceEditFailures", failures.isEmpty() ? QVariant() : QVariant(failures));
+  const auto reason = failures.isEmpty() ? QString() : failures.cbegin().value().toString();
+  layer->setProperty("paleo.evidenceEditFailure", reason.isEmpty() ? QVariant() : QVariant(reason));
+  layer->setAllowCommit(failures.isEmpty());
+}
+
+bool validWorkingEvidence(QgsVectorLayer *layer, const QString &horizon,
+                          const DataCatalog *catalog, QString *error) {
+  if (MapVersionEvidenceCommitProof::validFor(layer, horizon, catalog)) return true;
+  QSet<QString> identities;
+  QgsFeatureRequest request;
+  QgsAttributeList attributes;
+  for (const auto &field : {MappingFeatureIdentity::UidField, QStringLiteral("facies_evidence"), QStringLiteral("paleo_interpretation")})
+    if (const int index = layer->fields().indexOf(field); index >= 0) attributes << index;
+  request.setSubsetOfAttributes(attributes);
+  request.setFlags(Qgis::FeatureRequestFlag::NoGeometry);
+  auto features = layer->getFeatures(request); QgsFeature feature;
+  while (features.nextFeature(feature)) {
+    const auto identity = MappingFeatureIdentity::uid(feature);
+    if (identity.isEmpty() || identities.contains(identity)) {
+      fail(error, QObject::tr("图元身份缺失或重复，不能提交；请修复工作副本或撤销修改")); return false;
+    }
+    identities.insert(identity);
+    QVariantList records; QVariantMap interpretation;
+    if (layer->fields().indexOf("facies_evidence") >= 0 &&
+        !paleo::evidence::decodeRecords(feature.attribute("facies_evidence").toString(), &records, error)) return false;
+    if (layer->fields().indexOf("paleo_interpretation") >= 0 &&
+        !paleo::evidence::decodeInterpretation(feature.attribute("paleo_interpretation").toString(), &interpretation, error)) return false;
+    if (!interpretation.isEmpty() &&
+        (interpretation.value("feature_uid").toString() != identity ||
+         interpretation.value("horizon").toString() != horizon)) {
+      fail(error, QObject::tr("解释身份或层位与图元不一致，不能提交")); return false;
+    }
+    for (const auto &entry : records) {
+      const auto row = entry.toMap();
+      if (!row.value("feature_uid").toString().isEmpty() && row.value("feature_uid").toString() != identity) {
+        fail(error, QObject::tr("证据关联指向其他图元，不能提交")); return false;
+      }
+      if (catalog && !row.value("unlinked", row.value("tombstone", false)).toBool()) {
+        const auto source = row.value("source_version").toString();
+        if (!source.isEmpty() && catalog->versionById(source).id.isEmpty()) {
+          fail(error, QObject::tr("证据来源版本不存在：%1").arg(source)); return false;
+        }
+      }
+    }
+    const QVariantMap target{{"horizon", horizon}, {"feature_uid", identity}};
+    for (const auto &finding : paleo::evidence::check(records, interpretation, target))
+      if (finding.toMap().value("severity").toString() == QStringLiteral("Blocking")) {
+        fail(error, finding.toMap().value("message").toString()); return false;
+      }
+  }
+  return true;
+}
+
 // uid/isLocalGridCrs/acceptsLocalGrid/wellAttributeUpdates 随所属函数析出至
 // mappingworkbench_{predict,edit}.cpp（同名内部助手，各 TU 私有副本）。
 bool writeJson(const QString &path, const QVariant &value, QString *error) {
@@ -148,6 +210,8 @@ void MappingWorkbench::bindCatalog(DataCatalog *catalog, const QString &dir) {
   m_dir = dir;
   m_versionIndexValid = m_productsValid = false;
   m_aliasVersions.clear(); m_pathVersions.clear(); m_productsCache.clear();
+  for (auto adapter : std::as_const(m_evidenceSpatialAdapters)) delete adapter.data();
+  m_evidenceSpatialAdapters.clear();
   if (m_wellRemote) m_wellRemote->bindCatalog(catalog, dir);
   m_logVersion.clear();
   m_logCache = {};
@@ -243,6 +307,14 @@ QString MappingWorkbench::layerForVersion(const QString &versionId,
                                           QString *error) {
   const auto v =
       m_catalog ? m_catalog->versionById(versionId) : CatalogVersion();
+  if (!v.id.isEmpty() && !v.extra.value("mapping_product").toBool()) {
+    // Reuse an already declared spatial RAW/reference layer whose exact
+    // catalog version matches. Never guess by display name or force an editor.
+    for (const auto &decl : m_layers->declared())
+      if ((decl.type == "vector" || decl.type == "raster") && !decl.layerId.startsWith("draft.") && versionForLayer(decl.layerId).id == v.id)
+        return decl.layerId;
+    fail(error, tr("该来源版本尚未作为空间图层加载；可在数据管理查看或加载原始资料")); return {};
+  }
   if (v.id.isEmpty() || !v.extra.value("mapping_product").toBool() ||
       (v.extra.value("layer_type") != "vector" &&
        v.extra.value("layer_type") != "raster")) {
@@ -541,6 +613,7 @@ QString MappingWorkbench::record(const QString &path, const QString &h,
                                  QString *error, const QString &suffix,
                                  const QString &assetKey,
                                  const DerivedFileFingerprint *fingerprint) {
+  DataCatalog::BatchSave transaction(m_catalog);
   DerivedAssetRegistrar r(m_catalog, m_dir);
   auto st = r.stage(
       kind,
@@ -548,11 +621,31 @@ QString MappingWorkbench::record(const QString &path, const QString &h,
       QStringLiteral("result.%1").arg(QFileInfo(path).suffix()), error);
   if (!st.isValid())
     return {};
+  bool published = false;
+  QString registeredPath = st.absolutePath;
+  const auto cleanup = qScopeGuard([&] {
+    if (!published) {
+      transaction.abort();
+      QFile::setPermissions(registeredPath, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+      QFile::remove(registeredPath);
+    }
+  });
   const auto id = QStringLiteral("product.%1").arg(st.versionId);
   const auto group =
       kind.contains("prediction")   ? QStringLiteral("02_Prediction")
       : kind.contains("constraint") ? PaleoLayerVocabulary::kConstraintsGroup
                                     : QStringLiteral("05_PaleoMap");
+  if (extra.contains("spatial_edit_events")) {
+    auto events = extra.value("spatial_edit_events").toList();
+    for (auto &entry : events) {
+      auto event = entry.toMap();
+      if (event.value("version_id").toString().isEmpty()) {
+        event.insert("version_id", st.versionId); event.insert("after_revision", st.versionNumber);
+        entry = event;
+      }
+    }
+    extra.insert("spatial_edit_events", events);
+  }
   extra.insert("mapping_product", true);
   extra.insert("layer_id", id);
   extra.insert("horizon", h);
@@ -588,15 +681,21 @@ QString MappingWorkbench::record(const QString &path, const QString &h,
       QFile::remove(actual);
     return {};
   }
+  const auto registered = m_catalog->versionById(st.versionId);
+  registeredPath = DataCatalog::resolvedVersionPath(m_dir, registered);
   LayerDeclaration d;
   d.layerId = id;
   d.horizon = h;
   d.type = type;
-  d.source = st.absolutePath + suffix;
+  d.source = registeredPath + suffix;
   d.group = group;
-  d.title = title + tr(" · v%1").arg(st.versionNumber);
-  if (!m_layers->declare(d, error))
+  d.title = title + tr(" · v%1").arg(registered.versionNumber);
+  if (!m_layers->declare(d, error)) return {};
+  if (!transaction.flush(error)) {
+    m_layers->removeDeclaration(id);
     return {};
+  }
+  published = true;
   if (QDir::cleanPath(path).startsWith(
           QDir(m_dir).filePath("artifacts/staging/"))) {
     QFile::remove(path);
@@ -883,6 +982,48 @@ void MappingWorkbench::styleLayer(const QString &id) {
       connect(vector, &QgsVectorLayer::selectionChanged, this,
               [this, id] { emit displayChanged(id); });
     }
+    if (id.startsWith("draft.") && vector->fields().indexOf(MappingFeatureIdentity::UidField) >= 0) {
+      QString identityError;
+      if (auto *observer = MappingFeatureIdentity::Observer::attach(vector, &identityError)) {
+        if (observer->property("paleo.workbenchBinding").value<QObject *>() != this) {
+          observer->setProperty("paleo.workbenchBinding", QVariant::fromValue(static_cast<QObject *>(this)));
+          const QPointer<QgsVectorLayer> safeVector(vector);
+          connect(this, &QObject::destroyed, observer, [observer] {
+            observer->setProperty("paleo.workbenchBinding", QVariant());
+          });
+          connect(observer, &MappingFeatureIdentity::Observer::businessEdit, this,
+                  [this, safeVector, id](qint64 fid, const QString &kind) {
+            if (!safeVector) return;
+            QString error;
+            if (!recordSpatialInterpretationEdit(id, fid, kind, &error)) {
+              rememberNativeFailure(safeVector, "feature:" + QString::number(fid), error);
+              emit errorOccurred(error);
+            } else {
+              // A successful B cannot erase A's failed audit in the same command.
+              rememberNativeFailure(safeVector, "feature:" + QString::number(fid), {});
+            }
+          });
+          connect(observer, &MappingFeatureIdentity::Observer::failed, this,
+                  [this, safeVector](const QString &reason) {
+            if (safeVector) {
+              rememberNativeFailure(safeVector, QStringLiteral("observer"), reason);
+            }
+            emit errorOccurred(reason);
+          });
+          connect(vector, &QgsVectorLayer::afterRollBack, this, [this, safeVector, id] {
+            if (!safeVector) return;
+            QString error;
+            const bool valid = validWorkingEvidence(safeVector, declaration(id).horizon, m_catalog, &error);
+            safeVector->setProperty("paleo.evidenceEditFailures", QVariant());
+            safeVector->setProperty("paleo.evidenceEditFailure", QVariant());
+            if (!valid) rememberNativeFailure(safeVector, QStringLiteral("rollback"), error);
+            else safeVector->setAllowCommit(true);
+          });
+        }
+      } else {
+        vector->setAllowCommit(false); emit errorOccurred(identityError);
+      }
+    }
     if (id.startsWith("draft.") &&
         !vector->property("faciesSyncAttached").toBool()) {
       vector->setProperty("faciesSyncAttached", true);
@@ -904,13 +1045,17 @@ void MappingWorkbench::styleLayer(const QString &id) {
         }
       });
       connect(vector, &QgsVectorLayer::beforeCommitChanges, this,
-              [this, vector, schema = v.extra.value("facies").toList()] {
-                QString error;
-                const bool ok =
+              [this, vector, id, schema = v.extra.value("facies").toList()] {
+                const bool previouslyAllowed = vector->allowCommit();
+                QString error = vector->property("paleo.evidenceEditFailure").toString();
+                const bool ok = previouslyAllowed && error.isEmpty() &&
+                    validWorkingEvidence(vector, declaration(id).horizon, m_catalog, &error) &&
                     FaciesHierarchyRenderer::validateTopology(vector, &error) &&
-                    MappingArtifactWriter::syncFaciesAttributes(vector, schema,
-                                                                &error);
-                vector->setAllowCommit(ok);
+                    MappingArtifactWriter::syncFaciesAttributes(vector, schema, &error) &&
+                    validWorkingEvidence(vector, declaration(id).horizon, m_catalog, &error);
+                // Never override a rejection from an earlier beforeCommit consumer.
+                vector->setAllowCommit(ok && vector->allowCommit());
+                if (!ok && error.isEmpty()) error = tr("图层提交已被证据或图元身份校验拒绝，请修复或撤销修改");
                 if (!ok)
                   emit errorOccurred(error);
               });

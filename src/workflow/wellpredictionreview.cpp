@@ -95,7 +95,9 @@ bool MappingWorkbench::assignFacies(const QString &id, const QList<qint64> &ids,
   layer->beginEditCommand(tr("更改相类别"));
   bool ok = true;
   for (auto fid : ids) {
+    const auto beforeCode = layer->getFeature(fid).attribute("facies_code").toInt();
     ok = setCode(layer, fid, code, schema) && ok;
+    ok = recordInterpretationEdit(id, fid, beforeCode, code, error) && ok;
     if (layer->fields().indexOf("facies_intervals") >= 0) {
       const auto feature = layer->getFeature(fid);
       QVariantMap source;

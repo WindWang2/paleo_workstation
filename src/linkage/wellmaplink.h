@@ -4,6 +4,8 @@
 #include <QPointer>
 #include <QString>
 #include <QStringList>
+#include <QHash>
+#include <qgsfeatureid.h>
 
 class QgsMapCanvas;
 class QgsVectorLayer;
@@ -28,7 +30,11 @@ class WellMapLink : public QObject
 
   private:
     QPointer<QgsMapCanvas> m_canvas;
-    SelectionContext *m_ctx;
+    QPointer<SelectionContext> m_ctx;
     QPointer<QgsVectorLayer> m_layer;
     QString m_idField;
+    QHash<QString, QgsFeatureIds> m_identityIndex;
+    bool m_indexDirty = true, m_restorePending = false;
+    void invalidateIndex();
+    void rebuildIndex();
 };

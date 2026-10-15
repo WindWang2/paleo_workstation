@@ -29,6 +29,7 @@ public:
                      const QString &entityId = QString());
   void refresh();
   void openLineage(const QString &assetId, const QString &versionId);
+  void setFeatureEvidence(const QVariantMap &snapshot, bool open = false);
 signals:
   void assetFocusRequested(const QString &assetId);
   void entityFocusRequested(const QString &entityId);
@@ -38,6 +39,7 @@ signals:
   void wellSelected(const QString &entityId);
   void workspaceRequested(const QString &versionId, const QString &action);
   void taskCenterRequested();
+  void evidenceTargetRequested(const QVariantMap &target);
   void managementRequested(const QString &action, const QString &assetId,
                            const QString &versionId);
 
@@ -67,7 +69,7 @@ private:
   QVector<paleo::datagraph::Query> m_backHistory;
   paleo::datagraph::Query m_queryState;
   bool m_hasQuery = false, m_restoring = false;
-  QPushButton *m_open, *m_locate, *m_folder, *m_trace, *m_cancel, *m_map,
+  QPushButton *m_open, *m_locate, *m_folder, *m_trace, *m_impact, *m_cancel, *m_map,
       *m_reference, *m_wells, *m_related, *m_manage, *m_export;
   QHash<QString, QGraphicsItem *> m_items;
   QVector<QGraphicsItem *> m_edges;
@@ -77,4 +79,8 @@ private:
   QString m_graphMessage;
   paleo::datagraph::Presentation m_presentation;
   bool m_busy = false, m_navigating = false;
+  QVariantMap m_featureEvidence;
+  QComboBox *m_evidenceTypeFilter = nullptr, *m_reviewFilter = nullptr;
+  QSpinBox *m_evidencePage = nullptr;
+  QVariantMap nodeTarget(const paleo::datagraph::Node &node) const;
 };

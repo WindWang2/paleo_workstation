@@ -107,10 +107,9 @@ void diagnoseCycles(Index &index, const Cancel &cancel) {
   }
 }
 bool matches(const Node &n, const Query &q) {
-  // 注：曾试过 buildIndex 预计算小写检索串——10k 查询省 ~20%，但索引
-  // 重建 +6~15% 且 100k 下收益被分组计数吞没（详见任务账本 A/B），按
-  // 「无量化净收益不落地」原则保持即时拼接。
-  return (q.category.isEmpty() || n.categories.contains(q.category)) &&
+  // 即时检索沿用上游量化决定；增加层位过滤不建立重复检索索引。
+  return (q.horizon.isEmpty() || n.horizon.isEmpty() || n.horizon == q.horizon) &&
+         (q.category.isEmpty() || n.categories.contains(q.category)) &&
          (q.stage.isEmpty() || n.stage == q.stage ||
           (q.stage == QLatin1String("NONE") && n.stage.isEmpty())) &&
          (q.search.isEmpty() ||
@@ -305,6 +304,7 @@ std::shared_ptr<const Index> buildIndex(const DataCatalog &cat,
     n.sourceUri = v.sourceUri;
     n.sha256 = v.sha256;
     n.evidence = v.extra.value(QStringLiteral("evidence")).toMap();
+    n.horizon = v.extra.value("horizon").toString();
     if (v.extra.value(QStringLiteral("mapping_product")).toBool() &&
         index->nodes.contains(assetKey(v.assetId))) {
       auto &categories = index->nodes[assetKey(v.assetId)].categories;
@@ -462,8 +462,34 @@ std::shared_ptr<const Index> buildIndex(const DataCatalog &cat,
           parentSet.insert(parent);
         }
       }
-    for (const QString &parent : parents)
-      connectParent(parent, Relation::Derived, text("衍生自"));
+    QHash<QString, QString> inputRoles;
+    for (const auto &input : output.evidence.value("inputs").toList())
+      inputRoles.insert(input.toMap().value("version_id").toString(), input.toMap().value("role").toString());
+    QHash<QString, QVariantList> references;
+    for (const auto &entry : v.extra.value("interpretation_reference_versions").toList())
+      references[entry.toMap().value("version_id").toString()].append(entry);
+    for (const QString &parent : parents) {
+      const auto role = inputRoles.value(parent);
+      if (references.contains(parent)) {
+        QSet<QString> seen;
+        for (const auto &entry : references.value(parent)) {
+          const auto ref = entry.toMap(); const auto r = ref.value("role", "REFERENCES").toString();
+          const auto key = r + (ref.value("tombstone").toBool() ? ":history" : ":active");
+          if (seen.contains(key)) continue; seen.insert(key);
+          const auto relation = r == "SUPPORTED_BY" ? Relation::Supported : r == "CONTRADICTED_BY" ? Relation::Contradicted :
+              r == "CONSTRAINED_BY" ? Relation::Constrained : Relation::References;
+          QString label = r == "SUPPORTED_BY" ? text("支撑解释") : r == "CONTRADICTED_BY" ? text("反驳解释") :
+              r == "CONSTRAINED_BY" ? text("约束解释") : text("解释引用（非计算输入）");
+          if (ref.value("tombstone").toBool()) label += text(" · 历史已解除");
+          connectParent(parent, relation, label);
+        }
+        if (role == "DERIVED_FROM") connectParent(parent, Relation::Derived, text("计算来源"));
+      } else if (role == "CONTRADICTED_BY") connectParent(parent, Relation::Contradicted, text("反驳解释"));
+      else if (role == "SUPPORTED_BY") connectParent(parent, Relation::Supported, text("支撑解释"));
+      else if (role == "CONSTRAINED_BY") connectParent(parent, Relation::Constrained, text("约束解释"));
+      else if (role == "REFERENCES") connectParent(parent, Relation::References, text("解释引用（非计算输入）"));
+      else connectParent(parent, Relation::Derived, text("衍生自"));
+    }
     connectParent(v.extra.value(QStringLiteral("editBaseline")).toString(),
                   Relation::EditBaseline, text("编辑基线"));
     connectParent(v.extra.value(QStringLiteral("rollbackTo")).toString(),
@@ -492,10 +518,16 @@ Graph query(const Index &index, const Query &q, const Cancel &cancel,
             edgeBudget = qBound(20, q.maxEdges, 1200),
             depth = qBound(1, q.depth, 6);
   QHash<QString, int> visible;
+  bool overlay = false;
+  const int localCount = q.featureEvidence.value("records").toList().size() + q.featureEvidence.value("generation_records").toList().size();
+  const bool hasOverlay = q.mode != Mode::Impact && !q.featureEvidence.value("feature_uid").toString().isEmpty() &&
+      (q.horizon.isEmpty() || q.featureEvidence.value("horizon").toString() == q.horizon);
+  const int baseBudget = !hasOverlay ? budget :
+      qMax(1, budget - qMin(budget - 1, 3 + qMin(localCount, 50) * 2));
   const auto add = [&](Node n) {
     if (visible.contains(n.id))
       return true;
-    if (graph.nodes.size() >= budget)
+    if (graph.nodes.size() >= (overlay ? budget : baseBudget))
       return false;
     visible[n.id] = graph.nodes.size();
     graph.nodes.append(n);
@@ -602,7 +634,8 @@ Graph query(const Index &index, const Query &q, const Cancel &cancel,
           }
   } else {
     QString seed = q.focus;
-    if (q.mode == Mode::Lineage && index.nodes.value(seed).kind == Kind::Asset)
+    if (!index.nodes.contains(seed) && !q.featureEvidence.isEmpty()) seed = versionKey(q.featureEvidence.value("version_id").toString());
+    if ((q.mode == Mode::Lineage || q.mode == Mode::Impact) && index.nodes.value(seed).kind == Kind::Asset)
       seed = index.currentVersions.value(index.nodes.value(seed).assetId);
     if (!index.nodes.contains(seed)) {
       graph.message =
@@ -612,10 +645,16 @@ Graph query(const Index &index, const Query &q, const Cancel &cancel,
     Node root = index.nodes[seed];
     root.column = 0;
     add(root);
-    const bool derivedOnly = q.mode == Mode::Lineage;
+    const bool impact = q.mode == Mode::Impact;
+    const bool derivedOnly = q.mode == Mode::Lineage || impact;
+    const int traversalBudget = qBound(512, q.maxTraversalEdges, 20000);
+    const auto traversable = [&](Relation relation) {
+      return lineage(relation) || (impact && (relation == Relation::Supported || relation == Relation::Contradicted ||
+          relation == Relation::Constrained || relation == Relation::References));
+    };
     QSet<QString> hidden;
     // 上下游分别走有向边；不会经共享祖先把同级产物错误显示成下游。
-    for (int direction : derivedOnly ? QList<int>{-1, 1} : QList<int>{-1}) {
+    for (int direction : impact ? QList<int>{1} : derivedOnly ? QList<int>{-1, 1} : QList<int>{-1}) {
       QQueue<QPair<QString, int>> queue;
       QSet<QString> visited;
       queue.enqueue({seed, 0});
@@ -626,22 +665,28 @@ Graph query(const Index &index, const Query &q, const Cancel &cancel,
         const auto [id, distance] = queue.dequeue();
         if (distance >= depth)
           continue;
-        QVector<int> incident =
-            direction < 0 ? index.incoming.value(id) : index.outgoing.value(id);
-        if (!derivedOnly)
-          incident += direction < 0 ? index.outgoing.value(id)
-                                    : index.incoming.value(id);
-        for (int row : incident) {
+        // Implicitly shared adjacency ranges avoid detaching/copying every
+        // edge of a high-degree node before the work budget can be checked.
+        QVector<QVector<int>> incident{direction < 0 ? index.incoming.value(id) : index.outgoing.value(id)};
+        if (!derivedOnly) incident << (direction < 0 ? index.outgoing.value(id) : index.incoming.value(id));
+        for (const auto &range : incident) {
+        for (int row : range) {
           if (stopped(cancel))
             return {};
+          if (++graph.examinedEdges > traversalBudget) { graph.workTruncated = true; break; }
           const Edge &e = index.edges[row];
-          if (derivedOnly && !lineage(e.relation))
+          if (derivedOnly && !traversable(e.relation))
             continue;
           const QString other = e.source == id ? e.target : e.source;
           if (visited.contains(other))
             continue;
           visited.insert(other);
           Node n = index.nodes.value(other);
+          if (impact) {
+            n.dependencyDepth = distance + 1;
+            n.detail += distance == 0 ? text(" · 直接依赖（来源关系，未确定空间影响）") :
+                text(" · 下游潜在影响（未确定空间范围）");
+          }
           if (!derivedOnly &&
               (n.kind == Kind::Version || n.kind == Kind::Activity) &&
               !q.history && !n.current && other != seed)
@@ -659,44 +704,126 @@ Graph query(const Index &index, const Query &q, const Cancel &cancel,
           }
           queue.enqueue({other, distance + 1});
         }
+        if (graph.workTruncated) break;
+        }
+        if (graph.workTruncated) break;
       }
+      if (graph.workTruncated) break;
     }
     graph.hidden = hidden.size();
-    // 收边走可见端点的出边邻接（每条边恰从其源访问一次），再按边行号
-    // 排序回全局序：不再对全工区边表做逐条全量扫描。
+    // Reuse the upstream visible-source adjacency collection and stable row
+    // ordering, bounded for high-degree nodes and semantic downstream queries.
     QVector<int> rows;
+    int edgeWork = 0;
     for (const Node &n : graph.nodes) {
       for (int row : index.outgoing.value(n.id)) {
-        if (stopped(cancel))
-          return {};
+        if (stopped(cancel)) return {};
+        if (++edgeWork > traversalBudget) { graph.workTruncated = true; break; }
         const Edge &e = index.edges[row];
-        if (visible.contains(e.target) &&
-            (!derivedOnly || lineage(e.relation)))
-          rows.append(row);
+        if (visible.contains(e.target) && (!derivedOnly || traversable(e.relation))) rows.append(row);
       }
+      if (edgeWork > traversalBudget) break;
     }
     std::sort(rows.begin(), rows.end());
-    for (int row : rows)
-      edge(index.edges[row]);
-    if (derivedOnly && graph.edges.isEmpty())
+    for (int row : rows) edge(index.edges[row]);
+    if (impact) graph.message = text("来源版本的直接依赖与派生下游；仅表示需要复核的潜在影响，不代表确定的地质空间影响区。");
+    else if (derivedOnly && graph.edges.isEmpty())
       graph.message = text("该版本没有记录来源或下游；不推断未记录的血缘。");
-    else if (derivedOnly && root.kind == Kind::Version &&
+    else if (derivedOnly && !graph.workTruncated && root.kind == Kind::Version &&
              root.stage != QLatin1String("RAW")) {
       bool hasInputs = false;
       for (int row : index.incoming.value(seed)) {
+        if (stopped(cancel)) return {};
+        if (++graph.examinedEdges > traversalBudget) { graph.workTruncated = true; break; }
         const Edge &e = index.edges[row];
         if (e.relation == Relation::Derived || e.relation == Relation::Used)
           hasInputs = true;
         if (e.relation == Relation::Generated)
-          for (int input : index.incoming.value(e.source))
-            if (index.edges[input].relation == Relation::Used)
-              hasInputs = true;
+          for (int input : index.incoming.value(e.source)) {
+            if (stopped(cancel)) return {};
+            if (++graph.examinedEdges > traversalBudget) { graph.workTruncated = true; break; }
+            if (index.edges[input].relation == Relation::Used) { hasInputs = true; break; }
+          }
+        if (hasInputs || graph.workTruncated) break;
       }
-      if (!hasInputs)
+      if (!hasInputs && !graph.workTruncated)
         graph.message =
             text("该版本未登记计算输入；图中仅显示已经记录的关系。");
     }
   }
+  overlay = true;
+  const auto snapshot = q.featureEvidence;
+  const auto featureUid = snapshot.value("feature_uid").toString();
+  if (!featureUid.isEmpty() && q.mode != Mode::Impact && (q.horizon.isEmpty() || snapshot.value("horizon").toString() == q.horizon)) {
+    const auto interpretation = snapshot.value("interpretation").toMap();
+    Node feature;
+    feature.id = "feature:" + snapshot.value("project_id").toString() + ":" + snapshot.value("version_id").toString() + ":" + featureUid;
+    feature.kind = Kind::Feature; feature.title = text("地图图斑 · ") + featureUid.left(12);
+    feature.featureUid = featureUid; feature.horizon = snapshot.value("horizon").toString();
+    feature.versionId = snapshot.value("version_id").toString(); feature.assetId = snapshot.value("asset_id").toString();
+    feature.layerId = snapshot.value("layer_id").toString(); feature.column = 3;
+    feature.reviewState = interpretation.value("status", "Proposed").toString();
+    feature.detail = text("当前图斑解释：%1；来源仅按已登记关系展示").arg(feature.reviewState);
+    add(feature);
+    if (visible.contains(versionKey(feature.versionId))) edge({versionKey(feature.versionId), feature.id, text("空间成果"), Relation::Materializes});
+    if (!snapshot.value("error").toString().isEmpty()) {
+      Node problem = feature; problem.id = "missing-evidence:" + feature.id; problem.kind = Kind::Missing;
+      problem.title = text("图斑证据损坏"); problem.detail = snapshot.value("error").toString(); problem.unresolved = true;
+      if (add(problem)) edge({problem.id, feature.id, text("证据不可读取"), Relation::References, true});
+      ++graph.unresolved;
+    } else {
+    Node i = feature; i.kind = Kind::Interpretation; i.interpretationId = interpretation.value("id").toString();
+    i.id = "interpretation:" + feature.id; i.title = text("地质解释 · ") + i.reviewState; i.column = 2; i.evidence = interpretation;
+    if (depth >= 1 && add(i)) edge({i.id, feature.id, text("呈现为"), Relation::Materializes});
+    Node assertion = i; assertion.kind = Kind::Assertion; assertion.assertionId = interpretation.value("assertion_id").toString();
+    assertion.id = "assertion:" + feature.id; assertion.title = text("相类型判断 · %1").arg(snapshot.value("facies_code").toString()); assertion.column = 1;
+    assertion.evidence.clear();
+    if (depth >= 2 && add(assertion)) edge({assertion.id, i.id, text("形成解释"), Relation::Informs});
+    auto records = snapshot.value("records").toList();
+    records += snapshot.value("spatial_candidates").toList();
+    records += snapshot.value("generation_records").toList();
+    QVector<int> matches;
+    for (int n = 0; n < records.size(); ++n) {
+      if (stopped(cancel)) return {};
+      const auto r = records[n].toMap();
+      if (!r.value("unlinked").toBool() && (q.evidenceType.isEmpty() || q.evidenceType == r.value("type", "reference").toString()) &&
+          (q.reviewState.isEmpty() || q.reviewState == feature.reviewState)) matches << n;
+    }
+    const int offset = qBound(0, q.evidenceOffset, int(matches.size()));
+    const int end = qMin(int(matches.size()), offset + qBound(1, q.evidenceLimit, 100));
+    graph.hidden += qMax(0, int(matches.size()) - (end - offset));
+    for (int row = offset; row < end; ++row) {
+      if (stopped(cancel)) return {};
+      const auto r = records[matches[row]].toMap();
+      if (r.value("unlinked").toBool()) continue;
+      const auto type = r.value("type", "reference").toString();
+      if (depth < 3) { ++graph.hidden; continue; }
+      Node e = feature; e.kind = Kind::Evidence; e.evidenceId = r.value("evidence_id", r.value("id")).toString();
+      if (e.evidenceId.isEmpty()) { ++graph.unresolved; continue; }
+      e.id = "evidence:" + feature.id + ":" + r.value("id", e.evidenceId).toString(); e.evidenceType = type; e.column = 0;
+      e.title = text("证据 · ") + r.value("source_title", r.value("name", r.value("text", type))).toString();
+      e.detail = r.value("text").toString(); e.evidence = r;
+      e.unresolved = r.value("source_missing", r.value("missing")).toBool();
+      const auto role = r.value("role", r.value("relation", "REFERENCES")).toString();
+      Relation relation = role == "SUPPORTED_BY" ? Relation::Supported : role == "CONTRADICTED_BY" ? Relation::Contradicted :
+          role == "CONSTRAINED_BY" ? Relation::Constrained : Relation::References;
+      const auto label = role == "SUPPORTED_BY" ? text("支持") : role == "CONTRADICTED_BY" ? text("反驳") :
+          role == "CONSTRAINED_BY" ? text("约束") : role == "DERIVED_FROM" ? text("生成来源（未推断支持）") : text("参考");
+      if (!add(e)) { ++graph.hidden; continue; }
+      if (visible.contains(assertion.id)) edge({e.id, assertion.id, label, relation, e.unresolved});
+      const auto source = r.value("source_version", r.value("version_id")).toString();
+      if (source.isEmpty() || depth < 4) continue;
+      Node sourceNode = index.nodes.value(versionKey(source));
+      if (sourceNode.id.isEmpty()) { sourceNode.id = versionKey(source); sourceNode.versionId = source; sourceNode.kind = Kind::Missing;
+        sourceNode.title = text("证据来源版本缺失"); sourceNode.unresolved = true; ++graph.missingParents; }
+      sourceNode.column = -1;
+      if (add(sourceNode)) edge({sourceNode.id, e.id, text("来源版本"), Relation::References, sourceNode.unresolved});
+      else ++graph.hidden;
+    }
+    if (graph.hidden) graph.message = text("局部证据图谱已裁剪；可缩小筛选或按证据页继续查询");
+    }
+  }
+  if (graph.workTruncated) graph.message += text(" 查询达到工作量上限，结果为局部子图；请选择邻接节点继续展开或缩小范围。");
   if (stopped(cancel))
     return {};
   report(progress, 75, "计算图谱布局");

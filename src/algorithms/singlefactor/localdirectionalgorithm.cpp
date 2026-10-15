@@ -555,8 +555,9 @@ QVariantMap LocalDirectionIdwAlgorithm::processAlgorithm( const QVariantMap &par
       sample.x = point.x();
       sample.y = point.y();
       bool ok = false;
-      const double z = feature.attribute( fieldIdx ).toDouble( &ok );
-      sample.value = ok ? z : std::numeric_limits<double>::quiet_NaN();
+      const auto value = feature.attribute( fieldIdx );
+      const double z = value.toDouble( &ok );
+      sample.value = !value.isNull() && ok ? z : std::numeric_limits<double>::quiet_NaN();
       sample.componentOverride = -1;
       if ( overrideIdx >= 0 && !feature.attribute( overrideIdx ).isNull() )
       {

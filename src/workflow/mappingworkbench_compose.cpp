@@ -70,6 +70,9 @@ bool MappingWorkbench::prepareCompose(const QString &h, const QStringList &ids,
                                       ComposeJob &job, QString *error) {
   if (!ready(h, error))
     return false;
+  if (QSet<QString>(ids.cbegin(), ids.cend()).size() != ids.size()) {
+    fail(error, tr("编图输入不能重复，请检查优先级列表")); return false;
+  }
   if (ids.isEmpty()) {
     fail(error, tr("请选择编图输入，列表从上到下为优先级"));
     return false;
@@ -80,7 +83,7 @@ bool MappingWorkbench::prepareCompose(const QString &h, const QStringList &ids,
   job.dir = m_dir;
   job.catalog = m_catalog;
   job.facies = facies(h);
-  QVariantList sources;
+  QVariantList sources, orderedInputs;
   QStringList parents;
   QSet<QString> continuous;
   for (const auto &id : ids) {
@@ -96,6 +99,8 @@ bool MappingWorkbench::prepareCompose(const QString &h, const QStringList &ids,
     if (version.isEmpty())
       return false;
     parents << version;
+    orderedInputs << QVariantMap{{"layer_id", id}, {"version_id", version},
+                                {"priority", orderedInputs.size() + 1}};
 
     const auto v = m_catalog->versionById(version);
     const auto inputKind = v.extra.value("kind").toString();
@@ -139,6 +144,9 @@ bool MappingWorkbench::prepareCompose(const QString &h, const QStringList &ids,
     return false;
   }
   job.outputPath = m_dir + "/artifacts/staging/" + uid() + ".tif";
+  job.params.insert("ordered_inputs", orderedInputs);
+  job.params.insert("horizon", h);
+  job.params.insert("crs", DataCatalog::localGridCrsWkt());
   job.sources = sources;
   job.parents = parents;
   job.thresholds = thresholds;
@@ -199,6 +207,10 @@ bool MappingWorkbench::commitCompose(ComposeJob &job, QString *error) {
       {{"method",
         "priority-first-valid; categorical-nearest; threshold-classification"},
        {"input_layers", job.ids},
+       {"computational_parent_versions", job.parents},
+       {"ordered_inputs", job.params.value("ordered_inputs")},
+       {"algorithm_parameters", job.params},
+       {"crs", job.params.value("crs")},
        {"thresholds", job.params.value("thresholds")},
        {"facies", job.facies}},
       error, {}, {}, &job.fingerprint);

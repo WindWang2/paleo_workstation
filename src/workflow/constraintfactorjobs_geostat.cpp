@@ -58,6 +58,7 @@
 #include <qgsrasterlayer.h>
 #include <qgsvectorfilewriter.h> // WS-C：参与井点 samples GPKG 写出
 #include <qgsvectorlayer.h>
+#include <qgsvectordataprovider.h>
 #include <variant>
 
 using namespace paleo::constraint_detail;
@@ -225,6 +226,7 @@ bool ConstraintWorkflow::prepareGeostatJob( const QString &horizon, const QStrin
     return false;
   }
   job->parentPaths << job->wellUri.section( QLatin1Char( '|' ), 0, 0 );
+  job->params.insert("well_input_version_ids", DerivedAssetRegistrar(m_catalog, m_projectDir).parentVersionIdsFor(job->parentPaths));
   if ( method == QLatin1String( "cokriging" ) )
   {
     const QString covariateLayerId = params.value( QStringLiteral( "covariateLayerId" ) ).toString();
@@ -301,20 +303,43 @@ bool ConstraintWorkflow::computeGeostatJobWithService(
     return false;
   }
   std::vector<paleo::geostat::Sample> samples;
+  QVariantList supportingWells, skippedWells;
+  QgsAttributeList fields{fieldIndex};
+  for (const auto &name : {"well_id", "id", "well_name", "name", "paleo_feature_uid"})
+    if (const int index = wells->fields().indexOf(name); index >= 0 && !fields.contains(index)) fields << index;
   QgsFeature feature;
-  QgsFeatureIterator it = wells->getFeatures( QgsFeatureRequest().setSubsetOfAttributes(
-      QgsAttributeList{ fieldIndex } ) );
-  while ( it.nextFeature( feature ) )
-  {
-    const QgsGeometry geometry = feature.geometry();
-    if ( geometry.isNull() || geometry.isEmpty() )
-      continue;
-    const QgsPointXY point = geometry.isMultipart() ? geometry.asMultiPoint().value( 0 ) : geometry.asPoint();
-    const QVariant value = feature.attribute( fieldIndex );
-    const double z = value.toDouble();
-    if ( !std::isfinite( point.x() ) || !std::isfinite( point.y() ) || !std::isfinite( z ) )
-      continue;
-    samples.push_back( paleo::geostat::Sample{ point.x(), point.y(), z } );
+  auto it = wells->getFeatures(QgsFeatureRequest().setSubsetOfAttributes(fields));
+  const auto attribute = [&](const char *preferred, const char *fallback) {
+    const int first = wells->fields().indexOf(preferred), second = wells->fields().indexOf(fallback);
+    return first >= 0 ? feature.attribute(first) : second >= 0 ? feature.attribute(second) : QVariant();
+  };
+  while (it.nextFeature(feature)) {
+    if (cancelled && cancelled()) { job->error = tr("已取消"); return false; }
+    QVariantMap observation{{"well_id", attribute("well_id", "id")},
+        {"name", attribute("well_name", "name")}, {"horizon", job->horizon},
+        {"source_record_id", QString::number(feature.id())}, {"source_uri", job->wellUri},
+        {"source_record_scope", "provider_fid_with_source_version"},
+        {"source_version_ids", job->params.value("well_input_version_ids")}};
+    if (wells->fields().indexOf("paleo_feature_uid") >= 0)
+      observation.insert("source_feature_uid", feature.attribute("paleo_feature_uid"));
+    QString reason;
+    const auto geometry = feature.geometry(); QgsPointXY point;
+    if (geometry.isNull() || geometry.isEmpty()) reason = tr("缺少有效井点坐标");
+    else {
+      point = geometry.isMultipart() ? geometry.asMultiPoint().value(0) : geometry.asPoint();
+      if (!std::isfinite(point.x()) || !std::isfinite(point.y())) reason = tr("井点坐标不是有限数值");
+    }
+    const auto value = feature.attribute(fieldIndex); bool numeric = false;
+    const double z = value.toDouble(&numeric);
+    if (value.isNull() || !numeric || !std::isfinite(z))
+      reason += (reason.isEmpty() ? QString() : QStringLiteral("; ")) + tr("字段 %1 缺失或不是有限数值").arg(job->field);
+    observation.insert("participating", reason.isEmpty());
+    if (!reason.isEmpty()) {
+      observation.insert("reason", reason); skippedWells << observation; continue;
+    }
+    observation.insert("value", z); observation.insert("x", point.x()); observation.insert("y", point.y());
+    supportingWells << observation;
+    samples.push_back(paleo::geostat::Sample{point.x(), point.y(), z});
   }
   if ( samples.empty() )
   {
@@ -340,8 +365,20 @@ bool ConstraintWorkflow::computeGeostatJobWithService(
   // ---- 降级：样本不足阈值 → 约束 IDW，method_actual 如实标注 ----
   if ( static_cast<int>( samples.size() ) < kGeostatMinSamples )
   {
+    // Pass exactly the admitted observations to fallback too; typed NULL can
+    // otherwise become numeric zero again inside a legacy algorithm.
+    QgsVectorLayer admitted("Point", "admitted_geostat_samples", "memory");
+    admitted.setCrs(wells->crs());
+    admitted.dataProvider()->addAttributes({QgsField(job->field, QMetaType::Type::Double)});
+    admitted.updateFields();
+    QgsFeatureList accepted;
+    for (const auto &sample : samples) {
+      QgsFeature point(admitted.fields()); point.setGeometry(QgsGeometry::fromPointXY(QgsPointXY(sample.x, sample.y)));
+      point.setAttribute(0, sample.value); accepted << point;
+    }
+    admitted.dataProvider()->addFeatures(accepted); admitted.updateExtents();
     QVariantMap runParams;
-    runParams.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( static_cast<QgsMapLayer *>( wells.get() ) ) );
+    runParams.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( static_cast<QgsMapLayer *>( &admitted ) ) );
     runParams.insert( QStringLiteral( "FIELD" ), job->field );
     runParams.insert( QStringLiteral( "CELL_SIZE" ), job->cellSize );
     runParams.insert( QStringLiteral( "OUTPUT" ), job->outputPath );
@@ -367,6 +404,7 @@ bool ConstraintWorkflow::computeGeostatJobWithService(
     qc.insert( QStringLiteral( "method" ), job->method );
     qc.insert( QStringLiteral( "method_actual" ), QStringLiteral( "idw" ) );
     qc.insert( QStringLiteral( "samples" ), static_cast<int>( samples.size() ) );
+    qc.insert("supporting_wells", supportingWells); qc.insert("skipped_wells", skippedWells);
     qc.insert( QStringLiteral( "parameters" ), parameters );
     if ( !writeJsonFile( job->qcPath, qc ) )
     {
@@ -779,6 +817,7 @@ bool ConstraintWorkflow::computeGeostatJobWithService(
   qc.insert( QStringLiteral( "method" ), job->method );
   qc.insert( QStringLiteral( "method_actual" ), job->method );
   qc.insert( QStringLiteral( "samples" ), static_cast<int>( samples.size() ) );
+  qc.insert("supporting_wells", supportingWells); qc.insert("skipped_wells", skippedWells);
   qc.insert( QStringLiteral( "auto_fit" ), autoFit );
   qc.insert( QStringLiteral( "model" ), variogramExtra( model, fitR2, fitRmse ) );
   QVariantMap gridNode;
@@ -988,6 +1027,9 @@ bool ConstraintWorkflow::publishGeostatJob( const GeostatJob &job, QString *erro
   extra.insert( QStringLiteral( "method_actual" ), methodActual );
   extra.insert( QStringLiteral( "algorithm_id" ), algorithmId );
   extra.insert( QStringLiteral( "samples" ), qc.value( QStringLiteral( "samples" ) ) );
+  extra.insert("supporting_wells", qc.value("supporting_wells"));
+  extra.insert("skipped_wells", qc.value("skipped_wells"));
+  extra.insert("participation_scope", QStringLiteral("accepted_geostat_observations; neighbourhood_per_cell"));
   extra.insert( QStringLiteral( "variogram" ), qc.value( QStringLiteral( "model" ) ) );
   if ( qc.contains( QStringLiteral( "sgs" ) ) )
     extra.insert( QStringLiteral( "sgs" ), qc.value( QStringLiteral( "sgs" ) ) );

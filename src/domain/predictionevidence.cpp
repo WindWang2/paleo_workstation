@@ -24,7 +24,10 @@ const QSet<QString> &bookkeeping()
     QStringLiteral( "source_suffix" ), QStringLiteral( "evidence" ),
     QStringLiteral( "facies" ), QStringLiteral( "request_id" ),
     QStringLiteral( "manifest_layer_id" ), QStringLiteral( "display_mode" ),
-    QStringLiteral( "label_mode" ) };
+    QStringLiteral( "label_mode" ), QStringLiteral("interpretation_reference_versions"),
+    QStringLiteral("feature_summary"), QStringLiteral("quality_findings"),
+    QStringLiteral("operation_id"), QStringLiteral("actor_id"),
+    QStringLiteral("interpretation_events"), QStringLiteral("feature_identity") };
   return keys;
 }
 QVariant pick( const QVariantMap &extra, std::initializer_list<const char *> keys )
@@ -65,6 +68,7 @@ QVariantMap build( const QVector<InputRef> &inputs, const QVariantMap &extra,
 {
   QVariantList inputList;
   QVariantList seismic;
+  QVariantList records;
   for ( const InputRef &in : inputs )
   {
     QVariantMap m{ { QStringLiteral( "version_id" ), in.versionId },
@@ -75,8 +79,26 @@ QVariantMap build( const QVector<InputRef> &inputs, const QVariantMap &extra,
                    { QStringLiteral( "version_number" ), in.versionNumber },
                    { QStringLiteral( "sha256" ), in.sha256 },
                    { QStringLiteral( "stage" ), in.stage },
-                   { QStringLiteral( "mock" ), in.mock } };
+                   { QStringLiteral( "mock" ), in.mock },
+                   { QStringLiteral("role"), in.role },
+                   { QStringLiteral("horizon"), in.horizon },
+                   { QStringLiteral("missing"), in.missing } };
     inputList << m;
+    auto record = m;
+    const QString stableId = QStringLiteral("source:") + fingerprint(QVariantList{in.assetId, in.versionId});
+    record.insert("id", stableId);
+    record.insert("evidence_id", stableId);
+    record.insert("source_version", in.versionId);
+    record.insert("source_asset", in.assetId);
+    record.insert("relation", in.role);
+    record.insert("origin", "computed_input");
+    QString type = QStringLiteral("reference");
+    if (in.assetType.contains("well") || in.assetType == "core" || in.assetType == "interpretation") type = "well";
+    else if (in.assetType.contains("seismic") || in.kind.contains("seismic")) type = "seismic";
+    else if (in.kind.contains("factor") || in.assetType.contains("factor")) type = "single_factor";
+    else if (in.kind.contains("constraint") || in.assetType.contains("constraint")) type = "constraint";
+    record.insert("type", type);
+    records << record;
     if ( in.assetType.contains( QLatin1String( "seismic" ) ) || in.kind.contains( QLatin1String( "seismic" ) ) ||
          in.assetType == QLatin1String( "horizon" ) )
       seismic << m;
@@ -116,6 +138,8 @@ QVariantMap build( const QVector<InputRef> &inputs, const QVariantMap &extra,
                    { QStringLiteral( "parameter_hash" ), fingerprint( params ) },
                    { QStringLiteral( "support" ), support },
                    { QStringLiteral( "software" ), software } };
+  out.insert("extension_version", 1);
+  out.insert("records", records);
   if ( extra.contains( QStringLiteral( "facies" ) ) )
     out.insert( QStringLiteral( "facies_schema_hash" ), fingerprint( extra.value( QStringLiteral( "facies" ) ) ) );
   return out;
@@ -125,6 +149,10 @@ QString summary( const QVariantMap &evidence )
 {
   if ( evidence.isEmpty() )
     return tr( "无证据链记录（早期版本）" );
+  const auto findings = validate(evidence);
+  for (const auto &finding : findings)
+    if (finding.toMap().value("severity").toString() == "Blocking")
+      return tr("证据链无法验证：%1").arg(finding.toMap().value("message").toString());
   const QVariantMap model = evidence.value( QStringLiteral( "model" ) ).toMap();
   const QVariantMap wells = evidence.value( QStringLiteral( "support" ) ).toMap().value( QStringLiteral( "wells" ) ).toMap();
   QString text = tr( "输入 %1 个版本 · 方法 %2 · 参数指纹 %3" )
@@ -137,5 +165,30 @@ QString summary( const QVariantMap &evidence )
   if ( wells.contains( QStringLiteral( "supporting_wells" ) ) )
     text += tr( " · 支撑井 %1 口" ).arg( wells.value( QStringLiteral( "supporting_wells" ) ).toList().size() );
   return text;
+}
+QVariantList validate(const QVariantMap &evidence) {
+  QVariantList findings;
+  if (evidence.isEmpty()) return findings;
+  auto add = [&](const QString &severity, const QString &code, const QString &message, const QString &version = {}) {
+    findings << QVariantMap{{"severity", severity}, {"code", code}, {"message", message}, {"source_version", version}};
+  };
+  if (evidence.value("schema").toString() != "paleo_evidence_v1") {
+    add("Blocking", "unknown_schema", tr("未知或损坏的证据 schema")); return findings;
+  }
+  if (evidence.value("inputs").typeId() != QMetaType::QVariantList || evidence.value("parameters").typeId() != QMetaType::QVariantMap ||
+      evidence.value("model").typeId() != QMetaType::QVariantMap) {
+    add("Blocking", "invalid_structure", tr("来源、参数或模型记录格式无效")); return findings;
+  }
+  QSet<QString> ids;
+  for (const auto &input : evidence.value("inputs").toList()) {
+    const auto row = input.toMap(); const auto version = row.value("version_id").toString();
+    if (input.typeId() != QMetaType::QVariantMap || version.isEmpty() || ids.contains(version))
+      add("Blocking", "invalid_source_identity", tr("来源版本身份缺失或重复"), version);
+    ids.insert(version);
+    if (row.value("missing").toBool()) add("Blocking", "missing_source", tr("来源版本缺失，保留原引用供追溯"), version);
+  }
+  if (evidence.value("parameter_hash").toString() != fingerprint(evidence.value("parameters")))
+    add("Blocking", "parameter_fingerprint", tr("参数与保存的指纹不一致"));
+  return findings;
 }
 } // namespace paleo::evidence

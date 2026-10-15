@@ -26,6 +26,8 @@
 #include "constraintimport.h"
 #include "derivedassets.h"
 #include "evidencerecord.h"
+#include "../domain/interpretationevidence.h"
+#include "../qgis/mappingfeatureidentity.h"
 #include "services/projectdata.h"
 #include "services/seismichorizoncluster.h"
 #include "wellpredictionservice.h"
@@ -127,6 +129,7 @@ QString MappingWorkbench::copyForEditing(const QString &id,
     return {};
   }
   QStringList parents;
+  QVariantList referenceVersions;
   auto parent = ensureInputVersion(id, error);
   if (parent.isEmpty())
     return {};
@@ -136,6 +139,7 @@ QString MappingWorkbench::copyForEditing(const QString &id,
     if (version.isEmpty())
       return {};
     parents << version;
+    referenceVersions << QVariantMap{{"version_id", version}, {"role", "REFERENCES"}, {"tombstone", false}};
   }
   const auto draft = QStringLiteral("draft.%1").arg(uid());
   const auto relative =
@@ -147,6 +151,7 @@ QString MappingWorkbench::copyForEditing(const QString &id,
   const auto source = m_catalog->versionById(parent);
   {
     QgsVectorLayer copy(path + "|layername=features", "copy", "ogr");
+    if (!MappingFeatureIdentity::ensure(&copy, error)) return {};
     if (!MappingArtifactWriter::syncFaciesAttributes(
             &copy, source.extra.value("facies", facies(d.horizon)).toList(),
             error))
@@ -154,6 +159,8 @@ QString MappingWorkbench::copyForEditing(const QString &id,
   }
   const QVariantMap extra{
       {"draft_id", draft},
+      {"computational_parent_versions", QStringList{parent}},
+      {"interpretation_reference_versions", referenceVersions},
       {"working_path", relative},
       {"facies", source.extra.value("facies", facies(d.horizon))},
       {"reference_layers", references},
@@ -196,6 +203,7 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
     fail(error, tr("请先点击“保存编辑”提交当前编辑，再保存图件版本"));
     return false;
   }
+  if (!MappingFeatureIdentity::ensure(layer, error)) return false;
   if (!FaciesHierarchyRenderer::validateTopology(layer, error))
     return false;
   const auto previous = versionForLayer(id);
@@ -217,29 +225,137 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
       return false;
     }
   }
+  auto *observer = MappingFeatureIdentity::Observer::of(layer);
+  const auto spatialChanges = observer ? observer->changes() : QVariantList{};
   if (!MappingArtifactWriter::syncFaciesAttributes(
           layer, previous.extra.value("facies").toList(), error))
     return false;
   auto extra = previous.extra;
+  extra.remove(QStringLiteral("evidence")); // rebuild this generation; historical versions stay frozen
   extra.insert("method", "manual-edit-save");
   extra.insert("display_mode", displayMode(id));
   extra.insert("hierarchy_model", "shared-polygon-partition-v1");
   QStringList evidenceParents{previous.id};
-  auto evidenceFeatures = layer->getFeatures();
-  QgsFeature evidenceFeature;
+  QSet<QString> parentIds{previous.id}, referenceKeys;
+  QVariantList referenceVersions;
+  const auto rememberReference = [&](const QString &source, const QVariant &roleValue, bool tombstone) {
+    if (!parentIds.contains(source)) { parentIds.insert(source); evidenceParents << source; }
+    const QString role = roleValue.toString();
+    const QString key = source + QChar(0x1f) + role + QChar(0x1f) + QString::number(tombstone);
+    if (!referenceKeys.contains(key)) {
+      referenceKeys.insert(key);
+      referenceVersions << QVariantMap{{"version_id", source}, {"role", role}, {"tombstone", tombstone}};
+    }
+  };
+  QHash<QString, int> qualityCounts;
+  QHash<QString, int> stateCounts;
+  qint64 evidenceCount = 0;
+  auto evidenceFeatures = layer->getFeatures(); QgsFeature evidenceFeature;
   while (evidenceFeatures.nextFeature(evidenceFeature)) {
-    if (layer->fields().indexOf("facies_evidence") < 0)
-      break;
-    for (const auto &entry :
-         QJsonDocument::fromJson(
-             evidenceFeature.attribute("facies_evidence").toString().toUtf8())
-             .toVariant()
-             .toList()) {
-      const auto source = entry.toMap().value("source_version").toString();
-      if (!source.isEmpty() && !evidenceParents.contains(source))
-        evidenceParents << source;
+    QVariantList records; QVariantMap interpretation;
+    if (layer->fields().indexOf("facies_evidence") >= 0 &&
+        !paleo::evidence::decodeRecords(evidenceFeature.attribute("facies_evidence").toString(), &records, error)) return false;
+    if (layer->fields().indexOf("paleo_interpretation") >= 0 &&
+        !paleo::evidence::decodeInterpretation(evidenceFeature.attribute("paleo_interpretation").toString(), &interpretation, error)) return false;
+    if (!interpretation.isEmpty() &&
+        (interpretation.value("feature_uid").toString() != MappingFeatureIdentity::uid(evidenceFeature) ||
+         interpretation.value("horizon").toString() != d.horizon)) {
+      fail(error, tr("解释身份或层位与当前图斑不一致，请先复核")); return false;
+    }
+    ++stateCounts[interpretation.value("status", "Proposed").toString()];
+    const QVariantMap target{{"feature_uid", MappingFeatureIdentity::uid(evidenceFeature)},
+                            {"horizon", d.horizon},
+                            {"geometry_hash", MappingFeatureIdentity::geometryFingerprint(evidenceFeature)}};
+    for (const auto &finding : paleo::evidence::check(records, interpretation, target)) {
+      const auto severity = finding.toMap().value("severity").toString();
+      ++qualityCounts[severity];
+      if (severity == "Blocking") {
+        fail(error, finding.toMap().value("message").toString()); return false;
+      }
+    }
+    evidenceCount += records.size();
+    for (const auto &entry : records) {
+      const auto row = entry.toMap();
+      const auto source = row.value("source_version").toString();
+      if (source.isEmpty()) continue;
+      if (m_catalog->versionById(source).id.isEmpty()) {
+        fail(error, tr("证据引用的来源版本缺失：%1").arg(source)); return false;
+      }
+      rememberReference(source, row.value("role", "REFERENCES"),
+                        row.value("unlinked", row.value("tombstone", false)).toBool());
     }
   }
+  QVariantList spatialEvents = previous.extra.value("spatial_edit_events").toList();
+  if (observer) {
+    const auto operation = uid();
+    const QString actor = localOperator();
+    for (const auto &change : spatialChanges) {
+      auto event = change.toMap();
+      QVariantList previousEvidence;
+      if (!paleo::evidence::decodeRecords(event.value("before_evidence").toString(), &previousEvidence, error)) return false;
+      for (const auto &entry : previousEvidence) {
+        const auto row = entry.toMap(); const auto source = row.value("source_version").toString();
+        if (source.isEmpty()) continue;
+        if (m_catalog->versionById(source).id.isEmpty()) {
+          fail(error, tr("已编辑或删除图斑的历史来源版本缺失：%1").arg(source)); return false;
+        }
+        rememberReference(source, row.value("role", "REFERENCES"), event.value("deleted", false).toBool());
+      }
+      if (event.contains("before_interpretation")) {
+        QVariantMap beforeInterpretation;
+        const auto serialized = event.value("before_interpretation");
+        if (serialized.typeId() == QMetaType::QVariantMap) {
+          beforeInterpretation = serialized.toMap();
+          if (!paleo::evidence::validateInterpretation(beforeInterpretation, error)) return false;
+        } else if (!paleo::evidence::decodeInterpretation(serialized.toString(), &beforeInterpretation, error)) return false;
+        // A removed/merged feature can hold newer unsaved audit records than its
+        // last version. Preserve all referenced sources from that captured journal.
+        QVector<QVariant> pending{beforeInterpretation};
+        int visited = 0;
+        while (!pending.isEmpty()) {
+          if (++visited > 100000) {
+            fail(error, tr("历史解释引用超过安全读取范围，请先整理并保存独立版本")); return false;
+          }
+          const auto value = pending.takeLast();
+          if (value.typeId() == QMetaType::QVariantMap) {
+            const auto object = value.toMap();
+            const auto source = object.value("source_version").toString();
+            if (!source.isEmpty()) {
+              if (m_catalog->versionById(source).id.isEmpty()) {
+                fail(error, tr("已删除图斑解释历史的来源版本缺失：%1").arg(source)); return false;
+              }
+              rememberReference(source, object.value("role", "REFERENCES"), true);
+            }
+            for (auto it = object.cbegin(); it != object.cend(); ++it)
+              if (it.value().typeId() == QMetaType::QVariantMap || it.value().typeId() == QMetaType::QVariantList)
+                pending << it.value();
+          } else if (value.typeId() == QMetaType::QVariantList) {
+            for (const auto &item : value.toList()) pending << item;
+          }
+        }
+      }
+      event.insert("event_id", uid()); event.insert("operation_id", operation);
+      event.insert("actor_id", actor); event.insert("reason", tr("保存原生地图几何编辑；空间关联需重新复核"));
+      event.insert("timestamp", QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs));
+      event.insert("target_object_id", event.value("before_uid").toString().isEmpty()
+                       ? event.value("after_uid") : event.value("before_uid"));
+      event.insert("target_object_type", "MapFeature");
+      event.insert("action", event.value("deleted").toBool() ? "delete_geometry" : "revise_geometry");
+      event.insert("before_version_id", previous.id);
+      event.insert("before_revision", previous.versionNumber);
+      spatialEvents << event;
+    }
+  }
+  extra.insert("spatial_edit_events", spatialEvents);
+  extra.insert("computational_parent_versions", QStringList{previous.id});
+  extra.insert("interpretation_reference_versions", referenceVersions);
+  QVariantMap states, severities;
+  for (auto it = stateCounts.cbegin(); it != stateCounts.cend(); ++it) states.insert(it.key(), it.value());
+  for (auto it = qualityCounts.cbegin(); it != qualityCounts.cend(); ++it) severities.insert(it.key(), it.value());
+  extra.insert("feature_summary", QVariantMap{{"feature_count", layer->featureCount()},
+                                              {"evidence_count", evidenceCount}, {"statuses", states},
+                                              {"quality_counts", severities}});
+  extra.insert("feature_identity", QStringLiteral("paleo_feature_uid"));
   if (layer->fields().indexOf("facies_intervals") >= 0) {
     for (const auto &id : {WellAttributeStore::intervalLayerId(), WellAttributeStore::formationLayerId()}) {
       auto *attributes = qobject_cast<QgsVectorLayer *>(m_layers->layer(id));
@@ -254,6 +370,7 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
              previous.extra.value("title").toString(), "vector",
              evidenceParents, extra, error, "|layername=features", id);
   if (!output.isEmpty()) {
+    if (observer) observer->acknowledge();
     styleLayer(id);
     if (layer->fields().indexOf("facies_intervals") >= 0) {
       QVariantList points;
@@ -453,6 +570,11 @@ QString MappingWorkbench::snapshotConstraints(const QString &h,
   const auto path = m_dir + "/artifacts/staging/" + uid() + ".gpkg";
   if (!MappingArtifactWriter::vectorSnapshot(&layer, path, error))
     return {};
+  int auditEvents = 0;
+  if (!store->copyAudit(path, h, error, &auditEvents)) {
+    QFile::remove(path);
+    return {};
+  }
   QStringList upstream = parents;
   const auto old =
       m_constraints
@@ -461,9 +583,12 @@ QString MappingWorkbench::snapshotConstraints(const QString &h,
   if (!old.isEmpty())
     upstream
         << DerivedAssetRegistrar(m_catalog, m_dir).parentVersionIdsFor({old});
+  QVariantMap snapshotExtra{{"method", "constraint-snapshot"}};
+  if (auditEvents > 0)
+    snapshotExtra.insert(QStringLiteral("constraint_audit_events"), auditEvents);
   const auto id =
       record(path, h, "constraint_snapshot", tr("%1 约束过程").arg(h), "vector",
-             upstream, {{"method", "constraint-snapshot"}}, error,
+             upstream, snapshotExtra, error,
              "|layername=features");
   if (!id.isEmpty())
     m_constraints->setProperty(
@@ -501,11 +626,14 @@ bool MappingWorkbench::publishConstraintImport(
     const QString &h, const QString &input, const QString &path,
     const QVector<paleo::ImportedConstraintRecord> &records, QString *error,
     const DerivedFileFingerprint *fingerprint) {
+  const QByteArray snapshotKey = ("paleo.constraint.snapshot." + h).toUtf8();
+  const auto previousSnapshot = m_constraints->property(snapshotKey.constData());
+  DataCatalog::BatchSave transaction(m_catalog);
   const auto inputId = record(input, h, "constraint_source", tr("%1 导入约束").arg(h), "vector", {},
                               {{"source_file", path}, {"method", "constraint-import"}}, error,
                               "|layername=features", {}, fingerprint);
-  if (inputId.isEmpty())
-    return false;
+  if (inputId.isEmpty()) { transaction.abort(); return false; }
+  const auto source = versionForLayer(inputId);
   QSignalBlocker workflowSignals(m_constraints);
   QSignalBlocker layerSignals(m_layers);
   QStringList created;
@@ -519,14 +647,29 @@ bool MappingWorkbench::publishConstraintImport(
     }
     created << cid;
   }
-  if (!ok) {
+  const auto rollback = [&] {
     if (auto *store = m_constraints->constraintStore())
-      for (const auto &cid : created)
-        store->remove(cid);
+      for (const auto &cid : created) store->remove(cid);
+    transaction.abort();
+    m_constraints->setProperty(snapshotKey.constData(), previousSnapshot);
+    m_layers->removeDeclaration(inputId);
+    const auto sourcePath = DataCatalog::resolvedVersionPath(m_dir, source);
+    QFile::setPermissions(sourcePath, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+    QFile::remove(sourcePath);
     m_constraints->loadConstraints(h);
-    return false;
+  };
+  if (!ok) { rollback(); return false; }
+  const auto snapshot = snapshotConstraints(h, {source.id}, error);
+  if (snapshot.isEmpty()) { rollback(); return false; }
+  const auto snapshotVersion = versionForLayer(snapshot);
+  if (!transaction.flush(error)) {
+    m_layers->removeDeclaration(snapshot);
+    const auto snapshotPath = DataCatalog::resolvedVersionPath(m_dir, snapshotVersion);
+    QFile::setPermissions(snapshotPath, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+    QFile::remove(snapshotPath);
+    rollback(); return false;
   }
-  const bool saved = !snapshotConstraints(h, {versionForLayer(inputId).id}, error).isEmpty();
+  const bool saved = true;
   layerSignals.unblock();
   workflowSignals.unblock();
   emit m_layers->layerDeclared(QStringLiteral("constraints.%1").arg(h));

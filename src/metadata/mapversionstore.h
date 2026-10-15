@@ -5,6 +5,7 @@
 #include <QVector>
 
 #include "layermanifest.h"
+#include "mapsnapshot.h"
 
 // metadata/mapversionstore — 阶段E 版本状态机的落表（wave/mapping-pipeline；
 // PROJECT_AREA_PLAN 阶段E §177/§245/§260）。
@@ -39,9 +40,14 @@ struct MapVersion {
 class MapVersionStore
 {
   public:
+    // Test-only crash point. Called after the publication directory is renamed
+    // and the publish_renamed journal entry is durable, before the SQL update.
+    using PublicationProbe = void (*)();
+
     explicit MapVersionStore(const QString &metaSqlitePath);
 
-    bool open(QString *error = nullptr);          // 建表/补列（幂等）
+    bool open(QString *error = nullptr);          // 建表/补列（幂等）；可写时补登记中断的发布
+    void setPublicationRenameProbe(PublicationProbe probe) { m_renameProbe = probe; }
 
     // 单写实例降级（T4/SCHEMA_MIGRATION.md §6）：锁失败 = 真只读——
     // saveVersion/recordLayoutProduct 等写面如实失败，读面照常。值语义：
@@ -57,7 +63,8 @@ class MapVersionStore
     // PDF 产物引用（asset_id + sha256）抄进新的未发布行——导出不改已冻结的
     // 版本行，下一次保存才继承产物引用（§260）。
     MapVersion saveVersion(const QString &horizon, const QString &provenanceJson,
-                           QString *error = nullptr);
+                           QString *error = nullptr,
+                           const QVector<LayerDeclaration> &layers = {});
 
     // 发布门产物登记：记录该层位导出的 PDF —— 文件路径 + catalog OUTPUT
     // 资产 id + 文件 SHA-256（注册在 mapexport.cpp 的 registerMapPdfAsset，
@@ -88,14 +95,32 @@ class MapVersionStore
     // （发布只读这一行）、且 residualSummary 完整（每口井都有残差或原因；
     // 空串/非完整 JSON → 拒绝并写明缺几口井）。把 decls 中该层位的文件图层
     // 与绑定的 PDF 快照到 <工程目录>/result/<horizon>/v<N>/ 并置只读，
+    // 新版使用 saveVersion 冻结的文件与证据，验证全部摘要；旧行保留兼容
+    // 读取。临时目录完整后原子落位，失败清理，不回写已发布成果。
     // 最新版本标 Published、记录快照路径与残差摘要。返回快照目录。
     QString publish(const QString &horizon, const QVector<LayerDeclaration> &decls,
                     const QString &residualSummary, QString *error = nullptr);
+
+    // Three-stage snapshot contract: capture/commit run on the SQL owner thread;
+    // prepareMapSnapshot performs cancellable file work using value inputs only.
+    QString projectDirectory() const;
+    MapSnapshotInput snapshotInputForSave(const QString &horizon, const QString &provenanceJson,
+                                         const QVector<LayerDeclaration> &layers, QString *error = nullptr);
+    MapSnapshotInput snapshotInputForPublish(const QString &horizon, const QVector<LayerDeclaration> &layers,
+                                            const QString &residualSummary, QString *error = nullptr);
+    MapVersion commitPreparedVersion(PreparedMapSnapshot &snapshot, QString *error = nullptr);
+    QString commitPreparedPublication(PreparedMapSnapshot &snapshot, QString *error = nullptr);
 
     bool isPublished(const QString &horizon) const;
     QString publishedPath(const QString &horizon) const;     // 最新已发布快照
 
   private:
+    void recoverInterruptedPublications();
+    QString commitPublicationPlacement(int versionId, int versionNumber, const QString &horizon,
+                                       const QString &stagingDirectory, const QString &finalDirectory,
+                                       const QString &residualSummary, QString *error);
+
     QString m_dbPath;
     bool m_readOnly = false;
+    PublicationProbe m_renameProbe = nullptr;
 };

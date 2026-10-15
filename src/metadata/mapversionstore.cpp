@@ -1,16 +1,24 @@
 // 层：数据
 #include "mapversionstore.h"
+#include "mapsnapshot.h"
 #include "storeerrors_internal.h"
 #include "metastore.h"
 #include "../catalog/datacatalog.h"
 
 #include <QDateTime>
+#include <QCryptographicHash>
+#include <QDebug>
+#include <QRegularExpression>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QSet>
+#include <QUuid>
+#include <QSaveFile>
+#include <QScopeGuard>
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
@@ -148,13 +156,76 @@ using paleo::store_detail::setError;
   QString sanitizedFileName( const QString &layerId )
   {
     QString name = layerId;
-    name.replace( QLatin1Char( '.' ), QLatin1Char( '_' ) );
-    return name;
+    name.replace(QRegularExpression(QStringLiteral("[^A-Za-z0-9_-]")), QStringLiteral("_"));
+    return name.isEmpty() ? QStringLiteral("layer") : name;
+  }
+
+  QString snapshotHash(QJsonObject provenance) {
+    provenance.remove(QStringLiteral("snapshot_hash"));
+    return QString::fromLatin1(QCryptographicHash::hash(
+        QJsonDocument(provenance).toJson(QJsonDocument::Compact), QCryptographicHash::Sha256).toHex());
   }
 
   const char kSelectCols[] =
       "id,horizon,version,provenance,state,published_path,created_utc,"
       "pdf_asset_id,pdf_sha256,residual_summary";
+
+  // Same file schema as PaleoProjectStore's commit journal, written here so
+  // the metadata store does not include the project store. commitAll ignores
+  // stages outside queued/catalog_done/qgz_done/complete, so a publish op is
+  // never replayed as a catalog commit.
+  bool safePublicationOpId(const QString &opId) {
+    if (opId.isEmpty() || opId.size() > 200 || opId.contains(QLatin1String(".."))) return false;
+    for (const QChar c : opId) {
+      if (c == QLatin1Char('/') || c == QLatin1Char('\\') || c == QLatin1Char(':')) return false;
+      const ushort u = c.unicode();
+      if (u < 0x20 || u == 0x7F) return false;
+    }
+    return true;
+  }
+  bool writePublicationJournal(const QString &directory, const QString &opId, const QString &stage,
+                               const QString &digest, QString *error) {
+    if (!safePublicationOpId(opId) || stage.isEmpty()) {
+      setError(error, QStringLiteral("发布记档标识无效")); return false;
+    }
+    if (!QDir().mkpath(directory)) {
+      setError(error, QStringLiteral("无法创建发布记档目录 %1").arg(directory)); return false;
+    }
+    QJsonObject entry;
+    entry.insert(QStringLiteral("journal_version"), 1);
+    entry.insert(QStringLiteral("op_id"), opId);
+    entry.insert(QStringLiteral("stage"), stage);
+    entry.insert(QStringLiteral("input_digest"), digest);
+    entry.insert(QStringLiteral("updated_utc"), QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs));
+    const QString path = QDir(directory).filePath(opId + QStringLiteral(".json"));
+    QSaveFile file(path);
+    file.setDirectWriteFallback(false);
+    const QByteArray bytes = QJsonDocument(entry).toJson(QJsonDocument::Indented);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate) || file.write(bytes) != bytes.size() || !file.commit()) {
+      file.cancelWriting();
+      setError(error, QStringLiteral("无法写入发布记档 %1").arg(path));
+      return false;
+    }
+    return true;
+  }
+  QString publicationDigest(int versionId, int versionNumber, const QString &horizon,
+                            const QString &stagingDirectory, const QString &finalDirectory,
+                            const QString &residualSummary, const QString &manifestSha) {
+    const QJsonObject digest{{QStringLiteral("version_id"), versionId},
+                             {QStringLiteral("horizon"), horizon},
+                             {QStringLiteral("version_number"), versionNumber},
+                             {QStringLiteral("staging_directory"), stagingDirectory},
+                             {QStringLiteral("final_directory"), finalDirectory},
+                             {QStringLiteral("residual_summary"), residualSummary},
+                             {QStringLiteral("manifest_sha256"), manifestSha}};
+    return QString::fromUtf8(QJsonDocument(digest).toJson(QJsonDocument::Compact));
+  }
+  bool pathInsideProject(const QString &projectDir, const QString &path) {
+    if (path.isEmpty() || path.contains(QLatin1String(".."))) return false;
+    const QString absolute = QFileInfo(path).absoluteFilePath();
+    const QString root = QDir(projectDir).absolutePath();
+    return absolute == root || absolute.startsWith(root + QLatin1Char('/'));
+  }
 } // namespace
 
 MapVersionStore::MapVersionStore( const QString &metaSqlitePath )
@@ -164,7 +235,11 @@ MapVersionStore::MapVersionStore( const QString &metaSqlitePath )
 
 bool MapVersionStore::open( QString *error )
 {
-  return mapVersionEnsureOpen( m_dbPath, m_readOnly, error );
+  if (!mapVersionEnsureOpen(m_dbPath, m_readOnly, error)) return false;
+  // A hash mismatch or an unreadable journal is reported and left on disk.
+  // Opening the project must still succeed.
+  if (!m_readOnly) recoverInterruptedPublications();
+  return true;
 }
 
 int MapVersionStore::currentVersion( const QString &horizon ) const
@@ -202,7 +277,7 @@ QVector<MapVersion> MapVersionStore::versions( const QString &horizon ) const
 }
 
 MapVersion MapVersionStore::saveVersion( const QString &horizon, const QString &provenanceJson,
-                                         QString *error )
+                                         QString *error, const QVector<LayerDeclaration> &layers )
 {
   if ( m_readOnly )
   {
@@ -229,6 +304,81 @@ MapVersion MapVersionStore::saveVersion( const QString &horizon, const QString &
     }
   }
 
+  // The saved revision owns immutable bytes; publication never reads a later working file.
+  QJsonParseError parseError;
+  const auto provenanceDocument = QJsonDocument::fromJson(provenanceJson.toUtf8(), &parseError);
+  if (parseError.error != QJsonParseError::NoError || !provenanceDocument.isObject()) {
+    setError(error, QStringLiteral("地图版本来源记录 JSON 损坏，原记录未改写")); return {};
+  }
+  auto provenance = provenanceDocument.object();
+  const QString projectDir = QFileInfo(m_dbPath).absolutePath();
+  const QString freezeDir = QDir(projectDir).filePath("artifacts/map-versions/" +
+      QUuid::createUuid().toString(QUuid::WithoutBraces));
+  QJsonArray savedLayers;
+  const auto freeze = [&](const QString &source, const QString &name, QJsonObject &record) {
+    const QString expected = DataCatalog::sha256FileHex(source, error);
+    if (expected.isEmpty()) return false;
+    if (!QDir().mkpath(freezeDir) ||
+        !copyReadOnly(source, QDir(freezeDir).filePath(name), error)) return false;
+    const QString path = QDir(freezeDir).filePath(name);
+    const QString sha = DataCatalog::sha256FileHex(path, error);
+    if (sha.isEmpty()) return false;
+    if (sha != expected) {
+      setError(error, QStringLiteral("保存快照时来源文件发生变化：%1").arg(source)); return false;
+    }
+    record.insert("path", QDir(projectDir).relativeFilePath(path));
+    record.insert("sha256", sha);
+    return true;
+  };
+  for (const auto &decl : layers) {
+    if (decl.horizon != horizon) continue;
+    const QString base = decl.source.section('|', 0, 0);
+    if (!QFileInfo(base).isFile()) {
+      // An unavailable optional/reference layer remains explicitly visible in the manifest.
+      savedLayers << QJsonObject{{"layer_id", decl.layerId}, {"missing", true},
+                                {"original_source", decl.source}};
+      continue;
+    }
+    QJsonObject record{{"layer_id", decl.layerId}, {"horizon", horizon}, {"type", decl.type},
+                       {"source_suffix", decl.source.mid(base.size())}};
+    const QString name = QString::number(savedLayers.size()) + "_" +
+                         sanitizedFileName(decl.layerId) + "." + QFileInfo(base).suffix();
+    if (!freeze(base, name, record)) {
+      QDir(freezeDir).removeRecursively();
+      return {};
+    }
+    savedLayers << record;
+  }
+  QJsonObject savedPdf;
+  if (!pdfAssetId.isEmpty()) {
+    QSqlQuery product(db);
+    product.prepare("SELECT path FROM map_products WHERE horizon=? AND kind='pdf' AND asset_id=? ORDER BY id DESC LIMIT 1");
+    product.addBindValue(horizon); product.addBindValue(pdfAssetId);
+    if (product.exec() && product.next() && QFileInfo(product.value(0).toString()).isFile()) {
+      if (!freeze(product.value(0).toString(), "layout.pdf", savedPdf)) {
+        QDir(freezeDir).removeRecursively();
+        return {};
+      }
+      // Historical integrations used short test hashes; enforce full scientific fingerprints.
+      if (pdfSha256.size() == 64 && savedPdf.value("sha256").toString() != pdfSha256) {
+        setError(error, QStringLiteral("PDF 内容与已登记指纹不一致，请重新导出后保存"));
+        QDir(freezeDir).removeRecursively();
+        return {};
+      }
+    }
+  }
+  provenance.insert("snapshot_schema", "paleo_map_snapshot_v1");
+  provenance.insert("saved_layers", savedLayers);
+  provenance.insert("saved_pdf", savedPdf);
+  provenance.insert("snapshot_hash", snapshotHash(provenance));
+
+  if (!db.transaction()) {
+    setError(error, db.lastError().text()); QDir(freezeDir).removeRecursively(); return {};
+  }
+  bool stored = false;
+  const auto rollback = qScopeGuard([&] {
+    if (!stored) { db.rollback(); QDir(freezeDir).removeRecursively(); }
+  });
   QSqlQuery q( db );
   q.prepare( QStringLiteral( "INSERT INTO map_versions(horizon,version,provenance,state,"
                              "created_utc,pdf_asset_id,pdf_sha256)"
@@ -236,13 +386,14 @@ MapVersion MapVersionStore::saveVersion( const QString &horizon, const QString &
                              " RETURNING id" ) );
   q.addBindValue( horizon );
   q.addBindValue( latest( horizon ).version + 1 );
-  q.addBindValue( provenanceJson );
+  q.addBindValue( QString::fromUtf8(QJsonDocument(provenance).toJson(QJsonDocument::Compact)) );
   q.addBindValue( nowUtc() );
   q.addBindValue( pdfAssetId.isEmpty() ? QVariant() : QVariant( pdfAssetId ) );
   q.addBindValue( pdfSha256.isEmpty() ? QVariant() : QVariant( pdfSha256 ) );
   if ( !q.exec() || !q.next() )
   {
     setError( error, q.lastError().text() );
+    QDir(freezeDir).removeRecursively();
     return MapVersion();
   }
   const int id = q.value( 0 ).toInt();
@@ -257,7 +408,11 @@ MapVersion MapVersionStore::saveVersion( const QString &horizon, const QString &
     setError( error, sel.lastError().text() );
     return MapVersion();
   }
-  return rowToVersion( sel );
+  const auto result = rowToVersion(sel);
+  sel.finish();
+  if (!db.commit()) { setError(error, db.lastError().text()); return {}; }
+  stored = true;
+  return result;
 }
 
 bool MapVersionStore::recordLayoutProduct( const QString &horizon, const QString &pdfPath,
@@ -351,6 +506,211 @@ int MapVersionStore::numericResidualCount( const QString &summaryJson )
   return n;
 }
 
+QString MapVersionStore::commitPublicationPlacement(int versionId, int versionNumber, const QString &horizon,
+                                                    const QString &stagingDirectory, const QString &finalDirectory,
+                                                    const QString &residualSummary, QString *error) {
+  if (versionId <= 0 || versionNumber <= 0 || stagingDirectory.isEmpty() || finalDirectory.isEmpty() ||
+      stagingDirectory == finalDirectory || !stagingDirectory.contains(QLatin1String(".staging-")) ||
+      !pathInsideProject(projectDirectory(), stagingDirectory) || !pathInsideProject(projectDirectory(), finalDirectory)) {
+    setError(error, QStringLiteral("发布快照无法原子落位：%1").arg(finalDirectory));
+    return {};
+  }
+  const QString manifestSha = DataCatalog::sha256FileHex(
+      QDir(stagingDirectory).filePath(QStringLiteral("evidence-snapshot.json")), error);
+  if (manifestSha.size() != 64) {
+    if (error && error->isEmpty()) setError(error, QStringLiteral("发布清单指纹无法读取"));
+    return {};
+  }
+  const QString opId = QStringLiteral("map-publish-%1").arg(versionId);
+  const QString digest = publicationDigest(versionId, versionNumber, horizon, stagingDirectory, finalDirectory,
+                                           residualSummary, manifestSha);
+  const QString journalDir = QDir(projectDirectory()).filePath(QStringLiteral("artifacts/metadata/commit_journal"));
+  auto journal = [&](const QString &stage) {
+    QString journalError;
+    const bool wrote = writePublicationJournal(journalDir, opId, stage, digest, &journalError);
+    if (!wrote && error && error->isEmpty()) *error = journalError;
+    return wrote;
+  };
+  if (QFileInfo::exists(finalDirectory)) {
+    // Leave any existing journal alone. A mismatched result must not be marked
+    // complete, and it must not be deleted.
+    setError(error, QStringLiteral("发布快照无法原子落位：%1").arg(finalDirectory));
+    return {};
+  }
+  if (!journal(QStringLiteral("publish_prepared"))) return {};
+  if (!QDir().rename(stagingDirectory, finalDirectory)) {
+    // publish_prepared plus a missing final directory is cleaned on reopen.
+    setError(error, QStringLiteral("发布快照无法原子落位：%1").arg(finalDirectory));
+    return {};
+  }
+  if (!journal(QStringLiteral("publish_renamed"))) {
+    if (error && error->isEmpty())
+      setError(error, QStringLiteral("发布记档无法落盘，重开工程后会补登记"));
+    return {};
+  }
+  if (m_renameProbe) m_renameProbe();
+  QSqlQuery update(QSqlDatabase::database(mapVersionConnectionName(m_dbPath, m_readOnly)));
+  update.prepare(QStringLiteral("UPDATE map_versions SET state='Published', published_path=?, residual_summary=?"
+                                " WHERE id=? AND state!='Published'"));
+  update.addBindValue(finalDirectory);
+  update.addBindValue(residualSummary);
+  update.addBindValue(versionId);
+  if (!update.exec() || update.numRowsAffected() != 1) {
+    const QString sqlError = update.lastError().text();
+    update.finish();
+    QSqlQuery current(QSqlDatabase::database(mapVersionConnectionName(m_dbPath, m_readOnly)));
+    current.prepare(QStringLiteral("SELECT state, published_path FROM map_versions WHERE id=?"));
+    current.addBindValue(versionId);
+    const bool alreadyThisResult = current.exec() && current.next() &&
+        current.value(0).toString() == QLatin1String("Published") &&
+        QFileInfo(current.value(1).toString()).absoluteFilePath() == QFileInfo(finalDirectory).absoluteFilePath();
+    if (alreadyThisResult) {
+      QString ignored;
+      writePublicationJournal(journalDir, opId, QStringLiteral("complete"), digest, &ignored);
+      if (error) error->clear();
+      return finalDirectory;
+    }
+    // This attempt just renamed the directory. Remove only that directory so
+    // a retry can publish again. Mark the journal complete so recovery does
+    // not register a directory that no longer exists. Do not point the
+    // caller's staging guard at the final path.
+    QDir(finalDirectory).removeRecursively();
+    journal(QStringLiteral("complete"));
+    setError(error, sqlError.isEmpty() ? QStringLiteral("发布登记失败") : sqlError);
+    return {};
+  }
+  QString ignored;
+  if (!writePublicationJournal(journalDir, opId, QStringLiteral("complete"), digest, &ignored))
+    qWarning() << "MapVersionStore: publication registered but journal completion failed" << opId << ignored;
+  if (error) error->clear();
+  return finalDirectory;
+}
+
+void MapVersionStore::recoverInterruptedPublications() {
+  if (m_readOnly || m_dbPath.isEmpty()) return;
+  const QString projectDir = projectDirectory();
+  const QString journalDir = QDir(projectDir).filePath(QStringLiteral("artifacts/metadata/commit_journal"));
+  QDir dir(journalDir);
+  if (!dir.exists()) return;
+  QSet<QString> publishedPaths;
+  {
+    QSqlQuery paths(QSqlDatabase::database(mapVersionConnectionName(m_dbPath, m_readOnly)));
+    if (paths.exec(QStringLiteral("SELECT published_path FROM map_versions"
+                                  " WHERE published_path IS NOT NULL AND published_path != ''")))
+      while (paths.next()) publishedPaths.insert(QFileInfo(paths.value(0).toString()).absoluteFilePath());
+  }
+  const QStringList names = dir.entryList({QStringLiteral("map-publish-*.json")}, QDir::Files, QDir::Name);
+  for (const QString &name : names) {
+    const QString path = dir.filePath(name);
+    const QString opId = QFileInfo(path).completeBaseName();
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+      qWarning() << "MapVersionStore: unreadable publication journal" << path;
+      continue;
+    }
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &parseError);
+    file.close();
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+      qWarning() << "MapVersionStore: corrupt publication journal" << path;
+      continue;
+    }
+    const QJsonObject header = document.object();
+    const QString stage = header.value(QStringLiteral("stage")).toString();
+    if (header.value(QStringLiteral("op_id")).toString() != opId || stage.isEmpty()) {
+      qWarning() << "MapVersionStore: corrupt publication journal" << path;
+      continue;
+    }
+    if (stage == QLatin1String("complete")) continue;
+    QJsonParseError digestError;
+    const QJsonDocument digestDocument = QJsonDocument::fromJson(
+        header.value(QStringLiteral("input_digest")).toString().toUtf8(), &digestError);
+    if (digestError.error != QJsonParseError::NoError || !digestDocument.isObject()) {
+      qWarning() << "MapVersionStore: publication journal digest is unreadable" << opId;
+      continue;
+    }
+    const QJsonObject digest = digestDocument.object();
+    const QString horizon = digest.value(QStringLiteral("horizon")).toString();
+    const int versionId = digest.value(QStringLiteral("version_id")).toInt();
+    const int versionNumber = digest.value(QStringLiteral("version_number")).toInt();
+    const QString staging = digest.value(QStringLiteral("staging_directory")).toString();
+    const QString finalDirectory = digest.value(QStringLiteral("final_directory")).toString();
+    const QString residual = digest.value(QStringLiteral("residual_summary")).toString();
+    const QString expectedSha = digest.value(QStringLiteral("manifest_sha256")).toString();
+    const QString storedDigest = header.value(QStringLiteral("input_digest")).toString();
+    auto finish = [&]() {
+      QString ignored;
+      if (!writePublicationJournal(journalDir, opId, QStringLiteral("complete"), storedDigest, &ignored))
+        qWarning() << "MapVersionStore: could not complete publication journal" << opId << ignored;
+    };
+    const bool finalExists = !finalDirectory.isEmpty() && QFileInfo::exists(finalDirectory);
+    if (stage == QLatin1String("publish_prepared") && !finalExists) {
+      if (QFileInfo::exists(staging)) {
+        const bool disposable = staging.contains(QLatin1String(".staging-")) &&
+            pathInsideProject(projectDir, staging) &&
+            !publishedPaths.contains(QFileInfo(staging).absoluteFilePath());
+        if (!disposable) {
+          qWarning() << "MapVersionStore: refused to delete an unrecognized staging path" << staging;
+          continue;
+        }
+        QDir(staging).removeRecursively();
+      }
+      finish();
+      continue;
+    }
+    if (stage == QLatin1String("publish_renamed") && !finalExists) {
+      finish();
+      continue;
+    }
+    if (stage != QLatin1String("publish_renamed") && stage != QLatin1String("publish_prepared")) {
+      qWarning() << "MapVersionStore: unrecognized publication stage" << opId << stage;
+      continue;
+    }
+    if (!pathInsideProject(projectDir, finalDirectory)) {
+      qWarning() << "MapVersionStore: publication path is outside the project" << finalDirectory;
+      continue;
+    }
+    const QString actualSha = DataCatalog::sha256FileHex(
+        QDir(finalDirectory).filePath(QStringLiteral("evidence-snapshot.json")));
+    if (expectedSha.size() != 64 || actualSha != expectedSha) {
+      qWarning() << "MapVersionStore: publication manifest does not match the journal; left untouched" << opId;
+      continue;
+    }
+    QSqlQuery row(QSqlDatabase::database(mapVersionConnectionName(m_dbPath, m_readOnly)));
+    row.prepare(QStringLiteral("SELECT horizon, version, state, published_path FROM map_versions WHERE id=?"));
+    row.addBindValue(versionId);
+    if (!row.exec() || !row.next() || row.value(0).toString() != horizon || row.value(1).toInt() != versionNumber) {
+      qWarning() << "MapVersionStore: publication journal does not match a saved version; left untouched" << opId;
+      continue;
+    }
+    const QString state = row.value(2).toString();
+    const QString publishedPath = row.value(3).toString();
+    row.finish();
+    if (state == QLatin1String("Published")) {
+      if (QFileInfo(publishedPath).absoluteFilePath() == QFileInfo(finalDirectory).absoluteFilePath()) finish();
+      else qWarning() << "MapVersionStore: publication journal points at a different published result" << opId;
+      continue;
+    }
+    if (state != QLatin1String("Editing")) {
+      qWarning() << "MapVersionStore: publication journal version is not editable; left untouched" << opId;
+      continue;
+    }
+    QSqlQuery update(QSqlDatabase::database(mapVersionConnectionName(m_dbPath, m_readOnly)));
+    update.prepare(QStringLiteral("UPDATE map_versions SET state='Published', published_path=?, residual_summary=?"
+                                  " WHERE id=? AND horizon=? AND version=? AND state!='Published'"));
+    update.addBindValue(finalDirectory);
+    update.addBindValue(residual);
+    update.addBindValue(versionId);
+    update.addBindValue(horizon);
+    update.addBindValue(versionNumber);
+    if (!update.exec() || update.numRowsAffected() != 1) {
+      qWarning() << "MapVersionStore: could not finish interrupted publication" << opId << update.lastError().text();
+      continue;
+    }
+    finish();
+  }
+}
+
 QString MapVersionStore::publish( const QString &horizon, const QVector<LayerDeclaration> &decls,
                                   const QString &residualSummary, QString *error )
 {
@@ -369,6 +729,7 @@ QString MapVersionStore::publish( const QString &horizon, const QVector<LayerDec
 
   if ( !mapVersionEnsureOpen( m_dbPath, m_readOnly, error ) )
     return QString();
+  recoverInterruptedPublications();
 
   const MapVersion latestV = latest( horizon );
   if ( latestV.version <= 0 )
@@ -380,6 +741,29 @@ QString MapVersionStore::publish( const QString &horizon, const QVector<LayerDec
   {
     setError( error, QStringLiteral( "层位 %1 当前版本已发布 — 保存新版本后再发布" ).arg( horizon ) );
     return QString();
+  }
+  QJsonParseError provenanceError;
+  const auto savedDocument = QJsonDocument::fromJson(latestV.provenance.toUtf8(), &provenanceError);
+  if (provenanceError.error != QJsonParseError::NoError || !savedDocument.isObject()) {
+    setError(error, QStringLiteral("保存版本的来源/证据 JSON 损坏，发布被拒绝")); return {};
+  }
+  const auto provenance = savedDocument.object();
+  const bool frozen = provenance.value("snapshot_schema").toString() == "paleo_map_snapshot_v1";
+  if (provenance.contains("snapshot_schema") &&
+      (!frozen || !provenance.value("saved_layers").isArray() || !provenance.value("saved_pdf").isObject() ||
+       provenance.value("snapshot_hash").toString() != snapshotHash(provenance))) {
+    setError(error, QStringLiteral("保存版本的快照结构或证据指纹损坏，发布被拒绝")); return {};
+  }
+  if (provenance.contains("evidence_snapshot") && !provenance.value("evidence_snapshot").isArray()) {
+    setError(error, QStringLiteral("保存版本的证据清单格式损坏，发布被拒绝")); return {};
+  }
+  if (provenance.value("feature_summary").toObject().value("quality_counts").toObject().value("Blocking").toInt() > 0) {
+    setError(error, QStringLiteral("保存版本存在阻断性证据问题，请复核后保存新版本")); return {};
+  }
+  // 只有完整 SHA-256 才是科学指纹。历史短哈希仍留在版本行上，不拿来否定已冻结的文件指纹。
+  if (frozen && latestV.pdfSha256.size() == 64 &&
+      provenance.value("saved_pdf").toObject().value("sha256").toString() != latestV.pdfSha256) {
+    setError(error, QStringLiteral("保存的 PDF 指纹与成果版本绑定不一致")); return {};
   }
   // 发布只读版本行（§260）：PDF 资产 id+SHA-256 必须由 recordLayoutProduct
   // 登记、再经 saveVersion 抄进本行；行上没有 = 没走「导出→保存」。
@@ -419,33 +803,63 @@ QString MapVersionStore::publish( const QString &horizon, const QVector<LayerDec
 
   // result/<horizon>/v<N>/ 挨着工程 meta 库（工程目录的 result/）。
   const QString projectDir = QFileInfo( m_dbPath ).absolutePath();
-  const QString snapDir = QDir( projectDir ).filePath(
-      QStringLiteral( "result/%1/v%2" ).arg( horizon ).arg( latestV.version ) );
+  const QString finalSnapDir = QDir(projectDir).filePath(
+      QStringLiteral("result/%1/v%2").arg(horizon).arg(latestV.version));
+  QString snapDir = finalSnapDir + ".staging-" + QUuid::createUuid().toString(QUuid::WithoutBraces);
+  bool published = false;
+  const auto cleanup = qScopeGuard([&] {
+    if (!published) QDir(snapDir).removeRecursively();
+  });
   if ( !QDir().mkpath( snapDir ) )
   {
     setError( error, QStringLiteral( "无法创建发布快照目录 %1" ).arg( snapDir ) );
     return QString();
   }
 
-  // 成果 gpkg（该层位声明的文件图层）快照。
-  for ( const LayerDeclaration &d : decls )
-  {
-    if ( d.horizon != horizon )
-      continue;
-    const QString base = d.source.section( QLatin1Char( '|' ), 0, 0 );
-    if ( base.isEmpty() || !QFile::exists( base ) )
-      continue;
-    const QString suffix = QFileInfo( base ).suffix();
-    QString name = sanitizedFileName( d.layerId );
-    if ( !suffix.isEmpty() )
-      name += QLatin1Char( '.' ) + suffix;
-    if ( !copyReadOnly( base, QDir( snapDir ).filePath( name ), error ) )
-      return QString();
+  const auto copyFrozen = [&](const QJsonObject &record, const QString &name) {
+    const QString relative = record.value("path").toString();
+    CatalogVersion pathRef; pathRef.managed = true; pathRef.path = relative;
+    const QString source = DataCatalog::resolvedVersionPath(projectDir, pathRef);
+    if (source.isEmpty() || record.value("sha256").toString().size() != 64 ||
+        DataCatalog::sha256FileHex(source, error) != record.value("sha256").toString()) {
+      setError(error, QStringLiteral("保存版本的成果快照缺失或指纹不一致：%1").arg(relative));
+      return false;
+    }
+    const QString destination = QDir(snapDir).filePath(name);
+    if (!copyReadOnly(source, destination, error)) return false;
+    if (DataCatalog::sha256FileHex(destination, error) != record.value("sha256").toString()) {
+      setError(error, QStringLiteral("发布复制期间快照内容发生变化：%1").arg(relative)); return false;
+    }
+    return true;
+  };
+  if (frozen) {
+    for (const auto &entry : provenance.value("saved_layers").toArray()) {
+      const auto record = entry.toObject();
+      if (record.value("missing").toBool()) {
+        setError(error, QStringLiteral("保存版本缺少图层来源：%1").arg(record.value("layer_id").toString()));
+        return {};
+      }
+      const QString name = QFileInfo(record.value("path").toString()).fileName();
+      if (!copyFrozen(record, name)) return {};
+    }
+  } else {
+    // Old saved rows have no immutable manifest; retain the legacy read path.
+    for (const auto &d : decls) {
+      if (d.horizon != horizon) continue;
+      const QString base = d.source.section('|', 0, 0);
+      if (base.isEmpty() || !QFile::exists(base)) continue;
+      QString name = sanitizedFileName(d.layerId);
+      const QString suffix = QFileInfo(base).suffix();
+      if (!suffix.isEmpty()) name += '.' + suffix;
+      if (!copyReadOnly(base, QDir(snapDir).filePath(name), error)) return {};
+    }
   }
 
   // 布局产物（PDF）快照：版本行绑定的 OUTPUT 资产必须进快照（「这份 PDF
   // 已经在快照里」）；没有资产归属的旧产物行一并带上。
-  {
+  if (frozen) {
+    if (!copyFrozen(provenance.value("saved_pdf").toObject(), "layout.pdf")) return {};
+  } else {
     bool boundCopied = false;
     QSqlQuery q( QSqlDatabase::database( mapVersionConnectionName( m_dbPath, m_readOnly ) ) );
     q.prepare( QStringLiteral( "SELECT path,asset_id FROM map_products"
@@ -483,18 +897,201 @@ QString MapVersionStore::publish( const QString &horizon, const QVector<LayerDec
     }
   }
 
-  QSqlQuery up( QSqlDatabase::database( mapVersionConnectionName( m_dbPath, m_readOnly ) ) );
-  up.prepare( QStringLiteral( "UPDATE map_versions SET state='Published', published_path=?,"
-                              " residual_summary=? WHERE id=?" ) );
-  up.addBindValue( snapDir );
-  up.addBindValue( residualSummary );
-  up.addBindValue( latestV.id );
-  if ( !up.exec() )
-  {
-    setError( error, up.lastError().text() );
-    return QString();
+  QSaveFile manifest(QDir(snapDir).filePath("evidence-snapshot.json"));
+  const auto manifestBytes = QJsonDocument(provenance).toJson(QJsonDocument::Indented);
+  if (!manifest.open(QIODevice::WriteOnly) || manifest.write(manifestBytes) != manifestBytes.size() || !manifest.commit()) {
+    setError(error, manifest.errorString());
+    return {};
   }
-  return snapDir;
+  QFile::setPermissions(manifest.fileName(), QFileDevice::ReadOwner | QFileDevice::ReadUser |
+                                            QFileDevice::ReadGroup | QFileDevice::ReadOther);
+
+  const QString placed = commitPublicationPlacement(latestV.id, latestV.version, horizon, snapDir, finalSnapDir,
+                                                   residualSummary, error);
+  if (placed.isEmpty()) return {};
+  published = true;
+  return placed;
+}
+
+QString MapVersionStore::projectDirectory() const { return QFileInfo(m_dbPath).absolutePath(); }
+MapSnapshotInput MapVersionStore::snapshotInputForSave(const QString &horizon, const QString &provenanceJson,
+    const QVector<LayerDeclaration> &layers, QString *error) {
+  MapSnapshotInput input;
+  if (m_readOnly || !DataCatalog::isSafePathSegment(horizon) || !mapVersionEnsureOpen(m_dbPath, m_readOnly, error)) {
+    setError(error, QStringLiteral("地图快照保存需要可写工程和合法层位")); return input;
+  }
+  QJsonParseError parse;
+  if (!QJsonDocument::fromJson(provenanceJson.toUtf8(), &parse).isObject() || parse.error != QJsonParseError::NoError) {
+    setError(error, QStringLiteral("地图版本来源 JSON 损坏")); return input;
+  }
+  input.projectDirectory = projectDirectory(); input.horizon = horizon; input.operation = "save"; input.provenanceJson = provenanceJson;
+  for (const auto &layer : layers) {
+    if (layer.horizon != horizon) continue;
+    const auto base = layer.source.section('|', 0, 0);
+    input.files << QVariantMap{{"layer_id", layer.layerId}, {"horizon", horizon}, {"type", layer.type},
+      {"source", base}, {"source_suffix", layer.source.mid(base.size())}};
+  }
+  QSqlQuery product(QSqlDatabase::database(mapVersionConnectionName(m_dbPath, m_readOnly)));
+  product.prepare("SELECT path,asset_id,sha256 FROM map_products WHERE horizon=? AND kind='pdf' ORDER BY id DESC LIMIT 1");
+  product.addBindValue(horizon);
+  if (!product.exec()) { setError(error, product.lastError().text()); return {}; }
+  if (product.next()) {
+    input.pdfAssetId = product.value(1).toString(); input.pdfSha256 = product.value(2).toString();
+    if (!input.pdfAssetId.isEmpty()) input.files << QVariantMap{{"source", product.value(0).toString()}, {"sha256", input.pdfSha256}, {"pdf", true}};
+  }
+  input.valid = true; return input;
+}
+MapSnapshotInput MapVersionStore::snapshotInputForPublish(const QString &horizon,
+    const QVector<LayerDeclaration> &decls, const QString &residualSummary, QString *error) {
+  // #394：只读守卫必须与 saveVersion 同位——缺失时先在工程目录落
+  // result/<horizon>/v<N>/ 文件树再撞 SQL 只读失败（半完成副作用）。
+  if ( m_readOnly )
+  {
+    setError( error, QStringLiteral("工程目录被另一个实例锁定——本实例只读，发布被拒绝") );
+    return {};
+  }
+  if ( !DataCatalog::isSafePathSegment( horizon ) )
+  {
+    setError( error, QStringLiteral( "非法层位名称：%1" ).arg( horizon ) );
+    return {};
+  }
+
+  if ( !mapVersionEnsureOpen( m_dbPath, m_readOnly, error ) )
+    return {};
+
+  const MapVersion latestV = latest( horizon );
+  if ( latestV.version <= 0 )
+  {
+    setError( error, QStringLiteral( "层位 %1 还没有保存的版本，无法发布" ).arg( horizon ) );
+    return {};
+  }
+  if ( latestV.state == QLatin1String( "Published" ) )
+  {
+    setError( error, QStringLiteral( "层位 %1 当前版本已发布 — 保存新版本后再发布" ).arg( horizon ) );
+    return {};
+  }
+  QJsonParseError provenanceError;
+  const auto savedDocument = QJsonDocument::fromJson(latestV.provenance.toUtf8(), &provenanceError);
+  if (provenanceError.error != QJsonParseError::NoError || !savedDocument.isObject()) {
+    setError(error, QStringLiteral("保存版本的来源/证据 JSON 损坏，发布被拒绝")); return {};
+  }
+  const auto provenance = savedDocument.object();
+  const bool frozen = provenance.value("snapshot_schema").toString() == "paleo_map_snapshot_v1";
+  if (provenance.contains("snapshot_schema") &&
+      (!frozen || !provenance.value("saved_layers").isArray() || !provenance.value("saved_pdf").isObject() ||
+       provenance.value("snapshot_hash").toString() != snapshotHash(provenance))) {
+    setError(error, QStringLiteral("保存版本的快照结构或证据指纹损坏，发布被拒绝")); return {};
+  }
+  if (provenance.contains("evidence_snapshot") && !provenance.value("evidence_snapshot").isArray()) {
+    setError(error, QStringLiteral("保存版本的证据清单格式损坏，发布被拒绝")); return {};
+  }
+  if (provenance.value("feature_summary").toObject().value("quality_counts").toObject().value("Blocking").toInt() > 0) {
+    setError(error, QStringLiteral("保存版本存在阻断性证据问题，请复核后保存新版本")); return {};
+  }
+  // 只有完整 SHA-256 才是科学指纹。历史短哈希仍留在版本行上，不拿来否定已冻结的文件指纹。
+  if (frozen && latestV.pdfSha256.size() == 64 &&
+      provenance.value("saved_pdf").toObject().value("sha256").toString() != latestV.pdfSha256) {
+    setError(error, QStringLiteral("保存的 PDF 指纹与成果版本绑定不一致")); return {};
+  }
+  // 发布只读版本行（§260）：PDF 资产 id+SHA-256 必须由 recordLayoutProduct
+  // 登记、再经 saveVersion 抄进本行；行上没有 = 没走「导出→保存」。
+  if ( latestV.pdfAssetId.isEmpty() || latestV.pdfSha256.isEmpty() )
+  {
+    setError( error, QStringLiteral( "层位 %1 的当前版本没有 PDF 资产记录 — 导出 PDF 后再保存" )
+                         .arg( horizon ) );
+    return {};
+  }
+  // 每口井都要有残差或原因（§177）；缺多少口写进错误文案。
+  int covered = -1, total = -1;
+  if ( !residualSummaryComplete( residualSummary, &covered, &total ) )
+  {
+    const QString missingText =
+        ( total > 0 && covered >= 0 )
+            ? QStringLiteral( "还有 %1/%2 口井没有残差或原因" ).arg( total - covered ).arg( total )
+            : QStringLiteral( "还没有残差摘要" );
+    setError( error, QStringLiteral( "层位 %1 %2 — 先在验证页运行验证" )
+                         .arg( horizon, missingText ) );
+    return {};
+  }
+  // D10：数值残差下限——完备性只保证「行或原因」，发布还要够数量的数值行
+  // （15/20 口径；差多少写进文案）。
+  {
+    const int numericCount = numericResidualCount( residualSummary );
+    const int required = requiredNumericResiduals( total );
+    if ( numericCount < required )
+    {
+      setError( error, QStringLiteral( "层位 %1 数值残差只有 %2/%3 口（发布需 ≥%4）"
+                                      " — 先在验证页运行验证，补齐井分层/时深/测网覆盖" )
+                           .arg( horizon )
+                           .arg( QString::number( numericCount ), QString::number( total ),
+                                 QString::number( required ) ) );
+      return {};
+    }
+  }
+
+  MapSnapshotInput input; input.projectDirectory = projectDirectory(); input.horizon = horizon;
+  input.operation = "publish"; input.provenanceJson = latestV.provenance; input.residualSummary = residualSummary;
+  input.versionId = latestV.id; input.versionNumber = latestV.version;
+  input.pdfAssetId = latestV.pdfAssetId; input.pdfSha256 = latestV.pdfSha256;
+  if (frozen) {
+    for (const auto &entry : provenance.value("saved_layers").toArray()) {
+      auto record = entry.toObject().toVariantMap();
+      if (record.value("missing").toBool()) { setError(error, QStringLiteral("保存版本缺少图层来源")); return {}; }
+      CatalogVersion ref; ref.managed = true; ref.path = record.value("path").toString();
+      const auto source = DataCatalog::resolvedVersionPath(input.projectDirectory, ref);
+      if (source.isEmpty()) { setError(error, QStringLiteral("保存快照路径无效")); return {}; }
+      record.insert("source", source); input.files << record;
+    }
+    auto pdf = provenance.value("saved_pdf").toObject().toVariantMap();
+    CatalogVersion ref; ref.managed = true; ref.path = pdf.value("path").toString();
+    pdf.insert("source", DataCatalog::resolvedVersionPath(input.projectDirectory, ref)); pdf.insert("pdf", true);
+    input.files << pdf;
+  } else {
+    for (const auto &layer : decls) {
+      if (layer.horizon != horizon) continue;
+      input.files << QVariantMap{{"layer_id", layer.layerId}, {"source", layer.source.section('|', 0, 0)}, {"legacy", true}};
+    }
+    QSqlQuery product(QSqlDatabase::database(mapVersionConnectionName(m_dbPath, m_readOnly)));
+    product.prepare("SELECT path FROM map_products WHERE horizon=? AND kind='pdf' AND asset_id=? ORDER BY id DESC LIMIT 1");
+    product.addBindValue(horizon); product.addBindValue(latestV.pdfAssetId);
+    if (!product.exec() || !product.next()) { setError(error, QStringLiteral("版本绑定的 PDF 产物缺失")); return {}; }
+    input.files << QVariantMap{{"source", product.value(0).toString()}, {"sha256", latestV.pdfSha256}, {"pdf", true}};
+  }
+  input.valid = true; return input;
+}
+MapVersion MapVersionStore::commitPreparedVersion(PreparedMapSnapshot &snapshot, QString *error) {
+  if (m_readOnly || snapshot.input.operation != "save" || snapshot.input.projectDirectory != projectDirectory() ||
+      !verifyPreparedMapSnapshot(snapshot, error) || !mapVersionEnsureOpen(m_dbPath, m_readOnly, error)) {
+    if (error && error->isEmpty()) *error = QStringLiteral("地图快照工程已切换或不可写"); return {};
+  }
+  auto db = QSqlDatabase::database(mapVersionConnectionName(m_dbPath, m_readOnly));
+  if (!db.transaction()) { setError(error, db.lastError().text()); return {}; }
+  const auto rollback = qScopeGuard([&] { if (!snapshot.committed) db.rollback(); });
+  QSqlQuery insert(db);
+  insert.prepare("INSERT INTO map_versions(horizon,version,provenance,state,created_utc,pdf_asset_id,pdf_sha256) VALUES(?,?,?,'Editing',?,?,?) RETURNING id");
+  insert.addBindValue(snapshot.input.horizon); insert.addBindValue(latest(snapshot.input.horizon).version + 1);
+  insert.addBindValue(QString::fromUtf8(QJsonDocument::fromVariant(snapshot.provenance).toJson(QJsonDocument::Compact)));
+  insert.addBindValue(nowUtc()); insert.addBindValue(snapshot.input.pdfAssetId.isEmpty() ? QVariant() : QVariant(snapshot.input.pdfAssetId));
+  insert.addBindValue(snapshot.input.pdfSha256.isEmpty() ? QVariant() : QVariant(snapshot.input.pdfSha256));
+  if (!insert.exec() || !insert.next()) { setError(error, insert.lastError().text()); return {}; }
+  insert.finish(); if (!db.commit()) { setError(error, db.lastError().text()); return {}; }
+  snapshot.committed = true; return latest(snapshot.input.horizon);
+}
+QString MapVersionStore::commitPreparedPublication(PreparedMapSnapshot &snapshot, QString *error) {
+  if (!mapVersionEnsureOpen(m_dbPath, m_readOnly, error)) return {};
+  recoverInterruptedPublications();
+  const auto latestV = latest(snapshot.input.horizon);
+  if (m_readOnly || snapshot.input.operation != "publish" || snapshot.input.projectDirectory != projectDirectory() ||
+      latestV.id != snapshot.input.versionId || latestV.state == "Published" || !verifyPreparedMapSnapshot(snapshot, error)) {
+    if (error && error->isEmpty()) *error = QStringLiteral("发布版本已变化或工程不可写"); return {};
+  }
+  const QString placed = commitPublicationPlacement(snapshot.input.versionId, snapshot.input.versionNumber,
+      snapshot.input.horizon, snapshot.directory, snapshot.finalDirectory, snapshot.input.residualSummary, error);
+  if (placed.isEmpty()) return {};
+  // Leave snapshot.directory on the staging path. It has been renamed away, so
+  // a failed caller cannot delete the registered result by discarding it.
+  snapshot.committed = true;
+  return placed;
 }
 
 bool MapVersionStore::isPublished( const QString &horizon ) const

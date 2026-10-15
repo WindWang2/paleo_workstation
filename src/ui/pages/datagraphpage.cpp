@@ -102,6 +102,10 @@ public:
             ? QCoreApplication::translate("DataGraphPage", "生成记录")
         : node.kind == Kind::Missing
             ? QCoreApplication::translate("DataGraphPage", "待核实")
+        : node.kind == Kind::Evidence ? QCoreApplication::translate("DataGraphPage", "地质证据")
+        : node.kind == Kind::Assertion ? QCoreApplication::translate("DataGraphPage", "地质判断")
+        : node.kind == Kind::Interpretation ? QCoreApplication::translate("DataGraphPage", "地质解释")
+        : node.kind == Kind::Feature ? QCoreApplication::translate("DataGraphPage", "地图图斑")
             : QCoreApplication::translate("DataGraphPage", "分组");
     p->drawText(QRectF(t.spacingSm, 36, 244, 19),
                 QFontMetrics(font).elidedText(kind + QStringLiteral(" · ") +
@@ -170,6 +174,7 @@ DataGraphPage::DataGraphPage(QWidget *parent)
   m_mode->addItem(tr("资料关联"), int(Mode::Relations));
   m_mode->addItem(tr("成果追溯"), int(Mode::Lineage));
   m_mode->addItem(tr("实体目录"), int(Mode::Entities));
+  m_mode->addItem(tr("下游影响"), int(Mode::Impact));
   m_category = new QComboBox(this);
   m_category->setObjectName("dataGraphCategory");
   m_category->addItem(tr("全部类别"), QString());
@@ -214,6 +219,10 @@ DataGraphPage::DataGraphPage(QWidget *parent)
       m_search->setText(previous.search);
       m_depth->setValue(previous.depth);
       m_history->setChecked(previous.history);
+      m_featureEvidence = previous.featureEvidence;
+      m_evidenceTypeFilter->setCurrentIndex(qMax(0, m_evidenceTypeFilter->findData(previous.evidenceType)));
+      m_reviewFilter->setCurrentIndex(qMax(0, m_reviewFilter->findData(previous.reviewState)));
+      m_evidencePage->setValue(previous.evidenceOffset / 50 + 1);
     }
     request();
     m_restoring = false;
@@ -259,6 +268,26 @@ DataGraphPage::DataGraphPage(QWidget *parent)
   });
   tools->addStretch();
   controlLayout->addLayout(tools);
+  auto *evidenceTools = new QHBoxLayout;
+  m_evidenceTypeFilter = new QComboBox(controls);
+  m_evidenceTypeFilter->setObjectName("graphEvidenceType");
+  m_evidenceTypeFilter->addItem(tr("全部证据类型"), QString());
+  for (const auto &entry : QList<QPair<QString, QString>>{{tr("井资料"), "well"}, {tr("地震资料"), "seismic"},
+      {tr("单因素"), "single_factor"}, {tr("约束"), "constraint"}, {tr("规则"), "rule"}, {tr("人工"), "manual"},
+      {tr("参考"), "reference"}, {tr("计算"), "computation"}}) m_evidenceTypeFilter->addItem(entry.first, entry.second);
+  evidenceTools->addWidget(m_evidenceTypeFilter);
+  m_reviewFilter = new QComboBox(controls); m_reviewFilter->setObjectName("graphEvidenceReview");
+  m_reviewFilter->addItem(tr("全部解释状态"), QString());
+  for (const auto &entry : QList<QPair<QString, QString>>{{tr("拟议"), "Proposed"}, {tr("待复核"), "NeedsReview"},
+      {tr("已确认"), "Confirmed"}, {tr("已驳回"), "Rejected"}, {tr("争议"), "Disputed"}, {tr("已替代"), "Superseded"}}) m_reviewFilter->addItem(entry.first, entry.second);
+  evidenceTools->addWidget(m_reviewFilter);
+  m_evidencePage = new QSpinBox(controls); m_evidencePage->setObjectName("graphEvidencePage");
+  m_evidencePage->setRange(1, 200); m_evidencePage->setPrefix(tr("证据页 "));
+  m_evidencePage->setToolTip(tr("每页最多 50 条关联，图谱仍遵守节点和边预算"));
+  evidenceTools->addWidget(m_evidencePage); evidenceTools->addStretch(); controlLayout->addLayout(evidenceTools);
+  connect(m_evidenceTypeFilter, &QComboBox::currentIndexChanged, this, [this] { m_evidencePage->setValue(1); request(); });
+  connect(m_reviewFilter, &QComboBox::currentIndexChanged, this, [this] { m_evidencePage->setValue(1); request(); });
+  connect(m_evidencePage, &QSpinBox::valueChanged, this, [this] { request(); });
   auto *controlScroll = new QScrollArea(this);
   controlScroll->setWidget(controls);
   controlScroll->setWidgetResizable(true);
@@ -313,6 +342,8 @@ DataGraphPage::DataGraphPage(QWidget *parent)
   m_locate = new QPushButton(tr("在数据管理中定位"), details);
   m_folder = new QPushButton(tr("打开文件所在目录"), details);
   m_trace = new QPushButton(tr("追溯这个成果"), details);
+  m_impact = new QPushButton(tr("查看来源的下游影响"), details);
+  m_impact->setObjectName("dataGraphImpact");
   m_related = new QPushButton(tr("展开这个节点的关联"), details);
   m_map = new QPushButton(tr("在地图 / 图件工作台中显示"), details);
   m_reference = new QPushButton(tr("打开联动参考图"), details);
@@ -340,7 +371,7 @@ DataGraphPage::DataGraphPage(QWidget *parent)
   m_manage->setMenu(manageMenu);
   auto *actionGrid = new QGridLayout;
   int row = 0;
-  for (auto *button : {m_open, m_locate, m_folder, m_related, m_trace, m_map,
+  for (auto *button : {m_open, m_locate, m_folder, m_related, m_trace, m_impact, m_map,
                        m_reference, m_wells, m_manage}) {
     actionGrid->addWidget(button, row / 2, row % 2);
     button->setEnabled(false);
@@ -350,6 +381,13 @@ DataGraphPage::DataGraphPage(QWidget *parent)
   dl->addLayout(actionGrid);
   connect(tasks, &QPushButton::clicked, this,
           &DataGraphPage::taskCenterRequested);
+  connect(m_impact, &QPushButton::clicked, this, [this] {
+    const auto version = m_selected.evidence.value("source_version", m_selected.versionId).toString();
+    if (version.isEmpty()) return;
+    m_focus = versionKey(version);
+    m_mode->setCurrentIndex(m_mode->findData(int(Mode::Impact)));
+    request();
+  });
   connect(m_related, &QPushButton::clicked, this, [this] {
     if (m_selected.id.isEmpty())
       return;
@@ -362,6 +400,9 @@ DataGraphPage::DataGraphPage(QWidget *parent)
         qMakePair(m_reference, QStringLiteral("compare")),
         qMakePair(m_wells, QStringLiteral("welltracks"))})
     connect(button, &QPushButton::clicked, this, [this, action] {
+      if (action == "show" && !m_selected.featureUid.isEmpty()) {
+        emit evidenceTargetRequested(nodeTarget(m_selected)); return;
+      }
       if (!m_doc || !m_doc->catalog())
         return;
       const auto version =
@@ -394,7 +435,7 @@ DataGraphPage::DataGraphPage(QWidget *parent)
             m_cancel->setEnabled(busy);
             m_view->setEnabled(!busy);
             if (busy)
-              for (auto *b : {m_open, m_locate, m_folder, m_trace, m_related,
+              for (auto *b : {m_open, m_locate, m_folder, m_trace, m_impact, m_related,
                               m_map, m_reference, m_wells, m_manage})
                 b->setEnabled(false);
             else
@@ -502,6 +543,7 @@ void DataGraphPage::refresh() {
     m_focus.clear();
     m_backHistory.clear();
     m_hasQuery = false;
+    m_featureEvidence.clear();
     m_back->setEnabled(false);
     render({});
   }
@@ -525,6 +567,11 @@ void DataGraphPage::request() {
   q.search = m_search->text().trimmed();
   q.depth = m_depth->value();
   q.history = m_history->isChecked();
+  q.featureEvidence = m_featureEvidence;
+  q.horizon = m_featureEvidence.value("horizon").toString();
+  q.evidenceType = m_evidenceTypeFilter->currentData().toString();
+  q.reviewState = m_reviewFilter->currentData().toString();
+  q.evidenceOffset = (m_evidencePage->value() - 1) * 50;
   if (m_hasQuery && !m_restoring &&
       (q.focus != m_queryState.focus || q.mode != m_queryState.mode ||
        q.category != m_queryState.category || q.stage != m_queryState.stage)) {
@@ -715,6 +762,8 @@ void DataGraphPage::selectNode(const Node &node, bool navigate) {
                        (!node.assetId.isEmpty() || !node.entityId.isEmpty()));
   m_folder->setEnabled(real && !selectedPath().isEmpty());
   m_trace->setEnabled(real && !node.assetId.isEmpty());
+  m_impact->setEnabled(real && (!node.versionId.isEmpty() || !node.evidence.value("source_version").toString().isEmpty()));
+  m_impact->setToolTip(m_impact->isEnabled() ? tr("查询已登记的直接依赖和派生下游；空间影响未确定的成果显示为待复核风险") : tr("请选择具有已保存来源版本的节点"));
   m_related->setEnabled(real && !node.id.isEmpty());
   const auto version =
       m_doc && m_doc->catalog() && real
@@ -725,7 +774,7 @@ void DataGraphPage::selectNode(const Node &node, bool navigate) {
   const bool product = version.extra.value("mapping_product").toBool() &&
                        (version.extra.value("layer_type") == "vector" ||
                         version.extra.value("layer_type") == "raster");
-  m_map->setEnabled(product);
+  m_map->setEnabled(product || (real && !node.featureUid.isEmpty()));
   m_reference->setEnabled(product);
   m_wells->setEnabled(
       product &&
@@ -737,6 +786,12 @@ void DataGraphPage::selectNode(const Node &node, bool navigate) {
                                  : tr("请选择已登记的相应图件版本"));
   if (!navigate || !real)
     return;
+  if (!node.featureUid.isEmpty()) {
+    emit evidenceTargetRequested(nodeTarget(node));
+    return;
+  }
+  if (node.kind == Kind::Version && !node.versionId.isEmpty())
+    emit evidenceTargetRequested(nodeTarget(node));
   QScopedValueRollback<bool> guard(m_navigating, true);
   if (!node.versionId.isEmpty())
     emit versionFocusRequested(node.assetId, node.versionId);
@@ -775,6 +830,11 @@ void DataGraphPage::activateNode(const Node &node) {
     return;
   }
   selectNode(node, true);
+  if (node.kind == Kind::Evidence) {
+    const auto source = node.evidence.value("source_version", node.evidence.value("version_id")).toString();
+    if (!source.isEmpty()) emit versionActivated(source);
+    return;
+  }
   if (!node.versionId.isEmpty())
     emit versionActivated(node.versionId);
   else if (!node.assetId.isEmpty())
@@ -785,5 +845,25 @@ void DataGraphPage::openLineage(const QString &assetId,
                                 const QString &versionId) {
   openRelations(assetId, versionId);
   m_mode->setCurrentIndex(int(Mode::Lineage));
+  request();
+}
+QVariantMap DataGraphPage::nodeTarget(const Node &node) const {
+  auto out = node.evidence;
+  out.insert("version_id", node.versionId); out.insert("asset_id", node.assetId);
+  out.insert("layer_id", node.layerId); out.insert("feature_uid", node.featureUid);
+  out.insert("evidence_id", node.evidenceId); out.insert("assertion_id", node.assertionId);
+  out.insert("interpretation_id", node.interpretationId); out.insert("horizon", node.horizon);
+  if (m_featureEvidence.contains("project_id")) out.insert("project_id", m_featureEvidence.value("project_id"));
+  if (m_featureEvidence.contains("project_session")) out.insert("project_session", m_featureEvidence.value("project_session"));
+  return out;
+}
+void DataGraphPage::setFeatureEvidence(const QVariantMap &snapshot, bool open) {
+  if (m_featureEvidence == snapshot && !open) return;
+  m_featureEvidence = snapshot;
+  if (open) {
+    const QSignalBlocker mode(m_mode), depth(m_depth), page(m_evidencePage);
+    m_focus = versionKey(snapshot.value("version_id").toString());
+    m_mode->setCurrentIndex(int(Mode::Relations)); m_depth->setValue(4); m_evidencePage->setValue(1);
+  }
   request();
 }

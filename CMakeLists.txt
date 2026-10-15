@@ -1136,6 +1136,7 @@ add_paleo_test(tst_lasperf LIBS paleo_io)    # 方向21：LAS 读面比率门探
 add_paleo_test(tst_snapshot_dedup LIBS paleo_io) # #84：快照/活对象 dedup 复核同一语义（真重哈希）
 add_paleo_test(tst_shacache LIBS paleo_io) # setDiskFile 换绑不得把在途哈希写入新 sha.json
 add_paleo_test(tst_constraintstore LIBS paleo_workflow)
+add_paleo_test(tst_constraintevidence LIBS paleo_io)
 add_paleo_test(tst_constraintediting LIBS paleo_ui)
 add_paleo_test(tst_shapetools LIBS paleo_ui)
 add_paleo_test(tst_edittools LIBS paleo_ui)
@@ -1252,6 +1253,7 @@ add_paleo_test(tst_taskservice LIBS paleo_ui)
 add_paleo_test(tst_threeway)          # 伞式（全栈，兼容样本）
 add_paleo_test(tst_chips LIBS paleo_ui)
 add_paleo_test(tst_versions LIBS paleo_workflow)
+add_paleo_test(tst_mapsnapshot_scale LIBS paleo_workflow) # 10k/100k 快照实测，只记 BASELINE，不断言墙钟
 
 # ---- wave3/derived-publish (T26/D10/D15 + §40 速度模型与 CDP 映射) ----
 add_paleo_test(tst_derivedassets LIBS paleo_workflow)
@@ -1490,6 +1492,7 @@ endforeach()
 # RUN_SERIAL，不打 perf（-LE perf 不应丢掉这些功能测试）。
 set(_paleo_perf_tests
   tst_perf tst_previewmap_perf tst_aiassist_perf tst_startup_trace tst_perfbudget
+  tst_mapsnapshot_scale
   tst_singlefactor_perf tst_singlefactor_contourbudget tst_singlefactor_guilatency
   tst_ui_blocking tst_mem_budget tst_perf_las tst_perf_segyindex tst_perf_catalog
   tst_perf_regress tst_petrophysperf tst_seismic_perf tst_seismic_baseline
@@ -1504,6 +1507,9 @@ foreach(_t IN LISTS _paleo_perf_tests)
 endforeach()
 if(TEST tst_singlefactor_perf)
   set_tests_properties(tst_singlefactor_perf PROPERTIES TIMEOUT 1200)
+endif()
+if(TEST tst_mapsnapshot_scale)
+  set_tests_properties(tst_mapsnapshot_scale PROPERTIES TIMEOUT 1800)
 endif()
 
 # ---- 方向 81：环境债红名单（tools/env_redset.json，单一真源）→ ctest 标签 ----

@@ -8,6 +8,7 @@
 #include "../services/imagelod.h"
 #include "../workflow/aichatcontroller.h"
 #include "../workflow/mappingworkbench.h"
+#include "../workflow/evidenceinteraction.h"
 #include "../workflow/projectlayerrefresh.h"
 #include "../workflow/welltrajectorylayer.h" // goal/well-trajectory 轨迹线层组装
 #include "aiwiring.h"                        // 方向51：远端预测装配（唯一入口）
@@ -278,6 +279,8 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   m_constraintWf->setStore(m_store); // GeoPackage constraint persistence (wave/constraint-gpkg)
   m_mappingWorkbench = new MappingWorkbench(m_layerSvc, m_procSvc, m_projectSvc, m_constraintWf, this);
   m_mappingWorkbench->setTaskService(m_taskSvc); // 智能预测进任务中心（后台执行、可取消）
+  m_evidenceInteraction = new EvidenceInteraction(m_mappingWorkbench, m_selection,
+      m_layerSvc, m_projectSvc, m_canvasCtl, this);
   // 方向51：远端预测装配—— MappingWorkbench 自己的那份替身 Mock 已删除，
   // 这里显式装入 RemotePredictionRouter。端点未配置时 router 不带传输，
   // 地震请求由该 router 执行；测井另接 API 2.0 服务，与测井面板共用
@@ -366,6 +369,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   m_versionCtl = new MapVersionController(m_versionStore, m_layerSvc, this);
   m_versionCtl->setEditingService(m_editSvc);
   m_versionCtl->setProjectStore(m_store);
+  m_versionCtl->setTaskService(m_taskSvc);
   // releaseHorizon 遇编辑中图层时经服务回滚（busy 随会话释放）——与
   // versionCtl 同一编辑服务实例。
   m_layerSvc->setEditingService(m_editSvc);
@@ -383,6 +387,8 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   });
   connect(m_projectSvc, &QgisProjectService::projectAboutToClose, this, [this]() {
     m_projectLayerRefresh->cancel();
+    if (m_versionCtl)
+      m_versionCtl->abandonForProjectClose();
     if (m_taskSvc)
       m_taskSvc->beginNewSession();
   });
@@ -445,6 +451,16 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
             const QString metaPath = manifestPathFor(qgzPath);
             m_metaPath = metaPath;
             m_store->setProjectPaths(qgzPath, gpkgPathFor(qgzPath), metaPath);
+
+            // 发布记档与工程提交记档同目录。先补登记中断的发布，再扫描未完成
+            // 记档，避免一次已经补完的发布仍被报成未完成。只读实例不补登记。
+            if (writable)
+            {
+              MapVersionStore publicationRecovery(metaPath);
+              QString recoverErr;
+              if (!publicationRecovery.open(&recoverErr))
+                qWarning() << "AppContext: map publication recovery failed" << metaPath << recoverErr;
+            }
 
             // data/commit-coord：提交 journal 恢复扫描。上次 commitAll 若在
             // catalog→qgz 写序中途崩溃会留下未 complete 的记档；如实上报
@@ -541,6 +557,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
               m_constraintWf->setCatalog(derivedCatalog, fi.absolutePath());
               m_compositionWf->setCatalog(derivedCatalog, fi.absolutePath());
               m_mappingWorkbench->bindCatalog(derivedCatalog, fi.absolutePath());
+              m_versionCtl->setCatalog(derivedCatalog);
               WellAttributeStore::open(derivedCatalog, fi.absolutePath(), m_layerSvc, false, false);
               WellAttributeStore::open(derivedCatalog, fi.absolutePath(), m_layerSvc, true, false);
               WellAttributeStore::open(derivedCatalog, fi.absolutePath(), m_layerSvc, WellAttributeStore::Table::Formations, false);

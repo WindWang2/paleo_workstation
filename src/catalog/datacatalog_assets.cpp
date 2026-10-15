@@ -9,6 +9,20 @@
 namespace
 {
 using paleo::store_detail::setError;
+
+// QStringList and a JSON-reloaded QVariantList both count. An empty read must
+// not let a cited source through the purge gate.
+QStringList mapResultRetention(const QVariant &value)
+{
+  QStringList tokens = value.toStringList();
+  if (!tokens.isEmpty()) return tokens;
+  for (const auto &entry : value.toList())
+  {
+    const auto token = entry.toString();
+    if (!token.isEmpty()) tokens << token;
+  }
+  return tokens;
+}
 } // namespace
 
 // 资产族（方向 99 拆分）：addAsset/assets/assetById/物理删除（方向 30 回收站
@@ -89,7 +103,13 @@ bool DataCatalog::removeAssets(const QStringList &assetIds, QString *error)
   // 同资产互引不拦（随资产一起删）。
   QVector<CatalogVersion> doomedVersions;
   for (const auto &v : m_versions) if (selected.contains(v.assetId)) doomedVersions.append(v);
-  for (const CatalogVersion &v : doomedVersions)
+  for (const CatalogVersion &v : doomedVersions) {
+    const auto retained = mapResultRetention(v.extra.value(QStringLiteral("retained_by_map_results")));
+    if (!retained.isEmpty()) {
+      setError(error, QStringLiteral("version %1 is cited by map result %2 — the saved result still references it")
+                       .arg(v.id, retained.first()));
+      return false;
+    }
     for (const QString &cid : m_idx.childVersionIds(v.id))
     {
       const int row = m_idx.versionRow(cid);
@@ -101,6 +121,7 @@ bool DataCatalog::removeAssets(const QStringList &assetIds, QString *error)
                              m_versions.at(row).assetId));
       return false;
     }
+  }
   // 回滚快照：删除是罕见路径，O(N) 拷贝换 save 失败时的精确还原（与
   // 索引 rebuild 的「罕见路径花全量换正确性」同一纪律）。
   const QVector<CatalogAsset> prevAssets = m_assets;

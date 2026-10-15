@@ -495,6 +495,16 @@ void PaleoProjectStore::markLayerFree( const QString &layerId )
   m_busy.remove( layerId );
 }
 
+bool PaleoProjectStore::releaseLayerBusy( const QString &layerId, const QString &taskId )
+{
+  QMutexLocker locker( &m_busyMutex );
+  auto it = m_busy.find( layerId );
+  if ( it == m_busy.end() || it->first != taskId )
+    return false;
+  m_busy.erase( it );
+  return true;
+}
+
 bool PaleoProjectStore::layerBusy( const QString &layerId, QString *reason ) const
 {
   QMutexLocker locker( &m_busyMutex );

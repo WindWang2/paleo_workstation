@@ -34,6 +34,8 @@ class IoImportLedgerTests : public QObject
 private slots:
   void rejectedRowsReachLedgerAndAcceptedTops();
   void allInvalidRowsAreFailureWithReasons();
+  void corruptLedgerPreservedBeforeOverwrite();
+  void corruptLedgerUnbackupableRefusesWrite();
   void unitFilesReachSectionWorkbench_data();
   void unitFilesReachSectionWorkbench();
 };
@@ -131,6 +133,98 @@ void IoImportLedgerTests::allInvalidRowsAreFailureWithReasons()
   QCOMPARE(ledger.batches()[0].failed, 1);
   QCOMPARE(ledger.batches()[0].rows[0].message, rows[0].message);
   QVERIFY(importer.catalog()->assets().isEmpty());
+}
+
+// opt-01 U2：台账是跨会话审计面。损坏件（半截 JSON/误编辑）读出空历史后，
+// 旧实现下一批 record 直接用「仅本批」覆盖——全部历史静默蒸发。新口径：
+// load 给出可解释原因；record 先把原字节另存 .corrupt-<时间戳> 再写新台账。
+void IoImportLedgerTests::corruptLedgerPreservedBeforeOverwrite()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString src = dir.filePath(QStringLiteral("src"));
+  QVERIFY(write(QDir(src).filePath(QStringLiteral("ExportWellHead.dat")), "W1 10 20 0 500\n"));
+  PaleoProjectStore store;
+  DataImportService importer(&store);
+  importer.setProjectDir(dir.filePath(QStringLiteral("project")));
+  QVERIFY2(importer.catalogWritable(), qPrintable(importer.catalogOpenError()));
+
+  paleo::imports::ImportLedger probe;
+  probe.load(importer.catalog());
+  const QString ledgerPath = probe.filePath();
+  QVERIFY(!ledgerPath.isEmpty());
+  QVERIFY(probe.loadWarning().isEmpty()); // 缺文件 = 正常空历史
+  const QByteArray corrupt = "{\"batches\":[{\"id\":\"batch-1\",\"dir\":\"/old\",\"rows\":[";
+  QVERIFY(write(ledgerPath, corrupt));
+  probe.load(importer.catalog());
+  QCOMPARE(probe.count(), 0);
+  QVERIFY2(probe.loadWarning().contains(QStringLiteral("损坏")), qPrintable(probe.loadWarning()));
+
+  FolderImportWorkflow workflow(&importer, nullptr);
+  QString error;
+  workflow.importFolder(src, {}, [&](const auto &, const QString &e) { error = e; });
+  QVERIFY2(error.isEmpty(), qPrintable(error));
+
+  // 原损坏字节被逐字保全（恰一份备份），新台账只含本批且可正常读回。
+  const QFileInfo li(ledgerPath);
+  const QStringList backups = li.dir().entryList(
+      QStringList{li.fileName() + QStringLiteral(".corrupt-*")}, QDir::Files);
+  QCOMPARE(backups.size(), 1);
+  QFile b(li.dir().filePath(backups.first()));
+  QVERIFY(b.open(QIODevice::ReadOnly));
+  QCOMPARE(b.readAll(), corrupt);
+  paleo::imports::ImportLedger after;
+  after.load(importer.catalog());
+  QVERIFY(after.loadWarning().isEmpty());
+  QCOMPARE(after.count(), 1);
+  QCOMPARE(after.batches()[0].dir, src);
+  // 再写一批：不再重复备份（损坏件只保全一次）。
+  workflow.importFolder(src, {}, [&](const auto &, const QString &e) { error = e; });
+  QCOMPARE(li.dir().entryList(QStringList{li.fileName() + QStringLiteral(".corrupt-*")},
+                              QDir::Files).size(), 1);
+  after.load(importer.catalog());
+  QCOMPARE(after.count(), 2);
+}
+
+// 备份不可得（目录只读）→ record 拒写并给出原因；原损坏件字节不动。
+void IoImportLedgerTests::corruptLedgerUnbackupableRefusesWrite()
+{
+#ifdef Q_OS_WIN
+  QSKIP("POSIX 目录权限语义");
+#else
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  PaleoProjectStore store;
+  DataImportService importer(&store);
+  importer.setProjectDir(dir.filePath(QStringLiteral("project")));
+  QVERIFY(importer.catalogWritable());
+  paleo::imports::ImportLedger ledger;
+  ledger.load(importer.catalog());
+  const QString ledgerPath = ledger.filePath();
+  const QByteArray corrupt = "not json at all";
+  QVERIFY(write(ledgerPath, corrupt));
+  ledger.load(importer.catalog());
+  QVERIFY(!ledger.loadWarning().isEmpty());
+  const QString sidecarDir = QFileInfo(ledgerPath).absolutePath();
+  const auto perms = QFile::permissions(sidecarDir);
+  QVERIFY(QFile::setPermissions(sidecarDir, QFileDevice::ReadOwner | QFileDevice::ExeOwner));
+  if (QFileInfo(sidecarDir).isWritable())
+  {
+    QFile::setPermissions(sidecarDir, perms);
+    QSKIP("以特权运行：目录只读不生效");
+  }
+  paleo::imports::LedgerBatch batch;
+  batch.id = QStringLiteral("batch-x");
+  batch.dir = QStringLiteral("/x");
+  QString error;
+  const bool ok = ledger.record(batch, &error);
+  QVERIFY(QFile::setPermissions(sidecarDir, perms));
+  QVERIFY(!ok);
+  QVERIFY2(error.contains(QStringLiteral("损坏")), qPrintable(error));
+  QFile f(ledgerPath);
+  QVERIFY(f.open(QIODevice::ReadOnly));
+  QCOMPARE(f.readAll(), corrupt);
+#endif
 }
 
 void IoImportLedgerTests::unitFilesReachSectionWorkbench_data()

@@ -3,6 +3,7 @@
 
 #include "../catalog/datacatalog.h"
 
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -100,6 +101,7 @@ void ImportLedger::load(DataCatalog *cat)
 {
   m_batches.clear();
   m_path = QString();
+  m_loadWarning.clear();
   const QString pd = projectDirForLedger(cat);
   if (pd.isEmpty())
     return;
@@ -112,6 +114,10 @@ void ImportLedger::load(DataCatalog *cat)
   if (err.error != QJsonParseError::NoError || !doc.isObject())
   {
     qWarning() << "import ledger parse failed:" << m_path << err.errorString();
+    m_loadWarning = QStringLiteral("导入台账已损坏（%1），历史批次无法读取；"
+                                   "下次写入前将原文件另存为 .corrupt 备份")
+                        .arg(doc.isNull() ? err.errorString()
+                                          : QStringLiteral("根节点不是对象"));
     return;
   }
   const QJsonArray arr = doc.object().value(QStringLiteral("batches")).toArray();
@@ -130,6 +136,23 @@ bool ImportLedger::record(const LedgerBatch &batch, QString *error)
     if (error)
       *error = QStringLiteral("导入台账未激活（工程 catalog 未打开）");
     return false;
+  }
+  if (!m_loadWarning.isEmpty() && QFile::exists(m_path))
+  {
+    // 损坏件是唯一的历史载体：覆盖前先保全原字节（不就地修复、不猜内容）。
+    // 另存失败 → 拒写，宁可本批不入账，也不把全部历史换成一批。
+    const QString backup =
+        m_path + QStringLiteral(".corrupt-") +
+        QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyyMMddHHmmsszzz"));
+    if (!QFile::copy(m_path, backup))
+    {
+      if (error)
+        *error = QStringLiteral("导入台账已损坏且无法备份（%1），本批未入账以免覆盖原文件")
+                     .arg(backup);
+      return false;
+    }
+    qWarning() << "import ledger: corrupt ledger preserved as" << backup;
+    m_loadWarning.clear();
   }
   m_batches.append(batch);
   // 窗口裁剪：保最新 kMaxBatches 批（append 序即时间序）。

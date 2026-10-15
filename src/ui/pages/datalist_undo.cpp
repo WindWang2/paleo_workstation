@@ -494,6 +494,9 @@ void DataListPanel::showImportLedger()
   }
   paleo::imports::ImportLedger ledger;
   ledger.load(cat);
+  // 损坏台账不能显示成「0 批」了事：原因如实上状态栏（备份口径见 importledger.h）。
+  if (!ledger.loadWarning().isEmpty())
+    emit statusMessage(ledger.loadWarning());
   paleo::dataops::ImportLedgerDialog dlg(this);
   dlg.setBatches(ledger.batches());
   dlg.exec();

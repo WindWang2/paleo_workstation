@@ -29,6 +29,8 @@
 #include "shortcuts/shortcutcatalog.h" // 方向63：注册表健康度进启动日志
 #include "help/whatsthiscatalog.h"     // 方向63：壳控件 whatsThis 回填
 #include <QComboBox> // findChildren<QComboBox*>（层位下拉 chip 联动）
+#include <QGuiApplication>
+#include <QScreen>
 #include "ui/seismic3d/seismic3dviewpanel.h"
 #include "ui/seismic3d/seismic3dviewportwidget.h" // 3D 视口 presetView/fitToBounds
 #include "ui/seismicsection/seismicsectiondockwidget.h"
@@ -276,8 +278,11 @@ void PaleoMainWindow::buildShell()
                                  m_bottomDockAutoShown});
          }
        }});
-  updateWindowTitle(); // 「<工程名> — Paleo Workbench [*]」（无工程时只有产品名）
-  setMinimumSize(1280, 800); // §42.11 a11y floor
+  const auto *screen = QGuiApplication::primaryScreen();
+  const QRect avail = screen ? screen->availableGeometry() : QRect();
+  const int minW = (avail.width() > 0 && avail.width() < 1280) ? qMax(960, avail.width() - 40) : 1280;
+  const int minH = (avail.height() > 0 && avail.height() < 800) ? qMax(540, avail.height() - 40) : 800;
+  setMinimumSize(minW, minH); // §42.11 a11y floor with low-viewport adaptive fallback
 
   // ---- center: startup page stacked under the workspace ----
   buildCenterArea();

@@ -95,6 +95,9 @@ bool PaleoAttributeTableHost::stopEditing(QgsVectorLayer *layer, bool allowCance
 {
   if (!layer || !layer->isEditable()) return true;
   if (layer->isModified()) {
+    if (QGuiApplication::platformName() == QLatin1String("offscreen") || !m_parent) {
+      return saveEdits(layer, false);
+    }
     const auto answer = QMessageBox::question(m_parent, tr("保存编辑"),
       tr("是否保存图层「%1」的修改？").arg(layer->name()),
       QMessageBox::Save | QMessageBox::Discard | (allowCancel ? QMessageBox::Cancel : QMessageBox::NoButton),
@@ -143,7 +146,7 @@ QgsFeature PaleoAttributeTableHost::addFeature(QgsVectorLayer *layer, bool showF
   if (!layer || !layer->isEditable()) return {};
   auto context = layer->createExpressionContext();
   auto feature = QgsVectorLayerUtils::createFeature(layer, geometry, attributes, &context);
-  if (showForm) {
+  if (showForm && QGuiApplication::platformName() != QLatin1String("offscreen") && parent) {
     QgsAttributeDialog dialog(layer, &feature, false, parent, true, createAttributeEditorContext());
     dialog.setMode(QgsAttributeEditorContext::AddFeatureMode);
     if (dialog.exec() != QDialog::Accepted) return {};

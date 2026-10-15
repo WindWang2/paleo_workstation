@@ -396,11 +396,46 @@ bool Observer::rewrite(QgsFeatureId fid, const QStringList &ancestors, const QSt
   auto roots = sourceRoots;
   if (roots.isEmpty()) parents(feature.attribute(RootsField), &roots);
   if (roots.isEmpty()) roots = ancestors.isEmpty() ? QStringList{identity} : ancestors;
-  const bool ok = m_layer->changeAttributeValues(fid,
-      {{m_layer->fields().indexOf(UidField), identity},
-       {m_layer->fields().indexOf(ParentsField), encode(ancestors)},
-       {m_layer->fields().indexOf(RootsField), encode(roots)},
-       {m_layer->fields().indexOf(ReviewField), true}});
+
+  QgsAttributeMap changedAttrs{
+      {m_layer->fields().indexOf(UidField), identity},
+      {m_layer->fields().indexOf(ParentsField), encode(ancestors)},
+      {m_layer->fields().indexOf(RootsField), encode(roots)},
+      {m_layer->fields().indexOf(ReviewField), true}};
+
+  const int interpretationField = m_layer->fields().indexOf(QStringLiteral("paleo_interpretation"));
+  const int recordsField = m_layer->fields().indexOf(QStringLiteral("facies_evidence"));
+  if (interpretationField >= 0) {
+    QVariantMap inherited;
+    if (paleo::evidence::decodeInterpretation(feature.attribute(interpretationField).toString(), &inherited, nullptr) && !inherited.isEmpty()) {
+      const auto parentUid = inherited.value("feature_uid").toString();
+      QVariantMap fork{
+          {"id", fresh()},
+          {"assertion_id", fresh()},
+          {"feature_uid", identity},
+          {"horizon", inherited.value("horizon")},
+          {"status", QStringLiteral("Proposed")},
+          {"revision", 0},
+          {"inherited_interpretation", inherited},
+          {"parent_interpretation_id", inherited.value("id")}};
+      changedAttrs.insert(interpretationField, paleo::evidence::encode(fork));
+
+      if (recordsField >= 0) {
+        QVariantList records;
+        if (paleo::evidence::decodeRecords(feature.attribute(recordsField).toString(), &records, nullptr)) {
+          for (auto &value : records) {
+            auto record = value.toMap();
+            record.insert("inherited_from_feature_uid", record.value("feature_uid", parentUid));
+            record.insert("feature_uid", identity);
+            value = record;
+          }
+          changedAttrs.insert(recordsField, paleo::evidence::encode(records));
+        }
+      }
+    }
+  }
+
+  const bool ok = m_layer->changeAttributeValues(fid, changedAttrs);
   if (!ok) { reportFailure(tr("原生编辑的图元来源登记失败")); return false; }
   m_ids[uid(feature)].remove(fid);
   if (m_ids[uid(feature)].isEmpty()) m_ids.remove(uid(feature));

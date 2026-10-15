@@ -122,21 +122,29 @@ QVector<QVariantMap> readHistory(GDALDatasetH ds, const QString &column, const Q
 }
 bool ensureAuditTable(GDALDatasetH ds) {
   auto audit = GDALDatasetGetLayerByName(ds, "constraint_audit");
+  const bool needsIndex = (audit == nullptr);
   if (!audit) audit = GDALDatasetCreateLayer(ds, "constraint_audit", nullptr, wkbNone, nullptr);
   if (!audit) return false;
   for (const auto name : {"event_id", "constraint_id", "horizon", "operation_id", "actor_id", "action", "timestamp", "event_json"})
     if (!ensureField(audit, name, OFTString)) return false;
-  return ensureField(audit, "revision", OFTInteger64) &&
-      sql(ds, "CREATE UNIQUE INDEX IF NOT EXISTS paleo_constraint_event_id ON constraint_audit(event_id)") &&
-      sql(ds, "CREATE INDEX IF NOT EXISTS paleo_constraint_history_id ON constraint_audit(constraint_id,fid)") &&
-      sql(ds, "CREATE INDEX IF NOT EXISTS paleo_constraint_history_horizon ON constraint_audit(horizon,fid)");
+  if (!ensureField(audit, "revision", OFTInteger64)) return false;
+  if (needsIndex) {
+    return sql(ds, "CREATE UNIQUE INDEX IF NOT EXISTS paleo_constraint_event_id ON constraint_audit(event_id)") &&
+           sql(ds, "CREATE INDEX IF NOT EXISTS paleo_constraint_history_id ON constraint_audit(constraint_id,fid)") &&
+           sql(ds, "CREATE INDEX IF NOT EXISTS paleo_constraint_history_horizon ON constraint_audit(horizon,fid)");
+  }
+  return true;
 }
 bool ensureAudit(GDALDatasetH ds, OGRLayerH constraints) {
-  return ensureAuditTable(ds) && constraints &&
-      ensureField(constraints, "evidence_revision", OFTInteger64) &&
-      ensureField(constraints, "evidence_recent_events", OFTString) &&
-      sql(ds, "CREATE INDEX IF NOT EXISTS paleo_constraint_stable_id ON constraints(id)") &&
-      sql(ds, "CREATE INDEX IF NOT EXISTS paleo_constraint_horizon ON constraints(horizon)");
+  if (!ensureAuditTable(ds) || !constraints) return false;
+  const bool needsIndex = (OGR_FD_GetFieldIndex(OGR_L_GetLayerDefn(constraints), "evidence_revision") < 0);
+  if (!ensureField(constraints, "evidence_revision", OFTInteger64) ||
+      !ensureField(constraints, "evidence_recent_events", OFTString)) return false;
+  if (needsIndex) {
+    return sql(ds, "CREATE INDEX IF NOT EXISTS paleo_constraint_stable_id ON constraints(id)") &&
+           sql(ds, "CREATE INDEX IF NOT EXISTS paleo_constraint_horizon ON constraints(horizon)");
+  }
+  return true;
 }
 bool journal(GDALDatasetH ds, OGRLayerH constraints, OGRFeatureH afterFeature,
               const QVariantMap &before, const QVariantMap &after,
@@ -198,6 +206,7 @@ struct Transaction {
       if (driver) ds = GDALCreate(driver, file.toUtf8().constData(), 0, 0, 0, GDT_Unknown, nullptr);
       created = ds != nullptr;
     }
+    if (ds) sql(ds, "PRAGMA busy_timeout = 5000");
     if (!ds || GDALDatasetStartTransaction(ds, FALSE) != OGRERR_NONE) {
       *error = QObject::tr("无法打开约束事务：%1").arg(QString::fromUtf8(CPLGetLastErrorMsg())); return false;
     }

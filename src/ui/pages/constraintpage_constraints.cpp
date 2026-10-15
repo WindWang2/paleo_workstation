@@ -10,9 +10,11 @@
 #include "pageshared.h"
 
 #include "../../workflow/workflows.h"
+#include "../../workflow/constraintuseplan.h"
 
 #include <QComboBox>
 #include <QDoubleSpinBox>
+#include <QHash>
 #include <QHBoxLayout>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -388,6 +390,54 @@ void ConstraintPage::loadSelectedConstraintLine()
   updateFactorActionStates();
 }
 
+namespace
+{
+
+QString constraintRoleLabel( const QString &role )
+{
+  if ( role == QLatin1String( "hard_barrier" ) )
+    return ConstraintPage::tr( "硬屏障" );
+  if ( role == QLatin1String( "direction_guide" ) )
+    return ConstraintPage::tr( "局部方向" );
+  if ( role == QLatin1String( "global_direction" ) )
+    return ConstraintPage::tr( "全域平均方向" );
+  if ( role == QLatin1String( "soft_boundary" ) )
+    return ConstraintPage::tr( "软边界" );
+  if ( role == QLatin1String( "hull_clip" ) )
+    return ConstraintPage::tr( "凸包裁剪" );
+  return role;
+}
+
+QString constraintReasonLabel( const QString &reason )
+{
+  const QString token = reason.section( QLatin1Char( ':' ), 0, 0 );
+  static const QHash<QString, QString> labels = {
+      { QStringLiteral( "disabled" ), ConstraintPage::tr( "已停用" ) },
+      { QStringLiteral( "non_blocking" ), ConstraintPage::tr( "非阻断模式" ) },
+      { QStringLiteral( "invalid_params" ), ConstraintPage::tr( "参数非法" ) },
+      { QStringLiteral( "short_line" ), ConstraintPage::tr( "几何无效：少于 2 个顶点" ) },
+      { QStringLiteral( "zero_length" ), ConstraintPage::tr( "几何无效：零长度" ) },
+      { QStringLiteral( "self_intersecting" ), ConstraintPage::tr( "几何无效：自相交" ) },
+      { QStringLiteral( "non_finite_coordinate" ), ConstraintPage::tr( "几何无效：坐标非有限" ) },
+      { QStringLiteral( "empty_geometry" ), ConstraintPage::tr( "几何为空" ) },
+      { QStringLiteral( "not_line" ), ConstraintPage::tr( "不是线几何" ) },
+      { QStringLiteral( "method_does_not_read_line_constraints" ), ConstraintPage::tr( "当前方法不读约束线" ) },
+      { QStringLiteral( "unsupported_by_method" ), ConstraintPage::tr( "当前方法不支持该语义" ) },
+      { QStringLiteral( "cartographic_only" ), ConstraintPage::tr( "仅作用于制图" ) },
+      { QStringLiteral( "contour_stop_does_not_change_analysis" ), ConstraintPage::tr( "仅作用于制图（停线）" ) },
+      { QStringLiteral( "cartographic_detour_not_analysis_constraint" ), ConstraintPage::tr( "仅作用于制图（绕行）" ) },
+      { QStringLiteral( "direction_ratio_not_above_one" ), ConstraintPage::tr( "方向比值 ≤ 1" ) },
+      { QStringLiteral( "direction_ratio_out_of_range" ), ConstraintPage::tr( "方向比值越界（运行将被拒绝）" ) },
+      { QStringLiteral( "soft_strength_zero" ), ConstraintPage::tr( "软边界强度为 0" ) },
+      { QStringLiteral( "soft_strength_out_of_range" ), ConstraintPage::tr( "软边界强度越界（运行将被拒绝）" ) },
+      { QStringLiteral( "global_aniso_ratio_not_above_one" ), ConstraintPage::tr( "全局各向异性比值 ≤ 1" ) },
+      { QStringLiteral( "outside_compute_domain" ), ConstraintPage::tr( "在计算域外" ) },
+  };
+  return labels.value( token, reason );
+}
+
+} // namespace
+
 void ConstraintPage::refreshConstraintList()
 {
   auto *list = child<QListWidget>( this, "constraintList" );
@@ -402,7 +452,6 @@ void ConstraintPage::refreshConstraintList()
     selected.insert(item->data(Qt::UserRole).toString());
   list->blockSignals( true );
   list->clear();
-  int directions = 0, barriers = 0;
   QVariantList signatureRows;
   if ( wf )
   {
@@ -412,32 +461,18 @@ void ConstraintPage::refreshConstraintList()
       signatureRows << row;
       const QString id = row.value( QStringLiteral( "id" ) ).toString();
       const QString type = row.value( QStringLiteral( "type" ) ).toString();
-      const auto parameters =
-          QJsonDocument::fromJson(row.value(QStringLiteral("params_json")).toString().toUtf8())
-              .object()
-              .toVariantMap();
-      if (parameters.value(QStringLiteral("enabled"), true).toBool()) {
-        if (type == QLatin1String("direction_line"))
-          ++directions;
-        if (type == QLatin1String("break_line"))
-          ++barriers;
-      }
       auto *item = new QListWidgetItem( tr( "%1 · %2" ).arg( id, type ), list );
       item->setData( Qt::UserRole, id );
       item->setData( Qt::UserRole + 1, row.value( QStringLiteral( "params_json" ) ).toString() );
+      item->setData( Qt::UserRole + 3, type );
       if ( id == keep )
         list->setCurrentItem(item, QItemSelectionModel::NoUpdate);
       item->setSelected(selected.contains(id));
     }
   }
   list->blockSignals( false );
-  setProperty("paleo.page.constraintsready", directions > 0 && barriers > 0);
-  if (auto *hint = child<QLabel>(this, "factorConstraintHint"))
-    hint->setText(
-        tr("本层位：%1 条间隔线、%2 "
-           "条方向线。绘制、导入自动保存；顶点编辑需保存编辑会话。准备两类线后，再提取井点数据。间隔线采用现有硬屏障算法。")
-            .arg(barriers)
-            .arg(directions));
+  setProperty( "paleo.page.constraintrows", signatureRows );
+  applyConstraintUsePlan();
   const QByteArray signature =
       QJsonDocument::fromVariant(signatureRows).toJson(QJsonDocument::Compact);
   const auto key = QStringLiteral("paleo.page.constraintsignature.") + horizon;
@@ -446,6 +481,81 @@ void ConstraintPage::refreshConstraintList()
     markInputsStale();
   setProperty(key.toUtf8().constData(), signature);
   loadSelectedConstraintLine();
+}
+
+void ConstraintPage::applyConstraintUsePlan()
+{
+  // P1-A：计数/就绪门/逐条状态全部来自统一语义 + 能力判定（不数 type 字符串）。
+  // 「可用」= 启用 + 参数合法 + 几何有效（与方法无关，决定就绪门）；
+  // 「参与」= 当前成图方法实际数值消费（与 QC constraint_receipts 同口径）。
+  QVector<QVariantMap> rows;
+  for ( const QVariant &row : property( "paleo.page.constraintrows" ).toList() )
+    rows << row.toMap();
+  auto *horizons = child<QComboBox>( this, "horizonCombo" );
+  auto *method = child<QComboBox>( this, "factorMethodCombo" );
+  paleo::singlefactor::ConstraintMethodContext context;
+  context.methodId = method ? method->currentData().toString() : QString();
+  context.horizon = horizons ? horizons->currentText() : QString();
+  const paleo::singlefactor::ConstraintUsePlan plan = paleo::singlefactor::planConstraintUse( rows, context );
+  setProperty( "paleo.page.constraintuseplan", plan.summary );
+  if ( auto *list = child<QListWidget>( this, "constraintList" ) )
+  {
+    for ( int i = 0; i < list->count(); ++i )
+    {
+      QListWidgetItem *item = list->item( i );
+      const QString id = item->data( Qt::UserRole ).toString();
+      int parts = 0, used = 0;
+      QStringList roles, reasons;
+      for ( const paleo::singlefactor::ConstraintUseDecision &d : plan.decisions )
+      {
+        if ( d.featureId != id )
+          continue;
+        ++parts;
+        if ( d.consumed )
+        {
+          ++used;
+          if ( !roles.contains( constraintRoleLabel( d.role ) ) )
+            roles << constraintRoleLabel( d.role );
+        }
+        else if ( !reasons.contains( constraintReasonLabel( d.reason ) ) )
+        {
+          reasons << constraintReasonLabel( d.reason );
+        }
+      }
+      const QString type = item->data( Qt::UserRole + 3 ).toString();
+      QString status;
+      if ( parts > 0 && used == parts )
+        status = tr( "参与：%1" ).arg( roles.join( QStringLiteral( "、" ) ) );
+      else if ( used > 0 )
+        status = tr( "部分参与 %1/%2：%3；%4" ).arg( used ).arg( parts ).arg( roles.join( QStringLiteral( "、" ) ),
+                                                                         reasons.join( QStringLiteral( "、" ) ) );
+      else
+        status = tr( "不参与：%1" ).arg( reasons.join( QStringLiteral( "、" ) ) );
+      item->setText( tr( "%1 · %2 · %3" ).arg( id, type, status ) );
+      item->setData( Qt::UserRole + 2, used > 0 );
+      item->setToolTip( status );
+    }
+  }
+  setProperty( "paleo.page.constraintsready", plan.availableBarriers > 0 && plan.availableDirections > 0 );
+  if ( auto *hint = child<QLabel>( this, "factorConstraintHint" ) )
+  {
+    QString text = tr( "本层位：%1 条间隔线、%2 条方向线可用" ).arg( plan.availableBarriers ).arg( plan.availableDirections );
+    if ( plan.availableSoft > 0 )
+      text += tr( "、%1 条软边界" ).arg( plan.availableSoft );
+    if ( plan.availableCartographic > 0 )
+      text += tr( "、%1 条仅制图线" ).arg( plan.availableCartographic );
+    if ( plan.disabled > 0 )
+      text += tr( "；%1 条已停用" ).arg( plan.disabled );
+    if ( plan.invalid > 0 )
+      text += tr( "；%1 条无效（不参与计算）" ).arg( plan.invalid );
+    text += tr( "。当前方法实际参与 %1 条" ).arg( plan.consumed );
+    if ( plan.blocking > 0 )
+      text += tr( "，%1 条参数越界会使运行被拒绝" ).arg( plan.blocking );
+    text += tr( "。%1 绘制、导入自动保存；顶点编辑需保存编辑会话。准备两类线后，再提取井点数据。" )
+                .arg( plan.capabilityNote );
+    hint->setText( text );
+  }
+  updateFactorActionStates();
 }
 
 QVariantMap ConstraintPage::newConstraintLineParams(const QString &type) const {

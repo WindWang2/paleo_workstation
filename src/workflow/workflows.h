@@ -389,6 +389,10 @@ class ConstraintWorkflow : public QObject
       QStringList memberPaths; // 按 realizationIndex 升序
       quint64 memberSeed = 0;  // 集合基种子（SGS 共享随机流）
       QString qcPath;
+      // P1-A：地统方法不读约束线——准备段按统一计划逐条记「未使用」与原因，
+      // 计算段写进 QC，发布段写进血缘 extra（降级 IDW 也不带约束）。
+      QVariantList constraintsUnused;
+      QString constraintCapability;
     };
     bool prepareGeostatJob(const QString &horizon, const QString &factorId, const QString &method,
                            const QVariantMap &inputParams, GeostatJob *job, QString *error = nullptr);

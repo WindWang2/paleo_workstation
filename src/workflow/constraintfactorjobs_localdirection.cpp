@@ -518,6 +518,24 @@ bool ConstraintWorkflow::publishLocalDirectionJob( const LocalDirectionJob &job,
     extra.insert( QStringLiteral( "kriging_cells" ), counts.value( QStringLiteral( "kriging" ) ) );
   if ( counts.contains( QStringLiteral( "idw_fallback" ) ) )
     extra.insert( QStringLiteral( "idw_fallback_cells" ), counts.value( QStringLiteral( "idw_fallback" ) ) );
+  // P1-A：血缘只认引擎回执（QC constraint_receipts，按实际消费产出）。旧工程
+  // QC 无此键时不写，不臆造。
+  if ( qc.contains( QStringLiteral( "constraint_receipts" ) ) )
+  {
+    QVariantList consumed, unused;
+    for ( const QVariant &value : qc.value( QStringLiteral( "constraint_receipts" ) ).toList() )
+    {
+      const QVariantMap item = value.toMap();
+      if ( item.value( QStringLiteral( "consumed" ) ).toBool() )
+        consumed << QVariantMap{ { QStringLiteral( "id" ), item.value( QStringLiteral( "id" ) ) },
+                                 { QStringLiteral( "role" ), item.value( QStringLiteral( "role" ) ) } };
+      else
+        unused << QVariantMap{ { QStringLiteral( "id" ), item.value( QStringLiteral( "id" ) ) },
+                               { QStringLiteral( "reason" ), item.value( QStringLiteral( "reason" ) ) } };
+    }
+    extra.insert( QStringLiteral( "constraints_consumed" ), consumed );
+    extra.insert( QStringLiteral( "constraints_unused" ), unused );
+  }
   extra.insert( QStringLiteral( "extent_source" ), qc.value( QStringLiteral( "extent_source" ) ) );
   extra.insert( QStringLiteral( "crs_mode" ), qc.value( QStringLiteral( "crs_mode" ) ) );
   extra.insert( QStringLiteral( "support_path" ), projectDir.relativeFilePath( stagedSupport ) );

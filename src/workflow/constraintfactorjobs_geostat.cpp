@@ -26,6 +26,7 @@
 #include "boundarysemantics.h" // 相界地质语义类型词表
 #include "constraintfactorjobs_internal.h"
 #include "constraintworkflow_internal.h"
+#include "constraintuseplan.h"
 #include "derivedassets.h"
 #include "mappingworkflow.h"
 #include "realizationworkflow.h"
@@ -170,6 +171,16 @@ bool ConstraintWorkflow::prepareGeostatJob( const QString &horizon, const QStrin
   job->factorId = factorId;
   job->method = method;
   job->params = params;
+  if ( ConstraintStore *store = constraintStore() )
+  {
+    paleo::singlefactor::ConstraintMethodContext useContext;
+    useContext.methodId = method;
+    useContext.horizon = horizon;
+    const paleo::singlefactor::ConstraintUsePlan plan =
+        paleo::singlefactor::planConstraintUse( store->load( horizon ), useContext );
+    job->constraintsUnused = plan.summary.value( QStringLiteral( "unused" ) ).toList();
+    job->constraintCapability = plan.capabilityNote;
+  }
 
   QgisProcessingService *proc = m_proc.data();
   QgisLayerService *layers = m_layers.data();
@@ -403,6 +414,9 @@ bool ConstraintWorkflow::computeGeostatJobWithService(
     qc.insert( QStringLiteral( "schema" ), QStringLiteral( "paleo_geostat_qc_v1" ) );
     qc.insert( QStringLiteral( "method" ), job->method );
     qc.insert( QStringLiteral( "method_actual" ), QStringLiteral( "idw" ) );
+    // 降级 IDW 不传 CONSTRAINTS：约束同样一条未用。
+    qc.insert( QStringLiteral( "constraints_consumed" ), QVariantList() );
+    qc.insert( QStringLiteral( "constraints_unused" ), job->constraintsUnused );
     qc.insert( QStringLiteral( "samples" ), static_cast<int>( samples.size() ) );
     qc.insert("supporting_wells", supportingWells); qc.insert("skipped_wells", skippedWells);
     qc.insert( QStringLiteral( "parameters" ), parameters );
@@ -816,6 +830,8 @@ bool ConstraintWorkflow::computeGeostatJobWithService(
   qc.insert( QStringLiteral( "schema" ), QStringLiteral( "paleo_geostat_qc_v1" ) );
   qc.insert( QStringLiteral( "method" ), job->method );
   qc.insert( QStringLiteral( "method_actual" ), job->method );
+  qc.insert( QStringLiteral( "constraints_consumed" ), QVariantList() );
+  qc.insert( QStringLiteral( "constraints_unused" ), job->constraintsUnused );
   qc.insert( QStringLiteral( "samples" ), static_cast<int>( samples.size() ) );
   qc.insert("supporting_wells", supportingWells); qc.insert("skipped_wells", skippedWells);
   qc.insert( QStringLiteral( "auto_fit" ), autoFit );
@@ -1026,6 +1042,10 @@ bool ConstraintWorkflow::publishGeostatJob( const GeostatJob &job, QString *erro
   extra.insert( QStringLiteral( "method" ), job.method );
   extra.insert( QStringLiteral( "method_actual" ), methodActual );
   extra.insert( QStringLiteral( "algorithm_id" ), algorithmId );
+  extra.insert( QStringLiteral( "constraints_consumed" ), QVariantList() );
+  extra.insert( QStringLiteral( "constraints_unused" ), job.constraintsUnused );
+  if ( !job.constraintCapability.isEmpty() )
+    extra.insert( QStringLiteral( "constraint_capability" ), job.constraintCapability );
   extra.insert( QStringLiteral( "samples" ), qc.value( QStringLiteral( "samples" ) ) );
   extra.insert("supporting_wells", qc.value("supporting_wells"));
   extra.insert("skipped_wells", qc.value("skipped_wells"));

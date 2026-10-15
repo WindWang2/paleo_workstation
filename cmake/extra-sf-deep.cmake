@@ -9,3 +9,9 @@ target_sources(paleo_domain PRIVATE
   src/domain/constraintsemantics.cpp)
 
 # H1：语义/能力判定用例（纯 domain，无 QGIS）。
+add_paleo_test(tst_singlefactor_constraintuse LIBS paleo_domain)
+
+# 约束使用计划（UI/工作流口径；QgsGeometry 拆部件后调 domain 判定）。
+target_sources(paleo_workflow PRIVATE
+  src/workflow/constraintuseplan.cpp)
+

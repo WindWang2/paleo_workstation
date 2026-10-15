@@ -29,6 +29,11 @@ protected:
             m_dock->pickPanel()->refreshFromSession();
         if (m_dock)
             m_dock->saveInterpretationSession(); // 自动保存（D4.8 会话持久化）
+        // opt-02：画布拾取叠加与会话同源刷新——undo/redo 后画布必须与
+        // 面板/落盘一致（旧实现 Add::undo、Remove::undo/redo、Rename 均
+        // 不刷画布：撤销后画布残留幽灵拾取点 / 恢复的点不显示）。
+        if (m_dock)
+            m_dock->refreshInterpretationOverlay();
     }
     SeismicSectionDockWidget *m_dock;
 };
@@ -43,29 +48,36 @@ public:
     }
     void undo() override
     {
-        auto &session = m_dock->mutableSession();
-        for (const SeismicPick &p : m_picks)
-        {
-            const int idx = session.picks.indexOf(p);
-            if (idx >= 0)
-                session.picks.removeAt(idx);
-        }
+        // opt-02：按 redo 实际分配的 id 回收（与 ReplacePicksCommand 同款
+        // 记账）——旧实现按值 indexOf，但 redo 给拾取重新发了 id，撤销
+        // 「添加」从未真正从会话删掉这些拾取（面板行消失是面板按栈过滤
+        // 的假象，落盘会话仍含它们）。
+        auto &picks = m_dock->mutableSession().picks;
+        for (const int id : std::as_const(m_lastIds))
+            for (int i = picks.size() - 1; i >= 0; --i)
+                if (picks[i].id == id)
+                {
+                    picks.removeAt(i);
+                    break;
+                }
         refresh();
     }
     void redo() override
     {
+        m_lastIds.clear();
         auto &session = m_dock->mutableSession();
         for (SeismicPick p : m_picks)
         {
             p.id = session.nextId++;
             session.picks.append(p);
+            m_lastIds.append(p.id);
         }
-        m_dock->refreshInterpretationOverlay();
         refresh();
     }
 
 private:
     QList<SeismicPick> m_picks;
+    QList<int> m_lastIds; // 最近一次 redo 分配的 id（undo 按此回收）
 };
 
 class RemovePickCommand : public PickCommandBase
@@ -141,7 +153,6 @@ public:
                 }
         for (const SeismicPick &p : std::as_const(m_removed))
             picks.append(p); // 原 id 复原
-        m_dock->refreshInterpretationOverlay();
         refresh();
     }
     void redo() override
@@ -162,7 +173,6 @@ public:
             picks.append(p);
             m_lastAddedIds.append(p.id);
         }
-        m_dock->refreshInterpretationOverlay();
         refresh();
     }
 

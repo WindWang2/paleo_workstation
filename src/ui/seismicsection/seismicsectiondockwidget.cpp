@@ -158,6 +158,12 @@ void SeismicSectionDockWidget::setVolume(std::shared_ptr<const SgyVolume> volume
 }
 
 void SeismicSectionDockWidget::onSectionModeChanged(int modeIndex) {
+    // opt-02：卷帘对比只对 IL/XL 相邻线有意义——切时间切片/任意线时
+    // 显式关帘（setChecked(false) 连带 setCompareEnabled(false)），旧实现
+    // 只跳过刷新不关帘，B 半幅残留上一条相邻线图像被拉伸进新几何。
+    if ((modeIndex == 2 || modeIndex == 3) && m_btnCurtain &&
+        m_btnCurtain->isChecked())
+        m_btnCurtain->setChecked(false);
     if (modeIndex == 3) {
         if (m_extraction) m_extraction->requestCancel();
         // 任意线顶替切片显示：在途切片/卷帘一并取消摘牌、去抖键作废——
@@ -297,8 +303,10 @@ void SeismicSectionDockWidget::extractSliceAsync(SgySliceType type, int index) {
     m_sliceType = type;
     m_sliceIndex = index;
     // #224：换线即清属性叠加——同体同尺寸的相邻线几何全等，画布按尺寸
-    // 清叠加的防线挡不住旧线属性图残留。
+    // 清叠加的防线挡不住旧线属性图残留。opt-02：层段（zone）叠加同款
+    // 论证成立（属性建模烘焙在 mid-inline 那一刀，换线即错线显示）。
     m_canvas->clearAttrOverlay();
+    m_canvas->clearZoneOverlay();
 
     // 常规 IL/XL/Time 切换：丢弃任意线旧状态（route/井叠加），
     // hasRoute() 复归 false（wave/sections 语义）。
@@ -530,6 +538,13 @@ void SeismicSectionDockWidget::extractSectionFromVolumeAsync(
     m_compareTask->requestCancel();
     m_compareTask.clear();
   }
+  // opt-02：任意线不走 onSectionModeChanged（combo 以 blockSignals 置 3），
+  // 卷帘关帘与叠加清理在这里补齐——旧线（IL/XL）的属性/层段叠加按尺寸
+  // 匹配可能贴进同宽的任意线剖面（#224 清理只写在切片路径）。
+  if (m_btnCurtain && m_btnCurtain->isChecked())
+    m_btnCurtain->setChecked(false);
+  m_canvas->clearAttrOverlay();
+  m_canvas->clearZoneOverlay();
   m_sliceIndex = -1;
   const auto generation = ++m_generation;
   m_volume = volume;

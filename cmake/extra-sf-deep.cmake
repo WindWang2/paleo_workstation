@@ -15,3 +15,10 @@ add_paleo_test(tst_singlefactor_constraintuse LIBS paleo_domain)
 target_sources(paleo_workflow PRIVATE
   src/workflow/constraintuseplan.cpp)
 
+# H1（引擎侧）：真实 Processing 引擎回执 == 统一计划。
+add_paleo_test(tst_singlefactor_constraintreceipts LIBS paleo_workflow paleo_algorithms paleo_ui_deps)
+
+# P1-C：约束库 CRS 契约（画布 → 本地工程网格显式变换；无 SRS 库层补 CRS）。
+target_sources(paleo_qgis PRIVATE
+  src/qgis/constraintcrs.cpp)
+add_paleo_test(tst_singlefactor_constraintcrs LIBS paleo_ui)

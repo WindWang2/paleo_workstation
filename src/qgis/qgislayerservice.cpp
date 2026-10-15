@@ -1,5 +1,6 @@
 // 层：QGIS 封装
 #include "qgislayerservice.h"
+#include "constraintcrs.h"
 #include "factorstylewriter.h"
 #include "qgiserrors_internal.h"
 
@@ -177,6 +178,9 @@ QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *erro
   if (!decl->title.isEmpty())
     layer->setName(decl->title); // 显示名优先 title，机器名仍在 paleoLayerId
   layer->setCustomProperty(QStringLiteral("paleoLayerId"), decl->layerId);
+  // P1-C：约束库 GPKG 层无 SRS——按库约定补本地工程网格 CRS，画布按工程
+  // 转换上下文显示（配准工程走显式坐标操作），不再把无 CRS 层当画布坐标。
+  paleo::constraintcrs::assignStoreCrsIfMissing(layer.get());
 
   if (decl->layerId.startsWith(QStringLiteral("contours.")) ||
       (decl->layerId.startsWith(QStringLiteral("cartographic.")) && decl->layerId.endsWith(QStringLiteral(".contours"))))
@@ -379,6 +383,7 @@ void QgisLayerService::purgeDanglingInstances()
     const auto id = layer->customProperty("paleoLayerId").toString();
     if (!id.isEmpty() && layer->isValid() && !m_instances.contains(id)) {
       if (layer->providerType() == QLatin1String("gdal")) MappingArtifactWriter::restoreRasterCrs(layer);
+      paleo::constraintcrs::assignStoreCrsIfMissing(layer); // .qgz 里旧的无 CRS 约束层
       trackInstance(id, layer);
     }
   }

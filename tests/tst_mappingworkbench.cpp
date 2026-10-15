@@ -2653,6 +2653,25 @@ private slots:
     QCOMPARE(roundTrip.at(6).value("type").toString(),
              QStringLiteral("break_line"));
   }
+  // P1-C：外部 CRS（GeoJSON 缺省 EPSG:4326）的约束线不按原坐标入库——
+  // 坐标门如实拒绝，库里不留半截。
+  void constraintImportRejectsForeignCrs() {
+    Fixture f;
+    QVERIFY(f.init());
+    const QString path = f.dir.filePath("foreign-constraints.geojson");
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write(R"({"type":"FeatureCollection","features":[
+      {"type":"Feature","properties":{"type":"break_line"},
+       "geometry":{"type":"LineString","coordinates":[[108.0,36.0],[108.1,36.1]]}},
+      {"type":"Feature","properties":{"type":"direction_line"},
+       "geometry":{"type":"LineString","coordinates":[[108.0,36.1],[108.1,36.0]]}}]})");
+    file.close();
+    QString error;
+    QVERIFY(!f.work.importConstraints("D61", path, "auto", &error));
+    QVERIFY2(error.contains(QStringLiteral("局部米制坐标")), qPrintable(error));
+    QVERIFY(f.constraints.loadConstraints("D61").isEmpty());
+  }
   void removeProductDeletesAssetDeclarationsAndFiles() {
     Fixture f;
     QVERIFY(f.init());

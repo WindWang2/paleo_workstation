@@ -1,0 +1,32 @@
+// 层：QGIS 封装
+#pragma once
+
+#include <qgscoordinatereferencesystem.h>
+#include <qgscoordinatetransformcontext.h>
+
+#include <QString>
+
+class QgsMapLayer;
+
+// 约束库 CRS 契约（P1-C）。ConstraintStore 的 GPKG 层 "constraints" 建库时
+// 不带 SRS（wkbUnknown、无 SRS，历史 schema 不迁移）；库内坐标的约定 CRS
+// 是本地工程网格 DataCatalog::localGridCrsWkt()。所有写入（绘制/导入）先把
+// 几何从来源 CRS 显式变换到该 CRS；读出的 QGIS 图层由 assignStoreCrsIfMissing
+// 补上 CRS，画布再按工程转换上下文（配准工程的显式坐标操作）显示。
+namespace paleo::constraintcrs
+{
+
+QgsCoordinateReferenceSystem storeCrs();
+
+// 来源 CRS 无效、与库 CRS 相同，或是米制工程 CRS（LOCAL_CS/ENGCRS，与导入
+// 坐标门同口径）→ 原样（已是库坐标）。否则用 context 建
+// QgsCoordinateTransform；无坐标操作（ENGCRS 无大地基准、工程未配准）或
+// 逐点失败如实报错，绝不按原坐标静默写入。
+bool toStoreWkt( const QString &wkt, const QgsCoordinateReferenceSystem &source,
+                 const QgsCoordinateTransformContext &context, QString *out, QString *error = nullptr );
+
+// 约束图层（paleoLayerId 以 constraints. 开头或数据源指向 constraints 层）
+// CRS 无效时指派库 CRS；已有有效 CRS 不动。返回是否做了指派。
+bool assignStoreCrsIfMissing( QgsMapLayer *layer );
+
+} // namespace paleo::constraintcrs

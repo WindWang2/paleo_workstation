@@ -1,5 +1,6 @@
 // 层：QGIS 封装
 #include "qgisconstrainteditsession.h"
+#include "constraintcrs.h"
 #include "qgiseditingservice.h"
 #include "../io/constraintstore.h"
 #include "../metadata/paleoprojectstore.h"
@@ -44,7 +45,11 @@ void QgisConstraintEditSession::restoreSource()
   const auto selected = m_layer->selectedFeatureIds();
   QgsDataProvider::ProviderOptions options;
   options.transformContext = m_layer->transformContext();
+  const QgsCoordinateReferenceSystem crs = m_layer->crs();
   m_layer->setDataSource(m_source, m_name, QStringLiteral("ogr"), options);
+  // 无 SRS 的约束层换源后 CRS 不得丢（P1-C）：沿用会话前的 CRS。
+  if (!m_layer->crs().isValid() && crs.isValid())
+    m_layer->setCrs(crs);
   m_layer->setSubsetString(m_subset);
   m_layer->selectByIds(selected);
   m_layer->setProperty("paleoConstraintEditSession", false);
@@ -139,7 +144,15 @@ bool QgisConstraintEditSession::initialize(QString *error)
   const auto selected = m_layer->selectedFeatureIds();
   QgsDataProvider::ProviderOptions providerOptions;
   providerOptions.transformContext = m_layer->transformContext();
+  const QgsCoordinateReferenceSystem sessionCrs = m_layer->crs();
   m_layer->setDataSource(workingPath + QStringLiteral("|layername=constraints"), m_name, QStringLiteral("ogr"), providerOptions);
+  if (!m_layer->crs().isValid())
+  {
+    if (sessionCrs.isValid())
+      m_layer->setCrs(sessionCrs); // 工作副本同样无 SRS：沿用原图层 CRS
+    else
+      paleo::constraintcrs::assignStoreCrsIfMissing(m_layer);
+  }
   m_layer->setSubsetString(m_subset);
   m_layer->selectByIds(selected);
   if (!m_layer->isValid() || !m_layer->startEditing())

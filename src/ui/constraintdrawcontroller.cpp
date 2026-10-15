@@ -2,6 +2,7 @@
 #include "constraintdrawcontroller.h"
 
 #include "../qgis/qgiscanvascontroller.h"
+#include "../qgis/constraintcrs.h"
 #include "../workflow/workflows.h"
 #include "../metadata/paleoprojectstore.h"
 #include "maptools/paleomaptools.h"
@@ -90,7 +91,20 @@ void ConstraintDrawController::onDrawn( const QString &wkt )
   // finished its capture stroke (stopCapturing inside the emit path).
   QString err;
   QString constraintId;
-  const bool ok = m_wf->addConstraint( m_horizon, wkt, m_shape, m_faciesCode,
+  // P1-C：工具输出画布 CRS 坐标；入库前显式变换到约束库 CRS（本地工程
+  // 网格），配准工程走工程转换上下文里的显式坐标操作。失败如实报错不入库。
+  QString storeWkt;
+  QgsMapCanvas *canvas = m_canvasCtl ? m_canvasCtl->canvas() : nullptr;
+  if ( !paleo::constraintcrs::toStoreWkt(
+           wkt, canvas ? canvas->mapSettings().destinationCrs() : QgsCoordinateReferenceSystem(),
+           canvas ? canvas->mapSettings().transformContext() : QgsCoordinateTransformContext(), &storeWkt,
+           &err ) )
+  {
+    teardown();
+    emit captureFailed( err );
+    return;
+  }
+  const bool ok = m_wf->addConstraint( m_horizon, storeWkt, m_shape, m_faciesCode,
                                        &err, &constraintId );
   const QString horizon = m_horizon; // capture before teardown clears state
   teardown();

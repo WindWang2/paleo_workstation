@@ -85,9 +85,29 @@ QVector<QVariantMap> readHistory(GDALDatasetH ds, const QString &column, const Q
                                  int limit, int offset, QString *error) {
   QVector<QVariantMap> result;
   if (!GDALDatasetGetLayerByName(ds, "constraint_audit")) return result;
-  const auto query = QString("SELECT event_json FROM constraint_audit WHERE %1=%2 ORDER BY fid DESC LIMIT %3 OFFSET %4")
-      .arg(column, quoteSql(key)).arg(qBound(1, limit, 200)).arg(qMax(0, offset)).toUtf8();
-  CPLErrorReset(); auto rows = GDALDatasetExecuteSQL(ds, query.constData(), nullptr, "SQLITE");
+  // #441：列名白名单固定两条语句；键用 quoteSql 字面量，limit/offset 用十进制数字拼接。
+  // 禁止对已拼好的 SQL 再调 QString::arg，否则键里的 %1/%3 会污染 LIMIT/OFFSET。
+  QString query;
+  if (column == QLatin1String("constraint_id")) {
+    query = QStringLiteral("SELECT event_json FROM constraint_audit WHERE constraint_id=")
+        + quoteSql(key)
+        + QStringLiteral(" ORDER BY fid DESC LIMIT ")
+        + QString::number(qBound(1, limit, 200))
+        + QStringLiteral(" OFFSET ")
+        + QString::number(qMax(0, offset));
+  } else if (column == QLatin1String("horizon")) {
+    query = QStringLiteral("SELECT event_json FROM constraint_audit WHERE horizon=")
+        + quoteSql(key)
+        + QStringLiteral(" ORDER BY fid DESC LIMIT ")
+        + QString::number(qBound(1, limit, 200))
+        + QStringLiteral(" OFFSET ")
+        + QString::number(qMax(0, offset));
+  } else {
+    if (error) *error = QObject::tr("约束审计查询列无效");
+    return result;
+  }
+  const auto sql = query.toUtf8();
+  CPLErrorReset(); auto rows = GDALDatasetExecuteSQL(ds, sql.constData(), nullptr, "SQLITE");
   if (!rows) { if (error) *error = QString::fromUtf8(CPLGetLastErrorMsg()); return result; }
   while (auto raw = OGR_L_GetNextFeature(rows)) {
     Feature feature(raw, OGR_F_Destroy); QJsonParseError parse;

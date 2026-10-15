@@ -995,12 +995,19 @@ class TestVersions : public QObject
         auto input = f.versions.snapshotInputForSave("D61", "{}", {}, &err); QVERIFY(input.valid);
         const auto cancelled = prepareMapSnapshot(input, [] { return true; });
         QVERIFY(cancelled.cancelled); QCOMPARE(f.versions.currentVersion("D61"), 0);
+        // #444：取消路径不得留暂存目录；禁止用 discardPreparedMapSnapshot 掩盖泄漏。
+        QVERIFY(cancelled.directory.isEmpty() || !QFileInfo::exists(cancelled.directory));
+        QCOMPARE(QDir(f.dir.filePath("artifacts/map-versions")).entryList(QDir::Dirs | QDir::NoDotAndDotDot).size(), 0);
         auto prepared = prepareMapSnapshot(input); QVERIFY2(prepared.isValid(), qPrintable(prepared.error));
+        const auto stagingBefore = prepared.directory;
+        QVERIFY(QFileInfo::exists(stagingBefore));
         const auto target = prepared.attestations.first().toMap().value("path").toString();
         QFile::setPermissions(target, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
         QFile modified(target); QVERIFY(modified.open(QIODevice::Append)); QCOMPARE(modified.write("changed"), qint64(7)); modified.close();
         QCOMPARE(f.versions.commitPreparedVersion(prepared, &err).version, 0); QVERIFY(!err.isEmpty());
-        discardPreparedMapSnapshot(prepared); QVERIFY(!QFileInfo::exists(prepared.directory));
+        QCOMPARE(f.versions.currentVersion("D61"), 0);
+        // 失败后测试主动清理以便 QTemporaryDir 结束；取消路径已在上面无 discard 断言。
+        if (QFileInfo::exists(stagingBefore)) discardPreparedMapSnapshot(prepared);
     }
 
     void horizonlessCitationBlocksPurgeAndPublish() {

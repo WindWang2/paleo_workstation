@@ -71,6 +71,7 @@ ConstraintUsePlan planConstraintUse( const QVector<QVariantMap> &rows, const Con
     {
       const bool empty = geometry.isNull() || geometry.isEmpty();
       plan.decisions << decideNonLineConstraint( id, horizon, type, semantics, empty, context );
+      plan.partGeometries << QgsGeometry();
       countAvailability( plan, decideNonLineConstraint( id, horizon, type, plain, empty, availabilityContext ) );
       continue;
     }
@@ -84,6 +85,7 @@ ConstraintUsePlan planConstraintUse( const QVector<QVariantMap> &rows, const Con
         vertices.append( point.toQPointF() );
       const int count = static_cast<int>( parts.size() );
       plan.decisions << decideConstraintPart( id, horizon, type, semantics, vertices, k, count, context );
+      plan.partGeometries << QgsGeometry::fromPolylineXY( parts.at( k ) );
       countAvailability( plan, decideConstraintPart( id, horizon, type, plain, vertices, k, count, availabilityContext ) );
     }
   }

@@ -284,23 +284,7 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
         extra.insert(QStringLiteral("constrained"), hasConstraints);
         // P1-A：引擎回执（paleo_constraint_idw 的 CONSTRAINT_RECEIPTS）→ 血缘
         // 逐条记实际消费/未用原因；"constrained" 只表示传了约束层，不代表被用。
-        if (results.contains(QStringLiteral("CONSTRAINT_RECEIPTS"))) {
-          QVariantList consumed, unused;
-          const QJsonArray receipts =
-              QJsonDocument::fromJson(results.value(QStringLiteral("CONSTRAINT_RECEIPTS")).toString().toUtf8())
-                  .array();
-          for (const QJsonValue &value : receipts) {
-            const QJsonObject item = value.toObject();
-            if (item.value(QStringLiteral("consumed")).toBool())
-              consumed << QVariantMap{{QStringLiteral("id"), item.value(QStringLiteral("id")).toString()},
-                                      {QStringLiteral("role"), item.value(QStringLiteral("role")).toString()}};
-            else
-              unused << QVariantMap{{QStringLiteral("id"), item.value(QStringLiteral("id")).toString()},
-                                    {QStringLiteral("reason"), item.value(QStringLiteral("reason")).toString()}};
-          }
-          extra.insert(QStringLiteral("constraints_consumed"), consumed);
-          extra.insert(QStringLiteral("constraints_unused"), unused);
-        }
+        paleo::constraint_detail::insertConstraintReceiptExtras(results, extra);
         extra.insert(QStringLiteral("horizon"), horizon);
         extra.insert(QStringLiteral("kind"),
                      QStringLiteral("single_factor_raster"));
@@ -559,6 +543,8 @@ bool ConstraintWorkflow::generateDistanceFactor( const QString &horizon, const Q
         extra.insert(QStringLiteral("engine"), def.processingAlgId);
         extra.insert(QStringLiteral("cell_size"), cellSize);
         extra.insert(QStringLiteral("constrained"), hasConstraints);
+        // P2：距离变换引擎回执 → 血缘（display_only/停用打断线不隔断，逐条留因）。
+        paleo::constraint_detail::insertConstraintReceiptExtras(results, extra);
         extra.insert(QStringLiteral("horizon"), horizon);
         extra.insert(QStringLiteral("kind"),
                      QStringLiteral("single_factor_raster"));

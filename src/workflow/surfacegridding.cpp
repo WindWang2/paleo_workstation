@@ -1,5 +1,6 @@
 // 层：功能
 #include "surfacegridding.h"
+#include "constraintuseplan.h"
 
 #include "../algorithms/rasteralgebra.h"
 #include "../algorithms/surfacevolumes.h"
@@ -127,14 +128,14 @@ SurfaceGriddingWorkflow::Inspect SurfaceGriddingWorkflow::inspectHorizonText(
   }
   if (!constraintGpkgPath.isEmpty())
   {
+    // P2：统一语义——只有完全阻断且几何有效的打断线才算「有屏障」
+    //（停用、display_only/none、无效几何不算），与 buildBarrierMask 同口径。
     const ConstraintStore store(constraintGpkgPath);
-    for (const QVariantMap &r : store.load())
-      if (r.value(QStringLiteral("type")).toString().trimmed() ==
-          QLatin1String("break_line"))
-      {
-        out.hasConstraints = true;
-        break;
-      }
+    paleo::singlefactor::ConstraintMethodContext context;
+    context.methodId = QStringLiteral("min_curvature");
+    const auto plan = paleo::singlefactor::planConstraintUse(store.load(), context);
+    out.hasConstraints =
+        plan.summary.value(QStringLiteral("roles")).toMap().value(QStringLiteral("hard_barrier")).toInt() > 0;
   }
   out.ok = true;
   return out;
@@ -197,9 +198,10 @@ QString SurfaceGriddingWorkflow::gridHorizonText(const QString &horizon,
 
   // ---- 屏障：ConstraintStore 的 break_line 栅格化（半格超采样步进）-------
   std::vector<std::uint8_t> barrier;
+  QVariantList constraintReceipts; // P2：血缘逐条记实际消费/未用原因
   if (opt.useBarriers && !m_barrierGpkgPath.isEmpty())
   {
-    const QString maskErr = buildBarrierMask(horizon, geom, &barrier);
+    const QString maskErr = buildBarrierMask(horizon, geom, &barrier, &constraintReceipts);
     if (!maskErr.isEmpty())
       return fail(maskErr);
   }
@@ -317,6 +319,22 @@ QString SurfaceGriddingWorkflow::gridHorizonText(const QString &horizon,
   extra.insert(QStringLiteral("collisions"), stats.collisions);
   extra.insert(QStringLiteral("rejected"), o.rejected);
   extra.insert(QStringLiteral("barrierCells"), o.barrierCells);
+  if (opt.useBarriers && !m_barrierGpkgPath.isEmpty())
+  {
+    QVariantList consumed, unused;
+    for (const QVariant &value : constraintReceipts)
+    {
+      const QVariantMap item = value.toMap();
+      if (item.value(QStringLiteral("consumed")).toBool())
+        consumed << QVariantMap{{QStringLiteral("id"), item.value(QStringLiteral("id"))},
+                                {QStringLiteral("role"), item.value(QStringLiteral("role"))}};
+      else
+        unused << QVariantMap{{QStringLiteral("id"), item.value(QStringLiteral("id"))},
+                              {QStringLiteral("reason"), item.value(QStringLiteral("reason"))}};
+    }
+    extra.insert(QStringLiteral("constraints_consumed"), consumed);
+    extra.insert(QStringLiteral("constraints_unused"), unused);
+  }
   extra.insert(QStringLiteral("distToDataMax"), o.distToDataMax);
   extra.insert(QStringLiteral("distToDataMean"), o.distToDataMean);
   if (o.cvFolds > 0)
@@ -426,30 +444,46 @@ QString SurfaceGriddingWorkflow::publishGridded(const QString &horizon, const Bi
 
 QString SurfaceGriddingWorkflow::buildBarrierMask(const QString &horizon,
                                                   const gridsolver::GridGeometry &geom,
-                                                  std::vector<std::uint8_t> *mask) const
+                                                  std::vector<std::uint8_t> *mask,
+                                                  QVariantList *receipts) const
 {
   const ConstraintStore store(m_barrierGpkgPath);
   const QVector<QVariantMap> rows = store.load(horizon);
+  if (receipts)
+    receipts->clear();
   if (rows.isEmpty())
     return QString();
-  // 先收 break_line 折线（typed C1 词面；其它 type 对网格化无语义）。
+  // P2：统一语义（min_curvature 口径）——只栅格化完全阻断打断线；停用、
+  // display_only/none、非法参数、无效几何不用并逐条留回执。
+  paleo::singlefactor::ConstraintMethodContext context;
+  context.methodId = QStringLiteral("min_curvature");
+  context.horizon = horizon;
+  const auto plan = paleo::singlefactor::planConstraintUse(rows, context);
   QVector<QVector<QgsPointXY>> lines;
-  for (const QVariantMap &r : rows)
+  QVector<int> lineDecision; // lines[i] 对应的 plan.decisions 下标
+  QVector<QVariantMap> decisionMaps;
+  for (int i = 0; i < plan.decisions.size(); ++i)
   {
-    if (r.value(QStringLiteral("type")).toString().trimmed() !=
-        QLatin1String("break_line"))
-      continue;
-    const QgsGeometry g = QgsGeometry::fromWkt(r.value(QStringLiteral("wkt")).toString());
-    if (g.isNull() || g.isEmpty())
-      continue;
-    const QgsMultiPolylineXY mpl =
-        g.isMultipart() ? g.asMultiPolyline() : QgsMultiPolylineXY{g.asPolyline()};
-    for (const QgsPolylineXY &pl : mpl)
-      if (pl.size() >= 2)
-        lines.append(pl);
+    decisionMaps << plan.decisions.at(i).toVariant();
+    if (plan.decisions.at(i).consumed && plan.decisions.at(i).role == QLatin1String("hard_barrier") &&
+        !plan.partGeometries.at(i).isNull())
+    {
+      lines.append(plan.partGeometries.at(i).asPolyline());
+      lineDecision.append(i);
+    }
   }
+  const auto flushReceipts = [&]() {
+    if (!receipts)
+      return;
+    receipts->clear();
+    for (const QVariantMap &m : decisionMaps)
+      *receipts << m;
+  };
   if (lines.isEmpty())
+  {
+    flushReceipts();
     return QString();
+  }
   mask->assign(std::size_t(geom.rows) * geom.cols, 0);
   const double cell = geom.dx;
   auto cellOf = [&](double x, double y, int *row, int *col)
@@ -460,7 +494,10 @@ QString SurfaceGriddingWorkflow::buildBarrierMask(const QString &horizon,
     *row = int(std::floor(rf));
     return *col >= 0 && *col < geom.cols && *row >= 0 && *row < geom.rows;
   };
-  for (const QVector<QgsPointXY> &pl : lines)
+  for (int li = 0; li < lines.size(); ++li)
+  {
+    const QVector<QgsPointXY> &pl = lines.at(li);
+    bool marked = false;
     for (int i = 1; i < pl.size(); ++i)
     {
       const QgsPointXY &a = pl[i - 1];
@@ -472,9 +509,22 @@ QString SurfaceGriddingWorkflow::buildBarrierMask(const QString &horizon,
         int row = 0, col = 0;
         if (cellOf(a.x() + (b.x() - a.x()) * s / steps,
                    a.y() + (b.y() - a.y()) * s / steps, &row, &col))
+        {
           (*mask)[std::size_t(row) * geom.cols + col] = 1;
+          marked = true;
+        }
       }
     }
+    if (!marked)
+    {
+      // 引擎实际：没栅格化出任何格的屏障不参与隔断。
+      QVariantMap &m = decisionMaps[lineDecision.at(li)];
+      m.insert(QStringLiteral("consumed"), false);
+      m.insert(QStringLiteral("role"), QString());
+      m.insert(QStringLiteral("reason"), QStringLiteral("outside_compute_domain"));
+    }
+  }
+  flushReceipts();
   return QString();
 }
 

@@ -3,6 +3,8 @@
 
 #include "domain/constraintsemantics.h"
 
+#include <qgsgeometry.h>
+
 #include <QVariantMap>
 #include <QVector>
 
@@ -16,6 +18,9 @@ namespace paleo::singlefactor
 struct ConstraintUsePlan
 {
   QVector<ConstraintUseDecision> decisions;
+  // 与 decisions 逐项对齐的部件几何（store CRS 单部件折线；非线/空几何为 null）。
+  // 网格化工作流按 decision 取实际消费的部件，不再另行拆分/按 type 过滤。
+  QVector<QgsGeometry> partGeometries;
   // 与方法无关的「可用」口径：启用 + 参数合法 + 几何有效。
   int availableBarriers = 0;   // 有效语义 hard_barrier（完全阻断）
   int availableDirections = 0; // 有效语义 direction_guide

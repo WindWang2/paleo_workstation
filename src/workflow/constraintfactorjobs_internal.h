@@ -11,6 +11,10 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonValue>
 #include <QObject>
 #include <QString>
 #include <QStringList>
@@ -157,6 +161,30 @@ inline bool declaredFactorPathMatches( QgisLayerService *layers, const QString &
   if ( !resolveDeclaredRaster( layers, factorLayerId, &live, nullptr ) )
     return false;
   return sameFile( live, rasterPath );
+}
+
+// P1-A/P2：引擎回执（Processing 输出 CONSTRAINT_RECEIPTS，JSON 数组）→ 血缘
+// extra 逐条 constraints_consumed {id,role} / constraints_unused {id,reason}。
+// 结果里没有该键（旧引擎/降级路径）时不写，不臆造。
+inline void insertConstraintReceiptExtras( const QVariantMap &results, QVariantMap &extra )
+{
+  if ( !results.contains( QStringLiteral( "CONSTRAINT_RECEIPTS" ) ) )
+    return;
+  QVariantList consumed, unused;
+  const QJsonArray receipts =
+      QJsonDocument::fromJson( results.value( QStringLiteral( "CONSTRAINT_RECEIPTS" ) ).toString().toUtf8() ).array();
+  for ( const QJsonValue &value : receipts )
+  {
+    const QJsonObject item = value.toObject();
+    if ( item.value( QStringLiteral( "consumed" ) ).toBool() )
+      consumed << QVariantMap{ { QStringLiteral( "id" ), item.value( QStringLiteral( "id" ) ).toString() },
+                               { QStringLiteral( "role" ), item.value( QStringLiteral( "role" ) ).toString() } };
+    else
+      unused << QVariantMap{ { QStringLiteral( "id" ), item.value( QStringLiteral( "id" ) ).toString() },
+                             { QStringLiteral( "reason" ), item.value( QStringLiteral( "reason" ) ).toString() } };
+  }
+  extra.insert( QStringLiteral( "constraints_consumed" ), consumed );
+  extra.insert( QStringLiteral( "constraints_unused" ), unused );
 }
 
 } // namespace paleo::constraint_detail

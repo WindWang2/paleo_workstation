@@ -20,6 +20,7 @@ add_paleo_test(tst_featureidentity LIBS paleo_qgis)
 add_paleo_test(tst_composeattribution LIBS paleo_workflow)  # G03/G10a：图斑级冻结输入归因重放 + 融合/转面回执
 add_paleo_test(tst_impactrecompute LIBS paleo_workflow)  # G05/G09：空间影响分析 + 受控重算闭环
 add_paleo_test(tst_evidenceindex LIBS paleo_services)  # G08/G12：证据反向索引
+add_paleo_test(tst_evidencee2e LIBS paleo_workflow)  # G14/G11：端到端场景 + 点击路径有界性与 BASELINE
 
 add_paleo_test(tst_evidencegraph LIBS paleo_workflow)
 add_paleo_test(tst_nativeevidenceguard LIBS paleo_workflow)

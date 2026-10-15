@@ -378,6 +378,45 @@ private slots:
     Q_UNUSED(failures);
   }
 
+  // P2 调查：同一层位混存点/线/面（旧 append 的 point/polygon 与打断线）。
+  // 观测：OGR 按首个要素给出图层几何类型，但不丢要素——图层要素数 == store 行数；
+  // 线解析器逐条把非线要素记为 not_line，不静默吞掉。
+  void mixedPointLineHorizonProbe_data()
+  {
+    QTest::addColumn<bool>("pointFirst");
+    QTest::newRow("line_first") << false;
+    QTest::newRow("point_first") << true;
+  }
+  void mixedPointLineHorizonProbe()
+  {
+    QFETCH(bool, pointFirst);
+    QTemporaryDir dir;
+    ConstraintStore store(dir.filePath("c.gpkg"));
+    QString error;
+    if (pointFirst)
+      QVERIFY(store.append("T1", "pt", "POINT(5 5)", "point", 3, &error));
+    QVERIFY(store.appendExtended("T1", "line", "LINESTRING(0 0,10 0)", "break_line", 0,
+                                 "{\"semantic\":\"hard_barrier\"}", 1, &error));
+    if (!pointFirst)
+      QVERIFY(store.append("T1", "pt", "POINT(5 5)", "point", 3, &error));
+    QVERIFY(store.append("T1", "poly", "POLYGON((0 0,4 0,4 4,0 0))", "polygon", 3, &error));
+    QgsVectorLayer layer(store.gpkgPath() + "|layername=constraints", "c", "ogr");
+    layer.setSubsetString("horizon='T1'");
+    QVERIFY(layer.isValid());
+    qWarning() << "PROBE" << (pointFirst ? "point_first" : "line_first") << "wkb"
+               << QgsWkbTypes::displayString(layer.wkbType());
+    QCOMPARE(layer.featureCount(), static_cast<long long>(store.load("T1").size()));
+    QgsProcessingContext context;
+    QgsProcessingFeatureSource source(&layer, context, false);
+    const auto parsed = paleo::singlefactor::readConstraintLines(&source, layer.crs(), context);
+    QCOMPARE(parsed.lines.size(), size_t(1));
+    QStringList ignored;
+    for (const auto &item : parsed.ignored)
+      ignored << QString::fromStdString(item);
+    ignored.sort();
+    QCOMPARE(ignored, QStringList({"poly not_line", "pt not_line"}));
+  }
+
   void boundaryPolygonRoundTrip()
   {
     Fixture f;

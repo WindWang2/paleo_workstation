@@ -96,7 +96,7 @@ std::shared_ptr<const Index> buildIndex(const DataCatalog &snapshot,
                                         const Presentation &presentation,
                                         const Cancel &cancel,
                                         const Progress &progress);
-Graph query(const Index &index, const Query &request, const Cancel &cancel,
+Graph query(const Index &index, const Query &q, const Cancel &cancel,
             const Progress &progress);
 // 数据服务仅输出值对象与坐标；布局和查询均由后台任务调用。
 } // namespace paleo::datagraph

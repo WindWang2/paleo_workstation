@@ -203,6 +203,23 @@ struct Rig {
   Rig()
       : tasks(&store), manifest(dir.filePath("metadata.sqlite")),
         layers(&project, &manifest) {}
+  void registerMockParents() {
+    for (const QString &verId : {QStringLiteral("raw-a"), QStringLiteral("raw-b")}) {
+      CatalogAsset a;
+      a.id = QStringLiteral("ast-") + verId;
+      a.type = QStringLiteral("raster");
+      a.format = QStringLiteral("dat");
+      a.displayName = verId;
+      cat.addAsset(a);
+      CatalogVersion v;
+      v.id = verId;
+      v.assetId = a.id;
+      v.stage = QStringLiteral("RAW");
+      v.versionNumber = 1;
+      v.path = DataCatalog::managedPath(QStringLiteral("raw"), a.id, v.id, verId + QStringLiteral(".dat"));
+      cat.addVersion(v);
+    }
+  }
 };
 // 训练 + 推理闭环 oracle（LDA/QDA/kNN 三族共用）：可分 4σ 数据，CV 每类
 // precision/recall ≥ 0.9；classifyWith 与 algorithms 层逐位一致。
@@ -694,6 +711,7 @@ void TestFaciesSupervised::gmmChunkProvenance() {
 void TestFaciesSupervised::supervisedRasterChain() {
   Rig rig;
   QVERIFY(rig.cat.open(rig.dir.path()));
+  rig.registerMockParents();
   QVERIFY(rig.project.createProject(rig.dir.filePath("test.qgz")));
   QVERIFY(rig.manifest.open());
   auto samples = std::make_shared<SampleSet>(twoClassGrid(16, 8, 1, 4, 11));
@@ -862,6 +880,7 @@ void TestFaciesSupervised::supervisedRasterChain() {
 void TestFaciesSupervised::maskedLowConfidence() {
   Rig rig;
   QVERIFY(rig.cat.open(rig.dir.path()));
+  rig.registerMockParents();
   QVERIFY(rig.project.createProject(rig.dir.filePath("test.qgz")));
   QVERIFY(rig.manifest.open());
   auto samples =
@@ -959,6 +978,7 @@ void TestFaciesSupervised::halfSampledCompanions() {
   // 中 6/Low-CRS：半采样夹具——未采样像元走 nodata 分支；三图同 CRS。
   Rig rig;
   QVERIFY(rig.cat.open(rig.dir.path()));
+  rig.registerMockParents();
   QVERIFY(rig.project.createProject(rig.dir.filePath("test.qgz")));
   QVERIFY(rig.manifest.open());
   const QString crs = DataCatalog::localGridCrsWkt();
@@ -1146,6 +1166,7 @@ void TestFaciesSupervised::commitFailureUnderPurgeLease() {
   // 的 checkWriteThread 拒写 → 主件登记失败分支真被触发。
   Rig rig;
   QVERIFY(rig.cat.open(rig.dir.path()));
+  rig.registerMockParents();
   QVERIFY(rig.project.createProject(rig.dir.filePath("test.qgz")));
   QVERIFY(rig.manifest.open());
   auto samples = std::make_shared<SampleSet>(twoClassGrid(8, 8, 1, 4, 11));
@@ -1179,7 +1200,7 @@ void TestFaciesSupervised::commitFailureUnderPurgeLease() {
   QVERIFY2(first.ok, qPrintable(first.error));
   const int versions = rig.cat.versions().size();
   const int files = countFiles(rig.dir.filePath("artifacts/derived"));
-  QCOMPARE(versions, 3);
+  QCOMPARE(versions, 5);
   QVERIFY(files >= 3);
   auto lease = CatalogPurgeLease::acquire(rig.cat.catalogPath());
   QVERIFY(lease);

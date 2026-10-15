@@ -13,7 +13,6 @@
 #include <memory>
 #include <QSemaphore>
 #include <QScopeGuard>
-#include <unistd.h>
 #include "../src/services/paleotaskservice.h"
 #include "../src/metadata/mapsnapshot.h"
 #include "../src/catalog/datacatalog.h"

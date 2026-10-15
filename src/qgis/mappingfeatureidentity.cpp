@@ -192,12 +192,12 @@ bool ensure(QgsVectorLayer *layer, QString *error) {
   }
   return finish(layer, own, ok, error);
 }
-QgsFeature find(QgsVectorLayer *layer, const QString &identity) {
-  if (!layer || QThread::currentThread() != layer->thread() || !layer->isValid() || identity.isEmpty() ||
+QgsFeature find(QgsVectorLayer *layer, const QString &uid) {
+  if (!layer || QThread::currentThread() != layer->thread() || !layer->isValid() || uid.isEmpty() ||
       layer->fields().indexOf(UidField) < 0) return {};
   QgsFeatureRequest request;
   request.setFilterExpression(QStringLiteral("%1 = %2").arg(
-      QgsExpression::quotedColumnRef(UidField), QgsExpression::quotedString(identity)));
+      QgsExpression::quotedColumnRef(UidField), QgsExpression::quotedString(uid)));
   request.setLimit(2);
   auto features = layer->getFeatures(request);
   QgsFeature first, second;
@@ -387,24 +387,59 @@ void Observer::startCommand() {
   // touched features; the identity index contains attributes only.
   if (m_idsDirty) rebuildIds();
 }
-bool Observer::rewrite(QgsFeatureId fid, const QStringList &ancestors, const QStringList &sourceRoots) {
+bool Observer::rewrite(QgsFeatureId fid, const QStringList &parents, const QStringList &roots) {
   if (!m_layer || !m_macroOpen || !m_finishing) return false;
   const auto feature = m_layer->getFeature(fid);
   if (!feature.isValid()) return false;
   QScopedValueRollback<bool> guard(m_writing, true);
   const auto identity = fresh();
-  auto roots = sourceRoots;
-  if (roots.isEmpty()) parents(feature.attribute(RootsField), &roots);
-  if (roots.isEmpty()) roots = ancestors.isEmpty() ? QStringList{identity} : ancestors;
-  const bool ok = m_layer->changeAttributeValues(fid,
-      {{m_layer->fields().indexOf(UidField), identity},
-       {m_layer->fields().indexOf(ParentsField), encode(ancestors)},
-       {m_layer->fields().indexOf(RootsField), encode(roots)},
-       {m_layer->fields().indexOf(ReviewField), true}});
+  auto resolvedRoots = roots;
+  if (resolvedRoots.isEmpty()) MappingFeatureIdentity::parents(feature.attribute(RootsField), &resolvedRoots);
+  if (resolvedRoots.isEmpty()) resolvedRoots = parents.isEmpty() ? QStringList{identity} : parents;
+
+  QgsAttributeMap changedAttrs{
+      {m_layer->fields().indexOf(UidField), identity},
+      {m_layer->fields().indexOf(ParentsField), encode(parents)},
+      {m_layer->fields().indexOf(RootsField), encode(resolvedRoots)},
+      {m_layer->fields().indexOf(ReviewField), true}};
+
+  const int interpretationField = m_layer->fields().indexOf(QStringLiteral("paleo_interpretation"));
+  const int recordsField = m_layer->fields().indexOf(QStringLiteral("facies_evidence"));
+  if (interpretationField >= 0) {
+    QVariantMap inherited;
+    if (paleo::evidence::decodeInterpretation(feature.attribute(interpretationField).toString(), &inherited, nullptr) && !inherited.isEmpty()) {
+      const auto parentUid = inherited.value("feature_uid").toString();
+      QVariantMap fork{
+          {"id", fresh()},
+          {"assertion_id", fresh()},
+          {"feature_uid", identity},
+          {"horizon", inherited.value("horizon")},
+          {"status", QStringLiteral("Proposed")},
+          {"revision", 0},
+          {"inherited_interpretation", inherited},
+          {"parent_interpretation_id", inherited.value("id")}};
+      changedAttrs.insert(interpretationField, paleo::evidence::encode(fork));
+
+      if (recordsField >= 0) {
+        QVariantList records;
+        if (paleo::evidence::decodeRecords(feature.attribute(recordsField).toString(), &records, nullptr)) {
+          for (auto &value : records) {
+            auto record = value.toMap();
+            record.insert("inherited_from_feature_uid", record.value("feature_uid", parentUid));
+            record.insert("feature_uid", identity);
+            value = record;
+          }
+          changedAttrs.insert(recordsField, paleo::evidence::encode(records));
+        }
+      }
+    }
+  }
+
+  const bool ok = m_layer->changeAttributeValues(fid, changedAttrs);
   if (!ok) { reportFailure(tr("原生编辑的图元来源登记失败")); return false; }
   m_ids[uid(feature)].remove(fid);
   if (m_ids[uid(feature)].isEmpty()) m_ids.remove(uid(feature));
-  m_ids[identity].insert(fid); m_roots[identity] = roots;
+  m_ids[identity].insert(fid); m_roots[identity] = resolvedRoots;
   trackIdentity(fid, identity);
   return true;
 }

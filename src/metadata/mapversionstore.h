@@ -106,7 +106,7 @@ class MapVersionStore
     QString projectDirectory() const;
     MapSnapshotInput snapshotInputForSave(const QString &horizon, const QString &provenanceJson,
                                          const QVector<LayerDeclaration> &layers, QString *error = nullptr);
-    MapSnapshotInput snapshotInputForPublish(const QString &horizon, const QVector<LayerDeclaration> &layers,
+    MapSnapshotInput snapshotInputForPublish(const QString &horizon, const QVector<LayerDeclaration> &decls,
                                             const QString &residualSummary, QString *error = nullptr);
     MapVersion commitPreparedVersion(PreparedMapSnapshot &snapshot, QString *error = nullptr);
     QString commitPreparedPublication(PreparedMapSnapshot &snapshot, QString *error = nullptr);

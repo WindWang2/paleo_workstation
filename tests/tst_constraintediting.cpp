@@ -356,6 +356,18 @@ private slots:
     layer->undoStack()->redo();
     QCOMPARE(constraints.load("T1"), drawn);
 
+    // 非线约束（旧 polygon 类型）在线类型图层的会话里同样进撤销栈并落 store。
+    QString polygonId;
+    QVERIFY2(workflow.addConstraint("T1", "POLYGON((20 20,30 20,30 30,20 20))", "polygon", 2, &error, &polygonId),
+             qPrintable(error));
+    bool polygonStored = false;
+    for (const auto &r : constraints.load("T1"))
+      polygonStored |= r.value("id").toString() == polygonId &&
+                       QgsGeometry::fromWkt(r.value("wkt").toString()).type() == Qgis::GeometryType::Polygon;
+    QVERIFY(polygonStored);
+    layer->undoStack()->undo();
+    QCOMPARE(constraints.load("T1"), drawn);
+
     // 工具栏裸画（无身份/语义）仍被拒收：store 不变，缓冲区撤回。
     QStringList failures;
     QgsFeature bare(layer->fields());

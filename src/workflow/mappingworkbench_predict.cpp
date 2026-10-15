@@ -472,18 +472,26 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
 }
 void MappingWorkbench::cancelPrediction() {
   cancelPredictionTask();
+  // 先摘 m_request 再取消服务：服务在 cancel() 里同步 emit failed(id,"已取消")，
+  // 而 failed 槽按 id == m_request.id 过滤（mappingworkbench.cpp）。原先顺序
+  // 是「先取消服务、再清 m_request」，于是用户主动取消被翻译成 errorOccurred，
+  // 弹出「编图操作未完成：已取消」——把成功操作报成失败；且地震路径（router
+  // 发 failed）会弹、测井路径（WellPredictionService::cancel 不发）不弹，行为
+  // 分裂。此处提前清空后，两类服务的 failed 都被既有 id 闸门丢弃；真实失败时
+  // m_request 完好，errorOccurred 行为一字不变。
+  const bool was = busy();
+  const QString kind = m_request.kind;
+  m_request = {};
+  m_predictionParameters.clear();
   if (m_mockCancelled)
     m_mockCancelled->store(true);
   else if (m_prepareCancelled)
     m_prepareCancelled->store(true); // 还在读曲线，预测服务尚未提交
-  else if (m_request.kind == "wells" && m_wellRemote)
+  else if (kind == QLatin1String("wells") && m_wellRemote)
     m_wellRemote->cancel();
   else if (m_remote)
     m_remote->cancel();
   m_prepareCancelled.reset();
-  bool was = busy();
-  m_request = {};
-  m_predictionParameters.clear();
   if (was)
     emit predictionBusyChanged(false);
 }
@@ -517,13 +525,24 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &result) {
   };
   bool valid = schemaValid && result.request.horizon == request.horizon &&
                result.request.kind == request.kind;
+  bool allCellsUndefined = false; // 地震结果是否一格有效都没有
   if (result.currentFormationOnly)
     valid = valid && request.kind == "wells" && result.partialWellCoverage &&
         !result.mock && result.method == QLatin1String("remote-well-facies-api-v2");
   if (request.kind == "seismic") {
     valid = valid && result.cells.size() == request.rows * request.columns;
-    for (int code : result.cells)
+    int definedCells = 0;
+    for (int code : result.cells) {
       valid = valid && (codes.contains(code) || code == -9999);
+      if (code != -9999)
+        ++definedCells;
+    }
+    // 全无数据（远端应答全 null / 空网格）：此前逐码校验全过（-9999 被判
+    // 合法），于是登记一个「成功」版本并落一张全 nodata 栅格——用户看到
+    // 「预测完成」却得到空图。与 wells 路径「全井跳过即如实报错、不发布」
+    // 的诚实口径对齐：一格有效都没有就不发布。
+    allCellsUndefined = definedCells == 0;
+    valid = valid && !allCellsUndefined;
   } else {
     valid = valid && result.points.size() == request.wells.size();
     for (int i = 0; i < result.points.size() && valid; ++i) {
@@ -724,6 +743,8 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &result) {
                                        : tr("：%1").arg(reasons.join(tr("；"))));
     valid = false;
   }
+  if (allCellsUndefined && error.isEmpty())
+    error = tr("预测结果全部为无数据，未发布空图件");
   if (!valid && error.isEmpty())
     error = tr("预测服务返回的网格、井集合或相编码与请求不一致，未发布");
   const auto stageDir = QDir(m_dir).filePath("artifacts/staging/" + request.id);

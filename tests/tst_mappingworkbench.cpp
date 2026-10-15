@@ -130,6 +130,32 @@ public:
   }
 };
 
+// opt-04：真实 RemotePredictionRouter 的 cancel() 会同步 emit failed(id,"已取消")。
+// 该替身镜像这一行为，用来钉住「用户主动取消不得被翻译成 errorOccurred」。
+class AbortingOnCancelService : public RemotePredictionService {
+public:
+  RemotePredictionRequest request;
+  void start(const RemotePredictionRequest &r) override { request = r; }
+  void cancel() override { emit failed(request.id, QStringLiteral("已取消")); }
+  // 反向守卫用：模拟真实远端失败（非取消），必须照常上报。
+  void failNow(const QString &reason) { emit failed(request.id, reason); }
+};
+// opt-04：远端返回 200 但网格全 null（→ 全 -9999）的替身。
+class AllNodataSeismicService : public RemotePredictionService {
+public:
+  RemotePredictionRequest request;
+  void start(const RemotePredictionRequest &r) override {
+    request = r;
+    RemotePredictionResult result;
+    result.request = request;
+    result.mock = false;
+    result.method = QStringLiteral("fake-remote-all-nodata");
+    result.cells = QVector<int>(request.rows * request.columns, -9999);
+    QTimer::singleShot(0, this, [this, result]() { emit completed(result); });
+  }
+  void cancel() override {}
+};
+
 // Local API 2.0 contract server: exercises production transport, real curve
 // preparation and work area persistence without uploading project data.
 class WellApiServer {
@@ -1556,6 +1582,56 @@ private slots:
     QCOMPARE(server.bodies.size(), submitted); // Resume the accepted job instead of submitting twice.
     QVERIFY(f.latest("wells_prediction") != previous);
   }
+// opt-04：用户主动点「取消」是成功操作，不得弹「编图操作未完成：已取消」。
+// 原实现先取消服务（服务同步 emit failed）再清 m_request，failed 槽的
+// id == m_request.id 闸门因此命中 → errorOccurred → 警告框；且地震路径弹、
+// 测井路径（WellPredictionService::cancel 不发 failed）不弹，行为分裂。
+  void userCancellationIsNotReportedAsFailure() {
+  Fixture f;
+  QVERIFY(f.init());
+  // 用 seismic 而非 wells：wells 的 start() 在后台 LAS 预读之后才发起，
+  // 无法同步断言；seismic 在 predict() 内即 start()。
+  const auto input = f.seismic();
+  QVERIFY(!input.isEmpty());
+  AbortingOnCancelService svc;
+  f.work.setPredictionService(&svc);
+  QString error;
+  QVERIFY2(f.work.predict("D61", "seismic", {input}, &error), qPrintable(error));
+  QVERIFY(!svc.request.id.isEmpty()); // start() 已同步发生
+  QVERIFY(f.work.busy());
+  QSignalSpy errors(&f.work, &MappingWorkbench::errorOccurred);
+  f.work.cancelPrediction();
+  QCOMPARE(errors.size(), 0); // 取消不是失败
+  QVERIFY(!f.work.busy());
+  // 反向守卫：真实失败仍必须上报（m_request 未被提前清空时口径不变）。
+  QVERIFY2(f.work.predict("D61", "seismic", {input}, &error), qPrintable(error));
+  QVERIFY(!svc.request.id.isEmpty());
+  svc.failNow(QStringLiteral("远端不可达"));
+  QCOMPARE(errors.size(), 1);
+  QVERIFY(errors.first()[0].toString().contains(QStringLiteral("远端不可达")));
+}
+
+// opt-04：远端 200 但结果全为无数据（全 -9999）时，逐码校验全过，此前会
+// 登记一个「成功」版本并落一张全 nodata 栅格——用户看到「预测完成」却得到
+// 空图。与 wells 路径「全井跳过即如实报错、不发布」的诚实口径对齐。
+  void allNodataSeismicResultIsNotPublished() {
+  Fixture f;
+  QVERIFY(f.init());
+  const auto input = f.seismic();
+  QVERIFY(!input.isEmpty());
+  AllNodataSeismicService svc;
+  f.work.setPredictionService(&svc);
+  const auto before = f.latest("seismic_prediction");
+  QString error;
+  QSignalSpy errors(&f.work, &MappingWorkbench::errorOccurred);
+  QVERIFY2(f.work.predict("D61", "seismic", {input}, &error), qPrintable(error));
+  QTRY_VERIFY_WITH_TIMEOUT(!f.work.busy(), 5000);
+  QVERIFY(!errors.isEmpty());
+  QVERIFY2(errors.first()[0].toString().contains(QStringLiteral("无数据")),
+           qPrintable(errors.first()[0].toString()));
+  QCOMPARE(f.latest("seismic_prediction"), before); // 未登记任何新产品
+}
+
   void wellsPredictionWritesFormationDominanceTable() {
     // #346 后：地层优势相写入 Formations 表；点要素只保留 facies_label。
     // 用 Well API 夹具（真实 tops + 深度对齐），避免 mock 的 depth_mock 0–120

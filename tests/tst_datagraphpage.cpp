@@ -390,6 +390,53 @@ private slots:
     else
       QCOMPARE(d, firstDigest); // 两遍确定性一致
   }
+  // opt-01 P3：换代守卫的系统级回归——合并窗内连发两个焦点请求，最终落地的
+  // 只能是后一个（真实版本 id 断言）；随后「取消计算」不留半截图，再刷新可恢复。
+  void rapidRefocusLandsOnLatestGeneration()
+  {
+    QTemporaryDir dir;
+    QVERIFY(PerfFixtures::makeSyntheticCatalogDir(dir.path(), 400));
+    DataImportService importer;
+    importer.setProjectDir(dir.path());
+    PreviewDocService doc(&importer);
+    DataCatalog *cat = importer.catalog();
+    QVERIFY(cat && cat->versions().size() >= 2);
+    const CatalogVersion a = cat->versions().first();
+    const CatalogVersion b = cat->versions().last();
+    QVERIFY(a.id != b.id && a.assetId != b.assetId);
+    DataGraphPage page;
+    page.setDocService(&doc);
+    page.resize(1100, 720);
+    page.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&page));
+    auto *open = button(page, QStringLiteral("预览文件 / 版本"));
+    auto *cancel = button(page, QStringLiteral("取消计算"));
+    auto *refresh = button(page, QStringLiteral("刷新图谱"));
+    QVERIFY(open && cancel && refresh);
+    QSignalSpy activated(&page, &DataGraphPage::versionActivated);
+    page.openRelations(a.assetId, a.id);
+    page.openRelations(b.assetId, b.id); // 同一合并窗内换焦点
+    QTRY_VERIFY_WITH_TIMEOUT(open->isEnabled(), 15000);
+    QTest::qWait(300); // 让任何迟到的旧代结果都有机会落地
+    open->click();
+    QCOMPARE(activated.count(), 1);
+    QCOMPARE(activated.at(0).at(0).toString(), b.id); // 不是 a：旧代被丢弃
+
+    auto *wf = page.findChild<DataGraphWorkflow *>();
+    QVERIFY(wf);
+    QSignalSpy status(wf, &DataGraphWorkflow::statusChanged);
+    refresh->click();
+    if (cancel->isEnabled())
+      cancel->click();
+    // 无论取消是否赶上：最终空闲、按钮复位，且再刷新能回到同一真实焦点。
+    QTRY_VERIFY_WITH_TIMEOUT(!status.isEmpty() && !status.last().at(1).toBool(), 15000);
+    refresh->click();
+    QTRY_VERIFY_WITH_TIMEOUT(open->isEnabled(), 15000);
+    activated.clear();
+    open->click();
+    QCOMPARE(activated.count(), 1);
+    QCOMPARE(activated.at(0).at(0).toString(), b.id);
+  }
 };
 
 QTEST_MAIN(TestDataGraphPage)

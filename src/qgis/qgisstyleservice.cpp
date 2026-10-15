@@ -366,8 +366,10 @@ QgsFeatureRenderer *QgisStyleService::wellFaciesRenderer(const QString &keyField
     props.insert(QStringLiteral("color"), color);
     return QgsMarkerSymbol::createSimple(props).release();
   };
+  // codes 非空时回写实际生成的编码——层位组节点的过滤要同步限定编码集，
+  // 表外编码才不会被组节点吞掉后无符号可画（漏不进 root 级 else 兜底）。
   const auto codeRules = [&symbolFor](QgsRuleBasedRenderer::Rule *parent, const QVariantList &schema,
-                                      const QString &scope) {
+                                      const QString &scope, QStringList *codes = nullptr) {
     for (const QVariant &v : schema)
     {
       auto f = v.toMap();
@@ -385,6 +387,8 @@ QgsFeatureRenderer *QgisStyleService::wellFaciesRenderer(const QString &keyField
         filter = scope + QStringLiteral(" AND ") + filter;
       parent->appendChild(new QgsRuleBasedRenderer::Rule(
           symbolFor(color.name()), 0, 0, filter, f.value(QStringLiteral("name")).toString()));
+      if (codes)
+        *codes << QString::number(code);
     }
   };
   auto *root = new QgsRuleBasedRenderer::Rule(nullptr);
@@ -394,13 +398,25 @@ QgsFeatureRenderer *QgisStyleService::wellFaciesRenderer(const QString &keyField
   {
     if (h.isEmpty())
       continue;
-    const QString scope = QStringLiteral("trim(to_string(%1)) = %2")
-                              .arg(QgsExpression::quotedColumnRef(keyField),
-                                   QgsExpression::quotedString(h));
-    codeRules(root, schemas.value(h), scope);
+    // 图例按层位分组：父节点无符号只出层位名，相码规则挂为子节点；
+    // 子节点可复用父过滤结果，不必重复写层位条件。
+    auto *group = new QgsRuleBasedRenderer::Rule(nullptr, 0, 0, QString(), h);
+    QStringList codes;
+    codeRules(group, schemas.value(h), QString(), &codes);
+    codes.removeDuplicates();
+    if (codes.isEmpty())
+    {
+      delete group;
+      continue;
+    }
+    group->setFilterExpression(
+        QStringLiteral("trim(to_string(%1)) = %2 AND to_int(\"facies_code\") IN (%3)")
+            .arg(QgsExpression::quotedColumnRef(keyField), QgsExpression::quotedString(h),
+                 codes.join(QLatin1Char(','))));
+    root->appendChild(group);
   }
   // 无层位专属分类命中：缺省分类（defaults 或调用方给的 "" 键）兜底，再兜灰。
-  auto *fallback = new QgsRuleBasedRenderer::Rule(nullptr);
+  auto *fallback = new QgsRuleBasedRenderer::Rule(nullptr, 0, 0, QString(), tr("缺省分类"));
   fallback->setIsElse(true);
   codeRules(fallback, schemas.contains(QString()) ? schemas.value(QString()) : FaciesCatalog::defaults(),
             QString());

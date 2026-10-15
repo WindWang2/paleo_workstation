@@ -348,6 +348,37 @@ private slots:
     }
   }
 
+  // opt-01 R-9：目录内多个 .qgz 且无同名主工程 → 不静默取字母序第一个，
+  // 如实列出候选、不打开任何工程（旧实现直接 openProjectAsync(a.qgz)）。
+  void openPathRefusesAmbiguousQgzDirectory()
+  {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString dir = tmp.filePath(QStringLiteral("area"));
+    QVERIFY(QDir().mkpath(dir));
+    for (const char *name : {"a_backup.qgz", "b_main.qgz"})
+    {
+      QFile f(QDir(dir).filePath(QLatin1String(name)));
+      QVERIFY(f.open(QIODevice::WriteOnly));
+      f.write("PK");
+    }
+    QgisProjectService projSvc;
+    ProjectOpenWorkflow wf(&projSvc);
+    QSignalSpy failed(&wf, &ProjectOpenWorkflow::openFailed);
+    QSignalSpy folder(&wf, &ProjectOpenWorkflow::folderImportRequested);
+    QVERIFY(!wf.openPath(dir));
+    QCOMPARE(failed.count(), 1);
+    const QString detail = failed.at(0).at(1).toString();
+    QVERIFY2(detail.contains(QStringLiteral("a_backup.qgz")) &&
+                 detail.contains(QStringLiteral("b_main.qgz")),
+             qPrintable(detail));
+    QCOMPARE(failed.at(0).at(2).toBool(), false); // 可解释的提醒，不是致命错误
+    QCOMPARE(folder.count(), 0);
+    QVERIFY(projSvc.projectPath().isEmpty()); // 没有打开任何工程
+    // 候选文件原样不动。
+    QCOMPARE(QFileInfo(QDir(dir).filePath(QStringLiteral("a_backup.qgz"))).size(), qint64(2));
+  }
+
 // ---- wave/data-foundation T2 ------------------------------------------------
 
 // 任务池在场 → 预览扫描走 worker，done 在 GUI 线程回调、行集与同步路径一致；

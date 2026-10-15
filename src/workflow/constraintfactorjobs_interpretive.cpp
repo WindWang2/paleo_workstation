@@ -12,6 +12,7 @@
 #include "../algorithms/ensemblestats.h"     // StatsRequest（方向47 集合统计派生）
 #include "../catalog/datacatalog.h"
 #include "../algorithms/singlefactor/cartographicworkfile.h"
+#include "../algorithms/singlefactor/contourlevels.h" // kMaxContourLevels（U9 级别数上限闸）
 #include "../domain/arearules.h"
 #include "../domain/singlefactorrequest.h"  // 制图工作场不进融合/分相
 #include "../io/constraintstore.h"
@@ -50,6 +51,7 @@
 #include <qgsvectorfilewriter.h> // WS-C：参与井点 samples GPKG 写出
 #include <qgsvectorlayer.h>
 #include <gdal.h>
+#include <ogr_api.h>
 #include <ogr_spatialref.h>
 #include <cpl_conv.h>
 #include <algorithm>
@@ -59,6 +61,24 @@
 #include "constraintfactorjobs_internal.h"
 
 using namespace paleo::constraint_detail;
+
+namespace
+{
+// U8：统计落盘等值线 GPKG 的 contours 图层要素数（publish 线程调用，临时
+// GPKG 已由 compute 落盘并核验存在，开销可忽略）。打开失败返回 -1 哨兵
+// ——计数是血缘如实在案，不因此改变发布成功语义。
+int contourFeatureCountOf( const QString &gpkgPath )
+{
+  GDALDatasetH ds = GDALOpenEx( gpkgPath.toUtf8().constData(),
+                                GDAL_OF_VECTOR | GDAL_OF_READONLY, nullptr, nullptr, nullptr );
+  if ( !ds )
+    return -1;
+  OGRLayerH layer = GDALDatasetGetLayerByName( ds, "contours" );
+  const int count = layer ? static_cast<int>( OGR_L_GetFeatureCount( layer, TRUE ) ) : -1;
+  GDALClose( ds );
+  return count;
+}
+} // namespace
 
 bool ConstraintWorkflow::prepareInterpretiveContourJob( const QString &horizon, const QString &factorLayerId,
                                                         const QVector<double> &levels, bool strict,
@@ -100,6 +120,18 @@ bool ConstraintWorkflow::prepareInterpretiveContourJob( const QString &horizon, 
       paleo::workflow_detail::setError( error, tr( "等值级别必须为有限数值" ) );
       return false;
     }
+  }
+  // #149 对偶缺口：解释性等值线走 FIXED_LEVELS，服务层该路径无级别数闸
+  // （自动/间距路径已闸）。UI 层 parseLevels 先挡粘贴输入，这里防脚本直调
+  // 工作流层——数万级会让 GDAL 逐级追线冻结/OOM，必须在进 GDAL 之前拒绝。
+  if ( static_cast<qulonglong>( levels.size() ) >
+       static_cast<qulonglong>( paleo::singlefactor::kMaxContourLevels ) )
+  {
+    paleo::workflow_detail::setError(
+        error, tr( "等值级别数超过上限 %1（本次 %2 条）；请减少级别" )
+                   .arg( static_cast<qulonglong>( paleo::singlefactor::kMaxContourLevels ) )
+                   .arg( levels.size() ) );
+    return false;
   }
 
   QVector<LayerDeclaration> declared;
@@ -636,6 +668,12 @@ bool ConstraintWorkflow::publishInterpretiveContourJob( const InterpretiveContou
   contourExtra.insert( QStringLiteral( "work_layer_id" ), workLayerId );
   contourExtra.insert( QStringLiteral( "parent_version_ids" ), contourParentList );
   contourExtra.insert( QStringLiteral( "unresolved_crossings" ), job.unresolved );
+  // U8：等值线版本 extra 键契约与分析等值线版本（contour_lines）统一——
+  // 补 analysis_sha256（job.analysisSha，compute 阶段随指纹读取盖章）与
+  // contour_feature_count（0 条也是成功发布，计数如实入档供读侧显示）。
+  contourExtra.insert( QStringLiteral( "analysis_sha256" ), job.analysisSha );
+  contourExtra.insert( QStringLiteral( "contour_feature_count" ),
+                       contourFeatureCountOf( job.contourPath ) );
   if ( !registrar.commitExternal( contourSt, job.contourPath, contourParents, QStringLiteral( "gdal_contour_c_api" ),
                                   contourExtra, &commitErr ) )
   {

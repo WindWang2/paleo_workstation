@@ -313,7 +313,20 @@ void FolderImportWorkflow::importFolder(const QString &dir,
         };
     job->finish = [this, done, dir, started](ImportSession &s) {
       emit importActiveChanged(false);
-      recordLedger(dir, started, s.rows, s.error);
+      // 台账写进「当前打开」工程的 sidecar：produce 期间若已切换工程，当前
+      // catalog 是另一个工程的——把别处的、整批作废的导入记进它的审计台账
+      // 是串账（opt-01 P5）。此时只经回调如实报「工程已切换」，不入账。
+      DataCatalog *cat = m_svc ? m_svc->catalog() : nullptr;
+      const bool sameProject =
+          cat && !s.projectDir.isEmpty() &&
+          QDir::cleanPath(cat->catalogPath()) ==
+              QDir::cleanPath(QDir(s.projectDir).filePath(
+                  QStringLiteral("artifacts/metadata/catalog.json")));
+      if (sameProject)
+        recordLedger(dir, started, s.rows, s.error);
+      else
+        qInfo() << "FolderImportWorkflow: project changed during import, ledger not written for"
+                << dir;
       if (done)
         done(s.rows, s.error);
     };

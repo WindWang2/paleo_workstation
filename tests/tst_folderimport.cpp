@@ -629,6 +629,79 @@ void folderImportSurvivesServiceTeardownHonestly()
   QVERIFY(tasks.shutdown(5000));
 }
 
+// opt-01 P5：文件夹导入在飞时切换工程——整批作废（「工程已切换」），且不得把
+// 这批记进新工程的导入台账（旧实现按当前 catalog 推台账路径，串账到新工程）。
+// 新工程资产数不变、源文件字节不变。
+void folderImportAcrossProjectSwitchDoesNotCrossPostLedger()
+{
+  QTemporaryDir tmp;
+  QVERIFY(tmp.isValid());
+  const QString projectA = tmp.filePath(QStringLiteral("projA"));
+  const QString projectB = tmp.filePath(QStringLiteral("projB"));
+  QVERIFY(QDir().mkpath(projectA) && QDir().mkpath(projectB));
+  auto stack = makeStack(projectA);
+  QVERIFY(stack != nullptr);
+  const QString area = tmp.filePath(QStringLiteral("area"));
+  QVERIFY(QDir().mkpath(area));
+  const QByteArray lasBytes =
+      "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. S1 : WELL\n"
+      "~Curve\nDEPT.M :\n~A DEPT\n100.0\n";
+  const QString las = QDir(area).filePath(QStringLiteral("S1.las"));
+  {
+    QFile f(las);
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    QCOMPARE(f.write(lasBytes), qint64(lasBytes.size()));
+  }
+  PaleoTaskService tasks(stack->store.get());
+  FolderImportWorkflow wf(stack->importSvc.get(), &tasks);
+  bool done = false;
+  QVector<FolderRowResult> rows;
+  QString err;
+  wf.importFolder(area, {}, [&](const QVector<FolderRowResult> &r, const QString &e) {
+    done = true;
+    rows = r;
+    err = e;
+  });
+  stack->importSvc->setProjectDir(projectB); // produce 在途：切到工程 B
+  DataCatalog *catB = stack->importSvc->catalog();
+  QVERIFY(catB && catB->isOpen());
+  const int assetsBefore = catB->assets().size();
+  QElapsedTimer clock;
+  clock.start();
+  while (!done && clock.elapsed() < 30000)
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 25);
+  QVERIFY(done);
+  QVERIFY2(err.contains(QStringLiteral("工程已切换")), qPrintable(err));
+  QVERIFY(!rows.isEmpty());
+  for (const FolderRowResult &r : rows)
+    QCOMPARE(r.outcome, FolderRowResult::Outcome::Failed);
+  QCOMPARE(catB->assets().size(), assetsBefore);
+  paleo::imports::ImportLedger ledgerB;
+  ledgerB.load(catB);
+  QVERIFY(!ledgerB.filePath().isEmpty());
+  QVERIFY2(QFileInfo(ledgerB.filePath()).absoluteFilePath().startsWith(QDir(projectB).absolutePath()),
+           qPrintable(ledgerB.filePath()));
+  QCOMPARE(ledgerB.count(), 0); // 没有串账
+  QFile src(las);
+  QVERIFY(src.open(QIODevice::ReadOnly));
+  QCOMPARE(src.readAll(), lasBytes);
+  // 同工程的正常批次仍入账（守护：判定不误伤）。
+  done = false;
+  wf.importFolder(area, {}, [&](const QVector<FolderRowResult> &r, const QString &e) {
+    done = true;
+    rows = r;
+    err = e;
+  });
+  clock.restart();
+  while (!done && clock.elapsed() < 30000)
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 25);
+  QVERIFY(done);
+  ledgerB.load(catB);
+  QCOMPARE(ledgerB.count(), 1);
+  QCOMPARE(ledgerB.batches()[0].rows.size(), rows.size());
+  QVERIFY(tasks.shutdown(5000));
+}
+
 // A2（方向 01）：单文件导入作业取消后不得提交——对齐 dataops 队列
 // 「取消的作业不提交」语义（session 析构删暂存）。produce 对取消无检查点
 //（整文件原子完成），用户叫停后把成品悄悄入库违背取消承诺。

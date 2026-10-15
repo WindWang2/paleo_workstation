@@ -394,27 +394,31 @@ QString FolderImportWorkflow::importedWellHeadAsset(const QString &rowPath) cons
     return {};
   const QFileInfo rowInfo(rowPath);
   const QString rowAbs = QDir::cleanPath(rowInfo.absoluteFilePath());
-  const QString rowCanonical = rowInfo.canonicalFilePath();
   const QString fileName = rowInfo.fileName();
-  const auto samePath = [&](const QString &uri) {
-    if (uri.isEmpty())
-      return false;
-    const QFileInfo ui(uri);
-    if (QDir::cleanPath(ui.absoluteFilePath()) == rowAbs)
-      return true;
-    return !rowCanonical.isEmpty() && ui.canonicalFilePath() == rowCanonical;
-  };
+  // 两遍：第一遍只做纯词法的绝对路径比较（不查盘），命中即返回；仅当无词法
+  // 命中时第二遍才对候选做 canonicalFilePath（符号链接/大小写别名）——GUI 线程
+  // 上不再为每个井口资产 stat 一次。
   const QVector<CatalogAsset> assets = cat->assets();
+  QVector<QPair<QString, QString>> candidates; // (assetId, sourceUri)，新→旧
   QStringList byName;
   for (auto it = assets.crbegin(); it != assets.crend(); ++it)
   {
     if (it->type != QLatin1String("well_head"))
       continue;
     const CatalogVersion v = cat->currentVersion(it->id);
-    if (samePath(v.sourceUri))
-      return it->id; // 逆序遍历：最新登记者优先
+    if (!v.sourceUri.isEmpty())
+    {
+      if (QDir::cleanPath(QFileInfo(v.sourceUri).absoluteFilePath()) == rowAbs)
+        return it->id; // 逆序遍历：最新登记者优先
+      candidates.append({it->id, v.sourceUri});
+    }
     if (v.fileName == fileName)
       byName << it->id;
   }
+  const QString rowCanonical = rowInfo.canonicalFilePath();
+  if (!rowCanonical.isEmpty())
+    for (const auto &c : std::as_const(candidates))
+      if (QFileInfo(c.second).canonicalFilePath() == rowCanonical)
+        return c.first;
   return byName.size() == 1 ? byName.first() : QString();
 }

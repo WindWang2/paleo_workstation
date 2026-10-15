@@ -25,7 +25,8 @@ struct ImportSession;
 //     无则同步旧路径；完成回调总在 GUI 线程发；
 //   · importFolderRow —— 单行重试（forceType 由视图按当前下拉值算好）；
 //   · importFile —— 单文件导入（同上任务/同步双路径）；
-//   · importedWellHeadAsset —— 入库后按行文件名反查井口资产（catalog 读）。
+//   · importedWellHeadAsset —— 入库后按行源路径反查井口资产（先词法绝对路径、
+//     再规范路径，最后唯一同名兜底；catalog 读）。
 // 编排期间发 importActiveChanged(true/false)，壳据此抑制逐文件预览标签。
 // 本类不碰控件、不弹窗——全部视图出口经调用方给的回调回壳。
 //

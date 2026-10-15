@@ -245,6 +245,12 @@ private slots:
                                        QStringLiteral("ExportWellHead.dat"));
     QVERIFY(!third.isEmpty());
     QCOMPARE(wf.importedWellHeadAsset(third), QString());
+    // 符号链接别名（词法不等、规范路径相等）：第一遍词法落空后，第二遍按
+    // canonicalFilePath 仍找回正确资产（S5 U1-c：canonical 只在第二遍做）。
+    const QString alias = tmp.filePath(QStringLiteral("alias_area"));
+    QVERIFY(QFile::link(tmp.filePath(QStringLiteral("src_area")), alias));
+    QCOMPARE(wf.importedWellHeadAsset(alias + QStringLiteral("/b/ExportWellHead.dat")), idSecond);
+    QCOMPARE(wf.importedWellHeadAsset(alias + QStringLiteral("/a/ExportWellHead.dat")), idFirst);
   }
 
   // importFolderRow：forceType 覆盖分类（视图按当前下拉值算好后传入）。

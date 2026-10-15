@@ -7,6 +7,9 @@
 #include <QTableWidget>
 #include <QToolButton>
 
+#include <cmath>
+#include <limits>
+
 #include "ui/wellcomposite/trackregistry.h"
 #include "ui/wellcomposite/trackops.h"
 #include "ui/wellcomposite/wellcompositetrack.h"
@@ -575,6 +578,29 @@ private slots:
     QCOMPARE(canvas.trackCount(), 2);
     canvas.insertTrack(0, t2);
     QCOMPARE(canvas.tracks().at(0).get(), t2.get());
+  }
+
+  // ---- opt-02（W5）：NaN 空档读数不伪造 0 ----
+  void valueAtDepthNanGapReturnsNan()
+  {
+    const auto nanf = [] { return std::numeric_limits<float>::quiet_NaN(); };
+    CurveData c;
+    c.name = QStringLiteral("NPHI");
+    c.minScale = 0.0f;
+    c.maxScale = 0.6f;
+    c.depths = {1000.0f, 1005.0f};
+    // 两端都缺值（LAS NULL 段）→ NaN：0 是合法物理量（NPHI 0），旧实现
+    // 把空档伪造成 0.00 污染道头读数/tooltip（先红）；与绘制断笔口径一致。
+    c.values = {nanf(), nanf()};
+    QVERIFY(std::isnan(c.valueAtDepth(1002.0f)));
+    // 一端有限取近邻（既有口径不变）。
+    c.values = {nanf(), 0.15f};
+    QCOMPARE(c.valueAtDepth(1002.0f), 0.15f);
+    c.values = {0.10f, nanf()};
+    QCOMPARE(c.valueAtDepth(1002.0f), 0.10f);
+    // 两端有限照常插值（回归保护）。
+    c.values = {0.10f, 0.20f};
+    QCOMPARE(c.valueAtDepth(1002.0f), 0.14f);
   }
 };
 

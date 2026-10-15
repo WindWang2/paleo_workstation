@@ -725,6 +725,33 @@ void folderImportAcrossProjectSwitchDoesNotCrossPostLedger()
   ledgerB.load(catB);
   QCOMPARE(ledgerB.count(), 1);
   QCOMPARE(ledgerB.batches()[0].rows.size(), rows.size());
+#ifndef Q_OS_WIN
+  // S5 第 2 轮 Low 14：预开 catalog 经符号链接别名打开（catalog 目录 = 别名，
+  // session.projectDir = 真路径）——词法不等、规范路径相等，仍判同一工程入账。
+  const QString projectC = tmp.filePath(QStringLiteral("projC"));
+  const QString aliasC = tmp.filePath(QStringLiteral("projC_alias"));
+  QVERIFY(QDir().mkpath(projectC));
+  QVERIFY(QFile::link(projectC, aliasC));
+  auto prepared = DataCatalog::prepareOpen(aliasC, false);
+  QVERIFY(prepared && prepared->isOpen());
+  stack->importSvc->setProjectDir(projectC, prepared);
+  DataCatalog *catC = stack->importSvc->catalog();
+  QVERIFY2(catC && catC->isOpen(), qPrintable(stack->importSvc->catalogOpenError()));
+  QVERIFY(QDir::cleanPath(catC->catalogPath()).startsWith(QDir::cleanPath(aliasC)));
+  done = false;
+  wf.importFolder(area, {}, [&](const QVector<FolderRowResult> &r, const QString &e) {
+    done = true;
+    rows = r;
+    err = e;
+  });
+  clock.restart();
+  while (!done && clock.elapsed() < 30000)
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 25);
+  QVERIFY(done);
+  paleo::imports::ImportLedger ledgerC;
+  ledgerC.load(catC);
+  QCOMPARE(ledgerC.count(), 1);
+#endif
   QVERIFY(tasks.shutdown(5000));
 }
 

@@ -370,6 +370,55 @@ void GeostatWorkflowTests::geographicWellsAreRejected()
   QVERIFY2( !wf.generateFactor( QStringLiteral( "T1" ), QStringLiteral( "sandthick" ), params, &err ),
             "geographic wells must be refused by geostat compute" );
   QVERIFY2( err.contains( QStringLiteral( "投影" ) ), qPrintable( err ) );
+
+  // V7（复审）：无 CRS 井层——单位无法核实，同样拒绝（提示声明 CRS）。
+  const QString nosrsPath = f.dir.filePath( QStringLiteral( "wells-nosrs.gpkg" ) );
+  {
+    GDALDriverH driver = GDALGetDriverByName( "GPKG" );
+    QVERIFY( driver );
+    GDALDatasetH ds = GDALCreate( driver, nosrsPath.toUtf8().constData(), 0, 0, 0, GDT_Unknown, nullptr );
+    QVERIFY( ds );
+    OGRLayerH layer = GDALDatasetCreateLayer( ds, "wells", nullptr, wkbPoint, nullptr );
+    QVERIFY( layer );
+    for ( const char *name : { "z" } )
+    {
+      OGRFieldDefnH field = OGR_Fld_Create( name, OFTReal );
+      OGR_L_CreateField( layer, field, TRUE );
+      OGR_Fld_Destroy( field );
+    }
+    for ( int k = 0; k < 9; ++k )
+    {
+      OGRFeatureDefnH defn = OGR_L_GetLayerDefn( layer );
+      OGRFeatureH feature = OGR_F_Create( defn );
+      OGR_F_SetFieldDouble( feature, 0, double( k ) );
+      OGRGeometryH geom = OGR_G_CreateGeometry( wkbPoint );
+      OGR_G_SetPoint_2D( geom, 0, 10.0 * ( k % 3 ), 10.0 * ( k / 3 ) );
+      OGR_F_SetGeometry( feature, geom );
+      OGR_G_DestroyGeometry( geom );
+      OGR_L_CreateFeature( layer, feature );
+      OGR_F_Destroy( feature );
+    }
+    GDALClose( ds );
+  }
+  LayerDeclaration nosrs;
+  nosrs.layerId = QStringLiteral( "wells.NOSRS" );
+  nosrs.horizon = QStringLiteral( "NOSRS" );
+  nosrs.type = QStringLiteral( "vector" );
+  nosrs.source = nosrsPath + QStringLiteral( "|layername=wells" );
+  QString err2;
+  QVERIFY2( f.layers.declare( nosrs, &err2 ), qPrintable( err2 ) );
+  auto *nosrsLayer = qobject_cast<QgsVectorLayer *>( f.layers.instantiate( QStringLiteral( "wells.NOSRS" ), &err2 ) );
+  QVERIFY2( nosrsLayer, qPrintable( err2 ) );
+  QVERIFY( !nosrsLayer->crs().isValid() );
+  ConstraintWorkflow wf2( &f.proc, &f.layers );
+  wf2.setCatalog( &f.catalog, f.projectDir() );
+  QVariantMap params2;
+  params2.insert( QStringLiteral( "field" ), QStringLiteral( "z" ) );
+  params2.insert( QStringLiteral( "cellSize" ), 2.0 );
+  params2.insert( QStringLiteral( "method" ), QStringLiteral( "kriging" ) );
+  QVERIFY2( !wf2.generateFactor( QStringLiteral( "NOSRS" ), QStringLiteral( "sandthick" ), params2, &err2 ),
+            "no-SRS wells must be refused by geostat compute" );
+  QVERIFY2( err2.contains( QStringLiteral( "坐标系" ) ), qPrintable( err2 ) );
 }
 
 int main( int argc, char *argv[] )

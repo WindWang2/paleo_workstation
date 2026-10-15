@@ -74,6 +74,8 @@ private:
   bool appendInternal(const QString &horizon, const QString &id, const QString &wkt,
                       const QString &type, int code, const QString *parameters,
                       int schema, QString *error, double weight);
+  // migrateLegacyCrs 的独占窗体实现（经 m_enqueue 单写者队列调用）。
+  bool migrateLegacyCrsLocked(QString *error, QString *backupPathOut);
 
 private:
   QString m_gpkgPath;

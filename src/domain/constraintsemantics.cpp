@@ -373,8 +373,10 @@ ConstraintPartCheck checkConstraintPart( const QVector<QPointF> &part )
     return check;
   }
   // P4：原为全段对 O(n²)，约束页在 UI 线程逐条刷新，数万顶点的导入线会卡顿。
-  // 改为沿包围盒长轴的扫描剪枝：只比较该轴区间（闭区间）重叠的段对。相交段在
-  // 该轴上必然重叠，谓词与排除规则（相邻段、闭合首末段）不变，判定结果不变。
+  // 改为沿包围盒长轴的扫描剪枝：只比较该轴区间（闭区间）重叠的段对。真相交
+  // 段在该轴上必然重叠（剪枝安全）；谓词与排除规则（相邻段、闭合首末段）不变。
+  // 注：ε 内近触（cross 在相对阈内、包围盒恰好不重叠）会被剪枝判净——与容差
+  // 模型自洽（噪声级几何按净处理），不是对全段对判定的逐例复刻。
   const bool sweepX = ( maxX - minX ) >= ( maxY - minY );
   const auto lo = [&]( int k ) {
     return sweepX ? std::min( unique[k].x(), unique[k + 1].x() ) : std::min( unique[k].y(), unique[k + 1].y() );

@@ -315,6 +315,12 @@ bool ConstraintWorkflow::computeGeostatJobWithService(
   // P2（pr457-closure）：地统计距离/变差函数/网格间距全按米制口径——经纬度
   // 坐标下把角度当米会得出错误的空间结构与估值。与 local_direction /
   // structural 引擎同口径明确拒绝（提示先投影），不静默执行。
+  if ( !wells->crs().isValid() )
+  {
+    job->error = tr( "井点图层没有可识别的坐标系：距离/变差函数的单位无法核实，"
+                     "请先为井点层声明 CRS（本地工程网格或投影坐标系）" );
+    return false;
+  }
   if ( wells->crs().isGeographic() )
   {
     job->error = tr( "井点图层坐标系为地理坐标（%1，单位是度）：地质统计需要米制投影坐标，"

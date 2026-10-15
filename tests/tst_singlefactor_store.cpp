@@ -20,6 +20,7 @@ class SingleFactorStoreTests : public QObject
     void readOnlyEnqueueCreatesNothing();
     void missingFileIsNotCreated();
     void newStoreCarriesCrsMetadata();
+    void horizonWithPipeIsRejected();
     void legacyStoreDetectionAndExplicitMigration();
     void migrationRefusesForeignSrs();
 };
@@ -255,6 +256,19 @@ void SingleFactorStoreTests::migrationRefusesForeignSrs()
   QVERIFY( !err.isEmpty() );
   // 拒绝后文件原样（仍是外来 SRS）。
   QCOMPARE( store.inspectCrsStorage().isStoreCrs, false );
+}
+
+// V8（复审）：层位名带 '|' 会破坏 GPKG datasource URI——入口拒绝。
+void SingleFactorStoreTests::horizonWithPipeIsRejected()
+{
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  ConstraintStore store( dir.filePath( QStringLiteral( "p.gpkg" ) ) );
+  QString err;
+  QVERIFY( !store.append( QStringLiteral( "A|layername=evil" ), QStringLiteral( "c" ),
+                          QStringLiteral( "LINESTRING(0 0, 1 0)" ), QStringLiteral( "break_line" ), 0, &err ) );
+  QVERIFY( !err.isEmpty() );
+  QVERIFY( !QFile::exists( dir.filePath( QStringLiteral( "p.gpkg" ) ) ) );
 }
 
 QTEST_MAIN( SingleFactorStoreTests )

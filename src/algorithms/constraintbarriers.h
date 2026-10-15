@@ -3,6 +3,7 @@
 
 #include <qgsgeometry.h>
 
+#include <QPointF>
 #include <QString>
 #include <QVariantList>
 #include <QVector>
@@ -42,6 +43,17 @@ int rasterizeBarrierParts( UnifiedBarrierRead &read, double originX, double orig
 // transform 对每个要素几何就地变换，失败须抛 QgsProcessingException。
 UnifiedBarrierRead readUnifiedHardBarriers( QgsFeatureSource *source, const QString &methodId,
                                             const std::function<void( QgsGeometry & )> &transform );
+
+// 单条折线（多部件已拆）的 supercover 格网遍历（P1，pr457-closure）：每段先按
+// 闭矩形裁剪到计算域（贴右/下边界的点 clamp 进最后一列/行格），再整数误差项
+// 遍历，对每个途经格调用 visit(col,row)。穿格点先跨竖线再跨横线，途经格链保持
+// 4-连通（距离场不可对角穿透）；只触角点的另一侧格保持自由。pixelHeight 为负
+// （原点在左上、向下）。cols/rows 非正直接返回。这是各栅格化点（距离变换/
+// 最小曲率/旧 IDW 网格连通/本地方向屏障）的单一空间判定实现——不再各自半格
+// 采样（陡斜线/穿角点漏格）。
+void supercoverPolylineCells( const QVector<QPointF> &vertices, double originX, double originYTop,
+                              double pixelWidth, double pixelHeight, int cols, int rows,
+                              const std::function<void( int, int )> &visit );
 
 // 回执 → 紧凑 JSON（Processing 字符串输出 CONSTRAINT_RECEIPTS）。
 QString constraintReceiptsJson( const QVariantList &receipts );

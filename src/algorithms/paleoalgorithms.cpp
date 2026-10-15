@@ -1,5 +1,6 @@
 // 层：数据
 #include "paleoalgorithms.h"
+#include "constraintbarriers.h"
 #include "rasterout.h"
 #include "singlefactor/localdirectionalgorithm.h"
 #include "singlefactor/structuralalgorithm.h"
@@ -612,13 +613,11 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
   }
 
   // ---- break_line barriers: grid reachability (C1) --------------------------
-  // Barriers are rasterized onto the output grid (half-cell supersampled walk
-  // keeps the wall closed against diagonal leaks); non-barrier cells are
-  // labeled by 4-connectivity BFS. A cell only interpolates from samples in
-  // its own component — detours around barrier ends are therefore honored at
-  // cell resolution. Within one component the plain Euclidean distance is
-  // used (a straight line may still cross a concave barrier; documented
-  // approximation, weight semantics only).
+  // P1（pr457-closure）：屏障栅格化统一走 supercoverPolylineCells（闭域裁剪 +
+  // 4-连通途经链）——此前半格采样在陡斜线/穿角点漏格，对角链墙会被 4-连通 BFS
+  // 从格缝穿过。非屏障格按 4-连通 BFS 标分量；一格只从同分量井点插值——绕行
+  // 屏障端点在格分辨率上成立。同分量内用平面欧氏距离（直线仍可能穿过凹形
+  // 屏障；既有的近似口径，仅权重语义）。
   const bool hasBarriers = !breakGeoms.isEmpty();
   std::vector<int> comp;        // per cell: >=0 component id, -2 barrier
   std::vector<int> sampleComp;  // per sample: component id, -1 unreachable
@@ -633,29 +632,24 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
     comp.assign( static_cast<size_t>( cellCount ), -1 );
     for ( const QgsGeometry &g : breakGeoms )
     {
+      if ( feedback && feedback->isCanceled() )
+      {
+        GDALClose( outDs );
+        throw QgsProcessingException( QStringLiteral( "Canceled" ) );
+      }
       const QgsMultiPolylineXY mpl = g.isMultipart()
                                          ? g.asMultiPolyline()
                                          : QgsMultiPolylineXY{ g.asPolyline() };
       for ( const QgsPolylineXY &pl : mpl )
-        for ( int i = 1; i < pl.size(); ++i )
-        {
-          if ( feedback && feedback->isCanceled() )
-          {
-            GDALClose( outDs );
-            throw QgsProcessingException( QStringLiteral( "Canceled" ) );
-          }
-          const QgsPointXY &a = pl[i - 1];
-          const QgsPointXY &b = pl[i];
-          const double len = a.distance( b );
-          const int steps = std::max( 1, static_cast<int>( std::ceil( len / ( cellSize * 0.5 ) ) ) );
-          for ( int s = 0; s <= steps; ++s )
-          {
-            int c = 0, r = 0;
-            if ( cellOf( a.x() + ( b.x() - a.x() ) * s / steps,
-                         a.y() + ( b.y() - a.y() ) * s / steps, c, r ) )
-              comp[static_cast<qsizetype>( r ) * nCols + c] = -2;
-          }
-        }
+      {
+        QVector<QPointF> vertices;
+        vertices.reserve( pl.size() );
+        for ( const QgsPointXY &point : pl )
+          vertices.append( point.toQPointF() );
+        paleo::algorithms::supercoverPolylineCells(
+            vertices, extent.xMinimum(), extent.yMaximum(), cellSize, -cellSize, nCols, nRows,
+            [&]( int c, int r ) { comp[static_cast<qsizetype>( r ) * nCols + c] = -2; } );
+      }
     }
     int nextComp = 0;
     std::vector<qsizetype> queue;

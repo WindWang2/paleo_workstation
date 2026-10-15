@@ -21,6 +21,7 @@
 #include "../src/domain/singlefactorstrategy.h" // 方向67：策略包词表（下拉单一真源对拍）
 #include "../src/services/singlefactordef.h"
 #include "../src/ui/pages/pagepanels.h"
+#include "../src/ui/pages/constraintpage_internal.h" // U9：parseLevels 级别数上限纯函数面
 #include "../src/ui/paleotheme.h"
 #include "../src/workflow/boundarysemantics.h" // C2：相界语义类型词表（单类型首发）
 
@@ -502,6 +503,9 @@ class FactorPageTests : public QObject
     void parseLevelsDroppedTokensAreRefused();     // 方向04 D10：脏级别 token 不静默吞
     void staleSuffixSurvivesLayerRedeclare();      // 方向04 D11：「（旧输入）」标记不被重声明抹掉
     void factorResultsTableShowsLineageColumn();   // P4：成果表第 4 列「来源与质控」+ 明细 tooltip
+    void interpretiveResultsShowInFactorResultsTable(); // U7：制图工作场进成果表 + 解释性等值线回执即时刷新
+    void wellFactorFieldFetchesAreCached();        // U10：字段清单按（层位,数据世代）缓存，勾选不重取
+    void parseLevelsAboveCapCountsDropped();       // U9：固定级别数上限——超限 token 按 dropped 计数（UI 层）
 };
 
 void FactorPageTests::constructsWithNullServices()
@@ -726,6 +730,92 @@ void FactorPageTests::factorResultsTableShowsLineageColumn()
   QCOMPARE( results->item( 0, 3 )->toolTip(), lineage.value( "details" ).toString() );
   QVERIFY2( results->item( 0, 3 )->toolTip().contains( QStringLiteral( "b2（outside_compute_domain）" ) ),
             qPrintable( results->item( 0, 3 )->toolTip() ) );
+}
+
+// U7：解释性成果可见性——制图工作场（single_factor_cartographic_work）版本
+// 进成果表（savedFactorResults 白名单），且 interpretiveContoursGenerated 回执
+// 即时刷新表格（此前只 setText，新版本要等手动刷新才出现）。
+void FactorPageTests::interpretiveResultsShowInFactorResultsTable()
+{
+  QTemporaryDir dir;
+  DataCatalog catalog;
+  QString err;
+  QVERIFY2( catalog.open( dir.path(), &err ), qPrintable( err ) );
+  const auto addVersion = [&]( const QString &id, const QString &kind, int number ) {
+    CatalogAsset asset;
+    asset.id = QStringLiteral( "ast-" ) + id;
+    asset.type = QStringLiteral( "single_factor" );
+    asset.format = QStringLiteral( "gpkg" );
+    asset.displayName = id;
+    QVERIFY( catalog.addAsset( asset ) );
+    CatalogVersion v;
+    v.id = QStringLiteral( "ver-" ) + id;
+    v.assetId = asset.id;
+    v.stage = QStringLiteral( "DERIVED" );
+    v.path = QStringLiteral( "DERIVED/%1/%2/%3.gpkg" ).arg( asset.id, v.id, id );
+    v.fileName = id + QStringLiteral( ".gpkg" );
+    v.versionNumber = number;
+    v.extra = { { "kind", kind },
+                { "horizon", "T1" },
+                { "factor_id", "sandthick" },
+                { "interval", 20.0 } };
+    QVERIFY2( catalog.addVersion( v, &err ), qPrintable( err ) );
+  };
+  addVersion( QStringLiteral( "work1" ), QStringLiteral( "single_factor_cartographic_work" ), 1 );
+
+  ConstraintWorkflow wf( nullptr, nullptr );
+  wf.setCatalog( &catalog, dir.path() );
+  ConstraintPage page( &wf );
+  auto *horizons = page.findChild<QComboBox *>( QStringLiteral( "horizonCombo" ) );
+  auto *factors = page.findChild<QTableWidget *>( QStringLiteral( "factorTable" ) );
+  auto *results = page.findChild<QTableWidget *>( QStringLiteral( "factorResultsTable" ) );
+  QVERIFY( horizons && factors && results );
+  horizons->addItem( QStringLiteral( "T1" ) );
+  horizons->setCurrentIndex( 0 );
+  factors->item( 0, 0 )->setCheckState( Qt::Checked ); // 砂体厚度
+  page.refreshFactorResults();
+  QCOMPARE( results->rowCount(), 1 );
+  QCOMPARE( results->item( 0, 0 )->text(), QStringLiteral( "制图工作场" ) );
+
+  // 生成回执到达前表格不知道新版本；回执到达即刷新（无需手动刷新）。
+  addVersion( QStringLiteral( "interp1" ), QStringLiteral( "single_factor_cartographic_contour" ), 2 );
+  QCOMPARE( results->rowCount(), 1 );
+  emit wf.interpretiveContoursGenerated( QStringLiteral( "T1" ), QStringLiteral( "factor.T1.sandthick" ),
+                                         QStringLiteral( "cartographic.T1.sandthick.contours" ) );
+  QCOMPARE( results->rowCount(), 2 );
+  QCOMPARE( results->item( 0, 0 )->text(), QStringLiteral( "解释性等值线" ) ); // 版本号大者在前
+  QCOMPARE( results->item( 1, 0 )->text(), QStringLiteral( "制图工作场" ) );
+}
+
+// U10：井点字段清单只依赖（层位, 数据世代），因子勾选切换不得重取——
+// paleo.page.fieldrefreshcount 只计真实 wf->wellFactorFields 取数次数。
+void FactorPageTests::wellFactorFieldFetchesAreCached()
+{
+  QTemporaryDir dir;
+  DataCatalog catalog;
+  QString err;
+  QVERIFY2( catalog.open( dir.path(), &err ), qPrintable( err ) );
+  ConstraintWorkflow wf( nullptr, nullptr );
+  wf.setCatalog( &catalog, dir.path() );
+  ConstraintPage page( &wf );
+  auto *factors = page.findChild<QTableWidget *>( QStringLiteral( "factorTable" ) );
+  QVERIFY( factors );
+  QCOMPARE( page.property( "paleo.page.fieldrefreshcount" ).toInt(), 1 ); // ctor 取数一次
+
+  // 勾选切换 N 次：字段清单不变 → 缓存命中，计数仍为 1。
+  for ( int i = 0; i < 3; ++i )
+  {
+    factors->item( 0, 0 )->setCheckState( Qt::Checked );
+    factors->item( 0, 0 )->setCheckState( Qt::Unchecked );
+  }
+  QCOMPARE( page.property( "paleo.page.fieldrefreshcount" ).toInt(), 1 );
+
+  // 数据世代变化（wellAttributesChanged）→ 下一次刷新重取（计数 2），
+  // 其后的勾选切换再次命中缓存。
+  emit wf.wellAttributesChanged();
+  QCOMPARE( page.property( "paleo.page.fieldrefreshcount" ).toInt(), 2 );
+  factors->item( 1, 0 )->setCheckState( Qt::Checked );
+  QCOMPARE( page.property( "paleo.page.fieldrefreshcount" ).toInt(), 2 );
 }
 
 void FactorPageTests::generateFactorPayload()
@@ -1149,6 +1239,54 @@ void FactorPageTests::parseLevelsDroppedTokensAreRefused()
   auto *status = page.findChild<QLabel *>( QStringLiteral( "statusLabel" ) );
   QVERIFY2( status && status->text().contains( QStringLiteral( "无法识别" ) ),
             status ? qPrintable( status->text() ) : "statusLabel missing" );
+}
+
+// U9：固定级别数上限的 UI 层闸——与工作流层 prepare 闸对偶（#149 自动/间距
+// 路径的对偶缺口）。超限的合法 token 与脏 token 同走 dropped 机制：截断保留
+// 前 N 条并如实计数，页面据此拒绝发请求，不静默截断。
+void FactorPageTests::parseLevelsAboveCapCountsDropped()
+{
+  using paleo::constraintpage_internal::kMaxContourLevelTokens;
+  using paleo::constraintpage_internal::parseLevels;
+  // 纯函数面：kMaxContourLevelTokens+2 个合法值 → 恰保留前 N 条、dropped=2。
+  // 用单字符 token（全 "1"）压在 QLineEdit 32767 字符上限之下——控件截断
+  // 不参与本断言（粘贴超大文本时控件自身截断是另一层现实边界）。
+  QStringList tokens;
+  tokens.reserve( kMaxContourLevelTokens + 2 );
+  for ( int i = 0; i < kMaxContourLevelTokens + 2; ++i )
+    tokens << QStringLiteral( "1" );
+  int dropped = 0;
+  const QVector<double> levels = parseLevels( tokens.join( QLatin1Char( ' ' ) ), &dropped );
+  QCOMPARE( levels.size(), kMaxContourLevelTokens );
+  QCOMPARE( dropped, 2 );
+  QCOMPARE( levels.first(), 1.0 );
+  QCOMPARE( levels.last(), 1.0 );
+
+  // 页面面：超限输入经同一 dropped 通道拒绝发解释性等值线请求。
+  ConstraintPage page( nullptr );
+  page.setHorizons( { QStringLiteral( "T1" ) } );
+  auto *horizons = page.findChild<QComboBox *>( QStringLiteral( "horizonCombo" ) );
+  horizons->setCurrentIndex( 0 );
+  QVariantMap generated;
+  generated.insert( QStringLiteral( "poro" ), QStringLiteral( "factor.T1.poro" ) );
+  page.setProperty( "paleo.page.factorgen", generated );
+  auto *factors = page.findChild<QTableWidget *>( QStringLiteral( "factorTable" ) );
+  factors->item( 3, 0 )->setCheckState( Qt::Checked ); // poro
+  auto *mode = page.findChild<QComboBox *>( QStringLiteral( "factorContourModeCombo" ) );
+  mode->setCurrentIndex( mode->findData( QStringLiteral( "cartographic_detour" ) ) );
+  auto *levelsEdit = page.findChild<QLineEdit *>( QStringLiteral( "factorContourLevelsEdit" ) );
+  levelsEdit->setText( tokens.join( QLatin1Char( ' ' ) ) );
+
+  auto *contour = page.findChild<QPushButton *>( QStringLiteral( "contourButton" ) );
+  QVERIFY( contour->isEnabled() );
+  QVERIFY2( contour->toolTip().contains( QStringLiteral( "无法识别" ) ),
+            qPrintable( QStringLiteral( "mode=%1 levels=%2 tip=%3" )
+                            .arg( mode->currentIndex() )
+                            .arg( levelsEdit->text().size() )
+                            .arg( contour->toolTip() ) ) );
+  QSignalSpy spy( &page, &ConstraintPage::interpretiveContourRequested );
+  contour->click();
+  QCOMPARE( spy.count(), 0 ); // 超限输入拒绝发请求
 }
 
 // 方向04 D11：「（旧输入）」标记记在按层位的属性里——任何 layerDeclared

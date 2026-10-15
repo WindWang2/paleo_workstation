@@ -170,7 +170,18 @@ bool ImportLedger::record(const LedgerBatch &batch, QString *error)
     const QString backup =
         m_path + QStringLiteral(".corrupt-") +
         QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyyMMddHHmmsszzz"));
-    if (!QFile::copy(m_path, backup))
+    // 备份经 QSaveFile（临时文件 + 落盘同步 + 改名）写出：主台账随后被覆盖，
+    // 备份必须先于覆盖真正落盘，掉电时不能两头都丢（S5 U2-b）。
+    QFile original(m_path);
+    QSaveFile out(backup);
+    const bool saved = original.open(QIODevice::ReadOnly) &&
+                       out.open(QIODevice::WriteOnly) &&
+                       [&] {
+                         const QByteArray bytes = original.readAll();
+                         return out.write(bytes) == bytes.size();
+                       }() &&
+                       out.commit();
+    if (!saved)
     {
       if (error)
         *error = QStringLiteral("导入台账已损坏且无法备份（%1），本批未入账以免覆盖原文件")

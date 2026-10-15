@@ -177,10 +177,16 @@ void ConstraintPage::wireFactorTableSelection( QTableWidget *factors )
                  property( kFactorGenProp ).toMap().value( factorIdOfRow( factors, newRow ) ).toString();
              if ( !newLayer.isEmpty() )
                emit factorVisibilityRequested( newLayer, true );
-             // structural_idw 因素的等值线默认自动等值距（0）。
+             // 等值距随因素类型切换：structural_idw → 自动(0)；切回其他因素时
+             // 若残留自动态则恢复默认 20 m（interval=0 会被服务层以「间距必须
+             // 是正数」拒绝，不能跨类型残留）。
              if ( auto *spin = child<QDoubleSpinBox>( this, "contourIntervalSpin" ) )
+             {
                if ( checkedFactorIsStructural() )
                  spin->setValue( 0.0 );
+               else if ( spin->value() == 0.0 )
+                 spin->setValue( 20.0 );
+             }
              updateFactorActionStates();
            } );
   // ---- m2(B) 双区 end ------------------------------------------------------
@@ -276,10 +282,18 @@ void ConstraintPage::refreshFactorLayers() {
       if (d.horizon == horizons->currentText() && d.layerId.startsWith(prefix))
         generated.insert(d.layerId.mid(prefix.size()), d.layerId);
   setProperty(kFactorGenProp, generated);
+  // 「（旧输入）」按层位记在属性里：refreshFactorLayers 任何一次重声明都会
+  // 重写状态列文本，后缀写在文本里会被静默抹掉（D11）。切层位天然隔离。
+  const QString staleKey = QStringLiteral("paleo.page.factorstale.%1").arg(horizons->currentText());
+  const QStringList stale = property(staleKey.toUtf8().constData()).toStringList();
+  const QString staleSuffix = tr("（旧输入）");
   const QSignalBlocker blocker(table);
   for (int r = 0; r < table->rowCount(); ++r) {
-    const QString id = generated.value(factorIdOfRow(table, r)).toString();
-    table->item(r, 3)->setText(id.isEmpty() ? tr("未生成") : tr("等值面已保存"));
+    const QString rowId = factorIdOfRow(table, r);
+    const QString id = generated.value(rowId).toString();
+    table->item(r, 3)->setText(id.isEmpty() ? tr("未生成")
+        : stale.contains(rowId) ? tr("等值面已保存") + staleSuffix
+        : tr("等值面已保存"));
   }
   updateFactorActionStates();
 }
@@ -292,6 +306,14 @@ void ConstraintPage::noteFactorLayer( const QString &factorId, const QString &la
   QVariantMap generated = property( kFactorGenProp ).toMap();
   generated.insert( factorId, layerId );
   setProperty( kFactorGenProp, generated );
+  // 新输入已生成：清掉该因素的「（旧输入）」标记（D11 同族，按层位属性）。
+  {
+    const QString staleKey =
+        QStringLiteral( "paleo.page.factorstale.%1" ).arg( horizons->currentText() );
+    QStringList stale = property( staleKey.toUtf8().constData() ).toStringList();
+    if ( stale.removeAll( factorId ) > 0 )
+      setProperty( staleKey.toUtf8().constData(), stale );
+  }
 
   auto *table = child<QTableWidget>( this, "factorTable" );
   if ( table )
@@ -313,6 +335,9 @@ void ConstraintPage::noteFactorLayer( const QString &factorId, const QString &la
   }
 
   // 该行正被勾选而图层刚生成 → 上图意图（否则新生成层不进互斥显示）。
+  // 注意：这里不重置等值距——S5-m3：无法区分「自动态残留」与「用户显式
+  // 输入的间距」，静默压回 0 会吞掉用户输入；勾选切换回调（wireFactorTableSelection）
+  // 已覆盖跨类型残留，structural 先生成后计算的用户随时可手动改回「自动」。
   auto *factors = child<QTableWidget>( this, "factorTable" );
   if ( factors && checkedRow( factors ) >= 0 &&
        factorIdOfRow( factors, checkedRow( factors ) ) == factorId )
@@ -369,6 +394,19 @@ void ConstraintPage::markInputsStale()
   const QString factorId = factorIdOfRow( factors, r );
   if ( property( kFactorGenProp ).toMap().value( factorId ).toString().isEmpty() )
     return;
+  // stale 记入按层位的动态属性（D11）：refreshFactorLayers 重写状态列时据此
+  // 恢复后缀——此前只写在文本里，任何 layerDeclared 重声明都会静默抹掉。
+  if ( auto *horizons = child<QComboBox>( this, "horizonCombo" ) )
+  {
+    const QString staleKey =
+        QStringLiteral( "paleo.page.factorstale.%1" ).arg( horizons->currentText() );
+    QStringList stale = property( staleKey.toUtf8().constData() ).toStringList();
+    if ( !stale.contains( factorId ) )
+    {
+      stale << factorId;
+      setProperty( staleKey.toUtf8().constData(), stale );
+    }
+  }
   QTableWidgetItem *status = factors->item( r, 3 );
   if ( !status )
     return;

@@ -55,9 +55,14 @@ inline void useMono( QWidget *widget )
     widget->setFont( PaleoTheme::monoFont() );
 }
 
-inline QVector<double> parseLevels( const QString &text )
+// 解析等值级别文本。dropped（可空）回传被丢弃的非法 token 数——
+// 「10, abc, 30」解析为 [10,30] 并报 dropped=1，调用方据此提示用户，
+// 不静默吞掉脏输入。
+inline QVector<double> parseLevels( const QString &text, int *dropped = nullptr )
 {
   QVector<double> levels;
+  if ( dropped )
+    *dropped = 0;
   const QStringList parts = text.split( QRegularExpression( QStringLiteral( "[,，\\s]+" ) ), Qt::SkipEmptyParts );
   for ( const QString &part : parts )
   {
@@ -65,6 +70,8 @@ inline QVector<double> parseLevels( const QString &text )
     const double value = part.toDouble( &ok );
     if ( ok )
       levels << value;
+    else if ( dropped )
+      ++( *dropped );
   }
   return levels;
 }

@@ -425,9 +425,16 @@ Sgs3Result sgs3( const std::vector<Sample3> &samples, const std::vector<Sgs3Targ
       return result;
     }
   }
-  if ( !( model.range > 0 ) || model.nugget < 0 || model.sill < 0 )
+  // D1：NaN nugget/sill（以及 3D 专用的 verticalRangeRatio）穿过比较语义放行后，
+  // SK 协方差 C(0)=NaN 会让全场解 NaN 且 Status 仍 Ok——入口显式拒绝非有限参数
+  //（azimuth/ratio 与 kriging 的 modelUsable 同口径：NaN 方位会让 γ 塌缩、矩阵奇异）。
+  if ( !( model.range > 0 ) || !std::isfinite( model.range ) ||
+       !std::isfinite( model.nugget ) || !std::isfinite( model.sill ) ||
+       !std::isfinite( model.verticalRangeRatio ) ||
+       !std::isfinite( model.azimuthDeg ) || !std::isfinite( model.anisotropyRatio ) ||
+       model.nugget < 0 || model.sill < 0 )
   {
-    result.message = "variogram model invalid";
+    result.message = "variogram model invalid (finite range > 0, nugget/sill >= 0)";
     return result;
   }
   if ( model.nugget + model.sill <= 0 )

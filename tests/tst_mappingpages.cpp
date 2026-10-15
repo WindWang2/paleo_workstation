@@ -496,6 +496,9 @@ class FactorPageTests : public QObject
     void methodParameterVisibilityAndFamilies();
     void strategyPackDrivesMethodCombo(); // 方向67：词表驱动下拉 + 参数预览 + strategy_id 载荷
     void cokrigingCovariateControls();    // 方向91：协变量下拉只在协克里金可见，并写入参数
+    void contourIntervalResetsAcrossFactorTypes(); // 方向04 D9：等值距自动态不跨因素类型残留
+    void parseLevelsDroppedTokensAreRefused();     // 方向04 D10：脏级别 token 不静默吞
+    void staleSuffixSurvivesLayerRedeclare();      // 方向04 D11：「（旧输入）」标记不被重声明抹掉
 };
 
 void FactorPageTests::constructsWithNullServices()
@@ -1042,6 +1045,102 @@ void FactorPageTests::cokrigingCovariateControls()
   QVERIFY( !covariate->isVisibleTo( &page ) );
   page.findChild<QPushButton *>( QStringLiteral( "generateFactorButton" ) )->click();
   QVERIFY( !generated.at( 1 ).at( 2 ).toMap().contains( QStringLiteral( "covariateLayerId" ) ) );
+}
+
+// 方向04 D9：等值距「自动(0)」是 structural 因素专用态；切回非 structural
+// 因素必须恢复正间距——interval=0 会被服务层以「间距必须是正数」拒绝，
+// 残留会让用户点一个必失败的按钮。
+void FactorPageTests::contourIntervalResetsAcrossFactorTypes()
+{
+  ConstraintPage page( nullptr );
+  page.setHorizons( { QStringLiteral( "T1" ) } );
+  auto *horizons = page.findChild<QComboBox *>( QStringLiteral( "horizonCombo" ) );
+  horizons->setCurrentIndex( 0 );
+  auto *factors = page.findChild<QTableWidget *>( QStringLiteral( "factorTable" ) );
+  auto *spin = page.findChild<QDoubleSpinBox *>( QStringLiteral( "contourIntervalSpin" ) );
+  QVERIFY( factors && spin );
+
+  factors->item( 1, 0 )->setCheckState( Qt::Checked ); // sandratio（非 structural）
+  spin->setValue( 0.0 );                               // 模拟 structural 残留的自动态
+  factors->item( 2, 0 )->setCheckState( Qt::Checked ); // 切到 strathick（仍非 structural）
+  QCOMPARE( spin->value(), 20.0 );                     // 修复前保持 0.0（跨类型残留）
+}
+
+// 方向04 D10：「10, abc, 30」不再静默解析成 [10,30]——按钮提示脏 token，
+// 点击被拒绝并说明原因（DESIGN.md：动作失败必须有理由）。
+void FactorPageTests::parseLevelsDroppedTokensAreRefused()
+{
+  ConstraintPage page( nullptr );
+  page.setHorizons( { QStringLiteral( "T1" ) } );
+  auto *horizons = page.findChild<QComboBox *>( QStringLiteral( "horizonCombo" ) );
+  horizons->setCurrentIndex( 0 );
+  QVariantMap generated;
+  generated.insert( QStringLiteral( "poro" ), QStringLiteral( "factor.T1.poro" ) );
+  page.setProperty( "paleo.page.factorgen", generated );
+  auto *factors = page.findChild<QTableWidget *>( QStringLiteral( "factorTable" ) );
+  factors->item( 3, 0 )->setCheckState( Qt::Checked ); // poro
+  auto *mode = page.findChild<QComboBox *>( QStringLiteral( "factorContourModeCombo" ) );
+  mode->setCurrentIndex( mode->findData( QStringLiteral( "cartographic_detour" ) ) );
+  auto *levels = page.findChild<QLineEdit *>( QStringLiteral( "factorContourLevelsEdit" ) );
+  levels->setText( QStringLiteral( "10, abc, 30" ) );
+
+  auto *contour = page.findChild<QPushButton *>( QStringLiteral( "contourButton" ) );
+  QVERIFY( contour->isEnabled() );
+  QVERIFY2( contour->toolTip().contains( QStringLiteral( "无法识别" ) ),
+            qPrintable( contour->toolTip() ) );
+  QSignalSpy spy( &page, &ConstraintPage::interpretiveContourRequested );
+  contour->click();
+  QCOMPARE( spy.count(), 0 ); // 脏输入拒绝发请求
+  auto *status = page.findChild<QLabel *>( QStringLiteral( "statusLabel" ) );
+  QVERIFY2( status && status->text().contains( QStringLiteral( "无法识别" ) ),
+            status ? qPrintable( status->text() ) : "statusLabel missing" );
+}
+
+// 方向04 D11：「（旧输入）」标记记在按层位的属性里——任何 layerDeclared
+// 触发的状态列重写不得抹掉它；重新生成（noteFactorLayer）后清除。
+void FactorPageTests::staleSuffixSurvivesLayerRedeclare()
+{
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  LayerManifest manifest( dir.filePath( QStringLiteral( "stale.sqlite" ) ) );
+  QVERIFY( manifest.open() );
+  QgisLayerService layers( nullptr, &manifest );
+  QString err;
+  LayerDeclaration decl;
+  decl.layerId = QStringLiteral( "factor.T1.poro" );
+  decl.horizon = QStringLiteral( "T1" );
+  decl.type = QStringLiteral( "raster" );
+  decl.source = QStringLiteral( "/tmp/factor.T1.poro.tif" );
+  decl.group = QStringLiteral( "02_Factor" );
+  QVERIFY( layers.declare( decl, &err ) );
+
+  ConstraintPage page( nullptr );
+  page.setHorizons( { QStringLiteral( "T1" ) } );
+  page.bindLayerService( &layers );
+  auto *horizons = page.findChild<QComboBox *>( QStringLiteral( "horizonCombo" ) );
+  horizons->setCurrentIndex( 0 );
+  auto *factors = page.findChild<QTableWidget *>( QStringLiteral( "factorTable" ) );
+  auto *cellSize = page.findChild<QDoubleSpinBox *>( QStringLiteral( "factorCellSizeSpin" ) );
+  QVERIFY( factors && cellSize );
+  factors->item( 3, 0 )->setCheckState( Qt::Checked ); // poro（已有声明）
+
+  // 用户改像元大小 → 输入陈旧 → 勾选行状态列加「（旧输入）」。
+  cellSize->setValue( cellSize->value() + 1.0 );
+  QVERIFY2( factors->item( 3, 3 )->text().contains( QStringLiteral( "（旧输入）" ) ),
+            qPrintable( factors->item( 3, 3 )->text() ) );
+
+  // 任何 factor.* 层重声明触发 refreshFactorLayers 重写状态列——标记必须存活。
+  LayerDeclaration other = decl;
+  other.layerId = QStringLiteral( "factor.T1.sandthick" );
+  other.source = QStringLiteral( "/tmp/factor.T1.sandthick.tif" );
+  QVERIFY( layers.declare( other, &err ) );
+  QVERIFY2( factors->item( 3, 3 )->text().contains( QStringLiteral( "（旧输入）" ) ),
+            qPrintable( factors->item( 3, 3 )->text() ) );
+
+  // 重新生成 → 新输入生效，标记清除。
+  page.noteFactorLayer( QStringLiteral( "poro" ), QStringLiteral( "factor.T1.poro" ) );
+  QVERIFY2( !factors->item( 3, 3 )->text().contains( QStringLiteral( "（旧输入）" ) ),
+            qPrintable( factors->item( 3, 3 )->text() ) );
 }
 
 // ---- 任务 C（智能编图页）：融合清单栅格过滤/参考图/相属性/设计器入口。--

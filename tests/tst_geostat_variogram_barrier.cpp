@@ -61,6 +61,8 @@ class BarrierVariogramTests : public QObject
     void detourPairAccumulatesAtGeodesicLag();
     void fitConsumesBarrierAwareExperimental();
     void rejectsSampleBudget();
+    void cancelledInsideBarrierFieldPropagates();
+    void oversizeBarrierGridShrinksToCellBudget();
 };
 
 // Oracle 2：封死隔断两侧样本对不进累积（计数断言）。
@@ -170,6 +172,42 @@ void BarrierVariogramTests::rejectsSampleBudget()
   const ExperimentalVariogram result = experimentalVariogram( samples, 5.0, 4, {}, barriers );
   QVERIFY( result.status == Status::InvalidInput );
   QVERIFY( result.message.find( "512" ) != std::string::npos );
+}
+
+// D3：取消落在样本测地场 Dijkstra 内部时必须原样透传 Cancelled——
+// 修复前 faultPathMetric 的 Cancelled 被洗成默认 InvalidInput（文案
+// "barrier distance field failed"），krigingsurface 的取消识别随之失效，
+// 用户取消被误报成「变差函数拟合失败」。
+void BarrierVariogramTests::cancelledInsideBarrierFieldPropagates()
+{
+  VariogramBarriers barriers;
+  barriers.enabled = true;
+  barriers.polygons = { wall( 5.0, 0.2, -10.0, 20.0 ) };
+  barriers.gridResolution = 512; // >65536 格：Dijkstra 内部检查点（每 65536 settled）可触达
+  // 计数器：第 1 次调用（#327 的第一个样本字段前检查）放行，
+  // 之后（Dijkstra 内部检查点）恒取消——取消严格发生在场计算内部。
+  int calls = 0;
+  Control control;
+  control.cancelled = [&calls] { return ++calls > 1; };
+  const ExperimentalVariogram result =
+      experimentalVariogram( twoSideSamples(), 20.0, 4, {}, barriers, control );
+  QCOMPARE( result.status, Status::Cancelled );
+}
+
+// 隔断档格网总单元数 ≤ 4×10⁶ 预算闸：极端长宽比 + 最大分辨率时按 √ 比例
+// 缩格仍能完成（修复前后行为一致，钉住缩格路径不被回归破坏）。
+void BarrierVariogramTests::oversizeBarrierGridShrinksToCellBudget()
+{
+  std::vector<Sample> samples;
+  for ( int i = 0; i < 16; ++i )
+    samples.push_back( { i * 60.0, ( i % 3 ) * 0.4, 1.0 + ( i % 5 ) * 0.3 } ); // 长宽比 ~240:1
+  VariogramBarriers barriers;
+  barriers.enabled = true;
+  barriers.polygons = { wall( 480.0, 2.0, -20.0, 20.0 ) };
+  barriers.gridResolution = 1024; // 1024×~5 格名义上无碍，钳制链路完整走一遍
+  const ExperimentalVariogram result = experimentalVariogram( samples, 120.0, 4, {}, barriers );
+  QVERIFY2( result.status == Status::Ok, result.message.c_str() );
+  QVERIFY( result.barrierAware );
 }
 
 QTEST_MAIN( BarrierVariogramTests )

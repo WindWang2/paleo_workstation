@@ -4,6 +4,7 @@
 #include "algorithms/geostat/kriging.h"
 
 #include <cmath>
+#include <limits>
 #include <vector>
 
 using namespace paleo::geostat;
@@ -49,6 +50,7 @@ private slots:
   void radiusModeLeavesFarCellsNodata();
   void duplicatesMergeToMean();
   void cancelledAndInvalid();
+  void zeroSignalAndNonFiniteModelRejected();
 };
 
 void GeostatKrigingTests::exactAtSamplePoints()
@@ -272,6 +274,46 @@ void GeostatKrigingTests::cancelledAndInvalid()
   VariogramModel broken = model;
   broken.range = 0;
   QVERIFY( ordinaryKriging( samples, grid, broken, params ).status == Status::InvalidInput );
+}
+
+void GeostatKrigingTests::zeroSignalAndNonFiniteModelRejected()
+{
+  // D2：零信号模型（nugget=sill=0，γ≡0）修复前穿过 modelUsable → Γ 全零、
+  // 加边矩阵 LU 判奇异 → 每格失败而 Status 仍 Ok（全场 nodata 冒充成功）。
+  std::vector<Sample> samples;
+  for ( int row = 0; row < 6; ++row )
+    for ( int column = 0; column < 6; ++column )
+      samples.push_back( Sample{ column * 10.0, row * 10.0, double( row + column ) } );
+  const GridSpec grid = makeGrid( 20, 20, -5, 55, 2.5 );
+  KrigingParams params;
+
+  VariogramModel zeroSignal = sphericalModel();
+  zeroSignal.nugget = 0;
+  zeroSignal.sill = 0;
+  const KrigingResult gridRejected = ordinaryKriging( samples, grid, zeroSignal, params );
+  QCOMPARE( gridRejected.status, Status::InvalidInput );
+  QVERIFY( gridRejected.message.find( "total sill" ) != std::string::npos );
+  const KrigingSolver pointRejected( samples, zeroSignal, params );
+  QVERIFY( !pointRejected.valid() );
+
+  // D4：azimuthDeg/anisotropyRatio 非有限时 semivariance(dx,dy) 静默塌缩
+  // （γ≡0 → 矩阵奇异），与零信号同型——入口一并拒绝。
+  VariogramModel nanAzimuth = sphericalModel();
+  nanAzimuth.anisotropyRatio = 2;
+  nanAzimuth.azimuthDeg = std::numeric_limits<double>::quiet_NaN();
+  QCOMPARE( ordinaryKriging( samples, grid, nanAzimuth, params ).status, Status::InvalidInput );
+
+  VariogramModel nanRatio = sphericalModel();
+  nanRatio.anisotropyRatio = std::numeric_limits<double>::quiet_NaN();
+  QCOMPARE( ordinaryKriging( samples, grid, nanRatio, params ).status, Status::InvalidInput );
+
+  // 参照：各向异性有限参数（合法组合）不受影响。
+  VariogramModel anisotropic = sphericalModel();
+  anisotropic.anisotropyRatio = 2;
+  anisotropic.azimuthDeg = 45;
+  const KrigingResult ok = ordinaryKriging( samples, grid, anisotropic, params );
+  QCOMPARE( ok.status, Status::Ok );
+  QCOMPARE( ok.estimate.size(), std::size_t( 400 ) );
 }
 
 QTEST_MAIN( GeostatKrigingTests )

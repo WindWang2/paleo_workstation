@@ -159,6 +159,14 @@ ExperimentalVariogram experimentalVariogram( const std::vector<Sample> &samples,
       }
       const FaultPathResult field =
           faultPathMetric( barrierGrid, barriers.polygons, sample.x, sample.y, control );
+      // D3：取消必须原样透传——否则被洗成默认 InvalidInput，krigingsurface 的
+      // fallbackToIdw 只识别 Cancelled，会把用户取消误报成「变差函数拟合失败」。
+      if ( field.status == Status::Cancelled )
+      {
+        result.status = Status::Cancelled;
+        result.message = "cancelled";
+        return result;
+      }
       if ( field.status != Status::Ok )
       {
         result.message = "barrier distance field failed: " + field.message;

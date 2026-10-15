@@ -314,7 +314,18 @@ bool ConstraintWorkflow::computeLocalDirectionJobWithService(
     return false;
   }
   if (job->staging.isValid()) {
+    // D7：staging 段失败/取消时自清 paleo-sf- 临时目录——异步路径有框架
+    // cleanup 钩子兜底，同步路径（m_factorTasks 为空）此前无人清理，每次
+    // 失败泄漏一个 UUID 目录。与上方引擎失败分支同一套清理面。
+    const auto cleanupEngineTemp = [&]() {
+      removeIfPresent( job->outputPath );
+      removeIfPresent( job->supportPath );
+      removeIfPresent( job->qcPath );
+      QDir( tempDir ).removeRecursively();
+      job->outputPath.clear();
+    };
     if (cancelled && cancelled()) {
+      cleanupEngineTemp();
       job->error = tr("已取消");
       return false;
     }
@@ -326,6 +337,7 @@ bool ConstraintWorkflow::computeLocalDirectionJobWithService(
     if (!QFile::copy(job->outputPath, output) ||
         !QFile::copy(job->qcPath, qc) ||
         (!support.isEmpty() && !QFile::copy(job->supportPath, support))) {
+      cleanupEngineTemp();
       job->error = tr("无法暂存计算成果");
       return false;
     }
@@ -336,8 +348,10 @@ bool ConstraintWorkflow::computeLocalDirectionJobWithService(
       job->stagedSupportSha =
           DataCatalog::sha256FileHex(support, &job->error, cancelled);
     if (job->fingerprint.sha256.isEmpty() || job->stagedQcSha.isEmpty() ||
-        (!support.isEmpty() && job->stagedSupportSha.isEmpty()))
+        (!support.isEmpty() && job->stagedSupportSha.isEmpty())) {
+      cleanupEngineTemp();
       return false;
+    }
   }
   job->ok = true;
   return true;

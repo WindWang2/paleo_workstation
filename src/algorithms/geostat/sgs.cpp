@@ -129,9 +129,16 @@ SgsResult sgs( const std::vector<Sample> &samples, const GridSpec &grid,
     result.message = "grid budget exceeded (cells > 1e8)";
     return result;
   }
-  if ( !( model.range > 0 ) || model.nugget < 0 || model.sill < 0 )
+  // D1：nugget/sill 的 NaN 会穿过「< 0」「和 <= 0」比较（NaN 比较恒 false），
+  // 进入方程组后全场解 NaN 且 Status 仍 Ok——与 kriging 的 modelUsable 同口径，
+  // 入口显式拒绝非有限参数（azimuth/ratio 的 NaN 会让 γ(dx,dy) 塌缩成 0，
+  // SK 协方差矩阵全同值必奇异，一并拒绝）。
+  if ( !( model.range > 0 ) || !std::isfinite( model.range ) ||
+       !std::isfinite( model.nugget ) || !std::isfinite( model.sill ) ||
+       !std::isfinite( model.azimuthDeg ) || !std::isfinite( model.anisotropyRatio ) ||
+       model.nugget < 0 || model.sill < 0 )
   {
-    result.message = "variogram model invalid";
+    result.message = "variogram model invalid (finite range > 0, nugget/sill >= 0)";
     return result;
   }
   if ( model.nugget + model.sill <= 0 )
@@ -257,8 +264,39 @@ SgsResult sgs( const std::vector<Sample> &samples, const GridSpec &grid,
 
       double estimate = 0;
       double variance = 0;
-      if ( !neighborhood.empty() &&
-           detail::solveSimpleKriging( neighborhood, x0, y0, 0.0, gaussianModel, &estimate, &variance ) )
+      // D5：查询格与静态样本重合（格心恰落井位）的显式特判——对齐 sgs3 主循环
+      // 同款特例。SK 的数值路径在精确通过场景下残差为小正数时，sqrt(variance)
+      // 会把 LU 舍入放大成 ~1e-7 高斯域抖动（井位读数不等于井值）；特判后方差
+      // 恒 0。随机流照常推进（gaussianRandom 仍求值、乘 sqrt(0)），同 seed
+      // 逐位可复现的黄金锚契约不受影响。
+      double coincidentScore = 0;
+      bool coincidentWithStatic = false;
+      for ( std::uint32_t staticIndex : staticNeighborhood )
+      {
+        const Sample &sample = deduped[staticIndex];
+        const double ex = 1e-9 * std::max( { 1.0, std::fabs( sample.x ), std::fabs( x0 ) } );
+        const double ey = 1e-9 * std::max( { 1.0, std::fabs( sample.y ), std::fabs( y0 ) } );
+        if ( std::fabs( sample.x - x0 ) <= ex && std::fabs( sample.y - y0 ) <= ey )
+        {
+          coincidentScore = table.forward( sample.value );
+          coincidentWithStatic = true;
+          break;
+        }
+      }
+      bool solved = false;
+      if ( coincidentWithStatic )
+      {
+        estimate = coincidentScore;
+        variance = 0;
+        solved = true;
+      }
+      else if ( !neighborhood.empty() &&
+                detail::solveSimpleKriging( neighborhood, x0, y0, 0.0, gaussianModel, &estimate,
+                                            &variance ) )
+      {
+        solved = true;
+      }
+      if ( solved )
       {
         const double draw = estimate + std::sqrt( variance ) * detail::gaussianRandom( rng );
         gaussianField[cell] = draw;

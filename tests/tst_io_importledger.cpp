@@ -3,7 +3,10 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QCryptographicHash>
+#include <QElapsedTimer>
 #include <QTemporaryDir>
+#include <QTimeZone>
 
 #include "catalog/datacatalog.h"
 #include "io/dataimportservice.h"
@@ -36,9 +39,121 @@ private slots:
   void allInvalidRowsAreFailureWithReasons();
   void corruptLedgerPreservedBeforeOverwrite();
   void corruptLedgerUnbackupableRefusesWrite();
+  void ledgerScaleRoundTrip();
   void unitFilesReachSectionWorkbench_data();
   void unitFilesReachSectionWorkbench();
 };
+
+namespace
+{
+// 确定性大批次（opt-01 P2）：固定 id/时间戳，A/B 两套实现落盘字节可直接比对。
+paleo::imports::LedgerBatch syntheticBatch(int n, int seq)
+{
+  paleo::imports::LedgerBatch b;
+  b.id = QStringLiteral("batch-%1").arg(1700000000000LL + seq);
+  b.dir = QStringLiteral("/data/工区/批次%1").arg(seq);
+  b.startedAt = QDateTime(QDate(2026, 10, 16), QTime(8, 0), QTimeZone::UTC).addSecs(seq * 60);
+  b.finishedAt = b.startedAt.addSecs(30);
+  static const char *outcomes[] = {"imported", "unresolved", "failed", "skipped"};
+  b.rows.reserve(n);
+  for (int i = 0; i < n; ++i)
+  {
+    paleo::imports::LedgerRow r;
+    r.path = QStringLiteral("/data/工区/well_%1/log_%2.las").arg(i / 8, 6, 10, QLatin1Char('0')).arg(i % 8);
+    r.type = (i % 3) ? QStringLiteral("las") : QStringLiteral("well_tops");
+    r.entity = QStringLiteral("W%1").arg(i / 8);
+    r.outcome = QLatin1String(outcomes[i % 4]);
+    r.message = (i % 4 == 2) ? QStringLiteral("第 %1 行深度非单调，已拒收").arg(i) : QString();
+    switch (i % 4)
+    {
+    case 0: ++b.imported; break;
+    case 1: ++b.unresolved; break;
+    case 2: ++b.failed; break;
+    default: ++b.skipped; break;
+    }
+    b.rows.append(r);
+  }
+  return b;
+}
+bool sameBatch(const paleo::imports::LedgerBatch &a, const paleo::imports::LedgerBatch &b)
+{
+  if (a.id != b.id || a.dir != b.dir || a.startedAt != b.startedAt ||
+      a.finishedAt != b.finishedAt || a.imported != b.imported || a.unresolved != b.unresolved ||
+      a.failed != b.failed || a.skipped != b.skipped || a.error != b.error ||
+      a.rows.size() != b.rows.size())
+    return false;
+  for (qsizetype i = 0; i < a.rows.size(); ++i)
+  {
+    const auto &x = a.rows[i], &y = b.rows[i];
+    if (x.path != y.path || x.type != y.type || x.entity != y.entity ||
+        x.outcome != y.outcome || x.message != y.message)
+      return false;
+  }
+  return true;
+}
+} // namespace
+
+// opt-01 P2：台账在 GUI 线程上 load+record（FolderImportWorkflow::recordLedger）。
+// 有界规模：默认只跑 1k 行（ctest 常驻），PALEO_OPT01_LEDGER_SCALE=1000,10000,100000
+// 打开大规模 A/B；每档 3 次「重新 load + record 一批」取中位数，并以落盘字节
+// sha256 + 逐字段回读作正确性交叉校验。
+void IoImportLedgerTests::ledgerScaleRoundTrip()
+{
+  QList<int> scales{1000};
+  const QByteArray env = qgetenv("PALEO_OPT01_LEDGER_SCALE");
+  if (!env.isEmpty())
+  {
+    scales.clear();
+    for (const QByteArray &part : env.split(','))
+      if (part.toInt() > 0)
+        scales << part.toInt();
+  }
+  for (const int n : scales)
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    DataCatalog cat;
+    QVERIFY(cat.open(dir.path(), nullptr));
+    QList<qint64> loadMs, recordMs;
+    for (int rep = 0; rep < 3; ++rep)
+    {
+      paleo::imports::ImportLedger ledger;
+      QElapsedTimer t;
+      t.start();
+      ledger.load(&cat);
+      loadMs << t.elapsed();
+      QCOMPARE(ledger.count(), rep);
+      QVERIFY(ledger.loadWarning().isEmpty());
+      const auto batch = syntheticBatch(n, rep);
+      t.restart();
+      QString err;
+      QVERIFY2(ledger.record(batch, &err), qPrintable(err));
+      recordMs << t.elapsed();
+    }
+    paleo::imports::ImportLedger reread;
+    QElapsedTimer t;
+    t.start();
+    reread.load(&cat);
+    const qint64 finalLoad = t.elapsed();
+    QCOMPARE(reread.count(), 3);
+    for (int rep = 0; rep < 3; ++rep)
+      QVERIFY2(sameBatch(reread.batches()[rep], syntheticBatch(n, rep)), "台账回读与写入不一致");
+    QFile f(reread.filePath());
+    QVERIFY(f.open(QIODevice::ReadOnly));
+    const QByteArray bytes = f.readAll();
+    std::sort(loadMs.begin(), loadMs.end());
+    std::sort(recordMs.begin(), recordMs.end());
+    qInfo().noquote() << QStringLiteral("OPT01_PERF ledger rows=%1 load_median_ms=%2 "
+                                        "record_median_ms=%3 final_load_ms=%4 bytes=%5 sha256=%6")
+                             .arg(n)
+                             .arg(loadMs[1])
+                             .arg(recordMs[1])
+                             .arg(finalLoad)
+                             .arg(bytes.size())
+                             .arg(QString::fromLatin1(
+                                 QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex()));
+  }
+}
 
 void IoImportLedgerTests::rejectedRowsReachLedgerAndAcceptedTops()
 {

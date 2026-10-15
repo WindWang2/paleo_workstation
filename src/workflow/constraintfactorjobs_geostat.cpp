@@ -693,7 +693,9 @@ bool ConstraintWorkflow::computeGeostatJobWithService(
                                                 : QStringLiteral( "auto_fit_omnidirectional" ) );
   QVariantMap searchNode;
   searchNode.insert( QStringLiteral( "max_points_requested" ), maxPoints );
-  searchNode.insert( QStringLiteral( "max_points_effective" ), maxPoints > 0 ? std::clamp( maxPoints, 1, 64 ) : 0 );
+  // 各内核口径：克里金/协克里金 ≤0 = 全部样本；SGS 一律钳到 [1,64]。0 表示「全部」。
+  searchNode.insert( QStringLiteral( "max_points_effective" ),
+                     job->method == QLatin1String( "sgs" ) || maxPoints > 0 ? std::clamp( maxPoints, 1, 64 ) : 0 );
   searchNode.insert( QStringLiteral( "search_radius" ), searchRadius );
   if ( job->method == QLatin1String( "kriging" ) && searchRadius > 0 )
     searchNode.insert( QStringLiteral( "min_points" ), minPoints );

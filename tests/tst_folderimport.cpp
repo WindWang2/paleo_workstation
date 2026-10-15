@@ -605,16 +605,22 @@ void folderImportSurvivesServiceTeardownHonestly()
     QCoreApplication::processEvents(QEventLoop::AllEvents, 25);
   QVERIFY(done);
   QCOMPARE(err, QStringLiteral("导入服务已关闭，导入结果已丢弃"));
+  // 行不能为空（否则下方逐行断言空转）：produce 已在 staging 上产出该行，
+  // 服务不在场时如实改报失败并带丢弃原因。
+  QVERIFY(!rows.isEmpty());
   for (const FolderRowResult &r : rows)
-    QVERIFY2(r.outcome != FolderRowResult::Outcome::Imported &&
-                 r.outcome != FolderRowResult::Outcome::Unresolved,
-             qPrintable(r.path + QStringLiteral(" 未提交却报入库")));
+  {
+    QVERIFY2(r.outcome == FolderRowResult::Outcome::Failed,
+             qPrintable(r.path + QStringLiteral(" 未提交却未报失败")));
+    QCOMPARE(r.message, err);
+  }
   QCOMPARE(wf.pendingImportJobs(), 0);
   // 原始资料不受损：源文件字节原样。
   QFile src(las);
   QVERIFY(src.open(QIODevice::ReadOnly));
   QCOMPARE(src.readAll(), lasBytes);
-  // 服务不在场时后续作业走 fail 回调（不触悬垂指针）。
+  // 服务不在场时再发起导入：importFolder 入口的 !m_svc 守卫直接走失败回调
+  //（空行 + 原因），不建作业、不触悬垂指针。
   bool failed = false;
   wf.importFolder(area, {}, [&](const QVector<FolderRowResult> &r, const QString &e) {
     failed = r.isEmpty() && !e.isEmpty();

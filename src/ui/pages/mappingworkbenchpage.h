@@ -43,6 +43,7 @@ private:
   void refreshInputs();
   void scheduleRefresh();
   void updateState();
+  void refreshEvidenceCommandGates();
   void renderEvidenceSnapshot(const QVariantMap &snapshot);
   bool nativeSelectionMatchesEvidence() const;
   QStringList checkedInputs() const;

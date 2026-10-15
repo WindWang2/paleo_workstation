@@ -476,7 +476,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   semantics->addRow(tr("来源图元"), m_sourceFeatureUid);
   m_evidenceActor = new QLineEdit(workbench->localOperator(), evidenceGroup);
   m_evidenceActor->setObjectName("faciesEvidenceActor");
-  m_evidenceActor->setToolTip(tr("明确标识的本地操作人；此字段不代表账户认证或审核权限"));
+  m_evidenceActor->setToolTip(tr("须为 local:名称；保存时一律写入本机操作人，此字段不代表账户认证"));
   semantics->addRow(tr("本地操作人"), m_evidenceActor);
   m_evidenceReason = new QLineEdit(evidenceGroup);
   m_evidenceReason->setObjectName("faciesEvidenceReason");
@@ -532,10 +532,11 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   historyNavigation->addWidget(button("historyOlder", tr("更早历史")));
   historyNavigation->addWidget(button("historyNewer", tr("较新历史")));
   historyLayout->addLayout(historyNavigation);
-  connect(m_evidenceReason, &QLineEdit::textChanged, this, [this] { updateState(); });
-  connect(m_evidenceActor, &QLineEdit::textChanged, this, [this] { updateState(); });
+  // #440：按键只刷新证据按钮使能，不在界面线程重算图斑证据。
+  connect(m_evidenceReason, &QLineEdit::textChanged, this, [this] { refreshEvidenceCommandGates(); });
+  connect(m_evidenceActor, &QLineEdit::textChanged, this, [this] { refreshEvidenceCommandGates(); });
   connect(m_evidenceText, &QPlainTextEdit::textChanged, this,
-          [this] { updateState(); });
+          [this] { refreshEvidenceCommandGates(); });
   connect(m_evidence, &QListWidget::currentRowChanged, this, [this] {
     const auto row = m_evidence->currentItem() ? m_evidence->currentItem()->data(Qt::UserRole + 1).toMap() : QVariantMap{};
     if (m_evidenceRole && !row.isEmpty() && !row.value("quality_error").toBool()) {
@@ -552,8 +553,11 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
     b->setToolTip(b->isEnabled() ? tr("移除此条证据，可撤销")
                                  : tr("请先选择编辑副本中的证据"));
     if (auto *locate = commandButton("locateEvidence")) locate->setEnabled(m_evidence->currentItem() || m_generationEvidence->currentItem());
+    const auto actorText = m_evidenceActor->text().trimmed();
+    const bool localActorOk = actorText.startsWith(QStringLiteral("local:"))
+        && !actorText.mid(6).trimmed().isEmpty();
     const bool ready = nativeSelectionMatchesEvidence() && selectedLayer().startsWith("draft.") && !row.isEmpty() && !row.value("quality_error").toBool() &&
-        m_workbench->selectedFeatures(selectedLayer()).size() == 1 && !m_evidenceReason->text().trimmed().isEmpty() && !m_evidenceActor->text().trimmed().isEmpty();
+        m_workbench->selectedFeatures(selectedLayer()).size() == 1 && !m_evidenceReason->text().trimmed().isEmpty() && localActorOk;
     commandButton("updateEvidence")->setEnabled(ready); commandButton("verifyEvidence")->setEnabled(ready);
   });
   evidenceGroup->setCollapsed(false);
@@ -833,6 +837,37 @@ void MappingWorkbenchPage::showMessage(const QString &message) {
   m_message->setText(message);
   m_message->setVisible(!message.isEmpty());
 }
+void MappingWorkbenchPage::refreshEvidenceCommandGates() {
+  if (!m_workbench || !m_results) return;
+  const auto row = m_results->currentItem()
+                       ? m_results->currentItem()->data(0, Qt::UserRole).toMap()
+                       : QVariantMap();
+  const auto evidenceSelection = m_workbench->selectedFeatures(selectedLayer());
+  const bool editableEvidence = row.value("draft").toBool() &&
+      !evidenceSelection.isEmpty() && nativeSelectionMatchesEvidence();
+  auto gate = [this](const QString &name, bool enabled, const QString &reason) {
+    if (auto *b = commandButton(name)) {
+      b->setEnabled(enabled);
+      b->setToolTip(enabled ? b->text() : reason);
+    }
+  };
+  gate("addEvidence",
+       editableEvidence && m_evidenceText && !m_evidenceText->toPlainText().trimmed().isEmpty(),
+       tr("请先在编辑副本的画布中选中要素，再填写证据"));
+  const auto actorText = m_evidenceActor ? m_evidenceActor->text().trimmed() : QString();
+  const bool localActorOk = actorText.startsWith(QStringLiteral("local:"))
+      && !actorText.mid(6).trimmed().isEmpty();
+  const bool accountable = localActorOk && m_evidenceReason
+      && !m_evidenceReason->text().trimmed().isEmpty();
+  const bool singleEditable = editableEvidence && evidenceSelection.size() == 1
+      && !m_evidenceSnapshot.contains("error");
+  gate("updateEvidence", singleEditable && accountable && m_evidence && m_evidence->currentItem(),
+       tr("选择一个要素及证据，并填写操作人和修订理由"));
+  gate("verifyEvidence", singleEditable && accountable && m_evidence && m_evidence->currentItem(),
+       tr("选择一个要素及证据，并填写数据核验理由"));
+  gate("reviewInterpretation", singleEditable && accountable,
+       tr("选择一个要素，并填写解释审核理由；确认解释不等于核验数据"));
+}
 void MappingWorkbenchPage::updateState() {
   const bool horizon = !m_horizon.isEmpty();
   const auto row = m_results && m_results->currentItem()
@@ -980,10 +1015,21 @@ void MappingWorkbenchPage::updateState() {
   // never replace that target with the previously selected native feature.
   const bool ownsTarget = m_evidenceSnapshotOwned &&
       (m_evidenceSnapshot.isEmpty() || m_evidenceSnapshot.value("layer_id").toString() == selectedLayer());
-  auto detailSnapshot = ownsTarget ? m_evidenceSnapshot
-      : m_workbench->featureEvidence(selectedLayer(), evidenceSelection);
-  if (!ownsTarget && evidenceSelection.size() > 1)
-    detailSnapshot.insert("records", m_workbench->evidence(selectedLayer(), evidenceSelection));
+  // #440：选择未变时复用已有详情快照，避免每次 updateState 都跑空间相交。
+  const bool selectionMatchesCache = !m_evidenceSnapshot.isEmpty()
+      && m_evidenceSnapshot.value("layer_id").toString() == selectedLayer()
+      && ((evidenceSelection.isEmpty() && !m_evidenceSnapshot.contains("feature_id"))
+          || (evidenceSelection.size() == 1 && m_evidenceSnapshot.contains("feature_id")
+              && evidenceSelection.first() == m_evidenceSnapshot.value("feature_id").toLongLong())
+          || (evidenceSelection.size() > 1 && m_evidenceSnapshot.contains("records")));
+  QVariantMap detailSnapshot;
+  if (ownsTarget || selectionMatchesCache) {
+    detailSnapshot = m_evidenceSnapshot;
+  } else {
+    detailSnapshot = m_workbench->featureEvidence(selectedLayer(), evidenceSelection);
+    if (evidenceSelection.size() > 1)
+      detailSnapshot.insert("records", m_workbench->evidence(selectedLayer(), evidenceSelection));
+  }
   renderEvidenceSnapshot(detailSnapshot);
   const bool editableEvidence = row.value("draft").toBool() &&
       !evidenceSelection.isEmpty() && nativeSelectionMatchesEvidence();
@@ -995,7 +1041,10 @@ void MappingWorkbenchPage::updateState() {
        tr("请先在编辑副本的画布中选中要素，再填写证据"));
   gate("removeEvidence", editableEvidence && m_evidence->currentItem(),
        tr("请选择当前详情对应的地图要素及证据"));
-  const bool accountable = !m_evidenceActor->text().trimmed().isEmpty() && !m_evidenceReason->text().trimmed().isEmpty();
+  const auto actorText = m_evidenceActor->text().trimmed();
+  const bool localActorOk = actorText.startsWith(QStringLiteral("local:"))
+      && !actorText.mid(6).trimmed().isEmpty();
+  const bool accountable = localActorOk && !m_evidenceReason->text().trimmed().isEmpty();
   const bool singleEditable = editableEvidence && evidenceSelection.size() == 1 && !m_evidenceSnapshot.contains("error");
   gate("updateEvidence", singleEditable && accountable && m_evidence->currentItem(), tr("选择一个要素及证据，并填写操作人和修订理由"));
   gate("verifyEvidence", singleEditable && accountable && m_evidence->currentItem(), tr("选择一个要素及证据，并填写数据核验理由"));
@@ -1116,7 +1165,8 @@ void MappingWorkbenchPage::issue(const QString &action, QVariantMap p) {
   if (action == "verifyEvidence") p.insert("verification", m_verification->currentData());
   if (action == "reviewInterpretation") p.insert("status", m_reviewState->currentData());
   if (action == "addEvidence" || action == "removeEvidence" || action == "updateEvidence" || action == "verifyEvidence" || action == "reviewInterpretation") {
-    p.insert("actor_id", m_evidenceActor->text().trimmed());
+    // #442：忽略页面自由文本身份；落盘一律由工作台 localOperator() 写入。
+    p.insert("actor_id", m_workbench->localOperator());
     p.insert("reason", m_evidenceReason->text().trimmed().isEmpty() && action == "addEvidence" ? m_evidenceText->toPlainText().trimmed() : m_evidenceReason->text().trimmed());
     p.insert("expected_revision", m_evidenceSnapshot.value("interpretation").toMap().value("revision", 0));
     if (m_workbench->selectedFeatures(selectedLayer()).size() == 1) p.insert("target_feature_uid", m_evidenceSnapshot.value("feature_uid"));

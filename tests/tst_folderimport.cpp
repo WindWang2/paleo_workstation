@@ -202,6 +202,51 @@ private slots:
     QVERIFY(found);
   }
 
+  // opt-01 U1：同名井口表分处不同子目录——回查必须按导入源路径定位到
+  // 本行自己的资产，不能因文件名相同打开另一份资产的预览（旧实现取
+  // 第一份同名资产）。两份内容不同（各自入库、各自资产）。
+  void importedWellHeadAssetResolvesSameNameBySourcePath()
+  {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString first = stageFixture(tmp, QStringLiteral("src_area/a"),
+                                       QStringLiteral("ExportWellHead.dat"));
+    const QString second = stageFixture(tmp, QStringLiteral("src_area/b"),
+                                        QStringLiteral("ExportWellHead.dat"));
+    QVERIFY(!first.isEmpty() && !second.isEmpty());
+    {
+      // 第二份追加一个空行：同名、解析结果同形，但字节不同（不触发 dedup）。
+      QFile f(second);
+      QVERIFY(f.open(QIODevice::Append));
+      QVERIFY(f.write("\n") == 1);
+    }
+
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataCatalog *cat = stack->importSvc->catalog();
+
+    QString err;
+    const QString idFirst = stack->importSvc->importProjectFile(first, &err);
+    QVERIFY2(!idFirst.isEmpty(), qPrintable(err));
+    const QString idSecond = stack->importSvc->importProjectFile(second, &err);
+    QVERIFY2(!idSecond.isEmpty(), qPrintable(err));
+    QVERIFY(idFirst != idSecond);
+
+    FolderImportWorkflow wf(stack->importSvc.get(), nullptr);
+    // 真值：两次查询各自回到登记 sourceUri 与行路径一致的资产。
+    QCOMPARE(wf.importedWellHeadAsset(first), idFirst);
+    QCOMPARE(wf.importedWellHeadAsset(second), idSecond);
+    QCOMPARE(QFileInfo(cat->currentVersion(idSecond).sourceUri).absoluteFilePath(),
+             QFileInfo(second).absoluteFilePath());
+    // 同名但不在库的第三条路径：两份同名候选有歧义 → 不猜（空）。
+    const QString third = stageFixture(tmp, QStringLiteral("src_area/c"),
+                                       QStringLiteral("ExportWellHead.dat"));
+    QVERIFY(!third.isEmpty());
+    QCOMPARE(wf.importedWellHeadAsset(third), QString());
+  }
+
   // importFolderRow：forceType 覆盖分类（视图按当前下拉值算好后传入）。
   void importFolderRowForceType()
   {

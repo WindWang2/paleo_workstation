@@ -6,6 +6,7 @@
 #include "../services/paleotaskservice.h"
 #include "importledger.h"
 
+#include <QDir>
 #include <QFileInfo>
 #include <QPointer>
 #include <QFile>
@@ -367,14 +368,38 @@ void FolderImportWorkflow::importFile(
 
 QString FolderImportWorkflow::importedWellHeadAsset(const QString &rowPath) const
 {
-  // 找回刚入库的井口资产：按文件名在 catalog 里定位。
+  // 找回刚入库的井口资产。导入登记的 sourceUri 是源文件绝对路径——先按它
+  // 精确定位（工区里不同子目录常有同名井口表，如 a/wellheads.csv 与
+  // b/wellheads.csv；旧实现只比文件名，第二行会打开第一份资产的预览）。
+  // 多份同源（重复导入改过的同一文件）取最新登记的一份。无路径命中时
+  // （如 dedup「字节已在库」命中别处的同内容资产）才退回文件名口径，且
+  // 只在唯一候选时采用——有歧义宁可不开预览，也不开错资产。
   DataCatalog *cat = m_svc ? m_svc->catalog() : nullptr;
-  if (!cat)
+  if (!cat || rowPath.isEmpty())
     return {};
-  const QString fileName = QFileInfo(rowPath).fileName();
-  for (const auto &a : cat->assets())
-    if (a.type == QLatin1String("well_head") &&
-        cat->currentVersion(a.id).fileName == fileName)
-      return a.id;
-  return {};
+  const QFileInfo rowInfo(rowPath);
+  const QString rowAbs = QDir::cleanPath(rowInfo.absoluteFilePath());
+  const QString rowCanonical = rowInfo.canonicalFilePath();
+  const QString fileName = rowInfo.fileName();
+  const auto samePath = [&](const QString &uri) {
+    if (uri.isEmpty())
+      return false;
+    const QFileInfo ui(uri);
+    if (QDir::cleanPath(ui.absoluteFilePath()) == rowAbs)
+      return true;
+    return !rowCanonical.isEmpty() && ui.canonicalFilePath() == rowCanonical;
+  };
+  const QVector<CatalogAsset> assets = cat->assets();
+  QStringList byName;
+  for (auto it = assets.crbegin(); it != assets.crend(); ++it)
+  {
+    if (it->type != QLatin1String("well_head"))
+      continue;
+    const CatalogVersion v = cat->currentVersion(it->id);
+    if (samePath(v.sourceUri))
+      return it->id; // 逆序遍历：最新登记者优先
+    if (v.fileName == fileName)
+      byName << it->id;
+  }
+  return byName.size() == 1 ? byName.first() : QString();
 }

@@ -15,6 +15,7 @@
 #include "../src/services/previewdoc.h"
 #include "../src/ui/pages/datagraphpage.h"
 #include "../src/ui/paleotheme.h"
+#include "../src/workflow/datagraphworkflow.h"
 
 using paleo::datagraph::Mode;
 
@@ -28,6 +29,20 @@ class TestDataGraphPage : public QObject
       if (b->text() == QStringLiteral("返回上一图谱"))
         return b;
     return nullptr;
+  }
+  static QPushButton *button(DataGraphPage &page, const QString &text)
+  {
+    for (auto *b : page.findChildren<QPushButton *>())
+      if (b->text() == text)
+        return b;
+    return nullptr;
+  }
+  static int prepareCount(const QSignalSpy &spy)
+  {
+    int n = 0;
+    for (const auto &args : spy)
+      n += args.at(0).toString() == QStringLiteral("正在准备图谱查询");
+    return n;
   }
   static Mode mode(DataGraphPage &page)
   {
@@ -106,6 +121,78 @@ private slots:
     QCOMPARE(mode(page), Mode::Overview);
     QVERIFY(!back->isEnabled());
     QTest::qWait(400);
+  }
+  // opt-01 P4 + R-7：节点 → 版本 → 预览 → 追溯 → 返回 的往返，全程以目录里的
+  // 真实 asset/version id 断言；且「追溯这个成果」单次点击只发一次图谱查询
+  // （旧实现：模式下拉框信号 + 显式 request 双发，第二发撤掉第一发的代次）。
+  void nodeVersionPreviewBackRoundTrip()
+  {
+    QTemporaryDir dir;
+    QVERIFY(PerfFixtures::makeSyntheticCatalogDir(dir.path(), 40));
+    DataImportService importer;
+    importer.setProjectDir(dir.path());
+    PreviewDocService doc(&importer);
+    DataCatalog *cat = importer.catalog();
+    QVERIFY(cat && cat->isOpen() && !cat->versions().isEmpty());
+    const CatalogVersion v = cat->versions().last();
+    QVERIFY(!v.id.isEmpty() && !v.assetId.isEmpty());
+    QCOMPARE(cat->versionById(v.id).assetId, v.assetId);
+
+    DataGraphPage page;
+    page.setDocService(&doc);
+    page.resize(1100, 720);
+    page.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&page));
+    auto *wf = page.findChild<DataGraphWorkflow *>();
+    QVERIFY(wf);
+    QSignalSpy status(wf, &DataGraphWorkflow::statusChanged);
+    QSignalSpy activated(&page, &DataGraphPage::versionActivated);
+    QSignalSpy located(&page, &DataGraphPage::versionFocusRequested);
+    auto *open = button(page, QStringLiteral("预览文件 / 版本"));
+    auto *locate = button(page, QStringLiteral("在数据管理中定位"));
+    auto *trace = button(page, QStringLiteral("追溯这个成果"));
+    auto *back = backButton(page);
+    QVERIFY(open && locate && trace && back);
+
+    // 1) 节点：以真实版本为焦点打开资料关联，渲染后焦点节点即选中节点。
+    page.openRelations(v.assetId, v.id);
+    QCOMPARE(mode(page), Mode::Relations);
+    QTRY_VERIFY_WITH_TIMEOUT(open->isEnabled(), 15000);
+    // 2) 版本 → 预览：激活的必须正是该真实版本 id。
+    open->click();
+    QCOMPARE(activated.count(), 1);
+    QCOMPARE(activated.at(0).at(0).toString(), v.id);
+    // 预览同时让数据管理页跟随定位（selectNode(navigate)），也须是同一真实 id。
+    for (const auto &args : located)
+      QCOMPARE(args.at(1).toString(), v.id);
+    located.clear();
+    locate->click();
+    QCOMPARE(located.count(), 1);
+    QCOMPARE(located.at(0).at(0).toString(), v.assetId);
+    QCOMPARE(located.at(0).at(1).toString(), v.id);
+
+    // 3) 追溯：单次点击只准备一次查询。
+    status.clear();
+    QVERIFY(trace->isEnabled());
+    trace->click();
+    QCOMPARE(mode(page), Mode::Lineage);
+    QCOMPARE(prepareCount(status), 1);
+    QTRY_VERIFY_WITH_TIMEOUT(open->isEnabled(), 15000);
+    open->click();
+    QCOMPARE(activated.count(), 2);
+    QCOMPARE(activated.at(1).at(0).toString(), v.id); // 追溯视图焦点仍是同一版本
+
+    // 4) 返回：回到同一真实版本的资料关联，再预览仍是同一 id。
+    QVERIFY(back->isEnabled());
+    status.clear();
+    back->click();
+    QCOMPARE(mode(page), Mode::Relations);
+    QCOMPARE(prepareCount(status), 1);
+    QTRY_VERIFY_WITH_TIMEOUT(open->isEnabled(), 15000);
+    open->click();
+    QCOMPARE(activated.count(), 3);
+    QCOMPARE(activated.at(2).at(0).toString(), v.id);
+    QVERIFY(QFile::exists(doc.absolutePathForVersion(cat->versionById(v.id))));
   }
 };
 

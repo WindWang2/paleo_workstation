@@ -385,14 +385,21 @@ DataGraphPage::DataGraphPage(QWidget *parent)
     const auto version = m_selected.evidence.value("source_version", m_selected.versionId).toString();
     if (version.isEmpty()) return;
     m_focus = versionKey(version);
-    m_mode->setCurrentIndex(m_mode->findData(int(Mode::Impact)));
+    {
+      // 模式切换由下方显式 request 统一发起：不屏蔽信号会同事件双发查询。
+      const QSignalBlocker block(m_mode);
+      m_mode->setCurrentIndex(m_mode->findData(int(Mode::Impact)));
+    }
     request();
   });
   connect(m_related, &QPushButton::clicked, this, [this] {
     if (m_selected.id.isEmpty())
       return;
     m_focus = m_selected.id;
-    m_mode->setCurrentIndex(1);
+    {
+      const QSignalBlocker block(m_mode);
+      m_mode->setCurrentIndex(m_mode->findData(int(Mode::Relations)));
+    }
     request();
   });
   for (const auto &[button, action] :
@@ -472,7 +479,10 @@ DataGraphPage::DataGraphPage(QWidget *parent)
       return;
     m_focus = m_selected.versionId.isEmpty() ? assetKey(m_selected.assetId)
                                              : versionKey(m_selected.versionId);
-    m_mode->setCurrentIndex(2);
+    {
+      const QSignalBlocker block(m_mode);
+      m_mode->setCurrentIndex(m_mode->findData(int(Mode::Lineage)));
+    }
     request();
   });
   connect(m_folder, &QPushButton::clicked, this, [this] {
@@ -815,14 +825,20 @@ void DataGraphPage::activateNode(const Node &node) {
       m_presentation.removedIds.contains(node.entityId))
     return;
   if (node.id == QLatin1String("group:entities")) {
-    m_mode->setCurrentIndex(int(Mode::Entities));
+    {
+      const QSignalBlocker block(m_mode);
+      m_mode->setCurrentIndex(m_mode->findData(int(Mode::Entities)));
+    }
     request();
     return;
   }
   if (node.kind == Kind::Entity) {
     selectNode(node, true);
     m_focus = node.id;
-    m_mode->setCurrentIndex(int(Mode::Relations));
+    {
+      const QSignalBlocker block(m_mode);
+      m_mode->setCurrentIndex(m_mode->findData(int(Mode::Relations)));
+    }
     request();
     return;
   }

@@ -76,6 +76,8 @@ QList<WhatsThisEntry> whatsThisEntries()
     {"ConstraintPage", "generateFactorButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "按所选方法和参数生成勾选的单因素图。"), nullptr},
     {"ConstraintPage", "drawButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "在地图上绘制所选形状的约束。"), nullptr},
     {"ConstraintPage", "constraintList", QT_TRANSLATE_NOOP("PaleoWhatsThis", "已有约束列表；选中后可修改属性或删除。"), nullptr},
+    {"ConstraintPage", "directionButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "在地图上绘制当前层位的方向线：单因素插值据此确定供源方向（各向异性轴）。"), nullptr},
+    {"ConstraintPage", "breakLineButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "在地图上绘制当前层位的间隔线（打断线）：插值时作为屏障，井点影响不能直线穿过、需绕行；分区等值线止于该线。"), nullptr},
 
     // ---- 智能编图页 ----
     {"ComposePage", "fuseButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "把因素列表中勾选的单因素图合成为编图结果。"), nullptr},

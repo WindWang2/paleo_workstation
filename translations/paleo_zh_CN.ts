@@ -12774,14 +12774,9 @@ Crossline: %3 ~ %4</source>
         <translation>搜索井位 / 层位</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="522"/>
-        <source>撤销上一步编辑</source>
-        <translation>撤销上一步编辑</translation>
-    </message>
-    <message>
-        <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="523"/>
-        <source>重做被撤销的编辑</source>
-        <translation>重做被撤销的编辑</translation>
+        <location filename="../src/ui/paleomainwindow.cpp" line="169"/>
+        <source>先新建或打开工程</source>
+        <translation>先新建或打开工程</translation>
     </message>
     <message>
         <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="96"/>
@@ -15323,6 +15318,16 @@ SHA-256：%2</translation>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="78"/>
         <source>已有约束列表；选中后可修改属性或删除。</source>
         <translation>已有约束列表；选中后可修改属性或删除。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/help/whatsthiscatalog.cpp" line="79"/>
+        <source>在地图上绘制当前层位的方向线：单因素插值据此确定供源方向（各向异性轴）。</source>
+        <translation>在地图上绘制当前层位的方向线：单因素插值据此确定供源方向（各向异性轴）。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/help/whatsthiscatalog.cpp" line="80"/>
+        <source>在地图上绘制当前层位的间隔线（打断线）：插值时作为屏障，井点影响不能直线穿过、需绕行；分区等值线止于该线。</source>
+        <translation>在地图上绘制当前层位的间隔线（打断线）：插值时作为屏障，井点影响不能直线穿过、需绕行；分区等值线止于该线。</translation>
     </message>
     <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="81"/>

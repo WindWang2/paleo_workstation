@@ -46,6 +46,7 @@
 #include "../qgis/seismicsectiontool.h" // 剖面捕获工具壳持有（R4 信号化）：析构需完整类型
 #include "../services/previewdoc.h"
 #include "../services/paleotaskservice.h"
+#include "../services/toolavailability.h" // 全局门控（无工程置灰导入命令）
 #include "../services/fspathutils.h" // #291 QString↔filesystem::path 走 UTF-16（MSVC 窄构造按 ANSI 解码）
 #include "../workflow/registration.h"
 #include "../workflow/sectionworkbench.h" // cancelPreviewData 解引用需完整类型（#156；resetProjectScopedState 同款）
@@ -158,6 +159,20 @@ PaleoMainWindow::PaleoMainWindow(QgisCanvasController *canvasCtl,
             [this] { resetProjectScopedState(); });
     connect(m_projectSvc, &QgisProjectService::projectOpened, this,
             [this](const QString &) { onProjectOpened(); });
+    // 全局门控跟随工程开合：无工程时 check() 一律返回失败原因，
+    // availabilityChanged 由 attach 侧把原因刷到被门控的命令上。
+    // 不走 showStartup/onProjectOpened——showStartup 也是「回首页」导航。
+    const auto syncProjectGate = [this] {
+      if (m_tools && m_projectSvc)
+      {
+        const bool open = !m_projectSvc->projectPath().isEmpty();
+        m_tools->setGlobalGate(open, open ? QString() : tr("先新建或打开工程"));
+      }
+    };
+    connect(m_projectSvc, &QgisProjectService::projectOpened, this,
+            [syncProjectGate](const QString &) { syncProjectGate(); });
+    connect(m_projectSvc, &QgisProjectService::projectClosed, this, syncProjectGate);
+    syncProjectGate();
     // #282：writeProject 落盘后 setFileName 重靶权威路径，QGIS 把「文件名
     // 变更」计为未保存改动——内容刚整本写入，这里把状态拉回干净。否则标题
     // [*] 保存后常驻，且切工程/关窗会拿刚保存过的工程反复询问。

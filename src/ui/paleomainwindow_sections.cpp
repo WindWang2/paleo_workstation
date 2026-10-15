@@ -86,6 +86,7 @@ void PaleoMainWindow::attachSections(SeismicMapLink *link) {
   action->setIcon(PaleoIcons::qgisTheme("mActionElevationProfile.svg"));
   action->setToolTip(
       tr("按井顺序或地图折线提取地震剖面，叠加测井与分层并校正时深关系"));
+  action->setWhatsThis(action->toolTip());
   connect(action, &QAction::triggered, this, open);
   connect(dock, &seismic::SeismicSectionDockWidget::setupRequested, this, open);
   connect(link, &SeismicMapLink::sectionVolumeChanged, dock,

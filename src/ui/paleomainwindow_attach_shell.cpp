@@ -519,8 +519,11 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
     editTb->hide(); // 逻辑宿主，不进布局
     // 撤销/重做动作直挂 ribbon 与快速访问栏，不经 ButtonMirror——把编辑语义
     // 的帮助写在动作上，两侧按钮经 action 同步一起拿到。
-    editTb->actionUndo()->setWhatsThis(tr("撤销上一步编辑"));
-    editTb->actionRedo()->setWhatsThis(tr("重做被撤销的编辑"));
+    // 编辑工具栏把每个工具的用途存在 "hint" 属性里（§35 tooltip 轮换的真源）——
+    // 统一回填成 whatsThis，ribbon 里的撤销/重做等镜像按钮随之带帮助。
+    for (auto *a : editTb->findChildren<QAction *>())
+      if (a->whatsThis().isEmpty() && !a->property("hint").toString().isEmpty())
+        a->setWhatsThis(a->property("hint").toString());
     if (SARibbonQuickAccessBar *qab = ribbonBar()->quickAccessBar())
     {
       qab->addAction(editTb->actionUndo());
@@ -576,6 +579,7 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
         PaleoIcons::qgisTheme(QStringLiteral("mActionAtlasSettings.svg")), tr("地图册"), this);
     mapBookAct->setObjectName(QStringLiteral("ribbonMapBookAction"));
     mapBookAct->setToolTip(tr("按网格分幅批量导出地图册"));
+    mapBookAct->setWhatsThis(tr("按网格分幅批量导出地图册"));
     connect(mapBookAct, &QAction::triggered, this, [this] {
       if (!m_mapBookDock || !m_mapBookPanel)
         return;
@@ -609,6 +613,7 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
         PaleoIcons::qgisTheme(QStringLiteral("mActionNewLayout.svg")), tr("图件设计"), this);
     designerAct->setObjectName(QStringLiteral("ribbonDesignerAction"));
     designerAct->setToolTip(tr("新建布局并打开图件设计器"));
+    designerAct->setWhatsThis(tr("新建布局并打开图件设计器"));
     connect(designerAct, &QAction::triggered, this, [this, layoutSvc] {
       if (!m_projectSvc || m_projectSvc->projectPath().isEmpty())
       {

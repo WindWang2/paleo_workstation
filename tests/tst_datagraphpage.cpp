@@ -433,25 +433,41 @@ private slots:
     auto *cancel = button(page, QStringLiteral("取消计算"));
     auto *refresh = button(page, QStringLiteral("刷新图谱"));
     QVERIFY(open && cancel && refresh);
+    auto *wf = page.findChild<DataGraphWorkflow *>();
+    QVERIFY(wf);
+    // ready 带产出该图的查询：按焦点记录每次落地，代替固定 qWait。
+    QStringList landed;
+    connect(wf, &DataGraphWorkflow::ready, &page,
+            [&landed](const paleo::datagraph::Graph &g) { landed << g.query.focus; });
+    QSignalSpy status(wf, &DataGraphWorkflow::statusChanged);
     QSignalSpy activated(&page, &DataGraphPage::versionActivated);
+    const QString keyA = paleo::datagraph::versionKey(a.id);
+    const QString keyB = paleo::datagraph::versionKey(b.id);
     page.openRelations(a.assetId, a.id);
     page.openRelations(b.assetId, b.id); // 同一合并窗内换焦点
-    QTRY_VERIFY_WITH_TIMEOUT(open->isEnabled(), 15000);
-    QTest::qWait(300); // 让任何迟到的旧代结果都有机会落地
+    // 等「期望代」（焦点 B）的结果落地且工作流回到空闲。
+    QTRY_VERIFY_WITH_TIMEOUT(landed.contains(keyB) && !status.last().at(1).toBool(), 15000);
+    QVERIFY2(!landed.contains(keyA), qPrintable(landed.join(QLatin1Char(','))));
+    QVERIFY(open->isEnabled());
     open->click();
     QCOMPARE(activated.count(), 1);
     QCOMPARE(activated.at(0).at(0).toString(), b.id); // 不是 a：旧代被丢弃
 
-    auto *wf = page.findChild<DataGraphWorkflow *>();
-    QVERIFY(wf);
-    QSignalSpy status(wf, &DataGraphWorkflow::statusChanged);
+    // 取消：刷新进入合并窗（busy）→ 取消计算；被取消的这一代不得落地。
+    landed.clear();
+    status.clear();
     refresh->click();
-    if (cancel->isEnabled())
-      cancel->click();
-    // 无论取消是否赶上：最终空闲、按钮复位，且再刷新能回到同一真实焦点。
-    QTRY_VERIFY_WITH_TIMEOUT(!status.isEmpty() && !status.last().at(1).toBool(), 15000);
+    QVERIFY(cancel->isEnabled()); // 「正在准备图谱查询」同步置忙
+    cancel->click();
+    QVERIFY(!status.isEmpty());
+    QCOMPARE(status.last().at(0).toString(), QStringLiteral("图谱任务已取消"));
+    QCOMPARE(status.last().at(1).toBool(), false);
+    QVERIFY(!cancel->isEnabled());
+    // 再刷新：恰好只落地这一次（被取消的那代若迟到会多出一次），焦点仍是 B。
     refresh->click();
-    QTRY_VERIFY_WITH_TIMEOUT(open->isEnabled(), 15000);
+    QTRY_VERIFY_WITH_TIMEOUT(!landed.isEmpty() && !status.last().at(1).toBool(), 15000);
+    QCOMPARE(landed, QStringList{keyB});
+    QTRY_VERIFY_WITH_TIMEOUT(open->isEnabled(), 5000);
     activated.clear();
     open->click();
     QCOMPARE(activated.count(), 1);

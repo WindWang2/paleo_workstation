@@ -68,8 +68,13 @@ namespace
           m_action->setText(m_button->text());
         const QString tip = m_button->toolTip();
         m_action->setToolTip(!gate.isEmpty() ? gate : (tip.isEmpty() ? m_baseTip : tip));
-        if (!m_button->whatsThis().isEmpty())
-          m_action->setWhatsThis(m_button->whatsThis());
+        // 帮助文本：源 whatsThis 优先，空则退到 accessibleDescription
+        //（数据页导入按钮把用途写在后者）；只在非空时写，绝不清空。
+        QString help = m_button->whatsThis();
+        if (help.isEmpty())
+          help = m_button->accessibleDescription();
+        if (!help.isEmpty())
+          m_action->setWhatsThis(help);
         if (m_button->isCheckable())
         {
           m_action->setCheckable(true);

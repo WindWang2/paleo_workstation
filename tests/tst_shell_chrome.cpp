@@ -494,6 +494,41 @@ private slots:
     QCOMPARE(QApplication::focusWidget(), prev);
   }
 
+  // D：每个可见的 ribbon 命令钮都要有「这是什么」帮助（Shift+F1 点哪个都有说法）。帮助文本都取自
+  // 命令自己的作者写下的用途串（动作 tip / 编辑条 hint / 页内按钮目录条目），不另编。
+  void everyVisibleRibbonCommandHasHelp()
+  {
+    QgisCanvasController canvas(m_ctx);
+    PaleoMainWindow win(&canvas, m_ctx->projectSvc(), m_ctx->layerSvc(), m_ctx->toolSvc(),
+                        m_ctx->selection());
+    win.attachWorkflows(m_ctx->predictionWf(), m_ctx->constraintWf(), m_ctx->compositionWf(),
+                        m_ctx->validationWf(), m_ctx->importSvc(), m_ctx->seismicLink(),
+                        m_ctx->processingSvc(), m_ctx->store(), m_ctx->editingSvc(),
+                        m_ctx->layoutSvc(), m_ctx->taskSvc());
+    win.attachWorkbench(m_ctx->mappingWorkbench());
+    win.resize(1440, 900);
+    win.show();
+    int total = 0;
+    QStringList missing;
+    for (const QString &id : paleo::pagesinternal::kPageIds)
+    {
+      win.showPage(id);
+      QWidget *cat = win.categoryForPage(id);
+      QVERIFY(cat);
+      for (auto *b : cat->findChildren<QToolButton *>())
+      {
+        if (!b->inherits("SARibbonToolButton") || !b->isVisibleTo(cat))
+          continue;
+        ++total;
+        if (b->whatsThis().simplified().isEmpty())
+          missing << QStringLiteral("%1/%2 (%3)").arg(id, b->objectName(), b->text().simplified());
+      }
+    }
+    QVERIFY2(total >= 90, qPrintable(QStringLiteral("only %1 visible ribbon buttons seen").arg(total)));
+    QVERIFY2(missing.isEmpty(), qPrintable(QStringLiteral("%1 of %2 ribbon buttons have no help:\n%3")
+                                               .arg(missing.size()).arg(total).arg(missing.join(QLatin1Char('\n')))));
+  }
+
   // C（通用门控接入既有 QAction，必须是本文件最后一个用例：它会开关 AppContext 里的工程）：
   // 没有打开工程时导入必然失败（DataImportService「project dir is not set」），界面却先弹文件
   // 对话框、选完文件才报错。ToolAvailabilityService 的全局门控把这五个导入命令置灰并写明原因；

@@ -676,6 +676,14 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
             [applyProjectGate](const QString &) { applyProjectGate(); });
   applyProjectGate();
 
+  // 页面自建的对比服务命令：attach 时 tooltip 还是作者的静态用途串
+  //（会话忙时的临时文案之后才出现），此刻固化成 whatsThis。
+  for (const char *name : {"correlationWebConnectAction", "correlationWebDirectoryAction",
+                           "correlationWebPythonAction", "correlationWebStartAction",
+                           "correlationWebExternalAction"})
+    if (auto *a = findChild<QAction *>(QLatin1String(name)); a && a->whatsThis().isEmpty())
+      a->setWhatsThis(a->toolTip());
+
   m_workflowsAttached = true;
 }
 

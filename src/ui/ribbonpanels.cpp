@@ -63,7 +63,10 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
     auto *a = new QAction(ic, text, this);
     a->setObjectName(QLatin1String(name));
     if (!tip.isEmpty())
+    {
       a->setToolTip(tip);
+      a->setWhatsThis(tip); // 用途串即帮助文本——Shift+F1 走同一句话，不另写
+    }
     return a;
   };
   // 镜像命令：面板按钮存在才建（空工作流的测试壳照样能跑）。
@@ -101,6 +104,7 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
   {
     paramsAct->setIcon(icon("mActionOptions.svg"));
     paramsAct->setToolTip(tr("显示/隐藏右侧参数面板"));
+    paramsAct->setWhatsThis(tr("显示/隐藏右侧参数面板"));
   }
   auto *bottomTabs = findChild<QTabWidget *>(QStringLiteral("bottomTabs"));
   const auto bottomAction = [this, bottomTabs, &newAction](QWidget *tab, const QString &text,
@@ -235,6 +239,7 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
       QAction *maxAct = newAction(tr("最大化预览"), PaleoIcons::maximize(), QString(),
                                   "ribbonPreviewMaximize");
       maxAct->setCheckable(true);
+      maxAct->setWhatsThis(tr("预览占满数据面（列表留一行）"));
       connect(maxAct, &QAction::triggered, maxBtn, [maxBtn](bool on) { maxBtn->setChecked(on); });
       connect(maxBtn, &QAbstractButton::toggled, maxAct, [maxAct](bool on) {
         maxAct->setChecked(on);

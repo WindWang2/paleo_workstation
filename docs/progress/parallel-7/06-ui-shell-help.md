@@ -41,6 +41,21 @@
 - 门的覆盖面：global gate 只表达「工程未开」。逐层 `layerBusy`/任务忙的细粒度理由仍留在各页现有门控里（它们理由更具体），本适配层不接管；将来 owner 若想显示「图层忙」，同一 `applyGate` 钩子可复用。
 - 行为变化（有意）：无工程时导入入口整体置灰——此前是点了、选完文件、才在 `DataImportService` 里失败。
 
+## 阶段 4 微循环（审查跟进：门控覆盖面 + 拖拽 + 帮助措辞）
+
+#453 合并后按审查意见收口（基线 `3df72b80` = #437 已并入）：
+
+| 项 | 发现 | 处置 |
+|---|---|---|
+| 门控漏页内按钮/非镜像命令 | `applyGate` 只写镜像 action；页内恒使能按钮（保存版本等）和非镜像 action（图件设计）不在集合内 | `applyGate` 扩到非镜像 action（直接写 enabled/tooltip）；页内按钮硬门限「恒使能无 owner」的 8 个；门控集扩到 12 个 ribbon action——保存版本/导出 PDF/图件设计/预测/生成单因素/运行验证/生成等厚图均经 handler 核实无工程必败或只有误导性反馈 |
+| tooltip 被门控清空 | 页按钮开门时 `setToolTip("")` 会冲掉 `saveVersionButton` 的发布态文案 | 门控前把原 tip 存 `paleoGateSavedTip` 属性、开门还原；非镜像 action 同机制 |
+| catalog 禁令漏 `importWellLogs` | `attach_data` 的 `setImportsEnabled` 只禁 4 个按钮，且 `availabilityChanged` 重放会把它冲掉 | 禁令补齐第 5 个；工程门与目录禁令取与、谁的禁令写谁的理由（`数据目录打开失败 — 导入暂不可用`） |
+| 拖拽导入绕门 | `datalist_dnd.cpp::handleExternalFiles` 不查工程态，入队后 runner 才报 `project dir is not set`；catalog 在工程关后仍 `isOpen()`，分辨不了 | `DataListPanel` 加 `setProjectOpenProvider`，壳注入 `projectPath().isEmpty()` 探针；无工程先写「先新建或打开工程」不入队；目录不可用写 `openError` |
+| 帮助措辞不符 handler | `directionButton`/`breakLineButton` 按单一路径写死（实际按下拉发方向引导/软边界/制图绕行、硬屏障/等值停止，仅约束感知的插值方法消费）；预览最大化原文写「列表留一行」实为全隐藏；`thicknessChainButton` 无帮助（藏在旧版页签） | 三条按真实语义改写/补录（`whatsthiscatalog.cpp`、`ribbonpanels.cpp`） |
+| 地图册/剖面工作台是否该门 | 无工程时打开的是基本空的功能面，不致败、只显得空 | 判定 owner 决策项，本分支不门 |
+| `tst_shell_projectlifecycle::surfaceOpsGateFetchesProjectAtCallTime` 失败 | 需 ≥2 个已声明栅格才弹参数表，实测弹的是「需要至少两个已声明的栅格图层」通知 | **基线回归，与本分支无关**——stash 后在 pristine `3df72b80` 上同样确定性失败（#437 合并带入），已向 CI 如实报告 |
+| CI | 合并提交 `2fc29d35` 上 `linux-asan` 失败：`final link failed: No space left on device`（2133/2134 步才挂） | 基础设施磁盘满，非代码问题；`linux`/`lint` 已过 |
+
 ## 最终验证（在 rebase 后 `b0f24912` 的代码上实跑，探针已移除）
 
 | 项 | 命令 | 结果 |
@@ -77,7 +92,7 @@
 | `tst_ui` `testSimultaneousWellsAndSurveyAreaVisibility` 在无头环境因模态 `QDialog::exec()` 永久阻塞 | 非本方向；pristine master 即复现 | 不修，仅在风险说明里记录 |
 | 约束页 `constraintDeleteButton` 禁用却无原因提示（73 个禁用按钮中唯一一个） | `src/ui/pages/**`，其他方向，无 Issue 认领 | 只记录 |
 | 页面控件高度 28 / 30 px 的 2 px 差异（采样值） | `src/ui/pages/**` | 只记录 |
-| ~~`ToolAvailabilityService` 生产代码零调用~~ → 已接入：全局工程门 → 五个导入入口（ribbon + 页内按钮），`9e30e17a` | 逐层 busy 态绑定仍归各页 owner（理由更具体） | 全局门已实现 |
+| ~~`ToolAvailabilityService` 生产代码零调用~~ → 已接入：全局工程门 → 12 个无工程必败命令（ribbon + 恒使能页按钮）+ 拖拽入队；`9e30e17a`/`0451dfe5` | 逐层 busy 态绑定仍归各页 owner（理由更具体）；地图册/剖面工作台门控为 owner 决策项 | 全局门已实现 |
 | `DESIGN.md` 通知卡 340 vs 360 px、并发 4 vs 5 张自相矛盾 | 需用户批准 | 只记录 |
 | `layervocabulary.h:125-129` 把四张地图页统称「编图页」，与页签「智能编图」同词异指 | `src/qgis`，不在本方向 | 只记录 |
 | 「本项目纹理库」「未绑定项目数据」（应为工程） | `src/workflow/mappingworkbench*` / `mappingworkflow*`，#437 / 其他方向 | 只记录 |
@@ -88,5 +103,6 @@
 - B：最小窗口 1280×800 与小逻辑屏的冲突（三处测得越界）等用户决定是否放宽；真实双屏、dock 拖拽/浮动未测；offscreen 不能代替手工视觉验收。
 - C：`ToolAvailabilityService` 的逐层 `layerBusy`/任务忙理由仍不显示在 ribbon 上——现有页级门控的理由更具体，是否还要把 busy 态叠上去归业务 owner；`applyGate` 钩子留好了。
 - F：dock 内 `dockScrollHost` / `scrollableToolRow` 的无名 Tab 停靠点；dialog 重复弹窗；动态主题切换下焦点环；tab order 整体顺序。
+- 基线回归（非本分支）：`tst_shell_projectlifecycle::surfaceOpsGateFetchesProjectAtCallTime` 在 pristine `3df72b80` 确定性失败（#437 带入）；`constraintDeleteButton` 禁用无原因提示仍归页面 owner。
 - G：没有手工视觉验收；24 张整窗截图只在 `/tmp/goal7/probe3/shots/`，未入库。
 - 恢复方式：读本 ledger 与 `06-baseline.md`，从 `origin/master` 重新取围栏后，按上表未做项各开一轮。

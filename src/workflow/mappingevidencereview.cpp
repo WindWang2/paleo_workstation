@@ -257,7 +257,8 @@ QVariantMap MappingWorkbench::resolveEvidenceSource(const QVariantMap &record,
 }
 bool MappingWorkbench::addEvidence(const QString &id, const QList<qint64> &ids, const QVariantMap &entry, QString *error) {
   auto p = entry;
-  p.insert("actor_id", entry.value("actor_id", localOperator()));
+  // #442：忽略调用方传入的身份，一律写 localOperator()。
+  p.insert("actor_id", localOperator());
   p.insert("reason", entry.value("reason", entry.value("text")));
   return changeEvidence(id, ids, "link", p, error);
 }
@@ -379,8 +380,9 @@ bool MappingWorkbench::changeEvidence(const QString &id, const QList<qint64> &id
       return reject(error, tr("预期修订号无效，请刷新后重试"));
     const auto rev = revisionValue.toULongLong();
     Row row{fid, {}};
+    // #442：变更证据一律使用本机 localOperator()，忽略调用方 actor_id。
     if (!paleo::evidence::revise(records, interpretation, current, action, featureChange,
-        p.value("actor_id").toString(), p.value("reason").toString(), rev, &row.revision, error)) return false;
+        localOperator(), p.value("reason").toString(), rev, &row.revision, error)) return false;
     rows << row;
   }
   if (!unsavedSource.isEmpty()) {

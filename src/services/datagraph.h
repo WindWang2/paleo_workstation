@@ -59,7 +59,7 @@ struct Query {
   int depth = 2, maxNodes = 200, maxEdges = 600;
   QString horizon, evidenceType, reviewState;
   int evidenceOffset = 0, evidenceLimit = 50;
-  int maxTraversalEdges = 4000;
+  int maxTraversalEdges = 0; // 0 = unlimited (#443)
   // Selected feature's immutable owner-thread snapshot only. It participates
   // in equality/cache keys; never added to the shared project Index.
   QVariantMap featureEvidence;

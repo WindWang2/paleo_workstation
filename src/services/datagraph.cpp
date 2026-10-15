@@ -7,6 +7,7 @@
 #include <QQueue>
 #include <QSet>
 #include <algorithm>
+#include <limits>
 
 namespace paleo::datagraph {
 namespace {
@@ -647,7 +648,10 @@ Graph query(const Index &index, const Query &q, const Cancel &cancel,
     add(root);
     const bool impact = q.mode == Mode::Impact;
     const bool derivedOnly = q.mode == Mode::Lineage || impact;
-    const int traversalBudget = qBound(512, q.maxTraversalEdges, 20000);
+    // #443：默认 0 = 不封顶；调用方显式设置正数时再钳制到 [512, 20000]。
+    const bool unlimitedTraversal = q.maxTraversalEdges <= 0;
+    const int traversalBudget = unlimitedTraversal ? std::numeric_limits<int>::max()
+                                                   : qBound(512, q.maxTraversalEdges, 20000);
     const auto traversable = [&](Relation relation) {
       return lineage(relation) || (impact && (relation == Relation::Supported || relation == Relation::Contradicted ||
           relation == Relation::Constrained || relation == Relation::References));

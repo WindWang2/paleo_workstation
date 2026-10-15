@@ -10,6 +10,8 @@ struct MapSnapshotInput {
   QString pdfAssetId, pdfSha256;
   int versionId = 0, versionNumber = 0;
   QVariantList files;
+  // #439：调用方传入了图层清单时才写 snapshot_schema。
+  bool freezeLayers = false;
   bool valid = false;
 };
 struct PreparedMapSnapshot {

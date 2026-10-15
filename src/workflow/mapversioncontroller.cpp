@@ -124,6 +124,57 @@ bool MapVersionController::captureVersion(const QString &horizon, const QVariant
   }
   if (!featurePrevalidated) frozenProvenance.insert("feature_summary", scan.summary());
 
+  // #438：成果目录 Blocking / 损坏证据校验必须在 commitChanges / undo 清空之前。
+  // 失败时编辑缓冲与撤销栈保持原样，map_versions 也不写新行。
+  QVariantList versionSnapshots;
+  if (m_catalog) {
+    QHash<QString, CatalogVersion> byLayer;
+    for (const auto &version : m_catalog->versions()) {
+      const QString layer = version.extra.value("layer_id").toString();
+      const QString draft = version.extra.value("draft_id").toString();
+      if (!layer.isEmpty()) byLayer.insert(layer, version);
+      if (!draft.isEmpty()) byLayer.insert(draft, version);
+    }
+    for (const auto &decl : declared) {
+      if (decl.horizon != horizon) continue;
+      CatalogVersion version = byLayer.value(decl.layerId);
+      if (auto *layer = m_layers->layer(decl.layerId)) {
+        const auto id = layer->customProperty("paleoVersionId").toString();
+        if (!id.isEmpty()) version = m_catalog->versionById(id);
+      }
+      if (version.id.isEmpty()) continue;
+      const QVariant evidence = version.extra.value("evidence");
+      if (evidence.isValid() && evidence.typeId() != QMetaType::QVariantMap) {
+        setError(error, tr("成果版本的证据字段损坏：%1").arg(version.id));
+        return {};
+      }
+      const auto map = evidence.toMap();
+      const auto findings = paleo::evidence::validate(map) + map.value("quality_issues").toList();
+      for (const auto &entry : findings)
+        if (entry.toMap().value("severity").toString() == "Blocking") {
+          setError(error, tr("成果证据存在阻断性来源错误：%1").arg(version.id));
+          return {};
+        }
+      versionSnapshots << QVariantMap{{"layer_id", decl.layerId}, {"version_id", version.id},
+                                     {"asset_id", version.assetId}, {"sha256", version.sha256},
+                                     {"evidence", map}, {"stale", version.extra.value("stale")}};
+    }
+  }
+  frozenProvenance.insert("evidence_snapshot", versionSnapshots);
+  frozenProvenance.insert("catalog_bound", !versionSnapshots.isEmpty());
+  if (!featurePrevalidated)
+    frozenProvenance.insert("cited_sources", scan.citedSources(m_catalog));
+  if (m_catalog) {
+    for (const auto &entry : frozenProvenance.value(QStringLiteral("cited_sources")).toList()) {
+      const auto id = entry.toMap().value(QStringLiteral("version_id")).toString();
+      if (id.isEmpty()) continue;
+      if (m_catalog->versionById(id).id.isEmpty()) {
+        setError(error, tr("图斑证据引用的来源版本缺失：%1").arg(id));
+        return {};
+      }
+    }
+  }
+
   // 编辑会话 commit（§1223 版本提交边界）：该层位全部矢量图层逐一提交；
   // commitChanges 原生清 undo 栈，undoStack()->clear() 再兜底一次，保证
   // undo 不跨版本边界。栅格图层无编辑缓冲，跳过。
@@ -190,56 +241,6 @@ bool MapVersionController::captureVersion(const QString &horizon, const QVariant
   {
     releaseCommittedEditLocks();
     return false;
-  }
-
-  QVariantList versionSnapshots;
-  if (m_catalog) {
-    QHash<QString, CatalogVersion> byLayer;
-    for (const auto &version : m_catalog->versions()) {
-      const QString layer = version.extra.value("layer_id").toString();
-      const QString draft = version.extra.value("draft_id").toString();
-      if (!layer.isEmpty()) byLayer.insert(layer, version);
-      if (!draft.isEmpty()) byLayer.insert(draft, version);
-    }
-    for (const auto &decl : declared) {
-      if (decl.horizon != horizon) continue;
-      CatalogVersion version = byLayer.value(decl.layerId);
-      if (auto *layer = m_layers->layer(decl.layerId)) {
-        const auto id = layer->customProperty("paleoVersionId").toString();
-        if (!id.isEmpty()) version = m_catalog->versionById(id);
-      }
-      if (version.id.isEmpty()) continue;
-      const QVariant evidence = version.extra.value("evidence");
-      if (evidence.isValid() && evidence.typeId() != QMetaType::QVariantMap) {
-        setError(error, tr("成果版本的证据字段损坏：%1").arg(version.id));
-        releaseCommittedEditLocks(); return {};
-      }
-      const auto map = evidence.toMap();
-      const auto findings = paleo::evidence::validate(map) + map.value("quality_issues").toList();
-      for (const auto &entry : findings)
-        if (entry.toMap().value("severity").toString() == "Blocking") {
-          setError(error, tr("成果证据存在阻断性来源错误：%1").arg(version.id));
-          releaseCommittedEditLocks(); return {};
-        }
-      versionSnapshots << QVariantMap{{"layer_id", decl.layerId}, {"version_id", version.id},
-                                     {"asset_id", version.assetId}, {"sha256", version.sha256},
-                                     {"evidence", map}, {"stale", version.extra.value("stale")}};
-    }
-  }
-  frozenProvenance.insert("evidence_snapshot", versionSnapshots);
-  frozenProvenance.insert("catalog_bound", !versionSnapshots.isEmpty());
-  if (!featurePrevalidated)
-    frozenProvenance.insert("cited_sources", scan.citedSources(m_catalog));
-  if (m_catalog) {
-    for (const auto &entry : frozenProvenance.value(QStringLiteral("cited_sources")).toList()) {
-      const auto id = entry.toMap().value(QStringLiteral("version_id")).toString();
-      if (id.isEmpty()) continue;
-      if (m_catalog->versionById(id).id.isEmpty()) {
-        setError(error, tr("图斑证据引用的来源版本缺失：%1").arg(id));
-        releaseCommittedEditLocks();
-        return {};
-      }
-    }
   }
   releaseCommittedEditLocks();
 

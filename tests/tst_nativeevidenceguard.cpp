@@ -72,6 +72,11 @@ private slots:
     QVERIFY(errors.count() > 0);
     const auto failures = layer->property("paleo.evidenceEditFailures").toMap();
     QVERIFY(failures.contains("feature:" + QString::number(first.id())));
+    // #444：图斑 B 的成功写入不得清掉 A 的失败，且 B 自身不在失败表。
+    QVERIFY(!failures.contains("feature:" + QString::number(second.id())));
+    if (separateCommands) {
+      QCOMPARE(layer->getFeature(second.id()).geometry().asPoint(), QgsPointXY(2.5, 2.5));
+    }
     QVERIFY(!layer->allowCommit());
     QVERIFY(!layer->commitChanges());
     QVERIFY(layer->isEditable());

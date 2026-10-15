@@ -467,13 +467,53 @@ class TestVersions : public QObject
         QCOMPARE(DataCatalog::sha256FileHex(QDir(published).filePath(files.first())), gpkgSha);
         QVERIFY(QFileInfo::exists(QDir(published).filePath("evidence-snapshot.json")));
     }
+
+    // #439：三参数旧调用 saveVersion(horizon,"{}") 不写 snapshot_schema；
+    // 随后 publish 仍按调用方 decls 复制图层文件。
+    void oldCallSaveThenPublishStillCopiesDecls() {
+        Fixture f; QVERIFY(f.init()); QString error;
+        const auto gpkg = makeFaciesGpkg(f.dir.filePath("legacy.gpkg"));
+        QVERIFY(!gpkg.isEmpty());
+        const auto pdf = makePdf(f.dir.filePath("legacy.pdf"));
+        QVERIFY(!pdf.isEmpty());
+        const QString pdfSha = DataCatalog::sha256FileHex(pdf);
+        QVERIFY(f.versions.recordLayoutProduct("D61", pdf, "pdf-asset", pdfSha, &error));
+
+        // 三参数旧调用：不传 layers。
+        const auto saved = f.versions.saveVersion("D61", QStringLiteral("{}"), &error);
+        QVERIFY2(saved.version > 0, qPrintable(error));
+        const auto manifest = QJsonDocument::fromJson(saved.provenance.toUtf8()).object();
+        QVERIFY(!manifest.contains("snapshot_schema"));
+        QVERIFY(!manifest.contains("saved_layers"));
+
+        LayerDeclaration decl; decl.layerId = "facies.D61"; decl.horizon = "D61";
+        decl.type = "vector"; decl.source = gpkg + "|layername=facies_polygons";
+        const QString summary = R"({"wells_total":1,"covered":1,"missing":[],"rows":[{"kind":"residual","residual_ms":1}]})";
+        const auto published = f.versions.publish("D61", {decl}, summary, &error);
+        QVERIFY2(!published.isEmpty(), qPrintable(error));
+        const auto files = QDir(published).entryList({"*.gpkg"}, QDir::Files);
+        QCOMPARE(files.size(), 1);
+        QCOMPARE(DataCatalog::sha256FileHex(QDir(published).filePath(files.first())),
+                 DataCatalog::sha256FileHex(gpkg));
+        // 旧发布路径按原文件名复制 PDF（不是 layout.pdf）。
+        const auto pdfs = QDir(published).entryList({"*.pdf"}, QDir::Files);
+        QCOMPARE(pdfs.size(), 1);
+        QCOMPARE(DataCatalog::sha256FileHex(QDir(published).filePath(pdfs.first())), pdfSha);
+    }
+
     void missingFrozenBytesRejectPublicationAndCleanStaging() {
         Fixture f; QVERIFY(f.init()); QString error;
+        // #439：冻结标记依赖传入图层；本用例需声明图层才会走不可变清单。
+        const auto gpkg = makeFaciesGpkg(f.dir.filePath("map.gpkg"));
+        LayerDeclaration decl; decl.layerId = "facies.D61"; decl.horizon = "D61";
+        decl.type = "vector"; decl.source = gpkg + "|layername=facies_polygons";
+        QVERIFY(f.layers.declare(decl, &error));
         const auto pdf = makePdf(f.dir.filePath("map.pdf"));
         QVERIFY(f.versions.recordLayoutProduct("D61", pdf, "pdf-asset", DataCatalog::sha256FileHex(pdf), &error));
         const auto saved = f.controller.saveVersion("D61", {}, &error);
         QVERIFY(saved.version > 0);
         const auto manifest = QJsonDocument::fromJson(saved.provenance.toUtf8()).object();
+        QCOMPARE(manifest.value("snapshot_schema").toString(), QString("paleo_map_snapshot_v1"));
         const auto frozenPdf = f.dir.filePath(manifest.value("saved_pdf").toObject().value("path").toString());
         QFile::setPermissions(frozenPdf, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
         QVERIFY(QFile::remove(frozenPdf));
@@ -486,10 +526,15 @@ class TestVersions : public QObject
 
     void corruptedSavedManifestCannotFallBackToLiveFiles() {
         Fixture f; QVERIFY(f.init()); QString error;
+        const auto gpkg = makeFaciesGpkg(f.dir.filePath("corrupt-map.gpkg"));
+        LayerDeclaration decl; decl.layerId = "facies.D61"; decl.horizon = "D61";
+        decl.type = "vector"; decl.source = gpkg + "|layername=facies_polygons";
+        QVERIFY(f.layers.declare(decl, &error));
         const auto pdf = makePdf(f.dir.filePath("map.pdf"));
         QVERIFY(f.versions.recordLayoutProduct("D61", pdf, "pdf-asset", DataCatalog::sha256FileHex(pdf), &error));
         const auto saved = f.controller.saveVersion("D61", {}, &error); QVERIFY(saved.version > 0);
         auto manifest = QJsonDocument::fromJson(saved.provenance.toUtf8()).object();
+        QVERIFY(manifest.contains("snapshot_schema"));
         manifest.insert("saved_layers", "corrupt");
         auto db = QSqlDatabase::database("paleo_mapversions_" + QString::number(qHash(f.metaPath())));
         QSqlQuery update(db); update.prepare("UPDATE map_versions SET provenance=? WHERE id=?");
@@ -964,12 +1009,19 @@ class TestVersions : public QObject
         auto input = f.versions.snapshotInputForSave("D61", "{}", {}, &err); QVERIFY(input.valid);
         const auto cancelled = prepareMapSnapshot(input, [] { return true; });
         QVERIFY(cancelled.cancelled); QCOMPARE(f.versions.currentVersion("D61"), 0);
+        // #444：取消路径不得留暂存目录；禁止用 discardPreparedMapSnapshot 掩盖泄漏。
+        QVERIFY(cancelled.directory.isEmpty() || !QFileInfo::exists(cancelled.directory));
+        QCOMPARE(QDir(f.dir.filePath("artifacts/map-versions")).entryList(QDir::Dirs | QDir::NoDotAndDotDot).size(), 0);
         auto prepared = prepareMapSnapshot(input); QVERIFY2(prepared.isValid(), qPrintable(prepared.error));
+        const auto stagingBefore = prepared.directory;
+        QVERIFY(QFileInfo::exists(stagingBefore));
         const auto target = prepared.attestations.first().toMap().value("path").toString();
         QFile::setPermissions(target, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
         QFile modified(target); QVERIFY(modified.open(QIODevice::Append)); QCOMPARE(modified.write("changed"), qint64(7)); modified.close();
         QCOMPARE(f.versions.commitPreparedVersion(prepared, &err).version, 0); QVERIFY(!err.isEmpty());
-        discardPreparedMapSnapshot(prepared); QVERIFY(!QFileInfo::exists(prepared.directory));
+        QCOMPARE(f.versions.currentVersion("D61"), 0);
+        // 失败后测试主动清理以便 QTemporaryDir 结束；取消路径已在上面无 discard 断言。
+        if (QFileInfo::exists(stagingBefore)) discardPreparedMapSnapshot(prepared);
     }
 
     void horizonlessCitationBlocksPurgeAndPublish() {

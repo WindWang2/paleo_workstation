@@ -95,14 +95,28 @@ private slots:
     const auto records = r.records; const auto i = r.interpretation;
     QVERIFY(!revise(records, i, target, "unlink", {{"evidence_id", "well-evidence"}}, "local:user", "reason", 0, &r, &error));
     QCOMPARE(r.records, records); QCOMPARE(r.interpretation, i);
+    // #444：每条拒绝路径后记录必须与调用前一致。
     QVERIFY(!revise(records, i, target, "review", {{"status", "Unknown"}}, "local:user", "reason", 1, &r, &error));
+    QCOMPARE(r.records, records); QCOMPARE(r.interpretation, i);
     QVERIFY(!revise(records, i, target, "review", {{"status", "Confirmed"}}, "", "reason", 1, &r, &error));
+    QCOMPARE(r.records, records); QCOMPARE(r.interpretation, i);
     QVERIFY(!revise(records, i, target, "review", {{"status", "Confirmed"}}, "local:user", "", 1, &r, &error));
+    QCOMPARE(r.records, records); QCOMPARE(r.interpretation, i);
+    // #442：非 local: 操作人拒绝且不改写。
+    QVERIFY(!revise(records, i, target, "review", {{"status", "Confirmed"}}, "admin", "reason", 1, &r, &error));
+    QCOMPARE(r.records, records); QCOMPARE(r.interpretation, i);
+    QVERIFY(!revise(records, i, target, "review", {{"status", "Confirmed"}}, "local:", "reason", 1, &r, &error));
+    QCOMPARE(r.records, records); QCOMPARE(r.interpretation, i);
     auto other = target; other.insert("horizon", "H2");
     QVERIFY(!revise(records, i, other, "review", {{"status", "Confirmed"}}, "local:user", "reason", 1, &r, &error));
+    QCOMPARE(r.records, records); QCOMPARE(r.interpretation, i);
     QVERIFY(!revise(records, i, target, "link", source, "local:user", "reason", 1, &r, &error));
+    QCOMPARE(r.records, records); QCOMPARE(r.interpretation, i);
     QVERIFY(revise(records, i, target, "review", {{"status", "Superseded"}}, "local:user", "new version", 1, &r, &error));
+    const auto afterSuper = r.interpretation;
+    const auto afterRecords = r.records;
     QVERIFY(!revise(r.records, r.interpretation, target, "review", {{"status", "Confirmed"}}, "local:user", "reason", 2, &r, &error));
+    QCOMPARE(r.records, afterRecords); QCOMPARE(r.interpretation, afterSuper);
   }
   void conflictsGeometryAndMissingSourcesRemainExplicit() {
     Revision r; QString error;

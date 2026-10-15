@@ -779,6 +779,13 @@ private slots:
     QVERIFY(!f.work.changeEvidence(draft, {feature.id()}, "review", {{"actor_id", "local:reviewer"}, {"reason", "review"}, {"status", "Confirmed"}, {"expected_revision", revision - 1}}, &error));
     QCOMPARE(layer->getFeature(feature.id()).attribute("paleo_interpretation"), beforeJson);
     QVERIFY(f.work.changeEvidence(draft, {feature.id()}, "review", {{"actor_id", "local:reviewer"}, {"reason", "争议待新资料"}, {"status", "Disputed"}, {"expected_revision", revision}}, &error));
+    // #444：争议复核后状态必须是 Disputed（此时历史至少含 link+review 两条）。
+    {
+      QVariantMap interpretation; QString decodeError;
+      QVERIFY(paleo::evidence::decodeInterpretation(layer->getFeature(feature.id()).attribute("paleo_interpretation").toString(), &interpretation, &decodeError));
+      QCOMPARE(interpretation.value("status").toString(), QString("Disputed"));
+      QVERIFY(interpretation.value("history").toList().size() >= 2);
+    }
     const auto evidenceId = snapshot.value("records").toList()[0].toMap().value("id").toString();
     QVERIFY(f.work.removeEvidence(draft, {feature.id()}, evidenceId, &error));
     QCOMPARE(f.work.evidence(draft, {feature.id()}).size(), 0);
@@ -969,9 +976,14 @@ private slots:
     QCOMPARE(f.catalog.versions().size(), versions); QCOMPARE(f.catalog.mutationSeq(), sequence);
     QCOMPARE(layer->getFeature(feature.id()).attribute("facies_evidence").toString(), original); QVERIFY(!layer->isEditable());
     QCOMPARE(QDir(f.dir.filePath("artifacts/staging")).entryList(QDir::Files | QDir::NoDotAndDotDot), artifacts);
+    const auto beforeEvidence = layer->getFeature(feature.id()).attribute("facies_evidence");
+    const auto beforeInterp = layer->getFeature(feature.id()).attribute("paleo_interpretation");
     QVERIFY(!f.work.changeEvidence(draft, {feature.id()}, "review", {{"expected_revision", .5}, {"status", "Confirmed"},
       {"actor_id", "local:user"}, {"reason", "非法修订号"}}, &error));
+    // #444：非法修订号拒绝后要素属性与目录序号均不变。
     QCOMPARE(f.catalog.mutationSeq(), sequence);
+    QCOMPARE(layer->getFeature(feature.id()).attribute("facies_evidence"), beforeEvidence);
+    QCOMPARE(layer->getFeature(feature.id()).attribute("paleo_interpretation"), beforeInterp);
   }
   void constraintSnapshotKeepsDeletionAudit() {
     Fixture f; QVERIFY(f.init()); QString error;

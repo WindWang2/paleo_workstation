@@ -735,12 +735,12 @@ bool ConstraintWorkflow::generateCartographicWork( const QString &horizon, const
     return false;
   }
 
+  QString versionedStyle;
   if ( !registrar.projectDir().isEmpty() )
   {
     QString styleErr;
-    FactorStyleWriter::writeStyleQml( factorId, st.absolutePath,
-                                      QDir( registrar.projectDir() ).filePath( QStringLiteral( "styles" ) ),
-                                      &styleErr );
+    versionedStyle = FactorStyleWriter::writeVersionedStyleQml(
+        factorId, st.absolutePath, QDir( registrar.projectDir() ).filePath( QStringLiteral( "styles" ) ), &styleErr );
   }
 
   LayerDeclaration decl;
@@ -749,7 +749,8 @@ bool ConstraintWorkflow::generateCartographicWork( const QString &horizon, const
   decl.type = QStringLiteral( "raster" );
   decl.source = st.absolutePath;
   decl.group = QStringLiteral( "04_SingleFactor/Cartographic" );
-  decl.styleRef = knownFactor ? def.styleRef : QString();
+  decl.styleRef = !versionedStyle.isEmpty() ? QFileInfo( versionedStyle ).completeBaseName()
+                                      : ( knownFactor ? def.styleRef : QString() );
   decl.title = tr( "制图工作场·%1" ).arg( title );
   if ( !layers->declare( decl, error ) )
     return false;

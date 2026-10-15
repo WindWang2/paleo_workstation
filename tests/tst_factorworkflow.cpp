@@ -18,6 +18,7 @@
 #include <qgsmaprendererparalleljob.h>
 #include <qgsproject.h>
 #include <qgsrasterlayer.h>
+#include <qgssinglebandpseudocolorrenderer.h>
 #include <qgsvectorlayer.h>
 #include <qgssinglesymbolrenderer.h>
 #include <qgslinesymbol.h>
@@ -968,7 +969,9 @@ class TestFactorWorkflow : public QObject
       QCOMPARE( d->horizon, QStringLiteral( "T1" ) );
       QCOMPARE( d->type, QStringLiteral( "raster" ) );
       QCOMPARE( d->group, QStringLiteral( "04_SingleFactor" ) );
-      QCOMPARE( d->styleRef, QStringLiteral( "factor_sandthick" ) );
+      // P4：声明指向本版本色带（与成果栅格路径一一对应），共用 factor_sandthick.qml 仍落盘。
+      QCOMPARE( d->styleRef, FactorStyleWriter::versionedStyleRef( QStringLiteral( "sandthick" ), d->source ) );
+      QVERIFY( d->styleRef.startsWith( QStringLiteral( "factor_sandthick_v" ) ) );
       QVERIFY2( QFile::exists( d->source ), qPrintable( d->source ) );
       QVERIFY2( d->source.contains( QStringLiteral( "artifacts/derived/" ) ),
                 qPrintable( d->source ) );
@@ -988,6 +991,49 @@ class TestFactorWorkflow : public QObject
       styleSvc.setStylesRoot( stylesDir );
       QVERIFY2( styleSvc.applyStyle( layer, QStringLiteral( "factor_sandthick" ), &err ),
                 qPrintable( err ) );
+      const LayerDeclaration *dv = findDecl( f.layers, QStringLiteral( "factor.T1.sandthick" ) );
+      QVERIFY( dv );
+      QVERIFY2( QFile::exists( QDir( stylesDir ).filePath( dv->styleRef + QStringLiteral( ".qml" ) ) ), qPrintable( dv->styleRef ) );
+      QVERIFY2( styleSvc.applyStyle( layer, dv->styleRef, &err ), qPrintable( err ) );
+      delete dv;
+    }
+
+    // P4：同因素两版成果值域不同 → 各自版本 qml 保留各自色带范围；共用 qml 只随最新一版。
+    void versionedStyleKeepsPerVersionRange()
+    {
+      QTemporaryDir dir;
+      const auto makeRaster = [&]( const QString &name, float lo, float hi ) {
+        const QString path = dir.filePath( name );
+        GDALDatasetH ds = GDALCreate( GDALGetDriverByName( "GTiff" ), path.toUtf8().constData(), 2, 2, 1,
+                                      GDT_Float32, nullptr );
+        double gt[6] = { 0, 1, 0, 2, 0, -1 };
+        GDALSetGeoTransform( ds, gt );
+        GDALRasterBandH band = GDALGetRasterBand( ds, 1 );
+        float values[4] = { lo, lo, hi, hi };
+        GDALRasterIO( band, GF_Write, 0, 0, 2, 2, values, 2, 2, GDT_Float32, 0, 0 );
+        GDALClose( ds );
+        return path;
+      };
+      const QString v1 = makeRaster( "v1.tif", 0.f, 10.f );
+      const QString v2 = makeRaster( "v2.tif", 100.f, 500.f );
+      const QString styles = dir.filePath( "styles" );
+      QString err;
+      const QString q1 = FactorStyleWriter::writeVersionedStyleQml( "poro", v1, styles, &err );
+      QVERIFY2( !q1.isEmpty(), qPrintable( err ) );
+      const QString q2 = FactorStyleWriter::writeVersionedStyleQml( "poro", v2, styles, &err );
+      QVERIFY2( !q2.isEmpty(), qPrintable( err ) );
+      QVERIFY( q1 != q2 );
+      QCOMPARE( QFileInfo( q1 ).completeBaseName(), FactorStyleWriter::versionedStyleRef( "poro", v1 ) );
+      const auto rangeOf = [&]( const QString &qml ) {
+        QgsRasterLayer layer( v1, "probe", "gdal" );
+        bool ok = false;
+        layer.loadNamedStyle( qml, ok );
+        auto *r = dynamic_cast<QgsSingleBandPseudoColorRenderer *>( layer.renderer() );
+        return r ? qMakePair( r->classificationMin(), r->classificationMax() ) : qMakePair( -1.0, -1.0 );
+      };
+      QCOMPARE( rangeOf( q1 ), qMakePair( 0.0, 10.0 ) );
+      QCOMPARE( rangeOf( q2 ), qMakePair( 100.0, 500.0 ) );
+      QCOMPARE( rangeOf( QDir( styles ).filePath( "factor_poro.qml" ) ), qMakePair( 100.0, 500.0 ) );
     }
 
     // 重生成同 factorId → 同 layerId upsert（幂等：清单单行，无重复声明）。

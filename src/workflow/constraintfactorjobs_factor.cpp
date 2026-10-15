@@ -1040,12 +1040,12 @@ bool ConstraintWorkflow::declareFactorResult( QgisLayerService *layers,
                                               const QString &outPath, const QString &projectDir,
                                               const QString &assetId, QString *error )
 {
+  QString versionedStyle;
   if ( !projectDir.isEmpty() )
   {
     QString styleErr; // 降级不打断生成链
-    FactorStyleWriter::writeStyleQml( factorId, outPath,
-                                      QDir( projectDir ).filePath( QStringLiteral( "styles" ) ),
-                                      &styleErr );
+    versionedStyle = FactorStyleWriter::writeVersionedStyleQml(
+        factorId, outPath, QDir( projectDir ).filePath( QStringLiteral( "styles" ) ), &styleErr );
   }
 
   LayerDeclaration decl;
@@ -1054,7 +1054,8 @@ bool ConstraintWorkflow::declareFactorResult( QgisLayerService *layers,
   decl.type = QStringLiteral( "raster" );
   decl.source = outPath;
   decl.group = QStringLiteral( "04_SingleFactor" );
-  decl.styleRef = def.styleRef;
+  // P4：本版本色带（写失败时退回共用预设引用）。
+  decl.styleRef = versionedStyle.isEmpty() ? def.styleRef : QFileInfo( versionedStyle ).completeBaseName();
   decl.title = tr( "%1·%2" ).arg( def.title, horizon );
   // 新成果路径即使字节与旧栅格相同，也已经换了图层源。先抬代次，再改声明。
   ++m_publishGeneration;

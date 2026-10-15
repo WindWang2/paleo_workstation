@@ -31,6 +31,15 @@ QVariantMap presetDescription(const QString &factorId);
 QString writeStyleQml(const QString &factorId, const QString &rasterPath,
                       const QString &styleDir, QString *error = nullptr);
 
+// P4 逐版本色带：factor_<id>.qml 为同因素所有层位/版本共用（后写覆盖前写，色带
+// 范围只对最新一版成立）。版本化引用 factor_<id>_v<路径摘要12位>，与成果栅格路径
+// 一一对应；不改 manifest/catalog 结构（styleRef 本就是自由字符串）。
+QString versionedStyleRef(const QString &factorId, const QString &rasterPath);
+// 写共用 factor_<id>.qml（兼容既有引用）并另存该版本的 <versionedStyleRef>.qml；
+// 返回版本化 .qml 路径；任一步失败 → 空串 + error。
+QString writeVersionedStyleQml(const QString &factorId, const QString &rasterPath,
+                               const QString &styleDir, QString *error = nullptr);
+
 } // namespace FactorStyleWriter
 
 // 地图域数字与线面协调规范（DESIGN.md「单因素地图符号」）；UI 主题不改数值语义色。

@@ -10,6 +10,7 @@
 #include "derivedassets.h"
 
 #include <QDateTime>
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonObject>
@@ -125,10 +126,6 @@ bool PredictionWorkflow::preparePredictionJob( const QString &horizon, const QSt
       return fail( tr( "no ONNX service bound; cannot run '%1'" ).arg( algorithmId ) );
     if ( model.isEmpty() )
       return fail( tr( "onnx algorithm id '%1' carries no model name" ).arg( algorithmId ) );
-    if ( onnx->loadModelMeta( model, nullptr, error ) != OnnxLoadStatus::Ok )
-      return fail( ( error && !error->isEmpty() )
-                       ? *error
-                       : tr( "failed to load ONNX model '%1'" ).arg( model ) );
 
     // params-derived tensors; defaults keep toy-model runs trivial:
     // input {0}, shape {1}, inputName "x".
@@ -150,14 +147,16 @@ bool PredictionWorkflow::preparePredictionJob( const QString &horizon, const QSt
     if ( job->onnxInputName.isEmpty() )
       job->onnxInputName = QStringLiteral( "x" );
 
-    // 网格几何（清单 horizon.D61* 声明）在 GUI 线程解析好，compute 直接用。
-    const paleo::workflow_detail::OnnxAreaGrid grid = paleo::workflow_detail::onnxAreaGrid( layers );
+    job->executionEngine = QStringLiteral( "onnxruntime" );
+
+    // 网格几何（清单 horizon.<target>* 声明）在 GUI 线程解析好，compute 直接用。
+    const paleo::workflow_detail::OnnxAreaGrid grid = paleo::workflow_detail::onnxAreaGrid( layers, horizon );
     std::memcpy( job->onnxGt, grid.gt, sizeof( grid.gt ) );
     job->onnxProjection = grid.projection;
     job->onnxSourcePath = grid.sourcePath;
     job->onnxFromDecl = grid.fromDecl;
 
-    // T26：预测栅格落 artifacts/derived + DERIVED 版本（父版本 = 提供 D61
+    // T26：预测栅格落 artifacts/derived + DERIVED 版本（父版本 = 提供
     // geotransform 的时间栅格版本，可溯源时）。
     QString regErr;
     DerivedAssetRegistrar registrar = paleo::workflow_detail::derivedRegistrarOf( this, &regErr );
@@ -172,6 +171,30 @@ bool PredictionWorkflow::preparePredictionJob( const QString &horizon, const QSt
     job->parentVersionIds = grid.fromDecl && !grid.sourcePath.isEmpty()
                                 ? registrar.parentVersionIdsFor( QStringList{ grid.sourcePath } )
                                 : QStringList();
+    if ( job->parentVersionIds.isEmpty() && m_catalog )
+    {
+      for ( const auto &link : m_catalog->links() )
+      {
+        if ( !link.unresolved && m_catalog->entityById( link.entityId ).name.compare( horizon, Qt::CaseInsensitive ) == 0 )
+        {
+          const auto cur = m_catalog->currentVersion( link.assetId );
+          if ( !cur.id.isEmpty() && !job->parentVersionIds.contains( cur.id ) )
+            job->parentVersionIds << cur.id;
+        }
+      }
+      if ( job->parentVersionIds.isEmpty() )
+      {
+        for ( const auto &a : m_catalog->assets() )
+        {
+          if ( a.displayName.contains( horizon, Qt::CaseInsensitive ) )
+          {
+            const auto cur = m_catalog->currentVersion( a.id );
+            if ( !cur.id.isEmpty() && !job->parentVersionIds.contains( cur.id ) )
+              job->parentVersionIds << cur.id;
+          }
+        }
+      }
+    }
     job->layerId = QStringLiteral( "pred.%1.onnx.%2" ).arg( horizon, model );
     job->layerGroup = QStringLiteral( "03_Predict" ); // 历史分组保持（m2(A)）
     job->layerTitle = tr( "%1 onnx %2 预测" ).arg( horizon, model );
@@ -201,10 +224,41 @@ bool PredictionWorkflow::preparePredictionJob( const QString &horizon, const QSt
     return fail( regErr );
   job->params.insert( QStringLiteral( "OUTPUT" ), job->staging.absolutePath );
 
+  // P0-1: 自动解析层位输入栅格图层作为 INPUT（页面只收标量参数，图层输入由工作流上下文解析）
+  if ( !job->params.contains( QStringLiteral( "INPUT" ) ) || job->params.value( QStringLiteral( "INPUT" ) ).isNull() )
+  {
+    QgsMapLayer *inputLayer = nullptr;
+    const QString target = horizon.trimmed().isEmpty() ? AreaRules::active().targetHorizon : horizon.trimmed();
+    const QString prefix = QStringLiteral( "horizon.%1" ).arg( target );
+    for ( const LayerDeclaration &d : layers->declared() )
+    {
+      if ( d.layerId.startsWith( prefix ) && d.type.compare( QStringLiteral( "raster" ), Qt::CaseInsensitive ) == 0 )
+      {
+        inputLayer = layers->instantiate( d.layerId );
+        if ( inputLayer )
+          break;
+      }
+    }
+    if ( !inputLayer )
+    {
+      for ( const LayerDeclaration &d : layers->declared() )
+      {
+        if ( d.type.compare( QStringLiteral( "raster" ), Qt::CaseInsensitive ) == 0 )
+        {
+          inputLayer = layers->instantiate( d.layerId );
+          if ( inputLayer )
+            break;
+        }
+      }
+    }
+    if ( inputLayer )
+      job->params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( inputLayer ) );
+  }
+
   // 父版本 = 预测输入图层（文件源可溯源时）——INPUT 层是 GUI 对象，其 source
   // 只在 GUI 线程读。
   QStringList parentPaths;
-  if ( const QgsMapLayer *input = params.value( QStringLiteral( "INPUT" ) ).value<QgsMapLayer *>() )
+  if ( const QgsMapLayer *input = job->params.value( QStringLiteral( "INPUT" ) ).value<QgsMapLayer *>() )
   {
     const QString src = input->source().section( QLatin1Char( '|' ), 0, 0 );
     if ( paleo::workflow_detail::isFileBackedSource( src ) )
@@ -238,6 +292,9 @@ bool PredictionWorkflow::computePredictionJob( PredictionJob *job )
     return false;
   };
 
+  if ( job->isCancelled && job->isCancelled() )
+    return fail( tr( "预测已取消" ) );
+
 #if PALEO_HAVE_ORT
   if ( job->algorithmId.startsWith( QLatin1String( "onnx:" ) ) )
   {
@@ -246,6 +303,16 @@ bool PredictionWorkflow::computePredictionJob( PredictionJob *job )
     if ( !onnx )
       return fail( tr( "no ONNX service bound; cannot run '%1'" ).arg( job->algorithmId ) );
 
+    // P0-3: 模型哈希、会话加载与 warmup 卸载至 worker 线程，决不阻塞主线程
+    OnnxModelMeta meta;
+    if ( onnx->loadModelMeta( model, &meta, &job->error ) != OnnxLoadStatus::Ok )
+      return fail( job->error.isEmpty() ? tr( "加载 ONNX 模型 '%1' 失败" ).arg( model ) : job->error );
+    job->modelSha256 = meta.sha256;
+    job->executionEngine = QStringLiteral( "onnxruntime" );
+
+    if ( job->isCancelled && job->isCancelled() )
+      return fail( tr( "预测已取消" ) );
+
     // #144：绑定模型名推理，并发任务换活动模型不影响本次。
     const OnnxTensor tensor =
         onnx->runTensorOn( model, job->onnxInputName, job->onnxInput, job->onnxShape, &job->error );
@@ -253,6 +320,9 @@ bool PredictionWorkflow::computePredictionJob( PredictionJob *job )
       return fail( job->error.isEmpty()
                        ? tr( "ONNX model '%1' produced no output" ).arg( model )
                        : job->error );
+
+    if ( job->isCancelled && job->isCancelled() )
+      return fail( tr( "预测已取消" ) );
 
     // 网格门禁（plan §1 trap）：输出挤成二维后必须是工区网格 411×641，否则
     // 不写栅格、不登记图层。geotransform 由 horizon.D61* 声明提供，缺省常量。
@@ -267,6 +337,9 @@ bool PredictionWorkflow::computePredictionJob( PredictionJob *job )
                                                    &job->error ) )
       return fail( job->error.isEmpty() ? tr( "cannot place ONNX output on a grid" ) : job->error );
 
+    if ( job->isCancelled && job->isCancelled() )
+      return fail( tr( "预测已取消" ) );
+
     const QString outPath = paleo::workflow_detail::writeOnnxRaster(
         job->staging.absolutePath, tensor.values, rows, cols, grid, job->params, model,
         tensor.shape, &job->error );
@@ -275,11 +348,15 @@ bool PredictionWorkflow::computePredictionJob( PredictionJob *job )
                                         : job->error );
     job->outputPath = outPath;
     job->commitExtra.insert( QStringLiteral( "model" ), model );
+    job->commitExtra.insert( QStringLiteral( "model_names" ), QStringList{ model } );
+    job->commitExtra.insert( QStringLiteral( "execution_engine" ),
+                             job->executionEngine.isEmpty() ? QStringLiteral( "onnxruntime" ) : job->executionEngine );
+    if ( !job->modelSha256.isEmpty() )
+      job->commitExtra.insert( QStringLiteral( "model_sha256" ), job->modelSha256 );
     job->commitExtra.insert( QStringLiteral( "rows" ), rows );
     job->commitExtra.insert( QStringLiteral( "cols" ), cols );
     job->commitExtra.insert( QStringLiteral( "geotransform_source" ),
-                             grid.fromDecl ? QStringLiteral( "horizon.%1" ).arg(
-                                                 AreaRules::active().targetHorizon )
+                             grid.fromDecl ? QStringLiteral( "horizon.%1" ).arg( job->horizon )
                                            : QStringLiteral( "project_area" ) );
     job->ok = true;
     return true;
@@ -290,6 +367,9 @@ bool PredictionWorkflow::computePredictionJob( PredictionJob *job )
   if ( !proc )
     return fail( tr( "prediction workflow is not bound to services" ) );
 
+  if ( job->isCancelled && job->isCancelled() )
+    return fail( tr( "预测已取消" ) );
+
   const QVariantMap results = proc->run( job->algorithmId, job->params, &job->error );
   if ( results.isEmpty() )
   {
@@ -297,6 +377,9 @@ bool PredictionWorkflow::computePredictionJob( PredictionJob *job )
       job->error = tr( "prediction algorithm '%1' produced no results" ).arg( job->algorithmId );
     return false;
   }
+
+  if ( job->isCancelled && job->isCancelled() )
+    return fail( tr( "预测已取消" ) );
 
   job->outputPath = paleo::workflow_detail::outputPathOf( results );
   if ( job->outputPath.isEmpty() )
@@ -326,23 +409,44 @@ bool PredictionWorkflow::publishPredictionJob( const PredictionJob &job, QString
   DerivedAssetRegistrar registrar = paleo::workflow_detail::derivedRegistrarOf( this, &regErr );
   if ( !registrar.isBound() )
     return fail( regErr );
-  QString commitErr;
-  if ( !registrar.commitExternal( job.staging, job.outputPath, job.parentVersionIds,
-                                  job.sourceUri, job.commitExtra, &commitErr ) )
-    return fail( commitErr );
+
+  // 事务化发布：先拷贝/暂存文件并进行图层声明；若图层声明失败，删除暂存文件，
+  // 决不向 DataCatalog 提交版本（避免产生无法回滚的孤儿/僵尸版本）。
+  const QString stagedPath = job.staging.absolutePath;
+  bool staged = false;
+  if ( job.outputPath != stagedPath )
+  {
+    QDir().mkpath( QFileInfo( stagedPath ).absolutePath() );
+    if ( QFile::exists( stagedPath ) )
+      QFile::remove( stagedPath );
+    if ( !QFile::copy( job.outputPath, stagedPath ) )
+      return fail( tr( "无法将预测输出复制到受管路径" ) );
+    staged = true;
+  }
 
   LayerDeclaration decl;
   decl.layerId = job.layerId;
   decl.horizon = job.horizon;
   decl.type = QStringLiteral( "raster" );
-  decl.source = job.staging.absolutePath;
+  decl.source = stagedPath;
   decl.group = job.layerGroup;
   decl.title = job.layerTitle;
   if ( !layers->declare( decl, error ) )
   {
+    if ( QFile::exists( stagedPath ) )
+      QFile::remove( stagedPath );
     return fail( ( error && !error->isEmpty() )
                      ? *error
                      : tr( "failed to declare result layer '%1'" ).arg( decl.layerId ) );
+  }
+
+  QString commitErr;
+  if ( !registrar.commit( job.staging, job.parentVersionIds,
+                          job.sourceUri, job.commitExtra, &commitErr ) )
+  {
+    if ( QFile::exists( stagedPath ) )
+      QFile::remove( stagedPath );
+    return fail( commitErr );
   }
 
   // m2(A) 3b：算法无置信度输出 → 不声明伴生层（confidenceCompanionAvailable

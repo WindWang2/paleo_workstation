@@ -68,7 +68,8 @@ int sanitizeModelInput( QVector<float> &data, QVector<bool> *valid )
 }
 
 void softmaxGrid( const QVector<float> &logits, int classes, int rows, int cols,
-                  const QVector<bool> &valid, TileClassGrid *out )
+                  const QVector<bool> &valid, TileClassGrid *out,
+                  const QString &outputSemantics )
 {
   const int pixels = rows * cols;
   out->rows = rows;
@@ -77,14 +78,88 @@ void softmaxGrid( const QVector<float> &logits, int classes, int rows, int cols,
   out->argmax = QVector<quint8>( pixels, 255 );
   out->confidence = QVector<float>( pixels, 0.0f );
   out->probMax = QVector<float>( pixels, 0.0f );
+  out->accumulatedProbs = QVector<float>( qsizetype( classes ) * pixels, 0.0f );
   if ( classes < 1 || classes > kMaxTileClasses || pixels < 1 ||
        logits.size() != qsizetype( classes ) * pixels )
     return; // 尺寸不符/类数越界 → 全 255（无数据）；调用方按契约先验形状
+
+  const bool isProbs = ( outputSemantics == QLatin1String( "probabilities" ) );
+  const bool isClasses = ( outputSemantics == QLatin1String( "classes" ) ||
+                           outputSemantics == QLatin1String( "class_index" ) );
   const double lnC = classes > 1 ? std::log( double( classes ) ) : 1.0;
+
   for ( int p = 0; p < pixels; ++p )
   {
     if ( valid.size() == pixels && !valid[p] )
       continue; // 无数据：argmax 保持 255
+
+    if ( isClasses )
+    {
+      const float v = logits[p];
+      if ( !std::isfinite( v ) )
+        continue;
+      const int label = int( std::round( v ) );
+      if ( label >= 0 && label < kMaxTileClasses )
+      {
+        out->argmax[p] = quint8( label );
+        out->confidence[p] = 1.0f;
+        out->probMax[p] = 1.0f;
+        if ( label < classes )
+          out->accumulatedProbs[label * pixels + p] = 1.0f;
+      }
+      continue;
+    }
+
+    if ( isProbs )
+    {
+      bool finite = true;
+      for ( int c = 0; c < classes; ++c )
+      {
+        if ( !std::isfinite( logits[c * pixels + p] ) )
+        {
+          finite = false;
+          break;
+        }
+      }
+      if ( !finite )
+        continue;
+      double entropy = 0.0;
+      int best = 0;
+      double bestP = 0.0;
+      for ( int c = 0; c < classes; ++c )
+      {
+        const double prob = std::clamp( double( logits[c * pixels + p] ), 0.0, 1.0 );
+        out->accumulatedProbs[c * pixels + p] = float( prob );
+        if ( prob > 0.0 )
+          entropy -= prob * std::log( prob );
+        if ( prob > bestP )
+        {
+          bestP = prob;
+          best = c;
+        }
+      }
+      out->argmax[p] = quint8( best );
+      out->probMax[p] = float( std::clamp( bestP, 0.0, 1.0 ) );
+      double conf = classes > 1 ? 1.0 - entropy / lnC : 1.0;
+      conf = std::clamp( conf, 0.0, 1.0 );
+      out->confidence[p] = float( conf );
+      continue;
+    }
+
+    if ( classes == 1 )
+    {
+      const double v = double( logits[p] );
+      if ( !std::isfinite( v ) )
+        continue;
+      const double p1 = 1.0 / ( 1.0 + std::exp( -v ) );
+      out->argmax[p] = p1 >= 0.5 ? 1 : 0;
+      const double bp = p1 >= 0.5 ? p1 : ( 1.0 - p1 );
+      out->probMax[p] = float( std::clamp( bp, 0.0, 1.0 ) );
+      out->confidence[p] = float( std::clamp( std::abs( p1 - 0.5 ) * 2.0, 0.0, 1.0 ) );
+      out->accumulatedProbs[p] = float( p1 );
+      continue;
+    }
+
     double cmax = -std::numeric_limits<double>::infinity();
     bool finite = true;
     for ( int c = 0; c < classes; ++c )
@@ -112,6 +187,7 @@ void softmaxGrid( const QVector<float> &logits, int classes, int rows, int cols,
     for ( int c = 0; c < classes; ++c )
     {
       const double prob = expv[c] / sum;
+      out->accumulatedProbs[c * pixels + p] = float( prob );
       if ( prob > 0.0 )
         entropy -= prob * std::log( prob );
       if ( prob > bestP )
@@ -121,7 +197,7 @@ void softmaxGrid( const QVector<float> &logits, int classes, int rows, int cols,
       }
     }
     out->argmax[p] = quint8( best );
-    out->probMax[p] = float( bestP );
+    out->probMax[p] = float( std::clamp( bestP, 0.0, 1.0 ) );
     double conf = classes > 1 ? 1.0 - entropy / lnC : 1.0;
     conf = std::clamp( conf, 0.0, 1.0 );
     out->confidence[p] = float( conf );
@@ -131,21 +207,139 @@ void softmaxGrid( const QVector<float> &logits, int classes, int rows, int cols,
 void stitchTileIntoGrid( const InferenceTile &tile, const TileClassGrid &tileGrid,
                          TileClassGrid *grid )
 {
-  if ( !tile.isValid() || grid->argmax.isEmpty() || tileGrid.argmax.isEmpty() )
+  if ( !tile.isValid() || grid->rows <= 0 || grid->cols <= 0 )
     return;
+
+  const int gridPixels = grid->rows * grid->cols;
+  if ( grid->argmax.size() != gridPixels )
+    grid->argmax = QVector<quint8>( gridPixels, 255 );
+  if ( grid->confidence.size() != gridPixels )
+    grid->confidence = QVector<float>( gridPixels, 0.0f );
+  if ( grid->probMax.size() != gridPixels )
+    grid->probMax = QVector<float>( gridPixels, 0.0f );
+  if ( grid->accumulatedWeights.size() != gridPixels )
+    grid->accumulatedWeights = QVector<float>( gridPixels, 0.0f );
+
+  if ( grid->classes == 0 && tileGrid.classes > 0 )
+    grid->classes = tileGrid.classes;
+
+  const int C = qMax( 1, grid->classes );
+  if ( grid->accumulatedProbs.size() != C * gridPixels )
+    grid->accumulatedProbs = QVector<float>( C * gridPixels, 0.0f );
+
+  const int tilePixels = tileGrid.rows * tileGrid.cols;
   const int offR = tile.innerRow0 - tile.row0;
   const int offC = tile.innerCol0 - tile.col0;
+
+  // Trapezoidal feathering window margin width
+  const int Mr = qMax( 1, qMin( tile.innerRows / 2, 8 ) );
+  const int Mc = qMax( 1, qMin( tile.innerCols / 2, 8 ) );
+
   for ( int ir = 0; ir < tile.innerRows; ++ir )
   {
     const int gridRow = tile.innerRow0 + ir;
     const int tileRow = offR + ir;
+    if ( gridRow < 0 || gridRow >= grid->rows || tileRow < 0 || tileRow >= tileGrid.rows )
+      continue;
+
+    const int dr = qMin( ir + 1, tile.innerRows - ir );
+    const float wr = std::clamp( float( dr ) / float( Mr ), 0.05f, 1.0f );
+
     for ( int ic = 0; ic < tile.innerCols; ++ic )
     {
-      const int gridIdx = gridRow * grid->cols + tile.innerCol0 + ic;
-      const int tileIdx = tileRow * tileGrid.cols + offC + ic;
-      grid->argmax[gridIdx] = tileGrid.argmax[tileIdx];
-      grid->confidence[gridIdx] = tileGrid.confidence[tileIdx];
-      grid->probMax[gridIdx] = tileGrid.probMax[tileIdx];
+      const int gridCol = tile.innerCol0 + ic;
+      const int tileCol = offC + ic;
+      if ( gridCol < 0 || gridCol >= grid->cols || tileCol < 0 || tileCol >= tileGrid.cols )
+        continue;
+
+      const int gridIdx = gridRow * grid->cols + gridCol;
+      const int tileIdx = tileRow * tileGrid.cols + tileCol;
+
+      const quint8 incoming = ( tileGrid.argmax.size() > tileIdx ) ? tileGrid.argmax[tileIdx] : 255;
+      if ( incoming == 255 )
+        continue; // NoData: do not accumulate into grid
+
+      const int dc = qMin( ic + 1, tile.innerCols - ic );
+      const float wc = std::clamp( float( dc ) / float( Mc ), 0.05f, 1.0f );
+      const float weight = wr * wc;
+
+      // Extract probabilities for incoming tile
+      std::vector<float> pIn( C, 0.0f );
+      if ( tileGrid.accumulatedProbs.size() == C * tilePixels )
+      {
+        for ( int c = 0; c < C; ++c )
+          pIn[c] = tileGrid.accumulatedProbs[c * tilePixels + tileIdx];
+      }
+      else
+      {
+        const float bestP = ( tileGrid.probMax.size() > tileIdx && tileGrid.probMax[tileIdx] > 0.0f )
+                              ? tileGrid.probMax[tileIdx]
+                              : 1.0f;
+        if ( C == 1 )
+        {
+          pIn[0] = bestP;
+        }
+        else
+        {
+          const float restP = ( 1.0f - bestP ) / float( C - 1 );
+          for ( int c = 0; c < C; ++c )
+            pIn[c] = ( c == incoming ) ? bestP : restP;
+        }
+      }
+
+      const float prevWeight = grid->accumulatedWeights[gridIdx];
+      const float newWeight = prevWeight + weight;
+      grid->accumulatedWeights[gridIdx] = newWeight;
+
+      if ( prevWeight == 0.0f )
+      {
+        // First visit to this cell: preserve incoming values
+        for ( int c = 0; c < C; ++c )
+          grid->accumulatedProbs[c * gridPixels + gridIdx] = weight * pIn[c];
+
+        grid->argmax[gridIdx] = incoming;
+        grid->confidence[gridIdx] = ( tileGrid.confidence.size() > tileIdx ) ? tileGrid.confidence[tileIdx] : 1.0f;
+        grid->probMax[gridIdx] = ( tileGrid.probMax.size() > tileIdx ) ? tileGrid.probMax[tileIdx] : 1.0f;
+      }
+      else
+      {
+        // Genuine tile overlap blending:
+        // Accumulate distance-weighted probabilities
+        for ( int c = 0; c < C; ++c )
+          grid->accumulatedProbs[c * gridPixels + gridIdx] += weight * pIn[c];
+
+        // Normalize before taking argmax
+        const float invW = 1.0f / newWeight;
+        int bestC = 0;
+        float bestProb = -1.0f;
+        double entropy = 0.0;
+        const double lnC = C > 1 ? std::log( double( C ) ) : 1.0;
+
+        for ( int c = 0; c < C; ++c )
+        {
+          const float normP = std::clamp( grid->accumulatedProbs[c * gridPixels + gridIdx] * invW, 0.0f, 1.0f );
+          if ( normP > bestProb )
+          {
+            bestProb = normP;
+            bestC = c;
+          }
+          if ( normP > 0.0f )
+            entropy -= double( normP ) * std::log( double( normP ) );
+        }
+
+        grid->argmax[gridIdx] = quint8( bestC );
+        grid->probMax[gridIdx] = bestProb;
+
+        if ( C > 1 )
+        {
+          double conf = 1.0 - entropy / lnC;
+          grid->confidence[gridIdx] = float( std::clamp( conf, 0.0, 1.0 ) );
+        }
+        else
+        {
+          grid->confidence[gridIdx] = float( std::clamp( std::abs( double( bestProb ) - 0.5 ) * 2.0, 0.0, 1.0 ) );
+        }
+      }
     }
   }
 }
@@ -228,27 +422,76 @@ bool runTileInference( PaleoOnnxService *onnx, const TileInferenceRequest &req,
                      .arg( data.size() ) );
 
     // 固定输入维的模型：读域必须恰好匹配（动态维不受限）。
+    int inferRows = tile.rows;
+    int inferCols = tile.cols;
+    bool needPad = false;
     if ( meta.inputShape[2] > 0 && meta.inputShape[2] != tile.rows )
-      return fail( QObject::tr( "tile 读域 %1 行与模型固定输入 %2 行不符（换动态维模型或调 tile 尺寸）" )
-                     .arg( tile.rows )
-                     .arg( meta.inputShape[2] ) );
+    {
+      if ( tile.rows > meta.inputShape[2] )
+        return fail( QObject::tr( "tile 读域 %1 行超过模型固定输入 %2 行" )
+                       .arg( tile.rows )
+                       .arg( meta.inputShape[2] ) );
+      inferRows = int( meta.inputShape[2] );
+      needPad = true;
+    }
     if ( meta.inputShape[3] > 0 && meta.inputShape[3] != tile.cols )
-      return fail( QObject::tr( "tile 读域 %1 列与模型固定输入 %2 列不符（换动态维模型或调 tile 尺寸）" )
-                     .arg( tile.cols )
-                     .arg( meta.inputShape[3] ) );
+    {
+      if ( tile.cols > meta.inputShape[3] )
+        return fail( QObject::tr( "tile 读域 %1 列超过模型固定输入 %2 列" )
+                       .arg( tile.cols )
+                       .arg( meta.inputShape[3] ) );
+      inferCols = int( meta.inputShape[3] );
+      needPad = true;
+    }
 
     QVector<bool> valid;
     sanitizeModelInput( data, &valid ); // #143：NaN/Inf 不进 ORT，输出端按掩膜置 255
 
+    QVector<float> inferData;
+    if ( needPad )
+    {
+      inferData = QVector<float>( qsizetype( inferRows ) * inferCols, 0.0f );
+      for ( int r = 0; r < tile.rows; ++r )
+      {
+        for ( int c = 0; c < tile.cols; ++c )
+        {
+          inferData[r * inferCols + c] = data[r * tile.cols + c];
+        }
+      }
+    }
+    else
+    {
+      inferData = std::move( data );
+    }
+
     QString runErr;
     QElapsedTimer inferClock;
     inferClock.start();
-    const OnnxTensor out =
-      onnx->runTensorOn( req.model, meta.inputName, data, { 1, 1, tile.rows, tile.cols }, &runErr );
+    OnnxTensor out =
+      onnx->runTensorOn( req.model, meta.inputName, inferData, { 1, 1, inferRows, inferCols }, &runErr );
     const qint64 tileMs = inferClock.elapsed();
     result->inferenceMs += tileMs;
     if ( !runErr.isEmpty() )
       return fail( QObject::tr( "tile %1/%2 推理失败: %3" ).arg( i + 1 ).arg( tiles.size() ).arg( runErr ) );
+
+    if ( needPad )
+    {
+      const int outClasses = out.shape.size() >= 2 ? int( out.shape[1] ) : 1;
+      QVector<float> unpaddedValues( qsizetype( outClasses ) * tile.rows * tile.cols );
+      for ( int c = 0; c < outClasses; ++c )
+      {
+        for ( int r = 0; r < tile.rows; ++r )
+        {
+          for ( int col = 0; col < tile.cols; ++col )
+          {
+            unpaddedValues[c * ( tile.rows * tile.cols ) + r * tile.cols + col] =
+              out.values[c * ( inferRows * inferCols ) + r * inferCols + col];
+          }
+        }
+      }
+      out.values = std::move( unpaddedValues );
+      out.shape = { 1, outClasses, tile.rows, tile.cols };
+    }
 
     // 输出契约：[1,C,rows,cols]，空间维与读域一致。
     if ( out.shape.size() != 4 || out.shape[0] != 1 || out.shape[2] != tile.rows ||
@@ -277,6 +520,8 @@ bool runTileInference( PaleoOnnxService *onnx, const TileInferenceRequest &req,
       grid.argmax = QVector<quint8>( qsizetype( req.gridRows ) * req.gridCols, 255 );
       grid.confidence = QVector<float>( qsizetype( req.gridRows ) * req.gridCols, 0.0f );
       grid.probMax = QVector<float>( qsizetype( req.gridRows ) * req.gridCols, 0.0f );
+      grid.accumulatedProbs = QVector<float>( qsizetype( classes ) * req.gridRows * req.gridCols, 0.0f );
+      grid.accumulatedWeights = QVector<float>( qsizetype( req.gridRows ) * req.gridCols, 0.0f );
     }
     else if ( grid.classes != classes )
     {
@@ -287,7 +532,7 @@ bool runTileInference( PaleoOnnxService *onnx, const TileInferenceRequest &req,
     }
 
     TileClassGrid tileGrid;
-    softmaxGrid( out.values, classes, tile.rows, tile.cols, valid, &tileGrid );
+    softmaxGrid( out.values, classes, tile.rows, tile.cols, valid, &tileGrid, meta.outputSemantics );
     stitchTileIntoGrid( tile, tileGrid, &grid );
 
     result->tilesDone = i + 1;

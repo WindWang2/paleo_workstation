@@ -356,6 +356,22 @@ void PredictPage::rebuildSchemaForm()
   const QString algId = algos->currentData().toString();
   onnxArea->setVisible(algId.startsWith(QLatin1String("onnx:")));
 
+  if (auto *types = child<QComboBox>(this, "predictTypeCombo"))
+  {
+    const QString ptype = types->currentData().toString();
+    auto *status = child<QLabel>(this, "statusLabel");
+    if (ptype == QLatin1String("well_log_facies"))
+    {
+      if (status && (status->text().isEmpty() || status->text().contains(tr("测井相"))))
+        status->setText(tr("测井相预测请转至测井相解释面板（井综合显示/测井相解释）进行"));
+    }
+    else
+    {
+      if (status && status->text().contains(tr("测井相预测请转至")))
+        status->clear();
+    }
+  }
+
   // 重建前按 key 快照已填值——切换算法/预测类型触发的重建对同名参数保留
   // 用户输入（联动不吞状态）。快照存页面属性：跨多次重建（如 smoothing →
   // isopach → smoothing）仍能把值带回来；每次重建叠加当前活控件值。
@@ -582,11 +598,40 @@ void PredictPage::setRunBusy(bool busy)
   auto *bar = child<QProgressBar>(this, "runProgressBar");
   auto *status = child<QLabel>(this, "statusLabel");
 
+  const QString busyTip = busy ? tr("预测正在运行——完成后自动恢复，或点取消") : QString();
+
   if (run)
   {
     run->setEnabled(!busy);
-    // DESIGN.md：禁用控件必须带 reason tooltip。
-    run->setToolTip(busy ? tr("预测正在运行——完成后自动恢复，或点取消") : QString());
+    run->setToolTip(busyTip);
+  }
+  if (auto *types = child<QComboBox>(this, "predictTypeCombo"))
+  {
+    types->setEnabled(!busy);
+    types->setToolTip(busyTip);
+  }
+  if (auto *horizons = child<QComboBox>(this, "horizonCombo"))
+  {
+    horizons->setEnabled(!busy);
+    horizons->setToolTip(busyTip);
+  }
+  if (auto *algos = child<QComboBox>(this, "algoCombo"))
+  {
+    algos->setEnabled(!busy);
+    algos->setToolTip(busyTip);
+  }
+  if (auto *mamcl = child<QPushButton>(this, "mamclButton"))
+  {
+    mamcl->setEnabled(!busy);
+    mamcl->setToolTip(busy ? busyTip : tr("启动独立的 MAMCL 分析程序（首次启动会自动准备 Python 环境）"));
+  }
+  if (auto *onnxArea = child<QWidget>(this, "onnxParamsArea"))
+  {
+    onnxArea->setEnabled(!busy);
+  }
+  if (auto *formArea = child<QWidget>(this, "paramsFormArea"))
+  {
+    formArea->setEnabled(!busy);
   }
   if (cancel)
     cancel->setVisible(busy);

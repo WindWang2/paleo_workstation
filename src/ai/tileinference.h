@@ -34,6 +34,8 @@ struct TileClassGrid
   QVector<quint8> argmax;
   QVector<float> confidence;
   QVector<float> probMax;
+  QVector<float> accumulatedProbs;   // layout: [classes][rows * cols]
+  QVector<float> accumulatedWeights; // size: rows * cols
   bool isEmpty() const { return argmax.isEmpty(); }
 };
 
@@ -49,9 +51,11 @@ int sanitizeModelInput( QVector<float> &data, QVector<bool> *valid );
 // 任一 logit 非有限的像元 → 无数据（255、置信 0），不回落到类 0（#143）。
 // classes 越界 [1, kMaxTileClasses] → 全 255。
 void softmaxGrid( const QVector<float> &logits, int classes, int rows, int cols,
-                  const QVector<bool> &valid, TileClassGrid *out );
+                  const QVector<bool> &valid, TileClassGrid *out,
+                  const QString &outputSemantics = QStringLiteral( "logits" ) );
 
-// 把 tile 结果的内区写进全图（整图坐标）。内区互不重叠 → 每格恰好写一次。
+// 把 tile 结果写入全图（整图坐标）。重叠区域按距离/梯形权重羽化融合概率并归一化，
+// 单次访问区域保持原生预测。
 void stitchTileIntoGrid( const InferenceTile &tile, const TileClassGrid &tileGrid,
                          TileClassGrid *grid );
 

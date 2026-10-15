@@ -270,7 +270,15 @@ QString PaleoOnnxService::resolveModelPathLocked( const QString &name, QString *
     const QString canonical = info.canonicalFilePath();
     return QDir::cleanPath( canonical.isEmpty() ? info.absoluteFilePath() : canonical );
   }
-  return normalizedModelPathIn( m_modelRoot, name ); // 无 manifest：开发降级
+  const QString p = normalizedModelPathIn( m_modelRoot, name ); // 无 manifest：开发降级
+  if ( p.isEmpty() && reason && reason->isEmpty() )
+  {
+    QString file = name;
+    if ( !file.endsWith( QLatin1String( ".onnx" ) ) )
+      file += QLatin1String( ".onnx" );
+    *reason = tr( "Model not found: %1" ).arg( QDir( m_modelRoot ).filePath( file ) );
+  }
+  return p;
 }
 
 QString PaleoOnnxService::normalizedModelPath( const QString &name ) const
@@ -290,7 +298,12 @@ QString PaleoOnnxService::normalizedModelPathIn( const QString &root, const QStr
     file += QLatin1String( ".onnx" );
   const QFileInfo modelInfo( QDir( root ).absoluteFilePath( file ) );
   const QString canonical = modelInfo.canonicalFilePath();
-  return QDir::cleanPath( canonical.isEmpty() ? modelInfo.absoluteFilePath() : canonical );
+  if ( canonical.isEmpty() )
+    return QString();
+  const QString rootCanon = QFileInfo( root ).canonicalFilePath();
+  if ( !rootCanon.isEmpty() && !canonical.startsWith( rootCanon + QLatin1Char( '/' ) ) && canonical != rootCanon )
+    return QString();
+  return QDir::cleanPath( canonical );
 }
 
 QStringList PaleoOnnxService::availableModels() const
@@ -505,19 +518,27 @@ OnnxLoadStatus PaleoOnnxService::loadModelMeta( const QString &name, OnnxModelMe
       nextMeta.path = path;
       nextMeta.sha256 = sha;
 
+      if ( m_registryActive )
+      {
+        auto it = m_registryOk.constFind( name );
+        if ( it == m_registryOk.constEnd() )
+          it = m_registryOk.constFind( nextMeta.name );
+        if ( it != m_registryOk.constEnd() )
+        {
+          nextMeta.outputSemantics = it.value().outputSemantics;
+          nextMeta.classes = it.value().classes;
+        }
+      }
+
       // warmup：按输入签名零填充跑一次，计时（不伪造——失败如实记录）。
-      qint64 elements = 1;
-      bool allStatic = true;
-      for ( int64_t d : nextMeta.inputShape )
+      qint64 count = 1;
+      QVector<int64_t> warmShape = nextMeta.inputShape;
+      for ( int64_t &d : warmShape )
       {
         if ( d <= 0 )
-        {
-          allStatic = false;
-          break;
-        }
-        elements *= d;
+          d = 1;
+        count *= d;
       }
-      const qint64 count = allStatic ? elements : 1; // 动态维 → 最小 1 元素冒烟
       if ( count >= 1 && count <= ( qint64( 4 ) << 20 ) )
       {
         OnnxTensor warm;
@@ -526,7 +547,7 @@ OnnxLoadStatus PaleoOnnxService::loadModelMeta( const QString &name, OnnxModelMe
         clock.start();
         const QByteArray inName = nextMeta.inputName.toUtf8();
         QString runErr;
-        runFirstOutput( session, inName, zeros, nextMeta.inputShape, &warm, &runErr );
+        runFirstOutput( session, inName, zeros, warmShape, &warm, &runErr );
         nextMeta.warmupMs = clock.elapsed();
         nextMeta.warmupError = runErr;
       }

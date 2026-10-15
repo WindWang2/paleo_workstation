@@ -63,10 +63,23 @@ bool OnnxLocalPredictor::predict(const RemotePredictionRequest &request,
 
   TileClassGrid grid;
   softmaxGrid(out.values, int(out.shape[1]), request.rows, request.columns,
-              valid, &grid);
+              valid, &grid, meta.outputSemantics);
   cells = QVector<int>(grid.argmax.size(), 0);
-  for (qsizetype i = 0; i < grid.argmax.size(); ++i)
-    cells[i] = int(grid.argmax[i]); // 255=nodata 语义与 tile 产品一致
+  for (qsizetype i = 0; i < grid.argmax.size(); ++i) {
+    const quint8 rawClass = grid.argmax[i];
+    if (rawClass == 255) {
+      cells[i] = -9999; // Standard NoData
+    } else if (!request.facies.isEmpty()) {
+      if (rawClass < request.facies.size()) {
+        const QVariantMap f = request.facies[rawClass].toMap();
+        cells[i] = f.value(QStringLiteral("code")).toInt();
+      } else {
+        cells[i] = int(rawClass) + 1;
+      }
+    } else {
+      cells[i] = int(rawClass);
+    }
+  }
   return true;
 }
 

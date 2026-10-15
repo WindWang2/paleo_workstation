@@ -36,6 +36,7 @@ private slots:
   // #143：类数超过 255（类号与无数据 255 冲突）→ 全无数据。
   void softmaxRejectsTooManyClasses();
   void stitchWritesInnerRegionOnly();
+  void tileOverlapBlendingAccumulatesWeights();
   void endToEndProbabilityAndConfidence();
   void progressIsMonotonic();
   void cancelMidRunStopsHonestly();
@@ -43,6 +44,8 @@ private slots:
   void badModelFailsHonestly();
   void nonTileModelRejectedBySignature();
   void asyncTaskCancelsWithoutLeak();
+  void softmaxHandlesProbabilitiesSemanticsWithoutDoubleSoftmax();
+  void fixedShapeModelPadsBoundaryTiles();
 
 private:
   QString fixtureDir()
@@ -57,6 +60,17 @@ private:
     {
       OnnxFixtureWriter::writeSeg( fixtureDir() + QStringLiteral( "/seg3.onnx" ),
                                    { 1.0f, -1.0f, 0.0f }, { 0.0f, 0.0f, 0.1f } );
+      done = true;
+    }
+  }
+  void ensureFixed4x4()
+  {
+    static bool done = false;
+    if ( !done )
+    {
+      OnnxFixtureWriter::writeSeg( fixtureDir() + QStringLiteral( "/fixed4x4.onnx" ),
+                                   { 1.0f, -1.0f, 0.0f }, { 0.0f, 0.0f, 0.1f },
+                                   8, nullptr, 4, 4 );
       done = true;
     }
   }
@@ -304,6 +318,103 @@ void TestTileInference::stitchWritesInnerRegionOnly()
                               .arg( c )
                               .arg( grid.confidence[idx] ) ) );
     }
+}
+
+void TestTileInference::tileOverlapBlendingAccumulatesWeights()
+{
+  const int R = 1, C = 30;
+  // Two overlapping tiles:
+  // Tile 0: innerCol0 = 0, innerCols = 20 (cols 0..19)
+  // Tile 1: innerCol0 = 10, innerCols = 20 (cols 10..29)
+  // Overlap region is cols 10..19 (10 cols)
+  InferenceTile t0;
+  t0.row0 = 0; t0.col0 = 0; t0.rows = 1; t0.cols = 20;
+  t0.innerRow0 = 0; t0.innerCol0 = 0; t0.innerRows = 1; t0.innerCols = 20;
+
+  InferenceTile t1;
+  t1.row0 = 0; t1.col0 = 10; t1.rows = 1; t1.cols = 20;
+  t1.innerRow0 = 0; t1.innerCol0 = 10; t1.innerRows = 1; t1.innerCols = 20;
+
+  // Tile 0 predicts 2 classes: class 0 prob 0.90, class 1 prob 0.10
+  TileClassGrid tg0;
+  tg0.rows = 1; tg0.cols = 20; tg0.classes = 2;
+  tg0.argmax = QVector<quint8>( 20, 0 );
+  tg0.probMax = QVector<float>( 20, 0.90f );
+  tg0.confidence = QVector<float>( 20, 0.85f );
+  tg0.accumulatedProbs = QVector<float>( 2 * 20, 0.0f );
+  for ( int i = 0; i < 20; ++i )
+  {
+    tg0.accumulatedProbs[0 * 20 + i] = 0.90f;
+    tg0.accumulatedProbs[1 * 20 + i] = 0.10f;
+  }
+
+  // Tile 1 predicts 2 classes: class 0 prob 0.10, class 1 prob 0.90
+  TileClassGrid tg1;
+  tg1.rows = 1; tg1.cols = 20; tg1.classes = 2;
+  tg1.argmax = QVector<quint8>( 20, 1 );
+  tg1.probMax = QVector<float>( 20, 0.90f );
+  tg1.confidence = QVector<float>( 20, 0.85f );
+  tg1.accumulatedProbs = QVector<float>( 2 * 20, 0.0f );
+  for ( int i = 0; i < 20; ++i )
+  {
+    tg1.accumulatedProbs[0 * 20 + i] = 0.10f;
+    tg1.accumulatedProbs[1 * 20 + i] = 0.90f;
+  }
+
+  TileClassGrid grid;
+  grid.rows = R;
+  grid.cols = C;
+  grid.classes = 2;
+  grid.argmax = QVector<quint8>( R * C, 255 );
+  grid.confidence = QVector<float>( R * C, 0.0f );
+  grid.probMax = QVector<float>( R * C, 0.0f );
+
+  stitchTileIntoGrid( t0, tg0, &grid );
+  stitchTileIntoGrid( t1, tg1, &grid );
+
+  // 1. All cells 0..29 have valid data and positive accumulated weights
+  QCOMPARE( grid.accumulatedWeights.size(), C );
+  for ( int c = 0; c < C; ++c )
+  {
+    QVERIFY2( grid.accumulatedWeights[c] > 0.0f, qPrintable( QStringLiteral( "col %1 zero weight" ).arg( c ) ) );
+    QVERIFY( grid.argmax[c] != 255 );
+  }
+
+  // 2. Non-overlap cols 0..9 are exclusively Tile 0: class 0, probMax 0.90
+  for ( int c = 0; c < 10; ++c )
+  {
+    QCOMPARE( int( grid.argmax[c] ), 0 );
+    QVERIFY( qAbs( grid.probMax[c] - 0.90f ) < 1e-4f );
+  }
+
+  // 3. Non-overlap cols 20..29 are exclusively Tile 1: class 1, probMax 0.90
+  for ( int c = 20; c < 30; ++c )
+  {
+    QCOMPARE( int( grid.argmax[c] ), 1 );
+    QVERIFY( qAbs( grid.probMax[c] - 0.90f ) < 1e-4f );
+  }
+
+  // 4. Overlap region cols 10..19:
+  // Both tiles accumulate weights.
+  for ( int c = 10; c < 20; ++c )
+  {
+    QVERIFY( grid.accumulatedWeights[c] > 0.1f );
+  }
+
+  // Near left of overlap (col 10), tile 0 dominates -> class 0
+  QCOMPARE( int( grid.argmax[10] ), 0 );
+
+  // Near right of overlap (col 19), tile 1 dominates -> class 1
+  QCOMPARE( int( grid.argmax[19] ), 1 );
+
+  // In the overlap zone, blended probabilities vary smoothly between 0.9 and 0.1
+  bool hasBlendedIntermediate = false;
+  for ( int c = 10; c < 20; ++c )
+  {
+    if ( grid.probMax[c] < 0.89f )
+      hasBlendedIntermediate = true;
+  }
+  QVERIFY2( hasBlendedIntermediate, "Tile overlap region must genuinely blend probabilities via distance weights" );
 }
 
 void TestTileInference::endToEndProbabilityAndConfidence()
@@ -566,6 +677,39 @@ void TestTileInference::asyncTaskCancelsWithoutLeak()
   QVERIFY2( readRssKb() - rssBefore < 200 * 1024,
             qPrintable( QStringLiteral( "rss %1 -> %2 kB" ).arg( rssBefore ).arg( readRssKb() ) ) );
   QCOMPARE( onnx.sessionPoolSize(), poolBefore );
+}
+
+void TestTileInference::softmaxHandlesProbabilitiesSemanticsWithoutDoubleSoftmax()
+{
+  const QVector<float> probs = { 0.7f, 0.2f, 0.1f };
+  TileClassGrid g;
+  softmaxGrid( probs, 3, 1, 1, { true }, &g, QStringLiteral( "probabilities" ) );
+  QCOMPARE( int( g.argmax[0] ), 0 );
+  QVERIFY2( qAbs( double( g.probMax[0] ) - 0.7 ) < 1e-4,
+            qPrintable( QStringLiteral( "probMax was %1, expected 0.7" ).arg( g.probMax[0] ) ) );
+}
+
+void TestTileInference::fixedShapeModelPadsBoundaryTiles()
+{
+  ensureFixed4x4();
+  PaleoOnnxService onnx;
+  onnx.setModelRoot( fixtureDir() );
+  TileInferenceRequest req;
+  req.model = QStringLiteral( "fixed4x4" );
+  req.gridRows = 6;
+  req.gridCols = 6;
+  req.tileRows = 4;
+  req.tileCols = 4;
+  req.halo = 0;
+  req.fetch = []( int, int, int rows, int cols, QVector<float> &out, QString & ) {
+    out = QVector<float>( rows * cols, 1.0f );
+    return true;
+  };
+  TileInferenceResult res;
+  QString err;
+  QVERIFY2( runTileInference( &onnx, req, &res, {}, nullptr, &err ), qPrintable( err ) );
+  QCOMPARE( res.grid.rows, 6 );
+  QCOMPARE( res.grid.cols, 6 );
 }
 
 int main( int argc, char *argv[] )

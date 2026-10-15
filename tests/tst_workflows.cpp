@@ -27,8 +27,10 @@
 #include "../src/qgis/qgisprocessingservice.h"
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/workflow/workflows.h"
+#include "../src/workflow/workflows_internal.h"
 #include "../src/services/paleotaskservice.h"
 #include "../src/services/projectdata.h"
+#include <limits>
 
 // Workflow-orchestrator acceptance: real services end to end — a prediction
 // run lands a declared "predict.<h>.<ts>" layer, constraints accumulate into a
@@ -426,6 +428,90 @@ private slots:
     QVERIFY2( !derivedVersionRegistered( f.catalog, QStringLiteral( "prediction_raster" ),
                                          job.staging.absolutePath ),
               "compute 失败的产物不得登记 DERIVED 版本" );
+  }
+
+  void writeOnnxRasterMultiClassWithNaNDoesNotConvertToClass0()
+  {
+    QTemporaryDir dir;
+    QVERIFY( dir.isValid() );
+    const QString outPath = dir.filePath( QStringLiteral( "multiclass_nan.tif" ) );
+
+    paleo::workflow_detail::OnnxAreaGrid grid;
+    grid.gt[0] = 0.0;
+    grid.gt[1] = 1.0;
+    grid.gt[2] = 0.0;
+    grid.gt[3] = 2.0;
+    grid.gt[4] = 0.0;
+    grid.gt[5] = -1.0;
+    grid.projection = DataCatalog::localGridCrsWkt();
+
+    const int rows = 1, cols = 2;
+    const int pixels = rows * cols;
+    const int C = 3;
+    const float nanVal = std::numeric_limits<float>::quiet_NaN();
+
+    // Pixel 0: NaN in channels -> Must be written as -9999.0f (NoData), NOT 0.0f (class 0)
+    // Pixel 1: Valid logits: class 0 = 1.0f, class 1 = 10.0f, class 2 = 2.0f -> argmax = 1
+    QVector<float> values( C * pixels );
+    values[0 * pixels + 0] = nanVal;
+    values[0 * pixels + 1] = 1.0f;
+    values[1 * pixels + 0] = nanVal;
+    values[1 * pixels + 1] = 10.0f;
+    values[2 * pixels + 0] = nanVal;
+    values[2 * pixels + 1] = 2.0f;
+
+    QString err;
+    const QString written = paleo::workflow_detail::writeOnnxRaster(
+        outPath, values, rows, cols, grid, {}, QStringLiteral( "test_model" ),
+        { 1, C, rows, cols }, &err );
+    QVERIFY2( !written.isEmpty(), qPrintable( err ) );
+    QVERIFY( QFile::exists( outPath ) );
+
+    GDALDatasetH ds = GDALOpen( outPath.toUtf8().constData(), GA_ReadOnly );
+    QVERIFY( ds != nullptr );
+    GDALRasterBandH band = GDALGetRasterBand( ds, 1 );
+    float px[2] = { 0.0f, 0.0f };
+    QCOMPARE( GDALRasterIO( band, GF_Read, 0, 0, 2, 1, px, 2, 1, GDT_Float32, 0, 0 ), CE_None );
+    GDALClose( ds );
+
+    // Pixel 0 MUST be -9999.0f, NOT 0.0f
+    QCOMPARE( px[0], -9999.0f );
+    // Pixel 1 MUST be 1.0f (argmax class 1)
+    QCOMPARE( px[1], 1.0f );
+  }
+
+  void publishPredictionJobCleansStagingOnFailure()
+  {
+    Fixture f;
+    QVERIFY( initFixture( f ) );
+
+    PredictionWorkflow wf( &f.proc, &f.layers );
+    wf.setCatalog( &f.catalog, f.dir.path() );
+
+    PredictionWorkflow::PredictionJob job;
+    job.prepared = true;
+    job.ok = true;
+    job.horizon = QStringLiteral( "T1" );
+    job.algorithmId = QStringLiteral( "onnx:dummy" );
+    const QString stagingDir = f.dir.filePath( QStringLiteral( "artifacts/derived/onnx_prediction/v1" ) );
+    QVERIFY( QDir().mkpath( stagingDir ) );
+    const QString stagedFile = stagingDir + QStringLiteral( "/staged_raster.tif" );
+    job.staging.absolutePath = stagedFile;
+    job.outputPath = stagedFile;
+
+    QFile file( stagedFile );
+    QVERIFY( file.open( QIODevice::WriteOnly ) );
+    file.write( "dummy raster data" );
+    file.close();
+    QVERIFY( QFile::exists( stagedFile ) );
+
+    // Intentionally omit layerId to cause layer declaration failure:
+    job.layerId = QString();
+
+    QString err;
+    const bool published = wf.publishPredictionJob( job, &err );
+    QVERIFY( !published );
+    QVERIFY2( !QFile::exists( stagedFile ), "Staged raster must be removed when publish fails" );
   }
 
   // ②a addConstraint: ids c-1, c-2; per-horizon "constraints.<h>" decl holds WKT.

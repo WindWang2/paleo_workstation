@@ -347,7 +347,6 @@ void WellPredictionService::finish() {
   // 3 条，图签库 appearance 按名取纹色），沿用「追加条目」契约——但码分配
   // 不能随井处理顺序漂移（旧实现逐区间遇新标签即 max+1：同一标签集因部分
   // 组失败重试或井序不同可得不同码，属性表/图例跨 run 不可比）。先收集全
-  // 结果的未知标签、排序后统一分配：同标签集任意重跑码一致。
   {
     QStringList unknown;
     for (const auto &parts : m_results) {
@@ -357,11 +356,24 @@ void WellPredictionService::finish() {
           unknown << iv.text;
     }
     unknown.sort();
+    const auto projectSchemas = WellAttributeStore::faciesSchemas(m_catalog);
     int next = 1;
+    for (auto it = projectSchemas.cbegin(); it != projectSchemas.cend(); ++it)
+      for (const auto &val : it.value())
+        next = std::max(next, val.toMap().value("code").toInt() + 1);
     for (const auto &value : m_schema)
       next = std::max(next, value.toMap().value("code").toInt() + 1);
+
     for (const QString &label : unknown) {
-      QVariantMap item{{"code", next++}, {"name", label}, {"facies", label},
+      int code = 0;
+      for (auto it = projectSchemas.cbegin(); it != projectSchemas.cend(); ++it) {
+        code = faciesCodeForLabel(it.value(), label);
+        if (code > 0)
+          break;
+      }
+      if (code == 0)
+        code = next++;
+      QVariantMap item{{"code", code}, {"name", label}, {"facies", label},
                        {"color", "#9AA7B4"}};
       m_schema << FaciesCatalog::appearance(item);
     }

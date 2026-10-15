@@ -43,6 +43,9 @@ SeismicClusterResult clusterSeismicHorizon(
     }
     const int width = GDALGetRasterXSize(ds.get()), height = GDALGetRasterYSize(ds.get());
     result.extent = QRectF(gt[0], gt[3] + height * gt[5], width * gt[1], -height * gt[5]);
+    const char *projRef = GDALGetProjectionRef(ds.get());
+    if (projRef && *projRef)
+      result.crsWkt = QString::fromUtf8(projRef);
     if (width <= 0 || height <= 0 || result.extent.isEmpty()) {
       result.error = QStringLiteral("层位网格范围为空");
       return result;
@@ -157,8 +160,8 @@ SeismicClusterResult clusterSeismicHorizon(
     }
     result.columns = h.gridCols;
     result.rows = h.gridRows;
-    // 原始点落在输出像元中心；这里只定义分布图网格，不生成中间时间栅格。
-    result.extent = QRectF(h.p1x - spacingX / 2, h.p1y - spacingY / 2,
+    // 原始点坐标与像元边界对齐；这里只定义分布图网格，不生成中间时间栅格。
+    result.extent = QRectF(h.p1x, h.p1y,
                           h.gridCols * spacingX, h.gridRows * spacingY);
     QByteArray occupied(result.rows * result.columns, '\0');
     const QRegularExpression spaces(QStringLiteral("\\s+"));

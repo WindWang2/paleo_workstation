@@ -640,6 +640,64 @@ private slots:
       QVERIFY(panel.grab().save(screenshot));
     }
   }
+  void predictionMergesNeverOverwriteManualInterpretations() {
+    WorkflowFixture f;
+    QVERIFY(initFixture(f));
+    QVERIFY(addWell(f, "W1"));
+    QString error;
+
+    // 1. Seed manual interval interpretation
+    QVariantList manualIntervals{QVariantMap{
+        {"well_id", "W1"}, {"top_md", 10.0}, {"base_md", 20.0},
+        {"lithology", "砂岩"}, {"facies", "三角洲"}, {"sub_facies", "三角洲平原"},
+        {"micro_facies", "分流河道"}, {"facies_code", 1}}};
+    QVERIFY(WellAttributeStore::mergeIntervals(&f.catalog, f.dir.path(), &f.layers,
+                                              manualIntervals, &error, false));
+
+    // 2. Seed manual formation interpretation
+    QVariantList manualFormations{QVariantMap{
+        {"well_id", "W1"}, {"formation", "恩平一段"}, {"unit_type", "段"},
+        {"top_md", 10.0}, {"base_md", 20.0}, {"thickness_md", 10.0},
+        {"dominant_facies", "三角洲"}, {"facies_code", 1}, {"source", "manual"}}};
+    QVERIFY(WellAttributeStore::mergeFormations(&f.catalog, f.dir.path(), &f.layers,
+                                               manualFormations, &error, false));
+
+    // 3. Prediction updates attempt to write over this interval and formation
+    QVariantList predIntervals{QVariantMap{
+        {"well_id", "W1"}, {"top_md", 10.0}, {"base_md", 20.0},
+        {"facies", "滨浅湖"}, {"facies_code", 3}, {"predicted_facies", "滨浅湖"},
+        {"model", "AI-Model-1"}, {"job_id", "job-100"}}};
+    QVariantList predFormations{QVariantMap{
+        {"well_id", "W1"}, {"formation", "恩平一段"}, {"unit_type", "段"},
+        {"top_md", 10.0}, {"base_md", 20.0}, {"thickness_md", 10.0},
+        {"dominant_facies", "滨浅湖"}, {"facies_code", 3},
+        {"predicted_dominant", "滨浅湖"}, {"source", "wells_prediction"},
+        {"model", "AI-Model-1"}, {"job_id", "job-100"}}};
+
+    QVERIFY(WellAttributeStore::mergeIntervalsAndFormations(
+        &f.catalog, f.dir.path(), &f.layers, predIntervals, predFormations, &error, true));
+
+    // 4. Verify Interval: manual interpretation intact, AI prediction in dedicated fields
+    const auto intRows = WellAttributeStore::rows(f.dir.path(), nullptr, WellAttributeStore::Table::Intervals, "W1");
+    QCOMPARE(intRows.size(), 1);
+    const auto intRow = intRows.first().toMap();
+    QCOMPARE(intRow.value("facies").toString(), QString("三角洲"));
+    QCOMPARE(intRow.value("facies_code").toInt(), 1);
+    QCOMPARE(intRow.value("sub_facies").toString(), QString("三角洲平原"));
+    QCOMPARE(intRow.value("micro_facies").toString(), QString("分流河道"));
+    QCOMPARE(intRow.value("predicted_facies").toString(), QString("滨浅湖"));
+    QCOMPARE(intRow.value("model").toString(), QString("AI-Model-1"));
+
+    // 5. Verify Formation: manual interpretation intact, AI prediction in dedicated fields
+    const auto formRows = WellAttributeStore::rows(f.dir.path(), nullptr, WellAttributeStore::Table::Formations, "W1");
+    QCOMPARE(formRows.size(), 1);
+    const auto formRow = formRows.first().toMap();
+    QCOMPARE(formRow.value("dominant_facies").toString(), QString("三角洲"));
+    QCOMPARE(formRow.value("facies_code").toInt(), 1);
+    QCOMPARE(formRow.value("source").toString(), QString("manual"));
+    QCOMPARE(formRow.value("predicted_dominant").toString(), QString("滨浅湖"));
+    QCOMPARE(formRow.value("model").toString(), QString("AI-Model-1"));
+  }
 };
 int main(int argc, char **argv) {
   QgsApplication app(argc, argv, true);

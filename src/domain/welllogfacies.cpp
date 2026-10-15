@@ -20,28 +20,68 @@ template <class T> const T *at(const QVector<T> &items, double depth) {
       best = &i;
   return best;
 }
-bool curveValue(const CurveData &c, double d, double *value) {
+bool isNullLogValue(double v) {
+  if (!std::isfinite(v)) return true;
+  if (v == -9999.0 || v == -999.25 || v == -999.0 || v <= -99990.0 || v >= 1e29)
+    return true;
+  return false;
+}
+bool curveValue(const CurveData &c, double d, double *value, double maxGap = -1.0) {
   const auto it = std::lower_bound(c.depths.cbegin(), c.depths.cend(), d);
   if (it == c.depths.cend())
     return false;
   const auto n = it - c.depths.cbegin();
-  if (*it == d)
+  if (*it == d) {
     *value = c.values[n];
-  else {
-    if (!n)
-      return false;
-    const double a = c.values[n - 1], b = c.values[n];
-    if (!std::isfinite(a) || !std::isfinite(b) || a == -9999 || b == -9999 ||
-        a == -999.25 || b == -999.25)
-      return false;
-    *value =
-        a + (b - a) * (d - c.depths[n - 1]) / (c.depths[n] - c.depths[n - 1]);
+    return !isNullLogValue(*value);
   }
-  return std::isfinite(*value) && *value != -9999 && *value != -999.25;
+  if (!n)
+    return false;
+  const double dPrev = c.depths[n - 1];
+  const double dNext = c.depths[n];
+  if (maxGap > 0.0 && (dNext - dPrev > maxGap))
+    return false;
+  const double a = c.values[n - 1], b = c.values[n];
+  if (isNullLogValue(a) || isNullLogValue(b))
+    return false;
+  *value = a + (b - a) * (d - dPrev) / (dNext - dPrev);
+  return !isNullLogValue(*value);
 }
 bool isGroupName(const FormationInterval &f) {
   return f.unitType == QStringLiteral("组") ||
          f.name.trimmed().endsWith(QStringLiteral("组"));
+}
+bool matchesFormationGroup(const QString &candidateName, const QString &groupName) {
+  const QString trimmedCand = candidateName.trimmed();
+  const QString trimmedGroup = groupName.trimmed();
+  if (trimmedCand.isEmpty() || trimmedGroup.isEmpty())
+    return false;
+  if (trimmedCand.compare(trimmedGroup, Qt::CaseInsensitive) == 0)
+    return true;
+  if (trimmedCand.startsWith(trimmedGroup + QStringLiteral("上段")) ||
+      trimmedCand.startsWith(trimmedGroup + QStringLiteral("中段")) ||
+      trimmedCand.startsWith(trimmedGroup + QStringLiteral("下段")) ||
+      trimmedCand.startsWith(trimmedGroup + QStringLiteral("一段")) ||
+      trimmedCand.startsWith(trimmedGroup + QStringLiteral("二段")) ||
+      trimmedCand.startsWith(trimmedGroup + QStringLiteral("三段")) ||
+      trimmedCand.startsWith(trimmedGroup + QStringLiteral("四段")))
+    return true;
+  if (trimmedGroup.endsWith(QStringLiteral("组")) && trimmedGroup.size() > 2) {
+    const QString stem = trimmedGroup.chopped(1);
+    if (trimmedCand.startsWith(stem)) {
+      const QString rem = trimmedCand.mid(stem.size());
+      if (rem.startsWith(QStringLiteral("岩")) || rem.startsWith(QStringLiteral("质")))
+        return false;
+      if (rem.startsWith(QStringLiteral("组")) ||
+          rem.startsWith(QStringLiteral("一段")) || rem.startsWith(QStringLiteral("二段")) ||
+          rem.startsWith(QStringLiteral("三段")) || rem.startsWith(QStringLiteral("四段")) ||
+          rem.startsWith(QStringLiteral("上段")) || rem.startsWith(QStringLiteral("中段")) ||
+          rem.startsWith(QStringLiteral("下段")) ||
+          (!rem.isEmpty() && (rem[0].isDigit() || rem[0] == 'I' || rem[0] == 'V' || rem[0] == 'X')))
+        return true;
+    }
+  }
+  return false;
 }
 // 井上标注的地层组（组井道 + 地层系统组合道），按顶深自上而下去重。
 QStringList wellGroups(const ComprehensiveWellData &data) {
@@ -87,10 +127,17 @@ WellFaciesInput prepareWellFaciesInput(const ComprehensiveWellData &data,
       const bool withUnit =
           curve.startsWith(name, Qt::CaseInsensitive) && curve.size() > name.size()
           && !curve.at(name.size()).isLetterOrNumber();
-      if (exact || withUnit) {
-        found = &c;
-        break;
+      if (!exact && !withUnit)
+        continue;
+      const QString u = c.unit.trimmed().toUpper();
+      if (curve.endsWith(QStringLiteral("_CPS"), Qt::CaseInsensitive) ||
+          curve.endsWith(QStringLiteral("_NORM"), Qt::CaseInsensitive) ||
+          u == QLatin1String("CPS") || u == QLatin1String("COUNTS/S") ||
+          u == QLatin1String("NORM") || u == QLatin1String("0-1")) {
+        continue;
       }
+      found = &c;
+      break;
     }
     if (!found)
       return fail(tr("缺少模型所需曲线：%1").arg(name));
@@ -111,7 +158,8 @@ WellFaciesInput prepareWellFaciesInput(const ComprehensiveWellData &data,
   QVector<FormationInterval> segments;
   for (const auto &f : data.formationIntervals)
     if (f.unitType == QStringLiteral("段") ||
-        f.name.trimmed().endsWith(QStringLiteral("段")))
+        f.name.trimmed().endsWith(QStringLiteral("段")) ||
+        (!isGroupName(f) && !f.name.trimmed().isEmpty()))
       segments.append(f);
   if (segments.isEmpty())
     return fail(tr("缺少段井道（只有组分层，不能代替段）"));
@@ -120,42 +168,42 @@ WellFaciesInput prepareWellFaciesInput(const ComprehensiveWellData &data,
   for (const auto &f : data.formationIntervals) {
     if (f.unitType == QStringLiteral("组") || f.name.trimmed().endsWith(QStringLiteral("组")))
       namedGroup = true;
-    if (!model.formationGroup.isEmpty() &&
-        (f.name == model.formationGroup ||
-         f.name.startsWith(model.formationGroup + QStringLiteral("上段")) ||
-         f.name.startsWith(model.formationGroup + QStringLiteral("下段")) ||
-         f.name.startsWith(model.formationGroup)))
+    if (!model.formationGroup.isEmpty() && matchesFormationGroup(f.name, model.formationGroup))
       groupHit = true;
   }
   for (const auto &f : data.stratigraphyIntervals)
-    if (f.formation == model.formationGroup)
+    if (f.formation == model.formationGroup || matchesFormationGroup(f.formation, model.formationGroup))
       groupHit = true;
   // 井道图只有 C1、D61 这类段名、没有「组」时，段名就是当前图的分层，
   // 不再因为对不上模型的组名而整井拒绝。已经标了别的组则仍然拒绝。
   const bool restrictToGroup = !model.formationGroup.isEmpty() && (groupHit || namedGroup);
   const auto &depths = curves.first()->depths;
-  double step = std::numeric_limits<double>::infinity();
-  for (qsizetype i = 1; i < depths.size(); ++i)
-    step = std::min(step, double(depths[i] - depths[i - 1]));
+  QVector<double> steps;
+  steps.reserve(depths.size() - 1);
+  for (qsizetype i = 1; i < depths.size(); ++i) {
+    const double diff = double(depths[i] - depths[i - 1]);
+    if (diff > 0.0001)
+      steps.append(diff);
+  }
+  if (steps.isEmpty())
+    return fail(tr("曲线深度采样不足"));
+  std::sort(steps.begin(), steps.end());
+  const double step = steps[steps.size() / 2];
   double previous = -std::numeric_limits<double>::infinity();
   for (double depth : depths) {
     bool inGroup = !restrictToGroup;
     if (restrictToGroup) {
       for (const auto &f : data.formationIntervals)
         if (depth >= f.topDepth && depth < f.bottomDepth &&
-            (f.name == model.formationGroup ||
-             f.name.startsWith(model.formationGroup + QStringLiteral("上段")) ||
-             f.name.startsWith(model.formationGroup + QStringLiteral("下段"))))
+            matchesFormationGroup(f.name, model.formationGroup))
           inGroup = true;
       for (const auto &f : data.stratigraphyIntervals)
         if (depth >= f.topDepth && depth < f.bottomDepth &&
-            f.formation == model.formationGroup)
+            matchesFormationGroup(f.formation, model.formationGroup))
           inGroup = true;
       for (const auto &f : segments)
         if (depth >= f.topDepth && depth < f.bottomDepth &&
-            (f.name.startsWith(model.formationGroup) ||
-             (model.formationGroup.endsWith(QStringLiteral("组")) &&
-              f.name.startsWith(model.formationGroup.chopped(1)))))
+            matchesFormationGroup(f.name, model.formationGroup))
           inGroup = true;
     }
     if (!inGroup)
@@ -164,7 +212,9 @@ WellFaciesInput prepareWellFaciesInput(const ComprehensiveWellData &data,
     const auto *lith = at(data.lithologyIntervals, depth);
     // 曲线比岩性道长时，岩性范围外的点跳过，不让井口那一段废掉整井。
     // 跳过的点不计入缺口；一旦进入岩性和段都覆盖的连续段，中间再断就拒绝。
-    if (!segment || segment->name.trimmed().isEmpty() || !lith ||
+    // 「*岩段」（如白云岩段、砂岩段）属于岩性描述分段，不能作为地层分段。
+    if (!segment || segment->name.trimmed().isEmpty() ||
+        segment->name.endsWith(QStringLiteral("岩段")) || !lith ||
         lith->lithoName.trimmed().isEmpty())
       continue;
     if (std::isfinite(previous) && depth - previous > step * 1.5 + 0.001)
@@ -174,9 +224,10 @@ WellFaciesInput prepareWellFaciesInput(const ComprehensiveWellData &data,
     QJsonObject row{{QStringLiteral("深度"), depth},
                     {QStringLiteral("段"), segment->name.trimmed()},
                     {QStringLiteral("岩性"), lith->lithoName.trimmed()}};
+    const double maxGap = step * 1.5 + 0.001;
     for (qsizetype n = 0; n < curves.size(); ++n) {
       double value;
-      if (!curveValue(*curves[n], depth, &value))
+      if (!curveValue(*curves[n], depth, &value, maxGap))
         return fail(
             tr("深度 %1 m 的 %2 缺少有效数值").arg(depth).arg(model.curves[n]));
       row.insert(model.curves[n], value);
@@ -378,7 +429,7 @@ WellFaciesPlan planWellFaciesFormationRun(const ComprehensiveWellData &data,
   for (const auto &candidate : models) {
     if (candidate.formationGroup.isEmpty()) continue;
     if (groups.contains(candidate.formationGroup) ||
-        horizon.startsWith(candidate.formationGroup)) {
+        matchesFormationGroup(horizon, candidate.formationGroup)) {
       model = &candidate;
       break;
     }
@@ -386,7 +437,8 @@ WellFaciesPlan planWellFaciesFormationRun(const ComprehensiveWellData &data,
   if (!model)
     for (const auto &candidate : models)
       if (candidate.formationGroup.isEmpty()) { model = &candidate; break; }
-  if (!model && groups.isEmpty() && !models.isEmpty()) model = &models.first();
+  if (!model && groups.isEmpty() && !models.isEmpty() && models.first().formationGroup.isEmpty())
+    model = &models.first();
   if (!model) {
     plan.reason = models.isEmpty() ? tr("没有可调用的测井相模型")
                                   : tr("当前地层 %1 没有对应模型").arg(horizon);

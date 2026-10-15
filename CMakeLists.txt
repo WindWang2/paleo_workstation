@@ -1234,13 +1234,14 @@ if(PALEO_HAVE_ORT)
   add_paleo_test(tst_onnxworkflow LIBS paleo_workflow)
   target_compile_definitions(tst_onnxworkflow PRIVATE
     PROJECT_TESTDATA_DIR="${CMAKE_SOURCE_DIR}/testdata")
+  add_paleo_test(tst_predict_challenger_r2 LIBS paleo_ai paleo_services paleo_workflow)
   # ORT 运行库目录必须出现在 LD_LIBRARY_PATH：用 ENVIRONMENT_MODIFICATION
   # 的 path_list_prepend 前置，而不是 APPEND 一条整体 LD_LIBRARY_PATH 赋值
   # ——后者仍会替换外部注入的值（deb 闭包路 paleo-dev 注入的 vendored
   # QGIS/Qt 目录会被吞掉，间接依赖落到系统 Qt 上产生版本冲突——本机
   # Arch Qt6.11 + vendored Qt6.10 即此症状）。
   set_tests_properties(tst_onnx tst_onnxworkflow tst_onnxsessions tst_tileinference tst_modelregistry
-    tst_aiassistworkflow tst_remotepredictrouter tst_aiassist_perf PROPERTIES ENVIRONMENT_MODIFICATION
+    tst_aiassistworkflow tst_remotepredictrouter tst_aiassist_perf tst_predict_challenger_r2 PROPERTIES ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${CMAKE_SOURCE_DIR}/vendor/onnxruntime/lib")
 endif()
 

@@ -14,6 +14,7 @@
 #include <gdal.h>
 #include <cpl_conv.h>
 
+#include "../src/ai/onnxfixture.h"
 #include "../src/ai/onnxpredictionservice.h"
 #include "../src/catalog/datacatalog.h"
 #include "../src/metadata/layermanifest.h"
@@ -23,6 +24,7 @@
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/qgis/qgisruntime.h"
 #include "../src/workflow/workflows.h"
+#include "../src/workflow/workflows_internal.h"
 
 // ET4 integration: ONNX models surface in the prediction workflow as
 // "onnx:<model>" algorithm ids next to the registry's "paleo:*" set, and a
@@ -463,6 +465,34 @@ private slots:
     QVERIFY( findDecl( f.layers, QStringLiteral( "pred.T1.onnx.ghost" ) ) == nullptr );
   }
 
+  // P0-3: preparePredictionJob must NOT run onnx->loadModelMeta on GUI main thread
+  void preparePredictionJobDefersModelLoadingToCompute()
+  {
+    Fixture f;
+    const QString modelDir = initFixture( f );
+    if ( modelDir.isEmpty() )
+      QSKIP( "spikes/onnx models not locatable" );
+
+    PredictionWorkflow wf( &f.proc, &f.layers );
+    wf.setOnnxService( &f.onnx );
+    wf.setCatalog( &f.catalog, f.dir.path() );
+
+    PredictionWorkflow::PredictionJob job;
+    QString err;
+    // Non-existent model must NOT fail on GUI main thread during preparePredictionJob
+    const bool prepOk = wf.preparePredictionJob( QStringLiteral( "T1" ),
+                                                QStringLiteral( "onnx:non_existent_ghost" ),
+                                                {}, &job, &err );
+    QVERIFY2( prepOk, qPrintable( err ) );
+    QVERIFY( job.prepared );
+    QVERIFY( job.modelSha256.isEmpty() );
+
+    // computePredictionJob on background thread is where loading and failure occur
+    const bool compOk = wf.computePredictionJob( &job );
+    QVERIFY( !compOk );
+    QVERIFY2( !job.error.isEmpty(), "computePredictionJob must fail on background thread for missing model" );
+  }
+
   // The "onnx:" dispatch must not intercept normal registry algorithm ids.
   void processingBranchUnaffected()
   {
@@ -509,6 +539,115 @@ private slots:
     QVERIFY( !err.isEmpty() );
     QCOMPARE( doneSpy.count(), 1 );
     QCOMPARE( failSpy.count(), 1 );
+  }
+
+  void onnxMultiClassOutputArgmaxGrid()
+  {
+    if ( !PaleoOnnxService::runtimeAvailable() )
+      QSKIP( "libonnxruntime not found under vendor/onnxruntime" );
+    Fixture f;
+    if ( !f.dir.isValid() || !f.catalog.open( f.dir.path() ) ||
+         !f.projectSvc.createProject( f.dir.filePath( QStringLiteral( "proj.qgz" ) ) ) ||
+         !f.manifest.open() )
+      QSKIP( "fixture setup failed" );
+    const QString modelDir = f.dir.filePath( QStringLiteral( "models" ) );
+    QVERIFY( QDir().mkpath( modelDir ) );
+    QVERIFY( OnnxFixtureWriter::writeSeg( modelDir + QStringLiteral( "/seg3.onnx" ),
+                                          { 1.0f, -1.0f, 0.0f }, { 0.0f, 0.0f, 0.1f } ) );
+    f.onnx.setModelRoot( modelDir );
+
+    PredictionWorkflow wf( &f.proc, &f.layers );
+    wf.setOnnxService( &f.onnx );
+    wf.setCatalog( &f.catalog, f.dir.path() );
+
+    QVariantMap params;
+    QVector<float> inputData( 411 * 641, 0.5f );
+    QVariantList inputList;
+    inputList.reserve( inputData.size() );
+    for ( float v : inputData )
+      inputList.append( v );
+    params.insert( QStringLiteral( "input" ), inputList );
+    params.insert( QStringLiteral( "shape" ), QVariantList{ 1, 1, 411, 641 } );
+    params.insert( QStringLiteral( "inputName" ), QStringLiteral( "x" ) );
+    QString err;
+    QVERIFY2( wf.runPrediction( QStringLiteral( "D61" ), QStringLiteral( "onnx:seg3" ),
+                                params, &err ),
+              qPrintable( err ) );
+    const LayerDeclaration *d = findDecl( f.layers, QStringLiteral( "pred.D61.onnx.seg3" ) );
+    QVERIFY2( d != nullptr, "multi-class prediction layer not declared" );
+  }
+
+  void predictionEvidenceContainsModelSha256AndExecutionEngine()
+  {
+    if ( !PaleoOnnxService::runtimeAvailable() )
+      QSKIP( "libonnxruntime not found under vendor/onnxruntime" );
+    Fixture f;
+    if ( !f.dir.isValid() || !f.catalog.open( f.dir.path() ) ||
+         !f.projectSvc.createProject( f.dir.filePath( QStringLiteral( "proj.qgz" ) ) ) ||
+         !f.manifest.open() )
+      QSKIP( "fixture setup failed" );
+    const QString modelDir = f.dir.filePath( QStringLiteral( "models" ) );
+    QVERIFY( QDir().mkpath( modelDir ) );
+    QVERIFY( OnnxFixtureWriter::writeSeg( modelDir + QStringLiteral( "/seg3.onnx" ),
+                                          { 1.0f, -1.0f, 0.0f }, { 0.0f, 0.0f, 0.1f } ) );
+    f.onnx.setModelRoot( modelDir );
+
+    PredictionWorkflow wf( &f.proc, &f.layers );
+    wf.setOnnxService( &f.onnx );
+    wf.setCatalog( &f.catalog, f.dir.path() );
+
+    QVariantMap params;
+    QVector<float> inputData( 411 * 641, 0.5f );
+    QVariantList inputList;
+    inputList.reserve( inputData.size() );
+    for ( float v : inputData )
+      inputList.append( v );
+    params.insert( QStringLiteral( "input" ), inputList );
+    params.insert( QStringLiteral( "shape" ), QVariantList{ 1, 1, 411, 641 } );
+    params.insert( QStringLiteral( "inputName" ), QStringLiteral( "x" ) );
+    QString err;
+    QVERIFY2( wf.runPrediction( QStringLiteral( "D61" ), QStringLiteral( "onnx:seg3" ),
+                                params, &err ),
+              qPrintable( err ) );
+
+    const auto versions = f.catalog.versions();
+    QVERIFY( !versions.isEmpty() );
+    const auto v = versions.last();
+    const auto evidence = v.extra.value( QStringLiteral( "evidence" ) ).toMap();
+    const auto modelBlock = evidence.value( QStringLiteral( "model" ) ).toMap();
+    QCOMPARE( modelBlock.value( QStringLiteral( "execution_engine" ) ).toString(), QStringLiteral( "onnxruntime" ) );
+    QVERIFY2( !modelBlock.value( QStringLiteral( "model_sha256" ) ).toString().isEmpty(), "model_sha256 must be present in evidence model block" );
+    QVERIFY( !evidence.value( QStringLiteral( "parameters" ) ).toMap().contains( QStringLiteral( "model" ) ) );
+  }
+
+  void onnxAreaGridRespectsRequestedHorizon()
+  {
+    Fixture f;
+    if ( !f.dir.isValid() || !f.projectSvc.createProject( f.dir.filePath( QStringLiteral( "proj.qgz" ) ) ) ||
+         !f.manifest.open() )
+      QSKIP( "fixture setup failed" );
+    const QString d53Path = f.dir.filePath( QStringLiteral( "d53.tif" ) );
+    GDALAllRegister();
+    auto *driver = GDALGetDriverByName( "GTiff" );
+    GDALDatasetH ds = GDALCreate( driver, d53Path.toUtf8().constData(), 10, 10, 1, GDT_Float32, nullptr );
+    QVERIFY( ds );
+    double customGt[6] = { 5000.0, 20.0, 0.0, 8000.0, 0.0, -20.0 };
+    GDALSetGeoTransform( ds, customGt );
+    GDALClose( ds );
+
+    LayerDeclaration decl;
+    decl.layerId = QStringLiteral( "horizon.D53.time" );
+    decl.horizon = QStringLiteral( "D53" );
+    decl.type = QStringLiteral( "raster" );
+    decl.source = d53Path;
+    decl.group = QStringLiteral( "00_Data" );
+    decl.title = QStringLiteral( "D53 Time" );
+    QVERIFY( f.layers.declare( decl ) );
+
+    const auto grid = paleo::workflow_detail::onnxAreaGrid( &f.layers, QStringLiteral( "D53" ) );
+    QVERIFY( grid.fromDecl );
+    QCOMPARE( grid.gt[0], 5000.0 );
+    QCOMPARE( grid.gt[3], 8000.0 );
   }
 };
 

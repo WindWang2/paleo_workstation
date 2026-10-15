@@ -25,6 +25,7 @@ class DerivedAssetRegistrar;
 #include <QStringList>
 #include <QVector>
 #include <cstring>
+#include <cmath>
 #include <cpl_conv.h>
 #include <ogr_spatialref.h>
 #include <qgis.h>
@@ -118,13 +119,15 @@ struct OnnxAreaGrid
 
 // 从图层清单取 horizon.D61* 栅格声明的网格几何；声明缺失或文件不可读时
 // 保持常量（常量本来就是同一套 D61 geotransform）。
-inline OnnxAreaGrid onnxAreaGrid( const QgisLayerService *layers )
+inline OnnxAreaGrid onnxAreaGrid( const QgisLayerService *layers, const QString &horizon = {} )
 {
   OnnxAreaGrid grid;
   if ( !layers )
     return grid;
-  const QString prefix = QStringLiteral( "horizon.%1" )
-                             .arg( AreaRules::active().targetHorizon );
+  const QString target = horizon.trimmed().isEmpty()
+                             ? AreaRules::active().targetHorizon
+                             : horizon.trimmed();
+  const QString prefix = QStringLiteral( "horizon.%1" ).arg( target );
   QString source;
   for ( const LayerDeclaration &d : layers->declared() )
   {
@@ -133,6 +136,18 @@ inline OnnxAreaGrid onnxAreaGrid( const QgisLayerService *layers )
       continue;
     source = d.source;
     break;
+  }
+  if ( source.isEmpty() && target != AreaRules::active().targetHorizon )
+  {
+    const QString fallbackPrefix = QStringLiteral( "horizon.%1" ).arg( AreaRules::active().targetHorizon );
+    for ( const LayerDeclaration &d : layers->declared() )
+    {
+      if ( !d.layerId.startsWith( fallbackPrefix ) ||
+           d.type.compare( QStringLiteral( "raster" ), Qt::CaseInsensitive ) != 0 )
+        continue;
+      source = d.source;
+      break;
+    }
   }
   if ( source.isEmpty() )
     return grid;
@@ -185,6 +200,12 @@ inline bool resolveOnnxGrid( const QVector<float> &values, const QVector<int64_t
   {
     rows = static_cast<int>( dims[0] );
     cols = static_cast<int>( dims[1] );
+  }
+  else if ( dims.size() == 3 && dims[0] > 0 && dims[1] > 0 && dims[2] > 0 &&
+            dims[0] * dims[1] * dims[2] == static_cast<qint64>( n ) )
+  {
+    rows = static_cast<int>( dims[1] );
+    cols = static_cast<int>( dims[2] );
   }
   else
   {
@@ -255,9 +276,76 @@ inline QString writeOnnxRaster( const QString &path, const QVector<float> &value
       CPLFree( wkt );
     }
   }
+  QVector<qint64> dims;
+  for ( qint64 d : outShape )
+  {
+    if ( d != 1 )
+      dims.append( d );
+  }
+  const int pixels = rows * cols;
+  QVector<float> writeBuffer;
+  const float *dataPtr = values.constData();
+  if ( dims.size() == 3 && dims[0] > 1 && dims[0] * pixels == static_cast<qint64>( values.size() ) )
+  {
+    const int C = static_cast<int>( dims[0] );
+    writeBuffer.resize( pixels );
+    for ( int p = 0; p < pixels; ++p )
+    {
+      bool finite = true;
+      for ( int c = 0; c < C; ++c )
+      {
+        if ( !std::isfinite( values[c * pixels + p] ) )
+        {
+          finite = false;
+          break;
+        }
+      }
+      if ( !finite )
+      {
+        writeBuffer[p] = -9999.0f;
+        continue;
+      }
+      int bestC = 0;
+      float maxVal = values[p];
+      for ( int c = 1; c < C; ++c )
+      {
+        const float v = values[c * pixels + p];
+        if ( v > maxVal )
+        {
+          maxVal = v;
+          bestC = c;
+        }
+      }
+      writeBuffer[p] = static_cast<float>( bestC );
+    }
+    dataPtr = writeBuffer.constData();
+  }
+  else
+  {
+    bool hasNonFinite = false;
+    for ( float v : values )
+    {
+      if ( !std::isfinite( v ) )
+      {
+        hasNonFinite = true;
+        break;
+      }
+    }
+    if ( hasNonFinite )
+    {
+      writeBuffer = values;
+      for ( float &v : writeBuffer )
+      {
+        if ( !std::isfinite( v ) )
+          v = -9999.0f;
+      }
+      dataPtr = writeBuffer.constData();
+    }
+  }
+
   GDALRasterBandH band = GDALGetRasterBand( ds, 1 );
   GDALSetRasterNoDataValue( band, -9999.0 );
-  if ( GDALRasterIO( band, GF_Write, 0, 0, cols, rows, const_cast<float *>( values.constData() ),
+  if ( GDALRasterIO( band, GF_Write, 0, 0, cols, rows, const_cast<float *>( dataPtr ),
                      cols, rows, GDT_Float32, 0, 0 ) != CE_None )
   {
     GDALClose( ds );

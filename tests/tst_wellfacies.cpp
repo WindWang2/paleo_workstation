@@ -1181,6 +1181,74 @@ private slots:
     if (!screenshot.isEmpty())
       QVERIFY(panel.grab().save(screenshot));
   }
+  void secondaryCurveLargeGapRefused() {
+    auto d = well();
+    CurveData rhob;
+    rhob.name = "RHOB";
+    rhob.unit = "G/CC";
+    for (int i = 0; i < 16; ++i) {
+      rhob.depths.append(1000 + i * .125f);
+      rhob.values.append(2.4f);
+    }
+    for (int i = 112; i < 128; ++i) {
+      rhob.depths.append(1000 + i * .125f);
+      rhob.values.append(2.4f);
+    }
+    d.continuousCurves.append(rhob);
+    WellFaciesModel m = model();
+    m.curves = {"GR", "RHOB"};
+    const auto input = prepareWellFaciesInput(d, m);
+    QVERIFY2(!input.ready(), "Secondary curve across 12m gap must be rejected, but succeeded");
+    QVERIFY(input.reason.contains("RHOB"));
+  }
+  void curveUnitValidationAndSamplingStepRobustness() {
+    auto d = well();
+    d.continuousCurves[0].name = "GR_CPS";
+    d.continuousCurves[0].unit = "CPS";
+    auto input = prepareWellFaciesInput(d, model());
+    QVERIFY2(!input.ready(), "GR_CPS with CPS unit must not match API GR requirement");
+
+    d = well();
+    d.continuousCurves[0].depths.insert(41, 1005.05f);
+    d.continuousCurves[0].values.insert(41, 85.0f);
+    input = prepareWellFaciesInput(d, model());
+    QVERIFY2(input.ready(), qPrintable(input.reason));
+  }
+  void stratigraphicFormationMatchingRobustness() {
+    auto d = well();
+    d.formationIntervals.clear();
+    FormationInterval group;
+    group.name = QStringLiteral("白云组");
+    group.unitType = QStringLiteral("组");
+    group.topDepth = 1000;
+    group.bottomDepth = 1016;
+    FormationInterval rockSegment;
+    rockSegment.name = QStringLiteral("白云岩段");
+    rockSegment.unitType = QStringLiteral("段");
+    rockSegment.topDepth = 1000;
+    rockSegment.bottomDepth = 1016;
+    d.formationIntervals = {group, rockSegment};
+    WellFaciesModel m = model();
+    m.formationGroup = QStringLiteral("白云组");
+    auto input = prepareWellFaciesInput(d, m);
+    QVERIFY2(!input.ready(), "白云岩段 (lithology interval) must not match 白云组 (formation group)");
+
+    d = well();
+    d.formationIntervals.clear();
+    FormationInterval d61;
+    d61.name = QStringLiteral("D61");
+    d61.unitType = QString();
+    d61.topDepth = 1000;
+    d61.bottomDepth = 1016;
+    d.formationIntervals = {d61};
+    input = prepareWellFaciesInput(d, model());
+    QVERIFY2(input.ready(), qPrintable(input.reason));
+
+    auto twoWell = twoGroupWell(true);
+    QVector<WellFaciesModel> models{model(), zhuhaiModel()};
+    const auto plan = planWellFaciesFormationRun(twoWell, models, QStringLiteral("文昌一段"));
+    QVERIFY2(!plan.ready(), "Must not dispatch 珠海组 or 恩平组 model for 文昌组");
+  }
 };
 QTEST_MAIN(TestWellFacies)
 #include "tst_wellfacies.moc"

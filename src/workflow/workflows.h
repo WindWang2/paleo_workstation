@@ -235,6 +235,9 @@ class ConstraintWorkflow : public QObject
                         const QVariantMap &inputParams, QString *error = nullptr);
 
   private:
+    bool addConstraintThroughSession(QgsVectorLayer *layer, ConstraintStore *store, const QString &horizon,
+                                     const QString &id, const QString &wkt, const QString &storedType,
+                                     int faciesCode, const QString &paramsJson, bool extended, QString *error);
     bool extractWellFactorsImpl(const QString &horizon, const QString &factorId,
                                 const QVariantMap &params, QString *error, bool synchronous);
     bool prepareFactorInputs(const QString &horizon, const QString &factorId,

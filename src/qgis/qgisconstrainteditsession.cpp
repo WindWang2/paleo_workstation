@@ -8,6 +8,8 @@
 #include <QUndoStack>
 #include <QTemporaryDir>
 #include <gdal.h>
+#include <ogr_api.h>
+#include <algorithm>
 #include <gdal_utils.h>
 #include <cpl_error.h>
 #include <qgsfeature.h>
@@ -76,17 +78,39 @@ QVector<QVariantMap> QgisConstraintEditSession::snapshot(QString *error) const
     QVariantMap row;
     for (int i = 0; i < feature.fields().count(); ++i)
       row.insert(feature.fields().at(i).name(), feature.attribute(i));
-    row.insert(QStringLiteral("fid"), feature.id());
     row.insert(QStringLiteral("wkt"), feature.geometry().asWkt(17));
-    if (row.value(QStringLiteral("horizon")).toString() != m_horizon || feature.id() < 0)
+    const QString id = row.value(QStringLiteral("id")).toString();
+    // 新增要素（缓冲区负 fid）只接受带稳定身份与语义类型的约束（ConstraintWorkflow
+    // 绘制路径写入）；工具栏裸画的无语义要素仍拒收。
+    const bool added = feature.id() < 0;
+    if (row.value(QStringLiteral("horizon")).toString() != m_horizon ||
+        (added && (id.isEmpty() || row.value(QStringLiteral("type")).toString().isEmpty())))
     {
       *error = tr("约束编辑不能新增无语义要素或改动层位");
       return {};
     }
-    if (!m_identities.isEmpty() && m_identities.value(feature.id()) != row.value(QStringLiteral("id")).toString())
+    if (added)
     {
-      *error = tr("约束编辑不能改动要素身份");
-      return {};
+      if (!m_newFids.contains(feature.id()))
+      {
+        m_newFids.insert(feature.id(), m_nextFid++);
+        m_newIdentities.insert(feature.id(), id);
+      }
+      if (m_newIdentities.value(feature.id()) != id)
+      {
+        *error = tr("约束编辑不能改动要素身份");
+        return {};
+      }
+      row.insert(QStringLiteral("fid"), m_newFids.value(feature.id()));
+    }
+    else
+    {
+      row.insert(QStringLiteral("fid"), feature.id());
+      if (!m_identities.isEmpty() && m_identities.value(feature.id()) != id)
+      {
+        *error = tr("约束编辑不能改动要素身份");
+        return {};
+      }
     }
     rows.append(row);
   }
@@ -117,6 +141,31 @@ bool QgisConstraintEditSession::initialize(QString *error)
   }
   for (const auto &row : m_initial)
     m_identities.insert(row.value(QStringLiteral("fid")).toLongLong(), row.value(QStringLiteral("id")).toString());
+  // 新绘约束的 store fid 从全表（所有层位）最大 fid 之后分配，避免撞到其他层位的行。
+  {
+    qlonglong maxFid = 0;
+    if (GDALDatasetH ds = GDALOpenEx(m_path.toUtf8().constData(), GDAL_OF_VECTOR, nullptr, nullptr, nullptr))
+    {
+      if (OGRLayerH layer = GDALDatasetGetLayerByName(ds, "constraints"))
+      {
+        OGR_L_ResetReading(layer);
+        while (OGRFeatureH raw = OGR_L_GetNextFeature(layer))
+        {
+          maxFid = std::max<qlonglong>(maxFid, OGR_F_GetFID(raw));
+          OGR_F_Destroy(raw);
+        }
+      }
+      GDALClose(ds);
+    }
+    else
+    {
+      *error = tr("无法读取约束 store：%1").arg(QString::fromUtf8(CPLGetLastErrorMsg()));
+      return false;
+    }
+    for (auto it = m_identities.cbegin(); it != m_identities.cend(); ++it)
+      maxFid = std::max(maxFid, it.key());
+    m_nextFid = maxFid + 1;
+  }
   // Keep the native provider's baseline stable while the authoritative store
   // changes after every command. Otherwise provider count minus deleted FIDs
   // double-counts deletes, and native undo can reread newly persisted values.

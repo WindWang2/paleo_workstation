@@ -241,6 +241,46 @@ QString lineParamsJson( const QString &type, const QVariantMap &lineParams, QStr
 }
 } // namespace
 
+bool ConstraintWorkflow::addConstraintThroughSession(QgsVectorLayer *layer, ConstraintStore *store,
+                                                     const QString &horizon, const QString &id, const QString &wkt,
+                                                     const QString &storedType, int faciesCode,
+                                                     const QString &paramsJson, bool extended, QString *error)
+{
+  QgsFeature feature(layer->fields());
+  const auto set = [&](const QString &name, const QVariant &value) {
+    const int index = layer->fields().indexFromName(name);
+    if (index >= 0)
+      feature.setAttribute(index, value);
+    return index >= 0;
+  };
+  if (!set(QStringLiteral("id"), id) || !set(QStringLiteral("horizon"), horizon) ||
+      !set(QStringLiteral("type"), storedType) ||
+      (extended && (!set(QStringLiteral("params_json"), paramsJson) || !set(QStringLiteral("schema_version"), 1))))
+  {
+    paleo::workflow_detail::setError(error, tr("约束编辑缓冲区缺少身份或语义字段"));
+    return false;
+  }
+  set(QStringLiteral("facies_code"), faciesCode);
+  feature.setGeometry(QgsGeometry::fromWkt(wkt));
+  layer->beginEditCommand(tr("绘制约束"));
+  if (!layer->addFeature(feature))
+  {
+    layer->destroyEditCommand();
+    paleo::workflow_detail::setError(error, tr("约束写入编辑缓冲区失败"));
+    return false;
+  }
+  layer->endEditCommand();
+  // 会话在命令结束时同步写 store；被拒时它已撤回该命令，这里如实报错。
+  for (const QVariantMap &row : store->load(horizon))
+    if (row.value(QStringLiteral("id")).toString() == id &&
+        row.value(QStringLiteral("type")).toString() == storedType &&
+        (!extended || row.value(QStringLiteral("params_json")).toString() == paramsJson) &&
+        QgsGeometry::fromWkt(row.value(QStringLiteral("wkt")).toString()).equals(QgsGeometry::fromWkt(wkt)))
+      return true;
+  paleo::workflow_detail::setError(error, tr("约束未写入 store（编辑会话已撤回该次绘制）"));
+  return false;
+}
+
 bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &wkt,
                                         const QString &type, int faciesCode, QString *error,
                                         QString *constraintIdOut, const QVariantMap &lineParams )
@@ -266,7 +306,11 @@ bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &w
     return false;
   }
 
-  if (auto *existing = qobject_cast<QgsVectorLayer *>(layers->layer(QStringLiteral("constraints.%1").arg(horizon))); existing && existing->isEditable())
+  auto *editing = qobject_cast<QgsVectorLayer *>(layers->layer(QStringLiteral("constraints.%1").arg(horizon)));
+  if (editing && !editing->isEditable())
+    editing = nullptr;
+  // 无 store 同步会话的编辑缓冲区不能接收新约束（写 store 会被会话回滚覆盖）。
+  if (editing && (!constraintStore() || !editing->property("paleoConstraintEditSession").toBool()))
   {
     paleo::workflow_detail::setError(error, tr("先保存或取消约束编辑，再绘制新约束"));
     return false;
@@ -292,6 +336,32 @@ bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &w
       if ( paramsJson.isEmpty() )
         return false;
       storedType = storageTypeForSemantic( semanticForStoredType( type, lineParams ) );
+    }
+    if ( editing )
+    {
+      // P2：编辑会话内绘制 → 原生 edit command，进入撤销栈；会话在命令结束时
+      // 原子写 store（失败则同步撤回该命令）。撤销/重做/取消会话均可回到绘制前。
+      if ( !addConstraintThroughSession( editing, cs, horizon, c.id, wkt, persist ? storedType : type, faciesCode,
+                                         persist ? paramsJson : QString(), persist, error ) )
+        return false;
+      if ( persist )
+        c.type = storedType;
+      QVariantMap rec = c.toMap();
+      if ( persist )
+      {
+        rec.insert( QStringLiteral( "params_json" ), paramsJson );
+        rec.insert( QStringLiteral( "schema_version" ), 1 );
+      }
+      rec.insert( QStringLiteral( "horizon" ), horizon );
+      rec.insert( QStringLiteral( "facies_code" ), faciesCode );
+      m_inMemoryConstraints.append( rec );
+      if ( constraintIdOut )
+        *constraintIdOut = c.id;
+      emit constraintAdded( c.id );
+      return true;
+    }
+    if ( persist )
+    {
       if ( !cs->appendExtended( horizon, c.id, wkt, storedType, faciesCode, paramsJson, 1, error ) )
         return false;
       c.type = storedType;

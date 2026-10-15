@@ -285,6 +285,90 @@ private slots:
     QVERIFY2(edits.commitEdit(layer, &error), qPrintable(error));
     QCOMPARE(layers.layer("constraints.T1"), layer);
   }
+  // P2：会话内绘制的新约束进入原生撤销栈；store fid 不撞其他层位；
+  // undo/redo/取消/保存都与 store 一致；无语义裸要素仍被拒收并撤回。
+  void drawnConstraintJoinsUndoStack()
+  {
+    QTemporaryDir dir;
+    PaleoProjectStore store;
+    const QString gpkg = dir.filePath("project.gpkg");
+    store.setProjectPaths(dir.filePath("p.qgz"), gpkg, dir.filePath("m.sqlite"));
+    ConstraintStore constraints(gpkg, &store);
+    QString error;
+    QVERIFY(constraints.appendExtended("T1", "a", "LINESTRING(0 0,10 0)", "direction_line", 1,
+                                       "{\"semantic\":\"direction_guide\",\"ratio\":4}", 1, &error));
+    QVERIFY(constraints.append("T2", "z", "POINT(30 30)", "point", 9, &error));
+    QgisProjectService project;
+    QVERIFY(project.createProject(dir.filePath("p.qgz")));
+    LayerManifest manifest(dir.filePath("m.sqlite"));
+    QVERIFY(manifest.open());
+    QgisLayerService layers(&project, &manifest);
+    ConstraintWorkflow workflow(nullptr, &layers);
+    workflow.setConstraintStore(&constraints);
+    workflow.loadConstraints("T1");
+    auto *layer = qobject_cast<QgsVectorLayer *>(layers.instantiate("constraints.T1", &error));
+    QVERIFY2(layer, qPrintable(error));
+    QgisEditingService edits(&store);
+    QVERIFY2(edits.beginEdit(layer, &error), qPrintable(error));
+    const auto original = constraints.load("T1");
+    const auto otherHorizon = constraints.load("T2");
+
+    QString drawnId;
+    QVERIFY2(workflow.addConstraint("T1", "LINESTRING(0 5,10 5)", "break_line", 0, &error, &drawnId,
+                                    {{"semantic", "hard_barrier"}, {"blockMode", "full_block"}}),
+             qPrintable(error));
+    QCOMPARE(layer->undoStack()->count(), 1);
+    const auto drawn = constraints.load("T1");
+    QCOMPARE(drawn.size(), original.size() + 1);
+    QVariantMap row;
+    for (const auto &r : drawn)
+      if (r.value("id").toString() == drawnId)
+        row = r;
+    QVERIFY(!row.isEmpty());
+    QCOMPARE(row.value("type").toString(), QString("break_line"));
+    QVERIFY(row.value("params_json").toString().contains("full_block"));
+    QVERIFY(row.value("fid").toLongLong() != otherHorizon.first().value("fid").toLongLong());
+    QCOMPARE(constraints.load("T2"), otherHorizon);
+
+    layer->undoStack()->undo();
+    QCOMPARE(constraints.load("T1"), original);
+    layer->undoStack()->redo();
+    QCOMPARE(constraints.load("T1"), drawn); // 同一 fid / 身份重放
+    layer->undoStack()->undo();
+    QCOMPARE(constraints.load("T1"), original);
+    layer->undoStack()->redo();
+    QCOMPARE(constraints.load("T1"), drawn);
+
+    // 工具栏裸画（无身份/语义）仍被拒收：store 不变，缓冲区撤回。
+    QStringList failures;
+    QgsFeature bare(layer->fields());
+    bare.setAttribute(layer->fields().indexFromName("horizon"), "T1");
+    bare.setGeometry(QgsGeometry::fromWkt("LINESTRING(0 9,10 9)"));
+    const int before = layer->undoStack()->count();
+    layer->beginEditCommand("bare");
+    QVERIFY(layer->addFeature(bare));
+    layer->endEditCommand();
+    QCOMPARE(constraints.load("T1"), drawn);
+    QVERIFY(layer->undoStack()->index() <= before);
+    QCOMPARE(layer->featureCount(), drawn.size());
+
+    // 取消会话 → 回到会话起点（含删除新绘约束）。
+    QVERIFY(edits.rollbackEdit(layer));
+    QCOMPARE(constraints.load("T1"), original);
+    QCOMPARE(constraints.load("T2"), otherHorizon);
+
+    // 再开会话绘制并保存：落盘且重载后可见。
+    QVERIFY2(edits.beginEdit(layer, &error), qPrintable(error));
+    QVERIFY2(workflow.addConstraint("T1", "LINESTRING(0 7,10 7)", "break_line", 0, &error, &drawnId,
+                                    {{"semantic", "hard_barrier"}, {"blockMode", "display_only"}}),
+             qPrintable(error));
+    QVERIFY2(edits.commitEdit(layer, &error), qPrintable(error));
+    QCOMPARE(constraints.load("T1").size(), original.size() + 1);
+    QCOMPARE(layer->featureCount(), original.size() + 1);
+    QCOMPARE(constraints.load("T2"), otherHorizon);
+    Q_UNUSED(failures);
+  }
+
   void boundaryPolygonRoundTrip()
   {
     Fixture f;

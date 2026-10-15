@@ -194,6 +194,7 @@ bool revise(const QVariantList &records, const QVariantMap &interpretation,
   QVariantList history = i.value("history").toList();
   const auto stateSummary = [](QVariantMap state) {
     state.remove("history"); state.remove("inherited_interpretation"); state.remove("parent_interpretations");
+    state.remove("carried_events"); state.remove("ancestor_interpretation_ids");
     return state;
   };
   auto beforeData = stateSummary(beforeState);

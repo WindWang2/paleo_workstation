@@ -138,6 +138,55 @@ private slots:
     QCOMPARE(f.versions.currentVersion("D61"), 0); f.store.markLayerFree("facies.D61");
     QVERIFY(f.tasks.shutdown());
   }
+  void foreignLockBlocksSyncSave() {
+    Fixture f; QVERIFY(f.init()); QString error;
+    auto *layer = f.points(1, &error); QVERIFY2(layer, qPrintable(error));
+    f.store.markLayerBusy("facies.D61", "other-computation", "other task holds the source");
+    if (layer->id() != QLatin1String("facies.D61"))
+      f.store.markLayerBusy(layer->id(), "other-computation", "other task holds the source");
+    QCOMPARE(f.controller.saveVersion("D61", {}, &error).version, 0);
+    QVERIFY(error.contains(QStringLiteral("other task holds the source")));
+    QVERIFY(layer->isEditable());
+    QVERIFY(f.store.layerBusy("facies.D61"));
+    for (const auto &entry : f.store.busyLayers())
+      QCOMPARE(entry.taskId, QString("other-computation"));
+    QVERIFY(f.tasks.shutdown());
+  }
+  void editLockDropsOnlyAfterCommit() {
+    Fixture f; QVERIFY(f.init()); QString error;
+    auto *layer = f.points(1, &error); QVERIFY2(layer, qPrintable(error));
+    f.store.markLayerBusy("facies.D61", "edit", "editing");
+    if (layer->id() != QLatin1String("facies.D61"))
+      f.store.markLayerBusy(layer->id(), "edit", "editing");
+    QVERIFY(layer->isEditable());
+    const auto saved = f.controller.saveVersion("D61", {}, &error);
+    QVERIFY2(saved.version > 0, qPrintable(error));
+    QVERIFY(!layer->isEditable());
+    QVERIFY(!f.store.layerBusy("facies.D61"));
+    QVERIFY(!f.store.layerBusy(layer->id()));
+    QVERIFY(f.tasks.shutdown());
+  }
+  void completedSnapshotKeepsReplacementLock() {
+    Fixture f; QVERIFY(f.init()); QString error;
+    QVERIFY2(f.points(10, &error), qPrintable(error));
+    auto gate = std::make_shared<QSemaphore>(); auto entered = std::make_shared<QSemaphore>();
+    f.tasks.start("hold", [gate, entered](PaleoTask *) { entered->release(); gate->acquire(); return QString(); });
+    const auto release = qScopeGuard([&] { gate->release(); });
+    QTRY_VERIFY(entered->available());
+    QVERIFY2(f.controller.startSaveVersion("D61", {}, &error), qPrintable(error));
+    QTRY_VERIFY(f.store.layerBusy("facies.D61"));
+    const auto held = f.store.busyLayers();
+    QVERIFY(!held.isEmpty());
+    for (const auto &entry : held)
+      f.store.markLayerBusy(entry.layerId, "replacement-owner", "new edit");
+    gate->release();
+    QTRY_VERIFY_WITH_TIMEOUT(!f.controller.snapshotBusy(), 15000);
+    QVERIFY(f.store.layerBusy("facies.D61"));
+    for (const auto &entry : f.store.busyLayers())
+      QCOMPARE(entry.taskId, QString("replacement-owner"));
+    for (const auto &entry : f.store.busyLayers()) f.store.markLayerFree(entry.layerId);
+    QVERIFY(f.tasks.shutdown());
+  }
 };
 int main(int argc, char **argv) {
   if (qgetenv("QT_QPA_PLATFORM").isEmpty()) qputenv("QT_QPA_PLATFORM", "offscreen");

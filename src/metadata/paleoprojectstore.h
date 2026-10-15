@@ -92,6 +92,8 @@ class PaleoProjectStore : public QObject
     // Per-layer busy registry shared with ToolAvailabilityService (§35).
     void markLayerBusy(const QString &layerId, const QString &taskId, const QString &reason);
     void markLayerFree(const QString &layerId);
+    // 只释放当前所有者仍是 taskId 的锁。替换锁（新编辑、其他任务）保持原样。
+    bool releaseLayerBusy(const QString &layerId, const QString &taskId);
     bool layerBusy(const QString &layerId, QString *reason = nullptr) const;
 
     struct BusyEntry { QString layerId; QString taskId; QString reason; };

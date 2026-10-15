@@ -17,6 +17,7 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QTemporaryDir>
+#include <atomic>
 #include <qgsvectorlayer.h>
 #include <qgsvectorlayerfeatureiterator.h>
 #include <qgsvectorfilewriter.h>
@@ -26,6 +27,18 @@ bool validatePublicationCatalog(DataCatalog *catalog, const QVariantMap &provena
   if (provenance.value("catalog_bound").toBool() && (!catalog || !catalog->isOpen())) {
     if (error) *error = QObject::tr("保存版本引用的资料目录不可用，请重新打开工程后发布"); return false;
   }
+  const auto cited = provenance.value(QStringLiteral("cited_sources"));
+  if (provenance.contains(QStringLiteral("cited_sources")) && cited.typeId() != QMetaType::QVariantList) {
+    if (error) *error = QObject::tr("保存版本的人工来源清单格式损坏，发布被拒绝"); return false;
+  }
+  if (catalog)
+    for (const auto &entry : cited.toList()) {
+      const auto id = entry.toMap().value(QStringLiteral("version_id")).toString();
+      if (id.isEmpty()) continue;
+      if (catalog->versionById(id).id.isEmpty()) {
+        if (error) *error = QObject::tr("保存证据的来源版本已缺失：%1").arg(id); return false;
+      }
+    }
   if (catalog)
     for (const auto &entry : provenance.value("evidence_snapshot").toList()) {
       const auto row = entry.toMap(); const auto evidence = row.value("evidence").toMap();
@@ -42,8 +55,6 @@ struct VectorSnapshotSource {
   std::shared_ptr<QgsVectorLayerFeatureSource> source;
   Qgis::WkbType geometryType;
   qint64 count = 0;
-  QString originalFile;
-  qint64 originalSize = -1, originalModified = -1;
 };
 struct SnapshotJob {
   quint64 epoch = 0;
@@ -51,6 +62,7 @@ struct SnapshotJob {
   PreparedMapSnapshot prepared;
   QVector<VectorSnapshotSource> vectors;
   std::shared_ptr<QTemporaryDir> temporary;
+  std::shared_ptr<std::atomic_bool> stale;
   QString error;
   bool cancelled = false;
   ~SnapshotJob() { discardPreparedMapSnapshot(prepared); }
@@ -64,12 +76,13 @@ bool computeSnapshot(SnapshotJob &job, const paleo::jobs::CancelFn &cancel,
     for (int n = 0; n < job.vectors.size(); ++n) {
       if (cancel()) { job.cancelled = true; return false; }
       const auto &vector = job.vectors[n]; QString path = exported.value(vector.identity);
-      const auto sourceUnchanged = [&] {
-        if (vector.originalFile.isEmpty()) return true;
-        const QFileInfo source(vector.originalFile);
-        return source.isFile() && source.size() == vector.originalSize && source.lastModified().toMSecsSinceEpoch() == vector.originalModified;
+      // Owner-thread edits flip the shared flag. GPKG size/mtime is not a
+      // content snapshot: WAL can change bytes without it, and a checkpoint
+      // can change it without a business edit.
+      const auto sourceChanged = [&] {
+        return job.stale && job.stale->load(std::memory_order_acquire);
       };
-      if (!sourceUnchanged()) { job.error = QStringLiteral("矢量来源在准备后已变化，请重试"); return false; }
+      if (sourceChanged()) { job.error = QStringLiteral("矢量来源在准备后已变化，请重试"); return false; }
       if (path.isEmpty()) {
         path = job.temporary->filePath(QString::number(n) + ".gpkg");
         QgsVectorFileWriter::SaveVectorOptions options; options.driverName = "GPKG";
@@ -88,7 +101,7 @@ bool computeSnapshot(SnapshotJob &job, const paleo::jobs::CancelFn &cancel,
         features.close(); writer.reset();
         QgsVectorLayer generated(path + "|layername=features", "snapshot", "ogr");
         if (!MappingFeatureIdentity::ensure(&generated, &job.error)) return false;
-        if (!sourceUnchanged()) { job.error = QStringLiteral("矢量来源在导出期间已变化，请重试"); return false; }
+        if (sourceChanged()) { job.error = QStringLiteral("矢量来源在导出期间已变化，请重试"); return false; }
         exported.insert(vector.identity, path);
       }
       for (auto &entry : job.input.files) {
@@ -105,9 +118,8 @@ bool computeSnapshot(SnapshotJob &job, const paleo::jobs::CancelFn &cancel,
 }
 struct MapVersionController::SavePreparation {
   struct Layer {
-    QString id, sourceFile;
+    QString id;
     QPointer<QgsVectorLayer> vector;
-    qint64 size = -1, modified = -1;
   };
   QString horizon, projectDirectory;
   QVariantMap provenance;
@@ -130,7 +142,12 @@ struct MapVersionController::AsyncState {
   explicit AsyncState(QObject *owner) : runner(owner) {}
   paleo::jobs::JobRunner<SnapshotJob> runner;
   std::function<void()> releaseTokens;
+  QVector<QMetaObject::Connection> sourceWatches;
   std::shared_ptr<SavePreparation> preparation;
+  void disconnectSourceWatches() {
+    for (const auto &watch : sourceWatches) QObject::disconnect(watch);
+    sourceWatches.clear();
+  }
 };
 MapVersionController::~MapVersionController() { cancelSnapshot(); }
 void MapVersionController::setTaskService(PaleoTaskService *tasks) { if (m_tasks != tasks) cancelSnapshot(); m_tasks = tasks; }
@@ -164,8 +181,6 @@ bool MapVersionController::startSaveVersion(const QString &horizon, const QVaria
     auto *layer = qobject_cast<QgsVectorLayer *>(m_layers->instantiate(decl.layerId, error));
     if (!layer) continue; // Missing optional layers are recorded by the store.
     SavePreparation::Layer captured; captured.id = decl.layerId; captured.vector = layer;
-    const QFileInfo file(decl.source.section('|', 0, 0));
-    if (file.isFile()) { captured.sourceFile = file.absoluteFilePath(); captured.size = file.size(); captured.modified = file.lastModified().toMSecsSinceEpoch(); }
     preparation->layers << captured;
     preparation->total += qMax<qint64>(0, layer->featureCount());
     preparation->watches << connect(layer, &QgsVectorLayer::geometryChanged, this, changed)
@@ -203,12 +218,6 @@ void MapVersionController::continueSavePreparation(const std::shared_ptr<SavePre
   while (!p->cancelled && error.isEmpty() && p->layerIndex < p->layers.size() && visited < 64 && budget.elapsed() < 4) {
     auto &captured = p->layers[p->layerIndex]; auto *layer = captured.vector.data();
     if (!layer) { error = tr("校验期间图层已卸载，请重新保存"); break; }
-    if (!captured.sourceFile.isEmpty()) {
-      const QFileInfo file(captured.sourceFile);
-      if (!file.isFile() || file.size() != captured.size || file.lastModified().toMSecsSinceEpoch() != captured.modified) {
-        error = tr("校验期间来源文件已改变，请重新保存"); break;
-      }
-    }
     if (!p->opened) {
       p->scan.layerUids.clear();
       // Legacy identity migration still uses QGIS native edits on the owner.
@@ -249,6 +258,7 @@ void MapVersionController::continueSavePreparation(const std::shared_ptr<SavePre
   p->close();
   if (!p->cancelled && error.isEmpty()) {
     auto provenance = p->provenance; provenance.insert("feature_summary", p->scan.summary());
+    provenance.insert("cited_sources", p->scan.citedSources(m_catalog));
     // No event loop boundary between the validated revision and native commit.
     if (launchSaveSnapshot(p->horizon, provenance, &error)) {
       m_async->preparation.reset(); return;
@@ -268,7 +278,7 @@ bool MapVersionController::launchSaveSnapshot(const QString &horizon, const QVar
     for (const auto &entry : m_projectStore->busyLayers())
       for (const auto &captured : m_async->preparation->layers)
         if (captured.vector && (entry.layerId == captured.id || entry.layerId == captured.vector->id()) &&
-            !(entry.taskId == "edit" && captured.vector->isEditable())) {
+            entry.taskId != QLatin1String("edit")) {
           if (error) *error = entry.reason; return false;
         }
   auto job = std::make_shared<SnapshotJob>(); job->epoch = m_snapshotEpoch;
@@ -289,10 +299,9 @@ bool MapVersionController::launchSaveSnapshot(const QString &horizon, const QVar
         {"crs", layer->crs().toWkt()}, {"subset", layer->subsetString()}, {"native_layer", layer->id()}, {"version", layer->customProperty("paleoVersionId")}});
     VectorSnapshotSource source{decl.layerId, key, std::make_shared<QgsVectorLayerFeatureSource>(layer), layer->wkbType()};
     source.count = layer->featureCount();
-    const QFileInfo file(decl.source.section('|', 0, 0));
-    if (file.isFile()) { source.originalFile = file.absoluteFilePath(); source.originalSize = file.size(); source.originalModified = file.lastModified().toMSecsSinceEpoch(); }
     job->vectors << source;
   }
+  job->stale = std::make_shared<std::atomic_bool>(false);
   if (!m_async) m_async = std::make_shared<AsyncState>(this);
   m_async->runner.setTaskService(m_tasks);
   // This operation owns its source locks through worker completion. A later
@@ -311,14 +320,36 @@ bool MapVersionController::launchSaveSnapshot(const QString &horizon, const QVar
     for (const auto &id : tokenIds) if (tokenStore->layerBusy(id, error)) return false;
     for (const auto &id : tokenIds) tokenStore->markLayerBusy(id, tokenOwner, tr("地图快照正在读取来源"));
   }
+  m_async->disconnectSourceWatches();
+  const auto stale = job->stale;
+  const auto markStale = [stale] { stale->store(true, std::memory_order_release); };
+  if (m_layers)
+    for (const auto &vector : job->vectors) {
+      auto *layer = qobject_cast<QgsVectorLayer *>(m_layers->layer(vector.layerId));
+      if (!layer) continue;
+      m_async->sourceWatches
+        << connect(layer, &QgsVectorLayer::geometryChanged, this, markStale)
+        << connect(layer, &QgsVectorLayer::attributeValueChanged, this, markStale)
+        << connect(layer, &QgsVectorLayer::featureAdded, this, markStale)
+        << connect(layer, &QgsVectorLayer::featureDeleted, this, markStale)
+        << connect(layer, &QgsVectorLayer::updatedFields, this, markStale)
+        << connect(layer, &QgsVectorLayer::subsetStringChanged, this, markStale)
+        << connect(layer, &QgsVectorLayer::editingStopped, this, markStale)
+        << connect(layer, &QgsMapLayer::dataSourceChanged, this, markStale)
+        << connect(layer, &QgsMapLayer::dataChanged, this, markStale)
+        << connect(layer, &QgsMapLayer::crsChanged, this, markStale)
+        << connect(layer, &QObject::destroyed, this, markStale);
+    }
   m_async->releaseTokens = [tokenStore, tokenProject, tokenIds, tokenOwner] {
     if (tokenStore && tokenStore->metaDbPath() == tokenProject)
-      for (const auto &entry : tokenStore->busyLayers())
-        if (entry.taskId == tokenOwner && tokenIds.contains(entry.layerId)) tokenStore->markLayerFree(entry.layerId);
+      for (const auto &id : tokenIds) tokenStore->releaseLayerBusy(id, tokenOwner);
   };
   paleo::jobs::JobRunner<SnapshotJob>::Callbacks callbacks;
   callbacks.compute = computeSnapshot;
   callbacks.commit = [this](SnapshotJob &j, QString *err) {
+    if (j.stale && j.stale->load(std::memory_order_acquire)) {
+      if (err) *err = tr("矢量来源在导出期间已变化，请重试"); return false;
+    }
     if (!j.error.isEmpty()) { if (err) *err = j.error; return false; }
     if (!m_store || j.epoch != m_snapshotEpoch || j.input.projectDirectory != m_store->projectDirectory()) {
       if (err) *err = tr("工程已切换，旧地图快照已丢弃"); return false;
@@ -329,6 +360,10 @@ bool MapVersionController::launchSaveSnapshot(const QString &horizon, const QVar
     };
     const auto status = m_projectStore ? m_projectStore->enqueueWrite(commit) : commit();
     if (!status.ok) { if (err && err->isEmpty()) *err = status.error; return false; }
+    QString retainError;
+    if (!retainMapCitations(m_catalog, j.input.horizon, result.version, j.prepared.provenance, &retainError) &&
+        j.error.isEmpty())
+      j.error = retainError;
     emit versionSaved(j.input.horizon, result.version); return true;
   };
   callbacks.cleanup = [](SnapshotJob &j) { discardPreparedMapSnapshot(j.prepared); };
@@ -340,6 +375,7 @@ bool MapVersionController::launchSaveSnapshot(const QString &horizon, const QVar
   *connection = connect(&m_async->runner, &paleo::jobs::JobRunnerBase::jobCompleted, this,
       [this, job, connection](quint64, bool) {
     disconnect(*connection);
+    m_async->disconnectSourceWatches();
     job->vectors.clear(); job->temporary.reset();
     emit snapshotBusyChanged(snapshotBusy());
     if (m_async->releaseTokens) { m_async->releaseTokens(); m_async->releaseTokens = {}; }
@@ -347,7 +383,12 @@ bool MapVersionController::launchSaveSnapshot(const QString &horizon, const QVar
       emit snapshotFinished(job->input.horizon, "save", job->prepared.committed, job->cancelled, job->error);
   });
   auto *task = m_async->runner.start(tr("%1 保存地图与证据快照").arg(horizon), job, callbacks);
-  if (!task) { disconnect(*connection); if (m_async->releaseTokens) m_async->releaseTokens(); m_async->releaseTokens = {}; return false; }
+  if (!task) {
+    disconnect(*connection);
+    m_async->disconnectSourceWatches();
+    if (m_async->releaseTokens) { m_async->releaseTokens(); m_async->releaseTokens = {}; }
+    return false;
+  }
   emit snapshotBusyChanged(snapshotBusy());
   task->setNavigationContext({{"horizon", horizon}, {"workspace", "compose"}, {"operation", "map_snapshot_save"}});
   return true;

@@ -13,6 +13,7 @@
 #include <QSet>
 #include <QUuid>
 #include <cmath>
+#include <functional>
 #include <qgsvectorlayer.h>
 
 namespace {
@@ -445,10 +446,33 @@ bool MappingWorkbench::recordSpatialInterpretationEdit(const QString &id, qint64
   if (kind == "merge" && observer) {
     const auto parentUids = QJsonDocument::fromJson(f.attribute(MappingFeatureIdentity::ParentsField).toString().toUtf8()).toVariant().toList();
     QSet<QString> parents; for (const auto &uid : parentUids) parents.insert(uid.toString());
-    QVariantList parentInterpretations;
-    QSet<QString> interpretationIds, seenParentUids, recordIds;
+    QVariantList parentInterpretations, carriedEvents;
+    QSet<QString> interpretationIds, seenParentUids, recordIds, carriedEventIds, ancestorIds;
+    std::function<void(const QVariantMap &)> takeEvents = [&](const QVariantMap &object) {
+      for (const auto &key : {QStringLiteral("history"), QStringLiteral("carried_events")}) {
+        for (const auto &eventValue : object.value(key).toList()) {
+          const auto event = eventValue.toMap();
+          const auto eventId = event.value("event_id").toString();
+          if (eventId.isEmpty() || carriedEventIds.contains(eventId)) continue;
+          carriedEventIds.insert(eventId);
+          carriedEvents << QVariantMap{{"event_id", eventId}, {"action", event.value("action")},
+            {"actor_id", event.value("actor_id")}, {"reason", event.value("reason")},
+            {"timestamp", event.value("timestamp")},
+            {"target_object_id", event.value("target_object_id")},
+            {"target_object_type", event.value("target_object_type")},
+            {"before_revision", event.value("before_revision")},
+            {"after_revision", event.value("after_revision")}};
+        }
+      }
+      const auto interpretationId = object.value("id").toString();
+      if (!interpretationId.isEmpty()) ancestorIds.insert(interpretationId);
+      for (const auto &parent : object.value("parent_interpretations").toList()) takeEvents(parent.toMap());
+    };
     auto acceptParent = [&](QVariantMap inherited) {
+      takeEvents(inherited);
       inherited.remove("history");
+      inherited.remove("carried_events");
+      inherited.remove("ancestor_interpretation_ids");
       inherited.remove("parent_interpretations");
       inherited.remove("inherited_interpretation");
       inherited.remove("inherited_evidence");
@@ -487,10 +511,15 @@ bool MappingWorkbench::recordSpatialInterpretationEdit(const QString &id, qint64
         recordIds.insert(row.value("id").toString()); records << row;
       }
     }
-    // Immediate parents only. Nested parent trees stay on the saved parent
-    // version; copying them here doubles the ancestry on every merge.
+    // Immediate parents stay one level deep. Unsaved review events and ancestor
+    // ids are a flat, event-id-deduped log: nested copies would grow every merge,
+    // and those events were never written to a saved parent version.
     i.remove("inherited_interpretation");
     i.insert("parent_interpretations", parentInterpretations);
+    QStringList ancestors = ancestorIds.values();
+    ancestors.sort();
+    i.insert("ancestor_interpretation_ids", ancestors);
+    i.insert("carried_events", carriedEvents);
     change.insert("parent_interpretation_count", parentInterpretations.size());
   }
   paleo::evidence::Revision result;

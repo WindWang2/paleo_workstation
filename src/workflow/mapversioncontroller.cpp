@@ -36,7 +36,6 @@
 namespace
 {
 using paleo::workflow_detail::setError;
-
 } // namespace
 
 MapVersionController::MapVersionController( MapVersionStore *store, QgisLayerService *layers,
@@ -54,7 +53,7 @@ bool MapVersionController::captureVersion(const QString &horizon, const QVariant
 
   QVariantMap frozenProvenance = provenance;
 
-  // 收集属于该层位的全部矢量图层候选（无论成功失败均保证清理 busy 标记）
+  // 本函数只提交编辑并释放自己结束的 edit 锁。其他任务的锁按所有者保留。
   QVector<QPair<QString, QPointer<QgsVectorLayer>>> horizonVectorLayers;
   QVector<LayerDeclaration> declared;
   bool declaredOk = false;
@@ -76,22 +75,33 @@ bool MapVersionController::captureVersion(const QString &horizon, const QVariant
     }
   }
 
-  auto clearAllTokens = [&]() {
-    if ( !m_projectStore )
-      return;
-    for ( const auto &item : horizonVectorLayers )
-    {
-      m_projectStore->markLayerFree( item.first );
-      if ( item.second )
-        m_projectStore->markLayerFree( item.second->id() );
+  auto releaseCommittedEditLocks = [&]() {
+    if (!m_projectStore) return;
+    for (const auto &item : horizonVectorLayers) {
+      auto *layer = item.second.data();
+      if (layer && layer->isEditable()) continue;
+      m_projectStore->releaseLayerBusy(item.first, QStringLiteral("edit"));
+      if (layer) m_projectStore->releaseLayerBusy(layer->id(), QStringLiteral("edit"));
     }
   };
+  if (m_projectStore) {
+    for (const auto &entry : m_projectStore->busyLayers()) {
+      for (const auto &item : horizonVectorLayers) {
+        auto *layer = item.second.data();
+        const bool same = entry.layerId == item.first || (layer && entry.layerId == layer->id());
+        if (!same) continue;
+        // "edit" is the live session, or an orphan with no editable layer.
+        // A foreign computation still blocks. Orphans are released only after
+        // this attempt, and only when the layer is still not editable.
+        if (entry.taskId == QLatin1String("edit")) continue;
+        setError(error, entry.reason);
+        return false;
+      }
+    }
+  }
 
   if ( m_layers && !declaredOk )
-  {
-    clearAllTokens();
     return false; // 清单读失败时不得在未提交编辑的情况下出版本
-  }
 
   // Validate persisted business JSON before committing the native edit buffer.
   MapVersionEvidenceScan scan;
@@ -100,7 +110,7 @@ bool MapVersionController::captureVersion(const QString &horizon, const QVariant
     if (!layer) continue;
     if (item.first.startsWith("draft.") && layer->fields().indexOf("facies_code") >= 0 && !layer->readOnly() &&
         !MappingFeatureIdentity::ensure(layer, error)) {
-      clearAllTokens(); return {};
+      return {};
     }
     if (layer->fields().indexOf("facies_evidence") < 0 &&
         layer->fields().indexOf("paleo_interpretation") < 0) {
@@ -109,7 +119,7 @@ bool MapVersionController::captureVersion(const QString &horizon, const QVariant
     scan.layerUids.clear();
     auto features = layer->getFeatures(); QgsFeature feature;
     while (features.nextFeature(feature)) {
-      if (!scan.append(feature, horizon, m_catalog, error, item.first.startsWith("draft."))) { clearAllTokens(); return {}; }
+      if (!scan.append(feature, horizon, m_catalog, error, item.first.startsWith("draft."))) return {};
     }
   }
   if (!featurePrevalidated) frozenProvenance.insert("feature_summary", scan.summary());
@@ -178,7 +188,7 @@ bool MapVersionController::captureVersion(const QString &horizon, const QVariant
 
   if ( commitFailed )
   {
-    clearAllTokens();
+    releaseCommittedEditLocks();
     return false;
   }
 
@@ -202,14 +212,14 @@ bool MapVersionController::captureVersion(const QString &horizon, const QVariant
       const QVariant evidence = version.extra.value("evidence");
       if (evidence.isValid() && evidence.typeId() != QMetaType::QVariantMap) {
         setError(error, tr("成果版本的证据字段损坏：%1").arg(version.id));
-        clearAllTokens(); return {};
+        releaseCommittedEditLocks(); return {};
       }
       const auto map = evidence.toMap();
       const auto findings = paleo::evidence::validate(map) + map.value("quality_issues").toList();
       for (const auto &entry : findings)
         if (entry.toMap().value("severity").toString() == "Blocking") {
           setError(error, tr("成果证据存在阻断性来源错误：%1").arg(version.id));
-          clearAllTokens(); return {};
+          releaseCommittedEditLocks(); return {};
         }
       versionSnapshots << QVariantMap{{"layer_id", decl.layerId}, {"version_id", version.id},
                                      {"asset_id", version.assetId}, {"sha256", version.sha256},
@@ -218,7 +228,20 @@ bool MapVersionController::captureVersion(const QString &horizon, const QVariant
   }
   frozenProvenance.insert("evidence_snapshot", versionSnapshots);
   frozenProvenance.insert("catalog_bound", !versionSnapshots.isEmpty());
-
+  if (!featurePrevalidated)
+    frozenProvenance.insert("cited_sources", scan.citedSources(m_catalog));
+  if (m_catalog) {
+    for (const auto &entry : frozenProvenance.value(QStringLiteral("cited_sources")).toList()) {
+      const auto id = entry.toMap().value(QStringLiteral("version_id")).toString();
+      if (id.isEmpty()) continue;
+      if (m_catalog->versionById(id).id.isEmpty()) {
+        setError(error, tr("图斑证据引用的来源版本缺失：%1").arg(id));
+        releaseCommittedEditLocks();
+        return {};
+      }
+    }
+  }
+  releaseCommittedEditLocks();
 
   *declarations = declared; *frozen = frozenProvenance;
   return true;
@@ -227,8 +250,10 @@ void MapVersionController::releaseSnapshotTokens(const QString &horizon) {
   if (!m_projectStore || !m_layers) return;
   for (const auto &decl : m_layers->declared()) {
     if (decl.horizon != horizon || decl.type != "vector") continue;
-    m_projectStore->markLayerFree(decl.layerId);
-    if (auto *layer = m_layers->layer(decl.layerId)) m_projectStore->markLayerFree(layer->id());
+    auto *layer = qobject_cast<QgsVectorLayer *>(m_layers->layer(decl.layerId));
+    if (layer && layer->isEditable()) continue;
+    m_projectStore->releaseLayerBusy(decl.layerId, QStringLiteral("edit"));
+    if (layer) m_projectStore->releaseLayerBusy(layer->id(), QStringLiteral("edit"));
   }
 }
 
@@ -283,8 +308,13 @@ MapVersion MapVersionController::saveVersion( const QString &horizon, const QVar
 
   clearAllTokens();
 
-  if ( v.version > 0 )
+  if ( v.version > 0 ) {
+    QString retainError;
+    if (!retainMapCitations(m_catalog, horizon, v.version, frozenProvenance, &retainError) &&
+        error && error->isEmpty())
+      *error = retainError;
     emit versionSaved( horizon, v.version );
+  }
   return v;
 }
 
@@ -309,6 +339,16 @@ QString MapVersionController::publish( const QString &horizon, const QString &re
   const auto provenance = QJsonDocument::fromJson(saved.provenance.toUtf8()).object();
   if (provenance.value("catalog_bound").toBool() && (!m_catalog || !m_catalog->isOpen())) {
     setError(error, tr("保存版本引用的资料目录不可用，请重新打开工程后发布")); return {};
+  }
+  if (provenance.contains("cited_sources") && !provenance.value("cited_sources").isArray()) {
+    setError(error, tr("保存版本的人工来源清单格式损坏，发布被拒绝")); return {};
+  }
+  for (const auto &entry : provenance.value("cited_sources").toArray()) {
+    const auto id = entry.toObject().value("version_id").toString();
+    if (id.isEmpty()) continue;
+    if (m_catalog && m_catalog->versionById(id).id.isEmpty()) {
+      setError(error, tr("保存证据的来源版本已缺失：%1").arg(id)); return {};
+    }
   }
   for (const auto &entry : provenance.value("evidence_snapshot").toArray()) {
     const auto row = entry.toObject();

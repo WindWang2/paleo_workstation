@@ -7,6 +7,7 @@
 
 #include <QDateTime>
 #include <QCryptographicHash>
+#include <QDebug>
 #include <QRegularExpression>
 #include <QDir>
 #include <QFile>
@@ -14,6 +15,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QSet>
 #include <QUuid>
 #include <QSaveFile>
 #include <QScopeGuard>
@@ -167,6 +169,63 @@ using paleo::store_detail::setError;
   const char kSelectCols[] =
       "id,horizon,version,provenance,state,published_path,created_utc,"
       "pdf_asset_id,pdf_sha256,residual_summary";
+
+  // Same file schema as PaleoProjectStore's commit journal, written here so
+  // the metadata store does not include the project store. commitAll ignores
+  // stages outside queued/catalog_done/qgz_done/complete, so a publish op is
+  // never replayed as a catalog commit.
+  bool safePublicationOpId(const QString &opId) {
+    if (opId.isEmpty() || opId.size() > 200 || opId.contains(QLatin1String(".."))) return false;
+    for (const QChar c : opId) {
+      if (c == QLatin1Char('/') || c == QLatin1Char('\\') || c == QLatin1Char(':')) return false;
+      const ushort u = c.unicode();
+      if (u < 0x20 || u == 0x7F) return false;
+    }
+    return true;
+  }
+  bool writePublicationJournal(const QString &directory, const QString &opId, const QString &stage,
+                               const QString &digest, QString *error) {
+    if (!safePublicationOpId(opId) || stage.isEmpty()) {
+      setError(error, QStringLiteral("发布记档标识无效")); return false;
+    }
+    if (!QDir().mkpath(directory)) {
+      setError(error, QStringLiteral("无法创建发布记档目录 %1").arg(directory)); return false;
+    }
+    QJsonObject entry;
+    entry.insert(QStringLiteral("journal_version"), 1);
+    entry.insert(QStringLiteral("op_id"), opId);
+    entry.insert(QStringLiteral("stage"), stage);
+    entry.insert(QStringLiteral("input_digest"), digest);
+    entry.insert(QStringLiteral("updated_utc"), QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs));
+    const QString path = QDir(directory).filePath(opId + QStringLiteral(".json"));
+    QSaveFile file(path);
+    file.setDirectWriteFallback(false);
+    const QByteArray bytes = QJsonDocument(entry).toJson(QJsonDocument::Indented);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate) || file.write(bytes) != bytes.size() || !file.commit()) {
+      file.cancelWriting();
+      setError(error, QStringLiteral("无法写入发布记档 %1").arg(path));
+      return false;
+    }
+    return true;
+  }
+  QString publicationDigest(int versionId, int versionNumber, const QString &horizon,
+                            const QString &stagingDirectory, const QString &finalDirectory,
+                            const QString &residualSummary, const QString &manifestSha) {
+    const QJsonObject digest{{QStringLiteral("version_id"), versionId},
+                             {QStringLiteral("horizon"), horizon},
+                             {QStringLiteral("version_number"), versionNumber},
+                             {QStringLiteral("staging_directory"), stagingDirectory},
+                             {QStringLiteral("final_directory"), finalDirectory},
+                             {QStringLiteral("residual_summary"), residualSummary},
+                             {QStringLiteral("manifest_sha256"), manifestSha}};
+    return QString::fromUtf8(QJsonDocument(digest).toJson(QJsonDocument::Compact));
+  }
+  bool pathInsideProject(const QString &projectDir, const QString &path) {
+    if (path.isEmpty() || path.contains(QLatin1String(".."))) return false;
+    const QString absolute = QFileInfo(path).absoluteFilePath();
+    const QString root = QDir(projectDir).absolutePath();
+    return absolute == root || absolute.startsWith(root + QLatin1Char('/'));
+  }
 } // namespace
 
 MapVersionStore::MapVersionStore( const QString &metaSqlitePath )
@@ -176,7 +235,11 @@ MapVersionStore::MapVersionStore( const QString &metaSqlitePath )
 
 bool MapVersionStore::open( QString *error )
 {
-  return mapVersionEnsureOpen( m_dbPath, m_readOnly, error );
+  if (!mapVersionEnsureOpen(m_dbPath, m_readOnly, error)) return false;
+  // A hash mismatch or an unreadable journal is reported and left on disk.
+  // Opening the project must still succeed.
+  if (!m_readOnly) recoverInterruptedPublications();
+  return true;
 }
 
 int MapVersionStore::currentVersion( const QString &horizon ) const
@@ -443,6 +506,211 @@ int MapVersionStore::numericResidualCount( const QString &summaryJson )
   return n;
 }
 
+QString MapVersionStore::commitPublicationPlacement(int versionId, int versionNumber, const QString &horizon,
+                                                    const QString &stagingDirectory, const QString &finalDirectory,
+                                                    const QString &residualSummary, QString *error) {
+  if (versionId <= 0 || versionNumber <= 0 || stagingDirectory.isEmpty() || finalDirectory.isEmpty() ||
+      stagingDirectory == finalDirectory || !stagingDirectory.contains(QLatin1String(".staging-")) ||
+      !pathInsideProject(projectDirectory(), stagingDirectory) || !pathInsideProject(projectDirectory(), finalDirectory)) {
+    setError(error, QStringLiteral("发布快照无法原子落位：%1").arg(finalDirectory));
+    return {};
+  }
+  const QString manifestSha = DataCatalog::sha256FileHex(
+      QDir(stagingDirectory).filePath(QStringLiteral("evidence-snapshot.json")), error);
+  if (manifestSha.size() != 64) {
+    if (error && error->isEmpty()) setError(error, QStringLiteral("发布清单指纹无法读取"));
+    return {};
+  }
+  const QString opId = QStringLiteral("map-publish-%1").arg(versionId);
+  const QString digest = publicationDigest(versionId, versionNumber, horizon, stagingDirectory, finalDirectory,
+                                           residualSummary, manifestSha);
+  const QString journalDir = QDir(projectDirectory()).filePath(QStringLiteral("artifacts/metadata/commit_journal"));
+  auto journal = [&](const QString &stage) {
+    QString journalError;
+    const bool wrote = writePublicationJournal(journalDir, opId, stage, digest, &journalError);
+    if (!wrote && error && error->isEmpty()) *error = journalError;
+    return wrote;
+  };
+  if (QFileInfo::exists(finalDirectory)) {
+    // Leave any existing journal alone. A mismatched result must not be marked
+    // complete, and it must not be deleted.
+    setError(error, QStringLiteral("发布快照无法原子落位：%1").arg(finalDirectory));
+    return {};
+  }
+  if (!journal(QStringLiteral("publish_prepared"))) return {};
+  if (!QDir().rename(stagingDirectory, finalDirectory)) {
+    // publish_prepared plus a missing final directory is cleaned on reopen.
+    setError(error, QStringLiteral("发布快照无法原子落位：%1").arg(finalDirectory));
+    return {};
+  }
+  if (!journal(QStringLiteral("publish_renamed"))) {
+    if (error && error->isEmpty())
+      setError(error, QStringLiteral("发布记档无法落盘，重开工程后会补登记"));
+    return {};
+  }
+  if (m_renameProbe) m_renameProbe();
+  QSqlQuery update(QSqlDatabase::database(mapVersionConnectionName(m_dbPath, m_readOnly)));
+  update.prepare(QStringLiteral("UPDATE map_versions SET state='Published', published_path=?, residual_summary=?"
+                                " WHERE id=? AND state!='Published'"));
+  update.addBindValue(finalDirectory);
+  update.addBindValue(residualSummary);
+  update.addBindValue(versionId);
+  if (!update.exec() || update.numRowsAffected() != 1) {
+    const QString sqlError = update.lastError().text();
+    update.finish();
+    QSqlQuery current(QSqlDatabase::database(mapVersionConnectionName(m_dbPath, m_readOnly)));
+    current.prepare(QStringLiteral("SELECT state, published_path FROM map_versions WHERE id=?"));
+    current.addBindValue(versionId);
+    const bool alreadyThisResult = current.exec() && current.next() &&
+        current.value(0).toString() == QLatin1String("Published") &&
+        QFileInfo(current.value(1).toString()).absoluteFilePath() == QFileInfo(finalDirectory).absoluteFilePath();
+    if (alreadyThisResult) {
+      QString ignored;
+      writePublicationJournal(journalDir, opId, QStringLiteral("complete"), digest, &ignored);
+      if (error) error->clear();
+      return finalDirectory;
+    }
+    // This attempt just renamed the directory. Remove only that directory so
+    // a retry can publish again. Mark the journal complete so recovery does
+    // not register a directory that no longer exists. Do not point the
+    // caller's staging guard at the final path.
+    QDir(finalDirectory).removeRecursively();
+    journal(QStringLiteral("complete"));
+    setError(error, sqlError.isEmpty() ? QStringLiteral("发布登记失败") : sqlError);
+    return {};
+  }
+  QString ignored;
+  if (!writePublicationJournal(journalDir, opId, QStringLiteral("complete"), digest, &ignored))
+    qWarning() << "MapVersionStore: publication registered but journal completion failed" << opId << ignored;
+  if (error) error->clear();
+  return finalDirectory;
+}
+
+void MapVersionStore::recoverInterruptedPublications() {
+  if (m_readOnly || m_dbPath.isEmpty()) return;
+  const QString projectDir = projectDirectory();
+  const QString journalDir = QDir(projectDir).filePath(QStringLiteral("artifacts/metadata/commit_journal"));
+  QDir dir(journalDir);
+  if (!dir.exists()) return;
+  QSet<QString> publishedPaths;
+  {
+    QSqlQuery paths(QSqlDatabase::database(mapVersionConnectionName(m_dbPath, m_readOnly)));
+    if (paths.exec(QStringLiteral("SELECT published_path FROM map_versions"
+                                  " WHERE published_path IS NOT NULL AND published_path != ''")))
+      while (paths.next()) publishedPaths.insert(QFileInfo(paths.value(0).toString()).absoluteFilePath());
+  }
+  const QStringList names = dir.entryList({QStringLiteral("map-publish-*.json")}, QDir::Files, QDir::Name);
+  for (const QString &name : names) {
+    const QString path = dir.filePath(name);
+    const QString opId = QFileInfo(path).completeBaseName();
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+      qWarning() << "MapVersionStore: unreadable publication journal" << path;
+      continue;
+    }
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &parseError);
+    file.close();
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+      qWarning() << "MapVersionStore: corrupt publication journal" << path;
+      continue;
+    }
+    const QJsonObject header = document.object();
+    const QString stage = header.value(QStringLiteral("stage")).toString();
+    if (header.value(QStringLiteral("op_id")).toString() != opId || stage.isEmpty()) {
+      qWarning() << "MapVersionStore: corrupt publication journal" << path;
+      continue;
+    }
+    if (stage == QLatin1String("complete")) continue;
+    QJsonParseError digestError;
+    const QJsonDocument digestDocument = QJsonDocument::fromJson(
+        header.value(QStringLiteral("input_digest")).toString().toUtf8(), &digestError);
+    if (digestError.error != QJsonParseError::NoError || !digestDocument.isObject()) {
+      qWarning() << "MapVersionStore: publication journal digest is unreadable" << opId;
+      continue;
+    }
+    const QJsonObject digest = digestDocument.object();
+    const QString horizon = digest.value(QStringLiteral("horizon")).toString();
+    const int versionId = digest.value(QStringLiteral("version_id")).toInt();
+    const int versionNumber = digest.value(QStringLiteral("version_number")).toInt();
+    const QString staging = digest.value(QStringLiteral("staging_directory")).toString();
+    const QString finalDirectory = digest.value(QStringLiteral("final_directory")).toString();
+    const QString residual = digest.value(QStringLiteral("residual_summary")).toString();
+    const QString expectedSha = digest.value(QStringLiteral("manifest_sha256")).toString();
+    const QString storedDigest = header.value(QStringLiteral("input_digest")).toString();
+    auto finish = [&]() {
+      QString ignored;
+      if (!writePublicationJournal(journalDir, opId, QStringLiteral("complete"), storedDigest, &ignored))
+        qWarning() << "MapVersionStore: could not complete publication journal" << opId << ignored;
+    };
+    const bool finalExists = !finalDirectory.isEmpty() && QFileInfo::exists(finalDirectory);
+    if (stage == QLatin1String("publish_prepared") && !finalExists) {
+      if (QFileInfo::exists(staging)) {
+        const bool disposable = staging.contains(QLatin1String(".staging-")) &&
+            pathInsideProject(projectDir, staging) &&
+            !publishedPaths.contains(QFileInfo(staging).absoluteFilePath());
+        if (!disposable) {
+          qWarning() << "MapVersionStore: refused to delete an unrecognized staging path" << staging;
+          continue;
+        }
+        QDir(staging).removeRecursively();
+      }
+      finish();
+      continue;
+    }
+    if (stage == QLatin1String("publish_renamed") && !finalExists) {
+      finish();
+      continue;
+    }
+    if (stage != QLatin1String("publish_renamed") && stage != QLatin1String("publish_prepared")) {
+      qWarning() << "MapVersionStore: unrecognized publication stage" << opId << stage;
+      continue;
+    }
+    if (!pathInsideProject(projectDir, finalDirectory)) {
+      qWarning() << "MapVersionStore: publication path is outside the project" << finalDirectory;
+      continue;
+    }
+    const QString actualSha = DataCatalog::sha256FileHex(
+        QDir(finalDirectory).filePath(QStringLiteral("evidence-snapshot.json")));
+    if (expectedSha.size() != 64 || actualSha != expectedSha) {
+      qWarning() << "MapVersionStore: publication manifest does not match the journal; left untouched" << opId;
+      continue;
+    }
+    QSqlQuery row(QSqlDatabase::database(mapVersionConnectionName(m_dbPath, m_readOnly)));
+    row.prepare(QStringLiteral("SELECT horizon, version, state, published_path FROM map_versions WHERE id=?"));
+    row.addBindValue(versionId);
+    if (!row.exec() || !row.next() || row.value(0).toString() != horizon || row.value(1).toInt() != versionNumber) {
+      qWarning() << "MapVersionStore: publication journal does not match a saved version; left untouched" << opId;
+      continue;
+    }
+    const QString state = row.value(2).toString();
+    const QString publishedPath = row.value(3).toString();
+    row.finish();
+    if (state == QLatin1String("Published")) {
+      if (QFileInfo(publishedPath).absoluteFilePath() == QFileInfo(finalDirectory).absoluteFilePath()) finish();
+      else qWarning() << "MapVersionStore: publication journal points at a different published result" << opId;
+      continue;
+    }
+    if (state != QLatin1String("Editing")) {
+      qWarning() << "MapVersionStore: publication journal version is not editable; left untouched" << opId;
+      continue;
+    }
+    QSqlQuery update(QSqlDatabase::database(mapVersionConnectionName(m_dbPath, m_readOnly)));
+    update.prepare(QStringLiteral("UPDATE map_versions SET state='Published', published_path=?, residual_summary=?"
+                                  " WHERE id=? AND horizon=? AND version=? AND state!='Published'"));
+    update.addBindValue(finalDirectory);
+    update.addBindValue(residual);
+    update.addBindValue(versionId);
+    update.addBindValue(horizon);
+    update.addBindValue(versionNumber);
+    if (!update.exec() || update.numRowsAffected() != 1) {
+      qWarning() << "MapVersionStore: could not finish interrupted publication" << opId << update.lastError().text();
+      continue;
+    }
+    finish();
+  }
+}
+
 QString MapVersionStore::publish( const QString &horizon, const QVector<LayerDeclaration> &decls,
                                   const QString &residualSummary, QString *error )
 {
@@ -461,6 +729,7 @@ QString MapVersionStore::publish( const QString &horizon, const QVector<LayerDec
 
   if ( !mapVersionEnsureOpen( m_dbPath, m_readOnly, error ) )
     return QString();
+  recoverInterruptedPublications();
 
   const MapVersion latestV = latest( horizon );
   if ( latestV.version <= 0 )
@@ -637,24 +906,11 @@ QString MapVersionStore::publish( const QString &horizon, const QVector<LayerDec
   QFile::setPermissions(manifest.fileName(), QFileDevice::ReadOwner | QFileDevice::ReadUser |
                                             QFileDevice::ReadGroup | QFileDevice::ReadOther);
 
-  if (QFileInfo::exists(finalSnapDir) || !QDir().rename(snapDir, finalSnapDir)) {
-    setError(error, QStringLiteral("发布快照无法原子落位：%1").arg(finalSnapDir));
-    return {};
-  }
-  snapDir = finalSnapDir;
-  QSqlQuery up( QSqlDatabase::database( mapVersionConnectionName( m_dbPath, m_readOnly ) ) );
-  up.prepare( QStringLiteral( "UPDATE map_versions SET state='Published', published_path=?,"
-                              " residual_summary=? WHERE id=?" ) );
-  up.addBindValue( snapDir );
-  up.addBindValue( residualSummary );
-  up.addBindValue( latestV.id );
-  if ( !up.exec() )
-  {
-    setError( error, up.lastError().text() );
-    return QString();
-  }
+  const QString placed = commitPublicationPlacement(latestV.id, latestV.version, horizon, snapDir, finalSnapDir,
+                                                   residualSummary, error);
+  if (placed.isEmpty()) return {};
   published = true;
-  return snapDir;
+  return placed;
 }
 
 QString MapVersionStore::projectDirectory() const { return QFileInfo(m_dbPath).absolutePath(); }
@@ -822,20 +1078,20 @@ MapVersion MapVersionStore::commitPreparedVersion(PreparedMapSnapshot &snapshot,
   snapshot.committed = true; return latest(snapshot.input.horizon);
 }
 QString MapVersionStore::commitPreparedPublication(PreparedMapSnapshot &snapshot, QString *error) {
+  if (!mapVersionEnsureOpen(m_dbPath, m_readOnly, error)) return {};
+  recoverInterruptedPublications();
   const auto latestV = latest(snapshot.input.horizon);
   if (m_readOnly || snapshot.input.operation != "publish" || snapshot.input.projectDirectory != projectDirectory() ||
       latestV.id != snapshot.input.versionId || latestV.state == "Published" || !verifyPreparedMapSnapshot(snapshot, error)) {
     if (error && error->isEmpty()) *error = QStringLiteral("发布版本已变化或工程不可写"); return {};
   }
-  if (QFileInfo::exists(snapshot.finalDirectory) || !QDir().rename(snapshot.directory, snapshot.finalDirectory)) {
-    setError(error, QStringLiteral("发布快照无法原子落位")); return {};
-  }
-  snapshot.directory = snapshot.finalDirectory;
-  QSqlQuery update(QSqlDatabase::database(mapVersionConnectionName(m_dbPath, m_readOnly)));
-  update.prepare("UPDATE map_versions SET state='Published',published_path=?,residual_summary=? WHERE id=? AND state!='Published'");
-  update.addBindValue(snapshot.directory); update.addBindValue(snapshot.input.residualSummary); update.addBindValue(snapshot.input.versionId);
-  if (!update.exec() || update.numRowsAffected() != 1) { setError(error, update.lastError().text()); return {}; }
-  snapshot.committed = true; return snapshot.directory;
+  const QString placed = commitPublicationPlacement(snapshot.input.versionId, snapshot.input.versionNumber,
+      snapshot.input.horizon, snapshot.directory, snapshot.finalDirectory, snapshot.input.residualSummary, error);
+  if (placed.isEmpty()) return {};
+  // Leave snapshot.directory on the staging path. It has been renamed away, so
+  // a failed caller cannot delete the registered result by discarding it.
+  snapshot.committed = true;
+  return placed;
 }
 
 bool MapVersionStore::isPublished( const QString &horizon ) const

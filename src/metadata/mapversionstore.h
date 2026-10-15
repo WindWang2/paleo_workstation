@@ -40,9 +40,14 @@ struct MapVersion {
 class MapVersionStore
 {
   public:
+    // Test-only crash point. Called after the publication directory is renamed
+    // and the publish_renamed journal entry is durable, before the SQL update.
+    using PublicationProbe = void (*)();
+
     explicit MapVersionStore(const QString &metaSqlitePath);
 
-    bool open(QString *error = nullptr);          // 建表/补列（幂等）
+    bool open(QString *error = nullptr);          // 建表/补列（幂等）；可写时补登记中断的发布
+    void setPublicationRenameProbe(PublicationProbe probe) { m_renameProbe = probe; }
 
     // 单写实例降级（T4/SCHEMA_MIGRATION.md §6）：锁失败 = 真只读——
     // saveVersion/recordLayoutProduct 等写面如实失败，读面照常。值语义：
@@ -110,6 +115,12 @@ class MapVersionStore
     QString publishedPath(const QString &horizon) const;     // 最新已发布快照
 
   private:
+    void recoverInterruptedPublications();
+    QString commitPublicationPlacement(int versionId, int versionNumber, const QString &horizon,
+                                       const QString &stagingDirectory, const QString &finalDirectory,
+                                       const QString &residualSummary, QString *error);
+
     QString m_dbPath;
     bool m_readOnly = false;
+    PublicationProbe m_renameProbe = nullptr;
 };

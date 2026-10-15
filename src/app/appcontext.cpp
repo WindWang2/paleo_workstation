@@ -452,6 +452,16 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
             m_metaPath = metaPath;
             m_store->setProjectPaths(qgzPath, gpkgPathFor(qgzPath), metaPath);
 
+            // 发布记档与工程提交记档同目录。先补登记中断的发布，再扫描未完成
+            // 记档，避免一次已经补完的发布仍被报成未完成。只读实例不补登记。
+            if (writable)
+            {
+              MapVersionStore publicationRecovery(metaPath);
+              QString recoverErr;
+              if (!publicationRecovery.open(&recoverErr))
+                qWarning() << "AppContext: map publication recovery failed" << metaPath << recoverErr;
+            }
+
             // data/commit-coord：提交 journal 恢复扫描。上次 commitAll 若在
             // catalog→qgz 写序中途崩溃会留下未 complete 的记档；如实上报
             // （qWarning + QGIS 消息日志 → 状态面），绝不自动重放——记档

@@ -120,5 +120,58 @@ struct MapVersionEvidenceScan {
     }
     return true;
   }
+  QVariantList citedSources(DataCatalog *catalog) const {
+    QStringList ids = inputVersions.values();
+    ids.sort();
+    QVariantList out;
+    for (const auto &id : ids) {
+      QVariantMap row{{"version_id", id}};
+      if (catalog) {
+        const auto version = catalog->versionById(id);
+        if (!version.id.isEmpty()) {
+          row.insert("asset_id", version.assetId);
+          row.insert("sha256", version.sha256);
+          row.insert("horizon", version.extra.value("horizon").toString());
+        }
+      }
+      out << row;
+    }
+    return out;
+  }
   QVariantMap summary() const { return {{"feature_count", featureCount}, {"statuses", statuses}}; }
 };
+
+// Append-only retention on the cited catalog version. The frozen cited_sources
+// list is the publish gate; this extra only stops a later purge. A missing
+// update must not pretend the map row was never saved.
+inline QStringList mapResultRetention(const QVariant &value) {
+  QStringList tokens = value.toStringList();
+  if (!tokens.isEmpty()) return tokens;
+  for (const auto &entry : value.toList()) {
+    const auto token = entry.toString();
+    if (!token.isEmpty()) tokens << token;
+  }
+  return tokens;
+}
+inline bool retainMapCitations(DataCatalog *catalog, const QString &horizon, int version,
+                                const QVariantMap &provenance, QString *error) {
+  if (!catalog || version <= 0) return true;
+  const auto token = horizon + QLatin1Char('/') + QString::number(version);
+  for (const auto &entry : provenance.value(QStringLiteral("cited_sources")).toList()) {
+    const auto id = entry.toMap().value(QStringLiteral("version_id")).toString();
+    if (id.isEmpty()) continue;
+    const auto current = catalog->versionById(id);
+    if (current.id.isEmpty()) {
+      if (error) *error = QObject::tr("图斑证据引用的来源版本缺失：%1").arg(id);
+      return false;
+    }
+    auto tokens = mapResultRetention(current.extra.value(QStringLiteral("retained_by_map_results")));
+    if (tokens.contains(token)) continue;
+    tokens << token;
+    QVariantList stored;
+    for (const auto &item : tokens) stored << item;
+    if (!catalog->updateVersionExtra(id, {{QStringLiteral("retained_by_map_results"), stored}}, error))
+      return false;
+  }
+  return true;
+}

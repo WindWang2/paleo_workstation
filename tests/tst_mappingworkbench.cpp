@@ -50,6 +50,7 @@
 #include <QListWidget>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QSet>
 #include <QSignalSpy>
 #include <QTableWidget>
 #include <QTabWidget>
@@ -877,6 +878,83 @@ private slots:
       auto *tabs = page.findChild<QTabWidget *>("faciesEvidenceTabs"); QVERIFY(tabs);
       for (int n = 0; n < tabs->count(); ++n) { tabs->setCurrentIndex(n); QCoreApplication::processEvents(); QVERIFY(group->grab().save(qaDir + QString("/evidence-tab-%1.png").arg(n))); }
     }
+  }
+  void reviewsBetweenMergesStayInTheReopenedEventLog() {
+    Fixture f; QVERIFY(f.init()); QString error;
+    const auto draft = hierarchyDraft(f, &error); QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft)); QVERIFY(layer);
+    QgsFeature survivor, candidate; auto features = layer->getFeatures();
+    while (features.nextFeature(candidate))
+      if (!survivor.isValid() || candidate.geometry().boundingBox().xMaximum() > survivor.geometry().boundingBox().xMaximum())
+        survivor = candidate;
+    features.close(); QVERIFY(survivor.isValid());
+    QVERIFY(layer->startEditing());
+    const qint64 fid = survivor.id();
+    QSet<QString> required;
+    auto collect = [&](const QVariantMap &interpretation) {
+      for (const auto &key : {QString("history"), QString("carried_events")})
+        for (const auto &event : interpretation.value(key).toList()) {
+          const auto id = event.toMap().value("event_id").toString();
+          if (!id.isEmpty()) required.insert(id);
+        }
+    };
+    for (int n = 0; n < 3; ++n) {
+      const auto current = layer->getFeature(fid); const auto box = current.geometry().boundingBox();
+      QgsFeature adjacent(layer->fields()); adjacent.setAttribute("facies_code", current.attribute("facies_code"));
+      adjacent.setGeometry(QgsGeometry::fromRect(QgsRectangle(box.xMaximum(), box.yMinimum(), box.xMaximum() + 100, box.yMaximum())));
+      layer->beginEditCommand("new neighbouring interpretation"); QVERIFY(layer->addFeature(adjacent)); layer->endEditCommand();
+      const auto before = layer->getFeature(fid);
+      auto united = before.geometry().combine(layer->getFeature(adjacent.id()).geometry()); QVERIFY(!united.isEmpty());
+      layer->beginEditCommand("native merge");
+      QVERIFY(layer->changeGeometry(fid, united)); QVERIFY(layer->deleteFeature(adjacent.id())); layer->endEditCommand();
+      QVERIFY2(layer->property("paleo.evidenceEditFailure").toString().isEmpty(),
+               qPrintable(layer->property("paleo.evidenceEditFailure").toString()));
+      QVariantMap interpretation;
+      QVERIFY2(paleo::evidence::decodeInterpretation(layer->getFeature(fid).attribute("paleo_interpretation").toString(), &interpretation, &error), qPrintable(error));
+      QCOMPARE(interpretation.value("parent_interpretations").toList().size(), 2);
+      for (const auto &parent : interpretation.value("parent_interpretations").toList()) {
+        const auto row = parent.toMap();
+        QVERIFY(!row.contains("history"));
+        QVERIFY(!row.contains("carried_events"));
+        QVERIFY(!row.contains("parent_interpretations"));
+      }
+      QVERIFY(layer->getFeature(fid).attribute("paleo_interpretation").toString().size() < (n + 1) * 20000);
+      if (n < 2) {
+        const auto revision = interpretation.value("revision").toULongLong();
+        QVERIFY2(f.work.changeEvidence(draft, {fid}, "review", {{"actor_id", "local:reviewer"}, {"reason", "合并后复核"},
+            {"status", "Disputed"}, {"expected_revision", revision}}, &error), qPrintable(error));
+        if (n == 0) {
+          QVERIFY2(f.work.addEvidence(draft, {fid}, {{"text", "合并间隙的人工备注"}, {"role", "REFERENCES"}, {"type", "manual"},
+              {"actor_id", "local:geologist"}, {"reason", "记录尚未落版本的来源"}}, &error), qPrintable(error));
+          QString evidenceId;
+          for (const auto &entry : f.work.evidence(draft, {fid})) {
+            const auto row = entry.toMap();
+            if (row.value("text").toString() == QStringLiteral("合并间隙的人工备注")) evidenceId = row.value("id").toString();
+          }
+          QVERIFY(!evidenceId.isEmpty());
+          QVERIFY2(f.work.removeEvidence(draft, {fid}, evidenceId, &error), qPrintable(error));
+        }
+        QVariantMap reviewed;
+        QVERIFY2(paleo::evidence::decodeInterpretation(layer->getFeature(fid).attribute("paleo_interpretation").toString(), &reviewed, &error), qPrintable(error));
+        collect(reviewed);
+      } else collect(interpretation);
+    }
+    QVERIFY2(layer->commitChanges(), qPrintable(layer->commitErrors().join(';')));
+    QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
+    const auto version = f.work.versionForLayer(draft);
+    QgsVectorLayer reopened(DataCatalog::resolvedVersionPath(f.dir.path(), version) + "|layername=features", "merged events", "ogr");
+    QVERIFY(reopened.isValid());
+    const auto saved = MappingFeatureIdentity::find(&reopened, MappingFeatureIdentity::uid(layer->getFeature(fid)));
+    QVERIFY(saved.isValid());
+    QVariantMap restored;
+    QVERIFY2(paleo::evidence::decodeInterpretation(saved.attribute("paleo_interpretation").toString(), &restored, &error), qPrintable(error));
+    QCOMPARE(restored.value("parent_interpretations").toList().size(), 2);
+    QSet<QString> present;
+    for (const auto &key : {QString("history"), QString("carried_events")})
+      for (const auto &event : restored.value(key).toList())
+        present.insert(event.toMap().value("event_id").toString());
+    for (const auto &id : required) QVERIFY2(present.contains(id), qPrintable(id));
+    QVERIFY(required.size() >= 3);
   }
   void rejectedSpatialBindingDoesNotRegisterSourceOrMutateTarget() {
     Fixture f; QVERIFY(f.init()); QString error;

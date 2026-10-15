@@ -684,7 +684,8 @@ private slots:
     QTimer::singleShot(0, [&sawDialog, &banner] {
       if (auto *dlg = qobject_cast<QDialog *>(QApplication::activeModalWidget())) {
         sawDialog = true;
-        if (auto *w = dlg->findChild<QLabel *>(QStringLiteral("importLedgerWarning"))) banner = w->text();
+        if (auto *w = dlg->findChild<QLabel *>(QStringLiteral("importLedgerWarning")))
+          banner = w->textFormat() == Qt::PlainText ? w->text() : QStringLiteral("<非纯文本>");
         dlg->reject();
       }
     });

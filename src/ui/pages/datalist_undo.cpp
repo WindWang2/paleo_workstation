@@ -506,6 +506,8 @@ void DataListPanel::showImportLedger()
     {
       auto *warning = new QLabel(tr("台账警告：%1").arg(ledger.loadWarning()), &dlg);
       warning->setObjectName(QStringLiteral("importLedgerWarning"));
+      // 原因含文件路径/解析器报错原文：按纯文本显示，不让 '<' 等被当富文本解析。
+      warning->setTextFormat(Qt::PlainText);
       warning->setWordWrap(true);
       warning->setTextInteractionFlags(Qt::TextSelectableByMouse);
       lay->insertWidget(0, warning);

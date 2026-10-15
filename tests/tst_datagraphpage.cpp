@@ -543,7 +543,14 @@ private slots:
     QCOMPARE(prepareCount(status), 1);
     QTRY_VERIFY_WITH_TIMEOUT(idle(), 15000);
 
-    // 实体节点激活（双击图上实体）
+    // 实体节点激活（双击图上实体）：先切到「实体目录」，确保双击引起真实的模式
+    // 切换（实体目录 → 资料关联）——若停留在资料关联，旧码的下拉框信号不触发，
+    // 子例在旧码上也会通过、失去鉴别力（S5 第 3 轮）。
+    auto *modeBox = page.findChild<QComboBox *>(QStringLiteral("dataGraphMode"));
+    QVERIFY(modeBox);
+    modeBox->setCurrentIndex(modeBox->findData(int(Mode::Entities)));
+    QCOMPARE(mode(page), Mode::Entities);
+    QTRY_VERIFY_WITH_TIMEOUT(idle(), 15000);
     status.clear();
     QVERIFY2(doubleClickNode(page, entity.name), qPrintable(entity.name));
     QTRY_VERIFY_WITH_TIMEOUT(prepareCount(status) >= 1, 5000);
@@ -553,8 +560,6 @@ private slots:
     QTRY_VERIFY_WITH_TIMEOUT(idle(), 15000);
 
     // 实体目录分组（工区概览里双击「实体目录」）
-    auto *modeBox = page.findChild<QComboBox *>(QStringLiteral("dataGraphMode"));
-    QVERIFY(modeBox);
     modeBox->setCurrentIndex(modeBox->findData(int(Mode::Overview)));
     QTRY_VERIFY_WITH_TIMEOUT(idle(), 15000);
     status.clear();

@@ -131,7 +131,13 @@ QString writeStyleQml( const QString &factorId, const QString &rasterPath,
     return QString();
   }
 
-  applyTo(&layer,factorId);
+  // P3：色带渲染器没建起来（如全 nodata、无有限统计值）时如实失败——此前
+  // 忽略返回值，会把 QGIS 默认灰度样式当成该因素色带写进 factor_<id>.qml。
+  if ( !applyTo( &layer, factorId ) )
+  {
+    setError( error, QStringLiteral( "raster '%1' has no finite statistics; color ramp not built" ).arg( rasterPath ) );
+    return QString();
+  }
 
   if ( !QDir().mkpath( styleDir ) )
   {

@@ -883,6 +883,26 @@ class TestFactorWorkflow : public QObject
                                                  QStringLiteral( "x.tif" ), QString(), &err )
                    .isEmpty() );
       QVERIFY( !err.isEmpty() );
+      // P3：全 nodata 栅格建不起色带 → 如实失败，不把默认灰度样式写成因素色带。
+      QTemporaryDir styleDir;
+      const QString empty = styleDir.filePath( QStringLiteral( "all-nodata.tif" ) );
+      {
+        GDALDatasetH ds = GDALCreate( GDALGetDriverByName( "GTiff" ), empty.toUtf8().constData(), 2, 2, 1,
+                                      GDT_Float32, nullptr );
+        QVERIFY( ds );
+        double gt[6] = { 0, 1, 0, 2, 0, -1 };
+        GDALSetGeoTransform( ds, gt );
+        GDALRasterBandH band = GDALGetRasterBand( ds, 1 );
+        GDALSetRasterNoDataValue( band, -9999 );
+        float values[4] = { -9999.f, -9999.f, -9999.f, -9999.f };
+        QCOMPARE( GDALRasterIO( band, GF_Write, 0, 0, 2, 2, values, 2, 2, GDT_Float32, 0, 0 ), CE_None );
+        GDALClose( ds );
+      }
+      err.clear();
+      QVERIFY( FactorStyleWriter::writeStyleQml( QStringLiteral( "poro" ), empty, styleDir.filePath( "styles" ), &err )
+                   .isEmpty() );
+      QVERIFY( !err.isEmpty() );
+      QVERIFY( !QFileInfo::exists( styleDir.filePath( "styles/factor_poro.qml" ) ) );
     }
 
     // 生成链：井点 → paleo 插值 → declare factor.<h>.<fid> 进 04_SingleFactor

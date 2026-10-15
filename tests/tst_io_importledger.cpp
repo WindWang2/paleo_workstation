@@ -5,6 +5,9 @@
 #include <QFileInfo>
 #include <QCryptographicHash>
 #include <QElapsedTimer>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QTemporaryDir>
 #include <QTimeZone>
 
@@ -144,6 +147,33 @@ void IoImportLedgerTests::ledgerScaleRoundTrip()
     QFile f(reread.filePath());
     QVERIFY(f.open(QIODevice::ReadOnly));
     const QByteArray bytes = f.readAll();
+    // S5 第 2 轮 Low 7：落盘字节 == 经公开 toVariant() 的旧序列化路径算出的字节
+    //（91aa5fd6 前 record 的写法），直接守住「直转 JSON 不改格式」。
+    {
+      QJsonArray arr;
+      for (const auto &b : reread.batches())
+      {
+        QJsonObject o;
+        const QVariantMap m = b.toVariant();
+        for (auto it = m.constBegin(); it != m.constEnd(); ++it)
+        {
+          if (it.value().typeId() == QMetaType::QVariantList)
+          {
+            QJsonArray rowsArr;
+            for (const QVariant &rv : it.value().toList())
+              rowsArr.append(QJsonObject::fromVariantMap(rv.toMap()));
+            o.insert(it.key(), rowsArr);
+          }
+          else
+            o.insert(it.key(), QJsonValue::fromVariant(it.value()));
+        }
+        arr.append(o);
+      }
+      QJsonObject root;
+      root.insert(QStringLiteral("batches"), arr);
+      QVERIFY2(QJsonDocument(root).toJson(QJsonDocument::Compact) == bytes,
+               "直转 JSON 与 toVariant 路径的落盘字节不一致");
+    }
     std::sort(loadMs.begin(), loadMs.end());
     std::sort(recordMs.begin(), recordMs.end());
     qInfo().noquote() << QStringLiteral("OPT01_PERF ledger rows=%1 load_median_ms=%2 "

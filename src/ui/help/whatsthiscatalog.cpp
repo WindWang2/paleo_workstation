@@ -76,10 +76,11 @@ QList<WhatsThisEntry> whatsThisEntries()
     {"ConstraintPage", "generateFactorButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "按所选方法和参数生成勾选的单因素图。"), nullptr},
     {"ConstraintPage", "drawButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "在地图上绘制所选形状的约束。"), nullptr},
     {"ConstraintPage", "constraintList", QT_TRANSLATE_NOOP("PaleoWhatsThis", "已有约束列表；选中后可修改属性或删除。"), nullptr},
-    {"ConstraintPage", "directionButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "在地图上绘制当前层位的方向线：单因素插值据此确定供源方向（各向异性轴）。"), nullptr},
-    {"ConstraintPage", "breakLineButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "在地图上绘制当前层位的间隔线（打断线）：插值时作为屏障，井点影响不能直线穿过、需绕行；分区等值线止于该线。"), nullptr},
+    {"ConstraintPage", "directionButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "在地图上绘制当前层位的方向线族约束线；语义由右侧下拉选——方向引导定供源方向（各向异性轴）、解释软边界减弱跨线影响、制图绕行只调整解释性等值线；仅支持约束的插值方法会消费它。"), nullptr},
+    {"ConstraintPage", "breakLineButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "在地图上绘制当前层位的间隔线族约束线；语义由右侧下拉选——硬屏障阻断跨线传播、等值线止于该线，等值停止只终止提线、不改变插值数值；仅支持约束的插值方法会消费它。"), nullptr},
 
     // ---- 智能编图页 ----
+    {"ComposePage", "thicknessChainButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "按所选层位生成等厚图：等时差（双向 ms）× 层间速度 IDW → 厚度栅格；需先在顶部层位 chip 选择层位。"), nullptr},
     {"ComposePage", "fuseButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "把因素列表中勾选的单因素图合成为编图结果。"), nullptr},
     {"ComposePage", "polygonizeButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "把相栅格转为相多边形，按最小面积和简化容差清理碎片。"), nullptr},
     {"ComposePage", "exportPdfButton", QT_TRANSLATE_NOOP("PaleoWhatsThis", "把当前层位图导出为 PDF。"), nullptr},

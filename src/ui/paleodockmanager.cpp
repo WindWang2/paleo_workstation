@@ -12,6 +12,7 @@
 #include <QRubberBand>
 #include <QScrollArea>
 #include <QSettings>
+#include <QStatusBar>
 #include <QTabWidget>
 #include <QCursor>
 
@@ -101,6 +102,7 @@ void PaleoDockManager::removeDock(QDockWidget *dock)
 void PaleoDockManager::captureDefaultLayout()
 {
   m_defaultState = m_window->saveState();
+  m_defaultIntent = captureIntent();
 }
 
 void PaleoDockManager::restoreDefaultLayout()
@@ -114,7 +116,37 @@ void PaleoDockManager::restoreDefaultLayout()
       m_window->addDockWidget(Qt::DockWidgetArea(dock->property("paleo.defaultDockArea").toInt()), dock);
       dock->hide();
     }
-  m_window->restoreState(m_defaultState);
+  restoreLayout(m_defaultState, &m_defaultIntent);
+  showLayoutMessage(tr("已恢复默认布局"));
+}
+
+void PaleoDockManager::setIntentHooks(IntentHooks hooks)
+{
+  m_intentHooks = std::move(hooks);
+}
+
+QVariantMap PaleoDockManager::captureIntent() const
+{
+  return m_intentHooks.capture ? m_intentHooks.capture() : QVariantMap();
+}
+
+bool PaleoDockManager::restoreLayout(const QByteArray &state, const QVariantMap *savedIntent)
+{
+  const QVariantMap before = captureIntent();
+  // restoreState 驱动 dock->setVisible，PaleoDockWidget 会把它当作用户意愿；
+  // 恢复后先还原意愿快照，再让宿主按当前页策略重落显隐。
+  if (!m_window->restoreState(state))
+    return false;
+  if (m_intentHooks.apply)
+    m_intentHooks.apply(savedIntent ? *savedIntent : before);
+  return true;
+}
+
+void PaleoDockManager::showLayoutMessage(const QString &text)
+{
+  // findChild 而不是 statusBar()：后者在无状态栏时会现场创建一个。
+  if (auto *bar = m_window->findChild<QStatusBar *>())
+    bar->showMessage(text, 4000);
 }
 
 void PaleoDockManager::fitLayout()
@@ -143,10 +175,26 @@ QMenu *PaleoDockManager::createMenu(QWidget *parent)
   menu->addAction(tr("保存当前布局"), this, [this] {
     QSettings settings(QStringLiteral("paleo"), QStringLiteral("paleo"));
     settings.setValue(m_settingsKey, m_window->saveState());
+    const QString intentKey = m_settingsKey + QStringLiteral("Intent");
+    const QVariantMap intent = captureIntent();
+    if (intent.isEmpty())
+      settings.remove(intentKey);
+    else
+      settings.setValue(intentKey, intent);
+    showLayoutMessage(tr("布局已保存"));
   });
   auto *restore = menu->addAction(tr("恢复保存的布局"), this, [this] {
     QSettings settings(QStringLiteral("paleo"), QStringLiteral("paleo"));
-    m_window->restoreState(settings.value(m_settingsKey).toByteArray());
+    const QString intentKey = m_settingsKey + QStringLiteral("Intent");
+    QVariantMap intent;
+    const bool hasIntent = settings.contains(intentKey);
+    if (hasIntent)
+      intent = settings.value(intentKey).toMap();
+    if (restoreLayout(settings.value(m_settingsKey).toByteArray(),
+                      hasIntent ? &intent : nullptr))
+      showLayoutMessage(tr("已恢复保存的布局"));
+    else
+      showLayoutMessage(tr("保存的布局与当前面板不兼容，未能恢复"));
   });
   QSettings settings(QStringLiteral("paleo"), QStringLiteral("paleo"));
   restore->setEnabled(settings.contains(m_settingsKey));

@@ -10228,6 +10228,26 @@ Crossline: %3 ~ %4</source>
         <source>浮动窗口</source>
         <translation>浮动窗口</translation>
     </message>
+    <message>
+        <location filename="../src/ui/paleodockmanager.cpp" line="184"/>
+        <source>布局已保存</source>
+        <translation>布局已保存</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleodockmanager.cpp" line="195"/>
+        <source>已恢复保存的布局</source>
+        <translation>已恢复保存的布局</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleodockmanager.cpp" line="197"/>
+        <source>保存的布局与当前面板不兼容，未能恢复</source>
+        <translation>保存的布局与当前面板不兼容，未能恢复</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleodockmanager.cpp" line="120"/>
+        <source>已恢复默认布局</source>
+        <translation>已恢复默认布局</translation>
+    </message>
 </context>
 <context>
     <name>PaleoDrawCircleTool</name>
@@ -12749,6 +12769,21 @@ Crossline: %3 ~ %4</source>
         <translation>搜索井位/层位</translation>
     </message>
     <message>
+        <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="108"/>
+        <source>搜索井位 / 层位</source>
+        <translation>搜索井位 / 层位</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="522"/>
+        <source>撤销上一步编辑</source>
+        <translation>撤销上一步编辑</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="523"/>
+        <source>重做被撤销的编辑</source>
+        <translation>重做被撤销的编辑</translation>
+    </message>
+    <message>
         <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="96"/>
         <source>搜索井位/层位  %1</source>
         <translation>搜索井位/层位  %1</translation>
@@ -14418,6 +14453,19 @@ SHA-256：%2</translation>
     </message>
 </context>
 <context>
+    <name>PaleoRibbon</name>
+    <message>
+        <location filename="../src/ui/paleoribbon.cpp" line="191"/>
+        <source>向左滚动工具栏</source>
+        <translation>向左滚动工具栏</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/paleoribbon.cpp" line="192"/>
+        <source>向右滚动工具栏</source>
+        <translation>向右滚动工具栏</translation>
+    </message>
+</context>
+<context>
     <name>PaleoReshapeTool</name>
     <message>
         <location filename="../src/ui/edittools/editingtools.cpp" line="195"/>
@@ -15113,8 +15161,8 @@ SHA-256：%2</translation>
     </message>
     <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="38"/>
-        <source>鼠标所在位置的工程坐标，单位米。</source>
-        <translation>鼠标所在位置的工程坐标，单位米。</translation>
+        <source>鼠标所在位置的坐标：未配准的工程为局部工程坐标（单位米）；已配准的工程显示经纬度。</source>
+        <translation>鼠标所在位置的坐标：未配准的工程为局部工程坐标（单位米）；已配准的工程显示经纬度。</translation>
     </message>
     <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="39"/>
@@ -15123,8 +15171,8 @@ SHA-256：%2</translation>
     </message>
     <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="40"/>
-        <source>坐标系说明：局部工程坐标、单位米、未投影，不是经纬度。</source>
-        <translation>坐标系说明：局部工程坐标、单位米、未投影，不是经纬度。</translation>
+        <source>坐标系：未配准的工程显示「工程坐标 · 米 · 未投影」（局部坐标，不是经纬度）；已配准的工程显示地图坐标系代号（没有代号时显示坐标系名称）。</source>
+        <translation>坐标系：未配准的工程显示「工程坐标 · 米 · 未投影」（局部坐标，不是经纬度）；已配准的工程显示地图坐标系代号（没有代号时显示坐标系名称）。</translation>
     </message>
     <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="41"/>
@@ -15303,8 +15351,8 @@ SHA-256：%2</translation>
     </message>
     <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="86"/>
-        <source>发布当前版本；需先导出 PDF。</source>
-        <translation>发布当前版本；需先导出 PDF。</translation>
+        <source>发布当前版本；需先导出 PDF，并且每口井都已有验证残差或不可计算的原因（先在验证页运行验证）。</source>
+        <translation>发布当前版本；需先导出 PDF，并且每口井都已有验证残差或不可计算的原因（先在验证页运行验证）。</translation>
     </message>
     <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="89"/>

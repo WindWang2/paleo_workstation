@@ -7,9 +7,12 @@
 
 #include <QAbstractButton>
 #include <QAction>
+#include <QCoreApplication>
 #include <QEvent>
 #include <QPointer>
 #include <QStyle>
+#include <QTimer>
+#include <QToolButton>
 
 // qrc 在静态库 paleo_saribbon 里（amalgamated SARibbon.cpp 内联）——显式
 // 初始化，模板/调色板资源路径 ":/SARibbonTheme/..." 才一定可达。
@@ -38,6 +41,8 @@ namespace
         sync();
       }
 
+      void resync() { sync(); } // whatsThis 变化无事件，由 syncMirrors 显式调
+
     protected:
       bool eventFilter(QObject *obj, QEvent *ev) override
       {
@@ -60,6 +65,8 @@ namespace
           m_action->setText(m_button->text());
         const QString tip = m_button->toolTip();
         m_action->setToolTip(tip.isEmpty() ? m_baseTip : tip);
+        if (!m_button->whatsThis().isEmpty())
+          m_action->setWhatsThis(m_button->whatsThis());
         if (m_button->isCheckable())
         {
           m_action->setCheckable(true);
@@ -98,6 +105,48 @@ namespace
       QPointer<QAction> m_action;
       const QObject *m_widgetId; // 仅作身份比对（同 ButtonMirror：不经 QPointer 下转）
   };
+
+  // 聚焦被裁掉的命令按钮时把类别滚过去——SARibbon 的类别滚动是布局平移，
+  // QWidget 的 scrollIntoView 语义不存在，不滚焦点就落在看不见的按钮上。
+  // 一个过滤器挂全部按钮（makeKeyboardReachable 按 root 惰性建一份）。
+  class FocusScrollFilter : public QObject
+  {
+    public:
+      using QObject::QObject;
+    protected:
+      bool eventFilter(QObject *obj, QEvent *ev) override
+      {
+        if (ev->type() != QEvent::FocusIn)
+          return false;
+        // 聚焦瞬间的几何可能还是页签切换前的旧值（LayoutRequest 排队未跑）——
+        // 推到下一轮事件循环再量，量到什么就滚什么，一次直滚到位。
+        auto *btn = qobject_cast<QWidget *>(obj);
+        QTimer::singleShot(0, this, [btn = QPointer<QWidget>(btn)] {
+          if (!btn)
+            return;
+          SARibbonCategory *cat = nullptr;
+          for (QWidget *p = btn->parentWidget(); p && !cat; p = p->parentWidget())
+            cat = qobject_cast<SARibbonCategory *>(p);
+          // categoryLayout() 是 protected——同一对象经公有 layout() 也能拿到
+          //（vendor 内部也用 qobject_cast 这条等价路径）。
+          auto *lay = cat ? qobject_cast<SARibbonCategoryLayout *>(cat->layout()) : nullptr;
+          if (!lay)
+            return;
+          const QRect r(btn->mapTo(cat, QPoint(0, 0)), btn->size());
+          // 可见的滚动钮压住类别边缘，预留它的宽度免得焦点件藏在按钮底下。
+          int marginL = 0, marginR = 0;
+          for (auto *tb : cat->findChildren<QToolButton *>())
+            if (tb->inherits("SARibbonCategoryScrollButton") && tb->isVisibleTo(cat))
+              (tb->arrowType() == Qt::LeftArrow ? marginL : marginR) = tb->width();
+          // LTR 的 mXBase ∈ [类别宽-总宽, 0]：负 px 才把内容左移、露出右裁件。
+          if (r.right() > cat->width())
+            lay->scroll(-(r.right() - cat->width() + marginR));
+          else if (r.left() < 0)
+            lay->scroll(-r.left() + marginL);
+        });
+        return false;
+      }
+  };
 } // namespace
 
 namespace PaleoRibbon
@@ -128,6 +177,53 @@ namespace PaleoRibbon
     win->setStyleSheet(win->styleSheet() + QLatin1Char('\n') +
                        PaleoTheme::ribbonStyleSheet() + QLatin1Char('\n') +
                        shellQss);
+  }
+
+  void nameScrollButtons(QWidget *root)
+  {
+    if (!root)
+      return;
+    for (auto *b : root->findChildren<QToolButton *>())
+      if (b->inherits("SARibbonCategoryScrollButton") && b->accessibleName().isEmpty())
+      {
+        // 两个字面量各自进 translate：lupdate 只认字面量实参，不认三目。
+        const QString t = b->arrowType() == Qt::LeftArrow
+            ? QCoreApplication::translate("PaleoRibbon", "向左滚动工具栏")
+            : QCoreApplication::translate("PaleoRibbon", "向右滚动工具栏");
+        b->setAccessibleName(t);
+        b->setToolTip(t);
+      }
+  }
+
+  void syncMirrors(QWidget *root)
+  {
+    if (!root)
+      return;
+    for (auto *a : root->findChildren<QAction *>())
+      // ButtonMirror 不带 Q_OBJECT，findChild 只能到 QObject*——名字即类型契约。
+      if (auto *m = a->findChild<QObject *>(QStringLiteral("paleoButtonMirror")))
+        static_cast<ButtonMirror *>(m)->resync();
+  }
+
+  void makeKeyboardReachable(QWidget *root)
+  {
+    if (!root)
+      return;
+    auto *filter = root->findChild<QObject *>(QStringLiteral("paleoFocusScrollFilter"));
+    if (!filter)
+    {
+      filter = new FocusScrollFilter(root);
+      filter->setObjectName(QStringLiteral("paleoFocusScrollFilter"));
+    }
+    for (auto *b : root->findChildren<SARibbonToolButton *>())
+    {
+      if (b->property("paleoFocusScroll").toBool())
+        continue;
+      b->setProperty("paleoFocusScroll", true);
+      if (b->focusPolicy() == Qt::NoFocus)
+        b->setFocusPolicy(Qt::TabFocus);
+      b->installEventFilter(filter);
+    }
   }
 
   void mirror(QAction *action, QAbstractButton *button, bool syncText, bool hideSource)

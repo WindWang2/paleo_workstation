@@ -66,6 +66,7 @@
 
 #include <QCloseEvent>
 #include <QDir>
+#include <QDockWidget>
 #include <QFile>
 #include <QFileInfo>
 #include <QLabel>
@@ -233,6 +234,33 @@ void PaleoMainWindow::addDockWidget(Qt::DockWidgetArea area, QDockWidget *dock)
 void PaleoMainWindow::buildShell()
 {
   m_dockManager = new PaleoDockManager(this, QStringLiteral("ui/layout/workbench"));
+  // 布局恢复会经 setVisible 把页策略隐藏误记成用户意愿——capture 取
+  // 意愿快照，apply 还愿意愿后按当前页重落 dock 策略（不切页，避免
+  // 图层档案重应用与工具停用的副作用）。
+  m_dockManager->setIntentHooks(
+      {[this] {
+         QVariantMap intent;
+         for (auto *dock : findChildren<QDockWidget *>(QString(), Qt::FindDirectChildrenOnly))
+           if (auto *pd = qobject_cast<PaleoDockWidget *>(dock))
+             intent.insert(dock->objectName(), pd->userWantsVisible());
+         return intent;
+       },
+       [this](const QVariantMap &intent) {
+         for (auto *dock : findChildren<QDockWidget *>(QString(), Qt::FindDirectChildrenOnly))
+           if (auto *pd = qobject_cast<PaleoDockWidget *>(dock))
+             if (intent.contains(dock->objectName()))
+               pd->setUserWantsVisible(intent.value(dock->objectName()).toBool());
+         if (paleo::pagesinternal::kPageIds.contains(m_currentPage))
+         {
+           if (m_currentPage == QLatin1String("correlation"))
+             paleo::mainwindow_internal::hideAllDocksForCorrelation(this);
+           else
+             paleo::mainwindow_internal::applyPageDockPolicy(
+                 m_currentPage, {m_leftDock, m_dataListDock, m_bottomDock,
+                                 m_wellSectionDock, m_previewMaximized,
+                                 m_bottomDockAutoShown});
+         }
+       }});
   updateWindowTitle(); // 「<工程名> — Paleo Workbench [*]」（无工程时只有产品名）
   setMinimumSize(1280, 800); // §42.11 a11y floor
 
@@ -546,6 +574,7 @@ void PaleoMainWindow::saveWindowState()
   s.setValue(QStringLiteral("windowState"),
              m_currentPage == QLatin1String("correlation") && !m_beforeCorrelationWindowState.isEmpty()
                  ? m_beforeCorrelationWindowState : saveState());
+  s.setValue(QStringLiteral("windowDockIntent"), m_dockManager->captureIntent());
   s.setValue(QStringLiteral("lastPage"), m_currentPage);
 }
 
@@ -557,7 +586,14 @@ void PaleoMainWindow::restoreWindowState()
     restoreGeometry(geom);
   const QByteArray state = s.value(QStringLiteral("windowState")).toByteArray();
   if (!state.isEmpty())
-    restoreState(state);
+  {
+    // 旧版设置没有 windowDockIntent：意愿还原用恢复前的快照兜底。
+    QVariantMap intent;
+    const bool hasIntent = s.contains(QStringLiteral("windowDockIntent"));
+    if (hasIntent)
+      intent = s.value(QStringLiteral("windowDockIntent")).toMap();
+    m_dockManager->restoreLayout(state, hasIntent ? &intent : nullptr);
+  }
   // Page restore happens in onProjectOpened (a page without a project is empty).
 }
 

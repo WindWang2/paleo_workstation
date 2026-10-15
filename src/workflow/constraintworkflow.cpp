@@ -479,6 +479,8 @@ bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &w
       if ( !addConstraintThroughSession( editing, cs, horizon, c.id, wkt, persist ? storedType : type, faciesCode,
                                          persist ? paramsJson : QString(), persist, error ) )
         return false;
+      // 会话按命令原子写 store：伴随视图直读 store，绘制后即同步（P3 (a) 后绘制恒走会话）。
+      syncConstraintGeometryViews( layers, cs, horizon );
       if ( persist )
         c.type = storedType;
       QVariantMap rec = c.toMap();

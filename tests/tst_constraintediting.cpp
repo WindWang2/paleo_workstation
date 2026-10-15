@@ -484,6 +484,12 @@ private slots:
              qPrintable(error));
     QCOMPARE(layer->undoStack()->count(), 2);
     // 保存：结束会话，绘制保留。
+    // 会话内画面约束：伴随面视图即时声明（不等保存后重载）。
+    QVERIFY(layers.declaration("constraintgeom.T1.polygon").layerId.isEmpty());
+    QVERIFY2(workflow.drawConstraint("T1", "POLYGON((20 20,30 20,30 30,20 20))", "polygon", 2, &error), qPrintable(error));
+    QVERIFY(!layers.declaration("constraintgeom.T1.polygon").layerId.isEmpty());
+    layer->undoStack()->undo();
+    QCOMPARE(layer->undoStack()->count(), 3);
     QVERIFY2(edits.commitEdit(layer, &error), qPrintable(error));
     QVERIFY(!layer->isEditable());
     const auto saved = constraints.load("T1");

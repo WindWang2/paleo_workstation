@@ -11,6 +11,7 @@
 #include "../src/qgis/qgisruntime.h"
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/qgis/qgisprojectservice.h"
+#include "../src/qgis/projectmapreference.h"
 #include "../src/ui/datapreview/datapreviewtabs.h"
 #include "../src/ui/datapreview/previewhistogramwidget.h"
 #include "../src/ui/datapreview/previewidentifypanel.h"
@@ -50,6 +51,11 @@
 #include <QDockWidget>
 #include <QMainWindow>
 #include <QVBoxLayout>
+#include <QBuffer>
+#include <QImage>
+#include <QSqlDatabase>
+#include <QSqlQuery>
+#include <QUuid>
 
 // P2 资产覆盖集成测试（fixture 驱动，tst_datapreview 同栈同夹具）：
 // horizon 地图页（等值线/统计/直方图/版本切换/极值）、geojson（图例/标注/
@@ -92,6 +98,9 @@ class TestPreviewMapAssets : public QObject
     void wellHeadMapShowsHighlight();
     void topsMapShowsPointsWhenCoords();
     void surveyPageUsesFramework();
+    void surveyPageHealsAfterDataReady();
+    void surveyPageHealsWhenProjectLands();
+    void surveyPageHealsBasemapClone();
     void attributeTableDialogFilters();
     void profilePanelExportsCsvAndPng();
     void rasterAnalysisStretchAndRamps();
@@ -727,6 +736,131 @@ void TestPreviewMapAssets::surveyPageUsesFramework()
                         "btnSurveyPan", "btnToggleSurveyBoundary", "btnToggleScaleBar",
                         "btnToggleNorthArrow", "btnToggleGrid", "btnSwitchToMainCanvas"})
     QVERIFY2(st->preview->findChild<QToolButton *>(QString::fromUtf8(n)), n);
+}
+
+// 测区页快照不自愈回归——页内容在建页时刻一次性快照 catalog 井位/工区范围与
+// 工程底图克隆；测区节点在树里常驻、双击随时可激活（无工程门），早于数据就
+// 绪落成后旧重开路径只回灌井位，工区范围与底图永不合愈（截图：0 井 +
+// 10×10 默认范围 + 无底图）。激活必须按现状整体重建。
+void TestPreviewMapAssets::surveyPageHealsAfterDataReady()
+{
+  QTemporaryDir tmp;
+  auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st);
+  st->preview->setProject(st->projectSvc.project());
+
+  // catalog 已开但为空时落成降级页：0 井 + 10×10 默认工区范围。
+  st->preview->openSurveyArea();
+  auto *vl = st->preview->findChild<QgsVectorLayer *>(QStringLiteral("surveyWellsLayer"));
+  QVERIFY(vl);
+  QCOMPARE(vl->featureCount(), 0);
+  auto *band = st->preview->findChild<QgsRubberBand *>(QStringLiteral("surveyAreaRubberBand"));
+  QVERIFY(band);
+  QVERIFY(band->asGeometry().boundingBox() == QgsRectangle(0, 0, 10000, 10000));
+
+  // 数据落地后重激活——井位/范围全部按当前 catalog 重建，不留降级残影。
+  const Imported ids = importAll(*st, tmp);
+  QVERIFY(!ids.wellHead.isEmpty());
+  st->preview->openSurveyArea();
+  QCOMPARE(st->preview->tabCount(), 1);
+  auto *vl2 = st->preview->findChild<QgsVectorLayer *>(QStringLiteral("surveyWellsLayer"));
+  QVERIFY(vl2);
+  QCOMPARE(vl2->featureCount(), 20); // ExportWellHead.dat 全 20 井带坐标
+  auto *band2 = st->preview->findChild<QgsRubberBand *>(QStringLiteral("surveyAreaRubberBand"));
+  QVERIFY(band2);
+  // mini_seismic 角点全 (0,0) 退化 → 取界应续接到线号范围，而非 10×10 默认。
+  QCOMPARE(band2->asGeometry().boundingBox(), QgsRectangle(1000, 2000, 1002, 2003));
+}
+
+// 工程落地自愈：无工程时双击测区节点落成空页（m_project 缺席——底图块与
+// 署名控件整块跳过），工程打开后页应按新工程重建，不永久停在降级态。
+void TestPreviewMapAssets::surveyPageHealsWhenProjectLands()
+{
+  QTemporaryDir tmp;
+  auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st);
+
+  // setProject 尚未调用——等价于工程未开时激活测区节点。
+  st->preview->openSurveyArea();
+  auto *vl = st->preview->findChild<QgsVectorLayer *>(QStringLiteral("surveyWellsLayer"));
+  QVERIFY(vl);
+  QCOMPARE(vl->featureCount(), 0);
+  QVERIFY(!st->preview->findChild<QLabel *>(QStringLiteral("surveyBasemapAttribution")));
+
+  const Imported ids = importAll(*st, tmp);
+  QVERIFY(!ids.wellHead.isEmpty());
+  // projectOpened 槽链里壳层对预览调 setProject——已开测区页应延迟自愈。
+  st->preview->setProject(st->projectSvc.project());
+  const auto wellsCount = [p = st->preview.get()]() -> qint64 {
+    auto *v = p->findChild<QgsVectorLayer *>(QStringLiteral("surveyWellsLayer"));
+    return v ? v->featureCount() : -1;
+  };
+  QTRY_COMPARE(wellsCount(), 20);
+  QVERIFY(st->preview->findChild<QLabel *>(QStringLiteral("surveyBasemapAttribution")));
+  auto *band = st->preview->findChild<QgsRubberBand *>(QStringLiteral("surveyAreaRubberBand"));
+  QVERIFY(band);
+  QCOMPARE(band->asGeometry().boundingBox(), QgsRectangle(1000, 2000, 1002, 2003));
+}
+
+// 底图克隆同走建页快照——底图层在建页后注册进工程（配准落地时
+// refreshBasemaps 补挂），重激活重建必须把新底图克隆进来。
+void TestPreviewMapAssets::surveyPageHealsBasemapClone()
+{
+  QTemporaryDir tmp;
+  auto st = makeStack(tmp.filePath(QStringLiteral("proj")));
+  QVERIFY(st);
+  st->preview->setProject(st->projectSvc.project());
+  st->preview->openSurveyArea();
+  auto *cv = st->preview->findChild<QgsMapCanvas *>(QStringLiteral("surveyMapCanvas"));
+  QVERIFY(cv);
+  const auto basemapCount = [cv]() -> int {
+    int n = 0;
+    for (auto *l : cv->layers())
+      if (qobject_cast<QgsRasterLayer *>(l) && l->customProperty("paleoBasemap").toBool())
+        ++n;
+    return n;
+  };
+  QCOMPARE(basemapCount(), 0);
+
+  // 小 mbtiles 夹具：metadata + 单张 256×256 PNG 瓦片——wms 提供器验收即可，
+  // 画布克隆走的是同一 offlineBasemap 工厂。
+  QImage img(256, 256, QImage::Format_ARGB32);
+  img.fill(QColor(40, 90, 160));
+  QByteArray png;
+  {
+    QBuffer buf(&png);
+    buf.open(QIODevice::WriteOnly);
+    QVERIFY(img.save(&buf, "PNG"));
+  }
+  const QString mbPath = tmp.filePath(QStringLiteral("bm.mbtiles"));
+  const auto conn = QStringLiteral("tst-mbtiles-%1").arg(QUuid::createUuid().toString());
+  {
+    auto db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), conn);
+    db.setDatabaseName(mbPath);
+    QVERIFY(db.open());
+    QSqlQuery q(db);
+    QVERIFY(q.exec(QStringLiteral("CREATE TABLE metadata (name TEXT, value TEXT)")));
+    QVERIFY(q.exec(QStringLiteral("CREATE TABLE tiles (zoom_level INTEGER, tile_column INTEGER, tile_row INTEGER, tile_data BLOB)")));
+    QVERIFY(q.exec(QStringLiteral("INSERT INTO metadata VALUES ('name','t'),('format','png'),('bounds','-180,-85,180,85'),('minzoom','0'),('maxzoom','0'),('type','baselayer'),('version','1')")));
+    QVERIFY(q.prepare(QStringLiteral("INSERT INTO tiles VALUES (0,0,0,?)")));
+    q.addBindValue(png);
+    QVERIFY(q.exec());
+    db.close();
+  }
+  QSqlDatabase::removeDatabase(conn);
+
+  auto *base = paleo::mapreference::offlineBasemap(mbPath, tr("离线底图"), st->projectSvc.project());
+  QVERIFY(base);
+  QVERIFY(st->projectSvc.project()->addMapLayer(base));
+
+  st->preview->openSurveyArea();
+  auto *cv2 = st->preview->findChild<QgsMapCanvas *>(QStringLiteral("surveyMapCanvas"));
+  QVERIFY(cv2);
+  int rasterBasemaps = 0;
+  for (auto *l : cv2->layers())
+    if (qobject_cast<QgsRasterLayer *>(l) && l->customProperty("paleoBasemap").toBool())
+      ++rasterBasemaps;
+  QCOMPARE(rasterBasemaps, 1);
 }
 
 // ---------------- 全表/剖面/分析件（D7.3/D5.3/D5.8） ----------------

@@ -305,6 +305,19 @@ void DataPreviewTabs::setTaskService(PaleoTaskService *svc)
 void DataPreviewTabs::setProject(QgsProject *project)
 {
   m_project = project;
+  // 测区页可能早于工程落成（无工程/打开途中测区节点仍可双击）——工程落地
+  // 后已开页补一次重建，否则永久停在降级态（0 井、默认 10×10 范围、无底图
+  // 克隆）。延迟到本轮 projectOpened 槽链跑完（catalog 由 AppContext 槽先行
+  // 打开）；激活式重建会切当前页，恢复回原选中避免工程打开顺带抢焦。
+  if (project && m_pageOfAsset.contains(QStringLiteral("survey_area")))
+    QTimer::singleShot(0, this, [this] {
+      // QPointer：当前页若就是被重建的测区页会随删除自动置空——
+      // 跳过恢复，新页保持当前；其他页则指针仍有效，可安全恢复。
+      const QPointer<QWidget> keep = m_tabs->currentWidget();
+      openSurveyArea();
+      if (keep)
+        m_tabs->setCurrentWidget(keep);
+    });
 }
 
 int DataPreviewTabs::tabCount() const

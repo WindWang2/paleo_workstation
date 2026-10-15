@@ -23,37 +23,12 @@ using namespace paleo::datapreview_detail;
 void DataPreviewTabs::openSurveyArea()
 {
   const QString key = QStringLiteral("survey_area");
-  if (QWidget *existing = m_pageOfAsset.value(key))
-  {
-    m_tabs->setCurrentIndex(m_tabs->indexOf(existing));
-    // 井位是固定私有层——重开时重灌（会话中可能又导入了井）。
-    if (auto *vl = existing->findChild<QgsVectorLayer *>(QStringLiteral("surveyWellsLayer")))
-    {
-      vl->dataProvider()->truncate();
-      if (m_doc && m_doc->catalog())
-        for (const CatalogEntity &well : m_doc->catalog()->entities(QStringLiteral("well")))
-          if (well.hasSurface && std::isfinite(well.surfaceX) && std::isfinite(well.surfaceY))
-            addMemoryPoint(vl, well.surfaceX, well.surfaceY, well.name, QStringLiteral("well"));
-      vl->updateExtents();
-    }
-    if (auto *cv = existing->findChild<QgsMapCanvas *>(QStringLiteral("surveyMapCanvas")))
-    {
-      QgsRectangle target;
-      if (auto *band = existing->findChild<QgsRubberBand *>(QStringLiteral("surveyAreaRubberBand")))
-        target = band->asGeometry().boundingBox();
-      if (!target.isNull() && !target.isEmpty())
-      {
-        target.grow(qMax(target.width(), target.height()) * 0.08);
-        cv->setExtent(target);
-      }
-      else
-      {
-        cv->zoomToFullExtent();
-      }
-      cv->refresh();
-    }
-    return;
-  }
+  // 页内容按建页时刻快照 catalog 井位/工区范围与工程底图克隆——测区节点在
+  // 树里常驻、随时可激活，页可能早于数据就绪落成降级态（0 井、10×10 默认
+  // 范围、无底图）。激活一律按现状整体重建：旧复用路径只能回灌井位，范围
+  // 与底图永不合愈。开销与初次建页相同（内存层 + rubber band + 底图克隆）。
+  if (m_pageOfAsset.contains(key))
+    closeAssetTab(key);
 
   QWidget *page = new QWidget(this);
   auto *pageLay = new QVBoxLayout(page);
@@ -245,6 +220,9 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
       survey = surveys.first();
   }
 
+  // 取界优先级：角点 → inline/xline 线号范围 → 井位并集 → 默认 10×10。
+  // else-if 链条会让「有角点但退化（全 0 / 非有限）」的测区直接落到默认
+  // 范围、把后两级兜底一并饿死——逐级用 isNull 判空续接。
   QgsGeometry surveyGeom;
   if (survey.corners.size() >= 3)
   {
@@ -255,12 +233,12 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
     if (!bounds.isEmpty())
       surveyGeom = QgsGeometry::fromRect(bounds);
   }
-  else if (survey.inlineMax > survey.inlineMin && survey.xlineMax > survey.xlineMin)
+  if (surveyGeom.isNull() && survey.inlineMax > survey.inlineMin && survey.xlineMax > survey.xlineMin)
   {
     surveyGeom = QgsGeometry::fromRect(QgsRectangle(survey.inlineMin, survey.xlineMin,
                                                     survey.inlineMax, survey.xlineMax));
   }
-  else if (!wellsExtent.isNull())
+  if (surveyGeom.isNull() && !wellsExtent.isNull())
   {
     // 无 survey 几何：井位并集做兜底范围（单井退化范围扩 50 m 边）。
     if (wellsExtent.isEmpty())

@@ -239,7 +239,7 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
       QAction *maxAct = newAction(tr("最大化预览"), PaleoIcons::maximize(), QString(),
                                   "ribbonPreviewMaximize");
       maxAct->setCheckable(true);
-      maxAct->setWhatsThis(tr("预览占满数据面（列表留一行）"));
+      maxAct->setWhatsThis(tr("预览占满数据面（数据列表与右侧面板隐藏）"));
       connect(maxAct, &QAction::triggered, maxBtn, [maxBtn](bool on) { maxBtn->setChecked(on); });
       connect(maxBtn, &QAbstractButton::toggled, maxAct, [maxAct](bool on) {
         maxAct->setChecked(on);
@@ -250,7 +250,7 @@ void PaleoMainWindow::buildRibbonPanels(DataPage *data, PredictPage *predict,
       const auto syncMax = [maxAct, inner] {
         const bool any = inner->count() > 0;
         maxAct->setEnabled(any);
-        maxAct->setToolTip(any ? tr("预览占满数据面（列表留一行）")
+        maxAct->setToolTip(any ? tr("预览占满数据面（数据列表与右侧面板隐藏）")
                                : tr("先在数据列表里选一条数据打开预览"));
       };
       connect(inner, &QTabWidget::currentChanged, maxAct, syncMax);

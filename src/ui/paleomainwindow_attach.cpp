@@ -650,31 +650,66 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   PaleoRibbon::nameScrollButtons(this); // 面板建齐后滚动按钮才现身，命名再补一轮
   PaleoRibbon::makeKeyboardReachable(this); // 本页签新出现的命令钮补 TabFocus + 聚焦滚入
 
-  // 五个导入命令吃 ToolAvailabilityService 全局门：无工程时置灰并写明原因，
-  // 不再先弹文件对话框才失败（m_tools 为空的测试壳直接放行）。ribbon 镜像
-  // 和页内按钮是同一入口的两份，一起置灰——页内按钮构造后无人碰 enabled，
-  // 门控接管它仅有的开关态；tooltip 原本为空，开门时还原成空串。
+  // 无工程必败的命令吃 ToolAvailabilityService 全局门（m_tools 为空的测试壳
+  // 直接放行）：五个导入口必然报「project dir is not set」；保存版本/导出
+  // PDF/图件设计/预测/生成单因素/运行验证/生成等厚图同样无工程必败或只留
+  // 误导性反馈。catalog 打开失败是第二个既有禁令（attach_data 的
+  // setImportsEnabled）——两条件取与、谁的禁令用谁的理由，否则一次
+  // availabilityChanged（如图层忙 tick）会把目录禁令冲掉。
   const auto applyProjectGate = [this] {
     if (!m_tools)
       return;
     QString reason;
-    const bool ok = m_tools->check(QString(), &reason);
+    bool ok = m_tools->check(QString(), &reason);
+    if (ok && m_previewDoc && !m_previewDoc->catalogOpenError().isEmpty())
+    {
+      ok = false;
+      reason = tr("数据目录打开失败 — 导入暂不可用（见状态栏）");
+    }
+    // ribbon 命令一律走 applyGate：镜像的经 paleoGateReason 与源按钮取与，
+    // 非镜像的（图件设计）直接写 action。owner 管使能的命令（层位/勾选/忙）
+    // 门控只关不放——它们的页内按钮也不在下方清单里。
     for (const char *name : {"ribbonImportFolder", "ribbonImportWells", "ribbonImportWellLogs",
-                             "ribbonImportSeismic", "ribbonImportBoundary"})
+                             "ribbonImportSeismic", "ribbonImportBoundary",
+                             "ribbonSaveVersion", "ribbonExportPdf", "ribbonDesignerAction",
+                             "ribbonRunPrediction", "ribbonRunIdw", "ribbonRunValidation",
+                             "ribbonThicknessChain"})
       if (auto *a = findChild<QAction *>(QLatin1String(name)))
         PaleoRibbon::applyGate(a, ok ? QString() : reason);
+    // 页内按钮只硬门「恒使能、无其它 owner」的（导入 ×5 + 编图三入口）；
+    // 原 tooltip 先存进属性、开门还原——saveVersionButton 的发布态文案等
+    // 不是门控写的，不能清成空串。
     for (const char *name : {"importFolder", "importWells", "importWellLogs",
-                             "importSeismic", "importBoundary"})
+                             "importSeismic", "importBoundary",
+                             "saveVersionButton", "exportPdfButton", "openDesignerButton"})
       if (auto *b = findChild<QAbstractButton *>(QLatin1String(name)))
       {
-        b->setEnabled(ok);
-        b->setToolTip(ok ? QString() : reason);
+        if (ok)
+        {
+          b->setEnabled(true);
+          if (b->property("paleoGateSavedTip").isValid())
+          {
+            b->setToolTip(b->property("paleoGateSavedTip").toString());
+            b->setProperty("paleoGateSavedTip", QVariant());
+          }
+        }
+        else
+        {
+          if (!b->property("paleoGateSavedTip").isValid())
+            b->setProperty("paleoGateSavedTip", b->toolTip());
+          b->setEnabled(false);
+          b->setToolTip(reason);
+        }
       }
   };
   if (m_tools)
     connect(m_tools, &ToolAvailabilityService::availabilityChanged, this,
             [applyProjectGate](const QString &) { applyProjectGate(); });
   applyProjectGate();
+  // 拖拽入队与按钮同一道门：面板够不到工程服务，壳供一个只读探针。
+  if (dataPage && dataPage->listPanel())
+    dataPage->listPanel()->setProjectOpenProvider(
+        [this] { return m_projectSvc && !m_projectSvc->projectPath().isEmpty(); });
 
   // 页面自建的对比服务命令：attach 时 tooltip 还是作者的静态用途串
   //（会话忙时的临时文案之后才出现），此刻固化成 whatsThis。

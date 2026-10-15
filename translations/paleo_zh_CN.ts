@@ -4557,6 +4557,21 @@
         <translation>挂接到「%1」：新挂 %2、转移 %3、跳过 %4（可撤销）</translation>
     </message>
     <message>
+        <location filename="../src/ui/pages/datalist_dnd.cpp" line="92"/>
+        <source>先新建或打开工程</source>
+        <translation>先新建或打开工程</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/datalist_dnd.cpp" line="94"/>
+        <source>数据目录不可用，导入暂不可用：%1</source>
+        <translation>数据目录不可用，导入暂不可用：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/datalist_dnd.cpp" line="96"/>
+        <source>数据目录尚未就绪，导入暂不可用</source>
+        <translation>数据目录尚未就绪，导入暂不可用</translation>
+    </message>
+    <message>
         <location filename="../src/ui/pages/datalist_batch.cpp" line="68"/>
         <source>改型写入视图层改写表（可撤销，可清除回原型）；catalog 资产记录的类型字段不动。</source>
         <translation>改型写入视图层改写表（可撤销，可清除回原型）；catalog 资产记录的类型字段不动。</translation>
@@ -12228,7 +12243,8 @@ Crossline: %3 ~ %4</source>
         <translation>临时配准已上图：%1 · %2 个要素（手工仿射，非权威坐标）</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach_data.cpp" line="104"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="666"/>
+        <location filename="../src/ui/paleomainwindow_attach_data.cpp" line="106"/>
         <source>数据目录打开失败 — 导入暂不可用（见状态栏）</source>
         <translation>数据目录打开失败 — 导入暂不可用（见状态栏）</translation>
     </message>
@@ -13210,8 +13226,8 @@ SHA-256：%2</translation>
     </message>
     <message>
         <location filename="../src/ui/ribbonpanels.cpp" line="236"/>
-        <source>预览占满数据面（列表留一行）</source>
-        <translation>预览占满数据面（列表留一行）</translation>
+        <source>预览占满数据面（数据列表与右侧面板隐藏）</source>
+        <translation>预览占满数据面（数据列表与右侧面板隐藏）</translation>
     </message>
     <message>
         <location filename="../src/ui/ribbonpanels.cpp" line="237"/>
@@ -15321,13 +15337,18 @@ SHA-256：%2</translation>
     </message>
     <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="79"/>
-        <source>在地图上绘制当前层位的方向线：单因素插值据此确定供源方向（各向异性轴）。</source>
-        <translation>在地图上绘制当前层位的方向线：单因素插值据此确定供源方向（各向异性轴）。</translation>
+        <source>在地图上绘制当前层位的方向线族约束线；语义由右侧下拉选——方向引导定供源方向（各向异性轴）、解释软边界减弱跨线影响、制图绕行只调整解释性等值线；仅支持约束的插值方法会消费它。</source>
+        <translation>在地图上绘制当前层位的方向线族约束线；语义由右侧下拉选——方向引导定供源方向（各向异性轴）、解释软边界减弱跨线影响、制图绕行只调整解释性等值线；仅支持约束的插值方法会消费它。</translation>
     </message>
     <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="80"/>
-        <source>在地图上绘制当前层位的间隔线（打断线）：插值时作为屏障，井点影响不能直线穿过、需绕行；分区等值线止于该线。</source>
-        <translation>在地图上绘制当前层位的间隔线（打断线）：插值时作为屏障，井点影响不能直线穿过、需绕行；分区等值线止于该线。</translation>
+        <source>在地图上绘制当前层位的间隔线族约束线；语义由右侧下拉选——硬屏障阻断跨线传播、等值线止于该线，等值停止只终止提线、不改变插值数值；仅支持约束的插值方法会消费它。</source>
+        <translation>在地图上绘制当前层位的间隔线族约束线；语义由右侧下拉选——硬屏障阻断跨线传播、等值线止于该线，等值停止只终止提线、不改变插值数值；仅支持约束的插值方法会消费它。</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/help/whatsthiscatalog.cpp" line="82"/>
+        <source>按所选层位生成等厚图：等时差（双向 ms）× 层间速度 IDW → 厚度栅格；需先在顶部层位 chip 选择层位。</source>
+        <translation>按所选层位生成等厚图：等时差（双向 ms）× 层间速度 IDW → 厚度栅格；需先在顶部层位 chip 选择层位。</translation>
     </message>
     <message>
         <location filename="../src/ui/help/whatsthiscatalog.cpp" line="81"/>

@@ -219,7 +219,22 @@ namespace PaleoRibbon
       return;
     action->setProperty("paleoGateReason", reason);
     if (auto *m = action->findChild<QObject *>(QStringLiteral("paleoButtonMirror")))
+    {
       static_cast<ButtonMirror *>(m)->resync();
+      return;
+    }
+    // 非镜像命令（如图件设计）：门控直接写 action——原 tooltip 先存进
+    // 属性，开门时还原，不能顺手清成空串。
+    if (!reason.isEmpty() && !action->property("paleoGateSavedTip").isValid())
+      action->setProperty("paleoGateSavedTip", action->toolTip());
+    action->setEnabled(reason.isEmpty());
+    if (!reason.isEmpty())
+      action->setToolTip(reason);
+    else if (action->property("paleoGateSavedTip").isValid())
+    {
+      action->setToolTip(action->property("paleoGateSavedTip").toString());
+      action->setProperty("paleoGateSavedTip", QVariant());
+    }
   }
 
   void makeKeyboardReachable(QWidget *root)

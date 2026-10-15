@@ -13,14 +13,18 @@
 #include <QLineEdit>
 #include <QMenu>
 #include <QSettings>
+#include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QToolButton>
 
 #include "../src/app/appcontext.h"
+#include "../src/io/dataimportservice.h"
 #include "../src/qgis/qgiscanvascontroller.h"
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/ui/paleodockmanager.h"
+#include "../src/services/toolavailability.h"
 #include "../src/ui/paleomainwindow.h"
+#include "../src/ui/pages/datalist.h"
 #include "../src/ui/pages/pageshared.h"
 
 class TestShellChrome : public QObject
@@ -546,18 +550,35 @@ private slots:
     win.showPage(QStringLiteral("data"));
     QWidget *cat = win.categoryForPage(QStringLiteral("data"));
     QVERIFY(cat);
+    // 无工程必败的全部 ribbon 命令：五个导入口 + 编图输出三入口 + 各页运行命令。
     const QStringList names{QStringLiteral("ribbonImportFolder"), QStringLiteral("ribbonImportWells"),
                             QStringLiteral("ribbonImportWellLogs"), QStringLiteral("ribbonImportSeismic"),
                             QStringLiteral("ribbonImportBoundary")};
+    // owner 不管使能的命令：开门后 action 必须可用（设计器的 ribbon 按钮
+    // objectName 是 designerButton，改查 action 本身）。
+    const QStringList freeActionNames{
+        QStringLiteral("ribbonSaveVersion"), QStringLiteral("ribbonExportPdf"),
+        QStringLiteral("ribbonDesignerAction"), QStringLiteral("ribbonRunPrediction"),
+        QStringLiteral("ribbonRunValidation")};
+    // owner 管使能（无因素勾选 / 无层位）：开门后仍禁用，但原因不是工程门——
+    // 断言 AND 合成：门控只关不放，不覆盖 owner 的禁用理由。
+    const QStringList ownerActionNames{QStringLiteral("ribbonRunIdw"),
+                                       QStringLiteral("ribbonThicknessChain")};
     const auto button = [cat](const QString &name) -> QToolButton * {
       for (auto *b : cat->findChildren<QToolButton *>())
         if (b->objectName() == name)
           return b;
       return nullptr;
     };
+    // catalog 禁令只管五个导入入口（attach_data 的 setImportsEnabled）。
+    const QStringList importPageNames{QStringLiteral("importFolder"), QStringLiteral("importWells"),
+                                      QStringLiteral("importWellLogs"), QStringLiteral("importSeismic"),
+                                      QStringLiteral("importBoundary")};
+    // 页内硬门清单：五个导入 + 编图三个恒使能入口。
     const QStringList pageNames{QStringLiteral("importFolder"), QStringLiteral("importWells"),
                                 QStringLiteral("importWellLogs"), QStringLiteral("importSeismic"),
-                                QStringLiteral("importBoundary")};
+                                QStringLiteral("importBoundary"), QStringLiteral("saveVersionButton"),
+                                QStringLiteral("exportPdfButton"), QStringLiteral("openDesignerButton")};
     const auto expectGated = [&](bool gated, const char *phase) {
       for (const QString &n : names)
       {
@@ -577,7 +598,36 @@ private slots:
                    qPrintable(QStringLiteral("%1: %2 still shows the gate reason").arg(QLatin1String(phase), n)));
         }
       }
-      // 页内导入按钮是同一入口的另一份，必须与 ribbon 一起置灰/放开
+      for (const QString &n : freeActionNames)
+      {
+        QAction *a = win.findChild<QAction *>(n);
+        QVERIFY2(a, qPrintable(QStringLiteral("%1: action %2 not found").arg(QLatin1String(phase), n)));
+        if (gated)
+        {
+          QVERIFY2(!a->isEnabled(), qPrintable(QStringLiteral("%1: %2 must be disabled").arg(QLatin1String(phase), n)));
+          QVERIFY2(a->toolTip().contains(QStringLiteral("工程")),
+                   qPrintable(QStringLiteral("%1: %2 tooltip must name the reason, got '%3'")
+                                  .arg(QLatin1String(phase), n, a->toolTip())));
+        }
+        else
+        {
+          QVERIFY2(a->isEnabled(), qPrintable(QStringLiteral("%1: %2 must be enabled").arg(QLatin1String(phase), n)));
+          QVERIFY2(!a->toolTip().contains(QStringLiteral("先新建或打开工程")),
+                   qPrintable(QStringLiteral("%1: %2 still shows the gate reason").arg(QLatin1String(phase), n)));
+        }
+      }
+      for (const QString &n : ownerActionNames)
+      {
+        QAction *a = win.findChild<QAction *>(n);
+        QVERIFY2(a, qPrintable(QStringLiteral("%1: action %2 not found").arg(QLatin1String(phase), n)));
+        // 恒禁用（源无勾选/层位）；门态时写工程原因，开门后不得残留。
+        QVERIFY2(!a->isEnabled(),
+                 qPrintable(QStringLiteral("%1: %2 stays disabled (owner gate)").arg(QLatin1String(phase), n)));
+        QVERIFY2(a->toolTip().contains(QStringLiteral("工程")) == gated,
+                 qPrintable(QStringLiteral("%1: %2 gate-reason presence must match gate state, got '%3'")
+                                .arg(QLatin1String(phase), n, a->toolTip())));
+      }
+      // 页内硬门按钮是同一入口的另一份，必须与 ribbon 一起置灰/放开
       for (const QString &n : pageNames)
       {
         QAbstractButton *b = win.findChild<QAbstractButton *>(n);
@@ -590,22 +640,98 @@ private slots:
                    qPrintable(QStringLiteral("%1: page %2 tooltip must name the reason, got '%3'")
                                   .arg(QLatin1String(phase), n, b->toolTip())));
       }
+      // saveVersionButton 自带真实 tooltip（发布态胶囊写入"保存为版本快照"）：
+      // 门态时原 tip 存进 paleoGateSavedTip，开门必须还原、原因不得残留。
+      QAbstractButton *sv = win.findChild<QAbstractButton *>(QStringLiteral("saveVersionButton"));
+      QVERIFY(sv);
+      if (gated)
+        QVERIFY2(sv->property("paleoGateSavedTip").isValid(),
+                 qPrintable(QStringLiteral("%1: saved tooltip missing").arg(QLatin1String(phase))));
+      else
+      {
+        QVERIFY2(!sv->property("paleoGateSavedTip").isValid(),
+                 qPrintable(QStringLiteral("%1: saved tooltip not consumed").arg(QLatin1String(phase))));
+        QVERIFY2(!sv->toolTip().contains(QStringLiteral("先新建或打开工程")),
+                 qPrintable(QStringLiteral("%1: saveVersionButton still shows gate reason, got '%2'")
+                                .arg(QLatin1String(phase), sv->toolTip())));
+      }
     };
+    // 拖拽入队与按钮同一道门：无工程时 handleExternalFiles 必须先写原因、
+    // 不发 externalImportRequested（否则入队后 runner 才报 project dir is not set）。
+    DataListPanel *panel = win.findChild<DataListPanel *>();
+    QVERIFY(panel);
+    QSignalSpy imported(panel, &DataListPanel::externalImportRequested);
+    QSignalSpy msgs(panel, &DataListPanel::statusMessage);
+    const auto expectDndGated = [&](bool gated, const char *phase) {
+      imported.clear();
+      msgs.clear();
+      panel->handleExternalFiles({QStringLiteral("/tmp/paleo-dnd-gate-probe.bin")});
+      if (gated)
+      {
+        QVERIFY2(imported.isEmpty(),
+                 qPrintable(QStringLiteral("%1: drop must not reach the import queue").arg(QLatin1String(phase))));
+        QVERIFY2(!msgs.isEmpty() &&
+                     msgs.last().first().toString().contains(QStringLiteral("工程")),
+                 qPrintable(QStringLiteral("%1: drop must name the reason").arg(QLatin1String(phase))));
+      }
+      else
+        QVERIFY2(!imported.isEmpty(),
+                 qPrintable(QStringLiteral("%1: drop must be forwarded once project is open")
+                                .arg(QLatin1String(phase))));
+    };
+
     QToolButton *refresh = button(QStringLiteral("ribbonRefreshList"));
     QVERIFY(refresh);
 
     expectGated(true, "no project");
+    expectDndGated(true, "no project");
     QVERIFY2(refresh->isEnabled(), "unrelated command must stay enabled without a project");
 
     QTemporaryDir dir;
     QVERIFY(m_ctx->projectSvc()->createProject(dir.filePath(QStringLiteral("gate.qgz"))));
     QTest::qWait(60);
     expectGated(false, "project open");
+    expectDndGated(false, "project open");
     QVERIFY(refresh->isEnabled());
+
+    // catalog 打开失败是第二个既有禁令源（attach_data 的 setImportsEnabled）：
+    // 注入失败态后，无论全局门怎么翻，导入入口都必须保持禁用并写目录原因——
+    // 否则一次 availabilityChanged（如未来的图层忙 tick）会把目录禁令冲掉。
+    QVERIFY(m_ctx->importSvc());
+    // 指向一个已存在文件的路径：catalog 在其下开不了库 → open 失败 →
+    // catalogOpenError 置位并同步发 catalogOpenFailed（dataimportservice.cpp:84-96）。
+    m_ctx->importSvc()->setProjectDir(dir.filePath(QStringLiteral("gate.qgz")));
+    QTest::qWait(60);
+    const auto expectCatalogBlocked = [&](const char *phase) {
+      for (const QString &n : importPageNames)
+      {
+        QAbstractButton *b = win.findChild<QAbstractButton *>(n);
+        QVERIFY2(b, qPrintable(QStringLiteral("%1: page button %2 not found").arg(QLatin1String(phase), n)));
+        QVERIFY2(!b->isEnabled(),
+                 qPrintable(QStringLiteral("%1: page button %2 must stay disabled while catalog is broken")
+                                .arg(QLatin1String(phase), n)));
+        QVERIFY2(b->toolTip().contains(QStringLiteral("数据目录")),
+                 qPrintable(QStringLiteral("%1: page %2 tooltip must name the catalog reason, got '%3'")
+                                .arg(QLatin1String(phase), n, b->toolTip())));
+      }
+    };
+    expectCatalogBlocked("catalog failed");
+    // 模拟将来 per-layer busy 带来的额外 availabilityChanged 重放（翻两次全局门）。
+    m_ctx->toolSvc()->setGlobalGate(false, QStringLiteral("x"));
+    m_ctx->toolSvc()->setGlobalGate(true, QString());
+    QTest::qWait(60);
+    expectCatalogBlocked("gate replay while catalog broken");
+    // 目录恢复：指回真工程目录，catalog 重开、错误清空；翻门重放应放开入口。
+    m_ctx->importSvc()->setProjectDir(dir.path());
+    m_ctx->toolSvc()->setGlobalGate(false, QStringLiteral("x"));
+    m_ctx->toolSvc()->setGlobalGate(true, QString());
+    QTest::qWait(60);
+    expectGated(false, "catalog recovered");
 
     m_ctx->projectSvc()->closeProject();
     QTest::qWait(60);
     expectGated(true, "project closed");
+    expectDndGated(true, "project closed");
   }
 };
 

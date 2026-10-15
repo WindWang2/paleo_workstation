@@ -454,7 +454,8 @@ QVariantMap MappingWorkbench::recomputePlan(const QVariantMap &impactResult,
               ++review;
           }
         }
-        break; // 只查直接相面子版本
+        // 逐 uid 精确查询（N1 回归修复：此处曾误 break 出外层图斑循环，
+        // 只统计首个受影响图斑）。
       }
     }
     entries << QVariantMap{{"target_version", vid},
@@ -532,7 +533,6 @@ QVariantMap MappingWorkbench::executeRecompute(const QVariantMap &plan,
     // 绝不覆盖历史版本；任务模式下异步，完成后走既有 productReady 链。
     // 任务模式下 compose runner 单飞：首个条目启动后其余条目如实报
     // 「请等待完成」，不伪装成已排队。
-    const bool firstInTaskMode = m_taskSvc && !sawTaskStart;
     if (m_taskSvc && sawTaskStart) {
       results << QVariantMap{{"target_version", vid},
                              {"ok", false},

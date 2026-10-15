@@ -268,6 +268,9 @@ private slots:
     QVERIFY(!inputVersion.assetId.isEmpty());
     // 目录的血缘保护拒绝删除被引用的父版本（正确行为）——用文件缺失
     // 模拟：missing 检查先于图层缓存，改名后归因必须如实报缺。
+    // Windows 上打开中的 GPKG 句柄会令 rename 失败（Linux 可行），该
+    // 平台跳过本段（主开发平台为 Linux，回归覆盖在 Linux CI）。
+#ifndef Q_OS_WIN
     const auto inputPath =
         DataCatalog::resolvedVersionPath(f.dir.path(), inputVersion).section('|', 0, 0);
     QVERIFY(QFile::exists(inputPath));
@@ -285,6 +288,7 @@ private slots:
     // 恢复后归因回到 ok（缓存按版本重开）。
     const auto healed = f.work.featureEvidence(composed, {fid}).value("attribution").toMap();
     QCOMPARE(healed.value("status").toString(), QStringLiteral("ok"));
+#endif
   }
   void manualDraftHasNoFabricatedAlgorithmAttribution() {
     Fixture f;

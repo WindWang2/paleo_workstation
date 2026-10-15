@@ -206,7 +206,8 @@ CellOutcome decideAtPoint(const QList<ResolvedInput> &inputs,
   return out;
 }
 
-QVariantMap statsToMap(const InputStats &s, qint64 total) {  QVariantMap m;
+QVariantMap statsToMap(const InputStats &s, qint64 total) {
+  QVariantMap m;
   m.insert(QStringLiteral("layer_id"), s.input->layerId);
   m.insert(QStringLiteral("version_id"), s.input->versionId);
   m.insert(QStringLiteral("asset_id"), s.input->assetId);
@@ -490,6 +491,8 @@ GridReplay replayGrid(const QList<ResolvedInput> &inputs,
     codes << f.toMap().value("code").toInt();
   if (codes.isEmpty())
     return out;
+  if (!thresholdsValid(inputs, codes, thresholds))
+    return out; // 冻结参数疑似损坏：宁可不重放，不越界读 codes[]。
   const auto grid = gridOf(inputs);
   if (!grid.valid)
     return out;
@@ -554,8 +557,11 @@ GridReplay replayGrid(const QList<ResolvedInput> &inputs,
                                          thresholds.cbegin())];
           } else {
             code = static_cast<int>(std::round(v));
-            if (std::abs(v - code) > 1e-6 || !codes.contains(code))
-              continue; // 运行时整幅拒收未定义编码；历史冻结数据经校验落库。
+            if (std::abs(v - code) > 1e-6 || !codes.contains(code)) {
+              // 与 decideAt/replay 同口径：未定义编码的像元不判给任何输入
+              //（运行时 composeRaster 会整幅拒收；schema 可能已变化）。
+              break;
+            }
           }
           out.winners[i] = n;
           out.codes[i] = code;

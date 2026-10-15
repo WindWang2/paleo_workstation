@@ -4,6 +4,9 @@
 #include "types.h"
 
 #include <QString>
+#include <QVariantList>
+
+#include <functional>
 
 #include <optional>
 #include <string>
@@ -44,5 +47,13 @@ ParsedConstraints readConstraintLines( QgsProcessingFeatureSource *constraints,
                                        const QgsCoordinateReferenceSystem &targetCrs,
                                        QgsProcessingContext &context,
                                        const ConstraintParseOptions &options = {} );
+
+// 引擎回执（QC constraint_receipts）共用拼装：每条解析出的线一项
+// {id, semantic, consumed, role, reason}，ignored 里的 "id reason" 逐条补
+// consumed=false。roleOf 由各引擎按**实际消费集合**给出角色（空 = 未消费，
+// 可写 *reason 覆盖缺省原因）；本函数不调用 domain 计划。
+using ReceiptRoleFn = std::function<QString( const ConstraintLine &line, QString *reason )>;
+QVariantList buildConstraintReceipts( const std::vector<ConstraintLine> &lines,
+                                      const std::vector<std::string> &ignored, const ReceiptRoleFn &roleOf );
 
 } // namespace paleo::singlefactor

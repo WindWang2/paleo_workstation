@@ -415,8 +415,12 @@ QVariantMap StructuralIdwAlgorithm::processAlgorithm( const QVariantMap &paramet
     }
     else if ( line.semantic == sf::Semantic::InterpretiveBoundary )
     {
+      // 停用的解释边界不得进趋势权重（keepDisabled 只为保留上游清单）。
+      if ( !line.enabled )
+        continue;
       // softRadius>0 显式半径；否则走与停线一致的自动半径。
       sf::StructuralSoftBoundary soft;
+      soft.lineId = line.stableId;
       soft.points = line.points;
       soft.radius = line.softRadius;
       soft.strength = line.softStrength;
@@ -696,6 +700,56 @@ QVariantMap StructuralIdwAlgorithm::processAlgorithm( const QVariantMap &paramet
   qc.insert( QStringLiteral( "value_max" ),
              surface.valueMax ? QVariant( *surface.valueMax ) : QVariant() );
   qc.insert( QStringLiteral( "diagnostics" ), surface.diagnostics );
+  // 引擎回执（P2）：按 buildStructuralSurface 实际进入趋势权重/方向核的集合产出。
+  // contour_only 屏障模型——完全阻断线也只是解释软边界，回执绝不报 hard_barrier。
+  {
+    std::vector<std::string> directionIds;
+    for ( const sf::StructuralDirectionInfo &direction : surface.directions )
+      for ( const std::vector<sf::Point2> &piece : direction.pieces )
+        if ( piece.size() >= 2 )
+        {
+          double length = 0;
+          for ( std::size_t i = 1; i < piece.size(); ++i )
+            length += std::hypot( piece[i].x - piece[i - 1].x, piece[i].y - piece[i - 1].y );
+          if ( length > 1e-10 )
+          {
+            directionIds.push_back( direction.lineId );
+            break;
+          }
+        }
+    const auto has = []( const std::vector<std::string> &ids, const std::string &id ) {
+      return std::find( ids.begin(), ids.end(), id ) != ids.end();
+    };
+    qc.insert( QStringLiteral( "constraint_receipts" ),
+               sf::buildConstraintReceipts(
+                   parsed.lines, parsed.ignored, [&]( const sf::ConstraintLine &line, QString *reason ) {
+                     const bool stopLike = line.semantic == sf::Semantic::HardBarrier ||
+                                           line.semantic == sf::Semantic::ContourStop ||
+                                           line.semantic == sf::Semantic::CartographicDetour;
+                     if ( ( stopLike || line.semantic == sf::Semantic::InterpretiveBoundary ) &&
+                          has( surface.softBoundaryIds, line.stableId ) )
+                       return QStringLiteral( "soft_boundary" );
+                     if ( line.semantic == sf::Semantic::DirectionGuide && has( directionIds, line.stableId ) &&
+                          line.ratio > 1.0 )
+                       return QStringLiteral( "direction_guide" );
+                     if ( stopLike )
+                     {
+                       const std::string mode =
+                           line.semantic == sf::Semantic::HardBarrier ? line.blockMode
+                           : line.blockMode.empty() || sf::isFullBlockMode( line.blockMode ) ? std::string( "display_only" )
+                                                                                             : line.blockMode;
+                       *reason = !sf::isContourStopMode( mode ) ? QStringLiteral( "non_blocking" )
+                                 : QStringLiteral( "interpretive_strength_zero_or_barriers_disabled" );
+                     }
+                     else if ( line.semantic == sf::Semantic::DirectionGuide )
+                       *reason = !request.enableDirections ? QStringLiteral( "directions_disabled_by_request" )
+                                 : !( line.ratio > 1.0 )   ? QStringLiteral( "direction_ratio_not_above_one" )
+                                                           : QStringLiteral( "outside_compute_domain" );
+                     else if ( line.semantic == sf::Semantic::InterpretiveBoundary )
+                       *reason = QStringLiteral( "soft_strength_zero" );
+                     return QString();
+                   } ) );
+  }
   writeJson( qcPath, qc );
   if ( feedback )
     feedback->setProgress( 100 );

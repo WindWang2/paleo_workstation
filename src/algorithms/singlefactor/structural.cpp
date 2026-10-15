@@ -390,6 +390,7 @@ StructuralResult buildStructuralSurface( const std::vector<AcquiredWell> &wells,
   const auto appendSoft = [&]( const std::vector<Point2> &points, const std::string &id,
                               double radius, double strength ) {
     StructuralSoftBoundary boundary;
+    boundary.lineId = id;
     boundary.points = points;
     boundary.radius = radius;
     boundary.strength = strength;
@@ -400,6 +401,9 @@ StructuralResult buildStructuralSurface( const std::vector<AcquiredWell> &wells,
     soft.strength = strength;
     soft.points = points;
     params.soft.push_back( std::move( soft ) );
+    if ( strength > 0 && !id.empty() &&
+         std::find( result.softBoundaryIds.begin(), result.softBoundaryIds.end(), id ) == result.softBoundaryIds.end() )
+      result.softBoundaryIds.push_back( id );
   };
   if ( request.enableBarriers && request.interpretiveBoundaryStrength > 0 )
   {
@@ -415,7 +419,7 @@ StructuralResult buildStructuralSurface( const std::vector<AcquiredWell> &wells,
   {
     if ( explicitSoft.points.size() < 2 )
       continue;
-    appendSoft( explicitSoft.points, "interpretive_boundary",
+    appendSoft( explicitSoft.points, explicitSoft.lineId,
                 explicitSoft.radius > 0 ? explicitSoft.radius : softRadiusAuto,
                 explicitSoft.strength );
   }

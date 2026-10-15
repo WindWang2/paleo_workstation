@@ -408,44 +408,15 @@ QVariantList engineConstraintReceipts( const std::vector<sf::ConstraintLine> &li
   const auto has = []( const std::vector<std::string> &ids, const std::string &id ) {
     return std::find( ids.begin(), ids.end(), id ) != ids.end();
   };
-  QVariantList out;
-  for ( const sf::ConstraintLine &line : lines )
-  {
-    QVariantMap item;
-    item.insert( QStringLiteral( "id" ), utf8( line.stableId ) );
-    item.insert( QStringLiteral( "semantic" ), QString::fromLatin1( sf::semanticToken( line.semantic ) ) );
-    QString role;
-    if ( line.enabled && line.semantic == sf::Semantic::HardBarrier && has( barrierIds, line.stableId ) )
-      role = QStringLiteral( "hard_barrier" );
-    else if ( line.enabled && line.semantic == sf::Semantic::DirectionGuide && has( directionIds, line.stableId ) )
-      role = QStringLiteral( "direction_guide" );
-    else if ( line.enabled && line.semantic == sf::Semantic::InterpretiveBoundary && has( softIds, line.stableId ) )
-      role = QStringLiteral( "soft_boundary" );
-    item.insert( QStringLiteral( "consumed" ), !role.isEmpty() );
-    item.insert( QStringLiteral( "role" ), role );
-    if ( role.isEmpty() )
-    {
-      QString reason = QStringLiteral( "not_consumed" );
-      if ( !line.enabled )
-        reason = QStringLiteral( "disabled" );
-      else if ( line.semantic == sf::Semantic::ContourStop || line.semantic == sf::Semantic::CartographicDetour )
-        reason = QStringLiteral( "cartographic_only" );
-      item.insert( QStringLiteral( "reason" ), reason );
-    }
-    out << item;
-  }
-  for ( const std::string &entry : ignored )
-  {
-    const QString text = utf8( entry );
-    const int space = text.indexOf( QLatin1Char( ' ' ) );
-    QVariantMap item;
-    item.insert( QStringLiteral( "id" ), space < 0 ? text : text.left( space ) );
-    item.insert( QStringLiteral( "consumed" ), false );
-    item.insert( QStringLiteral( "role" ), QString() );
-    item.insert( QStringLiteral( "reason" ), space < 0 ? QStringLiteral( "ignored" ) : text.mid( space + 1 ) );
-    out << item;
-  }
-  return out;
+  return sf::buildConstraintReceipts( lines, ignored, [&]( const sf::ConstraintLine &line, QString * ) {
+    if ( line.semantic == sf::Semantic::HardBarrier && has( barrierIds, line.stableId ) )
+      return QStringLiteral( "hard_barrier" );
+    if ( line.semantic == sf::Semantic::DirectionGuide && has( directionIds, line.stableId ) )
+      return QStringLiteral( "direction_guide" );
+    if ( line.semantic == sf::Semantic::InterpretiveBoundary && has( softIds, line.stableId ) )
+      return QStringLiteral( "soft_boundary" );
+    return QString();
+  } );
 }
 
 std::vector<std::string> resolvedIds( const std::vector<sf::ResolvedDirection> &items )

@@ -53,6 +53,7 @@ struct StructuralDirection
 
 struct StructuralSoftBoundary
 {
+  std::string lineId; // 回执用：来源约束 stableId（停线转来的取屏障 id）
   std::vector<Point2> points;
   double radius = 0;
   double strength = 0;
@@ -106,6 +107,8 @@ struct StructuralResult
   std::vector<int> wellRegionIds;
   std::vector<StructuralDirectionInfo> directions; // 有效方向线（解析半径后）
   std::vector<StructuralSoftBoundary> interpretiveBoundaries;
+  // 引擎回执：实际进入趋势权重的软边界来源 id（停线 + 显式解释边界，强度>0）。
+  std::vector<std::string> softBoundaryIds;
   double span = 0;                            // max(domain宽, domain高)
   double spacing = 0;                         // max(井最近邻均值, step)
   std::optional<double> searchRadius;         // 解析后的搜索半径（extend → nullopt）

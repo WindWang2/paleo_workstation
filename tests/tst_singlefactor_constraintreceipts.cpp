@@ -140,7 +140,7 @@ private slots:
     QVERIFY( mDir.isValid() );
     if ( !QgsApplication::processingRegistry()->providerById( QStringLiteral( "paleo" ) ) )
       QgsApplication::processingRegistry()->addProvider( new PaleoProvider() );
-    mWells = new QgsVectorLayer( QStringLiteral( "Point?crs=EPSG:3857&field=z:double" ), QStringLiteral( "wells" ),
+    mWells = new QgsVectorLayer( QStringLiteral( "Point?crs=EPSG:3857&field=z:double&field=well_id:string" ), QStringLiteral( "wells" ),
                                  QStringLiteral( "memory" ) );
     QList<QgsFeature> wells;
     int k = 0;
@@ -150,6 +150,7 @@ private slots:
         QgsFeature f( mWells->fields() );
         f.setGeometry( QgsGeometry::fromPointXY( QgsPointXY( x, y ) ) );
         f.setAttribute( 0, 10.0 + x * 0.1 + y * 0.05 + ( ++k % 3 ) );
+        f.setAttribute( 1, QStringLiteral( "W%1" ).arg( k ) );
         wells << f;
       }
     QVERIFY( mWells->dataProvider()->addFeatures( wells ) );
@@ -253,6 +254,109 @@ private slots:
       barriers += role == QLatin1String( "hard_barrier" ) ? 1 : 0;
     QCOMPARE( QByteArray( GDALGetMetadataItem( ds, "PALEO_BREAK_LINES", nullptr ) ), QByteArray::number( barriers ) );
     GDALClose( ds );
+  }
+
+  // P2：结构面 IDW 回执 == 计划。contour_only 模型：完全阻断与停线都只是
+  // 解释软边界，回执绝不出现 hard_barrier；停用的解释边界不进趋势权重。
+  void structuralReceiptsMatchPlan()
+  {
+    QgsVectorLayer boundary( QStringLiteral( "Polygon?crs=EPSG:3857" ), QStringLiteral( "boundary" ),
+                             QStringLiteral( "memory" ) );
+    QgsFeature square;
+    square.setGeometry( QgsGeometry::fromWkt( QStringLiteral( "POLYGON((0 0, 100 0, 100 100, 0 100, 0 0))" ) ) );
+    QVERIFY( boundary.dataProvider()->addFeature( square ) );
+    boundary.updateExtents();
+    QVariantMap params;
+    params.insert( QStringLiteral( "WELLS" ), QVariant::fromValue( static_cast<QgsMapLayer *>( mWells ) ) );
+    params.insert( QStringLiteral( "WELL_ID_FIELD" ), QStringLiteral( "well_id" ) );
+    params.insert( QStringLiteral( "VALUE_FIELD" ), QStringLiteral( "z" ) );
+    params.insert( QStringLiteral( "FACTOR_MODE" ), QStringLiteral( "direct" ) );
+    params.insert( QStringLiteral( "BOUNDARY" ), QVariant::fromValue( static_cast<QgsMapLayer *>( &boundary ) ) );
+    params.insert( QStringLiteral( "CONSTRAINTS" ), QVariant::fromValue( static_cast<QgsMapLayer *>( mConstraints ) ) );
+    params.insert( QStringLiteral( "GRID_RESOLUTION" ), 60 );
+    params.insert( QStringLiteral( "OUTPUT" ), mDir.filePath( QStringLiteral( "structural.tif" ) ) );
+    QgsProcessingContext context;
+    QgsProcessingFeedback feedback;
+    const QVariantMap result = QgsApplication::processingRegistry()
+                                   ->algorithmById( QStringLiteral( "paleo:paleo_structural_idw" ) )
+                                   ->run( params, context, &feedback );
+    QVERIFY2( !result.isEmpty(), qPrintable( feedback.textLog() ) );
+    QFile qcFile( result.value( QStringLiteral( "QC" ) ).toString() );
+    QVERIFY( qcFile.open( QIODevice::ReadOnly ) );
+    const QJsonObject qc = QJsonDocument::fromJson( qcFile.readAll() ).object();
+    QMap<QString, QString> roles;
+    const QStringList engine = receiptConsumed( qc.value( QStringLiteral( "constraint_receipts" ) ).toArray(), &roles );
+    QCOMPARE( engine, planConsumed( QStringLiteral( "structural_idw" ), QRectF( 0, 0, 100, 100 ) ) );
+    for ( const QString &role : roles )
+      QVERIFY2( role != QLatin1String( "hard_barrier" ), "contour_only 模型不存在硬隔断" );
+    QCOMPARE( roles.value( QStringLiteral( "b_full" ) ), QStringLiteral( "soft_boundary" ) );
+    QCOMPARE( roles.value( QStringLiteral( "b_display" ) ), QStringLiteral( "soft_boundary" ) );
+    QCOMPARE( roles.value( QStringLiteral( "d_main" ) ), QStringLiteral( "direction_guide" ) );
+    QCOMPARE( roles.value( QStringLiteral( "s_soft" ) ), QStringLiteral( "soft_boundary" ) );
+    for ( const char *id : { "b_none", "b_disabled", "d_disabled", "d_flat", "s_zero", "b_zero", "b_bowtie" } )
+      QVERIFY2( !engine.contains( QString::fromLatin1( id ) ), id );
+  }
+
+  // 结构面引擎：停用的解释边界以前仍进趋势权重（keepDisabled 漏判）——
+  // 启用/停用两次运行的栅格必须一致（停用行无数值作用）。
+  void structuralDisabledSoftBoundaryHasNoEffect()
+  {
+    // mode: 0 = 无约束线；1 = 停用解释边界；2 = 启用解释边界（对照：确认该线确实会改面）。
+    const auto run = [this]( int mode, const QString &name ) -> QByteArray {
+      QgsVectorLayer boundary( QStringLiteral( "Polygon?crs=EPSG:3857" ), QStringLiteral( "boundary" ),
+                               QStringLiteral( "memory" ) );
+      QgsFeature square;
+      square.setGeometry( QgsGeometry::fromWkt( QStringLiteral( "POLYGON((0 0, 100 0, 100 100, 0 100, 0 0))" ) ) );
+      boundary.dataProvider()->addFeature( square );
+      boundary.updateExtents();
+      QgsVectorLayer lines( QStringLiteral( "LineString?crs=EPSG:3857&field=id:string&field=horizon:string&field=type:string"
+                                            "&field=params_json:string&field=schema_version:integer" ),
+                            QStringLiteral( "c" ), QStringLiteral( "memory" ) );
+      if ( mode > 0 )
+      {
+        QgsFeature f( lines.fields() );
+        f.setGeometry( QgsGeometry::fromWkt( QStringLiteral( "LINESTRING(50 0, 50 100)" ) ) );
+        f.setAttributes( QgsAttributes() << QStringLiteral( "s_off" ) << QStringLiteral( "H1" )
+                                         << QStringLiteral( "interpretive_boundary" )
+                                         << ( mode == 1 ? QStringLiteral( R"({"semantic":"interpretive_boundary","softStrength":0.8,"enabled":false})" )
+                                                       : QStringLiteral( R"({"semantic":"interpretive_boundary","softStrength":0.8})" ) )
+                                         << 1 );
+        lines.dataProvider()->addFeature( f );
+      }
+      QVariantMap params;
+      params.insert( QStringLiteral( "WELLS" ), QVariant::fromValue( static_cast<QgsMapLayer *>( mWells ) ) );
+      params.insert( QStringLiteral( "WELL_ID_FIELD" ), QStringLiteral( "well_id" ) );
+      params.insert( QStringLiteral( "VALUE_FIELD" ), QStringLiteral( "z" ) );
+      params.insert( QStringLiteral( "FACTOR_MODE" ), QStringLiteral( "direct" ) );
+      params.insert( QStringLiteral( "BOUNDARY" ), QVariant::fromValue( static_cast<QgsMapLayer *>( &boundary ) ) );
+      params.insert( QStringLiteral( "CONSTRAINTS" ), QVariant::fromValue( static_cast<QgsMapLayer *>( &lines ) ) );
+      params.insert( QStringLiteral( "GRID_RESOLUTION" ), 40 );
+      const QString out = mDir.filePath( name );
+      params.insert( QStringLiteral( "OUTPUT" ), out );
+      QgsProcessingContext context;
+      QgsProcessingFeedback feedback;
+      const QVariantMap result = QgsApplication::processingRegistry()
+                                     ->algorithmById( QStringLiteral( "paleo:paleo_structural_idw" ) )
+                                     ->run( params, context, &feedback );
+      if ( result.isEmpty() )
+        return {};
+      GDALDatasetH ds = GDALOpen( out.toUtf8().constData(), GA_ReadOnly );
+      if ( !ds )
+        return {};
+      const int nx = GDALGetRasterXSize( ds ), ny = GDALGetRasterYSize( ds );
+      QByteArray bytes( nx * ny * static_cast<int>( sizeof( double ) ), '\0' );
+      const CPLErr err = GDALRasterIO( GDALGetRasterBand( ds, 1 ), GF_Read, 0, 0, nx, ny, bytes.data(), nx, ny,
+                                       GDT_Float64, 0, 0 );
+      GDALClose( ds );
+      return err == CE_None ? bytes : QByteArray();
+    };
+    const QByteArray plain = run( 0, QStringLiteral( "soft-plain.tif" ) );
+    const QByteArray disabled = run( 1, QStringLiteral( "soft-disabled.tif" ) );
+    const QByteArray enabled = run( 2, QStringLiteral( "soft-enabled.tif" ) );
+    QVERIFY( !plain.isEmpty() );
+    QVERIFY( !enabled.isEmpty() );
+    QVERIFY2( enabled != plain, "对照失效：启用的解释边界应改变结构面" );
+    QCOMPARE( disabled, plain );
   }
 
   // 地统方法不读约束：计划逐条标未使用。

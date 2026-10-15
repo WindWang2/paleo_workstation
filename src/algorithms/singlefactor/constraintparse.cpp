@@ -199,4 +199,43 @@ ParsedConstraints readConstraintLines( QgsProcessingFeatureSource *constraints,
   return parsed;
 }
 
+QVariantList buildConstraintReceipts( const std::vector<ConstraintLine> &lines,
+                                      const std::vector<std::string> &ignored, const ReceiptRoleFn &roleOf )
+{
+  QVariantList out;
+  for ( const ConstraintLine &line : lines )
+  {
+    QVariantMap item;
+    item.insert( QStringLiteral( "id" ), QString::fromStdString( line.stableId ) );
+    item.insert( QStringLiteral( "semantic" ), QString::fromLatin1( semanticToken( line.semantic ) ) );
+    QString reason;
+    const QString role = line.enabled ? roleOf( line, &reason ) : QString();
+    item.insert( QStringLiteral( "consumed" ), !role.isEmpty() );
+    item.insert( QStringLiteral( "role" ), role );
+    if ( role.isEmpty() )
+    {
+      if ( !line.enabled )
+        reason = QStringLiteral( "disabled" );
+      else if ( reason.isEmpty() )
+        reason = line.semantic == Semantic::ContourStop || line.semantic == Semantic::CartographicDetour
+                     ? QStringLiteral( "cartographic_only" )
+                     : QStringLiteral( "not_consumed" );
+      item.insert( QStringLiteral( "reason" ), reason );
+    }
+    out << item;
+  }
+  for ( const std::string &entry : ignored )
+  {
+    const QString text = QString::fromStdString( entry );
+    const int space = text.indexOf( QLatin1Char( ' ' ) );
+    QVariantMap item;
+    item.insert( QStringLiteral( "id" ), space < 0 ? text : text.left( space ) );
+    item.insert( QStringLiteral( "consumed" ), false );
+    item.insert( QStringLiteral( "role" ), QString() );
+    item.insert( QStringLiteral( "reason" ), space < 0 ? QStringLiteral( "ignored" ) : text.mid( space + 1 ) );
+    out << item;
+  }
+  return out;
+}
+
 } // namespace paleo::singlefactor

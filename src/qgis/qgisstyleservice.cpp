@@ -405,7 +405,7 @@ QgsFeatureRenderer *QgisStyleService::wellFaciesRenderer(const QString &keyField
   codeRules(fallback, schemas.contains(QString()) ? schemas.value(QString()) : FaciesCatalog::defaults(),
             QString());
   auto *none = new QgsRuleBasedRenderer::Rule(symbolFor(QStringLiteral("#9AA7B4")), 0, 0, QString(),
-                                              QObject::tr("未预测 / 其他"));
+                                              tr("未预测 / 其他"));
   none->setIsElse(true);
   fallback->appendChild(none);
   root->appendChild(fallback);
@@ -576,28 +576,28 @@ void QgisStyleService::applyConstraintLayerStyle(QgsVectorLayer *layer)
   };
   // 入库 type 已被 storageTypeForSemantic 归一化；两种历史拼写同收。
   add("direction_line", QStringLiteral("#C0392B"), 0.7, QStringLiteral("solid"),
-      QObject::tr("物源方向线"));
+      tr("物源方向线"));
   add("direction_guide", QStringLiteral("#C0392B"), 0.7, QStringLiteral("dash"),
-      QObject::tr("方向引导"));
+      tr("方向引导"));
   add("break_line", QStringLiteral("#24303E"), 0.55, QStringLiteral("solid"),
-      QObject::tr("打断线"));
+      tr("打断线"));
   add("hard_barrier", QStringLiteral("#24303E"), 0.55, QStringLiteral("solid"),
-      QObject::tr("硬屏障"));
+      tr("硬屏障"));
   add("interpretive_boundary", QStringLiteral("#F29900"), 0.5,
-      QStringLiteral("dash"), QObject::tr("解释软边界"));
+      QStringLiteral("dash"), tr("解释软边界"));
   add("contour_stop", QStringLiteral("#5D6E80"), 0.45, QStringLiteral("dash"),
-      QObject::tr("等值线停线"));
+      tr("等值线停线"));
   add("cartographic_detour", QStringLiteral("#1B73D0"), 0.5,
-      QStringLiteral("dash dot"), QObject::tr("制图绕行线"));
+      QStringLiteral("dash dot"), tr("制图绕行线"));
   // 未标语义/旧 type=line 与 all-other 桶：常规细墨线。
   cats.append(QgsRendererCategory(QStringLiteral("line"),
                                   lineSym(QStringLiteral("#24303E"), 0.3,
                                           QStringLiteral("solid")),
-                                  QObject::tr("约束线")));
+                                  tr("约束线")));
   cats.append(QgsRendererCategory(QVariant(),
                                   lineSym(QStringLiteral("#24303E"), 0.3,
                                           QStringLiteral("solid")),
-                                  QObject::tr("约束线")));
+                                  tr("约束线")));
   layer->setRenderer(
       new QgsCategorizedSymbolRenderer(QStringLiteral("type"), cats));
 }
@@ -667,22 +667,22 @@ void QgisStyleService::applyFaciesBoundaryStyle(QgsVectorLayer *layer)
   QgsCategoryList cats;
   cats.append(QgsRendererCategory(
       QStringLiteral("conformable"), boundaryFill(QStringLiteral("#5D6E80"), 0.5),
-      QObject::tr("整合接触")));
+      tr("整合接触")));
   cats.append(QgsRendererCategory(
       QStringLiteral("pinchout"),
       boundaryFill(QStringLiteral("#5D6E80"), 0.5, QStringLiteral("dash")),
-      QObject::tr("尖灭")));
+      tr("尖灭")));
   cats.append(QgsRendererCategory(
       QStringLiteral("facies_change"), faciesChangeFill(hasBandField),
-      QObject::tr("相变")));
+      tr("相变")));
   // 断层切割（首发单类型）：断层红粗描边（#D71414，resources/geology/faults
   // 调性；resources/geology/boundaries/bnd_fault_line.svg 同族图式）。
   cats.append(QgsRendererCategory(
       QStringLiteral("fault_cut"), boundaryFill(QStringLiteral("#D71414"), 1.0),
-      QObject::tr("断层切割")));
+      tr("断层切割")));
   // 其余/未分类：常规细灰边（含空串——未标类型的相界落这一类；表外值同
   // 落 all-other 桶走中性样式，不猜类）。
-  const QString normalTitle = QObject::tr("常规相界");
+  const QString normalTitle = tr("常规相界");
   cats.append(QgsRendererCategory(
       QStringLiteral(""), boundaryFill(QStringLiteral("#5D6E80"), 0.26), normalTitle));
   cats.append(QgsRendererCategory(QVariant(),
@@ -701,7 +701,7 @@ QVariantList QgisStyleService::wellCategoryDefinitions()
     QVariantMap m;
     m.insert(QStringLiteral("id"), QString::fromLatin1(kWellCategories[i].id));
     m.insert(QStringLiteral("title"),
-             QObject::tr(kWellCategories[i].title)); // NOOP 词面，此类无 QObject 上下文时归本类
+             tr(kWellCategories[i].title)); // NOOP 词面，此类无 QObject 上下文时归本类
     m.insert(QStringLiteral("glyph"), QString::fromLatin1(kWellCategories[i].glyph));
     out.append(m);
   }
@@ -715,7 +715,7 @@ QString QgisStyleService::normalizeWellCategory(const QString &raw)
     return QString();
   for (int i = 0; i < kWellCategoryCount; ++i)
     if (v == QLatin1String(kWellCategories[i].id) ||
-        v == QObject::tr(kWellCategories[i].title))
+        v == tr(kWellCategories[i].title))
       return QString::fromLatin1(kWellCategories[i].id);
   // 常见同义词（数据字段常见写法）。
   static const QHash<QString, QString> aliases = {
@@ -773,11 +773,11 @@ void QgisStyleService::applyWellCategoryStyle(QgsVectorLayer *layer, const QStri
   // 数据字段驱动：类别桶同时登记规范 id 与中文词面（字段里两种写法都
   // 命中；其余值落通用符号桶）。
   QgsCategoryList cats;
-  const QString genericTitle = QObject::tr("探井（通用）");
+  const QString genericTitle = tr("探井（通用）");
   for (int i = 0; i < kWellCategoryCount; ++i)
   {
     const QString id = QString::fromLatin1(kWellCategories[i].id);
-    const QString title = QObject::tr(kWellCategories[i].title);
+    const QString title = tr(kWellCategories[i].title);
     cats.append(QgsRendererCategory(id, wellCategorySymbol(id), title));
     if (title != id)
       cats.append(QgsRendererCategory(title, wellCategorySymbol(id), title));
@@ -842,16 +842,16 @@ void QgisStyleService::applyMigrationVectorStyle(QgsVectorLayer *layer)
   };
   addRule(migrationArrowSymbol(advanceColor, 0.8),
           QStringLiteral("vector_kind = 'centroid' AND advance = 1"),
-          QObject::tr("进积（质心）"));
+          tr("进积（质心）"));
   addRule(migrationArrowSymbol(retreatColor, 0.8),
           QStringLiteral("vector_kind = 'centroid' AND advance = 0"),
-          QObject::tr("退积（质心）"));
+          tr("退积（质心）"));
   addRule(migrationArrowSymbol(advanceColor, 0.25),
           QStringLiteral("vector_kind = 'front' AND advance = 1"),
-          QObject::tr("进积（前缘）"));
+          tr("进积（前缘）"));
   addRule(migrationArrowSymbol(retreatColor, 0.25),
           QStringLiteral("vector_kind = 'front' AND advance = 0"),
-          QObject::tr("退积（前缘）"));
+          tr("退积（前缘）"));
   layer->setRenderer(renderer);
 }
 
@@ -893,7 +893,7 @@ void QgisStyleService::applyLithologyPatternStyle(QgsVectorLayer *layer,
     return; // 无语义字段：不接管渲染器（保持现状图面）
 
   applyPatternRenderer(layer, fieldIdx, GeoPatterns::lithologyDefinitions(),
-                       GeoPatterns::lithologyFillSymbol, QObject::tr("其他岩性"));
+                       GeoPatterns::lithologyFillSymbol, tr("其他岩性"));
 }
 
 void QgisStyleService::applyFaciesPatternStyle(QgsVectorLayer *layer,
@@ -909,7 +909,7 @@ void QgisStyleService::applyFaciesPatternStyle(QgsVectorLayer *layer,
     return;
 
   applyPatternRenderer(layer, fieldIdx, GeoPatterns::faciesDefinitions(),
-                       GeoPatterns::faciesFillSymbol, QObject::tr("未划分相"));
+                       GeoPatterns::faciesFillSymbol, tr("未划分相"));
 }
 
 void QgisStyleService::applyFaultLineLayerStyle(QgsVectorLayer *layer,
@@ -941,7 +941,7 @@ void QgisStyleService::applyFaultLineLayerStyle(QgsVectorLayer *layer,
   for (const auto &k : kinds)
   {
     const QString id = QString::fromLatin1(k.id);
-    const QString title = QObject::tr(k.title);
+    const QString title = tr(k.title);
     cats.append(QgsRendererCategory(id, GeoPatterns::faultLineSymbol(id), title));
     if (!seen.contains(title))
     {
@@ -949,7 +949,7 @@ void QgisStyleService::applyFaultLineLayerStyle(QgsVectorLayer *layer,
       cats.append(QgsRendererCategory(title, GeoPatterns::faultLineSymbol(id), title));
     }
   }
-  const QString otherTitle = QObject::tr("未分类断层");
+  const QString otherTitle = tr("未分类断层");
   cats.append(
       QgsRendererCategory(QVariant(), GeoPatterns::faultLineSymbol(QString()), otherTitle));
   layer->setRenderer(new QgsCategorizedSymbolRenderer(

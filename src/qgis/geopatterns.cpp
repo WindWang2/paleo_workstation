@@ -4,6 +4,7 @@
 #include "../domain/faciescatalog.h"
 
 #include <QColor>
+#include <QCoreApplication>
 #include <QHash>
 #include <QObject>
 #include <QVariantMap>
@@ -115,6 +116,13 @@ namespace
     { QStringLiteral("煤层"), QStringLiteral("coal") },
   };
 
+  // 相词面同义词（catalog.json 地层沉积相标准词面 → 词表 id；岩性侧同
+  // 先例 kLithologyAliases）。「三角洲」是 catalog 标准词面（strat_delta），
+  // 词表只有「三角洲朵体」词面时不加别名数据值「三角洲」会落兜底桶。
+  const QHash<QString, QString> kFaciesAliases = {
+    { QStringLiteral("三角洲"), QStringLiteral("delta") },
+  };
+
   const PatternDef *findFacies(const QString &id)
   {
     for (int i = 0; i < kFaciesCount; ++i)
@@ -135,7 +143,8 @@ namespace
   {
     QVariantMap m;
     m.insert(QStringLiteral("id"), QString::fromLatin1(def.id));
-    m.insert(QStringLiteral("title"), QObject::tr(def.title));
+    m.insert(QStringLiteral("title"),
+             QCoreApplication::translate("GeoPatterns", def.title));
     m.insert(QStringLiteral("texture"), QString::fromLatin1(def.texture));
     m.insert(QStringLiteral("widthMm"), def.widthMm);
     m.insert(QStringLiteral("group"), group);
@@ -146,7 +155,8 @@ namespace
   {
     QVariantMap m;
     m.insert(QStringLiteral("id"), QString::fromLatin1(def.id));
-    m.insert(QStringLiteral("title"), QObject::tr(def.title));
+    m.insert(QStringLiteral("title"),
+             QCoreApplication::translate("GeoPatterns", def.title));
     m.insert(QStringLiteral("texture"), QString());
     m.insert(QStringLiteral("color"), QString::fromLatin1(def.color));
     m.insert(QStringLiteral("widthMm"), def.widthMm);
@@ -217,11 +227,11 @@ QVariantList lineStyleDefinitions()
 QString titleFor(const QString &id)
 {
   if (const PatternDef *d = findLithology(id))
-    return QObject::tr(d->title);
+    return QCoreApplication::translate("GeoPatterns", d->title);
   if (const PatternDef *d = findFacies(id))
-    return QObject::tr(d->title);
+    return QCoreApplication::translate("GeoPatterns", d->title);
   if (const LineDef *d = findLine(id))
-    return QObject::tr(d->title);
+    return QCoreApplication::translate("GeoPatterns", d->title);
   return id;
 }
 
@@ -252,7 +262,7 @@ QString normalizeLithology(const QString &raw)
     return QString();
   for (int i = 0; i < kLithologyCount; ++i)
     if (v == QLatin1String(kLithologies[i].id) ||
-        v == QObject::tr(kLithologies[i].title))
+        v == QCoreApplication::translate("GeoPatterns", kLithologies[i].title))
       return QString::fromLatin1(kLithologies[i].id);
   return kLithologyAliases.value(v, v);
 }
@@ -293,13 +303,18 @@ QStringList valueBuckets(const QString &patternId)
   addUnique(patternId);
   if (const PatternDef *d = findLithology(patternId))
   {
-    addUnique(QObject::tr(d->title));
+    addUnique(QCoreApplication::translate("GeoPatterns", d->title));
     for (auto it = kLithologyAliases.cbegin(); it != kLithologyAliases.cend(); ++it)
       if (it.value() == patternId)
         addUnique(it.key());
   }
   else if (const PatternDef *d = findFacies(patternId))
-    addUnique(QObject::tr(d->title));
+  {
+    addUnique(QCoreApplication::translate("GeoPatterns", d->title));
+    for (auto it = kFaciesAliases.cbegin(); it != kFaciesAliases.cend(); ++it)
+      if (it.value() == patternId)
+        addUnique(it.key());
+  }
   return out;
 }
 

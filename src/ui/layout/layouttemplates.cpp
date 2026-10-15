@@ -9,6 +9,7 @@
 #include <QDomDocument>
 #include <QFileInfo>
 #include "../notifications/paleonotify.h"
+#include "../../services/errorhub.h"
 
 #include <qgslayout.h>
 #include <qgslayoutitem.h>
@@ -114,6 +115,20 @@ namespace
 // PaleoLayoutTemplates
 // ---------------------------------------------------------------------------
 
+PaleoLayoutTemplates::TemplateOutcome PaleoLayoutTemplates::fail( TemplateOutcome outcome,
+                                                                  const QString &path )
+{
+  emit templateFinished( path, false );
+  emit templateFailed( path, outcome.error );
+  // 失败必须有声（DESIGN.md 错误呈现）：ErrorHub warning 入账（非模态
+  // 通知卡 + 环形历史）。未安装全局 hub（单测/组装根之前）不降级弹窗——
+  // templateFailed 信号已携带全文，不静默。
+  if ( ErrorHub *hub = ErrorHub::global() )
+    hub->raise( ErrorHub::Level::Warning, QStringLiteral( "layouttemplates" ),
+                tr( "版面模板操作失败" ), outcome.error );
+  return outcome;
+}
+
 PaleoLayoutTemplates::PaleoLayoutTemplates( QObject *parent )
   : QObject( parent )
 {
@@ -124,7 +139,9 @@ PaleoLayoutTemplates::PaleoLayoutTemplates( QObject *parent )
     QgsLayout *layout = m_layoutProvider ? m_layoutProvider() : nullptr;
     if ( !layout )
     {
-      emit templateFinished( QString(), false );
+      TemplateOutcome outcome;
+      outcome.error = tr( "没有可操作的版面。" );
+      fail( outcome, QString() );
       return;
     }
     const QString path = QFileDialog::getSaveFileName( dialogParent( this ), tr( "保存版面模板" ),
@@ -141,7 +158,9 @@ PaleoLayoutTemplates::PaleoLayoutTemplates( QObject *parent )
     QgsLayout *layout = m_layoutProvider ? m_layoutProvider() : nullptr;
     if ( !layout )
     {
-      emit templateFinished( QString(), false );
+      TemplateOutcome outcome;
+      outcome.error = tr( "没有可操作的版面。" );
+      fail( outcome, QString() );
       return;
     }
     const QString path = QFileDialog::getOpenFileName( dialogParent( this ), tr( "加载版面模板" ),
@@ -221,14 +240,12 @@ PaleoLayoutTemplates::TemplateOutcome PaleoLayoutTemplates::saveTemplate( QgsLay
   if ( !layout )
   {
     outcome.error = tr( "没有可保存为模板的版面。" );
-    emit templateFinished( QString(), false );
-    return outcome;
+    return fail( outcome, QString() );
   }
   if ( path.isEmpty() )
   {
     outcome.error = tr( "未指定模板文件。" );
-    emit templateFinished( QString(), false );
-    return outcome;
+    return fail( outcome, QString() );
   }
 
   outcome.itemCount = contentItemCount( layout );
@@ -237,8 +254,7 @@ PaleoLayoutTemplates::TemplateOutcome PaleoLayoutTemplates::saveTemplate( QgsLay
   {
     outcome.ok = false;
     outcome.error = tr( "无法写入模板文件 %1。" ).arg( path );
-    emit templateFinished( path, false );
-    return outcome;
+    return fail( outcome, path );
   }
 
   outcome.ok = true;
@@ -257,16 +273,14 @@ PaleoLayoutTemplates::TemplateOutcome PaleoLayoutTemplates::loadFromFile( QgsLay
   if ( !layout )
   {
     outcome.error = tr( "没有可加载模板的版面。" );
-    emit templateFinished( QString(), false );
-    return outcome;
+    return fail( outcome, QString() );
   }
 
   QFile file( path );
   if ( !file.open( QIODevice::ReadOnly | QIODevice::Text ) )
   {
     outcome.error = tr( "无法读取模板文件 %1。" ).arg( path );
-    emit templateFinished( path, false );
-    return outcome;
+    return fail( outcome, path );
   }
 
   QDomDocument document;
@@ -277,8 +291,7 @@ PaleoLayoutTemplates::TemplateOutcome PaleoLayoutTemplates::loadFromFile( QgsLay
                       .arg( path )
                       .arg( parseResult.errorLine )
                       .arg( parseResult.errorMessage );
-    emit templateFinished( path, false );
-    return outcome;
+    return fail( outcome, path );
   }
 
   QgsReadWriteContext context;
@@ -287,8 +300,7 @@ PaleoLayoutTemplates::TemplateOutcome PaleoLayoutTemplates::loadFromFile( QgsLay
   if ( !ok )
   {
     outcome.error = tr( "无法将模板 %1 加载到版面。" ).arg( path );
-    emit templateFinished( path, false );
-    return outcome;
+    return fail( outcome, path );
   }
 
   outcome.ok = true;
@@ -310,8 +322,7 @@ PaleoLayoutTemplates::TemplateOutcome PaleoLayoutTemplates::applyBuiltin( QgsLay
     if ( !printLayout )
     {
       outcome.error = tr( "内容模板需要 QgsPrintLayout 版面。" );
-      emit templateFinished( QString(), false );
-      return outcome;
+      return fail( outcome, QString() );
     }
     // 套模板保留地图项当前图层与范围（换骨架不换数据）。
     QgsLayoutItemMap *map = nullptr;
@@ -326,8 +337,7 @@ PaleoLayoutTemplates::TemplateOutcome PaleoLayoutTemplates::applyBuiltin( QgsLay
     if ( !PaleoStandardElements::populateFigureLayout( printLayout, kind, setup, layers, extent, &err ) )
     {
       outcome.error = err;
-      emit templateFinished( QString(), false );
-      return outcome;
+      return fail( outcome, QString() );
     }
     outcome.ok = true;
     outcome.itemCount = contentItemCount( layout );
@@ -338,24 +348,21 @@ PaleoLayoutTemplates::TemplateOutcome PaleoLayoutTemplates::applyBuiltin( QgsLay
   if ( !builtinFor( key ) )
   {
     outcome.error = tr( "未知的内置模板「%1」。" ).arg( key );
-    emit templateFinished( QString(), false );
-    return outcome;
+    return fail( outcome, QString() );
   }
 
   const QString dir = templatesDir();
   if ( dir.isEmpty() )
   {
     outcome.error = tr( "未配置内置模板目录。" );
-    emit templateFinished( QString(), false );
-    return outcome;
+    return fail( outcome, QString() );
   }
 
   const QString path = QDir( dir ).absoluteFilePath( key + QStringLiteral( ".qpt" ) );
   if ( !QFile::exists( path ) )
   {
     outcome.error = tr( "在 %2 中找不到内置模板 %1。" ).arg( key, dir );
-    emit templateFinished( path, false );
-    return outcome;
+    return fail( outcome, path );
   }
 
   return loadFromFile( layout, path );
@@ -382,7 +389,9 @@ QAction *PaleoLayoutTemplates::applyBuiltinAction( const QString &key )
     QgsLayout *layout = m_layoutProvider ? m_layoutProvider() : nullptr;
     if ( !layout )
     {
-      emit templateFinished( QString(), false );
+      TemplateOutcome outcome;
+      outcome.error = tr( "没有可操作的版面。" );
+      fail( outcome, QString() );
       return;
     }
     // 内置模板走 loadFromTemplate(clearExisting=true)——一键清空版面。

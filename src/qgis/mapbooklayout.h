@@ -84,4 +84,13 @@ struct RenderOutcome
 RenderOutcome renderLayout( QgsPrintLayout *layout, const QString &outPath,
                             PaleoLayoutExport::Format format, double dpi );
 
+// 产物回读校验（renderLayout 的唯一校验口；独立暴露供坏文件注入测试）。
+// PNG：8 字节签名 + 可解码 + 像素尺寸 ≈ expected（±2px 取整容差）；
+// PDF：%PDF 头 + 末尾 1KiB 内 %%EOF（截断即失败）；
+// SVG：头 4KiB 内含 <svg 根元素。
+// expectedWidthPx/expectedHeightPx ≤ 0 → 跳过像素尺寸校验（PDF/SVG 无像素面）。
+bool validateExportedFile( const QString &path, PaleoLayoutExport::Format format,
+                           double expectedWidthPx = -1.0, double expectedHeightPx = -1.0,
+                           QString *error = nullptr );
+
 } // namespace PaleoMapBookLayout

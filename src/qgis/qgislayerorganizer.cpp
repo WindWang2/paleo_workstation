@@ -141,7 +141,7 @@ QgisLayerOrganizer::Zone QgisLayerOrganizer::zoneFor( const QString &horizon,
 
 // ---- 归位 ----
 
-void QgisLayerOrganizer::placeLayer( QgsMapLayer *layer )
+void QgisLayerOrganizer::placeLayer( QgsMapLayer *layer, const QVector<LayerDeclaration> *decls )
 {
   QgsProject *proj = organizerProject( m_projectSvc );
   if ( !proj || !layer || !m_layerSvc )
@@ -150,9 +150,14 @@ void QgisLayerOrganizer::placeLayer( QgsMapLayer *layer )
   if ( paleoId.isEmpty() )
     return;
 
-  const QVector<LayerDeclaration> decls = m_layerSvc->declared();
+  // 声明表一次取用：declared() 每次调用都是一次 sqlite 全表读——批量
+  // 实例化逐层触发本函数时，逐层取表会把归位放大成 O(层数×声明数)
+  // 次查询（goal7 W3 探针实测）。调用方已取表（reorganize）就复用。
+  const QVector<LayerDeclaration> owned = decls ? QVector<LayerDeclaration>()
+                                                : m_layerSvc->declared();
+  const QVector<LayerDeclaration> &all = decls ? *decls : owned;
   const LayerDeclaration *decl = nullptr;
-  for ( const LayerDeclaration &d : decls )
+  for ( const LayerDeclaration &d : all )
     if ( d.layerId == paleoId )
     {
       decl = &d;
@@ -168,7 +173,7 @@ void QgisLayerOrganizer::placeLayer( QgsMapLayer *layer )
 
   QgsLayerTreeGroup *targetParent = nullptr;
   int targetIndex = -1;
-  desiredSlot( *decl, node, &targetParent, &targetIndex );
+  desiredSlot( *decl, node, all, &targetParent, &targetIndex );
   if ( !targetParent || targetIndex < 0 )
     return;
 
@@ -216,6 +221,7 @@ bool QgisLayerOrganizer::slotIntoCustomOrder( QgsLayerTree *root, QgsMapLayer *l
 // 不被挤位，用户把手动图层摆在哪它就在哪。
 void QgisLayerOrganizer::desiredSlot( const LayerDeclaration &decl,
                                       const QgsLayerTreeLayer *self,
+                                      const QVector<LayerDeclaration> &decls,
                                       QgsLayerTreeGroup **parent, int *index )
 {
   QgsProject *proj = organizerProject( m_projectSvc );
@@ -225,7 +231,6 @@ void QgisLayerOrganizer::desiredSlot( const LayerDeclaration &decl,
   if ( !root || !m_layerSvc )
     return;
 
-  const QVector<LayerDeclaration> decls = m_layerSvc->declared();
   QHash<QString, LayerDeclaration> declById;
   declById.reserve( decls.size() );
   for ( const LayerDeclaration &d : decls )
@@ -293,7 +298,7 @@ void QgisLayerOrganizer::desiredSlot( const LayerDeclaration &decl,
   }
 
   // HorizonGroup：目标父组 = 该层位的占位/实组。
-  QgsLayerTreeGroup *grp = horizonGroup( decl.horizon );
+  QgsLayerTreeGroup *grp = horizonGroup( decl.horizon, decls );
   if ( !grp )
     return;
   *parent = grp;
@@ -317,7 +322,8 @@ void QgisLayerOrganizer::desiredSlot( const LayerDeclaration &decl,
   *index = members.size();
 }
 
-QgsLayerTreeGroup *QgisLayerOrganizer::horizonGroup( const QString &horizon )
+QgsLayerTreeGroup *QgisLayerOrganizer::horizonGroup( const QString &horizon,
+                                                     const QVector<LayerDeclaration> &decls )
 {
   QgsProject *proj = organizerProject( m_projectSvc );
   QgsLayerTree *root = proj ? proj->layerTreeRoot() : nullptr;
@@ -336,12 +342,19 @@ QgsLayerTreeGroup *QgisLayerOrganizer::horizonGroup( const QString &horizon )
 
   // 插入位：SharedData 区之后，按层位序插进层位组带；撞上 SharedFlat
   // 受管层即收。Unmanaged 跳过——手动层不被挤位。
+  // 声明集由调用方一次取表传入（declared() 是 sqlite 全表读，逐层逐子
+  // 节点复读会把建组放大成 O(层数×声明数) 次查询，goal7 W3 探针实测）。
   const int order = horizonOrder( horizon );
   QSet<QString> sharedIds;
-  if ( m_layerSvc )
-    for ( const LayerDeclaration &d : m_layerSvc->declared() )
-      if ( zoneFor( d.horizon, d.group ) == Zone::SharedData )
-        sharedIds.insert( d.layerId );
+  QSet<QString> declaredIds;
+  sharedIds.reserve( decls.size() );
+  declaredIds.reserve( decls.size() );
+  for ( const LayerDeclaration &d : decls )
+  {
+    declaredIds.insert( d.layerId );
+    if ( zoneFor( d.horizon, d.group ) == Zone::SharedData )
+      sharedIds.insert( d.layerId );
+  }
 
   int insertAt = kids.size();
   for ( int i = 0; i < kids.size(); ++i )
@@ -362,20 +375,11 @@ QgsLayerTreeGroup *QgisLayerOrganizer::horizonGroup( const QString &horizon )
     auto *ln = qobject_cast<QgsLayerTreeLayer *>( n );
     if ( ln && sharedIds.contains( paleoIdOf( ln->layer() ) ) )
       continue;
-    if ( ln && m_layerSvc )
+    if ( ln )
     {
       // 有声明但非置顶共享 = SharedFlat 受管层 → 组带不越过它；无声明的
       // Unmanaged 直接跳过（手动层不参与区界）。
-      const QString pid = paleoIdOf( ln->layer() );
-      bool managed = false;
-      if ( !pid.isEmpty() )
-        for ( const LayerDeclaration &d : m_layerSvc->declared() )
-          if ( d.layerId == pid )
-          {
-            managed = true;
-            break;
-          }
-      if ( managed )
+      if ( declaredIds.contains( paleoIdOf( ln->layer() ) ) )
       {
         insertAt = i;
         break;
@@ -399,11 +403,12 @@ void QgisLayerOrganizer::reorganize()
   if ( !proj || !proj->layerTreeRoot() || !m_layerSvc )
     return;
   ensureHorizonGroups();
-  // 按声明序逐个归位：同秩稳定，收敛于声明序而非散乱现状。
+  // 按声明序逐个归位：同秩稳定，收敛于声明序而非散乱现状。声明表一次
+  // 取好逐层复用（placeLayer 单事件路径仍可现场取表，见签名默认值）。
   const QVector<LayerDeclaration> decls = m_layerSvc->declared();
   for ( const LayerDeclaration &d : decls )
     if ( QgsMapLayer *layer = m_layerSvc->layer( d.layerId ) )
-      placeLayer( layer );
+      placeLayer( layer, &decls );
   pruneVacantGroups();
 
   // 自定义绘制顺序生效时画布完全忽略树序。它只在「显示预测点位」时
@@ -425,9 +430,10 @@ void QgisLayerOrganizer::ensureHorizonGroups()
   QgsProject *proj = organizerProject( m_projectSvc );
   if ( !proj || !proj->layerTreeRoot() || !m_layerSvc )
     return;
-  for ( const LayerDeclaration &d : m_layerSvc->declared() )
+  const QVector<LayerDeclaration> decls = m_layerSvc->declared();
+  for ( const LayerDeclaration &d : decls )
     if ( !d.horizon.isEmpty() )
-      horizonGroup( d.horizon ); // find-or-create：已存在的零开销
+      horizonGroup( d.horizon, decls ); // find-or-create：已存在的零开销
 }
 
 void QgisLayerOrganizer::pruneVacantGroups()

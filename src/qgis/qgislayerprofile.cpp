@@ -4,6 +4,7 @@
 #include "layervocabulary.h"
 #include "qgislayerservice.h"
 
+#include <QDebug>
 #include <QHash>
 #include <QMap>
 #include <QSet>
@@ -309,8 +310,71 @@ bool QgisLayerProfileService::applyPrunedTheme(const QString &name)
   if (changed)
     collection->update(name, pruned);
 
+  // page:* 主题：无声明图层（用户手加的临时图层）可见性守恒——头注释契约
+  //（stageTreeVisibility 首建路径跳过它们；重放路径同样不得动）。
+  // QgsMapThemeCollection::applyTheme 会把不在主题记录内的图层一律置隐藏，
+  // 这里先快照、应用后恢复。有效可见性 = 自身勾选 ∧ 祖先组勾选，两级都按
+  // 快照还原（祖先组勾选只影响该组内无声明层的有效可见性——声明层自身
+  // 勾选仍由主题记录裁定，组被勾回不会把声明层带出来）。
+  const bool isPageTheme = name.startsWith(QLatin1String("page:"));
+  QHash<QString, bool> undeclaredChecked;    // layerId → 自身勾选
+  QSet<QString> undeclaredWasVisible;        // 有效可见的 layerId
+  if (isPageTheme)
+  {
+    QSet<QString> declaredIds;
+    if (m_layerService)
+    {
+      QVector<LayerDeclaration> decls;
+      // 读失败 ≠ 无声明：失败时 declaredIds 留空，带 paleoLayerId 的层随之
+      // 全部落进守恒集（快照/恢复其勾选，主题对它们空转）——重放退化为
+      // 保持现状。这是有意的 fail-safe：清单不可读时绝不让主题按记录批量
+      // 遮层。
+      if (m_layerService->tryDeclared(&decls, nullptr))
+        for (const LayerDeclaration &d : decls)
+          declaredIds.insert(d.layerId);
+    }
+    else
+    {
+      // 无图层服务（测试裸挂/早期构造）：无法区分声明层，全部进守恒集，
+      // page:* 主题可见性记录整体不生效——留日志便于诊断空转。
+      qWarning() << "QgisLayerProfileService: page 主题" << name
+                 << "重放时图层服务为空，全部图层按无声明守恒（主题记录不生效）";
+    }
+    const QList<QgsLayerTreeLayer *> nodes = m_project->layerTreeRoot()->findLayers();
+    for (QgsLayerTreeLayer *node : nodes)
+    {
+      QgsMapLayer *layer = node->layer();
+      if (!layer)
+        continue;
+      const QString paleoId = paleoLayerIdOf(layer);
+      if (!paleoId.isEmpty() && declaredIds.contains(paleoId))
+        continue; // 受管声明层：主题照常裁定
+      undeclaredChecked.insert(layer->id(), node->itemVisibilityChecked());
+      bool effective = node->itemVisibilityChecked();
+      for (QgsLayerTreeNode *p = node->parent(); p; p = p->parent())
+        effective = effective && p->itemVisibilityChecked();
+      if (effective)
+        undeclaredWasVisible.insert(layer->id());
+    }
+  }
+
   // 修剪后为空仍可应用：全隐藏语义。
   collection->applyTheme(name, m_project->layerTreeRoot(), m_model);
+
+  if (isPageTheme && !undeclaredChecked.isEmpty())
+  {
+    QgsLayerTree *root = m_project->layerTreeRoot();
+    for (auto it = undeclaredChecked.cbegin(); it != undeclaredChecked.cend(); ++it)
+    {
+      QgsLayerTreeLayer *node = root ? root->findLayer(it.key()) : nullptr;
+      if (!node)
+        continue; // applyTheme 不删节点；防御
+      node->setItemVisibilityChecked(it.value());
+      if (undeclaredWasVisible.contains(it.key()))
+        for (QgsLayerTreeNode *p = node->parent(); p; p = p->parent())
+          p->setItemVisibilityChecked(true);
+    }
+  }
 
   // 页面档案（page:*）必须保证井位与测区范围等基础共享数据层（00_Data / Zone::SharedData）可见：
   // 避免因存量主题未记录或历史快照未勾选导致井位与测区范围互斥或丢失。

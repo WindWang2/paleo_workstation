@@ -12,7 +12,9 @@
 #include "../src/ui/layout/layoutexportactions.h"
 #include "../src/ui/layout/layouttemplates.h"
 #include "../src/services/paleotaskservice.h" // #85 异步导出路径
+#include "../src/services/errorhub.h"         // goal7 W5：模板失败入账断言
 #include "../src/qgis/qgisruntime.h"
+#include "../src/qgis/mapbooklayout.h"
 #include "../src/qgis/standardelements.h"
 
 #include <qgslayout.h>
@@ -676,6 +678,164 @@ class TestLayoutExport : public QObject
       // 地图框中心落在多边形里：默认单符号填充不是纯白
       const QPoint centre( img.width() * 60 / 297, img.height() * 60 / 210 );
       QVERIFY2( img.pixelColor( centre ) != QColor( Qt::white ), "map item rendered blank" );
+    }
+
+    // goal7 W6：地图册版面标签字体必须走 standardelements 图件字体工厂
+    //（vendored "Noto Sans SC" 优先链），不再硬编码系统族 "Noto Sans CJK SC"
+    // ——修复前红：initTestCase 已钉渲染环境，工厂解析到 vendored 族。
+    void mapbookLabelsUseFigureFontFactory()
+    {
+      QgsProject project;
+      PaleoMapBookLayout::TileSpec spec;
+      spec.title = QStringLiteral( "格 T1" );
+      spec.footer = QStringLiteral( "EPSG:4490" );
+      spec.extent = QgsRectangle( 0, 0, 1000, 800 );
+      spec.legend = false;
+      spec.scaleBar = false;
+      spec.northArrow = false;
+
+      QString err;
+      std::unique_ptr<QgsPrintLayout> layout(
+          PaleoMapBookLayout::buildTileLayout( &project, spec, &err ) );
+      QVERIFY2( layout, qPrintable( err ) );
+
+      const QString expected = PaleoStandardElements::figureTextFormat( 9.0 ).font().family();
+      // 防同义反复：expected 取自被测工厂本身——工厂自身退化（空族/未安装
+      // 族）时本用例必须红，而不是跟着漂（S5 review minor 4）。
+      const QFontDatabase db;
+      QVERIFY2( !expected.isEmpty() && db.families().contains( expected ),
+                qPrintable( QStringLiteral( "figure font family '%1' not installed" ).arg( expected ) ) );
+      QList<QgsLayoutItem *> items;
+      layout->layoutItems( items );
+      int checked = 0;
+      for ( QgsLayoutItem *item : items )
+      {
+        auto *label = dynamic_cast<QgsLayoutItemLabel *>( item );
+        if ( !label || ( item->id() != QLatin1String( "title" ) &&
+                         item->id() != QLatin1String( "footer" ) ) )
+          continue;
+        ++checked;
+        QCOMPARE( label->textFormat().font().family(), expected );
+      }
+      QCOMPARE( checked, 2 );
+    }
+
+    // goal7 W5：模板加载/保存失败必须可感知——ErrorHub warning 入账 +
+    // templateFailed 信号带错误全文。此前动作路径拿到 outcome 直接丢弃
+    //（layouttemplates.cpp 无 status target/消息通道），用户在设计器里
+    // 看不到任何失败原因。
+    void templateFailureReportsToErrorHubAndSignal()
+    {
+      ErrorHub hub;
+      ErrorHub::installGlobal( &hub );
+      struct HubGuard { ~HubGuard() { ErrorHub::installGlobal( nullptr ); } } hubGuard;
+
+      QgsProject project;
+      QgsPrintLayout layout( &project );
+      layout.initializeDefaults();
+
+      PaleoLayoutTemplates templates;
+      QSignalSpy failedSpy( &templates, &PaleoLayoutTemplates::templateFailed );
+      QVERIFY( failedSpy.isValid() );
+
+      QTemporaryDir dir;
+      QVERIFY( dir.isValid() );
+      const QString badPath = dir.filePath( QStringLiteral( "broken.qpt" ) );
+      {
+        QFile f( badPath );
+        QVERIFY( f.open( QIODevice::WriteOnly ) );
+        f.write( "<Layout><broken" ); // 截断 XML
+      }
+      const auto outcome = templates.loadTemplate( &layout, badPath );
+      QVERIFY( !outcome.ok );
+      QVERIFY( !outcome.error.isEmpty() );
+      QCOMPARE( failedSpy.count(), 1 );
+      QCOMPARE( failedSpy.at( 0 ).at( 0 ).toString(), badPath );
+      QCOMPARE( failedSpy.at( 0 ).at( 1 ).toString(), outcome.error );
+
+      const QVector<ErrorHub::Entry> entries = hub.entries();
+      QCOMPARE( entries.size(), 1 );
+      QCOMPARE( entries.first().source, QStringLiteral( "layouttemplates" ) );
+      QCOMPARE( entries.first().level, ErrorHub::Level::Warning );
+      QVERIFY( entries.first().text.contains( outcome.error ) );
+
+      // 守恒：成功路径不进失败通道（内存模板另存为 .qpt）。
+      const QString goodPath = dir.filePath( QStringLiteral( "ok.qpt" ) );
+      const auto saved = templates.saveTemplate( &layout, goodPath );
+      QVERIFY2( saved.ok, qPrintable( saved.error ) );
+      QCOMPARE( failedSpy.count(), 1 );   // 无新增失败信号
+      QCOMPARE( hub.entries().size(), 1 ); // 无新增入账
+    }
+
+    // goal7 W7：地图册落盘回读校验加固——PDF 验 %%EOF 尾（截断判失败）、
+    // PNG 比对像素尺寸 vs dpi×页面毫米、SVG 验 <svg 根（此前 SVG 零校验）。
+    void mapbookRenderValidationHardens()
+    {
+      QgsProject project;
+      PaleoMapBookLayout::TileSpec spec;
+      spec.title = QStringLiteral( "格 T1" );
+      spec.extent = QgsRectangle( 0, 0, 1000, 800 );
+      spec.legend = false;
+      spec.scaleBar = false;
+      spec.northArrow = false;
+      spec.crsCaption = false;
+      spec.footer = QString();
+
+      QString err;
+      std::unique_ptr<QgsPrintLayout> layout(
+          PaleoMapBookLayout::buildTileLayout( &project, spec, &err ) );
+      QVERIFY2( layout, qPrintable( err ) );
+
+      QTemporaryDir dir;
+      QVERIFY( dir.isValid() );
+
+      // 正向 PNG：A4 横 297×210mm @96dpi → 1122.5×793.7（±2px 取整容差）
+      const auto png = PaleoMapBookLayout::renderLayout(
+          layout.get(), dir.filePath( QStringLiteral( "tile.png" ) ),
+          PaleoLayoutExport::Format::Png, 96.0 );
+      QVERIFY2( png.ok, qPrintable( png.error ) );
+      QVERIFY( qAbs( png.width - 1123 ) <= 2 );
+      QVERIFY( qAbs( png.height - 794 ) <= 2 );
+
+      // 正向 PDF/SVG：真导出过新校验（守恒，不误伤正常产物）
+      const auto pdf = PaleoMapBookLayout::renderLayout(
+          layout.get(), dir.filePath( QStringLiteral( "tile.pdf" ) ),
+          PaleoLayoutExport::Format::Pdf, 96.0 );
+      QVERIFY2( pdf.ok, qPrintable( pdf.error ) );
+      const auto svg = PaleoMapBookLayout::renderLayout(
+          layout.get(), dir.filePath( QStringLiteral( "tile.svg" ) ),
+          PaleoLayoutExport::Format::Svg, 96.0 );
+      QVERIFY2( svg.ok, qPrintable( svg.error ) );
+
+      QString verr;
+      // 负向：截断 PDF（有头无尾）必须判失败——旧校验只验 %PDF 头会漏
+      const QString truncPath = dir.filePath( QStringLiteral( "trunc.pdf" ) );
+      {
+        QFile f( truncPath );
+        QVERIFY( f.open( QIODevice::WriteOnly ) );
+        f.write( "%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\n" );
+      }
+      QVERIFY( !PaleoMapBookLayout::validateExportedFile(
+          truncPath, PaleoLayoutExport::Format::Pdf, -1.0, -1.0, &verr ) );
+      QVERIFY( verr.contains( QStringLiteral( "%%EOF" ) ) );
+
+      // 负向：PNG 尺寸与版面期望不符（真实可解码 PNG 但尺寸错）判失败
+      const QString tinyPath = dir.filePath( QStringLiteral( "tiny.png" ) );
+      QImage tiny( 16, 16, QImage::Format_ARGB32 );
+      tiny.fill( QColor( 200, 200, 200 ) );
+      QVERIFY( tiny.save( tinyPath ) );
+      QVERIFY( !PaleoMapBookLayout::validateExportedFile(
+          tinyPath, PaleoLayoutExport::Format::Png, 1123.0, 794.0, &verr ) );
+
+      // 负向：假 SVG（无 <svg 根元素）判失败
+      const QString fakeSvg = dir.filePath( QStringLiteral( "fake.svg" ) );
+      {
+        QFile f( fakeSvg );
+        QVERIFY( f.open( QIODevice::WriteOnly ) );
+        f.write( "<html><body>not svg</body></html>" );
+      }
+      QVERIFY( !PaleoMapBookLayout::validateExportedFile(
+          fakeSvg, PaleoLayoutExport::Format::Svg, -1.0, -1.0, &verr ) );
     }
 
   private:

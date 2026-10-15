@@ -71,9 +71,15 @@ class PaleoLayoutTemplates : public QObject
 
   signals:
     void templateFinished( const QString &path, bool ok );
+    // 失败必带错误全文（path 可为空——版面缺失类失败无目标路径）；
+    // 同时经 ErrorHub::global() 入 warning 档（未安装 hub 时信号仍是出口）。
+    void templateFailed( const QString &path, const QString &error );
 
   private:
     TemplateOutcome loadFromFile( QgsLayout *layout, const QString &path );
+    // 失败统一收口：templateFinished(path,false) + templateFailed + ErrorHub
+    // warning。返回 outcome 供调用点直返（fail(outcome, path) 一式）。
+    TemplateOutcome fail( TemplateOutcome outcome, const QString &path );
 
     QAction *m_saveAction = nullptr;
     QAction *m_loadAction = nullptr;

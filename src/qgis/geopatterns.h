@@ -44,7 +44,7 @@ QString textureResourcePath(const QString &patternId);
 QString normalizeLithology(const QString &raw);
 // 断层词面归一化：正/逆/走滑/推测断层及英文 id → 规范 id；未知原样；空→空。
 QString normalizeFaultKind(const QString &raw);
-// 花纹 id 的全部字段值命中写法（规范 id + 词面 + 岩性同义词；去重）——
+// 花纹 id 的全部字段值命中写法（规范 id + 词面 + 同义词别名；去重）——
 // 分类渲染桶登记与选择器语义过滤共用。
 QStringList valueBuckets(const QString &patternId);
 

@@ -855,6 +855,67 @@ class TestLayerTreePanel : public QObject
       }
     }
 
+    // goal7 W2（F 域）：refreshIndicators 不得在逐节点循环里反复全表读
+    // 声明清单（readAll × 节点数 × 每次刷新 × 每新增层两次信号）。
+    // 探针：150 声明 + 150 层逐层挂载，量挂载总耗时与单次刷新耗时，
+    // qInfo 落盘（selfcheck 口径：能看到数字）。宽门只挡灾难性回归；
+    // 修复前后量级对比记 docs/progress/parallel-7/05-qgis-layers-layout.md。
+    void indicatorRefreshScalesWithDeclarations()
+    {
+      QTemporaryDir tmp;
+      QVERIFY(tmp.isValid());
+      LayerManifest manifest(tmp.filePath(QStringLiteral("project.sqlite")));
+      QVERIFY(manifest.open());
+      QgisLayerService svc(nullptr, &manifest);
+      const int N = 150;
+      for (int i = 0; i < N; ++i)
+        QVERIFY(svc.declare(decl(QStringLiteral("bulk.%1").arg(i),
+                                 i % 2 == 0 ? QStringLiteral("T1")
+                                            : QStringLiteral("T2"))));
+      svc.setActiveHorizon(QStringLiteral("T1"));
+
+      LayerTreePanel panel(QgsProject::instance(), nullptr, &svc);
+      QgsLayerTree *root = panel.treeView()->layerTreeModel()->rootGroup();
+
+      QElapsedTimer timer;
+      timer.start();
+      for (int i = 0; i < N; ++i)
+      {
+        const QString id = QStringLiteral("bulk.%1").arg(i);
+        auto *layer = new QgsVectorLayer(QStringLiteral("Point?crs=EPSG:4326"),
+                                         id, QStringLiteral("memory"));
+        QVERIFY(layer->isValid());
+        layer->setCustomProperty(QStringLiteral("paleoLayerId"), id);
+        QgsProject::instance()->addMapLayer(layer);
+      }
+      const qint64 mountMs = timer.elapsed();
+
+      timer.restart();
+      panel.refreshIndicators();
+      const qint64 refreshMs = timer.elapsed();
+      qInfo("goal7 W2 probe: N=%d mountMs=%lld refreshMs=%lld", N,
+            static_cast<long long>(mountMs), static_cast<long long>(refreshMs));
+      QVERIFY2(mountMs < 30000, qPrintable(QStringLiteral("mountMs=%1").arg(mountMs)));
+      QVERIFY2(refreshMs < 10000, qPrintable(QStringLiteral("refreshMs=%1").arg(refreshMs)));
+
+      // 正确性守恒：激活层位 T1 的层无灰显 indicator，T2 的层有
+      QgsMapLayer *lT1 = nullptr, *lT2 = nullptr;
+      for (QgsMapLayer *l : QgsProject::instance()->mapLayers())
+      {
+        const QString pid = l->customProperty(QStringLiteral("paleoLayerId")).toString();
+        if (pid == QLatin1String("bulk.0"))
+          lT1 = l;
+        if (pid == QLatin1String("bulk.1"))
+          lT2 = l;
+      }
+      QVERIFY(lT1 && lT2);
+      QgsLayerTreeLayer *nodeT1 = root->findLayer(lT1->id());
+      QgsLayerTreeLayer *nodeT2 = root->findLayer(lT2->id());
+      QVERIFY(nodeT1 && nodeT2);
+      QCOMPARE(panel.treeView()->indicators(nodeT1).size(), 0);
+      QCOMPARE(panel.treeView()->indicators(nodeT2).size(), 1);
+    }
+
   private:
     // 把注册层（bridge 已落在树根）挪进目标组——takeChild/insertChildNode 是
     // QGIS 树内挪节点的标准对。

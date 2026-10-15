@@ -23,6 +23,7 @@
 #include <qgsproject.h>
 
 #include <QAction>
+#include <QHash>
 #include <QItemSelectionModel>
 #include <QDomDocument>
 #include <QFile>
@@ -702,6 +703,18 @@ void LayerTreePanel::refreshIndicators()
   // 灰显回查需要 decl；layerService 可为 nullptr（全 guard）。
   const QString activeHorizon =
       m_layerService ? m_layerService->activeHorizon() : QString();
+  // declared() 每次调用都是一次 sqlite 全表读——逐图层节点复读会把刷新
+  // 放大成 O(层数×声明数) 次查询（goal7 W2 探针实测）。一次取表建哈希；
+  // 同 layerId 取首个声明，与旧线性扫描的 break 语义一致。
+  QHash<QString, QString> horizonById;
+  if (m_layerService)
+  {
+    const QVector<LayerDeclaration> decls = m_layerService->declared();
+    horizonById.reserve(decls.size());
+    for (const LayerDeclaration &d : decls)
+      if (!horizonById.contains(d.layerId))
+        horizonById.insert(d.layerId, d.horizon);
+  }
 
   for (QgsLayerTreeLayer *node : layerNodes)
   {
@@ -719,18 +732,14 @@ void LayerTreePanel::refreshIndicators()
         layer->customProperty(QStringLiteral("paleoLayerId")).toString();
     if (m_layerService && !paleoId.isEmpty())
     {
-      for (const LayerDeclaration &d : m_layerService->declared())
+      const auto it = horizonById.constFind(paleoId);
+      if (it != horizonById.constEnd() && !it.value().isEmpty()
+          && it.value() != activeHorizon)
       {
-        if (d.layerId != paleoId)
-          continue;
-        if (!d.horizon.isEmpty() && d.horizon != activeHorizon)
-        {
-          auto *ind = new QgsLayerTreeViewIndicator(m_view);
-          ind->setIcon(PaleoIcons::inactive());
-          ind->setToolTip(tr("该图层属于层位 %1（未激活）").arg(d.horizon));
-          m_view->addIndicator(node, ind);
-        }
-        break;
+        auto *ind = new QgsLayerTreeViewIndicator(m_view);
+        ind->setIcon(PaleoIcons::inactive());
+        ind->setToolTip(tr("该图层属于层位 %1（未激活）").arg(it.value()));
+        m_view->addIndicator(node, ind);
       }
     }
   }

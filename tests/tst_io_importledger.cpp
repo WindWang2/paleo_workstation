@@ -40,6 +40,9 @@ private slots:
   void corruptLedgerPreservedBeforeOverwrite();
   void corruptLedgerUnbackupableRefusesWrite();
   void ledgerScaleRoundTrip();
+  void corruptShapesAreNotOverwritten_data();
+  void corruptShapesAreNotOverwritten();
+  void unreadableLedgerRefusesWrite();
   void unitFilesReachSectionWorkbench_data();
   void unitFilesReachSectionWorkbench();
 };
@@ -299,6 +302,94 @@ void IoImportLedgerTests::corruptLedgerPreservedBeforeOverwrite()
                               QDir::Files).size(), 1);
   after.load(importer.catalog());
   QCOMPARE(after.count(), 2);
+}
+
+// S5 U2-c：合法 JSON 但形状不对（缺 batches / batches 非数组 / 非空却无一
+// 可识别批次）同属损坏——旧实现当空历史，下一次 record 静默覆盖全部原字节。
+// 合法空数组仍是正常空历史。
+void IoImportLedgerTests::corruptShapesAreNotOverwritten_data()
+{
+  QTest::addColumn<QByteArray>("bytes");
+  QTest::addColumn<bool>("corrupt");
+  QTest::newRow("no-batches") << QByteArray("{\"version\":2}") << true;
+  QTest::newRow("batches-object") << QByteArray("{\"batches\":{\"id\":\"b\"}}") << true;
+  QTest::newRow("no-valid-batch") << QByteArray("{\"batches\":[{\"x\":1},{\"y\":2}]}") << true;
+  QTest::newRow("empty-array-ok") << QByteArray("{\"batches\":[]}") << false;
+}
+
+void IoImportLedgerTests::corruptShapesAreNotOverwritten()
+{
+  QFETCH(QByteArray, bytes);
+  QFETCH(bool, corrupt);
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  DataCatalog cat;
+  QVERIFY(cat.open(dir.path(), nullptr));
+  paleo::imports::ImportLedger ledger;
+  ledger.load(&cat);
+  const QString ledgerPath = ledger.filePath();
+  QVERIFY(write(ledgerPath, bytes));
+  ledger.load(&cat);
+  QCOMPARE(ledger.count(), 0);
+  QCOMPARE(!ledger.loadWarning().isEmpty(), corrupt);
+  QString err;
+  QVERIFY2(ledger.record(syntheticBatch(3, 0), &err), qPrintable(err));
+  const QFileInfo li(ledgerPath);
+  const QStringList backups = li.dir().entryList(
+      QStringList{li.fileName() + QStringLiteral(".corrupt-*")}, QDir::Files);
+  QCOMPARE(backups.size(), corrupt ? 1 : 0);
+  if (corrupt)
+  {
+    QFile b(li.dir().filePath(backups.first()));
+    QVERIFY(b.open(QIODevice::ReadOnly));
+    QCOMPARE(b.readAll(), bytes); // 原字节逐字保全
+  }
+  paleo::imports::ImportLedger after;
+  after.load(&cat);
+  QVERIFY(after.loadWarning().isEmpty());
+  QCOMPARE(after.count(), 1);
+}
+
+// S5 U2-d：台账文件在但读不了 → 不当空历史；record 拒写，原件字节不动。
+void IoImportLedgerTests::unreadableLedgerRefusesWrite()
+{
+#ifdef Q_OS_WIN
+  QSKIP("POSIX 文件权限语义");
+#else
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  DataCatalog cat;
+  QVERIFY(cat.open(dir.path(), nullptr));
+  paleo::imports::ImportLedger ledger;
+  ledger.load(&cat);
+  const QString ledgerPath = ledger.filePath();
+  QVERIFY(ledger.record(syntheticBatch(2, 0)));
+  QFile orig(ledgerPath);
+  QVERIFY(orig.open(QIODevice::ReadOnly));
+  const QByteArray before = orig.readAll();
+  orig.close();
+  const auto perms = QFile::permissions(ledgerPath);
+  QVERIFY(QFile::setPermissions(ledgerPath, QFileDevice::WriteOwner));
+  if (QFile(ledgerPath).open(QIODevice::ReadOnly))
+  {
+    QFile::setPermissions(ledgerPath, perms);
+    QSKIP("以 root 运行：权限位不阻止读取");
+  }
+  ledger.load(&cat);
+  QCOMPARE(ledger.count(), 0);
+  QVERIFY2(ledger.loadWarning().contains(QStringLiteral("无法读取")), qPrintable(ledger.loadWarning()));
+  QString err;
+  const bool wrote = ledger.record(syntheticBatch(2, 1), &err);
+  QVERIFY(QFile::setPermissions(ledgerPath, perms));
+  QVERIFY(!wrote);
+  QVERIFY2(err.contains(QStringLiteral("无法备份")), qPrintable(err));
+  QFile again(ledgerPath);
+  QVERIFY(again.open(QIODevice::ReadOnly));
+  QCOMPARE(again.readAll(), before); // 原台账原样
+  paleo::imports::ImportLedger after;
+  after.load(&cat);
+  QCOMPARE(after.count(), 1);
+#endif
 }
 
 // 备份不可得（目录只读）→ record 拒写并给出原因；原损坏件字节不动。

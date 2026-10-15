@@ -107,8 +107,18 @@ void ImportLedger::load(DataCatalog *cat)
     return;
   m_path = QDir(pd).filePath(QStringLiteral(".paleo/import_ledger.json"));
   QFile f(m_path);
-  if (!f.open(QIODevice::ReadOnly))
+  if (!f.exists())
     return; // 无台账 = 空历史，不是错误
+  if (!f.open(QIODevice::ReadOnly))
+  {
+    // 文件在但读不了（权限/占用）：历史不可见，不能当成「空台账」——否则下次
+    // record 会用一批覆盖全部历史。按损坏口径：先备份，备份不了即拒写。
+    qWarning() << "import ledger unreadable:" << m_path << f.errorString();
+    m_loadWarning = QStringLiteral("导入台账无法读取（%1），历史批次不可见；"
+                                   "下次写入前将先备份原文件，无法备份则不写入")
+                        .arg(f.errorString());
+    return;
+  }
   QJsonParseError err;
   const QJsonDocument doc = QJsonDocument::fromJson(f.readAll(), &err);
   if (err.error != QJsonParseError::NoError || !doc.isObject())
@@ -120,12 +130,28 @@ void ImportLedger::load(DataCatalog *cat)
                                           : QStringLiteral("根节点不是对象"));
     return;
   }
-  const QJsonArray arr = doc.object().value(QStringLiteral("batches")).toArray();
+  const QJsonValue batchesValue = doc.object().value(QStringLiteral("batches"));
+  if (!batchesValue.isArray())
+  {
+    // 合法 JSON 但没有 batches 数组：不是本台账的形状，同样不得被静默覆盖。
+    qWarning() << "import ledger has no batches array:" << m_path;
+    m_loadWarning = QStringLiteral("导入台账已损坏（缺少批次数组），历史批次无法读取；"
+                                   "下次写入前将原文件另存为 .corrupt 备份");
+    return;
+  }
+  const QJsonArray arr = batchesValue.toArray();
   for (const auto &v : arr)
   {
     LedgerBatch b = LedgerBatch::fromVariant(v.toObject().toVariantMap());
     if (!b.id.isEmpty())
       m_batches.append(b);
+  }
+  if (!arr.isEmpty() && m_batches.isEmpty())
+  {
+    qWarning() << "import ledger: no valid batch among" << arr.size() << m_path;
+    m_loadWarning = QStringLiteral("导入台账已损坏（%1 个批次均无法识别），历史批次无法读取；"
+                                   "下次写入前将原文件另存为 .corrupt 备份")
+                        .arg(arr.size());
   }
 }
 

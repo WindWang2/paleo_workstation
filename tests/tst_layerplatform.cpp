@@ -531,6 +531,44 @@ class TestLayerPlatform : public QObject
       QVERIFY(fx.layerChecked(QStringLiteral("base.boundary")));
     }
 
+    // opt-05：共享数据层愈合必须把树态写回「被应用的主题」自己的记录，
+    // 不能写 m_currentPage 的主题——applyPageProfile 路径里它仍是离开的
+    // 那页（切换收尾才更新），旧实现会把本页树态灌进别页档案（跨页可见
+    // 性串档，随 .qgz 持久化）。构造：两页档案定格后才入场一个 00_Data
+    // 共享数据声明层（两条记录都没有它）→ 重放 compose 时 applyTheme 按
+    // 记录把它置隐 → 愈合勾回并写回 page:compose；再回 validate，其档案
+    // 语义必须完好——串档的代价是 pm.facies 在 validate 页被错误点亮。
+    void sharedDataHealWritesAppliedThemeRecord()
+    {
+      ProfileFixture fx;
+      QgsLayerTree *root = QgsProject::instance()->layerTreeRoot();
+      QString err;
+
+      QVERIFY(fx.profile.applyPageProfile(QStringLiteral("compose")));
+      QVERIFY(fx.profile.applyPageProfile(QStringLiteral("validate")));
+      QCOMPARE(fx.profile.currentPageProfile(), QStringLiteral("validate"));
+
+      // 档案定格之后才入场的新共享数据层（00_Data 声明层）：两条主题
+      // 记录里都没有它 → 下一次重放必被 applyTheme 置隐、由愈合勾回。
+      QVERIFY(fx.layerSvc.declare(
+          decl(QStringLiteral("data.survey"), QString(), QStringLiteral("00_Data")), &err));
+      QgsMapLayer *survey = fx.layerSvc.instantiate(QStringLiteral("data.survey"), &err);
+      QVERIFY2(survey != nullptr, qPrintable(err));
+      moveIntoGroup(root, QStringLiteral("00_Data"), survey->id());
+
+      // 离开 validate → 重放 compose：愈合 data.survey，写回落 page:compose。
+      QVERIFY(fx.profile.applyPageProfile(QStringLiteral("compose")));
+      QVERIFY(fx.layerChecked(QStringLiteral("data.survey"))); // 愈合生效
+      QVERIFY(fx.layerChecked(QStringLiteral("pm.facies")));   // compose 表内
+
+      // 回 validate：档案未被 compose 树态覆盖——表外组仍隐藏、表内组
+      // 可见、共享数据层在本页同样愈合。旧实现此处 pm.facies 错误可见。
+      QVERIFY(fx.profile.applyPageProfile(QStringLiteral("validate")));
+      QVERIFY(!fx.layerChecked(QStringLiteral("pm.facies")));
+      QVERIFY(fx.layerChecked(QStringLiteral("val.section")));
+      QVERIFY(fx.layerChecked(QStringLiteral("data.survey")));
+    }
+
     // ---- 换页翻转 + 手改后显式重放覆盖（头注释语义）----
     void pageSwitchFlipsAndExplicitReplayOverrides()
     {

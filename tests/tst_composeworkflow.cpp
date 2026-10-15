@@ -314,6 +314,70 @@ class TestComposeWorkflow : public QObject
         tb->cancelEditing();
     }
 
+    // opt-05：跨层位完成的矢量化不得接管相属性目标/自动编辑——作业在飞时
+    // 用户切了 chip，就绪信号里的层位是作业层位而非当前层位；否则「保存
+    // 相属性/边界核查」和顶点编辑会落在非当前层位的图层上。
+    void crossHorizonReadyDoesNotStealFaciesTarget()
+    {
+      m_win->showPage(QStringLiteral("compose"));
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      QVERIFY2(m_ctx->projectSvc()->createProject(dir.filePath(QStringLiteral("xh.qgz"))),
+               "createProject failed");
+      m_ctx->layerSvc()->setActiveHorizon(QStringLiteral("T1"));
+      m_ctx->selection()->setActiveHorizon(QStringLiteral("T1"));
+
+      const QVector<float> px = {1, 1, 1, 2};
+      QString err;
+      const QString pT1 = makeRaster(dir.filePath(QStringLiteral("c1.tif")), 2, 2, px);
+      const QString pT2 = makeRaster(dir.filePath(QStringLiteral("c2.tif")), 2, 2, px);
+      QVERIFY(!pT1.isEmpty() && !pT2.isEmpty());
+      QVERIFY2(m_ctx->layerSvc()->declare(
+                   decl(QStringLiteral("composite.T1"), QStringLiteral("T1"),
+                        QStringLiteral("raster"), pT1, QStringLiteral("03_Composite")),
+                   &err),
+               qPrintable(err));
+      QVERIFY2(m_ctx->layerSvc()->declare(
+                   decl(QStringLiteral("composite.T2"), QStringLiteral("T2"),
+                        QStringLiteral("raster"), pT2, QStringLiteral("03_Composite")),
+                   &err),
+               qPrintable(err));
+
+      // T1 矢量化：当前层位匹配 → 正常接管（目标层 + 自动编辑）。
+      QVERIFY2(m_ctx->compositionWf()->deriveFaciesPolygons(
+                   QStringLiteral("T1"), QStringLiteral("composite.T1"),
+                   QVariantMap(), &err),
+               qPrintable(err));
+      auto *save = m_win->findChild<QPushButton *>(QStringLiteral("faciesAttrSaveButton"));
+      auto *target = m_win->findChild<QLabel *>(QStringLiteral("faciesTargetLabel"));
+      QVERIFY(save && target);
+      QVERIFY(save->isEnabled());
+      QVERIFY2(target->text().contains(QStringLiteral("facies.T1")),
+               qPrintable(target->text()));
+      if (auto *tb = m_win->findChild<PaleoEditingToolbar *>(QStringLiteral("editingToolbar")))
+        tb->cancelEditing(); // 收尾本次自动编辑，不干扰后续断言
+
+      // T2 作业在当前层位仍是 T1 时就绪：目标不得被抢走、不得自动进编辑。
+      QVERIFY2(m_ctx->compositionWf()->deriveFaciesPolygons(
+                   QStringLiteral("T2"), QStringLiteral("composite.T2"),
+                   QVariantMap(), &err),
+               qPrintable(err));
+      QVERIFY2(target->text().contains(QStringLiteral("facies.T1")),
+               qPrintable(target->text()));
+      QVERIFY2(!target->text().contains(QStringLiteral("facies.T2")),
+               qPrintable(target->text()));
+      auto *faciesT2 = qobject_cast<QgsVectorLayer *>(
+          m_ctx->layerSvc()->layer(QStringLiteral("facies.T2")));
+      if (faciesT2)
+        QVERIFY2(!faciesT2->isEditable(), "cross-horizon layer must not enter an edit session");
+      if (auto *tb = m_win->findChild<PaleoEditingToolbar *>(QStringLiteral("editingToolbar")))
+        QVERIFY(!tb->isEditing());
+      // 页面级「目标随层位过滤/核查意图落本层位」断言由 tst_mappingpages
+      // faciesTargetAndListsRespectComposeHorizon 覆盖；壳侧此处钉住的是
+      // 跨层位就绪不改写目标、不开编辑态。
+      QVERIFY(target->text().contains(QStringLiteral("facies.T1")));
+    }
+
     // 方向 39：相界类型编辑语义门禁——真实栈（polygonize 两相带代码 1/2
     // 邻接）。整合接触切两侧被拒（原因含冻结词面与两侧相代码证据）；拒绝
     // 时零副作用（不建字段）；尖灭可过；带宽随非相变类型提交被拒；相变+

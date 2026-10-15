@@ -23,6 +23,11 @@
 #include <qgslayoutitemmap.h>
 #include <qgslayoutitempicture.h>
 #include <qgslayoutitemscalebar.h>
+#include <qgsrasterlayer.h>
+#include <qgsrasterrenderer.h>
+#include <qgsrastertransparency.h>
+#include <qgsvectorlayer.h>
+#include <qgsvectorlayerlabeling.h>
 
 #include "../src/catalog/datacatalog.h"
 #include "../src/domain/mappinghorizons.h"
@@ -1571,6 +1576,93 @@ class TestMapping : public QObject
                       assetId ); // dedup：同文件再登记复用同资产
             QCOMPARE( f.catalog.assets().size(), assetCount );
         }
+    }
+
+    // opt-05：buildHorizonMapLayout 为图面效果改写「活」工程图层（厚度
+    // 栅格 nodata 透明表、井位图层井名标注）——渲染期间必须在场；但改动
+    // 不得比瞬时布局活得久，否则画布残留「出图专用」状态并随 .qgz 持久
+    // 化。守护挂为布局子对象：布局析构即还原入场快照。
+    void horizonMapLayoutRestoresLiveLayerStyle()
+    {
+        Fixture f;
+        QVERIFY( f.init() );
+        QString err;
+
+        // 厚度栅格声明（chain 产出契约 id）+ 带 well_name 字段的井位层。
+        const QString thickTif = makeConstRaster(
+            f.dir.filePath( QStringLiteral( "thickness.tif" ) ), 36.0f );
+        QVERIFY( !thickTif.isEmpty() );
+        LayerDeclaration thickDecl;
+        thickDecl.layerId = QStringLiteral( "factor.D61.idw" );
+        thickDecl.horizon = QStringLiteral( "D61" );
+        thickDecl.type = QStringLiteral( "raster" );
+        thickDecl.source = thickTif;
+        thickDecl.group = QStringLiteral( "04_SingleFactor" );
+        QVERIFY2( f.layers.declare( thickDecl, &err ), qPrintable( err ) );
+
+        QVERIFY( writeText( f.dir.filePath( QStringLiteral( "wells.geojson" ) ),
+            "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\","
+            "\"properties\":{\"well_name\":\"A1\"},"
+            "\"geometry\":{\"type\":\"Point\",\"coordinates\":[300,400]}}]}" ) );
+        LayerDeclaration wellsDecl;
+        wellsDecl.layerId = QStringLiteral( "wells.thickness.D61" );
+        wellsDecl.horizon = QStringLiteral( "D61" );
+        wellsDecl.type = QStringLiteral( "vector" );
+        wellsDecl.source = f.dir.filePath( QStringLiteral( "wells.geojson" ) );
+        wellsDecl.group = QStringLiteral( "00_Data" );
+        QVERIFY2( f.layers.declare( wellsDecl, &err ), qPrintable( err ) );
+
+        auto *thickness = qobject_cast<QgsRasterLayer *>(
+            f.layers.instantiate( QStringLiteral( "factor.D61.idw" ), &err ) );
+        QVERIFY2( thickness && thickness->renderer(), qPrintable( err ) );
+        auto *wells = qobject_cast<QgsVectorLayer *>(
+            f.layers.instantiate( QStringLiteral( "wells.thickness.D61" ), &err ) );
+        QVERIFY2( wells != nullptr, qPrintable( err ) );
+
+        // 入场前各自的活态：栅格预存用户配的透明表（5→半透明），井位层
+        // 无标注。还原必须回到这里——不是「清零」也不是「保留出图态」。
+        auto *preT = new QgsRasterTransparency;
+        QgsRasterTransparency::TransparentSingleValuePixel prePx;
+        prePx.min = 5.0;
+        prePx.max = 5.0;
+        prePx.opacity = 0.5;
+        preT->setTransparentSingleValuePixelList( { prePx } );
+        thickness->renderer()->setRasterTransparency( preT );
+        QVERIFY( wells->labeling() == nullptr );
+        QVERIFY( !wells->labelsEnabled() );
+
+        QgsPrintLayout *layout = nullptr;
+        {
+            QString layoutErr;
+            layout = buildHorizonMapLayout( &f.layers, &f.projectSvc,
+                                            QStringLiteral( "D61" ), &layoutErr );
+            QVERIFY2( layout != nullptr, qPrintable( layoutErr ) );
+
+            // 布局存活期间：出图专用改写在场（地图项渲染靠它们）。
+            const QgsRasterTransparency *live = thickness->renderer()->rasterTransparency();
+            QVERIFY( live != nullptr );
+            bool sawNodataRule = false;
+            for ( const QgsRasterTransparency::TransparentSingleValuePixel &px
+                  : live->transparentSingleValuePixelList() )
+                if ( px.min <= -9999.0 && px.max >= -9999.0 && px.opacity == 0.0 )
+                    sawNodataRule = true;
+            QVERIFY2( sawNodataRule,
+                      "nodata transparency must be active while the layout lives" );
+            QVERIFY( wells->labelsEnabled() );
+            QVERIFY( wells->labeling() != nullptr );
+        }
+        delete layout;
+
+        // 布局析构 → 入场快照还原：预存透明表回来（不是 -9999 也不是空表），
+        // 井位标注关回、labeling 回到 nullptr。
+        const QgsRasterTransparency *restored = thickness->renderer()->rasterTransparency();
+        QVERIFY2( restored != nullptr,
+                  "pre-existing transparency must be restored, not cleared" );
+        QCOMPARE( restored->transparentSingleValuePixelList().size(), 1 );
+        QCOMPARE( restored->transparentSingleValuePixelList().first().min, 5.0 );
+        QCOMPARE( restored->transparentSingleValuePixelList().first().opacity, 0.5 );
+        QVERIFY( !wells->labelsEnabled() );
+        QVERIFY( wells->labeling() == nullptr );
     }
 };
 

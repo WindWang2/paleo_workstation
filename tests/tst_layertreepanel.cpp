@@ -391,6 +391,130 @@ class TestLayerTreePanel : public QObject
       QCOMPARE(namesOf().at(1), top);
     }
 
+    // opt-05：自定义绘制序生效时（「显示预测点位」置顶会启用它），树里
+    // 挪层必须同步自定义序——否则画布叠置停在旧位（树序≠画序）。只被挪
+    // 的那层按新树序插回序列表；特意置顶的非树序条目不被打平。
+    void moveSyncsActiveCustomLayerOrder()
+    {
+      // 单例工程跨用例复用：前序用例遗留的层会混进树序断言——先清场。
+      QgsProject::instance()->removeAllMapLayers();
+      LayerTreePanel panel(QgsProject::instance(), nullptr, nullptr);
+      auto *down = panel.findChild<QAction *>(QStringLiteral("layerTreeMoveDownAction"));
+      QVERIFY(down);
+
+      auto *pin = new QgsVectorLayer(QStringLiteral("Point"),
+                                     QString::fromUtf8("置顶"), QStringLiteral("memory"));
+      auto *a = new QgsVectorLayer(QStringLiteral("Point"),
+                                   QString::fromUtf8("甲"), QStringLiteral("memory"));
+      auto *b = new QgsVectorLayer(QStringLiteral("Point"),
+                                   QString::fromUtf8("乙"), QStringLiteral("memory"));
+      auto *c = new QgsVectorLayer(QStringLiteral("Point"),
+                                   QString::fromUtf8("丙"), QStringLiteral("memory"));
+      QVERIFY(pin->isValid() && a->isValid() && b->isValid() && c->isValid());
+      QgsLayerTree *root = panel.layerTreeModel()->rootGroup();
+      // 逐 addLayer 追加建序（工程绑定树根：addLayer 同时注册进
+      // mapLayers），树序自上而下 = [甲, 乙, 丙, 置顶]——置顶层特意压树底，
+      // 与下面的自定义序置顶形成发散。
+      root->addLayer(a);
+      root->addLayer(b);
+      root->addLayer(c);
+      root->addLayer(pin);
+      const auto treeOrder = [root]() {
+        QList<QgsMapLayer *> out;
+        for (QgsLayerTreeNode *n : root->children())
+          if (auto *ln = qobject_cast<QgsLayerTreeLayer *>(n))
+            out << ln->layer();
+        return out;
+      };
+      QCOMPARE(treeOrder(), QList<QgsMapLayer *>({a, b, c, pin}));
+
+      // 模拟特意置顶：启用自定义序并把 pin 压到序列顶（与树序不同）。
+      QList<QgsMapLayer *> custom = treeOrder();
+      custom.removeAll(pin);
+      custom.prepend(pin); // [置顶, 甲, 乙, 丙]
+      root->setHasCustomLayerOrder(true);
+      root->setCustomLayerOrder(custom);
+      QCOMPARE(root->customLayerOrder(), QList<QgsMapLayer *>({pin, a, b, c}));
+
+      // 把「甲」（树顶）下移一层 → 树序 [乙, 甲, 丙, 置顶]。
+      QgsLayerTreeLayer *aNode = root->findLayer(a->id());
+      panel.treeView()->setCurrentNode(aNode);
+      const QModelIndex aIdx = panel.layerTreeModel()->node2index(aNode);
+      QVERIFY(aIdx.isValid());
+      panel.treeView()->selectionModel()->select(
+          aIdx, QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+      QVERIFY(down->isEnabled());
+      down->trigger();
+      QCOMPARE(treeOrder(), QList<QgsMapLayer *>({b, a, c, pin}));
+
+      // 自定义序：甲落到乙之下（跟随新树位），置顶 pin 原位不打平。
+      const QList<QgsMapLayer *> after = root->customLayerOrder();
+      QCOMPARE(after.indexOf(pin), 0);
+      QVERIFY(after.indexOf(a) > after.indexOf(b));
+      QVERIFY(after.indexOf(a) < after.indexOf(c));
+
+      root->setHasCustomLayerOrder(false); // 状态还原，不留给后续用例
+      QgsProject::instance()->removeAllMapLayers();
+    }
+
+    // opt-05 复审补网：拖拽 InternalMove 不经 moveCurrentNode——
+    // QgsLayerTreeModel::dropMimeData 用 mime 克隆 insertChildNodes 到
+    // 目标位再 removeRows 源节点；rowsInserted 排队回填须覆盖此路径。
+    // 用 insertChildNode+removeChildNode 复现同一信号序列，无需真拖拽。
+    void dragMoveSyncsActiveCustomLayerOrder()
+    {
+      QgsProject::instance()->removeAllMapLayers();
+      LayerTreePanel panel(QgsProject::instance(), nullptr, nullptr);
+      QVERIFY(panel.findChild<QAction *>(QStringLiteral("layerTreeMoveDownAction")));
+
+      auto *pin = new QgsVectorLayer(QStringLiteral("Point"),
+                                     QString::fromUtf8("置顶"), QStringLiteral("memory"));
+      auto *a = new QgsVectorLayer(QStringLiteral("Point"),
+                                   QString::fromUtf8("甲"), QStringLiteral("memory"));
+      auto *b = new QgsVectorLayer(QStringLiteral("Point"),
+                                   QString::fromUtf8("乙"), QStringLiteral("memory"));
+      auto *c = new QgsVectorLayer(QStringLiteral("Point"),
+                                   QString::fromUtf8("丙"), QStringLiteral("memory"));
+      QVERIFY(pin->isValid() && a->isValid() && b->isValid() && c->isValid());
+      QgsLayerTree *root = panel.layerTreeModel()->rootGroup();
+      root->addLayer(a);
+      root->addLayer(b);
+      root->addLayer(c);
+      root->addLayer(pin); // 树序 [甲, 乙, 丙, 置顶]
+      const auto treeOrder = [root]() {
+        QList<QgsMapLayer *> out;
+        for (QgsLayerTreeNode *n : root->children())
+          if (auto *ln = qobject_cast<QgsLayerTreeLayer *>(n))
+            out << ln->layer();
+        return out;
+      };
+      QCOMPARE(treeOrder(), QList<QgsMapLayer *>({a, b, c, pin}));
+
+      QList<QgsMapLayer *> custom = treeOrder();
+      custom.removeAll(pin);
+      custom.prepend(pin); // [置顶, 甲, 乙, 丙]
+      root->setHasCustomLayerOrder(true);
+      root->setCustomLayerOrder(custom);
+
+      // 模拟把「丙」拖到树顶：克隆节点插到 index 0，再移除原节点。
+      QgsLayerTreeLayer *cNode = root->findLayer(c->id());
+      QVERIFY(cNode);
+      root->insertChildNode(0, cNode->clone());
+      root->removeChildNode(cNode);
+      QCOMPARE(treeOrder(), QList<QgsMapLayer *>({c, a, b, pin}));
+
+      // 回填是排队执行的——让投递的 invokeMethod 跑完。
+      QCoreApplication::processEvents();
+      const QList<QgsMapLayer *> after = root->customLayerOrder();
+      QCOMPARE(after.indexOf(pin), 0);          // 特意置顶不被打平
+      QCOMPARE(after.indexOf(c), 1);            // 丙插到 pin 之下、甲乙之上
+      QVERIFY(after.indexOf(a) > after.indexOf(c));
+      QVERIFY(after.indexOf(b) > after.indexOf(a));
+
+      root->setHasCustomLayerOrder(false);
+      QgsProject::instance()->removeAllMapLayers();
+    }
+
     // ---- 筛选：命中显示 / 未命中隐藏 / 组保留 / 空串恢复 ----
     void filterMatchesNameIdAndPaleoLayerId()
     {

@@ -8,6 +8,7 @@
 #include <QFileInfo>
 #include <QFont>
 #include <QObject>
+#include <QPointer>
 #include <QSet>
 
 #include <memory>
@@ -328,6 +329,77 @@ namespace
     return QgsRectangle( gt[0], gt[3] + gt[5] * rows, gt[0] + gt[1] * cols, gt[3] );
   }
 
+  // 瞬时布局的活图层样式守护（opt-05）：构建厚度图时为图面效果改写「活」
+  // 工程图层（厚度栅格 nodata 透明表、井位图层的井名标注）——布局地图项按
+  // 活图层渲染，渲染期间改动必须在场；但布局是瞬时的（调用方导出后即删），
+  // 改动不得比布局活得久，否则画布上残留「出图专用」的透明表/标注并随
+  // .qgz 持久化。用法：改前 watch* 快照入场状态，守护挂为布局子对象——
+  // 布局析构即逐个恢复；布局建不出来（unique_ptr 提前析构）同样恢复。
+  // 图层先亡 → QPointer 防悬垂，不复活已删图层。
+  class TransientLayerStyleGuard : public QObject
+  {
+  public:
+    using QObject::QObject;
+
+    void watchRaster( QgsRasterLayer *layer )
+    {
+      if ( !layer || !layer->renderer() )
+        return;
+      RasterState s;
+      s.layer = layer;
+      if ( const QgsRasterTransparency *t = layer->renderer()->rasterTransparency() )
+      {
+        s.transparency = *t; // 值拷贝入场快照（透明表在渲染器上）
+        s.hadTransparency = true;
+      }
+      m_rasters.append( s );
+    }
+
+    void watchVector( QgsVectorLayer *layer )
+    {
+      if ( !layer )
+        return;
+      VectorState s;
+      s.layer = layer;
+      s.labeling = layer->labeling() ? layer->labeling()->clone() : nullptr;
+      s.labelsEnabled = layer->labelsEnabled();
+      m_vectors.append( s );
+    }
+
+    ~TransientLayerStyleGuard() override
+    {
+      for ( const RasterState &s : m_rasters )
+        if ( s.layer && s.layer->renderer() )
+          s.layer->renderer()->setRasterTransparency(
+              s.hadTransparency ? new QgsRasterTransparency( s.transparency ) : nullptr );
+      for ( const VectorState &s : m_vectors )
+      {
+        if ( s.layer )
+        {
+          s.layer->setLabeling( s.labeling ? s.labeling->clone() : nullptr );
+          s.layer->setLabelsEnabled( s.labelsEnabled );
+        }
+        delete s.labeling; // 快照本体随守护析构（还原喂的是克隆，图层接管克隆体）
+      }
+    }
+
+  private:
+    struct RasterState
+    {
+      QPointer<QgsRasterLayer> layer;
+      QgsRasterTransparency transparency;
+      bool hadTransparency = false;
+    };
+    struct VectorState
+    {
+      QPointer<QgsVectorLayer> layer;
+      QgsAbstractVectorLayerLabeling *labeling = nullptr; // 入场快照（守护持有）
+      bool labelsEnabled = false;
+    };
+    QVector<RasterState> m_rasters;
+    QVector<VectorState> m_vectors;
+  };
+
   // nodata -9999 不画（§162）：单值透明表在渲染器上。
   void hideNodata( QgsMapLayer *layer )
   {
@@ -417,6 +489,12 @@ QgsPrintLayout *buildHorizonMapLayout( QgisLayerService *layers, QgisProjectServ
     return fail( error && !error->isEmpty()
                      ? *error
                      : QObject::tr( "无法实例化 %1" ).arg( thicknessId ) );
+
+  // 出图专用改写的入场快照（opt-05）：守护挂为布局子对象，布局析构即把
+  // 透明表/标注还原；布局建不出来（此处提前 return）也照样还原。
+  std::unique_ptr<TransientLayerStyleGuard> liveStyleGuard( new TransientLayerStyleGuard );
+  if ( auto *thicknessRaster = qobject_cast<QgsRasterLayer *>( thickness ) )
+    liveStyleGuard->watchRaster( thicknessRaster );
   hideNodata( thickness ); // nodata 不画
 
   // 图层表序：index 0 在最上（沿用既有 prepend 惯例）。
@@ -427,6 +505,8 @@ QgsPrintLayout *buildHorizonMapLayout( QgisLayerService *layers, QgisProjectServ
       mapLayers.prepend( facies ); // 相面压在厚度栅格之上
   if ( QgsMapLayer *wells = layers->instantiate( wellsId ) )
   {
+    if ( auto *wellsVector = qobject_cast<QgsVectorLayer *>( wells ) )
+      liveStyleGuard->watchVector( wellsVector ); // 标注改写前先快照
     enableWellNameLabels( wells ); // 图上有井名
     mapLayers.prepend( wells );    // 井位压在所有图层之上
   }
@@ -450,6 +530,8 @@ QgsPrintLayout *buildHorizonMapLayout( QgisLayerService *layers, QgisProjectServ
 
   // A4 横版 + 地图项 + 标题 + 图例 + 比例尺 + 指北针 + CRS 说明。
   auto *layout = new QgsPrintLayout( project );
+  liveStyleGuard->setParent( layout ); // 活图层样式随瞬时布局存亡（opt-05）
+  liveStyleGuard.release();
   layout->initializeDefaults();
   layout->setName( QStringLiteral( "%1_map" ).arg( horizon ) );
   // initializeDefaults 的默认页是竖版 A4 —— 本图是横版，显式改。

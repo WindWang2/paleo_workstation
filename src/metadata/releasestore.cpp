@@ -57,6 +57,8 @@ using paleo::store_detail::setError;
     o.insert(QStringLiteral("source"), d.source);
     o.insert(QStringLiteral("styleRef"), d.styleRef);
     o.insert(QStringLiteral("group"), d.group);
+    if (!d.title.isEmpty())
+      o.insert(QStringLiteral("title"), d.title);
     return o;
   }
 
@@ -69,6 +71,7 @@ using paleo::store_detail::setError;
     d.source = o.value(QStringLiteral("source")).toString();
     d.styleRef = o.value(QStringLiteral("styleRef")).toString();
     d.group = o.value(QStringLiteral("group")).toString();
+    d.title = o.value(QStringLiteral("title")).toString();
     d.instantiated = false;
     return d;
   }
@@ -76,7 +79,8 @@ using paleo::store_detail::setError;
   QString manifestKey(const LayerDeclaration &d)
   {
     return d.horizon + QLatin1Char('|') + d.type + QLatin1Char('|') + d.source +
-           QLatin1Char('|') + d.styleRef + QLatin1Char('|') + d.group;
+           QLatin1Char('|') + d.styleRef + QLatin1Char('|') + d.group +
+           QLatin1Char('|') + d.title;
   }
 } // namespace
 
@@ -151,7 +155,12 @@ QVector<ReleaseInfo> ReleaseStore::releases() const
     r.name = q.value(1).toString();
     r.note = q.value(2).toString();
     r.createdUtc = q.value(3).toString();
-    r.layerCount = QJsonDocument::fromJson(q.value(4).toString().toUtf8()).array().size();
+    // 损坏的 manifest_json 如实标 manifestCorrupt——array().size()==0 会把
+    // 损坏谎报成「零图层快照」（与 diff() 的损坏门禁同口径）。
+    const QJsonDocument manifestDoc =
+        QJsonDocument::fromJson(q.value(4).toString().toUtf8());
+    r.manifestCorrupt = !manifestDoc.isArray();
+    r.layerCount = manifestDoc.isArray() ? manifestDoc.array().size() : 0;
     out.append(r);
   }
   return out;
@@ -192,9 +201,10 @@ bool ReleaseStore::diff(const QString &idA, const QString &idB,
 
   // Both releases must actually exist — an empty manifest is a valid snapshot,
   // so existence is checked against the table, not the payload size.
+  QHash<QString, QString> payloadOf;
   {
     QSqlQuery q(QSqlDatabase::database(releaseStoreConnectionName(m_dbPath)));
-    q.prepare(QStringLiteral("SELECT release_id FROM releases WHERE release_id IN (?,?)"));
+    q.prepare(QStringLiteral("SELECT release_id, manifest_json FROM releases WHERE release_id IN (?,?)"));
     q.addBindValue(idA);
     q.addBindValue(idB);
     int found = 0;
@@ -212,6 +222,7 @@ bool ReleaseStore::diff(const QString &idA, const QString &idB,
         seenA = true;
       if (q.value(0).toString() == idB)
         seenB = true;
+      payloadOf.insert(q.value(0).toString(), q.value(1).toString());
     }
     if (found < 2)
     {
@@ -233,6 +244,21 @@ bool ReleaseStore::diff(const QString &idA, const QString &idB,
                      : QStringLiteral("release 不存在：%1")
                            .arg(missing.join(QStringLiteral(", ")));
       }
+      return false;
+    }
+  }
+
+  // 清单载荷必须可解析为 JSON 数组——manifestAt 对损坏载荷静默返回空集，
+  // 这里若不拦，diff 会把「快照损坏」谎报成「对方全部图层为新增」。空数组
+  // 「[]」是合法快照（零图层发布），不是损坏。
+  for (const QString &id : {idA, idB})
+  {
+    const QJsonDocument doc =
+        QJsonDocument::fromJson(payloadOf.value(id).toUtf8());
+    if (!doc.isArray())
+    {
+      if (error)
+        *error = QStringLiteral("release %1 的清单数据损坏或不可解析").arg(id);
       return false;
     }
   }

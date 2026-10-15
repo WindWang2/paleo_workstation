@@ -32,6 +32,16 @@ namespace
 {
   // m2(C)：相属性编辑目标层（动态属性存态——页面类按惯例不持数据成员）。
   constexpr const char kFaciesTargetProp[] = "paleo.page.faciesTarget";
+  // 编图上下文层位（壳在 activeHorizonChanged 时喂——与 setThicknessHorizon
+  // 同源）。空串 = 未喂/未选，清单按旧语义不滤；非空时因子表/相栅格下拉/
+  // 相属性目标都只收本层位声明——跨层位选进 T1 产物或把属性写错层位都是
+  // 实缺陷（工作流侧另有同名守卫兜底，这里是交互层收敛）。
+  constexpr const char kComposeHorizonProp[] = "paleo.page.composeHorizon";
+
+  bool horizonMatches(const LayerDeclaration &d, const QString &horizon)
+  {
+    return horizon.isEmpty() || d.horizon.isEmpty() || d.horizon == horizon;
+  }
 
   bool isRaster(const LayerDeclaration &d)
   {
@@ -555,6 +565,14 @@ void ComposePage::setFaciesEditTarget(const QString &layerId)
   updateFaciesTargetUi(layerId);
 }
 
+void ComposePage::setComposeHorizon(const QString &horizon)
+{
+  if (property(kComposeHorizonProp).toString() == horizon)
+    return;
+  setProperty(kComposeHorizonProp, horizon);
+  refreshFactors(); // 层位移了：清单过滤与相属性目标都要重判
+}
+
 void ComposePage::updateFaciesTargetUi(const QString &layerId)
 {
   if (auto *label = child<QLabel>(this, "faciesTargetLabel"))
@@ -580,6 +598,7 @@ void ComposePage::refreshFactors()
   QVector<LayerDeclaration> declared;
   if (!layers || !layers->tryDeclared(&declared))
     return;
+  const QString horizon = property(kComposeHorizonProp).toString();
   list->clear();
   for (const LayerDeclaration &d : declared)
   {
@@ -587,6 +606,11 @@ void ComposePage::refreshFactors()
     // 制图工作场在 Cartographic 子组或 cartographic.*，只上图，不进融合。
     if (d.group != QLatin1String("04_SingleFactor") || !isRaster(d))
       continue;
+    // 与工作流门禁同口径（fuseFactors 要求 decl.horizon == horizon）：
+    // 无层位声明不进候选——否则列得出却融不进。转相面/相属性目标的
+    // 宽松放行（horizonMatches 对空层位声明放行）保留：它们不产归属。
+    if (!horizon.isEmpty() && d.horizon != horizon)
+      continue; // 只列本层位因子——跨层位勾进产物属错误输入
     if (paleo::singlefactor::isCartographicProductLayer(d.layerId, d.group))
       continue;
     auto *it = new QListWidgetItem(d.layerId, list);
@@ -613,6 +637,8 @@ void ComposePage::refreshFactors()
                         d.layerId.startsWith(QLatin1String("predict."));
       if (!raster || (!groupOk && !idOk))
         continue;
+      if (!horizonMatches(d, horizon))
+        continue; // 转相面只列本层位相栅格候选
       combo->addItem(d.layerId, d.layerId);
     }
     const int keep = combo->findData(previous);
@@ -642,7 +668,8 @@ void ComposePage::refreshFactors()
   QStringList faciesDecls;
   for (const LayerDeclaration &d : declared)
     if (inGroup(d, "05_PaleoMap") &&
-        d.layerId.startsWith(QLatin1String("facies.")) && !isRaster(d))
+        d.layerId.startsWith(QLatin1String("facies.")) && !isRaster(d) &&
+        horizonMatches(d, horizon))
       faciesDecls << d.layerId;
   const QString explicitTarget = property(kFaciesTargetProp).toString();
   QString target;

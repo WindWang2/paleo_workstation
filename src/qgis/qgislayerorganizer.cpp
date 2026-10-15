@@ -89,8 +89,13 @@ QgisLayerOrganizer::QgisLayerOrganizer( QgisProjectService *projectSvc,
   // 克隆+删源）不触发 legendLayersAdded——用户手动摆位不被接管。
   connect( proj, &QgsProject::legendLayersAdded, this,
            [this]( const QList<QgsMapLayer *> &layers ) {
+             // 批量加层共享一次声明表快照（declared() 是 sqlite 全表读——
+             // 逐层取表会把批量实例化放大成 O(层数×声明数) 次查询，
+             // goal7 W3 探针实测；opt-05 补齐本路径漏掉的同一约定）。
+             const QVector<LayerDeclaration> decls =
+                 m_layerSvc ? m_layerSvc->declared() : QVector<LayerDeclaration>();
              for ( QgsMapLayer *layer : layers )
-               placeLayer( layer );
+               placeLayer( layer, &decls );
            } );
   // 声明落单：层位声明先建占位组（§37 懒加载——未实例化层位在树里有名）。
   if ( m_layerSvc )
@@ -402,14 +407,16 @@ void QgisLayerOrganizer::reorganize()
   QgsProject *proj = organizerProject( m_projectSvc );
   if ( !proj || !proj->layerTreeRoot() || !m_layerSvc )
     return;
-  ensureHorizonGroups();
-  // 按声明序逐个归位：同秩稳定，收敛于声明序而非散乱现状。声明表一次
-  // 取好逐层复用（placeLayer 单事件路径仍可现场取表，见签名默认值）。
+  // 声明表一次取好贯穿三步（建组/归位/剪枝）——三处各自 declared() 会把
+  // 一次规整放大成三次 sqlite 全表读（opt-05；placeLayer 单事件路径仍可
+  // 现场取表，见签名默认值）。
   const QVector<LayerDeclaration> decls = m_layerSvc->declared();
+  ensureHorizonGroups( &decls );
+  // 按声明序逐个归位：同秩稳定，收敛于声明序而非散乱现状。
   for ( const LayerDeclaration &d : decls )
     if ( QgsMapLayer *layer = m_layerSvc->layer( d.layerId ) )
       placeLayer( layer, &decls );
-  pruneVacantGroups();
+  pruneVacantGroups( &decls );
 
   // 自定义绘制顺序生效时画布完全忽略树序。它只在「显示预测点位」时
   // 被启用（置顶图件层），此后实例化的产层会落到表尾——底图之下，
@@ -425,26 +432,31 @@ void QgisLayerOrganizer::reorganize()
   }
 }
 
-void QgisLayerOrganizer::ensureHorizonGroups()
+void QgisLayerOrganizer::ensureHorizonGroups( const QVector<LayerDeclaration> *decls )
 {
   QgsProject *proj = organizerProject( m_projectSvc );
   if ( !proj || !proj->layerTreeRoot() || !m_layerSvc )
     return;
-  const QVector<LayerDeclaration> decls = m_layerSvc->declared();
-  for ( const LayerDeclaration &d : decls )
+  const QVector<LayerDeclaration> owned = decls ? QVector<LayerDeclaration>()
+                                                : m_layerSvc->declared();
+  const QVector<LayerDeclaration> &all = decls ? *decls : owned;
+  for ( const LayerDeclaration &d : all )
     if ( !d.horizon.isEmpty() )
-      horizonGroup( d.horizon, decls ); // find-or-create：已存在的零开销
+      horizonGroup( d.horizon, all ); // find-or-create：已存在的零开销
 }
 
-void QgisLayerOrganizer::pruneVacantGroups()
+void QgisLayerOrganizer::pruneVacantGroups( const QVector<LayerDeclaration> *decls )
 {
   QgsProject *proj = organizerProject( m_projectSvc );
   QgsLayerTree *root = proj ? proj->layerTreeRoot() : nullptr;
   if ( !root || !m_layerSvc )
     return;
 
+  const QVector<LayerDeclaration> owned = decls ? QVector<LayerDeclaration>()
+                                                : m_layerSvc->declared();
+  const QVector<LayerDeclaration> &all = decls ? *decls : owned;
   QSet<QString> declaredHorizons;
-  for ( const LayerDeclaration &d : m_layerSvc->declared() )
+  for ( const LayerDeclaration &d : all )
     if ( !d.horizon.isEmpty() )
       declaredHorizons.insert( d.horizon );
 

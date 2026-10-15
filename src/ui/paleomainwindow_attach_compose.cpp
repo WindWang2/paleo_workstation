@@ -103,10 +103,33 @@ void PaleoMainWindow::attachComposePage(ComposePage *composePage,
             [this](const QString &, const QString &layerId) {
               revealDeclaredLayer(layerId, true);
             });
+    // 编图上下文层位随 chip：因子表/相栅格/相属性目标只收本层位声明
+    //（与 attach_mapping 的 setThicknessHorizon 同源喂法）。
+    if (m_selection)
+    {
+      composePage->setComposeHorizon(m_selection->activeHorizon());
+      connect(m_selection, &SelectionContext::activeHorizonChanged, composePage,
+              &ComposePage::setComposeHorizon);
+    }
     connect(compose, &CompositionWorkflow::faciesPolygonsReady, this,
             [this, compose, composePage](const QString &h, const QString &layerId) {
-              Q_UNUSED(h);
               composePage->refreshFactors();
+              // 跨层位完成（作业在飞时用户切了 chip）：不接管目标层、不自动
+              // 进编辑、不替它点亮非当前层位的图层——否则「保存相属性/边界
+              // 核查」和顶点编辑都落在非当前层位的图层上。刷新清单后切回该
+              // 层位即可见，这里只留状态行交代。空 active（工程新建、尚未
+              // 选过层位 chip）不拦——否则老路径里随完成即 prepare 的可编辑
+              // 工作副本不再就位，后续 saveFaciesAttributes 会走「只读派生件
+              // → 重铺工作副本 → 重实例化」，外部手持的旧图层指针随之悬垂。
+              const QString active =
+                  m_selection ? m_selection->activeHorizon() : QString();
+              if (!active.isEmpty() && h != active)
+              {
+                if (auto *status = composePage->findChild<QLabel *>(QStringLiteral("statusLabel")))
+                  status->setText(tr("相界已生成：%1（当前层位 %2，未进入编辑）")
+                                      .arg(layerId, active));
+                return;
+              }
               composePage->setFaciesEditTarget(layerId);
               if (!m_layerSvc)
                 return;

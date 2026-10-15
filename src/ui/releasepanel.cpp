@@ -216,8 +216,9 @@ void ReleasePanel::refresh()
   }
   for (const ReleaseInfo &r : store.releases())
   {
-    auto *item = new QTreeWidgetItem(list, {r.id, r.name, r.createdUtc,
-                                            QString::number(r.layerCount)});
+    auto *item = new QTreeWidgetItem(
+        list, {r.id, r.name, r.createdUtc,
+               r.manifestCorrupt ? tr("损坏") : QString::number(r.layerCount)});
     list->addTopLevelItem(item);
     const QString label = QStringLiteral("%1 %2").arg(r.id, r.name);
     comboA->addItem(label, r.id);

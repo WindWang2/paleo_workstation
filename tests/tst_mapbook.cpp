@@ -431,6 +431,60 @@ class TestMapBook : public QObject
                 QStringLiteral( "layout" ) );
     }
 
+    // opt-05：索引页/manifest 装配失败必须如实入账——逐版全成不等于整册
+    // 完整：complete() 不得报喜、summary 不得只说「失败 0」、failures 留有
+    // 可查明细。注入方式是把落盘路径占成目录（确定性，不碰内部实现）。
+    void batchQueueAssemblyFailuresAreCounted()
+    {
+      QTemporaryDir dir;
+      QgsProject project;
+      PaleoTaskService tasks;
+      PaleoMapBookQueue::Exporter exporter( &tasks, &project );
+
+      // (a) 索引页路径被同名目录占住 → render 必失败。
+      {
+        PaleoMapBookQueue::Request request;
+        request.book = QStringLiteral( "book_indexfail" );
+        request.outputDir = dir.path();
+        request.tiles = grid3x3();
+        request.dpi = 150.0;
+        request.withIndexPage = true;
+        QVERIFY( QDir().mkpath( dir.filePath(
+            QStringLiteral( "book_indexfail/index/book_indexfail_index.png" ) ) ) );
+
+        const PaleoMapBookQueue::Result result = exporter.run( nullptr, request );
+        QCOMPARE( result.succeeded, 9 );
+        QCOMPARE( result.failed, 0 ); // 逐版全成：失败在装配段
+        QVERIFY( result.indexPage.isEmpty() );
+        QVERIFY( !result.complete() );
+        QCOMPARE( result.failures.size(), 1 );
+        QCOMPARE( result.failures.first().stage, QStringLiteral( "index" ) );
+        QVERIFY2( result.summary().contains( QStringLiteral( "装配失败 1" ) ),
+                  qPrintable( result.summary() ) );
+      }
+
+      // (b) manifest.json 路径被同名目录占住 → 账本写不出。
+      {
+        PaleoMapBookQueue::Request request;
+        request.book = QStringLiteral( "book_manifestfail" );
+        request.outputDir = dir.path();
+        request.tiles = grid3x3();
+        request.dpi = 150.0;
+        QVERIFY( QDir().mkpath(
+            dir.filePath( QStringLiteral( "book_manifestfail/manifest.json" ) ) ) );
+
+        const PaleoMapBookQueue::Result result = exporter.run( nullptr, request );
+        QCOMPARE( result.succeeded, 9 );
+        QCOMPARE( result.failed, 0 );
+        QVERIFY( result.manifest.isEmpty() );
+        QVERIFY( !result.complete() );
+        QCOMPARE( result.failures.size(), 1 );
+        QCOMPARE( result.failures.first().stage, QStringLiteral( "manifest" ) );
+        QVERIFY2( result.summary().contains( QStringLiteral( "装配失败 1" ) ),
+                  qPrintable( result.summary() ) );
+      }
+    }
+
     void batchQueueCancelStopsOnlyTheRemaining()
     {
       QTemporaryDir dir;

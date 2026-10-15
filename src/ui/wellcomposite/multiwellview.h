@@ -82,6 +82,9 @@ signals:
 private slots:
   void onPanelViewportChanged(double top, double bottom, double span);
 
+protected:
+  void resizeEvent(QResizeEvent *event) override;
+
 private:
   int capacity() const;
   void relayout();

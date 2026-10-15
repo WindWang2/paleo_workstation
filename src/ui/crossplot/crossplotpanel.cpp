@@ -13,6 +13,7 @@
 #include <QProgressBar>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QSet>
 #include <QSignalBlocker>
 #include <QSpinBox>
 #include <QVBoxLayout>
@@ -454,11 +455,18 @@ Axes CrossplotPanel::axes() const {
           m_yaw->value(), m_pitch->value()};
 }
 void CrossplotPanel::setSources(const QVector<SourceChoice> &sources) {
+  // 重建保留勾选：refreshSources 会因切回底栏 tab / catalog 变更反复触发，
+  // 用户已选通道集合不应被清空——同 id 重新出现在列表中即恢复选中
+  //（消失的 id 自然落选）。
+  QSet<QString> selected;
+  for (const auto *item : m_sources->selectedItems())
+    selected.insert(item->data(Qt::UserRole).toString());
   m_sources->clear();
   for (const auto &src : sources) {
     auto *item = new QListWidgetItem(src.title, m_sources);
     item->setData(Qt::UserRole, src.id);
     item->setToolTip(src.kind);
+    item->setSelected(selected.contains(src.id));
   }
 }
 void CrossplotPanel::setDimensions(const QStringList &names) {

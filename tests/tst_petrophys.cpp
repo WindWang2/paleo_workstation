@@ -308,6 +308,15 @@ void TestPetroPhys::testCurveStats()
   QCOMPARE(none.valid, 0);
   QVERIFY(std::isnan(none.min));
   QVERIFY(std::isnan(none.stddev));
+  // 大基数小差值：教科书 one-pass（sumSq − n·mean²）在此消碳得 0，
+  // 真实样本标准差为 1（回归锚定，QC 统计可信度）。
+  const std::vector<double> big = {1e9, 1e9 + 1.0, 1e9 + 2.0};
+  const CurveStats b = curveStats(big.data(), 3);
+  QCOMPARE(b.valid, 3);
+  QVERIFY2(std::fabs(b.mean - (1e9 + 1.0)) < 1e-3,
+           qPrintable(QString("mean got %1").arg(b.mean)));
+  QVERIFY2(std::fabs(b.stddev - 1.0) < 1e-6,
+           qPrintable(QString("stddev got %1").arg(b.stddev)));
 }
 
 void TestPetroPhys::testAnomalyIntervals()

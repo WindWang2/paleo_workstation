@@ -94,6 +94,18 @@ public:
   // 之前就同步 emit，调用方此时还没来得及记下返回值。
   int currentGeneration() const { return m_generation; }
   int currentSeismicGeneration() const { return m_seismicGeneration; }
+
+public:
+  // 解释资产解析结果的跨请求缓存条目（按「版本解析路径 + mtime」键控，
+  // 内容替换自然失效；仅 GUI 线程的计划步触达，无锁）。.cpp 内的
+  // provider 与 attachFaciesSegments 共用（故为 public 嵌套类型）。
+  struct InterpParseCacheEntry {
+    bool parsed = false; // 是否已解析过（区分「未缓存」与「空结果」）
+    int dropped = 0;     // 岩性解析丢弃行数（缓存命中不再重复告警）
+    QHash<QString, QVector<wellsection::LithoSegment>> lithoByWell;
+    QHash<QString, QVector<wellsection::FaciesSegment>> faciesByWell;
+  };
+
 signals:
   void sectionReady(int generation, const QVector<wellsection::Well> &wells,
                     const QStringList &warnings);
@@ -124,6 +136,9 @@ private:
   int m_seismicGeneration = 0;
   QPointer<PaleoTask> m_sectionTask;
   QVector<QPointer<PaleoTask>> m_gapTasks;
+  // 解释岩性/相 JSON 跨请求解析缓存：换曲线/换井的重复请求不再整文件
+  // 重读盘与重复告警（此前 provider 每请求新建，缓存随实例销毁）。
+  mutable QHash<QString, InterpParseCacheEntry> m_interpParseCache;
   // 解释岩性显式选择（wellId → assetId；无条目 = 默认取最新）。
   QHash<QString, QString> m_lithoSelection;
   // 分层来源显式选择（剖面级；空 = 各井主 tops 链接）。

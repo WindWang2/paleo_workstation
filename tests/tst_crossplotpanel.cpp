@@ -21,6 +21,7 @@ private slots:
   void density();
   void methodComboOrder();
   void trainingFlow();
+  void sourceSelectionSurvivesRebuild();
 };
 void TestPanel::intents() {
   PaleoTheme::pinRenderEnvironment();
@@ -411,6 +412,36 @@ void TestPanel::trainingFlow() {
   QVERIFY(!nanText.contains(QString::fromUtf8("nan")));
   QVERIFY(!nanText.contains(QString::fromUtf8("准确率")));
   panel.setTrainingQuality({});
+}
+// refreshSources 反复重建通道列表（切回底栏 tab / catalog 变更去抖后）：
+// 用户已选通道集合须跨重建保留——同 id 恢复选中，消失的 id 自然落选。
+void TestPanel::sourceSelectionSurvivesRebuild() {
+  PaleoTheme::pinRenderEnvironment();
+  CrossplotPanel panel;
+  panel.resize(900, 480);
+  panel.show();
+  panel.setSources(
+      {{"a", "GR", "well"}, {"b", "RHOB", "well"}, {"c", "PHI", "well"}});
+  auto *sources = panel.findChild<QListWidget *>("crossplotSources");
+  sources->item(0)->setSelected(true);
+  sources->item(2)->setSelected(true);
+  auto selectedIds = [sources] {
+    QStringList ids;
+    for (const auto *item : sources->selectedItems())
+      ids << item->data(Qt::UserRole).toString();
+    ids.sort();
+    return ids;
+  };
+  // 同集合重投（标题/顺序可能变化）
+  panel.setSources(
+      {{"a", "GR", "well"}, {"b", "RHOB", "well"}, {"c", "PHI", "well"}});
+  QCOMPARE(selectedIds(), QStringList({"a", "c"}));
+  // 列表收窄：消失的 a 落选，仍存在的 c 保留
+  panel.setSources({{"b", "RHOB", "well"}, {"c", "PHI", "well"}});
+  QCOMPARE(selectedIds(), QStringList({"c"}));
+  // 全新列表：旧选择不再命中
+  panel.setSources({{"d", "DT", "well"}});
+  QCOMPARE(selectedIds(), QStringList());
 }
 QTEST_MAIN(TestPanel)
 #include "tst_crossplotpanel.moc"

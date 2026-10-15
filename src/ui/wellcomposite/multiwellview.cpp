@@ -9,6 +9,7 @@
 #include <QLabel>
 #include <QListWidget>
 #include <QPainter>
+#include <QResizeEvent>
 #include <QSplitter>
 #include <QVBoxLayout>
 
@@ -23,6 +24,7 @@ public:
   explicit CorrelationOverlay(MultiWellView *owner)
     : QWidget(owner), m_owner(owner)
   {
+    setObjectName(QStringLiteral("correlationOverlay"));
     setAttribute(Qt::WA_TransparentForMouseEvents);
     raise();
   }
@@ -115,6 +117,14 @@ void MultiWellView::setLayoutMode(LayoutMode mode)
   m_mode = mode;
   relayout();
   emit layoutModeChanged(m_mode);
+}
+
+void MultiWellView::resizeEvent(QResizeEvent *event)
+{
+  QWidget::resizeEvent(event);
+  // overlay 不进 QGridLayout（避免吃掉面板的布局份额）：容器 resize 后
+  // 须跟随新 rect，否则 correlation 线按旧几何绘制被裁剪/错位。
+  m_overlay->setGeometry(rect());
 }
 
 void MultiWellView::relayout()

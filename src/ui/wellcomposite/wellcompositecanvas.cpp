@@ -585,10 +585,16 @@ void WellCompositeCanvas::resizeEvent(QResizeEvent *event)
   m_vScrollBar->setGeometry(bodyW, headerH, sbSize, bodyH);
   m_hScrollBar->setGeometry(0, headerH + bodyH, bodyW, sbSize);
 
-  if (m_scaleRatio == QStringLiteral("自适应"))
+  // 自适应模式：随新视口高度重算基准并同步读数。判据用 m_baseScaleRatio
+  // ——setScaleRatio 后 m_scaleRatio 已是计算串（"1:N"），此前误判
+  // m_scaleRatio == "自适应" 使该分支成为死代码，resize 后像素/米变了而
+  // 道头/图例比例尺文本停在旧值。zoom 保持用户档位不重置。
+  if (m_baseScaleRatio == QStringLiteral("自适应"))
   {
     const double totalSpan = qMax(1.0, m_maxDepth - m_minDepth);
     m_basePxPerMeter = bodyH / totalSpan;
+    m_scaleRatio = calculateScaleRatioString();
+    refreshScaleTracks(); // 内含 updateAll + scaleRatioChanged（读数/图例同步）
   }
 
   syncScrollBars();

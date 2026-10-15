@@ -4,6 +4,7 @@
 #include "algorithms/faultsurface/faultsurface.h"
 #include "catalog/datacatalog.h"
 #include "domain/faultset.h"
+#include "domain/wellnumeric.h"
 #include "io/cuttingsdoc.h"
 #include "io/lasalias.h"
 #include "io/lascache.h"
@@ -16,6 +17,7 @@
 #include "services/seismictaskservice.h"
 #include "services/welllogset.h"
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -24,6 +26,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSet>
+#include <QThread>
 #include <algorithm>
 #include <cmath>
 #include <optional>
@@ -197,6 +200,10 @@ WellSectionWorkflow::availableMnemonics(const QStringList &wellIds) const {
 
 int WellSectionWorkflow::request(const QStringList &wellIds,
                                  const QStringList &mnemonics) {
+  // 计划步（含 m_interpParseCache 读写）只在创建线程执行（review S5-3：
+  // 把「无锁、单线程」从注释升级为可执行约束；局部实例在同一线程构造/
+  // 消费同样满足）。
+  Q_ASSERT(QThread::currentThread() == thread());
   const int generation = ++m_generation;
   if (m_sectionTask) {
     m_sectionTask->requestCancel();
@@ -352,10 +359,12 @@ void WellSectionWorkflow::loadCurveBodies(Shared &shared,
     if (!doc.ok || doc.curves.size() < 2)
       continue;
     const QString unit = doc.curves.at(0).unit.trimmed().toUpper();
-    double scale = 1.0;
-    if (unit == QLatin1String("FT") || unit == QLatin1String("F"))
-      scale = 0.3048;
-    else if (unit != QLatin1String("M")) {
+    // 走 wellnumeric 权威词表（M/METER/METERS/METRE/METRES、FT/F/FOOT/FEET）：
+    // 此前只认 FT/F/M，METER 等规范别名的 LAS 被整文件丢弃，与
+    // sectionworkbench/PetroPhysTaskService 的接受面分裂。
+    const std::optional<double> unitScale =
+        paleo::wellnumeric::depthScaleToMetres(unit);
+    if (!unitScale) {
       // 单位未知跳过这一份文件的全部曲线，同井其它文件照常。
       const QString name =
           shared.wells.value(
@@ -365,6 +374,7 @@ void WellSectionWorkflow::loadCurveBodies(Shared &shared,
                              .arg(name);
       continue;
     }
+    const double scale = *unitScale;
     const auto &depths = doc.curves.at(0);
     for (const int ei : byPath.value(path)) {
       const Shared::Entry &e = shared.entries.at(ei);
@@ -440,6 +450,18 @@ void WellSectionWorkflow::collectCoreImages(Shared &shared) const
   }
 }
 
+// 解释资产解析缓存键：版本解析路径 + 文件 mtime（内容替换自然失效）。
+static QString interpParseCacheKey(const QString &projectDir,
+                                   const CatalogVersion &version) {
+  const QString path = DataCatalog::resolvedVersionPath(projectDir, version);
+  return path + QLatin1Char('|') +
+         QString::number(QFileInfo(path).lastModified().toMSecsSinceEpoch());
+}
+
+// 缓存上限（review S5-2）：超限整表清空——粗粒度但有界；解析结果按需重建，
+// 长会话不单调增长。解释资产在真实工程里个数有限，正常永不触顶。
+static constexpr int kInterpParseCacheMaxEntries = 64;
+
 void WellSectionWorkflow::attachFaciesSegments(
     QVector<wellsection::Well> &wells) const {
   if (!m_catalog || wells.isEmpty())
@@ -459,23 +481,36 @@ void WellSectionWorkflow::attachFaciesSegments(
   }
   if (!has)
     return;
-  QFile file(DataCatalog::resolvedVersionPath(projectDir(), best));
-  if (!file.open(QIODevice::ReadOnly))
-    return;
-  const QJsonObject root =
-      QJsonDocument::fromJson(file.readAll()).object();
-  file.close();
-  QHash<QString, QVector<wellsection::FaciesSegment>> byWell;
-  for (const QJsonValue &iv : root.value(QLatin1String("intervals")).toArray()) {
-    const QJsonObject o = iv.toObject();
-    wellsection::FaciesSegment seg;
-    seg.topMd = o.value(QLatin1String("top")).toDouble();
-    seg.baseMd = o.value(QLatin1String("base")).toDouble();
-    seg.classId = o.value(QLatin1String("classId")).toInt(-1);
-    if (seg.classId < 0 || !(seg.baseMd > seg.topMd))
-      continue;
-    byWell[o.value(QLatin1String("wellId")).toString()].push_back(seg);
+  // 跨请求解析缓存：换曲线/换井的重复请求不再整文件重读盘（键含 mtime，
+  // 内容替换自然失效；仅 GUI 线程计划步触达，无锁）。
+  const QString key = interpParseCacheKey(projectDir(), best);
+  const auto cached = m_interpParseCache.constFind(key);
+  if (cached == m_interpParseCache.constEnd() || !cached->parsed) {
+    QFile file(DataCatalog::resolvedVersionPath(projectDir(), best));
+    InterpParseCacheEntry entry;
+    if (file.open(QIODevice::ReadOnly)) {
+      const QJsonObject root =
+          QJsonDocument::fromJson(file.readAll()).object();
+      file.close();
+      for (const QJsonValue &iv : root.value(QLatin1String("intervals")).toArray()) {
+        const QJsonObject o = iv.toObject();
+        wellsection::FaciesSegment seg;
+        seg.topMd = o.value(QLatin1String("top")).toDouble();
+        seg.baseMd = o.value(QLatin1String("base")).toDouble();
+        seg.classId = o.value(QLatin1String("classId")).toInt(-1);
+        if (seg.classId < 0 || !(seg.baseMd > seg.topMd))
+          continue;
+        entry.faciesByWell[o.value(QLatin1String("wellId")).toString()].push_back(seg);
+      }
+    }
+    entry.parsed = true;
+    if (!m_interpParseCache.contains(key) &&
+        m_interpParseCache.size() >= kInterpParseCacheMaxEntries)
+      m_interpParseCache.clear(); // 先腾位再插（防逐出刚插入的键）
+    m_interpParseCache.insert(key, entry);
   }
+  const QHash<QString, QVector<wellsection::FaciesSegment>> &byWell =
+      m_interpParseCache.constFind(key).value().faciesByWell;
   for (wellsection::Well &w : wells) {
     const auto it = byWell.constFind(w.id);
     if (it == byWell.constEnd())
@@ -508,9 +543,10 @@ class CatalogWellLithologyProvider
 public:
   CatalogWellLithologyProvider(
       DataCatalog *catalog, const QString &projectDir, QStringList *warnings,
-      const QHash<QString, QString> *selection = nullptr)
+      const QHash<QString, QString> *selection = nullptr,
+      QHash<QString, WellSectionWorkflow::InterpParseCacheEntry> *parseCache = nullptr)
       : m_catalog(catalog), m_projectDir(projectDir),
-        m_warnings(warnings), m_selection(selection) {}
+        m_warnings(warnings), m_selection(selection), m_parseCache(parseCache) {}
 
   QVector<wellsection::LithoSegment>
   lithologyFor(const QString &wellId) const override {
@@ -643,9 +679,12 @@ private:
     QHash<QString, QVector<wellsection::LithoSegment>> byWell;
   };
   Parsed parse(const CatalogVersion &v) const {
-    const auto it = m_parsed.constFind(v.id);
-    if (it != m_parsed.constEnd())
-      return it.value();
+    const QString cacheKey = interpParseCacheKey(m_projectDir, v);
+    if (m_parseCache) {
+      const auto hit = m_parseCache->constFind(cacheKey);
+      if (hit != m_parseCache->constEnd() && hit->parsed)
+        return {true, hit->dropped, hit->lithoByWell};
+    }
     Parsed p;
     const auto warn = [this](const QString &msg) {
       if (m_warnings)
@@ -653,8 +692,9 @@ private:
     };
     QFile file(DataCatalog::resolvedVersionPath(m_projectDir, v));
     if (!file.open(QIODevice::ReadOnly)) {
+      // 读失败不缓存（review S5-1）：瞬时占用/权限问题恢复后 mtime 可能
+      // 不变，钉死会永不重试——失败路径保持旧语义（每次请求重试+告警）。
       warn(WellSectionWorkflow::tr("解释岩性资产读取失败：%1").arg(v.fileName));
-      m_parsed.insert(v.id, p);
       return p;
     }
     const QJsonObject root =
@@ -665,7 +705,6 @@ private:
       warn(WellSectionWorkflow::tr(
                "解释岩性资产 schema 版本不支持（%1），已忽略：%2")
                .arg(QString::number(schema.toDouble()), v.fileName));
-      m_parsed.insert(v.id, p);
       return p;
     }
     // 来源标注：JSON provenance（生产者 welllogfacies 落）拼为题注词面；
@@ -702,7 +741,15 @@ private:
                .arg(p.dropped)
                .arg(v.fileName));
     p.readable = true;
-    m_parsed.insert(v.id, p);
+    if (m_parseCache) {
+      if (!m_parseCache->contains(cacheKey) &&
+          m_parseCache->size() >= kInterpParseCacheMaxEntries)
+        m_parseCache->clear();
+      WellSectionWorkflow::InterpParseCacheEntry &entry = (*m_parseCache)[cacheKey];
+      entry.parsed = true;
+      entry.dropped = p.dropped;
+      entry.lithoByWell = p.byWell;
+    }
     return p;
   }
 
@@ -712,7 +759,10 @@ private:
   // 方向 98 显式选择表（wellId → assetId；拥有方 WellSectionWorkflow，
   // 指针共享——provider 构造后选择变化同样生效）。
   const QHash<QString, QString> *m_selection = nullptr;
-  mutable QHash<QString, Parsed> m_parsed;
+  // 跨请求解析缓存（拥有方 WellSectionWorkflow；键 = 解析路径 + mtime）。
+  // provider 此前每请求新建、m_parsed 随实例销毁——共享同一份后，换曲线/
+  // 换井的重复请求不再重读盘与重复告警。空指针 = 不缓存（独立使用时）。
+  QHash<QString, WellSectionWorkflow::InterpParseCacheEntry> *m_parseCache = nullptr;
 
   // ---- 第二解释源：岩屑录井（cuttings）文件（一井一份，readCuttingsFile） ----
 
@@ -838,8 +888,9 @@ private:
 // （方言表头见 cuttingsdoc.h），一井一份。
 QHash<QString, QVector<wellsection::LithoSegment>> WellSectionWorkflow::lithologiesFor(
     const QStringList &wellIds, QStringList *warnings) const {
+  Q_ASSERT(QThread::currentThread() == thread());
   CatalogWellLithologyProvider provider(m_catalog, projectDir(), warnings,
-                                        &m_lithoSelection);
+                                        &m_lithoSelection, &m_interpParseCache);
   QHash<QString, QVector<wellsection::LithoSegment>> result;
   for (const QString &id : wellIds) result.insert(id, provider.lithologyFor(id));
   return result;
@@ -928,7 +979,7 @@ void WellSectionWorkflow::attachLithoSegments(
   if (!m_catalog || wells.isEmpty())
     return;
   CatalogWellLithologyProvider provider(m_catalog, projectDir(), warnings,
-                                        &m_lithoSelection);
+                                        &m_lithoSelection, &m_interpParseCache);
   for (wellsection::Well &w : wells) {
     QVector<wellsection::LithoSegment> segs = provider.lithologyFor(w.id);
     if (segs.isEmpty())

@@ -744,6 +744,8 @@ void MappingWorkbenchPage::setHorizon(const QString &h) {
     return;
   m_horizon = h;
   m_evidenceSnapshotOwned = false; m_evidenceSnapshot.clear();
+  // 层位切换后反查结果属于旧层位上下文——清空，避免双击定位错层。
+  if (m_reverseResults) m_reverseResults->clear();
   if (m_horizonFile) m_horizonFile->clear();
   showMessage(QString());
   refresh();
@@ -1392,15 +1394,15 @@ void MappingWorkbenchPage::renderEvidenceSnapshot(const QVariantMap &snapshot) {
         QStringList parts;
         for (const auto &value : inputs.mid(0, 8)) {
           const auto input = value.toMap();
-          parts << tr("优先级 %1（%2%%）")
+          parts << tr("优先级 %1（%2%）")
                       .arg(input.value("priority").toString())
-                      .arg(int(input.value("fraction").toDouble() * 100));
+                      .arg(qRound(input.value("fraction").toDouble() * 100));
         }
         summary << tr("形成依据：保存时冻结的输入按优先级重放——%1")
                        .arg(parts.isEmpty() ? tr("全部像元无有效输入") : parts.join(tr("、")));
         if (attribution.contains("consistent_fraction"))
           summary << tr("重放分布与图斑相编码一致率 %1%（平滑聚合可能吸收少数像元）")
-                      .arg(int(attribution.value("consistent_fraction").toDouble() * 100));
+                      .arg(qRound(attribution.value("consistent_fraction").toDouble() * 100));
       } else if (status == QLatin1String("manual")) {
         summary << tr("人工图斑：无自动分类过程，依据以人工解释记录为准");
       } else {
@@ -1424,7 +1426,7 @@ void MappingWorkbenchPage::renderEvidenceSnapshot(const QVariantMap &snapshot) {
       line << tr("决策 %1，覆盖 %2 个采样像元（%3%）")
                   .arg(input.value("decision").toString())
                   .arg(input.value("cells").toLongLong())
-                  .arg(int(input.value("fraction").toDouble() * 100));
+                  .arg(qRound(input.value("fraction").toDouble() * 100));
       if (input.contains("value_min"))
         line << tr("值域 %1–%2")
                     .arg(input.value("value_min").toDouble(), 0, 'f', 1)

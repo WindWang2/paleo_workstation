@@ -289,10 +289,12 @@ QVariantList analyze(const QList<Opinion> &opinions, int targetFaciesCode,
         QStringLiteral("检查冻结输入版本的可用性后重新归因"));
   }
 
-  // 规则 5：重放分布与图斑编码不完全一致（0 < consistent_fraction < 1）。
+  // 规则 5：重放分布与图斑编码不一致（0 ≤ fraction < 1）。完全不一致
+  // （fraction==0）必须告警——图斑编码不在任何重放像元中，静默零告警
+  // 会让「完全不符」比「部分不符」更不可见。
   if (attribution.contains("consistent_fraction")) {
     const double fraction = attribution.value("consistent_fraction").toDouble();
-    if (fraction > 0.0 && fraction < 1.0) {
+    if (fraction >= 0.0 && fraction < 1.0) {
       const bool majorityStill = fraction >= 0.5;
       add(majorityStill ? QStringLiteral("Info") : QStringLiteral("Warning"), QStringLiteral("partial_consistency"),
           QStringLiteral("model_uncertainty"), QStringLiteral("attribution"), QStringLiteral("图斑归因重放"),

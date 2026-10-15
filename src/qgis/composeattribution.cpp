@@ -2,6 +2,7 @@
 #include "composeattribution.h"
 #include "../catalog/datacatalog.h"
 #include <QHash>
+#include <memory>
 #include <QSet>
 #include <algorithm>
 #include <cmath>
@@ -66,7 +67,7 @@ Grid gridOf(const QList<ResolvedInput> &inputs) {
   }
   if (g.extent.isEmpty() || g.extent.width() < 1 || g.extent.height() < 1)
     return {};
-  g.extent.grow(100);
+  g.extent.grow(100); // 与 composeRaster 的无栅格 fallback 同口径
   g.cols = g.rows = 64;
   g.valid = true;
   return g;
@@ -84,6 +85,7 @@ struct CellOutcome {
   double value = 0;
   QString decision;
   double distance = -1;
+  bool rejectedCode = false; // 有效值但编码不在当前相分类中
 };
 CellOutcome decideAt(const QList<ResolvedInput> &inputs, const QList<int> &codes,
                      const QList<double> &thresholds, const QgsPointXY &p,
@@ -109,8 +111,12 @@ CellOutcome decideAt(const QList<ResolvedInput> &inputs, const QList<int> &codes
         out.decision = QStringLiteral("threshold_classification");
       } else {
         code = static_cast<int>(std::round(v));
-        if (std::abs(v - code) > 1e-6 || !codes.contains(code))
-          continue; // 未定义编码像元按无效处理，与首达有效语义一致。
+        if (std::abs(v - code) > 1e-6 || !codes.contains(code)) {
+          // 未定义编码：运行时 composeRaster 会整幅拒收；如实上报（可能
+          // 指示冻结数据与当前相分类 schema 不一致）。
+          out.rejectedCode = true;
+          return out;
+        }
         out.decision = QStringLiteral("priority_first_valid");
       }
       out.winner = i;
@@ -157,8 +163,50 @@ CellOutcome decideAt(const QList<ResolvedInput> &inputs, const QList<int> &codes
   return out;
 }
 
-QVariantMap statsToMap(const InputStats &s, qint64 total) {
-  QVariantMap m;
+// 只对指定（点输入）下标做最近邻决策——批量重放按输入顺序求值时用。
+CellOutcome decideAtPoint(const QList<ResolvedInput> &inputs,
+                          const QList<int> &codes, int inputIndex,
+                          const QgsPointXY &p, QHash<int, PointIndex> *pointIndexes) {
+  CellOutcome out;
+  const auto &input = inputs[inputIndex];
+  auto *v = qobject_cast<QgsVectorLayer *>(input.layer);
+  if (!v)
+    return out;
+  auto &pi = (*pointIndexes)[inputIndex];
+  if (!pi.built) {
+    QgsFeature f;
+    auto it = v->getFeatures();
+    QgsFeatureId id = 0;
+    while (it.nextFeature(f)) {
+      if (f.attribute("facies_code").isNull() || f.geometry().isEmpty())
+        continue;
+      QgsFeature indexed(++id);
+      indexed.setGeometry(f.geometry().centroid());
+      pi.index.addFeature(indexed);
+      pi.codes.insert(id, f.attribute("facies_code").toInt());
+      pi.centroids.insert(id, indexed.geometry().asPoint());
+    }
+    pi.built = true;
+  }
+  if (pi.codes.isEmpty())
+    return out;
+  const auto nearest = pi.index.nearestNeighbor(p, 1);
+  if (nearest.isEmpty())
+    return out;
+  const auto id = *std::min_element(nearest.cbegin(), nearest.cend());
+  const int code = pi.codes.value(id, -9999);
+  if (!codes.contains(code))
+    return out;
+  out.winner = inputIndex;
+  out.code = code;
+  out.decision = QStringLiteral("categorical_nearest");
+  out.value = code;
+  const auto &c = pi.centroids.value(id);
+  out.distance = std::hypot(p.x() - c.x(), p.y() - c.y());
+  return out;
+}
+
+QVariantMap statsToMap(const InputStats &s, qint64 total) {  QVariantMap m;
   m.insert(QStringLiteral("layer_id"), s.input->layerId);
   m.insert(QStringLiteral("version_id"), s.input->versionId);
   m.insert(QStringLiteral("asset_id"), s.input->assetId);
@@ -189,6 +237,25 @@ QVariantMap statsToMap(const InputStats &s, qint64 total) {
 }
 } // namespace
 
+namespace {
+// 与 composeRaster 同口径的阈值校验（连续输入需要 N-1 个严格递增阈值）；
+// 冻结 extra 被改坏时宁可拒绝重放也不用越界索引读 codes[]。
+bool thresholdsValid(const QList<ResolvedInput> &inputs, const QList<int> &codes,
+                     const QList<double> &thresholds) {
+  bool continuous = false;
+  for (const auto &input : inputs)
+    continuous |= input.continuous;
+  if (!continuous)
+    return true;
+  if (thresholds.size() != codes.size() - 1)
+    return false;
+  for (int i = 1; i < thresholds.size(); ++i)
+    if (thresholds[i] <= thresholds[i - 1])
+      return false;
+  return true;
+}
+} // namespace
+
 QVariantMap replayAt(const QList<ResolvedInput> &inputs,
                      const QVariantList &facies, const QList<double> &thresholds,
                      const QPointF &point, QString *error) {
@@ -198,6 +265,11 @@ QVariantMap replayAt(const QList<ResolvedInput> &inputs,
   if (codes.isEmpty()) {
     if (error)
       *error = QStringLiteral("相分类为空，无法重放");
+    return {};
+  }
+  if (!thresholdsValid(inputs, codes, thresholds)) {
+    if (error)
+      *error = QStringLiteral("分相阈值与相分类不匹配（需 N-1 个严格递增），冻结参数疑似损坏");
     return {};
   }
   QHash<int, PointIndex> pointIndexes;
@@ -255,6 +327,11 @@ QVariantMap replay(const QList<ResolvedInput> &inputs, const QVariantList &facie
   if (codes.isEmpty()) {
     if (error)
       *error = QStringLiteral("相分类为空，无法重放");
+    return {};
+  }
+  if (!thresholdsValid(inputs, codes, thresholds)) {
+    if (error)
+      *error = QStringLiteral("分相阈值与相分类不匹配（需 N-1 个严格递增），冻结参数疑似损坏");
     return {};
   }
   QVariantList unresolved;
@@ -316,7 +393,7 @@ QVariantMap replay(const QList<ResolvedInput> &inputs, const QVariantList &facie
   for (int i = 0; i < inputs.size(); ++i)
     stats[i].input = &inputs[i];
   QHash<int, qint64> codeCells;
-  qint64 sampled = 0, decided = 0, inGeometry = 0;
+  qint64 sampled = 0, decided = 0, inGeometry = 0, rejectedCodeCells = 0;
   for (int y = y0; y <= y1; y += stride) {
     for (int x = x0; x <= x1; x += stride) {
       const auto p = cellCenter(grid, x, y);
@@ -324,6 +401,10 @@ QVariantMap replay(const QList<ResolvedInput> &inputs, const QVariantList &facie
         continue;
       ++sampled;
       const auto outcome = decideAt(inputs, codes, thresholds, p, &pointIndexes);
+      if (outcome.rejectedCode) {
+        ++rejectedCodeCells;
+        continue;
+      }
       if (outcome.winner < 0)
         continue;
       ++decided;
@@ -374,6 +455,12 @@ QVariantMap replay(const QList<ResolvedInput> &inputs, const QVariantList &facie
   out.insert(QStringLiteral("inputs"), inputRows);
   out.insert(QStringLiteral("code_distribution"), distribution);
   out.insert(QStringLiteral("facies_code"), request.faciesCode);
+  if (rejectedCodeCells > 0)
+    unresolved << QVariantMap{
+        {QStringLiteral("reason"),
+         QStringLiteral("采样中 %1 个像元的相编码不在当前相分类中（运行时"
+                        "会整幅拒收；冻结数据与当前 schema 可能不一致）")
+             .arg(rejectedCodeCells)}};
   if (request.faciesCode != 0 && decided > 0) {
     const auto matching = codeCells.value(request.faciesCode, 0);
     out.insert(QStringLiteral("consistent_fraction"),
@@ -415,14 +502,72 @@ GridReplay replayGrid(const QList<ResolvedInput> &inputs,
   out.winners.resize(grid.cols * grid.rows);
   out.codes.fill(-9999);
   out.winners.fill(-1);
+  // 批量读：栅格输入每个只读一次 block（与 composeRaster 同法、同口径），
+  // 而不是逐像元 sample()——影响分析的大网格在 UI 线程同步执行，逐点
+  // 取样是分钟级冻结。相点输入仍走空间索引最近邻。
+  struct RasterBlock {
+    int inputIndex = -1;
+    bool continuous = false;
+    std::unique_ptr<QgsRasterBlock> block;
+  };
+  QVector<std::shared_ptr<QgsRasterBlock>> rasterBlocks;
+  QHash<int, int> rasterIndexByInput; // 输入序 → rasterBlocks 下标
+  for (int i = 0; i < inputs.size(); ++i) {
+    const auto &input = inputs[i];
+    if (input.missing || !input.layer || !input.layer->isValid())
+      continue;
+    auto *r = qobject_cast<QgsRasterLayer *>(input.layer);
+    if (!r || !r->dataProvider())
+      continue;
+    // provider->block 返回裸指针，直接托管（无拷贝构造）。
+    std::shared_ptr<QgsRasterBlock> block(
+        r->dataProvider()->block(1, grid.extent, grid.cols, grid.rows));
+    if (block && block->isValid()) {
+      rasterIndexByInput.insert(i, rasterBlocks.size());
+      rasterBlocks << std::move(block);
+    }
+  }
   QHash<int, PointIndex> pointIndexes;
   for (int y = 0; y < grid.rows; ++y) {
     for (int x = 0; x < grid.cols; ++x) {
       const int i = y * grid.cols + x;
-      const auto outcome =
-          decideAt(inputs, codes, thresholds, cellCenter(grid, x, y), &pointIndexes);
-      out.codes[i] = outcome.winner < 0 ? -9999 : outcome.code;
-      out.winners[i] = outcome.winner;
+      for (int n = 0; n < inputs.size() && out.winners[i] < 0; ++n) {
+        const auto &input = inputs[n];
+        if (input.missing || !input.layer || !input.layer->isValid())
+          continue;
+        if (auto *r = qobject_cast<QgsRasterLayer *>(input.layer)) {
+          if (!r->dataProvider())
+            continue;
+          const int blockIndex = rasterIndexByInput.value(n, -1);
+          if (blockIndex < 0)
+            continue;
+          const auto &block = rasterBlocks[static_cast<int>(blockIndex)];
+          if (block->isNoData(i))
+            continue;
+          const double v = block->value(i);
+          if (!std::isfinite(v))
+            continue;
+          int code;
+          if (input.continuous) {
+            code = codes[static_cast<int>(std::upper_bound(thresholds.cbegin(),
+                                                           thresholds.cend(), v) -
+                                         thresholds.cbegin())];
+          } else {
+            code = static_cast<int>(std::round(v));
+            if (std::abs(v - code) > 1e-6 || !codes.contains(code))
+              continue; // 运行时整幅拒收未定义编码；历史冻结数据经校验落库。
+          }
+          out.winners[i] = n;
+          out.codes[i] = code;
+          continue;
+        }
+        const auto outcome =
+            decideAtPoint(inputs, codes, n, cellCenter(grid, x, y), &pointIndexes);
+        if (outcome.winner >= 0) {
+          out.winners[i] = outcome.winner;
+          out.codes[i] = outcome.code;
+        }
+      }
     }
   }
   out.valid = true;

@@ -221,6 +221,11 @@ private slots:
     // 完全一致不产出该 finding；字段不存在也不产出（空态说明另算）。
     mostly.insert("consistent_fraction", 1.0);
     QVERIFY(byCode(analyze({}, 2, kTarget, mostly), "partial_consistency").isEmpty());
+    // P1#5 回归：完全不一致（0.0）必须告警，不能比部分不一致更不可见。
+    QVariantMap none = mostly;
+    none.insert("consistent_fraction", 0.0);
+    const auto zeroFinding = byCode(analyze({}, 2, kTarget, none), "partial_consistency");
+    QCOMPARE(zeroFinding.value("severity").toString(), QStringLiteral("Warning"));
     mostly.remove("consistent_fraction");
     QVERIFY(byCode(analyze({}, 2, kTarget, mostly), "partial_consistency").isEmpty());
   }

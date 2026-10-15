@@ -24,7 +24,7 @@
 | 编号 | 能力 | 前 | 后 | 证据 |
 |---|---|---|---|---|
 | G03 | 图斑级自动证据归因 | MISSING（composeRaster 胜者不落盘；无 FeatureAttribution） | **已实现且验证** | `src/qgis/composeattribution.*` 冻结输入重放（priority-first-valid/threshold/categorical-nearest 与 composeRaster 逐条对齐）；`featureEvidence["attribution"]`；`composeAttributionAt` Level 3；`tst_composeattribution`（含输入版本更新后仍用冻结版、人工图斑 manual、缺失 unresolved） |
-| G04 | 井/地震/单因素局部关联 | PARTIAL（分散） | **已实现且验证** | `wells_in_feature`（井口落面 + 地层优势相，一次读表建索引）；`seismic_sources`；归因输入附带上游单因素回执；`tst_evidencee2e` |
+| G04 | 井/地震/单因素局部关联 | PARTIAL（分散） | **已实现且验证** | `wells_in_feature`（井口落面 + 地层优势相：Formations 表按 formation==horizon 取行，与预测写路径同口径，e2e 实测井意见进冲突分析）；`seismic_sources`；归因输入附带上游单因素回执；`tst_evidencee2e` |
 | G05 | 证据变化空间影响 | PARTIAL（只有版本级血缘） | **已实现且验证** | `analyzeImpact` 三级分明 + 像元 diff + 报告快照落 `artifacts/reports/`；约束编辑保存发 `constraintsSaved` 精确点名；`tst_impactrecompute` |
 | G06 | 多源冲突分析 | PARTIAL（两源一致性 + 单记录健康检查） | **已实现且验证** | `paleo::evidenceconflict`（七类 conflict_type / 四级 severity / 不合成置信度）；接入 featureEvidence 与证据面板；`tst_evidenceconflict` 15 用例 |
 | G08 | 全工程反向检索 | PARTIAL（版本级反查有；证据→图斑无） | **已实现且验证** | `src/services/evidenceindex.*`（增量同步/幂等/损坏跳过/有界查询）；workbench `evidenceReverseQuery` + 证据面板「反查」；`tst_evidenceindex` 11 用例 |
@@ -66,6 +66,13 @@ compose 页影响分析/受控重算按钮、主窗口命令分发与 constraint
 回归：17 项证据/映射/版本套件 + 分层 `--strict` 通过；全量 ctest 见 PR 描述。
 
 ## 已知限制（如实声明）
+
+- 反向索引首查在 UI 线程同步增量同步（用户触发、每版本/行数双上限）；
+  未做后台化与取消。
+- executeRecompute 在任务模式下逐条重算：runner 单飞，首个条目启动后
+  其余条目如实报「请等待完成」（同步/测试模式下逐条串行）。
+- 冻结输入解析在 composeAttribution / composeAttributionAt /
+  resolveFrozenCompose 三处同口径实现（已加一致性注释），未抽公共助手。
 
 - 归因重放的栅格取样用 provider sample（像元中心最近邻）：网格对齐的输入与批量
   重算逐像元一致；不对齐输入在半像元边界可能与 GDAL 块重采样有差异（unresolved

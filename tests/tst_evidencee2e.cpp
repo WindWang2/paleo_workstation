@@ -12,6 +12,7 @@
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/qgis/qgisprocessingservice.h"
 #include "../src/qgis/qgisprojectservice.h"
+#include "../src/qgis/wellattributestore.h"
 #include "../src/workflow/workflows.h"
 #include "../src/workflow/mappingworkbench.h"
 #include <QElapsedTimer>
@@ -133,6 +134,37 @@ private slots:
     const auto before = f.work.featureEvidence(draft, {feature.id()});
     const auto attribution = before.value("attribution").toMap();
     QCOMPARE(attribution.value("status").toString(), QStringLiteral("ok"));
+    // P1#1 回归：井口落面 + 地层优势相（Formations 按 formation==horizon
+    // 取行）真实接线——井意见进冲突分析。
+    {
+      CatalogEntity well;
+      well.id = QStringLiteral("W-A");
+      well.name = QStringLiteral("井A");
+      well.entityType = QStringLiteral("well");
+      well.hasSurface = true;
+      well.surfaceX = 10;
+      well.surfaceY = 10;
+      well.coordinateStatus = QStringLiteral("untransformed");
+      QVERIFY(f.catalog.addEntity(well));
+      QString mergeError;
+      QVERIFY2(WellAttributeStore::mergeFormations(
+                   &f.catalog, f.dir.path(), &f.layers,
+                   {QVariantMap{{"well_id", well.id},
+                                {"formation", QStringLiteral("D61")},
+                                {"top_md", 1000},
+                                {"base_md", 1060},
+                                {"facies_code",
+                                 feature.attribute("facies_code").toInt() == 1 ? 2 : 1},
+                                {"dominant_facies", QStringLiteral("对立相")}}},
+                   &mergeError),
+               qPrintable(mergeError));
+    }
+    const auto withWell = f.work.featureEvidence(draft, {feature.id()});
+    const auto wells = withWell.value("wells_in_feature").toList();
+    QCOMPARE(wells.size(), 1);
+    QCOMPARE(wells.first().toMap().value("well_name").toString(),
+             QStringLiteral("井A"));
+    QVERIFY(!wells.first().toMap().value("formation_facies_code").isNull());
     QVERIFY(f.work.addEvidence(
         draft, {feature.id()},
         {{"text", QStringLiteral("井相与当前图斑存在冲突")},
@@ -143,6 +175,13 @@ private slots:
     const auto mid = f.work.featureEvidence(draft, {feature.id()});
     const auto conflicts = mid.value("conflicts").toList();
     QVERIFY(!conflicts.isEmpty());
+    // 井意见（formation 相编码与图斑相不同）必须被点名。
+    bool wellOpinionFlagged = false;
+    for (const auto &value : conflicts)
+      wellOpinionFlagged |=
+          value.toMap().value("evidence").toMap().value("label").toString() ==
+          QStringLiteral("井A");
+    QVERIFY(wellOpinionFlagged);
     // 既有 check 发现（contradicting_evidence）按 manual_dispute 并入。
     bool hasDispute = false;
     for (const auto &value : conflicts)

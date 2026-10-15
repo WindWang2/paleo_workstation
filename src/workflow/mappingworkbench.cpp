@@ -214,6 +214,9 @@ void MappingWorkbench::bindCatalog(DataCatalog *catalog, const QString &dir) {
   m_evidenceSpatialAdapters.clear();
   for (const auto &layer : std::as_const(m_attributionLayers)) delete layer.data();
   m_attributionLayers.clear();
+  // G08：反向索引 sidecar 绑定工程目录——切工程必须重置，否则反查打到
+  // 旧工程的索引（头文件注释承诺的行为）。
+  m_evidenceIndex.reset();
   if (m_wellRemote) m_wellRemote->bindCatalog(catalog, dir);
   m_logVersion.clear();
   m_logCache = {};

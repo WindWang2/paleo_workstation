@@ -387,6 +387,8 @@ QVariantMap MappingWorkbench::composeAttribution(const QString &id,
                                         "基线计算版本的决策，与当前边界可能不一致"));
   return attribution;
 }
+// 冻结输入解析与 composeAttribution/resolveFrozenCompose 同口径（continuous
+// 判定、路径解析、missing 原因）；三处保持一致，修改时同步。
 QVariantMap MappingWorkbench::composeAttributionAt(const QString &id,
                                                    const QgsFeature &f,
                                                    const QPointF &point) const {
@@ -422,8 +424,10 @@ QVariantMap MappingWorkbench::composeAttributionAt(const QString &id,
       continue;
     }
     input.layer = attributionLayer(input.versionId);
-    if (!input.layer)
+    if (!input.layer) {
       input.missing = true;
+      input.missingReason = tr("冻结输入无法按保存时状态打开");
+    }
     inputs << input;
   }
   QList<double> thresholds;

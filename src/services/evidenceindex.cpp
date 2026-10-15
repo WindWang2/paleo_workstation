@@ -20,6 +20,7 @@ namespace paleo::evidenceindex {
 namespace {
 constexpr int kSchemaVersion = 1;
 constexpr int kMaxFeaturesPerVersion = 200000; // 病态文件读取上界
+constexpr qint64 kMaxRowsPerVersion = 2000000;  // 展开行数上界（特征×记录）
 constexpr int kMaxQueryLimit = 1000;           // 查询 limit 钳制上界
 
 // 与成果 GPKG 的字段契约（qgis/mappingfeatureidentity.h + 现有写入面）。
@@ -311,6 +312,7 @@ QVector<Row> readVersion(const CatalogVersion &version, const QString &filePath,
       row.actorId = interpretationActor;
       row.identityReview = identityReview;
       rows.append(row);
+      if (rows.size() >= kMaxRowsPerVersion) break; // 展开行数上界
       if (seen >= kMaxFeaturesPerVersion) break; // 有界读取
       if ((seen & 0xFFF) == 0 && cancelled && cancelled()) {
         *aborted = true;
@@ -358,6 +360,7 @@ QVector<Row> readVersion(const CatalogVersion &version, const QString &filePath,
       row.sourceFeatureMissing =
           record.value(QStringLiteral("source_feature_missing")).toBool(false);
       rows.append(row);
+      if (rows.size() >= kMaxRowsPerVersion) break; // 展开行数上界
     }
     if (seen >= kMaxFeaturesPerVersion) break; // 有界读取
     if ((seen & 0xFFF) == 0 && cancelled && cancelled()) {

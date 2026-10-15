@@ -255,11 +255,36 @@ private slots:
     QCOMPARE(at.value("code").toInt(), code);
     QVERIFY(at.value("winning_input").toMap().contains(QStringLiteral("layer_id")));
     QVERIFY(at.value("nearest_distance").toDouble() >= 0);
-    // 缺失输入版本：删除冻结输入后归因如实列出 unresolved，不静默换用当前版。
-    const auto composedVersion = f.work.versionForLayer(composed);
-    const auto ordered =
-         composedVersion.parentVersionIds;
+    // 缺失输入版本：从目录移除冻结输入的资产后，归因如实给出 unresolved
+    // 与原因，不静默换用当前版本（P1#8 回归）。
+    const auto polygonVersion = f.work.versionForLayer(composed);
+    QVERIFY(!polygonVersion.parentVersionIds.isEmpty());
+    const auto composedVersion =
+        f.catalog.versionById(polygonVersion.parentVersionIds.first());
+    const auto ordered = composedVersion.extra.value("ordered_inputs").toList();
     QVERIFY(!ordered.isEmpty());
+    const auto inputVersionId = ordered.first().toMap().value("version_id").toString();
+    const auto inputVersion = f.catalog.versionById(inputVersionId);
+    QVERIFY(!inputVersion.assetId.isEmpty());
+    // 目录的血缘保护拒绝删除被引用的父版本（正确行为）——用文件缺失
+    // 模拟：missing 检查先于图层缓存，改名后归因必须如实报缺。
+    const auto inputPath =
+        DataCatalog::resolvedVersionPath(f.dir.path(), inputVersion).section('|', 0, 0);
+    QVERIFY(QFile::exists(inputPath));
+    QVERIFY(QFile::rename(inputPath, inputPath + QStringLiteral(".gone")));
+    const auto broken = f.work.featureEvidence(composed, {fid}).value("attribution").toMap();
+    QVERIFY(QFile::rename(inputPath + QStringLiteral(".gone"), inputPath));
+    QCOMPARE(broken.value("status").toString(), QStringLiteral("unresolved"));
+    const auto unresolved = broken.value("unresolved").toList();
+    QVERIFY(!unresolved.isEmpty());
+    bool namedReason = false;
+    for (const auto &value : unresolved)
+      namedReason |= value.toMap().value("reason").toString().contains(
+          QStringLiteral("缺失"));
+    QVERIFY(namedReason);
+    // 恢复后归因回到 ok（缓存按版本重开）。
+    const auto healed = f.work.featureEvidence(composed, {fid}).value("attribution").toMap();
+    QCOMPARE(healed.value("status").toString(), QStringLiteral("ok"));
   }
   void manualDraftHasNoFabricatedAlgorithmAttribution() {
     Fixture f;

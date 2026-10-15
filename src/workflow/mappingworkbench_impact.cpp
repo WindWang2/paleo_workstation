@@ -110,26 +110,34 @@ struct GridDiff {
   bool valid = false;
   qint64 changedCells = 0, totalCells = 0;
   QgsRectangle changedExtent;
-  QVector<QgsPointXY> changedCenters; // 有界采样，供图斑归属
+  QVector<QgsPointXY> changedCenters; // 有界采样，供图斑归属（下界）
+  int samplingStride = 1;             // >1 时 affected_features 是采样下界
 };
 GridDiff diffGrids(const paleo::attribution::GridReplay &before,
                    const paleo::attribution::GridReplay &after) {
   GridDiff diff;
+  // 网格口径必须完全一致（与 compareVersions 同防御）：分辨率相同但范围
+  // 漂移时逐下标比较的是空间错位的像元，结论会伪造——退化为潜在影响。
   if (!before.valid || !after.valid || before.cols != after.cols ||
-      before.rows != after.rows)
+      before.rows != after.rows || before.extent != after.extent)
     return diff;
   diff.valid = true;
   diff.totalCells = qint64(before.cols) * before.rows;
   const double cw = before.extent.width() / before.cols;
   const double ch = before.extent.height() / before.rows;
   const int stride = std::max<int>(1, int(std::sqrt(double(before.cols * before.rows) / 20000.0)));
+  bool firstChangedSeeded = false;
   for (int y = 0; y < before.rows; ++y) {
     for (int x = 0; x < before.cols; ++x) {
       const int i = y * before.cols + x;
       if (before.codes[i] == after.codes[i])
         continue;
       ++diff.changedCells;
-      if (x % stride == 0 && y % stride == 0) {
+      // 保证至少采样到一个变化像元：子格点采样可能全部落在格点之间，
+      // 否则「有变化像元却无受影响图斑」是误导性结论。
+      const bool sampled = (x % stride == 0 && y % stride == 0) || !firstChangedSeeded;
+      if (sampled) {
+        firstChangedSeeded = true;
         const QgsPointXY center(before.extent.xMinimum() + (x + .5) * cw,
                                 before.extent.yMaximum() - (y + .5) * ch);
         diff.changedCenters << center;
@@ -139,6 +147,7 @@ GridDiff diffGrids(const paleo::attribution::GridReplay &before,
       }
     }
   }
+  diff.samplingStride = stride;
   return diff;
 }
 } // namespace
@@ -332,6 +341,10 @@ QVariantMap MappingWorkbench::analyzeImpact(const QVariantMap &change,
         }
       }
       entry.insert("affected_features", affected);
+      if (diff.samplingStride > 1)
+        entry.insert("affected_features_note",
+                     tr("受影响图斑为 %1 步长采样下界，非全量清单")
+                         .arg(diff.samplingStride));
     }
     determined << entry;
   }
@@ -400,12 +413,22 @@ QVariantMap MappingWorkbench::recomputePlan(const QVariantMap &impactResult,
     // 保护口径：受影响图斑中已确认/待复核的人工解释数量（读取旧成果 GPKG，
     // 有界精确查询）。确认记录保留在旧版本；新版本不自动迁移。
     int confirmed = 0, review = 0;
+    // 直接相面子版本只取一次（闭包内孙代不进保护计数口径）。
+    QString polygonChild;
+    for (const auto &cv : m_catalog->downstreamClosure(vid)) {
+      if (cv.extra.value("kind").toString() == QLatin1String("facies_polygons") &&
+          cv.parentVersionIds.contains(vid)) {
+        polygonChild = cv.id;
+        break;
+      }
+    }
     for (const auto &featureValue : entry.value("affected_features").toList()) {
       const auto uid = featureValue.toMap().value("feature_uid").toString();
-      if (uid.isEmpty())
+      if (uid.isEmpty() || polygonChild.isEmpty())
         continue;
-      for (const auto &cv : m_catalog->downstreamClosure(vid)) {
-        const auto child = cv.id;
+      {
+        const auto child = polygonChild;
+        const auto cv = m_catalog->versionById(child);
         if (cv.extra.value("kind").toString() != QLatin1String("facies_polygons"))
           continue;
         auto *layer = qobject_cast<QgsVectorLayer *>(attributionLayer(child));
@@ -481,6 +504,7 @@ QVariantMap MappingWorkbench::executeRecompute(const QVariantMap &plan,
       {"started_at", QDateTime::currentDateTimeUtc().toString(Qt::ISODate)},
       {"results", QVariantList{}}};
   QVariantList results;
+  bool sawTaskStart = false;
   for (const auto &value : plan.value("entries").toList()) {
     const auto entry = value.toMap();
     const auto vid = entry.value("target_version").toString();
@@ -506,7 +530,19 @@ QVariantMap MappingWorkbench::executeRecompute(const QVariantMap &plan,
     QString startError;
     // 复用现有综合编图入口：同参数、当前输入版本 → 生成新版本，
     // 绝不覆盖历史版本；任务模式下异步，完成后走既有 productReady 链。
+    // 任务模式下 compose runner 单飞：首个条目启动后其余条目如实报
+    // 「请等待完成」，不伪装成已排队。
+    const bool firstInTaskMode = m_taskSvc && !sawTaskStart;
+    if (m_taskSvc && sawTaskStart) {
+      results << QVariantMap{{"target_version", vid},
+                             {"ok", false},
+                             {"async", true},
+                             {"error", tr("任务模式下逐条重算：请等待上一条完成后再次执行")}};
+      continue;
+    }
     const bool started = startCompose(horizon, layerIds, params, &startError);
+    if (started && m_taskSvc)
+      sawTaskStart = true;
     results << QVariantMap{{"target_version", vid},
                            {"ok", started},
                            {"async", bool(m_taskSvc)},

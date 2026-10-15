@@ -238,8 +238,6 @@ private slots:
     QCOMPARE(impact.value("status").toString(), QStringLiteral("no_impact"));
     QVERIFY(!impact.value("message").toString().isEmpty());
 
-    const auto consumedIds = QStringList{"__all__"};
-    Q_UNUSED(consumedIds);
     const auto impactAll = f.work.analyzeImpact(
         {{"kind", "constraint_edited"}, {"horizon", "D61"}}, &error);
     QCOMPARE(impactAll.value("analysis_method").toString(),

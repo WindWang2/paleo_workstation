@@ -361,19 +361,28 @@ bool QgisConstraintEditSession::finish(bool save, QString *error)
   m_layer->reload();
   m_layer->triggerRepaint();
   if (save) {
-    // G05：对比会话起点与保存结果，精确点名变化约束（几何或语义变动、
-    // 新增、删除）。无变化则不发——空通知会让下游把每次保存都当变化。
+    // G05：对比会话起点与保存结果，精确点名变化约束。对比覆盖几何与
+    // 语义字段（type/相编码/权重/参数 JSON）——语义变化同样影响下游单
+    // 因素，只比 wkt 会漏报。无变化则不发——空通知会让下游把每次保存
+    // 都当变化。
+    const auto fingerprint = [](const QVariantMap &row) {
+      QStringList parts;
+      for (const auto *key : {"wkt", "type", "facies_code", "weight",
+                              "params_json"})
+        parts << QStringLiteral("%1=%2").arg(QLatin1String(key),
+                                             row.value(QLatin1String(key)).toString());
+      return parts.join(QChar(0x1f));
+    };
     QHash<QString, QString> before;
     for (const auto &row : m_initial)
       before.insert(row.value(QStringLiteral("id")).toString(),
-                    row.value(QStringLiteral("wkt")).toString());
+                    fingerprint(row));
     QStringList changed, removed;
     for (const auto &row : rows) {
       const auto id = row.value(QStringLiteral("id")).toString();
       if (id.isEmpty())
         continue;
-      if (!before.contains(id) ||
-          before.value(id) != row.value(QStringLiteral("wkt")).toString())
+      if (!before.contains(id) || before.value(id) != fingerprint(row))
         changed << id;
       before.remove(id);
     }

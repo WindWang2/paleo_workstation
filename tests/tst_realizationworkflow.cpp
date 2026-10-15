@@ -118,6 +118,19 @@ void RealizationWorkflowTests::publishRoundTripsContract()
   QVERIFY( dir.isValid() );
   DataCatalog cat;
   QVERIFY( cat.open( dir.path() ) );
+  CatalogAsset parentAsset;
+  parentAsset.id = QStringLiteral("ast-parent-1");
+  parentAsset.type = QStringLiteral("raster");
+  parentAsset.format = QStringLiteral("dat");
+  parentAsset.displayName = QStringLiteral("parent-1");
+  QVERIFY(cat.addAsset(parentAsset));
+  CatalogVersion parentVer;
+  parentVer.id = QStringLiteral("ver-parent-1");
+  parentVer.assetId = parentAsset.id;
+  parentVer.stage = QStringLiteral("RAW");
+  parentVer.versionNumber = 1;
+  parentVer.path = DataCatalog::managedPath(QStringLiteral("raw"), parentAsset.id, parentVer.id, QStringLiteral("parent-1.dat"));
+  QVERIFY(cat.addVersion(parentVer));
 
   RealizationWorkflow wf;
   wf.bind( &cat, dir.path(), nullptr );

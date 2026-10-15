@@ -44,10 +44,28 @@ static SampleSet rasterSamples() {
   auto r = CrossplotSamples::planes({a, b});
   return r.samples;
 }
+static void registerMockVersion(DataCatalog &cat, const QString &verId) {
+  CatalogAsset a;
+  a.id = QStringLiteral("ast-") + verId;
+  a.type = QStringLiteral("raster");
+  a.format = QStringLiteral("dat");
+  a.displayName = verId;
+  cat.addAsset(a);
+  CatalogVersion v;
+  v.id = verId;
+  v.assetId = a.id;
+  v.stage = QStringLiteral("RAW");
+  v.versionNumber = 1;
+  v.path = DataCatalog::managedPath(QStringLiteral("raw"), a.id, v.id, verId + QStringLiteral(".dat"));
+  cat.addVersion(v);
+}
+
 void TestFacies::rasterAndCompose() {
   QTemporaryDir dir;
   DataCatalog cat;
   QVERIFY(cat.open(dir.path()));
+  registerMockVersion(cat, QStringLiteral("raw-a"));
+  registerMockVersion(cat, QStringLiteral("raw-b"));
   PaleoProjectStore store;
   PaleoTaskService tasks(&store);
   QgisProjectService project;
@@ -124,6 +142,7 @@ void TestFacies::wellIntervals() {
   well.entityType = "well";
   well.name = "A";
   QVERIFY(cat.addEntity(well));
+  registerMockVersion(cat, QStringLiteral("va"));
   PaleoProjectStore store;
   PaleoTaskService tasks(&store);
   FaciesClassifyWorkflow wf(&tasks, &store, nullptr);

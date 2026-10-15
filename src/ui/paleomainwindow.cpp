@@ -279,7 +279,7 @@ void PaleoMainWindow::buildShell()
          }
        }});
   const auto *screen = QGuiApplication::primaryScreen();
-  const QRect avail = screen ? screen->availableGeometry() : QRect();
+  const QRect avail = (screen && !paleo::ui_detail::isOffscreen()) ? screen->availableGeometry() : QRect();
   const int minW = (avail.width() > 0 && avail.width() < 1280) ? qMax(960, avail.width() - 40) : 1280;
   const int minH = (avail.height() > 0 && avail.height() < 800) ? qMax(540, avail.height() - 40) : 800;
   setMinimumSize(minW, minH); // §42.11 a11y floor with low-viewport adaptive fallback

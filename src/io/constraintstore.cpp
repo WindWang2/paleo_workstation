@@ -201,6 +201,10 @@ struct Transaction {
   }
   bool open(const QString &file, bool allowCreate, QString *error) {
     ensureGdalRegistered(); path = file;
+    if (!QFile::exists(file) && !allowCreate) {
+      if (error) *error = QStringLiteral("Constraint file does not exist: ") + file;
+      return false;
+    }
     if (QFile::exists(file)) ds = GDALOpenEx(file.toUtf8().constData(), GDAL_OF_UPDATE | GDAL_OF_VECTOR, nullptr, nullptr, nullptr);
     else if (allowCreate && QDir().mkpath(QFileInfo(file).absolutePath())) {
       const auto driver = GDALGetDriverByName("GPKG");
@@ -209,7 +213,8 @@ struct Transaction {
     }
     if (ds) sql(ds, "PRAGMA busy_timeout = 5000");
     if (!ds || GDALDatasetStartTransaction(ds, FALSE) != OGRERR_NONE) {
-      *error = QObject::tr("无法打开约束事务：%1").arg(QString::fromUtf8(CPLGetLastErrorMsg())); return false;
+      if (error) *error = QObject::tr("无法打开约束事务：%1").arg(QString::fromUtf8(CPLGetLastErrorMsg()));
+      return false;
     }
     return true;
   }

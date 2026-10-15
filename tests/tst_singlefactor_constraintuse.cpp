@@ -25,7 +25,8 @@ ConstraintUseDecision decide( const QString &type, const QString &json, const QS
 const QStringList kAllMethods = { QStringLiteral( "local_direction_idw" ), QStringLiteral( "local_direction_kriging" ),
                                   QStringLiteral( "surfer_idw" ),          QStringLiteral( "structural_idw" ),
                                   QStringLiteral( "legacy" ),              QStringLiteral( "kriging" ),
-                                  QStringLiteral( "sgs" ),                 QStringLiteral( "cokriging" ) };
+                                  QStringLiteral( "sgs" ),                 QStringLiteral( "cokriging" ),
+                                  QStringLiteral( "distance_transform" ),  QStringLiteral( "min_curvature" ) };
 
 } // namespace
 
@@ -306,6 +307,45 @@ private slots:
         QStringLiteral( "structural_idw" ) );
     QVERIFY( !sdis.consumed );
     QCOMPARE( sdis.reason, QStringLiteral( "disabled" ) );
+  }
+
+  // P2：结构面引擎是 contour_only 屏障模型——完全阻断线也只是解释软边界，
+  // 计划不得声称硬隔断；距离变换/最小曲率只认完全阻断打断线。
+  void structuralContourOnlyAndGriddingEngines()
+  {
+    const ConstraintUseDecision full = decide( QStringLiteral( "break_line" ), QString(), QStringLiteral( "structural_idw" ) );
+    QVERIFY( full.consumed );
+    QCOMPARE( full.role, QStringLiteral( "soft_boundary" ) );
+    QVERIFY( full.warnings.contains( QStringLiteral( "full_block_as_contour_only_soft_boundary" ) ) );
+    ConstraintMethodContext off;
+    off.structuralEnableBarriers = false;
+    const ConstraintUseDecision disabled =
+        decide( QStringLiteral( "break_line" ), QString(), QStringLiteral( "structural_idw" ), kLine, off );
+    QVERIFY( !disabled.consumed );
+    QVERIFY( disabled.cartographicOnly ); // 仍停等值线
+    const ConstraintUseDecision none = decide(
+        QStringLiteral( "break_line" ), QStringLiteral( R"({"semantic":"hard_barrier","blockMode":"none"})" ),
+        QStringLiteral( "structural_idw" ) );
+    QCOMPARE( none.reason, QStringLiteral( "non_blocking" ) );
+    const ConstraintUseDecision zeroSoft = decide(
+        QStringLiteral( "boundary" ), QStringLiteral( R"({"semantic":"interpretive_boundary","softStrength":0})" ),
+        QStringLiteral( "structural_idw" ) );
+    QCOMPARE( zeroSoft.reason, QStringLiteral( "soft_strength_zero" ) );
+    for ( const QString &method : { QStringLiteral( "distance_transform" ), QStringLiteral( "min_curvature" ) } )
+    {
+      QVERIFY( methodReadsConstraints( method ) );
+      QCOMPARE( decide( QStringLiteral( "break_line" ), QString(), method ).role, QStringLiteral( "hard_barrier" ) );
+      const ConstraintUseDecision shown = decide(
+          QStringLiteral( "break_line" ), QStringLiteral( R"({"semantic":"hard_barrier","blockMode":"display_only"})" ),
+          method );
+      QVERIFY2( !shown.consumed, qPrintable( method ) ); // display_only 不隔断
+      QVERIFY( shown.cartographicOnly );
+      QCOMPARE( decide( QStringLiteral( "direction_line" ), QString(), method ).reason,
+                QStringLiteral( "unsupported_by_method" ) );
+      QVERIFY( !decide( QStringLiteral( "direction_line" ), QStringLiteral( R"({"semantic":"direction_guide","ratio":"x"})" ),
+                        method ).blocking );
+      QVERIFY( !methodConstraintCapabilityNote( method ).isEmpty() );
+    }
   }
 
   void multipartIdsAndSummary()

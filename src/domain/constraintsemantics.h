@@ -102,7 +102,7 @@ bool polylineTouchesRect( const QVector<QPointF> &part, const QRectF &rect );
 // soft_boundary：数值软边界（跨界权重衰减）；hull_clip：旧 IDW 凸包裁剪。
 struct ConstraintMethodContext
 {
-  QString methodId; // local_direction_idw | local_direction_kriging | surfer_idw | structural_idw | legacy | kriging | sgs | cokriging
+  QString methodId; // local_direction_idw | local_direction_kriging | surfer_idw | structural_idw | legacy | kriging | sgs | cokriging | distance_transform | min_curvature
   QString horizon;  // 非空时校验行 horizon
   std::optional<QRectF> domain; // 计算域（输出网格范围）；未知时不判域
   double legacyAnisoRatio = 2.0; // paleo_constraint_idw ANISO_RATIO（引擎缺省 2）

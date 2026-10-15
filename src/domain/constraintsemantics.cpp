@@ -327,7 +327,8 @@ QString canonicalConstraintMethod( const QString &methodId )
   static const QStringList known = { QStringLiteral( "local_direction_idw" ), QStringLiteral( "local_direction_kriging" ),
                                      QStringLiteral( "surfer_idw" ),          QStringLiteral( "structural_idw" ),
                                      QStringLiteral( "kriging" ),             QStringLiteral( "sgs" ),
-                                     QStringLiteral( "cokriging" ) };
+                                     QStringLiteral( "cokriging" ),           QStringLiteral( "distance_transform" ),
+                                     QStringLiteral( "min_curvature" ) };
   return known.contains( methodId ) ? methodId : QString();
 }
 
@@ -366,8 +367,12 @@ QString methodConstraintCapabilityNote( const QString &methodId )
     return QObject::tr( "消费：硬屏障（有限断层绕行距离）；方向线与软边界不参与（各向异性只用全局比值/角度）；"
                         "停线/制图绕行只作用于制图。" );
   if ( m == QLatin1String( "structural_idw" ) )
-    return QObject::tr( "消费：完全阻断线（硬隔断）、方向线（裁到成图域）、解释软边界；"
-                        "仅显示停线按上游语义转为解释软边界（只改趋势权重，不隔断）。" );
+    return QObject::tr( "结构面 IDW 采用上游 contour_only 屏障模型：完全阻断线与仅显示停线都转为解释软边界"
+                        "（只改趋势权重并停等值线，不隔断数值场）；方向线（裁到成图域）；解释软边界（强度>0）。" );
+  if ( m == QLatin1String( "distance_transform" ) )
+    return QObject::tr( "消费：完全阻断打断线（距离绕障）；方向线、软边界、停线/制图绕行不参与。" );
+  if ( m == QLatin1String( "min_curvature" ) )
+    return QObject::tr( "消费：完全阻断打断线（无通量内边界）；方向线、软边界、停线/制图绕行不参与。" );
   if ( m == QLatin1String( "legacy" ) )
     return QObject::tr( "消费：完全阻断打断线（网格连通+凸包裁剪）、方向线（全域长度加权平均方向，"
                         "逐线比值/半径不参与）；软边界/停线/制图绕行不参与。" );
@@ -524,8 +529,9 @@ void decideByMethod( ConstraintUseDecision &d, const ConstraintSemantics &s, con
   }
   if ( method == QLatin1String( "structural_idw" ) )
   {
-    // keepDisabled/keepNonBlockingBarriers 口径：hard_barrier 带原文 blockMode；
-    // contour_stop/cartographic_detour → display_only 停线。
+    // 上游 contour_only 屏障模型（structural.cpp buildStructuralSurface）：
+    // 完全阻断与 display_only 线都进 stops → 解释软边界（趋势权重）+ 停等值线
+    // 缓冲；没有硬分区。所以这里绝不报 hard_barrier 角色。
     QString mode = normalizeBlockModeToken( s.blockMode );
     if ( sem == QLatin1String( "contour_stop" ) || sem == QLatin1String( "cartographic_detour" ) )
       mode = isFullBlockModeToken( mode ) ? QStringLiteral( "display_only" ) : mode;
@@ -534,26 +540,20 @@ void decideByMethod( ConstraintUseDecision &d, const ConstraintSemantics &s, con
       d.supported = true;
       const bool full = sem == QLatin1String( "hard_barrier" ) && isFullBlockModeToken( mode );
       const bool stop = full || mode == QLatin1String( "display_only" );
-      if ( full )
+      if ( !stop )
       {
-        consume( d, QStringLiteral( "hard_barrier" ) );
-        if ( !context.structuralEnableBarriers )
-          reject( d, QStringLiteral( "barriers_disabled_by_request" ) );
+        reject( d, QStringLiteral( "non_blocking" ) );
         return;
       }
-      if ( stop && context.structuralEnableBarriers && context.structuralInterpretiveStrengthPositive )
+      if ( context.structuralEnableBarriers && context.structuralInterpretiveStrengthPositive )
       {
         consume( d, QStringLiteral( "soft_boundary" ) );
-        d.warnings << QStringLiteral( "display_only_as_interpretive_soft_boundary" );
+        d.warnings << ( full ? QStringLiteral( "full_block_as_contour_only_soft_boundary" )
+                             : QStringLiteral( "display_only_as_interpretive_soft_boundary" ) );
         return;
       }
-      if ( stop )
-      {
-        d.cartographicOnly = true;
-        reject( d, QStringLiteral( "interpretive_strength_zero_or_barriers_disabled" ) );
-        return;
-      }
-      reject( d, QStringLiteral( "non_blocking" ) );
+      d.cartographicOnly = true; // 仍参与停等值线缓冲
+      reject( d, QStringLiteral( "interpretive_strength_zero_or_barriers_disabled" ) );
       return;
     }
     if ( sem == QLatin1String( "direction_guide" ) )
@@ -569,15 +569,38 @@ void decideByMethod( ConstraintUseDecision &d, const ConstraintSemantics &s, con
         reject( d, QStringLiteral( "outside_compute_domain" ) ); // 方向线裁到成图域
         return;
       }
+      if ( !( s.ratio > 1.0 ) )
+      {
+        reject( d, QStringLiteral( "direction_ratio_not_above_one" ) ); // 比值 1 = 各向同性核，无方向作用
+        return;
+      }
       consume( d, QStringLiteral( "direction_guide" ) );
       return;
     }
     if ( sem == QLatin1String( "interpretive_boundary" ) )
     {
+      d.supported = true;
+      if ( !( s.softStrength > 0.0 ) )
+      {
+        reject( d, QStringLiteral( "soft_strength_zero" ) ); // 强度 0 对趋势权重无作用
+        return;
+      }
       consume( d, QStringLiteral( "soft_boundary" ) );
       return;
     }
     reject( d, QStringLiteral( "unsupported_by_method" ) );
+    return;
+  }
+  if ( method == QLatin1String( "distance_transform" ) || method == QLatin1String( "min_curvature" ) )
+  {
+    // 两个网格化引擎只认完全阻断打断线（距离绕障 / 无通量内边界）。
+    if ( sem == QLatin1String( "hard_barrier" ) )
+    {
+      consume( d, QStringLiteral( "hard_barrier" ) );
+      return;
+    }
+    d.cartographicOnly = cartographic;
+    reject( d, cartographic ? QStringLiteral( "cartographic_only" ) : QStringLiteral( "unsupported_by_method" ) );
     return;
   }
   if ( method == QLatin1String( "legacy" ) )

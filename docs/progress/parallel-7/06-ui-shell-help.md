@@ -1,8 +1,8 @@
 # 方向 06 · 分阶段 ledger：六页主界面 / Dock·Ribbon / 交互可用性 / 帮助体系
 
 - 分支：`goal7/ui-shell-help-20261014`（worktree `../paleo-wt-goal7-ui-shell`）
-- base：`origin/master` = `b0520429c21f858a1c053b876f511680088564a9`（开工与每次 push 前核对，未移动）
-- 代码提交：`fd3f7273`（dock 策略 + 布局反馈）、`7ce9cf8c`（帮助条目）、`dd36bac9`（ribbon 键盘可达 / 镜像帮助 / 定位器键盘出口）、`9e30e17a`（导入命令接 `ToolAvailabilityService` 全局门）、`6d0f82db`（ribbon 帮助全覆盖）
+- base：`origin/master` = `447a9d04d59d75183b1b85f8ff254d30c2df2f93`（#445 已于 2026-10-15 合并为 `a93f8b6d`，阶段 3 提交 rebase 到其上，`--onto` 无冲突）
+- 代码提交：`fd3f7273`（dock 策略 + 布局反馈）、`7ce9cf8c`（帮助条目）、`dd36bac9`（ribbon 键盘可达 / 镜像帮助 / 定位器键盘出口）、阶段 3（rebase 后）：`39502a87`（导入命令接 `ToolAvailabilityService` 全局门）、`b0f24912`（ribbon 帮助全覆盖）
 - 基线与运行期审计：`06-baseline.md`；PR 正文：`06-pr-description.md`；截图：`assets/`
 - 构建：Debug / Ninja，全程 `flock -x /tmp/paleo_workstation_global_build_j4.lock`，`-j4`
 
@@ -41,7 +41,7 @@
 - 门的覆盖面：global gate 只表达「工程未开」。逐层 `layerBusy`/任务忙的细粒度理由仍留在各页现有门控里（它们理由更具体），本适配层不接管；将来 owner 若想显示「图层忙」，同一 `applyGate` 钩子可复用。
 - 行为变化（有意）：无工程时导入入口整体置灰——此前是点了、选完文件、才在 `DataImportService` 里失败。
 
-## 最终验证（在 `6d0f82db` 的代码上实跑，探针已移除）
+## 最终验证（在 rebase 后 `b0f24912` 的代码上实跑，探针已移除）
 
 | 项 | 命令 | 结果 |
 |---|---|---|

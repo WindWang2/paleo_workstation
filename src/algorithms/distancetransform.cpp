@@ -105,8 +105,7 @@ QVariantMap PaleoDistanceTransformAlgorithm::processAlgorithm( const QVariantMap
 
   // ---- break_line barriers（typed 语义与 ConstraintIDW 一致：仅 break_line
   //      阻断；direction_line/旧 shape 词对距离面不参与）---------------------
-  std::vector<QgsPolylineXY> barrierPolylines;
-  QVariantList constraintReceipts; // 引擎实际消费回执（CONSTRAINT_RECEIPTS）
+  paleo::algorithms::UnifiedBarrierRead barrierRead; // 完全阻断部件 + 引擎回执
   {
     std::unique_ptr<QgsProcessingFeatureSource> constraints(
         parameterAsSource( parameters, QStringLiteral( "CONSTRAINTS" ), context ) );
@@ -139,7 +138,7 @@ QVariantMap PaleoDistanceTransformAlgorithm::processAlgorithm( const QVariantMap
       }
       // P2：统一语义（domain/constraintsemantics）——只有完全阻断打断线隔断距离；
       // 停用、display_only/none、非法参数、无效几何不用并留回执。
-      const paleo::algorithms::UnifiedBarrierRead read = paleo::algorithms::readUnifiedHardBarriers(
+      barrierRead = paleo::algorithms::readUnifiedHardBarriers(
           constraints.get(), QStringLiteral( "distance_transform" ), [&xform]( QgsGeometry &g ) {
             if ( !xform )
               return;
@@ -156,12 +155,8 @@ QVariantMap PaleoDistanceTransformAlgorithm::processAlgorithm( const QVariantMap
               throw QgsProcessingException(
                   QStringLiteral( "Constraint geometry failed to transform into the well CRS" ) );
           } );
-      constraintReceipts = read.receipts;
-      for ( const QgsGeometry &part : read.parts )
-        barrierPolylines.push_back( part.asPolyline() );
     }
   }
-  const bool hasBarriers = !barrierPolylines.empty();
 
   // ---- output grid：10% margin，退化轴补一格（与 ConstraintIDW 同约定）----
   const QgsRectangle raw = source->sourceExtent();
@@ -186,12 +181,25 @@ QVariantMap PaleoDistanceTransformAlgorithm::processAlgorithm( const QVariantMap
                                                           PaleoRasterOut::canonicalWktFromParameters( parameters ) );
   if ( !outDs )
     throw QgsProcessingException( QStringLiteral( "Cannot create output raster %1" ).arg( outPath ) );
-  GDALSetMetadataItem( outDs, "PALEO_BREAK_LINES",
-                       QString::number( barrierPolylines.size() ).toUtf8().constData(), nullptr );
+  const qsizetype cellCount = static_cast<qsizetype>( nCols ) * nRows;
+  // ---- barrier rasterization（半格超采样步进，同 ConstraintIDW 口径）--------
+  // P3：逐部件记是否落格；一个格都没落上的阻断线不隔断、回执如实改为
+  // outside_compute_domain，且不因它把精确欧氏距离换成 8 邻接近似。
+  std::vector<uint8_t> blocked;
+  const int touchedParts = paleo::algorithms::rasterizeBarrierParts(
+      barrierRead, extent.xMinimum(), extent.yMaximum(), cellSize, nCols, nRows, blocked,
+      [feedback] { return feedback && feedback->isCanceled(); } );
+  if ( touchedParts < 0 )
+  {
+    GDALClose( outDs );
+    throw QgsProcessingException( QStringLiteral( "Canceled" ) );
+  }
+  const bool hasBarriers = touchedParts > 0;
+  const QVariantList &constraintReceipts = barrierRead.receipts;
+  GDALSetMetadataItem( outDs, "PALEO_BREAK_LINES", QString::number( touchedParts ).toUtf8().constData(), nullptr );
   GDALSetMetadataItem( outDs, "PALEO_BARRIER_AWARE", hasBarriers ? "1" : "0", nullptr );
   GDALRasterBandH outBand = GDALGetRasterBand( outDs, 1 );
 
-  const qsizetype cellCount = static_cast<qsizetype>( nCols ) * nRows;
   if ( !hasBarriers )
   {
     // ---- exact Euclidean（与 paleo:paleo_welldist 同口径）-------------------
@@ -203,28 +211,6 @@ QVariantMap PaleoDistanceTransformAlgorithm::processAlgorithm( const QVariantMap
     out.insert( QStringLiteral( "CONSTRAINT_RECEIPTS" ), paleo::algorithms::constraintReceiptsJson( constraintReceipts ) );
     return out;
   }
-
-  // ---- barrier rasterization（半格超采样步进，同 ConstraintIDW 口径）--------
-  std::vector<uint8_t> blocked( static_cast<size_t>( cellCount ), 0 );
-  for ( const QgsPolylineXY &pl : barrierPolylines )
-    for ( int i = 1; i < pl.size(); ++i )
-    {
-      if ( feedback && feedback->isCanceled() )
-      {
-        GDALClose( outDs );
-        throw QgsProcessingException( QStringLiteral( "Canceled" ) );
-      }
-      const QgsPointXY a = pl[i - 1], b = pl[i];
-      const double len = a.distance( b );
-      const int steps = std::max( 1, static_cast<int>( std::ceil( len / ( cellSize * 0.5 ) ) ) );
-      for ( int s = 0; s <= steps; ++s )
-      {
-        int c = 0, r = 0;
-        if ( cellOf( a.x() + ( b.x() - a.x() ) * s / steps,
-                     a.y() + ( b.y() - a.y() ) * s / steps, c, r ) )
-          blocked[static_cast<qsizetype>( r ) * nCols + c] = 1;
-      }
-    }
 
   // ---- multi-source Dijkstra（8 邻接，边权 1 / √2 格；对角步穿角检查见
   //      下方松弛循环）---------------------------------------------------------

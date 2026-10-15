@@ -596,6 +596,13 @@ void decideByMethod( ConstraintUseDecision &d, const ConstraintSemantics &s, con
     // 两个网格化引擎只认完全阻断打断线（距离绕障 / 无通量内边界）。
     if ( sem == QLatin1String( "hard_barrier" ) )
     {
+      d.supported = true;
+      // P3：引擎逐部件记落格；成图域已知且部件不触域 → 不消费（与引擎回执同口径）。
+      if ( d.domainKnown && !d.inDomain )
+      {
+        reject( d, QStringLiteral( "outside_compute_domain" ) );
+        return;
+      }
       consume( d, QStringLiteral( "hard_barrier" ) );
       return;
     }

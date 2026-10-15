@@ -146,8 +146,7 @@ QVariantMap MinimumCurvatureAlgorithm::processAlgorithm( const QVariantMap &para
     throw QgsProcessingException( QStringLiteral( "INPUT contains no usable point features" ) );
 
   // ---- constraints: only break_line acts as a barrier (typed C1 vocabulary) --
-  QVector<QgsGeometry> breakGeoms;
-  QVariantList constraintReceipts; // 引擎实际消费回执（CONSTRAINT_RECEIPTS）
+  paleo::algorithms::UnifiedBarrierRead barrierRead; // 完全阻断部件 + 引擎回执
   {
     std::unique_ptr<QgsProcessingFeatureSource> constraints(
         parameterAsSource( parameters, QStringLiteral( "CONSTRAINTS" ), context ) );
@@ -180,7 +179,7 @@ QVariantMap MinimumCurvatureAlgorithm::processAlgorithm( const QVariantMap &para
       }
       // P2：统一语义——只有完全阻断打断线成为无通量内边界；停用、display_only/
       // none、非法参数、无效几何不用并留回执（不再只看 type 列）。
-      const paleo::algorithms::UnifiedBarrierRead read = paleo::algorithms::readUnifiedHardBarriers(
+      barrierRead = paleo::algorithms::readUnifiedHardBarriers(
           constraints.get(), QStringLiteral( "min_curvature" ), [&xform]( QgsGeometry &g ) {
             if ( !xform )
               return;
@@ -197,8 +196,6 @@ QVariantMap MinimumCurvatureAlgorithm::processAlgorithm( const QVariantMap &para
               throw QgsProcessingException( QStringLiteral(
                   "Constraint geometry failed to transform into the input CRS" ) );
           } );
-      constraintReceipts = read.receipts;
-      breakGeoms = read.parts;
     }
   }
 
@@ -233,42 +230,23 @@ QVariantMap MinimumCurvatureAlgorithm::processAlgorithm( const QVariantMap &para
 
   // ---- break_line barriers: half-cell supersampled rasterization -------------
   // （与 ConstraintIDW 的栅格化同口径；隔离语义交给核的无通量内边界。）
+  // P3：逐部件记是否落格；未落格的阻断线回执改为 outside_compute_domain。
   std::vector<std::uint8_t> barrierMask;
-  if ( !breakGeoms.isEmpty() )
+  int touchedParts = 0;
+  if ( !barrierRead.parts.isEmpty() )
   {
-    barrierMask.assign( static_cast<std::size_t>( dims.rows ) * dims.cols, 0 );
-    auto cellOf = [&]( double x, double y, int &c, int &r ) {
-      c = static_cast<int>( std::floor( ( x - extent.xMinimum() ) / cellSize ) );
-      r = static_cast<int>( std::floor( ( extent.yMaximum() - y ) / cellSize ) );
-      return c >= 0 && c < dims.cols && r >= 0 && r < dims.rows;
-    };
-    for ( const QgsGeometry &g : breakGeoms )
+    touchedParts = paleo::algorithms::rasterizeBarrierParts(
+        barrierRead, extent.xMinimum(), extent.yMaximum(), cellSize, dims.cols, dims.rows, barrierMask,
+        [feedback] { return feedback && feedback->isCanceled(); } );
+    if ( touchedParts < 0 )
     {
-      const QgsMultiPolylineXY mpl =
-          g.isMultipart() ? g.asMultiPolyline() : QgsMultiPolylineXY{ g.asPolyline() };
-      for ( const QgsPolylineXY &pl : mpl )
-        for ( int i = 1; i < pl.size(); ++i )
-        {
-          if ( feedback && feedback->isCanceled() )
-          {
-            GDALClose( outDs );
-            throw QgsProcessingException( QStringLiteral( "Canceled" ) );
-          }
-          const QgsPointXY &a = pl[i - 1];
-          const QgsPointXY &b = pl[i];
-          const double len = a.distance( b );
-          const int steps =
-              std::max( 1, static_cast<int>( std::ceil( len / ( cellSize * 0.5 ) ) ) );
-          for ( int s = 0; s <= steps; ++s )
-          {
-            int c = 0, r = 0;
-            if ( cellOf( a.x() + ( b.x() - a.x() ) * s / steps,
-                         a.y() + ( b.y() - a.y() ) * s / steps, c, r ) )
-              barrierMask[static_cast<std::size_t>( r ) * dims.cols + c] = 1;
-          }
-        }
+      GDALClose( outDs );
+      throw QgsProcessingException( QStringLiteral( "Canceled" ) );
     }
+    if ( touchedParts == 0 )
+      barrierMask.clear();
   }
+  const QVariantList &constraintReceipts = barrierRead.receipts;
 
   // ---- solve ------------------------------------------------------------------
   paleo::gridsolver::GriddingParams gp;
@@ -336,7 +314,7 @@ QVariantMap MinimumCurvatureAlgorithm::processAlgorithm( const QVariantMap &para
   meta( "PALEO_CONSTRAINED_NODES", QString::number( stats.constrainedNodes ) );
   meta( "PALEO_COLLISIONS", QString::number( stats.collisions ) );
   meta( "PALEO_REJECTED", QString::number( stats.rejected ) );
-  meta( "PALEO_BREAK_LINES", QString::number( breakGeoms.size() ) );
+  meta( "PALEO_BREAK_LINES", QString::number( touchedParts ) );
   meta( "PALEO_DIST_TO_DATA_MAX", QString::number( distMax ) );
   meta( "PALEO_DIST_TO_DATA_MEAN",
         distCount > 0 ? QString::number( distSum / distCount ) : QString() );

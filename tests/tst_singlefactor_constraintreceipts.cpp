@@ -436,10 +436,25 @@ private slots:
         QJsonDocument::fromJson( result.value( QStringLiteral( "CONSTRAINT_RECEIPTS" ) ).toString().toUtf8() ).array();
     QMap<QString, QString> roles;
     const QStringList engine = receiptConsumed( receipts, &roles );
-    QCOMPARE( engine, planConsumed( planMethod, std::nullopt ) );
+    // P3：引擎逐部件记落格，计划按成图域（井点范围外扩 10%）判域——两者一致。
+    QCOMPARE( engine, planConsumed( planMethod, paddedWellExtent() ) );
     QCOMPARE( roles.value( QStringLiteral( "b_full" ) ), QStringLiteral( "hard_barrier" ) );
-    for ( const char *id : { "b_display", "b_none", "b_disabled", "b_zero", "b_bowtie", "d_main", "s_soft", "c_stop" } )
+    for ( const char *id : { "b_display", "b_none", "b_disabled", "b_zero", "b_bowtie", "d_main", "s_soft", "c_stop",
+                             "b_outside" } )
       QVERIFY2( !engine.contains( QString::fromLatin1( id ) ), id );
+    QString outsideReason;
+    for ( const QJsonValue &v : receipts )
+      if ( v.toObject().value( QStringLiteral( "id" ) ).toString() == QLatin1String( "b_outside" ) )
+        outsideReason = v.toObject().value( QStringLiteral( "reason" ) ).toString();
+    QCOMPARE( outsideReason, QStringLiteral( "outside_compute_domain" ) );
+    // 元数据计数 == 回执里的硬屏障数（栅格外屏障不计）。
+    GDALDatasetH ds = GDALOpen( mDir.filePath( planMethod + QStringLiteral( ".tif" ) ).toUtf8().constData(), GA_ReadOnly );
+    QVERIFY( ds );
+    int barriers = 0;
+    for ( const QString &role : roles )
+      barriers += role == QLatin1String( "hard_barrier" ) ? 1 : 0;
+    QCOMPARE( QByteArray( GDALGetMetadataItem( ds, "PALEO_BREAK_LINES", nullptr ) ), QByteArray::number( barriers ) );
+    GDALClose( ds );
   }
 
   // 数值层面：display_only 打断线不隔断（与无约束逐位一致），同一条线改成
@@ -449,14 +464,15 @@ private slots:
   {
     QFETCH( QString, algorithm );
     QFETCH( QString, planMethod );
-    const auto run = [&]( const QString &json, const QString &name ) -> QByteArray {
+    const auto run = [&]( const QString &json, const QString &name,
+                          const QString &wkt = QStringLiteral( "LINESTRING(50 -20, 50 120)" ) ) -> QByteArray {
       QgsVectorLayer lines( QStringLiteral( "LineString?crs=EPSG:3857&field=id:string&field=horizon:string&field=type:string"
                                             "&field=params_json:string&field=schema_version:integer" ),
                             QStringLiteral( "c" ), QStringLiteral( "memory" ) );
       if ( !json.isNull() )
       {
         QgsFeature f( lines.fields() );
-        f.setGeometry( QgsGeometry::fromWkt( QStringLiteral( "LINESTRING(50 -20, 50 120)" ) ) );
+        f.setGeometry( QgsGeometry::fromWkt( wkt ) );
         f.setAttributes( QgsAttributes() << QStringLiteral( "wall" ) << QStringLiteral( "H1" )
                                          << QStringLiteral( "break_line" ) << json << 1 );
         lines.dataProvider()->addFeature( f );
@@ -494,6 +510,11 @@ private slots:
     QVERIFY2( full != none, "对照失效：完全阻断线应改变结果" );
     QCOMPARE( shown, none );
     QCOMPARE( disabled, none );
+    // P3：完全落在栅格外的完全阻断线不隔断——与无约束逐位一致
+    //（距离变换此前会因它从精确欧氏切到 8 邻接近似）。
+    const QByteArray outside = run( QStringLiteral( R"({"semantic":"hard_barrier","blockMode":"full_block"})" ),
+                                    planMethod + QStringLiteral( "-outside.tif" ), QStringLiteral( "LINESTRING(1000 0, 1100 0)" ) );
+    QCOMPARE( outside, none );
   }
 
   // 地统方法不读约束：计划逐条标未使用。

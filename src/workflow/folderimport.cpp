@@ -316,12 +316,23 @@ void FolderImportWorkflow::importFolder(const QString &dir,
       // 台账写进「当前打开」工程的 sidecar：produce 期间若已切换工程，当前
       // catalog 是另一个工程的——把别处的、整批作废的导入记进它的审计台账
       // 是串账（opt-01 P5）。此时只经回调如实报「工程已切换」，不入账。
+      // 同一工程的判定先比词法路径，再比规范路径（setProjectDir 可带预开
+      // catalog，其目录字符串形态未必与 session.projectDir 一致——不能因写法
+      // 不同把正常批次漏记）。
       DataCatalog *cat = m_svc ? m_svc->catalog() : nullptr;
-      const bool sameProject =
-          cat && !s.projectDir.isEmpty() &&
-          QDir::cleanPath(cat->catalogPath()) ==
-              QDir::cleanPath(QDir(s.projectDir).filePath(
-                  QStringLiteral("artifacts/metadata/catalog.json")));
+      bool sameProject = false;
+      if (cat && !s.projectDir.isEmpty())
+      {
+        const QString catDir =
+            QDir::cleanPath(cat->catalogPath() + QStringLiteral("/../../.."));
+        const QString sessionDir = QDir::cleanPath(s.projectDir);
+        sameProject = catDir == sessionDir;
+        if (!sameProject)
+        {
+          const QString a = QFileInfo(catDir).canonicalFilePath();
+          sameProject = !a.isEmpty() && a == QFileInfo(sessionDir).canonicalFilePath();
+        }
+      }
       if (sameProject)
         recordLedger(dir, started, s.rows, s.error);
       else

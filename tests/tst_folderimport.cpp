@@ -685,7 +685,11 @@ void folderImportAcrossProjectSwitchDoesNotCrossPostLedger()
   QFile src(las);
   QVERIFY(src.open(QIODevice::ReadOnly));
   QCOMPARE(src.readAll(), lasBytes);
-  // 同工程的正常批次仍入账（守护：判定不误伤）。
+  // 同工程的正常批次仍入账（守护：判定不误伤）——以另一种写法（冗余 ./ 与
+  // 尾部斜杠）重设同一工程，归一化后仍判同一工程、照常入账。
+  stack->importSvc->setProjectDir(projectB + QStringLiteral("/./"));
+  catB = stack->importSvc->catalog();
+  QVERIFY(catB && catB->isOpen());
   done = false;
   wf.importFolder(area, {}, [&](const QVector<FolderRowResult> &r, const QString &e) {
     done = true;

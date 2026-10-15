@@ -111,6 +111,11 @@ class DataListPanel : public QWidget
     // ---- D1.9 ----
     // 命令面（测试/编程式操作入口；右键菜单与拖放共用）。
     void pushCommand(paleo::dataops::DataOpCommand *cmd);
+    // 批量面：N 条命令一次入栈、一次刷新——单条 pushCommand 每次全量重建，
+    // 批量挂接/打标签 N 项即 N 次整表重建（dataopsundo.h 的设计注释本就
+    // 要求刷新由订阅方统一做）。命令所有权同 push：入栈即归栈；栈不在场
+    // 时由本函数负责删除。
+    void pushCommands(const QVector<paleo::dataops::DataOpCommand *> &cmds);
 
   public slots:
     void selectAllVisibleAssets();

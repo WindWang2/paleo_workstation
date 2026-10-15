@@ -8,6 +8,10 @@
 #include <QElapsedTimer>
 #include <QTimer>
 #include <QComboBox>
+#include <QDialogButtonBox>
+#include <QInputDialog>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QTabWidget>
 #include <atomic>
 #include <thread>
@@ -533,6 +537,111 @@ private slots:
     QCOMPARE(int(panel.lastTreeRefreshMode()), int(DataListPanel::TreeRefreshMode::Incremental));
     QCOMPARE(wellItem->childCount(), 1);
     QCOMPARE(wellItem->child(0)->data(0, Qt::UserRole + 2).toString(), QStringLiteral("well_log"));
+  }
+
+  // A3（方向 01）：批量改型（视图层改写）后表视图类型列、类型过滤的可见性
+  // 必须即时就位——增量通道只更新虚拟模型不清过滤口径的旧缺陷回归；同时
+  // 钉住「同集同序同数据跳过 setRows」：applyListFilter 不再无差别重置
+  // 虚拟视图选区。
+  void batchTypeOverrideRefreshesViewsAndKeepsFilter() {
+    QTemporaryDir dir;
+    QVERIFY(PerfFixtures::makeSyntheticCatalogDir(dir.path(), 6));
+    DataImportService importer; importer.setProjectDir(dir.path());
+    PreviewDocService doc(&importer);
+    DataListPanel panel; panel.setDocService(&doc);
+    panel.resize(640, 740); panel.setViewMode(3); panel.show();
+    panel.refreshAssetTable();
+    QCoreApplication::processEvents();
+    auto *table = panel.findChild<QTableWidget *>("assetTable"); QVERIFY(table);
+    const QString target = importer.catalog()->assets().constFirst().id;
+    panel.selectAssetInViews(target);
+    QVERIFY(panel.currentAssetSelection().contains(target));
+
+    // 模态驱动：确认对话框选 tops 并确认（无捕获 lambda——重试定时器不悬垂）。
+    static const auto driveBatchType = [] {
+      auto *dlg = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+      if (!dlg)
+        return false;
+      auto *combo = dlg->findChild<QComboBox *>("batchTypeCombo");
+      auto *box = dlg->findChild<QDialogButtonBox *>();
+      if (!combo || !box)
+        return false;
+      combo->setCurrentText(QStringLiteral("tops"));
+      box->button(QDialogButtonBox::Ok)->click();
+      return true;
+    };
+    QTimer::singleShot(0, [] {
+      if (!driveBatchType())
+        QTimer::singleShot(20, nullptr, [] { driveBatchType(); });
+    });
+    QMetaObject::invokeMethod(&panel, "batchChangeType");
+    QCoreApplication::processEvents();
+
+    // 表视图类型列即时显示新类型（旧缺陷：保持 well_log 直到任意下次刷新）。
+    int targetRow = -1;
+    for (int r = 0; r < table->rowCount(); ++r)
+      if (table->item(r, 0)->data(Qt::UserRole).toString() == target)
+        targetRow = r;
+    QVERIFY(targetRow >= 0);
+    QCOMPARE(table->item(targetRow, 1)->text(), QStringLiteral("tops"));
+    // 选区保持：增量分支快照 m_pageSelection → applyListFilter 重灌表体后
+    // 由 m_selKeep 还原表选中（sameRowsAs 只在数据零变化时跳过 setRows，
+    // 改型路径 effectiveType 已变、重建是预期行为）。
+    QVERIFY(panel.currentAssetSelection().contains(target));
+
+    // 类型过滤按生效类型重算：筛 well_log 时目标行隐藏（旧缺陷：仍可见）。
+    auto *typeFilter = panel.findChild<QComboBox *>("assetTypeFilter"); QVERIFY(typeFilter);
+    const int wl = typeFilter->findData(QStringLiteral("well_log"));
+    QVERIFY(wl >= 0);
+    typeFilter->setCurrentIndex(wl);
+    panel.applyListFilter();
+    for (int r = 0; r < table->rowCount(); ++r)
+      if (table->item(r, 0)->data(Qt::UserRole).toString() == target)
+        QVERIFY(table->isRowHidden(r));
+    // 注：currentAssetSelection 仍会含 target——D1.10 语义要求 m_pageSelection
+    // 保留被过滤 id 以便清过滤后还原选区（同文件既有测试钉死），不是缺陷。
+  }
+
+  // C1（方向 01）：批量打标签 N 条命令一次收口刷新——旧缺陷 N 项选中即
+  // N 次整表重建（与 dataopsundo.h「刷新由栈信号订阅方统一做」的设计注释
+  // 相悖）。观察面：entityRefreshRequested 恰一次 + sidecar 功能不变。
+  void batchAddTagRefreshesOnce() {
+    QTemporaryDir dir;
+    QVERIFY(PerfFixtures::makeSyntheticCatalogDir(dir.path(), 4));
+    DataImportService importer; importer.setProjectDir(dir.path());
+    PreviewDocService doc(&importer);
+    DataListPanel panel; panel.setDocService(&doc);
+    panel.resize(640, 740); panel.setViewMode(1); panel.show();
+    panel.refreshAssetTable();
+    QCoreApplication::processEvents();
+    panel.selectAllVisibleAssets();
+    QCOMPARE(int(panel.currentAssetSelection().size()), 4);
+
+    QSignalSpy refreshSpy(&panel, &DataListPanel::entityRefreshRequested);
+    static const auto driveTagInput = [] {
+      auto *dlg = qobject_cast<QInputDialog *>(QApplication::activeModalWidget());
+      if (!dlg)
+        return false;
+      dlg->setTextValue(QStringLiteral("batch-tag"));
+      dlg->accept();
+      return true;
+    };
+    QTimer::singleShot(0, [] {
+      if (!driveTagInput())
+        QTimer::singleShot(20, nullptr, [] { driveTagInput(); });
+    });
+    QMetaObject::invokeMethod(&panel, "batchAddTag");
+    QCoreApplication::processEvents();
+    QCOMPARE(refreshSpy.count(), 1); // 4 项一次收口（旧缺陷：4 次）
+
+    // 功能面不回归：sidecar 四个资产都带上标签。
+    QFile tags(QDir(dir.path()).filePath(QStringLiteral(".paleo/asset_tags.json")));
+    QVERIFY(tags.open(QIODevice::ReadOnly));
+    const QJsonObject root = QJsonDocument::fromJson(tags.readAll()).object();
+    const QJsonObject tagMap = root.value(QStringLiteral("tags")).toObject();
+    QCOMPARE(tagMap.size(), 4);
+    for (auto it = tagMap.constBegin(); it != tagMap.constEnd(); ++it)
+      QVERIFY(it.value().toArray().contains(QStringLiteral("batch-tag")));
   }
 
   void governanceUiPreviewCancelAndTokens() {

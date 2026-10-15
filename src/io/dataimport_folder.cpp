@@ -316,7 +316,15 @@ DataImportService::executePlannedItem(const PlannedItem &item, QString *error)
   FolderRowResult row;
   QString perr;
   const auto s = runInline([&](ImportSession &sess) {
+    // 行级失败隔离（A1）：单项重试与批量逐项同口径——失败行可能已在
+    // staging 副本上留下半截登记（addAsset/addVersion 之后失败），提交前
+    // 整体撤回，绝不入库零版本资产。
+    const DataCatalog::StagingCheckpoint rowCheckpoint =
+        sess.cat ? sess.cat->checkpointStaging()
+                 : DataCatalog::StagingCheckpoint{};
     row = produceItem(sess, item, &perr);
+    if (row.outcome == FolderRowResult::Outcome::Failed && sess.cat)
+      paleo::dataimport_detail::rollbackFailedRow(sess, rowCheckpoint);
     sess.rows = {row};
     sess.error = perr;
   });

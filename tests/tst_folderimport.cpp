@@ -482,6 +482,51 @@ void workflowImportRetriesOnConcurrentCatalogWrite()
   QVERIFY(tasks.shutdown(5000));
 }
 
+// A2（方向 01）：单文件导入作业取消后不得提交——对齐 dataops 队列
+// 「取消的作业不提交」语义（session 析构删暂存）。produce 对取消无检查点
+//（整文件原子完成），用户叫停后把成品悄悄入库违背取消承诺。
+void singleFileImportCancelledDiscardsCommit()
+{
+  QTemporaryDir tmp;
+  QVERIFY(tmp.isValid());
+  const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+  QVERIFY(QDir().mkpath(projectDir));
+  auto stack = makeStack(projectDir);
+  QVERIFY(stack != nullptr);
+  const QString las = tmp.filePath(QStringLiteral("r1.las"));
+  {
+    QFile f(las);
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    f.write("~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. R1 : WELL\n"
+            "~Curve\nDEPT.M :\n~A DEPT\n100.0\n");
+  }
+  PaleoTaskService tasks(stack->store.get());
+  FolderImportWorkflow wf(stack->importSvc.get(), &tasks);
+  bool done = false;
+  QString assetId, err;
+  wf.importFile(QStringLiteral("well_log"), las, [&](const QString &id, const QString &e) {
+    done = true;
+    assetId = id;
+    err = e;
+  });
+  // importFile 返回时任务已同步登记；finished 处理器只能在事件泵里跑——
+  // 此刻同步 requestCancel，处理器必然观察到 cancelRequested()（原子位）。
+  for (PaleoTask *t : tasks.tasks())
+    t->requestCancel();
+  QElapsedTimer clock;
+  clock.start();
+  while (!done && clock.elapsed() < 30000)
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 25);
+  QVERIFY(done);
+  QVERIFY(assetId.isEmpty());
+  QVERIFY2(err.contains(QStringLiteral("已取消")), qPrintable(err));
+  QCOMPARE(stack->importSvc->catalog()->assets().size(), 0);
+  // 暂存根已随 session 析构清理，无半截残留。
+  QVERIFY(!QDir(QDir(projectDir).filePath(QStringLiteral("artifacts/staging"))).exists());
+  QCOMPARE(DataCatalog::threadViolationCount(), 0);
+  QVERIFY(tasks.shutdown(5000));
+}
+
 // 「仍导入」改判：重复行默认 Skipped；forceImportPaths 翻成 as_new_version
 // 后结局 Imported（同字节结局 = AlreadyStored + 补挂口径）。
 void importFolderForceImportFlipsDuplicate()

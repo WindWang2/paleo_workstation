@@ -25,6 +25,13 @@ namespace paleo::dataimport_detail
 // setError 仍是有效名，dataimport 族调用点零改动。
 using paleo::io_detail::setError;
 
+// 方向 01 A1：撤销一个失败行留在 staging 副本上的半截登记（addAsset/
+// addVersion 之后失败）——journal ops 退回、内存/索引/序号整体还原、该行
+// 落到暂存根的受管文件删除。executeIngestPlan 逐项与 executePlannedItem
+// 单项重试共用。定义在 ingestplan.cpp。
+void rollbackFailedRow(ImportSession &session,
+                       const DataCatalog::StagingCheckpoint &cp);
+
 inline QString readFileOrEmpty(const QString &path)
 {
   QFile f(path);

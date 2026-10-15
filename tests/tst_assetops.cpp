@@ -476,6 +476,42 @@ private slots:
     QVERIFY(sawPrimaryPrim); // 主文件不动
     QVERIFY(sawMemberPend);  // 新挂链接为成员
   }
+
+  // B3（方向 01）：回滚复活目标字节的语义元数据（depthMd 深度锚等 extra）
+  // ——旧缺陷丢 extra，井道按深度挂图/图例展示在回滚后失效；同时 stale
+  // 标记不得随行（否则 removeStaleVersions 会视当前版本可清）。
+  void rollbackCarriesTargetExtraWithoutStaleMarks()
+  {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    QDir dir(tmp.path());
+    DataCatalog cat;
+    QString err;
+    QVERIFY(cat.open(dir.absolutePath(), &err));
+    ManagedAsset m;
+    QVERIFY(makeManagedAsset(cat, dir, QStringLiteral("ast-1"), &m));
+
+    // v1 带深度锚 + 被取代标记（supersede 后的旧版本常态）。
+    QVERIFY(cat.updateVersionExtra(m.v1, QStringLiteral("depthMd"), 1849.35, &err));
+    QVERIFY(cat.updateVersionExtra(m.v1, QStringLiteral("stale"), true, &err));
+    QVERIFY(cat.updateVersionExtra(m.v1, QStringLiteral("staleReason"),
+                                   QStringLiteral("superseded"), &err));
+
+    QString rerr;
+    const RollbackOutcome out = rollbackToVersion(&cat, dir.absolutePath(),
+                                                  m.assetId, m.v1, &rerr);
+    QVERIFY2(!out.versionId.isEmpty(), qPrintable(rerr));
+    const CatalogVersion cur = cat.currentVersion(m.assetId);
+    QCOMPARE(cur.id, out.versionId);
+    QCOMPARE(cur.extra.value(QStringLiteral("depthMd")).toDouble(), 1849.35);
+    QCOMPARE(cur.extra.value(QStringLiteral("rollbackOf")).toString(), m.v1);
+    QVERIFY(!cur.extra.contains(QStringLiteral("stale")));
+    QVERIFY(!cur.extra.contains(QStringLiteral("staleReason")));
+    // 目标原件的 extra 不被改写（回滚零侵入）。
+    const CatalogVersion v1 = cat.versionById(m.v1);
+    QCOMPARE(v1.extra.value(QStringLiteral("depthMd")).toDouble(), 1849.35);
+    QVERIFY(v1.extra.value(QStringLiteral("stale")).toBool());
+  }
 };
 
 QTEST_MAIN(TestAssetOps)

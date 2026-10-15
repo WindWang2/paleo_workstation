@@ -17,6 +17,7 @@
 #include <QInputDialog>
 #include <QLineEdit>
 #include <QMenu>
+#include <QTableWidget>
 #include "../dialogs/depthanchordialog.h"
 #include "../notifications/paleonotify.h"
 #include <QUrl>
@@ -99,15 +100,21 @@ void DataListPanel::batchChangeType()
     }
   }
 
-  // 方向 52 B 线：增量通道更新——若虚拟视图在用，走 updateRows 增量发射 dataChanged，保留滚动与选中；
-  // 仅在无虚拟视图或全量重构时回落 refreshAssetTable。
+  // 方向 52 B 线：增量通道更新——若虚拟视图在用，走 updateRows 增量发射
+  // dataChanged 保留滚动；但改型会改变类型过滤/按类型排序下的行集与表视图
+  // 的类型列，增量通道表达不了行进出——必须重算过滤口径（图标/分组视图
+  // 由此拿到过滤后的行集，不再喂全量行破坏当前过滤态），同页时重灌表体
+  // 保选区。无虚拟视图或全量重构时回落 refreshAssetTable。
   if (m_virtualView && !updatedRows.isEmpty())
   {
     m_virtualView->updateRows(updatedRows);
-    if (m_iconView)
-      m_iconView->loadRows(m_rows);
-    if (m_groupTree)
-      m_groupTree->loadRows(m_rows);
+    if (auto *table = findChild<QTableWidget *>(QStringLiteral("assetTable")))
+    {
+      m_selKeep.snapshot(m_tree, table);
+      m_pageSelection.unite(m_selKeep.ids());
+    }
+    m_tableDirty = true; // 类型列文案按新行快照重灌（samePage 不挡脏标记）
+    applyListFilter();
     emit entityRefreshRequested();
   }
   else
@@ -232,13 +239,15 @@ void DataListPanel::batchAddTag()
   if (!ok)
     return;
   int n = 0;
+  QVector<paleo::dataops::DataOpCommand *> cmds;
   for (const QString &id : ids)
     if (m_tags.addTag(id, tag))
     {
       m_tags.save();
-      pushCommand(new TagCmd(m_ctx, id, tag, true));
+      cmds.append(new paleo::dataops::TagCmd(m_ctx, id, tag, true));
       ++n;
     }
+  pushCommands(cmds); // N 项一次收口刷新
   if (n > 0 && m_history)
     m_history->push(tr("打标签「%1」（%2 项）").arg(tag).arg(n));
   emit statusMessage(n > 0 ? tr("已给 %1 个资产打标签「%2」").arg(n).arg(tag)

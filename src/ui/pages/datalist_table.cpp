@@ -318,8 +318,13 @@ void DataListPanel::renderAssetPage()
         stack->setCurrentWidget(browse);
       });
       connect(ok, &QPushButton::clicked, this,
-              [this, cat, assetId = a.id, role = unresolvedRole, combo, clearPending]() {
+              [this, catGuard = QPointer<DataCatalog>(cat), assetId = a.id,
+               role = unresolvedRole, combo, clearPending]() {
                 clearPending();
+                DataCatalog *cat = catGuard; // 行控件活到下次重灌：壳换绑/销毁
+                                             // catalog 后点击不得解引用野指针
+                if (!cat)
+                  return;
                 const QString eid = combo->currentData().toString();
                 // 身份寻址（T28）：点击时刻重扫——刷新与点击之间 links()
                 // 变过也命中本资产的这条未决链接。
@@ -397,10 +402,14 @@ void DataListPanel::renderAssetPage()
       const QString target = e.name.isEmpty() ? undoRecord->entityId : e.name;
       undo->setToolTip(tr("撤回对「%1」的挂接（回到未决）").arg(target));
       connect(undo, &QPushButton::clicked, this,
-              [this, cat, assetId = undoRecord->assetId, entityId = undoRecord->entityId,
+              [this, catGuard = QPointer<DataCatalog>(cat),
+               assetId = undoRecord->assetId, entityId = undoRecord->entityId,
                role = undoRecord->role, demotedAssetId = undoRecord->demotedAssetId,
                demotedEntityId = undoRecord->demotedEntityId,
                demotedRole = undoRecord->demotedRole]() {
+                DataCatalog *cat = catGuard; // 同 ok 钮：迟到点击防野指针
+                if (!cat)
+                  return;
                 // 身份寻址（T28）：撤销的是这条挂接，不是某个行号。
                 const int idx = indexOfLink(cat, assetId, role, entityId);
                 QString err;
@@ -448,8 +457,11 @@ void DataListPanel::renderAssetPage()
       primary->setToolTip(wellLogPrimary ? tr("同井测井 — 把这份文件设为主文件")
                                          : tr("同角色旧版本 — 把这条关联设为主关联"));
       connect(primary, &QPushButton::clicked, this,
-              [this, cat, assetId = a.id, role = promotableRole,
-               eid = promotableEntityId]() {
+              [this, catGuard = QPointer<DataCatalog>(cat), assetId = a.id,
+               role = promotableRole, eid = promotableEntityId]() {
+                DataCatalog *cat = catGuard; // 同 ok 钮：迟到点击防野指针
+                if (!cat)
+                  return;
                 const int idx = indexOfLink(cat, assetId, role, eid);
                 QString err;
                 if (idx < 0 || !cat->setLinkPrimary(idx, &err))

@@ -27,6 +27,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonValue>
+#include <QSaveFile>
 #include "../notifications/paleonotify.h"
 #include <QDialog>  // 原经 <QMessageBox> 传递引入
 #include <QPushButton>
@@ -84,8 +85,14 @@ QVector<UndoRecord> loadUndoVault(DataCatalog *cat, QHash<QString, QString> *not
   QFile f(path);
   if (!f.open(QIODevice::ReadOnly))
     return records;
+  QJsonParseError parseErr;
   const QJsonObject root =
-      QJsonDocument::fromJson(f.readAll()).object();
+      QJsonDocument::fromJson(f.readAll(), &parseErr).object();
+  if (parseErr.error != QJsonParseError::NoError)
+    // 损坏要留痕（与 dataops sidecar 契约一致）：静默回空会把「有可撤销
+    // 挂接」读成「从未有过」，且无日志线索可查。
+    qWarning() << "DataPage undo vault corrupt, treated as empty:" << path
+               << parseErr.errorString();
   for (const QJsonValue &v : root.value(QStringLiteral("undo")).toArray())
   {
     const QJsonObject o = v.toObject();
@@ -154,10 +161,17 @@ void saveUndoVault(DataCatalog *cat, const QVector<UndoRecord> &records,
     noteArr.append(o);
   }
   root.insert(QStringLiteral("notes"), noteArr);
-  QFile f(path);
+  // QSaveFile 原子落盘（与 dataops sidecar 契约一致）：断电/崩溃不留半截
+  // JSON——半截 undo 记录会在下次装载被当损坏丢弃，全部撤销入口静默丢失。
+  QSaveFile f(path);
   if (f.open(QIODevice::WriteOnly))
+  {
     f.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
-  // 写失败只在日志说明——undo 是增强面，不阻塞挂接本身。
+    // 写失败只在日志说明——undo 是增强面，不阻塞挂接本身。
+    if (!f.commit())
+      qWarning() << "DataPage undo vault write failed:" << path
+                 << f.errorString();
+  }
   else
     qWarning() << "DataPage undo vault write failed:" << path;
 }
@@ -341,9 +355,36 @@ void DataListPanel::redoOp()
 
 void DataListPanel::pushCommand(paleo::dataops::DataOpCommand *cmd)
 {
-  if (!m_opStack || !cmd)
+  if (!cmd)
     return;
+  if (!m_opStack)
+  {
+    delete cmd; // 与 pushCommands 同口径：命令是调用方 new 的裸指针，别泄漏
+    return;
+  }
   m_opStack->push(cmd);
+  refreshAssetTable();
+  emit entityRefreshRequested();
+}
+
+void DataListPanel::pushCommands(const QVector<paleo::dataops::DataOpCommand *> &cmds)
+{
+  if (!m_opStack)
+  {
+    qDeleteAll(cmds); // 命令是调用方 new 的裸指针：栈不在场时别泄漏
+    return;
+  }
+  bool any = false;
+  for (paleo::dataops::DataOpCommand *cmd : cmds)
+  {
+    if (!cmd)
+      continue;
+    m_opStack->push(cmd);
+    any = true;
+  }
+  if (!any)
+    return;
+  // N 条命令一次收口刷新（见 datalist.h 批量面注释）。
   refreshAssetTable();
   emit entityRefreshRequested();
 }

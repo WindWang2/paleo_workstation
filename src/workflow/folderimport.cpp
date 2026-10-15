@@ -20,6 +20,9 @@ struct FolderImportWorkflow::ImportJob
   std::function<void(ImportSession &)> finish;
   std::function<void()> fail; // beginImport 不可用（服务未就绪等）
   int attempts = 0;
+  // 单文件作业置位：用户取消即不提交（对齐 dataops 队列「取消的作业不提交」
+  // 语义，session 析构删暂存）。文件夹作业保持「已入库的行保留」口径不变。
+  bool discardOnCancel = false;
 };
 
 FolderImportWorkflow::FolderImportWorkflow(DataImportService *svc,
@@ -85,6 +88,22 @@ void FolderImportWorkflow::runImportJob(const std::shared_ptr<ImportJob> &job)
     // 取消过的作业不重做（用户已叫停）：冲突按失败落行。
     const bool mayRetry =
         job->attempts < kMaxImportAttempts && !task->cancelRequested();
+    // 单文件作业取消即不提交：produce 对取消无检查点（整文件原子完成），
+    // 用户在任务页叫停后把成品悄悄入库违背取消承诺——session 析构删暂存，
+    // 行/回调如实报「已取消」。文件夹作业不在此列（行级口径另行保留）。
+    if (job->discardOnCancel && task->cancelRequested() && !session->committed)
+    {
+      // produce 本就失败（坏文件）时保留真实失败原因，只有「成品被叫停」
+      // 才报取消。取舍：produce 期记入 events 的 ImportFailed 不补发——
+      // 用户语境是「取消」而非「失败」，行结局经 finish 回调如实可达。
+      if (!session->fileResult.assetId.isEmpty() || session->error.isEmpty())
+        session->error = QStringLiteral("导入已取消");
+      session->fileResult.assetId.clear();
+      m_activeImport.reset();
+      job->finish(*session);
+      pumpImports();
+      return;
+    }
     QString cerr;
     const DataImportService::CommitStatus st =
         svc->commitImport(*session, &cerr, /*allowConflict=*/mayRetry);
@@ -317,6 +336,7 @@ void FolderImportWorkflow::importFile(
   {
     auto job = std::make_shared<ImportJob>();
     job->title = tr("导入 %1").arg(kind);
+    job->discardOnCancel = true;
     job->produce = [path, kind](ImportSession &s, PaleoTask *) {
       DataImportService::ImportOptions options;
       if (isClassifierType(kind))

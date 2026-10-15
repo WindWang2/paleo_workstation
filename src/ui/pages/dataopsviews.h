@@ -77,6 +77,31 @@ public:
   const QVector<AssetRowInfo> &allRows() const { return m_rows; }
   int visibleCount() const { return m_visible; }
 
+  // 行集等价判定：id 序列与全部展示字段一致。applyListFilter 用它跳过
+  // 「同集同序同数据」的 setRows——reset 会无差别清掉选区/滚动，任何
+  // 数据差异（如批量改型后的 effectiveType）都必须落到 false 走重建。
+  bool sameRowsAs(const QVector<AssetRowInfo> &rows) const
+  {
+    if (rows.size() != m_rows.size())
+      return false;
+    for (int i = 0; i < rows.size(); ++i)
+    {
+      const AssetRowInfo &a = rows.at(i);
+      const AssetRowInfo &b = m_rows.at(i);
+      if (a.assetId != b.assetId || a.displayName != b.displayName ||
+          a.fileName != b.fileName || a.type != b.type ||
+          a.effectiveType != b.effectiveType || a.status != b.status ||
+          a.unresolved != b.unresolved || a.removed != b.removed ||
+          a.roles != b.roles || a.entityNames != b.entityNames ||
+          a.tags != b.tags || a.sizeBytes != b.sizeBytes ||
+          a.lastModified != b.lastModified ||
+          a.versionCount != b.versionCount ||
+          a.currentVersionNo != b.currentVersionNo)
+        return false;
+    }
+    return true;
+  }
+
   int rowCount(const QModelIndex &parent = QModelIndex()) const override
   {
     return parent.isValid() ? 0 : m_visible;

@@ -185,6 +185,13 @@ RollbackOutcome rollbackToVersion(DataCatalog *cat, const QString &projectDir,
   nv.sha256 = sha;
   nv.fileName = target.fileName;
   nv.parentVersionIds = QStringList{target.id};
+  // 目标版本的语义元数据随字节一起复活（depthMd 深度锚/geojson 图例/
+  // wellParseReport 等——丢了它们，井道按深度挂图、图例展示在回滚后失效）。
+  // stale 标记除外：回滚就是把这些字节重新立为当前，带着「已被取代」标
+  // 记会让 removeStaleVersions 视当前版本可清。
+  nv.extra = target.extra;
+  nv.extra.remove(QStringLiteral("stale"));
+  nv.extra.remove(QStringLiteral("staleReason"));
   nv.extra.insert(QStringLiteral("rollbackOf"), target.id);
 
   DataCatalog::BatchSave batch(cat);

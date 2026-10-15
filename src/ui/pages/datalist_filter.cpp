@@ -133,7 +133,11 @@ void DataListPanel::applyListFilter()
         vis.append(row);
     // D7.4 稳定排序（多列次级）：名称升序为次级键。
     sortAssetRows(&vis, QStringLiteral("name"), true);
-    m_virtualView->flatModel()->setRows(vis);
+    // 同集同序同数据则跳过重建：setRows 的 reset 会清掉虚拟视图选区/滚动
+    //（批量改型等「先 updateRows 再 applyListFilter」的路径依赖这一点）；
+    // 行进出或任何数据差异照常重建。
+    if (!m_virtualView->flatModel()->sameRowsAs(vis))
+      m_virtualView->flatModel()->setRows(vis);
     if (m_virtualView->horizontalHeader())
       restoreColumnState(QStringLiteral("assetVirtualTable"),
                          m_virtualView->horizontalHeader());

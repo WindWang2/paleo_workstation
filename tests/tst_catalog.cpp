@@ -134,6 +134,8 @@ private slots:
   void liveWritesRefusedOffOwnerThread();
   // 方向 79：版本 extra 就地更新通道（锚深后补编辑）契约。
   void updateVersionExtraContract();
+  // 方向 01 B2：批次挂起中重开工程，删除面不得跨工程泄漏。
+  void openResetsPendingRemovalFaces();
 };
 
 void TestCatalog::roundTripsThroughJson()
@@ -2475,6 +2477,67 @@ void TestCatalog::updateVersionExtraContract()
     QCOMPARE(hist.size(), 8); // FIFO 封顶保持
     QCOMPARE(hist.last().toMap().value(QStringLiteral("v")).toDouble(), 40009.0);
   }
+}
+
+// B2（方向 01）：活动批次内的删除面不得跨工程泄漏——批次挂起期间重开
+// 工程，残留 removed 集会在下一次 save 把陈旧 DELETE 打到新工程的库
+//（ast-N/ver-N 跨工程高概率撞号，静默删行 + 链接整表重写）。
+void TestCatalog::openResetsPendingRemovalFaces()
+{
+  const auto populate = [](const QString &dir) {
+    DataCatalog cat;
+    QString err;
+    QVERIFY2(cat.open(dir, &err), qPrintable(err));
+    CatalogAsset a;
+    a.id = QStringLiteral("ast-1"); // 两个工程同号异资产——撞号即被误删
+    a.type = QStringLiteral("well_log");
+    a.format = QStringLiteral("las");
+    a.displayName = QStringLiteral("same-id.las");
+    QVERIFY2(cat.addAsset(a, &err), qPrintable(err));
+    CatalogVersion v;
+    v.id = QStringLiteral("ver-1");
+    v.assetId = a.id;
+    v.stage = QStringLiteral("RAW");
+    v.versionNumber = 1;
+    v.managed = true;
+    v.path = QStringLiteral("artifacts/raw/ast-1/ver-1/same-id.las");
+    v.fileName = QStringLiteral("same-id.las");
+    QVERIFY2(cat.addVersion(v, &err), qPrintable(err));
+  };
+
+  QTemporaryDir dirA, dirB;
+  QVERIFY(dirA.isValid());
+  QVERIFY(dirB.isValid());
+  populate(dirA.path());
+  populate(dirB.path());
+
+  DataCatalog cat;
+  QVERIFY2(cat.open(dirA.path()), "open A");
+  {
+    // 批次挂起中删除 A 的 ast-1，随后不等结算直接切工程（open 归零批次、
+    // 丢弃快照——删除集必须一并解除武装）。
+    DataCatalog::BatchSave batch(&cat);
+    QString err;
+    QVERIFY2(cat.removeAsset(QStringLiteral("ast-1"), &err), qPrintable(err));
+    QVERIFY2(cat.open(dirB.path()), "open B mid-batch");
+  }
+  // B 上的任意变更触发一次落盘。
+  CatalogEntity w;
+  w.id = QStringLiteral("well-B1");
+  w.entityType = QStringLiteral("well");
+  w.name = QStringLiteral("B1");
+  QString werr;
+  QVERIFY2(cat.addEntity(w, &werr), qPrintable(werr));
+
+  // 重开 B：ast-1 必须完好（旧行为：被陈旧 DELETE 干掉）。
+  DataCatalog reread;
+  QString oerr;
+  QVERIFY2(reread.open(dirB.path(), &oerr), qPrintable(oerr));
+  QVERIFY2(!reread.assetById(QStringLiteral("ast-1")).id.isEmpty(),
+           "B 的同号资产被 A 工程的陈旧删除面误删");
+  QVERIFY(reread.hasEntity(QStringLiteral("well-B1")));
+  QCOMPARE(reread.assets().size(), 1);
+  QCOMPARE(reread.versionsForAsset(QStringLiteral("ast-1")).size(), 1);
 }
 
 QTEST_MAIN(TestCatalog)

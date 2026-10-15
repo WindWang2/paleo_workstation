@@ -2,6 +2,7 @@
 #include "typedconstraintdrawcontroller.h"
 
 #include "../qgis/qgiscanvascontroller.h"
+#include "../qgis/constraintcrs.h"
 #include "../workflow/workflows.h"
 #include "../metadata/paleoprojectstore.h"
 #include "maptools/paleomaptools.h"
@@ -102,7 +103,20 @@ void TypedConstraintDrawController::onDrawn( const QString &wkt )
   // 语义同通用约束。同 layerId 声明（constraints.<horizon>）照用。
   QString err;
   QString constraintId;
-  const bool ok = m_wf->addConstraint( m_horizon, wkt, m_constraintType, m_faciesCode,
+  // P1-C：工具输出画布 CRS 坐标；入库前显式变换到约束库 CRS（本地工程
+  // 网格），配准工程走工程转换上下文里的显式坐标操作。失败如实报错不入库。
+  QString storeWkt;
+  QgsMapCanvas *canvas = m_canvasCtl ? m_canvasCtl->canvas() : nullptr;
+  if ( !paleo::constraintcrs::toStoreWkt(
+           wkt, canvas ? canvas->mapSettings().destinationCrs() : QgsCoordinateReferenceSystem(),
+           canvas ? canvas->mapSettings().transformContext() : QgsCoordinateTransformContext(), &storeWkt,
+           &err ) )
+  {
+    teardown();
+    emit captureFailed( err );
+    return;
+  }
+  const bool ok = m_wf->drawConstraint( m_horizon, storeWkt, m_constraintType, m_faciesCode,
                                        &err, &constraintId, m_lineParams );
   const QString horizon = m_horizon;
   const QString type = m_constraintType;

@@ -1,5 +1,7 @@
 // 层：QGIS 封装
 #include "qgislayerservice.h"
+#include "layervocabulary.h"
+#include "constraintcrs.h"
 #include "factorstylewriter.h"
 #include "qgiserrors_internal.h"
 
@@ -177,6 +179,13 @@ QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *erro
   if (!decl->title.isEmpty())
     layer->setName(decl->title); // 显示名优先 title，机器名仍在 paleoLayerId
   layer->setCustomProperty(QStringLiteral("paleoLayerId"), decl->layerId);
+  // P1-C：约束库 GPKG 层无 SRS——按库约定补本地工程网格 CRS，画布按工程
+  // 转换上下文显示（配准工程走显式坐标操作），不再把无 CRS 层当画布坐标。
+  paleo::constraintcrs::assignStoreCrsIfMissing(layer.get());
+  // P3：混合几何伴随视图直连约束库，只读——编辑必须走主图层的约束会话（审计/撤销）。
+  if (decl->layerId.startsWith(PaleoLayerVocabulary::kConstraintGeometryViewPrefix))
+    if (auto *vector = qobject_cast<QgsVectorLayer *>(layer.get()))
+      vector->setReadOnly(true);
 
   if (decl->layerId.startsWith(QStringLiteral("contours.")) ||
       (decl->layerId.startsWith(QStringLiteral("cartographic.")) && decl->layerId.endsWith(QStringLiteral(".contours"))))
@@ -379,6 +388,7 @@ void QgisLayerService::purgeDanglingInstances()
     const auto id = layer->customProperty("paleoLayerId").toString();
     if (!id.isEmpty() && layer->isValid() && !m_instances.contains(id)) {
       if (layer->providerType() == QLatin1String("gdal")) MappingArtifactWriter::restoreRasterCrs(layer);
+      paleo::constraintcrs::assignStoreCrsIfMissing(layer); // .qgz 里旧的无 CRS 约束层
       trackInstance(id, layer);
     }
   }
@@ -429,6 +439,28 @@ bool QgisLayerService::isEditingAnyLayer(QString *layerName) const
           *layerName = vl->name().isEmpty() ? it.key() : vl->name();
         return true;
       }
+    }
+  }
+  return false;
+}
+
+bool QgisLayerService::isEditingInHorizon(const QString &horizon, QString *layerName) const
+{
+  QVector<LayerDeclaration> decls;
+  if (!m_manifest || !m_manifest->readAll(&decls, nullptr))
+  {
+    // 读不到清单时无法判定归属：保守按「任何编辑中」处理，不让调用方放行回滚。
+    return isEditingAnyLayer(layerName);
+  }
+  for (const LayerDeclaration &d : decls)
+  {
+    if (d.horizon != horizon)
+      continue;
+    if (auto *vl = qobject_cast<QgsVectorLayer *>(layer(d.layerId)); vl && vl->isEditable())
+    {
+      if (layerName)
+        *layerName = vl->name().isEmpty() ? d.layerId : vl->name();
+      return true;
     }
   }
   return false;

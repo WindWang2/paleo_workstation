@@ -1,5 +1,6 @@
 // 层：QGIS 封装
 #include "qgisconstrainteditsession.h"
+#include "constraintcrs.h"
 #include "qgiseditingservice.h"
 #include "../io/constraintstore.h"
 #include "../metadata/paleoprojectstore.h"
@@ -7,6 +8,8 @@
 #include <QUndoStack>
 #include <QTemporaryDir>
 #include <gdal.h>
+#include <ogr_api.h>
+#include <algorithm>
 #include <gdal_utils.h>
 #include <cpl_error.h>
 #include <qgsfeature.h>
@@ -44,10 +47,33 @@ void QgisConstraintEditSession::restoreSource()
   const auto selected = m_layer->selectedFeatureIds();
   QgsDataProvider::ProviderOptions options;
   options.transformContext = m_layer->transformContext();
+  const QgsCoordinateReferenceSystem crs = m_layer->crs();
   m_layer->setDataSource(m_source, m_name, QStringLiteral("ogr"), options);
+  // 无 SRS 的约束层换源后 CRS 不得丢（P1-C）：沿用会话前的 CRS。
+  if (!m_layer->crs().isValid() && crs.isValid())
+    m_layer->setCrs(crs);
   m_layer->setSubsetString(m_subset);
   m_layer->selectByIds(selected);
   m_layer->setProperty("paleoConstraintEditSession", false);
+}
+
+qlonglong QgisConstraintEditSession::storeMaxFid() const
+{
+  GDALDatasetH ds = GDALOpenEx(m_path.toUtf8().constData(), GDAL_OF_VECTOR, nullptr, nullptr, nullptr);
+  if (!ds)
+    return -1;
+  qlonglong maxFid = 0;
+  if (OGRLayerH layer = GDALDatasetGetLayerByName(ds, "constraints"))
+  {
+    OGR_L_ResetReading(layer);
+    while (OGRFeatureH raw = OGR_L_GetNextFeature(layer))
+    {
+      maxFid = std::max<qlonglong>(maxFid, OGR_F_GetFID(raw));
+      OGR_F_Destroy(raw);
+    }
+  }
+  GDALClose(ds);
+  return maxFid;
 }
 
 QVector<QVariantMap> QgisConstraintEditSession::snapshot(QString *error) const
@@ -71,17 +97,48 @@ QVector<QVariantMap> QgisConstraintEditSession::snapshot(QString *error) const
     QVariantMap row;
     for (int i = 0; i < feature.fields().count(); ++i)
       row.insert(feature.fields().at(i).name(), feature.attribute(i));
-    row.insert(QStringLiteral("fid"), feature.id());
     row.insert(QStringLiteral("wkt"), feature.geometry().asWkt(17));
-    if (row.value(QStringLiteral("horizon")).toString() != m_horizon || feature.id() < 0)
+    const QString id = row.value(QStringLiteral("id")).toString();
+    // 新增要素（缓冲区负 fid）只接受带稳定身份与语义类型的约束（ConstraintWorkflow
+    // 绘制路径写入）；工具栏裸画的无语义要素仍拒收。
+    const bool added = feature.id() < 0;
+    if (row.value(QStringLiteral("horizon")).toString() != m_horizon ||
+        (added && (id.isEmpty() || row.value(QStringLiteral("type")).toString().isEmpty())))
     {
       *error = tr("约束编辑不能新增无语义要素或改动层位");
       return {};
     }
-    if (!m_identities.isEmpty() && m_identities.value(feature.id()) != row.value(QStringLiteral("id")).toString())
+    if (added)
     {
-      *error = tr("约束编辑不能改动要素身份");
-      return {};
+      if (!m_newFids.contains(feature.id()))
+      {
+        // 首次出现时按「store 当前全表最大 fid」与已分配值取大再 +1：会话期间
+        // 其他层位的直写（非编辑层位仍可绘制）不会与预分配 fid 相撞。
+        const qlonglong live = storeMaxFid();
+        if (live < 0)
+        {
+          *error = tr("无法读取约束 store 的要素编号");
+          return {};
+        }
+        m_nextFid = std::max(m_nextFid, live + 1);
+        m_newFids.insert(feature.id(), m_nextFid++);
+        m_newIdentities.insert(feature.id(), id);
+      }
+      if (m_newIdentities.value(feature.id()) != id)
+      {
+        *error = tr("约束编辑不能改动要素身份");
+        return {};
+      }
+      row.insert(QStringLiteral("fid"), m_newFids.value(feature.id()));
+    }
+    else
+    {
+      row.insert(QStringLiteral("fid"), feature.id());
+      if (!m_identities.isEmpty() && m_identities.value(feature.id()) != id)
+      {
+        *error = tr("约束编辑不能改动要素身份");
+        return {};
+      }
     }
     rows.append(row);
   }
@@ -112,6 +169,18 @@ bool QgisConstraintEditSession::initialize(QString *error)
   }
   for (const auto &row : m_initial)
     m_identities.insert(row.value(QStringLiteral("fid")).toLongLong(), row.value(QStringLiteral("id")).toString());
+  // 新绘约束的 store fid 从全表（所有层位）最大 fid 之后分配，避免撞到其他层位的行。
+  {
+    qlonglong maxFid = storeMaxFid();
+    if (maxFid < 0)
+    {
+      *error = tr("无法读取约束 store：%1").arg(QString::fromUtf8(CPLGetLastErrorMsg()));
+      return false;
+    }
+    for (auto it = m_identities.cbegin(); it != m_identities.cend(); ++it)
+      maxFid = std::max(maxFid, it.key());
+    m_nextFid = maxFid + 1;
+  }
   // Keep the native provider's baseline stable while the authoritative store
   // changes after every command. Otherwise provider count minus deleted FIDs
   // double-counts deletes, and native undo can reread newly persisted values.
@@ -139,7 +208,15 @@ bool QgisConstraintEditSession::initialize(QString *error)
   const auto selected = m_layer->selectedFeatureIds();
   QgsDataProvider::ProviderOptions providerOptions;
   providerOptions.transformContext = m_layer->transformContext();
+  const QgsCoordinateReferenceSystem sessionCrs = m_layer->crs();
   m_layer->setDataSource(workingPath + QStringLiteral("|layername=constraints"), m_name, QStringLiteral("ogr"), providerOptions);
+  if (!m_layer->crs().isValid())
+  {
+    if (sessionCrs.isValid())
+      m_layer->setCrs(sessionCrs); // 工作副本同样无 SRS：沿用原图层 CRS
+    else
+      paleo::constraintcrs::assignStoreCrsIfMissing(m_layer);
+  }
   m_layer->setSubsetString(m_subset);
   m_layer->selectByIds(selected);
   if (!m_layer->isValid() || !m_layer->startEditing())
@@ -176,12 +253,14 @@ bool QgisConstraintEditSession::initialize(QString *error)
     if (m_layer) synchronize(m_layer->undoStack()->index(), QStringLiteral("edit"));
   });
   connect(m_layer, &QgsVectorLayer::editCommandDestroyed, this, [this] { m_newCommand = false; });
+  // B7（用户决定）：编辑中移除图层＝保留未保存的编辑，不回到会话起点。
+  // 每个已结束的 edit command 已原子写入 store（m_current），这里只结束会话；
+  // 移除时仍未结束的手势本来就不持久，不补写。
   connect(m_layer, &QObject::destroyed, this, [this] {
     if (!m_finished)
     {
-      QString error;
-      if (!persist(m_initial, &error, QStringLiteral("cancel")) && m_failed)
-        m_failed(tr("约束编辑图层移除时恢复失败：%1").arg(error));
+      m_finished = true;
+      disconnect(m_connection);
     }
   });
   m_index = m_layer->undoStack()->index();

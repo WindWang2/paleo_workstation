@@ -128,5 +128,7 @@ class ConstraintPage : public QWidget
     void updateWellFactorActionState();
     void markInputsStale();
     void loadSelectedConstraintLine();
+    // 按当前成图方法重算逐条约束「可用/参与」状态、提示与就绪门（不重读 store）。
+    void applyConstraintUsePlan();
     QVariantMap selectedLineParams() const;
 };

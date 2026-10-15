@@ -620,6 +620,14 @@ QString CompositionWorkflow::prepareFaciesForEditing( const QString &layerId, QS
   if ( perms & ( QFile::WriteOwner | QFile::WriteUser | QFile::WriteGroup | QFile::WriteOther ) )
     return layerId; // 已可写（不是 T26 只读派生件）——原样
 
+  // P4：下面重指工作副本后要 releaseHorizon 整组释放，而 releaseHorizon 对编辑中
+  // 图层显式回滚（用户决定 b，语义不改）。绘制自动开会话后，约束层常处于未保存
+  // 编辑态——此处必须在任何副作用之前拒绝，与层位标签条/定位器拒绝切换同一口径。
+  QString editingName;
+  if ( layers->isInstantiated( layerId ) && layers->isEditingInHorizon( decl.horizon, &editingName ) )
+    return fail( tr( "「%1」正在编辑——先保存或放弃编辑，再准备相界编辑（已拒绝，未改动任何图层）" )
+                     .arg( editingName ) );
+
   const QString projectDir = PaleoWorkflowDerivedProjectDir( this );
   if ( projectDir.isEmpty() )
     return fail( tr( "无法定位工程目录来铺相界工作副本（%1）" ).arg( layerId ) );

@@ -23,6 +23,9 @@ namespace PaleoLayerVocabulary
 {
 
 inline const QString kConstraintsGroup = QStringLiteral("03_Constraints");
+// P3：混合几何约束层位的只读伴随视图 id 前缀（<前缀><层位>.<point|line|polygon>）。
+// 刻意不以 "constraints." 开头——不进约束编辑会话/编辑服务的约束层判定。
+inline const QString kConstraintGeometryViewPrefix = QStringLiteral("constraintgeom.");
 
 // canonical 七组（固定顺序；01_Base 底图 → 07_Validation 验证叠加）。
 inline QStringList canonicalGroups()

@@ -812,6 +812,72 @@ bool ConstraintWorkflow::prepareFactorInputs(const QString &horizon, const QStri
   return true;
 }
 
+// P3 任务G：成果版本的来源/质控摘要（只读血缘 extra，不读旁路文件、不臆造）：
+// 方法、约束实际参与/未参与、交叉验证、引擎取样、被忽略输入。缺键就不写那一项。
+QVariantMap ConstraintWorkflow::factorResultLineage(const QVariantMap &extra) {
+  QStringList summary, details;
+  const QString method = extra.value("method_actual").toString().isEmpty()
+                             ? extra.value("method").toString()
+                             : extra.value("method_actual").toString();
+  if (!method.isEmpty()) {
+    summary << method;
+    details << tr("方法：%1").arg(method);
+  }
+  if (extra.contains("constraints_consumed") || extra.contains("constraints_unused")) {
+    const auto consumed = extra.value("constraints_consumed").toList();
+    const auto unused = extra.value("constraints_unused").toList();
+    summary << tr("约束 参与 %1 / 未参与 %2").arg(consumed.size()).arg(unused.size());
+    QStringList used, skipped;
+    for (const auto &v : consumed) {
+      const auto m = v.toMap();
+      used << QStringLiteral("%1（%2）").arg(m.value("id").toString(), m.value("role").toString());
+    }
+    for (const auto &v : unused) {
+      const auto m = v.toMap();
+      skipped << QStringLiteral("%1（%2）").arg(m.value("id").toString(), m.value("reason").toString());
+    }
+    details << tr("参与约束：%1").arg(used.isEmpty() ? tr("无") : used.join(QStringLiteral("、")));
+    details << tr("未参与约束：%1").arg(skipped.isEmpty() ? tr("无") : skipped.join(QStringLiteral("、")));
+  } else if (extra.contains("constrained")) {
+    details << tr("约束回执：本版本未记录（旧版本）");
+  }
+  const auto cv = extra.value("cross_validation").toMap();
+  if (cv.value("status").toString() == QLatin1String("computed") && cv.contains("rmse")) {
+    summary << tr("留一 RMSE %1").arg(cv.value("rmse").toDouble(), 0, 'g', 4);
+    details << tr("交叉验证（留一）：RMSE %1，MAE %2，有效 %3/%4")
+                   .arg(cv.value("rmse").toDouble(), 0, 'g', 4)
+                   .arg(cv.value("mae").toDouble(), 0, 'g', 4)
+                   .arg(cv.value("estimated").toInt())
+                   .arg(cv.value("attempted").toInt());
+  } else if (!cv.isEmpty()) {
+    details << tr("交叉验证：未计算（%1）").arg(cv.value("reason").toString());
+  } else if (extra.contains("cvRms")) {
+    summary << tr("CV RMS %1").arg(extra.value("cvRms").toDouble(), 0, 'g', 4);
+    details << tr("交叉验证：RMS %1（%2 折）")
+                   .arg(extra.value("cvRms").toDouble(), 0, 'g', 4)
+                   .arg(extra.value("cvFolds").toInt());
+  }
+  if (extra.contains("engine_samples_used") || extra.contains("engine_samples_skipped"))
+    details << tr("引擎取样：参与 %1，跳过 %2")
+                   .arg(extra.value("engine_samples_used").toList().size())
+                   .arg(extra.value("engine_samples_skipped").toList().size());
+  if (extra.contains("ignored_inputs")) {
+    const auto ignored = extra.value("ignored_inputs").toList();
+    if (!ignored.isEmpty())
+      summary << tr("忽略输入 %1").arg(ignored.size());
+    QStringList names;
+    for (const auto &v : ignored) {
+      const auto m = v.toMap();
+      names << (m.isEmpty() ? v.toString()
+                            : QStringLiteral("%1（%2）").arg(m.value("key").toString(),
+                                                             m.value("reason").toString()));
+    }
+    details << tr("被忽略输入：%1").arg(names.isEmpty() ? tr("无") : names.join(QStringLiteral("、")));
+  }
+  return {{"summary", summary.join(QStringLiteral(" · "))},
+          {"details", details.join(QLatin1Char('\n'))}};
+}
+
 QVariantList ConstraintWorkflow::savedFactorResults(const QString &horizon,
                                                     const QString &factorId) const {
   QVariantList rows;
@@ -841,7 +907,8 @@ QVariantList ConstraintWorkflow::savedFactorResults(const QString &horizon,
                         {"asset_id", v.assetId},
                         {"version", v.versionNumber},
                         {"path", DataCatalog::resolvedVersionPath(projectDir(), v)},
-                        {"parents", v.parentVersionIds}};
+                        {"parents", v.parentVersionIds},
+                        {"lineage", factorResultLineage(extra)}};
   }
   std::stable_sort(rows.begin(), rows.end(), [](const QVariant &a, const QVariant &b) {
     return a.toMap().value("version").toInt() > b.toMap().value("version").toInt();

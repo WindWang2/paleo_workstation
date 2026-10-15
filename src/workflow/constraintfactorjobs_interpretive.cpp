@@ -578,12 +578,12 @@ bool ConstraintWorkflow::publishInterpretiveContourJob( const InterpretiveContou
     return false;
   }
 
+  QString versionedStyle;
   if ( !registrar.projectDir().isEmpty() )
   {
     QString styleErr;
-    FactorStyleWriter::writeStyleQml( job.factorId, st.absolutePath,
-                                      QDir( registrar.projectDir() ).filePath( QStringLiteral( "styles" ) ),
-                                      &styleErr );
+    versionedStyle = FactorStyleWriter::writeVersionedStyleQml(
+        job.factorId, st.absolutePath, QDir( registrar.projectDir() ).filePath( QStringLiteral( "styles" ) ), &styleErr );
   }
 
   LayerDeclaration workDecl;
@@ -592,7 +592,8 @@ bool ConstraintWorkflow::publishInterpretiveContourJob( const InterpretiveContou
   workDecl.type = QStringLiteral( "raster" );
   workDecl.source = st.absolutePath;
   workDecl.group = QStringLiteral( "04_SingleFactor/Cartographic" );
-  workDecl.styleRef = knownFactor ? def.styleRef : QString();
+  workDecl.styleRef = !versionedStyle.isEmpty() ? QFileInfo( versionedStyle ).completeBaseName()
+                                      : ( knownFactor ? def.styleRef : QString() );
   workDecl.title = tr( "制图工作场·%1" ).arg( title );
   if ( !layers->declare( workDecl, error ) )
   {

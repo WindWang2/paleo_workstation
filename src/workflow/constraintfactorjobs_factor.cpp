@@ -282,6 +282,10 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
         extra.insert(QStringLiteral("field"), field);
         extra.insert(QStringLiteral("cell_size"), cellSize);
         extra.insert(QStringLiteral("constrained"), hasConstraints);
+        // P1-A：引擎回执（paleo_constraint_idw 的 CONSTRAINT_RECEIPTS）→ 血缘
+        // 逐条记实际消费/未用原因；"constrained" 只表示传了约束层，不代表被用。
+        paleo::constraint_detail::insertConstraintReceiptExtras(results, extra);
+        paleo::constraint_detail::insertSampleReceiptExtras(results, extra);
         extra.insert(QStringLiteral("horizon"), horizon);
         extra.insert(QStringLiteral("kind"),
                      QStringLiteral("single_factor_raster"));
@@ -540,6 +544,8 @@ bool ConstraintWorkflow::generateDistanceFactor( const QString &horizon, const Q
         extra.insert(QStringLiteral("engine"), def.processingAlgId);
         extra.insert(QStringLiteral("cell_size"), cellSize);
         extra.insert(QStringLiteral("constrained"), hasConstraints);
+        // P2：距离变换引擎回执 → 血缘（display_only/停用打断线不隔断，逐条留因）。
+        paleo::constraint_detail::insertConstraintReceiptExtras(results, extra);
         extra.insert(QStringLiteral("horizon"), horizon);
         extra.insert(QStringLiteral("kind"),
                      QStringLiteral("single_factor_raster"));
@@ -934,6 +940,9 @@ bool ConstraintWorkflow::generateStructuralFactor( const QString &horizon, const
                      qc.value(QStringLiteral("barrier_buffer_distance")));
         extra.insert(QStringLiteral("contour_stop_buffer_distance"),
                      qc.value(QStringLiteral("contour_stop_buffer_distance")));
+        // P3 任务G：结构面引擎回执（QC constraint_receipts）进血缘——此前只记
+        // constrained（是否传了约束层），看不到哪条约束实际参与。
+        paleo::constraint_detail::insertQcConstraintReceiptExtras(qc, extra);
         inheritMockFlag(PaleoWorkflowDerivedCatalog(this), parentIds, extra);
         insertStrategyId(
             params, extra); // 方向67：策略包 id 进血缘（structural_idw 词表项）
@@ -1031,12 +1040,12 @@ bool ConstraintWorkflow::declareFactorResult( QgisLayerService *layers,
                                               const QString &outPath, const QString &projectDir,
                                               const QString &assetId, QString *error )
 {
+  QString versionedStyle;
   if ( !projectDir.isEmpty() )
   {
     QString styleErr; // 降级不打断生成链
-    FactorStyleWriter::writeStyleQml( factorId, outPath,
-                                      QDir( projectDir ).filePath( QStringLiteral( "styles" ) ),
-                                      &styleErr );
+    versionedStyle = FactorStyleWriter::writeVersionedStyleQml(
+        factorId, outPath, QDir( projectDir ).filePath( QStringLiteral( "styles" ) ), &styleErr );
   }
 
   LayerDeclaration decl;
@@ -1045,7 +1054,8 @@ bool ConstraintWorkflow::declareFactorResult( QgisLayerService *layers,
   decl.type = QStringLiteral( "raster" );
   decl.source = outPath;
   decl.group = QStringLiteral( "04_SingleFactor" );
-  decl.styleRef = def.styleRef;
+  // P4：本版本色带（写失败时退回共用预设引用）。
+  decl.styleRef = versionedStyle.isEmpty() ? def.styleRef : QFileInfo( versionedStyle ).completeBaseName();
   decl.title = tr( "%1·%2" ).arg( def.title, horizon );
   // 新成果路径即使字节与旧栅格相同，也已经换了图层源。先抬代次，再改声明。
   ++m_publishGeneration;

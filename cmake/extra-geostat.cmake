@@ -9,7 +9,8 @@ target_sources(paleo_algorithms PRIVATE
   src/algorithms/geostat/kriging.cpp
   src/algorithms/geostat/sgs.cpp
   src/algorithms/geostat/sgs3.cpp
-  src/algorithms/geostat/faultpath.cpp)
+  src/algorithms/geostat/faultpath.cpp
+  src/algorithms/geostat/crossvalidation.cpp) # P4：LOO 自 workflow 抽出
 
 add_paleo_test(tst_geostat_variogram LIBS paleo_algorithms)
 add_paleo_test(tst_geostat_kriging LIBS paleo_algorithms)

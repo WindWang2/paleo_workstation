@@ -574,6 +574,24 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
               &ConstraintPage::refreshConstraintList, Qt::UniqueConnection);
       return layer;
     };
+    // P3 用户决定 (a)：画布绘制自动开启约束编辑会话（经编辑工具栏，保存/取消
+    // 与手动开启同一入口），每次绘制都进原生撤销栈。工具栏拒绝时带回原因。
+    constraint->setDrawSessionStarter(
+        [self = QPointer<QObject>(this), page = QPointer<ConstraintPage>(constraintPage), beginConstraintEdit, this](
+            const QString &horizon, QString *error) {
+          if (!self || !page)
+            return false;
+          QString refused;
+          QMetaObject::Connection refusal;
+          if (auto *toolbar = findChild<PaleoEditingToolbar *>(QStringLiteral("editingToolbar")))
+            refusal = connect(toolbar, &PaleoEditingToolbar::editRefused, self,
+                              [&refused](const QString &reason) { refused = reason; });
+          const bool ok = beginConstraintEdit(horizon) != nullptr;
+          disconnect(refusal);
+          if (!ok && error)
+            *error = refused.isEmpty() ? tr("编辑工具栏未能开启约束编辑会话") : refused;
+          return ok;
+        });
     connect(constraintPage, &ConstraintPage::constraintParametersRequested, this,
             [constraint, constraintPage, beginConstraintEdit](const QString &horizon, const QStringList &ids, const QVariantMap &patch) {
       QString error;

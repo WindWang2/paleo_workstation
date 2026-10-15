@@ -3,7 +3,10 @@
 #include "qgiserrors_internal.h"
 
 #include <QColor>
+#include <QCryptographicHash>
 #include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QFont>
 #include <cmath>
 
@@ -131,7 +134,13 @@ QString writeStyleQml( const QString &factorId, const QString &rasterPath,
     return QString();
   }
 
-  applyTo(&layer,factorId);
+  // P3：色带渲染器没建起来（如全 nodata、无有限统计值）时如实失败——此前
+  // 忽略返回值，会把 QGIS 默认灰度样式当成该因素色带写进 factor_<id>.qml。
+  if ( !applyTo( &layer, factorId ) )
+  {
+    setError( error, QStringLiteral( "raster '%1' has no finite statistics; color ramp not built" ).arg( rasterPath ) );
+    return QString();
+  }
 
   if ( !QDir().mkpath( styleDir ) )
   {
@@ -149,6 +158,36 @@ QString writeStyleQml( const QString &factorId, const QString &rasterPath,
     return QString();
   }
   return qmlPath;
+}
+
+QString versionedStyleRef( const QString &factorId, const QString &rasterPath )
+{
+  const QByteArray digest = QCryptographicHash::hash(
+                                QFileInfo( rasterPath ).absoluteFilePath().toUtf8(), QCryptographicHash::Sha1 )
+                                .toHex()
+                                .left( 12 );
+  return QStringLiteral( "factor_%1_v%2" ).arg( factorId, QString::fromLatin1( digest ) );
+}
+
+QString writeVersionedStyleQml( const QString &factorId, const QString &rasterPath,
+                                const QString &styleDir, QString *error )
+{
+  const QString shared = writeStyleQml( factorId, rasterPath, styleDir, error );
+  if ( shared.isEmpty() )
+    return QString();
+  const QString versioned =
+      QDir( styleDir ).filePath( versionedStyleRef( factorId, rasterPath ) + QStringLiteral( ".qml" ) );
+  if ( QFileInfo::exists( versioned ) && !QFile::remove( versioned ) )
+  {
+    setError( error, QStringLiteral( "cannot replace versioned style '%1'" ).arg( versioned ) );
+    return QString();
+  }
+  if ( !QFile::copy( shared, versioned ) )
+  {
+    setError( error, QStringLiteral( "cannot write versioned style '%1'" ).arg( versioned ) );
+    return QString();
+  }
+  return versioned;
 }
 
 } // namespace FactorStyleWriter

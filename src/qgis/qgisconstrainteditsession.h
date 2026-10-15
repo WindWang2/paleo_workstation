@@ -29,6 +29,7 @@ class QgisConstraintEditSession : public QObject
     bool setAuditContext(const ConstraintStore::AuditContext &context, QString *error = nullptr);
   private:
     QVector<QVariantMap> snapshot(QString *error) const;
+    qlonglong storeMaxFid() const; // 全表最大 fid；读失败返回 -1
     bool persist(const QVector<QVariantMap> &rows, QString *error, const QString &action = QString());
     void synchronize(int index, const QString &forcedAction = {});
     void restoreSource();
@@ -40,6 +41,11 @@ class QgisConstraintEditSession : public QObject
     std::unique_ptr<QTemporaryDir> m_workingDir;
     QVector<QVariantMap> m_initial, m_current;
     QHash<qlonglong, QString> m_identities;
+    // P2：会话内新绘约束（缓冲区负 fid）→ 预分配的 store fid 与稳定身份。
+    // 首次快照时分配并固定，undo/redo 复用同一映射，保证 replaceHorizon 幂等。
+    mutable QHash<qlonglong, qlonglong> m_newFids;
+    mutable QHash<qlonglong, QString> m_newIdentities;
+    mutable qlonglong m_nextFid = 1;
     bool m_newCommand = false;
     bool m_finished = false;
     QMetaObject::Connection m_connection;

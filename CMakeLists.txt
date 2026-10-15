@@ -1448,6 +1448,7 @@ set(_paleo_extra_manifest
   "${CMAKE_SOURCE_DIR}/cmake/extra-shell-lifecycle.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-sf-kriging.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-sf-completion.cmake"
+  "${CMAKE_SOURCE_DIR}/cmake/extra-sf-deep.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-shortcuts-help.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-surfaceops.cmake"
   "${CMAKE_SOURCE_DIR}/cmake/extra-time-depth.cmake"

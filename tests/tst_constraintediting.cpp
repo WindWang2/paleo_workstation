@@ -27,6 +27,7 @@
 #include <qgsprocessingcontext.h>
 #include <qgsprocessingutils.h>
 #include "../src/qgis/qgislayerservice.h"
+#include "../src/qgis/layervocabulary.h"
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/metadata/layermanifest.h"
 #include "../src/workflow/workflows.h"
@@ -285,6 +286,428 @@ private slots:
     QVERIFY2(edits.commitEdit(layer, &error), qPrintable(error));
     QCOMPARE(layers.layer("constraints.T1"), layer);
   }
+  // P2：会话内绘制的新约束进入原生撤销栈；store fid 不撞其他层位；
+  // undo/redo/取消/保存都与 store 一致；无语义裸要素仍被拒收并撤回。
+  void drawnConstraintJoinsUndoStack()
+  {
+    QTemporaryDir dir;
+    PaleoProjectStore store;
+    const QString gpkg = dir.filePath("project.gpkg");
+    store.setProjectPaths(dir.filePath("p.qgz"), gpkg, dir.filePath("m.sqlite"));
+    ConstraintStore constraints(gpkg, &store);
+    QString error;
+    QVERIFY(constraints.appendExtended("T1", "a", "LINESTRING(0 0,10 0)", "direction_line", 1,
+                                       "{\"semantic\":\"direction_guide\",\"ratio\":4}", 1, &error));
+    QVERIFY(constraints.append("T2", "z", "POINT(30 30)", "point", 9, &error));
+    QgisProjectService project;
+    QVERIFY(project.createProject(dir.filePath("p.qgz")));
+    LayerManifest manifest(dir.filePath("m.sqlite"));
+    QVERIFY(manifest.open());
+    QgisLayerService layers(&project, &manifest);
+    ConstraintWorkflow workflow(nullptr, &layers);
+    workflow.setConstraintStore(&constraints);
+    workflow.loadConstraints("T1");
+    auto *layer = qobject_cast<QgsVectorLayer *>(layers.instantiate("constraints.T1", &error));
+    QVERIFY2(layer, qPrintable(error));
+    QgisEditingService edits(&store);
+    QVERIFY2(edits.beginEdit(layer, &error), qPrintable(error));
+    const auto original = constraints.load("T1");
+    const auto otherHorizon = constraints.load("T2");
+
+    // 会话期间往未编辑的层位直写一条（占掉当前最大 fid 之后的编号）。
+    QString otherId;
+    QVERIFY2(workflow.addConstraint("T2", "LINESTRING(40 40,50 40)", "break_line", 0, &error, &otherId,
+                                    {{"semantic", "hard_barrier"}}),
+             qPrintable(error));
+    const auto otherHorizon2 = constraints.load("T2");
+    QCOMPARE(otherHorizon2.size(), otherHorizon.size() + 1);
+    QString drawnId;
+    QVERIFY2(workflow.addConstraint("T1", "LINESTRING(0 5,10 5)", "break_line", 0, &error, &drawnId,
+                                    {{"semantic", "hard_barrier"}, {"blockMode", "full_block"}}),
+             qPrintable(error));
+    QCOMPARE(layer->undoStack()->count(), 1);
+    const auto drawn = constraints.load("T1");
+    QCOMPARE(drawn.size(), original.size() + 1);
+    QVariantMap row;
+    for (const auto &r : drawn)
+      if (r.value("id").toString() == drawnId)
+        row = r;
+    QVERIFY(!row.isEmpty());
+    QCOMPARE(row.value("type").toString(), QString("break_line"));
+    QVERIFY(row.value("params_json").toString().contains("full_block"));
+    // 与 store append 口径一致：权重显式落 1.0（不是 NULL→读回默认值）。
+    // 缓冲区里的新要素仍是负 fid，按身份找。
+    QgsFeature buffered;
+    for (auto it = layer->getFeatures(); it.nextFeature(buffered);)
+      if (buffered.attribute("id").toString() == drawnId)
+        break;
+    QCOMPARE(buffered.attribute("id").toString(), drawnId);
+    QVERIFY(!buffered.attribute("weight").isNull());
+    QCOMPARE(buffered.attribute("weight").toDouble(), 1.0);
+    for (const auto &other : otherHorizon2)
+      QVERIFY(row.value("fid").toLongLong() != other.value("fid").toLongLong());
+    QCOMPARE(constraints.load("T2"), otherHorizon2);
+
+    layer->undoStack()->undo();
+    QCOMPARE(constraints.load("T1"), original);
+    layer->undoStack()->redo();
+    QCOMPARE(constraints.load("T1"), drawn); // 同一 fid / 身份重放
+    layer->undoStack()->undo();
+    QCOMPARE(constraints.load("T1"), original);
+    layer->undoStack()->redo();
+    QCOMPARE(constraints.load("T1"), drawn);
+
+    // 非线约束（旧 polygon 类型）在线类型图层的会话里同样进撤销栈并落 store。
+    QString polygonId;
+    QVERIFY2(workflow.addConstraint("T1", "POLYGON((20 20,30 20,30 30,20 20))", "polygon", 2, &error, &polygonId),
+             qPrintable(error));
+    bool polygonStored = false;
+    for (const auto &r : constraints.load("T1"))
+      polygonStored |= r.value("id").toString() == polygonId &&
+                       QgsGeometry::fromWkt(r.value("wkt").toString()).type() == Qgis::GeometryType::Polygon;
+    QVERIFY(polygonStored);
+    layer->undoStack()->undo();
+    QCOMPARE(constraints.load("T1"), drawn);
+
+    // 工具栏裸画（无身份/语义）仍被拒收：store 不变，缓冲区撤回。
+    QStringList failures;
+    QgsFeature bare(layer->fields());
+    bare.setAttribute(layer->fields().indexFromName("horizon"), "T1");
+    bare.setGeometry(QgsGeometry::fromWkt("LINESTRING(0 9,10 9)"));
+    const int before = layer->undoStack()->count();
+    layer->beginEditCommand("bare");
+    QVERIFY(layer->addFeature(bare));
+    layer->endEditCommand();
+    QCOMPARE(constraints.load("T1"), drawn);
+    QVERIFY(layer->undoStack()->index() <= before);
+    QCOMPARE(layer->featureCount(), drawn.size());
+
+    // 取消会话 → 回到会话起点（含删除新绘约束）。
+    QVERIFY(edits.rollbackEdit(layer));
+    QCOMPARE(constraints.load("T1"), original);
+    QCOMPARE(constraints.load("T2"), otherHorizon2);
+
+    // 再开会话绘制并保存：落盘且重载后可见。
+    QVERIFY2(edits.beginEdit(layer, &error), qPrintable(error));
+    QVERIFY2(workflow.addConstraint("T1", "LINESTRING(0 7,10 7)", "break_line", 0, &error, &drawnId,
+                                    {{"semantic", "hard_barrier"}, {"blockMode", "display_only"}}),
+             qPrintable(error));
+    QVERIFY2(edits.commitEdit(layer, &error), qPrintable(error));
+    QCOMPARE(constraints.load("T1").size(), original.size() + 1);
+    QCOMPARE(layer->featureCount(), original.size() + 1);
+    QCOMPARE(constraints.load("T2"), otherHorizon2);
+    Q_UNUSED(failures);
+  }
+
+  // P2 调查：同一层位混存点/线/面（旧 append 的 point/polygon 与打断线）。
+  // 观测：OGR 按首个要素给出图层几何类型，但不丢要素——图层要素数 == store 行数；
+  // 线解析器逐条把非线要素记为 not_line，不静默吞掉。
+  void mixedPointLineHorizonProbe_data()
+  {
+    QTest::addColumn<bool>("pointFirst");
+    QTest::newRow("line_first") << false;
+    QTest::newRow("point_first") << true;
+  }
+  void mixedPointLineHorizonProbe()
+  {
+    QFETCH(bool, pointFirst);
+    QTemporaryDir dir;
+    ConstraintStore store(dir.filePath("c.gpkg"));
+    QString error;
+    if (pointFirst)
+      QVERIFY(store.append("T1", "pt", "POINT(5 5)", "point", 3, &error));
+    QVERIFY(store.appendExtended("T1", "line", "LINESTRING(0 0,10 0)", "break_line", 0,
+                                 "{\"semantic\":\"hard_barrier\"}", 1, &error));
+    if (!pointFirst)
+      QVERIFY(store.append("T1", "pt", "POINT(5 5)", "point", 3, &error));
+    QVERIFY(store.append("T1", "poly", "POLYGON((0 0,4 0,4 4,0 0))", "polygon", 3, &error));
+    QgsVectorLayer layer(store.gpkgPath() + "|layername=constraints", "c", "ogr");
+    layer.setSubsetString("horizon='T1'");
+    QVERIFY(layer.isValid());
+    qWarning() << "PROBE" << (pointFirst ? "point_first" : "line_first") << "wkb"
+               << QgsWkbTypes::displayString(layer.wkbType());
+    QCOMPARE(layer.featureCount(), static_cast<long long>(store.load("T1").size()));
+    QgsProcessingContext context;
+    QgsProcessingFeatureSource source(&layer, context, false);
+    const auto parsed = paleo::singlefactor::readConstraintLines(&source, layer.crs(), context);
+    QCOMPARE(parsed.lines.size(), size_t(1));
+    QStringList ignored;
+    for (const auto &item : parsed.ignored)
+      ignored << QString::fromStdString(item);
+    ignored.sort();
+    QCOMPARE(ignored, QStringList({"poly not_line", "pt not_line"}));
+  }
+
+  // P3 用户决定 (a)：画布绘制自动开启约束编辑会话——每次绘制都进撤销栈；
+  // 保存保留、取消回到会话起点；空工程首次绘制同样可撤销；无会话可开时如实
+  // 失败、绝不绕过会话直写 store。
+  // P4：相界编辑准备会 releaseHorizon 整组释放（对编辑中图层显式回滚，决定 b
+  // 不改）。约束层有未保存的自动会话绘制时必须拒绝，且不留任何副作用。
+  void composePrepareRefusesWhileConstraintSessionEditing()
+  {
+    QTemporaryDir dir;
+    PaleoProjectStore store;
+    const QString gpkg = dir.filePath("project.gpkg");
+    store.setProjectPaths(dir.filePath("p.qgz"), gpkg, dir.filePath("m.sqlite"));
+    ConstraintStore constraints(gpkg, &store);
+    QgisProjectService project;
+    QVERIFY(project.createProject(dir.filePath("p.qgz")));
+    LayerManifest manifest(dir.filePath("m.sqlite"));
+    QVERIFY(manifest.open());
+    QgisLayerService layers(&project, &manifest);
+    QgisEditingService edits(&store);
+    layers.setEditingService(&edits);
+    ConstraintWorkflow workflow(nullptr, &layers);
+    workflow.setConstraintStore(&constraints);
+    workflow.setEditingService(&edits);
+    QString error;
+    QVERIFY2(workflow.drawConstraint("T1", "LINESTRING(0 0,10 0)", "break_line", 0, &error, nullptr,
+                                     {{"semantic", "hard_barrier"}}),
+             qPrintable(error));
+    auto *constraintLayer = qobject_cast<QgsVectorLayer *>(layers.layer("constraints.T1"));
+    QVERIFY(constraintLayer && constraintLayer->isEditable());
+    QCOMPARE(constraintLayer->undoStack()->count(), 1);
+
+    // T26 只读相界派生件（同层位）。
+    const QString facies = dir.filePath("facies_ro.gpkg");
+    QVERIFY(QFile::copy(gpkg, facies));
+    QVERIFY(QFile::setPermissions(facies, QFileDevice::ReadOwner | QFileDevice::ReadUser));
+    LayerDeclaration decl;
+    decl.layerId = "facies.T1";
+    decl.horizon = "T1";
+    decl.type = "vector";
+    decl.source = facies + "|layername=constraints";
+    QVERIFY2(layers.declare(decl, &error), qPrintable(error));
+    QVERIFY(layers.instantiate("facies.T1", &error));
+
+    CompositionWorkflow compose(nullptr, &layers);
+    compose.setCatalog(nullptr, dir.path());
+    error.clear();
+    QVERIFY(compose.prepareFaciesForEditing("facies.T1", &error).isEmpty());
+    QVERIFY2(error.contains("正在编辑"), qPrintable(error));
+    // 无副作用：会话、撤销栈、store、声明、工作副本均未动。
+    QCOMPARE(layers.layer("constraints.T1"), static_cast<QgsMapLayer *>(constraintLayer));
+    QVERIFY(constraintLayer->isEditable());
+    QCOMPARE(constraintLayer->undoStack()->count(), 1);
+    QCOMPARE(constraints.load("T1").size(), 1);
+    QCOMPARE(layers.declaration("facies.T1").source, decl.source);
+    QVERIFY(!QFileInfo::exists(dir.filePath("artifacts/layers/facies/facies.T1.gpkg")));
+
+    // 保存后放行：绘制保留，工作副本重指。
+    QVERIFY2(edits.commitEdit(constraintLayer, &error), qPrintable(error));
+    error.clear();
+    QCOMPARE(compose.prepareFaciesForEditing("facies.T1", &error), QString("facies.T1"));
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QCOMPARE(constraints.load("T1").size(), 1);
+    QVERIFY(layers.declaration("facies.T1").source.startsWith(dir.filePath("artifacts/layers/facies/facies.T1.gpkg")));
+    QFile::setPermissions(facies, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+  }
+
+  // P4：删除/语义改型可开会话时同走会话（可撤销）；会话保存/取消/删除后伴随视图重同步。
+  void sessionRoutesRemoveUpdateAndResyncsViews()
+  {
+    QTemporaryDir dir;
+    PaleoProjectStore store;
+    const QString gpkg = dir.filePath("project.gpkg");
+    store.setProjectPaths(dir.filePath("p.qgz"), gpkg, dir.filePath("m.sqlite"));
+    ConstraintStore constraints(gpkg, &store);
+    QgisProjectService project;
+    QVERIFY(project.createProject(dir.filePath("p.qgz")));
+    LayerManifest manifest(dir.filePath("m.sqlite"));
+    QVERIFY(manifest.open());
+    QgisLayerService layers(&project, &manifest);
+    QgisEditingService edits(&store);
+    layers.setEditingService(&edits);
+    ConstraintWorkflow workflow(nullptr, &layers);
+    workflow.setConstraintStore(&constraints);
+    workflow.setEditingService(&edits);
+    QString error;
+    QVERIFY2(constraints.append("T1", "c-l", "LINESTRING(0 0,10 0)", "break_line", 0, &error), qPrintable(error));
+    workflow.loadConstraints("T1");
+    const QString polygonView = "constraintgeom.T1.polygon";
+    QVERIFY(layers.declaration(polygonView).layerId.isEmpty());
+
+    // 取消：会话内画面 → 视图声明；回滚后面消失 → 视图撤销。
+    QVERIFY2(workflow.drawConstraint("T1", "POLYGON((20 20,30 20,30 30,20 20))", "polygon", 2, &error), qPrintable(error));
+    auto *layer = qobject_cast<QgsVectorLayer *>(layers.layer("constraints.T1"));
+    QVERIFY(layer && layer->isEditable());
+    QVERIFY(!layers.declaration(polygonView).layerId.isEmpty());
+    QVERIFY(edits.rollbackEdit(layer));
+    QCOMPARE(constraints.load("T1").size(), 1);
+    QVERIFY(layers.declaration(polygonView).layerId.isEmpty());
+
+    // 删除：无会话时自动开会话、进撤销栈；删后视图撤销，撤销后保存 → 视图回来。
+    QVERIFY2(constraints.append("T1", "c-p", "POLYGON((20 20,30 20,30 30,20 20))", "polygon", 2, &error), qPrintable(error));
+    workflow.loadConstraints("T1");
+    QVERIFY(!layers.declaration(polygonView).layerId.isEmpty());
+    QVERIFY(!layer->isEditable());
+    QVERIFY2(workflow.removeConstraint("c-p", &error), qPrintable(error));
+    QVERIFY(layer->isEditable());
+    QCOMPARE(layer->undoStack()->count(), 1);
+    QCOMPARE(constraints.load("T1").size(), 1);
+    QVERIFY(layers.declaration(polygonView).layerId.isEmpty());
+    layer->undoStack()->undo();
+    QCOMPARE(constraints.load("T1").size(), 2);
+    QVERIFY2(edits.commitEdit(layer, &error), qPrintable(error));
+    QVERIFY(!layers.declaration(polygonView).layerId.isEmpty());
+
+    // 语义改型：同样自动开会话、可撤销。
+    const QString before = constraints.load("T1").first().value("params_json").toString();
+    QVERIFY(!layer->isEditable());
+    QVERIFY2(workflow.updateConstraintLines({"c-l"}, {{"semantic", "direction_guide"}}, &error), qPrintable(error));
+    QVERIFY(layer->isEditable());
+    QCOMPARE(layer->undoStack()->count(), 1);
+    QString changed;
+    for (const auto &row : constraints.load("T1"))
+      if (row.value("id") == "c-l")
+        changed = row.value("params_json").toString();
+    QVERIFY2(changed.contains("direction_guide"), qPrintable(changed));
+    layer->undoStack()->undo();
+    for (const auto &row : constraints.load("T1"))
+      if (row.value("id") == "c-l")
+        QCOMPARE(row.value("params_json").toString(), before);
+    QVERIFY(edits.rollbackEdit(layer));
+    QVERIFY(!layer->isEditable());
+  }
+
+  void drawAutoStartsEditSession()
+  {
+    QTemporaryDir dir;
+    PaleoProjectStore store;
+    const QString gpkg = dir.filePath("project.gpkg");
+    store.setProjectPaths(dir.filePath("p.qgz"), gpkg, dir.filePath("m.sqlite"));
+    ConstraintStore constraints(gpkg, &store);
+    QgisProjectService project;
+    QVERIFY(project.createProject(dir.filePath("p.qgz")));
+    LayerManifest manifest(dir.filePath("m.sqlite"));
+    QVERIFY(manifest.open());
+    QgisLayerService layers(&project, &manifest);
+    ConstraintWorkflow workflow(nullptr, &layers);
+    workflow.setConstraintStore(&constraints);
+    QgisEditingService edits(&store);
+    workflow.setEditingService(&edits);
+    QString error;
+    QVERIFY(!QFileInfo::exists(gpkg) || constraints.load().isEmpty()); // 空工程：约束表尚不存在
+
+    // 1) 首次绘制：自动开会话，经会话写入，进撤销栈。
+    QString first;
+    QVERIFY2(workflow.drawConstraint("T1", "LINESTRING(0 0,10 0)", "break_line", 0, &error, &first,
+                                     {{"semantic", "hard_barrier"}}),
+             qPrintable(error));
+    auto *layer = qobject_cast<QgsVectorLayer *>(layers.layer("constraints.T1"));
+    QVERIFY(layer);
+    QVERIFY(layer->isEditable());
+    QVERIFY(layer->property("paleoConstraintEditSession").toBool());
+    QVERIFY(edits.isEditing(layer));
+    QCOMPARE(layer->undoStack()->count(), 1);
+    QCOMPARE(constraints.load("T1").size(), 1);
+    const auto drawn = constraints.load("T1");
+    layer->undoStack()->undo();
+    QVERIFY(constraints.load("T1").isEmpty()); // 首次绘制也可撤销
+    layer->undoStack()->redo();
+    QCOMPARE(constraints.load("T1"), drawn);
+    // 会话内再画：复用同一会话，不重复开启。
+    QString second;
+    QVERIFY2(workflow.drawConstraint("T1", "LINESTRING(0 5,10 5)", "break_line", 0, &error, &second,
+                                     {{"semantic", "hard_barrier"}}),
+             qPrintable(error));
+    QCOMPARE(layer->undoStack()->count(), 2);
+    // 保存：结束会话，绘制保留。
+    // 会话内画面约束：伴随面视图即时声明（不等保存后重载）。
+    QVERIFY(layers.declaration("constraintgeom.T1.polygon").layerId.isEmpty());
+    QVERIFY2(workflow.drawConstraint("T1", "POLYGON((20 20,30 20,30 30,20 20))", "polygon", 2, &error), qPrintable(error));
+    QVERIFY(!layers.declaration("constraintgeom.T1.polygon").layerId.isEmpty());
+    layer->undoStack()->undo();
+    QCOMPARE(layer->undoStack()->count(), 3);
+    QVERIFY2(edits.commitEdit(layer, &error), qPrintable(error));
+    QVERIFY(!layer->isEditable());
+    const auto saved = constraints.load("T1");
+    QCOMPARE(saved.size(), 2);
+
+    // 2) 保存后再画：重新自动开会话；取消 → 回到这次会话起点。
+    QVERIFY2(workflow.drawConstraint("T1", "LINESTRING(0 9,10 9)", "break_line", 0, &error, nullptr,
+                                     {{"semantic", "hard_barrier"}}),
+             qPrintable(error));
+    layer = qobject_cast<QgsVectorLayer *>(layers.layer("constraints.T1"));
+    QVERIFY(layer && layer->isEditable());
+    QCOMPARE(constraints.load("T1").size(), 3);
+    QVERIFY(edits.rollbackEdit(layer));
+    QCOMPARE(constraints.load("T1"), saved);
+
+    // 3) UI 启动器优先；拒绝时绘制失败且 store 不变（不再直写）。
+    int starterCalls = 0;
+    workflow.setDrawSessionStarter([&starterCalls](const QString &, QString *reason) {
+      ++starterCalls;
+      *reason = QStringLiteral("先保存或取消图层 X 的编辑");
+      return false;
+    });
+    error.clear();
+    QVERIFY(!workflow.drawConstraint("T1", "LINESTRING(0 7,10 7)", "break_line", 0, &error, nullptr,
+                                     {{"semantic", "hard_barrier"}}));
+    QCOMPARE(starterCalls, 1);
+    QVERIFY2(error.contains("先保存或取消图层 X 的编辑"), qPrintable(error));
+    QCOMPARE(constraints.load("T1"), saved);
+
+    // 4) 既无启动器也无编辑服务：如实失败，store 不变。
+    workflow.setDrawSessionStarter({});
+    workflow.setEditingService(nullptr);
+    error.clear();
+    QVERIFY(!workflow.drawConstraint("T2", "LINESTRING(0 7,10 7)", "break_line", 0, &error, nullptr,
+                                     {{"semantic", "hard_barrier"}}));
+    QVERIFY(!error.isEmpty());
+    QVERIFY(constraints.load("T2").isEmpty());
+  }
+
+  // P3：混合几何层位按几何类型声明只读伴随视图（不迁移 GPKG、不改主图层）。
+  // 主图层类型随首要素；伴随视图补齐主图层不覆盖的类型，多部件同类计入，且只读。
+  void mixedGeometryViewsPerType_data() { mixedPointLineHorizonProbe_data(); }
+  void mixedGeometryViewsPerType()
+  {
+    QFETCH(bool, pointFirst);
+    QTemporaryDir dir;
+    PaleoProjectStore store;
+    const QString gpkg = dir.filePath("project.gpkg");
+    store.setProjectPaths(dir.filePath("p.qgz"), gpkg, dir.filePath("m.sqlite"));
+    ConstraintStore constraints(gpkg, &store);
+    QString error;
+    if (pointFirst)
+      QVERIFY(constraints.append("T1", "pt", "POINT(5 5)", "point", 3, &error));
+    QVERIFY(constraints.appendExtended("T1", "line", "LINESTRING(0 0,10 0)", "break_line", 0,
+                                       "{\"semantic\":\"hard_barrier\"}", 1, &error));
+    QVERIFY(constraints.appendExtended("T1", "mline", "MULTILINESTRING((0 2,10 2),(0 3,10 3))", "break_line", 0,
+                                       "{\"semantic\":\"hard_barrier\"}", 1, &error));
+    if (!pointFirst)
+      QVERIFY(constraints.append("T1", "pt", "POINT(5 5)", "point", 3, &error));
+    QVERIFY(constraints.append("T2", "other", "POINT(9 9)", "point", 3, &error)); // 其他层位不计入
+    QgisProjectService project;
+    QVERIFY(project.createProject(dir.filePath("p.qgz")));
+    LayerManifest manifest(dir.filePath("m.sqlite"));
+    QVERIFY(manifest.open());
+    QgisLayerService layers(&project, &manifest);
+    ConstraintWorkflow workflow(nullptr, &layers);
+    workflow.setConstraintStore(&constraints);
+    workflow.loadConstraints("T1");
+    auto *main = qobject_cast<QgsVectorLayer *>(layers.instantiate("constraints.T1", &error));
+    QVERIFY2(main, qPrintable(error));
+    QCOMPARE(main->featureCount(), 3LL); // 主图层不过滤：覆盖层位全部行（编辑会话前提）
+    const QString missing = pointFirst ? "constraintgeom.T1.line" : "constraintgeom.T1.point";
+    const QString covered = pointFirst ? "constraintgeom.T1.point" : "constraintgeom.T1.line";
+    QCOMPARE(main->geometryType(), pointFirst ? Qgis::GeometryType::Point : Qgis::GeometryType::Line);
+    QVERIFY(layers.declaration(covered).layerId.isEmpty());
+    QVERIFY(layers.declaration("constraintgeom.T1.polygon").layerId.isEmpty());
+    auto *view = qobject_cast<QgsVectorLayer *>(layers.instantiate(missing, &error));
+    QVERIFY2(view, qPrintable(error));
+    QVERIFY(view->readOnly());
+    QCOMPARE(view->geometryType(), pointFirst ? Qgis::GeometryType::Line : Qgis::GeometryType::Point);
+    QCOMPARE(view->featureCount(), pointFirst ? 2LL : 1LL);
+    QCOMPARE(layers.declaration(missing).group, PaleoLayerVocabulary::kConstraintsGroup);
+    QgisEditingService edits(&store);
+    QVERIFY(!edits.beginEdit(view, &error)); // 伴随视图不可编辑：编辑走主图层会话
+    // 新绘面约束 → 声明面视图。
+    QVERIFY2(workflow.addConstraint("T1", "POLYGON((20 20,30 20,30 30,20 20))", "polygon", 2, &error), qPrintable(error));
+    QVERIFY(!layers.declaration("constraintgeom.T1.polygon").layerId.isEmpty());
+  }
+
   void boundaryPolygonRoundTrip()
   {
     Fixture f;
@@ -545,7 +968,7 @@ private slots:
     QVERIFY(!toolbar.startEditing());
     QVERIFY(!f.layer->isEditable());
   }
-  void removedLayerRestoresStoreAndMissingAssetRefuses()
+  void removedLayerPreservesEditsAndMissingAssetRefuses()
   {
     Fixture f;
     QVERIFY2(f.open(), qPrintable(f.error));
@@ -553,9 +976,16 @@ private slots:
     QVERIFY2(f.edits.beginEdit(f.layer.get(), &f.error), qPrintable(f.error));
     const auto original = f.store.load("T1");
     QVERIFY(f.move(5));
+    const auto edited = f.store.load("T1");
+    QVERIFY(edited != original);
+    QSignalSpy committed(&f.edits, &QgisEditingService::editCommitted);
+    QSignalSpy rolledBack(&f.edits, &QgisEditingService::editRolledBack);
     f.layer.reset();
     QVERIFY(!f.project.layerBusy("constraints.T1"));
-    QCOMPARE(f.store.load("T1"), original);
+    // B7（用户决定）：移除图层保留未保存的编辑，不回到会话起点。
+    QCOMPARE(f.store.load("T1"), edited);
+    QCOMPARE(committed.count(), 1);
+    QCOMPARE(rolledBack.count(), 0);
     // 「缺资产拒绝」：指向不存在路径的约束图层直接构造（无效图层），
     // beginEdit 必须拒绝。不用 rename 挪走真实 gpkg——Windows 上 GDAL/OGR
     // 连接池在图层析构后仍持有句柄，rename 被文件锁挡住（POSIX 只是碰巧允许）。
@@ -565,6 +995,46 @@ private slots:
     QVERIFY(!f.edits.beginEdit(f.layer.get(), &f.error));
     QVERIFY(!f.layer->isEditable());
   }
+  // B7：撤销后再移除，保留的是撤销后的状态（store 跟随原生撤销栈的当前位置）；
+  // 新绘约束同样保留；重开图层看到同一份数据，且能重新进入编辑。
+  void removedLayerPreservesUndoPositionAndDrawnConstraint()
+  {
+    Fixture f;
+    QVERIFY2(f.open(), qPrintable(f.error));
+    const auto original = f.store.load("T1");
+    const auto other = f.store.load("T2");
+    QVERIFY(f.move(5));
+    const auto first = f.store.load("T1");
+    QVERIFY(f.move(9));
+    f.layer->undoStack()->undo();
+    QCOMPARE(f.store.load("T1"), first);
+    QgsFeature drawn(f.layer->fields());
+    drawn.setAttribute(f.layer->fields().indexFromName("id"), "drawn-1");
+    drawn.setAttribute(f.layer->fields().indexFromName("horizon"), "T1");
+    drawn.setAttribute(f.layer->fields().indexFromName("type"), "break_line");
+    drawn.setAttribute(f.layer->fields().indexFromName("params_json"), "{\"semantic\":\"hard_barrier\"}");
+    drawn.setAttribute(f.layer->fields().indexFromName("schema_version"), 1);
+    drawn.setAttribute(f.layer->fields().indexFromName("weight"), 1.0);
+    drawn.setGeometry(QgsGeometry::fromWkt("LINESTRING(0 3,10 3)"));
+    f.layer->beginEditCommand("draw");
+    QVERIFY(f.layer->addFeature(drawn));
+    f.layer->endEditCommand();
+    const auto beforeRemoval = f.store.load("T1");
+    QCOMPARE(beforeRemoval.size(), original.size() + 1);
+    f.layer.reset();
+    QCOMPARE(f.store.load("T1"), beforeRemoval);
+    QCOMPARE(f.store.load("T2"), other);
+    QVERIFY(!f.project.layerBusy("constraints.T1"));
+    f.layer = std::make_unique<QgsVectorLayer>(f.store.gpkgPath()+"|layername=constraints", "constraints", "ogr");
+    f.layer->setSubsetString("horizon='T1'");
+    f.layer->setCustomProperty("paleoLayerId", "constraints.T1");
+    QVERIFY(f.layer->isValid());
+    QVERIFY(f.consistent());
+    QVERIFY2(f.edits.beginEdit(f.layer.get(), &f.error), qPrintable(f.error));
+    QVERIFY(f.edits.rollbackEdit(f.layer.get()));
+    QCOMPARE(f.store.load("T1"), beforeRemoval);
+  }
+
   void rejectedBranchCanRedoTheCorrectCommand()
   {
     Fixture f;

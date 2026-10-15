@@ -4,8 +4,10 @@
 #include "singlefactor/localdirectionalgorithm.h"
 #include "singlefactor/structuralalgorithm.h"
 #include "domain/singlefactorrequest.h"
+#include "domain/constraintsemantics.h"
 
 #include <qgsprocessingparameters.h>
+#include <qgsprocessingoutputs.h>
 #include <qgsprocessingutils.h> // QgsProcessingFeatureSource
 #include <qgsprocessingcontext.h>
 #include <qgsprocessingfeedback.h>
@@ -21,6 +23,9 @@
 #include <qgsrectangle.h>
 #include <qgscoordinatereferencesystem.h>
 #include <qgscoordinatetransform.h>
+
+#include <QJsonArray>
+#include <QJsonDocument>
 
 #include <gdal.h>
 #include <cpl_conv.h>
@@ -251,7 +256,11 @@ QString ConstraintIDWAlgorithm::shortHelpString() const
     "the convex hull of the constraint geometry. FACIES_CODE is recorded as raster "
     "metadata (PALEO_FACIES_CODE), barrier/direction counts as PALEO_BREAK_LINES / "
     "PALEO_DIRECTION_LINES, and the resolved field as PALEO_ANISO_RATIO / "
-    "PALEO_ANISO_ANGLE_DEG." );
+    "PALEO_ANISO_ANGLE_DEG. When the layer carries params_json, the unified constraint "
+    "semantics apply first: disabled rows and break lines whose blockMode is non-blocking "
+    "(e.g. display_only) are not barriers; invalid params or invalid geometry parts "
+    "(zero length, self-intersecting) are skipped. Every decision is returned in "
+    "CONSTRAINT_RECEIPTS." );
 }
 
 void ConstraintIDWAlgorithm::initAlgorithm( const QVariantMap & )
@@ -279,6 +288,12 @@ void ConstraintIDWAlgorithm::initAlgorithm( const QVariantMap & )
       Qgis::ProcessingNumberParameterType::Double, 2.0, true, 0.0 ) );
   addParameter( new QgsProcessingParameterRasterDestination(
       QStringLiteral( "OUTPUT" ), QStringLiteral( "Interpolated raster" ) ) );
+  addOutput( new QgsProcessingOutputString(
+      QStringLiteral( "CONSTRAINT_RECEIPTS" ),
+      QStringLiteral( "Per-constraint consumption receipts (JSON array)" ) ) );
+  addOutput( new QgsProcessingOutputString(
+      QStringLiteral( "SAMPLE_RECEIPTS" ),
+      QStringLiteral( "Per-input-point sample receipts: participating or skip reason (JSON array)" ) ) );
 }
 
 QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &parameters,
@@ -326,22 +341,58 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
     double x, y, z;
   };
   std::vector<Sample> samples;
+  // P2 任务D：逐井取样回执（参与 / 跳过原因），工作流写进血缘 supporting/skipped_wells。
+  QVariantList sampleReceipts;
   {
+    const QgsFields sourceFields = source->fields();
+    const int wellIdIdx = sourceFields.lookupField( QStringLiteral( "well_id" ) ) >= 0
+                              ? sourceFields.lookupField( QStringLiteral( "well_id" ) )
+                              : sourceFields.lookupField( QStringLiteral( "id" ) );
+    const int wellNameIdx = sourceFields.lookupField( QStringLiteral( "well_name" ) ) >= 0
+                                ? sourceFields.lookupField( QStringLiteral( "well_name" ) )
+                                : sourceFields.lookupField( QStringLiteral( "name" ) );
     QgsFeatureIterator it = source->getFeatures( QgsFeatureRequest() );
     QgsFeature f;
     while ( it.nextFeature( f ) )
     {
       if ( feedback && feedback->isCanceled() )
         throw QgsProcessingException( QStringLiteral( "Canceled" ) );
+      QVariantMap receipt;
+      receipt.insert( QStringLiteral( "source_record_id" ), QString::number( f.id() ) );
+      if ( wellIdIdx >= 0 )
+        receipt.insert( QStringLiteral( "well_id" ), f.attribute( wellIdIdx ) );
+      if ( wellNameIdx >= 0 )
+        receipt.insert( QStringLiteral( "name" ), f.attribute( wellNameIdx ) );
+      const auto skip = [&]( const QString &reason ) {
+        receipt.insert( QStringLiteral( "participating" ), false );
+        receipt.insert( QStringLiteral( "reason" ), reason );
+        sampleReceipts << receipt;
+      };
       if ( !f.hasGeometry() || f.geometry().isEmpty() )
+      {
+        skip( QStringLiteral( "missing_geometry" ) );
         continue;
+      }
       const QgsGeometry g = f.geometry();
       const QgsPointXY p = g.isMultipart() ? g.asMultiPoint().value( 0 ) : g.asPoint();
+      if ( !std::isfinite( p.x() ) || !std::isfinite( p.y() ) )
+      {
+        skip( QStringLiteral( "non_finite_coordinate" ) );
+        continue;
+      }
       const QVariant zv = f.attribute( fieldIdx );
       bool ok = false;
       const double z = zv.toDouble( &ok );
       if ( zv.isNull() || !ok || !std::isfinite( z ) )
-        continue; // skip non-numeric and NaN/Inf rather than poison the grid
+      {
+        skip( QStringLiteral( "field_missing_or_non_finite" ) ); // 不让 NaN/Inf 污染网格
+        continue;
+      }
+      receipt.insert( QStringLiteral( "participating" ), true );
+      receipt.insert( QStringLiteral( "x" ), p.x() );
+      receipt.insert( QStringLiteral( "y" ), p.y() );
+      receipt.insert( QStringLiteral( "value" ), z );
+      sampleReceipts << receipt;
       samples.push_back( { p.x(), p.y(), z } );
     }
   }
@@ -349,7 +400,8 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
     throw QgsProcessingException( QStringLiteral( "INPUT contains no usable point features" ) );
 
   // ---- constraints: typed semantics (C1) ------------------------------------
-  // The ConstraintStore 'type' column classifies each constraint line:
+  // Semantics come from domain/constraintsemantics (params_json first, then the
+  // 'type' column); the effective roles below are what the legacy engine consumes:
   //   'break_line'     hard barrier — contributes to the ROI clip AND blocks
   //                    interpolation (see the connectivity pass below);
   //   'direction_line' anisotropy direction field — no clip, no barrier;
@@ -357,6 +409,7 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
   // Unknown-type layers therefore keep bit-identical behavior with the
   // pre-C1 algorithm.
   QVector<QgsGeometry> breakGeoms, directionGeoms, hullGeoms;
+  QVariantList constraintReceipts; // 逐条（多部件逐部件）实际消费回执
   {
     std::unique_ptr<QgsProcessingFeatureSource> constraints(
         parameterAsSource( parameters, QStringLiteral( "CONSTRAINTS" ), context ) );
@@ -387,13 +440,37 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
                   .arg( QStringLiteral( "well" ), from.userFriendlyIdentifier(),
                         to.userFriendlyIdentifier() ) );
       }
-      const int typeIdx = constraints->fields().lookupField( QStringLiteral( "type" ) );
+      const QgsFields cfields = constraints->fields();
+      const int typeIdx = cfields.lookupField( QStringLiteral( "type" ) );
+      const int jsonIdx = cfields.lookupField( QStringLiteral( "params_json" ) );
+      const int schemaIdx = cfields.lookupField( QStringLiteral( "schema_version" ) );
+      const int idIdx = cfields.lookupField( QStringLiteral( "id" ) );
+      paleo::singlefactor::ConstraintMethodContext useContext;
+      useContext.methodId = QStringLiteral( "legacy" );
+      useContext.legacyAnisoRatio = anisoRatio;
       QgsFeatureIterator cit = constraints->getFeatures( QgsFeatureRequest() );
       QgsFeature cf;
       while ( cit.nextFeature( cf ) )
       {
+        // 与 constraintparse 同一 id 口径（id 列去空白；空则 fid）。
+        const QString featureId = idIdx >= 0 && !cf.attribute( idIdx ).toString().trimmed().isEmpty()
+                                      ? cf.attribute( idIdx ).toString().trimmed()
+                                      : QString::number( cf.id() );
+        const QString ctype = typeIdx >= 0 ? cf.attribute( typeIdx ).toString().trimmed() : QString();
+        // 统一语义（domain/constraintsemantics）：停用 / 非阻断 blockMode 的打断线
+        // 不再按 type 列当硬屏障；非法 params_json 逐条不用并留因（旧 IDW 不整次拒绝）。
+        QString jsonText;
+        if ( jsonIdx >= 0 && !cf.attribute( jsonIdx ).isNull() )
+          jsonText = cf.attribute( jsonIdx ).toString();
+        const paleo::singlefactor::ConstraintSemantics semantics = paleo::singlefactor::resolveConstraintSemantics(
+            ctype, jsonText, schemaIdx >= 0 ? cf.attribute( schemaIdx ) : QVariant(), {}, featureId );
         if ( !cf.hasGeometry() || cf.geometry().isEmpty() )
+        {
+          constraintReceipts.append( paleo::singlefactor::decideNonLineConstraint(
+                                         featureId, QString(), ctype, semantics, true, useContext )
+                                         .toVariant() );
           continue;
+        }
         QgsGeometry g = cf.geometry();
         if ( xform )
         {
@@ -410,21 +487,34 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
             throw QgsProcessingException(
                 QStringLiteral( "Constraint geometry failed to transform into the well CRS" ) );
         }
-        const QString ctype = typeIdx >= 0 ? cf.attribute( typeIdx ).toString().trimmed() : QString();
-        switch ( paleo::singlefactor::legacyConstraintRole( ctype ) )
+        if ( QgsWkbTypes::geometryType( g.wkbType() ) != Qgis::GeometryType::Line )
         {
-          case paleo::singlefactor::LegacyConstraintRole::HardBarrier:
-            breakGeoms.append( g );
-            break;
-          case paleo::singlefactor::LegacyConstraintRole::DirectionGuide:
-            directionGeoms.append( g );
-            break;
-          case paleo::singlefactor::LegacyConstraintRole::NotInLegacyEngine:
-            // interpretive_boundary / contour_stop / cartographic_detour 不参与旧 IDW。
-            break;
-          case paleo::singlefactor::LegacyConstraintRole::HullClip:
-            hullGeoms.append( g );
-            break;
+          const paleo::singlefactor::ConstraintUseDecision d = paleo::singlefactor::decideNonLineConstraint(
+              featureId, QString(), ctype, semantics, false, useContext );
+          if ( d.consumed && d.role == QLatin1String( "hull_clip" ) )
+            hullGeoms.append( g ); // 旧 §11：未知 type 的任何几何只做凸包裁剪
+          constraintReceipts.append( d.toVariant() );
+          continue;
+        }
+        const QgsMultiPolylineXY parts = g.isMultipart() ? g.asMultiPolyline() : QgsMultiPolylineXY{ g.asPolyline() };
+        for ( int k = 0; k < parts.size(); ++k )
+        {
+          QVector<QPointF> vertices;
+          vertices.reserve( parts.at( k ).size() );
+          for ( const QgsPointXY &pt : parts.at( k ) )
+            vertices.append( pt.toQPointF() );
+          const paleo::singlefactor::ConstraintUseDecision d = paleo::singlefactor::decideConstraintPart(
+              featureId, QString(), ctype, semantics, vertices, k, static_cast<int>( parts.size() ), useContext );
+          constraintReceipts.append( d.toVariant() );
+          if ( !d.consumed )
+            continue; // 无效几何 / 停用 / 仅制图 / 不支持：不静默参与数值
+          const QgsGeometry partGeom = QgsGeometry::fromPolylineXY( parts.at( k ) );
+          if ( d.role == QLatin1String( "hard_barrier" ) )
+            breakGeoms.append( partGeom );
+          else if ( d.role == QLatin1String( "global_direction" ) )
+            directionGeoms.append( partGeom );
+          else if ( d.role == QLatin1String( "hull_clip" ) )
+            hullGeoms.append( partGeom );
         }
       }
       // break_lines also bound the region of influence (a barrier is a boundary).
@@ -723,6 +813,13 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
 
   QVariantMap out;
   out.insert( QStringLiteral( "OUTPUT" ), outPath );
+  // 引擎侧实际消费回执（JSON 数组，逐条/逐部件）：工作流写 QC/血缘，测试断言 == 计划。
+  out.insert( QStringLiteral( "CONSTRAINT_RECEIPTS" ),
+              QString::fromUtf8( QJsonDocument( QJsonArray::fromVariantList( constraintReceipts ) )
+                                     .toJson( QJsonDocument::Compact ) ) );
+  out.insert( QStringLiteral( "SAMPLE_RECEIPTS" ),
+              QString::fromUtf8( QJsonDocument( QJsonArray::fromVariantList( sampleReceipts ) )
+                                     .toJson( QJsonDocument::Compact ) ) );
   return out;
 }
 

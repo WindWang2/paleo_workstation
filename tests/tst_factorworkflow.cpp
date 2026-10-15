@@ -18,6 +18,7 @@
 #include <qgsmaprendererparalleljob.h>
 #include <qgsproject.h>
 #include <qgsrasterlayer.h>
+#include <qgssinglebandpseudocolorrenderer.h>
 #include <qgsvectorlayer.h>
 #include <qgssinglesymbolrenderer.h>
 #include <qgslinesymbol.h>
@@ -500,6 +501,15 @@ class TestFactorWorkflow : public QObject
       QVERIFY2(f.layers.declare(decl("boundary.T1", "T1", "vector", boundaryPath), &err), qPrintable(err));
       params.insert("method", "structural_idw"); params.insert("boundaryLayerId", "boundary.T1"); params.insert("gridResolution", 16);
       QVERIFY2(wf.generateFactor("T1", "sandratio", params, &err), qPrintable(err));
+      {
+        // P3 任务G：结构面成果血缘带引擎回执（此前只有 constrained）。
+        const auto structural = f.catalog.versions().last();
+        QCOMPARE(structural.extra.value("algorithm_id").toString(), QString("paleo:paleo_structural_idw"));
+        QVERIFY(structural.extra.contains("constraints_consumed"));
+        QVERIFY(structural.extra.contains("constraints_unused"));
+        const auto lineage = ConstraintWorkflow::factorResultLineage(structural.extra);
+        QVERIFY2(lineage.value("summary").toString().contains("约束 参与"), qPrintable(lineage.value("summary").toString()));
+      }
       params.remove("method");
       QVERIFY2(wf.generateFactor("T1", "sandratio", params, &err), qPrintable(err));
       {
@@ -515,6 +525,36 @@ class TestFactorWorkflow : public QObject
       QCOMPARE(wf.wellFactorRows()[0].toMap().value("value").toDouble(), 20.0);
       const auto versions = f.catalog.versions();
       QVERIFY(std::any_of(versions.cbegin(), versions.cend(), [](const CatalogVersion &v) { return v.extra.value("extraction").toMap().value("factorMode") == QStringLiteral("ratio"); }));
+    }
+
+    // P3 任务G：成果来源/质控摘要只读血缘 extra，缺键不臆造。
+    void factorResultLineageSummary() {
+      QVariantMap extra{{"method", "kriging"},
+                        {"constraints_consumed", QVariantList{QVariantMap{{"id", "b1"}, {"role", "hard_barrier"}}}},
+                        {"constraints_unused", QVariantList{QVariantMap{{"id", "b2"}, {"reason", "outside_compute_domain"}},
+                                                            QVariantMap{{"id", "d1"}, {"reason", "method_does_not_read_line_constraints"}}}},
+                        {"cross_validation", QVariantMap{{"status", "computed"}, {"rmse", 1.5}, {"mae", 1.0},
+                                                         {"estimated", 9}, {"attempted", 10}}},
+                        {"ignored_inputs", QVariantList{QVariantMap{{"key", "searchRadius"}, {"reason", "not_supported"}}}}};
+      auto lineage = ConstraintWorkflow::factorResultLineage(extra);
+      const QString summary = lineage.value("summary").toString(), details = lineage.value("details").toString();
+      QVERIFY2(summary.contains("kriging"), qPrintable(summary));
+      QVERIFY2(summary.contains("约束 参与 1 / 未参与 2"), qPrintable(summary));
+      QVERIFY2(summary.contains("留一 RMSE 1.5"), qPrintable(summary));
+      QVERIFY2(summary.contains("忽略输入 1"), qPrintable(summary));
+      QVERIFY2(details.contains("b1（hard_barrier）"), qPrintable(details));
+      QVERIFY2(details.contains("b2（outside_compute_domain）"), qPrintable(details));
+      QVERIFY2(details.contains("有效 9/10"), qPrintable(details));
+      QVERIFY2(details.contains("searchRadius（not_supported）"), qPrintable(details));
+      // SGS：未计算如实写原因，不冒充 RMSE。
+      lineage = ConstraintWorkflow::factorResultLineage(
+          {{"method", "sgs"}, {"cross_validation", QVariantMap{{"status", "not_computed"}, {"reason", "stochastic"}}}});
+      QVERIFY(!lineage.value("summary").toString().contains("RMSE"));
+      QVERIFY(lineage.value("details").toString().contains("未计算（stochastic）"));
+      // 旧版本：只有 constrained，没有回执——不编造参与计数。
+      lineage = ConstraintWorkflow::factorResultLineage({{"method", "idw"}, {"constrained", true}});
+      QVERIFY(!lineage.value("summary").toString().contains("约束"));
+      QVERIFY(lineage.value("details").toString().contains("未记录"));
     }
 
     void geostatRecordsOnlyFiniteAdmittedWells() {
@@ -844,6 +884,26 @@ class TestFactorWorkflow : public QObject
                                                  QStringLiteral( "x.tif" ), QString(), &err )
                    .isEmpty() );
       QVERIFY( !err.isEmpty() );
+      // P3：全 nodata 栅格建不起色带 → 如实失败，不把默认灰度样式写成因素色带。
+      QTemporaryDir styleDir;
+      const QString empty = styleDir.filePath( QStringLiteral( "all-nodata.tif" ) );
+      {
+        GDALDatasetH ds = GDALCreate( GDALGetDriverByName( "GTiff" ), empty.toUtf8().constData(), 2, 2, 1,
+                                      GDT_Float32, nullptr );
+        QVERIFY( ds );
+        double gt[6] = { 0, 1, 0, 2, 0, -1 };
+        GDALSetGeoTransform( ds, gt );
+        GDALRasterBandH band = GDALGetRasterBand( ds, 1 );
+        GDALSetRasterNoDataValue( band, -9999 );
+        float values[4] = { -9999.f, -9999.f, -9999.f, -9999.f };
+        QCOMPARE( GDALRasterIO( band, GF_Write, 0, 0, 2, 2, values, 2, 2, GDT_Float32, 0, 0 ), CE_None );
+        GDALClose( ds );
+      }
+      err.clear();
+      QVERIFY( FactorStyleWriter::writeStyleQml( QStringLiteral( "poro" ), empty, styleDir.filePath( "styles" ), &err )
+                   .isEmpty() );
+      QVERIFY( !err.isEmpty() );
+      QVERIFY( !QFileInfo::exists( styleDir.filePath( "styles/factor_poro.qml" ) ) );
     }
 
     // 生成链：井点 → paleo 插值 → declare factor.<h>.<fid> 进 04_SingleFactor
@@ -909,7 +969,9 @@ class TestFactorWorkflow : public QObject
       QCOMPARE( d->horizon, QStringLiteral( "T1" ) );
       QCOMPARE( d->type, QStringLiteral( "raster" ) );
       QCOMPARE( d->group, QStringLiteral( "04_SingleFactor" ) );
-      QCOMPARE( d->styleRef, QStringLiteral( "factor_sandthick" ) );
+      // P4：声明指向本版本色带（与成果栅格路径一一对应），共用 factor_sandthick.qml 仍落盘。
+      QCOMPARE( d->styleRef, FactorStyleWriter::versionedStyleRef( QStringLiteral( "sandthick" ), d->source ) );
+      QVERIFY( d->styleRef.startsWith( QStringLiteral( "factor_sandthick_v" ) ) );
       QVERIFY2( QFile::exists( d->source ), qPrintable( d->source ) );
       QVERIFY2( d->source.contains( QStringLiteral( "artifacts/derived/" ) ),
                 qPrintable( d->source ) );
@@ -929,6 +991,49 @@ class TestFactorWorkflow : public QObject
       styleSvc.setStylesRoot( stylesDir );
       QVERIFY2( styleSvc.applyStyle( layer, QStringLiteral( "factor_sandthick" ), &err ),
                 qPrintable( err ) );
+      const LayerDeclaration *dv = findDecl( f.layers, QStringLiteral( "factor.T1.sandthick" ) );
+      QVERIFY( dv );
+      QVERIFY2( QFile::exists( QDir( stylesDir ).filePath( dv->styleRef + QStringLiteral( ".qml" ) ) ), qPrintable( dv->styleRef ) );
+      QVERIFY2( styleSvc.applyStyle( layer, dv->styleRef, &err ), qPrintable( err ) );
+      delete dv;
+    }
+
+    // P4：同因素两版成果值域不同 → 各自版本 qml 保留各自色带范围；共用 qml 只随最新一版。
+    void versionedStyleKeepsPerVersionRange()
+    {
+      QTemporaryDir dir;
+      const auto makeRaster = [&]( const QString &name, float lo, float hi ) {
+        const QString path = dir.filePath( name );
+        GDALDatasetH ds = GDALCreate( GDALGetDriverByName( "GTiff" ), path.toUtf8().constData(), 2, 2, 1,
+                                      GDT_Float32, nullptr );
+        double gt[6] = { 0, 1, 0, 2, 0, -1 };
+        GDALSetGeoTransform( ds, gt );
+        GDALRasterBandH band = GDALGetRasterBand( ds, 1 );
+        float values[4] = { lo, lo, hi, hi };
+        GDALRasterIO( band, GF_Write, 0, 0, 2, 2, values, 2, 2, GDT_Float32, 0, 0 );
+        GDALClose( ds );
+        return path;
+      };
+      const QString v1 = makeRaster( "v1.tif", 0.f, 10.f );
+      const QString v2 = makeRaster( "v2.tif", 100.f, 500.f );
+      const QString styles = dir.filePath( "styles" );
+      QString err;
+      const QString q1 = FactorStyleWriter::writeVersionedStyleQml( "poro", v1, styles, &err );
+      QVERIFY2( !q1.isEmpty(), qPrintable( err ) );
+      const QString q2 = FactorStyleWriter::writeVersionedStyleQml( "poro", v2, styles, &err );
+      QVERIFY2( !q2.isEmpty(), qPrintable( err ) );
+      QVERIFY( q1 != q2 );
+      QCOMPARE( QFileInfo( q1 ).completeBaseName(), FactorStyleWriter::versionedStyleRef( "poro", v1 ) );
+      const auto rangeOf = [&]( const QString &qml ) {
+        QgsRasterLayer layer( v1, "probe", "gdal" );
+        bool ok = false;
+        layer.loadNamedStyle( qml, ok );
+        auto *r = dynamic_cast<QgsSingleBandPseudoColorRenderer *>( layer.renderer() );
+        return r ? qMakePair( r->classificationMin(), r->classificationMax() ) : qMakePair( -1.0, -1.0 );
+      };
+      QCOMPARE( rangeOf( q1 ), qMakePair( 0.0, 10.0 ) );
+      QCOMPARE( rangeOf( q2 ), qMakePair( 100.0, 500.0 ) );
+      QCOMPARE( rangeOf( QDir( styles ).filePath( "factor_poro.qml" ) ), qMakePair( 100.0, 500.0 ) );
     }
 
     // 重生成同 factorId → 同 layerId upsert（幂等：清单单行，无重复声明）。

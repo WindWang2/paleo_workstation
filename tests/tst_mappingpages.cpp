@@ -45,6 +45,8 @@
 #include <QTemporaryDir>
 
 #include "../src/metadata/layermanifest.h"
+#include "../src/catalog/datacatalog.h"
+#include "../src/workflow/workflows.h"
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/services/algoparamschema.h"
 
@@ -499,6 +501,7 @@ class FactorPageTests : public QObject
     void contourIntervalResetsAcrossFactorTypes(); // 方向04 D9：等值距自动态不跨因素类型残留
     void parseLevelsDroppedTokensAreRefused();     // 方向04 D10：脏级别 token 不静默吞
     void staleSuffixSurvivesLayerRedeclare();      // 方向04 D11：「（旧输入）」标记不被重声明抹掉
+    void factorResultsTableShowsLineageColumn();   // P4：成果表第 4 列「来源与质控」+ 明细 tooltip
 };
 
 void FactorPageTests::constructsWithNullServices()
@@ -671,6 +674,58 @@ void FactorPageTests::strathickEngineRowsAndPayload()
   QCOMPARE( params.value( QStringLiteral( "baseLayerId" ) ).toString(),
             QStringLiteral( "struct.T1.base" ) );
   QVERIFY( !params.contains( QStringLiteral( "method" ) ) );
+}
+
+void FactorPageTests::factorResultsTableShowsLineageColumn()
+{
+  QTemporaryDir dir;
+  DataCatalog catalog;
+  QString err;
+  QVERIFY2( catalog.open( dir.path(), &err ), qPrintable( err ) );
+  CatalogAsset asset;
+  asset.id = QStringLiteral( "ast-f" );
+  asset.type = QStringLiteral( "single_factor" );
+  asset.format = QStringLiteral( "tif" );
+  asset.displayName = QStringLiteral( "f.tif" );
+  QVERIFY( catalog.addAsset( asset ) );
+  CatalogVersion v;
+  v.id = QStringLiteral( "ver-f-1" );
+  v.assetId = asset.id;
+  v.stage = QStringLiteral( "DERIVED" );
+  v.path = QStringLiteral( "DERIVED/ast-f/ver-f-1/f.tif" );
+  v.fileName = QStringLiteral( "f.tif" );
+  v.extra = { { "kind", "single_factor_raster" },
+              { "horizon", "T1" },
+              { "factor_id", "sandthick" },
+              { "method", "kriging" },
+              { "constraints_consumed", QVariantList{ QVariantMap{ { "id", "b1" }, { "role", "hard_barrier" } } } },
+              { "constraints_unused", QVariantList{ QVariantMap{ { "id", "b2" }, { "reason", "outside_compute_domain" } } } } };
+  QVERIFY( catalog.addVersion( v, &err ) );
+
+  ConstraintWorkflow wf( nullptr, nullptr );
+  wf.setCatalog( &catalog, dir.path() );
+  ConstraintPage page( &wf );
+  auto *horizons = page.findChild<QComboBox *>( QStringLiteral( "horizonCombo" ) );
+  auto *factors = page.findChild<QTableWidget *>( QStringLiteral( "factorTable" ) );
+  auto *results = page.findChild<QTableWidget *>( QStringLiteral( "factorResultsTable" ) );
+  QVERIFY( horizons && factors && results );
+  if ( horizons->findText( QStringLiteral( "T1" ) ) < 0 )
+    horizons->addItem( QStringLiteral( "T1" ) );
+  horizons->setCurrentText( QStringLiteral( "T1" ) );
+  QCOMPARE( factors->item( 0, 1 )->text(), QStringLiteral( "砂体厚度" ) );
+  factors->item( 0, 0 )->setCheckState( Qt::Checked );
+  page.refreshFactorResults();
+
+  QCOMPARE( results->columnCount(), 4 );
+  QCOMPARE( results->horizontalHeaderItem( 3 )->text(), QStringLiteral( "来源与质控" ) );
+  QCOMPARE( results->rowCount(), 1 );
+  const QVariantMap lineage = ConstraintWorkflow::factorResultLineage( v.extra );
+  QCOMPARE( results->item( 0, 3 )->text(), lineage.value( "summary" ).toString() );
+  QVERIFY2( results->item( 0, 3 )->text().contains( QStringLiteral( "约束 参与 1 / 未参与 1" ) ),
+            qPrintable( results->item( 0, 3 )->text() ) );
+  QCOMPARE( results->item( 0, 3 )->toolTip(), lineage.value( "details" ).toString() );
+  QVERIFY2( results->item( 0, 3 )->toolTip().contains( QStringLiteral( "b2（outside_compute_domain）" ) ),
+            qPrintable( results->item( 0, 3 )->toolTip() ) );
 }
 
 void FactorPageTests::generateFactorPayload()

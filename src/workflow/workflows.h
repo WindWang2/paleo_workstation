@@ -19,6 +19,7 @@
 class QgisProcessingService;
 class QgisLayerService;
 class QgsVectorLayer;
+class QgisEditingService;
 class SelectionContext;
 class PaleoOnnxService;
 class ConstraintStore;
@@ -183,6 +184,19 @@ class ConstraintWorkflow : public QObject
     bool addConstraint(const QString &horizon, const QString &wkt, const QString &type, int faciesCode,
                        QString *error = nullptr, QString *constraintIdOut = nullptr,
                        const QVariantMap &lineParams = {});
+    // P3 用户决定 (a)：画布绘制入口。有约束库时先确保该层位处于约束编辑会话
+    //（无会话则自动开启：优先 UI 启动器——编辑工具栏接管保存/取消；否则走
+    // 绑定的编辑服务），再经会话写入，使每次绘制都进原生撤销栈。无会话可开时
+    // 如实失败，不再绕过会话直写 store。无约束库时同 addConstraint（内存回退）。
+    // 批量导入等事务化写入仍用 addConstraint。
+    bool drawConstraint(const QString &horizon, const QString &wkt, const QString &type, int faciesCode,
+                        QString *error = nullptr, QString *constraintIdOut = nullptr,
+                        const QVariantMap &lineParams = {});
+    using DrawSessionStarter = std::function<bool(const QString &horizon, QString *error)>;
+    void setDrawSessionStarter(DrawSessionStarter starter) { m_drawSessionStarter = std::move(starter); }
+    void setEditingService(QgisEditingService *editing);
+    // P4：所有已声明约束层位的混合几何伴随视图按 store 重同步（会话保存/取消后自动调用）。
+    void syncAllConstraintGeometryViews();
     // 把逐线语义和半径写进 params_json。重开后 loadConstraints 读回同一份。
     bool updateConstraintLine(const QString &id, const QVariantMap &lineParams, QString *error = nullptr);
     bool updateConstraintLines(const QStringList &ids, const QVariantMap &patch, QString *error = nullptr);
@@ -216,6 +230,8 @@ class ConstraintWorkflow : public QObject
                                       const QVariantMap &params) const;
     void restoreWellFactors(const QString &horizon, const QString &factorId,
                             const QVariantMap &params);
+    // P3 任务G：成果版本来源/质控摘要 {summary, details}（只读血缘 extra）。
+    static QVariantMap factorResultLineage(const QVariantMap &extra);
     QVariantList savedFactorResults(const QString &horizon, const QString &factorId) const;
     QVariantList wellFactorRows() const { return m_wellFactorRows; }
     QString wellFactorMessage() const { return m_wellFactorMessage; }
@@ -235,6 +251,9 @@ class ConstraintWorkflow : public QObject
                         const QVariantMap &inputParams, QString *error = nullptr);
 
   private:
+    bool addConstraintThroughSession(QgsVectorLayer *layer, ConstraintStore *store, const QString &horizon,
+                                     const QString &id, const QString &wkt, const QString &storedType,
+                                     int faciesCode, const QString &paramsJson, bool extended, QString *error);
     bool extractWellFactorsImpl(const QString &horizon, const QString &factorId,
                                 const QVariantMap &params, QString *error, bool synchronous);
     bool prepareFactorInputs(const QString &horizon, const QString &factorId,
@@ -389,6 +408,10 @@ class ConstraintWorkflow : public QObject
       QStringList memberPaths; // 按 realizationIndex 升序
       quint64 memberSeed = 0;  // 集合基种子（SGS 共享随机流）
       QString qcPath;
+      // P1-A：地统方法不读约束线——准备段按统一计划逐条记「未使用」与原因，
+      // 计算段写进 QC，发布段写进血缘 extra（降级 IDW 也不带约束）。
+      QVariantList constraintsUnused;
+      QString constraintCapability;
     };
     bool prepareGeostatJob(const QString &horizon, const QString &factorId, const QString &method,
                            const QVariantMap &inputParams, GeostatJob *job, QString *error = nullptr);
@@ -546,6 +569,10 @@ class ConstraintWorkflow : public QObject
     QString m_projectDir;
     QVector<QVariantMap> m_inMemoryConstraints;
     int m_inMemorySeq = 0;
+    bool canStartConstraintSession() const;
+    bool ensureConstraintSession(const QString &horizon, QString *error);
+    DrawSessionStarter m_drawSessionStarter;
+    QPointer<QgisEditingService> m_editingService;
     // 发布代次。本地方向在准备入口加一；等值线与解释性等值线在校验通过后加一；
     // setStore 也加一。因子图层改指向新文件时，在 declare 之前加一。
     // 提交前对不上就丢掉这次临时文件，不声明图层。

@@ -1,5 +1,7 @@
 // 层：功能
 #pragma once
+
+#include <QVariantList>
 #include <QByteArray>
 #include <QObject>
 #include <QString>
@@ -102,8 +104,10 @@ class SurfaceGriddingWorkflow : public QObject
   private:
   QString publishGridded(const QString &horizon, const BinnedHorizon &b,
                          const QString &tmpTif, const QVariantMap &extra, Outcome *o);
+  // 统一语义（min_curvature 口径）：只栅格化完全阻断打断线；receipts 逐条/逐部件
+  // 记实际消费（栅格化出至少一格）与未用原因（P2）。
   QString buildBarrierMask(const QString &horizon, const paleo::gridsolver::GridGeometry &geom,
-                           std::vector<std::uint8_t> *mask) const;
+                           std::vector<std::uint8_t> *mask, QVariantList *receipts = nullptr) const;
 
   QgisLayerService *m_layers = nullptr;
   DataCatalog *m_catalog = nullptr;

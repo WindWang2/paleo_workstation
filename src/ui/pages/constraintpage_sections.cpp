@@ -173,6 +173,7 @@ void ConstraintPage::wireInputStaleness()
     connect( combo, qOverload<int>( &QComboBox::currentIndexChanged ), this,
              [this, mark]( int ) {
                mark();
+               applyConstraintUsePlan(); // 逐条「参与」状态随成图方法变化
                // 结构 IDW 默认铺满测区边界（上游默认）——联动覆盖选项。
                auto *method = child<QComboBox>( this, "factorMethodCombo" );
                auto *coverage = child<QComboBox>( this, "factorCoverageCombo" );

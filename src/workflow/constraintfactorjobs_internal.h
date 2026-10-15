@@ -11,6 +11,10 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonValue>
 #include <QObject>
 #include <QString>
 #include <QStringList>
@@ -157,6 +161,71 @@ inline bool declaredFactorPathMatches( QgisLayerService *layers, const QString &
   if ( !resolveDeclaredRaster( layers, factorLayerId, &live, nullptr ) )
     return false;
   return sameFile( live, rasterPath );
+}
+
+// P1-A/P2：引擎回执（Processing 输出 CONSTRAINT_RECEIPTS，JSON 数组）→ 血缘
+// extra 逐条 constraints_consumed {id,role} / constraints_unused {id,reason}。
+// 结果里没有该键（旧引擎/降级路径）时不写，不臆造。
+inline void insertConstraintReceiptExtras( const QVariantMap &results, QVariantMap &extra )
+{
+  if ( !results.contains( QStringLiteral( "CONSTRAINT_RECEIPTS" ) ) )
+    return;
+  QVariantList consumed, unused;
+  const QJsonArray receipts =
+      QJsonDocument::fromJson( results.value( QStringLiteral( "CONSTRAINT_RECEIPTS" ) ).toString().toUtf8() ).array();
+  for ( const QJsonValue &value : receipts )
+  {
+    const QJsonObject item = value.toObject();
+    if ( item.value( QStringLiteral( "consumed" ) ).toBool() )
+      consumed << QVariantMap{ { QStringLiteral( "id" ), item.value( QStringLiteral( "id" ) ).toString() },
+                               { QStringLiteral( "role" ), item.value( QStringLiteral( "role" ) ).toString() } };
+    else
+      unused << QVariantMap{ { QStringLiteral( "id" ), item.value( QStringLiteral( "id" ) ).toString() },
+                             { QStringLiteral( "reason" ), item.value( QStringLiteral( "reason" ) ).toString() } };
+  }
+  extra.insert( QStringLiteral( "constraints_consumed" ), consumed );
+  extra.insert( QStringLiteral( "constraints_unused" ), unused );
+}
+
+// P3 任务G：QC 里的 constraint_receipts（结构面等以 QC 旁路文件回执的引擎）
+// → 血缘 constraints_consumed / constraints_unused，与上面同口径。无该键不写。
+inline void insertQcConstraintReceiptExtras( const QVariantMap &qc, QVariantMap &extra )
+{
+  if ( !qc.contains( QStringLiteral( "constraint_receipts" ) ) )
+    return;
+  QVariantList consumed, unused;
+  for ( const QVariant &value : qc.value( QStringLiteral( "constraint_receipts" ) ).toList() )
+  {
+    const QVariantMap item = value.toMap();
+    if ( item.value( QStringLiteral( "consumed" ) ).toBool() )
+      consumed << QVariantMap{ { QStringLiteral( "id" ), item.value( QStringLiteral( "id" ) ) },
+                               { QStringLiteral( "role" ), item.value( QStringLiteral( "role" ) ) } };
+    else
+      unused << QVariantMap{ { QStringLiteral( "id" ), item.value( QStringLiteral( "id" ) ) },
+                             { QStringLiteral( "reason" ), item.value( QStringLiteral( "reason" ) ) } };
+  }
+  extra.insert( QStringLiteral( "constraints_consumed" ), consumed );
+  extra.insert( QStringLiteral( "constraints_unused" ), unused );
+}
+
+// P2 任务D：引擎逐点取样回执（SAMPLE_RECEIPTS）→ 血缘 engine_samples_used /
+// engine_samples_skipped。与 supporting_wells/skipped_wells（证据记录按取数步骤
+// 的井表填写，含提取阶段就被拒的井）分开：引擎只看得到进入它的那份快照，
+// 两层都如实保留，不互相覆盖。没有该输出的引擎不写，不臆造。
+inline void insertSampleReceiptExtras( const QVariantMap &results, QVariantMap &extra )
+{
+  if ( !results.contains( QStringLiteral( "SAMPLE_RECEIPTS" ) ) )
+    return;
+  QVariantList used, skipped;
+  const QJsonArray receipts =
+      QJsonDocument::fromJson( results.value( QStringLiteral( "SAMPLE_RECEIPTS" ) ).toString().toUtf8() ).array();
+  for ( const QJsonValue &value : receipts )
+  {
+    const QVariantMap item = value.toObject().toVariantMap();
+    ( item.value( QStringLiteral( "participating" ) ).toBool() ? used : skipped ) << item;
+  }
+  extra.insert( QStringLiteral( "engine_samples_used" ), used );
+  extra.insert( QStringLiteral( "engine_samples_skipped" ), skipped );
 }
 
 } // namespace paleo::constraint_detail

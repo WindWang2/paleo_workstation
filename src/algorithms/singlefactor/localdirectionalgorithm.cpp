@@ -396,6 +396,45 @@ int unresolvedCrossings( GDALDatasetH dataset, const std::vector<double> &levels
   return crossings;
 }
 
+// 引擎回执（P1-A）：只按引擎**实际**消费的集合产出——屏障取栅格化/分区真正
+// 用到的 stableId，方向/软边界取 resolveParameters 解析后的列表——不调用
+// domain 计划函数；测试断言 回执 == 计划（domain/constraintsemantics）。
+QVariantList engineConstraintReceipts( const std::vector<sf::ConstraintLine> &lines,
+                                       const std::vector<std::string> &ignored,
+                                       const std::vector<std::string> &barrierIds,
+                                       const std::vector<std::string> &directionIds,
+                                       const std::vector<std::string> &softIds )
+{
+  const auto has = []( const std::vector<std::string> &ids, const std::string &id ) {
+    return std::find( ids.begin(), ids.end(), id ) != ids.end();
+  };
+  return sf::buildConstraintReceipts( lines, ignored, [&]( const sf::ConstraintLine &line, QString * ) {
+    if ( line.semantic == sf::Semantic::HardBarrier && has( barrierIds, line.stableId ) )
+      return QStringLiteral( "hard_barrier" );
+    if ( line.semantic == sf::Semantic::DirectionGuide && has( directionIds, line.stableId ) )
+      return QStringLiteral( "direction_guide" );
+    if ( line.semantic == sf::Semantic::InterpretiveBoundary && has( softIds, line.stableId ) )
+      return QStringLiteral( "soft_boundary" );
+    return QString();
+  } );
+}
+
+std::vector<std::string> resolvedIds( const std::vector<sf::ResolvedDirection> &items )
+{
+  std::vector<std::string> ids;
+  for ( const sf::ResolvedDirection &item : items )
+    ids.push_back( item.id );
+  return ids;
+}
+
+std::vector<std::string> resolvedIds( const std::vector<sf::ResolvedSoft> &items )
+{
+  std::vector<std::string> ids;
+  for ( const sf::ResolvedSoft &item : items )
+    ids.push_back( item.id );
+  return ids;
+}
+
 } // namespace
 
 QString LocalDirectionIdwAlgorithm::shortHelpString() const
@@ -769,6 +808,11 @@ QVariantMap LocalDirectionIdwAlgorithm::processAlgorithm( const QVariantMap &par
   qc.insert( QStringLiteral( "issues" ), issueList );
   qc.insert( QStringLiteral( "counts" ), counts );
   qc.insert( QStringLiteral( "unsupported" ), unsupported );
+  // 回执不进 parameters（参数哈希不变）。
+  qc.insert( QStringLiteral( "constraint_receipts" ),
+             engineConstraintReceipts( prepared.input.constraints, prepared.input.ignored,
+                                       surface.consumedBarrierIds, resolvedIds( surface.resolved.directions ),
+                                       resolvedIds( surface.resolved.soft ) ) );
   qc.insert( QStringLiteral( "parameters" ),
              parametersForHash( prepared.input, grid, surface, fieldName, cellSize, extentSource, crsModeName ) );
   writeJson( qcPath, qc );
@@ -989,6 +1033,7 @@ QVariantMap SurferIdwAlgorithm::processAlgorithm( const QVariantMap &parameters,
 
   // 断层绕行：硬屏障线进 FaultPathMetric，其余语义只入 QC 记录。
   std::vector<sf::FaultLine> faults;
+  std::vector<std::string> faultIds; // 回执：进入 FaultPathMetric 的有限断层
   for ( const sf::ConstraintLine &line : prepared.input.constraints )
   {
     if ( !line.enabled || line.semantic != sf::Semantic::HardBarrier || line.points.size() < 2 )
@@ -996,6 +1041,7 @@ QVariantMap SurferIdwAlgorithm::processAlgorithm( const QVariantMap &parameters,
     sf::FaultLine fault;
     fault.points = line.points;
     faults.push_back( std::move( fault ) );
+    faultIds.push_back( line.stableId );
   }
 
   sf::SurferIdwOptions options;
@@ -1122,6 +1168,9 @@ QVariantMap SurferIdwAlgorithm::processAlgorithm( const QVariantMap &parameters,
   qc.insert( QStringLiteral( "issues" ), issueList );
   qc.insert( QStringLiteral( "parameters" ),
              parametersForHash( prepared.input, grid, surface, fieldName, cellSize, extentSource, crsModeName ) );
+  // Surfer：方向线/软边界不进引擎（各向异性只用全局比值/角度）。
+  qc.insert( QStringLiteral( "constraint_receipts" ),
+             engineConstraintReceipts( prepared.input.constraints, prepared.input.ignored, faultIds, {}, {} ) );
   writeJson( qcPath, qc );
   if ( feedback )
     feedback->setProgress( 100 );

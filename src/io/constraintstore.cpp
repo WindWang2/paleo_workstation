@@ -289,6 +289,25 @@ bool ConstraintStore::appendExtended(const QString &horizon, const QString &id, 
     const QString &type, int faciesCode, const QString &paramsJson, int schemaVersion, QString *error, double weight) {
   return appendInternal(horizon, id, wkt, type, faciesCode, &paramsJson, schemaVersion, error, weight);
 }
+bool ConstraintStore::ensureSchema(QString *error) {
+  if (m_readOnly) { if (error) *error = QObject::tr("已发布约束快照只读"); return false; }
+  const WriteFn write = [&]() -> PaleoProjectStore::WriteResult {
+    QString reason;
+    Transaction transaction; if (!transaction.open(m_gpkgPath, true, &reason)) return {false, reason};
+    auto layer = GDALDatasetGetLayerByName(transaction.ds, "constraints");
+    if (!layer) layer = GDALDatasetCreateLayer(transaction.ds, "constraints", nullptr, wkbUnknown, nullptr);
+    if (!layer) return {false, QObject::tr("无法建立约束图层")};
+    for (const auto name : {"id", "horizon", "type", "params_json"})
+      if (!ensureField(layer, name, OFTString)) return {false, QObject::tr("无法建立约束字段")};
+    if (!ensureField(layer, "facies_code", OFTInteger) || !ensureField(layer, "weight", OFTReal) ||
+        !ensureField(layer, "schema_version", OFTInteger)) return {false, QObject::tr("无法建立约束字段")};
+    if (!ensureAudit(transaction.ds, layer)) return {false, QObject::tr("无法建立约束审计")};
+    if (!transaction.commit(&reason)) return {false, reason};
+    return {true, {}};
+  };
+  const auto result = m_enqueue ? m_enqueue(write) : write(); if (!result.ok && error) *error = result.error; return result.ok;
+}
+
 bool ConstraintStore::appendInternal(const QString &horizon, const QString &id, const QString &wkt,
     const QString &type, int faciesCode, const QString *paramsJson, int schemaVersion, QString *error, double weight) {
   if (m_readOnly) { if (error) *error = QObject::tr("已发布约束快照只读"); return false; }

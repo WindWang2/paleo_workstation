@@ -833,6 +833,7 @@ SurfaceResult evaluateLocalIdw( const PreparedInput &input, const GridSpec &grid
       return result;
     }
     result.components = barriers.component;
+    result.consumedBarrierIds = barriers.consumedIds;
   }
   report( control, 0.05 );
   const int componentCount = useBarriers ? std::max( barriers.componentCount, 0 ) : 1;

@@ -14,6 +14,7 @@ class TimeDepthModelTests : public QObject
   private slots:
     void lenientDropsTimeReversalPoints();
     void lenientMonotoneTableUnchanged();
+    void velocityBoundsSymmetric();
 };
 
 void TimeDepthModelTests::lenientDropsTimeReversalPoints()
@@ -46,6 +47,24 @@ void TimeDepthModelTests::lenientMonotoneTableUnchanged()
   QCOMPARE(model.points().size(), std::size_t{4});
   QVERIFY(std::abs(model.DepthToTwtMs(1500.0) - 1150.0) < 1e-6);
   QVERIFY(std::abs(model.TwtMsToDepth(1150.0) - 1500.0) < 1e-6);
+}
+
+void TimeDepthModelTests::velocityBoundsSymmetric()
+{
+  // opt-02（W6）：构造器/isValid 与 setVelocity/setCalibration 同界
+  // [100,20000)。界外速度（手改时深 JSON 等）按缺省 2500 回落——旧实现
+  // 单参构造器只查下界，30000 m/s 静默生效（先红：2500m → 166.67ms）。
+  const TimeDepthModel absurd(30000.0);
+  QVERIFY(absurd.isValid());
+  QCOMPARE(absurd.DepthToTwtMs(2500.0),
+           TimeDepthModel().DepthToTwtMs(2500.0)); // 2000 ms（缺省口径）
+  QVERIFY(TimeDepthModel(150.0).isValid());
+  QCOMPARE(TimeDepthModel(0.0).DepthToTwtMs(2500.0),
+           TimeDepthModel().DepthToTwtMs(2500.0)); // 下界回落同口径
+  // setVelocity 拒收路径的行为基准（口径不变量）。
+  TimeDepthModel m(2000.0);
+  m.setVelocity(30000.0);
+  QCOMPARE(m.DepthToTwtMs(1000.0), 1000.0); // 仍是 2000 m/s
 }
 
 QTEST_GUILESS_MAIN(TimeDepthModelTests)

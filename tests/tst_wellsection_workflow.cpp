@@ -2172,6 +2172,69 @@ private slots:
     names = topsNames(wf, QStringLiteral("well-1"), &warnings);
     QVERIFY(names.contains(QStringLiteral("A")));
   }
+
+  // opt-02（W4）：时深表装载失败不再静默——无效表（时间非单调）与
+  // TVD-only 表（连井剖面 MD 域契约用不上）都如实入警告；好表井对照
+  // 不告警且时深就位。井间地震缝的「缺少时深关系」从此有因可查。
+  void timeDepthLoadFailuresWarn() {
+    QTemporaryDir tmp;
+    QDir dir(tmp.path());
+    QString err;
+    DataCatalog cat;
+    QVERIFY(cat.open(dir.path()));
+    QVERIFY(addEntity(cat, QStringLiteral("well-1"), QStringLiteral("A1"),
+                      true, 100, 0, 350));
+    QVERIFY(addEntity(cat, QStringLiteral("well-2"), QStringLiteral("A2"),
+                      true, 200, 0, 350));
+    QVERIFY(addEntity(cat, QStringLiteral("well-3"), QStringLiteral("A3"),
+                      true, 300, 0, 350));
+    const QString badTd = dir.filePath(QStringLiteral("bad_td.dat"));
+    QVERIFY(writeText(badTd, QStringLiteral(
+                                 "#TIME TVDSS TVD MD\n"
+                                 "100 0 1000 1000\n"
+                                 "90 0 2000 2000\n"))); // 时间回落 → 严格表拒收
+    QVERIFY(addFileLink(cat, QStringLiteral("well-1"),
+                        QStringLiteral("time_depth"),
+                        QStringLiteral("ast-td-bad"), badTd,
+                        QStringLiteral("time_depth"), &err));
+    const QString tvdOnlyTd = dir.filePath(QStringLiteral("tvdonly_td.dat"));
+    QVERIFY(writeText(tvdOnlyTd, QStringLiteral("#TIME TVDSS TVD\n"
+                                                "100 0 1000\n"
+                                                "200 0 2000\n")));
+    QVERIFY(addFileLink(cat, QStringLiteral("well-2"),
+                        QStringLiteral("time_depth"),
+                        QStringLiteral("ast-td-tvdonly"), tvdOnlyTd,
+                        QStringLiteral("time_depth"), &err));
+    const QString goodTd = dir.filePath(QStringLiteral("good_td.dat"));
+    QVERIFY(writeText(goodTd, QStringLiteral("#TIME TVDSS TVD MD\n"
+                                             "100 0 1000 1000\n"
+                                             "200 0 2000 2000\n")));
+    QVERIFY(addFileLink(cat, QStringLiteral("well-3"),
+                        QStringLiteral("time_depth"),
+                        QStringLiteral("ast-td-good"), goodTd,
+                        QStringLiteral("time_depth"), &err));
+    WellSectionWorkflow wf(&cat);
+    QSignalSpy spy(&wf, &WellSectionWorkflow::sectionReady);
+    wf.request({QStringLiteral("well-1"), QStringLiteral("well-2"),
+                QStringLiteral("well-3")},
+               {QStringLiteral("GR")});
+    QCOMPARE(spy.size(), 1); // 无任务服务 → 同步发射
+    const auto wells = spy[0][1].value<QVector<wellsection::Well>>();
+    QCOMPARE(wells.size(), 3);
+    const QStringList warnings = spy[0][2].toStringList();
+    const QString blob = warnings.join(QLatin1Char('\n'));
+    // 坏表：点名 + 原因（旧实现零告警，先红）。
+    QVERIFY(blob.contains(QStringLiteral("A1")));
+    QVERIFY(blob.contains(QStringLiteral("时深表无效")));
+    // TVD-only 表：点名 + MD 域口径说明（旧实现零告警，先红）。
+    QVERIFY(blob.contains(QStringLiteral("A2")));
+    QVERIFY(blob.contains(QStringLiteral("TVD 列")));
+    // 好表井：无告警 + 时深就位（对照组不受新告警路径影响）。
+    QVERIFY(!blob.contains(QStringLiteral("A3")));
+    QVERIFY(wells[2].timeDepth.has_value());
+    QVERIFY(!wells[0].timeDepth.has_value());
+    QVERIFY(!wells[1].timeDepth.has_value());
+  }
 };
 
 QTEST_GUILESS_MAIN(TestWellSectionWorkflow)

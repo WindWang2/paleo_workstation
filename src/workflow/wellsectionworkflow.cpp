@@ -272,21 +272,39 @@ int WellSectionWorkflow::request(const QStringList &wellIds,
       shared->warnings << tr("井 %1 有 %2 个分层缺 MD，未参与连井")
                               .arg(pw->name)
                               .arg(missingMd);
-    // 时深：逐井校正优先（workbench），否则主时深表 MD 列严格表。
+    // 时深：逐井校正优先（workbench），否则主时深表 MD 列严格表。失败
+    // 路径如实入警告（对照井斜坏表/分层缺 MD 的既有口径），不静默为空。
     if (m_workbench) {
       seismic::TimeDepthModel model;
       double shift = 0.0;
       QString status;
       if (m_workbench->mdTimeDepth(pw->id, &model, &shift, &status))
         well.timeDepth = wellsection::TimeDepth{model, shift, status};
+      else if (!status.isEmpty())
+        shared->warnings << tr("井 %1 的时深不可用：%2").arg(pw->name, status);
     } else {
+      const QVector<TdSample> td = m_data.tdTableFor(pw->id);
       std::vector<seismic::TdPoint> points;
-      for (const TdSample &s : m_data.tdTableFor(pw->id))
+      bool tvdOnlyRows = false;
+      for (const TdSample &s : td) {
         if (std::isfinite(s.md) && std::isfinite(s.timeMs))
           points.push_back({s.md, s.timeMs});
+        else if (!std::isfinite(s.md) && std::isfinite(s.tvd))
+          tvdOnlyRows = true;
+      }
       seismic::TimeDepthModel model;
-      if (model.setCheckshots(points))
+      if (model.setCheckshots(points)) {
         well.timeDepth = wellsection::TimeDepth{model, 0.0, tr("时深表")};
+      } else if (!td.isEmpty() && tvdOnlyRows && points.empty()) {
+        // TVD-only 表在但连井剖面时深契约是 MD 域——如实告警，不凭空换算。
+        shared->warnings
+            << tr("井 %1 的时深表只有 TVD 列，连井剖面按 MD 域装配不可用")
+                   .arg(pw->name);
+      } else if (!td.isEmpty()) {
+        shared->warnings
+            << tr("井 %1 的时深表无效（有效样点不足或非单调），未参与井间地震")
+                   .arg(pw->name);
+      }
     }
     // 井斜轨迹（TVD 域换算源）：无链接 = 无测斜——几何恒等按 MD 绘制，
     // TVD 域如实标注不可用；不告警（非数据损坏）。资产在但不可解析 →

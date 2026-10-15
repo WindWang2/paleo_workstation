@@ -368,14 +368,16 @@ private slots:
     const auto survey = paleo::WellDeviationSurvey::fromStations(
         {{0, 0, 0}, {1000, 30, 0}, {2000, 30, 0}}, &err);
     QVERIFY(survey.has_value());
-    Well dev, broken;
+    Well dev, broken, noSurvey;
     dev.name = "D1";
     dev.survey = survey;
     dev.tops = {{"A", 1000}, {"B", 2000}};
     broken.name = "B1";
     broken.surveyError = QStringLiteral("坏表");
     broken.tops = {{"A", 1000}};
-    const QVector<Well> ws = {dev, broken};
+    noSurvey.name = "N1";
+    noSurvey.tops = {{"A", 1000}}; // 无测斜链接（NoSurvey：TVD 语义不可用）
+    const QVector<Well> ws = {dev, broken, noSurvey};
     const TopsTable md = topsTable(ws, Datum{DatumMode::Depth, QString()});
     const TopsTable tvd =
         topsTable(ws, Datum{DatumMode::Depth, QString()}, DepthDomain::TVD);
@@ -391,6 +393,10 @@ private slots:
     QCOMPARE(tvd.rows[0][3], QString::number(dev.tvdOf(1000), 'f', 2));
     QCOMPARE(tvd.rows[1][3], QString::number(dev.tvdOf(2000), 'f', 2));
     QCOMPARE(tvd.rows[2][3], QString());
+    // NoSurvey 井 TVD 格同留空（opt-02：几何恒等仅限绘制，导出面不得把
+    // MD 冒充实测垂深——旧实现写出 1000.00，先红）。
+    QCOMPARE(tvd.rows[3][3], QString());
+    QCOMPARE(md.rows[3][2], QStringLiteral("1000.00"));
     // MD 域表无 TVD 列且表头不变。
     QVERIFY(!md.header.contains(QStringLiteral("TVD(m)")));
   }

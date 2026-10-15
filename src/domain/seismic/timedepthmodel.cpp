@@ -13,7 +13,10 @@ TimeDepthModel::TimeDepthModel()
 }
 
 TimeDepthModel::TimeDepthModel(double velocityMPerS)
-    : m_velocity(velocityMPerS > 100.0 ? velocityMPerS : 2500.0)
+    // 与 setVelocity/setCalibration 同界 [100,20000)：界外按缺省 2500 回落，
+    // 手改时深 JSON 的越界值不再静默生效（opt-02 边界对称）。
+    : m_velocity(velocityMPerS > 100.0 && velocityMPerS < 20000.0 ? velocityMPerS
+                                                                  : 2500.0)
 {
 }
 
@@ -171,7 +174,7 @@ double TimeDepthModel::TwtMsToDepth(double twtMs) const {
 }
 
 bool TimeDepthModel::isValid() const {
-    return m_velocity > 100.0 && std::isfinite(m_velocity);
+    return m_velocity > 100.0 && m_velocity < 20000.0 && std::isfinite(m_velocity);
 }
 
 } // namespace seismic

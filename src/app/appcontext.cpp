@@ -802,6 +802,17 @@ void AppContext::releaseProjectSession()
     if (DataCatalog *cat = m_import->catalog())
       cat->setLockedReadOnly(false);
   }
+
+  // M-06: 显式重置断层解释与井位编排器，杜绝跨会话脏数据残留
+  if (m_faultCtl)
+    m_faultCtl->reset();
+  if (m_wellsitingWf) {
+    m_wellsitingWf->setCatalog(nullptr, QString());
+    m_wellsitingWf->setSitingStore(nullptr);
+  }
+  m_faultStore = FaultSetStore(QString(), nullptr);
+  m_wellsitingStore = WellSitingStore(QString(), nullptr);
+
   emit projectReadOnlyChanged(false);
 }
 

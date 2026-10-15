@@ -31,6 +31,7 @@ paleo_data_env() {
     [ -z "${PROJ_LIB:-}" ] && export PROJ_LIB="$prefix/share/proj"
   fi
   [ -z "${GDAL_DATA:-}" ] && [ -d "$prefix/share/gdal" ] && export GDAL_DATA="$prefix/share/gdal"
+  return 0
 }
 if [ -z "${QGIS_PREFIX_PATH:-}" ]; then
   if [ -d vendor/superbuild/prefix/lib ]; then

@@ -477,19 +477,70 @@ QgsVectorLayer *FaultInterpretationController::mapLayer() const
 
 QgsVectorLayer *FaultInterpretationController::ensureMapLayer(const QString &crsAuthId)
 {
-    if (m_mapLayer)
+    if (m_mapLayer && m_mapLayer->isValid())
         return m_mapLayer;
-    const QString uri = QStringLiteral(
-        "Polygon?crs=%1&field=fault_id:string&field=fault_name:string&field=horizon:string")
-                             .arg(crsAuthId);
-    QgsVectorLayer *layer =
-        new QgsVectorLayer(uri, QStringLiteral("断层切割"), QStringLiteral("memory"));
-    if (!layer->isValid()) {
-        delete layer;
-        return nullptr;
+
+    const QString kFaultCutLayerId = QStringLiteral("fault_cut");
+    QgsProject *proj = QgsProject::instance();
+
+    // 1. 优先通过 paleoLayerId 或图层名查找并复用工程已有图层
+    if (proj) {
+        // 先按 customProperty("paleoLayerId") 扫描
+        QList<QgsVectorLayer *> cutLayers;
+        for (QgsMapLayer *l : proj->mapLayers()) {
+            if (auto *vl = qobject_cast<QgsVectorLayer *>(l)) {
+                if (vl->isValid() &&
+                    vl->customProperty(QStringLiteral("paleoLayerId")).toString() == kFaultCutLayerId) {
+                    cutLayers.append(vl);
+                }
+            }
+        }
+        if (!cutLayers.isEmpty()) {
+            m_mapLayer = cutLayers.first();
+            for (int i = 1; i < cutLayers.size(); ++i) {
+                proj->removeMapLayer(cutLayers[i]);
+            }
+        } else {
+            // 若未找到，回退按名称 "断层切割" 扫描
+            const auto candidates = proj->mapLayersByName(QStringLiteral("断层切割"));
+            for (QgsMapLayer *l : candidates) {
+                if (auto *vl = qobject_cast<QgsVectorLayer *>(l)) {
+                    if (vl->isValid()) {
+                        m_mapLayer = vl;
+                        m_mapLayer->setCustomProperty(QStringLiteral("paleoLayerId"), kFaultCutLayerId);
+                        break;
+                    }
+                }
+            }
+            // 清理多余的历史重复同名图层（若此前存在倍增残留）
+            if (m_mapLayer && candidates.size() > 1) {
+                for (QgsMapLayer *l : candidates) {
+                    if (l != m_mapLayer)
+                        proj->removeMapLayer(l);
+                }
+            }
+        }
     }
-    m_mapLayer = layer;
-    QgsProject::instance()->addMapLayer(m_mapLayer);
+
+    // 2. 若工程中尚无该图层，创建新 memory 图层并打上 paleoLayerId
+    if (!m_mapLayer) {
+        const QString uri = QStringLiteral(
+            "Polygon?crs=%1&field=fault_id:string&field=fault_name:string&field=horizon:string")
+                                 .arg(crsAuthId);
+        QgsVectorLayer *layer =
+            new QgsVectorLayer(uri, QStringLiteral("断层切割"), QStringLiteral("memory"));
+        if (!layer->isValid()) {
+            delete layer;
+            return nullptr;
+        }
+        layer->setCustomProperty(QStringLiteral("paleoLayerId"), kFaultCutLayerId);
+        m_mapLayer = layer;
+        if (proj)
+            proj->addMapLayer(m_mapLayer);
+    }
+
+    // 3. 重新绑定选择信号（避免重复连接）并整刷要素
+    disconnect(m_mapLayer, &QgsVectorLayer::selectionChanged, this, nullptr);
     connect(m_mapLayer, &QgsVectorLayer::selectionChanged, this,
             [this] { onMapLayerSelectionChanged(); });
     refreshMapLayer();
@@ -524,6 +575,23 @@ void FaultInterpretationController::refreshMapLayer()
     layer->updateExtents();
     layer->blockSignals(false);
     layer->triggerRepaint();
+}
+
+void FaultInterpretationController::reset()
+{
+    m_set.clear();
+    if (m_editStack)
+        m_editStack->clear();
+    m_catalog = nullptr;
+    m_catalogEntityId.clear();
+    m_catalogAssetId.clear();
+    m_faultRoleLinked = false;
+    m_activeFaultId.clear();
+    m_selectedFaultIds.clear();
+    m_lastError.clear();
+    m_mapLayer = nullptr;
+    emit faultSetChanged();
+    emit faultSelectionChanged({});
 }
 
 // ---- 内部 ----

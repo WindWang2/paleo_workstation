@@ -2,12 +2,18 @@
 #include "paleonotify.h"
 
 #include "../../services/errorhub.h"
+#include "../uienv_internal.h"
 #include "notificationcenter.h"
 
+#include <QDebug>
 #include <QDialog>
+#include <QPointer>
 #include <QPushButton>
 #include <QMessageBox>
+#include <QTimer>
 #include <QWidget>
+
+using paleo::ui_detail::isOffscreen;
 
 namespace
 {
@@ -50,7 +56,14 @@ void warning(QWidget *parent, const QString &title, const QString &text,
         hub->raise(ErrorHub::Level::Warning, sourceOf(parent, source), title, text,
                    QString(), false, /*historyOnly=*/!onHost);
     if (!onHost)
+    {
+        if (isOffscreen())
+        {
+            qWarning().noquote() << "[PaleoNotify::warning]" << title << ":" << text;
+            return;
+        }
         QMessageBox::warning(parent, title, text);
+    }
 }
 
 void information(QWidget *parent, const QString &title, const QString &text,
@@ -62,7 +75,14 @@ void information(QWidget *parent, const QString &title, const QString &text,
         hub->raise(ErrorHub::Level::Info, sourceOf(parent, source), title, text,
                    QString(), false, /*historyOnly=*/!onHost);
     if (!onHost)
+    {
+        if (isOffscreen())
+        {
+            qInfo().noquote() << "[PaleoNotify::information]" << title << ":" << text;
+            return;
+        }
         QMessageBox::information(parent, title, text);
+    }
 }
 
 void critical(QWidget *parent, const QString &title, const QString &text,
@@ -74,7 +94,14 @@ void critical(QWidget *parent, const QString &title, const QString &text,
         hub->raise(ErrorHub::Level::Error, sourceOf(parent, source), title, text,
                    QString(), /*severe=*/true, /*historyOnly=*/!onHost);
     if (!onHost)
+    {
+        if (isOffscreen())
+        {
+            qCritical().noquote() << "[PaleoNotify::critical]" << title << ":" << text;
+            return;
+        }
         QMessageBox::critical(parent, title, text);
+    }
 }
 
 void report(QWidget *parent, const QString &title, const QString &text)
@@ -84,6 +111,11 @@ void report(QWidget *parent, const QString &title, const QString &text)
     if (ErrorHub *hub = ErrorHub::global())
         hub->raise(ErrorHub::Level::Info, sourceOf(parent, QString()), title, text,
                    QString(), false, /*historyOnly=*/true);
+    if (isOffscreen())
+    {
+        qInfo().noquote() << "[PaleoNotify::report]" << title << ":" << text;
+        return;
+    }
     QMessageBox::information(parent, title, text);
 }
 
@@ -103,10 +135,27 @@ bool ask(QWidget *parent, const QString &title, const QString &text,
     const SB dflt = def == AskDefault::Accept   ? accept
                     : def == AskDefault::Reject ? reject
                                                 : SB::NoButton;
-    const SB answer = icon == AskIcon::Warning
-                          ? QMessageBox::warning(parent, title, text, accept | reject, dflt)
-                          : QMessageBox::question(parent, title, text, accept | reject, dflt);
-    return answer == accept;
+    QMessageBox box(icon == AskIcon::Warning ? QMessageBox::Warning : QMessageBox::Question,
+                    title, text, accept | reject, parent);
+    box.setDefaultButton(dflt);
+
+    if (isOffscreen())
+    {
+        // 无头守卫（B-05）：若无测试协作驱动器接管，短时限自动按默认非阻塞值关闭，绝不悬挂
+        QPointer<QMessageBox> guard(&box);
+        QTimer::singleShot(50, &box, [guard, dflt, accept] {
+            if (guard && guard->isVisible())
+            {
+                if (auto *btn = guard->button(dflt != QMessageBox::NoButton ? dflt : accept))
+                    btn->click();
+                else
+                    guard->reject();
+            }
+        });
+    }
+
+    const int res = box.exec();
+    return res == accept;
 }
 
 SaveChoice askSaveDiscard(QWidget *parent, AskIcon icon, const QString &title,
@@ -119,6 +168,22 @@ SaveChoice askSaveDiscard(QWidget *parent, AskIcon icon, const QString &title,
     QPushButton *discard = box.addButton(discardText, QMessageBox::DestructiveRole);
     box.addButton(cancelText, QMessageBox::RejectRole);
     box.setDefaultButton(save);  // 两处原调用均以「保存」为默认键
+
+    if (isOffscreen())
+    {
+        // 无头守卫（B-05）：若无测试协作驱动器接管，短时限自动按保存默认值关闭，绝不悬挂
+        QPointer<QMessageBox> guard(&box);
+        QTimer::singleShot(50, &box, [guard, save] {
+            if (guard && guard->isVisible())
+            {
+                if (save)
+                    save->click();
+                else
+                    guard->reject();
+            }
+        });
+    }
+
     box.exec();
     if (box.clickedButton() == save)
         return SaveChoice::Save;

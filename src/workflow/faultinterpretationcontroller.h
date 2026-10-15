@@ -126,6 +126,9 @@ public:
     QgsVectorLayer *ensureMapLayer(const QString &crsAuthId);
     QgsVectorLayer *mapLayer() const;
 
+    // 重置控制器状态（工程关闭/清理会话）：清空内存模型、撤销栈、关联上下文与图层指针
+    void reset();
+
 signals:
     // 模型任何变更（命令 redo/undo 后）；视图据此整刷。
     void faultSetChanged();

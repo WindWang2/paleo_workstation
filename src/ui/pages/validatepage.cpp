@@ -10,6 +10,7 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QTimer>
@@ -77,7 +78,17 @@ ValidatePage::ValidatePage(ValidationWorkflow *wf, QWidget *parent)
 {
   setProperty(kWfProp, QVariant::fromValue(static_cast<QObject *>(wf)));
 
-  auto *lay = panelLayout(this);
+  auto *scroll = new QScrollArea(this);
+  scroll->setObjectName(QStringLiteral("validatePageScroll"));
+  scroll->setWidgetResizable(true);
+  scroll->setFrameShape(QFrame::NoFrame);
+  auto *content = new QWidget(scroll);
+  content->setObjectName(QStringLiteral("validatePageBody"));
+  auto *lay = panelLayout(content);
+  scroll->setWidget(content);
+  auto *outer = new QVBoxLayout(this);
+  outer->setContentsMargins(0, 0, 0, 0);
+  outer->addWidget(scroll);
   auto *run = new QPushButton(tr("运行验证"), this);
   run->setObjectName(QStringLiteral("runButton"));
   markPrimaryButton(run);

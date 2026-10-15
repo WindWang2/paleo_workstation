@@ -1,7 +1,7 @@
 # 单因素纵深（singlefactor-deep）
 
 分支 `goal/singlefactor-deep-20261015`，基线 `56e458d5`（origin/master，含已合并的 #455）。
-已完成 P0（基线）、P1（约束语义统一、QGIS 绘编一致、几何类型/CRS 契约）与 P2（遗留项 + 取数/QC/血缘 + IDW/Kriging 数值诚实）。P3 起另行派发。
+已完成 P0（基线）、P1（约束语义统一、QGIS 绘编一致、几何类型/CRS 契约）、P2（遗留项 + 取数/QC/血缘 + IDW/Kriging 数值诚实）与 P3（栅格/等值线/样式/成果血缘显示、混合几何、距离变换/最小曲率逐线回执、绘制自动开会话）。
 未跑的不记为通过；「当前源码」与早期分析冲突时以当前源码为准。
 
 ## 四态口径
@@ -11,7 +11,7 @@
 - **部分实现/未接线**：有一部分代码或只覆盖一部分路径。
 - **缺失**：没有实现。
 
-括号内「P1 前 → P1 后」；P2 变化记为「→ **P2：…**」。
+括号内「P1 前 → P1 后」；P2 变化记为「→ **P2：…**」，P3 记为「→ **P3：…**」。
 
 ## 缺口清单（GAP LIST）
 
@@ -29,7 +29,7 @@
 | A8 | 血缘 extra `constraints_consumed/unused` | 缺失 → 部分 → **P2：已实现且验证**：旧 IDW / 距离变换因子共用 `insertConstraintReceiptExtras`；曲面网格化写掩膜回执 | `tst_geostat_workflow::idwLineageCarriesReceipts`（完全阻断=hard_barrier 消费，display_only 未用） |
 | A9 | 结构 IDW 引擎回执 | 缺失 → 部分 → **P2：已实现且验证**。**更正 P1 分析**：当前源码的结构面模型是 `contour_only`——完全阻断与 display_only 都只作解释软边界（强度>0 且启用屏障时），没有硬隔断；计划已按当前源码改正 | `structuralReceiptsMatchPlan`；另修真缺陷：停用的解释边界此前仍进趋势权重（`structuralDisabledSoftBoundaryHasNoEffect`，回退即失败） |
 | A10 | 约束页「可用 / 参与」计数与就绪门 | **已实现但有缺陷**（数 type 字符串：display_only 打断线、零长线都计为可用屏障）→ **已实现**（统一计划驱动，逐条状态 + 当前方法参与数）；无专门 UI 断言 | `ConstraintPage::applyConstraintUsePlan` |
-| A11 | 距离变换 / 最小曲率引擎 | **已实现但有缺陷**（只认 type=break_line，display_only/停用也隔断）→ **P2：已实现且验证** | `algorithms/constraintbarriers` 逐部件统一判定，只取完全阻断；输出 `CONSTRAINT_RECEIPTS`。`griddingDisplayOnlyDoesNotCut`：display_only/停用与无约束逐位一致、完全阻断对照改变结果（回退即失败）；曲面网格化掩膜同口径 |
+| A11 | 距离变换 / 最小曲率引擎 | **已实现但有缺陷**（只认 type=break_line，display_only/停用也隔断）→ **P2：已实现且验证** | `algorithms/constraintbarriers` 逐部件统一判定，只取完全阻断；输出 `CONSTRAINT_RECEIPTS`。`griddingDisplayOnlyDoesNotCut`：display_only/停用与无约束逐位一致、完全阻断对照改变结果（回退即失败）；曲面网格化掩膜同口径 | → **P3：逐线落格回执**：未落入计算域的完全阻断线记 `consumed=false / outside_compute_domain`，`PALEO_BREAK_LINES`=实际落格条数；全不落格时距离变换走精确欧氏路径（与无约束逐位一致）；计划侧同按域判定 | `griddingReceiptsMatchPlan`（回执 == 带域计划；栅格外屏障输出 == 无约束；回退 3 处失败）
 | A13 | 地统输入取用诚实（给了但没读的参数） | 缺失（块金在自动拟合下被忽略、搜索半径/最少点数静默不读、ρ=0 的协克里金仍标协克里金）→ **P2：已实现且验证** | QC/血缘 `ignored_inputs`、`model_provenance`、`search`、`cokriging`（ρ 来源/钳制/共位样本/协变量是否生效）；`searchRadius` 现真正传入内核（`searchRadiusIsHonoured`） |
 | A14 | 交叉验证 | 缺失 → **P2：已实现且验证**（克里金/协克里金 LOO，剔除重合样本；>2000 井按步长抽检并记录）；SGS 如实标 `not_computed` | `cross_validation`：ME/RMSE/MAE/标准化平方误差；端到端测试断言每井都估到、RMSE < 样本标准差 |
 | A15 | 取数 QC：IDW 逐井参与/跳过 | 缺失（静默跳过非数值）→ **P2：已实现且验证** | `SAMPLE_RECEIPTS` → 血缘 `engine_samples_used/skipped`（原因码），与证据记录的 supporting/skipped_wells 分层保留 |
@@ -46,7 +46,7 @@
 | B5 | 编辑缓冲 ↔ GPKG 一致 | 已实现且验证（既有） | `Fixture::consistent()` 逐字段比对 |
 | B6 | 编辑中保存 .qgz 不持久化临时数据源 | 已实现且验证（既有） | `batchSemanticUndoAndNextParser`（writeMapLayer 钩子改写回正式路径） |
 | B7 | 编辑中移除图层 | 旧契约「回到会话开始」→ **P2（用户决定）：保留未保存的编辑**，已实现且验证 | `removedLayerPreservesEditsAndMissingAssetRefuses`（原断言随契约改）、`removedLayerPreservesUndoPositionAndDrawnConstraint`；服务改发 `editCommitted`。`releaseHorizon`/切层位的显式回滚路径未改 |
-| B8 | 新绘制要素纳入同一撤销栈 | 部分 → **P2：已实现且验证（会话内）** | 编辑会话活跃时绘制走 `beginEditCommand/addFeature`，undo/redo/取消/保存与 store 一致；会话外绘制仍直写 store（不进撤销栈，见待决） |
+| B8 | 新绘制要素纳入同一撤销栈 | 部分 → P2：已实现且验证（会话内）→ **P3（用户决定 (a)）：已实现且验证（全部绘制）** | 画布绘制统一走 `ConstraintWorkflow::drawConstraint`：无会话时先自动开约束编辑会话（UI 经编辑工具栏 `beginConstraintEdit`，接管保存/取消；无 UI 时经绑定的 `QgisEditingService`），再经会话写入；开不起会话则如实失败、不写 store。会话外直写绘制路径已移除（导入仍走事务化 addConstraint）。`drawAutoStartsEditSession`：自动开会话、首笔可撤销/重做、复用会话、保存保留、取消恢复、启动器拒绝不写、无服务失败（回退即失败） |
 
 ### C. 几何类型 / CRS / 刷新
 
@@ -58,8 +58,28 @@
 | C4 | 编辑会话换源保 CRS | 部分（依赖 provider）→ **已实现且验证** | `editSessionKeepsCrs` |
 | C5 | 导入 CRS 检查 | 已实现（`acceptsLocalGrid`）；拒绝路径此前无测试 → **已实现且验证** | `tst_mappingworkbench::constraintImportRejectsForeignCrs`（新增）；多要素导入 `constraintImportLocalCrsAndVerbatimRoundTrip`（既有，8 条） |
 | C6 | 投影单位诊断 | 部分（地理 CRS 只推警告）→ **P2 决定：保持警告** | 理由：工作流路径只有本地工程网格（导入门拒绝外部 CRS，约束与井点跨 CRS 无坐标操作时直接失败，实测）；改拒绝会破坏 Processing 公共契约与 `tst_algorithm_harness` 既有断言 |
-| C7 | 混合几何（点/线/面同层位） | 部分 → **P2 已调查**：OGR 按**首要素**给图层几何类型（线在前 LineString、点在前 Point），但要素数始终 == store 行数；线解析器把非线逐条记 `not_line` | `mixedPointLineHorizonProbe`（两种顺序）。渲染/工具按单一类型选择的后果未改，转 P3 |
+| C7 | 混合几何（点/线/面同层位） | 部分 → P2 已调查 → **P3：已实现且验证**（不迁移 GPKG） | 主图层不过滤（编辑会话要求覆盖全部行、合成取全部要素）；对「存在但主图层类型不覆盖」的几何类型声明只读伴随视图 `constraintgeom.<层位>.<point/line/polygon>`（OGR `geometrytype=`），类型消失即撤销；store 写入、会话内绘制、loadConstraints 后同步。`mixedGeometryViewsPerType`（线在前/点在前）+ `drawAutoStartsEditSession`（会话内画面即声明面视图），回退即失败 |
 | C8 | 声明/刷新一致 | 已实现（loadConstraints/addConstraint 同 layerId 幂等声明；会话中不重声明） | 既有 `tst_constraint_draw::fiveSemanticEntriesDrawAndRoundTrip` |
+
+### D. 栅格成果 / 等值线 / 样式 / 成果版本（P3）
+
+| # | 能力 | 状态 | 证据 / 说明 |
+|---|------|------|-------------|
+| D1 | 等间距等值线忽略 nodata 洞 | 怀疑缺陷 → **P3：已验证无缺陷**（GDAL `GDALContourGenerateEx` 按波段 nodata 处理，box GDAL 3.10 实测），补回归护栏 | `tst_singlefactor_contours::intervalContoursIgnoreNodata` |
+| D2 | 因素色带样式（QgisStyleService / factorstylewriter） | **已实现但有缺陷**（全 nodata 栅格建不起渲染器时仍写出默认灰度 qml 并报成功）→ **P3：已实现且验证**：如实失败 | `styleWriterPresets`（回退即失败） |
+| D3 | 成果版本血缘显示 | 部分（结构面成果 extra 无约束回执；成果表不显示来源）→ **P3：已实现且验证** | 结构面发布写 `insertQcConstraintReceiptExtras`；`ConstraintWorkflow::factorResultLineage` 给 summary/details，`savedFactorResults` 带 `lineage`；成果表第 4 列「来源与质控」+ 明细 tooltip。`factorResultLineageSummary`、`tst_factorworkflow` 结构面 extra 断言（回退即失败） |
+| D4 | UI 工作流（任务 F/G） | 部分 → **P3：已实现**（绘制自动开会话 + 成果表来源列）；成果表列为 UI 文案，无专门 UI 断言 | 见 B8、D3 |
+
+## P3 验收清单
+
+- [x] CI 38730511095：lint 通过；linux/asan/perf 失败为 runner「No space left on device」（基础设施，非本分支）；windows 被并发组取消
+- [x] 距离变换/最小曲率逐线落格回执（P2 Low 已解决）
+- [x] 混合几何按类型声明（无 GPKG 迁移）
+- [x] 用户决定 (a)：绘制自动开会话（P2 Low「会话外绘制不可撤销」已解决）
+- [x] 用户决定 (b)：releaseHorizon 维持显式回滚（未改）
+- [x] 等值线 nodata、样式失败如实、成果血缘显示
+- [x] 自审两轮，High/Medium 为 0
+- [x] 全量 ctest：399/407，失败 8 个 = 基线 8 个同名
 
 ## P2 验收清单
 
@@ -90,6 +110,6 @@
 
 ## 待决
 
-- **会话外绘制**：未进入编辑会话时绘制仍直接写 store、不进撤销栈。若要一律可撤销，需绘制前自动开会话（改变交互：绘制即进入编辑态），等用户决定。
+- ~~**会话外绘制**~~：P3 按用户决定 (a) 解决——绘制前自动开会话。连带后果：(b) 维持 releaseHorizon 显式回滚，故合成等直接调用 releaseHorizon 的路径会回滚未保存的自动会话绘制（UI 切层位入口在编辑中拒绝切换，不受影响）。
 - **切层位 / releaseHorizon**：显式回滚未保存编辑（B7 只改了「图层被移除」路径）。是否也改为保留，等用户决定。
-- **混合几何**：图层几何类型随首要素变化，影响渲染器与捕获工具选择；需要按几何类型分层声明（不迁移 GPKG），转 P3。
+- ~~**混合几何**~~：P3 已按类型声明只读伴随视图解决（见 C7）。

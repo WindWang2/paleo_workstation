@@ -60,11 +60,14 @@ namespace
       {
         if (!m_button || !m_action)
           return;
-        m_action->setEnabled(m_button->isEnabled());
+        // 门控原因挂在 action 上（见 applyGate）：置灰但保留源按钮状态，
+        // 开门后经 resync 还原；tooltip 让位给原因，空了回源 tooltip。
+        const QString gate = m_action->property("paleoGateReason").toString();
+        m_action->setEnabled(m_button->isEnabled() && gate.isEmpty());
         if (m_syncText && !m_button->text().isEmpty())
           m_action->setText(m_button->text());
         const QString tip = m_button->toolTip();
-        m_action->setToolTip(tip.isEmpty() ? m_baseTip : tip);
+        m_action->setToolTip(!gate.isEmpty() ? gate : (tip.isEmpty() ? m_baseTip : tip));
         if (!m_button->whatsThis().isEmpty())
           m_action->setWhatsThis(m_button->whatsThis());
         if (m_button->isCheckable())
@@ -203,6 +206,15 @@ namespace PaleoRibbon
       // ButtonMirror 不带 Q_OBJECT，findChild 只能到 QObject*——名字即类型契约。
       if (auto *m = a->findChild<QObject *>(QStringLiteral("paleoButtonMirror")))
         static_cast<ButtonMirror *>(m)->resync();
+  }
+
+  void applyGate(QAction *action, const QString &reason)
+  {
+    if (!action)
+      return;
+    action->setProperty("paleoGateReason", reason);
+    if (auto *m = action->findChild<QObject *>(QStringLiteral("paleoButtonMirror")))
+      static_cast<ButtonMirror *>(m)->resync();
   }
 
   void makeKeyboardReachable(QWidget *root)

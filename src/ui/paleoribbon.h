@@ -50,6 +50,11 @@ namespace PaleoRibbon
   // （幂等：已处理的按钮带 paleoFocusScroll 标记，可反复调用）。
   void makeKeyboardReachable(QWidget *root);
 
+  // 门控只服务镜像 action（带 "paleoButtonMirror" 子件的）：把原因存进
+  // action 的动态属性 "paleoGateReason"（空串=放行）并手动补一轮同步——
+  // 属性跟 action 走，workbench 重建镜像后依然生效。
+  void applyGate(QAction *action, const QString &reason);
+
   // panel 里 action 生成的那颗按钮（设 objectName / 运行类标记用）。
   SARibbonToolButton *buttonFor(SARibbonPanel *panel, QAction *action);
 

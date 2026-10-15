@@ -21,6 +21,7 @@
 #include "../metadata/paleoprojectstore.h"
 #include "../metadata/layermanifest.h"
 #include "../services/previewdoc.h"
+#include "../services/toolavailability.h" // check/availabilityChanged（导入命令门控）
 #include "pages/pagepanels.h"
 #include "pages/pageshared.h"
 #include "pages/datalist.h"
@@ -48,6 +49,7 @@
 #include <qgsmessagelog.h>
 #include <qgslayoutitemmap.h>
 
+#include <QAbstractButton>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -647,6 +649,32 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
   PaleoRibbon::syncMirrors(this);   // whatsThis 后写：镜像收不到事件，手动补同步
   PaleoRibbon::nameScrollButtons(this); // 面板建齐后滚动按钮才现身，命名再补一轮
   PaleoRibbon::makeKeyboardReachable(this); // 本页签新出现的命令钮补 TabFocus + 聚焦滚入
+
+  // 五个导入命令吃 ToolAvailabilityService 全局门：无工程时置灰并写明原因，
+  // 不再先弹文件对话框才失败（m_tools 为空的测试壳直接放行）。ribbon 镜像
+  // 和页内按钮是同一入口的两份，一起置灰——页内按钮构造后无人碰 enabled，
+  // 门控接管它仅有的开关态；tooltip 原本为空，开门时还原成空串。
+  const auto applyProjectGate = [this] {
+    if (!m_tools)
+      return;
+    QString reason;
+    const bool ok = m_tools->check(QString(), &reason);
+    for (const char *name : {"ribbonImportFolder", "ribbonImportWells", "ribbonImportWellLogs",
+                             "ribbonImportSeismic", "ribbonImportBoundary"})
+      if (auto *a = findChild<QAction *>(QLatin1String(name)))
+        PaleoRibbon::applyGate(a, ok ? QString() : reason);
+    for (const char *name : {"importFolder", "importWells", "importWellLogs",
+                             "importSeismic", "importBoundary"})
+      if (auto *b = findChild<QAbstractButton *>(QLatin1String(name)))
+      {
+        b->setEnabled(ok);
+        b->setToolTip(ok ? QString() : reason);
+      }
+  };
+  if (m_tools)
+    connect(m_tools, &ToolAvailabilityService::availabilityChanged, this,
+            [applyProjectGate](const QString &) { applyProjectGate(); });
+  applyProjectGate();
 
   m_workflowsAttached = true;
 }

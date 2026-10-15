@@ -18,6 +18,7 @@
 
 #include "../src/app/appcontext.h"
 #include "../src/qgis/qgiscanvascontroller.h"
+#include "../src/qgis/qgisprojectservice.h"
 #include "../src/ui/paleodockmanager.h"
 #include "../src/ui/paleomainwindow.h"
 #include "../src/ui/pages/pageshared.h"
@@ -493,6 +494,84 @@ private slots:
     QCOMPARE(QApplication::focusWidget(), prev);
   }
 
+  // C（通用门控接入既有 QAction，必须是本文件最后一个用例：它会开关 AppContext 里的工程）：
+  // 没有打开工程时导入必然失败（DataImportService「project dir is not set」），界面却先弹文件
+  // 对话框、选完文件才报错。ToolAvailabilityService 的全局门控把这五个导入命令置灰并写明原因；
+  // 工程打开后放开，关闭后再置灰。其余命令（刷新列表）不受影响。
+  void importCommandsAreGatedUntilProjectOpens()
+  {
+    QgisCanvasController canvas(m_ctx);
+    PaleoMainWindow win(&canvas, m_ctx->projectSvc(), m_ctx->layerSvc(), m_ctx->toolSvc(),
+                        m_ctx->selection());
+    win.attachWorkflows(m_ctx->predictionWf(), m_ctx->constraintWf(), m_ctx->compositionWf(),
+                        m_ctx->validationWf(), m_ctx->importSvc(), m_ctx->seismicLink(),
+                        m_ctx->processingSvc(), m_ctx->store(), m_ctx->editingSvc(),
+                        m_ctx->layoutSvc(), m_ctx->taskSvc());
+    win.show();
+    win.showPage(QStringLiteral("data"));
+    QWidget *cat = win.categoryForPage(QStringLiteral("data"));
+    QVERIFY(cat);
+    const QStringList names{QStringLiteral("ribbonImportFolder"), QStringLiteral("ribbonImportWells"),
+                            QStringLiteral("ribbonImportWellLogs"), QStringLiteral("ribbonImportSeismic"),
+                            QStringLiteral("ribbonImportBoundary")};
+    const auto button = [cat](const QString &name) -> QToolButton * {
+      for (auto *b : cat->findChildren<QToolButton *>())
+        if (b->objectName() == name)
+          return b;
+      return nullptr;
+    };
+    const QStringList pageNames{QStringLiteral("importFolder"), QStringLiteral("importWells"),
+                                QStringLiteral("importWellLogs"), QStringLiteral("importSeismic"),
+                                QStringLiteral("importBoundary")};
+    const auto expectGated = [&](bool gated, const char *phase) {
+      for (const QString &n : names)
+      {
+        QToolButton *b = button(n);
+        QVERIFY2(b, qPrintable(QStringLiteral("%1: ribbon button %2 not found").arg(QLatin1String(phase), n)));
+        if (gated)
+        {
+          QVERIFY2(!b->isEnabled(), qPrintable(QStringLiteral("%1: %2 must be disabled").arg(QLatin1String(phase), n)));
+          QVERIFY2(b->toolTip().contains(QStringLiteral("工程")),
+                   qPrintable(QStringLiteral("%1: %2 tooltip must name the reason, got '%3'")
+                                  .arg(QLatin1String(phase), n, b->toolTip())));
+        }
+        else
+        {
+          QVERIFY2(b->isEnabled(), qPrintable(QStringLiteral("%1: %2 must be enabled").arg(QLatin1String(phase), n)));
+          QVERIFY2(!b->toolTip().contains(QStringLiteral("先新建或打开工程")),
+                   qPrintable(QStringLiteral("%1: %2 still shows the gate reason").arg(QLatin1String(phase), n)));
+        }
+      }
+      // 页内导入按钮是同一入口的另一份，必须与 ribbon 一起置灰/放开
+      for (const QString &n : pageNames)
+      {
+        QAbstractButton *b = win.findChild<QAbstractButton *>(n);
+        QVERIFY2(b, qPrintable(QStringLiteral("%1: page button %2 not found").arg(QLatin1String(phase), n)));
+        QVERIFY2(b->isEnabled() != gated,
+                 qPrintable(QStringLiteral("%1: page button %2 enabled=%3, expected %4")
+                                .arg(QLatin1String(phase), n).arg(b->isEnabled()).arg(!gated)));
+        if (gated)
+          QVERIFY2(b->toolTip().contains(QStringLiteral("工程")),
+                   qPrintable(QStringLiteral("%1: page %2 tooltip must name the reason, got '%3'")
+                                  .arg(QLatin1String(phase), n, b->toolTip())));
+      }
+    };
+    QToolButton *refresh = button(QStringLiteral("ribbonRefreshList"));
+    QVERIFY(refresh);
+
+    expectGated(true, "no project");
+    QVERIFY2(refresh->isEnabled(), "unrelated command must stay enabled without a project");
+
+    QTemporaryDir dir;
+    QVERIFY(m_ctx->projectSvc()->createProject(dir.filePath(QStringLiteral("gate.qgz"))));
+    QTest::qWait(60);
+    expectGated(false, "project open");
+    QVERIFY(refresh->isEnabled());
+
+    m_ctx->projectSvc()->closeProject();
+    QTest::qWait(60);
+    expectGated(true, "project closed");
+  }
 };
 
 int main(int argc, char *argv[])

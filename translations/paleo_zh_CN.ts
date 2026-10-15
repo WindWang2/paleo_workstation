@@ -12784,6 +12784,11 @@ Crossline: %3 ~ %4</source>
         <translation>重做被撤销的编辑</translation>
     </message>
     <message>
+        <location filename="../src/ui/paleomainwindow.cpp" line="169"/>
+        <source>先新建或打开工程</source>
+        <translation>先新建或打开工程</translation>
+    </message>
+    <message>
         <location filename="../src/ui/paleomainwindow_attach_shell.cpp" line="96"/>
         <source>搜索井位/层位  %1</source>
         <translation>搜索井位/层位  %1</translation>

@@ -45,6 +45,7 @@ private slots:
   void localPredictorRejectsNonGridInputModel();
   void localPredictorRejectsOversizedClassCount();
   void localPredictorHappyPathArgmax();
+  void warmupMultiChannelDynamicShapeSucceeds();
 
 private:
   // seg3: y[0,c] = gain[c]*x + bias[c]，gains {1,-1,0}、biases {0,0,0.1}——
@@ -502,6 +503,25 @@ void TestOnnxSessions::localPredictorHappyPathArgmax()
   QCOMPARE( cells.size(), 8 );
   // argmax 解析解：x>0.05 → 类 0；x<-0.05 → 类 1；其间 → 类 2（bias 0.1）
   QCOMPARE( cells, ( QVector<int>{ 0, 1, 2, 2, 1, 0, 2, 0 } ) );
+}
+
+void TestOnnxSessions::warmupMultiChannelDynamicShapeSucceeds()
+{
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  // Input: [1, 3, -1, -1] with dynamic H, W and 3 channels
+  const QString modelPath = dir.filePath( QStringLiteral( "multi_dynamic.onnx" ) );
+  QVERIFY( OnnxFixtureWriter::writeSeg( modelPath, { 1.0f, 2.0f, 0.5f }, { 0.1f, -0.1f, 0.0f },
+                                        8, nullptr, -1, -1, 3 ) );
+  PaleoOnnxService svc;
+  svc.setModelRoot( dir.path() );
+  OnnxModelMeta meta;
+  QString err;
+  QCOMPARE( svc.loadModelMeta( QStringLiteral( "multi_dynamic" ), &meta, &err ), OnnxLoadStatus::Ok );
+  QVERIFY2( err.isEmpty(), qPrintable( err ) );
+  QCOMPARE( meta.inputShape, QVector<int64_t>( { 1, 3, -1, -1 } ) );
+  QVERIFY2( meta.warmupMs >= 0, "Warmup should succeed for multi-channel dynamic model" );
+  QVERIFY2( meta.warmupError.isEmpty(), qPrintable( meta.warmupError ) );
 }
 
 int main( int argc, char *argv[] )

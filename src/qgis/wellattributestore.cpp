@@ -512,10 +512,22 @@ bool mergeIntervals(DataCatalog *catalog, const QString &dir,
       if (!a && !b)
         continue;
       QVariantMap row = a ? *a : QVariantMap();
-      if (b)
-        for (auto p = b->cbegin(); p != b->cend(); ++p)
-          if (!onlyMissing || row.value(p.key()).isNull())
-            row.insert(p.key(), p.value());
+      if (b) {
+        const bool hasExistingFacies = (row.value("source").toString() == "manual") ||
+                                       (!row.value("facies_code").isNull() && row.value("facies_code").toInt() > 0);
+        for (auto p = b->cbegin(); p != b->cend(); ++p) {
+          const QString &k = p.key();
+          const bool isPredictionMeta = (k == "predicted_facies" || k == "model" ||
+                                         k == "job_id" || k == "prediction_status" ||
+                                         k == "prediction_reason");
+          const bool isFaciesAttribute = (k == "facies" || k == "sub_facies" ||
+                                          k == "micro_facies" || k == "facies_code" ||
+                                          k == "facies_pattern");
+          if (!onlyMissing || isPredictionMeta || (!hasExistingFacies && isFaciesAttribute) || row.value(k).isNull() ||
+              (row.value(k).typeId() == QMetaType::QString && row.value(k).toString().trimmed().isEmpty()))
+            row.insert(k, p.value());
+        }
+      }
       row.insert("well_id", group.key());
       row.insert("top_md", boundaries[i - 1]);
       row.insert("base_md", boundaries[i]);
@@ -536,7 +548,7 @@ bool mergeIntervals(DataCatalog *catalog, const QString &dir,
 }
 bool mergeFormations(DataCatalog *catalog, const QString &dir,
                      QgisLayerService *layers, const QVariantList &updates,
-                     QString *error) {
+                     QString *error, bool onlyMissing) {
   if (updates.isEmpty())
     return true;
   if (!writable(catalog, dir, layers, error))
@@ -585,11 +597,35 @@ bool mergeFormations(DataCatalog *catalog, const QString &dir,
       ok = layer->addFeature(next) && ok;
       continue;
     }
+    const auto existingFeat = layer->getFeature(found.value());
+    const QString existingSource = existingFeat.attribute("source").toString();
+    const auto existingCode = existingFeat.attribute("facies_code");
+    const bool hasExistingFacies = (existingSource == "manual") ||
+                                   (existingCode.isValid() && !existingCode.isNull() && existingCode.toInt() > 0);
     for (auto p = row.cbegin(); p != row.cend(); ++p) {
       const int index = layer->fields().indexOf(p.key());
       if (index >= 0 && p.key() != "well_id" && p.key() != "formation" &&
-          p.key() != "well_name")
+          p.key() != "well_name") {
+        const QString &k = p.key();
+        const bool isPredictionMeta = (k == "predicted_dominant" || k == "model" ||
+                                       k == "job_id" || k == "prediction_status" ||
+                                       k == "prediction_reason" || k == "dominant_thickness_md" ||
+                                       k == "dominant_ratio" || k == "coverage" ||
+                                       k == "tie" || k == "facies_composition");
+        if (onlyMissing && !isPredictionMeta) {
+          const bool isFaciesAttribute = (k == "dominant_facies" || k == "facies_code");
+          if (hasExistingFacies && isFaciesAttribute)
+            continue;
+          if (!isFaciesAttribute) {
+            const auto currentVal = existingFeat.attribute(index);
+            if (currentVal.isValid() && !currentVal.isNull() &&
+                !(currentVal.typeId() == QMetaType::QString && currentVal.toString().trimmed().isEmpty())) {
+              continue;
+            }
+          }
+        }
         ok = layer->changeAttributeValue(found.value(), index, p.value()) && ok;
+      }
     }
   }
   if (!ok || !validate(layer, catalog, Table::Formations, error)) {
@@ -606,7 +642,7 @@ bool mergeIntervalsAndFormations(DataCatalog *catalog, const QString &dir,
                                  QgisLayerService *layers,
                                  const QVariantList &intervalUpdates,
                                  const QVariantList &formationUpdates,
-                                 QString *error) {
+                                 QString *error, bool onlyMissing) {
   // #415：两表分属两个 edit buffer——地层批失败时井段批已提交，井间隔表
   // 被改写而地层表未动即半更新（重试会重复合并）。与 seed() 同口径：先
   // 快照受影响井的旧行，第二批失败删回本批再重加快照，等价单事务。
@@ -625,9 +661,9 @@ bool mergeIntervalsAndFormations(DataCatalog *catalog, const QString &dir,
       if (wellIds.contains(f.attribute("well_id").toString()))
         previous << attributes(f);
   }
-  if (!mergeIntervals(catalog, dir, layers, intervalUpdates, error))
+  if (!mergeIntervals(catalog, dir, layers, intervalUpdates, error, onlyMissing))
     return false;
-  if (mergeFormations(catalog, dir, layers, formationUpdates, error))
+  if (mergeFormations(catalog, dir, layers, formationUpdates, error, onlyMissing))
     return true;
   const QString firstErr = error ? *error : QString();
   if (layer && layer->isValid() && !layer->isEditable() &&

@@ -55,6 +55,17 @@ void PaleoMainWindow::attachPredictPage(PredictPage *predictPage,
                   status->setText(msg);
                 QgsMessageLog::logMessage(msg, QStringLiteral("Paleo"), Qgis::Critical);
               };
+              if (m_taskSvc)
+              {
+                for (PaleoTask *t : m_taskSvc->tasks())
+                {
+                  if (t && t->running() && t->title().startsWith(tr("预测")))
+                  {
+                    logFail(tr("已有预测任务正在运行，请等待完成或取消后再运行"));
+                    return;
+                  }
+                }
+              }
               if (!m_taskSvc)
               {
                 QString err;
@@ -74,7 +85,8 @@ void PaleoMainWindow::attachPredictPage(PredictPage *predictPage,
               predictPage->setRunBusy(true);
               PaleoTask *task = m_taskSvc->start(
                   tr("预测 %1 · %2").arg(horizon, algId),
-                  [pred, job](PaleoTask *) -> QString {
+                  [pred, job](PaleoTask *t) -> QString {
+                    job->isCancelled = [t]() -> bool { return t ? t->cancelRequested() : false; };
                     if (pred->computePredictionJob(job.get()))
                       return QString();
                     return job->error.isEmpty() ? QObject::tr("预测失败") : job->error;

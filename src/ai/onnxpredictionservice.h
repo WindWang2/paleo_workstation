@@ -40,6 +40,8 @@ struct OnnxModelMeta {
   QString inputSignature;     // "x:float32[1,1,?,?]"（动态维记 ?）
   qint64 warmupMs = -1;       // 首次加载 warmup 推理耗时；-1 = 未执行
   QString warmupError;        // warmup 失败原始错误（空 = 成功）
+  QString outputSemantics;    // "logits" | "probabilities" | "classes"
+  int classes = 0;
 };
 
 class PaleoOnnxService : public QObject

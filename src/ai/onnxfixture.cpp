@@ -203,7 +203,8 @@ bool OnnxFixtureWriter::writeAddScalar( const QString &path, float addend,
 
 bool OnnxFixtureWriter::writeSeg( const QString &path, const QVector<float> &gains,
                                   const QVector<float> &biases, int64_t irVersion,
-                                  QString *error )
+                                  QString *error, int64_t fixedH, int64_t fixedW,
+                                  int64_t inChannels )
 {
   if ( gains.isEmpty() || gains.size() != biases.size() )
   {
@@ -219,8 +220,8 @@ bool OnnxFixtureWriter::writeSeg( const QString &path, const QVector<float> &gai
   g.nodes.append( NodeSpec { "Add", { "e", "b" }, { "y" } } );
   g.initializers.append( tensorProto( "w", wbDims, gains ) );
   g.initializers.append( tensorProto( "b", wbDims, biases ) );
-  g.inputs.append( { "x", { 1, 1, -1, -1 } } );   // NCHW，H/W 动态
-  g.outputs.append( { "y", { 1, c, -1, -1 } } );
+  g.inputs.append( { "x", { 1, inChannels, fixedH, fixedW } } );
+  g.outputs.append( { "y", { 1, c, fixedH, fixedW } } );
   return writeBytes( path, modelProto( irVersion, graphProto( g ) ), error );
 }
 

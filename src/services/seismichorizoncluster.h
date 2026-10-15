@@ -12,6 +12,7 @@ struct SeismicClusterResult {
   QRectF extent;
   int columns = 64, rows = 64;
   int validCells = 0;
+  QString crsWkt;
   QString error;
 };
 

@@ -154,8 +154,12 @@ void HttpRemoteTransport::begin(int timeoutMs, Op op, QNetworkReply *reply,
     }
     QVector<int> cells;
     cells.reserve(got.size());
-    for (const QJsonValue &v : got)
-      cells.append(v.toInt());
+    for (const QJsonValue &v : got) {
+      if (v.isNull() || !v.isDouble())
+        cells.append(-9999);
+      else
+        cells.append(v.toInt());
+    }
     emit predictDone(runId, cells, {});
   });
 }
@@ -185,7 +189,7 @@ void HttpRemoteTransport::predict(const RemotePredictionRequest &request,
   body.insert(QStringLiteral("rows"), request.rows);
   QJsonArray samples;
   for (float v : request.samples)
-    samples.append(std::isnan(v) ? QJsonValue() : QJsonValue(double(v)));
+    samples.append(!std::isfinite(v) ? QJsonValue() : QJsonValue(double(v)));
   body.insert(QStringLiteral("samples"), samples);
   if (m_wellsRequest) {
     body.insert(QStringLiteral("wells"), QJsonArray::fromVariantList(request.wells));
@@ -291,10 +295,8 @@ void RemotePredictionRouter::beginChain(quint64 runId,
 
 void RemotePredictionRouter::onHealth(quint64 runId, bool ok, const QString &error)
 {
-  if (runId != m_runId)
+  if (runId == 0 || runId != m_runId || m_cancelled)
     return;
-  if (m_cancelled)
-    return settleFail(QObject::tr("已取消"));
   if (!ok)
     return degradeOrDie(runId, QObject::tr("健康检查"), error);
   emit progress(m_request.id, 30);
@@ -304,10 +306,8 @@ void RemotePredictionRouter::onHealth(quint64 runId, bool ok, const QString &err
 void RemotePredictionRouter::onPredict(quint64 runId, const QVector<int> &cells,
                                        const QString &error)
 {
-  if (runId != m_runId)
+  if (runId == 0 || runId != m_runId || m_cancelled)
     return;
-  if (m_cancelled)
-    return settleFail(QObject::tr("已取消"));
   if (!error.isEmpty())
     return degradeOrDie(runId, QObject::tr("远端预测"), error);
 
@@ -325,7 +325,7 @@ void RemotePredictionRouter::onPredict(quint64 runId, const QVector<int> &cells,
 void RemotePredictionRouter::degradeOrDie(quint64 runId, const QString &stageName,
                                           const QString &stageError)
 {
-  if (runId != m_runId)
+  if (runId == 0 || runId != m_runId || m_cancelled)
     return;
   LocalPredictor *local = m_local;
   const bool usable = m_request.kind != QLatin1String("wells") && local && m_fallbackEnabled && local->isConfigured();

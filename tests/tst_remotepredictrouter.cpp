@@ -16,6 +16,7 @@
 #include <memory>
 
 #include "../src/ai/onnxfixture.h"
+#include "../src/ai/onnxlocalpredictor.h"
 #include "../src/ai/onnxpredictionservice.h"
 #include "../src/ai/remotepredictrouter.h"
 
@@ -26,7 +27,7 @@ class LoopbackServer : public QObject
 {
   Q_OBJECT
   public:
-    enum class Mode { Normal, DeadOnAccept, Slow, Garbage };
+    enum class Mode { Normal, DeadOnAccept, Slow, Garbage, ReturnNullCells };
     Mode mode = Mode::Normal;
     int healthHits = 0, predictHits = 0;
 
@@ -104,7 +105,12 @@ class LoopbackServer : public QObject
         const int rows = req.value( QStringLiteral( "rows" ) ).toInt();
         QJsonArray cells;
         for ( int i = 0; i < columns * rows; ++i )
-          cells.append( 3 ); // 远端固定答 3——与本地模型的可区分断言
+        {
+          if ( mode == Mode::ReturnNullCells && i == 1 )
+            cells.append( QJsonValue() ); // null
+          else
+            cells.append( 3 ); // 远端固定答 3——与本地模型的可区分断言
+        }
         if (req.value("kind") == "wells") {
           QJsonArray points;
           for (const auto &v : req.value("wells").toArray()) {
@@ -223,6 +229,8 @@ class TestRemotePredictionRouter : public QObject
     void slowServerDegradesToOurt();
     void garbageServerDegradesToOurt();
     void cancelBeforeChainStartsFails();
+    void remoteJsonNullDeserializedToNodataNegative9999();
+    void localFallbackTranslatesFaciesCodesAndNodata();
 
   private:
     static bool waitSpy( QSignalSpy &spy, int count = 1, int timeoutMs = 15000 )
@@ -443,7 +451,7 @@ void TestRemotePredictionRouter::deadRemoteFallsBackToLocalOrt()
   for ( int i = 0; i < result.cells.size(); ++i )
   {
     if ( i == 1 )
-      QCOMPARE( result.cells[i], 255 ); // NaN 采样位 → 无数据
+      QCOMPARE( result.cells[i], -9999 ); // NaN 采样位 → 无数据 (-9999)
     else
       QCOMPARE( result.cells[i], 0 );   // x=2 → 类 0
   }
@@ -535,6 +543,43 @@ void TestRemotePredictionRouter::cancelBeforeChainStartsFails()
   QVERIFY2( waitSpy( failed ), "cancelled start must report" );
   QCOMPARE( completed.size(), 0 );
   QVERIFY( failed.at( 0 ).at( 1 ).toString().contains( QStringLiteral( "已取消" ) ) );
+}
+
+void TestRemotePredictionRouter::remoteJsonNullDeserializedToNodataNegative9999()
+{
+  LoopbackServer server;
+  QVERIFY( server.start( LoopbackServer::Mode::ReturnNullCells ) );
+  HttpRemoteTransport transport( server.baseUrl() );
+  RemotePredictionRouter router( &transport );
+  QSignalSpy completed( &router, &RemotePredictionService::completed );
+  QSignalSpy failed( &router, &RemotePredictionService::failed );
+  router.start( makeRequest( 2, 2, true ) );
+  QVERIFY2( waitSpy( completed ), "server returning null cells must complete" );
+  QCOMPARE( failed.size(), 0 );
+  const RemotePredictionResult res = completed.at( 0 ).at( 0 ).value<RemotePredictionResult>();
+  QCOMPARE( res.cells.size(), 4 );
+  QCOMPARE( res.cells[0], 3 );
+  QCOMPARE( res.cells[1], -9999 ); // P0-5: JSON null MUST be -9999, NOT 0!
+}
+
+void TestRemotePredictionRouter::localFallbackTranslatesFaciesCodesAndNodata()
+{
+  ensureSeg3();
+  PaleoOnnxService onnx;
+  onnx.setModelRoot( fixtureDir() );
+  OnnxLocalPredictor predictor( &onnx, QStringLiteral( "seg3" ) );
+  RemotePredictionRequest req = makeRequest( 2, 2, true );
+  req.facies = QVariantList{
+    QVariantMap{ { QStringLiteral( "code" ), 101 }, { QStringLiteral( "name" ), QStringLiteral( "f1" ) } },
+    QVariantMap{ { QStringLiteral( "code" ), 102 }, { QStringLiteral( "name" ), QStringLiteral( "f2" ) } },
+    QVariantMap{ { QStringLiteral( "code" ), 103 }, { QStringLiteral( "name" ), QStringLiteral( "f3" ) } },
+  };
+  QVector<int> cells;
+  QString err;
+  QVERIFY2( predictor.predict( req, cells, &err ), qPrintable( err ) );
+  QCOMPARE( cells.size(), 4 );
+  QCOMPARE( cells[0], 101 ); // P0-6: 0-based argmax 0 translated to facies code 101!
+  QCOMPARE( cells[1], -9999 ); // P0-4: NoData must be -9999, NOT 255!
 }
 
 int main( int argc, char *argv[] )

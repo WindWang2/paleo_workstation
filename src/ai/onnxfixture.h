@@ -21,7 +21,8 @@ class OnnxFixtureWriter
     // Mul(w[1,C,1,1]) + Add(b[1,C,1,1]) 两节点——softmax/熵由调用侧计算。
     static bool writeSeg( const QString &path, const QVector<float> &gains,
                           const QVector<float> &biases, int64_t irVersion = 8,
-                          QString *error = nullptr );
+                          QString *error = nullptr, int64_t fixedH = -1, int64_t fixedW = -1,
+                          int64_t inChannels = 1 );
 
     // trace 窗评分：p = sigmoid(gain*x + offset)，float32[1,1,T]（T 动态）。
     // Mul + Add + Sigmoid 三节点——逐样本「层位敏感度」概率，供种子点

@@ -58,6 +58,11 @@ void restoreRasterCrs(QgsMapLayer *layer) {
 
 bool raster(const QString &path, const QVector<int> &cells, int cols, int rows,
             const QRectF &extent, QString *error) {
+  return raster(path, cells, cols, rows, extent, QString(), error);
+}
+
+bool raster(const QString &path, const QVector<int> &cells, int cols, int rows,
+            const QRectF &extent, const QString &crsWkt, QString *error) {
   if (cells.size() != cols * rows || extent.isEmpty()) {
     if (error)
       *error = QObject::tr("预测网格为空或尺寸不匹配");
@@ -76,15 +81,16 @@ bool raster(const QString &path, const QVector<int> &cells, int cols, int rows,
   double transform[] = {
       extent.left(),          extent.width() / cols, 0, extent.bottom(), 0,
       -extent.height() / rows};
+  const QString effectiveCrs = !crsWkt.trimmed().isEmpty() ? crsWkt : DataCatalog::localGridCrsWkt();
   bool ok =
       GDALSetGeoTransform(ds, transform) == CE_None &&
       GDALSetProjection(
-          ds, DataCatalog::localGridCrsWkt().toUtf8().constData()) == CE_None;
+          ds, effectiveCrs.toUtf8().constData()) == CE_None;
   // GeoTIFF's keys cannot represent a named engineering datum. Preserve the
   // exact CRS in the TIFF metadata as well, so QGIS needs no sidecar file.
   ok = ok &&
        GDALSetMetadataItem(ds, "PALEO_CRS_WKT",
-                           DataCatalog::localGridCrsWkt().toUtf8().constData(),
+                           effectiveCrs.toUtf8().constData(),
                            nullptr) == CE_None;
   auto band = GDALGetRasterBand(ds, 1);
   GDALSetRasterNoDataValue(band, -9999);

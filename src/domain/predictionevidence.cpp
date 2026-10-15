@@ -27,7 +27,10 @@ const QSet<QString> &bookkeeping()
     QStringLiteral( "label_mode" ), QStringLiteral("interpretation_reference_versions"),
     QStringLiteral("feature_summary"), QStringLiteral("quality_findings"),
     QStringLiteral("operation_id"), QStringLiteral("actor_id"),
-    QStringLiteral("interpretation_events"), QStringLiteral("feature_identity") };
+    QStringLiteral("interpretation_events"), QStringLiteral("feature_identity"),
+    QStringLiteral( "model" ), QStringLiteral( "model_names" ),
+    QStringLiteral( "model_sha256" ), QStringLiteral( "model_hash" ),
+    QStringLiteral( "execution_engine" ) };
   return keys;
 }
 QVariant pick( const QVariantMap &extra, std::initializer_list<const char *> keys )
@@ -105,9 +108,18 @@ QVariantMap build( const QVector<InputRef> &inputs, const QVariantMap &extra,
   }
   const QVariantMap params = parameters( extra );
   QVariantMap model{ { QStringLiteral( "method" ), extra.value( QStringLiteral( "method" ), extra.value( QStringLiteral( "kind" ) ) ) } };
-  for ( const char *k : { "model_names", "prediction_model", "algorithm_id", "request_id", "hierarchy_model" } )
+  for ( const char *k : { "model_names", "prediction_model", "algorithm_id", "request_id", "hierarchy_model",
+                          "model_sha256", "model_hash", "execution_engine" } )
     if ( extra.contains( QLatin1String( k ) ) && !extra.value( QLatin1String( k ) ).isNull() )
       model.insert( QLatin1String( k ), extra.value( QLatin1String( k ) ) );
+  if ( !model.contains( QStringLiteral( "model_names" ) ) && extra.contains( QStringLiteral( "model" ) ) )
+  {
+    const QVariant mval = extra.value( QStringLiteral( "model" ) );
+    if ( mval.typeId() == QMetaType::QStringList )
+      model.insert( QStringLiteral( "model_names" ), mval );
+    else if ( !mval.toString().isEmpty() )
+      model.insert( QStringLiteral( "model_names" ), QStringList{ mval.toString() } );
+  }
   model.insert( QStringLiteral( "mock" ), extra.value( QStringLiteral( "mock" ), false ).toBool() );
 
   QVariantMap support;
@@ -159,7 +171,9 @@ QString summary( const QVariantMap &evidence )
                      .arg( evidence.value( QStringLiteral( "inputs" ) ).toList().size() )
                      .arg( model.value( QStringLiteral( "method" ) ).toString(),
                            evidence.value( QStringLiteral( "parameter_hash" ) ).toString().left( 12 ) );
-  const QString models = model.value( QStringLiteral( "model_names" ) ).toStringList().join( QStringLiteral( "、" ) );
+  QString models = model.value( QStringLiteral( "model_names" ) ).toStringList().join( QStringLiteral( "、" ) );
+  if ( models.isEmpty() && model.contains( QStringLiteral( "model" ) ) )
+    models = model.value( QStringLiteral( "model" ) ).toString();
   if ( !models.isEmpty() )
     text += tr( " · 模型 %1" ).arg( models );
   if ( wells.contains( QStringLiteral( "supporting_wells" ) ) )

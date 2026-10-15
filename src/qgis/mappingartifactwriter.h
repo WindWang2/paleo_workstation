@@ -18,7 +18,9 @@ bool composeRaster(const QString &path, const QList<QgsMapLayer *> &layers,
                    const std::function<bool()> &cancelled = {},
                    const std::function<void(double)> &progress = {});
 bool raster(const QString &path, const QVector<int> &cells, int cols, int rows,
-            const QRectF &extent, QString *error);
+            const QRectF &extent, QString *error = nullptr);
+bool raster(const QString &path, const QVector<int> &cells, int cols, int rows,
+            const QRectF &extent, const QString &crsWkt, QString *error = nullptr);
 bool points(const QString &path, const QVariantList &points, QString *error);
 bool vectorSnapshot(QgsVectorLayer *layer, const QString &path, QString *error);
 QVariantList constraintGeometries(const QString &path, QString *error);

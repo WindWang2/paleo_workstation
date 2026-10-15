@@ -327,7 +327,7 @@ QString WellFaciesWorkflow::publishAttributes(const WellFaciesResult &result) {
   if (intervals.isEmpty())
     return dropped > 0 ? tr("预测段全部无效（空词面/逆序），未更新属性")
                        : tr("预测没有有效井段，未更新属性");
-  if (!WellAttributeStore::mergeIntervals(m_catalog, projectDir(), m_layers, intervals, &error)) return error;
+  if (!WellAttributeStore::mergeIntervals(m_catalog, projectDir(), m_layers, intervals, &error, /*onlyMissing=*/true)) return error;
   // 地层优势相：组、段各一行（同井同名只留最上一个，名字不能重复进矢量表）。
   QVariantList formations;
   QSet<QString> seen;
@@ -342,7 +342,7 @@ QString WellFaciesWorkflow::publishAttributes(const WellFaciesResult &result) {
       {"tie", d.tie}, {"facies_composition", d.composition}, {"source", QStringLiteral("welllogfacies")},
       {"model", result.modelName + " " + result.modelVersion}, {"job_id", result.jobId}};
   }
-  const bool formationsSaved = WellAttributeStore::mergeFormations(m_catalog, projectDir(), m_layers, formations, &error);
+  const bool formationsSaved = WellAttributeStore::mergeFormations(m_catalog, projectDir(), m_layers, formations, &error, /*onlyMissing=*/true);
   refreshAttributes();
   return formationsSaved ? QString() : tr("井段属性已更新，地层优势相未更新：%1").arg(error);
 }

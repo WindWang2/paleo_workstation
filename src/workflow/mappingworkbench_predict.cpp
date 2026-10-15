@@ -357,6 +357,7 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
       m_request.extent = clustered.extent;
       m_request.rows = clustered.rows;
       m_request.columns = clustered.columns;
+      m_request.crsWkt = clustered.crsWkt;
       RemotePredictionResult result;
       result.request = m_request;
       result.cells = clustered.cells;
@@ -522,8 +523,7 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &result) {
   if (request.kind == "seismic") {
     valid = valid && result.cells.size() == request.rows * request.columns;
     for (int code : result.cells)
-      valid = valid && (codes.contains(code) ||
-          (result.mock && result.method == QLatin1String("mock-horizon-window-kmeans-v1") && code == -9999));
+      valid = valid && (codes.contains(code) || code == -9999);
   } else {
     valid = valid && result.points.size() == request.wells.size();
     for (int i = 0; i < result.points.size() && valid; ++i) {
@@ -734,25 +734,10 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &result) {
     const bool ok = request.kind == "seismic"
                         ? MappingArtifactWriter::raster(
                               path, result.cells, request.columns, request.rows,
-                              request.extent, &error)
+                              request.extent, request.crsWkt, &error)
                         : MappingArtifactWriter::points(path, points, &error);
-    bool maintained = ok;
-    if (ok && request.kind == "wells")
-    {
-      emit predictionProgress(97);
-      emit predictionDetailChanged(tr("更新工区测井及地层预测信息"));
-      // 井段批与地层批必须同成败——分开调时第二批失败会留半更新域
-      //（#415），由事务化包装按批前快照恢复井段。
-      maintained = WellAttributeStore::mergeIntervalsAndFormations(
-          m_catalog, m_dir, m_layers,
-          wellAttributeUpdates(points, schema, request.horizon, true, result.method, request.id) + skippedIntervalRows,
-          formationRows, &error);
-    }
-    // 首次预测刚落盘的属性/地层表立刻进图层列表（无需重开工程或切页）。
-    if (ok && request.kind == "wells")
-      ensureWellBaseLayers();
-    if (maintained) {
-      emit predictionProgress(99);
+    if (ok) {
+      emit predictionProgress(98);
       emit predictionDetailChanged(tr("登记并显示预测图件"));
       auto parameters = m_predictionParameters;
       if (result.currentFormationOnly) {
@@ -824,8 +809,22 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &result) {
       if (m_task && !outputVersion.id.isEmpty())
         m_task->setNavigationContext({{"catalog_path", m_catalog->catalogPath()},
             {"version_id", outputVersion.id}, {"request_id", request.id}, {"horizon", request.horizon}});
+
+      // P0-9: 仅在 record 成果图件登记成功后，才提交井属性与地层表变更
+      if (!outputLayer.isEmpty() && error.isEmpty() && request.kind == "wells")
+      {
+        emit predictionProgress(99);
+        emit predictionDetailChanged(tr("更新工区测井及地层预测信息"));
+        bool maintained = WellAttributeStore::mergeIntervalsAndFormations(
+            m_catalog, m_dir, m_layers,
+            wellAttributeUpdates(points, schema, request.horizon, true, result.method, request.id) + skippedIntervalRows,
+            formationRows, &error, /*onlyMissing=*/true);
+        if (maintained)
+          ensureWellBaseLayers();
+      }
     }
   }
+  QDir(stageDir).removeRecursively();
   m_request = {};
   m_predictionParameters.clear();
   if (error.isEmpty()) {

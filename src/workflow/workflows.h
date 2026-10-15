@@ -112,6 +112,9 @@ class PredictionWorkflow : public QObject
         QString layerId;
         QString layerGroup;
         QString layerTitle;
+        QString modelSha256;
+        QString executionEngine;
+        std::function<bool()> isCancelled;
 #if PALEO_HAVE_ORT
         // ONNX 输入与网格几何（prepare 在 GUI 线程解析，compute 只做推理+写盘）。
         QVector<float> onnxInput;

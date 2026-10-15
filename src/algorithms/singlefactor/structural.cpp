@@ -4,6 +4,8 @@
 #include "geosutil.h"
 #include "localidw.h"
 
+#include "domain/constraintsemantics.h"
+
 #include <geos_c.h>
 
 #include <QVariantList>
@@ -12,16 +14,11 @@
 #include <cmath>
 #include <limits>
 #include <memory>
-#include <unordered_set>
 
 namespace paleo::singlefactor
 {
 namespace
 {
-// ---- 阻断语义（constraint_semantics.py）----
-const std::unordered_set<std::string> kNonBlockingModes = {
-    "none", "off", "no_block", "soft", "partial", "display_only", "0", "false" };
-
 // fast_grid.py::rasterize_polygon_mask——向量化射线法，无 on-segment 判边。
 // 返回行主序掩膜（行=gridY 升序，列=gridX 升序）。
 void rasterizeRingMask( const std::vector<double> &gridX, const std::vector<double> &gridY,
@@ -130,7 +127,8 @@ std::string normalizeBlockMode( const std::string &mode )
 
 bool isFullBlockMode( const std::string &mode )
 {
-  return kNonBlockingModes.count( normalizeBlockMode( mode ) ) == 0;
+  // 词表唯一事实源在 domain/constraintsemantics（UI 计划与 constraintparse 同表）。
+  return isFullBlockModeToken( QString::fromStdString( mode ) );
 }
 
 bool isContourStopMode( const std::string &mode )

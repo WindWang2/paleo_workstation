@@ -1,7 +1,7 @@
 // 层：数据
 #include "constraintparse.h"
 
-#include "structural.h" // isFullBlockMode / normalizeBlockMode（BLK_MODE 语义）
+#include "domain/constraintsemantics.h" // 统一语义解析 + 部件有效性
 
 #include <qgscoordinatetransform.h>
 #include <qgsfeature.h>
@@ -12,34 +12,10 @@
 #include <qgsprocessingutils.h>
 #include <qgswkbtypes.h>
 
-#include <QJsonDocument>
-#include <QJsonObject>
-#include <QJsonValue>
-
 #include <memory>
 
 namespace paleo::singlefactor
 {
-namespace
-{
-
-double jsonNumber( const QJsonObject &object, const QString &key, double fallback, bool *present )
-{
-  if ( !object.contains( key ) )
-  {
-    if ( present )
-      *present = false;
-    return fallback;
-  }
-  const QJsonValue value = object.value( key );
-  if ( !value.isDouble() )
-    throw QgsProcessingException( QStringLiteral( "约束参数 %1 不是数值" ).arg( key ) );
-  if ( present )
-    *present = true;
-  return value.toDouble();
-}
-
-} // namespace
 
 const char *semanticToken( Semantic semantic )
 {
@@ -160,94 +136,39 @@ ParsedConstraints readConstraintLines( QgsProcessingFeatureSource *constraints,
 
     ConstraintLine line;
     line.stableId = stableId;
+    // 语义解析统一走 domain/constraintsemantics（UI/工作流计划同一函数），
+    // 这里只把 token 映射回引擎枚举。非法 params_json 整次拒绝（旧口径）。
+    const QString type = typeIdx >= 0 ? feature.attribute( typeIdx ).toString().trimmed() : QString();
     QString jsonText;
     if ( jsonIdx >= 0 && !feature.attribute( jsonIdx ).isNull() )
       jsonText = feature.attribute( jsonIdx ).toString().trimmed();
-    if ( !jsonText.isEmpty() )
+    const QVariant schemaColumn = schemaIdx >= 0 ? feature.attribute( schemaIdx ) : QVariant();
+    ConstraintSemanticsOptions semanticsOptions;
+    semanticsOptions.keepDisabled = options.keepDisabled;
+    semanticsOptions.keepNonBlockingBarriers = options.keepNonBlockingBarriers;
+    const ConstraintSemantics semantics =
+        resolveConstraintSemantics( type, jsonText, schemaColumn, semanticsOptions, featureId );
+    if ( !semantics.valid )
+      throw QgsProcessingException( semantics.error );
+    if ( semantics.semantic.isEmpty() )
     {
-      QJsonParseError parseError;
-      const QJsonDocument document = QJsonDocument::fromJson( jsonText.toUtf8(), &parseError );
-      if ( parseError.error != QJsonParseError::NoError || !document.isObject() )
-        throw QgsProcessingException(
-            QStringLiteral( "约束 %1 的 params_json 无法解析" ).arg( featureId ) );
-      const QJsonObject object = document.object();
-      int schema = 1;
-      if ( object.contains( QStringLiteral( "schemaVersion" ) ) )
-      {
-        const QJsonValue schemaValue = object.value( QStringLiteral( "schemaVersion" ) );
-        if ( !schemaValue.isDouble() )
-          throw QgsProcessingException( QStringLiteral( "schemaVersion 不是整数" ) );
-        schema = schemaValue.toInt();
-      }
-      else if ( schemaIdx >= 0 && !feature.attribute( schemaIdx ).isNull() )
-      {
-        schema = feature.attribute( schemaIdx ).toInt();
-      }
-      if ( schema > 1 )
-        throw QgsProcessingException( QStringLiteral( "不认识的约束参数版本 %1" ).arg( schema ) );
-      const QJsonValue semanticValue = object.value( QStringLiteral( "semantic" ) );
-      if ( !semanticValue.isString() )
-        throw QgsProcessingException(
-            QStringLiteral( "约束 %1 的 params_json 缺少 semantic" ).arg( featureId ) );
-      const std::optional<Semantic> semantic = semanticFromParams( semanticValue.toString() );
-      if ( !semantic )
-        throw QgsProcessingException(
-            QStringLiteral( "不认识的约束语义 %1" ).arg( semanticValue.toString() ) );
-      if ( object.contains( QStringLiteral( "enabled" ) ) )
-        line.enabled = object.value( QStringLiteral( "enabled" ) ).toBool( true );
-      if ( !line.enabled && !options.keepDisabled )
-      {
-        ignore( QStringLiteral( "disabled" ) );
-        continue;
-      }
-      line.semantic = *semantic;
-      // 上游 constraint_semantics.py：hard_barrier 的 blockMode 决定真实
-      // 语义——display_only 只停线不动趋势，其余非阻断词一律忽略
-      //（旧语义等价的 hard 线仍走 full_block）。
-      const QJsonValue blockModeValue = object.value( QStringLiteral( "blockMode" ) );
-      if ( blockModeValue.isString() )
-        line.blockMode = blockModeValue.toString().trimmed().toUtf8().toStdString();
-      if ( line.semantic == Semantic::HardBarrier && !options.keepNonBlockingBarriers &&
-           !isFullBlockMode( line.blockMode ) )
-      {
-        if ( normalizeBlockMode( line.blockMode ) == "display_only" )
-        {
-          line.semantic = Semantic::ContourStop;
-        }
-        else
-        {
-          ignore( QStringLiteral( "non_blocking" ) );
-          continue;
-        }
-      }
-      bool present = false;
-      line.ratio = jsonNumber( object, QStringLiteral( "ratio" ), line.ratio, &present );
-      line.influenceRadius =
-          jsonNumber( object, QStringLiteral( "influenceRadius" ), line.influenceRadius, &present );
-      line.coreRadius = jsonNumber( object, QStringLiteral( "coreRadius" ), line.coreRadius, &present );
-      line.softStrength =
-          jsonNumber( object, QStringLiteral( "softStrength" ), line.softStrength, &present );
-      line.softRadius = jsonNumber( object, QStringLiteral( "softRadius" ), line.softRadius, &present );
-      line.displayBuffer =
-          jsonNumber( object, QStringLiteral( "displayBuffer" ), line.displayBuffer, &present );
-      line.cartographicBuffer = jsonNumber( object, QStringLiteral( "cartographicBuffer" ),
-                                            line.cartographicBuffer, &present );
-      if ( object.contains( QStringLiteral( "unit" ) ) &&
-           object.value( QStringLiteral( "unit" ) ).isString() )
-        line.unit = object.value( QStringLiteral( "unit" ) ).toString().toUtf8().toStdString();
+      ignore( semantics.ignoredReason );
+      continue;
     }
-    else
-    {
-      const QString type = typeIdx >= 0 ? feature.attribute( typeIdx ).toString().trimmed() : QString();
-      const std::optional<Semantic> semantic = semanticFromTypeColumn( type );
-      if ( !semantic )
-      {
-        ignore( type.isEmpty() ? QStringLiteral( "unknown_type" )
-                               : QStringLiteral( "unknown_type:%1" ).arg( type ) );
-        continue;
-      }
-      line.semantic = *semantic;
-    }
+    const std::optional<Semantic> semantic = semanticFromParams( semantics.semantic );
+    if ( !semantic )
+      throw QgsProcessingException( QStringLiteral( "不认识的约束语义 %1" ).arg( semantics.semantic ) );
+    line.semantic = *semantic;
+    line.enabled = semantics.enabled;
+    line.blockMode = semantics.blockMode.toUtf8().toStdString();
+    line.ratio = semantics.ratio;
+    line.influenceRadius = semantics.influenceRadius;
+    line.coreRadius = semantics.coreRadius;
+    line.softStrength = semantics.softStrength;
+    line.softRadius = semantics.softRadius;
+    line.displayBuffer = semantics.displayBuffer;
+    line.cartographicBuffer = semantics.cartographicBuffer;
+    line.unit = semantics.unit.toUtf8().toStdString();
 
     const QgsMultiPolylineXY parts = geometry.isMultipart()
                                          ? geometry.asMultiPolyline()
@@ -258,11 +179,18 @@ ParsedConstraints readConstraintLines( QgsProcessingFeatureSource *constraints,
       ConstraintLine piece = line;
       if ( parts.size() > 1 )
         piece.stableId += "#" + std::to_string( partIndex );
+      QVector<QPointF> vertices;
+      vertices.reserve( part.size() );
       piece.points.reserve( static_cast<std::size_t>( part.size() ) );
       for ( const QgsPointXY &point : part )
+      {
         piece.points.push_back( Point2{ point.x(), point.y() } );
-      if ( piece.points.size() < 2 )
-        parsed.ignored.push_back( piece.stableId + " short_line" );
+        vertices.append( point.toQPointF() );
+      }
+      // 无效几何不静默参与数值：<2 顶点、零长、自交、非有限坐标逐部件忽略并留因。
+      const ConstraintPartCheck check = checkConstraintPart( vertices );
+      if ( !check.issue.isEmpty() )
+        parsed.ignored.push_back( piece.stableId + " " + check.issue.toUtf8().toStdString() );
       else
         parsed.lines.push_back( std::move( piece ) );
       ++partIndex;

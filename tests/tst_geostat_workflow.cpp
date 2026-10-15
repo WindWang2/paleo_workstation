@@ -8,6 +8,7 @@
 
 #include <qgsapplication.h>
 #include <qgsmaplayer.h>
+#include <qgsvectorlayer.h>
 #include <qgsproject.h>
 
 #include <QJsonDocument>
@@ -65,7 +66,11 @@ class GeostatWorkflowTests : public QObject
                         .arg( x )
                         .arg( y );
       }
-      f.write( QStringLiteral( "{\"type\":\"FeatureCollection\",\"features\":[%1]}" ).arg( features ).toUtf8() );
+      // 米制 CRS（EPSG:3857）：地统计距离/变差函数按米口径——GeoJSON 缺省是
+      // EPSG:4326，角度当米会被 P2 守卫拒绝（见 geographicWellsAreRejected）。
+      f.write( QStringLiteral( "{\"type\":\"FeatureCollection\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:3857\"}},\"features\":[%1]}" )
+                  .arg( features )
+                  .toUtf8() );
       f.close();
       return QFile::exists( path ) && QFileInfo( path ).size() > 0;
     }
@@ -137,6 +142,9 @@ class GeostatWorkflowTests : public QObject
     void searchRadiusIsHonoured();
     void cokrigingRhoProvenance();
     void unknownStrategyIdRejected();
+    // P2（pr457-closure）：经纬度井位在地统计（距离/变差函数/网格间距按米制
+    // 口径）下明确拒绝，不静默把角度当米。
+    void geographicWellsAreRejected();
 };
 
 void GeostatWorkflowTests::krigingFullChainRegistersDerived()
@@ -315,6 +323,53 @@ void GeostatWorkflowTests::unknownStrategyIdRejected()
   QVERIFY2( err.contains( QStringLiteral( "未知制图策略" ) ), qPrintable( err ) );
   // 没有任何 single_factor_raster 版本被登记（拒绝发生在分派前）。
   QVERIFY( findExtraByAlgorithm( f.catalog, QStringLiteral( "paleo:geostat_kriging" ) ).isEmpty() );
+}
+
+void GeostatWorkflowTests::geographicWellsAreRejected()
+{
+  Fixture f;
+  QVERIFY( initFixture( f ) );
+  // 故意不带 crs 成员：GeoJSON 缺省 EPSG:4326（地理坐标）。
+  const QString ptsPath = f.dir.filePath( QStringLiteral( "wells-4326.geojson" ) );
+  {
+    QFile file( ptsPath );
+    QVERIFY( file.open( QIODevice::WriteOnly ) );
+    QString features;
+    for ( int row = 0; row < 5; ++row )
+      for ( int column = 0; column < 5; ++column )
+      {
+        const double x = 10.0 * column;
+        const double y = 10.0 * row;
+        if ( !features.isEmpty() )
+          features += QLatin1Char( ',' );
+        features += QStringLiteral( "{\"type\":\"Feature\",\"properties\":{\"z\":%1},"
+                                    "\"geometry\":{\"type\":\"Point\",\"coordinates\":[%2,%3]}}" )
+                        .arg( 1.0 + row )
+                        .arg( x )
+                        .arg( y );
+      }
+    file.write( QStringLiteral( "{\"type\":\"FeatureCollection\",\"features\":[%1]}" ).arg( features ).toUtf8() );
+  }
+  QString err;
+  LayerDeclaration d;
+  d.layerId = QStringLiteral( "wells.T1" );
+  d.horizon = QStringLiteral( "T1" );
+  d.type = QStringLiteral( "vector" );
+  d.source = ptsPath;
+  QVERIFY2( f.layers.declare( d, &err ), qPrintable( err ) );
+  auto *wellsLayer = qobject_cast<QgsVectorLayer *>( f.layers.instantiate( QStringLiteral( "wells.T1" ), &err ) );
+  QVERIFY2( wellsLayer, qPrintable( err ) );
+  QVERIFY2( wellsLayer->crs().isGeographic(), "fixture must land in a geographic CRS" );
+
+  ConstraintWorkflow wf( &f.proc, &f.layers );
+  wf.setCatalog( &f.catalog, f.projectDir() );
+  QVariantMap params;
+  params.insert( QStringLiteral( "field" ), QStringLiteral( "z" ) );
+  params.insert( QStringLiteral( "cellSize" ), 2.0 );
+  params.insert( QStringLiteral( "method" ), QStringLiteral( "kriging" ) );
+  QVERIFY2( !wf.generateFactor( QStringLiteral( "T1" ), QStringLiteral( "sandthick" ), params, &err ),
+            "geographic wells must be refused by geostat compute" );
+  QVERIFY2( err.contains( QStringLiteral( "投影" ) ), qPrintable( err ) );
 }
 
 int main( int argc, char *argv[] )

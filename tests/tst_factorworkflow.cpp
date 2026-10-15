@@ -2060,7 +2060,10 @@ class TestFactorWorkflow : public QObject
                           .arg( y );
         }
       }
-      file.write( QStringLiteral( "{\"type\":\"FeatureCollection\",\"features\":[%1]}" ).arg( features ).toUtf8() );
+      // 米制 CRS：GeoJSON 缺省 4326，地统计守卫拒绝角度当米。
+      file.write( QStringLiteral( "{\"type\":\"FeatureCollection\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:3857\"}},\"features\":[%1]}" )
+                      .arg( features )
+                      .toUtf8() );
       file.close();
       return f.layers.declare( decl( QStringLiteral( "wells.T1" ), QStringLiteral( "T1" ),
                                       QStringLiteral( "vector" ), ptsPath ),

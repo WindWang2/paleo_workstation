@@ -1,5 +1,8 @@
 #include <QtTest>
+#include <QComboBox>
 #include <QDir>
+#include <QLabel>
+#include <QListWidget>
 #include <QTemporaryDir>
 #include <QSignalSpy>
 
@@ -14,6 +17,7 @@
 #include "../src/qgis/qgisruntime.h"
 #include "../src/ui/maptools/paleomaptools.h"
 #include "../src/ui/typedconstraintdrawcontroller.h"
+#include "../src/ui/pages/constraintpage.h"
 #include "../src/workflow/workflows.h"
 
 // 方向23 验收——类型化约束绘制链闭环：五个语义入口 → 捕获工具 →
@@ -55,6 +59,38 @@ class TestConstraintDraw : public QObject
     if (entryType == QLatin1String("direction_line") || entryType == QLatin1String("direction_guide"))
       return QStringLiteral("direction_line");
     return entryType;
+  }
+
+  // ---- U6：约束 reason 词表与主链显示完整 ----------------------------------
+
+  // 真实栈（wf + store）+ 约束页夹具：ctor 绑 wf（wireWorkflowFeedback 写
+  // paleo.page.wf），层位下拉置 T1——refreshConstraintList 从 store 滤载 T1 行。
+  struct PageStack
+  {
+    std::unique_ptr<Stack> stack;
+    std::unique_ptr<ConstraintPage> page;
+  };
+  static std::unique_ptr<PageStack> makePageStack(const QString &dir)
+  {
+    auto ps = std::make_unique<PageStack>();
+    ps->stack = makeStack(dir);
+    if (!ps->stack)
+      return nullptr;
+    ps->page = std::make_unique<ConstraintPage>(ps->stack->wf.get());
+    auto *horizons = ps->page->findChild<QComboBox *>(QStringLiteral("horizonCombo"));
+    if (horizons->findText(QStringLiteral("T1")) < 0)
+      horizons->addItem(QStringLiteral("T1"));
+    horizons->setCurrentIndex(horizons->findText(QStringLiteral("T1")));
+    return ps;
+  }
+
+  static QString constraintItemText(const ConstraintPage *page, const QString &id)
+  {
+    auto *list = page->findChild<QListWidget *>(QStringLiteral("constraintList"));
+    for (int i = 0; list && i < list->count(); ++i)
+      if (list->item(i)->data(Qt::UserRole).toString() == id)
+        return list->item(i)->text();
+    return QString();
   }
 
 private slots:
@@ -174,7 +210,7 @@ private slots:
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
     auto s = makeStack(dir.filePath(QStringLiteral("p")));
-    QVERIFY(s != nullptr);
+    QVERIFY(s);
     QString id;
     QString err;
     QVERIFY(s->wf->addConstraint(QStringLiteral("T1"), QStringLiteral("LineString (0 0, 1 1)"),
@@ -187,11 +223,106 @@ private slots:
     QVERIFY(!s->wf->removeConstraint(id, &err));
     QVERIFY(err.contains(QStringLiteral("找不到约束")));
   }
+
+  // ---- U6 用例（夹具见上方 makePageStack/constraintItemText）----------------
+
+  // 主链：通用「绘制约束」入口以裸 type=line 入库（无 params_json，与
+  // ConstraintDrawController::onDrawn → drawConstraint 同口径）——默认方法
+  // local_direction_idw 下该行被拒 unknown_type:line。列表/tooltip 文案必须是
+  // 中文原因（不露裸 token），且提示区把它计入「未类型化」桶（计数盲区）。
+  void untypedConstraintRowShowsChineseReason()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto ps = makePageStack(dir.filePath(QStringLiteral("p")));
+    QVERIFY(ps != nullptr);
+    QString err;
+    QVERIFY(ps->stack->wf->addConstraint(QStringLiteral("T1"), QStringLiteral("LineString (0 0, 1 1)"),
+                                         QStringLiteral("line"), 0, &err));
+    ps->page->refreshConstraintList();
+    auto *list = ps->page->findChild<QListWidget *>(QStringLiteral("constraintList"));
+    QCOMPARE(list->count(), 1);
+    const QString text = list->item(0)->text();
+    QVERIFY2(!text.contains(QStringLiteral("unknown_type")),
+             qPrintable(QStringLiteral("bare token leaked: %1").arg(text)));
+    QVERIFY2(text.contains(QStringLiteral("未识别的约束类型：line")), qPrintable(text));
+    QVERIFY2(list->item(0)->toolTip().contains(QStringLiteral("未识别的约束类型")),
+             qPrintable(list->item(0)->toolTip()));
+    auto *hint = ps->page->findChild<QLabel *>(QStringLiteral("factorConstraintHint"));
+    QVERIFY2(hint->text().contains(QStringLiteral("1 条未类型化")), qPrintable(hint->text()));
+  }
+
+  // 参数化：constraintsemantics 实际发出、页面可达/可注入的原因 token 全走
+  // 同一中文映射（other_horizon / directions_disabled_by_request /
+  // interpretive_strength_zero_or_barriers_disabled / unknown_method）。
+  // 行集用 paleo.page.constraintrows 覆盖、结构面开关用 paleo.page.structural*
+  // 注入，触发点都是既有联动（成图方法切换 → applyConstraintUsePlan）。
+  void reasonVocabularyCoversDomainTokens()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto ps = makePageStack(dir.filePath(QStringLiteral("p")));
+    QVERIFY(ps != nullptr);
+    auto *wf = ps->stack->wf.get();
+    QString err, idBarrier, idDirection;
+    QVERIFY(wf->addConstraint(QStringLiteral("T1"), QStringLiteral("LineString (0 0, 1 1)"),
+                              QStringLiteral("break_line"), 0, &err, &idBarrier));
+    QVERIFY(wf->addConstraint(QStringLiteral("T1"), QStringLiteral("LineString (0 2, 1 3)"),
+                              QStringLiteral("direction_line"), 0, &err, &idDirection));
+    ps->page->refreshConstraintList();
+    auto *method = ps->page->findChild<QComboBox *>(QStringLiteral("factorMethodCombo"));
+    const int structural = method->findData(QStringLiteral("structural_idw"));
+    QVERIFY(structural >= 0);
+
+    // other_horizon：硬屏障行覆盖成 T2（当前层位 T1）→ 切方法触发重算。
+    QVariantList overrideRows;
+    for (const QVariantMap &row : wf->loadConstraints(QStringLiteral("T1")))
+    {
+      QVariantMap mutated = row;
+      if (mutated.value(QStringLiteral("id")).toString() == idBarrier)
+        mutated.insert(QStringLiteral("horizon"), QStringLiteral("T2"));
+      overrideRows << mutated;
+    }
+    ps->page->setProperty("paleo.page.constraintrows", overrideRows);
+    method->setCurrentIndex(structural);
+    QString text = constraintItemText(ps->page.get(), idBarrier);
+    QVERIFY2(!text.contains(QStringLiteral("other_horizon")),
+             qPrintable(QStringLiteral("bare token leaked: %1").arg(text)));
+    QVERIFY2(text.contains(QStringLiteral("属于其他层位")), qPrintable(text));
+
+    // 结构面开关（页面暂无专属控件，读 paleo.page.* 属性，缺省与引擎参数一致）：
+    // 停用方向 → directions_disabled_by_request；停用屏障 →
+    // interpretive_strength_zero_or_barriers_disabled。
+    ps->page->refreshConstraintList(); // 恢复 store 真实行（去掉 T2 覆盖）
+    ps->page->setProperty("paleo.page.structuralEnableDirections", false);
+    method->setCurrentIndex(method->findData(QStringLiteral("local_direction_idw")));
+    ps->page->setProperty("paleo.page.structuralEnableBarriers", false);
+    method->setCurrentIndex(structural);
+    text = constraintItemText(ps->page.get(), idDirection);
+    QVERIFY2(!text.contains(QStringLiteral("directions_disabled_by_request")),
+             qPrintable(QStringLiteral("bare token leaked: %1").arg(text)));
+    QVERIFY2(text.contains(QStringLiteral("已停用方向线")), qPrintable(text));
+    text = constraintItemText(ps->page.get(), idBarrier);
+    QVERIFY2(!text.contains(QStringLiteral("interpretive_strength_zero_or_barriers_disabled")),
+             qPrintable(QStringLiteral("bare token leaked: %1").arg(text)));
+    QVERIFY2(text.contains(QStringLiteral("屏障已停用")), qPrintable(text));
+
+    // unknown_method：词表外方法 id（下拉可注入）→ 同一映射兜底。
+    method->addItem(QStringLiteral("未知方法"), QStringLiteral("martian_idw"));
+    method->setCurrentIndex(method->findData(QStringLiteral("martian_idw")));
+    text = constraintItemText(ps->page.get(), idBarrier);
+    QVERIFY2(!text.contains(QStringLiteral("unknown_method")),
+             qPrintable(QStringLiteral("bare token leaked: %1").arg(text)));
+    QVERIFY2(text.contains(QStringLiteral("未知的成图方法")), qPrintable(text));
+  }
 };
 
 int main(int argc, char *argv[])
 {
-  if (!QgisRuntime::initialize(QStringLiteral("/usr")))
+  // 页面用例构造 QWidget：QgsApplication（即 QApplication）构造前定好平台。
+  if (qgetenv("QT_QPA_PLATFORM").isEmpty())
+    qputenv("QT_QPA_PLATFORM", "offscreen");
+  if (!QgisRuntime::initialize(QStringLiteral("/usr"))) // 自持 QgsApplication
   {
     qFatal("QgisRuntime::initialize failed");
     return 1;

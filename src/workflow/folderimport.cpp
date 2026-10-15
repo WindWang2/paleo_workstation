@@ -33,6 +33,11 @@ FolderImportWorkflow::FolderImportWorkflow(DataImportService *svc,
 {
 }
 
+DataImportService *FolderImportWorkflow::importService() const
+{
+  return m_svc.data();
+}
+
 int FolderImportWorkflow::pendingImportJobs() const
 {
   return static_cast<int>(m_importQueue.size()) + (m_activeImport ? 1 : 0);
@@ -82,6 +87,16 @@ void FolderImportWorkflow::runImportJob(const std::shared_ptr<ImportJob> &job)
     {
       m_activeImport.reset();
       session->error = QStringLiteral("导入服务已关闭，导入结果已丢弃");
+      // 未提交即丢弃：produce 期在 staging 上记成「已入库/待关联」的行一律
+      // 改报失败——回调方（确认表/台账）不能看到「入库」而库里并没有。
+      for (FolderRowResult &row : session->rows)
+        if (row.outcome == FolderRowResult::Outcome::Imported ||
+            row.outcome == FolderRowResult::Outcome::Unresolved)
+        {
+          row.outcome = FolderRowResult::Outcome::Failed;
+          row.message = session->error;
+        }
+      session->fileResult.assetId.clear();
       job->finish(*session);
       pumpImports();
       return;

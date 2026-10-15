@@ -3,6 +3,7 @@
 
 #include <QDateTime>
 #include <QObject>
+#include <QPointer>
 #include <QMap>
 #include <QString>
 #include <QVector>
@@ -46,7 +47,7 @@ class FolderImportWorkflow : public QObject
     FolderImportWorkflow(DataImportService *svc, PaleoTaskService *taskSvc,
                          QObject *parent = nullptr);
 
-    DataImportService *importService() const { return m_svc; }
+    DataImportService *importService() const; // 服务已析构 → nullptr
     void setTaskService(PaleoTaskService *taskSvc) { m_taskSvc = taskSvc; }
 
     // 确认表预览：与 importFolder 同一枚举/分类口径，只列行不导入。
@@ -96,7 +97,9 @@ class FolderImportWorkflow : public QObject
     void recordLedger(const QString &dir, const QDateTime &started,
                       const QVector<FolderRowResult> &rows, const QString &importErr);
 
-    DataImportService *m_svc = nullptr;
+    // QPointer：导入作业在飞时服务可能先析构（壳收尾/换工程）——finished
+    // 处理器里的 recordLedger/finish 回调必须看到「服务已不在」而不是悬垂指针。
+    QPointer<DataImportService> m_svc;
     PaleoTaskService *m_taskSvc = nullptr;
     QList<std::shared_ptr<ImportJob>> m_importQueue;
     std::shared_ptr<ImportJob> m_activeImport;

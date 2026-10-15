@@ -527,6 +527,65 @@ void workflowImportRetriesOnConcurrentCatalogWrite()
   QVERIFY(tasks.shutdown(5000));
 }
 
+// opt-01 U3：文件夹导入作业在飞时导入服务先析构（壳收尾/换工程）——
+// finished 处理器必须看到「服务已不在」：不经悬垂指针写台账、不把未提交
+// 的行报成「已入库」，回调如实收到丢弃原因；源文件字节不受影响。
+void folderImportSurvivesServiceTeardownHonestly()
+{
+  QTemporaryDir tmp;
+  QVERIFY(tmp.isValid());
+  const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+  QVERIFY(QDir().mkpath(projectDir));
+  auto stack = makeStack(projectDir);
+  QVERIFY(stack != nullptr);
+  const QString area = tmp.filePath(QStringLiteral("area"));
+  QVERIFY(QDir().mkpath(area));
+  const QByteArray lasBytes =
+      "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. T1 : WELL\n"
+      "~Curve\nDEPT.M :\n~A DEPT\n100.0\n";
+  const QString las = QDir(area).filePath(QStringLiteral("T1.las"));
+  {
+    QFile f(las);
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    QCOMPARE(f.write(lasBytes), qint64(lasBytes.size()));
+  }
+  PaleoTaskService tasks(stack->store.get());
+  FolderImportWorkflow wf(stack->importSvc.get(), &tasks);
+  bool done = false;
+  QVector<FolderRowResult> rows;
+  QString err;
+  wf.importFolder(area, {}, [&](const QVector<FolderRowResult> &r, const QString &e) {
+    done = true;
+    rows = r;
+    err = e;
+  });
+  // 作业已登记、finished 只能在事件泵里跑：此刻析构服务。
+  stack->importSvc.reset();
+  QCOMPARE(wf.importService(), static_cast<DataImportService *>(nullptr));
+  QElapsedTimer clock;
+  clock.start();
+  while (!done && clock.elapsed() < 30000)
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 25);
+  QVERIFY(done);
+  QCOMPARE(err, QStringLiteral("导入服务已关闭，导入结果已丢弃"));
+  for (const FolderRowResult &r : rows)
+    QVERIFY2(r.outcome != FolderRowResult::Outcome::Imported &&
+                 r.outcome != FolderRowResult::Outcome::Unresolved,
+             qPrintable(r.path + QStringLiteral(" 未提交却报入库")));
+  QCOMPARE(wf.pendingImportJobs(), 0);
+  // 原始资料不受损：源文件字节原样。
+  QFile src(las);
+  QVERIFY(src.open(QIODevice::ReadOnly));
+  QCOMPARE(src.readAll(), lasBytes);
+  // 服务不在场时后续作业走 fail 回调（不触悬垂指针）。
+  bool failed = false;
+  wf.importFolder(area, {}, [&](const QVector<FolderRowResult> &r, const QString &e) {
+    failed = r.isEmpty() && !e.isEmpty();
+  });
+  QVERIFY(failed);
+  QVERIFY(tasks.shutdown(5000));
+}
+
 // A2（方向 01）：单文件导入作业取消后不得提交——对齐 dataops 队列
 // 「取消的作业不提交」语义（session 析构删暂存）。produce 对取消无检查点
 //（整文件原子完成），用户叫停后把成品悄悄入库违背取消承诺。

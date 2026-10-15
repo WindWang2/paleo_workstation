@@ -81,6 +81,21 @@ void DataListPanel::handleExternalFiles(const QStringList &paths)
   using namespace paleo::dataops;
   if (paths.isEmpty())
     return;
+  // 与五个导入入口同一道门：无工程（或目录不可用）时入队必然整条失败
+  //（runner 报 project dir is not set）——拖入同样先写原因不干活，
+  // 免得先弹预估对话框再整批报错。工程态由壳注入探针（工程关后 catalog
+  // 对象可能仍然开着，isOpen 分辨不了「工程已关」）。
+  const bool projectOpen = !m_projectOpen || m_projectOpen();
+  if (!projectOpen || !m_ctx.valid() || !m_ctx.cat->isOpen())
+  {
+    emit statusMessage(!projectOpen
+                           ? tr("先新建或打开工程")
+                           : (m_ctx.cat && !m_ctx.cat->openError().isEmpty()
+                                  ? tr("数据目录不可用，导入暂不可用：%1")
+                                        .arg(m_ctx.cat->openError())
+                                  : tr("数据目录尚未就绪，导入暂不可用")));
+    return;
+  }
   // D8.6：目录/大量文件 → 预估 + 分批确认；单文件直接走壳导入流。
   QString dir;
   int fileCount = 0;

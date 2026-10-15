@@ -4557,6 +4557,21 @@
         <translation>挂接到「%1」：新挂 %2、转移 %3、跳过 %4（可撤销）</translation>
     </message>
     <message>
+        <location filename="../src/ui/pages/datalist_dnd.cpp" line="92"/>
+        <source>先新建或打开工程</source>
+        <translation>先新建或打开工程</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/datalist_dnd.cpp" line="94"/>
+        <source>数据目录不可用，导入暂不可用：%1</source>
+        <translation>数据目录不可用，导入暂不可用：%1</translation>
+    </message>
+    <message>
+        <location filename="../src/ui/pages/datalist_dnd.cpp" line="96"/>
+        <source>数据目录尚未就绪，导入暂不可用</source>
+        <translation>数据目录尚未就绪，导入暂不可用</translation>
+    </message>
+    <message>
         <location filename="../src/ui/pages/datalist_batch.cpp" line="68"/>
         <source>改型写入视图层改写表（可撤销，可清除回原型）；catalog 资产记录的类型字段不动。</source>
         <translation>改型写入视图层改写表（可撤销，可清除回原型）；catalog 资产记录的类型字段不动。</translation>
@@ -12228,7 +12243,8 @@ Crossline: %3 ~ %4</source>
         <translation>临时配准已上图：%1 · %2 个要素（手工仿射，非权威坐标）</translation>
     </message>
     <message>
-        <location filename="../src/ui/paleomainwindow_attach_data.cpp" line="104"/>
+        <location filename="../src/ui/paleomainwindow_attach.cpp" line="666"/>
+        <location filename="../src/ui/paleomainwindow_attach_data.cpp" line="106"/>
         <source>数据目录打开失败 — 导入暂不可用（见状态栏）</source>
         <translation>数据目录打开失败 — 导入暂不可用（见状态栏）</translation>
     </message>

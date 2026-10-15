@@ -69,6 +69,14 @@ class DataListPanel : public QWidget
     // 门面下发（DataPage 的 "paleo.page.importsvc" 动态属性 → 本面板）。
     void setDocService(PreviewDocService *doc);
 
+    // 工程态探针（壳接线）：拖入导入与五个导入入口同一道门——面板够不到
+    // QgisProjectService，由壳供一个只读判断；未接线时按「有工程」放行，
+    // 目录自身的 valid()/isOpen() 检查仍在。
+    void setProjectOpenProvider(std::function<bool()> open)
+    {
+      m_projectOpen = std::move(open);
+    }
+
     // ---- D1/D5 共享面（DataPage 转发给 EntityPanel，实体侧操作共用栈/存储） ----
     paleo::dataops::DataOpsUndoStack *opStack() const { return m_opStack; }
     // B2（wave/deepen-perf）：导入队列面板——壳接生产 runner
@@ -262,6 +270,7 @@ class DataListPanel : public QWidget
 
     // ---- P3 dataops 状态 ----
     paleo::dataops::DataOpsContext m_ctx;              // catalog + stores 指针包
+    std::function<bool()> m_projectOpen;               // 壳注入的工程态探针（可空）
     paleo::dataops::TagStore m_tags;                   // D2.4
     paleo::dataops::AssetOverrideStore m_typeOv;       // D1.5
     paleo::dataops::EntityOverrideStore m_entityOv;    // D4.1/D4.2

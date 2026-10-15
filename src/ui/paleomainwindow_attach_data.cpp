@@ -97,8 +97,8 @@ void PaleoMainWindow::attachDataPage(DataPage *dataPage,
     catalogError->hide();
     statusBar()->addPermanentWidget(catalogError);
     const auto setImportsEnabled = [this](bool enabled) {
-      for (const char *name : {"importWells", "importSeismic", "importBoundary",
-                               "importFolder"})
+      for (const char *name : {"importWells", "importWellLogs", "importSeismic",
+                               "importBoundary", "importFolder"})
         if (auto *btn = findChild<QPushButton *>(QLatin1String(name)))
         {
           btn->setEnabled(enabled);

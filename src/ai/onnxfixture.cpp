@@ -238,3 +238,17 @@ bool OnnxFixtureWriter::writeTraceScorer( const QString &path, float gain, float
   g.outputs.append( { "p", { 1, 1, -1 } } );
   return writeBytes( path, modelProto( irVersion, graphProto( g ) ), error );
 }
+
+bool OnnxFixtureWriter::writeTraceLogitScorer( const QString &path, float gain, float offset,
+                                               int64_t irVersion, QString *error )
+{
+  GraphSpec g;
+  g.name = "trace_logit_scorer";
+  g.nodes.append( NodeSpec { "Mul", { "t", "k" }, { "m" } } );
+  g.nodes.append( NodeSpec { "Add", { "m", "o" }, { "p" } } );
+  g.initializers.append( tensorProto( "k", {}, { gain } ) );
+  g.initializers.append( tensorProto( "o", {}, { offset } ) );
+  g.inputs.append( { "t", { 1, 1, -1 } } );
+  g.outputs.append( { "p", { 1, 1, -1 } } );
+  return writeBytes( path, modelProto( irVersion, graphProto( g ) ), error );
+}

@@ -277,8 +277,65 @@ private slots:
       QVERIFY2(img.Value(x, 64) > 0.99f,
                qPrintable(QStringLiteral("coh@(%1,64)=%2").arg(x).arg(img.Value(x, 64))));
     QVERIFY(std::isnan(img.Value(0, 64)));
-    QVERIFY(std::isnan(img.Value(8, 64)));
-    QVERIFY(img.valueMax <= 1.0f + 1e-6f);
+      QVERIFY(std::isnan(img.Value(8, 64)));
+      QVERIFY(img.valueMax <= 1.0f + 1e-6f);
+  }
+
+  // 相干法向半窗兑现面板参数：rickerVol_ inline 轴 {10..14}，线 11 处
+  // pos=1——coherenceIlHalf=2 时必须拒绝（无双侧 ±2 邻线）；旧实现恒 ±1
+  // 线、静默忽略参数（SATR 登记值与实算不符）。同参数在线 12（pos=2）
+  // 成功且同波形相干 ≈1；加权档在等距测网上成功收敛（冒烟）。
+  void coherenceHonorsNormalHalfWindow()
+  {
+    seismic::SeismicTaskService svc;
+    svc.setTaskService(new PaleoTaskService(nullptr, &svc));
+    auto params = seismic::SeismicTaskService::SeismicAttrParams{};
+    params.coherenceIlHalf = 2;
+
+    // 线 11（pos=1）：±2 窗越轴端 → 如实拒绝（旧实现 ±1 成功 → 红）
+    RunOutcome edge = runAttr(svc, rickerVol_,
+                              seismic::SeismicTaskService::SeismicAttrKind::Coherence,
+                              params, seismic::SgySliceType::Inline, 11);
+    QVERIFY(edge.finished && !edge.ok);
+    QVERIFY2(edge.result.error.contains(QStringLiteral("±2")),
+             qPrintable(edge.result.error));
+
+    // 线 12（pos=2）：±2 窗成立 → 成功；同波形相干 ≈1（窗宽不改变恒定结论）
+    RunOutcome mid = runAttr(svc, rickerVol_,
+                             seismic::SeismicTaskService::SeismicAttrKind::Coherence,
+                             params, seismic::SgySliceType::Inline, 12);
+    QVERIFY2(mid.ok, qPrintable(mid.result.error));
+    QVERIFY(mid.result.image);
+    QVERIFY2(mid.result.image->Value(4, 64) > 0.99f,
+             qPrintable(QStringLiteral("coh=%1")
+                        .arg(mid.result.image->Value(4, 64))));
+
+    // 加权档（等距 25m 测网）：同波形仍相干 ≈1，路径冒烟
+    params.coherenceWeighting = 1;
+    RunOutcome weighted = runAttr(svc, rickerVol_,
+                                  seismic::SeismicTaskService::SeismicAttrKind::Coherence,
+                                  params, seismic::SgySliceType::Inline, 12);
+    QVERIFY2(weighted.ok, qPrintable(weighted.result.error));
+    QVERIFY2(weighted.result.image->Value(4, 64) > 0.99f,
+             qPrintable(QStringLiteral("coh_w=%1")
+                        .arg(weighted.result.image->Value(4, 64))));
+  }
+
+  // 沿向窗超出剖面宽：内核循环界为空 → 全 NaN「成功」。与时间切片/属性体
+  // 路径同口径拒绝（旧实现返回 ok=true 全 NaN 图 → 红）。
+  void coherenceRejectsOversizedAlongWindow()
+  {
+    seismic::SeismicTaskService svc;
+    svc.setTaskService(new PaleoTaskService(nullptr, &svc));
+    auto params = seismic::SeismicTaskService::SeismicAttrParams{};
+    // rickerVol_ IL 剖面宽 = 9 道（XL 轴）；沿向（XL 向）半窗 5：2*5 > 9-1
+    params.coherenceXlHalf = 5;
+    RunOutcome out = runAttr(svc, rickerVol_,
+                             seismic::SeismicTaskService::SeismicAttrKind::Coherence,
+                             params, seismic::SgySliceType::Inline, 12);
+    QVERIFY(out.finished && !out.ok);
+    QVERIFY2(out.result.error.contains(QStringLiteral("拒绝")),
+             qPrintable(out.result.error));
   }
 
   void rejectInvalidRequests()

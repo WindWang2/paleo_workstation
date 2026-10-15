@@ -44,6 +44,39 @@ inline qint64 SliceFingerprint(const SgySliceImage &img) {
     return static_cast<qint64>(h);
 }
 
+// 垂直剖面入图行序转换（显示真值链的视图边界约定）。
+// SgySliceImage 的行序契约 = vendor 提取契约：行 0 = 最深样/最大 TWT
+// （SgyVolume.cpp ExtractSlice 的 row = sampleCount-1-s；属性扫描/任意线/
+// 引擎 Slice2D 全线同契约）。画布的整套时间映射——标尺 timeToPixelY、
+// hover/点击的 sampleIdx=round((twt-t0)/dt)、拾取/井分层/合成记录按物理
+// TWT 锚定——全部是「行 y = 采样 y 升序」。两侧在视图边界统一翻转，
+// 画布内部空间全链升序；时间切片（行 = IL 轴，无时间映射）不经本函数。
+// rgba 与 values 同几何（vendor FinishImage 烘焙），一并翻转保持一致。
+inline SgySliceImage ToAscendingSampleRows(const SgySliceImage &img) {
+    if (img.width <= 0 || img.height <= 0 ||
+        img.values.size() < std::size_t(img.width) * std::size_t(img.height))
+        return img;
+    SgySliceImage out = img;
+    for (int y = 0; y < img.height; ++y) {
+        const float *src = img.values.data() +
+                           std::size_t(img.height - 1 - y) * std::size_t(img.width);
+        float *dst = out.values.data() + std::size_t(y) * std::size_t(img.width);
+        std::memcpy(dst, src, sizeof(float) * std::size_t(img.width));
+    }
+    if (img.rgba.size() == img.values.size() * 4) {
+        out.rgba.resize(img.rgba.size());
+        for (int y = 0; y < img.height; ++y) {
+            const unsigned char *src = img.rgba.data() +
+                                       std::size_t(img.height - 1 - y) *
+                                           std::size_t(img.width) * 4;
+            unsigned char *dst = out.rgba.data() +
+                                 std::size_t(y) * std::size_t(img.width) * 4;
+            std::memcpy(dst, src, std::size_t(img.width) * 4);
+        }
+    }
+    return out;
+}
+
 // D2.1 键的显示参数因子：增益曲线状态指纹（控制点数 + 各点 TWT/增益的
 // FNV-1a）。空曲线 = 0——曲线有无/内容变化必变键，不同曲线烘焙的缓存
 // 图不会互相回吐。

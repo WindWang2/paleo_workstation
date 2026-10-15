@@ -343,7 +343,7 @@ private:
     void rebuildColorLut();
     // goal/seismic-attributes：attr.values → m_attrImage（NaN=透明）
     void rebuildAttrImage();
-    QImage bakeOverlay(const SgySliceImage &src);
+    QImage bakeOverlay(const SgySliceImage &src, bool flipRows);
     void rebuildZoneImage();
     float gainAtTwt(double twtMs) const;
     void updateHoverInfo(const QPoint &pos, bool clicked = false);

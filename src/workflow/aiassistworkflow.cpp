@@ -547,9 +547,20 @@ PaleoTask *AiAssistWorkflow::startClassification( const QString &horizon, const 
                                            result->modelSha256,
                                            lowConfidenceThreshold, &err );
       if ( ok )
+      {
         emit self->tileClassificationDone( horizon, self->m_lastProductLayerIds );
-      else if ( self )
-        emit self->tileClassificationFailed( horizon, err );
+      }
+      else
+      {
+        // 推理成功但产品落盘/登记失败（含 workflow 已亡、无人写产品的情形）：
+        // 任务不能停留在 Succeeded——任务页、聊天工具回灌（toolrunner 按
+        // state() 分派）与 dock 卡片必须看到失败，不允许「推理 ok=产品 ok」
+        // 的冒充（PaleoTask::failPublication 即为此语义设计：Succeeded→Failed
+        // 翻转，观察者读到失败原因）。
+        task->failPublication( err );
+        if ( self )
+          emit self->tileClassificationFailed( horizon, err );
+      }
     }
     else if ( task->state() == PaleoTask::State::Failed && self )
     {

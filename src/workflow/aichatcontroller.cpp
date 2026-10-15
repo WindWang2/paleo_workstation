@@ -6,6 +6,7 @@
 #include <QDateTime>
 #include <QJsonDocument>
 #include <QPointer>
+#include <QSet>
 
 // workflow/ — AI 对话助手编排实现（方向51 骨架，方向61 工具闭环）。
 //
@@ -58,8 +59,44 @@ AiChatController::AiChatController(QObject *parent)
   connect(&m_client, &LlmClient::errorOccurred, this,
           [this](LlmErrorKind kind, const QString &message) {
             setStreaming(false);
+            // 协议完整性（与 cancel() 同口径，见文件头注释）：请求出错时
+            // assistant 消息可能已带（部分/全部）tool_calls——m_unansweredCalls
+            // 只在 onRoundFinished（成功收尾）才填充，中段出错时它为空但
+            // 历史里仍挂着未应答帧；下轮请求原样上送即违反协议（OpenAI 400），
+            // 该会话每轮复现。按「尾部 assistant 的 calls 是否已有 role=tool
+            // 应答」补齐缺口，错误应答同样满足「每 call 必答」。
+            if (!m_session.messages.isEmpty() &&
+                m_session.messages.last().role == ChatRole::Assistant &&
+                !m_session.messages.last().toolCalls.isEmpty()) {
+              QSet<QString> answered;
+              for (const ChatMessage &m : m_session.messages)
+                if (m.role == ChatRole::Tool && !m.toolCallId.isEmpty())
+                  answered.insert(m.toolCallId);
+              const QVector<ChatToolCall> calls = m_session.messages.last().toolCalls;
+              for (const ChatToolCall &call : calls) {
+                if (answered.contains(call.id))
+                  continue;
+                QJsonObject payload;
+                payload.insert(QStringLiteral("tool"), call.name);
+                payload.insert(QStringLiteral("error"),
+                               tr("请求出错：本调用未执行"));
+                ChatMessage tool;
+                tool.role = ChatRole::Tool;
+                tool.toolCallId = call.id;
+                tool.content = QString::fromUtf8(
+                  QJsonDocument(payload).toJson(QJsonDocument::Compact));
+                tool.timestamp = QDateTime::currentDateTime();
+                appendMessage(tool);
+              }
+            }
             m_pendingToolResults = 0;
             m_unansweredCalls.clear();
+            // 出错后占位若仍为空就摘掉（同 cancel：工具相占位带 toolCalls
+            // 非空，保留——历史需要它对账 tool_call_id）。
+            if (!m_session.messages.isEmpty() &&
+                m_session.messages.last().role == ChatRole::Assistant &&
+                m_session.messages.last().isEmpty())
+              m_session.messages.removeLast();
             const QString text = llmErrorLabel(kind).isEmpty()
                                    ? message
                                    : QStringLiteral("%1：%2").arg(
@@ -524,6 +561,33 @@ void AiChatController::cancel() {
       QJsonDocument(payload).toJson(QJsonDocument::Compact));
     tool.timestamp = QDateTime::currentDateTime();
     appendMessage(tool);
+  }
+  // 流式中途取消（轮未 finish，m_unansweredCalls 未填充）时尾部 assistant
+  // 可能已带 tool_calls——按「尾部 assistant 的 calls 是否已有应答」补齐
+  // （与 errorOccurred 同口径；只靠 m_unansweredCalls 会漏掉这批帧）。
+  if (!m_session.messages.isEmpty() &&
+      m_session.messages.last().role == ChatRole::Assistant &&
+      !m_session.messages.last().toolCalls.isEmpty()) {
+    QSet<QString> answered;
+    for (const ChatMessage &m : m_session.messages)
+      if (m.role == ChatRole::Tool && !m.toolCallId.isEmpty())
+        answered.insert(m.toolCallId);
+    const QVector<ChatToolCall> calls = m_session.messages.last().toolCalls;
+    for (const ChatToolCall &call : calls) {
+      if (answered.contains(call.id))
+        continue;
+      QJsonObject payload;
+      payload.insert(QStringLiteral("tool"), call.name);
+      payload.insert(QStringLiteral("error"),
+                     tr("用户取消：本调用未执行或结果已作废"));
+      ChatMessage tool;
+      tool.role = ChatRole::Tool;
+      tool.toolCallId = call.id;
+      tool.content = QString::fromUtf8(
+        QJsonDocument(payload).toJson(QJsonDocument::Compact));
+      tool.timestamp = QDateTime::currentDateTime();
+      appendMessage(tool);
+    }
   }
   m_pendingToolResults = 0;
   setStreaming(false);

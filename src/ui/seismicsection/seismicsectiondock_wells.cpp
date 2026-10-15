@@ -40,8 +40,10 @@ public:
     {
         const int h = slice.height;
         m_trace.reserve(std::size_t(h));
-        for (int y = 0; y < h; ++y)
-            m_trace.push_back(slice.Value(col, y));
+        // 行序转换：slice 行 0=最深样（vendor 契约）→ m_trace 按采样升序，
+        // 与 paint 的 frac=(twt-t0)/(n·dt) 分层刻度（物理 TWT 升序）对齐。
+        for (int s = 0; s < h; ++s)
+            m_trace.push_back(slice.Value(col, h - 1 - s));
         setMinimumSize(260, 460);
     }
 
@@ -88,12 +90,15 @@ protected:
         p.setPen(QPen(PaleoTheme::tokens().text, 1.0));
         p.setBrush(Qt::NoBrush);
         p.drawPolyline(wave);
-        // 分层刻度（右缘）
+        // 分层刻度（右缘）。分母与波形映射同口径 (n-1)：两式同用
+        // y0..y1 像素段，分母不一致时同一样点的像素位置差 ~1/n 面板高。
         p.setFont(PaleoTheme::bodyFont(PaleoTheme::tokens().labelPt));
         for (const WellTopItem &top : m_well->tops) {
             // 道首样 TWT = 记录延迟 t0（#146 同口径）
-            const double frac = std::clamp((top.twtMs - m_t0Ms) / double(m_trace.size() * m_dtMs),
-                                           0.0, 1.0);
+            const double frac = std::clamp(
+                (top.twtMs - m_t0Ms) /
+                    (double(std::max<std::size_t>(1, m_trace.size() - 1)) * m_dtMs),
+                0.0, 1.0);
             const double py = y0 + frac * (y1 - y0);
             p.setPen(QPen(QColor(QStringLiteral("#1B73D0")), 1.4));
             p.drawLine(QPointF(width() - 46.0, py), QPointF(width() - 6.0, py));
@@ -198,8 +203,11 @@ void SeismicSectionDockWidget::computeWellTrajectories(const std::vector<glm::dv
     }
     m_canvas->setWellTrajectories(trajectories);
 
-    // D5.3 原因态：时深无实测检查点 → 状态栏注记（仍按均速投影）
-    if (!m_candidateWells.empty() && !m_canvas->timeDepthModel().hasCheckshots())
+    // D5.3 原因态：时深无实测检查点 → 状态栏注记（仍按均速投影）。
+    // 幂等守卫：任意线提取完成都会走到这里——无守卫时后缀随每次提取
+    // 无限累积串接。
+    if (!m_candidateWells.empty() && !m_canvas->timeDepthModel().hasCheckshots() &&
+        !m_lblTitle->text().contains(QLatin1String("时深用默认均速")))
         setLineTitle(tr("%1（时深用默认均速——无实测检查点表）").arg(m_lblTitle->text()));
 }
 

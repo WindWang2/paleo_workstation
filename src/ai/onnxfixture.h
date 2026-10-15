@@ -28,4 +28,9 @@ class OnnxFixtureWriter
     // 局部追踪建议打分。
     static bool writeTraceScorer( const QString &path, float gain, float offset,
                                   int64_t irVersion = 8, QString *error = nullptr );
+
+    // logits 型 trace 评分：y = gain*x + offset（无 Sigmoid，值域无界）。
+    // 测试用：钉「输出不在 [0,1] 概率域的 scorer 被如实拒绝」的域守卫。
+    static bool writeTraceLogitScorer( const QString &path, float gain, float offset,
+                                       int64_t irVersion = 8, QString *error = nullptr );
 };

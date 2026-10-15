@@ -17,6 +17,7 @@ private slots:
   void suggestionFieldsIntegrity();
   void mutationDemonstration_seedsMustBeAnchored();
   void cooperativeCancellationStopsExpansion();
+  void logitScorerRejectedOutsideProbabilityDomain();
 };
 
 void TestAiHorizonSuggest::seedAndSuggestionDefaults()
@@ -184,6 +185,41 @@ void TestAiHorizonSuggest::cooperativeCancellationStopsExpansion()
   QVERIFY(!ok);
   QVERIFY2(err.contains(QStringLiteral("已取消")), qPrintable(err));
   QVERIFY(calls < (2 * 8 + 1) * (2 * 8 + 1));
+  QVERIFY(out.isEmpty());
+}
+
+// 输出域守卫：logits 型 scorer（无 Sigmoid，值域无界）必须被整跑拒绝——
+// 修前 score>1、置信恒 1（bernoulliConfidence 钳位），解释员看到全置信
+// 建议被误导裁决。
+void TestAiHorizonSuggest::logitScorerRejectedOutsideProbabilityDomain()
+{
+  if (!PaleoOnnxService::runtimeAvailable())
+    QSKIP("onnxruntime 不在 vendor 树中");
+
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  // gain=8, offset=2：x∈[-1,1] 的道窗 → 输出 [-6,10]，恒越 [0,1]
+  QVERIFY(OnnxFixtureWriter::writeTraceLogitScorer(
+      dir.filePath(QStringLiteral("logit.onnx")), 8.0f, 2.0f));
+  PaleoOnnxService svc;
+  svc.setModelRoot(dir.path());
+
+  TrackingSeed seed;
+  seed.inlineNo = 10;
+  seed.xlineNo = 20;
+  seed.sampleIndex = 50;
+
+  TraceWindowFetcher fetch = [](int, int, int, int, QVector<float> &out, QString &) {
+    out = QVector<float>(64, 0.25f); // 8*0.25+2 = 4.0 > 1
+    return true;
+  };
+
+  QVector<TrackingSuggestion> out;
+  QString err;
+  const bool ok = suggestHorizonTracking(&svc, QStringLiteral("logit"),
+                                         {seed}, 64, 2, fetch, {}, &out, &err);
+  QVERIFY(!ok);
+  QVERIFY2(err.contains(QStringLiteral("概率域")), qPrintable(err));
   QVERIFY(out.isEmpty());
 }
 

@@ -163,19 +163,25 @@ void SeismicSectionCanvas::clearAttrOverlay() {
     update();
 }
 
-QImage SeismicSectionCanvas::bakeOverlay(const SgySliceImage &src) {
+// 烘焙叠加层 → RGBA（NaN=透明）。两种入图行序契约不同（S5 review 修正）：
+//  - attr 属性叠加：服务层扫描输出 vendor 行序（行 0=最深样）→ flipRows=true
+//    翻转对齐画布升序空间；
+//  - zone 层段叠加：属性建模 IJK 投影（stratgrid ZoneGrid）k=0 是最浅层
+//    → 本就是升序，直通不翻（翻转会把相带垂直镜像）。
+QImage SeismicSectionCanvas::bakeOverlay(const SgySliceImage &src, bool flipRows) {
     if (src.values.empty() || src.width <= 0 || src.height <= 0)
         return {};
     if (m_colorLut.empty())
         rebuildColorLut();
-    QImage image(src.width, src.height, QImage::Format_ARGB32_Premultiplied);
-    const double lo = src.valueMin;
-    const double hi = src.valueMax;
+    const SgySliceImage img = flipRows ? ToAscendingSampleRows(src) : src;
+    QImage image(img.width, img.height, QImage::Format_ARGB32_Premultiplied);
+    const double lo = img.valueMin;
+    const double hi = img.valueMax;
     const double span = (hi > lo) ? (hi - lo) : 1.0; // 退化值域：中档色
-    for (int y = 0; y < src.height; ++y) {
+    for (int y = 0; y < img.height; ++y) {
         auto *scan = reinterpret_cast<QRgb *>(image.scanLine(y));
-        const float *row = src.values.data() + std::size_t(y) * src.width;
-        for (int x = 0; x < src.width; ++x) {
+        const float *row = img.values.data() + std::size_t(y) * img.width;
+        for (int x = 0; x < img.width; ++x) {
             const float v = row[x];
             if (std::isnan(v)) {
                 scan[x] = 0; // 缺失=透明（不盖底图）
@@ -190,7 +196,7 @@ QImage SeismicSectionCanvas::bakeOverlay(const SgySliceImage &src) {
 }
 
 void SeismicSectionCanvas::rebuildAttrImage() {
-    m_attrImage = bakeOverlay(m_attrOverlay);
+    m_attrImage = bakeOverlay(m_attrOverlay, /*flipRows=*/true);
 }
 
 void SeismicSectionCanvas::setZoneOverlay(const SgySliceImage &zone) {
@@ -221,7 +227,8 @@ void SeismicSectionCanvas::clearZoneOverlay() {
 }
 
 void SeismicSectionCanvas::rebuildZoneImage() {
-    m_zoneImage = bakeOverlay(m_zoneOverlay);
+    // zone（stratgrid IJK 投影）k=0=最浅层，本就升序直通（见 bakeOverlay 注释）
+    m_zoneImage = bakeOverlay(m_zoneOverlay, /*flipRows=*/false);
 }
 
 void SeismicSectionCanvas::paintValueRegion(int x0, int y0, int w, int h) {

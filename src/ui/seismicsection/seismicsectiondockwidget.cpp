@@ -99,6 +99,8 @@ void SeismicSectionDockWidget::setVolume(std::shared_ptr<const SgyVolume> volume
     m_compareTask->requestCancel();
     m_compareTask.clear();
   }
+  // 换体后旧体的书签/定位重放视口作废（迟到重放会套错新体几何）
+  m_hasPendingViewReplay = false;
   // #285：换体即换解释会话（m_session 重置、落另一个 .seispicks.json，pick id
   // 两会话都从 1 起）——旧体攒下的 undo 命令全部作废，不清栈的话一条
   // Ctrl+Z 就把 A 体的拾取写进 B 体会话并自动落盘；在途追踪/传播/反演
@@ -346,6 +348,8 @@ void SeismicSectionDockWidget::extractSliceAsync(SgySliceType type, int index) {
                 guard->setLineTitle(guard->tr("切片提取失败: %1").arg(error));
                 guard->m_canvas->clearData();
                 guard->m_canvas->setNoDataReason(guard->tr("剖面不可用\n%1").arg(error));
+                // 书签/定位的重放视口随失败提取作废——不污染后续成功切片
+                guard->m_hasPendingViewReplay = false;
                 emit guard->sectionExtractionFinished(false, error);
                 return;
             }
@@ -355,6 +359,7 @@ void SeismicSectionDockWidget::extractSliceAsync(SgySliceType type, int index) {
                 guard->m_canvas->clearData();
                 guard->m_canvas->setNoDataReason(
                     guard->tr("%1\n该线无有效地震道（工区覆盖范围外）").arg(title));
+                guard->m_hasPendingViewReplay = false;
                 emit guard->sectionExtractionFinished(false, guard->tr("空切片"));
                 return;
             }
@@ -393,6 +398,12 @@ void SeismicSectionDockWidget::extractSliceAsync(SgySliceType type, int index) {
                 guard->m_canvas->setSectionRef(ref);
                 if (type != SgySliceType::Time)
                     guard->m_lastSlice = *image;
+            }
+            // D2.12 书签/定位重放：换线触发的重提取刚把视口 fitToWindow
+            // 复位——暂存的目标视口此刻重放（一次即清，不污染后续切片）。
+            if (guard->m_hasPendingViewReplay) {
+                guard->m_canvas->setViewState(guard->m_pendingViewReplay);
+                guard->m_hasPendingViewReplay = false;
             }
             guard->refreshInterpretationOverlay();
             emit guard->sectionExtractionFinished(true, QString());

@@ -105,6 +105,7 @@ class TestPropModelPanel : public QObject
   Q_OBJECT
 private slots:
   void intentAndBusyGate();
+  void zoneOverlayDirectionMatchesTimeAxis();
   void zoneOverlayNanIsTransparent();
   void viewportQueuesPropertySlice();
   void propertySliceUploadsOnGl();
@@ -166,13 +167,48 @@ void TestPropModelPanel::intentAndBusyGate()
            QStringLiteral("800000 单元"));
 }
 
+// zone 叠加方向性（S5 review P1-1 回归钉子）：zone（stratgrid IJK 投影）
+// k=0=最浅层——升序直通，不随底图翻转。上下半区不同值时，渲染后顶部
+// 像素的色阶必须对应「浅部值」、底部对应「深部值」（翻转=上下互换=红）。
+void TestPropModelPanel::zoneOverlayDirectionMatchesTimeAxis()
+{
+  SeismicSectionCanvas canvas;
+  canvas.resize(640, 480);
+  canvas.setSectionData(makeSection(16, 64), 2.0f); // t0=0, dt=2ms → 128ms
+  canvas.setZoneOverlayAlpha(1.0);
+
+  SgySliceImage zone;
+  zone.width = 16;
+  zone.height = 64;
+  zone.valueMin = 0.0f;
+  zone.valueMax = 1.0f;
+  zone.values.assign(std::size_t(16) * 64, 0.0f);
+  for (int y = 0; y < 64; ++y)
+    for (int x = 0; x < 16; ++x)
+      zone.values[std::size_t(y) * 16 + x] = y < 32 ? 0.15f : 0.9f; // 上浅下深
+  canvas.setZoneOverlay(zone);
+  QVERIFY(canvas.hasZoneOverlay());
+
+  const QImage shot = renderCanvas(canvas);
+  const QPoint top(qRound(canvas.traceToPixelX(8.0)),
+                   qRound(canvas.timeToPixelY(16 * 2.0)));  // 采样 16（上半区）
+  const QPoint bot(qRound(canvas.traceToPixelX(8.0)),
+                   qRound(canvas.timeToPixelY(48 * 2.0)));  // 采样 48（下半区）
+  const QRgb topPx = shot.pixel(top);
+  const QRgb botPx = shot.pixel(bot);
+  QVERIFY2(topPx != botPx, "上下半区不同值必须有不同叠加色");
+  // RedWhiteBlue 正半轴：值越大越红——顶部（0.15）红通道必须低于底部（0.9）
+  QVERIFY2(qRed(topPx) < qRed(botPx),
+           qPrintable(QStringLiteral("top r=%1 bot r=%2（上下翻转了）")
+                      .arg(qRed(topPx)).arg(qRed(botPx))));
+}
+
 void TestPropModelPanel::zoneOverlayNanIsTransparent()
 {
   SeismicSectionCanvas canvas;
   canvas.resize(320, 240);
   canvas.setSectionData(makeSection(16, 12), 2.0f);
   const QImage baseline = renderCanvas(canvas);
-
   canvas.setZoneOverlay(makeZone(16, 12, std::numeric_limits<float>::quiet_NaN(), false));
   QVERIFY(canvas.hasZoneOverlay());
   QVERIFY(imageDiff(baseline, renderCanvas(canvas)) < 50);

@@ -722,11 +722,28 @@ void SeismicSectionDockWidget::setupInterpretationUi(QWidget *parent) {
         const SeismicPick *p = m_session.pickById(pickId);
         if (!p)
             return;
-        // 跳到拾取所在剖面：IL 模式 + 线号 + 视口滚到 TWT
-        setSectionMode(0);
-        m_spinSlice->setValue(p->inlineNo);
-        const SectionViewState vs = m_canvas->viewState();
-        m_canvas->setViewState(vs);
+        // 跳到拾取所在剖面：IL 模式 + 线号 + 视口滚到拾取 TWT。
+        // 旧实现 viewState() 读出又原样写回（no-op）——p->twtMs 完全没用。
+        const bool modeChanged = m_cboSectionMode->currentIndex() != 0;
+        if (modeChanged)
+            setSectionMode(0); // 只切模式提取中线——线号仍要落到拾取所在线
+        bool sliceChanged = false;
+        if (m_spinSlice->value() != p->inlineNo) {
+            m_spinSlice->setValue(p->inlineNo);
+            sliceChanged = true;
+        }
+        // 目标视口：保持当前缩放/横向平移，纵向平移到拾取 TWT 落画布中部
+        // （panY 像素制；timeToPixelY 含 t0 记录延迟口径）。
+        SectionViewState vs = m_canvas->viewState();
+        const double targetY = m_canvas->height() * 0.5;
+        vs.panY += targetY - m_canvas->timeToPixelY(p->twtMs);
+        if (modeChanged || sliceChanged) {
+            // 换线触发重提取会 fitToWindow 复位——走书签同款重放通道。
+            m_pendingViewReplay = vs;
+            m_hasPendingViewReplay = true;
+        } else {
+            m_canvas->setViewState(vs);
+        }
     });
     connect(m_pickPanel, &SeismicPickPanel::trackRequested, this,
             &SeismicSectionDockWidget::runTracking);

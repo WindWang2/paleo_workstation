@@ -11,6 +11,8 @@
 #include "Engine/TranscodeJob.h"
 #include "Engine/Types.h"
 #include "Engine/WorkspaceFormat.h"
+// readTraceHeader 首道偏移与 vendor 读取通道同源（segyio metadata.trace0）
+#include <segyio/segy.h>
 
 #include <QCoreApplication>
 #include <QDateTime>
@@ -871,19 +873,24 @@ SeismicTraceHeaderInfo SeismicTaskService::readTraceHeader(const QString &sgyPat
     info.error = QStringLiteral("无法打开 SEG-Y 文件");
     return info;
   }
+  // 3200 文本头 + 400 二进制头总是要读：样本元数据可走索引，但首道偏移
+  // trace0 只在二进制头里（rev2 首道偏移字段 3521 / rev0-1 扩展文本头数
+  // 3505→3200+400+N·3200）。旧实现硬编码 3600——带扩展文本头的文件读到
+  // 错误道的头（inline/xline/坐标全错）。规则与 vendor 读取通道同源
+  // （SgyVolume 走 segyio metadata.trace0），此处直接复用 segy_trace0。
+  QByteArray binHdr = file.read(3600);
+  if (binHdr.size() < 3600)
+  {
+    info.error = QStringLiteral("SEG-Y 头读取失败");
+    return info;
+  }
   if (sampleCount <= 0)
   {
-    QByteArray binHdr = file.read(3600);
-    if (binHdr.size() < 3600)
-    {
-      info.error = QStringLiteral("SEG-Y 头读取失败");
-      return info;
-    }
-    const auto be16 = [&](int at) -> int {
+    const auto be16h = [&](int at) -> int {
       return (quint8(binHdr[at]) << 8) | quint8(binHdr[at + 1]);
     };
-    sampleCount = be16(3220);
-    formatCode = be16(3224);
+    sampleCount = be16h(3220);
+    formatCode = be16h(3224);
   }
   int bytesPerSample = 4; // 1=IBM 2=int32 5=IEEE 均 4 字节
   if (formatCode == 3)
@@ -893,8 +900,12 @@ SeismicTraceHeaderInfo SeismicTaskService::readTraceHeader(const QString &sgyPat
   else if (formatCode == 1 || formatCode == 5)
     bytesPerSample = 4;
 
+  unsigned long long trace0 = 3600;
+  segy_trace0(binHdr.constData() + 3200, &trace0, /*ext_textheader_count=*/-1);
+  if (trace0 < 3600)
+    trace0 = 3600; // 异常字段不放大成负/零偏移：回落常轨布局
   const qint64 traceBytes = 240 + qint64(sampleCount) * bytesPerSample;
-  info.fileOffset = 3600 + qint64(traceIndex) * traceBytes;
+  info.fileOffset = qint64(trace0) + qint64(traceIndex) * traceBytes;
   if (!file.seek(info.fileOffset))
   {
     info.error = QStringLiteral("道偏移越界（文件 %1 字节）").arg(file.size());

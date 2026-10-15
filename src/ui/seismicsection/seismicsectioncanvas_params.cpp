@@ -47,6 +47,10 @@ void SeismicSectionCanvas::setPolarityInverted(bool inverted) {
         m_polarityInverted = inverted;
         rebuildDisplayValues();
         rebuildImage();
+        // 卷帘 B 图按同款极性重烘（D2.10 对比两半必须同配方；AGC/增益曲线
+        // B 侧不消费——既有口径，参数变化无需重烘）。
+        if (m_compareEnabled && !m_compareSlice.values.empty())
+            setCompareData(m_compareSlice, m_compareLabel);
         update();
     }
 }
@@ -137,6 +141,9 @@ void SeismicSectionCanvas::setGain(float gain) {
     if (std::abs(m_gain - clamped) > 1e-4f) {
         m_gain = clamped;
         rebuildImage();
+        // 卷帘 B 图按同款增益重烘（旧实现只重烘 A——参数变了帘右陈旧）。
+        if (m_compareEnabled && !m_compareSlice.values.empty())
+            setCompareData(m_compareSlice, m_compareLabel);
         update();
     }
 }
@@ -146,6 +153,8 @@ void SeismicSectionCanvas::setContrast(float contrast) {
     if (std::abs(m_contrast - clamped) > 1e-4f) {
         m_contrast = clamped;
         rebuildImage();
+        if (m_compareEnabled && !m_compareSlice.values.empty())
+            setCompareData(m_compareSlice, m_compareLabel);
         update();
     }
 }

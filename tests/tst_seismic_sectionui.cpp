@@ -39,7 +39,11 @@ using namespace seismic;
 
 namespace {
 
-// 合成剖面：正弦同相轴（道间能量差给 AGC 测试用）
+// 合成剖面：正弦同相轴（道间能量差给 AGC 测试用）。
+// 行序按 vendor 契约生成：行 0 = 最深样（ExtractSlice 的 row = samples-1-s），
+// 图案按物理样 s 计算后写入行 samples-1-s——画布入口会翻转到升序显示空间
+// （契约见 seismicsectioncanvas_internal.h），displayValueAt(t, s) 仍读回
+// 图案在 s 的值。
 SgySliceImage makeSection(int traces, int samples, float ampScale = 1.0f,
                           float weakTraceFraction = 1.0f)
 {
@@ -53,7 +57,7 @@ SgySliceImage makeSection(int traces, int samples, float ampScale = 1.0f,
   {
     const float traceAmp = (t % 2 == 1) ? ampScale * weakTraceFraction : ampScale;
     for (int s = 0; s < samples; ++s)
-      img.values[std::size_t(s) * traces + t] =
+      img.values[std::size_t(samples - 1 - s) * traces + t] =
           traceAmp * std::sin(s * 0.08f + t * 0.4f);
   }
   return img;
@@ -485,6 +489,84 @@ private slots:
     QCOMPARE(canvas.compareLabel(), QStringLiteral("相邻线"));
   }
 
+  // 卷帘 B 图随显示参数重烘：开启对比后改极性/增益，帘右 B 必须跟随
+  // （旧实现只重烘 A——参数变了 B 保持旧配方渲染，两半对比口径漂移）。
+  void curtainCompareFollowsDisplayParams()
+  {
+    SeismicSectionCanvas canvas;
+    canvas.resize(800, 600);
+    canvas.setSectionData(makeSection(64, 256), 2.0f);
+
+    SgySliceImage other = makeSection(64, 256);
+    for (float &v : other.values)
+      if (std::isfinite(v))
+        v = -v; // 与 A 反相：极性翻转后 B 视觉应趋近 A
+    canvas.setCompareData(other, QStringLiteral("相邻线"));
+    canvas.setCompareEnabled(true);
+    canvas.setCurtainPos(0.5);
+
+    const QImage before = renderCanvas(canvas);
+    canvas.setPolarityInverted(true);
+    const QImage flipped = renderCanvas(canvas);
+    QVERIFY2(imageDiff(before, flipped) > 500,
+             "极性翻转必须同时重烘 A/B（B 侧极性同配方）");
+    canvas.setPolarityInverted(false);
+
+    const QImage g0 = renderCanvas(canvas);
+    canvas.setGain(4.0f);
+    const QImage g4 = renderCanvas(canvas);
+    QVERIFY2(imageDiff(g0, g4) > 500, "增益变化必须同时重烘 A/B");
+  }
+
+  // 跨线书签的视口恢复：换线触发异步重提取，到达回调 fitToWindow 会复位
+  // 视口——书签视口必须重放（旧实现 apply 时提取未完成即被 fit 覆盖，
+  // 跨线书签的缩放/平移从不恢复）。同线书签（无重提取）保持直接应用。
+  void crossLineBookmarkRestoresViewport()
+  {
+    QTemporaryDir dir;
+    const QString sgy = dir.filePath("bm2.sgy");
+    QVERIFY(writeTestSegy(sgy, 6, 5, 64));
+    SgyVolume volume;
+    std::string err;
+    QVERIFY(volume.Load(sgy.toStdString(), err));
+
+    PaleoTaskService tasks;
+    SeismicTaskService svc(&tasks, 16);
+    SeismicSectionDockWidget dock;
+    dock.resize(900, 650);
+    dock.setTaskService(&svc);
+    QSignalSpy done(&dock, &SeismicSectionDockWidget::sectionExtractionFinished);
+    dock.setVolume(std::make_shared<SgyVolume>(std::move(volume)));
+    QVERIFY(waitForQuiet([&] { return !done.isEmpty(); })); // 初线（中线）
+    const int initialLine = dock.canvas()->sectionRef().index;
+
+    // 在当前线上造一个非默认视口的书签
+    dock.canvas()->setZoom(2.5, 2.5);
+    dock.canvas()->panBy(60, -40);
+    const SectionViewState saved = dock.canvas()->viewState();
+    dock.addBookmark(QStringLiteral("缩放态"));
+    QCOMPARE(dock.bookmarks().size(), 1);
+
+    // 换线（书签线 ≠ 新线）：spin 触发重提取，视口被 fit 复位
+    QSpinBox *spin = dock.findChild<QSpinBox *>();
+    QVERIFY(spin);
+    const int otherLine = initialLine + 1;
+    spin->setValue(otherLine);
+    QVERIFY(waitForQuiet([&] { return done.size() >= 2; }));
+    QVERIFY(std::abs(dock.canvas()->viewState().zoomX - saved.zoomX) > 0.5);
+
+    // 应用跨线书签：setValue 触发重提取 → 完成后视口必须重放到书签值
+    dock.applyBookmark(0);
+    QVERIFY(waitForQuiet([&] { return done.size() >= 3; }));
+    const SectionViewState restored = dock.canvas()->viewState();
+    QVERIFY2(std::abs(restored.zoomX - saved.zoomX) < 1e-6,
+             qPrintable(QStringLiteral("zoomX %1 != %2")
+                        .arg(restored.zoomX).arg(saved.zoomX)));
+    QVERIFY2(std::abs(restored.panY - saved.panY) < 1e-6,
+             qPrintable(QStringLiteral("panY %1 != %2")
+                        .arg(restored.panY).arg(saved.panY)));
+  }
+
   // ---- D2.11 道头服务 ----
   void traceHeaderService()
   {
@@ -506,6 +588,25 @@ private slots:
     const SeismicTraceHeaderInfo bad = SeismicTaskService::readTraceHeader(sgy, 999);
     QVERIFY(!bad.ok);
     QVERIFY(!bad.error.isEmpty());
+  }
+
+  // 带扩展文本头的 SEG-Y：首道偏移 = 3600 + N·3200（rev0-1 由二进制头
+  // 3505 扩展头数字段给出）。旧实现硬编码 3600——读到错误道的头
+  // （inline/xline 全错）。与 vendor 读取通道（segyio trace0）同源断言。
+  void traceHeaderServiceExtendedTextHeaders()
+  {
+    QTemporaryDir dir;
+    const QString sgy = dir.filePath("th_ext.sgy");
+    const int extHeaders = 2; // 3600 + 2*3200 = 10400 首道偏移
+    QVERIFY(writeTestSegy(sgy, 4, 4, 64, extHeaders));
+
+    const SeismicTraceHeaderInfo info = SeismicTaskService::readTraceHeader(sgy, 3);
+    QVERIFY2(info.ok, qPrintable(info.error));
+    QCOMPARE(info.fileOffset, qint64(3600 + extHeaders * 3200 + 3 * (240 + 64 * 4)));
+    QCOMPARE(info.inlineNo, 1000);
+    QCOMPARE(info.xlineNo, 2003);
+    QCOMPARE(info.sampleCount, 64);
+    QCOMPARE(info.sampleIntervalUs, 2000);
   }
 
   // ---- D2.12 书签往返 ----
@@ -612,6 +713,65 @@ private slots:
     // dock 切片路径经服务：结果落切片 LRU（裸 QThreadPool 时代不进缓存）
     QVERIFY(svc.dataCache().EntryCount() >= 1);
     QVERIFY(waitForQuiet([&] { return svc.activeTaskCount() == 0; }));
+  }
+
+  // ---- 显示真值对拍（vendor 真切片 → dock → canvas 行序/TWT 对应）----
+  // vendor ExtractSlice 契约：行 0 = 最深样（row = samples-1-s）。画布的
+  // 标尺/hover/拾取全链是「行 y = 采样 y 升序」——同一物理样点的幅值必须
+  // 出现在画布采样序 k（displayValueAt）、hover 读数的 TWT 必须是该样的
+  // 物理时间 t0+k·dt。旧实现把 vendor 行序直当升序画：displayValueAt(t,k)
+  // 读到镜像样 63-k，hover 报的 TWT 是镜像时间——本用例先红后绿钉死契约。
+  // writeTestSegy 样值公式：(i+1)*100 + j + k*0.25（i=inline, j=xline, k=样）。
+  void sectionRowOrderMatchesPhysicalTime()
+  {
+    QTemporaryDir dir;
+    const QString sgy = dir.filePath("truth.sgy");
+    QVERIFY(writeTestSegy(sgy, 6, 5, 64));
+    SgyVolume volume;
+    std::string err;
+    QVERIFY(volume.Load(sgy.toStdString(), err));
+
+    PaleoTaskService tasks;
+    SeismicTaskService svc(&tasks, 16);
+    SeismicSectionDockWidget dock;
+    dock.resize(900, 650);
+    dock.show();
+    dock.setTaskService(&svc);
+    QSignalSpy done(&dock, &SeismicSectionDockWidget::sectionExtractionFinished);
+    dock.setVolume(std::make_shared<SgyVolume>(std::move(volume)));
+    QVERIFY(waitForQuiet([&] { return !done.isEmpty() && done.last().at(0).toBool(); }));
+
+    SeismicSectionCanvas *canvas = dock.canvas();
+    QVERIFY(canvas->hasData());
+    QCOMPARE(canvas->traceCount(), 5);    // IL 剖面宽 = XL 数
+    QCOMPARE(canvas->sampleCount(), 64);
+    const SectionRef ref = canvas->sectionRef();
+    QVERIFY(ref.valid);
+    QCOMPARE(ref.type, SgySliceType::Inline);
+    const int i = ref.index - 1000; // writeTestSegy inline 基 1000
+    QVERIFY(i >= 0 && i < 6);
+
+    // 真值 1：displayValueAt(道 j, 采样 k) = 样值公式在 (i, j, k)。
+    const float want5 = float((i + 1) * 100 + 2) + 5 * 0.25f;
+    const float want58 = float((i + 1) * 100 + 2) + 58 * 0.25f;
+    QCOMPARE(canvas->displayValueAt(2, 5), want5);
+    QCOMPARE(canvas->displayValueAt(2, 58), want58);
+
+    // 真值 2：hover 读数自洽——采样 k 的像素上报 TWT=t0+k·dt 且幅值=样值。
+    // t0=0（writeTestSegy 无记录延迟）、dt=2ms。
+    const double py = canvas->timeToPixelY(5 * 2.0);
+    const double px = canvas->traceToPixelX(2.4);
+    const QPoint pos{int(px), int(py)};
+    // 自检：像素往返确实落在采样 5（防缩放取整把用例自身搞错）
+    QCOMPARE(int(std::round((canvas->pixelToTime(pos.y()) - 0.0) / 2.0)), 5);
+    QSignalSpy hover(canvas, &SeismicSectionCanvas::traceHovered);
+    QTest::mouseMove(canvas, pos);
+    QVERIFY(waitForQuiet([&] { return !hover.isEmpty(); }));
+    const QList<QVariant> h = hover.last();
+    QCOMPARE(h.at(0).toInt(), 2); // 道取整
+    // 像素取整回程不保证精确 10.0ms——按采样序断言（±半采样内即样 5）
+    QCOMPARE(int(std::round(h.at(1).toDouble() / 2.0)), 5);
+    QCOMPARE(h.at(3).toFloat(), want5);
   }
 
   // 顶替语义：快速换线时在途任务被协作取消（cancelled ≠ failed，
@@ -819,7 +979,8 @@ private slots:
 
 private:
   // 标准 INLINE@189/CROSSLINE@193 合成 SEG-Y（与转码测试同构的最小版）
-  static bool writeTestSegy(const QString &filePath, int inlines, int xlines, int ns)
+  static bool writeTestSegy(const QString &filePath, int inlines, int xlines, int ns,
+                            int extTextHeaders = 0)
   {
     QFile file(filePath);
     if (!file.open(QIODevice::WriteOnly))
@@ -841,7 +1002,12 @@ private:
     put16(16, 2000);
     put16(20, qint16(ns));
     put16(24, 5);
+    // rev0-1 扩展文本头数（1 基字段 3505 → bin 头内 0 基 304）：首道偏移
+    // = 3600 + N·3200（segy_trace0 同源规则）
+    put16(304, qint16(extTextHeaders));
     file.write(binHdr);
+    for (int e = 0; e < extTextHeaders; ++e)
+      file.write(QByteArray(3200, ' '));
     for (int i = 0; i < inlines; ++i)
       for (int j = 0; j < xlines; ++j)
       {

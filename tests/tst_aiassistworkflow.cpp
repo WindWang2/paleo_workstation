@@ -52,6 +52,7 @@ private slots:
   void commitWithoutAcceptedFails();
   void asyncClassificationCompletesAndDeclares();
   void asyncClassificationCancelledWritesNothing();
+  void asyncClassificationPublishFailureFailsTask();
 
 private:
   struct Fixture
@@ -492,6 +493,35 @@ void TestAiAssistWorkflow::asyncClassificationCancelledWritesNothing()
   QTest::qWait( 0 );
   QCOMPARE( done.size(), 0 ); // 取消：无产品、无成功信号
   QCOMPARE( catalogBytes( f ), before );
+}
+
+// 推理成功但产品落盘/登记失败（catalog 未绑定）：任务终态必须是 Failed
+// 而非 Succeeded——任务页与聊天工具回灌（toolrunner 按 state() 分派）都
+// 不允许「推理 ok = 产品 ok」的冒充。修前任务停在 Succeeded，工具回灌
+// ok=true + 空 stats + 「已登记为 DERIVED」注记（实际没有任何产品）。
+void TestAiAssistWorkflow::asyncClassificationPublishFailureFailsTask()
+{
+  Fixture f;
+  QVERIFY( initFixture( f ) );
+  f.wf.setCatalog( nullptr, QString() ); // 模拟产品登记通道缺失
+  PaleoTaskService tasks;
+  f.wf.setTaskService( &tasks );
+  QSignalSpy okSpy( &f.wf, &AiAssistWorkflow::tileClassificationDone );
+  QSignalSpy failSpy( &f.wf, &AiAssistWorkflow::tileClassificationFailed );
+
+  PaleoTask *task = f.wf.startClassification( QStringLiteral( "TP" ), QStringLiteral( "seg3" ),
+                                              40, 40, 16, 16, 4,
+                                              &TestAiAssistWorkflow::rampFetch, 0.35 );
+  QVERIFY( task != nullptr );
+  QEventLoop loop;
+  connect( task, &PaleoTask::finished, &loop, &QEventLoop::quit );
+  loop.exec();
+  QTest::qWait( 0 ); // 产品收尾在 finished 之后同步跑——再等一拍
+
+  QCOMPARE( task->state(), PaleoTask::State::Failed );
+  QVERIFY( !task->errorText().isEmpty() ); // 观察者能读到失败原因
+  QCOMPARE( okSpy.size(), 0 );
+  QCOMPARE( failSpy.size(), 1 );
 }
 
 int main( int argc, char *argv[] )

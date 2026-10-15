@@ -30,6 +30,9 @@ using namespace seismic;
 namespace
 {
 
+// 行序按 vendor 契约生成（行 0 = 最深样）：图案按物理样 s 计算、写入行
+// samples-1-s。画布入口翻转到升序空间后 displayValueAt(t, s) 读回图案在 s
+// 的值（契约见 seismicsectioncanvas_internal.h）。
 SgySliceImage makeSection(int traces, int samples)
 {
   SgySliceImage img;
@@ -41,7 +44,7 @@ SgySliceImage makeSection(int traces, int samples)
                     std::numeric_limits<float>::quiet_NaN());
   for (int t = 0; t < traces; ++t)
     for (int s = 0; s < samples; ++s)
-      img.values[std::size_t(s) * traces + t] =
+      img.values[std::size_t(samples - 1 - s) * traces + t] =
           std::sin(s * 0.08f + t * 0.4f);
   return img;
 }
@@ -56,7 +59,7 @@ SgySliceImage makeAttr(int traces, int samples)
   img.values.assign(std::size_t(traces) * samples, 0.0f);
   for (int t = 0; t < traces; ++t)
     for (int s = 0; s < samples; ++s)
-      img.values[std::size_t(s) * traces + t] =
+      img.values[std::size_t(samples - 1 - s) * traces + t] =
           float((s + t) % 97) / 96.0f;
   img.values[0] = std::numeric_limits<float>::quiet_NaN(); // 缺失=透明
   return img;

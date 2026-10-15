@@ -151,7 +151,7 @@ P5（切工程后源文件字节）、P1（更新/回滚后 v1 历史字节与�
 
 ### 轮 3：S5 第 2 轮修复（详见账本「轮 3」）
 
-M-1（b3d849d6）；Low 2（eb9aee8c）、4（25acad5a）、16（720e0534）、15（a425e229）、14（577dd9f9）、9（a3d5bc61）、7（f0947ac3）、12（de2521ff）。Low 8/11 留作已知限制。
+M-1（b3d849d6）；Low 2（eb9aee8c）、4（25acad5a）、16（720e0534）、15（a425e229）、14（577dd9f9）、9（a3d5bc61）、7（f0947ac3）、12（de2521ff）。Low 8/11 留作已知限制（见下）。
 
 ## 收尾门禁（R10，2026-10-16 05:2x UTC+8）
 
@@ -162,3 +162,12 @@ M-1（b3d849d6）；Low 2（eb9aee8c）、4（25acad5a）、16（720e0534）、1
 - 定向 8 套（tst_folderimport / io_importledger / assetops / assetpaging / datagraphpage / datagraph / storagegovernance / panels）`ctest -j2 -R …` **连跑两遍 8/8**（`/tmp/opt01-ct-final-run{1,2}.log`）。
 - 静态门禁：`git diff origin/master --check` 0；`python3 tools/check_layering.py --strict` 通过；`python3 tools/check_ui_invariants.py --strict` clean；`python3 tools/check_i18n.py` 通过。
 - 本地补丁标记扫描：最终树 0；src/tests/cmake 在全部提交中 0；仅文档散文出现于 12847382/8456f9f1（ef79b2ee 已删除）。两份本地补丁文件仍为 skip-worktree，未提交。
+
+### S5 第 3 轮与最终处置（2026-10-16）
+
+- S5 第 3 轮（935dcc55..b6a52c0c）：0 High / 0 Medium，第 2 轮修复全部验证。测试 Low：everyRefocusEntryPointSendsOneQuery 的实体节点子例紧接「展开关联」已处于资料关联模式，对旧码无鉴别力 → 172704a3 先切到实体目录再双击；只回退实体激活一处为旧写法时该子例红（2≠1，revert-check-r3-entity.log）；tst_datagraphpage 连跑两遍通过。
+- R-7 口径更正：「追溯/下游影响/展开关联」为按钮单击；实体节点与「实体目录」分组为图上双击动作。
+- 本地补丁标记历史：12847382 引入散文提及；8456f9f1 改写时又新增一行含标记字面量文字，ef79b2ee 删除。
+- U5-b：datacatalog_versions.cpp 与 #476 同文件（非同 hunk），超出本任务写入域，未改。
+- S5 r2 Low 8（已知限制）：10 万行级台账 load/record 仍在 GUI 线程同步（≈0.9 s record / ≈0.5 s 回读）。
+- S5 r2 Low 11（已知限制）：备份读原件 readAll 无法发现短读；同毫秒同名备份会被覆盖；台账读不了时写入被永久拒绝，仅经 qWarning（及查看器警告）体现。

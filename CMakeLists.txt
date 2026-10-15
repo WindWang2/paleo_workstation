@@ -579,6 +579,7 @@ add_library(paleo_services STATIC
   src/services/cataloghealth.cpp                    # 方向30：工区资产体检（快速面 + 外链 SHA 复验）
   src/services/errorhub.cpp                         # 方向64（方向76 合流后唯一实现）：统一错误通道（去重/聚合/环形历史）
   src/services/imagelod.cpp                         # 方向79：图片道装载 LOD（缩略两级 + EXIF + 原图 LRU）
+  src/services/evidenceindex.cpp                    # G08/G12：证据反向索引（可重建检索结构，非第二事实源）
 )
 target_link_libraries(paleo_services PUBLIC paleo_deps paleo_io paleo_domain paleo_store paleo_algorithms)
 
@@ -604,6 +605,7 @@ add_library(paleo_workflow STATIC
   src/workflow/mappingworkbench_compose.cpp       # 融合合成管线——core-deepening A-R2 拆分
   src/workflow/mappingworkbench_polygonize.cpp     # 相栅格转面：同步 + 后台任务（facies-ux 1）
   src/workflow/mappingworkbench_consistency.cpp   # 地震相×测井相一致性报告（facies-ux 4）
+  src/workflow/mappingworkbench_impact.cpp       # G05：证据变化空间影响分析（三级分明 + 报告快照）
   src/workflow/evidencerecord.cpp                 # 证据链组装（facies-ux 5）
   src/workflow/wellpredictionservice.cpp
   src/workflow/workflows.cpp

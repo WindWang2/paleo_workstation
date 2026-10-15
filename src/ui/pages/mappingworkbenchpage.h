@@ -30,6 +30,8 @@ public:
   QString horizon() const { return m_horizon; }
   QString selectedLayer() const;
   void setEvidenceSnapshot(const QVariantMap &snapshot);
+  // G08：主窗口执行反查命令后回填结果（双击行复用 evidenceActivated 定位）。
+  void setReverseResults(const QVariantList &rows, const QString &error = {});
 signals:
   void commandRequested(const QString &action, const QVariantMap &parameters);
   void targetLayerChanged(const QString &layerId);
@@ -76,6 +78,13 @@ private:
   QLineEdit *m_evidenceActor = nullptr, *m_evidenceReason = nullptr, *m_sourceFeatureUid = nullptr;
   QLabel *m_interpretationState = nullptr, *m_quality = nullptr;
   QPlainTextEdit *m_evidenceHistory = nullptr;
+  // G03 计算归因 tab：冻结输入重放结果的只读展示（状态/决策分布/上游回执/井关联）。
+  QLabel *m_attributionSummary = nullptr;
+  QPlainTextEdit *m_attributionDetail = nullptr;
+  // G08/G12 证据反查：类型下拉 + 检索词 + 结果列表（双击定位图斑）。
+  QComboBox *m_reverseKind = nullptr;
+  QLineEdit *m_reverseText = nullptr;
+  QListWidget *m_reverseResults = nullptr;
   QVariantMap m_evidenceSnapshot;
   bool m_evidenceSnapshotOwned = false;
   int m_historyPage = 0;

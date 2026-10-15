@@ -110,6 +110,9 @@ bool MappingWorkbench::computePolygonize(PolygonizeJob &job,
     job.error = runErr.isEmpty() ? tr("相栅格转面未返回结果") : runErr;
     return false;
   }
+  // 算法 PROVENANCE（平滑/聚合/格网口径戳）：随版本落库，供归因与跨期对比
+  // 自证同源；不改变既有读者。
+  job.provenance = output.value("PROVENANCE");
   if (cancelled && cancelled())
     return false;
   {
@@ -140,15 +143,17 @@ bool MappingWorkbench::commitPolygonize(PolygonizeJob &job, QString *error) {
     fail(error, tr("工程已切换，转面结果已丢弃"));
     return false;
   }
-  const auto id =
-      record(job.outputPath, job.horizon, "facies_polygons",
-             tr("%1 相面").arg(job.title), "vector", {job.parent},
-             {{"facies", QVariant(job.facies)},
-              {"computational_parent_versions", QStringList{job.parent}},
-              {"method", "paleo:paleo_facies_polygonize"},
-              {"mock", job.mock},
-              {"source_layer", job.sourceLayerId}},
-             error, "|layername=facies_polygons", {}, &job.fingerprint);
+  QVariantMap extra{{"facies", QVariant(job.facies)},
+                    {"computational_parent_versions", QStringList{job.parent}},
+                    {"method", "paleo:paleo_facies_polygonize"},
+                    {"mock", job.mock},
+                    {"source_layer", job.sourceLayerId}};
+  if (!job.provenance.isNull() && job.provenance.isValid())
+    extra.insert("polygonize_provenance", job.provenance);
+  const auto id = record(job.outputPath, job.horizon, "facies_polygons",
+                         tr("%1 相面").arg(job.title), "vector", {job.parent},
+                         extra, error, "|layername=facies_polygons", {},
+                         &job.fingerprint);
   job.productId = id;
   return !id.isEmpty();
 }

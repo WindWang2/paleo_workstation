@@ -360,5 +360,27 @@ bool QgisConstraintEditSession::finish(bool save, QString *error)
   m_workingDir.reset();
   m_layer->reload();
   m_layer->triggerRepaint();
+  if (save) {
+    // G05：对比会话起点与保存结果，精确点名变化约束（几何或语义变动、
+    // 新增、删除）。无变化则不发——空通知会让下游把每次保存都当变化。
+    QHash<QString, QString> before;
+    for (const auto &row : m_initial)
+      before.insert(row.value(QStringLiteral("id")).toString(),
+                    row.value(QStringLiteral("wkt")).toString());
+    QStringList changed, removed;
+    for (const auto &row : rows) {
+      const auto id = row.value(QStringLiteral("id")).toString();
+      if (id.isEmpty())
+        continue;
+      if (!before.contains(id) ||
+          before.value(id) != row.value(QStringLiteral("wkt")).toString())
+        changed << id;
+      before.remove(id);
+    }
+    removed = before.keys();
+    removed.removeAll(QString());
+    if (!changed.isEmpty() || !removed.isEmpty())
+      emit constraintsSaved(m_horizon, changed, removed);
+  }
   return true;
 }

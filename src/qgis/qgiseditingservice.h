@@ -43,6 +43,9 @@ class QgisEditingService : public QObject
     void editRolledBack(const QString &layerId);
     void availabilityChanged();
     void editFailed(const QString &reason);
+    // G05：约束编辑保存成功（转发自 QgisConstraintEditSession）。
+    void constraintsSaved(const QString &horizon, const QStringList &changedIds,
+                          const QStringList &removedIds);
 
   private:
     QPointer<PaleoProjectStore> m_store;

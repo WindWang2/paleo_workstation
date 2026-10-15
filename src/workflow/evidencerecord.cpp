@@ -2,6 +2,7 @@
 #include "evidencerecord.h"
 #include "../catalog/datacatalog.h"
 #include "../domain/predictionevidence.h"
+#include "../domain/receiptsemantics.h"
 #include <QCoreApplication>
 #include <QSet>
 #include <QHash>
@@ -103,6 +104,28 @@ QVariantMap evidenceRecord( const DataCatalog *catalog, const QStringList &paren
         { QStringLiteral( "qgis" ), Qgis::version() } } );
   result.insert(QStringLiteral("interpretation_references"), interpretationReferences);
   result.insert(QStringLiteral("computational_parent_versions"), computationalList);
+  // G10b：聚合上游计算回执——对每个计算父版本取其 extra 归一化
+  // （paleo::receipts::normalize），本版本证据链可一跳读到「上游实际用了
+  // 什么」。只追加不改写既有键；无父版本/目录不可用时不写该键。
+  // cap 32：防御异常血缘环/超宽谱系把 extra 撑爆。
+  if (catalog && !computationalList.isEmpty()) {
+    QVariantList upstreamReceipts;
+    int collected = 0;
+    for (const auto &parent : computationalList) {
+      if (collected >= 32)
+        break;
+      const CatalogVersion pv = catalog->versionById(parent);
+      if (pv.id.isEmpty())
+        continue;
+      upstreamReceipts << QVariantMap{
+          {QStringLiteral("version_id"), pv.id},
+          {QStringLiteral("kind"), pv.extra.value(QStringLiteral("kind")).toString()},
+          {QStringLiteral("receipts"), paleo::receipts::normalize(pv.extra)}};
+      ++collected;
+    }
+    if (!upstreamReceipts.isEmpty())
+      result.insert(QStringLiteral("upstream_receipts"), upstreamReceipts);
+  }
   if (!missing.isEmpty())
     result.insert(QStringLiteral("quality_issues"), missing);
   return result;

@@ -212,6 +212,8 @@ void MappingWorkbench::bindCatalog(DataCatalog *catalog, const QString &dir) {
   m_aliasVersions.clear(); m_pathVersions.clear(); m_productsCache.clear();
   for (const auto &adapter : std::as_const(m_evidenceSpatialAdapters)) delete adapter.data();
   m_evidenceSpatialAdapters.clear();
+  for (const auto &layer : std::as_const(m_attributionLayers)) delete layer.data();
+  m_attributionLayers.clear();
   if (m_wellRemote) m_wellRemote->bindCatalog(catalog, dir);
   m_logVersion.clear();
   m_logCache = {};

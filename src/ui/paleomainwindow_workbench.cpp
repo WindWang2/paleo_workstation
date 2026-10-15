@@ -770,6 +770,76 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
                 m_previewTabs->openVersion(version.id);
               dataPage->focusVersion(version.assetId, version.id);
             }
+          } else if (action == "reverseQuery") {
+            const auto rows = workbench->evidenceReverseQuery(
+                p.value("reverse_kind").toString(),
+                p.value("reverse_argument").toString(), &error);
+            ok = error.isEmpty();
+            page->setReverseResults(rows, ok ? QString() : error);
+            error.clear();
+          } else if (action == "impactAnalysis") {
+            // 所选图件 = 变化后的版本；同资产的上一版 = 变化前。
+            const auto after = workbench->versionForLayer(id);
+            QString before;
+            int beforeNumber = 0;
+            if (!after.assetId.isEmpty())
+              for (const auto &v : workbench->catalog()
+                                       ? workbench->catalog()->versions()
+                                       : QVector<CatalogVersion>{})
+                if (v.assetId == after.assetId && v.versionNumber < after.versionNumber &&
+                    v.versionNumber > beforeNumber) {
+                  before = v.id;
+                  beforeNumber = v.versionNumber;
+                }
+            if (before.isEmpty()) {
+              ok = false;
+              error = tr("该图件只有单一版本，没有可分析的版本变化");
+            } else {
+              m_lastImpact = workbench->analyzeImpact(
+                  {{"kind", QStringLiteral("input_version")},
+                   {"before_version_id", before},
+                   {"after_version_id", after.id},
+                   {"horizon", h}},
+                  &error);
+              ok = !m_lastImpact.isEmpty();
+              if (ok) {
+                const auto determined = m_lastImpact.value("determined").toList();
+                qint64 changedCells = 0;
+                for (const auto &value : determined)
+                  changedCells += value.toMap().value("changed_cells").toLongLong();
+                statusBar()->showMessage(
+                    tr("影响分析完成：直接依赖 %1 项，潜在影响 %2 项，可确定变化 "
+                       "%3 像元（详见 %4）")
+                        .arg(m_lastImpact.value("direct_products").toList().size())
+                        .arg(m_lastImpact.value("potential_products").toList().size())
+                        .arg(changedCells)
+                        .arg(m_lastImpact.value("report_path").toString()),
+                    20000);
+              }
+            }
+          } else if (action == "recompute") {
+            if (m_lastImpact.isEmpty()) {
+              ok = false;
+              error = tr("请先运行影响分析，再按其结果受控重算");
+            } else {
+              const auto plan = workbench->recomputePlan(m_lastImpact, &error);
+              ok = !plan.isEmpty() && plan.value("status").toString() != QStringLiteral("empty");
+              if (ok) {
+                const auto execution = workbench->executeRecompute(plan, &error);
+                const auto results = execution.value("results").toList();
+                int started = 0;
+                for (const auto &value : results)
+                  if (value.toMap().value("ok").toBool())
+                    ++started;
+                statusBar()->showMessage(
+                    tr("受控重算已启动 %1/%2 项：新版本由任务中心生成，历史版本"
+                       "与已确认解释保持不变")
+                        .arg(started)
+                        .arg(results.size()),
+                    20000);
+              } else if (error.isEmpty())
+                error = tr("影响报告中没有可重算的综合编图成果");
+            }
           } else if (action == "labels")
             ok = workbench->setLabelMode(id, p.value("label_mode").toInt(),
                                          &error);

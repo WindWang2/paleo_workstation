@@ -2,11 +2,15 @@
 #include "mappingworkbench.h"
 #include "../domain/interpretationevidence.h"
 #include "../domain/predictionevidence.h"
+#include "../domain/evidenceconflict.h"
 #include "../domain/faciescatalog.h"
 #include "../domain/facieshierarchy.h"
+#include "../domain/singlefactorrequest.h"
+#include "../qgis/composeattribution.h"
 #include "../qgis/mappingfeatureidentity.h"
 #include "../qgis/evidencemapadapter.h"
 #include "../qgis/qgislayerservice.h"
+#include "../qgis/wellattributestore.h"
 #include <QJsonDocument>
 #include <QFileInfo>
 #include <QCryptographicHash>
@@ -14,6 +18,9 @@
 #include <QUuid>
 #include <cmath>
 #include <functional>
+#include <qgscoordinatereferencesystem.h>
+#include <qgsmaplayer.h>
+#include <qgsrasterlayer.h>
 #include <qgsvectorlayer.h>
 
 namespace {
@@ -143,13 +150,294 @@ QVariantMap MappingWorkbench::featureEvidence(const QString &id, const QList<qin
     }
   }
   out.insert("generation_records", generation); out.insert("spatial_candidates", spatialCandidates);
+  // G04：地震证据来源（预测成果的 support.seismic_attributes——版本事实，
+  // 与空间支持关系严格区分）。
+  const auto support = version.extra.value("evidence").toMap().value("support").toMap();
+  if (support.contains("seismic_attributes"))
+    out.insert("seismic_sources", support.value("seismic_attributes"));
   auto findings = paleo::evidence::check(records, interpretation, t);
   if (f.fields().indexOf(MappingFeatureIdentity::ReviewField) >= 0 && f.attribute(MappingFeatureIdentity::ReviewField).toBool())
     findings << QVariantMap{{"severity", "Warning"}, {"code", "identity_changed"}, {"message", tr("图斑经过分割或合并，继承关系和空间证据需要复核")}};
   out.insert("records", records); out.insert("interpretation", interpretation); out.insert("quality", findings);
+  // 图斑级计算归因：面状成果按冻结输入重放确定性融合决策；人工/无血统
+  // 图斑如实走 manual，不伪造自动分类过程。
+  if (f.hasGeometry() && f.geometry().type() == Qgis::GeometryType::Polygon) {
+    out.insert("attribution", composeAttribution(id, f));
+    // G04 井证据空间关联：井口落在图斑内的井（事实性空间关系，不推断地质
+    // 支持）。地层优势相一次读表建索引，避免逐井 N+1。
+    QVariantList wellsInFeature;
+    const auto horizon = declaration(id).horizon;
+    QHash<QString, QVariantMap> formationByWell;
+    if (m_catalog) {
+      for (const auto &value : WellAttributeStore::rows(
+               m_dir, m_layers, WellAttributeStore::Table::Formations, {}, horizon)) {
+        const auto row = value.toMap();
+        formationByWell.insert(row.value("well_id").toString(), row);
+      }
+      const auto bbox = f.geometry().boundingBox();
+      int matches = 0;
+      for (const auto &entity : m_catalog->entities(QStringLiteral("well"))) {
+        if (!entity.hasSurface)
+          continue;
+        if (!bbox.contains(entity.surfaceX, entity.surfaceY) ||
+            !f.geometry().contains(entity.surfaceX, entity.surfaceY))
+          continue;
+        QVariantMap row{{"entity_id", entity.id},
+                        {"well_name", entity.name},
+                        {"x", entity.surfaceX},
+                        {"y", entity.surfaceY}};
+        const auto formation = formationByWell.value(entity.id);
+        if (!formation.isEmpty() && !formation.value("facies_code").isNull()) {
+          row.insert("formation_facies_code", formation.value("facies_code"));
+          row.insert("formation_dominant", formation.value("dominant_facies"));
+          row.insert("formation_predicted", formation.value("predicted_dominant"));
+          row.insert("formation_top_md", formation.value("top_md"));
+          row.insert("formation_base_md", formation.value("base_md"));
+        }
+        wellsInFeature << row;
+        if (++matches >= 500) { // 有界：极端密度下截断并如实计数
+          out.insert("wells_in_feature_truncated", true);
+          break;
+        }
+      }
+    }
+    out.insert("wells_in_feature", wellsInFeature);
+    // G06 多源冲突分析：井解释（井口落面 + 地层优势相）、重放归因意见与
+    // 既有 check 发现聚合。纯事实分类，不合成置信度分数。
+    QList<paleo::evidenceconflict::Opinion> opinions =
+        paleo::evidenceconflict::opinionsFromAttribution(
+            out.value("attribution").toMap());
+    for (const auto &value : wellsInFeature) {
+      const auto well = value.toMap();
+      if (well.value("formation_facies_code").isNull())
+        continue;
+      paleo::evidenceconflict::Opinion opinion;
+      opinion.sourceKind = QStringLiteral("well");
+      opinion.label = well.value("well_name").toString();
+      opinion.versionId = QStringLiteral("welllog.formations:%1").arg(well.value("entity_id").toString());
+      opinion.detail = tr("井口位于图斑内（%1, %2）；本层位地层优势相")
+                           .arg(well.value("x").toDouble(), 0, 'f', 0)
+                           .arg(well.value("y").toDouble(), 0, 'f', 0);
+      opinion.faciesCode = well.value("formation_facies_code").toInt();
+      opinion.known = opinion.faciesCode > 0;
+      opinions << opinion;
+    }
+    out.insert("conflicts", paleo::evidenceconflict::analyze(
+                                opinions,
+                                f.attribute("facies_code").toInt(), t,
+                                out.value("attribution").toMap(), findings));
+  }
   out.insert("feature_id", f.id());
   if (MappingFeatureIdentity::uid(f).isEmpty()) out.insert("message", tr("早期图斑无稳定身份；创建编辑副本后可建立持久关联"));
   return out;
+}
+QString MappingWorkbench::composedAncestorVersion(const QString &id) const {
+  if (!m_catalog)
+    return {};
+  auto start = versionForLayer(id).id;
+  if (start.isEmpty() && id.startsWith("product."))
+    start = id.mid(8);
+  if (start.isEmpty())
+    return {};
+  // 广度优先、深度受限：只找计算血统（parentVersionIds），不把 REFERENCES
+  // 当成派生来源。
+  QStringList current{start};
+  QSet<QString> seen{start};
+  for (int depth = 0; depth < 4 && !current.isEmpty(); ++depth) {
+    QStringList next;
+    for (const auto &vid : current) {
+      const auto v = m_catalog->versionById(vid);
+      if (v.id.isEmpty())
+        continue;
+      if (v.extra.value("kind").toString() == QLatin1String("composed_facies"))
+        return vid;
+      for (const auto &p : v.parentVersionIds)
+        if (!seen.contains(p)) {
+          seen.insert(p);
+          next << p;
+        }
+    }
+    current = next;
+  }
+  return {};
+}
+QgsMapLayer *MappingWorkbench::attributionLayer(const QString &versionId) const {
+  if (!m_catalog || versionId.isEmpty())
+    return nullptr;
+  if (auto *cached = m_attributionLayers.value(versionId).data())
+    return cached;
+  const auto v = m_catalog->versionById(versionId);
+  if (v.id.isEmpty())
+    return nullptr;
+  const auto path = DataCatalog::resolvedVersionPath(m_dir, v) +
+                    v.extra.value("source_suffix").toString();
+  if (path.isEmpty() || !QFileInfo::exists(path.section('|', 0, 0)))
+    return nullptr;
+  const auto open = [&path](bool raster) -> std::unique_ptr<QgsMapLayer> {
+    if (raster)
+      return std::make_unique<QgsRasterLayer>(path, QStringLiteral("attribution"),
+                                              QStringLiteral("gdal"));
+    return std::make_unique<QgsVectorLayer>(path, QStringLiteral("attribution"),
+                                            QStringLiteral("ogr"));
+  };
+  const bool rasterFirst = v.extra.value("layer_type").toString() == QLatin1String("raster") ||
+                           path.section('.', -1) == QLatin1String("tif");
+  auto layer = open(rasterFirst);
+  if (!layer->isValid())
+    layer = open(!rasterFirst); // 早期版本可能缺 layer_type，按另一类型再试一次。
+  if (!layer->isValid())
+    return nullptr;
+  if (!layer->crs().isValid())
+    layer->setCrs(QgsCoordinateReferenceSystem::fromWkt(
+        DataCatalog::localGridCrsWkt()));
+  if (m_attributionLayers.size() >= 8) {
+    const auto first = m_attributionLayers.begin();
+    delete first.value().data();
+    m_attributionLayers.erase(first);
+  }
+  auto *raw = layer.release();
+  m_attributionLayers.insert(versionId, raw);
+  return raw;
+}
+QVariantMap MappingWorkbench::composeAttribution(const QString &id,
+                                                 const QgsFeature &f) const {
+  if (!m_catalog)
+    return {{"status", "unresolved"}, {"message", tr("目录未绑定，无法归因")}};
+  const auto composedId = composedAncestorVersion(id);
+  if (composedId.isEmpty())
+    return {{"status", "manual"},
+            {"message", tr("该图斑没有综合编图计算血统（人工绘制或独立转面），"
+                           "依据以人工解释记录为准")}};
+  const auto composed = m_catalog->versionById(composedId);
+  const auto ordered = composed.extra.value("ordered_inputs").toList();
+  if (ordered.isEmpty())
+    return {{"status", "unresolved"},
+            {"calculation_version", composedId},
+            {"message", tr("早期成果缺少输入冻结记录（ordered_inputs），无法重放决策")}};
+  QList<paleo::attribution::ResolvedInput> inputs;
+  for (const auto &entryValue : ordered) {
+    const auto entry = entryValue.toMap();
+    paleo::attribution::ResolvedInput input;
+    input.layerId = entry.value("layer_id").toString();
+    input.versionId = entry.value("version_id").toString();
+    input.priority = entry.value("priority").toInt();
+    const auto v = m_catalog->versionById(input.versionId);
+    input.title = v.extra.value("title").toString();
+    input.assetId = v.assetId;
+    const auto kind = v.extra.value("kind").toString();
+    const auto valueSource = v.extra.value("value_source").toString();
+    // 与 prepareCompose 相同的连续输入判定口径。
+    input.continuous = input.layerId.startsWith(QLatin1String("factor.")) ||
+                       v.extra.contains("factor_id") ||
+                       paleo::singlefactor::isAnalysisFactorRaster(kind, valueSource);
+    if (v.id.isEmpty()) {
+      input.missing = true;
+      input.missingReason = tr("输入版本已从目录删除");
+    } else {
+      const auto path = DataCatalog::resolvedVersionPath(m_dir, v);
+      if (path.isEmpty() || !QFileInfo::exists(path.section('|', 0, 0))) {
+        input.missing = true;
+        input.missingReason = tr("冻结输入文件缺失");
+      } else {
+        input.layer = attributionLayer(input.versionId);
+        if (!input.layer) {
+          input.missing = true;
+          input.missingReason = tr("冻结输入无法按保存时状态打开");
+        }
+      }
+    }
+    inputs << input;
+  }
+  QList<double> thresholds;
+  for (const auto &t : composed.extra.value("thresholds").toList())
+    thresholds << t.toDouble();
+  paleo::attribution::ReplayRequest request;
+  request.polygon = f.geometry();
+  request.faciesCode = f.attribute("facies_code").toInt();
+  QString error;
+  auto attribution = paleo::attribution::replay(
+      inputs, composed.extra.value("facies").toList(), thresholds, request, &error);
+  if (!error.isEmpty())
+    attribution.insert("message", error);
+  // G04/G10：归因输入附带其上游单因素回执（PR #457 落库的约束消费/样点
+  // 参与）。语义边界必须如实：该约束被单因素算法消费 ≠ 它决定了本图斑的
+  // 相分类——消费是计算事实，图斑归属以重放决策为准。
+  QVariantList enrichedInputs;
+  for (const auto &rowValue : attribution.value("inputs").toList()) {
+    auto row = rowValue.toMap();
+    const auto inputVersion = m_catalog->versionById(row.value("version_id").toString());
+    QVariantMap receipts;
+    for (const auto &key : {QStringLiteral("constraints_consumed"),
+                            QStringLiteral("constraints_unused"),
+                            QStringLiteral("engine_samples_used"),
+                            QStringLiteral("engine_samples_skipped")})
+      if (inputVersion.extra.contains(key))
+        receipts.insert(key, inputVersion.extra.value(key));
+    if (!receipts.isEmpty())
+      row.insert("upstream_receipts", receipts);
+    enrichedInputs << row;
+  }
+  attribution.insert("inputs", enrichedInputs);
+  attribution.insert("calculation_version", composedId);
+  attribution.insert("calculation_parameters", composed.extra.value("algorithm_parameters"));
+  attribution.insert("compose_receipts", composed.extra.value("compose_receipts"));
+  attribution.insert("origin", id.startsWith("draft.") ? "draft_edit" : "product");
+  if (id.startsWith("draft."))
+    attribution.insert("draft_note", tr("工作副本几何可能已被人工修改；归因反映的是"
+                                        "基线计算版本的决策，与当前边界可能不一致"));
+  return attribution;
+}
+QVariantMap MappingWorkbench::composeAttributionAt(const QString &id,
+                                                   const QgsFeature &f,
+                                                   const QPointF &point) const {
+  QVariantMap out{{"status", "unresolved"}, {"message", tr("该图层不支持局部位置归因")}};
+  if (!m_catalog)
+    return out;
+  const auto composedId = composedAncestorVersion(id);
+  if (composedId.isEmpty())
+    return out;
+  const auto composed = m_catalog->versionById(composedId);
+  const auto ordered = composed.extra.value("ordered_inputs").toList();
+  if (ordered.isEmpty())
+    return out;
+  QList<paleo::attribution::ResolvedInput> inputs;
+  for (const auto &entryValue : ordered) {
+    const auto entry = entryValue.toMap();
+    paleo::attribution::ResolvedInput input;
+    input.layerId = entry.value("layer_id").toString();
+    input.versionId = entry.value("version_id").toString();
+    input.priority = entry.value("priority").toInt();
+    const auto v = m_catalog->versionById(input.versionId);
+    input.title = v.extra.value("title").toString();
+    input.assetId = v.assetId;
+    const auto kind = v.extra.value("kind").toString();
+    const auto valueSource = v.extra.value("value_source").toString();
+    input.continuous = input.layerId.startsWith(QLatin1String("factor.")) ||
+                       v.extra.contains("factor_id") ||
+                       paleo::singlefactor::isAnalysisFactorRaster(kind, valueSource);
+    if (v.id.isEmpty()) {
+      input.missing = true;
+      input.missingReason = tr("输入版本已从目录删除");
+      inputs << input;
+      continue;
+    }
+    input.layer = attributionLayer(input.versionId);
+    if (!input.layer)
+      input.missing = true;
+    inputs << input;
+  }
+  QList<double> thresholds;
+  for (const auto &t : composed.extra.value("thresholds").toList())
+    thresholds << t.toDouble();
+  paleo::attribution::ReplayRequest request;
+  request.usePoint = true;
+  request.point = point;
+  request.faciesCode = f.attribute("facies_code").toInt();
+  QString error;
+  auto attribution = paleo::attribution::replay(
+      inputs, composed.extra.value("facies").toList(), thresholds, request, &error);
+  attribution.insert("calculation_version", composedId);
+  return attribution;
 }
 QVariantMap MappingWorkbench::resolveEvidenceSource(const QVariantMap &record,
     const QVariantMap &spatialTarget, bool loadSavedSource, QSet<QString> *spatialSources,

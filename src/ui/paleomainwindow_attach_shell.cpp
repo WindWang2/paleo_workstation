@@ -76,6 +76,20 @@ PaleoEditingToolbar *PaleoMainWindow::attachShellSurfaces(
     PaleoTaskService *taskSvc)
 {
   m_editSvc = editSvc; // closeEvent 的保存/放弃编辑走服务（busy 挂账随终态清）
+  // G05：约束编辑保存成功 → 提示下游影响已可分析（不自动改动任何成果版本；
+  // 状态栏指路，分析与重算由用户在证据面板/数据图谱发起）。
+  if (editSvc)
+    connect(editSvc, &QgisEditingService::constraintsSaved, this,
+            [this](const QString &horizon, const QStringList &changed,
+                   const QStringList &removed) {
+              statusBar()->showMessage(
+                  tr("约束已保存（%1：%2 变更 / %3 删除）——受影响成果可在数据图谱"
+                     "「下游影响」或证据面板复核")
+                      .arg(horizon)
+                      .arg(changed.size())
+                      .arg(removed.size()),
+                  12000);
+            });
   // W2 长任务可见性：任务进场/终态时重估底栏露出（本体在主 TU，
   // syncBottomDockForTasks——露出/恢复都走程序化显隐，不动用户意愿）。
   if (taskSvc)

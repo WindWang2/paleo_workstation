@@ -180,7 +180,8 @@ bool MappingWorkbench::computeCompose(
   }
   if (!MappingArtifactWriter::composeRaster(job.outputPath, layers, job.facies,
                                             job.thresholds, continuous,
-                                            &job.error, cancel, progress))
+                                            &job.error, cancel, progress,
+                                            &job.receipt))
     return false;
   job.fingerprint =
       DerivedFileFingerprint::read(job.outputPath, cancel, &job.error);
@@ -201,6 +202,20 @@ bool MappingWorkbench::commitCompose(ComposeJob &job, QString *error) {
       fail(error, tr("输入已删除，综合编图结果已丢弃"));
       return false;
     }
+  // 每输入实际胜出像元回执：计算事实（consumed），非地质支持关系。
+  QVariantList receiptRows;
+  const auto ordered = job.params.value("ordered_inputs").toList();
+  for (int i = 0; i < job.ids.size() && i < job.receipt.winningCells.size(); ++i) {
+    const auto entry = i < ordered.size() ? ordered[i].toMap() : QVariantMap();
+    receiptRows << QVariantMap{
+        {"layer_id", job.ids[i]},
+        {"version_id", entry.value("version_id")},
+        {"priority", entry.value("priority", i + 1)},
+        {"won_cells", QVariant::fromValue(job.receipt.winningCells[i])}};
+  }
+  QVariantMap composeReceipt{{"inputs", receiptRows},
+                             {"decided_cells", QVariant::fromValue(job.receipt.decidedCells)},
+                             {"total_cells", QVariant::fromValue(job.receipt.totalCells)}};
   job.productId = record(
       job.outputPath, job.horizon, "composed_facies",
       tr("%1 综合相图").arg(job.horizon), "raster", job.parents,
@@ -210,6 +225,7 @@ bool MappingWorkbench::commitCompose(ComposeJob &job, QString *error) {
        {"computational_parent_versions", job.parents},
        {"ordered_inputs", job.params.value("ordered_inputs")},
        {"algorithm_parameters", job.params},
+       {"compose_receipts", composeReceipt},
        {"crs", job.params.value("crs")},
        {"thresholds", job.params.value("thresholds")},
        {"facies", job.facies}},

@@ -227,10 +227,11 @@ VersionCompare compareVersions(const QString &projectDir, const CatalogVersion &
   c.sameSha = c.shaKnown && a.sha256 == b.sha256;
 
   // 受管版本只认 resolvedVersionPath 的包含性结论：解析为空（绝对路径/
-  // 反斜杠/越出工程的符号链接）即视为「不可读」——旧实现回落到原始
-  // v.path，绝对路径会读出工程外文件、相对路径会相对进程 CWD 读到无关
-  // 文件，绕过 purge/预览同一把包含性闸门。外链版本 resolvedVersionPath
-  // 本就原样返回绝对路径，行为不变。
+  // 反斜杠/不安全路径段/路径上任一段是符号链接/规范路径越出工程）即视为
+  // 「不可读」——旧实现回落到原始 v.path，绝对路径会读出工程外文件、相对
+  // 路径会相对进程 CWD 读到无关文件，绕过 purge/预览同一把包含性闸门。
+  // 非受管（外链）版本 resolvedVersionPath 原样返回登记的 path（不做包含性
+  // 检查，可能是相对路径），本函数对其行为不变。
   const QString absA = DataCatalog::resolvedVersionPath(projectDir, a);
   const QString absB = DataCatalog::resolvedVersionPath(projectDir, b);
   const QFileInfo fa(absA);

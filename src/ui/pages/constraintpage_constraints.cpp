@@ -446,17 +446,18 @@ QString constraintReasonLabel( const QString &reason )
   };
   // 前缀 token（token:detail）：detail 是域层产出——unknown_type 带裸 type
   //（通用「绘制约束」无 params_json 的主链可达原因），invalid_params 带中文
-  // 错误详情。拼进译文/直显详情，不整段回显英文 token。
+  // 错误详情。拼进译文/直显详情，不整段回显英文 token；section 取到串尾，
+  // detail 自身含冒号也不被截断；无 detail 时回落词表（不裸回显 token）。
   if ( token == QLatin1String( "unknown_type" ) )
   {
-    const QString type = reason.section( QLatin1Char( ':' ), 1 );
+    const QString type = reason.section( QLatin1Char( ':' ), 1, -1 );
     return type.isEmpty() ? labels.value( token )
                           : ConstraintPage::tr( "未识别的约束类型：%1" ).arg( type );
   }
   if ( token == QLatin1String( "invalid_params" ) )
   {
-    const QString detail = reason.section( QLatin1Char( ':' ), 1 );
-    return detail.isEmpty() ? reason : detail;
+    const QString detail = reason.section( QLatin1Char( ':' ), 1, -1 );
+    return detail.isEmpty() ? labels.value( token ) : detail;
   }
   return labels.value( token, reason );
 }

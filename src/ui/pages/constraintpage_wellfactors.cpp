@@ -11,6 +11,8 @@
 #include "../../services/singlefactordef.h"
 #include "../../workflow/workflows.h"
 
+#include <QFileInfo>
+
 #include <QComboBox>
 #include <QHeaderView>
 #include <QLabel>
@@ -133,11 +135,19 @@ void ConstraintPage::refreshWellFactorFields() {
   // 只读观测计数 paleo.page.fieldrefreshcount = 真实取数（缓存未命中）次数。
   QVariantList fields;
   if (wf) {
+    // U10/S5-Med：字段清单依赖井点图层的要素属性内容（wellFactorFields 对
+    // 每个值 parseNumeric 才收录字段名）——缓存键除声明集合外须含各 wells
+    // 声明 source 文件的 size+mtime，就地编辑（属性表加数值列/填数值）后
+    // 下一次刷新即失效，不靠切层位/重声明自愈。
     QStringList wellsDecls;
     if (auto *svc = qobject_cast<QgisLayerService *>(property(kLayersProp).value<QObject *>()))
       for (const LayerDeclaration &d : svc->declared())
-        if (d.layerId.startsWith(QStringLiteral("wells")))
-          wellsDecls << d.layerId + QChar(0x1f) + d.source;
+        if (d.layerId.startsWith(QStringLiteral("wells"))) {
+          const QFileInfo src(d.source.section(QLatin1Char('|'), 0, 0));
+          wellsDecls << d.layerId + QChar(0x1f) + d.source + QChar(0x1f) +
+                          QString::number(src.size()) + QChar(0x1f) +
+                          QString::number(src.lastModified().toMSecsSinceEpoch());
+        }
     const QString cacheKey = (h ? h->currentText() : QString()) + QChar(0x1f) +
                              QString::number(property("paleo.page.fieldsgen").toInt()) + QChar(0x1f) +
                              wellsDecls.join(QChar(0x1e));

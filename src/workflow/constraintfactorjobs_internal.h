@@ -21,6 +21,9 @@
 #include <QVariantList>
 #include <QVariantMap>
 
+#include <gdal.h>     // contourFeatureCountOf（U8 等值线要素计数）
+#include <ogr_api.h>
+
 #include "../catalog/datacatalog.h"
 #include "../qgis/qgislayerservice.h"
 #include "constraintworkflow_internal.h"  // sameFile（declaredFactorPathMatches 用）
@@ -116,6 +119,22 @@ inline void discardTempTree( const QString &path )
 {
   if ( path.contains( QStringLiteral( "paleo-sf-" ) ) )
     QDir( QFileInfo( path ).absolutePath() ).removeRecursively();
+}
+
+// U8（S5 收编）：统计落盘等值线 GPKG 的 contours 图层要素数（publish 线程
+// 调用，临时 GPKG 已由 compute 落盘并核验存在，开销可忽略）。打开失败或
+// 无该图层返回 -1 哨兵——计数是血缘如实在案，不改变发布成功语义；
+// 读侧只对 ==0 显示「0 条等值线」，-1 不误报。
+inline int contourFeatureCountOf( const QString &gpkgPath )
+{
+  GDALDatasetH ds = GDALOpenEx( gpkgPath.toUtf8().constData(),
+                                GDAL_OF_VECTOR | GDAL_OF_READONLY, nullptr, nullptr, nullptr );
+  if ( !ds )
+    return -1;
+  OGRLayerH layer = GDALDatasetGetLayerByName( ds, "contours" );
+  const int count = layer ? static_cast<int>( OGR_L_GetFeatureCount( layer, TRUE ) ) : -1;
+  GDALClose( ds );
+  return count;
 }
 
 inline QString factorIdOf( const QString &horizon, const QString &factorLayerId )

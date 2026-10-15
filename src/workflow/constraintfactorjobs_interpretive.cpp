@@ -51,7 +51,6 @@
 #include <qgsvectorfilewriter.h> // WS-C：参与井点 samples GPKG 写出
 #include <qgsvectorlayer.h>
 #include <gdal.h>
-#include <ogr_api.h>
 #include <ogr_spatialref.h>
 #include <cpl_conv.h>
 #include <algorithm>
@@ -61,24 +60,6 @@
 #include "constraintfactorjobs_internal.h"
 
 using namespace paleo::constraint_detail;
-
-namespace
-{
-// U8：统计落盘等值线 GPKG 的 contours 图层要素数（publish 线程调用，临时
-// GPKG 已由 compute 落盘并核验存在，开销可忽略）。打开失败返回 -1 哨兵
-// ——计数是血缘如实在案，不因此改变发布成功语义。
-int contourFeatureCountOf( const QString &gpkgPath )
-{
-  GDALDatasetH ds = GDALOpenEx( gpkgPath.toUtf8().constData(),
-                                GDAL_OF_VECTOR | GDAL_OF_READONLY, nullptr, nullptr, nullptr );
-  if ( !ds )
-    return -1;
-  OGRLayerH layer = GDALDatasetGetLayerByName( ds, "contours" );
-  const int count = layer ? static_cast<int>( OGR_L_GetFeatureCount( layer, TRUE ) ) : -1;
-  GDALClose( ds );
-  return count;
-}
-} // namespace
 
 bool ConstraintWorkflow::prepareInterpretiveContourJob( const QString &horizon, const QString &factorLayerId,
                                                         const QVector<double> &levels, bool strict,

@@ -505,6 +505,7 @@ class FactorPageTests : public QObject
     void factorResultsTableShowsLineageColumn();   // P4：成果表第 4 列「来源与质控」+ 明细 tooltip
     void interpretiveResultsShowInFactorResultsTable(); // U7：制图工作场进成果表 + 解释性等值线回执即时刷新
     void wellFactorFieldFetchesAreCached();        // U10：字段清单按（层位,数据世代）缓存，勾选不重取
+    void wellFactorCacheInvalidatesOnLayerFileEdit(); // U10/S5：wells 图层文件就地编辑后缓存失效
     void parseLevelsAboveCapCountsDropped();       // U9：固定级别数上限——超限 token 按 dropped 计数（UI 层）
 };
 
@@ -816,6 +817,52 @@ void FactorPageTests::wellFactorFieldFetchesAreCached()
   QCOMPARE( page.property( "paleo.page.fieldrefreshcount" ).toInt(), 2 );
   factors->item( 1, 0 )->setCheckState( Qt::Checked );
   QCOMPARE( page.property( "paleo.page.fieldrefreshcount" ).toInt(), 2 );
+}
+
+// U10/S5-Med：缓存键须含 wells 声明 source 的 size+mtime——既有 wells 图层被
+// 就地编辑（属性表加数值列/填数值后保存）不换声明、不发 wellAttributesChanged，
+// 靠文件态变化失效缓存；否则字段下拉陈旧且 showEvent 刷新不能自愈。
+void FactorPageTests::wellFactorCacheInvalidatesOnLayerFileEdit()
+{
+  QTemporaryDir dir;
+  DataCatalog catalog;
+  QString err;
+  QVERIFY2( catalog.open( dir.path(), &err ), qPrintable( err ) );
+  QFile wellsFile( dir.filePath( QStringLiteral( "wells.T1.geojson" ) ) );
+  QVERIFY( wellsFile.open( QIODevice::WriteOnly ) );
+  wellsFile.write( "{\"type\":\"FeatureCollection\",\"features\":[]}" );
+  wellsFile.close();
+
+  LayerManifest manifest( dir.filePath( QStringLiteral( "wfcache.sqlite" ) ) );
+  QVERIFY( manifest.open() );
+  QgisLayerService layers( nullptr, &manifest );
+  LayerDeclaration decl;
+  decl.layerId = QStringLiteral( "wells.T1" );
+  decl.horizon = QStringLiteral( "T1" );
+  decl.type = QStringLiteral( "vector" );
+  decl.source = wellsFile.fileName();
+  decl.group = QStringLiteral( "01_Wells" );
+  QVERIFY( layers.declare( decl, &err ) );
+
+  ConstraintWorkflow wf( nullptr, nullptr );
+  wf.setCatalog( &catalog, dir.path() );
+  ConstraintPage page( &wf );
+  page.bindLayerService( &layers );
+  auto *factors = page.findChild<QTableWidget *>( QStringLiteral( "factorTable" ) );
+  QVERIFY( factors );
+  // ctor 取数发生在 bindLayerService 之前——绑定后首次刷新必然 miss（键加入
+  // wells 声明与文件态），计一次后进入稳态。
+  factors->item( 0, 0 )->setCheckState( Qt::Checked );
+  const int primed = page.property( "paleo.page.fieldrefreshcount" ).toInt();
+  factors->item( 0, 0 )->setCheckState( Qt::Unchecked );
+  QCOMPARE( page.property( "paleo.page.fieldrefreshcount" ).toInt(), primed ); // 声明未变，命中缓存
+
+  // wells 图层文件被就地编辑（size/mtime 变化、声明不变、无信号）→ 缓存失效。
+  QVERIFY( wellsFile.open( QIODevice::Append ) );
+  wellsFile.write( " " );
+  wellsFile.close();
+  factors->item( 0, 0 )->setCheckState( Qt::Checked );
+  QCOMPARE( page.property( "paleo.page.fieldrefreshcount" ).toInt(), primed + 1 );
 }
 
 void FactorPageTests::generateFactorPayload()

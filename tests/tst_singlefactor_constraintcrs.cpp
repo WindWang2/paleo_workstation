@@ -1,7 +1,9 @@
 // 层：测试壳
-// P1-C：约束库几何类型 / CRS 契约。库层 "constraints" 建库即 wkbUnknown 且
-// 无 SRS；绘制入库必须从画布 CRS 显式变换到本地工程网格，读出图层必须带
-// 本地工程网格 CRS（配准工程经显式坐标操作显示），编辑会话换源不丢 CRS。
+// 约束库几何类型 / CRS 契约。库层 "constraints" 建库即 wkbUnknown（GPKG
+// GEOMETRY，混合点线面）且带库约定 SRS（P0-2：外部 QGIS/GDAL 可独立辨识）；
+// 绘制入库必须从画布 CRS 显式变换到本地工程网格（等价只认同一坐标系），
+// 读出的 QGIS 图层带本地工程网格 CRS（配准工程经显式坐标操作显示），
+// 编辑会话换源不丢 CRS。
 #include <QtTest>
 #include <QDir>
 #include <QSignalSpy>
@@ -215,13 +217,14 @@ private slots:
     ConstraintStore *store = s->wf->constraintStore();
     QVERIFY( store );
 
-    // 原始 OGR 打开：库层无 SRS（实测记录，不依赖它做判断）。
+    // 原始 OGR 打开：库层带库约定 SRS（P0-2：外部工具可独立辨识坐标含义）。
     QgsVectorLayer raw( store->gpkgPath() + QStringLiteral( "|layername=constraints" ), QStringLiteral( "raw" ),
                         QStringLiteral( "ogr" ) );
     QVERIFY( raw.isValid() );
-    qInfo() << "raw store layer crs valid:" << raw.crs().isValid()
-            << "wkbType:" << QgsWkbTypes::displayString( raw.wkbType() )
-            << "geometryType:" << static_cast<int>( raw.geometryType() );
+    QVERIFY2( raw.crs().isValid(), "store layer must carry its CRS in the GPKG itself" );
+    QCOMPARE( raw.geometryType(), Qgis::GeometryType::Line ); // OGR 按首要素定类型
+    // 外部读出的 CRS 与库约定 CRS 同一（QGIS 等价）。
+    QCOMPARE( raw.crs(), paleo::constraintcrs::storeCrs() );
 
     QString err;
     auto *layer = qobject_cast<QgsVectorLayer *>( s->layerSvc->instantiate( QStringLiteral( "constraints.T1" ), &err ) );

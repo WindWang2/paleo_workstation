@@ -4,6 +4,8 @@
 #include "io/constraintstore.h"
 
 #include <gdal.h>
+#include <ogr_api.h>
+#include <ogr_spatialref.h>
 
 #include <QDir>
 #include <QFile>
@@ -17,6 +19,9 @@ class SingleFactorStoreTests : public QObject
     void extendedParametersReopen();
     void readOnlyEnqueueCreatesNothing();
     void missingFileIsNotCreated();
+    void newStoreCarriesCrsMetadata();
+    void legacyStoreDetectionAndExplicitMigration();
+    void migrationRefusesForeignSrs();
 };
 
 void SingleFactorStoreTests::extendedParametersReopen()
@@ -90,6 +95,166 @@ void SingleFactorStoreTests::missingFileIsNotCreated()
   QVERIFY( !store.updateParameters( QStringLiteral( "a" ), QStringLiteral( "{}" ), 1, QString(), &err ) );
   QVERIFY( !QFile::exists( path ) );
   QVERIFY( err.contains( QStringLiteral( "does not exist" ) ) );
+}
+
+namespace {
+// 手工搭一个「历史」无 SRS 约束库（P0-2 fixture：constraints 层 + 行、无 SRS）。
+bool createLegacyNoSrsStore( const QString &path, QString *error )
+{
+  GDALDriverH driver = GDALGetDriverByName( "GPKG" );
+  if ( !driver )
+  {
+    *error = QStringLiteral( "GPKG driver missing" );
+    return false;
+  }
+  GDALDatasetH ds = GDALCreate( driver, path.toUtf8().constData(), 0, 0, 0, GDT_Unknown, nullptr );
+  if ( !ds )
+  {
+    *error = QStringLiteral( "cannot create legacy gpkg" );
+    return false;
+  }
+  OGRLayerH layer = GDALDatasetCreateLayer( ds, "constraints", nullptr, wkbUnknown, nullptr );
+  if ( layer )
+  {
+    for ( const char *name : { "id", "horizon", "type" } )
+    {
+      OGRFieldDefnH field = OGR_Fld_Create( name, OFTString );
+      OGR_L_CreateField( layer, field, TRUE );
+      OGR_Fld_Destroy( field );
+    }
+    OGRFeatureDefnH defn = OGR_L_GetLayerDefn( layer );
+    OGRFeatureH feature = OGR_F_Create( defn );
+    OGR_F_SetFieldString( feature, OGR_F_GetFieldIndex( feature, "id" ), "legacy-1" );
+    OGR_F_SetFieldString( feature, OGR_F_GetFieldIndex( feature, "horizon" ), "H1" );
+    OGR_F_SetFieldString( feature, OGR_F_GetFieldIndex( feature, "type" ), "break_line" );
+    const char *wkt = "LINESTRING(3 4, 5 6)";
+    OGRGeometryH geom = nullptr;
+    char *text = const_cast<char *>( wkt );
+    if ( OGR_G_CreateFromWkt( &text, nullptr, &geom ) == OGRERR_NONE && geom )
+      OGR_F_SetGeometry( feature, geom );
+    if ( geom )
+      OGR_G_DestroyGeometry( geom );
+    OGR_L_CreateFeature( layer, feature );
+    OGR_F_Destroy( feature );
+  }
+  GDALClose( ds );
+  return layer != nullptr;
+}
+} // namespace
+
+// P0-2：新建库自带可独立识别的 CRS 元数据；外部 OGR 也能读出同一 SRS。
+void SingleFactorStoreTests::newStoreCarriesCrsMetadata()
+{
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  const QString path = dir.filePath( QStringLiteral( "fresh.gpkg" ) );
+  ConstraintStore store( path );
+  QString err;
+  QVERIFY2( store.append( QStringLiteral( "D61" ), QStringLiteral( "a" ),
+                          QStringLiteral( "LINESTRING(0 0, 1 0)" ), QStringLiteral( "break_line" ), 0, &err ),
+            qPrintable( err ) );
+  const ConstraintStore::CrsStorageStatus status = store.inspectCrsStorage();
+  QVERIFY( status.fileExists );
+  QVERIFY( status.layerExists );
+  QVERIFY2( status.hasSrs, "new stores must register their CRS in gpkg_spatial_ref_sys" );
+  QVERIFY( status.isStoreCrs );
+  QVERIFY( !status.legacyNoCrs );
+
+  // 外部 OGR 独立打开：图层 SRS 可读且与库约定一致。
+  GDALDatasetH ds = GDALOpenEx( path.toUtf8().constData(), GDAL_OF_READONLY | GDAL_OF_VECTOR, nullptr, nullptr,
+                                nullptr );
+  QVERIFY( ds );
+  OGRLayerH layer = GDALDatasetGetLayerByName( ds, "constraints" );
+  QVERIFY( layer );
+  QVERIFY( OGR_L_GetSpatialRef( layer ) != nullptr );
+  GDALClose( ds );
+}
+
+// P0-2：无 SRS 历史库可读、状态如实（legacyNoCrs）；显式迁移补登 CRS，
+// 备份生成、fid/身份/层位/几何逐字不变；再迁移幂等。
+void SingleFactorStoreTests::legacyStoreDetectionAndExplicitMigration()
+{
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  const QString path = dir.filePath( QStringLiteral( "legacy.gpkg" ) );
+  QString err;
+  QVERIFY2( createLegacyNoSrsStore( path, &err ), qPrintable( err ) );
+
+  ConstraintStore store( path );
+  // 旧库照常可读（load 不因缺 SRS 变化）。
+  const QVector<QVariantMap> before = store.load();
+  QCOMPARE( before.size(), 1 );
+  QCOMPARE( before.first().value( QStringLiteral( "id" ) ).toString(), QStringLiteral( "legacy-1" ) );
+
+  const ConstraintStore::CrsStorageStatus legacy = store.inspectCrsStorage();
+  QVERIFY( legacy.fileExists );
+  QVERIFY( legacy.layerExists );
+  QVERIFY( !legacy.hasSrs );
+  QVERIFY( legacy.legacyNoCrs );
+  QVERIFY( !legacy.isStoreCrs );
+
+  QString backup;
+  QVERIFY2( store.migrateLegacyCrs( &err, &backup ), qPrintable( err ) );
+  QVERIFY( !backup.isEmpty() );
+  QVERIFY( QFile::exists( backup ) );
+
+  const ConstraintStore::CrsStorageStatus migrated = store.inspectCrsStorage();
+  QVERIFY( migrated.hasSrs );
+  QVERIFY( migrated.isStoreCrs );
+  QVERIFY( !migrated.legacyNoCrs );
+
+  // 迁移后行内容逐字不变（fid/身份/层位/几何）。
+  const QVector<QVariantMap> after = store.load();
+  QCOMPARE( after.size(), before.size() );
+  QCOMPARE( after.first().value( QStringLiteral( "fid" ) ).toLongLong(),
+            before.first().value( QStringLiteral( "fid" ) ).toLongLong() );
+  QCOMPARE( after.first().value( QStringLiteral( "id" ) ).toString(),
+            before.first().value( QStringLiteral( "id" ) ).toString() );
+  QCOMPARE( after.first().value( QStringLiteral( "horizon" ) ).toString(),
+            before.first().value( QStringLiteral( "horizon" ) ).toString() );
+  QCOMPARE( after.first().value( QStringLiteral( "wkt" ) ).toString(),
+            before.first().value( QStringLiteral( "wkt" ) ).toString() );
+
+  // 备份本身保持迁移前状态（无 SRS）。
+  ConstraintStore backupStore( backup );
+  const ConstraintStore::CrsStorageStatus backupStatus = backupStore.inspectCrsStorage();
+  QVERIFY( !backupStatus.hasSrs );
+
+  // 幂等：已是目标状态再迁移成功且不产生第二个备份（backupPathOut 保持未写）。
+  const int backupsBefore = QDir( dir.path() ).entryList( { QStringLiteral( "*.crs-backup-*.bak" ) } ).size();
+  QString secondBackup;
+  QVERIFY2( store.migrateLegacyCrs( &err, &secondBackup ), qPrintable( err ) );
+  const int backupsAfter = QDir( dir.path() ).entryList( { QStringLiteral( "*.crs-backup-*.bak" ) } ).size();
+  QCOMPARE( backupsAfter, backupsBefore );
+}
+
+// P0-2：文件已登记外来 SRS 时迁移拒绝覆盖（不重新解释历史坐标）。
+void SingleFactorStoreTests::migrationRefusesForeignSrs()
+{
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  const QString path = dir.filePath( QStringLiteral( "foreign.gpkg" ) );
+  GDALDriverH driver = GDALGetDriverByName( "GPKG" );
+  QVERIFY( driver );
+  GDALDatasetH ds = GDALCreate( driver, path.toUtf8().constData(), 0, 0, 0, GDT_Unknown, nullptr );
+  QVERIFY( ds );
+  OGRSpatialReferenceH srs = OSRNewSpatialReference( nullptr );
+  QVERIFY( srs );
+  QVERIFY( OSRImportFromEPSG( srs, 4326 ) == OGRERR_NONE );
+  OGRLayerH layer = GDALDatasetCreateLayer( ds, "constraints", srs, wkbUnknown, nullptr );
+  QVERIFY( layer );
+  OSRDestroySpatialReference( srs );
+  GDALClose( ds );
+
+  ConstraintStore store( path );
+  const ConstraintStore::CrsStorageStatus status = store.inspectCrsStorage();
+  QVERIFY( status.hasSrs );
+  QVERIFY( !status.isStoreCrs );
+  QString err;
+  QVERIFY( !store.migrateLegacyCrs( &err, nullptr ) );
+  QVERIFY( !err.isEmpty() );
+  // 拒绝后文件原样（仍是外来 SRS）。
+  QCOMPARE( store.inspectCrsStorage().isStoreCrs, false );
 }
 
 QTEST_MAIN( SingleFactorStoreTests )

@@ -1,9 +1,11 @@
 // 层：数据
 #include "constraintstore.h"
 #include "gdalreg_internal.h"
+#include "catalog/datacatalog.h"
 #include <gdal.h>
 #include <ogr_api.h>
 #include <ogr_geometry.h>
+#include <ogr_spatialref.h>
 #include <cpl_error.h>
 #include <QCryptographicHash>
 #include <QDateTime>
@@ -242,6 +244,25 @@ bool assignGeometry(OGRFeatureH feature, const QString &wkt, QString *error) {
   }
   return true;
 }
+// P0-2：库约定 CRS（本地工程网格 WKT）→ OGR SRS 句柄；解析失败返回 null。
+OGRSpatialReferenceH newStoreSrs() {
+  const QByteArray wkt = DataCatalog::localGridCrsWkt().toUtf8();
+  char *text = const_cast<char *>(wkt.constData());
+  OGRSpatialReferenceH srs = OSRNewSpatialReference(nullptr);
+  if (srs && OSRImportFromWkt(srs, &text) != OGRERR_NONE) {
+    OSRDestroySpatialReference(srs);
+    return nullptr;
+  }
+  return srs;
+}
+// 建层即带库约定 CRS：外部 QGIS/GDAL 打开即可独立辨识坐标含义。几何类型维持
+// wkbUnknown（GPKG GEOMETRY：混合点线面按伴随视图方案，不改 schema）。
+OGRLayerH createConstraintsLayer(GDALDatasetH ds) {
+  OGRSpatialReferenceH srs = newStoreSrs();
+  OGRLayerH layer = GDALDatasetCreateLayer(ds, "constraints", srs, wkbUnknown, nullptr);
+  if (srs) OSRDestroySpatialReference(srs);
+  return layer;
+}
 bool contextValid(const ConstraintStore::AuditContext &context, QString *error) {
   if ((!context.actorId.isEmpty() && (!context.actorId.startsWith("local:") || context.actorId.mid(6).trimmed().isEmpty())) ||
       (!context.action.isEmpty() && !QStringList{"edit", "undo", "redo", "cancel", "restore"}.contains(context.action))) {
@@ -295,7 +316,7 @@ bool ConstraintStore::ensureSchema(QString *error) {
     QString reason;
     Transaction transaction; if (!transaction.open(m_gpkgPath, true, &reason)) return {false, reason};
     auto layer = GDALDatasetGetLayerByName(transaction.ds, "constraints");
-    if (!layer) layer = GDALDatasetCreateLayer(transaction.ds, "constraints", nullptr, wkbUnknown, nullptr);
+    if (!layer) layer = createConstraintsLayer(transaction.ds);
     if (!layer) return {false, QObject::tr("无法建立约束图层")};
     for (const auto name : {"id", "horizon", "type", "params_json"})
       if (!ensureField(layer, name, OFTString)) return {false, QObject::tr("无法建立约束字段")};
@@ -317,7 +338,7 @@ bool ConstraintStore::appendInternal(const QString &horizon, const QString &id, 
       return {false, QObject::tr("约束身份、层位、语义或权重无效")};
     Transaction transaction; if (!transaction.open(m_gpkgPath, true, &reason)) return {false, reason};
     auto layer = GDALDatasetGetLayerByName(transaction.ds, "constraints");
-    if (!layer) layer = GDALDatasetCreateLayer(transaction.ds, "constraints", nullptr, wkbUnknown, nullptr);
+    if (!layer) layer = createConstraintsLayer(transaction.ds);
     if (!layer) return {false, QObject::tr("无法建立约束图层")};
     for (const auto name : {"id", "horizon", "type", "params_json"})
       if (!ensureField(layer, name, OFTString)) return {false, QObject::tr("无法建立约束字段")};
@@ -579,6 +600,206 @@ bool ConstraintStore::remove(const QString &id, QString *error) {
   };
   const auto result = m_enqueue ? m_enqueue(write) : write(); if (!result.ok && error) *error = result.error; return result.ok;
 }
+
+ConstraintStore::CrsStorageStatus ConstraintStore::inspectCrsStorage() const {
+  ensureGdalRegistered();
+  CrsStorageStatus status;
+  status.fileExists = QFile::exists(m_gpkgPath);
+  if (!status.fileExists) return status;
+  std::unique_ptr<void, decltype(&GDALClose)> ds(
+      GDALOpenEx(m_gpkgPath.toUtf8().constData(), GDAL_OF_READONLY | GDAL_OF_VECTOR, nullptr, nullptr, nullptr),
+      GDALClose);
+  if (!ds) return status;
+  OGRLayerH layer = GDALDatasetGetLayerByName(ds.get(), "constraints");
+  status.layerExists = layer != nullptr;
+  if (!layer) return status;
+  if (OGRSpatialReferenceH srs = OGR_L_GetSpatialRef(layer)) {
+    char *wkt = nullptr;
+    if (OSRExportToWkt(srs, &wkt) == OGRERR_NONE && wkt) {
+      status.hasSrs = true;
+      status.srsWkt = QString::fromUtf8(wkt);
+    }
+    CPLFree(wkt);
+    if (status.hasSrs) {
+      status.isStoreCrs = status.srsWkt == DataCatalog::localGridCrsWkt();
+      if (!status.isStoreCrs) {
+        OGRSpatialReferenceH store = newStoreSrs();
+        status.isStoreCrs = store && OSRIsSame(srs, store) != 0;
+        if (store) OSRDestroySpatialReference(store);
+      }
+    }
+  }
+  status.legacyNoCrs = !status.hasSrs;
+  return status;
+}
+
+bool ConstraintStore::migrateLegacyCrs(QString *error, QString *backupPathOut) {
+  if (m_readOnly) { if (error) *error = QObject::tr("已发布约束快照只读"); return false; }
+  const auto fail = [error](const QString &message) {
+    if (error) *error = message;
+    return false;
+  };
+  if (!QFile::exists(m_gpkgPath)) return fail(QObject::tr("约束库文件不存在，无 CRS 可迁移"));
+  const CrsStorageStatus before = inspectCrsStorage();
+  if (!before.layerExists) return fail(QObject::tr("约束库缺少 constraints 表，无 CRS 可迁移"));
+  if (before.hasSrs) {
+    if (!before.isStoreCrs)
+      return fail(QObject::tr("约束库已登记其他 CRS 定义，拒绝覆盖：%1").arg(before.srsWkt));
+    return true; // 已是目标状态：幂等成功，不产生新备份、不改文件。
+  }
+  // 迁移前快照：fid/身份/层位/几何逐一记下，提交后逐一校验未动。
+  struct Row { qlonglong fid; QString id, horizon, wkt; };
+  QVector<Row> pre;
+  {
+    std::unique_ptr<void, decltype(&GDALClose)> ds(
+        GDALOpenEx(m_gpkgPath.toUtf8().constData(), GDAL_OF_READONLY | GDAL_OF_VECTOR, nullptr, nullptr, nullptr),
+        GDALClose);
+    if (!ds) return fail(QObject::tr("迁移前校验读取失败：%1").arg(QString::fromUtf8(CPLGetLastErrorMsg())));
+    OGRLayerH layer = GDALDatasetGetLayerByName(ds.get(), "constraints");
+    OGR_L_ResetReading(layer);
+    while (OGRFeatureH raw = OGR_L_GetNextFeature(layer)) {
+      Feature feature(raw, OGR_F_Destroy);
+      OGRWktOptions options(17, false);
+      options.format = OGRWktFormat::G;
+      const char *idStr = OGR_F_GetFieldAsString(feature.get(), OGR_F_GetFieldIndex(feature.get(), "id"));
+      const char *hStr = OGR_F_GetFieldAsString(feature.get(), OGR_F_GetFieldIndex(feature.get(), "horizon"));
+      OGRGeometryH geom = OGR_F_GetGeometryRef(feature.get());
+      pre << Row{OGR_F_GetFID(feature.get()), QString::fromUtf8(idStr ? idStr : ""),
+                 QString::fromUtf8(hStr ? hStr : ""),
+                 geom ? QString::fromStdString(OGRGeometry::FromHandle(geom)->exportToWkt(options)) : QString()};
+    }
+  }
+  // 字节级备份（原文件保持可用的最后保障；校验失败时用它原样还原）。
+  const QString backup = m_gpkgPath + QStringLiteral(".crs-backup-") +
+                         QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-HHmmss-zzz")) +
+                         QStringLiteral(".bak");
+  if (QFile::exists(backup) && !QFile::remove(backup))
+    return fail(QObject::tr("迁移备份文件已存在且无法替换：%1").arg(backup));
+  if (!QFile::copy(m_gpkgPath, backup))
+    return fail(QObject::tr("无法创建迁移备份：%1").arg(backup));
+  const auto restoreBackup = [&]() {
+    QFile::remove(m_gpkgPath);
+    QFile::copy(backup, m_gpkgPath);
+  };
+  {
+    Transaction transaction;
+    QString reason;
+    if (!transaction.open(m_gpkgPath, false, &reason)) return fail(reason);
+    const QByteArray wkt = DataCatalog::localGridCrsWkt().toUtf8();
+    // 复用同定义条目（幂等重放不堆积 SRS 行）；否则分配 max(srs_id)+1。
+    QString existing;
+    {
+      CPLErrorReset();
+      auto rows = GDALDatasetExecuteSQL(transaction.ds,
+          QStringLiteral("SELECT srs_id FROM gpkg_spatial_ref_sys WHERE definition=%1")
+              .arg(quoteSql(QString::fromUtf8(wkt)))
+              .toUtf8()
+              .constData(),
+          nullptr, "SQLITE");
+      if (!rows) return fail(QObject::tr("迁移无法读取 gpkg_spatial_ref_sys：%1").arg(QString::fromUtf8(CPLGetLastErrorMsg())));
+      if (OGRFeatureH raw = OGR_L_GetNextFeature(rows)) {
+        Feature f(raw, OGR_F_Destroy);
+        existing = QString::number(OGR_F_GetFieldAsInteger64(f.get(), 0));
+      }
+      GDALDatasetReleaseResultSet(transaction.ds, rows);
+    }
+    QString srsId = existing;
+    if (srsId.isEmpty()) {
+      qlonglong next = 100000; // GPKG 保留 -1/0/4326 等；自定义条目从 100000 起避开
+      CPLErrorReset();
+      auto rows = GDALDatasetExecuteSQL(transaction.ds,
+          "SELECT MAX(srs_id) FROM gpkg_spatial_ref_sys", nullptr, "SQLITE");
+      if (rows) {
+        if (OGRFeatureH raw = OGR_L_GetNextFeature(rows)) {
+          Feature f(raw, OGR_F_Destroy);
+          if (OGR_F_IsFieldSetAndNotNull(f.get(), 0))
+            next = std::max<qlonglong>(next, OGR_F_GetFieldAsInteger64(f.get(), 0) + 1);
+        }
+        GDALDatasetReleaseResultSet(transaction.ds, rows);
+      }
+      srsId = QString::number(next);
+      if (!sql(transaction.ds, QStringLiteral(
+                   "INSERT INTO gpkg_spatial_ref_sys (srs_id, srs_name, organization, organization_coordsys_id, "
+                   "definition, description) VALUES (%1, 'Paleo local engineering grid', 'NONE', %1, %2, "
+                   "'paleo workstation constraint store CRS (explicit crs migration)')")
+                   .arg(srsId, quoteSql(QString::fromUtf8(wkt)))
+                   .toUtf8()))
+        return fail(QObject::tr("迁移写入 SRS 定义失败：%1").arg(QString::fromUtf8(CPLGetLastErrorMsg())));
+    }
+    if (!sql(transaction.ds, QStringLiteral("UPDATE gpkg_geometry_columns SET srs_id=%1 WHERE table_name='constraints'")
+                 .arg(srsId)
+                 .toUtf8()) ||
+        !sql(transaction.ds, QStringLiteral("UPDATE gpkg_contents SET srs_id=%1 WHERE table_name='constraints'")
+                 .arg(srsId)
+                 .toUtf8()))
+      return fail(QObject::tr("迁移登记 SRS 引用失败：%1").arg(QString::fromUtf8(CPLGetLastErrorMsg())));
+    // 可审计记录：迁移前后状态与备份位置进约束审计表（同事务）。
+    if (ensureAuditTable(transaction.ds)) {
+      const QVariantMap event{{"event_id", freshId()}, {"target_object_id", QString()},
+          {"target_object_type", "constraint_store"}, {"horizon", QString()},
+          {"operation_id", freshId()}, {"actor_id", localActor()}, {"identity_kind", "local_operator"},
+          {"reason", QObject::tr("显式 CRS 迁移：无 SRS 历史库补登本地工程网格")},
+          {"timestamp", QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)},
+          {"action", "crs_migration"}, {"change", "update"}, {"before_revision", 0}, {"after_revision", 0},
+          {"backup", backup}, {"before", QVariantMap{{"has_srs", false}}},
+          {"after", QVariantMap{{"has_srs", true}, {"srs_wkt", QString::fromUtf8(wkt)}}}};
+      auto audit = GDALDatasetGetLayerByName(transaction.ds, "constraint_audit");
+      Feature feature(OGR_F_Create(OGR_L_GetLayerDefn(audit)), OGR_F_Destroy);
+      const auto write = [&](const char *name, const QString &value) {
+        OGR_F_SetFieldString(feature.get(), OGR_F_GetFieldIndex(feature.get(), name), value.toUtf8().constData());
+      };
+      write("event_id", event.value("event_id").toString());
+      write("constraint_id", QString()); write("horizon", QString());
+      write("operation_id", event.value("operation_id").toString());
+      write("actor_id", event.value("actor_id").toString()); write("action", QStringLiteral("crs_migration"));
+      write("timestamp", event.value("timestamp").toString());
+      write("event_json", QString::fromUtf8(QJsonDocument::fromVariant(event).toJson(QJsonDocument::Compact)));
+      OGR_L_CreateFeature(audit, feature.get());
+    }
+    if (!transaction.commit(&reason)) return fail(reason);
+  }
+  // 提交后重开校验：SRS 生效 + 每行 fid/身份/层位/几何逐一相等。
+  {
+    const CrsStorageStatus after = inspectCrsStorage();
+    if (!after.hasSrs || !after.isStoreCrs) {
+      restoreBackup();
+      return fail(QObject::tr("迁移后校验失败（SRS 未生效），已从备份还原原文件"));
+    }
+    std::unique_ptr<void, decltype(&GDALClose)> ds(
+        GDALOpenEx(m_gpkgPath.toUtf8().constData(), GDAL_OF_READONLY | GDAL_OF_VECTOR, nullptr, nullptr, nullptr),
+        GDALClose);
+    int index = 0;
+    bool intact = ds != nullptr;
+    if (intact) {
+      OGRLayerH layer = GDALDatasetGetLayerByName(ds.get(), "constraints");
+      OGR_L_ResetReading(layer);
+      OGRWktOptions options(17, false);
+      options.format = OGRWktFormat::G;
+      while (OGRFeatureH raw = OGR_L_GetNextFeature(layer)) {
+        Feature feature(raw, OGR_F_Destroy);
+        if (index >= pre.size()) { intact = false; break; }
+        const Row &expect = pre.at(index++);
+        const char *idStr = OGR_F_GetFieldAsString(feature.get(), OGR_F_GetFieldIndex(feature.get(), "id"));
+        const char *hStr = OGR_F_GetFieldAsString(feature.get(), OGR_F_GetFieldIndex(feature.get(), "horizon"));
+        OGRGeometryH geom = OGR_F_GetGeometryRef(feature.get());
+        const QString wkt = geom ? QString::fromStdString(OGRGeometry::FromHandle(geom)->exportToWkt(options)) : QString();
+        if (OGR_F_GetFID(feature.get()) != expect.fid ||
+            QString::fromUtf8(idStr ? idStr : "") != expect.id ||
+            QString::fromUtf8(hStr ? hStr : "") != expect.horizon || wkt != expect.wkt) {
+          intact = false;
+          break;
+        }
+      }
+    }
+    if (!intact || index != pre.size()) {
+      restoreBackup();
+      return fail(QObject::tr("迁移后校验失败（要素身份或几何变动），已从备份还原原文件"));
+    }
+  }
+  if (backupPathOut) *backupPathOut = backup;
+  return true;
+}
+
 bool ConstraintStore::replaceHorizon(const QString &horizon, const QVector<QVariantMap> &rows, QString *error) {
   if (m_readOnly) { if (error) *error = QObject::tr("已发布约束快照只读"); return false; }
   const WriteFn write = [&]() -> PaleoProjectStore::WriteResult {

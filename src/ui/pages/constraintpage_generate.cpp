@@ -432,9 +432,10 @@ void ConstraintPage::buildFactorResultsSection(QWidget *content, QVBoxLayout *la
                           content);
   hint->setWordWrap(true);
   lay->addWidget(hint);
-  auto *results = new QTableWidget(0, 3, content);
+  auto *results = new QTableWidget(0, 4, content);
   results->setObjectName(QStringLiteral("factorResultsTable"));
-  results->setHorizontalHeaderLabels({tr("成果"), tr("版本"), tr("保存状态")});
+  // P3 任务G：第 4 列来源与质控（方法/约束实际参与/交叉验证/被忽略输入），悬停看逐条。
+  results->setHorizontalHeaderLabels({tr("成果"), tr("版本"), tr("保存状态"), tr("来源与质控")});
   results->verticalHeader()->hide();
   results->horizontalHeader()->setStretchLastSection(true);
   results->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -504,6 +505,10 @@ void ConstraintPage::refreshFactorResults() {
     table->setItem(r, 0, item);
     table->setItem(r, 1, new QTableWidgetItem(tr("v%1").arg(row.value("version").toInt())));
     table->setItem(r, 2, new QTableWidgetItem(available ? tr("已保存") : tr("文件缺失")));
+    const auto lineage = row.value("lineage").toMap();
+    auto *lineageItem = new QTableWidgetItem(lineage.value("summary").toString());
+    lineageItem->setToolTip(lineage.value("details").toString());
+    table->setItem(r, 3, lineageItem);
     if (row.value("version_id").toString() == version)
       table->selectRow(r);
   }

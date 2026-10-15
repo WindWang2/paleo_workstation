@@ -187,6 +187,27 @@ inline void insertConstraintReceiptExtras( const QVariantMap &results, QVariantM
   extra.insert( QStringLiteral( "constraints_unused" ), unused );
 }
 
+// P3 任务G：QC 里的 constraint_receipts（结构面等以 QC 旁路文件回执的引擎）
+// → 血缘 constraints_consumed / constraints_unused，与上面同口径。无该键不写。
+inline void insertQcConstraintReceiptExtras( const QVariantMap &qc, QVariantMap &extra )
+{
+  if ( !qc.contains( QStringLiteral( "constraint_receipts" ) ) )
+    return;
+  QVariantList consumed, unused;
+  for ( const QVariant &value : qc.value( QStringLiteral( "constraint_receipts" ) ).toList() )
+  {
+    const QVariantMap item = value.toMap();
+    if ( item.value( QStringLiteral( "consumed" ) ).toBool() )
+      consumed << QVariantMap{ { QStringLiteral( "id" ), item.value( QStringLiteral( "id" ) ) },
+                               { QStringLiteral( "role" ), item.value( QStringLiteral( "role" ) ) } };
+    else
+      unused << QVariantMap{ { QStringLiteral( "id" ), item.value( QStringLiteral( "id" ) ) },
+                             { QStringLiteral( "reason" ), item.value( QStringLiteral( "reason" ) ) } };
+  }
+  extra.insert( QStringLiteral( "constraints_consumed" ), consumed );
+  extra.insert( QStringLiteral( "constraints_unused" ), unused );
+}
+
 // P2 任务D：引擎逐点取样回执（SAMPLE_RECEIPTS）→ 血缘 engine_samples_used /
 // engine_samples_skipped。与 supporting_wells/skipped_wells（证据记录按取数步骤
 // 的井表填写，含提取阶段就被拒的井）分开：引擎只看得到进入它的那份快照，

@@ -228,6 +228,8 @@ class ConstraintWorkflow : public QObject
                                       const QVariantMap &params) const;
     void restoreWellFactors(const QString &horizon, const QString &factorId,
                             const QVariantMap &params);
+    // P3 任务G：成果版本来源/质控摘要 {summary, details}（只读血缘 extra）。
+    static QVariantMap factorResultLineage(const QVariantMap &extra);
     QVariantList savedFactorResults(const QString &horizon, const QString &factorId) const;
     QVariantList wellFactorRows() const { return m_wellFactorRows; }
     QString wellFactorMessage() const { return m_wellFactorMessage; }

@@ -940,6 +940,9 @@ bool ConstraintWorkflow::generateStructuralFactor( const QString &horizon, const
                      qc.value(QStringLiteral("barrier_buffer_distance")));
         extra.insert(QStringLiteral("contour_stop_buffer_distance"),
                      qc.value(QStringLiteral("contour_stop_buffer_distance")));
+        // P3 任务G：结构面引擎回执（QC constraint_receipts）进血缘——此前只记
+        // constrained（是否传了约束层），看不到哪条约束实际参与。
+        paleo::constraint_detail::insertQcConstraintReceiptExtras(qc, extra);
         inheritMockFlag(PaleoWorkflowDerivedCatalog(this), parentIds, extra);
         insertStrategyId(
             params, extra); // 方向67：策略包 id 进血缘（structural_idw 词表项）

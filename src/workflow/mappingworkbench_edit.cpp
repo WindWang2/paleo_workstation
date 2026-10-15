@@ -3,6 +3,7 @@
 // 从 mappingworkbench.cpp 析出——行为守恒平移（goal/core-deepening A-R2）：
 // 函数体逐字未动，仅按子域归位到独立 TU。
 #include "mappingworkbench.h"
+#include "workflows_internal.h"
 #include "../algorithms/faciesmapping/formationdominance.h"
 #include "../catalog/purgelease.h"
 #include "../domain/faciescatalog.h"
@@ -558,11 +559,8 @@ QString MappingWorkbench::snapshotConstraints(const QString &h,
   auto *store = m_constraints->constraintStore();
   if (!store || m_constraints->loadConstraints(h).isEmpty())
     return {};
-  QString escaped = h;
-  escaped.replace("'", "''");
-  QgsVectorLayer layer(store->gpkgPath() +
-                           "|layername=constraints|subset=horizon='" + escaped +
-                           "'",
+  QgsVectorLayer layer(store->gpkgPath() + "|layername=constraints" +
+                           paleo::workflow_detail::constraintHorizonSubsetSuffix(h),
                        "constraints", "ogr");
   layer.setCrs(
       QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()));

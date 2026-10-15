@@ -266,7 +266,7 @@ void syncConstraintGeometryViews( QgisLayerService *layers, ConstraintStore *sto
   if ( !layers || !store || horizon.isEmpty() )
     return;
   const QString base = QStringLiteral( "%1|layername=constraints" ).arg( store->gpkgPath() );
-  const QString subset = QStringLiteral( "|subset=horizon='%1'" ).arg( horizon );
+  const QString subset = paleo::workflow_detail::constraintHorizonSubsetSuffix( horizon );
   QSet<Qgis::GeometryType> present;
   for ( const QVariantMap &row : store->load( horizon ) )
   {
@@ -378,7 +378,8 @@ bool ConstraintWorkflow::ensureConstraintSession( const QString &horizon, QStrin
     decl.layerId = layerId;
     decl.horizon = horizon;
     decl.type = QStringLiteral( "vector" );
-    decl.source = QStringLiteral( "%1|layername=constraints|subset=horizon='%2'" ).arg( cs->gpkgPath(), horizon );
+    decl.source = QStringLiteral( "%1|layername=constraints" ).arg( cs->gpkgPath() ) +
+                  paleo::workflow_detail::constraintHorizonSubsetSuffix( horizon );
     decl.group = PaleoLayerVocabulary::kConstraintsGroup;
     if ( !layers->declare( decl, error ) )
       return false;
@@ -566,8 +567,8 @@ bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &w
     decl.layerId = QStringLiteral( "constraints.%1" ).arg( horizon );
     decl.horizon = horizon;
     decl.type = QStringLiteral( "vector" );
-    decl.source = QStringLiteral( "%1|layername=constraints|subset=horizon='%2'" )
-                      .arg( cs->gpkgPath(), horizon );
+    decl.source = QStringLiteral( "%1|layername=constraints" ).arg( cs->gpkgPath() ) +
+                  paleo::workflow_detail::constraintHorizonSubsetSuffix( horizon );
     decl.group = PaleoLayerVocabulary::kConstraintsGroup;
     if ( !layers->declare( decl, error ) )
     {
@@ -931,8 +932,8 @@ QVector<QVariantMap> ConstraintWorkflow::loadConstraints( const QString &horizon
       decl.layerId = QStringLiteral( "constraints.%1" ).arg( horizon );
       decl.horizon = horizon;
       decl.type = QStringLiteral( "vector" );
-      decl.source = QStringLiteral( "%1|layername=constraints|subset=horizon='%2'" )
-                        .arg( cs->gpkgPath(), horizon );
+      decl.source = QStringLiteral( "%1|layername=constraints" ).arg( cs->gpkgPath() ) +
+                    paleo::workflow_detail::constraintHorizonSubsetSuffix( horizon );
       decl.group = PaleoLayerVocabulary::kConstraintsGroup;
       layers->declare( decl );
       syncConstraintGeometryViews( layers, cs, horizon );
@@ -955,8 +956,8 @@ QVector<QVariantMap> ConstraintWorkflow::loadConstraints( const QString &horizon
         decl.layerId = QStringLiteral( "constraints.%1" ).arg( h );
         decl.horizon = h;
         decl.type = QStringLiteral( "vector" );
-        decl.source = QStringLiteral( "%1|layername=constraints|subset=horizon='%2'" )
-                          .arg( cs->gpkgPath(), h );
+        decl.source = QStringLiteral( "%1|layername=constraints" ).arg( cs->gpkgPath() ) +
+                      paleo::workflow_detail::constraintHorizonSubsetSuffix( h );
         decl.group = PaleoLayerVocabulary::kConstraintsGroup;
         layers->declare( decl );
         syncConstraintGeometryViews( layers, cs, h );

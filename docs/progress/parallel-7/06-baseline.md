@@ -152,14 +152,14 @@ flock -x $L ctest --test-dir build -R '^tst_shell_chrome$' --output-on-failure
 - 现有行为 2：六页来回切三轮，dock 策略每轮一致（`repeatedPageCyclingKeepsDockPolicy`，非回归）。
 - 现有行为 3：撤销/重做、保存/放弃编辑的禁用提示都是具体原因（「没有可撤销的编辑」「当前没有进行中的编辑会话」）。
 - 反例：约束页 `constraintDeleteButton` 灰着无原因（页面归属，只记录）。
-- `ToolAvailabilityService` 生产代码零调用（`m_tools` 只存不用）；把它绑到哪些既有 QAction 属业务 owner 决策，**本分支未实现**。
+- `ToolAvailabilityService` 生产代码原零调用。第 3 阶段已接入（`9e30e17a`）：全局工程门 → 五个导入入口（ribbon 命令 + 数据页按钮），无工程置灰并在 tooltip 写明「先新建或打开工程」——依据 `dataimport_document.cpp:424`：无工程时导入必失败，此前要先弹文件对话框、选完才报错。逐层 `layerBusy` 绑定仍归各页 owner（预测/编图/验证已有更具体的门控，编辑动作走 `QgisEditingService`）。
 
 ### D 帮助
 - 现有行为 1：帮助目录 69 条，除 4 条不实外都落到真实控件。
 - 现有行为 2：页内按钮有帮助时，点的却是 ribbon 上的镜像按钮——101 个 ribbon 命令钮的 `whatsThis` 全是空（Shift+F1 点 ribbon 什么也不显示）。
 - 现有行为 3：撤销/重做是图层编辑的撤销，直挂 QAction，不经镜像；与数据列表的撤销（目录里「撤销上一步数据列表操作」）是两件事，按文案配对会配错。
-- 已修：镜像按钮跟随页内按钮的 `whatsThis`（13 个，含 6 个撤销/重做另写了编辑语义的帮助）。
-- **未修**：其余约 88 个 ribbon 命令钮没有目录条目。每条都要对照 handler 写出真实的用途，本阶段没有逐个核对，不为凑数硬写。
+- 已修：镜像按钮跟随页内按钮的 `whatsThis`/`accessibleDescription`（13 个，含 6 个撤销/重做另写编辑语义帮助）。
+- 第 3 阶段已补齐（`6d0f82db`）：98 个可见 ribbon 命令钮 100% 带 `whatsThis`（探针口径 14→81→98，唯一命令缺口 42→0）。文本全部复用作者已写的用途串——动作 tip、编辑条 `hint` 属性、页按钮目录条目——只有方向线/间隔线两条是新写的，语义取自 `paleoalgorithms.h:32-37`（break_line 硬屏障绕行、direction_line 各向异性轴）。回归钉：`everyVisibleRibbonCommandHasHelp`。
 
 ### E 术语
 - 6264 条界面字符串（`.ts` 源串）逐条对照 `tools/check_l10n.py` 的 `BANNED_TERMS` 全表（37 个禁用词）：0 命中；`单因素` 70 条、`单因子` 0 条；`check_l10n.py` 保持绿。

@@ -348,6 +348,65 @@ private slots:
     QVERIFY(!band->isVisible());
   }
 
+  // opt-02（V4）：剖面「保存 → 恢复」往返 E2E——恢复侧此前零覆盖（保存侧
+  // 只有 horizon 快照用例）：恢复回放折线（重新提取成功 + band 回到保存路
+  // 线）；体未加载时如实拒绝且不产生半还原态（dock 路线维持、无新提取）。
+  void sectionSaveRestoreRoundTrip()
+  {
+    QTemporaryDir dir;
+    QVERIFY(m_ctx->projectSvc()->createProject(dir.filePath(QStringLiteral("r.qgz"))));
+    const auto vol = loadVolume(makeVolume(dir, QStringLiteral("r.sgy")));
+    QVERIFY(vol);
+    auto *link = m_ctx->seismicLink();
+    link->setActiveVolume(vol); // 先体后测网（setActiveVolume 重建测网几何）
+    link->setGridGeometry(validGrid());
+    auto *d = dock();
+
+    m_ctx->selection()->setActiveHorizon(QStringLiteral("T9"));
+    QVERIFY(extractOnce(link, d));
+    QVERIFY(d->hasRoute());
+    QMetaObject::invokeMethod(setup(), "saveRequested",
+                              Q_ARG(QString, QStringLiteral("roundtrip")));
+    QApplication::processEvents();
+    QString id;
+    for (const auto &s : workbench()->savedSections())
+    {
+      const auto m = s.toMap();
+      if (m.value(QStringLiteral("name")).toString().startsWith(
+              QStringLiteral("roundtrip")))
+        id = m.value(QStringLiteral("id")).toString();
+    }
+    QVERIFY(!id.isEmpty());
+
+    // 打断现态：清除折线（band 清空、hasRoute 复归 false）。
+    QMetaObject::invokeMethod(setup(), "clearRequested");
+    QVERIFY(!d->hasRoute());
+
+    // 恢复：折线回放 → 提取成功 + band 重建为非空。
+    QSignalSpy done(d,
+                    &seismic::SeismicSectionDockWidget::sectionExtractionFinished);
+    QMetaObject::invokeMethod(setup(), "restoreRequested", Q_ARG(QString, id));
+    QTRY_VERIFY_WITH_TIMEOUT(done.count() >= 1 && done.last().at(0).toBool(),
+                             10000);
+    QVERIFY(d->hasRoute());
+    auto *band = sectionBand(m_ctx->canvasCtl()->canvas());
+    QVERIFY(band && !band->asGeometry().isEmpty());
+
+    // 体缺失分支：切走体 → 恢复如实拒绝（不开提取任务、不产生
+    // 「workbench 已还原但剖面缺失」的半还原态；路线/连线被切体清空是
+    // #158 既有设计语义，由 volumeSwitchClearsRouteAndBand 单独钉住）。
+    link->setActiveVolume(nullptr);
+    QVERIFY(!link->activeVolume());
+    QSignalSpy done2(d,
+                     &seismic::SeismicSectionDockWidget::sectionExtractionFinished);
+    QMetaObject::invokeMethod(setup(), "restoreRequested", Q_ARG(QString, id));
+    QApplication::processEvents();
+    QCOMPARE(done2.count(), 0);
+    QVERIFY(!d->hasRoute());
+    auto *bandAfterSwitch = sectionBand(m_ctx->canvasCtl()->canvas());
+    QVERIFY(bandAfterSwitch && bandAfterSwitch->asGeometry().isEmpty());
+  }
+
   // dock 显隐联动：收起 dock 连线隐藏；重新展开且有路线时恢复。
   void dockVisibilityTogglesBand()
   {

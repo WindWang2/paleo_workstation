@@ -1,4 +1,5 @@
-// 层：算法（地质统计留一交叉验证；P2 实现，P4 自 workflow 原样抽出）
+// 层：数据
+// 地质统计留一交叉验证（P2 实现，P4 自 workflow 原样抽出）
 #include "crossvalidation.h"
 
 #include <algorithm>

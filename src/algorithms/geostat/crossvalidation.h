@@ -1,4 +1,4 @@
-// 层：算法（地质统计留一交叉验证）
+// 层：数据
 #pragma once
 
 #include "kriging.h" // Sample

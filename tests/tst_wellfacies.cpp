@@ -689,6 +689,24 @@ private slots:
     QVERIFY(!plan.ready());
     QVERIFY(!plan.reason.isEmpty());
   }
+  void planFormationRunUngroupedWellUsesDefaultModel() {
+    // 井道只有段名、没有任何组标注时（全段工区的实际形态），无从判错配，
+    // 沿用服务清单第一顺位的默认模型——即便它绑了组。
+    auto segOnly = well();
+    segOnly.formationIntervals.clear();
+    FormationInterval seg;
+    seg.name = QStringLiteral("D62");
+    seg.unitType = QStringLiteral("段");
+    seg.topDepth = 1000;
+    seg.bottomDepth = 1016;
+    segOnly.formationIntervals = {seg};
+    auto plan = planWellFaciesFormationRun(segOnly, {model()}, QStringLiteral("D62"));
+    QVERIFY2(plan.ready(), qPrintable(plan.reason));
+    QCOMPARE(plan.runs.size(), 1);
+    QCOMPARE(plan.runs[0].model.id, QStringLiteral("model-1"));
+    // 但井上标了组且都不匹配时，仍拒绝——不拿错组模型预测。
+    QVERIFY(!planWellFaciesFormationRun(twoGroupWell(), {model()}, QStringLiteral("珠海组")).ready());
+  }
   void mergeResultsKeepsDepthOrder() {
     const auto make = [](const QString &group, double top, const QString &label) {
       WellFaciesResult r;

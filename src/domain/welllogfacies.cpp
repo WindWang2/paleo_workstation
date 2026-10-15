@@ -437,7 +437,9 @@ WellFaciesPlan planWellFaciesFormationRun(const ComprehensiveWellData &data,
   if (!model)
     for (const auto &candidate : models)
       if (candidate.formationGroup.isEmpty()) { model = &candidate; break; }
-  if (!model && groups.isEmpty() && !models.isEmpty() && models.first().formationGroup.isEmpty())
+  // 井上没有任何组标注时无从判错配：服务清单第一顺位即「服务默认模型」。
+  // 有组标注却都不匹配才拒绝——那时拿错组模型才是真风险。
+  if (!model && groups.isEmpty() && !models.isEmpty())
     model = &models.first();
   if (!model) {
     plan.reason = models.isEmpty() ? tr("没有可调用的测井相模型")

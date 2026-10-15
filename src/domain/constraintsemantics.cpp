@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 // 层：数据
 namespace paleo::singlefactor
@@ -290,14 +291,34 @@ ConstraintPartCheck checkConstraintPart( const QVector<QPointF> &part )
     check.issue = QStringLiteral( "self_intersecting" );
     return check;
   }
-  for ( int i = 0; i < segments; ++i )
+  // P4：原为全段对 O(n²)，约束页在 UI 线程逐条刷新，数万顶点的导入线会卡顿。
+  // 改为沿包围盒长轴的扫描剪枝：只比较该轴区间（闭区间）重叠的段对。相交段在
+  // 该轴上必然重叠，谓词与排除规则（相邻段、闭合首末段）不变，判定结果不变。
+  const bool sweepX = ( maxX - minX ) >= ( maxY - minY );
+  const auto lo = [&]( int k ) {
+    return sweepX ? std::min( unique[k].x(), unique[k + 1].x() ) : std::min( unique[k].y(), unique[k + 1].y() );
+  };
+  const auto hi = [&]( int k ) {
+    return sweepX ? std::max( unique[k].x(), unique[k + 1].x() ) : std::max( unique[k].y(), unique[k + 1].y() );
+  };
+  std::vector<int> order( static_cast<size_t>( segments ) );
+  for ( int k = 0; k < segments; ++k )
+    order[static_cast<size_t>( k )] = k;
+  std::sort( order.begin(), order.end(), [&]( int a, int b ) { return lo( a ) < lo( b ); } );
+  for ( size_t a = 0; a < order.size(); ++a )
   {
-    for ( int j = i + 2; j < segments; ++j )
+    const int i = order[a];
+    const double end = hi( i );
+    for ( size_t b = a + 1; b < order.size() && lo( order[b] ) <= end; ++b )
     {
+      const int j = order[b];
+      const int first = std::min( i, j ), second = std::max( i, j );
+      if ( second - first < 2 )
+        continue; // 相邻段共享顶点（回折已在上面单独判定）
       // 闭合线首末段共享端点不算自交。
-      if ( closed && i == 0 && j == segments - 1 )
+      if ( closed && first == 0 && second == segments - 1 )
         continue;
-      if ( segmentsIntersect( unique[i], unique[i + 1], unique[j], unique[j + 1] ) )
+      if ( segmentsIntersect( unique[first], unique[first + 1], unique[second], unique[second + 1] ) )
       {
         check.issue = QStringLiteral( "self_intersecting" );
         return check;

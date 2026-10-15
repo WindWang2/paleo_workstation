@@ -3,6 +3,10 @@
 
 #include "domain/constraintsemantics.h"
 
+#include <QElapsedTimer>
+#include <QRandomGenerator>
+
+#include <cmath>
 #include <limits>
 
 using namespace paleo::singlefactor;
@@ -27,6 +31,57 @@ const QStringList kAllMethods = { QStringLiteral( "local_direction_idw" ), QStri
                                   QStringLiteral( "legacy" ),              QStringLiteral( "kriging" ),
                                   QStringLiteral( "sgs" ),                 QStringLiteral( "cokriging" ),
                                   QStringLiteral( "distance_transform" ),  QStringLiteral( "min_curvature" ) };
+
+// P4 对照：改造前的全段对 O(n²) 自交判定（逐字照搬谓词与排除规则），用于等价性测试。
+double refCross( QPointF a, QPointF b, QPointF c )
+{
+  return ( b.x() - a.x() ) * ( c.y() - a.y() ) - ( b.y() - a.y() ) * ( c.x() - a.x() );
+}
+bool refOnSegment( QPointF p, QPointF q, QPointF r )
+{
+  return q.x() <= std::max( p.x(), r.x() ) && q.x() >= std::min( p.x(), r.x() ) && q.y() <= std::max( p.y(), r.y() ) &&
+         q.y() >= std::min( p.y(), r.y() );
+}
+bool refSegmentsIntersect( QPointF p1, QPointF p2, QPointF p3, QPointF p4 )
+{
+  const double d1 = refCross( p3, p4, p1 ), d2 = refCross( p3, p4, p2 ), d3 = refCross( p1, p2, p3 ),
+               d4 = refCross( p1, p2, p4 );
+  if ( ( ( d1 > 0 && d2 < 0 ) || ( d1 < 0 && d2 > 0 ) ) && ( ( d3 > 0 && d4 < 0 ) || ( d3 < 0 && d4 > 0 ) ) )
+    return true;
+  return ( d1 == 0 && refOnSegment( p3, p1, p4 ) ) || ( d2 == 0 && refOnSegment( p3, p2, p4 ) ) ||
+         ( d3 == 0 && refOnSegment( p1, p3, p2 ) ) || ( d4 == 0 && refOnSegment( p1, p4, p2 ) );
+}
+bool refFoldsBack( QPointF a, QPointF b, QPointF c )
+{
+  if ( refCross( a, b, c ) != 0 )
+    return false;
+  return ( b.x() - a.x() ) * ( c.x() - b.x() ) + ( b.y() - a.y() ) * ( c.y() - b.y() ) < 0;
+}
+bool refSelfIntersecting( const QVector<QPointF> &part )
+{
+  QVector<QPointF> u;
+  for ( const QPointF &p : part )
+    if ( u.isEmpty() || u.last() != p )
+      u.append( p );
+  if ( u.size() < 2 )
+    return false;
+  const int segments = static_cast<int>( u.size() ) - 1;
+  const bool closed = u.size() > 3 && u.first() == u.last();
+  for ( int i = 0; i + 1 < segments; ++i )
+    if ( refFoldsBack( u[i], u[i + 1], u[i + 2] ) )
+      return true;
+  if ( closed && refFoldsBack( u[segments - 1], u[segments], u[1] ) )
+    return true;
+  for ( int i = 0; i < segments; ++i )
+    for ( int j = i + 2; j < segments; ++j )
+    {
+      if ( closed && i == 0 && j == segments - 1 )
+        continue;
+      if ( refSegmentsIntersect( u[i], u[i + 1], u[j], u[j + 1] ) )
+        return true;
+    }
+  return false;
+}
 
 } // namespace
 
@@ -236,6 +291,55 @@ private slots:
         QVERIFY( !d.geometryValid );
       }
     }
+  }
+
+  // P4：扫描剪枝与改造前全段对判定逐例等价（小整数坐标，大量共线/端点相触退化情形）。
+  void selfIntersectionSweepMatchesBruteForce()
+  {
+    QRandomGenerator rng( 20261015 );
+    int intersecting = 0, clean = 0;
+    for ( int n = 0; n < 4000; ++n )
+    {
+      const int count = 3 + static_cast<int>( rng.bounded( 10 ) );
+      QVector<QPointF> part;
+      for ( int k = 0; k < count; ++k )
+        part.append( QPointF( rng.bounded( 6 ), rng.bounded( 6 ) ) );
+      if ( n % 5 == 0 )
+        part.append( part.first() ); // 闭合
+      const ConstraintPartCheck c = checkConstraintPart( part );
+      if ( c.issue == QLatin1String( "zero_length" ) )
+        continue;
+      const bool expected = refSelfIntersecting( part );
+      QCOMPARE( c.issue == QLatin1String( "self_intersecting" ), expected );
+      ( expected ? intersecting : clean )++;
+    }
+    QVERIFY( intersecting > 100 && clean > 100 ); // 两类都充分覆盖
+  }
+
+  // P4 性能：数万顶点导入线（单调折线 + 闭合圆环）在 UI 线程可接受时间内判完。
+  // 改造前全段对约 n²/2 ≈ 1.25e9 次（5 万段）；预算按扫描剪枝留足余量。
+  void selfIntersectionLargeLinesAreFast()
+  {
+    QVector<QPointF> zigzag;
+    for ( int k = 0; k < 50000; ++k )
+      zigzag.append( QPointF( k, ( k % 2 ) ? 3.0 : 0.0 ) );
+    QVector<QPointF> ring;
+    for ( int k = 0; k < 50000; ++k )
+    {
+      const double t = 2.0 * M_PI * k / 50000.0;
+      ring.append( QPointF( 1000.0 * std::cos( t ), 1000.0 * std::sin( t ) ) );
+    }
+    ring.append( ring.first() );
+    QVector<QPointF> crossed = zigzag;
+    crossed.append( QPointF( 25000.5, -10 ) ); // 末段回穿整条折线
+    QElapsedTimer timer;
+    timer.start();
+    QVERIFY( checkConstraintPart( zigzag ).issue.isEmpty() );
+    QVERIFY( checkConstraintPart( ring ).issue.isEmpty() );
+    QCOMPARE( checkConstraintPart( crossed ).issue, QStringLiteral( "self_intersecting" ) );
+    const qint64 ms = timer.elapsed();
+    qInfo( "self-intersection 3x50k vertices: %lld ms", static_cast<long long>( ms ) );
+    QVERIFY2( ms < 2000, qPrintable( QStringLiteral( "%1 ms" ).arg( ms ) ) );
   }
 
   void validGeometryEdgeCases()

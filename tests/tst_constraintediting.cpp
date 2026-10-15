@@ -441,6 +441,68 @@ private slots:
   // P3 用户决定 (a)：画布绘制自动开启约束编辑会话——每次绘制都进撤销栈；
   // 保存保留、取消回到会话起点；空工程首次绘制同样可撤销；无会话可开时如实
   // 失败、绝不绕过会话直写 store。
+  // P4：相界编辑准备会 releaseHorizon 整组释放（对编辑中图层显式回滚，决定 b
+  // 不改）。约束层有未保存的自动会话绘制时必须拒绝，且不留任何副作用。
+  void composePrepareRefusesWhileConstraintSessionEditing()
+  {
+    QTemporaryDir dir;
+    PaleoProjectStore store;
+    const QString gpkg = dir.filePath("project.gpkg");
+    store.setProjectPaths(dir.filePath("p.qgz"), gpkg, dir.filePath("m.sqlite"));
+    ConstraintStore constraints(gpkg, &store);
+    QgisProjectService project;
+    QVERIFY(project.createProject(dir.filePath("p.qgz")));
+    LayerManifest manifest(dir.filePath("m.sqlite"));
+    QVERIFY(manifest.open());
+    QgisLayerService layers(&project, &manifest);
+    QgisEditingService edits(&store);
+    layers.setEditingService(&edits);
+    ConstraintWorkflow workflow(nullptr, &layers);
+    workflow.setConstraintStore(&constraints);
+    workflow.setEditingService(&edits);
+    QString error;
+    QVERIFY2(workflow.drawConstraint("T1", "LINESTRING(0 0,10 0)", "break_line", 0, &error, nullptr,
+                                     {{"semantic", "hard_barrier"}}),
+             qPrintable(error));
+    auto *constraintLayer = qobject_cast<QgsVectorLayer *>(layers.layer("constraints.T1"));
+    QVERIFY(constraintLayer && constraintLayer->isEditable());
+    QCOMPARE(constraintLayer->undoStack()->count(), 1);
+
+    // T26 只读相界派生件（同层位）。
+    const QString facies = dir.filePath("facies_ro.gpkg");
+    QVERIFY(QFile::copy(gpkg, facies));
+    QVERIFY(QFile::setPermissions(facies, QFileDevice::ReadOwner | QFileDevice::ReadUser));
+    LayerDeclaration decl;
+    decl.layerId = "facies.T1";
+    decl.horizon = "T1";
+    decl.type = "vector";
+    decl.source = facies + "|layername=constraints";
+    QVERIFY2(layers.declare(decl, &error), qPrintable(error));
+    QVERIFY(layers.instantiate("facies.T1", &error));
+
+    CompositionWorkflow compose(nullptr, &layers);
+    compose.setCatalog(nullptr, dir.path());
+    error.clear();
+    QVERIFY(compose.prepareFaciesForEditing("facies.T1", &error).isEmpty());
+    QVERIFY2(error.contains("正在编辑"), qPrintable(error));
+    // 无副作用：会话、撤销栈、store、声明、工作副本均未动。
+    QCOMPARE(layers.layer("constraints.T1"), static_cast<QgsMapLayer *>(constraintLayer));
+    QVERIFY(constraintLayer->isEditable());
+    QCOMPARE(constraintLayer->undoStack()->count(), 1);
+    QCOMPARE(constraints.load("T1").size(), 1);
+    QCOMPARE(layers.declaration("facies.T1").source, decl.source);
+    QVERIFY(!QFileInfo::exists(dir.filePath("artifacts/layers/facies/facies.T1.gpkg")));
+
+    // 保存后放行：绘制保留，工作副本重指。
+    QVERIFY2(edits.commitEdit(constraintLayer, &error), qPrintable(error));
+    error.clear();
+    QCOMPARE(compose.prepareFaciesForEditing("facies.T1", &error), QString("facies.T1"));
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QCOMPARE(constraints.load("T1").size(), 1);
+    QVERIFY(layers.declaration("facies.T1").source.startsWith(dir.filePath("artifacts/layers/facies/facies.T1.gpkg")));
+    QFile::setPermissions(facies, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+  }
+
   void drawAutoStartsEditSession()
   {
     QTemporaryDir dir;

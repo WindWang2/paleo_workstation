@@ -444,6 +444,28 @@ bool QgisLayerService::isEditingAnyLayer(QString *layerName) const
   return false;
 }
 
+bool QgisLayerService::isEditingInHorizon(const QString &horizon, QString *layerName) const
+{
+  QVector<LayerDeclaration> decls;
+  if (!m_manifest || !m_manifest->readAll(&decls, nullptr))
+  {
+    // 读不到清单时无法判定归属：保守按「任何编辑中」处理，不让调用方放行回滚。
+    return isEditingAnyLayer(layerName);
+  }
+  for (const LayerDeclaration &d : decls)
+  {
+    if (d.horizon != horizon)
+      continue;
+    if (auto *vl = qobject_cast<QgsVectorLayer *>(layer(d.layerId)); vl && vl->isEditable())
+    {
+      if (layerName)
+        *layerName = vl->name().isEmpty() ? d.layerId : vl->name();
+      return true;
+    }
+  }
+  return false;
+}
+
 void QgisLayerService::setActiveHorizon(const QString &horizon)
 {
   QVector<LayerDeclaration> decls;

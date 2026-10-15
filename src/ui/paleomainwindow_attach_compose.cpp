@@ -114,11 +114,19 @@ void PaleoMainWindow::attachComposePage(ComposePage *composePage,
               QString prepErr;
               const QString prepared = compose->prepareFaciesForEditing(layerId, &prepErr);
               if (prepared.isEmpty())
+              {
+                // 铺设被拒（如约束层有未保存编辑）或失败：只读原件不可编辑，
+                // 不自动进编辑（否则编辑条会对只读层/他层会话做出意外动作），
+                // 原因上状态栏而不只进日志。
                 QgsMessageLog::logMessage(
                     tr("相界工作副本铺设失败：%1").arg(prepErr), QStringLiteral("Paleo"),
                     Qgis::MessageLevel::Warning);
-              else
-                target = prepared;
+                revealDeclaredLayer(layerId, true);
+                if (auto *status = composePage->findChild<QLabel *>(QStringLiteral("statusLabel")))
+                  status->setText(tr("相界已生成，但未进入编辑：%1").arg(prepErr));
+                return;
+              }
+              target = prepared;
               revealDeclaredLayer(target, true);
               QgsMapLayer *l = m_layerSvc->instantiate(target);
               auto *vl = qobject_cast<QgsVectorLayer *>(l);

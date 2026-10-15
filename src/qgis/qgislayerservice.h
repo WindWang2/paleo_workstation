@@ -45,6 +45,9 @@ class QgisLayerService : public QObject
     QgsMapLayer *layer(const QString &layerId) const;            // instantiated only, nullptr otherwise
     bool isInstantiated(const QString &layerId) const;
     bool isEditingAnyLayer(QString *layerName = nullptr) const;
+    // 该层位（manifest 精确匹配）下是否有处于编辑态的实例。releaseHorizon 会回滚
+    // 这些图层；调用方据此先拒绝，而不是静默丢掉未保存编辑（用户决定 b 保持回滚语义）。
+    bool isEditingInHorizon(const QString &horizon, QString *layerName = nullptr) const;
 
     void setActiveHorizon(const QString &horizon);               // materialize active, release others
     QString activeHorizon() const { return m_activeHorizon; }

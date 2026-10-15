@@ -104,7 +104,7 @@ void ConstraintDrawController::onDrawn( const QString &wkt )
     emit captureFailed( err );
     return;
   }
-  const bool ok = m_wf->addConstraint( m_horizon, storeWkt, m_shape, m_faciesCode,
+  const bool ok = m_wf->drawConstraint( m_horizon, storeWkt, m_shape, m_faciesCode,
                                        &err, &constraintId );
   const QString horizon = m_horizon; // capture before teardown clears state
   teardown();

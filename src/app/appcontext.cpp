@@ -277,6 +277,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
   m_constraintWf = new ConstraintWorkflow(m_procSvc, m_layerSvc, this);
   m_constraintWf->setTaskService(m_taskSvc);
   m_constraintWf->setStore(m_store); // GeoPackage constraint persistence (wave/constraint-gpkg)
+  m_constraintWf->setEditingService(m_editSvc); // P3 (a)：绘制自动开会话的无 UI 回退
   m_mappingWorkbench = new MappingWorkbench(m_layerSvc, m_procSvc, m_projectSvc, m_constraintWf, this);
   m_mappingWorkbench->setTaskService(m_taskSvc); // 智能预测进任务中心（后台执行、可取消）
   m_evidenceInteraction = new EvidenceInteraction(m_mappingWorkbench, m_selection,

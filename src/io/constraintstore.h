@@ -33,6 +33,9 @@ public:
   // 文件不存在时失败，不创建数据库。失败回滚，不改已有要素。
   bool updateParameters(const QString &id, const QString &paramsJson, int schemaVersion,
                         const QString &semanticType, QString *error = nullptr);
+  // P3：仅在缺失时建 constraints 表/字段/审计表（与首次 append 同一 schema），
+  // 不改动既有行——供绘制前自动开启编辑会话（空工程首次绘制也进撤销栈）。
+  bool ensureSchema(QString *error = nullptr);
   QVector<QVariantMap> load(const QString &horizon = QString(), bool includeAudit = false) const;
   // Newest first, max 200 per page. Deleted stable IDs remain queryable.
   QVector<QVariantMap> history(const QString &id, int limit = 50, int offset = 0,

@@ -116,7 +116,7 @@ void TypedConstraintDrawController::onDrawn( const QString &wkt )
     emit captureFailed( err );
     return;
   }
-  const bool ok = m_wf->addConstraint( m_horizon, storeWkt, m_constraintType, m_faciesCode,
+  const bool ok = m_wf->drawConstraint( m_horizon, storeWkt, m_constraintType, m_faciesCode,
                                        &err, &constraintId, m_lineParams );
   const QString horizon = m_horizon;
   const QString type = m_constraintType;

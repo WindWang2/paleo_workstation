@@ -57,6 +57,7 @@ struct Stack
   std::unique_ptr<LayerManifest> manifest;
   std::unique_ptr<QgisLayerService> layerSvc;
   std::unique_ptr<ConstraintWorkflow> wf;
+  std::unique_ptr<QgisEditingService> edits; // P3 (a)：绘制自动开会话（产品同此装配）
   QgisCanvasController canvasCtl;
   std::unique_ptr<TypedConstraintDrawController> ctl;
 };
@@ -76,6 +77,8 @@ std::unique_ptr<Stack> makeStack( const QString &dir )
                             QDir( dir ).filePath( QStringLiteral( "meta.sqlite" ) ) );
   s->wf = std::make_unique<ConstraintWorkflow>( nullptr, s->layerSvc.get() );
   s->wf->setStore( &s->store );
+  s->edits = std::make_unique<QgisEditingService>( &s->store );
+  s->wf->setEditingService( s->edits.get() );
   s->ctl = std::make_unique<TypedConstraintDrawController>( &s->canvasCtl, s->wf.get() );
   return s;
 }

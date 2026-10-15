@@ -19,6 +19,7 @@
 class QgisProcessingService;
 class QgisLayerService;
 class QgsVectorLayer;
+class QgisEditingService;
 class SelectionContext;
 class PaleoOnnxService;
 class ConstraintStore;
@@ -183,6 +184,17 @@ class ConstraintWorkflow : public QObject
     bool addConstraint(const QString &horizon, const QString &wkt, const QString &type, int faciesCode,
                        QString *error = nullptr, QString *constraintIdOut = nullptr,
                        const QVariantMap &lineParams = {});
+    // P3 用户决定 (a)：画布绘制入口。有约束库时先确保该层位处于约束编辑会话
+    //（无会话则自动开启：优先 UI 启动器——编辑工具栏接管保存/取消；否则走
+    // 绑定的编辑服务），再经会话写入，使每次绘制都进原生撤销栈。无会话可开时
+    // 如实失败，不再绕过会话直写 store。无约束库时同 addConstraint（内存回退）。
+    // 批量导入等事务化写入仍用 addConstraint。
+    bool drawConstraint(const QString &horizon, const QString &wkt, const QString &type, int faciesCode,
+                        QString *error = nullptr, QString *constraintIdOut = nullptr,
+                        const QVariantMap &lineParams = {});
+    using DrawSessionStarter = std::function<bool(const QString &horizon, QString *error)>;
+    void setDrawSessionStarter(DrawSessionStarter starter) { m_drawSessionStarter = std::move(starter); }
+    void setEditingService(QgisEditingService *editing);
     // 把逐线语义和半径写进 params_json。重开后 loadConstraints 读回同一份。
     bool updateConstraintLine(const QString &id, const QVariantMap &lineParams, QString *error = nullptr);
     bool updateConstraintLines(const QStringList &ids, const QVariantMap &patch, QString *error = nullptr);
@@ -553,6 +565,8 @@ class ConstraintWorkflow : public QObject
     QString m_projectDir;
     QVector<QVariantMap> m_inMemoryConstraints;
     int m_inMemorySeq = 0;
+    DrawSessionStarter m_drawSessionStarter;
+    QPointer<QgisEditingService> m_editingService;
     // 发布代次。本地方向在准备入口加一；等值线与解释性等值线在校验通过后加一；
     // setStore 也加一。因子图层改指向新文件时，在 declare 之前加一。
     // 提交前对不上就丢掉这次临时文件，不声明图层。

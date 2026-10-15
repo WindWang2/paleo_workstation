@@ -29,6 +29,7 @@ class QgisConstraintEditSession : public QObject
     bool setAuditContext(const ConstraintStore::AuditContext &context, QString *error = nullptr);
   private:
     QVector<QVariantMap> snapshot(QString *error) const;
+    qlonglong storeMaxFid() const; // 全表最大 fid；读失败返回 -1
     bool persist(const QVector<QVariantMap> &rows, QString *error, const QString &action = QString());
     void synchronize(int index, const QString &forcedAction = {});
     void restoreSource();

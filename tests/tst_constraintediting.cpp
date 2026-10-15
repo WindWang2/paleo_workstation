@@ -313,6 +313,13 @@ private slots:
     const auto original = constraints.load("T1");
     const auto otherHorizon = constraints.load("T2");
 
+    // 会话期间往未编辑的层位直写一条（占掉当前最大 fid 之后的编号）。
+    QString otherId;
+    QVERIFY2(workflow.addConstraint("T2", "LINESTRING(40 40,50 40)", "break_line", 0, &error, &otherId,
+                                    {{"semantic", "hard_barrier"}}),
+             qPrintable(error));
+    const auto otherHorizon2 = constraints.load("T2");
+    QCOMPARE(otherHorizon2.size(), otherHorizon.size() + 1);
     QString drawnId;
     QVERIFY2(workflow.addConstraint("T1", "LINESTRING(0 5,10 5)", "break_line", 0, &error, &drawnId,
                                     {{"semantic", "hard_barrier"}, {"blockMode", "full_block"}}),
@@ -336,8 +343,9 @@ private slots:
     QCOMPARE(buffered.attribute("id").toString(), drawnId);
     QVERIFY(!buffered.attribute("weight").isNull());
     QCOMPARE(buffered.attribute("weight").toDouble(), 1.0);
-    QVERIFY(row.value("fid").toLongLong() != otherHorizon.first().value("fid").toLongLong());
-    QCOMPARE(constraints.load("T2"), otherHorizon);
+    for (const auto &other : otherHorizon2)
+      QVERIFY(row.value("fid").toLongLong() != other.value("fid").toLongLong());
+    QCOMPARE(constraints.load("T2"), otherHorizon2);
 
     layer->undoStack()->undo();
     QCOMPARE(constraints.load("T1"), original);
@@ -364,7 +372,7 @@ private slots:
     // 取消会话 → 回到会话起点（含删除新绘约束）。
     QVERIFY(edits.rollbackEdit(layer));
     QCOMPARE(constraints.load("T1"), original);
-    QCOMPARE(constraints.load("T2"), otherHorizon);
+    QCOMPARE(constraints.load("T2"), otherHorizon2);
 
     // 再开会话绘制并保存：落盘且重载后可见。
     QVERIFY2(edits.beginEdit(layer, &error), qPrintable(error));
@@ -374,7 +382,7 @@ private slots:
     QVERIFY2(edits.commitEdit(layer, &error), qPrintable(error));
     QCOMPARE(constraints.load("T1").size(), original.size() + 1);
     QCOMPARE(layer->featureCount(), original.size() + 1);
-    QCOMPARE(constraints.load("T2"), otherHorizon);
+    QCOMPARE(constraints.load("T2"), otherHorizon2);
     Q_UNUSED(failures);
   }
 

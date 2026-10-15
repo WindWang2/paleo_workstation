@@ -57,6 +57,25 @@ void QgisConstraintEditSession::restoreSource()
   m_layer->setProperty("paleoConstraintEditSession", false);
 }
 
+qlonglong QgisConstraintEditSession::storeMaxFid() const
+{
+  GDALDatasetH ds = GDALOpenEx(m_path.toUtf8().constData(), GDAL_OF_VECTOR, nullptr, nullptr, nullptr);
+  if (!ds)
+    return -1;
+  qlonglong maxFid = 0;
+  if (OGRLayerH layer = GDALDatasetGetLayerByName(ds, "constraints"))
+  {
+    OGR_L_ResetReading(layer);
+    while (OGRFeatureH raw = OGR_L_GetNextFeature(layer))
+    {
+      maxFid = std::max<qlonglong>(maxFid, OGR_F_GetFID(raw));
+      OGR_F_Destroy(raw);
+    }
+  }
+  GDALClose(ds);
+  return maxFid;
+}
+
 QVector<QVariantMap> QgisConstraintEditSession::snapshot(QString *error) const
 {
   QVector<QVariantMap> rows;
@@ -93,6 +112,15 @@ QVector<QVariantMap> QgisConstraintEditSession::snapshot(QString *error) const
     {
       if (!m_newFids.contains(feature.id()))
       {
+        // 首次出现时按「store 当前全表最大 fid」与已分配值取大再 +1：会话期间
+        // 其他层位的直写（非编辑层位仍可绘制）不会与预分配 fid 相撞。
+        const qlonglong live = storeMaxFid();
+        if (live < 0)
+        {
+          *error = tr("无法读取约束 store 的要素编号");
+          return {};
+        }
+        m_nextFid = std::max(m_nextFid, live + 1);
         m_newFids.insert(feature.id(), m_nextFid++);
         m_newIdentities.insert(feature.id(), id);
       }
@@ -143,21 +171,8 @@ bool QgisConstraintEditSession::initialize(QString *error)
     m_identities.insert(row.value(QStringLiteral("fid")).toLongLong(), row.value(QStringLiteral("id")).toString());
   // 新绘约束的 store fid 从全表（所有层位）最大 fid 之后分配，避免撞到其他层位的行。
   {
-    qlonglong maxFid = 0;
-    if (GDALDatasetH ds = GDALOpenEx(m_path.toUtf8().constData(), GDAL_OF_VECTOR, nullptr, nullptr, nullptr))
-    {
-      if (OGRLayerH layer = GDALDatasetGetLayerByName(ds, "constraints"))
-      {
-        OGR_L_ResetReading(layer);
-        while (OGRFeatureH raw = OGR_L_GetNextFeature(layer))
-        {
-          maxFid = std::max<qlonglong>(maxFid, OGR_F_GetFID(raw));
-          OGR_F_Destroy(raw);
-        }
-      }
-      GDALClose(ds);
-    }
-    else
+    qlonglong maxFid = storeMaxFid();
+    if (maxFid < 0)
     {
       *error = tr("无法读取约束 store：%1").arg(QString::fromUtf8(CPLGetLastErrorMsg()));
       return false;

@@ -3,10 +3,12 @@
 // welldist 单因素的距离变换引擎，id/参数面按 SingleFactorContracts 冻结契约
 //（src/services/singlefactordef.h：INPUT=井点图层，OUTPUT=栅格，CELL_SIZE=正数，
 // 绕障=约束线）。实现见 paleoalgorithms.h 类注。
+#include "constraintbarriers.h"
 #include "paleoalgorithms.h"
 #include "rasterout.h"
 #include "welldistance_internal.h"
 
+#include <qgsprocessingoutputs.h>
 #include <qgsprocessingparameters.h>
 #include <qgsprocessingutils.h>
 #include <qgsprocessingcontext.h>
@@ -46,9 +48,12 @@ QString PaleoDistanceTransformAlgorithm::shortHelpString() const
 {
   return QStringLiteral(
     "Distance to the nearest well as a single-factor surface. Without CONSTRAINTS "
-    "(or with none typed 'break_line') each cell holds the exact Euclidean distance "
-    "to the closest INPUT point (map units). When CONSTRAINTS contain 'break_line' "
-    "features, those lines are hard barriers and the cell value becomes the "
+    "(or with no full-block break line) each cell holds the exact Euclidean distance "
+    "to the closest INPUT point (map units). When CONSTRAINTS contain full-block break "
+    "lines (unified constraint semantics: params_json first, then the 'type' column; "
+    "disabled rows, non-blocking blockMode such as display_only, invalid params and "
+    "invalid geometry are skipped and listed in CONSTRAINT_RECEIPTS), those lines are "
+    "hard barriers and the cell value becomes the "
     "barrier-avoiding path distance: an 8-connected Dijkstra over the output grid "
     "(edge costs 1 and sqrt(2) cells, well cells seeded at 0; diagonal moves are "
     "disallowed when either orthogonal side cell is a barrier, so walls rasterized "
@@ -71,6 +76,8 @@ void PaleoDistanceTransformAlgorithm::initAlgorithm( const QVariantMap & )
       Qgis::ProcessingNumberParameterType::Double, 1.0 ) );
   addParameter( new QgsProcessingParameterRasterDestination(
       QStringLiteral( "OUTPUT" ), QStringLiteral( "Distance raster" ) ) );
+  addOutput( new QgsProcessingOutputString(
+      QStringLiteral( "CONSTRAINT_RECEIPTS" ), QStringLiteral( "Per-constraint consumption receipts (JSON array)" ) ) );
 }
 
 QVariantMap PaleoDistanceTransformAlgorithm::processAlgorithm( const QVariantMap &parameters,
@@ -99,6 +106,7 @@ QVariantMap PaleoDistanceTransformAlgorithm::processAlgorithm( const QVariantMap
   // ---- break_line barriers（typed 语义与 ConstraintIDW 一致：仅 break_line
   //      阻断；direction_line/旧 shape 词对距离面不参与）---------------------
   std::vector<QgsPolylineXY> barrierPolylines;
+  QVariantList constraintReceipts; // 引擎实际消费回执（CONSTRAINT_RECEIPTS）
   {
     std::unique_ptr<QgsProcessingFeatureSource> constraints(
         parameterAsSource( parameters, QStringLiteral( "CONSTRAINTS" ), context ) );
@@ -129,40 +137,28 @@ QVariantMap PaleoDistanceTransformAlgorithm::processAlgorithm( const QVariantMap
                   .arg( QStringLiteral( "well" ), from.userFriendlyIdentifier(),
                         to.userFriendlyIdentifier() ) );
       }
-      const int typeIdx = constraints->fields().lookupField( QStringLiteral( "type" ) );
-      QgsFeatureIterator cit = constraints->getFeatures( QgsFeatureRequest() );
-      QgsFeature cf;
-      while ( cit.nextFeature( cf ) )
-      {
-        if ( !cf.hasGeometry() || cf.geometry().isEmpty() )
-          continue;
-        const QString ctype = typeIdx >= 0 ? cf.attribute( typeIdx ).toString().trimmed()
-                                           : QString();
-        if ( ctype != QLatin1String( "break_line" ) )
-          continue;
-        QgsGeometry g = cf.geometry();
-        if ( xform )
-        {
-          Qgis::GeometryOperationResult tr = Qgis::GeometryOperationResult::Success;
-          try
-          {
-            tr = g.transform( *xform );
-          }
-          catch ( const QgsCsException & )
-          {
-            tr = Qgis::GeometryOperationResult::NothingHappened; // BIZ-10：逐要素变换异常归入同一报因
-          }
-          if ( tr != Qgis::GeometryOperationResult::Success )
-            throw QgsProcessingException(
-                QStringLiteral( "Constraint geometry failed to transform into the well CRS" ) );
-        }
-        const QgsMultiPolylineXY mpl = g.isMultipart()
-                                           ? g.asMultiPolyline()
-                                           : QgsMultiPolylineXY{ g.asPolyline() };
-        for ( const QgsPolylineXY &pl : mpl )
-          if ( pl.size() >= 2 )
-            barrierPolylines.push_back( pl );
-      }
+      // P2：统一语义（domain/constraintsemantics）——只有完全阻断打断线隔断距离；
+      // 停用、display_only/none、非法参数、无效几何不用并留回执。
+      const paleo::algorithms::UnifiedBarrierRead read = paleo::algorithms::readUnifiedHardBarriers(
+          constraints.get(), QStringLiteral( "distance_transform" ), [&xform]( QgsGeometry &g ) {
+            if ( !xform )
+              return;
+            Qgis::GeometryOperationResult tr = Qgis::GeometryOperationResult::Success;
+            try
+            {
+              tr = g.transform( *xform );
+            }
+            catch ( const QgsCsException & )
+            {
+              tr = Qgis::GeometryOperationResult::NothingHappened; // BIZ-10：逐要素变换异常归入同一报因
+            }
+            if ( tr != Qgis::GeometryOperationResult::Success )
+              throw QgsProcessingException(
+                  QStringLiteral( "Constraint geometry failed to transform into the well CRS" ) );
+          } );
+      constraintReceipts = read.receipts;
+      for ( const QgsGeometry &part : read.parts )
+        barrierPolylines.push_back( part.asPolyline() );
     }
   }
   const bool hasBarriers = !barrierPolylines.empty();
@@ -204,6 +200,7 @@ QVariantMap PaleoDistanceTransformAlgorithm::processAlgorithm( const QVariantMap
     GDALClose( outDs );
     QVariantMap out;
     out.insert( QStringLiteral( "OUTPUT" ), outPath );
+    out.insert( QStringLiteral( "CONSTRAINT_RECEIPTS" ), paleo::algorithms::constraintReceiptsJson( constraintReceipts ) );
     return out;
   }
 
@@ -326,5 +323,6 @@ QVariantMap PaleoDistanceTransformAlgorithm::processAlgorithm( const QVariantMap
 
   QVariantMap out;
   out.insert( QStringLiteral( "OUTPUT" ), outPath );
+  out.insert( QStringLiteral( "CONSTRAINT_RECEIPTS" ), paleo::algorithms::constraintReceiptsJson( constraintReceipts ) );
   return out;
 }

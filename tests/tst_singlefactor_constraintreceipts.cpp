@@ -359,6 +359,93 @@ private slots:
     QCOMPARE( disabled, plain );
   }
 
+  // P2：距离变换 / 最小曲率按统一语义取约束——回执 == 计划。
+  void griddingReceiptsMatchPlan_data()
+  {
+    QTest::addColumn<QString>( "algorithm" );
+    QTest::addColumn<QString>( "planMethod" );
+    QTest::newRow( "distance_transform" ) << QStringLiteral( "paleo:paleo_distance_transform" )
+                                          << QStringLiteral( "distance_transform" );
+    QTest::newRow( "min_curvature" ) << QStringLiteral( "paleo:paleo_min_curvature" ) << QStringLiteral( "min_curvature" );
+  }
+  void griddingReceiptsMatchPlan()
+  {
+    QFETCH( QString, algorithm );
+    QFETCH( QString, planMethod );
+    QVariantMap params;
+    params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( mWells ) );
+    params.insert( QStringLiteral( "FIELD" ), QStringLiteral( "z" ) );
+    params.insert( QStringLiteral( "CONSTRAINTS" ), QVariant::fromValue( mConstraints ) );
+    params.insert( QStringLiteral( "CELL_SIZE" ), 2.0 );
+    params.insert( QStringLiteral( "OUTPUT" ), mDir.filePath( planMethod + QStringLiteral( ".tif" ) ) );
+    QgsProcessingContext context;
+    QgsProcessingFeedback feedback;
+    const QVariantMap result = QgsApplication::processingRegistry()->algorithmById( algorithm )->run( params, context, &feedback );
+    QVERIFY2( !result.isEmpty(), qPrintable( feedback.textLog() ) );
+    const QJsonArray receipts =
+        QJsonDocument::fromJson( result.value( QStringLiteral( "CONSTRAINT_RECEIPTS" ) ).toString().toUtf8() ).array();
+    QMap<QString, QString> roles;
+    const QStringList engine = receiptConsumed( receipts, &roles );
+    QCOMPARE( engine, planConsumed( planMethod, std::nullopt ) );
+    QCOMPARE( roles.value( QStringLiteral( "b_full" ) ), QStringLiteral( "hard_barrier" ) );
+    for ( const char *id : { "b_display", "b_none", "b_disabled", "b_zero", "b_bowtie", "d_main", "s_soft", "c_stop" } )
+      QVERIFY2( !engine.contains( QString::fromLatin1( id ) ), id );
+  }
+
+  // 数值层面：display_only 打断线不隔断（与无约束逐位一致），同一条线改成
+  // 完全阻断则改变结果（对照，保证用例不空转）。
+  void griddingDisplayOnlyDoesNotCut_data() { griddingReceiptsMatchPlan_data(); }
+  void griddingDisplayOnlyDoesNotCut()
+  {
+    QFETCH( QString, algorithm );
+    QFETCH( QString, planMethod );
+    const auto run = [&]( const QString &json, const QString &name ) -> QByteArray {
+      QgsVectorLayer lines( QStringLiteral( "LineString?crs=EPSG:3857&field=id:string&field=horizon:string&field=type:string"
+                                            "&field=params_json:string&field=schema_version:integer" ),
+                            QStringLiteral( "c" ), QStringLiteral( "memory" ) );
+      if ( !json.isNull() )
+      {
+        QgsFeature f( lines.fields() );
+        f.setGeometry( QgsGeometry::fromWkt( QStringLiteral( "LINESTRING(50 -20, 50 120)" ) ) );
+        f.setAttributes( QgsAttributes() << QStringLiteral( "wall" ) << QStringLiteral( "H1" )
+                                         << QStringLiteral( "break_line" ) << json << 1 );
+        lines.dataProvider()->addFeature( f );
+      }
+      QVariantMap params;
+      params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( mWells ) );
+      params.insert( QStringLiteral( "FIELD" ), QStringLiteral( "z" ) );
+      params.insert( QStringLiteral( "CONSTRAINTS" ), QVariant::fromValue( static_cast<QgsMapLayer *>( &lines ) ) );
+      params.insert( QStringLiteral( "CELL_SIZE" ), 4.0 );
+      const QString out = mDir.filePath( name );
+      params.insert( QStringLiteral( "OUTPUT" ), out );
+      QgsProcessingContext context;
+      QgsProcessingFeedback feedback;
+      if ( QgsApplication::processingRegistry()->algorithmById( algorithm )->run( params, context, &feedback ).isEmpty() )
+        return {};
+      GDALDatasetH ds = GDALOpen( out.toUtf8().constData(), GA_ReadOnly );
+      if ( !ds )
+        return {};
+      const int nx = GDALGetRasterXSize( ds ), ny = GDALGetRasterYSize( ds );
+      QByteArray bytes( nx * ny * static_cast<int>( sizeof( double ) ), '\0' );
+      const CPLErr err = GDALRasterIO( GDALGetRasterBand( ds, 1 ), GF_Read, 0, 0, nx, ny, bytes.data(), nx, ny,
+                                       GDT_Float64, 0, 0 );
+      GDALClose( ds );
+      return err == CE_None ? bytes : QByteArray();
+    };
+    const QByteArray none = run( QString(), planMethod + QStringLiteral( "-none.tif" ) );
+    const QByteArray shown = run( QStringLiteral( R"({"semantic":"hard_barrier","blockMode":"display_only"})" ),
+                                  planMethod + QStringLiteral( "-display.tif" ) );
+    const QByteArray disabled = run( QStringLiteral( R"({"semantic":"hard_barrier","enabled":false})" ),
+                                     planMethod + QStringLiteral( "-disabled.tif" ) );
+    const QByteArray full = run( QStringLiteral( R"({"semantic":"hard_barrier","blockMode":"full_block"})" ),
+                                 planMethod + QStringLiteral( "-full.tif" ) );
+    QVERIFY( !none.isEmpty() );
+    QVERIFY( !full.isEmpty() );
+    QVERIFY2( full != none, "对照失效：完全阻断线应改变结果" );
+    QCOMPARE( shown, none );
+    QCOMPARE( disabled, none );
+  }
+
   // 地统方法不读约束：计划逐条标未使用。
   void geostatPlanFlagsAllUnused()
   {

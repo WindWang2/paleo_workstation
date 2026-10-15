@@ -1,6 +1,9 @@
 // 层：数据
+#include "constraintbarriers.h"
 #include "paleoalgorithms.h"
 #include "rasterout.h"
+
+#include <qgsprocessingoutputs.h>
 #include "gridsolver.h"
 
 #include <qgsprocessingparameters.h>
@@ -48,11 +51,13 @@ QString MinimumCurvatureAlgorithm::shortHelpString() const
     "sheet at their own locations (bilinear misfit back-projected to the "
     "nearest node, Briggs/GMT semantics). T=0 is pure minimum curvature "
     "(exact for planes and quadratics); larger T suppresses overshoot toward "
-    "membrane/harmonic behavior. CONSTRAINTS lines with type 'break_line' act "
+    "membrane/harmonic behavior. Full-block break lines in CONSTRAINTS act "
     "as hard barriers: barrier cells become nodata and the relaxation treats "
     "them as no-flux internal boundaries, so each fault block interpolates "
-    "only from its own side (consumes the C1 typed vocabulary; other types "
-    "are ignored by this algorithm). Output carries QC metadata: "
+    "only from its own side. Unified constraint semantics apply (params_json "
+    "first, then the 'type' column): disabled rows, non-blocking blockMode such "
+    "as display_only, invalid params and invalid geometry are skipped; every "
+    "decision is returned in CONSTRAINT_RECEIPTS. Output carries QC metadata: "
     "PALEO_TENSION/PALEO_SWEEPS/PALEO_CONVERGED/PALEO_FINAL_DELTA plus "
     "binning counters and distance-to-data quality statistics "
     "(PALEO_DIST_TO_DATA_MAX/MEAN, in map units)." );
@@ -83,6 +88,8 @@ void MinimumCurvatureAlgorithm::initAlgorithm( const QVariantMap & )
       Qgis::ProcessingNumberParameterType::Double, 1.0, false, 1e-9 ) );
   addParameter( new QgsProcessingParameterRasterDestination(
       QStringLiteral( "OUTPUT" ), QStringLiteral( "Gridded surface raster" ) ) );
+  addOutput( new QgsProcessingOutputString(
+      QStringLiteral( "CONSTRAINT_RECEIPTS" ), QStringLiteral( "Per-constraint consumption receipts (JSON array)" ) ) );
 }
 
 QVariantMap MinimumCurvatureAlgorithm::processAlgorithm( const QVariantMap &parameters,
@@ -140,6 +147,7 @@ QVariantMap MinimumCurvatureAlgorithm::processAlgorithm( const QVariantMap &para
 
   // ---- constraints: only break_line acts as a barrier (typed C1 vocabulary) --
   QVector<QgsGeometry> breakGeoms;
+  QVariantList constraintReceipts; // 引擎实际消费回执（CONSTRAINT_RECEIPTS）
   {
     std::unique_ptr<QgsProcessingFeatureSource> constraints(
         parameterAsSource( parameters, QStringLiteral( "CONSTRAINTS" ), context ) );
@@ -170,34 +178,27 @@ QVariantMap MinimumCurvatureAlgorithm::processAlgorithm( const QVariantMap &para
                   .arg( QStringLiteral( "input" ), from.userFriendlyIdentifier(),
                         to.userFriendlyIdentifier() ) );
       }
-      const int typeIdx = constraints->fields().lookupField( QStringLiteral( "type" ) );
-      QgsFeatureIterator cit = constraints->getFeatures( QgsFeatureRequest() );
-      QgsFeature cf;
-      while ( cit.nextFeature( cf ) )
-      {
-        if ( !cf.hasGeometry() || cf.geometry().isEmpty() )
-          continue;
-        QgsGeometry g = cf.geometry();
-        if ( xform )
-        {
-          Qgis::GeometryOperationResult tr = Qgis::GeometryOperationResult::Success;
-          try
-          {
-            tr = g.transform( *xform );
-          }
-          catch ( const QgsCsException & )
-          {
-            tr = Qgis::GeometryOperationResult::NothingHappened; // BIZ-10：逐要素变换异常归入同一报因
-          }
-          if ( tr != Qgis::GeometryOperationResult::Success )
-            throw QgsProcessingException( QStringLiteral(
-                "Constraint geometry failed to transform into the input CRS" ) );
-        }
-        const QString ctype =
-            typeIdx >= 0 ? cf.attribute( typeIdx ).toString().trimmed() : QString();
-        if ( ctype == QLatin1String( "break_line" ) )
-          breakGeoms.append( g ); // direction_line/legacy hull 对网格化无语义，忽略
-      }
+      // P2：统一语义——只有完全阻断打断线成为无通量内边界；停用、display_only/
+      // none、非法参数、无效几何不用并留回执（不再只看 type 列）。
+      const paleo::algorithms::UnifiedBarrierRead read = paleo::algorithms::readUnifiedHardBarriers(
+          constraints.get(), QStringLiteral( "min_curvature" ), [&xform]( QgsGeometry &g ) {
+            if ( !xform )
+              return;
+            Qgis::GeometryOperationResult tr = Qgis::GeometryOperationResult::Success;
+            try
+            {
+              tr = g.transform( *xform );
+            }
+            catch ( const QgsCsException & )
+            {
+              tr = Qgis::GeometryOperationResult::NothingHappened; // BIZ-10：逐要素变换异常归入同一报因
+            }
+            if ( tr != Qgis::GeometryOperationResult::Success )
+              throw QgsProcessingException( QStringLiteral(
+                  "Constraint geometry failed to transform into the input CRS" ) );
+          } );
+      constraintReceipts = read.receipts;
+      breakGeoms = read.parts;
     }
   }
 
@@ -345,5 +346,6 @@ QVariantMap MinimumCurvatureAlgorithm::processAlgorithm( const QVariantMap &para
   out.insert( QStringLiteral( "OUTPUT" ), outPath );
   out.insert( QStringLiteral( "CONVERGED" ), stats.converged );
   out.insert( QStringLiteral( "SWEEPS" ), stats.sweeps );
+  out.insert( QStringLiteral( "CONSTRAINT_RECEIPTS" ), paleo::algorithms::constraintReceiptsJson( constraintReceipts ) );
   return out;
 }

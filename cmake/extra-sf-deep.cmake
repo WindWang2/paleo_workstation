@@ -22,3 +22,7 @@ add_paleo_test(tst_singlefactor_constraintreceipts LIBS paleo_workflow paleo_alg
 target_sources(paleo_qgis PRIVATE
   src/qgis/constraintcrs.cpp)
 add_paleo_test(tst_singlefactor_constraintcrs LIBS paleo_ui)
+
+# P2：网格化引擎（距离变换 / 最小曲率）按统一语义读完全阻断打断线并出回执。
+target_sources(paleo_algorithms PRIVATE
+  src/algorithms/constraintbarriers.cpp)

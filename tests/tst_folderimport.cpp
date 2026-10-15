@@ -386,6 +386,25 @@ private slots:
     QVERIFY(projSvc.projectPath().isEmpty()); // 没有打开任何工程
     // 候选文件原样不动。
     QCOMPARE(QFileInfo(QDir(dir).filePath(QStringLiteral("a_backup.qgz"))).size(), qint64(2));
+
+    // S5 第 2 轮 Low 2：只数文件（名为 *.qgz 的目录不是候选），清单封顶 20 条。
+    const QString many = tmp.filePath(QStringLiteral("many"));
+    QVERIFY(QDir().mkpath(QDir(many).filePath(QStringLiteral("folder.qgz"))));
+    for (int i = 0; i < 25; ++i)
+    {
+      QFile f(QDir(many).filePath(QStringLiteral("c%1.qgz").arg(i, 2, 10, QLatin1Char('0'))));
+      QVERIFY(f.open(QIODevice::WriteOnly));
+      f.write("PK");
+    }
+    QSignalSpy failedMany(&wf, &ProjectOpenWorkflow::openFailed);
+    QVERIFY(!wf.openPath(many));
+    QCOMPARE(failedMany.count(), 1);
+    const QString manyDetail = failedMany.at(0).at(1).toString();
+    QVERIFY2(manyDetail.contains(QStringLiteral(" 25 个工程文件")), qPrintable(manyDetail));
+    QVERIFY(!manyDetail.contains(QStringLiteral("folder.qgz")));
+    QVERIFY(manyDetail.contains(QStringLiteral("c19.qgz")));
+    QVERIFY(!manyDetail.contains(QStringLiteral("c20.qgz")));
+    QVERIFY2(manyDetail.contains(QStringLiteral("另有 5 个未列出")), qPrintable(manyDetail));
   }
 
 // ---- wave/data-foundation T2 ------------------------------------------------

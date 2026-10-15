@@ -239,6 +239,80 @@ QString lineParamsJson( const QString &type, const QVariantMap &lineParams, QStr
     stored.insert( QStringLiteral( "cartographicBuffer" ), 0.0 );
   return QString::fromUtf8( QJsonDocument( QJsonObject::fromVariantMap( stored ) ).toJson( QJsonDocument::Compact ) );
 }
+
+// P3 混合几何：约束库 constraints 表声明为 wkbUnknown，OGR 按**首要素**给图层
+// 几何类型——主图层 constraints.<层位> 只按该类型渲染/捕获，其余类型的行不可见。
+// 主图层不能按类型过滤：编辑会话要求它覆盖层位全部行（会话起点行数 == store），
+// 合成等下游也按主图层取全部要素。因此不迁移 GPKG、不改主图层，只为层位中
+// 「存在但主图层类型不覆盖」的几何类型声明只读伴随视图（OGR geometrytype= 过滤），
+// 类型消失时撤销对应视图声明。
+QString constraintGeometryViewSuffix( Qgis::GeometryType type )
+{
+  switch ( type )
+  {
+    case Qgis::GeometryType::Point:
+      return QStringLiteral( "point" );
+    case Qgis::GeometryType::Line:
+      return QStringLiteral( "line" );
+    case Qgis::GeometryType::Polygon:
+      return QStringLiteral( "polygon" );
+    default:
+      return {};
+  }
+}
+
+void syncConstraintGeometryViews( QgisLayerService *layers, ConstraintStore *store, const QString &horizon )
+{
+  if ( !layers || !store || horizon.isEmpty() )
+    return;
+  const QString base = QStringLiteral( "%1|layername=constraints" ).arg( store->gpkgPath() );
+  const QString subset = QStringLiteral( "|subset=horizon='%1'" ).arg( horizon );
+  QSet<Qgis::GeometryType> present;
+  for ( const QVariantMap &row : store->load( horizon ) )
+  {
+    const QgsGeometry geometry = QgsGeometry::fromWkt( row.value( QStringLiteral( "wkt" ) ).toString() );
+    if ( !geometry.isNull() && !geometry.isEmpty() )
+      present.insert( geometry.type() );
+  }
+  Qgis::GeometryType mainType = Qgis::GeometryType::Unknown;
+  if ( !present.isEmpty() )
+  {
+    const QgsVectorLayer probe( base + subset, QStringLiteral( "probe" ), QStringLiteral( "ogr" ) );
+    if ( probe.isValid() )
+      mainType = probe.geometryType();
+  }
+  static const struct
+  {
+    Qgis::GeometryType type;
+    const char *ogrName;
+    const char *title;
+  } kViews[] = { { Qgis::GeometryType::Point, "Point", "约束（点）" },
+                 { Qgis::GeometryType::Line, "LineString", "约束（线）" },
+                 { Qgis::GeometryType::Polygon, "Polygon", "约束（面）" } };
+  for ( const auto &view : kViews )
+  {
+    const QString layerId =
+        QStringLiteral( "%1%2.%3" ).arg( PaleoLayerVocabulary::kConstraintGeometryViewPrefix, horizon, constraintGeometryViewSuffix( view.type ) );
+    if ( present.contains( view.type ) && view.type != mainType )
+    {
+      LayerDeclaration decl;
+      decl.layerId = layerId;
+      decl.horizon = horizon;
+      decl.type = QStringLiteral( "vector" );
+      decl.source = base + QStringLiteral( "|geometrytype=%1" ).arg( QLatin1String( view.ogrName ) ) + subset;
+      decl.group = PaleoLayerVocabulary::kConstraintsGroup;
+      decl.title = QStringLiteral( "%1 · %2" ).arg( QString::fromUtf8( view.title ), horizon );
+      const LayerDeclaration existing = layers->declaration( layerId );
+      if ( existing.source != decl.source || existing.title != decl.title )
+        layers->declare( decl );
+    }
+    else if ( !layers->declaration( layerId ).layerId.isEmpty() )
+    {
+      layers->removeDeclaration( layerId );
+    }
+  }
+}
+
 } // namespace
 
 bool ConstraintWorkflow::addConstraintThroughSession(QgsVectorLayer *layer, ConstraintStore *store,
@@ -394,6 +468,7 @@ bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &w
       cs->remove( c.id );
       return false;
     }
+    syncConstraintGeometryViews( layers, cs, horizon );
 
     if ( constraintIdOut )
       *constraintIdOut = c.id;
@@ -740,6 +815,7 @@ QVector<QVariantMap> ConstraintWorkflow::loadConstraints( const QString &horizon
                         .arg( cs->gpkgPath(), horizon );
       decl.group = PaleoLayerVocabulary::kConstraintsGroup;
       layers->declare( decl );
+      syncConstraintGeometryViews( layers, cs, horizon );
     }
     else
     {
@@ -763,6 +839,7 @@ QVector<QVariantMap> ConstraintWorkflow::loadConstraints( const QString &horizon
                           .arg( cs->gpkgPath(), h );
         decl.group = PaleoLayerVocabulary::kConstraintsGroup;
         layers->declare( decl );
+        syncConstraintGeometryViews( layers, cs, h );
       }
     }
   }

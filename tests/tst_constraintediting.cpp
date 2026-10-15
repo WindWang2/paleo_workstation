@@ -27,6 +27,7 @@
 #include <qgsprocessingcontext.h>
 #include <qgsprocessingutils.h>
 #include "../src/qgis/qgislayerservice.h"
+#include "../src/qgis/layervocabulary.h"
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/metadata/layermanifest.h"
 #include "../src/workflow/workflows.h"
@@ -435,6 +436,56 @@ private slots:
       ignored << QString::fromStdString(item);
     ignored.sort();
     QCOMPARE(ignored, QStringList({"poly not_line", "pt not_line"}));
+  }
+
+  // P3：混合几何层位按几何类型声明只读伴随视图（不迁移 GPKG、不改主图层）。
+  // 主图层类型随首要素；伴随视图补齐主图层不覆盖的类型，多部件同类计入，且只读。
+  void mixedGeometryViewsPerType_data() { mixedPointLineHorizonProbe_data(); }
+  void mixedGeometryViewsPerType()
+  {
+    QFETCH(bool, pointFirst);
+    QTemporaryDir dir;
+    PaleoProjectStore store;
+    const QString gpkg = dir.filePath("project.gpkg");
+    store.setProjectPaths(dir.filePath("p.qgz"), gpkg, dir.filePath("m.sqlite"));
+    ConstraintStore constraints(gpkg, &store);
+    QString error;
+    if (pointFirst)
+      QVERIFY(constraints.append("T1", "pt", "POINT(5 5)", "point", 3, &error));
+    QVERIFY(constraints.appendExtended("T1", "line", "LINESTRING(0 0,10 0)", "break_line", 0,
+                                       "{\"semantic\":\"hard_barrier\"}", 1, &error));
+    QVERIFY(constraints.appendExtended("T1", "mline", "MULTILINESTRING((0 2,10 2),(0 3,10 3))", "break_line", 0,
+                                       "{\"semantic\":\"hard_barrier\"}", 1, &error));
+    if (!pointFirst)
+      QVERIFY(constraints.append("T1", "pt", "POINT(5 5)", "point", 3, &error));
+    QVERIFY(constraints.append("T2", "other", "POINT(9 9)", "point", 3, &error)); // 其他层位不计入
+    QgisProjectService project;
+    QVERIFY(project.createProject(dir.filePath("p.qgz")));
+    LayerManifest manifest(dir.filePath("m.sqlite"));
+    QVERIFY(manifest.open());
+    QgisLayerService layers(&project, &manifest);
+    ConstraintWorkflow workflow(nullptr, &layers);
+    workflow.setConstraintStore(&constraints);
+    workflow.loadConstraints("T1");
+    auto *main = qobject_cast<QgsVectorLayer *>(layers.instantiate("constraints.T1", &error));
+    QVERIFY2(main, qPrintable(error));
+    QCOMPARE(main->featureCount(), 3LL); // 主图层不过滤：覆盖层位全部行（编辑会话前提）
+    const QString missing = pointFirst ? "constraintgeom.T1.line" : "constraintgeom.T1.point";
+    const QString covered = pointFirst ? "constraintgeom.T1.point" : "constraintgeom.T1.line";
+    QCOMPARE(main->geometryType(), pointFirst ? Qgis::GeometryType::Point : Qgis::GeometryType::Line);
+    QVERIFY(layers.declaration(covered).layerId.isEmpty());
+    QVERIFY(layers.declaration("constraintgeom.T1.polygon").layerId.isEmpty());
+    auto *view = qobject_cast<QgsVectorLayer *>(layers.instantiate(missing, &error));
+    QVERIFY2(view, qPrintable(error));
+    QVERIFY(view->readOnly());
+    QCOMPARE(view->geometryType(), pointFirst ? Qgis::GeometryType::Line : Qgis::GeometryType::Point);
+    QCOMPARE(view->featureCount(), pointFirst ? 2LL : 1LL);
+    QCOMPARE(layers.declaration(missing).group, PaleoLayerVocabulary::kConstraintsGroup);
+    QgisEditingService edits(&store);
+    QVERIFY(!edits.beginEdit(view, &error)); // 伴随视图不可编辑：编辑走主图层会话
+    // 新绘面约束 → 声明面视图。
+    QVERIFY2(workflow.addConstraint("T1", "POLYGON((20 20,30 20,30 30,20 20))", "polygon", 2, &error), qPrintable(error));
+    QVERIFY(!layers.declaration("constraintgeom.T1.polygon").layerId.isEmpty());
   }
 
   void boundaryPolygonRoundTrip()

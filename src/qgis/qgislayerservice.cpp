@@ -1,5 +1,6 @@
 // 层：QGIS 封装
 #include "qgislayerservice.h"
+#include "layervocabulary.h"
 #include "constraintcrs.h"
 #include "factorstylewriter.h"
 #include "qgiserrors_internal.h"
@@ -181,6 +182,10 @@ QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *erro
   // P1-C：约束库 GPKG 层无 SRS——按库约定补本地工程网格 CRS，画布按工程
   // 转换上下文显示（配准工程走显式坐标操作），不再把无 CRS 层当画布坐标。
   paleo::constraintcrs::assignStoreCrsIfMissing(layer.get());
+  // P3：混合几何伴随视图直连约束库，只读——编辑必须走主图层的约束会话（审计/撤销）。
+  if (decl->layerId.startsWith(PaleoLayerVocabulary::kConstraintGeometryViewPrefix))
+    if (auto *vector = qobject_cast<QgsVectorLayer *>(layer.get()))
+      vector->setReadOnly(true);
 
   if (decl->layerId.startsWith(QStringLiteral("contours.")) ||
       (decl->layerId.startsWith(QStringLiteral("cartographic.")) && decl->layerId.endsWith(QStringLiteral(".contours"))))

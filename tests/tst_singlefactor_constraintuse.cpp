@@ -178,6 +178,128 @@ private slots:
                   .valid );
   }
 
+  // P0/P1（pr457-closure）：schemaVersion 必须是合法范围内的整数——非整数
+  // （1.5/1.1）不得被 toInt() 截断后当成 1 接受。
+  void fractionalSchemaVersionIsRejected()
+  {
+    for ( const char *json : { R"({"semantic":"hard_barrier","schemaVersion":1.5})",
+                               R"({"semantic":"hard_barrier","schemaVersion":1.1})",
+                               R"({"semantic":"hard_barrier","schemaVersion":0})",
+                               R"({"semantic":"hard_barrier","schemaVersion":-1})",
+                               R"({"semantic":"hard_barrier","schemaVersion":1e300})" } )
+    {
+      const ConstraintSemantics s = resolveConstraintSemantics( QStringLiteral( "break_line" ),
+                                                                 QString::fromLatin1( json ), QVariant() );
+      QVERIFY2( !s.valid, json );
+      QVERIFY2( !s.error.isEmpty(), json );
+    }
+    // 字符串版本号同样非法（类型错误，不做宽松转换）。
+    QVERIFY( !resolveConstraintSemantics( QStringLiteral( "break_line" ),
+                                          QStringLiteral( R"({"semantic":"hard_barrier","schemaVersion":"1"})" ),
+                                          QVariant() )
+                  .valid );
+    // 整数 1 正常接受。
+    QVERIFY( resolveConstraintSemantics( QStringLiteral( "break_line" ),
+                                         QStringLiteral( R"({"semantic":"hard_barrier","schemaVersion":1})" ),
+                                         QVariant() )
+                  .valid );
+  }
+
+  void unsupportedSchemaVersionIsRejected()
+  {
+    // 未知更高版本不能被静默当成旧版本。
+    for ( const char *json : { R"({"semantic":"hard_barrier","schemaVersion":2})",
+                               R"({"semantic":"hard_barrier","schemaVersion":99})" } )
+    {
+      const ConstraintSemantics s = resolveConstraintSemantics( QStringLiteral( "break_line" ),
+                                                                 QString::fromLatin1( json ), QVariant() );
+      QVERIFY2( !s.valid, json );
+      QVERIFY2( s.error.contains( QStringLiteral( "版本" ) ), json );
+    }
+  }
+
+  // P0/P1：enabled 存在时必须是布尔——"false"/0/null/[] 不得经 toBool(true)
+  // 默认成启用。
+  void enabledMustBeBoolean()
+  {
+    // 合法：字段不存在 → 默认启用；布尔 false → 停用；布尔 true → 启用。
+    QVERIFY( resolveConstraintSemantics( QStringLiteral( "break_line" ),
+                                         QStringLiteral( R"({"semantic":"hard_barrier"})" ), QVariant() )
+                  .enabled );
+    QVERIFY( !resolveConstraintSemantics( QStringLiteral( "break_line" ),
+                                          QStringLiteral( R"({"semantic":"hard_barrier","enabled":false})" ), QVariant() )
+                   .enabled );
+    QVERIFY( resolveConstraintSemantics( QStringLiteral( "break_line" ),
+                                         QStringLiteral( R"({"semantic":"hard_barrier","enabled":true})" ), QVariant() )
+                  .enabled );
+    // 非法类型：字段存在但不是布尔 → invalid（带诊断），不猜语义。
+    for ( const char *json : { R"({"semantic":"hard_barrier","enabled":"false"})",
+                               R"({"semantic":"hard_barrier","enabled":"true"})",
+                               R"({"semantic":"hard_barrier","enabled":0})",
+                               R"({"semantic":"hard_barrier","enabled":1})",
+                               R"({"semantic":"hard_barrier","enabled":null})",
+                               R"({"semantic":"hard_barrier","enabled":[]})" } )
+    {
+      const ConstraintSemantics s = resolveConstraintSemantics( QStringLiteral( "break_line" ),
+                                                                 QString::fromLatin1( json ), QVariant() );
+      QVERIFY2( !s.valid, json );
+      QVERIFY2( !s.error.isEmpty(), json );
+    }
+  }
+
+  // P0/P1：非法参数（含非有限数值、blockMode 非字符串）在语义层就 invalid，
+  // 不会以「有效约束」身份进入任何引擎的分派。
+  void invalidConstraintParameterDoesNotReachEngine()
+  {
+    for ( const char *json : { R"({"semantic":"hard_barrier","blockMode":5})",
+                               R"({"semantic":"hard_barrier","blockMode":null})",
+                               R"({"semantic":"direction_guide","ratio":1e999})",
+                               R"({"semantic":"interpretive_boundary","softStrength":1e999})" } )
+    {
+      const ConstraintSemantics s = resolveConstraintSemantics( QStringLiteral( "break_line" ),
+                                                                 QString::fromLatin1( json ), QVariant() );
+      QVERIFY2( !s.valid, json );
+      QVERIFY2( !s.error.isEmpty(), json );
+      // 所有方法下都不消费、且不进入方法分派。
+      for ( const QString &method : kAllMethods )
+      {
+        const ConstraintUseDecision d = decide( QStringLiteral( "break_line" ), QString::fromLatin1( json ), method );
+        QVERIFY2( !d.consumed, qPrintable( method + QLatin1Char( ' ' ) + json ) );
+      }
+    }
+  }
+
+  // 兼容：合法旧数据（无 params_json 仅 type 列；v1 schema；停用行）照常加载。
+  void legacyValidConstraintStillLoads()
+  {
+    const ConstraintSemantics legacyRow = resolveConstraintSemantics( QStringLiteral( "break_line" ), QString(),
+                                                                       QVariant() );
+    QVERIFY( legacyRow.valid );
+    QCOMPARE( legacyRow.semantic, QStringLiteral( "hard_barrier" ) );
+    const ConstraintSemantics legacyDirection = resolveConstraintSemantics( QStringLiteral( "direction_line" ),
+                                                                             QString(), QVariant() );
+    QCOMPARE( legacyDirection.semantic, QStringLiteral( "direction_guide" ) );
+    const ConstraintSemantics v1 = resolveConstraintSemantics(
+        QStringLiteral( "break_line" ),
+        QStringLiteral( R"({"schemaVersion":1,"semantic":"hard_barrier","blockMode":"full_block","ratio":2.5})" ),
+        QVariant() );
+    QVERIFY( v1.valid );
+    QCOMPARE( v1.ratio, 2.5 );
+    // schema_version 列（非 JSON 字段）仍作为后备版本来源。
+    const ConstraintSemantics viaColumn = resolveConstraintSemantics(
+        QStringLiteral( "break_line" ), QStringLiteral( R"({"semantic":"hard_barrier"})" ), QVariant( 1 ) );
+    QVERIFY( viaColumn.valid );
+    // 列里未知版本同样拒绝。
+    QVERIFY( !resolveConstraintSemantics( QStringLiteral( "break_line" ),
+                                          QStringLiteral( R"({"semantic":"hard_barrier"})" ), QVariant( 2 ) )
+                  .valid );
+    // 停用行为不变。
+    const ConstraintSemantics disabledRow = resolveConstraintSemantics(
+        QStringLiteral( "break_line" ), QStringLiteral( R"({"semantic":"hard_barrier","enabled":false})" ), QVariant() );
+    QVERIFY( disabledRow.valid );
+    QCOMPARE( disabledRow.ignoredReason, QStringLiteral( "disabled" ) );
+  }
+
   // 验收：方向线 + 本地方向 IDW / Kriging → consumed。
   void directionLineConsumedByLocalDirection()
   {

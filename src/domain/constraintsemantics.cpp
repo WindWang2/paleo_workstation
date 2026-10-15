@@ -38,7 +38,13 @@ bool readNumber( const QJsonObject &object, const QString &key, double *target, 
     *error = QStringLiteral( "约束参数 %1 不是数值" ).arg( key );
     return false;
   }
-  *target = value.toDouble();
+  const double number = value.toDouble();
+  if ( !std::isfinite( number ) )
+  {
+    *error = QStringLiteral( "约束参数 %1 不是有限数值" ).arg( key );
+    return false;
+  }
+  *target = number;
   return true;
 }
 
@@ -172,19 +178,30 @@ ConstraintSemantics resolveConstraintSemantics( const QString &type, const QStri
   if ( parseError.error != QJsonParseError::NoError || !document.isObject() )
     return invalid( QStringLiteral( "约束 %1 的 params_json 无法解析" ).arg( featureId ) );
   const QJsonObject object = document.object();
+  // P0/P1（pr457-closure）：版本必须显式合法——非整数（1.5 被 toInt 截断成 1）、
+  // 非有限、小于 1 的值一律 invalid；未知更高版本不得被静默当成旧版本。
   int schema = 1;
+  bool schemaSeen = false;
   if ( object.contains( QStringLiteral( "schemaVersion" ) ) )
   {
     const QJsonValue schemaValue = object.value( QStringLiteral( "schemaVersion" ) );
     if ( !schemaValue.isDouble() )
       return invalid( QStringLiteral( "schemaVersion 不是整数" ) );
-    schema = schemaValue.toInt();
+    const double raw = schemaValue.toDouble();
+    if ( !std::isfinite( raw ) || std::trunc( raw ) != raw || raw < 1.0 || raw > 1e6 )
+      return invalid( QStringLiteral( "不合法的约束参数版本 %1" ).arg( QString::number( raw ) ) );
+    schema = static_cast<int>( raw );
+    schemaSeen = true;
   }
   else if ( schemaColumn.isValid() && !schemaColumn.isNull() )
   {
-    schema = schemaColumn.toInt();
+    const int column = schemaColumn.toInt();
+    if ( column < 1 )
+      return invalid( QStringLiteral( "不合法的约束参数版本 %1" ).arg( column ) );
+    schema = column;
+    schemaSeen = true;
   }
-  if ( schema > 1 )
+  if ( schemaSeen && schema > 1 )
     return invalid( QStringLiteral( "不认识的约束参数版本 %1" ).arg( schema ) );
   const QJsonValue semanticValue = object.value( QStringLiteral( "semantic" ) );
   if ( !semanticValue.isString() )
@@ -192,8 +209,15 @@ ConstraintSemantics resolveConstraintSemantics( const QString &type, const QStri
   out.declaredSemantic = semanticValue.toString();
   if ( !isKnownSemanticToken( out.declaredSemantic ) )
     return invalid( QStringLiteral( "不认识的约束语义 %1" ).arg( out.declaredSemantic ) );
+  // P0/P1：enabled 存在时必须是布尔——"false"/0/null/[] 不得经宽松转换默认成
+  // 启用；字段不存在才是合法的默认启用。
   if ( object.contains( QStringLiteral( "enabled" ) ) )
-    out.enabled = object.value( QStringLiteral( "enabled" ) ).toBool( true );
+  {
+    const QJsonValue enabledValue = object.value( QStringLiteral( "enabled" ) );
+    if ( !enabledValue.isBool() )
+      return invalid( QStringLiteral( "约束 %1 的 enabled 必须是布尔" ).arg( featureId ) );
+    out.enabled = enabledValue.toBool();
+  }
   // 判定顺序与旧 constraintparse 逐字一致：停用 → blockMode 重分类 → 数值字段。
   // 被忽略的行不再读数值（非数值字段不让整次运行失败）。
   if ( !out.enabled && !options.keepDisabled )
@@ -202,8 +226,12 @@ ConstraintSemantics resolveConstraintSemantics( const QString &type, const QStri
     return out;
   }
   const QJsonValue blockModeValue = object.value( QStringLiteral( "blockMode" ) );
-  if ( blockModeValue.isString() )
+  if ( object.contains( QStringLiteral( "blockMode" ) ) )
+  {
+    if ( !blockModeValue.isString() )
+      return invalid( QStringLiteral( "约束 %1 的 blockMode 必须是字符串" ).arg( featureId ) );
     out.blockMode = blockModeValue.toString().trimmed();
+  }
   out.semantic = out.declaredSemantic;
   // 上游 constraint_semantics.py：hard_barrier 的 blockMode 决定真实语义——
   // display_only 只停线不动趋势，其余非阻断词一律忽略。

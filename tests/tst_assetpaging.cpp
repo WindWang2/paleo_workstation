@@ -680,11 +680,17 @@ private slots:
     { QFile f(probe.filePath()); QVERIFY(f.open(QIODevice::WriteOnly)); f.write("{broken"); }
     QSignalSpy status(&panel, &DataListPanel::statusMessage);
     bool sawDialog = false;
-    QTimer::singleShot(0, [&sawDialog] {
-      if (auto *dlg = qobject_cast<QDialog *>(QApplication::activeModalWidget())) { sawDialog = true; dlg->reject(); }
+    QString banner;
+    QTimer::singleShot(0, [&sawDialog, &banner] {
+      if (auto *dlg = qobject_cast<QDialog *>(QApplication::activeModalWidget())) {
+        sawDialog = true;
+        if (auto *w = dlg->findChild<QLabel *>(QStringLiteral("importLedgerWarning"))) banner = w->text();
+        dlg->reject();
+      }
     });
     panel.showImportLedger();
     QVERIFY(sawDialog);
+    QVERIFY2(banner.contains(QStringLiteral("损坏")), qPrintable(banner)); // 查看器内可见，不只状态栏
     bool reported = false;
     for (const auto &args : status) reported = reported || args.at(0).toString().contains(QStringLiteral("损坏"));
     QVERIFY2(reported, "损坏台账未给出原因");

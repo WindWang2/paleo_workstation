@@ -499,6 +499,17 @@ void DataListPanel::showImportLedger()
     emit statusMessage(ledger.loadWarning());
   paleo::dataops::ImportLedgerDialog dlg(this);
   dlg.setBatches(ledger.batches());
+  // 状态栏一闪而过、且被模态框挡住：原因同时放进查看器顶部，与「0 批」并列可见
+  //（S5 U2-e；对话框本身不在本域，只经其公开布局插一条提示）。
+  if (!ledger.loadWarning().isEmpty())
+    if (auto *lay = qobject_cast<QBoxLayout *>(dlg.layout()))
+    {
+      auto *warning = new QLabel(tr("台账警告：%1").arg(ledger.loadWarning()), &dlg);
+      warning->setObjectName(QStringLiteral("importLedgerWarning"));
+      warning->setWordWrap(true);
+      warning->setTextInteractionFlags(Qt::TextSelectableByMouse);
+      lay->insertWidget(0, warning);
+    }
   dlg.exec();
 }
 

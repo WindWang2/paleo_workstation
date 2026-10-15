@@ -136,6 +136,7 @@ class GeostatWorkflowTests : public QObject
     void idwLineageCarriesReceipts();
     void searchRadiusIsHonoured();
     void cokrigingRhoProvenance();
+    void explicitVariogramClampProvenance();
     void unknownStrategyIdRejected();
 };
 
@@ -612,6 +613,70 @@ void GeostatWorkflowTests::idwLineageCarriesReceipts()
   QCOMPARE( skipped.size(), 1 );
   QCOMPARE( skipped.first().toMap().value( QStringLiteral( "well_id" ) ).toString(), QStringLiteral( "W4" ) );
   QCOMPARE( skipped.first().toMap().value( QStringLiteral( "reason" ) ).toString(), QStringLiteral( "field_missing_or_non_finite" ) );
+}
+
+// U4b：显式变差参数（range/sill>0）下负块金→0、各向异性比<1→1 是静默钳制——
+// model_provenance 必须留痕（nugget_clamped/nugget_effective、
+// anisotropy_clamped/anisotropy_effective，仅发生钳制时插入；正常值无新键）。
+void GeostatWorkflowTests::explicitVariogramClampProvenance()
+{
+  Fixture f;
+  QVERIFY( initFixture( f ) );
+  QString err;
+  QVERIFY2( setupWells( f, 5, &err ), qPrintable( err ) ); // 25 口 ≥ 阈值 8
+  ConstraintWorkflow wf( &f.proc, &f.layers );
+  wf.setCatalog( &f.catalog, f.projectDir() );
+
+  const auto extraOfFactor = [&f]( const QString &factorId ) {
+    QVariantMap found;
+    for ( const CatalogAsset &asset : f.catalog.assets() )
+      for ( const CatalogVersion &version : f.catalog.versionsForAsset( asset.id ) )
+        if ( version.extra.value( QStringLiteral( "factor_id" ) ).toString() == factorId )
+          found = version.extra;
+    return found;
+  };
+
+  const auto run = [&]( const QString &factorId, double nugget, double anisotropy ) {
+    QVariantMap params;
+    params.insert( QStringLiteral( "field" ), QStringLiteral( "z" ) );
+    params.insert( QStringLiteral( "cellSize" ), 2.0 );
+    params.insert( QStringLiteral( "method" ), QStringLiteral( "kriging" ) );
+    params.insert( QStringLiteral( "nugget" ), nugget );
+    params.insert( QStringLiteral( "sill" ), 1.0 );
+    params.insert( QStringLiteral( "range" ), 40.0 ); // 显式 range/sill → 显式模型分支
+    params.insert( QStringLiteral( "anisotropyRatio" ), anisotropy );
+    QString error;
+    if ( !wf.generateFactor( QStringLiteral( "T1" ), factorId, params, &error ) )
+      return QVariantMap{ { QStringLiteral( "error" ), error } };
+    return extraOfFactor( factorId );
+  };
+
+  const QVariantMap clamped = run( QStringLiteral( "sandthick" ), -0.5, 0.5 );
+  QVERIFY2( !clamped.contains( QStringLiteral( "error" ) ),
+            qPrintable( clamped.value( QStringLiteral( "error" ) ).toString() ) );
+  QVERIFY( !clamped.isEmpty() );
+  const QVariantMap provenance = clamped.value( QStringLiteral( "model_provenance" ) ).toMap();
+  QCOMPARE( provenance.value( QStringLiteral( "variogram_source" ) ).toString(),
+            QStringLiteral( "explicit" ) );
+  QCOMPARE( provenance.value( QStringLiteral( "nugget_clamped" ) ).toBool(), true );
+  QCOMPARE( provenance.value( QStringLiteral( "nugget_effective" ) ).toDouble(), 0.0 );
+  QCOMPARE( provenance.value( QStringLiteral( "anisotropy_clamped" ) ).toBool(), true );
+  QCOMPARE( provenance.value( QStringLiteral( "anisotropy_effective" ) ).toDouble(), 1.0 );
+  // QC json 与血缘同源（model_provenance 整节点复制）。
+  const QJsonObject qc = readQc( f.projectDir(), clamped );
+  const QJsonObject qcProvenance = qc.value( QStringLiteral( "model_provenance" ) ).toObject();
+  QCOMPARE( qcProvenance.value( QStringLiteral( "nugget_clamped" ) ).toBool(), true );
+  QCOMPARE( qcProvenance.value( QStringLiteral( "anisotropy_effective" ) ).toDouble(), 1.0 );
+
+  // 回归：正常值（nugget>=0、ratio>=1）不新增 clamped 键。
+  const QVariantMap honest = run( QStringLiteral( "poro" ), 0.2, 2.0 );
+  QVERIFY2( !honest.contains( QStringLiteral( "error" ) ),
+            qPrintable( honest.value( QStringLiteral( "error" ) ).toString() ) );
+  const QVariantMap cleanProvenance = honest.value( QStringLiteral( "model_provenance" ) ).toMap();
+  QCOMPARE( cleanProvenance.value( QStringLiteral( "variogram_source" ) ).toString(),
+            QStringLiteral( "explicit" ) );
+  QVERIFY( !cleanProvenance.contains( QStringLiteral( "nugget_clamped" ) ) );
+  QVERIFY( !cleanProvenance.contains( QStringLiteral( "anisotropy_clamped" ) ) );
 }
 
 #include "tst_geostat_workflow.moc"

@@ -12,6 +12,7 @@
 #include <QUuid>
 
 #include <qgsapplication.h>
+#include <qgscoordinatereferencesystem.h>
 #include <qgsfeature.h>
 #include <qgsfield.h>
 #include <qgsgeometry.h>
@@ -178,11 +179,13 @@ private:
   }
 
   // 跑加工算法；返回 {qc, structural}（JSON 对象）。失败返回空 pair。
+  // extraParams：附加运行参数（如 POWER/SEARCH_RADIUS/EXTEND_TO_BOUNDARY 覆盖）。
   QPair<QJsonObject, QJsonObject> runStructural( const QString &wellsPath,
                                                const QString &boundaryPath,
                                                const QString &directionsPath,
                                                const QString &barriersPath,
-                                               int resolution, qint64 *elapsedMs )
+                                               int resolution, qint64 *elapsedMs,
+                                               const QVariantMap &extraParams = QVariantMap() )
   {
     auto wells = std::make_unique<QgsVectorLayer>( wellsPath, QStringLiteral( "wells" ),
                                                    QStringLiteral( "ogr" ) );
@@ -213,6 +216,8 @@ private:
     params.insert( QStringLiteral( "CONSTRAINTS" ),
                    QVariant::fromValue( static_cast<QgsMapLayer *>( constraints.get() ) ) );
     params.insert( QStringLiteral( "GRID_RESOLUTION" ), resolution );
+    for ( auto it = extraParams.constBegin(); it != extraParams.constEnd(); ++it )
+      params.insert( it.key(), it.value() );
     params.insert( QStringLiteral( "OUTPUT" ), outPath );
 
     QgsProcessingContext ctx;
@@ -471,6 +476,14 @@ private slots:
   void importAutoRoleDetect();
   void syntheticGolden();
   void enpingGolden();
+  // U3：POWER 入口校验（有限且 >0，文案对齐姊妹引擎「POWER 必须为有限正数」）。
+  void powerZeroRejectedAtEntry();
+  // U4a：local_kriging K 钳制回执（QC parameters 请求值 + effective 键）。
+  void localKrigingClampReceiptInQc();
+  // U5a：QC parameters 覆盖数值生效参数（SEARCH_RADIUS 等改变指纹输入）。
+  void qcParametersCoverEffectiveInputs();
+  // U5b：QC counts 补 finite/nodata（血缘 finite_cells/nodata_cells 不再恒 null）。
+  void qcCountsFiniteNodata();
 };
 
 void tst_singlefactor_structural::importDefaults()
@@ -577,6 +590,252 @@ void tst_singlefactor_structural::enpingGolden()
   compareCase( golden, qc, model, metrics );
   qInfo() << "enping: maxAbs" << metrics.maxAbs << "RMSE" << metrics.rmse << "elapsed" << elapsed
           << "ms";
+}
+
+// U3 Processing 级：POWER=0 / -1 在入口被拒，异常文案含 "POWER"——
+// 此前无校验，0/-1 幂次一路进引擎，extend 模式下被误报成缺井。
+void tst_singlefactor_structural::powerZeroRejectedAtEntry()
+{
+  ensurePaleo();
+  const QString base = fixturePath( QStringLiteral( "structural_synthetic" ) );
+  for ( const double badPower : { 0.0, -1.0 } )
+  {
+    qint64 elapsed = 0;
+    const auto [qc, model] =
+        runStructural( base + QStringLiteral( "/wells.shp" ),
+                       base + QStringLiteral( "/boundary.shp" ), QString(), QString(), 60,
+                       &elapsed, QVariantMap{ { QStringLiteral( "POWER" ), badPower } } );
+    QVERIFY2( qc.isEmpty() && model.isEmpty(),
+              qPrintable( QStringLiteral( "POWER=%1 must be rejected" ).arg( badPower ) ) );
+  }
+  // 直接断言算法抛出的文案（run() 吞异常进 feedback 日志）。
+  auto wells = std::make_unique<QgsVectorLayer>( base + QStringLiteral( "/wells.shp" ),
+                                                 QStringLiteral( "wells" ), QStringLiteral( "ogr" ) );
+  auto boundary = std::make_unique<QgsVectorLayer>( base + QStringLiteral( "/boundary.shp" ),
+                                                    QStringLiteral( "boundary" ),
+                                                    QStringLiteral( "ogr" ) );
+  QVERIFY( wells->isValid() && boundary->isValid() );
+  const QgsProcessingAlgorithm *alg = QgsApplication::processingRegistry()->algorithmById(
+      QStringLiteral( "paleo:paleo_structural_idw" ) );
+  QVERIFY( alg );
+  QVariantMap params;
+  params.insert( QStringLiteral( "WELLS" ),
+                 QVariant::fromValue( static_cast<QgsMapLayer *>( wells.get() ) ) );
+  params.insert( QStringLiteral( "WELL_ID_FIELD" ), QStringLiteral( "well_id" ) );
+  params.insert( QStringLiteral( "VALUE_FIELD" ), QStringLiteral( "sand_ratio" ) );
+  params.insert( QStringLiteral( "BOUNDARY" ),
+                 QVariant::fromValue( static_cast<QgsMapLayer *>( boundary.get() ) ) );
+  params.insert( QStringLiteral( "POWER" ), 0.0 );
+  params.insert( QStringLiteral( "GRID_RESOLUTION" ), 60 );
+  params.insert( QStringLiteral( "OUTPUT" ),
+                 mDir.filePath( QStringLiteral( "structural-power0.tif" ) ) );
+  QgsProcessingContext ctx;
+  QgsProcessingFeedback fb;
+  const QVariantMap results = alg->run( params, ctx, &fb );
+  QVERIFY( results.isEmpty() );
+  QVERIFY2( fb.textLog().contains( QStringLiteral( "POWER" ) ),
+            qPrintable( fb.textLog() ) );
+}
+
+// U4a Processing 级：METHOD=kriging + KRIGING_MAX_POINTS=100（引擎内钳到 64）→
+// QC parameters.kriging_max_points 仍记请求值 100、另记 kriging_max_points_effective=64，
+// issues 含 kriging_neighbourhood_clamped；K=16（<=64）无 effective 键（回归）。
+void tst_singlefactor_structural::localKrigingClampReceiptInQc()
+{
+  ensurePaleo();
+  auto wells = std::make_unique<QgsVectorLayer>( QStringLiteral( "Point" ),
+                                                 QStringLiteral( "kriging-wells" ),
+                                                 QStringLiteral( "memory" ) );
+  QVERIFY( wells->isValid() );
+  // 空 CRS + LOCAL_GRID=true → local_engineering（内存层默认 4326 会被拒）。
+  wells->setCrs( QgsCoordinateReferenceSystem() );
+  wells->startEditing();
+  wells->addAttribute( QgsField( QStringLiteral( "well_id" ), QMetaType::Type::QString ) );
+  wells->addAttribute( QgsField( QStringLiteral( "v" ), QMetaType::Type::Double ) );
+  wells->updateFields();
+  for ( int row = 0; row < 5; ++row )
+  {
+    for ( int column = 0; column < 5; ++column )
+    {
+      QgsFeature feature( wells->fields() );
+      feature.setGeometry( QgsGeometry::fromPointXY(
+          QgsPointXY( 100.0 + 40.0 * column, 100.0 + 40.0 * row ) ) );
+      feature.setAttribute( QStringLiteral( "well_id" ),
+                            QStringLiteral( "W%1" ).arg( row * 5 + column ) );
+      feature.setAttribute( QStringLiteral( "v" ), 10.0 + std::sin( 0.7 * column ) + 0.3 * row );
+      QVERIFY( wells->addFeature( feature ) );
+    }
+  }
+  wells->commitChanges();
+
+  const QgsProcessingAlgorithm *alg = QgsApplication::processingRegistry()->algorithmById(
+      QStringLiteral( "paleo:paleo_local_direction_idw" ) );
+  QVERIFY( alg );
+
+  const auto run = [&]( int k ) -> QJsonObject {
+    const QString outPath = mDir.filePath(
+        QStringLiteral( "ldk-%1-%2.tif" ).arg( k ).arg( QUuid::createUuid().toString( QUuid::Id128 ) ) );
+    QVariantMap params;
+    params.insert( QStringLiteral( "INPUT" ),
+                   QVariant::fromValue( static_cast<QgsMapLayer *>( wells.get() ) ) );
+    params.insert( QStringLiteral( "FIELD" ), QStringLiteral( "v" ) );
+    params.insert( QStringLiteral( "CELL_SIZE" ), 40.0 );
+    params.insert( QStringLiteral( "POWER" ), 2.0 );
+    params.insert( QStringLiteral( "METHOD" ), QStringLiteral( "kriging" ) );
+    params.insert( QStringLiteral( "NUGGET" ), 0.2 );
+    params.insert( QStringLiteral( "SILL" ), 1.0 );
+    params.insert( QStringLiteral( "RANGE" ), 150.0 );
+    params.insert( QStringLiteral( "KRIGING_MAX_POINTS" ), k );
+    params.insert( QStringLiteral( "LOCAL_GRID" ), true );
+    params.insert( QStringLiteral( "OUTPUT" ), outPath );
+    QgsProcessingContext ctx;
+    QgsProcessingFeedback fb;
+    const QVariantMap results = alg->run( params, ctx, &fb );
+    if ( results.isEmpty() )
+    {
+      qWarning() << "local_direction_idw kriging run failed:" << fb.textLog();
+      return {};
+    }
+    return readJson( results.value( QStringLiteral( "QC" ) ).toString() );
+  };
+
+  const QJsonObject qcBig = run( 100 );
+  QVERIFY2( !qcBig.isEmpty(), "kriging K=100 run failed" );
+  QCOMPARE( qcBig.value( QStringLiteral( "method_actual" ) ).toString(), QStringLiteral( "kriging" ) );
+  const QJsonObject parameters = qcBig.value( QStringLiteral( "parameters" ) ).toObject();
+  QCOMPARE( parameters.value( QStringLiteral( "kriging_max_points" ) ).toInt(), 100 );
+  QCOMPARE( parameters.value( QStringLiteral( "kriging_max_points_effective" ) ).toInt(), 64 );
+  bool issueSeen = false;
+  for ( const QJsonValue &issue : qcBig.value( QStringLiteral( "issues" ) ).toArray() )
+    issueSeen = issueSeen || issue.toString().contains( QStringLiteral( "kriging_neighbourhood_clamped" ) );
+  QVERIFY2( issueSeen, "QC issues must carry the clamp receipt" );
+
+  // 回归：K=16（<=64）无 effective 键、无回执。
+  const QJsonObject qcSmall = run( 16 );
+  const QJsonObject smallParameters = qcSmall.value( QStringLiteral( "parameters" ) ).toObject();
+  QCOMPARE( smallParameters.value( QStringLiteral( "kriging_max_points" ) ).toInt(), 16 );
+  QVERIFY( !smallParameters.contains( QStringLiteral( "kriging_max_points_effective" ) ) );
+  for ( const QJsonValue &issue : qcSmall.value( QStringLiteral( "issues" ) ).toArray() )
+    QVERIFY2( !issue.toString().contains( QStringLiteral( "kriging_neighbourhood_clamped" ) ),
+              qPrintable( issue.toString() ) );
+}
+
+// U5a：QC parameters（= 参数指纹输入）必须覆盖实际数值生效的参数——
+// SEARCH_RADIUS/MIN/MAX_POINTS/解释强度/屏障参数只改栅格不改 hash 的洞。
+// 记 resolve 后生效值：extend=true 下 search_radius 为 null、min/max=1/0。
+void tst_singlefactor_structural::qcParametersCoverEffectiveInputs()
+{
+  ensurePaleo();
+  const QString base = fixturePath( QStringLiteral( "structural_synthetic" ) );
+  const QString wellsPath = base + QStringLiteral( "/wells.shp" );
+  const QString boundaryPath = base + QStringLiteral( "/boundary.shp" );
+  const QString directionsPath = base + QStringLiteral( "/directions.shp" );
+  const QString barriersPath = base + QStringLiteral( "/barriers.shp" );
+
+  qint64 elapsed = 0;
+  const auto [qcDefault, modelDefault] =
+      runStructural( wellsPath, boundaryPath, directionsPath, barriersPath, 120, &elapsed );
+  QVERIFY2( !qcDefault.isEmpty() && !modelDefault.isEmpty(), "default run failed" );
+  const QJsonObject paramsDefault = qcDefault.value( QStringLiteral( "parameters" ) ).toObject();
+  for ( const QString &key : { QStringLiteral( "search_radius" ),
+                               QStringLiteral( "min_points" ),
+                               QStringLiteral( "max_points" ),
+                               QStringLiteral( "interpretive_strength" ),
+                               QStringLiteral( "barrier_buffer" ),
+                               QStringLiteral( "barrier_shape_radius" ),
+                               QStringLiteral( "barrier_shape_strength" ),
+                               QStringLiteral( "enable_barriers" ),
+                               QStringLiteral( "enable_directions" ) } )
+    QVERIFY2( paramsDefault.contains( key ),
+              qPrintable( QStringLiteral( "parameters lacks %1" ).arg( key ) ) );
+  // extend=true：搜索半径未生效（null）、min/max 解析为 1/0。
+  QVERIFY( paramsDefault.value( QStringLiteral( "search_radius" ) ).isNull() );
+  QCOMPARE( paramsDefault.value( QStringLiteral( "min_points" ) ).toInt(), 1 );
+  QCOMPARE( paramsDefault.value( QStringLiteral( "max_points" ) ).toInt(), 0 );
+
+  // extend=false + SEARCH_RADIUS=6000：resolve 后 search_radius=6000 进指纹输入，
+  // 与默认跑的 parameters 序列化不同（不同参数不再共享同一指纹）。
+  const auto [qcRadius, modelRadius] =
+      runStructural( wellsPath, boundaryPath, directionsPath, barriersPath, 120, &elapsed,
+                     QVariantMap{ { QStringLiteral( "EXTEND_TO_BOUNDARY" ), false },
+                                  { QStringLiteral( "SEARCH_RADIUS" ), 6000.0 } } );
+  QVERIFY2( !qcRadius.isEmpty(), "extend=false run failed" );
+  const QJsonObject paramsRadius = qcRadius.value( QStringLiteral( "parameters" ) ).toObject();
+  QCOMPARE( paramsRadius.value( QStringLiteral( "search_radius" ) ).toDouble(), 6000.0 );
+  QVERIFY( QJsonDocument( paramsDefault ).toJson( QJsonDocument::Compact ) !=
+           QJsonDocument( paramsRadius ).toJson( QJsonDocument::Compact ) );
+
+  // 同 extend=false、不同 SEARCH_RADIUS（10 → 解析为 spacing*2，不为 6000）：
+  // 两个 parameters 必须不同。
+  const auto [qcSmall, modelSmall] =
+      runStructural( wellsPath, boundaryPath, directionsPath, barriersPath, 120, &elapsed,
+                     QVariantMap{ { QStringLiteral( "EXTEND_TO_BOUNDARY" ), false },
+                                  { QStringLiteral( "SEARCH_RADIUS" ), 10.0 } } );
+  QVERIFY2( !qcSmall.isEmpty(), "extend=false small-radius run failed" );
+  const QJsonObject paramsSmall = qcSmall.value( QStringLiteral( "parameters" ) ).toObject();
+  QVERIFY2( paramsSmall.value( QStringLiteral( "search_radius" ) ).toDouble() != 6000.0,
+            "resolved spacing*2 radius must not equal 6000" );
+  QVERIFY( QJsonDocument( paramsSmall ).toJson( QJsonDocument::Compact ) !=
+           QJsonDocument( paramsRadius ).toJson( QJsonDocument::Compact ) );
+}
+
+// U5b：QC counts 补 finite/nodata——workflow 血缘（finite_cells/nodata_cells）
+// 读 counts.finite/nodata，此前 structural 成果恒 null。独立核对：
+// finite == structural.json grid.z 的非空格数、nodata == 空格数、和 == 网格格数；
+// extend=false + 小搜索半径场景 nodata > 0。
+void tst_singlefactor_structural::qcCountsFiniteNodata()
+{
+  ensurePaleo();
+  const QString base = fixturePath( QStringLiteral( "structural_synthetic" ) );
+  const QString wellsPath = base + QStringLiteral( "/wells.shp" );
+  const QString boundaryPath = base + QStringLiteral( "/boundary.shp" );
+  const QString directionsPath = base + QStringLiteral( "/directions.shp" );
+  const QString barriersPath = base + QStringLiteral( "/barriers.shp" );
+
+  qint64 elapsed = 0;
+  const auto [qcDefault, modelDefault] =
+      runStructural( wellsPath, boundaryPath, directionsPath, barriersPath, 120, &elapsed );
+  QVERIFY2( !qcDefault.isEmpty() && !modelDefault.isEmpty(), "default run failed" );
+  const QJsonObject counts = qcDefault.value( QStringLiteral( "counts" ) ).toObject();
+  QVERIFY( counts.contains( QStringLiteral( "accepted" ) ) );
+  QVERIFY( counts.contains( QStringLiteral( "skipped" ) ) );
+  QVERIFY( counts.contains( QStringLiteral( "soft_included" ) ) );
+  QVERIFY2( counts.contains( QStringLiteral( "finite" ) ), "counts lacks finite" );
+  QVERIFY2( counts.contains( QStringLiteral( "nodata" ) ), "counts lacks nodata" );
+
+  const QJsonArray zRows =
+      modelDefault.value( QStringLiteral( "grid" ) ).toObject().value( QStringLiteral( "z" ) ).toArray();
+  int finiteFromModel = 0;
+  int cells = 0;
+  for ( const QJsonValue &rowValue : zRows )
+  {
+    const QJsonArray row = rowValue.toArray();
+    for ( const QJsonValue &cell : row )
+    {
+      ++cells;
+      if ( cell.isDouble() )
+        ++finiteFromModel;
+    }
+  }
+  QVERIFY( cells > 0 );
+  QCOMPARE( counts.value( QStringLiteral( "finite" ) ).toInt(), finiteFromModel );
+  QCOMPARE( counts.value( QStringLiteral( "nodata" ) ).toInt(), cells - finiteFromModel );
+  QCOMPARE( counts.value( QStringLiteral( "finite" ) ).toInt() +
+                counts.value( QStringLiteral( "nodata" ) ).toInt(),
+            cells );
+  QVERIFY( finiteFromModel > 0 );
+
+  // extend=false + 小搜索半径：有效域内支撑不足的格保持 NaN → nodata > 0。
+  const auto [qcSparse, modelSparse] =
+      runStructural( wellsPath, boundaryPath, directionsPath, barriersPath, 120, &elapsed,
+                     QVariantMap{ { QStringLiteral( "EXTEND_TO_BOUNDARY" ), false },
+                                  { QStringLiteral( "SEARCH_RADIUS" ), 10.0 } } );
+  QVERIFY2( !qcSparse.isEmpty(), "sparse run failed" );
+  const QJsonObject sparseCounts = qcSparse.value( QStringLiteral( "counts" ) ).toObject();
+  QVERIFY2( sparseCounts.value( QStringLiteral( "nodata" ) ).toInt() > 0,
+            "extend=false + small search radius must leave nodata cells" );
+  QVERIFY( sparseCounts.value( QStringLiteral( "finite" ) ).toInt() <
+           counts.value( QStringLiteral( "finite" ) ).toInt() );
 }
 
 int main( int argc, char *argv[] )

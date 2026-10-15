@@ -452,6 +452,12 @@ StructuralResult buildStructuralSurface( const std::vector<AcquiredWell> &wells,
     {
       return fail( Status::Cancelled, evaluated.message );
     }
+    else
+    {
+      // InvalidInput（power 非有限正数/样本非有限/查询点非有限）不得吞掉：
+      // 否则网格保持 NaN，extend 分支会把真实原因误报成「缺少可用井控」。
+      return fail( evaluated.status, evaluated.message );
+    }
   }
 
   if ( cancel() )

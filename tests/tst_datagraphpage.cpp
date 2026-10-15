@@ -4,6 +4,8 @@
 // 追溯/资料关联）不得在栈里留下中间态。
 #include <QtTest>
 #include <QComboBox>
+#include <QGraphicsObject>
+#include <QGraphicsView>
 #include <QLabel>
 #include <QPushButton>
 #include <QTemporaryDir>
@@ -45,6 +47,24 @@ class TestDataGraphPage : public QObject
     for (const auto &args : spy)
       n += args.at(0).toString() == QStringLiteral("正在准备图谱查询");
     return n;
+  }
+  // 在图上按标题前缀找节点并双击（等价用户双击；NodeItem 经 singleShot 派发）。
+  static bool doubleClickNode(DataGraphPage &page, const QString &titlePrefix)
+  {
+    auto *view = page.findChild<QGraphicsView *>(QStringLiteral("dataGraphView"));
+    if (!view || !view->scene())
+      return false;
+    for (QGraphicsItem *item : view->scene()->items())
+    {
+      auto *obj = item->toGraphicsObject();
+      if (!obj || !obj->toolTip().startsWith(titlePrefix))
+        continue;
+      view->centerOn(obj);
+      const QPoint pt = view->mapFromScene(obj->sceneBoundingRect().center());
+      QTest::mouseDClick(view->viewport(), Qt::LeftButton, {}, pt);
+      return true;
+    }
+    return false;
   }
   static Mode mode(DataGraphPage &page)
   {
@@ -436,6 +456,81 @@ private slots:
     open->click();
     QCOMPARE(activated.count(), 1);
     QCOMPARE(activated.at(0).at(0).toString(), b.id);
+  }
+  // S5 第 2 轮 Low 4：R-7 的其余入口——下游影响、展开关联、实体目录分组、实体节点
+  // 激活——各自单次操作只准备一次图谱查询（旧实现均为 2 次）。
+  void everyRefocusEntryPointSendsOneQuery()
+  {
+    QTemporaryDir dir;
+    QVERIFY(PerfFixtures::makeSyntheticCatalogDir(dir.path(), 40));
+    DataImportService importer;
+    importer.setProjectDir(dir.path());
+    PreviewDocService doc(&importer);
+    DataCatalog *cat = importer.catalog();
+    QVERIFY(cat && !cat->versions().isEmpty());
+    const CatalogVersion v = cat->versions().last();
+    const auto links = cat->linksForAsset(v.assetId);
+    QVERIFY(!links.isEmpty() && !links.first().entityId.isEmpty());
+    const CatalogEntity entity = cat->entityById(links.first().entityId);
+    QVERIFY(!entity.name.isEmpty());
+
+    DataGraphPage page;
+    page.setDocService(&doc);
+    page.resize(1400, 900);
+    page.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&page));
+    auto *wf = page.findChild<DataGraphWorkflow *>();
+    QVERIFY(wf);
+    QSignalSpy status(wf, &DataGraphWorkflow::statusChanged);
+    auto *open = button(page, QStringLiteral("预览文件 / 版本"));
+    auto *impact = button(page, QStringLiteral("查看来源的下游影响"));
+    auto *related = button(page, QStringLiteral("展开这个节点的关联"));
+    QVERIFY(open && impact && related);
+    const auto idle = [&] {
+      return !status.isEmpty() && !status.last().at(1).toBool();
+    };
+
+    // 下游影响
+    page.openRelations(v.assetId, v.id);
+    QTRY_VERIFY_WITH_TIMEOUT(open->isEnabled() && idle(), 15000);
+    QVERIFY(impact->isEnabled());
+    status.clear();
+    impact->click();
+    QCOMPARE(mode(page), Mode::Impact);
+    QCOMPARE(prepareCount(status), 1);
+    QTRY_VERIFY_WITH_TIMEOUT(idle(), 15000);
+
+    // 展开关联
+    page.openRelations(v.assetId, v.id);
+    QTRY_VERIFY_WITH_TIMEOUT(open->isEnabled() && related->isEnabled() && idle(), 15000);
+    page.openLineage(v.assetId, v.id); // 先离开关联模式，展开关联才有模式切换
+    QTRY_VERIFY_WITH_TIMEOUT(related->isEnabled() && idle(), 15000);
+    status.clear();
+    related->click();
+    QCOMPARE(mode(page), Mode::Relations);
+    QCOMPARE(prepareCount(status), 1);
+    QTRY_VERIFY_WITH_TIMEOUT(idle(), 15000);
+
+    // 实体节点激活（双击图上实体）
+    status.clear();
+    QVERIFY2(doubleClickNode(page, entity.name), qPrintable(entity.name));
+    QTRY_VERIFY_WITH_TIMEOUT(prepareCount(status) >= 1, 5000);
+    QTest::qWait(50);
+    QCOMPARE(mode(page), Mode::Relations);
+    QCOMPARE(prepareCount(status), 1);
+    QTRY_VERIFY_WITH_TIMEOUT(idle(), 15000);
+
+    // 实体目录分组（工区概览里双击「实体目录」）
+    auto *modeBox = page.findChild<QComboBox *>(QStringLiteral("dataGraphMode"));
+    QVERIFY(modeBox);
+    modeBox->setCurrentIndex(modeBox->findData(int(Mode::Overview)));
+    QTRY_VERIFY_WITH_TIMEOUT(idle(), 15000);
+    status.clear();
+    QVERIFY(doubleClickNode(page, QStringLiteral("实体目录")));
+    QTRY_VERIFY_WITH_TIMEOUT(prepareCount(status) >= 1, 5000);
+    QTest::qWait(50);
+    QCOMPARE(mode(page), Mode::Entities);
+    QCOMPARE(prepareCount(status), 1);
   }
 };
 

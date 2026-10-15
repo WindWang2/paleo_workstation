@@ -467,6 +467,37 @@ class TestVersions : public QObject
         QCOMPARE(DataCatalog::sha256FileHex(QDir(published).filePath(files.first())), gpkgSha);
         QVERIFY(QFileInfo::exists(QDir(published).filePath("evidence-snapshot.json")));
     }
+
+    // #439：三参数旧调用 saveVersion(horizon,"{}") 不写 snapshot_schema；
+    // 随后 publish 仍按调用方 decls 复制图层文件。
+    void oldCallSaveThenPublishStillCopiesDecls() {
+        Fixture f; QVERIFY(f.init()); QString error;
+        const auto gpkg = makeFaciesGpkg(f.dir.filePath("legacy.gpkg"));
+        QVERIFY(!gpkg.isEmpty());
+        const auto pdf = makePdf(f.dir.filePath("legacy.pdf"));
+        QVERIFY(!pdf.isEmpty());
+        const QString pdfSha = DataCatalog::sha256FileHex(pdf);
+        QVERIFY(f.versions.recordLayoutProduct("D61", pdf, "pdf-asset", pdfSha, &error));
+
+        // 三参数旧调用：不传 layers。
+        const auto saved = f.versions.saveVersion("D61", QStringLiteral("{}"), &error);
+        QVERIFY2(saved.version > 0, qPrintable(error));
+        const auto manifest = QJsonDocument::fromJson(saved.provenance.toUtf8()).object();
+        QVERIFY(!manifest.contains("snapshot_schema"));
+        QVERIFY(!manifest.contains("saved_layers"));
+
+        LayerDeclaration decl; decl.layerId = "facies.D61"; decl.horizon = "D61";
+        decl.type = "vector"; decl.source = gpkg + "|layername=facies_polygons";
+        const QString summary = R"({"wells_total":1,"covered":1,"missing":[],"rows":[{"kind":"residual","residual_ms":1}]})";
+        const auto published = f.versions.publish("D61", {decl}, summary, &error);
+        QVERIFY2(!published.isEmpty(), qPrintable(error));
+        const auto files = QDir(published).entryList({"*.gpkg"}, QDir::Files);
+        QCOMPARE(files.size(), 1);
+        QCOMPARE(DataCatalog::sha256FileHex(QDir(published).filePath(files.first())),
+                 DataCatalog::sha256FileHex(gpkg));
+        QCOMPARE(DataCatalog::sha256FileHex(QDir(published).filePath("layout.pdf")), pdfSha);
+    }
+
     void missingFrozenBytesRejectPublicationAndCleanStaging() {
         Fixture f; QVERIFY(f.init()); QString error;
         const auto pdf = makePdf(f.dir.filePath("map.pdf"));

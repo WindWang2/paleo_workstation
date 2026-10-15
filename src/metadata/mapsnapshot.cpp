@@ -93,9 +93,12 @@ PreparedMapSnapshot prepareMapSnapshot(const MapSnapshotInput &input,
     if (progress) progress(95.0 * (n + 1) / qMax<qsizetype>(1, input.files.size()));
   }
   if (input.operation == "save") {
-    out.provenance.insert("snapshot_schema", "paleo_map_snapshot_v1");
-    out.provenance.insert("saved_layers", savedLayers); out.provenance.insert("saved_pdf", savedPdf);
-    out.provenance.insert("snapshot_hash", mapSnapshotHash(out.provenance));
+    // #439：与 saveVersion 对齐——仅当调用方传入图层清单时标记不可变快照。
+    if (input.freezeLayers) {
+      out.provenance.insert("snapshot_schema", "paleo_map_snapshot_v1");
+      out.provenance.insert("saved_layers", savedLayers); out.provenance.insert("saved_pdf", savedPdf);
+      out.provenance.insert("snapshot_hash", mapSnapshotHash(out.provenance));
+    }
   } else {
     QSaveFile manifest(QDir(out.directory).filePath("evidence-snapshot.json"));
     const auto bytes = QJsonDocument::fromVariant(out.provenance).toJson(QJsonDocument::Indented);

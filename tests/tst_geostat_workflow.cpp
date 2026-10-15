@@ -14,6 +14,8 @@
 #include <QJsonObject>
 
 #include <gdal.h>
+#include <ogr_api.h>
+#include <ogr_srs_api.h>
 
 #include "helpers/workflowfixture.h"
 #include "../src/catalog/datacatalog.h"
@@ -131,6 +133,7 @@ class GeostatWorkflowTests : public QObject
     // 方向67 Oracle 5：策略包 id 进血缘；未知 id 拒绝不回退
     void strategyIdLandsInLineage();
     void krigingQcLineageEndToEnd();
+    void idwLineageCarriesReceipts();
     void searchRadiusIsHonoured();
     void cokrigingRhoProvenance();
     void unknownStrategyIdRejected();
@@ -525,6 +528,90 @@ void GeostatWorkflowTests::cokrigingRhoProvenance()
   QCOMPARE( estimatedNode.value( QStringLiteral( "colocated_samples" ) ).toInt(), 25 );
   QCOMPARE( estimatedNode.value( QStringLiteral( "covariate_effective" ) ).toBool(), true );
   QVERIFY( !ignoredKeys( estimated ).contains( QStringLiteral( "covariateLayerId" ) ) );
+}
+
+
+// P2：IDW 单因素结果血缘——约束逐条消费/未用 + 逐井参与/跳过（任务D）。
+void GeostatWorkflowTests::idwLineageCarriesReceipts()
+{
+  Fixture f;
+  QVERIFY( initFixture( f ) );
+  QString err;
+  // 井点与约束 store 同处工程局部坐标（DataCatalog::localGridCrsWkt）：IDW 不跨 CRS 混算。
+  const QString ptsPath = f.dir.filePath( QStringLiteral( "wells-idw.gpkg" ) );
+  {
+    GDALDatasetH ds = GDALCreate( GDALGetDriverByName( "GPKG" ), ptsPath.toUtf8().constData(), 0, 0, 0, GDT_Unknown, nullptr );
+    QVERIFY( ds );
+    OGRSpatialReferenceH srs = OSRNewSpatialReference( DataCatalog::localGridCrsWkt().toUtf8().constData() );
+    OGRLayerH layer = GDALDatasetCreateLayer( ds, "wells", srs, wkbPoint, nullptr );
+    OSRDestroySpatialReference( srs );
+    QVERIFY( layer );
+    OGRFieldDefnH idField = OGR_Fld_Create( "well_id", OFTString );
+    OGRFieldDefnH zField = OGR_Fld_Create( "z", OFTReal );
+    QCOMPARE( OGR_L_CreateField( layer, idField, TRUE ), OGRERR_NONE );
+    QCOMPARE( OGR_L_CreateField( layer, zField, TRUE ), OGRERR_NONE );
+    OGR_Fld_Destroy( idField );
+    OGR_Fld_Destroy( zField );
+    int k = 0;
+    for ( int row = 0; row < 3; ++row )
+      for ( int column = 0; column < 3; ++column, ++k )
+      {
+        OGRFeatureH feature = OGR_F_Create( OGR_L_GetLayerDefn( layer ) );
+        OGR_F_SetFieldString( feature, 0, QStringLiteral( "W%1" ).arg( k ).toUtf8().constData() );
+        if ( k == 4 )
+          OGR_F_SetFieldNull( feature, 1 );
+        else
+          OGR_F_SetFieldDouble( feature, 1, 10 + row + 0.5 * column );
+        OGRGeometryH point = OGR_G_CreateGeometry( wkbPoint );
+        OGR_G_SetPoint_2D( point, 0, 10.0 * column, 10.0 * row );
+        OGR_F_SetGeometryDirectly( feature, point );
+        QCOMPARE( OGR_L_CreateFeature( layer, feature ), OGRERR_NONE );
+        OGR_F_Destroy( feature );
+      }
+    GDALClose( ds );
+  }
+  LayerDeclaration d;
+  d.layerId = QStringLiteral( "wells.T1" );
+  d.horizon = QStringLiteral( "T1" );
+  d.type = QStringLiteral( "vector" );
+  d.source = ptsPath;
+  QVERIFY2( f.layers.declare( d, &err ), qPrintable( err ) );
+  ConstraintStore constraints( f.dir.filePath( QStringLiteral( "constraints.gpkg" ) ) );
+  QVERIFY2( constraints.appendExtended( QStringLiteral( "T1" ), QStringLiteral( "wall" ), QStringLiteral( "LINESTRING(15 -5, 15 25)" ),
+                                        QStringLiteral( "break_line" ), 0,
+                                        QStringLiteral( R"({"semantic":"hard_barrier","blockMode":"full_block"})" ), 1, &err ),
+            qPrintable( err ) );
+  QVERIFY2( constraints.appendExtended( QStringLiteral( "T1" ), QStringLiteral( "shown" ), QStringLiteral( "LINESTRING(5 -5, 5 25)" ),
+                                        QStringLiteral( "break_line" ), 0,
+                                        QStringLiteral( R"({"semantic":"hard_barrier","blockMode":"display_only"})" ), 1, &err ),
+            qPrintable( err ) );
+  ConstraintWorkflow wf( &f.proc, &f.layers );
+  wf.setCatalog( &f.catalog, f.projectDir() );
+  wf.setConstraintStore( &constraints );
+  wf.loadConstraints( QStringLiteral( "T1" ) );
+  QVariantMap params;
+  params.insert( QStringLiteral( "field" ), QStringLiteral( "z" ) );
+  params.insert( QStringLiteral( "cellSize" ), 1.0 );
+  QVERIFY2( wf.generateFactor( QStringLiteral( "T1" ), QStringLiteral( "sandthick" ), params, &err ), qPrintable( err ) );
+  QVariantMap extra;
+  for ( const CatalogAsset &asset : f.catalog.assets() )
+    for ( const CatalogVersion &version : f.catalog.versionsForAsset( asset.id ) )
+      if ( version.extra.value( QStringLiteral( "factor_id" ) ).toString() == QStringLiteral( "sandthick" ) )
+        extra = version.extra;
+  QVERIFY( !extra.isEmpty() );
+  QMap<QString, QString> consumed, unused;
+  for ( const QVariant &item : extra.value( QStringLiteral( "constraints_consumed" ) ).toList() )
+    consumed.insert( item.toMap().value( QStringLiteral( "id" ) ).toString(), item.toMap().value( QStringLiteral( "role" ) ).toString() );
+  for ( const QVariant &item : extra.value( QStringLiteral( "constraints_unused" ) ).toList() )
+    unused.insert( item.toMap().value( QStringLiteral( "id" ) ).toString(), item.toMap().value( QStringLiteral( "reason" ) ).toString() );
+  QCOMPARE( consumed.value( QStringLiteral( "wall" ) ), QStringLiteral( "hard_barrier" ) );
+  QVERIFY( !consumed.contains( QStringLiteral( "shown" ) ) );
+  QVERIFY( unused.contains( QStringLiteral( "shown" ) ) );
+  QCOMPARE( extra.value( QStringLiteral( "engine_samples_used" ) ).toList().size(), 8 );
+  const QVariantList skipped = extra.value( QStringLiteral( "engine_samples_skipped" ) ).toList();
+  QCOMPARE( skipped.size(), 1 );
+  QCOMPARE( skipped.first().toMap().value( QStringLiteral( "well_id" ) ).toString(), QStringLiteral( "W4" ) );
+  QCOMPARE( skipped.first().toMap().value( QStringLiteral( "reason" ) ).toString(), QStringLiteral( "field_missing_or_non_finite" ) );
 }
 
 #include "tst_geostat_workflow.moc"

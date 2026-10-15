@@ -291,6 +291,9 @@ void ConstraintIDWAlgorithm::initAlgorithm( const QVariantMap & )
   addOutput( new QgsProcessingOutputString(
       QStringLiteral( "CONSTRAINT_RECEIPTS" ),
       QStringLiteral( "Per-constraint consumption receipts (JSON array)" ) ) );
+  addOutput( new QgsProcessingOutputString(
+      QStringLiteral( "SAMPLE_RECEIPTS" ),
+      QStringLiteral( "Per-input-point sample receipts: participating or skip reason (JSON array)" ) ) );
 }
 
 QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &parameters,
@@ -338,22 +341,58 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
     double x, y, z;
   };
   std::vector<Sample> samples;
+  // P2 任务D：逐井取样回执（参与 / 跳过原因），工作流写进血缘 supporting/skipped_wells。
+  QVariantList sampleReceipts;
   {
+    const QgsFields sourceFields = source->fields();
+    const int wellIdIdx = sourceFields.lookupField( QStringLiteral( "well_id" ) ) >= 0
+                              ? sourceFields.lookupField( QStringLiteral( "well_id" ) )
+                              : sourceFields.lookupField( QStringLiteral( "id" ) );
+    const int wellNameIdx = sourceFields.lookupField( QStringLiteral( "well_name" ) ) >= 0
+                                ? sourceFields.lookupField( QStringLiteral( "well_name" ) )
+                                : sourceFields.lookupField( QStringLiteral( "name" ) );
     QgsFeatureIterator it = source->getFeatures( QgsFeatureRequest() );
     QgsFeature f;
     while ( it.nextFeature( f ) )
     {
       if ( feedback && feedback->isCanceled() )
         throw QgsProcessingException( QStringLiteral( "Canceled" ) );
+      QVariantMap receipt;
+      receipt.insert( QStringLiteral( "source_record_id" ), QString::number( f.id() ) );
+      if ( wellIdIdx >= 0 )
+        receipt.insert( QStringLiteral( "well_id" ), f.attribute( wellIdIdx ) );
+      if ( wellNameIdx >= 0 )
+        receipt.insert( QStringLiteral( "name" ), f.attribute( wellNameIdx ) );
+      const auto skip = [&]( const QString &reason ) {
+        receipt.insert( QStringLiteral( "participating" ), false );
+        receipt.insert( QStringLiteral( "reason" ), reason );
+        sampleReceipts << receipt;
+      };
       if ( !f.hasGeometry() || f.geometry().isEmpty() )
+      {
+        skip( QStringLiteral( "missing_geometry" ) );
         continue;
+      }
       const QgsGeometry g = f.geometry();
       const QgsPointXY p = g.isMultipart() ? g.asMultiPoint().value( 0 ) : g.asPoint();
+      if ( !std::isfinite( p.x() ) || !std::isfinite( p.y() ) )
+      {
+        skip( QStringLiteral( "non_finite_coordinate" ) );
+        continue;
+      }
       const QVariant zv = f.attribute( fieldIdx );
       bool ok = false;
       const double z = zv.toDouble( &ok );
       if ( zv.isNull() || !ok || !std::isfinite( z ) )
-        continue; // skip non-numeric and NaN/Inf rather than poison the grid
+      {
+        skip( QStringLiteral( "field_missing_or_non_finite" ) ); // 不让 NaN/Inf 污染网格
+        continue;
+      }
+      receipt.insert( QStringLiteral( "participating" ), true );
+      receipt.insert( QStringLiteral( "x" ), p.x() );
+      receipt.insert( QStringLiteral( "y" ), p.y() );
+      receipt.insert( QStringLiteral( "value" ), z );
+      sampleReceipts << receipt;
       samples.push_back( { p.x(), p.y(), z } );
     }
   }
@@ -777,6 +816,9 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
   // 引擎侧实际消费回执（JSON 数组，逐条/逐部件）：工作流写 QC/血缘，测试断言 == 计划。
   out.insert( QStringLiteral( "CONSTRAINT_RECEIPTS" ),
               QString::fromUtf8( QJsonDocument( QJsonArray::fromVariantList( constraintReceipts ) )
+                                     .toJson( QJsonDocument::Compact ) ) );
+  out.insert( QStringLiteral( "SAMPLE_RECEIPTS" ),
+              QString::fromUtf8( QJsonDocument( QJsonArray::fromVariantList( sampleReceipts ) )
                                      .toJson( QJsonDocument::Compact ) ) );
   return out;
 }

@@ -285,6 +285,7 @@ bool ConstraintWorkflow::generateFactor( const QString &horizon, const QString &
         // P1-A：引擎回执（paleo_constraint_idw 的 CONSTRAINT_RECEIPTS）→ 血缘
         // 逐条记实际消费/未用原因；"constrained" 只表示传了约束层，不代表被用。
         paleo::constraint_detail::insertConstraintReceiptExtras(results, extra);
+        paleo::constraint_detail::insertSampleReceiptExtras(results, extra);
         extra.insert(QStringLiteral("horizon"), horizon);
         extra.insert(QStringLiteral("kind"),
                      QStringLiteral("single_factor_raster"));

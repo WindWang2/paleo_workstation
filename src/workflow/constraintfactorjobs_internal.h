@@ -187,4 +187,24 @@ inline void insertConstraintReceiptExtras( const QVariantMap &results, QVariantM
   extra.insert( QStringLiteral( "constraints_unused" ), unused );
 }
 
+// P2 任务D：引擎逐点取样回执（SAMPLE_RECEIPTS）→ 血缘 engine_samples_used /
+// engine_samples_skipped。与 supporting_wells/skipped_wells（证据记录按取数步骤
+// 的井表填写，含提取阶段就被拒的井）分开：引擎只看得到进入它的那份快照，
+// 两层都如实保留，不互相覆盖。没有该输出的引擎不写，不臆造。
+inline void insertSampleReceiptExtras( const QVariantMap &results, QVariantMap &extra )
+{
+  if ( !results.contains( QStringLiteral( "SAMPLE_RECEIPTS" ) ) )
+    return;
+  QVariantList used, skipped;
+  const QJsonArray receipts =
+      QJsonDocument::fromJson( results.value( QStringLiteral( "SAMPLE_RECEIPTS" ) ).toString().toUtf8() ).array();
+  for ( const QJsonValue &value : receipts )
+  {
+    const QVariantMap item = value.toObject().toVariantMap();
+    ( item.value( QStringLiteral( "participating" ) ).toBool() ? used : skipped ) << item;
+  }
+  extra.insert( QStringLiteral( "engine_samples_used" ), used );
+  extra.insert( QStringLiteral( "engine_samples_skipped" ), skipped );
+}
+
 } // namespace paleo::constraint_detail

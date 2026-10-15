@@ -359,6 +359,56 @@ private slots:
     QCOMPARE( disabled, plain );
   }
 
+  // P2 任务D：IDW 逐点取样回执——参与井带坐标/值，跳过井带原因码。
+  void idwSampleReceipts()
+  {
+    QgsVectorLayer wells( QStringLiteral( "Point?crs=EPSG:3857&field=z:double&field=well_id:string" ), QStringLiteral( "w" ),
+                          QStringLiteral( "memory" ) );
+    QList<QgsFeature> features;
+    const auto add = [&]( const QString &wkt, const QVariant &z, const QString &id ) {
+      QgsFeature f( wells.fields() );
+      if ( !wkt.isEmpty() )
+        f.setGeometry( QgsGeometry::fromWkt( wkt ) );
+      f.setAttribute( 0, z );
+      f.setAttribute( 1, id );
+      features << f;
+    };
+    add( QStringLiteral( "POINT(0 0)" ), 1.0, QStringLiteral( "A" ) );
+    add( QStringLiteral( "POINT(10 0)" ), 2.0, QStringLiteral( "B" ) );
+    add( QStringLiteral( "POINT(0 10)" ), 3.0, QStringLiteral( "C" ) );
+    add( QStringLiteral( "POINT(10 10)" ), QVariant( QMetaType( QMetaType::Double ) ), QStringLiteral( "NULLZ" ) );
+    add( QString(), 5.0, QStringLiteral( "NOGEOM" ) );
+    QVERIFY( wells.dataProvider()->addFeatures( features ) );
+    QVariantMap params;
+    params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( static_cast<QgsMapLayer *>( &wells ) ) );
+    params.insert( QStringLiteral( "FIELD" ), QStringLiteral( "z" ) );
+    params.insert( QStringLiteral( "CELL_SIZE" ), 1.0 );
+    params.insert( QStringLiteral( "OUTPUT" ), mDir.filePath( QStringLiteral( "idw-samples.tif" ) ) );
+    QgsProcessingContext context;
+    QgsProcessingFeedback feedback;
+    const QVariantMap result = QgsApplication::processingRegistry()
+                                   ->algorithmById( QStringLiteral( "paleo:paleo_constraint_idw" ) )
+                                   ->run( params, context, &feedback );
+    QVERIFY2( !result.isEmpty(), qPrintable( feedback.textLog() ) );
+    const QJsonArray receipts =
+        QJsonDocument::fromJson( result.value( QStringLiteral( "SAMPLE_RECEIPTS" ) ).toString().toUtf8() ).array();
+    QCOMPARE( receipts.size(), 5 );
+    QMap<QString, QString> reasons;
+    QStringList used;
+    for ( const QJsonValue &v : receipts )
+    {
+      const QJsonObject o = v.toObject();
+      if ( o.value( QStringLiteral( "participating" ) ).toBool() )
+        used << o.value( QStringLiteral( "well_id" ) ).toString();
+      else
+        reasons.insert( o.value( QStringLiteral( "well_id" ) ).toString(), o.value( QStringLiteral( "reason" ) ).toString() );
+    }
+    used.sort();
+    QCOMPARE( used, QStringList( { QStringLiteral( "A" ), QStringLiteral( "B" ), QStringLiteral( "C" ) } ) );
+    QCOMPARE( reasons.value( QStringLiteral( "NULLZ" ) ), QStringLiteral( "field_missing_or_non_finite" ) );
+    QCOMPARE( reasons.value( QStringLiteral( "NOGEOM" ) ), QStringLiteral( "missing_geometry" ) );
+  }
+
   // P2：距离变换 / 最小曲率按统一语义取约束——回执 == 计划。
   void griddingReceiptsMatchPlan_data()
   {

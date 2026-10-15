@@ -238,12 +238,14 @@ bool QgisConstraintEditSession::initialize(QString *error)
     if (m_layer) synchronize(m_layer->undoStack()->index(), QStringLiteral("edit"));
   });
   connect(m_layer, &QgsVectorLayer::editCommandDestroyed, this, [this] { m_newCommand = false; });
+  // B7（用户决定）：编辑中移除图层＝保留未保存的编辑，不回到会话起点。
+  // 每个已结束的 edit command 已原子写入 store（m_current），这里只结束会话；
+  // 移除时仍未结束的手势本来就不持久，不补写。
   connect(m_layer, &QObject::destroyed, this, [this] {
     if (!m_finished)
     {
-      QString error;
-      if (!persist(m_initial, &error, QStringLiteral("cancel")) && m_failed)
-        m_failed(tr("约束编辑图层移除时恢复失败：%1").arg(error));
+      m_finished = true;
+      disconnect(m_connection);
     }
   });
   m_index = m_layer->undoStack()->index();

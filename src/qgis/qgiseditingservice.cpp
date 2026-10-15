@@ -127,7 +127,8 @@ bool QgisEditingService::beginEdit(QgsVectorLayer *layer, QString *error)
       if (hadSession && m_store)
       {
         m_store->markLayerFree(key);
-        emit editRolledBack(id);
+        // B7：会话里已落盘的编辑随图层移除保留（见 QgisConstraintEditSession）。
+        emit editCommitted(id);
       }
     }));
   }

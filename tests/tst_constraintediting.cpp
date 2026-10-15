@@ -638,7 +638,7 @@ private slots:
     QVERIFY(!toolbar.startEditing());
     QVERIFY(!f.layer->isEditable());
   }
-  void removedLayerRestoresStoreAndMissingAssetRefuses()
+  void removedLayerPreservesEditsAndMissingAssetRefuses()
   {
     Fixture f;
     QVERIFY2(f.open(), qPrintable(f.error));
@@ -646,9 +646,16 @@ private slots:
     QVERIFY2(f.edits.beginEdit(f.layer.get(), &f.error), qPrintable(f.error));
     const auto original = f.store.load("T1");
     QVERIFY(f.move(5));
+    const auto edited = f.store.load("T1");
+    QVERIFY(edited != original);
+    QSignalSpy committed(&f.edits, &QgisEditingService::editCommitted);
+    QSignalSpy rolledBack(&f.edits, &QgisEditingService::editRolledBack);
     f.layer.reset();
     QVERIFY(!f.project.layerBusy("constraints.T1"));
-    QCOMPARE(f.store.load("T1"), original);
+    // B7（用户决定）：移除图层保留未保存的编辑，不回到会话起点。
+    QCOMPARE(f.store.load("T1"), edited);
+    QCOMPARE(committed.count(), 1);
+    QCOMPARE(rolledBack.count(), 0);
     // 「缺资产拒绝」：指向不存在路径的约束图层直接构造（无效图层），
     // beginEdit 必须拒绝。不用 rename 挪走真实 gpkg——Windows 上 GDAL/OGR
     // 连接池在图层析构后仍持有句柄，rename 被文件锁挡住（POSIX 只是碰巧允许）。
@@ -658,6 +665,46 @@ private slots:
     QVERIFY(!f.edits.beginEdit(f.layer.get(), &f.error));
     QVERIFY(!f.layer->isEditable());
   }
+  // B7：撤销后再移除，保留的是撤销后的状态（store 跟随原生撤销栈的当前位置）；
+  // 新绘约束同样保留；重开图层看到同一份数据，且能重新进入编辑。
+  void removedLayerPreservesUndoPositionAndDrawnConstraint()
+  {
+    Fixture f;
+    QVERIFY2(f.open(), qPrintable(f.error));
+    const auto original = f.store.load("T1");
+    const auto other = f.store.load("T2");
+    QVERIFY(f.move(5));
+    const auto first = f.store.load("T1");
+    QVERIFY(f.move(9));
+    f.layer->undoStack()->undo();
+    QCOMPARE(f.store.load("T1"), first);
+    QgsFeature drawn(f.layer->fields());
+    drawn.setAttribute(f.layer->fields().indexFromName("id"), "drawn-1");
+    drawn.setAttribute(f.layer->fields().indexFromName("horizon"), "T1");
+    drawn.setAttribute(f.layer->fields().indexFromName("type"), "break_line");
+    drawn.setAttribute(f.layer->fields().indexFromName("params_json"), "{\"semantic\":\"hard_barrier\"}");
+    drawn.setAttribute(f.layer->fields().indexFromName("schema_version"), 1);
+    drawn.setAttribute(f.layer->fields().indexFromName("weight"), 1.0);
+    drawn.setGeometry(QgsGeometry::fromWkt("LINESTRING(0 3,10 3)"));
+    f.layer->beginEditCommand("draw");
+    QVERIFY(f.layer->addFeature(drawn));
+    f.layer->endEditCommand();
+    const auto beforeRemoval = f.store.load("T1");
+    QCOMPARE(beforeRemoval.size(), original.size() + 1);
+    f.layer.reset();
+    QCOMPARE(f.store.load("T1"), beforeRemoval);
+    QCOMPARE(f.store.load("T2"), other);
+    QVERIFY(!f.project.layerBusy("constraints.T1"));
+    f.layer = std::make_unique<QgsVectorLayer>(f.store.gpkgPath()+"|layername=constraints", "constraints", "ogr");
+    f.layer->setSubsetString("horizon='T1'");
+    f.layer->setCustomProperty("paleoLayerId", "constraints.T1");
+    QVERIFY(f.layer->isValid());
+    QVERIFY(f.consistent());
+    QVERIFY2(f.edits.beginEdit(f.layer.get(), &f.error), qPrintable(f.error));
+    QVERIFY(f.edits.rollbackEdit(f.layer.get()));
+    QCOMPARE(f.store.load("T1"), beforeRemoval);
+  }
+
   void rejectedBranchCanRedoTheCorrectCommand()
   {
     Fixture f;

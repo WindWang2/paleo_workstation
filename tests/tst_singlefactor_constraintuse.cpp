@@ -326,7 +326,7 @@ private slots:
     QVector<QPointF> ring;
     for ( int k = 0; k < 50000; ++k )
     {
-      const double t = 2.0 * M_PI * k / 50000.0;
+      const double t = 2.0 * std::acos( -1.0 ) * k / 50000.0;
       ring.append( QPointF( 1000.0 * std::cos( t ), 1000.0 * std::sin( t ) ) );
     }
     ring.append( ring.first() );

@@ -276,10 +276,17 @@ VersionCompare compareVersions(const QString &projectDir, const CatalogVersion &
         ++s;
       c.linesA = la.size() - p - s;
       c.linesB = lb.size() - p - s;
+      // 样本预算两侧分摊：旧实现先把 40 条全给 A 侧，A 侧差异块 ≥40 行时
+      // B 侧（新内容）一条都看不到。各取至多一半，一侧不足时余量让给另一侧；
+      // 总数仍封顶 kMaxSample，输出顺序仍是先「-」后「+」。
       static constexpr int kMaxSample = 40;
-      for (int i = p; i < sa - s && c.differingLines.size() < kMaxSample; ++i)
+      const int blockA = qMax(0, sa - s - p), blockB = qMax(0, sb - s - p);
+      int takeA = qMin(blockA, kMaxSample / 2);
+      const int takeB = qMin(blockB, kMaxSample - takeA);
+      takeA = qMin(blockA, kMaxSample - takeB);
+      for (int i = p; i < p + takeA; ++i)
         c.differingLines << QStringLiteral("- ") + la.at(i);
-      for (int i = p; i < sb - s && c.differingLines.size() < kMaxSample; ++i)
+      for (int i = p; i < p + takeB; ++i)
         c.differingLines << QStringLiteral("+ ") + lb.at(i);
     }
   }

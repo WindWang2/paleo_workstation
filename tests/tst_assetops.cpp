@@ -281,6 +281,51 @@ private slots:
     QCOMPARE(f.readAll(), QByteArray("VERSION ONE\nCURVE\n"));
   }
 
+  // opt-01 U6：差异样本两侧分摊——旧实现 A 侧差异块 ≥40 行时 B 侧零样本。
+  void compareVersionsSamplesBothSides()
+  {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    QDir dir(tmp.path());
+    QByteArray a, b;
+    for (int i = 0; i < 60; ++i)
+    {
+      a += "OLD " + QByteArray::number(i) + "\n";
+      b += "NEW " + QByteArray::number(i) + "\n";
+    }
+    QVERIFY(writeFile(dir.filePath(QStringLiteral("a.txt")), a));
+    QVERIFY(writeFile(dir.filePath(QStringLiteral("b.txt")), b));
+    CatalogVersion va;
+    va.id = QStringLiteral("va");
+    va.managed = false;
+    va.path = dir.filePath(QStringLiteral("a.txt"));
+    va.fileName = QStringLiteral("a.txt");
+    CatalogVersion vb = va;
+    vb.id = QStringLiteral("vb");
+    vb.path = dir.filePath(QStringLiteral("b.txt"));
+    vb.fileName = QStringLiteral("b.txt");
+    const VersionCompare c = compareVersions(dir.absolutePath(), va, vb);
+    QVERIFY(c.textCompared);
+    QCOMPARE(c.linesA, 60);
+    QCOMPARE(c.linesB, 60);
+    QCOMPARE(c.differingLines.size(), 40);
+    int minus = 0, plus = 0;
+    for (const QString &l : c.differingLines)
+      (l.startsWith(QLatin1Char('-')) ? minus : plus) += 1;
+    QCOMPARE(minus, 20);
+    QCOMPARE(plus, 20);
+    QCOMPARE(c.differingLines.first(), QStringLiteral("- OLD 0"));
+    QCOMPARE(c.differingLines.at(20), QStringLiteral("+ NEW 0"));
+    // 一侧短：余量让给另一侧（3 + 37）。
+    QByteArray shortB = "X\nY\nZ\n";
+    QVERIFY(writeFile(dir.filePath(QStringLiteral("c.txt")), shortB));
+    vb.path = dir.filePath(QStringLiteral("c.txt"));
+    vb.fileName = QStringLiteral("c.txt");
+    const VersionCompare d = compareVersions(dir.absolutePath(), va, vb);
+    QCOMPARE(d.differingLines.size(), 40);
+    QCOMPARE(d.differingLines.last(), QStringLiteral("+ Z"));
+  }
+
   void purgeDoubleClearsAndGuardsLineage()
   {
     QTemporaryDir tmp;

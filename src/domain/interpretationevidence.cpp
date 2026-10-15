@@ -15,6 +15,11 @@ bool fail(QString *error, const QString &message) {
   if (error) *error = message;
   return false;
 }
+// #442：与 ConstraintStore 对齐——操作人必须是 local: + 非空名字。
+bool localActorId(const QString &actor) {
+  if (!actor.startsWith(QLatin1String("local:"))) return false;
+  return !actor.mid(6).trimmed().isEmpty() && actor.size() <= 200;
+}
 bool revisionNumber(const QVariant &value) {
   bool ok = false;
   const double n = value.toDouble(&ok);
@@ -81,7 +86,7 @@ bool validateInterpretation(const QVariantMap &i, QString *error) {
   for (const auto &value : i.value("history").toList()) {
     const auto e = value.toMap(); const auto key = e.value("event_id").toString();
     if (value.typeId() != QMetaType::QVariantMap || key.isEmpty() || events.contains(key) ||
-        e.value("actor_id").toString().isEmpty() || e.value("reason").toString().trimmed().isEmpty() ||
+        !localActorId(e.value("actor_id").toString()) || e.value("reason").toString().trimmed().isEmpty() ||
         !QDateTime::fromString(e.value("timestamp").toString(), Qt::ISODateWithMs).isValid() ||
         !revisionNumber(e.value("before_revision")) || !revisionNumber(e.value("after_revision")) ||
         e.value("before_revision").toULongLong() != previous || e.value("after_revision").toULongLong() != previous + 1)
@@ -96,7 +101,7 @@ bool revise(const QVariantList &records, const QVariantMap &interpretation,
             const QVariantMap &target, const QString &action, const QVariantMap &change,
             const QString &actor, const QString &reason, quint64 expectedRevision,
             Revision *result, QString *error) {
-  if (!result || actor.trimmed().isEmpty() || actor.size() > 200 || reason.trimmed().isEmpty() || reason.size() > 10000)
+  if (!result || !localActorId(actor.trimmed()) || reason.trimmed().isEmpty() || reason.size() > 10000)
     return fail(error, tr("业务修改必须填写本地操作人及理由"));
   if (!validateRecords(records, error) || !validateInterpretation(interpretation, error)) return false;
   const auto uid = target.value("feature_uid").toString();

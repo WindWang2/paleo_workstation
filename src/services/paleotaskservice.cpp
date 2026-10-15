@@ -280,8 +280,14 @@ PaleoTask *PaleoTaskService::createTask(const QString &title,
   task->m_session = m_session;
   m_tasks.append(task);
   if (m_store && !layerId.isEmpty())
+  {
+    // 同层位引用计数：store 的 busy 注册表是按键覆盖的 QHash，同层位多个
+    // 并发任务（批队列同层多方法、同文件预取+解码重叠）若各自 markLayerFree，
+    // 先终态者会提前放行 §35 工具门/编辑门/校验门——最后一个终态才真正解锁。
+    ++m_layerHolds[layerId];
     m_store->markLayerBusy(layerId, QStringLiteral("task-%1").arg(task->id()),
                            title);
+  }
   connect(task, &PaleoTask::finished, this,
           [this, task]() { onTaskFinished(task); });
   emit taskAdded(task);
@@ -356,7 +362,16 @@ int PaleoTaskService::runningCount() const
 void PaleoTaskService::onTaskFinished(PaleoTask *task)
 {
   if (m_store && !task->layerId().isEmpty())
-    m_store->markLayerFree(task->layerId());
+  {
+    // 与 createTask 的 ++m_layerHolds 对账：每任务恰一次 finished（applyFinish
+    // 幂等闸保证），计数归零才是本服务持有的最后解锁点。
+    const auto it = m_layerHolds.find(task->layerId());
+    if (it != m_layerHolds.end() && --it.value() <= 0)
+    {
+      m_layerHolds.erase(it);
+      m_store->markLayerFree(task->layerId());
+    }
+  }
   // #164：quiet 任务（切片/解码/预取）每次交互一条，终态后短暂停留供任务页
   // 显示「完成/已取消」，随后自动移除——否则注册表与任务页行数无界增长。
   if (task->quiet() && m_quietLingerMs >= 0)

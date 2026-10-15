@@ -177,10 +177,18 @@ QVector<LayerDeclaration> ReleaseStore::manifestAt(const QString &releaseId) con
 }
 
 bool ReleaseStore::diff(const QString &idA, const QString &idB,
-                        QStringList *added, QStringList *removed, QStringList *changed) const
+                        QStringList *added, QStringList *removed, QStringList *changed,
+                        QString *error) const
 {
-  if (!releaseEnsureOpen(m_dbPath, nullptr))
+  if (error)
+    error->clear(); // 成功路径不带细节（与 batchjobqueue readState 同惯例）
+  QString openErr;
+  if (!releaseEnsureOpen(m_dbPath, &openErr))
+  {
+    if (error)
+      *error = QStringLiteral("发布库打开失败：%1").arg(openErr);
     return false;
+  }
 
   // Both releases must actually exist — an empty manifest is a valid snapshot,
   // so existence is checked against the table, not the payload size.
@@ -190,11 +198,43 @@ bool ReleaseStore::diff(const QString &idA, const QString &idB,
     q.addBindValue(idA);
     q.addBindValue(idB);
     int found = 0;
-    if (q.exec())
-      while (q.next())
-        ++found;
-    if (found < 2)
+    bool seenA = false, seenB = false;
+    if (!q.exec())
+    {
+      if (error)
+        *error = QStringLiteral("存在性查询失败：%1").arg(q.lastError().text());
       return false;
+    }
+    while (q.next())
+    {
+      ++found;
+      if (q.value(0).toString() == idA)
+        seenA = true;
+      if (q.value(0).toString() == idB)
+        seenB = true;
+    }
+    if (found < 2)
+    {
+      if (error)
+      {
+        // idA==idB 且存在时 IN(?,?) 只命中一行——missing 为空是「两侧同版本」，
+        // 不是「不存在」，分开说；同一 id 只点一次名。
+        QStringList missing;
+        const auto appendOnce = [&missing](const QString &id) {
+          if (!missing.contains(id))
+            missing << id;
+        };
+        if (!seenA)
+          appendOnce(idA);
+        if (!seenB)
+          appendOnce(idB);
+        *error = missing.isEmpty()
+                     ? QStringLiteral("两侧是同一个版本：%1").arg(idA)
+                     : QStringLiteral("release 不存在：%1")
+                           .arg(missing.join(QStringLiteral(", ")));
+      }
+      return false;
+    }
   }
 
   const QVector<LayerDeclaration> a = manifestAt(idA);

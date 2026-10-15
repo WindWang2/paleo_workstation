@@ -134,6 +134,36 @@ private slots:
     QVERIFY(statusSpy.at(0).at(0).toString().contains(QString::fromUtf8("名称不能为空")));
   }
 
+  // 07 方向 Round E：对比失败必须带原因（缺哪个版本点名）——通过真实 UI
+  // 路径触发：往对比下拉塞一个不存在的版本号再点「对比」。
+  void diffFailureSurfacesActionableReason()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString db = dir.filePath(QStringLiteral("meta.sqlite"));
+    ReleasePanel panel;
+    QVector<LayerDeclaration> manifest = {decl(QStringLiteral("facies.T1"))};
+    panel.setProviders([db] { return db; },
+                       [&manifest] { return manifest; });
+    panel.findChild<QLineEdit *>(QStringLiteral("releaseNameEdit"))
+        ->setText(QStringLiteral("v1"));
+    panel.findChild<QPushButton *>(QStringLiteral("createReleaseButton"))->click();
+
+    QSignalSpy statusSpy(&panel, &ReleasePanel::statusMessage);
+    auto *comboA = panel.findChild<QComboBox *>(QStringLiteral("diffA"));
+    auto *comboB = panel.findChild<QComboBox *>(QStringLiteral("diffB"));
+    QVERIFY(comboA && comboB && comboA->count() == 1);
+    comboB->addItem(QStringLiteral("rel-404"), QStringLiteral("rel-404"));
+    comboB->setCurrentIndex(1);
+    panel.findChild<QPushButton *>(QStringLiteral("diffButton"))->click();
+
+    QCOMPARE(statusSpy.count(), 1);
+    const QString msg = statusSpy.at(0).at(0).toString();
+    QVERIFY(msg.contains(QString::fromUtf8("版本对比失败")));
+    QVERIFY(msg.contains(QStringLiteral("rel-404")));
+    QVERIFY(msg.contains(QString::fromUtf8("不存在")));
+  }
+
   // goal/ui-experience-polish：发布树键盘可达（↓ 选中首行——键盘也能走
   // 发布/对比流）。
   void keyboardNavigationOnReleaseList()

@@ -154,17 +154,20 @@ QVector<BatchItem> BatchSpec::expand( QString *error ) const
   if ( perItemRaw.canConvert<QVariantMap>() )
     perItem = perItemRaw.toMap();
 
+  QSet<QString> usedIds;
   for ( const QString &horizon : horizons )
   {
     for ( const QString &method : methodIds )
     {
       BatchItem it;
-      it.itemId = horizon + QLatin1Char( '|' ) + method;
+      // 覆写表按规范键 "<horizon>|<method>" 查——先查后唯一化。
+      const QString canonicalId = horizon + QLatin1Char( '|' ) + method;
+      it.itemId = canonicalId;
       it.methodId = method;
       it.horizon = horizon;
       it.params = paramTemplates;
       it.params.remove( QStringLiteral( "perItem" ) );
-      const QVariant over = perItem.value( it.itemId );
+      const QVariant over = perItem.value( canonicalId );
       if ( over.canConvert<QVariantMap>() )
       {
         const QVariantMap overMap = over.toMap();
@@ -172,6 +175,18 @@ QVector<BatchItem> BatchSpec::expand( QString *error ) const
           it.params.insert( i.key(), i.value() );
       }
       it.fingerprint = BatchItem::fingerprintOf( method, horizon, it.params );
+      // 重复声明（层位表/方法表含重复项）会让 itemId 撞车：m_indexById 覆盖、
+      // 面板行折叠、cancelItem 只命中最后一份。确定性后缀保住身份唯一（同
+      // spec 重展开可重现 → 续跑对账不受影响）；指纹判重语义不变——同参数
+      // 的第二项仍落 Skipped，报告计数不缩水。
+      if ( usedIds.contains( it.itemId ) )
+      {
+        int n = 2;
+        while ( usedIds.contains( QStringLiteral( "%1#%2" ).arg( it.itemId ).arg( n ) ) )
+          ++n;
+        it.itemId = QStringLiteral( "%1#%2" ).arg( it.itemId ).arg( n );
+      }
+      usedIds.insert( it.itemId );
       out.append( it );
     }
   }
@@ -567,6 +582,9 @@ bool BatchQueue::readState( const BatchSpec &spec, QVector<BatchItem> *out,
     if ( !ok )
       continue; // 损坏项跳过——如实丢一项，不让整批恢复失败
     byId.insert( it.itemId, it );
+    // 旧记档（G4 前写入）里重复声明的 itemId 在这里仍是 last-wins 折叠；
+    // 对不上账的项在下面按 fresh 展开重评估，被批内指纹判重兜成 Skipped——
+    // 语义安全，不做旧档迁移。
   }
 
   // 终态后不写的项在崩时是 Running/Queued——按未完成处理，重跑。
@@ -679,6 +697,10 @@ bool BatchQueue::resume( const BatchSpec &spec, QString *error )
   m_stopOnFatal = spec2.stopOnFatal;
   m_fifo.clear();
   m_running = true;
+  // 起批会话号：工程切换/关闭（PaleoTaskService::beginNewSession）后，本批的
+  // 输入快照与 projectDir 都属于旧工程——pump 的会话守卫据此停批，不让新项
+  // 带新会话号把旧工程输入的产物 commit 进新工程。
+  m_sessionAtStart = m_tasks->session();
   m_batchStartedAtMs = QDateTime::currentMSecsSinceEpoch();
   setConcurrency( spec2.concurrency );
 
@@ -707,6 +729,32 @@ void BatchQueue::pump()
   if ( !m_running )
     return;
 
+  // 会话守卫（单一强制点）：起批后工程切换/关闭 → 待跑项作废、在跑项协作
+  // 停止、批次收尾。此后任何重启路径（含 retryFailed 的重新起批）都会再进
+  // 这里——会话号不重钉，重试项同样落 Cancelled，不把旧工程输入写进新工程。
+  if ( m_tasks && m_tasks->session() != m_sessionAtStart )
+  {
+    for ( BatchItem &it : m_items )
+    {
+      if ( it.state == ItemState::Queued || it.state == ItemState::Pending )
+      {
+        it.state = ItemState::Cancelled;
+        if ( it.error.isEmpty() )
+          it.error = QObject::tr( "工程已切换或关闭" );
+      }
+    }
+    m_fifo.clear();
+    for ( int s = 0; s < static_cast<int>( m_slots.size() ); ++s )
+    {
+      if ( m_slots[s]->itemIndex >= 0 && m_slots[s]->runner )
+        m_slots[s]->runner->requestCancel();
+    }
+    writeState();
+    emitProgress();
+    finishIfDone();
+    return;
+  }
+
   if ( m_trippedFatal && m_stopOnFatal )
   {
     // 熔断：待跑项作废，在跑项协作停止。
@@ -726,15 +774,22 @@ void BatchQueue::pump()
   int running = runningCount();
   bool yieldedToInteractive = false;
 
-  for ( int s = 0; s < static_cast<int>( m_slots.size() ); ++s )
+  // 出队上限 = 并发度，不是历史峰值槽数：槽位只扩不缩（在飞项持有槽位），
+  // 但下调后的并发度必须对「后续出队」生效（头文件契约）——旧实现遍历
+  // 全部槽位，构造默认 2 槽后再 setConcurrency(1) 实际仍双并发，测试夹具
+  // 的并发 1 语义（FIFO 顺序断言）与生产行为双双失真。
+  const int activeSlots = qMin<int>( static_cast<int>( m_slots.size() ), m_concurrency );
+  for ( int s = 0; s < activeSlots; ++s )
   {
     if ( m_slotItem[s] >= 0 )
       continue; // 槽位占用
     if ( m_fifo.isEmpty() )
       break;
-    // 不与用户交互作业抢线程：池已满则本轮不出队，等下一轮 pump。
-    // 批次让位而非抢占（ledger D4）。
-    if ( m_tasks && m_tasks->runningCount() >= poolCap )
+    // 不与用户交互作业抢线程：池被「非本批」任务占满才让位（ledger D4）。
+    // 旧判据把批次自身任务也计入 runningCount——并发度 ≥ 池线程数时
+    // yieldedToInteractive 恒真，pumpLater 以事件循环频率空转自旋直到某项
+    // 结束；本批占满自己的并发额度是正常调度，不该触发让位。
+    if ( m_tasks && ( m_tasks->runningCount() - running ) >= poolCap )
     {
       yieldedToInteractive = true;
       break;

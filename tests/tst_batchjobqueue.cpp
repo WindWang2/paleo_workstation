@@ -105,8 +105,12 @@ bool pumpUntil(const std::function<bool()> &pred, int timeoutMs = 8000)
 
 /// compute 侧等待：闸门开 / 被取消 / 超时，三者任一即返回。上界必需。
 void waitOnGate(const std::shared_ptr<Probe> &probe,
-                const std::function<bool()> &cancelled, int timeoutMs = 4000)
+                const std::function<bool()> &cancelled, int timeoutMs = 300)
 {
+  // 门超时 300ms：够「按住执行器等外部动作」（取消/会话切换/断言出队——
+  // 这些动作都在 computeCalls 命中后同步发起，亚毫秒级落在窗内），不再让
+  // 不关心门控的用例每项白等 4s——旧值是围着「setConcurrency 下调无效、
+  // 夹具实际双槽」的调度 bug 调出来的并行擦边时长，真单槽下串行超时。
   QElapsedTimer clock;
   clock.start();
   while (clock.elapsed() < timeoutMs)
@@ -212,6 +216,14 @@ private slots:
   // ---- Oracle 4 取消语义 ----
   void cancelBatchStopsRunningAndInvalidatesQueued();
   void cancelSingleQueuedItem();
+
+  // ---- Oracle 6 会话守卫（07 方向 Round B，G2）----
+  void sessionSwitchStopsBatchInsteadOfCrossingProjects();
+  void sessionStoppedBatchIsResumableInNewSession();
+
+  // ---- Oracle 7 身份唯一与调度让位（07 方向 Round C，G4/G5）----
+  void duplicateDeclarationKeepsItemIdentityUnique();
+  void ownPoolSaturationDoesNotBlockDequeue();
 
   // ---- Oracle 5 熔断 ----
   void fatalErrorTripsBreakerAndStopsBatch();
@@ -402,7 +414,8 @@ void TestBatchJobQueue::duplicateFingerprintInSameBatchSkipped()
   m_probe->reset();
   BatchSpec s2 = s;
   s2.methodIds = QStringList{QStringLiteral("m1"), QStringLiteral("m1")};
-  // itemId 会重复（H1|m1 两次）——测试判重按指纹，展开重复项
+  // 同方法重复声明：第二项展开为 H1|m1#2（itemId 身份唯一，G4），指纹与首项
+  // 相同 → 本趟按指纹判重。
   QString err2;
   QVERIFY2(m_queue->resume(s2, &err2), qPrintable(err2));
   QVERIFY(runToCompletion());
@@ -664,6 +677,152 @@ void TestBatchJobQueue::cancelSingleQueuedItem()
   for (const BatchItem &it : m_queue->items())
     if (it.itemId == target)
       QCOMPARE(int(it.state), int(ItemState::Cancelled));
+}
+
+// ---------------------------------------------------------------------------
+// Oracle 6（07 方向 Round B，G2 反例）：起批后工程切换/关闭（beginNewSession）
+// 批次必须停——待跑项作废、在跑项协作取消，任何后续 pump/retryFailed 都不得
+// 再出队（旧工程输入快照不得写进新工程）。修复前：pump 无会话感知，第二个
+// executor 会带着新会话号照常执行并 commit，此测试在 computeCalls 断言处红。
+// ---------------------------------------------------------------------------
+void TestBatchJobQueue::sessionSwitchStopsBatchInsteadOfCrossingProjects()
+{
+  setUp(1);
+  auto probe = m_probe;
+  const BatchSpec s = makeSpec(
+      QStringLiteral("session"),
+      {QStringLiteral("H1"), QStringLiteral("H2"), QStringLiteral("H3")},
+      {QStringLiteral("m1")}, 1);
+
+  QString err;
+  QVERIFY2(m_queue->start(s, &err), qPrintable(err));
+  // 首项在跑（闸门关着），后两项待跑。
+  QVERIFY(pumpUntil([probe] { return probe->computeCalls.load() >= 1; }));
+
+  // 工程切换：会话号前进（beginNewSession 同时协作取消在跑项——executor 的
+  // waitOnGate 看 CancelFn，会自行返回）。
+  m_tasks->beginNewSession();
+  QVERIFY(pumpUntil([this] { return !m_queue->busy(); }));
+
+  // 只有首项进过 executor：会话守卫拦下了后续出队。
+  QCOMPARE(probe->computeCalls.load(), 1);
+  const BatchReport r = m_queue->report();
+  QCOMPARE(r.succeeded + r.cancelled, r.total);
+  QVERIFY(r.cancelled >= 2); // 在跑项协作取消 + 待跑项作废
+  QCOMPARE(m_queue->pendingCount(), 0);
+  QCOMPARE(m_queue->runningCount(), 0);
+  // 状态如实落盘：旧工程目录的记档以全终态收束（可查、不残留幽灵排队）。
+  QVERIFY(QFile::exists(m_queue->statePath(QStringLiteral("session"))));
+
+  // 批后重试入口在会话过期批次上是无操作：会话守卫作废的项是 Cancelled
+  // 而非 Failed，retryFailed 无对象可重试（返回 false），不重启旧工程批次。
+  QVERIFY(!m_queue->retryFailed());
+  QCOMPARE(probe->computeCalls.load(), 1);
+}
+
+// 会话停批不是永久卡死：同 spec 在新会话里重新 start/resume，批次正常跑完
+//（readState 只认 Succeeded——被会话守卫作废的项回 Pending 重跑）。
+void TestBatchJobQueue::sessionStoppedBatchIsResumableInNewSession()
+{
+  setUp(1);
+  auto probe = m_probe;
+  const BatchSpec s = makeSpec(
+      QStringLiteral("session2"),
+      {QStringLiteral("H1"), QStringLiteral("H2")},
+      {QStringLiteral("m1")}, 1);
+
+  QString err;
+  QVERIFY2(m_queue->start(s, &err), qPrintable(err));
+  QVERIFY(pumpUntil([probe] { return probe->computeCalls.load() >= 1; }));
+  m_tasks->beginNewSession();
+  QVERIFY(pumpUntil([this] { return !m_queue->busy(); }));
+  const int stoppedCalls = probe->computeCalls.load();
+
+  // 新会话重起同批：全项重跑至成功，不再触发会话守卫。
+  probe->gateOpen.store(1); // 放闸：不再门控，让重跑直奔终态
+  QVERIFY2(m_queue->start(s, &err), qPrintable(err));
+  QVERIFY(pumpUntil([this] { return !m_queue->busy(); }));
+  QCOMPARE(probe->computeCalls.load(), stoppedCalls + 2);
+
+  const BatchReport r = m_queue->report();
+  QCOMPARE(r.succeeded, 2);
+  QCOMPARE(r.cancelled, 0);
+  QCOMPARE(r.failed, 0);
+}
+
+// ---------------------------------------------------------------------------
+// Oracle 7（07 方向 Round C，G4 反例）：层位表/方法表带重复声明时，展开必须
+// 给出身份唯一的 itemId——旧实现直接拼 "<horizon>|<method>"，重复声明撞车后
+// m_indexById 覆盖、面板行折叠、cancelItem 只命中最后一份、报告与行数错位。
+// 修复后第二项带确定性 "#2" 后缀；指纹判重语义不变（同参数仍 Skipped，
+// duplicateFingerprintInSameBatchSkipped 的 skipped==2 断言原样保留）。
+// ---------------------------------------------------------------------------
+void TestBatchJobQueue::duplicateDeclarationKeepsItemIdentityUnique()
+{
+  setUp(1);
+  auto probe = m_probe;
+  probe->gateOpen.store(1); // 本例不测门控：放闸直奔终态
+  const BatchSpec s = makeSpec(
+      QStringLiteral("dup-id"),
+      {QStringLiteral("H1")},
+      {QStringLiteral("m1"), QStringLiteral("m1")}, 1);
+
+  QString err;
+  QVERIFY2(m_queue->start(s, &err), qPrintable(err));
+
+  // 身份唯一：两项、两个不同 itemId（第二项带 #2 后缀，可被单独寻址）。
+  const QVector<BatchItem> items = m_queue->items();
+  QCOMPARE(items.size(), 2);
+  QSet<QString> ids;
+  for (const BatchItem &it : items)
+    ids.insert(it.itemId);
+  QCOMPARE(ids.size(), 2);
+  QVERIFY(ids.contains(QStringLiteral("H1|m1")));
+  QVERIFY(ids.contains(QStringLiteral("H1|m1#2")));
+  // 重复指纹项在起批判重时即落 Skipped（不消耗 executor）。
+  QCOMPARE(countState(items, ItemState::Skipped), 1);
+
+  QVERIFY(runToCompletion());
+  const BatchReport r = m_queue->report();
+  QCOMPARE(r.total, 2); // 计数不因身份唯一化缩水
+  QCOMPARE(r.succeeded, 1);
+  QCOMPARE(r.skipped, 1);
+}
+
+// ---------------------------------------------------------------------------
+// Oracle 7（07 方向 Round C，G5 反例）：让位判据只看「非本批」任务。旧判据把
+// 批次自身任务计入 runningCount——池容量 1、并发度 2 时首项占满池，第二项
+// 被误判为「该让位交互作业」而永不出队，pumpLater 以事件循环频率空转自旋。
+// 修复后第二项照常出队建任务（在池上排队等线程），批次不空转不停滞。
+// ---------------------------------------------------------------------------
+void TestBatchJobQueue::ownPoolSaturationDoesNotBlockDequeue()
+{
+  setUp(2);
+  m_tasks->setMaxWorkerThreads(1); // 池容量 1：第二项必与首项同池排队
+  auto probe = m_probe;
+  const BatchSpec s = makeSpec(
+      QStringLiteral("pool"),
+      {QStringLiteral("H1"), QStringLiteral("H2"), QStringLiteral("H3")},
+      {QStringLiteral("m1")}, 2);
+
+  int taskAdds = 0;
+  QObject ctx;
+  connect(m_tasks.get(), &PaleoTaskService::taskAdded, &ctx,
+          [&](PaleoTask *) { ++taskAdds; });
+
+  QString err;
+  QVERIFY2(m_queue->start(s, &err), qPrintable(err));
+  // 首项进 compute（占住唯一池线程）。
+  QVERIFY(pumpUntil([probe] { return probe->computeCalls.load() >= 1; }));
+  // 第二项必须已出队建任务（在池上排队）——而不是被池满误判挡住。
+  // 旧实现此处 taskAdds 停在 1，队列靠 pumpLater 自旋到首项结束。
+  QCOMPARE(taskAdds, 2);
+  QCOMPARE(m_queue->runningCount(), 2); // 首项在算 + 次项已出队占槽
+
+  probe->gateOpen.store(1);
+  QVERIFY(runToCompletion());
+  const BatchReport r = m_queue->report();
+  QCOMPARE(r.succeeded, 3);
 }
 
 // ---- Oracle 5 熔断 ----

@@ -141,6 +141,7 @@ private slots:
   void commitPrecedesCallerFinishedSlot();
   void taskCancelReachesCompute();
   void sessionResetDropsInFlightJob();
+  void publicationFailureVisibleToLateObserversOnly();
 
 private:
   /// 每例一份 fixture：dispatcher（owner 线程）+ 可选任务服务 + runner。
@@ -699,6 +700,74 @@ void TestJobRunner::sessionResetDropsInFlightJob()
   QVERIFY(m_tasks->beginNewSession() > before);
   QVERIFY(pumpUntil([probe] { return probe->droppedCalls.load() == 1; }, 5000));
   QCOMPARE(probe->commitCalls.load(), 0);
+  QVERIFY(!m_runner->busy());
+
+  tearDownBusy();
+}
+
+// ---------------------------------------------------------------------------
+// 13. 07 方向 Round A（G3）：发布失败（commit 返回 false）的可见性分层——
+//     「晚观察者」（start() 返回后才连 finished，PaleoMainWindow 收尾槽同形）
+//     读到 Failed（#159 契约）；「早观察者」（taskAdded 期间连上）先于 commit
+//     运行、读到 Succeeded——这是连接序的文档化语义，收尾方须在 changed()
+//     上复读终态。failPublication 翻转后任务终态/错误串/jobCompleted(false)
+//     均如实落位，取消后结果不冒充已提交。
+// ---------------------------------------------------------------------------
+void TestJobRunner::publicationFailureVisibleToLateObserversOnly()
+{
+  setUpWithService();
+  auto probe = m_probe;
+
+  JobRunner<TestJob>::Callbacks cb;
+  cb.compute = [](TestJob &job, const CancelFn &, const ProgressFn &) {
+    job.ok = true;
+    job.result = 11;
+    return true;
+  };
+  cb.commit = [probe](TestJob &, QString *err) {
+    probe->commitCalls.fetch_add(1);
+    if (err)
+      *err = QStringLiteral("登记失败");
+    return false;
+  };
+
+  // 捕获量先声明、ctx 后声明：断言提前返回时 ctx 先析构断连，排队回调
+  // 不会写已出作用域的引用（同 commitPrecedesCallerFinishedSlot 纪律）。
+  int earlyFinishedCalls = 0;
+  PaleoTask::State earlyState = PaleoTask::State::Running;
+  PaleoTask::State lateState = PaleoTask::State::Running;
+  int completedCalls = 0;
+  bool completedCommitted = true;
+  QObject ctx;
+  // 早观察者：taskAdded 里连 finished（先于 runner 在 start() 内部的连接）。
+  // task 必须按值捕获——taskAdded 槽返回后参数帧即失效，按引用捕获会让
+  // finished 回调读悬垂栈槽（首跑实测 earlyState 读成 Running）。
+  connect(m_tasks.get(), &PaleoTaskService::taskAdded, &ctx,
+          [&](PaleoTask *task) {
+            connect(task, &PaleoTask::finished, &ctx, [&, task]() {
+              ++earlyFinishedCalls;
+              earlyState = task->state();
+            });
+          });
+
+  PaleoTask *task = m_runner->start(QStringLiteral("pub-fail"), m_job, cb);
+  QVERIFY(task);
+  // 晚观察者：start() 返回后连接（生产收尾槽同形）。
+  connect(task, &PaleoTask::finished, &ctx, [&]() { lateState = task->state(); });
+  connect(m_runner.get(), &paleo::jobs::JobRunnerBase::jobCompleted, &ctx,
+          [&](quint64, bool committed) {
+            ++completedCalls;
+            completedCommitted = committed;
+          });
+
+  QVERIFY(pumpUntil([&] { return completedCalls == 1; }));
+  QCOMPARE(probe->commitCalls.load(), 1);
+  QCOMPARE(earlyFinishedCalls, 1);
+  QCOMPARE(earlyState, PaleoTask::State::Succeeded); // commit 前的态
+  QCOMPARE(lateState, PaleoTask::State::Failed);     // commit 后的终态
+  QCOMPARE(task->state(), PaleoTask::State::Failed);
+  QCOMPARE(task->errorText(), QStringLiteral("登记失败"));
+  QVERIFY(!completedCommitted);
   QVERIFY(!m_runner->busy());
 
   tearDownBusy();

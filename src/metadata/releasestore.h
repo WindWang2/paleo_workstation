@@ -40,8 +40,11 @@ class ReleaseStore
     // Field-level delta between two snapshots (by layerId):
     // added = in B only; removed = in A only; changed = present in both but
     // horizon/type/source/styleRef/group differ.
+    // error（可选）区分失败原因：库打不开 / 某个 release id 不存在——
+    // 面板据此给可行动的提示，而不是笼统的「对比失败」。
     bool diff(const QString &idA, const QString &idB,
-              QStringList *added, QStringList *removed, QStringList *changed) const;
+              QStringList *added, QStringList *removed, QStringList *changed,
+              QString *error = nullptr) const;
 
   private:
     QString m_dbPath;

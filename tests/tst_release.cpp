@@ -101,6 +101,45 @@ private slots:
     QVERIFY(!store.diff(a, QStringLiteral("rel-999"), nullptr, nullptr, nullptr));
   }
 
+  // 07 方向 Round E：diff 失败原因要可区分（缺哪个版本说清楚）——面板据此
+  // 给可行动提示，不再笼统「对比失败」。
+  void diffErrorNamesMissingRelease()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    ReleaseStore store(dir.filePath(QStringLiteral("meta.sqlite")));
+    QVERIFY(store.open());
+    const QString a = store.createRelease(QStringLiteral("a"), QString(),
+        {decl(QStringLiteral("facies.T1"), QStringLiteral("T1"))});
+    QVERIFY(!a.isEmpty());
+
+    QString err;
+    QVERIFY(!store.diff(a, QStringLiteral("rel-404"), nullptr, nullptr, nullptr, &err));
+    QVERIFY(err.contains(QStringLiteral("rel-404")));
+    QVERIFY(err.contains(QStringLiteral("不存在")));
+
+    // 两个都不存在：一并点名。
+    QString err2;
+    QVERIFY(!store.diff(QStringLiteral("rel-x"), QStringLiteral("rel-y"),
+                        nullptr, nullptr, nullptr, &err2));
+    QVERIFY(err2.contains(QStringLiteral("rel-x")));
+    QVERIFY(err2.contains(QStringLiteral("rel-y")));
+
+    // 同一版本两侧：missing 为空——「两侧同版本」与「不存在」分开说。
+    QString errSame;
+    QVERIFY(!store.diff(a, a, nullptr, nullptr, nullptr, &errSame));
+    QVERIFY(errSame.contains(QStringLiteral("同一个版本")));
+
+    // 成功路径清空 error（调用方可用它判「有没有细节」）——预置 stale 串
+    // 验证入口清理而非「从不写」。
+    const QString b = store.createRelease(QStringLiteral("b"), QString(),
+        {decl(QStringLiteral("facies.T1"), QStringLiteral("T1"))});
+    QString err3 = QStringLiteral("stale");
+    QStringList added, removed, changed;
+    QVERIFY(store.diff(a, b, &added, &removed, &changed, &err3));
+    QVERIFY(err3.isEmpty());
+  }
+
   void persistsAcrossStoreInstances()
   {
     QTemporaryDir dir;

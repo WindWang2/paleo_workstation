@@ -222,6 +222,7 @@ class BatchQueue : public QObject
     bool m_trippedFatal = false;
     QString m_fatalReason;
     bool m_stopOnFatal = true;         ///< 熔断开关（来自 spec）
+    quint64 m_sessionAtStart = 0;      ///< 起批会话号（pump 会话守卫的基准）
     qint64 m_batchStartedAtMs = 0;   ///< 整批起跑时刻（报告总耗时）
 
     std::vector<std::unique_ptr<Slot>> m_slots;

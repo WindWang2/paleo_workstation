@@ -532,6 +532,7 @@ BarrierGrid labelInterpretationPartition( const GridSpec &grid,
     BarrierSpec spec;
     spec.lineId = line.stableId;
     spec.points = line.points;
+    out.consumedIds.push_back( line.stableId ); // 自由端延界：启用屏障全部参与分区
     hard.push_back( std::move( spec ) );
   }
 

@@ -230,6 +230,8 @@ struct SurfaceResult
   int idwFallbackCells = 0;
   // 整面回落 IDW 的次数（0 或 1）：变差函数不成立，或全场没有一个格解出克里金值。
   int surfaceFallbacks = 0;
+  // 引擎回执：实际参与隔断的硬屏障 stableId（见 BarrierGrid::consumedIds）。
+  std::vector<std::string> consumedBarrierIds;
 };
 
 struct QueryResult
@@ -256,6 +258,9 @@ struct BarrierGrid
   std::string error;
   int componentCount = 0;
   int barrierCells = 0;
+  // 引擎回执：实际进入隔断模型的硬屏障 stableId（grid_connectivity_v1 = 至少
+  // 栅格化出一格；interpretation_partition_v1 = 全部启用屏障，自由端延界）。
+  std::vector<std::string> consumedIds;
 };
 
 struct ContourPolyline

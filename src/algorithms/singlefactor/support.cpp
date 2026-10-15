@@ -385,6 +385,7 @@ BarrierGrid labelHardBarriers( const GridSpec &grid, const std::vector<Constrain
   {
     if ( !line.enabled || line.semantic != Semantic::HardBarrier || line.points.size() < 2 )
       continue;
+    bool markedAny = false;
     for ( std::size_t i = 1; i < line.points.size(); ++i )
     {
       if ( cancelled( control ) )
@@ -405,10 +406,15 @@ BarrierGrid labelHardBarriers( const GridSpec &grid, const std::vector<Constrain
         int column = 0;
         int row = 0;
         if ( cellOf( grid, a.x + ( b.x - a.x ) * t, a.y + ( b.y - a.y ) * t, column, row ) )
+        {
           out.component[static_cast<std::size_t>( row ) * static_cast<std::size_t>( grid.cols ) +
                         static_cast<std::size_t>( column )] = -2;
+          markedAny = true;
+        }
       }
     }
+    if ( markedAny )
+      out.consumedIds.push_back( line.stableId );
   }
   int next = 0;
   std::vector<std::size_t> queue;

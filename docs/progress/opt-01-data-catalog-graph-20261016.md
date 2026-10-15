@@ -126,3 +126,25 @@ U5 受管 v1 字节）；八类矩阵、工程 E2E 双跑、1k/10k/100k 性能 A
 - 未修（不在写入域）：U5-e（versiondialog.h）。
 - 记入 PR 已知限制：U1-b、U4-b、U5-b、U5-d、U6-b，以及账本历史中出现的本地补丁标记字样。
 - f9b669c1 及之后的提交待 S5 第 2 轮。
+
+### 批次 2 新增：P1/P3/P5
+
+| 单元 | 提交 | 内容 |
+|---|---|---|
+| P5 台账串账 | fe15e9a2 | 导入在飞时切换工程，作废批次被记进新工程台账 → 比对 session 工程与当前 catalog，不一致不入账（旧码红） |
+| P1 E2E 双跑 | 6f736cd2 | tst_datagraphpage::projectDataEndToEndTwice（run1/run2 摘要一致：assets=2;versions=4;links=2;recoveredNo=3） |
+| P3 换代/取消 | cd92a246 | tst_datagraphpage::rapidRefocusLandsOnLatestGeneration |
+
+### 外部可见流程八类矩阵（本 PR 触及的流程；✓=有测试，—=不适用并说明）
+
+| 流程 | 正向成功 | 错误输入 | 取消/关闭 | 跨工程切换 | 重复执行 | 并发排队 | 重开后持久化/恢复 | 历史版本兼容 |
+|---|---|---|---|---|---|---|---|---|
+| 文件夹导入 + 台账 | ✓ rejectedRowsReachLedgerAndAcceptedTops | ✓ allInvalidRowsAreFailureWithReasons | ✓ folderImportSurvivesServiceTeardownHonestly（服务关闭） | ✓ folderImportAcrossProjectSwitchDoesNotCrossPostLedger | ✓ corruptLedgerPreservedBeforeOverwrite（第二批不再备份） | 既有 FIFO 用例（导入作业串行 + 冲突重做，tst_folderimport） | ✓ ledger 每次 load 读回；ledgerScaleRoundTrip 逐字段回读 | ✓ corruptShapesAreNotOverwritten / unreadableLedgerRefusesWrite（旧/坏形状不被覆盖） |
+| 井口资产回查 | ✓ importedWellHeadAssetResolvesSameNameBySourcePath | ✓ 同名无路径命中 → 空 | — 同步只读查询 | — 依赖当前 catalog | ✓ 重复导入取最新 | — | — 只读 | — |
+| 打开工程目录（R-9） | 既有 stampSourceAreaDirGate | ✓ openPathRefusesAmbiguousQgzDirectory | — 拒绝即不打开 | — | — | — | — | — |
+| 资料图谱导航 | ✓ nodeVersionPreviewBackRoundTrip | — 无用户文本输入（检索框既有用例） | ✓ rapidRefocusLandsOnLatestGeneration（取消计算） | 既有 tst_datagraph 工程换代 | ✓ 单击只发一次查询（R-7） | ✓ 合并窗内连发只落最新代 | ✓ 返回栈逐级恢复 | — 图谱不落盘 |
+| 版本对比 | ✓ compareVersionsSamplesBothSides | ✓ compareVersionsRefusesManagedPathOutsideProject | — 同步 | — | — | — | — | — 只读 |
+| 工程数据 E2E | ✓ projectDataEndToEndTwice | 关联：未决→归位 | — | — | ✓ 双跑摘要一致 | — | ✓ 新服务实例重开读回 | 未覆盖：box 无历史真实工程，未做「历史真实数据回读」 |
+
+「原始资产在失败/中断后完好」断言：U3（服务析构后源文件字节）、U2/U2-d（拒写时原台账字节）、U5（受管 v1 字节）、
+P5（切工程后源文件字节）、P1（更新/回滚后 v1 历史字节与源文件）——≥3 处。

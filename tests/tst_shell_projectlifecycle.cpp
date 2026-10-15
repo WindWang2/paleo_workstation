@@ -35,6 +35,7 @@
 #include "../src/io/dataimportservice.h"
 #include "../src/metadata/projectlock.h"
 #include "../src/qgis/qgiscanvascontroller.h"
+#include "../src/qgis/qgislayerservice.h"
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/services/paleotaskservice.h"
 #include "../src/services/previewdoc.h"
@@ -349,6 +350,16 @@ private slots:
     auto *bar = m_win->statusBar();
     bar->clearMessage();
     // 门放行 → promptIsopach 参数表真实弹出（有 ≥2 栅格声明时是模态）。
+    LayerDeclaration r1;
+    r1.layerId = QStringLiteral("r1");
+    r1.type = QStringLiteral("raster");
+    r1.source = QStringLiteral("/fake/r1.tif");
+    m_ctx->layerSvc()->declare(r1);
+    LayerDeclaration r2;
+    r2.layerId = QStringLiteral("r2");
+    r2.type = QStringLiteral("raster");
+    r2.source = QStringLiteral("/fake/r2.tif");
+    m_ctx->layerSvc()->declare(r2);
     bool seen = false;
     armAnyDialogCloser(&seen);
     emit lp->surfaceOpsRequested(QString());

@@ -449,6 +449,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
             if (!m_metaPath.isEmpty())
               MetaStore::closeConnectionsFor(m_metaPath);
             const QString metaPath = manifestPathFor(qgzPath);
+            const bool metaExisted = QFileInfo::exists(metaPath);
             m_metaPath = metaPath;
             m_store->setProjectPaths(qgzPath, gpkgPathFor(qgzPath), metaPath);
 
@@ -488,8 +489,6 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
             // the store file does not exist — a .qgz moved/shared without its
             // sidecar must not lose its layer set, while an existing store
             // (even a deliberately emptied one) is never overwritten.
-            const bool metaExisted = QFileInfo::exists(metaPath);
-
             *m_manifest = LayerManifest(metaPath); // rebind in place
             m_manifest->setReadOnly(!writable); // 值重绑带回可写默认——重设
             QString err;

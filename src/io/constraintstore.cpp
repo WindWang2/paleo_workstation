@@ -111,10 +111,11 @@ QVector<QVariantMap> readHistory(GDALDatasetH ds, const QString &column, const Q
   if (!rows) { if (error) *error = QString::fromUtf8(CPLGetLastErrorMsg()); return result; }
   while (auto raw = OGR_L_GetNextFeature(rows)) {
     Feature feature(raw, OGR_F_Destroy); QJsonParseError parse;
-    auto document = QJsonDocument::fromJson(QByteArray(OGR_F_GetFieldAsString(raw, 0)), &parse);
+    const auto rawBytes = QByteArray(OGR_F_GetFieldAsString(raw, 0));
+    auto document = QJsonDocument::fromJson(rawBytes, &parse);
     if (parse.error != QJsonParseError::NoError || !document.isObject()) {
-      if (error) *error = QObject::tr("约束审计记录损坏，不能作为已验证历史");
-      result.clear(); break;
+      qWarning() << "[ConstraintStore] Corrupted audit event row skipped:" << rawBytes;
+      continue;
     }
     result << document.toVariant().toMap();
   }
@@ -276,15 +277,15 @@ bool ConstraintStore::setAuditContext(const AuditContext &context, QString *erro
   m_audit = context; return true;
 }
 bool ConstraintStore::append(const QString &horizon, const QString &id, const QString &wkt,
-    const QString &type, int code, QString *error, double weight) {
-  return appendInternal(horizon, id, wkt, type, code, nullptr, 0, error, weight);
+    const QString &type, int faciesCode, QString *error, double weight) {
+  return appendInternal(horizon, id, wkt, type, faciesCode, nullptr, 0, error, weight);
 }
 bool ConstraintStore::appendExtended(const QString &horizon, const QString &id, const QString &wkt,
-    const QString &type, int code, const QString &parameters, int schema, QString *error, double weight) {
-  return appendInternal(horizon, id, wkt, type, code, &parameters, schema, error, weight);
+    const QString &type, int faciesCode, const QString &paramsJson, int schemaVersion, QString *error, double weight) {
+  return appendInternal(horizon, id, wkt, type, faciesCode, &paramsJson, schemaVersion, error, weight);
 }
 bool ConstraintStore::appendInternal(const QString &horizon, const QString &id, const QString &wkt,
-    const QString &type, int code, const QString *parameters, int schema, QString *error, double weight) {
+    const QString &type, int faciesCode, const QString *paramsJson, int schemaVersion, QString *error, double weight) {
   if (m_readOnly) { if (error) *error = QObject::tr("已发布约束快照只读"); return false; }
   const WriteFn write = [&]() -> PaleoProjectStore::WriteResult {
     QString reason;
@@ -306,10 +307,10 @@ bool ConstraintStore::appendInternal(const QString &horizon, const QString &id, 
       OGR_F_SetFieldString(feature.get(), OGR_F_GetFieldIndex(feature.get(), name), value.toUtf8().constData());
     };
     set("id", id); set("horizon", horizon); set("type", type);
-    OGR_F_SetFieldInteger(feature.get(), OGR_F_GetFieldIndex(feature.get(), "facies_code"), code);
+    OGR_F_SetFieldInteger(feature.get(), OGR_F_GetFieldIndex(feature.get(), "facies_code"), faciesCode);
     OGR_F_SetFieldDouble(feature.get(), OGR_F_GetFieldIndex(feature.get(), "weight"), weight);
-    if (parameters) { set("params_json", *parameters);
-      OGR_F_SetFieldInteger(feature.get(), OGR_F_GetFieldIndex(feature.get(), "schema_version"), schema); }
+    if (paramsJson) { set("params_json", *paramsJson);
+      OGR_F_SetFieldInteger(feature.get(), OGR_F_GetFieldIndex(feature.get(), "schema_version"), schemaVersion); }
     if (!assignGeometry(feature.get(), wkt, &reason) || OGR_L_CreateFeature(layer, feature.get()) != OGRERR_NONE)
       return {false, reason.isEmpty() ? QObject::tr("约束写入失败") : reason};
     if (!journal(transaction.ds, layer, feature.get(), {}, featureSnapshot(feature.get()), m_audit,
@@ -510,8 +511,8 @@ bool ConstraintStore::copyAudit(const QString &destination, const QString &horiz
   if (copied) *copied = written;
   return true;
 }
-bool ConstraintStore::updateParameters(const QString &id, const QString &parameters, int schema,
-                                       const QString &semantic, QString *error) {
+bool ConstraintStore::updateParameters(const QString &id, const QString &paramsJson, int schemaVersion,
+                                       const QString &semanticType, QString *error) {
   if (m_readOnly) { if (error) *error = QObject::tr("已发布约束快照只读"); return false; }
   const WriteFn write = [&]() -> PaleoProjectStore::WriteResult {
     QString reason; Transaction transaction; if (!transaction.open(m_gpkgPath, false, &reason)) return {false, reason};
@@ -519,17 +520,17 @@ bool ConstraintStore::updateParameters(const QString &id, const QString &paramet
     auto feature = byId(layer, id, &reason);
     if (!feature) return {false, reason.isEmpty() ? QObject::tr("约束身份不存在") : reason};
     const auto before = featureSnapshot(feature.get());
-    auto requested = before; requested.insert("params_json", parameters); requested.insert("schema_version", schema);
+    auto requested = before; requested.insert("params_json", paramsJson); requested.insert("schema_version", schemaVersion);
     if (before.value("params_fingerprint").toString() == parameterFingerprint(requested) &&
-        (semantic.isEmpty() || before.value("type").toString() == semantic)) return {transaction.commit(&reason), reason};
+        (semanticType.isEmpty() || before.value("type").toString() == semanticType)) return {transaction.commit(&reason), reason};
     feature.reset();
     if (!ensureField(layer, "params_json", OFTString) || !ensureField(layer, "schema_version", OFTInteger) ||
         !ensureAudit(transaction.ds, layer)) return {false, QObject::tr("无法扩展约束审计字段")};
     feature = byId(layer, id, &reason);
     if (!feature) return {false, QObject::tr("约束身份不可恢复")};
-    OGR_F_SetFieldString(feature.get(), OGR_F_GetFieldIndex(feature.get(), "params_json"), parameters.toUtf8().constData());
-    OGR_F_SetFieldInteger(feature.get(), OGR_F_GetFieldIndex(feature.get(), "schema_version"), schema);
-    if (!semantic.isEmpty()) OGR_F_SetFieldString(feature.get(), OGR_F_GetFieldIndex(feature.get(), "type"), semantic.toUtf8().constData());
+    OGR_F_SetFieldString(feature.get(), OGR_F_GetFieldIndex(feature.get(), "params_json"), paramsJson.toUtf8().constData());
+    OGR_F_SetFieldInteger(feature.get(), OGR_F_GetFieldIndex(feature.get(), "schema_version"), schemaVersion);
+    if (!semanticType.isEmpty()) OGR_F_SetFieldString(feature.get(), OGR_F_GetFieldIndex(feature.get(), "type"), semanticType.toUtf8().constData());
     if (OGR_L_SetFeature(layer, feature.get()) != OGRERR_NONE) return {false, QObject::tr("约束参数写入失败")};
     if (!journal(transaction.ds, layer, feature.get(), before, featureSnapshot(feature.get()), m_audit,
           m_audit.operationId.isEmpty() ? freshId() : m_audit.operationId, &reason) || !transaction.commit(&reason)) return {false, reason};

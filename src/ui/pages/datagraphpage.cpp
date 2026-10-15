@@ -245,7 +245,7 @@ DataGraphPage::DataGraphPage(QWidget *parent)
     tools->addWidget(widget);
   auto *governance = new QPushButton(tr("资料管理"), this);
   auto *governanceMenu = new QMenu(governance);
-  for (auto [title, action] :
+  for (const auto &[title, action] :
        {qMakePair(tr("资料体检"), QStringLiteral("health")),
         qMakePair(tr("回收清单"), QStringLiteral("recycle")),
         qMakePair(tr("导入台账"), QStringLiteral("imports")),
@@ -351,7 +351,7 @@ DataGraphPage::DataGraphPage(QWidget *parent)
   auto *tasks = new QPushButton(tr("打开任务中心"), details);
   m_manage = new QPushButton(tr("文件 / 版本操作"), details);
   auto *manageMenu = new QMenu(m_manage);
-  for (auto [title, action] :
+  for (const auto &[title, action] :
        {qMakePair(tr("版本管理 / 对比 / 回滚"), QStringLiteral("versions")),
         qMakePair(tr("编辑关联角色"), QStringLiteral("role")),
         qMakePair(tr("添加标签"), QStringLiteral("tag")),
@@ -395,7 +395,7 @@ DataGraphPage::DataGraphPage(QWidget *parent)
     m_mode->setCurrentIndex(1);
     request();
   });
-  for (auto [button, action] :
+  for (const auto &[button, action] :
        {qMakePair(m_map, QStringLiteral("show")),
         qMakePair(m_reference, QStringLiteral("compare")),
         qMakePair(m_wells, QStringLiteral("welltracks"))})

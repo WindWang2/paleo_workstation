@@ -152,7 +152,7 @@ jobs:
             vendor/cache/lo
           key: ${{ runner.os }}-ort-${{ hashFiles('vendor/manifest.json') }}-debclosure-${{ hashFiles('vendor/deb-closure.lock', 'vendor/deb-packages.txt') }}
       - name: Vendor dependencies
-        run: ./paleo-dev bootstrap
+        run: ./paleo-dev bootstrap fetch-only
       - name: Build
         id: build
         run: ./paleo-dev build
@@ -250,7 +250,7 @@ jobs:
             vendor/cache/lo
           key: ${{ runner.os }}-ort-${{ hashFiles('vendor/manifest.json') }}-debclosure-${{ hashFiles('vendor/deb-closure.lock', 'vendor/deb-packages.txt') }}
       - name: Vendor dependencies
-        run: ./paleo-dev bootstrap
+        run: ./paleo-dev bootstrap fetch-only
       - name: Configure
         env:
           QGIS_PREFIX_PATH: ${{ github.workspace }}/vendor/prefix/usr
@@ -314,7 +314,7 @@ jobs:
             vendor/cache/lo
           key: ${{ runner.os }}-ort-${{ hashFiles('vendor/manifest.json') }}-debclosure-${{ hashFiles('vendor/deb-closure.lock', 'vendor/deb-packages.txt') }}
       - name: Vendor dependencies
-        run: ./paleo-dev bootstrap
+        run: ./paleo-dev bootstrap fetch-only
       # 裸跑 cmake 不经 paleo-dev 顶部的 QGIS_PREFIX_PATH 自动注入（linux
       # 主 job 用 ./paleo-dev build 自带；linux-perf 的 Configure 同样显式给）。
       - name: Configure (ASAN+UBSAN)

@@ -98,6 +98,12 @@ using paleo::store_detail::setError;
       setError( error, schema.lastError().text() );
       return false;
     }
+    if ( !schema.exec( QStringLiteral( "CREATE UNIQUE INDEX IF NOT EXISTS idx_map_versions_horizon_version "
+                                       "ON map_versions(horizon, version)" ) ) )
+    {
+      setError( error, schema.lastError().text() );
+      return false;
+    }
     // 既有库补列（旧行一律 NULL → 读侧归一为未发布，不回写）。
     for ( const auto &col : { QStringLiteral( "pdf_asset_id" ),
                               QStringLiteral( "pdf_sha256" ),

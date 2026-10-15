@@ -192,12 +192,12 @@ bool ensure(QgsVectorLayer *layer, QString *error) {
   }
   return finish(layer, own, ok, error);
 }
-QgsFeature find(QgsVectorLayer *layer, const QString &identity) {
-  if (!layer || QThread::currentThread() != layer->thread() || !layer->isValid() || identity.isEmpty() ||
+QgsFeature find(QgsVectorLayer *layer, const QString &uid) {
+  if (!layer || QThread::currentThread() != layer->thread() || !layer->isValid() || uid.isEmpty() ||
       layer->fields().indexOf(UidField) < 0) return {};
   QgsFeatureRequest request;
   request.setFilterExpression(QStringLiteral("%1 = %2").arg(
-      QgsExpression::quotedColumnRef(UidField), QgsExpression::quotedString(identity)));
+      QgsExpression::quotedColumnRef(UidField), QgsExpression::quotedString(uid)));
   request.setLimit(2);
   auto features = layer->getFeatures(request);
   QgsFeature first, second;
@@ -387,20 +387,20 @@ void Observer::startCommand() {
   // touched features; the identity index contains attributes only.
   if (m_idsDirty) rebuildIds();
 }
-bool Observer::rewrite(QgsFeatureId fid, const QStringList &ancestors, const QStringList &sourceRoots) {
+bool Observer::rewrite(QgsFeatureId fid, const QStringList &parents, const QStringList &roots) {
   if (!m_layer || !m_macroOpen || !m_finishing) return false;
   const auto feature = m_layer->getFeature(fid);
   if (!feature.isValid()) return false;
   QScopedValueRollback<bool> guard(m_writing, true);
   const auto identity = fresh();
-  auto roots = sourceRoots;
-  if (roots.isEmpty()) parents(feature.attribute(RootsField), &roots);
-  if (roots.isEmpty()) roots = ancestors.isEmpty() ? QStringList{identity} : ancestors;
+  auto resolvedRoots = roots;
+  if (resolvedRoots.isEmpty()) MappingFeatureIdentity::parents(feature.attribute(RootsField), &resolvedRoots);
+  if (resolvedRoots.isEmpty()) resolvedRoots = parents.isEmpty() ? QStringList{identity} : parents;
 
   QgsAttributeMap changedAttrs{
       {m_layer->fields().indexOf(UidField), identity},
-      {m_layer->fields().indexOf(ParentsField), encode(ancestors)},
-      {m_layer->fields().indexOf(RootsField), encode(roots)},
+      {m_layer->fields().indexOf(ParentsField), encode(parents)},
+      {m_layer->fields().indexOf(RootsField), encode(resolvedRoots)},
       {m_layer->fields().indexOf(ReviewField), true}};
 
   const int interpretationField = m_layer->fields().indexOf(QStringLiteral("paleo_interpretation"));
@@ -439,7 +439,7 @@ bool Observer::rewrite(QgsFeatureId fid, const QStringList &ancestors, const QSt
   if (!ok) { reportFailure(tr("原生编辑的图元来源登记失败")); return false; }
   m_ids[uid(feature)].remove(fid);
   if (m_ids[uid(feature)].isEmpty()) m_ids.remove(uid(feature));
-  m_ids[identity].insert(fid); m_roots[identity] = roots;
+  m_ids[identity].insert(fid); m_roots[identity] = resolvedRoots;
   trackIdentity(fid, identity);
   return true;
 }

@@ -216,16 +216,16 @@ QString stageText(const QString &s) {
     return text("成果");
   return s.isEmpty() || s == QLatin1String("NONE") ? text("没有版本") : s;
 }
-std::shared_ptr<const Index> buildIndex(const DataCatalog &cat,
+std::shared_ptr<const Index> buildIndex(const DataCatalog &snapshot,
                                         const Presentation &presentation,
                                         const Cancel &cancel,
                                         const Progress &progress) {
   auto index = std::make_shared<Index>();
   report(progress, 5, "读取资料关系");
-  const auto entities = cat.entities();
-  const auto assets = cat.assets();
-  const auto versions = cat.versions();
-  const auto links = cat.links();
+  const auto entities = snapshot.entities();
+  const auto assets = snapshot.assets();
+  const auto versions = snapshot.versions();
+  const auto links = snapshot.links();
   QHash<QString, QString> entityTypes;
   for (const auto &entity : entities) {
     if (stopped(cancel))
@@ -430,7 +430,7 @@ std::shared_ptr<const Index> buildIndex(const DataCatalog &cat,
         missing.title = text("来源版本缺失");
         missing.detail = parent;
         missing.unresolved = true;
-        if (presentation.removedIds.contains(cat.versionById(parent).assetId))
+        if (presentation.removedIds.contains(snapshot.versionById(parent).assetId))
           missing.title = text("来源资料已移入回收清单");
         index->nodes.insert(key, missing);
         ++index->missingParents;

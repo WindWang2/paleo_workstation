@@ -120,8 +120,8 @@ public:
   LasDoc predictionLog(const QString &versionId) const;
   bool assignFacies(const QString &draftId, const QList<qint64> &featureIds,
                     int code, QString *error);
-  bool reviseWellInterval(const QString &draftId, const QString &wellId,
-                          int interval, int code, QString *error);
+  bool reviseWellInterval(const QString &id, const QString &wellId,
+                          int index, int code, QString *error);
   QString displayMode(const QString &id) const;
   QString resolvedLevel(const QString &id) const;
   QVariantList displayLegend(const QString &id) const;
@@ -193,9 +193,9 @@ private:
                  const QString &assetKey = QString(),
                  const DerivedFileFingerprint *fingerprint = nullptr);
   QString ensureInputVersion(const QString &layerId, QString *error);
-  bool recordInterpretationEdit(const QString &id, qint64 featureId,
+  bool recordInterpretationEdit(const QString &id, qint64 fid,
                                 int beforeCode, int afterCode, QString *error);
-  bool recordSpatialInterpretationEdit(const QString &id, qint64 featureId,
+  bool recordSpatialInterpretationEdit(const QString &id, qint64 fid,
                                       const QString &kind, QString *error);
 public:
   struct ComposeJob {

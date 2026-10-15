@@ -503,6 +503,73 @@ private slots:
     QFile::setPermissions(facies, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
   }
 
+  // P4：删除/语义改型可开会话时同走会话（可撤销）；会话保存/取消/删除后伴随视图重同步。
+  void sessionRoutesRemoveUpdateAndResyncsViews()
+  {
+    QTemporaryDir dir;
+    PaleoProjectStore store;
+    const QString gpkg = dir.filePath("project.gpkg");
+    store.setProjectPaths(dir.filePath("p.qgz"), gpkg, dir.filePath("m.sqlite"));
+    ConstraintStore constraints(gpkg, &store);
+    QgisProjectService project;
+    QVERIFY(project.createProject(dir.filePath("p.qgz")));
+    LayerManifest manifest(dir.filePath("m.sqlite"));
+    QVERIFY(manifest.open());
+    QgisLayerService layers(&project, &manifest);
+    QgisEditingService edits(&store);
+    layers.setEditingService(&edits);
+    ConstraintWorkflow workflow(nullptr, &layers);
+    workflow.setConstraintStore(&constraints);
+    workflow.setEditingService(&edits);
+    QString error;
+    QVERIFY2(constraints.append("T1", "c-l", "LINESTRING(0 0,10 0)", "break_line", 0, &error), qPrintable(error));
+    workflow.loadConstraints("T1");
+    const QString polygonView = "constraintgeom.T1.polygon";
+    QVERIFY(layers.declaration(polygonView).layerId.isEmpty());
+
+    // 取消：会话内画面 → 视图声明；回滚后面消失 → 视图撤销。
+    QVERIFY2(workflow.drawConstraint("T1", "POLYGON((20 20,30 20,30 30,20 20))", "polygon", 2, &error), qPrintable(error));
+    auto *layer = qobject_cast<QgsVectorLayer *>(layers.layer("constraints.T1"));
+    QVERIFY(layer && layer->isEditable());
+    QVERIFY(!layers.declaration(polygonView).layerId.isEmpty());
+    QVERIFY(edits.rollbackEdit(layer));
+    QCOMPARE(constraints.load("T1").size(), 1);
+    QVERIFY(layers.declaration(polygonView).layerId.isEmpty());
+
+    // 删除：无会话时自动开会话、进撤销栈；删后视图撤销，撤销后保存 → 视图回来。
+    QVERIFY2(constraints.append("T1", "c-p", "POLYGON((20 20,30 20,30 30,20 20))", "polygon", 2, &error), qPrintable(error));
+    workflow.loadConstraints("T1");
+    QVERIFY(!layers.declaration(polygonView).layerId.isEmpty());
+    QVERIFY(!layer->isEditable());
+    QVERIFY2(workflow.removeConstraint("c-p", &error), qPrintable(error));
+    QVERIFY(layer->isEditable());
+    QCOMPARE(layer->undoStack()->count(), 1);
+    QCOMPARE(constraints.load("T1").size(), 1);
+    QVERIFY(layers.declaration(polygonView).layerId.isEmpty());
+    layer->undoStack()->undo();
+    QCOMPARE(constraints.load("T1").size(), 2);
+    QVERIFY2(edits.commitEdit(layer, &error), qPrintable(error));
+    QVERIFY(!layers.declaration(polygonView).layerId.isEmpty());
+
+    // 语义改型：同样自动开会话、可撤销。
+    const QString before = constraints.load("T1").first().value("params_json").toString();
+    QVERIFY(!layer->isEditable());
+    QVERIFY2(workflow.updateConstraintLines({"c-l"}, {{"semantic", "direction_guide"}}, &error), qPrintable(error));
+    QVERIFY(layer->isEditable());
+    QCOMPARE(layer->undoStack()->count(), 1);
+    QString changed;
+    for (const auto &row : constraints.load("T1"))
+      if (row.value("id") == "c-l")
+        changed = row.value("params_json").toString();
+    QVERIFY2(changed.contains("direction_guide"), qPrintable(changed));
+    layer->undoStack()->undo();
+    for (const auto &row : constraints.load("T1"))
+      if (row.value("id") == "c-l")
+        QCOMPARE(row.value("params_json").toString(), before);
+    QVERIFY(edits.rollbackEdit(layer));
+    QVERIFY(!layer->isEditable());
+  }
+
   void drawAutoStartsEditSession()
   {
     QTemporaryDir dir;

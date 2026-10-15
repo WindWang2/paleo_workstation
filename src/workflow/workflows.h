@@ -195,6 +195,8 @@ class ConstraintWorkflow : public QObject
     using DrawSessionStarter = std::function<bool(const QString &horizon, QString *error)>;
     void setDrawSessionStarter(DrawSessionStarter starter) { m_drawSessionStarter = std::move(starter); }
     void setEditingService(QgisEditingService *editing);
+    // P4：所有已声明约束层位的混合几何伴随视图按 store 重同步（会话保存/取消后自动调用）。
+    void syncAllConstraintGeometryViews();
     // 把逐线语义和半径写进 params_json。重开后 loadConstraints 读回同一份。
     bool updateConstraintLine(const QString &id, const QVariantMap &lineParams, QString *error = nullptr);
     bool updateConstraintLines(const QStringList &ids, const QVariantMap &patch, QString *error = nullptr);
@@ -567,6 +569,8 @@ class ConstraintWorkflow : public QObject
     QString m_projectDir;
     QVector<QVariantMap> m_inMemoryConstraints;
     int m_inMemorySeq = 0;
+    bool canStartConstraintSession() const;
+    bool ensureConstraintSession(const QString &horizon, QString *error);
     DrawSessionStarter m_drawSessionStarter;
     QPointer<QgisEditingService> m_editingService;
     // 发布代次。本地方向在准备入口加一；等值线与解释性等值线在校验通过后加一；

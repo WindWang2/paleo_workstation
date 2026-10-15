@@ -261,6 +261,7 @@ bool ConstraintWorkflow::addConstraintThroughSession(QgsVectorLayer *layer, Cons
     return false;
   }
   set(QStringLiteral("facies_code"), faciesCode);
+  set(QStringLiteral("weight"), 1.0); // 与 ConstraintStore::append 默认权重一致
   feature.setGeometry(QgsGeometry::fromWkt(wkt));
   layer->beginEditCommand(tr("绘制约束"));
   if (!layer->addFeature(feature))

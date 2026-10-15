@@ -327,6 +327,15 @@ private slots:
     QVERIFY(!row.isEmpty());
     QCOMPARE(row.value("type").toString(), QString("break_line"));
     QVERIFY(row.value("params_json").toString().contains("full_block"));
+    // 与 store append 口径一致：权重显式落 1.0（不是 NULL→读回默认值）。
+    // 缓冲区里的新要素仍是负 fid，按身份找。
+    QgsFeature buffered;
+    for (auto it = layer->getFeatures(); it.nextFeature(buffered);)
+      if (buffered.attribute("id").toString() == drawnId)
+        break;
+    QCOMPARE(buffered.attribute("id").toString(), drawnId);
+    QVERIFY(!buffered.attribute("weight").isNull());
+    QCOMPARE(buffered.attribute("weight").toDouble(), 1.0);
     QVERIFY(row.value("fid").toLongLong() != otherHorizon.first().value("fid").toLongLong());
     QCOMPARE(constraints.load("T2"), otherHorizon);
 

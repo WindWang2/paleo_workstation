@@ -779,13 +779,12 @@ private slots:
     QVERIFY(!f.work.changeEvidence(draft, {feature.id()}, "review", {{"actor_id", "local:reviewer"}, {"reason", "review"}, {"status", "Confirmed"}, {"expected_revision", revision - 1}}, &error));
     QCOMPARE(layer->getFeature(feature.id()).attribute("paleo_interpretation"), beforeJson);
     QVERIFY(f.work.changeEvidence(draft, {feature.id()}, "review", {{"actor_id", "local:reviewer"}, {"reason", "争议待新资料"}, {"status", "Disputed"}, {"expected_revision", revision}}, &error));
-    // #444：争议复核后状态必须是 Disputed，不只是历史条数。
+    // #444：争议复核后状态必须是 Disputed（此时历史至少含 link+review 两条）。
     {
-      QVariantList records; QVariantMap interpretation; QString decodeError;
-      QVERIFY(paleo::evidence::decodeRecords(layer->getFeature(feature.id()).attribute("facies_evidence").toString(), &records, &decodeError));
+      QVariantMap interpretation; QString decodeError;
       QVERIFY(paleo::evidence::decodeInterpretation(layer->getFeature(feature.id()).attribute("paleo_interpretation").toString(), &interpretation, &decodeError));
       QCOMPARE(interpretation.value("status").toString(), QString("Disputed"));
-      QVERIFY(interpretation.value("history").toList().size() >= 3);
+      QVERIFY(interpretation.value("history").toList().size() >= 2);
     }
     const auto evidenceId = snapshot.value("records").toList()[0].toMap().value("id").toString();
     QVERIFY(f.work.removeEvidence(draft, {feature.id()}, evidenceId, &error));

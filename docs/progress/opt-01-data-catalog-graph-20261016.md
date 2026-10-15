@@ -148,3 +148,17 @@ U5 受管 v1 字节）；八类矩阵、工程 E2E 双跑、1k/10k/100k 性能 A
 
 「原始资产在失败/中断后完好」断言：U3（服务析构后源文件字节）、U2/U2-d（拒写时原台账字节）、U5（受管 v1 字节）、
 P5（切工程后源文件字节）、P1（更新/回滚后 v1 历史字节与源文件）——≥3 处。
+
+### 轮 3：S5 第 2 轮修复（详见账本「轮 3」）
+
+M-1（b3d849d6）；Low 2（eb9aee8c）、4（25acad5a）、16（720e0534）、15（a425e229）、14（577dd9f9）、9（a3d5bc61）、7（f0947ac3）、12（de2521ff）。Low 8/11 留作已知限制。
+
+## 收尾门禁（R10，2026-10-16 05:2x UTC+8）
+
+- `git fetch --prune origin`：origin/master 仍为 BASE_SHA dbb03269（未移动，无需合并）；open PR #486/#487/#488 与本 PR 文件交集为空；open issues 仍为 #460–#485（26）。
+- 全量构建：`flock -x <git-common-dir>/paleo-shared-build-j4.lock bash -lc 'cmake --build build -j4'` rc=0（de2521ff 代码态；a5e7044c 之后仅文档，`ninja: no work to do`）。
+- 全量 `QT_QPA_PLATFORM=offscreen ctest --test-dir build -j2`（de2521ff 代码态，04:44–05:17，real 641 s，`/tmp/opt01-ctest-final.log`）：**409 项 407 过**，红 = {tst_singlefactor_fieldcontours, tst_horizontracksvc}，与干净 master 基线完全相同。
+- tst_singlefactor_perf 定性：该二进制 02:32 由干净 master 源构建、此后未重链（只链 paleo_algorithms，本 PR 零触及；libpaleo_algorithms.a 01:55）。基线 164.5 s 通过 → 批次 2 全量与单跑两次超预算（L 档 15303 ms > 15000 ms，box load avg 最高 ≈9）→ 收尾全量 165.6 s 通过。同一 master 二进制时过时不过 ⇒ **主机负载导致的预算抖动，与本 PR 无关**。
+- 定向 8 套（tst_folderimport / io_importledger / assetops / assetpaging / datagraphpage / datagraph / storagegovernance / panels）`ctest -j2 -R …` **连跑两遍 8/8**（`/tmp/opt01-ct-final-run{1,2}.log`）。
+- 静态门禁：`git diff origin/master --check` 0；`python3 tools/check_layering.py --strict` 通过；`python3 tools/check_ui_invariants.py --strict` clean；`python3 tools/check_i18n.py` 通过。
+- 本地补丁标记扫描：最终树 0；src/tests/cmake 在全部提交中 0；仅文档散文出现于 12847382/8456f9f1（ef79b2ee 已删除）。两份本地补丁文件仍为 skip-worktree，未提交。

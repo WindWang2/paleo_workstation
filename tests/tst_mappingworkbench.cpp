@@ -2827,12 +2827,25 @@ private slots:
   }
 };
 int main(int argc, char **argv) {
+  // ctest 起进程不带控制台，QTest 结果行走 OutputDebugString；一旦某用例
+  // __fastfail（0xc0000409）缓冲的 stdout 也一起丢，ctest --output-on-failure
+  // 什么都看不到。故追加 `-o <file>,txt` 让每条用例结果落盘，崩到哪条一目了然。
+  const QByteArray logPath = QByteArray(QT_TESTCASE_BUILDDIR) + "/tst_mappingworkbench-result.txt";
   QgsApplication app(argc, argv, true);
   app.setPrefixPath("/usr", true);
   app.initQgis();
   GDALAllRegister();
   TestMappingWorkbench test;
-  const int result = QTest::qExec(&test, argc, argv);
+  QList<QByteArray> forwarded;
+  forwarded << QByteArray(argv[0]);
+  for (int i = 1; i < argc; ++i)
+    forwarded << QByteArray(argv[i]);
+  forwarded << QByteArray("-o") << logPath + ",txt";
+  QList<char *> cargv;
+  cargv.reserve(forwarded.size());
+  for (QByteArray &a : forwarded)
+    cargv << a.data();
+  const int result = QTest::qExec(&test, cargv.size(), cargv.data());
   QgsApplication::exitQgis();
   return result;
 }

@@ -45,6 +45,9 @@ private slots:
   void nonTileModelRejectedBySignature();
   void asyncTaskCancelsWithoutLeak();
   void softmaxHandlesProbabilitiesSemanticsWithoutDoubleSoftmax();
+  void probabilitiesSingleChannelConfidenceIsNotConstant();
+  void probabilitiesDegenerateVectorIsNodata();
+  void probabilitiesMultiChannelConfidenceUnchanged();
   void fixedShapeModelPadsBoundaryTiles();
 
 private:
@@ -687,6 +690,57 @@ void TestTileInference::softmaxHandlesProbabilitiesSemanticsWithoutDoubleSoftmax
   QCOMPARE( int( g.argmax[0] ), 0 );
   QVERIFY2( qAbs( double( g.probMax[0] ) - 0.7 ) < 1e-4,
             qPrintable( QStringLiteral( "probMax was %1, expected 0.7" ).arg( g.probMax[0] ) ) );
+}
+
+// opt-04：probabilities 语义且 classes==1（sigmoid 前景概率模型）时，
+// confidence 此前恒为 1.0 —— 「5% 把握」被写成「100% 把握」，同一函数里
+// logits 的 classes==1 分支却用 |p-0.5|*2，两条通路自相矛盾；且 confidence
+// 会直接落 CONFIDENCE_*.tif 并驱动低置信掩膜，恒 1.0 让掩膜完全失效。
+void TestTileInference::probabilitiesSingleChannelConfidenceIsNotConstant()
+{
+  TileClassGrid g;
+  softmaxGrid( { 0.05f }, 1, 1, 1, { true }, &g, QStringLiteral( "probabilities" ) );
+  QCOMPARE( int( g.argmax[0] ), 0 ); // 类域 {0}，argmax 口径不变
+  QVERIFY2( qAbs( double( g.probMax[0] ) - 0.05 ) < 1e-5,
+            qPrintable( QStringLiteral( "probMax was %1" ).arg( g.probMax[0] ) ) );
+  QVERIFY2( qAbs( double( g.confidence[0] ) - 0.90 ) < 1e-4,
+            qPrintable( QStringLiteral( "confidence was %1, expected 0.90" ).arg( g.confidence[0] ) ) );
+  QVERIFY2( double( g.confidence[0] ) < 0.999, "confidence 不得再恒为 1.0" );
+
+  TileClassGrid h;
+  softmaxGrid( { 0.5f }, 1, 1, 1, { true }, &h, QStringLiteral( "probabilities" ) );
+  QVERIFY2( double( h.confidence[0] ) < 1e-4,
+            qPrintable( QStringLiteral( "p=0.5 应为完全不确定，实为 %1" ).arg( h.confidence[0] ) ) );
+}
+
+// opt-04：退化概率向量（源栅格 NoData -9999 被 clamp 成 0）此前被判成
+// argmax=0 / confidence=1.0，即「最不确定」写成「最确定」。与 #143
+// 「无信息一律记无数据、绝不回落到类 0」的既有契约对齐。
+void TestTileInference::probabilitiesDegenerateVectorIsNodata()
+{
+  TileClassGrid g;
+  softmaxGrid( { -9999.0f, -9999.0f, -9999.0f }, 3, 1, 1, { true }, &g,
+               QStringLiteral( "probabilities" ) );
+  QCOMPARE( int( g.argmax[0] ), 255 );
+  QCOMPARE( double( g.confidence[0] ), 0.0 );
+  QCOMPARE( double( g.probMax[0] ), 0.0 );
+}
+
+// 回归保护：C>1 的合法概率向量口径（probMax 取原值、confidence 用 1-H/lnC）
+// 必须一字不变。
+void TestTileInference::probabilitiesMultiChannelConfidenceUnchanged()
+{
+  const QVector<float> probs = { 0.7f, 0.2f, 0.1f };
+  TileClassGrid g;
+  softmaxGrid( probs, 3, 1, 1, { true }, &g, QStringLiteral( "probabilities" ) );
+  QCOMPARE( int( g.argmax[0] ), 0 );
+  QVERIFY2( qAbs( double( g.probMax[0] ) - 0.7 ) < 1e-4,
+            qPrintable( QStringLiteral( "probMax was %1" ).arg( g.probMax[0] ) ) );
+  const double entropy = -( 0.7 * std::log( 0.7 ) + 0.2 * std::log( 0.2 ) + 0.1 * std::log( 0.1 ) );
+  const double expected = 1.0 - entropy / std::log( 3.0 );
+  QVERIFY2( qAbs( double( g.confidence[0] ) - expected ) < 1e-4,
+            qPrintable( QStringLiteral( "confidence was %1, expected %2" )
+                          .arg( g.confidence[0] ).arg( expected ) ) );
 }
 
 void TestTileInference::fixedShapeModelPadsBoundaryTiles()

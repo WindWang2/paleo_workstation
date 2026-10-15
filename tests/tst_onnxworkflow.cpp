@@ -659,8 +659,19 @@ int main( int argc, char *argv[] )
     QgisRuntime::initialize( QStringLiteral( "/usr" ) );
   QgsApplication::processingRegistry(); // ensure registry alive
   GDALAllRegister();
+  // 同上：ctest 无控制台，__fastfail 会吞掉缓冲输出；强制结果落盘。
+  const QByteArray logPath = QByteArray( QT_TESTCASE_BUILDDIR ) + "/tst_onnxworkflow-result.txt";
+  QList<QByteArray> forwarded;
+  forwarded << QByteArray( argv[0] );
+  for ( int i = 1; i < argc; ++i )
+    forwarded << QByteArray( argv[i] );
+  forwarded << QByteArray( "-o" ) << logPath + ",txt";
+  QList<char *> cargv;
+  cargv.reserve( forwarded.size() );
+  for ( QByteArray &a : forwarded )
+    cargv << a.data();
   TestOnnxWorkflow tc;
-  const int rc = QTest::qExec( &tc, argc, argv );
+  const int rc = QTest::qExec( &tc, cargv.size(), cargv.data() );
   QgisRuntime::shutdown();
   return rc;
 }

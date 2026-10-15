@@ -138,9 +138,19 @@ void softmaxGrid( const QVector<float> &logits, int classes, int rows, int cols,
           best = c;
         }
       }
+      // 退化概率向量（典型来源：源栅格 NoData -9999 被 clamp 成 0）不是
+      // 「确定属于类 0」。与 #143「无信息一律记无数据、绝不回落到类 0」的
+      // 既有契约对齐，避免最不确定的像素被写成最确定（此前 argmax=0、
+      // confidence=1.0，会让下游低置信掩膜彻底失效）。
+      // C>1 且概率合法时 bestP >= 1/C > 0，不会误伤正常像素。
+      if ( classes > 1 && bestP <= 0.0 )
+        continue; // argmax 保持 255、confidence/probMax 保持 0
       out->argmax[p] = quint8( best );
       out->probMax[p] = float( std::clamp( bestP, 0.0, 1.0 ) );
-      double conf = classes > 1 ? 1.0 - entropy / lnC : 1.0;
+      // 单通道（如 sigmoid 前景概率）此前 confidence 恒为 1.0：把「5% 把握」
+      // 写成「100% 把握」，且与本函数 logits 的 classes==1 分支口径自相矛盾。
+      // 统一为 |p-0.5|*2（p=0.5→0，p=0/1→1）；C>1 的公式一字不变。
+      double conf = classes > 1 ? 1.0 - entropy / lnC : std::abs( bestP - 0.5 ) * 2.0;
       conf = std::clamp( conf, 0.0, 1.0 );
       out->confidence[p] = float( conf );
       continue;

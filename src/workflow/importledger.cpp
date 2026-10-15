@@ -39,6 +39,76 @@ QString stringOrEmpty(const QVariantMap &m, const char *key)
   return m.value(QLatin1String(key)).toString();
 }
 
+// opt-01 P2：台账在 GUI 线程上 load+record，旧实现经 QVariantMap/QVariantList
+// 中转（每行一个 QVariantMap，再 fromVariantMap/toVariantMap），10 万行级批次
+// 实测秒级卡顿。下面两函数直接在 QJsonObject 与 LedgerBatch 间转换，字段、
+// 类型与容错口径与 toVariant/fromVariant 逐一对应（落盘字节相同，见
+// tst_io_importledger::ledgerScaleRoundTrip 的 sha256 交叉校验）。
+QString jsonString(const QJsonObject &o, QLatin1String key)
+{
+  const QJsonValue v = o.value(key);
+  if (v.isString())
+    return v.toString();
+  return v.toVariant().toString(); // 与 QVariant::toString 同口径（数字 → 文本）
+}
+
+QJsonObject batchToJson(const LedgerBatch &b)
+{
+  QJsonObject o;
+  o.insert(QLatin1String("id"), b.id);
+  o.insert(QLatin1String("dir"), b.dir);
+  o.insert(QLatin1String("startedAt"), b.startedAt.toString(Qt::ISODate));
+  o.insert(QLatin1String("finishedAt"), b.finishedAt.toString(Qt::ISODate));
+  o.insert(QLatin1String("imported"), b.imported);
+  o.insert(QLatin1String("unresolved"), b.unresolved);
+  o.insert(QLatin1String("failed"), b.failed);
+  o.insert(QLatin1String("skipped"), b.skipped);
+  o.insert(QLatin1String("error"), b.error);
+  QJsonArray rows;
+  for (const LedgerRow &r : b.rows)
+  {
+    QJsonObject ro;
+    ro.insert(QLatin1String("path"), r.path);
+    ro.insert(QLatin1String("type"), r.type);
+    ro.insert(QLatin1String("entity"), r.entity);
+    ro.insert(QLatin1String("outcome"), r.outcome);
+    ro.insert(QLatin1String("message"), r.message);
+    rows.append(ro);
+  }
+  o.insert(QLatin1String("rows"), rows);
+  return o;
+}
+
+LedgerBatch batchFromJson(const QJsonObject &o)
+{
+  LedgerBatch b;
+  b.id = jsonString(o, QLatin1String("id"));
+  b.dir = jsonString(o, QLatin1String("dir"));
+  b.startedAt = QDateTime::fromString(jsonString(o, QLatin1String("startedAt")), Qt::ISODate);
+  b.finishedAt = QDateTime::fromString(jsonString(o, QLatin1String("finishedAt")), Qt::ISODate);
+  b.imported = o.value(QLatin1String("imported")).toVariant().toInt();
+  b.unresolved = o.value(QLatin1String("unresolved")).toVariant().toInt();
+  b.failed = o.value(QLatin1String("failed")).toVariant().toInt();
+  b.skipped = o.value(QLatin1String("skipped")).toVariant().toInt();
+  b.error = jsonString(o, QLatin1String("error"));
+  const QJsonArray rows = o.value(QLatin1String("rows")).toArray();
+  b.rows.reserve(rows.size());
+  for (const QJsonValue &v : rows)
+  {
+    const QJsonObject ro = v.toObject();
+    if (!ro.contains(QLatin1String("path")))
+      continue;
+    LedgerRow r;
+    r.path = jsonString(ro, QLatin1String("path"));
+    r.type = jsonString(ro, QLatin1String("type"));
+    r.entity = jsonString(ro, QLatin1String("entity"));
+    r.outcome = jsonString(ro, QLatin1String("outcome"));
+    r.message = jsonString(ro, QLatin1String("message"));
+    b.rows.append(r);
+  }
+  return b;
+}
+
 } // namespace
 
 QVariantMap LedgerBatch::toVariant() const
@@ -142,7 +212,7 @@ void ImportLedger::load(DataCatalog *cat)
   const QJsonArray arr = batchesValue.toArray();
   for (const auto &v : arr)
   {
-    LedgerBatch b = LedgerBatch::fromVariant(v.toObject().toVariantMap());
+    LedgerBatch b = batchFromJson(v.toObject());
     if (!b.id.isEmpty())
       m_batches.append(b);
   }
@@ -199,24 +269,7 @@ bool ImportLedger::record(const LedgerBatch &batch, QString *error)
   QJsonObject root;
   QJsonArray arr;
   for (const LedgerBatch &b : m_batches)
-  {
-    QJsonObject o;
-    const QVariantMap m = b.toVariant();
-    for (auto it = m.constBegin(); it != m.constEnd(); ++it)
-    {
-      const QVariant &v = it.value();
-      if (v.type() == QVariant::List)
-      {
-        QJsonArray a;
-        for (const QVariant &rv : v.toList())
-          a.append(QJsonObject::fromVariantMap(rv.toMap()));
-        o.insert(it.key(), a);
-      }
-      else
-        o.insert(it.key(), QJsonValue::fromVariant(v));
-    }
-    arr.append(o);
-  }
+    arr.append(batchToJson(b));
   root.insert(QStringLiteral("batches"), arr);
 
   QDir().mkpath(QFileInfo(m_path).absolutePath());

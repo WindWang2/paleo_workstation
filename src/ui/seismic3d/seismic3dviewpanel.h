@@ -284,6 +284,10 @@ private:
     bool fallbackActive_ = false;
     Seismic3DFallbackWidget *fallback_ = nullptr;
     QTimer *glWatchTimer_ = nullptr;
+    // GL 判决有界重试：加载期 GUI 线程拥塞时首帧 paint 可晚于 3s 才调度，
+    // initializeGL 尚未获得机会≠建不出——真失败是持久的，重试收敛后兜底。
+    int glWatchRetries_ = 0;
+    static constexpr int kGlWatchMaxRetries = 4; // ≈3s+4×3s 共 ~15s 预算
 
     // D3.6 相机书签（内存态；QSettings 持久化在 save/apply 中）
     struct CamBookmark {

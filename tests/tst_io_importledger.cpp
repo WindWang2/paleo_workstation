@@ -311,16 +311,21 @@ void IoImportLedgerTests::corruptShapesAreNotOverwritten_data()
 {
   QTest::addColumn<QByteArray>("bytes");
   QTest::addColumn<bool>("corrupt");
-  QTest::newRow("no-batches") << QByteArray("{\"version\":2}") << true;
-  QTest::newRow("batches-object") << QByteArray("{\"batches\":{\"id\":\"b\"}}") << true;
-  QTest::newRow("no-valid-batch") << QByteArray("{\"batches\":[{\"x\":1},{\"y\":2}]}") << true;
-  QTest::newRow("empty-array-ok") << QByteArray("{\"batches\":[]}") << false;
+  QTest::addColumn<int>("validBefore");
+  QTest::newRow("no-batches") << QByteArray("{\"version\":2}") << true << 0;
+  QTest::newRow("batches-object") << QByteArray("{\"batches\":{\"id\":\"b\"}}") << true << 0;
+  QTest::newRow("no-valid-batch") << QByteArray("{\"batches\":[{\"x\":1},{\"y\":2}]}") << true << 0;
+  QTest::newRow("partly-invalid")
+      << QByteArray("{\"batches\":[{\"id\":\"batch-1\",\"dir\":\"/old\",\"rows\":[]},{\"x\":1}]}")
+      << true << 1;
+  QTest::newRow("empty-array-ok") << QByteArray("{\"batches\":[]}") << false << 0;
 }
 
 void IoImportLedgerTests::corruptShapesAreNotOverwritten()
 {
   QFETCH(QByteArray, bytes);
   QFETCH(bool, corrupt);
+  QFETCH(int, validBefore);
   QTemporaryDir dir;
   QVERIFY(dir.isValid());
   DataCatalog cat;
@@ -330,7 +335,7 @@ void IoImportLedgerTests::corruptShapesAreNotOverwritten()
   const QString ledgerPath = ledger.filePath();
   QVERIFY(write(ledgerPath, bytes));
   ledger.load(&cat);
-  QCOMPARE(ledger.count(), 0);
+  QCOMPARE(ledger.count(), validBefore); // 可识别的批次照常可见
   QCOMPARE(!ledger.loadWarning().isEmpty(), corrupt);
   QString err;
   QVERIFY2(ledger.record(syntheticBatch(3, 0), &err), qPrintable(err));
@@ -347,7 +352,7 @@ void IoImportLedgerTests::corruptShapesAreNotOverwritten()
   paleo::imports::ImportLedger after;
   after.load(&cat);
   QVERIFY(after.loadWarning().isEmpty());
-  QCOMPARE(after.count(), 1);
+  QCOMPARE(after.count(), validBefore + 1);
 }
 
 // S5 U2-d：台账文件在但读不了 → 不当空历史；record 拒写，原件字节不动。

@@ -216,11 +216,15 @@ void ImportLedger::load(DataCatalog *cat)
     if (!b.id.isEmpty())
       m_batches.append(b);
   }
-  if (!arr.isEmpty() && m_batches.isEmpty())
+  if (m_batches.size() < arr.size())
   {
-    qWarning() << "import ledger: no valid batch among" << arr.size() << m_path;
-    m_loadWarning = QStringLiteral("导入台账已损坏（%1 个批次均无法识别），历史批次无法读取；"
+    // 有批次无法识别（全部或部分）：保留可识别的批次照常显示，但下一次 record
+    // 会只写回可识别的部分——原文件须先备份（S5 第 2 轮 Low 9：部分无效也算）。
+    qWarning() << "import ledger:" << arr.size() - m_batches.size() << "of" << arr.size()
+               << "batches unrecognised" << m_path;
+    m_loadWarning = QStringLiteral("导入台账已损坏（%1 / %2 个批次无法识别），无法识别的批次未显示；"
                                    "下次写入前将原文件另存为 .corrupt 备份")
+                        .arg(arr.size() - m_batches.size())
                         .arg(arr.size());
   }
 }

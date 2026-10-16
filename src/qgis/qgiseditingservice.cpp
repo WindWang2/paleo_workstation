@@ -119,6 +119,9 @@ bool QgisEditingService::beginEdit(QgsVectorLayer *layer, QString *error)
       return false;
     }
     m_constraintSessions.insert(layer, session);
+    // G05：约束保存成功 → 转发层位与变化约束 id，供下游影响分析消费。
+    connect(session.get(), &QgisConstraintEditSession::constraintsSaved, this,
+            &QgisEditingService::constraintsSaved);
     const QString key = busyKey(layer);
     const QString id = layer->id();
     m_constraintLifetimeConnections.insert(layer, connect(layer, &QObject::destroyed, this, [this, layer, key, id] {

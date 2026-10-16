@@ -40,8 +40,17 @@ EvidenceInteraction::EvidenceInteraction(MappingWorkbench *workbench, SelectionC
         if (m_layers) for (const auto &declaration : m_layers->declared()) observe(declaration.layerId);
         const auto json = m_project->project()->readEntry("paleo/evidenceTarget", "selection");
         const auto saved = QJsonDocument::fromJson(json.toUtf8()).toVariant().toMap();
-        if (saved.value("project_id").toString() != projectId() ||
-            (!saved.value("horizon").toString().isEmpty() && saved.value("horizon").toString() != m_selection->activeHorizon())) return;
+        if (saved.value("project_id").toString() != projectId())
+          return;
+        // #493 后 reset() 在关工程时连 activeHorizon 一起清空（工程作用域），
+        // 重开恢复时层位为空应采纳保存值——否则同工程重开永远恢复失败
+        //（tst_mappingworkbench mapEvidenceAndGraphUseOneStableTarget 回归）。
+        const auto savedHorizon = saved.value("horizon").toString();
+        if (!savedHorizon.isEmpty() && savedHorizon != m_selection->activeHorizon()) {
+          if (!m_selection->activeHorizon().isEmpty())
+            return; // 已有不同层位：以当前上下文为准，不覆盖
+          m_selection->setActiveHorizon(savedHorizon);
+        }
         const auto layer = saved.value("layer_id").toString();
         if (layer.isEmpty() || m_workbench->versionForLayer(layer).id != saved.value("version_id").toString()) return;
         SelectionTarget target;

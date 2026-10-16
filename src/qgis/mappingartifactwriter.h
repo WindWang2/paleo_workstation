@@ -11,12 +11,20 @@ class QgsMapLayer;
 class QgsSymbol;
 class QgsVectorLayer;
 namespace MappingArtifactWriter {
+// 融合执行的诚实回执：只统计既成事实（每输入胜出像元数/有效像元总数），
+// 不推断任何地质支持关系。与 composeRaster 的 layers 同序。
+struct ComposeReceipt {
+  QList<qint64> winningCells;
+  qint64 decidedCells = 0;
+  qint64 totalCells = 0;
+};
 void restoreRasterCrs(QgsMapLayer *layer);
 bool composeRaster(const QString &path, const QList<QgsMapLayer *> &layers,
                    const QVariantList &facies, const QList<double> &thresholds,
                    const QSet<QString> &continuous, QString *error,
                    const std::function<bool()> &cancelled = {},
-                   const std::function<void(double)> &progress = {});
+                   const std::function<void(double)> &progress = {},
+                   ComposeReceipt *receipt = nullptr);
 bool raster(const QString &path, const QVector<int> &cells, int cols, int rows,
             const QRectF &extent, QString *error = nullptr);
 bool raster(const QString &path, const QVector<int> &cells, int cols, int rows,

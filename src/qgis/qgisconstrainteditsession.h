@@ -27,6 +27,12 @@ class QgisConstraintEditSession : public QObject
     bool finish(bool save, QString *error);
     QString horizon() const { return m_horizon; }
     bool setAuditContext(const ConstraintStore::AuditContext &context, QString *error = nullptr);
+  signals:
+    // G05：约束编辑保存成功后通知下游（id 为 store 稳定身份；几何/语义有变
+    // 或新增的进 changed，会话期间删除的进 removed）。消费方据此做影响
+    // 分析——不会自动改动任何成果版本。
+    void constraintsSaved(const QString &horizon, const QStringList &changedIds,
+                          const QStringList &removedIds);
   private:
     QVector<QVariantMap> snapshot(QString *error) const;
     qlonglong storeMaxFid() const; // 全表最大 fid；读失败返回 -1

@@ -536,7 +536,7 @@ bool MappingArtifactWriter::composeRaster(
     const QVariantList &facies, const QList<double> &thresholds,
     const QSet<QString> &continuous, QString *error,
     const std::function<bool()> &cancelled,
-    const std::function<void(double)> &progress) {
+    const std::function<void(double)> &progress, ComposeReceipt *receipt) {
   auto reject = [error](const QString &s) {
     if (error)
       *error = s;
@@ -580,6 +580,11 @@ bool MappingArtifactWriter::composeRaster(
   if (cols <= 0 || rows <= 0 || qint64(cols) * rows > 4 * 1024 * 1024)
     return reject(QObject::tr("编图网格超过 400 万像元，请先裁剪输入范围"));
   QVector<int> output(cols * rows, -9999);
+  if (receipt) {
+    receipt->winningCells = QList<qint64>(layers.size(), 0);
+    receipt->totalCells = qint64(cols) * rows;
+    receipt->decidedCells = 0;
+  }
   int layerIndex = 0;
   for (auto *l : layers) {
     if (cancelled && cancelled())
@@ -614,8 +619,11 @@ bool MappingArtifactWriter::composeRaster(
         if (!numeric && (std::abs(v - code) > 1e-6 || !codes.contains(code)))
           return reject(QObject::tr(
               "相栅格含当前层位未定义的编码；请统一相分类或将其作为参考图"));
-        if (output[i] == -9999)
+        if (output[i] == -9999) {
           output[i] = code;
+          if (receipt)
+            ++receipt->winningCells[layerIndex - 1];
+        }
       }
     } else if (auto *v = qobject_cast<QgsVectorLayer *>(l)) {
       if (v->geometryType() != Qgis::GeometryType::Point ||
@@ -660,10 +668,12 @@ bool MappingArtifactWriter::composeRaster(
           const auto nearest = index.nearestNeighbor(p, 1);
           const int code =
               nearest.isEmpty()
-                  ? -9999
-                  : pointCodes.value(
-                        *std::min_element(nearest.cbegin(), nearest.cend()),
-                        -9999);
+                      ? -9999
+                      : pointCodes.value(
+                            *std::min_element(nearest.cbegin(), nearest.cend()),
+                            -9999);
+          if (code != -9999 && receipt)
+            ++receipt->winningCells[layerIndex - 1];
           output[i] = code;
         }
       }
@@ -673,6 +683,10 @@ bool MappingArtifactWriter::composeRaster(
     return reject(QObject::tr("已取消"));
   if (progress)
     progress(95);
+  if (receipt)
+    for (const auto cell : output)
+      if (cell != -9999)
+        ++receipt->decidedCells;
   return raster(path, output, cols, rows,
                 QRectF(extent.xMinimum(), extent.yMinimum(), extent.width(),
                        extent.height()),

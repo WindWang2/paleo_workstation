@@ -455,6 +455,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     // rebindRealization 同口径）；按值捕获会得到永久空串/旧工程路径。
     PaleoProjectStore *m_projectStore = nullptr; // attachWorkflows 注入
     QgisEditingService *m_editSvc = nullptr; // attachShellSurfaces 注入；closeEvent 保存/放弃走它
+    QVariantMap m_lastImpact; // G09：最近一次影响分析报告（受控重算入口用）
     // #282：脏工程「保存/放弃/取消」询问 seam（nullptr = 模态；测试替身）。
     ProjectSaveAsk m_projectSaveAsk;
     DataImportService *m_importSvc = nullptr; // attachWorkflows 注入；启动页「从工区文件夹新建」用

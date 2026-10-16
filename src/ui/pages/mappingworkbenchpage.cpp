@@ -275,6 +275,10 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
              "相点不使用阈值。"));
     layout->addWidget(button("compose", tr("生成综合相图与相面")));
     layout->addWidget(button("references", tr("联动显示勾选的参考图")));
+    // G05/G09：输入版本变化 → 影响分析（三级分明 + 报告快照）→ 受控重算
+    // （生成新版本，绝不覆盖历史）。
+    layout->addWidget(button("impactAnalysis", tr("分析所选输入的版本变化影响")));
+    layout->addWidget(button("recompute", tr("按最近影响报告受控重算")));
   }
   m_inputHint = label(QString());
   m_inputHint->setObjectName("workbenchInputHint");
@@ -429,6 +433,34 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   connect(m_generationEvidence, &QListWidget::itemActivated, this, [this](QListWidgetItem *item) {
     emit evidenceActivated(item->data(Qt::UserRole).toMap());
   });
+  // G08/G12 全工程证据反查：按类型/检索词查反向索引（可重建检索结构），
+  // 双击结果行复用证据定位链路跳到图斑。
+  evidenceLayout->addWidget(new QLabel(tr("证据反查（全工程）"), information));
+  auto *reverseRow = new QHBoxLayout;
+  m_reverseKind = new QComboBox(information);
+  m_reverseKind->setObjectName("evidenceReverseKind");
+  m_reverseKind->setAccessibleName(tr("反查类型"));
+  m_reverseKind->addItem(tr("本层位待复核图斑"), QStringLiteral("pending_review"));
+  m_reverseKind->addItem(tr("有反驳证据的图斑"), QStringLiteral("contradicted"));
+  m_reverseKind->addItem(tr("失效或缺失来源"), QStringLiteral("stale_sources"));
+  m_reverseKind->addItem(tr("引用所选来源版本"), QStringLiteral("references_source"));
+  m_reverseKind->addItem(tr("全文检索（证据文本/操作人/证据号）"), QStringLiteral("search"));
+  reverseRow->addWidget(m_reverseKind, 1);
+  m_reverseText = new QLineEdit(information);
+  m_reverseText->setObjectName("evidenceReverseText");
+  m_reverseText->setAccessibleName(tr("反查检索词"));
+  m_reverseText->setPlaceholderText(tr("检索词（版本号类型可留空）"));
+  reverseRow->addWidget(m_reverseText, 1);
+  reverseRow->addWidget(button("reverseQuery", tr("反查")));
+  evidenceLayout->addLayout(reverseRow);
+  m_reverseResults = new QListWidget(evidenceGroup);
+  m_reverseResults->setObjectName("evidenceReverseResults");
+  m_reverseResults->setAccessibleName(tr("证据反查结果"));
+  m_reverseResults->setMaximumHeight(100);
+  evidenceLayout->addWidget(m_reverseResults);
+  connect(m_reverseResults, &QListWidget::itemActivated, this, [this](QListWidgetItem *item) {
+    emit evidenceActivated(item->data(Qt::UserRole).toMap());
+  });
   connect(m_generationEvidence, &QListWidget::currentRowChanged, this, [this] {
     if (auto *button = commandButton("locateEvidence")) button->setEnabled(m_generationEvidence->currentItem() || m_evidence->currentItem());
     if (auto *button = commandButton("useEvidenceSource")) {
@@ -532,6 +564,20 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   historyNavigation->addWidget(button("historyOlder", tr("更早历史")));
   historyNavigation->addWidget(button("historyNewer", tr("较新历史")));
   historyLayout->addLayout(historyNavigation);
+  // G03/G04：计算归因 tab——冻结输入重放、上游回执与井空间关联的只读事实。
+  auto *attributionPage = new QWidget(tabs);
+  auto *attributionLayout = new QVBoxLayout(attributionPage);
+  tabs->addTab(attributionPage, tr("计算归因"));
+  m_attributionSummary = new QLabel(attributionPage);
+  m_attributionSummary->setObjectName("faciesAttributionSummary");
+  m_attributionSummary->setTextFormat(Qt::PlainText);
+  m_attributionSummary->setWordWrap(true);
+  attributionLayout->addWidget(m_attributionSummary);
+  m_attributionDetail = new QPlainTextEdit(attributionPage);
+  m_attributionDetail->setObjectName("faciesAttributionDetail");
+  m_attributionDetail->setReadOnly(true);
+  m_attributionDetail->setAccessibleName(tr("计算归因详情"));
+  attributionLayout->addWidget(m_attributionDetail);
   // #440：按键只刷新证据按钮使能，不在界面线程重算图斑证据。
   connect(m_evidenceReason, &QLineEdit::textChanged, this, [this] { refreshEvidenceCommandGates(); });
   connect(m_evidenceActor, &QLineEdit::textChanged, this, [this] { refreshEvidenceCommandGates(); });
@@ -698,6 +744,8 @@ void MappingWorkbenchPage::setHorizon(const QString &h) {
     return;
   m_horizon = h;
   m_evidenceSnapshotOwned = false; m_evidenceSnapshot.clear();
+  // 层位切换后反查结果属于旧层位上下文——清空，避免双击定位错层。
+  if (m_reverseResults) m_reverseResults->clear();
   if (m_horizonFile) m_horizonFile->clear();
   showMessage(QString());
   refresh();
@@ -1112,6 +1160,24 @@ void MappingWorkbenchPage::issue(const QString &action, QVariantMap p) {
     m_historyPage = qMax(0, m_historyPage); renderEvidenceSnapshot(m_evidenceSnapshot); return;
   }
   if (action == "evidenceGraph") { emit evidenceGraphRequested(m_evidenceSnapshot); return; }
+  if (action == "reverseQuery" && m_reverseKind) {
+    p.insert("reverse_kind", m_reverseKind->currentData());
+    // 参数口径：分层位的类型用当前层位；引用来源用生成来源列表选中行的
+    // 版本；检索用检索词输入框。视图只收集参数，不执行查询。
+    const auto kind = m_reverseKind->currentData().toString();
+    if (kind == QStringLiteral("search"))
+      p.insert("reverse_argument", m_reverseText ? m_reverseText->text().trimmed() : QString());
+    else if (kind == QStringLiteral("references_source")) {
+      const auto row = m_generationEvidence && m_generationEvidence->currentItem()
+                           ? m_generationEvidence->currentItem()->data(Qt::UserRole).toMap()
+                           : QVariantMap();
+      const auto manual = m_reverseText ? m_reverseText->text().trimmed() : QString();
+      p.insert("reverse_argument", row.contains("source_version")
+                                        ? row.value("source_version")
+                                        : QVariant(manual));
+    } else
+      p.insert("reverse_argument", m_horizon);
+  }
   if (action == "locateEvidence") {
     const auto source = m_evidence->currentItem() ? m_evidence->currentItem()->data(Qt::UserRole + 1).toMap()
                                                  : m_generationEvidence->currentItem() ? m_generationEvidence->currentItem()->data(Qt::UserRole).toMap() : QVariantMap{};
@@ -1222,6 +1288,41 @@ void MappingWorkbenchPage::setEvidenceSnapshot(const QVariantMap &snapshot) {
   m_evidenceSnapshot = snapshot;
   updateState();
 }
+void MappingWorkbenchPage::setReverseResults(const QVariantList &rows,
+                                            const QString &error) {
+  if (!m_reverseResults)
+    return;
+  m_reverseResults->clear();
+  if (!error.isEmpty()) {
+    auto *item = new QListWidgetItem(error, m_reverseResults);
+    item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
+    return;
+  }
+  for (const auto &value : rows.mid(0, 200)) {
+    const auto row = value.toMap();
+    auto *item = new QListWidgetItem(
+        tr("%1 · %2%3\n%4")
+            .arg(row.value("horizon").toString().isEmpty()
+                     ? tr("未知层位")
+                     : row.value("horizon").toString(),
+                 row.value("review_state").toString().isEmpty()
+                     ? tr("图斑 %1…").arg(row.value("feature_uid").toString().left(12))
+                     : row.value("review_state").toString(),
+                 row.value("role").toString().isEmpty()
+                     ? QString()
+                     : QStringLiteral(" · ") + row.value("role").toString(),
+                 row.value("text").toString()),
+        m_reverseResults);
+    item->setData(Qt::UserRole, row);
+    item->setToolTip(tr("双击定位图斑（层位 %1，版本 %2…）\n来源：%3")
+                         .arg(row.value("horizon").toString(),
+                              row.value("version_id").toString().left(8),
+                              row.value("evidence_id").toString()));
+  }
+  if (rows.isEmpty())
+    new QListWidgetItem(tr("无匹配结果（索引随成果保存增量更新）"), m_reverseResults);
+}
+
 void MappingWorkbenchPage::renderEvidenceSnapshot(const QVariantMap &snapshot) {
   m_evidenceSnapshot = snapshot;
   if (!m_interpretationState) return;
@@ -1279,6 +1380,119 @@ void MappingWorkbenchPage::renderEvidenceSnapshot(const QVariantMap &snapshot) {
       item->setToolTip(tr("来源版本：%1\n生成血缘和空间相交不自动表示支持当前相类型\n%2").arg(row.value("source_version", row.value("version_id")).toString(), row.value("spatial_message").toString()));
       if (row.value("id") == selected) m_generationEvidence->setCurrentItem(item);
     }
+  }
+  // G03/G04 计算归因：状态摘要 + 逐输入决策分布 + 上游回执 + 井空间关联。
+  if (m_attributionSummary && m_attributionDetail) {
+    const auto attribution = snapshot.value("attribution").toMap();
+    QStringList summary;
+    if (attribution.isEmpty()) {
+      summary << tr("非面状成果或未选中图斑：无计算归因");
+    } else {
+      const auto status = attribution.value("status").toString();
+      if (status == QLatin1String("ok")) {
+        const auto inputs = attribution.value("inputs").toList();
+        QStringList parts;
+        for (const auto &value : inputs.mid(0, 8)) {
+          const auto input = value.toMap();
+          parts << tr("优先级 %1（%2%）")
+                      .arg(input.value("priority").toString())
+                      .arg(qRound(input.value("fraction").toDouble() * 100));
+        }
+        summary << tr("形成依据：保存时冻结的输入按优先级重放——%1")
+                       .arg(parts.isEmpty() ? tr("全部像元无有效输入") : parts.join(tr("、")));
+        if (attribution.contains("consistent_fraction"))
+          summary << tr("重放分布与图斑相编码一致率 %1%（平滑聚合可能吸收少数像元）")
+                      .arg(qRound(attribution.value("consistent_fraction").toDouble() * 100));
+      } else if (status == QLatin1String("manual")) {
+        summary << tr("人工图斑：无自动分类过程，依据以人工解释记录为准");
+      } else {
+        summary << tr("归因不可确定：%1").arg(attribution.value("message").toString());
+      }
+      if (!attribution.value("draft_note").toString().isEmpty())
+        summary << attribution.value("draft_note").toString();
+    }
+    m_attributionSummary->setText(summary.join("\n"));
+    QStringList detail;
+    const auto inputs = attribution.value("inputs").toList();
+    if (!inputs.isEmpty())
+      detail << tr("【实际参与输入（重放决策）】");
+    for (const auto &value : inputs.mid(0, 32)) {
+      const auto input = value.toMap();
+      QStringList line;
+      line << tr("· %1（优先级 %2，版本 %3…）")
+                  .arg(input.value("title", input.value("layer_id")).toString())
+                  .arg(input.value("priority").toString())
+                  .arg(input.value("version_id").toString().left(8));
+      line << tr("决策 %1，覆盖 %2 个采样像元（%3%）")
+                  .arg(input.value("decision").toString())
+                  .arg(input.value("cells").toLongLong())
+                  .arg(qRound(input.value("fraction").toDouble() * 100));
+      if (input.contains("value_min"))
+        line << tr("值域 %1–%2")
+                    .arg(input.value("value_min").toDouble(), 0, 'f', 1)
+                    .arg(input.value("value_max").toDouble(), 0, 'f', 1);
+      detail << line.join(tr("，"));
+      const auto receipts = input.value("upstream_receipts").toMap();
+      if (!receipts.isEmpty()) {
+        QStringList receiptParts;
+        if (receipts.contains("constraints_consumed"))
+          receiptParts << tr("消费约束 %1 条")
+                              .arg(receipts.value("constraints_consumed").toList().size());
+        if (receipts.contains("constraints_unused"))
+          receiptParts << tr("未用约束 %1 条")
+                              .arg(receipts.value("constraints_unused").toList().size());
+        if (receipts.contains("engine_samples_used"))
+          receiptParts << tr("参与井样 %1")
+                              .arg(receipts.value("engine_samples_used").toList().size());
+        detail << tr("  上游单因素回执：%1（约束被该因素消费 ≠ 决定了本图斑相分类）")
+                      .arg(receiptParts.join(tr("，")));
+      }
+    }
+    const auto unresolved = attribution.value("unresolved").toList();
+    if (!unresolved.isEmpty()) {
+      detail << tr("【未确定】");
+      for (const auto &value : unresolved.mid(0, 16)) {
+        const auto row = value.toMap();
+        detail << tr("· %1：%2").arg(row.value("layer_id").toString(),
+                                    row.value("reason").toString());
+      }
+    }
+    const auto wells = snapshot.value("wells_in_feature").toList();
+    if (!wells.isEmpty()) {
+      detail << tr("【井口位于图斑内的井（空间事实，不自动表示相支持）】");
+      for (const auto &value : wells.mid(0, 50)) {
+        const auto well = value.toMap();
+        QStringList line{tr("· %1（%2, %3）")
+                             .arg(well.value("well_name").toString())
+                             .arg(well.value("x").toDouble(), 0, 'f', 0)
+                             .arg(well.value("y").toDouble(), 0, 'f', 0)};
+        if (well.contains("formation_facies_code"))
+          line << tr("本层位解释相编码 %1").arg(well.value("formation_facies_code").toInt());
+        detail << line.join(tr("，"));
+      }
+    }
+    if (snapshot.contains("wells_in_feature_truncated"))
+      detail << tr("（井列表已按 500 上限截断）");
+    // G06 证据冲突分析结果：分级 + 类型 + 定位 + 建议（不合成置信度）。
+    const auto conflicts = snapshot.value("conflicts").toList();
+    if (!conflicts.isEmpty()) {
+      detail << tr("【多源证据冲突分析（%1 条）】").arg(conflicts.size());
+      for (const auto &value : conflicts.mid(0, 30)) {
+        const auto finding = value.toMap();
+        detail << tr("· [%1] %2（%3）\n  %4\n  建议：%5")
+                      .arg(finding.value("severity").toString(),
+                           finding.value("message").toString(),
+                           finding.value("conflict_type").toString(),
+                           finding.value("basis").toString(),
+                           finding.value("suggestion").toString());
+      }
+    }
+    const auto seismic = snapshot.value("seismic_sources");
+    if (!seismic.toList().isEmpty())
+      detail << tr("【地震证据来源】%1 条（版本事实；详见生成来源）")
+                  .arg(seismic.toList().size());
+    m_attributionDetail->setPlainText(
+        detail.isEmpty() ? tr("暂无计算归因信息") : detail.join("\n"));
   }
   const auto events = interpretation.value("history").toList();
   const int pages = qMax(1, (int(events.size()) + 49) / 50);

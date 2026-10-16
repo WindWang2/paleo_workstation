@@ -5,6 +5,8 @@
 #include "../catalog/datacatalog.h"
 #include "../io/lasdoc.h"
 #include "../metadata/layermanifest.h"
+#include "../qgis/mappingartifactwriter.h"
+#include "../services/evidenceindex.h"
 #include "derivedassets.h"
 #include <QObject>
 #include <QPointer>
@@ -17,6 +19,8 @@
 class QgisLayerService;
 class QgisProcessingService;
 class QgisProjectService;
+class QgsFeature;
+class QgsMapLayer;
 class ConstraintWorkflow;
 class PaleoTask;
 class PaleoTaskService;
@@ -35,6 +39,8 @@ public:
                    QObject *parent = nullptr);
   ~MappingWorkbench() override;
   void bindCatalog(DataCatalog *catalog, const QString &projectDir);
+  // 只读目录访问（影响分析/反查等 UI 编排用）。
+  DataCatalog *catalog() const { return m_catalog; }
   void setPredictionService(RemotePredictionService *service);
   void setWellPredictionService(WellPredictionService *service);
   QString wellPredictionStatusHint() const;
@@ -138,6 +144,46 @@ public:
                       const QString &evidenceId, QString *error);
   // View snapshot: immutable values only; old/malformed data is explicit.
   QVariantMap featureEvidence(const QString &id, const QList<qint64> &ids) const;
+  // 图斑级计算归因：用成果保存时冻结的输入版本重放确定性融合决策。
+  // 返回值对象（status ok/unresolved/manual + inputs[] 决策分布）；不做任何
+  // 地质支持关系推断。layerId 为相面成果或其编辑副本；f 为选中图斑。
+  QVariantMap composeAttribution(const QString &layerId, const QgsFeature &feature) const;
+  // 局部位置级（Level 3）：在图斑内指定点重放单点决策；point 为图层 CRS 坐标。
+  QVariantMap composeAttributionAt(const QString &layerId, const QgsFeature &feature,
+                                   const QPointF &point) const;
+  // G05 证据变化空间影响分析。change = {kind:"input_version"|"constraint_edited"|"other",
+  //   before_version_id, after_version_id, horizon, constraint_ids?, detail?}。
+  // 三级分明：direct_products（计算血缘事实）/ potential_products（派生链可达、
+  //   无法局部证明）/ determined（像元级重放 diff + 受影响图斑）。分析基于
+  //   before/after 版本快照（不建立在当前活动图层上），报告 JSON 落
+  //   artifacts/reports/，返回 map 带 report_path。
+  QVariantMap analyzeImpact(const QVariantMap &change, QString *error);
+  // G09 受控重算闭环。
+  // recomputePlan：从影响分析结果生成重算计划（value object，不执行）。
+  //   每条 entry：{target_version, horizon, mode:"local_rerun"|"whole_rerun",
+  //   inputs:[{layer_id,frozen_version,current_version}], parameters(真实执行参数),
+  //   protection:{confirmed_features, needs_review_features}}。
+  //   确定性像元 diff 覆盖的成果给 local_rerun；无法局部化的给 whole_rerun，
+  //   不伪装成局部重算。
+  QVariantMap recomputePlan(const QVariantMap &impactResult, QString *error);
+  // executeRecompute：按计划调用现有综合编图工作流（同参数、当前输入版本）
+  //   → 生成新成果版本，绝不覆盖历史版本；已发布版本不动。返回每条 entry
+  //   的执行结果（新版本 id 或失败原因）。确认过的人工解释保留在旧版本里
+  //   （immutable），需要迁移时由人工复核决定。
+  QVariantMap executeRecompute(const QVariantMap &plan, QString *error);
+  // compareVersions：新旧成果版本对比（G09 验收）——栅格像元级 diff（变化
+  //   像元数/相编码转移矩阵）+ 相面统计；几何匹配按像元中心归属做 best-effort
+  //   并如实标注方法。返回 {method, cells_changed, total_cells, code_matrix,
+  //   polygon_counts:{before,after}, note}。
+  QVariantMap compareVersions(const QString &oldVersionId, const QString &newVersionId,
+                              QString *error);
+  // G08/G12 证据反向检索：name ∈ {"pending_review","contradicted",
+  // "references_source","stale_sources","search"}；argument = 层位 / 来源版本
+  // id / 检索词。首次调用按需增量同步反向索引（可重建检索结构，原始证据
+  // 仍以 GPKG 属性为唯一事实源）。返回行 {layer_id,feature_uid,version_id,
+  // horizon,evidence_id,review_state,role,text...}，有界 200。
+  QVariantList evidenceReverseQuery(const QString &name, const QString &argument,
+                                    QString *error);
   QString localOperator() const;
   bool changeEvidence(const QString &id, const QList<qint64> &ids,
                       const QString &action, const QVariantMap &parameters,
@@ -176,6 +222,11 @@ private:
   QVariantMap resolveEvidenceSource(const QVariantMap &record, const QVariantMap &spatialTarget,
                                     bool loadSavedSource, QSet<QString> *spatialSources,
                                     QHash<QString, QVariantMap> *spatialResults = nullptr) const;
+  // 归因：从成果版本链定位 composed_facies 计算版本（广度优先、深度受限），
+  // 找不到返回空 id（纯人工图斑走 manual 语义）。
+  QString composedAncestorVersion(const QString &layerId) const;
+  // 冻结输入版本 → 独立打开的采样图层（有界 LRU；随目录上下文重置）。
+  QgsMapLayer *attributionLayer(const QString &versionId) const;
   void connectPredictionService(RemotePredictionService *service);
   void publishFactorAlias(const QString &horizon, const QString &id);
   void synchronizeCatalogLayers();
@@ -207,6 +258,7 @@ public:
     QList<double> thresholds;
     QVariantMap params;
     DerivedFileFingerprint fingerprint;
+    MappingArtifactWriter::ComposeReceipt receipt; // 每输入胜出像元回执
     QPointer<DataCatalog> catalog;
   };
   bool prepareCompose(const QString &horizon, const QStringList &ids,
@@ -222,7 +274,7 @@ public:
     QString sourceLayerId, horizon, title, rasterUri, outputPath, parent, dir;
     QString crsWkt; // 声明层 CRS（数据源无 CRS 时 worker 侧补齐）
     QVariantList facies;
-    QVariant mock;
+    QVariant mock, provenance; // 算法 PROVENANCE 回执（commit 时入版本 extra）
     DerivedFileFingerprint fingerprint;
     QPointer<DataCatalog> catalog;
     QString productId; // commit 产出
@@ -280,5 +332,9 @@ private:
   mutable QHash<QString, CatalogVersion> m_aliasVersions, m_pathVersions;
   // Owner-thread QGIS adapters; bounded and reset with the catalog context.
   mutable QHash<QString, QPointer<QObject>> m_evidenceSpatialAdapters;
+  // 冻结输入版本的采样图层（图斑归因用；有界，bindCatalog 重置）。
+  mutable QHash<QString, QPointer<QgsMapLayer>> m_attributionLayers;
+  // G08 反向检索索引（可重建 sidecar；bindCatalog 重置）。
+  std::unique_ptr<paleo::evidenceindex::Index> m_evidenceIndex;
   mutable QVariantList m_productsCache;
 };

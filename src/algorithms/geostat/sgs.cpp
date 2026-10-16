@@ -253,11 +253,18 @@ SgsResult sgs( const std::vector<Sample> &samples, const GridSpec &grid,
       }
       if ( static_cast<int>( neighborhood.size() ) > clamped.maxPoints )
       {
+        // 距离并列（规则网格对称等距点）时 partial_sort 对等价类的选取是
+        // 标准库实现定义（libstdc++/MSVC 漂移）——违背「同 seed 逐位可复现」
+        // 契约（sgs.h 头注）。比较器加 (x,y) 字典序次键构成严格全序。
         std::partial_sort( neighborhood.begin(), neighborhood.begin() + clamped.maxPoints,
                            neighborhood.end(), [x0, y0]( const CondPoint &a, const CondPoint &b ) {
                              const double da = ( a.x - x0 ) * ( a.x - x0 ) + ( a.y - y0 ) * ( a.y - y0 );
                              const double db = ( b.x - x0 ) * ( b.x - x0 ) + ( b.y - y0 ) * ( b.y - y0 );
-                             return da < db;
+                             if ( da != db )
+                               return da < db;
+                             if ( a.x != b.x )
+                               return a.x < b.x;
+                             return a.y < b.y;
                            } );
         neighborhood.resize( static_cast<std::size_t>( clamped.maxPoints ) );
       }

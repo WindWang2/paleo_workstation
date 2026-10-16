@@ -1,7 +1,10 @@
 // 层：数据
 #include "support.h"
+#include "../constraintbarriers.h"
 #include "singlefactor_internal.h"
 
+#include <QPointF>
+#include <QVector>
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
@@ -380,39 +383,40 @@ BarrierGrid labelHardBarriers( const GridSpec &grid, const std::vector<Constrain
   }
   const std::size_t cellCount = static_cast<std::size_t>( grid.cols ) * static_cast<std::size_t>( grid.rows );
   out.component.assign( cellCount, -1 );
-  const double cell = std::min( std::abs( grid.pixelWidth ), std::abs( grid.pixelHeight ) );
+  // P1（pr457-closure）：屏障栅格化统一走 supercoverPolylineCells（闭域裁剪 +
+  // 4-连通途经链，与其他引擎同一空间判定实现）——此前半格采样在陡斜线/穿角点
+  // 漏格，对角链墙会被下方的 4-连通分量泛洪从格缝穿过。
   for ( const ConstraintLine &line : barriers )
   {
     if ( !line.enabled || line.semantic != Semantic::HardBarrier || line.points.size() < 2 )
       continue;
-    bool markedAny = false;
-    for ( std::size_t i = 1; i < line.points.size(); ++i )
+    if ( cancelled( control ) )
     {
-      if ( cancelled( control ) )
+      out.component.clear();
+      out.barrierCells = -1;
+      return out;
+    }
+    bool markedAny = false;
+    QVector<QPointF> vertices;
+    vertices.reserve( static_cast<int>( line.points.size() ) );
+    for ( const Point2 &point : line.points )
+    {
+      if ( !std::isfinite( point.x ) || !std::isfinite( point.y ) )
       {
-        out.component.clear();
-        out.barrierCells = -1;
-        return out;
+        vertices.clear();
+        break;
       }
-      const Point2 a = line.points[i - 1];
-      const Point2 b = line.points[i];
-      const double len = std::hypot( b.x - a.x, b.y - a.y );
-      if ( len <= 1e-12 )
-        continue;
-      const int steps = std::max( 1, static_cast<int>( std::ceil( len / ( cell * 0.5 ) ) ) );
-      for ( int s = 0; s <= steps; ++s )
-      {
-        const double t = static_cast<double>( s ) / static_cast<double>( steps );
-        int column = 0;
-        int row = 0;
-        if ( cellOf( grid, a.x + ( b.x - a.x ) * t, a.y + ( b.y - a.y ) * t, column, row ) )
-        {
+      vertices.append( QPointF( point.x, point.y ) );
+    }
+    if ( vertices.size() < 2 )
+      continue;
+    paleo::algorithms::supercoverPolylineCells(
+        vertices, grid.originX, grid.originY, grid.pixelWidth, grid.pixelHeight, grid.cols, grid.rows,
+        [&]( int column, int row ) {
           out.component[static_cast<std::size_t>( row ) * static_cast<std::size_t>( grid.cols ) +
                         static_cast<std::size_t>( column )] = -2;
           markedAny = true;
-        }
-      }
-    }
+        } );
     if ( markedAny )
       out.consumedIds.push_back( line.stableId );
   }

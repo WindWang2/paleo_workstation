@@ -18,10 +18,11 @@ namespace paleo::constraintcrs
 
 QgsCoordinateReferenceSystem storeCrs();
 
-// 来源 CRS 无效、与库 CRS 相同，或是米制工程 CRS（LOCAL_CS/ENGCRS，与导入
-// 坐标门同口径）→ 原样（已是库坐标）。否则用 context 建
+// 与库 CRS 同一（QGIS 相等或 WKT2 全等）→ 原样（已是库坐标）；来源 CRS 无效
+// → 拒绝（坐标含义无法核实，不静默指定本地网格）；否则用 context 建
 // QgsCoordinateTransform；无坐标操作（ENGCRS 无大地基准、工程未配准）或
-// 逐点失败如实报错，绝不按原坐标静默写入。
+// 逐点失败如实报错，绝不按原坐标静默写入。单位同为米不构成等价：不同原点/
+// 旋转/轴向的工程坐标系之间没有安全的 identity。
 bool toStoreWkt( const QString &wkt, const QgsCoordinateReferenceSystem &source,
                  const QgsCoordinateTransformContext &context, QString *out, QString *error = nullptr );
 

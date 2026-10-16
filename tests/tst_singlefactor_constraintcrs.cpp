@@ -1,7 +1,9 @@
 // 层：测试壳
-// P1-C：约束库几何类型 / CRS 契约。库层 "constraints" 建库即 wkbUnknown 且
-// 无 SRS；绘制入库必须从画布 CRS 显式变换到本地工程网格，读出图层必须带
-// 本地工程网格 CRS（配准工程经显式坐标操作显示），编辑会话换源不丢 CRS。
+// 约束库几何类型 / CRS 契约。库层 "constraints" 建库即 wkbUnknown（GPKG
+// GEOMETRY，混合点线面）且带库约定 SRS（P0-2：外部 QGIS/GDAL 可独立辨识）；
+// 绘制入库必须从画布 CRS 显式变换到本地工程网格（等价只认同一坐标系），
+// 读出的 QGIS 图层带本地工程网格 CRS（配准工程经显式坐标操作显示），
+// 编辑会话换源不丢 CRS。
 #include <QtTest>
 #include <QDir>
 #include <QSignalSpy>
@@ -101,26 +103,106 @@ private slots:
   void toStoreWktContract()
   {
     QString out, error;
-    // 来源 CRS 无效 / 已是库 CRS：原样。
-    QVERIFY( paleo::constraintcrs::toStoreWkt( QStringLiteral( "LineString (1 2, 3 4)" ),
-                                               QgsCoordinateReferenceSystem(), {}, &out, &error ) );
-    QCOMPARE( out, QStringLiteral( "LineString (1 2, 3 4)" ) );
+    // 已是库 CRS（同一 WKT）：identity，坐标逐字不动。
     QVERIFY( paleo::constraintcrs::toStoreWkt( QStringLiteral( "LineString (1 2, 3 4)" ),
                                                paleo::constraintcrs::storeCrs(), {}, &out, &error ) );
     QCOMPARE( out, QStringLiteral( "LineString (1 2, 3 4)" ) );
-    // 另一种写法的米制工程 CRS（LOCAL_CS）与库网格等价（同导入坐标门）：原样。
+    // 另一写法构造的同一本地网格（同 WKT 字符串）仍是 identity。
+    const QgsCoordinateReferenceSystem sameGrid = QgsCoordinateReferenceSystem::fromWkt(
+        DataCatalog::localGridCrsWkt() );
+    QVERIFY( paleo::constraintcrs::toStoreWkt( QStringLiteral( "LineString (1 2, 3 4)" ), sameGrid, {}, &out,
+                                               &error ) );
+    QCOMPARE( out, QStringLiteral( "LineString (1 2, 3 4)" ) );
+  }
+
+  // P0-1：无关工程 CRS（米制、Engineering）不再是库网格等价——原点不同即拒绝，
+  // 不得按「单位都是米」静默 identity 写入。
+  void unrelatedEngineeringCrsIsNotStoreEquivalent()
+  {
+    const QgsCoordinateReferenceSystem shiftedOrigin = QgsCoordinateReferenceSystem::fromWkt( QStringLiteral(
+        "ENGCRS[\"shifted local grid\",EDATUM[\"Other datum\"],CS[Cartesian,2],"
+        "AXIS[\"Easting (E)\",east,ORDER[1],LENGTHUNIT[\"metre\",1]],"
+        "AXIS[\"Northing (N)\",north,ORDER[2],LENGTHUNIT[\"metre\",1]]]" ) );
+    QVERIFY( shiftedOrigin.isValid() );
+    QCOMPARE( shiftedOrigin.type(), Qgis::CrsType::Engineering );
+    QCOMPARE( shiftedOrigin.mapUnits(), Qgis::DistanceUnit::Meters );
+    QVERIFY( shiftedOrigin != paleo::constraintcrs::storeCrs() );
+    QString out, error;
+    QVERIFY( !paleo::constraintcrs::toStoreWkt( QStringLiteral( "LineString (5 6, 7 8)" ), shiftedOrigin, {},
+                                                &out, &error ) );
+    QVERIFY2( !error.isEmpty(), "refusal must carry a reason" );
+
+    // 轴向不同（N/E 互换）：同为米制 Engineering 仍拒绝。
+    const QgsCoordinateReferenceSystem swappedAxes = QgsCoordinateReferenceSystem::fromWkt( QStringLiteral(
+        "ENGCRS[\"swapped axes grid\",EDATUM[\"Local engineering datum\"],CS[Cartesian,2],"
+        "AXIS[\"Northing (N)\",north,ORDER[1],LENGTHUNIT[\"metre\",1]],"
+        "AXIS[\"Easting (E)\",east,ORDER[2],LENGTHUNIT[\"metre\",1]]]" ) );
+    QVERIFY( swappedAxes.isValid() );
+    QVERIFY( !paleo::constraintcrs::toStoreWkt( QStringLiteral( "LineString (5 6, 7 8)" ), swappedAxes, {}, &out,
+                                                &error ) );
+
+    // 旧式 LOCAL_CS（米制）同样不再视为同一网格。
     const QgsCoordinateReferenceSystem localCs = QgsCoordinateReferenceSystem::fromWkt( QStringLiteral(
         "LOCAL_CS[\"other local grid\",LOCAL_DATUM[\"Arbitrary\",0],UNIT[\"metre\",1],"
         "AXIS[\"Easting\",EAST],AXIS[\"Northing\",NORTH]]" ) );
     QVERIFY( localCs.isValid() );
-    QVERIFY( paleo::constraintcrs::toStoreWkt( QStringLiteral( "LineString (5 6, 7 8)" ), localCs, {}, &out,
-                                               &error ) );
-    QCOMPARE( out, QStringLiteral( "LineString (5 6, 7 8)" ) );
-    // 未配准工程：ENGCRS 与 EPSG:3857 之间没有坐标操作 → 如实拒绝，不按原坐标写入。
+    QVERIFY( !paleo::constraintcrs::toStoreWkt( QStringLiteral( "LineString (5 6, 7 8)" ), localCs, {}, &out,
+                                                &error ) );
+  }
+
+  // 来源 CRS 无效：坐标含义无法核实 → 拒绝（不静默指定本地 CRS）。
+  void unknownSourceCrsRequiresVerifiedContext()
+  {
+    QString out, error;
     QVERIFY( !paleo::constraintcrs::toStoreWkt( QStringLiteral( "LineString (1 2, 3 4)" ),
-                                                QgsCoordinateReferenceSystem( QStringLiteral( "EPSG:3857" ) ), {},
-                                                &out, &error ) );
-    QVERIFY2( error.contains( QStringLiteral( "坐标操作" ) ), qPrintable( error ) );
+                                                 QgsCoordinateReferenceSystem(), {}, &out, &error ) );
+    QVERIFY2( !error.isEmpty(), "invalid source CRS must be refused with a reason" );
+  }
+
+  // 有显式坐标操作（配准工程）：EPSG:3857 → 本地网格真实变换。
+  void explicitTransformIsApplied()
+  {
+    QgsProject reference;
+    QString error;
+    QVERIFY2( paleo::mapreference::configure( &reference, georeference(), QStringLiteral( "EPSG:3857" ), &error ),
+              qPrintable( error ) );
+    const QgsCoordinateReferenceSystem web( QStringLiteral( "EPSG:3857" ) );
+    const QgsPointXY local( 3720.83, 3899.60 );
+    const QgsCoordinateTransform toWeb( paleo::constraintcrs::storeCrs(), web, reference.transformContext() );
+    QVERIFY( toWeb.isValid() );
+    const QgsPointXY w = toWeb.transform( local );
+    QString out;
+    QVERIFY( paleo::constraintcrs::toStoreWkt(
+        QStringLiteral( "LineString (%1 %2, %3 %4)" )
+            .arg( QString::number( w.x(), 'f', 6 ) )
+            .arg( QString::number( w.y(), 'f', 6 ) )
+            .arg( QString::number( w.x() + 1000, 'f', 6 ) )
+            .arg( QString::number( w.y() + 500, 'f', 6 ) ),
+        web, reference.transformContext(), &out, &error ) );
+    const QgsPointXY stored = firstVertex( out );
+    QVERIFY2( stored.distance( local ) < 1e-3,
+              qPrintable( QStringLiteral( "stored %1,%2 vs local %3,%4" ).arg( stored.x() ).arg( stored.y() ).arg(
+                              local.x() ).arg( local.y() ) ) );
+
+    // 往返：库坐标 → 3857 → 回库，坐标在亚毫米内复原。
+    const QgsCoordinateTransform back( web, paleo::constraintcrs::storeCrs(), reference.transformContext() );
+    QString roundWkt;
+    QVERIFY( paleo::constraintcrs::toStoreWkt( out, paleo::constraintcrs::storeCrs(), {}, &roundWkt, &error ) );
+    const QgsPointXY roundTrip = back.transform( firstVertex( roundWkt ) );
+    // 先把库里存的本地点变到 web 再回本地，验证数值往返稳定。
+    const QgsPointXY viaWeb = toWeb.transform( QgsPointXY( firstVertex( roundWkt ) ) );
+    const QgsPointXY backAgain = back.transform( viaWeb );
+    QVERIFY2( backAgain.distance( local ) < 1e-6, "coordinate round trip must be numerically stable" );
+  }
+
+  // 未配准工程：EPSG:3857 与 ENGCRS 之间没有坐标操作 → 如实拒绝，不按原坐标写入。
+  void missingTransformRefusesWrite()
+  {
+    QString out, error;
+    QVERIFY( !paleo::constraintcrs::toStoreWkt( QStringLiteral( "LineString (1 2, 3 4)" ),
+                                                 QgsCoordinateReferenceSystem( QStringLiteral( "EPSG:3857" ) ), {},
+                                                 &out, &error ) );
+    QVERIFY2( !error.isEmpty(), "missing operation must refuse with a reason" );
   }
 
   // 库层几何类型与 CRS 的实测口径 + 实例化补 CRS + 样式。
@@ -135,13 +217,14 @@ private slots:
     ConstraintStore *store = s->wf->constraintStore();
     QVERIFY( store );
 
-    // 原始 OGR 打开：库层无 SRS（实测记录，不依赖它做判断）。
+    // 原始 OGR 打开：库层带库约定 SRS（P0-2：外部工具可独立辨识坐标含义）。
     QgsVectorLayer raw( store->gpkgPath() + QStringLiteral( "|layername=constraints" ), QStringLiteral( "raw" ),
                         QStringLiteral( "ogr" ) );
     QVERIFY( raw.isValid() );
-    qInfo() << "raw store layer crs valid:" << raw.crs().isValid()
-            << "wkbType:" << QgsWkbTypes::displayString( raw.wkbType() )
-            << "geometryType:" << static_cast<int>( raw.geometryType() );
+    QVERIFY2( raw.crs().isValid(), "store layer must carry its CRS in the GPKG itself" );
+    QCOMPARE( raw.geometryType(), Qgis::GeometryType::Line ); // OGR 按首要素定类型
+    // 外部读出的 CRS 与库约定 CRS 同一（QGIS 等价）。
+    QCOMPARE( raw.crs(), paleo::constraintcrs::storeCrs() );
 
     QString err;
     auto *layer = qobject_cast<QgsVectorLayer *>( s->layerSvc->instantiate( QStringLiteral( "constraints.T1" ), &err ) );

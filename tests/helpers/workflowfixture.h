@@ -45,7 +45,8 @@ inline bool writePointsGeoJson( const QString &path )
   QFile f( path );
   if ( !f.open( QIODevice::WriteOnly ) )
     return false;
-  f.write( "{\"type\":\"FeatureCollection\",\"features\":["
+  // 米制 CRS（EPSG:3857）：GeoJSON 缺省 4326（度），地统计守卫会拒绝角度当米。
+  f.write( "{\"type\":\"FeatureCollection\",\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:3857\"}},\"features\":["
            "{\"type\":\"Feature\",\"properties\":{\"z\":0.0},\"geometry\":{\"type\":\"Point\",\"coordinates\":[0.0,0.0]}},"
            "{\"type\":\"Feature\",\"properties\":{\"z\":8.0},\"geometry\":{\"type\":\"Point\",\"coordinates\":[4.0,0.0]}},"
            "{\"type\":\"Feature\",\"properties\":{\"z\":4.0},\"geometry\":{\"type\":\"Point\",\"coordinates\":[0.0,4.0]}}"

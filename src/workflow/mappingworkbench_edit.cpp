@@ -3,6 +3,7 @@
 // 从 mappingworkbench.cpp 析出——行为守恒平移（goal/core-deepening A-R2）：
 // 函数体逐字未动，仅按子域归位到独立 TU。
 #include "mappingworkbench.h"
+#include "workflows_internal.h"
 #include "../algorithms/faciesmapping/formationdominance.h"
 #include "../catalog/purgelease.h"
 #include "../domain/faciescatalog.h"
@@ -67,18 +68,38 @@ void fail(QString *error, const QString &text) {
 }
 QString uid() { return QUuid::createUuid().toString(QUuid::WithoutBraces); }
 QString filePath(const QString &source) { return source.section('|', 0, 0); }
-// 无大地基准的工程/局部直角米制 CRS（LOCAL_CS / ENGCRS，均映射到
-// Qgis::CrsType::Engineering）与本工程局部网格等价；带基准的投影或
-// 地理 CRS 仍拒绝。约束线与测区边界导入共用同一坐标门。
+// 导入坐标门（P0-1 pr457-closure 的有意分叉，与画布写入门的契约不同）：
+// 画布绘制（toStoreWkt）只认「同一 CRS」或有显式坐标操作——交互几何来源
+// CRS 可证。批量导入是用户显式断言「该文件坐标就在本工程局部网格」的动作：
+// 米制工程 CRS（LOCAL_CS/ENGCRS）照收（#457 既有工作流，测试固化），但断言
+// 必须留痕——来源 CRS 与工程网格不同一时，导入 provenance 记
+// crs_verified=false + crs_source（坐标仅按用户断言推测，非核实）。
+// 带基准的投影/地理 CRS 仍拒绝（那种文件应该配准/投影，不该猜）。
 bool isLocalGridCrs(const QgsCoordinateReferenceSystem &c) {
   return c.isValid() && !c.isGeographic() &&
          c.mapUnits() == Qgis::DistanceUnit::Meters &&
          c.type() == Qgis::CrsType::Engineering;
 }
-bool acceptsLocalGrid(const QgsCoordinateReferenceSystem &c) {
+bool isProjectLocalGridCrs(const QgsCoordinateReferenceSystem &c) {
   const auto local = QgsCoordinateReferenceSystem::fromWkt(
       DataCatalog::localGridCrsWkt());
-  return c == local || isLocalGridCrs(c);
+  return c == local || (c.isValid() && local.isValid() && c.toWkt() == local.toWkt());
+}
+bool acceptsLocalGrid(const QgsCoordinateReferenceSystem &c) {
+  return isProjectLocalGridCrs(c) || isLocalGridCrs(c);
+}
+// 导入 provenance：坐标含义是「已核实」（文件 CRS 与工程网格同一）还是
+// 「用户断言推测」（外来米制工程 CRS）。req：历史/外来坐标不得静默当作已核实。
+QVariantMap importCrsProvenance(const QgsCoordinateReferenceSystem &crs) {
+  QVariantMap meta;
+  meta.insert(QStringLiteral("crs_source"),
+              crs.isValid() ? crs.userFriendlyIdentifier() : QString());
+  meta.insert(QStringLiteral("crs_verified"), isProjectLocalGridCrs(crs));
+  if (!isProjectLocalGridCrs(crs))
+    meta.insert(QStringLiteral("crs_note"),
+                QStringLiteral("source CRS is not the project local grid; "
+                               "coordinates stored as-is per explicit import"));
+  return meta;
 }
 QVariantList wellAttributeUpdates(const QVariantList &points, const QVariantList &schema,
                                   const QString &horizon, bool predicted, const QString &method = {}, const QString &jobId = {}) {
@@ -558,11 +579,8 @@ QString MappingWorkbench::snapshotConstraints(const QString &h,
   auto *store = m_constraints->constraintStore();
   if (!store || m_constraints->loadConstraints(h).isEmpty())
     return {};
-  QString escaped = h;
-  escaped.replace("'", "''");
-  QgsVectorLayer layer(store->gpkgPath() +
-                           "|layername=constraints|subset=horizon='" + escaped +
-                           "'",
+  QgsVectorLayer layer(store->gpkgPath() + "|layername=constraints" +
+                           paleo::workflow_detail::constraintHorizonSubsetSuffix(h),
                        "constraints", "ogr");
   layer.setCrs(
       QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()));
@@ -601,6 +619,7 @@ bool MappingWorkbench::importConstraints(const QString &h, const QString &path,
   if (!ready(h, error))
     return false;
   // 与既有导入同一坐标门：约束几何必须落在本工程局部米制网格。
+  QVariantMap importMeta;
   {
     QgsVectorLayer probe(path, QStringLiteral("constraints"),
                          QStringLiteral("ogr"));
@@ -608,6 +627,8 @@ bool MappingWorkbench::importConstraints(const QString &h, const QString &path,
       fail(error, tr("约束线必须采用本工程的局部米制坐标；请先完成配准"));
       return false;
     }
+    if (probe.isValid())
+      importMeta = importCrsProvenance(probe.crs());
   }
   const auto records =
       paleo::readConstraintImportFeatures(path, role, nullptr, error);
@@ -619,18 +640,21 @@ bool MappingWorkbench::importConstraints(const QString &h, const QString &path,
   const auto input = m_dir + "/artifacts/staging/" + uid() + ".gpkg";
   if (!MappingArtifactWriter::vectorSnapshot(&source, input, error))
     return false;
-  return publishConstraintImport(h, input, path, records, error);
+  return publishConstraintImport(h, input, path, records, error, nullptr, importMeta);
 }
 
 bool MappingWorkbench::publishConstraintImport(
     const QString &h, const QString &input, const QString &path,
     const QVector<paleo::ImportedConstraintRecord> &records, QString *error,
-    const DerivedFileFingerprint *fingerprint) {
+    const DerivedFileFingerprint *fingerprint, const QVariantMap &importMeta) {
   const QByteArray snapshotKey = ("paleo.constraint.snapshot." + h).toUtf8();
   const auto previousSnapshot = m_constraints->property(snapshotKey.constData());
   DataCatalog::BatchSave transaction(m_catalog);
+  QVariantMap importExtra{{"source_file", path}, {"method", "constraint-import"}};
+  for (auto it = importMeta.cbegin(); it != importMeta.cend(); ++it)
+    importExtra.insert(it.key(), it.value());
   const auto inputId = record(input, h, "constraint_source", tr("%1 导入约束").arg(h), "vector", {},
-                              {{"source_file", path}, {"method", "constraint-import"}}, error,
+                              importExtra, error,
                               "|layername=features", {}, fingerprint);
   if (inputId.isEmpty()) { transaction.abort(); return false; }
   const auto source = versionForLayer(inputId);
@@ -750,6 +774,7 @@ bool MappingWorkbench::startConstraintImport(const QString &h, const QString &pa
     QString path;
     QVector<paleo::ImportedConstraintRecord> records;
     DerivedFileFingerprint fingerprint;
+    QVariantMap crsMeta; // 导入 provenance（crs_verified/crs_source）
   };
   auto job = std::make_shared<Import>();
   QDir().mkpath(m_dir + "/artifacts/staging");
@@ -784,10 +809,12 @@ bool MappingWorkbench::startConstraintImport(const QString &h, const QString &pa
         if (task)
           task->reportStage("hash", 90);
         job->fingerprint = DerivedFileFingerprint::read(job->path, cancelled, &error);
+        job->crsMeta = importCrsProvenance(source.crs());
         return error;
       },
       [this, job, h, path](QString *error) {
-        return publishConstraintImport(h, job->path, path, job->records, error, &job->fingerprint);
+        return publishConstraintImport(h, job->path, path, job->records, error, &job->fingerprint,
+                                       job->crsMeta);
       },
       [job] { QFile::remove(job->path); }, error);
 }

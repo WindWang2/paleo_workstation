@@ -795,6 +795,56 @@ private slots:
     QCOMPARE(f.store.load(), all);
     QVERIFY(f.edits.rollbackEdit(f.layer.get()));
   }
+  // P1（pr457-closure）：FID 冲突安全失败——快照事务绝不静默覆盖其他要素。
+  // 三种撞法都必须整批拒绝且原行原样：fid 已被同层位其他身份占用、fid 跨层位
+  // 占用（外部写者）、稳定身份已被其他 fid 使用。
+  void snapshotRefusesFidAndIdentityCollisions()
+  {
+    Fixture f;
+    QVERIFY2(f.open(), qPrintable(f.error));
+    const auto all = f.store.load();
+    const qlonglong t1Fid = f.store.load("T1").first().value("fid").toLongLong();
+    const qlonglong t2Fid = f.store.load("T2").first().value("fid").toLongLong();
+
+    // (a) 同层位：fid 已存在但身份不同（覆盖冒充）。
+    {
+      auto rows = f.store.load("T1");
+      QVariantMap intruder = rows.first();
+      intruder.insert("id", "c-imposter");
+      intruder.insert("fid", t1Fid);
+      intruder.insert("wkt", "LINESTRING(99 99, 100 100)");
+      rows.append(intruder);
+      QVERIFY(!f.store.replaceHorizon("T1", rows, &f.error));
+      QVERIFY(!f.error.isEmpty());
+      QCOMPARE(f.store.load(), all);
+    }
+    // (b) 跨层位：fid 属于 T2 的行（外部/其他会话写者占号）。
+    {
+      auto rows = f.store.load("T1");
+      QVariantMap foreign = rows.first();
+      foreign.insert("id", "c-foreign");
+      foreign.insert("fid", t2Fid);
+      foreign.insert("wkt", "LINESTRING(98 98, 99 99)");
+      rows.append(foreign);
+      QVERIFY(!f.store.replaceHorizon("T1", rows, &f.error));
+      QCOMPARE(f.store.load(), all);
+    }
+    // (c) 新 fid 但稳定身份已被别的行使用。
+    {
+      auto rows = f.store.load("T1");
+      QVariantMap stolen = rows.first();
+      stolen.insert("id", rows.first().value("id")); // 同一 id，不同 fid
+      stolen.insert("fid", t2Fid + 1000);
+      stolen.insert("wkt", "LINESTRING(97 97, 98 98)");
+      rows.append(stolen);
+      QVERIFY(!f.store.replaceHorizon("T1", rows, &f.error));
+      QCOMPARE(f.store.load(), all);
+    }
+    // 会话缓冲区与 store 仍一致（没有任何半提交痕迹）。
+    QVERIFY(f.consistent());
+    QVERIFY(f.edits.rollbackEdit(f.layer.get()));
+    QCOMPARE(f.store.load(), all);
+  }
   void captureEnterDoubleClickAndShapePreview()
   {
     QgsMapCanvas canvas;

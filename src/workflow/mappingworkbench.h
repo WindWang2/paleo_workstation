@@ -182,7 +182,8 @@ private:
   bool publishConstraintImport(const QString &horizon, const QString &inputPath,
                                const QString &sourcePath,
                                const QVector<paleo::ImportedConstraintRecord> &records,
-                               QString *error, const DerivedFileFingerprint *fingerprint = nullptr);
+                               QString *error, const DerivedFileFingerprint *fingerprint = nullptr,
+                               const QVariantMap &importMeta = {});
   void ensureVersionIndex() const;
   bool ready(const QString &horizon, QString *error) const;
   QString schemaVersion(const QString &horizon) const;

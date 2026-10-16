@@ -37,6 +37,16 @@ class DerivedAssetRegistrar;
 
 namespace paleo::workflow_detail {
 
+/// 约束层 GPKG datasource 的层位过滤子句（|subset=horizon='…'）。
+/// 层位名是用户输入：单引号按 SQL 方言翻倍转义，杜绝 subset 失效/过滤注入
+/// （O'Connell-1、含引号/空格/中文层位都只命中本层位行）。
+inline QString constraintHorizonSubsetSuffix( const QString &horizon )
+{
+  QString escaped = horizon;
+  escaped.replace( QLatin1Char( '\'' ), QStringLiteral( "''" ) );
+  return QStringLiteral( "|subset=horizon='%1'" ).arg( escaped );
+}
+
 /// 结果图层 id ↔ 资产 id 的互链（写在 QgsMapLayer 的自定义属性上）。
 /// QgisLayerService/QgsMapLayer 只在 .cpp 侧可见，故这里只前向声明。
 void stampLayerAssetLink( QgisLayerService *layers, const QString &layerId,

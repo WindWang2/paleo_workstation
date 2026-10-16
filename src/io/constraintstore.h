@@ -52,10 +52,30 @@ public:
                       QString *error = nullptr);
   bool remove(const QString &id, QString *error = nullptr);
 
+  // P0-2（pr457-closure）：CRS 存储契约状态——只读检测，不迁移不写文件。
+  struct CrsStorageStatus {
+    bool fileExists = false;
+    bool layerExists = false;  // constraints 表存在
+    bool hasSrs = false;       // GPKG 里登记了 SRS（外部 QGIS/GDAL 可独立辨识）
+    QString srsWkt;            // hasSrs 时的定义文本
+    bool isStoreCrs = false;   // 与库约定 CRS（本地工程网格）同一
+    bool legacyNoCrs = false;  // 有层但无 SRS：坐标仅按项目上下文推测解释
+  };
+  CrsStorageStatus inspectCrsStorage() const;
+
+  // 显式可选迁移：把库约定 CRS 写进 gpkg_spatial_ref_sys /
+  // gpkg_geometry_columns（只补元数据，不动几何/属性/FID）。迁移前生成字节级
+  // 备份 <gpkg>.crs-backup-<时间戳>.bak；SQL 全程事务，失败回滚；提交后重新
+  // 打开校验（SRS 生效 + fid/几何逐一相等），校验失败用备份原样还原。绝不自动
+  // 调用——历史库的坐标含义必须由显式动作核定。已是目标状态时幂等成功。
+  bool migrateLegacyCrs(QString *error = nullptr, QString *backupPathOut = nullptr);
+
 private:
   bool appendInternal(const QString &horizon, const QString &id, const QString &wkt,
                       const QString &type, int code, const QString *parameters,
                       int schema, QString *error, double weight);
+  // migrateLegacyCrs 的独占窗体实现（经 m_enqueue 单写者队列调用）。
+  bool migrateLegacyCrsLocked(QString *error, QString *backupPathOut);
 
 private:
   QString m_gpkgPath;

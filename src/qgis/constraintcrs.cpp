@@ -18,6 +18,16 @@ QgsCoordinateReferenceSystem storeCrs()
   return QgsCoordinateReferenceSystem::fromWkt( DataCatalog::localGridCrsWkt() );
 }
 
+namespace
+{
+// 「同一 CRS」= QGIS 相等或 WKT2 全等。工程 CRS（ENGCRS/LOCAL_CS）没有 authid，
+// 必须落到 WKT 逐字比较；两个不同的工程 CRS 文本不同即不同格网。
+bool sameCrs( const QgsCoordinateReferenceSystem &a, const QgsCoordinateReferenceSystem &b )
+{
+  return a == b || ( a.isValid() && b.isValid() && a.toWkt() == b.toWkt() );
+}
+} // namespace
+
 bool toStoreWkt( const QString &wkt, const QgsCoordinateReferenceSystem &source,
                  const QgsCoordinateTransformContext &context, QString *out, QString *error )
 {
@@ -29,12 +39,13 @@ bool toStoreWkt( const QString &wkt, const QgsCoordinateReferenceSystem &source,
   if ( !out )
     return fail( QStringLiteral( "toStoreWkt: missing output" ) );
   const QgsCoordinateReferenceSystem target = storeCrs();
-  // 与导入坐标门（acceptsLocalGrid）同口径：任意米制工程 CRS（LOCAL_CS / ENGCRS，
-  // 无大地基准）都视作本工程局部网格——它们之间本来就没有坐标操作可用。
-  const bool localEquivalent = source.isValid() && !source.isGeographic() &&
-                               source.type() == Qgis::CrsType::Engineering &&
-                               source.mapUnits() == Qgis::DistanceUnit::Meters;
-  if ( !source.isValid() || source == target || localEquivalent )
+  // P0-1（pr457-closure）：等价只认「同一 CRS」——QGIS 相等或 WKT2 全等。
+  // 工程坐标系即使单位同为米，原点/旋转/轴向也可能不同；绝不按单位推断等价，
+  // 也绝不给无效来源静默指定本地网格（坐标含义无法核实就拒绝写入）。
+  if ( !source.isValid() )
+    return fail( QObject::tr( "来源坐标系无效：约束坐标含义无法核实，拒绝写入本地工程网格。"
+                              "请提供画布/导入源的有效 CRS；无 CRS 的历史数据需先显式核定同一网格" ) );
+  if ( sameCrs( source, target ) )
   {
     *out = wkt;
     return true;
@@ -44,7 +55,8 @@ bool toStoreWkt( const QString &wkt, const QgsCoordinateReferenceSystem &source,
     return fail( QObject::tr( "约束几何 WKT 无法解析" ) );
   const QgsCoordinateTransform transform( source, target, context );
   if ( !transform.isValid() )
-    return fail( QObject::tr( "无法把约束几何从 %1 转换到本地工程网格：工程没有对应的坐标操作（未配准？）" )
+    return fail( QObject::tr( "无法把约束几何从 %1 转换到本地工程网格：坐标系不同且工程没有对应的"
+                              "坐标操作（未配准？）。单位同为米不代表同一局部网格" )
                      .arg( source.userFriendlyIdentifier() ) );
   try
   {

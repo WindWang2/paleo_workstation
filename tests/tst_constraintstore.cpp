@@ -10,6 +10,7 @@
 #include <qgsapplication.h>
 #include <qgsmaplayer.h>
 #include <qgsproject.h>
+#include <qgsfeature.h>
 #include <qgsvectorlayer.h>
 
 #include <gdal.h>
@@ -239,6 +240,65 @@ private slots:
 
     // Clean up temporary directory
     QDir( tempDir ).removeRecursively();
+  }
+
+  // P1（pr457-closure）：层位名含单引号/中文/空格时，主约束图层与伴随视图的
+  // subset 过滤必须只命中本层位——未转义的 horizon='O'Connell-1' 会让 OGR
+  // subset 语法错误或被注入（x' or '1'='1 匹配全部行）。
+  void specialCharacterHorizonsStayIsolated()
+  {
+    QTemporaryDir dir;
+    QVERIFY( dir.isValid() );
+    const QString qgz = dir.filePath( QStringLiteral( "proj.qgz" ) );
+    const QString gpkg = dir.filePath( QStringLiteral( "project.gpkg" ) );
+    const QString meta = dir.filePath( QStringLiteral( "project.sqlite" ) );
+
+    QgisProjectService projectSvc;
+    PaleoProjectStore store;
+    LayerManifest manifest{ meta };
+    QgisLayerService layers{ &projectSvc, &manifest };
+    QgisProcessingService proc{ &store };
+
+    QVERIFY( projectSvc.createProject( qgz ) );
+    QVERIFY( manifest.open() );
+    store.setProjectPaths( qgz, gpkg, meta );
+
+    ConstraintWorkflow wf( &proc, &layers );
+    wf.setStore( &store );
+
+    const QStringList horizons = { QStringLiteral( "O'Connell-1" ), QStringLiteral( "长 6 小层" ),
+                                   QStringLiteral( "H 2\" 双引号" ),
+                                   QStringLiteral( "x' or '1'='1" ) };
+    QString err;
+    int seq = 0;
+    for ( const QString &h : horizons )
+    {
+      QVERIFY2( wf.addConstraint( h, QStringLiteral( "LINESTRING(%1 0, %1 10)" ).arg( seq++ ),
+                                  QStringLiteral( "direction_line" ), 1, &err ),
+                qPrintable( h + QLatin1String( ": " ) + err ) );
+    }
+    // 每个层位的主图层实例化后只看到自己那 1 行（注入层位名也不得多行）。
+    for ( const QString &h : horizons )
+    {
+      QgsMapLayer *layer = layers.instantiate( QStringLiteral( "constraints.%1" ).arg( h ), &err );
+      QVERIFY2( layer != nullptr, qPrintable( h + QLatin1String( ": " ) + err ) );
+      QVERIFY2( layer->isValid(), qPrintable( h ) );
+      auto *vector = qobject_cast<QgsVectorLayer *>( layer );
+      QVERIFY( vector != nullptr );
+      QVERIFY2( vector->featureCount() == 1,
+                qPrintable( QStringLiteral( "%1: featureCount=%2" ).arg( h ).arg( vector->featureCount() ) ) );
+      // 每行的 horizon 字段就是该层位（没有串层）。
+      QgsFeature feature;
+      QVERIFY( vector->getFeatures().nextFeature( feature ) );
+      QVERIFY2( feature.attribute( QStringLiteral( "horizon" ) ).toString() == h, qPrintable( h ) );
+    }
+    // store 侧读取同样只命中本层位。
+    for ( const QString &h : horizons )
+    {
+      const QVector<QVariantMap> rows = wf.loadConstraints( h );
+      QVERIFY2( rows.size() == 1, qPrintable( QStringLiteral( "%1: rows=%2" ).arg( h ).arg( rows.size() ) ) );
+      QVERIFY2( rows.first().value( QStringLiteral( "horizon" ) ).toString() == h, qPrintable( h ) );
+    }
   }
 
   // ---- MEM-01: PaleoProjectStore 析构弱引用安全（QPointer 防 UAF）----

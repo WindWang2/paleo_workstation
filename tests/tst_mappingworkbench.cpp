@@ -61,6 +61,8 @@
 #include <QtTest>
 #include <atomic>
 #include <gdal.h>
+#include <ogr_api.h>
+#include <ogr_srs_api.h>
 #include <qgsapplication.h>
 #include <qgscategorizedsymbolrenderer.h>
 #include <qgsexpressioncontextutils.h>
@@ -2593,6 +2595,91 @@ private slots:
         page.findChild<QTreeWidget *>("workbenchResults")->topLevelItemCount() >
         0);
   }
+  // P0-1（pr457-closure）：导入 provenance——外来米制工程 CRS 照收（#457 既有
+  // 工作流），但坐标含义标记为「用户断言推测」（crs_verified=false +
+  // crs_source）；文件 CRS 与工程网格同一时才记 crs_verified=true。画布写入门
+  // （toStoreWkt）保持严格等价——两门契约有意分叉并留痕。
+  void constraintImportRecordsCrsProvenance() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    const QString base =
+        QFileInfo(QString::fromUtf8(__FILE__)).dir().filePath(
+            "fixtures/singlefactor/structural_synthetic");
+    // 外来 LOCAL_CS：接受但 provenance 如实标「未核实」。
+    QVERIFY2(f.work.importConstraints("D61", base + "/directions.shp", "auto",
+                                      &error),
+             qPrintable(error));
+    QVariantMap foreignExtra;
+    for (const CatalogAsset &asset : f.catalog.assets()) {
+      if (asset.type != QStringLiteral("constraint_source"))
+        continue;
+      for (const CatalogVersion &version : f.catalog.versionsForAsset(asset.id)) {
+        if (version.extra.value(QStringLiteral("method")).toString() ==
+            QStringLiteral("constraint-import")) {
+          foreignExtra = version.extra;
+          break;
+        }
+      }
+    }
+    QVERIFY(!foreignExtra.isEmpty());
+    QCOMPARE(foreignExtra.value(QStringLiteral("crs_verified")).toBool(), false);
+    QVERIFY(!foreignExtra.value(QStringLiteral("crs_source")).toString().isEmpty());
+
+    // 工程本地网格同一 CRS：crs_verified=true（坐标来源已核实）。
+    const QString verifiedPath = f.dir.filePath(QStringLiteral("verified-grid-break.gpkg"));
+    {
+      GDALDriverH driver = GDALGetDriverByName("GPKG");
+      QVERIFY(driver);
+      GDALDatasetH ds = GDALCreate(driver, verifiedPath.toUtf8().constData(), 0, 0, 0,
+                                   GDT_Unknown, nullptr);
+      QVERIFY(ds);
+      OGRSpatialReferenceH srs = OSRNewSpatialReference(nullptr);
+      QVERIFY(srs);
+      const QByteArray wkt = DataCatalog::localGridCrsWkt().toUtf8();
+      char *text = const_cast<char *>(wkt.constData());
+      QVERIFY(OSRImportFromWkt(srs, &text) == OGRERR_NONE);
+      OGRLayerH layer = GDALDatasetCreateLayer(ds, "constraints", srs, wkbLineString, nullptr);
+      QVERIFY(layer);
+      OSRDestroySpatialReference(srs);
+      for (const char *name : {"id", "horizon", "type"}) {
+        OGRFieldDefnH field = OGR_Fld_Create(name, OFTString);
+        OGR_L_CreateField(layer, field, TRUE);
+        OGR_Fld_Destroy(field);
+      }
+      OGRFeatureDefnH defn = OGR_L_GetLayerDefn(layer);
+      OGRFeatureH feature = OGR_F_Create(defn);
+      OGR_F_SetFieldString(feature, OGR_F_GetFieldIndex(feature, "id"), "v-1");
+      OGR_F_SetFieldString(feature, OGR_F_GetFieldIndex(feature, "horizon"), "D61");
+      OGR_F_SetFieldString(feature, OGR_F_GetFieldIndex(feature, "type"), "break_line");
+      const char *lineWkt = "LINESTRING(0 0, 10 0)";
+      OGRGeometryH geom = nullptr;
+      char *lineText = const_cast<char *>(lineWkt);
+      QVERIFY(OGR_G_CreateFromWkt(&lineText, nullptr, &geom) == OGRERR_NONE);
+      OGR_F_SetGeometry(feature, geom); // 层带 SRS；几何自身无独立 SRS
+      OGR_G_DestroyGeometry(geom);
+      QVERIFY(OGR_L_CreateFeature(layer, feature) == OGRERR_NONE);
+      OGR_F_Destroy(feature);
+      GDALClose(ds);
+    }
+    QVERIFY2(f.work.importConstraints("D61", verifiedPath, "auto", &error),
+             qPrintable(error));
+    int verifiedSeen = 0;
+    for (const CatalogAsset &asset : f.catalog.assets()) {
+      if (asset.type != QStringLiteral("constraint_source"))
+        continue;
+      for (const CatalogVersion &version : f.catalog.versionsForAsset(asset.id)) {
+        if (version.extra.value(QStringLiteral("method")).toString() !=
+                QStringLiteral("constraint-import") ||
+            !version.extra.contains(QStringLiteral("crs_verified")))
+          continue;
+        if (version.extra.value(QStringLiteral("crs_verified")).toBool())
+          ++verifiedSeen;
+      }
+    }
+    QCOMPARE(verifiedSeen, 1);
+  }
+
   void constraintImportLocalCrsAndVerbatimRoundTrip() {
     Fixture f;
     QVERIFY(f.init());

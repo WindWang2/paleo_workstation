@@ -20,10 +20,13 @@
 #include <QJsonObject>
 #include <QTemporaryDir>
 
+#include "../src/algorithms/constraintbarriers.h"
 #include "../src/algorithms/paleoalgorithms.h"
 #include "../src/workflow/constraintuseplan.h"
 
 using namespace paleo::singlefactor;
+using paleo::algorithms::UnifiedBarrierRead;
+using paleo::algorithms::rasterizeBarrierParts;
 
 namespace
 {
@@ -181,6 +184,182 @@ private slots:
   {
     delete mConstraints;
     delete mWells;
+  }
+
+  // P1（pr457-closure）：栅格化单元契约——格网遍历（supercover）不得漏格。
+  // 网格 [0,100]×[0,100]，cellSize=10，10×10；行主序 mask，originYTop=100。
+  static UnifiedBarrierRead singlePartRead( const QString &wkt, const QString &id = QStringLiteral( "b1" ) )
+  {
+    UnifiedBarrierRead read;
+    read.parts << QgsGeometry::fromWkt( wkt );
+    QVariantMap receipt;
+    receipt.insert( QStringLiteral( "id" ), id );
+    receipt.insert( QStringLiteral( "consumed" ), true );
+    receipt.insert( QStringLiteral( "role" ), QStringLiteral( "hard_barrier" ) );
+    read.receipts << receipt;
+    read.partReceipt << 0;
+    return read;
+  }
+
+  void rasterizationIsFourConnectedAlongDiagonals()
+  {
+    // 45° 斜线：标记格必须 4-连通（半格采样只落对角链时距离场会被对角漏格
+    // 错误穿透）。
+    {
+      UnifiedBarrierRead read = singlePartRead( QStringLiteral( "LineString (5 95, 95 5)" ) );
+      std::vector<std::uint8_t> mask;
+      QCOMPARE( rasterizeBarrierParts( read, 0, 100, 10, 10, 10, mask, {} ), 1 );
+      int first = -1, count = 0;
+      for ( int i = 0; i < 100; ++i )
+        if ( mask[size_t( i )] )
+        {
+          if ( first < 0 )
+            first = i;
+          ++count;
+        }
+      QVERIFY( count >= 10 );
+      // BFS 4-连通：从首个标记格可达全部标记格。
+      std::vector<std::uint8_t> seen( 100, 0 );
+      std::vector<int> queue{ first };
+      seen[size_t( first )] = 1;
+      int reached = 0;
+      while ( !queue.empty() )
+      {
+        const int cell = queue.back();
+        queue.pop_back();
+        ++reached;
+        const int c = cell % 10, r = cell / 10;
+        for ( const int d : { -1, 1 } )
+        {
+          if ( c + d >= 0 && c + d < 10 && mask[size_t( r * 10 + c + d )] && !seen[size_t( r * 10 + c + d )] )
+          {
+            seen[size_t( r * 10 + c + d )] = 1;
+            queue.push_back( r * 10 + c + d );
+          }
+          if ( r + d >= 0 && r + d < 10 && mask[size_t( ( r + d ) * 10 + c )] && !seen[size_t( ( r + d ) * 10 + c )] )
+          {
+            seen[size_t( ( r + d ) * 10 + c )] = 1;
+            queue.push_back( ( r + d ) * 10 + c );
+          }
+        }
+      }
+      QCOMPARE( reached, count );
+    }
+    // 极陡斜线（近垂直）同样 4-连通。
+    {
+      UnifiedBarrierRead read = singlePartRead( QStringLiteral( "LineString (52 5, 58 95)" ) );
+      std::vector<std::uint8_t> mask;
+      QCOMPARE( rasterizeBarrierParts( read, 0, 100, 10, 10, 10, mask, {} ), 1 );
+      int count = 0;
+      for ( auto v : mask )
+        count += v;
+      QVERIFY( count >= 10 );
+      // 每行至少一格（跨行不允许断行）。
+      for ( int r = 0; r < 10; ++r )
+      {
+        int rowMarks = 0;
+        for ( int c = 0; c < 10; ++c )
+          rowMarks += mask[size_t( r * 10 + c )];
+        QVERIFY2( rowMarks > 0, qPrintable( QStringLiteral( "row %1 empty" ).arg( r ) ) );
+      }
+    }
+  }
+
+  void rasterizationBoundaryAndCornerTouchStayInDomain()
+  {
+    // 恰在网格边界上的屏障（上边/右边）：与计划侧闭矩形触域同口径——仍属计算
+    // 域、落到边缘格，回执不翻 outside_compute_domain。
+    {
+      UnifiedBarrierRead read = singlePartRead( QStringLiteral( "LineString (0 100, 100 100)" ) );
+      std::vector<std::uint8_t> mask;
+      QCOMPARE( rasterizeBarrierParts( read, 0, 100, 10, 10, 10, mask, {} ), 1 );
+      for ( int c = 0; c < 10; ++c )
+        QVERIFY2( mask[size_t( c )], qPrintable( QStringLiteral( "top edge col %1" ).arg( c ) ) );
+      const QVariantMap receipt = read.receipts.first().toMap();
+      QVERIFY( receipt.value( QStringLiteral( "consumed" ) ).toBool() );
+      QVERIFY( receipt.value( QStringLiteral( "reason" ) ).toString() != QStringLiteral( "outside_compute_domain" ) );
+    }
+    {
+      UnifiedBarrierRead read = singlePartRead( QStringLiteral( "LineString (100 0, 100 100)" ) );
+      std::vector<std::uint8_t> mask;
+      QCOMPARE( rasterizeBarrierParts( read, 0, 100, 10, 10, 10, mask, {} ), 1 );
+      for ( int r = 0; r < 10; ++r )
+        QVERIFY2( mask[size_t( r * 10 + 9 )], qPrintable( QStringLiteral( "right edge row %1" ).arg( r ) ) );
+    }
+    // 仅触及网格角点（单点在闭域上）：入域、恰一格，回执一致（计划侧
+    // polylineTouchesRect 闭矩形也判触域）。
+    {
+      UnifiedBarrierRead read = singlePartRead( QStringLiteral( "LineString (95 105, 105 95)" ) );
+      std::vector<std::uint8_t> mask;
+      QCOMPARE( rasterizeBarrierParts( read, 0, 100, 10, 10, 10, mask, {} ), 1 );
+      int count = 0;
+      for ( auto v : mask )
+        count += v;
+      QCOMPARE( count, 1 );
+      QVERIFY( mask[9] ); // 右上角格（col 9, row 0）
+      QVERIFY( read.receipts.first().toMap().value( QStringLiteral( "consumed" ) ).toBool() );
+    }
+    // 网格外屏障：零格、回执翻 outside_compute_domain（与计划一致）。
+    {
+      UnifiedBarrierRead read = singlePartRead( QStringLiteral( "LineString (200 200, 300 300)" ) );
+      std::vector<std::uint8_t> mask;
+      QCOMPARE( rasterizeBarrierParts( read, 0, 100, 10, 10, 10, mask, {} ), 0 );
+      const QVariantMap receipt = read.receipts.first().toMap();
+      QVERIFY( !receipt.value( QStringLiteral( "consumed" ) ).toBool() );
+      QCOMPARE( receipt.value( QStringLiteral( "reason" ) ).toString(), QStringLiteral( "outside_compute_domain" ) );
+    }
+    // 一端在格外、中间穿域：裁剪到域内段，仍落格。
+    {
+      UnifiedBarrierRead read = singlePartRead( QStringLiteral( "LineString (-50 50, 150 50)" ) );
+      std::vector<std::uint8_t> mask;
+      QCOMPARE( rasterizeBarrierParts( read, 0, 100, 10, 10, 10, mask, {} ), 1 );
+      int count = 0;
+      for ( auto v : mask )
+        count += v;
+      QCOMPARE( count, 10 );
+    }
+  }
+
+  void rasterizationReceiptsCarryCellCounts()
+  {
+    // 回执带 rasterized_cells / new_cells；完全被既有屏障遮蔽（new_cells=0）
+    // 的部件如实标注，不再与「真产生计算效果」混同。
+    UnifiedBarrierRead read;
+    read.parts << QgsGeometry::fromWkt( QStringLiteral( "LineString (5 95, 95 5)" ) )
+               << QgsGeometry::fromWkt( QStringLiteral( "LineString (5 95, 95 5)" ) );
+    for ( const char *id : { "b1", "b2" } )
+    {
+      QVariantMap receipt;
+      receipt.insert( QStringLiteral( "id" ), QString::fromLatin1( id ) );
+      receipt.insert( QStringLiteral( "consumed" ), true );
+      receipt.insert( QStringLiteral( "role" ), QStringLiteral( "hard_barrier" ) );
+      read.receipts << receipt;
+    }
+    read.partReceipt << 0 << 1;
+    std::vector<std::uint8_t> mask;
+    QCOMPARE( rasterizeBarrierParts( read, 0, 100, 10, 10, 10, mask, {} ), 2 );
+    const QVariantMap first = read.receipts.at( 0 ).toMap();
+    const QVariantMap second = read.receipts.at( 1 ).toMap();
+    QVERIFY( first.value( QStringLiteral( "rasterized" ) ).toBool() );
+    QCOMPARE( first.value( QStringLiteral( "rasterized_cells" ) ).toInt(),
+              first.value( QStringLiteral( "new_cells" ) ).toInt() );
+    QVERIFY( first.value( QStringLiteral( "new_cells" ) ).toInt() >= 10 );
+    QVERIFY( second.value( QStringLiteral( "rasterized" ) ).toBool() );
+    QCOMPARE( second.value( QStringLiteral( "new_cells" ) ).toInt(), 0 );
+    QVERIFY( second.value( QStringLiteral( "warnings" ) ).toStringList()
+                 .contains( QStringLiteral( "fully_shadowed_by_other_barriers" ) ) );
+    // 短屏障（单格内）：1 格。
+    UnifiedBarrierRead tiny = singlePartRead( QStringLiteral( "LineString (45 55, 46 55)" ) );
+    std::vector<std::uint8_t> tinyMask;
+    QCOMPARE( rasterizeBarrierParts( tiny, 0, 100, 10, 10, 10, tinyMask, {} ), 1 );
+    QCOMPARE( tiny.receipts.first().toMap().value( QStringLiteral( "rasterized_cells" ) ).toInt(), 1 );
+  }
+
+  void rasterizationCancelStops()
+  {
+    UnifiedBarrierRead read = singlePartRead( QStringLiteral( "LineString (5 95, 95 5)" ) );
+    std::vector<std::uint8_t> mask;
+    QCOMPARE( rasterizeBarrierParts( read, 0, 100, 10, 10, 10, mask, [] { return true; } ), -1 );
   }
 
   // 本地方向 IDW / Kriging：方向线、硬屏障、软边界逐条与计划一致。

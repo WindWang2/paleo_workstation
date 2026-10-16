@@ -178,6 +178,128 @@ private slots:
                   .valid );
   }
 
+  // P0/P1（pr457-closure）：schemaVersion 必须是合法范围内的整数——非整数
+  // （1.5/1.1）不得被 toInt() 截断后当成 1 接受。
+  void fractionalSchemaVersionIsRejected()
+  {
+    for ( const char *json : { R"({"semantic":"hard_barrier","schemaVersion":1.5})",
+                               R"({"semantic":"hard_barrier","schemaVersion":1.1})",
+                               R"({"semantic":"hard_barrier","schemaVersion":0})",
+                               R"({"semantic":"hard_barrier","schemaVersion":-1})",
+                               R"({"semantic":"hard_barrier","schemaVersion":1e300})" } )
+    {
+      const ConstraintSemantics s = resolveConstraintSemantics( QStringLiteral( "break_line" ),
+                                                                 QString::fromLatin1( json ), QVariant() );
+      QVERIFY2( !s.valid, json );
+      QVERIFY2( !s.error.isEmpty(), json );
+    }
+    // 字符串版本号同样非法（类型错误，不做宽松转换）。
+    QVERIFY( !resolveConstraintSemantics( QStringLiteral( "break_line" ),
+                                          QStringLiteral( R"({"semantic":"hard_barrier","schemaVersion":"1"})" ),
+                                          QVariant() )
+                  .valid );
+    // 整数 1 正常接受。
+    QVERIFY( resolveConstraintSemantics( QStringLiteral( "break_line" ),
+                                         QStringLiteral( R"({"semantic":"hard_barrier","schemaVersion":1})" ),
+                                         QVariant() )
+                  .valid );
+  }
+
+  void unsupportedSchemaVersionIsRejected()
+  {
+    // 未知更高版本不能被静默当成旧版本。
+    for ( const char *json : { R"({"semantic":"hard_barrier","schemaVersion":2})",
+                               R"({"semantic":"hard_barrier","schemaVersion":99})" } )
+    {
+      const ConstraintSemantics s = resolveConstraintSemantics( QStringLiteral( "break_line" ),
+                                                                 QString::fromLatin1( json ), QVariant() );
+      QVERIFY2( !s.valid, json );
+      QVERIFY2( s.error.contains( QStringLiteral( "版本" ) ), json );
+    }
+  }
+
+  // P0/P1：enabled 存在时必须是布尔——"false"/0/null/[] 不得经 toBool(true)
+  // 默认成启用。
+  void enabledMustBeBoolean()
+  {
+    // 合法：字段不存在 → 默认启用；布尔 false → 停用；布尔 true → 启用。
+    QVERIFY( resolveConstraintSemantics( QStringLiteral( "break_line" ),
+                                         QStringLiteral( R"({"semantic":"hard_barrier"})" ), QVariant() )
+                  .enabled );
+    QVERIFY( !resolveConstraintSemantics( QStringLiteral( "break_line" ),
+                                          QStringLiteral( R"({"semantic":"hard_barrier","enabled":false})" ), QVariant() )
+                   .enabled );
+    QVERIFY( resolveConstraintSemantics( QStringLiteral( "break_line" ),
+                                         QStringLiteral( R"({"semantic":"hard_barrier","enabled":true})" ), QVariant() )
+                  .enabled );
+    // 非法类型：字段存在但不是布尔 → invalid（带诊断），不猜语义。
+    for ( const char *json : { R"({"semantic":"hard_barrier","enabled":"false"})",
+                               R"({"semantic":"hard_barrier","enabled":"true"})",
+                               R"({"semantic":"hard_barrier","enabled":0})",
+                               R"({"semantic":"hard_barrier","enabled":1})",
+                               R"({"semantic":"hard_barrier","enabled":null})",
+                               R"({"semantic":"hard_barrier","enabled":[]})" } )
+    {
+      const ConstraintSemantics s = resolveConstraintSemantics( QStringLiteral( "break_line" ),
+                                                                 QString::fromLatin1( json ), QVariant() );
+      QVERIFY2( !s.valid, json );
+      QVERIFY2( !s.error.isEmpty(), json );
+    }
+  }
+
+  // P0/P1：非法参数（含非有限数值、blockMode 非字符串）在语义层就 invalid，
+  // 不会以「有效约束」身份进入任何引擎的分派。
+  void invalidConstraintParameterDoesNotReachEngine()
+  {
+    for ( const char *json : { R"({"semantic":"hard_barrier","blockMode":5})",
+                               R"({"semantic":"hard_barrier","blockMode":null})",
+                               R"({"semantic":"direction_guide","ratio":1e999})",
+                               R"({"semantic":"interpretive_boundary","softStrength":1e999})" } )
+    {
+      const ConstraintSemantics s = resolveConstraintSemantics( QStringLiteral( "break_line" ),
+                                                                 QString::fromLatin1( json ), QVariant() );
+      QVERIFY2( !s.valid, json );
+      QVERIFY2( !s.error.isEmpty(), json );
+      // 所有方法下都不消费、且不进入方法分派。
+      for ( const QString &method : kAllMethods )
+      {
+        const ConstraintUseDecision d = decide( QStringLiteral( "break_line" ), QString::fromLatin1( json ), method );
+        QVERIFY2( !d.consumed, qPrintable( method + QLatin1Char( ' ' ) + json ) );
+      }
+    }
+  }
+
+  // 兼容：合法旧数据（无 params_json 仅 type 列；v1 schema；停用行）照常加载。
+  void legacyValidConstraintStillLoads()
+  {
+    const ConstraintSemantics legacyRow = resolveConstraintSemantics( QStringLiteral( "break_line" ), QString(),
+                                                                       QVariant() );
+    QVERIFY( legacyRow.valid );
+    QCOMPARE( legacyRow.semantic, QStringLiteral( "hard_barrier" ) );
+    const ConstraintSemantics legacyDirection = resolveConstraintSemantics( QStringLiteral( "direction_line" ),
+                                                                             QString(), QVariant() );
+    QCOMPARE( legacyDirection.semantic, QStringLiteral( "direction_guide" ) );
+    const ConstraintSemantics v1 = resolveConstraintSemantics(
+        QStringLiteral( "break_line" ),
+        QStringLiteral( R"({"schemaVersion":1,"semantic":"hard_barrier","blockMode":"full_block","ratio":2.5})" ),
+        QVariant() );
+    QVERIFY( v1.valid );
+    QCOMPARE( v1.ratio, 2.5 );
+    // schema_version 列（非 JSON 字段）仍作为后备版本来源。
+    const ConstraintSemantics viaColumn = resolveConstraintSemantics(
+        QStringLiteral( "break_line" ), QStringLiteral( R"({"semantic":"hard_barrier"})" ), QVariant( 1 ) );
+    QVERIFY( viaColumn.valid );
+    // 列里未知版本同样拒绝。
+    QVERIFY( !resolveConstraintSemantics( QStringLiteral( "break_line" ),
+                                          QStringLiteral( R"({"semantic":"hard_barrier"})" ), QVariant( 2 ) )
+                  .valid );
+    // 停用行为不变。
+    const ConstraintSemantics disabledRow = resolveConstraintSemantics(
+        QStringLiteral( "break_line" ), QStringLiteral( R"({"semantic":"hard_barrier","enabled":false})" ), QVariant() );
+    QVERIFY( disabledRow.valid );
+    QCOMPARE( disabledRow.ignoredReason, QStringLiteral( "disabled" ) );
+  }
+
   // 验收：方向线 + 本地方向 IDW / Kriging → consumed。
   void directionLineConsumedByLocalDirection()
   {
@@ -291,6 +413,134 @@ private slots:
         QVERIFY( !d.geometryValid );
       }
     }
+  }
+
+  // P1（pr457-closure）：数值鲁棒——实数意义下共线的折线（浮点 ulp 噪声）在
+  // 任意坐标量级下都不得误判自交。斜率取 1/3、2/7 等二进制不可精确表示的值，
+  // 顶点 y 坐标带逐点舍入噪声（这正是 ulp 级「近共线」的现实来源）。
+  void nearCollinearLargeCoordinatesAreStable()
+  {
+    QRandomGenerator rng( 20264570 );
+    const QList<double> slopes = { 1.0 / 3.0, 2.0 / 7.0, -1.0 / 3.0, 5.0 / 6.0, 0.25, -2.0 / 9.0 };
+    int checked = 0;
+    for ( int n = 0; n < 4000; ++n )
+    {
+      const double scale = std::pow( 10.0, double( rng.bounded( 8 ) ) ); // 1e0..1e7
+      const double slope = slopes.at( rng.bounded( slopes.size() ) );
+      const double offset = double( rng.bounded( 21 ) - 10 ) * scale;
+      const int count = 4 + static_cast<int>( rng.bounded( 8 ) );
+      QVector<QPointF> part;
+      for ( int k = 0; k < count; ++k )
+      {
+        const double x = offset + double( k ) * scale;
+        part.append( QPointF( x, offset + slope * ( x - offset ) ) );
+      }
+      const ConstraintPartCheck c = checkConstraintPart( part );
+      QVERIFY2( c.issue.isEmpty(),
+                qPrintable( QStringLiteral( "scale=%1 slope=%2 count=%3: %4" )
+                               .arg( scale )
+                               .arg( slope )
+                               .arg( count )
+                               .arg( c.issue ) ) );
+      ++checked;
+    }
+    QVERIFY( checked > 3000 );
+  }
+
+  // P1：平移不变性——同一折线整体平移（真实几何不变），自交判定必须一致。
+  // 该 fixture 在精确浮点相等谓词下会翻转（单位量级判自交、平移 1e7 后判
+  // 干净）：p1→p2→p3 实数共线且 p3 从 p2 折回 p1 延长线（真回折），大坐标
+  // 下 cross 的坐标舍入噪声（~u·M·L）淹没精确零。
+  void selfIntersectionIsTranslationInvariant()
+  {
+    const QVector<QPointF> part{ QPointF( 8.142857142857142, 5.428571428571429 ),
+                                 QPointF( 0.5555555555555556, 0.6666666666666666 ),
+                                 QPointF( 0.3333333333333333, 0.3333333333333333 ),
+                                 QPointF( 4.333333333333333, 6.333333333333333 ) };
+    QCOMPARE( checkConstraintPart( part ).issue, QStringLiteral( "self_intersecting" ) );
+    for ( const double shift : { 1e7, 1e9, 123456789.125, 9876543.2 } )
+    {
+      QVector<QPointF> moved;
+      for ( const QPointF &p : part )
+        moved.append( QPointF( p.x() + shift, p.y() + shift ) );
+      QCOMPARE( checkConstraintPart( moved ).issue, QStringLiteral( "self_intersecting" ) );
+    }
+    // 干净折线同样不得因平移变脏。
+    const QVector<QPointF> clean{ QPointF( 0.0, 0.0 ), QPointF( 4.0 + 1.0 / 3.0, 0.0 ),
+                                  QPointF( 4.0 + 1.0 / 3.0, 3.0 + 1.0 / 7.0 ), QPointF( 8.0 + 2.0 / 7.0, 6.0 ) };
+    QCOMPARE( checkConstraintPart( clean ).issue, QString() );
+    for ( const double shift : { 1e7, 1e9, 123456789.125 } )
+    {
+      QVector<QPointF> moved;
+      for ( const QPointF &p : clean )
+        moved.append( QPointF( p.x() + shift, p.y() + shift ) );
+      QCOMPARE( checkConstraintPart( moved ).issue, QString() );
+    }
+    // 随机小数坐标电池：base 与平移后判定必须逐一一致。
+    QRandomGenerator rng( 20264571 );
+    const QList<double> fracs = { 1.0 / 3.0, 2.0 / 3.0, 1.0 / 7.0, 2.0 / 7.0, 3.0 / 7.0,
+                                  1.0 / 9.0,  2.0 / 9.0,  4.0 / 9.0,  5.0 / 9.0 };
+    for ( int n = 0; n < 3000; ++n )
+    {
+      const int count = 3 + static_cast<int>( rng.bounded( 7 ) );
+      QVector<QPointF> part2;
+      for ( int k = 0; k < count; ++k )
+        part2.append( QPointF( double( rng.bounded( 9 ) ) + fracs.at( rng.bounded( fracs.size() ) ),
+                               double( rng.bounded( 9 ) ) + fracs.at( rng.bounded( fracs.size() ) ) ) );
+      if ( n % 5 == 0 )
+        part2.append( part2.first() );
+      const QString base = checkConstraintPart( part2 ).issue;
+      for ( const double shift : { 1e7, 123456789.125 } )
+      {
+        QVector<QPointF> moved;
+        for ( const QPointF &p : part2 )
+          moved.append( QPointF( p.x() + shift, p.y() + shift ) );
+        QCOMPARE( checkConstraintPart( moved ).issue, base );
+      }
+    }
+  }
+
+  // P1：闭合环（首末点同一 double）在任意量级下合法；端点相接的相邻段合法；
+  // 真正的自交（bowtie）仍然分得开。
+  void closedRingsAndRealIntersectionsStaySeparable()
+  {
+    const double big = 1e7;
+    QCOMPARE( checkConstraintPart( QVector<QPointF>{ QPointF( big, big ), QPointF( big + 10, big ),
+                                                     QPointF( big + 10, big + 10 ), QPointF( big, big + 10 ),
+                                                     QPointF( big, big ) } ).issue,
+              QString() );
+    QCOMPARE( checkConstraintPart( QVector<QPointF>{ QPointF( 0, 0 ), QPointF( 5, 0 ), QPointF( 5, 5 ) } ).issue,
+              QString() );
+    QCOMPARE( checkConstraintPart( QVector<QPointF>{ QPointF( 0, 0 ), QPointF( 10, 10 ), QPointF( 10, 0 ),
+                                                     QPointF( 0, 10 ) } ).issue,
+              QStringLiteral( "self_intersecting" ) );
+    // 顺原路回溯（共线重叠）依旧判自交——不能因鲁棒化放过真退化。
+    QCOMPARE( checkConstraintPart( QVector<QPointF>{ QPointF( 0, 0 ), QPointF( 10, 0 ), QPointF( 20, 0 ),
+                                                     QPointF( 10, 0 ) } ).issue,
+              QStringLiteral( "self_intersecting" ) );
+  }
+
+  // P1：极短线段与近重复顶点——重复顶点只告警不算自交，微小但不为零的线段
+  // 不是 zero_length。
+  void tinySegmentsAndNearDuplicateVertices()
+  {
+    const double big = 1e6;
+    // 完全重复顶点：duplicateVertices 告警、几何仍有效（非零长）。
+    ConstraintPartCheck dup = checkConstraintPart(
+        QVector<QPointF>{ QPointF( big, big ), QPointF( big, big ), QPointF( big + 1, big ) } );
+    QVERIFY( dup.duplicateVertices );
+    QCOMPARE( dup.issue, QString() );
+    // 相对坐标 1e-13（64u 量级以内）的近重复顶点：同完全重复处理。
+    ConstraintPartCheck near = checkConstraintPart(
+        QVector<QPointF>{ QPointF( big, big ), QPointF( big + big * 1e-13, big ), QPointF( big + 1, big ) } );
+    QCOMPARE( near.issue, QString() );
+    // 微小非零长度（单位量级坐标）：不是 zero_length，也不是自交。
+    ConstraintPartCheck tiny =
+        checkConstraintPart( QVector<QPointF>{ QPointF( 0, 0 ), QPointF( 1e-9, 0 ), QPointF( 1e-9, 1e-9 ) } );
+    QCOMPARE( tiny.issue, QString() );
+    // 全程重复 → zero_length 语义保留。
+    QCOMPARE( checkConstraintPart( QVector<QPointF>{ QPointF( 1, 1 ), QPointF( 1, 1 ), QPointF( 1, 1 ) } ).issue,
+              QStringLiteral( "zero_length" ) );
   }
 
   // P4：扫描剪枝与改造前全段对判定逐例等价（小整数坐标，大量共线/端点相触退化情形）。

@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <vector>
 
 // 层：数据
@@ -38,28 +39,68 @@ bool readNumber( const QJsonObject &object, const QString &key, double *target, 
     *error = QStringLiteral( "约束参数 %1 不是数值" ).arg( key );
     return false;
   }
-  *target = value.toDouble();
+  const double number = value.toDouble();
+  if ( !std::isfinite( number ) )
+  {
+    *error = QStringLiteral( "约束参数 %1 不是有限数值" ).arg( key );
+    return false;
+  }
+  *target = number;
   return true;
 }
 
-// 线段 p1p2 与 p3p4 的相交关系（含端点接触与共线重叠）。
-double cross( QPointF o, QPointF a, QPointF b )
+// P1 数值鲁棒（pr457-closure）：方向/共线判定用「坐标量级 × 线段长度」的
+// 相对阈，不用精确浮点相等，也不用固定绝对容差。
+//
+// 误差分析：坐标量级 M、double 单位舍入 u = 2^-53。叉积 cross = ax·by − ay·bx
+// 里 a、b 由坐标相减而来——每个坐标自带舍入误差 ≤ u·M，故差向量误差 ≤ 2u·M，
+// 叉积误差 ≤ 4u·M·L + 2u·L²（L 为差向量长度量级），再加乘减自身的 ~3u·L²。
+// 取 kRelativeEpsilon = 64u 并以 K·(M·L + L²) 为阈，覆盖上述界并留出级联
+// 运算（扫描/去重/闭合判定）的余量。该阈随坐标量级缩放：大坐标下真实深度
+// 小于双精度可分辨范围的交叉本来就不可判定（按共线处理，进入包围盒触接
+// 分支），小坐标下则保持全精度；固定绝对容差（如 1e-9）两头都会错。
+const double kRelativeEpsilon = 64.0 * std::numeric_limits<double>::epsilon();
+
+double coordinateMagnitude( QPointF p, QPointF q, QPointF r )
 {
-  return ( a.x() - o.x() ) * ( b.y() - o.y() ) - ( a.y() - o.y() ) * ( b.x() - o.x() );
+  return std::fmax( std::fmax( std::fmax( std::fabs( p.x() ), std::fabs( q.x() ) ), std::fabs( r.x() ) ),
+                    std::fmax( std::fabs( p.y() ), std::fmax( std::fabs( q.y() ), std::fabs( r.y() ) ) ) );
+}
+
+// 方向符号：+1/-1 为确定方向，0 为阈内（按共线处理）。
+int orientSign( QPointF p, QPointF q, QPointF r )
+{
+  const double ax = q.x() - p.x(), ay = q.y() - p.y(), bx = r.x() - p.x(), by = r.y() - p.y();
+  const double cross = ax * by - ay * bx;
+  const double length = std::fmax( std::fmax( std::fabs( ax ), std::fabs( ay ) ),
+                                   std::fmax( std::fabs( bx ), std::fabs( by ) ) );
+  const double threshold = kRelativeEpsilon * ( coordinateMagnitude( p, q, r ) * length + length * length );
+  if ( cross > threshold )
+    return 1;
+  if ( cross < -threshold )
+    return -1;
+  return 0;
 }
 
 bool onSegment( QPointF p, QPointF q, QPointF r )
 {
-  return std::min( p.x(), r.x() ) <= q.x() && q.x() <= std::max( p.x(), r.x() ) &&
-         std::min( p.y(), r.y() ) <= q.y() && q.y() <= std::max( p.y(), r.y() );
+  // 包围盒触接检查同样带坐标量级相对余量（顶点由不同运算路径得到时可能差
+  // 若干 ulp，不能因 1 ulp 越界就漏判触接）。
+  const double slackX = kRelativeEpsilon * std::fmax(
+                            std::fmax( std::fabs( p.x() ), std::fabs( q.x() ) ), std::fabs( r.x() ) );
+  const double slackY = kRelativeEpsilon * std::fmax(
+                            std::fmax( std::fabs( p.y() ), std::fabs( q.y() ) ), std::fabs( r.y() ) );
+  return std::min( p.x(), r.x() ) - slackX <= q.x() && q.x() <= std::max( p.x(), r.x() ) + slackX &&
+         std::min( p.y(), r.y() ) - slackY <= q.y() && q.y() <= std::max( p.y(), r.y() ) + slackY;
 }
 
+// 线段 p1p2 与 p3p4 的相交关系（含端点接触与共线重叠）。
 bool segmentsIntersect( QPointF p1, QPointF p2, QPointF p3, QPointF p4 )
 {
-  const double d1 = cross( p3, p4, p1 );
-  const double d2 = cross( p3, p4, p2 );
-  const double d3 = cross( p1, p2, p3 );
-  const double d4 = cross( p1, p2, p4 );
+  const int d1 = orientSign( p3, p4, p1 );
+  const int d2 = orientSign( p3, p4, p2 );
+  const int d3 = orientSign( p1, p2, p3 );
+  const int d4 = orientSign( p1, p2, p4 );
   if ( ( ( d1 > 0 && d2 < 0 ) || ( d1 < 0 && d2 > 0 ) ) && ( ( d3 > 0 && d4 < 0 ) || ( d3 < 0 && d4 > 0 ) ) )
     return true;
   return ( d1 == 0 && onSegment( p3, p1, p4 ) ) || ( d2 == 0 && onSegment( p3, p2, p4 ) ) ||
@@ -69,10 +110,26 @@ bool segmentsIntersect( QPointF p1, QPointF p2, QPointF p3, QPointF p4 )
 // 相邻两段 a→b→c 是否共线回折（c 落回 ab 上，或 a 落在 bc 上）。
 bool foldsBack( QPointF a, QPointF b, QPointF c )
 {
-  if ( cross( a, b, c ) != 0 )
+  if ( orientSign( a, b, c ) != 0 )
     return false;
-  const double dot = ( b.x() - a.x() ) * ( c.x() - b.x() ) + ( b.y() - a.y() ) * ( c.y() - b.y() );
-  return dot < 0;
+  const double ux = b.x() - a.x(), uy = b.y() - a.y(), vx = c.x() - b.x(), vy = c.y() - b.y();
+  const double dot = ux * vx + uy * vy;
+  const double length = std::fmax( std::fmax( std::fabs( ux ), std::fabs( uy ) ),
+                                   std::fmax( std::fabs( vx ), std::fabs( vy ) ) );
+  const double threshold = kRelativeEpsilon * ( coordinateMagnitude( a, b, c ) * length + length * length );
+  // 反向（回折）要求 dot 显著为负：垂直转折（dot≈0）不能因噪声判成回折。
+  return dot < -threshold;
+}
+
+// 相对坐标量级的同点判定（重复顶点去重 / 闭合环识别）。Qt 的 QPointF::operator==
+// 本身是 qFuzzyCompare（相对 1e-12）；这里用与方向判定同一误差模型（64u），
+// 保证去重口径与共线/触接口径一致。
+bool samePoint( QPointF a, QPointF b )
+{
+  const double scale = std::fmax( std::fmax( std::fabs( a.x() ), std::fabs( b.x() ) ),
+                                  std::fmax( std::fabs( a.y() ), std::fabs( b.y() ) ) );
+  const double slack = kRelativeEpsilon * std::fmax( scale, 1.0 );
+  return std::fabs( a.x() - b.x() ) <= slack && std::fabs( a.y() - b.y() ) <= slack;
 }
 
 bool segmentTouchesRect( QPointF a, QPointF b, const QRectF &r )
@@ -172,19 +229,30 @@ ConstraintSemantics resolveConstraintSemantics( const QString &type, const QStri
   if ( parseError.error != QJsonParseError::NoError || !document.isObject() )
     return invalid( QStringLiteral( "约束 %1 的 params_json 无法解析" ).arg( featureId ) );
   const QJsonObject object = document.object();
+  // P0/P1（pr457-closure）：版本必须显式合法——非整数（1.5 被 toInt 截断成 1）、
+  // 非有限、小于 1 的值一律 invalid；未知更高版本不得被静默当成旧版本。
   int schema = 1;
+  bool schemaSeen = false;
   if ( object.contains( QStringLiteral( "schemaVersion" ) ) )
   {
     const QJsonValue schemaValue = object.value( QStringLiteral( "schemaVersion" ) );
     if ( !schemaValue.isDouble() )
       return invalid( QStringLiteral( "schemaVersion 不是整数" ) );
-    schema = schemaValue.toInt();
+    const double raw = schemaValue.toDouble();
+    if ( !std::isfinite( raw ) || std::trunc( raw ) != raw || raw < 1.0 || raw > 1e6 )
+      return invalid( QStringLiteral( "不合法的约束参数版本 %1" ).arg( QString::number( raw ) ) );
+    schema = static_cast<int>( raw );
+    schemaSeen = true;
   }
   else if ( schemaColumn.isValid() && !schemaColumn.isNull() )
   {
-    schema = schemaColumn.toInt();
+    const int column = schemaColumn.toInt();
+    if ( column < 1 )
+      return invalid( QStringLiteral( "不合法的约束参数版本 %1" ).arg( column ) );
+    schema = column;
+    schemaSeen = true;
   }
-  if ( schema > 1 )
+  if ( schemaSeen && schema > 1 )
     return invalid( QStringLiteral( "不认识的约束参数版本 %1" ).arg( schema ) );
   const QJsonValue semanticValue = object.value( QStringLiteral( "semantic" ) );
   if ( !semanticValue.isString() )
@@ -192,8 +260,15 @@ ConstraintSemantics resolveConstraintSemantics( const QString &type, const QStri
   out.declaredSemantic = semanticValue.toString();
   if ( !isKnownSemanticToken( out.declaredSemantic ) )
     return invalid( QStringLiteral( "不认识的约束语义 %1" ).arg( out.declaredSemantic ) );
+  // P0/P1：enabled 存在时必须是布尔——"false"/0/null/[] 不得经宽松转换默认成
+  // 启用；字段不存在才是合法的默认启用。
   if ( object.contains( QStringLiteral( "enabled" ) ) )
-    out.enabled = object.value( QStringLiteral( "enabled" ) ).toBool( true );
+  {
+    const QJsonValue enabledValue = object.value( QStringLiteral( "enabled" ) );
+    if ( !enabledValue.isBool() )
+      return invalid( QStringLiteral( "约束 %1 的 enabled 必须是布尔" ).arg( featureId ) );
+    out.enabled = enabledValue.toBool();
+  }
   // 判定顺序与旧 constraintparse 逐字一致：停用 → blockMode 重分类 → 数值字段。
   // 被忽略的行不再读数值（非数值字段不让整次运行失败）。
   if ( !out.enabled && !options.keepDisabled )
@@ -202,8 +277,12 @@ ConstraintSemantics resolveConstraintSemantics( const QString &type, const QStri
     return out;
   }
   const QJsonValue blockModeValue = object.value( QStringLiteral( "blockMode" ) );
-  if ( blockModeValue.isString() )
+  if ( object.contains( QStringLiteral( "blockMode" ) ) )
+  {
+    if ( !blockModeValue.isString() )
+      return invalid( QStringLiteral( "约束 %1 的 blockMode 必须是字符串" ).arg( featureId ) );
     out.blockMode = blockModeValue.toString().trimmed();
+  }
   out.semantic = out.declaredSemantic;
   // 上游 constraint_semantics.py：hard_barrier 的 blockMode 决定真实语义——
   // display_only 只停线不动趋势，其余非阻断词一律忽略。
@@ -252,6 +331,8 @@ ConstraintPartCheck checkConstraintPart( const QVector<QPointF> &part )
     return check;
   }
   // 去连续重复顶点后再判自交：重复点本身只是零长段（引擎跳过），不是自交。
+  // 同点判定用与方向判定同一相对误差模型（samePoint），保证大坐标下
+  // 「同一顶点经不同运算路径得到」仍被识别为重复。
   QVector<QPointF> unique;
   unique.reserve( part.size() );
   double minX = part.first().x(), maxX = minX, minY = part.first().y(), maxY = minY;
@@ -261,7 +342,7 @@ ConstraintPartCheck checkConstraintPart( const QVector<QPointF> &part )
     maxX = std::max( maxX, p.x() );
     minY = std::min( minY, p.y() );
     maxY = std::max( maxY, p.y() );
-    if ( !unique.isEmpty() && unique.last() == p )
+    if ( !unique.isEmpty() && samePoint( unique.last(), p ) )
     {
       check.duplicateVertices = true;
       continue;
@@ -277,7 +358,7 @@ ConstraintPartCheck checkConstraintPart( const QVector<QPointF> &part )
     return check;
   }
   const int segments = static_cast<int>( unique.size() ) - 1;
-  const bool closed = unique.size() > 3 && unique.first() == unique.last();
+  const bool closed = unique.size() > 3 && samePoint( unique.first(), unique.last() );
   for ( int i = 0; i + 1 < segments; ++i )
   {
     if ( foldsBack( unique[i], unique[i + 1], unique[i + 2] ) )
@@ -292,8 +373,10 @@ ConstraintPartCheck checkConstraintPart( const QVector<QPointF> &part )
     return check;
   }
   // P4：原为全段对 O(n²)，约束页在 UI 线程逐条刷新，数万顶点的导入线会卡顿。
-  // 改为沿包围盒长轴的扫描剪枝：只比较该轴区间（闭区间）重叠的段对。相交段在
-  // 该轴上必然重叠，谓词与排除规则（相邻段、闭合首末段）不变，判定结果不变。
+  // 改为沿包围盒长轴的扫描剪枝：只比较该轴区间（闭区间）重叠的段对。真相交
+  // 段在该轴上必然重叠（剪枝安全）；谓词与排除规则（相邻段、闭合首末段）不变。
+  // 注：ε 内近触（cross 在相对阈内、包围盒恰好不重叠）会被剪枝判净——与容差
+  // 模型自洽（噪声级几何按净处理），不是对全段对判定的逐例复刻。
   const bool sweepX = ( maxX - minX ) >= ( maxY - minY );
   const auto lo = [&]( int k ) {
     return sweepX ? std::min( unique[k].x(), unique[k + 1].x() ) : std::min( unique[k].y(), unique[k + 1].y() );

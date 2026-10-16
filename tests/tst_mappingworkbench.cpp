@@ -132,6 +132,50 @@ public:
   }
 };
 
+// opt-04：真实 RemotePredictionRouter 的 cancel() 会同步 emit failed(id,"已取消")。
+// 该替身镜像这一行为，用来钉住「用户主动取消不得被翻译成 errorOccurred」。
+class AbortingOnCancelService : public RemotePredictionService {
+public:
+  RemotePredictionRequest request;
+  void start(const RemotePredictionRequest &r) override { request = r; }
+  void cancel() override { emit failed(request.id, QStringLiteral("已取消")); }
+  // 反向守卫用：模拟真实远端失败（非取消），必须照常上报。
+  void failNow(const QString &reason) { emit failed(request.id, reason); }
+};
+// opt-04：远端返回 200 但网格全 null（→ 全 -9999）的替身。
+class AllNodataSeismicService : public RemotePredictionService {
+public:
+  RemotePredictionRequest request;
+  void start(const RemotePredictionRequest &r) override {
+    request = r;
+    RemotePredictionResult result;
+    result.request = request;
+    result.mock = false;
+    result.method = QStringLiteral("fake-remote-all-nodata");
+    result.cells = QVector<int>(request.rows * request.columns, -9999);
+    QTimer::singleShot(0, this, [this, result]() { emit completed(result); });
+  }
+  void cancel() override {}
+};
+
+// opt-04：远端 200 + completed，但返回的是空网格（格数与请求不符）。
+// 这既不是「全无数据」也不是成功——原因必须报到「与请求不一致」上，
+// 不能被更具体的「全部为无数据」判据抢先给出误导性说明。
+class EmptyGridSeismicService : public RemotePredictionService {
+public:
+  RemotePredictionRequest request;
+  void start(const RemotePredictionRequest &r) override {
+    request = r;
+    RemotePredictionResult result;
+    result.request = request;
+    result.mock = false;
+    result.method = QStringLiteral("fake-remote-empty-grid");
+    result.cells = {}; // 0 格，而请求是 rows*columns
+    QTimer::singleShot(0, this, [this, result]() { emit completed(result); });
+  }
+  void cancel() override {}
+};
+
 // Local API 2.0 contract server: exercises production transport, real curve
 // preparation and work area persistence without uploading project data.
 class WellApiServer {
@@ -140,6 +184,8 @@ public:
   QList<QJsonObject> bodies;
   int modelRequests = 0;
   bool hold = false, failPredict = false, queued = false, holdPoll = false;
+  // opt-04 E2E 缺口：远端 200 但无可用模型 / 无输出（predictions 为空）。
+  bool emptyModels = false, emptyPredictions = false;
   QJsonObject pending;
   int polls = 0;
   WellApiServer() {
@@ -162,10 +208,13 @@ public:
           int status = 200;
           if (path.endsWith("/models")) {
             ++modelRequests;
-            response = {{"models", QJsonArray{QJsonObject{
-              {"id", "m1"}, {"name", "test-model"}, {"version", "v2"},
-              {"inputSchema", QJsonObject{{"formationGroup", ""}, {"curves", QJsonArray{"GR"}},
-                {"categoricalFields", QJsonArray{QStringLiteral("段"), QStringLiteral("岩性")}}, {"window", 1}}}}}}};
+            if (emptyModels)
+              response = {{"models", QJsonArray{}}};
+            else
+              response = {{"models", QJsonArray{QJsonObject{
+                {"id", "m1"}, {"name", "test-model"}, {"version", "v2"},
+                {"inputSchema", QJsonObject{{"formationGroup", ""}, {"curves", QJsonArray{"GR"}},
+                  {"categoricalFields", QJsonArray{QStringLiteral("段"), QStringLiteral("岩性")}}, {"window", 1}}}}}}};
           } else if (path.endsWith("/predict")) {
             const auto body = QJsonDocument::fromJson(buffer->mid(end + 4, length)).object();
             bodies << body;
@@ -179,6 +228,8 @@ public:
                 {"label", depth.toDouble() < 1060 ? QStringLiteral("河口坝") : QStringLiteral("分流河道")},
                 {"confidence", .91}};
             }
+            if (emptyPredictions)
+              predictions = QJsonArray{}; // 200 + completed，但一个预测点都没有
             response = {{"jobId", "job-" + well.value("wellName").toString()}, {"status", "completed"},
               {"model", QJsonObject{{"name", "test-model"}, {"version", "v2"}}}, {"predictions", predictions}};
             if (failPredict) { status = 500; response = {{"error", "remote failure"}}; }
@@ -1558,6 +1609,194 @@ private slots:
     QCOMPARE(server.bodies.size(), submitted); // Resume the accepted job instead of submitting twice.
     QVERIFY(f.latest("wells_prediction") != previous);
   }
+  // opt-04 E2E：远端 200 + completed 但 predictions 为空（无输出）。
+  // 既有的「无分层→全井跳过」覆盖的是输入侧缺口；这一条覆盖服务端给了
+  // 空结果的情况——必须如实报错、不发布无信息产品。
+  void wellsRemoteApiEmptyPredictionsPublishNothing() {
+    WellApiServer server;
+    server.emptyPredictions = true;
+    WellApiEnvironment environment(server);
+    Fixture f;
+    QVERIFY(f.init());
+    QVERIFY(!f.well("A", 10, 20).isEmpty());
+    QVERIFY(f.tops("A", QStringLiteral("#WellTops File From SMI\n#WellName Name MD X Y Z TVD Time(ms)\nA D61 1000 0 0 -1000 1000 -99999\nA D62 1060 0 0 -1060 1060 -99999\n")));
+    QString error;
+    // 模型 inputSchema 要求 段/岩性 分类字段。不补井段的话该井会因「输入缺
+    // 字段」被跳过，测试就会因为错误的原因通过（无法区分是空结果还是输入缺口）。
+    QVERIFY(WellAttributeStore::mergeIntervals(&f.catalog, f.dir.path(), &f.layers,
+      {QVariantMap{{"well_id", "A"}, {"top_md", 1000.0}, {"base_md", 1120.0},
+        {"lithology", QStringLiteral("维护砂岩")}, {"facies", QStringLiteral("原解释")}}}, &error));
+    installRemotePrediction(&f.work, RemotePredictConfig{}, nullptr, {}, &f.work);
+    const auto before = f.latest("wells_prediction");
+    QSignalSpy errors(&f.work, &MappingWorkbench::errorOccurred);
+    QVERIFY2(f.work.predict("D61", "wells", {"A"}, &error), qPrintable(error));
+    QTRY_VERIFY_WITH_TIMEOUT(!f.work.busy(), 10000);
+    QVERIFY(!errors.isEmpty());
+    // 判别式断言（防止「因错误原因通过」）：必须真的打到服务端。若该井在
+    // prepare() 阶段就因缺曲线/岩性被跳过，服务端一次都不会被访问，
+    // 「无输出」这条路径根本没被覆盖——那样本用例会假绿。
+    QVERIFY2(server.bodies.size() >= 1, "预测请求从未到达服务端，用例未覆盖空结果路径");
+    QCOMPARE(f.latest("wells_prediction"), before);
+  }
+  // opt-04 E2E：/models 返回空列表 —— 所有井都拿不到可预测的模型，
+  // 同样必须报错不发布，而不是产出一张全「未预测」的空图。
+  void wellsRemoteApiEmptyModelListPublishNothing() {
+    WellApiServer server;
+    server.emptyModels = true;
+    WellApiEnvironment environment(server);
+    Fixture f;
+    QVERIFY(f.init());
+    QVERIFY(!f.well("A", 10, 20).isEmpty());
+    QVERIFY(f.tops("A", QStringLiteral("#WellTops File From SMI\n#WellName Name MD X Y Z TVD Time(ms)\nA D61 1000 0 0 -1000 1000 -99999\nA D62 1060 0 0 -1060 1060 -99999\n")));
+    QString error;
+    // 模型 inputSchema 要求 段/岩性 分类字段。不补井段的话该井会因「输入缺
+    // 字段」被跳过，测试就会因为错误的原因通过（无法区分是空结果还是输入缺口）。
+    QVERIFY(WellAttributeStore::mergeIntervals(&f.catalog, f.dir.path(), &f.layers,
+      {QVariantMap{{"well_id", "A"}, {"top_md", 1000.0}, {"base_md", 1120.0},
+        {"lithology", QStringLiteral("维护砂岩")}, {"facies", QStringLiteral("原解释")}}}, &error));
+    installRemotePrediction(&f.work, RemotePredictConfig{}, nullptr, {}, &f.work);
+    const auto before = f.latest("wells_prediction");
+    QSignalSpy errors(&f.work, &MappingWorkbench::errorOccurred);
+    QVERIFY2(f.work.predict("D61", "wells", {"A"}, &error), qPrintable(error));
+    QTRY_VERIFY_WITH_TIMEOUT(!f.work.busy(), 10000);
+    QVERIFY(!errors.isEmpty());
+    // 判别式断言（防止「因错误原因通过」）：必须真的拉取过模型清单。若该井
+    // 在 prepare() 阶段就被跳过，fetchModels 不会被调用，本用例会因「输入
+    // 缺口」而非「空模型列表」变绿。
+    QVERIFY2(server.modelRequests >= 1, "模型清单从未被拉取，用例未覆盖空模型列表路径");
+    QCOMPARE(f.latest("wells_prediction"), before);
+  }
+  // opt-04 E2E：既有证据链断言只跑 MockRemotePredictionService 替身路径
+  // （faciesConsistencyReportsWellVsSeismic）；真实 API 2.0 协议路径
+  // （wellsRemoteApi*）对 evidence 一字未验。这里补上，并用非默认层位 D62
+  // ——现有用例只断言 D62 与 D61 相异，从未真的对 D62 发起预测。
+  void wellsRemoteApiNonDefaultHorizonEvidenceIsRecorded() {
+    WellApiServer server;
+    WellApiEnvironment environment(server);
+    Fixture f;
+    QVERIFY(f.init());
+    QVERIFY(!f.well("A", 10, 20).isEmpty());
+    // 地层区间由相邻标志层构造；最后一个标志层的底深会退回「曲线深度范围」
+    // 这一回退路径。显式给出 D62 的下一个标志层 D63，让 D62 的顶底深完全确定，
+    // 不依赖回退；待预测层位仍是 D62（非默认层位）。
+    QVERIFY(f.tops("A", QStringLiteral("#WellTops File From SMI\n#WellName Name MD X Y Z TVD Time(ms)\nA D61 1000 0 0 -1000 1000 -99999\nA D62 1060 0 0 -1060 1060 -99999\nA D63 1180 0 0 -1180 1180 -99999\n")));
+    QString error;
+    QVERIFY(WellAttributeStore::mergeIntervals(&f.catalog, f.dir.path(), &f.layers,
+      {QVariantMap{{"well_id", "A"}, {"top_md", 1000.0}, {"base_md", 1120.0},
+        {"lithology", QStringLiteral("维护砂岩")}, {"facies", QStringLiteral("原解释")}}}, &error));
+    installRemotePrediction(&f.work, RemotePredictConfig{}, nullptr, {}, &f.work);
+    QSignalSpy errors(&f.work, &MappingWorkbench::errorOccurred);
+    QVERIFY2(f.work.predict("D62", "wells", {"A"}, &error), qPrintable(error));
+    QTRY_VERIFY_WITH_TIMEOUT(!f.work.busy(), 10000);
+    // 注意：Fixture::latest() 写死按 D61 查版本，测非默认层位必须直接查
+    // products("D62")，否则拿到的是「该层位从未预测过」的假空值。
+    QString product;
+    int productVersion = 0;
+    for (const auto &row : f.work.products("D62")) {
+      const auto r = row.toMap();
+      if (r.value("kind").toString() == QLatin1String("wells_prediction") &&
+          r.value("version").toInt() > productVersion) {
+        product = r.value("id").toString();
+        productVersion = r.value("version").toInt();
+      }
+    }
+    QVERIFY2(!product.isEmpty(),
+             errors.isEmpty() ? "predict 未发布成果且未报错"
+                              : qPrintable(errors.last()[0].toString()));
+    const auto version = f.work.versionForLayer(product);
+    QCOMPARE(version.extra.value("horizon").toString(), QString("D62"));
+    const auto evidence = version.extra.value("evidence").toMap();
+    QCOMPARE(evidence.value("schema").toString(), QString("paleo_evidence_v1"));
+    QVERIFY(!evidence.value("inputs").toList().isEmpty());
+    for (const auto &in : evidence.value("inputs").toList())
+      QVERIFY(!in.toMap().value("version_id").toString().isEmpty());
+    QCOMPARE(evidence.value("parameter_hash").toString().size(), 64);
+    const auto model = evidence.value("model").toMap();
+    QCOMPARE(model.value("method").toString(), QString("remote-well-facies-api-v2"));
+    QCOMPARE(model.value("mock").toBool(), false); // 真实协议，非替身
+    const auto support = evidence.value("support").toMap().value("wells").toMap();
+    QCOMPARE(support.value("supporting_wells").toList().size() +
+                 support.value("skipped_wells").toList().size(),
+             1);
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(product));
+    QVERIFY(layer && layer->isValid());
+    QVERIFY2(layer->featureCount() > 0, "发布的 D62 成果图层没有要素，下方循环会空转");
+    auto features = layer->getFeatures();
+    QgsFeature feature;
+    while (features.nextFeature(feature))
+      QCOMPARE(feature.attribute("formation").toString(), QString("D62"));
+  }
+// opt-04：用户主动点「取消」是成功操作，不得弹「编图操作未完成：已取消」。
+// 原实现先取消服务（服务同步 emit failed）再清 m_request，failed 槽的
+// id == m_request.id 闸门因此命中 → errorOccurred → 警告框；且地震路径弹、
+// 测井路径（WellPredictionService::cancel 不发 failed）不弹，行为分裂。
+  void userCancellationIsNotReportedAsFailure() {
+  Fixture f;
+  QVERIFY(f.init());
+  // 用 seismic 而非 wells：wells 的 start() 在后台 LAS 预读之后才发起，
+  // 无法同步断言；seismic 在 predict() 内即 start()。
+  const auto input = f.seismic();
+  QVERIFY(!input.isEmpty());
+  AbortingOnCancelService svc;
+  f.work.setPredictionService(&svc);
+  QString error;
+  QVERIFY2(f.work.predict("D61", "seismic", {input}, &error), qPrintable(error));
+  QVERIFY(!svc.request.id.isEmpty()); // start() 已同步发生
+  QVERIFY(f.work.busy());
+  QSignalSpy errors(&f.work, &MappingWorkbench::errorOccurred);
+  f.work.cancelPrediction();
+  QCOMPARE(errors.size(), 0); // 取消不是失败
+  QVERIFY(!f.work.busy());
+  // 反向守卫：真实失败仍必须上报（m_request 未被提前清空时口径不变）。
+  QVERIFY2(f.work.predict("D61", "seismic", {input}, &error), qPrintable(error));
+  QVERIFY(!svc.request.id.isEmpty());
+  svc.failNow(QStringLiteral("远端不可达"));
+  QCOMPARE(errors.size(), 1);
+  QVERIFY(errors.first()[0].toString().contains(QStringLiteral("远端不可达")));
+}
+
+// opt-04：远端 200 但结果全为无数据（全 -9999）时，逐码校验全过，此前会
+// 登记一个「成功」版本并落一张全 nodata 栅格——用户看到「预测完成」却得到
+// 空图。与 wells 路径「全井跳过即如实报错、不发布」的诚实口径对齐。
+  void allNodataSeismicResultIsNotPublished() {
+  Fixture f;
+  QVERIFY(f.init());
+  const auto input = f.seismic();
+  QVERIFY(!input.isEmpty());
+  AllNodataSeismicService svc;
+  f.work.setPredictionService(&svc);
+  const auto before = f.latest("seismic_prediction");
+  QString error;
+  QSignalSpy errors(&f.work, &MappingWorkbench::errorOccurred);
+  QVERIFY2(f.work.predict("D61", "seismic", {input}, &error), qPrintable(error));
+  QTRY_VERIFY_WITH_TIMEOUT(!f.work.busy(), 5000);
+  QVERIFY(!errors.isEmpty());
+  QVERIFY2(errors.first()[0].toString().contains(QStringLiteral("无数据")),
+           qPrintable(errors.first()[0].toString()));
+  QCOMPARE(f.latest("seismic_prediction"), before); // 未登记任何新产品
+}
+
+  // opt-04：空网格 ≠ 全无数据。格数不符时不得套用「全部为无数据」这条
+  // 更具体的判据，否则用户按提示去排查数据覆盖，而实际故障在协议/服务端。
+  void emptyGridSeismicResultReportsShapeMismatch() {
+  Fixture f;
+  QVERIFY(f.init());
+  const auto input = f.seismic();
+  QVERIFY(!input.isEmpty());
+  EmptyGridSeismicService svc;
+  f.work.setPredictionService(&svc);
+  const auto before = f.latest("seismic_prediction");
+  QString error;
+  QSignalSpy errors(&f.work, &MappingWorkbench::errorOccurred);
+  QVERIFY2(f.work.predict("D61", "seismic", {input}, &error), qPrintable(error));
+  QTRY_VERIFY_WITH_TIMEOUT(!f.work.busy(), 5000);
+  QVERIFY(!errors.isEmpty());
+  const auto message = errors.first()[0].toString();
+  QVERIFY2(message.contains(QStringLiteral("不一致")), qPrintable(message));
+  QVERIFY2(!message.contains(QStringLiteral("全部为无数据")), qPrintable(message));
+  QCOMPARE(f.latest("seismic_prediction"), before); // 未登记任何新产品
+}
+
   void wellsPredictionWritesFormationDominanceTable() {
     // #346 后：地层优势相写入 Formations 表；点要素只保留 facies_label。
     // 用 Well API 夹具（真实 tops + 深度对齐），避免 mock 的 depth_mock 0–120
@@ -2914,12 +3153,31 @@ private slots:
   }
 };
 int main(int argc, char **argv) {
+  // ctest 起进程不带控制台，QTest 结果行走 OutputDebugString；一旦某用例
+  // __fastfail（0xc0000409）缓冲的 stdout 也一起丢，ctest --output-on-failure
+  // 什么都看不到。故追加 `-o <file>,txt` 让每条用例结果落盘，崩到哪条一目了然。
+  const QByteArray logPath = QByteArray(QT_TESTCASE_BUILDDIR) + "/tst_mappingworkbench-result.txt";
   QgsApplication app(argc, argv, true);
   app.setPrefixPath("/usr", true);
   app.initQgis();
   GDALAllRegister();
   TestMappingWorkbench test;
-  const int result = QTest::qExec(&test, argc, argv);
+  QList<QByteArray> forwarded;
+  forwarded << QByteArray(argv[0]);
+  bool hasFileLogger = false;
+  for (int i = 1; i < argc; ++i) {
+    forwarded << QByteArray(argv[i]);
+    // 调用方（ctest/CI）已自带文件日志时不重复追加，避免两个 -o 的歧义。
+    if (QByteArray(argv[i]) == "-o" || QByteArray(argv[i]) == "-output")
+      hasFileLogger = true;
+  }
+  if (!hasFileLogger)
+    forwarded << QByteArray("-o") << logPath + ",txt";
+  QList<char *> cargv;
+  cargv.reserve(forwarded.size());
+  for (QByteArray &a : forwarded)
+    cargv << a.data();
+  const int result = QTest::qExec(&test, cargv.size(), cargv.data());
   QgsApplication::exitQgis();
   return result;
 }

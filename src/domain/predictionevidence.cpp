@@ -182,7 +182,16 @@ QString summary( const QVariantMap &evidence )
 }
 QVariantList validate(const QVariantMap &evidence) {
   QVariantList findings;
-  if (evidence.isEmpty()) return findings;
+  // 缺证据必须显式告警，不能和"证据完整且健康"同形。既有四个调用点只消费
+  // "Blocking"，故这里降为 Warning 不改变任何默认发布/登记行为；但从此
+  // 「无记录」与「记录齐全」在 API 层可区分（此前两者都返回空列表）。
+  if (evidence.isEmpty()) {
+    findings << QVariantMap{{"severity", QStringLiteral("Warning")},
+                            {"code", QStringLiteral("no_evidence")},
+                            {"message", tr("该版本没有证据链记录（早期版本），来源无法验证")},
+                            {"source_version", QString()}};
+    return findings;
+  }
   auto add = [&](const QString &severity, const QString &code, const QString &message, const QString &version = {}) {
     findings << QVariantMap{{"severity", severity}, {"code", code}, {"message", message}, {"source_version", version}};
   };
@@ -199,7 +208,9 @@ QVariantList validate(const QVariantMap &evidence) {
     if (input.typeId() != QMetaType::QVariantMap || version.isEmpty() || ids.contains(version))
       add("Blocking", "invalid_source_identity", tr("来源版本身份缺失或重复"), version);
     ids.insert(version);
-    if (row.value("missing").toBool()) add("Blocking", "missing_source", tr("来源版本缺失，保留原引用供追溯"), version);
+    // 文案须与真实行为一致：Blocking 会让登记事务整体 abort、发布被拒，
+    // 引用根本不会生成——不是"保留原引用供追溯"。
+    if (row.value("missing").toBool()) add("Blocking", "missing_source", tr("来源版本缺失，无法登记或发布该成果（引用未生成）"), version);
   }
   if (evidence.value("parameter_hash").toString() != fingerprint(evidence.value("parameters")))
     add("Blocking", "parameter_fingerprint", tr("参数与保存的指纹不一致"));

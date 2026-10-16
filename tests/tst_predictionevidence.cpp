@@ -37,6 +37,51 @@ private slots:
     QVERIFY(summary(e).contains("m1"));
     QVERIFY(summary({}).size() > 0);
   }
+  // opt-04：validate 此前对"缺证据"与"证据健康"都返回空列表，四个调用点
+  // 只消费 Blocking，于是早期版本可静默通过发布校验。缺证据必须显式告警。
+  void validateWarnsOnMissingEvidence() {
+    const auto empty = validate({});
+    QCOMPARE(empty.size(), 1);
+    const auto row = empty.at(0).toMap();
+    QCOMPARE(row.value("severity").toString(), QString("Warning"));
+    QCOMPARE(row.value("code").toString(), QString("no_evidence"));
+    QVERIFY(!row.value("message").toString().isEmpty());
+    // 必须是 Warning —— 既有 derivedassets / mapversioncontroller 只判 Blocking，
+    // 若误升为 Blocking 会让所有早期版本无法登记。
+    QVERIFY(row.value("severity").toString() != QString("Blocking"));
+  }
+  // 未知/损坏 schema 必须与"完全没有记录"可区分：前者 Blocking unknown_schema，
+  // 后者 Warning no_evidence，两者不得互相污染。
+  void validateDistinguishesUnknownSchemaFromAbsent() {
+    const auto unknown = validate({{"schema", "bogus"}});
+    QCOMPARE(unknown.size(), 1);
+    QCOMPARE(unknown.at(0).toMap().value("severity").toString(), QString("Blocking"));
+    QCOMPARE(unknown.at(0).toMap().value("code").toString(), QString("unknown_schema"));
+    QVERIFY(unknown.at(0).toMap().value("code").toString() != QString("no_evidence"));
+
+    const auto healthy = validate({{"schema", "paleo_evidence_v1"},
+                                   {"inputs", QVariantList{}},
+                                   {"parameters", QVariantMap{}},
+                                   {"model", QVariantMap{}}});
+    for (const auto &f : healthy)
+      QVERIFY(f.toMap().value("code").toString() != QString("no_evidence"));
+  }
+  // 来源缺失是 Blocking（登记事务整体 abort），文案不得宣称"保留原引用"。
+  void validateMissingSourceMessageMatchesBehavior() {
+    InputRef gone{"v9", "a9", "gone", "seismic", "", 1, "", "RAW", false};
+    gone.missing = true;
+    const auto e = build({gone}, {{"method", "m"}}, {{"qgis", "4.0"}});
+    const auto findings = validate(e);
+    bool found = false;
+    for (const auto &f : findings) {
+      const auto row = f.toMap();
+      if (row.value("code").toString() != QString("missing_source")) continue;
+      found = true;
+      QCOMPARE(row.value("severity").toString(), QString("Blocking"));
+      QVERIFY(!row.value("message").toString().contains(QString("保留原引用")));
+    }
+    QVERIFY(found);
+  }
   void fingerprintIgnoresBookkeeping() {
     QVariantMap a{{"method", "x"}, {"k", 1}, {"created_at", "t1"}, {"title", "A"}};
     QVariantMap b{{"k", 1}, {"method", "x"}, {"created_at", "t2"}, {"title", "B"}};

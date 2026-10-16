@@ -41,3 +41,15 @@
 - Remaining Work: D-02 影响分析异步任务化（#494 同步重 IO——本轮只做了门控+等待光标+RAII，
   完整 PaleoTask 化递延）；F12 反演统计回归测试（需体级夹具）；F18-F21 视容量递延
 - Next Action: 独立终审 → 全量回归 + 门禁 → PR
+
+## Round 3 — 独立终审 + 收口（2026-10-17）
+
+- Finding IDs: FR-01…FR-08（08-final-independent-review.md）
+- Changed Files: constraintstore.cpp / mappingevidencereview.cpp / 两个测试文件（commit 见 git log）
+- Verification: 全量 ctest 414/415（唯一红 = tst_evidencee2e 基线已知 flaky，基线轮同红）；
+  四项质量门禁绿（layering --strict / ui_invariants --strict / i18n / ui_tokens --strict）；
+  终审收口重建 + 定向复跑绿
+- Review Result: PASS_WITH_NOTES——前两轮结论未被推翻；FR-01/02/05 已收口；
+  FR-03/04/06/08 记录不修；FR-07（PR#507 重叠）入 PR 描述
+- Remaining Work: D-02 异步化、F12 体级测试、F18-F21、issue 族整改（外部持有）
+- Next Action: 重新对账 master/PR → push → PR

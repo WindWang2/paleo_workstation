@@ -383,7 +383,7 @@ bool FaciesClassificationService::writeRaster(const QString &path,
                                               const Classification &r,
                                               QString *e) {
   if (!PaleoProjectStore::isWriteQueueActive())
-    return error(e, QStringLiteral("分类写入必须经过项目写队列"));
+    return error(e, QStringLiteral("分类写入必须经过工程写队列"));
   if (!CrossplotSamples::validate(s) || !validClassification(s, r) ||
       !s.grid.spatial || s.grid.cols <= 0 || s.grid.rows <= 0)
     return error(e, QStringLiteral("分类或地图栅格几何无效"));
@@ -429,7 +429,7 @@ bool FaciesClassificationService::writeConfidenceRaster(const QString &path,
                                                         const Classification &r,
                                                         QString *e) {
   if (!PaleoProjectStore::isWriteQueueActive())
-    return error(e, QStringLiteral("置信度写入必须经过项目写队列"));
+    return error(e, QStringLiteral("置信度写入必须经过工程写队列"));
   if (!CrossplotSamples::validate(s) || !validClassification(s, r) ||
       !s.grid.spatial || s.grid.cols <= 0 || s.grid.rows <= 0)
     return error(e, QStringLiteral("分类或地图栅格几何无效"));
@@ -487,7 +487,7 @@ bool FaciesClassificationService::writeMaskedRaster(const QString &path,
                                                     double threshold,
                                                     QString *e) {
   if (!PaleoProjectStore::isWriteQueueActive())
-    return error(e, QStringLiteral("掩膜写入必须经过项目写队列"));
+    return error(e, QStringLiteral("掩膜写入必须经过工程写队列"));
   if (!std::isfinite(threshold) || threshold < 0 || threshold > 1)
     return error(e, QStringLiteral("低置信掩膜阈值须在 [0,1]"));
   if (!CrossplotSamples::validate(s) || !validClassification(s, r) ||
@@ -537,7 +537,7 @@ bool FaciesClassificationService::writeIntervals(const QString &path,
                                                  const Classification &r,
                                                  QString *e) {
   if (!PaleoProjectStore::isWriteQueueActive())
-    return error(e, QStringLiteral("井层段写入必须经过项目写队列"));
+    return error(e, QStringLiteral("井层段写入必须经过工程写队列"));
   const auto rows = intervals(s, r);
   if (rows.isEmpty())
     return error(e, QStringLiteral("没有可写井层段"));

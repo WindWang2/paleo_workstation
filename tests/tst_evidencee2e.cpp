@@ -129,8 +129,12 @@ private slots:
     QVERIFY(layer);
     QgsFeature feature;
     auto iterator = layer->getFeatures();
-    QVERIFY(iterator.nextFeature(feature));
+    while (iterator.nextFeature(feature)) {
+      if (feature.geometry().contains(10, 10))
+        break;
+    }
     iterator.close();
+    QVERIFY(feature.isValid());
     const auto before = f.work.featureEvidence(draft, {feature.id()});
     const auto attribution = before.value("attribution").toMap();
     QCOMPARE(attribution.value("status").toString(), QStringLiteral("ok"));

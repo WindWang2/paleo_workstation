@@ -1091,11 +1091,12 @@ void Seismic3DViewPanel::buildDisplayBar() {
         QSettings settings;
         QStringList entries;
         for (const auto &bm : camBookmarks_)
-            entries << QStringLiteral("%1|%2,%3,%4,%5,%6")
+            entries << QStringLiteral("%1|%2,%3,%4,%5,%6,%7")
                            .arg(bm.name)
                            .arg(bm.state.yaw).arg(bm.state.pitch)
                            .arg(bm.state.distance)
-                           .arg(bm.state.target.x).arg(bm.state.target.y);
+                           .arg(bm.state.target.x).arg(bm.state.target.y)
+                           .arg(bm.state.target.z);
         settings.setValue(QStringLiteral("seismic/3dCamBookmarks"), entries);
     });
     connect(cboCamBookmark_, QOverload<int>::of(&QComboBox::activated), this, [this](int idx) {
@@ -1707,11 +1708,12 @@ void Seismic3DViewPanel::saveCameraBookmark(const QString &name) {
     QSettings settings;
     QStringList entries;
     for (const auto &b : camBookmarks_)
-        entries << QStringLiteral("%1|%2,%3,%4,%5,%6")
+        entries << QStringLiteral("%1|%2,%3,%4,%5,%6,%7")
                        .arg(b.name)
                        .arg(b.state.yaw).arg(b.state.pitch)
                        .arg(b.state.distance)
-                       .arg(b.state.target.x).arg(b.state.target.y);
+                       .arg(b.state.target.x).arg(b.state.target.y)
+                       .arg(b.state.target.z);
     settings.setValue(QStringLiteral("seismic/3dCamBookmarks"), entries);
 }
 

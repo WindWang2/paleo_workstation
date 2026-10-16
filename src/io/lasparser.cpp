@@ -203,6 +203,15 @@ bool LasParser::parse(const QString &path, QStringList &curveNames,
     setError(error, QStringLiteral("cannot open %1").arg(path));
     return false;
   }
+  if (f.size() > s_fileSizeLimit)
+  {
+    setError(error, QStringLiteral("file %1 is %2 bytes — exceeds the %3 MB full-parse guard; "
+                                   "use parseRange/parseDepthRange streaming instead")
+                        .arg(path)
+                        .arg(f.size())
+                        .arg(s_fileSizeLimit / (1024 * 1024)));
+    return false;
+  }
 
   enum class Section { None, Version, Well, Curves, Ascii, Other };
   Section section = Section::None;

@@ -565,7 +565,6 @@ bool DataCatalog::commitStore(QString *error)
   };
   if (!m_store)
   {
-    clearDirty();
     setError(error, QStringLiteral("catalog store is not open"));
     return false;
   }
@@ -589,7 +588,7 @@ bool DataCatalog::commitStore(QString *error)
     tables.meta = meta;
     if (!m_store->rewritePrimary(tables, m_primaryCorruptOnDisk, error))
     {
-      clearDirty();
+      m_forceFullSave = true;
       return false;
     }
     m_forceFullSave = false;
@@ -600,12 +599,12 @@ bool DataCatalog::commitStore(QString *error)
     if (!m_store->begin(error))
     {
       m_store->rollback();
-      clearDirty();
+      m_forceFullSave = true;
       return false;
     }
     const auto failTxn = [&] {
       m_store->rollback();
-      clearDirty();
+      m_forceFullSave = true;
       return false;
     };
     // 脏行按行号升序写。QSet 迭代是哈希序（进程间随机）——新行将按该随机序

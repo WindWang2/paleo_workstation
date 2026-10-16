@@ -98,7 +98,7 @@ using paleo::io_detail::addIssue;
     if (!sign)
       return double(number);
     const quint64 mask = (len >= 64) ? ~quint64(0) : ((quint64(1) << len) - 1);
-    return double((~number & mask) + 1);
+    return double((((~number) & mask) + 1) & mask);
   }
 
   // ---- LIS 浮点（Appendix B.1/B.2/B.5/B.6） ----
@@ -108,7 +108,7 @@ using paleo::io_detail::addIssue;
     const int exp = int(v & 0x000F);
     quint16 frac = (v & 0x7FF0) >> 4;
     if (sign)
-      frac = quint16(((~frac) & 0x07FF) + 1);
+      frac = quint16((((~frac) & 0x07FF) + 1) & 0x07FF);
     const double fraction = double(frac) * std::pow(2.0, -11);
     return (sign ? -1.0 : 1.0) * fraction * std::pow(2.0, double(exp));
   }

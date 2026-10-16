@@ -19,7 +19,8 @@ QByteArray writeImpedanceVolumeBlob(const std::vector<float> &volume, const QJso
 {
   const QByteArray json = QJsonDocument(header).toJson(QJsonDocument::Compact);
   QByteArray bytes;
-  bytes.reserve(int(sizeof(kMagic) - 1) + 4 + json.size() + int(volume.size() * sizeof(float)));
+  const qsizetype volumeBytes = static_cast<qsizetype>(volume.size() * sizeof(float));
+  bytes.reserve(qsizetype(sizeof(kMagic) - 1) + 4 + json.size() + volumeBytes);
   bytes.append(kMagic, int(sizeof(kMagic) - 1));
   const quint32 jsonLen = quint32(json.size());
   unsigned char lenBytes[4] = {static_cast<unsigned char>(jsonLen & 0xFF),
@@ -28,8 +29,7 @@ QByteArray writeImpedanceVolumeBlob(const std::vector<float> &volume, const QJso
                               static_cast<unsigned char>((jsonLen >> 24) & 0xFF)};
   bytes.append(reinterpret_cast<const char *>(lenBytes), 4);
   bytes.append(json);
-  bytes.append(reinterpret_cast<const char *>(volume.data()),
-               int(volume.size() * sizeof(float)));
+  bytes.append(reinterpret_cast<const char *>(volume.data()), volumeBytes);
   return bytes;
 }
 
@@ -49,7 +49,7 @@ bool readImpedanceVolumeBlob(const QByteArray &blob, std::vector<float> *volume,
       reinterpret_cast<const unsigned char *>(blob.constData() + magicLen);
   const quint32 jsonLen = quint32(lenBytes[0]) | (quint32(lenBytes[1]) << 8) |
                           (quint32(lenBytes[2]) << 16) | (quint32(lenBytes[3]) << 24);
-  const int bodyOffset = magicLen + 4 + int(jsonLen);
+  const qsizetype bodyOffset = magicLen + 4 + qsizetype(jsonLen);
   if (bodyOffset > blob.size())
   {
     if (error)
@@ -66,13 +66,13 @@ bool readImpedanceVolumeBlob(const QByteArray &blob, std::vector<float> *volume,
     return false;
   }
   const QJsonObject root = doc.object();
-  const qint64 nIl = root.value(QStringLiteral("nIl")).toInt(-1);
-  const qint64 nXl = root.value(QStringLiteral("nXl")).toInt(-1);
-  const qint64 nS = root.value(QStringLiteral("nS")).toInt(-1);
+  const qint64 nIl = root.value(QStringLiteral("nIl")).toInteger(-1);
+  const qint64 nXl = root.value(QStringLiteral("nXl")).toInteger(-1);
+  const qint64 nS = root.value(QStringLiteral("nS")).toInteger(-1);
   if (nIl > 0 && nXl > 0 && nS > 0)
   {
     const qint64 expect = nIl * nXl * nS * qint64(sizeof(float));
-    if (blob.size() - bodyOffset != expect)
+    if (qint64(blob.size()) - bodyOffset != expect)
     {
       if (error)
         *error = QStringLiteral("IIMP1 体字节数 %1 ≠ 头声明 %2")
@@ -83,7 +83,7 @@ bool readImpedanceVolumeBlob(const QByteArray &blob, std::vector<float> *volume,
   }
   if (volume)
   {
-    const int count = (blob.size() - bodyOffset) / int(sizeof(float));
+    const qint64 count = (qint64(blob.size()) - bodyOffset) / qint64(sizeof(float));
     volume->resize(std::size_t(count > 0 ? count : 0));
     if (count > 0)
       std::memcpy(volume->data(), blob.constData() + bodyOffset, size_t(count) * sizeof(float));

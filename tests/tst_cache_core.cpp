@@ -253,17 +253,22 @@ void CacheCoreTests::twoPhaseLatchingAndEvictionRefCount()
   std::atomic_bool unregisterDone{false};
   std::atomic_bool evictionRefObserved{false};
 
+  std::thread unregisterThread;
+  const auto joinThread = qScopeGuard([&] {
+    if (unregisterThread.joinable())
+      unregisterThread.join();
+  });
+
   mock->onEvict = [&]() {
     if (mock->activeEvictionRefs() > 0)
       evictionRefObserved.store(true);
 
     // In a background thread, attempt to unregister mock while eviction is active
-    std::thread unregisterThread([&]() {
+    unregisterThread = std::thread([&]() {
       unregisterStarted.store(true);
       mgr->unregisterCache(mock);
       unregisterDone.store(true);
     });
-    unregisterThread.detach();
 
     // Give the unregister thread time to run and block on QWaitCondition
     while (!unregisterStarted.load())

@@ -391,7 +391,6 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
              previous.extra.value("title").toString(), "vector",
              evidenceParents, extra, error, "|layername=features", id);
   if (!output.isEmpty()) {
-    if (observer) observer->acknowledge();
     styleLayer(id);
     if (layer->fields().indexOf("facies_intervals") >= 0) {
       QVariantList points;
@@ -407,6 +406,7 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
           !WellAttributeStore::mergeFormations(m_catalog, m_dir, m_layers,
           wellFormationUpdates(points, previous.extra.value("facies").toList(), false), error)) return false;
     }
+    if (observer) observer->acknowledge();
   }
   return !output.isEmpty();
 }

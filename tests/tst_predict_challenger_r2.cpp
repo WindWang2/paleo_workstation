@@ -474,15 +474,14 @@ void TestPredictChallengerR2::challenge5_softmaxGridProbabilitiesWithMinus9999()
   TileClassGrid g;
   softmaxGrid( probs, 3, 1, 1, {}, &g, QStringLiteral( "probabilities" ) );
 
-  qDebug() << "[Area 5] softmaxGrid probabilities with -9999:"
-           << "argmax:" << g.argmax[0]
-           << "confidence:" << g.confidence[0]
-           << "probMax:" << g.probMax[0];
-
-  // In softmaxGrid lines 128-137:
+  // In softmaxGrid:
   // prob = std::clamp(-9999.0, 0.0, 1.0) = 0.0.
   // best = 0, bestP = 0.0.
-  // out->argmax[0] = 0! Converted to geological class 0!
+  QCOMPARE( g.argmax.size(), 1 );
+  QCOMPARE( g.confidence.size(), 1 );
+  QCOMPARE( g.probMax.size(), 1 );
+  QCOMPARE( g.argmax[0], quint8( 255 ) ); // kNoDataClass
+  QCOMPARE( g.probMax[0], 0.0f );
 }
 
 void TestPredictChallengerR2::challenge5_softmaxGridLogitsSingleClassWithMinus9999()
@@ -491,13 +490,11 @@ void TestPredictChallengerR2::challenge5_softmaxGridLogitsSingleClassWithMinus99
   TileClassGrid g;
   softmaxGrid( logits, 1, 1, 1, {}, &g, QStringLiteral( "logits" ) );
 
-  qDebug() << "[Area 5] softmaxGrid single-class logits with -9999:"
-           << "argmax:" << g.argmax[0]
-           << "confidence:" << g.confidence[0];
-
   // p1 = 1 / (1 + exp(9999)) = 0.0.
-  // p1 >= 0.5 is false -> argmax = 0!
-  // Converted to class 0!
+  // p1 >= 0.5 is false -> argmax = 0
+  QCOMPARE( g.argmax.size(), 1 );
+  QCOMPARE( g.confidence.size(), 1 );
+  QCOMPARE( g.argmax[0], quint8( 0 ) );
 }
 
 void TestPredictChallengerR2::challenge5_writeOnnxRasterMultiClassWithNaN()

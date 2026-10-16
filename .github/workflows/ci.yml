@@ -111,6 +111,8 @@ jobs:
       - name: Source gates (layering / ui invariants / i18n / QGIS 版本口径 / docs drift，按脚本位置定位源码根)
         run: |
           python3 tools/check_layering.py --strict
+          python3 tools/check_layering.py --selftest
+          python3 tools/check_layering.py --symbol-audit
           python3 tools/check_ui_invariants.py --strict
           python3 tools/check_ui_invariants.py --selftest
           python3 tools/check_i18n.py

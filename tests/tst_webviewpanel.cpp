@@ -120,6 +120,11 @@ private slots:
     QVERIFY(btn && !btn->isVisibleTo(&panel)); // nothing to open yet
   }
 
+  void cleanup()
+  {
+    QCoreApplication::processEvents();
+  }
+
   // ---- host wiring in PaleoMainWindow (goal/webui-host) ----
 
   void hostDockConstructsOffscreen()
@@ -139,6 +144,7 @@ private slots:
     QVERIFY(!toggle->isChecked());
     // WebViewPanel is lazily constructed — absent before first show/submit.
     QVERIFY(!win.findChild<WebViewPanel *>(QStringLiteral("webViewPanel")));
+    QCoreApplication::processEvents();
   }
 
   void panelBuildsOnFirstShowWithoutEngine()
@@ -147,6 +153,7 @@ private slots:
 
     PaleoMainWindow win(nullptr, nullptr, nullptr, nullptr, nullptr);
     win.show(); // offscreen: "shows" without a real compositor
+    QCoreApplication::processEvents();
     auto *dock = win.findChild<QDockWidget *>(QStringLiteral("webServiceDock"));
     auto *toggle = win.findChild<QToolButton *>(QStringLiteral("webServiceButton"));
     QVERIFY(dock && toggle);
@@ -161,6 +168,7 @@ private slots:
     // Closing via the dock's title-bar ✕ unchecks the top-bar toggle.
     dock->hide();
     QVERIFY(!toggle->isChecked());
+    QCoreApplication::processEvents();
   }
 
   void urlSubmitValidatesThroughDock()
@@ -169,6 +177,7 @@ private slots:
 
     PaleoMainWindow win(nullptr, nullptr, nullptr, nullptr, nullptr);
     win.show();
+    QCoreApplication::processEvents();
     auto *dock = win.findChild<QDockWidget *>(QStringLiteral("webServiceDock"));
     auto *edit = win.findChild<QLineEdit *>(QStringLiteral("webAddressEdit"));
     auto *open = win.findChild<QPushButton *>(QStringLiteral("webOpenButton"));
@@ -199,6 +208,7 @@ private slots:
     QCOMPARE(failSpy.count(), before + 1);
     QCOMPARE(panel->lastError(), QStringLiteral("无效的 URL"));
     QVERIFY(!panel->engineAvailable());
+    QCoreApplication::processEvents();
   }
 };
 

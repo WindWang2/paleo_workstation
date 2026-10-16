@@ -26,6 +26,13 @@ namespace
 // 奇异（主元近零）返回 false。
 bool solveLinear(std::vector<double> &a, std::vector<double> &b, int n)
 {
+  double scale = 0.0;
+  for (double v : a)
+    scale = std::max(scale, std::fabs(v));
+  if (!(scale > 0.0))
+    return false;
+  const double pivotFloor = 1e-12 * scale;
+
   for (int col = 0; col < n; ++col)
   {
     int piv = col;
@@ -39,7 +46,7 @@ bool solveLinear(std::vector<double> &a, std::vector<double> &b, int n)
         piv = r;
       }
     }
-    if (!(best > 1e-12))
+    if (!(best > pivotFloor))
       return false;
     if (piv != col)
     {

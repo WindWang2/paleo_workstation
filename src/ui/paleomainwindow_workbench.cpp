@@ -1,5 +1,7 @@
 // 层：视图
 // token 例外：DESIGN 数据符号例外：编图参考地图固定纸面与地质预览色样。（tools/ui-token-exceptions.json 精确计数）。
+#include <QApplication>
+
 #include "../domain/faciescatalog.h"
 #include "../domain/facieshierarchy.h"
 #include "../domain/singlefactorrequest.h"
@@ -782,6 +784,10 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
             error.clear();
           } else if (action == "impactAnalysis") {
             // 所选图件 = 变化后的版本；同资产的上一版 = 变化前。
+            if (id.isEmpty()) {
+              ok = false;
+              error = tr("请先在结果列表选择一个图件");
+            } else {
             const auto after = workbench->versionForLayer(id);
             QString before;
             int beforeNumber = 0;
@@ -798,27 +804,43 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
               ok = false;
               error = tr("该图件只有单一版本，没有可分析的版本变化");
             } else {
+              // 重放为同步长操作（≤64 产品 × 2 × 400 万像元）：等待光标 +
+              // 状态栏提示（DESIGN.md Motion「>1s 显示进度条」的同步路径
+              // 最小满足；异步任务化在 full-audit 台账记为剩余工作）。
+              statusBar()->showMessage(tr("正在分析影响（重放冻结输入）…"), 0);
+              QApplication::setOverrideCursor(Qt::WaitCursor);
               m_lastImpact = workbench->analyzeImpact(
                   {{"kind", QStringLiteral("input_version")},
                    {"before_version_id", before},
                    {"after_version_id", after.id},
                    {"horizon", h}},
                   &error);
+              QApplication::restoreOverrideCursor();
               ok = !m_lastImpact.isEmpty();
+              page->setImpactAvailable(ok);
               if (ok) {
                 const auto determined = m_lastImpact.value("determined").toList();
                 qint64 changedCells = 0;
                 for (const auto &value : determined)
                   changedCells += value.toMap().value("changed_cells").toLongLong();
+                const auto reportPath =
+                    m_lastImpact.value("report_path").toString();
                 statusBar()->showMessage(
-                    tr("影响分析完成：直接依赖 %1 项，潜在影响 %2 项，可确定变化 "
-                       "%3 像元（详见 %4）")
-                        .arg(m_lastImpact.value("direct_products").toList().size())
-                        .arg(m_lastImpact.value("potential_products").toList().size())
-                        .arg(changedCells)
-                        .arg(m_lastImpact.value("report_path").toString()),
+                    reportPath.isEmpty()
+                        ? tr("影响分析完成：直接依赖 %1 项，潜在影响 %2 项，可确定"
+                             "变化 %3 像元（报告未能保存到工程目录）")
+                              .arg(m_lastImpact.value("direct_products").toList().size())
+                              .arg(m_lastImpact.value("potential_products").toList().size())
+                              .arg(changedCells)
+                        : tr("影响分析完成：直接依赖 %1 项，潜在影响 %2 项，可确定变化 "
+                             "%3 像元（详见 %4）")
+                              .arg(m_lastImpact.value("direct_products").toList().size())
+                              .arg(m_lastImpact.value("potential_products").toList().size())
+                              .arg(changedCells)
+                              .arg(reportPath),
                     20000);
               }
+            }
             }
           } else if (action == "recompute") {
             if (m_lastImpact.isEmpty()) {
@@ -828,17 +850,32 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
               const auto plan = workbench->recomputePlan(m_lastImpact, &error);
               ok = !plan.isEmpty() && plan.value("status").toString() != QStringLiteral("empty");
               if (ok) {
+                QApplication::setOverrideCursor(Qt::WaitCursor);
                 const auto execution = workbench->executeRecompute(plan, &error);
+                QApplication::restoreOverrideCursor();
                 const auto results = execution.value("results").toList();
                 int started = 0;
-                for (const auto &value : results)
-                  if (value.toMap().value("ok").toBool())
+                QStringList skipped;
+                for (const auto &value : results) {
+                  const auto item = value.toMap();
+                  if (item.value("ok").toBool())
                     ++started;
+                  else if (!item.value("error").toString().isEmpty())
+                    skipped << tr("%1：%2")
+                                   .arg(item.value("title").toString(),
+                                        item.value("error").toString());
+                }
+                // 逐条启动失败如实上屏（不被「已启动 X/N」吞掉）。
                 statusBar()->showMessage(
-                    tr("受控重算已启动 %1/%2 项：新版本由任务中心生成，历史版本"
-                       "与已确认解释保持不变")
-                        .arg(started)
-                        .arg(results.size()),
+                    skipped.isEmpty()
+                        ? tr("受控重算已启动 %1/%2 项：新版本由任务中心生成，历史版本"
+                             "与已确认解释保持不变")
+                              .arg(started)
+                              .arg(results.size())
+                        : tr("受控重算已启动 %1/%2 项；未启动：%3")
+                              .arg(started)
+                              .arg(results.size())
+                              .arg(skipped.join(QStringLiteral("；"))),
                     20000);
               } else if (error.isEmpty())
                 error = tr("影响报告中没有可重算的综合编图成果");

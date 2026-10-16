@@ -453,6 +453,38 @@ class TestMappingWorkbench : public QObject {
     return f.work.copyForEditing(d.layerId, {}, error);
   }
 private slots:
+  void impactCommandsAreGatedWithReasons() {
+    Fixture f;
+    QVERIFY(f.init());
+    MappingWorkbenchPage page("compose", &f.work);
+    auto *impact = page.commandButton("impactAnalysis");
+    auto *recompute = page.commandButton("recompute");
+    auto *reverse = page.commandButton("reverseQuery");
+    QVERIFY(impact && recompute && reverse);
+    // 无层位/无选中/无影响报告：三按钮禁用且带 reason（full-audit F6——
+    // 此前恒 enabled，空层位反查伪报「无匹配结果」、无选中影响分析误报
+    // 「只有单一版本」）。
+    QVERIFY(!impact->isEnabled());
+    QVERIFY2(!impact->toolTip().isEmpty(),
+             "disabled impactAnalysis needs a reason tooltip");
+    QVERIFY(!recompute->isEnabled());
+    QVERIFY2(!recompute->toolTip().isEmpty(),
+             "disabled recompute needs a reason tooltip");
+    QVERIFY(!reverse->isEnabled());
+    QVERIFY2(!reverse->toolTip().isEmpty(),
+             "disabled reverseQuery needs a reason tooltip");
+    // 层位就绪：层位范围反查（默认 pending_review）解禁；影响分析仍缺选中。
+    page.setHorizon("D61");
+    QVERIFY(reverse->isEnabled());
+    QVERIFY(!impact->isEnabled());
+    QVERIFY(!recompute->isEnabled());
+    // 影响分析成功回喂 → 受控重算解禁；回喂失败 → 重新禁用。
+    page.setImpactAvailable(true);
+    QVERIFY(recompute->isEnabled());
+    page.setImpactAvailable(false);
+    QVERIFY(!recompute->isEnabled());
+  }
+
   void advancedSingleFactorsReachMappingWithoutReopeningProject() {
     Fixture f;
     QVERIFY(f.init());

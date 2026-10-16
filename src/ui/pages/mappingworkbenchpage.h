@@ -32,6 +32,9 @@ public:
   void setEvidenceSnapshot(const QVariantMap &snapshot);
   // G08：主窗口执行反查命令后回填结果（双击行复用 evidenceActivated 定位）。
   void setReverseResults(const QVariantList &rows, const QString &error = {});
+  // G05/G09：影响分析成功后回喂页面——「按最近影响报告受控重算」按钮的
+  // 可用条件（无影响报告时禁用并给 reason，不再让点击后吃错误）。
+  void setImpactAvailable(bool ready);
 signals:
   void commandRequested(const QString &action, const QVariantMap &parameters);
   void targetLayerChanged(const QString &layerId);
@@ -58,6 +61,7 @@ private:
   QLabel *m_status = nullptr;
   QString m_labelLayer;
   bool m_labelModeDirty = false;
+  bool m_impactReady = false; // 最近一次影响分析成功（recompute 按钮门控）
   QListWidget *m_inputs = nullptr;
   QTreeWidget *m_results;
   QComboBox *m_kind = nullptr, *m_points = nullptr, *m_factor = nullptr;

@@ -497,6 +497,7 @@ class FactorPageTests : public QObject
     void nativeMethodContourAndBusyStates();
     void wellFactorExtractionPayload();
     void methodParameterVisibilityAndFamilies();
+    void guidedPreparationAndPinnedActions();
     void strategyPackDrivesMethodCombo(); // 方向67：词表驱动下拉 + 参数预览 + strategy_id 载荷
     void cokrigingCovariateControls();    // 方向91：协变量下拉只在协克里金可见，并写入参数
     void contourIntervalResetsAcrossFactorTypes(); // 方向04 D9：等值距自动态不跨因素类型残留
@@ -976,13 +977,13 @@ void FactorPageTests::contourRowGatingAndSignal()
 void FactorPageTests::thicknessSamplesInsideCollapsibleSection()
 {
   ConstraintPage page( nullptr );
-  // 折叠区在（默认展开），三个 objectName 仍可 findChild 命中（递归无关）。
+  // 补充诊断默认收起；展开后原有内容仍可用。
   auto *section = page.findChild<QWidget *>(QStringLiteral("thicknessSection"));
   auto *table = page.findChild<QTableWidget *>(QStringLiteral("thicknessTable"));
   auto *caption = page.findChild<QLabel *>(QStringLiteral("thicknessCaption"));
   auto *hint = page.findChild<QLabel *>(QStringLiteral("thicknessHint"));
   QVERIFY( section && table && caption && hint );
-  QVERIFY( table->isVisibleTo( section ) ); // 默认展开（不依赖整页 show）
+  QVERIFY( !table->isVisibleTo( section ) );
   // 厚度表确实在折叠区容器内（挪进了 CollapsibleSection）。
   QVERIFY( table->parentWidget() != &page );
   QCOMPARE( table->columnCount(), 4 );
@@ -991,6 +992,8 @@ void FactorPageTests::thicknessSamplesInsideCollapsibleSection()
   // 折叠后仍能 findChild（objectName 不因折叠失效），且表隐藏。
   auto *toggle = section->findChild<QToolButton *>();
   QVERIFY( toggle != nullptr );
+  toggle->setChecked(true);
+  QVERIFY(table->isVisibleTo(section));
   toggle->setChecked( false );
   QVERIFY( !table->isVisibleTo( section ) );
   QVERIFY( page.findChild<QTableWidget *>(QStringLiteral("thicknessTable")) != nullptr );
@@ -1203,6 +1206,7 @@ void FactorPageTests::strategyPackDrivesMethodCombo()
 void FactorPageTests::cokrigingCovariateControls()
 {
   ConstraintPage page( nullptr );
+  page.findChild<QWidget *>(QStringLiteral("factorAdvancedOptionsSection"))->findChild<QToolButton *>()->setChecked(true);
   page.show();
   auto *method = page.findChild<QComboBox *>( QStringLiteral( "factorMethodCombo" ) );
   auto *covariate = page.findChild<QComboBox *>( QStringLiteral( "factorCovariateCombo" ) );
@@ -1220,7 +1224,7 @@ void FactorPageTests::cokrigingCovariateControls()
   QVERIFY( covariate->isEnabled() );
   QVERIFY( rho->isVisibleTo( &page ) );
   QCOMPARE( covariate->count(), 1 );
-  QVERIFY( covariate->itemText( 0 ).contains( QStringLiteral( "无" ) ) );
+  QCOMPARE( covariate->itemText( 0 ), QStringLiteral( "请选择协变量栅格" ) );
   QCOMPARE( covariate->currentData().toString(), QString() );
   rho->setValue( 0.4 );
 
@@ -1403,7 +1407,7 @@ void FactorPageTests::wellFactorExtractionPayload() {
   QVERIFY(!extract->isEnabled());
   QVERIFY2(extract->toolTip().contains(QStringLiteral("间隔线")), qPrintable(extract->toolTip()));
   QVERIFY(!generate->isEnabled());
-  QVERIFY2(generate->toolTip().contains(QStringLiteral("步骤 1")), qPrintable(generate->toolTip()));
+  QVERIFY2(generate->toolTip().contains(QStringLiteral("步骤 2")), qPrintable(generate->toolTip()));
   page.setProperty("paleo.page.constraintsready", true);
   page.setRunBusy(false);
   QVERIFY(extract->isEnabled());
@@ -1436,6 +1440,9 @@ void FactorPageTests::wellFactorExtractionPayload() {
 
 void FactorPageTests::methodParameterVisibilityAndFamilies() {
   ConstraintPage page(nullptr); page.show();
+  // 高级参数可按需展开；方法切换仍只呈现实际消费的参数。
+  for (const char *name : {"factorAdvancedOptionsSection", "factorDirectionParametersSection"})
+    page.findChild<QWidget *>(QString::fromLatin1(name))->findChild<QToolButton *>()->setChecked(true);
   auto *method = page.findChild<QComboBox *>(QStringLiteral("factorMethodCombo"));
   const auto visible = [&page](const char *name) { return page.findChild<QWidget *>(QString::fromLatin1(name))->isVisibleTo(&page); };
   QVERIFY(visible("factorIdwParameters")); QVERIFY(!visible("factorVariogramParameters"));
@@ -1469,6 +1476,8 @@ void FactorPageTests::methodParameterVisibilityAndFamilies() {
   const QString qa = qEnvironmentVariable("PALEO_SINGLEFACTOR_QA_DIR");
   if (!qa.isEmpty()) {
     QDir().mkpath(qa); page.resize(420, 960);
+    for (const char *section : {"factorAdvancedOptionsSection", "factorDirectionParametersSection"})
+      page.findChild<QWidget *>(QString::fromLatin1(section))->findChild<QToolButton *>()->setChecked(false);
     for (const auto theme : {PaleoTheme::Theme::Light, PaleoTheme::Theme::Dark}) {
       PaleoTheme::applyTheme(theme);
       method->setCurrentIndex(method->findData(QStringLiteral("local_direction_idw")));
@@ -1476,12 +1485,108 @@ void FactorPageTests::methodParameterVisibilityAndFamilies() {
       auto *body = page.findChild<QWidget *>(QStringLiteral("constraintPageBody"));
       const QString name = theme == PaleoTheme::Theme::Light ? QStringLiteral("light") : QStringLiteral("dark");
       QVERIFY(body->grab().save(qa + QStringLiteral("/pipeline-") + name + QStringLiteral(".png")));
+      QVERIFY(page.grab().save(qa + QStringLiteral("/panel-") + name + QStringLiteral(".png")));
       method->setCurrentIndex(method->findData(QStringLiteral("kriging")));
       QCoreApplication::processEvents();
       QVERIFY(body->grab().save(qa + QStringLiteral("/kriging-") + name + QStringLiteral(".png")));
     }
     PaleoTheme::applyTheme(PaleoTheme::Theme::Light);
   }
+}
+
+void FactorPageTests::guidedPreparationAndPinnedActions()
+{
+  ConstraintPage page(nullptr);
+  page.resize(420, 760);
+  page.show();
+  auto *scroll = page.findChild<QScrollArea *>(QStringLiteral("constraintPageScroll"));
+  auto *table = page.findChild<QTableWidget *>(QStringLiteral("factorTable"));
+  auto *hint = page.findChild<QLabel *>(QStringLiteral("factorReadinessHint"));
+  auto *next = page.findChild<QPushButton *>(QStringLiteral("factorNextStepButton"));
+  auto *generate = page.findChild<QPushButton *>(QStringLiteral("generateFactorButton"));
+  auto *bar = page.findChild<QWidget *>(QStringLiteral("factorActionBar"));
+  auto *method = page.findChild<QComboBox *>(QStringLiteral("factorMethodCombo"));
+  QVERIFY(scroll && table && hint && next && generate && bar && method);
+  QVERIFY(hint->text().contains(QStringLiteral("选择层位")));
+  page.setHorizons({QStringLiteral("D61")});
+  QVERIFY(hint->text().contains(QStringLiteral("请选择一个因素")));
+  QCoreApplication::processEvents();
+  // 点名称即可选择，取消仍通过原生复选框；不会只高亮却操作另一个因素。
+  QTest::mouseClick(table->viewport(), Qt::LeftButton, Qt::NoModifier,
+                   table->visualItemRect(table->item(0, 1)).center());
+  QCOMPARE(table->item(0, 0)->checkState(), Qt::Checked);
+  QVERIFY(page.findChild<QLabel *>(QStringLiteral("factorRequestSummary"))->text().contains(QStringLiteral("砂体厚度")));
+  page.setWellFactorFields({QVariantMap{{"id", "sand"}, {"label", "砂厚"}}});
+  QVERIFY(!generate->isEnabled());
+  QVERIFY(hint->text().contains(QStringLiteral("间隔线和方向线")));
+  QCOMPARE(next->property("target").toString(), QStringLiteral("constraintFamiliesSection"));
+  const QString qa = qEnvironmentVariable("PALEO_SINGLEFACTOR_QA_DIR");
+  const auto capture = [&page, &qa](const QString &name) {
+    if (qa.isEmpty())
+      return true;
+    QDir().mkpath(qa);
+    QCoreApplication::processEvents();
+    return page.grab().save(qa + QLatin1Char('/') + name + QStringLiteral(".png"));
+  };
+  QVERIFY(capture(QStringLiteral("01-selection-light")));
+  // 分组里的标题必须真的归该分组，不能以旧父容器坐标叠到页首。
+  auto *constraintCaption = page.findChild<QLabel *>(QStringLiteral("factorConstraintCaption"));
+  QVERIFY(page.findChild<QWidget *>(QStringLiteral("constraintFamiliesSection"))->isAncestorOf(constraintCaption));
+  const QPoint fixedPosition = bar->pos();
+  scroll->verticalScrollBar()->setValue(scroll->verticalScrollBar()->maximum());
+  QCoreApplication::processEvents();
+  QCOMPARE(bar->pos(), fixedPosition);
+  QVERIFY(page.rect().contains(bar->geometry()));
+  QVERIFY(generate->isVisibleTo(&page));
+  next->click();
+  QTRY_VERIFY(scroll->verticalScrollBar()->value() < scroll->verticalScrollBar()->maximum());
+  QVERIFY(capture(QStringLiteral("02-constraints-light")));
+  // 沿用既有约束门；准备完成后直接显示字段补齐/提取入口。
+  page.setProperty("paleo.page.constraintsready", true);
+  page.setRunBusy(false);
+  QVERIFY(page.findChild<QProgressBar *>(QStringLiteral("factorProgressBar"))->isHidden());
+  QVERIFY(hint->text().contains(QStringLiteral("请选择要提取的字段")));
+  auto *field = page.findChild<QComboBox *>(QStringLiteral("factorValueFieldCombo"));
+  field->setCurrentIndex(0);
+  QCOMPARE(next->property("target").toString(), QStringLiteral("extractWellFactorsButton"));
+  QVERIFY(hint->text().contains(QStringLiteral("先提取并保存")));
+  auto *advanced = page.findChild<QWidget *>(QStringLiteral("factorAdvancedOptionsSection"))->findChild<QToolButton *>();
+  QVERIFY(!advanced->isChecked());
+  page.resize(280, 420);
+  QCoreApplication::processEvents();
+  QCOMPARE(page.width(), 280);
+  QVERIFY(page.rect().contains(bar->geometry()));
+  QVERIFY(generate->isVisibleTo(&page));
+  QVERIFY(capture(QStringLiteral("03-narrow-light")));
+  page.resize(420, 760);
+  // 换到非插值引擎时不展示不适用的字段/高级参数，输入提示明确。
+  table->item(2, 0)->setCheckState(Qt::Checked);
+  QVERIFY(page.findChild<QWidget *>(QStringLiteral("wellFactorSection"))->isHidden());
+  QVERIFY(page.findChild<QWidget *>(QStringLiteral("factorAdvancedOptionsSection"))->isHidden());
+  QVERIFY(page.findChild<QLabel *>(QStringLiteral("factorInputHint"))->text().contains(QStringLiteral("无需提取井点")));
+  QCOMPARE(next->property("target").toString(), QStringLiteral("factorTopSurfaceCombo"));
+  next->click();
+  QCoreApplication::processEvents();
+  QVERIFY(capture(QStringLiteral("04-surfaces-light")));
+  table->item(6, 0)->setCheckState(Qt::Checked);
+  QVERIFY(hint->text().contains(QStringLiteral("尚未接入")));
+  QVERIFY(next->isHidden());
+  table->item(0, 0)->setCheckState(Qt::Checked);
+  page.noteFactorLayer(QStringLiteral("sandthick"), QStringLiteral("factor.D61.sandthick"));
+  auto *mode = page.findChild<QComboBox *>(QStringLiteral("factorContourModeCombo"));
+  mode->setCurrentIndex(mode->findData(QStringLiteral("cartographic_detour")));
+  QVERIFY(page.findChild<QDoubleSpinBox *>(QStringLiteral("contourIntervalSpin"))->isHidden());
+  QVERIFY(page.findChild<QLabel *>(QStringLiteral("factorContourHint"))->text().contains(QStringLiteral("等值级别")));
+  mode->setCurrentIndex(mode->findData(QStringLiteral("analysis")));
+  QVERIFY(!page.findChild<QDoubleSpinBox *>(QStringLiteral("contourIntervalSpin"))->isHidden());
+  page.setRunBusy(true);
+  QVERIFY(!method->isEnabled());
+  QVERIFY(!page.findChild<QDoubleSpinBox *>(QStringLiteral("factorCellSizeSpin"))->isEnabled());
+  QVERIFY(next->isHidden());
+  QVERIFY(page.findChild<QPushButton *>(QStringLiteral("factorCancelButton"))->isVisibleTo(&page));
+  page.setRunBusy(false);
+  QVERIFY(method->isEnabled());
+  QVERIFY(!page.findChild<QLabel *>(QStringLiteral("statusLabel"))->text().contains(QStringLiteral("正在准备")));
 }
 
 class ComposePageTests : public QObject

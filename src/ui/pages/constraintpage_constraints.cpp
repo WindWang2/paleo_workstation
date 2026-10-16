@@ -47,7 +47,9 @@ void ConstraintPage::buildConstraintArea( QWidget *content, QVBoxLayout *lay, QC
   auto *cell = findChild<QDoubleSpinBox *>( QStringLiteral( "factorCellSizeSpin" ) );
 
   lay->addSpacing(PaleoTheme::tokens().spacingMd); // spacing.md：单因素区与约束区分组
-  auto *constraintCaption = caption(tr("1 · 绘制或导入间隔线、方向线"), this);
+  auto *constraintCaption = caption(tr("约束线 · 先准备间隔线和方向线，再提取井点"), this);
+  constraintCaption->setObjectName(QStringLiteral("factorConstraintCaption"));
+  constraintCaption->setWordWrap(true);
   lay->addWidget(constraintCaption);
   auto *list = new QListWidget( this );
   list->setObjectName( QStringLiteral( "constraintList" ) );
@@ -273,15 +275,18 @@ void ConstraintPage::buildConstraintArea( QWidget *content, QVBoxLayout *lay, QC
   const int start = lay->indexOf(constraintCaption);
   while (lay->count() > start) {
     QLayoutItem *item = lay->takeAt(start);
-    constraintLay->addItem(item);
+    appendMovedItem(constraintLay, item);
   }
   // 两族入口排在列表/编辑之前；通用形状与逐线编辑留在次级展开面。
   auto *details = new CollapsibleSection(tr("编辑已绘约束 / 其他形状"), constraints);
   details->setObjectName(QStringLiteral("constraintDetailsSection")); details->setExpanded(false);
-  while (constraintLay->count() > 1) details->containerLayout()->addItem(constraintLay->takeAt(1));
+  while (constraintLay->count() > 1)
+    appendMovedItem(details->containerLayout(), constraintLay->takeAt(1));
   const auto family = [constraintLay, constraints](const char *name, const QString &title, const QString &note) {
     auto *group = new QWidget(constraints); group->setObjectName(QString::fromLatin1(name));
-    auto *layout = panelLayout(group); layout->addWidget(caption(title, group));
+    auto *layout = panelLayout(group);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->addWidget(caption(title, group));
     auto *label = new QLabel(note, group); label->setWordWrap(true);
     PaleoTheme::applyThemedStyleSheet(label, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
     layout->addWidget(label); constraintLay->addWidget(group); return layout;
@@ -294,7 +299,13 @@ void ConstraintPage::buildConstraintArea( QWidget *content, QVBoxLayout *lay, QC
   directionType->addItem(tr("解释软边界"), QStringLiteral("interpretive_boundary"));
   directionType->addItem(tr("制图绕行"), QStringLiteral("cartographic_detour"));
   directionFamily->addWidget(directionType); typedRow->removeWidget(direction); directionFamily->addWidget(direction);
-  moveParamWidget( adv, ratio, directionFamily ); moveParamWidget( adv, influence, directionFamily ); moveParamWidget( adv, core, directionFamily );
+  auto *directionParameters = new CollapsibleSection(tr("方向线绘制参数"), constraints);
+  directionParameters->setObjectName(QStringLiteral("factorDirectionParametersSection"));
+  directionParameters->setExpanded(false);
+  directionFamily->addWidget(directionParameters);
+  moveParamWidget( adv, ratio, directionParameters->containerLayout() );
+  moveParamWidget( adv, influence, directionParameters->containerLayout() );
+  moveParamWidget( adv, core, directionParameters->containerLayout() );
   moveParamWidget( adv, softStrength, details->containerLayout() ); moveParamWidget( adv, softRadius, details->containerLayout() );
   auto *breakFamily =
       family("breakFamilySection", tr("间隔线族"),
@@ -315,6 +326,16 @@ void ConstraintPage::buildConstraintArea( QWidget *content, QVBoxLayout *lay, QC
     import->setToolTip(
         tr("导入本工程局部米制坐标的 GPKG、SHP 或 GeoJSON；原文件和约束快照均保存到数据管理。"));
     entry.first->addWidget(import);
+    // 同族的绘制与导入放在同一行，清楚表达两种准备途径。
+    auto *drawButton = entry.second == QLatin1String("barrier") ? breakLine : direction;
+    entry.first->removeWidget(drawButton);
+    entry.first->removeWidget(import);
+    auto *actions = new QHBoxLayout;
+    actions->setSpacing(PaleoTheme::tokens().spacingXs);
+    actions->addWidget(drawButton);
+    actions->addWidget(import);
+    entry.first->insertLayout(entry.first->indexOf(entry.second == QLatin1String("barrier")
+                                                      ? breakType : directionType) + 1, actions);
     connect(import, &QPushButton::clicked, this, [this, horizons, role = entry.second] {
       emit constraintImportRequested(horizons->currentText(), role);
     });
@@ -600,7 +621,19 @@ void ConstraintPage::applyConstraintUsePlan()
       text += tr( "，%1 条参数越界会使运行被拒绝" ).arg( plan.blocking );
     text += tr( "。%1 绘制、导入自动保存；顶点编辑需保存编辑会话。准备两类线后，再提取井点数据。" )
                 .arg( plan.capabilityNote );
-    hint->setText( text );
+    hint->setToolTip(text);
+    QString summary = tr("本层位：%1 条间隔线、%2 条方向线可用；当前方法参与 %3 条。")
+                          .arg(plan.availableBarriers).arg(plan.availableDirections).arg(plan.consumed);
+    if (plan.invalid > 0)
+      summary += tr("%1 条无效，请在编辑列表中检查。").arg(plan.invalid);
+    if (untyped > 0)
+      summary += tr("%1 条未类型化，请指定约束语义。").arg(untyped);
+    if (plan.blocking > 0)
+      summary += tr("%1 条参数越界，需修正后运行。").arg(plan.blocking);
+    summary += property("paleo.page.constraintsready").toBool()
+                   ? tr("两类线已就绪，可提取井点数据。")
+                   : tr("提取井点前，两类线需各至少 1 条有效约束。");
+    hint->setText(summary);
   }
   updateFactorActionStates();
 }

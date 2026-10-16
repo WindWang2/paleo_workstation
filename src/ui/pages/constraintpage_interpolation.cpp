@@ -38,6 +38,7 @@ QLabel *ConstraintPage::buildFieldAndCellRows( QVBoxLayout *lay )
   fieldCaption->hide(); field->hide(); // 保留旧自动化契约；可见入口由真实字段下拉承担。
 
   auto *cellCaption = caption(tr("像元大小"), this);
+  cellCaption->setObjectName(QStringLiteral("factorCellSizeCaption"));
   lay->addWidget(cellCaption);
   auto *cell = new QDoubleSpinBox( this );
   cell->setObjectName( QStringLiteral( "factorCellSizeSpin" ) );
@@ -45,6 +46,7 @@ QLabel *ConstraintPage::buildFieldAndCellRows( QVBoxLayout *lay )
   cell->setDecimals( 4 );
   cell->setValue( 1.0 );
   cell->setAccessibleName( tr( "单因素像元大小" ) );
+  cell->setToolTip(tr("输出栅格每个像元的边长，单位与工程坐标系一致。数值越小，细节和计算量越多。"));
   useMono( cell );
   lay->addWidget( cell );
   return cellCaption;
@@ -100,6 +102,7 @@ void ConstraintPage::buildMethodSection( QWidget *content, QVBoxLayout *lay )
   coverage->addItem( tr( "井点支撑" ), QStringLiteral( "well_supported" ) );
   coverage->addItem( tr( "域内外推" ), QStringLiteral( "domain_extrapolation" ) );
   coverage->setAccessibleName( tr( "覆盖方式" ) );
+  coverage->setToolTip(tr("井点支撑：只保留有足够井点支撑的区域；域内外推：允许向计算边界外推，边缘结果需复核。"));
   lay->addWidget( coverage );
 }
 
@@ -119,6 +122,7 @@ void ConstraintPage::buildBoundaryRows( QWidget *content, QVBoxLayout *lay )
   auto *boundary = new QComboBox( boundaryRow );
   boundary->setObjectName( QStringLiteral( "factorBoundaryCombo" ) );
   boundary->setAccessibleName( tr( "成图边界面图层" ) );
+  boundary->setPlaceholderText(tr("请选择成图边界面图层"));
   auto *boundaryImport = new QPushButton( tr( "导入…" ), boundaryRow );
   boundaryImport->setObjectName( QStringLiteral( "factorBoundaryImportButton" ) );
   boundaryImport->setAccessibleName( tr( "导入测区边界面图层" ) );
@@ -360,19 +364,21 @@ void ConstraintPage::buildSurfaceRow( QVBoxLayout *lay )
   // 勾选等厚引擎因素时展开（updateEngineRows 管可见性）。
   auto *surfaceRow = new QWidget( this );
   surfaceRow->setObjectName( QStringLiteral( "factorSurfaceRow" ) );
-  auto *surfaceLay = new QHBoxLayout( surfaceRow );
+  auto *surfaceLay = new QVBoxLayout( surfaceRow );
   surfaceLay->setContentsMargins( 0, 0, 0, 0 );
   surfaceLay->setSpacing(PaleoTheme::tokens().spacingXs);
   auto *topCombo = new QComboBox( surfaceRow );
   topCombo->setObjectName( QStringLiteral( "factorTopSurfaceCombo" ) );
   topCombo->setAccessibleName( tr( "顶构造面图层" ) );
+  topCombo->setPlaceholderText(tr("请选择已导入的顶构造面"));
   auto *baseCombo = new QComboBox( surfaceRow );
   baseCombo->setObjectName( QStringLiteral( "factorBaseSurfaceCombo" ) );
   baseCombo->setAccessibleName( tr( "底构造面图层" ) );
-  surfaceLay->addWidget( new QLabel( tr( "顶面" ), surfaceRow ), 0 );
-  surfaceLay->addWidget( topCombo, 1 );
-  surfaceLay->addWidget( new QLabel( tr( "底面" ), surfaceRow ), 0 );
-  surfaceLay->addWidget( baseCombo, 1 );
+  baseCombo->setPlaceholderText(tr("请选择已导入的底构造面"));
+  surfaceLay->addWidget( caption( tr( "顶构造面" ), surfaceRow ) );
+  surfaceLay->addWidget( topCombo );
+  surfaceLay->addWidget( caption( tr( "底构造面" ), surfaceRow ) );
+  surfaceLay->addWidget( baseCombo );
   surfaceRow->setVisible( false );
   lay->addWidget( surfaceRow );
 }
@@ -391,18 +397,21 @@ void ConstraintPage::updateEngineRows()
   const int r = checkedRow( factors );
   bool isopach = false;
   bool interpolant = true;
+  bool confidence = false;
   if ( r >= 0 )
   {
     bool known = false;
     const SingleFactorDefinition def =
         SingleFactorRegistry::byId( factorIdOfRow( factors, r ), &known );
     isopach = known && def.processingAlgId == QLatin1String( "paleo:paleo_isopach" );
+    confidence = known && def.processingAlgId == SingleFactorContracts::confidenceEngineId();
     interpolant = !known || interpolantEngine( def.processingAlgId );
   }
   const QStringList interpolationNames = {
       QStringLiteral( "factorMethodCaption" ), QStringLiteral( "factorMethodCombo" ),
       QStringLiteral( "factorCoverageCaption" ), QStringLiteral( "factorCoverageCombo" ),
-      QStringLiteral( "factorAdvancedSection" ), QStringLiteral( "factorLegacyIdwCaption" ),
+      QStringLiteral( "factorAdvancedSection" ), QStringLiteral( "factorAdvancedOptionsSection" ),
+      QStringLiteral( "factorDirectionParametersSection" ), QStringLiteral( "factorLegacySection" ), QStringLiteral( "factorLegacyIdwCaption" ),
       QStringLiteral( "idwField" ), QStringLiteral( "idwCellSize" ), QStringLiteral( "runIdwButton" ) };
   for ( const QString &name : interpolationNames )
   {
@@ -425,7 +434,7 @@ void ConstraintPage::updateEngineRows()
     const QString keep = covariateCombo->currentData().toString();
     covariateCombo->blockSignals( true );
     covariateCombo->clear();
-    covariateCombo->addItem( tr( "（无——将拒绝协克里金请求）" ), QString() );
+    covariateCombo->addItem( tr( "请选择协变量栅格" ), QString() );
     if ( auto *svc = qobject_cast<QgisLayerService *>( property( kLayersProp ).value<QObject *>() ) )
     {
       QVector<LayerDeclaration> declared;
@@ -461,6 +470,8 @@ void ConstraintPage::updateEngineRows()
   }
   child<QCheckBox>(this, "factorClusterCheck")->setVisible(selectedMethod == QLatin1String("local_direction_idw") || selectedMethod == QLatin1String("structural_idw"));
   const bool directionWeights = selectedMethod == QLatin1String("local_direction_idw") || selectedMethod == QLatin1String("structural_idw");
+  if (auto *parameters = child<QWidget>(this, "factorDirectionParametersSection"))
+    parameters->setVisible(interpolant && directionWeights);
   for (const char *name : {"factorDirectionRatioSpin", "factorInfluenceSpin", "factorCoreSpin"}) {
     auto *w = findChild<QWidget *>(QString::fromLatin1(name));
     w->setVisible(directionWeights);
@@ -475,6 +486,12 @@ void ConstraintPage::updateEngineRows()
   child<QWidget>(this, "factorCoverageCombo")->setVisible(interpolant && coverageParameter);
   child<QLabel>(this, "factorStrategyNote")->setVisible(interpolant);
   findChild<QWidget *>(QStringLiteral("wellFactorSection"))->setVisible(interpolant);
+  findChild<QWidget *>(QStringLiteral("constraintFamiliesSection"))->setVisible(!isopach && !confidence);
+  findChild<QWidget *>(QStringLiteral("directionFamilySection"))->setVisible(interpolant);
+  child<QLabel>(this, "factorConstraintHint")->setVisible(interpolant);
+  if (auto *caption = child<QLabel>(this, "factorConstraintCaption"))
+    caption->setText(interpolant ? tr("约束线 · 先准备间隔线和方向线，再提取井点")
+                                : tr("约束线 · 用于绕障距离计算"));
   // WS-C5：结构 IDW 专属行——成图边界（面图层）+ 格网分辨率。
   auto *method = child<QComboBox>( this, "factorMethodCombo" );
   auto *boundaryCombo = child<QComboBox>( this, "factorBoundaryCombo" );
@@ -492,10 +509,12 @@ void ConstraintPage::updateEngineRows()
   // 禁用即告原因）。
   if ( auto *cell = child<QDoubleSpinBox>( this, "factorCellSizeSpin" ) )
   {
-    cell->setEnabled( !structural );
+    cell->setEnabled( !structural && !property("paleo.page.runbusy").toBool() );
     cell->setToolTip( structural
                           ? tr( "结构 IDW 按格网分辨率成图，不使用像元大小" )
-                          : QString() );
+                          : tr( "输出栅格每个像元的边长，单位与工程坐标系一致。数值越小，细节和计算量越多。" ) );
+    cell->setVisible(!structural);
+    child<QLabel>(this, "factorCellSizeCaption")->setVisible(!structural);
   }
   if ( structural && boundaryCombo )
   {

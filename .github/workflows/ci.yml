@@ -297,14 +297,28 @@ jobs:
       # 面，QGIS 栈走 bootstrap 拉 deb 闭包（tools/check_ci_scripts.py 守
       # 引用存在性，防再断链）。
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      # 磁盘：PR #496 run 38880554660 / master ddd1325e run 38835970978 的
+      # asan 档均在 ~1970/2231 链接步 "No space left on device"（清理后
+      # /dev/root 106G 可用仍耗尽）。大头是 -g 全量调试信息随静态库在 ~190
+      # 个可执行（多为测试）里逐个复制；清理只是余量，主手段见 Configure 的 -gz。
       - name: Free disk space
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/powershell
+          echo "== df before =="
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/powershell \
+            /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/share/swift
+          if command -v docker >/dev/null 2>&1; then
+            sudo docker image prune -af >/dev/null || echo "docker image prune skipped"
+          fi
+          echo "== df after =="
           df -h
       - name: Install Qt6 dev packages (vendored 路只缺 Qt/工具面)
         run: sudo apt-get update && sudo apt-get install -y
           qt6-base-dev qt6-5compat-dev qt6-svg-dev qt6-serialport-dev qt6-positioning-dev qt6-tools-dev
           qt6-webengine-dev qt6-pdf-dev qtkeychain-qt6-dev ccache ninja-build pkg-config
+          && sudo apt-get clean
+      # 不再回落 restore 非 asan 的 Linux-ccache-*（linux 主 job 产物）：
+      # 编译旗标不同零命中，白占 ~3G 下载与磁盘。
       - name: Cache ccache
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
@@ -312,7 +326,6 @@ jobs:
           key: ${{ runner.os }}-ccache-asan-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-ccache-asan-
-            ${{ runner.os }}-ccache-
       - name: Cache vendor artifacts
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
@@ -325,13 +338,22 @@ jobs:
         run: ./paleo-dev bootstrap fetch-only
       # 裸跑 cmake 不经 paleo-dev 顶部的 QGIS_PREFIX_PATH 自动注入（linux
       # 主 job 用 ./paleo-dev build 自带；linux-perf 的 Configure 同样显式给）。
+      # -gz：目标文件与链接产物的调试段 zlib 压缩（调试信息不减，ASan 栈的
+      # 文件:行号符号化不受影响），只作用于本 job，不改 CMakeLists 默认。
       - name: Configure (ASAN+UBSAN)
         env:
           QGIS_PREFIX_PATH: ${{ github.workspace }}/vendor/prefix/usr
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
           -DPALEO_ENABLE_ASAN=ON -DPALEO_ENABLE_UBSAN=ON
+          -DCMAKE_C_FLAGS=-gz -DCMAKE_CXX_FLAGS=-gz
+          -DCMAKE_EXE_LINKER_FLAGS=-gz -DCMAKE_SHARED_LINKER_FLAGS=-gz -DCMAKE_MODULE_LINKER_FLAGS=-gz
       - name: Build
         run: cmake --build build
+      - name: Disk usage after build
+        if: always()
+        run: |
+          df -h /
+          du -sh build ~/.cache/ccache vendor 2>/dev/null || true
       # 走 ./paleo-dev test 而非裸 ctest：vendored 路测试期需要 deb 库路径 /
       # QGIS_PREFIX_PATH / GDAL_DRIVER_PATH 注入（与 linux 主 job 同源）；
       # ASAN_OPTIONS 经 env 透传，串行 -j 1 语义不变。

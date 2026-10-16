@@ -326,6 +326,78 @@ private slots:
     QCOMPARE(attribution.value("status").toString(), QStringLiteral("manual"));
     QVERIFY(!attribution.contains(QStringLiteral("inputs")));
   }
+
+  // 归因会话期不得驱逐缓存图层：输入数超过缓存容量（8）时，逐输入
+  // attributionLayer() 打开第 9 个会 delete 仍在 ResolvedInput::layer 里
+  // 的对象（use-after-free）。夹具：1 次真实 compose 建链，再生 9 个单因素
+  // 版本并把 ordered_inputs 改写为 10 输入（updateVersionExtra 是公开目录
+  // API；归因只消费冻结的 version_id，不关心版本是否 current）。
+  void manyInputAttributionKeepsLayersPinned() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    QVariantList points{QVariantMap{{"x", 0}, {"y", 0}, {"z", 0}},
+                        QVariantMap{{"x", 100}, {"y", 0}, {"z", 20}},
+                        QVariantMap{{"x", 0}, {"y", 100}, {"z", 40}},
+                        QVariantMap{{"x", 100}, {"y", 100}, {"z", 60}}};
+    const auto polygons = f.composedPolygons(points, QVariantList{20., 40.}, &error);
+    QVERIFY2(!polygons.isEmpty(), qPrintable(error));
+    int code = 0;
+    QString uid;
+    const auto fid = firstFeature(&f.layers, polygons, &code, &uid);
+    QVERIFY(fid >= 0);
+
+    for (int gen = 0; gen < 9; ++gen) {
+      const auto source = f.dir.filePath(
+          QStringLiteral("samples-pin-%1.geojson").arg(gen));
+      QVariantList shifted;
+      for (const auto &p : points)
+        shifted << QVariantMap{{"x", p.toMap().value("x")},
+                               {"y", p.toMap().value("y")},
+                               {"z", p.toMap().value("z").toDouble() + gen + 1}};
+      QVERIFY(MappingArtifactWriter::points(source, shifted, &error));
+      LayerDeclaration d;
+      d.layerId = "wells.D61";
+      d.horizon = "D61";
+      d.type = "vector";
+      d.source = source;
+      d.title = QStringLiteral("样点%1").arg(gen);
+      QVERIFY(f.layers.declare(d, &error));
+      QVariantMap params{{"pointsLayerId", d.layerId},
+                         {"field", "z"},
+                         {"cellSize", 10}};
+      QVERIFY2(f.work.generateFactor("D61", "sandthick", params, &error),
+               qPrintable(error));
+    }
+    // 收集全部单因素版本的不可变别名（product.<vid>，含首代共 10 个），
+    // 用真实 compose 冻结 10 输入（ordered_inputs 由 prepareCompose 逐输入
+    // 解析声明→冻结版本，不经过任何目录手工改写）。
+    QStringList productIds;
+    for (const auto &rowValue : f.work.products("D61")) {
+      const auto row = rowValue.toMap();
+      if (row.value("kind") == QStringLiteral("single_factor_raster")) {
+        const auto pid = row.value("id").toString();
+        if (pid.startsWith(QStringLiteral("product.")) && !productIds.contains(pid))
+          productIds << pid;
+      }
+    }
+    QCOMPARE(productIds.size(), 10);
+    const auto composed = f.work.compose("D61", productIds,
+                                         {{"thresholds", QVariantList{20., 40.}}},
+                                         &error);
+    QVERIFY2(!composed.isEmpty(), qPrintable(error));
+    const auto fid2 = firstFeature(&f.layers, composed, &code, nullptr);
+    QVERIFY(fid2 >= 0);
+
+    const auto snapshot = f.work.featureEvidence(composed, {fid2});
+    const auto attribution = snapshot.value("attribution").toMap();
+    QCOMPARE(attribution.value("status").toString(), QStringLiteral("ok"));
+    // 会话期禁用驱逐：全部输入版本（10 > 缓存容量 8）在会话后仍留在缓存。
+    // 旧代码：每打开第 9+ 个版本即驱逐一个使用中图层，会话结束时缓存恒为
+    // 8 条（且被驱逐层已 UAF）。
+    QVERIFY2(f.work.attributionLayerCacheCountForTesting() >= 10,
+             "attribution session must not evict in-use layers");
+  }
 };
 int main(int argc, char **argv) {
   QgsApplication app(argc, argv, true);

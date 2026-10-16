@@ -290,7 +290,7 @@ QgsMapLayer *MappingWorkbench::attributionLayer(const QString &versionId) const 
   if (!layer->crs().isValid())
     layer->setCrs(QgsCoordinateReferenceSystem::fromWkt(
         DataCatalog::localGridCrsWkt()));
-  if (m_attributionLayers.size() >= 8) {
+  if (m_attributionPinned == 0 && m_attributionLayers.size() >= 8) {
     const auto first = m_attributionLayers.begin();
     delete first.value().data();
     m_attributionLayers.erase(first);
@@ -314,6 +314,9 @@ QVariantMap MappingWorkbench::composeAttribution(const QString &id,
     return {{"status", "unresolved"},
             {"calculation_version", composedId},
             {"message", tr("早期成果缺少输入冻结记录（ordered_inputs），无法重放决策")}};
+  // 会话期禁用缓存驱逐：inputs[].layer 裸指针跨越逐输入的 attributionLayer
+  // 调用，输入数超过缓存容量时中途驱逐会 delete 使用中图层（UAF）。
+  const AttributionPin pin(this);
   QList<paleo::attribution::ResolvedInput> inputs;
   for (const auto &entryValue : ordered) {
     const auto entry = entryValue.toMap();
@@ -402,6 +405,8 @@ QVariantMap MappingWorkbench::composeAttributionAt(const QString &id,
   const auto ordered = composed.extra.value("ordered_inputs").toList();
   if (ordered.isEmpty())
     return out;
+  // 同 composeAttribution：会话期禁用缓存驱逐（裸指针跨调用持有）。
+  const AttributionPin pin(this);
   QList<paleo::attribution::ResolvedInput> inputs;
   for (const auto &entryValue : ordered) {
     const auto entry = entryValue.toMap();

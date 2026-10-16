@@ -170,6 +170,9 @@ QVariantMap MappingWorkbench::analyzeImpact(const QVariantMap &change,
     fail(error, tr("输入版本变化需要 before/after 版本号"));
     return {};
   }
+  // 会话期禁用归因图层缓存驱逐：frozen/substituted 双解析 + 后续 replayGrid
+  // 全程持有裸 QgsMapLayer*；产品输入 ≥8 时第 9 个版本打开会驱逐仍在用的层。
+  const AttributionPin attributionPin(this);
   QVariantMap out{{"kind", kind},
                   {"source_before_version", before},
                   {"source_after_version", after},
@@ -375,6 +378,8 @@ QVariantMap MappingWorkbench::recomputePlan(const QVariantMap &impactResult,
     fail(error, tr("请先打开工程再生成重算计划"));
     return {};
   }
+  // 保护口径逐 uid 打开旧成果 GPKG（attributionLayer）——会话期禁用驱逐。
+  const AttributionPin attributionPin(this);
   QVariantMap plan{{"created_at", QDateTime::currentDateTimeUtc().toString(Qt::ISODate)},
                    {"impact_report", impactResult.value("report_path")},
                    {"entries", QVariantList{}}};
@@ -504,6 +509,8 @@ QVariantMap MappingWorkbench::executeRecompute(const QVariantMap &plan,
   QVariantMap result{
       {"started_at", QDateTime::currentDateTimeUtc().toString(Qt::ISODate)},
       {"results", QVariantList{}}};
+  // 同 analyzeImpact：重算逐条解析持有归因图层裸指针，会话期禁用驱逐。
+  const AttributionPin attributionPin(this);
   QVariantList results;
   bool sawTaskStart = false;
   for (const auto &value : plan.value("entries").toList()) {
@@ -641,6 +648,8 @@ QVariantList MappingWorkbench::evidenceReverseQuery(const QString &name,
     fail(error, tr("请先打开工程再检索证据"));
     return rows;
   }
+  // before/after 两个栅格图层同时持有期间不得驱逐归因缓存。
+  const AttributionPin attributionPin(this);
   if (!m_evidenceIndex)
     m_evidenceIndex = std::make_unique<paleo::evidenceindex::Index>();
   QString openError;

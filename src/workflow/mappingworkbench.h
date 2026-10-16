@@ -61,6 +61,9 @@ public:
                   QString *error);
   QVariantList inputs(const QString &kind) const;
   QVariantList products(const QString &horizon) const;
+  // 测试钩子：归因图层缓存的当前条目数（验证会话期不驱逐，full-audit F1）。
+  int attributionLayerCacheCountForTesting() const
+  { return m_attributionLayers.size(); }
   CatalogVersion versionForLayer(const QString &id) const;
   LayerDeclaration declaration(const QString &id) const;
   QString layerForVersion(const QString &versionId, QString *error = nullptr);
@@ -226,7 +229,20 @@ private:
   // 找不到返回空 id（纯人工图斑走 manual 语义）。
   QString composedAncestorVersion(const QString &layerId) const;
   // 冻结输入版本 → 独立打开的采样图层（有界 LRU；随目录上下文重置）。
+  // 会话期间（composeAttribution/影响分析等持有 ResolvedInput::layer 裸指针
+  // 跨多次调用）由 AttributionPin 禁用驱逐——中途驱逐=使用中 delete（UAF）。
   QgsMapLayer *attributionLayer(const QString &versionId) const;
+  class AttributionPin
+  {
+  public:
+    explicit AttributionPin(const MappingWorkbench *wb) : m_wb(wb)
+    { ++wb->m_attributionPinned; }
+    ~AttributionPin() { --m_wb->m_attributionPinned; }
+    AttributionPin(const AttributionPin &) = delete;
+    AttributionPin &operator=(const AttributionPin &) = delete;
+  private:
+    const MappingWorkbench *m_wb;
+  };
   void connectPredictionService(RemotePredictionService *service);
   void publishFactorAlias(const QString &horizon, const QString &id);
   void synchronizeCatalogLayers();
@@ -334,6 +350,8 @@ private:
   mutable QHash<QString, QPointer<QObject>> m_evidenceSpatialAdapters;
   // 冻结输入版本的采样图层（图斑归因用；有界，bindCatalog 重置）。
   mutable QHash<QString, QPointer<QgsMapLayer>> m_attributionLayers;
+  // >0 时 attributionLayer 不驱逐缓存（归因/影响分析会话期；嵌套计数）。
+  mutable int m_attributionPinned = 0;
   // G08 反向检索索引（可重建 sidecar；bindCatalog 重置）。
   std::unique_ptr<paleo::evidenceindex::Index> m_evidenceIndex;
   mutable QVariantList m_productsCache;

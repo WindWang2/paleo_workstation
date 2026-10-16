@@ -136,6 +136,8 @@ class PreviewMapCanvas : public QWidget
     void pushHistory( const QgsRectangle &extent );
     void syncCanvasLayers();
     void setExtentInternal( const QgsRectangle &rect );
+    void watchLayer( QgsMapLayer *layer );   // #483：挂 destroyed 钩子
+    void forgetLayer( QObject *layer );      // #483：层外部销毁后摘三层记账
 
     QgsMapCanvas *m_canvas = nullptr;
     class QLabel *m_overlay = nullptr;   // 低清/缓存快照覆盖层
@@ -146,6 +148,8 @@ class PreviewMapCanvas : public QWidget
 
     QgsCoordinateReferenceSystem m_overrideCrs;
     bool m_projectBound = false;
+    bool m_teardown = false; // #483：析构期——子对象销毁序里画布先于层，
+                             // destroyed 钩子此间不得再同步画布。
 
     // 视图历史（D3.3）：程序式缩放与交互平移都入栈；去重相邻同范围。
     QStack<QgsRectangle> m_backStack;

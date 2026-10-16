@@ -4,12 +4,22 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QProcess>
+#include <QProcessEnvironment>
 #include <QStandardPaths>
+#include <QTimer>
+
+namespace
+{
+  // 取消/超时的优雅退出窗口：terminate 后给 pip/venv 清理机会，仍未退出
+  // 再 kill（对照 scriptrunner 的递进击杀）。
+  constexpr int kKillGraceMs = 2000;
+} // namespace
 
 // 层：数据
 // ---------------------------------------------------------------------------
 // PythonEnvService：venv 落在 <root>/venv/<name>，同一时刻只允许一个环境
-// 操作（建 venv / pip / 解包互斥，busyChanged 暴露给上层置灰）。
+// 操作（建 venv / pip / 解包互斥，busyChanged 暴露给上层置灰）。单步带
+// 超时与取消（#479）：挂死的 pip/venv 不再把 busyChanged(true) 变成永真。
 // ---------------------------------------------------------------------------
 
 PythonEnvService::PythonEnvService( const QString &rootDir, QObject *parent )
@@ -20,6 +30,12 @@ PythonEnvService::PythonEnvService( const QString &rootDir, QObject *parent )
 
 PythonEnvService::~PythonEnvService()
 {
+  if ( m_killTimer )
+  {
+    m_killTimer->stop();
+    delete m_killTimer;
+    m_killTimer = nullptr;
+  }
   if ( m_proc )
   {
     m_proc->kill();
@@ -91,6 +107,11 @@ QString PythonEnvService::basePython() const
   return findBasePython();
 }
 
+void PythonEnvService::setTimeoutMs( int ms )
+{
+  m_timeoutMs = qMax( 0, ms );
+}
+
 void PythonEnvService::startStep( const QString &step, const QString &program,
                                   const QStringList &args )
 {
@@ -101,16 +122,23 @@ void PythonEnvService::startStep( const QString &step, const QString &program,
   }
 
   m_step = step;
+  m_cancelRequested = false;
+  m_timedOut = false;
   m_proc = new QProcess( this );
   m_proc->setProcessChannelMode( QProcess::SeparateChannels );
+  // Python 3 子进程 IO 统一 UTF-8（#479）：pip/venv 的管道输出编码钉死，
+  // 宿主侧统一 fromUtf8——Windows 非 UTF-8 locale 下中文不再乱码。
+  auto env = QProcessEnvironment::systemEnvironment();
+  env.insert( QStringLiteral( "PYTHONIOENCODING" ), QStringLiteral( "utf-8" ) );
+  m_proc->setProcessEnvironment( env );
   connect( m_proc, &QProcess::readyReadStandardOutput, this, [this] {
-    const QStringList lines = QString::fromLocal8Bit( m_proc->readAllStandardOutput() )
+    const QStringList lines = QString::fromUtf8( m_proc->readAllStandardOutput() )
                                   .split( QLatin1Char( '\n' ), Qt::SkipEmptyParts );
     for ( const QString &line : lines )
       emit outputLine( line.trimmed() );
   } );
   connect( m_proc, &QProcess::readyReadStandardError, this, [this] {
-    const QStringList lines = QString::fromLocal8Bit( m_proc->readAllStandardError() )
+    const QStringList lines = QString::fromUtf8( m_proc->readAllStandardError() )
                                   .split( QLatin1Char( '\n' ), Qt::SkipEmptyParts );
     for ( const QString &line : lines )
       emit outputLine( line.trimmed() );
@@ -131,15 +159,65 @@ void PythonEnvService::startStep( const QString &step, const QString &program,
              const QString program = m_proc->program();
              m_proc->deleteLater();
              m_proc = nullptr;
-             const bool ok = ( status == QProcess::NormalExit && exitCode == 0 );
-             emit stepFinished( step, ok,
-                                ok ? QString()
-                                   : tr( "%1 退出码 %2" ).arg( program ).arg( exitCode ) );
+             if ( m_killTimer )
+             {
+               m_killTimer->stop();
+               delete m_killTimer;
+               m_killTimer = nullptr;
+             }
+             QString message;
+             if ( m_timedOut )
+               message = tr( "步骤超时（超过 %1 秒），已终止：%2" )
+                             .arg( m_timeoutMs / 1000 )
+                             .arg( program );
+             else if ( m_cancelRequested )
+               message = tr( "已取消：%1" ).arg( program );
+             else if ( status == QProcess::NormalExit && exitCode == 0 )
+               message = QString();
+             else
+               message = tr( "%1 退出码 %2" ).arg( program ).arg( exitCode );
+             const bool ok = message.isEmpty();
+             emit stepFinished( step, ok, message );
              emit busyChanged( false );
            } );
 
   emit busyChanged( true );
   m_proc->start( program, args );
+  // 超时防线（#479）：挂死的 pip/venv 递进回收，busyChanged(false) 必达。
+  if ( m_timeoutMs > 0 )
+  {
+    auto *timeoutTimer = new QTimer( m_proc );
+    timeoutTimer->setSingleShot( true );
+    connect( timeoutTimer, &QTimer::timeout, this, [this] {
+      if ( !m_proc || m_killTimer )
+        return;
+      m_timedOut = true;
+      terminateGracefully();
+    } );
+    timeoutTimer->start( m_timeoutMs );
+  }
+}
+
+void PythonEnvService::cancel()
+{
+  if ( !m_proc || m_killTimer )
+    return;
+  m_cancelRequested = true;
+  terminateGracefully();
+}
+
+void PythonEnvService::terminateGracefully()
+{
+  if ( !m_proc || m_killTimer )
+    return;
+  m_proc->terminate();
+  m_killTimer = new QTimer( this );
+  m_killTimer->setSingleShot( true );
+  connect( m_killTimer, &QTimer::timeout, this, [this] {
+    if ( m_proc )
+      m_proc->kill();
+  } );
+  m_killTimer->start( kKillGraceMs );
 }
 
 void PythonEnvService::createVenv( const QString &name )

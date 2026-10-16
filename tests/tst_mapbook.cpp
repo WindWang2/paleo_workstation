@@ -764,7 +764,7 @@ int main( int argc, char *argv[] )
 {
   if ( qgetenv( "QT_QPA_PLATFORM" ).isEmpty() )
     qputenv( "QT_QPA_PLATFORM", "offscreen" );
-  if ( !QgisRuntime::initialize( QgisRuntime::defaultPrefixPath() ) )
+  if ( !QgisRuntime::initialize() )
     qFatal( "QgisRuntime::initialize failed" );
   TestMapBook tc;
   const int rc = QTest::qExec( &tc, argc, argv );

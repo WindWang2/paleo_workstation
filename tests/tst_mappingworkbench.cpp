@@ -30,6 +30,7 @@
 #include "../src/workflow/wellpredictionservice.h"
 #include <QTcpServer>
 #include <QTcpSocket>
+#include <QThreadPool>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -3103,11 +3104,22 @@ private slots:
     const auto workDir =
         f.dir.filePath(QStringLiteral("artifacts/working/") + draft);
     QVERIFY(QDir(workDir).exists());
+    // #499 句柄生命周期审计：工作副本（features.gpkg）不得被任何活层持有——
+    // copyForEditing 只声明 draft 层（惰性实例化），编辑探测用的栈层在函数
+    // 返回前已析构。Windows 上若有层/GDALDataset 持有目录内文件，目录删除
+    // 必败；此断言把「删前无活层」纪律锁进测试（泄漏路径当场红）。
+    QVERIFY(f.layers.layer(draft) == nullptr);
     const auto draftVersion = f.work.versionForLayer(draft);
     QVERIFY(!draftVersion.assetId.isEmpty());
     QVERIFY2(f.work.removeProduct(draft, &error), qPrintable(error));
     QVERIFY(f.work.declaration(draft).layerId.isEmpty());
     QVERIFY(f.catalog.assetById(draftVersion.assetId).id.isEmpty());
+    // #499：removeProduct 的文件回收（受管文件 + 工作副本目录）在任务池后台
+    // 执行（产品契约：记录同步删、文件异步收）。此处确定性等待已知后台任务
+    // 收尾（同 tst_imagelod 先例）——不是「重试等待删除成功」：若存在句柄
+    // 泄漏，等待完成后目录断言仍然红，泄漏不会被掩盖。
+    QVERIFY2(QThreadPool::globalInstance()->waitForDone(30000),
+             "background purge did not finish");
     QVERIFY(!QDir(workDir).exists());
   }
   void deleteButtonGatingFollowsSelectedRow() {

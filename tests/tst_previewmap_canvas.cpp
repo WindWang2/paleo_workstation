@@ -9,6 +9,7 @@
 #include "../src/qgis/previewrendercache.h"
 #include "../src/qgis/qgisruntime.h"
 #include "../src/qgis/projectmapreference.h"
+#include "../src/qgis/mappingartifactwriter.h"
 #include "../src/catalog/datacatalog.h"
 
 #include <qgsmapcanvas.h>
@@ -42,6 +43,8 @@ class TestPreviewMapCanvas : public QObject
     void canvasIsChildWidget();
     void addLayerGoesOnTop();
     void removeAndMoveLayers();
+    void layerDestroyedDropsAllBookkeeping();
+    void restoreRasterCrsHandlesProviderOptions();
     void visibilityGatesCanvasLayerList();
     void opacityAndBlendApplyToLayer();
     void layersNeverRegisteredInProject();
@@ -132,6 +135,92 @@ void TestPreviewMapCanvas::removeAndMoveLayers()
   m_canvas->removeLayer(c);
   QCOMPARE(m_canvas->layerCount(), 2);
   QCOMPARE(m_canvas->indexOfLayer(c), -1);
+}
+
+void TestPreviewMapCanvas::layerDestroyedDropsAllBookkeeping()
+{
+  // #483：层所有权归调用方，外部直接销毁（未经 removeLayer）后，容器/三层
+  // 记账（可见/透明/混合）/画布层表不得残留悬垂指针——destroyed 钩子自动摘除。
+  auto *a = makePointLayer(1, QStringLiteral("a"));
+  auto *b = makePointLayer(2, QStringLiteral("b"));
+  m_canvas->addLayer(a);
+  m_canvas->addLayer(b);
+  m_canvas->setLayerOpacity(b, 0.5);
+  m_canvas->setLayerBlendMode(b, QPainter::CompositionMode_Multiply);
+  m_canvas->setLayerVisible(a, false);
+  QCOMPARE(m_canvas->layerCount(), 2);
+
+  delete b; // 外部销毁（调用方持有所有权的一条路径）
+  QTRY_COMPARE(m_canvas->layerCount(), 1);
+  QCOMPARE(m_canvas->layers(), QList<QgsMapLayer *>({a}));
+  QVERIFY(m_canvas->canvas()->layers().isEmpty()); // a 隐藏中，b 已摘除
+  m_canvas->setLayerVisible(a, true);
+  QCOMPARE(m_canvas->canvas()->layers(), QList<QgsMapLayer *>({a}));
+  // 残亡层不再可查询记账（哈希键已摘）。
+  QCOMPARE(m_canvas->layerOpacity(b), 1.0);
+  QCOMPARE(m_canvas->layerBlendMode(b), QPainter::CompositionMode_SourceOver);
+
+  delete a;
+  QTRY_COMPARE(m_canvas->layerCount(), 0);
+  QVERIFY(m_canvas->canvas()->layers().isEmpty());
+}
+
+void TestPreviewMapCanvas::restoreRasterCrsHandlesProviderOptions()
+{
+  // #483：restoreRasterCrs 两处加固的红绿面——
+  //  a) source 带 provider 选项串（"?iro=..."，QGIS 栅格 URI 惯例）时不得
+  //     静默失效（修复前 GDALOpen 直接打不开，CRS 恢复悄悄跳过）；
+  //  b) 同层只探测一次（幂等标记），重复触发不再重复磁盘打开。
+  QTemporaryDir tmp;
+  const QString tif = tmp.filePath(QStringLiteral("crsprobe.tif"));
+  // 手写 tif：投影给 EPSG:4326、PALEO_CRS_WKT 内嵌工程局部网格——
+  // 「恢复发生」可判别（CRS 从 4326 翻成局部网格）。
+  GDALDatasetH ds = GDALCreate(GDALGetDriverByName("GTiff"),
+                               tif.toUtf8().constData(), 4, 4, 1, GDT_Byte,
+                               nullptr);
+  QVERIFY(ds != nullptr);
+  double gt[6] = {0, 25, 0, 100, 0, -25};
+  QCOMPARE(GDALSetGeoTransform(ds, gt), CE_None);
+  QCOMPARE(GDALSetProjection(
+               ds, QgsCoordinateReferenceSystem::fromEpsgId(4326)
+                       .toWkt()
+                       .toUtf8()
+                       .constData()),
+           CE_None);
+  QCOMPARE(GDALSetMetadataItem(ds, "PALEO_CRS_WKT",
+                               DataCatalog::localGridCrsWkt().toUtf8().constData(),
+                               nullptr),
+           CE_None);
+  GDALClose(ds);
+
+  const QgsCoordinateReferenceSystem localFromWkt =
+      QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt());
+  QVERIFY(localFromWkt.isValid());
+
+  { // 纯路径 source：基线恢复语义不回归。
+    QgsRasterLayer rl(tif, QStringLiteral("plain"), QStringLiteral("gdal"));
+    QVERIFY(rl.isValid());
+    MappingArtifactWriter::restoreRasterCrs(&rl);
+    QCOMPARE(rl.crs().toWkt(), localFromWkt.toWkt());
+  }
+  { // 带 provider 选项串：先建有效层再换上选项串 source（该选项串会让
+    // provider 拒载，但这不是跳过 CRS 恢复的理由——路径本身可打开）。
+    // 修复前 GDALOpen 直接吃 "path?opt" 整串 → 静默失败 → CRS 停在 4326。
+    QgsRasterLayer rl(tif, QStringLiteral("opt"), QStringLiteral("gdal"));
+    QVERIFY(rl.isValid());
+    rl.setDataSource(tif + QStringLiteral("?iro=nearest"), QStringLiteral("opt"),
+                     QStringLiteral("gdal"));
+    QVERIFY(rl.source().endsWith(QLatin1String("?iro=nearest")));
+    MappingArtifactWriter::restoreRasterCrs(&rl);
+    QCOMPARE(rl.crs().toWkt(), localFromWkt.toWkt());
+  }
+  { // 幂等：首探后挂标记，重复调用短路，CRS 稳定。
+    QgsRasterLayer rl(tif, QStringLiteral("idem"), QStringLiteral("gdal"));
+    MappingArtifactWriter::restoreRasterCrs(&rl);
+    QVERIFY(rl.property("paleoRasterCrsProbed").toBool());
+    MappingArtifactWriter::restoreRasterCrs(&rl);
+    QCOMPARE(rl.crs().toWkt(), localFromWkt.toWkt());
+  }
 }
 
 void TestPreviewMapCanvas::visibilityGatesCanvasLayerList()

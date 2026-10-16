@@ -718,8 +718,10 @@ bool ConstraintStore::migrateLegacyCrsLocked(QString *error, QString *backupPath
     OGRLayerH rows = GDALDatasetExecuteSQL(
         ckptDs, "PRAGMA wal_checkpoint(TRUNCATE)", nullptr, "SQLITE");
     if (rows) {
-      if (OGRFeatureH raw = OGR_L_GetNextFeature(rows))
+      if (OGRFeatureH raw = OGR_L_GetNextFeature(rows)) {
         ckptOk = OGR_F_GetFieldAsInteger(raw, 0) == 0; // busy==0 才完整
+        OGR_F_Destroy(raw); // FR-01：feature 归还（本文件 Feature RAII 惯用法）
+      }
       GDALDatasetReleaseResultSet(ckptDs, rows);
     }
     GDALClose(ckptDs);

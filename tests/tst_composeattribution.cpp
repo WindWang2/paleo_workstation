@@ -329,9 +329,9 @@ private slots:
 
   // 归因会话期不得驱逐缓存图层：输入数超过缓存容量（8）时，逐输入
   // attributionLayer() 打开第 9 个会 delete 仍在 ResolvedInput::layer 里
-  // 的对象（use-after-free）。夹具：1 次真实 compose 建链，再生 9 个单因素
-  // 版本并把 ordered_inputs 改写为 10 输入（updateVersionExtra 是公开目录
-  // API；归因只消费冻结的 version_id，不关心版本是否 current）。
+  // 的对象（use-after-free）。夹具：生成 10 个单因素版本，用其不可变别名
+  // （product.<vid>）做一次真实 10 输入 compose——ordered_inputs 由
+  // prepareCompose 逐输入解析冻结，不经任何目录手工改写。
   void manyInputAttributionKeepsLayersPinned() {
     Fixture f;
     QVERIFY(f.init());

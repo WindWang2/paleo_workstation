@@ -306,8 +306,11 @@ void SingleFactorStoreTests::migrationAbortsWhenWalCheckpointBusy()
     if ( mode )
     {
       if ( OGRFeatureH raw = OGR_L_GetNextFeature( mode ) )
+      {
         wal = QString::fromUtf8( OGR_F_GetFieldAsString( raw, 0 ) ).compare(
-                  QStringLiteral( "wal" ), Qt::CaseInsensitive ) == 0;
+                   QStringLiteral( "wal" ), Qt::CaseInsensitive ) == 0;
+        OGR_F_Destroy( raw );
+      }
       GDALDatasetReleaseResultSet( modeSetter, mode );
     }
     GDALClose( modeSetter );

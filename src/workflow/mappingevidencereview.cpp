@@ -271,7 +271,8 @@ void MappingWorkbench::trimAttributionLayers() const {
   }
 }
 
-QgsMapLayer *MappingWorkbench::attributionLayer(const QString &versionId) const {  if (!m_catalog || versionId.isEmpty())
+QgsMapLayer *MappingWorkbench::attributionLayer(const QString &versionId) const {
+  if (!m_catalog || versionId.isEmpty())
     return nullptr;
   if (auto *cached = m_attributionLayers.value(versionId).data())
     return cached;

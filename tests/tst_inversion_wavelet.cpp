@@ -97,6 +97,9 @@ private slots:
   void extractIndependentOfTraceStartTime();
   // dsp::fft 共享后 seismicattr 的复数道链仍在（对拍 cos → Hilbert = sin）。
   void sharedFftCosineRoundtrip();
+  // #478：旋转因子递推的舍入误差随蝶形级累积——n 大时高频谱线相对
+  // 解析值漂移；查表实现（逐项直接三角求值）无累积。
+  void fftHighFrequencyTailAccuracy();
 };
 
 void TestInversionWavelet::rickerShapeAndSpectrum()
@@ -281,6 +284,49 @@ void TestInversionWavelet::sharedFftCosineRoundtrip()
   for (int i = 0; i < n; ++i)
     QVERIFY(std::fabs(re[std::size_t(i)] - std::cos(2.0 * std::numbers::pi * 5.0 * double(i) /
                                                     double(n))) < 1e-9);
+}
+
+void TestInversionWavelet::fftHighFrequencyTailAccuracy()
+{
+  // #478：递推旋转因子 (cr,ci)·(wr,wi) 的相位舍入误差沿块内 k 链累积
+  //（末级链长 n/2，n=2^20 时 twiddle 相对误差 ~2e-11）——大 nFft 的谱值
+  // 偏离直接求值；查表实现的误差只剩蝶形算术 O(eps)。
+  // 输入取 ±1（精确可表，消掉输入侧噪声）；参考 = 选定 bin 的 long double
+  // 直接 DFT（辐角按 k·j mod n 归约到 [0,2π)，三角求值精度无损）。
+  // 实测（n=2^20，本机）：递推 errRel ~1e-11，查表 ~1e-15——阈值 1e-12
+  // 卡在两者之间（各 ≥2 个量级裕度）。
+  const int n = 1 << 20;
+  std::vector<double> orig(std::size_t(n), 0.0);
+  unsigned long long state = 88172645463325252ULL; // xorshift64：测试确定
+  for (int i = 0; i < n; ++i)
+  {
+    state ^= state << 13;
+    state ^= state >> 7;
+    state ^= state << 17;
+    orig[std::size_t(i)] = (state >> 40) & 1ULL ? -1.0 : 1.0;
+  }
+  std::vector<double> re = orig;
+  std::vector<double> im(std::size_t(n), 0.0);
+  paleo::dsp::fftRadix2(re.data(), im.data(), n, false);
+  const int bins[] = {n / 4 - 1, n / 4, n / 8 + 3, 12345};
+  for (int k : bins)
+  {
+    long double sr = 0.0L, si = 0.0L;
+    for (int j = 0; j < n; ++j)
+    {
+      const long long phase = (static_cast<long long>(k) * j) % n;
+      const long double ang = -2.0L * std::numbers::pi_v<long double> *
+                              static_cast<long double>(phase) / static_cast<long double>(n);
+      const long double xj = orig[std::size_t(j)];
+      sr += xj * std::cos(ang);
+      si += xj * std::sin(ang);
+    }
+    const double ref = std::hypot(static_cast<double>(sr), static_cast<double>(si));
+    const double err = std::hypot(re[std::size_t(k)] - static_cast<double>(sr),
+                                  im[std::size_t(k)] - static_cast<double>(si));
+    QVERIFY2(ref > 1.0 && err / ref < 1e-12,
+             qPrintable(QString("k=%1 errRel=%2").arg(k).arg(err / ref, 0, 'e', 3)));
+  }
 }
 
 QTEST_MAIN(TestInversionWavelet)

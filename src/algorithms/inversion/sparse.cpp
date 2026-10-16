@@ -158,8 +158,12 @@ SparseSpikeResult sparseSpikeInversion(const float *trace, int n, double sampleI
   for (int it = 1; it <= options.maxIterations; ++it)
   {
     convSame(y, w, peakOffset, n, &model);
+    // #478：缺失样掩膜——NaN 样不进保真项（旧实现以 s=0 参与减法，等于
+    // 把缺失位置的模型值当残差压制：缺失区恰是子波能量所在时事件被
+    // 系统性衰减）。残差 = M·(A·y − s)，M 为观测掩膜。
     for (int i = 0; i < n; ++i)
-      model[std::size_t(i)] -= s[std::size_t(i)];
+      model[std::size_t(i)] =
+          std::isnan(trace[i]) ? 0.0 : model[std::size_t(i)] - s[std::size_t(i)];
     convAdj(model, w, peakOffset, n, &grad);
 
     std::vector<double> xNew(std::size_t(n), 0.0);
@@ -187,8 +191,10 @@ SparseSpikeResult sparseSpikeInversion(const float *trace, int n, double sampleI
   }
 
   convSame(x, w, peakOffset, n, &model);
+  // 同 #478 掩膜口径：报告的残差能量也只计观测样（缺失位置非残差）。
   for (int i = 0; i < n; ++i)
-    model[std::size_t(i)] -= s[std::size_t(i)];
+    model[std::size_t(i)] =
+        std::isnan(trace[i]) ? 0.0 : model[std::size_t(i)] - s[std::size_t(i)];
   result.residualEnergyRatio = dot(model, model) / energyS;
 
   result.reflectivity.resize(std::size_t(n));

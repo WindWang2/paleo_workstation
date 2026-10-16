@@ -120,7 +120,10 @@ void swArchie(const double *phi, const double *rt, int n,
       out[i] = kNan;
       continue;
     }
-    out[i] = std::pow(a * rw / (std::pow(phi[i], m) * rt[i]), 1.0 / nSat);
+    // #478：φ 极小时 pow(φ,m) 下溢 0 → 中间值溢出 ±inf——与同文件 NaN
+    // 诚实传播口径一致，输出端查 isfinite（inf 不当饱和度外泄）。
+    const double sw = std::pow(a * rw / (std::pow(phi[i], m) * rt[i]), 1.0 / nSat);
+    out[i] = std::isfinite(sw) ? sw : kNan;
   }
 }
 

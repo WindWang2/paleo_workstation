@@ -482,7 +482,9 @@ CrossValidationResult crossValidate(const Matrix &x,
     for (std::size_t idx = 0; idx < set.rows.size(); ++idx)
       if (set.rowClass[idx] == int(k))
         members.push_back(idx);
-    std::shuffle(members.begin(), members.end(), rng);
+    // #470：std::shuffle 序列实现定义不可跨平台复现——改自订 Fisher–Yates
+    //（cluster_internal.h，与 geostat/sgs 同口径）。
+    shuffleDeterministic(members.begin(), members.end(), rng);
     for (std::size_t j = 0; j < members.size(); ++j)
       foldRows[j % std::size_t(f)].push_back(members[j]);
   }

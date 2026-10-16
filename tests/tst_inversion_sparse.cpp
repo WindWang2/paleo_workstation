@@ -106,6 +106,9 @@ private slots:
   // #141：道振幅 ×1000 + 子波 amplitudeScale → 阻抗与未缩放一致（<1%）；
   // 未标定 → 反射系数越界比例高，显式失败（旧实现静默发散到 2 倍真值）。
   void amplitudeCalibrationScaleInvariant();
+  // #478：缺失样掩膜——缺失位置的模型值不得进保真项（旧实现以 0 参与，
+  // 把缺失区的子波能量当残差压制，事件被系统性衰减）。
+  void missingSamplesMaskedFromFidelity();
 };
 
 void TestInversionSparse::recoversSparseReflectivity()
@@ -256,6 +259,48 @@ void TestInversionSparse::invalidInputsFail()
     hole[std::size_t(i * 2)] = std::numeric_limits<float>::quiet_NaN();
   r = sparseSpikeInversion(hole.data(), kN, kDt, w, nullptr);
   QVERIFY(!r.ok);
+}
+
+void TestInversionSparse::missingSamplesMaskedFromFidelity()
+{
+  // #478：单尖峰事件（样 750，实测观测样），其右侧子波主体（751..799，
+  // 3.3% 缺失 <30% 闸）被置 NaN。缺失样以 0 进保真项的旧实现会把这半边
+  // 子波能量当残差压制——事件幅度被系统性衰减；掩膜后保真项只看观测样，
+  // 幅度恢复与完整道一致（≥0.8·amp，同号）。
+  const Wavelet w = makeRicker(30.0, kDt, 128.0);
+  std::vector<ReflSpike> spikes;
+  ReflSpike sp;
+  sp.twtMs = 1500.0; // 样 750
+  sp.amplitude = 0.2f;
+  spikes.push_back(sp);
+  std::vector<float> trace = synth(spikes, w);
+  for (int i = 751; i < 800; ++i)
+    trace[std::size_t(i)] = std::numeric_limits<float>::quiet_NaN();
+  const std::vector<float> truth = spikeGrid(spikes);
+
+  SparseSpikeOptions opt;
+  opt.lambda = 0.02;
+  const SparseSpikeResult r = sparseSpikeInversion(trace.data(), kN, kDt, w, nullptr, opt);
+  QVERIFY2(r.ok, r.reason.c_str());
+  const double peak = double(r.reflectivity[std::size_t(750)]);
+  const double amp = double(sp.amplitude);
+  QVERIFY2(std::fabs(peak) >= 0.8 * std::fabs(amp) && peak * amp > 0.0,
+           qPrintable(QString("masked run peak=%1 (amp %2), residual=%3")
+                        .arg(peak)
+                        .arg(amp)
+                        .arg(r.residualEnergyRatio)));
+  // 参照：完整道同参数的恢复幅度（掩膜道不应更差）。
+  const std::vector<float> full = synth(spikes, w);
+  const SparseSpikeResult rf = sparseSpikeInversion(full.data(), kN, kDt, w, nullptr, opt);
+  QVERIFY2(rf.ok, rf.reason.c_str());
+  QVERIFY2(std::fabs(peak) >= 0.8 * std::fabs(double(rf.reflectivity[std::size_t(750)])),
+           qPrintable(QString("peak %1 vs full-trace %2")
+                        .arg(peak)
+                        .arg(double(rf.reflectivity[std::size_t(750)]))));
+  // 掩膜区解如实 NaN（缺失不虚构读数），其余有限。
+  for (int i = 751; i < 800; ++i)
+    QVERIFY(std::isnan(r.reflectivity[std::size_t(i)]));
+  QVERIFY(std::isfinite(r.reflectivity[std::size_t(700)]));
 }
 
 void TestInversionSparse::amplitudeCalibrationScaleInvariant()

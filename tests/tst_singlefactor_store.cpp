@@ -10,7 +10,10 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QProcess>
+#include <QStandardPaths>
 #include <QTemporaryDir>
+#include <QThread>
 
 class SingleFactorStoreTests : public QObject
 {
@@ -23,6 +26,8 @@ class SingleFactorStoreTests : public QObject
     void horizonWithPipeIsRejected();
     void legacyStoreDetectionAndExplicitMigration();
     void migrationRefusesForeignSrs();
+    void migrationAbortsWhenWalCheckpointBusy();
+    void restoreFileFromBackupRemovesWalResidue();
 };
 
 void SingleFactorStoreTests::extendedParametersReopen()
@@ -269,6 +274,118 @@ void SingleFactorStoreTests::horizonWithPipeIsRejected()
                           QStringLiteral( "LINESTRING(0 0, 1 0)" ), QStringLiteral( "break_line" ), 0, &err ) );
   QVERIFY( !err.isEmpty() );
   QVERIFY( !QFile::exists( dir.filePath( QStringLiteral( "p.gpkg" ) ) ) );
+}
+
+// full-audit F4：外部读者持有读快照时 TRUNCATE 检查点必拿 BUSY——迁移必须
+// 如实拒绝且不产生字节级备份（带着缺 WAL 内容的备份继续，校验失败还原时会
+// 静默丢最近已提交约束）。
+void SingleFactorStoreTests::migrationAbortsWhenWalCheckpointBusy()
+{
+  GDALAllRegister();
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  const QString path = dir.filePath( QStringLiteral( "busy.gpkg" ) );
+  QString err;
+  QVERIFY2( createLegacyNoSrsStore( path, &err ), qPrintable( err ) );
+
+  // 场景构造：GDAL 自身每次提交后自动 checkpoint（WAL 恒空），无法单独用
+  // GDAL 写者制造滞留帧；用系统 sqlite3 CLI（若在）提交一帧留在 WAL，GDAL
+  // 读者先锚定旧快照——TRUNCATE 检查点推进不过旧快照必拿 BUSY。环境无
+  // sqlite3 CLI 时如实跳过（生产触发面是 QGIS provider 读者 + 帧滞留）。
+  {
+    const QString sqlite3 = QStandardPaths::findExecutable( QStringLiteral( "sqlite3" ) );
+    if ( sqlite3.isEmpty() )
+    {
+      QSKIP( "sqlite3 CLI 不可用：无法构造 WAL 滞留帧 + 旧读快照的 busy 场景" );
+    }
+    GDALDatasetH modeSetter = GDALOpenEx( path.toUtf8().constData(),
+                                          GDAL_OF_UPDATE | GDAL_OF_VECTOR, nullptr, nullptr, nullptr );
+    QVERIFY( modeSetter );
+    OGRLayerH mode = GDALDatasetExecuteSQL( modeSetter, "PRAGMA journal_mode=WAL", nullptr, "SQLITE" );
+    bool wal = false;
+    if ( mode )
+    {
+      if ( OGRFeatureH raw = OGR_L_GetNextFeature( mode ) )
+        wal = QString::fromUtf8( OGR_F_GetFieldAsString( raw, 0 ) ).compare(
+                  QStringLiteral( "wal" ), Qt::CaseInsensitive ) == 0;
+      GDALDatasetReleaseResultSet( modeSetter, mode );
+    }
+    GDALClose( modeSetter );
+    QVERIFY2( wal, "journal_mode must switch to WAL for the busy scenario" );
+
+    GDALDatasetH reader = GDALOpenEx( path.toUtf8().constData(),
+                                      GDAL_OF_VECTOR, nullptr, nullptr, nullptr );
+    QVERIFY( reader );
+    OGRLayerH layer = GDALDatasetGetLayerByName( reader, "constraints" );
+    QVERIFY( layer );
+    OGR_L_ResetReading( layer );
+    if ( OGRFeatureH raw = OGR_L_GetNextFeature( layer ) )
+      OGR_F_Destroy( raw ); // 语句保持打开：读快照锚定在当前 WAL 尾
+    // 持久 CLI 连接提交一帧后保持打开（连接全关时 sqlite 会自动 checkpoint
+    // 清空 WAL——帧就留不住）。constraints 表的几何触发器用 CLI 没有的
+    // ST_* 函数，写无触发器的 gpkg_contents 即可制造滞留帧。
+    QProcess cli;
+    cli.start( sqlite3, { path } );
+    QVERIFY2( cli.waitForStarted( 10000 ), "sqlite3 start failed" );
+    cli.write( QStringLiteral( "UPDATE gpkg_contents SET last_change = '2001-01-01T00:00:00.000Z';\n" ).toUtf8() );
+    cli.waitForBytesWritten( 10000 );
+    QThread::msleep( 300 );
+    QVERIFY2( QFileInfo::exists( path + QStringLiteral( "-wal" ) ) &&
+                  QFileInfo( path + QStringLiteral( "-wal" ) ).size() > 0,
+              "CLI 提交应留下滞留 WAL 帧" );
+
+    ConstraintStore store( path );
+    QString migrateError;
+    QVERIFY( !store.migrateLegacyCrs( &migrateError, nullptr ) );
+    QVERIFY2( migrateError.contains( QStringLiteral( "检查点" ) ) ||
+                  migrateError.contains( QStringLiteral( "占用" ) ),
+              qPrintable( migrateError ) );
+    // 拒绝路径不得留下备份（也不动主文件）。
+    QCOMPARE( QDir( dir.path() ).entryList( { QStringLiteral( "*.crs-backup-*.bak" ) } ).size(), 0 );
+    cli.write( QStringLiteral( ".quit\n" ).toUtf8() );
+    cli.waitForFinished( 10000 );
+    cli.close();
+    GDALClose( reader ); // 释放读快照
+  }
+}
+
+// full-audit F4：字节级还原必须把 -wal/-shm 与主文件一起换掉——遗留 WAL 帧
+// 会在下次打开时重放到还原后的旧主文件上（嵌合库）。
+void SingleFactorStoreTests::restoreFileFromBackupRemovesWalResidue()
+{
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  const QString main = dir.filePath( QStringLiteral( "m.gpkg" ) );
+  const QString backup = dir.filePath( QStringLiteral( "m.bak" ) );
+  {
+    QFile a( main );
+    QVERIFY( a.open( QIODevice::WriteOnly ) );
+    a.write( "AAAA" );
+    QFile b( backup );
+    QVERIFY( b.open( QIODevice::WriteOnly ) );
+    b.write( "BBBB" );
+    QFile wal( main + QStringLiteral( "-wal" ) );
+    QVERIFY( wal.open( QIODevice::WriteOnly ) );
+    wal.write( "stale-frames" );
+    QFile shm( main + QStringLiteral( "-shm" ) );
+    QVERIFY( shm.open( QIODevice::WriteOnly ) );
+    shm.write( "stale-index" );
+  }
+  QString err;
+  QVERIFY2( ConstraintStore::restoreFileFromBackup( main, backup, &err ),
+            qPrintable( err ) );
+  QVERIFY( !QFile::exists( main + QStringLiteral( "-wal" ) ) );
+  QVERIFY( !QFile::exists( main + QStringLiteral( "-shm" ) ) );
+  QFile restored( main );
+  QVERIFY( restored.open( QIODevice::ReadOnly ) );
+  QCOMPARE( restored.readAll(), QByteArray( "BBBB" ) );
+
+  // 备份缺失 → 如实失败，不动现场。
+  QVERIFY( !ConstraintStore::restoreFileFromBackup( main, dir.filePath( QStringLiteral( "nope.bak" ) ), &err ) );
+  QVERIFY( !err.isEmpty() );
+  QFile still( main );
+  QVERIFY( still.open( QIODevice::ReadOnly ) );
+  QCOMPARE( still.readAll(), QByteArray( "BBBB" ) );
 }
 
 QTEST_MAIN( SingleFactorStoreTests )

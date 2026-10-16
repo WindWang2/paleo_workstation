@@ -659,6 +659,32 @@ bool ConstraintStore::migrateLegacyCrs(QString *error, QString *backupPathOut) {
   return result.ok;
 }
 
+bool ConstraintStore::restoreFileFromBackup(const QString &gpkgPath,
+                                            const QString &backupPath,
+                                            QString *error) {
+  const auto bad = [error](const QString &message) {
+    if (error) *error = message;
+    return false;
+  };
+  // 备份先验证后删除：备份缺失/不可读时绝不能先动现场（否则把唯一的现网
+  // 文件也删了）。
+  if (!QFile::exists(backupPath) || !QFileInfo(backupPath).isReadable())
+    return bad(QObject::tr("严重：备份不存在或不可读，保持现场不动：%1").arg(backupPath));
+  // -wal/-shm 是迁移连接留下的 WAL 脚手架：只换主文件的话，SQLite 下次打开
+  // 对着「还原后的旧主文件」重放遗留帧（帧校验和链不校验与主库同一性），
+  // 产出备份页+迁移页的嵌合库——三件一起还原。
+  for (const QString &suffix : {QString(), QStringLiteral("-wal"),
+                                QStringLiteral("-shm")}) {
+    const QString target = gpkgPath + suffix;
+    if (QFile::exists(target) && !QFile::remove(target))
+      return bad(QObject::tr("严重：无法移除待还原文件 %1（文件被占用？）").arg(target));
+  }
+  if (!QFile::copy(backupPath, gpkgPath) ||
+      QFileInfo(backupPath).size() != QFileInfo(gpkgPath).size())
+    return bad(QObject::tr("严重：从备份还原失败，原文件可能缺失，备份在 %1").arg(backupPath));
+  return true;
+}
+
 bool ConstraintStore::migrateLegacyCrsLocked(QString *error, QString *backupPathOut) {
   const auto fail = [error](const QString &message) {
     if (error) *error = message;
@@ -675,10 +701,33 @@ bool ConstraintStore::migrateLegacyCrsLocked(QString *error, QString *backupPath
   // V3（复审）：WAL 盲区——备份前先把已提交数据 checkpoint 进主文件，字节级
   // 备份才完整；随后的 GDAL 事务持有写锁到提交，预扫描/备份/校验同窗生成，
   // 校验失败还原不会覆盖并发写者的合法提交。
+  // V4（full-audit F4）：checkpoint 必须在事务外跑且 busy 标志必须为 0——
+  // QGIS 画布等外部读者会令 TRUNCATE 检查点拿到 BUSY，此前返回值被丢弃，
+  // 备份可能缺 WAL 中已提交的数据（还原即静默丢最近提交）。独占检查点拿
+  // 不到时如实拒绝迁移，绝不带着不完整备份继续。
+  {
+    CPLErrorReset();
+    GDALDatasetH ckptDs = GDALOpenEx(m_gpkgPath.toUtf8().constData(),
+                                     GDAL_OF_UPDATE | GDAL_OF_VECTOR, nullptr,
+                                     nullptr, nullptr);
+    if (!ckptDs)
+      return fail(QObject::tr("无法打开约束库做检查点：%1").arg(m_gpkgPath));
+    bool ckptOk = false;
+    OGRLayerH rows = GDALDatasetExecuteSQL(
+        ckptDs, "PRAGMA wal_checkpoint(TRUNCATE)", nullptr, "SQLITE");
+    if (rows) {
+      if (OGRFeatureH raw = OGR_L_GetNextFeature(rows))
+        ckptOk = OGR_F_GetFieldAsInteger(raw, 0) == 0; // busy==0 才完整
+      GDALDatasetReleaseResultSet(ckptDs, rows);
+    }
+    GDALClose(ckptDs);
+    if (!ckptOk)
+      return fail(QObject::tr("约束库被其他窗口占用（无法独占完成 WAL 检查点），"
+                              "已中止迁移；请关闭其他打开该库的窗口后重试"));
+  }
   Transaction transaction;
   if (!transaction.open(m_gpkgPath, false, error))
     return false;
-  sql(transaction.ds, "PRAGMA wal_checkpoint(TRUNCATE)");
   // 迁移前快照：fid/身份/层位/几何逐一记下，事务内读取。
   struct Row { qlonglong fid; QString id, horizon, wkt; };
   QVector<Row> pre;
@@ -708,13 +757,11 @@ bool ConstraintStore::migrateLegacyCrsLocked(QString *error, QString *backupPath
       QFileInfo(backup).size() != QFileInfo(m_gpkgPath).size())
     return fail(QObject::tr("无法创建迁移备份（或备份不完整）：%1").arg(backup));
   const auto restoreBackup = [&](QString *restoreError) {
-    if (!QFile::remove(m_gpkgPath) || !QFile::copy(backup, m_gpkgPath) ||
-        QFileInfo(backup).size() != QFileInfo(m_gpkgPath).size()) {
-      if (restoreError)
-        *restoreError = QObject::tr("严重：从备份还原失败，原文件可能缺失，备份在 %1").arg(backup);
-      return false;
-    }
-    return true;
+    // 还原前必须已关闭本文件的全部连接（transaction.ds 在 commit 后、校验
+    // ds 在调用点 reset）——Windows 上有句柄时 remove 直接失败；Linux 上
+    // remove 虽成但句柄写回孤儿 inode。委托 restoreFileFromBackup 一并清
+    // -wal/-shm（遗留 WAL 帧会重放到还原后的旧主文件上，产生嵌合库）。
+    return restoreFileFromBackup(m_gpkgPath, backup, restoreError);
   };
   {
     const QByteArray wkt = DataCatalog::localGridCrsWkt().toUtf8();
@@ -812,6 +859,10 @@ bool ConstraintStore::migrateLegacyCrsLocked(QString *error, QString *backupPath
     }
     if (!transaction.commit(error))
       return false;
+    // 提交即关闭事务连接：还原路径要在盘上换文件，句柄在身（Windows 必败；
+    // Linux 则连接关闭时的 checkpoint 写进已 unlink 的孤儿 inode）。
+    GDALClose(transaction.ds);
+    transaction.ds = nullptr;
   }
   // 提交后独立重开校验：SRS 生效 + 每行 fid/身份/层位/几何逐一相等；失败时用
   // 同窗生成的备份原样还原（还原失败如实上报，绝不谎称已还原）。
@@ -850,6 +901,8 @@ bool ConstraintStore::migrateLegacyCrsLocked(QString *error, QString *backupPath
       }
     }
     if (!intact || index != pre.size()) {
+      // 校验连接先关，再在盘上还原（restoreBackup 契约）。
+      ds.reset();
       QString restoreError;
       const bool restored = restoreBackup(&restoreError);
       return fail(restored ? QObject::tr("迁移后校验失败（要素身份或几何变动），已从备份还原原文件")

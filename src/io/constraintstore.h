@@ -70,6 +70,13 @@ public:
   // 调用——历史库的坐标含义必须由显式动作核定。已是目标状态时幂等成功。
   bool migrateLegacyCrs(QString *error = nullptr, QString *backupPathOut = nullptr);
 
+  // 字节级还原：主文件 + 伴生 -wal/-shm 三件一起从备份恢复。只换主文件不删
+  // WAL 脚手架的话，SQLite 下次打开会把遗留帧重放到「还原后的旧主文件」上
+  // （帧校验链不校验与主库的同一性）→ 备份页+新页嵌合库。调用前须关闭本文件
+  // 的全部连接（Windows 句柄未关时 remove 恒失败）。
+  static bool restoreFileFromBackup(const QString &gpkgPath, const QString &backupPath,
+                                    QString *error = nullptr);
+
 private:
   bool appendInternal(const QString &horizon, const QString &id, const QString &wkt,
                       const QString &type, int code, const QString *parameters,

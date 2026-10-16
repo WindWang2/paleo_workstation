@@ -103,7 +103,10 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
                            resolveWellLayer, boundPath] {
     if (!store)
       return;
-    const bool sameProject = *boundPath == store->metaDbPath();
+    // sameProject 短路还须确认 store 已建过——裸 manifest 测试栈首调时空
+    // metaDbPath 恰为 ""，""=="" 会跳过创建，随后 load 解引用 null。
+    const bool sameProject =
+        m_wellSectionFaultStore && *boundPath == store->metaDbPath();
     *boundPath = store->metaDbPath();
     QString storeErr;
     if (!sameProject) {

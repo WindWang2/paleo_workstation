@@ -344,6 +344,27 @@ void SeismicSectionCanvas::paintWiggleOverlay(QPainter &p, const QRect &vp, doub
     const int t0 = std::clamp(static_cast<int>(std::floor(pixelToTrace(vp.left() - halfW))) - 1, 0, m_traces - 1);
     const int t1 = std::clamp(static_cast<int>(std::ceil(pixelToTrace(vp.right() + halfW))) + 1, 0, m_traces - 1);
 
+    // #482：纵向与横向同法裁剪——视口上下缘反算可见样本区间，循环域收窄到
+    // 该区间（旧实现 continue 只跳过不可见样本却仍迭代全道：窄纵窗下
+    // O(可见道 × 总样本)）。反算沿用同一 timeToPixelY 映射的逆
+    // （pixelToTime），±1 样本+10px 边距与原先 continue 的判据一致；
+    // 变换退化（dt/zoom 非正）时保持全量，语义不倒退。
+    int yBegin = 0;
+    int yEnd = m_samples - 1;
+    if (m_dtMs > 1e-6f && std::abs(m_zoomY) > 1e-6) {
+        const double sTop = (pixelToTime(vp.top() - 10) - m_t0Ms) / m_dtMs;
+        const double sBot = (pixelToTime(vp.bottom() + 10) - m_t0Ms) / m_dtMs;
+        const double lo = std::floor(std::min(sTop, sBot)) - 1.0;
+        const double hi = std::ceil(std::max(sTop, sBot)) + 1.0;
+        if (hi < 0.0 || lo > static_cast<double>(m_samples - 1)) {
+            yBegin = 1; // 视口整体在数据范围外：空循环（无可见样本可画）
+            yEnd = 0;
+        } else {
+            yBegin = std::clamp(static_cast<int>(lo), 0, m_samples - 1);
+            yEnd = std::clamp(static_cast<int>(hi), 0, m_samples - 1);
+        }
+    }
+
     QPen wavePen(QColor(30, 38, 48), 1.0);
     QBrush fillBrush(QColor(24, 30, 40));
     for (int t = t0; t <= t1; ++t) {
@@ -354,7 +375,7 @@ void SeismicSectionCanvas::paintWiggleOverlay(QPainter &p, const QRect &vp, doub
         QPolygonF wave;
         QPolygonF fill;
         bool fillOpen = false;
-        for (int y = 0; y < m_samples; y += step) {
+        for (int y = yBegin; y <= yEnd; y += step) {
             const float raw = displayValue(t, y);
             if (!std::isfinite(raw))
                 continue;

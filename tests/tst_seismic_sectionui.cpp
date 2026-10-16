@@ -108,6 +108,32 @@ qint64 imageDiff(const QImage &a, const QImage &b)
   return diff;
 }
 
+// #482：hover 脏区观测壳——重写 paintEvent 记录 Qt 实际投递的重绘区域
+// （QPaintEvent::region() 的精确面积，而非外接矩形——十字带是「非矩形」
+// 区域，外接矩形会退化成整幅视口而失去分辨力）。
+class HoverBandSpy : public SeismicSectionCanvas
+{
+public:
+  int paintCount = 0;
+  qint64 paintArea = 0;
+  void resetCounters()
+  {
+    paintCount = 0;
+    paintArea = 0;
+  }
+
+protected:
+  void paintEvent(QPaintEvent *event) override
+  {
+    ++paintCount;
+    qint64 area = 0;
+    for (const QRect &rc : event->region())
+      area += static_cast<qint64>(rc.width()) * rc.height();
+    paintArea += area;
+    SeismicSectionCanvas::paintEvent(event);
+  }
+};
+
 // 服务任务静默等待（同 tst_seismic_3dui 的口径）：事件循环轮转到
 // 条件满足或超时。
 bool waitForQuiet(const std::function<bool()> &done, int timeoutMs = 8000)
@@ -218,6 +244,104 @@ private slots:
     QVERIFY(imageDiff(density, mixed) > 1000);
     QVERIFY(imageDiff(wiggle, mixed) > 1000);
     QCOMPARE(canvas.displayMode(), SectionDisplayMode::Mixed);
+  }
+
+  // ---- #482：wiggle 纵向裁剪——窄纵窗只迭代可见样本段 ----
+  // 同一窄视口下，「超长道 + 只露出中段」与「等可见段短道 + 全露」的
+  // 渲染耗时必须同量级：旧实现 continue 只跳过不可见样本却仍逐样迭代
+  // 全道（O(可见道 × 总样本)），此处按比例断言（容差 8×，实测修复后
+  // ≈1×，未修复 ≈总样本/可见段 倍）。
+  void wiggleVerticalClipNarrowWindow()
+  {
+    constexpr int kTraces = 4;
+    constexpr int kVisibleSamples = 540;  // 600px 高 - 60px 上边距
+    constexpr int kLongSamples = 1000000; // 总样本远大于可见段
+    constexpr int kFrames = 3;
+
+    // 基准：等可见段短道（zoomY=1 时全道可见）
+    SeismicSectionCanvas shortCanvas;
+    shortCanvas.resize(600, 340);
+    shortCanvas.setSectionData(makeSection(kTraces, kVisibleSamples), 2.0f);
+    shortCanvas.setDisplayMode(SectionDisplayMode::WiggleVA);
+    shortCanvas.setZoom(1.0, 1.0);
+
+    // 靶：同样视口只露出前 kVisibleSamples 样，其余 99.95% 在视口外
+    SeismicSectionCanvas longCanvas;
+    longCanvas.resize(600, 340);
+    longCanvas.setSectionData(makeSection(kTraces, kLongSamples), 2.0f);
+    longCanvas.setDisplayMode(SectionDisplayMode::WiggleVA);
+    longCanvas.setZoom(1.0, 1.0);
+    QCOMPARE(longCanvas.sampleCount(), kLongSamples);
+    QVERIFY(longCanvas.zoomY() > 0.99);
+
+    auto timeFrames = [](SeismicSectionCanvas &c) {
+      (void)renderCanvas(c); // 预热（纹理/LOD 缓存）
+      QElapsedTimer clock;
+      clock.start();
+      for (int i = 0; i < kFrames; ++i)
+        (void)renderCanvas(c);
+      return static_cast<double>(clock.elapsed()) / kFrames;
+    };
+
+    const double shortMs = timeFrames(shortCanvas);
+    const double longMs = timeFrames(longCanvas);
+    qInfo("wiggle vertical clip: short(visible-only) %.2f ms/frame, "
+          "long(%d samples, narrow window) %.2f ms/frame, ratio %.1f",
+          shortMs, kLongSamples, longMs, shortMs > 1e-6 ? longMs / shortMs : 0.0);
+    QVERIFY2(longMs <= shortMs * 8.0 + 5.0,
+             qPrintable(QStringLiteral("wiggle 纵向未裁剪：长道 %1 ms vs 可见段 %2 ms")
+                            .arg(longMs, 0, 'f', 2).arg(shortMs, 0, 'f', 2)));
+  }
+
+  // ---- #482：hover 只重绘十字带脏区，不整幅 update ----
+  void hoverRepaintsOnlyCrossBand()
+  {
+    HoverBandSpy canvas;
+    canvas.resize(800, 600);
+    canvas.setSectionData(makeSection(48, 256), 2.0f);
+    canvas.setDisplayMode(SectionDisplayMode::WiggleVA);
+    canvas.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&canvas));
+
+    // 等首帧（整幅）落地后清零计数
+    auto waitPaint = [&canvas] {
+      for (QDeadlineTimer t(10'000); canvas.paintCount == 0 && !t.hasExpired();)
+      {
+        QApplication::processEvents(QEventLoop::AllEvents, 20);
+        QThread::msleep(5);
+      }
+      return canvas.paintCount > 0;
+    };
+    QVERIFY(waitPaint());
+    canvas.resetCounters();
+
+    // 同行移动：脏区应为「旧/新纵带 + 一条横带」（十字线外接区域是整幅
+    // 视口，故按 QPaintEvent::region() 精确面积断言）。
+    const QPoint a{int(canvas.traceToPixelX(6)), int(canvas.timeToPixelY(80))};
+    const QPoint b{int(canvas.traceToPixelX(30)), int(canvas.timeToPixelY(80))};
+    const QPoint c{int(canvas.traceToPixelX(38)), int(canvas.timeToPixelY(80))};
+    QTest::mouseMove(&canvas, a);
+    QVERIFY(waitPaint());
+    canvas.resetCounters();
+    QTest::mouseMove(&canvas, b);
+    QVERIFY(waitPaint());
+
+    const qint64 widgetArea = static_cast<qint64>(canvas.width()) * canvas.height();
+    qInfo("hover dirty region: %lld px of %lld px (%d paints) after same-row move",
+          static_cast<long long>(canvas.paintArea), static_cast<long long>(widgetArea),
+          canvas.paintCount);
+    QVERIFY(canvas.paintCount >= 1); // 十字线必须重绘（不能靠不重绘作弊）
+    QVERIFY2(canvas.paintArea < widgetArea / 8,
+             qPrintable(QStringLiteral("hover 整幅重绘：%1 px >= 视口 1/8")
+                            .arg(static_cast<qlonglong>(canvas.paintArea))));
+
+    // 正确性：十字线确实随鼠标移动（两次抓图不同），而非脏区收窄后
+    // 残留旧十字线不动。
+    const QImage atB = renderCanvas(canvas);
+    QTest::mouseMove(&canvas, c);
+    QVERIFY(waitPaint());
+    const QImage atC = renderCanvas(canvas);
+    QVERIFY(imageDiff(atB, atC) > 0);
   }
 
   // ---- D2.3 阈值 + 极性 ----
@@ -519,6 +643,51 @@ private slots:
     canvas.setGain(4.0f);
     const QImage g4 = renderCanvas(canvas);
     QVERIFY2(imageDiff(g0, g4) > 500, "增益变化必须同时重烘 A/B");
+  }
+
+  // #482：卷帘 A/B 标签文案——A 侧恒为「当前」（死三元两分支同串，
+  // 与 B 标签无关）；B 侧标签缺失回落「对比」而非渲染尾随空（"B · "）。
+  // 文本不可直接断言，用「空标签渲染 == 显式回落文案渲染」钉住回落值，
+  // 用「左标签区不随 B 标签变化」钉住 A 侧恒定语义。
+  void curtainCompareLabelFallback()
+  {
+    SeismicSectionCanvas canvas;
+    canvas.resize(800, 600);
+    canvas.setSectionData(makeSection(48, 256), 2.0f);
+    SgySliceImage other = makeSection(48, 256);
+    for (float &v : other.values)
+      if (std::isfinite(v))
+        v = -v;
+    canvas.setCompareData(other, QString());
+    canvas.setCompareEnabled(true);
+    canvas.setCurtainPos(0.5);
+
+    // 空标签 → B 回落「对比」：与显式传「对比」逐像素一致
+    const QImage emptyLabel = renderCanvas(canvas);
+    canvas.setCompareData(other, QStringLiteral("对比"));
+    const QImage explicitFallback = renderCanvas(canvas);
+    QCOMPARE(imageDiff(emptyLabel, explicitFallback), 0);
+
+    // A 侧恒定：换 B 标签只动右标签区，左标签区逐像素不变
+    canvas.setCompareData(other, QStringLiteral("相邻线"));
+    const QImage labelled = renderCanvas(canvas);
+    const QRect leftLabel(72 + 4, 60 + 2, 120, 16);  // vp.left()+4, vp.top()+2
+    const QRect rightLabel(800 - 64 - 160, 60 + 2, 156, 16); // vp.right()-160
+    qint64 leftDiff = 0;
+    qint64 rightDiff = 0;
+    for (int y = 0; y < 16; ++y)
+    {
+      const auto *r0 = reinterpret_cast<const QRgb *>(emptyLabel.scanLine(leftLabel.top() + y));
+      const auto *r1 = reinterpret_cast<const QRgb *>(labelled.scanLine(leftLabel.top() + y));
+      const auto *s0 = reinterpret_cast<const QRgb *>(emptyLabel.scanLine(rightLabel.top() + y));
+      const auto *s1 = reinterpret_cast<const QRgb *>(labelled.scanLine(rightLabel.top() + y));
+      for (int x = 0; x < 120; ++x)
+        leftDiff += (r0[leftLabel.left() + x] != r1[leftLabel.left() + x]) ? 1 : 0;
+      for (int x = 0; x < 156; ++x)
+        rightDiff += (s0[rightLabel.left() + x] != s1[rightLabel.left() + x]) ? 1 : 0;
+    }
+    QCOMPARE(leftDiff, 0);  // A 侧文案与 B 标签无关（恒「A · 当前」）
+    QVERIFY(rightDiff > 0); // B 侧确实渲染了所给标签
   }
 
   // 跨线书签的视口恢复：换线触发异步重提取，到达回调 fitToWindow 会复位

@@ -344,8 +344,8 @@ bool MapVersionController::launchSaveSnapshot(const QString &horizon, const QVar
         << connect(layer, &QgsMapLayer::crsChanged, this, markStale)
         << connect(layer, &QObject::destroyed, this, markStale);
     }
-  m_async->releaseTokens = [tokenStore, tokenProject, tokenIds, tokenOwner] {
-    if (tokenStore && tokenStore->metaDbPath() == tokenProject)
+  m_async->releaseTokens = [tokenStore, tokenIds, tokenOwner] {
+    if (tokenStore)
       for (const auto &id : tokenIds) tokenStore->releaseLayerBusy(id, tokenOwner);
   };
   paleo::jobs::JobRunner<SnapshotJob>::Callbacks callbacks;

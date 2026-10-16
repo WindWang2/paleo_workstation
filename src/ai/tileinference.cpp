@@ -484,9 +484,27 @@ bool runTileInference( PaleoOnnxService *onnx, const TileInferenceRequest &req,
     if ( !runErr.isEmpty() )
       return fail( QObject::tr( "tile %1/%2 推理失败: %3" ).arg( i + 1 ).arg( tiles.size() ).arg( runErr ) );
 
+    const int expectedOutRows = needPad ? inferRows : tile.rows;
+    const int expectedOutCols = needPad ? inferCols : tile.cols;
+    const qint64 expectedTileElements = qint64( expectedOutRows ) * expectedOutCols;
+    if ( out.shape.size() != 4 || out.shape[0] != 1 || out.shape[2] != expectedOutRows ||
+         out.shape[3] != expectedOutCols || out.shape[1] < 1 ||
+         out.values.size() != qsizetype( out.shape[1] ) * expectedTileElements )
+      return fail( QObject::tr( "tile %1/%2 输出形状 %3 与计算域 %4×%5 不符（期望 [1,C,%4,%5]）" )
+                     .arg( i + 1 )
+                     .arg( tiles.size() )
+                     .arg( [ &out ]() {
+                       QString s;
+                       for ( int64_t d : out.shape )
+                         s += QString::number( d ) + QLatin1Char( ',' );
+                       return s.isEmpty() ? s : s.left( s.size() - 1 );
+                     }() )
+                     .arg( expectedOutRows )
+                     .arg( expectedOutCols ) );
+
     if ( needPad )
     {
-      const int outClasses = out.shape.size() >= 2 ? int( out.shape[1] ) : 1;
+      const int outClasses = int( out.shape[1] );
       QVector<float> unpaddedValues( qsizetype( outClasses ) * tile.rows * tile.cols );
       for ( int c = 0; c < outClasses; ++c )
       {
@@ -502,22 +520,6 @@ bool runTileInference( PaleoOnnxService *onnx, const TileInferenceRequest &req,
       out.values = std::move( unpaddedValues );
       out.shape = { 1, outClasses, tile.rows, tile.cols };
     }
-
-    // 输出契约：[1,C,rows,cols]，空间维与读域一致。
-    if ( out.shape.size() != 4 || out.shape[0] != 1 || out.shape[2] != tile.rows ||
-         out.shape[3] != tile.cols || out.shape[1] < 1 ||
-         out.values.size() != qsizetype( out.shape[1] ) * expected )
-      return fail( QObject::tr( "tile %1/%2 输出形状 %3 与读域 %4×%5 不符（期望 [1,C,%4,%5]）" )
-                     .arg( i + 1 )
-                     .arg( tiles.size() )
-                     .arg( [ &out ]() {
-                       QString s;
-                       for ( int64_t d : out.shape )
-                         s += QString::number( d ) + QLatin1Char( ',' );
-                       return s.isEmpty() ? s : s.left( s.size() - 1 );
-                     }() )
-                     .arg( tile.rows )
-                     .arg( tile.cols ) );
 
     const int classes = int( out.shape[1] );
     if ( classes > kMaxTileClasses )

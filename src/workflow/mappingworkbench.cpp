@@ -439,7 +439,7 @@ bool MappingWorkbench::saveFacies(const QString &h, const QVariantList &items,
     }
     if (!f.value("texture").toString().isEmpty() &&
         FaciesCatalog::resourcePath(f.value("texture").toString()).isEmpty()) {
-      fail(error, tr("纹理不在本项目纹理库中"));
+      fail(error, tr("纹理不在本工程纹理库中"));
       return false;
     }
     codes.insert(code);

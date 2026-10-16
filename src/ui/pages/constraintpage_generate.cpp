@@ -25,27 +25,73 @@
 #include <QListWidget>
 #include <QPushButton>
 #include <QSpinBox>
+#include <QScrollArea>
 #include <QTableWidget>
 #include <QTableWidgetItem>
+#include <QTimer>
 
 using namespace paleo::pagesinternal;
 using namespace paleo::constraintpage_internal;
 
 void ConstraintPage::buildGenerateSection( QWidget *content, QVBoxLayout *lay )
 {
+  PaleoTheme::applyThemedStyleSheet(content, [] {
+    const auto &t = PaleoTheme::tokens();
+    return QStringLiteral("QWidget#factorActionBar { background: %1; border-top: 1px solid %2; }")
+        .arg(t.surface.name(), t.border.name());
+  });
+  auto *summary = caption(QString(), content);
+  summary->setObjectName(QStringLiteral("factorRequestSummary"));
+  summary->setWordWrap(true);
+  lay->addWidget(summary);
+  auto *guidanceRow = new QHBoxLayout;
+  auto *guidance = new QLabel(content);
+  guidance->setObjectName(QStringLiteral("factorReadinessHint"));
+  guidance->setWordWrap(true);
+  guidance->setTextFormat(Qt::PlainText);
+  guidance->setAccessibleName(tr("单因素生成下一步"));
+  guidanceRow->addWidget(guidance, 1);
+  auto *locate = new QPushButton(tr("去准备"), content);
+  locate->setObjectName(QStringLiteral("factorNextStepButton"));
+  guidanceRow->addWidget(locate);
+  lay->addLayout(guidanceRow);
+  connect(locate, &QPushButton::clicked, this, [this, locate] {
+    auto *target = findChild<QWidget *>(locate->property("target").toString());
+    auto *scroll = child<QScrollArea>(this, "constraintPageScroll");
+    if (!target || !scroll)
+      return;
+    for (QWidget *ancestor = target->parentWidget(); ancestor && ancestor != this;
+         ancestor = ancestor->parentWidget())
+      if (auto *section = dynamic_cast<CollapsibleSection *>(ancestor))
+        section->setExpanded(true);
+    QTimer::singleShot(0, target, [scroll, target] {
+      scroll->ensureWidgetVisible(target, 0, PaleoTheme::tokens().spacingMd);
+      if (target->focusPolicy() != Qt::NoFocus)
+        target->setFocus(Qt::OtherFocusReason);
+    });
+  });
+  auto *actions = new QHBoxLayout;
+  actions->setSpacing(PaleoTheme::tokens().spacingXs);
   // 本页主操作（DESIGN.md primary 三用途之一）：生成单因素图突出；
   // 其余动作保持常规面并按组分隔。
   auto *generate = new QPushButton(tr("计算并保存等值面"), this);
   generate->setObjectName( QStringLiteral( "generateFactorButton" ) );
   generate->setEnabled( false ); // 先勾选一个单因素（updateFactorActionStates 管 tooltip）
   markPrimaryButton( generate );
-  lay->addWidget( generate );
+  actions->addWidget( generate, 1 );
   auto *cancel = new QPushButton( tr( "取消" ), content );
   cancel->setObjectName( QStringLiteral( "factorCancelButton" ) );
   cancel->setEnabled( false );
   cancel->setToolTip( tr( "当前没有正在运行的单因素任务" ) );
-  lay->addWidget( cancel );
+  actions->addWidget( cancel );
+  cancel->hide();
   connect( cancel, &QPushButton::clicked, this, &ConstraintPage::runCancelRequested );
+  auto *tasks = new QPushButton(tr("任务中心"), content);
+  tasks->setObjectName(QStringLiteral("factorTaskCenterButton"));
+  tasks->setToolTip(tr("查看计算进度、任务日志与失败原因"));
+  actions->addWidget(tasks);
+  lay->addLayout(actions);
+  connect(tasks, &QPushButton::clicked, this, &ConstraintPage::taskCenterRequested);
   auto *progress = new QProgressBar(content);
   progress->setObjectName(QStringLiteral("factorProgressBar"));
   progress->setRange(0, 100);
@@ -53,10 +99,6 @@ void ConstraintPage::buildGenerateSection( QWidget *content, QVBoxLayout *lay )
   progress->setVisible(false);
   progress->setAccessibleName(tr("单因素计算进度"));
   lay->addWidget(progress);
-  auto *tasks = new QPushButton(tr("查看任务中心"), content);
-  tasks->setObjectName(QStringLiteral("factorTaskCenterButton"));
-  lay->addWidget(tasks);
-  connect(tasks, &QPushButton::clicked, this, &ConstraintPage::taskCenterRequested);
 
   connect( generate, &QPushButton::clicked, this, [this] {
     // 方向 96：原 ctor 期捕获的 22 个控件改事件期 findChild（objectName 全部
@@ -178,7 +220,9 @@ void ConstraintPage::buildGenerateSection( QWidget *content, QVBoxLayout *lay )
 
 void ConstraintPage::buildContourSection( QWidget *content, QVBoxLayout *lay )
 {
-  lay->addWidget( caption( tr( "等值线间距" ), this ) );
+  auto *intervalCaption = caption( tr( "等值线间距" ), this );
+  intervalCaption->setObjectName(QStringLiteral("factorContourIntervalCaption"));
+  lay->addWidget( intervalCaption );
   auto *interval = new QDoubleSpinBox( this );
   interval->setObjectName( QStringLiteral( "contourIntervalSpin" ) );
   // 0 = 自动等值距（structural_idw 因素的上游自适应步长规则）。
@@ -209,9 +253,12 @@ void ConstraintPage::buildContourSection( QWidget *content, QVBoxLayout *lay )
   sourceNote->setObjectName( QStringLiteral( "factorContourSourceLabel" ) );
   sourceNote->setWordWrap( true );
   lay->addWidget( sourceNote );
-  connect( contourMode, &QComboBox::currentIndexChanged, this, [this, contourMode, levelsEdit, sourceNote] {
+  PaleoTheme::applyThemedStyleSheet(sourceNote, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
+  connect( contourMode, &QComboBox::currentIndexChanged, this, [this, contourMode, levelsEdit, sourceNote, interval, intervalCaption] {
     const bool interpretive = contourMode->currentData().toString() == QLatin1String( "cartographic_detour" );
     levelsEdit->setVisible( interpretive );
+    interval->setVisible(!interpretive);
+    intervalCaption->setVisible(!interpretive);
     sourceNote->setText( interpretive ? tr( "解释性等值线的值来自制图工作场，不能参与融合、分相或厚度统计" )
                                       : tr( "等值线取自分析场" ) );
     updateFactorActionStates();
@@ -222,6 +269,10 @@ void ConstraintPage::buildContourSection( QWidget *content, QVBoxLayout *lay )
   contour->setObjectName( QStringLiteral( "contourButton" ) );
   contour->setEnabled( false ); // 勾选且已生成的因素才有可等值线的栅格
   lay->addWidget( contour );
+  auto *hint = caption(QString(), content);
+  hint->setObjectName(QStringLiteral("factorContourHint"));
+  hint->setWordWrap(true);
+  lay->addWidget(hint);
   connect( contour, &QPushButton::clicked, this, [this, interval, contourMode, levelsEdit] {
     const QString layerId = checkedFactorLayerId();
     if ( layerId.isEmpty() )
@@ -236,7 +287,7 @@ void ConstraintPage::buildContourSection( QWidget *content, QVBoxLayout *lay )
       {
         // 静默丢 token 会让用户以为全部级别都进了提线——如实拒绝并提示。
         if ( auto *status = child<QLabel>( this, "statusLabel" ) )
-          status->setText( tr( "等值级别含 %1 个无法识别的值，已忽略；请修正后再计算。" ).arg( dropped ) );
+          status->setText( tr( "等值级别含 %1 个无法识别或超出上限的值，请修正后再计算。" ).arg( dropped ) );
         return;
       }
       emit interpretiveContourRequested( layerId, levels );
@@ -278,6 +329,7 @@ void ConstraintPage::updateFactorActionStates()
     batch->setToolTip(busy ? tr("正在计算，可取消") : selected ? QString() : tr("在列表中按 Ctrl 或 Shift 多选约束"));
   }
   const int r = checkedRow( factors );
+  generate->setProperty("preparationTarget", QStringLiteral("factorTable"));
   if ( r < 0 )
   {
     generate->setEnabled( false );
@@ -285,6 +337,7 @@ void ConstraintPage::updateFactorActionStates()
     contour->setEnabled( false );
     contour->setToolTip( tr( "先在清单中勾选一个单因素" ) );
     updateEngineRows();
+    updateOperationGuidance();
     return;
   }
   updateEngineRows();
@@ -294,6 +347,18 @@ void ConstraintPage::updateFactorActionStates()
     generate->setToolTip( tr( "正在计算，可取消" ) );
     contour->setEnabled( false );
     contour->setToolTip( tr( "正在计算，可取消" ) );
+    updateOperationGuidance();
+    return;
+  }
+  const auto *horizon = child<QComboBox>(this, "horizonCombo");
+  if (!horizon || horizon->currentText().trimmed().isEmpty())
+  {
+    generate->setEnabled(false);
+    generate->setToolTip(tr("步骤 1：请先打开工程并选择层位"));
+    generate->setProperty("preparationTarget", QStringLiteral("horizonCombo"));
+    contour->setEnabled(false);
+    contour->setToolTip(generate->toolTip());
+    updateOperationGuidance();
     return;
   }
   bool known = false;
@@ -311,12 +376,13 @@ void ConstraintPage::updateFactorActionStates()
     // 未选即禁用并说明，不静默退化成井点包络域。
     auto *method = child<QComboBox>( this, "factorMethodCombo" );
     auto *boundaryCombo = child<QComboBox>( this, "factorBoundaryCombo" );
-    if ( method && boundaryCombo
+    if ( known && interpolantEngine(def.processingAlgId) && method && boundaryCombo
          && method->currentData().toString() == QLatin1String( "structural_idw" )
          && boundaryCombo->currentData().toString().isEmpty() )
     {
       generate->setEnabled( false );
       generate->setToolTip( tr( "请先选择或导入成图边界面图层" ) );
+      generate->setProperty("preparationTarget", QStringLiteral("factorBoundaryCombo"));
     }
   }
   if (known && def.processingAlgId == QLatin1String("paleo:paleo_isopach")) {
@@ -326,6 +392,7 @@ void ConstraintPage::updateFactorActionStates()
         base->currentData().toString().isEmpty() || top->currentData() == base->currentData()) {
       generate->setEnabled(false);
       generate->setToolTip(tr("步骤 2：选择不同的顶、底构造面，按现有等厚算法计算地层厚度"));
+      generate->setProperty("preparationTarget", QStringLiteral("factorTopSurfaceCombo"));
     }
   }
   if (known && interpolantEngine(def.processingAlgId) && property("paleo.page.fieldsbound").toBool()) {
@@ -333,13 +400,25 @@ void ConstraintPage::updateFactorActionStates()
     auto *h = child<QComboBox>(this, "horizonCombo");
     if (!property("paleo.page.constraintsready").toBool()) {
       generate->setEnabled(false);
-      generate->setToolTip(tr("步骤 1：先绘制或导入本层位的间隔线和方向线"));
+      generate->setToolTip(tr("步骤 2：先绘制或导入本层位的间隔线和方向线"));
+      generate->setProperty("preparationTarget", QStringLiteral("constraintFamiliesSection"));
     } else if (!wf || !h ||
                wf->preparedWellFactorVersion(h->currentText(), factorIdOfRow(factors, r),
                                              wellFactorParams())
                    .isEmpty()) {
       generate->setEnabled(false);
       generate->setToolTip(tr("步骤 2：先提取并保存当前地层的井点数据"));
+      generate->setProperty("preparationTarget", QStringLiteral("extractWellFactorsButton"));
+    }
+    // 必需的协变量不能因高级参数折叠而被忽略；定位入口会展开其所在分组。
+    const auto *method = child<QComboBox>(this, "factorMethodCombo");
+    const auto *covariate = child<QComboBox>(this, "factorCovariateCombo");
+    if (generate->isEnabled() && method->currentData() == QStringLiteral("cokriging") &&
+        covariate->currentData().toString().isEmpty())
+    {
+      generate->setEnabled(false);
+      generate->setToolTip(tr("步骤 3：协克里金需选择协变量栅格，请在高级插值参数中补齐"));
+      generate->setProperty("preparationTarget", QStringLiteral("factorCovariateCombo"));
     }
   }
   if (auto *interval = child<QDoubleSpinBox>(this, "contourIntervalSpin")) {
@@ -374,14 +453,106 @@ void ConstraintPage::updateFactorActionStates()
     contour->setEnabled( true );
     contour->setToolTip( QString() );
   }
+  updateOperationGuidance();
+}
+
+void ConstraintPage::updateOperationGuidance()
+{
+  auto *hint = child<QLabel>(this, "factorReadinessHint");
+  auto *next = child<QPushButton>(this, "factorNextStepButton");
+  auto *generate = child<QPushButton>(this, "generateFactorButton");
+  if (!hint || !next || !generate)
+    return;
+  const auto *horizon = child<QComboBox>(this, "horizonCombo");
+  const auto *table = child<QTableWidget>(this, "factorTable");
+  const int row = checkedRow(table);
+  const QString factorId = factorIdOfRow(table, row);
+  const auto def = SingleFactorRegistry::byId(factorId);
+  const QString h = horizon->currentText();
+  child<QLabel>(this, "factorRequestSummary")->setText(
+      row < 0 ? tr("当前图件：尚未选择因素") : tr("当前图件：%1 · %2").arg(h.isEmpty() ? tr("未选层位") : h, def.title));
+  QString inputNote;
+  if (row >= 0)
+    inputNote = tr("输入：%1").arg(table->item(row, 2)->text());
+  if (def.processingAlgId == QLatin1String("paleo:paleo_isopach"))
+    inputNote += tr("。选择不同的顶、底构造面计算厚度，无需提取井点字段。");
+  else if (def.processingAlgId == SingleFactorContracts::welldistEngineId())
+    inputNote += tr("。使用井位与硬屏障计算绕障距离，无需提取指标字段。");
+  child<QLabel>(this, "factorInputHint")->setText(inputNote);
+
+  QString target = QStringLiteral("factorTable");
+  QString action = tr("去选择");
+  QString text = generate->toolTip();
+  const bool busy = property("paleo.page.runbusy").toBool();
+  if (busy)
+    text = tr("任务运行中，可取消；详细进度与日志见任务中心。");
+  else if (h.trimmed().isEmpty())
+  {
+    text = tr("请先打开工程并选择层位。");
+    target = QStringLiteral("horizonCombo");
+  }
+  else if (row < 0)
+    text = tr("请选择一个因素，再准备对应的输入数据。");
+  else if (generate->isEnabled())
+  {
+    text = checkedFactorLayerId().isEmpty()
+        ? tr("输入已就绪，可计算并保存等值面。")
+        : tr("等值面已保存；可继续提取等值线，或按当前参数重新计算。");
+    target = checkedFactorLayerId().isEmpty() ? QStringLiteral("factorSettingsCaption")
+                                            : QStringLiteral("factorContourModeCombo");
+    action = checkedFactorLayerId().isEmpty() ? tr("检查参数") : tr("去提等值线");
+    const QString staleKey = QStringLiteral("paleo.page.factorstale.%1").arg(h);
+    if (property(staleKey.toUtf8().constData()).toStringList().contains(factorId))
+    {
+      text = tr("输入已变更；已保存的等值面对应旧输入，请重新计算更新成果。");
+      target = QStringLiteral("factorSettingsCaption");
+      action = tr("检查参数");
+    }
+  }
+  else if (generate->property("preparationTarget") == QStringLiteral("constraintFamiliesSection"))
+  {
+    target = QStringLiteral("constraintFamiliesSection");
+    action = tr("去准备");
+  }
+  else if (generate->property("preparationTarget") == QStringLiteral("extractWellFactorsButton"))
+  {
+    target = QStringLiteral("extractWellFactorsButton");
+    action = tr("去提取");
+    const auto *extract = child<QPushButton>(this, "extractWellFactorsButton");
+    if (extract && !extract->isEnabled())
+    {
+      const auto *fields = child<QComboBox>(this, "factorValueFieldCombo");
+      text = fields->count() == 0
+          ? tr("当前层位没有可用数值字段，请先维护井点属性或导入井点资料。")
+          : tr("请选择要提取的字段；计算比值时需同时选择分子与分母。");
+      target = fields->count() == 0 ? QStringLiteral("maintainWellFactorsButton")
+                                   : QStringLiteral("factorModeCombo");
+      action = fields->count() == 0 ? tr("去维护") : tr("选字段");
+    }
+  }
+  else
+    target = generate->property("preparationTarget").toString();
+  const bool supported = def.processingAlgId != SingleFactorContracts::confidenceEngineId();
+  next->setVisible(!busy && supported);
+  next->setText(action);
+  next->setProperty("target", target);
+  next->setToolTip(tr("定位到下一步操作"));
+  hint->setText(text);
+  if (auto *contourHint = child<QLabel>(this, "factorContourHint"))
+  {
+    const auto *contour = child<QPushButton>(this, "contourButton");
+    contourHint->setText(contour->toolTip().isEmpty() ? tr("从当前因素已保存的等值面提取，并保存为新的成果版本。")
+                                                   : contour->toolTip());
+  }
 }
 
 void ConstraintPage::setRunBusy( bool busy )
 {
+  const bool wasBusy = property("paleo.page.runbusy").toBool();
   setProperty( "paleo.page.runbusy", busy );
   if (busy)
     setProperty("paleo.page.runoutcome", QString());
-  if (auto *progress = child<QProgressBar>(this, "factorProgressBar")) {
+  if (auto *progress = child<QProgressBar>(this, "factorProgressBar"); progress && (busy || wasBusy)) {
     progress->setVisible(true);
     if (busy) {
       progress->setRange(0, 0);
@@ -389,16 +560,20 @@ void ConstraintPage::setRunBusy( bool busy )
     } else {
       progress->setRange(0, 100);
       const bool complete = property("paleo.page.runoutcome").toString().isEmpty() && progress->value() >= 100;
-      progress->setFormat(complete ? tr("任务完成 · %p%") : tr("任务未完成 · %p%"));
+      progress->setFormat(complete ? tr("任务完成 · %p%") : tr("任务已结束 · %p%"));
     }
   }
   // Freeze input controls while a captured request is being computed/published.
   for (const char *name :
-       {"horizonCombo", "factorTable", "wellFactorSection", "constraintFamiliesSection"})
+       {"horizonCombo", "factorTable", "wellFactorSection", "constraintFamiliesSection",
+        "factorMethodCombo", "factorCoverageCombo", "factorAdvancedOptionsSection",
+        "factorCellSizeSpin", "factorSurfaceRow", "factorBoundaryRow",
+        "factorGridResolutionSpin", "factorContourSection", "factorLegacySection"})
     if (auto *widget = findChild<QWidget *>(QString::fromLatin1(name)))
       widget->setEnabled(!busy);
   if ( auto *cancel = child<QPushButton>( this, "factorCancelButton" ) )
   {
+    cancel->setVisible(busy);
     cancel->setEnabled( busy );
     cancel->setToolTip( busy ? tr( "取消当前单因素任务" ) : tr( "当前没有正在运行的单因素任务" ) );
   }
@@ -406,6 +581,12 @@ void ConstraintPage::setRunBusy( bool busy )
   {
     if ( auto *status = child<QLabel>( this, "statusLabel" ) )
       status->setText( tr( "正在准备" ) );
+  }
+  else if (wasBusy)
+  {
+    if (auto *status = child<QLabel>(this, "statusLabel");
+        status && (status->text() == tr("正在准备") || status->text().startsWith(tr("正在计算："))))
+      status->setText(tr("任务已结束，详细结果请查看任务中心。"));
   }
   updateFactorActionStates();
   updateWellFactorActionState();
@@ -426,14 +607,19 @@ void ConstraintPage::noteRunStage( const QString &stage, int percent )
 }
 
 void ConstraintPage::buildFactorResultsSection(QWidget *content, QVBoxLayout *lay) {
-  lay->addWidget(caption(tr("4 · 已保存成果 / 后续编图证据"), content));
+  lay->addWidget(caption(tr("5 · 查看成果与后续编图"), content));
   auto *hint = new QLabel(tr("井点数据、等值面和等值线自动保存为工程版本。后续编图引用具体版本，保"
                              "留输入数据、约束及算法参数来源。"),
                           content);
   hint->setWordWrap(true);
   lay->addWidget(hint);
+  auto *empty = caption(tr("尚无已保存成果。先完成等值面计算，再提取等值线；结果会自动出现在这里。"), content);
+  empty->setObjectName(QStringLiteral("factorResultsEmptyHint"));
+  empty->setWordWrap(true);
+  lay->addWidget(empty);
   auto *results = new QTableWidget(0, 4, content);
   results->setObjectName(QStringLiteral("factorResultsTable"));
+  results->setAccessibleName(tr("当前层位与因素的已保存成果"));
   // P3 任务G：第 4 列来源与质控（方法/约束实际参与/交叉验证/被忽略输入），悬停看逐条。
   results->setHorizontalHeaderLabels({tr("成果"), tr("版本"), tr("保存状态"), tr("来源与质控")});
   results->verticalHeader()->hide();
@@ -441,6 +627,7 @@ void ConstraintPage::buildFactorResultsSection(QWidget *content, QVBoxLayout *la
   results->setSelectionBehavior(QAbstractItemView::SelectRows);
   results->setSelectionMode(QAbstractItemView::SingleSelection);
   results->setEditTriggers(QAbstractItemView::NoEditTriggers);
+  results->setVisible(false);
   lay->addWidget(results);
   auto *actions = new QHBoxLayout;
   for (const auto &entry :
@@ -490,6 +677,9 @@ void ConstraintPage::refreshFactorResults() {
   const QString version =
       selected ? selected->data(Qt::UserRole).toMap().value("version_id").toString() : QString();
   table->setRowCount(0);
+  auto *empty = child<QLabel>(this, "factorResultsEmptyHint");
+  empty->show();
+  table->hide();
   if (!wf)
     return;
   for (const auto &entry :
@@ -512,4 +702,6 @@ void ConstraintPage::refreshFactorResults() {
     if (row.value("version_id").toString() == version)
       table->selectRow(r);
   }
+  empty->setVisible(table->rowCount() == 0);
+  table->setVisible(table->rowCount() > 0);
 }

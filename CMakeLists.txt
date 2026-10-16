@@ -901,8 +901,10 @@ function(paleo_test_sandbox name)
   endif()
   if(PALEO_ENABLE_UBSAN)
     set_property(TEST ${name} APPEND PROPERTY ENVIRONMENT
-      "UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=0")
+      "UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1")
   endif()
+  set_property(TEST ${name} APPEND PROPERTY ENVIRONMENT
+    "QTEST_FUNCTION_TIMEOUT=900000")
 endfunction()
 
 set(PALEO_QTEST_FIRST_RUN_DIR "${CMAKE_BINARY_DIR}/Testing/qtest-first-run")
@@ -1517,7 +1519,7 @@ set(_paleo_perf_tests
   tst_perf_regress tst_petrophysperf tst_seismic_perf tst_seismic_baseline
   tst_seismic_budgets tst_seismicattrperf tst_horizontrackperf tst_timedepthperf
   tst_wellcomposite_perf tst_cache_las tst_welllogset_perf tst_geostat_perf
-  tst_lasperf tst_dataperf_index tst_coldstart)
+  tst_lasperf tst_dataperf_index tst_coldstart tst_inversion_perf)
 foreach(_t IN LISTS _paleo_perf_tests)
   if(TEST ${_t})
     set_property(TEST ${_t} APPEND PROPERTY LABELS perf)
@@ -1529,6 +1531,12 @@ if(TEST tst_singlefactor_perf)
 endif()
 if(TEST tst_mapsnapshot_scale)
   set_tests_properties(tst_mapsnapshot_scale PROPERTIES TIMEOUT 1800)
+endif()
+if(TEST tst_singlefactor_kriging)
+  set_tests_properties(tst_singlefactor_kriging PROPERTIES TIMEOUT 600)
+endif()
+if(TEST tst_seismic_3dui)
+  set_tests_properties(tst_seismic_3dui PROPERTIES RUN_SERIAL TRUE)
 endif()
 
 # ---- 方向 81：环境债红名单（tools/env_redset.json，单一真源）→ ctest 标签 ----

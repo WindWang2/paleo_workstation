@@ -10,6 +10,7 @@
 
 #include <QDir>
 #include <QFile>
+#include <QScopeGuard>
 #include <QUuid>
 
 #include <algorithm>
@@ -592,11 +593,20 @@ bool InversionWorkflow::computeInversionJob(InversionJob *job, const std::functi
     };
 
     std::vector<std::thread> pool;
+    auto poolGuard = qScopeGuard([&pool] {
+        for (auto &th : pool) {
+            if (th.joinable())
+                th.join();
+        }
+    });
     for (int t = 1; t < nThreads; ++t)
         pool.emplace_back(invertRange, t, std::min(total, t * chunk), std::min(total, (t + 1) * chunk));
     invertRange(0, 0, std::min(total, chunk));
     for (auto &th : pool)
-        th.join();
+    {
+        if (th.joinable())
+            th.join();
+    }
     for (double v : sumStat) {
         if (sparse)
             job->meanResidualEnergyRatio += v;

@@ -386,7 +386,7 @@ void evaluateBatch( const Engine &engine, const std::vector<Point2> &queries, st
             adj += g * r * tangentEnergy( dx, dy, T );
           }
           adj /= std::max( totalGate, 1.0 );
-          return std::max( euc2 - adj, 0.0 );
+          return std::max( euc2 - adj, 0.01 * euc2 );
         };
 
         for ( int i = 0; i < n; ++i )

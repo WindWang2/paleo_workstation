@@ -71,33 +71,39 @@ int main(int argc, char **argv)
     send({{"type", "error"}, {"message", reason}});
     app.exit(1);
   };
-  QVector<Page> pages;
-  KoPart *part = nullptr;
-  KoDocument *document = nullptr;
-  KWCanvasItem *wordCanvas = nullptr;
-  bool ready = false;
-  bool wordLayoutReady = false;
+  struct SharedState {
+    QVector<Page> pages;
+    KoPart *part = nullptr;
+    KoDocument *document = nullptr;
+    KWCanvasItem *wordCanvas = nullptr;
+    std::atomic<bool> ready{false};
+    std::atomic<bool> wordLayoutReady{false};
+    std::atomic<bool> alive{true};
+  };
+  auto state = std::make_shared<SharedState>();
+
   QTimer deadline;
   deadline.setSingleShot(true);
   QObject::connect(&deadline, &QTimer::timeout, &app, [&] { error(tr("文档解析或排版超时")); });
   deadline.start(120000);
   // Parent sends small JSON commands; blocking stdin belongs to a reader thread.
   // EOF is the lifetime boundary. No input or painting is handled by Paleo's GUI.
-  std::thread([&app, &pages, &ready, &wordCanvas, &document, output, error] {
+  std::thread([state, &app, output, error] {
     std::string line;
     while (std::getline(std::cin, line)) {
       if (line.size() > 1024) break;
       const QByteArray bytes(line.data(), int(line.size()));
-      QMetaObject::invokeMethod(&app, [&, bytes, output, error] {
+      QMetaObject::invokeMethod(&app, [state, bytes, output, error] {
+        if (!state->alive.load()) return;
         const QJsonObject command = QJsonDocument::fromJson(bytes).object();
-        if (command.value("type") != "page" || !ready) return;
+        if (command.value("type") != "page" || !state->ready.load()) return;
         const int index = command.value("index").toInt(-1);
         const int request = command.value("request").toInt();
-        if (index < 0 || index >= pages.size()) { error(tr("页码无效")); return; }
-        const Page &page = pages[index];
+        if (index < 0 || index >= state->pages.size()) { error(tr("页码无效")); return; }
+        const Page &page = state->pages[index];
         const QSize size = page.size.toSize().scaled(maxPixels, maxPixels, Qt::KeepAspectRatio);
         QImage image;
-        if (wordCanvas) {
+        if (state->wordCanvas) {
           // Thumbnail's waitUntilReady() can start another layout for unused
           // text frames. Paint the completed layout without mutating pagination.
           image = QImage(size, QImage::Format_RGB32);
@@ -109,9 +115,9 @@ int main(int argc, char **argv)
           painter.setRenderHint(QPainter::Antialiasing);
           painter.translate(0, -zoom.documentToViewY(page.word.offsetInDocument()));
           painter.setClipRect(zoom.documentToView(page.word.rect()));
-          wordCanvas->shapeManager()->paint(painter, zoom, true);
+          state->wordCanvas->shapeManager()->paint(painter, zoom, true);
         } else if (page.slide) {
-          image = static_cast<KoPADocument *>(document)->pageThumbImage(page.slide, size);
+          image = static_cast<KoPADocument *>(state->document)->pageThumbImage(page.slide, size);
         } else if (page.sheet) {
           image = QImage(size, QImage::Format_RGB32);
           image.fill(Qt::white);
@@ -152,15 +158,15 @@ int main(int argc, char **argv)
   }).detach();
   QTimer layoutPoll;
   layoutPoll.setInterval(40);
-  QObject::connect(&layoutPoll, &QTimer::timeout, &app, [&] {
-    if (!document || document->isLoading()) return;
-    auto *words = qobject_cast<KWDocument *>(document);
-    if (words && !wordLayoutReady) return;
+  QObject::connect(&layoutPoll, &QTimer::timeout, &app, [state, &app, &layoutPoll, &deadline, error] {
+    if (!state->document || state->document->isLoading()) return;
+    auto *words = qobject_cast<KWDocument *>(state->document);
+    if (words && !state->wordLayoutReady.load()) return;
     if (words) {
       // Flush the canvas spatial index before checking layout readiness: its
       // collision notifications can invalidate text areas during initial setup.
       if (words->pageCount() > 0)
-        wordCanvas->shapeManager()->shapesAt(words->pageManager()->page(1).rect());
+        state->wordCanvas->shapeManager()->shapesAt(words->pageManager()->page(1).rect());
       for (KWFrameSet *frame : words->frameSets()) {
         auto *text = dynamic_cast<KWTextFrameSet *>(frame);
         if (!text) continue;
@@ -175,15 +181,15 @@ int main(int argc, char **argv)
     if (words) {
       if (words->pageCount() > maxPages) { error(tr("文档超过 4000 页预览上限")); return; }
       for (const KWPage &page : words->pageManager()->pages())
-        pages.append({page, nullptr, nullptr, 0, page.rect().size(), QString::number(page.pageNumber())});
-    } else if (auto *slides = qobject_cast<KoPADocument *>(document)) {
+        state->pages.append({page, nullptr, nullptr, 0, page.rect().size(), QString::number(page.pageNumber())});
+    } else if (auto *slides = qobject_cast<KoPADocument *>(state->document)) {
       if (slides->pageCount() > maxPages) { error(tr("文档超过 4000 页预览上限")); return; }
       int number = 0;
       for (KoPAPageBase *page : slides->pages(false)) {
         const KoPageLayout layout = page->pageLayout();
-        pages.append({{}, page, nullptr, 0, QSizeF(layout.width, layout.height), QString::number(++number)});
+        state->pages.append({{}, page, nullptr, 0, QSizeF(layout.width, layout.height), QString::number(++number)});
       }
-    } else if (auto *sheets = qobject_cast<Calligra::Sheets::Doc *>(document)) {
+    } else if (auto *sheets = qobject_cast<Calligra::Sheets::Doc *>(state->document)) {
       for (Calligra::Sheets::SheetBase *base : sheets->map()->sheetList()) {
         auto *sheet = dynamic_cast<Calligra::Sheets::Sheet *>(base);
         if (!sheet || sheet->isHidden()) continue;
@@ -191,39 +197,39 @@ int main(int argc, char **argv)
         sheet->print()->setSettings(*sheet->printSettings(), true);
         const KoPageLayout layout = sheet->printSettings()->pageLayout();
         const int count = qMax(1, sheet->print()->pageCount());
-        if (count > maxPages - pages.size()) { error(tr("工作簿超过 4000 页预览上限")); return; }
+        if (count > maxPages - state->pages.size()) { error(tr("工作簿超过 4000 页预览上限")); return; }
         for (int number = 1; number <= count; ++number)
-          pages.append({{}, nullptr, sheet, number, QSizeF(layout.width, layout.height), sheet->sheetName() + " · " + QString::number(number)});
+          state->pages.append({{}, nullptr, sheet, number, QSizeF(layout.width, layout.height), sheet->sheetName() + " · " + QString::number(number)});
       }
     }
-    if (pages.isEmpty() || pages.size() > maxPages) { error(tr("文档没有可预览页面，或超过 4000 页上限")); return; }
+    if (state->pages.isEmpty() || state->pages.size() > maxPages) { error(tr("文档没有可预览页面，或超过 4000 页上限")); return; }
     QJsonArray labels;
-    for (const Page &page : pages) {
+    for (const Page &page : state->pages) {
       if (page.size.width() <= 0 || page.size.height() <= 0) { error(tr("文档页面尺寸无效")); return; }
       labels.append(page.label);
     }
     deadline.stop();
-    ready = true;
+    state->ready.store(true);
     send({{"type", "ready"}, {"engine", "Calligra 26.08.2"}, {"pages", labels}});
   });
-  QTimer::singleShot(0, &app, [&] {
+  QTimer::singleShot(0, &app, [state, &app, &layoutPoll, source, error] {
     const QString extension = QFileInfo(source).suffix().toLower();
     const QString mime = extension == "doc" || extension == "docx" ? QStringLiteral("application/vnd.oasis.opendocument.text")
       : extension == "xls" || extension == "xlsx" ? QStringLiteral("application/vnd.oasis.opendocument.spreadsheet")
       : extension == "ppt" || extension == "pptx" ? QStringLiteral("application/vnd.oasis.opendocument.presentation") : QString();
     if (mime.isEmpty()) { error(tr("不支持的 Office 文件格式")); return; }
     QString reason;
-    part = KoDocumentEntry::queryByMimeType(mime).createKoPart(&reason);
-    if (!part || !(document = part->document())) { error(tr("Calligra 文档组件不可用：") + reason); return; }
-    document->setCheckAutoSaveFile(false);
-    document->setAutoErrorHandlingEnabled(false);
-    document->setAutoSave(0);
-    document->setSaveInBatchMode(true);
-    if (auto *words = qobject_cast<KWDocument *>(document)) {
-      wordCanvas = static_cast<KWCanvasItem *>(part->canvasItem(words));
-      QObject::connect(words, &KWDocument::shapeAdded, wordCanvas->shapeManager(), &KoShapeManager::addShape);
-      QObject::connect(words, &KWDocument::shapeRemoved, wordCanvas->shapeManager(), &KoShapeManager::remove);
-      QObject::connect(words, &KWDocument::mainTextFrameSetLayoutFinished, &app, [&] { wordLayoutReady = true; });
+    state->part = KoDocumentEntry::queryByMimeType(mime).createKoPart(&reason);
+    if (!state->part || !(state->document = state->part->document())) { error(tr("Calligra 文档组件不可用：") + reason); return; }
+    state->document->setCheckAutoSaveFile(false);
+    state->document->setAutoErrorHandlingEnabled(false);
+    state->document->setAutoSave(0);
+    state->document->setSaveInBatchMode(true);
+    if (auto *words = qobject_cast<KWDocument *>(state->document)) {
+      state->wordCanvas = static_cast<KWCanvasItem *>(state->part->canvasItem(words));
+      QObject::connect(words, &KWDocument::shapeAdded, state->wordCanvas->shapeManager(), &KoShapeManager::addShape);
+      QObject::connect(words, &KWDocument::shapeRemoved, state->wordCanvas->shapeManager(), &KoShapeManager::remove);
+      QObject::connect(words, &KWDocument::mainTextFrameSetLayoutFinished, &app, [state] { state->wordLayoutReady.store(true); });
     }
     // WPS and other desktop suites can register private MIME names for these
     // extensions. Feed Calligra the standard Microsoft type, keeping its own
@@ -235,15 +241,16 @@ int main(int argc, char **argv)
       {"xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
       {"ppt", "application/vnd.ms-powerpoint"},
       {"pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation"}};
-    document->setMimeType(inputMime.value(extension));
-    if (!document->openUrl(QUrl::fromLocalFile(source))) {
-      error(tr("Calligra 无法解析原件（损坏、加密或格式不支持）") + "\n" + document->errorMessage().left(1024));
+    state->document->setMimeType(inputMime.value(extension));
+    if (!state->document->openUrl(QUrl::fromLocalFile(source))) {
+      error(tr("Calligra 无法解析原件（损坏、加密或格式不支持）") + "\n" + state->document->errorMessage().left(1024));
       return;
     }
-    document->setReadWrite(false);
+    state->document->setReadWrite(false);
     layoutPoll.start();
   });
   const int result = app.exec();
+  state->alive.store(false);
   // Engine teardown has queued GUI dependencies; the OS owns isolated cleanup.
   std::exit(result);
 }

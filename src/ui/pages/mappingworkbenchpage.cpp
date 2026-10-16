@@ -24,6 +24,7 @@
 #include <QProgressBar>
 #include <QPushButton>
 #include <QRegularExpression>
+#include <QScrollArea>
 #include <QSignalBlocker>
 #include <QShowEvent>
 #include <QTimer>
@@ -43,9 +44,18 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   m_refreshTimer->setSingleShot(true);
   connect(m_refreshTimer, &QTimer::timeout, this, [this] { if (isVisible()) refresh(); });
   setObjectName("mappingWorkbench." + mode);
-  // The dock manager owns the viewport. A second scroll area here traps the
-  // wheel between nested ranges when the parameter groups are expanded.
-  auto *body = this;
+
+  auto *scroll = new QScrollArea(this);
+  scroll->setWidgetResizable(true);
+  scroll->setFrameShape(QFrame::NoFrame);
+  auto *body = new QWidget(scroll);
+  body->setObjectName("mappingWorkbenchBody." + mode);
+  scroll->setWidget(body);
+
+  auto *outer = new QVBoxLayout(this);
+  outer->setContentsMargins(0, 0, 0, 0);
+  outer->addWidget(scroll);
+
   auto *layout = new QVBoxLayout(body);
   layout->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm);
   layout->setSpacing(PaleoTheme::tokens().spacingSm);

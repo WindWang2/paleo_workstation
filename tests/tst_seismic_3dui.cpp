@@ -200,6 +200,7 @@ private slots:
     QCOMPARE(cam2.state().distance, st.distance);
 
     // 面板书签（QSettings 沙箱内）
+    QSettings().remove(QStringLiteral("seismic/3dCamBookmarks"));
     QTemporaryDir dir;
     const QString sgy = dir.filePath("cam.sgy");
     QVERIFY(writeTestSegy(sgy, 4, 4, 32));

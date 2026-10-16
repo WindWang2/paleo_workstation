@@ -20,6 +20,10 @@
 // 传输层自己另有内部 generation，用来作废自己那侧的 reply（超时先 bump 再
 // abort，避免 abort 触发的 finished 重复回包）。
 
+namespace {
+constexpr qint64 kMaxResponseBytes = 64ll * 1024 * 1024; // 64 MiB 响应体上限，防无界内存占用
+}
+
 LocalPredictor::~LocalPredictor() = default;
 
 RemoteTransport::RemoteTransport(QObject *parent) : QObject(parent) {}
@@ -102,9 +106,18 @@ void HttpRemoteTransport::begin(int timeoutMs, Op op, QNetworkReply *reply,
     const bool ok = reply->error() == QNetworkReply::NoError;
     const int status =
       reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    const QByteArray payload = reply->readAll();
+    const QByteArray payload = reply->read(kMaxResponseBytes + 1);
     const QString detail = reply->errorString();
     reply->deleteLater();
+    if (payload.size() > kMaxResponseBytes) {
+      const QString limitMsg = QObject::tr("远端预测响应超出上限（%1 MB）")
+                               .arg(kMaxResponseBytes / (1024 * 1024));
+      if (op == Op::Health)
+        emit healthDone(runId, false, limitMsg);
+      else
+        emit predictDone(runId, {}, limitMsg);
+      return;
+    }
     if (op == Op::Health) {
       if (!ok || status != 200) {
         emit healthDone(runId, false, QObject::tr("健康检查失败: HTTP %1 (%2)")

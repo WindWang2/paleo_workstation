@@ -118,6 +118,21 @@ inline bool execScript(QSqlDatabase &db, const char *sql, QString *error)
   return true;
 }
 
+// #476：versions(asset_id, version_number) 唯一索引（部分索引：>1 的显式
+// 编号族才参与——0/1 档是未编号/首版的存量语义面）——写侧 open 时尽力落
+//（对照 mapversionstore 的 map_versions(horizon,version) UNIQUE INDEX）。
+// 新库/干净库立即生效；存量库若有历史重复行则建索引失败：仅告警不拒开
+// ——重复由 DataCatalog::addVersion 的内存闸挡新发，legacy 行原样保留
+//（不引入数据迁移）。防御纵深：绕过内存闸的外部直写会被 sqlite 拒绝。
+inline void ensureVersionNumberUniqueIndex(QSqlDatabase &db)
+{
+  QSqlQuery q(db);
+  if (!q.exec(QStringLiteral("CREATE UNIQUE INDEX IF NOT EXISTS idx_versions_asset_number"
+                             " ON versions(asset_id, version_number) WHERE version_number > 1")))
+    qWarning() << "catalog: cannot create unique index on versions(asset_id, version_number):"
+               << q.lastError().text();
+}
+
 inline bool applyWritablePragmas(QSqlDatabase &db, QString *error)
 {
   // WAL 是 catalog.sqlite 的例外（project.sqlite 仍不采用 WAL）。

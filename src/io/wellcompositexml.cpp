@@ -629,7 +629,14 @@ bool parseComprehensiveWellXmlData(const QByteArray &content, ComprehensiveWellD
     outData.maxDepth = 3000.0;
   }
 
-  return !outData.isEmpty();
+  if (outData.isEmpty())
+  {
+    // #477：无可识别工作表/无数据时如实报因——此前静默失败（errorMsg 未赋值）
+    if (errorMsg && errorMsg->isEmpty())
+      *errorMsg = QStringLiteral("SpreadsheetML 中没有可识别的工作表内容");
+    return false;
+  }
+  return true;
 }
 
 
@@ -652,10 +659,13 @@ static void writeCell(QString &xml, int col, const QString &value)
   Q_UNUSED(col);
 }
 
-static void writeCellF(QString &xml, const QString &value)
+static void writeCellF(QString &xml, double value)
 {
-  xml += QStringLiteral("<Cell><Data ss:Type=\"String\">%1</Data></Cell>")
-             .arg(xmlEscape(value));
+  // #477：数值格必须 ss:Type="Number"（此前全 String——Excel 把深度当文本，
+  // 无法参与数值运算/排序）；精度取 15 位有效数字（double 往返无损），
+  // 不再固定 2 位小数截断深层深度。
+  xml += QStringLiteral("<Cell><Data ss:Type=\"Number\">%1</Data></Cell>")
+             .arg(QString::number(value, 'g', 15));
 }
 
 QByteArray writeComprehensiveWellXml(const ComprehensiveWellData &data, const QStringList &auditLines)
@@ -670,10 +680,10 @@ QByteArray writeComprehensiveWellXml(const ComprehensiveWellData &data, const QS
   // 坐标表
   xml += QStringLiteral("<Worksheet ss:Name=\"坐标\"><Table>\n<Row>");
   writeCell(xml, 0, QStringLiteral("X"));
-  writeCell(xml, 1, QString::number(data.x, 'f', 2));
+  writeCellF(xml, data.x);
   xml += QStringLiteral("</Row>\n<Row>");
   writeCell(xml, 0, QStringLiteral("Y"));
-  writeCell(xml, 1, QString::number(data.y, 'f', 2));
+  writeCellF(xml, data.y);
   xml += QStringLiteral("</Row>\n</Table></Worksheet>\n");
 
   // 地层单位道（组段分层）
@@ -698,10 +708,10 @@ QByteArray writeComprehensiveWellXml(const ComprehensiveWellData &data, const QS
       writeCell(xml, 0, data.wellName);
       writeCell(xml, 1, fi.unitType.isEmpty() ? QStringLiteral("地层单位") : fi.unitType);
       writeCell(xml, 2, fi.name);
-      writeCellF(xml, QString::number(fi.topDepth, 'f', 2));
+      writeCellF(xml, fi.topDepth);
       writeCell(xml, 3, QString());
       writeCell(xml, 4, QString());
-      writeCellF(xml, QString::number(fi.bottomDepth, 'f', 2));
+      writeCellF(xml, fi.bottomDepth);
       writeCell(xml, 5, QString());
       writeCell(xml, 6, QString());
       writeCell(xml, 7, fi.code);
@@ -730,10 +740,10 @@ QByteArray writeComprehensiveWellXml(const ComprehensiveWellData &data, const QS
       xml += QStringLiteral("<Row>");
       writeCell(xml, 0, data.wellName);
       writeCell(xml, 1, QStringLiteral("岩性"));
-      writeCellF(xml, QString::number(li.topDepth, 'f', 2));
+      writeCellF(xml, li.topDepth);
       writeCell(xml, 3, QString());
       writeCell(xml, 4, QString());
-      writeCellF(xml, QString::number(li.bottomDepth, 'f', 2));
+      writeCellF(xml, li.bottomDepth);
       writeCell(xml, 6, QString());
       writeCell(xml, 7, QString());
       writeCell(xml, 8, li.lithoName);
@@ -761,7 +771,7 @@ QByteArray writeComprehensiveWellXml(const ComprehensiveWellData &data, const QS
       writeCell(xml, 0, data.wellName);
       writeCell(xml, 1, QStringLiteral("标志层"));
       writeCell(xml, 2, m.second);
-      writeCellF(xml, QString::number(m.first, 'f', 2));
+      writeCellF(xml, m.first);
       writeCell(xml, 4, QString());
       writeCell(xml, 5, QString());
       writeCell(xml, 6, m.second);
@@ -792,10 +802,10 @@ QByteArray writeComprehensiveWellXml(const ComprehensiveWellData &data, const QS
       writeCell(xml, 0, r.well);
       writeCell(xml, 1, category);
       writeCell(xml, 2, QString());
-      writeCellF(xml, QString::number(r.top, 'f', 2));
+      writeCellF(xml, r.top);
       writeCell(xml, 4, QString());
       writeCell(xml, 5, QString());
-      writeCellF(xml, QString::number(r.bottom, 'f', 2));
+      writeCellF(xml, r.bottom);
       writeCell(xml, 7, QString());
       writeCell(xml, 8, QString());
       writeCell(xml, 9, r.text);

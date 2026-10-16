@@ -15,7 +15,35 @@ class TimeDepthModelTests : public QObject
     void lenientDropsTimeReversalPoints();
     void lenientMonotoneTableUnchanged();
     void velocityBoundsSymmetric();
+    void strictRejectsNegativeFirstPoint(); // #476
 };
+
+// #476：setCheckshots strict 路径此前不查首点负深度/负时间（setPoints 有
+// >= 0 检查）——负值首点会带着「合法 strict」标记进入插值面。
+void TimeDepthModelTests::strictRejectsNegativeFirstPoint()
+{
+  TimeDepthModel model;
+  {
+    std::vector<TdPoint> bad;
+    bad.push_back(TdPoint{ -100.0, 0.0 });
+    bad.push_back(TdPoint{ 1000.0, 800.0 });
+    bad.push_back(TdPoint{ 2000.0, 1600.0 });
+    QVERIFY(!model.setCheckshots(bad)); // 首点负深度必须拒
+  }
+  {
+    std::vector<TdPoint> bad;
+    bad.push_back(TdPoint{ 0.0, -50.0 });
+    bad.push_back(TdPoint{ 1000.0, 800.0 });
+    QVERIFY(!model.setCheckshots(bad)); // 首点负时间同样拒
+  }
+  {
+    std::vector<TdPoint> ok;
+    ok.push_back(TdPoint{ 0.0, 0.0 });
+    ok.push_back(TdPoint{ 1000.0, 800.0 });
+    ok.push_back(TdPoint{ 2000.0, 1600.0 });
+    QVERIFY(model.setCheckshots(ok)); // 合法表照常（首点 0/0 允许）
+  }
+}
 
 void TimeDepthModelTests::lenientDropsTimeReversalPoints()
 {

@@ -261,6 +261,38 @@ private slots:
     // 查询不改变 schema（冻结性）
     QCOMPARE(schema.size(), 2);
   }
+  // #476：次曲线采样更稀（稀疏≠缺口）不得整井拒绝；自身真缺口仍拒。
+  void sparserSecondaryCurveTolerated() {
+    auto d = well();
+    CurveData rt;
+    rt.name = "RT";
+    rt.unit = "ohmm";
+    for (int i = 0; i < 17; ++i) {
+      rt.depths.append(1000 + i * 1.0f); // 步长 1.0 m（GR 是 0.125 m，8 倍稀）
+      rt.values.append(10 + i * .5f);    // 覆盖 1000..1016（GR 全段）
+    }
+    d.continuousCurves.append(rt);
+    auto m = model();
+    m.curves = {"GR", "RT"};
+    const auto input = prepareWellFaciesInput(d, m);
+    QVERIFY2(input.ready(), qPrintable(input.reason));
+    QCOMPARE(input.rows.size(), 128);
+
+    // RT 中段挖空 4 个采样（邻距 5 m > 自身步长 1.5 倍）——真缺口仍拒。
+    auto d2 = well();
+    CurveData holed;
+    holed.name = "RT";
+    holed.unit = "ohmm";
+    for (int i = 0; i < 17; ++i) {
+      if (i >= 6 && i <= 9)
+        continue; // 1006..1009 缺
+      holed.depths.append(1000 + i * 1.0f);
+      holed.values.append(10 + i * .5f);
+    }
+    d2.continuousCurves.append(holed);
+    QVERIFY(!prepareWellFaciesInput(d2, m).ready());
+  }
+
   void inputContract() {
     auto d = well();
     auto input = prepareWellFaciesInput(d, model());

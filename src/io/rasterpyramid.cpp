@@ -9,6 +9,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QLockFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -377,6 +378,16 @@ bool RasterPyramidService::buildTile(const QString &rasterPath, const PyramidMet
 
   // 持久化：state + 追加 payload + offset（全 nodata 只写 state=2）。
   const QString path = dirFor(rasterPath) + QStringLiteral("/z%1.bin").arg(z);
+  // #477：瓦片自愈协议只防单进程崩溃；双进程共用缓存目录时并发
+  // 「seek(end)+append+回填 offset」会交错（两进程各按自己观察的 end 写，
+  // payload 互相覆盖）。QLockFile 串行化跨进程写（单进程多线程亦受益）。
+  QLockFile tileLock(path + QStringLiteral(".lock"));
+  if (!tileLock.tryLock(10000)) // 另一进程在建同一瓦片：等它完成（QLockFile
+                                // 自带死进程 stale 锁回收）；10s 超时才报错
+  {
+    if (error) *error = QStringLiteral("cannot lock level pack %1").arg(path);
+    return false;
+  }
   QFile f(path);
   if (!f.open(QIODevice::ReadWrite))
   {

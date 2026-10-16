@@ -26,6 +26,12 @@ class ReleaseStore
   public:
     explicit ReleaseStore(const QString &metaSqlitePath);
 
+    // #80/#476：只读实例（同进程工程被他人持锁时）。与 LayerManifest 同构：
+    // 走独立只读连接（QSQLITE_OPEN_READONLY），const 读不受影响；写方法
+    // （createRelease）显式拒绝。
+    void setReadOnly(bool readOnly) { m_readOnly = readOnly; }
+    bool isReadOnly() const { return m_readOnly; }
+
     bool open(QString *error = nullptr); // creates schema if absent
 
     // Snapshot the given declared set as a new release. Returns the new
@@ -49,4 +55,5 @@ class ReleaseStore
 
   private:
     QString m_dbPath;
+    bool m_readOnly = false;
 };

@@ -149,6 +149,34 @@ private:
   }
 
 private slots:
+  // #476：连接名 = 前缀 + qHash(path)（32 位）——两条不同路径哈希碰撞到同一
+  // 连接名时，openConnection 复用已开连接前必须比对 databaseName；静默复用
+  // 会把 A 库的连接交给 B 库的 store（串库）。碰撞不可构造，直接用同名连接
+  // 钉契约。
+  void connectionNameCollisionRefusedNotSilentlyReused()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString dbA = dir.filePath(QStringLiteral("a/project.sqlite"));
+    const QString dbB = dir.filePath(QStringLiteral("b/project.sqlite"));
+    const QString conn = QStringLiteral("tst_metastore_collision");
+    QString errA;
+    QSqlDatabase first = MetaStore::openConnection(dbA, conn, &errA);
+    QVERIFY2(first.isValid(), qPrintable(errA));
+    QVERIFY(first.isOpen());
+
+    QString errB;
+    QSqlDatabase second = MetaStore::openConnection(dbB, conn, &errB);
+    QVERIFY2(!second.isValid(), "同名连接指向另一库必须拒绝，不得静默串库");
+    QVERIFY2(!errB.isEmpty(), "碰撞必须给因");
+    QVERIFY2(errB.contains(QStringLiteral("collision")),
+             qPrintable(errB));
+
+    // 清理：关闭并注销连接，不泄漏到后续用例。
+    first.close();
+    QSqlDatabase::removeDatabase(conn);
+  }
+
   // 子进程是真实持锁者，父进程强杀后才允许接管（不只造一个已死 pid）。
   void holdProjectLockChild()
   {

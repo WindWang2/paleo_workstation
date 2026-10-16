@@ -1,6 +1,7 @@
 #include <QtTest>
 #include <QFile>
 #include <QTemporaryDir>
+#include <QThread>
 
 #include "../src/domain/arearules.h"
 #include "../src/domain/projectclassifier.h"
@@ -27,6 +28,7 @@ private slots:
   void customSegyOffsetsDriveIndexing();
   void badJsonIsRefused();
   void resetRestoresDefaults();
+  void concurrentSetAndReadStaysConsistent(); // #476 测试盲区
 
 private:
   static void writeConfig(const QString &dir, const QByteArray &json);
@@ -440,6 +442,56 @@ void TestAreaRules::badJsonIsRefused()
     QVERIFY2(sameRules(AreaRules::active(), AreaRules::defaults()), c.name);
     AreaRules::reset();
   }
+}
+
+// #476 测试盲区：全局互斥态无并发压力——setProjectDir（写）与
+// active/lastError/activeProjectDir（读）多线程交错不得崩溃，且读回的
+// Rules 必须是完整的默认或自定义快照（不撕裂：名单要么全默认要么全自定义）。
+void TestAreaRules::concurrentSetAndReadStaysConsistent()
+{
+  QTemporaryDir customDir;
+  writeConfig(customDir.path(), QByteArrayLiteral(R"({
+  "schema_version": 1,
+  "sequence_boundaries": ["X1", "X2"],
+  "onnx_grid": {"rows": 33, "cols": 44}
+})"));
+
+  const AreaRules::Rules defaults = AreaRules::defaults();
+  QAtomicInt torn = 0;
+  QList<QThread *> threads;
+  for (int t = 0; t < 4; ++t)
+  {
+    const bool writer = (t == 0);
+    threads << QThread::create([&, writer]() {
+      for (int i = 0; i < 400; ++i)
+      {
+        if (writer)
+        {
+          AreaRules::setProjectDir(i % 2 == 0 ? customDir.path() : QString());
+          continue;
+        }
+        const AreaRules::Rules r = AreaRules::active();
+        // 不撕裂：名单是默认集或自定义集之一，网格两维同源。
+        const bool isDefaultList =
+            r.sequenceBoundaries == defaults.sequenceBoundaries;
+        const bool isCustomList = r.sequenceBoundaries.contains(
+            QStringLiteral("X1"));
+        if (!isDefaultList && !isCustomList)
+          torn.storeRelease(1);
+        if (r.onnxGrid.rows == 33 && r.onnxGrid.cols != 44)
+          torn.storeRelease(1); // 两维必须同一次快照
+        AreaRules::lastError();
+        AreaRules::activeProjectDir();
+      }
+    });
+  }
+  for (QThread *t : threads)
+    t->start();
+  for (QThread *t : threads)
+    t->wait(60000);
+  qDeleteAll(threads);
+  AreaRules::reset();
+  QCOMPARE(torn.loadAcquire(), 0); // 断言在主线程：任何撕裂都红
 }
 
 void TestAreaRules::resetRestoresDefaults()

@@ -14,9 +14,12 @@
 #include <QJsonParseError>
 #include <QJsonValue>
 
+#include <QtEndian>
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <type_traits>
 
 // 层：数据
 namespace paleo::io
@@ -152,8 +155,27 @@ int dtypeBytes( const QString &descr, bool *integral, QString *error )
   return 0;
 }
 
+// NPY dtype 首字符声明字节序：< 小端、> 大端、| 单字节（NA）、= 本机。
+// #477：此前一律按主机序 memcpy——大端 dtype（>i4/>f8 等）在小端主机上
+// 全部静默错值。宽度 >=2 的类型按声明的端序重组。
+template <typename T>
+T readEndian( const char *data, bool bigEndian )
+{
+  using Raw = std::conditional_t<sizeof( T ) == 2, std::uint16_t,
+                                 std::conditional_t<sizeof( T ) == 4, std::uint32_t, std::uint64_t>>;
+  static_assert( sizeof( Raw ) == sizeof( T ), "width mismatch" );
+  Raw raw = 0;
+  std::memcpy( &raw, data, sizeof( Raw ) );
+  if ( bigEndian )
+    raw = qFromBigEndian( raw );
+  T value;
+  std::memcpy( &value, &raw, sizeof( T ) );
+  return value;
+}
+
 double readNumeric( const char *data, const QString &descr, bool integral )
 {
+  const bool bigEndian = descr.startsWith( QLatin1Char( '>' ) );
   if ( integral )
   {
     if ( descr.contains( QLatin1String( "u1" ) ) || descr.contains( QLatin1String( "b1" ) ) )
@@ -161,48 +183,20 @@ double readNumeric( const char *data, const QString &descr, bool integral )
     if ( descr.contains( QLatin1String( "i1" ) ) )
       return static_cast<double>( static_cast<std::int8_t>( data[0] ) );
     if ( descr.contains( QLatin1String( "u2" ) ) )
-    {
-      std::uint16_t value = 0;
-      std::memcpy( &value, data, 2 );
-      return static_cast<double>( value );
-    }
+      return static_cast<double>( readEndian<std::uint16_t>( data, bigEndian ) );
     if ( descr.contains( QLatin1String( "i2" ) ) )
-    {
-      std::int16_t value = 0;
-      std::memcpy( &value, data, 2 );
-      return static_cast<double>( value );
-    }
+      return static_cast<double>( readEndian<std::int16_t>( data, bigEndian ) );
     if ( descr.contains( QLatin1String( "u4" ) ) )
-    {
-      std::uint32_t value = 0;
-      std::memcpy( &value, data, 4 );
-      return static_cast<double>( value );
-    }
+      return static_cast<double>( readEndian<std::uint32_t>( data, bigEndian ) );
     if ( descr.contains( QLatin1String( "i4" ) ) )
-    {
-      std::int32_t value = 0;
-      std::memcpy( &value, data, 4 );
-      return static_cast<double>( value );
-    }
+      return static_cast<double>( readEndian<std::int32_t>( data, bigEndian ) );
     if ( descr.contains( QLatin1String( "u8" ) ) )
-    {
-      std::uint64_t value = 0;
-      std::memcpy( &value, data, 8 );
-      return static_cast<double>( value );
-    }
-    std::int64_t value = 0;
-    std::memcpy( &value, data, 8 );
-    return static_cast<double>( value );
+      return static_cast<double>( readEndian<std::uint64_t>( data, bigEndian ) );
+    return static_cast<double>( readEndian<std::int64_t>( data, bigEndian ) );
   }
   if ( descr.contains( QLatin1String( "f4" ) ) )
-  {
-    float value = 0;
-    std::memcpy( &value, data, 4 );
-    return static_cast<double>( value );
-  }
-  double value = 0;
-  std::memcpy( &value, data, 8 );
-  return value;
+    return static_cast<double>( readEndian<float>( data, bigEndian ) );
+  return readEndian<double>( data, bigEndian );
 }
 
 QVariantMap jsonObjectToMap( const QJsonObject &object )

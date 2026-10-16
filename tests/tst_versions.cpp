@@ -215,6 +215,101 @@ class TestVersions : public QObject
         QVERIFY( !err.isEmpty() );
     }
 
+    // #480 P2-1：清单声明的层位矢量层实例化失败（幽灵层）保持容忍语义
+    // （孤立 edit 标记仍要释放），但不得静默——版本 provenance 必须披露
+    // dropped_layers；异步 startSaveVersion 不得留下「返回 true 且 *error
+    // 非空」的自相矛盾态。
+    void uninstantiableDeclaredLayerIsDisclosedNotSilent()
+    {
+        Fixture f;
+        QVERIFY( f.init() );
+        const QString gpkg = makeFaciesGpkg( f.dir.filePath( QStringLiteral( "facies-ok.gpkg" ) ) );
+        QVERIFY( !gpkg.isEmpty() );
+        LayerDeclaration good = [&] {
+            LayerDeclaration d;
+            d.layerId = QStringLiteral( "facies.D61" );
+            d.horizon = QStringLiteral( "D61" );
+            d.type = QStringLiteral( "vector" );
+            d.source = QStringLiteral( "%1|layername=facies_polygons" ).arg( gpkg );
+            d.group = QStringLiteral( "05_PaleoMap" );
+            return d;
+        }();
+        LayerDeclaration ghost = good;
+        ghost.layerId = QStringLiteral( "facies-ghost.D61" );
+        ghost.source = QStringLiteral( "%1|layername=facies_polygons" )
+                           .arg( f.dir.filePath( QStringLiteral( "missing.gpkg" ) ) );
+        QString err;
+        QVERIFY( f.layers.declare( good, &err ) );
+        QVERIFY( f.layers.declare( ghost, &err ) );
+
+        const MapVersion v = f.controller.saveVersion( QStringLiteral( "D61" ), QVariantMap(), &err );
+        QVERIFY2( v.version > 0, qPrintable( err ) );
+        const auto latest = f.versions.latest( QStringLiteral( "D61" ) );
+        const auto frozen = QJsonDocument::fromJson( latest.provenance.toUtf8() ).toVariant().toMap();
+        const QStringList dropped = [&] {
+            QStringList out;
+            for ( const auto &entry : frozen.value( QStringLiteral( "dropped_layers" ) ).toList() )
+                out << entry.toString();
+            return out;
+        }();
+        QVERIFY2( dropped.contains( QStringLiteral( "facies-ghost.D61" ) ),
+                  qPrintable( latest.provenance ) );
+
+        // 异步：缺层照常保存，且 *error 不被幽灵层实例化失败污染（旧代码
+        // 返回 true 却把失败写进 *error——自相矛盾态）
+        PaleoTaskService tasks;
+        tasks.setMaxWorkerThreads( 1 );
+        f.controller.setTaskService( &tasks );
+        err.clear();
+        QSignalSpy finished( &f.controller, &MapVersionController::snapshotFinished );
+        QVERIFY2( f.controller.startSaveVersion( QStringLiteral( "D61" ), QVariantMap(), &err ),
+                  qPrintable( err ) );
+        QVERIFY2( err.isEmpty(), qPrintable( err ) );
+        QTRY_VERIFY_WITH_TIMEOUT( !f.controller.snapshotBusy(), 15000 );
+        QVERIFY( tasks.shutdown() );
+    }
+
+    // #480 P2-2：多层原生提交非原子——层 A 提交成功（落盘、undo 已清）后
+    // 层 B 失败 → 无版本快照的已提交编辑。错误必须显式披露「已提交未出版」
+    // 的部分状态，不再只报失败层（用户误以为全部编辑仍在缓冲区可重试）。
+    void partialCommitFailureDisclosesCommittedLayers()
+    {
+        Fixture f;
+        QVERIFY( f.init() );
+        const QString gpkgA = makeFaciesGpkg( f.dir.filePath( QStringLiteral( "partial-a.gpkg" ) ) );
+        const QString gpkgB = makeFaciesGpkg( f.dir.filePath( QStringLiteral( "partial-b.gpkg" ) ) );
+        QVERIFY( !gpkgA.isEmpty() && !gpkgB.isEmpty() );
+        LayerDeclaration da, db;
+        da.layerId = QStringLiteral( "facies.D61" );
+        da.horizon = QStringLiteral( "D61" );
+        da.type = QStringLiteral( "vector" );
+        da.source = QStringLiteral( "%1|layername=facies_polygons" ).arg( gpkgA );
+        db.layerId = QStringLiteral( "polys.D61" );
+        db.horizon = QStringLiteral( "D61" );
+        db.type = QStringLiteral( "vector" );
+        db.source = QStringLiteral( "%1|layername=facies_polygons" ).arg( gpkgB );
+        QString err;
+        QVERIFY( f.layers.declare( da, &err ) );
+        QVERIFY( f.layers.declare( db, &err ) );
+        auto *a = qobject_cast<QgsVectorLayer *>( f.layers.instantiate( da.layerId, &err ) );
+        auto *b = qobject_cast<QgsVectorLayer *>( f.layers.instantiate( db.layerId, &err ) );
+        QVERIFY( a && b );
+        QVERIFY( a->startEditing() );
+        QgsFeature fa( a->fields() );
+        fa.setGeometry( QgsGeometry::fromWkt( QStringLiteral( "POLYGON((2 2,3 2,3 3,2 2))" ) ) );
+        QVERIFY( a->addFeature( fa ) );
+        QVERIFY( b->startEditing() );
+        QgsFeature fb( b->fields() );
+        fb.setGeometry( QgsGeometry::fromWkt( QStringLiteral( "POLYGON((4 4,5 4,5 5,4 4))" ) ) );
+        QVERIFY( b->addFeature( fb ) );
+        b->setAllowCommit( false ); // B 提交必失败；A 先行提交已落盘
+        const MapVersion v = f.controller.saveVersion( QStringLiteral( "D61" ), QVariantMap(), &err );
+        QCOMPARE( v.version, 0 );
+        QVERIFY2( err.contains( QStringLiteral( "已提交编辑但本次未出版本快照" ) ) &&
+                      err.contains( QStringLiteral( "facies.D61" ) ),
+                  qPrintable( err ) );
+    }
+
     // 残差摘要完整性判定 — 发布门与按钮 tooltip 共用这一份口径。
     void residualSummaryCompleteness()
     {
@@ -454,6 +549,15 @@ class TestVersions : public QObject
         QCOMPARE(manifest.value("snapshot_schema").toString(), QString("paleo_map_snapshot_v1"));
         QCOMPARE(manifest.value("saved_layers").toArray().size(), 1);
         const QString gpkgSha = manifest.value("saved_layers").toArray().first().toObject().value("sha256").toString();
+        // #499 句柄生命周期审计：saveVersion 的 captureVersion 会实例化层位全部
+        // 矢量层（提交编辑缓冲所需），活层经 OGR provider 持有 working.gpkg——
+        // Windows 上句柄未释放时 QFile::remove 必败（Linux unlink 不受阻，本机
+        // 恒绿、真红只在 Windows 车道露出）。活层持文件是正确产品语义；删工作
+        // 文件前必须先下架声明释放 provider。断言「先释放后删」纪律：若未来
+        // 出现句柄泄漏路径，layer()==nullptr 断言当场红，不靠删除重试掩盖。
+        QVERIFY(f.layers.layer(QStringLiteral("facies.D61")) != nullptr);
+        QVERIFY(f.layers.removeDeclarations({QStringLiteral("facies.D61")}, &error));
+        QVERIFY(f.layers.layer(QStringLiteral("facies.D61")) == nullptr);
         QFile changedPdf(pdf); QVERIFY(changedPdf.open(QIODevice::WriteOnly | QIODevice::Truncate));
         changedPdf.write("later edit"); changedPdf.close();
         QVERIFY(QFile::remove(gpkg));
@@ -1192,6 +1296,59 @@ class TestVersions : public QObject
         QVERIFY(QFileInfo(published).isDir());
     }
 
+
+    // #476：native publish() 与 prepared snapshotInputForPublish() 的发布门禁
+    // 同源（validatePublishGates 单一实现）——同一损坏状态下两者拒绝文案
+    // 逐字一致（此前两处约 90 行逐字复制，漏改一份即门禁分叉）。
+    void nativeAndPreparedPublishGatesAgree()
+    {
+        Fixture f;
+        QVERIFY( f.init() );
+        QString error;
+        const auto gpkg = makeFaciesGpkg( f.dir.filePath( QStringLiteral( "agree.gpkg" ) ) );
+        QVERIFY( !gpkg.isEmpty() );
+        LayerDeclaration decl;
+        decl.layerId = QStringLiteral( "facies.D61" );
+        decl.horizon = QStringLiteral( "D61" );
+        decl.type = QStringLiteral( "vector" );
+        decl.source = QStringLiteral( "%1|layername=facies_polygons" ).arg( gpkg );
+        QVERIFY2( f.layers.declare( decl, &error ), qPrintable( error ) );
+
+        // 阻断性证据问题的来源记录（saveVersion 自身会拒损坏 JSON，故走
+        // 这条可达门禁）：两个门禁都必须拒且文案一致。
+        QVERIFY2( f.versions.saveVersion(
+                      QStringLiteral( "D61" ),
+                      QStringLiteral( R"({"feature_summary":{"quality_counts":{"Blocking":2}}})" ),
+                      &error )
+                      .version > 0,
+                  qPrintable( error ) );
+        const QString summary =
+            R"({"wells_total":1,"covered":1,"missing":[],"rows":[{"kind":"residual","residual_ms":1}]})";
+        QString nativeErr, preparedErr;
+        QVERIFY( f.versions.publish( QStringLiteral( "D61" ), { decl }, summary, &nativeErr )
+                     .isEmpty() );
+        const auto prepared =
+            f.versions.snapshotInputForPublish( QStringLiteral( "D61" ), { decl }, summary,
+                                                &preparedErr );
+        QVERIFY( !prepared.valid );
+        QCOMPARE( nativeErr, preparedErr );
+        QVERIFY( nativeErr.contains( QStringLiteral( "阻断" ) ) );
+
+        // PDF 资产门（行上没继承产物引用）：两者同样一致。
+        const auto pdf = makePdf( f.dir.filePath( QStringLiteral( "agree.pdf" ) ) );
+        QVERIFY( !pdf.isEmpty() );
+        QVERIFY( f.versions.recordLayoutProduct( QStringLiteral( "D61" ), pdf,
+                                                 QStringLiteral( "pdf-asset" ),
+                                                 DataCatalog::sha256FileHex( pdf ), &error ) );
+        QString nativeErr2, preparedErr2;
+        QVERIFY( f.versions.publish( QStringLiteral( "D61" ), { decl }, summary, &nativeErr2 )
+                     .isEmpty() );
+        QVERIFY( !f.versions.snapshotInputForPublish( QStringLiteral( "D61" ), { decl }, summary,
+                                                      &preparedErr2 )
+                      .valid );
+        QCOMPARE( nativeErr2, preparedErr2 );
+        QVERIFY( !nativeErr2.isEmpty() ); // 同一状态同一门禁文案（Blocking 先于 PDF）
+    }
 };
 
 int main( int argc, char *argv[] )

@@ -8,7 +8,6 @@ class DataGraphWorkflow;
 class QComboBox;
 class QLineEdit;
 class QSpinBox;
-class QCheckBox;
 class QGraphicsView;
 class QGraphicsScene;
 class QGraphicsItem;
@@ -16,6 +15,7 @@ class QLabel;
 class QTreeWidget;
 class QPlainTextEdit;
 class QPushButton;
+class QToolButton;
 class DataGraphPage : public QWidget {
   Q_OBJECT
 public:
@@ -60,19 +60,20 @@ private:
   QComboBox *m_mode, *m_category, *m_stage;
   QLineEdit *m_search;
   QSpinBox *m_depth;
-  QCheckBox *m_history;
+  QToolButton *m_history;
   QGraphicsView *m_view;
   QGraphicsScene *m_scene;
   QLabel *m_summary, *m_status;
   QPlainTextEdit *m_details;
   QTreeWidget *m_relations;
   paleo::datagraph::Graph m_graph;
-  QPushButton *m_back;
+  QToolButton *m_back;
   QVector<paleo::datagraph::Query> m_backHistory;
   paleo::datagraph::Query m_queryState;
   bool m_hasQuery = false, m_restoring = false;
-  QPushButton *m_open, *m_locate, *m_folder, *m_trace, *m_impact, *m_cancel, *m_map,
-      *m_reference, *m_wells, *m_related, *m_manage, *m_export;
+  QPushButton *m_open, *m_locate, *m_folder, *m_trace, *m_impact, *m_map,
+      *m_reference, *m_wells, *m_related, *m_manage;
+  QToolButton *m_cancel, *m_export;
   QHash<QString, QGraphicsItem *> m_items;
   QVector<QGraphicsItem *> m_edges;
   paleo::datagraph::Node m_selected;

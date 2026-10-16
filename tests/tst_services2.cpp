@@ -19,6 +19,7 @@
 #include <qgsproject.h>
 #include <qgsrendercontext.h>
 #include <qgsrenderer.h>
+#include <qgsrulebasedrenderer.h>
 #include <qgssinglesymbolrenderer.h>
 #include <qgsvectorlayer.h>
 #include <qgsvectorlayerlabeling.h>
@@ -553,6 +554,80 @@ private slots:
     QVERIFY(neutralLike(neutralEmpty));
     QVERIFY(neutralLike(forWeird));
     QVERIFY(neutralLike(forEmpty));
+  }
+
+  // 测井相点图例收口：各层位分类的相码规则按层位分组（父节点 = 层位名、
+  // 无符号），表外编码/无 schema 层位照旧漏进缺省分类 else 组，未预测落灰。
+  void wellFaciesRendererGroupsRulesByHorizon()
+  {
+    const auto entry = [](int code, const QString &name, const QString &color) {
+      QVariantMap f;
+      f.insert(QStringLiteral("code"), code);
+      f.insert(QStringLiteral("name"), name);
+      f.insert(QStringLiteral("color"), color);
+      return QVariant(f);
+    };
+    QHash<QString, QVariantList> schemas;
+    schemas.insert(QStringLiteral("hz.a"),
+                   QVariantList{entry(1, QStringLiteral("河流相"), QStringLiteral("#D9A05B")),
+                                entry(2, QStringLiteral("湖泊相"), QStringLiteral("#6BAED6"))});
+    schemas.insert(QStringLiteral("hz.b"),
+                   QVariantList{entry(3, QStringLiteral("三角洲相"), QStringLiteral("#74C476"))});
+
+    std::unique_ptr<QgsFeatureRenderer> owned(
+        QgisStyleService::wellFaciesRenderer(QStringLiteral("horizon"), schemas, QVariantMap()));
+    auto *r = dynamic_cast<QgsRuleBasedRenderer *>(owned.get());
+    QVERIFY(r);
+    QgsRuleBasedRenderer::Rule *root = r->rootRule();
+    QCOMPARE(root->children().size(), 3); // hz.a + hz.b + 缺省分类 else
+
+    QgsRuleBasedRenderer::Rule *groupA = nullptr;
+    QgsRuleBasedRenderer::Rule *groupB = nullptr;
+    QgsRuleBasedRenderer::Rule *fallback = nullptr;
+    for (QgsRuleBasedRenderer::Rule *child : root->children())
+    {
+      if (child->isElse())
+        fallback = child;
+      else if (child->label() == QStringLiteral("hz.a"))
+        groupA = child;
+      else if (child->label() == QStringLiteral("hz.b"))
+        groupB = child;
+    }
+    QVERIFY(groupA && groupB && fallback);
+    QVERIFY(!groupA->symbol()); // 组节点只出层位名，不画符号
+    QCOMPARE(groupA->children().size(), 2);
+    QCOMPARE(groupB->children().size(), 1);
+    QCOMPARE(fallback->label(), QStringLiteral("缺省分类"));
+    // 组过滤同步限定编码集：表外编码漏不进组，才能走缺省分类兜底。
+    QVERIFY(groupA->filterExpression().contains(QStringLiteral("hz.a")));
+    QVERIFY(groupA->filterExpression().contains(QStringLiteral("IN")));
+
+    QgsVectorLayer layer(
+        QStringLiteral("Point?crs=EPSG:4326&field=horizon:string&field=facies_code:int"),
+        QStringLiteral("w"), QStringLiteral("memory"));
+    QVERIFY(layer.isValid());
+    QgsRenderContext context;
+    r->startRender(context, layer.fields());
+    // 规则渲染 symbolForFeature 恒空（QGIS 侧「not used at all」），用
+    // symbolsForFeature 首符号判定命中分支（组先于 else 入表）。
+    const auto colorFor = [&layer, r, &context](const QVariant &hz, const QVariant &code) {
+      QgsFeature f(layer.fields());
+      f.setGeometry(QgsGeometry::fromPointXY(QgsPointXY(0, 0)));
+      f.setAttribute(QStringLiteral("horizon"), hz);
+      f.setAttribute(QStringLiteral("facies_code"), code);
+      const QgsSymbolList syms = r->symbolsForFeature(f, context);
+      return syms.isEmpty() ? QColor() : syms.constFirst()->color();
+    };
+    QCOMPARE(colorFor(QStringLiteral("hz.a"), 1), QColor(QStringLiteral("#D9A05B")));
+    QCOMPARE(colorFor(QStringLiteral("hz.a"), 2), QColor(QStringLiteral("#6BAED6")));
+    QCOMPARE(colorFor(QStringLiteral("hz.b"), 3), QColor(QStringLiteral("#74C476")));
+    // hz.a 行挂 hz.b 的编码 → 漏进缺省分类（默认表色），不是 hz.b 组色。
+    const QColor outOfSchema = colorFor(QStringLiteral("hz.a"), 3);
+    QVERIFY(outOfSchema.isValid());
+    QVERIFY(outOfSchema != QColor(QStringLiteral("#74C476")));
+    // 未预测（NULL 编码）→ 灰兜底。
+    QCOMPARE(colorFor(QStringLiteral("hz.a"), QVariant()), QColor(QStringLiteral("#9AA7B4")));
+    r->stopRender(context);
   }
 
   // (h) layout lifecycle: create (duplicate rejected) -> pdf export -> remove

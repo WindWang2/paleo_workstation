@@ -24,30 +24,6 @@ namespace PaleoLayerVocabulary
 
 inline const QString kConstraintsGroup = QStringLiteral("03_Constraints");
 
-// ---- 约束库层位过滤 subset 的安全构造（PR457-closure 六）----
-// 层位名是自由文本（O'Connell-1、中文名、空格都合法）：
-//  · SQL 字面量：单引号翻倍——与 io/constraintstore.cpp quoteSql 同口径
-//    （该函数是文件内 static，不便跨层引用；规则在此单一重述，测试双向对齐）；
-//  · OGR URI 语法：'|' 是 URI 选项分隔符，subset 值中的 '|' 无法转义，
-//    会截断过滤器并污染后续 URI 键——含 '|' 的层位名在构造点直接拒绝。
-inline QString escapeHorizonSql(const QString &horizon)
-{
-  QString escaped = horizon;
-  escaped.replace(QLatin1Char('\''), QStringLiteral("''"));
-  return escaped;
-}
-// 组装 "|subset=horizon='<escaped>'"。层位名含 '|'（URI 不可表达）时返回
-// 空串并给出原因——调用方必须按失败处理，绝不静默退化为无过滤全表层。
-inline QString constraintHorizonSubsetSuffix(const QString &horizon, QString *error = nullptr)
-{
-  if (horizon.contains(QLatin1Char('|')))
-  {
-    if (error)
-      *error = QStringLiteral("层位名包含 '|'，无法构造安全的图层过滤器：%1").arg(horizon);
-    return QString();
-  }
-  return QStringLiteral("|subset=horizon='%1'").arg(escapeHorizonSql(horizon));
-}
 // P3：混合几何约束层位的只读伴随视图 id 前缀（<前缀><层位>.<point|line|polygon>）。
 // 刻意不以 "constraints." 开头——不进约束编辑会话/编辑服务的约束层判定。
 inline const QString kConstraintGeometryViewPrefix = QStringLiteral("constraintgeom.");

@@ -234,7 +234,7 @@ private slots:
     QVERIFY( layer->crs().isValid() );
     QCOMPARE( layer->crs(), paleo::constraintcrs::storeCrs() );
     // 已有有效 CRS 不覆盖。
-    QVERIFY( !paleo::constraintcrs::assignStoreCrsIfMissing( layer ) );
+    QVERIFY( !paleo::constraintcrs::assignStoreCrsIfMissing( layer ).assigned );
   }
 
   // 配准工程：画布 = EPSG:3857 + 显式坐标操作。绘制入库存本地坐标，重开后

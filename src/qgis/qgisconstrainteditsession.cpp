@@ -76,6 +76,35 @@ qlonglong QgisConstraintEditSession::storeMaxFid() const
   return maxFid;
 }
 
+qlonglong QgisConstraintEditSession::storeFidIndex(QHash<qlonglong, QString> *owners) const
+{
+  if (owners)
+    owners->clear();
+  GDALDatasetH ds = GDALOpenEx(m_path.toUtf8().constData(), GDAL_OF_VECTOR, nullptr, nullptr, nullptr);
+  if (!ds)
+    return -1;
+  qlonglong maxFid = 0;
+  if (OGRLayerH layer = GDALDatasetGetLayerByName(ds, "constraints"))
+  {
+    const int idIdx = OGR_FD_GetFieldIndex(OGR_L_GetLayerDefn(layer), "id");
+    OGR_L_ResetReading(layer);
+    while (OGRFeatureH raw = OGR_L_GetNextFeature(layer))
+    {
+      const qlonglong fid = OGR_F_GetFID(raw);
+      maxFid = std::max<qlonglong>(maxFid, fid);
+      // 无 id 的行也登记（身份记空串）：外部写入者可能不带稳定身份占号，
+      // 占用判定看「该 fid 是否属于别的身份」，空身份 ≠ 本要素身份。
+      if (owners && idIdx >= 0)
+        owners->insert( fid, OGR_F_IsFieldSetAndNotNull( raw, idIdx )
+                                ? QString::fromUtf8( OGR_F_GetFieldAsString( raw, idIdx ) )
+                                : QString() );
+      OGR_F_Destroy(raw);
+    }
+  }
+  GDALClose(ds);
+  return maxFid;
+}
+
 QVector<QVariantMap> QgisConstraintEditSession::snapshot(QString *error) const
 {
   QVector<QVariantMap> rows;
@@ -110,19 +139,40 @@ QVector<QVariantMap> QgisConstraintEditSession::snapshot(QString *error) const
     }
     if (added)
     {
-      if (!m_newFids.contains(feature.id()))
+      // PR457-closure F4：映射不再「首见钉死」。每次快照都按 store 实时最大
+      // fid 复核——undo 释放了预分配 fid、又被其他写入方（直写/外部编辑）
+      // 占用时，改用新的空闲 fid 重放，而不是让 redo 永久撞在身份守卫上。
+      // 身份（稳定 id）不变：redo 仍写同一业务身份，仅持久化编号让位。
+      QHash<qlonglong, QString> owners; // 出现已知预分配编号时才需要占用表
+      qlonglong live = -1;
+      const bool known = m_newFids.contains(feature.id());
+      if (known)
       {
-        // 首次出现时按「store 当前全表最大 fid」与已分配值取大再 +1：会话期间
-        // 其他层位的直写（非编辑层位仍可绘制）不会与预分配 fid 相撞。
-        const qlonglong live = storeMaxFid();
-        if (live < 0)
-        {
-          *error = tr("无法读取约束 store 的要素编号");
-          return {};
-        }
-        m_nextFid = std::max(m_nextFid, live + 1);
+        live = storeFidIndex(&owners);
+      }
+      else
+      {
+        live = storeMaxFid();
+      }
+      if (live < 0)
+      {
+        *error = tr("无法读取约束 store 的要素编号");
+        return {};
+      }
+      m_nextFid = std::max(m_nextFid, live + 1);
+      if (!known)
+      {
         m_newFids.insert(feature.id(), m_nextFid++);
         m_newIdentities.insert(feature.id(), id);
+      }
+      else
+      {
+        const qlonglong pinned = m_newFids.value(feature.id());
+        // 占用 = store 里存在该 fid 且其身份不是本要素的身份（undo 后被
+        // 其他写入方复用）；仍是本要素自身的行则保持编号（幂等重放）。
+        const bool occupied = owners.contains(pinned) && owners.value(pinned) != id;
+        if (occupied)
+          m_newFids[feature.id()] = m_nextFid++; // 让位：m_nextFid 已 ≥ live+1
       }
       if (m_newIdentities.value(feature.id()) != id)
       {

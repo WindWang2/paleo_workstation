@@ -46,6 +46,22 @@ class TestDecorations : public QObject
     // 真实不变量：（a）装饰确实画了东西（非全白像元 > 0——确定性不得
     // 建立在空白画布上）；（b）字体钉住后两次渲染逐字节一致（文本基线
     // 可复现的前提）。
+    // #481：装饰件 token 跟随全局主题——applyTheme(Dark) 后 setDark 生效，
+    // 卡片/描线用暗色 token；此前 setDark 全仓零调用（死接线）。
+    void themeSwitchDrivesDecorationTokens()
+    {
+        PaleoTheme::applyTheme(PaleoTheme::Theme::Light);
+        QVERIFY(!PaleoDecorationTheme::isDark());
+        const QColor lightCard = PaleoDecorationTheme::card();
+        PaleoTheme::applyTheme(PaleoTheme::Theme::Dark);
+        QVERIFY2(PaleoDecorationTheme::isDark(), "applyTheme(Dark) 必须接线 setDark");
+        const QColor darkCard = PaleoDecorationTheme::card();
+        QVERIFY(lightCard != darkCard);
+        // 还原浅色，避免污染后续用例
+        PaleoTheme::applyTheme(PaleoTheme::Theme::Light);
+        QVERIFY(!PaleoDecorationTheme::isDark());
+    }
+
     void pinnedRenderIsDeterministic()
     {
       QgsMapCanvas canvas;

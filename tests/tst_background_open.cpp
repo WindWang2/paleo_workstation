@@ -9,6 +9,11 @@
 #include <QTimer>
 #include <QtConcurrent>
 #include <atomic>
+#include <qgsfeature.h>
+#include <qgsgeometry.h>
+#include <qgspointxy.h>
+#include <qgsproject.h>
+#include <qgsvectorlayer.h>
 #include "../src/catalog/datacatalog.h"
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/qgis/qgisruntime.h"
@@ -170,6 +175,44 @@ private slots:
     QCOMPARE(opened.count(), 0); QVERIFY(service.projectPath().isEmpty());
     QVERIFY(service.lastOpenCancelled()); QVERIFY(!service.isOpening());
     QVERIFY(!service.writeProject());
+  }
+  // (#483 P2) 升级 tripwire：后台 QgsProject 读层 + moveToThread/takeMapLayer
+  // 接管依赖「层随 moveToThread 连 provider 亲和一起搬」的 QGIS 未书面契约。
+  // vendored QGIS 升级若破坏该契约，此处在 CI 当场红掉，而不是用户侧拿到
+  // 跨线程层。内存层随 .qgz 内嵌持久，无需外部数据源。
+  void asyncOpenAdoptsLayersOnOwnerThread() {
+    QTemporaryDir directory;
+    QgisProjectService service;
+    const QString path = directory.filePath("adopt.qgz");
+    QVERIFY(service.createProject(path));
+    {
+      auto *vl = new QgsVectorLayer(QStringLiteral("Point?field=id:int"),
+                                    QStringLiteral("mem"), QStringLiteral("memory"));
+      vl->setCrs(QgsCoordinateReferenceSystem::fromEpsgId(4326));
+      QgsFeature f(vl->fields());
+      f.setAttribute(QStringLiteral("id"), 1);
+      f.setGeometry(QgsGeometry::fromPointXY(QgsPointXY(108.0, 36.0)));
+      vl->dataProvider()->addFeature(f);
+      vl->updateExtents();
+      service.project()->addMapLayer(vl);
+      QVERIFY(service.writeProject());
+      service.closeProject();
+    }
+    QSignalSpy opened(&service, &QgisProjectService::projectOpened);
+    QSignalSpy failed(&service, &QgisProjectService::openAborted);
+    QVERIFY(service.openProjectAsync(path));
+    QTRY_COMPARE_WITH_TIMEOUT(opened.count(), 1, 30000);
+    QCOMPARE(failed.count(), 0);
+    QThread *owner = QThread::currentThread();
+    const auto layers = service.project()->mapLayers();
+    QVERIFY2(layers.size() >= 1, "adopted project lost its layers");
+    for (auto *layer : layers) {
+      QCOMPARE(layer->thread(), owner); // 层已随接管搬到主线程
+      QVERIFY(layer->dataProvider() != nullptr);
+      QCOMPARE(layer->dataProvider()->thread(), owner); // provider 亲和同搬
+      QVERIFY(layer->isValid());
+    }
+    service.closeProject();
   }
   void readOnlyPreparationCreatesNoStore() {
     QTemporaryDir directory;

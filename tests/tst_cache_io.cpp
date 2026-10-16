@@ -19,6 +19,7 @@ class CacheIoTests : public QObject
   private slots:
     // D7.2 编码
     void detectUtf8();
+    void strictUtf8RejectsTruncatedTail(); // #477
     void detectGb18030();
     void detectBomVariants();
     void decodeGbWellFile();
@@ -54,6 +55,22 @@ void CacheIoTests::detectUtf8()
            TextEncoding::Utf8);
   QCOMPARE(EncodingDetect::detect(QString::fromUtf8("中文井名").toUtf8()),
            TextEncoding::Utf8);
+}
+
+// #477：isStrictUtf8 对尾部截断的多字节序列必须回 false（严格口径）；
+// detect() 的样本语义（前缀截断容差）不受影响——合法 UTF-8 文件被切在
+// 多字节字符中间的样本仍按 UTF-8 分类。
+void CacheIoTests::strictUtf8RejectsTruncatedTail()
+{
+  // 「中」= E4 B8 AD ——只给前两个字节：非法完整输入。
+  QVERIFY(!EncodingDetect::isStrictUtf8(QByteArrayLiteral("\xE4\xB8")));
+  QVERIFY(!EncodingDetect::isStrictUtf8(QByteArrayLiteral("\xF0\x9F")));
+  QVERIFY(EncodingDetect::isStrictUtf8(QString::fromUtf8("完整中文").toUtf8()));
+
+  // detect() 样本前缀：截断在「中」中间仍是 UTF-8 文件的前缀。
+  const QByteArray whole = QStringLiteral("井名：基准井-中").toUtf8();
+  const QByteArray cut = whole.left(whole.size() - 1); // 切掉末字节
+  QCOMPARE(EncodingDetect::detect(cut), TextEncoding::Utf8);
 }
 
 void CacheIoTests::detectGb18030()

@@ -271,32 +271,6 @@ int FaultSurfaceMesh::segmentIndexForTriangle(int idx) const
     return -1;
 }
 
-void FaultSurfaceMesh::ensureVertexBranchIndex() const
-{
-    if (!m_vertexBranches.isEmpty() || segments.isEmpty())
-        return;
-    for (const FaultSurfaceSegment &s : segments) {
-        const QVector<int> *rows[2] = {&s.rowA, &s.rowB};
-        for (const QVector<int> *row : rows) {
-            for (int v : *row) {
-                QVector<int> &branches = m_vertexBranches[v];
-                if (!branches.contains(s.branch))
-                    branches.append(s.branch);
-            }
-        }
-    }
-    for (auto it = m_vertexBranches.begin(); it != m_vertexBranches.end(); ++it)
-        std::sort(it.value().begin(), it.value().end());
-}
-
-QVector<int> FaultSurfaceMesh::branchesOfVertex(int idx) const
-{
-    if (idx < 0 || idx >= vertices.size())
-        return {};
-    ensureVertexBranchIndex();
-    return m_vertexBranches.value(idx);
-}
-
 QVariantMap FaultSurfaceMesh::toMap() const
 {
     QVariantMap m;

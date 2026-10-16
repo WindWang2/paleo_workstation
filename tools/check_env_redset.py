@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""环境债红名单检查器（方向 81 防回归）。
+"""环境债红名单检查器（方向 81 防回归；#475 起并管文档化红项分诊）。
 
 按 tools/env_redset.json 给一次 ctest 结果分类：
   EXEMPT     名单内 status=exempt、路线匹配、且 QtTest 输出里每条 FAIL! 都命中
@@ -8,7 +8,13 @@
   UNEXPECTED 名单外的红，或 exempt 项红得不对（别的断言 / 崩溃 / 无输出 /
              路线不在 routes）。
   STALE      exempt 项本轮通过 —— 名单可删此条（--strict 下按失败算）。
+  DOCUMENTED 名单外但登记在 tools/documented_redset.json（#475 文档化红项）
+             的红 —— 已知债分诊呈现（owner/reason/review_due 在案），不计入
+             不放行集合；这是「文档化红项」与偶发抖动的分流通道，不是豁免
+             预算断言的旁门（豁免仍只走 env_redset.json 的 expect_fail 口径）。
 退出码：0 = 无 REGRESSED/UNEXPECTED（--strict 另要求无 STALE），1 = 有。
+--validate 同时钉 documented_redset.json 结构 + 测试名注册 + 复审日期未过期
+（过期即红——文档化红项必须按季复审，不许登记后无人问津）。
 
 用法：
   python3 tools/check_env_redset.py --build BUILD [--route localdeps]
@@ -35,7 +41,9 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_LIST = REPO / "tools" / "env_redset.json"
+DEFAULT_DOC = REPO / "tools" / "documented_redset.json"
 STATUSES = ("fixed", "exempt")
+DOC_STATUSES = ("documented",)
 # #501：豁免项复审周期（天）——超期只提示不红，避免一次性全国红；到期提示进
 # CI annotation，迫使逐项重估（出名单或更新 reviewed_utc）。
 REVIEW_DUE_DAYS = 120
@@ -94,6 +102,52 @@ def load_list(path):
     return {e["test"]: e for e in data["entries"]}
 
 
+def load_documented(path=DEFAULT_DOC):
+    """#475 文档化红项名单 → {test: entry}；结构非法/复审过期一律 Fail。"""
+    if not Path(path).is_file():
+        # 分诊名单是可选机制：文件缺省 = 无文档化红项（不是错误）。
+        return {}
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    errors = []
+    cats = data.get("categories", {})
+    seen = set()
+    for i, e in enumerate(data.get("entries", [])):
+        where = f"entries[{i}] {e.get('test', '?')}"
+        if not e.get("test"):
+            errors.append(f"{where}: 缺 test")
+        if e.get("test") in seen:
+            errors.append(f"{where}: 重复")
+        seen.add(e.get("test"))
+        if e.get("category") not in cats:
+            errors.append(f"{where}: category {e.get('category')!r} 不在 categories")
+        if e.get("status") not in DOC_STATUSES:
+            errors.append(f"{where}: status 必须是 {DOC_STATUSES}")
+        for k in ("owner", "reason", "review_due"):
+            if not e.get(k):
+                errors.append(f"{where}: 缺 {k}")
+        if e.get("review_due"):
+            try:
+                datetime.date.fromisoformat(str(e["review_due"]))
+            except ValueError:
+                errors.append(f"{where}: review_due 须为合法 YYYY-MM-DD 日期")
+    if errors:
+        raise Fail("文档化红项名单结构错误：\n  " + "\n  ".join(errors))
+    return {e["test"]: e for e in data["entries"]}
+
+
+def documented_overdue(entries, today=None):
+    today = today or datetime.date.today()
+    out = []
+    for test, e in sorted(entries.items()):
+        try:
+            due = datetime.date.fromisoformat(str(e["review_due"]))
+        except ValueError:
+            continue  # 结构校验另行抓
+        if due < today:
+            out.append((test, e["review_due"]))
+    return out
+
+
 def _review_overdue(reviewed):
     """exempt 项复审是否超期（#501）。缺字段/解析失败返回 False——
     结构错误由 --validate 兜（不在此重复报）。"""
@@ -146,14 +200,21 @@ def qtest_fail_lines(build, test):
     return fails, complete
 
 
-def classify(entries, results, build, route):
-    """→ [(kind, test, detail)]，kind ∈ EXEMPT/REGRESSED/UNEXPECTED/STALE"""
+def classify(entries, results, build, route, documented=None):
+    """→ [(kind, test, detail)]，kind ∈ EXEMPT/REGRESSED/UNEXPECTED/STALE/DOCUMENTED"""
     report = []
+    documented = documented or {}
     for test, state in sorted(results.items()):
         e = entries.get(test)
         if state in ("fail", "unsafe"):
             if e is None:
-                report.append(("UNEXPECTED", test, "不在环境债名单"))
+                if test in documented:
+                    d = documented[test]
+                    report.append(("DOCUMENTED", test,
+                                   f"[{d['category']}] {d['reason'][:120]}"
+                                   f"（owner {d['owner']}，复审 {d['review_due']}）"))
+                else:
+                    report.append(("UNEXPECTED", test, "不在环境债名单"))
             elif e["status"] == "fixed":
                 report.append(("REGRESSED", test, f"[{e['category']}] 已修：{e['fix']}"))
             elif route not in e["routes"]:
@@ -209,6 +270,8 @@ def compare_runs(entries, first, second):
 def run(argv):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--list", default=str(DEFAULT_LIST))
+    ap.add_argument("--doc-list", default=str(DEFAULT_DOC),
+                    help="文档化红项名单路径（#475 分诊；selftest 注入合成名单用）")
     ap.add_argument("--build")
     ap.add_argument("--junit")
     ap.add_argument("--compare-build")
@@ -221,11 +284,20 @@ def run(argv):
     if a.selftest:
         return selftest()
     entries = load_list(a.list)
+    documented = load_documented(a.doc_list)
     if a.validate:
         validate_registered(entries)
+        validate_registered(documented)
+        overdue = documented_overdue(documented)
+        for test, due in overdue:
+            print(f"FAIL 文档化红项 {test} 复审已过期（review_due={due}）——"
+                  f"要么补一轮证据续期，要么转正式修复后删条目")
+        n_doc = len(documented)
         print(f"env_redset: OK（{len(entries)} 项，"
-              f"{sum(e['status'] == 'exempt' for e in entries.values())} 项豁免）")
-        return 0
+              f"{sum(e['status'] == 'exempt' for e in entries.values())} 项豁免）；"
+              f"文档化红项 {n_doc} 条"
+              f"（tools/documented_redset.json，复审过期即红）")
+        return 1 if overdue else 0
     if not a.build:
         raise Fail("--build 必填（或 --validate / --selftest）")
     junit = Path(a.junit) if a.junit else Path(a.build) / "Testing" / "ctest-junit.xml"
@@ -236,12 +308,12 @@ def run(argv):
         if not failed_log.is_file():
             raise Fail("没有本轮 JUnit 或 LastTestsFailed.log，不能证明红集合")
         results = results_from_lastfailed(a.build)
-    report = classify(entries, results, a.build, a.route)
+    report = classify(entries, results, a.build, a.route, documented)
     n_fail = sum(s in ("fail", "unsafe") for s in results.values())
     if a.compare_build:
         previous = results_from_junit(Path(a.compare_build) / "Testing" / "ctest-junit.xml")
         stable_green = compare_runs(entries, previous, results)
-        report += classify(entries, previous, a.compare_build, a.route)
+        report += classify(entries, previous, a.compare_build, a.route, documented)
         n_fail += sum(s in ("fail", "unsafe") for s in previous.values())
         print(f"双遍连续绿：{len(stable_green)} 个已修项（需 ledger 确认实际平台与全量范围）")
     for kind, test, detail in report:
@@ -249,8 +321,13 @@ def run(argv):
     bad = [t for k, t, _ in report if k in ("REGRESSED", "UNEXPECTED") or (a.strict and k == "STALE")]
     if a.emit_unexpected:
         Path(a.emit_unexpected).write_text("".join(t + "\n" for t in bad), encoding="utf-8")
+    n_doc_hit = sum(k == "DOCUMENTED" for k, _, _ in report)
     print(f"env_redset: {n_fail} 红 → {sum(k == 'EXEMPT' for k, _, _ in report)} 豁免 / "
-          f"{len(bad)} 不放行（路线 {a.route}）")
+          f"{len(bad)} 不放行（路线 {a.route}）；文档化红项 {len(documented)} 条"
+          f"（本轮命中 {n_doc_hit}，详见 tools/documented_redset.json）")
+    for test, due in documented_overdue(documented):
+        print(f"WARN 文档化红项 {test} 复审已过期（review_due={due}）——"
+              f"--validate 档下为红；请续期或转修复")
     # #501：STALE 在非 strict 下也须可见——豁免项本轮通过说明名单可删，静默保留
     # 会让「只增不减」无人复审。strict 语义不变（计红），非 strict 给出 annotation。
     stale = [t for k, t, _ in report if k == "STALE"]
@@ -292,10 +369,14 @@ def selftest():
         ],
     }
 
-    def scenario(results, qtest, route="localdeps", strict=False, entries_json=None):
+    def scenario(results, qtest, route="localdeps", strict=False, entries_json=None,
+                 doc_entries=None):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             (tmp / "list.json").write_text(json.dumps(entries_json or lst, ensure_ascii=False), encoding="utf-8")
+            doc = {"schema": 1, "categories": {"golden-tolerance": "g"},
+                   "entries": doc_entries or []}
+            (tmp / "doc.json").write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
             (tmp / "Testing" / "qtest-first-run").mkdir(parents=True)
             for name, text in qtest.items():
                 (tmp / "Testing" / "qtest-first-run" / f"{name}.txt").write_text(text, encoding="utf-8")
@@ -309,11 +390,15 @@ def selftest():
                     ET.SubElement(tc, "skipped")
             ET.ElementTree(suite).write(tmp / "junit.xml", encoding="utf-8")
             emit = tmp / "unexpected.txt"
-            argv = ["--list", str(tmp / "list.json"), "--build", str(tmp), "--junit", str(tmp / "junit.xml"),
+            argv = ["--list", str(tmp / "list.json"), "--doc-list", str(tmp / "doc.json"),
+                    "--build", str(tmp), "--junit", str(tmp / "junit.xml"),
                     "--route", route, "--emit-unexpected", str(emit)] + (["--strict"] if strict else [])
             with contextlib.redirect_stdout(io.StringIO()):
                 rc = run(argv)
             return rc, emit.read_text(encoding="utf-8").split()
+
+    doc_entry = {"test": "tst_doc_red", "category": "golden-tolerance", "status": "documented",
+                 "owner": "o", "reason": "r", "review_due": "2099-01-01"}
 
     cases = [
         # (说明, results, qtest, route, strict, 期望 rc, 期望不放行集合)
@@ -333,7 +418,15 @@ def selftest():
         ("豁免项转绿 → STALE（非 strict 放行）", {"tst_cache_las": "pass"}, {}, "localdeps", False, 0, []),
         ("豁免项转绿 → STALE（strict 不放行）", {"tst_cache_las": "pass"}, {}, "localdeps", True, 1, ["tst_cache_las"]),
         ("跳过不算红", {"tst_new": "skip"}, {}, "localdeps", False, 0, []),
+        # #475：文档化红项分诊——DOCUMENTED 不计入不放行集合、不进 emit。
+        ("文档化红项红 → DOCUMENTED 分诊放行", {"tst_doc_red": "fail"}, {}, "localdeps", False, 0, []),
+        ("文档化红项崩溃态 → 同样分诊", {"tst_doc_red": "unsafe"}, {}, "localdeps", False, 0, []),
+        ("文档化红项 + 名单外红并存 → 名单外仍不放行",
+         {"tst_doc_red": "fail", "tst_new": "fail"}, {}, "localdeps", False, 1, ["tst_new"]),
     ]
+    doc_cases = {"文档化红项红 → DOCUMENTED 分诊放行": [doc_entry],
+                 "文档化红项崩溃态 → 同样分诊": [doc_entry],
+                 "文档化红项 + 名单外红并存 → 名单外仍不放行": [doc_entry]}
     failures = []
     real_entries = load_list(DEFAULT_LIST)
     green = {name: "pass" for name in real_entries}
@@ -361,7 +454,8 @@ def selftest():
         except Fail:
             pass
     for desc, results, qtest, route, strict, want_rc, want_bad in cases:
-        rc, bad = scenario(results, qtest, route, strict)
+        rc, bad = scenario(results, qtest, route, strict,
+                           doc_entries=doc_cases.get(desc))
         if rc != want_rc or sorted(bad) != sorted(want_bad):
             failures.append(f"{desc}: rc={rc} bad={bad}（期望 rc={want_rc} bad={want_bad}）")
     # 结构校验：无条件豁免（空/匹配空串的 expect_fail）与缺 routes 必须拒绝。
@@ -382,6 +476,31 @@ def selftest():
                 failures.append(f"结构校验漏放：{desc}")
             except Fail:
                 pass
+    # #475：documented_redset 结构突变必须拒绝（缺 owner/reason/review_due、
+    # 非法日期/状态）；复审到期必须能被 documented_overdue 抓到。
+    for mutate, desc in ((lambda e: e.pop("owner"), "缺 owner"),
+                         (lambda e: e.pop("reason"), "缺 reason"),
+                         (lambda e: e.pop("review_due"), "缺 review_due"),
+                         (lambda e: e.update(review_due="2099-13-99"), "非法日期"),
+                         (lambda e: e.update(status="exempt"), "status 越权（豁免只许走 env_redset）")):
+        bad_doc = {"schema": 1, "categories": {"golden-tolerance": "g"},
+                   "entries": [dict(doc_entry)]}
+        mutate(bad_doc["entries"][0])
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "d.json"
+            p.write_text(json.dumps(bad_doc), encoding="utf-8")
+            try:
+                load_documented(p)
+                failures.append(f"文档化红项结构校验漏放：{desc}")
+            except Fail:
+                pass
+    past = dict(doc_entry, test="tst_past", review_due="2000-01-01")
+    future = dict(doc_entry, test="tst_future", review_due="2099-12-31")
+    overdue = documented_overdue({"tst_past": past, "tst_future": future,
+                                  "tst_doc": dict(doc_entry)},
+                                 today=datetime.date(2026, 10, 16))
+    if overdue != [("tst_past", "2000-01-01")]:
+        failures.append(f"documented_overdue 判定异常：{overdue}")
     # #501：复审到期判定——过期算到期、当天/未来不算、缺字段与坏格式不得误报。
     if not (_review_overdue("2020-01-01")
             and not _review_overdue(datetime.date.today().isoformat())
@@ -414,11 +533,20 @@ def selftest():
                     failures.append(f"{test}.cpp 已无断言文案 {frag!r}——同步 env_redset.json 的 expect_fail")
     except Fail as e:
         failures.append(f"仓库名单：{e}")
+    # #475：仓库 documented_redset.json 必须结构合法、测试名已注册、复审未过期。
+    try:
+        real_doc = load_documented(DEFAULT_DOC)
+        validate_registered(real_doc)
+        if documented_overdue(real_doc):
+            failures.append(f"documented_redset 复审已过期：{documented_overdue(real_doc)}")
+    except Fail as e:
+        failures.append(f"文档化红项仓库名单：{e}")
     if failures:
         for f in failures:
             print("SELFTEST FAIL", f)
         return 1
-    print(f"check_env_redset selftest: PASS（{len(cases)} 场景 + {len(mutations)} 结构突变）")
+    print(f"check_env_redset selftest: PASS（{len(cases)} 场景 + {len(mutations)} 结构突变 + "
+          f"5 文档化红项结构突变 + 复审到期判定）")
     return 0
 
 

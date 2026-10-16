@@ -47,8 +47,7 @@ bool QgisRuntime::initialize( const QString &prefixPath )
   // 测试路径不经过这里（各自直接构造 QgsApplication），不受影响。
   s_app = new QgsApplication( s_argc, s_argv, /*GUIenabled=*/true );
   QgsApplication::setPrefixPath(
-      qEnvironmentVariable( "QGIS_PREFIX_PATH",
-                            prefixPath.isEmpty() ? defaultPrefixPath() : prefixPath ),
+      resolvePrefixPath( prefixPath, qEnvironmentVariable( "QGIS_PREFIX_PATH" ) ),
       /*useDefaultPaths=*/true );
   QgsApplication::initQgis();
   // Embedding applications must register QGIS's native attribute editors;

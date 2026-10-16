@@ -95,25 +95,36 @@ void PaleoMainWindow::attachWellSection(PaleoTaskService *taskSvc,
           return vl;
     return nullptr;
   };
+  // #481 P2-5：同库不重建——300ms 去抖对每次 catalog 变更都会走这里，
+  // 旧实现无条件 delete/new + open + load，GUI 阻塞随库体积增长。
+  // 工程未换（源 metaDbPath 不变）时直接复用已开实例。
+  const auto boundPath = std::make_shared<QString>();
   const auto bindStores = [this, wf, panel, store, rebindFenceStore,
-                           resolveWellLayer] {
+                           resolveWellLayer, boundPath] {
     if (!store)
       return;
-    delete m_wellSectionStore; // 换工程释放旧实例（非 QObject，无父子回收）
-    m_wellSectionStore =
-        new metadata::WellSectionStore(store->metaDbPath(), store);
+    // sameProject 短路还须确认 store 已建过——裸 manifest 测试栈首调时空
+    // metaDbPath 恰为 ""，""=="" 会跳过创建，随后 load 解引用 null。
+    const bool sameProject =
+        m_wellSectionFaultStore && *boundPath == store->metaDbPath();
+    *boundPath = store->metaDbPath();
     QString storeErr;
-    if (!m_wellSectionStore->open(&storeErr))
-      QgsMessageLog::logMessage(
-          tr("连井剖面编辑库打开失败：%1").arg(storeErr),
-          QStringLiteral("Paleo"));
-    // 断层投绘供数：断面 mesh ∩ 井径 curtain（换工程重绑）。
-    delete m_wellSectionFaultStore;
-    m_wellSectionFaultStore = new FaultSetStore(store->metaDbPath(), store);
-    if (!m_wellSectionFaultStore->open(&storeErr))
-      QgsMessageLog::logMessage(
-          tr("断层解释库打开失败：%1").arg(storeErr),
-          QStringLiteral("Paleo"));
+    if (!sameProject) {
+      delete m_wellSectionStore; // 换工程释放旧实例（非 QObject，无父子回收）
+      m_wellSectionStore =
+          new metadata::WellSectionStore(store->metaDbPath(), store);
+      if (!m_wellSectionStore->open(&storeErr))
+        QgsMessageLog::logMessage(
+            tr("连井剖面编辑库打开失败：%1").arg(storeErr),
+            QStringLiteral("Paleo"));
+      // 断层投绘供数：断面 mesh ∩ 井径 curtain（换工程重绑）。
+      delete m_wellSectionFaultStore;
+      m_wellSectionFaultStore = new FaultSetStore(store->metaDbPath(), store);
+      if (!m_wellSectionFaultStore->open(&storeErr))
+        QgsMessageLog::logMessage(
+            tr("断层解释库打开失败：%1").arg(storeErr),
+            QStringLiteral("Paleo"));
+    }
     wf->setFaultSetStore(m_wellSectionFaultStore);
     paleo::fault::FaultSet probe;
     const bool has = m_wellSectionFaultStore->load(probe, &storeErr) &&

@@ -730,10 +730,11 @@ void PaleoMainWindow::attachAiAssistant(AiChatController *controller)
             auto *controller = dock->controller();
             if (!controller)
               return;
-            if (QMessageBox::question(
-                  this, tr("删除会话"),
-                  tr("删除后不可恢复，确定删除该会话？")) !=
-                QMessageBox::Yes)
+            // #481：破坏性确认走 PaleoNotify 统一出口（DESIGN.md Tier-2
+            // 收敛契约），不再裸调 QMessageBox::question。
+            if (!PaleoNotify::ask(
+                    this, tr("删除会话"),
+                    tr("删除后不可恢复，确定删除该会话？")))
               return;
             QString error;
             if (!controller->removeSession(sessionId, &error) && statusBar())

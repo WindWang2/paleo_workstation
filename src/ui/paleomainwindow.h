@@ -446,6 +446,9 @@ class PaleoMainWindow : public SARibbonMainWindow
     QPointer<class PaleoTask> m_seismicOpenTask;
     QString m_seismicOpenPath;
     quint64 m_seismicOpenGeneration = 0;
+    // #481 P3-3：本会话已自动装载过的地震体路径——多体工程逐体推进
+    //（每次同步装一个），同体不重复触发（防 A/B 轮换互踢）。
+    QSet<QString> m_seismicAutoLoadedPaths;
     // goal/petrophysics-logs：测井计算批任务（面板只发意图，编排在此）。
     std::unique_ptr<paleo::petrophys::PetroPhysTaskService> m_petroPhysSvc;
     QPointer<class PaleoTask> m_petroPhysTask;

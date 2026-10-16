@@ -8,6 +8,7 @@
 #include <limits>
 
 #include "io/dlisparser.h"
+#include "io/lasparser.h" // LasParser::setFileSizeLimit（#467 预算闸注入）
 #include "io/welllogread.h"
 
 #include "welllogfixturewriters.h"
@@ -41,6 +42,8 @@ class TestDlisParser : public QObject
     void packedSegmentTrailerPadChecksumDecoded();
     void orphanPredecessorSegmentFails();
     void danglingSuccessorAtEofFails();
+    void headerScanChainBudgetCapped();
+    void successorBombBudgetCapped();
     void emptyFileFails();
 
   private:
@@ -632,6 +635,81 @@ void TestDlisParser::danglingSuccessorAtEofFails()
     if (i.category == LasIssue::Category::Truncated)
       sawTruncated = true;
   QVERIFY2(sawTruncated, "未闭合延续必须落 Truncated 类目 issue");
+}
+
+void TestDlisParser::headerScanChainBudgetCapped()
+{
+  // #467：parseHeader 头扫描对后继链（跨 VR 拼接）必须有累积预算——与
+  // parse() 整读上限同口径。恶意「跨 VR 无限拼接」不得把整个文件读进
+  // 单个 QByteArray。用可注入阈值钉契约（不真造 500MB 文件）。
+  QVector<ChannelDef> channels = {
+    { QStringLiteral("DEPT"), QStringLiteral("m"), 2, {}, QString() },
+    { QStringLiteral("GR"), QStringLiteral("GAPI"), 2, {}, QString() },
+    { QStringLiteral("RHOB"), QStringLiteral("g/cm3"), 2, {}, QString() },
+  };
+  QVector<FrameDef> frames = { { QStringLiteral("6000"),
+                                 { QStringLiteral("DEPT"), QStringLiteral("GR"),
+                                   QStringLiteral("RHOB") },
+                                 QString(), QString() } };
+  const QByteArray body = channelEflrBody(channels);
+  QVERIFY(body.size() > 96); // 夹具前提：链累积量足够越过注入预算
+  QByteArray b = sul();
+  b += buildFileHeaderEflr(QStringLiteral("CAP"));
+  b += buildOriginEflr(QStringLiteral("W-CAP"));
+  for (const QByteArray &vr : splitLogicalRecordAcrossVrs(3, true, body, 24))
+    b += vr;
+  b += buildFrameEflr(frames);
+  QByteArray slotBytes;
+  slotBytes += fsinglBytes(2500.0f);
+  slotBytes += fsinglBytes(80.0f);
+  slotBytes += fsinglBytes(2.4f);
+  b += buildFdata(QStringLiteral("6000"), 1, slotBytes);
+  const QString path = write(QStringLiteral("cap.dlis"), b);
+
+  LasHeaderInfo header;
+  QString error;
+  QList<LasIssue> issues;
+  const qint64 saved = LasParser::fileSizeLimit();
+  LasParser::setFileSizeLimit(body.size() / 2); // 注入半量预算：链累积必超
+  QVERIFY(!DlisParser::parseHeader(path, header, &error, &issues));
+  LasParser::setFileSizeLimit(saved);
+  QVERIFY2(error.contains(QStringLiteral("上限")), qPrintable(error));
+  bool sawOversize = false;
+  for (const LasIssue &i : issues)
+    if (i.category == LasIssue::Category::Oversize)
+      sawOversize = true;
+  QVERIFY2(sawOversize, "预算超限必须落 Oversize 类目 issue");
+  // 默认预算下同一文件头扫描照常成功（不误伤合法大记录）
+  QString okErr;
+  QVERIFY2(DlisParser::parseHeader(path, header, &okErr), qPrintable(okErr));
+}
+
+void TestDlisParser::successorBombBudgetCapped()
+{
+  // #467 炸弹面：全后继位、永不闭合、无 FDATA——旧实现会把整个文件读进
+  // lrBuf 后才在 EOF 报「悬置」；预算闸必须在累积越界处即拒收。
+  QByteArray b = sul();
+  b += buildFileHeaderEflr(QStringLiteral("BOMB"));
+  b += buildOriginEflr(QStringLiteral("W-BOMB"));
+  for (int i = 0; i < 8; ++i)
+  {
+    quint8 attrs = 0x80 | 0x20; // 显式 + 后继
+    if (i > 0)
+      attrs |= 0x40;            // 续段带前驱（首段不得带——无待续 LR）
+    b += visibleRecord({ logicalRecordSegment(3, attrs, QByteArray(64, '\0')) });
+  }
+  const QString path = write(QStringLiteral("bomb.dlis"), b);
+
+  LasHeaderInfo header;
+  QString error;
+  QList<LasIssue> issues;
+  const qint64 saved = LasParser::fileSizeLimit();
+  LasParser::setFileSizeLimit(128); // 8×64=512 字节链必越
+  QVERIFY(!DlisParser::parseHeader(path, header, &error, &issues));
+  LasParser::setFileSizeLimit(saved);
+  QVERIFY2(error.contains(QStringLiteral("上限")), qPrintable(error));
+  QVERIFY2(!error.contains(QStringLiteral("悬置")),
+           "必须在预算处拒收，而非读尽文件后才报悬置");
 }
 
 void TestDlisParser::emptyFileFails()

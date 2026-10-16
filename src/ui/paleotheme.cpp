@@ -1,5 +1,6 @@
 // 层：视图
 #include "paleotheme.h"
+#include "decorations/paleodecorations.h"
 
 #include <QApplication>
 #include <QEvent>
@@ -448,6 +449,9 @@ namespace PaleoTheme
     // currentTheme 先落再换 palette：ApplicationPaletteChange 事件风暴里
     // 的活体样式重算要读到新主题（builder 里调 tokens() 缺省取当前）。
     themeRef() = theme;
+    // #481：装饰件主题（比例尺/指北针/图例卡片）随全局主题接线——
+    // setDark 此前全仓零调用，暗色下装饰件仍按浅色 token 渲染（死接线）。
+    PaleoDecorationTheme::setDark(theme == Theme::Dark);
     QApplication::setPalette(palette(theme));
     QApplication::setFont(bodyFont());
     qApp->setStyleSheet(controlStyleSheet(theme) + itemViewStyleSheet(theme) +

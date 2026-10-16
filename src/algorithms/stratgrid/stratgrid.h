@@ -62,6 +62,7 @@ struct ZoneGrid
 
   int columnIndex(int i, int j) const { return j * ni + i; }
   // 体素下标：k 最慢、j 次之、i 最快。(k * nj + j) * ni + i
+  //（int 乘法契约由 buildZoneGrid 的体素总数闸保证不溢出，#478）
   int cellIndex(int i, int j, int k) const { return (k * nj + j) * ni + i; }
   int cellCount() const { return ni * nj * nk; }
   bool inRange(int i, int j, int k) const

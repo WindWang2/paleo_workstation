@@ -117,6 +117,7 @@ class CoKrigingTests : public QObject
     void constrainedWeightsRespondToGroupCap();
     void constraintMappingSurvivesDedupe();
     void fullFieldGridOrdinaryCoKriging();
+    void overloadPairSharesOneScanPath();
 };
 
 void CoKrigingTests::rejectsInvalidInputs()
@@ -444,6 +445,51 @@ void CoKrigingTests::fullFieldGridOrdinaryCoKriging()
             qPrintable( QStringLiteral( "mean co-kriging var %1 must be lower than OK var %2" )
                             .arg( meanCoVar )
                             .arg( meanOkVar ) ) );
+}
+
+// #478：两个 ordinaryCoKriging 重载（Control 版 / bool 进度版）共用同一
+// 扫描路径（bool 版适配 Control 后委托）——同参数同格网输出必须逐位
+// 一致；bool 进度返回 false 的取消时机与 Control 版轮询一致（同一
+// 检查点捕获，无 2048 格延迟）。修复前两套全同副本已现语义分叉风险。
+void CoKrigingTests::overloadPairSharesOneScanPath()
+{
+  const std::vector<Sample> primary = primarySamples();
+  const std::vector<Sample> secondary = secondarySamples( 5 );
+  const CoKrigingModel model = fixtureModel();
+
+  GridSpec grid;
+  grid.cols = 60; // 2400 格 > 2048 检查间隔：取消路径有检查点可触发
+  grid.rows = 40;
+  grid.originX = 0.0;
+  grid.originY = 40.0;
+  grid.pixelWidth = 1.0;
+  grid.pixelHeight = -1.0;
+
+  CoKrigingParams coParams; // 与 KrigingParams 默认值对齐（maxPoints=16 → 16）
+  const CoKrigingResult controlBased =
+      ordinaryCoKriging( primary, secondary, grid, model, coParams );
+  const CoKrigingResult boolProgress = ordinaryCoKriging(
+      primary, secondary, grid, model, KrigingParams{},
+      []( double ) { return true; } );
+  QCOMPARE( controlBased.status, Status::Ok );
+  QCOMPARE( boolProgress.status, Status::Ok );
+  QCOMPARE( boolProgress.estimates, controlBased.estimates );
+  QCOMPARE( boolProgress.variances, controlBased.variances );
+  QCOMPARE( boolProgress.solverFailures, controlBased.solverFailures );
+
+  // bool 进度返回 false → 同一检查点内取消（Cancel、部分结果如实返回）。
+  const CoKrigingResult cancelled =
+      ordinaryCoKriging( primary, secondary, grid, model, KrigingParams{},
+                         []( double ) { return false; } );
+  QCOMPARE( cancelled.status, Status::Cancelled );
+  QCOMPARE( cancelled.message, std::string( "cancelled" ) );
+
+  // Control 版轮询取消同口径（第一检查点即 Cancel）。
+  Control ctl;
+  ctl.cancelled = [] { return true; };
+  const CoKrigingResult polled =
+      ordinaryCoKriging( primary, secondary, grid, model, coParams, ctl );
+  QCOMPARE( polled.status, Status::Cancelled );
 }
 
 QTEST_MAIN( CoKrigingTests )

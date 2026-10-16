@@ -178,7 +178,11 @@ bool MapVersionController::startSaveVersion(const QString &horizon, const QVaria
   const auto changed = [weak] { if (auto p = weak.lock()) p->changed = true; };
   for (const auto &decl : declarations) {
     if (decl.horizon != horizon || decl.type.compare("vector", Qt::CaseInsensitive)) continue;
-    auto *layer = qobject_cast<QgsVectorLayer *>(m_layers->instantiate(decl.layerId, error));
+    // #480：实例化失败用局部 err——此前写 *error 后继续，返回 true 却带着
+    // 非空 *error（自相矛盾态）。幽灵层保持容忍（后续 launchSaveSnapshot
+    // →captureVersion 会再次尝试并记入 provenance 的 dropped_layers）。
+    QString instErr;
+    auto *layer = qobject_cast<QgsVectorLayer *>(m_layers->instantiate(decl.layerId, &instErr));
     if (!layer) continue; // Missing optional layers are recorded by the store.
     SavePreparation::Layer captured; captured.id = decl.layerId; captured.vector = layer;
     preparation->layers << captured;

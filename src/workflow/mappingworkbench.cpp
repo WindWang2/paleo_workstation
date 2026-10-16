@@ -872,8 +872,13 @@ bool MappingWorkbench::generateFactor(const QString &h, const QString &factor,
   auto d = declaration(id);
   d.layerId = v.extra.value("layer_id").toString();
   d.title += tr(" · v%1").arg(v.versionNumber);
-  if (!d.layerId.isEmpty())
-    m_layers->declare(d, error);
+  // #480：上图 declare 失败不再吞掉——成果已生成但无法上图时如实失败，
+  // 不允许「return true + *error 残留 + productReady 照发」的自相矛盾态。
+  if (!d.layerId.isEmpty() && !m_layers->declare(d, error)) {
+    const QString why = error ? *error : QString();
+    fail(error, tr("单因素成果已生成但上图失败：%1（成果已入册，解除该层编辑后可重试）").arg(why));
+    return false;
+  }
   emit changed();
   emit productReady(h, d.layerId.isEmpty() ? id : d.layerId);
   if (m_project && !m_project->projectPath().isEmpty())
@@ -909,8 +914,12 @@ bool MappingWorkbench::generateContours(const QString &h, const QString &id,
   auto d = declaration(output);
   d.layerId = v.extra.value("layer_id").toString();
   d.title += tr(" · v%1").arg(v.versionNumber);
-  if (!d.layerId.isEmpty())
-    m_layers->declare(d, error);
+  // #480：与 generateFactor 同口径——declare 失败如实返回，不残留矛盾态。
+  if (!d.layerId.isEmpty() && !m_layers->declare(d, error)) {
+    const QString why = error ? *error : QString();
+    fail(error, tr("等值线成果已生成但上图失败：%1（成果已入册，解除该层编辑后可重试）").arg(why));
+    return false;
+  }
   emit changed();
   emit productReady(h, d.layerId.isEmpty() ? output : d.layerId);
   if (m_project && !m_project->projectPath().isEmpty())

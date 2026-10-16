@@ -53,6 +53,7 @@ private slots:
     void init();
 
     void pickAndUndoRedoStepByStep();
+    void failedCommitIsNotRecordedOnUndoStack();
     void stickPickAutoCreatesFaultAndUndoRemovesBoth();
     void renameAndVisibilityUndo();
     void cutsIndependentPerHorizonViaController();
@@ -167,6 +168,29 @@ void TestFaultInterp::stickPickAutoCreatesFaultAndUndoRemovesBoth()
     m_ctl.editStack()->undo();
     m_ctl.editStack()->undo(); // 撤销第二棒与第一棒
     QCOMPARE(m_ctl.faultSet().faultCount(), 0);
+}
+
+// #480 P3-4：push 即执行、失败不入账的隐式约定机制化——落盘失败的操作
+// 不得入撤销栈（canUndo/count 不变），原语返回失败而非假成功。
+void TestFaultInterp::failedCommitIsNotRecordedOnUndoStack()
+{
+    FaultSetStore broken{dbPath(), nullptr};
+    QString err;
+    QVERIFY(broken.open(&err));
+    broken.setReadOnly(true);
+    SelectionContext selection;
+    FaultInterpretationController ctl(&broken, &selection);
+
+    QVERIFY(ctl.addFault(QStringLiteral("F1")).isEmpty()); // 拒绝并报告失败
+    QCOMPARE(ctl.editStack()->count(), 0);
+    QVERIFY(!ctl.editStack()->canUndo());
+
+    QVERIFY(ctl.addStick(inlineStick(120)).first.isEmpty());
+    QCOMPARE(ctl.editStack()->count(), 0);
+    QVERIFY(!ctl.editStack()->canRedo());
+
+    QVERIFY(!ctl.renameFault(QStringLiteral("nope"), QStringLiteral("x")));
+    QVERIFY(!ctl.setFaultVisible(QStringLiteral("nope"), false));
 }
 
 void TestFaultInterp::renameAndVisibilityUndo()

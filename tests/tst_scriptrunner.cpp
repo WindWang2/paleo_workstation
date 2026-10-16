@@ -25,6 +25,8 @@ private slots:
   void exitCodePropagated();
   void streamsStdoutAndStderr();
   void argvPassthrough();
+  void utf8IoRoundTrip();
+  void unbrokenFloodOutputStaysBounded();
   void timeoutTerminatesRun();
   void cancelTerminatesRun();
   void cancelEscalatesToKill();
@@ -157,6 +159,76 @@ void TestScriptRunner::argvPassthrough()
   QVERIFY(lines.contains(QStringLiteral("ARG:plain")));
   QVERIFY(lines.contains(QStringLiteral("ARG:with space")));
   QVERIFY(lines.contains(QStringLiteral("ARG:--flag=value")));
+}
+
+void TestScriptRunner::utf8IoRoundTrip()
+{
+  // #479：子进程 IO 统一 UTF-8。宿主进程被按进非 UTF-8 locale（LC_ALL=C 且
+  // 关闭 PEP538 强转 / UTF-8 模式）后，子进程 Python 的管道编码退化为
+  // ASCII——修复前夹具的中文 print 直接 UnicodeEncodeError，行丢失；修复后
+  // 服务侧 PYTHONIOENCODING=utf-8 钉死编码，中文原样回传。POSIX-only。
+#ifdef Q_OS_UNIX
+  const struct EnvGuard
+  {
+    const QByteArray lcAll = qgetenv("LC_ALL");
+    const QByteArray coerce = qgetenv("PYTHONCOERCECLOCALE");
+    const QByteArray utf8 = qgetenv("PYTHONUTF8");
+    const QByteArray ioEnc = qgetenv("PYTHONIOENCODING");
+    EnvGuard()
+    {
+      qputenv("LC_ALL", "C");
+      qputenv("PYTHONCOERCECLOCALE", "0");
+      qputenv("PYTHONUTF8", "0");
+      qunsetenv("PYTHONIOENCODING"); // 不许外层环境替服务兜底
+    }
+    ~EnvGuard()
+    {
+      qputenv("LC_ALL", lcAll);
+      qputenv("PYTHONCOERCECLOCALE", coerce);
+      qputenv("PYTHONUTF8", utf8);
+      qputenv("PYTHONIOENCODING", ioEnc);
+    }
+  } envGuard;
+  ScriptRunnerService svc;
+  QSignalSpy finishedSpy(&svc, &ScriptRunnerService::runFinished);
+  QStringList lines;
+  connect(&svc, &ScriptRunnerService::runOutput, this,
+          [&lines](qint64, const QString &line, bool) { lines.append(line); });
+  const qint64 id =
+      svc.start({fixture(QStringLiteral("utf8_echo.py")), {}, {}, m_python, 0});
+  QVERIFY(id > 0);
+  QVERIFY(finishedSpy.wait(30000));
+  QCOMPARE(finishedSpy.takeFirst().at(2).toInt(), 0); // 非 UnicodeEncodeError 退出
+  QVERIFY2(lines.contains(QStringLiteral("中文-数据-管线")),
+           qPrintable(lines.join(QLatin1Char('|'))));
+#else
+  QSKIP("locale coercion fixture is Unix-specific");
+#endif
+}
+
+void TestScriptRunner::unbrokenFloodOutputStaysBounded()
+{
+  // #479：无换行的巨量输出不得无上限积攒半行缓冲——超上限（1 MiB）即按
+  // 强制行冲刷。夹具一次性写 2 MiB 无换行：修复前收尾冲刷出单条 2 MiB 行，
+  // 修复后恒按 ≤1 MiB 切块，总量不丢。
+  ScriptRunnerService svc;
+  QSignalSpy finishedSpy(&svc, &ScriptRunnerService::runFinished);
+  qint64 maxLineChars = 0, totalChars = 0;
+  connect(&svc, &ScriptRunnerService::runOutput, this,
+          [&](qint64, const QString &line, bool) {
+            maxLineChars = qMax(maxLineChars, qint64(line.size()));
+            totalChars += line.size();
+          });
+  const qint64 id =
+      svc.start({fixture(QStringLiteral("flood.py")), {}, {}, m_python, 0});
+  QVERIFY(id > 0);
+  QVERIFY(finishedSpy.wait(30000));
+  QCOMPARE(finishedSpy.takeFirst().at(2).toInt(), 0);
+  const qint64 expected = 2 * 1024 * 1024; // 'X' ASCII：QString 尺寸 == 字节数
+  QCOMPARE(totalChars, expected);          // 不丢字节
+  QVERIFY2(maxLineChars <= 1024 * 1024,    // 单行恒有界
+           qPrintable(QStringLiteral("max line chars: %1").arg(maxLineChars)));
+  QVERIFY(maxLineChars == 1024 * 1024);    // 确实发生了强制切块
 }
 
 void TestScriptRunner::timeoutTerminatesRun()

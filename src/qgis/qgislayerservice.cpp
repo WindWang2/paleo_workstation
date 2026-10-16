@@ -9,6 +9,7 @@
 #include "qgiseditingservice.h"
 #include "mappingartifactwriter.h"
 #include "projectmapreference.h"
+#include "../services/errorhub.h"
 
 #include <QSet>
 #include <QDir>
@@ -261,7 +262,17 @@ void QgisLayerService::refreshBasemaps()
     const auto source = id.endsWith("topo") ? config.basemapTopo : config.basemapHillshade;
     // 配准缺席时也卸下 .qgz 已保存的底图，避免把投影数据混进局部坐标。
     if (!enabled || source.isEmpty()) {
-      if (!m_manifest->isReadOnly()) removeDeclaration(id);
+      // #483：卸除失败不再被吞——否则旧底图残留且无人知晓（ErrorHub 入账 +
+      // qWarning，与下方 declare/instantiate 失败同可见度）。
+      if (!m_manifest->isReadOnly()) {
+        QString removeError;
+        if (!removeDeclaration(id, &removeError)) {
+          qWarning() << "Offline basemap removal:" << removeError;
+          if (auto *hub = ErrorHub::global())
+            hub->raise(ErrorHub::Level::Error, QStringLiteral("layers"),
+                       tr("离线底图卸除失败"), removeError);
+        }
+      }
       else if (auto *project = svcProject(m_projectSvc))
         for (auto *layer : project->mapLayers())
           if (layer->customProperty("paleoLayerId").toString() == id) project->removeMapLayer(layer);

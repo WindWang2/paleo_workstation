@@ -374,8 +374,17 @@ void WellSectionWorkflow::loadCurveBodies(Shared &shared,
     if (task && task->cancelRequested())
       return;
     const LasDoc doc = LasCache::shared().load(path);
-    if (!doc.ok || doc.curves.size() < 2)
+    if (!doc.ok || doc.curves.size() < 2) {
+      // #480 P3-1：坏文件不再静默——剖面曲线缺失必须可感知（warnings 通道，
+      // 与单位未知同口径：井名 + 文件名 + 原因）。
+      const QString name =
+          shared.wells.value(
+              shared.entries.value(byPath.value(path).first()).wellIndex)
+              .name;
+      shared.warnings << tr("井 %1 的测井文件解析失败（%2），曲线未加载")
+                             .arg(name, QFileInfo(path).fileName());
       continue;
+    }
     const QString unit = doc.curves.at(0).unit.trimmed().toUpper();
     // 走 wellnumeric 权威词表（M/METER/METERS/METRE/METRES、FT/F/FOOT/FEET）：
     // 此前只认 FT/F/M，METER 等规范别名的 LAS 被整文件丢弃，与

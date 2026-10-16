@@ -188,6 +188,15 @@ bool QgisProjectService::openProjectAsync(const QString &input)
     QObject::disconnect(documentConnection);
     QObject::disconnect(loadingConnection);
     QObject::disconnect(loadedConnection);
+    // ---- 升级敏感契约（#483 P2，改动/升级 QGIS 前必读）----
+    // 1) 本 worker 线程的第二 QgsProject 与进程级单例并存：QgsProject::instance()
+    //    是进程级静态（非 thread_local），read() 期间仍指向主线程活工程——
+    //    vendored 内部若在 read 路径查单例即跨线程访问主线程 QObject。当前
+    //    读取面（层/树/主题/标注设置）不触单例；升级后新增单例查询会埋雷。
+    // 2) moveToThread 连 provider 亲和一起搬 + takeMapLayer/addMapLayer 接管
+    //    依赖 QGIS 未书面保证的行为。tst_background_open 的
+    //    asyncOpenAdoptsLayersOnOwnerThread 是该契约的 tripwire——升级
+    //    vendored QGIS 后若它变红，先修这里再合入。
     // QgsLayerTree 由 unique_ptr 持有，不是 QgsProject 的 QObject 子对象。
     state->project->layerTreeRoot()->moveToThread(ownerThread);
     state->project->moveToThread(ownerThread);

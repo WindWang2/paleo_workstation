@@ -24,6 +24,7 @@ using paleo::store_detail::setError;
 using paleo::catalog_detail::applyWritablePragmas;
 using paleo::catalog_detail::catalogConnectionName;
 using paleo::catalog_detail::execScript;
+using paleo::catalog_detail::ensureVersionNumberUniqueIndex;
 using paleo::catalog_detail::forgetConnection;
 using paleo::catalog_detail::kCatalogUserVersion;
 using paleo::catalog_detail::kSchemaSql;
@@ -453,6 +454,7 @@ bool CatalogStore::openExisting(bool readOnly, Tables *out, QString *error)
       step = Step::Corrupt;
     else if (!readOnly)
     {
+      ensureVersionNumberUniqueIndex(db); // #476：宽容唯一索引（存量重复行仅告警）
       {
         QSqlQuery q(db);
         if (q.exec(QStringLiteral(

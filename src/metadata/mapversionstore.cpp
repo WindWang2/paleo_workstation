@@ -727,6 +727,75 @@ void MapVersionStore::recoverInterruptedPublications() {
   }
 }
 
+// #476：publish()/snapshotInputForPublish() 共用发布门禁——此前两处约 90 行
+// 逐字复制（JSON 解析、快照指纹、PDF 绑定、§177、D10、#394 注释），漏改一份
+// 即 native/prepared 发布口径分叉。这里收口为单一实现（错误文案保持原样）。
+bool MapVersionStore::validatePublishGates(const MapVersion &latestV, const QString &horizon,
+                                           const QString &residualSummary, QJsonObject *provenanceOut,
+                                           bool *frozenOut, QString *error) {
+  QJsonParseError provenanceError;
+  const auto savedDocument = QJsonDocument::fromJson(latestV.provenance.toUtf8(), &provenanceError);
+  if (provenanceError.error != QJsonParseError::NoError || !savedDocument.isObject()) {
+    setError(error, QStringLiteral("保存版本的来源/证据 JSON 损坏，发布被拒绝")); return false;
+  }
+  const auto provenance = savedDocument.object();
+  const bool frozen = provenance.value("snapshot_schema").toString() == "paleo_map_snapshot_v1";
+  if (provenance.contains("snapshot_schema") &&
+      (!frozen || !provenance.value("saved_layers").isArray() || !provenance.value("saved_pdf").isObject() ||
+       provenance.value("snapshot_hash").toString() != snapshotHash(provenance))) {
+    setError(error, QStringLiteral("保存版本的快照结构或证据指纹损坏，发布被拒绝")); return false;
+  }
+  if (provenance.contains("evidence_snapshot") && !provenance.value("evidence_snapshot").isArray()) {
+    setError(error, QStringLiteral("保存版本的证据清单格式损坏，发布被拒绝")); return false;
+  }
+  if (provenance.value("feature_summary").toObject().value("quality_counts").toObject().value("Blocking").toInt() > 0) {
+    setError(error, QStringLiteral("保存版本存在阻断性证据问题，请复核后保存新版本")); return false;
+  }
+  // 只有完整 SHA-256 才是科学指纹。历史短哈希仍留在版本行上，不拿来否定已冻结的文件指纹。
+  if (frozen && latestV.pdfSha256.size() == 64 &&
+      provenance.value("saved_pdf").toObject().value("sha256").toString() != latestV.pdfSha256) {
+    setError(error, QStringLiteral("保存的 PDF 指纹与成果版本绑定不一致")); return false;
+  }
+  // 发布只读版本行（§260）：PDF 资产 id+SHA-256 必须由 recordLayoutProduct
+  // 登记、再经 saveVersion 抄进本行；行上没有 = 没走「导出→保存」。
+  if ( latestV.pdfAssetId.isEmpty() || latestV.pdfSha256.isEmpty() )
+  {
+    setError( error, QStringLiteral( "层位 %1 的当前版本没有 PDF 资产记录 — 导出 PDF 后再保存" )
+                         .arg( horizon ) );
+    return false;
+  }
+  // 每口井都要有残差或原因（§177）；缺多少口写进错误文案。
+  int covered = -1, total = -1;
+  if ( !residualSummaryComplete( residualSummary, &covered, &total ) )
+  {
+    const QString missingText =
+        ( total > 0 && covered >= 0 )
+            ? QStringLiteral( "还有 %1/%2 口井没有残差或原因" ).arg( total - covered ).arg( total )
+            : QStringLiteral( "还没有残差摘要" );
+    setError( error, QStringLiteral( "层位 %1 %2 — 先在验证页运行验证" )
+                         .arg( horizon, missingText ) );
+    return false;
+  }
+  // D10：数值残差下限——完备性只保证「行或原因」，发布还要够数量的数值行
+  // （15/20 口径；差多少写进文案）。
+  {
+    const int numericCount = numericResidualCount( residualSummary );
+    const int required = requiredNumericResiduals( total );
+    if ( numericCount < required )
+    {
+      setError( error, QStringLiteral( "层位 %1 数值残差只有 %2/%3 口（发布需 ≥%4）"
+                                      " — 先在验证页运行验证，补齐井分层/时深/测网覆盖" )
+                           .arg( horizon )
+                           .arg( QString::number( numericCount ), QString::number( total ),
+                                 QString::number( required ) ) );
+      return false;
+    }
+  }
+  if (provenanceOut) *provenanceOut = provenance;
+  if (frozenOut) *frozenOut = frozen;
+  return true;
+}
+
 QString MapVersionStore::publish( const QString &horizon, const QVector<LayerDeclaration> &decls,
                                   const QString &residualSummary, QString *error )
 {
@@ -758,64 +827,10 @@ QString MapVersionStore::publish( const QString &horizon, const QVector<LayerDec
     setError( error, QStringLiteral( "层位 %1 当前版本已发布 — 保存新版本后再发布" ).arg( horizon ) );
     return QString();
   }
-  QJsonParseError provenanceError;
-  const auto savedDocument = QJsonDocument::fromJson(latestV.provenance.toUtf8(), &provenanceError);
-  if (provenanceError.error != QJsonParseError::NoError || !savedDocument.isObject()) {
-    setError(error, QStringLiteral("保存版本的来源/证据 JSON 损坏，发布被拒绝")); return {};
-  }
-  const auto provenance = savedDocument.object();
-  const bool frozen = provenance.value("snapshot_schema").toString() == "paleo_map_snapshot_v1";
-  if (provenance.contains("snapshot_schema") &&
-      (!frozen || !provenance.value("saved_layers").isArray() || !provenance.value("saved_pdf").isObject() ||
-       provenance.value("snapshot_hash").toString() != snapshotHash(provenance))) {
-    setError(error, QStringLiteral("保存版本的快照结构或证据指纹损坏，发布被拒绝")); return {};
-  }
-  if (provenance.contains("evidence_snapshot") && !provenance.value("evidence_snapshot").isArray()) {
-    setError(error, QStringLiteral("保存版本的证据清单格式损坏，发布被拒绝")); return {};
-  }
-  if (provenance.value("feature_summary").toObject().value("quality_counts").toObject().value("Blocking").toInt() > 0) {
-    setError(error, QStringLiteral("保存版本存在阻断性证据问题，请复核后保存新版本")); return {};
-  }
-  // 只有完整 SHA-256 才是科学指纹。历史短哈希仍留在版本行上，不拿来否定已冻结的文件指纹。
-  if (frozen && latestV.pdfSha256.size() == 64 &&
-      provenance.value("saved_pdf").toObject().value("sha256").toString() != latestV.pdfSha256) {
-    setError(error, QStringLiteral("保存的 PDF 指纹与成果版本绑定不一致")); return {};
-  }
-  // 发布只读版本行（§260）：PDF 资产 id+SHA-256 必须由 recordLayoutProduct
-  // 登记、再经 saveVersion 抄进本行；行上没有 = 没走「导出→保存」。
-  if ( latestV.pdfAssetId.isEmpty() || latestV.pdfSha256.isEmpty() )
-  {
-    setError( error, QStringLiteral( "层位 %1 的当前版本没有 PDF 资产记录 — 导出 PDF 后再保存" )
-                         .arg( horizon ) );
-    return QString();
-  }
-  // 每口井都要有残差或原因（§177）；缺多少口写进错误文案。
-  int covered = -1, total = -1;
-  if ( !residualSummaryComplete( residualSummary, &covered, &total ) )
-  {
-    const QString missingText =
-        ( total > 0 && covered >= 0 )
-            ? QStringLiteral( "还有 %1/%2 口井没有残差或原因" ).arg( total - covered ).arg( total )
-            : QStringLiteral( "还没有残差摘要" );
-    setError( error, QStringLiteral( "层位 %1 %2 — 先在验证页运行验证" )
-                         .arg( horizon, missingText ) );
-    return QString();
-  }
-  // D10：数值残差下限——完备性只保证「行或原因」，发布还要够数量的数值行
-  // （15/20 口径；差多少写进文案）。
-  {
-    const int numericCount = numericResidualCount( residualSummary );
-    const int required = requiredNumericResiduals( total );
-    if ( numericCount < required )
-    {
-      setError( error, QStringLiteral( "层位 %1 数值残差只有 %2/%3 口（发布需 ≥%4）"
-                                      " — 先在验证页运行验证，补齐井分层/时深/测网覆盖" )
-                           .arg( horizon )
-                           .arg( QString::number( numericCount ), QString::number( total ),
-                                 QString::number( required ) ) );
-      return QString();
-    }
-  }
+  QJsonObject provenance;
+  bool frozen = false;
+  if ( !validatePublishGates( latestV, horizon, residualSummary, &provenance, &frozen, error ) )
+    return {};
 
   // result/<horizon>/v<N>/ 挨着工程 meta 库（工程目录的 result/）。
   const QString projectDir = QFileInfo( m_dbPath ).absolutePath();
@@ -987,64 +1002,10 @@ MapSnapshotInput MapVersionStore::snapshotInputForPublish(const QString &horizon
     setError( error, QStringLiteral( "层位 %1 当前版本已发布 — 保存新版本后再发布" ).arg( horizon ) );
     return {};
   }
-  QJsonParseError provenanceError;
-  const auto savedDocument = QJsonDocument::fromJson(latestV.provenance.toUtf8(), &provenanceError);
-  if (provenanceError.error != QJsonParseError::NoError || !savedDocument.isObject()) {
-    setError(error, QStringLiteral("保存版本的来源/证据 JSON 损坏，发布被拒绝")); return {};
-  }
-  const auto provenance = savedDocument.object();
-  const bool frozen = provenance.value("snapshot_schema").toString() == "paleo_map_snapshot_v1";
-  if (provenance.contains("snapshot_schema") &&
-      (!frozen || !provenance.value("saved_layers").isArray() || !provenance.value("saved_pdf").isObject() ||
-       provenance.value("snapshot_hash").toString() != snapshotHash(provenance))) {
-    setError(error, QStringLiteral("保存版本的快照结构或证据指纹损坏，发布被拒绝")); return {};
-  }
-  if (provenance.contains("evidence_snapshot") && !provenance.value("evidence_snapshot").isArray()) {
-    setError(error, QStringLiteral("保存版本的证据清单格式损坏，发布被拒绝")); return {};
-  }
-  if (provenance.value("feature_summary").toObject().value("quality_counts").toObject().value("Blocking").toInt() > 0) {
-    setError(error, QStringLiteral("保存版本存在阻断性证据问题，请复核后保存新版本")); return {};
-  }
-  // 只有完整 SHA-256 才是科学指纹。历史短哈希仍留在版本行上，不拿来否定已冻结的文件指纹。
-  if (frozen && latestV.pdfSha256.size() == 64 &&
-      provenance.value("saved_pdf").toObject().value("sha256").toString() != latestV.pdfSha256) {
-    setError(error, QStringLiteral("保存的 PDF 指纹与成果版本绑定不一致")); return {};
-  }
-  // 发布只读版本行（§260）：PDF 资产 id+SHA-256 必须由 recordLayoutProduct
-  // 登记、再经 saveVersion 抄进本行；行上没有 = 没走「导出→保存」。
-  if ( latestV.pdfAssetId.isEmpty() || latestV.pdfSha256.isEmpty() )
-  {
-    setError( error, QStringLiteral( "层位 %1 的当前版本没有 PDF 资产记录 — 导出 PDF 后再保存" )
-                         .arg( horizon ) );
+  QJsonObject provenance;
+  bool frozen = false;
+  if ( !validatePublishGates( latestV, horizon, residualSummary, &provenance, &frozen, error ) )
     return {};
-  }
-  // 每口井都要有残差或原因（§177）；缺多少口写进错误文案。
-  int covered = -1, total = -1;
-  if ( !residualSummaryComplete( residualSummary, &covered, &total ) )
-  {
-    const QString missingText =
-        ( total > 0 && covered >= 0 )
-            ? QStringLiteral( "还有 %1/%2 口井没有残差或原因" ).arg( total - covered ).arg( total )
-            : QStringLiteral( "还没有残差摘要" );
-    setError( error, QStringLiteral( "层位 %1 %2 — 先在验证页运行验证" )
-                         .arg( horizon, missingText ) );
-    return {};
-  }
-  // D10：数值残差下限——完备性只保证「行或原因」，发布还要够数量的数值行
-  // （15/20 口径；差多少写进文案）。
-  {
-    const int numericCount = numericResidualCount( residualSummary );
-    const int required = requiredNumericResiduals( total );
-    if ( numericCount < required )
-    {
-      setError( error, QStringLiteral( "层位 %1 数值残差只有 %2/%3 口（发布需 ≥%4）"
-                                      " — 先在验证页运行验证，补齐井分层/时深/测网覆盖" )
-                           .arg( horizon )
-                           .arg( QString::number( numericCount ), QString::number( total ),
-                                 QString::number( required ) ) );
-      return {};
-    }
-  }
 
   MapSnapshotInput input; input.projectDirectory = projectDirectory(); input.horizon = horizon;
   input.operation = "publish"; input.provenanceJson = latestV.provenance; input.residualSummary = residualSummary;

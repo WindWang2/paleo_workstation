@@ -15,6 +15,7 @@
 #include <QOpenGLFramebufferObject>
 #include <QOpenGLFunctions_3_3_Core>
 #include <QSignalSpy>
+#include <QSettings>
 #include <QTemporaryDir>
 
 #include <cmath>
@@ -214,6 +215,77 @@ private slots:
     QCOMPARE(panel.cameraBookmarkNames(), expectedNames);
     panel.applyCameraBookmark(0); // 不崩 + 视角生效
     panel.applyCameraBookmark(1);
+  }
+
+  // ---- #463 相机书签跨会话 round-trip：保存（6 数字段对称序列化）→
+  // 新面板恢复 → 相机参数逐项相等；字段数不对称的坏包整包拒绝不静默丢。
+  void cameraBookmarkRoundTripPersistence()
+  {
+    QTemporaryDir dir;
+    const QString sgy = dir.filePath("camrt.sgy");
+    QVERIFY(writeTestSegy(sgy, 4, 4, 32));
+    auto volume = std::make_shared<SgyVolume>();
+    std::string err;
+    QVERIFY(volume->Load(sgy.toStdString(), err));
+
+    QSettings settings;
+    settings.remove(QStringLiteral("seismic/3dCamBookmarks"));
+
+    const std::vector<SeismicCameraController::CameraState> saved = [&] {
+      Seismic3DViewPanel panel;
+      panel.resize(800, 600);
+      panel.setVolume(volume);
+      std::vector<SeismicCameraController::CameraState> states;
+      const std::vector<glm::vec3> targets{
+          glm::vec3(1.0f, 2.0f, 3.0f), glm::vec3(-4.5f, 0.25f, 7.75f)};
+      for (std::size_t i = 0; i < targets.size(); ++i) {
+        panel.viewport()->camera().SetYaw(-37.0f + 12.5f * float(i));
+        panel.viewport()->camera().SetPitch(21.0f + 9.5f * float(i));
+        panel.viewport()->camera().SetDistance(6.5f + 3.25f * float(i));
+        panel.viewport()->camera().SetTarget(targets[i]);
+        panel.saveCameraBookmark(QStringLiteral("视角%1").arg(i));
+        states.push_back(panel.viewport()->camera().state());
+      }
+      return states;
+    }();
+
+    // 新面板（同 QSettings 沙箱）：跨会话恢复，参数逐项相等
+    {
+      Seismic3DViewPanel restored;
+      restored.resize(800, 600);
+      restored.setVolume(volume);
+      const QStringList expected{QStringLiteral("视角0"), QStringLiteral("视角1")};
+      QCOMPARE(restored.cameraBookmarkNames(), expected);
+      for (int i = 0; i < int(saved.size()); ++i) {
+        restored.applyCameraBookmark(i);
+        const auto st = restored.viewport()->camera().state();
+        QCOMPARE(st.yaw, saved[std::size_t(i)].yaw);
+        QCOMPARE(st.pitch, saved[std::size_t(i)].pitch);
+        QCOMPARE(st.distance, saved[std::size_t(i)].distance);
+        QCOMPARE(st.target.x, saved[std::size_t(i)].target.x);
+        QCOMPARE(st.target.y, saved[std::size_t(i)].target.y);
+        QCOMPARE(st.target.z, saved[std::size_t(i)].target.z);
+      }
+    }
+
+    // 旧格式坏包（5 数字段）：整包拒绝 + 告警日志，不静默装半包
+    {
+      settings.setValue(QStringLiteral("seismic/3dCamBookmarks"),
+                        QStringList{QStringLiteral("好|1,2,3,4,5"),
+                                    QStringLiteral("也|6,7,8,9,10")});
+      static int warnings = 0;
+      warnings = 0;
+      const auto oldHandler = qInstallMessageHandler(
+          [](QtMsgType type, const QMessageLogContext &, const QString &msg) {
+            if (type == QtMsgType::QtWarningMsg && msg.contains(QStringLiteral("3dCamBookmarks")))
+              ++warnings;
+          });
+      Seismic3DViewPanel bad;
+      qInstallMessageHandler(oldHandler);
+      QVERIFY(bad.cameraBookmarkNames().isEmpty());
+      QCOMPARE(warnings, 1);
+    }
+    settings.remove(QStringLiteral("seismic/3dCamBookmarks"));
   }
 
   // ---- goal/attr-volume：属性体 3D 体视（无头 GL）----

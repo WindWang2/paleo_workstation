@@ -508,7 +508,7 @@ add_library(paleo_qgis STATIC
   src/qgis/seismicsectiontool.cpp
   src/qgis/wellattributestore.cpp
 )
-target_link_libraries(paleo_qgis PUBLIC paleo_deps paleo_ui_deps paleo_store paleo_algorithms paleo_io)
+target_link_libraries(paleo_qgis PUBLIC paleo_deps paleo_ui_deps paleo_store paleo_algorithms paleo_io paleo_services) # #483 qgislayerservice→ErrorHub
 
 # QGIS 4.2.2 original attribute table dialog, embedded with a small app host.
 # App-only source is vendored because libqgis_app requires a QgisApp singleton.
@@ -1041,7 +1041,7 @@ add_paleo_test(tst_runtime LIBS paleo_qgis)                 # metadata,qgis
 add_paleo_test(tst_projectsvc LIBS paleo_qgis)              # metadata,qgis
 add_paleo_test(tst_background_open LIBS paleo_workflow)
 add_paleo_test(tst_officepreview LIBS paleo_ui)
-add_paleo_test(tst_layerservice LIBS paleo_qgis)            # catalog,metadata,qgis
+add_paleo_test(tst_layerservice LIBS paleo_qgis paleo_services) # catalog,metadata,qgis,services(#483 refreshBasemaps ErrorHub 断言)
 add_paleo_test(tst_canvas_tools LIBS paleo_services paleo_qgis) # metadata,qgis,services
 add_paleo_test(tst_domain LIBS paleo_domain)
 add_paleo_test(tst_faciescatalog LIBS paleo_domain) # #409：formationPrediction 统一口径回归
@@ -1092,6 +1092,11 @@ add_paleo_test(tst_panels)                                  # 伞式（全栈，
 # 在 -j8 并行负载下偶发超限（108ms 实测）——同 tst_perf/tst_correlation_full
 # 的计时抖动关回串行基线先例（根治归 TEST-02 类递延）。
 set_tests_properties(tst_panels PROPERTIES RUN_SERIAL TRUE)
+# #503：tst_panels dataops 族（D1–D10，92 用例）拆分为独立目标——原 5337 行
+# 巨型测试文件瘦 relink 面 + 失败定位；用例逐字搬运（共享夹具
+# tests/helpers/dataopsfixture.h）。RUN_SERIAL 同 tst_panels（d2 计时断言）。
+add_paleo_test(tst_panels_dataops)                     # 伞式（dataops 族，逐字搬运）
+set_tests_properties(tst_panels_dataops PROPERTIES RUN_SERIAL TRUE)
 add_paleo_test(tst_mappingpages LIBS paleo_ui)
 add_paleo_test(tst_wellattributes LIBS paleo_ui)
 add_paleo_test(tst_factorworkflow LIBS paleo_workflow) # m2(B)：单因素生成链真实栈（tst_workflows 模式）
@@ -1257,10 +1262,12 @@ endif()
 
 # ---- wave/mapping-pipeline (阶段C+E 编图链路) ----
 add_paleo_test(tst_projectdata LIBS paleo_services paleo_qgis)
+add_paleo_test(tst_qgisruntime LIBS paleo_qgis) # #483 prefix 优先级契约
 add_paleo_test(tst_mapping LIBS paleo_workflow)
 
 # ---- wave2 async-ux (D1/D2 异步任务框架 + 任务页进度条) ----
 add_paleo_test(tst_taskservice LIBS paleo_ui)
+add_paleo_test(tst_futuretask LIBS paleo_services) # #479 futuretask.h 专测
 add_paleo_test(tst_threeway)          # 伞式（全栈，兼容样本）
 add_paleo_test(tst_chips LIBS paleo_ui)
 add_paleo_test(tst_versions LIBS paleo_workflow)

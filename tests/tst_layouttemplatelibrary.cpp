@@ -164,6 +164,51 @@ class TestLayoutTemplateLibrary : public QObject
                     .ok );
       QCOMPARE( library.list().size(), 1 ); // 失败路径不留半行
     }
+
+    // #80/#476：只读实例通道（LayerManifest 同构）——const 读走独立只读
+    // 连接且不建表；库文件不存在时拒开；四个写方法显式拒绝。
+    void readOnlyChannelReadsButNeverWrites()
+    {
+      QTemporaryDir projectDir;
+      QVERIFY( projectDir.isValid() );
+      const QString db = projectDir.path() + QStringLiteral( "/meta.sqlite" );
+      {
+        LayoutTemplateStore writer( db );
+        QVERIFY( writer.open() );
+        const QString id = writer.create( QStringLiteral( "t1" ), QStringLiteral( "well_position" ),
+                                          QStringLiteral( "A4" ), true, QStringLiteral( "asset-1" ),
+                                          QStringLiteral( "ver-1" ), QStringLiteral( "sha" ) );
+        QVERIFY( !id.isEmpty() );
+      }
+
+      LayoutTemplateStore absent( projectDir.path() + QStringLiteral( "/absent/meta.sqlite" ) );
+      absent.setReadOnly( true );
+      QString absentErr;
+      QVERIFY( !absent.open( &absentErr ) );
+      QVERIFY2( absentErr.contains( QStringLiteral( "does not exist" ) ),
+                qPrintable( absentErr ) );
+
+      LayoutTemplateStore ro( db );
+      ro.setReadOnly( true );
+      QVERIFY( ro.isReadOnly() );
+      QString openErr;
+      QVERIFY2( ro.open( &openErr ), qPrintable( openErr ) );
+      QCOMPARE( ro.templates().size(), 1 );
+      QVERIFY( !ro.byName( QStringLiteral( "t1" ) ).isNull() );
+      QVERIFY( ro.nameExists( QStringLiteral( "t1" ) ) );
+
+      QString writeErr;
+      QVERIFY( ro.create( QStringLiteral( "t2" ), QStringLiteral( "custom" ),
+                          QStringLiteral( "A4" ), true, QStringLiteral( "a" ),
+                          QStringLiteral( "v" ), QStringLiteral( "s" ), &writeErr )
+                   .isEmpty() );
+      QVERIFY2( writeErr.contains( QStringLiteral( "read-only" ) ), qPrintable( writeErr ) );
+      QVERIFY( !ro.rename( QStringLiteral( "lt-1" ), QStringLiteral( "t2" ), &writeErr ) );
+      QVERIFY( !ro.updateContent( QStringLiteral( "lt-1" ), QStringLiteral( "v2" ),
+                                  QStringLiteral( "sha2" ), &writeErr ) );
+      QVERIFY( !ro.remove( QStringLiteral( "lt-1" ), &writeErr ) );
+      QCOMPARE( ro.templates().size(), 1 ); // 库未被写
+    }
 };
 
 int main( int argc, char *argv[] )

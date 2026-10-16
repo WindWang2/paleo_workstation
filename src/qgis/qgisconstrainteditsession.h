@@ -36,6 +36,9 @@ class QgisConstraintEditSession : public QObject
   private:
     QVector<QVariantMap> snapshot(QString *error) const;
     qlonglong storeMaxFid() const; // 全表最大 fid；读失败返回 -1
+    // 一次扫描：全表最大 fid + fid→稳定身份占用表（F4 复核预分配编号是否
+    // 被其他写入方占用：占用=存在该 fid 且身份不是本缓冲要素的身份）。
+    qlonglong storeFidIndex(QHash<qlonglong, QString> *owners) const;
     bool persist(const QVector<QVariantMap> &rows, QString *error, const QString &action = QString());
     void synchronize(int index, const QString &forcedAction = {});
     void restoreSource();

@@ -57,7 +57,15 @@ ConstraintUsePlan planConstraintUse( const QVector<QVariantMap> &rows, const Con
   availabilityContext.horizon = context.horizon;
   for ( const QVariantMap &row : rows )
   {
-    const QString id = row.value( QStringLiteral( "id" ) ).toString();
+    // 与三个引擎读者同一 id 口径（constraintparse/constraintbarriers/
+    // paleoalgorithms：id 列去空白，空则 fid）——手工编辑/外部 GPKG 的行
+    // 也能让回执 id 与 UI 列表 join 上（PR457-closure R5）。
+    QString id = row.value( QStringLiteral( "id" ) ).toString().trimmed();
+    if ( id.isEmpty() )
+    {
+      const qlonglong fid = row.value( QStringLiteral( "fid" ) ).toLongLong();
+      id = fid > 0 ? QString::number( fid ) : QStringLiteral( "?" );
+    }
     const QString horizon = row.value( QStringLiteral( "horizon" ) ).toString();
     const QString type = row.value( QStringLiteral( "type" ) ).toString().trimmed();
     const QString json = row.value( QStringLiteral( "params_json" ) ).toString();

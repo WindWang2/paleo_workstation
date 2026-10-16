@@ -267,6 +267,13 @@ void syncConstraintGeometryViews( QgisLayerService *layers, ConstraintStore *sto
     return;
   const QString base = QStringLiteral( "%1|layername=constraints" ).arg( store->gpkgPath() );
   const QString subset = paleo::workflow_detail::constraintHorizonSubsetSuffix( horizon );
+  if ( subset.isEmpty() )
+  {
+    // 层位名含 '|' 等无法安全进入 OGR URI 的字符：主约束层本就无法声明，
+    // 伴随视图同步无从谈起——如实告警，绝不退化成无过滤全表层。
+    qWarning() << "[ConstraintWorkflow] horizon not representable in subset URI, skip view sync:" << horizon;
+    return;
+  }
   QSet<Qgis::GeometryType> present;
   for ( const QVariantMap &row : store->load( horizon ) )
   {
@@ -378,8 +385,15 @@ bool ConstraintWorkflow::ensureConstraintSession( const QString &horizon, QStrin
     decl.layerId = layerId;
     decl.horizon = horizon;
     decl.type = QStringLiteral( "vector" );
-    decl.source = QStringLiteral( "%1|layername=constraints" ).arg( cs->gpkgPath() ) +
-                  paleo::workflow_detail::constraintHorizonSubsetSuffix( horizon );
+    QString subsetError;
+    const QString subset = paleo::workflow_detail::constraintHorizonSubsetSuffix( horizon, &subsetError );
+    if ( subset.isEmpty() )
+    {
+      if ( error )
+        *error = subsetError;
+      return false; // 层位名进不了安全过滤器：拒绝（不声明无过滤全表层）
+    }
+    decl.source = QStringLiteral( "%1|layername=constraints" ).arg( cs->gpkgPath() ) + subset;
     decl.group = PaleoLayerVocabulary::kConstraintsGroup;
     if ( !layers->declare( decl, error ) )
       return false;
@@ -567,8 +581,16 @@ bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &w
     decl.layerId = QStringLiteral( "constraints.%1" ).arg( horizon );
     decl.horizon = horizon;
     decl.type = QStringLiteral( "vector" );
-    decl.source = QStringLiteral( "%1|layername=constraints" ).arg( cs->gpkgPath() ) +
-                  paleo::workflow_detail::constraintHorizonSubsetSuffix( horizon );
+    QString subsetError;
+    const QString subset = paleo::workflow_detail::constraintHorizonSubsetSuffix( horizon, &subsetError );
+    if ( subset.isEmpty() )
+    {
+      if ( error )
+        *error = subsetError;
+      cs->remove( c.id );
+      return false; // 已回滚刚写入的行，不留半截
+    }
+    decl.source = QStringLiteral( "%1|layername=constraints" ).arg( cs->gpkgPath() ) + subset;
     decl.group = PaleoLayerVocabulary::kConstraintsGroup;
     if ( !layers->declare( decl, error ) )
     {
@@ -876,6 +898,53 @@ bool ConstraintWorkflow::removeConstraint( const QString &constraintId, QString 
   return true;
 }
 
+int ConstraintWorkflow::constraintLayerCrsState() const
+{
+  // 0=无层/无库 1=legacy CRS-less 2=已登记 SRS（master #488 的存储契约探测）。
+  ConstraintStore *store = constraintStore();
+  if ( !store )
+    return 0;
+  const ConstraintStore::CrsStorageStatus status = store->inspectCrsStorage();
+  if ( !status.layerExists )
+    return 0;
+  return status.legacyNoCrs ? 1 : 2;
+}
+
+bool ConstraintWorkflow::migrateConstraintLayerCrs( QString *error, QString *backupPath )
+{
+  ConstraintStore *store = constraintStore();
+  if ( !store )
+  {
+    if ( error )
+      *error = tr( "约束库未绑定" );
+    return false;
+  }
+  return store->migrateLegacyCrs( error, backupPath );
+}
+
+QRectF ConstraintWorkflow::lastFactorComputeDomain( const QString &horizon ) const
+{
+  // 已提取井点样本的层位：点层包围盒 ±10%（与 paleo_constraint_idw 的
+  // 网格 pad 同口径）作为「最近计算域」。域是运行时刻从井点算出的下界，
+  // 页面只把它当作已知的最近域——未提取/换层位时返回空，保持域未知。
+  if ( horizon.isEmpty() || m_preparedWellFactors.value( "horizon" ) != horizon )
+    return QRectF();
+  QgisLayerService *layers = m_layers.data();
+  const QString pointsLayerId = m_preparedWellFactors.value( "points_layer_id" ).toString();
+  if ( !layers || pointsLayerId.isEmpty() )
+    return QRectF();
+  auto *layer = qobject_cast<QgsVectorLayer *>( layers->layer( pointsLayerId ) );
+  if ( !layer || !layer->isValid() )
+    return QRectF();
+  const QgsRectangle extent = layer->extent();
+  if ( extent.isEmpty() || !std::isfinite( extent.width() ) || !std::isfinite( extent.height() ) )
+    return QRectF();
+  const double xPad = extent.width() > 0.0 ? extent.width() * 0.1 : 1.0;
+  const double yPad = extent.height() > 0.0 ? extent.height() * 0.1 : 1.0;
+  return QRectF( extent.xMinimum() - xPad, extent.yMinimum() - yPad,
+                 extent.width() + 2 * xPad, extent.height() + 2 * yPad );
+}
+
 QVector<QVariantMap> ConstraintWorkflow::loadConstraints( const QString &horizon )
 {
   ConstraintStore *cs = constraintStore();
@@ -932,10 +1001,13 @@ QVector<QVariantMap> ConstraintWorkflow::loadConstraints( const QString &horizon
       decl.layerId = QStringLiteral( "constraints.%1" ).arg( horizon );
       decl.horizon = horizon;
       decl.type = QStringLiteral( "vector" );
-      decl.source = QStringLiteral( "%1|layername=constraints" ).arg( cs->gpkgPath() ) +
-                    paleo::workflow_detail::constraintHorizonSubsetSuffix( horizon );
-      decl.group = PaleoLayerVocabulary::kConstraintsGroup;
-      layers->declare( decl );
+      const QString subset = paleo::workflow_detail::constraintHorizonSubsetSuffix( horizon );
+      if ( !subset.isEmpty() )
+      {
+        decl.source = QStringLiteral( "%1|layername=constraints" ).arg( cs->gpkgPath() ) + subset;
+        decl.group = PaleoLayerVocabulary::kConstraintsGroup;
+        layers->declare( decl );
+      }
       syncConstraintGeometryViews( layers, cs, horizon );
     }
     else
@@ -956,10 +1028,13 @@ QVector<QVariantMap> ConstraintWorkflow::loadConstraints( const QString &horizon
         decl.layerId = QStringLiteral( "constraints.%1" ).arg( h );
         decl.horizon = h;
         decl.type = QStringLiteral( "vector" );
-        decl.source = QStringLiteral( "%1|layername=constraints" ).arg( cs->gpkgPath() ) +
-                      paleo::workflow_detail::constraintHorizonSubsetSuffix( h );
-        decl.group = PaleoLayerVocabulary::kConstraintsGroup;
-        layers->declare( decl );
+        const QString subset = paleo::workflow_detail::constraintHorizonSubsetSuffix( h );
+        if ( !subset.isEmpty() )
+        {
+          decl.source = QStringLiteral( "%1|layername=constraints" ).arg( cs->gpkgPath() ) + subset;
+          decl.group = PaleoLayerVocabulary::kConstraintsGroup;
+          layers->declare( decl );
+        }
         syncConstraintGeometryViews( layers, cs, h );
       }
     }

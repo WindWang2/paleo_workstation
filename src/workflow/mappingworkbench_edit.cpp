@@ -579,8 +579,15 @@ QString MappingWorkbench::snapshotConstraints(const QString &h,
   auto *store = m_constraints->constraintStore();
   if (!store || m_constraints->loadConstraints(h).isEmpty())
     return {};
-  QgsVectorLayer layer(store->gpkgPath() + "|layername=constraints" +
-                           paleo::workflow_detail::constraintHorizonSubsetSuffix(h),
+  // 二轮 A3：层位名含 '|' 等无法安全进入 subset 的字符时如实失败——绝不
+  // 静默退化为无过滤全表层（否则快照会把所有层位的约束一起带走）。
+  QString subsetError;
+  const QString subsetSuffix = paleo::workflow_detail::constraintHorizonSubsetSuffix(h, &subsetError);
+  if (subsetSuffix.isEmpty()) {
+    fail(error, subsetError);
+    return {};
+  }
+  QgsVectorLayer layer(store->gpkgPath() + "|layername=constraints" + subsetSuffix,
                        "constraints", "ogr");
   layer.setCrs(
       QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()));

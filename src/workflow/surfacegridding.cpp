@@ -24,6 +24,8 @@
 #include <cmath>
 #include <limits>
 #include <vector>
+#include <QSet>
+#include <algorithm>
 
 namespace gridsolver = paleo::gridsolver;
 namespace rasteralgebra = paleo::rasteralgebra;
@@ -130,12 +132,32 @@ SurfaceGriddingWorkflow::Inspect SurfaceGriddingWorkflow::inspectHorizonText(
   {
     // P2：统一语义——只有完全阻断且几何有效的打断线才算「有屏障」
     //（停用、display_only/none、无效几何不算），与 buildBarrierMask 同口径。
+    // PR457-closure R8：勘察按层位分组计数——本层位散点的参数表只该被本
+    // 层位的屏障点亮；域取散点包围盒（运行网格 ⊇ 包围盒，勘察是保守下界）。
     const ConstraintStore store(constraintGpkgPath);
     paleo::singlefactor::ConstraintMethodContext context;
     context.methodId = QStringLiteral("min_curvature");
-    const auto plan = paleo::singlefactor::planConstraintUse(store.load(), context);
-    out.hasConstraints =
-        plan.summary.value(QStringLiteral("roles")).toMap().value(QStringLiteral("hard_barrier")).toInt() > 0;
+    context.domain = QRectF(out.minX, out.minY, out.maxX - out.minX, out.maxY - out.minY);
+    QSet<QString> horizonsWithBarriers;
+    const QVector<QVariantMap> allRows = store.load();
+    QSet<QString> seen;
+    QVector<QVariantMap> rowsOfHorizon;
+    for (const QVariantMap &row : allRows)
+      seen.insert(row.value(QStringLiteral("horizon")).toString());
+    for (const QString &h : seen)
+    {
+      rowsOfHorizon.clear();
+      for (const QVariantMap &row : allRows)
+        if (row.value(QStringLiteral("horizon")).toString() == h)
+          rowsOfHorizon.append(row);
+      context.horizon = h;
+      const auto plan = paleo::singlefactor::planConstraintUse(rowsOfHorizon, context);
+      if (plan.summary.value(QStringLiteral("roles")).toMap().value(QStringLiteral("hard_barrier")).toInt() > 0)
+        horizonsWithBarriers.insert(h);
+    }
+    out.hasConstraints = !horizonsWithBarriers.isEmpty();
+    out.barrierHorizons = horizonsWithBarriers.values();
+    std::sort(out.barrierHorizons.begin(), out.barrierHorizons.end());
   }
   out.ok = true;
   return out;
@@ -458,6 +480,15 @@ QString SurfaceGriddingWorkflow::buildBarrierMask(const QString &horizon,
   paleo::singlefactor::ConstraintMethodContext context;
   context.methodId = QStringLiteral("min_curvature");
   context.horizon = horizon;
+  if (geom.isValid())
+  {
+    // 计划与引擎同一 GridSpec：geom 覆盖 x∈[originX, originX+cols*dx)、
+    // y∈(originY−rows*dy, originY]——x 左闭右开，y 上闭下开（行号自上而下：
+    // y==originY 是第 0 行下边界，y==originY−rows*dy 落在网格外），与像元
+    // 判定 cellOf 同口径（见 constraintsemantics::segmentTouchesRect）。
+    context.domain = QRectF(geom.originX, geom.originY - geom.rows * geom.dy,
+                            geom.cols * geom.dx, geom.rows * geom.dy);
+  }
   const auto plan = paleo::singlefactor::planConstraintUse(rows, context);
   QVector<QVector<QgsPointXY>> lines;
   QVector<int> lineDecision; // lines[i] 对应的 plan.decisions 下标

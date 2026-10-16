@@ -13,9 +13,11 @@ inspectCrsStorage/migrateLegacyCrs、引号转义 helper、supercover 栅格化�
 
 ## 二轮增量（本 PR 实际提交内容）
 
-1. **A1 计划/引擎域口径统一**（#488 的 segmentTouchesRect 仍是闭矩形）：
-   半开谓词 x 左闭右开、y 上闭下开（与 cellOf 行号自上而下一致）；四边缘 ×
-   三引擎一致性测试。
+1. **R1 计划/引擎域判定接线与一致性**（#488 侧谓词与 supercover 已是统一
+   闭契约——贴边点 clamp 进边缘格；二轮补齐生产域传递：buildBarrierMask/
+   约束页/inspectHorizonText 此前不传 domain，域判定是测试专属死代码）；
+   legacy/structural 计划域感知补回（与引擎逐线落格回执一致）；四条贴边线
+   × 三引擎闭契约一致性测试。
 2. **旧 IDW 屏障逐线落格回执（R3）**：supercover 栅格化前置 + 逐部件 touched
    跟踪；未落格线回执 outside_compute_domain、不进凸包、PALEO_BREAK_LINES
    只计落格数；BFS 复用 mask。
@@ -55,7 +57,7 @@ inspectCrsStorage/migrateLegacyCrs、引号转义 helper、supercover 栅格化�
 
 | ID | 严重度 | 发现 | 处置 |
 |----|--------|------|------|
-| A1 | P1 | 计划侧 Y 轴半开方向与引擎行号相反（yMax 应闭、yMin 应开） | **已修**：openEdge={left闭,right开,top开,bottom闭}；单点判定 `y>top && y<=bottom`；R1 测试加 y 边缘两例（x/y 四边缘 × 三引擎一致） |
+| A1 | P1 | 计划闭矩形 vs 引擎像元判定的边界口径（第一轮分析为半开；rebase 后 #488 已用 supercover「闭域+clamp」统一引擎契约） | **处置**：尊重 #488 统一闭契约（贴边=在内，计划闭谓词与引擎 clamp 一致）；二轮交付生产域接线 + legacy/structural 计划域感知 + 四贴边线 × 三引擎闭契约一致性测试（commit b5e51dd1） |
 | A2 | P2 | defineLayerCrs/layerCrsInfo 无生产调用方（不可达 API） | **已修**：约束页显示 legacy 真实状态（⚠ 假定提示）+「为约束库登记本地网格坐标系…」显式迁移按钮（确认框含备份/核对/恢复说明，完成后刷新） |
 | A3 | P2 | mappingworkbench 快照路径空 subset 退化为全表 | **已修**：空 suffix 如实失败返回 |
 | A4 | P2 | 占位名子串匹配过宽/过窄 | **已收紧**：只认整名占位词（unknown/arbitrary/NonEarth (metres)）或 Unspecified*/Undefined* 起头 + 空名；其余工程 CRS 一律拒绝（宁拒不静默错位）。已知残留：非主流占位名（见剩余风险） |

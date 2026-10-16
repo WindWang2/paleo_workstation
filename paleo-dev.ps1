@@ -418,6 +418,8 @@ switch ($Verb) {
       }
       $rerunFailed = $false
       $unhandled = $names.Count -eq 0
+      # #501：首轮红、直跑绿的项 = 本轮 flaky 放行集合，离开本块前必须留痕。
+      $released = @()
       foreach ($n in $names) {
         # 有些 ctest 项不是可执行文件（layering 是 python 脚本）；未处理的
         # 失败项必须保留红，不能把它误当成可重跑通过。
@@ -453,13 +455,33 @@ switch ($Verb) {
           Pop-Location
           foreach ($k in $saved.Keys) { [Environment]::SetEnvironmentVariable($k, $saved[$k], 'Process') }
         }
-        if ($rerunExit -ne 0) { $rerunFailed = $true }
+        if ($rerunExit -ne 0) { $rerunFailed = $true } else { $released += $n }
         if (Test-Path $qtout) {
           Get-Content $qtout | Tee-Object -FilePath $log -Append
           Remove-Item $qtout -Force
         }
       }
       if ($rerunFailed -or $unhandled) { throw 'CTest failed' }
+      # #501：直跑放行必须留痕——首轮红、直跑绿的项写入 step summary 与台账。
+      # 此前只有一行日志，flaky 无从复审（同一测试反复入账应升级为硬红）。
+      if ($released.Count -gt 0) {
+        $ledgerDir = Join-Path $Build 'Testing'
+        New-Item -ItemType Directory -Force $ledgerDir | Out-Null
+        Add-Content -Path (Join-Path $ledgerDir 'flaky-ledger.txt') -Encoding UTF8 -Value @(
+          "=== $(Get-Date -Format o) run=$($env:GITHUB_RUN_ID)"
+          $released
+        )
+        if ($env:GITHUB_STEP_SUMMARY) {
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Encoding UTF8 -Value @(
+            "## flaky 直跑放行（#501，$($released.Count) 项）", "",
+            "首轮失败、直跑通过——已放行但**须复审**（同一测试反复入账应升级为硬红）：", "",
+            ($released | ForEach-Object { "- ``$_``" })
+          )
+        }
+        foreach ($t in $released) {
+          Write-Host "::warning title=flaky 放行::$t 首轮失败、直跑通过——已记入 flaky 台账"
+        }
+      }
     }
   }
   'selfcheck' {

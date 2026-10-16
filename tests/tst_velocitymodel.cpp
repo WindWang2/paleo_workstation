@@ -7,6 +7,7 @@
 #include <QtMath>
 #include <cstring>
 #include <cmath>
+#include <limits>
 
 // goal/time-depth-velocity 轮2：速度模型核数值验收（Oracle 第 2 条）。
 //   · 恒速 / 两层层间平均 / V0-k 闭合式均有独立于实现的解析/手算期望值；
@@ -56,6 +57,7 @@ private slots:
   void v0kClosedFormMatchesQuadrature();
   void v0kFitRecoversSyntheticTruth();
   void v0kFitRmsReportsAnchorResidual();
+  void v0kFitNoisyDataReachesLeastSquaresOptimum();
   void serializationRoundtrip();
   void fitRejectsBadControls();
   void gridConversionConstantVelocity();
@@ -194,6 +196,66 @@ void TestVelocityModel::v0kFitRmsReportsAnchorResidual()
   const VelocityModel::Well &w = m.wells().first();
   QVERIFY(w.fitRmsMs > 1.0);  // 故意错位 ~1% 深度 → 残差毫秒级可见
   QVERIFY(w.fitRmsMs < 100.0);
+}
+
+// 用例6b：带噪拟合必须收敛到最小二乘最优（fitV0k 注释承诺的 Gauss-Newton
+// 正规方程不动点），而不是错误雅可比系统的驻点。Oracle = 粗网格暴力搜索
+// 最小化 Σr²；另断言拟合点是 SSE 局部极小（八方向扰动都不降）。
+// 回归背景：∂T/∂k 第二项曾写成 2000z/(v0·v)（缺 1/k，正确是 2000z/(k·v)），
+// 带噪数据收敛到 J'ᵀr=0 的错误不动点，SSE 显著高于最优——无噪真值
+// （r≡0）测不出该缺陷，必须带噪。
+void TestVelocityModel::v0kFitNoisyDataReachesLeastSquaresOptimum()
+{
+  const double v0True = 1800.0, kTrue = 0.6;
+  const double noise[] = {8.0, -6.0, 5.0, -7.0}; // 确定性检查井噪声（毫秒）
+  QVector<VelocityKnot> knots;
+  int i = 0;
+  for (const double twt : {600.0, 1200.0, 1800.0, 2400.0})
+  {
+    const double z = v0True / kTrue * std::expm1(kTrue * twt / 2000.0);
+    knots.append(VelocityKnot{twt + noise[i++], z, QStringLiteral("L%1").arg(i)});
+  }
+  VelocityWellControl c;
+  c.wellId = QStringLiteral("NOISY"); c.x = 0.0; c.y = 0.0; c.knots = knots;
+  const VelocityModel m = VelocityModel::fit({c}, ModelType::V0kLinear);
+  const VelocityModel::Well &w = m.wells().first();
+
+  const auto sse = [&knots](double v0, double k) {
+    double s = 0.0;
+    for (const VelocityKnot &kn : knots)
+    {
+      const double u = k * kn.depthM / v0;
+      const double t = std::abs(k) < 1e-12
+          ? 2000.0 * kn.depthM / v0
+          : 2000.0 / k * std::log1p(u);
+      const double r = t - kn.twtMs;
+      s += r * r;
+    }
+    return s;
+  };
+
+  // Oracle：粗网格暴力搜索（含真值邻域）。
+  double oracle = std::numeric_limits<double>::max();
+  for (double v0 = 1600.0; v0 <= 2000.0 + 1e-9; v0 += 5.0)
+    for (double k = 0.40; k <= 0.80 + 1e-9; k += 0.002)
+      oracle = std::min(oracle, sse(v0, k));
+  const double fitSse = sse(w.v0, w.k);
+  QVERIFY2(fitSse <= oracle * 1.02 + 1e-9,
+           qPrintable(QStringLiteral("fit SSE=%1 vs oracle=%2 (v0=%3 k=%4)")
+                          .arg(fitSse).arg(oracle).arg(w.v0).arg(w.k)));
+
+  // 局部极小：八方向小扰动不得显著降低 SSE。
+  const double dv0 = 2.0, dk = 1e-3;
+  for (const double ev0 : {0.0, dv0, -dv0})
+    for (const double ek : {0.0, dk, -dk})
+    {
+      if (ev0 == 0.0 && ek == 0.0)
+        continue;
+      const double s = sse(w.v0 + ev0, w.k + ek);
+      QVERIFY2(s >= fitSse - 1e-9,
+               qPrintable(QStringLiteral("perturb(%1,%2) SSE=%3 < fit=%4")
+                              .arg(ev0).arg(ek).arg(s).arg(fitSse)));
+    }
 }
 
 // Oracle：模型可存可取——JSON 往返文档级相等，查询位级一致。

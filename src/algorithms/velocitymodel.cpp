@@ -86,7 +86,7 @@ void fitV0k(const QVector<VelocityKnot> &knots, double *v0Out, double *kOut)
       const double dTdv0 = -2000.0 * z / (v0 * v);
       const double dTdk = std::abs(k) < 1e-12
           ? -1000.0 * z * z / (v0 * v0)
-          : -2000.0 / (k * k) * std::log1p(k * z / v0) + 2000.0 * z / (v0 * v);
+          : -2000.0 / (k * k) * std::log1p(k * z / v0) + 2000.0 * z / (k * v);
       a11 += dTdv0 * dTdv0; a12 += dTdv0 * dTdk; a22 += dTdk * dTdk;
       b1 += dTdv0 * r; b2 += dTdk * r;
     }

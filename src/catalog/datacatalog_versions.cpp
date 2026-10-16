@@ -106,7 +106,7 @@ bool DataCatalog::addVersion(const CatalogVersion &v, QString *error)
   for (const QString &pid : superseded)
     markStaleDownstreamOf(
         pid, QStringLiteral("上游版本 %1 已被同资产新版本 %2 取代").arg(pid, v.id),
-        &staleUndo);
+        &staleUndo, v.id);
   m_dirtyVersions.insert(v.id);
   if (save(error))
   {

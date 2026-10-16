@@ -44,7 +44,8 @@ QVector<CatalogVersion> DataCatalog::downstreamClosure(const QString &versionId)
 }
 
 int DataCatalog::markStaleDownstreamOf(const QString &versionId, const QString &reason,
-                                       QVector<QPair<int, CatalogVersion>> *undo)
+                                       QVector<QPair<int, CatalogVersion>> *undo,
+                                       const QString &excludeId)
 {
   const QVector<CatalogVersion> downstream = downstreamClosure(versionId);
   int changed = 0;
@@ -53,6 +54,8 @@ int DataCatalog::markStaleDownstreamOf(const QString &versionId, const QString &
     // staleness-lite：只标 DERIVED 产物。闭包里的 INTERMEDIATE/OUTPUT 等
     // 参与溯源穿透（DERIVED 的祖先可以是任意阶段），但自身不记 stale。
     if (d.stage != QLatin1String("DERIVED"))
+      continue;
+    if (!excludeId.isEmpty() && d.id == excludeId)
       continue;
     // WP2：行号走邻接索引 O(1)——旧实现每次全表建 id→row QHash，是
     // addVersion 路径隐藏的 O(N)/调用（N 次导入即 O(N²)）。

@@ -8,6 +8,7 @@
 #include "services/welllogset.h"
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QFutureWatcher>
 #include <QHash>
 #include <QJsonDocument>
@@ -413,8 +414,13 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
         m_logs.insert(cacheKey, doc);
       }
       const auto &doc = m_logs[cacheKey];
-      if (!doc.ok || doc.curves.size() < 2)
+      if (!doc.ok || doc.curves.size() < 2) {
+        // #480 P3-1：坏文件不再静默——解析失败写进对齐状态（同单位未知口径），
+        // 剖面曲线缺失有感知。
+        out.alignmentStatus += tr(" · 测井文件解析失败（%1），曲线未叠加")
+                                   .arg(QFileInfo(refs.first().path).fileName());
         continue;
+      }
       const WellCurveRef *gr = nullptr;
       const WellCurveRef *first = nullptr;
       for (const WellCurveRef &ref : refs) {

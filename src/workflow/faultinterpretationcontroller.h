@@ -20,16 +20,19 @@ namespace paleo::fault {
 // 轻量命令栈（闭包式，WellComposite EditStack 同思路）：QUndoStack 属
 // QtWidgets 词表禁项，功能层不可用；撤销语义留在编排层，纯 QtCore。
 // push 即执行 redo；undo/redo 对称重放；clear 清史（重开工程）。
+// #480 P3-4：执行/重放返回 bool（false = 操作失败，如落盘失败）——
+// push 失败不入账（canUndo/count 不变、返回 false），undo/redo 失败时
+// 条目原地保留，历史不失序。
 class FaultEditStack : public QObject
 {
     Q_OBJECT
 public:
     explicit FaultEditStack(QObject *parent = nullptr);
 
-    void push(const QString &text, std::function<void()> undoFn,
-              std::function<void()> redoFn);
-    void undo();
-    void redo();
+    bool push(const QString &text, std::function<bool()> undoFn,
+              std::function<bool()> redoFn);
+    bool undo();
+    bool redo();
     bool canUndo() const { return !m_done.isEmpty(); }
     bool canRedo() const { return !mUndone.isEmpty(); }
     int count() const { return static_cast<int>(m_done.size()); }
@@ -43,8 +46,8 @@ private:
     struct Entry
     {
         QString text;
-        std::function<void()> undoFn;
-        std::function<void()> redoFn;
+        std::function<bool()> undoFn;
+        std::function<bool()> redoFn;
     };
     void truncateRedo(); // 新命令作废被撤销的历史
     QVector<Entry> m_done;

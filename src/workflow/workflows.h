@@ -67,6 +67,18 @@ void PaleoWorkflowBindDerivedCatalog(QObject *workflow, DataCatalog *catalog,
 DataCatalog *PaleoWorkflowDerivedCatalog(const QObject *workflow);
 QString PaleoWorkflowDerivedProjectDir(const QObject *workflow);
 
+// #481 P2-1：暂存/临时目录的删除语义收进 workflow 层——视图侧不得自带
+// 无守卫 removeRecursively。守卫按「目录名本身」判定，不再对整条路径做
+// 子串匹配（用户目录名撞 paleo-sf- 即整树误删）或空路径兜底（旧行为会
+// 把当前目录递归删掉）。
+// 单因素临时树：只删目录名以 paleo-sf- 开头的目录（fileInsideTree 为树内
+// 任一文件/目录路径）。
+void PaleoWorkflowDiscardFactorTempTree(const QString &fileInsideTree);
+// 预测取消清理：只删目录名 == 该次 staging versionId 的版本目录。
+// stagingVersionId 为空或目录名不匹配一律不动。
+void PaleoWorkflowDiscardPredictionStagingDir(const QString &stagingVersionId,
+                                              const QString &fileInsideDir);
+
 // ①智能预测 — run a prediction algorithm for a horizon, declare result layer.
 class PredictionWorkflow : public QObject
 {

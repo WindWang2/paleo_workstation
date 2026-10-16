@@ -57,7 +57,11 @@ void PaleoMainWindow::attachDataPage(DataPage *dataPage,
         if (!success) return;
         const auto session = m_projectSvc->sessionId();
         QTimer::singleShot(16, this, [this, session] {
-          if (m_projectSvc && m_projectSvc->sessionId() == session) syncSeismicVolumeToDocks();
+          if (m_projectSvc && m_projectSvc->sessionId() == session) {
+            // #481 P3-3：自动装载记账随会话重置（新工程重扫）。
+            m_seismicAutoLoadedPaths.clear();
+            syncSeismicVolumeToDocks();
+          }
         });
       });
     // §3/§4 数据契约接线：数据页绑定导入服务，资产表跟 catalog 走，

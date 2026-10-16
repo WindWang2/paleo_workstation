@@ -34,37 +34,47 @@ FaultEditStack::FaultEditStack(QObject *parent)
 {
 }
 
-void FaultEditStack::push(const QString &text, std::function<void()> undoFn,
-                          std::function<void()> redoFn)
+bool FaultEditStack::push(const QString &text, std::function<bool()> undoFn,
+                          std::function<bool()> redoFn)
 {
     truncateRedo();
     Entry entry{text, std::move(undoFn), std::move(redoFn)};
-    entry.redoFn(); // push 即执行
+    if (!entry.redoFn()) // push 即执行；失败不入账（#480 P3-4 机制化约定）
+        return false;
     m_done.append(std::move(entry));
     emit canUndoChanged(canUndo());
     emit canRedoChanged(canRedo());
+    return true;
 }
 
-void FaultEditStack::undo()
+bool FaultEditStack::undo()
 {
     if (m_done.isEmpty())
-        return;
+        return false;
     Entry entry = m_done.takeLast();
-    entry.undoFn();
+    if (!entry.undoFn()) { // 重放失败：条目回 done 栈，历史不失序
+        m_done.append(std::move(entry));
+        return false;
+    }
     mUndone.append(std::move(entry));
     emit canUndoChanged(canUndo());
     emit canRedoChanged(canRedo());
+    return true;
 }
 
-void FaultEditStack::redo()
+bool FaultEditStack::redo()
 {
     if (mUndone.isEmpty())
-        return;
+        return false;
     Entry entry = mUndone.takeLast();
-    entry.redoFn();
+    if (!entry.redoFn()) { // 重放失败：条目回 undone 栈，历史不失序
+        mUndone.append(std::move(entry));
+        return false;
+    }
     m_done.append(std::move(entry));
     emit canUndoChanged(canUndo());
     emit canRedoChanged(canRedo());
+    return true;
 }
 
 void FaultEditStack::clear()
@@ -126,11 +136,11 @@ QString FaultInterpretationController::addFault(const QString &name,
 {
     const QString faultId = QStringLiteral("f-%1").arg(m_set.nextFaultId());
     const QString unique = m_set.uniqueName(name.isEmpty() ? QStringLiteral("F") : name);
-    m_editStack->push(
+    if (!m_editStack->push(
         tr("新建断层 %1").arg(unique),
         [this, faultId] {
             m_set.removeFault(faultId);
-            commitModel();
+            return commitModel();
         },
         [this, faultId, unique, interpreter] {
             Fault f;
@@ -139,8 +149,9 @@ QString FaultInterpretationController::addFault(const QString &name,
             f.interpreter = interpreter;
             f.visible = true;
             m_set.insertFault(f);
-            commitModel();
-        });
+            return commitModel();
+        }))
+        return QString(); // 落盘失败：不入账、不拾取（#480 P3-4）
     m_activeFaultId = faultId; // 新建即拾取目标
     return faultId;
 }
@@ -164,13 +175,13 @@ QPair<QString, QString> FaultInterpretationController::addStick(const FaultStick
         stick.id = QStringLiteral("s-%1").arg(m_set.nextStickId());
     const QString interpreter = stick.interpreter;
 
-    m_editStack->push(
+    const bool ok = m_editStack->push(
         tr("拾取断层棒 %1").arg(stick.id),
         [this, faultId, stick, createFault] {
             m_set.removeStick(faultId, stick.id);
             if (createFault)
                 dropFaultIfEmpty(m_set, faultId);
-            commitModel();
+            return commitModel();
         },
         [this, faultId, name, interpreter, stick, createFault] {
             if (createFault && !m_set.faultById(faultId)) {
@@ -182,8 +193,10 @@ QPair<QString, QString> FaultInterpretationController::addStick(const FaultStick
                 m_set.insertFault(f);
             }
             m_set.addStick(faultId, stick, nullptr);
-            commitModel();
+            return commitModel();
         });
+    if (!ok)
+        return {}; // 落盘失败：不入账、拒绝本次拾取（#480 P3-4）
     if (createFault)
         m_activeFaultId = faultId; // 后续拾取落同一断层
     return {faultId, stick.id};
@@ -196,17 +209,17 @@ bool FaultInterpretationController::removeStick(const QString &faultId, const QS
     if (!s)
         return false;
     const FaultStick snapshot = *s;
-    m_editStack->push(
+    const bool ok = m_editStack->push(
         tr("删除断层棒 %1").arg(stickId),
         [this, faultId, snapshot] {
             m_set.addStick(faultId, snapshot, nullptr);
-            commitModel();
+            return commitModel();
         },
         [this, faultId, stickId] {
             m_set.removeStick(faultId, stickId);
-            commitModel();
+            return commitModel();
         });
-    return true;
+    return ok;
 }
 
 bool FaultInterpretationController::removeFault(const QString &faultId)
@@ -215,19 +228,19 @@ bool FaultInterpretationController::removeFault(const QString &faultId)
     if (!f)
         return false;
     const Fault snapshot = *f;
-    m_editStack->push(
+    const bool ok = m_editStack->push(
         tr("删除断层 %1").arg(f->name),
         [this, snapshot] {
             m_set.insertFault(snapshot);
-            commitModel();
+            return commitModel();
         },
         [this, faultId] {
             m_set.removeFault(faultId);
             if (m_activeFaultId == faultId)
                 m_activeFaultId.clear();
-            commitModel();
+            return commitModel();
         });
-    return true;
+    return ok;
 }
 
 bool FaultInterpretationController::renameFault(const QString &faultId, const QString &newName)
@@ -238,17 +251,17 @@ bool FaultInterpretationController::renameFault(const QString &faultId, const QS
     if (m_set.hasFaultNamed(newName))
         return false; // 撞名预检：不产生空命令（模型层同样拒绝，此处防静默失败）
     const QString oldName = f->name;
-    m_editStack->push(
+    const bool ok = m_editStack->push(
         tr("重命名断层 %1→%2").arg(oldName, newName),
         [this, faultId, oldName] {
             m_set.renameFault(faultId, oldName);
-            commitModel();
+            return commitModel();
         },
         [this, faultId, newName] {
             m_set.renameFault(faultId, newName);
-            commitModel();
+            return commitModel();
         });
-    return true;
+    return ok;
 }
 
 bool FaultInterpretationController::setFaultVisible(const QString &faultId, bool visible)
@@ -256,17 +269,17 @@ bool FaultInterpretationController::setFaultVisible(const QString &faultId, bool
     const Fault *f = m_set.faultById(faultId);
     if (!f || f->visible == visible)
         return false;
-    m_editStack->push(
+    const bool ok = m_editStack->push(
         visible ? tr("显示断层 %1").arg(f->name) : tr("隐藏断层 %1").arg(f->name),
         [this, faultId, visible] {
             m_set.setFaultVisible(faultId, !visible);
-            commitModel();
+            return commitModel();
         },
         [this, faultId, visible] {
             m_set.setFaultVisible(faultId, visible);
-            commitModel();
+            return commitModel();
         });
-    return true;
+    return ok;
 }
 
 bool FaultInterpretationController::setCut(const QString &faultIdIn, const FaultHorizonCut &cutIn)
@@ -291,7 +304,7 @@ bool FaultInterpretationController::setCut(const QString &faultIdIn, const Fault
     const bool hadOld = old != nullptr;
     const FaultHorizonCut oldCut = hadOld ? *old : FaultHorizonCut{};
 
-    m_editStack->push(
+    const bool ok = m_editStack->push(
         tr("断层 %1 层位 %2 切割多边形")
             .arg(createFault ? name : m_set.faultById(faultId)->name, cut.horizon),
         [this, faultId, cut, hadOld, oldCut, createFault] {
@@ -301,7 +314,7 @@ bool FaultInterpretationController::setCut(const QString &faultIdIn, const Fault
                 m_set.removeCut(faultId, cut.horizon);
             if (createFault)
                 dropFaultIfEmpty(m_set, faultId);
-            commitModel();
+            return commitModel();
         },
         [this, faultId, name, cut, createFault] {
             if (createFault && !m_set.faultById(faultId)) {
@@ -312,9 +325,9 @@ bool FaultInterpretationController::setCut(const QString &faultIdIn, const Fault
                 m_set.insertFault(f);
             }
             m_set.setCut(faultId, cut);
-            commitModel();
+            return commitModel();
         });
-    return true;
+    return ok;
 }
 
 bool FaultInterpretationController::removeCut(const QString &faultId, const QString &horizon)
@@ -323,17 +336,17 @@ bool FaultInterpretationController::removeCut(const QString &faultId, const QStr
     if (!c)
         return false;
     const FaultHorizonCut snapshot = *c;
-    m_editStack->push(
+    const bool ok = m_editStack->push(
         tr("删除 %1 层位切割").arg(horizon),
         [this, faultId, snapshot] {
             m_set.setCut(faultId, snapshot);
-            commitModel();
+            return commitModel();
         },
         [this, faultId, horizon] {
             m_set.removeCut(faultId, horizon);
-            commitModel();
+            return commitModel();
         });
-    return true;
+    return ok;
 }
 
 bool FaultInterpretationController::setCutHangingSide(const QString &faultId,
@@ -346,17 +359,17 @@ bool FaultInterpretationController::setCutHangingSide(const QString &faultId,
     const FaultHorizonCut oldCut = *c;
     FaultHorizonCut newCut = *c;
     newCut.hangingSide = side;
-    m_editStack->push(
+    const bool ok = m_editStack->push(
         tr("%1 层位上盘方向 → %2").arg(horizon, FaultHorizonCut::hangingSideToString(side)),
         [this, faultId, oldCut] {
             m_set.setCut(faultId, oldCut);
-            commitModel();
+            return commitModel();
         },
         [this, faultId, newCut] {
             m_set.setCut(faultId, newCut);
-            commitModel();
+            return commitModel();
         });
-    return true;
+    return ok;
 }
 
 // ---- 联动 ----

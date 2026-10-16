@@ -456,6 +456,38 @@ class TestVersions : public QObject
         const QString gpkgSha = manifest.value("saved_layers").toArray().first().toObject().value("sha256").toString();
         QFile changedPdf(pdf); QVERIFY(changedPdf.open(QIODevice::WriteOnly | QIODevice::Truncate));
         changedPdf.write("later edit"); changedPdf.close();
+        // #499：declare/saveVersion 路径会实例化 QgsVectorLayer 读取 gpkg，图层经
+        // 移除路径走 DeferredDelete——事件循环「回到最外层」前对象仍在，Windows 上
+        // 就锁住 gpkg（Linux 允许 unlink 打开的 fd，故 linux 车道掩盖了该平台差异）。
+        // 真实应用里事件循环持续运行、句柄自然释放，**不是产品泄漏**；测试需按 Qt
+        // 删除语义等它落地，而不是放宽「文件必须被删除」这个断言。
+        // 注意：QTRY/qWait 内部的 processEvents 默认**不处理** DeferredDelete，
+        // 必须显式 sendPostedEvents；实测落地后同一句 QFile::remove 立即返回 true。
+        // #499：saveVersion 的快照捕获（MapVersionController::captureVersion）会
+        // instantiate 该层位的 vector 图层并 addMapLayer 进工程——实例活着的 OGR
+        // provider 持有 gpkg 只读句柄，Windows 上就删不掉（Linux 允许 unlink 打开的
+        // fd，故 linux 车道掩盖了这个平台差异）。真实序列里用户在源文件消失前会先把
+        // 图层从工程移除，测试按同一序列补这一步。注意 purge 不能靠
+        // QgsProject::removeMapLayer(f.layers.layer(id))——实例可能不在 m_instances
+        // （no-op），removeDeclarations 按工程内 paleoLayerId 遍历、同步删图层，更稳。
+        // publish 读的是已保存版本的 saved_layers 快照（frozen），不依赖当前声明，
+        // 故本用例后续断言语义不变。
+        // #499：saveVersion 的快照捕获（MapVersionController::captureVersion）会
+        // instantiate 该层位的 vector 图层并 addMapLayer 进工程——实例活着的 OGR
+        // provider 持有 gpkg 只读句柄，Windows 上文件就删不掉（Linux 允许 unlink
+        // 打开的 fd，故 linux 车道掩盖了这个平台差异）。真实序列里用户在源文件消失
+        // 前会先把图层从工程移除，测试按同一序列补这一步。
+        // 两处细节都是必需的（实测踩过）：
+        //  ① 用 removeDeclarations 而非 removeMapLayer(layers.layer(id))——后者在
+        //     实例未被服务登记时是 no-op；
+        //  ② QgsProject::removeMapLayers 走 deleteLater，对象析构前 OGR 句柄不释放，
+        //     须显式 sendPostedEvents 处理 DeferredDelete（processEvents/qWait 默认
+        //     不处理它，QTRY 重试因此无效）。
+        QString dropError;
+        QVERIFY2(f.layers.removeDeclarations({QStringLiteral("facies.D61")}, &dropError),
+                 qPrintable(dropError));
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QCoreApplication::processEvents();
         QVERIFY(QFile::remove(gpkg));
         const QString summary = R"({"wells_total":1,"covered":1,"missing":[],"rows":[{"kind":"residual","residual_ms":1}]})";
         const auto published = f.controller.publish("D61", summary, &error);

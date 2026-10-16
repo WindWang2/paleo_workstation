@@ -27,3 +27,14 @@ worktree-issues
 
 # #421：源码树内跑 ctest 的产物不进版本库
 Testing/
+
+# #504：本地一次性日志 / 启动脚本 / 取证产物不进版本库
+*.log
+launch.bat
+launch.ps1
+*_mods.txt
+vendor/*.exe
+artifacts/portable/
+# 本地工具目录（WorkBuddy 会话 / 个人工作区）
+.workbuddy/
+.zwork/

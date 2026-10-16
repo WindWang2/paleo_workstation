@@ -3108,7 +3108,11 @@ private slots:
     QVERIFY2(f.work.removeProduct(draft, &error), qPrintable(error));
     QVERIFY(f.work.declaration(draft).layerId.isEmpty());
     QVERIFY(f.catalog.assetById(draftVersion.assetId).id.isEmpty());
-    QVERIFY(!QDir(workDir).exists());
+    // #499：工作副本目录的物理清理在 removeProduct 里经 QtConcurrent 后台执行
+    // （「主线程只提交目录并释放 QGIS provider，物理清理后台跑」）——返回时
+    // 目录可能尚未删除。立即断言会与清理任务竞态；Windows 上调度与文件系统
+    // 延迟更大，CI windows 车道因此稳定红。按异步语义等待，而不是放宽断言。
+    QTRY_VERIFY_WITH_TIMEOUT(!QDir(workDir).exists(), 15000);
   }
   void deleteButtonGatingFollowsSelectedRow() {
     Fixture f;

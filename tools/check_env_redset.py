@@ -24,6 +24,7 @@ BUILD/Testing/qtest-first-run/<test>.txt（add_paleo_test 的 -o 落点）。
 """
 import argparse
 import contextlib
+import datetime
 import io
 import json
 import re
@@ -35,6 +36,9 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_LIST = REPO / "tools" / "env_redset.json"
 STATUSES = ("fixed", "exempt")
+# #501：豁免项复审周期（天）——超期只提示不红，避免一次性全国红；到期提示进
+# CI annotation，迫使逐项重估（出名单或更新 reviewed_utc）。
+REVIEW_DUE_DAYS = 120
 FAIL_LINE = re.compile(r"^FAIL!\s+:\s+(.*)$")
 CRASH = re.compile(r"Received signal|Caught unhandled exception|QFATAL|\*\*\*Exception|ASSERT failure", re.I)
 UNSAFE_CTEST = re.compile(r"timeout|segfault|exception|aborted|killed|bad command|not run", re.I)
@@ -65,6 +69,15 @@ def load_list(path):
         if e.get("status") == "exempt":
             if not e.get("routes") or not e.get("reason"):
                 errors.append(f"{where}: exempt 项须写 routes 与 reason")
+            # #501：豁免须带复审日期——否则名单只增不减，豁免面无限扩大而无人再审。
+            reviewed = e.get("reviewed_utc")
+            if not reviewed:
+                errors.append(f"{where}: exempt 项须写 reviewed_utc（YYYY-MM-DD，用于到期复审）")
+            else:
+                try:
+                    datetime.date.fromisoformat(str(reviewed))
+                except ValueError:
+                    errors.append(f"{where}: reviewed_utc {reviewed!r} 非 ISO 日期（YYYY-MM-DD）")
             pats = e.get("expect_fail") or []
             if not pats:
                 errors.append(f"{where}: exempt 项须写 expect_fail（不许无条件豁免）")
@@ -79,6 +92,18 @@ def load_list(path):
     if errors:
         raise Fail("名单结构错误：\n  " + "\n  ".join(errors))
     return {e["test"]: e for e in data["entries"]}
+
+
+def _review_overdue(reviewed):
+    """exempt 项复审是否超期（#501）。缺字段/解析失败返回 False——
+    结构错误由 --validate 兜（不在此重复报）。"""
+    if not reviewed:
+        return False
+    try:
+        d = datetime.date.fromisoformat(str(reviewed))
+    except ValueError:
+        return False
+    return (datetime.date.today() - d).days > REVIEW_DUE_DAYS
 
 
 def results_from_junit(path):
@@ -226,6 +251,19 @@ def run(argv):
         Path(a.emit_unexpected).write_text("".join(t + "\n" for t in bad), encoding="utf-8")
     print(f"env_redset: {n_fail} 红 → {sum(k == 'EXEMPT' for k, _, _ in report)} 豁免 / "
           f"{len(bad)} 不放行（路线 {a.route}）")
+    # #501：STALE 在非 strict 下也须可见——豁免项本轮通过说明名单可删，静默保留
+    # 会让「只增不减」无人复审。strict 语义不变（计红），非 strict 给出 annotation。
+    stale = [t for k, t, _ in report if k == "STALE"]
+    if stale:
+        mode = "已按不放行计（--strict）" if a.strict else "仅提示；CI 加 --strict 即强制出名单（#501）"
+        print(f"::warning title=env_redset STALE::豁免名单 {len(stale)} 项本轮通过，应删条目（{mode}）")
+        for t in stale:
+            print(f"  STALE {t}")
+    due = [t for t, e in entries.items()
+           if e.get("status") == "exempt" and _review_overdue(e.get("reviewed_utc"))]
+    if due:
+        print(f"::warning title=env_redset 复审到期::豁免项超 {REVIEW_DUE_DAYS} 天未复审："
+              f"{', '.join(sorted(due))}——请重估（出名单或更新 reviewed_utc）")
     return 1 if bad else 0
 
 
@@ -248,6 +286,7 @@ def selftest():
         "categories": {"perf-host": "x", "srsdb": "y"},
         "entries": [
             {"test": "tst_cache_las", "category": "perf-host", "status": "exempt", "routes": ["localdeps"],
+             "reviewed_utc": "2026-10-16",
              "reason": "r", "expect_fail": [r"(disk phase|memory load) median [0-9.]+ms >= 0\.5×cold parse median"]},
             {"test": "tst_runtime", "category": "srsdb", "status": "fixed", "fix": "f"},
         ],
@@ -326,10 +365,13 @@ def selftest():
         if rc != want_rc or sorted(bad) != sorted(want_bad):
             failures.append(f"{desc}: rc={rc} bad={bad}（期望 rc={want_rc} bad={want_bad}）")
     # 结构校验：无条件豁免（空/匹配空串的 expect_fail）与缺 routes 必须拒绝。
-    for mutate, desc in ((lambda e: e.update(expect_fail=[]), "空 expect_fail"),
-                         (lambda e: e.update(expect_fail=[".*"]), "expect_fail='.*'"),
-                         (lambda e: e.pop("routes"), "缺 routes"),
-                         (lambda e: e.update(status="ignored"), "非法 status")):
+    mutations = ((lambda e: e.update(expect_fail=[]), "空 expect_fail"),
+                 (lambda e: e.update(expect_fail=[".*"]), "expect_fail='.*'"),
+                 (lambda e: e.pop("routes"), "缺 routes"),
+                 (lambda e: e.pop("reviewed_utc"), "缺 reviewed_utc"),
+                 (lambda e: e.update(reviewed_utc="2026/10/16"), "reviewed_utc 非 ISO"),
+                 (lambda e: e.update(status="ignored"), "非法 status"))
+    for mutate, desc in mutations:
         bad_list = json.loads(json.dumps(lst))
         mutate(bad_list["entries"][0])
         with tempfile.TemporaryDirectory() as tmp:
@@ -340,6 +382,12 @@ def selftest():
                 failures.append(f"结构校验漏放：{desc}")
             except Fail:
                 pass
+    # #501：复审到期判定——过期算到期、当天/未来不算、缺字段与坏格式不得误报。
+    if not (_review_overdue("2020-01-01")
+            and not _review_overdue(datetime.date.today().isoformat())
+            and not _review_overdue(None) and not _review_overdue("2026/10/16")
+            and not _review_overdue("not-a-date")):
+        failures.append("复审到期判定（_review_overdue）错误")
     # 仓库真名单必须结构合法且全部已注册；豁免正则须命中各测试源码里的
     # 预算断言文案（样本按 QVERIFY2 消息格式手写，测试文案改了这里会红）。
     samples = {
@@ -370,7 +418,7 @@ def selftest():
         for f in failures:
             print("SELFTEST FAIL", f)
         return 1
-    print(f"check_env_redset selftest: PASS（{len(cases)} 场景 + 4 结构突变）")
+    print(f"check_env_redset selftest: PASS（{len(cases)} 场景 + {len(mutations)} 结构突变）")
     return 0
 
 

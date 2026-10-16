@@ -12,10 +12,13 @@ export QT_QPA_PLATFORM=offscreen
 [ -d "$P/share/gdal" ] && export GDAL_DATA="$P/share/gdal"
 pass=0; fail=0; failed=""
 for t in "$@"; do
-  if "./build/$t" > "/tmp/$t.log" 2>&1; then
+  # mktemp 而非固定 /tmp/$t.log：双 worktree/两会话直跑同一测试会互相覆盖日志
+  #（full-audit F16）。
+  log="$(mktemp -t paleo-tgt-$t.XXXXXX.log)"
+  if "./build/$t" > "$log" 2>&1; then
     pass=$((pass+1)); echo "PASS $t"
   else
-    fail=$((fail+1)); failed="$failed $t"; echo "FAIL $t (log: /tmp/$t.log)"; grep -E 'FAIL!|Totals' "/tmp/$t.log" | tail -5
+    fail=$((fail+1)); failed="$failed $t"; echo "FAIL $t (log: $log)"; grep -E 'FAIL!|Totals' "$log" | tail -5
   fi
 done
 echo "== $pass passed, $fail failed =="

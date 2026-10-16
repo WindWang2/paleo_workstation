@@ -136,6 +136,7 @@ class SingleFactorKrigingTests : public QObject
     void constraintReceiptHonesty();
     void softBoundaryClusterContinuity();
     void cancelledBarrierFitPropagatesWithoutIdwFallback();
+    void krigingNeighbourhoodClampReceipt();
 };
 
 // Oracle 1（精确性）：γ(0)=0 口径下普通克里金在采样点无误差通过——对任意块金
@@ -1069,6 +1070,63 @@ void SingleFactorKrigingTests::cancelledBarrierFitPropagatesWithoutIdwFallback()
   const SurfaceResult result = evaluateLocalKriging( input, grid, params, control );
   QCOMPARE( result.status, Status::Cancelled );
   QCOMPARE( result.surfaceFallbacks, 0 ); // 取消不冒充 IDW 成品
+}
+
+// U4a：克里金邻域 K 引擎内钳到 [1,64]（localidw.cpp clampKrigingParams）。
+// 请求 100 时回执必须进 issues（请求→生效）；数值与 K=64 逐位一致（25 口井
+// 全在两种邻域内）；K<=64 不得出现回执（回归）。
+void SingleFactorKrigingTests::krigingNeighbourhoodClampReceipt()
+{
+  const std::vector<Sample> wells = latticeWells( 5, 40.0, 100.0, 100.0 ); // 25 口
+  const PreparedInput input = inputWithDomain( wells, rect( 0, 0, 400, 400 ) );
+  const GridSpec grid = gridSpec( 8, 8, 0, 320, 40 );
+
+  const auto hasClampReceipt = []( const std::vector<std::string> &issues ) {
+    return std::any_of( issues.begin(), issues.end(), []( const std::string &issue ) {
+      return issue.find( "kriging_neighbourhood_clamped" ) != std::string::npos;
+    } );
+  };
+
+  ResolvedParameters bigK = krigingParams( 1.0, 200.0 );
+  bigK.krigingMaxPoints = 100;
+  const SurfaceResult clamped = evaluateLocalKriging( input, grid, bigK, {} );
+  QCOMPARE( clamped.status, Status::Ok );
+  QCOMPARE( clamped.resolved.methodActual, std::string( "kriging" ) );
+  QVERIFY( clamped.krigingCells > 0 );
+  QVERIFY2( hasClampReceipt( clamped.issues ), "K=100 > 64 must leave a clamp receipt" );
+  QVERIFY2( std::any_of( clamped.issues.begin(), clamped.issues.end(),
+                         []( const std::string &issue ) {
+                           return issue.find( "kriging_neighbourhood_clamped max_points 100->64" ) !=
+                                  std::string::npos;
+                         } ),
+            "receipt must spell out requested->effective" );
+
+  // K=64：无回执；数值与 K=100 逐位一致（两跑邻域同为全部 25 口井）。
+  ResolvedParameters k64 = bigK;
+  k64.krigingMaxPoints = 64;
+  const SurfaceResult exact = evaluateLocalKriging( input, grid, k64, {} );
+  QCOMPARE( exact.status, Status::Ok );
+  QVERIFY( !hasClampReceipt( exact.issues ) );
+  QCOMPARE( exact.values.size(), clamped.values.size() );
+  for ( std::size_t i = 0; i < clamped.values.size(); ++i )
+    QVERIFY2( exact.values[i] == clamped.values[i],
+              qPrintable( QStringLiteral( "cell=%1 k64=%2 k100=%3" )
+                              .arg( i )
+                              .arg( exact.values[i] )
+                              .arg( clamped.values[i] ) ) );
+
+  // 回归：K=0（全样本）与点查询面都不得出现回执。
+  const SurfaceResult allSamples = evaluateLocalKriging( input, grid, krigingParams( 1.0, 200.0 ), {} );
+  QCOMPARE( allSamples.status, Status::Ok );
+  QVERIFY( !hasClampReceipt( allSamples.issues ) );
+  const std::vector<Point2> probes{ { 120.0, 120.0 }, { 280.0, 280.0 } };
+  const QueryResult pointQuery = evaluateAt( input, probes, krigingParams( 1.0, 200.0 ), {} );
+  QCOMPARE( pointQuery.status, Status::Ok );
+  QVERIFY( !hasClampReceipt( pointQuery.issues ) );
+  // 点查询面同样带 K 钳制回执（诚实面与面查询一致）。
+  const QueryResult pointClamped = evaluateAt( input, probes, bigK, {} );
+  QCOMPARE( pointClamped.status, Status::Ok );
+  QVERIFY( hasClampReceipt( pointClamped.issues ) );
 }
 
 QTEST_MAIN( SingleFactorKrigingTests )

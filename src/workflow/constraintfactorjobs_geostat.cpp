@@ -505,13 +505,27 @@ bool ConstraintWorkflow::computeGeostatJobWithService(
   QVariantMap modelProvenance; // P2：变差函数来源与被派生/钳制的量（不进参数指纹）
   if ( explicitRange > 0 && explicitSill > 0 )
   {
+    const double anisotropyRequested =
+        job->params.value( QStringLiteral( "anisotropyRatio" ), 1.0 ).toDouble();
     model.nugget = std::max( 0.0, explicitNugget );
     model.sill = explicitSill;
     model.range = explicitRange;
-    model.anisotropyRatio = std::max( 1.0, job->params.value( QStringLiteral( "anisotropyRatio" ), 1.0 ).toDouble() );
+    model.anisotropyRatio = std::max( 1.0, anisotropyRequested );
     if ( hasAzimuth )
       model.azimuthDeg = azimuthParam;
     autoFit = false;
+    // P2 诚实面：负块金→0、比率<1→1 是静默钳制，留痕（同 rho_clamped 与
+    // auto-fit anisotropy_ratio_clamped 口径）——仅发生钳制时插入，正常值无新键。
+    if ( model.nugget != explicitNugget )
+    {
+      modelProvenance.insert( QStringLiteral( "nugget_clamped" ), true );
+      modelProvenance.insert( QStringLiteral( "nugget_effective" ), model.nugget );
+    }
+    if ( model.anisotropyRatio != anisotropyRequested )
+    {
+      modelProvenance.insert( QStringLiteral( "anisotropy_clamped" ), true );
+      modelProvenance.insert( QStringLiteral( "anisotropy_effective" ), model.anisotropyRatio );
+    }
   }
   else
   {

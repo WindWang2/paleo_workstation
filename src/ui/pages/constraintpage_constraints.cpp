@@ -432,7 +432,33 @@ QString constraintReasonLabel( const QString &reason )
       { QStringLiteral( "soft_strength_out_of_range" ), ConstraintPage::tr( "软边界强度越界（运行将被拒绝）" ) },
       { QStringLiteral( "global_aniso_ratio_not_above_one" ), ConstraintPage::tr( "全局各向异性比值 ≤ 1" ) },
       { QStringLiteral( "outside_compute_domain" ), ConstraintPage::tr( "在计算域外" ) },
+      // U6：constraintsemantics 实际发出、此前缺译的 token（行号语境：
+      // unknown_type 见 resolveConstraintSemantics 旧行只认 type 列；ignored
+      // 是 semantic 与 ignoredReason 双空的兜底；unknown_method 是词表外方法
+      // 落到 decideByMethod 尾部；其余三个是 structural_idw 开关关闭路径）。
+      { QStringLiteral( "unknown_type" ), ConstraintPage::tr( "未识别的约束类型" ) },
+      { QStringLiteral( "other_horizon" ), ConstraintPage::tr( "属于其他层位，当前层位不参与" ) },
+      { QStringLiteral( "ignored" ), ConstraintPage::tr( "已忽略（未记录原因）" ) },
+      { QStringLiteral( "unknown_method" ), ConstraintPage::tr( "未知的成图方法" ) },
+      { QStringLiteral( "directions_disabled_by_request" ), ConstraintPage::tr( "本次请求已停用方向线" ) },
+      { QStringLiteral( "interpretive_strength_zero_or_barriers_disabled" ),
+        ConstraintPage::tr( "解释性强度为 0 或屏障已停用（仅停等值线）" ) },
   };
+  // 前缀 token（token:detail）：detail 是域层产出——unknown_type 带裸 type
+  //（通用「绘制约束」无 params_json 的主链可达原因），invalid_params 带中文
+  // 错误详情。拼进译文/直显详情，不整段回显英文 token；section 取到串尾，
+  // detail 自身含冒号也不被截断；无 detail 时回落词表（不裸回显 token）。
+  if ( token == QLatin1String( "unknown_type" ) )
+  {
+    const QString type = reason.section( QLatin1Char( ':' ), 1, -1 );
+    return type.isEmpty() ? labels.value( token )
+                          : ConstraintPage::tr( "未识别的约束类型：%1" ).arg( type );
+  }
+  if ( token == QLatin1String( "invalid_params" ) )
+  {
+    const QString detail = reason.section( QLatin1Char( ':' ), 1, -1 );
+    return detail.isEmpty() ? labels.value( token ) : detail;
+  }
   return labels.value( token, reason );
 }
 
@@ -496,8 +522,22 @@ void ConstraintPage::applyConstraintUsePlan()
   paleo::singlefactor::ConstraintMethodContext context;
   context.methodId = method ? method->currentData().toString() : QString();
   context.horizon = horizons ? horizons->currentText() : QString();
+  // U6：结构面三开关页面暂无专属控件——从 paleo.page.* 动态属性注入计划
+  // 上下文（缺省与引擎参数一致：constraintfactorjobs_factor.cpp 的
+  // enableBarriers/enableDirections/interpretiveStrength 均缺省 true）。
+  // 仍只喂唯一解释器 planConstraintUse，不在页面另立判定；壳侧将来接真实
+  // 开关时写同名属性即可。
+  const auto structuralFlag = [this]( const char *name ) {
+    const QVariant value = property( name );
+    return !value.isValid() || value.toBool();
+  };
+  context.structuralEnableBarriers = structuralFlag( "paleo.page.structuralEnableBarriers" );
+  context.structuralEnableDirections = structuralFlag( "paleo.page.structuralEnableDirections" );
+  context.structuralInterpretiveStrengthPositive =
+      structuralFlag( "paleo.page.structuralInterpretiveStrengthPositive" );
   const paleo::singlefactor::ConstraintUsePlan plan = paleo::singlefactor::planConstraintUse( rows, context );
   setProperty( "paleo.page.constraintuseplan", plan.summary );
+  int untyped = 0; // U6 计数盲区：semantic 为空的行（unknown_type/non_blocking）不进任何可用桶
   if ( auto *list = child<QListWidget>( this, "constraintList" ) )
   {
     for ( int i = 0; i < list->count(); ++i )
@@ -505,12 +545,15 @@ void ConstraintPage::applyConstraintUsePlan()
       QListWidgetItem *item = list->item( i );
       const QString id = item->data( Qt::UserRole ).toString();
       int parts = 0, used = 0;
+      bool typed = false;
       QStringList roles, reasons;
       for ( const paleo::singlefactor::ConstraintUseDecision &d : plan.decisions )
       {
         if ( d.featureId != id )
           continue;
         ++parts;
+        if ( !d.semantic.isEmpty() )
+          typed = true;
         if ( d.consumed )
         {
           ++used;
@@ -522,6 +565,8 @@ void ConstraintPage::applyConstraintUsePlan()
           reasons << constraintReasonLabel( d.reason );
         }
       }
+      if ( parts > 0 && !typed )
+        ++untyped;
       const QString type = item->data( Qt::UserRole + 3 ).toString();
       QString status;
       if ( parts > 0 && used == parts )
@@ -548,6 +593,8 @@ void ConstraintPage::applyConstraintUsePlan()
       text += tr( "；%1 条已停用" ).arg( plan.disabled );
     if ( plan.invalid > 0 )
       text += tr( "；%1 条无效（不参与计算）" ).arg( plan.invalid );
+    if ( untyped > 0 )
+      text += tr( "；%1 条未类型化" ).arg( untyped );
     text += tr( "。当前方法实际参与 %1 条" ).arg( plan.consumed );
     if ( plan.blocking > 0 )
       text += tr( "，%1 条参数越界会使运行被拒绝" ).arg( plan.blocking );

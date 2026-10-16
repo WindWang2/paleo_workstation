@@ -108,6 +108,7 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
     out.paths << layer->source().section(QLatin1Char('|'), 0, 0);
     const auto layerVersions = DerivedAssetRegistrar(wf->catalog(), wf->projectDir()).parentVersionIdsFor(out.paths);
     QgsFeature f; auto it = layer->getFeatures();
+    QSet<QString> seenIds;
     while (it.nextFeature(f)) {
       Input row;
       row.geometry = f.geometry();
@@ -125,6 +126,14 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
       row.name = row.attributes.value(QStringLiteral("well_name"), row.attributes.value(QStringLiteral("name"), row.id)).toString();
       if (row.id.isEmpty()) row.id = QStringLiteral("WELL_%1").arg(out.rows.size() + 1);
       if (row.name.isEmpty()) row.name = row.id;
+      // U2：两要素同 well_id → 双样本双倍权重。与因子属性表「同井/层位重复」
+      // 同口径硬失败并点名重复 id，不静默取第一条。
+      if (seenIds.contains(row.id)) {
+        if (error)
+          *error = ConstraintWorkflow::tr("井点图层中同井 id 存在重复要素：%1，请先修正").arg(row.id);
+        return {};
+      }
+      seenIds.insert(row.id);
       out.rows << row;
     }
   }
@@ -153,6 +162,10 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
       ? paleo::domain::LithoLexicon::fromProject(wf->projectDir(), wf->catalog())
       : paleo::domain::LithoLexicon::defaultLexicon();
   QHash<QString, int> byId, byName;
+  // 目录井按行认领记录（entity id）：规范化名碰撞守卫——目标行已被另一口
+  // 目录井认领时，后来的井不合并进该行（原实现改写 row.id/name，前一口井
+  // 的样本静默消失），而是追加独立行并在 provenance 注明。
+  QHash<int, QString> claimedBy;
   for (int i = 0; i < out.rows.size(); ++i) {
     if (!byId.contains(out.rows[i].id))
       byId.insert(out.rows[i].id, i);
@@ -166,9 +179,22 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
         *error = ConstraintWorkflow::tr("提取已取消");
       return {};
     }
-    int index = byId.value(well.id, byName.value(DataCatalog::normalizeWellName(well.name), -1));
+    int index = byId.value(well.id, -1);
+    QString collisionWith;
     if (index < 0) {
+      const int byNameHit = byName.value(DataCatalog::normalizeWellName(well.name), -1);
+      if (byNameHit >= 0 && !claimedBy.value(byNameHit).isEmpty() &&
+          claimedBy.value(byNameHit) != well.id)
+        collisionWith = claimedBy.value(byNameHit);
+      else
+        index = byNameHit;
+    }
+    if (index < 0 || !collisionWith.isEmpty()) {
       Input row; row.id = well.id; row.name = well.name;
+      if (!collisionWith.isEmpty())
+        row.provenance.insert("identity_note",
+                              ConstraintWorkflow::tr("规范化井名「%1」与井 %2 相同，按独立井处理，未合并同名行")
+                                  .arg(DataCatalog::normalizeWellName(well.name), collisionWith));
       // 无地图源时 catalog 井位属于工程局部米坐标；已有地图源时缺井不猜 CRS。
       if (!out.hasMapSource &&
           (well.coordinateStatus == QLatin1String("ok") ||
@@ -182,6 +208,7 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
     row.id = well.id;
     row.name = well.name;
     row.provenance.insert("entity_id", well.id);
+    claimedBy.insert(index, well.id);
     byId.insert(well.id, index);
     byName.insert(DataCatalog::normalizeWellName(well.name), index);
     const auto maintained = maintainedByWell.value(well.id);
@@ -529,6 +556,15 @@ bool ConstraintWorkflow::extractWellFactorsImpl(const QString &horizon, const QS
   for (const auto &d : layerService()->declared())
     if (d.layerId == WellAttributeStore::factorLayerId())
       frozen.paths << d.source.section('|', 0, 0);
+  // U1：砂厚计算在 worker 内活读测井矢量属性表（WellSectionWorkflow 的
+  // lithologyFor 经 WellAttributeStore::rows(dir, nullptr, false, …) 按路径
+  // 直读 well-log-attributes.gpkg）——快照守卫须一并冻结该文件，提取期间
+  // 的编辑才能触发 publish 的「井点来源在提取期间已变更」。文件不存在则
+  // 跳过（新工程无回归）。
+  const QString intervalsTable = QDir(dir).filePath(
+      QStringLiteral("artifacts/layers/well-log-attributes.gpkg"));
+  if (QFileInfo::exists(intervalsTable))
+    frozen.paths << intervalsTable;
   DerivedAssetRegistrar registrar(catalog(), dir);
   const auto st = registrar.stage(QStringLiteral("well_factor_points"), tr("井点因子·%1·%2").arg(horizon, def.title),
                                   QStringLiteral("well_factors.gpkg"), &err);
@@ -728,7 +764,31 @@ bool ConstraintWorkflow::maintainWellFactors(const QString &horizon, QString *er
   auto snapshot = std::shared_ptr<DataCatalog>(catalog()->createStagingCopy(projectDir()));
   const auto dir = projectDir();
   auto source = std::make_shared<Source>();
-  auto publish = [this, source, horizon](QString *error) {
+  // U1 同洞：维护期间的砂厚/层厚同样活读井点图层与测井矢量属性表——
+  // publish 落种前校验来源快照，被编辑过则如实拒绝，不把陈旧值写进因子表。
+  QVariantMap guardedStates;
+  const auto guardPath = [&dir, &guardedStates](const QString &path) {
+    const QFileInfo file(path);
+    if (!file.isFile())
+      return;
+    guardedStates.insert(QDir(dir).relativeFilePath(path),
+                         QVariantMap{{"size", file.size()},
+                                     {"modified", file.lastModified().toMSecsSinceEpoch()}});
+  };
+  for (const QString &path : captured.paths)
+    guardPath(path);
+  guardPath(QDir(dir).filePath(QStringLiteral("artifacts/layers/well-log-attributes.gpkg")));
+  auto publish = [this, source, horizon, guardedStates](QString *error) {
+    for (auto it = guardedStates.cbegin(); it != guardedStates.cend(); ++it) {
+      const QFileInfo file(QDir(projectDir()).absoluteFilePath(it.key()));
+      const auto state = it.value().toMap();
+      if (!file.exists() || file.size() != state.value("size").toLongLong() ||
+          file.lastModified().toMSecsSinceEpoch() != state.value("modified").toLongLong()) {
+        if (error)
+          *error = tr("井点来源在维护期间已变更，请重试");
+        return false;
+      }
+    }
     QVariantList rows;
     for (const auto &r : source->rows) {
       if (!catalog() || catalog()->entityById(r.id).entityType != QLatin1String("well"))
@@ -823,6 +883,38 @@ QVariantMap ConstraintWorkflow::factorResultLineage(const QVariantMap &extra) {
     summary << method;
     details << tr("方法：%1").arg(method);
   }
+  // U8：等值线/制图类版本（contour_lines / cartographic_contour /
+  // cartographic_work）的血缘读侧——等值距、级别数、SHA 摘要、零要素与
+  // 未解交叉如实可读（写侧键见 constraintfactorjobs_contours/_interpretive；
+  // S4 补的 analysis_sha256/contour_feature_count 到位即自动呈现，缺键不臆造）。
+  if (extra.contains("interval")) {
+    const double interval = extra.value("interval").toDouble();
+    if (interval > 0) {
+      summary << tr("等值距 %1").arg(interval, 0, 'g', 6);
+      details << tr("等值距：%1").arg(interval, 0, 'g', 6);
+    }
+  }
+  const auto levels = extra.contains("levels_used") ? extra.value("levels_used").toList()
+                                                    : extra.value("levels").toList();
+  if (!levels.isEmpty()) {
+    summary << tr("%1 级").arg(levels.size());
+    details << tr("等值级别数：%1").arg(levels.size());
+  }
+  if (extra.contains("contour_feature_count") &&
+      extra.value("contour_feature_count").toInt() == 0) {
+    summary << tr("0 条等值线");
+    details << tr("成果不含等值线要素（0 条）");
+  }
+  if (extra.contains("unresolved_crossings")) {
+    const int unresolved = extra.value("unresolved_crossings").toInt();
+    if (unresolved > 0) {
+      summary << tr("未解交叉 %1").arg(unresolved);
+      details << tr("未解决穿线交叉：%1 处").arg(unresolved);
+    }
+  }
+  const QString analysisSha = extra.value("analysis_sha256").toString();
+  if (!analysisSha.isEmpty())
+    details << tr("分析场 SHA256：%1").arg(analysisSha);
   if (extra.contains("constraints_consumed") || extra.contains("constraints_unused")) {
     const auto consumed = extra.value("constraints_consumed").toList();
     const auto unused = extra.value("constraints_unused").toList();
@@ -900,6 +992,11 @@ QVariantList ConstraintWorkflow::savedFactorResults(const QString &horizon,
       type = tr("等值线");
     else if (kind == QLatin1String("single_factor_cartographic_contour"))
       type = tr("解释性等值线");
+    else if (kind == QLatin1String("single_factor_cartographic_work"))
+      // U7：制图工作场版本真实存在（constraintfactorjobs_interpretive.cpp 提交，
+      // 带 parameter_hash/analysis_sha256/unresolved_crossings）——漏登记导致
+      // 成果表看不到解释性链的中间成果。
+      type = tr("制图工作场");
     else
       continue;
     rows << QVariantMap{{"type", type},

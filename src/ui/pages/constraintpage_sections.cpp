@@ -151,13 +151,17 @@ void ConstraintPage::wireWorkflowFeedback( ConstraintWorkflow *wf )
               status->setText(tr("%1 等值线已保存：%2，可作为后续编图证据。").arg(h, layerId));
               refreshFactorResults();
             });
+    // U7：解释性链（工作场/解释性等值线）的生成回执同样即时刷新成果表——
+    // 此前只 setText，新版本要等手动刷新才出现在「已保存成果」里。
     connect( wf, &ConstraintWorkflow::cartographicWorkGenerated, status,
-             [status]( const QString &h, const QString &, const QString &layerId ) {
+             [this, status]( const QString &h, const QString &, const QString &layerId ) {
                status->setText( tr( "制图工作场完成：%1 → %2" ).arg( h, layerId ) );
+               refreshFactorResults();
              } );
     connect( wf, &ConstraintWorkflow::interpretiveContoursGenerated, status,
-             [status]( const QString &h, const QString &, const QString &layerId ) {
+             [this, status]( const QString &h, const QString &, const QString &layerId ) {
                status->setText( tr( "解释性等值线完成：%1 → %2" ).arg( h, layerId ) );
+               refreshFactorResults();
              } );
   }
 }

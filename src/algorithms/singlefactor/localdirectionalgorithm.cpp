@@ -122,6 +122,12 @@ QVariantMap parametersForHash( const sf::PreparedInput &input, const sf::GridSpe
   parameters.insert( QStringLiteral( "variogram_azimuth" ), resolved.variogramAzimuthDeg );
   parameters.insert( QStringLiteral( "variogram_anisotropy_ratio" ), resolved.variogramAnisotropyRatio );
   parameters.insert( QStringLiteral( "kriging_max_points" ), resolved.krigingMaxPoints );
+  // P2 钳制诚实面：K 超 64 时引擎内钳到 [1,64]（localidw.cpp clampKrigingParams）。
+  // kriging_max_points 仍记请求值（既有指纹可比性不变）；仅发生钳制时补生效值。
+  const int krigingMaxEffective =
+      resolved.krigingMaxPoints > 0 ? std::clamp( resolved.krigingMaxPoints, 1, 64 ) : 0;
+  if ( krigingMaxEffective != resolved.krigingMaxPoints )
+    parameters.insert( QStringLiteral( "kriging_max_points_effective" ), krigingMaxEffective );
   parameters.insert( QStringLiteral( "value_unit" ), utf8( resolved.valueUnit ) );
   parameters.insert( QStringLiteral( "field" ), field );
   parameters.insert( QStringLiteral( "cell_size" ), cellSize );

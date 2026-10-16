@@ -301,6 +301,12 @@ QVariantMap StructuralIdwAlgorithm::processAlgorithm( const QVariantMap &paramet
   if ( outPath.isEmpty() )
     throw QgsProcessingException( QStringLiteral( "Invalid OUTPUT raster destination" ) );
 
+  // 入口校验（对齐姊妹引擎 localdirectionalgorithm.cpp 的 POWER 文案）：
+  // 0/负/NaN 幂次若放进引擎，extend 模式下只会表现为整面缺井控。
+  const double power = parameterAsDouble( parameters, QStringLiteral( "POWER" ), context );
+  if ( !( power > 0.0 ) || !std::isfinite( power ) )
+    throw QgsProcessingException( QStringLiteral( "POWER 必须为有限正数" ) );
+
   // ---- 边界与插值区（上游 _extract_current_boundaries）----
   std::unique_ptr<QgsProcessingFeatureSource> boundarySource(
       parameterAsSource( parameters, QStringLiteral( "BOUNDARY" ), context ) );
@@ -448,7 +454,7 @@ QVariantMap StructuralIdwAlgorithm::processAlgorithm( const QVariantMap &paramet
       parameterAsInt( parameters, QStringLiteral( "GRID_RESOLUTION" ), context ) );
 
   sf::StructuralRequest request;
-  request.power = parameterAsDouble( parameters, QStringLiteral( "POWER" ), context );
+  request.power = power;
   request.resolution = resolution;
   request.extendTrendToBoundary =
       parameterAsBool( parameters, QStringLiteral( "EXTEND_TO_BOUNDARY" ), context );
@@ -668,6 +674,15 @@ QVariantMap StructuralIdwAlgorithm::processAlgorithm( const QVariantMap &paramet
   counts.insert( QStringLiteral( "accepted" ), static_cast<int>( acquired.wells.size() ) );
   counts.insert( QStringLiteral( "skipped" ), acquired.skipped.size() );
   counts.insert( QStringLiteral( "soft_included" ), acquired.softIncluded );
+  // U5b：finite/nodata 与姊妹引擎同口径（全网格计数）——workflow 血缘读
+  // counts.finite/nodata 写 finite_cells/nodata_cells，此前 structural 恒 null。
+  int finiteCells = 0;
+  for ( const double value : surface.grid )
+    if ( std::isfinite( value ) )
+      ++finiteCells;
+  counts.insert( QStringLiteral( "finite" ), finiteCells );
+  counts.insert( QStringLiteral( "nodata" ),
+                 static_cast<int>( surface.grid.size() ) - finiteCells );
   QVariantMap qc;
   qc.insert( QStringLiteral( "schema_version" ), 1 );
   qc.insert( QStringLiteral( "value_source" ), QStringLiteral( "analysis" ) );
@@ -690,6 +705,23 @@ QVariantMap StructuralIdwAlgorithm::processAlgorithm( const QVariantMap &paramet
   qcParams.insert( QStringLiteral( "value_field" ), acquire.valueField );
   qcParams.insert( QStringLiteral( "factor_mode" ), acquire.factorMode );
   qcParams.insert( QStringLiteral( "value_range" ), valueRange );
+  // U5a：补齐实际数值生效的参数（workflow 下发但此前不进参数指纹：不同参数
+  // 产出不同栅格却共享同一 parameter_hash）。记 resolve 后生效值——extend 模式
+  // 下 search/min/max 不参与数值（search_radius=null、min/max=1/0）。
+  // 决策：CONTOUR_STOP_BUFFER / BARRIER_BUFFER_AUTO / BARRIER_EXTEND /
+  // BARRIER_EXTENSION_LIMIT 只影响制图输出（等值线停线缓冲、分区延端），不改
+  // 数值场，不进指纹；数值侧生效的 barrierBuffer 走请求值（softRadiusAuto 消费）。
+  qcParams.insert( QStringLiteral( "search_radius" ),
+                   surface.searchRadius ? QVariant( *surface.searchRadius ) : QVariant() );
+  qcParams.insert( QStringLiteral( "min_points" ), surface.resolvedMinPoints );
+  qcParams.insert( QStringLiteral( "max_points" ), surface.resolvedMaxPoints );
+  qcParams.insert( QStringLiteral( "interpretive_strength" ),
+                   request.interpretiveBoundaryStrength );
+  qcParams.insert( QStringLiteral( "barrier_buffer" ), request.barrierBufferDistance );
+  qcParams.insert( QStringLiteral( "barrier_shape_radius" ), request.barrierShapeRadius );
+  qcParams.insert( QStringLiteral( "barrier_shape_strength" ), request.barrierShapeStrength );
+  qcParams.insert( QStringLiteral( "enable_barriers" ), request.enableBarriers );
+  qcParams.insert( QStringLiteral( "enable_directions" ), request.enableDirections );
   qc.insert( QStringLiteral( "parameters" ), qcParams );
   qc.insert( QStringLiteral( "directions" ), directionList );
   qc.insert( QStringLiteral( "interpretive_boundaries" ), softList );

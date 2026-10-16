@@ -1,5 +1,8 @@
 #include <QtTest>
+#include <cmath>
+#include <limits>
 #include <string>
+#include <vector>
 
 #include "../src/algorithms/singlefactor/structural.h"
 
@@ -16,6 +19,7 @@ private slots:
   void structuralStructuresDefaults();
   void structuralBarrierAndDirectionProperties();
   void mutationDemonstration_distinctModes();
+  void buildSurfaceRejectsNonPositivePowerHonestly();
 };
 
 void TestSingleFactorStructuralUnit::blockModeNormalizationAndPredicates()
@@ -108,6 +112,61 @@ void TestSingleFactorStructuralUnit::mutationDemonstration_distinctModes()
 
   QVERIFY(!isFullBlockMode(m2));
   QVERIFY(isContourStopMode(m2)); // display_only 只停线
+}
+
+namespace
+{
+
+// 3 口井 + 30×30 矩形边界：最小可成图场景（buildStructuralSurface 至少 3 井）。
+std::vector<AcquiredWell> threeWells()
+{
+  std::vector<AcquiredWell> wells;
+  for ( int i = 0; i < 3; ++i )
+    wells.push_back( AcquiredWell{ QStringLiteral( "w%1" ).arg( i ).toStdString(),
+                                   10.0 + 5.0 * i, 10.0 + 7.0 * i, 0.2 + 0.15 * i, false } );
+  return wells;
+}
+
+Polygon boxBoundary()
+{
+  Polygon poly;
+  poly.exterior.points = { { 0, 0 }, { 30, 0 }, { 30, 30 }, { 0, 30 }, { 0, 0 } };
+  return poly;
+}
+
+} // namespace
+
+// U3：power=0 / NaN 时 InvalidInput 的真实原因（power 必须为有限正数）必须
+// 从 evaluateAt 透传出来——extend 分支此前把 message 吞掉，统一改报
+// 「有效成图范围内缺少可用井控」，用户会误以为缺井。power=2 回归仍 Ok。
+void TestSingleFactorStructuralUnit::buildSurfaceRejectsNonPositivePowerHonestly()
+{
+  const std::vector<Polygon> boundaries{ boxBoundary() };
+  const std::vector<AcquiredWell> wells = threeWells();
+  for ( const double badPower : { 0.0, -1.0, std::numeric_limits<double>::quiet_NaN() } )
+  {
+    StructuralRequest request;
+    request.power = badPower;
+    request.resolution = 20;
+    const StructuralResult result =
+        buildStructuralSurface( wells, boundaries, {}, {}, {}, request, {} );
+    QCOMPARE( result.status, Status::InvalidInput );
+    const QString message = QString::fromStdString( result.message );
+    QVERIFY2( message.contains( QStringLiteral( "power" ), Qt::CaseInsensitive ),
+              qPrintable( QStringLiteral( "power=%1 message=%2" ).arg( badPower ).arg( message ) ) );
+    QVERIFY2( !message.contains( QStringLiteral( "缺少可用井控" ) ),
+              qPrintable( QStringLiteral( "power=%1 被吞成缺井文案: %2" ).arg( badPower ).arg( message ) ) );
+  }
+
+  StructuralRequest okRequest;
+  okRequest.power = 2.0;
+  okRequest.resolution = 20;
+  const StructuralResult ok = buildStructuralSurface( wells, boundaries, {}, {}, {}, okRequest, {} );
+  QCOMPARE( ok.status, Status::Ok );
+  bool finiteSeen = false;
+  for ( const double value : ok.grid )
+    finiteSeen = finiteSeen || std::isfinite( value );
+  QVERIFY( finiteSeen );
 }
 
 QTEST_GUILESS_MAIN(TestSingleFactorStructuralUnit)

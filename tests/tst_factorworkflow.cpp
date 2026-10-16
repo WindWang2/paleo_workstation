@@ -39,6 +39,7 @@
 #include "../src/catalog/datacatalog.h"
 #include "../src/metadata/layermanifest.h"
 #include "../src/metadata/paleoprojectstore.h"
+#include "../src/qgis/wellattributestore.h"
 #include "../src/qgis/factorcontour.h"
 #include "../src/qgis/mappingartifactwriter.h"
 #include "../src/qgis/factorstylewriter.h"
@@ -557,6 +558,46 @@ class TestFactorWorkflow : public QObject
       QVERIFY(lineage.value("details").toString().contains("未记录"));
     }
 
+    // U8：等值线/制图类版本的血缘读侧——等值距、级别数、SHA 摘要、零要素
+    // 与未解交叉如实可读；缺键不臆造。
+    void factorResultLineageContourExtras()
+    {
+      auto lineage = ConstraintWorkflow::factorResultLineage(
+          {{"kind", "contour_lines"},
+           {"interval", 20.0},
+           {"levels_used", QVariantList{10.0, 30.0, 50.0}},
+           {"analysis_sha256", QStringLiteral("abcdef0123456789fedcba9876543210")}});
+      const QString summary = lineage.value("summary").toString();
+      const QString details = lineage.value("details").toString();
+      QVERIFY2(summary.contains(QStringLiteral("等值距 20")), qPrintable(summary));
+      QVERIFY2(summary.contains(QStringLiteral("3 级")), qPrintable(summary));
+      QVERIFY2(details.contains(QStringLiteral("abcdef0123456789")), qPrintable(details));
+      // 制图工作场：固定级别（levels）+ 未解交叉如实提示。
+      lineage = ConstraintWorkflow::factorResultLineage(
+          {{"kind", "single_factor_cartographic_work"},
+           {"levels", QVariantList{2.0, 4.0, 6.0}},
+           {"unresolved_crossings", 3},
+           {"analysis_sha256", QStringLiteral("ab...")}});
+      QVERIFY2(lineage.value("summary").toString().contains(QStringLiteral("未解交叉 3")),
+               qPrintable(lineage.value("summary").toString()));
+      QVERIFY2(lineage.value("summary").toString().contains(QStringLiteral("3 级")),
+               qPrintable(lineage.value("summary").toString()));
+      // 零等值线要素：如实提示，不冒充有成图。
+      lineage = ConstraintWorkflow::factorResultLineage(
+          {{"kind", "contour_lines"}, {"interval", 20.0}, {"contour_feature_count", 0}});
+      QVERIFY2(lineage.value("summary").toString().contains(QStringLiteral("0 条等值线")),
+               qPrintable(lineage.value("summary").toString()));
+      // 缺键不臆造：空 extra 不出现任何等值线/交叉/SHA 字样。
+      lineage = ConstraintWorkflow::factorResultLineage({});
+      const QString emptySummary = lineage.value("summary").toString();
+      const QString emptyDetails = lineage.value("details").toString();
+      QVERIFY(!emptySummary.contains(QStringLiteral("等值距")));
+      QVERIFY(!emptySummary.contains(QStringLiteral("级")));
+      QVERIFY(!emptySummary.contains(QStringLiteral("等值线")));
+      QVERIFY(!emptySummary.contains(QStringLiteral("交叉")));
+      QVERIFY(!emptyDetails.contains(QStringLiteral("SHA")));
+    }
+
     void geostatRecordsOnlyFiniteAdmittedWells() {
       Fixture f; QVERIFY(initFixture(f)); QString error;
       const auto path = f.dir.filePath("geostat-wells.geojson");
@@ -628,6 +669,222 @@ class TestFactorWorkflow : public QObject
       for (const auto &v : f.catalog.versions()) if (v.extra.value("factor_id") == QStringLiteral("sandratio"))
         parents = v.parentVersionIds.contains("v-tops-well-1") && v.parentVersionIds.contains("v-litho-1");
       QVERIFY(parents);
+    }
+
+  private:
+    // U1/U2 共用前置：目录井（分层 D61 100→D62 200）+ 测井矢量属性表
+    //（每井整段给定岩性）——砂厚只能来自该表。
+    struct IntervalWellSpec
+    {
+      QString id, name, litho;
+      double x = 0.0;
+    };
+    static bool setupIntervalSourcedWells( Fixture &f, QString *err,
+                                           const QVector<IntervalWellSpec> &specs )
+    {
+      const auto linkTops = [&]( const QString &id, const QString &name ) {
+        const QString path = f.dir.filePath( id + QStringLiteral( ".dat" ) );
+        QFile file( path );
+        if ( !file.open( QIODevice::WriteOnly ) )
+          return false;
+        file.write( QStringLiteral( "#WellTops File From SMI\n#WellName Name MD X Y Z TVD Time(ms)\n"
+                                     "%1 D61 100 0 0 -100 100 -99999\n%1 D62 200 0 0 -200 200 -99999\n" )
+                        .arg( name )
+                        .toUtf8() );
+        file.close();
+        CatalogAsset a;
+        a.id = QStringLiteral( "tops-" ) + id;
+        a.type = QStringLiteral( "well_tops" );
+        a.displayName = a.id;
+        if ( !f.catalog.addAsset( a, err ) )
+          return false;
+        CatalogVersion v;
+        v.id = QStringLiteral( "v-tops-" ) + id;
+        v.assetId = a.id;
+        v.path = path;
+        v.managed = false;
+        v.stage = QStringLiteral( "RAW" );
+        v.versionNumber = 1;
+        if ( !f.catalog.addVersion( v, err ) )
+          return false;
+        EntityAssetLink l;
+        l.entityId = id;
+        l.entityType = QStringLiteral( "well" );
+        l.assetId = a.id;
+        l.role = QStringLiteral( "tops" );
+        l.isPrimary = true;
+        return f.catalog.addLink( l, err );
+      };
+      QVariantList intervals;
+      for ( const IntervalWellSpec &spec : specs )
+      {
+        CatalogEntity e;
+        e.id = spec.id;
+        e.entityType = QStringLiteral( "well" );
+        e.name = spec.name;
+        e.hasSurface = true;
+        e.surfaceX = spec.x;
+        e.surfaceY = 0;
+        e.coordinateStatus = QStringLiteral( "untransformed" );
+        if ( !f.catalog.addEntity( e, err ) )
+          return false;
+        if ( !linkTops( spec.id, spec.name ) )
+          return false;
+        intervals << QVariantMap{ { "well_id", spec.id },
+                                  { "top_md", 100.0 },
+                                  { "base_md", 200.0 },
+                                  { "lithology", spec.litho } };
+      }
+      return WellAttributeStore::mergeIntervals( &f.catalog, f.dir.path(), &f.layers, intervals, err );
+    }
+
+  private slots:
+    // U1：提取快照守卫必须覆盖测井矢量属性表——砂厚计算在 worker 内活读
+    // well-log-attributes.gpkg（WellSectionWorkflow 的 lithologyFor 按路径直
+    // 读），该文件编辑不得逃过「井点来源在提取期间已变更」。
+    void extractionSnapshotGuardsWellLogAttributeTable()
+    {
+      Fixture f;
+      QVERIFY( initFixture( f ) );
+      QString err;
+      QVERIFY2( setupIntervalSourcedWells(
+                    f, &err,
+                    { { QStringLiteral( "well-1" ), QStringLiteral( "A1" ), QStringLiteral( "砂岩" ), 10.0 },
+                      { QStringLiteral( "well-2" ), QStringLiteral( "A2" ), QStringLiteral( "泥岩" ), 20.0 } } ),
+                qPrintable( err ) );
+      ConstraintWorkflow wf( &f.proc, &f.layers );
+      wf.setCatalog( &f.catalog, f.dir.path() );
+      QVariantMap params{ { "factorMode", "ratio" },
+                          { "numeratorField", "log_sand_thickness_md" },
+                          { "denominatorField", "log_layer_thickness_md" } };
+      QVERIFY2( wf.extractWellFactors( QStringLiteral( "D61" ), QStringLiteral( "sandratio" ), params, &err ),
+                qPrintable( err ) );
+      const auto rows = wf.wellFactorRows();
+      QCOMPARE( rows.size(), 2 );
+      QCOMPARE( rows[0].toMap().value( "value" ).toDouble(), 1.0 ); // 砂岩满段
+      QCOMPARE( rows[1].toMap().value( "value" ).toDouble(), 0.0 ); // 泥岩满段
+      QVERIFY2( rows[0].toMap().value( "source" ).toString().contains( QStringLiteral( "测井矢量属性表" ) ),
+                qPrintable( rows[0].toMap().value( "source" ).toString() ) );
+
+      // 版本 extra.source_file_states 必须含该表相对路径（提取期间编辑可检）。
+      bool statesCoverIntervals = false;
+      for ( const auto &v : f.catalog.versions() )
+      {
+        if ( v.extra.value( "kind" ) != QStringLiteral( "well_factor_points" ) )
+          continue;
+        if ( v.extra.value( "source_file_states" ).toMap().contains(
+                 QStringLiteral( "artifacts/layers/well-log-attributes.gpkg" ) ) )
+          statesCoverIntervals = true;
+      }
+      QVERIFY2( statesCoverIntervals, "source_file_states must cover well-log-attributes.gpkg" );
+
+      // 表文件变更（size/mtime）→ preparedWellFactorVersion 不再复用快照。
+      QVERIFY( !wf.preparedWellFactorVersion( QStringLiteral( "D61" ), QStringLiteral( "sandratio" ), params ).isEmpty() );
+      QFile touch( f.dir.filePath( QStringLiteral( "artifacts/layers/well-log-attributes.gpkg" ) ) );
+      QVERIFY( touch.open( QIODevice::Append ) );
+      touch.write( "x" );
+      touch.close();
+      QVERIFY( wf.preparedWellFactorVersion( QStringLiteral( "D61" ), QStringLiteral( "sandratio" ), params ).isEmpty() );
+    }
+
+    // U1 维护路径：来源快照守卫不误伤正常维护——同步路径落种成功且值来自
+    // 测井矢量属性表（well-1 整段砂岩 → 砂厚 100）。
+    void maintainWellFactorsSeedsFromGuardedSources()
+    {
+      Fixture f;
+      QVERIFY( initFixture( f ) );
+      QString err;
+      QVERIFY2( setupIntervalSourcedWells(
+                    f, &err,
+                    { { QStringLiteral( "well-1" ), QStringLiteral( "A1" ), QStringLiteral( "砂岩" ), 10.0 },
+                      { QStringLiteral( "well-2" ), QStringLiteral( "A2" ), QStringLiteral( "泥岩" ), 20.0 } } ),
+                qPrintable( err ) );
+      ConstraintWorkflow wf( &f.proc, &f.layers );
+      wf.setCatalog( &f.catalog, f.dir.path() );
+      QVERIFY2( wf.maintainWellFactors( QStringLiteral( "D61" ), &err ), qPrintable( err ) );
+      const auto seeded = WellAttributeStore::rows( f.dir.path(), &f.layers, true, {}, QStringLiteral( "D61" ) );
+      QCOMPARE( seeded.size(), 2 );
+      bool sawSand100 = false;
+      for ( const QVariant &v : seeded )
+        if ( v.toMap().value( "well_id" ).toString() == QStringLiteral( "well-1" ) &&
+             v.toMap().value( "log_sand_thickness_md" ).toDouble() == 100.0 )
+          sawSand100 = true;
+      QVERIFY2( sawSand100, "maintained factors must carry interval-table sand thickness" );
+    }
+
+    // U2a：井点图层两要素同 well_id → 双样本双倍权重。与因子属性表同井/
+    // 层位重复同口径：提取前硬失败并点名重复 id，不静默取第一条。
+    void duplicateWellIdsInPointsLayerRefuseExtraction()
+    {
+      Fixture f;
+      QVERIFY( initFixture( f ) );
+      QString err;
+      const QString path = f.dir.filePath( QStringLiteral( "dup-wells.geojson" ) );
+      QFile file( path );
+      QVERIFY( file.open( QIODevice::WriteOnly ) );
+      file.write( R"({"type":"FeatureCollection","crs":{"type":"name","properties":{"name":"EPSG:3857"}},"features":[
+        {"type":"Feature","geometry":{"type":"Point","coordinates":[0,0]},"properties":{"well_id":"A","sand":20,"gross":100}},
+        {"type":"Feature","geometry":{"type":"Point","coordinates":[3,0]},"properties":{"well_id":"A","sand":40,"gross":100}}]})" );
+      file.close();
+      QVERIFY2( f.layers.declare( decl( QStringLiteral( "wells.T1" ), QStringLiteral( "T1" ),
+                                        QStringLiteral( "vector" ), path ),
+                                  &err ),
+                qPrintable( err ) );
+      ConstraintWorkflow wf( &f.proc, &f.layers );
+      wf.setCatalog( &f.catalog, f.dir.path() );
+      QVariantMap params{ { "factorMode", "ratio" },
+                          { "numeratorField", "sand" },
+                          { "denominatorField", "gross" } };
+      // 特征化（修复前）：提取成功且两口同 id 井各自成样（双倍权重）。
+      QVERIFY( !wf.extractWellFactors( QStringLiteral( "T1" ), QStringLiteral( "sandratio" ), params, &err ) );
+      QVERIFY2( err.contains( QStringLiteral( "井点图层中同井 id 存在重复要素" ) ), qPrintable( err ) );
+      QVERIFY2( err.contains( QStringLiteral( "A" ) ), qPrintable( err ) );
+      QVERIFY( wf.wellFactorRows().isEmpty() );
+    }
+
+    // U2b：两口目录井规范化名相同（"A-1" vs "A_1" → "a1"；与 "A-1" vs
+    // "A 1" 同一碰撞类，且不破坏 SMI 分层文件的空格分列）——后者不得覆盖
+    // 前者身份（原实现合并进同一行并改写 row.id/name，一口井样本静默消失）。
+    // 修复口径：碰撞井不合并，追加独立行并在行内注明；两口井都成样。
+    void normalizedWellNameCollisionKeepsBothWells()
+    {
+      Fixture f;
+      QVERIFY( initFixture( f ) );
+      QString err;
+      QCOMPARE( DataCatalog::normalizeWellName( QStringLiteral( "A-1" ) ),
+                DataCatalog::normalizeWellName( QStringLiteral( "A_1" ) ) ); // 前提：确会碰撞
+      // 两口规范化名相同的目录井，都有分层与整段砂岩 → 都应可参与插值。
+      QVERIFY2( setupIntervalSourcedWells(
+                    f, &err,
+                    { { QStringLiteral( "well-1" ), QStringLiteral( "A-1" ), QStringLiteral( "砂岩" ), 0.0 },
+                      { QStringLiteral( "well-2" ), QStringLiteral( "A_1" ), QStringLiteral( "砂岩" ), 4.0 } } ),
+                qPrintable( err ) );
+      ConstraintWorkflow wf( &f.proc, &f.layers );
+      wf.setCatalog( &f.catalog, f.dir.path() );
+      QVariantMap params{ { "factorMode", "ratio" },
+                          { "numeratorField", "log_sand_thickness_md" },
+                          { "denominatorField", "log_layer_thickness_md" } };
+      QVERIFY2( wf.extractWellFactors( QStringLiteral( "D61" ), QStringLiteral( "sandratio" ), params, &err ),
+                qPrintable( err ) );
+      const auto rows = wf.wellFactorRows();
+      QCOMPARE( rows.size(), 2 ); // 修复前：1 行（well-1 身份被 well-2 覆盖）
+      QStringList ids;
+      bool collisionNoted = false;
+      for ( const QVariant &v : rows )
+      {
+        const auto row = v.toMap();
+        ids << row.value( "well_id" ).toString();
+        QVERIFY( row.value( "participating" ).toBool() );
+        if ( !row.value( "identity_note" ).toString().isEmpty() )
+          collisionNoted = true;
+      }
+      QCOMPARE( ids, ( QStringList{ QStringLiteral( "well-1" ), QStringLiteral( "well-2" ) } ) );
+      QVERIFY2( collisionNoted, "name collision must be surfaced in the row (identity_note)" );
+      // 双样本：井点成果图层两条 well_id 记录，不再一口井双倍、一口井消失。
+      auto *samples = qobject_cast<QgsVectorLayer *>(
+          f.layers.instantiate( QStringLiteral( "wellfactor.D61.sandratio" ), &err ) );
+      QVERIFY2( samples, qPrintable( err ) );
+      QCOMPARE( samples->featureCount(), 2LL );
     }
 
     void contourStylesForBothSchemas() {

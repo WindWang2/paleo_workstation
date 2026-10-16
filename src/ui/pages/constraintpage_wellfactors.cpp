@@ -7,8 +7,11 @@
 
 #include "pageshared.h"
 
+#include "../../qgis/qgislayerservice.h"
 #include "../../services/singlefactordef.h"
 #include "../../workflow/workflows.h"
+
+#include <QFileInfo>
 
 #include <QComboBox>
 #include <QHeaderView>
@@ -84,7 +87,12 @@ void ConstraintPage::buildWellFactorSection( QWidget *content, QVBoxLayout *lay,
 void ConstraintPage::wireWellFactorTriggers( ConstraintWorkflow *wf, QComboBox *horizons, QTableWidget *factors )
 {
   if (wf) {
-    connect(wf, &ConstraintWorkflow::wellAttributesChanged, this, [this] { invalidateWellFactors(); refreshWellFactorFields(); });
+    connect(wf, &ConstraintWorkflow::wellAttributesChanged, this, [this] {
+      // U10：数据世代 +1——字段缓存键随之失效，下一次刷新重取清单。
+      setProperty("paleo.page.fieldsgen", property("paleo.page.fieldsgen").toInt() + 1);
+      invalidateWellFactors();
+      refreshWellFactorFields();
+    });
     connect(wf, &ConstraintWorkflow::wellFactorsExtracted, this,
             [this, horizons, factors](const QString &h, const QString &f) {
               if (h == horizons->currentText() &&
@@ -120,7 +128,38 @@ void ConstraintPage::refreshWellFactorFields() {
   auto *wf = qobject_cast<ConstraintWorkflow *>(property(kWfProp).value<QObject *>());
   auto *h = child<QComboBox>(this, "horizonCombo");
   QString error;
-  const QVariantList fields = wf ? wf->wellFactorFields(h ? h->currentText() : QString(), &error) : QVariantList();
+  // U10：字段清单只依赖（层位, 数据声明状态），与因子勾选无关——原实现每次
+  // 勾选都在 GUI 线程全要素扫描井点图层 + 双表读取。缓存键 = 层位 +
+  // wellAttributesChanged 世代 + 井点图层声明集合；勾选切换只失效因子值。
+  // setWellFactorFields 每次仍执行（默认选中逻辑不缓存）。
+  // 只读观测计数 paleo.page.fieldrefreshcount = 真实取数（缓存未命中）次数。
+  QVariantList fields;
+  if (wf) {
+    // U10/S5-Med：字段清单依赖井点图层的要素属性内容（wellFactorFields 对
+    // 每个值 parseNumeric 才收录字段名）——缓存键除声明集合外须含各 wells
+    // 声明 source 文件的 size+mtime，就地编辑（属性表加数值列/填数值）后
+    // 下一次刷新即失效，不靠切层位/重声明自愈。
+    QStringList wellsDecls;
+    if (auto *svc = qobject_cast<QgisLayerService *>(property(kLayersProp).value<QObject *>()))
+      for (const LayerDeclaration &d : svc->declared())
+        if (d.layerId.startsWith(QStringLiteral("wells"))) {
+          const QFileInfo src(d.source.section(QLatin1Char('|'), 0, 0));
+          wellsDecls << d.layerId + QChar(0x1f) + d.source + QChar(0x1f) +
+                          QString::number(src.size()) + QChar(0x1f) +
+                          QString::number(src.lastModified().toMSecsSinceEpoch());
+        }
+    const QString cacheKey = (h ? h->currentText() : QString()) + QChar(0x1f) +
+                             QString::number(property("paleo.page.fieldsgen").toInt()) + QChar(0x1f) +
+                             wellsDecls.join(QChar(0x1e));
+    if (property("paleo.page.fieldskey").toString() == cacheKey) {
+      fields = property("paleo.page.fieldscache").toList();
+    } else {
+      fields = wf->wellFactorFields(h ? h->currentText() : QString(), &error);
+      setProperty("paleo.page.fieldskey", cacheKey);
+      setProperty("paleo.page.fieldscache", fields);
+      setProperty("paleo.page.fieldrefreshcount", property("paleo.page.fieldrefreshcount").toInt() + 1);
+    }
+  }
   if (!error.isEmpty()) child<QLabel>(this, "wellFactorHint")->setText(error);
   setWellFactorFields(fields);
   setProperty("paleo.page.fieldsbound", wf != nullptr);

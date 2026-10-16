@@ -8,6 +8,7 @@
 #include "../algorithms/geostat/variogram.h" // 变差函数模型（方向18）
 #include "../algorithms/rasterout.h" // PaleoRasterOut / createFloatRaster
 #include "../algorithms/singlefactor/cartographicworkfile.h"
+#include "../algorithms/singlefactor/contourlevels.h" // kMaxContourLevels（U9 级别数上限闸）
 #include "../catalog/datacatalog.h"
 #include "../domain/arearules.h"
 #include "../domain/singlefactorrequest.h" // 制图工作场不进融合/分相
@@ -123,6 +124,18 @@ bool ConstraintWorkflow::prepareAnalysisContourJob( const QString &horizon, cons
         paleo::workflow_detail::setError( error, tr( "等值级别必须为有限数值" ) );
         return false;
       }
+    }
+    // #149 对偶缺口：固定级别路径同样受级别数上限（自动/间距路径服务层已
+    // 闸）。UI 层 parseLevels 先挡粘贴输入，这里防脚本直调工作流层——
+    // 数万级会让 GDAL 逐级追线冻结/OOM，必须在进 GDAL 之前拒绝。
+    if ( static_cast<qulonglong>( levels.size() ) >
+         static_cast<qulonglong>( paleo::singlefactor::kMaxContourLevels ) )
+    {
+      paleo::workflow_detail::setError(
+          error, tr( "等值级别数超过上限 %1（本次 %2 条）；请减少级别" )
+                     .arg( static_cast<qulonglong>( paleo::singlefactor::kMaxContourLevels ) )
+                     .arg( levels.size() ) );
+      return false;
     }
   }
 
@@ -375,6 +388,9 @@ bool ConstraintWorkflow::publishAnalysisContourJob( const AnalysisContourJob &jo
   extra.insert( QStringLiteral( "group" ), QStringLiteral( "04_SingleFactor/Contours" ) );
   extra.insert( QStringLiteral( "value_source" ), QStringLiteral( "analysis" ) );
   extra.insert( QStringLiteral( "analysis_sha256" ), job.analysisSha );
+  // U8：等值线版本 extra 统一含 contour_feature_count——0 条（常数场/级别
+  // 全越域）也是成功发布，计数如实入档供血缘读侧显示；既有成功语义不变。
+  extra.insert( QStringLiteral( "contour_feature_count" ), contourFeatureCountOf( job.outputPath ) );
   extra.insert( QStringLiteral( "manifest_layer_id" ),
                 QStringLiteral( "contours.%1.%2" ).arg( job.horizon, job.factorId ) );
   if ( job.fixedLevels )

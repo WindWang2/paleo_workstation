@@ -40,6 +40,35 @@ void clampKrigingParams( geostat::KrigingParams *params )
     params->searchRadius = 0;
 }
 
+// P2 诚实回执：克里金邻域 K 在引擎内钳到 [1,64]（clampKrigingParams 同一规则），
+// 数值行为不变——只在请求值 != 钳后值时把「请求->生效」如实写进 issues。
+// QC parameters 侧另记 kriging_max_points_effective（localdirectionalgorithm.cpp）。
+void appendKrigingNeighbourhoodClampReceipt( const ResolvedParameters &params,
+                                             std::vector<std::string> &issues )
+{
+  if ( params.methodActual != "kriging" )
+    return;
+  const int maxRequested = params.krigingMaxPoints;
+  const int minRequested = params.krigingMinPoints;
+  if ( maxRequested > 0 )
+  {
+    const int maxEffective = std::clamp( maxRequested, 1, 64 );
+    const int minEffective = std::clamp( minRequested, 1, maxEffective );
+    if ( maxEffective == maxRequested && minEffective == minRequested )
+      return;
+    issues.push_back( "kriging_neighbourhood_clamped max_points " +
+                      std::to_string( maxRequested ) + "->" + std::to_string( maxEffective ) +
+                      " min_points " + std::to_string( minRequested ) + "->" +
+                      std::to_string( minEffective ) + "（邻域 K 上限 64）" );
+  }
+  else if ( minRequested < 1 )
+  {
+    issues.push_back( "kriging_neighbourhood_clamped max_points " + std::to_string( maxRequested ) +
+                      "->" + std::to_string( maxRequested ) + " min_points " +
+                      std::to_string( minRequested ) + "->1（K=0 全样本，minPoints 钳到 1）" );
+  }
+}
+
 bool isVariogramUsable( const geostat::VariogramModel &model )
 {
   return model.range > 0 && std::isfinite( model.range ) && model.nugget >= 0 &&
@@ -605,6 +634,7 @@ QueryResult evaluateAt( const PreparedInput &input, std::span<const Point2> quer
   QueryResult result;
   result.resolved = parameters;
   appendIssues( input, result.issues );
+  appendKrigingNeighbourhoodClampReceipt( parameters, result.issues );
   if ( stopped( control ) )
   {
     result.status = Status::Cancelled;
@@ -744,6 +774,7 @@ SurfaceResult evaluateLocalIdw( const PreparedInput &input, const GridSpec &grid
   SurfaceResult result;
   result.resolved = parameters;
   appendIssues( input, result.issues );
+  appendKrigingNeighbourhoodClampReceipt( parameters, result.issues );
   if ( stopped( control ) )
   {
     result.status = Status::Cancelled;

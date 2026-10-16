@@ -313,6 +313,14 @@ void Seismic3DViewPanel::buildUi() {
             return;
         if (!viewport_->isVisible())
             return; // 又藏起来了——下次 showEvent 再武装
+        // 工程加载期 GUI 线程拥塞：首帧 paint 可能晚于 3s 才调度，
+        // initializeGL 未获机会时 isGlReady 为假是「没轮到」而非「建不出」。
+        // 一次性判决会把可用 GL 永久处死（回退不可逆）——有界重试留给真失败。
+        if (glWatchRetries_ < kGlWatchMaxRetries) {
+            ++glWatchRetries_;
+            glWatchTimer_->start();
+            return;
+        }
         activateFallback();
     });
 }
@@ -320,9 +328,12 @@ void Seismic3DViewPanel::buildUi() {
 void Seismic3DViewPanel::showEvent(QShowEvent *event) {
     QWidget::showEvent(event);
     // D3.9：看门狗只在真显示后计时（dock 初始隐藏，GL 要等首个 show 才建）。
+    // 每次可见期重置重试预算——藏过再显给满额。
     if (!fallbackActive_ && !viewport_->isGlReady() && glWatchTimer_ &&
-        !glWatchTimer_->isActive())
+        !glWatchTimer_->isActive()) {
+        glWatchRetries_ = 0;
         glWatchTimer_->start();
+    }
 }
 
 void Seismic3DViewPanel::setTaskService(SeismicTaskService *taskSvc) {

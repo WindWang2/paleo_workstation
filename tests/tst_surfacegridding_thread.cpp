@@ -1,6 +1,7 @@
 // 层：测试
 // #122：网格化 worker 不得跨线程写活 catalog——stage/commit 回到 catalog 所属线程。
 #include "catalog/datacatalog.h"
+#include "io/constraintstore.h"
 #include "workflow/surfacegridding.h"
 
 #include <QDir>
@@ -50,6 +51,7 @@ class TestSurfaceGriddingThread : public QObject
   private slots:
   void workerThreadRegistersOnOwnerThread();
   void sameThreadRegistersInline();
+  void edgeAlignedBarrierIsConsumedByGriddingMask();
 };
 
 void TestSurfaceGriddingThread::workerThreadRegistersOnOwnerThread()
@@ -121,6 +123,39 @@ void TestSurfaceGriddingThread::sameThreadRegistersInline()
   QVERIFY(QFileInfo::exists(o.tifPath));
   QCOMPARE(griddedVersions(cat, nullptr), 1);
   QCOMPARE(leftoverGridStaging(tmp.path()), 0);
+}
+
+// full-audit F5：贴计算域右缘（x==xMax）的打断线必须被网格化 mask 消费。
+// planeScatter 的域是 [0,400]²、cellSize=50（8×8 格）；计划侧闭矩形契约
+// 接受该线（segmentTouchesRect），旧「半格采样 + 半开 floor 判格」在 x==xMax
+// 恒落格外——0 格标记、回执翻 outside_compute_domain，与三引擎闭契约相反。
+// supercover 契约把贴边点 clamp 进最后一列，barrierCells > 0。
+void TestSurfaceGriddingThread::edgeAlignedBarrierIsConsumedByGriddingMask()
+{
+  QTemporaryDir tmp;
+  QVERIFY(tmp.isValid());
+  QString err;
+  const QString gpkg = tmp.filePath(QStringLiteral("constraints.gpkg"));
+  {
+    ConstraintStore store(gpkg);
+    QVERIFY2(store.append(QStringLiteral("H1"), QStringLiteral("edge"),
+                          QStringLiteral("LINESTRING(400 0, 400 400)"),
+                          QStringLiteral("break_line"), 0, &err),
+             qPrintable(err));
+  }
+  DataCatalog cat;
+  QVERIFY2(cat.open(tmp.path(), &err), qPrintable(err));
+  SurfaceGriddingWorkflow wf(nullptr);
+  wf.setCatalog(&cat, tmp.path());
+  wf.setBarrierSource(gpkg);
+  SurfaceGriddingWorkflow::Options opt;
+  opt.cellSize = 50.0;
+  opt.useBarriers = true;
+  SurfaceGriddingWorkflow::Outcome o;
+  QCOMPARE(wf.gridHorizonText(QStringLiteral("H1"), planeScatter(), opt, nullptr, nullptr, &o),
+           QString());
+  QVERIFY2(o.barrierCells > 0,
+           "edge-aligned barrier must rasterize into the last column (closed-domain contract)");
 }
 
 QTEST_GUILESS_MAIN(TestSurfaceGriddingThread)

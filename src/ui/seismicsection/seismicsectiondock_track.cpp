@@ -25,6 +25,15 @@ void SeismicSectionDockWidget::runTracking() {
     const SectionRef ref = m_canvas->sectionRef();
     if (!ref.valid)
         return;
+    // opt-02：时间切片方向闸（与下方 propagationReadiness 的 NotInlineSection
+    // 对称）——Time 方向下 m_lastSlice 仍是上一条垂直剖面，按 (Time, 采样号)
+    // 伪身份追踪会产出垃圾拾取并入会话自动落盘。
+    if (ref.type == SgySliceType::Time) {
+        if (m_pickPanel)
+            m_pickPanel->showTrackError(
+                tr("追踪需以纵/横测线剖面为工作面（当前为时间切片）"));
+        return;
+    }
     // 按值捕获（异步回调点火时本函数栈已退——引用捕获会悬垂）
     const auto onSection = [ref](const SeismicPick &p) {
         return ref.type == SgySliceType::Inline ? p.inlineNo == ref.index

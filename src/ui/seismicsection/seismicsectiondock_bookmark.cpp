@@ -3,6 +3,7 @@
 // D2.13 复制·打印。卷帘与书签各有独立的在途任务与请求号守卫，语义原样保留。
 #include "ui/seismicsection/seismicsectiondockwidget.h"
 
+#include "domain/seismic/sectionaxis.h" // opt-02：道头卡列号→线号换算
 #include "services/fspathutils.h" // #291 QString↔filesystem::path 走 UTF-16（MSVC 窄构造按 ANSI 解码）
 #include "services/seismictaskservice.h"
 
@@ -214,7 +215,38 @@ void SeismicSectionDockWidget::showTraceHeaderCard(int traceIndex) {
     if (!m_volume || !m_volume->IsLoaded())
         return;
     const QString sgyPath = paleo::fromFsPath(m_volume->Path());
-    const SeismicTraceHeaderInfo info = SeismicTaskService::readTraceHeader(sgyPath, traceIndex);
+    // opt-02：入参 traceIndex 是「剖面列号」，不是文件道序——旧实现直传，
+    // 除首条 inline 剖面外全部读错道（IL 非最首 / XL 剖面 / 任意线 / 时间
+    // 片）。经 SectionRef 列→实际线号 + SgyIndex 线号→文件道号两级换算；
+    // 时间切片/任意线无单一物理道，如实给原因不展示错道数据。
+    int fileTrace = -1;
+    QString resolveNote;
+    const SectionRef ref = m_canvas ? m_canvas->sectionRef() : SectionRef{};
+    int lineNo = 0;
+    if (!ref.valid || ref.type == SgySliceType::Time) {
+        resolveNote = tr("当前视图无单一物理道（时间切片/任意线）——请切换到 "
+                         "纵/横测线剖面后点击查看道头");
+    } else if (!sectionLineForColumn(ref.colLines, ref.colMin, traceIndex,
+                                     &lineNo)) {
+        resolveNote = tr("剖面列 %1 无法换算到测线号").arg(traceIndex);
+    } else {
+        const int inl =
+            ref.type == SgySliceType::Inline ? ref.index : lineNo;
+        const int xl =
+            ref.type == SgySliceType::Inline ? lineNo : ref.index;
+        if (m_volume->Index())
+            fileTrace = m_volume->Index()->FindTraceIndex(inl, xl);
+        if (fileTrace < 0)
+            resolveNote =
+                tr("测线 (IL %1, XL %2) 不在体索引内").arg(inl).arg(xl);
+    }
+    SeismicTraceHeaderInfo info;
+    if (fileTrace >= 0)
+        info = SeismicTaskService::readTraceHeader(sgyPath, fileTrace);
+    else {
+        info.ok = false;
+        info.error = resolveNote;
+    }
 
     if (!m_traceCard) {
         m_traceCard = new QDialog(this);

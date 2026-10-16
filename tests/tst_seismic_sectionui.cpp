@@ -23,10 +23,13 @@
 #include <functional>
 
 #include <QDeadlineTimer>
+#include <QComboBox>
+#include <QDialog>
 #include <QSpinBox>
 #include <QTableWidget>
 #include <QThread>
 #include <QToolButton>
+#include <QUndoStack>
 
 #include "../src/services/paleotaskservice.h"
 #include "../src/services/seismictaskservice.h"
@@ -607,6 +610,258 @@ private slots:
     QCOMPARE(info.xlineNo, 2003);
     QCOMPARE(info.sampleCount, 64);
     QCOMPARE(info.sampleIntervalUs, 2000);
+  }
+
+  // ---- opt-02 井震剖面一致性（undo/道头/卷帘/叠加清理/方向闸）----
+
+  // Q1：拾取 undo/redo 后画布叠加与会话同源刷新——旧实现 Add::undo /
+  // Remove::undo/redo / Rename 只刷面板不刷画布：撤销后画布残留幽灵拾取
+  // 点、被恢复的点不显示（面板/落盘正确，画布与真值脱钩）。
+  void pickUndoRedoSyncsCanvasOverlay()
+  {
+    QTemporaryDir dir;
+    const QString sgy = dir.filePath("undopick.sgy");
+    QVERIFY(writeTestSegy(sgy, 6, 5, 64));
+    SgyVolume volume;
+    std::string err;
+    QVERIFY(volume.Load(sgy.toStdString(), err));
+    PaleoTaskService tasks;
+    SeismicTaskService svc(&tasks, 16);
+    SeismicSectionDockWidget dock;
+    dock.resize(900, 650);
+    dock.setTaskService(&svc);
+    QSignalSpy done(&dock, &SeismicSectionDockWidget::sectionExtractionFinished);
+    dock.setVolume(std::make_shared<SgyVolume>(std::move(volume)));
+    QVERIFY(waitForQuiet([&] { return !done.isEmpty(); }));
+
+    dock.addPickFromCanvas(2, 64.0);
+    QCOMPARE(dock.interpretationSession().picks.size(), 1);
+    QCOMPARE(dock.canvas()->pickOverlays().size(), 1);
+    const int id = dock.interpretationSession().picks.first().id;
+
+    auto *undo = dock.findChild<QUndoStack *>();
+    QVERIFY(undo);
+    dock.removePick(id);
+    QCOMPARE(dock.interpretationSession().picks.size(), 0);
+    QCOMPARE(dock.canvas()->pickOverlays().size(), 0);
+    // 撤销删除 → 会话恢复且画布叠加恢复（旧实现画布不回来，先红）。
+    undo->undo();
+    QCOMPARE(dock.interpretationSession().picks.size(), 1);
+    QCOMPARE(dock.canvas()->pickOverlays().size(), 1);
+    // 撤销添加 → 幽灵点必须消失（旧实现残留，先红）。
+    undo->undo();
+    QCOMPARE(dock.interpretationSession().picks.size(), 0);
+    QCOMPARE(dock.canvas()->pickOverlays().size(), 0);
+    // 重做添加 → 回来。
+    undo->redo();
+    QCOMPARE(dock.interpretationSession().picks.size(), 1);
+    QCOMPARE(dock.canvas()->pickOverlays().size(), 1);
+  }
+
+  // Q2：道头卡按「剖面列 → 实际线号 → 文件道号」换算——旧实现把列号直
+  // 当文件道序，非首条 inline / XL 剖面全读错道；时间切片如实给原因。
+  void traceHeaderCardResolvesColumnToPhysicalTrace()
+  {
+    QTemporaryDir dir;
+    const QString sgy = dir.filePath("thcard.sgy");
+    QVERIFY(writeTestSegy(sgy, 6, 5, 64));
+    SgyVolume volume;
+    std::string err;
+    QVERIFY(volume.Load(sgy.toStdString(), err));
+    PaleoTaskService tasks;
+    SeismicTaskService svc(&tasks, 16);
+    SeismicSectionDockWidget dock;
+    dock.resize(900, 650);
+    dock.setTaskService(&svc);
+    QSignalSpy done(&dock, &SeismicSectionDockWidget::sectionExtractionFinished);
+    dock.setVolume(std::make_shared<SgyVolume>(std::move(volume)));
+    QVERIFY(waitForQuiet([&] { return !done.isEmpty(); }));
+    const int cur = dock.canvas()->sectionRef().index; // 中线（> 1000）
+    QVERIFY(cur > 1000);
+
+    // 点第 2 列（xline 2002）→ 卡片 INLINE = 当前线、CROSSLINE = 2002
+    //（旧实现：直读文件道 2 → INLINE 恒 1000，先红）。
+    emit dock.canvas()->traceClicked(2, 64.0, 80.0, 0.5f, 0.0, 0.0);
+    auto *card = dock.findChild<QDialog *>();
+    QVERIFY(card);
+    auto *table = card->findChild<QTableWidget *>();
+    QVERIFY(table);
+    QCOMPARE(table->item(2, 1)->text(), QString::number(cur));
+    QCOMPARE(table->item(3, 1)->text(), QStringLiteral("2002"));
+    card->close();
+
+    // 切时间切片 → 无单一物理道：卡片给原因行，不展示错道数据。
+    auto *mode = dock.findChild<QComboBox *>("cboSectionMode");
+    QVERIFY(mode);
+    mode->setCurrentIndex(2);
+    QVERIFY(waitForQuiet([&] { return done.size() >= 2; }));
+    emit dock.canvas()->traceClicked(2, 64.0, 80.0, 0.5f, 0.0, 0.0);
+    auto *card2 = dock.findChild<QDialog *>();
+    QVERIFY(card2);
+    auto *table2 = card2->findChild<QTableWidget *>();
+    QVERIFY(table2);
+    QCOMPARE(table2->rowCount(), 1); // 只有「错误」原因行
+    QVERIFY(table2->item(0, 1)->text().contains(
+        QStringLiteral("无单一物理道")));
+  }
+
+  // Q3：卷帘只对 IL/XL 相邻线有意义——切时间切片显式关帘；旧实现只跳过
+  // 刷新不关帘，B 半幅残留上一条相邻线图像被拉伸进新几何。
+  void curtainDisabledOnTimeSliceMode()
+  {
+    QTemporaryDir dir;
+    const QString sgy = dir.filePath("curtainmode.sgy");
+    QVERIFY(writeTestSegy(sgy, 6, 5, 64));
+    SgyVolume volume;
+    std::string err;
+    QVERIFY(volume.Load(sgy.toStdString(), err));
+    PaleoTaskService tasks;
+    SeismicTaskService svc(&tasks, 16);
+    SeismicSectionDockWidget dock;
+    dock.resize(900, 650);
+    dock.setTaskService(&svc);
+    QSignalSpy done(&dock, &SeismicSectionDockWidget::sectionExtractionFinished);
+    dock.setVolume(std::make_shared<SgyVolume>(std::move(volume)));
+    QVERIFY(waitForQuiet([&] { return !done.isEmpty(); }));
+
+    auto *curtain = dock.findChild<QToolButton *>("btnSectionCurtain");
+    QVERIFY(curtain);
+    curtain->setChecked(true);
+    QVERIFY(dock.canvas()->compareEnabled());
+    // 相邻线 B 走切片服务通道，不发 sectionExtractionFinished——按
+    // compareLabel 到位等待。
+    QVERIFY(waitForQuiet(
+        [&] { return !dock.canvas()->compareLabel().isEmpty(); }));
+
+    auto *mode = dock.findChild<QComboBox *>("cboSectionMode");
+    QVERIFY(mode);
+    mode->setCurrentIndex(2); // 时间切片（B 图不发完成信号：done 只 +1）
+    QVERIFY(waitForQuiet([&] { return done.size() >= 2; }));
+    QVERIFY(!curtain->isChecked());
+    QVERIFY(!dock.canvas()->compareEnabled());
+  }
+
+  // Q4/Q5：换线清层段叠加、任意线清属性+层段叠加——#224 只修了切片路径
+  // 的 attr 清理；zone 在两路径都缺、attr 在任意线路径缺（同体同尺寸时
+  // 画布尺寸防线挡不住旧线叠加残留）。
+  void overlaysClearedOnLineSwitchAndArbitraryLine()
+  {
+    QTemporaryDir dir;
+    const QString sgy = dir.filePath("ovl.sgy");
+    QVERIFY(writeTestSegy(sgy, 6, 5, 64));
+    auto volume = std::make_shared<SgyVolume>();
+    std::string err;
+    QVERIFY(volume->Load(sgy.toStdString(), err));
+    PaleoTaskService tasks;
+    SeismicTaskService svc(&tasks, 16);
+    SeismicSectionDockWidget dock;
+    dock.resize(900, 650);
+    dock.setTaskService(&svc);
+    QSignalSpy done(&dock, &SeismicSectionDockWidget::sectionExtractionFinished);
+    dock.setVolume(volume);
+    QVERIFY(waitForQuiet([&] { return !done.isEmpty(); }));
+    const int cur = dock.canvas()->sectionRef().index;
+
+    // 换线（同尺寸相邻线）→ zone 叠加必须清（旧实现残留，先红）。
+    dock.canvas()->setZoneOverlay(makeSection(5, 64));
+    QVERIFY(dock.canvas()->hasZoneOverlay());
+    auto *spin = dock.findChild<QSpinBox *>("spinSectionSlice");
+    QVERIFY(spin);
+    spin->setValue(cur + 1);
+    QVERIFY(waitForQuiet([&] { return done.size() >= 2; }));
+    QVERIFY(!dock.canvas()->hasZoneOverlay());
+
+    // 任意线（不经 onSectionModeChanged）：attr + zone 都要清。
+    dock.canvas()->setAttrOverlay(makeSection(5, 64));
+    dock.canvas()->setZoneOverlay(makeSection(5, 64));
+    QVERIFY(dock.canvas()->hasAttrOverlay() && dock.canvas()->hasZoneOverlay());
+    dock.extractSectionFromVolumeAsync(volume, {{1000, 2000}, {1003, 2000}},
+                                       "任意线", {{0, 0}, {300, 0}});
+    QVERIFY(waitForQuiet([&] { return done.size() >= 3; }));
+    QVERIFY(!dock.canvas()->hasAttrOverlay());
+    QVERIFY(!dock.canvas()->hasZoneOverlay());
+  }
+
+  // Q6：时间切片上点「追踪」给方向闸——旧实现用 (Time, 采样号) 伪身份在
+  // 陈旧垂直剖面上追踪，线号域与采样号域重叠时（真实工区常态）产出垃圾
+  // 拾取并入会话自动落盘。夹具线号取 1..4 与采样号域重叠以暴露旧路径。
+  void trackingGatedOnTimeSlice()
+  {
+    QTemporaryDir dir;
+    const QString sgy = dir.filePath("trackgate.sgy");
+    // 自写 4×4×64 体（inline 1..4 × xline 1..4）——writeTestSegy 的
+    // 1000/2000 线号基与采样号域不相交，暴露不了伪身份分支。
+    {
+      QFile file(sgy);
+      QVERIFY(file.open(QIODevice::WriteOnly));
+      file.write(QByteArray(3200, ' '));
+      QByteArray binary(400, 0);
+      const auto put16 = [](QByteArray &data, int offset, qint16 value) {
+        qToBigEndian(value, reinterpret_cast<uchar *>(data.data()) + offset);
+      };
+      const auto put32 = [](QByteArray &data, int offset, qint32 value) {
+        qToBigEndian(value, reinterpret_cast<uchar *>(data.data()) + offset);
+      };
+      put16(binary, 12, 4);
+      put16(binary, 16, 2000);
+      put16(binary, 20, 64);
+      put16(binary, 24, 4);
+      file.write(binary);
+      for (int il = 0; il < 4; ++il)
+        for (int xl = 0; xl < 4; ++xl)
+        {
+          QByteArray header(240, 0);
+          put32(header, 188, 1 + il);
+          put32(header, 192, 1 + xl);
+          put16(header, 114, 64);
+          file.write(header);
+          QByteArray samples(64 * 4, 0);
+          for (int k = 0; k < 64; ++k)
+          {
+            const float v = std::sin(k * 0.2f + il + xl);
+            quint32 bits;
+            std::memcpy(&bits, &v, 4);
+            qToBigEndian(bits,
+                         reinterpret_cast<uchar *>(samples.data()) + 4 * k);
+          }
+          file.write(samples);
+        }
+      file.close();
+    }
+    SgyVolume volume;
+    std::string err;
+    QVERIFY(volume.Load(sgy.toStdString(), err));
+    PaleoTaskService tasks;
+    SeismicTaskService svc(&tasks, 16);
+    SeismicSectionDockWidget dock;
+    dock.resize(900, 650);
+    dock.setTaskService(&svc);
+    QSignalSpy done(&dock, &SeismicSectionDockWidget::sectionExtractionFinished);
+    dock.setVolume(std::make_shared<SgyVolume>(std::move(volume)));
+    QVERIFY(waitForQuiet([&] { return !done.isEmpty(); }));
+
+    // inline 2 剖面上放种子（列 1 → xline 2；twt 64ms → 样 32）。
+    dock.addPickFromCanvas(1, 64.0);
+    const int before = dock.interpretationSession().picks.size();
+    QCOMPARE(before, 1);
+
+    // 切时间切片并把采样位滑到 2（与种子 xlineNo 同值 → 旧实现伪身份
+    // 命中：onSection 按 p.xlineNo == 采样号筛选）。
+    auto *mode = dock.findChild<QComboBox *>("cboSectionMode");
+    QVERIFY(mode);
+    mode->setCurrentIndex(2);
+    QVERIFY(waitForQuiet([&] { return done.size() >= 2; }));
+    auto *spin = dock.findChild<QSpinBox *>("spinSectionSlice");
+    QVERIFY(spin);
+    spin->setValue(2);
+    QVERIFY(waitForQuiet([&] { return done.size() >= 3; }));
+
+    // 方向闸：不开任务、会话不被伪身份追踪结果换血（旧实现立即开任务
+    // → trackingActive 为真，先红）。
+    dock.runTracking();
+    QVERIFY(!dock.trackingActive());
+    QCOMPARE(dock.interpretationSession().picks.size(), before);
+    QVERIFY(dock.pickPanel());
   }
 
   // ---- D2.12 书签往返 ----

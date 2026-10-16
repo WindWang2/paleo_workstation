@@ -157,6 +157,8 @@ public:
     SectionRef sectionRef() const { return m_sectionRef; }
     // 叠加数据（画布只画不存——会话模型在 dock）
     void setPickOverlays(const QList<SeismicPick> &picks, const QList<SeismicFaultSegment> &faults);
+    // 测试/联动断言面：当前叠加的拾取点（undo/redo 画布同步契约用）
+    const QList<SeismicPick> &pickOverlays() const { return m_pickOverlays; }
 
     // ---- goal/fault-interpretation：FaultSet 断层棒回显 ----
     // 剖面身份（IL/XL/任意线）由 dock 侧解析并过滤，画布只画点列；

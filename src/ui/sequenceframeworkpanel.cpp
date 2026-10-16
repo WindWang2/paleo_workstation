@@ -10,6 +10,7 @@
 #include <QLineEdit>
 #include <QLabel>
 #include <QPushButton>
+#include <QSet>
 #include <QSignalBlocker>
 #include <QSplitter>
 #include <QTabWidget>
@@ -270,16 +271,22 @@ bool SequenceFrameworkPanel::removeUnit( const QString &unitId )
     }
   if ( index < 0 )
     return false;
-  // 子单元一并删除（二级格架不悬空）。
-  m_draft.units.removeAt( index );
+  // 级联删除集合 = 被删单元自身 + 其直接子单元（二级格架不悬空）。标志层
+  // 挂在集合内任一单元上都如实清空归属（opt-02：旧实现只查被删单元自身，
+  // 级联删掉的体系域名下标志层残留悬空 unitId，保存后诊断报
+  // MarkerDanglingUnit、重开工程告警仍在）。
+  QSet<QString> removedIds;
+  removedIds.insert( unitId );
   QVector<SequenceFramework::FrameworkUnit> kept;
   for ( const SequenceFramework::FrameworkUnit &u : m_draft.units )
-    if ( u.parentId != unitId )
+    if ( u.parentId == unitId )
+      removedIds.insert( u.id );
+  for ( const SequenceFramework::FrameworkUnit &u : m_draft.units )
+    if ( !removedIds.contains( u.id ) )
       kept.append( u );
   m_draft.units = kept;
-  // 标志层若挂在被删单元上，如实清空归属（诊断面会报悬空）。
   for ( SequenceFramework::MarkerBed &m : m_draft.markers )
-    if ( m.unitId == unitId )
+    if ( removedIds.contains( m.unitId ) )
       m.unitId.clear();
   rebuildTree();
   rebuildMarkers();

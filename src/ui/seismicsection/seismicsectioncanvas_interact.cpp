@@ -26,6 +26,12 @@ void SeismicSectionCanvas::mousePressEvent(QMouseEvent *event) {
     // D4.4：断层模式——按下开始画折线
     if (m_pickMode == SectionPickMode::Fault && event->button() == Qt::LeftButton &&
         viewportRect().contains(event->pos()) && hasData()) {
+        // opt-02：时间切片无 TWT 纵轴语义——断层折线不起草（pixelToTime 用
+        // 的是上一条垂直剖面的陈旧 t0/dt，落草即伪 TWT：FaultController 路
+        // 径松手无声消失、legacy 会话路径存伪身份断层）。对照 Seed 模式的
+        // TimeSlice 分支（种子有采样位概念，有意不同）。
+        if (m_orientation == SectionOrientation::TimeSlice)
+            return;
         m_faultDraft.clear();
         m_faultDraft.append({pixelToTrace(event->pos().x()), pixelToTime(event->pos().y())});
         m_isPanning = false;

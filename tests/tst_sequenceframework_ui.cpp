@@ -154,6 +154,57 @@ private slots:
     QCOMPARE( loaded.units.first().name, QStringLiteral( "SQ2b" ) );
   }
 
+  // opt-02（M/U3）：removeUnit 级联删除子体系域时，挂在子单元名下的标志
+  // 层归属同步清空——旧实现只清被删单元自身的标志层（seed sfm-1），子单元
+  // 名下标志层残留悬空 unitId（保存后诊断报 MarkerDanglingUnit、重开工程
+  // 告警仍在，先红）。
+  void removeUnitClearsMarkersOnCascadedChildren()
+  {
+    QTemporaryDir dir;
+    QVERIFY( dir.isValid() );
+    DataCatalog cat;
+    QVERIFY( cat.open( dir.path() ) );
+    FrameworkService service( dir.path() );
+    service.attachCatalog( &cat );
+    QString err;
+    QVERIFY2( service.save( seedFramework(), &err ), qPrintable( err ) );
+
+    SequenceFrameworkPanel panel;
+    panel.setService( &service );
+    QVERIFY( panel.addSystemsTract( QStringLiteral( "sfu-1" ),
+                                    QStringLiteral( "TST" ),
+                                    QStringLiteral( "C3" ),
+                                    QStringLiteral( "C6" ), 40.0 ) );
+    // 子体系域 id 由面板生成——按名 + 父 id 在列视图中找回。
+    QString tractId;
+    const auto &units = panel.columnView()->framework().units;
+    for ( const auto &u : units )
+      if ( u.name == QStringLiteral( "TST" ) &&
+           u.parentId == QStringLiteral( "sfu-1" ) )
+        tractId = u.id;
+    QVERIFY2( !tractId.isEmpty(), "addSystemsTract 后列视图须含子体系域" );
+
+    // 标志层挂到子体系域（父层 sfu-1 名下已有 seed sfm-1）。
+    QVERIFY( panel.addMarker( QStringLiteral( "M-tract" ), tractId,
+                              { QStringLiteral( "C6" ) } ) );
+
+    QVERIFY( panel.removeUnit( QStringLiteral( "sfu-1" ) ) );
+    QVERIFY2( panel.saveFramework(), qPrintable( err ) );
+
+    DataCatalog reopened;
+    QVERIFY( reopened.open( dir.path() ) );
+    FrameworkStore store( &reopened, dir.path() );
+    Framework loaded;
+    QVERIFY2( store.load( &loaded, &err ), qPrintable( err ) );
+    QCOMPARE( loaded.units.size(), 1 ); // SQ2 存留，sfu-1 + 子体系域级联删除
+    // 两个标志层都在（标志层不随单元删除），但归属全部如实清空。
+    QCOMPARE( loaded.markers.size(), 2 );
+    for ( const auto &m : loaded.markers )
+      QVERIFY2( m.unitId.isEmpty(),
+                qPrintable( QStringLiteral( "标志层 %1 残留悬空归属 %2" )
+                                .arg( m.id, m.unitId ) ) );
+  }
+
   void columnViewTracksFrameworkAndSelection()
   {
     QTemporaryDir dir;

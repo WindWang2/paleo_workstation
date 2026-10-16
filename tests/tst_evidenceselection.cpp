@@ -129,6 +129,34 @@ private slots:
     f.data.projectSvc.closeProject();
     QVERIFY(selection.target().isEmpty()); QCOMPARE(list->count(), 0); QVERIFY(!anyHighlight(interaction));
   }
+
+  // opt-02（V1）：工程边界 reset 同时清 ids 与 activeHorizon——旧实现只清
+  // target：换工程后残留旧井选择（撞名 id 时新工程面板凭空高亮旧井/井对
+  // 话框预选旧集）与旧层位名（保存剖面把旧工程层位写进新工程），且与
+  // setSelection 等值短路复合后同集重选不再广播。
+  void projectResetClearsSelectionIdsAndHorizon() {
+    Fixture f; QVERIFY2(f.init(), qPrintable(f.error));
+    SelectionContext selection;
+    QgisCanvasController canvas;
+    EvidenceInteraction interaction(&f.work, &selection, &f.data.layers,
+                                    &f.data.projectSvc, &canvas);
+    selection.setSelection({"well-1", "well-2"}, QStringLiteral("tree"));
+    selection.setActiveHorizon(QStringLiteral("D61"));
+    QCOMPARE(selection.selectedIds().size(), 2);
+    QCOMPARE(selection.activeHorizon(), QStringLiteral("D61"));
+
+    interaction.reset(); // projectAboutToClose / catalogBound 工程边界
+    QVERIFY(selection.selectedIds().isEmpty());
+    QVERIFY(selection.activeHorizon().isEmpty());
+    QVERIFY(selection.target().isEmpty());
+
+    // 同集重选必须重新广播（旧残留态被等值短路吞掉 selectionChanged，先红）。
+    int broadcasts = 0;
+    QObject::connect(&selection, &SelectionContext::selectionChanged,
+                     [&broadcasts] { ++broadcasts; });
+    selection.setSelection({"well-1", "well-2"}, QStringLiteral("tree"));
+    QCOMPARE(broadcasts, 1);
+  }
 };
 int main(int argc, char **argv) {
   if (qgetenv("QT_QPA_PLATFORM").isEmpty()) qputenv("QT_QPA_PLATFORM", "offscreen");

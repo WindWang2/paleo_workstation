@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace WellComposite
 {
@@ -11,7 +12,11 @@ namespace WellComposite
 float CurveData::valueAtDepth(float d) const
 {
   if (depths.size() < 2 || values.size() < 2)
-    return (depths.isEmpty() || values.isEmpty()) ? 0.0f : values.first();
+    // 全空曲线 → NaN（opt-02：缺失不伪造 0，与空档口径一致）；退化单点
+    // 取首值（既有口径）。
+    return (depths.isEmpty() || values.isEmpty())
+               ? std::numeric_limits<float>::quiet_NaN()
+               : values.first();
 
   if (d <= depths.first())
     return values.first();
@@ -32,7 +37,12 @@ float CurveData::valueAtDepth(float d) const
   const float v1 = values.at(idx);
 
   if (!std::isfinite(v0) || !std::isfinite(v1))
-    return std::isfinite(v0) ? v0 : (std::isfinite(v1) ? v1 : 0.0f);
+    // 空档两端都缺值 → NaN（opt-02）：0 是合法物理量（如 NPHI 0），把缺失
+    // 伪造成 0 会污染道头读数/tooltip；与绘制侧值 NaN 断笔口径一致。
+    return std::isfinite(v0) ? v0
+                             : (std::isfinite(v1)
+                                    ? v1
+                                    : std::numeric_limits<float>::quiet_NaN());
 
   const float t = (d - d0) / qMax(1e-5f, (d1 - d0));
   return v0 + t * (v1 - v0);

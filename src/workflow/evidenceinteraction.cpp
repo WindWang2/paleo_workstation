@@ -78,7 +78,15 @@ QString EvidenceInteraction::projectId() const {
 }
 void EvidenceInteraction::reset() {
   m_primary->clear(); m_source->clear(); m_snapshot.clear();
-  if (m_selection) m_selection->clearTarget("project");
+  if (m_selection) {
+    m_selection->clearTarget("project");
+    // opt-02：选择状态是工程作用域——ids 与 activeHorizon 一并复位。旧实
+    // 现只清 target：换工程后残留旧井 id（撞名时新工程剖面面板凭空高亮
+    // 旧井、井对话框预选旧集）与旧层位名（保存剖面把旧工程层位写进新工
+    // 程），且与 setSelection 等值短路复合后重选同集不再广播。
+    m_selection->setActiveHorizon(QString());
+    m_selection->clear("project");
+  }
   emit detailsChanged({}, m_selection ? m_selection->targetGeneration() : 0);
 }
 void EvidenceInteraction::observe(const QString &id) {

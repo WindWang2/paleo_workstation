@@ -297,11 +297,15 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
     const QVariantMap c = calibration(w.id);
     const double shift = c.value("shift").toDouble();
     const double velocity = c.value("velocity").toDouble();
+    // 常速回退的有效速度与 setCalibration 契约同界 [100,20000)——手改
+    // alignment JSON 写入界外值时按缺省 2500 回落（opt-02：显示与换算同口径）。
+    const double fallbackVelocity =
+        velocity > 100.0 && velocity < 20000.0 ? velocity : 2500.0;
     out.alignmentStatus = c.value("constant").toBool()
                               ? tr("常速近似")
                               : (tvdOk || mdOk ? tr("时深表")
                                                : tr("常速近似（无时深表，%1 m/s）")
-                                                     .arg(velocity > 100.0 ? velocity : 2500.0, 0, 'f', 0));
+                                                     .arg(fallbackVelocity, 0, 'f', 0));
     bool partial = false;
     auto timeFor = [&](double d, bool useMd) {
       if (!std::isfinite(d))
@@ -314,7 +318,7 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
         return result;
       }
       // 没有本井时深表时，用近似速度把井道和分层放到 TWT 剖面上。
-      seismic::TimeDepthModel fallback(velocity > 100.0 ? velocity : 2500.0);
+      seismic::TimeDepthModel fallback(fallbackVelocity);
       return fallback.DepthToTwtMs(d) + shift;
     };
     out.bottomTwtMs = timeFor(out.totalDepth, true);
@@ -358,8 +362,24 @@ std::vector<seismic::SectionWellInfo> SectionWorkbench::sectionWells(
       top.topName = t.horizon;
       top.md = t.md;
       top.tvd = t.tvd;
-      const bool useMd = !std::isfinite(t.tvd);
-      top.twtMs = timeFor(useMd ? t.md : t.tvd, useMd);
+      // 域回退（opt-02）：目标域时深模型缺席而该行另一域值在手时，经可用
+      // 模型精确换算（与上方 trajTwt 同口径）；有可用模型时绝不把 TVD 值
+      // 当深度喂常速模型（两域模型皆缺的常速近似按原语义喂该域值）。
+      const bool preferMd = !std::isfinite(t.tvd);
+      bool useMd = preferMd;
+      double depth = preferMd ? t.md : t.tvd;
+      if (!preferMd && !tvdOk && mdOk && std::isfinite(t.md)) {
+        useMd = true;
+        depth = t.md;
+      } else if (preferMd && !mdOk && tvdOk && survey) {
+        // MD 顶 + 仅 TVD 表：测斜换 TVD 后精确换算；无测斜不虚构（保持常速）。
+        const double tvd = survey->tvdAt(t.md);
+        if (std::isfinite(tvd)) {
+          useMd = false;
+          depth = tvd;
+        }
+      }
+      top.twtMs = timeFor(depth, useMd);
       if (std::isfinite(top.twtMs))
         out.bottomTwtMs = std::isfinite(out.bottomTwtMs)
                               ? std::max(out.bottomTwtMs, top.twtMs)

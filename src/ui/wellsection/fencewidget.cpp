@@ -21,6 +21,8 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 
+#include <qgsmessagelog.h>
+
 #include <algorithm>
 #include <cmath>
 
@@ -472,19 +474,51 @@ void WellSectionFenceWidget::saveToStore()
         return; // 无变化不落盘
     // fence-<n> 节逐条写（版本随每次落盘推进）；条数收缩 → 尾节删除。
     //（空态短路于上，此处必有节；域缺省仅是编译器要求的落库值。）
+    // opt-02：落库失败如实上报（提示行点名 + 消息日志），且不前进持久化
+    // 快照——旧实现无论成败都记「已持久化」，失败编辑被静默吞掉且永不
+    // 重试（重开栅状图即丢）。快照不前进 → 下次 rebuild 重试。
     QString err;
-    for (int i = 0; i < m_wellIds.size(); ++i)
+    QString firstErr;
+    bool allOk = true;
+    for (int i = 0; i < m_wellIds.size(); ++i) {
         m_params.store->save(QStringLiteral("fence-%1").arg(i + 1),
                              m_wellIds.at(i), {},
                              domain.value_or(wellsection::DepthDomain::MD),
                              spacing, &err);
-    const QStringList ids = m_params.store->sectionIds(&err);
-    for (const QString &id : ids)
-        if (id.startsWith(QLatin1String("fence-"))) {
-            const int n = id.mid(QLatin1String("fence-").size()).toInt();
-            if (n > m_wellIds.size())
-                m_params.store->remove(id, &err);
+        if (!err.isEmpty()) {
+            allOk = false;
+            if (firstErr.isEmpty())
+                firstErr = err;
+            err.clear();
         }
+    }
+    if (allOk) {
+        const QStringList ids = m_params.store->sectionIds(&err);
+        for (const QString &id : ids)
+            if (id.startsWith(QLatin1String("fence-"))) {
+                const int n = id.mid(QLatin1String("fence-").size()).toInt();
+                if (n > m_wellIds.size() &&
+                    !m_params.store->remove(id, &err)) {
+                    allOk = false;
+                    if (firstErr.isEmpty())
+                        firstErr = err;
+                    err.clear();
+                }
+            }
+    }
+    if (!allOk) {
+        m_storeNote = tr("上次落库失败：%1（未保存，将自动重试）").arg(firstErr);
+        // 基础文本 + note 整体重组（S5 A-1）：事件路径（域/间距/井序直连）
+        // 不重置提示行——基于当前文本追加会随连续失败线性变长。
+        const QString cur = m_hint->text();
+        const int sep = cur.lastIndexOf(QStringLiteral(" · 上次落库失败"));
+        m_hint->setText((sep > 0 ? cur.left(sep) : cur) + QStringLiteral(" · ") +
+                        m_storeNote);
+        QgsMessageLog::logMessage(
+            tr("栅状图剖面保存失败：%1").arg(firstErr),
+            QStringLiteral("Paleo"));
+        return;
+    }
     m_persistedIds = m_wellIds;
     m_persistedDomain = domain;
     m_persistedSpacing = spacing;

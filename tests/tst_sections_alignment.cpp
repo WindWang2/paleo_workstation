@@ -497,6 +497,86 @@ private slots:
     // 主 AC（ac_bad，单位 QQ）被拒绝叠加并如实注明。
     QVERIFY(well.alignmentStatus.contains(QStringLiteral("单位未知")));
   }
+  // opt-02：时深表只落一侧域列（MD-only / TVD-only）时，分层标记按该行
+  // 自身另一域值经可用模型精确换算（与曲线 trajTwt 同口径）——旧实现把
+  // 顶的 TVD/MD 数值当深度喂 2500 m/s 常速近似，同井曲线走严格表，剖面
+  // 分层标记与曲线系统性错位（P1 井震对齐一致性）。
+  void singleDomainTimeDepthTableTopsUseExactModel() {
+    QTemporaryDir dir;
+    DataCatalog catalog;
+    QVERIFY(catalog.open(dir.path()));
+    const auto addWell = [&](const QString &id, const QString &name) {
+      CatalogEntity e;
+      e.id = id;
+      e.name = name;
+      e.entityType = QStringLiteral("well");
+      e.hasSurface = true;
+      e.surfaceX = 100;
+      e.surfaceY = 0;
+      e.coordinateStatus = QStringLiteral("untransformed");
+      e.td = 300;
+      QVERIFY(catalog.addEntity(e));
+    };
+    const auto linkAsset = [&](const QString &wellId, const QString &assetId,
+                               const QString &type, const QString &role,
+                               const QString &body) {
+      CatalogAsset a;
+      a.id = assetId;
+      a.type = type;
+      a.displayName = assetId;
+      QVERIFY(catalog.addAsset(a));
+      const auto path = dir.filePath(assetId + ".dat");
+      QFile file(path);
+      QVERIFY(file.open(QIODevice::WriteOnly));
+      file.write(body.toUtf8());
+      file.close();
+      CatalogVersion v;
+      v.id = "v-" + assetId;
+      v.assetId = assetId;
+      v.managed = false;
+      v.path = path;
+      v.stage = QStringLiteral("RAW");
+      QVERIFY(catalog.addVersion(v));
+      EntityAssetLink l;
+      l.entityId = wellId;
+      l.entityType = QStringLiteral("well");
+      l.role = role;
+      l.assetId = assetId;
+      QVERIFY(catalog.addLink(l));
+    };
+    // 井 A：MD-only 时深表（TVD 列哨兵置空）+ 带 TVD 的分层。
+    addWell(QStringLiteral("well-a"), QStringLiteral("A1"));
+    linkAsset(QStringLiteral("well-a"), QStringLiteral("td-mdonly"),
+              QStringLiteral("time_depth"), QStringLiteral("time_depth"),
+              QStringLiteral("# TIME TVDSS TVD MD\n"
+                             "80 0 -99999 100\n130 0 -99999 200\n"));
+    linkAsset(QStringLiteral("well-a"), QStringLiteral("tops-a"),
+              QStringLiteral("tops"), QStringLiteral("tops"),
+              QStringLiteral("A1 H1 150 0 0 0 100\n"));
+    // 井 B：TVD-only 时深表 + 无 TVD 分层 + 直井测斜（TVD≡MD 恒等）。
+    addWell(QStringLiteral("well-b"), QStringLiteral("B1"));
+    linkAsset(QStringLiteral("well-b"), QStringLiteral("td-tvdonly"),
+              QStringLiteral("time_depth"), QStringLiteral("time_depth"),
+              QStringLiteral("# TIME TVDSS TVD\n80 0 100\n130 0 200\n"));
+    linkAsset(QStringLiteral("well-b"), QStringLiteral("tops-b"),
+              QStringLiteral("tops"), QStringLiteral("tops"),
+              QStringLiteral("B1 H1 150\n"));
+    linkAsset(QStringLiteral("well-b"), QStringLiteral("dev-b"),
+              QStringLiteral("well_deviation"), QStringLiteral("trajectory"),
+              QStringLiteral("# Well : B1\n# MD INCL AZI\n0 0 90\n2000 0 90\n"));
+
+    SectionWorkbench work(&catalog);
+    const auto data = work.sectionWells();
+    QCOMPARE(data.size(), 2);
+    // 井 A：TVD 顶 100 + 仅 MD 表 → 经自身 MD=150 精确换算 = 105 ms
+    //（旧实现：常速 2500 把 TVD 100 当深度 → 80 ms，先红）。
+    QCOMPARE(data[0].tops.front().twtMs, 105.0);
+    QVERIFY(data[0].alignmentStatus.contains(QStringLiteral("时深表")));
+    // 井 B：MD 顶 150 + 仅 TVD 表 + 直井测斜 → tvdAt(150)=150 → 105 ms
+    //（旧实现：常速 2500 把 MD 150 当深度 → 120 ms，先红）。
+    QCOMPARE(data[1].tops.front().twtMs, 105.0);
+    QVERIFY(data[1].alignmentStatus.contains(QStringLiteral("时深表")));
+  }
 };
 int main(int argc, char **argv) {
   QgsApplication app(argc, argv, true);

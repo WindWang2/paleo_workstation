@@ -219,7 +219,9 @@ void CurveTrack::paintBody(QPainter &painter, const QRectF &bodyRect,
         if (d < topDepth - 20.0 || d > bottomDepth + 20.0)
           continue;
 
-        if (!std::isfinite(v))
+        // 深度或值任一 NaN 都断笔（opt-02）：深度列 NULL 行的 NaN 比较恒
+        // false，过不了深度窗过滤——不断笔会产出 NaN 顶点（与值 NaN 同口径）。
+        if (!std::isfinite(v) || !std::isfinite(d))
         {
           if (polyPoints.size() >= 2)
             painter.drawPolyline(polyPoints.constData(), static_cast<int>(polyPoints.size()));

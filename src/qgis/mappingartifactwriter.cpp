@@ -584,6 +584,13 @@ bool MappingArtifactWriter::composeRaster(
     receipt->winningCells = QList<qint64>(layers.size(), 0);
     receipt->totalCells = qint64(cols) * rows;
     receipt->decidedCells = 0;
+    // 网格定案后钉入回执：重放/影响分析必须按同一网格取样（X2）。
+    receipt->xMin = extent.xMinimum();
+    receipt->yMin = extent.yMinimum();
+    receipt->xMax = extent.xMaximum();
+    receipt->yMax = extent.yMaximum();
+    receipt->cols = cols;
+    receipt->rows = rows;
   }
   int layerIndex = 0;
   for (auto *l : layers) {

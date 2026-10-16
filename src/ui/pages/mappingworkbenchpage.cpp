@@ -1400,6 +1400,15 @@ void MappingWorkbenchPage::renderEvidenceSnapshot(const QVariantMap &snapshot) {
         }
         summary << tr("形成依据：保存时冻结的输入按优先级重放——%1")
                        .arg(parts.isEmpty() ? tr("全部像元无有效输入") : parts.join(tr("、")));
+        const auto fidelity = attribution.value("fidelity").toString();
+        if (fidelity == QLatin1String("exact")) {
+          summary << tr("重放与成果网格逐像元同口径");
+        } else if (fidelity == QLatin1String("approximate")) {
+          QStringList reasons;
+          for (const auto &r : attribution.value("fidelity_reasons").toList())
+            reasons << r.toString();
+          summary << tr("近似重放：%1").arg(reasons.join(tr("；")));
+        }
         if (attribution.contains("consistent_fraction"))
           summary << tr("重放分布与图斑相编码一致率 %1%（平滑聚合可能吸收少数像元）")
                       .arg(qRound(attribution.value("consistent_fraction").toDouble() * 100));
@@ -1427,6 +1436,20 @@ void MappingWorkbenchPage::renderEvidenceSnapshot(const QVariantMap &snapshot) {
                   .arg(input.value("decision").toString())
                   .arg(input.value("cells").toLongLong())
                   .arg(qRound(input.value("fraction").toDouble() * 100));
+      const auto alignment = input.value("alignment").toString();
+      if (!alignment.isEmpty()) {
+        line << (alignment == QLatin1String("grid_defining")
+                     ? tr("网格同口径")
+                     : alignment == QLatin1String("aligned")
+                           ? tr("网格对齐")
+                           : alignment == QLatin1String("resampled")
+                                 ? tr("重采样近似")
+                                 : alignment == QLatin1String("sampled_fallback")
+                                       ? tr("逐点取样")
+                                       : alignment == QLatin1String("categorical_nearest")
+                                             ? tr("相点最近邻")
+                                             : alignment);
+      }
       if (input.contains("value_min"))
         line << tr("值域 %1–%2")
                     .arg(input.value("value_min").toDouble(), 0, 'f', 1)

@@ -216,6 +216,13 @@ bool MappingWorkbench::commitCompose(ComposeJob &job, QString *error) {
   QVariantMap composeReceipt{{"inputs", receiptRows},
                              {"decided_cells", QVariant::fromValue(job.receipt.decidedCells)},
                              {"total_cells", QVariant::fromValue(job.receipt.totalCells)}};
+  // X2：冻结编图网格——点输入 compose 无栅格定网格，重放必须按保存时
+  // 网格逐像元复现；缺此记录的历史成果才退回按规则重建。
+  const QVariantMap composeGrid{
+      {"cols", job.receipt.cols},
+      {"rows", job.receipt.rows},
+      {"extent", QVariantList{job.receipt.xMin, job.receipt.yMin,
+                              job.receipt.xMax, job.receipt.yMax}}};
   job.productId = record(
       job.outputPath, job.horizon, "composed_facies",
       tr("%1 综合相图").arg(job.horizon), "raster", job.parents,
@@ -226,6 +233,7 @@ bool MappingWorkbench::commitCompose(ComposeJob &job, QString *error) {
        {"ordered_inputs", job.params.value("ordered_inputs")},
        {"algorithm_parameters", job.params},
        {"compose_receipts", composeReceipt},
+       {"compose_grid", composeGrid},
        {"crs", job.params.value("crs")},
        {"thresholds", job.params.value("thresholds")},
        {"facies", job.facies}},

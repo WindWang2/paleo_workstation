@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <qgsexpression.h>
 #include <qgsfeatureiterator.h>
 #include <qgsfeaturerequest.h>
 #include <qgsgeometry.h>
@@ -36,73 +37,6 @@ constexpr int kImpactMaxProducts = 64;
 void fail(QString *error, const QString &text) {
   if (error)
     *error = text;
-}
-
-// 从 composed 版本构造冻结输入列表；substitute 提供 versionId→新版本替换
-// （影响分析注入变化后的版本）。复用 MappingWorkbench 的私有采样图层缓存。
-struct FrozenCompose {
-  QString composedVersionId, horizon;
-  QVariantList facies;
-  QList<double> thresholds;
-  QList<paleo::attribution::ResolvedInput> inputs;
-  QStringList unresolved;
-};
-
-bool resolveFrozenCompose(const DataCatalog *catalog, const QString &projectDir,
-                          const QString &composedVersionId,
-                          const QHash<QString, QString> &substitute,
-                          const std::function<QgsMapLayer *(const QString &)> &opener,
-                          FrozenCompose *out) {
-  const auto composed = catalog->versionById(composedVersionId);
-  out->composedVersionId = composedVersionId;
-  out->horizon = composed.extra.value("horizon").toString();
-  out->facies = composed.extra.value("facies").toList();
-  for (const auto &t : composed.extra.value("thresholds").toList())
-    out->thresholds << t.toDouble();
-  const auto ordered = composed.extra.value("ordered_inputs").toList();
-  if (ordered.isEmpty()) {
-    out->unresolved << QStringLiteral("成果缺少 ordered_inputs 冻结记录，无法重放");
-    return false;
-  }
-  for (const auto &entryValue : ordered) {
-    const auto entry = entryValue.toMap();
-    paleo::attribution::ResolvedInput input;
-    input.layerId = entry.value("layer_id").toString();
-    input.versionId = entry.value("version_id").toString();
-    input.priority = entry.value("priority").toInt();
-    const auto effective = substitute.value(input.versionId, input.versionId);
-    const auto v = catalog->versionById(effective);
-    input.title = v.extra.value("title").toString();
-    input.assetId = v.assetId;
-    const auto kind = v.extra.value("kind").toString();
-    const auto valueSource = v.extra.value("value_source").toString();
-    input.continuous =
-        input.layerId.startsWith(QLatin1String("factor.")) ||
-        v.extra.contains("factor_id") ||
-        paleo::singlefactor::isAnalysisFactorRaster(kind, valueSource);
-    if (v.id.isEmpty()) {
-      input.missing = true;
-      input.missingReason = QStringLiteral("版本 %1 不在目录中").arg(effective);
-    } else {
-      const auto path = DataCatalog::resolvedVersionPath(
-                            projectDir, v) +
-                        v.extra.value("source_suffix").toString();
-      if (path.isEmpty() || !QFileInfo::exists(path.section('|', 0, 0))) {
-        input.missing = true;
-        input.missingReason = QStringLiteral("版本 %1 的冻结文件缺失").arg(effective);
-      } else {
-        input.layer = opener ? opener(effective) : nullptr;
-        if (!input.layer) {
-          input.missing = true;
-          input.missingReason = QStringLiteral("版本 %1 无法打开").arg(effective);
-        }
-      }
-    }
-    if (input.missing)
-      out->unresolved << input.missingReason;
-    out->inputs << input;
-  }
-  return out->unresolved.isEmpty();
 }
 
 // 像元级 diff：同一网格上重放两次，返回变化像元与范围。
@@ -256,9 +190,8 @@ QVariantMap MappingWorkbench::analyzeImpact(const QVariantMap &change,
     }
     FrozenCompose frozen, substituted;
     const QHash<QString, QString> sub{{before, after}};
-    const auto opener = [this](const QString &id) { return attributionLayer(id); };
-    const bool baseOk = resolveFrozenCompose(m_catalog, m_dir, vid, {}, opener, &frozen);
-    const bool subOk = resolveFrozenCompose(m_catalog, m_dir, vid, sub, opener, &substituted);
+    const bool baseOk = resolveFrozenCompose(vid, {}, &frozen);
+    const bool subOk = resolveFrozenCompose(vid, sub, &substituted);
     if (!baseOk || !subOk) {
       unresolvedOut << QVariantMap{{"version_id", vid},
                                    {"reason", frozen.unresolved + substituted.unresolved}};
@@ -267,10 +200,11 @@ QVariantMap MappingWorkbench::analyzeImpact(const QVariantMap &change,
       continue;
     }
     const auto beforeGrid = paleo::attribution::replayGrid(
-        frozen.inputs, frozen.facies, frozen.thresholds, kImpactMaxGridCells);
+        frozen.inputs, frozen.facies, frozen.thresholds, kImpactMaxGridCells,
+        frozen.grid);
     const auto afterGrid = paleo::attribution::replayGrid(
         substituted.inputs, substituted.facies, substituted.thresholds,
-        kImpactMaxGridCells);
+        kImpactMaxGridCells, substituted.grid);
     const auto diff = diffGrids(beforeGrid, afterGrid);
     if (!diff.valid) {
       unresolvedOut << QVariantMap{{"version_id", vid},
@@ -299,8 +233,8 @@ QVariantMap MappingWorkbench::analyzeImpact(const QVariantMap &change,
         if (cv.extra.value("kind").toString() != QLatin1String("facies_polygons") ||
             !cv.parentVersionIds.contains(vid))
           continue;
-        auto *layer = qobject_cast<QgsVectorLayer *>(
-            attributionLayer(child));
+        const auto childHold = attributionLayer(child);
+        auto *layer = qobject_cast<QgsVectorLayer *>(childHold.get());
         if (!layer) {
           unresolvedOut << QVariantMap{{"version_id", child},
                                        {"reason", tr("相面版本无法打开，图斑归属不可用")}};
@@ -431,12 +365,13 @@ QVariantMap MappingWorkbench::recomputePlan(const QVariantMap &impactResult,
         const auto cv = m_catalog->versionById(child);
         if (cv.extra.value("kind").toString() != QLatin1String("facies_polygons"))
           continue;
-        auto *layer = qobject_cast<QgsVectorLayer *>(attributionLayer(child));
+        const auto childHold = attributionLayer(child);
+        auto *layer = qobject_cast<QgsVectorLayer *>(childHold.get());
         if (!layer)
           continue;
         QgsFeatureRequest request;
-        request.setFilterExpression(
-            QStringLiteral("paleo_feature_uid = '%1'").arg(uid));
+        request.setFilterExpression(QgsExpression::createFieldEqualityExpression(
+            QStringLiteral("paleo_feature_uid"), uid));
         request.setLimit(2);
         QgsFeature f;
         auto it = layer->getFeatures(request);
@@ -559,8 +494,10 @@ QVariantMap MappingWorkbench::compareVersions(const QString &oldVersionId,
     fail(error, tr("目录未绑定"));
     return {};
   }
-  auto *before = qobject_cast<QgsRasterLayer *>(attributionLayer(oldVersionId));
-  auto *after = qobject_cast<QgsRasterLayer *>(attributionLayer(newVersionId));
+  const auto beforeHold = attributionLayer(oldVersionId);
+  const auto afterHold = attributionLayer(newVersionId);
+  auto *before = qobject_cast<QgsRasterLayer *>(beforeHold.get());
+  auto *after = qobject_cast<QgsRasterLayer *>(afterHold.get());
   if (!before || !after) {
     fail(error, tr("对比需要两个可读的栅格成果版本"));
     return {};
@@ -620,7 +557,8 @@ QVariantMap MappingWorkbench::compareVersions(const QString &oldVersionId,
     for (const auto &cv : m_catalog->downstreamClosure(versionId)) {
       if (cv.extra.value("kind").toString() != QLatin1String("facies_polygons"))
         continue;
-      auto *layer = qobject_cast<QgsVectorLayer *>(attributionLayer(cv.id));
+      const auto hold = attributionLayer(cv.id);
+      auto *layer = qobject_cast<QgsVectorLayer *>(hold.get());
       return layer ? int(layer->featureCount()) : -1;
     }
     return -1;

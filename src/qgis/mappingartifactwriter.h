@@ -17,6 +17,10 @@ struct ComposeReceipt {
   QList<qint64> winningCells;
   qint64 decidedCells = 0;
   qint64 totalCells = 0;
+  // 融合网格钉版（X2）：重放必须按同一网格取样；存标量避免头文件依赖
+  // QgsRectangle。
+  double xMin = 0, yMin = 0, xMax = 0, yMax = 0;
+  int cols = 0, rows = 0;
 };
 void restoreRasterCrs(QgsMapLayer *layer);
 bool composeRaster(const QString &path, const QList<QgsMapLayer *> &layers,

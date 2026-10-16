@@ -5,6 +5,7 @@
 #include "../catalog/datacatalog.h"
 #include "../io/lasdoc.h"
 #include "../metadata/layermanifest.h"
+#include "../qgis/composeattribution.h"
 #include "../qgis/mappingartifactwriter.h"
 #include "../services/evidenceindex.h"
 #include "derivedassets.h"
@@ -28,6 +29,18 @@ class WellPredictionService;
 namespace paleo::jobs {
 template <class JobT> class JobRunner;
 }
+
+// X16 统一冻结输入解析结果：三处旧实现（composeAttribution / At / impact）
+// 已合一，口径见 resolveFrozenCompose。unresolved 为 {layer_id,version_id,
+// reason} 列表；inputs 带保活句柄，持有一整次重放/对比期间缓存不驱逐。
+struct FrozenCompose {
+  QString composedVersionId, horizon;
+  QVariantList facies;
+  QList<double> thresholds;
+  paleo::attribution::FrozenGrid grid;
+  QList<paleo::attribution::ResolvedInput> inputs;
+  QVariantList unresolved;
+};
 
 // One project-bound catalog writer; all QGIS/catalog mutations run on its GUI
 // thread.
@@ -226,7 +239,14 @@ private:
   // 找不到返回空 id（纯人工图斑走 manual 语义）。
   QString composedAncestorVersion(const QString &layerId) const;
   // 冻结输入版本 → 独立打开的采样图层（有界 LRU；随目录上下文重置）。
-  QgsMapLayer *attributionLayer(const QString &versionId) const;
+  // 返回 shared_ptr 保活：LRU 驱逐只丢缓存引用，调用方持有的句柄仍有效
+  //（X1：旧裸指针 + QHash 任意驱逐会在一次操作中途悬垂）。
+  std::shared_ptr<QgsMapLayer> attributionLayer(const QString &versionId) const;
+  // 统一冻结输入解析（X16）：substitute 提供 versionId→新版本替换（影响
+  // 分析注入变化后的版本）。填充 grid/inputs/unresolved；返回是否全部可解。
+  bool resolveFrozenCompose(const QString &composedVersionId,
+                            const QHash<QString, QString> &substitute,
+                            FrozenCompose *out) const;
   void connectPredictionService(RemotePredictionService *service);
   void publishFactorAlias(const QString &horizon, const QString &id);
   void synchronizeCatalogLayers();
@@ -332,8 +352,10 @@ private:
   mutable QHash<QString, CatalogVersion> m_aliasVersions, m_pathVersions;
   // Owner-thread QGIS adapters; bounded and reset with the catalog context.
   mutable QHash<QString, QPointer<QObject>> m_evidenceSpatialAdapters;
-  // 冻结输入版本的采样图层（图斑归因用；有界，bindCatalog 重置）。
-  mutable QHash<QString, QPointer<QgsMapLayer>> m_attributionLayers;
+  // 冻结输入版本的采样图层（图斑归因用；有界 LRU，bindCatalog 重置）。
+  // 缓存只占一份引用；重放期间的有效期由 ResolvedInput::hold 保证。
+  mutable QHash<QString, std::shared_ptr<QgsMapLayer>> m_attributionLayers;
+  mutable QStringList m_attributionLru;
   // G08 反向检索索引（可重建 sidecar；bindCatalog 重置）。
   std::unique_ptr<paleo::evidenceindex::Index> m_evidenceIndex;
   mutable QVariantList m_productsCache;

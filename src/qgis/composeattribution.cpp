@@ -67,8 +67,14 @@ GridInfo gridOf(const QList<ResolvedInput> &inputs, const FrozenGrid &frozen,
   }
   out.source = QStringLiteral("reconstructed");
   // 与 composeRaster 逐分支镜像：首个声明为栅格的输入定网格——缺失/打不开
-  // 时不能跳过取下一个栅格（那会换一张网格，静默失真）。
+  // 时不能跳过取下一个栅格（那会换一张网格，静默失真）。排在定网格栅格
+  // 之前的已从目录删除输入类型不可知（它可能就是定网格栅格），同样不能重建。
   for (const auto &input : inputs) {
+    if (input.catalogMissing) {
+      out.reason = QStringLiteral("冻结网格无法重建：输入 %1 类型未知（已从目录删除）")
+                       .arg(input.layerId);
+      return out;
+    }
     if (!input.raster)
       continue;
     auto *r = (input.missing || !input.layer)

@@ -31,7 +31,12 @@ public:
   QString selectedLayer() const;
   void setEvidenceSnapshot(const QVariantMap &snapshot);
   // G08：主窗口执行反查命令后回填结果（双击行复用 evidenceActivated 定位）。
-  void setReverseResults(const QVariantList &rows, const QString &error = {});
+  // meta 携带索引新鲜度（index_state / index_error / total / shown）。
+  void setReverseResults(const QVariantList &rows, const QString &error = {},
+                         const QVariantMap &meta = {});
+  // X9：索引后台同步完成后自动重发最近一次反查（仅存 kind+argument，
+  // 不重新读控件——避免层位/输入变化把查询口径悄悄换掉）。
+  void reissueReverseQuery();
 signals:
   void commandRequested(const QString &action, const QVariantMap &parameters);
   void targetLayerChanged(const QString &layerId);
@@ -85,6 +90,7 @@ private:
   QComboBox *m_reverseKind = nullptr;
   QLineEdit *m_reverseText = nullptr;
   QListWidget *m_reverseResults = nullptr;
+  QString m_lastReverseKind, m_lastReverseArgument; // 最近一次反查（同步完自动重发）
   QVariantMap m_evidenceSnapshot;
   bool m_evidenceSnapshotOwned = false;
   int m_historyPage = 0;

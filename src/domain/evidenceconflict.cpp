@@ -364,6 +364,10 @@ QList<Opinion> opinionsFromAttribution(const QVariantMap &attribution) {
   if (attribution.value("status").toString() == QLatin1String("manual")) return out;
   for (const auto &value : attribution.value("inputs").toList()) {
     const auto input = value.toMap();
+    // 重放会列出赢了 0 像元的输入（P0-A 起为展示对齐口径）：未参与本图斑
+    // 决策，不应成为 known=false 的意见来源。
+    if (input.value("cells").toLongLong() <= 0)
+      continue;
     Opinion opinion;
     opinion.sourceKind = QStringLiteral("single_factor");
     const QString title = input.value("title").toString();

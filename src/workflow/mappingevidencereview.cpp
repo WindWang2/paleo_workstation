@@ -359,6 +359,7 @@ bool MappingWorkbench::resolveFrozenCompose(
                        paleo::singlefactor::isAnalysisFactorRaster(kind, valueSource);
     if (v.id.isEmpty()) {
       input.missing = true;
+      input.catalogMissing = true;
       input.missingReason = tr("输入版本 %1 已从目录删除").arg(effective);
     } else {
       const auto path = DataCatalog::resolvedVersionPath(m_dir, v) +

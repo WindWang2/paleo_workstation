@@ -279,6 +279,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
     // （生成新版本，绝不覆盖历史）。
     layout->addWidget(button("impactAnalysis", tr("分析所选输入的版本变化影响")));
     layout->addWidget(button("recompute", tr("按最近影响报告受控重算")));
+    layout->addWidget(button("compareRecompute", tr("对比重算成果与旧版本")));
   }
   m_inputHint = label(QString());
   m_inputHint->setObjectName("workbenchInputHint");
@@ -746,6 +747,8 @@ void MappingWorkbenchPage::setHorizon(const QString &h) {
   m_evidenceSnapshotOwned = false; m_evidenceSnapshot.clear();
   // 层位切换后反查结果属于旧层位上下文——清空，避免双击定位错层。
   if (m_reverseResults) m_reverseResults->clear();
+  m_lastReverseKind.clear();
+  m_lastReverseArgument.clear();
   if (m_horizonFile) m_horizonFile->clear();
   showMessage(QString());
   refresh();
@@ -1109,6 +1112,9 @@ void MappingWorkbenchPage::updateState() {
        tr("请选择矢量相面或测井相点图"));
   gate("show", selected, tr("请先选择图件"));
   gate("compare", selected, tr("请先选择图件"));
+  gate("compareRecompute",
+       selected,
+       tr("请选择受控重算产生的成果（或其相面）；与普通版本对比的像元级差异"));
   gate("catalog",
        !row.value("asset_id").toString().isEmpty() &&
            !row.value("version_id").toString().isEmpty(),
@@ -1177,6 +1183,8 @@ void MappingWorkbenchPage::issue(const QString &action, QVariantMap p) {
                                         : QVariant(manual));
     } else
       p.insert("reverse_argument", m_horizon);
+    m_lastReverseKind = kind;
+    m_lastReverseArgument = p.value("reverse_argument").toString();
   }
   if (action == "locateEvidence") {
     const auto source = m_evidence->currentItem() ? m_evidence->currentItem()->data(Qt::UserRole + 1).toMap()
@@ -1288,11 +1296,41 @@ void MappingWorkbenchPage::setEvidenceSnapshot(const QVariantMap &snapshot) {
   m_evidenceSnapshot = snapshot;
   updateState();
 }
+void MappingWorkbenchPage::reissueReverseQuery() {
+  if (m_lastReverseKind.isEmpty())
+    return;
+  emit commandRequested(
+      QStringLiteral("reverseQuery"),
+      {{QStringLiteral("reverse_kind"), m_lastReverseKind},
+       {QStringLiteral("reverse_argument"), m_lastReverseArgument}});
+}
+
 void MappingWorkbenchPage::setReverseResults(const QVariantList &rows,
-                                            const QString &error) {
+                                            const QString &error,
+                                            const QVariantMap &meta) {
   if (!m_reverseResults)
     return;
   m_reverseResults->clear();
+  // 索引新鲜度一行如实说明：同步中/落后/失败都不静默冒充最新结果。
+  const auto state = meta.value("index_state").toString();
+  QString metaLine;
+  if (state == QLatin1String("syncing"))
+    metaLine = tr("索引状态：后台同步中，结果为已入库部分");
+  else if (state == QLatin1String("stale"))
+    metaLine = tr("索引状态：落后最新变更，已在后台发起同步");
+  else if (state == QLatin1String("error"))
+    metaLine = tr("索引状态：同步失败：%1")
+                   .arg(meta.value("index_error").toString());
+  else if (state == QLatin1String("fresh"))
+    metaLine = tr("索引状态：已是最新");
+  if (!metaLine.isEmpty() && meta.contains("total"))
+    metaLine += tr("；共 %1 条，显示 %2 条")
+                    .arg(meta.value("total").toInt())
+                    .arg(meta.value("shown").toInt());
+  if (!metaLine.isEmpty()) {
+    auto *item = new QListWidgetItem(metaLine, m_reverseResults);
+    item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
+  }
   if (!error.isEmpty()) {
     auto *item = new QListWidgetItem(error, m_reverseResults);
     item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
@@ -1300,9 +1338,18 @@ void MappingWorkbenchPage::setReverseResults(const QVariantList &rows,
   }
   for (const auto &value : rows.mid(0, 200)) {
     const auto row = value.toMap();
+    // 断链历史行与旧版本行加前缀标记——它们可检索但不是有效当前关联。
+    const QString marker =
+        (row.value("relation_state").toString() == QLatin1String("history") ||
+         row.value("unlinked").toBool())
+            ? tr("[历史关联] ")
+            : !row.value("is_current_version", true).toBool()
+                  ? tr("[旧版本] ")
+                  : QString();
     auto *item = new QListWidgetItem(
-        tr("%1 · %2%3\n%4")
-            .arg(row.value("horizon").toString().isEmpty()
+        tr("%1%2 · %3%4\n%5")
+            .arg(marker,
+                 row.value("horizon").toString().isEmpty()
                      ? tr("未知层位")
                      : row.value("horizon").toString(),
                  row.value("review_state").toString().isEmpty()
@@ -1314,10 +1361,11 @@ void MappingWorkbenchPage::setReverseResults(const QVariantList &rows,
                  row.value("text").toString()),
         m_reverseResults);
     item->setData(Qt::UserRole, row);
-    item->setToolTip(tr("双击定位图斑（层位 %1，版本 %2…）\n来源：%3")
+    item->setToolTip(tr("双击定位图斑（层位 %1，版本 %2…）\n来源：%3\n%4")
                          .arg(row.value("horizon").toString(),
                               row.value("version_id").toString().left(8),
-                              row.value("evidence_id").toString()));
+                              row.value("evidence_id").toString(),
+                              row.value("hit_reason").toString()));
   }
   if (rows.isEmpty())
     new QListWidgetItem(tr("无匹配结果（索引随成果保存增量更新）"), m_reverseResults);

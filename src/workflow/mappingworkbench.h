@@ -187,16 +187,31 @@ public:
   // compareVersions：新旧成果版本对比（G09 验收）——栅格像元级 diff（变化
   //   像元数/相编码转移矩阵）+ 相面统计；几何匹配按像元中心归属做 best-effort
   //   并如实标注方法。返回 {method, cells_changed, total_cells, code_matrix,
-  //   polygon_counts:{before,after}, note}。
+  //   polygon_counts:{before,after}, note}。坐标系不同的版本拒绝像元级对比。
   QVariantMap compareVersions(const QString &oldVersionId, const QString &newVersionId,
                               QString *error);
+  // X13：从视图迁入的版本影响入口——所选图件为变化后版本，同资产的上一版
+  // 为变化前；单一版本如实报错。
+  QVariantMap analyzeLayerVersionImpact(const QString &layerId,
+                                        const QString &horizon, QString *error);
+  // X13：受控重算产物与它所替代的旧版本做像元级对比（recompute_provenance.
+  // recompute_of）。非重算产物如实报错。报告 JSON 落 artifacts/reports/，
+  // 返回 map 带 report_path。
+  QVariantMap compareWithRecomputeSource(const QString &layerId, QString *error);
   // G08/G12 证据反向检索：name ∈ {"pending_review","contradicted",
   // "references_source","stale_sources","search"}；argument = 层位 / 来源版本
-  // id / 检索词。首次调用按需增量同步反向索引（可重建检索结构，原始证据
-  // 仍以 GPKG 属性为唯一事实源）。返回行 {layer_id,feature_uid,version_id,
-  // horizon,evidence_id,review_state,role,text...}，有界 200。
+  // id / 检索词。索引同步在有任务服务时走后台（startEvidenceIndexSync），
+  // 查询永远直接打现有索引文件并按 meta 如实上报新鲜度：
+  // meta = {index_state:"fresh"|"syncing"|"stale"|"error", index_error,
+  //         total, shown}。行新增 unlinked / relation_state（active|history）/
+  // is_current_version / hit_reason。原始证据仍以 GPKG 属性为唯一事实源。
   QVariantList evidenceReverseQuery(const QString &name, const QString &argument,
-                                    QString *error);
+                                    QString *error, QVariantMap *meta = nullptr);
+  // X9：后台证据索引同步。任务服务在场 → JobRunner 异步（worker 线程内建用
+  // 销独立 QSQLITE 连接，不跨线程复用）；无任务服务 → 同一代码路径在当前
+  // 线程同步执行（测试壳/shell）。同步完成的版本修订记在
+  // m_evidenceIndexSyncedRevision，与 catalogRevision() 对账得出索引新鲜度。
+  bool startEvidenceIndexSync(QString *error);
   QString localOperator() const;
   bool changeEvidence(const QString &id, const QList<qint64> &ids,
                       const QString &action, const QVariantMap &parameters,
@@ -229,6 +244,8 @@ signals:
   void polygonizeFinished(const QString &sourceLayerId,
                           const QString &productId, const QString &error,
                           bool cancelled);
+  // 证据索引后台同步终态（state 含 index_state/index_error/stats）。
+  void evidenceIndexSynced(const QVariantMap &state);
   void errorOccurred(const QString &message);
 
 private:
@@ -310,6 +327,23 @@ public:
   bool commitPolygonize(PolygonizeJob &job, QString *error);
 
 private:
+  // 证据索引后台同步作业快照（纯数据；compute 在 worker 线程用本地 Index）。
+  struct IndexSyncJob {
+    QString dir;
+    QVector<CatalogVersion> versions;
+    int revision = 0;              // 快照时的 catalogRevision
+    QPointer<DataCatalog> catalog; // commit 时校验工程未切换
+    QString error;
+    int changed = -1;
+    QVariantMap stats;
+  };
+  // 三段式各段：compute 在 worker 线程建用销本地 Index；commit 在 GUI 线程
+  // 校验工程未切换后登记修订并 emit evidenceIndexSynced。静态 + 成员，供
+  // 无任务服务时的同步内联路径与 JobRunner 回调共用同一实现。
+  static bool computeIndexSync(
+      IndexSyncJob &job, const std::function<bool()> &cancel,
+      const std::function<void(double, const QString &)> &progress);
+  bool commitIndexSync(IndexSyncJob &job, QString *error);
   QVariantMap consistencyImpl(const QString &layerId, QString *error,
                               const QString &counterpartId, bool background);
   void finishPrediction(const RemotePredictionResult &result);
@@ -356,7 +390,14 @@ private:
   // 缓存只占一份引用；重放期间的有效期由 ResolvedInput::hold 保证。
   mutable QHash<QString, std::shared_ptr<QgsMapLayer>> m_attributionLayers;
   mutable QStringList m_attributionLru;
-  // G08 反向检索索引（可重建 sidecar；bindCatalog 重置）。
+  // G08 反向检索索引（可重建 sidecar；bindCatalog 重置）。GUI 侧只读
+  // 连接；写由 IndexSyncJob 在 worker 线程的独立连接完成（WAL 共存）。
   std::unique_ptr<paleo::evidenceindex::Index> m_evidenceIndex;
+  std::unique_ptr<paleo::jobs::JobRunner<IndexSyncJob>> m_indexSyncRunner;
+  // 已同步覆盖的目录修订 / 最近一次失败（或取消）的修订与错误。
+  int m_evidenceIndexSyncedRevision = -1;
+  int m_evidenceIndexAttemptedRevision = -1;
+  QString m_evidenceIndexSyncError;
+  QVariantMap m_evidenceIndexStats;
   mutable QVariantList m_productsCache;
 };

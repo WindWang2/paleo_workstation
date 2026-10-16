@@ -28,6 +28,9 @@ struct ResolvedInput {
   // 版本元数据声明为栅格（layer_type=raster 或冻结路径 .tif/.tiff）——
   // 与图层是否成功打开无关：网格重建按声明口径走，文件缺失时该位仍已知。
   bool raster = false;
+  // 版本已从目录删除（连声明类型都不可知）：网格重建遇到它必须放弃——
+  // 它可能就是当时的定网格栅格，跳过会静默换网格。
+  bool catalogMissing = false;
   QgsMapLayer *layer = nullptr;
   // 缓存图层的保活句柄：整个重放期间持有，防止采样图层缓存驱逐在用图层。
   std::shared_ptr<QgsMapLayer> hold;

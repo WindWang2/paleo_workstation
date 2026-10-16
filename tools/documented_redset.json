@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "doc": "master 文档化红项登记（#475 分诊通道）：issue/TODOS 已记录、但 CI 结构性看不见的红项在此登记为带 owner/reason/review_due 的条目。消费方 tools/check_env_redset.py：--validate 钉结构 + 测试名已注册；结果分类时命中名单的红以 DOCUMENTED 呈现（已知债，不与偶发墙钟抖动混在同一条非阻断通道），摘要行输出「文档化红项 N 条」。与 env_redset.json 的分工：env_redset 管「环境债豁免放行」（带 expect_fail 断言口径）；本名单管「文档化分诊」（红就是红，只是登记在案、可追踪复审），不承担放行职责以外的任何豁免。复审纪律：review_due 过期会在检查输出中提示；到期未修要么续期（改 review_due 并在 reason 补一轮证据）要么转正式修复。",
+  "categories": {
+    "golden-tolerance": "黄金图像素比对超容差（功能回归候选，非墙钟抖动）",
+    "perf-budget": "墙钟/比率预算超限（依赖宿主算力，阈值不动）"
+  },
+  "entries": [
+    {"test": "tst_wellcomposite_visual", "category": "golden-tolerance", "status": "documented",
+     "owner": "WindWang2",
+     "reason": "testGoldenImageSampling 17/48 抽样点超容差（门限 4）；3b22a9c 全量基线已在重构前出现，需单独定位——golden 渲染超容差本质是功能回归候选，与墙钟抖动不同类",
+     "evidence": "TODOS.md P2「master 验证红项对账（2026-10-03 去重审查）」；tests/tst_wellcomposite_visual.cpp:533；#475",
+     "review_due": "2027-01-16"},
+    {"test": "tst_cache_las", "category": "perf-budget", "status": "documented",
+     "owner": "WindWang2",
+     "reason": "secondOpenUnder5ms 磁盘命中耗时 <0.5×冷解析的比率门未满足；env_redset.json 已按 localdeps 路线豁免（预算断言口径见彼处 expect_fail），本条覆盖其余路线出现同类红时的分诊",
+     "evidence": "TODOS.md P2「master 验证红项对账」；tests/tst_cache_las.cpp:75；#475",
+     "review_due": "2027-01-16"},
+    {"test": "tst_singlefactor_perf", "category": "perf-budget", "status": "documented",
+     "owner": "WindWang2",
+     "reason": "proposedBudgets 的 L 中位数超 15000ms（master 隔离复跑 20089ms）；依赖宿主算力，env_redset.json 已按 localdeps 路线豁免，本条覆盖其余路线出现同类红时的分诊",
+     "evidence": "TODOS.md P2「master 验证红项对账」；tests/tst_singlefactor_perf.cpp:213；#475",
+     "review_due": "2027-01-16"}
+  ]
+}

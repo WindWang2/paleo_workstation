@@ -400,23 +400,41 @@ switch ($Verb) {
       # 方向 81：环境债红名单（tools/env_redset.json）先分类——豁免项（只限
       # 名单 routes 内的路线、且每条 FAIL! 命中预算断言正则）放行；已修项再红
       # / 名单外红照旧走下面的直跑复核。检查器不可用时保持原逻辑（全量直跑）。
+      # #501：接 --strict——STALE（exempt 项本轮通过 → 名单可收缩）不再静默：
+      # 过渡档只警告（名单僵化提醒），PALEO_REDSET_STALE=strict 升红；STALE
+      # 不影响豁免红自身的放行（keep 集剔除 STALE 条目）。
       $py = if ($env:PALEO_PYTHON) { $env:PALEO_PYTHON } else { 'python' }
       $unexpectedFile = Join-Path $Build 'Testing/env-redset-unexpected.txt'
       Remove-Item $unexpectedFile -Force -ErrorAction SilentlyContinue
       $redsetExit = 1
+      $redsetText = @()
       try {
-        & $py (Join-Path $Root 'tools/check_env_redset.py') --build $Build --junit $junit `
-          --route $script:DepsRoute --emit-unexpected $unexpectedFile 2>&1 | Tee-Object -FilePath $log -Append
+        $redsetText = @(& $py (Join-Path $Root 'tools/check_env_redset.py') --build $Build --junit $junit `
+          --route $script:DepsRoute --strict --emit-unexpected $unexpectedFile 2>&1)
+        $redsetText | Tee-Object -FilePath $log -Append
         $redsetExit = $LASTEXITCODE
       } catch { "  (env_redset 检查器不可用：$_)" | Tee-Object -FilePath $log -Append }
+      $staleNames = @($redsetText | Where-Object { $_ -match '^STALE\s+(\S+):' } |
+        ForEach-Object { $Matches[1] })
+      if ($staleNames.Count -gt 0) {
+        if ($env:PALEO_REDSET_STALE -eq 'strict') {
+          throw "env_redset STALE: $($staleNames -join ', ') 本轮通过——名单该收缩（#501 strict 档）"
+        }
+        Write-Warning "env_redset STALE: $($staleNames -join ', ') 本轮通过，名单可收缩（过渡档只警告；PALEO_REDSET_STALE=strict 升红）"
+      }
       # 即使 Python 检查器不可用，已修项的首轮红也不能被直跑绿掩盖。
       Assert-NoEnvDebtRegression $names (Join-Path $Root 'tools/env_redset.json')
       if (Test-Path $unexpectedFile) {
-        if ($redsetExit -eq 0) { Write-Host '  env_redset: 全部红均为名单内豁免——放行'; return }
-        $keep = @(Get-Content $unexpectedFile | Where-Object { $_ })
-        if ($keep.Count -gt 0) { $names = @($names | Where-Object { $keep -contains $_ }) }
+        # --strict 会把 STALE 条目也写进不放行文件：STALE 项本轮是通过的
+        #（不在 $names 里），从 keep 集剔除后不改变豁免红的放行语义。
+        $keep = @(Get-Content $unexpectedFile | Where-Object { $_ -and $staleNames -notcontains $_ })
+        if ($keep.Count -eq 0) {
+          Write-Host '  env_redset: 全部红均为名单内豁免——放行'; return
+        }
+        $names = @($names | Where-Object { $keep -contains $_ })
       }
       $rerunFailed = $false
+      $rerunPassed = @()
       $unhandled = $names.Count -eq 0
       foreach ($n in $names) {
         # 有些 ctest 项不是可执行文件（layering 是 python 脚本）；未处理的
@@ -453,13 +471,29 @@ switch ($Verb) {
           Pop-Location
           foreach ($k in $saved.Keys) { [Environment]::SetEnvironmentVariable($k, $saved[$k], 'Process') }
         }
-        if ($rerunExit -ne 0) { $rerunFailed = $true }
+        if ($rerunExit -ne 0) { $rerunFailed = $true } else { $rerunPassed += $n }
         if (Test-Path $qtout) {
           Get-Content $qtout | Tee-Object -FilePath $log -Append
           Remove-Item $qtout -Force
         }
       }
       if ($rerunFailed -or $unhandled) { throw 'CTest failed' }
+      # #501：直跑放行记账（与 Linux tools/ci_ctest_gate.sh 同路径）——放行
+      # 不再无痕，累计命中由 tools/check_flaky_ledger.py 聚合点名。
+      if ($rerunPassed.Count -gt 0) {
+        $flakyLedger = Join-Path $Root 'tools/flaky-ledger.jsonl'
+        $utcNow = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+        foreach ($t in $rerunPassed) {
+          Add-Content -Path $flakyLedger -Encoding utf8 -Value (
+            '{"test":"{0}","utc":"{1}","event":"serial-rerun-pass","lane":"ps1-direct"}' -f $t, $utcNow)
+        }
+        Write-Warning "直跑放行 $($rerunPassed.Count) 项（已逐条记入 tools/flaky-ledger.jsonl；同一测试累计 ≥3 次将被点名）"
+        try {
+          $flakyArgs = @()
+          if ($env:PALEO_FLAKY_STRICT -eq '1') { $flakyArgs = @('--strict') }
+          & $py (Join-Path $Root 'tools/check_flaky_ledger.py') @flakyArgs
+        } catch { "  (flaky 台账检查器不可用：$_)" | Tee-Object -FilePath $log -Append }
+      }
     }
   }
   'selfcheck' {

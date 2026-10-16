@@ -1061,8 +1061,8 @@ QVariantList MappingWorkbench::evidenceReverseQuery(const QString &name,
       if (sv.id.isEmpty()) {
         reason = tr("来源版本已不在目录（检索时核验）");
       } else {
-        const QString file = DataCatalog::resolvedVersionPath(m_dir, sv) +
-            sv.extra.value(QStringLiteral("source_suffix")).toString()
+        const QString file = (DataCatalog::resolvedVersionPath(m_dir, sv) +
+            sv.extra.value(QStringLiteral("source_suffix")).toString())
                 .section(QLatin1Char('|'), 0, 0);
         if (file.isEmpty() || !QFileInfo::exists(file))
           reason = tr("来源版本文件已缺失（检索时核验）");

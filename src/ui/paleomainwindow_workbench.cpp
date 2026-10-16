@@ -127,6 +127,11 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
         if (page->isVisible()) evidence->setLayer(id);
       });
       connect(page, &MappingWorkbenchPage::evidenceActivated, evidence, [evidence](const QVariantMap &row) { evidence->navigate(row); });
+      // X10：反查命中行定位命中图斑本身（含旧版本），回退走研究目标栈。
+      connect(page, &MappingWorkbenchPage::reverseHitActivated, evidence, [evidence](const QVariantMap &row) { evidence->navigateFeature(row); });
+      connect(page, &MappingWorkbenchPage::evidenceBackRequested, evidence, [evidence] { evidence->back(); });
+      connect(evidence, &EvidenceInteraction::historyChanged, page, &MappingWorkbenchPage::setCanGoBack);
+      page->setCanGoBack(evidence->canGoBack());
       connect(page, &MappingWorkbenchPage::evidenceGraphRequested, this, [this](const QVariantMap &snapshot) {
         openDataGraph(snapshot.value("asset_id").toString(), snapshot.value("version_id").toString());
         if (auto *data = findChild<DataPage *>()) data->graphPage()->setFeatureEvidence(snapshot, true);

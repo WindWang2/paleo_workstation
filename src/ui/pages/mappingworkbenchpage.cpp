@@ -460,7 +460,9 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   m_reverseResults->setMaximumHeight(100);
   evidenceLayout->addWidget(m_reverseResults);
   connect(m_reverseResults, &QListWidget::itemActivated, this, [this](QListWidgetItem *item) {
-    emit evidenceActivated(item->data(Qt::UserRole).toMap());
+    // 反查命中行的主目标是图斑本身（layer/version/feature_uid），不是其
+    // 证据来源——走独立信号，由交互层 navigateFeature 定位。
+    emit reverseHitActivated(item->data(Qt::UserRole).toMap());
   });
   connect(m_generationEvidence, &QListWidget::currentRowChanged, this, [this] {
     if (auto *button = commandButton("locateEvidence")) button->setEnabled(m_generationEvidence->currentItem() || m_evidence->currentItem());
@@ -538,6 +540,15 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   auto *navigation = new QHBoxLayout;
   navigation->addWidget(button("locateEvidence", tr("定位证据来源")));
   navigation->addWidget(button("evidenceGraph", tr("查看局部证据图谱")));
+  m_evidenceBack = new QPushButton(tr("返回上一图斑"), evidenceGroup);
+  m_evidenceBack->setObjectName("evidenceBack");
+  m_evidenceBack->setAccessibleName(m_evidenceBack->text());
+  m_evidenceBack->setEnabled(false);
+  m_evidenceBack->setToolTip(
+      tr("返回反查或图谱导航之前选中的图斑（只回溯研究目标，不回溯来源高亮）"));
+  connect(m_evidenceBack, &QPushButton::clicked, this,
+          [this] { emit evidenceBackRequested(); });
+  navigation->addWidget(m_evidenceBack);
   evidenceLayout->addLayout(navigation);
   auto *useSource = new QPushButton(tr("将候选作为关联来源"), evidenceGroup);
   useSource->setObjectName("workbench.useEvidenceSource");
@@ -579,6 +590,17 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   m_attributionDetail->setReadOnly(true);
   m_attributionDetail->setAccessibleName(tr("计算归因详情"));
   attributionLayout->addWidget(m_attributionDetail);
+  // X14：可定位对象——图斑内井与带定位信息的冲突来源，双击复用证据导航。
+  attributionLayout->addWidget(new QLabel(tr("可定位对象"), attributionPage));
+  m_attributionTargets = new QListWidget(attributionPage);
+  m_attributionTargets->setObjectName("attributionTargets");
+  m_attributionTargets->setAccessibleName(tr("可定位对象"));
+  m_attributionTargets->setMaximumHeight(120);
+  connect(m_attributionTargets, &QListWidget::itemActivated, this,
+          [this](QListWidgetItem *item) {
+            emit evidenceActivated(item->data(Qt::UserRole).toMap());
+          });
+  attributionLayout->addWidget(m_attributionTargets);
   // #440：按键只刷新证据按钮使能，不在界面线程重算图斑证据。
   connect(m_evidenceReason, &QLineEdit::textChanged, this, [this] { refreshEvidenceCommandGates(); });
   connect(m_evidenceActor, &QLineEdit::textChanged, this, [this] { refreshEvidenceCommandGates(); });
@@ -1296,6 +1318,10 @@ void MappingWorkbenchPage::setEvidenceSnapshot(const QVariantMap &snapshot) {
   m_evidenceSnapshot = snapshot;
   updateState();
 }
+void MappingWorkbenchPage::setCanGoBack(bool canBack) {
+  if (m_evidenceBack)
+    m_evidenceBack->setEnabled(canBack);
+}
 void MappingWorkbenchPage::reissueReverseQuery() {
   if (m_lastReverseKind.isEmpty())
     return;
@@ -1564,6 +1590,58 @@ void MappingWorkbenchPage::renderEvidenceSnapshot(const QVariantMap &snapshot) {
                   .arg(seismic.toList().size());
     m_attributionDetail->setPlainText(
         detail.isEmpty() ? tr("暂无计算归因信息") : detail.join("\n"));
+    if (m_attributionTargets) {
+      m_attributionTargets->clear();
+      // 行数据按 EvidenceInteraction::navigate 的入参口径组织：井走实体坐标，
+      // 单因素冲突走来源版本。
+      if (snapshot.contains("wells_in_feature_unavailable")) {
+        auto *item = new QListWidgetItem(
+            snapshot.value("wells_in_feature_unavailable").toString(),
+            m_attributionTargets);
+        item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
+      }
+      for (const auto &value : wells.mid(0, 200)) {
+        const auto well = value.toMap();
+        auto *item = new QListWidgetItem(
+            tr("井 %1（%2, %3）")
+                .arg(well.value("well_name", well.value("entity_id")).toString())
+                .arg(well.value("x").toDouble(), 0, 'f', 0)
+                .arg(well.value("y").toDouble(), 0, 'f', 0),
+            m_attributionTargets);
+        item->setData(Qt::UserRole,
+                      QVariantMap{{"entity_id", well.value("entity_id")},
+                                  {"has_coordinates", true},
+                                  {"x", well.value("x")},
+                                  {"y", well.value("y")},
+                                  {"horizon", snapshot.value("horizon")}});
+        item->setToolTip(tr("双击定位井口"));
+      }
+      for (const auto &value : conflicts.mid(0, 200)) {
+        const auto finding = value.toMap();
+        const auto evidence = finding.value("evidence").toMap();
+        const auto locator = evidence.value("locator").toMap();
+        QVariantMap row;
+        if (!locator.value("entity_id").toString().isEmpty())
+          row = {{"entity_id", locator.value("entity_id")},
+                 {"has_coordinates", locator.value("has_coordinates", true)},
+                 {"x", locator.value("x")}, {"y", locator.value("y")},
+                 {"horizon", snapshot.value("horizon")}};
+        else if (!locator.value("version_id").toString().isEmpty())
+          row = {{"source_version", locator.value("version_id")},
+                 {"horizon", snapshot.value("horizon")}};
+        if (row.isEmpty())
+          continue;
+        auto *item = new QListWidgetItem(
+            tr("[%1] %2 · %3")
+                .arg(finding.value("severity").toString(),
+                     finding.value("conflict_type").toString(),
+                     evidence.value("label").toString()),
+            m_attributionTargets);
+        item->setData(Qt::UserRole, row);
+        item->setToolTip(tr("双击定位冲突来源：%1")
+                             .arg(finding.value("message").toString()));
+      }
+    }
   }
   const auto events = interpretation.value("history").toList();
   const int pages = qMax(1, (int(events.size()) + 49) / 50);

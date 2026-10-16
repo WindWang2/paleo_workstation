@@ -240,6 +240,11 @@ QVariantMap MappingWorkbench::featureEvidence(const QString &id, const QList<qin
                            .arg(well.value("y").toDouble(), 0, 'f', 0);
       opinion.faciesCode = well.value("formation_facies_code").toInt();
       opinion.known = opinion.faciesCode > 0;
+      // X14：冲突发现可定位到井口——实体身份与坐标随意见透传。
+      opinion.extra = QVariantMap{{"entity_id", well.value("entity_id")},
+                                  {"x", well.value("x")},
+                                  {"y", well.value("y")},
+                                  {"has_coordinates", true}};
       opinions << opinion;
     }
     out.insert("conflicts", paleo::evidenceconflict::analyze(

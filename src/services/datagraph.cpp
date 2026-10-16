@@ -194,6 +194,35 @@ QString assetKey(const QString &id) { return QStringLiteral("asset:") + id; }
 QString versionKey(const QString &id) {
   return QStringLiteral("version:") + id;
 }
+QString relationName(Relation relation) {
+  switch (relation) {
+  case Relation::Linked: return QStringLiteral("Linked");
+  case Relation::HasVersion: return QStringLiteral("HasVersion");
+  case Relation::Derived: return QStringLiteral("Derived");
+  case Relation::Used: return QStringLiteral("Used");
+  case Relation::Generated: return QStringLiteral("Generated");
+  case Relation::EditBaseline: return QStringLiteral("EditBaseline");
+  case Relation::Rollback: return QStringLiteral("Rollback");
+  case Relation::Grouped: return QStringLiteral("Grouped");
+  case Relation::Supported: return QStringLiteral("Supported");
+  case Relation::Contradicted: return QStringLiteral("Contradicted");
+  case Relation::Constrained: return QStringLiteral("Constrained");
+  case Relation::References: return QStringLiteral("References");
+  case Relation::Informs: return QStringLiteral("Informs");
+  case Relation::Materializes: return QStringLiteral("Materializes");
+  case Relation::ConsumedIn: return QStringLiteral("ConsumedIn");
+  case Relation::ReviewedBy: return QStringLiteral("ReviewedBy");
+  case Relation::Supersedes: return QStringLiteral("Supersedes");
+  }
+  return QStringLiteral("Linked");
+}
+QStringList edgesMissingProvenance(const Graph &graph) {
+  QStringList missing;
+  for (const Edge &edge : graph.edges)
+    if (edge.provenance.isEmpty())
+      missing << edge.source + QStringLiteral("->") + edge.target;
+  return missing;
+}
 QString categoryText(const QString &c) {
   if (c == QLatin1String("well"))
     return text("测井 / 井资料");
@@ -322,7 +351,8 @@ std::shared_ptr<const Index> buildIndex(const DataCatalog &snapshot,
                   v.extra.value(QStringLiteral("staleReason")).toString();
     index->nodes.insert(n.id, n);
     addEdge(*index,
-            {assetKey(v.assetId), n.id, text("版本"), Relation::HasVersion});
+            {assetKey(v.assetId), n.id, text("版本"),
+             QStringLiteral("catalog:asset-version"), Relation::HasVersion});
     if (!latest.contains(v.assetId) || v.versionNumber >= latest[v.assetId]) {
       latest[v.assetId] = v.versionNumber;
       index->currentVersions[v.assetId] = n.id;
@@ -372,7 +402,7 @@ std::shared_ptr<const Index> buildIndex(const DataCatalog &snapshot,
     addEdge(*index,
             {source, target,
              roleDisplay + (link.isPrimary ? text(" · 主资料") : QString()),
-             Relation::Linked, pending});
+             QStringLiteral("catalog:entity-link"), Relation::Linked, pending});
   }
   for (const QString &id : index->assets) {
     Node &asset = index->nodes[id];
@@ -415,12 +445,11 @@ std::shared_ptr<const Index> buildIndex(const DataCatalog &snapshot,
                             .toString();
       index->nodes.insert(activityId, activity);
       addEdge(*index, {activityId, versionKey(v.id), text("生成"),
+                       QStringLiteral("catalog:extra.evidence"),
                        Relation::Generated});
     }
-    const auto connectParent = [&](const QString &parent, Relation relation,
-                                   const QString &label) {
-      if (parent.isEmpty())
-        return;
+    // 缺节点来源版本统一登记为 Missing 并计入 missingParents。
+    const auto ensureVersionNode = [&](const QString &parent) {
       const QString key = versionKey(parent);
       if (!index->nodes.contains(key)) {
         Node missing;
@@ -435,16 +464,28 @@ std::shared_ptr<const Index> buildIndex(const DataCatalog &snapshot,
         index->nodes.insert(key, missing);
         ++index->missingParents;
       }
+      return key;
+    };
+    const auto connectParent = [&](const QString &parent, Relation relation,
+                                   const QString &label,
+                                   const QString &provenance) {
+      if (parent.isEmpty())
+        return;
       addEdge(*index,
-              {key,
+              {ensureVersionNode(parent),
                recorded && relation == Relation::Derived ? activityId
                                                          : versionKey(v.id),
-               label,
+               label, provenance,
                recorded && relation == Relation::Derived ? Relation::Used
                                                          : relation});
     };
     QStringList parents = v.parentVersionIds;
     parents.removeDuplicates();
+    // 每条父边记录其事实来源：parentVersionIds 与 extra.evidence.inputs
+    // 可能重叠，先登记的一方保留出处。
+    QHash<QString, QString> parentSources;
+    for (const auto &parent : parents)
+      parentSources.insert(parent, QStringLiteral("catalog:parentVersionIds"));
     // 数据列表的通用回滚（assetops）把目标同时记进 parentVersionIds 与
     // extra.rollbackOf：图谱按回滚参考边呈现（与 welltops rollbackTo 同口径），
     // 不把回滚冒充成衍生。
@@ -461,6 +502,8 @@ std::shared_ptr<const Index> buildIndex(const DataCatalog &snapshot,
         if (!parent.isEmpty() && !parentSet.contains(parent)) {
           parents.append(parent);
           parentSet.insert(parent);
+          parentSources.insert(parent,
+                               QStringLiteral("catalog:extra.evidence.inputs"));
         }
       }
     QHash<QString, QString> inputRoles;
@@ -471,6 +514,8 @@ std::shared_ptr<const Index> buildIndex(const DataCatalog &snapshot,
       references[entry.toMap().value("version_id").toString()].append(entry);
     for (const QString &parent : parents) {
       const auto role = inputRoles.value(parent);
+      const auto parentSource = parentSources.value(
+          parent, QStringLiteral("catalog:parentVersionIds"));
       if (references.contains(parent)) {
         QSet<QString> seen;
         for (const auto &entry : references.value(parent)) {
@@ -482,20 +527,37 @@ std::shared_ptr<const Index> buildIndex(const DataCatalog &snapshot,
           QString label = r == "SUPPORTED_BY" ? text("支撑解释") : r == "CONTRADICTED_BY" ? text("反驳解释") :
               r == "CONSTRAINED_BY" ? text("约束解释") : text("解释引用（非计算输入）");
           if (ref.value("tombstone").toBool()) label += text(" · 历史已解除");
-          connectParent(parent, relation, label);
+          connectParent(parent, relation, label,
+                        QStringLiteral("catalog:extra.interpretation_reference_versions"));
         }
-        if (role == "DERIVED_FROM") connectParent(parent, Relation::Derived, text("计算来源"));
-      } else if (role == "CONTRADICTED_BY") connectParent(parent, Relation::Contradicted, text("反驳解释"));
-      else if (role == "SUPPORTED_BY") connectParent(parent, Relation::Supported, text("支撑解释"));
-      else if (role == "CONSTRAINED_BY") connectParent(parent, Relation::Constrained, text("约束解释"));
-      else if (role == "REFERENCES") connectParent(parent, Relation::References, text("解释引用（非计算输入）"));
-      else connectParent(parent, Relation::Derived, text("衍生自"));
+        if (role == "DERIVED_FROM") connectParent(parent, Relation::Derived, text("计算来源"),
+            QStringLiteral("catalog:extra.evidence.inputs"));
+      } else if (role == "CONTRADICTED_BY") connectParent(parent, Relation::Contradicted, text("反驳解释"), QStringLiteral("catalog:extra.evidence.inputs"));
+      else if (role == "SUPPORTED_BY") connectParent(parent, Relation::Supported, text("支撑解释"), QStringLiteral("catalog:extra.evidence.inputs"));
+      else if (role == "CONSTRAINED_BY") connectParent(parent, Relation::Constrained, text("约束解释"), QStringLiteral("catalog:extra.evidence.inputs"));
+      else if (role == "REFERENCES") connectParent(parent, Relation::References, text("解释引用（非计算输入）"), QStringLiteral("catalog:extra.evidence.inputs"));
+      else connectParent(parent, Relation::Derived, text("衍生自"), parentSource);
     }
     connectParent(v.extra.value(QStringLiteral("editBaseline")).toString(),
-                  Relation::EditBaseline, text("编辑基线"));
+                  Relation::EditBaseline, text("编辑基线"),
+                  QStringLiteral("catalog:extra.editBaseline"));
     connectParent(v.extra.value(QStringLiteral("rollbackTo")).toString(),
-                  Relation::Rollback, text("回滚目标"));
-    connectParent(rollbackOf, Relation::Rollback, text("回滚目标"));
+                  Relation::Rollback, text("回滚目标"),
+                  QStringLiteral("catalog:extra.rollbackTo"));
+    connectParent(rollbackOf, Relation::Rollback, text("回滚目标"),
+                  QStringLiteral("catalog:extra.rollbackOf"));
+    // 受控重算产物替代其计算来源（新→旧；人工解释不迁移）。该边不参与
+    // 血缘环诊断，只在成果追溯模式展开（见 query() 的 traversable）。
+    const QString recomputeOf = v.extra.value(QStringLiteral("recompute_provenance"))
+                                    .toMap()
+                                    .value(QStringLiteral("recompute_of"))
+                                    .toString();
+    if (!recomputeOf.isEmpty())
+      addEdge(*index,
+              {versionKey(v.id), ensureVersionNode(recomputeOf),
+               text("受控重算替代（人工解释不迁移）"),
+               QStringLiteral("catalog:extra.recompute_provenance"),
+               Relation::Supersedes});
   }
   diagnoseCycles(*index, cancel);
   if (stopped(cancel))
@@ -598,7 +660,8 @@ Graph query(const Index &index, const Query &q, const Cancel &cancel,
           Node v = index.nodes[vid];
           v.column = 3;
           add(v);
-          edge({id, vid, text("当前版本"), Relation::HasVersion});
+          edge({id, vid, text("当前版本"),
+                QStringLiteral("catalog:asset-version"), Relation::HasVersion});
         }
       }
     }
@@ -621,7 +684,7 @@ Graph query(const Index &index, const Query &q, const Cancel &cancel,
         ++graph.hidden;
       if (parts.size() > 2)
         edge({QStringLiteral("group:") + parts[1], id, QString(),
-              Relation::Grouped});
+              QStringLiteral("catalog:asset-categories"), Relation::Grouped});
     }
     if (!summary)
       for (const Node &n : graph.nodes)
@@ -631,7 +694,8 @@ Graph query(const Index &index, const Query &q, const Cancel &cancel,
                 QStringLiteral("group:") + c + QLatin1Char(':') +
                 (n.stage.isEmpty() ? QStringLiteral("NONE") : n.stage);
             if (visible.contains(group))
-              edge({group, n.id, QString(), Relation::Grouped});
+              edge({group, n.id, QString(), QStringLiteral("catalog:asset-categories"),
+                    Relation::Grouped});
           }
   } else {
     QString seed = q.focus;
@@ -653,7 +717,11 @@ Graph query(const Index &index, const Query &q, const Cancel &cancel,
     const int traversalBudget = unlimitedTraversal ? std::numeric_limits<int>::max()
                                                    : qBound(512, q.maxTraversalEdges, 20000);
     const auto traversable = [&](Relation relation) {
-      return lineage(relation) || (impact && (relation == Relation::Supported || relation == Relation::Contradicted ||
+      // Supersedes 只属于成果追溯语义：影响分析里它是「已替代」不是
+      // 「潜在受影响」，故不进 impact 的可遍历集。
+      return lineage(relation) ||
+             (q.mode == Mode::Lineage && relation == Relation::Supersedes) ||
+             (impact && (relation == Relation::Supported || relation == Relation::Contradicted ||
           relation == Relation::Constrained || relation == Relation::References));
     };
     QSet<QString> hidden;
@@ -679,6 +747,10 @@ Graph query(const Index &index, const Query &q, const Cancel &cancel,
             return {};
           if (++graph.examinedEdges > traversalBudget) { graph.workTruncated = true; break; }
           const Edge &e = index.edges[row];
+          // Supersedes 只在成果追溯模式可穿越：关联/总览中「替代」不是
+          // 普通依赖，影响分析里它是「已替代」而非「潜在受影响」。
+          if (e.relation == Relation::Supersedes && q.mode != Mode::Lineage)
+            continue;
           if (derivedOnly && !traversable(e.relation))
             continue;
           const QString other = e.source == id ? e.target : e.source;
@@ -724,6 +796,8 @@ Graph query(const Index &index, const Query &q, const Cancel &cancel,
         if (stopped(cancel)) return {};
         if (++edgeWork > traversalBudget) { graph.workTruncated = true; break; }
         const Edge &e = index.edges[row];
+        if (e.relation == Relation::Supersedes && q.mode != Mode::Lineage)
+          continue;
         if (visible.contains(e.target) && (!derivedOnly || traversable(e.relation))) rows.append(row);
       }
       if (edgeWork > traversalBudget) break;
@@ -769,29 +843,52 @@ Graph query(const Index &index, const Query &q, const Cancel &cancel,
     feature.reviewState = interpretation.value("status", "Proposed").toString();
     feature.detail = text("当前图斑解释：%1；来源仅按已登记关系展示").arg(feature.reviewState);
     add(feature);
-    if (visible.contains(versionKey(feature.versionId))) edge({versionKey(feature.versionId), feature.id, text("空间成果"), Relation::Materializes});
+    if (visible.contains(versionKey(feature.versionId))) edge({versionKey(feature.versionId), feature.id, text("空间成果"), QStringLiteral("snapshot:feature"), Relation::Materializes});
     if (!snapshot.value("error").toString().isEmpty()) {
       Node problem = feature; problem.id = "missing-evidence:" + feature.id; problem.kind = Kind::Missing;
       problem.title = text("图斑证据损坏"); problem.detail = snapshot.value("error").toString(); problem.unresolved = true;
-      if (add(problem)) edge({problem.id, feature.id, text("证据不可读取"), Relation::References, true});
+      if (add(problem)) edge({problem.id, feature.id, text("证据不可读取"), QStringLiteral("snapshot:feature"), Relation::References, true});
       ++graph.unresolved;
     } else {
     Node i = feature; i.kind = Kind::Interpretation; i.interpretationId = interpretation.value("id").toString();
     i.id = "interpretation:" + feature.id; i.title = text("地质解释 · ") + i.reviewState; i.column = 2; i.evidence = interpretation;
-    if (depth >= 1 && add(i)) edge({i.id, feature.id, text("呈现为"), Relation::Materializes});
+    if (depth >= 1 && add(i)) edge({i.id, feature.id, text("呈现为"), QStringLiteral("snapshot:feature"), Relation::Materializes});
     Node assertion = i; assertion.kind = Kind::Assertion; assertion.assertionId = interpretation.value("assertion_id").toString();
     assertion.id = "assertion:" + feature.id; assertion.title = text("相类型判断 · %1").arg(snapshot.value("facies_code").toString()); assertion.column = 1;
     assertion.evidence.clear();
-    if (depth >= 2 && add(assertion)) edge({assertion.id, i.id, text("形成解释"), Relation::Informs});
-    auto records = snapshot.value("records").toList();
-    records += snapshot.value("spatial_candidates").toList();
-    records += snapshot.value("generation_records").toList();
+    if (depth >= 2 && add(assertion)) edge({assertion.id, i.id, text("形成解释"), QStringLiteral("snapshot:feature"), Relation::Informs});
+    // 覆盖层按事实来源分四类：人工解释记录连到科学判断（角色决定关系）；
+    // 计算生成记录与空间候选只是血缘/空间事实，连到图斑本身；归因胜出
+    // 输入是重放事实。三类共享证据分页预算，互不相混。
+    QVariantList records;
+    QVector<int> recordOrigin; // 0 人工记录, 1 生成记录, 2 空间候选, 3 归因输入
+    for (const auto &v : snapshot.value("records").toList()) { records << v; recordOrigin << 0; }
+    for (const auto &v : snapshot.value("spatial_candidates").toList()) { records << v; recordOrigin << 2; }
+    for (const auto &v : snapshot.value("generation_records").toList()) { records << v; recordOrigin << 1; }
+    const auto attribution = snapshot.value("attribution").toMap();
+    if (attribution.value("status").toString() == QLatin1String("ok"))
+      for (const auto &v : attribution.value("inputs").toList())
+        if (v.toMap().value("cells").toLongLong() > 0) { records << v; recordOrigin << 3; }
+    const auto recordRelation = [](int origin, const QVariantMap &r) {
+      if (origin == 1) return Relation::Derived;
+      if (origin == 3) return Relation::ConsumedIn;
+      const auto role = r.value("role", r.value("relation", "REFERENCES")).toString();
+      return role == QLatin1String("SUPPORTED_BY") ? Relation::Supported
+          : role == QLatin1String("CONTRADICTED_BY") ? Relation::Contradicted
+          : role == QLatin1String("CONSTRAINED_BY") ? Relation::Constrained
+                                                    : Relation::References;
+    };
     QVector<int> matches;
     for (int n = 0; n < records.size(); ++n) {
       if (stopped(cancel)) return {};
       const auto r = records[n].toMap();
-      if (!r.value("unlinked").toBool() && (q.evidenceType.isEmpty() || q.evidenceType == r.value("type", "reference").toString()) &&
-          (q.reviewState.isEmpty() || q.reviewState == feature.reviewState)) matches << n;
+      if (!r.value("unlinked").toBool() &&
+          (q.evidenceType.isEmpty() ||
+           q.evidenceType == r.value("type", recordOrigin[n] == 3 ? QLatin1String("computation")
+                                                                 : QLatin1String("reference")).toString()) &&
+          (q.reviewState.isEmpty() || q.reviewState == feature.reviewState) &&
+          (q.relation.isEmpty() ||
+           relationName(recordRelation(recordOrigin[n], r)) == q.relation)) matches << n;
     }
     const int offset = qBound(0, q.evidenceOffset, int(matches.size()));
     const int end = qMin(int(matches.size()), offset + qBound(1, q.evidenceLimit, 100));
@@ -800,29 +897,92 @@ Graph query(const Index &index, const Query &q, const Cancel &cancel,
       if (stopped(cancel)) return {};
       const auto r = records[matches[row]].toMap();
       if (r.value("unlinked").toBool()) continue;
-      const auto type = r.value("type", "reference").toString();
+      const int origin = recordOrigin[matches[row]];
+      const auto type = r.value("type", origin == 3 ? QLatin1String("computation") : QLatin1String("reference")).toString();
       if (depth < 3) { ++graph.hidden; continue; }
+      if (origin == 3) {
+        // 归因胜出输入：连到输入版本节点——计算参与事实，不是科学支持。
+        const auto inputId = r.value("version_id").toString();
+        Node inputNode = index.nodes.value(versionKey(inputId));
+        if (inputNode.id.isEmpty()) { inputNode.id = versionKey(inputId); inputNode.versionId = inputId; inputNode.kind = Kind::Missing;
+          inputNode.title = text("计算输入版本缺失"); inputNode.unresolved = true; ++graph.missingParents; }
+        inputNode.column = -1;
+        if (!add(inputNode)) { ++graph.hidden; continue; }
+        edge({inputNode.id, feature.id,
+              text("计算参与：胜出 %1 采样像元（%2%）· 非科学支持")
+                  .arg(r.value("cells").toLongLong())
+                  .arg(qRound(r.value("fraction").toDouble() * 100)),
+              QStringLiteral("replay:attribution@") +
+                  attribution.value("calculation_version").toString(),
+              Relation::ConsumedIn, inputNode.unresolved});
+        continue;
+      }
       Node e = feature; e.kind = Kind::Evidence; e.evidenceId = r.value("evidence_id", r.value("id")).toString();
       if (e.evidenceId.isEmpty()) { ++graph.unresolved; continue; }
       e.id = "evidence:" + feature.id + ":" + r.value("id", e.evidenceId).toString(); e.evidenceType = type; e.column = 0;
       e.title = text("证据 · ") + r.value("source_title", r.value("name", r.value("text", type))).toString();
       e.detail = r.value("text").toString(); e.evidence = r;
       e.unresolved = r.value("source_missing", r.value("missing")).toBool();
-      const auto role = r.value("role", r.value("relation", "REFERENCES")).toString();
-      Relation relation = role == "SUPPORTED_BY" ? Relation::Supported : role == "CONTRADICTED_BY" ? Relation::Contradicted :
-          role == "CONSTRAINED_BY" ? Relation::Constrained : Relation::References;
-      const auto label = role == "SUPPORTED_BY" ? text("支持") : role == "CONTRADICTED_BY" ? text("反驳") :
-          role == "CONSTRAINED_BY" ? text("约束") : role == "DERIVED_FROM" ? text("生成来源（未推断支持）") : text("参考");
+      const QString recordProv =
+          origin == 0 ? QStringLiteral("gpkg:facies_evidence#") + e.evidenceId
+          : origin == 1 ? QStringLiteral("catalog:extra.evidence#") + e.evidenceId
+                        : QStringLiteral("spatial:candidate@") +
+                              r.value("source_version").toString();
       if (!add(e)) { ++graph.hidden; continue; }
-      if (visible.contains(assertion.id)) edge({e.id, assertion.id, label, relation, e.unresolved});
+      if (origin == 0) {
+        const auto role = r.value("role", r.value("relation", "REFERENCES")).toString();
+        const Relation relation = recordRelation(0, r);
+        const auto label = role == "SUPPORTED_BY" ? text("支持") : role == "CONTRADICTED_BY" ? text("反驳") :
+            role == "CONSTRAINED_BY" ? text("约束") : role == "DERIVED_FROM" ? text("生成来源（未推断支持）") : text("参考");
+        if (visible.contains(assertion.id)) edge({e.id, assertion.id, label, recordProv, relation, e.unresolved});
+      } else if (origin == 1) {
+        edge({e.id, feature.id, text("生成来源（成果血缘，非科学支持）"), recordProv, Relation::Derived, e.unresolved});
+      } else {
+        edge({e.id, feature.id, text("空间相交候选（未登记关系）"), recordProv, Relation::References, e.unresolved});
+      }
       const auto source = r.value("source_version", r.value("version_id")).toString();
       if (source.isEmpty() || depth < 4) continue;
       Node sourceNode = index.nodes.value(versionKey(source));
       if (sourceNode.id.isEmpty()) { sourceNode.id = versionKey(source); sourceNode.versionId = source; sourceNode.kind = Kind::Missing;
         sourceNode.title = text("证据来源版本缺失"); sourceNode.unresolved = true; ++graph.missingParents; }
       sourceNode.column = -1;
-      if (add(sourceNode)) edge({sourceNode.id, e.id, text("来源版本"), Relation::References, sourceNode.unresolved});
+      if (add(sourceNode)) edge({sourceNode.id, e.id, text("来源版本"), recordProv, Relation::References, sourceNode.unresolved});
       else ++graph.hidden;
+    }
+    // 解释审核事件：最后 20 条作为审核事件节点连到解释，更早的计入
+    // hidden；节点不携带图件导航目标，仅供查看事实。
+    if (depth >= 2 && visible.contains(i.id) &&
+        (q.relation.isEmpty() || q.relation == QLatin1String("ReviewedBy"))) {
+      const auto events = interpretation.value("history").toList();
+      int shown = 0;
+      for (int n = int(events.size()) - 1; n >= 0 && shown < 20; --n) {
+        if (stopped(cancel)) return {};
+        const auto event = events[n].toMap();
+        Node node;
+        node.id = QStringLiteral("review:") + feature.id + QLatin1Char(':') +
+                  (event.value("event_id").toString().isEmpty()
+                       ? QString::number(n)
+                       : event.value("event_id").toString());
+        node.kind = Kind::ReviewEvent;
+        node.title = text("审核 · %1 → %2")
+                         .arg(event.value("action").toString(),
+                              event.value("after").toMap().value("status").toString());
+        node.detail = text("%1 · %2\n%3")
+                          .arg(event.value("actor_id").toString(),
+                               event.value("timestamp").toString(),
+                               event.value("reason").toString());
+        node.horizon = feature.horizon;
+        node.column = 0;
+        node.evidence = event;
+        if (add(node)) {
+          edge({node.id, i.id, text("审核事件"),
+                QStringLiteral("gpkg:paleo_interpretation.history#") +
+                    event.value("event_id").toString(),
+                Relation::ReviewedBy});
+          ++shown;
+        } else ++graph.hidden;
+      }
+      graph.hidden += qMax(0, int(events.size()) - 20);
     }
     if (graph.hidden) graph.message = text("局部证据图谱已裁剪；可缩小筛选或按证据页继续查询");
     }

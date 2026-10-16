@@ -671,6 +671,59 @@ class TestFactorWorkflow : public QObject
       QVERIFY(parents);
     }
 
+    // 主分层是 C7，编图层序 D61/D62 在非主文件。砂地比必须用编图这一套。
+    void sandRatioUsesMappingStratigraphy() {
+      Fixture f; QVERIFY(initFixture(f)); QString err;
+      CatalogEntity e; e.id = QStringLiteral("well-1"); e.entityType = "well"; e.name = "A1";
+      e.hasSurface = true; e.surfaceX = 10; e.surfaceY = 5; e.coordinateStatus = "untransformed";
+      QVERIFY2(f.catalog.addEntity(e, &err), qPrintable(err));
+      const auto linkFile = [&](const QString &id, const QString &text, bool primary) {
+        const QString path = f.dir.filePath(id + QStringLiteral(".dat"));
+        QFile file(path);
+        if (!file.open(QIODevice::WriteOnly)) return false;
+        file.write(text.toUtf8()); file.close();
+        CatalogAsset a; a.id = id; a.type = QStringLiteral("well_tops"); a.displayName = id;
+        if (!f.catalog.addAsset(a, &err)) return false;
+        CatalogVersion v; v.id = "v-" + id; v.assetId = id; v.path = path; v.managed = false;
+        v.stage = "RAW"; v.versionNumber = 1;
+        if (!f.catalog.addVersion(v, &err)) return false;
+        EntityAssetLink l; l.entityId = e.id; l.entityType = "well"; l.assetId = id;
+        l.role = QStringLiteral("tops"); l.isPrimary = primary;
+        return f.catalog.addLink(l, &err);
+      };
+      QVERIFY2(linkFile("tops-kou", QStringLiteral("#WellTops File From SMI\n#WellName Name MD X Y Z TVD Time(ms)\nA1 C7_1 50 0 0 -50 50 -99999\n"), true), qPrintable(err));
+      QVERIFY2(linkFile("tops-map", QStringLiteral("#WellTops File From SMI\n#WellName Name MD X Y Z TVD Time(ms)\nA1 D61 100 0 0 -100 100 -99999\nA1 D62 200 0 0 -200 200 -99999\n"), false), qPrintable(err));
+      QVERIFY(std::any_of(f.catalog.links().cbegin(), f.catalog.links().cend(), [](const EntityAssetLink &l) {
+        return l.assetId == QStringLiteral("tops-kou") && l.isPrimary;
+      }));
+      QVERIFY(std::any_of(f.catalog.links().cbegin(), f.catalog.links().cend(), [](const EntityAssetLink &l) {
+        return l.assetId == QStringLiteral("tops-map") && !l.isPrimary;
+      }));
+      const QString litho = f.dir.filePath(QStringLiteral("litho.json"));
+      QFile lithoFile(litho);
+      QVERIFY(lithoFile.open(QIODevice::WriteOnly));
+      lithoFile.write(R"({"schema":1,"intervals":[{"wellId":"well-1","top":100,"base":150,"litho":"砂岩"},{"wellId":"well-1","top":150,"base":200,"litho":"泥岩"}]})");
+      lithoFile.close();
+      CatalogAsset lithoAsset; lithoAsset.id = "litho-1"; lithoAsset.type = "well_litho_intervals"; lithoAsset.displayName = "litho";
+      QVERIFY2(f.catalog.addAsset(lithoAsset, &err), qPrintable(err));
+      CatalogVersion lithoVersion; lithoVersion.id = "v-litho-1"; lithoVersion.assetId = "litho-1";
+      lithoVersion.path = litho; lithoVersion.managed = false; lithoVersion.stage = "RAW"; lithoVersion.versionNumber = 1;
+      QVERIFY2(f.catalog.addVersion(lithoVersion, &err), qPrintable(err));
+      EntityAssetLink lithoLink; lithoLink.entityId = e.id; lithoLink.entityType = "well";
+      lithoLink.assetId = "litho-1"; lithoLink.role = "interpretation"; lithoLink.isPrimary = true;
+      QVERIFY2(f.catalog.addLink(lithoLink, &err), qPrintable(err));
+      const QString wellHeads = f.dir.filePath(QStringLiteral("catalog-wells.geojson"));
+      QVERIFY2(f.catalog.writeWellsGeoJson(wellHeads, &err), qPrintable(err));
+      QVERIFY2(f.layers.declare(decl("wells.D61", "D61", "vector", wellHeads), &err), qPrintable(err));
+      ConstraintWorkflow wf(&f.proc, &f.layers); wf.setCatalog(&f.catalog, f.dir.path());
+      QVariantMap params{{"factorMode", "ratio"}, {"numeratorField", "log_sand_thickness_md"}, {"denominatorField", "log_layer_thickness_md"}};
+      QVERIFY2(wf.extractWellFactors("D61", "sandratio", params, &err), qPrintable(err));
+      const auto rows = wf.wellFactorRows();
+      QCOMPARE(rows.size(), 1);
+      QCOMPARE(rows.first().toMap().value("value").toDouble(), 0.5);
+      QVERIFY(rows.first().toMap().value("reason").toString().isEmpty());
+    }
+
   private:
     // U1/U2 共用前置：目录井（分层 D61 100→D62 200）+ 测井矢量属性表
     //（每井整段给定岩性）——砂厚只能来自该表。

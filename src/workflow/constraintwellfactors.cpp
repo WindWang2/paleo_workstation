@@ -227,7 +227,7 @@ Source sourceFor(ConstraintWorkflow *wf, const QString &horizon, const QVariantM
     }
     if (!metrics) continue;
     double top = qQNaN(), base = qQNaN();
-    for (const WellTop &t : data.topsFor(well.id)) {
+    for (const WellTop &t : data.topsForMapping(well.id)) {
       if (t.horizon == horizon) top = t.md;
       if (t.horizon == baseName) base = t.md;
     }

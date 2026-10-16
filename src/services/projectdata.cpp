@@ -2,6 +2,7 @@
 #include "projectdata.h"
 
 #include "../catalog/datacatalog.h"
+#include "../domain/mappinghorizons.h"
 #include "../io/wellcompositexml.h"
 #include "../io/wellfileparsers.h"
 #include "../metadata/layermanifest.h"
@@ -9,6 +10,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QSet>
 
 #include <algorithm>
 #include <cmath>
@@ -140,6 +142,68 @@ QVector<WellTop> ProjectDataFacade::topsFor(const QString &wellId) const
 QVector<WellTop> ProjectDataFacade::topsFor(const QString &wellId, WellParseReport *report) const
 {
   return topsForAsset(wellId, QString(), report);
+}
+
+namespace {
+struct MappingTopsPick {
+  QString assetId;
+  QVector<WellTop> tops;
+  int score = 0;
+  bool primary = false;
+};
+
+MappingTopsPick pickMappingTops(const ProjectDataFacade *facade, DataCatalog *catalog,
+                               const QString &wellId) {
+  MappingTopsPick best;
+  if (!facade || !catalog || wellId.isEmpty())
+    return best;
+  const QStringList sequence = mappingHorizons();
+  QSet<QString> seen;
+  for (const EntityAssetLink &link : catalog->linksForEntity(wellId)) {
+    if (link.role != QLatin1String("tops") || link.unresolved ||
+        seen.contains(link.assetId))
+      continue;
+    seen.insert(link.assetId);
+    const QVector<WellTop> tops = facade->topsForAsset(wellId, link.assetId);
+    int score = 0;
+    QSet<QString> names;
+    for (const WellTop &top : tops) {
+      if (!sequence.contains(top.horizon) || !std::isfinite(top.md) ||
+          names.contains(top.horizon))
+        continue;
+      names.insert(top.horizon);
+      ++score;
+    }
+    if (score == 0)
+      continue;
+    if (score > best.score || (score == best.score && link.isPrimary && !best.primary)) {
+      best.assetId = link.assetId;
+      best.tops = tops;
+      best.score = score;
+      best.primary = link.isPrimary;
+    }
+  }
+  return best;
+}
+} // namespace
+
+QVector<WellTop> ProjectDataFacade::topsForMapping(const QString &wellId) const {
+  const MappingTopsPick pick = pickMappingTops(this, m_catalog, wellId);
+  if (pick.score > 0)
+    return pick.tops;
+  return topsFor(wellId);
+}
+
+QString ProjectDataFacade::mappingTopsAssetId(const QString &wellId) const {
+  const MappingTopsPick pick = pickMappingTops(this, m_catalog, wellId);
+  if (pick.score > 0)
+    return pick.assetId;
+  if (!m_catalog)
+    return {};
+  for (const EntityAssetLink &link : m_catalog->linksForEntity(wellId))
+    if (link.role == QLatin1String("tops") && link.isPrimary && !link.unresolved)
+      return link.assetId;
+  return {};
 }
 
 QVector<WellTop> ProjectDataFacade::topsForAsset(const QString &wellId,

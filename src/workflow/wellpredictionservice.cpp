@@ -141,37 +141,12 @@ void WellPredictionService::prepare() {
     Source source;
     source.data.wellName = well.value("name").toString();
     source.curves = WellLogSet::wellCurveIndex(m_catalog, m_dir, id);
-    source.tops = project.topsFor(id);
-    const auto containsHorizon = [this](const QVector<WellTop> &tops) {
-      return std::any_of(tops.cbegin(), tops.cend(), [this](const WellTop &t) {
-        return std::isfinite(t.md) &&
-               t.horizon.compare(m_request.horizon, Qt::CaseInsensitive) == 0;
-      });
-    };
+    // 编图与砂地比、厚度、残差同一套层序，不跟 20kou 这类主分层。
+    source.tops = project.topsForMapping(id);
     QString topsVersion;
-    for (const auto &link : m_catalog->linksForEntity(id))
-      if (link.role == "tops" && !link.unresolved && link.isPrimary)
-        topsVersion = m_catalog->currentVersion(link.assetId).id;
-    // 同井可关联多份分层（例如 C7_1 与 D61 两套命名）。主分层未含
-    // 当前编图层位时，使用唯一含该层位的已关联来源，不臆造名称映射。
-    if (!containsHorizon(source.tops)) {
-      QSet<QString> candidates;
-      QVector<WellTop> matching;
-      for (const auto &link : m_catalog->linksForEntity(id)) {
-        if (link.role != "tops" || link.unresolved) continue;
-        const auto version = m_catalog->currentVersion(link.assetId);
-        if (version.id.isEmpty() || candidates.contains(version.id)) continue;
-        const auto tops = project.topsForAsset(id, link.assetId);
-        if (!containsHorizon(tops)) continue;
-        candidates.insert(version.id);
-        matching = tops;
-        topsVersion = version.id;
-      }
-      if (candidates.size() > 1)
-        skip(int(sources.size()), tr("有多份包含 %1 的分层，请在数据管理中指定主分层来源")
-                        .arg(m_request.horizon));
-      if (candidates.size() == 1) source.tops = matching;
-    }
+    const QString topsAsset = project.mappingTopsAssetId(id);
+    if (!topsAsset.isEmpty())
+      topsVersion = m_catalog->currentVersion(topsAsset).id;
     // 工区维护表中的组/段及显式底深随本次输入冻结，优先于原始 tops。
     for (const auto &value : well.value("vector_formations").toList()) {
       const auto row = value.toMap();

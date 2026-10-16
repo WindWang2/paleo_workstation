@@ -761,7 +761,7 @@ QVariantList MappingWorkbench::wellFormationUpdates(
                     FaciesCatalog::find(schema, code).value("name").toString(), code.toInt()});
       bottom = std::max(bottom, interval.value("bottom").toDouble());
     }
-    auto tops = data.topsFor(wellId);
+    auto tops = data.topsForMapping(wellId);
     tops.erase(std::remove_if(tops.begin(), tops.end(),
                               [](const WellTop &t) { return !std::isfinite(t.md); }),
                tops.end());

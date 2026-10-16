@@ -105,6 +105,12 @@ class ProjectDataFacade : public QObject
     QVector<WellTop> topsFor(const QString &wellId) const;      // empty when unlinked
     // 文件级解析诊断（筛井前）；保留旧入口，报告每次复位。
     QVector<WellTop> topsFor(const QString &wellId, WellParseReport *report) const;
+    // 编图层序那一套分层。一口井挂多份 tops 时，取含编图层名
+    // （C3/C6/D53/D61…）最多的文件，不用只含 C7/Y 的主分层。
+    // 没有任何编图层名时回落主 tops。
+    QVector<WellTop> topsForMapping(const QString &wellId) const;
+    // topsForMapping 实际读的资产；回落主 tops 时也是那个资产。无分层则空。
+    QString mappingTopsAssetId(const QString &wellId) const;
     // 指定 tops 资产的分层（连井剖面「分层来源」切换）：assetId 空 = 主 tops
     // 链接（与 topsFor 同口径）；非空时要求该井确有指向此资产的 tops 链接
     //（非 unresolved）——无链接/资产无版本 → 空，不跨井偷读别的资产。

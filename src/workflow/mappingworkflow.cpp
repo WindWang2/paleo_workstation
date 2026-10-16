@@ -486,7 +486,7 @@ QVector<ThicknessSample> MappingWorkflow::computeThicknessSamples( const QString
     s.wellId = well.id;
     s.wellName = well.name;
 
-    const QVector<WellTop> tops = m_projectData->topsFor( well.id );
+    const QVector<WellTop> tops = m_projectData->topsForMapping( well.id );
     const WellTop *top = nullptr;
     const WellTop *base = nullptr;
     for ( const WellTop &t : tops )
@@ -925,7 +925,7 @@ computeTimeResiduals(const ProjectDataFacade *projectData,
     row.wellId = well.id;
     row.wellName = well.name;
 
-    const QVector<WellTop> tops = projectData->topsFor( well.id );
+    const QVector<WellTop> tops = projectData->topsForMapping( well.id );
     const WellTop *pick = nullptr;
     for ( const WellTop &top : tops )
       if ( top.horizon == horizon )

@@ -168,6 +168,13 @@ bool CompositionWorkflow::fuseFactors( const QString &horizon, const QStringList
     paleo::workflow_detail::setError( error, tr( "no factor layers supplied for fusion" ) );
     return false;
   }
+  // 产物按层位登记（composite.<h>）：空层位会产生 "composite."/FUSION_.tif
+  // 畸形声明；输入跨层位则把别的层位面片混进本层位成果。
+  if ( horizon.trimmed().isEmpty() )
+  {
+    paleo::workflow_detail::setError( error, tr( "未选择层位——融合产物必须归属明确层位" ) );
+    return false;
+  }
 
   QVector<LayerDeclaration> decls;
   QString readErr;
@@ -206,6 +213,15 @@ bool CompositionWorkflow::fuseFactors( const QString &horizon, const QStringList
     if ( !decl )
     {
       paleo::workflow_detail::setError( error, tr( "图层 %1 未在清单声明" ).arg( layerId ) );
+      return false;
+    }
+    if ( decl->horizon != horizon )
+    {
+      paleo::workflow_detail::setError(
+          error, tr( "图层 %1 属层位「%2」，不能融合进 %3 的产物" )
+                     .arg( layerId,
+                           decl->horizon.isEmpty() ? tr( "无层位" ) : decl->horizon,
+                           horizon ) );
       return false;
     }
     if ( paleo::singlefactor::isCartographicProductLayer( layerId, decl->group ) )

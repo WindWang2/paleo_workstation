@@ -1045,11 +1045,13 @@ class TestPanels : public QObject
       // 模拟上一工程的滞留态。
       issues->setRowCount(1);
       issues->setItem(0, 0, new QTableWidgetItem(QStringLiteral("SRC_MISSING")));
+      issues->setCellWidget(0, 0, new QLabel(QStringLiteral("错误"), issues));
       QVariantMap row;
       row.insert(QStringLiteral("well_name"), QStringLiteral("W1"));
       row.insert(QStringLiteral("status"), QStringLiteral("exceed"));
       row.insert(QStringLiteral("residual_ms"), 12.0);
       ValidatePage::fillResidualTable(residuals, {row});
+      QVERIFY(residuals->cellWidget(0, 1) != nullptr); // 残差表自带胶囊控件
       summary->setText(QStringLiteral("3 口超过 10 ms"));
       QVariantMap armed;
       armed.insert(QStringLiteral("inline"), 1000);
@@ -1062,6 +1064,10 @@ class TestPanels : public QObject
       QVERIFY(summary->text().startsWith(QStringLiteral("还没有计算")));
       QVERIFY(!section->isEnabled());
       QCOMPARE(section->property("armedPayload").toMap(), QVariantMap());
+      // setRowCount(0) 不删单元格控件——切工程后胶囊/数字控件不得活成
+      // 表内孤儿叠画（页面注释自证的风险，此前只在 populate 路径处理）。
+      QVERIFY(issues->viewport()->findChildren<QWidget *>().isEmpty());
+      QVERIFY(residuals->viewport()->findChildren<QWidget *>().isEmpty());
     }
 
     void validatePage_busyWritesReasonTooltip()

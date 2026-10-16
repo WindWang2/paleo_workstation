@@ -134,6 +134,11 @@ bool QgisLayerProfileService::applyPageProfile(const QString &pageId)
     if (!stageTreeVisibility(profileGroupsFor(pageId),
                              pageId == QStringLiteral("predict")))
       return false;
+    // 定格前先愈合共享数据层（井位/测区范围须可见——stageTreeVisibility
+    // 只覆盖有声明的 00_Data，未声明层靠 paleoId 兜底在此）。主题此刻
+    // 尚不存在，ensureSharedDataVisible 的写回分支自动跳过，只影响
+    // 入档快照；否则首建主题会带着「共享数据不可见」的缺陷定格。
+    ensureSharedDataVisible(themeName);
     const QgsMapThemeCollection::MapThemeRecord rec =
         QgsMapThemeCollection::createThemeFromCurrentState(m_project->layerTreeRoot(),
                                                            m_model);
@@ -216,7 +221,7 @@ bool QgisLayerProfileService::stageTreeVisibility(const QStringList &groups,
   return true;
 }
 
-void QgisLayerProfileService::ensureSharedDataVisible()
+void QgisLayerProfileService::ensureSharedDataVisible(const QString &appliedTheme)
 {
   if (!m_project)
     return;
@@ -268,15 +273,16 @@ void QgisLayerProfileService::ensureSharedDataVisible()
   if (anyChanged)
   {
     syncGroupCheckStates(root, declById);
-    if (QgsMapThemeCollection *col = themeCollection(); col && !m_currentPage.isEmpty() && m_model)
+    // 愈合结果写回「刚应用/将定格的那个主题」自己的记录，使存量主题学到
+    // 共享数据层——参数显式传入，不读 m_currentPage：applyPageProfile 的
+    // 应用路径里 m_currentPage 还是上一页（切换收尾才更新），读它会把本页
+    // 树态写进别页档案（跨页可见性串档，随 .qgz 保存）。
+    if (QgsMapThemeCollection *col = themeCollection();
+        col && !appliedTheme.isEmpty() && m_model && col->hasMapTheme(appliedTheme))
     {
-      const QString themeName = pageThemeName(m_currentPage);
-      if (col->hasMapTheme(themeName))
-      {
-        const QgsMapThemeCollection::MapThemeRecord updatedRec =
-            QgsMapThemeCollection::createThemeFromCurrentState(root, m_model);
-        col->update(themeName, updatedRec);
-      }
+      const QgsMapThemeCollection::MapThemeRecord updatedRec =
+          QgsMapThemeCollection::createThemeFromCurrentState(root, m_model);
+      col->update(appliedTheme, updatedRec);
     }
   }
 }
@@ -380,7 +386,7 @@ bool QgisLayerProfileService::applyPrunedTheme(const QString &name)
   // 避免因存量主题未记录或历史快照未勾选导致井位与测区范围互斥或丢失。
   if (name.startsWith(QLatin1String("page:")))
   {
-    ensureSharedDataVisible();
+    ensureSharedDataVisible(name);
   }
 
   return true;
@@ -396,7 +402,7 @@ bool QgisLayerProfileService::captureCurrentAsTheme(const QString &name)
 
   if (name.startsWith(QLatin1String("page:")))
   {
-    ensureSharedDataVisible();
+    ensureSharedDataVisible(name);
   }
 
   const QgsMapThemeCollection::MapThemeRecord rec =

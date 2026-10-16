@@ -712,6 +712,54 @@ private slots:
     QCOMPARE( polyFailed.count(), 1 );
   }
 
+  // opt-05：融合产物按层位登记（composite.<h>）——空层位会产 "composite."
+  // 畸形声明，跨层位输入会把别的层位面片混进本层位成果。两种都必须拒绝
+  // 并具名原因（此前只查「已声明」与「非制图工作场」）。
+  void fusionRejectsEmptyAndCrossHorizon()
+  {
+    Fixture f;
+    QVERIFY( initFixture( f ) );
+
+    const QVector<float> a = { 1, 1, 1,
+                               1, 1, 1,
+                               1, 1, 1 };
+    const QString pA = makeRaster( f.dir.filePath( QStringLiteral( "fx_t1.tif" ) ), 3, 3, a );
+    const QString pB = makeRaster( f.dir.filePath( QStringLiteral( "fx_t2.tif" ) ), 3, 3, a );
+    QVERIFY( !pA.isEmpty() && !pB.isEmpty() );
+
+    QString err;
+    QVERIFY( f.layers.declare( decl( QStringLiteral( "factor.a.T1" ), QStringLiteral( "T1" ),
+                                     QStringLiteral( "raster" ), pA,
+                                     QStringLiteral( "04_SingleFactor" ) ), &err ) );
+    QVERIFY( f.layers.declare( decl( QStringLiteral( "factor.b.T2" ), QStringLiteral( "T2" ),
+                                     QStringLiteral( "raster" ), pB,
+                                     QStringLiteral( "04_SingleFactor" ) ), &err ) );
+
+    CompositionWorkflow wf( &f.proc, &f.layers );
+    wf.setCatalog( &f.catalog, f.dir.path() );
+    QSignalSpy spy( &wf, &CompositionWorkflow::compositionDone );
+
+    // 空层位 → 拒绝（否则登记 "composite." 畸形声明）。
+    QVERIFY( !wf.fuseFactors( QString(), { QStringLiteral( "factor.a.T1" ) }, &err ) );
+    QVERIFY2( err.contains( QStringLiteral( "层位" ) ), qPrintable( err ) );
+
+    // 跨层位输入 → 拒绝并点名层位归属（T2 因子不能进 T1 产物）。
+    QVERIFY( !wf.fuseFactors( QStringLiteral( "T1" ),
+                              { QStringLiteral( "factor.a.T1" ),
+                                QStringLiteral( "factor.b.T2" ) },
+                              &err ) );
+    QVERIFY2( err.contains( QStringLiteral( "factor.b.T2" ) ) &&
+                  err.contains( QStringLiteral( "T2" ) ),
+              qPrintable( err ) );
+    QCOMPARE( spy.count(), 0 ); // 拒绝在前：无半成品声明、无信号
+
+    // 同层位仍然放行（负向门禁不掐正常路径）。
+    QVERIFY2( wf.fuseFactors( QStringLiteral( "T1" ),
+                              { QStringLiteral( "factor.a.T1" ) }, &err ),
+              qPrintable( err ) );
+    QCOMPARE( spy.count(), 1 );
+  }
+
   // ④ validation: SRC_MISSING error on a bogus source, BUSY info on a marked
   // layer, DUP_HORIZON warning on colliding horizon spellings.
   void validationFlagsIssues()

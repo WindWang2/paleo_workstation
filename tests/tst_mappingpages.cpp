@@ -1310,6 +1310,7 @@ class ComposePageTests : public QObject
     void referenceAreaListsAndSignals();     // m2(C)：06_Reference 清单 + 可见性意图
     void faciesAttrAreaSavesPayload();       // m2(C)：相属性三字段 + 保存信号载荷
     void faciesTargetAdoptsSoleDeclaredFacies(); // m2(C)：唯一 facies.* 自动成目标
+    void faciesTargetAndListsRespectComposeHorizon(); // opt-05：编图上下文层位过滤
     void openDesignerButtonEmitsSignal();    // m2(C)：布局设计器入口信号
 
   private:
@@ -1580,6 +1581,77 @@ void ComposePageTests::faciesTargetAdoptsSoleDeclaredFacies()
 
   // 显式指名优先于自动采纳：换目标后标签跟随。
   page.setFaciesEditTarget(QStringLiteral("facies.T2"));
+  QVERIFY(target->text().contains(QStringLiteral("facies.T2")));
+}
+
+// opt-05：编图上下文层位（壳喂 activeHorizon）非空时，因子表/相栅格下拉/
+// 相属性目标只收本层位声明——跨层位因子勾不进本层位产物，相属性/边界核查
+// 不落到别的层位图层上。
+void ComposePageTests::faciesTargetAndListsRespectComposeHorizon()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  LayerManifest manifest(dir.filePath(QStringLiteral("h.sqlite")));
+  QVERIFY(manifest.open());
+  QgisLayerService layers(nullptr, &manifest);
+  QString err;
+  QVERIFY(layers.declare(makeDecl(QStringLiteral("factor.T1.sand"), QStringLiteral("T1"),
+                                  QStringLiteral("raster"), QStringLiteral("04_SingleFactor")), &err));
+  QVERIFY(layers.declare(makeDecl(QStringLiteral("factor.T2.sand"), QStringLiteral("T2"),
+                                  QStringLiteral("raster"), QStringLiteral("04_SingleFactor")), &err));
+  QVERIFY(layers.declare(makeDecl(QStringLiteral("composite.T1"), QStringLiteral("T1"),
+                                  QStringLiteral("raster"), QStringLiteral("03_Composite")), &err));
+  QVERIFY(layers.declare(makeDecl(QStringLiteral("composite.T2"), QStringLiteral("T2"),
+                                  QStringLiteral("raster"), QStringLiteral("03_Composite")), &err));
+  QVERIFY(layers.declare(makeDecl(QStringLiteral("facies.T1"), QStringLiteral("T1"),
+                                  QStringLiteral("vector"), QStringLiteral("05_PaleoMap")), &err));
+  QVERIFY(layers.declare(makeDecl(QStringLiteral("facies.T2"), QStringLiteral("T2"),
+                                  QStringLiteral("vector"), QStringLiteral("05_PaleoMap")), &err));
+
+  ComposePage page(nullptr, &layers);
+  auto *list = page.findChild<QListWidget *>(QStringLiteral("factorList"));
+  auto *combo = page.findChild<QComboBox *>(QStringLiteral("faciesRasterCombo"));
+  auto *save = page.findChild<QPushButton *>(QStringLiteral("faciesAttrSaveButton"));
+  auto *target = page.findChild<QLabel *>(QStringLiteral("faciesTargetLabel"));
+  auto *qa = page.findChild<QPushButton *>(QStringLiteral("faciesBoundaryQaButton"));
+  QVERIFY(list && combo && save && target && qa);
+
+  // 未喂层位：旧语义不滤——两条 facies 候选无唯一兜底，目标空。
+  QCOMPARE(list->count(), 2);
+  QCOMPARE(combo->count(), 2);
+  QVERIFY(!save->isEnabled());
+
+  // 喂 T1：清单只收 T1 候选；facies.T1 成本层位唯一声明自动成目标。
+  page.setComposeHorizon(QStringLiteral("T1"));
+  QCOMPARE(list->count(), 1);
+  QCOMPARE(list->item(0)->data(Qt::UserRole).toString(),
+           QStringLiteral("factor.T1.sand"));
+  QCOMPARE(combo->count(), 1);
+  QCOMPARE(combo->itemData(0).toString(), QStringLiteral("composite.T1"));
+  QVERIFY(save->isEnabled());
+  QVERIFY(target->text().contains(QStringLiteral("facies.T1")));
+
+  // 边界核查意图落在本层位图层（写错层位防护链的页内证据）。
+  QSignalSpy qaSpy(&page, &ComposePage::boundaryQaRequested);
+  qa->click();
+  QCOMPARE(qaSpy.count(), 1);
+  QCOMPARE(qaSpy.first().at(0).toString(), QStringLiteral("facies.T1"));
+
+  // 切到 T2：目标随层位迁移，T1 图层不再可写。
+  page.setComposeHorizon(QStringLiteral("T2"));
+  QCOMPARE(list->count(), 1);
+  QCOMPARE(list->item(0)->data(Qt::UserRole).toString(),
+           QStringLiteral("factor.T2.sand"));
+  QVERIFY(target->text().contains(QStringLiteral("facies.T2")));
+  qa->click();
+  QCOMPARE(qaSpy.count(), 2);
+  QCOMPARE(qaSpy.last().at(0).toString(), QStringLiteral("facies.T2"));
+
+  // 显式跨层位指名在下一次声明刷新被重判收回——壳侧只对本层位作业指名，
+  // 但即使别处喂错，声明集仍会把它校正回本层位唯一候选。
+  page.setFaciesEditTarget(QStringLiteral("facies.T1"));
+  QVERIFY(target->text().contains(QStringLiteral("facies.T1")));
+  page.refreshFactors();
   QVERIFY(target->text().contains(QStringLiteral("facies.T2")));
 }
 

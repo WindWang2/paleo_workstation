@@ -47,7 +47,10 @@ const QString kDash = QStringLiteral("—");
 // layerId 解析链：a) QgisLayerService 实例缓存；b) QgsProject 工程图层按
 // customProperty("paleoLayerId")==layerId 匹配（覆盖手工加层/缺源层——
 // qgislayerservice.cpp:148 的登记约定；测试里服务回退的 QgsProject 单例
-// 与 instance() 一致）。都没有 → nullptr。
+// 与 instance() 一致）；c) 按 QgsMapLayer::id() 兜底——图层树在缺声明/
+// 缺自定义属性的场景本就承诺回退发原生 id（qgislayerpanel 发射契约：
+// layerId ?: layer->id()），不兜底则该路径恒失败（属性对话框/资源关联
+// 全部打不开）。都没有 → nullptr。
 QgsMapLayer *resolveLayer(QgisLayerService *svc, const QString &layerId)
 {
     if (layerId.isEmpty())
@@ -58,6 +61,9 @@ QgsMapLayer *resolveLayer(QgisLayerService *svc, const QString &layerId)
     const auto layers = QgsProject::instance()->mapLayers();
     for (auto it = layers.cbegin(); it != layers.cend(); ++it)
         if (it.value()->customProperty(QStringLiteral("paleoLayerId")).toString() == layerId)
+            return it.value();
+    for (auto it = layers.cbegin(); it != layers.cend(); ++it)
+        if (it.value()->id() == layerId)
             return it.value();
     return nullptr;
 }
@@ -476,7 +482,8 @@ QWidget *LayerPropertiesDialog::createBusinessPage(const QString &layerId, QWidg
 
 void LayerPropertiesDialog::openLayerProperties(const QString &layerId)
 {
-    // 解析链 a) 实例缓存 → b) 工程 paleoLayerId 扫描 → c) 都没有：无操作。
+    // 解析链 a) 实例缓存 → b) 工程 paleoLayerId 扫描 → c) QgsMapLayer::id()
+    // 兜底（手工层回退契约）→ 都没有：无操作。
     QgsMapLayer *layer = resolveLayer(m_layerService, layerId);
     if (!layer)
         return;

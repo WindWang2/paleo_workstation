@@ -1,4 +1,6 @@
 #include <QtTest>
+#include <QSqlDatabase>
+#include <QSqlQuery>
 #include <QTemporaryDir>
 
 #include "../src/metadata/releasestore.h"
@@ -73,6 +75,118 @@ private slots:
     QCOMPARE(got.at(0).source, QStringLiteral("/data/a.gpkg|layername=basin"));
     QCOMPARE(got.at(1).horizon, QStringLiteral("T2"));
     QCOMPARE(got.at(0).instantiated, false);
+  }
+
+  // opt-05：发布快照必须保住显示名——ManifestProjection 的内嵌格式写 title，
+  // 发布清单掉 title 会让 manifestAt 读回的声明丢树名/图例名，diff 对纯改名
+  // 也失明（manifestKey 不含 title 时同名不同标题比较为相等）。
+  void manifestAtRoundTripsTitle()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    ReleaseStore store(dir.filePath(QStringLiteral("meta.sqlite")));
+    QVERIFY(store.open());
+
+    LayerDeclaration named =
+        decl(QStringLiteral("facies.T1"), QStringLiteral("T1"));
+    named.title = QStringLiteral("T1 沉积相图");
+    const QString id =
+        store.createRelease(QStringLiteral("snap"), QString(), {named});
+    QVERIFY(!id.isEmpty());
+
+    const auto got = store.manifestAt(id);
+    QCOMPARE(got.size(), 1);
+    QCOMPARE(got.at(0).title, QStringLiteral("T1 沉积相图"));
+  }
+
+  // opt-05：纯显示名变更（同 layerId、同 source）也是声明差异，diff 必须
+  // 报 changed——否则图名/图例名修正对版本对比不可见。
+  void diffFlagsTitleOnlyChange()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    ReleaseStore store(dir.filePath(QStringLiteral("meta.sqlite")));
+    QVERIFY(store.open());
+
+    LayerDeclaration a = decl(QStringLiteral("facies.T1"), QStringLiteral("T1"));
+    a.title = QStringLiteral("旧图名");
+    LayerDeclaration b = a;
+    b.title = QStringLiteral("新图名");
+    const QString ra =
+        store.createRelease(QStringLiteral("a"), QString(), {a});
+    const QString rb =
+        store.createRelease(QStringLiteral("b"), QString(), {b});
+    QVERIFY(!ra.isEmpty() && !rb.isEmpty());
+
+    QStringList added, removed, changed;
+    QVERIFY(store.diff(ra, rb, &added, &removed, &changed));
+    QVERIFY(added.isEmpty() && removed.isEmpty());
+    QCOMPARE(changed, QStringList{QStringLiteral("facies.T1")});
+  }
+
+  // opt-05：manifest_json 损坏时 diff 不得把「读不出」谎报成「对方全新增」
+  // ——返回 false 且点名损坏的 release。空数组是合法快照不拦。
+  void diffRefusesCorruptManifest()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString dbPath = dir.filePath(QStringLiteral("meta.sqlite"));
+    QString a, b;
+    {
+      ReleaseStore store(dbPath);
+      QVERIFY(store.open());
+      a = store.createRelease(QStringLiteral("a"), QString(),
+                              {decl(QStringLiteral("facies.T1"), QStringLiteral("T1"))});
+      b = store.createRelease(QStringLiteral("b"), QString(),
+                              {decl(QStringLiteral("grid.T1"), QStringLiteral("T1"))});
+      QVERIFY(!a.isEmpty() && !b.isEmpty());
+    }
+    {
+      QSqlDatabase db = QSqlDatabase::addDatabase(
+          QStringLiteral("QSQLITE"), QStringLiteral("corrupt_fixture"));
+      db.setDatabaseName(dbPath);
+      QVERIFY(db.open());
+      QSqlQuery q(db);
+      QVERIFY(q.exec(QStringLiteral(
+          "UPDATE releases SET manifest_json='@@@' WHERE release_id='%1'").arg(a)));
+      db.close();
+    }
+    QSqlDatabase::removeDatabase(QStringLiteral("corrupt_fixture"));
+
+    ReleaseStore store(dbPath);
+    QVERIFY(store.open());
+    QStringList added, removed, changed;
+    QString err;
+    QVERIFY(!store.diff(a, b, &added, &removed, &changed, &err));
+    QVERIFY2(err.contains(a), qPrintable(err));
+
+    // 另一侧损坏同样点名；两侧都损坏点第一个。
+    {
+      QSqlDatabase db = QSqlDatabase::addDatabase(
+          QStringLiteral("QSQLITE"), QStringLiteral("corrupt_fixture2"));
+      db.setDatabaseName(dbPath);
+      QVERIFY(db.open());
+      QSqlQuery q(db);
+      QVERIFY(q.exec(QStringLiteral(
+          "UPDATE releases SET manifest_json='@@@' WHERE release_id='%1'").arg(b)));
+      db.close();
+    }
+    QSqlDatabase::removeDatabase(QStringLiteral("corrupt_fixture2"));
+    err.clear();
+    QVERIFY(!store.diff(a, b, &added, &removed, &changed, &err));
+    QVERIFY2(err.contains(a), qPrintable(err));
+
+    // 列表口径同步：损坏快照在 releases() 里如实标 manifestCorrupt，
+    // 不谎报 layerCount=0（面板上显示「损坏」而非静默当空清单）。
+    const QVector<ReleaseInfo> infos = store.releases();
+    const auto findInfo = [&infos](const QString &id) {
+      for (const ReleaseInfo &r : infos)
+        if (r.id == id)
+          return r;
+      return ReleaseInfo{};
+    };
+    QVERIFY(findInfo(a).manifestCorrupt);
+    QVERIFY(findInfo(b).manifestCorrupt);
   }
 
   void diffReportsDelta()

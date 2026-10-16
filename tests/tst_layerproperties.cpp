@@ -454,6 +454,47 @@ class TestLayerProperties : public QObject
       QCOMPARE(second.renderer()->type(), QStringLiteral("singleSymbol"));
     }
 
+    // (j) opt-05：手工层无 paleoLayerId 属性——图层树按契约回退发射
+    // QgsMapLayer::id()（layertreepanel 属性动作 paleoId ?: layer->id()）。
+    // 解析链必须兜底原生 id，否则该路径恒失败：属性对话框打不开、业务页
+    // 建不出。
+    void manualLayerResolvesByQgsMapLayerId()
+    {
+      QTemporaryDir tmp;
+      QVERIFY(tmp.isValid());
+      LayerManifest manifest(tmp.filePath(QStringLiteral("project.sqlite")));
+      QVERIFY(manifest.open());
+      QgisLayerService svc(nullptr, &manifest);
+
+      // 手工层：直接 addMapLayer，不盖 paleoLayerId——发射侧回退 id()。
+      QgsVectorLayer *manual = new QgsVectorLayer(
+          QStringLiteral("Point?field=id:integer"),
+          QStringLiteral("手工点层"), QStringLiteral("memory"));
+      QVERIFY(manual->isValid());
+      QVERIFY(manual->customProperty(QStringLiteral("paleoLayerId")).isNull());
+      QgsProject::instance()->addMapLayer(manual);
+
+      LayerPropertiesDialog dlg(&svc, LayerPropertiesDialog::Deps{});
+      // 业务页：按原生 id 解析得到图层——声明侧字段为「—」，layerId 行
+      // 显示传入的原生 id 串。
+      QPointer<QWidget> page(dlg.createBusinessPage(manual->id()));
+      QVERIFY2(page != nullptr, "manual layer must resolve via QgsMapLayer::id() fallback");
+      QCOMPARE(page->findChild<QLabel *>(QStringLiteral("paleoPropGroup"))->text(),
+               QStringLiteral("—"));
+      delete page;
+
+      // 属性壳：矢量手工层 → QgsVectorLayerProperties 构造（offscreen 不 exec）。
+      dlg.openLayerProperties(manual->id());
+      QVERIFY2(findNativeDialog() != nullptr,
+               "properties dialog must open for a manual layer addressed by id()");
+      qApp->processEvents();
+      QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+
+      // 不存在的原生 id 仍是无操作（兜底不误命中）。
+      dlg.openLayerProperties(QStringLiteral("{00000000-0000-0000-0000-000000000000}"));
+      QVERIFY(findNativeDialog() == nullptr);
+    }
+
   private:
     // offscreen openLayerProperties 构造的原生壳（无父窗口 → top-level），
     // objectName 约定 paleoLayerPropertiesDialog；deleteLater 冲掉之前有效。

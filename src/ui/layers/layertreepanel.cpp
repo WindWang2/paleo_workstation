@@ -7,6 +7,7 @@
 #include "../paleoviewport.h"
 
 #include "../../qgis/layervocabulary.h"
+#include "../../qgis/qgislayerorganizer.h"
 #include "../../qgis/qgislayerservice.h"
 #include "../../services/errorhub.h"
 #include "../shortcuts/shortcutcatalog.h"
@@ -81,6 +82,16 @@ LayerTreePanel::LayerTreePanel(QgsProject *project, QgsMapCanvas *canvas,
     // 模型默认行为即显示图例（ShowLegend 默认开，ShowLegendAsTree 相关默认
     // 不动）；新增图层的 legend 展开由 expandNewLayerNodes 兜底。
     m_view->setModel(model);
+    // 自定义绘制序生效时画布完全忽略树序——而拖拽 InternalMove 走 mime
+    // 克隆（QgsLayerTreeModel::dropMimeData → insertChildNodes + 源
+    // removeChildren），不经 moveCurrentNode；此处收集插入子树的图层，
+    // 排队到事务落地（源节点移除完毕）后按终态树序回填 customLayerOrder。
+    // 工具条挪组/跨组拖拽同被覆盖；「显示预测点位」特意置顶的条目因
+    // slotIntoCustomOrder 的定点插入语义不被打平。
+    connect(model, &QAbstractItemModel::rowsInserted, this,
+            [this](const QModelIndex &parent, int first, int last) {
+              queueCustomOrderSync(parent, first, last);
+            });
   }
 
   // 空态卡片：共享组件 PaleoEmptyStateLabel（token 活体样式 + 宿主 resize
@@ -422,6 +433,25 @@ void LayerTreePanel::moveCurrentNode(int toIndex)
   parent->insertChildNode(toIndex > from ? toIndex + 1 : toIndex, placed);
   parent->removeChildNode(node);
   m_view->setCurrentNode(placed);
+  // 自定义绘制序生效时画布完全忽略树序——树里挪了层但自定义序不同步，
+  // 画布叠置就停在旧位（opt-05）。只把被挪子树的图层按新树序插回序列表
+  //（slotIntoCustomOrder 的既有语义：置于树序中其下首个已入序图层之前），
+  // 其它条目原位保留——「显示预测点位」特意置顶的非树序条目不被打平。
+  // 挪的是组时组内图层逐个回填；自下而上处理，上层成员锚定到已归位的
+  // 下层条目而非其旧位。
+  if (QgsLayerTree *root = m_view->layerTreeModel()
+                               ? m_view->layerTreeModel()->rootGroup()
+                               : nullptr)
+  {
+    QList<QgsLayerTreeLayer *> moved;
+    if (auto *ln = qobject_cast<QgsLayerTreeLayer *>(placed))
+      moved << ln;
+    else if (auto *g = qobject_cast<QgsLayerTreeGroup *>(placed))
+      moved = g->findLayers(); // 递归：树序
+    for (int i = moved.size() - 1; i >= 0; --i)
+      if (QgsMapLayer *ml = moved.at(i)->layer())
+        QgisLayerOrganizer::slotIntoCustomOrder(root, ml);
+  }
   if (QItemSelectionModel *sel = m_view->selectionModel())
   {
     const QModelIndex idx = m_view->layerTreeModel()->node2index(placed);
@@ -430,6 +460,51 @@ void LayerTreePanel::moveCurrentNode(int toIndex)
   }
   refreshIndicators();
   updatePaleoActionStates();
+}
+
+void LayerTreePanel::queueCustomOrderSync(const QModelIndex &parent, int first,
+                                          int last)
+{
+  QgsLayerTreeModel *model = m_view ? m_view->layerTreeModel() : nullptr;
+  QgsLayerTree *root = model ? model->rootGroup() : nullptr;
+  if (!root || !root->hasCustomLayerOrder())
+    return; // 未启用自定义序：画布本就跟随树序，收集是纯开销
+  for (int r = first; r <= last; ++r)
+  {
+    QgsLayerTreeNode *n = model->index2node(model->index(r, 0, parent));
+    if (auto *ln = qobject_cast<QgsLayerTreeLayer *>(n))
+    {
+      if (ln->layer())
+        m_pendingOrderLayers.insert(ln->layer());
+    }
+    else if (auto *g = qobject_cast<QgsLayerTreeGroup *>(n))
+      for (QgsLayerTreeLayer *child : g->findLayers())
+        if (child->layer())
+          m_pendingOrderLayers.insert(child->layer());
+  }
+  if (!m_pendingOrderLayers.isEmpty() && !m_orderSyncQueued)
+  {
+    m_orderSyncQueued = true;
+    QMetaObject::invokeMethod(this, &LayerTreePanel::flushCustomOrderSync,
+                              Qt::QueuedConnection);
+  }
+}
+
+void LayerTreePanel::flushCustomOrderSync()
+{
+  m_orderSyncQueued = false;
+  const QSet<QgsMapLayer *> pending = std::move(m_pendingOrderLayers);
+  QgsLayerTreeModel *model = m_view ? m_view->layerTreeModel() : nullptr;
+  QgsLayerTree *root = model ? model->rootGroup() : nullptr;
+  if (!root || pending.isEmpty())
+    return;
+  // 依终态树序自下而上回填：上层被挪层锚定到已归位的下层条目。set 里
+  // 可能有已离树图层（拖入后又被删）——slotIntoCustomOrder 找不到其树
+  // 位时幂等返回。QSet 成员皆为指针比较，不触碰悬垂对象本体。
+  const QList<QgsLayerTreeLayer *> treeLayers = root->findLayers();
+  for (int i = treeLayers.size() - 1; i >= 0; --i)
+    if (pending.contains(treeLayers.at(i)->layer()))
+      QgisLayerOrganizer::slotIntoCustomOrder(root, treeLayers.at(i)->layer());
 }
 
 void LayerTreePanel::updatePaleoActionStates()

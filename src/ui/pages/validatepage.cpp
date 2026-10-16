@@ -358,10 +358,14 @@ void ValidatePage::clearResults()
   if (auto *issues = child<QTableWidget>(this, "issueTable"))
   {
     issues->clearSpans();
+    clearCellWidgets(issues); // 见 clearCellWidgets 注释：setRowCount 不删控件
     issues->setRowCount(0);
   }
   if (auto *residuals = child<QTableWidget>(this, "residualTable"))
+  {
+    clearCellWidgets(residuals);
     residuals->setRowCount(0);
+  }
   if (auto *status = child<QLabel>(this, "statusLabel"))
     status->clear();
   if (auto *summary = child<QLabel>(this, "residualSummaryLabel"))

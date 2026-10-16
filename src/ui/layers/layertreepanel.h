@@ -2,8 +2,11 @@
 #pragma once
 
 #include <QList>
+#include <QSet>
 #include <QString>
 #include <QWidget>
+
+class QModelIndex;
 
 class QgsLayerTreeGroup;
 class QgsLayerTreeLayer;
@@ -90,6 +93,12 @@ class LayerTreePanel : public QWidget
     // 在父组内重排当前节点。toIndex 是移动前的子序号；0 为所在组最上层。
     void moveCurrentNode(int toIndex);
     int currentNodeIndex(int *siblingCount = nullptr) const;
+    // ---- 自定义绘制序同步（opt-05）----
+    // 拖拽 InternalMove 不走 moveCurrentNode（mime 克隆 insertChildNodes +
+    // 源 removeChildren）：rowsInserted 收集插入子树的图层，事务落地后
+    //（源节点已移除）排队按终态树序逐层回填 customLayerOrder。
+    void queueCustomOrderSync(const QModelIndex &parent, int first, int last);
+    void flushCustomOrderSync();
     // ---- indicator ----
     void scheduleIndicatorRefresh(); // 排队合并刷新（setActiveHorizon 时序）
 
@@ -117,4 +126,6 @@ class LayerTreePanel : public QWidget
     QAction *m_depthConvertAction = nullptr;   // objectName: layerTreeDepthConvertAction
     QString m_filterText;
     bool m_refreshQueued = false;
+    QSet<QgsMapLayer *> m_pendingOrderLayers; // 待回填自定义序的移动图层集
+    bool m_orderSyncQueued = false;
 };

@@ -154,8 +154,17 @@ QString manifestPath( const Request &request )
 
 QString Result::summary() const
 {
-  return QObject::tr( "共 %1 版：成功 %2 · 失败 %3 · 取消 %4" )
+  // 装配阶段失败（prepare/index/manifest：index<0 的整体项）单独点名——
+  // 它们不占逐版计数，并入「失败」会虚增版级失败数。
+  int assembly = 0;
+  for ( const Failure &f : failures )
+    if ( f.index < 0 )
+      ++assembly;
+  QString line = QObject::tr( "共 %1 版：成功 %2 · 失败 %3 · 取消 %4" )
     .arg( total ).arg( succeeded ).arg( failed ).arg( cancelled );
+  if ( assembly > 0 )
+    line += QObject::tr( " · 装配失败 %1" ).arg( assembly );
+  return line;
 }
 
 struct Exporter::RunState

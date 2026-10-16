@@ -49,9 +49,9 @@ enum class Format
 
 struct Failure
 {
-    int index = -1;     //!< 格序号；prepare/index 阶段的整体失败为 -1
+    int index = -1;     //!< 格序号；prepare/index/manifest 阶段的整体失败为 -1
     QString tile;       //!< 格名；整体失败时为 "*"
-    QString stage;      //!< prepare/template/layout/export/register/index
+    QString stage;      //!< prepare/template/layout/export/register/index/manifest
     QString error;      //!< 人读原因
 };
 
@@ -88,7 +88,13 @@ struct Result
     QString indexPage;         //!< 目录索引页（未出则空）
     QString manifest;          //!< manifest.json（写不出则空）
 
-    bool complete() const { return failed == 0 && cancelled == 0 && succeeded > 0; }
+    // failed 只计逐版失败（与 succeeded+cancelled==total 守恒）；装配阶段
+    //（索引页/manifest.json）失败只进 failures——complete() 必须连它一起算，
+    // 否则「整册完整」会对缺索引页/缺账本的册报喜。
+    bool complete() const
+    {
+        return failed == 0 && cancelled == 0 && succeeded > 0 && failures.isEmpty();
+    }
     // 人读一行：进度 + 失败/取消计数（任务页 detail 与测试断言共用）。
     QString summary() const;
 };

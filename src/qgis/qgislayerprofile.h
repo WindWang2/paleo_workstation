@@ -115,7 +115,10 @@ class QgisLayerProfileService : public QObject
     // 基础共享数据层保活（00_Data / Zone::SharedData）：井位（wells）与
     // 测区范围（survey.area）是所有编图页的基准参考叠加层，任何页面档案
     //（page:*）应用或定格时必须保证其可见，防止因存量主题未记录或临时状态导致互斥或丢失。
-    void ensureSharedDataVisible();
+    // 有改动时把愈合后的树态写回 appliedTheme 自己的记录（刚应用/将定格的
+    // 那个主题）——绝不能写 m_currentPage 的主题：应用路径里它仍是上一页，
+    // 写它会用本页树态覆盖别页档案（跨页可见性串档、随 .qgz 持久化）。
+    void ensureSharedDataVisible(const QString &appliedTheme);
 
     QgsProject *m_project = nullptr;
     QgsLayerTreeModel *m_model = nullptr;

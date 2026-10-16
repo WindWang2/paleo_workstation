@@ -73,8 +73,10 @@ class QgisLayerOrganizer : public QObject
     // decls 非空时复用调用方已取好的声明表（reorganize 批量归位一次取
     // 表）；为空时现场 declared()——单事件路径语义与旧实现一致。
     void placeLayer( QgsMapLayer *layer, const QVector<LayerDeclaration> *decls = nullptr );
-    void ensureHorizonGroups();
-    void pruneVacantGroups();
+    // 同 placeLayer 的取表约定：decls 非空复用调用方快照（reorganize 一次
+    // 取表贯穿三步）；为空现场 declared()（单信号路径）。
+    void ensureHorizonGroups( const QVector<LayerDeclaration> *decls = nullptr );
+    void pruneVacantGroups( const QVector<LayerDeclaration> *decls = nullptr );
     // 找到或创建层位组；返回带 paleoHorizon 属性的组节点（树根直挂）。
     QgsLayerTreeGroup *horizonGroup( const QString &horizon,
                                      const QVector<LayerDeclaration> &decls );

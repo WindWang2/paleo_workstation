@@ -44,6 +44,12 @@ class ComposePage : public QWidget
     // 的 facies.* 矢量层。
     void setFaciesEditTarget(const QString &layerId);
 
+    // 编图上下文层位（壳喂 activeHorizon；与 setThicknessHorizon 同源）。
+    // 非空时因子表/相栅格下拉/相属性目标只收本层位声明——跨层位因子不会
+    // 被勾进本层位产物，相属性/边界核查也不会写错层位的图层。空串恢复
+    // 旧语义（不滤——独立挂页/无壳测试照常可用）。
+    void setComposeHorizon(const QString &horizon);
+
     // 方向 25 M6：版面库——壳喂当前工程的版面名单（layoutSvc->layoutNames()），
     // 页面只列不查；选中行的打开/删除意图走信号，批量出图走整页动作。
     void setLayoutNames(const QStringList &names);

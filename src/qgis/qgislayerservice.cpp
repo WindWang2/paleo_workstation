@@ -387,7 +387,9 @@ void QgisLayerService::purgeDanglingInstances()
   for (auto *layer : live) {
     const auto id = layer->customProperty("paleoLayerId").toString();
     if (!id.isEmpty() && layer->isValid() && !m_instances.contains(id)) {
-      if (layer->providerType() == QLatin1String("gdal")) MappingArtifactWriter::restoreRasterCrs(layer);
+      if (layer->providerType() == QLatin1String("gdal") ||
+          layer->providerType() == QLatin1String("ogr"))
+        MappingArtifactWriter::restoreRasterCrs(layer);
       paleo::constraintcrs::assignStoreCrsIfMissing(layer); // .qgz 里旧的无 CRS 约束层
       trackInstance(id, layer);
     }

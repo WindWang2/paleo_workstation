@@ -34,11 +34,69 @@
 
 #include <qgstextbuffersettings.h>
 #include <qgstextformat.h>
+#include <ogr_api.h>
+#include <ogr_srs_api.h>
 namespace MappingArtifactWriter {
+namespace {
+// GPKG 只能把工程网格落成 LOCAL_CS。读回来变成 Unknown engineering datum，
+// WKT 对不上 DataCatalog::localGridCrsWkt()，显式配准因此不作用于这层。
+void restoreVectorEngineeringCrs(QgsMapLayer *layer) {
+  if (!layer || layer->providerType() != QLatin1String("ogr"))
+    return;
+  const QString canonicalWkt = DataCatalog::localGridCrsWkt();
+  const QgsCoordinateReferenceSystem canonical =
+      QgsCoordinateReferenceSystem::fromWkt(canonicalWkt);
+  if (!canonical.isValid())
+    return;
+  const QgsCoordinateReferenceSystem current = layer->crs();
+  if (current.isValid() &&
+      (current == canonical || current.toWkt() == canonical.toWkt()))
+    return;
+
+  const QString path = layer->source().section(QLatin1Char('|'), 0, 0);
+  QString stored;
+  QString datasetWkt;
+  GDALDatasetH ds = GDALOpenEx(path.toUtf8().constData(),
+                               GDAL_OF_VECTOR | GDAL_OF_READONLY, nullptr,
+                               nullptr, nullptr);
+  if (ds) {
+    if (const char *item = GDALGetMetadataItem(ds, "PALEO_CRS_WKT", nullptr))
+      stored = QString::fromUtf8(item);
+    if (OGRLayerH ogrLayer = GDALDatasetGetLayer(ds, 0)) {
+      if (OGRSpatialReferenceH srs = OGR_L_GetSpatialRef(ogrLayer)) {
+        char *exported = nullptr;
+        if (OSRExportToWkt(srs, &exported) == OGRERR_NONE && exported)
+          datasetWkt = QString::fromUtf8(exported);
+        CPLFree(exported);
+      }
+    }
+    GDALClose(ds);
+  }
+  const auto namesGrid = [](const QString &text) {
+    return text.contains(QStringLiteral("Paleo local engineering grid"));
+  };
+  const QString currentWkt = current.toWkt();
+  if (!namesGrid(currentWkt) && !namesGrid(current.description()) &&
+      !namesGrid(stored) && !namesGrid(datasetWkt))
+    return;
+  if (currentWkt.contains(QStringLiteral("Local engineering datum")) &&
+      !currentWkt.contains(QStringLiteral("Unknown engineering datum")))
+    return;
+  const QString use =
+      stored.contains(QStringLiteral("Local engineering datum")) ? stored
+                                                                : canonicalWkt;
+  const QgsCoordinateReferenceSystem restored =
+      QgsCoordinateReferenceSystem::fromWkt(use);
+  if (restored.isValid())
+    layer->setCrs(restored);
+}
+} // namespace
 void restoreRasterCrs(QgsMapLayer *layer) {
   auto *raster = qobject_cast<QgsRasterLayer *>(layer);
-  if (!raster)
+  if (!raster) {
+    restoreVectorEngineeringCrs(layer);
     return;
+  }
   GDALDatasetH ds =
       GDALOpen(raster->source().toUtf8().constData(), GA_ReadOnly);
   if (!ds)

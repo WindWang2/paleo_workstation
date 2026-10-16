@@ -5,11 +5,16 @@
 #include <gdal.h>
 #include <cpl_error.h>
 
+#include "../src/qgis/mappingartifactwriter.h"
 #include "../src/qgis/previewmapcanvas.h"
 #include "../src/qgis/previewrendercache.h"
 #include "../src/qgis/qgisruntime.h"
 #include "../src/qgis/projectmapreference.h"
 #include "../src/catalog/datacatalog.h"
+#include <ogr_api.h>
+#include <ogr_srs_api.h>
+#include <qgscoordinatereferencesystem.h>
+#include <qgscoordinatetransform.h>
 
 #include <qgsmapcanvas.h>
 #include <qgsmaplayer.h>
@@ -61,6 +66,7 @@ class TestPreviewMapCanvas : public QObject
     void setViewExtentIsExact();
     void cancelRenderingWithoutJobIsSafe();
     void localGridRasterRendersThroughGeoreference();
+    void downgradedFaciesPolygonsRegainLocalGrid();
     void renderSignalLifecycleFires();
     void overlayFollowsCanvasResize();
 
@@ -475,6 +481,77 @@ void TestPreviewMapCanvas::localGridRasterRendersThroughGeoreference()
   QVERIFY2(nonBg > 1000,
            qPrintable(QStringLiteral("栅格在 3857 画布上不可见 nonBg=%1")
                           .arg(nonBg)));
+}
+
+void TestPreviewMapCanvas::downgradedFaciesPolygonsRegainLocalGrid()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString path = dir.filePath(QStringLiteral("facies.gpkg"));
+  GDALAllRegister();
+  GDALDriverH driver = GDALGetDriverByName("GPKG");
+  QVERIFY(driver);
+  GDALDatasetH ds = GDALCreate(driver, path.toUtf8().constData(), 0, 0, 0,
+                               GDT_Unknown, nullptr);
+  QVERIFY(ds);
+  OGRSpatialReferenceH srs = OSRNewSpatialReference(nullptr);
+  QByteArray local(
+      "LOCAL_CS[\"Paleo local engineering grid\","
+      "UNIT[\"metre\",1,AUTHORITY[\"EPSG\",\"9001\"]],"
+      "AXIS[\"Easting\",EAST],AXIS[\"Northing\",NORTH]]");
+  char *wktPtr = local.data();
+  QVERIFY(OSRImportFromWkt(srs, &wktPtr) == OGRERR_NONE);
+  OSRSetAxisMappingStrategy(srs, OAMS_TRADITIONAL_GIS_ORDER);
+  OGRLayerH ogrLayer =
+      GDALDatasetCreateLayer(ds, "facies_polygons", srs, wkbPolygon, nullptr);
+  OSRDestroySpatialReference(srs);
+  QVERIFY(ogrLayer);
+  OGRFeatureH feature = OGR_F_Create(OGR_L_GetLayerDefn(ogrLayer));
+  QByteArray ring(
+      "POLYGON ((1000 1000, 2000 1000, 2000 2000, 1000 2000, 1000 1000))");
+  char *ringPtr = ring.data();
+  OGRGeometryH geometry = nullptr;
+  QVERIFY(OGR_G_CreateFromWkt(&ringPtr, nullptr, &geometry) == OGRERR_NONE);
+  QVERIFY(OGR_F_SetGeometry(feature, geometry) == OGRERR_NONE);
+  OGR_G_DestroyGeometry(geometry);
+  QVERIFY(OGR_L_CreateFeature(ogrLayer, feature) == OGRERR_NONE);
+  OGR_F_Destroy(feature);
+  GDALClose(ds);
+
+  QgsVectorLayer layer(path + QStringLiteral("|layername=facies_polygons"),
+                       QStringLiteral("facies"), QStringLiteral("ogr"));
+  QVERIFY(layer.isValid());
+  QVERIFY2(!layer.crs().toWkt().contains(
+               QStringLiteral("Local engineering datum")),
+           qPrintable(layer.crs().toWkt()));
+  MappingArtifactWriter::restoreRasterCrs(&layer);
+  const QgsCoordinateReferenceSystem canonical =
+      QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt());
+  QVERIFY2(layer.crs().isValid() && layer.crs() == canonical,
+           qPrintable(layer.crs().toWkt()));
+
+  QgsProject project;
+  PaleoGeoreference reference;
+  reference.targetCrs = QStringLiteral("EPSG:4326");
+  reference.anchorLonDeg = 108.05;
+  reference.anchorLatDeg = 36.1;
+  reference.metersPerDegLon = 90049.687955;
+  reference.metersPerDegLat = 110960.830261;
+  reference.a = 1.000896238;
+  reference.b = 0.030275703;
+  reference.tE = -6182.244744;
+  reference.tN = -9871.264523;
+  QString error;
+  QVERIFY2(paleo::mapreference::configure(
+               &project, reference, QStringLiteral("EPSG:3857"), &error),
+           qPrintable(error));
+  QgsCoordinateTransform transform(
+      layer.crs(), QgsCoordinateReferenceSystem(QStringLiteral("EPSG:3857")),
+      project.transformContext());
+  QVERIFY2(transform.isValid(), "相面降级 CRS 仍不能投到地图");
+  const QgsPointXY placed = transform.transform(QgsPointXY(1500, 1500));
+  QVERIFY2(std::abs(placed.x() - 12028000.0) < 80000.0,
+           qPrintable(QString::number(placed.x())));
 }
 
 void TestPreviewMapCanvas::renderSignalLifecycleFires()

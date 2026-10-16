@@ -530,7 +530,8 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &result) {
     valid = valid && request.kind == "wells" && result.partialWellCoverage &&
         !result.mock && result.method == QLatin1String("remote-well-facies-api-v2");
   if (request.kind == "seismic") {
-    valid = valid && result.cells.size() == request.rows * request.columns;
+    const bool gridShapeOk = result.cells.size() == request.rows * request.columns;
+    valid = valid && gridShapeOk;
     int definedCells = 0;
     for (int code : result.cells) {
       valid = valid && (codes.contains(code) || code == -9999);
@@ -541,7 +542,9 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &result) {
     // 合法），于是登记一个「成功」版本并落一张全 nodata 栅格——用户看到
     // 「预测完成」却得到空图。与 wells 路径「全井跳过即如实报错、不发布」
     // 的诚实口径对齐：一格有效都没有就不发布。
-    allCellsUndefined = definedCells == 0;
+    // 仅在网格形状本身正确时才算「全无数据」：格数不符/空数组是「与请求
+    // 不一致」，不能借这条给出「全部为无数据」这一误导性原因。
+    allCellsUndefined = gridShapeOk && definedCells == 0;
     valid = valid && !allCellsUndefined;
   } else {
     valid = valid && result.points.size() == request.wells.size();

@@ -663,9 +663,16 @@ int main( int argc, char *argv[] )
   const QByteArray logPath = QByteArray( QT_TESTCASE_BUILDDIR ) + "/tst_onnxworkflow-result.txt";
   QList<QByteArray> forwarded;
   forwarded << QByteArray( argv[0] );
+  bool hasFileLogger = false;
   for ( int i = 1; i < argc; ++i )
+  {
     forwarded << QByteArray( argv[i] );
-  forwarded << QByteArray( "-o" ) << logPath + ",txt";
+    // 调用方已自带文件日志时不重复追加，避免两个 -o 的歧义。
+    if ( QByteArray( argv[i] ) == "-o" || QByteArray( argv[i] ) == "-output" )
+      hasFileLogger = true;
+  }
+  if ( !hasFileLogger )
+    forwarded << QByteArray( "-o" ) << logPath + ",txt";
   QList<char *> cargv;
   cargv.reserve( forwarded.size() );
   for ( QByteArray &a : forwarded )

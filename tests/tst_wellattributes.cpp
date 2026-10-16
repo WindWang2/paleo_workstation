@@ -11,6 +11,9 @@
 #include <qgsapplication.h>
 #include <qgsfeatureiterator.h>
 #include <qgsfield.h>
+#include <qgslayertree.h>
+#include <qgsmaplayer.h>
+#include <qgsproject.h>
 #include <qgsvectorlayer.h>
 using namespace paleo::tests;
 using namespace WellComposite;
@@ -267,6 +270,24 @@ private slots:
     QCOMPARE(layer->fields().at(layer->fields().indexOf("dominant_facies")).alias(),
              QString("地层相")); // 智能预测侧不出现「优势」字样
     QCOMPARE(layer->name(), QString("测井地层相属性"));
+    // 地层相与岩性表只在属性表里维护，不出现在图层树。
+    QVERIFY(layer->flags().testFlag(QgsMapLayer::Private));
+    QgsProject *project = layer->project();
+    QVERIFY(project);
+    QCOMPARE(project->mapLayer(layer->id()), static_cast<QgsMapLayer *>(layer));
+    QVERIFY(!project->layerTreeRoot()->findLayer(layer->id()));
+    // 旧工程里这两张表还在图层树中，重新打开后要摘掉，图层本身留在工程里。
+    layer->setFlags(layer->flags() & ~QgsMapLayer::Private);
+    project->layerTreeRoot()->insertLayer(0, layer);
+    QVERIFY(project->layerTreeRoot()->findLayer(layer->id()));
+    QCOMPARE(WellAttributeStore::open(&f.catalog, f.dir.path(), &f.layers,
+                                      WellAttributeStore::Table::Formations, false),
+             layer);
+    QVERIFY(!project->layerTreeRoot()->findLayer(layer->id()));
+    QCoreApplication::processEvents();
+    QCOMPARE(project->mapLayer(layer->id()), static_cast<QgsMapLayer *>(layer));
+    QCOMPARE(f.layers.layer(WellAttributeStore::formationLayerId()),
+             static_cast<QgsMapLayer *>(layer));
     auto it = layer->getFeatures();
     QgsFeature feature;
     while (it.nextFeature(feature)) {
@@ -514,6 +535,13 @@ private slots:
                                     {"sand_ratio", 0.0}}};
     QVERIFY(WellAttributeStore::seedFactors(&f.catalog, f.dir.path(), &f.layers,
                                             values, &error));
+    // 井点单因素仍是地图图层，不跟岩性表、地层相表一起退出图层树。
+    auto *factorLayer = WellAttributeStore::open(
+        &f.catalog, f.dir.path(), &f.layers, WellAttributeStore::Table::Factors,
+        false);
+    QVERIFY(factorLayer && factorLayer->project());
+    QVERIFY(factorLayer->project()->layerTreeRoot()->findLayer(factorLayer->id()));
+    QVERIFY(!factorLayer->flags().testFlag(QgsMapLayer::Private));
     ConstraintWorkflow factors(&f.proc, &f.layers);
     factors.setCatalog(&f.catalog, f.dir.path());
     QVariantMap params{{"factorMode", "direct"},

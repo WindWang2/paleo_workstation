@@ -31,3 +31,13 @@
 - Review Result: 待 Independent Review 2（未参与修复的 subagent）
 - Remaining Work: F18–F21 视容量；Review 2 → Fix 2 → 终审 → PR
 - Next Action: 重建通过后跑定向测试 → 分簇 commit → 启动 Review 2
+
+## Round 2 — Review 2 + Fix 2（2026-10-17）
+
+- Finding IDs: R2-01…R2-17（review-r2.md）
+- Changed Files: 见 07-fix-r2-results.md（commit 1f1b1d15）
+- Verification: SHOULD_FIX 4 全处置（3 修复 + 1 流程记录）；DOCUMENT_ONLY 中 5 项廉价收口；定向测试全绿
+- Review Result: 独立复审证实 Fix 1 核心修复（F1/F2/F5/F8/F17 数学与语义独立验证）
+- Remaining Work: D-02 影响分析异步任务化（#494 同步重 IO——本轮只做了门控+等待光标+RAII，
+  完整 PaleoTask 化递延）；F12 反演统计回归测试（需体级夹具）；F18-F21 视容量递延
+- Next Action: 独立终审 → 全量回归 + 门禁 → PR

@@ -3,7 +3,6 @@
 // 从 mappingworkbench.cpp 析出——行为守恒平移（goal/core-deepening A-R2）：
 // 函数体逐字未动，仅按子域归位到独立 TU。
 #include "mappingworkbench.h"
-#include "workflows_internal.h"
 #include "../algorithms/faciesmapping/formationdominance.h"
 #include "../catalog/purgelease.h"
 #include "../domain/faciescatalog.h"
@@ -11,6 +10,7 @@
 #include "../domain/singlefactorrequest.h"
 #include "../io/constraintstore.h"
 #include "../io/lasparser.h"
+#include "../qgis/constraintcrs.h"
 #include "../qgis/facieshierarchyrenderer.h"
 #include "../qgis/factorstylewriter.h"
 #include "../qgis/layervocabulary.h"
@@ -68,38 +68,23 @@ void fail(QString *error, const QString &text) {
 }
 QString uid() { return QUuid::createUuid().toString(QUuid::WithoutBraces); }
 QString filePath(const QString &source) { return source.section('|', 0, 0); }
-// 导入坐标门（P0-1 pr457-closure 的有意分叉，与画布写入门的契约不同）：
-// 画布绘制（toStoreWkt）只认「同一 CRS」或有显式坐标操作——交互几何来源
-// CRS 可证。批量导入是用户显式断言「该文件坐标就在本工程局部网格」的动作：
-// 米制工程 CRS（LOCAL_CS/ENGCRS）照收（#457 既有工作流，测试固化），但断言
-// 必须留痕——来源 CRS 与工程网格不同一时，导入 provenance 记
-// crs_verified=false + crs_source（坐标仅按用户断言推测，非核实）。
-// 带基准的投影/地理 CRS 仍拒绝（那种文件应该配准/投影，不该猜）。
-bool isLocalGridCrs(const QgsCoordinateReferenceSystem &c) {
-  return c.isValid() && !c.isGeographic() &&
-         c.mapUnits() == Qgis::DistanceUnit::Meters &&
-         c.type() == Qgis::CrsType::Engineering;
-}
-bool isProjectLocalGridCrs(const QgsCoordinateReferenceSystem &c) {
-  const auto local = QgsCoordinateReferenceSystem::fromWkt(
-      DataCatalog::localGridCrsWkt());
-  return c == local || (c.isValid() && local.isValid() && c.toWkt() == local.toWkt());
-}
+// 导入坐标门（与写入侧 constraintcrs::toStoreWkt 同一分类口径）：只接受
+// ①与库网格同一身份（已核实）；②「未指定/任意」占位的笛卡尔米制 CRS——
+// 文件没有给出可核对的坐标定义，按工程上下文假定其为本工程网格坐标。
+// 有名有姓的其它工程 CRS（站点/厂区网格）与带基准的地理/投影 CRS 一律
+// 拒绝：米制单位不是等价证据（constraintcrs::classifySourceCrs 统一判定）。
 bool acceptsLocalGrid(const QgsCoordinateReferenceSystem &c) {
-  return isProjectLocalGridCrs(c) || isLocalGridCrs(c);
-}
-// 导入 provenance：坐标含义是「已核实」（文件 CRS 与工程网格同一）还是
-// 「用户断言推测」（外来米制工程 CRS）。req：历史/外来坐标不得静默当作已核实。
-QVariantMap importCrsProvenance(const QgsCoordinateReferenceSystem &crs) {
-  QVariantMap meta;
-  meta.insert(QStringLiteral("crs_source"),
-              crs.isValid() ? crs.userFriendlyIdentifier() : QString());
-  meta.insert(QStringLiteral("crs_verified"), isProjectLocalGridCrs(crs));
-  if (!isProjectLocalGridCrs(crs))
-    meta.insert(QStringLiteral("crs_note"),
-                QStringLiteral("source CRS is not the project local grid; "
-                               "coordinates stored as-is per explicit import"));
-  return meta;
+  using paleo::constraintcrs::SourceGridStatus;
+  switch (paleo::constraintcrs::classifySourceCrs(c)) {
+  case SourceGridStatus::CanonicalGrid:
+  case SourceGridStatus::UnspecifiedCartesian:
+    return true;
+  case SourceGridStatus::Invalid:
+  case SourceGridStatus::ForeignEngineering:
+  case SourceGridStatus::ForeignGeodetic:
+    return false;
+  }
+  return false; // 各枚举均已覆盖，防告警
 }
 QVariantList wellAttributeUpdates(const QVariantList &points, const QVariantList &schema,
                                   const QString &horizon, bool predicted, const QString &method = {}, const QString &jobId = {}) {
@@ -579,8 +564,16 @@ QString MappingWorkbench::snapshotConstraints(const QString &h,
   auto *store = m_constraints->constraintStore();
   if (!store || m_constraints->loadConstraints(h).isEmpty())
     return {};
-  QgsVectorLayer layer(store->gpkgPath() + "|layername=constraints" +
-                           paleo::workflow_detail::constraintHorizonSubsetSuffix(h),
+  // 独立 review A3：层位名含 '|' 等无法安全进入 subset 的字符时如实失败，
+  // 绝不静默退化为无过滤全表层（否则快照会把所有层位的约束一起带走）。
+  QString subsetError;
+  const QString subsetSuffix = PaleoLayerVocabulary::constraintHorizonSubsetSuffix(h, &subsetError);
+  if (subsetSuffix.isEmpty())
+  {
+    fail(error, subsetError);
+    return {};
+  }
+  QgsVectorLayer layer(store->gpkgPath() + "|layername=constraints" + subsetSuffix,
                        "constraints", "ogr");
   layer.setCrs(
       QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()));
@@ -619,16 +612,18 @@ bool MappingWorkbench::importConstraints(const QString &h, const QString &path,
   if (!ready(h, error))
     return false;
   // 与既有导入同一坐标门：约束几何必须落在本工程局部米制网格。
-  QVariantMap importMeta;
   {
     QgsVectorLayer probe(path, QStringLiteral("constraints"),
                          QStringLiteral("ogr"));
     if (probe.isValid() && !acceptsLocalGrid(probe.crs())) {
-      fail(error, tr("约束线必须采用本工程的局部米制坐标；请先完成配准"));
+      const auto status = paleo::constraintcrs::classifySourceCrs(probe.crs());
+      fail(error, tr("约束线必须采用本工程的局部米制坐标（文件声明 %1：%2）；请先完成配准或按本工程网格重新导出")
+                         .arg(paleo::constraintcrs::sourceGridStatusToken(status),
+                              status == paleo::constraintcrs::SourceGridStatus::Invalid
+                                  ? tr("无坐标系")
+                                  : probe.crs().userFriendlyIdentifier()));
       return false;
     }
-    if (probe.isValid())
-      importMeta = importCrsProvenance(probe.crs());
   }
   const auto records =
       paleo::readConstraintImportFeatures(path, role, nullptr, error);
@@ -640,21 +635,18 @@ bool MappingWorkbench::importConstraints(const QString &h, const QString &path,
   const auto input = m_dir + "/artifacts/staging/" + uid() + ".gpkg";
   if (!MappingArtifactWriter::vectorSnapshot(&source, input, error))
     return false;
-  return publishConstraintImport(h, input, path, records, error, nullptr, importMeta);
+  return publishConstraintImport(h, input, path, records, error);
 }
 
 bool MappingWorkbench::publishConstraintImport(
     const QString &h, const QString &input, const QString &path,
     const QVector<paleo::ImportedConstraintRecord> &records, QString *error,
-    const DerivedFileFingerprint *fingerprint, const QVariantMap &importMeta) {
+    const DerivedFileFingerprint *fingerprint) {
   const QByteArray snapshotKey = ("paleo.constraint.snapshot." + h).toUtf8();
   const auto previousSnapshot = m_constraints->property(snapshotKey.constData());
   DataCatalog::BatchSave transaction(m_catalog);
-  QVariantMap importExtra{{"source_file", path}, {"method", "constraint-import"}};
-  for (auto it = importMeta.cbegin(); it != importMeta.cend(); ++it)
-    importExtra.insert(it.key(), it.value());
   const auto inputId = record(input, h, "constraint_source", tr("%1 导入约束").arg(h), "vector", {},
-                              importExtra, error,
+                              {{"source_file", path}, {"method", "constraint-import"}}, error,
                               "|layername=features", {}, fingerprint);
   if (inputId.isEmpty()) { transaction.abort(); return false; }
   const auto source = versionForLayer(inputId);
@@ -722,7 +714,12 @@ bool MappingWorkbench::importBoundaryLayer(const QString &path,
     return false;
   }
   if (!acceptsLocalGrid(source.crs())) {
-    fail(error, tr("测区边界必须采用本工程的局部米制坐标；请先完成配准"));
+    const auto status = paleo::constraintcrs::classifySourceCrs(source.crs());
+    fail(error, tr("测区边界必须采用本工程的局部米制坐标（文件声明 %1：%2）；请先完成配准或按本工程网格重新导出")
+                       .arg(paleo::constraintcrs::sourceGridStatusToken(status),
+                            status == paleo::constraintcrs::SourceGridStatus::Invalid
+                                ? tr("无坐标系")
+                                : source.crs().userFriendlyIdentifier()));
     return false;
   }
   QDir().mkpath(m_dir + "/artifacts/layers");
@@ -774,7 +771,6 @@ bool MappingWorkbench::startConstraintImport(const QString &h, const QString &pa
     QString path;
     QVector<paleo::ImportedConstraintRecord> records;
     DerivedFileFingerprint fingerprint;
-    QVariantMap crsMeta; // 导入 provenance（crs_verified/crs_source）
   };
   auto job = std::make_shared<Import>();
   QDir().mkpath(m_dir + "/artifacts/staging");
@@ -788,8 +784,14 @@ bool MappingWorkbench::startConstraintImport(const QString &h, const QString &pa
         QgsVectorLayer source(path, QStringLiteral("constraints"), QStringLiteral("ogr"));
         if (!source.isValid())
           return tr("请选择有效的线矢量文件");
-        if (!acceptsLocalGrid(source.crs()))
-          return tr("约束线必须采用本工程的局部米制坐标；请先完成配准");
+        if (!acceptsLocalGrid(source.crs())) {
+          const auto status = paleo::constraintcrs::classifySourceCrs(source.crs());
+          return tr("约束线必须采用本工程的局部米制坐标（文件声明 %1：%2）；请先完成配准或按本工程网格重新导出")
+                     .arg(paleo::constraintcrs::sourceGridStatusToken(status),
+                          status == paleo::constraintcrs::SourceGridStatus::Invalid
+                              ? tr("无坐标系")
+                              : source.crs().userFriendlyIdentifier());
+        }
         if (cancelled())
           return tr("导入已取消");
         QgsVectorFileWriter::SaveVectorOptions options;
@@ -809,12 +811,10 @@ bool MappingWorkbench::startConstraintImport(const QString &h, const QString &pa
         if (task)
           task->reportStage("hash", 90);
         job->fingerprint = DerivedFileFingerprint::read(job->path, cancelled, &error);
-        job->crsMeta = importCrsProvenance(source.crs());
         return error;
       },
       [this, job, h, path](QString *error) {
-        return publishConstraintImport(h, job->path, path, job->records, error, &job->fingerprint,
-                                       job->crsMeta);
+        return publishConstraintImport(h, job->path, path, job->records, error, &job->fingerprint);
       },
       [job] { QFile::remove(job->path); }, error);
 }

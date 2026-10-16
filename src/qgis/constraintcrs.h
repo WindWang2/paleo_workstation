@@ -27,7 +27,18 @@ bool toStoreWkt( const QString &wkt, const QgsCoordinateReferenceSystem &source,
                  const QgsCoordinateTransformContext &context, QString *out, QString *error = nullptr );
 
 // 约束图层（paleoLayerId 以 constraints. 开头或数据源指向 constraints 层）
-// CRS 无效时指派库 CRS；已有有效 CRS 不动。返回是否做了指派。
-bool assignStoreCrsIfMissing( QgsMapLayer *layer );
+// CRS 无效时指派库 CRS；已有有效 CRS 不动。assigned=是否做了指派；
+// verified=指派是否来自文件里的 SRS（本函数只在文件无 SRS 时指派，故恒为
+// false——这正是「历史 CRS-less，按工程上下文假定」的标志，不冒充已核实）。
+struct StoreCrsAssignment
+{
+  bool assigned = false;
+  bool verified = false;
+};
+StoreCrsAssignment assignStoreCrsIfMissing( QgsMapLayer *layer );
+
+// 约束图层 CRS 溯源：文件带 SRS（verified_from_file）还是运行时按工程上下文
+// 假定（assumed_from_context）。无 CRS 返回 "none"。
+QString layerCrsProvenance( QgsMapLayer *layer );
 
 } // namespace paleo::constraintcrs

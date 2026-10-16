@@ -115,6 +115,10 @@ QVector<QVariantMap> QgisConstraintEditSession::snapshot(QString *error) const
   }
   QgsFeature feature;
   auto features = m_layer->getFeatures();
+  // F17：本快照内懒扫描一次的 store 占用表与最大 fid（首个新增要素触发）。
+  QHash<qlonglong, QString> storeOwners;
+  qlonglong storeLive = -1;
+  bool storeScanned = false;
   while (features.nextFeature(feature))
   {
     const QString invalid = QgisEditingService::geometryCommitError(feature.geometry(), tr("约束几何"));
@@ -143,23 +147,23 @@ QVector<QVariantMap> QgisConstraintEditSession::snapshot(QString *error) const
       // fid 复核——undo 释放了预分配 fid、又被其他写入方（直写/外部编辑）
       // 占用时，改用新的空闲 fid 重放，而不是让 redo 永久撞在身份守卫上。
       // 身份（稳定 id）不变：redo 仍写同一业务身份，仅持久化编号让位。
-      QHash<qlonglong, QString> owners; // 出现已知预分配编号时才需要占用表
-      qlonglong live = -1;
-      const bool known = m_newFids.contains(feature.id());
-      if (known)
+      // full-audit F17：占用复核的全表扫描每次 snapshot 只做一次（此前每个
+      // 已映射新增要素各开一次连接各扫一遍全表 = O(K·N) 行读，全在 GUI 线程；
+      // storeFidIndex 单次扫描同时产出 maxFid 与占用表，是 storeMaxFid 的
+      // 超集，语义不变——#496 F4 的复核行为原样保留）。
+      if (!storeScanned)
       {
-        live = storeFidIndex(&owners);
+        storeLive = storeFidIndex(&storeOwners);
+        storeScanned = true;
       }
-      else
-      {
-        live = storeMaxFid();
-      }
+      const qlonglong live = storeLive;
       if (live < 0)
       {
         *error = tr("无法读取约束 store 的要素编号");
         return {};
       }
       m_nextFid = std::max(m_nextFid, live + 1);
+      const bool known = m_newFids.contains(feature.id());
       if (!known)
       {
         m_newFids.insert(feature.id(), m_nextFid++);
@@ -170,7 +174,8 @@ QVector<QVariantMap> QgisConstraintEditSession::snapshot(QString *error) const
         const qlonglong pinned = m_newFids.value(feature.id());
         // 占用 = store 里存在该 fid 且其身份不是本要素的身份（undo 后被
         // 其他写入方复用）；仍是本要素自身的行则保持编号（幂等重放）。
-        const bool occupied = owners.contains(pinned) && owners.value(pinned) != id;
+        const bool occupied =
+            storeOwners.contains(pinned) && storeOwners.value(pinned) != id;
         if (occupied)
           m_newFids[feature.id()] = m_nextFid++; // 让位：m_nextFid 已 ≥ live+1
       }

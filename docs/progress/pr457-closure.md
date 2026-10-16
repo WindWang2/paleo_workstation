@@ -1,10 +1,38 @@
-# PR #457 剩余缺口补完（goal/singlefactor-pr457-closure）
+# PR #457 剩余缺口补完 · 二轮（goal/singlefactor-pr457-closure）
 
-基线 `dbb03269`（origin/master 2026-10-16，含 #457/#458/#459）。执行方式：
-Review 1（主 Agent 精读 P0 链路 + 2 个专项 subagent）→ Fix（7 组）→ 全部目标
-套件绿 → 独立 Review（adversarial subagent，14 项发现）→ Re-fix（8 项）→
-复验绿 → 全量 ctest。未跑的不记为通过；「当前源码」与旧报告冲突时以当前
-源码为准。
+## 与 #488 的关系（重要）
+
+本轮与 #488 同源（同一 /goal 任务），并行执行：第一轮以 `dbb03269` 为基线
+独立完成 Review→Fix→独立 Review→Re-fix（13 目标套件 + 全量 ctest 门禁）；
+推送前发现 #488 已合入（其覆盖：toStoreWkt 严格等价、samePoint/orientSign
+容差谓词、schema/enabled/blockMode 严格、新库建层带 SRS、legacy 迁移
+inspectCrsStorage/migrateLegacyCrs、引号转义 helper、supercover 栅格化统一）。
+本轮随即**语义 rebase 到最新 master（ddd1325e）**：#488 已覆盖的部分不再
+重复提交，保留并叠加 #488 未覆盖的缺口（下表「二轮增量」）。两轮独立审查
+互为印证（#488 的 review1 文档与本轮独立 review 结论高度重合）。
+
+## 二轮增量（本 PR 实际提交内容）
+
+1. **A1 计划/引擎域口径统一**（#488 的 segmentTouchesRect 仍是闭矩形）：
+   半开谓词 x 左闭右开、y 上闭下开（与 cellOf 行号自上而下一致）；四边缘 ×
+   三引擎一致性测试。
+2. **旧 IDW 屏障逐线落格回执（R3）**：supercover 栅格化前置 + 逐部件 touched
+   跟踪；未落格线回执 outside_compute_domain、不进凸包、PALEO_BREAK_LINES
+   只计落格数；BFS 复用 mask。
+3. **P0-2 可达性**：#488 的 migrateLegacyCrs 只有测试调用——补 workflow 门面
+   + 约束页状态显示（⚠ assumed）与显式迁移按钮；层 CRS provenance
+   （assumed_from_context / verified_from_file）。
+4. **F4 fid 映射复核**：storeFidIndex（max fid + fid→身份表，含无 id 行）；
+   undo 释放编号被外部占用后 redo 让位重放而非永久拒绝。
+5. **R2/R8 生产域接线**：lastFactorComputeDomain（井点 bbox±10%）、
+   buildBarrierMask 传精确网格域、inspectHorizonText 按层位分组
+   （barrierHorizons）+ 参数表按本层位收敛；计划 id 归一；UI label 补全。
+6. **F3/A3 层位名 '|' 拒绝**：#488 helper 只转义引号——'|' 破坏 OGR URI；
+   helper 拒绝 + 六调用点接入 + 快照守卫 + 敌意层位测试（含注入语义）。
+7. **结构面停线数值精确跳过（R4）**：GEOSDistance > softRadiusAuto 才跳过
+   （软核紧支于半径 = 零数值作用），触域/半径内线不裁剪（数值逐位不变）。
+
+## 第一轮过程记录（基线 dbb03269，含被 #488 覆盖的部分）
 
 ## Review 1 → Fix 清单
 

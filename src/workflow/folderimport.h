@@ -3,6 +3,7 @@
 
 #include <QDateTime>
 #include <QObject>
+#include <QPointer>
 #include <QMap>
 #include <QString>
 #include <QVector>
@@ -24,7 +25,8 @@ struct ImportSession;
 //     无则同步旧路径；完成回调总在 GUI 线程发；
 //   · importFolderRow —— 单行重试（forceType 由视图按当前下拉值算好）；
 //   · importFile —— 单文件导入（同上任务/同步双路径）；
-//   · importedWellHeadAsset —— 入库后按行文件名反查井口资产（catalog 读）。
+//   · importedWellHeadAsset —— 入库后按行源路径反查井口资产（先词法绝对路径、
+//     再规范路径，最后唯一同名兜底；catalog 读）。
 // 编排期间发 importActiveChanged(true/false)，壳据此抑制逐文件预览标签。
 // 本类不碰控件、不弹窗——全部视图出口经调用方给的回调回壳。
 //
@@ -46,7 +48,7 @@ class FolderImportWorkflow : public QObject
     FolderImportWorkflow(DataImportService *svc, PaleoTaskService *taskSvc,
                          QObject *parent = nullptr);
 
-    DataImportService *importService() const { return m_svc; }
+    DataImportService *importService() const; // 服务已析构 → nullptr
     void setTaskService(PaleoTaskService *taskSvc) { m_taskSvc = taskSvc; }
 
     // 确认表预览：与 importFolder 同一枚举/分类口径，只列行不导入。
@@ -96,7 +98,9 @@ class FolderImportWorkflow : public QObject
     void recordLedger(const QString &dir, const QDateTime &started,
                       const QVector<FolderRowResult> &rows, const QString &importErr);
 
-    DataImportService *m_svc = nullptr;
+    // QPointer：导入作业在飞时服务可能先析构（壳收尾/换工程）——finished
+    // 处理器里的 recordLedger/finish 回调必须看到「服务已不在」而不是悬垂指针。
+    QPointer<DataImportService> m_svc;
     PaleoTaskService *m_taskSvc = nullptr;
     QList<std::shared_ptr<ImportJob>> m_importQueue;
     std::shared_ptr<ImportJob> m_activeImport;

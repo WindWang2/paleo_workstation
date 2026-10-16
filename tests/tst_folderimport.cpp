@@ -202,6 +202,60 @@ private slots:
     QVERIFY(found);
   }
 
+  // opt-01 U1：同名井口表分处不同子目录——回查必须按导入源路径定位到
+  // 本行自己的资产，不能因文件名相同打开另一份资产的预览（旧实现取
+  // 第一份同名资产）。两份内容不同（各自入库、各自资产）。
+  void importedWellHeadAssetResolvesSameNameBySourcePath()
+  {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString first = stageFixture(tmp, QStringLiteral("src_area/a"),
+                                       QStringLiteral("ExportWellHead.dat"));
+    const QString second = stageFixture(tmp, QStringLiteral("src_area/b"),
+                                        QStringLiteral("ExportWellHead.dat"));
+    QVERIFY(!first.isEmpty() && !second.isEmpty());
+    {
+      // 第二份追加一个空行：同名、解析结果同形，但字节不同（不触发 dedup）。
+      QFile f(second);
+      QVERIFY(f.open(QIODevice::Append));
+      QVERIFY(f.write("\n") == 1);
+    }
+
+    const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(projectDir));
+    auto stack = makeStack(projectDir);
+    QVERIFY(stack != nullptr);
+    DataCatalog *cat = stack->importSvc->catalog();
+
+    QString err;
+    const QString idFirst = stack->importSvc->importProjectFile(first, &err);
+    QVERIFY2(!idFirst.isEmpty(), qPrintable(err));
+    const QString idSecond = stack->importSvc->importProjectFile(second, &err);
+    QVERIFY2(!idSecond.isEmpty(), qPrintable(err));
+    QVERIFY(idFirst != idSecond);
+
+    FolderImportWorkflow wf(stack->importSvc.get(), nullptr);
+    // 真值：两次查询各自回到登记 sourceUri 与行路径一致的资产。
+    QCOMPARE(wf.importedWellHeadAsset(first), idFirst);
+    QCOMPARE(wf.importedWellHeadAsset(second), idSecond);
+    QCOMPARE(QFileInfo(cat->currentVersion(idSecond).sourceUri).absoluteFilePath(),
+             QFileInfo(second).absoluteFilePath());
+    // 同名但不在库的第三条路径：两份同名候选有歧义 → 不猜（空）。
+    const QString third = stageFixture(tmp, QStringLiteral("src_area/c"),
+                                       QStringLiteral("ExportWellHead.dat"));
+    QVERIFY(!third.isEmpty());
+    QCOMPARE(wf.importedWellHeadAsset(third), QString());
+#ifndef Q_OS_WIN
+    // 符号链接别名（词法不等、规范路径相等）：第一遍词法落空后，第二遍按
+    // canonicalFilePath 仍找回正确资产（S5 U1-c：canonical 只在第二遍做）。
+    //（Windows 的 QFile::link 生成 .lnk 快捷方式而非符号链接，子例仅 POSIX 覆盖。）
+    const QString alias = tmp.filePath(QStringLiteral("alias_area"));
+    QVERIFY(QFile::link(tmp.filePath(QStringLiteral("src_area")), alias));
+    QCOMPARE(wf.importedWellHeadAsset(alias + QStringLiteral("/b/ExportWellHead.dat")), idSecond);
+    QCOMPARE(wf.importedWellHeadAsset(alias + QStringLiteral("/a/ExportWellHead.dat")), idFirst);
+#endif
+  }
+
   // importFolderRow：forceType 覆盖分类（视图按当前下拉值算好后传入）。
   void importFolderRowForceType()
   {
@@ -301,6 +355,56 @@ private slots:
       QCOMPARE(pf.sourceAreaRoot, projectDir);
       QCOMPARE(pf.sourceStats.value(QStringLiteral("files")).toInt(), 2);
     }
+  }
+
+  // opt-01 R-9：目录内多个 .qgz 且无同名主工程 → 不静默取字母序第一个，
+  // 如实列出候选、不打开任何工程（旧实现直接 openProjectAsync(a.qgz)）。
+  void openPathRefusesAmbiguousQgzDirectory()
+  {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString dir = tmp.filePath(QStringLiteral("area"));
+    QVERIFY(QDir().mkpath(dir));
+    for (const char *name : {"a_backup.qgz", "b_main.qgz"})
+    {
+      QFile f(QDir(dir).filePath(QLatin1String(name)));
+      QVERIFY(f.open(QIODevice::WriteOnly));
+      f.write("PK");
+    }
+    QgisProjectService projSvc;
+    ProjectOpenWorkflow wf(&projSvc);
+    QSignalSpy failed(&wf, &ProjectOpenWorkflow::openFailed);
+    QSignalSpy folder(&wf, &ProjectOpenWorkflow::folderImportRequested);
+    QVERIFY(!wf.openPath(dir));
+    QCOMPARE(failed.count(), 1);
+    const QString detail = failed.at(0).at(1).toString();
+    QVERIFY2(detail.contains(QStringLiteral("a_backup.qgz")) &&
+                 detail.contains(QStringLiteral("b_main.qgz")),
+             qPrintable(detail));
+    QCOMPARE(failed.at(0).at(2).toBool(), false); // 可解释的提醒，不是致命错误
+    QCOMPARE(folder.count(), 0);
+    QVERIFY(projSvc.projectPath().isEmpty()); // 没有打开任何工程
+    // 候选文件原样不动。
+    QCOMPARE(QFileInfo(QDir(dir).filePath(QStringLiteral("a_backup.qgz"))).size(), qint64(2));
+
+    // S5 第 2 轮 Low 2：只数文件（名为 *.qgz 的目录不是候选），清单封顶 20 条。
+    const QString many = tmp.filePath(QStringLiteral("many"));
+    QVERIFY(QDir().mkpath(QDir(many).filePath(QStringLiteral("folder.qgz"))));
+    for (int i = 0; i < 25; ++i)
+    {
+      QFile f(QDir(many).filePath(QStringLiteral("c%1.qgz").arg(i, 2, 10, QLatin1Char('0'))));
+      QVERIFY(f.open(QIODevice::WriteOnly));
+      f.write("PK");
+    }
+    QSignalSpy failedMany(&wf, &ProjectOpenWorkflow::openFailed);
+    QVERIFY(!wf.openPath(many));
+    QCOMPARE(failedMany.count(), 1);
+    const QString manyDetail = failedMany.at(0).at(1).toString();
+    QVERIFY2(manyDetail.contains(QStringLiteral(" 25 个工程文件")), qPrintable(manyDetail));
+    QVERIFY(!manyDetail.contains(QStringLiteral("folder.qgz")));
+    QVERIFY(manyDetail.contains(QStringLiteral("c19.qgz")));
+    QVERIFY(!manyDetail.contains(QStringLiteral("c20.qgz")));
+    QVERIFY2(manyDetail.contains(QStringLiteral("另有 5 个未列出")), qPrintable(manyDetail));
   }
 
 // ---- wave/data-foundation T2 ------------------------------------------------
@@ -479,6 +583,175 @@ void workflowImportRetriesOnConcurrentCatalogWrite()
   QVERIFY2(!assetId.isEmpty(), qPrintable(err));
   QVERIFY(cat->hasEntity(w.id));
   QCOMPARE(cat->assets().size(), 1);
+  QVERIFY(tasks.shutdown(5000));
+}
+
+// opt-01 U3：文件夹导入作业在飞时导入服务先析构（壳收尾/换工程）——
+// finished 处理器必须看到「服务已不在」：不经悬垂指针写台账、不把未提交
+// 的行报成「已入库」，回调如实收到丢弃原因；源文件字节不受影响。
+void folderImportSurvivesServiceTeardownHonestly()
+{
+  QTemporaryDir tmp;
+  QVERIFY(tmp.isValid());
+  const QString projectDir = tmp.filePath(QStringLiteral("proj"));
+  QVERIFY(QDir().mkpath(projectDir));
+  auto stack = makeStack(projectDir);
+  QVERIFY(stack != nullptr);
+  const QString area = tmp.filePath(QStringLiteral("area"));
+  QVERIFY(QDir().mkpath(area));
+  const QByteArray lasBytes =
+      "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. T1 : WELL\n"
+      "~Curve\nDEPT.M :\n~A DEPT\n100.0\n";
+  const QString las = QDir(area).filePath(QStringLiteral("T1.las"));
+  {
+    QFile f(las);
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    QCOMPARE(f.write(lasBytes), qint64(lasBytes.size()));
+  }
+  PaleoTaskService tasks(stack->store.get());
+  FolderImportWorkflow wf(stack->importSvc.get(), &tasks);
+  bool done = false;
+  QVector<FolderRowResult> rows;
+  QString err;
+  wf.importFolder(area, {}, [&](const QVector<FolderRowResult> &r, const QString &e) {
+    done = true;
+    rows = r;
+    err = e;
+  });
+  // 作业已登记、finished 只能在事件泵里跑：此刻析构服务。
+  stack->importSvc.reset();
+  QCOMPARE(wf.importService(), static_cast<DataImportService *>(nullptr));
+  QElapsedTimer clock;
+  clock.start();
+  while (!done && clock.elapsed() < 30000)
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 25);
+  QVERIFY(done);
+  QCOMPARE(err, QStringLiteral("导入服务已关闭，导入结果已丢弃"));
+  // 行不能为空（否则下方逐行断言空转）：produce 已在 staging 上产出该行，
+  // 服务不在场时如实改报失败并带丢弃原因。
+  QVERIFY(!rows.isEmpty());
+  for (const FolderRowResult &r : rows)
+  {
+    QVERIFY2(r.outcome == FolderRowResult::Outcome::Failed,
+             qPrintable(r.path + QStringLiteral(" 未提交却未报失败")));
+    QCOMPARE(r.message, err);
+  }
+  QCOMPARE(wf.pendingImportJobs(), 0);
+  // 原始资料不受损：源文件字节原样。
+  QFile src(las);
+  QVERIFY(src.open(QIODevice::ReadOnly));
+  QCOMPARE(src.readAll(), lasBytes);
+  // 服务不在场时再发起导入：importFolder 入口的 !m_svc 守卫直接走失败回调
+  //（空行 + 原因），不建作业、不触悬垂指针。
+  bool failed = false;
+  wf.importFolder(area, {}, [&](const QVector<FolderRowResult> &r, const QString &e) {
+    failed = r.isEmpty() && !e.isEmpty();
+  });
+  QVERIFY(failed);
+  QVERIFY(tasks.shutdown(5000));
+}
+
+// opt-01 P5：文件夹导入在飞时切换工程——整批作废（「工程已切换」），且不得把
+// 这批记进新工程的导入台账（旧实现按当前 catalog 推台账路径，串账到新工程）。
+// 新工程资产数不变、源文件字节不变。
+void folderImportAcrossProjectSwitchDoesNotCrossPostLedger()
+{
+  QTemporaryDir tmp;
+  QVERIFY(tmp.isValid());
+  const QString projectA = tmp.filePath(QStringLiteral("projA"));
+  const QString projectB = tmp.filePath(QStringLiteral("projB"));
+  QVERIFY(QDir().mkpath(projectA) && QDir().mkpath(projectB));
+  auto stack = makeStack(projectA);
+  QVERIFY(stack != nullptr);
+  const QString area = tmp.filePath(QStringLiteral("area"));
+  QVERIFY(QDir().mkpath(area));
+  const QByteArray lasBytes =
+      "~Version Information\nVERS. 2.0:\nWRAP. NO:\n~Well\nWELL. S1 : WELL\n"
+      "~Curve\nDEPT.M :\n~A DEPT\n100.0\n";
+  const QString las = QDir(area).filePath(QStringLiteral("S1.las"));
+  {
+    QFile f(las);
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    QCOMPARE(f.write(lasBytes), qint64(lasBytes.size()));
+  }
+  PaleoTaskService tasks(stack->store.get());
+  FolderImportWorkflow wf(stack->importSvc.get(), &tasks);
+  bool done = false;
+  QVector<FolderRowResult> rows;
+  QString err;
+  wf.importFolder(area, {}, [&](const QVector<FolderRowResult> &r, const QString &e) {
+    done = true;
+    rows = r;
+    err = e;
+  });
+  stack->importSvc->setProjectDir(projectB); // produce 在途：切到工程 B
+  DataCatalog *catB = stack->importSvc->catalog();
+  QVERIFY(catB && catB->isOpen());
+  const int assetsBefore = catB->assets().size();
+  QElapsedTimer clock;
+  clock.start();
+  while (!done && clock.elapsed() < 30000)
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 25);
+  QVERIFY(done);
+  QVERIFY2(err.contains(QStringLiteral("工程已切换")), qPrintable(err));
+  QVERIFY(!rows.isEmpty());
+  for (const FolderRowResult &r : rows)
+    QCOMPARE(r.outcome, FolderRowResult::Outcome::Failed);
+  QCOMPARE(catB->assets().size(), assetsBefore);
+  paleo::imports::ImportLedger ledgerB;
+  ledgerB.load(catB);
+  QVERIFY(!ledgerB.filePath().isEmpty());
+  QVERIFY2(QFileInfo(ledgerB.filePath()).absoluteFilePath().startsWith(QDir(projectB).absolutePath()),
+           qPrintable(ledgerB.filePath()));
+  QCOMPARE(ledgerB.count(), 0); // 没有串账
+  QFile src(las);
+  QVERIFY(src.open(QIODevice::ReadOnly));
+  QCOMPARE(src.readAll(), lasBytes);
+  // 同工程的正常批次仍入账（守护：判定不误伤）——以另一种写法（冗余 ./ 与
+  // 尾部斜杠）重设同一工程，归一化后仍判同一工程、照常入账。
+  stack->importSvc->setProjectDir(projectB + QStringLiteral("/./"));
+  catB = stack->importSvc->catalog();
+  QVERIFY(catB && catB->isOpen());
+  done = false;
+  wf.importFolder(area, {}, [&](const QVector<FolderRowResult> &r, const QString &e) {
+    done = true;
+    rows = r;
+    err = e;
+  });
+  clock.restart();
+  while (!done && clock.elapsed() < 30000)
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 25);
+  QVERIFY(done);
+  ledgerB.load(catB);
+  QCOMPARE(ledgerB.count(), 1);
+  QCOMPARE(ledgerB.batches()[0].rows.size(), rows.size());
+#ifndef Q_OS_WIN
+  // S5 第 2 轮 Low 14：预开 catalog 经符号链接别名打开（catalog 目录 = 别名，
+  // session.projectDir = 真路径）——词法不等、规范路径相等，仍判同一工程入账。
+  const QString projectC = tmp.filePath(QStringLiteral("projC"));
+  const QString aliasC = tmp.filePath(QStringLiteral("projC_alias"));
+  QVERIFY(QDir().mkpath(projectC));
+  QVERIFY(QFile::link(projectC, aliasC));
+  auto prepared = DataCatalog::prepareOpen(aliasC, false);
+  QVERIFY(prepared && prepared->isOpen());
+  stack->importSvc->setProjectDir(projectC, prepared);
+  DataCatalog *catC = stack->importSvc->catalog();
+  QVERIFY2(catC && catC->isOpen(), qPrintable(stack->importSvc->catalogOpenError()));
+  QVERIFY(QDir::cleanPath(catC->catalogPath()).startsWith(QDir::cleanPath(aliasC)));
+  done = false;
+  wf.importFolder(area, {}, [&](const QVector<FolderRowResult> &r, const QString &e) {
+    done = true;
+    rows = r;
+    err = e;
+  });
+  clock.restart();
+  while (!done && clock.elapsed() < 30000)
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 25);
+  QVERIFY(done);
+  paleo::imports::ImportLedger ledgerC;
+  ledgerC.load(catC);
+  QCOMPARE(ledgerC.count(), 1);
+#endif
   QVERIFY(tasks.shutdown(5000));
 }
 

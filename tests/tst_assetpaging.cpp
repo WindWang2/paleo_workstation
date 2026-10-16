@@ -13,6 +13,8 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTabWidget>
+#include <QApplication>
+#include <QDialog>
 #include <atomic>
 #include <thread>
 #ifdef Q_OS_LINUX
@@ -27,6 +29,7 @@
 #include "../src/ui/pages/datalist.h"
 #include "../src/ui/dialogs/storagegovernancedialog.h"
 #include "../src/ui/paleotheme.h"
+#include "../src/workflow/importledger.h"
 
 #ifdef Q_OS_LINUX
 namespace {
@@ -665,6 +668,34 @@ private slots:
     }
     const QString capture = qEnvironmentVariable("PALEO_GOV_CAPTURE");
     if (!capture.isEmpty()) { dialog.findChild<QTabWidget *>("storageTabs")->setCurrentIndex(2); dialog.setBusy(false, true); QCoreApplication::processEvents(); QVERIFY(dialog.grab().save(capture)); }
+  }
+  // opt-01 U2：损坏导入台账在查看器入口给出可解释原因（不再静默显示 0 批）。
+  void importLedgerViewerReportsCorruptLedger() {
+    QTemporaryDir dir; QVERIFY(PerfFixtures::makeSyntheticCatalogDir(dir.path(), 8));
+    DataImportService importer; importer.setProjectDir(dir.path()); PreviewDocService doc(&importer);
+    DataListPanel panel; panel.setDocService(&doc); panel.show(); QVERIFY(QTest::qWaitForWindowExposed(&panel)); panel.refreshAssetTable();
+    paleo::imports::ImportLedger probe; probe.load(importer.catalog());
+    QVERIFY(!probe.filePath().isEmpty());
+    QDir().mkpath(QFileInfo(probe.filePath()).absolutePath());
+    { QFile f(probe.filePath()); QVERIFY(f.open(QIODevice::WriteOnly)); f.write("{broken"); }
+    QSignalSpy status(&panel, &DataListPanel::statusMessage);
+    bool sawDialog = false;
+    QString banner;
+    QTimer::singleShot(0, [&sawDialog, &banner] {
+      if (auto *dlg = qobject_cast<QDialog *>(QApplication::activeModalWidget())) {
+        sawDialog = true;
+        if (auto *w = dlg->findChild<QLabel *>(QStringLiteral("importLedgerWarning")))
+          banner = w->textFormat() == Qt::PlainText ? w->text() : QStringLiteral("<非纯文本>");
+        dlg->reject();
+      }
+    });
+    panel.showImportLedger();
+    QVERIFY(sawDialog);
+    QVERIFY2(banner.contains(QStringLiteral("损坏")), qPrintable(banner)); // 查看器内可见，不只状态栏
+    bool reported = false;
+    for (const auto &args : status) reported = reported || args.at(0).toString().contains(QStringLiteral("损坏"));
+    QVERIFY2(reported, "损坏台账未给出原因");
+    QFile f(probe.filePath()); QVERIFY(f.open(QIODevice::ReadOnly)); QCOMPARE(f.readAll(), QByteArray("{broken")); // 只读查看不改原件
   }
 };
 QTEST_MAIN(TestAssetPaging)

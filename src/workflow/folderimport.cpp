@@ -6,6 +6,7 @@
 #include "../services/paleotaskservice.h"
 #include "importledger.h"
 
+#include <QDir>
 #include <QFileInfo>
 #include <QPointer>
 #include <QFile>
@@ -30,6 +31,11 @@ FolderImportWorkflow::FolderImportWorkflow(DataImportService *svc,
                                            QObject *parent)
     : QObject(parent), m_svc(svc), m_taskSvc(taskSvc)
 {
+}
+
+DataImportService *FolderImportWorkflow::importService() const
+{
+  return m_svc.data();
 }
 
 int FolderImportWorkflow::pendingImportJobs() const
@@ -81,6 +87,16 @@ void FolderImportWorkflow::runImportJob(const std::shared_ptr<ImportJob> &job)
     {
       m_activeImport.reset();
       session->error = QStringLiteral("导入服务已关闭，导入结果已丢弃");
+      // 未提交即丢弃：produce 期在 staging 上记成「已入库/待关联」的行一律
+      // 改报失败——回调方（确认表/台账）不能看到「入库」而库里并没有。
+      for (FolderRowResult &row : session->rows)
+        if (row.outcome == FolderRowResult::Outcome::Imported ||
+            row.outcome == FolderRowResult::Outcome::Unresolved)
+        {
+          row.outcome = FolderRowResult::Outcome::Failed;
+          row.message = session->error;
+        }
+      session->fileResult.assetId.clear();
       job->finish(*session);
       pumpImports();
       return;
@@ -297,7 +313,31 @@ void FolderImportWorkflow::importFolder(const QString &dir,
         };
     job->finish = [this, done, dir, started](ImportSession &s) {
       emit importActiveChanged(false);
-      recordLedger(dir, started, s.rows, s.error);
+      // 台账写进「当前打开」工程的 sidecar：produce 期间若已切换工程，当前
+      // catalog 是另一个工程的——把别处的、整批作废的导入记进它的审计台账
+      // 是串账（opt-01 P5）。此时只经回调如实报「工程已切换」，不入账。
+      // 同一工程的判定先比词法路径，再比规范路径（setProjectDir 可带预开
+      // catalog，其目录字符串形态未必与 session.projectDir 一致——不能因写法
+      // 不同把正常批次漏记）。
+      DataCatalog *cat = m_svc ? m_svc->catalog() : nullptr;
+      bool sameProject = false;
+      if (cat && !s.projectDir.isEmpty())
+      {
+        const QString catDir =
+            QDir::cleanPath(cat->catalogPath() + QStringLiteral("/../../.."));
+        const QString sessionDir = QDir::cleanPath(s.projectDir);
+        sameProject = catDir == sessionDir;
+        if (!sameProject)
+        {
+          const QString a = QFileInfo(catDir).canonicalFilePath();
+          sameProject = !a.isEmpty() && a == QFileInfo(sessionDir).canonicalFilePath();
+        }
+      }
+      if (sameProject)
+        recordLedger(dir, started, s.rows, s.error);
+      else
+        qInfo() << "FolderImportWorkflow: project changed during import, ledger not written for"
+                << dir;
       if (done)
         done(s.rows, s.error);
     };
@@ -367,14 +407,42 @@ void FolderImportWorkflow::importFile(
 
 QString FolderImportWorkflow::importedWellHeadAsset(const QString &rowPath) const
 {
-  // 找回刚入库的井口资产：按文件名在 catalog 里定位。
+  // 找回刚入库的井口资产。导入登记的 sourceUri 是源文件绝对路径——先按它
+  // 精确定位（工区里不同子目录常有同名井口表，如 a/wellheads.csv 与
+  // b/wellheads.csv；旧实现只比文件名，第二行会打开第一份资产的预览）。
+  // 多份同源（重复导入改过的同一文件）取最新登记的一份。无路径命中时
+  // （如 dedup「字节已在库」命中别处的同内容资产）才退回文件名口径，且
+  // 只在唯一候选时采用——有歧义宁可不开预览，也不开错资产。
   DataCatalog *cat = m_svc ? m_svc->catalog() : nullptr;
-  if (!cat)
+  if (!cat || rowPath.isEmpty())
     return {};
-  const QString fileName = QFileInfo(rowPath).fileName();
-  for (const auto &a : cat->assets())
-    if (a.type == QLatin1String("well_head") &&
-        cat->currentVersion(a.id).fileName == fileName)
-      return a.id;
-  return {};
+  const QFileInfo rowInfo(rowPath);
+  const QString rowAbs = QDir::cleanPath(rowInfo.absoluteFilePath());
+  const QString fileName = rowInfo.fileName();
+  // 两遍：第一遍只做纯词法的绝对路径比较（不查盘），命中即返回；仅当无词法
+  // 命中时第二遍才对候选做 canonicalFilePath（符号链接/大小写别名）——GUI 线程
+  // 上不再为每个井口资产 stat 一次。
+  const QVector<CatalogAsset> assets = cat->assets();
+  QVector<QPair<QString, QString>> candidates; // (assetId, sourceUri)，新→旧
+  QStringList byName;
+  for (auto it = assets.crbegin(); it != assets.crend(); ++it)
+  {
+    if (it->type != QLatin1String("well_head"))
+      continue;
+    const CatalogVersion v = cat->currentVersion(it->id);
+    if (!v.sourceUri.isEmpty())
+    {
+      if (QDir::cleanPath(QFileInfo(v.sourceUri).absoluteFilePath()) == rowAbs)
+        return it->id; // 逆序遍历：最新登记者优先
+      candidates.append({it->id, v.sourceUri});
+    }
+    if (v.fileName == fileName)
+      byName << it->id;
+  }
+  const QString rowCanonical = rowInfo.canonicalFilePath();
+  if (!rowCanonical.isEmpty())
+    for (const auto &c : std::as_const(candidates))
+      if (QFileInfo(c.second).canonicalFilePath() == rowCanonical)
+        return c.first;
+  return byName.size() == 1 ? byName.first() : QString();
 }

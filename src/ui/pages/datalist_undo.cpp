@@ -494,8 +494,24 @@ void DataListPanel::showImportLedger()
   }
   paleo::imports::ImportLedger ledger;
   ledger.load(cat);
+  // 损坏台账不能显示成「0 批」了事：原因如实上状态栏（备份口径见 importledger.h）。
+  if (!ledger.loadWarning().isEmpty())
+    emit statusMessage(ledger.loadWarning());
   paleo::dataops::ImportLedgerDialog dlg(this);
   dlg.setBatches(ledger.batches());
+  // 状态栏一闪而过、且被模态框挡住：原因同时放进查看器顶部，与「0 批」并列可见
+  //（S5 U2-e；对话框本身不在本域，只经其公开布局插一条提示）。
+  if (!ledger.loadWarning().isEmpty())
+    if (auto *lay = qobject_cast<QBoxLayout *>(dlg.layout()))
+    {
+      auto *warning = new QLabel(tr("台账警告：%1").arg(ledger.loadWarning()), &dlg);
+      warning->setObjectName(QStringLiteral("importLedgerWarning"));
+      // 原因含文件路径/解析器报错原文：按纯文本显示，不让 '<' 等被当富文本解析。
+      warning->setTextFormat(Qt::PlainText);
+      warning->setWordWrap(true);
+      warning->setTextInteractionFlags(Qt::TextSelectableByMouse);
+      lay->insertWidget(0, warning);
+    }
   dlg.exec();
 }
 

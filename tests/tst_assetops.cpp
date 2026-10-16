@@ -236,6 +236,96 @@ private slots:
     QVERIFY(same.differingLines.isEmpty());
   }
 
+  // opt-01 U5：受管版本的 path 越出工程（绝对路径 / 经符号链接逃逸）时
+  // 对比必须视为不可读——旧实现回落原始 v.path，直接读出工程外文件内容。
+  void compareVersionsRefusesManagedPathOutsideProject()
+  {
+    QTemporaryDir tmp, outside;
+    QVERIFY(tmp.isValid() && outside.isValid());
+    QDir dir(tmp.path());
+    DataCatalog cat;
+    QString err;
+    QVERIFY(cat.open(dir.absolutePath(), &err));
+    ManagedAsset m;
+    QVERIFY(makeManagedAsset(cat, dir, QStringLiteral("ast-1"), &m));
+    const QString secret = QDir(outside.path()).filePath(QStringLiteral("secret.las"));
+    QVERIFY(writeFile(secret, QByteArray("OUTSIDE SECRET\n")));
+
+    const CatalogVersion v1 = cat.versionById(m.v1);
+    CatalogVersion rogue = v1; // 受管记录被写坏成工程外绝对路径
+    rogue.id = QStringLiteral("ver-rogue");
+    rogue.path = secret;
+    const VersionCompare c = compareVersions(dir.absolutePath(), v1, rogue);
+    QCOMPARE(c.sizeA, QFileInfo(m.v1Abs).size());
+    QCOMPARE(c.sizeB, qint64(-1));
+    QVERIFY(!c.textCompared);
+    for (const QString &line : c.differingLines)
+      QVERIFY2(!line.contains(QStringLiteral("SECRET")), qPrintable(line));
+#ifndef Q_OS_WIN
+    // 工程内符号链接目录指向工程外：相对路径同样拒读（不回落 CWD/原路径）。
+    QVERIFY(QFile::link(outside.path(), dir.filePath(QStringLiteral("escape"))));
+    CatalogVersion linked = v1;
+    linked.id = QStringLiteral("ver-linked");
+    linked.path = QStringLiteral("escape/secret.las");
+    QVERIFY(DataCatalog::resolvedVersionPath(dir.absolutePath(), linked).isEmpty());
+    const QString cwd = QDir::currentPath();
+    QVERIFY(QDir::setCurrent(dir.absolutePath())); // 旧回落会相对 CWD 读到逃逸目标
+    const VersionCompare viaLink = compareVersions(dir.absolutePath(), v1, linked);
+    QDir::setCurrent(cwd);
+    QCOMPARE(viaLink.sizeB, qint64(-1));
+    QVERIFY(!viaLink.textCompared);
+#endif
+    // 原始资产不受损：受管 v1 字节原样。
+    QFile f(m.v1Abs);
+    QVERIFY(f.open(QIODevice::ReadOnly));
+    QCOMPARE(f.readAll(), QByteArray("VERSION ONE\nCURVE\n"));
+  }
+
+  // opt-01 U6：差异样本两侧分摊——旧实现 A 侧差异块 ≥40 行时 B 侧零样本。
+  void compareVersionsSamplesBothSides()
+  {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    QDir dir(tmp.path());
+    QByteArray a, b;
+    for (int i = 0; i < 60; ++i)
+    {
+      a += "OLD " + QByteArray::number(i) + "\n";
+      b += "NEW " + QByteArray::number(i) + "\n";
+    }
+    QVERIFY(writeFile(dir.filePath(QStringLiteral("a.txt")), a));
+    QVERIFY(writeFile(dir.filePath(QStringLiteral("b.txt")), b));
+    CatalogVersion va;
+    va.id = QStringLiteral("va");
+    va.managed = false;
+    va.path = dir.filePath(QStringLiteral("a.txt"));
+    va.fileName = QStringLiteral("a.txt");
+    CatalogVersion vb = va;
+    vb.id = QStringLiteral("vb");
+    vb.path = dir.filePath(QStringLiteral("b.txt"));
+    vb.fileName = QStringLiteral("b.txt");
+    const VersionCompare c = compareVersions(dir.absolutePath(), va, vb);
+    QVERIFY(c.textCompared);
+    QCOMPARE(c.linesA, 60);
+    QCOMPARE(c.linesB, 60);
+    QCOMPARE(c.differingLines.size(), 40);
+    int minus = 0, plus = 0;
+    for (const QString &l : c.differingLines)
+      (l.startsWith(QLatin1Char('-')) ? minus : plus) += 1;
+    QCOMPARE(minus, 20);
+    QCOMPARE(plus, 20);
+    QCOMPARE(c.differingLines.first(), QStringLiteral("- OLD 0"));
+    QCOMPARE(c.differingLines.at(20), QStringLiteral("+ NEW 0"));
+    // 一侧短：余量让给另一侧（3 + 37）。
+    QByteArray shortB = "X\nY\nZ\n";
+    QVERIFY(writeFile(dir.filePath(QStringLiteral("c.txt")), shortB));
+    vb.path = dir.filePath(QStringLiteral("c.txt"));
+    vb.fileName = QStringLiteral("c.txt");
+    const VersionCompare d = compareVersions(dir.absolutePath(), va, vb);
+    QCOMPARE(d.differingLines.size(), 40);
+    QCOMPARE(d.differingLines.last(), QStringLiteral("+ Z"));
+  }
+
   void purgeDoubleClearsAndGuardsLineage()
   {
     QTemporaryDir tmp;

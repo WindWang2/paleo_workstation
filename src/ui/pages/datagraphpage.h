@@ -49,6 +49,8 @@ protected:
 
 private:
   void request();
+  void openFocused(const QString &assetId, const QString &versionId,
+                   const QString &entityId, paleo::datagraph::Mode mode);
   void render(const paleo::datagraph::Graph &graph);
   void selectNode(const paleo::datagraph::Node &node, bool navigate);
   void activateNode(const paleo::datagraph::Node &node);

@@ -10,6 +10,20 @@
 #include <QFileInfo>
 #include <QLoggingCategory>
 
+namespace
+{
+// 候选清单封顶：目录里堆了上百个备份时提示框不能撑满屏（S5 第 2 轮 Low 2）。
+constexpr int kMaxListedCandidates = 20;
+QString candidateList(const QStringList &files)
+{
+  QStringList shown = files.mid(0, kMaxListedCandidates);
+  if (files.size() > kMaxListedCandidates)
+    shown << ProjectOpenWorkflow::tr("……另有 %1 个未列出")
+                 .arg(files.size() - kMaxListedCandidates);
+  return shown.join(QLatin1Char('\n'));
+}
+} // namespace
+
 ProjectOpenWorkflow::ProjectOpenWorkflow(QgisProjectService *projSvc,
                                          QObject *parent)
     : QObject(parent), m_projSvc(projSvc)
@@ -60,7 +74,20 @@ bool ProjectOpenWorkflow::openPath(const QString &path)
     const QString qgz = QDir(dir).filePath(
         QFileInfo(dir).fileName() + QStringLiteral(".qgz"));
     const QStringList qgzFiles =
-        QDir(dir).entryList(QStringList{QStringLiteral("*.qgz")});
+        QDir(dir).entryList(QStringList{QStringLiteral("*.qgz")}, QDir::Files);
+    if (!QFile::exists(qgz) && qgzFiles.size() > 1)
+    {
+      // 无同名主工程、却有多个 .qgz：旧实现按字母序静默取第一个——可能打开
+      // 备份/旧副本而用户毫不知情。保守口径：不猜，列出候选请用户直接选文件。
+      emit openFailed(tr("打开工程"),
+                      tr("目录 %1 中有 %2 个工程文件且没有与目录同名的主工程，"
+                         "无法确定要打开哪一个；请直接选择要打开的 .qgz 文件：\n%3")
+                          .arg(dir)
+                          .arg(qgzFiles.size())
+                          .arg(candidateList(qgzFiles)),
+                      false);
+      return false;
+    }
     if (QFile::exists(qgz) || !qgzFiles.isEmpty())
     {
       const QString adopt =

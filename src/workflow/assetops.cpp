@@ -226,13 +226,21 @@ VersionCompare compareVersions(const QString &projectDir, const CatalogVersion &
   c.shaKnown = !a.sha256.isEmpty() && !b.sha256.isEmpty();
   c.sameSha = c.shaKnown && a.sha256 == b.sha256;
 
+  // 受管版本只认 resolvedVersionPath 的包含性结论：解析为空（绝对路径/
+  // 反斜杠/不安全路径段/路径上任一段是符号链接/规范路径越出工程）即视为
+  // 「不可读」——旧实现回落到原始 v.path，绝对路径会读出工程外文件、相对
+  // 路径会相对进程 CWD 读到无关文件，绕过 purge/预览同一把包含性闸门。
+  // 非受管（外链）版本 resolvedVersionPath 原样返回登记的 path（不做包含性
+  // 检查，可能是相对路径），本函数对其行为不变。
   const QString absA = DataCatalog::resolvedVersionPath(projectDir, a);
   const QString absB = DataCatalog::resolvedVersionPath(projectDir, b);
-  QFileInfo fa(absA.isEmpty() ? a.path : absA);
-  QFileInfo fb(absB.isEmpty() ? b.path : absB);
-  if (fa.exists())
+  const QFileInfo fa(absA);
+  const QFileInfo fb(absB);
+  const bool hasA = !absA.isEmpty() && fa.exists();
+  const bool hasB = !absB.isEmpty() && fb.exists();
+  if (hasA)
     c.sizeA = fa.size();
-  if (fb.exists())
+  if (hasB)
     c.sizeB = fb.size();
 
   const auto addDiff = [&c](const QString &field, const QString &va, const QString &vb) {
@@ -251,11 +259,11 @@ VersionCompare compareVersions(const QString &projectDir, const CatalogVersion &
   // 文本行级对比：双侧同文本格式、都在、都 ≤ 上限。
   const QString fmtA = QFileInfo(a.fileName).suffix().toLower();
   const QString fmtB = QFileInfo(b.fileName).suffix().toLower();
-  if (isTextLikeFormat(fmtA) && isTextLikeFormat(fmtB) && fa.exists() && fb.exists() &&
+  if (isTextLikeFormat(fmtA) && isTextLikeFormat(fmtB) && hasA && hasB &&
       fa.size() <= kMaxTextDiffBytes && fb.size() <= kMaxTextDiffBytes)
   {
-    const QStringList la = readTextLines(absA.isEmpty() ? a.path : absA);
-    const QStringList lb = readTextLines(absB.isEmpty() ? b.path : absB);
+    const QStringList la = readTextLines(absA);
+    const QStringList lb = readTextLines(absB);
     if (!la.isEmpty() || !lb.isEmpty())
     {
       c.textCompared = true;
@@ -269,10 +277,17 @@ VersionCompare compareVersions(const QString &projectDir, const CatalogVersion &
         ++s;
       c.linesA = la.size() - p - s;
       c.linesB = lb.size() - p - s;
+      // 样本预算两侧分摊：旧实现先把 40 条全给 A 侧，A 侧差异块 ≥40 行时
+      // B 侧（新内容）一条都看不到。各取至多一半，一侧不足时余量让给另一侧；
+      // 总数仍封顶 kMaxSample，输出顺序仍是先「-」后「+」。
       static constexpr int kMaxSample = 40;
-      for (int i = p; i < sa - s && c.differingLines.size() < kMaxSample; ++i)
+      const int blockA = qMax(0, sa - s - p), blockB = qMax(0, sb - s - p);
+      int takeA = qMin(blockA, kMaxSample / 2);
+      const int takeB = qMin(blockB, kMaxSample - takeA);
+      takeA = qMin(blockA, kMaxSample - takeB);
+      for (int i = p; i < p + takeA; ++i)
         c.differingLines << QStringLiteral("- ") + la.at(i);
-      for (int i = p; i < sb - s && c.differingLines.size() < kMaxSample; ++i)
+      for (int i = p; i < p + takeB; ++i)
         c.differingLines << QStringLiteral("+ ") + lb.at(i);
     }
   }

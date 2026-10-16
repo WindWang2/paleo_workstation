@@ -66,9 +66,14 @@ class ImportLedger
     int count() const { return static_cast<int>(m_batches.size()); }
 
     QString filePath() const { return m_path; }
+    // load 读到损坏台账（JSON 解析失败）时的可解释原因；正常/缺文件为空。
+    // 损坏件不会被下一次 record 静默覆盖：record 先把原字节另存为
+    // import_ledger.json.corrupt-<时间戳> 再写新台账，另存失败则拒写（原件不动）。
+    QString loadWarning() const { return m_loadWarning; }
 
   private:
     QString m_path; // sidecar 绝对路径；空 = 未激活（catalog 未开）
+    QString m_loadWarning;
     QVector<LedgerBatch> m_batches;
 };
 

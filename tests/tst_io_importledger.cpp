@@ -3,7 +3,13 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QCryptographicHash>
+#include <QElapsedTimer>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QTemporaryDir>
+#include <QTimeZone>
 
 #include "catalog/datacatalog.h"
 #include "io/dataimportservice.h"
@@ -34,9 +40,153 @@ class IoImportLedgerTests : public QObject
 private slots:
   void rejectedRowsReachLedgerAndAcceptedTops();
   void allInvalidRowsAreFailureWithReasons();
+  void corruptLedgerPreservedBeforeOverwrite();
+  void corruptLedgerUnbackupableRefusesWrite();
+  void ledgerScaleRoundTrip();
+  void corruptShapesAreNotOverwritten_data();
+  void corruptShapesAreNotOverwritten();
+  void unreadableLedgerRefusesWrite();
   void unitFilesReachSectionWorkbench_data();
   void unitFilesReachSectionWorkbench();
 };
+
+namespace
+{
+// 确定性大批次（opt-01 P2）：固定 id/时间戳，A/B 两套实现落盘字节可直接比对。
+paleo::imports::LedgerBatch syntheticBatch(int n, int seq)
+{
+  paleo::imports::LedgerBatch b;
+  b.id = QStringLiteral("batch-%1").arg(1700000000000LL + seq);
+  b.dir = QStringLiteral("/data/工区/批次%1").arg(seq);
+  b.startedAt = QDateTime(QDate(2026, 10, 16), QTime(8, 0), QTimeZone::UTC).addSecs(seq * 60);
+  b.finishedAt = b.startedAt.addSecs(30);
+  static const char *outcomes[] = {"imported", "unresolved", "failed", "skipped"};
+  b.rows.reserve(n);
+  for (int i = 0; i < n; ++i)
+  {
+    paleo::imports::LedgerRow r;
+    r.path = QStringLiteral("/data/工区/well_%1/log_%2.las").arg(i / 8, 6, 10, QLatin1Char('0')).arg(i % 8);
+    r.type = (i % 3) ? QStringLiteral("las") : QStringLiteral("well_tops");
+    r.entity = QStringLiteral("W%1").arg(i / 8);
+    r.outcome = QLatin1String(outcomes[i % 4]);
+    r.message = (i % 4 == 2) ? QStringLiteral("第 %1 行深度非单调，已拒收").arg(i) : QString();
+    switch (i % 4)
+    {
+    case 0: ++b.imported; break;
+    case 1: ++b.unresolved; break;
+    case 2: ++b.failed; break;
+    default: ++b.skipped; break;
+    }
+    b.rows.append(r);
+  }
+  return b;
+}
+bool sameBatch(const paleo::imports::LedgerBatch &a, const paleo::imports::LedgerBatch &b)
+{
+  if (a.id != b.id || a.dir != b.dir || a.startedAt != b.startedAt ||
+      a.finishedAt != b.finishedAt || a.imported != b.imported || a.unresolved != b.unresolved ||
+      a.failed != b.failed || a.skipped != b.skipped || a.error != b.error ||
+      a.rows.size() != b.rows.size())
+    return false;
+  for (qsizetype i = 0; i < a.rows.size(); ++i)
+  {
+    const auto &x = a.rows[i], &y = b.rows[i];
+    if (x.path != y.path || x.type != y.type || x.entity != y.entity ||
+        x.outcome != y.outcome || x.message != y.message)
+      return false;
+  }
+  return true;
+}
+} // namespace
+
+// opt-01 P2：台账在 GUI 线程上 load+record（FolderImportWorkflow::recordLedger）。
+// 有界规模：默认只跑 1k 行（ctest 常驻），PALEO_OPT01_LEDGER_SCALE=1000,10000,100000
+// 打开大规模 A/B；每档 3 次「重新 load + record 一批」取中位数，并以落盘字节
+// sha256 + 逐字段回读作正确性交叉校验。
+void IoImportLedgerTests::ledgerScaleRoundTrip()
+{
+  QList<int> scales{1000};
+  const QByteArray env = qgetenv("PALEO_OPT01_LEDGER_SCALE");
+  if (!env.isEmpty())
+  {
+    scales.clear();
+    for (const QByteArray &part : env.split(','))
+      if (part.toInt() > 0)
+        scales << part.toInt();
+  }
+  for (const int n : scales)
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    DataCatalog cat;
+    QVERIFY(cat.open(dir.path(), nullptr));
+    QList<qint64> loadMs, recordMs;
+    for (int rep = 0; rep < 3; ++rep)
+    {
+      paleo::imports::ImportLedger ledger;
+      QElapsedTimer t;
+      t.start();
+      ledger.load(&cat);
+      loadMs << t.elapsed();
+      QCOMPARE(ledger.count(), rep);
+      QVERIFY(ledger.loadWarning().isEmpty());
+      const auto batch = syntheticBatch(n, rep);
+      t.restart();
+      QString err;
+      QVERIFY2(ledger.record(batch, &err), qPrintable(err));
+      recordMs << t.elapsed();
+    }
+    paleo::imports::ImportLedger reread;
+    QElapsedTimer t;
+    t.start();
+    reread.load(&cat);
+    const qint64 finalLoad = t.elapsed();
+    QCOMPARE(reread.count(), 3);
+    for (int rep = 0; rep < 3; ++rep)
+      QVERIFY2(sameBatch(reread.batches()[rep], syntheticBatch(n, rep)), "台账回读与写入不一致");
+    QFile f(reread.filePath());
+    QVERIFY(f.open(QIODevice::ReadOnly));
+    const QByteArray bytes = f.readAll();
+    // S5 第 2 轮 Low 7：落盘字节 == 经公开 toVariant() 的旧序列化路径算出的字节
+    //（91aa5fd6 前 record 的写法），直接守住「直转 JSON 不改格式」。
+    {
+      QJsonArray arr;
+      for (const auto &b : reread.batches())
+      {
+        QJsonObject o;
+        const QVariantMap m = b.toVariant();
+        for (auto it = m.constBegin(); it != m.constEnd(); ++it)
+        {
+          if (it.value().typeId() == QMetaType::QVariantList)
+          {
+            QJsonArray rowsArr;
+            for (const QVariant &rv : it.value().toList())
+              rowsArr.append(QJsonObject::fromVariantMap(rv.toMap()));
+            o.insert(it.key(), rowsArr);
+          }
+          else
+            o.insert(it.key(), QJsonValue::fromVariant(it.value()));
+        }
+        arr.append(o);
+      }
+      QJsonObject root;
+      root.insert(QStringLiteral("batches"), arr);
+      QVERIFY2(QJsonDocument(root).toJson(QJsonDocument::Compact) == bytes,
+               "直转 JSON 与 toVariant 路径的落盘字节不一致");
+    }
+    std::sort(loadMs.begin(), loadMs.end());
+    std::sort(recordMs.begin(), recordMs.end());
+    qInfo().noquote() << QStringLiteral("OPT01_PERF ledger rows=%1 load_median_ms=%2 "
+                                        "record_median_ms=%3 final_load_ms=%4 bytes=%5 sha256=%6")
+                             .arg(n)
+                             .arg(loadMs[1])
+                             .arg(recordMs[1])
+                             .arg(finalLoad)
+                             .arg(bytes.size())
+                             .arg(QString::fromLatin1(
+                                 QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex()));
+  }
+}
 
 void IoImportLedgerTests::rejectedRowsReachLedgerAndAcceptedTops()
 {
@@ -131,6 +281,191 @@ void IoImportLedgerTests::allInvalidRowsAreFailureWithReasons()
   QCOMPARE(ledger.batches()[0].failed, 1);
   QCOMPARE(ledger.batches()[0].rows[0].message, rows[0].message);
   QVERIFY(importer.catalog()->assets().isEmpty());
+}
+
+// opt-01 U2：台账是跨会话审计面。损坏件（半截 JSON/误编辑）读出空历史后，
+// 旧实现下一批 record 直接用「仅本批」覆盖——全部历史静默蒸发。新口径：
+// load 给出可解释原因；record 先把原字节另存 .corrupt-<时间戳> 再写新台账。
+void IoImportLedgerTests::corruptLedgerPreservedBeforeOverwrite()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString src = dir.filePath(QStringLiteral("src"));
+  QVERIFY(write(QDir(src).filePath(QStringLiteral("ExportWellHead.dat")), "W1 10 20 0 500\n"));
+  PaleoProjectStore store;
+  DataImportService importer(&store);
+  importer.setProjectDir(dir.filePath(QStringLiteral("project")));
+  QVERIFY2(importer.catalogWritable(), qPrintable(importer.catalogOpenError()));
+
+  paleo::imports::ImportLedger probe;
+  probe.load(importer.catalog());
+  const QString ledgerPath = probe.filePath();
+  QVERIFY(!ledgerPath.isEmpty());
+  QVERIFY(probe.loadWarning().isEmpty()); // 缺文件 = 正常空历史
+  const QByteArray corrupt = "{\"batches\":[{\"id\":\"batch-1\",\"dir\":\"/old\",\"rows\":[";
+  QVERIFY(write(ledgerPath, corrupt));
+  probe.load(importer.catalog());
+  QCOMPARE(probe.count(), 0);
+  QVERIFY2(probe.loadWarning().contains(QStringLiteral("损坏")), qPrintable(probe.loadWarning()));
+
+  FolderImportWorkflow workflow(&importer, nullptr);
+  QString error;
+  workflow.importFolder(src, {}, [&](const auto &, const QString &e) { error = e; });
+  QVERIFY2(error.isEmpty(), qPrintable(error));
+
+  // 原损坏字节被逐字保全（恰一份备份），新台账只含本批且可正常读回。
+  const QFileInfo li(ledgerPath);
+  const QStringList backups = li.dir().entryList(
+      QStringList{li.fileName() + QStringLiteral(".corrupt-*")}, QDir::Files);
+  QCOMPARE(backups.size(), 1);
+  QFile b(li.dir().filePath(backups.first()));
+  QVERIFY(b.open(QIODevice::ReadOnly));
+  QCOMPARE(b.readAll(), corrupt);
+  paleo::imports::ImportLedger after;
+  after.load(importer.catalog());
+  QVERIFY(after.loadWarning().isEmpty());
+  QCOMPARE(after.count(), 1);
+  QCOMPARE(after.batches()[0].dir, src);
+  // 再写一批：不再重复备份（损坏件只保全一次）。
+  workflow.importFolder(src, {}, [&](const auto &, const QString &e) { error = e; });
+  QCOMPARE(li.dir().entryList(QStringList{li.fileName() + QStringLiteral(".corrupt-*")},
+                              QDir::Files).size(), 1);
+  after.load(importer.catalog());
+  QCOMPARE(after.count(), 2);
+}
+
+// S5 U2-c：合法 JSON 但形状不对（缺 batches / batches 非数组 / 非空却无一
+// 可识别批次）同属损坏——旧实现当空历史，下一次 record 静默覆盖全部原字节。
+// 合法空数组仍是正常空历史。
+void IoImportLedgerTests::corruptShapesAreNotOverwritten_data()
+{
+  QTest::addColumn<QByteArray>("bytes");
+  QTest::addColumn<bool>("corrupt");
+  QTest::addColumn<int>("validBefore");
+  QTest::newRow("no-batches") << QByteArray("{\"version\":2}") << true << 0;
+  QTest::newRow("batches-object") << QByteArray("{\"batches\":{\"id\":\"b\"}}") << true << 0;
+  QTest::newRow("no-valid-batch") << QByteArray("{\"batches\":[{\"x\":1},{\"y\":2}]}") << true << 0;
+  QTest::newRow("partly-invalid")
+      << QByteArray("{\"batches\":[{\"id\":\"batch-1\",\"dir\":\"/old\",\"rows\":[]},{\"x\":1}]}")
+      << true << 1;
+  QTest::newRow("empty-array-ok") << QByteArray("{\"batches\":[]}") << false << 0;
+}
+
+void IoImportLedgerTests::corruptShapesAreNotOverwritten()
+{
+  QFETCH(QByteArray, bytes);
+  QFETCH(bool, corrupt);
+  QFETCH(int, validBefore);
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  DataCatalog cat;
+  QVERIFY(cat.open(dir.path(), nullptr));
+  paleo::imports::ImportLedger ledger;
+  ledger.load(&cat);
+  const QString ledgerPath = ledger.filePath();
+  QVERIFY(write(ledgerPath, bytes));
+  ledger.load(&cat);
+  QCOMPARE(ledger.count(), validBefore); // 可识别的批次照常可见
+  QCOMPARE(!ledger.loadWarning().isEmpty(), corrupt);
+  QString err;
+  QVERIFY2(ledger.record(syntheticBatch(3, 0), &err), qPrintable(err));
+  const QFileInfo li(ledgerPath);
+  const QStringList backups = li.dir().entryList(
+      QStringList{li.fileName() + QStringLiteral(".corrupt-*")}, QDir::Files);
+  QCOMPARE(backups.size(), corrupt ? 1 : 0);
+  if (corrupt)
+  {
+    QFile b(li.dir().filePath(backups.first()));
+    QVERIFY(b.open(QIODevice::ReadOnly));
+    QCOMPARE(b.readAll(), bytes); // 原字节逐字保全
+  }
+  paleo::imports::ImportLedger after;
+  after.load(&cat);
+  QVERIFY(after.loadWarning().isEmpty());
+  QCOMPARE(after.count(), validBefore + 1);
+}
+
+// S5 U2-d：台账文件在但读不了 → 不当空历史；record 拒写，原件字节不动。
+void IoImportLedgerTests::unreadableLedgerRefusesWrite()
+{
+#ifdef Q_OS_WIN
+  QSKIP("POSIX 文件权限语义");
+#else
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  DataCatalog cat;
+  QVERIFY(cat.open(dir.path(), nullptr));
+  paleo::imports::ImportLedger ledger;
+  ledger.load(&cat);
+  const QString ledgerPath = ledger.filePath();
+  QVERIFY(ledger.record(syntheticBatch(2, 0)));
+  QFile orig(ledgerPath);
+  QVERIFY(orig.open(QIODevice::ReadOnly));
+  const QByteArray before = orig.readAll();
+  orig.close();
+  const auto perms = QFile::permissions(ledgerPath);
+  QVERIFY(QFile::setPermissions(ledgerPath, QFileDevice::WriteOwner));
+  if (QFile(ledgerPath).open(QIODevice::ReadOnly))
+  {
+    QFile::setPermissions(ledgerPath, perms);
+    QSKIP("以 root 运行：权限位不阻止读取");
+  }
+  ledger.load(&cat);
+  QCOMPARE(ledger.count(), 0);
+  QVERIFY2(ledger.loadWarning().contains(QStringLiteral("无法读取")), qPrintable(ledger.loadWarning()));
+  QString err;
+  const bool wrote = ledger.record(syntheticBatch(2, 1), &err);
+  QVERIFY(QFile::setPermissions(ledgerPath, perms));
+  QVERIFY(!wrote);
+  QVERIFY2(err.contains(QStringLiteral("无法备份")), qPrintable(err));
+  QFile again(ledgerPath);
+  QVERIFY(again.open(QIODevice::ReadOnly));
+  QCOMPARE(again.readAll(), before); // 原台账原样
+  paleo::imports::ImportLedger after;
+  after.load(&cat);
+  QCOMPARE(after.count(), 1);
+#endif
+}
+
+// 备份不可得（目录只读）→ record 拒写并给出原因；原损坏件字节不动。
+void IoImportLedgerTests::corruptLedgerUnbackupableRefusesWrite()
+{
+#ifdef Q_OS_WIN
+  QSKIP("POSIX 目录权限语义");
+#else
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  PaleoProjectStore store;
+  DataImportService importer(&store);
+  importer.setProjectDir(dir.filePath(QStringLiteral("project")));
+  QVERIFY(importer.catalogWritable());
+  paleo::imports::ImportLedger ledger;
+  ledger.load(importer.catalog());
+  const QString ledgerPath = ledger.filePath();
+  const QByteArray corrupt = "not json at all";
+  QVERIFY(write(ledgerPath, corrupt));
+  ledger.load(importer.catalog());
+  QVERIFY(!ledger.loadWarning().isEmpty());
+  const QString sidecarDir = QFileInfo(ledgerPath).absolutePath();
+  const auto perms = QFile::permissions(sidecarDir);
+  QVERIFY(QFile::setPermissions(sidecarDir, QFileDevice::ReadOwner | QFileDevice::ExeOwner));
+  if (QFileInfo(sidecarDir).isWritable())
+  {
+    QFile::setPermissions(sidecarDir, perms);
+    QSKIP("以特权运行：目录只读不生效");
+  }
+  paleo::imports::LedgerBatch batch;
+  batch.id = QStringLiteral("batch-x");
+  batch.dir = QStringLiteral("/x");
+  QString error;
+  const bool ok = ledger.record(batch, &error);
+  QVERIFY(QFile::setPermissions(sidecarDir, perms));
+  QVERIFY(!ok);
+  QVERIFY2(error.contains(QStringLiteral("损坏")), qPrintable(error));
+  QFile f(ledgerPath);
+  QVERIFY(f.open(QIODevice::ReadOnly));
+  QCOMPARE(f.readAll(), corrupt);
+#endif
 }
 
 void IoImportLedgerTests::unitFilesReachSectionWorkbench_data()

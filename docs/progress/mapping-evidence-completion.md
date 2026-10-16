@@ -67,18 +67,24 @@ compose 页影响分析/受控重算按钮、主窗口命令分发与 constraint
 
 ## 已知限制（如实声明）
 
-- 反向索引首查在 UI 线程同步增量同步（用户触发、每版本/行数双上限）；
-  未做后台化与取消。
-- executeRecompute 在任务模式下逐条重算：runner 单飞，首个条目启动后
-  其余条目如实报「请等待完成」（同步/测试模式下逐条串行）。
-- 冻结输入解析在 composeAttribution / composeAttributionAt /
-  resolveFrozenCompose 三处同口径实现（已加一致性注释），未抽公共助手。
+- ~~反向索引首查在 UI 线程同步增量同步（用户触发、每版本/行数双上限）；
+  未做后台化与取消。~~ 后续批次已后台化：`JobRunner` 同步 + 取消 +
+  `index_state` 汇报，见 mapping-evidence-implementation.md §X9。
+- ~~executeRecompute 在任务模式下逐条重算：runner 单飞，首个条目启动后
+  其余条目如实报「请等待完成」（同步/测试模式下逐条串行）。~~ 单飞仍在；
+  现支持 `already_done` 幂等续跑与模式词表（no_change/blocked_upstream/
+  local_rerun/whole_rerun），见 implementation §X5/§X6。
+- ~~冻结输入解析在 composeAttribution / composeAttributionAt /
+  resolveFrozenCompose 三处同口径实现（已加一致性注释），未抽公共助手。~~
+  已收敛为唯一解析器 `resolveFrozenCompose`，见 implementation §X16。
 
-- 归因重放的栅格取样用 provider sample（像元中心最近邻）：网格对齐的输入与批量
-  重算逐像元一致；不对齐输入在半像元边界可能与 GDAL 块重采样有差异（unresolved
-  注明 fidelity）。单因素家族同网格生成，通常对齐。
+- ~~归因重放的栅格取样用 provider sample（像元中心最近邻）：……（unresolved
+  注明 fidelity）。~~ 已改网格对齐 `provider->block` 块读 + 真实
+  `fidelity`/`alignment` 字段；超阈值退回逐点采样并记 `sampled_fallback`，
+  见 implementation §X3。
 - polygonize 平滑聚合（MIN_FRACTION 吸收小斑块）会使少数像元的相编码与图斑
   编码不同——归因给 `consistent_fraction` 与编码分布，不强行归一。
 - 影响分析的确定性 diff 只覆盖 composed_facies 且直接消费变化输入的成果；
   上游单因素需重算后才能确定空间范围（如实标 potential/whole_rerun）。
-- 反向索引首查需增量同步未索引版本（用户触发、有界）；未做后台定时刷新。
+- ~~反向索引首查需增量同步未索引版本（用户触发、有界）；未做后台定时刷新。~~
+  后台同步已落地（同上 X9）；「无查询时主动定时刷新」仍递延。

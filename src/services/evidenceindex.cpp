@@ -7,6 +7,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QSet>
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
@@ -18,9 +19,9 @@
 
 namespace paleo::evidenceindex {
 namespace {
-constexpr int kSchemaVersion = 1;
-constexpr int kMaxFeaturesPerVersion = 200000; // 病态文件读取上界
-constexpr qint64 kMaxRowsPerVersion = 2000000;  // 展开行数上界（特征×记录）
+// v2：indexed_versions 增加 truncated 列（截断如实登记）。v1→v2 升级直接
+// 整库重建——索引本就是可重建检索结构，下一轮 synchronize 全量重灌。
+constexpr int kSchemaVersion = 2;
 constexpr int kMaxQueryLimit = 1000;           // 查询 limit 钳制上界
 
 // 与成果 GPKG 的字段契约（qgis/mappingfeatureidentity.h + 现有写入面）。
@@ -104,10 +105,12 @@ Predicate predicateFor(const QString &name) {
   if (name == QLatin1String("featuresReferencingSource"))
     return {QStringLiteral("source_version = ?"), 1};
   if (name == QLatin1String("pendingReview"))
-    return {QStringLiteral("horizon = ? AND (review_state IN ('NeedsReview','Proposed')"
+    return {QStringLiteral("horizon = ? AND (review_state IN"
+                           " ('NeedsReview','Proposed','Disputed')"
                            " OR identity_review = 1)"), 1};
   if (name == QLatin1String("contradicted"))
-    return {QStringLiteral("horizon = ? AND role LIKE '%CONTRADICTED%'"), 1};
+    return {QStringLiteral("horizon = ? AND unlinked = 0"
+                           " AND role LIKE '%CONTRADICTED%'"), 1};
   if (name == QLatin1String("staleSources"))
     return {QStringLiteral(
                 "horizon = ? AND unlinked = 0 AND ("
@@ -165,18 +168,24 @@ QVector<Entry> fetchEntries(QSqlDatabase &db, const QString &where,
 }
 
 // 一个版本的一次完整替换（事务内 DELETE + INSERT + upsert indexed_versions）。
+// X12：transaction() 之后的每个失败分支都必须 rollback——否则连接停留在
+// 打开事务中，后续写入全部带病。
 bool writeVersionRows(QSqlDatabase &db, const QString &versionId,
                       const QString &sha, int corruptRecords,
-                      const QString &versionError, const QVector<Row> &rows,
-                      QString *error) {
+                      const QString &versionError, bool truncated,
+                      const QVector<Row> &rows, QString *error) {
   if (!db.transaction())
     return fail(error, QStringLiteral("无法开始索引写入事务"));
+  const auto abort = [&db, error](const QString &message) {
+    db.rollback();
+    return fail(error, message);
+  };
   {
     QSqlQuery drop(db);
     drop.prepare(QStringLiteral("DELETE FROM evidence_entries WHERE version_id = ?"));
     drop.addBindValue(versionId);
     if (!drop.exec())
-      return fail(error, QStringLiteral("无法清理旧索引条目：%1").arg(drop.lastError().text()));
+      return abort(QStringLiteral("无法清理旧索引条目：%1").arg(drop.lastError().text()));
     if (!rows.isEmpty()) {
       QSqlQuery insert(db);
       insert.prepare(QStringLiteral(
@@ -213,35 +222,40 @@ bool writeVersionRows(QSqlDatabase &db, const QString &versionId,
         insert.addBindValue(row.sourceMissing ? 1 : 0);
         insert.addBindValue(row.sourceFeatureMissing ? 1 : 0);
         if (!insert.exec())
-          return fail(error, QStringLiteral("无法写入索引条目：%1").arg(insert.lastError().text()));
+          return abort(QStringLiteral("无法写入索引条目：%1").arg(insert.lastError().text()));
       }
     }
     QSqlQuery mark(db);
     mark.prepare(QStringLiteral(
         "INSERT OR REPLACE INTO indexed_versions "
-        "(version_id, sha256, indexed_at, corrupt_records, error) "
-        "VALUES (?,?,?,?,?)"));
+        "(version_id, sha256, indexed_at, corrupt_records, error, truncated) "
+        "VALUES (?,?,?,?,?,?)"));
     mark.addBindValue(versionId);
     mark.addBindValue(sha);
     mark.addBindValue(QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs));
     mark.addBindValue(corruptRecords);
     mark.addBindValue(versionError);
+    mark.addBindValue(truncated ? 1 : 0);
     if (!mark.exec())
-      return fail(error, QStringLiteral("无法登记版本索引状态：%1").arg(mark.lastError().text()));
+      return abort(QStringLiteral("无法登记版本索引状态：%1").arg(mark.lastError().text()));
   }
   if (!db.commit())
-    return fail(error, QStringLiteral("无法提交索引写入事务"));
+    return abort(QStringLiteral("无法提交索引写入事务"));
   return true;
 }
 
 // OGR 读取一个成果版本 → 索引行。文件/图层打开失败 → versionError 非空
 //（记入 indexed_versions，不中断整体同步）；单条损坏 JSON 记录跳过并计数。
-// cancelled 命中 → *aborted = true（调用方中止整轮同步）。
+// cancelled 命中 → *aborted = true（调用方中止整轮同步）。命中任一上限
+// （要素数/展开行数）→ *truncated = true 且停止读取——上限是如实登记的
+// 截断，不是静默的部分索引。
 QVector<Row> readVersion(const CatalogVersion &version, const QString &filePath,
                          const QString &layerName, int *corruptRecords,
                          QString *versionError,
-                         const std::function<bool()> &cancelled, bool *aborted) {
+                         const std::function<bool()> &cancelled, bool *aborted,
+                         const SyncOptions &options, bool *truncated) {
   *aborted = false;
+  *truncated = false;
   QVector<Row> rows;
   const auto extra = version.extra;
   const QString fallbackLayerId = QStringLiteral("product.%1").arg(version.id);
@@ -312,8 +326,14 @@ QVector<Row> readVersion(const CatalogVersion &version, const QString &filePath,
       row.actorId = interpretationActor;
       row.identityReview = identityReview;
       rows.append(row);
-      if (rows.size() >= kMaxRowsPerVersion) break; // 展开行数上界
-      if (seen >= kMaxFeaturesPerVersion) break; // 有界读取
+      if (rows.size() >= options.maxRowsPerVersion) {
+        *truncated = true;
+        break; // 展开行数上界
+      }
+      if (seen >= options.maxFeaturesPerVersion) {
+        *truncated = true;
+        break; // 有界读取
+      }
       if ((seen & 0xFFF) == 0 && cancelled && cancelled()) {
         *aborted = true;
         break;
@@ -360,9 +380,19 @@ QVector<Row> readVersion(const CatalogVersion &version, const QString &filePath,
       row.sourceFeatureMissing =
           record.value(QStringLiteral("source_feature_missing")).toBool(false);
       rows.append(row);
-      if (rows.size() >= kMaxRowsPerVersion) break; // 展开行数上界
+      if (rows.size() >= options.maxRowsPerVersion) {
+        *truncated = true;
+        break; // 展开行数上界
+      }
     }
-    if (seen >= kMaxFeaturesPerVersion) break; // 有界读取
+    // 行数上界不仅跳出记录内层循环，也停止继续读要素——旧实现只退内层，
+    // 病态文件仍会无界读下去。
+    if (*truncated)
+      break;
+    if (seen >= options.maxFeaturesPerVersion) {
+      *truncated = true;
+      break; // 有界读取
+    }
     if ((seen & 0xFFF) == 0 && cancelled && cancelled()) {
       *aborted = true;
       break;
@@ -445,23 +475,40 @@ bool Index::open(const QString &projectDir, QString *error) {
             " sha256 TEXT NOT NULL DEFAULT '',"
             " indexed_at TEXT NOT NULL DEFAULT '',"
             " corrupt_records INTEGER NOT NULL DEFAULT 0,"
-            " error TEXT NOT NULL DEFAULT '')"),
+            " error TEXT NOT NULL DEFAULT '',"
+            " truncated INTEGER NOT NULL DEFAULT 0)"),
         QStringLiteral(
             "CREATE TABLE IF NOT EXISTS index_meta ("
             " key TEXT PRIMARY KEY NOT NULL,"
             " value TEXT NOT NULL DEFAULT '')")};
+    // 先读既有 schema 版本再建表：v1 旧库整库重建（索引可重建，drop 后
+    // 下一轮 synchronize 全量重灌，不迁移行）。
+    int onDisk = 0;
+    {
+      QSqlQuery version(db);
+      if (!version.exec(QStringLiteral("PRAGMA user_version")) || !version.next())
+        return fail(error, QStringLiteral("无法读取索引 schema 版本"));
+      onDisk = version.value(0).toInt();
+    }
+    if (onDisk > kSchemaVersion)
+      return fail(error, QStringLiteral("证据索引 schema 版本过新（%1 > %2），请升级软件后重试")
+                                 .arg(onDisk).arg(kSchemaVersion));
+    if (onDisk > 0 && onDisk < kSchemaVersion) {
+      for (const auto &statement :
+           {QStringLiteral("DROP TABLE IF EXISTS evidence_entries"),
+            QStringLiteral("DROP TABLE IF EXISTS indexed_versions"),
+            QStringLiteral("DROP TABLE IF EXISTS index_meta")}) {
+        QSqlQuery q(db);
+        if (!q.exec(statement))
+          return fail(error, QStringLiteral("索引 schema 升级失败：%1")
+                                 .arg(q.lastError().text()));
+      }
+    }
     for (const auto &statement : schema) {
       QSqlQuery q(db);
       if (!q.exec(statement))
         return fail(error, QStringLiteral("索引建表失败：%1").arg(q.lastError().text()));
     }
-    QSqlQuery version(db);
-    if (!version.exec(QStringLiteral("PRAGMA user_version")) || !version.next())
-      return fail(error, QStringLiteral("无法读取索引 schema 版本"));
-    const int onDisk = version.value(0).toInt();
-    if (onDisk > kSchemaVersion)
-      return fail(error, QStringLiteral("证据索引 schema 版本过新（%1 > %2），请升级软件后重试")
-                                 .arg(onDisk).arg(kSchemaVersion));
     if (onDisk < kSchemaVersion) {
       QSqlQuery set(db);
       if (!set.exec(QStringLiteral("PRAGMA user_version = %1").arg(kSchemaVersion)))
@@ -496,14 +543,28 @@ bool Index::connection(QString *error) const {
 }
 
 int Index::synchronize(const DataCatalog *catalog, const QString &projectDir,
-                       const std::function<bool()> &cancelled, QString *error) {
+                       const std::function<bool()> &cancelled, QString *error,
+                       const SyncOptions &options) {
+  if (!catalog) {
+    m_lastError = QStringLiteral("未提供数据目录");
+    if (error) *error = m_lastError;
+    return -1;
+  }
+  // DataCatalog 不跨线程：worker 侧调用方传的是发起线程取好的版本快照。
+  return synchronize(catalog->versions(), projectDir, cancelled, error,
+                     options);
+}
+
+int Index::synchronize(const QVector<CatalogVersion> &versions,
+                       const QString &projectDir,
+                       const std::function<bool()> &cancelled, QString *error,
+                       const SyncOptions &options) {
   m_lastError.clear();
   const auto abortWith = [&](const QString &message) -> int {
     m_lastError = message;
     if (error) *error = message;
     return -1;
   };
-  if (!catalog) return abortWith(QStringLiteral("未提供数据目录"));
   QString connectError;
   if (!connection(&connectError)) return abortWith(connectError);
   QSqlDatabase db = QSqlDatabase::database(m_connection);
@@ -511,7 +572,7 @@ int Index::synchronize(const DataCatalog *catalog, const QString &projectDir,
   // 候选：mapping_product 且 layer_type=vector 的全部版本（含 facies_polygons
   // 与其他矢量成果；raster 排除）。
   QHash<QString, CatalogVersion> wanted;
-  for (const auto &v : catalog->versions()) {
+  for (const auto &v : versions) {
     const auto e = v.extra;
     if (!e.value(QStringLiteral("mapping_product")).toBool() ||
         e.value(QStringLiteral("layer_type")).toString() != QLatin1String("vector"))
@@ -519,11 +580,17 @@ int Index::synchronize(const DataCatalog *catalog, const QString &projectDir,
     wanted.insert(v.id, v);
   }
   QHash<QString, QString> existing; // version_id → 已索引 sha
+  QSet<QString> truncatedExisting;  // 上轮被上限截断的版本（视作未完成）
   {
     QSqlQuery q(db);
-    if (!q.exec(QStringLiteral("SELECT version_id, sha256 FROM indexed_versions")))
+    if (!q.exec(QStringLiteral(
+            "SELECT version_id, sha256, truncated FROM indexed_versions")))
       return abortWith(q.lastError().text());
-    while (q.next()) existing.insert(q.value(0).toString(), q.value(1).toString());
+    while (q.next()) {
+      existing.insert(q.value(0).toString(), q.value(1).toString());
+      if (q.value(2).toInt() != 0)
+        truncatedExisting.insert(q.value(0).toString());
+    }
   }
 
   int changed = 0;
@@ -540,10 +607,15 @@ int Index::synchronize(const DataCatalog *catalog, const QString &projectDir,
       // 文件缺失/不可读 → sha 为空：照常登记 error，下一轮重试（文件可能
       // 出现）；sha 为空永不参与「未变跳过」。
     }
-    if (!sha.isEmpty() && sha == existing.value(v.id)) continue; // 未变，跳过
+    // sha 未变跳过；但上轮截断的版本不算完成——否则部分索引会永远顶着
+    // 完整数据的表象留在库里。
+    if (!sha.isEmpty() && sha == existing.value(v.id) &&
+        !truncatedExisting.contains(v.id))
+      continue; // 未变且已完整索引，跳过
     int corrupt = 0;
     QString versionError;
     QVector<Row> rows;
+    bool truncated = false;
     if (filePath.isEmpty()) {
       versionError = QStringLiteral("版本路径无法解析（不安全的受管路径或为空）");
     } else {
@@ -551,11 +623,13 @@ int Index::synchronize(const DataCatalog *catalog, const QString &projectDir,
       rows = readVersion(v, filePath,
                          layerNameFromSuffix(
                              v.extra.value(QStringLiteral("source_suffix")).toString()),
-                         &corrupt, &versionError, cancelled, &aborted);
+                         &corrupt, &versionError, cancelled, &aborted,
+                         options, &truncated);
       if (aborted) return abortWith(QStringLiteral("证据索引同步已取消"));
     }
     QString writeError;
-    if (!writeVersionRows(db, v.id, sha, corrupt, versionError, rows, &writeError))
+    if (!writeVersionRows(db, v.id, sha, corrupt, versionError, truncated,
+                          rows, &writeError))
       return abortWith(writeError);
     ++changed;
   }
@@ -671,6 +745,32 @@ QVector<Entry> Index::staleSources(const QString &horizon,
                       limit, offset, &m_lastError);
 }
 
+QStringList Index::distinctSourceVersions(const QString &horizon,
+                                          int limit) const {
+  QStringList out;
+  m_lastError.clear();
+  QString connectError;
+  if (!connection(&connectError)) {
+    m_lastError = connectError;
+    return out;
+  }
+  QSqlDatabase db = QSqlDatabase::database(m_connection);
+  QSqlQuery q(db);
+  q.prepare(QStringLiteral(
+      "SELECT DISTINCT source_version FROM evidence_entries "
+      "WHERE horizon = ? AND unlinked = 0 AND source_version != '' "
+      "LIMIT %1")
+                .arg(QString::number(qBound(1, limit, kMaxQueryLimit))));
+  q.addBindValue(horizon);
+  if (!q.exec()) {
+    m_lastError = q.lastError().text();
+    return out;
+  }
+  while (q.next())
+    out << q.value(0).toString();
+  return out;
+}
+
 QVector<Entry> Index::search(const QString &text, int limit, int offset) const {
   m_lastError.clear();
   QString connectError;
@@ -731,7 +831,8 @@ QVariantMap Index::stats() const {
           " (SELECT COUNT(*) FROM evidence_entries),"
           " (SELECT COALESCE(SUM(corrupt_records), 0) FROM indexed_versions),"
           " (SELECT COUNT(*) FROM indexed_versions WHERE error != ''),"
-          " (SELECT value FROM index_meta WHERE key = 'last_sync')"))) {
+          " (SELECT value FROM index_meta WHERE key = 'last_sync'),"
+          " (SELECT COUNT(*) FROM indexed_versions WHERE truncated != 0)"))) {
     m_lastError = q.lastError().text();
     return out;
   }
@@ -744,6 +845,7 @@ QVariantMap Index::stats() const {
   out.insert(QStringLiteral("corrupt_records"), q.value(2).toInt());
   out.insert(QStringLiteral("errored_versions"), q.value(3).toInt());
   out.insert(QStringLiteral("last_sync"), q.value(4).toString());
+  out.insert(QStringLiteral("truncated_versions"), q.value(5).toInt());
   return out;
 }
 } // namespace paleo::evidenceindex

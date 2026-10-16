@@ -568,3 +568,12 @@ P1 单井综合柱状图深度升级（D1–D8 全量交付）。逐项决策与
   `tst_mappingworkbench::polygonLabelsRenderAfterStyling`（样式→mode 3→渲染逐要素放置标注）。
   复验步骤：真实 GUI 重开工程 → 层位 D61 → 智能预测页点「相面 v2」结果聚焦 → 观察标注；
   若仍无标注，记录右键图层属性 labeling 页截图与 `~/.local/share/paleo` 日志再查。
+
+- **2026-10-17 · 编图证据深化递延**（codex/mapping-evidence-deepening，P0-A 619736e8 / P1-B 2a61b3c6 / P1-C ece5b47b；背景与契约见 docs/progress/mapping-evidence-implementation.md）：
+  ① 真实多用户身份/RBAC：`MappingWorkbench::localOperator()`（USER/USERNAME 环境变量）是审计署名而非认证——共享工程部署需要服务端身份与权限模型；
+  ② `paleo_interpretation.history` 防篡改：当前为纯 JSON 追加审计，无哈希链/签名，事后编辑无法检测——若升级合规要求可加逐条 hash chain；
+  ③ 受控重算多条目队列：`executeRecompute` 任务模式 runner 单飞、第二条目如实报「请等待完成」，靠 `already_done` 幂等续跑人工再点——真正的排队执行递延；
+  ④ 截断索引版本每轮 sync 全量重扫（`indexed_versions.truncated` 命中即重索引；单版本特征上限 200k 行有界）——断点续扫递延；
+  ⑤ #496 CRS 迁移与层位 `|`/引号转义本轮未重新审计（P1-C 评审只修了 stale_sources 拼接处 `section`）；
+  ⑥ 反查命中行不带 `project_session`：`EvidenceInteraction::navigateFeature` 的项目/会话校验依赖层位+版本闸，跨会话恢复路径未覆盖；
+  ⑦ `acceptsLocalGridCrs` 对任意米制 Engineering CRS 放行（容忍 OGR datum 重命名）——非项目网格 CRS 的井层理论上可被纳入 `wells_in_feature`，收紧为项目网格精确匹配递延。

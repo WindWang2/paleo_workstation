@@ -67,7 +67,10 @@ SeismicClusterResult clusterSeismicHorizon(
     for (int row = 0; row < result.rows; ++row)
       for (int col = 0; col < result.columns; ++col) {
         const int cell = row * result.columns + col;
-        if (std::isfinite(times[cell]) && !(hasNoData && times[cell] == noData))
+        // nodata 按 float 口径归一（#165 同族）：times 是 float，非 float 可
+        // 表示的 nodata（1e30/-99999.9 等）读入后与 double 恒不相等。
+        if (std::isfinite(times[cell]) &&
+            !(hasNoData && times[cell] == static_cast<float>(noData)))
           lines[0].append({cell, 0, times[cell]});
       }
   }

@@ -134,17 +134,28 @@ bool samePoint( QPointF a, QPointF b )
 
 bool segmentTouchesRect( QPointF a, QPointF b, const QRectF &r )
 {
-  // Liang–Barsky：r 为闭矩形。
+  // Liang–Barsky，域口径与引擎像元判定一致（PR457-closure 二轮 R1/A1）：
+  //   c = floor((x - xMin)/cell)  → x==xMin 在内（闭），x==xMax 在外（开）；
+  //   r = floor((yMax - y)/cell)  → y==yMax 在内（闭），y==yMin 在外（开）
+  //（行号自上而下：y 最大值是第 0 行的下边界）。
+  // QRectF 的 top()=yMin、bottom()=yMax，故四边开闭为：
+  //   left 闭、right 开、top 开、bottom 闭。
+  // 实现先按闭矩形裁剪：
+  // · 与开边平行且贴在开边上（p==0, q<=0）→ 整段在域外；
+  // · 退化交（t0==t1，单点）→ 该点按半开域显式判定（恰穿开角点不算）；
+  // · 正常区间（t0<t1）→ 内部点必离开各条边线（非平行），必有点在开域内。
   double t0 = 0, t1 = 1;
   const double dx = b.x() - a.x();
   const double dy = b.y() - a.y();
   const double p[4] = { -dx, dx, -dy, dy };
   const double q[4] = { a.x() - r.left(), r.right() - a.x(), a.y() - r.top(), r.bottom() - a.y() };
+  const bool openEdge[4] = { false, true, true, false };
   for ( int i = 0; i < 4; ++i )
   {
     if ( p[i] == 0 )
     {
-      if ( q[i] < 0 )
+      // 与该边界平行：闭边在界外(q<0)排除；开边贴线(q<=0)整段域外。
+      if ( q[i] < 0 || ( openEdge[i] && q[i] <= 0 ) )
         return false;
       continue;
     }
@@ -155,6 +166,12 @@ bool segmentTouchesRect( QPointF a, QPointF b, const QRectF &r )
       t1 = std::min( t1, t );
     if ( t0 > t1 )
       return false;
+  }
+  if ( t0 == t1 )
+  {
+    // 单点交：直接按半开域判定该点（含恰好落在开角点的情形）。
+    const double x = a.x() + dx * t0, y = a.y() + dy * t0;
+    return x >= r.left() && x < r.right() && y > r.top() && y <= r.bottom();
   }
   return true;
 }

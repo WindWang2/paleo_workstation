@@ -389,14 +389,17 @@ private slots:
     const auto fid2 = firstFeature(&f.layers, composed, &code, nullptr);
     QVERIFY(fid2 >= 0);
 
-    const auto snapshot = f.work.featureEvidence(composed, {fid2});
-    const auto attribution = snapshot.value("attribution").toMap();
-    QCOMPARE(attribution.value("status").toString(), QStringLiteral("ok"));
-    // 会话期禁用驱逐：全部输入版本（10 > 缓存容量 8）在会话后仍留在缓存。
-    // 旧代码：每打开第 9+ 个版本即驱逐一个使用中图层，会话结束时缓存恒为
-    // 8 条（且被驱逐层已 UAF）。
-    QVERIFY2(f.work.attributionLayerCacheCountForTesting() >= 10,
-             "attribution session must not evict in-use layers");
+    // 外层 pin 持有期间跑证据会话：会话内与会话后（外层 pin 仍在）计数
+    // ≥10——证明会话内无驱逐；外层释放后裁剪回常驻上界 8（R2-06）。
+    {
+      const MappingWorkbench::AttributionPin outerPin(&f.work);
+      const auto snapshot = f.work.featureEvidence(composed, {fid2});
+      const auto attribution = snapshot.value("attribution").toMap();
+      QCOMPARE(attribution.value("status").toString(), QStringLiteral("ok"));
+      QVERIFY2(f.work.attributionLayerCacheCountForTesting() >= 10,
+               "attribution session must not evict in-use layers");
+    }
+    QVERIFY(f.work.attributionLayerCacheCountForTesting() <= 8);
   }
 };
 int main(int argc, char **argv) {

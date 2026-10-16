@@ -64,6 +64,25 @@ public:
   // 测试钩子：归因图层缓存的当前条目数（验证会话期不驱逐，full-audit F1）。
   int attributionLayerCacheCountForTesting() const
   { return m_attributionLayers.size(); }
+  class AttributionPin
+  {
+  public:
+    explicit AttributionPin(const MappingWorkbench *wb) : m_wb(wb)
+    { ++wb->m_attributionPinned; }
+    ~AttributionPin()
+    {
+      // 会话全部结束恢复 8 条常驻上界：会话期缓存按输入数无上限增长，
+      // 不裁剪会长期停留在历史最大会话水位（R2-06）。实现留在 .cpp
+      //（QgsMapLayer 完整类型只在 TU 内可用）。
+      if (--m_wb->m_attributionPinned == 0)
+        m_wb->trimAttributionLayers();
+    }
+    AttributionPin(const AttributionPin &) = delete;
+    AttributionPin &operator=(const AttributionPin &) = delete;
+  private:
+    const MappingWorkbench *m_wb;
+  };
+
   CatalogVersion versionForLayer(const QString &id) const;
   LayerDeclaration declaration(const QString &id) const;
   QString layerForVersion(const QString &versionId, QString *error = nullptr);
@@ -232,17 +251,6 @@ private:
   // 会话期间（composeAttribution/影响分析等持有 ResolvedInput::layer 裸指针
   // 跨多次调用）由 AttributionPin 禁用驱逐——中途驱逐=使用中 delete（UAF）。
   QgsMapLayer *attributionLayer(const QString &versionId) const;
-  class AttributionPin
-  {
-  public:
-    explicit AttributionPin(const MappingWorkbench *wb) : m_wb(wb)
-    { ++wb->m_attributionPinned; }
-    ~AttributionPin() { --m_wb->m_attributionPinned; }
-    AttributionPin(const AttributionPin &) = delete;
-    AttributionPin &operator=(const AttributionPin &) = delete;
-  private:
-    const MappingWorkbench *m_wb;
-  };
   void connectPredictionService(RemotePredictionService *service);
   void publishFactorAlias(const QString &horizon, const QString &id);
   void synchronizeCatalogLayers();
@@ -309,6 +317,8 @@ private:
   QVariantMap consistencyImpl(const QString &layerId, QString *error,
                               const QString &counterpartId, bool background);
   void finishPrediction(const RemotePredictionResult &result);
+  // AttributionPin 归零时把归因图层缓存裁回 8 条常驻上界（R2-06）。
+  void trimAttributionLayers() const;
   // 任务中心行：开一行 / 收尾（error 空 = 完成）/ 取消（取消态收尾）。
   void beginPredictionTask(const QString &title);
   void endPredictionTask(const QString &error = {});

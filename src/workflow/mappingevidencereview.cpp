@@ -261,8 +261,17 @@ QString MappingWorkbench::composedAncestorVersion(const QString &id) const {
   }
   return {};
 }
-QgsMapLayer *MappingWorkbench::attributionLayer(const QString &versionId) const {
-  if (!m_catalog || versionId.isEmpty())
+// AttributionPin 全部释放后恢复 8 条常驻上界（R2-06）：会话期驱逐被禁用、
+// 缓存按会话输入数增长，不裁剪会长期停留在历史最大会话水位。
+void MappingWorkbench::trimAttributionLayers() const {
+  while (m_attributionLayers.size() > 8) {
+    const auto it = m_attributionLayers.begin();
+    delete it.value().data();
+    m_attributionLayers.erase(it);
+  }
+}
+
+QgsMapLayer *MappingWorkbench::attributionLayer(const QString &versionId) const {  if (!m_catalog || versionId.isEmpty())
     return nullptr;
   if (auto *cached = m_attributionLayers.value(versionId).data())
     return cached;

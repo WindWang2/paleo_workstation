@@ -483,10 +483,10 @@ QString SurfaceGriddingWorkflow::buildBarrierMask(const QString &horizon,
   context.horizon = horizon;
   if (geom.isValid())
   {
-    // 计划与引擎同一 GridSpec：geom 覆盖 x∈[originX, originX+cols*dx)、
-    // y∈(originY−rows*dy, originY]——x 左闭右开，y 上闭下开（行号自上而下：
-    // y==originY 是第 0 行下边界，y==originY−rows*dy 落在网格外），与像元
-    // 判定 cellOf 同口径（见 constraintsemantics::segmentTouchesRect）。
+    // 计划与引擎同一 GridSpec（闭域契约）：域矩形 [originX, originX+cols*dx] ×
+    // [originY−rows*dy, originY]，贴右/下边界的点 clamp 进最后一列/行格——
+    // 与 supercoverPolylineCells 的引擎栅格化及计划侧 segmentTouchesRect
+    // 同口径（R2-09：旧的半开 cellOf 措辞已随 supercover 统一废止）。
     context.domain = QRectF(geom.originX, geom.originY - geom.rows * geom.dy,
                             geom.cols * geom.dx, geom.rows * geom.dy);
   }

@@ -672,9 +672,11 @@ bool ConstraintStore::restoreFileFromBackup(const QString &gpkgPath,
     return bad(QObject::tr("严重：备份不存在或不可读，保持现场不动：%1").arg(backupPath));
   // -wal/-shm 是迁移连接留下的 WAL 脚手架：只换主文件的话，SQLite 下次打开
   // 对着「还原后的旧主文件」重放遗留帧（帧校验和链不校验与主库同一性），
-  // 产出备份页+迁移页的嵌合库——三件一起还原。
-  for (const QString &suffix : {QString(), QStringLiteral("-wal"),
-                                QStringLiteral("-shm")}) {
+  // 产出备份页+迁移页的嵌合库——三件一起还原。删除顺序：先 -wal/-shm 后
+  // 主文件——伴生件删除失败时主文件仍在盘上（R2-03：反序会把现网主文件
+  // 先删掉、错误路径套错误路径）。
+  for (const QString &suffix : {QStringLiteral("-wal"), QStringLiteral("-shm"),
+                                QString()}) {
     const QString target = gpkgPath + suffix;
     if (QFile::exists(target) && !QFile::remove(target))
       return bad(QObject::tr("严重：无法移除待还原文件 %1（文件被占用？）").arg(target));

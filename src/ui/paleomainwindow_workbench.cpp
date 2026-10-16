@@ -807,7 +807,13 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
               // 重放为同步长操作（≤64 产品 × 2 × 400 万像元）：等待光标 +
               // 状态栏提示（DESIGN.md Motion「>1s 显示进度条」的同步路径
               // 最小满足；异步任务化在 full-audit 台账记为剩余工作）。
+              // 光标 RAII：analyzeImpact 抛异常（bad_alloc 族）也不卡死在
+              // 等待态（R2-07②）。
               statusBar()->showMessage(tr("正在分析影响（重放冻结输入）…"), 0);
+              const struct WaitCursorGuard
+              {
+                ~WaitCursorGuard() { QApplication::restoreOverrideCursor(); }
+              } waitCursor;
               QApplication::setOverrideCursor(Qt::WaitCursor);
               m_lastImpact = workbench->analyzeImpact(
                   {{"kind", QStringLiteral("input_version")},
@@ -815,7 +821,6 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
                    {"after_version_id", after.id},
                    {"horizon", h}},
                   &error);
-              QApplication::restoreOverrideCursor();
               ok = !m_lastImpact.isEmpty();
               page->setImpactAvailable(ok);
               if (ok) {
@@ -850,9 +855,12 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
               const auto plan = workbench->recomputePlan(m_lastImpact, &error);
               ok = !plan.isEmpty() && plan.value("status").toString() != QStringLiteral("empty");
               if (ok) {
+                const struct WaitCursorGuard
+                {
+                  ~WaitCursorGuard() { QApplication::restoreOverrideCursor(); }
+                } waitCursor;
                 QApplication::setOverrideCursor(Qt::WaitCursor);
                 const auto execution = workbench->executeRecompute(plan, &error);
-                QApplication::restoreOverrideCursor();
                 const auto results = execution.value("results").toList();
                 int started = 0;
                 QStringList skipped;

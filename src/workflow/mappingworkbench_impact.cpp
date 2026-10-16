@@ -566,6 +566,9 @@ QVariantMap MappingWorkbench::compareVersions(const QString &oldVersionId,
     fail(error, tr("目录未绑定"));
     return {};
   }
+  // before/after 两个栅格图层同时持有期间不得驱逐归因缓存（R2-01：F1 的
+  // 覆盖缺口——第二个 attributionLayer 打开第 9 个不同版本时可能驱逐第一个）。
+  const AttributionPin attributionPin(this);
   auto *before = qobject_cast<QgsRasterLayer *>(attributionLayer(oldVersionId));
   auto *after = qobject_cast<QgsRasterLayer *>(attributionLayer(newVersionId));
   if (!before || !after) {
@@ -648,7 +651,8 @@ QVariantList MappingWorkbench::evidenceReverseQuery(const QString &name,
     fail(error, tr("请先打开工程再检索证据"));
     return rows;
   }
-  // before/after 两个栅格图层同时持有期间不得驱逐归因缓存。
+  // 反查本体不取归因图层；pin 是防御性保留（索引同步/行定位链后续若引入
+  // 图层读取即自动受保护），与 compareVersions 的双图层 pin 同族。
   const AttributionPin attributionPin(this);
   if (!m_evidenceIndex)
     m_evidenceIndex = std::make_unique<paleo::evidenceindex::Index>();

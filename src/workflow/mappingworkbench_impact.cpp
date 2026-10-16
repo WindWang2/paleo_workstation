@@ -427,7 +427,7 @@ QVariantMap MappingWorkbench::recomputePlan(const QVariantMap &impactResult,
       if (uid.isEmpty() || polygonChild.isEmpty())
         continue;
       {
-        const auto child = polygonChild;
+        const auto &child = polygonChild;
         const auto cv = m_catalog->versionById(child);
         if (cv.extra.value("kind").toString() != QLatin1String("facies_polygons"))
           continue;

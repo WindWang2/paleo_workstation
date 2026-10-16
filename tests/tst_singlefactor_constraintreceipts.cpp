@@ -637,10 +637,11 @@ private slots:
     GDALClose( ds );
   }
 
-  // PR457-closure R1：恰好压在网格边界上的屏障。井点 0..100 + 10% pad →
-  // 成图域 [-10,110)，CELL_SIZE 2 → 右边缘恰为 110（整除，无 ceil 余量）。
-  // 半开域口径：x==110 的线不算触域（引擎 cellOf c==cols 落格失败），三个
-  // 引擎（旧 IDW / 距离变换 / 最小曲率）回执一致；内侧 1 单位的线正常消费。
+  // PR457-closure R1（闭契约版）：恰好压在网格边界上的屏障。井点 0..100 +
+  // 10% pad → 成图域 [-10,110]，CELL_SIZE 2 → 边界恰为 ±110/-10（整除）。
+  // #488 统一闭域契约：supercover 把贴边点 clamp 进最后一列/行格——贴边
+  // 屏障影响边缘格、不是域外；计划侧 polylineTouchesRect 同为闭矩形。三个
+  // 引擎（旧 IDW / 距离变换 / 最小曲率）回执一致：四条贴边线全部消费。
   void edgeAlignedBarrierIsOutsideForAllGridEngines()
   {
     QgsVectorLayer lines( QStringLiteral( "MultiLineString?crs=EPSG:3857&field=id:string&field=horizon:string&field=type:string"
@@ -661,8 +662,7 @@ private slots:
     };
     addLine( QStringLiteral( "edge_right" ), QStringLiteral( "LINESTRING(110 0, 110 100)" ) );
     addLine( QStringLiteral( "edge_inside" ), QStringLiteral( "LINESTRING(109 0, 109 100)" ) );
-    // A1：Y 轴同口径——行号自上而下数，y==yMax(110) 是第 0 行下边界（闭，
-    // 在域内），y==yMin(-10) 落在网格外（开）。
+    // 闭契约：四条贴边线（x==±110 / y==±110 域界）clamp 进边缘格，全部消费。
     addLine( QStringLiteral( "edge_top" ), QStringLiteral( "LINESTRING(20 110, 80 110)" ) );
     addLine( QStringLiteral( "edge_bottom" ), QStringLiteral( "LINESTRING(20 -10, 80 -10)" ) );
     QVERIFY( lines.dataProvider()->addFeatures( features ) );
@@ -686,7 +686,7 @@ private slots:
       const QJsonArray receipts =
           QJsonDocument::fromJson( result.value( QStringLiteral( "CONSTRAINT_RECEIPTS" ) ).toString().toUtf8() ).array();
       bool sawEdge = false, sawInside = false, sawTop = false, sawBottom = false;
-      QString edgeReason, bottomReason, insideRole, topRole;
+      QString insideRole, topRole;
       for ( const QJsonValue &v : receipts )
       {
         const QJsonObject receipt = v.toObject();
@@ -694,8 +694,8 @@ private slots:
         if ( id == QLatin1String( "edge_right" ) )
         {
           sawEdge = true;
-          edgeReason = receipt.value( QStringLiteral( "reason" ) ).toString();
-          QVERIFY2( !receipt.value( QStringLiteral( "consumed" ) ).toBool(), qPrintable( algorithm ) );
+          QVERIFY2( receipt.value( QStringLiteral( "consumed" ) ).toBool(),
+                    qPrintable( algorithm + ": closed contract — edge line clamps into edge cell" ) );
         }
         if ( id == QLatin1String( "edge_inside" ) )
         {
@@ -713,14 +713,11 @@ private slots:
         if ( id == QLatin1String( "edge_bottom" ) )
         {
           sawBottom = true;
-          bottomReason = receipt.value( QStringLiteral( "reason" ) ).toString();
-          QVERIFY2( !receipt.value( QStringLiteral( "consumed" ) ).toBool(),
-                    qPrintable( algorithm + ": y==yMin must be outside" ) );
+          QVERIFY2( receipt.value( QStringLiteral( "consumed" ) ).toBool(),
+                    qPrintable( algorithm + ": closed contract — edge line clamps into edge cell" ) );
         }
       }
       QVERIFY2( sawEdge && sawInside && sawTop && sawBottom, qPrintable( algorithm ) );
-      QCOMPARE( edgeReason, QStringLiteral( "outside_compute_domain" ) );
-      QCOMPARE( bottomReason, QStringLiteral( "outside_compute_domain" ) );
       QCOMPARE( insideRole, QStringLiteral( "hard_barrier" ) );
       QCOMPARE( topRole, QStringLiteral( "hard_barrier" ) );
     }

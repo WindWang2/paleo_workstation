@@ -63,7 +63,8 @@ class SurfaceGriddingWorkflow : public QObject
     double minX = 0, maxX = 0, minY = 0, maxY = 0;
     bool hasHeaderCell = false;
     double headerCellSize = 0;
-    bool hasConstraints = false;
+    bool hasConstraints = false;      // 任一层位有可用屏障（对话框开关可见性）
+    QStringList barrierHorizons;      // 有可用屏障的层位（按散点域过滤）——供选层提示
     int pointCount = 0;
   };
   static Inspect inspectHorizonText(const QByteArray &text, const QString &constraintGpkgPath);

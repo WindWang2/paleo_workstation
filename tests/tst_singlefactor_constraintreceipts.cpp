@@ -420,7 +420,8 @@ private slots:
         QJsonDocument::fromJson( result.value( QStringLiteral( "CONSTRAINT_RECEIPTS" ) ).toString().toUtf8() ).array();
     QMap<QString, QString> roles;
     const QStringList engine = receiptConsumed( receipts, &roles );
-    QCOMPARE( engine, planConsumed( QStringLiteral( "legacy" ), std::nullopt ) );
+    // R3 后计划与引擎同口径：域外屏障两边都不消费（域=井点范围外扩 10%）。
+    QCOMPARE( engine, planConsumed( QStringLiteral( "legacy" ), paddedWellExtent() ) );
     // 旧 IDW 之前按 type 列把 display_only/none/停用打断线都当硬屏障——现在不再。
     for ( const char *id : { "b_display", "b_none", "b_disabled", "b_zero", "b_bowtie" } )
       QVERIFY2( !engine.contains( QString::fromLatin1( id ) ), id );
@@ -634,6 +635,95 @@ private slots:
       barriers += role == QLatin1String( "hard_barrier" ) ? 1 : 0;
     QCOMPARE( QByteArray( GDALGetMetadataItem( ds, "PALEO_BREAK_LINES", nullptr ) ), QByteArray::number( barriers ) );
     GDALClose( ds );
+  }
+
+  // PR457-closure R1：恰好压在网格边界上的屏障。井点 0..100 + 10% pad →
+  // 成图域 [-10,110)，CELL_SIZE 2 → 右边缘恰为 110（整除，无 ceil 余量）。
+  // 半开域口径：x==110 的线不算触域（引擎 cellOf c==cols 落格失败），三个
+  // 引擎（旧 IDW / 距离变换 / 最小曲率）回执一致；内侧 1 单位的线正常消费。
+  void edgeAlignedBarrierIsOutsideForAllGridEngines()
+  {
+    QgsVectorLayer lines( QStringLiteral( "MultiLineString?crs=EPSG:3857&field=id:string&field=horizon:string&field=type:string"
+                                          "&field=params_json:string&field=schema_version:integer" ),
+                          QStringLiteral( "edge" ), QStringLiteral( "memory" ) );
+    QVERIFY( lines.isValid() );
+    QList<QgsFeature> features;
+    const auto addLine = [&]( const QString &id, const QString &wkt ) {
+      QgsFeature f( lines.fields() );
+      QgsGeometry g = QgsGeometry::fromWkt( wkt );
+      g.convertToMultiType();
+      f.setGeometry( g );
+      QgsAttributes attributes;
+      attributes << id << QStringLiteral( "H1" ) << QStringLiteral( "break_line" )
+                 << QVariant( QStringLiteral( R"({"semantic":"hard_barrier","blockMode":"full_block"})" ) ) << 1;
+      f.setAttributes( attributes );
+      features << f;
+    };
+    addLine( QStringLiteral( "edge_right" ), QStringLiteral( "LINESTRING(110 0, 110 100)" ) );
+    addLine( QStringLiteral( "edge_inside" ), QStringLiteral( "LINESTRING(109 0, 109 100)" ) );
+    // A1：Y 轴同口径——行号自上而下数，y==yMax(110) 是第 0 行下边界（闭，
+    // 在域内），y==yMin(-10) 落在网格外（开）。
+    addLine( QStringLiteral( "edge_top" ), QStringLiteral( "LINESTRING(20 110, 80 110)" ) );
+    addLine( QStringLiteral( "edge_bottom" ), QStringLiteral( "LINESTRING(20 -10, 80 -10)" ) );
+    QVERIFY( lines.dataProvider()->addFeatures( features ) );
+
+    for ( const QString &algorithm : { QStringLiteral( "paleo:paleo_constraint_idw" ),
+                                       QStringLiteral( "paleo:paleo_distance_transform" ),
+                                       QStringLiteral( "paleo:paleo_min_curvature" ) } )
+    {
+      QVariantMap params;
+      params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( mWells ) );
+      params.insert( QStringLiteral( "FIELD" ), QStringLiteral( "z" ) );
+      params.insert( QStringLiteral( "CONSTRAINTS" ), QVariant::fromValue( &lines ) );
+      params.insert( QStringLiteral( "CELL_SIZE" ), 2.0 );
+      params.insert( QStringLiteral( "OUTPUT" ),
+                     mDir.filePath( QStringLiteral( "edge-%1.tif" ).arg( algorithm.section( QLatin1Char( ':' ), 1 ) ) ) );
+      QgsProcessingContext context;
+      QgsProcessingFeedback feedback;
+      const QVariantMap result =
+          QgsApplication::processingRegistry()->algorithmById( algorithm )->run( params, context, &feedback );
+      QVERIFY2( !result.isEmpty(), qPrintable( algorithm + ": " + feedback.textLog() ) );
+      const QJsonArray receipts =
+          QJsonDocument::fromJson( result.value( QStringLiteral( "CONSTRAINT_RECEIPTS" ) ).toString().toUtf8() ).array();
+      bool sawEdge = false, sawInside = false, sawTop = false, sawBottom = false;
+      QString edgeReason, bottomReason, insideRole, topRole;
+      for ( const QJsonValue &v : receipts )
+      {
+        const QJsonObject receipt = v.toObject();
+        const QString id = receipt.value( QStringLiteral( "id" ) ).toString();
+        if ( id == QLatin1String( "edge_right" ) )
+        {
+          sawEdge = true;
+          edgeReason = receipt.value( QStringLiteral( "reason" ) ).toString();
+          QVERIFY2( !receipt.value( QStringLiteral( "consumed" ) ).toBool(), qPrintable( algorithm ) );
+        }
+        if ( id == QLatin1String( "edge_inside" ) )
+        {
+          sawInside = true;
+          insideRole = receipt.value( QStringLiteral( "role" ) ).toString();
+          QVERIFY2( receipt.value( QStringLiteral( "consumed" ) ).toBool(), qPrintable( algorithm ) );
+        }
+        if ( id == QLatin1String( "edge_top" ) )
+        {
+          sawTop = true;
+          topRole = receipt.value( QStringLiteral( "role" ) ).toString();
+          QVERIFY2( receipt.value( QStringLiteral( "consumed" ) ).toBool(),
+                    qPrintable( algorithm + ": y==yMax must be inside (row 0)" ) );
+        }
+        if ( id == QLatin1String( "edge_bottom" ) )
+        {
+          sawBottom = true;
+          bottomReason = receipt.value( QStringLiteral( "reason" ) ).toString();
+          QVERIFY2( !receipt.value( QStringLiteral( "consumed" ) ).toBool(),
+                    qPrintable( algorithm + ": y==yMin must be outside" ) );
+        }
+      }
+      QVERIFY2( sawEdge && sawInside && sawTop && sawBottom, qPrintable( algorithm ) );
+      QCOMPARE( edgeReason, QStringLiteral( "outside_compute_domain" ) );
+      QCOMPARE( bottomReason, QStringLiteral( "outside_compute_domain" ) );
+      QCOMPARE( insideRole, QStringLiteral( "hard_barrier" ) );
+      QCOMPARE( topRole, QStringLiteral( "hard_barrier" ) );
+    }
   }
 
   // 数值层面：display_only 打断线不隔断（与无约束逐位一致），同一条线改成

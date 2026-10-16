@@ -410,6 +410,7 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
   // Unknown-type layers therefore keep bit-identical behavior with the
   // pre-C1 algorithm.
   QVector<QgsGeometry> breakGeoms, directionGeoms, hullGeoms;
+  QVector<int> breakReceiptIdx; // 与 breakGeoms 平行：该部件在 constraintReceipts 的下标
   QVariantList constraintReceipts; // 逐条（多部件逐部件）实际消费回执
   {
     std::unique_ptr<QgsProcessingFeatureSource> constraints(
@@ -511,24 +512,18 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
             continue; // 无效几何 / 停用 / 仅制图 / 不支持：不静默参与数值
           const QgsGeometry partGeom = QgsGeometry::fromPolylineXY( parts.at( k ) );
           if ( d.role == QLatin1String( "hard_barrier" ) )
+          {
             breakGeoms.append( partGeom );
+            breakReceiptIdx.append( constraintReceipts.size() - 1 ); // 二轮 R3：逐线落格回执
+          }
           else if ( d.role == QLatin1String( "global_direction" ) )
             directionGeoms.append( partGeom );
           else if ( d.role == QLatin1String( "hull_clip" ) )
             hullGeoms.append( partGeom );
         }
       }
-      // break_lines also bound the region of influence (a barrier is a boundary).
-      hullGeoms += breakGeoms;
     }
   }
-  QgsGeometry hull;
-  if ( hullGeoms.size() == 1 )
-    hull = hullGeoms.at( 0 ).convexHull();
-  else if ( hullGeoms.size() > 1 )
-    hull = QgsGeometry::unaryUnion( hullGeoms ).convexHull();
-  const bool clipToHull = !hull.isNull() && !hull.isEmpty() &&
-                          QgsWkbTypes::geometryType( hull.wkbType() ) == Qgis::GeometryType::Polygon;
 
   // ---- output grid ----------------------------------------------------------
   // 10% margin on every side. A zero-width axis (collinear or single wells)
@@ -543,6 +538,67 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
       PaleoAlgoGuards::gridDimsForExtent( extent, cellSize );
   const int nCols = dims.cols;
   const int nRows = dims.rows;
+
+  // ---- break_line barriers: rasterize first（二轮 R3 逐线落格回执）----------
+  // supercover 栅格化（#488 统一实现：闭域裁剪 + 4-连通途经链，陡斜线/穿角
+  // 点不漏格）。只有真正标记到像元的屏障才算「实际消费」：未落格的线在回执
+  // 里改记 consumed=false / outside_compute_domain，也不进凸包（域外线没有
+  // 屏障作用，不该裁掉成图域）。同一 mask 供连通性 BFS 复用，不二次栅格化。
+  std::vector<std::uint8_t> barrierMask;
+  QVector<char> breakTouched( breakGeoms.size(), 0 );
+  int touchedBreakCount = 0;
+  if ( !breakGeoms.isEmpty() )
+  {
+    barrierMask.assign( static_cast<std::size_t>( nCols ) * nRows, 0 );
+    for ( int gi = 0; gi < breakGeoms.size(); ++gi )
+    {
+      if ( feedback && feedback->isCanceled() )
+        throw QgsProcessingException( QStringLiteral( "Canceled" ) );
+      const QgsGeometry &g = breakGeoms.at( gi );
+      const QgsMultiPolylineXY mpl = g.isMultipart() ? g.asMultiPolyline() : QgsMultiPolylineXY{ g.asPolyline() };
+      for ( const QgsPolylineXY &pl : mpl )
+      {
+        QVector<QPointF> vertices;
+        vertices.reserve( pl.size() );
+        for ( const QgsPointXY &point : pl )
+          vertices.append( point.toQPointF() );
+        paleo::algorithms::supercoverPolylineCells(
+            vertices, extent.xMinimum(), extent.yMaximum(), cellSize, -cellSize, nCols, nRows,
+            [&]( int c, int r ) {
+              barrierMask[static_cast<std::size_t>( r ) * nCols + c] = 1;
+              breakTouched[gi] = 1;
+            } );
+      }
+      if ( breakTouched.at( gi ) )
+        ++touchedBreakCount;
+    }
+    // 未落格的屏障：回执改记，不冒充硬屏障。
+    for ( int gi = 0; gi < breakGeoms.size(); ++gi )
+    {
+      if ( breakTouched.at( gi ) || gi >= breakReceiptIdx.size() )
+        continue;
+      const int index = breakReceiptIdx.at( gi );
+      if ( index < 0 || index >= constraintReceipts.size() )
+        continue;
+      QVariantMap receipt = constraintReceipts.at( index ).toMap();
+      receipt.insert( QStringLiteral( "consumed" ), false );
+      receipt.insert( QStringLiteral( "role" ), QString() );
+      receipt.insert( QStringLiteral( "reason" ), QStringLiteral( "outside_compute_domain" ) );
+      constraintReceipts[index] = receipt;
+    }
+    // break_lines also bound the region of influence (a barrier is a boundary)
+    // ——只计真正落格的线。
+    for ( int gi = 0; gi < breakGeoms.size(); ++gi )
+      if ( breakTouched.at( gi ) )
+        hullGeoms.append( breakGeoms.at( gi ) );
+  }
+  QgsGeometry hull;
+  if ( hullGeoms.size() == 1 )
+    hull = hullGeoms.at( 0 ).convexHull();
+  else if ( hullGeoms.size() > 1 )
+    hull = QgsGeometry::unaryUnion( hullGeoms ).convexHull();
+  const bool clipToHull = !hull.isNull() && !hull.isEmpty() &&
+                          QgsWkbTypes::geometryType( hull.wkbType() ) == Qgis::GeometryType::Polygon;
 
   const double gt[6] = { extent.xMinimum(), cellSize, 0.0,
                          extent.yMaximum(), 0.0, -cellSize };
@@ -597,7 +653,7 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
     }
   }
   GDALSetMetadataItem( outDs, "PALEO_BREAK_LINES",
-                       QString::number( breakGeoms.size() ).toUtf8().constData(), nullptr );
+                       QString::number( touchedBreakCount ).toUtf8().constData(), nullptr ); // 实际落格条数
   GDALSetMetadataItem( outDs, "PALEO_DIRECTION_LINES",
                        QString::number( directionGeoms.size() ).toUtf8().constData(), nullptr );
   if ( hasAniso )
@@ -618,7 +674,7 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
   // 从格缝穿过。非屏障格按 4-连通 BFS 标分量；一格只从同分量井点插值——绕行
   // 屏障端点在格分辨率上成立。同分量内用平面欧氏距离（直线仍可能穿过凹形
   // 屏障；既有的近似口径，仅权重语义）。
-  const bool hasBarriers = !breakGeoms.isEmpty();
+  const bool hasBarriers = touchedBreakCount > 0;
   std::vector<int> comp;        // per cell: >=0 component id, -2 barrier
   std::vector<int> sampleComp;  // per sample: component id, -1 unreachable
   auto cellOf = [&]( double x, double y, int &c, int &r ) {
@@ -629,28 +685,9 @@ QVariantMap ConstraintIDWAlgorithm::processAlgorithm( const QVariantMap &paramet
   if ( hasBarriers )
   {
     const qsizetype cellCount = static_cast<qsizetype>( nCols ) * nRows;
-    comp.assign( static_cast<size_t>( cellCount ), -1 );
-    for ( const QgsGeometry &g : breakGeoms )
-    {
-      if ( feedback && feedback->isCanceled() )
-      {
-        GDALClose( outDs );
-        throw QgsProcessingException( QStringLiteral( "Canceled" ) );
-      }
-      const QgsMultiPolylineXY mpl = g.isMultipart()
-                                         ? g.asMultiPolyline()
-                                         : QgsMultiPolylineXY{ g.asPolyline() };
-      for ( const QgsPolylineXY &pl : mpl )
-      {
-        QVector<QPointF> vertices;
-        vertices.reserve( pl.size() );
-        for ( const QgsPointXY &point : pl )
-          vertices.append( point.toQPointF() );
-        paleo::algorithms::supercoverPolylineCells(
-            vertices, extent.xMinimum(), extent.yMaximum(), cellSize, -cellSize, nCols, nRows,
-            [&]( int c, int r ) { comp[static_cast<qsizetype>( r ) * nCols + c] = -2; } );
-      }
-    }
+    comp.resize( static_cast<size_t>( cellCount ) );
+    for ( qsizetype cell = 0; cell < cellCount; ++cell )
+      comp[static_cast<size_t>( cell )] = barrierMask[static_cast<size_t>( cell )] ? -2 : -1;
     int nextComp = 0;
     std::vector<qsizetype> queue;
     queue.reserve( static_cast<size_t>( cellCount ) );

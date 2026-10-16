@@ -958,6 +958,14 @@ if(PALEO_PYTHON3)
            ${CMAKE_SOURCE_DIR}/tools/check_ui_invariants.py --strict)
   add_test(NAME ui_invariants_selftest COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/check_ui_invariants.py --selftest)
+  # #502：视图层文件规模闸（src/ui 单文件 ≤1000 行，baseline 只缩不涨）。
+  # 已闸 include 层（layering）与动画/色值/DPR（ui_invariants），体量侧此前无闸。
+  add_test(NAME ui_size COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_ui_size.py)
+  add_test(NAME ui_size_strict COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_ui_size.py --strict)
+  add_test(NAME ui_size_selftest COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_ui_size.py --selftest)
   # #77：i18n 裸字面量门禁（#44「无 CI 门禁」收口）。脚本按自身位置定位
   # src/，WORKING_DIRECTORY 显式钉源码根作双保险。
   add_test(NAME i18n COMMAND ${PALEO_PYTHON3}

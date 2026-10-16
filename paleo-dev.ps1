@@ -434,6 +434,7 @@ switch ($Verb) {
         $names = @($names | Where-Object { $keep -contains $_ })
       }
       $rerunFailed = $false
+      # #501：首轮红、直跑绿的项 = 本轮 flaky 放行集合，离开本块前必须留痕。
       $rerunPassed = @()
       $unhandled = $names.Count -eq 0
       foreach ($n in $names) {
@@ -478,14 +479,31 @@ switch ($Verb) {
         }
       }
       if ($rerunFailed -or $unhandled) { throw 'CTest failed' }
-      # #501：直跑放行记账（与 Linux tools/ci_ctest_gate.sh 同路径）——放行
-      # 不再无痕，累计命中由 tools/check_flaky_ledger.py 聚合点名。
+      # #501：直跑放行记账（与 Linux tools/ci_ctest_gate.sh 同路径）——持久
+      # JSONL 台账（累计命中由 check_flaky_ledger.py 聚合点名）+ step
+      # summary / 逐项 annotation / 构建目录台账（PR 评审面可见）。放行不再无痕。
       if ($rerunPassed.Count -gt 0) {
         $flakyLedger = Join-Path $Root 'tools/flaky-ledger.jsonl'
         $utcNow = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
         foreach ($t in $rerunPassed) {
           Add-Content -Path $flakyLedger -Encoding utf8 -Value (
             '{"test":"{0}","utc":"{1}","event":"serial-rerun-pass","lane":"ps1-direct"}' -f $t, $utcNow)
+        }
+        $ledgerDir = Join-Path $Build 'Testing'
+        New-Item -ItemType Directory -Force $ledgerDir | Out-Null
+        Add-Content -Path (Join-Path $ledgerDir 'flaky-ledger.txt') -Encoding UTF8 -Value @(
+          "=== $(Get-Date -Format o) run=$($env:GITHUB_RUN_ID)"
+          $rerunPassed
+        )
+        if ($env:GITHUB_STEP_SUMMARY) {
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Encoding UTF8 -Value @(
+            "## flaky 直跑放行（#501，$($rerunPassed.Count) 项）", "",
+            "首轮失败、直跑通过——已放行但**须复审**（同一测试反复入账应升级为硬红）：", "",
+            ($rerunPassed | ForEach-Object { "- ``$_``" })
+          )
+        }
+        foreach ($t in $rerunPassed) {
+          Write-Host "::warning title=flaky 放行::$t 首轮失败、直跑通过——已记入 flaky 台账"
         }
         Write-Warning "直跑放行 $($rerunPassed.Count) 项（已逐条记入 tools/flaky-ledger.jsonl；同一测试累计 ≥3 次将被点名）"
         try {

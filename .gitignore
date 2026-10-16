@@ -40,3 +40,6 @@ tools/flaky-ledger.jsonl
 /*_mods.txt
 vendor/*.exe
 artifacts/portable/
+# 本地工具目录（WorkBuddy 会话 / 个人工作区）
+.workbuddy/
+.zwork/

@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "doc": "方向 81 环境债红名单（源 = 方向 72 ledger R11 终态 16 红，本机 Windows localdeps 路线）。status=fixed：已按 fix 修复，任何路线再红即回归；status=exempt：仅在 routes 列出的路线、且失败文本每条 FAIL! 都命中 expect_fail 时放行（门槛不动，只认指定断言的预算型失败——崩溃、别的断言、无输出一律不放行）。CMake 据此给测试追加 envdebt / envdebt_<category> 标签（ctest -L envdebt 一键重跑本清单）。检查器：tools/check_env_redset.py。",
+  "doc": "方向 81 环境债红名单（源 = 方向 72 ledger R11 终态 16 红，本机 Windows localdeps 路线）。status=fixed：已按 fix 修复，任何路线再红即回归；status=exempt：仅在 routes 列出的路线、且失败文本每条 FAIL! 都命中 expect_fail 时放行（门槛不动，只认指定断言的预算型失败——崩溃、别的断言、无输出一律不放行）。exempt 项须写 reviewed_utc（#501：超 120 天未复审打 ::warning，逼逐项重估——出名单或更新日期）。CMake 据此给测试追加 envdebt / envdebt_<category> 标签（ctest -L envdebt 一键重跑本清单）。检查器：tools/check_env_redset.py（STALE = 豁免项本轮通过、名单可删，--strict 下按失败算）。",
   "categories": {
     "srsdb": "QGIS 前缀缺 resources/srs.db（localdeps 前缀只有 bin/include/lib）",
     "pidprobe": "锁持有者 pid 存活探测（主机名拼写差异下 QLockFile 不判 stale）",
@@ -37,12 +37,15 @@
     {"test": "tst_aiassist_perf", "category": "perf-selfcheck", "status": "fixed",
      "fix": "夹具临时目录显式校验 + 单发按 (tile+2·halo)² 同尺寸计量 + 两侧 3 轮取最小（4× 比率门不动）"},
     {"test": "tst_cache_las", "category": "perf-host", "status": "exempt", "routes": ["localdeps"],
+     "reviewed_utc": "2026-10-16",
      "reason": "磁盘/内存命中 vs 冷解析 0.5 比率门：本机磁盘相位相对冷解析偏高（方向 72 实测 1.857ms ≥ 0.5×2.996ms），CI 不跑 perf 标签无对照",
      "expect_fail": ["(disk phase|memory load) median [0-9.]+ms >= 0\\.5×cold parse median [0-9.]+ms"]},
     {"test": "tst_singlefactor_perf", "category": "perf-host", "status": "exempt", "routes": ["localdeps"],
+     "reviewed_utc": "2026-10-16",
      "reason": "单因子墙钟预算（S/L 中位、格网/井密比率、取消时延）依赖宿主算力",
      "expect_fail": ["(S median|L median|cancel median|cancel max) [0-9.]+ ms", "(cell|well) ratio [0-9.]+ / [0-9.]+"]},
     {"test": "tst_startup_trace", "category": "perf-host", "status": "exempt", "routes": ["localdeps"],
+     "reviewed_utc": "2026-10-16",
      "reason": "启动分段份额对 CI 基线×2.5 的门：本机 QGIS 初始化份额偏高（方向 72：qgis_init_share 中位 0.2441 > 门 0.22）",
      "expect_fail": ["启动比率 \\S+ 中位 [0-9.]+ > 门 [0-9.]+"]}
   ]

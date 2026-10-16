@@ -9,6 +9,8 @@
 #include <QSignalSpy>
 #include <QTemporaryDir>
 
+#include <cmath>
+
 #include <qgscategorizedsymbolrenderer.h>
 #include <qgscoordinatetransform.h>
 #include <qgsgeometry.h>
@@ -232,7 +234,7 @@ private slots:
     QVERIFY( layer->crs().isValid() );
     QCOMPARE( layer->crs(), paleo::constraintcrs::storeCrs() );
     // 已有有效 CRS 不覆盖。
-    QVERIFY( !paleo::constraintcrs::assignStoreCrsIfMissing( layer ) );
+    QVERIFY( !paleo::constraintcrs::assignStoreCrsIfMissing( layer ).assigned );
   }
 
   // 配准工程：画布 = EPSG:3857 + 显式坐标操作。绘制入库存本地坐标，重开后
@@ -304,6 +306,72 @@ private slots:
   }
 
   // 编辑会话换到工作副本再换回：CRS 不丢。
+  // ---- PR457-closure 二轮（叠加 #488）：层 CRS 溯源 + 契约补测 ----
+
+  // 规范本地网格（工程权威登记的身份）仍是 identity——不破坏合法局部网格工作流。
+  void canonicalLocalGridStillUsesIdentity()
+  {
+    const QgsCoordinateReferenceSystem canonical = QgsCoordinateReferenceSystem::fromWkt(
+        DataCatalog::localGridCrsWkt() );
+    QVERIFY( canonical.isValid() );
+    QString out, error;
+    QVERIFY( paleo::constraintcrs::toStoreWkt( QStringLiteral( "LineString (5 6, 7 8)" ), canonical, {}, &out,
+                                               &error ) );
+    QCOMPARE( out, QStringLiteral( "LineString (5 6, 7 8)" ) );
+  }
+
+  // 注册了显式坐标操作（含旋转/平移）的工程网格：写入变换 + 逆变换回原坐标。
+  void roundTripPreservesCoordinates()
+  {
+    const QgsCoordinateReferenceSystem rotated = QgsCoordinateReferenceSystem::fromWkt( QStringLiteral(
+        "ENGCRS[\"Rotated site grid\","
+        "EDATUM[\"Rotated site datum\"],"
+        "CS[Cartesian,2],"
+        "AXIS[\"easting\",east,ORDER[1],LENGTHUNIT[\"metre\",1]],"
+        "AXIS[\"northing\",north,ORDER[2],LENGTHUNIT[\"metre\",1]]]" ) );
+    QVERIFY( rotated.isValid() );
+    QgsCoordinateTransformContext context;
+    const double radians = 30.0 * std::acos( -1.0 ) / 180.0;
+    QVERIFY( context.addCoordinateOperation(
+        rotated, paleo::constraintcrs::storeCrs(),
+        QStringLiteral( "+proj=pipeline +step +proj=affine +s11=%1 +s12=%2 +s21=%3 +s22=%4 +xoff=1000 +yoff=-2000" )
+            .arg( QString::number( std::cos( radians ), 'g', 17 ), QString::number( -std::sin( radians ), 'g', 17 ),
+                  QString::number( std::sin( radians ), 'g', 17 ), QString::number( std::cos( radians ), 'g', 17 ) ),
+        false ) );
+    QString out, error;
+    QVERIFY2( paleo::constraintcrs::toStoreWkt( QStringLiteral( "LineString (10 20, 310 20.5)" ), rotated, context,
+                                                &out, &error ),
+              qPrintable( error ) );
+    QgsGeometry stored = QgsGeometry::fromWkt( out );
+    QVERIFY( !stored.isNull() );
+    const QgsCoordinateTransform back( paleo::constraintcrs::storeCrs(), rotated, context );
+    QVERIFY( back.isValid() );
+    QVERIFY( stored.transform( back ) == Qgis::GeometryOperationResult::Success );
+    QVERIFY2( QgsPointXY( stored.vertexAt( 0 ) ).distance( QgsPointXY( 10, 20 ) ) < 1e-9,
+              qPrintable( QStringLiteral( "%1,%2" ).arg( stored.vertexAt( 0 ).x() ).arg( stored.vertexAt( 0 ).y() ) ) );
+    QVERIFY2( QgsPointXY( stored.vertexAt( 1 ) ).distance( QgsPointXY( 310, 20.5 ) ) < 1e-9,
+              qPrintable( QStringLiteral( "%1,%2" ).arg( stored.vertexAt( 1 ).x() ).arg( stored.vertexAt( 1 ).y() ) ) );
+  }
+
+  // 读取侧：历史 CRS-less 约束层指派 CRS 时打上 assumed 溯源，不冒充已核实。
+  void layerCrsProvenanceDistinguishesAssumedFromVerified()
+  {
+    QgsVectorLayer bare( QStringLiteral( "LineString?crs=" ), QStringLiteral( "bare" ), QStringLiteral( "memory" ) );
+    bare.setCustomProperty( QStringLiteral( "paleoLayerId" ), QStringLiteral( "constraints.T1" ) );
+    QVERIFY( !bare.crs().isValid() );
+    QCOMPARE( paleo::constraintcrs::layerCrsProvenance( &bare ), QStringLiteral( "none" ) );
+    const auto assigned = paleo::constraintcrs::assignStoreCrsIfMissing( &bare );
+    QVERIFY( assigned.assigned );
+    QVERIFY( !assigned.verified );
+    QCOMPARE( bare.crs(), paleo::constraintcrs::storeCrs() );
+    QCOMPARE( paleo::constraintcrs::layerCrsProvenance( &bare ), QStringLiteral( "assumed_from_context" ) );
+    QgsVectorLayer verified( QStringLiteral( "LineString?crs=EPSG:3857" ), QStringLiteral( "v" ),
+                             QStringLiteral( "memory" ) );
+    verified.setCustomProperty( QStringLiteral( "paleoLayerId" ), QStringLiteral( "constraints.T2" ) );
+    QVERIFY( !paleo::constraintcrs::assignStoreCrsIfMissing( &verified ).assigned );
+    QCOMPARE( paleo::constraintcrs::layerCrsProvenance( &verified ), QStringLiteral( "verified_from_file" ) );
+  }
+
   void editSessionKeepsCrs()
   {
     QTemporaryDir dir;

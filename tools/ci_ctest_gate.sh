@@ -80,6 +80,10 @@ if [ -d "$first_run_dir" ]; then
   rm -rf "$build_dir/Testing/qtest-first-run-initial"
   cp -a "$first_run_dir" "$build_dir/Testing/qtest-first-run-initial"
 fi
+# #501：串行重跑会覆盖 LastTestsFailed.log，先把首轮失败名单留住——重跑通过
+# 的项即「本轮 flaky 放行集合」，必须写台账（此前只有一行 warning，无从复审）。
+first_failed_log="$build_dir/Testing/Temporary/FirstRunFailed.log"
+cp -f "$build_dir/Testing/Temporary/LastTestsFailed.log" "$first_failed_log" 2>/dev/null || true
 # #136：perf 标签（墙钟预算）不重跑——确定性超限串行重跑只会再烧 200 s 后
 # 照样红；perf 在独立的非阻断 linux-perf job 里跑（tools/ci_perf.sh）。
 # #397：串行重跑也走 ./paleo-dev test——裸 ctest 丢失 vendored 环境注入
@@ -87,6 +91,9 @@ fi
 # 不同条件：加载 flake 变硬红、栅格类静默丢驱动。
 ./paleo-dev test -j1 --rerun-failed -LE perf
 rc2=$?
+# #501：放行必须留痕——持久 JSONL 台账（tools/flaky-ledger.jsonl，累计命中
+# 由 check_flaky_ledger.py 聚合点名）+ 逐项 annotation / step summary /
+# 构建目录台账（PR 评审面可见）。首轮红、重跑绿 = flaky，反复入账升硬红。
 if [ "$rc2" -eq 0 ] && [ -n "$failed_names" ]; then
   utc="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   lane="$(printf '%s' "$*" | tr -d '"\\')"
@@ -96,7 +103,24 @@ if [ "$rc2" -eq 0 ] && [ -n "$failed_names" ]; then
       "$t" "$utc" "$lane" >> "$ledger"
     n=$((n + 1))
   done
+  {
+    echo "=== ${utc} run=${GITHUB_RUN_ID:-local} ==="
+    printf '%s\n' $failed_names
+  } >> "$build_dir/Testing/flaky-ledger.txt"
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    {
+      echo "## flaky 直跑放行（#501，${n} 项）"
+      echo ""
+      echo "首轮失败、串行重跑通过——已放行但**须复审**（同一测试反复入账应升级为硬红）："
+      echo ""
+      printf -- '- `%s`\n' $failed_names
+    } >> "$GITHUB_STEP_SUMMARY"
+  fi
+  for t in $failed_names; do
+    echo "::warning title=flaky 放行 (${n} 项)::$t 首轮失败、重跑通过——已记入 flaky 台账"
+  done
   echo "::warning::串行重跑放行 $n 项（已逐条记入 tools/flaky-ledger.jsonl；同一测试累计 ≥3 次将被点名）"
+  echo "flaky 台账已追加 ${n} 项：$build_dir/Testing/flaky-ledger.txt"
   if command -v python3 >/dev/null 2>&1; then
     flaky_args=""
     if [ "${PALEO_FLAKY_STRICT:-0}" = "1" ]; then flaky_args="--strict"; fi

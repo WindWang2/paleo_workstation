@@ -19,6 +19,8 @@ class QAction;
 class QgisEditingService;
 class QSpinBox;
 class QgsRubberBand;
+class QgsAdvancedDigitizingDockWidget;
+class QToolButton;
 
 // ui/edittools/ — PaleoEditingToolbar: the 「编辑」 toolbar host.
 //
@@ -72,6 +74,7 @@ class PaleoEditingToolbar : public QWidget
     // QgisEditingService (busy-marking + serialized commit). nullptr →
     // direct startEditing/commitChanges/rollBack.
     void setEditingService( QgisEditingService *service );
+    void bindStatusMessages(class QStatusBar *status);
 
     QgsVectorLayer *currentLayer() const;
     // Selects \a layer in the combo (null clears; otherwise a listed candidate) and makes
@@ -92,6 +95,11 @@ class PaleoEditingToolbar : public QWidget
     QAction *actionMove() const { return mActionMove; }
     QAction *actionDeleteFeatures() const { return mActionDeleteFeatures; }
     QAction *actionVertexEdit() const { return mActionVertexEdit; }
+    QAction *actionSplitFacies() const { return mActionSplitFacies; }
+    QAction *actionPaintFacies() const { return mActionPaintFacies; }
+    QAction *actionMergeFacies() const { return mActionMergeFacies; }
+    QAction *actionFaciesOperations() const { return mActionFaciesOperations; }
+    QComboBox *partitionCodeCombo() const { return mPartitionCode; }
     // Mode toggle (not a tool action): same-layer topological editing —
     // checkable, mirrors the project's topologicalEditing flag (persisted in
     // .qgz), pushes live into an armed PaleoVertexTool.
@@ -131,6 +139,11 @@ class PaleoEditingToolbar : public QWidget
 
   private:
     void buildUi();
+    void buildPartitionControls();
+    void wireToolActions();
+    void uncheckTools();
+    void updatePartitionControls(const QString &noEdit);
+    void mergePartition();
     void installTool( class QgsMapTool *tool ); // teardown-aware swap on the canvas
     void refreshCombo();                        // rebuild from mLayers ∩ filter
     void updateActionStates();                  // enable/disable + reason tooltips
@@ -170,6 +183,10 @@ class PaleoEditingToolbar : public QWidget
     QAction *mActionMove = nullptr;
     QAction *mActionDeleteFeatures = nullptr;
     QAction *mActionVertexEdit = nullptr;
+    QAction *mActionSplitFacies = nullptr, *mActionPaintFacies = nullptr, *mActionMergeFacies = nullptr;
+    QAction *mActionFaciesOperations = nullptr;
+    QComboBox *mPartitionCode = nullptr;
+    QToolButton *mPartitionButton = nullptr;
     QAction *mActionTopological = nullptr;    // mode toggle, not in toolGroup
     QAction *mActionCrossLayerTopo = nullptr; // mode toggle gated on mActionTopological
     QAction *mActionSave = nullptr;

@@ -748,9 +748,27 @@ bool MappingWorkbench::recordSpatialInterpretationEdit(const QString &id, qint64
   const auto t = target(f, versionForLayer(id), declaration(id).horizon);
   const auto currentUid = t.value("feature_uid").toString();
   if (kind == "classification" && i.contains("facies_code") && i.value("facies_code").toInt() == f.attribute("facies_code").toInt()) return true;
+  // Native attribute-table edits must obey the same hierarchy and quantitative
+  // provenance rules as the dedicated reclassification controls.
+  if (kind == "classification") {
+    const auto attrs = FaciesCatalog::attributes(versionForLayer(id).extra.value("facies").toList(), f.attribute("facies_code"));
+    for (auto a = attrs.cbegin(); a != attrs.cend(); ++a)
+      if (const int index = v->fields().indexOf(a.key()); index >= 0)
+        if (!v->changeAttributeValue(fid, index, a.value())) return reject(error, tr("无法同步三级相属性"));
+    for (const auto &field : {"value_min", "value_max", "confidence", "probability"})
+      if (const int index = v->fields().indexOf(field); index >= 0)
+        if (!v->changeAttributeValue(fid, index, QVariant())) return reject(error, tr("无法清除失效的定量属性"));
+  }
   QVariantMap change{{"spatial_change", kind}, {"facies_code", f.attribute("facies_code")}, {"geometry_hash", t.value("geometry_hash")}};
   const auto *observer = MappingFeatureIdentity::Observer::of(v);
   if (observer) change.insert("before", observer->editBefore(fid));
+  if (kind == "geometry" && observer) {
+    const auto beforeGeometry = QgsGeometry::fromWkt(observer->editBefore(fid).value("geometry").toString());
+    if (!beforeGeometry.isEmpty() && !beforeGeometry.isGeosEqual(f.geometry()))
+      for (const auto &field : {"confidence", "probability", "boundary_kind", "transition_width"})
+        if (const int index = v->fields().indexOf(field); index >= 0)
+          if (!v->changeAttributeValue(fid, index, QVariant())) return reject(error, tr("无法清除几何修改前的置信度"));
+  }
   auto fresh = [] { return QUuid::createUuid().toString(QUuid::WithoutBraces); };
   if (i.isEmpty() || i.value("feature_uid").toString() != currentUid) {
     // A split/merge materializes a NEW interpretation. Preserve a real parent
@@ -769,7 +787,7 @@ bool MappingWorkbench::recordSpatialInterpretationEdit(const QString &id, qint64
       }
     }
   }
-  if (kind == "merge" && observer) {
+  if ((kind == "merge" || kind == "overlay" || kind == "split") && observer) {
     const auto parentUids = QJsonDocument::fromJson(f.attribute(MappingFeatureIdentity::ParentsField).toString().toUtf8()).toVariant().toList();
     QSet<QString> parents; for (const auto &uid : parentUids) parents.insert(uid.toString());
     QVariantList parentInterpretations, carriedEvents;
@@ -809,7 +827,6 @@ bool MappingWorkbench::recordSpatialInterpretationEdit(const QString &id, qint64
       interpretationIds.insert(parentId); seenParentUids.insert(parentUid);
       parentInterpretations << inherited;
     };
-    acceptParent(i.value("inherited_interpretation").toMap());
     for (const auto &value : records) recordIds.insert(value.toMap().value("id").toString());
     for (const auto &value : observer->changes()) {
       const auto parent = value.toMap();
@@ -825,6 +842,7 @@ bool MappingWorkbench::recordSpatialInterpretationEdit(const QString &id, qint64
           {"geometry_hash", parent.value("before_fingerprint")},
           {"synthesized_from_feature", true}};
       }
+      inherited.insert("source_feature_attributes", parent.value("before_attributes"));
       acceptParent(inherited);
       if (parentUid == i.value("inherited_interpretation").toMap().value("feature_uid").toString()) continue;
       for (const auto &value : inheritedRecords) {
@@ -837,6 +855,7 @@ bool MappingWorkbench::recordSpatialInterpretationEdit(const QString &id, qint64
         recordIds.insert(row.value("id").toString()); records << row;
       }
     }
+    acceptParent(i.value("inherited_interpretation").toMap());
     // Immediate parents stay one level deep. Unsaved review events and ancestor
     // ids are a flat, event-id-deduped log: nested copies would grow every merge,
     // and those events were never written to a saved parent version.

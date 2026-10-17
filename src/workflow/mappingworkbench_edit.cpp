@@ -13,6 +13,7 @@
 #include "../io/constraintstore.h"
 #include "../io/lasparser.h"
 #include "../qgis/facieshierarchyrenderer.h"
+#include "../qgis/faciespartitioneditor.h"
 #include "../qgis/factorstylewriter.h"
 #include "../qgis/layervocabulary.h"
 #include "../qgis/mappingartifactwriter.h"
@@ -170,6 +171,10 @@ QString MappingWorkbench::copyForEditing(const QString &id,
   const auto source = m_catalog->versionById(parent);
   QVariantList schema;
   if (!FaciesTaxonomy::normalize(source.extra.value("facies", facies(d.horizon)).toList(), &schema, error)) return {};
+  if (!FaciesHierarchyRenderer::validateTopology(layer, error)) return {};
+  const auto partitionFootprint = layer->geometryType() == Qgis::GeometryType::Polygon
+      ? FaciesPartitionEditor::footprint(layer, error) : QString();
+  if (layer->geometryType() == Qgis::GeometryType::Polygon && partitionFootprint.isEmpty()) return {};
   const auto draft = QStringLiteral("draft.%1").arg(uid());
   const auto relative =
       QStringLiteral("artifacts/working/%1/features.gpkg").arg(draft);
@@ -194,6 +199,7 @@ QString MappingWorkbench::copyForEditing(const QString &id,
       {"reference_layers", references},
       {"display_mode", displayMode(id)},
       {"hierarchy_model", "shared-polygon-partition-v1"},
+      {"partition_footprint_wkb", partitionFootprint},
       {"mock", source.extra.value("mock")},
       {"result_scope", layer->fields().indexOf("facies_intervals") >= 0 ? QStringLiteral("current_formation") : source.extra.value("result_scope").toString()},
       {"result_kind", layer->fields().indexOf("facies_intervals") >= 0 ? QStringLiteral("formation_prediction") : source.extra.value("result_kind").toString()},
@@ -262,6 +268,8 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
           layer, schema, error))
     return false;
   auto extra = previous.extra;
+  if (layer->geometryType() == Qgis::GeometryType::Polygon && extra.value("partition_footprint_wkb").toString().isEmpty())
+    extra.insert("partition_footprint_wkb", FaciesPartitionEditor::footprint(layer, error));
   extra.remove(QStringLiteral("evidence")); // rebuild this generation; historical versions stay frozen
   extra.insert("facies", schema);
   extra.insert("method", "manual-edit-save");

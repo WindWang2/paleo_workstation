@@ -496,6 +496,8 @@ add_library(paleo_qgis STATIC
   src/qgis/standardelements.cpp                     # 标准图件元素工厂 + 三类内置内容模板骨架（方向 25）
   src/qgis/mapbooklayout.cpp                        # 地图册：逐格/蒙太奇/索引页版面构建 + 落盘回读校验
   src/qgis/manifestprojection.cpp
+  src/qgis/faciespartitioneditor.cpp
+  src/qgis/faciespartitiontool.cpp
   src/qgis/factorstylewriter.cpp                    # m2(B)：单因素色带 .qml 落盘
   src/qgis/factorcontour.cpp                        # m2(B)：等值线 GDAL C API
   src/qgis/qgislayerprofile.cpp                     # 页面档案：QgsMapThemeCollection 封装 + 组档案表
@@ -718,8 +720,10 @@ add_library(paleo_ui STATIC
   src/ui/correlation/depthruler.cpp
   src/ui/correlation/horizonmarkers.cpp
   src/ui/decorations/paleodecorations.cpp
+  src/ui/edittools/editingtoolbar_partition.cpp
   src/ui/edittools/editingtools.cpp                # wave/edit-tools
   src/ui/edittools/editingundostack.cpp
+  src/ui/edittools/vertexpartitionvalidation.cpp
   src/ui/edittools/vertexeditortools.cpp
   src/ui/edittools/editingtoolbar.cpp
   src/ui/vertexeditorshim.cpp
@@ -1167,6 +1171,7 @@ add_paleo_test(tst_constraintevidence LIBS paleo_io)
 add_paleo_test(tst_constraintediting LIBS paleo_ui)
 add_paleo_test(tst_shapetools LIBS paleo_ui)
 add_paleo_test(tst_edittools LIBS paleo_ui)
+add_paleo_test(tst_faciespartition LIBS paleo_qgis)
 add_paleo_test(tst_correlation_full LIBS paleo_ui)
 # tst_correlation_full 内嵌墙钟性能断言（10 次 warm reorder < 1000ms，测试
 # .cpp 归 correlation 方向）——并行负载下偶发超时（本次 ctest -j4 实测捕获）。

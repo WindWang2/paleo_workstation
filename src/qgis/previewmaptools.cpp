@@ -120,6 +120,19 @@ PreviewMeasureTool::~PreviewMeasureTool()
   // scene 先销毁时 QGraphicsItem 已回收，hide() 也会踩悬空（实测 SIGSEGV）。
 }
 
+void PreviewMeasureTool::deactivate()
+{
+  // FD-002：deactivate 在画布仍存活时被 QGIS 切换工具流程调用（不同于析构），
+  // 隐藏量测带即可——identify/profile 同款；m_points 保留续测。
+  m_band->hide();
+  QgsMapTool::deactivate();
+}
+
+bool PreviewMeasureTool::isBandVisible() const
+{
+  return m_band->isVisible();
+}
+
 double PreviewMeasureTool::currentLength() const
 {
   return m_areaMode ? planarPerimeter( m_points, canvas() ) : planarLength( m_points, canvas() );

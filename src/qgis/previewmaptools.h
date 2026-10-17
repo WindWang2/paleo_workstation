@@ -55,12 +55,17 @@ class PreviewMeasureTool : public QgsMapTool
     double currentArea() const;   // areaMode 且 ≥3 点（闭合）
     bool isAreaMode() const { return m_areaMode; }
     bool isFinished() const { return m_finished; }
+    // 橡皮带可见性（测试断言 deactivate 清理用）。
+    bool isBandVisible() const;
 
     void canvasPressEvent( QgsMapMouseEvent *e ) override;
     void canvasMoveEvent( QgsMapMouseEvent *e ) override;
     void canvasReleaseEvent( QgsMapMouseEvent *e ) override;
     void canvasDoubleClickEvent( QgsMapMouseEvent *e ) override;
     void keyPressEvent( QKeyEvent *e ) override;
+    // FD-002：切走工具时隐藏量测带（identify/profile 同款清理契约）——
+    // 保留 m_points，重新激活可续测；Esc 仍走 clear() 全清。
+    void deactivate() override;
 
     void clear();
 

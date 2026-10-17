@@ -7,6 +7,7 @@
 #include <QtTest>
 #include <cmath>
 #include <cstring>
+#include <atomic>
 
 #include "../src/io/perffixtures.h"
 #include "../src/io/segyreader.h"
@@ -665,6 +666,57 @@ class TestSegy : public QObject
       QCOMPARE(g2.xlineMax, 2000 + perLine - 1);
       QCOMPARE(g2.cornerX[2], double(10 * (perLine - 1)));
       QCOMPARE(g2.cornerY[2], double(20 * (lines - 1)));
+    }
+    // FA-003：并行扫描中段的 I/O 读错误（扫描进行时文件被截断）不得被当成
+    // 「用户取消」——不落 checkpoint（lastScanPartial 保持 false），openCached
+    // 落到顺序路径按实际文件界收尾重扫，最终如实成功（截断尾丢道可读）。
+    // 旧代码把读错误并入 m_lastScanPartial=true → openCached 直接失败并落
+    // 一个不可续扫的部分 checkpoint（顺序回退分支死码）。
+    void parallelScanIoErrorFallsBackToSequential()
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      const QString path = dir.filePath(QStringLiteral("ioerr_parallel.sgy"));
+
+      const int perLine = 50, ns = 64;
+      const int totalTraces = 12000; // 12000 × 496B ≈ 5.95MB → 并行资格
+      SyntheticSegyConfig cfg;
+      cfg.formatCode = 5;
+      cfg.binNs = ns;
+      cfg.traceCount = totalTraces;
+      QVector<SyntheticSegyConfig::TraceData> traces(totalTraces);
+      for (int i = 0; i < totalTraces; ++i)
+      {
+        traces[i].lineNo = 100 + i / perLine;
+        traces[i].cdp = 2000 + i % perLine;
+        traces[i].cdpX = 10 * (i % perLine);
+        traces[i].cdpY = 20 * (i / perLine);
+      }
+      cfg.customTraces = traces;
+      QVERIFY(writeSegyFile(path, buildSyntheticSegy(cfg)));
+      const int traceSize = 240 + ns * 4;
+      const int keepTraces = 2400; // 首个进度回调即截断保留 20%（48 条 inline）
+
+      QTemporaryDir cacheDir;
+      SegyReader r;
+      QString err;
+      SegyOptions opts;
+      std::atomic<bool> truncated{false};
+      opts.progress = [&](qint64, qint64) {
+        bool expected = false;
+        if (truncated.compare_exchange_strong(expected, true))
+        {
+          QFile f(path);
+          if (f.open(QIODevice::ReadWrite)) // ReadWrite：不带截断语义，保留前缀
+            f.resize(qint64(3600) + qint64(keepTraces) * traceSize);
+        }
+      };
+      QVERIFY2(r.openCached(path, cacheDir.path(), &err, &opts), qPrintable(err));
+      QVERIFY(truncated.load());
+      QVERIFY(!r.lastScanPartial());
+      QCOMPARE(r.traceCount(), keepTraces);
+      QCOMPARE(r.geometry().inlineMin, 100);
+      QCOMPARE(r.geometry().inlineMax, 100 + keepTraces / perLine - 1);
     }
     // e) #42.1 收口（WP2）：open 成功后文件被截断（索引已建）——丢道不再
     //    静默：readInline 以「failed to decode N of M」如实失败，且

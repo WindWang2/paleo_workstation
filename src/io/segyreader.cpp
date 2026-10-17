@@ -1108,9 +1108,19 @@ bool SegyReader::scanParallel(QFile &file, qint64 firstTraceOffset, qint64 trace
     m_badTraceOffsets += sh.bad;
     if (!sh.ok)
     {
-      // 分片失败（取消/坏道头读失败）：保留「连续前缀」为部分索引。
-      m_lastScanPartial = true;
-      m_scannedOffset = firstTraceOffset + static_cast<qint64>(m_index.size() + m_badTraceOffsets.size()) * traceSize;
+      if (sh.cancelled)
+      {
+        // 用户取消：保留「连续前缀」为部分索引（checkpoint 续扫口径不变）。
+        m_lastScanPartial = true;
+        m_scannedOffset = firstTraceOffset + static_cast<qint64>(m_index.size() + m_badTraceOffsets.size()) * traceSize;
+        if (error)
+          *error = sh.err;
+        return false;
+      }
+      // FA-003：读错误（截断/坏扇区/网络盘瞬时失败）不是可续扫状态——
+      // 不置 m_lastScanPartial、不落 checkpoint，让 openCached 落到既有的
+      // 顺序路径重试（openCached 注释明言的设计意图；顺序扫描按实际文件
+      // 界收尾，对截断尾更宽容）。
       if (error)
         *error = sh.err;
       return false;

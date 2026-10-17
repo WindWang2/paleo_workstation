@@ -692,7 +692,8 @@ void PaleoVertexTool::deleteVertexAtMapPoint( const QgsPointXY &mapPoint )
         if ( layerOk && !writeLayer->changeGeometry( it.key(), mutated ) )
           layerOk = false;
       }
-      if ( layerOk && validatePartition(writeLayer) )
+      if ( layerOk && !validatePartition(writeLayer) ) { writeLayer->destroyEditCommand(); continue; }
+      if ( layerOk )
       {
         writeLayer->endEditCommand();
         ++mEditedCount;
@@ -713,7 +714,6 @@ void PaleoVertexTool::deleteVertexAtMapPoint( const QgsPointXY &mapPoint )
                            Qgis::MessageLevel::Warning );
     }
     mCommitting = false;
-
     rebuildMarkers();
     return;}
 
@@ -790,7 +790,8 @@ void PaleoVertexTool::canvasReleaseEvent( QgsMapMouseEvent *e )
       if ( layerOk && !writeLayer->changeGeometry( fit.key(), geometry ) )
         layerOk = false;
     }
-    if ( layerOk && validatePartition(writeLayer) )
+    if ( layerOk && !validatePartition(writeLayer) ) { writeLayer->destroyEditCommand(); continue; }
+    if ( layerOk )
     {
       writeLayer->endEditCommand();
       ++mEditedCount;
@@ -811,7 +812,6 @@ void PaleoVertexTool::canvasReleaseEvent( QgsMapMouseEvent *e )
                          Qgis::MessageLevel::Warning );
   }
   mCommitting = false;
-
   clearDragState();
   rebuildMarkers(); // centers recomputed from the committed geometry
 }
@@ -899,7 +899,8 @@ void PaleoVertexTool::canvasDoubleClickEvent( QgsMapMouseEvent *e )
       if ( layerOk && !writeLayer->changeGeometry( it.key(), geometry ) )
         layerOk = false;
     }
-    if ( layerOk && validatePartition(writeLayer) )
+    if ( layerOk && !validatePartition(writeLayer) ) { writeLayer->destroyEditCommand(); continue; }
+    if ( layerOk )
     {
       writeLayer->endEditCommand();
       ++mEditedCount;
@@ -920,7 +921,6 @@ void PaleoVertexTool::canvasDoubleClickEvent( QgsMapMouseEvent *e )
                          Qgis::MessageLevel::Warning );
   }
   mCommitting = false;
-
   rebuildMarkers();
 }
 

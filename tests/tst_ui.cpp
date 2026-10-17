@@ -16,6 +16,7 @@
 #include <QToolBar>
 #include <QToolButton>
 #include <QSignalSpy>
+#include <QScopeGuard>
 #include <QDockWidget>
 #include <QDoubleSpinBox>
 #include <QSpinBox>
@@ -1268,6 +1269,45 @@ class TestUiShell : public QObject
         QTRY_VERIFY_WITH_TIMEOUT(!rendered.isEmpty(), 5000);
       }
       QVERIFY(paleo::tests::captureVisual(m_win, "facies-partition-ribbon", QSize(1400, 900)));
+      // This memory fixture exercises the real shell and tools. Persistent
+      // workbench/store round trips are covered in tst_mappingworkbench.
+      editor->setEditingService(nullptr);
+      const auto restoreService = qScopeGuard([editor, this] { editor->setEditingService(m_ctx->editingSvc()); });
+      const auto snapshot = [this, canvas](const QString &name) {
+        if (qEnvironmentVariable("PALEO_VISUAL_CAPTURE").isEmpty()) return true;
+        m_win->show(); QSignalSpy rendered(canvas, &QgsMapCanvas::mapCanvasRefreshed); canvas->refresh();
+        if (rendered.isEmpty() && !rendered.wait(5000)) return false;
+        return paleo::tests::captureVisual(m_win, name, QSize(1400,900));
+      };
+      const auto clickMap = [canvas](double x, double y, Qt::MouseButton button) {
+        const auto point = canvas->getCoordinateTransform()->transform(QgsPointXY(x,y));
+        const QPoint pixel(qRound(point.x()), qRound(point.y())); auto *tool = canvas->mapTool();
+        QgsMapMouseEvent press(canvas, QEvent::MouseButtonPress, pixel, button, button, Qt::NoModifier);
+        QgsMapMouseEvent release(canvas, QEvent::MouseButtonRelease, pixel, button, Qt::NoButton, Qt::NoModifier);
+        tool->canvasPressEvent(&press); tool->canvasReleaseEvent(&release);
+      };
+      editor->actionSplitFacies()->trigger(); QVERIFY(editor->isEditing());
+      QVERIFY(snapshot("02-split-active"));
+      clickMap(-10,50,Qt::LeftButton); clickMap(110,50,Qt::LeftButton); clickMap(110,50,Qt::RightButton);
+      QCOMPARE(layer->featureCount(), 3); QVERIFY(snapshot("03-split-result"));
+      editor->actionPaintFacies()->trigger();
+      clickMap(50,20,Qt::LeftButton); clickMap(150,20,Qt::LeftButton);
+      clickMap(150,80,Qt::LeftButton); clickMap(50,80,Qt::LeftButton); clickMap(50,80,Qt::RightButton);
+      QCOMPARE(layer->featureCount(), 4); QCOMPARE(layer->selectedFeatureCount(), 1);
+      QVERIFY(snapshot("04-overlay-result"));
+      // Native map-tool warnings must reach the visible status bar.
+      clickMap(-15,-15,Qt::LeftButton); clickMap(-5,-15,Qt::LeftButton);
+      clickMap(-5,-5,Qt::LeftButton); clickMap(-5,-5,Qt::RightButton);
+      QVERIFY(m_win->statusBar()->currentMessage().contains("有效区域"));
+      QCOMPARE(layer->featureCount(), 4); QVERIFY(snapshot("05-rejected-overlay"));
+      editor->actionUndo()->trigger(); QCOMPARE(layer->featureCount(), 3);
+      editor->actionRedo()->trigger(); QCOMPARE(layer->featureCount(), 4);
+      QVERIFY(m_win->statusBar()->currentMessage().isEmpty());
+      QVERIFY(snapshot("06-redo-result"));
+      layer->selectAll(); editor->actionMergeFacies()->trigger(); QCOMPARE(layer->featureCount(), 1);
+      QVERIFY(snapshot("07-merge-result"));
+      QVERIFY(editor->saveEditing()); QVERIFY(!editor->isEditing()); QVERIFY(!layer->isEditable());
+      QVERIFY(snapshot("08-saved"));
       project->removeMapLayer(layer);
       QVERIFY(!editor->actionFaciesOperations()->isEnabled());
     }

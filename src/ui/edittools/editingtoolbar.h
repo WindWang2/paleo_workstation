@@ -74,6 +74,7 @@ class PaleoEditingToolbar : public QWidget
     // QgisEditingService (busy-marking + serialized commit). nullptr →
     // direct startEditing/commitChanges/rollBack.
     void setEditingService( QgisEditingService *service );
+    void bindStatusMessages(class QStatusBar *status);
 
     QgsVectorLayer *currentLayer() const;
     // Selects \a layer in the combo (null clears; otherwise a listed candidate) and makes

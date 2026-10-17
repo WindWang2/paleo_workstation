@@ -655,18 +655,16 @@ void PaleoEditingToolbar::buildUi()
 
 void PaleoEditingToolbar::installTool( QgsMapTool *tool )
 {
-  if ( mActiveEditTool )
-  {
-    QgsMapTool *old = mActiveEditTool;
-    mActiveEditTool = nullptr;
-    if (mCanvas)
-      mCanvas->unsetMapTool( old ); // deactivates when it is the live tool
-    old->deleteLater();           // deferred: callers may sit inside the tool's own signal
+  if (mActiveEditTool) {
+    auto *old = mActiveEditTool.data(); mActiveEditTool = nullptr;
+    if (mCanvas) mCanvas->unsetMapTool(old);
+    old->deleteLater(); // may run inside the tool's own editAborted signal
   }
-  if ( tool )
-  {
-    mActiveEditTool = tool;
-    mCanvas->setMapTool( tool );
+  if (tool) {
+    connect(tool, &QgsMapTool::messageEmitted, this, [this](const QString &message, Qgis::MessageLevel level) {
+      if (level == Qgis::MessageLevel::Warning || level == Qgis::MessageLevel::Critical) emit editRefused(message);
+    });
+    mActiveEditTool = tool; mCanvas->setMapTool(tool);
   }
 }
 

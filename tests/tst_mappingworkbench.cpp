@@ -1013,9 +1013,28 @@ private slots:
     toolbar.actionSplitFacies()->trigger(); QVERIFY(qobject_cast<FaciesPartitionTool *>(canvas.mapTool()));
     layer->selectByIds({a.id(), b.id()}); QVERIFY(toolbar.actionMergeFacies()->isEnabled());
     toolbar.actionMergeFacies()->trigger(); QCOMPARE(layer->featureCount(), 4);
+    QVERIFY(!toolbar.actionSplitFacies()->isChecked());
+    QVERIFY(!qobject_cast<FaciesPartitionTool *>(canvas.mapTool()));
     toolbar.actionUndo()->trigger(); QCOMPARE(layer->featureCount(), 5);
     toolbar.actionRedo()->trigger(); QCOMPARE(layer->featureCount(), 4);
     QVERIFY(toolbar.cancelEditing()); QCOMPARE(layer->featureCount(), 5);
+  }
+  void partitionCommitRejectionCanBeRepairedWithUndo() {
+    Fixture f; QVERIFY(f.init()); QString error;
+    const auto draft = hierarchyDraft(f, &error); QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft)); QVERIFY(layer);
+    QVERIFY(layer->startEditing()); auto it = layer->getFeatures(); QgsFeature face; QVERIFY(it.nextFeature(face)); it.close();
+    layer->beginEditCommand("invalid outside edit"); auto geometry = face.geometry(); geometry.translate(100000,0);
+    QVERIFY(layer->changeGeometry(face.id(), geometry)); layer->endEditCommand();
+    QVERIFY(!layer->commitChanges()); QVERIFY(layer->isEditable());
+    QVERIFY(!layer->commitChanges()); // repeated save must retain the recovery path
+    layer->undoStack()->undo(); QCoreApplication::processEvents();
+    QVERIFY2(FaciesPartitionEditor::validate(layer, &error), qPrintable(error));
+    QVERIFY2(layer->commitChanges(), qPrintable(layer->commitErrors().join(";")));
+    // An independent beforeCommit veto must still win on a healthy partition.
+    QVERIFY(layer->startEditing());
+    const auto veto = connect(layer, &QgsVectorLayer::beforeCommitChanges, layer, [layer] { layer->setAllowCommit(false); });
+    QVERIFY(!layer->commitChanges()); disconnect(veto); QVERIFY(layer->rollBack());
   }
   void evidenceUndoVersionLineageAndRecovery() {
     Fixture f;

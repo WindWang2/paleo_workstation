@@ -1055,7 +1055,15 @@ void MappingWorkbench::styleLayer(const QString &id) {
         emit displayChanged(id);
       });
       FaciesHierarchyRenderer::watchUndo(vector, this, [this, id] {
-        if (m_layers->layer(id)) {
+        if (auto *current = qobject_cast<QgsVectorLayer *>(m_layers->layer(id))) {
+          // Release only our own coverage veto after native undo/repair. A
+          // rejected commit must not permanently lock a now-valid edit buffer.
+          if (current->property("paleo.partitionCommitRejected").toBool() &&
+              current->property("paleo.evidenceEditFailure").toString().isEmpty() &&
+              FaciesHierarchyRenderer::validateTopology(current, nullptr)) {
+            current->setProperty("paleo.partitionCommitRejected", QVariant());
+            current->setAllowCommit(true);
+          }
           styleLayer(id);
           emit displayChanged(id);
         }
@@ -1064,9 +1072,11 @@ void MappingWorkbench::styleLayer(const QString &id) {
               [this, vector, id, schema = v.extra.value("facies").toList()] {
                 const bool previouslyAllowed = vector->allowCommit();
                 QString error = vector->property("paleo.evidenceEditFailure").toString();
-                const bool ok = previouslyAllowed && error.isEmpty() &&
-                    validWorkingEvidence(vector, declaration(id).horizon, m_catalog, &error) &&
-                    FaciesHierarchyRenderer::validateTopology(vector, &error) &&
+                const bool evidenceOk = previouslyAllowed && error.isEmpty() &&
+                    validWorkingEvidence(vector, declaration(id).horizon, m_catalog, &error);
+                const bool topologyOk = evidenceOk && FaciesHierarchyRenderer::validateTopology(vector, &error);
+                if (evidenceOk) vector->setProperty("paleo.partitionCommitRejected", !topologyOk);
+                const bool ok = topologyOk &&
                     MappingArtifactWriter::syncFaciesAttributes(vector, schema, &error) &&
                     validWorkingEvidence(vector, declaration(id).horizon, m_catalog, &error);
                 // Never override a rejection from an earlier beforeCommit consumer.

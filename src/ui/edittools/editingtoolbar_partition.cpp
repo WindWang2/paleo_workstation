@@ -8,17 +8,18 @@
 #include <QComboBox>
 #include <QMenu>
 #include <QSignalBlocker>
+#include <QStatusBar>
 #include <QToolBar>
 #include <QToolButton>
 
 void PaleoEditingToolbar::buildPartitionControls() {
-  auto *menu = new QMenu(this);
+  auto *menu = new QMenu(this); menu->setToolTipsVisible(true);
   mActionSplitFacies = menu->addAction(PaleoIcons::qgisTheme("mActionSplitFeatures.svg"), tr("分割所选相面"));
   mActionSplitFacies->setObjectName("actionSplitFacies"); mActionSplitFacies->setCheckable(true);
-  mActionSplitFacies->setProperty("hint", tr("先选面，再画分割线；各部分继承三级归属，公共边界同步插点"));
+  mActionSplitFacies->setProperty("hint", tr("先选面，左键画分割线，右键完成；退格删上一点，Esc 结束；继承三级归属并同步共边"));
   mActionPaintFacies = menu->addAction(PaleoIcons::qgisTheme("mActionAddPolygon.svg"), tr("新建 / 覆盖相面"));
   mActionPaintFacies->setObjectName("actionPaintFacies"); mActionPaintFacies->setCheckable(true);
-  mActionPaintFacies->setProperty("hint", tr("选择目标微相后画面；自动裁切原面，绘制范围限制在现有相图覆盖内"));
+  mActionPaintFacies->setProperty("hint", tr("选择目标微相，左键画面，右键完成；退格删上一点，Esc 结束；自动裁切原面并限制在原覆盖内"));
   mActionMergeFacies = menu->addAction(PaleoIcons::qgisTheme("mActionMergeFeatures.svg"), tr("合并所选相面"));
   mActionMergeFacies->setObjectName("actionMergeFacies");
   mActionMergeFacies->setProperty("hint", tr("合并相邻面；不同微相必须明确选择目标微相，所有来源与证据保留待复核"));
@@ -67,7 +68,7 @@ void PaleoEditingToolbar::updatePartitionControls(const QString &noEdit) {
   mPartitionCode->setVisible(partition); mPartitionCode->setEnabled(reason.isEmpty());
   mPartitionCode->setToolTip(reason.isEmpty() ? tr("相 → 亚相 → 微相；新建面须选择目标，分割直接继承原类") : reason);
   const auto gate = [](QAction *a, const QString &why) { a->setEnabled(why.isEmpty());
-    a->setToolTip(why.isEmpty() ? a->property("hint").toString() : why); };
+    a->setToolTip(why.isEmpty() ? a->property("hint").toString() : why); a->setStatusTip(a->toolTip()); };
   gate(mActionSplitFacies, !reason.isEmpty() ? reason : FaciesPartitionEditor::selectionSize(layer) == 0 ? tr("请先选择需要分割的相面") : QString());
   gate(mActionPaintFacies, !reason.isEmpty() ? reason : mPartitionCode->currentData().toInt() == 0 ? tr("请先选择目标微相") : QString());
   gate(mActionMergeFacies, !reason.isEmpty() ? reason : FaciesPartitionEditor::selectionSize(layer) < 2 ? tr("请至少选择两个相邻相面") : QString());
@@ -75,13 +76,25 @@ void PaleoEditingToolbar::updatePartitionControls(const QString &noEdit) {
     for (auto *action : {mActionMove, mActionReshape, mActionDeleteFeatures})
       gate(action, tr("相图须保持完整分区；请用共边节点、分割、覆盖绘制或合并编辑"));
     gate(mActionCrossLayerTopo, tr("三级相面共用基础分区，跨层独立撤销会破坏一致性；请在当前工作副本编辑"));
-    gate(mActionAddPolygon, mActionPaintFacies->isEnabled() ? QString() : mActionPaintFacies->toolTip());
+    mActionAddPolygon->setToolTip(mActionPaintFacies->toolTip());
+    mActionAddPolygon->setStatusTip(mActionPaintFacies->toolTip());
+    mActionAddPolygon->setEnabled(mActionPaintFacies->isEnabled());
   }
 }
 void PaleoEditingToolbar::mergePartition() {
   if (!mActionMergeFacies->isEnabled() || !startEditing()) return;
   auto *layer = currentLayer(); QString error;
   if (!FaciesPartitionEditor::merge(layer, mPartitionCode->currentData().toInt(), &error)) emit editRefused(error);
-  else emit featureEdited(FaciesPartitionEditor::layerKey(layer));
+  else { installTool(nullptr); uncheckTools(); emit featureEdited(FaciesPartitionEditor::layerKey(layer)); }
   updateActionStates();
+}
+
+void PaleoEditingToolbar::bindStatusMessages(QStatusBar *status) {
+  if (!status) return;
+  connect(this, &PaleoEditingToolbar::editRefused, status, [status](const QString &reason) {
+    status->showMessage(reason, 8000);
+  });
+  connect(this, &PaleoEditingToolbar::featureEdited, status, [status] { status->clearMessage(); });
+  for (auto *action : {mActionUndo, mActionRedo})
+    connect(action, &QAction::triggered, status, [status] { status->clearMessage(); });
 }

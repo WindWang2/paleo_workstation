@@ -109,6 +109,7 @@ void PreviewMapCanvas::setLayers( const QList<QgsMapLayer *> &layers )
   for ( QgsMapLayer *l : layers )
   {
     if (l && l->providerType() == QLatin1String("gdal")) MappingArtifactWriter::restoreRasterCrs(l);
+    MappingArtifactWriter::restoreVectorCrs(l); // 非矢量早退
     watchLayer( l );
     if ( !m_visible.contains( l ) )
       m_visible.insert( l, true );
@@ -125,6 +126,7 @@ void PreviewMapCanvas::addLayer( QgsMapLayer *layer )
   if ( !layer || m_layers.contains( layer ) )
     return;
   if (layer->providerType() == QLatin1String("gdal")) MappingArtifactWriter::restoreRasterCrs(layer);
+  MappingArtifactWriter::restoreVectorCrs(layer); // 非矢量早退
   watchLayer( layer );
   m_layers.prepend( layer );
   m_visible.insert( layer, true );
@@ -138,6 +140,7 @@ void PreviewMapCanvas::insertLayer( int index, QgsMapLayer *layer )
   if ( !layer || m_layers.contains( layer ) )
     return;
   if (layer->providerType() == QLatin1String("gdal")) MappingArtifactWriter::restoreRasterCrs(layer);
+  MappingArtifactWriter::restoreVectorCrs(layer); // 非矢量早退
   watchLayer( layer );
   const int clamped = qBound( 0, index, m_layers.size() );
   m_layers.insert( clamped, layer );

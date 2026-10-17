@@ -196,7 +196,10 @@ QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *erro
     return nullptr;
   }
 
-  if (decl->type != QLatin1String("mbtiles")) MappingArtifactWriter::restoreRasterCrs(layer.get());
+  if (decl->type != QLatin1String("mbtiles")) {
+    MappingArtifactWriter::restoreRasterCrs(layer.get());
+    MappingArtifactWriter::restoreVectorCrs(layer.get());
+  }
 
   // paleoLayerId/显示名在 addMapLayer 之前落——legendLayersAdded 在注册期
   // 即发（图层树布局器此刻归位，须已能认出声明归属）。
@@ -423,9 +426,8 @@ void QgisLayerService::purgeDanglingInstances()
   for (auto *layer : live) {
     const auto id = layer->customProperty("paleoLayerId").toString();
     if (!id.isEmpty() && layer->isValid() && !m_instances.contains(id)) {
-      if (layer->providerType() == QLatin1String("gdal") ||
-          layer->providerType() == QLatin1String("ogr"))
-        MappingArtifactWriter::restoreRasterCrs(layer);
+      if (layer->providerType() == QLatin1String("gdal")) MappingArtifactWriter::restoreRasterCrs(layer);
+      else MappingArtifactWriter::restoreVectorCrs(layer);
       paleo::constraintcrs::assignStoreCrsIfMissing(layer); // .qgz 里旧的无 CRS 约束层
       trackInstance(id, layer);
     }

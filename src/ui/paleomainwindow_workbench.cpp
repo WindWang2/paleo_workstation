@@ -316,6 +316,7 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
       return false;
     }
     MappingArtifactWriter::restoreRasterCrs(layer);
+    MappingArtifactWriter::restoreVectorCrs(layer);
     auto *dialog = new QDialog(this, Qt::Window);
     dialog->setAttribute(Qt::WA_DeleteOnClose);
     dialog->setObjectName("mappingReferenceWindow");

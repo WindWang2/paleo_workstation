@@ -25,6 +25,7 @@ using namespace paleo::datapreview_detail;
 #include "previewprofilepanel.h"
 #include "previewtocpanel.h"
 #include "../../qgis/factorcontour.h"
+#include "../../qgis/mappingartifactwriter.h"
 #include "../../qgis/previewrasteranalysis.h"
 #include <qgsmapcanvas.h>
 #include <qgslayertreemapcanvasbridge.h>
@@ -168,6 +169,9 @@ QWidget *DataPreviewTabs::buildGeoJsonContent(
   // 矢量层（私有，不进 QgsProject）
   auto *vlayer = new QgsVectorLayer(abs, asset.displayName, QStringLiteral("ogr"));
   vlayer->setParent(host);
+  // setOverrideCrs(vlayer->crs()) 在 addMapLayer 之前取值——退化 ENGCRS 必须
+  // 就地恢复，否则画布跟随的是 GDAL 归一化后的错对象。
+  MappingArtifactWriter::restoreVectorCrs(vlayer);
 
   // 顶部操作与空间提示工具栏
   auto *topBar = new QWidget(host);

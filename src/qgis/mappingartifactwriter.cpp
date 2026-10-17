@@ -38,64 +38,10 @@
 #include <ogr_api.h>
 #include <ogr_srs_api.h>
 namespace MappingArtifactWriter {
-namespace {
-// GPKG 只能把工程网格落成 LOCAL_CS。读回来变成 Unknown engineering datum，
-// WKT 对不上 DataCatalog::localGridCrsWkt()，显式配准因此不作用于这层。
-void restoreVectorEngineeringCrs(QgsMapLayer *layer) {
-  if (!layer || layer->providerType() != QLatin1String("ogr"))
-    return;
-  const QString canonicalWkt = DataCatalog::localGridCrsWkt();
-  const QgsCoordinateReferenceSystem canonical =
-      QgsCoordinateReferenceSystem::fromWkt(canonicalWkt);
-  if (!canonical.isValid())
-    return;
-  const QgsCoordinateReferenceSystem current = layer->crs();
-  if (current.isValid() &&
-      (current == canonical || current.toWkt() == canonical.toWkt()))
-    return;
-
-  const QString path = layer->source().section(QLatin1Char('|'), 0, 0);
-  QString stored;
-  QString datasetWkt;
-  GDALDatasetH ds = GDALOpenEx(path.toUtf8().constData(),
-                               GDAL_OF_VECTOR | GDAL_OF_READONLY, nullptr,
-                               nullptr, nullptr);
-  if (ds) {
-    if (const char *item = GDALGetMetadataItem(ds, "PALEO_CRS_WKT", nullptr))
-      stored = QString::fromUtf8(item);
-    if (OGRLayerH ogrLayer = GDALDatasetGetLayer(ds, 0)) {
-      if (OGRSpatialReferenceH srs = OGR_L_GetSpatialRef(ogrLayer)) {
-        char *exported = nullptr;
-        if (OSRExportToWkt(srs, &exported) == OGRERR_NONE && exported)
-          datasetWkt = QString::fromUtf8(exported);
-        CPLFree(exported);
-      }
-    }
-    GDALClose(ds);
-  }
-  const auto namesGrid = [](const QString &text) {
-    return text.contains(QStringLiteral("Paleo local engineering grid"));
-  };
-  const QString currentWkt = current.toWkt();
-  if (!namesGrid(currentWkt) && !namesGrid(current.description()) &&
-      !namesGrid(stored) && !namesGrid(datasetWkt))
-    return;
-  if (currentWkt.contains(QStringLiteral("Local engineering datum")) &&
-      !currentWkt.contains(QStringLiteral("Unknown engineering datum")))
-    return;
-  const QString use =
-      stored.contains(QStringLiteral("Local engineering datum")) ? stored
-                                                                : canonicalWkt;
-  const QgsCoordinateReferenceSystem restored =
-      QgsCoordinateReferenceSystem::fromWkt(use);
-  if (restored.isValid())
-    layer->setCrs(restored);
-}
-} // namespace
 void restoreRasterCrs(QgsMapLayer *layer) {
   auto *raster = qobject_cast<QgsRasterLayer *>(layer);
   if (!raster) {
-    restoreVectorEngineeringCrs(layer);
+    restoreVectorCrs(layer);
     return;
   }
   // 每层对象只探测一次（#483）：previewmapcanvas 的 add/insert/setLayers 三个
@@ -131,6 +77,20 @@ void restoreRasterCrs(QgsMapLayer *layer) {
   const auto crs = QgsCoordinateReferenceSystem::fromWkt(wkt);
   if (!wkt.isEmpty() && crs.isValid())
     raster->setCrs(crs);
+}
+
+void restoreVectorCrs(QgsMapLayer *layer) {
+  auto *vector = qobject_cast<QgsVectorLayer *>(layer);
+  if (!vector)
+    return;
+  // 矢量无 PALEO_CRS_WKT 元数据通道（GPKG srs_def 只能写 WKT1 LOCAL_CS，
+  // EDATUM 名必丢），只能按图层名恢复。已是规范 WKT 时跳过 setCrs——
+  // QgsMapLayer::setCrs 无条件发 crsChanged，重复调用会多余触发下游重算。
+  const auto canonical = QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt());
+  if (vector->crs().type() == Qgis::CrsType::Engineering &&
+      vector->crs() != canonical && canonical.isValid() &&
+      vector->crs().toWkt().contains(QStringLiteral("Paleo local engineering grid")))
+    vector->setCrs(canonical);
 }
 
 bool raster(const QString &path, const QVector<int> &cells, int cols, int rows,

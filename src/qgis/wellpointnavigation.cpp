@@ -11,6 +11,11 @@
 #include <qgsmaptoolidentify.h>
 #include <qgsvectorlayer.h>
 namespace {
+class WellIdentify final : public QgsMapToolIdentify {
+public:
+  using QgsMapToolIdentify::QgsMapToolIdentify;
+  using QgsMapToolIdentify::setPropertiesOverrides;
+};
 class Navigation final : public QObject {
 public:
   Navigation(QgsMapCanvas *canvas, QgsVectorLayer *wells, QList<QgsMapTool *> tools,
@@ -46,7 +51,14 @@ private:
     if (!m_wells) return;
     QMap<QString, QString> ids;
     { // 导航可能重建正文并销毁画布，先结束原生拾取工具的生命周期。
-      QgsMapToolIdentify identify(m_canvas);
+      WellIdentify identify(m_canvas);
+      // 井位是点目标：显式给 12 px 的地图单位搜索半径。QGIS 默认半径按
+      // 画布尺寸比例折算，高分屏/大幅面下折算值偏小，点在井旁不中就像
+      // 导航没反应；固定像素半径让「点井附近」稳定命中。
+      QgsMapToolIdentify::IdentifyProperties overrides;
+      overrides.searchRadiusMapUnits =
+          12.0 * m_canvas->mapSettings().mapUnitsPerPixel();
+      identify.setPropertiesOverrides(overrides);
       const auto hits = identify.identify(QgsGeometry::fromPointXY(point), QgsMapToolIdentify::TopDownAll, {m_wells}, QgsMapToolIdentify::VectorLayer);
       for (const auto &hit : hits) {
         const auto id = hit.mFeature.attribute("entity_id").toString();

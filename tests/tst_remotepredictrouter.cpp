@@ -27,7 +27,7 @@ class LoopbackServer : public QObject
 {
   Q_OBJECT
   public:
-    enum class Mode { Normal, DeadOnAccept, Slow, Garbage, ReturnNullCells };
+    enum class Mode { Normal, DeadOnAccept, Slow, Garbage, ReturnNullCells, OversizeDeclared, OversizeUndeclared };
     Mode mode = Mode::Normal;
     int healthHits = 0, predictHits = 0;
 
@@ -91,6 +91,19 @@ class LoopbackServer : public QObject
     void respond( QTcpSocket *sock, const QString &requestLine, const QByteArray &body )
     {
       QByteArray payload;
+      if ( ( mode == Mode::OversizeDeclared || mode == Mode::OversizeUndeclared ) &&
+           requestLine.startsWith( QStringLiteral( "GET /health" ) ) )
+      {
+        // #469：先发头与 256 KiB，再挂住连接不收尾——旧实现只在 finished
+        // 时检查大小，此处永远等不到 finished，只会拖到超时。
+        ++healthHits;
+        if ( mode == Mode::OversizeDeclared )
+          sock->write( QByteArrayLiteral( "HTTP/1.1 200 OK\r\nContent-Length: 104857600\r\n\r\n" ) );
+        else
+          sock->write( QByteArrayLiteral( "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n" ) );
+        sock->write( QByteArray( 256 * 1024, 'o' ) );
+        return;
+      }
       if ( requestLine.startsWith( QStringLiteral( "GET /health" ) ) )
       {
         ++healthHits;
@@ -231,6 +244,7 @@ class TestRemotePredictionRouter : public QObject
     void cancelBeforeChainStartsFails();
     void remoteJsonNullDeserializedToNodataNegative9999();
     void localFallbackTranslatesFaciesCodesAndNodata();
+    void oversizeResponseAbortsDuringReceive();
 
   private:
     static bool waitSpy( QSignalSpy &spy, int count = 1, int timeoutMs = 15000 )
@@ -591,3 +605,28 @@ int main( int argc, char *argv[] )
 
 #include "tst_remotepredictrouter.moc"
 
+
+// #469：响应体上限必须在接收途中生效（声明超限 / 未声明长度但已收超限两路），
+// 不得等整个响应缓冲进内存后才在 finished 里检查。旧实现：服务端挂住连接时
+// 只能拖到 30s 超时，且报的是「超时」而非「超出上限」。
+void TestRemotePredictionRouter::oversizeResponseAbortsDuringReceive()
+{
+  for ( const auto mode : { LoopbackServer::Mode::OversizeDeclared, LoopbackServer::Mode::OversizeUndeclared } )
+  {
+    LoopbackServer server;
+    QVERIFY( server.start( mode ) );
+    HttpRemoteTransport transport( server.baseUrl() );
+    QCOMPARE( transport.maxResponseBytes(), HttpRemoteTransport::kDefaultMaxResponseBytes );
+    transport.setMaxResponseBytes( 64 * 1024 );
+    QSignalSpy health( &transport, &RemoteTransport::healthDone );
+    transport.healthCheck( 30000, 7 );
+    QVERIFY2( waitSpy( health, 1, 10000 ), "超限响应必须在接收途中被中止，而不是拖到超时" );
+    QCOMPARE( health.at( 0 ).at( 0 ).toULongLong(), quint64( 7 ) );
+    QCOMPARE( health.at( 0 ).at( 1 ).toBool(), false );
+    const QString err = health.at( 0 ).at( 2 ).toString();
+    QVERIFY2( err.contains( QStringLiteral( "上限" ) ), qPrintable( err ) );
+    // abort 同步触发的 finished 判为过期：不得重复回包。
+    QCoreApplication::processEvents( QEventLoop::AllEvents, 200 );
+    QCOMPARE( health.size(), 1 );
+  }
+}

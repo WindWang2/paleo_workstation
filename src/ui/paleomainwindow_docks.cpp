@@ -388,6 +388,8 @@ void PaleoMainWindow::buildLayerTreeDock()
     }
     connect(m_layerPanel, &LayerTreePanel::propertiesRequested, m_layerProps,
             &LayerPropertiesDialog::openLayerProperties);
+    connect(m_layerPanel, &LayerTreePanel::attributeTableRequested, this,
+            &PaleoMainWindow::showAttributeTable);
     connect(m_layerPanel, &LayerTreePanel::mappingPageRequested, this,
             &PaleoMainWindow::showPage);
     connect(m_layerPanel, &LayerTreePanel::graphRequested, this,

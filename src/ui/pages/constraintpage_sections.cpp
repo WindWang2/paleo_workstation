@@ -76,7 +76,7 @@ void ConstraintPage::buildTailSections( QWidget *content, QVBoxLayout *lay )
   // 下一界面）——文案在工程打开时由 refreshAreaParamLabels 重写。
   auto *section = new CollapsibleSection( tr( "厚度样本" ), this );
   section->setObjectName( QStringLiteral( "thicknessSection" ) );
-  section->setExpanded( true );
+  section->setExpanded( false );
   lay->addWidget( section, 1 );
   auto *thLay = section->containerLayout();
   auto *thCap = caption(

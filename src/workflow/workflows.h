@@ -322,7 +322,8 @@ class ConstraintWorkflow : public QObject
     // gdal:contour 同一底层）→ 真 QgsVectorLayer 进 "04_SingleFactor/Contours"
     // 子组，layerId "contours.<horizon>.<factorId>"，幂等。
     bool generateContours(const QString &horizon, const QString &factorLayerId,
-                          double interval, QString *error = nullptr);
+                          double interval, QString *error = nullptr,
+                          const QString &contourMethod = QString());
     // 显式级别的分析场等值线。layerId 仍是 contours.<层位>.<因素>。
     bool generateContoursAtLevels(const QString &horizon, const QString &factorLayerId,
                                   const QVector<double> &levels, QString *error = nullptr);
@@ -450,10 +451,12 @@ class ConstraintWorkflow : public QObject
       QVector<double> levels;
       QVector<double> resolvedLevels;
       QString outputPath;
+      QString contourMethod;
     };
     bool prepareAnalysisContourJob(const QString &horizon, const QString &factorLayerId,
                                    double interval, const QVector<double> &levels, bool fixedLevels,
-                                   AnalysisContourJob *job, QString *error = nullptr);
+                                   AnalysisContourJob *job, QString *error = nullptr,
+                                   const QString &contourMethod = QString());
     static bool
     computeAnalysisContourJob(AnalysisContourJob *job,
                               const std::function<bool()> &cancelled = {});

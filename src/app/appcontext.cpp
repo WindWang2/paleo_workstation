@@ -13,6 +13,7 @@
 #include "../workflow/welltrajectorylayer.h" // goal/well-trajectory 轨迹线层组装
 #include "aiwiring.h"                        // 方向51：远端预测装配（唯一入口）
 #include "onnxwiring.h"                      // 方向83：ONNX 模型注册表装配
+#include <QFile>
 #include <QTimer>
 
 #include "../ai/onnxpredictionservice.h" // ORT-free header; instantiation is PALEO_HAVE_ORT-guarded
@@ -105,6 +106,11 @@ struct AppProjectOpenData {
 static bool publishPreparedLayer(const QString &path, const QByteArray &bytes)
 {
   if (bytes.isEmpty()) return true;
+  // 内容没变就不要重写：mtime 一变，井点提取会把仍有效的快照当成过期，
+  // 结果表被清成「尚未提取」。
+  QFile existing(path);
+  if (existing.open(QIODevice::ReadOnly) && existing.readAll() == bytes)
+    return true;
   if (!QDir().mkpath(QFileInfo(path).absolutePath())) return false;
   QSaveFile file(path); file.setDirectWriteFallback(false);
   return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size() && file.commit();

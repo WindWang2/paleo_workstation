@@ -51,7 +51,7 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   lay->addWidget( horizons );
 
   // ---- m2(B)：单因素清单 + 生成 双区（§10 词表驱动）------------------------
-  lay->addWidget(caption(tr("2 · 获取当前地层的单因素数据"), this));
+  lay->addWidget(caption(tr("单因素"), this));
   auto *factors = new QTableWidget( 0, 4, this );
   factors->setObjectName( QStringLiteral( "factorTable" ) );
   factors->setAccessibleName( tr( "单因素清单" ) );
@@ -110,7 +110,22 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   lay->removeWidget(constraints);
   lay->insertWidget(lay->indexOf(horizons) + 1, constraints);
   auto *methodCaption = findChild<QLabel *>(QStringLiteral("factorMethodCaption"));
-  lay->insertWidget(lay->indexOf(methodCaption), caption(tr("3 · 计算等值面和等值线"), content));
+  lay->insertWidget(lay->indexOf(methodCaption), caption(tr("成图"), content));
+  const auto hideNamed = [this](const char *name) {
+    if (auto *widget = findChild<QWidget *>(QLatin1String(name)))
+      widget->hide();
+  };
+  // 等值面算法、等值线算法留在成图区。覆盖方式、高级参数和等值线来源仍用默认值。
+  for (const char *name : {"factorStrategyNote",
+                           "factorCoverageCaption", "factorCoverageCombo", "factorAdvancedSection",
+                           "factorBoundaryCaption", "factorBoundaryRow", "factorGridCaption",
+                           "factorGridResolutionSpin", "factorContourModeCombo",
+                           "factorContourSourceCaption", "factorContourSourceLabel",
+                           "maintainWellFactorsButton", "factorLegacySection", "realizationSection",
+                           "directionFamilyTypeCombo", "breakFamilyTypeCombo",
+                           "constraintBlockModeCombo", "constraintBlockModeCaption",
+                           "factorDirectionRatioSpin", "factorInfluenceSpin", "factorCoreSpin"})
+    hideNamed(name);
   buildFactorResultsSection(content, lay);
   buildTailSections( content, lay );
   auto *status = findChild<QLabel *>(QStringLiteral("statusLabel"));
@@ -260,8 +275,12 @@ void ConstraintPage::bindLayerService( QObject *layers )
   setProperty( kLayersProp, QVariant::fromValue( static_cast<QObject *>( svc ) ) );
   connect(svc, &QgisLayerService::layerDeclared, this, [this](const QString &id) {
     updateEngineRows();
-    if (id.startsWith(QStringLiteral("wells")))
+    if (id.startsWith(QStringLiteral("wells"))) {
+      // 井位层重声明会把刚提取的结果表清成「尚未提取」。清完立刻按
+      // 已保存版本填回；来源真变了也保留上次逐井结果。
       invalidateWellFactors();
+      refreshWellFactorFields();
+    }
     if (id.isEmpty() || id.startsWith(QStringLiteral("factor.")))
       refreshFactorLayers();
     refreshFactorResults();

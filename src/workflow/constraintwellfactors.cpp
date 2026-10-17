@@ -26,6 +26,7 @@
 #include <qgsvectorlayer.h>
 #include <algorithm>
 #include <cmath>
+#include <optional>
 
 namespace {
 const QString layerThickness = QStringLiteral("log_layer_thickness_md");
@@ -333,11 +334,16 @@ bool computeExtraction(const Source &source, const QVariantMap &params, FactorEx
   request.valueField = params.value(QStringLiteral("valueField"), params.value(QStringLiteral("field"))).toString();
   request.numeratorField = params.value(QStringLiteral("numeratorField")).toString();
   request.denominatorField = params.value(QStringLiteral("denominatorField")).toString();
-  if (request.factorMode != QLatin1String("direct") && request.factorMode != QLatin1String("ratio"))
+  const bool automatic = request.factorMode == QLatin1String("auto");
+  if (!automatic && request.factorMode != QLatin1String("direct") &&
+      request.factorMode != QLatin1String("ratio"))
     return failure(ConstraintWorkflow::tr("未知因子提取口径"));
-  if ((request.factorMode == QLatin1String("direct") && request.valueField.isEmpty()) ||
-      (request.factorMode == QLatin1String("ratio") && (request.numeratorField.isEmpty() || request.denominatorField.isEmpty())))
+  if (!automatic &&
+      ((request.factorMode == QLatin1String("direct") && request.valueField.isEmpty()) ||
+       (request.factorMode == QLatin1String("ratio") &&
+        (request.numeratorField.isEmpty() || request.denominatorField.isEmpty()))))
     return failure(ConstraintWorkflow::tr("请选择因子提取字段"));
+  const QString autoFactorId = params.value(QStringLiteral("factorId")).toString();
   QgsVectorLayer samples(QStringLiteral("Point"), QStringLiteral("well_factors"), QStringLiteral("memory"));
   samples.setCrs(source.crs);
   samples.dataProvider()->addAttributes({QgsField(QStringLiteral("well_id"), QMetaType::Type::QString),
@@ -349,16 +355,92 @@ bool computeExtraction(const Source &source, const QVariantMap &params, FactorEx
       return failure(ConstraintWorkflow::tr("提取已取消"));
     paleo::singlefactor::FeatureAttributes attrs;
     for (auto i = r.attributes.cbegin(); i != r.attributes.cend(); ++i) attrs.emplace_back(i.key(), i.value());
-    const auto value = paleo::singlefactor::resolveCurrentFactorValue(attrs, request);
+    std::optional<double> value = paleo::singlefactor::resolveCurrentFactorValue(attrs, request);
+    const auto sourceOfField = [&](const QString &field) {
+      if (field == layerThickness)
+        return r.maintainedThickness ? ConstraintWorkflow::tr("井点单因素属性表")
+                                     : ConstraintWorkflow::tr("工程分层（MD）");
+      if (field == sandThickness)
+        return r.sandSource;
+      return ConstraintWorkflow::tr("井点属性 · %1").arg(field);
+    };
+    const auto take = [&](const QString &field) {
+      return paleo::singlefactor::parseNumeric(r.attributes.value(field));
+    };
     QString reason;
-    if (request.factorMode == QLatin1String("ratio")) {
+    QString valueSource;
+    if (automatic) {
+      if (autoFactorId == QLatin1String("sandratio")) {
+        if (const auto direct = take(QStringLiteral("sand_ratio"))) {
+          value = direct;
+          valueSource = ConstraintWorkflow::tr("直读：井点砂地比");
+        } else {
+          const auto sand = take(sandThickness);
+          const auto thick = take(layerThickness);
+          if (!sand)
+            reason = fieldReason(r, sandThickness);
+          else if (!thick)
+            reason = fieldReason(r, layerThickness);
+          else if (*thick == 0.0)
+            reason = ConstraintWorkflow::tr("分层层厚为零");
+          else {
+            value = *sand / *thick;
+            valueSource = sourceOfField(sandThickness) + ConstraintWorkflow::tr(" ÷ ") +
+                          sourceOfField(layerThickness);
+          }
+        }
+        if (value && reason.isEmpty() && (*value < -1e-9 || *value > 1.0 + 1e-9))
+          reason = ConstraintWorkflow::tr("砂地比超出 [0,1]（值 %1，砂厚与层厚数据矛盾）")
+                       .arg(QString::number(*value, 'g', 6));
+      } else if (autoFactorId == QLatin1String("sandthick")) {
+        value = take(sandThickness);
+        if (!value)
+          value = take(QStringLiteral("sand_thick"));
+        if (value)
+          valueSource = sourceOfField(sandThickness);
+        else
+          reason = fieldReason(r, sandThickness);
+      } else if (autoFactorId == QLatin1String("strathick")) {
+        value = take(layerThickness);
+        if (!value)
+          value = take(QStringLiteral("thickness"));
+        if (value)
+          valueSource = sourceOfField(layerThickness);
+        else
+          reason = fieldReason(r, layerThickness);
+      } else if (autoFactorId == QLatin1String("welldist") ||
+                 autoFactorId == QLatin1String("confidence")) {
+        reason = ConstraintWorkflow::tr("这个单因素不从井点提取");
+      } else {
+        const QString field =
+            SingleFactorRegistry::byId(autoFactorId).defaultParams.value(QStringLiteral("field")).toString();
+        QStringList candidates{field};
+        if (autoFactorId == QLatin1String("poro"))
+          candidates << QStringLiteral("poro") << QStringLiteral("porosity") << QStringLiteral("PHIE");
+        if (autoFactorId == QLatin1String("perm"))
+          candidates << QStringLiteral("perm") << QStringLiteral("permeability");
+        for (const QString &candidate : candidates) {
+          if (candidate.isEmpty())
+            continue;
+          if (const auto found = take(candidate)) {
+            value = found;
+            valueSource = ConstraintWorkflow::tr("直读：%1").arg(candidate);
+            break;
+          }
+        }
+        if (!value)
+          reason = field.isEmpty() ? ConstraintWorkflow::tr("没有可读取的井点字段")
+                                   : fieldReason(r, field);
+      }
+    } else if (request.factorMode == QLatin1String("ratio")) {
       const auto numerator = paleo::singlefactor::parseNumeric(r.attributes.value(request.numeratorField));
       const auto denominator = paleo::singlefactor::parseNumeric(r.attributes.value(request.denominatorField));
       if (!numerator) reason = fieldReason(r, request.numeratorField);
       else if (!denominator) reason = fieldReason(r, request.denominatorField);
       else if (*denominator == 0)
         reason = ConstraintWorkflow::tr("分母为零");
-    } else if (!value) reason = fieldReason(r, request.valueField);
+    } else if (!value)
+      reason = fieldReason(r, request.valueField);
     QgsGeometry pointGeometry = r.geometry;
     bool located = !r.geometry.isNull() && !r.geometry.isEmpty();
     if (located) {
@@ -384,19 +466,12 @@ bool computeExtraction(const Source &source, const QVariantMap &params, FactorEx
       reason = ConstraintWorkflow::tr("砂地比超出 [0,1]（值 %1，砂厚与层厚数据矛盾）")
                    .arg(QString::number(*value, 'g', 6));
     }
-    const auto sourceOfField = [&](const QString &field) {
-      if (field == layerThickness)
-        return r.maintainedThickness ? ConstraintWorkflow::tr("井点单因素属性表")
-                                     : ConstraintWorkflow::tr("工程分层（MD）");
-      if (field == sandThickness)
-        return r.sandSource;
-      return ConstraintWorkflow::tr("井点属性 · %1").arg(field);
-    };
-    const QString valueSource = request.factorMode == QLatin1String("ratio")
-                                    ? sourceOfField(request.numeratorField) +
-                                          ConstraintWorkflow::tr(" ÷ ") +
-                                          sourceOfField(request.denominatorField)
-                                    : sourceOfField(request.valueField);
+    if (!automatic)
+      valueSource = request.factorMode == QLatin1String("ratio")
+                        ? sourceOfField(request.numeratorField) +
+                              ConstraintWorkflow::tr(" ÷ ") +
+                              sourceOfField(request.denominatorField)
+                        : sourceOfField(request.valueField);
     const bool contributing = value && reason.isEmpty();
     QVariantMap row = r.provenance;
     row.insert("well_id", r.id); row.insert("well_name", r.name); row.insert("horizon", source.horizon);
@@ -440,7 +515,10 @@ QVariantMap extractionParams(const QVariantMap &params) {
        {"factorMode", "valueField", "numeratorField", "denominatorField", "baseHorizon"})
     if (params.contains(key))
       result.insert(QString::fromLatin1(key), params.value(key));
-  if (!result.contains("valueField") && params.contains("field"))
+  // 成图参数里的 field 是插值列名，不是提取口径。auto 不选字段，
+  // 不能把它写进口径，否则对不上已保存的井点版本。
+  if (result.value(QStringLiteral("factorMode")).toString() != QLatin1String("auto") &&
+      !result.contains("valueField") && params.contains("field"))
     result.insert("valueField", params.value("field"));
   return result;
 }
@@ -483,7 +561,10 @@ void ConstraintWorkflow::restoreWellFactors(const QString &horizon, const QStrin
     return;
   if (!preparedWellFactorVersion(horizon, factorId, params).isEmpty())
     return;
-  // Reopen and factor/horizon switching reuse the saved snapshot only while its inputs are current.
+  // 计算复用只认来源仍新鲜的快照。来源文件被原样重写（mtime 变、内容未变）
+  // 或井位层重声明时，结果表仍要显示上次提取，不能落回「尚未提取」。
+  CatalogVersion stale;
+  bool haveStale = false;
   for (const auto &asset : catalog()->assets()) {
     if (asset.type != QLatin1String("well_factor_points"))
       continue;
@@ -500,12 +581,20 @@ void ConstraintWorkflow::restoreWellFactors(const QString &horizon, const QStrin
         {"points_layer_id", QStringLiteral("wellfactor.%1.%2").arg(horizon, factorId)}};
     if (preparedWellFactorVersion(horizon, factorId, params).isEmpty()) {
       m_preparedWellFactors = old;
+      stale = v;
+      haveStale = true;
       continue;
     }
     m_wellFactorRows = v.extra.value("rows").toList();
     m_wellFactorMessage =
         tr("已读取本层位已保存的井点数据 v%1；缺失原因见逐井表。").arg(v.versionNumber);
     return;
+  }
+  if (haveStale && !stale.extra.value(QStringLiteral("rows")).toList().isEmpty()) {
+    m_wellFactorRows = stale.extra.value(QStringLiteral("rows")).toList();
+    m_wellFactorMessage =
+        tr("上次提取 v%1 的来源文件已变化，表中仍是该次结果。请重新提取后再计算。")
+            .arg(stale.versionNumber);
   }
 }
 
@@ -652,7 +741,7 @@ bool ConstraintWorkflow::extractWellFactorsImpl(const QString &horizon, const QS
     return true;
   };
 
-  auto compute = [snapshot, frozen, maintained, dir, horizon, params, result](PaleoTask *task) {
+  auto compute = [snapshot, frozen, maintained, dir, horizon, factorId, params, result](PaleoTask *task) {
     snapshot->moveToThread(QThread::currentThread());
     ConstraintWorkflow detached(nullptr, nullptr);
     detached.setCatalog(snapshot.get(), dir);
@@ -666,7 +755,9 @@ bool ConstraintWorkflow::extractWellFactorsImpl(const QString &horizon, const QS
       return err;
     if (task)
       task->reportStage("build", 60);
-    if (!computeExtraction(source, params, *result, &err, cancelled))
+    QVariantMap decided = params;
+    decided.insert(QStringLiteral("factorId"), factorId);
+    if (!computeExtraction(source, decided, *result, &err, cancelled))
       return err.isEmpty() ? tr("井点提取失败") : err;
     if (task)
       task->reportStage("hash", 95);
@@ -846,8 +937,29 @@ bool ConstraintWorkflow::prepareFactorInputs(const QString &horizon, const QStri
   if (!method.isEmpty() && method != QLatin1String("sgs") && !paleo::singlefactor::surfaceMethodPack(method)) {
     paleo::workflow_detail::setError(error, tr("未知单因素方法：%1").arg(method)); return false;
   }
+  if (m_wellFactorAttributeLayer && m_wellFactorAttributeLayer->isModified()) {
+    paleo::workflow_detail::setError(error, tr("井点属性有未保存修改，请先保存或重新提取"));
+    return false;
+  }
   QString version = preparedWellFactorVersion(horizon, factorId, params);
   QString points = m_preparedWellFactors.value("points_layer_id").toString();
+  if (version.isEmpty() && catalog()) {
+    // 表上看到的 vN 可能只是来源文件被原样重写、时间变了。文件还在就用来成图。
+    for (const auto &asset : catalog()->assets()) {
+      if (asset.type != QLatin1String("well_factor_points"))
+        continue;
+      const auto saved = catalog()->currentVersion(asset.id);
+      if (saved.extra.value("horizon") != horizon || saved.extra.value("factor_id") != factorId ||
+          extractionParams(saved.extra) != extractionParams(params))
+        continue;
+      const auto path = DataCatalog::resolvedVersionPath(projectDir(), saved);
+      if (path.isEmpty() || !QFile::exists(path))
+        continue;
+      version = saved.id;
+      points = QStringLiteral("wellfactor.%1.%2").arg(horizon, factorId);
+      break;
+    }
+  }
   if (version.isEmpty()) {
     if (m_factorTasks) {
       if (error)

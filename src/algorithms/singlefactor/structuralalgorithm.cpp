@@ -9,6 +9,7 @@
 #include "wellacquisition.h"
 
 #include <qgscoordinatereferencesystem.h>
+#include <qgscoordinatetransform.h>
 #include <qgsexception.h>
 #include <qgsfeature.h>
 #include <qgsfeatureiterator.h>
@@ -116,6 +117,41 @@ std::vector<sf::Polygon> readBoundarySource( QgsProcessingFeatureSource *source 
     appendGeometryBoundary( feature.geometry(), &boundaries );
   }
   return boundaries;
+}
+
+// 井点在局部米网、边界在投影坐标（或反过来）时，直接点-in-面会把全部井判成
+// 边界外。能转换就先把边界变到井点坐标系；没有坐标操作则保持原坐标。
+void transformBoundariesTo( std::vector<sf::Polygon> &boundaries,
+                            const QgsCoordinateReferenceSystem &from,
+                            const QgsCoordinateReferenceSystem &to,
+                            const QgsCoordinateTransformContext &context )
+{
+  if ( boundaries.empty() || !from.isValid() || !to.isValid() || from == to )
+    return;
+  const QgsCoordinateTransform transform( from, to, context );
+  if ( !transform.isValid() )
+    return;
+  try
+  {
+    const auto mapPoint = [&transform]( sf::Point2 &point ) {
+      const QgsPointXY xy = transform.transform( QgsPointXY( point.x, point.y ) );
+      point.x = xy.x();
+      point.y = xy.y();
+    };
+    for ( sf::Polygon &boundary : boundaries )
+    {
+      for ( sf::Point2 &point : boundary.exterior.points )
+        mapPoint( point );
+      for ( sf::Ring &hole : boundary.holes )
+        for ( sf::Point2 &point : hole.points )
+          mapPoint( point );
+    }
+  }
+  catch ( const QgsCsException &error )
+  {
+    throw QgsProcessingException(
+        QStringLiteral( "成图边界无法转换到井点坐标系：%1" ).arg( error.what() ) );
+  }
 }
 
 // 上游 _extract_current_wells 的要素视图：属性保持字段声明序。
@@ -312,12 +348,16 @@ QVariantMap StructuralIdwAlgorithm::processAlgorithm( const QVariantMap &paramet
       parameterAsSource( parameters, QStringLiteral( "BOUNDARY" ), context ) );
   if ( !boundarySource )
     throw QgsProcessingException( invalidSourceError( parameters, QStringLiteral( "BOUNDARY" ) ) );
-  const std::vector<sf::Polygon> boundaries = readBoundarySource( boundarySource.get() );
+  std::vector<sf::Polygon> boundaries = readBoundarySource( boundarySource.get() );
   if ( boundaries.empty() )
     throw QgsProcessingException( QStringLiteral( "边界图层中没有有效 polygon" ) );
+  transformBoundariesTo( boundaries, boundarySource->sourceCrs(), crs,
+                         context.transformContext() );
   std::unique_ptr<QgsProcessingFeatureSource> areaSource(
       parameterAsSource( parameters, QStringLiteral( "INTERPOLATION_AREA" ), context ) );
-  const std::vector<sf::Polygon> areas = readBoundarySource( areaSource.get() );
+  std::vector<sf::Polygon> areas = readBoundarySource( areaSource.get() );
+  if ( areaSource )
+    transformBoundariesTo( areas, areaSource->sourceCrs(), crs, context.transformContext() );
   if ( feedback )
     feedback->setProgress( 5 );
 
@@ -363,6 +403,14 @@ QVariantMap StructuralIdwAlgorithm::processAlgorithm( const QVariantMap &paramet
       suffix = QStringLiteral( "。前几项原因：%1" )
                    .arg( QStringList( acquired.skipped.mid( 0, shown ) )
                              .join( QStringLiteral( "；" ) ) );
+    const bool allOutside =
+        !acquired.skipped.isEmpty() &&
+        std::all_of( acquired.skipped.cbegin(), acquired.skipped.cend(),
+                     []( const QString &reason ) {
+                       return reason.contains( QStringLiteral( "边界外" ) );
+                     } );
+    if ( allOutside )
+      suffix += QStringLiteral( "。成图边界与井点范围不相交，请改用「测区范围」" );
     throw QgsProcessingException(
         QStringLiteral( "有效井点不足，至少需要 3 个，当前仅 %1 个%2" )
             .arg( acquired.wells.size() )

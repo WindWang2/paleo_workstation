@@ -24,6 +24,25 @@ namespace
 {
 using paleo::qgis_detail::setError;
 
+// 旧声明没写 title，图层树和编辑下拉就露出 constraints.D62。
+// 只在名字仍是机器 id 时补中文名，不覆盖用户改过的名字。
+void applyConstraintDisplayName(QgsMapLayer *layer, const QString &layerId, const QString &declaredTitle)
+{
+  if (!layer)
+    return;
+  QString title = declaredTitle;
+  const QString prefix = QStringLiteral("constraints.");
+  if (title.isEmpty() && layerId.startsWith(prefix)) {
+    const QString horizon = layerId.mid(prefix.size());
+    if (!horizon.isEmpty() && !horizon.contains(QLatin1Char('.')))
+      title = QObject::tr("%1 约束线").arg(horizon);
+  }
+  if (title.isEmpty())
+    return;
+  if (layer->name().isEmpty() || layer->name() == layerId)
+    layer->setName(title);
+}
+
   // The project service is the authority when present; a null service falls back
   // to the QgsProject singleton so tests/early boot can run without it.
   QgsProject *svcProject(QgisProjectService *svc)
@@ -107,6 +126,8 @@ bool QgisLayerService::declare(const LayerDeclaration &decl, QString *error)
       qWarning("QgisLayerService::declare: re-instantiating '%s' after source change failed: %s",
                qPrintable(decl.layerId), qPrintable(reErr));
   }
+  if (QgsMapLayer *live = m_instances.value(decl.layerId).data())
+    applyConstraintDisplayName(live, decl.layerId, decl.title);
   emit layerDeclared(decl.layerId);
   return true;
 }
@@ -120,8 +141,10 @@ QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *erro
     // never be handed back as live.
     QgsProject *proj = svcProject(m_projectSvc);
     const auto live = proj ? proj->mapLayers().values() : QList<QgsMapLayer *>();
-    if (live.contains(existing))
+    if (live.contains(existing)) {
+      applyConstraintDisplayName(existing, layerId, {});
       return existing;
+    }
     m_instances.remove(layerId); // stale entry — fall through and re-create
   }
   else
@@ -178,6 +201,8 @@ QgsMapLayer *QgisLayerService::instantiate(const QString &layerId, QString *erro
   // 即发（图层树布局器此刻归位，须已能认出声明归属）。
   if (!decl->title.isEmpty())
     layer->setName(decl->title); // 显示名优先 title，机器名仍在 paleoLayerId
+  else
+    applyConstraintDisplayName(layer.get(), decl->layerId, {});
   layer->setCustomProperty(QStringLiteral("paleoLayerId"), decl->layerId);
   // P1-C：约束库 GPKG 层无 SRS——按库约定补本地工程网格 CRS，画布按工程
   // 转换上下文显示（配准工程走显式坐标操作），不再把无 CRS 层当画布坐标。
@@ -412,8 +437,10 @@ void QgisLayerService::adoptProjectLayers()
   {
     const QString paleoId =
         it.value()->customProperty(QStringLiteral("paleoLayerId")).toString();
-    if (!paleoId.isEmpty())
+    if (!paleoId.isEmpty()) {
+      applyConstraintDisplayName(it.value(), paleoId, {});
       trackInstance(paleoId, it.value());
+    }
   }
 }
 

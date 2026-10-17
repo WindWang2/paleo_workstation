@@ -164,6 +164,7 @@ private slots:
     const QVector<LayerDeclaration> decls = s->layerSvc->declared();
     QCOMPARE(decls.size(), 1);
     QCOMPARE(decls.at(0).layerId, QStringLiteral("constraints.T1"));
+    QCOMPARE(decls.at(0).title, QStringLiteral("T1 约束线"));
 
     // 入库回读：type 列与 params_json.semantic 逐行对号。
     const QVector<QVariantMap> rows = s->wf->loadConstraints(QStringLiteral("T1"));

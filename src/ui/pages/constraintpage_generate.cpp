@@ -98,9 +98,10 @@ void ConstraintPage::buildGenerateSection( QWidget *content, QVBoxLayout *lay )
     params.insert( QStringLiteral( "cellSize" ), cell->value() );
     if (known && interpolantEngine(def.processingAlgId)) {
       const QVariantMap extraction = wellFactorParams();
-      // 无服务的历史调用仍可设置 factorFieldEdit；真实字段面已绑定时写明口径。
+      // auto：用已提取的井点因子（factor_value），不要退回隐藏的字段 z。
+      const QString mode = extraction.value(QStringLiteral("factorMode")).toString();
       if (!extraction.value(QStringLiteral("valueField")).toString().isEmpty() ||
-          extraction.value(QStringLiteral("factorMode")) == QStringLiteral("ratio")) {
+          mode == QLatin1String("ratio") || mode == QLatin1String("auto")) {
         for (auto i = extraction.cbegin(); i != extraction.cend(); ++i) params.insert(i.key(), i.value());
       }
     }
@@ -191,7 +192,9 @@ void ConstraintPage::buildContourSection( QWidget *content, QVBoxLayout *lay )
   useMono( interval );
   lay->addWidget( interval );
 
-  lay->addWidget( caption( tr( "等值线来源" ), content ) );
+  auto *sourceCaption = caption( tr( "等值线来源" ), content );
+  sourceCaption->setObjectName( QStringLiteral( "factorContourSourceCaption" ) );
+  lay->addWidget( sourceCaption );
   auto *contourMode = new QComboBox( content );
   contourMode->setObjectName( QStringLiteral( "factorContourModeCombo" ) );
   contourMode->addItem( tr( "真实数值等值线" ), QStringLiteral( "analysis" ) );
@@ -209,6 +212,25 @@ void ConstraintPage::buildContourSection( QWidget *content, QVBoxLayout *lay )
   sourceNote->setObjectName( QStringLiteral( "factorContourSourceLabel" ) );
   sourceNote->setWordWrap( true );
   lay->addWidget( sourceNote );
+
+  auto *algorithmCaption = caption( tr( "等值线算法" ), content );
+  algorithmCaption->setObjectName( QStringLiteral( "factorContourAlgorithmCaption" ) );
+  lay->addWidget( algorithmCaption );
+  auto *algorithm = new QComboBox( content );
+  algorithm->setObjectName( QStringLiteral( "factorContourAlgorithmCombo" ) );
+  algorithm->setAccessibleName( tr( "等值线算法" ) );
+  for ( const paleo::singlefactor::ContourExtractPack &pack :
+        paleo::singlefactor::contourExtractPacks() )
+  {
+    algorithm->addItem( pack.label, pack.id );
+    algorithm->setItemData( algorithm->count() - 1, pack.geologicalNote, Qt::ToolTipRole );
+  }
+  const int partitioned =
+      algorithm->findData( QStringLiteral( "partitioned_marching_squares" ) );
+  if ( partitioned >= 0 )
+    algorithm->setCurrentIndex( partitioned );
+  lay->addWidget( algorithm );
+
   connect( contourMode, &QComboBox::currentIndexChanged, this, [this, contourMode, levelsEdit, sourceNote] {
     const bool interpretive = contourMode->currentData().toString() == QLatin1String( "cartographic_detour" );
     levelsEdit->setVisible( interpretive );
@@ -222,7 +244,7 @@ void ConstraintPage::buildContourSection( QWidget *content, QVBoxLayout *lay )
   contour->setObjectName( QStringLiteral( "contourButton" ) );
   contour->setEnabled( false ); // 勾选且已生成的因素才有可等值线的栅格
   lay->addWidget( contour );
-  connect( contour, &QPushButton::clicked, this, [this, interval, contourMode, levelsEdit] {
+  connect( contour, &QPushButton::clicked, this, [this, interval, contourMode, levelsEdit, algorithm] {
     const QString layerId = checkedFactorLayerId();
     if ( layerId.isEmpty() )
       return;
@@ -242,7 +264,7 @@ void ConstraintPage::buildContourSection( QWidget *content, QVBoxLayout *lay )
       emit interpretiveContourRequested( layerId, levels );
       return;
     }
-    emit contourRequested( layerId, interval->value() );
+    emit contourRequested( layerId, interval->value(), algorithm->currentData().toString() );
   } );
 }
 
@@ -426,7 +448,7 @@ void ConstraintPage::noteRunStage( const QString &stage, int percent )
 }
 
 void ConstraintPage::buildFactorResultsSection(QWidget *content, QVBoxLayout *lay) {
-  lay->addWidget(caption(tr("4 · 已保存成果 / 后续编图证据"), content));
+  lay->addWidget(caption(tr("已保存成果"), content));
   auto *hint = new QLabel(tr("井点数据、等值面和等值线自动保存为工程版本。后续编图引用具体版本，保"
                              "留输入数据、约束及算法参数来源。"),
                           content);

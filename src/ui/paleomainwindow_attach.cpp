@@ -629,6 +629,19 @@ void PaleoMainWindow::attachWorkflows(PredictionWorkflow *pred, ConstraintWorkfl
 
   PaleoEditingToolbar *editTb =
       attachShellSurfaces(store, procSvc, editSvc, layoutSvc, taskSvc);
+  if (editTb)
+    connect(editTb, &PaleoEditingToolbar::editingStopped, this,
+            [this](const QString &nativeId, bool saved) {
+              if (!saved || !m_projectSvc || !m_projectSvc->project())
+                return;
+              auto *layer = m_projectSvc->project()->mapLayer(nativeId);
+              const QString id = layer ? layer->customProperty(QStringLiteral("paleoLayerId")).toString()
+                                       : QString();
+              const QString prefix = QStringLiteral("constraints.");
+              if (!id.startsWith(prefix) || id.mid(prefix.size()).contains(QLatin1Char('.')))
+                return;
+              showDrawnConstraintLines(id.mid(prefix.size()));
+            });
 
   buildRibbonPanels(dataPage, predictPage, constraintPage, composePage, validatePage, editTb);
 

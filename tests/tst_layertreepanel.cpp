@@ -778,6 +778,54 @@ class TestLayerTreePanel : public QObject
       QCOMPARE(spy.takeFirst().at(0).toString(), manual->id());
     }
 
+    // 右键「属性表」：矢量层发 paleoLayerId（手工层回退 id）；栅格禁用并带原因。
+    void attributeTableActionOpensVectorLayer()
+    {
+      QTemporaryDir tmp;
+      QVERIFY(tmp.isValid());
+      LayerManifest manifest(tmp.filePath(QStringLiteral("project.sqlite")));
+      QVERIFY(manifest.open());
+      QgisLayerService svc(nullptr, &manifest);
+      LayerTreePanel panel(QgsProject::instance(), nullptr, &svc);
+      auto *view = panel.treeView();
+      auto *act = panel.findChild<QAction *>(QStringLiteral("layerTreeAttributeTableAction"));
+      QVERIFY(act);
+      QVERIFY2(!act->isEnabled(), "无选中图层时属性表动作应禁用");
+      QVERIFY(act->toolTip().contains(QString::fromUtf8("未选中图层")));
+
+      auto *managed = new QgsVectorLayer(QStringLiteral("LineString"),
+                                         QString::fromUtf8("D62 约束线"),
+                                         QStringLiteral("memory"));
+      managed->setCustomProperty(QStringLiteral("paleoLayerId"),
+                                 QStringLiteral("constraints.D62"));
+      QgsProject::instance()->addMapLayer(managed);
+      auto *manual = new QgsVectorLayer(QStringLiteral("Point"),
+                                        QString::fromUtf8("手工点"), QStringLiteral("memory"));
+      QgsProject::instance()->addMapLayer(manual);
+      auto *raster = new QgsRasterLayer(QStringLiteral("/nonexistent/D62.tif"),
+                                        QString::fromUtf8("D62 栅格"), QStringLiteral("gdal"));
+      QgsProject::instance()->addMapLayer(raster);
+
+      QSignalSpy spy(&panel, &LayerTreePanel::attributeTableRequested);
+      view->setCurrentLayer(managed);
+      QTRY_VERIFY(act->isEnabled());
+      act->trigger();
+      QCOMPARE(spy.count(), 1);
+      QCOMPARE(spy.takeFirst().at(0).toString(), QStringLiteral("constraints.D62"));
+
+      view->setCurrentLayer(manual);
+      QTRY_VERIFY(act->isEnabled());
+      act->trigger();
+      QCOMPARE(spy.count(), 1);
+      QCOMPARE(spy.takeFirst().at(0).toString(), manual->id());
+
+      view->setCurrentLayer(raster);
+      QTRY_VERIFY(!act->isEnabled());
+      QVERIFY(act->toolTip().contains(QString::fromUtf8("仅矢量图层")));
+      act->trigger();
+      QCOMPARE(spy.count(), 0);
+    }
+
     // ---- goal/time-depth-velocity：「转换为深度域…」意图信号 ----
     // 仅时间域层位（paleoLayerId horizon.*）可用；深度产物/手工层不给入口。
     void depthConvertActionEmitsIntent()

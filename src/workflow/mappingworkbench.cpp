@@ -285,9 +285,13 @@ void MappingWorkbench::synchronizeCatalogLayers() {
       d.title = e.value("title", a.displayName).toString() +
                 tr(" · v%1").arg(v.versionNumber);
       d.title.replace(QStringLiteral("测井优势相"), QStringLiteral("测井相"));
-      declareMissing(d);
       if (e.value("kind") == "constraint_snapshot" &&
-          m_catalog->currentVersion(a.id).id == v.id)
+          m_catalog->currentVersion(a.id).id != v.id) {
+        m_layers->removeDeclaration(d.layerId);
+        continue;
+      }
+      declareMissing(d);
+      if (e.value("kind") == "constraint_snapshot")
         m_constraints->setProperty(
             ("paleo.constraint.snapshot." + d.horizon).toUtf8().constData(),
             filePath(d.source));

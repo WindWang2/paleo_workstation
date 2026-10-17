@@ -37,7 +37,7 @@ QLabel *ConstraintPage::buildFieldAndCellRows( QVBoxLayout *lay )
   lay->addWidget( field );
   fieldCaption->hide(); field->hide(); // 保留旧自动化契约；可见入口由真实字段下拉承担。
 
-  auto *cellCaption = caption(tr("像元大小"), this);
+  auto *cellCaption = caption(tr("网格大小"), this);
   lay->addWidget(cellCaption);
   auto *cell = new QDoubleSpinBox( this );
   cell->setObjectName( QStringLiteral( "factorCellSizeSpin" ) );
@@ -52,7 +52,7 @@ QLabel *ConstraintPage::buildFieldAndCellRows( QVBoxLayout *lay )
 
 void ConstraintPage::buildMethodSection( QWidget *content, QVBoxLayout *lay )
 {
-  auto *methodCaption = caption( tr( "成图方法" ), content );
+  auto *methodCaption = caption( tr( "等值面算法" ), content );
   methodCaption->setObjectName( QStringLiteral( "factorMethodCaption" ) );
   lay->addWidget( methodCaption );
   auto *method = new QComboBox( content );
@@ -399,15 +399,21 @@ void ConstraintPage::updateEngineRows()
     isopach = known && def.processingAlgId == QLatin1String( "paleo:paleo_isopach" );
     interpolant = !known || interpolantEngine( def.processingAlgId );
   }
-  const QStringList interpolationNames = {
-      QStringLiteral( "factorMethodCaption" ), QStringLiteral( "factorMethodCombo" ),
-      QStringLiteral( "factorCoverageCaption" ), QStringLiteral( "factorCoverageCombo" ),
-      QStringLiteral( "factorAdvancedSection" ), QStringLiteral( "factorLegacyIdwCaption" ),
-      QStringLiteral( "idwField" ), QStringLiteral( "idwCellSize" ), QStringLiteral( "runIdwButton" ) };
-  for ( const QString &name : interpolationNames )
+  for ( const QString &name : { QStringLiteral( "factorMethodCaption" ),
+                                QStringLiteral( "factorMethodCombo" ) } )
   {
     if ( auto *widget = findChild<QWidget *>( name ) )
       widget->setVisible( interpolant );
+  }
+  // 覆盖方式、高级参数和长说明留在控件里，页面上不展开。
+  const QStringList hiddenChrome = {
+      QStringLiteral( "factorCoverageCaption" ), QStringLiteral( "factorCoverageCombo" ),
+      QStringLiteral( "factorAdvancedSection" ), QStringLiteral( "factorStrategyNote" ),
+      QStringLiteral( "factorLegacySection" ), QStringLiteral( "realizationSection" ) };
+  for ( const QString &name : hiddenChrome )
+  {
+    if ( auto *widget = findChild<QWidget *>( name ) )
+      widget->setVisible( false );
   }
 
   const QString selectedMethod = child<QComboBox>(this, "factorMethodCombo")->currentData().toString();
@@ -460,20 +466,26 @@ void ConstraintPage::updateEngineRows()
     }
   }
   child<QCheckBox>(this, "factorClusterCheck")->setVisible(selectedMethod == QLatin1String("local_direction_idw") || selectedMethod == QLatin1String("structural_idw"));
-  const bool directionWeights = selectedMethod == QLatin1String("local_direction_idw") || selectedMethod == QLatin1String("structural_idw");
-  for (const char *name : {"factorDirectionRatioSpin", "factorInfluenceSpin", "factorCoreSpin"}) {
+  for (const char *name : {"factorDirectionRatioSpin", "factorInfluenceSpin", "factorCoreSpin",
+                           "directionFamilyTypeCombo", "breakFamilyTypeCombo",
+                           "constraintBlockModeCombo", "constraintBlockModeCaption"}) {
     auto *w = findChild<QWidget *>(QString::fromLatin1(name));
-    w->setVisible(directionWeights);
-    auto *layout = w->parentWidget()->layout();
-    const int index = layout->indexOf(w);
-    if (index > 0) layout->itemAt(index - 1)->widget()->setVisible(directionWeights);
+    if (!w)
+      continue;
+    w->setVisible(false);
+    if (auto *layout = w->parentWidget() ? w->parentWidget()->layout() : nullptr) {
+      const int index = layout->indexOf(w);
+      if (index > 0)
+        if (auto *caption = qobject_cast<QLabel *>(layout->itemAt(index - 1)->widget()))
+          if (caption->objectName().isEmpty())
+            caption->setVisible(false);
+    }
   }
   child<QDoubleSpinBox>(this, "factorAnisotropyAngleSpin")->setVisible(selectedMethod == QLatin1String("surfer_idw"));
   child<QLabel>(this, "factorAnisotropyAngleCaption")->setVisible(selectedMethod == QLatin1String("surfer_idw"));
-  const bool coverageParameter = selectedMethod == QLatin1String("local_direction_idw") || selectedMethod == QLatin1String("local_direction_kriging") || selectedMethod == QLatin1String("structural_idw") || selectedMethod == QLatin1String("surfer_idw");
-  child<QWidget>(this, "factorCoverageCaption")->setVisible(interpolant && coverageParameter);
-  child<QWidget>(this, "factorCoverageCombo")->setVisible(interpolant && coverageParameter);
-  child<QLabel>(this, "factorStrategyNote")->setVisible(interpolant);
+  child<QWidget>(this, "factorCoverageCaption")->setVisible(false);
+  child<QWidget>(this, "factorCoverageCombo")->setVisible(false);
+  child<QLabel>(this, "factorStrategyNote")->setVisible(false);
   findChild<QWidget *>(QStringLiteral("wellFactorSection"))->setVisible(interpolant);
   // WS-C5：结构 IDW 专属行——成图边界（面图层）+ 格网分辨率。
   auto *method = child<QComboBox>( this, "factorMethodCombo" );
@@ -508,18 +520,35 @@ void ConstraintPage::updateEngineRows()
              property( kLayersProp ).value<QObject *>() ) )
     {
       const QVector<LayerDeclaration> declared = svc->declared();
-      for ( int pass = 0; pass < 2; ++pass )
+      const auto usable = []( const LayerDeclaration &d ) {
+        if ( d.type.compare( QStringLiteral( "vector" ), Qt::CaseInsensitive ) != 0 )
+          return false;
+        // 井点、约束线和属性表不是成图边界。约束线里还有另一套坐标，
+        // 选上去会把全部井判成边界外。
+        const QString &id = d.layerId;
+        if ( id == QLatin1String( "wells" ) || id.startsWith( QLatin1String( "welllog." ) ) ||
+             id.startsWith( QLatin1String( "wellfactor." ) ) ||
+             id.startsWith( QLatin1String( "constraints." ) ) ||
+             id.startsWith( QLatin1String( "constraintgeom." ) ) )
+          return false;
+        return true;
+      };
+      for ( int pass = 0; pass < 3; ++pass )
         for ( const LayerDeclaration &d : declared )
         {
-          if ( d.type.compare( QStringLiteral( "vector" ), Qt::CaseInsensitive ) != 0 )
+          if ( !usable( d ) )
             continue;
-          const bool dedicated = d.layerId.startsWith( QStringLiteral( "boundary." ) );
-          if ( ( pass == 0 ) != dedicated )
+          const bool survey = d.layerId == QLatin1String( "survey.area" );
+          const bool dedicated = d.layerId.startsWith( QLatin1String( "boundary." ) );
+          const int slot = survey ? 0 : dedicated ? 1 : 2;
+          if ( slot != pass )
             continue;
           boundaryCombo->addItem( d.title.isEmpty() ? d.layerId : d.title, d.layerId );
         }
     }
-    const int idx = boundaryCombo->findData( keep );
+    int idx = boundaryCombo->findData( keep );
+    if ( idx < 0 )
+      idx = boundaryCombo->findData( QStringLiteral( "survey.area" ) );
     boundaryCombo->setCurrentIndex( idx >= 0 ? idx : 0 );
     boundaryCombo->blockSignals( false );
   }

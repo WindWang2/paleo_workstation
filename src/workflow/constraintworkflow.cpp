@@ -240,6 +240,11 @@ QString lineParamsJson( const QString &type, const QVariantMap &lineParams, QStr
   return QString::fromUtf8( QJsonDocument( QJsonObject::fromVariantMap( stored ) ).toJson( QJsonDocument::Compact ) );
 }
 
+QString constraintLayerTitle(const QString &horizon)
+{
+  return ConstraintWorkflow::tr("%1 约束线").arg(horizon);
+}
+
 // P3 混合几何：约束库 constraints 表声明为 wkbUnknown，OGR 按**首要素**给图层
 // 几何类型——主图层 constraints.<层位> 只按该类型渲染/捕获，其余类型的行不可见。
 // 主图层不能按类型过滤：编辑会话要求它覆盖层位全部行（会话起点行数 == store），
@@ -496,7 +501,21 @@ bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &w
     return false;
   }
 
-  // In-memory constraint record (member-equivalent state via property).
+  // 编号在全库唯一。只看当前层位会从 c-1 重新计，撞上其他层位已有的
+  // c-1 后，保存被拒并撤回，空子集又被 QGIS 读成无几何属性表。
+  if ( ConstraintStore *existing = constraintStore() )
+  {
+    for ( const QVariantMap &row : existing->load() )
+    {
+      const QString id = row.value( QStringLiteral( "id" ) ).toString();
+      if ( !id.startsWith( QLatin1String( "c-" ) ) )
+        continue;
+      bool ok = false;
+      const int num = id.mid( 2 ).toInt( &ok );
+      if ( ok && num > m_inMemorySeq )
+        m_inMemorySeq = num;
+    }
+  }
   Constraint c;
   const int seq = ++m_inMemorySeq;
   c.id = QStringLiteral( "c-%1" ).arg( seq );
@@ -566,6 +585,7 @@ bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &w
     LayerDeclaration decl;
     decl.layerId = QStringLiteral( "constraints.%1" ).arg( horizon );
     decl.horizon = horizon;
+    decl.title = constraintLayerTitle(horizon);
     decl.type = QStringLiteral( "vector" );
     decl.source = QStringLiteral( "%1|layername=constraints" ).arg( cs->gpkgPath() ) +
                   paleo::workflow_detail::constraintHorizonSubsetSuffix( horizon );
@@ -608,6 +628,7 @@ bool ConstraintWorkflow::addConstraint( const QString &horizon, const QString &w
   LayerDeclaration decl;
   decl.layerId = QStringLiteral( "constraints.%1" ).arg( horizon );
   decl.horizon = horizon;
+  decl.title = constraintLayerTitle(horizon);
   decl.type = QStringLiteral( "vector" );
   decl.source = QStringLiteral( "memory|%1" ).arg( wkts.join( QLatin1Char( '|' ) ) );
   decl.group = PaleoLayerVocabulary::kConstraintsGroup;
@@ -931,6 +952,7 @@ QVector<QVariantMap> ConstraintWorkflow::loadConstraints( const QString &horizon
       LayerDeclaration decl;
       decl.layerId = QStringLiteral( "constraints.%1" ).arg( horizon );
       decl.horizon = horizon;
+      decl.title = constraintLayerTitle(horizon);
       decl.type = QStringLiteral( "vector" );
       decl.source = QStringLiteral( "%1|layername=constraints" ).arg( cs->gpkgPath() ) +
                     paleo::workflow_detail::constraintHorizonSubsetSuffix( horizon );
@@ -955,6 +977,7 @@ QVector<QVariantMap> ConstraintWorkflow::loadConstraints( const QString &horizon
         LayerDeclaration decl;
         decl.layerId = QStringLiteral( "constraints.%1" ).arg( h );
         decl.horizon = h;
+        decl.title = constraintLayerTitle(h);
         decl.type = QStringLiteral( "vector" );
         decl.source = QStringLiteral( "%1|layername=constraints" ).arg( cs->gpkgPath() ) +
                       paleo::workflow_detail::constraintHorizonSubsetSuffix( h );

@@ -28,6 +28,10 @@
 #include "derivedassets.h"
 #include "evidencerecord.h"
 #include "../domain/interpretationevidence.h"
+
+#include <QCryptographicHash>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include "../qgis/mappingfeatureidentity.h"
 #include "services/projectdata.h"
 #include "services/seismichorizoncluster.h"
@@ -566,6 +570,26 @@ bool MappingWorkbench::removeProduct(const QString &layerId, QString *error, boo
                            .arg(m_project->lastErrors().join("；")));
   return true;
 }
+namespace {
+QString constraintRowsHash(const QVector<QVariantMap> &rows) {
+  QStringList lines;
+  for (const QVariantMap &row : rows) {
+    const auto params = row.value(QStringLiteral("params"));
+    const QString paramText = params.metaType().id() == QMetaType::QVariantMap
+        ? QString::fromUtf8(QJsonDocument(QJsonObject::fromVariantMap(params.toMap()))
+                                .toJson(QJsonDocument::Compact))
+        : params.toString();
+    lines << row.value(QStringLiteral("id")).toString() + QLatin1Char('\t') +
+                 row.value(QStringLiteral("horizon")).toString() + QLatin1Char('\t') +
+                 row.value(QStringLiteral("type")).toString() + QLatin1Char('\t') +
+                 row.value(QStringLiteral("wkt")).toString() + QLatin1Char('\t') + paramText;
+  }
+  lines.sort();
+  return QString::fromLatin1(
+      QCryptographicHash::hash(lines.join(QLatin1Char('\n')).toUtf8(), QCryptographicHash::Sha256).toHex());
+}
+} // namespace
+
 QString MappingWorkbench::snapshotConstraints(const QString &h,
                                               const QStringList &parents,
                                               QString *error) {
@@ -577,8 +601,28 @@ QString MappingWorkbench::snapshotConstraints(const QString &h,
     return {};
   }
   auto *store = m_constraints->constraintStore();
-  if (!store || m_constraints->loadConstraints(h).isEmpty())
+  const auto liveRows = m_constraints->loadConstraints(h);
+  if (!store || liveRows.isEmpty())
     return {};
+  const QString liveHash = constraintRowsHash(liveRows);
+  const QByteArray snapshotKey = ("paleo.constraint.snapshot." + h).toUtf8();
+  if (m_catalog) {
+    const QString display = h + QStringLiteral("-constraint_snapshot");
+    for (const auto &asset : m_catalog->assets()) {
+      if (asset.type != QLatin1String("constraint_snapshot") || asset.displayName != display)
+        continue;
+      const auto current = m_catalog->currentVersion(asset.id);
+      if (current.extra.value(QStringLiteral("content_hash")).toString() != liveHash)
+        break;
+      const auto path = DataCatalog::resolvedVersionPath(m_dir, current);
+      if (path.isEmpty() || !QFile::exists(path))
+        break;
+      m_constraints->setProperty(snapshotKey.constData(), path);
+      return current.extra.value(QStringLiteral("layer_id"),
+                                 QStringLiteral("product.%1").arg(current.id))
+          .toString();
+    }
+  }
   QgsVectorLayer layer(store->gpkgPath() + "|layername=constraints" +
                            paleo::workflow_detail::constraintHorizonSubsetSuffix(h),
                        "constraints", "ogr");
@@ -601,17 +645,27 @@ QString MappingWorkbench::snapshotConstraints(const QString &h,
   if (!old.isEmpty())
     upstream
         << DerivedAssetRegistrar(m_catalog, m_dir).parentVersionIdsFor({old});
-  QVariantMap snapshotExtra{{"method", "constraint-snapshot"}};
+  QVariantMap snapshotExtra{{"method", "constraint-snapshot"},
+                            {"content_hash", liveHash}};
   if (auditEvents > 0)
     snapshotExtra.insert(QStringLiteral("constraint_audit_events"), auditEvents);
   const auto id =
       record(path, h, "constraint_snapshot", tr("%1 约束过程").arg(h), "vector",
              upstream, snapshotExtra, error,
              "|layername=features");
-  if (!id.isEmpty())
-    m_constraints->setProperty(
-        ("paleo.constraint.snapshot." + h).toUtf8().constData(),
-        filePath(declaration(id).source));
+  if (!id.isEmpty()) {
+    m_constraints->setProperty(snapshotKey.constData(), filePath(declaration(id).source));
+    const QString display = h + QStringLiteral("-constraint_snapshot");
+    for (const auto &asset : m_catalog->assets()) {
+      if (asset.type != QLatin1String("constraint_snapshot") || asset.displayName != display)
+        continue;
+      for (const auto &version : m_catalog->versionsForAsset(asset.id)) {
+        const QString layerId = version.extra.value(QStringLiteral("layer_id")).toString();
+        if (!layerId.isEmpty() && layerId != id)
+          m_layers->removeDeclaration(layerId);
+      }
+    }
+  }
   return id;
 }
 bool MappingWorkbench::importConstraints(const QString &h, const QString &path,

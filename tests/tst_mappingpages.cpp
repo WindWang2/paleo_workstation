@@ -891,6 +891,7 @@ void FactorPageTests::generateFactorPayload()
   const QVariantMap params = spy.at( 0 ).at( 2 ).toMap();
   QCOMPARE( params.value( QStringLiteral( "field" ) ).toString(), QStringLiteral( "sand_thick" ) );
   QCOMPARE( params.value( QStringLiteral( "cellSize" ) ).toDouble(), 2.5 );
+  QCOMPARE( params.value( QStringLiteral( "factorMode" ) ).toString(), QStringLiteral( "auto" ) );
 }
 
 void FactorPageTests::factorCheckIsExclusive()
@@ -967,6 +968,7 @@ void FactorPageTests::contourRowGatingAndSignal()
   QCOMPARE( spy.count(), 1 );
   QCOMPARE( spy.at( 0 ).at( 0 ).toString(), QStringLiteral( "factor.T1.sandthick" ) );
   QCOMPARE( spy.at( 0 ).at( 1 ).toDouble(), 15.0 );
+  QCOMPARE( spy.at( 0 ).at( 2 ).toString(), QStringLiteral( "partitioned_marching_squares" ) );
 
   // #430：状态列回执改为「等值面已保存」（layerId 在 tooltip）。
   QCOMPARE( factors->item( 0, 3 )->text(), QStringLiteral( "等值面已保存" ) );
@@ -982,7 +984,7 @@ void FactorPageTests::thicknessSamplesInsideCollapsibleSection()
   auto *caption = page.findChild<QLabel *>(QStringLiteral("thicknessCaption"));
   auto *hint = page.findChild<QLabel *>(QStringLiteral("thicknessHint"));
   QVERIFY( section && table && caption && hint );
-  QVERIFY( table->isVisibleTo( section ) ); // 默认展开（不依赖整页 show）
+  QVERIFY( !table->isVisibleTo( section ) ); // 默认收起，不占单因素主流程
   // 厚度表确实在折叠区容器内（挪进了 CollapsibleSection）。
   QVERIFY( table->parentWidget() != &page );
   QCOMPARE( table->columnCount(), 4 );
@@ -991,6 +993,8 @@ void FactorPageTests::thicknessSamplesInsideCollapsibleSection()
   // 折叠后仍能 findChild（objectName 不因折叠失效），且表隐藏。
   auto *toggle = section->findChild<QToolButton *>();
   QVERIFY( toggle != nullptr );
+  toggle->setChecked( true );
+  QVERIFY( table->isVisibleTo( section ) );
   toggle->setChecked( false );
   QVERIFY( !table->isVisibleTo( section ) );
   QVERIFY( page.findChild<QTableWidget *>(QStringLiteral("thicknessTable")) != nullptr );
@@ -1216,9 +1220,10 @@ void FactorPageTests::cokrigingCovariateControls()
   horizons->addItem( QStringLiteral( "T1" ) );
   factors->item( 0, 0 )->setCheckState( Qt::Checked );
   method->setCurrentIndex( method->findData( QStringLiteral( "cokriging" ) ) );
-  QVERIFY( covariate->isVisibleTo( &page ) );
+  auto *advanced = page.findChild<QWidget *>( QStringLiteral( "factorAdvancedSection" ) );
+  QVERIFY( covariate->isVisibleTo( advanced ) );
   QVERIFY( covariate->isEnabled() );
-  QVERIFY( rho->isVisibleTo( &page ) );
+  QVERIFY( rho->isVisibleTo( advanced ) );
   QCOMPARE( covariate->count(), 1 );
   QVERIFY( covariate->itemText( 0 ).contains( QStringLiteral( "无" ) ) );
   QCOMPARE( covariate->currentData().toString(), QString() );
@@ -1234,7 +1239,7 @@ void FactorPageTests::cokrigingCovariateControls()
   QCOMPARE( params.value( QStringLiteral( "crossCorrelation" ) ).toDouble(), 0.4 );
 
   method->setCurrentIndex( method->findData( QStringLiteral( "kriging" ) ) );
-  QVERIFY( !covariate->isVisibleTo( &page ) );
+  QVERIFY( !covariate->isVisibleTo( advanced ) );
   page.findChild<QPushButton *>( QStringLiteral( "generateFactorButton" ) )->click();
   QVERIFY( !generated.at( 1 ).at( 2 ).toMap().contains( QStringLiteral( "covariateLayerId" ) ) );
 }
@@ -1398,8 +1403,12 @@ void FactorPageTests::wellFactorExtractionPayload() {
   auto *den = page.findChild<QComboBox *>(QStringLiteral("factorDenominatorFieldCombo"));
   auto *extract = page.findChild<QPushButton *>(QStringLiteral("extractWellFactorsButton"));
   auto *generate = page.findChild<QPushButton *>(QStringLiteral("generateFactorButton"));
-  value->setCurrentIndex(value->findData(QStringLiteral("ratio")));
-  // #430：绑定真实字段后，提取/生成都先要求间隔线+方向线。
+  QCOMPARE(extract->text(), QStringLiteral("提取"));
+  QVERIFY(!mode->isVisible());
+  QVERIFY(!value->isVisible());
+  QVERIFY(!num->isVisible());
+  QVERIFY(!den->isVisible());
+  // 提取先要求间隔线和方向线，不再要求手选字段。
   QVERIFY(!extract->isEnabled());
   QVERIFY2(extract->toolTip().contains(QStringLiteral("间隔线")), qPrintable(extract->toolTip()));
   QVERIFY(!generate->isEnabled());
@@ -1411,17 +1420,7 @@ void FactorPageTests::wellFactorExtractionPayload() {
   QSignalSpy extracted(&page, &ConstraintPage::extractWellFactorsRequested);
   extract->click(); QCOMPARE(extracted.count(), 1);
   QCOMPARE(extracted[0][0].toString(), QStringLiteral("sandratio"));
-  QCOMPARE(extracted[0][2].toMap().value("factorMode").toString(), QStringLiteral("direct"));
-  QCOMPARE(extracted[0][2].toMap().value("valueField").toString(), QStringLiteral("ratio"));
-  mode->setCurrentIndex(mode->findData(QStringLiteral("ratio")));
-  QVERIFY(!extract->isEnabled());
-  num->setCurrentIndex(num->findData(QStringLiteral("sand")));
-  den->setCurrentIndex(den->findData(QStringLiteral("gross")));
-  extract->click(); QCOMPARE(extracted.count(), 2);
-  const auto params = extracted[1][2].toMap();
-  QCOMPARE(params.value("factorMode").toString(), QStringLiteral("ratio"));
-  QCOMPARE(params.value("numeratorField").toString(), QStringLiteral("sand"));
-  QCOMPARE(params.value("denominatorField").toString(), QStringLiteral("gross"));
+  QCOMPARE(extracted[0][2].toMap().value("factorMode").toString(), QStringLiteral("auto"));
   // 无 ConstraintWorkflow 时无法登记 preparedWellFactorVersion → 停在步骤 2。
   QVERIFY(!generate->isEnabled());
   QVERIFY2(generate->toolTip().contains(QStringLiteral("井点数据")), qPrintable(generate->toolTip()));
@@ -1430,31 +1429,41 @@ void FactorPageTests::wellFactorExtractionPayload() {
   page.setRunBusy(false);
   page.setWellFactorFields({});
   QVERIFY(!generate->isEnabled());
-  page.findChild<QTableWidget *>(QStringLiteral("factorTable"))->item(0, 0)->setCheckState(Qt::Checked);
-  QCOMPARE(mode->currentData().toString(), QStringLiteral("direct"));
 }
 
 void FactorPageTests::methodParameterVisibilityAndFamilies() {
   ConstraintPage page(nullptr); page.show();
   auto *method = page.findChild<QComboBox *>(QStringLiteral("factorMethodCombo"));
-  const auto visible = [&page](const char *name) { return page.findChild<QWidget *>(QString::fromLatin1(name))->isVisibleTo(&page); };
-  QVERIFY(visible("factorIdwParameters")); QVERIFY(!visible("factorVariogramParameters"));
-  QVERIFY(visible("factorDirectionRatioSpin"));
-  QVERIFY(!visible("runIdwButton")); // 原始字段旧入口收起；主流程走统一提取。
+  auto *advanced = page.findChild<QWidget *>(QStringLiteral("factorAdvancedSection"));
+  const auto shown = [&page](const char *name) {
+    return page.findChild<QWidget *>(QString::fromLatin1(name))->isVisibleTo(&page);
+  };
+  const auto inAdvanced = [advanced, &page](const char *name) {
+    return page.findChild<QWidget *>(QString::fromLatin1(name))->isVisibleTo(advanced);
+  };
+  QVERIFY(shown("factorMethodCombo"));
+  QVERIFY(!shown("factorCoverageCombo"));
+  QVERIFY(!shown("factorAdvancedSection"));
+  QVERIFY(shown("factorContourAlgorithmCombo"));
+  QVERIFY(inAdvanced("factorIdwParameters")); QVERIFY(!inAdvanced("factorVariogramParameters"));
+  QVERIFY(!shown("factorDirectionRatioSpin"));
+  QVERIFY(!shown("runIdwButton")); // 原始字段旧入口收起；主流程走统一提取。
   method->setCurrentIndex(method->findData(QStringLiteral("kriging")));
-  QVERIFY(!visible("factorIdwParameters")); QVERIFY(visible("factorVariogramParameters"));
-  QVERIFY(!visible("factorDirectionRatioSpin")); QVERIFY(!visible("factorSgsParameters"));
+  QVERIFY(!inAdvanced("factorIdwParameters")); QVERIFY(inAdvanced("factorVariogramParameters"));
+  QVERIFY(!shown("factorDirectionRatioSpin")); QVERIFY(!inAdvanced("factorSgsParameters"));
   method->setCurrentIndex(method->findData(QStringLiteral("local_direction_kriging")));
-  QVERIFY(visible("factorVariogramParameters")); QVERIFY(visible("factorNeighborhoodParameters"));
+  QVERIFY(inAdvanced("factorVariogramParameters")); QVERIFY(inAdvanced("factorNeighborhoodParameters"));
   method->setCurrentIndex(method->findData(QStringLiteral("sgs")));
-  QVERIFY(visible("factorSgsParameters"));
+  QVERIFY(inAdvanced("factorSgsParameters"));
   QVERIFY(!page.findChild<QLabel *>(QStringLiteral("factorStrategyNote"))->text().isEmpty());
   method->setCurrentIndex(method->findData(QStringLiteral("legacy")));
-  QVERIFY(visible("factorNoParametersLabel")); QVERIFY(!visible("factorVariogramParameters"));
+  QVERIFY(inAdvanced("factorNoParametersLabel")); QVERIFY(!inAdvanced("factorVariogramParameters"));
   auto *h = page.findChild<QComboBox *>(QStringLiteral("horizonCombo")); h->addItem(QStringLiteral("D61"));
   auto *directionType = page.findChild<QComboBox *>(QStringLiteral("directionFamilyTypeCombo"));
   auto *breakType = page.findChild<QComboBox *>(QStringLiteral("breakFamilyTypeCombo"));
-  QVERIFY(visible("directionFamilySection")); QVERIFY(visible("breakFamilySection"));
+  QVERIFY(shown("directionFamilySection")); QVERIFY(shown("breakFamilySection"));
+  QVERIFY(!shown("directionFamilyTypeCombo"));
+  QVERIFY(!shown("breakFamilyTypeCombo"));
   QSignalSpy draw(&page, &ConstraintPage::drawTypedConstraintRequested);
   directionType->setCurrentIndex(directionType->findData(QStringLiteral("cartographic_detour")));
   page.findChild<QPushButton *>(QStringLiteral("directionButton"))->click();

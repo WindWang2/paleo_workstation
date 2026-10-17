@@ -838,6 +838,10 @@ class TestFactorWorkflow : public QObject
       touch.write( "x" );
       touch.close();
       QVERIFY( wf.preparedWellFactorVersion( QStringLiteral( "D61" ), QStringLiteral( "sandratio" ), params ).isEmpty() );
+      wf.restoreWellFactors( QStringLiteral( "D61" ), QStringLiteral( "sandratio" ), params );
+      QCOMPARE( wf.wellFactorRows().size(), 2 );
+      QVERIFY( wf.wellFactorMessage().contains( QStringLiteral( "重新提取" ) ) );
+      QVERIFY( wf.preparedWellFactorVersion( QStringLiteral( "D61" ), QStringLiteral( "sandratio" ), params ).isEmpty() );
     }
 
     // U1 维护路径：来源快照守卫不误伤正常维护——同步路径落种成功且值来自

@@ -29,6 +29,8 @@
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/qgis/layervocabulary.h"
 #include "../src/qgis/qgisprojectservice.h"
+#include "../src/qgis/qgisstyleservice.h"
+#include <qgsrulebasedrenderer.h>
 #include "../src/metadata/layermanifest.h"
 #include "../src/workflow/workflows.h"
 #include "../src/ui/edittools/vertexeditortools.h"
@@ -656,6 +658,58 @@ private slots:
                                      {{"semantic", "hard_barrier"}}));
     QVERIFY(!error.isEmpty());
     QVERIFY(constraints.load("T2").isEmpty());
+  }
+
+  // 另一层位已有线时，在空层位上画间隔线并保存。保存前是线，保存后仍是线，
+  // 不能退回无几何的属性表。
+  void saveKeepsIntervalLineGeometry()
+  {
+    QTemporaryDir dir;
+    PaleoProjectStore store;
+    const QString gpkg = dir.filePath("project.gpkg");
+    store.setProjectPaths(dir.filePath("p.qgz"), gpkg, dir.filePath("m.sqlite"));
+    ConstraintStore constraints(gpkg, &store);
+    QString error;
+    QVERIFY2(constraints.appendExtended("D53", "c-1", "LINESTRING(0 0,10 0)", "break_line", 0,
+                                        "{\"semantic\":\"hard_barrier\"}", 1, &error),
+             qPrintable(error));
+    QgisProjectService project;
+    QVERIFY(project.createProject(dir.filePath("p.qgz")));
+    LayerManifest manifest(dir.filePath("m.sqlite"));
+    QVERIFY(manifest.open());
+    QgisLayerService layers(&project, &manifest);
+    QgisEditingService edits(&store);
+    ConstraintWorkflow workflow(nullptr, &layers);
+    workflow.setConstraintStore(&constraints);
+    workflow.setEditingService(&edits);
+    workflow.loadConstraints("D62");
+    QVERIFY2(workflow.drawConstraint("D62", "LINESTRING(1 1,8 4)", "break_line", 0, &error, nullptr,
+                                     {{"semantic", "hard_barrier"}}),
+             qPrintable(error));
+    auto *layer = qobject_cast<QgsVectorLayer *>(layers.layer("constraints.D62"));
+    QVERIFY(layer);
+    QCOMPARE(layer->geometryType(), Qgis::GeometryType::Line);
+    QgisStyleService::applyConstraintLayerStyle(layer);
+    auto *drawnStyle = dynamic_cast<QgsRuleBasedRenderer *>(layer->renderer());
+    QVERIFY(drawnStyle);
+    QCOMPARE(drawnStyle->rootRule()->children().size(), 2);
+    QCOMPARE(drawnStyle->rootRule()->children().at(0)->label(), QStringLiteral("方向线"));
+    QCOMPARE(drawnStyle->rootRule()->children().at(1)->label(), QStringLiteral("打断线"));
+    QVERIFY2(edits.commitEdit(layer, &error), qPrintable(error));
+    QVERIFY2(layer->geometryType() == Qgis::GeometryType::Line,
+             qPrintable(QStringLiteral("after save wkb=%1 type=%2 features=%3 source=%4 subset=%5")
+                            .arg(QgsWkbTypes::displayString(layer->wkbType()))
+                            .arg(int(layer->geometryType()))
+                            .arg(layer->featureCount())
+                            .arg(layer->source(), layer->subsetString())));
+    QCOMPARE(layer->featureCount(), 1);
+    auto *savedStyle = dynamic_cast<QgsRuleBasedRenderer *>(layer->renderer());
+    QVERIFY(savedStyle);
+    QCOMPARE(savedStyle->rootRule()->children().size(), 2);
+    const auto saved = constraints.load("D62");
+    QCOMPARE(saved.size(), 1);
+    QCOMPARE(saved.first().value(QStringLiteral("id")).toString(), QStringLiteral("c-2"));
+    QCOMPARE(constraints.load("D53").size(), 1);
   }
 
   // P3：混合几何层位按几何类型声明只读伴随视图（不迁移 GPKG、不改主图层）。

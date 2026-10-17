@@ -1063,6 +1063,11 @@ private slots:
     QCOMPARE(deleted.first().value("actor_id").toString(), QString("local:geologist"));
     QCOMPARE(snapshotStore.historyForHorizon("D61").size(), 3);
     QCOMPARE(f.constraints.loadConstraints("D61").size(), 1);
+    const auto versions = f.catalog.versions().size();
+    const auto again = f.work.snapshotConstraints("D61", {}, &error);
+    QVERIFY2(!again.isEmpty(), qPrintable(error));
+    QCOMPARE(again, layerId);
+    QCOMPARE(f.catalog.versions().size(), versions);
   }
   void linkedCanvasesFollowExtentCursorAndCanDisconnect() {
     QgsMapCanvas main, reference;

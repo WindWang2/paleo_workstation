@@ -19,8 +19,8 @@ class QVBoxLayout;
 //   · 因素表 factorTable（勾选互斥单选/名称/输入/状态「未生成|已生成·layerId」）
 //   · 参数行 factorFieldEdit/factorCellSizeSpin + generateFactorButton →
 //     generateFactorRequested(factorId, horizon, params)
-//   · 等值线行 contourIntervalSpin + contourButton → contourRequested(
-//     factorLayerId, interval)（§12：GIS LineString，不是画布临时线）
+//   · 等值线行 contourIntervalSpin + factorContourAlgorithmCombo +
+//     contourButton → contourRequested(factorLayerId, interval, contourMethod)
 //   · 勾选态变化 → factorVisibilityRequested(layerId, visible)（互斥上图意图）
 //   · 类型化约束线五入口 directionButton/breakLineButton/softBoundaryButton/
 //     contourStopButton/cartographicDetourButton →
@@ -81,7 +81,8 @@ class ConstraintPage : public QWidget
     void taskCenterRequested();
     void maintainWellFactorsRequested(const QString &horizon);
     void extractWellFactorsRequested(const QString &factorId, const QString &horizon, const QVariantMap &params);
-    void contourRequested(const QString &factorLayerId, double interval);
+    void contourRequested(const QString &factorLayerId, double interval,
+                          const QString &contourMethod);
     void interpretiveContourRequested(const QString &factorLayerId, const QVector<double> &levels);
     void runCancelRequested();
     void factorVisibilityRequested(const QString &layerId, bool visible);

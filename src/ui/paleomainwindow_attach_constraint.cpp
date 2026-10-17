@@ -6,6 +6,8 @@
 #include "../qgis/qgisprojectservice.h"
 #include "../qgis/qgislayerservice.h"
 #include "../qgis/qgislayerprofile.h"
+#include "../qgis/qgisstyleservice.h"
+#include "../qgis/layervocabulary.h"
 #include "../metadata/layermanifest.h"
 #include "../workflow/workflows.h"
 #include "../workflow/mappingworkbench.h"
@@ -43,6 +45,36 @@
 // ---------------------------------------------------------------------------
 // 约束页接线：绘制捕获 + IDW 插值（W4 拆分段）
 // ---------------------------------------------------------------------------
+void PaleoMainWindow::showDrawnConstraintLines(const QString &horizon)
+{
+  if (horizon.isEmpty() || !m_layerSvc)
+    return;
+  const QString layerId = QStringLiteral("constraints.%1").arg(horizon);
+  if (!revealDeclaredLayer(layerId, false))
+    return;
+  if (m_workbench)
+    m_workbench->styleLayer(layerId);
+  else if (auto *vector = qobject_cast<QgsVectorLayer *>(m_layerSvc->layer(layerId)))
+    QgisStyleService::applyConstraintLayerStyle(vector);
+  const QString lineViewId =
+      QStringLiteral("%1%2.line").arg(PaleoLayerVocabulary::kConstraintGeometryViewPrefix, horizon);
+  if (!m_layerSvc->declaration(lineViewId).layerId.isEmpty())
+    revealDeclaredLayer(lineViewId, false);
+  if (auto *vector = qobject_cast<QgsVectorLayer *>(m_layerSvc->layer(layerId)))
+    vector->triggerRepaint();
+  if (m_canvasCtl)
+  {
+    if (QgsMapCanvas *canvas = m_canvasCtl->canvas())
+    {
+      if (QgsMapLayer *layer = m_layerSvc->layer(layerId))
+        canvas->setCurrentLayer(layer);
+      canvas->refresh();
+    }
+  }
+  if (m_profileSvc)
+    m_profileSvc->captureCurrentAsTheme(QgisLayerProfileService::pageThemeName(currentPage()));
+}
+
 void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
                                            ConstraintWorkflow *constraint)
 {
@@ -67,6 +99,8 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
               [](const QString &err) {
                 QgsMessageLog::logMessage(err, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
               });
+      connect(drawCtl, &ConstraintDrawController::captureFinished, this,
+              [this](const QString &horizon, const QString &) { showDrawnConstraintLines(horizon); });
     }
     connect(constraintPage, &ConstraintPage::runIdwRequested, this,
             [this, constraint, constraintPage](const QString &horizon) {
@@ -370,7 +404,8 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
                       });
             });
     connect(constraintPage, &ConstraintPage::contourRequested, this,
-            [this, constraint, constraintPage](const QString &factorLayerId, double interval) {
+            [this, constraint, constraintPage](const QString &factorLayerId, double interval,
+                                               const QString &contourMethod) {
               const QString horizon = factorLayerId.startsWith(QStringLiteral("factor."))
                                          ? factorLayerId.mid(QStringLiteral("factor.").size())
                                               .section(QLatin1Char('.'), 0, 0)
@@ -385,7 +420,8 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
               {
                 constraintPage->setRunBusy(true);
                 QString err;
-                const bool ok = constraint->generateContours(horizon, factorLayerId, interval, &err);
+                const bool ok = constraint->generateContours(horizon, factorLayerId, interval, &err,
+                                                             contourMethod);
                 constraintPage->setRunBusy(false);
                 if (!ok)
                   fail(err.isEmpty() ? tr("等值线生成失败") : err);
@@ -399,7 +435,7 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
               auto job = std::make_shared<ConstraintWorkflow::AnalysisContourJob>();
               QString prepErr;
               if (!constraint->prepareAnalysisContourJob(horizon, factorLayerId, interval, {}, false,
-                                                         job.get(), &prepErr))
+                                                         job.get(), &prepErr, contourMethod))
               {
                 fail(prepErr.isEmpty() ? tr("等值线生成失败") : prepErr);
                 return;
@@ -540,6 +576,10 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
       connect(typedCtl, &TypedConstraintDrawController::captureFailed, this,
               [](const QString &err) {
                 QgsMessageLog::logMessage(err, QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+              });
+      connect(typedCtl, &TypedConstraintDrawController::captureFinished, this,
+              [this](const QString &horizon, const QString &, const QString &) {
+                showDrawnConstraintLines(horizon);
               });
     }
     connect(constraintPage, &ConstraintPage::constraintSelectionChanged, this,

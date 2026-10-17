@@ -4,6 +4,7 @@
 
 #include "../ai/onnxpredictionservice.h" // ORT-free header；符号引用受 PALEO_HAVE_ORT 守卫
 #include "../catalog/datacatalog.h"      // localGridCrsWkt — ONNX 栅格落在局部测网
+#include "../domain/arearules.h"         // AreaRules::active().targetHorizon（本文件直接用）
 #include "../metadata/paleoprojectstore.h"
 #include "../qgis/qgislayerservice.h"
 #include "../qgis/qgisprocessingservice.h"

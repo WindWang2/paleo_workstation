@@ -845,6 +845,14 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &result) {
             formationRows, &error, /*onlyMissing=*/true);
         if (maintained)
           ensureWellBaseLayers();
+        else if (!error.isEmpty()) {
+          // #480 P3-5：预测产物已登记 + 井表维护失败的并存态——不回滚也
+          // 不静默：如实区分「成果可用」与失败环节，并给出补救路径，
+          // 避免误读为整次预测失败。
+          error = tr("预测成果已登记（图件可用），但测井/地层预测信息维护失败：%1。"
+                     "可重新运行预测以补写井表，或在数据列表重建井属性表。")
+                      .arg(error);
+        }
       }
     }
   }

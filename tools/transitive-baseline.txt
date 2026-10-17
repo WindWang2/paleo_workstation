@@ -1,0 +1,20 @@
+# transitive-baseline —— --transitive 防增长闸基线（#474，tools/check_layering.py --transitive）。
+# 格式：每行 `<metric>: <int>`（`#` 开头为注释）。
+# 语义（只缩不涨）：当前值 > 基线 → FAIL（exit 1）；< 基线 → NOTE 可收缩
+#（--strict 下红，强制收缩后更新基线）；指标缺登记 → FAIL（不许无基线指标）。
+# 修复手段是删 include 边（重头出闸债的归属点在代表链上直接 include 重头的
+# repo 头），不落 layering-baseline。
+# 指标口径：
+#   func_qtwidgets_edges  功能层经 repo qgis/ 封装头传递引入 QtWidgets 字面的
+#                         黄牌数（需 QGIS 头目录解析外部边；未定位时不闸）
+#   ui_qtwidgets_notes    视图层同类边的记录数（视图不禁 QtWidgets，仅记录；
+#                         需 QGIS 头目录；未定位时不闸）
+#   heavy_edges           io/* / algorithms/* 重头经门面头出闸的边数（仅 repo
+#                         边，恒可闸）
+#   heavy_tus             受染 TU 数（仅 repo 边，恒可闸）
+# 另：--symbol-audit 是零基线闸（任何命中即 exit 1），无需基线文件。
+# 基线：master @ ddd1325e 实测（QGIS 头取 vendor/superbuild/prefix/include/qgis）。
+func_qtwidgets_edges: 0
+ui_qtwidgets_notes: 4
+heavy_edges: 52
+heavy_tus: 83

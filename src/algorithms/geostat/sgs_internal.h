@@ -24,6 +24,13 @@ namespace paleo::geostat
 namespace detail
 {
 
+// #468：realizations 组合内存预算闸——单轴预算（2D cells ≤ 1e8 / 3D targets
+// ≤ 1e8、R ≤ 64）挡不住乘积爆炸（64×1e8×8B ≈ 51GB）。输出张量总字节超过
+// 本预算的参数组合在入口拒绝（拒绝而非钳制：实现数是成果语义，静默降档
+// 会篡改成果口径）。峰值工作内存 ≈ 输出张量 + 每实现工作区
+//（gaussianField + lattice ≈ 2·cells·8B）+ 索引，预算 4GiB 时整体 ≤ ~4.5GB。
+constexpr std::int64_t kMaxRealizationBytes = std::int64_t( 4 ) * 1024 * 1024 * 1024;
+
 // 条件点（高斯域）。2D 消费方 z 恒 0。
 struct CondPoint
 {
@@ -196,23 +203,35 @@ inline double gaussianDomainVariance( const NormalScoreTable &table,
   return variance > 0.0 ? variance : 1.0;
 }
 
+// 简单克里金求解工作区（#478）：SGS 热路径每格一解，矩阵/右端/解缓冲
+// 跨格复用（每实现一份；并行实现各持一份，非线程共享）。
+struct KrigingWorkspace
+{
+  std::vector<double> a;
+  std::vector<double> b;
+  std::vector<double> weights;
+  LuWorkspace lu;
+};
+
 inline bool solveSimpleKriging( const std::vector<CondPoint> &data, double x0, double y0,
                                 double z0, const VariogramModel &model, double *estimate,
-                                double *variance )
+                                double *variance, KrigingWorkspace *workspace = nullptr )
 {
+  KrigingWorkspace local;
+  KrigingWorkspace &ws = workspace ? *workspace : local;
   const int n = static_cast<int>( data.size() );
   if ( n <= 0 )
     return false;
   const double totalSill = model.nugget + model.sill;
-  std::vector<double> a( static_cast<std::size_t>( n ) * n );
-  std::vector<double> b( static_cast<std::size_t>( n ) );
+  ws.a.assign( static_cast<std::size_t>( n ) * n, 0.0 );
+  ws.b.assign( static_cast<std::size_t>( n ), 0.0 );
   for ( int i = 0; i < n; ++i )
   {
     for ( int j = i; j < n; ++j )
     {
       if ( i == j )
       {
-        a[static_cast<std::size_t>( i ) * n + i] = totalSill; // C(0) = S
+        ws.a[static_cast<std::size_t>( i ) * n + i] = totalSill; // C(0) = S
         continue;
       }
       const double gamma = model.semivariance(
@@ -220,23 +239,22 @@ inline bool solveSimpleKriging( const std::vector<CondPoint> &data, double x0, d
           data[static_cast<std::size_t>( i )].y - data[static_cast<std::size_t>( j )].y,
           data[static_cast<std::size_t>( i )].z - data[static_cast<std::size_t>( j )].z );
       const double covariance = totalSill - gamma;
-      a[static_cast<std::size_t>( i ) * n + j] = covariance;
-      a[static_cast<std::size_t>( j ) * n + i] = covariance;
+      ws.a[static_cast<std::size_t>( i ) * n + j] = covariance;
+      ws.a[static_cast<std::size_t>( j ) * n + i] = covariance;
     }
-    b[static_cast<std::size_t>( i )] =
+    ws.b[static_cast<std::size_t>( i )] =
         totalSill - model.semivariance( data[static_cast<std::size_t>( i )].x - x0,
                                         data[static_cast<std::size_t>( i )].y - y0,
                                         data[static_cast<std::size_t>( i )].z - z0 );
   }
-  std::vector<double> weights;
-  if ( !solveDenseLu( a, n, b, weights ) )
+  if ( !solveDenseLu( ws.a, n, ws.b, ws.weights, ws.lu ) )
     return false;
   double est = 0;
   double var = totalSill;
   for ( int i = 0; i < n; ++i )
   {
-    est += weights[static_cast<std::size_t>( i )] * data[static_cast<std::size_t>( i )].value;
-    var -= weights[static_cast<std::size_t>( i )] * b[static_cast<std::size_t>( i )];
+    est += ws.weights[static_cast<std::size_t>( i )] * data[static_cast<std::size_t>( i )].value;
+    var -= ws.weights[static_cast<std::size_t>( i )] * ws.b[static_cast<std::size_t>( i )];
   }
   if ( !std::isfinite( est ) || !std::isfinite( var ) )
     return false;

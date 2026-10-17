@@ -78,6 +78,9 @@ struct CatalogVersion
   QString id;
   QString assetId;
   QString stage;        // "RAW" | "DERIVED" | "INTERMEDIATE" | "OUTPUT"
+  // #476：0/1 档 = 「未编号/首版」——同资产允许重复（存量调用面广）；
+  // >1 的显式编号族（assetops 的 current+1 单调面）按 (asset_id,version_number)
+  // 唯一口径约束（addVersion 内存闸 + catalogstore 宽容唯一索引）。
   int versionNumber = 1;
   bool managed = true;  // false = 外部链接（SEG-Y 966MB 走这条）
   QString path;         // 受管：工程相对 {stage}/{asset_id}/{version_id}/{filename}；外链：绝对路径

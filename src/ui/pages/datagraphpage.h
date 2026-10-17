@@ -82,7 +82,8 @@ private:
   paleo::datagraph::Presentation m_presentation;
   bool m_busy = false, m_navigating = false;
   QVariantMap m_featureEvidence;
-  QComboBox *m_evidenceTypeFilter = nullptr, *m_reviewFilter = nullptr;
+  QComboBox *m_evidenceTypeFilter = nullptr, *m_reviewFilter = nullptr,
+            *m_relationFilter = nullptr;
   QSpinBox *m_evidencePage = nullptr;
   QVariantMap nodeTarget(const paleo::datagraph::Node &node) const;
 };

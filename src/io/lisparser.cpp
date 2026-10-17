@@ -98,7 +98,7 @@ using paleo::io_detail::addIssue;
     if (!sign)
       return double(number);
     const quint64 mask = (len >= 64) ? ~quint64(0) : ((quint64(1) << len) - 1);
-    return double((~number & mask) + 1);
+    return double((((~number) & mask) + 1) & mask);
   }
 
   // ---- LIS 浮点（Appendix B.1/B.2/B.5/B.6） ----
@@ -108,7 +108,7 @@ using paleo::io_detail::addIssue;
     const int exp = int(v & 0x000F);
     quint16 frac = (v & 0x7FF0) >> 4;
     if (sign)
-      frac = quint16(((~frac) & 0x07FF) + 1);
+      frac = quint16((((~frac) & 0x07FF) + 1) & 0x07FF);
     const double fraction = double(frac) * std::pow(2.0, -11);
     return (sign ? -1.0 : 1.0) * fraction * std::pow(2.0, double(exp));
   }
@@ -468,6 +468,19 @@ using paleo::io_detail::addIssue;
           rec->type = uchar(chunk.at(0));
           chunk.remove(0, 2);
           first = false;
+        }
+        // #467：后继 PR 链拼接预算——与 parse() 整读上限同口径。头扫描无
+        // 文件大小闸，恶意「全后继位」文件必须在累积越界处即拒收。
+        if (body.size() + chunk.size() > LasParser::fileSizeLimit())
+        {
+          const QString msg = QStringLiteral(
+                                  "逻辑记录跨段累积 %1 字节超过整读上限（%2 字节）"
+                                  "——拒绝无界拼接（Oversize）")
+                                  .arg(body.size() + chunk.size())
+                                  .arg(LasParser::fileSizeLimit());
+          addIssue(issues, LasIssue::Severity::Error, LasIssue::Category::Oversize,
+                   msg);
+          return fail(error, msg, Status::Invalid);
         }
         body.append(chunk);
         m_pos += len;
@@ -999,7 +1012,8 @@ bool LisParser::parse(const QString &path, LasHeaderInfo &header,
     return false;
   }
 
-  // 与 LasParser::parseDoc 同口径的大文件防护（头扫描不受限）
+  // 与 LasParser::parseDoc 同口径的大文件防护（头扫描不受文件大小闸，但
+  // 后继 PR 链累积预算同款——LogicalReader #467 闸）
   if (QFileInfo(path).size() > LasParser::fileSizeLimit())
   {
     if (issues)

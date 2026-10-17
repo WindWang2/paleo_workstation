@@ -3,7 +3,9 @@
     "layering checker 词表（tools/check_layering.py 加载；scripts/new_module.sh 同步维护）。",
     "新增 src/ 顶层模块时在此登记，否则该目录文件会被 layer-marker 全量判违规。",
     "layers: 目录 -> 层标记词表值；non_view: 反向 ui/ 扫描覆盖目录（视图/组装根/测试壳豁免）；",
-    "qtwidgets 禁令目录 = non_view 去掉 qgis（QGIS 封装按契约豁免 QtWidgets）。"
+    "qtwidgets 禁令目录 = non_view 去掉 qgis（QGIS 封装按契约豁免 QtWidgets）。",
+    "qgs_audit_whitelist: --qgs-audit（#472）豁免文件（src/ 相对路径）——语义是",
+    "「该文件直连外部 qgs* 头是已裁决例外」，新条目须在 PR 里给出理由；空表 = 无豁免。"
   ],
   "layers": {
     "domain": "数据",
@@ -42,5 +44,6 @@
     "metadata/releasestore.h",
     "metadata/wellsectionstore.h",
     "metadata/faultsetstore.h"
-  ]
+  ],
+  "qgs_audit_whitelist": []
 }

@@ -13,6 +13,22 @@
 
 namespace seismic {
 
+namespace {
+
+// #482：hover 十字带脏区——十字线只占「鼠标所在横带（视口全宽）+ 纵带
+// （视口全高）」，重绘这两条带即可刷新/擦除十字线，底图、wiggle 多边形、
+// 井轨迹全量重绘是大剖面 hover 卡顿源。kCrossPad 覆盖 1px 虚线笔宽与
+// 抗锯齿余量；Qt 会把多次 update 合并成一次重绘。
+constexpr int kCrossPad = 4;
+
+void updateCrossBand(QWidget *w, const QRect &vp, const QPoint &at)
+{
+    w->update(QRect(vp.left(), at.y() - kCrossPad, vp.width(), 2 * kCrossPad + 1));
+    w->update(QRect(at.x() - kCrossPad, vp.top(), 2 * kCrossPad + 1, vp.height()));
+}
+
+} // namespace
+
 void SeismicSectionCanvas::mousePressEvent(QMouseEvent *event) {
     // D4.1：种子拾取模式——点击放点（列号+TWT 交由 dock 解析测线号）
     if (m_pickMode == SectionPickMode::Seed && event->button() == Qt::LeftButton &&
@@ -56,6 +72,8 @@ void SeismicSectionCanvas::mousePressEvent(QMouseEvent *event) {
 }
 
 void SeismicSectionCanvas::mouseMoveEvent(QMouseEvent *event) {
+    const QPoint prevHoverPos = m_currentMousePos;
+    const bool prevHoverValid = m_hasHover;
     m_currentMousePos = event->pos();
     m_hasHover = true;
 
@@ -89,7 +107,13 @@ void SeismicSectionCanvas::mouseMoveEvent(QMouseEvent *event) {
         else
             setCursor(Qt::CrossCursor);
         updateHoverInfo(event->pos());
-        update();
+        // #482：hover 只重绘旧/新十字带脏区（横带全宽 + 纵带全高），
+        // 不再整幅 update()——大剖面（ wiggle 多边形 + 井轨迹全量重绘）
+        // 的鼠标移动卡顿源。
+        const QRect vp = viewportRect();
+        if (prevHoverValid && vp.contains(prevHoverPos))
+            updateCrossBand(this, vp, prevHoverPos);
+        updateCrossBand(this, vp, event->pos());
     }
 }
 

@@ -20,16 +20,23 @@ namespace
 {
 using paleo::store_detail::setError;
 
-  QString releaseStoreConnectionName(const QString &path)
+  QString releaseStoreConnectionName(const QString &path, bool readOnly)
   {
-    return QStringLiteral("paleo_releasestore_") + QString::number(qHash(path));
+    // readOnly 实例走独立连接名（QSQLITE_OPEN_READONLY，#80）——同进程可写
+    // 与只读实例不得复用同一条连接（LayerManifest 同构）。
+    return QStringLiteral("paleo_releasestore_") + QString::number(qHash(path)) +
+           (readOnly ? QStringLiteral("_ro") : QString());
   }
 
-  bool releaseEnsureOpen(const QString &path, QString *error)
+  bool releaseEnsureOpen(const QString &path, bool readOnly, QString *error)
   {
-    QSqlDatabase db = MetaStore::openConnection(path, releaseStoreConnectionName(path), error);
+    QSqlDatabase db =
+        MetaStore::openConnection(path, releaseStoreConnectionName(path, readOnly),
+                                  error, readOnly);
     if (!db.isValid())
       return false;
+    if (readOnly)
+      return true; // 只读实例不建表（#80）——schema 归写实例
 
     QSqlQuery schema(db);
     if (!schema.exec(QStringLiteral(
@@ -91,17 +98,22 @@ ReleaseStore::ReleaseStore(const QString &metaSqlitePath)
 
 bool ReleaseStore::open(QString *error)
 {
-  return releaseEnsureOpen(m_dbPath, error);
+  return releaseEnsureOpen(m_dbPath, m_readOnly, error);
 }
 
 QString ReleaseStore::createRelease(const QString &name, const QString &note,
                                     const QVector<LayerDeclaration> &decls,
                                     QString *error)
 {
-  if (!releaseEnsureOpen(m_dbPath, error))
+  if (m_readOnly)
+  {
+    setError(error, QStringLiteral("release store is read-only — cannot create release"));
+    return QString();
+  }
+  if (!releaseEnsureOpen(m_dbPath, m_readOnly, error))
     return QString();
 
-  QSqlDatabase db = QSqlDatabase::database(releaseStoreConnectionName(m_dbPath));
+  QSqlDatabase db = QSqlDatabase::database(releaseStoreConnectionName(m_dbPath, m_readOnly));
 
   int maxSeq = 0;
   {
@@ -141,9 +153,9 @@ QString ReleaseStore::createRelease(const QString &name, const QString &note,
 QVector<ReleaseInfo> ReleaseStore::releases() const
 {
   QVector<ReleaseInfo> out;
-  if (!releaseEnsureOpen(m_dbPath, nullptr))
+  if (!releaseEnsureOpen(m_dbPath, m_readOnly, nullptr))
     return out;
-  QSqlQuery q(QSqlDatabase::database(releaseStoreConnectionName(m_dbPath)));
+  QSqlQuery q(QSqlDatabase::database(releaseStoreConnectionName(m_dbPath, m_readOnly)));
   if (!q.exec(QStringLiteral(
           "SELECT release_id,name,note,created_utc,manifest_json FROM releases "
           "ORDER BY CAST(substr(release_id,5) AS INTEGER)")))
@@ -169,9 +181,9 @@ QVector<ReleaseInfo> ReleaseStore::releases() const
 QVector<LayerDeclaration> ReleaseStore::manifestAt(const QString &releaseId) const
 {
   QVector<LayerDeclaration> out;
-  if (!releaseEnsureOpen(m_dbPath, nullptr))
+  if (!releaseEnsureOpen(m_dbPath, m_readOnly, nullptr))
     return out;
-  QSqlQuery q(QSqlDatabase::database(releaseStoreConnectionName(m_dbPath)));
+  QSqlQuery q(QSqlDatabase::database(releaseStoreConnectionName(m_dbPath, m_readOnly)));
   q.prepare(QStringLiteral("SELECT manifest_json FROM releases WHERE release_id=?"));
   q.addBindValue(releaseId);
   if (!q.exec() || !q.next())
@@ -192,7 +204,7 @@ bool ReleaseStore::diff(const QString &idA, const QString &idB,
   if (error)
     error->clear(); // 成功路径不带细节（与 batchjobqueue readState 同惯例）
   QString openErr;
-  if (!releaseEnsureOpen(m_dbPath, &openErr))
+  if (!releaseEnsureOpen(m_dbPath, m_readOnly, &openErr))
   {
     if (error)
       *error = QStringLiteral("发布库打开失败：%1").arg(openErr);
@@ -203,7 +215,7 @@ bool ReleaseStore::diff(const QString &idA, const QString &idB,
   // so existence is checked against the table, not the payload size.
   QHash<QString, QString> payloadOf;
   {
-    QSqlQuery q(QSqlDatabase::database(releaseStoreConnectionName(m_dbPath)));
+    QSqlQuery q(QSqlDatabase::database(releaseStoreConnectionName(m_dbPath, m_readOnly)));
     q.prepare(QStringLiteral("SELECT release_id, manifest_json FROM releases WHERE release_id IN (?,?)"));
     q.addBindValue(idA);
     q.addBindValue(idB);

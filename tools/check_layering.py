@@ -4,8 +4,10 @@
 # 用法：
 #   check_layering.py [--strict] [--vocab PATH] [--baseline PATH]
 #   check_layering.py --selftest
-#   check_layering.py --transitive [--qgis-include PATH]   # opt-in 诊断档（方向 49）
-#   check_layering.py --symbol-audit                       # opt-in 诊断档（方向 49）
+#   check_layering.py --qgs-audit [--strict]           # Qgs 直连审计闸（#472）
+#   check_layering.py --transitive [--strict] [--qgis-include PATH]
+#                                                        # 传递债闸 + 黄牌清单（#474）
+#   check_layering.py --symbol-audit                    # 符号级抽检闸（零基线，#474）
 #   未知参数一律 exit 2（历史上 argv 被静默忽略，--strict 假绿——已修）。
 #
 # 规则面：
@@ -39,9 +41,10 @@
 # 非严格模式维持提示语义（可收缩 NOTE 非 fail）。
 #
 # `--selftest` 跑内置正/反夹具 + strict 语义夹具（不进 ctest 就是哑护栏）；
-# 方向 49 起并含 --transitive / --symbol-audit 两档的正反夹具。
+# 方向 49 起并含 --transitive / --symbol-audit 两档的正反夹具；#472/#474 起
+# 并含 --qgs-audit 与 --transitive 防增长闸的正反夹具。
 #
-# opt-in 诊断档（方向 49，默认关；与三档闸门互斥执行，不进 strict 闸、
+# opt-in 闸门档（方向 49 引入、#472/#474 上闸；与三档闸门互斥执行，
 # 不改变三档任何输出）：
 #   --transitive：传递闭包黄牌清单——补「QtWidgets 禁令只在直接 include 级
 #      成立」的盲区。功能层文件直接 include 的 repo qgis/ 封装头，若该头
@@ -60,14 +63,26 @@
 #      三档闸门口径管）、app/selfcheck（组装根/测试壳终端消费 by design）。
 #      方向 49 时点「刻意不查」的 previewdoc 类门面扇出（38 处）已由方向
 #      59 收口 lasparser/qgisprocessingservice 两族；algorithms/* 经 workflow
-#      头进 ui 的存量扇出仍是方向 49 递延债面，本检测如实列示（黄牌清单
-#      是诊断面，不进 strict 闸——修复手段是删 include 边，不落 baseline）。
-#      护栏语义：selftest 内置正/反夹具（ctest layering_selftest 档把守
-#      检测逻辑本身）；--transitive 退出码维持诊断档语义（0）。
+#      头进 ui 的存量扇出仍是方向 49 递延债面，本检测如实列示。
+#      #474 防增长闸：四个计数指标（func_qtwidgets_edges / ui_qtwidgets_notes /
+#      heavy_edges / heavy_tus）对 tools/transitive-baseline.txt 只缩不涨——
+#      超基线即 exit 1；低于基线打 NOTE 可收缩（--strict 下红，强制收缩后
+#      更新基线）。QGIS 头目录未定位时前两个指标不闸（外部边不可解析），
+#      heavy_* 只依赖 repo 边，恒可闸。修复手段是删 include 边，不落
+#      layering-baseline。
 #   --symbol-audit：符号级抽检——非视图层 TU 内 new / std::make_unique /
 #      std::make_shared 构造 src/ui 头定义的 Q_OBJECT 类即 fail（exit 1）。
 #      词表由 src/ui/**/*.h 扫描生成；这是「不带 include 直接 new」盲区的
-#      直接护栏（当前树应零报告）。
+#      直接护栏（当前树应零报告）。零基线语义：任何命中即红，等价于
+#      baseline=0 的只缩不涨闸，无需 baseline 文件。
+#   --qgs-audit：Qgs 直连审计闸（#472）——src/workflow 与 src/ui 中直接
+#      include 外部 qgs* 头（basename 匹配 qgs*.h；repo src/qgis/ 封装头
+#      不算直连）的文件集合对 tools/qgs-audit-baseline.txt 只缩不涨：
+#      新增直连文件即 exit 1；baseline 内文件收敛后打 NOTE 可收缩
+#      （--strict 下红）。豁免面 = tools/layering_vocab.json 的
+#      qgs_audit_whitelist。口径边界：只审 include 级——`class QgsX;` 前向
+#      声明暴露（如 faultinterpretationcontroller.h 接口面）不在本闸内，
+#      由符号级/人工评审兜底。
 
 import json
 import os
@@ -88,6 +103,8 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(REPO, "src")
 VOCAB = os.path.join(REPO, "tools", "layering_vocab.json")
 BASELINE = os.path.join(REPO, "tools", "layering-baseline.txt")
+QGS_BASELINE = os.path.join(REPO, "tools", "qgs-audit-baseline.txt")
+TRANSITIVE_BASELINE = os.path.join(REPO, "tools", "transitive-baseline.txt")
 
 
 def load_vocab(path=VOCAB):
@@ -99,6 +116,8 @@ def load_vocab(path=VOCAB):
         non_view = [str(x) for x in data["non_view"]]
         ui_io = set(data["ui_io_whitelist"])
         ui_meta = set(data["ui_metadata_whitelist"])
+        # qgs_audit_whitelist 可缺省（旧词表兼容）：缺省 = 空豁免面，只会更严。
+        qgs_wl = set(str(x) for x in data.get("qgs_audit_whitelist", []))
     except (OSError, KeyError, TypeError, ValueError) as exc:
         print(f"FAIL 词表 {path} 不可用：{exc}", file=sys.stderr)
         print("       新模块须先登记 tools/layering_vocab.json（scripts/new_module.sh 会同步）。",
@@ -108,10 +127,10 @@ def load_vocab(path=VOCAB):
     if unknown_nv:
         print(f"FAIL 词表自相矛盾：non_view {unknown_nv} 不在 layers 中", file=sys.stderr)
         sys.exit(2)
-    return layers, non_view, ui_io, ui_meta
+    return layers, non_view, ui_io, ui_meta, qgs_wl
 
 
-LAYERS, NON_VIEW, UI_IO_WHITELIST, UI_METADATA_WHITELIST = load_vocab()
+LAYERS, NON_VIEW, UI_IO_WHITELIST, UI_METADATA_WHITELIST, QGS_AUDIT_WHITELIST = load_vocab()
 LAYER_VOCAB = set(LAYERS.values())
 QTWIDGETS_BAN = [d for d in NON_VIEW if d != "qgis"]
 
@@ -248,6 +267,38 @@ def load_baseline(path=BASELINE):
             path_, _, rule = line.partition(":")
             entries.setdefault(path_.strip(), set()).add(rule.strip())
     return entries
+
+
+def load_path_baseline(path):
+    """路径集合 baseline（#472 qgs-audit 用）：每行一个 src/ 相对路径。"""
+    entries = set()
+    if not os.path.exists(path):
+        return entries
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            entries.add(line)
+    return entries
+
+
+def load_metric_baseline(path=TRANSITIVE_BASELINE):
+    """计数指标 baseline（#474 --transitive 用）：每行 `<metric>: <int>`。"""
+    metrics = {}
+    if not os.path.exists(path):
+        return metrics
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            key, _, val = line.partition(":")
+            key = key.strip()
+            val = val.split("#", 1)[0].strip()
+            if key and re.fullmatch(r"-?\d+", val):
+                metrics[key] = int(val)
+    return metrics
 
 
 def run_check(strict=False, baseline_path=None):
@@ -484,15 +535,48 @@ def collect_transitive(qgis_inc_arg=None):
     return inc_dir, func_hits, ui_widget_notes
 
 
-def run_transitive(qgis_inc_arg=None):
+def eval_metric_gates(current, baseline, strict=False, gated=None):
+    """#474 防增长闸：current/baseline 为 metric->int，gated 为本轮实际参与
+    闸门的指标集（QGIS 头目录未定位时 func/ui 两指标不闸）。
+    超基线 → FAIL；低于基线 → NOTE 可收缩（strict 下红）；缺指标登记 → FAIL。
+    返回 exit code（0/1）。"""
+    rc = 0
+    gated = set(current) if gated is None else gated
+    shrunk = []
+    for m in sorted(current):
+        if m not in gated:
+            continue
+        base = baseline.get(m)
+        if base is None:
+            print(f"FAIL 指标 {m} 不在 tools/transitive-baseline.txt——"
+                  f"新指标必须先登记基线（只缩不涨闸不许无基线指标）")
+            rc = 1
+        elif current[m] > base:
+            print(f"FAIL {m}: {current[m]} > baseline {base}——传递债只缩不涨"
+                  f"（修复手段是删 include 边，不是改基线）")
+            rc = 1
+        elif current[m] < base:
+            print(f"NOTE {m}: {current[m]} < baseline {base}——可收缩，"
+                  f"请同步下调 tools/transitive-baseline.txt")
+            shrunk.append(m)
+    if strict and shrunk:
+        print(f"--strict：transitive baseline 有 {len(shrunk)} 条可收缩"
+              f"（{', '.join(shrunk)}）——收缩后更新基线再合入。")
+        rc = 1
+    return rc
+
+
+def run_transitive(qgis_inc_arg=None, strict=False, baseline_path=None):
     inc_dir, func_hits, ui_widget_notes = collect_transitive(qgis_inc_arg)
     heavy_hits = collect_heavy_fanout()
-    print("NOTE --transitive：opt-in 传递闭包黄牌清单（不进 strict 闸；与三档输出互不干扰）")
+    print("NOTE --transitive：传递闭包黄牌清单 + #474 防增长闸"
+          f"（基线 tools/{os.path.basename(baseline_path or TRANSITIVE_BASELINE)}，只缩不涨）")
     if inc_dir:
         print(f"     QGIS 头目录：{inc_dir}")
     else:
         print("     QGIS 头目录未定位（用 --qgis-include 或环境变量 QGIS_PREFIX 指定后"
-              "可解析外部 qgs 边）；本次仅按 repo 闭包判定，黄牌面收窄。")
+              "可解析外部 qgs 边）；本次仅按 repo 闭包判定，黄牌面收窄，"
+              "func_qtwidgets_edges / ui_qtwidgets_notes 两指标不闸。")
     for e in func_hits:
         print(f"黄牌 {e}")
     for e in ui_widget_notes:
@@ -517,7 +601,19 @@ def run_transitive(qgis_inc_arg=None):
     print(f"--transitive 小计：功能层 QtWidgets 黄牌 {len(func_hits)} 处；"
           f"视图层 QtWidgets 边记录 {len(ui_widget_notes)} 处；"
           f"重头出闸黄牌 {n_edges} 条出闸边（{n_heavy} 个重头 × {n_tus} 个受染 TU）。")
-    return 0
+    # ---- #474 防增长闸：四指标对 tools/transitive-baseline.txt 只缩不涨 ----
+    baseline = load_metric_baseline(baseline_path or TRANSITIVE_BASELINE)
+    current = {
+        "func_qtwidgets_edges": len(func_hits),
+        "ui_qtwidgets_notes": len(ui_widget_notes),
+        "heavy_edges": n_edges,
+        "heavy_tus": n_tus,
+    }
+    gated = set(current)
+    if inc_dir is None:
+        # 外部 qgs 边不可解析时这两个指标口径不完整，闸了必假红。
+        gated -= {"func_qtwidgets_edges", "ui_qtwidgets_notes"}
+    return eval_metric_gates(current, baseline, strict=strict, gated=gated)
 
 
 UI_CLASS_DECL_RE = re.compile(r"\bclass\s+([A-Za-z_]\w*)")
@@ -578,7 +674,8 @@ def collect_symbol_audit():
 
 def run_symbol_audit():
     vocab, hits = collect_symbol_audit()
-    print(f"NOTE --symbol-audit：opt-in 符号级抽检（ui Q_OBJECT 词表 {len(vocab)} 类）")
+    print(f"NOTE --symbol-audit：符号级抽检闸（ui Q_OBJECT 词表 {len(vocab)} 类；"
+          f"零基线——任何命中即红，等价 baseline=0 的只缩不涨闸，#474）")
     if not vocab:
         print("FAIL --symbol-audit：ui 词表为空——扫描面异常，拒绝静默通过")
         return 2
@@ -588,12 +685,68 @@ def run_symbol_audit():
         print(f"\n{len(hits)} 处非视图层符号级 ui 构造——include 级护栏挡不住的"
               f"「直接 new」回流，须改意图信号/壳持有。")
         return 1
-    print("符号级抽检通过：非视图层零 ui 类构造。")
+    print("符号级抽检通过：非视图层零 ui 类构造（零基线维持）。")
+    return 0
+
+
+# ---------------- #472：--qgs-audit（Qgs 直连越过封装层审计闸） ----------------
+# docs/PALEO_QGIS_PLAN.md §2：QGIS API 只许经 src/qgis/ 封装层散布——「以后
+# 无论迁移到 QGIS 4.x，只修改这一层」。本闸冻结现状（tools/qgs-audit-baseline.txt
+# 记录直连文件清单，只缩不涨），新增直连即红；收敛后删行。
+
+QGS_HEADER_RE = re.compile(r"^qgs[a-z0-9_]*\.h$")
+
+
+def collect_qgs_audit():
+    """(--qgs-audit 数据面) → 直连外部 qgs* 头的文件集合（src/workflow +
+    src/ui，qgs_audit_whitelist 豁免后；返回 src/ 相对路径）。
+    repo src/qgis/ 封装头（归一后落在 qgis/ 且文件存在）不算直连。"""
+    offenders = set()
+    for path in iter_files_under(("workflow", "ui")):
+        rel = "src/" + os.path.relpath(path, SRC).replace(os.sep, "/")
+        if rel in QGS_AUDIT_WHITELIST:
+            continue
+        for _n, inc in file_includes(path):
+            norm = norm_include(os.path.dirname(path), inc)
+            if norm is not None and top_dir(norm) == "qgis" \
+                    and os.path.exists(os.path.join(SRC, norm)):
+                continue  # 封装层通道：合法
+            if QGS_HEADER_RE.match(os.path.basename(inc)):
+                offenders.add(rel)
+                break
+    return offenders
+
+
+def run_qgs_audit(strict=False, baseline_path=None):
+    baseline = load_path_baseline(baseline_path or QGS_BASELINE)
+    offenders = collect_qgs_audit()
+    new = sorted(offenders - baseline)
+    shrunk = sorted(baseline - offenders)
+    residue = sorted(offenders & baseline)
+    for p in new:
+        print(f"FAIL {p} 直连外部 qgs* 头（越过 src/qgis 封装层——"
+              f"docs/PALEO_QGIS_PLAN.md §2：QGIS 迁移成本只许落在 src/qgis）")
+    for p in shrunk:
+        print(f"NOTE baseline 可收缩：{p}（该文件已无 qgs* 直连，请删除该行）")
+    print(f"qgs-audit：直连 qgs* 头文件 {len(offenders)}"
+          f"（baseline {len(baseline)}，残留 {len(residue)}，新增 {len(new)}，"
+          f"可收缩 {len(shrunk)}）——现状冻结、只缩不涨；豁免面见 "
+          f"tools/layering_vocab.json qgs_audit_whitelist。")
+    if new:
+        print("\n新增直连须改走 src/qgis/ 封装（或经 qgs_audit_whitelist 显式裁决），"
+              "并把对应文件从 baseline 收缩——不许加行。")
+        return 1
+    if strict and shrunk:
+        print(f"\n--strict：qgs-audit baseline 有 {len(shrunk)} 条可收缩——"
+              f"收敛后删除对应行再合入。")
+        return 1
     return 0
 
 
 def selftest():
     """内置夹具：正/反违规 + ../ 前缀 + 前向声明 + 层标记 + strict 语义。"""
+    import contextlib
+    import io
     import tempfile
 
     cases = [
@@ -698,7 +851,8 @@ def selftest():
             failures += 1
 
     # ---- strict 语义夹具：需要干净扫描树，与上面的违规夹具分树跑 ----
-    global BASELINE
+    # TRANSITIVE_BASELINE / QGS_BASELINE 同在此树内换临时基线（#472/#474）。
+    global BASELINE, TRANSITIVE_BASELINE, QGS_BASELINE
     orig_baseline = BASELINE
     with tempfile.TemporaryDirectory() as tmp2:
         SRC = tmp2
@@ -834,6 +988,113 @@ def selftest():
             print(f"SELFTEST FAIL symbol-audit: 命中面 {[h[0] for h in sym_hits]}"
                   f" 应为 n/m 两处（注释/非词表/栈构造不计）")
             failures += 1
+
+        # ---- #474：eval_metric_gates 纯逻辑夹具（等/涨/缩/缺指标/跳过）----
+        gate_bl = {"a": 5, "b": 5}
+        if eval_metric_gates({"a": 5, "b": 5}, gate_bl) != 0:
+            print("SELFTEST FAIL transitive-gate: 等于基线应绿")
+            failures += 1
+        if eval_metric_gates({"a": 6, "b": 5}, gate_bl) != 1:
+            print("SELFTEST FAIL transitive-gate: 超基线必须红")
+            failures += 1
+        if eval_metric_gates({"a": 4, "b": 5}, gate_bl) != 0:
+            print("SELFTEST FAIL transitive-gate: 可收缩非严格应绿")
+            failures += 1
+        if eval_metric_gates({"a": 4, "b": 5}, gate_bl, strict=True) != 1:
+            print("SELFTEST FAIL transitive-gate: 可收缩严格必须红（强制收缩基线）")
+            failures += 1
+        if eval_metric_gates({"a": 5, "c": 1}, gate_bl) != 1:
+            print("SELFTEST FAIL transitive-gate: 未登记指标必须红（不许无基线闸）")
+            failures += 1
+        if eval_metric_gates({"a": 5, "c": 99}, gate_bl, gated={"a"}) != 0:
+            print("SELFTEST FAIL transitive-gate: gated 外指标不参与闸（QGIS 头缺位降级）")
+            failures += 1
+
+        # ---- #474：--transitive 防增长闸端到端夹具（本树 func=3/notes=1/edges=1/tus=1）----
+        orig_trans_bl = TRANSITIVE_BASELINE
+        TRANSITIVE_BASELINE = os.path.join(tmp2, "transitive-baseline.txt")
+
+        def write_tbl(text):
+            open(TRANSITIVE_BASELINE, "w", encoding="utf-8").write(text)
+
+        def trans_rc(qinc=None, strict=False):
+            with contextlib.redirect_stdout(io.StringIO()):
+                return run_transitive(qinc, strict=strict,
+                                      baseline_path=TRANSITIVE_BASELINE)
+
+        write_tbl("func_qtwidgets_edges: 3\nui_qtwidgets_notes: 1\n"
+                  "heavy_edges: 1\nheavy_tus: 1\n")
+        if trans_rc(qinc) != 0:
+            print("SELFTEST FAIL transitive-gate: 端到端等于基线应绿")
+            failures += 1
+        write_tbl("func_qtwidgets_edges: 2\nui_qtwidgets_notes: 1\n"
+                  "heavy_edges: 1\nheavy_tus: 1\n")
+        if trans_rc(qinc) != 1:
+            print("SELFTEST FAIL transitive-gate: 端到端超基线必须红")
+            failures += 1
+        write_tbl("func_qtwidgets_edges: 4\nui_qtwidgets_notes: 1\n"
+                  "heavy_edges: 1\nheavy_tus: 1\n")
+        if trans_rc(qinc) != 0 or trans_rc(qinc, strict=True) != 1:
+            print("SELFTEST FAIL transitive-gate: 端到端可收缩 非严格绿/严格红")
+            failures += 1
+        # QGIS 头目录缺位：func/ui 两指标不闸，heavy_* 仍闸。
+        write_tbl("func_qtwidgets_edges: 99\nui_qtwidgets_notes: 99\n"
+                  "heavy_edges: 1\nheavy_tus: 1\n")
+        if trans_rc(None) != 0:
+            print("SELFTEST FAIL transitive-gate: 无 QGIS 头目录时 func/ui 指标应跳过")
+            failures += 1
+        write_tbl("func_qtwidgets_edges: 99\nui_qtwidgets_notes: 99\n"
+                  "heavy_edges: 0\nheavy_tus: 0\n")
+        if trans_rc(None) != 1:
+            print("SELFTEST FAIL transitive-gate: 无 QGIS 头目录时 heavy_* 仍必须闸")
+            failures += 1
+        TRANSITIVE_BASELINE = orig_trans_bl
+
+        # ---- #472：--qgs-audit 夹具（直连/封装头/白名单/baseline 三态）----
+        put("workflow/qdirect.cpp",
+            '// 层：功能\n#include <qgsmaplayer.h>\n')
+        put("ui/qdirect.cpp",
+            '// 层：视图\n#include <qgsrasterlayer.h>\n')
+        off = collect_qgs_audit()
+        if off != {"src/workflow/qdirect.cpp", "src/ui/qdirect.cpp"}:
+            print(f"SELFTEST FAIL qgs-audit: 直连面 {sorted(off)} 与预期不符"
+                  f"（repo qgis/ 封装头与无 qgs 头文件不计）")
+            failures += 1
+        QGS_AUDIT_WHITELIST.add("src/ui/qdirect.cpp")
+        try:
+            if collect_qgs_audit() != {"src/workflow/qdirect.cpp"}:
+                print("SELFTEST FAIL qgs-audit: 词表白名单条目必须豁免")
+                failures += 1
+        finally:
+            QGS_AUDIT_WHITELIST.discard("src/ui/qdirect.cpp")
+
+        orig_qgs_bl = QGS_BASELINE
+        QGS_BASELINE = os.path.join(tmp2, "qgs-audit-baseline.txt")
+
+        def qgs_rc(strict=False):
+            with contextlib.redirect_stdout(io.StringIO()):
+                return run_qgs_audit(strict=strict, baseline_path=QGS_BASELINE)
+
+        def write_qgsbl(text):
+            open(QGS_BASELINE, "w", encoding="utf-8").write(text)
+
+        write_qgsbl("# empty\n")
+        if qgs_rc() != 1:
+            print("SELFTEST FAIL qgs-audit: baseline 外新增直连必须红")
+            failures += 1
+        write_qgsbl("src/ui/qdirect.cpp\nsrc/workflow/qdirect.cpp\n")
+        if qgs_rc() != 0 or qgs_rc(strict=True) != 0:
+            print("SELFTEST FAIL qgs-audit: 命中 baseline 的残留应双绿")
+            failures += 1
+        put("workflow/qdirect.cpp", '// 层：功能\n#include <QString>\n')
+        _INC_CACHE.pop(os.path.join(SRC, "workflow/qdirect.cpp"), None)
+        if qgs_rc() != 0:
+            print("SELFTEST FAIL qgs-audit: 可收缩条目非严格应绿")
+            failures += 1
+        if qgs_rc(strict=True) != 1:
+            print("SELFTEST FAIL qgs-audit: 可收缩条目严格必须红（强制删行）")
+            failures += 1
+        QGS_BASELINE = orig_qgs_bl
     BASELINE = orig_baseline
     SRC = orig_src
     if failures:
@@ -841,7 +1102,8 @@ def selftest():
         return 1
     print(f"selftest 通过：{len(cases)} 文件夹具 + 2 词表外置夹具 + "
           f"5 strict 语义夹具 + 7 transitive 夹具 + 3 重头出闸夹具 + "
-          f"2 symbol-audit 夹具全部命中预期。")
+          f"2 symbol-audit 夹具 + 6 transitive 闸门逻辑夹具 + "
+          f"5 transitive 闸门端到端夹具 + 6 qgs-audit 夹具全部命中预期。")
     return 0
 
 
@@ -852,6 +1114,7 @@ def main(argv=None):
     baseline = None
     transitive = False
     symbol_audit = False
+    qgs_audit = False
     qgis_include = None
     it = iter(argv)
     for a in it:
@@ -873,6 +1136,8 @@ def main(argv=None):
             transitive = True
         elif a == "--symbol-audit":
             symbol_audit = True
+        elif a == "--qgs-audit":
+            qgs_audit = True
         elif a == "--qgis-include":
             qgis_include = next(it, None)
             if not qgis_include:
@@ -889,13 +1154,17 @@ def main(argv=None):
             # 真实 argv 校验：未知参数一律 exit 2（--strict 假绿的根因是全静默忽略）
             print(f"FAIL 未知参数：{a}\n"
                   f"       用法：check_layering.py [--strict] [--vocab PATH] "
-                  f"[--baseline PATH] | --selftest | --transitive "
-                  f"[--qgis-include PATH] | --symbol-audit", file=sys.stderr)
+                  f"[--baseline PATH] | --selftest | --qgs-audit [--strict] "
+                  f"| --transitive [--strict] [--qgis-include PATH] | --symbol-audit",
+                  file=sys.stderr)
             return 2
-    if (transitive or symbol_audit) and (strict or baseline is not None):
-        print("FAIL 诊断档（--transitive/--symbol-audit）与三档闸门参数"
-              "（--strict/--baseline）互斥：诊断档不进闸，请分开跑。",
-              file=sys.stderr)
+    # #472/#474：闸门档现已自带 baseline；--strict 对它们语义是「可收缩条目
+    # 也红」（与三档闸门同口径），允许组合。--baseline 仍是三档闸门专属
+    # （layering-baseline 自定义路径），避免与各闸门基线文件混淆。
+    if baseline is not None and (transitive or symbol_audit or qgs_audit):
+        print("FAIL --baseline 是三档闸门（layering-baseline）专属参数，"
+              "与 --qgs-audit/--transitive/--symbol-audit 互斥——"
+              "后三者的基线文件固定在 tools/ 下。", file=sys.stderr)
         return 2
     if qgis_include and not transitive:
         print("FAIL --qgis-include 只对 --transitive 有意义", file=sys.stderr)
@@ -903,7 +1172,7 @@ def main(argv=None):
     global SRC
     if vocab != VOCAB:
         # 自定义词表：替换模块级单点事实（selftest 也走这条路注入临时词表）
-        _layers, _nv, _io, _meta = load_vocab(vocab)
+        _layers, _nv, _io, _meta, _qwl = load_vocab(vocab)
         LAYERS.clear()
         LAYERS.update(_layers)
         NON_VIEW[:] = _nv
@@ -911,17 +1180,21 @@ def main(argv=None):
         UI_IO_WHITELIST.update(_io)
         UI_METADATA_WHITELIST.clear()
         UI_METADATA_WHITELIST.update(_meta)
+        QGS_AUDIT_WHITELIST.clear()
+        QGS_AUDIT_WHITELIST.update(_qwl)
         LAYER_VOCAB.clear()
         LAYER_VOCAB.update(set(_layers))
         QTWIDGETS_BAN.clear()
         QTWIDGETS_BAN.extend(d for d in NON_VIEW if d != "qgis")
-    if transitive or symbol_audit:
-        # 诊断档：替代默认扫描执行（三档闸门口径不受影响，另跑即可）
+    if transitive or symbol_audit or qgs_audit:
+        # 闸门档：替代默认扫描执行（三档闸门口径不受影响，另跑即可）
         rc = 0
         if transitive:
-            rc = max(rc, run_transitive(qgis_include))
+            rc = max(rc, run_transitive(qgis_include, strict=strict))
         if symbol_audit:
             rc = max(rc, run_symbol_audit())
+        if qgs_audit:
+            rc = max(rc, run_qgs_audit(strict=strict))
         return rc
     return run_check(strict=strict, baseline_path=baseline)
 

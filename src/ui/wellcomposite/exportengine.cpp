@@ -98,7 +98,7 @@ QStringList ExportEngine::headerLines(const Options &opt)
 {
   return {
       QStringLiteral("井名: %1").arg(opt.wellName.isEmpty() ? QStringLiteral("—") : opt.wellName),
-      QStringLiteral("项目: %1").arg(opt.projectName.isEmpty() ? QStringLiteral("—") : opt.projectName),
+      QStringLiteral("工程: %1").arg(opt.projectName.isEmpty() ? QStringLiteral("—") : opt.projectName),
       QStringLiteral("日期: %1").arg(QDate::currentDate().toString(Qt::ISODate)),
       QStringLiteral("比例尺: %1").arg(opt.scaleRatio),
   };

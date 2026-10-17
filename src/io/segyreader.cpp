@@ -635,6 +635,8 @@ bool SegyReader::open(const QString &path, QString *error,
   {
     if (error)
       *error = QStringLiteral("无法读取测区四角的道头");
+    // 与本函数其余失败路径一致：不留半建状态（m_index 已填、几何半冻结）。
+    m_index.clear();
     return false;
   }
   m_geometry.startTimeMs = delayMs;

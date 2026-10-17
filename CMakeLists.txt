@@ -508,7 +508,7 @@ add_library(paleo_qgis STATIC
   src/qgis/seismicsectiontool.cpp
   src/qgis/wellattributestore.cpp
 )
-target_link_libraries(paleo_qgis PUBLIC paleo_deps paleo_ui_deps paleo_store paleo_algorithms paleo_io)
+target_link_libraries(paleo_qgis PUBLIC paleo_deps paleo_ui_deps paleo_store paleo_algorithms paleo_io paleo_services) # #483 qgislayerservice→ErrorHub
 
 # QGIS 4.2.2 original attribute table dialog, embedded with a small app host.
 # App-only source is vendored because libqgis_app requires a QgisApp singleton.
@@ -901,8 +901,10 @@ function(paleo_test_sandbox name)
   endif()
   if(PALEO_ENABLE_UBSAN)
     set_property(TEST ${name} APPEND PROPERTY ENVIRONMENT
-      "UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=0")
+      "UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1")
   endif()
+  set_property(TEST ${name} APPEND PROPERTY ENVIRONMENT
+    "QTEST_FUNCTION_TIMEOUT=900000")
 endfunction()
 
 set(PALEO_QTEST_FIRST_RUN_DIR "${CMAKE_BINARY_DIR}/Testing/qtest-first-run")
@@ -958,6 +960,14 @@ if(PALEO_PYTHON3)
            ${CMAKE_SOURCE_DIR}/tools/check_ui_invariants.py --strict)
   add_test(NAME ui_invariants_selftest COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/check_ui_invariants.py --selftest)
+  # #502：视图层文件规模闸（src/ui 单文件 ≤1000 行，baseline 只缩不涨）。
+  # 已闸 include 层（layering）与动画/色值/DPR（ui_invariants），体量侧此前无闸。
+  add_test(NAME ui_size COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_ui_size.py)
+  add_test(NAME ui_size_strict COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_ui_size.py --strict)
+  add_test(NAME ui_size_selftest COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_ui_size.py --selftest)
   # #77：i18n 裸字面量门禁（#44「无 CI 门禁」收口）。脚本按自身位置定位
   # src/，WORKING_DIRECTORY 显式钉源码根作双保险。
   add_test(NAME i18n COMMAND ${PALEO_PYTHON3}
@@ -1033,7 +1043,7 @@ add_paleo_test(tst_runtime LIBS paleo_qgis)                 # metadata,qgis
 add_paleo_test(tst_projectsvc LIBS paleo_qgis)              # metadata,qgis
 add_paleo_test(tst_background_open LIBS paleo_workflow)
 add_paleo_test(tst_officepreview LIBS paleo_ui)
-add_paleo_test(tst_layerservice LIBS paleo_qgis)            # catalog,metadata,qgis
+add_paleo_test(tst_layerservice LIBS paleo_qgis paleo_services) # catalog,metadata,qgis,services(#483 refreshBasemaps ErrorHub 断言)
 add_paleo_test(tst_canvas_tools LIBS paleo_services paleo_qgis) # metadata,qgis,services
 add_paleo_test(tst_domain LIBS paleo_domain)
 add_paleo_test(tst_faciescatalog LIBS paleo_domain) # #409：formationPrediction 统一口径回归
@@ -1084,6 +1094,11 @@ add_paleo_test(tst_panels)                                  # 伞式（全栈，
 # 在 -j8 并行负载下偶发超限（108ms 实测）——同 tst_perf/tst_correlation_full
 # 的计时抖动关回串行基线先例（根治归 TEST-02 类递延）。
 set_tests_properties(tst_panels PROPERTIES RUN_SERIAL TRUE)
+# #503：tst_panels dataops 族（D1–D10，92 用例）拆分为独立目标——原 5337 行
+# 巨型测试文件瘦 relink 面 + 失败定位；用例逐字搬运（共享夹具
+# tests/helpers/dataopsfixture.h）。RUN_SERIAL 同 tst_panels（d2 计时断言）。
+add_paleo_test(tst_panels_dataops)                     # 伞式（dataops 族，逐字搬运）
+set_tests_properties(tst_panels_dataops PROPERTIES RUN_SERIAL TRUE)
 add_paleo_test(tst_mappingpages LIBS paleo_ui)
 add_paleo_test(tst_wellattributes LIBS paleo_ui)
 add_paleo_test(tst_factorworkflow LIBS paleo_workflow) # m2(B)：单因素生成链真实栈（tst_workflows 模式）
@@ -1249,10 +1264,12 @@ endif()
 
 # ---- wave/mapping-pipeline (阶段C+E 编图链路) ----
 add_paleo_test(tst_projectdata LIBS paleo_services paleo_qgis)
+add_paleo_test(tst_qgisruntime LIBS paleo_qgis) # #483 prefix 优先级契约
 add_paleo_test(tst_mapping LIBS paleo_workflow)
 
 # ---- wave2 async-ux (D1/D2 异步任务框架 + 任务页进度条) ----
 add_paleo_test(tst_taskservice LIBS paleo_ui)
+add_paleo_test(tst_futuretask LIBS paleo_services) # #479 futuretask.h 专测
 add_paleo_test(tst_threeway)          # 伞式（全栈，兼容样本）
 add_paleo_test(tst_chips LIBS paleo_ui)
 add_paleo_test(tst_versions LIBS paleo_workflow)
@@ -1502,7 +1519,7 @@ set(_paleo_perf_tests
   tst_perf_regress tst_petrophysperf tst_seismic_perf tst_seismic_baseline
   tst_seismic_budgets tst_seismicattrperf tst_horizontrackperf tst_timedepthperf
   tst_wellcomposite_perf tst_cache_las tst_welllogset_perf tst_geostat_perf
-  tst_lasperf tst_dataperf_index tst_coldstart
+  tst_lasperf tst_dataperf_index tst_coldstart tst_inversion_perf
   # full-audit F10：吞吐比率断言（largeFieldThroughputRatio）无预热/无最小时
   # 长闸，CI linux 并行轮实证红、串行重跑洗白（run 38835970978）——挂 perf
   # 标签 + RUN_SERIAL 与同类比率门同一纪律。
@@ -1518,6 +1535,12 @@ if(TEST tst_singlefactor_perf)
 endif()
 if(TEST tst_mapsnapshot_scale)
   set_tests_properties(tst_mapsnapshot_scale PROPERTIES TIMEOUT 1800)
+endif()
+if(TEST tst_singlefactor_kriging)
+  set_tests_properties(tst_singlefactor_kriging PROPERTIES TIMEOUT 600)
+endif()
+if(TEST tst_seismic_3dui)
+  set_tests_properties(tst_seismic_3dui PROPERTIES RUN_SERIAL TRUE)
 endif()
 
 # ---- 方向 81：环境债红名单（tools/env_redset.json，单一真源）→ ctest 标签 ----

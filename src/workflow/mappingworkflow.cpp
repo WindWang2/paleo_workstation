@@ -466,7 +466,7 @@ QVector<ThicknessSample> MappingWorkflow::computeThicknessSamples( const QString
 {
   if ( !m_projectData )
   {
-    setError( error, tr( "未绑定项目数据（读侧门面）" ) );
+    setError( error, tr( "未绑定工程数据（读侧门面）" ) );
     return {};
   }
   if ( horizon.isEmpty() || baseHorizon.isEmpty() )
@@ -656,7 +656,7 @@ bool MappingWorkflow::runThicknessChain( const QString &horizon, QString *error 
   };
 
   if ( !m_projectData )
-    return fail( tr( "未绑定项目数据（读侧门面）" ) );
+    return fail( tr( "未绑定工程数据（读侧门面）" ) );
   if (!m_deferredDeclarations && (!m_constraints || !m_compose || !m_layers))
     return fail( tr( "编图工作流未绑定服务" ) );
   if ( !m_catalog )

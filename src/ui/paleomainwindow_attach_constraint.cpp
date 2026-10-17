@@ -327,9 +327,11 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
                           if (m_factorTask == task)
                             m_factorTask.clear();
                         };
+                        // #481 P2-1：删除语义收进 workflow——按目录名前缀
+                        // 判定（paleo-sf- 开头才删），路径任意位置含该串的
+                        // 无关目录（用户目录名撞串）不再被误删。
                         const auto dropTemp = [](const QString &path) {
-                          if (path.contains(QStringLiteral("paleo-sf-")))
-                            QDir(QFileInfo(path).absolutePath()).removeRecursively();
+                          PaleoWorkflowDiscardFactorTempTree(path);
                         };
                         if (!constraintPage)
                         {
@@ -427,9 +429,11 @@ void PaleoMainWindow::attachConstraintPage(ConstraintPage *constraintPage,
                           if (m_factorTask == task)
                             m_factorTask.clear();
                         };
+                        // #481 P2-1：删除语义收进 workflow——按目录名前缀
+                        // 判定（paleo-sf- 开头才删），路径任意位置含该串的
+                        // 无关目录（用户目录名撞串）不再被误删。
                         const auto dropTemp = [](const QString &path) {
-                          if (path.contains(QStringLiteral("paleo-sf-")))
-                            QDir(QFileInfo(path).absolutePath()).removeRecursively();
+                          PaleoWorkflowDiscardFactorTempTree(path);
                         };
                         if (!constraintPage)
                         {

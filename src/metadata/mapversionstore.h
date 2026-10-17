@@ -116,6 +116,12 @@ class MapVersionStore
 
   private:
     void recoverInterruptedPublications();
+    // #476：publish() 与 snapshotInputForPublish() 共用的发布门禁（JSON 解析、
+    // 快照指纹、PDF 绑定、§177 残差完备、D10 数值下限）——单一实现防两份
+    // 校验逻辑漂移分叉。成功时带回解析后的 provenance 与 frozen 标志。
+    bool validatePublishGates(const MapVersion &latestV, const QString &horizon,
+                              const QString &residualSummary, QJsonObject *provenanceOut,
+                              bool *frozenOut, QString *error);
     QString commitPublicationPlacement(int versionId, int versionNumber, const QString &horizon,
                                        const QString &stagingDirectory, const QString &finalDirectory,
                                        const QString &residualSummary, QString *error);

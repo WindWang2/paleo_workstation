@@ -11,7 +11,9 @@ namespace
 {
 QString fmtValue(double v, const LasWriteOptions &opt)
 {
-  if (std::isnan(v))
+  // #477：±Inf 与 NaN 同口径映射缺席值——"inf" 写盘后回读变 NaN，
+  // 且污染下游数值统计（均值/相关全 NaN）。
+  if (!std::isfinite(v))
     return QString::number(opt.nullToken, 'f', 4);
   return QString::number(v, 'f', opt.valuePrecision);
 }

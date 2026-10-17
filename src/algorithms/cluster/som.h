@@ -8,7 +8,9 @@
 namespace paleo::cluster {
 // Online self-organizing map (Kohonen). Prototypes sit on a width x height
 // grid; the prototype index is y * width + x. Every epoch presents the samples
-// in a deterministic shuffle seeded from `seed`, pulls the best-matching unit
+// in a deterministic shuffle of `seed`'s raw mt19937_64 stream (hand-rolled
+// Fisher-Yates, #470: std::shuffle sequences are implementation-defined),
+// pulls the best-matching unit
 // (BMU, Euclidean distance) towards the sample and drags the neighbourhood
 // along. Both control schedules decay exponentially across epochs: v(e) =
 // v0 * (v1 / v0) ^ (e / epochs) for epoch e in [0, epochs), so epoch 0 uses the

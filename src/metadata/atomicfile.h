@@ -15,9 +15,26 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <io.h>
 #else
 #include <cstdio>
+#include <unistd.h>
 #endif
+
+// 刷盘同步（fflush + fsync / _commit），确保元数据落盘真实持久化
+inline bool paleoSyncFile(QFile &file)
+{
+  if (!file.flush())
+    return false;
+  const int fd = file.handle();
+  if (fd < 0)
+    return true;
+#ifdef Q_OS_WIN
+  return ::_commit(fd) == 0;
+#else
+  return ::fsync(fd) == 0;
+#endif
+}
 
 // 故障注入点（用于单测模拟中途崩溃、落盘失败或断电中断）
 enum class PaleoAtomicFaultPoint
@@ -122,7 +139,7 @@ inline bool paleoWriteFileAtomic(const QString &destination,
     return false;
   }
 
-  if (!tmpFile.flush())
+  if (!paleoSyncFile(tmpFile))
   {
     if (errorMessage)
       *errorMessage = QStringLiteral("临时文件刷盘失败：%1").arg(tmpFile.errorString());
@@ -272,7 +289,13 @@ public:
       f.close();
       return false;
     }
-    f.flush();
+    if (!paleoSyncFile(f))
+    {
+      if (errorMessage)
+        *errorMessage = QStringLiteral("暂存数据刷盘失败：%1").arg(f.errorString());
+      f.close();
+      return false;
+    }
     f.close();
     return true;
   }

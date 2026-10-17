@@ -227,6 +227,7 @@ ZipListResult zipListBytes( const QByteArray &archive )
     ZipEntry item;
     const std::uint16_t flags = readU16( archive, static_cast<int>( offset ) + 8 );
     item.method = readU16( archive, static_cast<int>( offset ) + 10 );
+    item.crc32 = readU32( archive, static_cast<int>( offset ) + 16 ); // #477：解压后比对
     std::uint64_t compressed = readU32( archive, static_cast<int>( offset ) + 20 );
     std::uint64_t uncompressed = readU32( archive, static_cast<int>( offset ) + 24 );
     const std::uint16_t nameLength = readU16( archive, static_cast<int>( offset ) + 28 );
@@ -362,8 +363,23 @@ bool zipExtractBytes( const QByteArray &archive, const QString &entryName, QByte
                                       static_cast<int>( compressedSize ) );
   if ( !out )
     return true;
+  // #477：中央目录的 CRC32 是条目内容的完整性契约——此前只校验长度/zlib
+  // 状态，字节损坏但恰好 inflate 成功的条目会静默交出坏数据（xlsx 链
+  // outsourceworkbook 亦受益，无需单独 sha256 兜底）。
+  const auto verifyCrc = [&]( const QByteArray &data ) {
+    if ( crc32Of( data ) != item->crc32 )
+    {
+      return fail( QStringLiteral( "条目「%1」CRC32 校验失败（中央目录 %2，实得 %3）" )
+                       .arg( entryName )
+                       .arg( item->crc32, 8, 16, QLatin1Char( '0' ) )
+                       .arg( crc32Of( data ), 8, 16, QLatin1Char( '0' ) ) );
+    }
+    return true;
+  };
   if ( item->method == 0 )
   {
+    if ( !verifyCrc( raw ) )
+      return false;
     *out = raw;
     return true;
   }
@@ -398,6 +414,8 @@ bool zipExtractBytes( const QByteArray &archive, const QString &entryName, QByte
                      .arg( item->uncompressedSize ) );
   }
   inflated.resize( static_cast<int>( produced ) );
+  if ( !verifyCrc( inflated ) )
+    return false;
   *out = inflated;
   return true;
 }

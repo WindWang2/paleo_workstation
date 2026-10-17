@@ -73,6 +73,8 @@ void PaleoProjectStore::setProjectPaths( const QString &qgzPath, const QString &
   m_qgzPath = qgzPath;
   m_gpkgPath = gpkgPath;
   m_metaPath = metaSqlitePath;
+  QMutexLocker locker( &m_busyMutex );
+  m_busy.clear();
 }
 
 namespace
@@ -418,7 +420,18 @@ PaleoProjectStore::WriteResult PaleoProjectStore::commitAll(
     // 单元 1：catalog 提交（权威数据态先行——.qgz 只是其显示投影）。
     if ( rank < 1 )
     {
-      result = catalogCommit();
+      try
+      {
+        result = catalogCommit();
+      }
+      catch ( const std::exception &e )
+      {
+        result = { false, tr( "catalog commit threw exception: %1" ).arg( QString::fromUtf8( e.what() ) ) };
+      }
+      catch ( ... )
+      {
+        result = { false, tr( "catalog commit threw unknown exception" ) };
+      }
       pending.append( { !result.ok, catalogTarget,
                         result.ok ? QString() : result.error } );
       if ( result.ok )
@@ -445,7 +458,18 @@ PaleoProjectStore::WriteResult PaleoProjectStore::commitAll(
 
       if ( result.ok )
       {
-        result = qgzWrite();
+        try
+        {
+          result = qgzWrite();
+        }
+        catch ( const std::exception &e )
+        {
+          result = { false, tr( "qgz write threw exception: %1" ).arg( QString::fromUtf8( e.what() ) ) };
+        }
+        catch ( ... )
+        {
+          result = { false, tr( "qgz write threw unknown exception" ) };
+        }
         pending.append( { !result.ok, m_qgzPath,
                           result.ok ? QString() : result.error } );
         if ( result.ok )

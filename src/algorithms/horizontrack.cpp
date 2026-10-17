@@ -15,29 +15,31 @@ namespace
 {
 
 // 零均值 Pearson 相关（NaN 样本对跳过；有效 < 4 → 0——窗破碎即无匹配分）。
-// 与服务层 D4.2 实现同式（协方差/方差各自去均值后比值）。
+// 与服务层 D4.2 实现同式；二阶矩用 Welford 单遍累推（petrophys::curveStats
+// 同范本，#478 统一口径）——朴素 Σx²−(Σx)²/n 在大直流偏置下 catastrophic
+// cancellation，中心化累推无条件数问题。Pearson 平移不变，数值口径仅差
+// 舍入阶。
 double normalizedCorrelation(const float *w, const float *c, int n)
 {
-  double sw = 0, sc = 0, sww = 0, scc = 0, swc = 0;
+  double meanW = 0, meanC = 0, m2ww = 0, m2cc = 0, m2wc = 0;
   int valid = 0;
   for (int i = 0; i < n; ++i)
   {
     if (!std::isfinite(w[i]) || !std::isfinite(c[i]))
       continue;
-    sw += w[i];
-    sc += c[i];
-    sww += double(w[i]) * w[i];
-    scc += double(c[i]) * c[i];
-    swc += double(w[i]) * c[i];
     ++valid;
+    const double deltaW = w[i] - meanW;
+    meanW += deltaW / valid;
+    const double deltaC = c[i] - meanC;
+    meanC += deltaC / valid;
+    m2ww += deltaW * (w[i] - meanW);
+    m2cc += deltaC * (c[i] - meanC);
+    m2wc += deltaW * (c[i] - meanC);
   }
   if (valid < 4)
     return 0.0;
-  const double cov = swc - sw * sc / valid;
-  const double varW = sww - sw * sw / valid;
-  const double varC = scc - sc * sc / valid;
-  const double denom = std::sqrt(varW * varC);
-  return denom > 1e-12 ? cov / denom : 0.0;
+  const double denom = std::sqrt(m2ww * m2cc);
+  return denom > 1e-12 ? m2wc / denom : 0.0;
 }
 
 // 窗长钳制；nSamples < 4 时原样返回（调用方以 < 4 判 Invalid，避免

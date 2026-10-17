@@ -113,4 +113,22 @@ inline void moveParamWidget( QVBoxLayout *adv, QWidget *control, QVBoxLayout *ta
   target->addWidget( control );
 }
 
+// takeAt/addItem 不会替控件改 parent；跨容器搬迁时显式交给目标布局，
+// 否则旧父控件仍按旧坐标绘制，标题会叠到页首、折叠也无法隐藏。
+inline void appendMovedItem(QVBoxLayout *target, QLayoutItem *item)
+{
+  if (auto *widget = item->widget())
+  {
+    target->addWidget(widget, 0, item->alignment());
+    delete item;
+  }
+  else if (auto *layout = item->layout())
+  {
+    layout->setParent(nullptr);
+    target->addLayout(layout);
+  }
+  else
+    target->addItem(item);
+}
+
 } // namespace paleo::constraintpage_internal

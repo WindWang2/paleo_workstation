@@ -137,6 +137,9 @@ private slots:
   void updateVersionExtraContract();
   // 方向 01 B2：批次挂起中重开工程，删除面不得跨工程泄漏。
   void openResetsPendingRemovalFaces();
+  // #476：versions(asset_id, version_number) 唯一口径——同资产同版本号
+  // 重复必须拒绝（对照 mapversionstore 的 UNIQUE INDEX）。
+  void duplicateAssetVersionNumberRejected();
 };
 
 void TestCatalog::roundTripsThroughJson()
@@ -799,6 +802,61 @@ void TestCatalog::duplicateVersionIdRejected()
   v.id = QStringLiteral("ver-9");
   QVERIFY(cat.addVersion(v));
   QCOMPARE(cat.nextVersionId(), QStringLiteral("ver-10"));
+}
+
+// #476：versions(asset_id, version_number) 唯一——id 不同但同资产同版本号
+// 的重复必须拒绝；currentVersion 不再有行序 tie-break 可言。
+void TestCatalog::duplicateAssetVersionNumberRejected()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  DataCatalog cat;
+  QVERIFY(cat.open(dir.path()));
+  CatalogAsset a;
+  a.id = QStringLiteral("ast-1");
+  a.type = QStringLiteral("document");
+  QVERIFY(cat.addAsset(a));
+  CatalogVersion v1;
+  v1.id = QStringLiteral("ver-1");
+  v1.assetId = QStringLiteral("ast-1");
+  v1.stage = QStringLiteral("RAW");
+  v1.versionNumber = 2; // >1 的显式编号族才受唯一口径约束
+  v1.fileName = QStringLiteral("f.dat");
+  QVERIFY(cat.addVersion(v1));
+
+  CatalogVersion v2 = v1;
+  v2.id = QStringLiteral("ver-2"); // id 不同、(asset_id, version_number) 重复
+  QString err;
+  QVERIFY(!cat.addVersion(v2, &err));
+  QVERIFY2(err.contains(QStringLiteral("duplicate")), qPrintable(err));
+  QCOMPARE(cat.versionsForAsset(QStringLiteral("ast-1")).size(), 1);
+  QCOMPARE(cat.currentVersion(QStringLiteral("ast-1")).id, QStringLiteral("ver-1"));
+
+  // 不同资产可用同一版本号；同资产不同版本号合法；0/1 档（未编号/首版）
+  // 的重复是存量语义，不在此口径内。
+  CatalogAsset b;
+  b.id = QStringLiteral("ast-2");
+  b.type = QStringLiteral("document");
+  QVERIFY(cat.addAsset(b));
+  CatalogVersion v3 = v1;
+  v3.id = QStringLiteral("ver-3");
+  v3.assetId = QStringLiteral("ast-2");
+  QVERIFY(cat.addVersion(v3));
+  CatalogVersion v4 = v1;
+  v4.id = QStringLiteral("ver-4");
+  v4.versionNumber = 3;
+  QVERIFY(cat.addVersion(v4));
+  QCOMPARE(cat.currentVersion(QStringLiteral("ast-1")).id, QStringLiteral("ver-4"));
+
+  CatalogVersion unnumbered;
+  unnumbered.id = QStringLiteral("ver-5");
+  unnumbered.assetId = QStringLiteral("ast-1");
+  unnumbered.stage = QStringLiteral("RAW");
+  unnumbered.fileName = QStringLiteral("g.dat");
+  QVERIFY(cat.addVersion(unnumbered)); // 默认 1：首版档，不拒
+  CatalogVersion unnumbered2 = unnumbered;
+  unnumbered2.id = QStringLiteral("ver-6");
+  QVERIFY(cat.addVersion(unnumbered2)); // 同上——0/1 档存量语义
 }
 
 // T20b：schema_version 比 kSchemaVersion 新 → 如实拒绝（不读不写）；
@@ -2396,6 +2454,7 @@ void TestCatalog::updateVersionExtraContract()
   v.id = QStringLiteral("ver-1");
   v.assetId = a.id;
   v.stage = QStringLiteral("RAW");
+  v.versionNumber = 1; // 就地更新断言「不升版本号」需要显式编号（0=未编号）
   v.managed = false;
   v.path = QStringLiteral("C:/nowhere/a1.jpg");
   v.fileName = a.displayName;

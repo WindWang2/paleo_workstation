@@ -132,7 +132,9 @@ Result kmeans(const Matrix &x, const Options &o, const Control &ctl) {
     return r;
   }
   std::mt19937_64 rng(o.seed);
-  const auto first = std::uniform_int_distribution<std::size_t>(0, n - 1)(rng);
+  // #470：std::distribution 序列实现定义不可跨平台复现——改自订口径
+  //（cluster_internal.h，与 geostat/sgs 同源）。
+  const auto first = randomBelow(rng, n);
   m.centers.values.assign(x.row(first), x.row(first) + d);
   std::vector<double> nearest(n, std::numeric_limits<double>::infinity());
   const std::size_t requested = std::min(std::size_t(o.k), n);
@@ -149,7 +151,7 @@ Result kmeans(const Matrix &x, const Options &o, const Control &ctl) {
       return clusterFailure("Numerical overflow in kmeans++");
     if (sum == 0)
       break; // fewer distinct samples than k; report the effective k
-    const double target = std::uniform_real_distribution<double>(0, sum)(rng);
+    const double target = unitRandom(rng) * sum;
     double cumulative = 0;
     std::size_t picked = n - 1;
     for (std::size_t i = 0; i < n; ++i) {

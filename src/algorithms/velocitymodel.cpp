@@ -25,8 +25,10 @@ bool knotsStrictlyIncreasing(const QVector<VelocityKnot> &knots)
 // V0-k 正闭合式 z(twt)。u = k·twt/2000 很小时 (e^u−1)/u 数值消减 → 用常速极限。
 double v0kDepth(double v0, double k, double twtMs)
 {
-  if (!(twtMs > 0.0))
+  if (!std::isfinite(twtMs) || twtMs < 0.0 || !(v0 > 0.0))
     return qQNaN();
+  if (twtMs == 0.0)
+    return 0.0;
   const double u = k * twtMs / 2000.0;
   if (std::abs(u) < 1e-9)
     return v0 * twtMs / 2000.0;
@@ -36,8 +38,10 @@ double v0kDepth(double v0, double k, double twtMs)
 // V0-k 反闭合式 TWT(z) = 2000/k·ln(1 + k·z/v0)。
 double v0kTwt(double v0, double k, double depthM)
 {
-  if (!(depthM > 0.0) || !(v0 > 0.0))
+  if (!std::isfinite(depthM) || depthM < 0.0 || !(v0 > 0.0))
     return qQNaN();
+  if (depthM == 0.0)
+    return 0.0;
   const double u = k * depthM / v0;
   if (std::abs(u) < 1e-9)
     return 2000.0 * depthM / v0;

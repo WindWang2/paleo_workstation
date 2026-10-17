@@ -31,7 +31,10 @@ bool TimeDepthModel::setCheckshots(const std::vector<TdPoint> &points) {
     return false;
   for (std::size_t i = 0; i < points.size(); ++i) {
     const auto &p = points[i];
+    // #476：首点负深度/负时间也要拒——setPoints 有 >= 0 检查，strict 路径
+    // 此前漏了（首点无单调性可查但不等于可为负）。
     if (!std::isfinite(p.depthM) || !std::isfinite(p.timeMs) ||
+        p.depthM < 0.0 || p.timeMs < 0.0 ||
         (i && (p.depthM <= points[i - 1].depthM ||
                p.timeMs <= points[i - 1].timeMs)))
       return false;

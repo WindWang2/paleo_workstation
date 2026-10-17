@@ -18,6 +18,7 @@
 #include "../src/qgis/qgiscanvascontroller.h"
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/qgis/qgisprojectservice.h"
+#include "../src/services/errorhub.h"
 
 // Fixture path: prefer the build-provided define, else derive from this file's
 // location so standalone g++ builds work too.
@@ -424,6 +425,62 @@ private slots:
     QVERIFY(!svc.isEditingAnyLayer(&editingName));
     QCOMPARE(svc.layer(QStringLiteral("facies.T1")), nullptr);
     QVERIFY(!svc.isInstantiated(QStringLiteral("facies.T1")));
+  }
+
+  // (#483) refreshBasemaps 只读分支的卸除失败不得被吞——编辑中的底图层挡住
+  // removeDeclaration 时，必须经 ErrorHub 入账（此前静默失败，旧底图残留
+  // 且无人知晓）。
+  void refreshBasemapsSurfacesRemovalFailure()
+  {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString copyGpkg = tmp.filePath(QStringLiteral("fixture.gpkg"));
+    QVERIFY(QFile::copy(fixtureGpkg(), copyGpkg));
+
+    LayerManifest manifest(tmp.filePath(QStringLiteral("project.sqlite")));
+    QString err;
+    QVERIFY2(manifest.open(&err), qPrintable(err));
+
+    QgisProjectService projectSvc;
+    QVERIFY2(projectSvc.createProject(tmp.filePath(QStringLiteral("proj.qgz"))),
+             qPrintable(projectSvc.lastErrors().join(QLatin1Char(';'))));
+
+    QgisLayerService svc(&projectSvc, &manifest);
+    LayerDeclaration d;
+    d.layerId = QStringLiteral("basemap.hillshade");
+    d.type = QStringLiteral("mbtiles");
+    d.source = copyGpkg;
+    QVERIFY2(svc.declare(d, &err), qPrintable(err));
+    // 工程内放一个带同 paleoLayerId 的编辑中矢量层——removeDeclaration 的
+    // 「编辑中不可静默销毁」防线必然拒绝。
+    auto *vl = new QgsVectorLayer(
+        copyGpkg + QStringLiteral("|layername=basin"),
+        QStringLiteral("stale-basemap"), QStringLiteral("ogr"));
+    vl->setCustomProperty(QStringLiteral("paleoLayerId"),
+                          QStringLiteral("basemap.hillshade"));
+    QVERIFY(vl->isValid());
+    projectSvc.project()->addMapLayer(vl);
+    QVERIFY(vl->startEditing());
+
+    ErrorHub hub;
+    ErrorHub::installGlobal(&hub);
+    struct HubGuard
+    {
+      ~HubGuard() { ErrorHub::installGlobal(nullptr); }
+    } hubGuard;
+
+    // 底图未启用（缺省 mapConfiguration）→ 走卸除分支 → removeDeclaration
+    // 因编辑中被拒 → 必须入账（修复前：静默吞掉，hub 空）。
+    svc.refreshBasemaps();
+    QVERIFY2(hub.size() >= 1, "removal failure swallowed");
+    bool sawBasemapRemoval = false;
+    for (const ErrorHub::Entry &e : hub.entries())
+      if (e.title == QStringLiteral("离线底图卸除失败") &&
+          e.text.contains(QStringLiteral("编辑")))
+        sawBasemapRemoval = true;
+    QVERIFY2(sawBasemapRemoval, "no basemap removal entry in error hub");
+    // 声明仍在（拒绝卸除，非误删）。
+    QVERIFY(!svc.declaration(QStringLiteral("basemap.hillshade")).layerId.isEmpty());
   }
 };
 

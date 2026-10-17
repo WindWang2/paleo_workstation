@@ -31,14 +31,24 @@ public:
   QString selectedLayer() const;
   void setEvidenceSnapshot(const QVariantMap &snapshot);
   // G08：主窗口执行反查命令后回填结果（双击行复用 evidenceActivated 定位）。
-  void setReverseResults(const QVariantList &rows, const QString &error = {});
+  // meta 携带索引新鲜度（index_state / index_error / total / shown）。
+  void setReverseResults(const QVariantList &rows, const QString &error = {},
+                         const QVariantMap &meta = {});
   // G05/G09：影响分析成功后回喂页面——「按最近影响报告受控重算」按钮的
   // 可用条件（无影响报告时禁用并给 reason，不再让点击后吃错误）。
   void setImpactAvailable(bool ready);
+  // X9：索引后台同步完成后自动重发最近一次反查（仅存 kind+argument，
+  // 不重新读控件——避免层位/输入变化把查询口径悄悄换掉）。
+  void reissueReverseQuery();
+  // X10：反查导航回退栈可用性（由 EvidenceInteraction::historyChanged 驱动）。
+  void setCanGoBack(bool canBack);
 signals:
   void commandRequested(const QString &action, const QVariantMap &parameters);
   void targetLayerChanged(const QString &layerId);
   void evidenceActivated(const QVariantMap &evidence);
+  // X10：反查结果行激活 = 定位命中图斑本身（区别于证据来源定位）。
+  void reverseHitActivated(const QVariantMap &hit);
+  void evidenceBackRequested();
   void evidenceGraphRequested(const QVariantMap &snapshot);
 
 protected:
@@ -85,10 +95,15 @@ private:
   // G03 计算归因 tab：冻结输入重放结果的只读展示（状态/决策分布/上游回执/井关联）。
   QLabel *m_attributionSummary = nullptr;
   QPlainTextEdit *m_attributionDetail = nullptr;
+  // X14：归因 tab 的可定位对象（图斑内井 / 带定位的冲突来源），双击导航。
+  QListWidget *m_attributionTargets = nullptr;
+  // X10：反查/图谱导航的回退按钮（可用性由交互层 historyChanged 驱动）。
+  QPushButton *m_evidenceBack = nullptr;
   // G08/G12 证据反查：类型下拉 + 检索词 + 结果列表（双击定位图斑）。
   QComboBox *m_reverseKind = nullptr;
   QLineEdit *m_reverseText = nullptr;
   QListWidget *m_reverseResults = nullptr;
+  QString m_lastReverseKind, m_lastReverseArgument; // 最近一次反查（同步完自动重发）
   QVariantMap m_evidenceSnapshot;
   bool m_evidenceSnapshotOwned = false;
   int m_historyPage = 0;

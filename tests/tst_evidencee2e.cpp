@@ -13,6 +13,8 @@
 #include "../src/qgis/qgisprocessingservice.h"
 #include "../src/qgis/qgisprojectservice.h"
 #include "../src/qgis/wellattributestore.h"
+#include "../src/services/paleotaskservice.h"
+#include "../src/workflow/derivedassets.h"
 #include "../src/workflow/workflows.h"
 #include "../src/workflow/mappingworkbench.h"
 #include <QElapsedTimer>
@@ -129,8 +131,12 @@ private slots:
     QVERIFY(layer);
     QgsFeature feature;
     auto iterator = layer->getFeatures();
-    QVERIFY(iterator.nextFeature(feature));
+    while (iterator.nextFeature(feature)) {
+      if (feature.geometry().contains(10, 10))
+        break;
+    }
     iterator.close();
+    QVERIFY(feature.isValid());
     const auto before = f.work.featureEvidence(draft, {feature.id()});
     const auto attribution = before.value("attribution").toMap();
     QCOMPARE(attribution.value("status").toString(), QStringLiteral("ok"));
@@ -339,6 +345,210 @@ private slots:
     const auto wells = wellsSnapshot.value("wells_in_feature").toList();
     QVERIFY(wells.size() <= 500); // 有界
     qInfo().noquote() << "BASELINE wells matched:" << wells.size();
+  }
+  // X8/X9：反查行字段与索引新鲜度如实上报；目录删除来源版本后
+  // stale_sources 按目录核验命中；任务服务在场时同步走后台、不阻塞查询。
+  void reverseQueryHonestyAndBackgroundSync() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto source = f.dir.filePath("samples.geojson");
+    QVERIFY(MappingArtifactWriter::points(
+        source,
+        {QVariantMap{{"x", 0}, {"y", 0}, {"facies_code", 1}},
+         QVariantMap{{"x", 100}, {"y", 100}, {"facies_code", 2}}},
+        &error));
+    LayerDeclaration d;
+    d.layerId = "wells.D61";
+    d.horizon = "D61";
+    d.type = "vector";
+    d.source = source;
+    d.title = QStringLiteral("相点");
+    QVERIFY(f.layers.declare(d, &error));
+    const auto polygons =
+        f.work.compose("D61", {d.layerId}, QVariantMap{}, &error);
+    QVERIFY2(!polygons.isEmpty(), qPrintable(error));
+
+    // 独立来源版本（无下游引用，随后可整体删除）。
+    DerivedAssetRegistrar registrar(&f.catalog, f.dir.path());
+    const auto staged = registrar.stage("facies_raster", QStringLiteral("来源栅格"),
+                                        "source.tif", &error);
+    QVERIFY2(staged.isValid(), qPrintable(error));
+    QVERIFY(MappingArtifactWriter::raster(staged.absolutePath, {1, 1, 2, 2},
+                                          2, 2, QRectF(0, 0, 100, 100), &error));
+    QVERIFY2(registrar.commit(
+                 staged, {}, "fixture",
+                 {{"mapping_product", true}, {"horizon", "D61"},
+                  {"layer_type", "raster"}, {"kind", "facies_raster"},
+                  {"layer_id",
+                   QStringLiteral("product.%1").arg(staged.versionId)},
+                  {"title", QStringLiteral("来源栅格")}},
+                 &error),
+             qPrintable(error));
+    QCOMPARE(f.work.versionForLayer(QStringLiteral("product.%1")
+                                        .arg(staged.versionId))
+                 .id,
+             staged.versionId);
+
+    // 编辑副本：反驳证据（钉定来源版本）+ 一条将被解除的记录 + Disputed。
+    const auto draft = f.work.copyForEditing(polygons, {}, &error);
+    QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft));
+    QVERIFY(layer);
+    QgsFeature feature;
+    auto iterator = layer->getFeatures();
+    QVERIFY(iterator.nextFeature(feature));
+    iterator.close();
+    QVERIFY(f.work.addEvidence(
+        draft, {feature.id()},
+        {{"text", QStringLiteral("井相反驳证据")},
+         {"role", QStringLiteral("CONTRADICTED_BY")},
+         {"type", QStringLiteral("well")},
+         {"source_layer",
+          QStringLiteral("product.%1").arg(staged.versionId)},
+         {"reason", QStringLiteral("保留冲突来源")}},
+        &error));
+    QVERIFY(f.work.addEvidence(
+        draft, {feature.id()},
+        {{"text", QStringLiteral("将被解除的旧关联")},
+         {"role", QStringLiteral("REFERENCES")},
+         {"type", QStringLiteral("manual")},
+         {"reason", QStringLiteral("临时记录")}},
+        &error));
+    const auto records = f.work.evidence(draft, {feature.id()});
+    QString removedId;
+    for (const auto &value : records)
+      if (value.toMap().value("text").toString() ==
+          QStringLiteral("将被解除的旧关联"))
+        removedId = value.toMap().value("id").toString();
+    QVERIFY(!removedId.isEmpty());
+    QVERIFY(f.work.changeEvidence(
+        draft, {feature.id()}, "unlink",
+        {{"evidence_id", removedId},
+         {"reason", QStringLiteral("解除错误关联")}},
+        &error));
+    const auto snapshot = f.work.featureEvidence(draft, {feature.id()});
+    const auto uid = snapshot.value("feature_uid").toString();
+    QVERIFY(!uid.isEmpty());
+    QVERIFY(f.work.changeEvidence(
+        draft, {feature.id()}, "review",
+        {{"status", QStringLiteral("Disputed")},
+         {"reason", QStringLiteral("冲突未决")},
+         {"expected_revision",
+          snapshot.value("interpretation").toMap().value("revision")}},
+        &error));
+    QVERIFY(layer->commitChanges());
+    QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
+
+    // 行字段与 meta（无任务服务 → 内联同步 → fresh）。
+    QVariantMap meta;
+    const auto contradicted = f.work.evidenceReverseQuery(
+        QStringLiteral("contradicted"), QStringLiteral("D61"), &error, &meta);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QCOMPARE(meta.value("index_state").toString(), QStringLiteral("fresh"));
+    QVERIFY(meta.contains("total"));
+    QCOMPARE(meta.value("shown").toInt(), contradicted.size());
+    bool found = false;
+    for (const auto &value : contradicted) {
+      const auto row = value.toMap();
+      QVERIFY(!row.value("unlinked").toBool()); // 断链行不进结论口径
+      QVERIFY(row.contains("relation_state"));
+      QVERIFY(row.contains("is_current_version"));
+      QVERIFY(row.contains("hit_reason"));
+      if (row.value("feature_uid").toString() != uid)
+        continue;
+      found = true;
+      QCOMPARE(row.value("relation_state").toString(),
+               QStringLiteral("active"));
+      QVERIFY(row.value("is_current_version").toBool());
+      QVERIFY(row.value("hit_reason").toString().contains(QStringLiteral("反驳")));
+    }
+    QVERIFY(found);
+    // Disputed 计入待复核口径。
+    const auto pending = f.work.evidenceReverseQuery(
+        QStringLiteral("pending_review"), QStringLiteral("D61"), &error, &meta);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    bool pendingFound = false;
+    for (const auto &value : pending)
+      pendingFound |= value.toMap().value("feature_uid").toString() == uid;
+    QVERIFY(pendingFound);
+
+    // 来源版本成为编辑版本的谱系父级后目录拒绝 removeAsset（引用完整
+    // 性），生产中「来源过期」以文件缺失呈现——删掉登记文件，stale_sources
+    // 按目录事实核验补查命中。
+    QVERIFY(QFile::remove(staged.absolutePath));
+    const auto stale = f.work.evidenceReverseQuery(
+        QStringLiteral("stale_sources"), QStringLiteral("D61"), &error, &meta);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    bool staleFound = false;
+    for (const auto &value : stale) {
+      const auto row = value.toMap();
+      if (row.value("feature_uid").toString() == uid &&
+          row.value("hit_reason").toString().contains(QStringLiteral("检索时核验")))
+        staleFound = true;
+    }
+    QVERIFY2(staleFound, "来源文件缺失后 stale_sources 未命中");
+
+    // 后台同步：任务服务在场 → 查询不内联同步，索引落后如实报 stale/
+    // syncing，同步完成后转 fresh。
+    PaleoTaskService tasks;
+    f.work.setTaskService(&tasks);
+    QSignalSpy synced(&f.work, &MappingWorkbench::evidenceIndexSynced);
+    // 制造目录修订（新增实体）使索引落后。
+    CatalogEntity wellB;
+    wellB.id = QStringLiteral("W-B");
+    wellB.name = QStringLiteral("井B");
+    wellB.entityType = QStringLiteral("well");
+    wellB.hasSurface = true;
+    wellB.surfaceX = 1;
+    wellB.surfaceY = 1;
+    wellB.coordinateStatus = QStringLiteral("untransformed");
+    QVERIFY(f.catalog.addEntity(wellB));
+    QVariantMap meta2;
+    f.work.evidenceReverseQuery(QStringLiteral("contradicted"),
+                                QStringLiteral("D61"), &error, &meta2);
+    const auto firstState = meta2.value("index_state").toString();
+    QVERIFY(firstState == QStringLiteral("stale") ||
+            firstState == QStringLiteral("syncing"));
+    if (firstState == QStringLiteral("stale")) {
+      // 后台同步已发起但未泵事件：任务回包未投递 → 应立即再查报 syncing。
+      QVariantMap meta3;
+      f.work.evidenceReverseQuery(QStringLiteral("contradicted"),
+                                  QStringLiteral("D61"), &error, &meta3);
+      QCOMPARE(meta3.value("index_state").toString(),
+               QStringLiteral("syncing"));
+    }
+    QTRY_VERIFY(!synced.isEmpty());
+    QVariantMap meta4;
+    const auto rows = f.work.evidenceReverseQuery(
+        QStringLiteral("contradicted"), QStringLiteral("D61"), &error, &meta4);
+    QCOMPARE(meta4.value("index_state").toString(), QStringLiteral("fresh"));
+    QVERIFY(!rows.isEmpty());
+
+    // 取消路径：修订再进 → 发起同步 → 立即取消（worker 可能已完成，
+    // 两种终态都允许）；索引保持可用且随后能完成同步收敛回 fresh。
+    CatalogEntity wellC = wellB;
+    wellC.id = QStringLiteral("W-C");
+    wellC.name = QStringLiteral("井C");
+    QVERIFY(f.catalog.addEntity(wellC));
+    QVariantMap meta5;
+    f.work.evidenceReverseQuery(QStringLiteral("contradicted"),
+                                QStringLiteral("D61"), &error, &meta5);
+    QVERIFY(meta5.value("index_state").toString() != QStringLiteral("fresh"));
+    if (!tasks.tasks().isEmpty())
+      tasks.tasks().last()->requestCancel();
+    QString state;
+    for (int i = 0; i < 100 && state != QStringLiteral("fresh"); ++i) {
+      QTest::qWait(50);
+      QVariantMap retryMeta;
+      f.work.evidenceReverseQuery(QStringLiteral("contradicted"),
+                                  QStringLiteral("D61"), &error, &retryMeta);
+      state = retryMeta.value("index_state").toString();
+      QVERIFY2(!state.isEmpty(), "查询必须如实给出索引状态");
+    }
+    QCOMPARE(state, QStringLiteral("fresh"));
+    QVERIFY2(!error.contains(QStringLiteral("database is locked")),
+             qPrintable(error));
   }
 };
 int main(int argc, char **argv) {

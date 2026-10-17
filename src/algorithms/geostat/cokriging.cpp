@@ -48,11 +48,10 @@ bool varianceAdmissible( double variance, double scale )
   return true;
 }
 
-} // namespace
-
-// ---- 普通协克里金 ----
-
-struct CoKrigingSolver::Impl
+// #478：协克里金求解核（CoKrigingSolver 与全场扫描共用同一实现——两套
+// 近乎全同的重载曾出现取消/进度语义细微差异，收敛到单一代码路径）。
+// 索引/模型/参数构建一次，逐点求解可跨点复用工作区。
+struct CokrigingCore
 {
   CoSampleIndex primary;
   CoSampleIndex secondary;
@@ -61,147 +60,145 @@ struct CoKrigingSolver::Impl
   bool valid = false;
 };
 
-CoKrigingSolver::CoKrigingSolver( const std::vector<Sample> &primarySamples,
-                                  const std::vector<Sample> &secondarySamples,
-                                  const CoKrigingModel &model, const CoKrigingParams &params )
-  : m_impl( std::make_unique<Impl>() )
+CokrigingCore buildCore( const std::vector<Sample> &primarySamples,
+                         const std::vector<Sample> &secondarySamples, const CoKrigingModel &model,
+                         const CoKrigingParams &params )
 {
-  m_impl->primary = buildIndex( primarySamples );
-  m_impl->secondary = buildIndex( secondarySamples );
-  m_impl->model = model;
-  m_impl->params = params;
-  m_impl->params.maxPrimary = clampNeighborhood( params.maxPrimary );
-  m_impl->params.maxSecondary = clampNeighborhood( params.maxSecondary );
+  CokrigingCore core;
+  core.primary = buildIndex( primarySamples );
+  core.secondary = buildIndex( secondarySamples );
+  core.model = model;
+  core.params = params;
+  core.params.maxPrimary = clampNeighborhood( params.maxPrimary );
+  core.params.maxSecondary = clampNeighborhood( params.maxSecondary );
   if ( params.searchRadius < 0 )
-    m_impl->params.searchRadius = 0;
-  m_impl->valid = model.valid() && m_impl->primary.index.size() > 0;
+    core.params.searchRadius = 0;
+  core.valid = model.valid() && core.primary.index.size() > 0;
+  return core;
 }
 
-CoKrigingSolver::~CoKrigingSolver() = default;
-CoKrigingSolver::CoKrigingSolver( CoKrigingSolver && ) noexcept = default;
-CoKrigingSolver &CoKrigingSolver::operator=( CoKrigingSolver && ) noexcept = default;
-
-bool CoKrigingSolver::valid() const
+// 逐点求解工作区（#478）：邻域列表、方程组与解缓冲跨点复用（全场扫描
+// 每点重分配 m×m 矩阵的 churn 省掉）。非线程安全，每调用序列一份。
+struct CokrigingWorkspace
 {
-  return m_impl && m_impl->valid;
-}
+  std::vector<std::uint32_t> primaryHood;
+  std::vector<std::uint32_t> secondaryHood;
+  std::vector<double> a;
+  std::vector<double> b;
+  std::vector<double> solution;
+  LuWorkspace lu;
+};
 
-int CoKrigingSolver::primaryCount() const
-{
-  return m_impl && m_impl->valid ? static_cast<int>( m_impl->primary.index.size() ) : 0;
-}
-
-int CoKrigingSolver::secondaryCount() const
-{
-  return m_impl ? static_cast<int>( m_impl->secondary.index.size() ) : 0;
-}
-
-int CoKrigingSolver::mergedPrimaryDuplicates() const
-{
-  return m_impl ? m_impl->primary.merged : 0;
-}
-
-int CoKrigingSolver::mergedSecondaryDuplicates() const
-{
-  return m_impl ? m_impl->secondary.merged : 0;
-}
-
-CoKrigingPointResult CoKrigingSolver::solveAt( double x, double y ) const
+CoKrigingPointResult solveCoreAt( const CokrigingCore &core, double x, double y,
+                                  CokrigingWorkspace &ws )
 {
   CoKrigingPointResult result;
-  if ( !m_impl || !m_impl->valid )
+  if ( !core.valid )
     return result;
 
-  const CoKrigingModel &model = m_impl->model;
-  std::vector<std::uint32_t> primaryHood;
-  const int kPrimary = m_impl->params.maxPrimary > 0
-                           ? m_impl->params.maxPrimary
-                           : static_cast<int>( m_impl->primary.index.size() );
-  m_impl->primary.index.queryNearest( x, y, kPrimary, m_impl->params.searchRadius, &primaryHood );
-  if ( primaryHood.empty() )
+  const CoKrigingModel &model = core.model;
+  const int kPrimary = core.params.maxPrimary > 0
+                           ? core.params.maxPrimary
+                           : static_cast<int>( core.primary.index.size() );
+  core.primary.index.queryNearest( x, y, kPrimary, core.params.searchRadius, &ws.primaryHood );
+  if ( ws.primaryHood.empty() )
     return result;
-  std::vector<std::uint32_t> secondaryHood;
-  if ( m_impl->secondary.index.size() > 0 )
+  if ( core.secondary.index.size() > 0 )
   {
-    const int kSecondary = m_impl->params.maxSecondary > 0
-                               ? m_impl->params.maxSecondary
-                               : static_cast<int>( m_impl->secondary.index.size() );
-    m_impl->secondary.index.queryNearest( x, y, kSecondary, m_impl->params.searchRadius,
-                                          &secondaryHood );
+    const int kSecondary = core.params.maxSecondary > 0
+                               ? core.params.maxSecondary
+                               : static_cast<int>( core.secondary.index.size() );
+    core.secondary.index.queryNearest( x, y, kSecondary, core.params.searchRadius,
+                                       &ws.secondaryHood );
+  }
+  else
+  {
+    ws.secondaryHood.clear();
   }
 
-  const int n1 = static_cast<int>( primaryHood.size() );
-  const int n2 = static_cast<int>( secondaryHood.size() );
+  const int n1 = static_cast<int>( ws.primaryHood.size() );
+  const int n2 = static_cast<int>( ws.secondaryHood.size() );
   // n2 = 0 时省去 μ2 行（全零行会让加边矩阵奇异）：方程组即普通克里金。
   const int nMu = n2 > 0 ? 2 : 1;
   const int m = n1 + n2 + nMu;
-  std::vector<double> a( static_cast<std::size_t>( m ) * m, 0.0 );
-  std::vector<double> b( static_cast<std::size_t>( m ), 0.0 );
+  ws.a.assign( static_cast<std::size_t>( m ) * m, 0.0 );
+  ws.b.assign( static_cast<std::size_t>( m ), 0.0 );
 
+  // #478：对称填充——主/协块 γ11、γ22 为对称阵（半变差是 h 的偶函数，
+  // ±h 的浮点求值逐位相同），上三角评估一次镜像对侧；交叉块 γ12(h) 同为
+  // 偶函数，(主 i, 协 k) 与 (协 k, 主 i) 一值两写（旧实现全 m×m 各评
+  // 各的，γ 评估量减半后数值逐位不变）。
   for ( int i = 0; i < n1; ++i )
   {
-    const Sample &si = m_impl->primary.index.point( primaryHood[static_cast<std::size_t>( i )] );
-    for ( int j = 0; j < n1; ++j )
+    const Sample &si = core.primary.index.point( ws.primaryHood[static_cast<std::size_t>( i )] );
+    for ( int j = i + 1; j < n1; ++j )
     {
-      const Sample &sj = m_impl->primary.index.point( primaryHood[static_cast<std::size_t>( j )] );
-      a[static_cast<std::size_t>( i ) * m + j] = model.primary.semivariance( si.x - sj.x, si.y - sj.y );
+      const Sample &sj = core.primary.index.point( ws.primaryHood[static_cast<std::size_t>( j )] );
+      const double gamma =
+          model.primary.semivariance( si.x - sj.x, si.y - sj.y );
+      ws.a[static_cast<std::size_t>( i ) * m + j] = gamma;
+      ws.a[static_cast<std::size_t>( j ) * m + i] = gamma;
     }
     for ( int k = 0; k < n2; ++k )
     {
-      const Sample &sk = m_impl->secondary.index.point( secondaryHood[static_cast<std::size_t>( k )] );
-      a[static_cast<std::size_t>( i ) * m + n1 + k] = model.crossSemivariance( si.x - sk.x, si.y - sk.y );
+      const Sample &sk =
+          core.secondary.index.point( ws.secondaryHood[static_cast<std::size_t>( k )] );
+      const double cross =
+          model.crossSemivariance( si.x - sk.x, si.y - sk.y );
+      ws.a[static_cast<std::size_t>( i ) * m + n1 + k] = cross;
+      ws.a[static_cast<std::size_t>( n1 + k ) * m + i] = cross;
     }
-    a[static_cast<std::size_t>( i ) * m + n1 + n2] = 1.0; // μ1 列
-    b[static_cast<std::size_t>( i )] = model.primary.semivariance( si.x - x, si.y - y );
+    ws.a[static_cast<std::size_t>( i ) * m + n1 + n2] = 1.0; // μ1 列
+    ws.b[static_cast<std::size_t>( i )] = model.primary.semivariance( si.x - x, si.y - y );
   }
   for ( int i = 0; i < n2; ++i )
   {
     const int row = n1 + i;
-    const Sample &si = m_impl->secondary.index.point( secondaryHood[static_cast<std::size_t>( i )] );
-    for ( int j = 0; j < n1; ++j )
+    const Sample &si =
+        core.secondary.index.point( ws.secondaryHood[static_cast<std::size_t>( i )] );
+    for ( int k = i + 1; k < n2; ++k )
     {
-      const Sample &sj = m_impl->primary.index.point( primaryHood[static_cast<std::size_t>( j )] );
-      a[static_cast<std::size_t>( row ) * m + j] = model.crossSemivariance( si.x - sj.x, si.y - sj.y );
-    }
-    for ( int k = 0; k < n2; ++k )
-    {
-      const Sample &sk = m_impl->secondary.index.point( secondaryHood[static_cast<std::size_t>( k )] );
-      a[static_cast<std::size_t>( row ) * m + n1 + k] =
+      const Sample &sk =
+          core.secondary.index.point( ws.secondaryHood[static_cast<std::size_t>( k )] );
+      const double gamma =
           model.secondary.semivariance( si.x - sk.x, si.y - sk.y );
+      ws.a[static_cast<std::size_t>( row ) * m + n1 + k] = gamma;
+      ws.a[static_cast<std::size_t>( n1 + k ) * m + row] = gamma;
     }
-    a[static_cast<std::size_t>( row ) * m + n1 + n2 + 1] = 1.0; // μ2 列
-    b[static_cast<std::size_t>( row )] = model.crossSemivariance( si.x - x, si.y - y );
+    ws.a[static_cast<std::size_t>( row ) * m + n1 + n2 + 1] = 1.0; // μ2 列
+    ws.b[static_cast<std::size_t>( row )] = model.crossSemivariance( si.x - x, si.y - y );
   }
   // 约束行：Σλ = 1（主变量无偏），Σν = 0（协变量不承载趋势）。
   for ( int j = 0; j < n1; ++j )
-    a[static_cast<std::size_t>( n1 + n2 ) * m + j] = 1.0;
-  b[static_cast<std::size_t>( n1 + n2 )] = 1.0;
+    ws.a[static_cast<std::size_t>( n1 + n2 ) * m + j] = 1.0;
+  ws.b[static_cast<std::size_t>( n1 + n2 )] = 1.0;
   if ( nMu == 2 )
   {
     for ( int k = 0; k < n2; ++k )
-      a[static_cast<std::size_t>( n1 + n2 + 1 ) * m + n1 + k] = 1.0;
-    b[static_cast<std::size_t>( n1 + n2 + 1 )] = 0.0;
+      ws.a[static_cast<std::size_t>( n1 + n2 + 1 ) * m + n1 + k] = 1.0;
+    ws.b[static_cast<std::size_t>( n1 + n2 + 1 )] = 0.0;
   }
 
-  std::vector<double> solution;
-  if ( !solveDenseLu( a, m, b, solution ) )
+  if ( !solveDenseLu( ws.a, m, ws.b, ws.solution, ws.lu ) )
     return result;
 
   double estimate = 0;
   double variance = 0;
   for ( int i = 0; i < n1; ++i )
   {
-    const double weight = solution[static_cast<std::size_t>( i )];
-    estimate += weight * m_impl->primary.index.point( primaryHood[static_cast<std::size_t>( i )] ).value;
-    variance += weight * b[static_cast<std::size_t>( i )];
+    const double weight = ws.solution[static_cast<std::size_t>( i )];
+    estimate +=
+        weight * core.primary.index.point( ws.primaryHood[static_cast<std::size_t>( i )] ).value;
+    variance += weight * ws.b[static_cast<std::size_t>( i )];
   }
   for ( int k = 0; k < n2; ++k )
   {
-    const double weight = solution[static_cast<std::size_t>( n1 + k )];
-    estimate += weight * m_impl->secondary.index.point( secondaryHood[static_cast<std::size_t>( k )] ).value;
-    variance += weight * b[static_cast<std::size_t>( n1 + k )];
+    const double weight = ws.solution[static_cast<std::size_t>( n1 + k )];
+    estimate += weight *
+                core.secondary.index.point( ws.secondaryHood[static_cast<std::size_t>( k )] ).value;
+    variance += weight * ws.b[static_cast<std::size_t>( n1 + k )];
   }
-  variance += solution[static_cast<std::size_t>( n1 + n2 )]; // + μ1
+  variance += ws.solution[static_cast<std::size_t>( n1 + n2 )]; // + μ1
   const double varianceScale =
       std::max( { 1.0, model.primary.nugget + model.primary.sill, std::fabs( model.crossCorrelation ) } );
   if ( !std::isfinite( estimate ) || !varianceAdmissible( variance, varianceScale ) )
@@ -210,6 +207,62 @@ CoKrigingPointResult CoKrigingSolver::solveAt( double x, double y ) const
   result.variance = variance < 0 ? 0 : variance;
   result.ok = true;
   return result;
+}
+
+} // namespace
+
+// ---- 普通协克里金 ----
+
+struct CoKrigingSolver::Impl
+{
+  CokrigingCore core;
+};
+
+CoKrigingSolver::CoKrigingSolver( const std::vector<Sample> &primarySamples,
+                                  const std::vector<Sample> &secondarySamples,
+                                  const CoKrigingModel &model, const CoKrigingParams &params )
+  : m_impl( std::make_unique<Impl>() )
+{
+  m_impl->core = buildCore( primarySamples, secondarySamples, model, params );
+}
+
+CoKrigingSolver::~CoKrigingSolver() = default;
+CoKrigingSolver::CoKrigingSolver( CoKrigingSolver && ) noexcept = default;
+CoKrigingSolver &CoKrigingSolver::operator=( CoKrigingSolver && ) noexcept = default;
+
+bool CoKrigingSolver::valid() const
+{
+  return m_impl && m_impl->core.valid;
+}
+
+int CoKrigingSolver::primaryCount() const
+{
+  return m_impl && m_impl->core.valid ? static_cast<int>( m_impl->core.primary.index.size() ) : 0;
+}
+
+int CoKrigingSolver::secondaryCount() const
+{
+  return m_impl ? static_cast<int>( m_impl->core.secondary.index.size() ) : 0;
+}
+
+int CoKrigingSolver::mergedPrimaryDuplicates() const
+{
+  return m_impl ? m_impl->core.primary.merged : 0;
+}
+
+int CoKrigingSolver::mergedSecondaryDuplicates() const
+{
+  return m_impl ? m_impl->core.secondary.merged : 0;
+}
+
+CoKrigingPointResult CoKrigingSolver::solveAt( double x, double y ) const
+{
+  if ( !m_impl )
+    return CoKrigingPointResult{};
+  // 单点调用自建工作区（每调用独立 → 公开 const API 保持可重入）；
+  // 全场扫描走 solveCoreAt 复用一份（见 ordinaryCoKriging）。
+  CokrigingWorkspace workspace;
+  return solveCoreAt( m_impl->core, x, y, workspace );
 }
 
 CoKrigingPointResult coKrigingAt( double x, double y, const std::vector<Sample> &primary,
@@ -245,10 +298,13 @@ CoKrigingResult ordinaryCoKriging( const std::vector<Sample> &primarySamples,
     return result;
   }
 
-  const CoKrigingSolver solver( primarySamples, secondarySamples, model, params );
-  result.mergedPrimaryDuplicates = solver.mergedPrimaryDuplicates();
-  result.mergedSecondaryDuplicates = solver.mergedSecondaryDuplicates();
-  if ( !solver.valid() )
+  // #478：扫描直用求解核 + 单份跨点工作区（每点 solveAt 重分配 m×m 矩阵
+  // 的 churn 省掉）；求解口径与 CoKrigingSolver::solveAt 单点路径逐位一致
+  //（同一 solveCoreAt）。
+  const CokrigingCore core = buildCore( primarySamples, secondarySamples, model, params );
+  result.mergedPrimaryDuplicates = core.primary.merged;
+  result.mergedSecondaryDuplicates = core.secondary.merged;
+  if ( !core.valid )
   {
     result.message = "no finite primary samples or invalid model";
     return result;
@@ -258,6 +314,7 @@ CoKrigingResult ordinaryCoKriging( const std::vector<Sample> &primarySamples,
   result.estimates.assign( total, std::numeric_limits<double>::quiet_NaN() );
   result.variances.assign( total, std::numeric_limits<double>::quiet_NaN() );
 
+  CokrigingWorkspace workspace;
   std::size_t sinceCheck = 0;
   const std::size_t checkInterval = 2048;
   for ( int row = 0; row < grid.rows; ++row )
@@ -266,7 +323,7 @@ CoKrigingResult ordinaryCoKriging( const std::vector<Sample> &primarySamples,
     {
       const std::size_t cell = static_cast<std::size_t>( row ) * grid.cols + column;
       const CoKrigingPointResult pt =
-          solver.solveAt( grid.cellCenterX( column ), grid.cellCenterY( row ) );
+          solveCoreAt( core, grid.cellCenterX( column ), grid.cellCenterY( row ), workspace );
       if ( pt.ok )
       {
         result.estimates[cell] = pt.estimate;
@@ -281,14 +338,16 @@ CoKrigingResult ordinaryCoKriging( const std::vector<Sample> &primarySamples,
       if ( sinceCheck >= checkInterval )
       {
         sinceCheck = 0;
+        // 先转发进度再轮询取消：bool 进度适配器在回调内置位取消标志，
+        // 同一检查点即被捕获（与旧 SamplePoint 重载的取消时机一致）。
+        if ( control.progress )
+          control.progress( 0.02 + 0.98 * static_cast<double>( cell + 1 ) / static_cast<double>( total ) );
         if ( control.cancelled && control.cancelled() )
         {
           result.status = Status::Cancelled;
           result.message = "cancelled";
           return result;
         }
-        if ( control.progress )
-          control.progress( 0.02 + 0.98 * static_cast<double>( cell + 1 ) / static_cast<double>( total ) );
       }
     }
   }
@@ -313,90 +372,20 @@ CoKrigingResult ordinaryCoKriging( const std::vector<SamplePoint> &primarySample
                                    const KrigingParams &params,
                                    const std::function<bool( double )> &progress )
 {
+  // #478：bool 进度 → Control 适配后委托 Control 重载——两套近乎全同的
+  // 扫描副本已出现取消语义细微差异，收敛为单一代码路径。
   CoKrigingParams coParams;
   coParams.maxPrimary = params.maxPoints;
   coParams.maxSecondary = params.maxPoints;
   coParams.searchRadius = params.searchRadius;
-
-  CoKrigingResult result;
-  if ( !grid.isValid() )
-  {
-    result.message = "grid is not valid";
-    return result;
-  }
-  const std::int64_t cells = static_cast<std::int64_t>( grid.rows ) * grid.cols;
-  if ( cells > 100'000'000 )
-  {
-    result.message = "grid budget exceeded (cells > 1e8)";
-    return result;
-  }
-  if ( !model.valid() )
-  {
-    result.message = "cokriging model invalid";
-    return result;
-  }
-
-  const CoKrigingSolver solver( primarySamples, secondarySamples, model, coParams );
-  result.mergedPrimaryDuplicates = solver.mergedPrimaryDuplicates();
-  result.mergedSecondaryDuplicates = solver.mergedSecondaryDuplicates();
-  if ( !solver.valid() )
-  {
-    result.message = "no finite primary samples or invalid model";
-    return result;
-  }
-
-  const std::size_t total = static_cast<std::size_t>( cells );
-  result.estimates.assign( total, std::numeric_limits<double>::quiet_NaN() );
-  result.variances.assign( total, std::numeric_limits<double>::quiet_NaN() );
-
-  std::size_t sinceCheck = 0;
-  const std::size_t checkInterval = 2048;
-  for ( int row = 0; row < grid.rows; ++row )
-  {
-    for ( int column = 0; column < grid.cols; ++column )
-    {
-      const std::size_t cell = static_cast<std::size_t>( row ) * grid.cols + column;
-      const CoKrigingPointResult pt =
-          solver.solveAt( grid.cellCenterX( column ), grid.cellCenterY( row ) );
-      if ( pt.ok )
-      {
-        result.estimates[cell] = pt.estimate;
-        result.variances[cell] = pt.variance;
-      }
-      else
-      {
-        ++result.solverFailures;
-      }
-
-      ++sinceCheck;
-      if ( sinceCheck >= checkInterval )
-      {
-        sinceCheck = 0;
-        if ( progress )
-        {
-          const double frac = 0.02 + 0.98 * static_cast<double>( cell + 1 ) / static_cast<double>( total );
-          if ( !progress( frac ) )
-          {
-            result.status = Status::Cancelled;
-            result.message = "cancelled";
-            return result;
-          }
-        }
-      }
-    }
-  }
-
-  for ( double value : result.estimates )
-  {
-    if ( std::isfinite( value ) )
-      ++result.finiteCells;
-    else
-      ++result.nodataCells;
-  }
-  if ( progress )
-    progress( 1.0 );
-  result.status = Status::Ok;
-  return result;
+  bool cancelledByProgress = false;
+  Control control;
+  control.cancelled = [&cancelledByProgress] { return cancelledByProgress; };
+  control.progress = [&cancelledByProgress, &progress]( double fraction ) {
+    if ( progress && !progress( fraction ) )
+      cancelledByProgress = true;
+  };
+  return ordinaryCoKriging( primarySamples, secondarySamples, grid, model, coParams, control );
 }
 
 // ---- 带约束普通克里金（软罚主动集）----

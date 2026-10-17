@@ -52,6 +52,23 @@ bool DataCatalog::addVersion(const CatalogVersion &v, QString *error)
     setError(error, QStringLiteral("version references unknown asset: %1").arg(v.assetId));
     return false;
   }
+  // #476：同资产同版本号重复——对照 mapversionstore 的 UNIQUE INDEX 口径
+  // （map_versions(horizon,version)）。0/1 档 = 未编号/首版（存量调用面广，
+  // 允许重复）；>1 的显式编号族（assetops 等 current+1 单调面）唯一，
+  // currentVersion 的 >= 行序 tie-break 在该族内从此不可达。
+  for (int r : m_idx.versionRowsForAsset(v.assetId)) // D5.1 O(命中集) 非全表
+  {
+    if (v.versionNumber > 1 && m_versions.at(r).versionNumber == v.versionNumber)
+    {
+      setError(error,
+               QStringLiteral("duplicate version number %1 for asset %2 "
+                              "(existing version id: %3)")
+                   .arg(v.versionNumber)
+                   .arg(v.assetId)
+                   .arg(m_versions.at(r).id));
+      return false;
+    }
+  }
   // §3：fileName 与受管 path 的每一段都必须是合法路径段——catalog 不落坏段。
   // （外链 path 是文件系统绝对路径，含分隔符属正常，不查；空 path 表示未落位，
   // 交给调用方兜底。）

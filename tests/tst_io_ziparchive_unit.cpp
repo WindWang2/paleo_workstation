@@ -20,6 +20,7 @@ private slots:
   void storedZipRoundTrip();
   void extractNonExistentEntry();
   void mutationDemonstration_corruptEntryDetected();
+  void crcMismatchRejectedAfterExtract(); // #477
 
 private:
   static QByteArray makeStoredZip(const QMap<QString, QByteArray> &files);
@@ -200,6 +201,32 @@ void TestIoZipArchiveUnit::mutationDemonstration_corruptEntryDetected()
   QString err;
   QVERIFY(!zipExtractBytes(zipBytes, QStringLiteral("test.bin"), &out, &err));
   QVERIFY(!err.isEmpty());
+}
+
+// #477：解压后必须比对中央目录 CRC32——此前只校验长度/zlib 状态，字节
+// 被篡改但恰好 inflate 成功的条目会静默交出坏数据。
+void TestIoZipArchiveUnit::crcMismatchRejectedAfterExtract()
+{
+  QMap<QString, QByteArray> inputFiles;
+  inputFiles.insert(QStringLiteral("payload.bin"), QByteArrayLiteral("INTEGRITY_CHECK_BLOCK_0123456789"));
+  QByteArray zipBytes = makeStoredZip(inputFiles);
+
+  // 只翻转一个数据位（本地头/中央目录结构完好，长度不变）。
+  const int dataIndex = zipBytes.indexOf("INTEGRITY_CHECK_BLOCK");
+  QVERIFY(dataIndex != -1);
+  zipBytes[dataIndex] = 'X'; // XNTEGRITY...
+
+  QByteArray out;
+  QString err;
+  QVERIFY(!zipExtractBytes(zipBytes, QStringLiteral("payload.bin"), &out, &err));
+  QVERIFY2(err.contains(QStringLiteral("CRC32")), qPrintable(err));
+
+  // 未篡改的包照常通过（CRC 不误伤）。
+  QByteArray clean = makeStoredZip(inputFiles);
+  QByteArray cleanOut;
+  QString cleanErr;
+  QVERIFY(zipExtractBytes(clean, QStringLiteral("payload.bin"), &cleanOut, &cleanErr));
+  QCOMPARE(cleanOut, inputFiles.value(QStringLiteral("payload.bin")));
 }
 
 QTEST_GUILESS_MAIN(TestIoZipArchiveUnit)

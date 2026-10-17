@@ -5,6 +5,8 @@
 #include <QString>
 #include <QStringList>
 
+#include <list>
+
 // io/ — LAS 曲线助记符/单位别名归一（wave/io-perf-cache D1.7）。
 // 工区 LAS 的道名五花八门（DT/AC/DT4P、GR/NGR/SGR、RHOB/DEN/ZDEN……），
 // 消费方（关联曲线选择、预测输入道）需要问「这口井有没有声波/伽马」而不是
@@ -47,11 +49,55 @@ class LasAliasMap
     QString lookupNormalized(const QString &raw, const QHash<QString, QString> &table,
                              const QHash<QString, QString> &familyTable, bool isCurve);
 
+    // #477：记忆化缓存改 LRU——此前 QHash::erase(begin()) 是哈希序随机淘汰，
+    // 热键可能刚插入即被逐。std::list 保访问序（尾=最近），QHash 保 O(1) 定位。
+    struct MemoLru
+    {
+        struct Entry
+        {
+            QString key;
+            QString value;
+        };
+        std::list<Entry> order; // 头 = 最久未用
+        QHash<QString, std::list<Entry>::iterator> index;
+
+        QString take(const QString &key) // 命中即挪尾（LRU 触点）
+        {
+            const auto it = index.constFind(key);
+            if (it == index.constEnd())
+                return QString();
+            order.splice(order.end(), order, it.value());
+            return it.value()->value;
+        }
+        void put(const QString &key, const QString &value, int cap = 4096)
+        {
+            const auto it = index.constFind(key);
+            if (it != index.constEnd())
+            {
+                it.value()->value = value;
+                order.splice(order.end(), order, it.value());
+                return;
+            }
+            order.push_back(Entry{ key, value });
+            index.insert(key, std::prev(order.end()));
+            while (index.size() > cap)
+            {
+                index.remove(order.front().key);
+                order.pop_front();
+            }
+        }
+        void clear()
+        {
+            order.clear();
+            index.clear();
+        }
+    };
+
     mutable QMutex m_mutex;
     QHash<QString, QString> m_curveTable;  // 大写归一后的别名 -> 规范名
     QHash<QString, QString> m_unitTable;   // 小写归一后的单位 -> 规范单位
     QHash<QString, QString> m_familyTable; // 规范名 -> 族
-    QHash<QString, QString> m_curveMemo;   // 原输入串 -> 结果（记忆化）
-    QHash<QString, QString> m_unitMemo;
+    MemoLru m_curveMemo; // 原输入串 -> 结果（记忆化，LRU）
+    MemoLru m_unitMemo;
     LasAliasStats m_stats;
 };

@@ -1,0 +1,75 @@
+# file-budget-baseline —— 视图层规模现状冻结清单（#502，tools/check_file_budget.py）。
+# 格式：每行 `<src 相对路径>:<kind>:<冻结值>`，kind = file（单文件 >1000 行）
+# 或 fn:<函数名>（函数体 >200 行，行数含起止行）。
+# 语义（只缩不涨，与 layering/qgs-audit baseline 同族）：
+#   - baseline 外的新超标 → FAIL；
+#   - 当前值 > 冻结值（回升）→ FAIL；
+#   - 当前值 < 冻结值（仍超标）→ NOTE 可收紧（--strict 红——防「瘦了又胖回去」）；
+#   - 回到阈值内 → NOTE 可收缩删行（--strict 红）。
+# 阈值（1000/200）不放宽；拆分先例：方向 96/97（ctor 编排主文件 + 域 TU +
+# *_internal.h）。TOP5 拆分（seismic3dviewpanel / entitypanel /
+# wellsectionpanel / mappingworkbenchpage，另 io/segyreader.cpp 非本闸范围）
+# 由 #502 另行跟踪，本闸只管不涨。
+# 基线：master @ ddd1325e 实测 src/ui 超标 61 项（file 12 / fn 49）。
+# 注：#502 正文的「43 个 >1000 行」是全仓口径；src/ui 内为 12 个。
+src/ui/correlation/petrophyspanel.cpp:fn:buildUi:220
+src/ui/crossplot/crossplotpanel.cpp:fn:CrossplotPanel:240
+src/ui/datapreview/datapreviewtabgeojson.cpp:fn:buildGeoJsonContent:485
+src/ui/datapreview/datapreviewtabhorizon.cpp:fn:buildHorizonContent:433
+src/ui/datapreview/datapreviewtabmapproduct.cpp:fn:buildMapProductContent:367
+src/ui/datapreview/datapreviewtabs_content.cpp:fn:buildContent:225
+src/ui/datapreview/datapreviewtabs_survey.cpp:fn:buildSurveyAreaContent:327
+src/ui/datapreview/datapreviewtabs_well.cpp:fn:buildWellBody:254
+src/ui/datapreview/datapreviewtabseismic.cpp:fn:buildSeismicContent:777
+src/ui/datapreview/datapreviewtabwelllog.cpp:fn:buildWellLogContent:278
+src/ui/datapreview/previewmappage.cpp:fn:PreviewMapPage:215
+src/ui/datapreview/previewtocpanel.cpp:fn:PreviewTocPanel:289
+src/ui/dialogs/folderconfirm.cpp:fn:buildFolderConfirmDialog:346
+src/ui/edittools/editingtoolbar.cpp:file:1118
+src/ui/edittools/editingtoolbar.cpp:fn:buildUi:240
+src/ui/edittools/vertexeditortools.cpp:file:1318
+src/ui/edittools/vertexeditortools.cpp:fn:deleteVertexAtMapPoint:245
+src/ui/pages/composepage.cpp:fn:ComposePage:422
+src/ui/pages/constraintpage_constraints.cpp:fn:buildConstraintArea:311
+src/ui/pages/constraintpage_interpolation.cpp:fn:buildAdvancedSection:207
+src/ui/pages/datagraphpage.cpp:fn:DataGraphPage:349
+src/ui/pages/datalist.cpp:file:1008
+src/ui/pages/datalist.cpp:fn:DataListPanel:509
+src/ui/pages/datalist.cpp:fn:buildDataOpsUi:331
+src/ui/pages/datalist_table.cpp:fn:renderAssetPage:388
+src/ui/pages/datalist_tree.cpp:file:1126
+src/ui/pages/datalist_tree.cpp:fn:buildNavTreeSpec:693
+src/ui/pages/entitypanel.cpp:file:1620
+src/ui/pages/entitypanel.cpp:fn:buildD4Ui:224
+src/ui/pages/entitypanel.cpp:fn:refresh:782
+src/ui/pages/mappingworkbenchpage.cpp:file:1517
+src/ui/pages/mappingworkbenchpage.cpp:fn:MappingWorkbenchPage:682
+src/ui/pages/mappingworkbenchpage.cpp:fn:updateState:238
+src/ui/pages/wellsitingpanel.cpp:fn:WellSitingPanel:263
+src/ui/paleomainwindow.cpp:file:1005
+src/ui/paleomainwindow_attach.cpp:fn:attachWorkflows:398
+src/ui/paleomainwindow_attach_compose.cpp:fn:attachComposePage:387
+src/ui/paleomainwindow_attach_constraint.cpp:fn:attachConstraintPage:718
+src/ui/paleomainwindow_attach_data.cpp:fn:attachDataPage:317
+src/ui/paleomainwindow_attach_shell.cpp:fn:attachShellSurfaces:580
+src/ui/paleomainwindow_docks.cpp:fn:buildCenterArea:209
+src/ui/paleomainwindow_sections.cpp:fn:attachSections:295
+src/ui/paleomainwindow_wellsection.cpp:fn:attachWellSection:466
+src/ui/paleomainwindow_workbench.cpp:file:1199
+src/ui/paleomainwindow_workbench.cpp:fn:attachWorkbench:1133
+src/ui/propertymodel/propertymodelpanel.cpp:fn:buildUi:255
+src/ui/ribbonpanels.cpp:fn:buildRibbonPanels:408
+src/ui/seismic3d/seismic3dviewpanel.cpp:file:1811
+src/ui/seismic3d/seismic3dviewpanel.cpp:fn:buildDisplayBar:402
+src/ui/seismic3d/seismic3dviewpanel.cpp:fn:buildUi:253
+src/ui/seismic3d/seismic3dviewportwidget.cpp:file:1003
+src/ui/seismicsection/seismicsectioncanvas_paint.cpp:fn:paintEvent:778
+src/ui/seismicsection/seismicsectiondock_setup.cpp:fn:setupDisplayBar:255
+src/ui/seismicsection/seismicsectiondock_setup.cpp:fn:setupUi:386
+src/ui/shortcuts/shortcutcatalog.cpp:fn:catalogEntries:228
+src/ui/wellcomposite/panelsetup.cpp:fn:setupUi:422
+src/ui/wellcomposite/wellpositionlegendwidget.cpp:fn:setupUi:278
+src/ui/wellsection/wellsectiondialogs.cpp:fn:WellSectionTracksDialog:257
+src/ui/wellsection/wellsectionpanel.cpp:file:1541
+src/ui/wellsection/wellsectionpanel.cpp:fn:WellSectionPanel:456
+src/ui/welltops/welltopseditordialog.cpp:file:1010

@@ -10,11 +10,22 @@
 #include <QFileInfo>
 #include <QtEndian>
 
+#include <atomic>
 #include <cstring>
 
 #ifdef PALEO_HAVE_ZSTD
 #include <zstd.h>
 #endif
+
+namespace
+{
+  // #477：原子写暂存名的进程内序号（跨 16ms 窗口亦不重名）。
+  quint64 nextTempSeq()
+  {
+    static std::atomic<quint64> seq{ 0 };
+    return seq.fetch_add(1) + 1;
+  }
+} // namespace
 
 namespace
 {
@@ -191,7 +202,13 @@ bool writeCacheFileAtomic(const QString &path, const QByteArray &magic,
                                        static_cast<quint64>(payload.size()),
                                        static_cast<quint64>(stored.size()));
 
-  const QString tmp = QStringLiteral("%1.tmp%2_%3").arg(path).arg(QCoreApplication::applicationPid()).arg(QDateTime::currentMSecsSinceEpoch() & 0xFFFF);
+  // #477：暂存名加进程内单调序号——此前 pid+毫秒低 16 位，同 pid 在同一
+  // 16ms 窗口内对同一路径的两次原子写会共用暂存名互踩（多线程写同键）。
+  const QString tmp = QStringLiteral("%1.tmp%2_%3_%4")
+                          .arg(path)
+                          .arg(QCoreApplication::applicationPid())
+                          .arg(QDateTime::currentMSecsSinceEpoch() & 0xFFFF)
+                          .arg(nextTempSeq());
   for (int attempt = 0; attempt < 2; ++attempt)
   {
     QFile f(tmp);

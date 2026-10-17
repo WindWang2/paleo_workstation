@@ -68,6 +68,33 @@ private slots:
     QVERIFY(finding.value("basis").toString().contains("图斑为相 2"));
   }
 
+  void opinionLocatorPassesThroughToFindingEvidence() {
+    // X14：带定位身份的意见 → finding.evidence.locator，供页面导航。
+    const QList<Opinion> well{makeOpinion(
+        "well", "井 W-1", "log-v9", 1,
+        {{"entity_id", "well-W-1"}, {"x", 120.5}, {"y", -30.0}, {"has_coordinates", true}})};
+    const auto spatial = analyze(well, 2, kTarget, {{"status", "ok"}});
+    const auto located = byCode(spatial, "minority_opinion")
+                             .value("evidence").toMap().value("locator").toMap();
+    QCOMPARE(located.value("entity_id").toString(), QString("well-W-1"));
+    QCOMPARE(located.value("x").toDouble(), 120.5);
+    QCOMPARE(located.value("y").toDouble(), -30.0);
+    QVERIFY(located.value("has_coordinates").toBool());
+    // 单因素意见：extra.layer_id + 意见版本 → 版本定位（无空间坐标）。
+    const QList<Opinion> factor{makeOpinion("single_factor", "砂地比", "sf-v3", 1,
+                                            {{"layer_id", "factor.H1.sand"}})};
+    const auto layerLocator = byCode(analyze(factor, 2, kTarget, {{"status", "ok"}}),
+                                     "minority_opinion")
+                                  .value("evidence").toMap().value("locator").toMap();
+    QCOMPARE(layerLocator.value("layer_id").toString(), QString("factor.H1.sand"));
+    QCOMPARE(layerLocator.value("version_id").toString(), QString("sf-v3"));
+    // 无定位信息的意见不产 locator 键——不可定位的事实不虚构导航目标。
+    const auto plain = byCode(analyze({makeOpinion("prediction", "相预测", "pred-v7", 1)},
+                                      2, kTarget, {{"status", "ok"}}),
+                              "minority_opinion");
+    QVERIFY(!plain.value("evidence").toMap().contains("locator"));
+  }
+
   void manualTargetConflictIsInterpretationContradiction() {
     // 无自动归因：图斑编码视为人工解释，井意见与其不符 → 解释矛盾。
     const QList<Opinion> opinions{makeOpinion("well", "井 B", "log-v2", 1)};

@@ -483,6 +483,40 @@ private slots:
     QVERIFY(foundLitho);
   }
 
+  // #477：SpreadsheetML 数值格必须 ss:Type="Number" 且深度不得截断成固定
+  // 2 位小数；无可识别工作表的解析必须给 errorMsg（此前静默返回 false）。
+  void testNumericCellsAndParseErrorContract()
+  {
+    ComprehensiveWellData d = makeWellData();
+    d.formationIntervals.clear();
+    FormationInterval fi;
+    fi.name = QStringLiteral("D61");
+    fi.unitType = QStringLiteral("段");
+    fi.topDepth = 1234.125f;  // 二进制可精确表示——2 位截断会变 1234.13
+    fi.bottomDepth = 2345.5f;
+    d.formationIntervals.append(fi);
+
+    const QByteArray xml = writeComprehensiveWellXml(d, {});
+    QVERIFY2(xml.contains("ss:Type=\"Number\""),
+             "数值格必须是 ss:Type=\"Number\"（不再是 String）");
+    QVERIFY(xml.contains(QByteArrayLiteral("1234.125"))); // 深度全精度
+    QVERIFY(!xml.contains(QByteArrayLiteral("1234.13"))); // 未被 2 位截断
+
+    // 写读往返：数值以 Number 读回仍准确。
+    ComprehensiveWellData back;
+    QString perr;
+    QVERIFY2(parseComprehensiveWellXmlData(xml, back, &perr), qPrintable(perr));
+    QCOMPARE(back.formationIntervals.size(), 1);
+    QCOMPARE(back.formationIntervals.first().topDepth, 1234.125f);
+
+    // 无可识别工作表：false 必须伴随 errorMsg（不静默）。
+    ComprehensiveWellData none;
+    QString serr;
+    QVERIFY(!parseComprehensiveWellXmlData(
+        QByteArrayLiteral("<?xml version=\"1.0\"?><other/>"), none, &serr));
+    QVERIFY2(!serr.isEmpty(), "无可识别工作表必须给因（errorMsg 不得为空）");
+  }
+
   // ---- D3.11 派生 XML 审计工作表 ----
   void testDerivedXmlAuditSheet()
   {

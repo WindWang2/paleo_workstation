@@ -28,6 +28,7 @@ struct ZipEntry
 {
   QString name;
   std::uint16_t method = 0;
+  std::uint32_t crc32 = 0; // 中央目录 CRC32——解压后必须比对（#477）
   std::uint64_t compressedSize = 0;
   std::uint64_t uncompressedSize = 0;
   std::uint64_t localHeaderOffset = 0;

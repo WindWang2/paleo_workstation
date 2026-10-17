@@ -106,9 +106,11 @@ void PaleoMainWindow::attachPredictPage(PredictPage *predictPage,
                                    // 但成果不登记/不声明；staging 栅格如已落盘
                                    // 即清掉（约束页同口径），文案如实说「未发布」
                                    //（旧文案「以实际完成为准」与不发布矛盾）。
-                                   if (!job->outputPath.isEmpty())
-                                     QDir(QFileInfo(job->outputPath).absolutePath())
-                                         .removeRecursively();
+                                   // #481 P2-1：删除语义收进 workflow——按目录名
+                                   // == staging versionId 判定，不再无守卫
+                                   // removeRecursively（空路径会删当前目录）。
+                                   PaleoWorkflowDiscardPredictionStagingDir(
+                                       job->staging.versionId, job->outputPath);
                                    const QString msg = tr(
                                        "预测已取消——运算无法中断，计算结果未发布");
                                    if (status)

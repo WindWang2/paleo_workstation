@@ -123,7 +123,15 @@ ParsedConstraints readConstraintLines( QgsProcessingFeatureSource *constraints,
     QgsGeometry geometry = feature.geometry();
     if ( transform )
     {
-      const Qgis::GeometryOperationResult transformed = geometry.transform( *transform );
+      Qgis::GeometryOperationResult transformed = Qgis::GeometryOperationResult::Success;
+      try
+      {
+        transformed = geometry.transform( *transform );
+      }
+      catch ( const QgsCsException & )
+      {
+        transformed = Qgis::GeometryOperationResult::NothingHappened;
+      }
       if ( transformed != Qgis::GeometryOperationResult::Success )
         throw QgsProcessingException(
             QStringLiteral( "Constraint geometry failed to transform into the well CRS" ) );

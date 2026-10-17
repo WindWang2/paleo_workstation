@@ -5,6 +5,7 @@
 #include "../catalog/datacatalog.h"
 #include "../io/lasdoc.h"
 #include "../metadata/layermanifest.h"
+#include "../qgis/composeattribution.h"
 #include "../qgis/mappingartifactwriter.h"
 #include "../services/evidenceindex.h"
 #include "derivedassets.h"
@@ -28,6 +29,18 @@ class WellPredictionService;
 namespace paleo::jobs {
 template <class JobT> class JobRunner;
 }
+
+// X16 统一冻结输入解析结果：三处旧实现（composeAttribution / At / impact）
+// 已合一，口径见 resolveFrozenCompose。unresolved 为 {layer_id,version_id,
+// reason} 列表；inputs 带保活句柄，持有一整次重放/对比期间缓存不驱逐。
+struct FrozenCompose {
+  QString composedVersionId, horizon;
+  QVariantList facies;
+  QList<double> thresholds;
+  paleo::attribution::FrozenGrid grid;
+  QList<paleo::attribution::ResolvedInput> inputs;
+  QVariantList unresolved;
+};
 
 // One project-bound catalog writer; all QGIS/catalog mutations run on its GUI
 // thread.
@@ -61,28 +74,6 @@ public:
                   QString *error);
   QVariantList inputs(const QString &kind) const;
   QVariantList products(const QString &horizon) const;
-  // 测试钩子：归因图层缓存的当前条目数（验证会话期不驱逐，full-audit F1）。
-  int attributionLayerCacheCountForTesting() const
-  { return m_attributionLayers.size(); }
-  class AttributionPin
-  {
-  public:
-    explicit AttributionPin(const MappingWorkbench *wb) : m_wb(wb)
-    { ++wb->m_attributionPinned; }
-    ~AttributionPin()
-    {
-      // 会话全部结束恢复 8 条常驻上界：会话期缓存按输入数无上限增长，
-      // 不裁剪会长期停留在历史最大会话水位（R2-06）。实现留在 .cpp
-      //（QgsMapLayer 完整类型只在 TU 内可用）。
-      if (--m_wb->m_attributionPinned == 0)
-        m_wb->trimAttributionLayers();
-    }
-    AttributionPin(const AttributionPin &) = delete;
-    AttributionPin &operator=(const AttributionPin &) = delete;
-  private:
-    const MappingWorkbench *m_wb;
-  };
-
   CatalogVersion versionForLayer(const QString &id) const;
   LayerDeclaration declaration(const QString &id) const;
   QString layerForVersion(const QString &versionId, QString *error = nullptr);
@@ -196,16 +187,31 @@ public:
   // compareVersions：新旧成果版本对比（G09 验收）——栅格像元级 diff（变化
   //   像元数/相编码转移矩阵）+ 相面统计；几何匹配按像元中心归属做 best-effort
   //   并如实标注方法。返回 {method, cells_changed, total_cells, code_matrix,
-  //   polygon_counts:{before,after}, note}。
+  //   polygon_counts:{before,after}, note}。坐标系不同的版本拒绝像元级对比。
   QVariantMap compareVersions(const QString &oldVersionId, const QString &newVersionId,
                               QString *error);
+  // X13：从视图迁入的版本影响入口——所选图件为变化后版本，同资产的上一版
+  // 为变化前；单一版本如实报错。
+  QVariantMap analyzeLayerVersionImpact(const QString &layerId,
+                                        const QString &horizon, QString *error);
+  // X13：受控重算产物与它所替代的旧版本做像元级对比（recompute_provenance.
+  // recompute_of）。非重算产物如实报错。报告 JSON 落 artifacts/reports/，
+  // 返回 map 带 report_path。
+  QVariantMap compareWithRecomputeSource(const QString &layerId, QString *error);
   // G08/G12 证据反向检索：name ∈ {"pending_review","contradicted",
   // "references_source","stale_sources","search"}；argument = 层位 / 来源版本
-  // id / 检索词。首次调用按需增量同步反向索引（可重建检索结构，原始证据
-  // 仍以 GPKG 属性为唯一事实源）。返回行 {layer_id,feature_uid,version_id,
-  // horizon,evidence_id,review_state,role,text...}，有界 200。
+  // id / 检索词。索引同步在有任务服务时走后台（startEvidenceIndexSync），
+  // 查询永远直接打现有索引文件并按 meta 如实上报新鲜度：
+  // meta = {index_state:"fresh"|"syncing"|"stale"|"error", index_error,
+  //         total, shown}。行新增 unlinked / relation_state（active|history）/
+  // is_current_version / hit_reason。原始证据仍以 GPKG 属性为唯一事实源。
   QVariantList evidenceReverseQuery(const QString &name, const QString &argument,
-                                    QString *error);
+                                    QString *error, QVariantMap *meta = nullptr);
+  // X9：后台证据索引同步。任务服务在场 → JobRunner 异步（worker 线程内建用
+  // 销独立 QSQLITE 连接，不跨线程复用）；无任务服务 → 同一代码路径在当前
+  // 线程同步执行（测试壳/shell）。同步完成的版本修订记在
+  // m_evidenceIndexSyncedRevision，与 catalogRevision() 对账得出索引新鲜度。
+  bool startEvidenceIndexSync(QString *error);
   QString localOperator() const;
   bool changeEvidence(const QString &id, const QList<qint64> &ids,
                       const QString &action, const QVariantMap &parameters,
@@ -238,6 +244,8 @@ signals:
   void polygonizeFinished(const QString &sourceLayerId,
                           const QString &productId, const QString &error,
                           bool cancelled);
+  // 证据索引后台同步终态（state 含 index_state/index_error/stats）。
+  void evidenceIndexSynced(const QVariantMap &state);
   void errorOccurred(const QString &message);
 
 private:
@@ -248,9 +256,14 @@ private:
   // 找不到返回空 id（纯人工图斑走 manual 语义）。
   QString composedAncestorVersion(const QString &layerId) const;
   // 冻结输入版本 → 独立打开的采样图层（有界 LRU；随目录上下文重置）。
-  // 会话期间（composeAttribution/影响分析等持有 ResolvedInput::layer 裸指针
-  // 跨多次调用）由 AttributionPin 禁用驱逐——中途驱逐=使用中 delete（UAF）。
-  QgsMapLayer *attributionLayer(const QString &versionId) const;
+  // 返回 shared_ptr 保活：LRU 驱逐只丢缓存引用，调用方持有的句柄仍有效
+  //（X1：旧裸指针 + QHash 任意驱逐会在一次操作中途悬垂）。
+  std::shared_ptr<QgsMapLayer> attributionLayer(const QString &versionId) const;
+  // 统一冻结输入解析（X16）：substitute 提供 versionId→新版本替换（影响
+  // 分析注入变化后的版本）。填充 grid/inputs/unresolved；返回是否全部可解。
+  bool resolveFrozenCompose(const QString &composedVersionId,
+                            const QHash<QString, QString> &substitute,
+                            FrozenCompose *out) const;
   void connectPredictionService(RemotePredictionService *service);
   void publishFactorAlias(const QString &horizon, const QString &id);
   void synchronizeCatalogLayers();
@@ -314,11 +327,26 @@ public:
   bool commitPolygonize(PolygonizeJob &job, QString *error);
 
 private:
+  // 证据索引后台同步作业快照（纯数据；compute 在 worker 线程用本地 Index）。
+  struct IndexSyncJob {
+    QString dir;
+    QVector<CatalogVersion> versions;
+    int revision = 0;              // 快照时的 catalogRevision
+    QPointer<DataCatalog> catalog; // commit 时校验工程未切换
+    QString error;
+    int changed = -1;
+    QVariantMap stats;
+  };
+  // 三段式各段：compute 在 worker 线程建用销本地 Index；commit 在 GUI 线程
+  // 校验工程未切换后登记修订并 emit evidenceIndexSynced。静态 + 成员，供
+  // 无任务服务时的同步内联路径与 JobRunner 回调共用同一实现。
+  static bool computeIndexSync(
+      IndexSyncJob &job, const std::function<bool()> &cancel,
+      const std::function<void(double, const QString &)> &progress);
+  bool commitIndexSync(IndexSyncJob &job, QString *error);
   QVariantMap consistencyImpl(const QString &layerId, QString *error,
                               const QString &counterpartId, bool background);
   void finishPrediction(const RemotePredictionResult &result);
-  // AttributionPin 归零时把归因图层缓存裁回 8 条常驻上界（R2-06）。
-  void trimAttributionLayers() const;
   // 任务中心行：开一行 / 收尾（error 空 = 完成）/ 取消（取消态收尾）。
   void beginPredictionTask(const QString &title);
   void endPredictionTask(const QString &error = {});
@@ -358,11 +386,18 @@ private:
   mutable QHash<QString, CatalogVersion> m_aliasVersions, m_pathVersions;
   // Owner-thread QGIS adapters; bounded and reset with the catalog context.
   mutable QHash<QString, QPointer<QObject>> m_evidenceSpatialAdapters;
-  // 冻结输入版本的采样图层（图斑归因用；有界，bindCatalog 重置）。
-  mutable QHash<QString, QPointer<QgsMapLayer>> m_attributionLayers;
-  // >0 时 attributionLayer 不驱逐缓存（归因/影响分析会话期；嵌套计数）。
-  mutable int m_attributionPinned = 0;
-  // G08 反向检索索引（可重建 sidecar；bindCatalog 重置）。
+  // 冻结输入版本的采样图层（图斑归因用；有界 LRU，bindCatalog 重置）。
+  // 缓存只占一份引用；重放期间的有效期由 ResolvedInput::hold 保证。
+  mutable QHash<QString, std::shared_ptr<QgsMapLayer>> m_attributionLayers;
+  mutable QStringList m_attributionLru;
+  // G08 反向检索索引（可重建 sidecar；bindCatalog 重置）。GUI 侧只读
+  // 连接；写由 IndexSyncJob 在 worker 线程的独立连接完成（WAL 共存）。
   std::unique_ptr<paleo::evidenceindex::Index> m_evidenceIndex;
+  std::unique_ptr<paleo::jobs::JobRunner<IndexSyncJob>> m_indexSyncRunner;
+  // 已同步覆盖的目录修订 / 最近一次失败（或取消）的修订与错误。
+  int m_evidenceIndexSyncedRevision = -1;
+  int m_evidenceIndexAttemptedRevision = -1;
+  QString m_evidenceIndexSyncError;
+  QVariantMap m_evidenceIndexStats;
   mutable QVariantList m_productsCache;
 };

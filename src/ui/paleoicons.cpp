@@ -43,6 +43,16 @@ public:
       if (pm.isNull()) return pm;
       if (theme == PaleoTheme::Theme::Dark || mode == QIcon::Disabled)
       {
+        // #481 P3-2：逐像素 CPU 重着色按（尺寸/DPR/模式/状态/主题）缓存
+        //——ribbon hover 反复取图不再每像素重算；键空间受限于标准档位
+        //（尺寸×模式×状态×主题），有界。
+        const QString key = QStringLiteral("%1x%2@%3|%4|%5|%6")
+                                .arg(size.width()).arg(size.height())
+                                .arg(double(scale))
+                                .arg(int(mode)).arg(int(state)).arg(int(theme));
+        const auto hit = m_recolorCache.constFind(key);
+        if (hit != m_recolorCache.constEnd())
+          return hit.value();
         QImage img = pm.toImage().convertToFormat(QImage::Format_ARGB32);
         for (int y = 0; y < img.height(); ++y)
           for (int x = 0; x < img.width(); ++x)
@@ -58,6 +68,7 @@ public:
           }
         pm = QPixmap::fromImage(img);
         pm.setDevicePixelRatio(scale);
+        m_recolorCache.insert(key, pm);
       }
       return pm;
     }
@@ -116,6 +127,7 @@ private:
   Glyph m_glyph;
   bool m_forceDark;
   QColor m_dataColor;
+  mutable QHash<QString, QPixmap> m_recolorCache; // #481 P3-2：重着色缓存
 };
 } // namespace
 

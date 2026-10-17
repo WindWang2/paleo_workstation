@@ -87,10 +87,15 @@ void SeismicSectionCanvas::paintEvent(QPaintEvent *) {
                 QPointF(curtainPx - 2.0, vp.center().y())}));
             p.setFont(bodyFont);
             p.setPen(QColor(QStringLiteral("#24303E")));
+            // #482：A 侧恒为「当前」剖面——画布不持有当前剖面名（类定义
+            // 冻结，无标签成员可填；旧实现两分支同串 tr("当前") 的死三元
+            // 即此未写完的 A 侧标签，按「帘左 A（当前）」语义落定）。B 侧
+            // 标签缺失时回落「对比」，不再渲染尾随空（"B · "）。
             p.drawText(QRectF(vp.left() + 4.0, vp.top() + 2.0, 120.0, 16.0),
-                       Qt::AlignLeft, tr("A · %1").arg(m_compareLabel.isEmpty() ? tr("当前") : tr("当前")));
+                       Qt::AlignLeft, tr("A · 当前"));
             p.drawText(QRectF(vp.right() - 160.0, vp.top() + 2.0, 156.0, 16.0),
-                       Qt::AlignRight, tr("B · %1").arg(m_compareLabel));
+                       Qt::AlignRight,
+                       tr("B · %1").arg(m_compareLabel.isEmpty() ? tr("对比") : m_compareLabel));
         }
 
         // goal/seismic-attributes：属性叠加层（同几何半透明色层，位于密度

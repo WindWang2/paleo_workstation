@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 
 namespace paleo::stratgrid
@@ -59,6 +60,17 @@ bool buildZoneGrid(const SurfaceGrid &top, const SurfaceGrid &bot, int nLayers, 
   if (nLayers < 1)
   {
     setError(error, QStringLiteral("层数须 ≥ 1"));
+    return false;
+  }
+  // #478：体素总数闸——cellIndex/cellCount 是 int 乘法，三轴组合溢出
+  // INT_MAX 后下标回绕（下游 sgsfill 只挡单轴 ≥2^20）。闸先于 z 长度
+  // 检查：超限组合的错误归因是体素总数，且不必为它付大向量校验成本；
+  // nLayers ≥ 1 下同时保证 cols·rows 也不溢出 int。
+  if (static_cast<std::int64_t>(top.cols) * top.rows *
+          static_cast<std::int64_t>(nLayers) >
+      std::numeric_limits<int>::max())
+  {
+    setError(error, QStringLiteral("体素总数超过 int 上限（ni·nj·nk ≤ 2^31−1）"));
     return false;
   }
   const int n = top.cols * top.rows;

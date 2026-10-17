@@ -1,11 +1,13 @@
 // 层：数据
 #pragma once
 #include <QString>
+#include <QStringList>
 #include <QVariantMap>
 #include <QVector>
 #include <functional>
 
 class DataCatalog;
+struct CatalogVersion;
 
 // evidenceindex/ — G08/G12 证据反向索引（可重建检索结构，非第二事实源）。
 // 图斑级人工证据只存在成果 GPKG 的要素属性里（facies_evidence /
@@ -35,6 +37,14 @@ struct Entry {
   bool unlinked = false;                                  // 记录 tombstone
 };
 
+// 同步读取上限（防病态文件拖死 UI）；命中上限时该版本在 indexed_versions
+// 记 truncated=1 并在 stats().truncated_versions 汇总——截断是登记事实，
+// 不是静默部分索引。
+struct SyncOptions {
+  int maxFeaturesPerVersion = 200000;    // 每版本要素读取上界
+  qint64 maxRowsPerVersion = 2000000;    // 每版本展开行数上界（特征×记录）
+};
+
 class Index {
   public:
     Index() = default;
@@ -43,7 +53,8 @@ class Index {
     Index &operator=(const Index &) = delete;
 
     // 索引文件 <projectDir>/artifacts/evidence-index.sqlite；目录不存在则建。
-    // user_version 过新（未来 schema）→ false + error。
+    // user_version 过新（未来 schema）→ false + error；过旧（v1）→ 整库
+    // 重建为 v2（索引是可重建检索结构，drop 后下一轮 sync 全量重灌）。
     bool open(const QString &projectDir, QString *error = nullptr);
     void close();
     bool isOpen() const { return m_open; }
@@ -51,13 +62,19 @@ class Index {
     // 增量同步：扫描 catalog 中 mapping_product 且 layer_type=vector 的版本
     // （kind 含 facies_polygons / 其他矢量成果），按 (version_id, sha256)
     // 跳过已索引；sha 变化或版本消失 → 整版本条目替换/删除。返回变更版本数
-    // （新增+替换+删除）；取消 → -1。单版本读取有界（每版本特征数 cap
-    // 200000，防病态文件拖死 UI）。解析失败的版本记入 indexed_versions 带
+    // （新增+替换+删除）；取消 → -1。解析失败的版本记入 indexed_versions 带
     // error 列，synchronize 不中断；单条损坏 JSON 记录跳过并计数
-    // （stats().corrupt_records）。
+    // （stats().corrupt_records）。versions 重载供后台 worker 使用——
+    // DataCatalog 只在 GUI 线程，快照必须在发起线程取好。
     int synchronize(const DataCatalog *catalog, const QString &projectDir,
                     const std::function<bool()> &cancelled = {},
-                    QString *error = nullptr);
+                    QString *error = nullptr,
+                    const SyncOptions &options = {});
+    int synchronize(const QVector<CatalogVersion> &versions,
+                    const QString &projectDir,
+                    const std::function<bool()> &cancelled = {},
+                    QString *error = nullptr,
+                    const SyncOptions &options = {});
 
     // ---- 查询（全部有界 + offset/limit，limit cap 1000）----
     // 证据 id → 引用它的图斑条目（含 unlinked 历史行，见 Entry.unlinked）。
@@ -79,6 +96,10 @@ class Index {
     // 记录带 source_missing / source_feature_missing 标记（unlinked 行除外）。
     QVector<Entry> staleSources(const QString &horizon,
                                 int limit = 500, int offset = 0) const;
+    // horizon 内被有效（unlinked=0）记录钉定过的全部来源版本 id——供调用方
+    // 按目录核验「来源版本是否还在」。
+    QStringList distinctSourceVersions(const QString &horizon,
+                                       int limit = 1000) const;
     // 全文检索：text / actorId / evidenceId 的 LIKE 命中（ASCII 大小写不
     // 敏感）。空串 → 空结果（不是全库匹配）。
     QVector<Entry> search(const QString &text,
@@ -90,7 +111,8 @@ class Index {
     // （horizon / id / 检索词）。未知名字 → -1 并置 lastError。
     int countFor(const QString &queryName, const QString &argument) const;
 
-    // {versions_indexed, entries, last_sync, errored_versions, corrupt_records}
+    // {versions_indexed, entries, last_sync, errored_versions, corrupt_records,
+    //  truncated_versions}
     QVariantMap stats() const;
     QString lastError() const { return m_lastError; }
 

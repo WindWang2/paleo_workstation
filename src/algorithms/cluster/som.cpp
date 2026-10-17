@@ -85,14 +85,14 @@ SomResult som(const Matrix &x, const SomOptions &o, const Control &ctl) {
   std::mt19937_64 rng(o.seed);
   std::vector<std::size_t> sequence(n);
   std::iota(sequence.begin(), sequence.end(), std::size_t(0));
-  std::shuffle(sequence.begin(), sequence.end(), rng);
+  // #470：std::shuffle/uniform_int 序列实现定义不可跨平台复现——改自订
+  // Fisher–Yates 与取模口径（cluster_internal.h，与 geostat/sgs 同源）。
+  shuffleDeterministic(sequence.begin(), sequence.end(), rng);
   for (std::size_t u = 0; u < units; ++u) {
     // Seeded rows without replacement; once the grid outgrows the sample
     // count the remaining prototypes repeat draws with replacement, so every
     // prototype stays a finite copy of a real sample.
-    const std::size_t pick =
-        u < n ? sequence[u]
-              : std::uniform_int_distribution<std::size_t>(0, n - 1)(rng);
+    const std::size_t pick = u < n ? sequence[u] : randomBelow(rng, n);
     std::copy(x.row(pick), x.row(pick) + d,
               r.prototypes.values.begin() +
                   std::ptrdiff_t(u) * std::ptrdiff_t(d));
@@ -115,7 +115,7 @@ SomResult som(const Matrix &x, const SomOptions &o, const Control &ctl) {
     // zero; exp(-inf) then collapses influence onto the BMU itself.
     const double radius = std::max(r0 * std::pow(r1 / r0, t), 1e-12);
     const double denom = 2 * radius * radius;
-    std::shuffle(sequence.begin(), sequence.end(), rng);
+    shuffleDeterministic(sequence.begin(), sequence.end(), rng);
     for (std::size_t s = 0; s < n; ++s) {
       if ((s & 1023U) == 0 && stopped(ctl))
         return somFailure("Cancelled", true);

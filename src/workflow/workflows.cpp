@@ -76,6 +76,31 @@ namespace
 
 } // namespace
 
+// #481 P2-1：见 workflows.h 声明处注记——按目录名本身判定，杜绝子串误删
+// 与空路径兜底删当前目录。
+void PaleoWorkflowDiscardFactorTempTree( const QString &fileInsideTree )
+{
+  const QFileInfo info( fileInsideTree );
+  const QString dir = info.isDir() && !fileInsideTree.isEmpty()
+                          ? info.absoluteFilePath()
+                          : info.absolutePath();
+  if ( QFileInfo( dir ).fileName().startsWith( QStringLiteral( "paleo-sf-" ) ) )
+    QDir( dir ).removeRecursively();
+}
+
+void PaleoWorkflowDiscardPredictionStagingDir( const QString &stagingVersionId,
+                                               const QString &fileInsideDir )
+{
+  if ( stagingVersionId.isEmpty() )
+    return; // 空 staging：宁可不清理，也不对未知目录动刀
+  const QFileInfo info( fileInsideDir );
+  const QString dir = info.isDir() && !fileInsideDir.isEmpty()
+                          ? info.absoluteFilePath()
+                          : info.absolutePath();
+  if ( QFileInfo( dir ).fileName() == stagingVersionId )
+    QDir( dir ).removeRecursively();
+}
+
 void PaleoWorkflowBindDerivedCatalog( QObject *workflow, DataCatalog *catalog,
                                       const QString &projectDir )
 {

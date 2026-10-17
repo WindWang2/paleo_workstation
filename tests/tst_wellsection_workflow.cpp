@@ -434,6 +434,41 @@ private slots:
     QCOMPARE(w3.tops.size(), 1);
   }
 
+  // #480 P3-1：LAS 全量解析失败（头可索引、数据体坏）不再静默丢曲线——
+  // warnings 必须指名井与文件，坏文件致剖面曲线缺失有感知。
+  void corruptLasBodyWarnsNotSilent() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    DataCatalog cat;
+    QString err;
+    QVERIFY2(cat.open(dir.path(), &err), qPrintable(err));
+    QVERIFY2(buildCatalog(cat, QDir(dir.path()), &err), qPrintable(err));
+    QVERIFY(addEntity(cat, QStringLiteral("well-4"), QStringLiteral("A4"), true,
+                      300, 0, 400));
+    // 头完整（parseHeader 可索引 GR）、无 ~A 数据体——全量解析必败
+    const QString badLas = dir.filePath(QStringLiteral("a4_truncated.las"));
+    QVERIFY(writeText(badLas, QStringLiteral(
+                                  "~Version Information\n"
+                                  " VERS.                  2.0\n"
+                                  " WRAP.                  NO\n"
+                                  "~Curve Information\n"
+                                  " DEPT.M : depth\n"
+                                  " GR.API : gamma\n")));
+    QVERIFY(addFileLink(cat, QStringLiteral("well-4"),
+                        QStringLiteral("well_log"),
+                        QStringLiteral("ast-las4bad"), badLas,
+                        QStringLiteral("well_log"), &err));
+    WellSectionWorkflow wf(&cat);
+    QSignalSpy spy(&wf, &WellSectionWorkflow::sectionReady);
+    wf.request({"well-4"}, {"GR"});
+    QCOMPARE(spy.size(), 1);
+    const auto warnings = spy[0][2].toStringList();
+    const QString blob = warnings.join(QLatin1Char('\n'));
+    QVERIFY2(blob.contains(QStringLiteral("解析失败")) &&
+                  blob.contains(QStringLiteral("A4")),
+             qPrintable(blob));
+  }
+
   // 补心海拔链路：catalog 实体 kb → ProjectWell → wellsection::Well
   //（海拔基准面的取数前提；缺数据井 kb=0，海拔模式退化为井深模式）。
   void kbPropagation() {
@@ -554,6 +589,28 @@ private slots:
   }
 
   // 深度域入剖面状态（方向 69）：round-trip + 旧库无列迁移（缺字段默认 MD）。
+  // #476：井 id 列的空段不得丢弃——load() 此前丢空段，空 id 静默少读
+  // 一口井。keepEmpty 后逐位往返。
+  void sectionStoreEmptyWellIdRoundTrips() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString dbPath = QDir(dir.path()).filePath(QStringLiteral(
+        "empty.project.sqlite"));
+    metadata::WellSectionStore store(dbPath);
+    QString err;
+    QVERIFY2(store.open(&err), qPrintable(err));
+    const QStringList ids = {QStringLiteral("well-1"), QString(),
+                             QStringLiteral("well-3")};
+    const auto rec = store.save(QStringLiteral("default"), ids, {},
+                                wellsection::DepthDomain::MD, std::nullopt, &err);
+    QVERIFY2(rec.valid(), qPrintable(err));
+    metadata::WellSectionStore reopened(dbPath);
+    const auto back = reopened.load(QStringLiteral("default"), &err);
+    QVERIFY2(back.valid(), qPrintable(err));
+    QCOMPARE(back.wellIds.size(), 3); // 空 id 也是一口井位——不少读
+    QCOMPARE(back.wellIds, ids);
+  }
+
   void sectionStoreDepthDomain() {
     QTemporaryDir dir;
     QVERIFY(dir.isValid());

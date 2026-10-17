@@ -698,10 +698,19 @@ int main(int argc, char *argv[])
 {
   qputenv("QT_QPA_PLATFORM", "offscreen");
   QgsApplication app(argc, argv, false);
+  // prefix 解析走 QgisRuntime 唯一事实源（#483：不再手工复制 env/缺省序列）。
   app.setPrefixPath(
-      qEnvironmentVariable("QGIS_PREFIX_PATH", QgisRuntime::defaultPrefixPath()),
+      QgisRuntime::resolvePrefixPath(QString(),
+                                     qEnvironmentVariable("QGIS_PREFIX_PATH")),
       true);
   app.initQgis();
+  // exitQgis 收尾护栏（#483）：main 的每条错误路径 return 前统一排空 QGIS——
+  // 此前 initQgis 后从不 exitQgis，provider/数据集句柄全靠进程退出兜底。
+  // 护栏先于栈上 app 析构（声明序即析构逆序），exitQgis→~QgsApplication 顺序正确。
+  struct QgisExitGuard
+  {
+    ~QgisExitGuard() { QgsApplication::exitQgis(); }
+  } qgisExit;
 
   QCommandLineParser parser;
   parser.setApplicationDescription(

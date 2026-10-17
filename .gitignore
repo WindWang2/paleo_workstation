@@ -27,3 +27,19 @@ worktree-issues
 
 # #421：源码树内跑 ctest 的产物不进版本库
 Testing/
+
+# #501：串行重跑放行台账（tools/ci_ctest_gate.sh / paleo-dev.ps1 append；
+# tools/check_flaky_ledger.py 统计）——本地运行产物，不入库
+tools/flaky-ledger.jsonl
+
+# #504 工作区/仓库卫生：根目录日志与一次性启动/调试产物不入库。
+# /*.log 只锚根目录——docs/visual-polish 等在库取证日志（已跟踪）不受影响。
+/*.log
+/launch.bat
+/launch.ps1
+/*_mods.txt
+vendor/*.exe
+artifacts/portable/
+# 本地工具目录（WorkBuddy 会话 / 个人工作区）
+.workbuddy/
+.zwork/

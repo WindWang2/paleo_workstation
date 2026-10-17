@@ -207,6 +207,11 @@ QStringList ConstraintWorkflow::constraintJobTempPaths( const ConstraintJob &job
   return paths;
 }
 
+// #480 P3-2（双栈并存备忘）：本「统一异步面」（startConstraintJob +
+// JobRunner 回调）当前生产零调用，仅 tst_factorworkflow 消费；生产路径
+// 仍走 generateFactor/generateContours → runFactorWork 自建异步栈。两条
+// 栈的守卫口径（代次/指纹/清理钩子）需同步演进——改任一侧先对照另一侧
+//（迁移计划见 issue #480，收口前不得删此面：测试以此锁定语义）。
 PaleoTask *ConstraintWorkflow::startConstraintJob( paleo::jobs::JobRunner<ConstraintJob> &runner,
                                                   ConstraintJob job, QObject *progressSink )
 {

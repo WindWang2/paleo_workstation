@@ -610,15 +610,23 @@ SurfaceBuildResult buildFaultSurface(const paleo::fault::Fault &fault, const Sur
         if (dot(ref, dir) < 0)
             std::reverse(sections[s].pts.begin(), sections[s].pts.end());
     }
-    Vec3 refH{ref.x, ref.y, 0};
-    if (len(refH) > 1e-6) {
+    const double refLen = len(ref);
+    if (refLen > 1e-6) {
         for (int s = 1; s < sections.size(); ++s) {
             const Vec3 dir = sections[s].pts.last().p - sections[s].pts.first().p;
-            const Vec3 dirH{dir.x, dir.y, 0};
-            if (len(dirH) <= 1e-6)
+            const double dirLen = len(dir);
+            if (dirLen <= 1e-6)
                 continue;
-            const double turn =
-                qRadiansToDegrees(std::acos(clamp1(dot(refH, dirH) / (len(refH) * len(dirH)))));
+            const Vec3 dirH{dir.x, dir.y, 0};
+            const Vec3 refH{ref.x, ref.y, 0};
+            // 陡倾角断层（水平投影模长比 < 0.25，即倾角约 > 75°）：
+            // 水平分量极短易受解释抖动影响产生虚假大旋转，改用 3D 向量检验空间夹角。
+            double turn = 0.0;
+            if (len(refH) / refLen < 0.25 || len(dirH) / dirLen < 0.25) {
+                turn = qRadiansToDegrees(std::acos(clamp1(dot(ref, dir) / (refLen * dirLen))));
+            } else {
+                turn = qRadiansToDegrees(std::acos(clamp1(dot(refH, dirH) / (len(refH) * len(dirH)))));
+            }
             if (turn > kTurnLimitDeg)
                 return fail(SurfaceBuildStatus::DirectionBreak,
                             QStringLiteral("棒走向夹角 %1° 超过 %2°").arg(turn, 0, 'f', 1).arg(kTurnLimitDeg, 0, 'f', 0));

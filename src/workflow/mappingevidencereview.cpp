@@ -20,6 +20,7 @@
 #include <functional>
 #include <qgscoordinatereferencesystem.h>
 #include <qgsmaplayer.h>
+#include <qgsunittypes.h>
 #include <qgsrasterlayer.h>
 #include <qgsvectorlayer.h>
 
@@ -37,6 +38,18 @@ QVariantMap target(const QgsFeature &f, const CatalogVersion &v, const QString &
   return {{"feature_uid", MappingFeatureIdentity::uid(f)}, {"horizon", horizon},
     {"version_id", v.id}, {"asset_id", v.assetId}, {"geometry_hash", MappingFeatureIdentity::geometryFingerprint(f)},
     {"facies_code", f.attribute("facies_code")}, {"facies_schema_hash", paleo::evidence::fingerprint(v.extra.value("facies"))}};
+}
+// G04：井口空间关联只认工程局部网格。与 mappingworkbench_edit.cpp 的
+// acceptsLocalGrid 同口径——项目网格同 WKT 直达；OGR 往返基准名漂移后
+// 仍接受「米制工程 CRS」（坐标语义同一，严格 == 会误伤合法 GPKG 成果）。
+bool acceptsLocalGridCrs(const QgsCoordinateReferenceSystem &c) {
+  const auto local = QgsCoordinateReferenceSystem::fromWkt(
+      DataCatalog::localGridCrsWkt());
+  if (c == local || (c.isValid() && local.isValid() && c.toWkt() == local.toWkt()))
+    return true;
+  return c.isValid() && !c.isGeographic() &&
+         c.mapUnits() == Qgis::DistanceUnit::Meters &&
+         c.type() == Qgis::CrsType::Engineering;
 }
 bool store(QgsVectorLayer *v, QgsFeatureId fid, const paleo::evidence::Revision &r) {
   for (const auto &field : {"facies_evidence", "paleo_interpretation"})
@@ -165,10 +178,16 @@ QVariantMap MappingWorkbench::featureEvidence(const QString &id, const QList<qin
     out.insert("attribution", composeAttribution(id, f));
     // G04 井证据空间关联：井口落在图斑内的井（事实性空间关系，不推断地质
     // 支持）。地层优势相一次读表建索引，避免逐井 N+1。
+    // CRS 门：井口坐标是工程局部网格米制坐标；图斑图层非本地工程网格时
+    // 空间匹配无意义，如实标记不可用而不是静默拿错坐标比（OGR 往返会改
+    // 基准名，接受口径同 mappingworkbench_edit 的 acceptsLocalGrid）。
     QVariantList wellsInFeature;
     const auto horizon = declaration(id).horizon;
     QHash<QString, QVariantMap> formationByWell;
-    if (m_catalog) {
+    if (!acceptsLocalGridCrs(v->crs())) {
+      out.insert("wells_in_feature_unavailable",
+                 tr("图斑图层坐标不是本工程局部米制网格，井口空间关联不可用"));
+    } else if (m_catalog) {
       for (const auto &value : WellAttributeStore::rows(
                m_dir, m_layers, WellAttributeStore::Table::Formations, {}, horizon)) {
         const auto row = value.toMap();
@@ -201,7 +220,8 @@ QVariantMap MappingWorkbench::featureEvidence(const QString &id, const QList<qin
         }
       }
     }
-    out.insert("wells_in_feature", wellsInFeature);
+    if (!out.contains("wells_in_feature_unavailable"))
+      out.insert("wells_in_feature", wellsInFeature);
     // G06 多源冲突分析：井解释（井口落面 + 地层优势相）、重放归因意见与
     // 既有 check 发现聚合。纯事实分类，不合成置信度分数。
     QList<paleo::evidenceconflict::Opinion> opinions =
@@ -220,6 +240,11 @@ QVariantMap MappingWorkbench::featureEvidence(const QString &id, const QList<qin
                            .arg(well.value("y").toDouble(), 0, 'f', 0);
       opinion.faciesCode = well.value("formation_facies_code").toInt();
       opinion.known = opinion.faciesCode > 0;
+      // X14：冲突发现可定位到井口——实体身份与坐标随意见透传。
+      opinion.extra = QVariantMap{{"entity_id", well.value("entity_id")},
+                                  {"x", well.value("x")},
+                                  {"y", well.value("y")},
+                                  {"has_coordinates", true}};
       opinions << opinion;
     }
     out.insert("conflicts", paleo::evidenceconflict::analyze(
@@ -261,21 +286,16 @@ QString MappingWorkbench::composedAncestorVersion(const QString &id) const {
   }
   return {};
 }
-// AttributionPin 全部释放后恢复 8 条常驻上界（R2-06）：会话期驱逐被禁用、
-// 缓存按会话输入数增长，不裁剪会长期停留在历史最大会话水位。
-void MappingWorkbench::trimAttributionLayers() const {
-  while (m_attributionLayers.size() > 8) {
-    const auto it = m_attributionLayers.begin();
-    delete it.value().data();
-    m_attributionLayers.erase(it);
-  }
-}
-
-QgsMapLayer *MappingWorkbench::attributionLayer(const QString &versionId) const {
+std::shared_ptr<QgsMapLayer> MappingWorkbench::attributionLayer(
+    const QString &versionId) const {
   if (!m_catalog || versionId.isEmpty())
     return nullptr;
-  if (auto *cached = m_attributionLayers.value(versionId).data())
+  if (const auto cached = m_attributionLayers.value(versionId)) {
+    // 命中移到队尾；LRU 驱逐只丢缓存引用（X1），调用方 shared_ptr 保活。
+    m_attributionLru.removeAll(versionId);
+    m_attributionLru.append(versionId);
     return cached;
+  }
   const auto v = m_catalog->versionById(versionId);
   if (v.id.isEmpty())
     return nullptr;
@@ -300,14 +320,81 @@ QgsMapLayer *MappingWorkbench::attributionLayer(const QString &versionId) const 
   if (!layer->crs().isValid())
     layer->setCrs(QgsCoordinateReferenceSystem::fromWkt(
         DataCatalog::localGridCrsWkt()));
-  if (m_attributionPinned == 0 && m_attributionLayers.size() >= 8) {
-    const auto first = m_attributionLayers.begin();
-    delete first.value().data();
-    m_attributionLayers.erase(first);
+  while (m_attributionLru.size() >= 8)
+    m_attributionLayers.remove(m_attributionLru.takeFirst());
+  std::shared_ptr<QgsMapLayer> shared(std::move(layer));
+  m_attributionLayers.insert(versionId, shared);
+  m_attributionLru.append(versionId);
+  return shared;
+}
+bool MappingWorkbench::resolveFrozenCompose(
+    const QString &composedVersionId,
+    const QHash<QString, QString> &substitute, FrozenCompose *out) const {
+  *out = {};
+  if (!m_catalog)
+    return false;
+  const auto composed = m_catalog->versionById(composedVersionId);
+  out->composedVersionId = composedVersionId;
+  out->horizon = composed.extra.value("horizon").toString();
+  out->facies = composed.extra.value("facies").toList();
+  for (const auto &t : composed.extra.value("thresholds").toList())
+    out->thresholds << t.toDouble();
+  out->grid = paleo::attribution::frozenGridFromExtra(composed.extra);
+  const auto ordered = composed.extra.value("ordered_inputs").toList();
+  if (ordered.isEmpty()) {
+    out->unresolved << QVariantMap{
+        {"reason", tr("成果缺少 ordered_inputs 冻结记录，无法重放")}};
+    return false;
   }
-  auto *raw = layer.release();
-  m_attributionLayers.insert(versionId, raw);
-  return raw;
+  for (const auto &entryValue : ordered) {
+    const auto entry = entryValue.toMap();
+    paleo::attribution::ResolvedInput input;
+    input.layerId = entry.value("layer_id").toString();
+    input.versionId = entry.value("version_id").toString();
+    input.priority = entry.value("priority").toInt();
+    const auto effective = substitute.value(input.versionId, input.versionId);
+    const auto v = m_catalog->versionById(effective);
+    input.title = v.extra.value("title").toString();
+    input.assetId = v.assetId;
+    const auto kind = v.extra.value("kind").toString();
+    const auto valueSource = v.extra.value("value_source").toString();
+    // 与 prepareCompose 相同的连续输入判定口径。
+    input.continuous = input.layerId.startsWith(QLatin1String("factor.")) ||
+                       v.extra.contains("factor_id") ||
+                       paleo::singlefactor::isAnalysisFactorRaster(kind, valueSource);
+    if (v.id.isEmpty()) {
+      input.missing = true;
+      input.catalogMissing = true;
+      input.missingReason = tr("输入版本 %1 已从目录删除").arg(effective);
+    } else {
+      const auto path = DataCatalog::resolvedVersionPath(m_dir, v) +
+                        v.extra.value("source_suffix").toString();
+      const auto file = path.section('|', 0, 0);
+      // 声明口径的栅格位：文件缺失时也已知（网格重建不依赖能否打开）。
+      input.raster = v.extra.value("layer_type").toString() ==
+                         QLatin1String("raster") ||
+                     file.endsWith(QLatin1String(".tif"), Qt::CaseInsensitive) ||
+                     file.endsWith(QLatin1String(".tiff"), Qt::CaseInsensitive);
+      if (path.isEmpty() || !QFileInfo::exists(file)) {
+        input.missing = true;
+        input.missingReason = tr("冻结输入文件缺失（版本 %1）").arg(effective);
+      } else {
+        input.hold = attributionLayer(effective);
+        input.layer = input.hold.get();
+        if (!input.layer) {
+          input.missing = true;
+          input.missingReason =
+              tr("冻结输入无法按保存时状态打开（版本 %1）").arg(effective);
+        }
+      }
+    }
+    if (input.missing)
+      out->unresolved << QVariantMap{{"layer_id", input.layerId},
+                                     {"version_id", input.versionId},
+                                     {"reason", input.missingReason}};
+    out->inputs << input;
+  }
+  return out->unresolved.isEmpty();
 }
 QVariantMap MappingWorkbench::composeAttribution(const QString &id,
                                                  const QgsFeature &f) const {
@@ -319,57 +406,19 @@ QVariantMap MappingWorkbench::composeAttribution(const QString &id,
             {"message", tr("该图斑没有综合编图计算血统（人工绘制或独立转面），"
                            "依据以人工解释记录为准")}};
   const auto composed = m_catalog->versionById(composedId);
-  const auto ordered = composed.extra.value("ordered_inputs").toList();
-  if (ordered.isEmpty())
+  FrozenCompose frozen;
+  resolveFrozenCompose(composedId, {}, &frozen);
+  if (frozen.inputs.isEmpty())
     return {{"status", "unresolved"},
             {"calculation_version", composedId},
             {"message", tr("早期成果缺少输入冻结记录（ordered_inputs），无法重放决策")}};
-  // 会话期禁用缓存驱逐：inputs[].layer 裸指针跨越逐输入的 attributionLayer
-  // 调用，输入数超过缓存容量时中途驱逐会 delete 使用中图层（UAF）。
-  const AttributionPin pin(this);
-  QList<paleo::attribution::ResolvedInput> inputs;
-  for (const auto &entryValue : ordered) {
-    const auto entry = entryValue.toMap();
-    paleo::attribution::ResolvedInput input;
-    input.layerId = entry.value("layer_id").toString();
-    input.versionId = entry.value("version_id").toString();
-    input.priority = entry.value("priority").toInt();
-    const auto v = m_catalog->versionById(input.versionId);
-    input.title = v.extra.value("title").toString();
-    input.assetId = v.assetId;
-    const auto kind = v.extra.value("kind").toString();
-    const auto valueSource = v.extra.value("value_source").toString();
-    // 与 prepareCompose 相同的连续输入判定口径。
-    input.continuous = input.layerId.startsWith(QLatin1String("factor.")) ||
-                       v.extra.contains("factor_id") ||
-                       paleo::singlefactor::isAnalysisFactorRaster(kind, valueSource);
-    if (v.id.isEmpty()) {
-      input.missing = true;
-      input.missingReason = tr("输入版本已从目录删除");
-    } else {
-      const auto path = DataCatalog::resolvedVersionPath(m_dir, v);
-      if (path.isEmpty() || !QFileInfo::exists(path.section('|', 0, 0))) {
-        input.missing = true;
-        input.missingReason = tr("冻结输入文件缺失");
-      } else {
-        input.layer = attributionLayer(input.versionId);
-        if (!input.layer) {
-          input.missing = true;
-          input.missingReason = tr("冻结输入无法按保存时状态打开");
-        }
-      }
-    }
-    inputs << input;
-  }
-  QList<double> thresholds;
-  for (const auto &t : composed.extra.value("thresholds").toList())
-    thresholds << t.toDouble();
   paleo::attribution::ReplayRequest request;
   request.polygon = f.geometry();
   request.faciesCode = f.attribute("facies_code").toInt();
   QString error;
   auto attribution = paleo::attribution::replay(
-      inputs, composed.extra.value("facies").toList(), thresholds, request, &error);
+      frozen.inputs, frozen.facies, frozen.thresholds, request, &error,
+      frozen.grid);
   if (!error.isEmpty())
     attribution.insert("message", error);
   // G04/G10：归因输入附带其上游单因素回执（PR #457 落库的约束消费/样点
@@ -400,8 +449,6 @@ QVariantMap MappingWorkbench::composeAttribution(const QString &id,
                                         "基线计算版本的决策，与当前边界可能不一致"));
   return attribution;
 }
-// 冻结输入解析与 composeAttribution/resolveFrozenCompose 同口径（continuous
-// 判定、路径解析、missing 原因）；三处保持一致，修改时同步。
 QVariantMap MappingWorkbench::composeAttributionAt(const QString &id,
                                                    const QgsFeature &f,
                                                    const QPointF &point) const {
@@ -411,50 +458,20 @@ QVariantMap MappingWorkbench::composeAttributionAt(const QString &id,
   const auto composedId = composedAncestorVersion(id);
   if (composedId.isEmpty())
     return out;
-  const auto composed = m_catalog->versionById(composedId);
-  const auto ordered = composed.extra.value("ordered_inputs").toList();
-  if (ordered.isEmpty())
+  FrozenCompose frozen;
+  resolveFrozenCompose(composedId, {}, &frozen);
+  if (frozen.inputs.isEmpty())
     return out;
-  // 同 composeAttribution：会话期禁用缓存驱逐（裸指针跨调用持有）。
-  const AttributionPin pin(this);
-  QList<paleo::attribution::ResolvedInput> inputs;
-  for (const auto &entryValue : ordered) {
-    const auto entry = entryValue.toMap();
-    paleo::attribution::ResolvedInput input;
-    input.layerId = entry.value("layer_id").toString();
-    input.versionId = entry.value("version_id").toString();
-    input.priority = entry.value("priority").toInt();
-    const auto v = m_catalog->versionById(input.versionId);
-    input.title = v.extra.value("title").toString();
-    input.assetId = v.assetId;
-    const auto kind = v.extra.value("kind").toString();
-    const auto valueSource = v.extra.value("value_source").toString();
-    input.continuous = input.layerId.startsWith(QLatin1String("factor.")) ||
-                       v.extra.contains("factor_id") ||
-                       paleo::singlefactor::isAnalysisFactorRaster(kind, valueSource);
-    if (v.id.isEmpty()) {
-      input.missing = true;
-      input.missingReason = tr("输入版本已从目录删除");
-      inputs << input;
-      continue;
-    }
-    input.layer = attributionLayer(input.versionId);
-    if (!input.layer) {
-      input.missing = true;
-      input.missingReason = tr("冻结输入无法按保存时状态打开");
-    }
-    inputs << input;
-  }
-  QList<double> thresholds;
-  for (const auto &t : composed.extra.value("thresholds").toList())
-    thresholds << t.toDouble();
   paleo::attribution::ReplayRequest request;
   request.usePoint = true;
   request.point = point;
   request.faciesCode = f.attribute("facies_code").toInt();
   QString error;
   auto attribution = paleo::attribution::replay(
-      inputs, composed.extra.value("facies").toList(), thresholds, request, &error);
+      frozen.inputs, frozen.facies, frozen.thresholds, request, &error,
+      frozen.grid);
+  if (!frozen.unresolved.isEmpty())
+    attribution.insert("unresolved", frozen.unresolved);
   attribution.insert("calculation_version", composedId);
   return attribution;
 }

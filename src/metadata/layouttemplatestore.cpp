@@ -15,16 +15,23 @@ namespace
 {
 using paleo::store_detail::setError;
 
-  QString layoutTemplateConnectionName(const QString &path)
+  QString layoutTemplateConnectionName(const QString &path, bool readOnly)
   {
-    return QStringLiteral("paleo_layouttemplatestore_") + QString::number(qHash(path));
+    // readOnly 实例走独立连接名（QSQLITE_OPEN_READONLY，#80）——同进程可写
+    // 与只读实例不得复用同一条连接（LayerManifest 同构）。
+    return QStringLiteral("paleo_layouttemplatestore_") + QString::number(qHash(path)) +
+           (readOnly ? QStringLiteral("_ro") : QString());
   }
 
-  bool layoutTemplateEnsureOpen(const QString &path, QString *error)
+  bool layoutTemplateEnsureOpen(const QString &path, bool readOnly, QString *error)
   {
-    QSqlDatabase db = MetaStore::openConnection(path, layoutTemplateConnectionName(path), error);
+    QSqlDatabase db =
+        MetaStore::openConnection(path, layoutTemplateConnectionName(path, readOnly),
+                                  error, readOnly);
     if (!db.isValid())
       return false;
+    if (readOnly)
+      return true; // 只读实例不建表（#80）——schema 归写实例
 
     QSqlQuery schema(db);
     if (!schema.exec(QStringLiteral(
@@ -70,7 +77,7 @@ LayoutTemplateStore::LayoutTemplateStore(const QString &metaSqlitePath)
 
 bool LayoutTemplateStore::open(QString *error)
 {
-  return layoutTemplateEnsureOpen(m_dbPath, error);
+  return layoutTemplateEnsureOpen(m_dbPath, m_readOnly, error);
 }
 
 QString LayoutTemplateStore::create(const QString &name, const QString &kind,
@@ -83,7 +90,12 @@ QString LayoutTemplateStore::create(const QString &name, const QString &kind,
     setError(error, QStringLiteral("template name is empty"));
     return QString();
   }
-  if (!layoutTemplateEnsureOpen(m_dbPath, error))
+  if (m_readOnly)
+  {
+    setError(error, QStringLiteral("template store is read-only — cannot create template"));
+    return QString();
+  }
+  if (!layoutTemplateEnsureOpen(m_dbPath, m_readOnly, error))
     return QString();
   if (nameExists(name))
   {
@@ -91,7 +103,7 @@ QString LayoutTemplateStore::create(const QString &name, const QString &kind,
     return QString();
   }
 
-  QSqlDatabase db = QSqlDatabase::database(layoutTemplateConnectionName(m_dbPath));
+  QSqlDatabase db = QSqlDatabase::database(layoutTemplateConnectionName(m_dbPath, m_readOnly));
 
   int maxSeq = 0;
   {
@@ -132,9 +144,14 @@ QString LayoutTemplateStore::create(const QString &name, const QString &kind,
 bool LayoutTemplateStore::updateContent(const QString &id, const QString &versionId,
                                         const QString &sha256, QString *error)
 {
-  if (!layoutTemplateEnsureOpen(m_dbPath, error))
+  if (m_readOnly)
+  {
+    setError(error, QStringLiteral("template store is read-only — cannot modify templates"));
     return false;
-  QSqlQuery q(QSqlDatabase::database(layoutTemplateConnectionName(m_dbPath)));
+  }
+  if (!layoutTemplateEnsureOpen(m_dbPath, m_readOnly, error))
+    return false;
+  QSqlQuery q(QSqlDatabase::database(layoutTemplateConnectionName(m_dbPath, m_readOnly)));
   q.prepare(QStringLiteral(
       "UPDATE layout_templates SET version_id=?,sha256=?,updated_utc=? WHERE template_id=?"));
   q.addBindValue(versionId);
@@ -152,19 +169,24 @@ bool LayoutTemplateStore::updateContent(const QString &id, const QString &versio
 
 bool LayoutTemplateStore::rename(const QString &id, const QString &newName, QString *error)
 {
+  if (m_readOnly)
+  {
+    setError(error, QStringLiteral("template store is read-only — cannot modify templates"));
+    return false;
+  }
   if (newName.isEmpty())
   {
     setError(error, QStringLiteral("template name is empty"));
     return false;
   }
-  if (!layoutTemplateEnsureOpen(m_dbPath, error))
+  if (!layoutTemplateEnsureOpen(m_dbPath, m_readOnly, error))
     return false;
   if (nameExists(newName))
   {
     setError(error, QStringLiteral("template name already exists: %1").arg(newName));
     return false;
   }
-  QSqlQuery q(QSqlDatabase::database(layoutTemplateConnectionName(m_dbPath)));
+  QSqlQuery q(QSqlDatabase::database(layoutTemplateConnectionName(m_dbPath, m_readOnly)));
   q.prepare(QStringLiteral(
       "UPDATE layout_templates SET name=?,updated_utc=? WHERE template_id=?"));
   q.addBindValue(newName);
@@ -181,9 +203,14 @@ bool LayoutTemplateStore::rename(const QString &id, const QString &newName, QStr
 
 bool LayoutTemplateStore::remove(const QString &id, QString *error)
 {
-  if (!layoutTemplateEnsureOpen(m_dbPath, error))
+  if (m_readOnly)
+  {
+    setError(error, QStringLiteral("template store is read-only — cannot modify templates"));
     return false;
-  QSqlQuery q(QSqlDatabase::database(layoutTemplateConnectionName(m_dbPath)));
+  }
+  if (!layoutTemplateEnsureOpen(m_dbPath, m_readOnly, error))
+    return false;
+  QSqlQuery q(QSqlDatabase::database(layoutTemplateConnectionName(m_dbPath, m_readOnly)));
   q.prepare(QStringLiteral("DELETE FROM layout_templates WHERE template_id=?"));
   q.addBindValue(id);
   if (!q.exec() || q.numRowsAffected() != 1)
@@ -198,9 +225,9 @@ bool LayoutTemplateStore::remove(const QString &id, QString *error)
 QVector<LayoutTemplateInfo> LayoutTemplateStore::templates() const
 {
   QVector<LayoutTemplateInfo> out;
-  if (!layoutTemplateEnsureOpen(m_dbPath, nullptr))
+  if (!layoutTemplateEnsureOpen(m_dbPath, m_readOnly, nullptr))
     return out;
-  QSqlQuery q(QSqlDatabase::database(layoutTemplateConnectionName(m_dbPath)));
+  QSqlQuery q(QSqlDatabase::database(layoutTemplateConnectionName(m_dbPath, m_readOnly)));
   if (!q.exec(QStringLiteral(
           "SELECT template_id,name,kind,page_size,landscape,asset_id,version_id,sha256,"
           "created_utc,updated_utc FROM layout_templates ORDER BY name COLLATE NOCASE")))
@@ -212,9 +239,9 @@ QVector<LayoutTemplateInfo> LayoutTemplateStore::templates() const
 
 LayoutTemplateInfo LayoutTemplateStore::byName(const QString &name) const
 {
-  if (!layoutTemplateEnsureOpen(m_dbPath, nullptr))
+  if (!layoutTemplateEnsureOpen(m_dbPath, m_readOnly, nullptr))
     return LayoutTemplateInfo{};
-  QSqlQuery q(QSqlDatabase::database(layoutTemplateConnectionName(m_dbPath)));
+  QSqlQuery q(QSqlDatabase::database(layoutTemplateConnectionName(m_dbPath, m_readOnly)));
   q.prepare(QStringLiteral(
       "SELECT template_id,name,kind,page_size,landscape,asset_id,version_id,sha256,"
       "created_utc,updated_utc FROM layout_templates WHERE name=?"));
@@ -226,9 +253,9 @@ LayoutTemplateInfo LayoutTemplateStore::byName(const QString &name) const
 
 LayoutTemplateInfo LayoutTemplateStore::byId(const QString &id) const
 {
-  if (!layoutTemplateEnsureOpen(m_dbPath, nullptr))
+  if (!layoutTemplateEnsureOpen(m_dbPath, m_readOnly, nullptr))
     return LayoutTemplateInfo{};
-  QSqlQuery q(QSqlDatabase::database(layoutTemplateConnectionName(m_dbPath)));
+  QSqlQuery q(QSqlDatabase::database(layoutTemplateConnectionName(m_dbPath, m_readOnly)));
   q.prepare(QStringLiteral(
       "SELECT template_id,name,kind,page_size,landscape,asset_id,version_id,sha256,"
       "created_utc,updated_utc FROM layout_templates WHERE template_id=?"));

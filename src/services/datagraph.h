@@ -11,7 +11,7 @@
 
 class DataCatalog;
 namespace paleo::datagraph {
-enum class Kind { Entity, Asset, Version, Activity, Group, Missing, Evidence, Assertion, Interpretation, Feature };
+enum class Kind { Entity, Asset, Version, Activity, Group, Missing, Evidence, Assertion, Interpretation, Feature, ReviewEvent };
 enum class Relation {
   Linked,
   HasVersion,
@@ -21,7 +21,8 @@ enum class Relation {
   EditBaseline,
   Rollback,
   Grouped,
-  Supported, Contradicted, Constrained, References, Informs, Materializes
+  Supported, Contradicted, Constrained, References, Informs, Materializes,
+  ConsumedIn, ReviewedBy, Supersedes
 };
 enum class Mode { Overview, Relations, Lineage, Entities, Impact };
 struct Node {
@@ -40,6 +41,9 @@ struct Node {
 };
 struct Edge {
   QString source, target, label;
+  // 这条边的事实依据（catalog:…/gpkg:…/replay:…/spatial:…/snapshot:…），
+  // 每条边必须非空——图谱不呈现无出处的关系。
+  QString provenance;
   Relation relation = Relation::Linked;
   bool unresolved = false;
 };
@@ -58,6 +62,8 @@ struct Query {
   bool history = false;
   int depth = 2, maxNodes = 200, maxEdges = 600;
   QString horizon, evidenceType, reviewState;
+  // 覆盖层证据边按关系类型过滤（枚举名如 "Supported"；空 = 全部）。
+  QString relation;
   int evidenceOffset = 0, evidenceLimit = 50;
   int maxTraversalEdges = 0; // 0 = unlimited (#443)
   // Selected feature's immutable owner-thread snapshot only. It participates
@@ -92,6 +98,10 @@ QString assetKey(const QString &id);
 QString versionKey(const QString &id);
 QString categoryText(const QString &category);
 QString stageText(const QString &stage);
+// 枚举名（查询过滤与导出共用同一词表）。
+QString relationName(Relation relation);
+// 调试不变量：返回缺 provenance 的边（"source->target"），测试断言为空。
+QStringList edgesMissingProvenance(const Graph &graph);
 std::shared_ptr<const Index> buildIndex(const DataCatalog &snapshot,
                                         const Presentation &presentation,
                                         const Cancel &cancel,

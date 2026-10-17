@@ -285,7 +285,8 @@ bool generateStructuralContours( const QString &rasterPath,
                                  double interval,
                                  QVector<double> *levelsUsed,
                                  QString *error,
-                                 const std::function<bool()> &cancelled )
+                                 const std::function<bool()> &cancelled,
+                                 bool smooth )
 {
   if ( rasterPath.isEmpty() || !QFile::exists( rasterPath ) )
   {
@@ -426,7 +427,7 @@ bool generateStructuralContours( const QString &rasterPath,
   }
 
   const paleo::singlefactor::FieldContourResult result =
-      paleo::singlefactor::extractFieldContours( surface, useLevels, true );
+      paleo::singlefactor::extractFieldContours( surface, useLevels, smooth );
   if ( result.status != paleo::singlefactor::Status::Ok )
   {
     setError( error, QString::fromStdString( result.message ) );

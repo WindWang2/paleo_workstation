@@ -12,6 +12,7 @@
 #include "../catalog/datacatalog.h"
 #include "../domain/arearules.h"
 #include "../domain/singlefactorrequest.h" // 制图工作场不进融合/分相
+#include "../domain/singlefactorstrategy.h"
 #include "../io/constraintstore.h"
 #include "../metadata/paleoprojectstore.h"
 #include "../qgis/factorcontour.h"
@@ -63,14 +64,16 @@
 using namespace paleo::constraint_detail;
 
 bool ConstraintWorkflow::generateContours( const QString &horizon, const QString &factorLayerId,
-                                           double interval, QString *error )
+                                           double interval, QString *error,
+                                           const QString &contourMethod )
 {
   if (factorBusy()) {
     paleo::workflow_detail::setError(error, tr("已有单因素任务"));
     return false;
   }
   AnalysisContourJob job;
-  if ( !prepareAnalysisContourJob( horizon, factorLayerId, interval, {}, false, &job, error ) )
+  if ( !prepareAnalysisContourJob( horizon, factorLayerId, interval, {}, false, &job, error,
+                                   contourMethod ) )
     return false;
   if (m_factorTasks) {
     auto shared = std::make_shared<AnalysisContourJob>(job);
@@ -102,7 +105,8 @@ bool ConstraintWorkflow::generateContours( const QString &horizon, const QString
 
 bool ConstraintWorkflow::prepareAnalysisContourJob( const QString &horizon, const QString &factorLayerId,
                                                     double interval, const QVector<double> &levels,
-                                                    bool fixedLevels, AnalysisContourJob *job, QString *error )
+                                                    bool fixedLevels, AnalysisContourJob *job, QString *error,
+                                                    const QString &contourMethod )
 {
   if ( !job )
   {
@@ -199,6 +203,23 @@ bool ConstraintWorkflow::prepareAnalysisContourJob( const QString &horizon, cons
     paleo::workflow_detail::setError( error, tr( "结构面侧卡缺失，无法提取等值线：%1" ).arg( rasterPath ) );
     return false;
   }
+  job->contourMethod = contourMethod;
+  if ( const paleo::singlefactor::ContourExtractPack *pack =
+           paleo::singlefactor::contourExtractPack( contourMethod ) )
+  {
+    if ( pack->supportsBarrierStop && !job->structural )
+    {
+      paleo::workflow_detail::setError(
+          error, tr( "「%1」需要带打断线分区的结构面。请先用「IDW 方向线与打断约束」计算等值面。" )
+                     .arg( pack->label ) );
+      return false;
+    }
+  }
+  else if ( !contourMethod.isEmpty() )
+  {
+    paleo::workflow_detail::setError( error, tr( "未知等值线算法：%1" ).arg( contourMethod ) );
+    return false;
+  }
   if ( !fixedLevels && !job->structural && !( interval > 0.0 ) )
   {
     paleo::workflow_detail::setError( error, tr( "等值线间距必须是正数" ) );
@@ -273,7 +294,10 @@ bool ConstraintWorkflow::computeAnalysisContourJob( AnalysisContourJob *job, con
           ? FactorContourService::generateStructuralContours(
                 job->rasterPath, job->structuralPath, job->outputPath,
                 job->fixedLevels ? job->levels : QVector<double>(),
-                job->interval, &job->resolvedLevels, &contourErr, cancelled)
+                job->interval, &job->resolvedLevels, &contourErr, cancelled,
+                !paleo::singlefactor::contourExtractPack( job->contourMethod ) ||
+                    paleo::singlefactor::contourExtractPack( job->contourMethod )
+                            ->smoothingIterations > 0 )
           : job->fixedLevels
               ? FactorContourService::generateFixedContours(
                     job->rasterPath, job->outputPath, job->levels, &contourErr,
@@ -404,6 +428,8 @@ bool ConstraintWorkflow::publishAnalysisContourJob( const AnalysisContourJob &jo
   {
     extra.insert( QStringLiteral( "interval" ), job.interval );
   }
+  if ( !job.contourMethod.isEmpty() )
+    extra.insert( QStringLiteral( "contour_method" ), job.contourMethod );
   if ( job.structural )
   {
     extra.insert( QStringLiteral( "algorithm_id" ),

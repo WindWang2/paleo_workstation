@@ -431,7 +431,7 @@ QString MapVersionController::residualSummaryJson( const ProjectDataFacade *proj
       row.insert( QStringLiteral( "name" ), well.name );
       row.insert( QStringLiteral( "kind" ), QStringLiteral( "reason" ) );
 
-      const QVector<WellTop> tops = projectData->topsFor( well.id );
+      const QVector<WellTop> tops = projectData->topsForMapping( well.id );
       const WellTop *pick = nullptr;
       for ( const WellTop &top : tops )
         if ( top.horizon == horizon )

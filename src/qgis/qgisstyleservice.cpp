@@ -569,53 +569,32 @@ void QgisStyleService::applyConstraintLayerStyle(QgsVectorLayer *layer)
 {
   if (!layer || !layer->isValid())
     return;
-  if (layer->geometryType() != Qgis::GeometryType::Line)
+  // 无几何层 isSpatial()==false，QGIS 会丢掉 setRenderer，且不接管指针。
+  // 必须等绘制把类型提升成线之后再套。点/面主图层不套线型。
+  if (!layer->isSpatial() || layer->geometryType() != Qgis::GeometryType::Line)
     return;
   if (layer->fields().lookupField(QStringLiteral("type")) < 0)
     return; // 无语义字段：不接管渲染器
 
-  // 地图域数据符号色（DESIGN.md 例外条款）：方向线红实线、打断线墨实线、
-  // 解释软边界橙虚线、等值线停线灰虚线、制图绕行蓝点划线。
-  auto lineSym = [](const QString &color, double widthMm, const QString &style) {
+  // 地图域只保留两种线（DESIGN.md 例外条款）：方向线红实线、打断线墨实线。
+  // 细分语义仍写在 type 字段里，图例不再逐项展开。
+  auto lineSym = [](const QString &color, double widthMm) {
     QVariantMap props;
     props.insert(QStringLiteral("line_color"), color);
     props.insert(QStringLiteral("line_width"), QString::number(widthMm));
-    props.insert(QStringLiteral("line_style"), style);
+    props.insert(QStringLiteral("line_style"), QStringLiteral("solid"));
     return QgsLineSymbol::createSimple(props).release();
   };
-  QgsCategoryList cats;
-  const auto add = [&cats, &lineSym](const char *type, const QString &color,
-                                     double w, const QString &style,
-                                     const QString &title) {
-    cats.append(QgsRendererCategory(QString::fromLatin1(type),
-                                    lineSym(color, w, style), title));
-  };
-  // 入库 type 已被 storageTypeForSemantic 归一化；两种历史拼写同收。
-  add("direction_line", QStringLiteral("#C0392B"), 0.7, QStringLiteral("solid"),
-      tr("物源方向线"));
-  add("direction_guide", QStringLiteral("#C0392B"), 0.7, QStringLiteral("dash"),
-      tr("方向引导"));
-  add("break_line", QStringLiteral("#24303E"), 0.55, QStringLiteral("solid"),
-      tr("打断线"));
-  add("hard_barrier", QStringLiteral("#24303E"), 0.55, QStringLiteral("solid"),
-      tr("硬屏障"));
-  add("interpretive_boundary", QStringLiteral("#F29900"), 0.5,
-      QStringLiteral("dash"), tr("解释软边界"));
-  add("contour_stop", QStringLiteral("#5D6E80"), 0.45, QStringLiteral("dash"),
-      tr("等值线停线"));
-  add("cartographic_detour", QStringLiteral("#1B73D0"), 0.5,
-      QStringLiteral("dash dot"), tr("制图绕行线"));
-  // 未标语义/旧 type=line 与 all-other 桶：常规细墨线。
-  cats.append(QgsRendererCategory(QStringLiteral("line"),
-                                  lineSym(QStringLiteral("#24303E"), 0.3,
-                                          QStringLiteral("solid")),
-                                  tr("约束线")));
-  cats.append(QgsRendererCategory(QVariant(),
-                                  lineSym(QStringLiteral("#24303E"), 0.3,
-                                          QStringLiteral("solid")),
-                                  tr("约束线")));
-  layer->setRenderer(
-      new QgsCategorizedSymbolRenderer(QStringLiteral("type"), cats));
+  auto *root = new QgsRuleBasedRenderer::Rule(nullptr);
+  root->appendChild(new QgsRuleBasedRenderer::Rule(
+      lineSym(QStringLiteral("#C0392B"), 0.7), 0, 0,
+      QStringLiteral("\"type\" IN ('direction_line','direction_guide',"
+                     "'interpretive_boundary','cartographic_detour')"),
+      tr("方向线")));
+  root->appendChild(new QgsRuleBasedRenderer::Rule(
+      lineSym(QStringLiteral("#24303E"), 0.55), 0, 0, QString(), tr("打断线"),
+      QString(), true));
+  layer->setRenderer(new QgsRuleBasedRenderer(root));
 }
 
 void QgisStyleService::applyContourLayerStyle(QgsVectorLayer *layer)

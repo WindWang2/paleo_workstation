@@ -3,12 +3,15 @@
 // 「返回上一图谱」只能回到用户真正请求过的图谱状态——单一入口（打开成果
 // 追溯/资料关联）不得在栈里留下中间态。
 #include <QtTest>
+#include <QAbstractButton>
 #include <QComboBox>
 #include <QGraphicsObject>
 #include <QGraphicsView>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
 #include <QTemporaryDir>
+#include <QToolButton>
 
 #include "../src/catalog/datacatalog.h"
 #include "../src/io/dataimportservice.h"
@@ -27,12 +30,9 @@ class TestDataGraphPage : public QObject
 {
   Q_OBJECT
 
-  static QPushButton *backButton(DataGraphPage &page)
+  static QAbstractButton *backButton(DataGraphPage &page)
   {
-    for (auto *b : page.findChildren<QPushButton *>())
-      if (b->text() == QStringLiteral("返回上一图谱"))
-        return b;
-    return nullptr;
+    return page.findChild<QAbstractButton *>(QStringLiteral("dataGraphBack"));
   }
   static QPushButton *button(DataGraphPage &page, const QString &text)
   {
@@ -236,6 +236,42 @@ private slots:
   {
     PaleoTheme::ensureApplicationFonts();
     PaleoTheme::applyLightTheme();
+  }
+
+  // 资料图谱顶栏是一行：操作是图标，筛选仍用下拉框显示当前值。
+  void toolbarStaysOnOneIconRow()
+  {
+    DataGraphPage page;
+    page.resize(1480, 640);
+    page.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&page));
+    auto *bar = page.findChild<QWidget *>(QStringLiteral("dataGraphToolBar"));
+    QVERIFY(bar);
+    QVERIFY(qobject_cast<QHBoxLayout *>(bar->layout()));
+    QVERIFY2(bar->height() > 0 && bar->height() <= 72,
+             qPrintable(QString::number(bar->height())));
+    const QStringList names{
+        QStringLiteral("dataGraphBack"),     QStringLiteral("dataGraphHistory"),
+        QStringLiteral("dataGraphRefresh"),  QStringLiteral("dataGraphFit"),
+        QStringLiteral("dataGraphZoomIn"),   QStringLiteral("dataGraphZoomOut"),
+        QStringLiteral("dataGraphCancel"),   QStringLiteral("dataGraphManage"),
+        QStringLiteral("dataGraphExport")};
+    for (const QString &name : names) {
+      auto *button = page.findChild<QToolButton *>(name);
+      QVERIFY2(button, qPrintable(name));
+      QCOMPARE(button->parentWidget(), bar);
+      QVERIFY2(button->text().isEmpty(), qPrintable(name));
+      QVERIFY2(!button->icon().isNull(), qPrintable(name));
+    }
+    auto *summary = page.findChild<QLabel *>(QStringLiteral("dataGraphSummary"));
+    QVERIFY(summary);
+    QCOMPARE(summary->parentWidget(), bar);
+    QVERIFY(button(page, QStringLiteral("预览文件 / 版本")));
+    if (const QString shot = qEnvironmentVariable("PALEO_GRAPH_BAR_SHOT");
+        !shot.isEmpty()) {
+      QVERIFY(bar->grab().save(shot));
+      QVERIFY(page.grab().copy(0, 0, page.width(), 120).save(shot + QStringLiteral(".page.png")));
+    }
   }
 
   // 工区概览 → 打开某真实版本的成果追溯 → 返回：回到概览（旧实现落到一个
@@ -446,8 +482,8 @@ private slots:
     page.show();
     QVERIFY(QTest::qWaitForWindowExposed(&page));
     auto *open = button(page, QStringLiteral("预览文件 / 版本"));
-    auto *cancel = button(page, QStringLiteral("取消计算"));
-    auto *refresh = button(page, QStringLiteral("刷新图谱"));
+    auto *cancel = page.findChild<QAbstractButton *>(QStringLiteral("dataGraphCancel"));
+    auto *refresh = page.findChild<QAbstractButton *>(QStringLiteral("dataGraphRefresh"));
     QVERIFY(open && cancel && refresh);
     auto *wf = page.findChild<DataGraphWorkflow *>();
     QVERIFY(wf);

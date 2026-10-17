@@ -61,9 +61,9 @@ class QgisStyleService : public QObject
     // 同调性；不遮挡下层井位/因素图）。
     static void applyHoleLayerStyle(class QgsVectorLayer *layer);
 
-    // 约束线图层按 type 字段语义分类渲染：方向线红实线、打断线墨实线、
-    // 解释软边界橙虚线、等值线停线灰虚线、制图绕行蓝点划线；未标/旧
-    // type=line 走常规细墨线。字段缺失 → 无操作。
+    // 约束线图层只分两图例：方向线（红实线）和打断线（墨实线）。
+    // 方向引导/软边界/制图绕行归方向线，硬屏障/等值停线/未标 type 归打断线。
+    // 字段缺失或非线图层 → 无操作。
     static void applyConstraintLayerStyle(class QgsVectorLayer *layer);
 
     // 等值线图层：统一 FactorStyleWriter 双描边线 + ELEV/level 等宽数字（标注随图层 z 序补丁下

@@ -60,6 +60,8 @@ class LayerTreePanel : public QWidget
   signals:
     // 「属性…」→ 壳接 LayerPropertiesDialog::openLayerProperties
     void propertiesRequested(const QString &layerId);
+    // 「属性表」→ 壳接底部属性表面板，打开该矢量图层的要素表。
+    void attributeTableRequested(const QString &layerId);
     void graphRequested(const QString &layerId);
     // goal/gridding-surface-ops：栅格面运算（等厚/体积）入口——意图信号回壳。
     void surfaceOpsRequested(const QString &layerId);
@@ -118,6 +120,7 @@ class LayerTreePanel : public QWidget
     QAction *m_moveTopAction = nullptr;        // objectName: layerTreeMoveToTopAction
     QAction *m_graphAction = nullptr;
     QAction *m_propertiesAction = nullptr;     // objectName: layerTreePropertiesAction
+    QAction *m_attributeTableAction = nullptr; // objectName: layerTreeAttributeTableAction
     QAction *m_duplicateAction = nullptr;      // objectName: layerTreeDuplicateAction
     QAction *m_surfaceOpsAction = nullptr;     // objectName: layerTreeSurfaceOpsAction（栅格面运算）
     QAction *m_exportStyleAction = nullptr;    // objectName: layerTreeExportStyleAction

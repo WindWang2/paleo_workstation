@@ -116,7 +116,7 @@ const QVector<ContourExtractPack> &contourExtractPacks()
 {
   static const QVector<ContourExtractPack> packs = {
     ContourExtractPack{ QStringLiteral( "partitioned_marching_squares" ),
-                        QStringLiteral( "分区 Marching Squares（止于打断线）" ),
+                        QStringLiteral( "分区 MS（止于打断线）" ),
                         QStringLiteral( "趋势面网格 → 双线性密化 → 按分区 masked marching squares "
                                         "提线 → 同级断口桥接 → 近环闭合 → 制图级平滑 → 裁至有效域。" ),
                         QStringLiteral( "恩平类砂地比图首选：等值线在分区内连续闭合，在打断线/"

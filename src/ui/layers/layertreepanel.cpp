@@ -331,6 +331,20 @@ void LayerTreePanel::buildContextMenu()
     emit propertiesRequested(paleoId.isEmpty() ? layer->id() : paleoId);
   });
   m_menu->addAction(m_propertiesAction);
+
+  m_attributeTableAction = new QAction(tr("属性表"), m_menu);
+  m_attributeTableAction->setObjectName(QStringLiteral("layerTreeAttributeTableAction"));
+  connect(m_attributeTableAction, &QAction::triggered, this, [this]() {
+    QgsMapLayer *layer = m_view->layerTreeModel() ? m_view->currentLayer() : nullptr;
+    auto *vector = qobject_cast<QgsVectorLayer *>(layer);
+    if (!vector)
+      return;
+    const QString paleoId =
+        vector->customProperty(QStringLiteral("paleoLayerId")).toString();
+    emit attributeTableRequested(paleoId.isEmpty() ? vector->id() : paleoId);
+  });
+  m_menu->addAction(m_attributeTableAction);
+
   m_graphAction = m_menu->addAction(tr("资料关联 / 成果追溯"));
   m_graphAction->setObjectName(QStringLiteral("layerTreeDataGraphAction"));
   m_graphAction->setToolTip(tr("查看该图层登记的资料版本、输入文件与生成证据"));
@@ -533,6 +547,11 @@ void LayerTreePanel::updatePaleoActionStates()
   const QString graphId = layer ? layer->customProperty(QStringLiteral("paleoLayerId")).toString() : QString();
   m_graphAction->setEnabled(!graphId.isEmpty()); m_graphAction->setData(graphId);
   m_propertiesAction->setEnabled(layer != nullptr);
+  const bool vectorLayer = qobject_cast<QgsVectorLayer *>(layer) != nullptr;
+  m_attributeTableAction->setEnabled(vectorLayer);
+  m_attributeTableAction->setToolTip(
+      vectorLayer ? tr("在底部属性表面板打开该图层的要素表")
+                  : (layer ? tr("仅矢量图层可打开属性表") : tr("未选中图层")));
   // 面运算只对当前栅格层可见（右键当下即时判定，不用构造期捕获）
   m_surfaceOpsAction->setVisible(layer && layer->type() == Qgis::LayerType::Raster);
   m_duplicateAction->setEnabled(layer != nullptr);

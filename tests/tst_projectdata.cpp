@@ -213,6 +213,69 @@ class TestProjectData : public QObject
         QCOMPARE( fromDisk.topsFor( QStringLiteral( "well-2" ) ).size(), 1 );
     }
 
+    // 主分层是 C7/Y，编图层序在另一份非主文件。编图读后者，主 tops 入口不变。
+    void mappingTopsIgnorePrimaryKouSet()
+    {
+        QTemporaryDir dir;
+        DataCatalog catalog;
+        QVERIFY( catalog.open( dir.path() ) );
+        CatalogEntity well;
+        well.id = QStringLiteral( "well-1" );
+        well.entityType = QStringLiteral( "well" );
+        well.name = QStringLiteral( "A1" );
+        well.hasSurface = true;
+        well.surfaceX = 1;
+        well.surfaceY = 2;
+        well.coordinateStatus = QStringLiteral( "ok" );
+        QVERIFY( catalog.addEntity( well ) );
+        const auto addTops = [&]( const QString &id, const QString &text, bool primary ) {
+            CatalogAsset asset;
+            asset.id = id;
+            asset.type = QStringLiteral( "well_stratification" );
+            asset.displayName = id;
+            if ( !catalog.addAsset( asset ) )
+                return false;
+            CatalogVersion version;
+            version.id = QStringLiteral( "ver-" ) + id;
+            version.assetId = id;
+            version.stage = QStringLiteral( "RAW" );
+            version.path = DataCatalog::managedPath( QStringLiteral( "raw" ), id, version.id,
+                                                     id + QStringLiteral( ".dat" ) );
+            if ( !catalog.addVersion( version ) ||
+                 !writeText( dir.filePath( version.path ), text ) )
+                return false;
+            EntityAssetLink link;
+            link.entityType = QStringLiteral( "well" );
+            link.entityId = well.id;
+            link.assetId = id;
+            link.role = QStringLiteral( "tops" );
+            link.isPrimary = primary;
+            return catalog.addLink( link );
+        };
+        QVERIFY( addTops( QStringLiteral( "kou" ),
+                          QStringLiteral( "#WellTops File From SMI\n"
+                                          "#WellName Name MD X Y Z TVD Time(ms)\n"
+                                          "A1 C7_1 50 0 0 -50 50 -99999\n"
+                                          "A1 Y7 80 0 0 -80 80 -99999\n" ),
+                          true ) );
+        QVERIFY( addTops( QStringLiteral( "map" ),
+                          QStringLiteral( "#WellTops File From SMI\n"
+                                          "#WellName Name MD X Y Z TVD Time(ms)\n"
+                                          "A1 D61 1894 0 0 -1894 1894 -99999\n"
+                                          "A1 D62 1935 0 0 -1935 1935 -99999\n" ),
+                          false ) );
+        ProjectDataFacade data;
+        data.setCatalog( &catalog, dir.path() );
+        const QVector<WellTop> primary = data.topsFor( well.id );
+        QCOMPARE( primary.size(), 2 );
+        QCOMPARE( primary.first().horizon, QStringLiteral( "C7_1" ) );
+        QCOMPARE( data.mappingTopsAssetId( well.id ), QStringLiteral( "map" ) );
+        const QVector<WellTop> mapping = data.topsForMapping( well.id );
+        QCOMPARE( mapping.size(), 2 );
+        QCOMPARE( mapping.at( 0 ).horizon, QStringLiteral( "D61" ) );
+        QCOMPARE( mapping.at( 1 ).horizon, QStringLiteral( "D62" ) );
+    }
+
     void horizonRasterFromManifest()
     {
         QTemporaryDir dir;

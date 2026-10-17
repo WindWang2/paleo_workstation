@@ -897,7 +897,7 @@ QVariantMap WellSitingWorkflow::evaluateScenario( const WellSitingParams &params
     for ( const QVariantMap &w : wells )
     {
       const QVector<WellTop> tops =
-          d->projectData->topsFor( w.value( QStringLiteral( "id" ) ).toString() );
+          d->projectData->topsForMapping( w.value( QStringLiteral( "id" ) ).toString() );
       QSet<QString> seen;
       for ( const WellTop &top : tops )
       {

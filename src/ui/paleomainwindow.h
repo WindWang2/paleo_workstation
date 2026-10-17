@@ -266,6 +266,9 @@ class PaleoMainWindow : public SARibbonMainWindow
     // 把清单图层实例化并勾选到图层树。zoomTo 为真时再缩放到该层。
     // 单因素等值线、综合编图成果和验证定位都走这条，不另建显示路径。
     bool revealDeclaredLayer(const QString &layerId, bool zoomTo);
+    // 绘制或保存约束后：勾选 constraints.<层位>，套约束线样式并刷新画布。
+    // 主图层不是线时，再勾上已声明的线伴随视图。
+    void showDrawnConstraintLines(const QString &horizon);
     // 方向 47：realization 面同画布上图 + 不确定性图签。成员/统计面各按
     // 同集合互斥显隐（成员换成员、统计换统计），差值面独立可叠。
     // badgeTitle 空 = 关图签。

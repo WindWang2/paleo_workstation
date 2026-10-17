@@ -249,6 +249,7 @@ private slots:
           QCOMPARE( d.horizon, QStringLiteral( "T1" ) );
           QCOMPARE( d.type, QStringLiteral( "vector" ) );
           QCOMPARE( d.group, PaleoLayerVocabulary::kConstraintsGroup );
+          QCOMPARE( d.title, QStringLiteral( "T1 约束线" ) );
           break;
         }
       }
@@ -300,6 +301,7 @@ private slots:
       QgsVectorLayer *vlayer = qobject_cast<QgsVectorLayer *>( layer );
       QVERIFY( vlayer != nullptr );
       QCOMPARE( vlayer->featureCount(), 1 );
+      QCOMPARE( vlayer->name(), QStringLiteral( "T1 约束线" ) );
     }
 
     // Clean up temporary directory

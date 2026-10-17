@@ -28,14 +28,16 @@ void layoutKnowledgeGraph(Graph &graph, const Cancel &cancel) {
         QPointF delta = positions[i] - positions[j];
         double distance = std::hypot(delta.x(), delta.y());
         if (distance < 1) { delta = QPointF(1, 1); distance = std::sqrt(2.0); }
-        const auto repulsion = delta * (90000.0 / (distance * distance));
+        // Keep unrelated collections apart without letting the repulsion push
+        // a small, useful graph beyond the viewport's readable zoom range.
+        const auto repulsion = delta * (1000.0 / (distance * distance));
         movement[i] += repulsion; movement[j] -= repulsion;
       }
     for (const auto &[a, b] : edges) {
       const auto delta = positions[b] - positions[a];
       const double distance = std::hypot(delta.x(), delta.y());
       if (distance < 1) continue;
-      const auto spring = delta * ((distance - 360.0) * .04 / distance);
+      const auto spring = delta * ((distance - 360.0) * .20 / distance);
       movement[a] += spring; movement[b] -= spring;
     }
     const double temperature = 25.0 * (1.0 - pass / 160.0);

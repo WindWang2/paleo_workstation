@@ -284,8 +284,11 @@ private slots:
     graph.show();
     QTRY_VERIFY_WITH_TIMEOUT(!ready.isEmpty() && ready.last().first().value<paleo::datagraph::Graph>().nodes.size() == 6, 15000);
     QCOMPARE(mode(graph), Mode::Knowledge);
-    QVERIFY(graph.findChild<QGraphicsView *>("dataGraphView")->width() > graph.width() / 2);
+    auto *graphView = graph.findChild<QGraphicsView *>("dataGraphView");
+    QVERIFY(graphView->width() > graph.width() / 2);
     graph.findChild<QToolButton *>("dataGraphFit")->click();
+    QVERIFY2(graphView->transform().m11() >= .60,
+             qPrintable(QString::number(graphView->transform().m11())));
     QVERIFY(paleo::tests::captureVisual(&graph, "data-knowledge-graph", QSize(1200, 800)));
   }
   void initTestCase()

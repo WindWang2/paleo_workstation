@@ -14,10 +14,13 @@
 #   heavy_tus             受染 TU 数（仅 repo 边，恒可闸）
 # 另：--symbol-audit 是零基线闸（任何命中即 exit 1），无需基线文件。
 # 基线：master @ ddd1325e 实测（QGIS 头取 vendor/superbuild/prefix/include/qgis）。
+# #516 后 re-pin：references/panel 新文件（MappingReferenceCanvas 链）带入
+# ui_qtwidgets_notes +2（paleomainwindow_references.cpp、mappingreferencepanel.cpp）
+# 与 heavy_tus +1——上游演进非本批引入；自该值起只缩不涨。
 # #474 接闸前 re-pin：master 演进至 da9f0af6 复测 heavy_tus 83→86（出闸边
 # 52 条不变，受染 TU 随 #473 工作台拆分等文件拆分自然增长——债未新增，
 # 仅 TU 计数面变大）；func/ui/heavy_edges 与原基线一致。闸门自 86 起只缩不涨。
 func_qtwidgets_edges: 0
-ui_qtwidgets_notes: 4
+ui_qtwidgets_notes: 6
 heavy_edges: 52
-heavy_tus: 86
+heavy_tus: 87

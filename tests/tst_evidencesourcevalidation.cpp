@@ -32,7 +32,7 @@ class TestEvidenceSourceValidation : public QObject {
     QString draft;
     QgsFeatureId fid = FID_NULL;
     QString error;
-    QVariantList schema{QVariantMap{{"code", 1}, {"name", "river"}, {"facies", "river"}, {"color", "#97B4CE"}}};
+    QVariantList schema{QVariantMap{{"code", 1}, {"name", "river"}, {"facies", "river"}, {"subfacies", "channel"}, {"microfacies", "river"}, {"color", "#97B4CE"}}};
     bool init() {
       if (!catalog.open(dir.path()) || !project.createProject(dir.filePath("project.qgz")) || !manifest.open()) return false;
       store.setProjectPaths(project.projectPath(), dir.filePath("project.gpkg"), dir.filePath("project.sqlite"));

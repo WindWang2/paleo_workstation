@@ -1,7 +1,10 @@
 // 层：数据
 #include "welllogfacies.h"
+#include "faciestaxonomy.h"
 #include <QCoreApplication>
 #include <QHash>
+#include <QJsonDocument>
+#include <QMap>
 #include <QSet>
 #include <algorithm>
 #include <cmath>
@@ -315,6 +318,25 @@ bool parseWellFaciesResult(const QJsonObject &json, const QString &wellName,
     out.confidence.depths.append(depth);
     out.confidence.values.append(confidence * 100);
   }
+  QStringList labels;
+  for (const auto &iv : out.intervals) labels << iv.text;
+  if (!FaciesTaxonomy::extend(input.facies, labels, &out.facies, error)) return false;
+  for (auto &iv : out.intervals) {
+    const auto leaf = FaciesTaxonomy::resolve(out.facies, iv.text, error);
+    if (leaf.isEmpty()) return false;
+    const auto micro = leaf.value("microfacies").toString();
+    iv.text = FaciesTaxonomy::resolve(out.facies, micro).isEmpty()
+        ? QStringList{leaf.value("facies").toString(), leaf.value("subfacies").toString(), micro}.join(" / ")
+        : micro;
+    WellComposite::FaciesInterval hierarchy;
+    hierarchy.topDepth = iv.topDepth; hierarchy.bottomDepth = iv.bottomDepth;
+    hierarchy.majorFacies = leaf.value("facies").toString();
+    hierarchy.subFacies = leaf.value("subfacies").toString();
+    hierarchy.microFacies = micro;
+    hierarchy.patternType = leaf.value("texture").toString();
+    hierarchy.microColor = QColor(leaf.value("color").toString());
+    out.hierarchyIntervals << hierarchy;
+  }
   *result = out;
   return true;
 }
@@ -472,11 +494,43 @@ WellFaciesResult mergeWellFaciesResults(const QVector<WellFaciesResult> &parts) 
   if (parts.size() < 2)
     return parts.isEmpty() ? WellFaciesResult() : parts.first();
   WellFaciesResult out;
+  // 不同地层可复用相码；整井合并按完整路径去重，冲突码确定性重排。
+  QMap<QString, QVariantMap> byPath;
+  int nextCode = 1;
+  QSet<int> reservedCodes;
+  for (const auto &part : parts)
+    for (const auto &value : part.facies) {
+      const auto leaf = value.toMap();
+      const QString path = QString::fromUtf8(QJsonDocument::fromVariant(QStringList{
+          leaf.value("facies").toString(), leaf.value("subfacies").toString(),
+          leaf.value("microfacies").toString()}).toJson(QJsonDocument::Compact));
+      reservedCodes.insert(leaf.value("code").toInt());
+      if (!byPath.contains(path) || leaf.value("code").toInt() < byPath[path].value("code").toInt())
+        byPath[path] = leaf;
+    }
+  QSet<int> usedCodes;
+  for (auto leaf : byPath) {
+    if (usedCodes.contains(leaf.value("code").toInt())) {
+      while (reservedCodes.contains(nextCode) || usedCodes.contains(nextCode)) ++nextCode;
+      leaf.insert("code", nextCode++);
+    }
+    usedCodes.insert(leaf.value("code").toInt());
+    out.facies << leaf;
+  }
   QStringList groups, jobs, names, versions;
   QJsonArray responses;
   QVector<QPair<float, float>> samples;
   for (const auto &part : parts) {
-    out.intervals += part.intervals;
+    for (int i = 0; i < part.intervals.size(); ++i) {
+      auto interval = part.intervals[i];
+      if (i < part.hierarchyIntervals.size()) {
+        const auto &h = part.hierarchyIntervals[i];
+        interval.text = FaciesTaxonomy::resolve(out.facies, h.microFacies).isEmpty()
+            ? QStringList{h.majorFacies, h.subFacies, h.microFacies}.join(" / ") : h.microFacies;
+      }
+      out.intervals << interval;
+    }
+    out.hierarchyIntervals += part.hierarchyIntervals;
     appendUnique(groups, part.group);
     appendUnique(jobs, part.jobId);
     appendUnique(names, part.modelName);
@@ -492,6 +546,8 @@ WellFaciesResult mergeWellFaciesResults(const QVector<WellFaciesResult> &parts) 
                    [](const TextInterval &a, const TextInterval &b) {
                      return a.topDepth < b.topDepth;
                    });
+  std::stable_sort(out.hierarchyIntervals.begin(), out.hierarchyIntervals.end(),
+                   [](const auto &a, const auto &b) { return a.topDepth < b.topDepth; });
   std::stable_sort(samples.begin(), samples.end(),
                    [](const auto &a, const auto &b) { return a.first < b.first; });
   out.confidence = parts.first().confidence;
@@ -512,10 +568,5 @@ WellFaciesResult mergeWellFaciesResults(const QVector<WellFaciesResult> &parts) 
 }
 
 int faciesCodeForLabel(const QVariantList &schema, const QString &label) {
-  for (const auto &value : schema) {
-    const auto f = value.toMap();
-    if (f.value("name").toString() == label || f.value("microfacies").toString() == label)
-      return f.value("code").toInt();
-  }
-  return 0;
+  return FaciesTaxonomy::resolve(schema, label).value("code").toInt();
 }

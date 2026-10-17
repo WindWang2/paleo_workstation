@@ -399,21 +399,28 @@ inline QgsVectorLayer *makeMemoryPointLayer( const QString &name, QWidget *owner
 {
   const QString wkt = DataCatalog::localGridCrsWkt();
   auto *vl = new QgsVectorLayer(
-      QStringLiteral( "Point?crs=WKT:%1&field=name:string(64)&field=role:string(16)&index=yes" )
+      QStringLiteral( "Point?crs=WKT:%1&field=name:string(64)&field=role:string(16)&field=entity_id:string(128)&index=yes" )
           .arg( wkt ),
       name, QStringLiteral( "memory" ) );
   vl->setParent( owner ); // 所有权归预览页宿主（画布只引用裸指针）
   return vl;
 }
 
+inline QString uniqueWellPointId(DataCatalog *catalog, const QString &name)
+{
+  const auto ids = catalog->wellsMatchingName(name);
+  return ids.size() == 1 ? ids.front() : QString();
+}
+
 inline void addMemoryPoint( QgsVectorLayer *vl, double x, double y, const QString &name,
-                     const QString &role )
+                     const QString &role, const QString &entityId = QString() )
 {
   if ( !vl )
     return;
   QgsFeature f( vl->fields() );
   f.setAttribute( QStringLiteral( "name" ), name );
   f.setAttribute( QStringLiteral( "role" ), role );
+  f.setAttribute( QStringLiteral( "entity_id" ), entityId );
   f.setGeometry( QgsGeometry::fromPointXY( QgsPointXY( x, y ) ) );
   vl->dataProvider()->addFeature( f );
   vl->updateExtents();

@@ -328,6 +328,7 @@ class PaleoMainWindow : public SARibbonMainWindow
     void wireErrorHubStatus();    // 状态栏错误胶囊 + ErrorHub 计数同步
     void registerPageShortcuts(); // Ctrl+1..6 / Ctrl+Tab（方向 63 注册表）
     void restoreCorrelationDocks();
+    bool showMappingReference(const QString &layerId, QString *error);
     void buildRibbonPanels(DataPage *data, PredictPage *predict, ConstraintPage *constraint,
                            ComposePage *compose, ValidatePage *validate,
                            PaleoEditingToolbar *editTb);

@@ -104,7 +104,8 @@ bool MappingWorkbench::computePolygonize(PolygonizeJob &job,
        {"MIN_CELLS", 4},
        {"MIN_FRACTION", 0.0025},
        {"MIN_AREA", 0.0},
-       {"SIMPLIFY", 0.0}},
+       {"SIMPLIFY", 0.0},
+       {"BOUNDARY_SMOOTH", 2}},
       &runErr, hooks);
   if (output.isEmpty()) {
     job.error = runErr.isEmpty() ? tr("相栅格转面未返回结果") : runErr;

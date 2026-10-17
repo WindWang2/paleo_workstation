@@ -73,6 +73,7 @@ class DataPreviewTabs : public QWidget
     // 中央资料图谱复用同一标签宿主；工作区页不登记成文件资产。
     void openWorkspace(QWidget *widget, const QString &title);
     // 打开指定资产并选定特定井（如 DC.dat 多井分层表或井口表预选该井）
+    void refreshAssetAssociations(const QString &assetId);
     void openAssetForWell(const QString &assetId, const QString &wellId);
 
     // 验证页「在数据页看这条剖面」（预览壳重排 §4）：打开/聚焦地震资产
@@ -116,6 +117,7 @@ class DataPreviewTabs : public QWidget
     void requestShowOnMainCanvas();
 
   private:
+    void wireWellNavigation(class PreviewMapPage *page, class QgsVectorLayer *layer);
     void syncDetails();
     void clearDetails(const QString &assetId);
     QPointer<QWidget> m_detailsHost;

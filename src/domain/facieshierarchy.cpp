@@ -30,23 +30,9 @@ QStringList path(const QVariantMap &f) {
   if (raw.join(QString()).isEmpty())
     raw[0] = f.value("name").toString().trimmed();
   QStringList result = raw;
-  for (int i = 0; i < 3; ++i) {
-    if (!result[i].isEmpty())
-      continue;
-    for (int j = i - 1; j >= 0; --j)
-      if (!raw[j].isEmpty()) {
-        result[i] = raw[j];
-        break;
-      }
+  for (int i = 0; i < result.size(); ++i)
     if (result[i].isEmpty())
-      for (int j = i + 1; j < 3; ++j)
-        if (!raw[j].isEmpty()) {
-          result[i] = raw[j];
-          break;
-        }
-    if (result[i].isEmpty())
-      result[i] = QObject::tr("未分类");
-  }
+      result[i] = QObject::tr("未定义%1").arg(QStringList{QObject::tr("相"), QObject::tr("亚相"), QObject::tr("微相")}[i]);
   return result;
 }
 QString key(const QVariantMap &f, const QString &level) {
@@ -57,6 +43,7 @@ QString key(const QVariantMap &f, const QString &level) {
 }
 QVariantList legend(const QVariantList &schema, const QString &level,
                     const QVariantList &codes) {
+  const auto resolvedLevel = levels().contains(level) ? level : QStringLiteral("micro_facies");
   QVariantList sorted = schema, result;
   std::sort(sorted.begin(), sorted.end(),
             [](const QVariant &a, const QVariant &b) {
@@ -73,14 +60,16 @@ QVariantList legend(const QVariantList &schema, const QString &level,
     const auto code = f.value("code");
     known.insert(code.toString());
     // Choose the same representative color even if that leaf is absent.
-    const auto k = key(f, level);
+    const auto k = key(f, resolvedLevel);
     if (!groups.contains(k)) {
       auto row = f;
       row.insert("key", k);
+      row.insert("level", resolvedLevel);
       row.insert("name",
-                 path(f).value(levels().indexOf(level), path(f).last()));
-      row.insert("path",
-                 path(f).mid(0, levels().indexOf(level) + 1).join(" / "));
+                 path(f).value(levels().indexOf(resolvedLevel), path(f).last()));
+      const auto hierarchyPath = path(f).mid(0, levels().indexOf(resolvedLevel) + 1);
+      row.insert("hierarchy_path", hierarchyPath);
+      row.insert("path", hierarchyPath.join(" / "));
       row.insert("codes", QVariantList());
       groups.insert(k, result.size());
       result << row;
@@ -111,8 +100,46 @@ QVariantList legend(const QVariantList &schema, const QString &level,
   if (unknown)
     result << QVariantMap{{"key", "unknown"},
                           {"name", QObject::tr("其他 / 未分类")},
+                          {"level", resolvedLevel},
                           {"color", "#9AA7B4"},
                           {"codes", QVariantList()}};
+  return result;
+}
+QVariantList legendTree(const QVariantList &entries) {
+  if (!entries.isEmpty() && !entries.first().toMap().contains("path") &&
+      entries.first().toMap().contains("microfacies")) {
+    QVariantList codes;
+    for (const auto &row : entries) codes << row.toMap().value("code");
+    return legendTree(legend(entries, "micro_facies", codes));
+  }
+  QVariantList result, sorted = entries;
+  std::stable_sort(sorted.begin(), sorted.end(), [](const auto &a, const auto &b) {
+    return a.toMap().value("path").toString() < b.toMap().value("path").toString();
+  });
+  QMap<QString, int> positions;
+  for (const auto &v : sorted) {
+    auto row = v.toMap();
+    const auto parts = row.contains("hierarchy_path") ? row.value("hierarchy_path").toStringList()
+        : row.value("path").toString().split(" / ", Qt::SkipEmptyParts);
+    const auto keyFor = [&parts](int length) {
+      return QString::fromUtf8(QJsonDocument::fromVariant(parts.mid(0, length)).toJson(QJsonDocument::Compact));
+    };
+    if (parts.size() < 2) { result << row; continue; }
+    QString key;
+    for (int i = 0; i + 1 < parts.size(); ++i) {
+      key += QString::number(parts[i].size()) + ":" + parts[i];
+      if (!positions.contains(key)) {
+        QVariantMap heading{{"name", parts[i]}, {"depth", i}, {"heading", true},
+                            {"key", keyFor(i + 1)}, {"parent_key", i ? keyFor(i) : QString()}};
+        positions.insert(key, result.size());
+        result << heading;
+      }
+    }
+    row.insert("depth", parts.size() - 1);
+    row.insert("parent_key", parts.size() > 1 ? keyFor(parts.size() - 1) : QString());
+    row.insert("name", parts.last());
+    result << row;
+  }
   return result;
 }
 int reassignedCode(const QVariantList &schema, int oldCode, int targetCode,

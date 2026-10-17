@@ -382,7 +382,7 @@ bool CompositionWorkflow::prepareFaciesPolygons( const QString &horizon, const Q
   const QStringList forwarded = {
       QStringLiteral( "SMOOTH" ), QStringLiteral( "MIN_CELLS" ),
       QStringLiteral( "MIN_FRACTION" ), QStringLiteral( "MIN_AREA" ),
-      QStringLiteral( "SIMPLIFY" ),
+      QStringLiteral( "SIMPLIFY" ), QStringLiteral( "BOUNDARY_SMOOTH" ),
       QStringLiteral( "SNAP_TOLERANCE" ), QStringLiteral( "ANGLE_TOLERANCE" ) };
   for ( const QString &key : forwarded )
   {

@@ -24,9 +24,9 @@ enum class Relation {
   Supported, Contradicted, Constrained, References, Informs, Materializes,
   ConsumedIn, ReviewedBy, Supersedes
 };
-enum class Mode { Overview, Relations, Lineage, Entities, Impact };
+enum class Mode { Overview, Relations, Lineage, Entities, Impact, Knowledge };
 struct Node {
-  QString id, title, detail, entityId, assetId, versionId, stage, path,
+  QString id, title, detail, entityId, entityType, assetId, versionId, stage, path,
       sourceUri, sha256, evidenceText;
   QStringList categories;
   QVariantMap evidence;
@@ -93,6 +93,7 @@ struct Presentation {
   QHash<QString, QStringList> tags;
   bool operator==(const Presentation &) const = default;
 };
+void layoutKnowledgeGraph(Graph &graph, const Cancel &cancel);
 QString entityKey(const QString &id);
 QString assetKey(const QString &id);
 QString versionKey(const QString &id);

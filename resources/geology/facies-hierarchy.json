@@ -1,0 +1,85 @@
+[
+  {
+    "code": 1,
+    "name": "水下分流河道",
+    "facies": "三角洲相",
+    "subfacies": "三角洲前缘",
+    "microfacies": "水下分流河道",
+    "texture": "strata/micro_channel_fill.svg",
+    "color": "#FFE082",
+    "aliases": [
+      "水下河道"
+    ]
+  },
+  {
+    "code": 2,
+    "name": "河口坝",
+    "facies": "三角洲相",
+    "subfacies": "三角洲前缘",
+    "microfacies": "河口坝",
+    "texture": "strata/micro_mouth_bar_fill.svg",
+    "color": "#FFF176",
+    "aliases": [
+      "mouth_bar"
+    ]
+  },
+  {
+    "code": 3,
+    "name": "席状砂",
+    "facies": "三角洲相",
+    "subfacies": "三角洲前缘",
+    "microfacies": "席状砂",
+    "texture": "strata/micro_sheet_sand_fill.svg",
+    "color": "#FFF9C4",
+    "aliases": [
+      "sheet_sand"
+    ]
+  },
+  {
+    "code": 4,
+    "name": "水下分流间湾",
+    "facies": "三角洲相",
+    "subfacies": "三角洲前缘",
+    "microfacies": "水下分流间湾",
+    "texture": "strata/micro_bay_fill.svg",
+    "color": "#C8E6C9",
+    "aliases": []
+  },
+  {
+    "code": 5,
+    "name": "分流河道",
+    "facies": "三角洲相",
+    "subfacies": "三角洲平原",
+    "microfacies": "分流河道",
+    "texture": "strata/micro_channel_fill.svg",
+    "color": "#FFE082",
+    "aliases": [
+      "distributary_channel"
+    ]
+  },
+  {
+    "code": 6,
+    "name": "分流间湾",
+    "facies": "三角洲相",
+    "subfacies": "三角洲平原",
+    "microfacies": "分流间湾",
+    "texture": "strata/micro_bay_fill.svg",
+    "color": "#C8E6C9",
+    "aliases": [
+      "interdistributary_bay"
+    ]
+  },
+  {
+    "code": 7,
+    "name": "天然堤",
+    "facies": "三角洲相",
+    "subfacies": "三角洲平原",
+    "microfacies": "天然堤",
+    "texture": "strata/micro_levee_fill.svg",
+    "color": "#E8D5B5",
+    "aliases": [
+      "自然堤",
+      "natural_levee"
+    ]
+  }
+]

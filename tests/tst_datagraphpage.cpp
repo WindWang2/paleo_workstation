@@ -11,6 +11,10 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QTemporaryDir>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include "helpers/visualcapture.h"
+#include "../src/ui/pages/datalist.h"
 #include <QToolButton>
 
 #include "../src/catalog/datacatalog.h"
@@ -232,6 +236,61 @@ class TestDataGraphPage : public QObject
   }
 
 private slots:
+  void associationEditorAndKnowledgeGraph() {
+    QTemporaryDir dir;
+    DataImportService importer; importer.setProjectDir(dir.path());
+    PreviewDocService doc(&importer);
+    auto *cat = importer.catalog();
+    QVERIFY(cat && cat->isOpen());
+    for (const auto &pair : {qMakePair(QString("w1"), QString("A1")), qMakePair(QString("s1"), QString("地震测区甲"))}) {
+      CatalogEntity entity; entity.id = pair.first; entity.name = pair.second;
+      entity.entityType = pair.first == "w1" ? "well" : "seismic_survey";
+      QVERIFY(cat->addEntity(entity));
+    }
+    for (const auto &id : {QString("log"), QString("tops"), QString("volume"), QString("horizon")}) {
+      CatalogAsset file; file.id = id; file.type = "auxiliary"; file.displayName = id + ".dat";
+      QVERIFY(cat->addAsset(file));
+    }
+    DataListPanel list; list.setDocService(&doc); list.refreshAssetTable();
+    list.selectAssetInViews("tops");
+    list.editAssociationForSelection();
+    auto *editor = list.findChild<QDialog *>("assetAssociationEditor");
+    QVERIFY(editor);
+    auto *target = editor->findChild<QComboBox *>("associationTarget");
+    auto *role = editor->findChild<QComboBox *>("associationRole");
+    auto *operation = editor->findChild<QComboBox *>("associationOperation");
+    QVERIFY(target && role && operation);
+    target->setCurrentIndex(target->findData("w1"));
+    role->setCurrentIndex(role->findData("tops"));
+    operation->setCurrentIndex(1);
+    auto *buttons = editor->findChild<QDialogButtonBox *>();
+    QVERIFY(buttons->button(QDialogButtonBox::Save)->isEnabled());
+    QVERIFY(paleo::tests::captureVisual(editor, "asset-association", QSize(620, 400)));
+    QSignalSpy association(&list, &DataListPanel::assetAssociationChanged);
+    buttons->button(QDialogButtonBox::Save)->click();
+    QCOMPARE(association.count(), 1);
+    QCOMPARE(cat->linksForAsset("tops").size(), 1);
+    QCOMPARE(cat->linksForAsset("tops").front().role, QString("tops"));
+    for (const auto &id : {QString("log"), QString("volume"), QString("horizon")}) {
+      EntityAssetLink link; link.assetId = id;
+      link.entityId = id == "log" ? "w1" : "s1";
+      link.entityType = id == "log" ? "well" : "seismic_survey";
+      link.role = id == "log" ? "well_log" : id == "volume" ? "seismic_volume" : "horizon";
+      QVERIFY(cat->addLink(link));
+    }
+    DataGraphPage graph; graph.resize(1200, 800); graph.setDocService(&doc);
+    auto *workflow = graph.findChild<DataGraphWorkflow *>();
+    QSignalSpy ready(workflow, &DataGraphWorkflow::ready);
+    graph.show();
+    QTRY_VERIFY_WITH_TIMEOUT(!ready.isEmpty() && ready.last().first().value<paleo::datagraph::Graph>().nodes.size() == 6, 15000);
+    QCOMPARE(mode(graph), Mode::Knowledge);
+    auto *graphView = graph.findChild<QGraphicsView *>("dataGraphView");
+    QVERIFY(graphView->width() > graph.width() / 2);
+    graph.findChild<QToolButton *>("dataGraphFit")->click();
+    QVERIFY2(graphView->transform().m11() >= .60,
+             qPrintable(QString::number(graphView->transform().m11())));
+    QVERIFY(paleo::tests::captureVisual(&graph, "data-knowledge-graph", QSize(1200, 800)));
+  }
   void initTestCase()
   {
     PaleoTheme::ensureApplicationFonts();
@@ -292,7 +351,7 @@ private slots:
     page.resize(1100, 720);
     page.show();
     QVERIFY(QTest::qWaitForWindowExposed(&page));
-    QCOMPARE(mode(page), Mode::Overview);
+    QCOMPARE(mode(page), Mode::Knowledge);
     auto *back = backButton(page);
     QVERIFY(back);
     QVERIFY(!back->isEnabled());
@@ -306,7 +365,7 @@ private slots:
     QVERIFY(back->isEnabled());
     status.clear();
     back->click();
-    QCOMPARE(mode(page), Mode::Overview);
+    QCOMPARE(mode(page), Mode::Knowledge);
     QCOMPARE(prepareCount(status), 1);
     QVERIFY2(!back->isEnabled(), "返回栈残留了未请求过的中间态");
     QTest::qWait(400); // 合并窗后让查询落地，页面不因回退崩溃
@@ -361,7 +420,7 @@ private slots:
     QCOMPARE(assetAct.at(0).at(0).toString(), a.assetId);
     status.clear();
     back->click();
-    QCOMPARE(mode(page), Mode::Overview);
+    QCOMPARE(mode(page), Mode::Knowledge);
     QCOMPARE(prepareCount(status), 1);
     QVERIFY(!back->isEnabled());
     QTest::qWait(400);

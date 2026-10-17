@@ -194,8 +194,8 @@ void DataListPanel::renderAssetPage()
       }
 
     auto *assoc = new QTableWidgetItem(parts.join(QStringLiteral("、")));
-    if (!notes.isEmpty())
-      assoc->setToolTip(notes.join(QStringLiteral("\n")));
+    assoc->setToolTip(notes.join(QStringLiteral("\n")) +
+      tr("\n右键文件 → 调整资料归属，可更改井、地震测区、资料用途和主文件。"));
     table->setItem(r, 2, assoc);
 
     if (unresolvedRole.isEmpty() && !undoRecord && promotableRole.isEmpty())

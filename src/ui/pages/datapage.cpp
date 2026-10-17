@@ -13,6 +13,7 @@
 
 #include <QDynamicPropertyChangeEvent>
 #include <QShortcut>
+#include <QSignalBlocker>
 #include <QTimer>
 
 using namespace paleo::pagesinternal;
@@ -347,4 +348,11 @@ void DataPage::openDataGraph()
 {
   m_graphPage->setPresentation(m_listPanel->graphPresentation());
   emit graphRequested(property("paleo.page.assetId").toString(), property("paleo.page.versionId").toString());
+}
+
+void DataPage::focusWell(const QString &entityId)
+{
+  // 井位导航负责打开指定井资料；列表定位只高亮，不再激活另一份文件造成回跳。
+  const QSignalBlocker blocker(m_listPanel);
+  selectAssetsForEntities({entityId});
 }

@@ -152,11 +152,11 @@ private slots:
     TextInterval a;
     a.topDepth = 0;
     a.bottomDepth = 7;
-    a.text = "河道";
+    a.text = "水下分流河道";
     TextInterval b = a;
     b.topDepth = 7;
     b.bottomDepth = 20;
-    b.text = "湖泊";
+    b.text = "河口坝";
     prediction.intervals = {a, b};
     QVERIFY2(wf.publishLithoAsset(prediction).isEmpty(), qPrintable(error));
     const auto rows =
@@ -196,7 +196,7 @@ private slots:
       if (v.toMap().value("top_md").toDouble() == 0) {
         QCOMPARE(v.toMap().value("facies").toString(), QString("人工修订相"));
         QCOMPARE(v.toMap().value("predicted_facies").toString(),
-                 QString("河道"));
+                 QString("水下分流河道"));
         QCOMPARE(v.toMap().value("lithology").toString(), QString("泥岩"));
         found = true;
       }
@@ -499,7 +499,10 @@ private slots:
     QCOMPARE(parent.value("source").toString(), QString("welllogfacies"));
     QCOMPARE(parent.value("model").toString(), QString("fixture v1"));
     QCOMPARE(parent.value("job_id").toString(), QString("job1"));
-    QVERIFY(parent.value("facies_code").isNull());
+    QCOMPARE(parent.value("facies_code").toInt(), 5);
+    QCOMPARE(parent.value("facies").toString(), QString("三角洲相"));
+    QCOMPARE(parent.value("sub_facies").toString(), QString("三角洲平原"));
+    QCOMPARE(parent.value("micro_facies").toString(), QString("分流河道"));
     QVERIFY(parent.value("facies_composition").toString().contains("分流河道 12.00 m"));
     QCOMPARE(byName.value("恩平一段").value("dominant_facies").toString(), QString("分流河道"));
     QCOMPARE(byName.value("恩平二段").value("dominant_facies").toString(), QString("河口坝"));

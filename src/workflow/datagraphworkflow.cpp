@@ -203,14 +203,14 @@ void DataGraphWorkflow::exportGraph(const paleo::datagraph::Graph &graph,
                                     "rollback", "grouped", "supported_by", "contradicted_by", "constrained_by", "references", "informs", "materializes",
                                     "consumed_in", "reviewed_by", "supersedes"};
         const QStringList modes{"overview", "relations", "lineage",
-                                "entities", "impact"};
+                                "entities", "impact", "knowledge"};
         QVariantList nodes, edges;
         for (const auto &n : graph.nodes) {
           if (task->cancelRequested())
             return QString();
           QVariantMap node{{"id", n.id},
                            {"title", n.title},
-                           {"detail", n.detail},
+                           {"detail", n.detail}, {"entity_type", n.entityType}, {"member_count", n.count},
                            {"entity_id", n.entityId},
                            {"asset_id", n.assetId},
                            {"version_id", n.versionId},

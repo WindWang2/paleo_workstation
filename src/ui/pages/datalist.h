@@ -161,6 +161,7 @@ class DataListPanel : public QWidget
     // ---- 单资产操作 ----
     void detachSingleAssetLink();        // 解挂（首个选中资产的已决链接）
     void setPrimaryForSelection();       // 设为主版本
+    void editAssociationForSelection();
     void editRoleForSelection();         // D4.7（不可撤销确认）
     void editDepthAnchorForSelection();  // 方向 79：图片附件锚深后补编辑
     // ---- 方向 79：井附件管理 ----
@@ -174,6 +175,7 @@ class DataListPanel : public QWidget
     void openGroupConfig();              // D7.6 分组维度
 
   signals:
+    void assetAssociationChanged(const QString &assetId);
     void graphRequested(const QString &assetId);
     void graphDataChanged();
     void importRequested(const QString &kind);   // "wells" | "seismic" | "boundary" | ...

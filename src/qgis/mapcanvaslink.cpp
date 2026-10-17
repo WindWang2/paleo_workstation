@@ -6,8 +6,8 @@
 #include <qgsmapcanvas.h>
 #include <qgsrubberband.h>
 MapCanvasLink::MapCanvasLink(QgsMapCanvas *main, QgsMapCanvas *reference,
-                             QObject *parent)
-    : QObject(parent), m_main(main), m_reference(reference) {
+                             QObject *parent, bool enabled)
+    : QObject(parent), m_main(main), m_reference(reference), m_enabled(enabled) {
   auto connectCanvas = [this](QgsMapCanvas *source, QgsMapCanvas *target) {
     connect(source, &QgsMapCanvas::extentsChanged, this,
             [this, source, target] { sync(source, target); });

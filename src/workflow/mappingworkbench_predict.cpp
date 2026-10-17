@@ -6,6 +6,7 @@
 #include "../algorithms/faciesmapping/formationdominance.h"
 #include "../catalog/purgelease.h"
 #include "../domain/faciescatalog.h"
+#include "../domain/faciestaxonomy.h"
 #include "../domain/mappinghorizons.h"
 #include "../domain/singlefactorrequest.h"
 #include "../io/constraintstore.h"
@@ -164,7 +165,7 @@ bool MappingWorkbench::predict(const QString &h, const QString &kind,
   request.id = uid();
   request.horizon = h;
   request.kind = seismicInput ? QStringLiteral("seismic") : kind;
-  request.facies = facies(h);
+  if (!FaciesTaxonomy::normalize(facies(h), &request.facies, error)) return false;
   const auto choices = inputs(kind);
   QSet<QString> seen;
   // 测井曲线的深度范围放到后台读（整份 LAS 解析，多井时主线程会卡住）；
@@ -502,8 +503,12 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &result) {
   // Validate the response against the frozen request before publishing any
   // artifact.
   const auto schema = result.facies.isEmpty() ? request.facies : result.facies;
+  QVariantList normalizedSchema;
+  QString hierarchyError;
+  const bool hierarchyValid = FaciesTaxonomy::normalize(schema, &normalizedSchema, &hierarchyError)
+      && normalizedSchema == schema;
   QSet<int> codes;
-  bool schemaValid = !schema.isEmpty() && schema.size() <= 32;
+  bool schemaValid = hierarchyValid && !schema.isEmpty() && schema.size() <= 32;
   for (const auto &f : schema) {
     const auto row = f.toMap();
     bool ok = false;
@@ -749,7 +754,7 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &result) {
   if (allCellsUndefined && error.isEmpty())
     error = tr("预测结果全部为无数据，未发布空图件");
   if (!valid && error.isEmpty())
-    error = tr("预测服务返回的网格、井集合或相编码与请求不一致，未发布");
+    error = hierarchyError.isEmpty() ? tr("预测服务返回的网格、井集合或微相编码与请求不一致，未发布") : hierarchyError;
   const auto stageDir = QDir(m_dir).filePath("artifacts/staging/" + request.id);
   QDir().mkpath(stageDir);
   const auto path = QDir(stageDir).filePath(
@@ -806,7 +811,7 @@ void MappingWorkbench::finishPrediction(const RemotePredictionResult &result) {
               {"method", result.method},
               {"window_half_ms", result.method == QLatin1String("mock-horizon-window-kmeans-v1") ? 12.0 : 0.0},
               {"request_id", request.id},
-              {"facies", schema},
+              {"facies", schema}, {"prediction_level", "micro_facies"}, {"facies_schema", "paleo_facies_hierarchy_v1"},
               {"wells", request.wells},
               {"columns", request.columns},
               {"rows", request.rows},

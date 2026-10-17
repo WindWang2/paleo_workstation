@@ -206,12 +206,12 @@ private slots:
     Fixture f;
     QVERIFY(f.init());
     QString error;
-    // z: 0/20/40/60 → 阈值 {20,40} 下四角分别落入相 1/2/2/3。
+    // z: 0/20/40/60 → 阈值 {20,25,30,35,40,45} 下四角分别落入相 1/2/6/7（默认七微相分类库）。
     QVariantList points{QVariantMap{{"x", 0}, {"y", 0}, {"z", 0}},
                         QVariantMap{{"x", 100}, {"y", 0}, {"z", 20}},
                         QVariantMap{{"x", 0}, {"y", 100}, {"z", 40}},
                         QVariantMap{{"x", 100}, {"y", 100}, {"z", 60}}};
-    const auto polygons = f.composedPolygons(points, QVariantList{20., 40.}, &error);
+    const auto polygons = f.composedPolygons(points, QVariantList{20., 25., 30., 35., 40., 45.}, &error);
     QVERIFY2(!polygons.isEmpty(), qPrintable(error));
     int code = 0;
     QString uid;
@@ -224,7 +224,7 @@ private slots:
     QCOMPARE(attribution.value("origin").toString(), QStringLiteral("product"));
     QVERIFY(!attribution.value("calculation_version").toString().isEmpty());
     const auto params = attribution.value("calculation_parameters").toMap();
-    const QVariantList expectedThresholds{20., 40.};
+    const QVariantList expectedThresholds{20., 25., 30., 35., 40., 45.};
     QCOMPARE(params.value("thresholds").toList(),
              expectedThresholds); // 真实执行参数，不是输入清单复制
     const auto inputs = attribution.value("inputs").toList();
@@ -291,16 +291,16 @@ private slots:
              input.value("value_max").toDouble()); // 仍是旧值域
     QVERIFY(frozen.value("inputs").toList().first().toMap()
                 .value("value_max").toDouble() < 100.0);
-    // 新输入重算出全部相 3 的新成果，归因反映新版本。
+    // 新输入重算出全部相 7 的新成果，归因反映新版本。
     const auto newFactor = f.latest("single_factor_raster");
     const auto recomposed =
-        f.work.compose("D61", {newFactor}, {{"thresholds", QVariantList{20., 40.}}},
+        f.work.compose("D61", {newFactor}, {{"thresholds", QVariantList{20., 25., 30., 35., 40., 45.}}},
                        &error);
     QVERIFY2(!recomposed.isEmpty(), qPrintable(error));
     int newCode = 0;
     const auto newFid = firstFeature(&f.layers, recomposed, &newCode, nullptr);
     QVERIFY(newFid >= 0);
-    QCOMPARE(newCode, 3);
+    QCOMPARE(newCode, 7);
     const auto newAttribution =
         f.work.featureEvidence(recomposed, {newFid}).value("attribution").toMap();
     QVERIFY(newAttribution.value("inputs").toList().first().toMap()

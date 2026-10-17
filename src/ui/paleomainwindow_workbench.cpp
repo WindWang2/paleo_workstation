@@ -1,5 +1,4 @@
 // 层：视图
-// token 例外：DESIGN 数据符号例外：编图参考地图固定纸面与地质预览色样。（tools/ui-token-exceptions.json 精确计数）。
 #include <QApplication>
 
 #include "../domain/faciescatalog.h"
@@ -11,7 +10,6 @@
 #include "../qgis/draftautosave.h"
 #include "../qgis/facieshierarchyrenderer.h"
 #include "../qgis/factorstylewriter.h"
-#include "../qgis/mapcanvaslink.h"
 #include "../qgis/mappingartifactwriter.h"
 #include "../qgis/qgiscanvascontroller.h"
 #include "../qgis/qgislayerprofile.h"
@@ -31,6 +29,7 @@
 #include "pages/datapage.h"
 #include "pages/datagraphpage.h"
 #include "pages/mappingworkbenchpage.h"
+#include "pages/mappingreferencepanel.h"
 #include "pages/pageshared.h"
 #include "pages/predictpage.h"
 #include "pages/wellpredictionpanel.h"
@@ -38,8 +37,6 @@
 #include "paleoribbon.h"
 #include "taskpanel.h" // 智能预测开跑切到任务页
 #include <QAction>
-#include <QCheckBox>
-#include <QDialog>
 #include <QDockWidget>
 #include <QFileDialog>
 #include <QInputDialog>
@@ -188,7 +185,7 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
                    !analysisRaster && !cartographic;
     auto schema =
         product ? v.extra.value("facies").toList() : workbench->facies(h);
-    QString title = h.isEmpty() ? tr("请选择层位") : tr("%1 · 相图例").arg(h);
+    QString title = h.isEmpty() ? tr("请选择层位") : tr("%1 · 三级相图例").arg(h);
     if (product)
       title +=
           tr(" · v%1%2")
@@ -216,12 +213,12 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
       auto *wellLayer = qobject_cast<QgsVectorLayer *>(m_layerSvc->layer(id));
       const bool wellResult = wellLayer && wellLayer->fields().indexOf("facies_intervals") >= 0;
       title = tr("%1 · %2 · v%3")
-                  .arg(h, wellResult ? tr("预测相") : FaciesHierarchy::title(workbench->resolvedLevel(id)))
+                  .arg(h, wellResult ? tr("测井预测 · %1").arg(FaciesHierarchy::title(workbench->resolvedLevel(id))) : FaciesHierarchy::title(workbench->resolvedLevel(id)))
                   .arg(v.versionNumber);
       if (v.extra.value("mock").toBool())
         title += tr(" · Mock");
     }
-    m_decorMgr->setFaciesLegend(title, h.isEmpty() ? QVariantList() : schema);
+    m_decorMgr->setFaciesLegend(title, h.isEmpty() ? QVariantList() : schema, product ? m_layerSvc->layer(id) : nullptr);
   };
   auto shown = std::make_shared<QHash<QString, QString>>();
   if (m_projectSvc) {
@@ -233,7 +230,7 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
     const auto d = workbench->declaration(id);
     if (!d.horizon.isEmpty() && d.horizon != m_selection->activeHorizon()) {
       if (error)
-        *error = tr("请切换至图件所属层位 %1，或打开参考窗口").arg(d.horizon);
+        *error = tr("请切换至图件所属层位 %1，或打开参考面板").arg(d.horizon);
       return false;
     }
     auto *layer = m_layerSvc->instantiate(id, error);
@@ -253,7 +250,7 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
       canvas->setMapTool(pan);
     }
     // Focus one generated result while retaining base data. History stays in
-    // the result list and can be compared in independent windows.
+    // the result list and can be compared in independent panels.
     auto *treeRoot = (m_projectSvc && m_projectSvc->project())
                          ? m_projectSvc->project()->layerTreeRoot()
                          : nullptr;
@@ -302,119 +299,19 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
     shown->insert(d.horizon, id);
     return true;
   };
-  auto compare = [this, workbench](const QString &id, QString *error) {
-    auto d = workbench->declaration(id);
-    QgsMapLayer *layer =
-        d.type == "raster"
-            ? static_cast<QgsMapLayer *>(new QgsRasterLayer(d.source, d.title))
-            : static_cast<QgsMapLayer *>(
-                  new QgsVectorLayer(d.source, d.title, "ogr"));
-    if (!layer->isValid()) {
-      delete layer;
-      if (error)
-        *error = tr("参考图件无法读取");
-      return false;
-    }
-    MappingArtifactWriter::restoreRasterCrs(layer);
-    MappingArtifactWriter::restoreVectorCrs(layer);
-    auto *dialog = new QDialog(this, Qt::Window);
-    dialog->setAttribute(Qt::WA_DeleteOnClose);
-    dialog->setObjectName("mappingReferenceWindow");
-    dialog->setProperty("paleo.referenceVersion",
-                        workbench->versionForLayer(id).id);
-    dialog->setWindowTitle(tr("参考 · %1 · %2").arg(d.horizon, d.title));
-    dialog->resize(640, 480);
-    layer->setParent(dialog);
-    auto *layout = new QVBoxLayout(dialog);
-    auto *caption = new QLabel(
-        tr("%1 · %2\n与主图联动范围及光标；取消联动后可独立缩放和平移。")
-            .arg(d.horizon, d.title),
-        dialog);
-    caption->setWordWrap(true);
-    layout->addWidget(caption);
-    auto *linked = new QCheckBox(tr("联动主图范围与光标"), dialog);
-    linked->setObjectName("referenceLinked");
-    linked->setChecked(true);
-    layout->addWidget(linked);
-    auto *canvas = new QgsMapCanvas(dialog);
-    canvas->setObjectName("referenceCanvas");
-    layer->setParent(
-        canvas); // keep the layer alive until the renderer has stopped
-    if (m_projectSvc) {
-      canvas->setProject(m_projectSvc->project());
-      canvas->mapSettings().setTransformContext(m_projectSvc->project()->transformContext());
-    }
-    canvas->setDestinationCrs(layer->crs());
-    canvas->setCanvasColor(Qt::white);
-    canvas->setLayers({layer});
-    auto extent = layer->extent();
-    if (extent.width() < 1 || extent.height() < 1)
-      extent.grow(100);
-    canvas->setExtent(extent);
-    layout->addWidget(canvas, 1);
-    canvas->setMapTool(new QgsMapToolPan(canvas));
-    auto v = workbench->versionForLayer(id);
-    auto f = v.extra.value("facies", workbench->facies(d.horizon)).toList();
-    const auto compareKind = v.extra.value("kind").toString();
-    const auto compareSource = v.extra.value("value_source").toString();
-    const bool compareAnalysis =
-        paleo::singlefactor::isAnalysisFactorRaster(compareKind, compareSource);
-    const bool compareCartographic =
-        paleo::singlefactor::rejectsQuantitativeUse(compareKind, compareSource);
-    const bool faciesReference =
-        !compareKind.startsWith(QLatin1String("constraint")) &&
-        !compareAnalysis && !compareCartographic && !f.isEmpty();
-    if (faciesReference)
-      f = FaciesHierarchyRenderer::apply(
-          layer, f, FaciesHierarchy::resolveLevel("auto", canvas->scale()));
-    else {
-      f.clear();
-      if (compareAnalysis || compareCartographic)
-        if (auto *r = qobject_cast<QgsRasterLayer *>(layer)) {
-          FactorStyleWriter::applyTo(r, v.extra.value("factor_id").toString());
-          if (r->renderer())
-            for (const auto &item : r->renderer()->legendSymbologyItems())
-              f << QVariantMap{{"name", item.first},
-                               {"color", item.second.name()}};
-        }
-    }
-    auto *decor = new PaleoDecorationManager(canvas);
-    decor->setNorthArrowEnabled(true);
-    decor->setScaleBarEnabled(true);
-    decor->setFaciesLegend(d.horizon + tr(" · 参考%1")
-                                           .arg(v.extra.value("mock").toBool()
-                                                    ? tr(" Mock")
-                                                    : QString()),
-                           f);
-    auto *link = new MapCanvasLink(m_canvasCtl->canvas(), canvas, dialog);
-    connect(linked, &QCheckBox::toggled, link, &MapCanvasLink::setEnabled);
-    if (faciesReference) {
-      const auto schema =
-          v.extra.value("facies", workbench->facies(d.horizon)).toList();
-      const auto refreshReference = [layer, canvas, decor, schema, d] {
-        const auto level =
-            FaciesHierarchy::resolveLevel("auto", canvas->scale());
-        if (layer->customProperty("paleo/faciesResolvedLevel").toString() !=
-            level) {
-          const auto entries =
-              FaciesHierarchyRenderer::apply(layer, schema, level);
-          decor->setFaciesLegend(
-              d.horizon + " · " + FaciesHierarchy::title(level), entries);
-        }
-      };
-      connect(canvas, &QgsMapCanvas::scaleChanged, dialog, refreshReference);
-      refreshReference();
-    }
-    connect(dialog, &QDialog::finished, link,
-            [link] { link->setEnabled(false); });
-    connect(dialog, &QDialog::finished, canvas, [canvas] {
-      canvas->stopRendering();
-      canvas->setLayers({});
-    });
-    dialog->show();
-    canvas->refresh();
-    return true;
+  auto compare = [this](const QString &id, QString *error) {
+    return showMappingReference(id, error);
   };
+  if (edit) {
+    connect(edit->actionAddPolygon(), &QAction::triggered, this, [this, compare] {
+      if (currentPage() != QLatin1String("compose")) return;
+      // 首次绘面给出入口；用户关闭过参考面板后，不因再次绘面反复拉起。
+      if (!findChildren<MappingReferencePanel *>().isEmpty()) return;
+      QString error;
+      compare(QString(), &error);
+      m_canvasCtl->canvas()->setFocus();
+    });
+  }
   auto *wellDock = new QDockWidget(tr("测井预测相与修订"), this);
   wellDock->setObjectName("wellPredictionDock");
   auto *wellPanel = new WellPredictionPanel(wellDock);
@@ -932,6 +829,8 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
               ok = workbench->assignHierarchy(
                   id, v->selectedFeatureIds().values(), p.value("code").toInt(),
                   p.value("edit_level", "micro_facies").toString(), &error);
+          } else if (action == "referencePanel") {
+            ok = compare(QString(), &error);
           } else if (action == "references") {
             for (const auto &ref : inputs) {
               if (!compare(ref, &error)) {
@@ -1000,9 +899,9 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
               deleteCanvas->freeze(wasFrozen);
               if (!wasFrozen) deleteCanvas->refresh();
               if (ok) {
-                for (auto *dialog : findChildren<QDialog *>("mappingReferenceWindow"))
-                  if (versionIds.contains(dialog->property("paleo.referenceVersion").toString()))
-                    dialog->close();
+                for (auto *view : findChildren<MappingReferencePanel *>())
+                  if (versionIds.contains(view->property("paleo.referenceVersion").toString()))
+                    view->clearReference(tr("所选证据版本已删除，请选择其他证据。"));
                 if (!wellPanel->layerId().isEmpty() &&
                     workbench->versionForLayer(wellPanel->layerId()).id.isEmpty()) {
                   wellPanel->clear();
@@ -1089,9 +988,9 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
             message = tr("已请求取消预测。");
           else if (action == "show")
             message = tr("已在画布显示并定位选中图件。");
-          else if (action == "compare" || action == "references")
+          else if (action == "compare" || action == "references" || action == "referencePanel")
             message =
-                tr("已打开联动参考窗口，平移、缩放与光标位置随主图同步。");
+                tr("已打开证据联动面板；可选择参考图件、添加并排视图，并开关范围与光标联动。");
           else if (action == "catalog")
             message = tr("已在数据管理中定位图件的保存版本和来源谱系。");
           else if (action == "displayLevel")
@@ -1246,5 +1145,13 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
                 [action](int index) { action->setVisible(index == 1); });
       }
   }
+  if (auto *category = categoryForPage(QStringLiteral("compose")))
+    if (auto *panel = category->findChild<SARibbonPanel *>(QStringLiteral("ribbonPanel.compose.chain"))) {
+      auto *action = new QAction(tr("参考证据"), this);
+      action->setObjectName(QStringLiteral("ribbonReferenceEvidence"));
+      PaleoRibbon::mirror(action, pages[2]->commandButton("referencePanel"), false, false);
+      action->setWhatsThis(tr("打开参考证据面板，在面板内添加视图并选择证据，与主图联动对照绘制。"));
+      panel->addSmallAction(action);
+    }
   legend();
 }

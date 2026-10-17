@@ -359,69 +359,7 @@ void DataListPanel::editDepthAnchorForSelection()
 
 void DataListPanel::editRoleForSelection()
 {
-  using namespace paleo::dataops;
-  const QSet<QString> ids = currentAssetSelection();
-  if (ids.isEmpty() || !m_ctx.valid() || ids.size() != 1)
-    return;
-  const QString assetId = *ids.constBegin();
-  QString role, entityId;
-  for (const EntityAssetLink &l : m_ctx.cat->linksForAsset(assetId))
-    if (!l.unresolved)
-    {
-      role = l.role;
-      entityId = l.entityId;
-      break;
-    }
-  if (role.isEmpty())
-  {
-    emit statusMessage(tr("该资产没有已决关联可改角色"));
-    return;
-  }
-  // 词表 = roleRegistry 按实体类型的合法角色（工程可扩词表如实进下拉）。
-  QStringList vocab;
-  QString linkEntityType;
-  for (const EntityAssetLink &l : m_ctx.cat->linksForAsset(assetId))
-    if (!l.unresolved)
-    {
-      linkEntityType = l.entityType;
-      break;
-    }
-  for (const RoleDef &d : m_ctx.cat->roleRegistry().forEntity(linkEntityType))
-    vocab << d.role;
-  if (!vocab.contains(role))
-    vocab << role;
-  vocab.sort();
-  RoleEditDialog dlg(this);
-  dlg.loadRole(role, vocab);
-  if (dlg.exec() != QDialog::Accepted || dlg.newRole() == role)
-    return;
-  // D4.7 + D5.5：addLink 无删除对偶 → 不可撤销，确认说明。
-  if (!PaleoNotify::ask(
-          this, tr("角色变更（不可撤销）"),
-          tr("将为「%1」新增角色关联 %2（原 %3 关联保留）。\n"
-             "此操作不可撤销。继续？")
-              .arg(assetId, dlg.newRole(), role),
-          PaleoNotify::AskButtons::YesNo, PaleoNotify::AskDefault::Platform,
-          PaleoNotify::AskIcon::Warning))
-    return;
-  EntityAssetLink l;
-  l.entityType = m_ctx.cat->entityById(entityId).entityType;
-  l.entityId = entityId;
-  l.assetId = assetId;
-  l.role = dlg.newRole();
-  l.isPrimary = false;
-  QString err;
-  if (m_ctx.cat->addLink(l, &err))
-  {
-    if (m_history)
-      m_history->push(tr("角色变更 %1：%2→%3").arg(assetId, role, dlg.newRole()));
-    refreshAssetTable();
-    emit entityRefreshRequested();
-    emit statusMessage(tr("已新增角色关联 %1（原关联保留，不可撤销）")
-                           .arg(dlg.newRole()));
-  }
-  else
-    emit statusMessage(tr("角色变更失败：%1").arg(err));
+  editAssociationForSelection();
 }
 
 void DataListPanel::showAssetContextMenu(QObject *source, const QPoint &pos)
@@ -457,6 +395,9 @@ void DataListPanel::showAssetContextMenu(QObject *source, const QPoint &pos)
   if (mix.assetIds.size() == 1) {
     auto *graph = menu.addAction(tr("查看资料关联图谱"));
     connect(graph, &QAction::triggered, this, [this, id = *mix.assetIds.constBegin()] { emit graphRequested(id); });
+    auto *association = menu.addAction(tr("调整资料归属（井 / 地震）…"));
+    association->setObjectName("editAssetAssociation");
+    connect(association, &QAction::triggered, this, &DataListPanel::editAssociationForSelection);
     menu.addSeparator();
   }
   const struct
@@ -473,7 +414,7 @@ void DataListPanel::showAssetContextMenu(QObject *source, const QPoint &pos)
     {"attachToEntity", QT_TR_NOOP("挂接到实体…")},
     {"detachLink", QT_TR_NOOP("解除挂接")},
     {"setPrimary", QT_TR_NOOP("设为主关联")},
-    {"editRole", QT_TR_NOOP("编辑挂接角色…")},
+    {"editRole", QT_TR_NOOP("调整资料归属与用途…")},
     {"transferLink", QT_TR_NOOP("转移到其它实体…")},
     {"addTag", QT_TR_NOOP("打标签…")},
     {"changeType", QT_TR_NOOP("改类型…")},

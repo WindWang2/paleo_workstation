@@ -4,6 +4,7 @@
 #include "../algorithms/faciesmapping/formationdominance.h"
 #include "../catalog/purgelease.h"
 #include "../domain/faciescatalog.h"
+#include "../domain/faciestaxonomy.h"
 #include "../domain/interpretationevidence.h"
 #include "../domain/mappinghorizons.h"
 #include "../domain/singlefactorrequest.h"
@@ -432,8 +433,10 @@ bool MappingWorkbench::saveFacies(const QString &h, const QVariantList &items,
     fail(error, tr("每个层位需要 1–32 个相类别"));
     return false;
   }
+  QVariantList normalized;
+  if (!FaciesTaxonomy::normalize(items, &normalized, error)) return false;
   QSet<int> codes;
-  for (const auto &v : items) {
+  for (const auto &v : normalized) {
     const auto f = v.toMap();
     bool ok = false;
     int code = f.value("code").toInt(&ok);
@@ -453,19 +456,13 @@ bool MappingWorkbench::saveFacies(const QString &h, const QVariantList &items,
   DerivedAssetRegistrar r(m_catalog, m_dir);
   auto st = r.stage("facies_schema", QStringLiteral("facies-schema-%1").arg(h),
                     "facies.json", error);
-  if (!st.isValid() || !writeJson(st.absolutePath, items, error))
+  if (!st.isValid() || !writeJson(st.absolutePath, normalized, error))
     return false;
   QStringList parents;
   if (!schemaVersion(h).isEmpty())
     parents << schemaVersion(h);
-  QVariantList normalized;
-  for (const auto &v : items) {
-    auto f = v.toMap();
-    f.insert("code", f.value("code").toInt());
-    normalized << f;
-  }
   const bool ok = r.commit(st, parents, "facies-schema",
-                           {{"horizon", h}, {"facies", normalized}}, error);
+                           {{"horizon", h}, {"facies", normalized}, {"facies_schema", "paleo_facies_hierarchy_v1"}, {"prediction_level", "micro_facies"}}, error);
   if (ok) {
     // facies-ux 3：在场的测井相点层跟随新分类重着色。
     const auto schemas = WellAttributeStore::faciesSchemas(m_catalog);
@@ -818,6 +815,10 @@ QVariantList MappingWorkbench::wellFormationUpdates(
         {"facies_code", d.dominantCode > 0 ? QVariant(d.dominantCode) : QVariant()},
         {"dominant_thickness_md", d.dominantThickness}, {"dominant_ratio", d.ratio},
         {"coverage", d.coverage}, {"tie", d.tie}, {"facies_composition", d.composition}};
+      const auto hierarchy = FaciesCatalog::attributes(schema, d.dominantCode);
+      row.insert("facies", hierarchy.value("facies_name"));
+      row.insert("sub_facies", hierarchy.value("subfacies"));
+      row.insert("micro_facies", hierarchy.value("microfacies"));
       if (predicted) {
         row.insert("predicted_dominant", d.dominant);
         if (point.contains("prediction_status")) {

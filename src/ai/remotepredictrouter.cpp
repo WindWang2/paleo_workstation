@@ -232,10 +232,11 @@ void HttpRemoteTransport::predict(const RemotePredictionRequest &request,
   for (float v : request.samples)
     samples.append(!std::isfinite(v) ? QJsonValue() : QJsonValue(double(v)));
   body.insert(QStringLiteral("samples"), samples);
-  if (m_wellsRequest) {
+  body.insert(QStringLiteral("facies"), QJsonArray::fromVariantList(request.facies));
+  body.insert(QStringLiteral("predictionLevel"), QStringLiteral("micro_facies"));
+  body.insert(QStringLiteral("faciesSchema"), QStringLiteral("paleo_facies_hierarchy_v1"));
+  if (m_wellsRequest)
     body.insert(QStringLiteral("wells"), QJsonArray::fromVariantList(request.wells));
-    body.insert(QStringLiteral("facies"), QJsonArray::fromVariantList(request.facies));
-  }
 
   QNetworkRequest req(m_base.resolved(QUrl(QStringLiteral("/predict"))));
   req.setHeader(QNetworkRequest::ContentTypeHeader,

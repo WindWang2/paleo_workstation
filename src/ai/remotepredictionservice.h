@@ -19,7 +19,7 @@
 struct RemotePredictionRequest {
   QString id, horizon, kind;
   QStringList sourceVersionIds;
-  QVariantList wells, facies;
+  QVariantList wells, facies; // facies 为微相叶节点及完整相 / 亚相父级路径
   QRectF extent;
   int columns = 64, rows = 64;
   QString crsWkt;

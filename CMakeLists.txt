@@ -476,6 +476,7 @@ target_link_libraries(paleo_store PUBLIC paleo_deps paleo_domain)
 
 # ---- QGIS 封装层 ----
 add_library(paleo_qgis STATIC
+  src/qgis/wellpointnavigation.cpp
   src/qgis/mappingartifactwriter.cpp
   src/qgis/qgisruntime.cpp
   src/qgis/qgisprojectservice.cpp
@@ -501,6 +502,7 @@ add_library(paleo_qgis STATIC
   src/qgis/qgislabelzorder.cpp                      # 标注随图层 z 序：给每层钉 rendering/labelsWithLayer（vendored QGIS 补丁）
   src/qgis/qgislayerorganizer.cpp                   # 图层树布局器：00_Data 置顶共享 + 层位组 + 组秩归位
   src/qgis/previewmapcanvas.cpp                     # P2 D1.1 预览画布封装（私有层容器+CRS+历史栈+渐进渲染）
+  src/qgis/mappingreferencecanvas.cpp
   src/qgis/previewmaptools.cpp                      # P2 D1.2 预览工具注册表（量测/identify/剖面线）
   src/qgis/previewrasteranalysis.cpp                # P2 D2.2/D5.x 预览栅格分析（统计/拉伸/直方图/剖面/极值）
   src/qgis/previewidentify.cpp                      # P2 D7 identify 查询核心（空间索引缓存+栅格插值）
@@ -554,6 +556,7 @@ add_library(paleo_io STATIC
 target_link_libraries(paleo_io PUBLIC paleo_deps paleo_domain paleo_store)
 
 add_library(paleo_services STATIC
+  src/services/datagraph_layout.cpp
   src/services/datagraph.cpp
   src/services/toolavailability.cpp
   src/services/previewdoc.cpp                       # W1 数据页唯一数据门面
@@ -636,6 +639,7 @@ add_library(paleo_workflow STATIC
   src/workflow/welltopseditorworkflow.cpp           # 方向 32：分层编辑版本化提交/回滚/合并编排
   src/workflow/wellsitingworkflow.cpp               # 方向34：井网辅助编排（诊断/候选/方案/planned）
   src/workflow/storagegovernancecontroller.cpp
+  src/workflow/assetassociation.cpp
   src/workflow/assetops.cpp                        # 方向30：版本回滚/对比 + 物理清理 + 未决归位
   src/workflow/importledger.cpp                    # 方向30：文件夹导入批次台账（sidecar 持久化）
   src/workflow/boundaryeditrules.cpp               # 方向39：相界类型编辑规则（赋类/带域/开放端）
@@ -645,6 +649,7 @@ target_link_libraries(paleo_workflow PUBLIC paleo_deps paleo_qgis paleo_store pa
 
 # ---- 视图层 ----
 add_library(paleo_ui STATIC
+  src/ui/pages/datagraphsceneitems.cpp
   src/ui/pages/datagraphpage.cpp
   src/ui/datapreview/officepreviewwidget.cpp
   src/ui/datapreview/datapreviewtabxml.cpp
@@ -655,6 +660,10 @@ add_library(paleo_ui STATIC
   src/ui/pages/stratigraphicwebpage.cpp
   src/ui/symbols/symbolpickerpanel.cpp             # 方向31：符号选择器面板（花纹/线型浏览 + 语义过滤）
   src/ui/pages/mappingworkbenchpage.cpp
+  src/ui/pages/mappingworkbenchpage_references.cpp
+  src/ui/pages/mappingworkbenchpage_schema.cpp
+  src/ui/pages/mappingreferencepanel.cpp
+  src/ui/paleomainwindow_references.cpp
   src/ui/paleomainwindow_workbench.cpp
   src/ui/paleomainwindow.cpp
   src/ui/paleomainwindow_docks.cpp               # 壳构建：中央面与 dock 族（方向83）
@@ -681,6 +690,7 @@ add_library(paleo_ui STATIC
   src/ui/pages/datalist_select.cpp                 # 数据页·选中集管理与联动
   src/ui/pages/datalist_filter.cpp                 # 数据页·多维组合过滤与搜索
   src/ui/pages/datalist_batch.cpp                  # 数据页·批量操作与上下文菜单
+  src/ui/pages/datalist_association.cpp
   src/ui/pages/datalist_dnd.cpp                    # 数据页·拖拽与外部文件处理
   src/ui/pages/datalist_undo.cpp                   # 数据页·撤销重做与治理对话框
   src/ui/pages/entitypanel.cpp                     # W5 数据页·实体视图侧

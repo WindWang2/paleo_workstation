@@ -32,7 +32,7 @@ src/ui/edittools/vertexeditortools.cpp:fn:deleteVertexAtMapPoint:245
 src/ui/pages/composepage.cpp:fn:ComposePage:422
 src/ui/pages/constraintpage_constraints.cpp:fn:buildConstraintArea:311
 src/ui/pages/constraintpage_interpolation.cpp:fn:buildAdvancedSection:207
-src/ui/pages/datagraphpage.cpp:fn:DataGraphPage:349
+src/ui/pages/datagraphpage.cpp:fn:DataGraphPage:348
 src/ui/pages/datalist.cpp:file:1008
 src/ui/pages/datalist.cpp:fn:DataListPanel:509
 src/ui/pages/datalist.cpp:fn:buildDataOpsUi:331
@@ -43,7 +43,7 @@ src/ui/pages/entitypanel.cpp:file:1620
 src/ui/pages/entitypanel.cpp:fn:buildD4Ui:224
 src/ui/pages/entitypanel.cpp:fn:refresh:782
 src/ui/pages/mappingworkbenchpage.cpp:file:1517
-src/ui/pages/mappingworkbenchpage.cpp:fn:MappingWorkbenchPage:682
+src/ui/pages/mappingworkbenchpage.cpp:fn:MappingWorkbenchPage:646
 src/ui/pages/mappingworkbenchpage.cpp:fn:updateState:238
 src/ui/pages/wellsitingpanel.cpp:fn:WellSitingPanel:263
 src/ui/paleomainwindow.cpp:file:1005
@@ -55,8 +55,8 @@ src/ui/paleomainwindow_attach_shell.cpp:fn:attachShellSurfaces:580
 src/ui/paleomainwindow_docks.cpp:fn:buildCenterArea:209
 src/ui/paleomainwindow_sections.cpp:fn:attachSections:295
 src/ui/paleomainwindow_wellsection.cpp:fn:attachWellSection:466
-src/ui/paleomainwindow_workbench.cpp:file:1199
-src/ui/paleomainwindow_workbench.cpp:fn:attachWorkbench:1133
+src/ui/paleomainwindow_workbench.cpp:file:1157
+src/ui/paleomainwindow_workbench.cpp:fn:attachWorkbench:1091
 src/ui/propertymodel/propertymodelpanel.cpp:fn:buildUi:255
 src/ui/ribbonpanels.cpp:fn:buildRibbonPanels:408
 src/ui/seismic3d/seismic3dviewpanel.cpp:file:1811
@@ -68,7 +68,7 @@ src/ui/seismicsection/seismicsectiondock_setup.cpp:fn:setupDisplayBar:255
 src/ui/seismicsection/seismicsectiondock_setup.cpp:fn:setupUi:386
 src/ui/shortcuts/shortcutcatalog.cpp:fn:catalogEntries:228
 src/ui/wellcomposite/panelsetup.cpp:fn:setupUi:422
-src/ui/wellcomposite/wellpositionlegendwidget.cpp:fn:setupUi:278
+src/ui/wellcomposite/wellpositionlegendwidget.cpp:fn:setupUi:261
 src/ui/wellsection/wellsectiondialogs.cpp:fn:WellSectionTracksDialog:257
 src/ui/wellsection/wellsectionpanel.cpp:file:1541
 src/ui/wellsection/wellsectionpanel.cpp:fn:WellSectionPanel:456

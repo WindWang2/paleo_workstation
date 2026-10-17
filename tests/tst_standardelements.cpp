@@ -6,9 +6,24 @@
 #include <QMap>
 #include <QStringList>
 #include <QTemporaryDir>
+#include <QScopeGuard>
+#include <qgslayoutmanager.h>
 
 #include "../src/qgis/standardelements.h"
 #include "../src/qgis/qgisruntime.h"
+#include "../src/qgis/facieshierarchyrenderer.h"
+#include "../src/qgis/faciesmaplegend.h"
+#include "../src/qgis/mappingartifactwriter.h"
+#include "../src/domain/faciescatalog.h"
+#include <qgsmaplayerlegend.h>
+#include <qgslayertree.h>
+#include <qgslayertreemodellegendnode.h>
+#include <qgsvectorlayer.h>
+#include <qgsvectordataprovider.h>
+#include <qgsrasterlayer.h>
+#include <qgspalettedrasterrenderer.h>
+#include <qgslayoutexporter.h>
+#include <qgsgeometry.h>
 
 #include <qgslayout.h>
 #include <qgslayoutitem.h>
@@ -116,6 +131,100 @@ class TestStandardElements : public QObject
       QVERIFY( qAbs( paper.height() - 297.0 ) < 0.5 );
 
       QVERIFY( !PaleoStandardElements::applyPageSetup( nullptr, a4p ) );
+    }
+
+    void hierarchicalFaciesLegendFollowsRendererAndLayout()
+    {
+      auto *layout = makeLayout();
+      auto *manager = layout->project()->layoutManager();
+      QVERIFY(manager->addLayout(layout));
+      const auto cleanup = qScopeGuard([manager, layout] { manager->removeLayout(layout); });
+      auto *layer = new QgsVectorLayer("Polygon?field=facies_code:integer&crs=EPSG:3857", "微相结果 · v1", "memory");
+      const auto schema = FaciesCatalog::defaults();
+      QgsFeatureList features;
+      for (int i = 0; i < schema.size(); ++i) {
+        QgsFeature feature(layer->fields());
+        feature.setAttribute("facies_code", schema[i].toMap().value("code"));
+        feature.setGeometry(QgsGeometry::fromRect(QgsRectangle(i * 100, 0, (i + 1) * 100, 100)));
+        features << feature;
+      }
+      QVERIFY(layer->dataProvider()->addFeatures(features));
+      layer->updateExtents();
+      layout->project()->addMapLayer(layer);
+      QCOMPARE(layer->project(), layout->project());
+      QCOMPARE(manager->layouts().size(), 1);
+      auto entries = FaciesHierarchyRenderer::apply(layer, schema, "micro_facies");
+      QCOMPARE(entries.size(), 7);
+      const auto previews = FaciesMapLegend::symbolEntries(layer, entries);
+      for (const auto &entry : previews) QVERIFY(!entry.toMap().value("legend_icon").value<QIcon>().isNull());
+      auto *map = PaleoStandardElements::addMainMap(layout, {layer}, layer->extent());
+      map->attemptResize(QgsLayoutSize(200, 150, Qgis::LayoutUnit::Millimeters));
+      map->attemptMove(QgsLayoutPoint(10, 24, Qgis::LayoutUnit::Millimeters));
+      map->zoomToExtent(layer->extent());
+      auto *legend = PaleoStandardElements::addLegend(layout, map);
+      QVERIFY(legend);
+      auto *nodeLayer = legend->model()->rootGroup()->findLayer(layer->id());
+      QVERIFY(nodeLayer);
+      QTRY_COMPARE(legend->model()->layerLegendNodes(nodeLayer).size(), 10);
+      auto nodes = legend->model()->layerLegendNodes(nodeLayer);
+      int headings = 0, symbols = 0;
+      for (auto *node : nodes) {
+        if (dynamic_cast<QgsSymbolLegendNode *>(node)) {
+          ++symbols;
+          QVERIFY(!node->data(int(QgsLayerTreeModelLegendNode::CustomRole::ParentRuleKey)).toString().isEmpty());
+        } else ++headings;
+      }
+      QCOMPARE(headings, 3); QCOMPARE(symbols, 7);
+      QgsLayoutExporter exporter(layout);
+      const auto image = exporter.renderPageToImage(0, QSize(1200, 850), 120);
+      QVERIFY(!image.isNull());
+      QCOMPARE(legend->model()->layerLegendNodes(nodeLayer).size(), 10); // 按地图过滤后仍保留父标题。
+      const auto capture = qEnvironmentVariable("PALEO_FACIES_LEGEND_EXPORT");
+      if (!capture.isEmpty()) QVERIFY(image.save(capture));
+      map->zoomToExtent(QgsRectangle(10, 10, 20, 20));
+      exporter.renderPageToImage(0, QSize(1200, 850), 120);
+      QTRY_COMPARE(legend->model()->layerLegendNodes(nodeLayer).size(), 3); // 一个可见微相及其两级父标题。
+      map->zoomToExtent(layer->extent());
+      FaciesHierarchyRenderer::apply(layer, schema, "facies");
+      exporter.renderPageToImage(0, QSize(1200, 850), 120);
+      QTRY_COMPARE(legend->model()->layerLegendNodes(nodeLayer).size(), 1);
+      QCOMPARE(legend->model()->layerLegendNodes(nodeLayer)[0]->data(Qt::DisplayRole).toString(), QStringLiteral("三角洲相"));
+      FaciesHierarchyRenderer::apply(layer, schema, "sub_facies");
+      exporter.renderPageToImage(0, QSize(1200, 850), 120);
+      QTRY_COMPARE(legend->model()->layerLegendNodes(nodeLayer).size(), 3); // 相父节点 + 两个亚相
+    }
+    void rasterLegendAggregatesParentsAndUsesActualSolidColors()
+    {
+      QTemporaryDir dir;
+      QVERIFY(dir.isValid());
+      const auto schema = FaciesCatalog::defaults();
+      QVector<int> cells;
+      for (const auto &value : schema) cells << value.toMap().value("code").toInt();
+      QString error;
+      const auto path = dir.filePath("facies.tif");
+      QVERIFY(MappingArtifactWriter::raster(path, cells, 7, 1, QRectF(0, 0, 700, 100), &error));
+      QgsRasterLayer layer(path, "地震微相 · Mock");
+      QVERIFY(layer.isValid());
+      auto entries = FaciesHierarchyRenderer::apply(&layer, schema, "micro_facies");
+      for (const auto &entry : entries) QVERIFY(entry.toMap().value("texture").toString().isEmpty());
+      QgsLayerTree root;
+      auto *nodeLayer = root.addLayer(&layer);
+      auto nodes = layer.legend()->createLayerTreeModelLegendNodes(nodeLayer);
+      QCOMPARE(nodes.size(), 10);
+      int rasterSymbols = 0;
+      for (auto *node : nodes) rasterSymbols += dynamic_cast<QgsRasterSymbolLegendNode *>(node) != nullptr;
+      QCOMPARE(rasterSymbols, 7);
+      qDeleteAll(nodes);
+      entries = FaciesHierarchyRenderer::apply(&layer, schema, "facies");
+      QCOMPARE(entries.size(), 1);
+      auto *renderer = dynamic_cast<QgsPalettedRasterRenderer *>(layer.renderer());
+      QVERIFY(renderer);
+      QCOMPARE(renderer->classes().size(), 7); // 原始微相编码仍保留，图例按相合并
+      for (const auto &item : renderer->classes()) QCOMPARE(item.color, QColor(entries[0].toMap().value("color").toString()));
+      nodes = layer.legend()->createLayerTreeModelLegendNodes(nodeLayer);
+      QCOMPARE(nodes.size(), 1);
+      QCOMPARE(nodes[0]->data(Qt::DisplayRole).toString(), QStringLiteral("三角洲相"));
+      qDeleteAll(nodes);
     }
 
     void factoriesLinkAndStyle()

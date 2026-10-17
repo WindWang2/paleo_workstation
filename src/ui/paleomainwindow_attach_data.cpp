@@ -138,7 +138,7 @@ void PaleoMainWindow::attachDataPage(DataPage *dataPage,
     DataPreviewTabs *preview = m_previewTabs;
     if (preview)
     {
-      preview->setDocService(m_previewDoc);
+      preview->setDocService(m_previewDoc); connect(dataPage->listPanel(), &DataListPanel::assetAssociationChanged, preview, &DataPreviewTabs::refreshAssetAssociations);
       preview->setTaskService(taskSvc); // D1：剖面索引/解码异步化（nullptr 时保持同步）
       const auto openGraph = [this](const QString &asset, const QString &version) {
         openDataGraph(asset, version);
@@ -223,8 +223,8 @@ void PaleoMainWindow::attachDataPage(DataPage *dataPage,
                   m_selection->setSelection({wellEntityId}, QStringLiteral("datatree"));
                 });
         connect(preview, &DataPreviewTabs::wellSelected, this,
-                [this](const QString &wellEntityId) {
-                  m_selection->setSelection({wellEntityId}, QStringLiteral("datapreview"));
+                [this, dataPage](const QString &wellEntityId) {
+                  dataPage->focusWell(wellEntityId); m_selection->setSelection({wellEntityId}, QStringLiteral("datapreview"));
                 });
       }
       // horizon 预览「在地图上显示」（§4/T29 双向同步）：实例化派生栅格 →

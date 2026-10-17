@@ -718,3 +718,10 @@ void DataPreviewTabs::onSectionFailed(const QString &assetId,
     pend.spin->setToolTip(QString());
   }
 }
+
+void DataPreviewTabs::refreshAssetAssociations(const QString &assetId) {
+  if (!m_pageOfAsset.contains(assetId)) return;
+  m_wellEntityOfAsset.remove(assetId);
+  m_titleSuffixOfAsset.remove(assetId);
+  rebuildAssetTab(assetId);
+}

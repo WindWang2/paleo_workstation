@@ -11,6 +11,7 @@
 #include <qgsproject.h>
 #include <qgsrubberband.h>
 #include <QAction>
+#include "../../qgis/wellpointnavigation.h"
 #include <QTimer>
 
 #include <cmath>
@@ -197,13 +198,13 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
     {
       if (!well.hasSurface || !std::isfinite(well.surfaceX) || !std::isfinite(well.surfaceY))
         continue;
-      addMemoryPoint(wellsVl, well.surfaceX, well.surfaceY, well.name, QStringLiteral("well"));
+      addMemoryPoint(wellsVl, well.surfaceX, well.surfaceY, well.name, QStringLiteral("well"), well.id);
       wellsExtent.combineExtentWith(QgsRectangle(well.surfaceX, well.surfaceY,
                                                  well.surfaceX, well.surfaceY));
     }
   }
   styleSurveyWellLayer(wellsVl);
-  mapPage->addMapLayer(wellsVl, tr("井位"), QString());
+  mapPage->addMapLayer(wellsVl, tr("井位"), QString()); wireWellNavigation(mapPage, wellsVl);
 
   // 装饰管理器（页内建，测区命名保持既有测试面）
   PaleoDecorationManager *decorMgr = mapPage->decorations();
@@ -372,4 +373,21 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
       }
 
   return w;
+}
+
+void DataPreviewTabs::wireWellNavigation(PreviewMapPage *page, QgsVectorLayer *layer) {
+  auto *tools = page->toolManager();
+  page->mapCanvas()->canvas()->setToolTip(tr("单击井位打开此井资料；拖动可漫游地图。重叠井位可按井名选择。"));
+  WellPointNavigation::install(page->mapCanvas()->canvas(), layer,
+      {tools->tool(PreviewMapToolManager::kPan), tools->tool(PreviewMapToolManager::kIdentify)},
+      [this](const QString &id) {
+    if (!m_doc || m_doc->catalog()->entityById(id).entityType != "well") return;
+    emit wellSelected(id);
+    const auto links = m_doc->catalog()->linksForEntity(id);
+    for (const auto &role : {QStringLiteral("well_head"), QStringLiteral("well_log"), QStringLiteral("tops"), QStringLiteral("time_depth")})
+      for (const auto &link : links)
+        if (!link.unresolved && link.isPrimary && link.role == role) {
+          openAssetForWell(link.assetId, id); return;
+        }
+  });
 }

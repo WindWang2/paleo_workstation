@@ -6,6 +6,7 @@
 #include "../algorithms/faciesmapping/formationdominance.h"
 #include "../catalog/purgelease.h"
 #include "../domain/faciescatalog.h"
+#include "../domain/faciestaxonomy.h"
 #include "../domain/mappinghorizons.h"
 #include "../domain/singlefactorrequest.h"
 #include "../io/constraintstore.h"
@@ -82,7 +83,7 @@ bool MappingWorkbench::prepareCompose(const QString &h, const QStringList &ids,
   job.params = params;
   job.dir = m_dir;
   job.catalog = m_catalog;
-  job.facies = facies(h);
+  if (!FaciesTaxonomy::normalize(facies(h), &job.facies, error)) return false;
   QVariantList sources, orderedInputs;
   QStringList parents;
   QSet<QString> continuous;
@@ -112,11 +113,13 @@ bool MappingWorkbench::prepareCompose(const QString &h, const QStringList &ids,
     if (id.startsWith("factor.") || v.extra.contains("factor_id") ||
         paleo::singlefactor::isAnalysisFactorRaster(inputKind, inputSource))
       continuous.insert(id);
-    else if (v.extra.contains("facies") &&
-             v.extra.value("facies").toList() != facies(h)) {
-      fail(error, tr("输入相分类与当前层位定义不同，请使用对应版本的相分类，或"
-                     "仅作为参考"));
-      return false;
+    else if (v.extra.contains("facies")) {
+      QVariantList inputSchema;
+      if (!FaciesTaxonomy::normalize(v.extra.value("facies").toList(), &inputSchema, error)) return false;
+      if (inputSchema != job.facies) {
+        fail(error, tr("输入三级相分类与当前层位定义不同，请使用对应版本的分类，或仅作为参考"));
+        return false;
+      }
     }
     const auto frozenId = v.extra.value("layer_id").toString();
     const auto frozen = frozenId.isEmpty() ? d : declaration(frozenId);
@@ -233,7 +236,8 @@ bool MappingWorkbench::commitCompose(ComposeJob &job, QString *error) {
       {"compose_grid", composeGrid},
       {"crs", job.params.value("crs")},
       {"thresholds", job.params.value("thresholds")},
-      {"facies", job.facies}};
+      {"facies", job.facies},
+      {"classification_level", "micro_facies"}, {"facies_schema", "paleo_facies_hierarchy_v1"}};
   // 受控重算血缘（X13）：计划携带的 recompute 段落到版本 extra——成果从此
   // 能反查「它替代了哪一版、依据哪份影响报告」；不作为算法参数存档。
   auto storedParams = job.params;

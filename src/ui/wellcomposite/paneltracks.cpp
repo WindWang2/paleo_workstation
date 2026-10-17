@@ -138,13 +138,25 @@ void WellCompositePanel::clearFaciesPrediction() {
     if (track == m_predictionTrack || track == m_confidenceTrack || m_dominantTracks.contains(track)) m_canvas->removeTrack(i);
   }
   m_predictionTrack.reset(); m_confidenceTrack.reset(); m_dominantTracks.clear(); m_btnShowFacies->setEnabled(false);
+  if (m_legendWidget) m_legendWidget->setWellData(m_data);
   m_btnShowFacies->setToolTip(tr("先运行测井相预测"));
 }
 void WellCompositePanel::showFaciesPrediction(const WellFaciesResult &result) {
   clearFaciesPrediction();
-  auto labels = std::make_shared<TextTrack>(tr("预测相"), 120.0);
-  labels->setIntervals(result.intervals);
-  labels->setKeepTextVisible(true);
+  auto legendData = m_data;
+  legendData.faciesIntervals += result.hierarchyIntervals;
+  if (m_legendWidget) m_legendWidget->setWellData(legendData);
+  std::shared_ptr<WellTrack> labels;
+  if (!result.hierarchyIntervals.isEmpty()) {
+    auto track = std::make_shared<FaciesCompoundTrack>(tr("预测相"), 180.0);
+    track->setIntervals(result.hierarchyIntervals);
+    labels = track;
+  } else {
+    auto legacy = std::make_shared<TextTrack>(tr("预测相"), 120.0);
+    legacy->setIntervals(result.intervals);
+    legacy->setKeepTextVisible(true);
+    labels = legacy;
+  }
   auto confidence = std::make_shared<CurveTrack>(tr("预测置信度"), 140.0);
   confidence->addCurve(result.confidence);
   m_predictionTrack = labels; m_confidenceTrack = confidence;

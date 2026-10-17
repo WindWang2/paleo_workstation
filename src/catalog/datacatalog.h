@@ -103,6 +103,7 @@ struct CatalogOp
     AddAsset,
     AddVersion,
     AddLink,
+    UpdateLink,
     AttachLink,
     SetLinkUnresolved,
     SetLinkPrimary,
@@ -220,6 +221,8 @@ class DataCatalog : public QObject
     bool addAsset(const CatalogAsset &a, QString *error = nullptr);
     bool addVersion(const CatalogVersion &v, QString *error = nullptr);
     bool addLink(const EntityAssetLink &l, QString *error = nullptr);
+    // 更改单条关联；资产身份不变，同角色主关联冲突原子降级。
+    bool updateLink(int index, const EntityAssetLink &link, QString *error = nullptr);
 
     // 版本 extra 就地更新（方向 79 锚深后补编辑通道）。契约（定案判据
     // 「审计面与撤销语义」记录于 ledger 与 docs/progress）：导入元数据

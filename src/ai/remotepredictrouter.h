@@ -80,6 +80,12 @@ public:
   // 诊断：传输层自身的作废计数（测试可按此断言 abort 确实发生过）。
   int generation() const { return m_generation; }
 
+  // 响应体上限（默认 64 MiB，#469）。超限在**接收途中**即 abort 并如实报错——
+  // QNetworkReply 默认把整个响应体缓冲进内存，只在 finished 时检查等于没闸。
+  static constexpr qint64 kDefaultMaxResponseBytes = 64ll * 1024 * 1024;
+  void setMaxResponseBytes(qint64 bytes) { m_maxResponseBytes = bytes > 0 ? bytes : kDefaultMaxResponseBytes; }
+  qint64 maxResponseBytes() const { return m_maxResponseBytes; }
+
 private:
   // 进行中的操作种类：决定超时/结束时应回 healthDone 还是 predictDone。
   enum class Op { None, Health, Predict };
@@ -96,6 +102,7 @@ private:
   QPointer<QNetworkReply> m_reply;
   QTimer *m_timer = nullptr;
   int m_generation = 0;
+  qint64 m_maxResponseBytes = kDefaultMaxResponseBytes;
 };
 
 // ---------------------------------------------------------------------------

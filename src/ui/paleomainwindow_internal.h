@@ -26,7 +26,8 @@ struct PageDockState
   bool bottomAutoShown;
 };
 
-void applyPageDockPolicy(const QString &pageId, const PageDockState &s);
+void applyPageDockPolicy(const QString &pageId, const PageDockState &s,
+                         QMainWindow *window = nullptr);
 void hideAllDocksForCorrelation(QMainWindow *win);
 
 // Tab order = reading order = right-panel stack order：页序表收敛到

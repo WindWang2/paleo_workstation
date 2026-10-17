@@ -54,6 +54,7 @@
 #include "../src/ui/decorations/paleodecorations.h"
 #include "../src/ui/edittools/editingtoolbar.h"
 #include "../src/ui/pages/mappingworkbenchpage.h"
+#include "../src/ui/pages/mappingreferencepanel.h"
 #include "../src/ui/pages/datalist.h"
 #include "../src/ui/pages/dataopspalette.h"
 #include "../src/ui/pages/dataopspanelextra.h"
@@ -1820,6 +1821,11 @@ class TestUiShell : public QObject
 
     void mappingWorkbenchCanvasRibbonAndReferences()
     {
+      const auto referenceDock = [this]() -> PaleoDockWidget * {
+        for (auto *dock : m_win->findChildren<PaleoDockWidget *>())
+          if (dock->property("paleo.mappingReference").toBool()) return dock;
+        return nullptr;
+      };
       QTemporaryDir dir;
       // 方向51：产品装配装的是真 router（无远端配置→如实失败），本用例需要
       // 能出层的预测结果——显式注入 tests/ 替身（口径同 tst_mappingworkbench）。
@@ -1888,14 +1894,19 @@ class TestUiShell : public QObject
       }
       dataReference->click(); QCOMPARE(m_win->currentPage(),QString("compose"));
       QCOMPARE(m_ctx->canvasCtl()->canvas()->currentLayer(),layer);
-      auto *dataRefWindow=m_win->findChild<QDialog *>("mappingReferenceWindow"); QVERIFY(dataRefWindow);
-      QCOMPARE(dataRefWindow->property("paleo.referenceVersion").toString(),mapVersion.id);
+      auto *dataRefWindow=referenceDock(); QVERIFY(dataRefWindow);
+      QVERIFY(!dataRefWindow->isFloating());
+      QCOMPARE(m_win->dockWidgetArea(dataRefWindow), Qt::BottomDockWidgetArea);
+      QVERIFY(m_win->findChildren<QDialog *>("mappingReferenceWindow").isEmpty());
+      auto *evidencePanel = dataRefWindow->findChild<MappingEvidencePanel *>(); QVERIFY(evidencePanel);
+      QCOMPARE(evidencePanel->views().size(), 2);
+      QCOMPARE(evidencePanel->views().first()->property("paleo.referenceVersion").toString(), mapVersion.id);
       QCOMPARE(m_ctx->selection()->activeHorizon(),QString("D61"));
       QCOMPARE(page->selectedLayer(),id);
       dataRefWindow->close(); QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
       dataPage->focusVersion(st.assetId,st.versionId); QVERIFY(!dataReference->isEnabled());
       m_win->showPage("predict");
-      page->commandButton("compare")->click();auto *ref=m_win->findChild<QDialog *>("mappingReferenceWindow");QVERIFY(ref);auto *referenceCanvas=ref->findChild<QgsMapCanvas *>("referenceCanvas");QVERIFY(referenceCanvas);QCOMPARE(referenceCanvas->layers().size(),1);QPointer<QgsMapLayer> reference=referenceCanvas->layers().first();QVERIFY(reference!=layer);
+      page->commandButton("compare")->click();auto *ref=referenceDock();QVERIFY(ref);auto *referenceCanvas=ref->findChild<QgsMapCanvas *>("referenceCanvas");QVERIFY(referenceCanvas);QCOMPARE(referenceCanvas->layers().size(),1);QPointer<QgsMapLayer> reference=referenceCanvas->layers().first();QVERIFY(reference!=layer);
       auto *display=page->findChild<QComboBox *>("faciesDisplayLevel"); QVERIFY(display); display->setCurrentIndex(1); QVERIFY(decor->legendTitle().contains(QStringLiteral("相（1 级）")));
       auto *linked=ref->findChild<QCheckBox *>("referenceLinked"); QVERIFY(linked && linked->isChecked());
       auto *mainCanvas=m_ctx->canvasCtl()->canvas(); mainCanvas->setExtent(QgsRectangle(100,200,400,500));
@@ -1904,7 +1915,8 @@ class TestUiShell : public QObject
       linked->setChecked(true); QCOMPARE(referenceCanvas->extent().center(),mainCanvas->extent().center());
       QPointer<QgsMapLayer> mainLayer=layer;d62->click();QVERIFY(mainLayer.isNull());QVERIFY(reference && reference->isValid());QCOMPARE(referenceCanvas->layers().first(),reference.data());QVERIFY(decor->legendTitle().contains("D62"));
       d61->click();QTRY_VERIFY(m_ctx->canvasCtl()->canvas()->layers().contains(m_ctx->layerSvc()->layer(id)));QTRY_COMPARE(page->selectedLayer(),id);page->commandButton("show")->click();ref->close();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
-      PaleoTheme::applyLightTheme();m_win->resize(1600,1000);m_win->show();QTest::qWait(350);
+      if (PaleoTheme::currentTheme() != PaleoTheme::Theme::Light) PaleoTheme::applyLightTheme();
+      m_win->resize(1600,1000);m_win->show();QTest::qWait(350);
       QTRY_VERIFY(m_ctx->canvasCtl()->canvas()->layers().contains(m_ctx->layerSvc()->layer(id)));
       QVERIFY(m_ctx->projectSvc()->project()->layerTreeRoot()->findLayer(m_ctx->layerSvc()->layer(id)->id())->isVisible());
       auto visibleFaciesPixels = [this] {
@@ -1953,7 +1965,50 @@ class TestUiShell : public QObject
       m_win->showPage("data"); dataPage->focusVersion(mapVersion.assetId,mapVersion.id);
       dataReference->click(); QVERIFY(editing->isEditing()); QCOMPARE(editing->currentLayer(),vector);
       QCOMPARE(m_ctx->canvasCtl()->canvas()->currentLayer(),vector);
-      auto *editingRef=m_win->findChild<QDialog *>("mappingReferenceWindow"); QVERIFY(editingRef);
+      auto *editingRef=referenceDock(); QVERIFY(editingRef);
+      auto *drawTool = m_ctx->canvasCtl()->canvas()->mapTool();
+      editing->actionAddPolygon()->trigger();
+      drawTool = m_ctx->canvasCtl()->canvas()->mapTool();
+      auto *composePage = m_win->findChild<MappingWorkbenchPage *>("mappingWorkbench.compose");
+      QVERIFY(composePage && composePage->commandButton("referencePanel")->isEnabled());
+      composePage->commandButton("referencePanel")->click();
+      QCOMPARE(m_ctx->canvasCtl()->canvas()->mapTool(), drawTool);
+      QCOMPARE(editing->currentLayer(), vector);
+      int referenceCount = 0;
+      for (auto *dock : m_win->findChildren<PaleoDockWidget *>())
+        if (dock->property("paleo.mappingReference").toBool()) ++referenceCount;
+      QCOMPARE(referenceCount, 1);
+      QCOMPARE(evidencePanel->views().size(), 2); // 再次打开入口不再创建面板或空视图。
+      auto *newReference = evidencePanel->views()[1];
+      QCOMPARE(newReference->findChildren<QComboBox *>().size(), 1);
+      newReference->selectSource(id);
+      QVERIFY(newReference->hasReference());
+      auto *firstReferenceCanvas = editingRef->findChild<QgsMapCanvas *>("referenceCanvas");
+      QVERIFY(firstReferenceCanvas);
+      QTRY_VERIFY(qAbs(firstReferenceCanvas->scale() - newReference->canvas()->scale()) <
+          qMax(firstReferenceCanvas->scale(), newReference->canvas()->scale()) * 0.02);
+      QCOMPARE(m_ctx->canvasCtl()->canvas()->mapTool(), drawTool);
+      QCOMPARE(m_ctx->canvasCtl()->canvas()->currentLayer(), vector);
+      if (const auto qa = qEnvironmentVariable("PALEO_MAPPING_REFERENCE_QA_DIR"); !qa.isEmpty()) {
+        QDir().mkpath(qa);
+        QTest::qWait(120);
+        QVERIFY(m_win->grab().save(qa + "/evidence-panels-light.png"));
+      }
+      const QRect panelGeometry = editingRef->geometry();
+      evidencePanel->findChild<QPushButton *>("referenceAddView")->click();
+      QCOMPARE(evidencePanel->views().size(), 3);
+      QCoreApplication::processEvents();
+      QCOMPARE(editingRef->geometry(), panelGeometry);
+      QCOMPARE(m_win->findChildren<MappingEvidencePanel *>().size(), 1);
+      QCOMPARE(m_ctx->canvasCtl()->canvas()->mapTool(), drawTool);
+      auto *thirdView = evidencePanel->views()[2];
+      QVERIFY(thirdView->sourceId().isEmpty());
+      thirdView->findChild<QToolButton *>("referenceRemoveView")->click();
+      QCOMPARE(evidencePanel->views().size(), 2);
+      m_win->showPage("data");
+      QVERIFY(editingRef->isHidden());
+      m_win->showPage("compose");
+      QVERIFY(!editingRef->isHidden());
       editingRef->close(); QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
       QgsFeature feature;auto fi=vector->getFeatures();QVERIFY(fi.nextFeature(feature));const int field=vector->fields().indexOf("facies_code");QVERIFY(field>=0);QVERIFY(vector->changeAttributeValue(feature.id(),field,feature.attribute(field).toInt()==1?2:1));editing->actionSave()->trigger();QVERIFY(!editing->isEditing());QCOMPARE(m_ctx->mappingWorkbench()->versionForLayer(draft).versionNumber,previous.versionNumber+1);
       m_win->showPage("compose");auto *compose=m_win->findChild<MappingWorkbenchPage *>("mappingWorkbench.compose");compose->selectLayer(draft);auto *save=m_win->findChild<QAction *>("ribbonSaveVersion");QVERIFY(save && save->isEnabled());QCOMPARE(save->text(),compose->commandButton("save")->text());

@@ -501,6 +501,7 @@ add_library(paleo_qgis STATIC
   src/qgis/qgislabelzorder.cpp                      # 标注随图层 z 序：给每层钉 rendering/labelsWithLayer（vendored QGIS 补丁）
   src/qgis/qgislayerorganizer.cpp                   # 图层树布局器：00_Data 置顶共享 + 层位组 + 组秩归位
   src/qgis/previewmapcanvas.cpp                     # P2 D1.1 预览画布封装（私有层容器+CRS+历史栈+渐进渲染）
+  src/qgis/mappingreferencecanvas.cpp
   src/qgis/previewmaptools.cpp                      # P2 D1.2 预览工具注册表（量测/identify/剖面线）
   src/qgis/previewrasteranalysis.cpp                # P2 D2.2/D5.x 预览栅格分析（统计/拉伸/直方图/剖面/极值）
   src/qgis/previewidentify.cpp                      # P2 D7 identify 查询核心（空间索引缓存+栅格插值）
@@ -655,6 +656,9 @@ add_library(paleo_ui STATIC
   src/ui/pages/stratigraphicwebpage.cpp
   src/ui/symbols/symbolpickerpanel.cpp             # 方向31：符号选择器面板（花纹/线型浏览 + 语义过滤）
   src/ui/pages/mappingworkbenchpage.cpp
+  src/ui/pages/mappingworkbenchpage_references.cpp
+  src/ui/pages/mappingreferencepanel.cpp
+  src/ui/paleomainwindow_references.cpp
   src/ui/paleomainwindow_workbench.cpp
   src/ui/paleomainwindow.cpp
   src/ui/paleomainwindow_docks.cpp               # 壳构建：中央面与 dock 族（方向83）

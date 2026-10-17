@@ -5,6 +5,7 @@
 #include "../src/metadata/paleoprojectstore.h"
 #include "../src/qgis/facieshierarchyrenderer.h"
 #include "../src/qgis/mapcanvaslink.h"
+#include "../src/qgis/mappingreferencecanvas.h"
 #include "../src/qgis/mappingartifactwriter.h"
 #include "../src/qgis/mappingfeatureidentity.h"
 #include "../src/qgis/qgiscanvascontroller.h"
@@ -21,6 +22,7 @@
 #include "../src/ui/edittools/editingtoolbar.h"
 #include "../src/ui/edittools/vertexeditortools.h"
 #include "../src/ui/pages/mappingworkbenchpage.h"
+#include "../src/ui/pages/mappingreferencepanel.h"
 #include "../src/ui/pages/wellpredictionpanel.h"
 #include "../src/ui/paleotheme.h"
 #include "../src/ui/wellcomposite/wellcompositecanvas.h"
@@ -45,6 +47,8 @@
 #include "mockremotepredictionservice.h"
 #include <QAction>
 #include <QComboBox>
+#include <QCheckBox>
+#include <QToolButton>
 #include <QCryptographicHash>
 #include <QDir>
 #include <QHash>
@@ -1257,6 +1261,172 @@ private slots:
     main.stopRendering();
     reference.stopRendering();
   }
+  void referenceViewSelectsSourcesAndKeepsPinnedVersion() {
+    QgsMapCanvas main;
+    main.resize(600, 400);
+    main.setDestinationCrs(QgsCoordinateReferenceSystem("EPSG:3857"));
+    main.setExtent(QgsRectangle(0, 0, 600, 400));
+    MappingReferencePanel panel(&main, nullptr);
+    panel.resize(420, 400);
+    panel.show();
+    panel.setViewActive(true);
+    const QVariantList rows{
+        QVariantMap{{"id", "seismic"}, {"name", "D61 地震相 v1"}, {"horizon", "D61"}, {"type", "raster"}, {"kind", "seismic_prediction"}},
+        QVariantMap{{"id", "wells"}, {"name", "D61 测井相 v1"}, {"horizon", "D61"}, {"type", "vector"}, {"kind", "wells_prediction"}},
+        QVariantMap{{"id", "factor"}, {"name", "D61 砂厚 v2"}, {"horizon", "D61"}, {"type", "raster"}, {"kind", "single_factor"}},
+        QVariantMap{{"id", "reference"}, {"name", "参考相图"}, {"type", "vector"}},
+    };
+    panel.setSources(rows, "D61");
+    auto *sources = panel.findChild<QComboBox *>("referenceSource");
+    QVERIFY(sources);
+    QCOMPARE(panel.findChildren<QComboBox *>().size(), 1);
+    QCOMPARE(sources->count(), 5);
+    QVERIFY(sources->itemText(1).contains(QStringLiteral("地震相")));
+    QVERIFY(sources->itemText(2).contains(QStringLiteral("测井相")));
+    QVERIFY(sources->itemText(3).contains(QStringLiteral("单因素图")));
+    QSignalSpy request(&panel, &MappingReferencePanel::referenceRequested);
+    panel.selectSource("wells");
+    QCOMPARE(panel.sourceId(), QString("wells"));
+    QCOMPARE(request.size(), 1);
+    auto *layer = new QgsVectorLayer("Point?crs=EPSG:3857", "well", "memory");
+    QVERIFY(layer->isValid());
+    QPointer<QgsMapLayer> owned = layer;
+    panel.setReference(layer, {});
+    QVERIFY(panel.hasReference());
+    panel.setSources(rows, "D62");
+    QCOMPARE(panel.sourceId(), QString("wells"));
+    QVERIFY(panel.findChild<QLabel *>("referenceCaption")->text().contains(QStringLiteral("跨层位")));
+    QVERIFY(owned);
+    // 目录刷新保留选中的版本；移除来源则释放私有图层并显示空态。
+    panel.setSources(rows, "D62");
+    QCOMPARE(request.size(), 1);
+    panel.setSources({}, "D62");
+    QVERIFY(!panel.hasReference());
+    QVERIFY(owned.isNull());
+    QVERIFY(panel.findChild<QLabel *>("referenceEmptyState")->isVisibleTo(&panel));
+    QVERIFY(!sources->isEnabled());
+  }
+
+  void evidencePanelAddsViewsAndPreservesOtherSelections() {
+    QgsMapCanvas main;
+    main.setDestinationCrs(QgsCoordinateReferenceSystem("EPSG:3857"));
+    main.setExtent(QgsRectangle(0, 0, 600, 400));
+    MappingEvidencePanel panel(&main, nullptr);
+    panel.resize(800, 360);
+    panel.show();
+    panel.setViewActive(true);
+    const QVariantList rows{
+        QVariantMap{{"id", "wells"}, {"name", "D61 测井相 v1"}, {"horizon", "D61"}, {"type", "vector"}, {"kind", "wells_prediction"}},
+        QVariantMap{{"id", "seismic"}, {"name", "D61 地震相 v1"}, {"horizon", "D61"}, {"type", "vector"}, {"kind", "seismic_prediction"}}};
+    panel.setSources(rows, "D61");
+    connect(&panel, &MappingEvidencePanel::referenceRequested, &panel,
+            [](MappingReferencePanel *view, const QString &) {
+      view->setReference(new QgsVectorLayer("Point?crs=EPSG:3857", "evidence", "memory"), {});
+    });
+    QCOMPARE(panel.views().size(), 2);
+    auto *first = panel.views()[0];
+    auto *second = panel.views()[1];
+    first->selectSource("wells");
+    second->selectSource("seismic");
+    QVERIFY(first->hasReference() && second->hasReference());
+    QPointer<QgsMapLayer> firstLayer = first->canvas()->layers().first();
+    QPointer<QgsMapLayer> secondLayer = second->canvas()->layers().first();
+    panel.findChild<QPushButton *>("referenceAddView")->click();
+    QCOMPARE(panel.views().size(), 3);
+    QCOMPARE(first->sourceId(), QString("wells"));
+    QCOMPARE(second->sourceId(), QString("seismic"));
+    QCOMPARE(first->canvas()->layers().first(), firstLayer.data());
+    auto *third = panel.views()[2];
+    QVERIFY(third->sourceId().isEmpty());
+    third->selectSource("wells");
+    QVERIFY(third->hasReference());
+    QCOMPARE(panel.showSource("seismic"), second);
+    QCOMPARE(panel.views().size(), 3); // 重复打开已有来源只定位内部视图。
+    second->findChild<QToolButton *>("referenceRemoveView")->click();
+    QCOMPARE(panel.views().size(), 2);
+    QVERIFY(secondLayer.isNull());
+    QCOMPARE(first->sourceId(), QString("wells"));
+    QCOMPARE(first->canvas()->layers().first(), firstLayer.data());
+    third->findChild<QToolButton *>("referenceRemoveView")->click();
+    QCOMPARE(panel.views().size(), 1);
+    QVERIFY(!first->findChild<QToolButton *>("referenceRemoveView")->isEnabled());
+    panel.setSources({}, QString());
+    QVERIFY(firstLayer.isNull());
+    QVERIFY(!first->hasReference());
+    main.stopRendering();
+  }
+
+  void multipleEvidenceViewsKeepDrawingToolAndCanSuspendLinks() {
+    QgsProject project;
+    QgsMapCanvas main;
+    main.resize(600, 400);
+    main.setDestinationCrs(QgsCoordinateReferenceSystem("EPSG:3857"));
+    main.setExtent(QgsRectangle(0, 0, 600, 400));
+    auto *draft = new QgsVectorLayer("Polygon?crs=EPSG:3857&field=facies_code:integer", "draft", "memory");
+    project.addMapLayer(draft);
+    PaleoEditingToolbar edit(&main);
+    edit.setProject(&project);
+    edit.setLayers({draft});
+    edit.setCurrentLayer(draft);
+    edit.actionAddPolygon()->trigger();
+    QVERIFY(edit.isEditing());
+    const auto *drawingTool = main.mapTool();
+    QVERIFY(drawingTool);
+    MappingReferencePanel first(&main, &project), second(&main, &project);
+    const QVariantList rows{QVariantMap{{"id", "reference"}, {"name", "参考相图"}, {"type", "vector"}}};
+    for (auto *panel : {&first, &second}) {
+      panel->resize(400, 360);
+      panel->setSources(rows, "D61");
+      panel->selectSource("reference");
+      panel->show();
+      panel->setViewActive(true);
+      auto *layer = new QgsVectorLayer("Polygon?crs=EPSG:3857", "reference", "memory");
+      QVERIFY(layer->isValid());
+      panel->setReference(layer, {});
+      QCOMPARE(main.mapTool(), drawingTool);
+      QCOMPARE(main.currentLayer(), draft);
+    }
+    QCOMPARE(project.mapLayers().size(), 1); // 参考层不登记到主工程图层树。
+    // 从不同的初始尺寸拆分到相同尺寸后，联动范围也应一致，不能只同步中心。
+    first.resize(720, 480);
+    second.resize(340, 340);
+    QCoreApplication::processEvents();
+    first.resize(500, 360);
+    second.resize(500, 360);
+    QTRY_VERIFY(qFuzzyCompare(first.canvas()->extent().width(), second.canvas()->extent().width()));
+    QTRY_VERIFY(qFuzzyCompare(first.canvas()->extent().height(), second.canvas()->extent().height()));
+    main.setExtent(QgsRectangle(100, 200, 700, 600));
+    QCOMPARE(first.canvas()->extent().center(), main.extent().center());
+    QCOMPARE(second.canvas()->extent().center(), main.extent().center());
+    emit main.xyCoordinates(QgsPointXY(300, 400));
+    const auto hasCursor = [](QgsMapCanvas *canvas) {
+      for (auto *item : canvas->scene()->items())
+        if (dynamic_cast<QgsRubberBand *>(item)) return true;
+      return false;
+    };
+    QVERIFY(hasCursor(first.canvas()));
+    QVERIFY(hasCursor(second.canvas()));
+    first.setViewActive(false);
+    QVERIFY(!hasCursor(first.canvas()));
+    const auto stopped = first.canvas()->extent();
+    main.setExtent(QgsRectangle(200, 300, 800, 700));
+    QCOMPARE(first.canvas()->extent(), stopped);
+    QCOMPARE(second.canvas()->extent().center(), main.extent().center());
+    first.setViewActive(true);
+    QCOMPARE(first.canvas()->extent().center(), main.extent().center());
+    const auto before = main.extent();
+    first.findChild<QPushButton *>("referenceFullExtent")->click();
+    QVERIFY(!first.findChild<QCheckBox *>("referenceLinked")->isChecked());
+    QCOMPARE(main.extent(), before);
+    first.clearReference(QStringLiteral("参考文件缺失"));
+    QVERIFY(first.canvas()->layers().isEmpty());
+    QCOMPARE(first.findChild<QLabel *>("referenceEmptyState")->text(), QStringLiteral("参考文件缺失"));
+    QCOMPARE(main.mapTool(), drawingTool);
+    QCOMPARE(main.currentLayer(), draft);
+    QVERIFY(edit.cancelEditing());
+    main.stopRendering();
+  }
+
   void hierarchyAndEvidencePanelIssueCommands() {
     Fixture f;
     QVERIFY(f.init());

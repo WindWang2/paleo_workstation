@@ -284,7 +284,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
     label(tr("不同量纲的单因素请分别分相。当前一次编图使用同一组阈值；相栅格和"
              "相点不使用阈值。"));
     layout->addWidget(button("compose", tr("生成综合相图与相面")));
-    layout->addWidget(button("references", tr("联动显示勾选的参考图")));
+    buildReferenceEntry(body, layout);
     // G05/G09：输入版本变化 → 影响分析（三级分明 + 报告快照）→ 受控重算
     // （生成新版本，绝不覆盖历史）。
     layout->addWidget(button("impactAnalysis", tr("分析所选输入的版本变化影响")));
@@ -334,7 +334,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   });
   auto *actions = new QGridLayout;
   actions->addWidget(button("show", tr("显示 / 定位")), 0, 0);
-  actions->addWidget(button("compare", tr("打开参考窗口")), 0, 1);
+  actions->addWidget(button("compare", tr("在参考面板中查看")), 0, 1);
   actions->addWidget(button("polygonize", tr("相栅格转相面")), 1, 0);
   actions->addWidget(button("copy", tr("复制底图并编辑")), 1, 1);
   actions->addWidget(button("save", tr("保存图件新版本")), 2, 0);
@@ -1042,7 +1042,7 @@ void MappingWorkbenchPage::updateState() {
        cartographic ? tr("解释性制图成果不能当作分析场提取等值线")
                     : tr("先选择一个连续单因素栅格"));
   gate("references", horizon && !checkedInputs().isEmpty(),
-       tr("勾选单因素图、测井相或地震相后打开联动参考窗口"));
+       tr("勾选单因素图、测井相或地震相后，在参考面板的视图中显示"));
   gate("compose", horizon && !checkedInputs().isEmpty(),
        readiness);
   // G05/G09 证据命令门控（full-audit F6）：影响分析需要「层位 + 不在运行 +

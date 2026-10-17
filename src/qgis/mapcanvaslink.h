@@ -11,7 +11,7 @@ class MapCanvasLink : public QObject {
   Q_OBJECT
 public:
   MapCanvasLink(QgsMapCanvas *main, QgsMapCanvas *reference,
-                QObject *parent = nullptr);
+                QObject *parent = nullptr, bool enabled = true);
   ~MapCanvasLink() override;
   void setEnabled(bool enabled);
   bool isEnabled() const { return m_enabled; }

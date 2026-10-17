@@ -43,7 +43,8 @@ const QStringList kEditingToolPages = {
 namespace paleo::mainwindow_internal
 {
 
-void applyPageDockPolicy(const QString &pageId, const PageDockState &s)
+void applyPageDockPolicy(const QString &pageId, const PageDockState &s,
+                         QMainWindow *window)
 {
   s.dataList->setProgrammaticVisible(pageId == QLatin1String("data") &&
                                      s.dataList->userWantsVisible() && !s.previewMaximized);
@@ -69,6 +70,12 @@ void applyPageDockPolicy(const QString &pageId, const PageDockState &s)
     if (s.wellSection && s.wellSection->userWantsVisible())
       s.wellSection->setProgrammaticVisible(true);
   }
+  // 编图参考面板随地图工作区进出；保留关闭意愿，恢复布局也走同一规则。
+  if (window)
+    for (auto *dock : window->findChildren<PaleoDockWidget *>())
+      if (dock->property("paleo.mappingReference").toBool())
+        dock->setProgrammaticVisible(pageId != QLatin1String("data") &&
+            pageId != QLatin1String("correlation") && dock->userWantsVisible());
 }
 
 void hideAllDocksForCorrelation(QMainWindow *win)
@@ -163,7 +170,7 @@ void PaleoMainWindow::showPage(const QString &pageId)
 
   paleo::mainwindow_internal::applyPageDockPolicy(
       pageId, {m_leftDock, m_dataListDock, m_bottomDock, m_wellSectionDock,
-               m_previewMaximized, m_bottomDockAutoShown});
+               m_previewMaximized, m_bottomDockAutoShown}, this);
 
   if (pageId == QLatin1String("correlation"))
   {

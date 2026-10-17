@@ -553,13 +553,6 @@
     "reason": "DESIGN 数据符号例外：剖面路径的 QGIS 地图橡皮筋描边。"
   },
   {
-    "file": "src/ui/paleomainwindow_workbench.cpp",
-    "rule": "qt-color",
-    "source": "canvas->setCanvasColor(Qt::white);",
-    "count": 1,
-    "reason": "DESIGN 数据符号例外：编图参考地图固定纸面与地质预览色样。"
-  },
-  {
     "file": "src/ui/seismic3d/seismic3dcolormap.cpp",
     "rule": "rgb",
     "source": "cmap.setStops({stop(0.0f, QColor(10, 10, 30)), stop(0.35f, QColor(183, 28, 28)),",

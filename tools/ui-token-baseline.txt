@@ -13,4 +13,5 @@
 #           → 358（#350 trackpatterns 改为按外观色填充，Qt::white 例外过期；
 #           issue-fix 清理 stale 例外：trackpatterns.cpp 的 tile.fill(Qt::white)
 #           行已改为读外观色，例外随之失效删除）。
-358
+#           → 357（参考图复用 PreviewMapCanvas，移除旧窗口的纸面色例外）。
+357

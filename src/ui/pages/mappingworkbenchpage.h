@@ -15,6 +15,7 @@ class QTableWidget;
 class QPlainTextEdit;
 class QTimer;
 class QShowEvent;
+class QVBoxLayout;
 class MappingWorkbenchPage : public QWidget {
   Q_OBJECT
 public:
@@ -56,6 +57,7 @@ protected:
 
 private:
   void refreshInputs();
+  void buildReferenceEntry(QWidget *body, QVBoxLayout *layout);
   void scheduleRefresh();
   void updateState();
   void refreshEvidenceCommandGates();

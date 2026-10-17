@@ -6,6 +6,7 @@
 
 #include <QDir>
 #include <QFileInfo>
+#include <QTemporaryDir>
 
 using namespace paleo::io;
 
@@ -45,6 +46,8 @@ class OutsourceWorkbookTests : public QObject
     void readsCoordinateTable();
     void readsIntervalRowAndValues();
     void rejectsForeignXml();
+    void rejectsCellFillAmplification();
+    void rejectsOversizeSpreadsheetMl();
     void scansDirectoryHonestly();
     void canonicalizesWellNamesAndNumbers();
     void registersFormatsInClassifierVocabulary();
@@ -192,6 +195,48 @@ void OutsourceWorkbookTests::rejectsForeignXml()
   const WellCoordinateTable table = readWellCoordinateTable( fixturePath( QStringLiteral( "wg1_well.xml" ) ) );
   QVERIFY( !table.ok );
   QVERIFY2( table.error.contains( QStringLiteral( "井号" ) ), qPrintable( table.error ) );
+}
+
+// FA-001：列填充内存放大闸——300 行 × ss:Index="16384"（约 39 字节/行的输入
+// 换 131KB/行的内存）必须被总量预算拒收，而不是默默吞下 ~4.9M 格。
+void OutsourceWorkbookTests::rejectsCellFillAmplification()
+{
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  const QString path = dir.filePath( QStringLiteral( "amplify.xml" ) );
+  QFile file( path );
+  QVERIFY( file.open( QIODevice::WriteOnly ) );
+  QByteArray head( "<?xml version=\"1.0\"?>"
+                   "<Workbook xmlns=\"urn:schemas-microsoft-com:office:spreadsheet\" "
+                   "xmlns:ss=\"urn:schemas-microsoft-com:office:spreadsheet\">"
+                   "<Worksheet ss:Name=\"S\"><Table>" );
+  file.write( head );
+  QByteArray rowTpl( "<Row><Cell ss:Index=\"16384\"><Data ss:Type=\"String\">x</Data></Cell></Row>" );
+  for ( int i = 0; i < 300; ++i )
+    file.write( rowTpl );
+  file.write( QByteArray( "</Table></Worksheet></Workbook>" ) );
+  file.close();
+
+  const WorkbookReadResult result = readWorkbook( path );
+  QVERIFY( !result.ok );
+  QVERIFY2( result.error.contains( QStringLiteral( "预算" ) ), qPrintable( result.error ) );
+}
+
+// FA-002：SpreadsheetML .xml 直读大小闸——超 512MB 拒收（xlsx 由 zip 层同口径把关）。
+void OutsourceWorkbookTests::rejectsOversizeSpreadsheetMl()
+{
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  const QString path = dir.filePath( QStringLiteral( "huge.xml" ) );
+  QFile file( path );
+  QVERIFY( file.open( QIODevice::WriteOnly ) );
+  file.resize( 512LL * 1024 * 1024 + 1 ); // 稀疏占位：闸在 readAll 之前生效
+  file.close();
+  QVERIFY( QFileInfo( path ).size() > 512LL * 1024 * 1024 );
+
+  const WorkbookReadResult result = readWorkbook( path );
+  QVERIFY( !result.ok );
+  QVERIFY2( result.error.contains( QStringLiteral( "512MB" ) ), qPrintable( result.error ) );
 }
 
 // 批量扫描：单文件失败不中断，逐文件列因。

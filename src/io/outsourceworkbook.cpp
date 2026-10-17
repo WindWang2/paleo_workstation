@@ -45,6 +45,12 @@ QStringList normalizeHeaderRow( QStringList values )
 // 16384 列（XFD）已远超任何外委表的实际宽度。
 constexpr int kMaxColumns = 16384;
 constexpr int kMaxRows = 1048576;
+// FA-001/FA-002 总量闸：每格列上限挡不住「行数 × 列填充宽」的乘积放大——
+// ~40B 的 ss:Index="16384" 单元格即可换一行 ~128KB 内存（构造工作簿在 GUI
+// 线程 OOM/假死）。4M 格 ≈ 正常外委表的百倍量级，超限整簿拒收。
+// .xml 直读另有文件大小闸（xlsx 已由 zip 层 512MB 同口径把关）。
+constexpr qint64 kMaxWorkbookCells = 4'000'000;
+constexpr qint64 kMaxWorkbookBytes = 512LL * 1024 * 1024;
 
 void padTo( QStringList *values, int size )
 {
@@ -93,6 +99,7 @@ WorkbookReadResult readSpreadsheetMl( const QString &path, const QByteArray &byt
   QStringList row;
   bool rowHasError = false;
   QSet<int> usedColumns;
+  qint64 cellBudget = kMaxWorkbookCells; // FA-001：累计格数预算（列填充放大闸）
 
   const auto finishRow = [&]() {
     if ( !inRow )
@@ -105,12 +112,14 @@ WorkbookReadResult readSpreadsheetMl( const QString &path, const QByteArray &byt
         {
           sheet.headers = normalizeHeaderRow( row );
           sheet.headerRowNumber = rowNumber;
+          cellBudget -= sheet.headers.size();
         }
       }
       else
       {
         sheet.rows.append( row );
         sheet.rowNumbers.append( rowNumber );
+        cellBudget -= row.size();
       }
     }
     row.clear();
@@ -133,6 +142,12 @@ WorkbookReadResult readSpreadsheetMl( const QString &path, const QByteArray &byt
 
   while ( !reader.atEnd() )
   {
+    if ( cellBudget < 0 )
+    {
+      result.error = QStringLiteral( "工作簿累计单元格超预算（%1）——文件疑似畸形，整簿拒收" )
+                         .arg( kMaxWorkbookCells );
+      return result;
+    }
     const QXmlStreamReader::TokenType token = reader.readNext();
     if ( token == QXmlStreamReader::StartElement )
     {
@@ -482,6 +497,7 @@ WorkbookReadResult readXlsx( const QString &path )
     bool rowHasError = false;
     bool rowIsExplicit = false;
     QSet<int> usedColumns;
+    qint64 cellBudget = kMaxWorkbookCells; // FA-001：累计格数预算（列填充放大闸）
     const auto finishRow = [&]() {
       if ( !inRow )
         return;
@@ -491,12 +507,14 @@ WorkbookReadResult readXlsx( const QString &path )
         {
           sheet.headers = normalizeHeaderRow( row );
           sheet.headerRowNumber = rowNumber;
+          cellBudget -= sheet.headers.size();
         }
       }
       else if ( !rowHasError )
       {
         sheet.rows.append( row );
         sheet.rowNumbers.append( rowNumber );
+        cellBudget -= row.size();
       }
       row.clear();
       inRow = false;
@@ -505,6 +523,13 @@ WorkbookReadResult readXlsx( const QString &path )
     };
     while ( !reader.atEnd() )
     {
+      if ( cellBudget < 0 )
+      {
+        result.error = QStringLiteral( "%1：工作表「%2」累计单元格超预算（%3）——文件疑似畸形，整簿拒收" )
+                           .arg( fileName, sheet.name )
+                           .arg( kMaxWorkbookCells );
+        return result;
+      }
       const QXmlStreamReader::TokenType token = reader.readNext();
       if ( token == QXmlStreamReader::StartElement )
       {
@@ -724,6 +749,12 @@ WorkbookReadResult readWorkbook( const QString &path )
   const QString suffix = info.suffix().toLower();
   if ( suffix == QLatin1String( "xml" ) )
   {
+    // FA-002：SpreadsheetML 直读大小闸（xlsx 由 zip 层 512MB 同口径把关）。
+    if ( info.size() > kMaxWorkbookBytes )
+    {
+      result.error = QStringLiteral( "SpreadsheetML 文件超大小上限（512MB），拒收：%1" ).arg( path );
+      return result;
+    }
     QFile file( path );
     if ( !file.open( QIODevice::ReadOnly ) )
     {

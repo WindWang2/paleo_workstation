@@ -1357,6 +1357,43 @@ private slots:
     const auto plan = planWellFaciesFormationRun(twoWell, models, QStringLiteral("文昌一段"));
     QVERIFY2(!plan.ready(), "Must not dispatch 珠海组 or 恩平组 model for 文昌组");
   }
+
+  // FA-001/FA-002：综合柱状图 XML 的列填充放大闸与直读大小闸——
+  // 300 行 × ss:Index="16384" 必须被累计格数预算拒收；>512MB 的 .xml 在
+  // readAll 之前被大小闸拦下。
+  void comprehensiveXmlRejectsCellFillAmplificationAndOversize()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath(QStringLiteral("amplify.xml"));
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("<?xml version=\"1.0\"?>"
+               "<Workbook xmlns=\"urn:schemas-microsoft-com:office:spreadsheet\" "
+               "xmlns:ss=\"urn:schemas-microsoft-com:office:spreadsheet\">"
+               "<Worksheet ss:Name=\"测井曲线1\"><Table>");
+    const QByteArray rowTpl(
+        "<Row><Cell ss:Index=\"16384\"><Data ss:Type=\"String\">x</Data></Cell></Row>");
+    for (int i = 0; i < 300; ++i)
+      file.write(rowTpl);
+    file.write("</Table></Worksheet></Workbook>");
+    file.close();
+
+    ComprehensiveWellData data;
+    QString error;
+    QVERIFY2(!parseComprehensiveWellXml(path, data, &error), "放大夹具必须被拒收");
+    QVERIFY2(error.contains(QStringLiteral("预算")), qPrintable(error));
+
+    const QString huge = dir.filePath(QStringLiteral("huge.xml"));
+    QFile hugeFile(huge);
+    QVERIFY(hugeFile.open(QIODevice::WriteOnly));
+    hugeFile.resize(512LL * 1024 * 1024 + 1); // 稀疏占位：闸在 readAll 之前
+    hugeFile.close();
+    ComprehensiveWellData hugeData;
+    QString hugeError;
+    QVERIFY2(!parseComprehensiveWellXml(huge, hugeData, &hugeError), "超限文件必须被拒收");
+    QVERIFY2(hugeError.contains(QStringLiteral("512MB")), qPrintable(hugeError));
+  }
 };
 QTEST_MAIN(TestWellFacies)
 #include "tst_wellfacies.moc"

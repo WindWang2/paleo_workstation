@@ -944,8 +944,11 @@ function(add_paleo_test name)
   paleo_test_sandbox(${name})
   set(_label core)
   foreach(_l IN LISTS _libs)
-    if(_l MATCHES "^paleo_[a-z]+$" AND NOT _l STREQUAL "paleo_core")
-      string(REGEX REPLACE "^paleo_" "" _label "${_l}")
+    # #484 P3：带下划线的模块子库（paleo_qgis_attribute_table/paleo_ui_deps 等）
+    # 原正则 ^paleo_[a-z]+$ 匹配不到 → 静默回落 core（tst_mappingworkbench 实例）。
+    # 取首段（qgis/ui/…）与「首模块决定 LABEL」契约一致；paleo_core 伞仍排除。
+    if(_l MATCHES "^paleo_([a-z][a-z0-9_]*)$" AND NOT _l STREQUAL "paleo_core")
+      string(REGEX REPLACE "^paleo_([a-z]+).*$" "\\1" _label "${_l}")
       break()
     endif()
   endforeach()
@@ -964,6 +967,24 @@ if(PALEO_PYTHON3)
            ${CMAKE_SOURCE_DIR}/tools/check_layering.py --strict)
   add_test(NAME layering_selftest COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/check_layering.py --selftest)
+  # #474：两个 opt-in 闸门档接入 ctest（此前 --symbol-audit 只有 CI lint 跑、
+  # --transitive 完全无闸——「有工具未接线」）：
+  #   layering_symbol_audit：零基线（任何非视图层 ui 类构造即红）；
+  #   layering_transitive：四指标对 tools/transitive-baseline.txt 只缩不涨。
+  # heavy_* 两指标仅依赖 repo include 边恒可闸；func/ui 两指标需 QGIS 头目录
+  #（探测序 --qgis-include > $QGIS_PREFIX/include/qgis > vendor/superbuild 默认）
+  # ——本测试不显式传参：superbuild 本地全闸，CI deb 闭包构建自动降为只闸
+  # heavy_*（CI lint 车道显式给 QGIS_PREFIX 全闸，见 .github/workflows/ci.yml）。
+  add_test(NAME layering_symbol_audit COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_layering.py --symbol-audit)
+  add_test(NAME layering_transitive COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/check_layering.py --transitive)
+  # #497：CI 红项分诊名单（docs/ci/known-reds.json）结构校验 + 分诊器夹具
+  #（triage job 消费前，本地/ctest 先过一遍名单合法性与解析器回归）。
+  add_test(NAME ci_known_reds COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/ci_triage_reds.py --validate)
+  add_test(NAME ci_triage_reds_selftest COMMAND ${PALEO_PYTHON3}
+           ${CMAKE_SOURCE_DIR}/tools/ci_triage_reds.py --selftest)
   # goal/ui-experience-polish：UI 不变量闸门——DESIGN.md Motion 禁编排动画
   #（src/ui 零 QPropertyAnimation/QEasingCurve/setAnimated(true)）+ QSS 裸
   # hex 零容忍（token 单一真源 = paleotheme；baseline 只缩不涨，strict 防回升）。
@@ -1027,6 +1048,8 @@ if(PALEO_PYTHON3)
   add_test(NAME lo_pin_selftest COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/check_lo_pin.py --selftest)
   set_tests_properties(layering layering_strict layering_selftest
+                       layering_symbol_audit layering_transitive
+                       ci_known_reds ci_triage_reds_selftest
                        ui_invariants ui_invariants_strict ui_invariants_selftest
                        i18n i18n_selftest ui_tokens ui_tokens_strict ui_tokens_selftest
                        qgis_versions qgis_versions_selftest
@@ -1584,5 +1607,20 @@ endif()
 foreach(_t IN ITEMS tst_wellcomposite_visual)
   if(TEST ${_t})
     set_property(TEST ${_t} APPEND PROPERTY LABELS golden)
+  endif()
+endforeach()
+
+# ---- #503：重测试分组标签 heavy（APPEND，不覆盖模块标签）----
+# 反馈周期：Windows 全量 ctest ~44min、巨型全栈测试单跑分钟级——本地迭代
+# 可用 `ctest -LE 'heavy|perf'` 走快速道（BUILDING.md「测试车道与快速道」）。
+# 入选口径 = 全栈/独占类功能巨测（#503 实测体量：万行级测试码或 RUN_SERIAL
+# 全栈伞式；perf 预算类已有 perf 标签，不重复挂）。CI 不用该标签（-LE 语义
+# 不变），仅本地快速道与 `-L heavy` 定位用；随测试拆分/瘦身只缩不涨。
+set(_paleo_heavy_tests
+  tst_panels tst_panels_dataops tst_edittools tst_import tst_mappingworkbench
+  tst_correlation_full)
+foreach(_t IN LISTS _paleo_heavy_tests)
+  if(TEST ${_t})
+    set_property(TEST ${_t} APPEND PROPERTY LABELS heavy)
   endif()
 endforeach()

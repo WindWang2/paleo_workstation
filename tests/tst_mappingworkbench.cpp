@@ -2926,6 +2926,101 @@ private slots:
     }
     QVERIFY(tasks.shutdown());
   }
+  void polygonizeWritesValueRangesAndLabelsInterval() {
+    // 连续单因素（砂地比型）分级转面：面带 value_min/value_max，标注模式 4
+    // 显示分级区间，回答“这块是砂地比多少”（2026-10-17 用户反馈序号无意义）。
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto source = f.dir.filePath("sand-ratio-samples.geojson");
+    QVERIFY(MappingArtifactWriter::points(
+        source,
+        {QVariantMap{{"x", 0}, {"y", 0}, {"z", 0}},
+         QVariantMap{{"x", 100}, {"y", 0}, {"z", 20}},
+         QVariantMap{{"x", 0}, {"y", 100}, {"z", 40}},
+         QVariantMap{{"x", 100}, {"y", 100}, {"z", 60}}},
+        &error));
+    LayerDeclaration samples;
+    samples.layerId = "wells.D61";
+    samples.horizon = "D61";
+    samples.type = "vector";
+    samples.source = source;
+    samples.title = QStringLiteral("砂地比样点");
+    QVERIFY(f.layers.declare(samples, &error));
+    QVERIFY2(f.work.generateFactor(
+                  "D61", "sandratio",
+                  {{"pointsLayerId", samples.layerId}, {"field", "z"}, {"cellSize", 10}},
+                  &error),
+             qPrintable(error));
+    const auto factor = f.latest("single_factor_raster");
+    QVERIFY(!factor.isEmpty());
+    // compose() 内部即完成转面：返回值就是相面 layerId（带值域字段）。
+    const auto polygon = f.work.compose(
+        "D61", {factor},
+        {{"thresholds", QVariantList{20., 25., 30., 35., 40., 45.}},
+         {"cellSize", 10}},
+        &error);
+    QVERIFY2(!polygon.isEmpty(), qPrintable(error));
+    auto *v =
+        qobject_cast<QgsVectorLayer *>(f.layers.instantiate(polygon, &error));
+    QVERIFY2(v, qPrintable(error));
+    QVERIFY(v->fields().indexOf("value_min") >= 0);
+    QVERIFY(v->fields().indexOf("value_max") >= 0);
+    double minCode = 1e9, maxCode = -1e9;
+    QgsFeature feat;
+    auto it = v->getFeatures();
+    QHash<int, std::pair<QVariant, QVariant>> ranges;
+    while (it.nextFeature(feat)) {
+      const int code = feat.attribute("facies_code").toInt();
+      ranges.insert(code, {feat.attribute("value_min"), feat.attribute("value_max")});
+      minCode = std::min(minCode, double(code));
+      maxCode = std::max(maxCode, double(code));
+    }
+    QVERIFY(!ranges.isEmpty());
+    // 首类无下界、末类无上界，中间类区间端点即相邻阈值。
+    // 数据库 NULL 读回是 valid-but-null 的 QVariant：口径用 isNull()。
+    const auto emptyValue = [](const QVariant &v) {
+      return !v.isValid() || v.isNull();
+    };
+    QVERIFY(ranges.contains(int(minCode)));
+    QVERIFY(emptyValue(ranges[int(minCode)].first));
+    QCOMPARE(ranges[int(minCode)].second.toDouble(), 20.0);
+    QVERIFY(ranges.contains(int(maxCode)));
+    QCOMPARE(ranges[int(maxCode)].first.toDouble(), 45.0);
+    QVERIFY(emptyValue(ranges[int(maxCode)].second));
+    for (auto r = ranges.begin(); r != ranges.end(); ++r) {
+      if (!emptyValue(r.value().first) && !emptyValue(r.value().second))
+        QVERIFY(r.value().first.toDouble() < r.value().second.toDouble());
+    }
+    // 标注模式 4：表达式含值域字段；labelMode 接受并持久化。
+    MappingArtifactWriter::applyFaciesLabels(v, 4);
+    auto *simple = dynamic_cast<QgsVectorLayerSimpleLabeling *>(v->labeling());
+    QVERIFY(simple);
+    QVERIFY(simple->settings().isExpression);
+    QVERIFY(simple->settings().fieldName.contains("value_min"));
+    QVERIFY(simple->settings().fieldName.contains("value_max"));
+    QVERIFY(!simple->settings().fieldName.contains("$id"));
+    QVERIFY(f.work.setLabelMode(polygon, 4, &error));
+    QCOMPARE(f.work.labelMode(polygon), 4);
+    // 无值域字段的层（如地震相面）：模式 4 回退相名，不引用缺失字段。
+    const auto input = f.seismic();
+    QVERIFY(!input.isEmpty());
+    QVERIFY2(f.work.predict("D61", "seismic", {input}, &error), qPrintable(error));
+    QTRY_VERIFY_WITH_TIMEOUT(!f.work.busy(), 5000);
+    const auto seismicPolygon =
+        f.work.polygonize(f.latest("seismic_prediction"), &error);
+    QVERIFY2(!seismicPolygon.isEmpty(), qPrintable(error));
+    auto *sv = qobject_cast<QgsVectorLayer *>(
+        f.layers.instantiate(seismicPolygon, &error));
+    QVERIFY2(sv, qPrintable(error));
+    QVERIFY(sv->fields().indexOf("value_min") < 0);
+    MappingArtifactWriter::applyFaciesLabels(sv, 4);
+    const auto fallback =
+        dynamic_cast<QgsVectorLayerSimpleLabeling *>(sv->labeling())
+            ->settings().fieldName;
+    QVERIFY(!fallback.contains("value_min"));
+    QVERIFY(fallback.contains("facies"));
+  }
   void polygonLabelsRenderAfterStyling() {
     Fixture f;
     QVERIFY(f.init());

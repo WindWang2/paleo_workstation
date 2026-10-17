@@ -313,7 +313,7 @@ void applyFaciesLabels(QgsVectorLayer *layer, int mode) {
   if (!layer || (layer->geometryType() != Qgis::GeometryType::Polygon &&
                  layer->geometryType() != Qgis::GeometryType::Point))
     return;
-  mode = std::clamp(mode, 0, 3);
+  mode = std::clamp(mode, 0, 4);
   layer->setCustomProperty("paleo/faciesLabelMode", mode);
   if (!mode) {
     layer->setLabelsEnabled(false);
@@ -338,6 +338,20 @@ void applyFaciesLabels(QgsVectorLayer *layer, int mode) {
   if (layer->fields().indexOf("prediction_status") >= 0)
     facies = QStringLiteral("CASE WHEN \"prediction_status\" = %1 THEN %1 ELSE (%2) END")
         .arg(QgsExpression::quotedString(QObject::tr("未预测")), facies);
+  // 分级区间标注（连续单因素来源的相面）：回答“这块是砂地比多少”。
+  // 首类无下界（≤ max）、末类无上界（≥ min）；无值域字段的层回退相名。
+  const bool hasRange = layer->fields().indexOf("value_min") >= 0 &&
+                        layer->fields().indexOf("value_max") >= 0;
+  const QString interval = hasRange
+      ? QStringLiteral(
+            "CASE WHEN %1 IS NOT NULL AND %2 IS NOT NULL THEN "
+            "format_number(%1, 2) || ' – ' || format_number(%2, 2) "
+            "WHEN %1 IS NOT NULL THEN '≥ ' || format_number(%1, 2) "
+            "WHEN %2 IS NOT NULL THEN '≤ ' || format_number(%2, 2) "
+            "ELSE (%3) END")
+            .arg(QgsExpression::quotedColumnRef("value_min"),
+                 QgsExpression::quotedColumnRef("value_max"), facies)
+      : QString();
   QgsPalLayerSettings settings;
   if (layer->fields().indexOf("facies_intervals") >= 0)
     settings.priority = 10;
@@ -345,6 +359,7 @@ void applyFaciesLabels(QgsVectorLayer *layer, int mode) {
   settings.fieldName =
       mode == 1   ? identifier
       : mode == 2 ? facies
+      : mode == 4 ? (hasRange ? interval : facies)
                   : QStringLiteral("%1 || '\n' || %2").arg(identifier, facies);
   settings.placement = layer->geometryType() == Qgis::GeometryType::Point
                            ? Qgis::LabelPlacement::OrderedPositionsAroundPoint

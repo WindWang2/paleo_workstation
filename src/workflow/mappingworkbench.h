@@ -311,6 +311,7 @@ public:
     QString sourceLayerId, horizon, title, rasterUri, outputPath, parent, dir;
     QString crsWkt; // 声明层 CRS（数据源无 CRS 时 worker 侧补齐）
     QVariantList facies;
+    QString valueRanges; // 分级值域 JSON（连续单因素来源才有；写相面 value_min/max）
     QVariant mock, provenance; // 算法 PROVENANCE 回执（commit 时入版本 extra）
     DerivedFileFingerprint fingerprint;
     QPointer<DataCatalog> catalog;

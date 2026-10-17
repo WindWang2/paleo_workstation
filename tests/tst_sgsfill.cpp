@@ -100,6 +100,7 @@ private slots:
   void faultCurtainBlocksConditioning();
   void insufficientZoneStaysUnfilledHonestly();
   void invalidInputsAndCancel();
+  void aggregateOutputBudgetRejected();
 };
 
 void SgsFillTests::hardDataExactEveryRealization()
@@ -464,6 +465,23 @@ void SgsFillTests::invalidInputsAndCancel()
   QVERIFY(!ok);
   QCOMPARE(err, QStringLiteral("已取消"));
   QVERIFY(cancelled.empty());
+}
+
+void SgsFillTests::aggregateOutputBudgetRejected()
+{
+  // FB-003：每带 sgs3 各自过 #468 输出闸，但 fillSgs 聚合输出 R × 总格数 × 4B
+  // 此前无组合闸（多带合规参数叠加最坏数百 GB）。1024×1024×2047 ≈ 2.147e9 格
+  //（buildZoneGrid 的 int 上限内）、R=2 → ~17GB > 4GiB：必须在入口拒收，
+  // 而不是在 out->assign/values.assign 处 bad_alloc。
+  const ZoneGrid grid = flatGrid(1024, 1024, 2047);
+  Sgs3Params params;
+  params.nRealizations = 2;
+  std::vector<PropertyVolume> out;
+  SgsFillMeta meta;
+  QString err;
+  QVERIFY(!fillSgs(grid, {}, {}, nullptr, testModel(1.0), params, &out, &meta, {}, &err));
+  QVERIFY2(err.contains(QStringLiteral("聚合输出超内存预算")), qPrintable(err));
+  QVERIFY(out.empty());
 }
 
 QTEST_MAIN( SgsFillTests )

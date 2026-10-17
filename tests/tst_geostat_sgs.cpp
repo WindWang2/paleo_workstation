@@ -2,6 +2,7 @@
 #include <QtTest/QtTest>
 
 #include "algorithms/geostat/sgs.h"
+#include "algorithms/geostat/sgs_internal.h" // FB-002：预算函数/常量直测
 
 #include <cmath>
 #include <cstdint>
@@ -85,6 +86,7 @@ private slots:
   void invalidAndCancelled();
   void nanVariogramParamsRejected();
   void realizationMemoryBudgetRejected();
+  void parallelWorkerBudgetShrinksWorkers();
   void parallelRealizationsMatchSequential();
 };
 
@@ -638,6 +640,38 @@ void GeostatSgsTests::realizationMemoryBudgetRejected()
   const SgsResult worst = sgs( samples, grid, model, params );
   QCOMPARE( worst.status, Status::InvalidInput );
   QVERIFY( worst.realizations.empty() );
+}
+
+void GeostatSgsTests::parallelWorkerBudgetShrinksWorkers()
+{
+  // FB-002：#468 输出闸只管张量；#478 并行档每 worker 另持 3·cells·8B 工作区
+  //（path+gaussianField+lattice）。{R=4, cells=1e8} 输出 3.2GB 合法，但
+  // 4 worker × 2.4GB = 9.6GB 工作区 → 总峰值 ~12.8GB，必须收缩 worker 数；
+  // {R=64, cells=8.4M} 输出 4.3GB>4GiB 本就被 #468 拒——预算函数只对放行组合
+  // 负责收缩，小网格不收缩（保持 4 路并行收益）。
+  const std::int64_t kPeak = paleo::geostat::detail::kPeakBudgetBytes;
+  // 放行组合 {R=4, cells=1e8}：输出 3.2GB，workspace/worker 2.4GB。
+  const std::int64_t cells = std::int64_t( 100'000'000 );
+  const std::int64_t output = 4 * cells * 8;
+  const std::int64_t workspace = cells * 3 * 8;
+  QVERIFY( output <= paleo::geostat::detail::kMaxRealizationBytes ); // 前提：#468 放行
+  QCOMPARE( paleo::geostat::detail::workersForPeakBudget( 4, output, workspace ), 1 );
+  QCOMPARE( kPeak, std::int64_t( 6 ) * 1024 * 1024 * 1024 );
+  // 小网格（20×20）：峰值远低，4 worker 保持。
+  const std::int64_t small = 400;
+  QCOMPARE( paleo::geostat::detail::workersForPeakBudget(
+                4, 4 * small * 8, small * 3 * 8 ),
+            4 );
+  // 中间档：{R=4, cells=5.2e7} 输出 1.664GB、workspace/worker 1.248GB →
+  // 4 worker 峰值 6.656GB > 6GiB 收缩；3 worker = 5.408GB ≤ 6GiB 放行。
+  const std::int64_t midCells = 52'000'000;
+  QCOMPARE( paleo::geostat::detail::workersForPeakBudget(
+                4, 4 * midCells * 8, midCells * 3 * 8 ),
+            3 );
+  // 请求 1 路永不降为 0。
+  QCOMPARE( paleo::geostat::detail::workersForPeakBudget(
+                1, output, workspace ),
+            1 );
 }
 
 void GeostatSgsTests::parallelRealizationsMatchSequential()

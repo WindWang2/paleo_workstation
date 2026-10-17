@@ -120,6 +120,23 @@ bool fillSgs(const ZoneGrid &grid, const std::vector<Seed> &seeds,
   }
 
   const int R = std::clamp(params.nRealizations, 1, 64);
+  // FB-003：聚合输出闸——每带 sgs3 各自过 #468 输出闸，但 fillSgs 最终驻留
+  // R × 总格数 × 4B float，无组合闸时多带合规参数叠加仍可 OOM（最坏 128GB）。
+  // 口径同 geostat kMaxRealizationBytes（4GiB，sgs_internal.h——内部头不外扩）。
+  constexpr std::int64_t kMaxAggregateBytes = std::int64_t(4) * 1024 * 1024 * 1024;
+  const std::int64_t cellCount64 =
+      static_cast<std::int64_t>(grid.ni) * grid.nj * grid.nk;
+  if (static_cast<std::int64_t>(R) * cellCount64 *
+          static_cast<std::int64_t>(sizeof(float)) >
+      kMaxAggregateBytes)
+  {
+    setError(error,
+             QStringLiteral("SGS 充填聚合输出超内存预算（%1 实现 × %2 格 × 4B > 4GiB）"
+                            "——减少实现数或格架规模")
+                 .arg(R)
+                 .arg(cellCount64));
+    return false;
+  }
   geostat::Sgs3Params clamped = params;
   clamped.nRealizations = R;
   clamped.maxPoints = std::clamp(params.maxPoints, 1, 64);

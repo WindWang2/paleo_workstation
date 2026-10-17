@@ -11,6 +11,7 @@
 #include "../io/constraintstore.h"
 #include "../io/lasparser.h"
 #include "../qgis/facieshierarchyrenderer.h"
+#include "../qgis/faciespartitioneditor.h"
 #include "../qgis/factorstylewriter.h"
 #include "../qgis/layervocabulary.h"
 #include "../qgis/mappingartifactwriter.h"
@@ -970,6 +971,13 @@ void MappingWorkbench::styleLayer(const QString &id) {
       paleo::singlefactor::rejectsQuantitativeUse(styledKind, styledSource);
   if (auto *vector = qobject_cast<QgsVectorLayer *>(layer)) {
     vector->setReadOnly(!id.startsWith("draft."));
+    if (id.startsWith("draft.") && vector->geometryType() == Qgis::GeometryType::Polygon) {
+      QString error;
+      if (!FaciesPartitionEditor::install(vector, v.extra.value("facies").toList(),
+                                         v.extra.value("partition_footprint_wkb").toString(), &error)) {
+        vector->setAllowCommit(false); emit errorOccurred(error); return;
+      }
+    }
     // facies-ux 4：属性表里 facies_code 用相名称下拉（值映射到编码），
     // 地震相 / 测井相工作副本可直接在列表中改相（改动由 DraftAutosave 随时保存）。
     if (const int codeField = vector->fields().indexOf("facies_code"); codeField >= 0) {

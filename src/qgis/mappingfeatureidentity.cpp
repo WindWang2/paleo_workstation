@@ -68,10 +68,18 @@ QVariantMap snapshot(const QgsFeature &feature) {
   const auto value = [&feature](const QString &field) {
     return feature.fields().indexOf(field) < 0 ? QVariant() : feature.attribute(field);
   };
-  return {{"feature_uid", uid(feature)}, {"facies_code", value("facies_code")},
+  QVariantMap attributes;
+  for (const auto &field : feature.fields())
+    if (field.name() != "paleo_interpretation" && field.name() != "facies_evidence" &&
+        field.name() != UidField && field.name() != ParentsField && field.name() != RootsField && field.name() != ReviewField)
+      attributes.insert(field.name(), feature.attribute(field.name()));
+  return {{"attributes", attributes}, {"feature_uid", uid(feature)}, {"facies_code", value("facies_code")},
           {"parent_uids", value(ParentsField)}, {"geometry_hash", geometryFingerprint(feature)},
           {"root_uids", value(RootsField)},
           {"geometry", feature.geometry().asWkt(17)},
+          {"boundary_kind", value("boundary_kind")}, {"transition_width", value("transition_width")},
+          {"value_min", value("value_min")}, {"value_max", value("value_max")},
+          {"confidence", value("confidence")}, {"probability", value("probability")},
           {"interpretation", value("paleo_interpretation")}, {"evidence", value("facies_evidence")}};
 }
 }
@@ -447,13 +455,14 @@ void Observer::changed(QgsFeatureId fid) {
   if (!m_layer || m_writing || m_finishing) return;
   if (!m_macroOpen) { m_known.insert(fid, m_layer->getFeature(fid)); return; }
   before(fid); m_touched.insert(fid);
-  m_kinds.insert(fid, QStringLiteral("geometry"));
+  if (!m_added.contains(fid)) m_kinds.insert(fid, QStringLiteral("geometry"));
 }
 void Observer::added(QgsFeatureId fid) {
   if (!m_layer || m_writing || m_finishing) return;
   if (!m_macroOpen) { m_known.insert(fid, m_layer->getFeature(fid)); m_idsDirty = true; return; }
   m_touched.insert(fid); m_added.insert(fid);
-  m_kinds.insert(fid, QStringLiteral("create"));
+  const auto operation = m_layer->property("paleo.partitionOperation").toString();
+  m_kinds.insert(fid, operation.isEmpty() ? QStringLiteral("create") : operation);
 }
 void Observer::registerAdded(QgsFeatureId fid) {
   m_touched.insert(fid);
@@ -601,7 +610,9 @@ QVariantList Observer::changes() const {
     if (current.isValid() && uid(current) == uid(it.value()) &&
         geometryFingerprint(current) == geometryFingerprint(it.value())) continue;
     const auto recent = m_recentBefore.value(it.key(), it.value());
+    const auto recentState = snapshot(recent);
     result << QVariantMap{{"before_uid", uid(recent)}, {"after_uid", uid(current)},
+        {"before_attributes", recentState.value("attributes")},
         {"before_geometry", recent.geometry().asWkt(17)},
         {"before_fingerprint", geometryFingerprint(recent)},
         {"after_fingerprint", geometryFingerprint(current)},

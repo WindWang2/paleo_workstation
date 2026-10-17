@@ -25,8 +25,8 @@ src/ui/datapreview/datapreviewtabwelllog.cpp:fn:buildWellLogContent:278
 src/ui/datapreview/previewmappage.cpp:fn:PreviewMapPage:215
 src/ui/datapreview/previewtocpanel.cpp:fn:PreviewTocPanel:289
 src/ui/dialogs/folderconfirm.cpp:fn:buildFolderConfirmDialog:346
-src/ui/edittools/editingtoolbar.cpp:file:1118
-src/ui/edittools/editingtoolbar.cpp:fn:buildUi:240
+src/ui/edittools/editingtoolbar.cpp:file:1109
+src/ui/edittools/editingtoolbar.cpp:fn:buildUi:232
 src/ui/edittools/vertexeditortools.cpp:file:1318
 src/ui/edittools/vertexeditortools.cpp:fn:deleteVertexAtMapPoint:245
 src/ui/pages/composepage.cpp:fn:ComposePage:422

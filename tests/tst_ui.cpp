@@ -34,6 +34,8 @@
 #include "../src/metadata/layermanifest.h"
 #include "../src/metadata/paleoprojectstore.h"
 #include "../src/qgis/qgiscanvascontroller.h"
+#include "../src/qgis/faciespartitioneditor.h"
+#include "../src/qgis/mappingfeatureidentity.h"
 #include "../src/qgis/qgislayerservice.h"
 #include "../src/qgis/qgisprocessingservice.h"
 #include "../src/qgis/qgisprojectservice.h"
@@ -112,6 +114,7 @@
 #include <qgslayertree.h>
 #include <qgsmaplayer.h>
 #include <qgsvectorlayer.h>
+#include <qgsvectordataprovider.h>
 #include <qgslayertreemodel.h>
 #include <qgsmaptoolpan.h>
 
@@ -1224,6 +1227,49 @@ class TestUiShell : public QObject
       m_win->showPage(QStringLiteral("data"));
       QVERIFY(m_ctx->canvasCtl()->activeTool() == nullptr);
       delete pan;
+    }
+
+    void faciesPartitionRibbonMirrorsTargetAndAvailability()
+    {
+      m_win->attachWorkflows(m_ctx->predictionWf(), m_ctx->constraintWf(),
+          m_ctx->compositionWf(), m_ctx->validationWf(), m_ctx->importSvc(), m_ctx->seismicLink(),
+          m_ctx->processingSvc(), m_ctx->store(), m_ctx->editingSvc(), m_ctx->layoutSvc(), m_ctx->taskSvc());
+      auto *editor = m_win->findChild<PaleoEditingToolbar *>("editingToolbar"); QVERIFY(editor);
+      auto *project = m_ctx->projectSvc()->project();
+      auto *layer = new QgsVectorLayer("Polygon?crs=EPSG:3857&field=facies_code:integer", "三级相面编辑", "memory");
+      QgsFeatureList features;
+      for (int i = 0; i < 2; ++i) { QgsFeature f(layer->fields()); f.setAttribute("facies_code", i + 1);
+        f.setGeometry(QgsGeometry::fromRect(QgsRectangle(i * 100, 0, (i + 1) * 100, 100))); features << f; }
+      QVERIFY(layer->dataProvider()->addFeatures(features)); layer->updateExtents();
+      const QVariantList schema{QVariantMap{{"code", 1}, {"facies", "河流"}, {"subfacies", "曲流河"}, {"microfacies", "河道"}},
+          QVariantMap{{"code", 2}, {"facies", "湖泊"}, {"subfacies", "滨浅湖"}, {"microfacies", "湖泥"}}};
+      QString error; QVERIFY2(FaciesPartitionEditor::install(layer, schema, {}, &error), qPrintable(error));
+      QVERIFY(MappingFeatureIdentity::Observer::attach(layer, &error));
+      project->addMapLayer(layer); m_win->showPage("compose");
+      auto *tree = m_win->findChild<QgsLayerTreeView *>("layerTreeView"); QVERIFY(tree); tree->setCurrentLayer(layer);
+      QCOMPARE(editor->currentLayer(), layer);
+      auto *master = editor->partitionCodeCombo(); QCOMPARE(master->count(), 3);
+      QVERIFY(!editor->actionPaintFacies()->isEnabled());
+      auto *combo = m_win->categoryForPage("compose")->findChild<QComboBox *>("ribbonPartitionFaciesCode"); QVERIFY(combo);
+      QVERIFY(QMetaObject::invokeMethod(combo, "activated", Qt::DirectConnection, Q_ARG(int, 2)));
+      QCOMPARE(master->currentData().toInt(), 2); QVERIFY(editor->actionPaintFacies()->isEnabled());
+      layer->selectByIds({features.first().id()}); QVERIFY(editor->actionSplitFacies()->isEnabled());
+      for (const auto &page : {"predict", "constraint", "compose"}) {
+        auto *category = m_win->categoryForPage(page);
+        auto *panel = category->findChild<SARibbonPanel *>("ribbonFaciesPartitionPanel"); QVERIFY(panel && !panel->isHidden());
+        QCOMPARE(category->findChild<QComboBox *>("ribbonPartitionFaciesCode")->currentData().toInt(), 2);
+      }
+      auto *canvas = m_ctx->canvasCtl()->canvas(); canvas->setDestinationCrs(layer->crs());
+      canvas->setLayers({layer}); canvas->setExtent(QgsRectangle(-20, -20, 220, 120)); canvas->refresh();
+      m_win->findChild<QStackedWidget *>("centerStack")->setCurrentIndex(1);
+      if (!qEnvironmentVariable("PALEO_VISUAL_CAPTURE").isEmpty()) {
+        m_win->resize(1400, 900); m_win->show();
+        QSignalSpy rendered(canvas, &QgsMapCanvas::mapCanvasRefreshed); canvas->refresh();
+        QTRY_VERIFY_WITH_TIMEOUT(!rendered.isEmpty(), 5000);
+      }
+      QVERIFY(paleo::tests::captureVisual(m_win, "facies-partition-ribbon", QSize(1400, 900)));
+      project->removeMapLayer(layer);
+      QVERIFY(!editor->actionFaciesOperations()->isEnabled());
     }
 
     void mapContextAndLayerSelectionStayInSync()

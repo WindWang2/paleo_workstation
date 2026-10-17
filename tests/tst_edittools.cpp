@@ -34,6 +34,8 @@
 //   · QgsProject::instance() is process-global — init()/cleanup() clear it.
 
 #include "../src/qgis/qgiseditingservice.h"
+#include "../src/qgis/faciespartitioneditor.h"
+#include "../src/qgis/mappingfeatureidentity.h"
 #include "../src/metadata/paleoprojectstore.h"
 #include <algorithm>
 #include <memory>
@@ -130,6 +132,7 @@ class TestEditTools : public QObject
     // Test-fixture hygiene (QgsProject is process-global).
     void init();
     void cleanup();
+    void partitionVertexChangesKeepCoverageAndRollbackInvalidGesture();
 
     // a) add feature → edit buffer
     void addPointClickCommitsIntoEditBuffer();
@@ -333,6 +336,42 @@ static void addPointCommand( QgsVectorLayer *vl, int id )
   vl->beginEditCommand( QStringLiteral( "add point %1" ).arg( id ) );
   QVERIFY2( vl->addFeature( f ), "addFeature failed" );
   vl->endEditCommand();
+}
+
+void TestEditTools::partitionVertexChangesKeepCoverageAndRollbackInvalidGesture()
+{
+  QgsMapCanvas canvas; configureCanvas(canvas);
+  QgsVectorLayer layer("Polygon?crs=EPSG:4326&field=facies_code:integer", "partition", "memory");
+  QgsFeatureList features;
+  for (int start : {40, 100}) {
+    QgsFeature f(layer.fields()); f.setAttribute("facies_code", 1);
+    f.setGeometry(QgsGeometry::fromRect(QgsRectangle(mapPt(canvas, start, 160), mapPt(canvas, start + 60, 40))));
+    features << f;
+  }
+  QVERIFY(layer.dataProvider()->addFeatures(features)); layer.updateExtents();
+  QString error;
+  const QVariantList schema{QVariantMap{{"code", 1}, {"facies", "河流"}, {"subfacies", "曲流河"}, {"microfacies", "河道"}}};
+  QVERIFY2(FaciesPartitionEditor::install(&layer, schema, {}, &error), qPrintable(error));
+  QVERIFY(MappingFeatureIdentity::Observer::attach(&layer, &error)); QVERIFY(layer.startEditing());
+  canvas.setLayers({&layer}); canvas.setCurrentLayer(&layer); layer.selectByIds({features.first().id()});
+  TestVertexTool tool(&canvas, &layer); tool.setTopologicalEditingEnabled(true); canvas.setMapTool(&tool);
+  QSignalSpy warnings(&tool, &QgsMapTool::messageEmitted);
+  const auto original = layer.getFeature(features.first().id()).geometry().asWkt();
+  QgsMapMouseEvent press(&canvas, QEvent::MouseButtonPress, QPoint(40,160), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+  tool.canvasPressEvent(&press); QVERIFY(tool.isDragging());
+  QgsMapMouseEvent release(&canvas, QEvent::MouseButtonRelease, QPoint(30,150), Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+  tool.canvasReleaseEvent(&release);
+  QCOMPARE(layer.getFeature(features.first().id()).geometry().asWkt(), original);
+  QCOMPARE(layer.undoStack()->count(), 0); QVERIFY(!warnings.isEmpty());
+  QgsMapMouseEvent sharedPress(&canvas, QEvent::MouseButtonPress, QPoint(100,160), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+  tool.canvasPressEvent(&sharedPress); QVERIFY(tool.isDragging());
+  QgsMapMouseEvent sharedRelease(&canvas, QEvent::MouseButtonRelease, QPoint(110,160), Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+  tool.canvasReleaseEvent(&sharedRelease);
+  QCOMPARE(layer.undoStack()->count(), 1);
+  QVERIFY2(FaciesPartitionEditor::validate(&layer, &error), qPrintable(error));
+  QVERIFY(layer.getFeature(features.first().id()).geometry().asWkt() != original);
+  layer.undoStack()->undo(); QCOMPARE(layer.getFeature(features.first().id()).geometry().asWkt(), original);
+  canvas.unsetMapTool(&tool); QVERIFY(layer.rollBack());
 }
 
 void TestEditTools::init()

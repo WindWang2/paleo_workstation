@@ -692,7 +692,7 @@ void PaleoVertexTool::deleteVertexAtMapPoint( const QgsPointXY &mapPoint )
         if ( layerOk && !writeLayer->changeGeometry( it.key(), mutated ) )
           layerOk = false;
       }
-      if ( layerOk )
+      if ( layerOk && validatePartition(writeLayer) )
       {
         writeLayer->endEditCommand();
         ++mEditedCount;
@@ -790,7 +790,7 @@ void PaleoVertexTool::canvasReleaseEvent( QgsMapMouseEvent *e )
       if ( layerOk && !writeLayer->changeGeometry( fit.key(), geometry ) )
         layerOk = false;
     }
-    if ( layerOk )
+    if ( layerOk && validatePartition(writeLayer) )
     {
       writeLayer->endEditCommand();
       ++mEditedCount;
@@ -899,7 +899,7 @@ void PaleoVertexTool::canvasDoubleClickEvent( QgsMapMouseEvent *e )
       if ( layerOk && !writeLayer->changeGeometry( it.key(), geometry ) )
         layerOk = false;
     }
-    if ( layerOk )
+    if ( layerOk && validatePartition(writeLayer) )
     {
       writeLayer->endEditCommand();
       ++mEditedCount;

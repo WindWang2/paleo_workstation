@@ -308,16 +308,16 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
   auto compare = [this](const QString &id, QString *error) {
     return showMappingReference(id, error);
   };
-  if (edit) {
-    connect(edit->actionAddPolygon(), &QAction::triggered, this, [this, compare] {
-      if (currentPage() != QLatin1String("compose")) return;
-      // 首次绘面给出入口；用户关闭过参考面板后，不因再次绘面反复拉起。
-      if (!findChildren<MappingReferencePanel *>().isEmpty()) return;
-      QString error;
-      compare(QString(), &error);
-      m_canvasCtl->canvas()->setFocus();
-    });
-  }
+  if (edit)
+    for (auto *action : {edit->actionAddPolygon(), edit->actionPaintFacies()})
+      connect(action, &QAction::triggered, this, [this, compare] {
+        if (currentPage() != QLatin1String("compose")) return;
+        // 首次绘面给出入口；用户关闭过参考面板后，不因再次绘面反复拉起。
+        if (!findChildren<MappingReferencePanel *>().isEmpty()) return;
+        QString error;
+        compare(QString(), &error);
+        m_canvasCtl->canvas()->setFocus();
+      });
   auto *wellDock = new QDockWidget(tr("测井预测相与修订"), this);
   wellDock->setObjectName("wellPredictionDock");
   auto *wellPanel = new WellPredictionPanel(wellDock);

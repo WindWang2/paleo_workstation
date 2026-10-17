@@ -20,10 +20,6 @@
 // 传输层自己另有内部 generation，用来作废自己那侧的 reply（超时先 bump 再
 // abort，避免 abort 触发的 finished 重复回包）。
 
-namespace {
-constexpr qint64 kMaxResponseBytes = 64ll * 1024 * 1024; // 64 MiB 响应体上限，防无界内存占用
-}
-
 LocalPredictor::~LocalPredictor() = default;
 
 RemoteTransport::RemoteTransport(QObject *parent) : QObject(parent) {}
@@ -92,6 +88,38 @@ void HttpRemoteTransport::begin(int timeoutMs, Op op, QNetworkReply *reply,
   m_opTimeoutMs = timeoutMs;
   m_reply = reply;
   m_timer->start(timeoutMs);
+  // #469：响应体上限必须在接收途中生效。Content-Length 声明超限（metaDataChanged）
+  // 或已缓冲字节超限（readyRead；本端在 finished 前从不读走数据，bytesAvailable
+  // 即累计已收量）即先提世代再 abort——abort 同步触发的 finished 判为过期，不重复
+  // 回包；内存峰值被钳在 ~上限 + 一个网络读块。不依赖 downloadProgress：Qt 6.8
+  // loopback 实测在挂住的连接上不发该信号（readyRead 照常发）。
+  const auto guardOversize = [this, generation, op, reply, runId](qint64 received, qint64 declared) {
+    if (generation != m_generation)
+      return;
+    const qint64 limit = m_maxResponseBytes;
+    if (received <= limit && declared <= limit)
+      return;
+    m_timer->stop();
+    m_op = Op::None;
+    ++m_generation;
+    m_runId = 0;
+    m_reply.clear();
+    reply->abort();
+    reply->deleteLater();
+    const QString limitMsg = QObject::tr("远端预测响应超出上限（%1 字节，已中止接收）").arg(limit);
+    if (op == Op::Health)
+      emit healthDone(runId, false, limitMsg);
+    else
+      emit predictDone(runId, {}, limitMsg);
+  };
+  connect(reply, &QNetworkReply::metaDataChanged, this, [reply, guardOversize]() {
+    bool ok = false;
+    const qint64 declared = reply->header(QNetworkRequest::ContentLengthHeader).toLongLong(&ok);
+    guardOversize(0, ok ? declared : -1);
+  });
+  connect(reply, &QNetworkReply::readyRead, this, [reply, guardOversize]() {
+    guardOversize(reply->bytesAvailable(), -1);
+  });
   connect(reply, &QNetworkReply::finished, this,
           [this, generation, op, reply, runId]() {
     if (generation != m_generation) { // 已被超时/取消/新一轮作废
@@ -106,12 +134,12 @@ void HttpRemoteTransport::begin(int timeoutMs, Op op, QNetworkReply *reply,
     const bool ok = reply->error() == QNetworkReply::NoError;
     const int status =
       reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    const QByteArray payload = reply->read(kMaxResponseBytes + 1);
+    const qint64 limit = m_maxResponseBytes;
+    const QByteArray payload = reply->read(limit + 1); // 兜底：未报进度的后端
     const QString detail = reply->errorString();
     reply->deleteLater();
-    if (payload.size() > kMaxResponseBytes) {
-      const QString limitMsg = QObject::tr("远端预测响应超出上限（%1 MB）")
-                               .arg(kMaxResponseBytes / (1024 * 1024));
+    if (payload.size() > limit) {
+      const QString limitMsg = QObject::tr("远端预测响应超出上限（%1 字节）").arg(limit);
       if (op == Op::Health)
         emit healthDone(runId, false, limitMsg);
       else

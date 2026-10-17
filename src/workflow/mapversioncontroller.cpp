@@ -17,6 +17,7 @@
 #include "../qgis/qgiseditingservice.h"
 #include "../services/projectdata.h"
 
+#include <QDebug>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QSet>
@@ -335,9 +336,14 @@ MapVersion MapVersionController::saveVersion( const QString &horizon, const QVar
 
   if ( v.version > 0 ) {
     QString retainError;
-    if (!retainMapCitations(m_catalog, horizon, v.version, frozenProvenance, &retainError) &&
-        error && error->isEmpty())
-      *error = retainError;
+    if (!retainMapCitations(m_catalog, horizon, v.version, frozenProvenance, &retainError)) {
+      // FC-002：版本已落库——retain 失败不构成「保存失败」；旧行为把失败
+      // 文本写进 *error 却照常返回成功 v，调用方按任一口径判读都自相矛盾
+      //（异步路径 #480 已收口为 snapshotFinished 捎带 retainError；同步路径
+      // 无任务服务消费方，这里以日志如实披露，不污染成功返回值）。
+      qWarning("MapVersionController: retainMapCitations failed after saveVersion(%s v%d): %s",
+               qPrintable(horizon), v.version, qPrintable(retainError));
+    }
     emit versionSaved( horizon, v.version );
   }
   return v;

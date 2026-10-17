@@ -1136,6 +1136,63 @@ class TestVersions : public QObject
         QSqlDatabase::removeDatabase(connection); QVERIFY(tasks.shutdown());
     }
 
+    // FC-003：legacy（非冻结）发布来源在快照窗口内被编辑 → commit 前 stale
+    // 复查拒绝（与 save 路径守卫对称）。旧代码零守卫：可编辑工作副本边被
+    // 哈希复制边被改，可产出内部不一致的「只读快照」。
+    void legacyPublishSourceEditedDuringSnapshotIsRejected()
+    {
+        Fixture f; QVERIFY(f.init());
+        PaleoTaskService tasks; tasks.setMaxWorkerThreads(1); f.controller.setTaskService(&tasks);
+        QString err; const auto pdf = makePdf(f.dir.filePath("legacy-edit.pdf"));
+        QVERIFY(f.versions.recordLayoutProduct("D61", pdf, "pdf-asset", DataCatalog::sha256FileHex(pdf), &err));
+        // 无图层清单的保存 → 无 saved_layers 冻结记录（#439 前旧工程形态）。
+        QVERIFY(f.controller.saveVersion("D61", {}, &err).version > 0);
+        // 保存后声明+实例化 D61 矢量层 → 发布走 legacy 分支（当前可编辑文件）。
+        QgsVectorLayer memory(QStringLiteral("polygon?crs=EPSG:4326"), QStringLiteral("facies"), QStringLiteral("memory"));
+        QgsFeature seed(memory.fields());
+        seed.setGeometry(QgsGeometry::fromWkt(QStringLiteral("POLYGON((0 0,1 0,1 1,0 0))")));
+        QgsFeatureList seedList{seed};
+        QVERIFY(memory.dataProvider()->addFeatures(seedList));
+        const QString gpkg = f.dir.filePath("legacy-edit.gpkg");
+        {
+            QgsVectorFileWriter::SaveVectorOptions options; options.driverName = "GPKG"; options.layerName = "facies_polygons";
+            QString writerError;
+            QCOMPARE(QgsVectorFileWriter::writeAsVectorFormatV3(&memory, gpkg, QgsProject::instance()->transformContext(), options, &writerError),
+                     QgsVectorFileWriter::WriterError::NoError);
+        }
+        LayerDeclaration declaration; declaration.layerId = "facies.D61"; declaration.horizon = "D61";
+        declaration.type = "vector"; declaration.source = gpkg + "|layername=facies_polygons";
+        QVERIFY(f.layers.declare(declaration, &err));
+        auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(declaration.layerId, &err));
+        QVERIFY(layer);
+
+        // 持住唯一 worker：startPublish 的 compute 排队未跑，GUI 侧编辑确定
+        // 落在发布窗口内（无竞态）。
+        const auto gate = std::make_shared<QSemaphore>(); const auto entered = std::make_shared<QSemaphore>();
+        tasks.start("hold-worker", [gate, entered](PaleoTask *) { entered->release(); gate->acquire(); return QString(); });
+        const auto release = qScopeGuard([&] { gate->release(); });
+        QTRY_VERIFY(entered->available() > 0);
+
+        QSignalSpy finished(&f.controller, &MapVersionController::snapshotFinished);
+        const QString summary = QStringLiteral("{\"wells_total\":1,\"covered\":1,\"missing\":[],\"rows\":[{\"kind\":\"residual\",\"residual_ms\":1}]}");
+        QVERIFY2(f.controller.startPublish("D61", summary, &err), qPrintable(err));
+        QVERIFY(f.controller.snapshotBusy());
+        // 发布窗口内编辑来源层（真实编辑链：featureAdded/editingStopped 信号）。
+        QVERIFY(layer->startEditing());
+        QgsFeature appended(layer->fields());
+        appended.setGeometry(QgsGeometry::fromWkt(QStringLiteral("POLYGON((5 5,6 5,6 6,5 5))")));
+        QVERIFY(layer->addFeature(appended));
+        QVERIFY(layer->commitChanges());
+        gate->release();
+        QTRY_VERIFY_WITH_TIMEOUT(!f.controller.snapshotBusy(), 15000);
+        QCOMPARE(finished.size(), 1);
+        QVERIFY(!finished[0][2].toBool());
+        QVERIFY2(finished[0][4].toString().contains(QStringLiteral("编辑")),
+                 qPrintable(finished[0][4].toString()));
+        QVERIFY(!f.versions.isPublished("D61"));
+        QVERIFY(tasks.shutdown());
+    }
+
     void preparedSnapshotRejectsTamperedBytesAndCancellationLeavesNoDirectory()
     {
         Fixture f; QVERIFY(f.init()); QString err;

@@ -17,9 +17,14 @@
 #include <QJsonObject>
 #include <QSet>
 
+#include <memory>
+
 #include <gdal.h>
 
+#include <qgscoordinatereferencesystem.h>
 #include <qgsmaplayer.h>
+#include <qgsrasterlayer.h>
+#include <qgsvectorlayer.h>
 #include <ogr_spatialref.h>
 #include <cpl_conv.h>
 
@@ -256,13 +261,25 @@ bool PredictionWorkflow::preparePredictionJob( const QString &horizon, const QSt
       job->params.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( inputLayer ) );
   }
 
-  // 父版本 = 预测输入图层（文件源可溯源时）——INPUT 层是 GUI 对象，其 source
-  // 只在 GUI 线程读。
-  QStringList parentPaths;
+  // FC-001：INPUT 统一冻结为 URI/CRS 快照——compute 在 worker 线程自建独立
+  // 层，主线程拥有的活 QgsMapLayer 不得跨线程传给 QGIS Processing（服务的
+  // 成文契约，见 qgisprocessingservice.cpp #235-2 注）。页面自动解析与调用方
+  // 直接传活层（旧测试入口）在这里一并归一。
   if ( const QgsMapLayer *input = job->params.value( QStringLiteral( "INPUT" ) ).value<QgsMapLayer *>() )
   {
-    const QString src = input->source().section( QLatin1Char( '|' ), 0, 0 );
-    if ( paleo::workflow_detail::isFileBackedSource( src ) )
+    job->inputUri = input->source();
+    job->inputProvider = input->providerType();
+    job->inputCrsWkt = input->crs().toWkt();
+    job->inputIsRaster = qobject_cast<const QgsRasterLayer *>( input ) != nullptr;
+    job->params.remove( QStringLiteral( "INPUT" ) );
+  }
+
+  // 父版本 = 预测输入图层（文件源可溯源时）——source 从 prepare（GUI 线程）
+  // 提取的冻结快照读，compute 不再碰 GUI 对象。
+  QStringList parentPaths;
+  {
+    const QString src = job->inputUri.section( QLatin1Char( '|' ), 0, 0 );
+    if ( !src.isEmpty() && paleo::workflow_detail::isFileBackedSource( src ) )
       parentPaths.append( src );
   }
   job->parentVersionIds = registrar.parentVersionIdsFor( parentPaths );
@@ -371,7 +388,28 @@ bool PredictionWorkflow::computePredictionJob( PredictionJob *job )
   if ( job->isCancelled && job->isCancelled() )
     return fail( tr( "预测已取消" ) );
 
-  const QVariantMap results = proc->run( job->algorithmId, job->params, &job->error );
+  // FC-001：worker 自建独立输入层（URI 冻结快照回放）——同线程直调
+  // runPrediction 时行为等价（layer 数据同源），跨线程时不再触碰主线程活层。
+  QVariantMap runParams = job->params;
+  std::unique_ptr<QgsMapLayer> inputLayer;
+  if ( !job->inputUri.isEmpty() )
+  {
+    if ( job->inputIsRaster )
+      inputLayer = std::make_unique<QgsRasterLayer>( job->inputUri,
+                                                     QStringLiteral( "prediction_input" ),
+                                                     job->inputProvider );
+    else
+      inputLayer = std::make_unique<QgsVectorLayer>( job->inputUri,
+                                                     QStringLiteral( "prediction_input" ),
+                                                     job->inputProvider );
+    if ( !inputLayer->isValid() )
+      return fail( tr( "无法读取预测输入图层：%1" ).arg( job->inputUri ) );
+    if ( !job->inputCrsWkt.isEmpty() )
+      inputLayer->setCrs( QgsCoordinateReferenceSystem::fromWkt( job->inputCrsWkt ) );
+    runParams.insert( QStringLiteral( "INPUT" ), QVariant::fromValue( inputLayer.get() ) );
+  }
+
+  const QVariantMap results = proc->run( job->algorithmId, runParams, &job->error );
   if ( results.isEmpty() )
   {
     if ( job->error.isEmpty() )

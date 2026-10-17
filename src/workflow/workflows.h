@@ -114,6 +114,13 @@ class PredictionWorkflow : public QObject
         QString horizon;
         QString algorithmId;
         QVariantMap params;   // compute 用（Processing 路径已含 OUTPUT）
+        // INPUT 冻结快照（prepare 在 GUI 线程提取）：compute 在 worker 用它自建
+        // 独立层——主线程拥有的活 QgsMapLayer 不跨线程传（FC-001，
+        // qgisprocessingservice.cpp 的成文契约；runFactorAlgorithm 同款范式）。
+        QString inputUri;
+        QString inputProvider;
+        QString inputCrsWkt;
+        bool inputIsRaster = true;
         // prepare 阶段登记（GUI 线程）：compute 只往 staging.absolutePath 写文件。
         DerivedStaging staging;
         QString sourceUri;    // commit 的 sourceUri

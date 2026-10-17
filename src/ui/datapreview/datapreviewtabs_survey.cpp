@@ -377,14 +377,15 @@ QWidget *DataPreviewTabs::buildSurveyAreaContent(QWidget *page)
 
 void DataPreviewTabs::wireWellNavigation(PreviewMapPage *page, QgsVectorLayer *layer) {
   auto *tools = page->toolManager();
-  page->mapCanvas()->canvas()->setToolTip(tr("单击井位打开此井资料；拖动可漫游地图。重叠井位可按井名选择。"));
+  page->mapCanvas()->canvas()->setToolTip(tr("单击井位打开此井的测井道图；拖动可漫游地图。重叠井位可按井名选择。"));
   WellPointNavigation::install(page->mapCanvas()->canvas(), layer,
       {tools->tool(PreviewMapToolManager::kPan), tools->tool(PreviewMapToolManager::kIdentify)},
       [this](const QString &id) {
     if (!m_doc || m_doc->catalog()->entityById(id).entityType != "well") return;
     emit wellSelected(id);
     const auto links = m_doc->catalog()->linksForEntity(id);
-    for (const auto &role : {QStringLiteral("well_head"), QStringLiteral("well_log"), QStringLiteral("tops"), QStringLiteral("time_depth")})
+    // 井位点击首选测井道图；无测井时依次回退井头、分层、时深。
+    for (const auto &role : {QStringLiteral("well_log"), QStringLiteral("well_head"), QStringLiteral("tops"), QStringLiteral("time_depth")})
       for (const auto &link : links)
         if (!link.unresolved && link.isPrimary && link.role == role) {
           openAssetForWell(link.assetId, id); return;

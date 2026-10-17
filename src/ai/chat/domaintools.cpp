@@ -156,7 +156,7 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
   facies.title = QObject::tr("测井相预测");
   facies.description = QObject::tr(
     "把一口井的曲线段送到用户自己配置的测井相服务（https 或 loopback http，"
-    "密钥在系统钥匙串里）拿回相分段。端点未配置时不可用——不替抄第三方地址。");
+    "密钥在系统钥匙串里）拿回微相分段及对应的亚相、相归属。端点未配置时不可用——不替抄第三方地址。");
   facies.requiresLocalOrt = false;
   facies.parameters = {
     {QStringLiteral("model"), QStringLiteral("string"),
@@ -169,7 +169,7 @@ QVector<AiToolSpec> builtinAiToolSpecs() {
      QObject::tr("终止深度"), false},
   };
   facies.resultSchemaJson = QStringLiteral(
-    R"({"type":"object","properties":{"well":{"type":"string"},"intervals":{"type":"array","items":{"type":"object","properties":{"top":{"type":"number"},"bottom":{"type":"number"},"code":{"type":"integer"}}}}}})");
+    R"({"type":"object","properties":{"well":{"type":"string"},"prediction_level":{"type":"string","enum":["micro_facies"]},"intervals_sample":{"type":"array","items":{"type":"object","properties":{"top":{"type":"number"},"bottom":{"type":"number"},"label":{"type":"string"},"facies":{"type":"string"},"subfacies":{"type":"string"},"microfacies":{"type":"string"}}}}}})");
 
   // 4) 工程数据问答（方向77：只读——catalog 实体/资产/角色/版本摘要，
   // 不做任何推理，不写任何库）。

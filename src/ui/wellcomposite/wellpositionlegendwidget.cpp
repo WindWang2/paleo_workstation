@@ -3,6 +3,7 @@
 #include "wellpositionlegendwidget.h"
 #include "wellcompositetrack.h"
 #include "../paleotheme.h"
+#include "../../domain/faciestaxonomy.h"
 
 #include <QApplication>
 #include <QDialogButtonBox>
@@ -15,6 +16,8 @@
 #include <QPainter>
 #include <QScrollArea>
 #include <QTableWidget>
+#include <QTreeWidget>
+#include <QMap>
 #include <QTabWidget>
 #include <QVBoxLayout>
 #include <cmath>
@@ -350,67 +353,50 @@ void WellLegendDialog::setupUi(const ComprehensiveWellData &data)
   auto *faciesLay = new QVBoxLayout(faciesPage);
   faciesLay->setContentsMargins(PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm, PaleoTheme::tokens().spacingSm);
 
-  auto *faciesTable = new QTableWidget(faciesPage);
-  faciesTable->setColumnCount(4);
-  faciesTable->setHorizontalHeaderLabels({tr("相纹理"), tr("沉积微相"), tr("所属亚相/大相"), tr("水动力特征及环境说明")});
-  faciesTable->horizontalHeader()->setStretchLastSection(true);
-  faciesTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Fixed);
-  faciesTable->setColumnWidth(0, 100);
-  faciesTable->setColumnWidth(1, 110);
-  faciesTable->setColumnWidth(2, 130);
-  faciesTable->verticalHeader()->setVisible(false);
-
-  struct FaciesDef {
-    QString patType;
-    QString name;
-    QString parentFacies;
-    QString desc;
+  auto *faciesTree = new QTreeWidget(faciesPage);
+  faciesTree->setObjectName("wellFaciesHierarchyLegend");
+  faciesTree->setAccessibleName(tr("相、亚相、微相三级纹理图例"));
+  faciesTree->setHeaderLabels({tr("相 → 亚相 → 微相"), tr("微相纹理")});
+  faciesTree->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+  faciesTree->header()->setStretchLastSection(true);
+  QMap<QString, QVariantMap> entries;
+  const auto remember = [&entries](const QVariantMap &leaf) {
+    const auto key = QStringList{leaf.value("facies").toString(),
+        leaf.value("subfacies").toString(), leaf.value("microfacies").toString()}.join(" / ");
+    entries.insert(key, leaf);
   };
-  static const QVector<FaciesDef> faciesDefs = {
-      {QStringLiteral("distributary_channel"), QStringLiteral("水下分流河道"), QStringLiteral("三角洲前缘"), tr("高能牵引流前积分流砂体，优质骨架储层")},
-      {QStringLiteral("mouth_bar"), QStringLiteral("河口坝"), QStringLiteral("三角洲前缘"), tr("入水波浪顶托减速沉降微相，双凸镜状厚砂体")},
-      {QStringLiteral("sheet_sand"), QStringLiteral("席状砂"), QStringLiteral("三角洲前缘"), tr("波浪淘洗再沉积薄层展布砂，连通性好")},
-      {QStringLiteral("interdistributary_bay"), QStringLiteral("分流间湾"), QStringLiteral("三角洲前缘/平原"), tr("分流河道间静水弱水动力泥质充填沉积")},
-      {QStringLiteral("delta_front"), QStringLiteral("三角洲前缘"), QStringLiteral("三角洲相"), tr("砂泥薄互层，斜向交错前积结构")},
-      {QStringLiteral("delta_plain"), QStringLiteral("分流平原"), QStringLiteral("三角洲相"), tr("近源河流相及陆上分流平原，发育炭质根迹")},
-      {QStringLiteral("prodelta"), QStringLiteral("前三角洲泥"), QStringLiteral("三角洲相"), tr("低能深水悬浮沉降厚层暗色泥岩，优良区域盖层/源岩")},
-      {QStringLiteral("shallow_marine"), QStringLiteral("浅海陆棚/礁滩"), QStringLiteral("浅海/海相台地"), tr("浪基面附近浅海波状沉积或碳酸盐台地边缘生物滩")},
-      {QStringLiteral("turbidite"), QStringLiteral("浊积砂体"), QStringLiteral("半深湖/重力流"), tr("深水重力流侵蚀搬运递变粒序砂体，潜在隐蔽油气藏")},
-      {QStringLiteral("channel_lag"), QStringLiteral("滞留沉积"), QStringLiteral("河流/分流河道"), tr("河床底部高能冲刷滞留砾石及粗粒残积物")},
-      {QStringLiteral("tidal_flat"), QStringLiteral("潮坪微相"), QStringLiteral("海陆过渡相"), tr("双向潮汐流往复作用下形成之人字形层理砂泥互层")},
-  };
-
-  faciesTable->setRowCount(faciesDefs.size());
-  for (int r = 0; r < faciesDefs.size(); ++r)
-  {
-    const auto &def = faciesDefs[r];
+  for (const auto &value : FaciesTaxonomy::library()) remember(value.toMap());
+  for (const auto &interval : data.faciesIntervals)
+    remember({{"facies", interval.majorFacies}, {"subfacies", interval.subFacies},
+        {"microfacies", interval.microFacies}, {"texture", interval.patternType},
+        {"color", interval.microColor.name()}});
+  for (const auto &leaf : entries) {
+    auto *parent = faciesTree->invisibleRootItem();
+    for (const auto &field : {"facies", "subfacies", "microfacies"}) {
+      const auto raw = leaf.value(field).toString().trimmed();
+      const auto text = raw.isEmpty() ? tr("未定义") : raw;
+      QTreeWidgetItem *node = nullptr;
+      for (int i = 0; i < parent->childCount(); ++i)
+        if (parent->child(i)->text(0) == text) { node = parent->child(i); break; }
+      if (!node) node = new QTreeWidgetItem(parent, {text});
+      parent = node;
+    }
     QImage swatch(80, 24, QImage::Format_ARGB32_Premultiplied);
     swatch.fill(PaleoTheme::tokens(PaleoTheme::Theme::Light).surface);
-    QPainter sp(&swatch);
-    const QBrush brush = FaciesPatternFactory::getBrush(def.patType);
-    sp.fillRect(QRectF(0, 0, 80, 24), brush);
-    sp.setPen(PaleoTheme::tokens(PaleoTheme::Theme::Light).border);
-    sp.drawRect(QRectF(0, 0, 79, 23));
-    sp.end();
-
-    auto *lblImg = new QLabel(faciesTable);
-    lblImg->setPixmap(QPixmap::fromImage(swatch));
-    lblImg->setAlignment(Qt::AlignCenter);
-    faciesTable->setCellWidget(r, 0, lblImg);
-
-    auto *item1 = new QTableWidgetItem(def.name);
-    item1->setTextAlignment(Qt::AlignCenter);
-    faciesTable->setItem(r, 1, item1);
-
-    auto *item2 = new QTableWidgetItem(def.parentFacies);
-    item2->setTextAlignment(Qt::AlignCenter);
-    faciesTable->setItem(r, 2, item2);
-
-    auto *item3 = new QTableWidgetItem(def.desc);
-    faciesTable->setItem(r, 3, item3);
-    faciesTable->setRowHeight(r, 28);
+    QPainter painter(&swatch);
+    auto texture = leaf.value("texture").toString();
+    if (texture.isEmpty()) texture = FaciesTaxonomy::resolve(FaciesTaxonomy::library(),
+        leaf.value("microfacies").toString()).value("texture").toString();
+    const QColor color(leaf.value("color").toString());
+    painter.fillRect(swatch.rect(), texture.isEmpty() ? QBrush(color)
+        : FaciesPatternFactory::getBrush(texture, color));
+    painter.end();
+    auto *sample = new QLabel(faciesTree);
+    sample->setPixmap(QPixmap::fromImage(swatch));
+    faciesTree->setItemWidget(parent, 1, sample);
   }
-  faciesLay->addWidget(faciesTable);
+  faciesTree->expandAll();
+  faciesLay->addWidget(faciesTree);
   tabWidget->addTab(faciesPage, tr("沉积相纹理图例"));
 
   // --- 3. 地层分层图例页 ---

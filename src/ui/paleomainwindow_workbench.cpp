@@ -185,7 +185,7 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
                    !analysisRaster && !cartographic;
     auto schema =
         product ? v.extra.value("facies").toList() : workbench->facies(h);
-    QString title = h.isEmpty() ? tr("请选择层位") : tr("%1 · 相图例").arg(h);
+    QString title = h.isEmpty() ? tr("请选择层位") : tr("%1 · 三级相图例").arg(h);
     if (product)
       title +=
           tr(" · v%1%2")
@@ -213,12 +213,12 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
       auto *wellLayer = qobject_cast<QgsVectorLayer *>(m_layerSvc->layer(id));
       const bool wellResult = wellLayer && wellLayer->fields().indexOf("facies_intervals") >= 0;
       title = tr("%1 · %2 · v%3")
-                  .arg(h, wellResult ? tr("预测相") : FaciesHierarchy::title(workbench->resolvedLevel(id)))
+                  .arg(h, wellResult ? tr("测井预测 · %1").arg(FaciesHierarchy::title(workbench->resolvedLevel(id))) : FaciesHierarchy::title(workbench->resolvedLevel(id)))
                   .arg(v.versionNumber);
       if (v.extra.value("mock").toBool())
         title += tr(" · Mock");
     }
-    m_decorMgr->setFaciesLegend(title, h.isEmpty() ? QVariantList() : schema);
+    m_decorMgr->setFaciesLegend(title, h.isEmpty() ? QVariantList() : schema, product ? m_layerSvc->layer(id) : nullptr);
   };
   auto shown = std::make_shared<QHash<QString, QString>>();
   if (m_projectSvc) {

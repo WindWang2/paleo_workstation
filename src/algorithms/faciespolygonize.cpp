@@ -506,6 +506,120 @@ QgsPolylineXY arcPoints( const Graph &g, const OrientedArc &oa )
   return pts;
 }
 
+// 弧级 Chaikin 切角平滑：共享边界在图里只有一份弧，两邻面重建出同一
+// 折线，coverage 天然不破。开放弧端点（图斑连接点）钉死，只切内部顶点；
+// 闭合弧（孤岛/孔洞环）按环整体切角。直弧切角位移为零则跳过，不徒增顶点。
+// 返回平滑过的弧数。
+int smoothArcs( Graph &g, int iterations )
+{
+  if ( iterations <= 0 )
+    return 0;
+  const double eps2 = g.qTol * g.qTol;
+  int changed = 0;
+  for ( Arc &arc : g.arcs )
+  {
+    QgsPolylineXY pts;
+    pts.reserve( arc.ix.size() );
+    for ( const int id : arc.ix )
+      pts.append( g.nodes.at( id ).p );
+    const bool closed = arc.ix.size() > 2 && arc.ix.first() == arc.ix.last();
+    if ( closed )
+      pts.removeLast(); // 环：尾点与首点重合，去掉避免重复切角
+    if ( pts.size() < 3 )
+      continue;
+
+    QgsPolylineXY cur = pts;
+    for ( int it = 0; it < iterations; ++it )
+    {
+      QgsPolylineXY next;
+      if ( closed )
+      {
+        const int m = cur.size();
+        next.reserve( 2 * m );
+        for ( int i = 0; i < m; ++i )
+        {
+          const QgsPointXY &a = cur.at( i );
+          const QgsPointXY &b = cur.at( ( i + 1 ) % m );
+          next.append( QgsPointXY( 0.75 * a.x() + 0.25 * b.x(),
+                                   0.75 * a.y() + 0.25 * b.y() ) );
+          next.append( QgsPointXY( 0.25 * a.x() + 0.75 * b.x(),
+                                   0.25 * a.y() + 0.75 * b.y() ) );
+        }
+      }
+      else
+      {
+        next.reserve( 2 * cur.size() - 2 );
+        next.append( cur.first() );
+        for ( int i = 0; i + 1 < cur.size(); ++i )
+        {
+          const QgsPointXY &a = cur.at( i );
+          const QgsPointXY &b = cur.at( i + 1 );
+          next.append( QgsPointXY( 0.75 * a.x() + 0.25 * b.x(),
+                                   0.75 * a.y() + 0.25 * b.y() ) );
+          next.append( QgsPointXY( 0.25 * a.x() + 0.75 * b.x(),
+                                   0.25 * a.y() + 0.75 * b.y() ) );
+        }
+        next.append( cur.last() );
+      }
+      cur = next;
+    }
+
+    // 位移量化阈值以内 = 全直弧，写回只徒增顶点。
+    QgsPolylineXY beforePts = pts;
+    if ( closed )
+      beforePts.append( pts.first() );
+    const QgsGeometry before = QgsGeometry::fromPolylineXY( beforePts );
+    double maxDev = 0.0;
+    for ( const QgsPointXY &p : cur )
+      maxDev = std::max( maxDev, before.distance( QgsGeometry::fromPointXY( p ) ) );
+    if ( maxDev * maxDev <= eps2 )
+      continue;
+
+    QVector<int> ix;
+    if ( closed )
+    {
+      for ( const QgsPointXY &p : cur )
+      {
+        g.nodes.append( Node{ p } );
+        ix.append( g.nodes.size() - 1 );
+      }
+      ix.append( ix.first() );
+    }
+    else
+    {
+      ix.append( arc.ix.first() );
+      for ( int i = 1; i + 1 < cur.size(); ++i )
+      {
+        g.nodes.append( Node{ cur.at( i ) } );
+        ix.append( g.nodes.size() - 1 );
+      }
+      ix.append( arc.ix.last() );
+    }
+    arc.ix = ix;
+    ++changed;
+  }
+  if ( changed == 0 )
+    return 0;
+
+  // 被替换掉的旧内部节点压缩掉，保持图整洁（conflate 的点吸附遍历全表）。
+  QVector<int> remap( g.nodes.size(), -1 );
+  QVector<Node> nodes;
+  nodes.reserve( g.nodes.size() );
+  for ( Arc &arc : g.arcs )
+    for ( int &id : arc.ix )
+    {
+      int &r = remap[id];
+      if ( r < 0 )
+      {
+        r = nodes.size();
+        nodes.append( g.nodes.at( id ) );
+      }
+      id = r;
+    }
+  g.nodes = nodes;
+  return changed;
+}
+
 QgsPolylineXY buildRing( const Graph &g, const RingRef &ring )
 {
   QgsPolylineXY out;
@@ -1019,7 +1133,11 @@ QString FaciesPolygonizeAlgorithm::shortHelpString() const
       "units² are absorbed into the largest adjacent facies, and GDALPolygonize + "
       "dissolve builds one polygon per part. "
       "SIMPLIFY runs GEOS coverage simplification so each shared boundary is simplified "
-      "once. The polygons are then rebuilt from that boundary graph. When SNAP_TOLERANCE "
+      "once. BOUNDARY_SMOOTH then runs Chaikin corner-cutting passes on every shared "
+      "boundary arc in the boundary graph: because each shared edge exists exactly once, "
+      "both adjacent faces rebuild onto the identical rounded line and the coverage "
+      "stays gap-free. Junction nodes (arc endpoints) stay fixed; straight arcs are "
+      "skipped. The polygons are then rebuilt from that boundary graph. When SNAP_TOLERANCE "
       "> 0, an arc whose vertices all lie within that distance of a constraint, and whose "
       "direction is within ANGLE_TOLERANCE degrees of it, is replaced by the constraint "
       "geometry. Point constraints snap the nearest graph node. Provenance is returned "
@@ -1046,6 +1164,10 @@ void FaciesPolygonizeAlgorithm::initAlgorithm( const QVariantMap & )
   addParameter( new QgsProcessingParameterNumber(
       QStringLiteral( "SIMPLIFY" ), QStringLiteral( "Coverage simplify tolerance" ),
       Qgis::ProcessingNumberParameterType::Double, 0.0, true, 0.0 ) );
+  addParameter( new QgsProcessingParameterNumber(
+      QStringLiteral( "BOUNDARY_SMOOTH" ),
+      QStringLiteral( "Boundary smoothing passes (Chaikin)" ),
+      Qgis::ProcessingNumberParameterType::Integer, 2, true, 0.0, 5.0 ) );
   addParameter( new QgsProcessingParameterNumber(
       QStringLiteral( "SNAP_TOLERANCE" ), QStringLiteral( "Constraint snap distance" ),
       Qgis::ProcessingNumberParameterType::Double, 0.0, true, 0.0 ) );
@@ -1074,11 +1196,13 @@ QVariantMap FaciesPolygonizeAlgorithm::processAlgorithm( const QVariantMap &para
   const int minCells = parameterAsInt( parameters, QStringLiteral( "MIN_CELLS" ), context );
   const double minFraction = parameterAsDouble( parameters, QStringLiteral( "MIN_FRACTION" ), context );
   const double simplify = parameterAsDouble( parameters, QStringLiteral( "SIMPLIFY" ), context );
+  const int boundarySmooth =
+      parameterAsInt( parameters, QStringLiteral( "BOUNDARY_SMOOTH" ), context );
   const double snapTol = parameterAsDouble( parameters, QStringLiteral( "SNAP_TOLERANCE" ), context );
   const double angleTol = parameterAsDouble( parameters, QStringLiteral( "ANGLE_TOLERANCE" ), context );
   if ( smooth < 0 || minCells < 0 || minArea < 0.0 || simplify < 0.0 || snapTol < 0.0 ||
-       minFraction < 0.0 || minFraction > 1.0 )
-    throw QgsProcessingException( QStringLiteral( "SMOOTH, MIN_CELLS, MIN_AREA, SIMPLIFY and SNAP_TOLERANCE must be >= 0; MIN_FRACTION must be within [0, 1]" ) );
+       boundarySmooth < 0 || minFraction < 0.0 || minFraction > 1.0 )
+    throw QgsProcessingException( QStringLiteral( "SMOOTH, MIN_CELLS, MIN_AREA, SIMPLIFY, BOUNDARY_SMOOTH and SNAP_TOLERANCE must be >= 0; MIN_FRACTION must be within [0, 1]" ) );
 
   const QString outPath = parameterAsOutputLayer( parameters, QStringLiteral( "OUTPUT" ), context );
   if ( outPath.isEmpty() )
@@ -1196,6 +1320,11 @@ QVariantMap FaciesPolygonizeAlgorithm::processAlgorithm( const QVariantMap &para
   if ( feedback )
     feedback->setProgress( 70 );
 
+  // 边界圆润化在吸附之前：约束线是权威边界，替换弧时平滑结果被丢弃，
+  // 约束线仍说了算。
+  const int smoothedArcs = boundarySmooth > 0 ? smoothArcs( graph, boundarySmooth ) : 0;
+  canceled( feedback );
+
   int conflated = 0;
   if ( snapTol > 0.0 )
   {
@@ -1227,6 +1356,8 @@ QVariantMap FaciesPolygonizeAlgorithm::processAlgorithm( const QVariantMap &para
   prov.insert( QStringLiteral( "algorithm" ), QStringLiteral( "paleo:paleo_facies_polygonize" ) );
   prov.insert( QStringLiteral( "min_area" ), minArea );
   prov.insert( QStringLiteral( "simplify" ), simplify );
+  prov.insert( QStringLiteral( "boundary_smooth" ), boundarySmooth );
+  prov.insert( QStringLiteral( "smoothed_arcs" ), smoothedArcs );
   prov.insert( QStringLiteral( "snap_tolerance" ), snapTol );
   prov.insert( QStringLiteral( "angle_tolerance_deg" ), angleTol );
   prov.insert( QStringLiteral( "smooth_passes" ), smooth );
@@ -1259,6 +1390,8 @@ QVariantMap FaciesPolygonizeAlgorithm::processAlgorithm( const QVariantMap &para
   if ( simplify > 0.0 )
     steps.append( QStringLiteral( "simplify" ) );
   steps.append( QStringLiteral( "boundary-graph" ) );
+  if ( smoothedArcs > 0 )
+    steps.append( QStringLiteral( "boundary-smooth" ) );
   if ( conflated > 0 )
     steps.append( QStringLiteral( "conflate" ) );
   prov.insert( QStringLiteral( "steps" ), steps );

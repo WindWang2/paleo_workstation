@@ -9,6 +9,7 @@
 #include <qgsmapdecoration.h>
 
 class QgsMapCanvas;
+class QgsMapLayer;
 class QPainter;
 
 // ui/decorations/ — canvas decorations per ET9 audit.
@@ -117,7 +118,7 @@ class PaleoDecorationManager : public QObject
   public:
     explicit PaleoDecorationManager( QgsMapCanvas *canvas, QObject *parent = nullptr );
 
-    void setFaciesLegend(const QString &title, const QVariantList &facies);
+    void setFaciesLegend(const QString &title, const QVariantList &facies, QgsMapLayer *symbolLayer = nullptr);
     QString legendTitle() const { return mLegend->title; }
     QVariantList legendFacies() const { return mLegend->facies; }
     void setScaleBarEnabled( bool enabled );

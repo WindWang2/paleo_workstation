@@ -420,8 +420,8 @@ class TestMappingWorkbench : public QObject {
   static QVariantList hierarchySchema() {
     QVariantList schema;
     const QStringList parents{"河流", "河流", "三角洲", "三角洲", "湖泊"};
-    const QStringList children{"河道", "河道", "河道", "河道", ""};
-    const QStringList leaves{"主槽", "边滩", "主槽", "边滩", ""};
+    const QStringList children{"河道", "河道", "河道", "河道", "浅湖"};
+    const QStringList leaves{"主槽", "边滩", "主槽", "边滩", "湖泥"};
     for (int i = 0; i < 5; ++i)
       schema << QVariantMap{{"code", i + 1},
                             {"name", parents[i] + leaves[i]},
@@ -631,6 +631,76 @@ private slots:
     QCOMPARE(f.work.products("D61").size(), 2);
     QVERIFY(f.work.layerForVersion("missing", &error).isEmpty());
   }
+  void hierarchyPanelShowsAndPreservesTheTree() {
+    Fixture f;
+    QVERIFY(f.init());
+    MappingWorkbenchPage page("compose", &f.work);
+    page.setHorizon("D61");
+    auto *tree = page.findChild<QTreeWidget *>("faciesHierarchyTree");
+    QVERIFY(tree);
+    QCOMPARE(tree->topLevelItemCount(), 1);
+    QCOMPARE(tree->topLevelItem(0)->text(0), QStringLiteral("三角洲相"));
+    QCOMPARE(tree->topLevelItem(0)->childCount(), 2);
+    int leaves = 0;
+    for (int i = 0; i < tree->topLevelItem(0)->childCount(); ++i) {
+      auto *branch = tree->topLevelItem(0)->child(i);
+      for (int j = 0; j < branch->childCount(); ++j) {
+        QVERIFY(!branch->child(j)->text(1).isEmpty());
+        ++leaves;
+      }
+    }
+    QCOMPARE(leaves, 7);
+    QSignalSpy commands(&page, &MappingWorkbenchPage::commandRequested);
+    auto *save = page.commandButton("schema");
+    QVERIFY(save);
+    save->click();
+    QCOMPARE(commands.size(), 1);
+    const auto schema = commands.last()[1].toMap().value("facies").toList();
+    QCOMPARE(schema.size(), 7);
+    QCOMPARE(schema.first().toMap().value("aliases").toStringList(),
+             FaciesCatalog::defaults().first().toMap().value("aliases").toStringList());
+    const auto screenshot = qEnvironmentVariable("PALEO_FACIES_HIERARCHY_SCREENSHOT");
+    if (!screenshot.isEmpty()) {
+      tree->setMinimumHeight(280);
+      page.resize(620, 900); page.show(); QTest::qWait(100);
+      QVERIFY(tree->grab().save(screenshot));
+    }
+    auto *table = page.findChild<QTableWidget *>("faciesSchema");
+    QVERIFY(table);
+    table->removeRow(0);
+    int remaining = 0;
+    for (int i = 0; i < tree->topLevelItem(0)->childCount(); ++i)
+      remaining += tree->topLevelItem(0)->child(i)->childCount();
+    QCOMPARE(remaining, 6);
+  }
+  void incompleteClassificationsCannotBeSavedOrPredicted() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    QVERIFY(!f.work.saveFacies("D61", {QVariantMap{{"code", 1}, {"name", "三角洲相"}, {"color", "#97B4CE"}}}, &error));
+    QVERIFY(error.contains(QStringLiteral("归属")));
+    QVERIFY(f.work.products("D61").isEmpty());
+  }
+  void unknownMicrofaciesCannotBecomeAnEditingVersion() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto draft = hierarchyDraft(f, &error);
+    QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft, &error));
+    QVERIFY(layer);
+    const auto previous = f.work.versionForLayer(draft).id;
+    auto it = layer->getFeatures();
+    QgsFeature feature;
+    QVERIFY(it.nextFeature(feature));
+    it.close();
+    QgsChangedAttributesMap changes;
+    changes[feature.id()].insert(layer->fields().indexOf("facies_code"), 77);
+    QVERIFY(layer->dataProvider()->changeAttributeValues(changes));
+    QVERIFY(!f.work.saveEditingVersion(draft, &error));
+    QVERIFY2(error.contains(QStringLiteral("微相编码")), qPrintable(error));
+    QCOMPARE(f.work.versionForLayer(draft).id, previous);
+  }
   void hierarchyScaleFallbackAndScopedNames() {
     QCOMPARE(FaciesHierarchy::resolveLevel("auto", 8000001), QString("facies"));
     QCOMPARE(FaciesHierarchy::resolveLevel("auto", 8000000), QString("sub_facies"));
@@ -644,9 +714,9 @@ private slots:
              QString("micro_facies"));
     QCOMPARE(FaciesHierarchy::resolveLevel("facies", 1), QString("facies"));
     QCOMPARE(FaciesHierarchy::path({{"microfacies", "仅微相"}}),
-             QStringList({"仅微相", "仅微相", "仅微相"}));
+             QStringList({"未定义相", "未定义亚相", "仅微相"}));
     QCOMPARE(FaciesHierarchy::path({{"facies", "相"}, {"microfacies", "微相"}}),
-             QStringList({"相", "相", "微相"}));
+             QStringList({"相", "未定义亚相", "微相"}));
     auto schema = hierarchySchema();
     QCOMPARE(FaciesHierarchy::legend(schema, "facies", {1, 2, 3, 4, 5}).size(),
              3);
@@ -1261,6 +1331,57 @@ private slots:
     main.stopRendering();
     reference.stopRendering();
   }
+  void referenceLegendFollowsPinnedLevelAndClearsOnSourceChange() {
+    QgsMapCanvas main;
+    main.resize(600, 400);
+    main.setDestinationCrs(QgsCoordinateReferenceSystem("EPSG:3857"));
+    MappingReferencePanel panel(&main, nullptr);
+    panel.setSources({QVariantMap{{"id", "micro"}, {"name", "微相版本"}, {"type", "vector"}},
+                      QVariantMap{{"id", "other"}, {"name", "其他证据"}, {"type", "vector"}}}, "D61");
+    panel.selectSource("micro");
+    const auto schema = FaciesCatalog::defaults();
+    const auto load = [&](const QString &level) {
+      auto *layer = new QgsVectorLayer("Polygon?field=facies_code:integer&crs=EPSG:3857", "facies", "memory");
+      QgsFeatureList features;
+      for (const auto &value : schema) {
+        QgsFeature feature(layer->fields());
+        const int code = value.toMap().value("code").toInt();
+        feature.setAttribute("facies_code", code);
+        feature.setGeometry(QgsGeometry::fromRect(QgsRectangle(code * 100, 0, (code + 1) * 100, 100)));
+        features << feature;
+      }
+      QVERIFY(layer->dataProvider()->addFeatures(features));
+      layer->updateExtents();
+      panel.setReference(layer, {{"facies", schema}, {"display_mode", level}, {"mock", true}});
+    };
+    auto *tree = panel.findChild<QTreeWidget *>("referenceLegendTree");
+    auto *toggle = panel.findChild<QToolButton *>("referenceLegendToggle");
+    QVERIFY(tree && toggle);
+    QVERIFY(!toggle->isEnabled());
+    load("micro_facies");
+    QVERIFY(toggle->isEnabled());
+    QVERIFY(tree->isHidden());
+    QCOMPARE(tree->topLevelItemCount(), 1);
+    auto *root = tree->topLevelItem(0);
+    QCOMPARE(root->text(0), QStringLiteral("三角洲相"));
+    QCOMPARE(root->childCount(), 2);
+    QCOMPARE(root->child(0)->childCount() + root->child(1)->childCount(), 7);
+    QVERIFY(!root->child(0)->child(0)->icon(0).isNull());
+    QVERIFY(tree->headerItem()->text(0).contains("Mock"));
+    toggle->click();
+    QVERIFY(!tree->isHidden());
+    panel.canvas()->zoomScale(10000000); // 手动微相模式不随比例尺变成相。
+    QCOMPARE(tree->topLevelItem(0)->childCount(), 2);
+    load("facies");
+    QCOMPARE(tree->topLevelItemCount(), 1);
+    QCOMPARE(tree->topLevelItem(0)->childCount(), 0);
+    QVERIFY(!tree->topLevelItem(0)->icon(0).isNull());
+    panel.selectSource("other");
+    QCOMPARE(tree->topLevelItemCount(), 0);
+    QVERIFY(!toggle->isEnabled());
+    QVERIFY(!panel.hasReference());
+    main.stopRendering();
+  }
   void referenceViewSelectsSourcesAndKeepsPinnedVersion() {
     QgsMapCanvas main;
     main.resize(600, 400);
@@ -1499,7 +1620,7 @@ private slots:
     hierarchical.insert("subfacies", "三角洲前缘");
     hierarchical.insert("microfacies", "水下分流河道");
     schema[0] = hierarchical;
-    QCOMPARE(schema.size(), 3);
+    QCOMPARE(schema.size(), 7);
     for (const auto &v : schema) {
       auto f = v.toMap();
       QVERIFY(!f.value("name").toString().contains("Mock"));
@@ -1547,12 +1668,16 @@ private slots:
     while (it.nextFeature(f)) {
       QVERIFY(renderer->symbolForFeature(f, context));
       ++visible;
-      QVERIFY(!f.attribute("facies_name").toString().isEmpty());
+      QVERIFY(!f.attribute("facies_label").toString().isEmpty());
       if (f.attribute("facies_code").toInt() == 1) {
         QCOMPARE(f.attribute("facies_name").toString(), QString("三角洲相"));
         QCOMPARE(f.attribute("subfacies").toString(), QString("三角洲前缘"));
         QCOMPARE(f.attribute("microfacies").toString(),
                  QString("水下分流河道"));
+      } else {
+        QVERIFY(f.attribute("facies_name").toString().isEmpty());
+        QVERIFY(f.attribute("subfacies").toString().isEmpty());
+        QVERIFY(f.attribute("microfacies").toString().isEmpty());
       }
     }
     renderer->stopRender(context);
@@ -2480,6 +2605,7 @@ private slots:
       auto edited = schema;
       auto first = edited.first().toMap();
       first.insert("color", "#123456");
+      first.insert("texture", QString());
       edited[0] = first;
       QString schemaErr;
       QVERIFY2(f.work.saveFacies("D61", edited, &schemaErr), qPrintable(schemaErr));
@@ -2616,6 +2742,13 @@ private slots:
     auto v = f.work.versionForLayer(rasterId);
     QVERIFY(v.parentVersionIds.contains(f.catalog.currentVersion(input).id));
     QVERIFY(v.extra.value("mock").toBool());
+    QCOMPARE(v.extra.value("prediction_level").toString(), QString("micro_facies"));
+    for (const auto &value : v.extra.value("facies").toList()) {
+      const auto leaf = value.toMap();
+      QVERIFY(!leaf.value("facies").toString().isEmpty());
+      QVERIFY(!leaf.value("subfacies").toString().isEmpty());
+      QCOMPARE(leaf.value("microfacies").toString(), leaf.value("name").toString());
+    }
     QCOMPARE(v.extra.value("horizon").toString(), QString("D61"));
     auto *r =
         qobject_cast<QgsRasterLayer *>(f.layers.instantiate(rasterId, &error));
@@ -2881,10 +3014,10 @@ private slots:
       QVERIFY(f.tops(name, QStringLiteral("#WellTops File From SMI\n#WellName Name MD X Y Z TVD Time(ms)\n%1 D61 1000 0 0 -1000 1000 -99999\n%1 D62 1060 0 0 -1060 1060 -99999\n").arg(name)));
     QString error;
     QVariantList facies{
-        QVariantMap{{"code", 7}, {"name", "河道"}, {"facies", "三角洲"},
+        QVariantMap{{"code", 7}, {"name", "水下分流河道"}, {"facies", "三角洲"},
                     {"subfacies", "三角洲前缘"}, {"microfacies", "水下分流河道"},
                     {"color", "#E6C875"}},
-        QVariantMap{{"code", 9}, {"name", "湖相"}, {"color", "#97B4CE"}}};
+        QVariantMap{{"code", 9}, {"name", "湖相泥"}, {"facies", "湖泊相"}, {"subfacies", "半深湖"}, {"microfacies", "湖相泥"}, {"color", "#97B4CE"}}};
     QVERIFY(f.work.saveFacies("D61", facies, &error));
     QVERIFY(f.work.facies("D62") != facies);
     QVERIFY(WellAttributeStore::mergeIntervals(&f.catalog, f.dir.path(), &f.layers,
@@ -3007,7 +3140,7 @@ private slots:
     QVERIFY(f.work.compose("D61", {factorId}, {}, &error).isEmpty());
     error.clear();
     const auto composed = f.work.compose(
-        "D61", {factorId}, {{"thresholds", QVariantList{20., 40.}}}, &error);
+        "D61", {factorId}, {{"thresholds", QVariantList{10., 20., 30., 40., 50., 60.}}}, &error);
     QVERIFY2(!composed.isEmpty(), qPrintable(error));
     auto *old = f.layers.instantiate("factor.D61.sandthick");
     QVERIFY(old);

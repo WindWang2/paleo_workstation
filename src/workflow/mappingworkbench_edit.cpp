@@ -7,6 +7,7 @@
 #include "../algorithms/faciesmapping/formationdominance.h"
 #include "../catalog/purgelease.h"
 #include "../domain/faciescatalog.h"
+#include "../domain/faciestaxonomy.h"
 #include "../domain/mappinghorizons.h"
 #include "../domain/singlefactorrequest.h"
 #include "../io/constraintstore.h"
@@ -166,6 +167,9 @@ QString MappingWorkbench::copyForEditing(const QString &id,
     parents << version;
     referenceVersions << QVariantMap{{"version_id", version}, {"role", "REFERENCES"}, {"tombstone", false}};
   }
+  const auto source = m_catalog->versionById(parent);
+  QVariantList schema;
+  if (!FaciesTaxonomy::normalize(source.extra.value("facies", facies(d.horizon)).toList(), &schema, error)) return {};
   const auto draft = QStringLiteral("draft.%1").arg(uid());
   const auto relative =
       QStringLiteral("artifacts/working/%1/features.gpkg").arg(draft);
@@ -173,12 +177,11 @@ QString MappingWorkbench::copyForEditing(const QString &id,
   QDir().mkpath(QFileInfo(path).absolutePath());
   if (!MappingArtifactWriter::vectorSnapshot(layer, path, error))
     return {};
-  const auto source = m_catalog->versionById(parent);
   {
     QgsVectorLayer copy(path + "|layername=features", "copy", "ogr");
     if (!MappingFeatureIdentity::ensure(&copy, error)) return {};
     if (!MappingArtifactWriter::syncFaciesAttributes(
-            &copy, source.extra.value("facies", facies(d.horizon)).toList(),
+            &copy, schema,
             error))
       return {};
   }
@@ -187,7 +190,7 @@ QString MappingWorkbench::copyForEditing(const QString &id,
       {"computational_parent_versions", QStringList{parent}},
       {"interpretation_reference_versions", referenceVersions},
       {"working_path", relative},
-      {"facies", source.extra.value("facies", facies(d.horizon))},
+      {"facies", schema},
       {"reference_layers", references},
       {"display_mode", displayMode(id)},
       {"hierarchy_model", "shared-polygon-partition-v1"},
@@ -236,6 +239,8 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
     fail(error, tr("找不到编辑副本的来源版本"));
     return false;
   }
+  QVariantList schema;
+  if (!FaciesTaxonomy::normalize(previous.extra.value("facies").toList(), &schema, error)) return false;
   auto features = layer->getFeatures();
   QgsFeature feature;
   while (features.nextFeature(feature)) {
@@ -243,9 +248,10 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
     const double code = feature.attribute("facies_code").toDouble(&ok);
     if ((!feature.attribute("facies_code").isNull() &&
          (!ok || !std::isfinite(code) || code < 1 || code > 32767 ||
-          code != std::round(code))) ||
+          code != std::round(code) ||
+          !FaciesTaxonomy::complete(FaciesCatalog::find(schema, int(code))))) ||
         feature.geometry().isEmpty() || !feature.geometry().isGeosValid()) {
-      fail(error, tr("工作副本含空几何、无效几何或非法相编码。请修正属性 / "
+      fail(error, tr("工作副本含空几何、无效几何或非法、未定义的微相编码。请修正属性 / "
                      "几何后再保存图件版本；历史版本未改变。"));
       return false;
     }
@@ -253,10 +259,11 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
   auto *observer = MappingFeatureIdentity::Observer::of(layer);
   const auto spatialChanges = observer ? observer->changes() : QVariantList{};
   if (!MappingArtifactWriter::syncFaciesAttributes(
-          layer, previous.extra.value("facies").toList(), error))
+          layer, schema, error))
     return false;
   auto extra = previous.extra;
   extra.remove(QStringLiteral("evidence")); // rebuild this generation; historical versions stay frozen
+  extra.insert("facies", schema);
   extra.insert("method", "manual-edit-save");
   extra.insert("display_mode", displayMode(id));
   extra.insert("hierarchy_model", "shared-polygon-partition-v1");

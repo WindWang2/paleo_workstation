@@ -1,6 +1,7 @@
 // 层：QGIS 封装
 #include "mappingreferencecanvas.h"
 #include "facieshierarchyrenderer.h"
+#include "faciesmaplegend.h"
 #include "factorstylewriter.h"
 #include "mapcanvaslink.h"
 #include "mappingartifactwriter.h"
@@ -65,6 +66,9 @@ void MappingReferenceCanvas::setReference(QgsMapLayer *layer, const QVariantMap 
   setOverrideCrs(layer->crs());
   setLayers({layer});
   m_schema = metadata.value("facies").toList();
+  // 参考视图保留所选版本/图层的手动显示层级；自动模式才随本视图比例尺切换。
+  layer->setCustomProperty("paleo/faciesDisplayMode", metadata.value("display_mode",
+      layer->customProperty("paleo/faciesDisplayMode", "auto")));
   const auto kind = metadata.value("kind").toString();
   const auto valueSource = metadata.value("value_source").toString();
   const bool analysis = paleo::singlefactor::isAnalysisFactorRaster(kind, valueSource);
@@ -108,12 +112,12 @@ void MappingReferenceCanvas::updateLegend()
   if (!m_layer) return;
   auto entries = m_schema;
   if (m_facies) {
-    const auto level = FaciesHierarchy::resolveLevel("auto", canvas()->scale());
+    const auto level = FaciesHierarchy::resolveLevel(m_layer->customProperty("paleo/faciesDisplayMode", "auto").toString(), canvas()->scale());
     if (m_legendLevel == level) return;
     entries = FaciesHierarchyRenderer::apply(m_layer, m_schema, level);
     m_legendLevel = level;
   }
-  emit legendChanged(entries);
+  emit legendChanged(FaciesMapLegend::symbolEntries(m_layer, entries));
 }
 
 void MappingReferenceCanvas::setLinked(bool linked)

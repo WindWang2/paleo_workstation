@@ -2,6 +2,7 @@
 #include "wellpredictionservice.h"
 #include "../ai/wellfacieskeystore.h"
 #include "../domain/faciescatalog.h"
+#include "../domain/faciestaxonomy.h"
 #include "../domain/welllogfacies.h"
 #include "../io/welllogread.h"
 #include "../qgis/wellattributestore.h"
@@ -310,7 +311,9 @@ void WellPredictionService::next() {
   emit progress(m_request.id, 10 + m_index * 80 / std::max(1, int(m_runs.size())));
   emit detailChanged(m_request.id, tr("远端预测 %1 · %2（%3/%4）").arg(m_data[run.well].wellName,
       run.prediction.group).arg(m_index + 1).arg(m_runs.size()));
-  m_service.predict(run.prediction.model, m_data[run.well].wellName, run.prediction.input);
+  auto input = run.prediction.input;
+  input.facies = m_schema;
+  m_service.predict(run.prediction.model, m_data[run.well].wellName, input);
 }
 void WellPredictionService::finish() {
   RemotePredictionResult result;
@@ -318,41 +321,15 @@ void WellPredictionService::finish() {
   result.request = m_request; result.mock = false; result.partialWellCoverage = true;
   result.currentFormationOnly = true;
   result.method = QStringLiteral("remote-well-facies-api-v2");
-  // 词表外标签的确定性扩展：远端可返回项目词表外的真实标签（默认词表只有
-  // 3 条，图签库 appearance 按名取纹色），沿用「追加条目」契约——但码分配
-  // 不能随井处理顺序漂移（旧实现逐区间遇新标签即 max+1：同一标签集因部分
-  // 组失败重试或井序不同可得不同码，属性表/图例跨 run 不可比）。先收集全
-  {
-    QStringList unknown;
-    for (const auto &parts : m_results) {
-      const auto merged = mergeWellFaciesResults(parts);
-      for (const auto &iv : merged.intervals)
-        if (!faciesCodeForLabel(m_schema, iv.text) && !unknown.contains(iv.text))
-          unknown << iv.text;
-    }
-    unknown.sort();
-    const auto projectSchemas = WellAttributeStore::faciesSchemas(m_catalog);
-    int next = 1;
-    for (auto it = projectSchemas.cbegin(); it != projectSchemas.cend(); ++it)
-      for (const auto &val : it.value())
-        next = std::max(next, val.toMap().value("code").toInt() + 1);
-    for (const auto &value : m_schema)
-      next = std::max(next, value.toMap().value("code").toInt() + 1);
-
-    for (const QString &label : unknown) {
-      int code = 0;
-      for (auto it = projectSchemas.cbegin(); it != projectSchemas.cend(); ++it) {
-        code = faciesCodeForLabel(it.value(), label);
-        if (code > 0)
-          break;
-      }
-      if (code == 0)
-        code = next++;
-      QVariantMap item{{"code", code}, {"name", label}, {"facies", label},
-                       {"color", "#9AA7B4"}};
-      m_schema << FaciesCatalog::appearance(item);
-    }
+  QStringList labels;
+  for (const auto &parts : m_results)
+    for (const auto &iv : mergeWellFaciesResults(parts).intervals) labels << iv.text;
+  QString hierarchyError;
+  QVariantList expanded;
+  if (!FaciesTaxonomy::extend(m_schema, labels, &expanded, &hierarchyError)) {
+    fail(hierarchyError); return;
   }
+  m_schema = expanded;
   for (int i = 0; i < m_data.size(); ++i) {
     const auto merged = mergeWellFaciesResults(m_results[i]);
     QVariantList intervals, formations;

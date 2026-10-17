@@ -130,9 +130,12 @@ private slots:
     auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft));
     QVERIFY(layer);
     QgsFeature feature;
+    QgsPointXY probePoint;
     auto iterator = layer->getFeatures();
     while (iterator.nextFeature(feature)) {
-      if (feature.geometry().contains(10, 10))
+      // 边界圆润化会切掉像元角点——在图斑内取面心点当探针。
+      probePoint = feature.geometry().pointOnSurface().asPoint();
+      if (feature.geometry().contains(feature.geometry().pointOnSurface()))
         break;
     }
     iterator.close();
@@ -148,8 +151,8 @@ private slots:
       well.name = QStringLiteral("井A");
       well.entityType = QStringLiteral("well");
       well.hasSurface = true;
-      well.surfaceX = 10;
-      well.surfaceY = 10;
+      well.surfaceX = probePoint.x();
+      well.surfaceY = probePoint.y();
       well.coordinateStatus = QStringLiteral("untransformed");
       QVERIFY(f.catalog.addEntity(well));
       QString mergeError;
@@ -284,7 +287,9 @@ private slots:
     const auto factor = f.latest("single_factor_raster");
     QVERIFY(!factor.isEmpty());
     const auto composed = f.work.compose(
-        "D61", {factor}, {{"thresholds", QVariantList{20., 40.}}, {"cellSize", 10}},
+        "D61", {factor},
+        {{"thresholds", QVariantList{20., 25., 30., 35., 40., 45.}},
+         {"cellSize", 10}},
         &error);
     QVERIFY2(!composed.isEmpty(), qPrintable(error));
     qInfo().noquote() << "BASELINE compose+polygonize 500x500 grid(ms):"

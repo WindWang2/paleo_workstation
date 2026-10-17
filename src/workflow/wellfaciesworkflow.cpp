@@ -1,5 +1,7 @@
 // 层：功能
 #include "wellfaciesworkflow.h"
+#include "../domain/faciestaxonomy.h"
+#include "../domain/faciescatalog.h"
 #include "ai/wellfacieskeystore.h"
 #include "../catalog/datacatalog.h"
 #include "derivedassets.h"
@@ -176,6 +178,7 @@ WellFaciesWorkflow::publishLithoAsset(const WellFaciesResult &result) {
   // {schema:1, provenance:{source,modelName,modelVersion,jobId},
   //  intervals:[{wellId,top,base,litho}]} —— litho 为预测相中文自由词面。
   QJsonArray intervals;
+  const auto schema = result.facies.isEmpty() ? FaciesCatalog::defaults() : result.facies;
   int dropped = 0;
   for (const WellComposite::TextInterval &iv : result.intervals) {
     const QString word = iv.text.trimmed();
@@ -183,7 +186,14 @@ WellFaciesWorkflow::publishLithoAsset(const WellFaciesResult &result) {
       ++dropped;
       continue;
     }
+    QString hierarchyError;
+    const auto leaf = FaciesTaxonomy::resolve(schema, word, &hierarchyError);
+    if (leaf.isEmpty()) return hierarchyError;
     intervals.append(QJsonObject{
+        {QStringLiteral("facies"), leaf.value("facies").toString()},
+        {QStringLiteral("subfacies"), leaf.value("subfacies").toString()},
+        {QStringLiteral("microfacies"), leaf.value("microfacies").toString()},
+        {QStringLiteral("facies_code"), leaf.value("code").toInt()},
         {QStringLiteral("wellId"), wellId},
         {QStringLiteral("top"), iv.topDepth},
         {QStringLiteral("base"), iv.bottomDepth},
@@ -199,7 +209,9 @@ WellFaciesWorkflow::publishLithoAsset(const WellFaciesResult &result) {
       {QStringLiteral("jobId"), result.jobId}};
   const QJsonObject root{{QStringLiteral("schema"), 1},
                          {QStringLiteral("provenance"), provenance},
-                         {QStringLiteral("intervals"), intervals}};
+                         {QStringLiteral("intervals"), intervals},
+                         {QStringLiteral("facies"), QJsonArray::fromVariantList(schema)},
+                         {QStringLiteral("prediction_level"), QStringLiteral("micro_facies")}};
   DerivedAssetRegistrar registrar(m_catalog, dir);
   QString error;
   const QString displayName =
@@ -315,19 +327,22 @@ QString WellFaciesWorkflow::publishAttributes(const WellFaciesResult &result) {
   // 「任一段无效即整批放弃」；逆序段进 mergeIntervals 会被 span() 判死并
   // 报笼统错误，用户无从定位。
   int dropped = 0;
+  const auto schema = result.facies.isEmpty() ? FaciesCatalog::defaults() : result.facies;
   for (const auto &iv : result.intervals) {
     if (iv.text.trimmed().isEmpty() || !(iv.bottomDepth > iv.topDepth)) {
       ++dropped;
       continue;
     }
+    QString hierarchyError;
+    const auto leaf = FaciesTaxonomy::resolve(schema, iv.text, &hierarchyError);
+    if (leaf.isEmpty()) return hierarchyError;
     intervals << QVariantMap{{"well_id", ids.first()}, {"top_md", iv.topDepth}, {"base_md", iv.bottomDepth},
-      {"facies", iv.text}, {"predicted_facies", iv.text}, {"facies_code", QVariant()}, {"sub_facies", QString()}, {"micro_facies", QString()}, {"facies_pattern", QString()}, {"model", result.modelName + " " + result.modelVersion}, {"job_id", result.jobId}};
+      {"facies", leaf.value("facies")}, {"predicted_facies", leaf.value("microfacies")}, {"facies_code", leaf.value("code")}, {"sub_facies", leaf.value("subfacies")}, {"micro_facies", leaf.value("microfacies")}, {"facies_pattern", leaf.value("texture")}, {"model", result.modelName + " " + result.modelVersion}, {"job_id", result.jobId}};
   }
   QString error;
   if (intervals.isEmpty())
     return dropped > 0 ? tr("预测段全部无效（空词面/逆序），未更新属性")
                        : tr("预测没有有效井段，未更新属性");
-  if (!WellAttributeStore::mergeIntervals(m_catalog, projectDir(), m_layers, intervals, &error, /*onlyMissing=*/true)) return error;
   // 地层优势相：组、段各一行（同井同名只留最上一个，名字不能重复进矢量表）。
   QVariantList formations;
   QSet<QString> seen;
@@ -335,16 +350,18 @@ QString WellFaciesWorkflow::publishAttributes(const WellFaciesResult &result) {
   for (const auto &d : ranked.dominant) {
     if (seen.contains(d.formation)) continue;
     seen.insert(d.formation);
+    const auto leaf = FaciesTaxonomy::resolve(schema, d.dominant);
     formations << QVariantMap{{"well_id", ids.first()}, {"formation", d.formation}, {"unit_type", d.unitType},
       {"top_md", d.top}, {"base_md", d.bottom}, {"thickness_md", d.thickness},
-      {"dominant_facies", d.dominant}, {"predicted_dominant", d.dominant}, {"facies_code", QVariant()},
+      {"dominant_facies", leaf.value("microfacies")}, {"predicted_dominant", leaf.value("microfacies")}, {"facies_code", leaf.value("code")},
+      {"facies", leaf.value("facies")}, {"sub_facies", leaf.value("subfacies")}, {"micro_facies", leaf.value("microfacies")},
       {"dominant_thickness_md", d.dominantThickness}, {"dominant_ratio", d.ratio}, {"coverage", d.coverage},
       {"tie", d.tie}, {"facies_composition", d.composition}, {"source", QStringLiteral("welllogfacies")},
       {"model", result.modelName + " " + result.modelVersion}, {"job_id", result.jobId}};
   }
-  const bool formationsSaved = WellAttributeStore::mergeFormations(m_catalog, projectDir(), m_layers, formations, &error, /*onlyMissing=*/true);
+  const bool formationsSaved = WellAttributeStore::mergeIntervalsAndFormations(m_catalog, projectDir(), m_layers, intervals, formations, &error, /*onlyMissing=*/true);
   refreshAttributes();
-  return formationsSaved ? QString() : tr("井段属性已更新，地层优势相未更新：%1").arg(error);
+  return formationsSaved ? QString() : error;
 }
 
 void WellFaciesWorkflow::setData(
@@ -390,6 +407,7 @@ QString WellFaciesWorkflow::cachePath(const WellFaciesRun &run) const {
                                 {"modelId", run.model.id},
                                 {"modelVersion", run.model.version},
                                 {"labels", run.model.labels.join(QLatin1Char(','))},
+                                {"facies", QJsonArray::fromVariantList(run.input.facies)},
                                 {"wellName", m_data.wellName},
                                 {"rows", run.input.rows}})
           .toJson(QJsonDocument::Compact);
@@ -431,6 +449,13 @@ void WellFaciesWorkflow::updateInput(bool restoreCache) {
              : m_plan.reason.isEmpty()
                  ? tr("没有可调用的测井相模型，请刷新模型")
                  : m_plan.reason;
+  }
+  if (reason.isEmpty()) {
+    const auto schemas = WellAttributeStore::faciesSchemas(m_catalog);
+    for (auto &run : m_plan.runs) {
+      if (!FaciesTaxonomy::normalize(schemas.value(run.group, FaciesCatalog::defaults()),
+                                     &run.input.facies, &reason)) break;
+    }
   }
   emit planChanged(reason.isEmpty() ? planSummary() : QString());
   emit availabilityChanged(reason.isEmpty(), reason);

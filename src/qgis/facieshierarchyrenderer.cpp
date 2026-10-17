@@ -1,9 +1,13 @@
 // 层：QGIS 封装
 #include "facieshierarchyrenderer.h"
+#include "faciesmaplegend.h"
 #include "../domain/facieshierarchy.h"
 #include "../domain/faciescatalog.h"
 #include "mappingartifactwriter.h"
 #include <QUndoStack>
+#include <QJsonDocument>
+#include <qgscolorramp.h>
+#include <qgsdatadefinedsizelegend.h>
 #include <qgscategorizedsymbolrenderer.h>
 #include <qgsexception.h>
 #include <qgsexpression.h>
@@ -15,6 +19,31 @@
 #include <qgsrasterlayer.h>
 #include <qgssymbol.h>
 #include <qgsvectorlayer.h>
+namespace {
+// 地图过滤的命中结果必须包含祖先 key，否则 QGIS 会删掉没有自身几何的父标题。
+class HierarchyCategories final : public QgsCategorizedSymbolRenderer {
+public:
+  using QgsCategorizedSymbolRenderer::QgsCategorizedSymbolRenderer;
+  HierarchyCategories *clone() const override {
+    auto *copy = new HierarchyCategories(classAttribute(), categories());
+    if (sourceSymbol()) copy->setSourceSymbol(sourceSymbol()->clone());
+    if (sourceColorRamp()) copy->setSourceColorRamp(sourceColorRamp()->clone());
+    if (dataDefinedSizeLegend()) copy->setDataDefinedSizeLegend(new QgsDataDefinedSizeLegend(*dataDefinedSizeLegend()));
+    copyRendererData(copy);
+    return copy;
+  }
+  QSet<QString> legendKeysForFeature(const QgsFeature &feature, QgsRenderContext &context) const override {
+    auto keys = QgsCategorizedSymbolRenderer::legendKeysForFeature(feature, context);
+    const auto leaves = keys;
+    for (const auto &key : leaves) {
+      const auto path = QJsonDocument::fromJson(key.toUtf8()).toVariant().toStringList();
+      for (int i = 1; i < path.size(); ++i)
+        keys.insert(QString::fromUtf8(QJsonDocument::fromVariant(path.mid(0, i)).toJson(QJsonDocument::Compact)));
+    }
+    return keys;
+  }
+};
+}
 namespace FaciesHierarchyRenderer {
 QVariantList codes(QgsMapLayer *layer) {
   QVariantList result;
@@ -35,26 +64,9 @@ QVariantList codes(QgsMapLayer *layer) {
 QVariantList legend(QgsMapLayer *layer, const QVariantList &schema,
                     const QString &level) {
   const auto present = codes(layer);
-  QVariantList entries;
-  if (auto *v = qobject_cast<QgsVectorLayer *>(layer);
-      v && v->fields().indexOf("facies_intervals") >= 0) {
-    // 测井只按最终分类编码显示，不随比例尺聚合到相或亚相。
-    QSet<QString> used, known;
-    for (const auto &code : present) used.insert(code.isNull() ? QString() : code.toString());
-    for (const auto &f : schema) known.insert(f.toMap().value("code").toString());
-    const bool unknown = !(used - known).isEmpty();
-    for (const auto &f : schema) {
-      auto row = FaciesCatalog::appearance(f.toMap());
-      const auto code = row.value("code");
-      if (code.isNull() || !used.contains(code.toString())) continue;
-      row.insert("key", QStringLiteral("prediction_%1").arg(code.toString()));
-      row.insert("codes", QVariantList{code});
-      entries << row;
-    }
-    if (unknown) entries << QVariantMap{{"key", "unknown"}, {"name", QObject::tr("未预测")}, {"codes", QVariantList()}};
-  } else {
-    entries = FaciesHierarchy::legend(schema, level, present);
-  }
+  QVariantList styled;
+  for (const auto &v : schema) styled << FaciesCatalog::appearance(v.toMap());
+  auto entries = FaciesHierarchy::legend(styled, level, present);
   if (auto *v = qobject_cast<QgsVectorLayer *>(layer);
       v && v->geometryType() == Qgis::GeometryType::Point)
     for (auto &entry : entries) {
@@ -63,6 +75,12 @@ QVariantList legend(QgsMapLayer *layer, const QVariantList &schema,
         row.insert("name", QObject::tr("未预测"));
       if (!QColor(row.value("color").toString()).isValid())
         row.insert("color", "#9AA7B4");
+      entry = row;
+    }
+  if (qobject_cast<QgsRasterLayer *>(layer))
+    for (auto &entry : entries) {
+      auto row = entry.toMap();
+      row.insert("texture", QString()); // 栅格使用纯色调色板，图例不能额外画微相纹理。
       entry = row;
     }
   return entries;
@@ -104,7 +122,7 @@ QVariantList apply(QgsMapLayer *layer, const QVariantList &schema,
         MappingArtifactWriter::applyFaciesEdge(
             symbol, QColor(row.value("color").toString()));
       categories << QgsRendererCategory(row.value("key"), symbol,
-                                        row.value("name").toString());
+                                        row.value("name").toString(), true, row.value("key").toString());
       for (const auto &code : row.value("codes").toList()) {
         const auto when = QStringLiteral("WHEN \"facies_code\" = %1 THEN ")
                               .arg(QgsExpression::quotedValue(code));
@@ -124,11 +142,8 @@ QVariantList apply(QgsMapLayer *layer, const QVariantList &schema,
       nameExpression =
           QgsExpression::quotedString(QObject::tr("其他 / 未分类"));
     }
-    if (wellResult)
-      nameExpression = QStringLiteral("coalesce(\"facies_label\", %1)")
-          .arg(QgsExpression::quotedString(QObject::tr("未预测")));
     auto *renderer =
-        new QgsCategorizedSymbolRenderer(keyExpression, categories);
+        new HierarchyCategories(keyExpression, categories);
     v->setRenderer(v->geometryType() == Qgis::GeometryType::Polygon
                        ? static_cast<QgsFeatureRenderer *>(
                              new QgsMergedFeatureRenderer(renderer))
@@ -157,6 +172,7 @@ QVariantList apply(QgsMapLayer *layer, const QVariantList &schema,
   }
   layer->setCustomProperty("paleo/faciesResolvedLevel", level);
   layer->setCustomProperty("paleo/faciesDisplayLegend", entries);
+  FaciesMapLegend::install(layer);
   layer->triggerRepaint();
   return entries;
 }

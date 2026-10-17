@@ -2,6 +2,8 @@
 #include "paleodecorations.h"
 #include "../paleotheme.h" // 画布装饰取色（显式 Light：见各 render 注释）
 #include "../../domain/faciescatalog.h"
+#include "../../domain/facieshierarchy.h"
+#include "../../qgis/faciesmaplegend.h"
 #include <QCoreApplication>
 #include <QSvgRenderer>
 
@@ -11,6 +13,7 @@
 #include <QEvent>
 #include <QFont>
 #include <QFontMetrics>
+#include <QIcon>
 #include <QPainter>
 #include <QPen>
 #include <QPolygonF>
@@ -582,18 +585,28 @@ void PaleoFaciesLegendDecoration::render(const QgsMapSettings &, QgsRenderContex
   p->drawText(QRect(x+8,y+4,width-16,row),Qt::AlignVCenter,p->fontMetrics().elidedText(title,Qt::ElideRight,width-16));
   f.setBold(false);p->setFont(f);
   for(int i=0;i<facies.size();++i){const auto entry=facies[i].toMap();int top=y+8+(i+1)*row;
-    p->setPen(PaleoDecorationTheme::border());p->setBrush(QColor(entry.value("color").toString()));p->drawRect(QRect(x+8,top+3,16,row-8));
-    const auto texture =
-        FaciesCatalog::fillPath(entry.value("texture").toString());
-    if (!texture.isEmpty()) {
-      QSvgRenderer svg(texture);
-      svg.render(p, QRectF(x + 8, top + 3, 16, row - 8));
+    const int left = x + 8 + entry.value("depth", 0).toInt() * 12;
+    const bool heading = entry.value("heading").toBool();
+    const auto icon = entry.value("legend_icon").value<QIcon>();
+    if (!heading && !icon.isNull()) {
+      icon.paint(p, QRect(left, top + 2, 20, row - 4), Qt::AlignCenter);
+    } else if (!heading) {
+      p->setPen(PaleoDecorationTheme::border());p->setBrush(QColor(entry.value("color").toString()));p->drawRect(QRect(left,top+3,16,row-8));
+      const auto texture = FaciesCatalog::fillPath(entry.value("texture").toString());
+      if (!texture.isEmpty()) {
+        QSvgRenderer svg(texture);
+        svg.render(p, QRectF(left, top + 3, 16, row - 8));
+      }
     }
-    p->setPen(PaleoDecorationTheme::ink());const auto label=entry.value("name").toString();p->drawText(QRect(x+32,top,width-40,row),Qt::AlignVCenter,p->fontMetrics().elidedText(label,Qt::ElideRight,width-40));}
+    f.setBold(heading);p->setFont(f);p->setPen(PaleoDecorationTheme::ink());
+    const int labelLeft = left + (heading ? 0 : 24);
+    p->drawText(QRect(labelLeft,top,x+width-labelLeft-8,row),Qt::AlignVCenter,
+                p->fontMetrics().elidedText(entry.value("name").toString(),Qt::ElideRight,x+width-labelLeft-8));
+  }
   p->restore();
 }
-void PaleoDecorationManager::setFaciesLegend(const QString &title,const QVariantList &facies)
+void PaleoDecorationManager::setFaciesLegend(const QString &title,const QVariantList &facies, QgsMapLayer *symbolLayer)
 {
-  mLegend->title=title;mLegend->facies=facies;mLegendEnabled=true;
+  mLegend->title=title;mLegend->facies=FaciesHierarchy::legendTree(symbolLayer ? FaciesMapLegend::symbolEntries(symbolLayer, facies) : facies);mLegendEnabled=true;
   if(mOverlay){mOverlay->raise();mOverlay->update();}if(mCanvas)mCanvas->refresh();
 }

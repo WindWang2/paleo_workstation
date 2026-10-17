@@ -142,6 +142,18 @@ QVector<AlgorithmParamField> polygonizeFields()
       scalar( QStringLiteral( "SIMPLIFY" ),
               QCoreApplication::translate( "AlgorithmParamSchema", "化简容差" ), 0.0, 0.0,
               false, 0.0, QString() ),
+      [] {
+        AlgorithmParamField f;
+        f.key = QStringLiteral( "BOUNDARY_SMOOTH" );
+        f.label = QCoreApplication::translate( "AlgorithmParamSchema", "边界圆润化迭代（Chaikin 切角）" );
+        f.type = AlgorithmParamField::Int;
+        f.defaultValue = 2;
+        f.hasMin = true;
+        f.minValue = 0.0;
+        f.hasMax = true; // 与算法参数上限一致（initAlgorithm 5）
+        f.maxValue = 5.0;
+        return f;
+      }(),
       scalar( QStringLiteral( "SNAP_TOLERANCE" ),
               QCoreApplication::translate( "AlgorithmParamSchema", "约束吸附距离" ), 0.0, 0.0,
               false, 0.0, QString() ),

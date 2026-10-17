@@ -248,9 +248,9 @@ private slots:
   // 调用方拒收（旧行为自增 code=max+1——编码随到达顺序漂移，已废止）。
   void frozenSchemaCodeForLabel() {
     QVariantList schema;
-    schema << QVariantMap{{"code", 1}, {"name", "辫状河"}, {"microfacies", "BR"},
+    schema << QVariantMap{{"code", 1}, {"name", "辫状河"}, {"facies", "河流"}, {"subfacies", "河道"}, {"microfacies", "BR"},
                           {"color", "#123456"}}
-           << QVariantMap{{"code", 7}, {"name", "三角洲前缘"}, {"microfacies", "DF"},
+           << QVariantMap{{"code", 7}, {"name", "三角洲前缘"}, {"facies", "三角洲"}, {"subfacies", "前缘"}, {"microfacies", "DF"},
                           {"color", "#654321"}};
     QCOMPARE(faciesCodeForLabel(schema, QStringLiteral("辫状河")), 1);
     QCOMPARE(faciesCodeForLabel(schema, QStringLiteral("DF")), 7);
@@ -411,6 +411,15 @@ private slots:
     QVERIFY(parseWellFaciesResult(json, "W-1", input, &result, &error));
     QCOMPARE(result.intervals.size(), 1);
     QCOMPARE(result.confidence.values.size(), 128);
+    QCOMPARE(result.hierarchyIntervals.size(), 1);
+    QCOMPARE(result.hierarchyIntervals[0].majorFacies, QStringLiteral("三角洲相"));
+    QCOMPARE(result.hierarchyIntervals[0].subFacies, QStringLiteral("三角洲前缘"));
+    QCOMPARE(result.hierarchyIntervals[0].microFacies, QStringLiteral("河口坝"));
+    QVERIFY(!parseWellFaciesResult(response(input.rows, "W-1", QStringLiteral("三角洲前缘")),
+                                  "W-1", input, &result, &error));
+    QVERIFY(error.contains(QStringLiteral("微相")));
+    QVERIFY(!parseWellFaciesResult(response(input.rows, "W-1", QStringLiteral("未知相")),
+                                  "W-1", input, &result, &error));
     QVERIFY(!parseWellFaciesResult(json, "different", input, &result, &error));
     auto rows = json["predictions"].toArray();
     auto p = rows[10].toObject();
@@ -418,6 +427,47 @@ private slots:
     rows[10] = p;
     json["predictions"] = rows;
     QVERIFY(!parseWellFaciesResult(json, "W-1", input, &result, &error));
+  }
+  void predictionKeepsTheScopeOfHomonymousMicrofacies() {
+    auto input = prepareWellFaciesInput(well(), model());
+    input.facies = {
+      QVariantMap{{"code", 10}, {"name", "主槽"}, {"facies", "河流"}, {"subfacies", "河道"}, {"microfacies", "主槽"}},
+      QVariantMap{{"code", 11}, {"name", "主槽"}, {"facies", "三角洲"}, {"subfacies", "前缘"}, {"microfacies", "主槽"}}};
+    WellFaciesResult result;
+    QString error;
+    QVERIFY(!parseWellFaciesResult(response(input.rows, "W-1", QStringLiteral("主槽")),
+                                  "W-1", input, &result, &error));
+    QVERIFY2(parseWellFaciesResult(response(input.rows, "W-1", QStringLiteral("河流 / 河道 / 主槽")),
+                                  "W-1", input, &result, &error), qPrintable(error));
+    QCOMPARE(result.hierarchyIntervals.first().microFacies, QStringLiteral("主槽"));
+    QCOMPARE(result.hierarchyIntervals.first().majorFacies, QStringLiteral("河流"));
+    QCOMPARE(faciesCodeForLabel(result.facies, result.intervals.first().text), 10);
+  }
+  void mergingFormationsKeepsDistinctPathsAndCodes() {
+    auto input = prepareWellFaciesInput(well(), model());
+    WellFaciesResult river, delta;
+    QString error;
+    input.facies = {QVariantMap{{"code", 1}, {"name", "主槽"}, {"facies", "河流"},
+                               {"subfacies", "河道"}, {"microfacies", "主槽"}}};
+    QVERIFY(parseWellFaciesResult(response(input.rows, "W-1", QStringLiteral("主槽")), "W-1", input, &river, &error));
+    river.group = "上部";
+    input.facies = {QVariantMap{{"code", 1}, {"name", "主槽"}, {"facies", "三角洲"},
+                               {"subfacies", "前缘"}, {"microfacies", "主槽"}}};
+    for (qsizetype i = 0; i < input.rows.size(); ++i) {
+      auto row = input.rows[i].toObject();
+      row[QStringLiteral("深度")] = row[QStringLiteral("深度")].toDouble() + 100;
+      input.rows[i] = row;
+    }
+    QVERIFY(parseWellFaciesResult(response(input.rows, "W-1", QStringLiteral("主槽")), "W-1", input, &delta, &error));
+    delta.group = "下部";
+    const auto merged = mergeWellFaciesResults({delta, river});
+    const auto reverse = mergeWellFaciesResults({river, delta});
+    QCOMPARE(merged.facies, reverse.facies);
+    QCOMPARE(merged.intervals.size(), 2);
+    QCOMPARE(merged.hierarchyIntervals[0].majorFacies, QStringLiteral("河流"));
+    const int aCode = faciesCodeForLabel(merged.facies, merged.intervals[0].text);
+    const int bCode = faciesCodeForLabel(merged.facies, merged.intervals[1].text);
+    QVERIFY(aCode > 0 && bCode > 0 && aCode != bCode);
   }
   void transport_data() {
     QTest::addColumn<bool>("queued");
@@ -547,6 +597,14 @@ private slots:
       return n;
     };
     QCOMPARE(count(), 1);
+    for (const auto &track : panel.canvas()->tracks())
+      if (track->title() == QStringLiteral("预测相")) {
+        QCOMPARE(track->type(), TrackType::FaciesCompound);
+        const auto typed = std::static_pointer_cast<FaciesCompoundTrack>(track);
+        QCOMPARE(typed->intervals().first().majorFacies, QStringLiteral("三角洲相"));
+        QCOMPARE(typed->intervals().first().subFacies, QStringLiteral("三角洲前缘"));
+        QCOMPARE(typed->intervals().first().microFacies, QStringLiteral("河口坝"));
+      }
     // 优势相道：well() 的地层道有 恩平组（组）和 恩平一段（段），各一道。
     const auto dominantTracks = [&panel] {
       QStringList titles;
@@ -881,9 +939,9 @@ private slots:
     // 请求并拿到 v2 标签。
     WellFaciesModel upgraded = model();
     upgraded.version = QStringLiteral("v2");
-    upgraded.labels = {QStringLiteral("三角洲前缘")};
+    upgraded.labels = {QStringLiteral("席状砂")};
     server.models = {upgraded};
-    server.labels = {{"model-1", QStringLiteral("三角洲前缘")}};
+    server.labels = {{"model-1", QStringLiteral("席状砂")}};
     results.clear();
     ready.clear();
     workflow.refreshModels();
@@ -896,7 +954,7 @@ private slots:
     QTRY_COMPARE(results.size(), 1);
     QCOMPARE(server.predictCount, 2);
     QCOMPARE(qvariant_cast<WellFaciesResult>(results[0][0]).intervals[0].text,
-             QStringLiteral("三角洲前缘"));
+             QStringLiteral("席状砂"));
   }
   void taskProgressFollowsServerProgress() {
     Server server;

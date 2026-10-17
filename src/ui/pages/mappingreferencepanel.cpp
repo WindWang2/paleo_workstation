@@ -1,5 +1,6 @@
 // 层：视图
 #include "mappingreferencepanel.h"
+#include "../../domain/facieshierarchy.h"
 
 #include "../../qgis/mappingreferencecanvas.h"
 #include "../decorations/paleodecorations.h"
@@ -16,6 +17,7 @@
 #include <QPushButton>
 #include <QSignalBlocker>
 #include <QVBoxLayout>
+#include <QTreeWidget>
 MappingReferencePanel::MappingReferencePanel(QgsMapCanvas *mainCanvas,
                                              QgsProject *project, QWidget *parent)
     : QWidget(parent)
@@ -49,7 +51,14 @@ MappingReferencePanel::MappingReferencePanel(QgsMapCanvas *mainCanvas,
   m_fullExtent->setObjectName(QStringLiteral("referenceFullExtent"));
   m_fullExtent->setEnabled(false);
   m_fullExtent->setToolTip(tr("请先选择可读取的参考图件"));
+  auto *legendToggle = new QToolButton(this);
+  legendToggle->setObjectName("referenceLegendToggle");
+  legendToggle->setText(tr("图例"));
+  legendToggle->setCheckable(true);
+  legendToggle->setEnabled(false);
+  legendToggle->setToolTip(tr("在视图下方展开图例，查看此版本的符号和三级归属"));
   actions->addWidget(m_linked);
+  actions->addWidget(legendToggle);
   actions->addStretch();
   actions->addWidget(m_fullExtent);
   layout->addLayout(actions);
@@ -68,6 +77,16 @@ MappingReferencePanel::MappingReferencePanel(QgsMapCanvas *mainCanvas,
   m_view->setMinimumSize(240, 160);
   layout->addWidget(m_view, 1);
   m_view->hide();
+  auto *legendTree = new QTreeWidget(this);
+  legendTree->setObjectName("referenceLegendTree");
+  legendTree->setAccessibleName(tr("当前参考图件图例"));
+  legendTree->setHeaderLabel(tr("图例"));
+  legendTree->setMaximumHeight(160);
+  legendTree->setIconSize(QSize(tokens.spacingMd * 2, tokens.spacingMd));
+  legendTree->setEditTriggers(QAbstractItemView::NoEditTriggers);
+  legendTree->hide();
+  layout->addWidget(legendTree);
+  connect(legendToggle, &QToolButton::toggled, legendTree, &QWidget::setVisible);
   m_decor = new PaleoDecorationManager(canvas());
   m_decor->setScaleBarEnabled(true);
   connect(m_sources, &QComboBox::currentIndexChanged, this, [this] {
@@ -82,9 +101,25 @@ MappingReferencePanel::MappingReferencePanel(QgsMapCanvas *mainCanvas,
     m_view->zoomToFullExtent();
   });
   connect(m_remove, &QToolButton::clicked, this, &MappingReferencePanel::removeViewRequested);
-  connect(m_view, &MappingReferenceCanvas::legendChanged, this, [this](const QVariantList &entries) {
-    m_decor->setFaciesLegend(selectedSource().value("horizon").toString() + tr(" · 参考%1")
-        .arg(m_metadata.value("mock").toBool() ? tr(" Mock") : QString()), entries);
+  connect(m_view, &MappingReferenceCanvas::legendChanged, this,
+          [this, legendTree, legendToggle](const QVariantList &entries) {
+    legendTree->clear();
+    legendToggle->setEnabled(!entries.isEmpty());
+    const auto level = entries.value(0).toMap().value("level").toString();
+    const auto title = level.isEmpty() ? tr("参考图例") : FaciesHierarchy::title(level);
+    legendTree->setHeaderLabel(title + (m_metadata.value("mock").toBool() ? tr(" · Mock") : QString()));
+    QVector<QTreeWidgetItem *> parents;
+    for (const auto &entry : FaciesHierarchy::legendTree(entries)) {
+      const auto row = entry.toMap();
+      const int depth = row.value("depth", 0).toInt();
+      while (parents.size() > depth) parents.removeLast();
+      auto *parent = parents.isEmpty() ? legendTree->invisibleRootItem() : parents.last();
+      auto *node = new QTreeWidgetItem(parent, {row.value("name").toString()});
+      node->setToolTip(0, row.value("path", row.value("name")).toString());
+      if (!row.value("heading").toBool()) node->setIcon(0, row.value("legend_icon").value<QIcon>());
+      parents << node;
+    }
+    legendTree->expandAll();
   });
   setMinimumSize(260, 260);
   refreshSources();

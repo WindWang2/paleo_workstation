@@ -799,7 +799,9 @@ private slots:
                                 3, 3, 3, 3,
                                 3, 3, 3, 3 };
     QString log;
-    const QString out = runFacies( QStringLiteral( "three" ), 4, 4, px, {}, nullptr, &log );
+    QVariantMap params;
+    params.insert( QStringLiteral( "BOUNDARY_SMOOTH" ), 0 ); // 断言精确面积，关切角
+    const QString out = runFacies( QStringLiteral( "three" ), 4, 4, px, params, nullptr, &log );
     QVERIFY2( !out.isEmpty(), qPrintable( log ) );
     const QVector<Face> faces = readFaces( out );
     QCOMPARE( faces.size(), 3 );
@@ -845,6 +847,7 @@ private slots:
     QVariantMap params;
     params.insert( QStringLiteral( "SMOOTH" ), 0 );
     params.insert( QStringLiteral( "MIN_AREA" ), 1.5 );
+    params.insert( QStringLiteral( "BOUNDARY_SMOOTH" ), 0 );
     QString log;
     const QString out = runFacies( QStringLiteral( "sliver" ), 4, 4, px, params, nullptr, &log );
     QVERIFY2( !out.isEmpty(), qPrintable( log ) );
@@ -866,7 +869,9 @@ private slots:
                                 1, 2, 1, 1, 1,
                                 1, 1, 1, 1, 1 };
     QString log;
-    const QString out = runFacies( QStringLiteral( "speckle" ), 5, 5, px, {}, nullptr, &log );
+    QVariantMap params;
+    params.insert( QStringLiteral( "BOUNDARY_SMOOTH" ), 0 ); // 断言精确面积，关切角
+    const QString out = runFacies( QStringLiteral( "speckle" ), 5, 5, px, params, nullptr, &log );
     QVERIFY2( !out.isEmpty(), qPrintable( log ) );
     const QVector<Face> faces = readFaces( out );
     QCOMPARE( faces.size(), 1 );
@@ -940,6 +945,7 @@ private slots:
     QVariantMap one;
     one.insert( QStringLiteral( "SMOOTH" ), 1 );
     one.insert( QStringLiteral( "MIN_CELLS" ), 0 );
+    one.insert( QStringLiteral( "BOUNDARY_SMOOTH" ), 0 );
     QString log;
     const QString out1 = runFacies( QStringLiteral( "smooth1" ), 5, 4, px, one, nullptr, &log );
     QVERIFY2( !out1.isEmpty(), qPrintable( log ) );
@@ -948,6 +954,7 @@ private slots:
     QVariantMap two;
     two.insert( QStringLiteral( "SMOOTH" ), 2 );
     two.insert( QStringLiteral( "MIN_CELLS" ), 0 );
+    two.insert( QStringLiteral( "BOUNDARY_SMOOTH" ), 0 );
     const QString out2 = runFacies( QStringLiteral( "smooth2" ), 5, 4, px, two, nullptr, &log );
     QVERIFY2( !out2.isEmpty(), qPrintable( log ) );
     const QVector<Face> faces = readFaces( out2 );
@@ -964,7 +971,9 @@ private slots:
                                 1, 2, 2, 2,
                                 2, 2, 2, 2 };
     QString log;
-    const QString rawPath = runFacies( QStringLiteral( "stair" ), 4, 4, px, {}, nullptr, &log );
+    QVariantMap rawParams;
+    rawParams.insert( QStringLiteral( "BOUNDARY_SMOOTH" ), 0 ); // 对照组：只量化化简
+    const QString rawPath = runFacies( QStringLiteral( "stair" ), 4, 4, px, rawParams, nullptr, &log );
     QVERIFY2( !rawPath.isEmpty(), qPrintable( log ) );
     const QVector<Face> rawFaces = readFaces( rawPath );
     const Face *raw = faceByCode( rawFaces, 1 );
@@ -987,6 +996,7 @@ private slots:
 
     QVariantMap params;
     params.insert( QStringLiteral( "SIMPLIFY" ), 1.5 );
+    params.insert( QStringLiteral( "BOUNDARY_SMOOTH" ), 0 );
     const QString simPath = runFacies( QStringLiteral( "stair_s" ), 4, 4, px, params, nullptr, &log );
     QVERIFY2( !simPath.isEmpty(), qPrintable( log ) );
     const QVector<Face> faces = readFaces( simPath );
@@ -1003,6 +1013,66 @@ private slots:
     QVERIFY( a->geom.intersection( b->geom ).area() < 1e-4 );
     QVERIFY( a->area > 1.0 );
     QVERIFY( b->area > 1.0 );
+  }
+
+  // BOUNDARY_SMOOTH 对共享弧做 Chaikin 切角：阶梯拐点被切掉、顶点增多，
+  // coverage 不破（共享弧只存一份，两邻面重建出同一边界，图斑连接点不动）。
+  void faciesPolygonsBoundarySmoothRoundsStairs()
+  {
+    const QVector<float> px = { 1, 1, 1, 2,
+                                1, 1, 2, 2,
+                                1, 2, 2, 2,
+                                2, 2, 2, 2 };
+    const auto exteriorVerts = []( const QgsGeometry &g ) -> int {
+      const QgsPolygonXY poly = g.asPolygon();
+      if ( !poly.isEmpty() )
+        return static_cast<int>( poly.at( 0 ).size() );
+      int n = 0;
+      for ( const QgsGeometry &part : g.asGeometryCollection() )
+      {
+        const QgsPolygonXY pp = part.asPolygon();
+        if ( !pp.isEmpty() )
+          n += static_cast<int>( pp.at( 0 ).size() );
+      }
+      return n;
+    };
+
+    QString log;
+    QVariantMap off;
+    off.insert( QStringLiteral( "BOUNDARY_SMOOTH" ), 0 );
+    const QString rawPath = runFacies( QStringLiteral( "bsmooth_off" ), 4, 4, px, off, nullptr, &log );
+    QVERIFY2( !rawPath.isEmpty(), qPrintable( log ) );
+    const QVector<Face> rawFaces = readFaces( rawPath );
+    const Face *raw = faceByCode( rawFaces, 1 );
+    QVERIFY( raw );
+    const int rawVerts = exteriorVerts( raw->geom );
+
+    const QString simPath = runFacies( QStringLiteral( "bsmooth_on" ), 4, 4, px, {}, nullptr, &log );
+    QVERIFY2( !simPath.isEmpty(), qPrintable( log ) );
+    const QVector<Face> faces = readFaces( simPath );
+    const Face *a = faceByCode( faces, 1 );
+    const Face *b = faceByCode( faces, 2 );
+    QVERIFY( a && b );
+
+    // 切角生效：原阶梯拐点严格落在平滑面之外（位移 ~0.25 格），顶点随之增多。
+    double maxCornerDist = 0.0;
+    for ( const QgsPolylineXY &ring : raw->geom.asPolygon() )
+      for ( const QgsPointXY &v : ring )
+        maxCornerDist =
+            std::max( maxCornerDist, a->geom.distance( QgsGeometry::fromPointXY( v ) ) );
+    QVERIFY2( maxCornerDist > 0.05, qPrintable( QString::number( maxCornerDist ) ) );
+    QVERIFY( exteriorVerts( a->geom ) > rawVerts );
+
+    // coverage 不破：邻面无叠；外圈切角有界收缩，不吞图斑。
+    QVERIFY( a->geom.intersection( b->geom ).area() < 1e-4 );
+    QVERIFY( a->area + b->area > 14.0 );
+
+    const QJsonObject prov = QJsonDocument::fromJson(
+        mLast.value( QStringLiteral( "PROVENANCE" ) ).toString().toUtf8() ).object();
+    QCOMPARE( prov.value( QStringLiteral( "boundary_smooth" ) ).toInt(), 2 );
+    QVERIFY( prov.value( QStringLiteral( "smoothed_arcs" ) ).toInt() > 0 );
+    QVERIFY( prov.value( QStringLiteral( "steps" ) ).toArray()
+                 .contains( QStringLiteral( "boundary-smooth" ) ) );
   }
 
   // A vertical shared edge snaps onto a nearby parallel constraint.
@@ -1025,6 +1095,7 @@ private slots:
     QVariantMap params;
     params.insert( QStringLiteral( "SNAP_TOLERANCE" ), 0.5 );
     params.insert( QStringLiteral( "ANGLE_TOLERANCE" ), 20.0 );
+    params.insert( QStringLiteral( "BOUNDARY_SMOOTH" ), 0 ); // 专注吸附语义
     QString log;
     const QString out = runFacies( QStringLiteral( "snap" ), 4, 4, px, params, line, &log );
     delete line;

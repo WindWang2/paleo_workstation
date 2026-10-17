@@ -13,6 +13,7 @@ struct WellFaciesModel {
 };
 struct WellFaciesInput {
   QJsonArray rows;
+  QVariantList facies; // 冻结的三级分类；空时使用内置模板
   QString reason;
   bool ready() const { return reason.isEmpty() && !rows.isEmpty(); }
 };
@@ -21,6 +22,8 @@ struct WellFaciesResult {
   QVector<WellComposite::TextInterval> intervals;
   WellComposite::CurveData confidence;
   QJsonObject response;
+  QVariantList facies; // 微相编码及完整父级归属
+  QVector<WellComposite::FaciesInterval> hierarchyIntervals;
   QString group; // 本结果对应的地层组；合并结果为各组名以「、」连接
   // 各地层单位（组、段）的优势微相：由工作流按井的地层道统计，供「优势相」道
   // 显示并写入地层优势相矢量表；解析/合并本身不填。
@@ -65,8 +68,8 @@ WellFaciesPlan planWellFaciesFormationRun(const WellComposite::ComprehensiveWell
 // 把逐组返回的结果并成一份供显示/导出：区间按井深排序，置信度曲线按深度拼接。
 // 只有一份时原样返回。
 WellFaciesResult mergeWellFaciesResults(const QVector<WellFaciesResult> &parts);
-// 冻结相 schema（编图请求携带的 facies 词表）内查标签的相码：name 或
-// microfacies 命中即返回该 code。schema 外标签返回 0。调用方两种合法消费：
+// 冻结三级 schema 内查微相标签的相码：完整路径 / 唯一名称 / 别名命中。
+// 缺父级、歧义或 schema 外标签返回 0。调用方两种合法消费：
 // 拒收该结果（按井跳过并注明原因），或做**确定性**扩展（先收集全部未知
 // 标签、排序后统一分配新码）——不得边遍历边 max+1：编码会随到达顺序漂移，
 // 同一标签集跨 run 得到不同码，属性表/图例不可比。

@@ -525,13 +525,6 @@
     "reason": "DESIGN 数据符号例外：QGIS 顶点编辑的白色顶点与红色拖拽标记（原有覆盖符号）。"
   },
   {
-    "file": "src/ui/pages/mappingworkbenchpage.cpp",
-    "rule": "hex",
-    "source": "m_facies->setItem(i, 2, new QTableWidgetItem(\"#97B4CE\"));",
-    "count": 1,
-    "reason": "DESIGN 数据符号例外：地质相模型表格中可编辑的颜色值。"
-  },
-  {
     "file": "src/ui/paleomainwindow.cpp",
     "rule": "hex",
     "source": "band->setStrokeColor(QColor(QStringLiteral(\"#1B73D0\")));",

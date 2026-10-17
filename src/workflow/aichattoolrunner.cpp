@@ -378,11 +378,14 @@ void AiChatToolRunner::runFacies(const ChatToolCall &call,
               entry.insert(QStringLiteral("top"), double(interval.topDepth));
               entry.insert(QStringLiteral("bottom"),
                            double(interval.bottomDepth));
-              // 预测管线只填 text（parseWellFaciesResult），category 恒空——
-              // 词面用 text，模型才能向用户转述预测相。
-              entry.insert(QStringLiteral("facies"), interval.text);
+              entry.insert(QStringLiteral("label"), interval.text);
+              const auto hierarchy = result.hierarchyIntervals.value(i);
+              entry.insert(QStringLiteral("facies"), hierarchy.majorFacies);
+              entry.insert(QStringLiteral("subfacies"), hierarchy.subFacies);
+              entry.insert(QStringLiteral("microfacies"), hierarchy.microFacies);
               sample.append(entry);
             }
+            payload.insert(QStringLiteral("prediction_level"), QStringLiteral("micro_facies"));
             payload.insert(QStringLiteral("intervals_sample"), sample);
             if (result.intervals.size() > kSample)
               payload.insert(

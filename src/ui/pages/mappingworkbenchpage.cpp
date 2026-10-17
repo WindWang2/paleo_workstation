@@ -91,7 +91,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
     label(tr("地震层位窗聚类／预测服务 · 结果待复核\n"
              "选择一个地震体，或勾选一口／多口井。结果按当前层位与相分类"
              "生成。测井仅节选当前地层顶底深范围调用远端服务，"
-             "每口井显示一个预测相点，"
+             "每口井显示一个预测微相点及其亚相、相归属，"
              "并同步工区井段与地层预测信息。"));
     m_status = new QLabel(body);
     m_status->setObjectName("workbenchPredictionStatus");
@@ -102,7 +102,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
     const auto showStatus = [this] {
       if (m_status && m_workbench)
         m_status->setText(m_kind && m_kind->currentData() == "seismic_mock"
-          ? tr("Mock：沿当前层位提取 ±12 ms 地震反射窗，聚类生成分布图；相类别映射需地质复核。")
+          ? tr("Mock：沿当前层位提取 ±12 ms 地震反射窗，聚类映射为微相；亚相和相来自三级图例，解释需地质复核。")
           : m_kind && m_kind->currentData() == "wells"
               ? m_workbench->wellPredictionStatusHint() : m_workbench->predictionStatusHint());
     };
@@ -112,13 +112,13 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
     m_kind = new QComboBox(body);
     m_kind->setObjectName("predictionKind");
     m_kind->setAccessibleName(tr("预测类型"));
-    m_kind->addItem(tr("地震层位窗聚类 → 分布图（Mock）"), "seismic_mock");
-    m_kind->addItem(tr("地震体 → 相栅格（预测服务）"), "seismic");
-    m_kind->addItem(tr("测井 → 当前地层预测相"), "wells");
+    m_kind->addItem(tr("地震层位窗聚类 → 微相图（Mock）"), "seismic_mock");
+    m_kind->addItem(tr("地震体 → 微相栅格（预测服务）"), "seismic");
+    m_kind->addItem(tr("测井 → 当前地层预测微相"), "wells");
     // 井点的相 = 该井在当前层位地层（本层位顶 → 下一层位顶）内厚度最大的相，
     // 与数据管理逐组预测写同一张「测井地层相属性」表。
     m_kind->setItemData(m_kind->count() - 1,
-                        tr("每口井在当前层位地层内厚度最大的相作为该井该地层的预测相；"
+                        tr("每口井在当前地层内厚度最大的微相作为预测结果，并关联亚相和相；"
                            "结果按井、按地层写入「测井地层相属性」表，与数据管理共用"),
                         Qt::ToolTipRole);
     form->addRow(tr("预测类型"), m_kind);
@@ -374,7 +374,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
           [this] { updateState(); });
   auto *hierarchyHint = new QLabel(
       tr("三级共用边界。相／亚相改类会更新整个选中父类，并保留目标分类内兼容的"
-         "下级；微相改类只作用于选中面。缺层级先向上、再向下填充显示。"),
+         "下级；微相改类只作用于选中面。缺少层级明确标为未定义，预测与编图前须补齐。"),
       appearance);
   hierarchyHint->setWordWrap(true);
   appearanceLayout->addWidget(hierarchyHint);
@@ -660,75 +660,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   auto *sl = new QVBoxLayout(schema);
   auto *schemaBody = new QWidget(schema);
   sl->addWidget(schemaBody);
-  auto *sbl = new QVBoxLayout(schemaBody);
-  sbl->setContentsMargins(0, 0, 0, 0);
-  m_facies = new QTableWidget(0, 7, schemaBody);
-  m_facies->setObjectName("faciesSchema");
-  m_facies->setAccessibleName(tr("当前层位相分类"));
-  m_facies->setHorizontalHeaderLabels({tr("编码"), tr("类别名称"), tr("颜色"),
-                                       tr("相"), tr("亚相"), tr("微相"),
-                                       tr("纹理")});
-  m_facies->horizontalHeader()->setSectionResizeMode(
-      QHeaderView::ResizeToContents);
-  m_facies->setMinimumHeight(140);
-  sbl->addWidget(m_facies);
-  auto *library = new QComboBox(schemaBody);
-  library->setObjectName("faciesTextureLibrary");
-  library->setAccessibleName(tr("地质纹理库"));
-  library->setEditable(true);
-  library->setInsertPolicy(QComboBox::NoInsert);
-  for (const auto &v : FaciesCatalog::library()) {
-    auto f = v.toMap();
-    library->addItem(
-        QIcon(FaciesCatalog::resourcePath(f.value("icon", f.value("texture")).toString())),
-        f.value("category").toString() + " · " + f.value("name").toString(), f);
-  }
-  sbl->addWidget(library);
-  auto *useTexture = new QPushButton(tr("将所选纹理应用到分类行"), schemaBody);
-  sbl->addWidget(useTexture);
-  connect(useTexture, &QPushButton::clicked, this, [this, library] {
-    int row = m_facies->currentRow();
-    if (row < 0)
-      return;
-    const auto f = library->currentData().toMap();
-    m_facies->setItem(row, 1, new QTableWidgetItem(f.value("name").toString()));
-    m_facies->setItem(row, 2,
-                      new QTableWidgetItem(f.value("color").toString()));
-    m_facies->setItem(row, 6,
-                      new QTableWidgetItem(f.value("texture").toString()));
-    if (!m_facies->item(row, 3) || m_facies->item(row, 3)->text().isEmpty())
-      m_facies->setItem(row, 3,
-                        new QTableWidgetItem(f.value("name").toString()));
-  });
-  auto *sr = new QHBoxLayout;
-  auto *add = new QPushButton(tr("新增相"), schemaBody);
-  auto *remove = new QPushButton(tr("删除相"), schemaBody);
-  sr->addWidget(add);
-  sr->addWidget(remove);
-  sr->addWidget(button("schema", tr("保存分类")));
-  sbl->addLayout(sr);
-  auto *hint =
-      new QLabel(tr("分类按层位独立保存；已有图件保留生成时分类。选中分类行后可"
-                    "从纹理库应用符号；亚相、微相可留空，未分类要素仍会显示。"),
-                 schemaBody);
-  hint->setWordWrap(true);
-  sbl->addWidget(hint);
-  connect(add, &QPushButton::clicked, this, [this] {
-    int i = m_facies->rowCount();
-    m_facies->insertRow(i);
-    int code = 1;
-    for (int r = 0; r < i; ++r)
-      if (m_facies->item(r, 0))
-        code = qMax(code, m_facies->item(r, 0)->text().toInt() + 1);
-    m_facies->setItem(i, 0, new QTableWidgetItem(QString::number(code)));
-    m_facies->setItem(i, 1, new QTableWidgetItem(tr("新相")));
-    m_facies->setItem(i, 2, new QTableWidgetItem("#97B4CE"));
-    for (int c = 3; c < 7; ++c)
-      m_facies->setItem(i, c, new QTableWidgetItem());
-    m_facies->setCurrentCell(i, 1);
-  });
-  connect(remove, &QPushButton::clicked, this,
-          [this] { m_facies->removeRow(m_facies->currentRow()); });
+  buildFaciesSchema(schemaBody);
   layout->addWidget(schema);
   schema->setCollapsed(false);
   layout->addStretch();
@@ -785,10 +717,13 @@ void MappingWorkbenchPage::setHorizon(const QString &h) {
   showMessage(QString());
   refresh();
   const auto schema = m_workbench->facies(h);
+  if (m_thresholds) m_thresholds->setPlaceholderText(
+      tr("%1 个微相需填写 %2 个递增阈值（按编码顺序）").arg(schema.size()).arg(qMax(0, int(schema.size()) - 1)));
   m_facies->setRowCount(schema.size());
   for (int i = 0; i < schema.size(); ++i) {
     auto f = schema[i].toMap();
     m_facies->setItem(i, 0, new QTableWidgetItem(f.value("code").toString()));
+    m_facies->item(i, 0)->setData(Qt::UserRole, f);
     m_facies->setItem(i, 1, new QTableWidgetItem(f.value("name").toString()));
     m_facies->setItem(i, 2, new QTableWidgetItem(f.value("color").toString()));
     int c = 3;
@@ -1309,7 +1244,8 @@ void MappingWorkbenchPage::issue(const QString &action, QVariantMap p) {
       rows << QVariantMap{{"code", text(0)},      {"name", text(1)},
                           {"color", text(2)},     {"facies", text(3)},
                           {"subfacies", text(4)}, {"microfacies", text(5)},
-                          {"texture", text(6)}};
+                          {"texture", text(6)},
+                          {"aliases", m_facies->item(i, 0) ? m_facies->item(i, 0)->data(Qt::UserRole).toMap().value("aliases") : QVariant()}};
     }
     p.insert("facies", rows);
   }

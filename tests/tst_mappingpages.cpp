@@ -164,8 +164,9 @@ void PredictPageTests::schemaRegistryMirrorsAlgorithmTruth()
 
   const auto polygonize = AlgorithmParamSchema::fieldsFor(
       QStringLiteral("paleo:paleo_facies_polygonize"));
-  QCOMPARE(polygonize.size(), 7);
-  bool sawSmooth = false, sawMinCells = false, sawMinFraction = false;
+  QCOMPARE(polygonize.size(), 8);
+  bool sawSmooth = false, sawMinCells = false, sawMinFraction = false,
+       sawBoundarySmooth = false;
   for (const F &f : polygonize)
   {
     if (f.key == QLatin1String("SMOOTH"))
@@ -196,8 +197,19 @@ void PredictPageTests::schemaRegistryMirrorsAlgorithmTruth()
       QVERIFY(f.hasMax);
       QCOMPARE(f.maxValue, 1.0);
     }
+    if (f.key == QLatin1String("BOUNDARY_SMOOTH"))
+    {
+      sawBoundarySmooth = true;
+      QCOMPARE(f.type, F::Int);
+      QCOMPARE(f.defaultValue.toInt(), 2);
+      QVERIFY(f.hasMin);
+      QCOMPARE(f.minValue, 0.0);
+      QVERIFY(f.hasMax);
+      QCOMPARE(f.maxValue, 5.0);
+    }
   }
   QVERIFY(sawSmooth);
+  QVERIFY(sawBoundarySmooth);
   QVERIFY(sawMinCells);
   QVERIFY(sawMinFraction);
   bool sawAngle = false;

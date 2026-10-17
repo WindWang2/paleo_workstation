@@ -1,5 +1,6 @@
 // 层：数据
 #include "faciescatalog.h"
+#include "faciestaxonomy.h"
 #include <QDirIterator>
 #include <QColor>
 #include <QFile>
@@ -108,23 +109,7 @@ QVariantMap appearance(const QVariantMap &facies) {
   result.insert("color", QStringLiteral("#9AA7B4"));
   return result;
 }
-QVariantList defaults() {
-  QVariantList out;
-  for (const auto &filename :
-       {"strat_fluvial.svg", "strat_deltaic.svg", "strat_lacustrine.svg"})
-    for (const auto &v : library()) {
-      auto f = v.toMap();
-      if (f.value("file") == filename) {
-        f.insert("code", out.size() + 1);
-        f.insert("facies", f.value("name"));
-        f.insert("subfacies", QString());
-        f.insert("microfacies", QString());
-        out << f;
-        break;
-      }
-    }
-  return out;
-}
+QVariantList defaults() { return FaciesTaxonomy::library(); }
 QVariantMap find(const QVariantList &schema, const QVariant &code) {
   if (!code.isNull())
     for (const auto &v : schema) {
@@ -140,9 +125,7 @@ QVariantMap find(const QVariantList &schema, const QVariant &code) {
 }
 QVariantMap attributes(const QVariantList &schema, const QVariant &code) {
   const auto f = find(schema, code);
-  return {{"facies_name", f.value("facies").toString().isEmpty()
-                              ? f.value("name")
-                              : f.value("facies")},
+  return {{"facies_name", f.value("facies", QString())},
           {"subfacies", f.value("subfacies", QString())},
           {"microfacies", f.value("microfacies", QString())},
           {"facies_label", f.value("name")},

@@ -657,6 +657,7 @@ add_library(paleo_ui STATIC
   src/ui/symbols/symbolpickerpanel.cpp             # 方向31：符号选择器面板（花纹/线型浏览 + 语义过滤）
   src/ui/pages/mappingworkbenchpage.cpp
   src/ui/pages/mappingworkbenchpage_references.cpp
+  src/ui/pages/mappingworkbenchpage_schema.cpp
   src/ui/pages/mappingreferencepanel.cpp
   src/ui/paleomainwindow_references.cpp
   src/ui/paleomainwindow_workbench.cpp

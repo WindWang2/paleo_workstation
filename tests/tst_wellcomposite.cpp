@@ -5,6 +5,7 @@
 #include <QApplication>
 #include <QDir>
 #include <QTimer>
+#include <QTreeWidget>
 #include <QShortcut>
 #include <QFile>
 
@@ -383,6 +384,39 @@ private slots:
     captureIfAsked(imgDetail, QStringLiteral("screen_resform_reservoir_detail.png"));
   }
 
+  void testWellLegendUsesTheSharedThreeLevelHierarchy()
+  {
+    ComprehensiveWellData data;
+    FaciesInterval interval;
+    interval.majorFacies = QStringLiteral("河流相");
+    interval.subFacies = QStringLiteral("河道亚相");
+    interval.microFacies = QStringLiteral("边滩");
+    data.faciesIntervals << interval;
+    WellLegendDialog dialog(data);
+    auto *tree = dialog.findChild<QTreeWidget *>("wellFaciesHierarchyLegend");
+    QVERIFY(tree);
+    QCOMPARE(tree->topLevelItemCount(), 2);
+    int leaves = 0;
+    bool custom = false;
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+      auto *facies = tree->topLevelItem(i);
+      QVERIFY(facies->childCount() > 0);
+      for (int j = 0; j < facies->childCount(); ++j) {
+        auto *sub = facies->child(j);
+        QVERIFY(sub->childCount() > 0);
+        for (int k = 0; k < sub->childCount(); ++k) {
+          auto *micro = sub->child(k);
+          QCOMPARE(micro->childCount(), 0);
+          QVERIFY(tree->itemWidget(micro, 1));
+          custom |= facies->text(0) == QStringLiteral("河流相") &&
+                    sub->text(0) == QStringLiteral("河道亚相") && micro->text(0) == QStringLiteral("边滩");
+          ++leaves;
+        }
+      }
+    }
+    QCOMPARE(leaves, 8);
+    QVERIFY(custom);
+  }
   void testWellPositionLegendWidgetAndSync()
   {
     WellCompositePanel panel;

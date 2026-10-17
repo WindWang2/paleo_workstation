@@ -96,7 +96,7 @@ private slots:
     QVERIFY(!factorV1.isEmpty());
     const auto factorV1Version = f.work.versionForLayer(factorV1);
     const auto polygonsV1 =
-        f.work.compose("D61", {factorV1}, {{"thresholds", QVariantList{20., 40.}}},
+        f.work.compose("D61", {factorV1}, {{"thresholds", QVariantList{20., 25., 30., 35., 40., 45.}}},
                        &error);
     QVERIFY2(!polygonsV1.isEmpty(), qPrintable(error));
     const auto composedV1 = f.work.versionForLayer(polygonsV1).parentVersionIds.first();
@@ -223,7 +223,7 @@ private slots:
     QVERIFY(factorVersion.extra.contains("constraints_consumed"));
     QVERIFY(!factorVersion.extra.value("constraints_consumed").toList().isEmpty());
     const auto polygons = f.work.compose("D61", {factor},
-                                         {{"thresholds", QVariantList{20., 40.}}},
+                                         {{"thresholds", QVariantList{20., 25., 30., 35., 40., 45.}}},
                                          &error);
     QVERIFY2(!polygons.isEmpty(), qPrintable(error));
     const auto composed = f.work.versionForLayer(polygons).parentVersionIds.first();
@@ -319,7 +319,7 @@ private slots:
     const auto factorV1 = f.latest("single_factor_raster");
     const auto factorV1Version = f.work.versionForLayer(factorV1);
     QVERIFY(!f.work.compose("D61", {factorV1},
-                            {{"thresholds", QVariantList{20., 40.}}},
+                            {{"thresholds", QVariantList{20., 25., 30., 35., 40., 45.}}},
                             &error)
                  .isEmpty());
     QVERIFY(f.declarePoints({QVariantMap{{"x", 0}, {"y", 0}, {"z", 100}},
@@ -382,7 +382,7 @@ private slots:
     const auto factorV1 = f.latest("single_factor_raster");
     const auto factorV1Version = f.work.versionForLayer(factorV1);
     QVERIFY(!f.work.compose("D61", {factorV1},
-                            {{"thresholds", QVariantList{20., 40.}}},
+                            {{"thresholds", QVariantList{20., 25., 30., 35., 40., 45.}}},
                             &error)
                  .isEmpty());
     // 同数据再生成一个新版本：值不变 → 分相结果逐像元相同。
@@ -436,7 +436,7 @@ private slots:
     const auto factorV1 = f.latest("single_factor_raster");
     const auto factorV1Version = f.work.versionForLayer(factorV1);
     QVERIFY(!f.work.compose("D61", {factorV1},
-                            {{"thresholds", QVariantList{20., 40.}}},
+                            {{"thresholds", QVariantList{20., 25., 30., 35., 40., 45.}}},
                             &error)
                  .isEmpty());
     const auto composed = f.work.versionForLayer(f.latest("facies_polygons"))
@@ -513,7 +513,7 @@ private slots:
         f.work.versionForLayer(f.latest("single_factor_raster"));
     const auto polygonsV1 =
         f.work.compose("D61", {f.latest("single_factor_raster")},
-                       {{"thresholds", QVariantList{20., 40.}}}, &error);
+                       {{"thresholds", QVariantList{20., 25., 30., 35., 40., 45.}}}, &error);
     QVERIFY2(!polygonsV1.isEmpty(), qPrintable(error));
     const auto composedV1 =
         f.work.versionForLayer(polygonsV1).parentVersionIds.first();

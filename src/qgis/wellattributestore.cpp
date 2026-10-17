@@ -213,7 +213,10 @@ QgsVectorLayer *open(DataCatalog *catalog, const QString &dir,
                                                                : "horizon",
                                     QMetaType::QString)};
     if (table == Table::Formations) {
-      fields << QgsField("unit_type", QMetaType::QString)
+      fields << QgsField("facies", QMetaType::QString)
+             << QgsField("sub_facies", QMetaType::QString)
+             << QgsField("micro_facies", QMetaType::QString)
+             << QgsField("unit_type", QMetaType::QString)
              << QgsField("top_md", QMetaType::Double)
              << QgsField("base_md", QMetaType::Double)
              << QgsField("thickness_md", QMetaType::Double)
@@ -297,7 +300,7 @@ QgsVectorLayer *open(DataCatalog *catalog, const QString &dir,
   // 旧工程在首次写入预测时补齐状态字段，保留原有属性和行。
   if (create && table != Table::Factors && !catalog->refusesWrites()) {
     QList<QgsField> missing;
-    for (const auto &name : {"prediction_status", "prediction_reason"})
+    for (const auto &name : {"prediction_status", "prediction_reason", "facies", "sub_facies", "micro_facies"})
       if (layer->fields().indexOf(name) < 0)
         missing << QgsField(name, QMetaType::QString);
     if (!missing.isEmpty()) {
@@ -323,8 +326,10 @@ QgsVectorLayer *open(DataCatalog *catalog, const QString &dir,
       {"top_md", tr("顶深 MD（m）")},
       {"base_md", tr("底深 MD（m）")},
       {"lithology", tr("岩性")},
-      {"facies", tr("维护相")},
-      {"predicted_facies", tr("预测相")},
+      {"facies", tr("相")},
+      {"sub_facies", tr("亚相")},
+      {"micro_facies", tr("微相")},
+      {"predicted_facies", tr("预测微相")},
       {"prediction_status", tr("预测状态")},
       {"prediction_reason", tr("未预测原因")},
       {"facies_code", tr("相编码")},
@@ -670,7 +675,7 @@ bool mergeFormations(DataCatalog *catalog, const QString &dir,
                                        k == "dominant_ratio" || k == "coverage" ||
                                        k == "tie" || k == "facies_composition");
         if (onlyMissing && !isPredictionMeta) {
-          const bool isFaciesAttribute = (k == "dominant_facies" || k == "facies_code");
+          const bool isFaciesAttribute = (k == "dominant_facies" || k == "facies_code" || k == "facies" || k == "sub_facies" || k == "micro_facies");
           if (hasExistingFacies && isFaciesAttribute)
             continue;
           if (!isFaciesAttribute) {

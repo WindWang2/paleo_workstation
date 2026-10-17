@@ -43,7 +43,7 @@ src/ui/pages/entitypanel.cpp:file:1620
 src/ui/pages/entitypanel.cpp:fn:buildD4Ui:224
 src/ui/pages/entitypanel.cpp:fn:refresh:782
 src/ui/pages/mappingworkbenchpage.cpp:file:1517
-src/ui/pages/mappingworkbenchpage.cpp:fn:MappingWorkbenchPage:682
+src/ui/pages/mappingworkbenchpage.cpp:fn:MappingWorkbenchPage:646
 src/ui/pages/mappingworkbenchpage.cpp:fn:updateState:238
 src/ui/pages/wellsitingpanel.cpp:fn:WellSitingPanel:263
 src/ui/paleomainwindow.cpp:file:1005
@@ -68,7 +68,7 @@ src/ui/seismicsection/seismicsectiondock_setup.cpp:fn:setupDisplayBar:255
 src/ui/seismicsection/seismicsectiondock_setup.cpp:fn:setupUi:386
 src/ui/shortcuts/shortcutcatalog.cpp:fn:catalogEntries:228
 src/ui/wellcomposite/panelsetup.cpp:fn:setupUi:422
-src/ui/wellcomposite/wellpositionlegendwidget.cpp:fn:setupUi:278
+src/ui/wellcomposite/wellpositionlegendwidget.cpp:fn:setupUi:261
 src/ui/wellsection/wellsectiondialogs.cpp:fn:WellSectionTracksDialog:257
 src/ui/wellsection/wellsectionpanel.cpp:file:1541
 src/ui/wellsection/wellsectionpanel.cpp:fn:WellSectionPanel:456

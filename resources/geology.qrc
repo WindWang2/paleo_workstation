@@ -1,4 +1,5 @@
 <RCC><qresource prefix="/geology">
+  <file alias="facies-hierarchy.json">geology/facies-hierarchy.json</file>
   <file alias="basic_rocks/rock_bedding_cross.svg">geology/basic_rocks/rock_bedding_cross.svg</file>
   <file alias="basic_rocks/rock_bedding_horizontal.svg">geology/basic_rocks/rock_bedding_horizontal.svg</file>
   <file alias="basic_rocks/rock_bedding_lenticular.svg">geology/basic_rocks/rock_bedding_lenticular.svg</file>

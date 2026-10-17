@@ -194,7 +194,7 @@ _ribbon/_pages/_project/_status/_errorhub/_shortcuts），本体收敛至 913 �
 变更、buildShell 六段按原文行序分解仅加函数边界、构造期 connect 55 条
 序列对拍唯一偏移 = ErrorHub 计数两条前移（wireErrorHubStatus 合并原两段）。
 
-**实测（2026-10-10，origin/master `f474069b`）：paleomainwindow.cpp 919 行（家族 21 TU）**
+**实测（2026-10-17，origin/master `da9f0af6`）：paleomainwindow.cpp 1015 行（家族 22 TU）**
 
 家族全表（`src/ui/paleomainwindow*.cpp` 共 22 TU，平铺不建子目录；行数为
 当日实测，#318 文案改动后与 #312 落点微差——漂移护栏按 ±20% 容差盯本行）：

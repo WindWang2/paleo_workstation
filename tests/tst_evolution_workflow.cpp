@@ -120,14 +120,16 @@ bool deriveBothPeriods( WorkflowFixture &f, double earlyCell, double lateCell, Q
 
   CompositionWorkflow compose( &f.proc, &f.layers );
   compose.setCatalog( &f.catalog, f.dir.path() );
+  // 指标对拍像元级精确面积：关切角平滑，免得边界圆润化蚀掉外圈小角。
+  const QVariantMap noBoundary{{QStringLiteral( "BOUNDARY_SMOOTH" ), 0}};
   if ( !compose.deriveFaciesPolygons( QStringLiteral( "H2" ), QStringLiteral( "composite.H2" ),
-                                      QVariantMap(), &err ) )
+                                      noBoundary, &err ) )
   {
     *error = err;
     return false;
   }
   if ( !compose.deriveFaciesPolygons( QStringLiteral( "H1" ), QStringLiteral( "composite.H1" ),
-                                      QVariantMap(), &err ) )
+                                      noBoundary, &err ) )
   {
     *error = err;
     return false;

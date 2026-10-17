@@ -57,6 +57,7 @@ protected:
 
 private:
   void refreshInputs();
+  void buildFaciesSchema(QWidget *schemaBody);
   void buildReferenceEntry(QWidget *body, QVBoxLayout *layout);
   void scheduleRefresh();
   void updateState();

@@ -665,6 +665,9 @@ add_library(paleo_ui STATIC
   src/ui/pages/mappingreferencepanel.cpp
   src/ui/paleomainwindow_references.cpp
   src/ui/paleomainwindow_workbench.cpp
+  src/ui/paleomainwindow_workbench_commands.cpp   # #473：命令分发链——attachWorkbench 行为守恒拆分
+  src/ui/paleomainwindow_workbench_evidence.cpp   # #473：证据面板/图谱联动接线
+  src/ui/paleomainwindow_workbench_wells.cpp      # #473：井面板 dock/自动保存/修订链
   src/ui/paleomainwindow.cpp
   src/ui/paleomainwindow_docks.cpp               # 壳构建：中央面与 dock 族（方向83）
   src/ui/paleomainwindow_status.cpp              # 状态栏族（方向83）

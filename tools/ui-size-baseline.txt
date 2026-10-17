@@ -9,7 +9,6 @@ src/ui/pages/datalist_tree.cpp:1126
 src/ui/pages/entitypanel.cpp:1620
 src/ui/pages/mappingworkbenchpage.cpp:1637
 src/ui/paleomainwindow.cpp:1015
-src/ui/paleomainwindow_workbench.cpp:1157
 src/ui/seismic3d/seismic3dviewpanel.cpp:1836
 src/ui/seismic3d/seismic3dviewportwidget.cpp:1003
 src/ui/wellsection/wellsectionpanel.cpp:1541

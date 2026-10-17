@@ -367,9 +367,10 @@ void WellLegendDialog::setupUi(const ComprehensiveWellData &data)
   };
   for (const auto &value : FaciesTaxonomy::library()) remember(value.toMap());
   for (const auto &interval : data.faciesIntervals)
-    remember({{"facies", interval.majorFacies}, {"subfacies", interval.subFacies},
-        {"microfacies", interval.microFacies}, {"texture", interval.patternType},
-        {"color", interval.microColor.name()}});
+    remember(FaciesTaxonomy::place(
+        {{"facies", interval.majorFacies}, {"subfacies", interval.subFacies},
+         {"microfacies", interval.microFacies}, {"texture", interval.patternType},
+         {"color", interval.microColor.name()}}));
   for (const auto &leaf : entries) {
     auto *parent = faciesTree->invisibleRootItem();
     for (const auto &field : {"facies", "subfacies", "microfacies"}) {

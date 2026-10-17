@@ -553,7 +553,7 @@ void applyFaciesStyle(QgsMapLayer *layer, const QVariantList &facies) {
       if (!defined.contains(int(entry.value)))
         classes.append(QgsPalettedRasterRenderer::Class(
             entry.value, QColor("#9AA7B4"),
-            QObject::tr("其他（%1）").arg(entry.value)));
+            QObject::tr("未归类（%1）").arg(entry.value)));
     raster->setRenderer(
         new QgsPalettedRasterRenderer(raster->dataProvider(), 1, classes));
   }

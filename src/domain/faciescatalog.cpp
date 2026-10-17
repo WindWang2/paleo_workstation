@@ -119,8 +119,8 @@ QVariantMap find(const QVariantList &schema, const QVariant &code) {
     }
   return {{"code", code},
           {"name", code.isNull()
-                       ? QObject::tr("未分类")
-                       : QObject::tr("其他类别（%1）").arg(code.toString())},
+                       ? QObject::tr("未预测")
+                       : QObject::tr("未归类（%1）").arg(code.toString())},
           {"color", "#9AA7B4"}};
 }
 QVariantMap attributes(const QVariantList &schema, const QVariant &code) {

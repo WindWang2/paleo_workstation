@@ -108,6 +108,82 @@ private slots:
     QVERIFY(!FaciesTaxonomy::extend(start, {QStringLiteral("三角洲前缘")}, &b, &error));
     QVERIFY(!FaciesTaxonomy::extend(start, {QStringLiteral("未知微相")}, &b, &error));
   }
+  void taxonomyUpgradesLegacySchemasIntoHierarchy() {
+    // 旧默认形态：平级三分类（只有相一级名称）。
+    const QVariantList legacy{
+        QVariantMap{{"code", 1}, {"name", "河流相"}, {"facies", "河流相"}, {"color", "#E8D5B0"}},
+        QVariantMap{{"code", 2}, {"name", "三角洲相"}, {"facies", "三角洲相"}, {"color", "#E8D5B0"}},
+        QVariantMap{{"code", 3}, {"name", "湖泊相"}, {"facies", "湖泊相"}, {"color", "#D5E8D0"}}};
+    QVariantList upgraded;
+    QString error;
+    QVERIFY2(FaciesTaxonomy::upgrade(legacy, &upgraded, &error), qPrintable(error));
+    QCOMPARE(upgraded.size(), 3);
+    const auto pathOf = [](const QVariant &v) {
+      const auto f = v.toMap();
+      return QStringList{f.value("facies").toString(), f.value("subfacies").toString(),
+                         f.value("microfacies").toString()};
+    };
+    // 相级旧类别安放到「未细分」，编码与颜色保持不变。
+    const QStringList fluvial{"河流相", "未细分", "未细分"};
+    const QStringList deltaic{"三角洲相", "未细分", "未细分"};
+    const QStringList lacustrine{"湖泊相", "未细分", "未细分"};
+    QCOMPARE(pathOf(upgraded[0]), fluvial);
+    QCOMPARE(pathOf(upgraded[1]), deltaic);
+    QCOMPARE(pathOf(upgraded[2]), lacustrine);
+    QCOMPARE(upgraded[1].toMap().value("code").toInt(), 2);
+    QCOMPARE(upgraded[1].toMap().value("color").toString(), QStringLiteral("#E8D5B0"));
+    // 每条路径三级齐备：项目里不出现未定义相。
+    for (const auto &v : upgraded)
+      for (const auto &s : pathOf(v))
+        QVERIFY2(!s.isEmpty(), qPrintable(s));
+    // 幂等：已迁移的分类再次升级保持不变。
+    QVariantList again;
+    QVERIFY(FaciesTaxonomy::upgrade(upgraded, &again, &error));
+    QCOMPARE(again, upgraded);
+  }
+  void taxonomyUpgradesAliasesAndUnknownLabels() {
+    QVariantList upgraded;
+    QString error;
+    // 别名可识别：采用模板完整路径。
+    const QVariantList aliased{QVariantMap{{"code", 1}, {"name", "mouth_bar"}, {"color", "#FFE082"}}};
+    QVERIFY(FaciesTaxonomy::upgrade(aliased, &upgraded, &error));
+    QCOMPARE(upgraded[0].toMap().value("facies").toString(), QStringLiteral("三角洲相"));
+    QCOMPARE(upgraded[0].toMap().value("subfacies").toString(), QStringLiteral("三角洲前缘"));
+    QCOMPARE(upgraded[0].toMap().value("microfacies").toString(), QStringLiteral("河口坝"));
+    // 无法识别：落「其他 / 未归类」，原词面保留为微相。
+    const QVariantList unknown{QVariantMap{{"code", 7}, {"name", "river"}, {"color", "#B4C9A0"}}};
+    QVERIFY(FaciesTaxonomy::upgrade(unknown, &upgraded, &error));
+    QCOMPARE(upgraded[0].toMap().value("facies").toString(), QStringLiteral("其他"));
+    QCOMPARE(upgraded[0].toMap().value("subfacies").toString(), QStringLiteral("未归类"));
+    QCOMPARE(upgraded[0].toMap().value("microfacies").toString(), QStringLiteral("river"));
+    // 重名冲突：第二条不吞掉第一条，编号后缀去重。
+    const QVariantList duplicate{
+        QVariantMap{{"code", 1}, {"name", "river"}, {"color", "#B4C9A0"}},
+        QVariantMap{{"code", 2}, {"name", "river"}, {"color", "#B4C9A0"}}};
+    QVERIFY(FaciesTaxonomy::upgrade(duplicate, &upgraded, &error));
+    QCOMPARE(upgraded[0].toMap().value("microfacies").toString(), QStringLiteral("river"));
+    QVERIFY(upgraded[1].toMap().value("microfacies").toString() != QStringLiteral("river"));
+    QCOMPARE(upgraded[1].toMap().value("facies").toString(), QStringLiteral("其他"));
+  }
+  void taxonomyPlacesSingleEntriesForDisplay() {
+    // 井位图例等展示侧的逐条安放：微相可识别采用模板路径。
+    const auto known = FaciesTaxonomy::place(
+        QVariantMap{{"facies", "河口坝"}, {"texture", "strata/micro_mouth_bar.svg"}});
+    QCOMPARE(known.value("facies").toString(), QStringLiteral("三角洲相"));
+    QCOMPARE(known.value("subfacies").toString(), QStringLiteral("三角洲前缘"));
+    QCOMPARE(known.value("microfacies").toString(), QStringLiteral("河口坝"));
+    QCOMPARE(known.value("texture").toString(), QStringLiteral("strata/micro_mouth_bar.svg"));
+    // 只有部分父级：保留父级、缺级补「未细分」。
+    const auto partial = FaciesTaxonomy::place(
+        QVariantMap{{"facies", "相"}, {"microfacies", "微相"}});
+    QCOMPARE(partial.value("subfacies").toString(), QStringLiteral("未细分"));
+    QCOMPARE(partial.value("microfacies").toString(), QStringLiteral("微相"));
+    // 全空：落「其他 / 未归类 / 未分类」，三级恒有值。
+    const auto empty = FaciesTaxonomy::place(QVariantMap{});
+    QCOMPARE(empty.value("facies").toString(), QStringLiteral("其他"));
+    QCOMPARE(empty.value("subfacies").toString(), QStringLiteral("未归类"));
+    QCOMPARE(empty.value("microfacies").toString(), QStringLiteral("未分类"));
+  }
   void predictedWithinFormation()
   {
     auto point = pointWithIntervals();

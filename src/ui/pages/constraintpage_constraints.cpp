@@ -16,11 +16,13 @@
 #include <QDoubleSpinBox>
 #include <QHash>
 #include <QHBoxLayout>
+#include <QDir>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLabel>
 #include <QListWidget>
 #include <QListWidgetItem>
+#include <QMessageBox>
 #include <QMenu>
 #include <QPushButton>
 #include <QSet>
@@ -47,8 +49,9 @@ void ConstraintPage::buildConstraintArea( QWidget *content, QVBoxLayout *lay, QC
   auto *cell = findChild<QDoubleSpinBox *>( QStringLiteral( "factorCellSizeSpin" ) );
 
   lay->addSpacing(PaleoTheme::tokens().spacingMd); // spacing.md：单因素区与约束区分组
-  auto *constraintCaption = caption(tr("约束线"), this);
-  constraintCaption->setObjectName(QStringLiteral("constraintSectionCaption"));
+  auto *constraintCaption = caption(tr("约束线 · 先准备间隔线和方向线，再提取井点"), this);
+  constraintCaption->setObjectName(QStringLiteral("factorConstraintCaption"));
+  constraintCaption->setWordWrap(true);
   lay->addWidget(constraintCaption);
   auto *list = new QListWidget( this );
   list->setObjectName( QStringLiteral( "constraintList" ) );
@@ -62,9 +65,7 @@ void ConstraintPage::buildConstraintArea( QWidget *content, QVBoxLayout *lay, QC
     emit constraintSelectionChanged(h ? h->currentText() : QString(), ids);
     updateFactorActionStates();
   });
-  list->setMinimumHeight(72);
-  list->setMaximumHeight(160);
-  lay->addWidget( list );
+  lay->addWidget( list, 1 );
   connect( list, &QListWidget::currentItemChanged, this, [this]( QListWidgetItem *, QListWidgetItem * ) {
     loadSelectedConstraintLine();
     if ( auto *removeButton = findChild<QPushButton *>( QStringLiteral( "constraintDeleteButton" ) ) )
@@ -104,9 +105,7 @@ void ConstraintPage::buildConstraintArea( QWidget *content, QVBoxLayout *lay, QC
              menu.exec( list->viewport()->mapToGlobal( pos ) );
            } );
 
-  auto *semanticCaption = caption( tr( "约束语义" ), content );
-  semanticCaption->setObjectName( QStringLiteral( "constraintSemanticCaption" ) );
-  lay->addWidget( semanticCaption );
+  lay->addWidget( caption( tr( "约束语义" ), content ) );
   auto *semantic = new QComboBox( content );
   semantic->setObjectName( QStringLiteral( "constraintSemanticCombo" ) );
   semantic->addItem( tr( "硬屏障" ), QStringLiteral( "hard_barrier" ) );
@@ -172,9 +171,7 @@ void ConstraintPage::buildConstraintArea( QWidget *content, QVBoxLayout *lay, QC
                                        {item->data(Qt::UserRole).toString()}, lineParams);
   } );
 
-  auto *faciesCaption = caption( tr( "相代码" ), content );
-  faciesCaption->setObjectName( QStringLiteral( "constraintFaciesCaption" ) );
-  lay->addWidget( faciesCaption );
+  lay->addWidget( caption( tr( "相代码" ), content ) );
   auto *spin = new QSpinBox( this );
   spin->setObjectName( QStringLiteral( "faciesCodeSpin" ) );
   spin->setRange( 0, 9999 );
@@ -212,7 +209,7 @@ void ConstraintPage::buildConstraintArea( QWidget *content, QVBoxLayout *lay, QC
     emit drawTypedConstraintRequested( horizons->currentText(), QStringLiteral( "line" ),
                                        QStringLiteral( "direction_line" ), spin->value() );
   } );
-  auto *breakLine = new QPushButton(tr("绘制打断线"), this);
+  auto *breakLine = new QPushButton(tr("绘制间隔线"), this);
   breakLine->setObjectName( QStringLiteral( "breakLineButton" ) );
   typedRow->addWidget( breakLine );
   connect( breakLine, &QPushButton::clicked, this, [this, horizons, spin] {
@@ -277,115 +274,130 @@ void ConstraintPage::buildConstraintArea( QWidget *content, QVBoxLayout *lay, QC
   auto *constraints = new QWidget(content);
   constraints->setObjectName(QStringLiteral("constraintFamiliesSection"));
   auto *constraintLay = panelLayout(constraints);
-  // setParent(nullptr) 会先离开旧布局，addWidget 再挂到新父级。
-  // 直接 takeAt/addItem 不改父级，控件会按页面坐标叠画。
-  const auto detach = [](QLayout *layout, QWidget *widget, auto &&self) -> void {
-    if (!layout || !widget)
-      return;
-    for (int i = layout->count() - 1; i >= 0; --i) {
-      QLayoutItem *item = layout->itemAt(i);
-      if (item->widget() == widget) {
-        delete layout->takeAt(i);
-        return;
-      }
-      if (QLayout *nested = item->layout())
-        self(nested, widget, self);
-    }
-  };
-  const auto place = [&](QWidget *widget, QVBoxLayout *target) {
-    if (!widget || !target)
-      return;
-    detach(lay, widget, detach);
-    if (adv)
-      detach(adv, widget, detach);
-    widget->setParent(nullptr);
-    target->addWidget(widget);
-  };
-  const auto family = [constraints](const char *name, const QString &title) {
-    auto *group = new QWidget(constraints);
-    group->setObjectName(QLatin1String(name));
+  const int start = lay->indexOf(constraintCaption);
+  while (lay->count() > start) {
+    QLayoutItem *item = lay->takeAt(start);
+    appendMovedItem(constraintLay, item);
+  }
+  // 两族入口排在列表/编辑之前；通用形状与逐线编辑留在次级展开面。
+  auto *details = new CollapsibleSection(tr("编辑已绘约束 / 其他形状"), constraints);
+  details->setObjectName(QStringLiteral("constraintDetailsSection")); details->setExpanded(false);
+  while (constraintLay->count() > 1)
+    appendMovedItem(details->containerLayout(), constraintLay->takeAt(1));
+  const auto family = [constraintLay, constraints](const char *name, const QString &title, const QString &note) {
+    auto *group = new QWidget(constraints); group->setObjectName(QString::fromLatin1(name));
     auto *layout = panelLayout(group);
+    layout->setContentsMargins(0, 0, 0, 0);
     layout->addWidget(caption(title, group));
-    return layout;
+    auto *label = new QLabel(note, group); label->setWordWrap(true);
+    PaleoTheme::applyThemedStyleSheet(label, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
+    layout->addWidget(label); constraintLay->addWidget(group); return layout;
   };
-  auto *breakFamily = family("breakFamilySection", tr("打断线"));
-  auto *directionFamily = family("directionFamilySection", tr("方向线"));
-  auto *breakType = new QComboBox(constraints);
-  breakType->setObjectName(QStringLiteral("breakFamilyTypeCombo"));
-  breakType->setAccessibleName(tr("间隔线族语义"));
-  breakType->addItem(tr("硬屏障"), QStringLiteral("break_line"));
-  breakType->addItem(tr("等值停止"), QStringLiteral("contour_stop"));
-  auto *directionType = new QComboBox(constraints);
-  directionType->setObjectName(QStringLiteral("directionFamilyTypeCombo"));
+  auto *directionFamily = family("directionFamilySection", tr("方向线族"),
+      tr("方向引导改变沿线权重；软边界减弱跨线影响；制图绕行只调整解释性等值线。"));
+  auto *directionType = new QComboBox(constraints); directionType->setObjectName(QStringLiteral("directionFamilyTypeCombo"));
   directionType->setAccessibleName(tr("方向线族语义"));
   directionType->addItem(tr("方向引导"), QStringLiteral("direction_line"));
   directionType->addItem(tr("解释软边界"), QStringLiteral("interpretive_boundary"));
   directionType->addItem(tr("制图绕行"), QStringLiteral("cartographic_detour"));
-  auto *blockCaption = caption(tr("阻断方式"), constraints);
-  blockCaption->setObjectName(QStringLiteral("constraintBlockModeCaption"));
-  auto *barrierImport = new QPushButton(tr("导入打断线…"), constraints);
-  barrierImport->setObjectName(QStringLiteral("barrierImportButton"));
-  auto *directionImport = new QPushButton(tr("导入方向线…"), constraints);
-  directionImport->setObjectName(QStringLiteral("directionImportButton"));
-  for (QPushButton *import : {barrierImport, directionImport}) {
+  directionFamily->addWidget(directionType); typedRow->removeWidget(direction); directionFamily->addWidget(direction);
+  auto *directionParameters = new CollapsibleSection(tr("方向线绘制参数"), constraints);
+  directionParameters->setObjectName(QStringLiteral("factorDirectionParametersSection"));
+  directionParameters->setExpanded(false);
+  directionFamily->addWidget(directionParameters);
+  moveParamWidget( adv, ratio, directionParameters->containerLayout() );
+  moveParamWidget( adv, influence, directionParameters->containerLayout() );
+  moveParamWidget( adv, core, directionParameters->containerLayout() );
+  moveParamWidget( adv, softStrength, details->containerLayout() ); moveParamWidget( adv, softRadius, details->containerLayout() );
+  auto *breakFamily =
+      family("breakFamilySection", tr("间隔线族"),
+             tr("硬屏障阻断跨线传播；等值停止终止提线。仅显示停线不改变插值数值。"));
+  auto *breakType = new QComboBox(constraints); breakType->setObjectName(QStringLiteral("breakFamilyTypeCombo"));
+  breakType->setAccessibleName(tr("间隔线族语义"));
+  breakType->addItem(tr("硬屏障"), QStringLiteral("break_line"));
+  breakType->addItem(tr("等值停止"), QStringLiteral("contour_stop"));
+  breakFamily->addWidget(breakType); typedRow->removeWidget(breakLine); breakFamily->addWidget(breakLine);
+  details->containerLayout()->removeWidget(blockMode); breakFamily->addWidget(caption(tr("阻断方式"), constraints)); breakFamily->addWidget(blockMode);
+  for (const auto &entry :
+       QVector<QPair<QVBoxLayout *, QString>>{{breakFamily, QStringLiteral("barrier")},
+                                              {directionFamily, QStringLiteral("direction")}}) {
+    auto *import = new QPushButton(entry.second == QLatin1String("barrier") ? tr("导入间隔线…")
+                                                                            : tr("导入方向线…"),
+                                   constraints);
+    import->setObjectName(entry.second + QStringLiteral("ImportButton"));
     import->setToolTip(
         tr("导入本工程局部米制坐标的 GPKG、SHP 或 GeoJSON；原文件和约束快照均保存到数据管理。"));
-    const QString role = import == barrierImport ? QStringLiteral("barrier") : QStringLiteral("direction");
-    connect(import, &QPushButton::clicked, this, [this, horizons, role] {
+    entry.first->addWidget(import);
+    // 同族的绘制与导入放在同一行，清楚表达两种准备途径。
+    auto *drawButton = entry.second == QLatin1String("barrier") ? breakLine : direction;
+    entry.first->removeWidget(drawButton);
+    entry.first->removeWidget(import);
+    auto *actions = new QHBoxLayout;
+    actions->setSpacing(PaleoTheme::tokens().spacingXs);
+    actions->addWidget(drawButton);
+    actions->addWidget(import);
+    entry.first->insertLayout(entry.first->indexOf(entry.second == QLatin1String("barrier")
+                                                      ? breakType : directionType) + 1, actions);
+    connect(import, &QPushButton::clicked, this, [this, horizons, role = entry.second] {
       emit constraintImportRequested(horizons->currentText(), role);
     });
   }
   auto *hint = new QLabel(constraints);
   hint->setObjectName(QStringLiteral("factorConstraintHint"));
   hint->setWordWrap(true);
-  hint->setMinimumWidth(0);
-  hint->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Minimum);
-  auto *details = new CollapsibleSection(tr("已绘的线"), constraints);
-  details->setObjectName(QStringLiteral("constraintDetailsSection"));
-  details->setExpanded(false);
-
-  place(constraintCaption, constraintLay);
-  place(list, constraintLay);
-  place(breakType, breakFamily);
-  place(breakLine, breakFamily);
-  place(blockCaption, breakFamily);
-  place(blockMode, breakFamily);
-  breakFamily->addWidget(barrierImport);
-  place(directionType, directionFamily);
-  place(direction, directionFamily);
-  directionFamily->addWidget(directionImport);
-  moveParamWidget(adv, ratio, directionFamily);
-  moveParamWidget(adv, influence, directionFamily);
-  moveParamWidget(adv, core, directionFamily);
-  constraintLay->addWidget(breakFamily->parentWidget());
-  constraintLay->addWidget(directionFamily->parentWidget());
   constraintLay->addWidget(hint);
+  // PR457-closure 二轮（P0-2 可达性）：legacy CRS-less 约束库的真实状态可见
+  // + 显式迁移入口（#488 的 migrateLegacyCrs：字节级备份+事务+提交后校验+
+  // 失败还原；此前只有测试调用）。
+  auto *crsStatus = new QLabel(constraints);
+  crsStatus->setObjectName(QStringLiteral("constraintCrsStatus"));
+  crsStatus->setWordWrap(true);
+  crsStatus->setVisible(false);
+  constraintLay->addWidget(crsStatus);
+  auto *crsMigrate = new QPushButton(tr("为约束库登记本地网格坐标系…"), constraints);
+  crsMigrate->setObjectName(QStringLiteral("constraintCrsMigrateButton"));
+  crsMigrate->setVisible(false);
+  constraintLay->addWidget(crsMigrate);
+  connect(crsMigrate, &QPushButton::clicked, this, [this] {
+    auto *wf = qobject_cast<ConstraintWorkflow *>(property(kWfProp).value<QObject *>());
+    if (!wf)
+      return;
+    if (QMessageBox::question(this, tr("约束库坐标系迁移"),
+                              tr("将把规范本地工程网格坐标系登记进约束库（只补元数据，不动几何/属性/FID）。\n"
+                                 "迁移前生成字节级备份，提交后重新打开校验，校验失败用备份原样还原。继续？")) != QMessageBox::Yes)
+      return;
+    QString error, backup;
+    if (wf->migrateConstraintLayerCrs(&error, &backup))
+    {
+      QMessageBox::information(this, tr("约束库坐标系迁移"),
+                               tr("迁移完成。备份：%1").arg(QDir::toNativeSeparators(backup)));
+      refreshConstraintList();
+    }
+    else
+    {
+      QMessageBox::warning(this, tr("约束库坐标系迁移"),
+                           error.isEmpty() ? tr("迁移失败") : error);
+    }
+  });
+  constraintLay->removeWidget(breakFamily->parentWidget());
+  constraintLay->insertWidget(1, breakFamily->parentWidget());
   constraintLay->addWidget(details);
-  const QList<QWidget *> detailWidgets{semanticCaption, semantic, lineAngle, batchType, saveLine,
-                                       faciesCaption, spin, shape, draw, softButton, stopButton,
-                                       detourButton, vertexEdit, removeButton, softStrength, softRadius};
-  for (QWidget *widget : detailWidgets)
-    place(widget, details->containerLayout());
-  for (int i = lay->count() - 1; i >= 0; --i) {
-    QLayout *nested = lay->itemAt(i)->layout();
-    if (nested && nested->count() == 0)
-      delete lay->takeAt(i);
-  }
   lay->insertWidget(lay->indexOf(methodCaption), constraints);
-  lay->removeWidget(cellCaption);
-  lay->removeWidget(cell);
+  lay->removeWidget(cellCaption); lay->removeWidget(cell);
   lay->insertWidget(lay->indexOf(methodCaption) + 2, cellCaption);
   lay->insertWidget(lay->indexOf(cellCaption) + 1, cell);
-  direction->disconnect(this);
-  breakLine->disconnect(this);
+  // 参数不再藏在高级区，逐线比值仍归约束族（其是否适用由方法联动说明）。
+  direction->disconnect(this); breakLine->disconnect(this);
   connect(direction, &QPushButton::clicked, this, [this, horizons, spin, directionType] {
-    emit drawTypedConstraintRequested(horizons->currentText(), QStringLiteral("line"),
-                                      directionType->currentData().toString(), spin->value());
+    emit drawTypedConstraintRequested(horizons->currentText(), QStringLiteral("line"), directionType->currentData().toString(), spin->value());
   });
   connect(breakLine, &QPushButton::clicked, this, [this, horizons, spin, breakType] {
-    emit drawTypedConstraintRequested(horizons->currentText(), QStringLiteral("line"),
-                                      breakType->currentData().toString(), spin->value());
+    emit drawTypedConstraintRequested(horizons->currentText(), QStringLiteral("line"), breakType->currentData().toString(), spin->value());
   });
+  // 将旧三个入口归入次级面，objectName 和信号兼容。
+  for (QPushButton *button : {softButton, stopButton, detourButton}) {
+    softRow->removeWidget(button); details->containerLayout()->addWidget(button);
+  }
 }
 
 QVariantMap ConstraintPage::selectedLineParams() const
@@ -515,6 +527,20 @@ void ConstraintPage::refreshConstraintList()
     return;
   const QString keep = list->currentItem() ? list->currentItem()->data( Qt::UserRole ).toString() : QString();
   auto *wf = qobject_cast<ConstraintWorkflow *>( property( kWfProp ).value<QObject *>() );
+  if ( wf )
+  {
+    // P0-2 可达性：约束库 SRS 状态如实显示——legacy CRS-less（坐标按工程
+    // 上下文假定）可见，并提供显式迁移；新库（文件自带 SRS）不出现该行。
+    if ( auto *statusLabel = child<QLabel>( this, "constraintCrsStatus" ) )
+    {
+      const int crsState = wf->constraintLayerCrsState(); // 0=无层 1=legacy 2=已登记
+      const bool legacy = crsState == 1;
+      statusLabel->setVisible(legacy);
+      statusLabel->setText(tr("⚠ 约束库为历史无坐标系版本：坐标按本工程上下文假定（未在文件中核实）。"));
+      if ( auto *migrateButton = child<QPushButton>( this, "constraintCrsMigrateButton" ) )
+        migrateButton->setVisible(legacy);
+    }
+  }
   auto *horizons = child<QComboBox>( this, "horizonCombo" );
   const QString horizon = horizons ? horizons->currentText() : QString();
   QSet<QString> selected;
@@ -639,12 +665,24 @@ void ConstraintPage::applyConstraintUsePlan()
       text += tr( "；%1 条无效（不参与计算）" ).arg( plan.invalid );
     if ( untyped > 0 )
       text += tr( "；%1 条未类型化" ).arg( untyped );
-    text += tr( "。当前方法实际参与 %1 条。" ).arg( plan.consumed );
+    text += tr( "。当前方法实际参与 %1 条" ).arg( plan.consumed );
     if ( plan.blocking > 0 )
-      text += tr( "%1 条参数越界会使运行被拒绝。" ).arg( plan.blocking );
-    text += tr( "画好打断线和方向线后，再提取井点数据。" );
-    hint->setText( text );
-    hint->setToolTip( plan.capabilityNote );
+      text += tr( "，%1 条参数越界会使运行被拒绝" ).arg( plan.blocking );
+    text += tr( "。%1 绘制、导入自动保存；顶点编辑需保存编辑会话。准备两类线后，再提取井点数据。" )
+                .arg( plan.capabilityNote );
+    hint->setToolTip(text);
+    QString summary = tr("本层位：%1 条间隔线、%2 条方向线可用；当前方法参与 %3 条。")
+                          .arg(plan.availableBarriers).arg(plan.availableDirections).arg(plan.consumed);
+    if (plan.invalid > 0)
+      summary += tr("%1 条无效，请在编辑列表中检查。").arg(plan.invalid);
+    if (untyped > 0)
+      summary += tr("%1 条未类型化，请指定约束语义。").arg(untyped);
+    if (plan.blocking > 0)
+      summary += tr("%1 条参数越界，需修正后运行。").arg(plan.blocking);
+    summary += property("paleo.page.constraintsready").toBool()
+                   ? tr("两类线已就绪，可提取井点数据。")
+                   : tr("提取井点前，两类线需各至少 1 条有效约束。");
+    hint->setText(summary);
   }
   updateFactorActionStates();
 }

@@ -7,6 +7,8 @@
 #include <qgsmapcanvas.h>
 #include <qgslayertree.h>
 #include <qgsproject.h>
+#include "../paleoviewport.h"
+#include <QScrollArea>
 #include <QStackedWidget>
 #include <QTimer>
 
@@ -281,7 +283,7 @@ QWidget *DataPreviewTabs::buildWellBody(const CatalogAsset &asset, const QString
     // T27：坐标状态中文化 + text-muted（计划 §4：这些状态仍用 #5D6E80）。
     addField(tr("坐标状态"), coordinateStatusText(status), false, true);
     grid->addStretch(1);
-    hl->addWidget(info);
+    hl->addWidget(new PaleoToolRow(info, holder));
 
     // P2 D2.6 井位地图预览：全部井位打点 + 当前井高亮 + 名称标注开关。
     auto *wellsVl = makeMemoryPointLayer(tr("井位"), holder);

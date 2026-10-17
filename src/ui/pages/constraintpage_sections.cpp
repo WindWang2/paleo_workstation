@@ -70,7 +70,7 @@ void ConstraintPage::buildTailSections( QWidget *content, QVBoxLayout *lay )
   // 逐井：井名 / D61 TVD / D62 TVD / 层间速度或原因。行表由 MappingWorkflow
   // typed 镜像到 ConstraintWorkflow::setThicknessSamples；不足样本的两句
   // （「厚度样本不足以成面」/「没有厚度样本」）渲染在 thicknessHint，不弹框。
-  // m2(B)：整段挪进 CollapsibleSection（objectName 全保留，默认展开）。
+  // 补充诊断默认收起，避免空白样本表挤占成图操作区。
   lay->addSpacing(PaleoTheme::tokens().spacingMd); // spacing.md
   // 厚度样本的层位/基面名随工程参数（AreaRules targetHorizon + 有序集合的
   // 下一界面）——文案在工程打开时由 refreshAreaParamLabels 重写。
@@ -210,6 +210,11 @@ void ConstraintPage::wireInputStaleness()
         markInputsStale();
         updateFactorActionStates();
       });
+  if (auto *covariate = child<QComboBox>(this, "factorCovariateCombo"))
+    connect(covariate, &QComboBox::currentIndexChanged, this, [this] {
+      markInputsStale();
+      updateFactorActionStates();
+    });
   if ( auto *horizons = child<QComboBox>( this, "horizonCombo" ) )
     connect(horizons, qOverload<int>(&QComboBox::currentIndexChanged), this, [this](int) {
       refreshConstraintList();

@@ -1145,6 +1145,27 @@ using paleo::io_detail::addIssue;
         }
         else
         {
+          // #467：后继链拼接预算——与 parse() 整读上限同口径。恶意「全后继位
+          // + 无 FDATA」文件靠头扫描不受文件大小闸保护，必须在累积越界处
+          // 即拒收，不得把整个文件读进单个 QByteArray。
+          if (lrBuf.size() + bodyLen > LasParser::fileSizeLimit())
+          {
+            if (issues)
+            {
+              LasIssue issue;
+              issue.severity = LasIssue::Severity::Error;
+              issue.category = LasIssue::Category::Oversize;
+              issue.message = QStringLiteral(
+                  "逻辑记录跨段累积 %1 字节超过整读上限（%2 字节）——"
+                  "拒绝无界拼接（Oversize）")
+                                   .arg(lrBuf.size() + bodyLen)
+                                   .arg(LasParser::fileSizeLimit());
+              issues->append(issue);
+            }
+            if (error)
+              *error = QStringLiteral("逻辑记录累积超过整读上限（Oversize）");
+            return DlisWalkResult::Error;
+          }
           // 段体（尾随 trailer 剥离前）读入 lrBuf
           lrBuf.append(reinterpret_cast<const char *>(src.ptr()), int(bodyLen));
           src.advance(int(bodyLen));
@@ -1310,7 +1331,8 @@ bool DlisParser::parse(const QString &path, LasHeaderInfo &header,
     return false;
   }
 
-  // 与 LasParser::parseDoc 同口径的大文件防护（头扫描不受限）
+  // 与 LasParser::parseDoc 同口径的大文件防护（头扫描不受文件大小闸，但
+  // 后继链累积预算同款——walk 内 #467 闸）
   if (QFileInfo(path).size() > LasParser::fileSizeLimit())
   {
     if (issues)

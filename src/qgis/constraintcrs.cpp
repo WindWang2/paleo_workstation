@@ -71,17 +71,34 @@ bool toStoreWkt( const QString &wkt, const QgsCoordinateReferenceSystem &source,
   return true;
 }
 
-bool assignStoreCrsIfMissing( QgsMapLayer *layer )
+StoreCrsAssignment assignStoreCrsIfMissing( QgsMapLayer *layer )
 {
+  StoreCrsAssignment result;
   if ( !layer || layer->crs().isValid() )
-    return false;
+    return result;
   const QString id = layer->customProperty( QStringLiteral( "paleoLayerId" ) ).toString();
   const bool constraintLayer = id.startsWith( QLatin1String( "constraints." ) ) ||
                                layer->source().contains( QLatin1String( "layername=constraints" ) );
   if ( !constraintLayer )
-    return false;
+    return result;
+  // 历史 CRS-less 库：文件里没有坐标定义，指派只是「按工程上下文假定」。
+  // 溯源写进图层属性，UI/诊断据此区分「已核实」与「假定」（不冒充已核实）。
   layer->setCrs( storeCrs() );
-  return true;
+  layer->setCustomProperty( QStringLiteral( "paleoCrsProvenance" ), QStringLiteral( "assumed_from_context" ) );
+  result.assigned = true;
+  result.verified = false;
+  return result;
+}
+
+QString layerCrsProvenance( QgsMapLayer *layer )
+{
+  if ( !layer || !layer->crs().isValid() )
+    return QStringLiteral( "none" );
+  const QString marked = layer->customProperty( QStringLiteral( "paleoCrsProvenance" ) ).toString();
+  if ( marked == QLatin1String( "assumed_from_context" ) )
+    return marked;
+  // 无标记且 CRS 有效 = 提供方从文件读到 SRS（新库契约）。
+  return QStringLiteral( "verified_from_file" );
 }
 
 } // namespace paleo::constraintcrs

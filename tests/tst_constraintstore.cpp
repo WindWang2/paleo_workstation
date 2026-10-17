@@ -6,6 +6,7 @@
 #include <QFile>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+#include <QThread>
 
 #include <qgsapplication.h>
 #include <qgsmaplayer.h>
@@ -38,6 +39,69 @@ private slots:
   void cleanup()
   {
     QgsProject::instance()->removeAllMapLayers();
+  }
+
+  // #477：事务内建索引并发回归——ensureAudit 的 CREATE INDEX 在活动事务内
+  // 执行（e077b861 加 needsIndex 守卫去冗余 + busy_timeout=5000），两个并发
+  // 写者同时首次落库（建表 + 建索引）不得死锁/失败。钉契约。
+  void concurrentFirstWriteWithIndexDdl()
+  {
+    QTemporaryDir dir;
+    QVERIFY( dir.isValid() );
+    const QString gpkgPath = dir.filePath( QStringLiteral( "concurrent.gpkg" ) );
+
+    // 主线程只建 GPKG 容器（文件创建本身不并发——那是另一类竞态）；表/
+    // 索引留给两个并发首写在各自活动事务里落——这正是要钉的 DDL 契约。
+    {
+      GDALDriverH driver = GDALGetDriverByName( "GPKG" );
+      QVERIFY( driver != nullptr );
+      GDALDatasetH ds =
+          GDALCreate( driver, gpkgPath.toUtf8().constData(), 0, 0, 0, GDT_Unknown, nullptr );
+      QVERIFY( ds != nullptr );
+      GDALClose( ds );
+    }
+
+    int okA = 0, okB = 0;
+    QString errA, errB;
+    const auto worker = [gpkgPath]( const QString &prefix, int *oks, QString *err ) {
+      ConstraintStore store( gpkgPath ); // 直写（无写队列）：线程内独立事务
+      for ( int i = 0; i < 5; ++i )
+      {
+        // 契约 = 不死锁、最终成功、结果一致；并发写者在 rollback-journal
+        // 锁竞争下等待重试是生产写队列同款正常路径。
+        for ( int attempt = 0; attempt < 20; ++attempt )
+        {
+          QString e;
+          if ( store.append( QStringLiteral( "T1" ), prefix + QString::number( i ),
+                             QStringLiteral( "LINESTRING(0 0, 10 0)" ),
+                             QStringLiteral( "line" ), 1, &e ) )
+          {
+            ++( *oks );
+            break;
+          }
+          if ( attempt == 19 )
+          {
+            if ( err->isEmpty() )
+              *err = e;
+            break;
+          }
+          QThread::msleep( 50 );
+        }
+      }
+    };
+    QThread *a = QThread::create( [&] { worker( QStringLiteral( "a-" ), &okA, &errA ); } );
+    QThread *b = QThread::create( [&] { worker( QStringLiteral( "b-" ), &okB, &errB ); } );
+    a->start();
+    b->start();
+    a->wait( 60000 );
+    b->wait( 60000 );
+    delete a;
+    delete b;
+    QCOMPARE( okA, 5 );
+    QCOMPARE( okB, 5 );
+
+    ConstraintStore check( gpkgPath );
+    QCOMPARE( check.load( QStringLiteral( "T1" ) ).size(), 10 );
   }
 
   // Direct ConstraintStore unit test:

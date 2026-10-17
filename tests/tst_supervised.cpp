@@ -359,9 +359,17 @@ void TestSupervised::determinism() {
   QCOMPARE(a.confusion.cells, b.confusion.cells);
   QCOMPARE(a.confusion.precision, b.confusion.precision);
   QCOMPARE(a.confusion.recall, b.confusion.recall);
-  const auto c = crossValidate(x, labels, o, 5, 99);
-  QVERIFY2(c.ok, c.error.c_str());
-  QVERIFY(a.confusion.cells != c.confusion.cells); // seed drives the folds
+  // #470：随机口径换自订 Fisher–Yates 后，强可分数据上多数 seed 的聚合
+  // 混淆阵仍相同（旧断言钉 42/99 恰好不同，口径换了即碎）。意图是
+  // 「seed 必须能驱动折分」——扫描 seed 直到出现差异（存在性断言，
+  // 在新口径下确定成立；扫不到任何差异才是口径退化）。
+  bool anyDiffer = false;
+  for (std::uint64_t seed = 43; seed < 143 && !anyDiffer; ++seed) {
+    const auto c = crossValidate(x, labels, o, 5, seed);
+    QVERIFY2(c.ok, c.error.c_str());
+    anyDiffer = a.confusion.cells != c.confusion.cells;
+  }
+  QVERIFY2(anyDiffer, "seed must be able to drive fold assignment differences");
   SupervisedOptions qda;
   qda.method = SupervisedMethod::Qda;
   const auto d = crossValidate(x, labels, qda, 3, 99);

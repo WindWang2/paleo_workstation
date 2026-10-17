@@ -4,6 +4,8 @@
 #include <QDir>
 #include <limits>
 
+#include <QRegularExpression>
+
 #include "../src/io/laswriter.h"
 
 class TestIoLasWriter : public QObject
@@ -15,6 +17,7 @@ private slots:
   void mismatchedLengthsFails();
   void validLasFileGeneration();
   void nullTokenSubstitutionForNaN();
+  void infinityMapsToNullToken(); // #477
   void customOptionsPrecision();
   void mutationDemonstration_headerStructure();
 };
@@ -115,6 +118,40 @@ void TestIoLasWriter::nullTokenSubstitutionForNaN()
   QVERIFY(f.open(QIODevice::ReadOnly | QIODevice::Text));
   const QString content = QString::fromUtf8(f.readAll());
   QVERIFY(content.contains(QStringLiteral("-999.25")));
+}
+
+// #477：±Inf 与 NaN 同口径映射缺席值——此前 "inf" 写盘回读变 NaN，
+// 且污染下游数值统计。
+void TestIoLasWriter::infinityMapsToNullToken()
+{
+  QTemporaryDir tmp;
+  QVERIFY(tmp.isValid());
+  const QString out = QDir(tmp.path()).filePath(QStringLiteral("inf_token.las"));
+
+  LasCurve dept;
+  dept.name = QStringLiteral("DEPT");
+  dept.values = {100.0, 100.5};
+
+  LasCurve res;
+  res.name = QStringLiteral("RT");
+  res.values = {std::numeric_limits<double>::infinity(),
+                -std::numeric_limits<double>::infinity()};
+
+  LasWriteOptions opt;
+  opt.nullToken = -999.25;
+
+  QString err;
+  const bool ok = LasWriter::writeLasFile(out, {dept, res}, opt, &err);
+  QVERIFY2(ok, qPrintable(err));
+
+  QFile f(out);
+  QVERIFY(f.open(QIODevice::ReadOnly | QIODevice::Text));
+  const QString content = QString::fromUtf8(f.readAll());
+  // 词边界匹配——~Version Information 头段里的 "Inf" 子串不算 inf 字面量。
+  const QRegularExpression infToken(QStringLiteral("\\b-?inf\\b"),
+                                    QRegularExpression::CaseInsensitiveOption);
+  QVERIFY2(!infToken.match(content).hasMatch(), "文件里不得出现 inf 字面量");
+  QVERIFY(content.contains(QStringLiteral("-999.25"))); // 两行都落缺席值
 }
 
 void TestIoLasWriter::customOptionsPrecision()

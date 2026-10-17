@@ -108,6 +108,40 @@ private slots:
     QCOMPARE(r.picks.front().confidence, 1.0f); // 手动种子恒 1
   }
 
+  // ---- #478：相关函数的直流不变性（Welford 中心化累推）----
+  // Pearson 平移不变：整剖面加直流偏置后拾取应与零偏置一致（float 存储在
+  // 1e6 量级的量化步 ~1/16 样，拾取容差 ±1、置信差 0.02）。
+  // 注：能击穿朴素二阶矩消碳的偏置（var/mean² ≲ 1e-16）早被 float 存储
+  // 量化先行抹掉信号——公开 float 面上「红」不可构造，本测试钉守性质。
+  void dcOffsetInvariance()
+  {
+    const int cols = 120, rows = 400;
+    const auto peak = [](int t) { return 120 + 2 * t; };
+    const std::vector<float> plain =
+        makeSection(cols, rows, peak, zeroNoise, 5u);
+    std::vector<float> biased = plain;
+    const float dc = 1.0e6f;
+    for (float &v : biased)
+      if (std::isfinite(v))
+        v += dc;
+    const TrackOptions opt{24, 12, 0.6};
+    const TrackResult a =
+        trackSection(plain.data(), cols, rows, {60, peak(60)}, opt);
+    const TrackResult b =
+        trackSection(biased.data(), cols, rows, {60, peak(60)}, opt);
+    QVERIFY(a.valid());
+    QVERIFY(b.valid());
+    QCOMPARE(int(b.picks.size()), int(a.picks.size()));
+    QCOMPARE(b.stopLeft.reason, a.stopLeft.reason);
+    QCOMPARE(b.stopRight.reason, a.stopRight.reason);
+    for (std::size_t i = 0; i < a.picks.size() && i < b.picks.size(); ++i)
+    {
+      QCOMPARE(int(b.picks[i].trace), int(a.picks[i].trace));
+      QVERIFY(std::abs(b.picks[i].sample - a.picks[i].sample) <= 1);
+      QVERIFY(std::abs(b.picks[i].confidence - a.picks[i].confidence) <= 0.02f);
+    }
+  }
+
   // ---- Oracle#3：波形劣化 → 置信度单调下降（corr 路径）----
   void confidenceMonotonicUnderGradedNoise()
   {

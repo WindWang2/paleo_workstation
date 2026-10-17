@@ -31,7 +31,7 @@ class QVBoxLayout;
 //     constraintDeleteRequested(horizon, id)、列表右键语义切换
 //     constraintSemanticChangeRequested(horizon, id, semantic)（五种词表）
 // 旧链保留不动：drawConstraintRequested/runIdwRequested（idw* objectName
-// 全保留）；厚度样本表挪进 CollapsibleSection（objectName 不变，默认展开），
+// 全保留）；厚度样本表挪进 CollapsibleSection（objectName 不变，默认收起），
 // 样本行仍由 MappingWorkflow typed 镜像到 ConstraintWorkflow::
 // setThicknessSamples（ARCH-06，原动态属性暗道已撤）。
 class ConstraintPage : public QWidget
@@ -123,6 +123,8 @@ class ConstraintPage : public QWidget
                                 QTableWidget *factors);
     // 勾选/生成态 → 生成与等值线按钮可用性 + 禁用 reason tooltip（DESIGN.md）。
     void updateFactorActionStates();
+    // 复用动作的可用性，显示当前图件、阻断原因和可定位的下一步。
+    void updateOperationGuidance();
     // 主线6：等厚引擎行（顶/底构造面选择）的可见性与清单填充。
     void updateEngineRows();
     void invalidateWellFactors();

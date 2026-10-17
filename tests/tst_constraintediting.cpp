@@ -1,4 +1,6 @@
 #include <QtTest>
+#include <gdal.h>
+#include <ogr_api.h>
 #include <QTemporaryDir>
 #include <QSettings>
 #include <QJsonDocument>
@@ -290,6 +292,84 @@ private slots:
   }
   // P2：会话内绘制的新约束进入原生撤销栈；store fid 不撞其他层位；
   // undo/redo/取消/保存都与 store 一致；无语义裸要素仍被拒收并撤回。
+  // PR457-closure F4：undo 释放预分配 fid 且被其他写入方占用后，redo 不再
+  // 永久撞身份守卫——同身份让位新编号重放，两层位数据都完好。
+  void redoSurvivesFidReuseByOtherWriter()
+  {
+    QTemporaryDir dir;
+    PaleoProjectStore store;
+    const QString gpkg = dir.filePath("project.gpkg");
+    store.setProjectPaths(dir.filePath("p.qgz"), gpkg, dir.filePath("m.sqlite"));
+    ConstraintStore constraints(gpkg, &store);
+    QString error;
+    QVERIFY(constraints.appendExtended("T1", "a", "LINESTRING(0 0,10 0)", "direction_line", 1,
+                                       "{\"semantic\":\"direction_guide\",\"ratio\":4}", 1, &error));
+    QgisProjectService project;
+    QVERIFY(project.createProject(dir.filePath("p.qgz")));
+    LayerManifest manifest(dir.filePath("m.sqlite"));
+    QVERIFY(manifest.open());
+    QgisLayerService layers(&project, &manifest);
+    ConstraintWorkflow workflow(nullptr, &layers);
+    workflow.setConstraintStore(&constraints);
+    workflow.loadConstraints("T1");
+    auto *layer = qobject_cast<QgsVectorLayer *>(layers.instantiate("constraints.T1", &error));
+    QVERIFY2(layer, qPrintable(error));
+    QgisEditingService edits(&store);
+    QVERIFY2(edits.beginEdit(layer, &error), qPrintable(error));
+    const auto original = constraints.load("T1");
+
+    QString drawnId;
+    QVERIFY2(workflow.addConstraint("T1", "LINESTRING(0 5,10 5)", "break_line", 0, &error, &drawnId,
+                                    {{"semantic", "hard_barrier"}, {"blockMode", "full_block"}}),
+             qPrintable(error));
+    qlonglong drawnFid = 0;
+    for (const auto &r : constraints.load("T1"))
+      if (r.value("id").toString() == drawnId)
+        drawnFid = r.value("fid").toLongLong();
+    QVERIFY(drawnFid > 0);
+
+    // undo 删除新绘行（释放预分配 fid）。GDAL 的自增序列不复用已删编号，
+    // F4 的冲突场景是外部编辑/手写行——用显式 FID 插入占掉该编号。
+    layer->undoStack()->undo();
+    QCOMPARE(constraints.load("T1"), original);
+    {
+      GDALDatasetH ds = GDALOpenEx(gpkg.toUtf8().constData(), GDAL_OF_UPDATE | GDAL_OF_VECTOR,
+                                   nullptr, nullptr, nullptr);
+      QVERIFY(ds);
+      OGRLayerH thiefLayer = GDALDatasetGetLayerByName(ds, "constraints");
+      QVERIFY(thiefLayer);
+      OGRFeatureH feature = OGR_F_Create(OGR_L_GetLayerDefn(thiefLayer));
+      OGR_F_SetFID(feature, drawnFid); // 外部编辑者占走 undo 释放的编号
+      OGR_F_SetFieldString(feature, OGR_F_GetFieldIndex(feature, "id"), "thief-external");
+      OGR_F_SetFieldString(feature, OGR_F_GetFieldIndex(feature, "horizon"), "T2");
+      OGR_F_SetFieldString(feature, OGR_F_GetFieldIndex(feature, "type"), "break_line");
+      const char *wkt = "LINESTRING(40 40,50 40)";
+      char *wktPtr = const_cast<char *>(wkt);
+      OGRGeometryH geom = nullptr;
+      QCOMPARE(OGR_G_CreateFromWkt(&wktPtr, nullptr, &geom), OGRERR_NONE);
+      OGR_F_SetGeometry(feature, geom);
+      OGR_G_DestroyGeometry(geom);
+      QCOMPARE(OGR_L_CreateFeature(thiefLayer, feature), OGRERR_NONE);
+      OGR_F_Destroy(feature);
+      GDALClose(ds);
+    }
+    QVERIFY(!constraints.load("T2").isEmpty()); // 占用者在库
+
+    // redo：同身份、新编号重放——不再拒绝，两层位数据都完好。
+    layer->undoStack()->redo();
+    const auto after = constraints.load("T1");
+    QCOMPARE(after.size(), original.size() + 1);
+    bool replayed = false;
+    for (const auto &r : after)
+      replayed |= r.value("id").toString() == drawnId &&
+                  QgsGeometry::fromWkt(r.value("wkt").toString()).equals(
+                      QgsGeometry::fromWkt(QStringLiteral("LINESTRING(0 5, 10 5)")));
+    QVERIFY2(replayed, "redrawn constraint must be back with the same identity");
+    QCOMPARE(constraints.load("T2").size(), 1); // 占用者不受影响
+    QVERIFY(edits.rollbackEdit(layer));
+    QCOMPARE(constraints.load("T1"), original);
+  }
+
   void drawnConstraintJoinsUndoStack()
   {
     QTemporaryDir dir;
@@ -570,6 +650,105 @@ private slots:
         QCOMPARE(row.value("params_json").toString(), before);
     QVERIFY(edits.rollbackEdit(layer));
     QVERIFY(!layer->isEditable());
+  }
+
+  // ---- PR457-closure 六：层位名的过滤转义与层位隔离 ----
+
+  void hostileHorizonNamesRoundTrip()
+  {
+    // 单引号 / 中文 / 空格 / 反斜杠的层位名：subset 构造必须安全，
+    // 图层有效且行数与 store 直读一致（转义不改变语义）。
+    const QStringList horizons = { QStringLiteral("O'Connell-1"),
+                                   QStringLiteral("S1 主层位"),
+                                   QStringLiteral("D 61' 下段"),
+                                   QStringLiteral("T\\1") };
+    for ( const QString &h : horizons )
+    {
+      QTemporaryDir dir;
+      PaleoProjectStore store;
+      const QString gpkg = dir.filePath( "project.gpkg" );
+      store.setProjectPaths( dir.filePath( "p.qgz" ), gpkg, dir.filePath( "m.sqlite" ) );
+      ConstraintStore constraints( gpkg, &store );
+      QgisProjectService project;
+      QVERIFY( project.createProject( dir.filePath( "p.qgz" ) ) );
+      LayerManifest manifest( dir.filePath( "m.sqlite" ) );
+      QVERIFY( manifest.open() );
+      QgisLayerService layers( &project, &manifest );
+      QgisEditingService edits( &store );
+      ConstraintWorkflow workflow( nullptr, &layers );
+      workflow.setConstraintStore( &constraints );
+      workflow.setEditingService( &edits );
+      QString error;
+      QString id;
+      QVERIFY2( workflow.drawConstraint( h, "LINESTRING(0 0,10 0)", "break_line", 0, &error, &id,
+                                        { { "semantic", "hard_barrier" } } ),
+                qPrintable( h + ": " + error ) );
+      QCOMPARE( constraints.load( h ).size(), 1 );
+      auto *layer = qobject_cast<QgsVectorLayer *>( layers.layer( "constraints." + h ) );
+      QVERIFY2( layer, qPrintable( h ) );
+      QVERIFY2( layer->isValid(), qPrintable( h + " layer invalid" ) );
+      QCOMPARE( layer->featureCount(), 1 ); // 只看到本层位那一行
+      QCOMPARE( layer->subsetString(), QStringLiteral( "horizon='%1'" ).arg( QString( h ).replace( "'", "''" ) ) );
+    }
+  }
+
+  void hostileHorizonCannotChangeFilterSemantics()
+  {
+    // 注入型层位名不得看到其它层位的行。
+    const QString hostile = QStringLiteral( "T1' OR '1'='1" );
+    QTemporaryDir dir;
+    PaleoProjectStore store;
+    const QString gpkg = dir.filePath( "project.gpkg" );
+    store.setProjectPaths( dir.filePath( "p.qgz" ), gpkg, dir.filePath( "m.sqlite" ) );
+    ConstraintStore constraints( gpkg, &store );
+    QgisProjectService project;
+    QVERIFY( project.createProject( dir.filePath( "p.qgz" ) ) );
+    LayerManifest manifest( dir.filePath( "m.sqlite" ) );
+    QVERIFY( manifest.open() );
+    QgisLayerService layers( &project, &manifest );
+    QgisEditingService edits( &store );
+    ConstraintWorkflow workflow( nullptr, &layers );
+    workflow.setConstraintStore( &constraints );
+    workflow.setEditingService( &edits );
+    QString error, id;
+    QVERIFY2( workflow.drawConstraint( hostile, "LINESTRING(0 0,10 0)", "break_line", 0, &error, &id,
+                                      { { "semantic", "hard_barrier" } } ),
+              qPrintable( error ) );
+    QVERIFY2( workflow.drawConstraint( QStringLiteral( "OTHER" ), "LINESTRING(0 5,10 5)", "break_line", 0, &error, &id,
+                                      { { "semantic", "hard_barrier" } } ),
+              qPrintable( error ) );
+    auto *layer = qobject_cast<QgsVectorLayer *>( layers.layer( "constraints." + hostile ) );
+    QVERIFY( layer );
+    QVERIFY( layer->isValid() );
+    // 关键断言：注入层位只看到自己的 1 行，不是全部 2 行。
+    QCOMPARE( layer->featureCount(), 1 );
+    QCOMPARE( static_cast<int>( constraints.load( hostile ).size() ), 1 );
+  }
+
+  void pipeHorizonIsRefusedNotTruncated()
+  {
+    // '|' 会截断 OGR URI：构造点必须拒绝而不是静默给出错误过滤的图层。
+    const QString hostile = QStringLiteral( "A|B" );
+    QTemporaryDir dir;
+    PaleoProjectStore store;
+    const QString gpkg = dir.filePath( "project.gpkg" );
+    store.setProjectPaths( dir.filePath( "p.qgz" ), gpkg, dir.filePath( "m.sqlite" ) );
+    ConstraintStore constraints( gpkg, &store );
+    QgisProjectService project;
+    QVERIFY( project.createProject( dir.filePath( "p.qgz" ) ) );
+    LayerManifest manifest( dir.filePath( "m.sqlite" ) );
+    QVERIFY( manifest.open() );
+    QgisLayerService layers( &project, &manifest );
+    ConstraintWorkflow workflow( nullptr, &layers );
+    workflow.setConstraintStore( &constraints );
+    QString error, id;
+    QVERIFY( !workflow.drawConstraint( hostile, "LINESTRING(0 0,10 0)", "break_line", 0, &error, &id,
+                                       { { "semantic", "hard_barrier" } } ) );
+    QVERIFY2( error.contains( QLatin1Char( '|' ) ), qPrintable( error ) );
+    // 拒绝不留半截：库里没有这行。
+    QVERIFY( constraints.load( hostile ).isEmpty() );
+    QVERIFY( constraints.load().isEmpty() );
+    QVERIFY( !layers.layer( "constraints." + hostile ) );
   }
 
   void drawAutoStartsEditSession()

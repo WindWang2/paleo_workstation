@@ -100,6 +100,7 @@ private slots:
   void skippedIsNotShownAsFailure();
   void summaryLineReflectsBatchCounts();
   void pollTimerRunsOnlyWhileVisible();
+  void taskProgressClampsOverflow();
 
 private:
   std::unique_ptr<QObject> m_dispatcher;
@@ -331,6 +332,18 @@ int main(int argc, char *argv[])
       cargv << a.data();
     return QTest::qExec(&tc, cargv.size(), cargv.data());
   }
+}
+
+
+// full-audit F14（R2-08 补测）：上游回灌 done>total 时进度钳 100、ETA 不再
+// 显示「约 1s」——进度条溢出与负剩余时间都不是可接受口径。
+void TestBatchJobPanel::taskProgressClampsOverflow()
+{
+  std::unique_ptr<PaleoTask> task( PaleoTask::forTesting( QStringLiteral("clamp") ) );
+  task->reportBytes( 120, 100 );
+  // reportBytes 经 QueuedConnection 派发到对象线程——泵事件后再生效。
+  QTRY_COMPARE( task->percent(), 100 );
+  QCOMPARE( task->etaText(), QStringLiteral("--") );
 }
 
 #include "tst_batchjobpanel.moc"

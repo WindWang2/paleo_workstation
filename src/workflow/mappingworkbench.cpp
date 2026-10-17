@@ -212,11 +212,17 @@ void MappingWorkbench::bindCatalog(DataCatalog *catalog, const QString &dir) {
   m_aliasVersions.clear(); m_pathVersions.clear(); m_productsCache.clear();
   for (const auto &adapter : std::as_const(m_evidenceSpatialAdapters)) delete adapter.data();
   m_evidenceSpatialAdapters.clear();
-  for (const auto &layer : std::as_const(m_attributionLayers)) delete layer.data();
-  m_attributionLayers.clear();
+  m_attributionLayers.clear(); // shared_ptr 缓存：清表即释放缓存引用
+  m_attributionLru.clear();
   // G08：反向索引 sidecar 绑定工程目录——切工程必须重置，否则反查打到
   // 旧工程的索引（头文件注释承诺的行为）。
   m_evidenceIndex.reset();
+  if (m_indexSyncRunner)
+    m_indexSyncRunner->requestCancel();
+  m_evidenceIndexSyncedRevision = -1;
+  m_evidenceIndexAttemptedRevision = -1;
+  m_evidenceIndexSyncError.clear();
+  m_evidenceIndexStats.clear();
   if (m_wellRemote) m_wellRemote->bindCatalog(catalog, dir);
   m_logVersion.clear();
   m_logCache = {};
@@ -437,7 +443,7 @@ bool MappingWorkbench::saveFacies(const QString &h, const QVariantList &items,
     }
     if (!f.value("texture").toString().isEmpty() &&
         FaciesCatalog::resourcePath(f.value("texture").toString()).isEmpty()) {
-      fail(error, tr("纹理不在本项目纹理库中"));
+      fail(error, tr("纹理不在本工程纹理库中"));
       return false;
     }
     codes.insert(code);
@@ -876,8 +882,13 @@ bool MappingWorkbench::generateFactor(const QString &h, const QString &factor,
   auto d = declaration(id);
   d.layerId = v.extra.value("layer_id").toString();
   d.title += tr(" · v%1").arg(v.versionNumber);
-  if (!d.layerId.isEmpty())
-    m_layers->declare(d, error);
+  // #480：上图 declare 失败不再吞掉——成果已生成但无法上图时如实失败，
+  // 不允许「return true + *error 残留 + productReady 照发」的自相矛盾态。
+  if (!d.layerId.isEmpty() && !m_layers->declare(d, error)) {
+    const QString why = error ? *error : QString();
+    fail(error, tr("单因素成果已生成但上图失败：%1（成果已入册，解除该层编辑后可重试）").arg(why));
+    return false;
+  }
   emit changed();
   emit productReady(h, d.layerId.isEmpty() ? id : d.layerId);
   if (m_project && !m_project->projectPath().isEmpty())
@@ -913,8 +924,12 @@ bool MappingWorkbench::generateContours(const QString &h, const QString &id,
   auto d = declaration(output);
   d.layerId = v.extra.value("layer_id").toString();
   d.title += tr(" · v%1").arg(v.versionNumber);
-  if (!d.layerId.isEmpty())
-    m_layers->declare(d, error);
+  // #480：与 generateFactor 同口径——declare 失败如实返回，不残留矛盾态。
+  if (!d.layerId.isEmpty() && !m_layers->declare(d, error)) {
+    const QString why = error ? *error : QString();
+    fail(error, tr("等值线成果已生成但上图失败：%1（成果已入册，解除该层编辑后可重试）").arg(why));
+    return false;
+  }
   emit changed();
   emit productReady(h, d.layerId.isEmpty() ? output : d.layerId);
   if (m_project && !m_project->projectPath().isEmpty())

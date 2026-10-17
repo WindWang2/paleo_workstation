@@ -78,6 +78,9 @@ struct CatalogVersion
   QString id;
   QString assetId;
   QString stage;        // "RAW" | "DERIVED" | "INTERMEDIATE" | "OUTPUT"
+  // #476：0/1 档 = 「未编号/首版」——同资产允许重复（存量调用面广）；
+  // >1 的显式编号族（assetops 的 current+1 单调面）按 (asset_id,version_number)
+  // 唯一口径约束（addVersion 内存闸 + catalogstore 宽容唯一索引）。
   int versionNumber = 1;
   bool managed = true;  // false = 外部链接（SEG-Y 966MB 走这条）
   QString path;         // 受管：工程相对 {stage}/{asset_id}/{version_id}/{filename}；外链：绝对路径
@@ -435,8 +438,13 @@ class DataCatalog : public QObject
     // save 失败回滚时逆序还原（同一行可能重复入栈，逆序恢复到最初原值）。
     // 行号定位走 m_idx.versionRow（O(1)）——WP2：不再每次全表建 id→row 哈希
     //（那是 addVersion 的隐藏 O(N)/调用，N 次导入即 O(N²)）。
+    // excludeId 非空时跳过该版本：addVersion 的 supersede 级联必须传新版本
+    // 自身 id——新版本以同资产旧版本为父时，闭包会把自己卷进去，出生即带
+    // 「被自身取代」的荒谬 stale 标记（registration 临时配准/assetops 回滚
+    // 两生产路径，removeStaleVersions 会误把当前版本列为可删）。
     int markStaleDownstreamOf(const QString &versionId, const QString &reason,
-                              QVector<QPair<int, CatalogVersion>> *undo = nullptr);
+                              QVector<QPair<int, CatalogVersion>> *undo = nullptr,
+                              const QString &excludeId = QString());
     QString m_dir;
     bool m_isOpen = false;
     bool m_preparedOpen = false;

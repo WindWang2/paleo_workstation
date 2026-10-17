@@ -6,6 +6,8 @@
 #include <QFileInfo>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+#include <QSemaphore>
+#include <QScopeGuard>
 
 #include <qgsapplication.h>
 #include <qgscolorramp.h>
@@ -415,6 +417,96 @@ class TestFactorWorkflow : public QObject
         QCOMPARE(res.isSand, c.expectedSand);
         QCOMPARE(res.isKnown, c.expectedKnown);
       }
+    }
+
+    // #476 测试盲区收口：词表引擎的序列化/规则管理/解析面——归类的行为面
+    // 已由 lithoLexiconTableDrivenDisambiguation 钉住，这里补齐其余 API。
+    void lithoLexiconSerializationRuleManagementAndParsing()
+    {
+      using namespace paleo::domain;
+
+      // ---- 枚举解析/显示名（往返一致） ----
+      QCOMPARE(LithoLexicon::groupDisplayName(LithoGroup::Sand), LithoLexicon::groupDisplayName(LithoGroup::Sand));
+      for (const QString &name : { QStringLiteral("砂族"), QStringLiteral("泥族"),
+                                   QStringLiteral("碳酸盐族"), QStringLiteral("砾岩族"),
+                                   QStringLiteral("其他"), QStringLiteral("未知") }) {
+        const auto parsed = LithoLexicon::parseGroup(name);
+        QCOMPARE(LithoLexicon::groupDisplayName(parsed), name);
+      }
+      QCOMPARE(LithoLexicon::parseMatchType(LithoLexicon::matchTypeName(MatchType::Exact)), MatchType::Exact);
+      QCOMPARE(LithoLexicon::parseMatchType(LithoLexicon::matchTypeName(MatchType::Contains)), MatchType::Contains);
+      QCOMPARE(LithoLexicon::parseMatchType(QStringLiteral("不存在的匹配方式")), MatchType::Contains);
+      QCOMPARE(LithoLexicon::parseGroup(QStringLiteral("不存在的族")), LithoGroup::Unknown);
+
+      // ---- 规则管理：prependRule 压过默认优先级，clearRules 后全未知 ----
+      auto lex = LithoLexicon::defaultLexicon();
+      const int defaultRules = lex.rules().size();
+      QVERIFY(defaultRules > 0);
+      QCOMPARE(lex.classify(QStringLiteral("花岗岩基底")).isKnown, false);
+      LithoRule magic;
+      magic.pattern = QStringLiteral("花岗岩");
+      magic.matchType = MatchType::Contains;
+      magic.group = LithoGroup::Other;
+      magic.priority = 9999;
+      lex.prependRule(magic);
+      QCOMPARE(lex.rules().size(), defaultRules + 1);
+      QVERIFY(lex.classify(QStringLiteral("花岗岩基底")).isKnown);
+      QCOMPARE(lex.classify(QStringLiteral("花岗岩基底")).group, LithoGroup::Other);
+
+      LithoRule exact;
+      exact.pattern = QStringLiteral("砂岩");
+      exact.matchType = MatchType::Exact;
+      exact.group = LithoGroup::Mud; // 精确规则故意反着配，验证 Exact 语义
+      exact.priority = 10000;
+      lex.addRule(exact);
+      // 「砂岩」精确命中新规则 → Mud；「细砂岩」仍走默认 contains → Sand。
+      QCOMPARE(lex.classify(QStringLiteral("砂岩")).group, LithoGroup::Mud);
+      QCOMPARE(lex.classify(QStringLiteral("细砂岩")).group, LithoGroup::Sand);
+
+      lex.clearRules();
+      QCOMPARE(lex.rules().size(), 0);
+      QVERIFY(!lex.classify(QStringLiteral("细砂岩")).isKnown);
+      QVERIFY(!lex.isSand(QStringLiteral("细砂岩")));
+      QVERIFY(!lex.isKnown(QString()));
+
+      // ---- extend：另一词表整体并入 ----
+      auto extra = LithoLexicon::defaultLexicon();
+      LithoRule volcanic;
+      volcanic.pattern = QStringLiteral("玄武岩");
+      volcanic.group = LithoGroup::Other;
+      volcanic.priority = 5;
+      extra.addRule(volcanic);
+      lex.extend(extra);
+      QVERIFY(lex.classify(QStringLiteral("玄武岩")).isKnown);
+      QVERIFY(lex.isSand(QStringLiteral("细砂岩")));
+
+      // ---- 序列化往返：toJson/fromJson 与 toMap/fromMap ----
+      const QByteArray json = lex.toJson();
+      QString jsonErr;
+      const auto reloaded = LithoLexicon::fromJson(json, &jsonErr);
+      QVERIFY2(jsonErr.isEmpty(), qPrintable(jsonErr));
+      QCOMPARE(reloaded.rules().size(), lex.rules().size());
+      QVERIFY(reloaded.isSand(QStringLiteral("细砂岩")));
+      QVERIFY(reloaded.classify(QStringLiteral("玄武岩")).isKnown);
+      QCOMPARE(reloaded.name(), lex.name());
+
+      const QVariantMap map = lex.toMap();
+      QString mapErr;
+      const auto fromMap = LithoLexicon::fromMap(map, &mapErr);
+      QVERIFY2(mapErr.isEmpty(), qPrintable(mapErr));
+      QCOMPARE(fromMap.rules().size(), lex.rules().size());
+
+      // 坏 JSON 如实报错（回退默认词表，不静默空表）。
+      QString badErr;
+      const auto bad = LithoLexicon::fromJson(QByteArrayLiteral("{ not json"), &badErr);
+      QVERIFY(!badErr.isEmpty());
+      QVERIFY(bad.rules().size() > 0); // 回退默认词表——不是空表
+      // rules 非数组：toList 得空——零规则但可解析（不崩不误读）。
+      QString typeErr;
+      const auto typed = LithoLexicon::fromJson(QByteArrayLiteral(R"({"name":"x","rules":"nope"})"), &typeErr);
+      QVERIFY(typeErr.isEmpty());
+      QCOMPARE(typed.rules().size(), 0);
+      QCOMPARE(typed.name(), QStringLiteral("x"));
     }
 
     void lithoLexiconProjectExtensionAndFactorSourceAudit()
@@ -1132,6 +1224,95 @@ class TestFactorWorkflow : public QObject
       QVERIFY( pumpUntil( [&] { return !runner.busy(); } ) );
       // 拒绝的那一代不产生额外成果
       QCOMPARE( contours.count(), 1 );
+      svc.shutdown( 3000, false );
+    }
+
+    // #481 P2-1：暂存/临时目录删除守卫——只删目录名本身命中暂存命名的
+    // 目录；路径任意位置撞串、空 staging 一律不动（旧行为会误删用户目录
+    // 甚至当前目录）。
+    void stagingTreeDiscardGuards()
+    {
+      QTemporaryDir root;
+      QVERIFY( root.isValid() );
+      const QDir base( root.path() );
+      // (a) 正规单因素临时树：paleo-sf- 开头 → 删
+      const QString tempTree = base.filePath( QStringLiteral( "paleo-sf-abc123" ) );
+      QVERIFY( QDir( tempTree ).mkpath( QStringLiteral( "." ) ) );
+      QFile f( QDir( tempTree ).filePath( QStringLiteral( "out.gpkg" ) ) );
+      QVERIFY( f.open( QIODevice::WriteOnly ) );
+      f.close();
+      PaleoWorkflowDiscardFactorTempTree( QDir( tempTree ).filePath( QStringLiteral( "out.gpkg" ) ) );
+      QVERIFY( !QFileInfo::exists( tempTree ) );
+
+      // (b) 目录名只是「包含」paleo-sf-（用户目录撞串）→ 不删
+      const QString lookAlike = base.filePath( QStringLiteral( "backup-paleo-sf-2026" ) );
+      QVERIFY( QDir( lookAlike ).mkpath( QStringLiteral( "." ) ) );
+      PaleoWorkflowDiscardFactorTempTree( QDir( lookAlike ).filePath( QStringLiteral( "keep.txt" ) ) );
+      QVERIFY2( QFileInfo::exists( lookAlike ), "撞串目录不得被删" );
+
+      // (c) 空路径 → 不动当前目录
+      PaleoWorkflowDiscardFactorTempTree( QString() );
+      PaleoWorkflowDiscardPredictionStagingDir( QString(), QString() );
+
+      // (d) 预测 staging：目录名 == versionId 才删；不匹配不删
+      const QString stg = base.filePath( QStringLiteral( "ver-9" ) );
+      QVERIFY( QDir( stg ).mkpath( QStringLiteral( "." ) ) );
+      PaleoWorkflowDiscardPredictionStagingDir( QStringLiteral( "ver-8" ),
+                                                QDir( stg ).filePath( QStringLiteral( "ONNX_x.tif" ) ) );
+      QVERIFY( QFileInfo::exists( stg ) );
+      PaleoWorkflowDiscardPredictionStagingDir( QStringLiteral( "ver-9" ),
+                                                QDir( stg ).filePath( QStringLiteral( "ONNX_x.tif" ) ) );
+      QVERIFY( !QFileInfo::exists( stg ) );
+    }
+
+    // #480 P3-3：无关 catalog 写入不再误取消排队中的长作业——输入在提交时
+    // 已冻结（约束快照/输入版本不可变），作业期间其它目录写入不构成失效；
+    // 真失效由代次/目录/session 与各作业的输入指纹校验把关。
+    void unrelatedCatalogMutationDoesNotCancelQueuedFactorJob()
+    {
+      Fixture f;
+      QVERIFY( initFixture( f ) );
+      QString err;
+      QVERIFY2( setupWells( f, &err ), qPrintable( err ) );
+
+      ConstraintWorkflow wf( &f.proc, &f.layers );
+      wf.setCatalog( &f.catalog, f.dir.path() );
+      QObject dispatcher;
+      PaleoTaskService svc( nullptr, &dispatcher );
+      wf.setTaskService( &svc );
+      svc.setMaxWorkerThreads( 1 );
+
+      // 占住唯一 worker：factor 任务先排队，排队期间做无关目录写入
+      const auto gate = std::make_shared<QSemaphore>();
+      const auto entered = std::make_shared<QSemaphore>();
+      svc.start( QStringLiteral( "hold-worker" ),
+                 [gate, entered]( PaleoTask * ) {
+                   entered->release();
+                   gate->acquire();
+                   return QString();
+                 } );
+      const auto releaseGate = qScopeGuard( [&] { gate->release(); } );
+      QTRY_VERIFY( entered->available() > 0 );
+
+      QVariantMap params;
+      params.insert( QStringLiteral( "field" ), QStringLiteral( "z" ) );
+      QSignalSpy failed( &wf, &ConstraintWorkflow::factorJobFailed );
+      QSignalSpy generated( &wf, &ConstraintWorkflow::factorGenerated );
+      QVERIFY2( wf.generateFactor( QStringLiteral( "T1" ), QStringLiteral( "sandthick" ),
+                                   params, &err ),
+                qPrintable( err ) );
+
+      // 无关写入：注册一个与该作业输入毫无关系的目录实体
+      CatalogEntity unrelated;
+      unrelated.id = QStringLiteral( "unrelated-borehole" );
+      unrelated.entityType = QStringLiteral( "well" );
+      unrelated.name = QStringLiteral( "无关井" );
+      QVERIFY2( f.catalog.addEntity( unrelated, &err ), qPrintable( err ) );
+
+      gate->release();
+      QVERIFY( pumpUntil( [&] { return !wf.factorBusy(); } ) );
+      QCOMPARE( failed.count(), 0 );
+      QVERIFY2( generated.count() == 1, "无关目录写入不得取消作业" );
       svc.shutdown( 3000, false );
     }
 

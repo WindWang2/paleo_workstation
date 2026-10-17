@@ -43,6 +43,7 @@ class SfPackageReaderTests : public QObject
     void toleratesMissingChecksumWithIssue();
     void transposesFortranOrderArray();
     void parsesNpyDirectly();
+    void parsesBigEndianDtype(); // #477
     void reportsMissingFile();
 };
 
@@ -285,6 +286,63 @@ void SfPackageReaderTests::parsesNpyDirectly()
   QVERIFY( !hugeParsed.ok );
   QVERIFY( hugeParsed.values.empty() );
   QVERIFY2( hugeParsed.error.contains( QStringLiteral( "长度与 shape 不符" ) ), qPrintable( hugeParsed.error ) );
+}
+
+// #477：NPY dtype 字节序——>i4/>f8（大端）必须按大端重组；此前一律按
+// 主机序 memcpy，大端 dtype 在小端主机上全部静默错值。
+void SfPackageReaderTests::parsesBigEndianDtype()
+{
+  const auto makeNpy = []( const QString &descr, const QByteArray &data ) {
+    const QByteArray header =
+        QStringLiteral( "{'descr': '%1', 'fortran_order': False, 'shape': (%2,), }\n" )
+            .arg( descr )
+            .arg( data.size() / ( descr.endsWith( '8' ) ? 8 : descr.endsWith( '4' ) ? 4 : descr.endsWith( '2' ) ? 2 : 1 ) )
+            .toUtf8();
+    QByteArray bytes;
+    bytes.append( "\x93NUMPY", 6 );
+    bytes.append( char( 1 ) );
+    bytes.append( char( 0 ) );
+    bytes.append( char( header.size() & 0xFF ) );
+    bytes.append( char( ( header.size() >> 8 ) & 0xFF ) );
+    bytes.append( header );
+    bytes.append( data );
+    return bytes;
+  };
+
+  // >i4 大端：0x00000001=1、0xFFFFFFC2=-62、0x00000007=7。
+  QByteArray be4;
+  be4.append( '\x00' ); be4.append( '\x00' ); be4.append( '\x00' ); be4.append( '\x01' );
+  be4.append( '\xFF' ); be4.append( '\xFF' ); be4.append( '\xFF' ); be4.append( '\xC2' );
+  be4.append( '\x00' ); be4.append( '\x00' ); be4.append( '\x00' ); be4.append( '\x07' );
+  const NpyArray i4 = parseNpy( makeNpy( QStringLiteral( ">i4" ), be4 ) );
+  QVERIFY2( i4.ok, qPrintable( i4.error ) );
+  QCOMPARE( i4.rows, 3 );
+  QCOMPARE( i4.values.size(), std::size_t{ 3 } );
+  QCOMPARE( i4.values[0], 1.0 );
+  QCOMPARE( i4.values[1], -62.0 );
+  QCOMPARE( i4.values[2], 7.0 );
+
+  // >f8 大端：1.0 与 -0.5 的 IEEE754 大端位型。
+  const double one = 1.0, half = -0.5;
+  QByteArray be8;
+  for ( int i = 7; i >= 0; --i )
+    be8.append( reinterpret_cast<const char *>( &one )[i] );
+  for ( int i = 7; i >= 0; --i )
+    be8.append( reinterpret_cast<const char *>( &half )[i] );
+  const NpyArray f8 = parseNpy( makeNpy( QStringLiteral( ">f8" ), be8 ) );
+  QVERIFY2( f8.ok, qPrintable( f8.error ) );
+  QCOMPARE( f8.values.size(), std::size_t{ 2 } );
+  QCOMPARE( f8.values[0], 1.0 );
+  QCOMPARE( f8.values[1], -0.5 );
+
+  // 小端 <f8 照常（回归面）。
+  QByteArray le8;
+  le8.append( reinterpret_cast<const char *>( &one ), 8 );
+  le8.append( reinterpret_cast<const char *>( &half ), 8 );
+  const NpyArray le = parseNpy( makeNpy( QStringLiteral( "<f8" ), le8 ) );
+  QVERIFY2( le.ok, qPrintable( le.error ) );
+  QCOMPARE( le.values[0], 1.0 );
+  QCOMPARE( le.values[1], -0.5 );
 }
 
 QTEST_MAIN( SfPackageReaderTests )

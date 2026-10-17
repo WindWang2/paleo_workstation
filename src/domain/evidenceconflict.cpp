@@ -118,11 +118,36 @@ QVariantList analyze(const QList<Opinion> &opinions, int targetFaciesCode,
                               {"version_id", target.value("version_id")}};
   auto add = [&](const QString &severity, const QString &code, const QString &conflictType,
                  const QString &source, const QString &label, const QString &versionId,
-                 const QString &message, const QString &basis, const QString &suggestion) {
+                 const QString &message, const QString &basis, const QString &suggestion,
+                 const QVariantMap &locator = QVariantMap()) {
+    auto evidence = QVariantMap{{"source", source}, {"label", label}, {"version_id", versionId}};
+    if (!locator.isEmpty()) evidence.insert(QStringLiteral("locator"), locator);
     findings << QVariantMap{{"severity", severity}, {"code", code}, {"message", message},
-      {"target", targetRef}, {"evidence", QVariantMap{{"source", source}, {"label", label}, {"version_id", versionId}}},
+      {"target", targetRef}, {"evidence", evidence},
       {"conflict_type", conflictType}, {"basis", basis}, {"suggestion", suggestion},
       {"status", QStringLiteral("open")}};
+  };
+  // X14：意见携带可定位身份时透传为 finding.evidence.locator——井走实体
+  // 坐标，单因素走图层/版本；页面据此产出可双击的导航行。
+  auto locatorFor = [](const Opinion &op) {
+    QVariantMap locator;
+    const auto entity = op.extra.value(QStringLiteral("entity_id")).toString();
+    if (!entity.isEmpty() && op.extra.contains(QStringLiteral("x")) &&
+        op.extra.contains(QStringLiteral("y"))) {
+      locator = {{"entity_id", entity},
+                 {"x", op.extra.value(QStringLiteral("x"))},
+                 {"y", op.extra.value(QStringLiteral("y"))},
+                 {"has_coordinates",
+                  op.extra.value(QStringLiteral("has_coordinates"), true)}};
+    } else {
+      const auto layer = op.extra.value(QStringLiteral("layer_id")).toString();
+      if (!layer.isEmpty() ||
+          !op.extra.value(QStringLiteral("version_id")).toString().isEmpty())
+        locator = {{"layer_id", layer},
+                   {"version_id",
+                    op.extra.value(QStringLiteral("version_id"), op.versionId)}};
+    }
+    return locator;
   };
 
   const QString attributionStatus = attribution.value("status").toString();
@@ -210,7 +235,7 @@ QVariantList analyze(const QList<Opinion> &opinions, int targetFaciesCode,
                                     ? QStringLiteral("定位『%1』复核解释与图斑边界").arg(displayName(op))
                                     : QStringLiteral("复核『%1』意见与图斑分类的取舍，必要时人工裁决").arg(displayName(op));
       add(QStringLiteral("Warning"), QStringLiteral("minority_opinion"), conflictType, kindOrOther(op),
-          displayName(op), op.versionId, message, basis, suggestion);
+          displayName(op), op.versionId, message, basis, suggestion, locatorFor(op));
     }
   }
 
@@ -232,7 +257,8 @@ QVariantList analyze(const QList<Opinion> &opinions, int targetFaciesCode,
               .arg(displayName(op))
               .arg(op.faciesCode)
               .arg(targetFaciesCode),
-          QStringLiteral("定位『%1』复核该意见，或修正人工解释").arg(displayName(op)));
+          QStringLiteral("定位『%1』复核该意见，或修正人工解释").arg(displayName(op)),
+          locatorFor(op));
     }
   }
 
@@ -248,7 +274,8 @@ QVariantList analyze(const QList<Opinion> &opinions, int targetFaciesCode,
               .arg(opinionHorizon)
               .arg(targetHorizon),
           QStringLiteral("extra.horizon=%1 ≠ target.horizon=%2").arg(opinionHorizon).arg(targetHorizon),
-          QStringLiteral("核实『%1』的层位归属或更新其版本").arg(displayName(op)));
+          QStringLiteral("核实『%1』的层位归属或更新其版本").arg(displayName(op)),
+          locatorFor(op));
     if (op.sourceKind == QLatin1String("constraint") && op.extra.value("constraint_inactive").toBool())
       add(QStringLiteral("Warning"), QStringLiteral("constraint_inactive"), QStringLiteral("data_quality"),
           kindOrOther(op), displayName(op), op.versionId,
@@ -256,7 +283,8 @@ QVariantList analyze(const QList<Opinion> &opinions, int targetFaciesCode,
               .arg(displayName(op))
               .arg(shortVersion(op.versionId)),
           QStringLiteral("extra.constraint_inactive=true；停用约束的意见仍参与一致性统计"),
-          QStringLiteral("重算前先确认约束『%1』的状态").arg(displayName(op)));
+          QStringLiteral("重算前先确认约束『%1』的状态").arg(displayName(op)),
+          locatorFor(op));
   }
 
   // 规则 4：归因 unresolved / 部分输入缺失 → 模型不确定性。
@@ -364,6 +392,10 @@ QList<Opinion> opinionsFromAttribution(const QVariantMap &attribution) {
   if (attribution.value("status").toString() == QLatin1String("manual")) return out;
   for (const auto &value : attribution.value("inputs").toList()) {
     const auto input = value.toMap();
+    // 重放会列出赢了 0 像元的输入（P0-A 起为展示对齐口径）：未参与本图斑
+    // 决策，不应成为 known=false 的意见来源。
+    if (input.value("cells").toLongLong() <= 0)
+      continue;
     Opinion opinion;
     opinion.sourceKind = QStringLiteral("single_factor");
     const QString title = input.value("title").toString();

@@ -8557,8 +8557,8 @@ Crossline: %3 ~ %4</source>
     </message>
     <message>
         <location filename="../src/workflow/mappingworkbench.cpp" line="314"/>
-        <source>纹理不在本项目纹理库中</source>
-        <translation>纹理不在本项目纹理库中</translation>
+        <source>纹理不在本工程纹理库中</source>
+        <translation>纹理不在本工程纹理库中</translation>
     </message>
     <message>
         <location filename="../src/workflow/mappingworkbench.cpp" line="433"/>
@@ -9810,8 +9810,8 @@ Crossline: %3 ~ %4</source>
     <message>
         <location filename="../src/workflow/mappingworkflow.cpp" line="347"/>
         <location filename="../src/workflow/mappingworkflow.cpp" line="533"/>
-        <source>未绑定项目数据（读侧门面）</source>
-        <translation>未绑定项目数据（读侧门面）</translation>
+        <source>未绑定工程数据（读侧门面）</source>
+        <translation>未绑定工程数据（读侧门面）</translation>
     </message>
     <message>
         <location filename="../src/workflow/mappingworkflow.cpp" line="352"/>

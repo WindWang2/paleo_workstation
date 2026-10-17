@@ -197,10 +197,11 @@ void DataGraphWorkflow::exportGraph(const paleo::datagraph::Graph &graph,
                                                     query](PaleoTask *task) {
         task->reportStage(QStringLiteral("encode"), 5);
         const QStringList nodeKinds{"entity",   "asset", "version",
-                                    "activity", "group", "missing", "evidence", "assertion", "interpretation", "feature"};
+                                    "activity", "group", "missing", "evidence", "assertion", "interpretation", "feature", "review_event"};
         const QStringList relations{"linked",   "has_version", "derived",
                                     "used",     "generated",   "edit_baseline",
-                                    "rollback", "grouped", "supported_by", "contradicted_by", "constrained_by", "references", "informs", "materializes"};
+                                    "rollback", "grouped", "supported_by", "contradicted_by", "constrained_by", "references", "informs", "materializes",
+                                    "consumed_in", "reviewed_by", "supersedes"};
         const QStringList modes{"overview", "relations", "lineage",
                                 "entities", "impact"};
         QVariantList nodes, edges;
@@ -237,6 +238,7 @@ void DataGraphWorkflow::exportGraph(const paleo::datagraph::Graph &graph,
               QVariantMap{{"source", e.source},
                           {"target", e.target},
                           {"label", e.label},
+                          {"provenance", e.provenance},
                           {"relation", relations.value(int(e.relation))},
                           {"unresolved", e.unresolved}});
         }
@@ -254,6 +256,7 @@ void DataGraphWorkflow::exportGraph(const paleo::datagraph::Graph &graph,
                                   {"history", query.history},
                                   {"depth", query.depth}, {"horizon", query.horizon},
                                   {"evidence_type", query.evidenceType}, {"review_state", query.reviewState},
+                                  {"relation", query.relation},
                                   {"evidence_offset", query.evidenceOffset}, {"evidence_limit", query.evidenceLimit},
                                   {"max_traversal_edges", query.maxTraversalEdges}}},
             {"nodes", nodes},

@@ -395,7 +395,6 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
              previous.extra.value("title").toString(), "vector",
              evidenceParents, extra, error, "|layername=features", id);
   if (!output.isEmpty()) {
-    if (observer) observer->acknowledge();
     styleLayer(id);
     if (layer->fields().indexOf("facies_intervals") >= 0) {
       QVariantList points;
@@ -411,6 +410,7 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
           !WellAttributeStore::mergeFormations(m_catalog, m_dir, m_layers,
           wellFormationUpdates(points, previous.extra.value("facies").toList(), false), error)) return false;
     }
+    if (observer) observer->acknowledge();
   }
   return !output.isEmpty();
 }
@@ -604,6 +604,14 @@ QString MappingWorkbench::snapshotConstraints(const QString &h,
   const auto liveRows = m_constraints->loadConstraints(h);
   if (!store || liveRows.isEmpty())
     return {};
+  // 二轮 A3：层位名含 '|' 等无法安全进入 subset 的字符时如实失败——绝不
+  // 静默退化为无过滤全表层（否则快照会把所有层位的约束一起带走）。
+  QString subsetError;
+  const QString subsetSuffix = paleo::workflow_detail::constraintHorizonSubsetSuffix(h, &subsetError);
+  if (subsetSuffix.isEmpty()) {
+    fail(error, subsetError);
+    return {};
+  }
   const QString liveHash = constraintRowsHash(liveRows);
   const QByteArray snapshotKey = ("paleo.constraint.snapshot." + h).toUtf8();
   if (m_catalog) {
@@ -623,8 +631,7 @@ QString MappingWorkbench::snapshotConstraints(const QString &h,
           .toString();
     }
   }
-  QgsVectorLayer layer(store->gpkgPath() + "|layername=constraints" +
-                           paleo::workflow_detail::constraintHorizonSubsetSuffix(h),
+  QgsVectorLayer layer(store->gpkgPath() + "|layername=constraints" + subsetSuffix,
                        "constraints", "ogr");
   layer.setCrs(
       QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt()));

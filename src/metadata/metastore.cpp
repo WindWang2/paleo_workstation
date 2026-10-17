@@ -36,6 +36,19 @@ QSqlDatabase openConnection(const QString &path, const QString &connectionName, 
     setError(error, QStringLiteral("QSQLITE driver is not available"));
     return {};
   }
+  // #476：各 store 连接名 = 前缀 + 32 位 qHash(path)——两条路径哈希碰撞到
+  // 同一连接名时，复用已开连接会把 A 库交给 B 库的 store（静默串库）。
+  // 复用前比对 databaseName，指向别的库就拒绝并如实报错。
+  if (db.isOpen() &&
+      QFileInfo(db.databaseName()).absoluteFilePath() !=
+          QFileInfo(path).absoluteFilePath())
+  {
+    setError(error,
+             QStringLiteral("connection name collision: %1 is already open on %2 "
+                            "while %3 was requested")
+                 .arg(connectionName, db.databaseName(), path));
+    return {};
+  }
   if (!db.isOpen())
   {
     if (!readOnly)

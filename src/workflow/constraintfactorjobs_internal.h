@@ -117,7 +117,9 @@ namespace paleo::constraint_detail
 
 inline void discardTempTree( const QString &path )
 {
-  if ( path.contains( QStringLiteral( "paleo-sf-" ) ) )
+  // #481 P2-1：与 PaleoWorkflowDiscardFactorTempTree 同口径——按目录名
+  // 前缀判定，路径任意位置撞串的用户目录不误删。
+  if ( QFileInfo( QFileInfo( path ).absolutePath() ).fileName().startsWith( QStringLiteral( "paleo-sf-" ) ) )
     QDir( QFileInfo( path ).absolutePath() ).removeRecursively();
 }
 

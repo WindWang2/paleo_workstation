@@ -216,19 +216,35 @@ bool MappingWorkbench::commitCompose(ComposeJob &job, QString *error) {
   QVariantMap composeReceipt{{"inputs", receiptRows},
                              {"decided_cells", QVariant::fromValue(job.receipt.decidedCells)},
                              {"total_cells", QVariant::fromValue(job.receipt.totalCells)}};
+  // X2：冻结编图网格——点输入 compose 无栅格定网格，重放必须按保存时
+  // 网格逐像元复现；缺此记录的历史成果才退回按规则重建。
+  const QVariantMap composeGrid{
+      {"cols", job.receipt.cols},
+      {"rows", job.receipt.rows},
+      {"extent", QVariantList{job.receipt.xMin, job.receipt.yMin,
+                              job.receipt.xMax, job.receipt.yMax}}};
+  QVariantMap extra{
+      {"method",
+       "priority-first-valid; categorical-nearest; threshold-classification"},
+      {"input_layers", job.ids},
+      {"computational_parent_versions", job.parents},
+      {"ordered_inputs", job.params.value("ordered_inputs")},
+      {"compose_receipts", composeReceipt},
+      {"compose_grid", composeGrid},
+      {"crs", job.params.value("crs")},
+      {"thresholds", job.params.value("thresholds")},
+      {"facies", job.facies}};
+  // 受控重算血缘（X13）：计划携带的 recompute 段落到版本 extra——成果从此
+  // 能反查「它替代了哪一版、依据哪份影响报告」；不作为算法参数存档。
+  auto storedParams = job.params;
+  if (storedParams.contains("recompute")) {
+    extra.insert("recompute_provenance", storedParams.value("recompute"));
+    storedParams.remove("recompute");
+  }
+  extra.insert("algorithm_parameters", storedParams);
   job.productId = record(
       job.outputPath, job.horizon, "composed_facies",
-      tr("%1 综合相图").arg(job.horizon), "raster", job.parents,
-      {{"method",
-        "priority-first-valid; categorical-nearest; threshold-classification"},
-       {"input_layers", job.ids},
-       {"computational_parent_versions", job.parents},
-       {"ordered_inputs", job.params.value("ordered_inputs")},
-       {"algorithm_parameters", job.params},
-       {"compose_receipts", composeReceipt},
-       {"crs", job.params.value("crs")},
-       {"thresholds", job.params.value("thresholds")},
-       {"facies", job.facies}},
+      tr("%1 综合相图").arg(job.horizon), "raster", job.parents, extra,
       error, {}, {}, &job.fingerprint);
   return !job.productId.isEmpty();
 }

@@ -29,6 +29,7 @@ class PerfLasTests : public QObject
     void emptyCurvePolicy();
     void aliasCanonicalization();
     void aliasMemoization();
+    void aliasMemoEvictsLeastRecentlyUsed(); // #477
     void aliasFamilies();
     void bomLasHandled();
     void parseRangeFullFileAgrees();
@@ -318,6 +319,33 @@ void PerfLasTests::aliasMemoization()
   QVERIFY2(st.memoHits >= qint64(2),
            qPrintable(QStringLiteral("memo hits %1 < 2").arg(st.memoHits)));
   QVERIFY(st.normalized >= qint64(1)); // DT4P → DT 发生过归一
+}
+
+// #477：memo 超限淘汰必须 LRU——此前 QHash::erase(begin()) 是哈希序随机
+// 淘汰，热键可能刚插入即被逐。钉契约：触及的旧键保留、未触及的最旧键逐出。
+void PerfLasTests::aliasMemoEvictsLeastRecentlyUsed()
+{
+  LasAliasMap &m = LasAliasMap::shared();
+  m.clearMemo();
+  // 未知名也入 memo（result=key），用未知名填充到容量。
+  for (int i = 0; i < 4096; ++i)
+    m.canonicalCurve(QStringLiteral("zq%1").arg(i));
+  // 触及最老的 10 个（LRU 尾部），其余保持插入序。
+  for (int i = 0; i < 10; ++i)
+    m.canonicalCurve(QStringLiteral("zq%1").arg(i));
+  // 再插入 10 个新键：应逐出的是 zq10..zq19（未触及的最旧），不是 zq0..zq9。
+  for (int i = 4096; i < 4106; ++i)
+    m.canonicalCurve(QStringLiteral("zq%1").arg(i));
+
+  const qint64 hitsBefore = m.stats().memoHits;
+  for (int i = 0; i < 10; ++i)
+    m.canonicalCurve(QStringLiteral("zq%1").arg(i)); // 触及过的必须全命中
+  QCOMPARE(m.stats().memoHits - hitsBefore, qint64(10));
+
+  const qint64 hitsBefore2 = m.stats().memoHits;
+  for (int i = 10; i < 20; ++i)
+    m.canonicalCurve(QStringLiteral("zq%1").arg(i)); // 未触及的最旧 10 个已被逐出
+  QCOMPARE(m.stats().memoHits - hitsBefore2, qint64(0));
 }
 
 void PerfLasTests::aliasFamilies()

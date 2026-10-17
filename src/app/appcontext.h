@@ -165,6 +165,10 @@ class AppContext : public QObject
     bool acquireProjectLock(const QString &projectDir, bool creating, QString *error,
                             bool *cancelled);
     void releaseProjectSession();
+    // #483：projectOpened 的绑定体（原 ~260 行内联 lambda 抽出，纯机械搬移）。
+    // 顺序敏感：锁接管 → 只读降级 → store/meta 重绑 → journal 恢复 → manifest
+    // rehydrate → 派生 workflow/catalog 重绑 → 图层树规整。
+    void bindProjectOpened(const QString &qgzPath);
 
     bool m_ready = false;
     bool m_bindingProject = false;

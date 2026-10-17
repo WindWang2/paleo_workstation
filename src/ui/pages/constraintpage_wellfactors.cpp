@@ -15,6 +15,7 @@
 
 #include <QComboBox>
 #include <QHeaderView>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
 #include <QTableWidget>
@@ -30,42 +31,71 @@ void ConstraintPage::buildWellFactorSection( QWidget *content, QVBoxLayout *lay,
   auto *wellFactors = new QWidget(content);
   wellFactors->setObjectName(QStringLiteral("wellFactorSection"));
   auto *wellLay = panelLayout(wellFactors);
-  wellLay->addWidget(caption(tr("砂层厚度、砂地比等井点数据"), wellFactors));
-  // 口径和字段不再给用户选。控件留着是为了旧测试还能找到对象；界面上只留「提取」。
+  wellLay->setContentsMargins(0, 0, 0, 0);
+  wellLay->addWidget(caption(tr("井点数据 · 选择字段并提取"), wellFactors));
+  wellLay->addWidget(caption(tr("取值方式"), wellFactors));
   auto *factorMode = new QComboBox(wellFactors);
   factorMode->setObjectName(QStringLiteral("factorModeCombo"));
-  factorMode->addItem(tr("直读字段"), QStringLiteral("direct"));
+  factorMode->addItem(tr("直接使用字段值"), QStringLiteral("direct"));
   factorMode->addItem(tr("比值（分子 ÷ 分母）"), QStringLiteral("ratio"));
-  factorMode->hide();
+  factorMode->setAccessibleName(tr("因子提取口径"));
+  wellLay->addWidget(factorMode);
+  auto *modeHint = caption(QString(), wellFactors);
+  modeHint->setObjectName(QStringLiteral("wellFactorModeHint"));
+  modeHint->setWordWrap(true);
+  wellLay->addWidget(modeHint);
   for (const auto &entry : QVector<QPair<QString, QString>>{
        {QStringLiteral("factorValueFieldCombo"), tr("指标字段")},
        {QStringLiteral("factorNumeratorFieldCombo"), tr("分子字段")},
        {QStringLiteral("factorDenominatorFieldCombo"), tr("分母字段")}}) {
     auto *label = caption(entry.second, wellFactors);
     label->setObjectName(entry.first + QStringLiteral("Caption"));
-    label->hide();
+    wellLay->addWidget(label);
     auto *combo = new QComboBox(wellFactors); combo->setObjectName(entry.first);
-    combo->setAccessibleName(entry.second); combo->hide();
+    combo->setAccessibleName(entry.second); combo->setPlaceholderText(tr("请选择字段")); wellLay->addWidget(combo);
+    connect(combo, &QComboBox::currentIndexChanged, this, [this] { invalidateWellFactors(); });
   }
-  auto *extract = new QPushButton(tr("提取"), wellFactors);
+  auto *extract = new QPushButton(tr("提取并保存井点数据"), wellFactors);
   extract->setObjectName(QStringLiteral("extractWellFactorsButton"));
   auto *maintain = new QPushButton(tr("维护井点属性"), wellFactors);
   maintain->setObjectName(QStringLiteral("maintainWellFactorsButton"));
   maintain->setToolTip(tr("按当前层位维护砂厚、层厚、砂地比与其他单因素；保存后重新提取"));
-  wellLay->addWidget(maintain);
   connect(maintain, &QPushButton::clicked, this, [this, horizons] { emit maintainWellFactorsRequested(horizons->currentText()); });
-  wellLay->addWidget(extract);
+  auto *actions = new QHBoxLayout;
+  actions->setSpacing(PaleoTheme::tokens().spacingXs);
+  actions->addWidget(extract, 1);
+  actions->addWidget(maintain);
+  wellLay->addLayout(actions);
+  auto *detailSection = new CollapsibleSection(tr("查看逐井提取结果"), wellFactors);
+  detailSection->setObjectName(QStringLiteral("wellFactorDetailsSection"));
+  detailSection->setExpanded(false);
   auto *wellTable = new QTableWidget(0, 3, wellFactors);
   wellTable->setObjectName(QStringLiteral("wellFactorTable"));
   wellTable->setAccessibleName(tr("井点因子提取结果"));
   wellTable->setHorizontalHeaderLabels({tr("井名"), tr("因子值"), tr("来源或缺失原因")});
   wellTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
   wellTable->verticalHeader()->hide(); wellTable->horizontalHeader()->setStretchLastSection(true);
-  wellLay->addWidget(wellTable);
-  auto *wellHint = new QLabel(tr("勾选一个单因素后点「提取」。"), wellFactors);
+  wellTable->setMinimumHeight(120);
+  detailSection->containerLayout()->addWidget(wellTable);
+  auto *wellHint = new QLabel(tr("选择字段后提取；解释砂厚和分层层厚采用 MD，同层段相除得到砂地比。"), wellFactors);
   wellHint->setObjectName(QStringLiteral("wellFactorHint")); wellHint->setWordWrap(true);
   PaleoTheme::applyThemedStyleSheet(wellHint, [] { return PaleoTheme::mutedCaptionStyleSheet(); });
-  wellLay->addWidget(wellHint); lay->addWidget(wellFactors);
+  wellLay->addWidget(wellHint);
+  wellLay->addWidget(detailSection);
+  lay->addWidget(wellFactors);
+  const auto modeChanged = [this, factorMode, modeHint] {
+    const bool ratio = factorMode->currentData() == QStringLiteral("ratio");
+    modeHint->setText(ratio ? tr("逐井计算分子 ÷ 分母；分母为 0 或缺值的井不参与。厚度比值请使用同一 MD 层段。")
+                            : tr("每口井读取一个数值字段。没有合适的字段时，可先维护井点属性。"));
+    for (const QString &name : {QStringLiteral("factorValueFieldCombo"), QStringLiteral("factorNumeratorFieldCombo"),
+                               QStringLiteral("factorDenominatorFieldCombo")}) {
+      const bool visible = (name == QLatin1String("factorValueFieldCombo")) != ratio;
+      findChild<QWidget *>(name)->setVisible(visible);
+      findChild<QWidget *>(name + QStringLiteral("Caption"))->setVisible(visible);
+    }
+    invalidateWellFactors();
+  };
+  connect(factorMode, &QComboBox::currentIndexChanged, this, modeChanged); modeChanged();
   connect(extract, &QPushButton::clicked, this, [this, factors, horizons] {
     const int r = checkedRow(factors); if (r < 0) return;
     emit extractWellFactorsRequested(factorIdOfRow(factors, r), horizons->currentText(), wellFactorParams());
@@ -86,6 +116,7 @@ void ConstraintPage::wireWellFactorTriggers( ConstraintWorkflow *wf, QComboBox *
               if (h == horizons->currentText() &&
                   f == factorIdOfRow(factors, checkedRow(factors))) {
                 refreshWellFactorResults();
+                static_cast<CollapsibleSection *>(child<QWidget>(this, "wellFactorDetailsSection"))->setExpanded(true);
                 refreshFactorResults();
                 updateFactorActionStates();
               }
@@ -106,7 +137,11 @@ void ConstraintPage::wireWellFactorTriggers( ConstraintWorkflow *wf, QComboBox *
 }
 
 QVariantMap ConstraintPage::wellFactorParams() const {
-  return {{QStringLiteral("factorMode"), QStringLiteral("auto")}};
+  const auto value = [this](const char *name) { auto *c = findChild<QComboBox *>(QString::fromLatin1(name)); return c ? c->currentData().toString() : QString(); };
+  return {{QStringLiteral("factorMode"), value("factorModeCombo")},
+          {QStringLiteral("valueField"), value("factorValueFieldCombo")},
+          {QStringLiteral("numeratorField"), value("factorNumeratorFieldCombo")},
+          {QStringLiteral("denominatorField"), value("factorDenominatorFieldCombo")}};
 }
 void ConstraintPage::refreshWellFactorFields() {
   auto *wf = qobject_cast<ConstraintWorkflow *>(property(kWfProp).value<QObject *>());
@@ -152,7 +187,13 @@ void ConstraintPage::refreshWellFactorFields() {
                            factorIdOfRow(child<QTableWidget>(this, "factorTable"),
                                          checkedRow(child<QTableWidget>(this, "factorTable"))),
                            wellFactorParams());
-  if (wf && h && !wf->wellFactorRows().isEmpty())
+  if (wf && h &&
+      !wf->preparedWellFactorVersion(
+             h->currentText(),
+             factorIdOfRow(child<QTableWidget>(this, "factorTable"),
+                           checkedRow(child<QTableWidget>(this, "factorTable"))),
+             wellFactorParams())
+           .isEmpty())
     refreshWellFactorResults();
   updateFactorActionStates();
 }
@@ -196,26 +237,33 @@ void ConstraintPage::setWellFactorFields(const QVariantList &fields) {
 void ConstraintPage::invalidateWellFactors() {
   if (auto *table = findChild<QTableWidget *>(QStringLiteral("wellFactorTable"))) table->setRowCount(0);
   if (auto *hint = findChild<QLabel *>(QStringLiteral("wellFactorHint")))
-    hint->setText(tr("尚未提取。点「提取」后，能读的直接用，砂地比可按砂岩厚度÷层厚计算，没有数据的井会写明原因。"));
+    hint->setText(tr("当前口径尚未提取井点因子。选择字段后提取；解释厚度采用同一 MD 层段。"));
   markInputsStale(); updateWellFactorActionState();
   updateFactorActionStates();
 }
 void ConstraintPage::updateWellFactorActionState() {
   auto *button = child<QPushButton>(this, "extractWellFactorsButton"); if (!button) return;
-  const bool ready = checkedRow(child<QTableWidget>(this, "factorTable")) >= 0;
+  const auto params = wellFactorParams(); const bool ratio = params.value(QStringLiteral("factorMode")) == QStringLiteral("ratio");
+  const bool ready = checkedRow(child<QTableWidget>(this, "factorTable")) >= 0 &&
+      (ratio ? !params.value(QStringLiteral("numeratorField")).toString().isEmpty() && !params.value(QStringLiteral("denominatorField")).toString().isEmpty()
+             : !params.value(QStringLiteral("valueField")).toString().isEmpty());
   const bool busy = property("paleo.page.runbusy").toBool();
+  const auto *horizon = child<QComboBox>(this, "horizonCombo");
+  const bool hasHorizon = horizon && !horizon->currentText().trimmed().isEmpty();
   const bool linesReady = property("paleo.page.constraintsready").toBool();
-  button->setEnabled(ready && !busy && linesReady);
+  button->setEnabled(ready && hasHorizon && !busy && linesReady);
   button->setToolTip(busy          ? tr("正在计算，可取消")
-                     : !linesReady ? tr("步骤 1：先绘制或导入本层位的间隔线和方向线")
-                     : ready       ? tr("提取当前单因素。有井点值就读取，砂地比没有现成值就用砂厚除以层厚，没有数据的井写明原因。")
-                                   : tr("请先勾选一个单因素"));
+                     : !hasHorizon ? tr("步骤 1：请先打开工程并选择层位")
+                     : !linesReady ? tr("步骤 2：先绘制或导入本层位的间隔线和方向线")
+                     : ready       ? tr("后台提取当前地层数据，保存井点版本后再计算等值面")
+                                   : tr("请勾选因子并选择真实提取字段"));
 }
 void ConstraintPage::refreshWellFactorResults() {
   auto *wf = qobject_cast<ConstraintWorkflow *>(property(kWfProp).value<QObject *>());
   auto *table = child<QTableWidget>(this, "wellFactorTable"); if (!wf || !table) return;
   table->setRowCount(0);
-  table->setHorizontalHeaderItem(1, new QTableWidgetItem(tr("因子值")));
+  const auto params = wellFactorParams();
+  table->setHorizontalHeaderItem(1, new QTableWidgetItem(params.value(QStringLiteral("factorMode")) == QStringLiteral("ratio") ? tr("比值（分子 ÷ 分母）") : tr("因子值")));
   for (const QVariant &v : wf->wellFactorRows()) {
     const auto m = v.toMap(); const int row = table->rowCount(); table->insertRow(row);
     table->setItem(row, 0, new QTableWidgetItem(m.value(QStringLiteral("well_name")).toString()));

@@ -70,6 +70,8 @@ private slots:
   void strongAnisotropyTallStack();
   void invalidAndCancelled();
   void variogramThreeArgMatchesTwoArgOnZeroDz();
+  void realizationMemoryBudgetRejected();
+  void parallelRealizationsMatchSequential();
 };
 
 void GeostatSgs3Tests::strongAnisotropyTallStack()
@@ -348,6 +350,58 @@ void GeostatSgs3Tests::variogramThreeArgMatchesTwoArgOnZeroDz()
   for ( double dx : { -80.0, -12.5, 0.0, 3.25, 77.0 } )
     for ( double dy : { -60.0, -4.5, 0.0, 9.75, 44.0 } )
       QCOMPARE( model.semivariance( dx, dy, 0.0 ), model.semivariance( dx, dy ) );
+}
+
+void GeostatSgs3Tests::realizationMemoryBudgetRejected()
+{
+  // #468：组合内存闸（三维入口同口径）——targets ≤ 1e8、R ≤ 64 各自合法
+  // 但乘积超预算（64 × 2^23 × 8B = 4GiB）时入口拒绝，不分配实现场。
+  // 2^23 + 1 个目标是触发 4GiB 预算的最小目标数（R = 64）；默认构造的
+  // 全零目标在闸位之前不做唯一性检查。
+  const std::size_t trigger = ( std::size_t( 1 ) << 23 ) + 1;
+  const std::vector<Sgs3Target> huge( trigger );
+  const VariogramModel model = gaussianModel();
+  Sgs3Params params;
+  params.nRealizations = 64;
+  params.seed = 3;
+  const Sgs3Result result =
+      sgs3( { Sample3{ 0, 0, 0, 1.0, 0 } }, huge, stepsFor( 5, 5, 1 ), model, params );
+  QCOMPARE( result.status, Status::InvalidInput );
+  QVERIFY2( result.message.find( "realization" ) != std::string::npos,
+            result.message.c_str() );
+  QVERIFY( result.realizations.empty() );
+}
+
+void GeostatSgs3Tests::parallelRealizationsMatchSequential()
+{
+  // #478：三维入口同款——并行档与顺序档（带占位进度回调）逐位一致。
+  const std::vector<Sgs3Target> targets = makeTargets( 12, 12, 3, 0, 0, 0, 10, 10, 2 );
+  std::vector<Sample3> samples;
+  samples.push_back( Sample3{ 5, 5, 1, 3.0, 0 } );
+  samples.push_back( Sample3{ 95, 5, 2, 1.0, 0 } );
+  samples.push_back( Sample3{ 55, 95, 3, 7.0, 0 } );
+  const VariogramModel model = gaussianModel();
+  Sgs3Params params;
+  params.nRealizations = 4;
+  params.seed = 5;
+  const Sgs3Result parallel =
+      sgs3( samples, targets, stepsFor( 10, 10, 2 ), model, params );
+  Control control;
+  control.progress = []( double ) {};
+  const Sgs3Result sequential =
+      sgs3( samples, targets, stepsFor( 10, 10, 2 ), model, params, control );
+  QCOMPARE( parallel.status, Status::Ok );
+  QCOMPARE( sequential.status, Status::Ok );
+  QCOMPARE( parallel.solverFailures, sequential.solverFailures );
+  QCOMPARE( parallel.finitePoints, sequential.finitePoints );
+  for ( std::size_t r = 0; r < parallel.realizations.size(); ++r )
+    for ( std::size_t i = 0; i < parallel.realizations[r].size(); ++i )
+      QVERIFY2( parallel.realizations[r][i] == sequential.realizations[r][i],
+                QStringLiteral( "r%1 target %2 must be bitwise equal" )
+                    .arg( static_cast<double>( r ) )
+                    .arg( static_cast<double>( i ) )
+                    .toUtf8()
+                    .constData() );
 }
 
 QTEST_MAIN( GeostatSgs3Tests )

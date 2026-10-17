@@ -7,6 +7,9 @@
 
 #include "../src/services/seismichorizoncluster.h"
 
+#include <gdal.h>
+#include <cpl_conv.h>
+
 // 取窗契约锚（f0e7b10d「直接按原始层位提取地震窗并聚类」的文档化契约，
 // docs/progress/seismichorizoncluster.md）：Scatter 路径按层位 TWT ±12ms
 // 开窗（seismichorizoncluster.cpp:221-225）提均值/RMS/过零率三特征。
@@ -135,6 +138,46 @@ private slots:
     for (int cell = 0; cell < result.cells.size(); ++cell)
       QCOMPARE(result.cells[cell], 1);
   }
+
+  // full-audit F13（R2-08 补测）：非 float 可表示的 nodata（1e30）——按
+  // float 口径归一后哨兵格不再计入有效样点（旧比较 float==double 恒不等，
+  // 哨兵格混进聚类）。栅格 4×4 与 buildVolume 的 CDP 网格对齐
+  //（x∈[0,40)、y∈(-20,60]），6 格填 1e30、10 格填 100ms。
+  void timeRasterNodataBeyondFloatPrecisionExcluded()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    GDALAllRegister();
+    const QString tif = dir.filePath(QStringLiteral("h.tif"));
+    {
+      GDALDriverH drv = GDALGetDriverByName("GTiff");
+      QVERIFY(drv);
+      GDALDatasetH ds = GDALCreate(drv, tif.toUtf8().constData(), 4, 4, 1,
+                                   GDT_Float32, nullptr);
+      QVERIFY(ds);
+      // 域贴体覆盖（x∈[0,30]、y∈[0,60]）：格心必须落在号域内——聚类不外推，
+      // 越界格被跳过（首版 40×80 域被跳 2 格的教训）。
+      double gt[6] = {0.0, 7.5, 0.0, 60.0, 0.0, -15.0};
+      QVERIFY(GDALSetGeoTransform(ds, gt) == CE_None);
+      GDALRasterBandH band = GDALGetRasterBand(ds, 1);
+      GDALSetRasterNoDataValue(band, 1e30);
+      float values[16];
+      for (int i = 0; i < 16; ++i)
+        values[i] = (i % 16 < 10) ? 100.0f : 1e30f;
+      QVERIFY(GDALRasterIO(band, GF_Write, 0, 0, 4, 4, values, 4, 4,
+                           GDT_Float32, 0, 0) == CE_None);
+      GDALClose(ds);
+    }
+    const QString sgy = dir.filePath(QStringLiteral("vol.sgy"));
+    QVERIFY(writeFile(sgy, buildVolume()));
+    QTemporaryDir cache;
+    const auto result = clusterSeismicHorizon(
+        sgy, tif, cache.path(), {1, 2}, {}, {},
+        SeismicHorizonSource::TimeRaster);
+    QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
+    QCOMPARE(result.validCells, 10);
+  }
+
 };
 
 QTEST_GUILESS_MAIN(TestSeismicHorizonCluster)

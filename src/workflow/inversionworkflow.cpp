@@ -10,6 +10,7 @@
 
 #include <QDir>
 #include <QFile>
+#include <QScopeGuard>
 #include <QUuid>
 
 #include <algorithm>
@@ -592,11 +593,20 @@ bool InversionWorkflow::computeInversionJob(InversionJob *job, const std::functi
     };
 
     std::vector<std::thread> pool;
+    auto poolGuard = qScopeGuard([&pool] {
+        for (auto &th : pool) {
+            if (th.joinable())
+                th.join();
+        }
+    });
     for (int t = 1; t < nThreads; ++t)
         pool.emplace_back(invertRange, t, std::min(total, t * chunk), std::min(total, (t + 1) * chunk));
     invertRange(0, 0, std::min(total, chunk));
     for (auto &th : pool)
-        th.join();
+    {
+        if (th.joinable())
+            th.join();
+    }
     for (double v : sumStat) {
         if (sparse)
             job->meanResidualEnergyRatio += v;
@@ -610,11 +620,22 @@ bool InversionWorkflow::computeInversionJob(InversionJob *job, const std::functi
 
     job->processedTraces = done.load();
     job->failedTraces = failed.load();
-    if (job->processedTraces > 0) {
-        if (sparse)
-            job->meanResidualEnergyRatio /= double(job->processedTraces);
-        else
-            job->meanLowFreqVarianceFraction /= double(job->processedTraces);
+    // 均值分母 = 成功道数：sumStat 只累计成功道，除以含失败道的 processed
+    // 会系统性稀释均值（QC 高估稳定性——失败道越多越显得「稳定」）。成功
+    // 道为零时置 NaN 并如实展示，不冒充 0。
+    {
+        const int succeeded = job->processedTraces - job->failedTraces;
+        if (succeeded > 0) {
+            if (sparse)
+                job->meanResidualEnergyRatio /= double(succeeded);
+            else
+                job->meanLowFreqVarianceFraction /= double(succeeded);
+        } else {
+            if (sparse)
+                job->meanResidualEnergyRatio = std::numeric_limits<double>::quiet_NaN();
+            else
+                job->meanLowFreqVarianceFraction = std::numeric_limits<double>::quiet_NaN();
+        }
     }
 
     // 体头 + 临时落盘（发布时经 commitExternal 拷进受管目录）。

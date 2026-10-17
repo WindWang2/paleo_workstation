@@ -66,6 +66,9 @@ void PythonReplSession::start(const QString &interpreter)
   auto env = QProcessEnvironment::systemEnvironment();
   env.insert(QStringLiteral("PYTHONUNBUFFERED"), QStringLiteral("1"));
   env.insert(QStringLiteral("PYTHONDONTWRITEBYTECODE"), QStringLiteral("1"));
+  // Python 3 子进程 IO 统一 UTF-8（#479）：管道编码钉死，宿主侧 toUtf8/
+  // fromUtf8——Windows 非 UTF-8 locale 下中文输入输出不再乱码。
+  env.insert(QStringLiteral("PYTHONIOENCODING"), QStringLiteral("utf-8"));
   // 3.13+ 新 REPL（pyrepl）的着色/多行特性不利管道回显，强制基础 REPL；
   // 旧版本不认识该变量，静默忽略。
   env.insert(QStringLiteral("PYTHON_BASIC_REPL"), QStringLiteral("1"));
@@ -79,11 +82,11 @@ void PythonReplSession::start(const QString &interpreter)
   });
   connect(proc, &QProcess::readyReadStandardOutput, this, [this] {
     if (m_proc)
-      emit output(QString::fromLocal8Bit(m_proc->readAllStandardOutput()), false);
+      emit output(QString::fromUtf8(m_proc->readAllStandardOutput()), false);
   });
   connect(proc, &QProcess::readyReadStandardError, this, [this] {
     if (m_proc)
-      emit output(QString::fromLocal8Bit(m_proc->readAllStandardError()), true);
+      emit output(QString::fromUtf8(m_proc->readAllStandardError()), true);
   });
   connect(proc, &QProcess::errorOccurred, this, [this](QProcess::ProcessError err) {
     if (err != QProcess::FailedToStart || !m_proc)
@@ -152,7 +155,7 @@ void PythonReplSession::sendLine(const QString &line)
 {
   if (!m_proc)
     return;
-  m_proc->write(line.toLocal8Bit() + '\n');
+  m_proc->write(line.toUtf8() + '\n');
 }
 
 void PythonReplSession::teardown(int exitCode, bool crashed)

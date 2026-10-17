@@ -19,6 +19,10 @@ namespace
   // 取消/超时的优雅退出窗口：terminate（Unix=进程组 SIGTERM）后给脚本
   // finally/atexit 清理机会，仍未退出再 kill（先例 stratigraphicwebsession）。
   constexpr int kKillGraceMs = 2000;
+  // 无换行输出的半行缓冲上限（#479）：巨量无换行输出（如误把二进制写进
+  // stdout）不得无上限积攒——超限即按「强制行」冲刷，单行长度恒有界，
+  // 恶意/失控脚本不再能把宿主内存吃穿。
+  constexpr qsizetype kMaxLineBytes = 1024 * 1024;
 } // namespace
 
 struct ScriptRunnerService::Run
@@ -212,9 +216,12 @@ void ScriptRunnerService::launch(Run *run)
   proc->setChildProcessModifier([] { ::setsid(); });
 #endif
   auto env = QProcessEnvironment::systemEnvironment();
-  // 无缓冲保证流式回传的时效；不落 __pycache__ 污染脚本目录。
+  // 无缓冲保证流式回传的时效；不落 __pycache__ 污染脚本目录。Python 3 子进程
+  // IO 统一 UTF-8（#479）：管道编码钉死，宿主侧 fromUtf8——Windows 非 UTF-8
+  // locale 下中文脚本输出不再乱码。
   env.insert(QStringLiteral("PYTHONUNBUFFERED"), QStringLiteral("1"));
   env.insert(QStringLiteral("PYTHONDONTWRITEBYTECODE"), QStringLiteral("1"));
+  env.insert(QStringLiteral("PYTHONIOENCODING"), QStringLiteral("utf-8"));
   proc->setProcessEnvironment(env);
   proc->setWorkingDirectory(run->request.workingDir);
 
@@ -295,7 +302,14 @@ void ScriptRunnerService::drainChannel(Run *run, bool stderrChannel, bool flush)
     buffer.remove(0, nl + 1);
     if (line.endsWith('\r'))
       line.chop(1);
-    emit runOutput(run->id, QString::fromLocal8Bit(line), stderrChannel);
+    emit runOutput(run->id, QString::fromUtf8(line), stderrChannel);
+  }
+  // 半行超限（#479）：不等换行，按 kMaxLineBytes 强制切块冲刷，缓冲恒有界。
+  while (!flush && buffer.size() > kMaxLineBytes)
+  {
+    const QByteArray line = buffer.left(kMaxLineBytes);
+    buffer.remove(0, kMaxLineBytes);
+    emit runOutput(run->id, QString::fromUtf8(line), stderrChannel);
   }
   if (flush && !buffer.isEmpty())
   {
@@ -303,7 +317,7 @@ void ScriptRunnerService::drainChannel(Run *run, bool stderrChannel, bool flush)
     buffer.clear();
     if (line.endsWith('\r'))
       line.chop(1);
-    emit runOutput(run->id, QString::fromLocal8Bit(line), stderrChannel);
+    emit runOutput(run->id, QString::fromUtf8(line), stderrChannel);
   }
 }
 

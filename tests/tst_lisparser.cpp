@@ -9,6 +9,7 @@
 
 #include "io/dlisparser.h"
 #include "io/lisparser.h"
+#include "io/lasparser.h" // LasParser::setFileSizeLimit（#467 预算闸注入）
 
 #include "welllogfixturewriters.h"
 
@@ -39,6 +40,7 @@ class TestLisParser : public QObject
     void stringReprcLogsetWhitelisted();
     void tvdProcessIndicatorSetsBasis();
     void headerScanMatchesFullParse();
+    void headerScanPrChainBudgetCapped();
     void emptyFileFails();
 
   private:
@@ -402,6 +404,51 @@ void TestLisParser::headerScanMatchesFullParse()
   QCOMPARE(hdrOnly.curveNames, full.curveNames);
   QCOMPARE(hdrOnly.wellName, full.wellName);
   QCOMPARE(hdrOnly.indexBasis, full.indexBasis);
+}
+
+void TestLisParser::headerScanPrChainBudgetCapped()
+{
+  // #467：LogicalReader 对后继 PR 链的 body 拼接必须有累积预算——头扫描
+  // 无文件大小闸，恶意「全后继位」文件不得无界耗内存。注入小阈值钉契约。
+  LisDfsr d;
+  LisSpec dept;
+  dept.mnemonic = QStringLiteral("DEPT");
+  dept.reprc = 68;
+  dept.units = QStringLiteral("M");
+  LisSpec gr;
+  gr.mnemonic = QStringLiteral("GR");
+  gr.reprc = 79;
+  gr.units = QStringLiteral("GAPI");
+  d.specs = { dept, gr };
+  QByteArray frames;
+  for (int i = 0; i < 10; ++i)
+  {
+    frames += f32Bytes(6000.0 + 0.25 * i);
+    frames += u16be(quint16(20 + i));
+  }
+  QByteArray b;
+  b += physicalRecord(128, fileHeaderPayload(QStringLiteral("CAP")));
+  b += physicalRecord(34, wellsitePayload(QStringLiteral("W-CAP")));
+  b += physicalRecord(64, dfsrPayload(d));
+  b += splitPhysicalRecord(0, frames, 1); // 60 字节体拆成 60+ 段后继链
+  const QString path = write(QStringLiteral("cap.lis"), b);
+
+  LasHeaderInfo header;
+  QString error;
+  QList<LasIssue> issues;
+  const qint64 saved = LasParser::fileSizeLimit();
+  LasParser::setFileSizeLimit(32); // 60 字节链必越
+  QVERIFY(!LisParser::parseHeader(path, header, &error, &issues));
+  LasParser::setFileSizeLimit(saved);
+  QVERIFY2(error.contains(QStringLiteral("上限")), qPrintable(error));
+  bool sawOversize = false;
+  for (const LasIssue &i : issues)
+    if (i.category == LasIssue::Category::Oversize)
+      sawOversize = true;
+  QVERIFY2(sawOversize, "预算超限必须落 Oversize 类目 issue");
+  // 默认预算下同一文件头扫描照常成功（不误伤合法多 PR 拼接）
+  QString okErr;
+  QVERIFY2(LisParser::parseHeader(path, header, &okErr), qPrintable(okErr));
 }
 
 void TestLisParser::emptyFileFails()

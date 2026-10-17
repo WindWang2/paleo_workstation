@@ -163,6 +163,11 @@ void runHorizonGridding(PaleoMainWindow *win, DataCatalog *catalog, const QStrin
   ctx.hasHeaderCell = ctxIn.hasHeaderCell;
   ctx.headerCellSize = ctxIn.headerCellSize;
   ctx.hasConstraints = ctxIn.hasConstraints;
+  // PR457-closure R8：按本层位收敛——散点资产是层位 A 时，别的层位的屏障
+  // 不点亮本层位的屏障开关（迁移提示见 constraintgeom 视图口径）。
+  if ( ctxIn.hasConstraints && !ctxIn.barrierHorizons.isEmpty() &&
+       !ctxIn.barrierHorizons.contains( a.displayName, Qt::CaseInsensitive ) )
+    ctx.hasConstraints = false;
   PaleoGriddingDialog::Request req;
   if (!PaleoGriddingDialog::prompt(win, ctx, &req))
     return;

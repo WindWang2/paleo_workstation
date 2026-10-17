@@ -28,6 +28,34 @@ bool populate(DataCatalog &cat, const QString &dir) {
   b.extra = {{"horizon", "H1"}, {"evidence", paleo::evidence::build({paleo::evidence::InputRef{a.id, a.assetId}}, {{"method", "compose"}}, {})}};
   return cat.addVersion(b);
 }
+// X11 覆盖层四类事实：人工记录 / 生成记录 / 空间候选 / 归因胜出输入，
+// 外加 25 条审核事件（超过 20 条展示上限），供 provenance / 关系目标 /
+// 审核上限 / 关系过滤断言复用。
+QVariantMap richSnapshot() {
+  auto snap = feature(QStringLiteral("poly-X"));
+  snap.insert("generation_records", QVariantList{QVariantMap{
+      {"id", "gen-1"}, {"role", "DERIVED_FROM"}, {"type", "computation"},
+      {"source_version", "input-v1"}, {"text", "计算生成"}}});
+  snap.insert("spatial_candidates", QVariantList{QVariantMap{
+      {"id", "sp-1"}, {"relation", "REFERENCES"}, {"type", "well"},
+      {"source_version", "input-v1"}, {"source_feature_uid", "src-uid"},
+      {"name", "空间候选"}}});
+  snap.insert("attribution", QVariantMap{{"status", "ok"},
+      {"calculation_version", "result-v1"},
+      {"inputs", QVariantList{
+          QVariantMap{{"version_id", "input-v1"}, {"cells", 50}, {"fraction", 0.5}},
+          QVariantMap{{"version_id", "gone-v9"}, {"cells", 10}, {"fraction", 0.1}},
+          QVariantMap{{"version_id", "zero-v"}, {"cells", 0}, {"fraction", 0.0}}}}});
+  QVariantList history;
+  for (int n = 0; n < 25; ++n)
+    history << QVariantMap{{"event_id", QString("ev-%1").arg(n)},
+        {"action", "review"}, {"actor_id", "local:a"}, {"reason", "r"},
+        {"timestamp", "t"}, {"after", QVariantMap{{"status", "Confirmed"}}}};
+  auto interp = snap.value("interpretation").toMap();
+  interp.insert("history", history);
+  snap.insert("interpretation", interp);
+  return snap;
+}
 int count(const Graph &g, Kind kind) { int n = 0; for (const auto &node : g.nodes) n += node.kind == kind; return n; }
 bool hasFeature(const Graph &g, const QString &uid) { for (const auto &n : g.nodes) if (n.kind == Kind::Feature && n.featureUid == uid) return true; return false; }
 }
@@ -75,7 +103,7 @@ private slots:
     Node seed; seed.id = versionKey("source"); seed.versionId = "source"; seed.kind = Kind::Version; index.nodes.insert(seed.id, seed);
     for (int n = 0; n < size; ++n) {
       Node node; node.id = versionKey(QString::number(n)); node.versionId = QString::number(n); node.kind = Kind::Version; node.horizon = "H1";
-      index.nodes.insert(node.id, node); index.edges.append({seed.id, node.id, "计算来源", Relation::Derived});
+      index.nodes.insert(node.id, node); index.edges.append({seed.id, node.id, "计算来源", QStringLiteral("fixture"), Relation::Derived});
       index.outgoing[seed.id].append(n); index.incoming[node.id].append(n);
     }
     Query q; q.mode = Mode::Impact; q.focus = seed.id; q.depth = 6; q.maxNodes = 20; q.maxEdges = 20; q.maxTraversalEdges = 512;
@@ -157,6 +185,141 @@ private slots:
     workflow.request(a); workflow.cancel();
     // Replacing context cancels both timer and worker and supplies an honest empty graph.
     workflow.setContext(nullptr, nullptr); QVERIFY(delivered.last().nodes.isEmpty());
+  }
+  // (i)-(iii)：每条边带事实出处；生成/空间/归因事实连到图斑而非科学判断；
+  // Supported 只来自 SUPPORTED_BY 记录；审核事件限 20 条、更早计入 hidden。
+  void overlayProvenanceTargetsAndReviewBound() {
+    QTemporaryDir dir; DataCatalog cat; QVERIFY(populate(cat, dir.path()));
+    const auto index = buildIndex(cat, {}, {}, {}); QVERIFY(index);
+    for (const auto &e : index->edges) // 目录边也全部携带事实出处
+      QVERIFY2(!e.provenance.isEmpty(), qPrintable(e.source + "->" + e.target));
+    Query q; q.mode = Mode::Relations; q.focus = versionKey("result-v1"); q.depth = 5;
+    q.featureEvidence = richSnapshot();
+    const auto g = query(*index, q, {}, {});
+    QVERIFY2(edgesMissingProvenance(g).isEmpty(),
+             qPrintable(edgesMissingProvenance(g).join(';')));
+    QString assertionId, featureId;
+    for (const auto &n : g.nodes) {
+      if (n.kind == Kind::Assertion) assertionId = n.id;
+      if (n.kind == Kind::Feature) featureId = n.id;
+    }
+    QVERIFY(!assertionId.isEmpty()); QVERIFY(!featureId.isEmpty());
+    int supported = 0, consumed = 0;
+    bool genToFeature = false, spatialToFeature = false;
+    for (const auto &e : g.edges) {
+      if (e.target == assertionId) {
+        // 科学判断节点只收人工证据记录（角色决定关系类型）。
+        QVERIFY(e.source.startsWith(QStringLiteral("evidence:")));
+        QVERIFY(e.relation == Relation::Supported || e.relation == Relation::Contradicted ||
+                e.relation == Relation::Constrained || e.relation == Relation::References);
+      }
+      if (e.relation == Relation::Supported) ++supported;
+      if (e.relation == Relation::ConsumedIn) {
+        ++consumed; QCOMPARE(e.target, featureId);
+        QVERIFY(e.label.contains(QStringLiteral("非科学支持")));
+      }
+      if (e.relation == Relation::Derived && e.target == featureId) genToFeature = true;
+      if (e.relation == Relation::References && e.target == featureId) spatialToFeature = true;
+    }
+    QCOMPARE(supported, 1); // SUPPORTED_BY 记录是唯一的 Supported 事实来源
+    QCOMPARE(consumed, 2);  // cells>0 的归因输入；zero-v 不参与
+    QVERIFY(genToFeature); QVERIFY(spatialToFeature);
+    bool missingInput = false;
+    for (const auto &n : g.nodes)
+      missingInput |= n.kind == Kind::Missing && n.versionId == QStringLiteral("gone-v9");
+    QVERIFY(missingInput);
+    QCOMPARE(count(g, Kind::ReviewEvent), 20);
+    QVERIFY(g.hidden >= 5); // 25 条审核历史隐藏最早 5 条
+  }
+  // (iv)：recompute_provenance → 新→旧 Supersedes，仅 Lineage 模式可穿越。
+  void supersedesEdgeIsLineageOnlyWithProvenance() {
+    QTemporaryDir dir; DataCatalog cat; QVERIFY(populate(cat, dir.path()));
+    CatalogAsset asset; asset.id = "recomputed"; asset.type = "composed_facies";
+    QVERIFY(cat.addAsset(asset));
+    CatalogVersion v; v.id = "recomputed-v2"; v.assetId = asset.id; v.stage = "DERIVED";
+    v.parentVersionIds = {"result-v1"};
+    v.extra = {{"horizon", "H1"},
+               {"recompute_provenance", QVariantMap{{"recompute_of", "result-v1"}}}};
+    QVERIFY(cat.addVersion(v));
+    const auto index = buildIndex(cat, {}, {}, {}); QVERIFY(index);
+    bool found = false;
+    for (const auto &e : index->edges)
+      if (e.relation == Relation::Supersedes) {
+        found = true;
+        QCOMPARE(e.source, versionKey(QStringLiteral("recomputed-v2")));
+        QCOMPARE(e.target, versionKey(QStringLiteral("result-v1")));
+        QVERIFY(!e.provenance.isEmpty());
+        QVERIFY(e.label.contains(QStringLiteral("人工解释不迁移")));
+      }
+    QVERIFY(found);
+    const auto hasSupersedesEdge = [](const Graph &g) {
+      for (const auto &e : g.edges)
+        if (e.relation == Relation::Supersedes) return true;
+      return false;
+    };
+    // Lineage 从旧版本经 Supersedes 可达重算产物。
+    Query lq; lq.mode = Mode::Lineage; lq.focus = versionKey("result-v1"); lq.depth = 4;
+    const auto lg = query(*index, lq, {}, {});
+    QVERIFY(hasSupersedesEdge(lg));
+    bool reached = false;
+    for (const auto &n : lg.nodes)
+      reached |= n.versionId == QStringLiteral("recomputed-v2");
+    QVERIFY(reached);
+    // 关联模式：重算产物经 Derived 仍可见，但 Supersedes 边被闸掉。
+    Query rq; rq.mode = Mode::Relations; rq.focus = versionKey("result-v1"); rq.depth = 4;
+    const auto rg = query(*index, rq, {}, {});
+    QVERIFY(!hasSupersedesEdge(rg));
+    bool recomputedViaDerived = false;
+    for (const auto &n : rg.nodes)
+      recomputedViaDerived |= n.versionId == QStringLiteral("recomputed-v2");
+    QVERIFY(recomputedViaDerived);
+    // 影响分析同样不穿越（「已替代」≠「潜在受影响」）。
+    Query iq; iq.mode = Mode::Impact; iq.focus = versionKey("recomputed-v2"); iq.depth = 4;
+    QVERIFY(!hasSupersedesEdge(query(*index, iq, {}, {})));
+  }
+  // (v)：query.relation 按枚举名过滤覆盖层证据边，且参与查询身份。
+  void relationFilterSelectsOverlayEdgeKinds() {
+    QTemporaryDir dir; DataCatalog cat; QVERIFY(populate(cat, dir.path()));
+    const auto index = buildIndex(cat, {}, {}, {}); QVERIFY(index);
+    Query base; base.mode = Mode::Relations; base.focus = versionKey("result-v1");
+    base.depth = 5; base.featureEvidence = richSnapshot();
+    const auto edgesWith = [&](const Query &q) {
+      const auto g = query(*index, q, {}, {});
+      QHash<Relation, int> kinds; QString assertionId;
+      for (const auto &n : g.nodes)
+        if (n.kind == Kind::Assertion) assertionId = n.id;
+      for (const auto &e : g.edges)
+        if (e.target == assertionId || e.relation == Relation::ConsumedIn ||
+            e.relation == Relation::ReviewedBy ||
+            (e.target.startsWith(QStringLiteral("feature:")) &&
+             (e.relation == Relation::Derived || e.relation == Relation::References)))
+          ++kinds[e.relation];
+      return kinds;
+    };
+    auto kinds = edgesWith(base);
+    QVERIFY(kinds.value(Relation::Supported) >= 1);
+    QVERIFY(kinds.value(Relation::Contradicted) >= 1);
+    QCOMPARE(kinds.value(Relation::ConsumedIn), 2);
+    QCOMPARE(kinds.value(Relation::ReviewedBy), 20);
+    Query q = base; q.relation = QStringLiteral("Supported");
+    QVERIFY(!(q == base)); // 过滤器参与查询身份/缓存键
+    kinds = edgesWith(q);
+    QCOMPARE(kinds.value(Relation::Supported), 1);
+    QCOMPARE(kinds.value(Relation::Contradicted), 0);
+    QCOMPARE(kinds.value(Relation::ConsumedIn), 0);
+    QCOMPARE(kinds.value(Relation::ReviewedBy), 0);
+    QCOMPARE(count(query(*index, q, {}, {}), Kind::ReviewEvent), 0);
+    q.relation = QStringLiteral("ConsumedIn");
+    kinds = edgesWith(q);
+    QCOMPARE(kinds.value(Relation::ConsumedIn), 2);
+    QCOMPARE(kinds.value(Relation::Supported), 0);
+    q.relation = QStringLiteral("ReviewedBy");
+    kinds = edgesWith(q);
+    QCOMPARE(kinds.value(Relation::ReviewedBy), 20);
+    QCOMPARE(kinds.value(Relation::Supported), 0);
+    q.relation = QStringLiteral("Bogus"); // 未知枚举名：无覆盖层证据边，但不报错
+    kinds = edgesWith(q);
+    QVERIFY(kinds.isEmpty());
   }
 };
 QTEST_GUILESS_MAIN(TestEvidenceGraph)

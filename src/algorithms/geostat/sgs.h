@@ -15,8 +15,10 @@
 //（线性内插 + 端部线性外推，直方图忠实样本分布）。
 // 随机数：mt19937_64 原始 u64 → 53bit (0,1) → Box-Muller——不用
 // std::normal_distribution（其序列是实现定义的，跨平台不可复现）。
-// 同一 seed 两次运行逐位相等；各实现共享同一条随机流（先 shuffle 后
-// 逐格抽样，顺序确定）。
+// 同一 seed 两次运行逐位相等。#478 起每实现一份派生流：seed +
+// r·0x9E3779B97F4A7C15（模 2⁶⁴ 确定回绕，sgsfill 按带散布种子同口径；
+// r=0 种子不变），实现间零数据依赖——无进度/取消回调且 R>1 时实现级
+// 并行（≤4 工作线程），结果与顺序执行逐位一致。
 // 层：数据
 namespace paleo::geostat
 {
@@ -34,9 +36,9 @@ struct SgsResult
   Status status = Status::InvalidInput;
   std::string message;
   std::vector<std::vector<double>> realizations; // 每实现一张场，NaN = nodata
-  int finiteCells = 0;   // 最后一实现的计数（各实现口径一致）
-  int nodataCells = 0;
-  int solverFailures = 0;
+  int finiteCells = 0;   // 最后一实现的计数（随机路径不同，各实现的 nodata
+  int nodataCells = 0;   // 模式可不同——如实取末实现，不冒充全实现一致）
+  int solverFailures = 0; // 跨实现累计
   int mergedDuplicates = 0;
   double sampleMean = 0;  // 原域样本统计（直方图忠实基准）
   double sampleStd = 0;

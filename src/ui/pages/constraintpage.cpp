@@ -13,6 +13,7 @@
 #include <QDoubleSpinBox>
 #include <QFileInfo>
 #include <QHeaderView>
+#include <QPushButton>
 #include <QSignalBlocker>
 #include <QScrollArea>
 #include <QShowEvent>
@@ -45,21 +46,32 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   outer->setContentsMargins( 0, 0, 0, 0 );
   outer->addWidget( scroll );
 
-  lay->addWidget( caption( tr( "层位" ), this ) );
+  lay->addWidget( caption( tr( "1 · 选择层位与因素" ), this ) );
+  lay->addWidget( caption( tr( "当前层位" ), this ) );
   auto *horizons = new QComboBox( this );
   horizons->setObjectName( QStringLiteral( "horizonCombo" ) );
+  horizons->setAccessibleName( tr( "单因素图层位" ) );
+  horizons->setToolTip( tr( "选择当前图件所属层位；暂无层位时请先打开工程" ) );
   lay->addWidget( horizons );
 
   // ---- m2(B)：单因素清单 + 生成 双区（§10 词表驱动）------------------------
-  lay->addWidget(caption(tr("单因素"), this));
+  auto *selectionHint = caption(tr("点击一行选择因素；每次生成一张图。"), this);
+  selectionHint->setWordWrap(true);
+  lay->addWidget(selectionHint);
   auto *factors = new QTableWidget( 0, 4, this );
   factors->setObjectName( QStringLiteral( "factorTable" ) );
   factors->setAccessibleName( tr( "单因素清单" ) );
-  factors->setHorizontalHeaderLabels( { tr( "勾选" ), tr( "名称" ), tr( "输入" ), tr( "状态" ) } );
+  factors->setHorizontalHeaderLabels( { tr( "选择" ), tr( "因素" ), tr( "输入" ), tr( "成果状态" ) } );
   factors->verticalHeader()->setVisible( false );
   factors->horizontalHeader()->setStretchLastSection( true );
   factors->setEditTriggers( QAbstractItemView::NoEditTriggers );
   factors->setSelectionBehavior( QAbstractItemView::SelectRows );
+  factors->setSelectionMode( QAbstractItemView::SingleSelection );
+  factors->setWordWrap(false);
+  // 输入说明放到当前因素提示中，窄 dock 保留因素名和成果状态。
+  factors->setColumnHidden(2, true);
+  factors->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+  factors->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
   int row = 0;
   for ( const SingleFactorDefinition &def : SingleFactorRegistry::builtins() )
   {
@@ -74,6 +86,7 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
                                    ? tr("预测数据")
                                    : tr("当前地层井点数据");
     auto *input = new QTableWidgetItem(inputLabel);
+    name->setToolTip(inputLabel);
     auto *status = new QTableWidgetItem( tr( "未生成" ) );
     for ( auto *it : { check, name, input, status } )
       it->setFlags( it->flags() & ~Qt::ItemIsEditable );
@@ -87,7 +100,16 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
     factors->setItem( row, 3, status );
     ++row;
   }
-  lay->addWidget( factors, 1 );
+  factors->setFixedHeight(factors->horizontalHeader()->sizeHint().height()
+                         + factors->rowCount() * factors->verticalHeader()->defaultSectionSize()
+                         + 2 * factors->frameWidth());
+  lay->addWidget( factors );
+  auto *inputHint = caption(QString(), content);
+  inputHint->setObjectName(QStringLiteral("factorInputHint"));
+  inputHint->setWordWrap(true);
+  lay->addWidget(inputHint);
+  auto *inputCaption = caption(tr("2 · 准备本层位数据"), content);
+  lay->addWidget(inputCaption);
 
   // 方向 96：自此处起 ctor 按原文行序分解为构建段（段图见 constraintpage.h；
   // 调用序 = 原文行序，创建序/连接序逐行保持）。
@@ -101,37 +123,41 @@ ConstraintPage::ConstraintPage( ConstraintWorkflow *wf, QWidget *parent )
   lay->removeWidget(surfaceInputs);
   lay->insertWidget(lay->indexOf(findChild<QWidget *>(QStringLiteral("wellFactorSection"))) + 1,
                     surfaceInputs);
-  buildGenerateSection( content, lay );
-  buildContourSection( content, lay );
+  auto *contourSection = new CollapsibleSection(tr("4 · 计算等值线（等值面保存后）"), content);
+  contourSection->setObjectName(QStringLiteral("factorContourSection"));
+  lay->addWidget(contourSection);
+  buildContourSection( contourSection->container(), contourSection->containerLayout() );
   wireFactorTableSelection( factors );
   buildConstraintArea( content, lay, horizons, cellCaption );
-  // 约束区依赖已创建的算法参数控件；构造完成后移到数据提取之前。
+  // 约束区依赖算法参数控件；保持数据准备的顺序：约束 → 提取。
   auto *constraints = findChild<QWidget *>(QStringLiteral("constraintFamiliesSection"));
   lay->removeWidget(constraints);
-  lay->insertWidget(lay->indexOf(horizons) + 1, constraints);
+  lay->insertWidget(lay->indexOf(inputCaption) + 1, constraints);
   auto *methodCaption = findChild<QLabel *>(QStringLiteral("factorMethodCaption"));
-  lay->insertWidget(lay->indexOf(methodCaption), caption(tr("成图"), content));
-  const auto hideNamed = [this](const char *name) {
-    if (auto *widget = findChild<QWidget *>(QLatin1String(name)))
-      widget->hide();
-  };
-  // 等值面算法、等值线算法留在成图区。覆盖方式、高级参数和等值线来源仍用默认值。
-  for (const char *name : {"factorStrategyNote",
-                           "factorCoverageCaption", "factorCoverageCombo", "factorAdvancedSection",
-                           "factorBoundaryCaption", "factorBoundaryRow", "factorGridCaption",
-                           "factorGridResolutionSpin", "factorContourModeCombo",
-                           "factorContourSourceCaption", "factorContourSourceLabel",
-                           "maintainWellFactorsButton", "factorLegacySection", "realizationSection",
-                           "directionFamilyTypeCombo", "breakFamilyTypeCombo",
-                           "constraintBlockModeCombo", "constraintBlockModeCaption",
-                           "factorDirectionRatioSpin", "factorInfluenceSpin", "factorCoreSpin"})
-    hideNamed(name);
+  auto *settingsCaption = caption(tr("3 · 设置等值面参数"), content);
+  settingsCaption->setObjectName(QStringLiteral("factorSettingsCaption"));
+  lay->insertWidget(lay->indexOf(methodCaption), settingsCaption);
+  auto *advanced = findChild<QWidget *>(QStringLiteral("factorAdvancedSection"));
+  const int advancedIndex = lay->indexOf(advanced);
+  lay->removeWidget(advanced);
+  auto *options = new CollapsibleSection(tr("高级插值参数"), content);
+  options->setObjectName(QStringLiteral("factorAdvancedOptionsSection"));
+  options->containerLayout()->addWidget(advanced);
+  options->setExpanded(false);
+  lay->insertWidget(advancedIndex, options);
   buildFactorResultsSection(content, lay);
   buildTailSections( content, lay );
+  // 主操作与就绪提示固定在滚动区外，长表单中始终可见。
+  auto *actionBar = new QWidget(this);
+  actionBar->setObjectName(QStringLiteral("factorActionBar"));
+  auto *actionLayout = panelLayout(actionBar);
+  buildGenerateSection(actionBar, actionLayout);
   auto *status = findChild<QLabel *>(QStringLiteral("statusLabel"));
   lay->removeWidget(status);
-  lay->insertWidget(lay->indexOf(findChild<QWidget *>(QStringLiteral("factorProgressBar"))) + 1,
-                    status);
+  actionLayout->addWidget(status);
+  outer->setSpacing(0);
+  outer->addWidget(actionBar);
+  lay->addStretch();
   wireWorkflowFeedback( wf );
   wireInputStaleness();
   wireWellFactorTriggers( wf, horizons, factors );
@@ -153,6 +179,11 @@ void ConstraintPage::showEvent( QShowEvent *event )
 
 void ConstraintPage::wireFactorTableSelection( QTableWidget *factors )
 {
+  connect(factors, &QTableWidget::cellClicked, this, [factors](int row, int column) {
+    // 原生复选框保留取消语义；名称/状态点击也可选择，避免高亮与勾选脱节。
+    if (column != 0 && factors->isEnabled())
+      factors->item(row, 0)->setCheckState(Qt::Checked);
+  });
   // 勾选互斥单选（业务上同时只看一张单因素图）：勾一行自动取消其它行；
   // 生成过的行随勾选态发 factorVisibilityRequested（互斥上图意图）。
   connect( factors, &QTableWidget::itemChanged, this,
@@ -173,6 +204,7 @@ void ConstraintPage::wireFactorTableSelection( QTableWidget *factors )
              }
              // 新勾选：屏蔽信号地取消其它行（单选语义）。
              const int newRow = changed->row();
+             factors->setCurrentCell(newRow, 1);
              factors->blockSignals( true );
              for ( int r = 0; r < factors->rowCount(); ++r )
              {
@@ -275,12 +307,8 @@ void ConstraintPage::bindLayerService( QObject *layers )
   setProperty( kLayersProp, QVariant::fromValue( static_cast<QObject *>( svc ) ) );
   connect(svc, &QgisLayerService::layerDeclared, this, [this](const QString &id) {
     updateEngineRows();
-    if (id.startsWith(QStringLiteral("wells"))) {
-      // 井位层重声明会把刚提取的结果表清成「尚未提取」。清完立刻按
-      // 已保存版本填回；来源真变了也保留上次逐井结果。
+    if (id.startsWith(QStringLiteral("wells")))
       invalidateWellFactors();
-      refreshWellFactorFields();
-    }
     if (id.isEmpty() || id.startsWith(QStringLiteral("factor.")))
       refreshFactorLayers();
     refreshFactorResults();
@@ -436,4 +464,5 @@ void ConstraintPage::markInputsStale()
     status->setText( status->text() + suffix );
     factors->blockSignals( false );
   }
+  updateOperationGuidance();
 }

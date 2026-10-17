@@ -37,6 +37,7 @@ private slots:
   void singularSurfaceIsRejected();
   void nanPixelIsDeadNotFilled();
   void northUpDyRoundTrips();
+  void cellCountOverflowRejected();
 };
 
 void TestStratGrid::liveCellsHavePositiveVolumeAndMonotoneInterfaces()
@@ -203,6 +204,33 @@ void TestStratGrid::northUpDyRoundTrips()
   // dx=20，|dy|=40，层厚 (40-0)/2=20 → 16000。丢掉 fabs(dy) 则为负。
   QVERIFY(cellVolume(grid, 1, 1, 1) > 0.0);
   QCOMPARE(cellVolume(grid, 1, 1, 1), 16000.0);
+}
+
+void TestStratGrid::cellCountOverflowRejected()
+{
+  // #478：cellIndex/cellCount 是 int 乘法——三轴组合溢出 INT_MAX 后下标
+  // 回绕（sgsfill 只挡单轴 ≥2^20）。构建闸必须在长度检查之前触发：
+  // 30000×30000 面 ×3 层 = 2.7e9 > INT_MAX，z 向量故意留小（闸早于
+  // z.size() 检查，不为测试付 3.6GB）。
+  SurfaceGrid top;
+  top.cols = 30000;
+  top.rows = 30000;
+  top.dx = 10.0;
+  top.dy = 10.0;
+  top.z = {0.0f};
+  SurfaceGrid bot = top;
+  bot.z = {30.0f};
+  ZoneGrid grid;
+  QString err;
+  QVERIFY2(!buildZoneGrid(top, bot, 3, &grid, &err), "cell product must be gated");
+  // 闸先于 z 长度检查触发——错误归因是体素总数（不是「长度不符」），
+  // 这也是修复前的可观察差异（修复前这里报长度不符）。
+  QVERIFY2(err.contains(QStringLiteral("int")), qPrintable(err));
+  QCOMPARE(grid.ni, 0); // 失败时 *out 保持清空
+
+  // 参照：同几何 1 层（9e8 ≤ INT_MAX）不被本闸误伤（长度检查随后接管）。
+  QVERIFY(!buildZoneGrid(top, bot, 1, &grid, &err));
+  QVERIFY(grid.ni == 0);
 }
 
 QTEST_GUILESS_MAIN(TestStratGrid)

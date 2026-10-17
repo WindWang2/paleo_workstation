@@ -126,6 +126,7 @@ public:
         : node.kind == Kind::Assertion ? QCoreApplication::translate("DataGraphPage", "地质判断")
         : node.kind == Kind::Interpretation ? QCoreApplication::translate("DataGraphPage", "地质解释")
         : node.kind == Kind::Feature ? QCoreApplication::translate("DataGraphPage", "地图图斑")
+        : node.kind == Kind::ReviewEvent ? QCoreApplication::translate("DataGraphPage", "审核事件")
             : QCoreApplication::translate("DataGraphPage", "分组");
     p->drawText(QRectF(t.spacingSm, 36, 244, 19),
                 QFontMetrics(font).elidedText(kind + QStringLiteral(" · ") +
@@ -316,7 +317,7 @@ DataGraphPage::DataGraphPage(QWidget *parent)
     m_restoring = true;
     {
       const QSignalBlocker a(m_mode), b(m_category), c(m_stage), d(m_search),
-          e(m_depth), f(m_history);
+          e(m_depth), f(m_history), g(m_relationFilter);
       m_focus = previous.focus;
       m_selected = {};
       m_mode->setCurrentIndex(m_mode->findData(int(previous.mode)));
@@ -328,6 +329,7 @@ DataGraphPage::DataGraphPage(QWidget *parent)
       m_featureEvidence = previous.featureEvidence;
       m_evidenceTypeFilter->setCurrentIndex(qMax(0, m_evidenceTypeFilter->findData(previous.evidenceType)));
       m_reviewFilter->setCurrentIndex(qMax(0, m_reviewFilter->findData(previous.reviewState)));
+      m_relationFilter->setCurrentIndex(qMax(0, m_relationFilter->findData(previous.relation)));
       m_evidencePage->setValue(previous.evidenceOffset / 50 + 1);
     }
     request();
@@ -346,6 +348,7 @@ DataGraphPage::DataGraphPage(QWidget *parent)
   });
   connect(m_evidenceTypeFilter, &QComboBox::currentIndexChanged, this, [this] { m_evidencePage->setValue(1); request(); });
   connect(m_reviewFilter, &QComboBox::currentIndexChanged, this, [this] { m_evidencePage->setValue(1); request(); });
+  connect(m_relationFilter, &QComboBox::currentIndexChanged, this, [this] { m_evidencePage->setValue(1); request(); });
   connect(m_evidencePage, &QSpinBox::valueChanged, this, [this] { request(); });
   auto *splitter = new QSplitter(this);
   splitter->setChildrenCollapsible(false);
@@ -634,6 +637,7 @@ void DataGraphPage::request() {
   q.horizon = m_featureEvidence.value("horizon").toString();
   q.evidenceType = m_evidenceTypeFilter->currentData().toString();
   q.reviewState = m_reviewFilter->currentData().toString();
+  q.relation = m_relationFilter->currentData().toString();
   q.evidenceOffset = (m_evidencePage->value() - 1) * 50;
   if (m_hasQuery && !m_restoring &&
       (q.focus != m_queryState.focus || q.mode != m_queryState.mode ||
@@ -706,7 +710,8 @@ void DataGraphPage::render(const Graph &graph) {
         e.relation == Relation::Rollback || e.unresolved)
       pen.setStyle(Qt::DashLine);
     auto *item = m_scene->addPath(path, pen);
-    item->setToolTip(e.label.toHtmlEscaped());
+    item->setToolTip(
+        (e.label + QStringLiteral("\n依据：") + e.provenance).toHtmlEscaped());
     item->setData(0, e.unresolved);
     item->setData(1, e.source);
     item->setData(2, e.target);
@@ -776,6 +781,7 @@ void DataGraphPage::selectNode(const Node &node, bool navigate) {
                         e.label.isEmpty() ? tr("分组成员") : e.label,
                         titles.value(other, other)});
       row->setData(0, Qt::UserRole, other);
+      row->setToolTip(1, e.provenance);
       row->setToolTip(2, other);
     }
   for (auto it = m_items.cbegin(); it != m_items.cend(); ++it)

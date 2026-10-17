@@ -416,270 +416,7 @@ AppContext::AppContext(const QString &qgisPrefix, QObject *parent)
 
   // ensureManifest-on-open: first point a per-project path is derivable.
   connect(m_projectSvc, &QgisProjectService::projectOpened, this,
-          [this](const QString &qgzPath) {
-            QScopedValueRollback<bool> binding(m_bindingProject, true);
-            const auto prepared = m_preparedOpenData;
-            m_preparedOpenData.reset();
-            // #152：锁已由打开闸门（acquireProjectLock）在 read() 之前取好；
-            // 这里只接管。同目录重开时闸门复用现有锁（QLockFile 同进程不可
-            // 重入，先放后取会在窗口期丢锁）。无闸门结果（理论不可达）时
-            // 兜底按旧语义就地取锁。
-            const QFileInfo fi(qgzPath);
-            if (m_pendingLock)
-              m_projectLock = std::move(m_pendingLock);
-            else if (!m_pendingLockReuse || !m_projectLock)
-            {
-              auto lock = std::make_unique<ProjectDirLock>(fi.absolutePath());
-              QString lockErr;
-              if (!lock->tryLock(&lockErr))
-                qWarning() << "AppContext: project lock refused:" << lockErr;
-              m_projectLock = std::move(lock);
-            }
-            m_pendingLockReuse = false;
-            // T4 单写实例降级：锁失败 = 真只读。四个落盘面全部接线——
-            // catalog（save/mutator 回滚）、工程存储（gpkg/qgz/journal）、
-            // 图层清单（manifest sqlite）、版本库（map_versions）。读面照常。
-            const bool writable = m_projectLock->isHeld();
-            m_store->setReadOnly(!writable);
-            m_projectSvc->setReadOnly(!writable);
-            if (DataCatalog *cat = m_import->catalog())
-              cat->setLockedReadOnly(!writable); // 实例级模式，open() 不清除
-            // 广播去重：同工程重复打开（理论不可达）不重复弹。
-            if (m_lastReadOnlyNotified != !writable)
-            {
-              m_lastReadOnlyNotified = !writable;
-              emit projectReadOnlyChanged(!writable);
-            }
-            // #80：先关上一会话（旧工程或同路径旧会话）在本线程的 sqlite 连接
-            // ——切换工程不留句柄；同路径重开不复用可能指向旧 inode 的连接。
-            // 各 store 的连接都是按调用懒开，关掉后下次访问自动重建。
-            if (!m_metaPath.isEmpty())
-              MetaStore::closeConnectionsFor(m_metaPath);
-            const QString metaPath = manifestPathFor(qgzPath);
-            const bool metaExisted = QFileInfo::exists(metaPath);
-            m_metaPath = metaPath;
-            m_store->setProjectPaths(qgzPath, gpkgPathFor(qgzPath), metaPath);
-
-            // 发布记档与工程提交记档同目录。先补登记中断的发布，再扫描未完成
-            // 记档，避免一次已经补完的发布仍被报成未完成。只读实例不补登记。
-            if (writable)
-            {
-              MapVersionStore publicationRecovery(metaPath);
-              QString recoverErr;
-              if (!publicationRecovery.open(&recoverErr))
-                qWarning() << "AppContext: map publication recovery failed" << metaPath << recoverErr;
-            }
-
-            // data/commit-coord：提交 journal 恢复扫描。上次 commitAll 若在
-            // catalog→qgz 写序中途崩溃会留下未 complete 的记档；如实上报
-            // （qWarning + QGIS 消息日志 → 状态面），绝不自动重放——记档
-            // 摘要不足以证明重跑安全，操作者重新保存即以同 opId 续跑。
-            const QVector<PaleoProjectStore::CommitOp> unfinishedCommits =
-                m_store->recoverCommitJournal();
-            for (const PaleoProjectStore::CommitOp &op : unfinishedCommits)
-            {
-              qWarning() << "AppContext: unfinished commit op" << op.opId
-                         << "at stage" << op.stage;
-              QgsMessageLog::logMessage(
-                  tr("检测到未完成的提交 %1（阶段：%2）——上次保存可能中途崩溃，"
-                     "请检查数据后重新保存")
-                      .arg(op.opId, op.stage),
-                  QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
-            }
-
-            // complete 记档是幂等重入凭证、只增不减——打开路径顺带封顶清理
-            // （默认留 32 条）。未完成记档不清理，上面已如实上报。
-            m_store->pruneCommitJournal();
-
-            // §37 recovery: the SQLite manifest is authoritative, but the .qgz
-            // carries an embedded copy of the declared set. Rehydrate ONLY when
-            // the store file does not exist — a .qgz moved/shared without its
-            // sidecar must not lose its layer set, while an existing store
-            // (even a deliberately emptied one) is never overwritten.
-            *m_manifest = LayerManifest(metaPath); // rebind in place
-            m_manifest->setReadOnly(!writable); // 值重绑带回可写默认——重设
-            QString err;
-            if (!m_manifest->open(&err))
-              qWarning() << "AppContext: failed to open layer manifest" << metaPath << err;
-
-            if (!metaExisted && !writable)
-            {
-              // 只读实例不做 rehydrate 写入（.qgz 内嵌清单本就来自第一实例
-              // 的 manifest；这里写入既越权也会在 upsert 门上如实失败）。
-              qWarning() << "AppContext: read-only instance skips manifest rehydrate";
-            }
-            else if (!metaExisted)
-            {
-              const QVector<LayerDeclaration> embedded =
-                  ManifestProjection::extractDeclarations(m_projectSvc->project());
-              for (const LayerDeclaration &d : embedded)
-              {
-                LayerDeclaration copy = d;
-                copy.instantiated = false; // runtime flag — layer service decides
-                if (!m_manifest->upsert(copy, &err))
-                  qWarning() << "AppContext: manifest rehydrate failed for" << d.layerId << err;
-              }
-              if (!embedded.isEmpty())
-                qInfo() << "AppContext: manifest store missing — restored"
-                        << embedded.size() << "declarations from .qgz projection";
-            }
-
-            m_styleSvc->setStylesRoot(fi.absoluteDir().filePath(QStringLiteral("styles")));
-            // 工程级参数（AREA_PARAMETERS）：project_area.json → 层位名单/
-            // 分类规则/SEG-Y 偏移/ONNX 网格/标定层位。必须在 importSvc/
-            // catalog 之前装载——分类器与层位词表消费 active()。坏 JSON
-            // 如实上报（active 保持默认），不静默。
-            AreaRules::setProjectDir(fi.absolutePath());
-            if (!AreaRules::lastError().isEmpty())
-            {
-              qWarning() << "AppContext: area rules rejected:" << AreaRules::lastError();
-              QgsMessageLog::logMessage(
-                  tr("工程参数文件 project_area.json 被拒用（%1）——本工程按内置"
-                     "默认参数运行")
-                      .arg(AreaRules::lastError()),
-                  QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
-            }
-            m_import->setProjectDir(fi.absolutePath(),
-                prepared && prepared->directory == fi.absolutePath() ? prepared->catalog : nullptr);
-            // 工程级地理配准（project.paleo georeference 节）：导入服务带上
-            // 局部网格→WGS84 变换——建井时写 coordinateStatus=ok + extra
-            // 经纬度；无配准工程保持 untransformed 现状。
-            if (m_projectSvc->georeference())
-              m_import->setGeoreference(*m_projectSvc->georeference());
-            else
-              m_import->clearGeoreference();
-            // wave4/崩溃报告：报告头的「当前工程路径」随工程打开更新（落点
-            // 不变——AppData 下，脏退出检测要求先于工程存在）。
-            CrashReport::setProjectContext(fi.absolutePath());
-
-            // T26（wave3/derived-publish）：四个写出派生产物的 workflow 绑上
-            // importSvc 持有的同一 catalog 实例（catalog.json 整文件重写，两
-            // 个实例交错写会互相覆盖）——厚度/预测/IDW/融合/相多边形从此落
-            // artifacts/derived/ 并登记 DERIVED 版本，不再有 /tmp 死链。
-            if (DataCatalog *derivedCatalog = m_import->catalog())
-            {
-              m_mappingWf->setCatalog(derivedCatalog, fi.absolutePath());
-              m_predictionWf->setCatalog(derivedCatalog, fi.absolutePath());
-              m_constraintWf->setCatalog(derivedCatalog, fi.absolutePath());
-              m_compositionWf->setCatalog(derivedCatalog, fi.absolutePath());
-              m_mappingWorkbench->bindCatalog(derivedCatalog, fi.absolutePath());
-              m_versionCtl->setCatalog(derivedCatalog);
-              WellAttributeStore::open(derivedCatalog, fi.absolutePath(), m_layerSvc, false, false);
-              WellAttributeStore::open(derivedCatalog, fi.absolutePath(), m_layerSvc, true, false);
-              WellAttributeStore::open(derivedCatalog, fi.absolutePath(), m_layerSvc, WellAttributeStore::Table::Formations, false);
-#if PALEO_HAVE_ORT
-              if (m_aiAssistWf)
-                m_aiAssistWf->setCatalog(derivedCatalog, fi.absolutePath());
-#endif
-              // 方向61/77：工程打开 → 重绑聊天工具上下文（AreaRules 按工区钉
-              // targetHorizon，层位名与栅格声明都可能换了；只读工程工具的
-              // catalog/projectDir 同步换绑）。无 ORT 构建也重绑（assist 为空）。
-              bindChatToolRunner(m_aiChat, m_aiAssistWf, m_layerSvc,
-                                 derivedCatalog, fi.absolutePath());
-              // goal/time-depth-velocity：同一 catalog 实例纪律（整文件重写，
-              // 交错写互覆）——层深转换产物落 artifacts/derived/。
-              m_depthWf->rebind(derivedCatalog, fi.absolutePath());
-              m_propModelWf->rebind(derivedCatalog, fi.absolutePath());
-              // goal/facies-automapping：同 catalog 实例纪律；约束库走
-              // ConstraintWorkflow 的共享 store（单写者）。
-              m_faciesMappingWf->rebind(derivedCatalog, fi.absolutePath());
-              m_faciesMappingWf->setConstraintStore(m_constraintWf->constraintStore());
-            }
-            // onnx:* 模型注册表装配（方向 83 抽至 app/onnxwiring）。
-            // 后台准备扫过同一工程时用那份结果，避免打开时再扫一遍。
-            const ModelRegistryScan *preparedModels = nullptr;
-#if PALEO_HAVE_ORT
-            if (prepared && prepared->directory == fi.absolutePath())
-              preparedModels = &prepared->models;
-#endif
-            paleo::app::installOnnxModelsOnOpen(m_onnxSvc, fi.absolutePath(), preparedModels);
-
-            // wave/mapping-pipeline：版本存储重绑到本工程 meta 库；读侧门面
-            // 接上数据底座的 catalog（<工程目录>/artifacts/metadata/catalog.json）。
-            *m_versionStore = MapVersionStore(metaPath);
-            m_versionStore->setReadOnly(!writable); // 值重绑带回可写默认——重设
-            QString versionErr;
-            if (!m_versionStore->open(&versionErr))
-              qWarning() << "AppContext: map version store open failed" << metaPath << versionErr;
-            // Use the already-loaded catalog; never open/read a second copy.
-            m_projectData->setCatalog(m_import->catalog(), fi.absolutePath());
-            m_projectData->setManifest(m_manifest);
-
-            // §4 井位图层（预览壳重排）：catalog 已随 setProjectDir 打开——
-            // 井点写 GeoJSON、声明「wells」、实例化后绑给 WellMapLink。
-            m_projectDir = fi.absolutePath();
-            if (prepared && prepared->directory == m_projectDir && m_import->catalog()->isOpen()) {
-              if (prepared->wellsPrepared)
-                prepared->wellsPrepared = publishPreparedLayer(m_projectDir + "/artifacts/layers/wells.geojson", prepared->wellsBytes);
-              if (prepared->trajectoriesPrepared)
-                prepared->trajectoriesPrepared = publishPreparedLayer(m_projectDir + "/artifacts/layers/well_trajectories.geojson", prepared->trajectoryBytes);
-            }
-            const bool wellsPrepared = prepared && prepared->wellsPrepared;
-            const bool trajectoriesPrepared = prepared && prepared->trajectoriesPrepared;
-            if (m_projectSvc->isOpening()) {
-              const auto directory = m_projectDir;
-              const auto session = m_projectSvc->sessionId();
-              QTimer::singleShot(16, this, [this, directory, session, wellsPrepared, trajectoriesPrepared] {
-                restoreProjectLayers(directory, session, wellsPrepared, trajectoriesPrepared);
-              });
-            } else {
-              m_layerSvc->refreshBasemaps();
-              refreshSurveyLayer();
-              if (m_import->catalog()->isOpen()) {
-                refreshWellsLayer(false, wellsPrepared);
-                refreshWellTrajectoriesLayer(trajectoriesPrepared);
-              }
-            }
-
-            // goal/fault-interpretation：FaultSet 存储值重绑本工程 meta 库并
-            // 读回；工程有断层时切割镜像层上图（内存层由模型整刷）。
-            // catalog 角色：有 seismic_survey 实体及其地震体资产时挂上下文
-            //（首次写断层时 ensure "fault" 角色链接，幂等）。
-            m_faultStore = FaultSetStore(metaPath, m_store);
-            m_faultStore.setReadOnly(!writable); // 值重绑带回可写默认——重设
-            QString faultStoreErr;
-            if (!m_faultStore.open(&faultStoreErr))
-              qWarning() << "AppContext: fault set store open failed" << metaPath
-                         << faultStoreErr;
-            QString faultErr;
-            if (!m_faultCtl->reload(&faultErr))
-              qWarning() << "AppContext: fault set reload failed" << faultErr;
-
-            // 方向34：布井方案集存储值重绑本工程 meta 库；编排器接上
-            // catalog（planned 实体）与 store。
-            m_wellsitingStore = WellSitingStore(metaPath, m_store);
-            m_wellsitingStore.setReadOnly(!writable); // 值重绑带回可写默认——重设
-            QString sitingStoreErr;
-            if (!m_wellsitingStore.open(&sitingStoreErr))
-              qWarning() << "AppContext: well siting store open failed" << metaPath
-                         << sitingStoreErr;
-            m_wellsitingWf->setSitingStore(&m_wellsitingStore);
-            if (m_import && m_import->catalog())
-              m_wellsitingWf->setCatalog(m_import->catalog(), fi.absolutePath());
-            if (m_import && m_import->catalog()) {
-              DataCatalog *cat = m_import->catalog();
-              const auto surveys = cat->entities(QStringLiteral("seismic_survey"));
-              if (!surveys.isEmpty()) {
-                const QString surveyId = surveys.first().id;
-                QString volumeAssetId;
-                for (const EntityAssetLink &l : cat->linksForEntity(surveyId)) {
-                  if (l.role == QLatin1String("seismic_volume") && !l.assetId.isEmpty()) {
-                    volumeAssetId = l.assetId;
-                    break;
-                  }
-                }
-                if (!volumeAssetId.isEmpty())
-                  m_faultCtl->setCatalogContext(cat, surveyId, volumeAssetId);
-              }
-            }
-            if (m_faultCtl->faultSet().faultCount() > 0)
-              m_faultCtl->ensureMapLayer(DataCatalog::localGridCrsWkt());
-
-            // 图层树规整：manifest/目录都重绑完后跑一次全量归位——旧工程
-            // 的平铺树收成「置顶共享 + 层位组」，未实例化层位补齐占位组。
-            if (m_layerOrganizer)
-              m_layerOrganizer->reorganize();
-          });
+          [this](const QString &qgzPath) { bindProjectOpened(qgzPath); });
   m_projectSvc->setOpenPreparation([this](const QString &directory) {
     auto data = std::make_shared<AppProjectOpenData>();
     data->directory = directory;
@@ -849,6 +586,276 @@ bool AppContext::drainTasks(int timeoutMs)
     qWarning("AppContext: task workers did not drain before teardown");
   return ok;
 }
+// #483：projectOpened 绑定体（原 ~260 行内联 lambda）抽为具名方法——连接处
+// 只剩一行，绑定序（锁接管 → 只读降级 → 双 store 重绑 → journal 恢复 →
+// manifest rehydrate → 派生 workflow/catalog 重绑 → 图层树规整）可读可审；
+// 纯机械搬移，行为零改动。
+void AppContext::bindProjectOpened(const QString &qgzPath)
+{
+  QScopedValueRollback<bool> binding(m_bindingProject, true);
+  const auto prepared = m_preparedOpenData;
+  m_preparedOpenData.reset();
+  // #152：锁已由打开闸门（acquireProjectLock）在 read() 之前取好；
+  // 这里只接管。同目录重开时闸门复用现有锁（QLockFile 同进程不可
+  // 重入，先放后取会在窗口期丢锁）。无闸门结果（理论不可达）时
+  // 兜底按旧语义就地取锁。
+  const QFileInfo fi(qgzPath);
+  if (m_pendingLock)
+    m_projectLock = std::move(m_pendingLock);
+  else if (!m_pendingLockReuse || !m_projectLock)
+  {
+    auto lock = std::make_unique<ProjectDirLock>(fi.absolutePath());
+    QString lockErr;
+    if (!lock->tryLock(&lockErr))
+      qWarning() << "AppContext: project lock refused:" << lockErr;
+    m_projectLock = std::move(lock);
+  }
+  m_pendingLockReuse = false;
+  // T4 单写实例降级：锁失败 = 真只读。四个落盘面全部接线——
+  // catalog（save/mutator 回滚）、工程存储（gpkg/qgz/journal）、
+  // 图层清单（manifest sqlite）、版本库（map_versions）。读面照常。
+  const bool writable = m_projectLock->isHeld();
+  m_store->setReadOnly(!writable);
+  m_projectSvc->setReadOnly(!writable);
+  if (DataCatalog *cat = m_import->catalog())
+    cat->setLockedReadOnly(!writable); // 实例级模式，open() 不清除
+  // 广播去重：同工程重复打开（理论不可达）不重复弹。
+  if (m_lastReadOnlyNotified != !writable)
+  {
+    m_lastReadOnlyNotified = !writable;
+    emit projectReadOnlyChanged(!writable);
+  }
+  // #80：先关上一会话（旧工程或同路径旧会话）在本线程的 sqlite 连接
+  // ——切换工程不留句柄；同路径重开不复用可能指向旧 inode 的连接。
+  // 各 store 的连接都是按调用懒开，关掉后下次访问自动重建。
+  if (!m_metaPath.isEmpty())
+    MetaStore::closeConnectionsFor(m_metaPath);
+  const QString metaPath = manifestPathFor(qgzPath);
+  const bool metaExisted = QFileInfo::exists(metaPath);
+  m_metaPath = metaPath;
+  m_store->setProjectPaths(qgzPath, gpkgPathFor(qgzPath), metaPath);
+
+  // 发布记档与工程提交记档同目录。先补登记中断的发布，再扫描未完成
+  // 记档，避免一次已经补完的发布仍被报成未完成。只读实例不补登记。
+  if (writable)
+  {
+    MapVersionStore publicationRecovery(metaPath);
+    QString recoverErr;
+    if (!publicationRecovery.open(&recoverErr))
+      qWarning() << "AppContext: map publication recovery failed" << metaPath << recoverErr;
+  }
+
+  // data/commit-coord：提交 journal 恢复扫描。上次 commitAll 若在
+  // catalog→qgz 写序中途崩溃会留下未 complete 的记档；如实上报
+  // （qWarning + QGIS 消息日志 → 状态面），绝不自动重放——记档
+  // 摘要不足以证明重跑安全，操作者重新保存即以同 opId 续跑。
+  const QVector<PaleoProjectStore::CommitOp> unfinishedCommits =
+      m_store->recoverCommitJournal();
+  for (const PaleoProjectStore::CommitOp &op : unfinishedCommits)
+  {
+    qWarning() << "AppContext: unfinished commit op" << op.opId
+               << "at stage" << op.stage;
+    QgsMessageLog::logMessage(
+        tr("检测到未完成的提交 %1（阶段：%2）——上次保存可能中途崩溃，"
+           "请检查数据后重新保存")
+            .arg(op.opId, op.stage),
+        QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+  }
+
+  // complete 记档是幂等重入凭证、只增不减——打开路径顺带封顶清理
+  // （默认留 32 条）。未完成记档不清理，上面已如实上报。
+  m_store->pruneCommitJournal();
+
+  // §37 recovery: the SQLite manifest is authoritative, but the .qgz
+  // carries an embedded copy of the declared set. Rehydrate ONLY when
+  // the store file does not exist — a .qgz moved/shared without its
+  // sidecar must not lose its layer set, while an existing store
+  // (even a deliberately emptied one) is never overwritten.
+  *m_manifest = LayerManifest(metaPath); // rebind in place
+  m_manifest->setReadOnly(!writable); // 值重绑带回可写默认——重设
+  QString err;
+  if (!m_manifest->open(&err))
+    qWarning() << "AppContext: failed to open layer manifest" << metaPath << err;
+
+  if (!metaExisted && !writable)
+  {
+    // 只读实例不做 rehydrate 写入（.qgz 内嵌清单本就来自第一实例
+    // 的 manifest；这里写入既越权也会在 upsert 门上如实失败）。
+    qWarning() << "AppContext: read-only instance skips manifest rehydrate";
+  }
+  else if (!metaExisted)
+  {
+    const QVector<LayerDeclaration> embedded =
+        ManifestProjection::extractDeclarations(m_projectSvc->project());
+    for (const LayerDeclaration &d : embedded)
+    {
+      LayerDeclaration copy = d;
+      copy.instantiated = false; // runtime flag — layer service decides
+      if (!m_manifest->upsert(copy, &err))
+        qWarning() << "AppContext: manifest rehydrate failed for" << d.layerId << err;
+    }
+    if (!embedded.isEmpty())
+      qInfo() << "AppContext: manifest store missing — restored"
+              << embedded.size() << "declarations from .qgz projection";
+  }
+
+  m_styleSvc->setStylesRoot(fi.absoluteDir().filePath(QStringLiteral("styles")));
+  // 工程级参数（AREA_PARAMETERS）：project_area.json → 层位名单/
+  // 分类规则/SEG-Y 偏移/ONNX 网格/标定层位。必须在 importSvc/
+  // catalog 之前装载——分类器与层位词表消费 active()。坏 JSON
+  // 如实上报（active 保持默认），不静默。
+  AreaRules::setProjectDir(fi.absolutePath());
+  if (!AreaRules::lastError().isEmpty())
+  {
+    qWarning() << "AppContext: area rules rejected:" << AreaRules::lastError();
+    QgsMessageLog::logMessage(
+        tr("工程参数文件 project_area.json 被拒用（%1）——本工程按内置"
+           "默认参数运行")
+            .arg(AreaRules::lastError()),
+        QStringLiteral("Paleo"), Qgis::MessageLevel::Warning);
+  }
+  m_import->setProjectDir(fi.absolutePath(),
+      prepared && prepared->directory == fi.absolutePath() ? prepared->catalog : nullptr);
+  // 工程级地理配准（project.paleo georeference 节）：导入服务带上
+  // 局部网格→WGS84 变换——建井时写 coordinateStatus=ok + extra
+  // 经纬度；无配准工程保持 untransformed 现状。
+  if (m_projectSvc->georeference())
+    m_import->setGeoreference(*m_projectSvc->georeference());
+  else
+    m_import->clearGeoreference();
+  // wave4/崩溃报告：报告头的「当前工程路径」随工程打开更新（落点
+  // 不变——AppData 下，脏退出检测要求先于工程存在）。
+  CrashReport::setProjectContext(fi.absolutePath());
+
+  // T26（wave3/derived-publish）：四个写出派生产物的 workflow 绑上
+  // importSvc 持有的同一 catalog 实例（catalog.json 整文件重写，两
+  // 个实例交错写会互相覆盖）——厚度/预测/IDW/融合/相多边形从此落
+  // artifacts/derived/ 并登记 DERIVED 版本，不再有 /tmp 死链。
+  if (DataCatalog *derivedCatalog = m_import->catalog())
+  {
+    m_mappingWf->setCatalog(derivedCatalog, fi.absolutePath());
+    m_predictionWf->setCatalog(derivedCatalog, fi.absolutePath());
+    m_constraintWf->setCatalog(derivedCatalog, fi.absolutePath());
+    m_compositionWf->setCatalog(derivedCatalog, fi.absolutePath());
+    m_mappingWorkbench->bindCatalog(derivedCatalog, fi.absolutePath());
+    m_versionCtl->setCatalog(derivedCatalog);
+    WellAttributeStore::open(derivedCatalog, fi.absolutePath(), m_layerSvc, false, false);
+    WellAttributeStore::open(derivedCatalog, fi.absolutePath(), m_layerSvc, true, false);
+    WellAttributeStore::open(derivedCatalog, fi.absolutePath(), m_layerSvc, WellAttributeStore::Table::Formations, false);
+#if PALEO_HAVE_ORT
+    if (m_aiAssistWf)
+      m_aiAssistWf->setCatalog(derivedCatalog, fi.absolutePath());
+#endif
+    // 方向61/77：工程打开 → 重绑聊天工具上下文（AreaRules 按工区钉
+    // targetHorizon，层位名与栅格声明都可能换了；只读工程工具的
+    // catalog/projectDir 同步换绑）。无 ORT 构建也重绑（assist 为空）。
+    bindChatToolRunner(m_aiChat, m_aiAssistWf, m_layerSvc,
+                       derivedCatalog, fi.absolutePath());
+    // goal/time-depth-velocity：同一 catalog 实例纪律（整文件重写，
+    // 交错写互覆）——层深转换产物落 artifacts/derived/。
+    m_depthWf->rebind(derivedCatalog, fi.absolutePath());
+    m_propModelWf->rebind(derivedCatalog, fi.absolutePath());
+    // goal/facies-automapping：同 catalog 实例纪律；约束库走
+    // ConstraintWorkflow 的共享 store（单写者）。
+    m_faciesMappingWf->rebind(derivedCatalog, fi.absolutePath());
+    m_faciesMappingWf->setConstraintStore(m_constraintWf->constraintStore());
+  }
+  // onnx:* 模型注册表装配（方向 83 抽至 app/onnxwiring）。
+  // 后台准备扫过同一工程时用那份结果，避免打开时再扫一遍。
+  const ModelRegistryScan *preparedModels = nullptr;
+#if PALEO_HAVE_ORT
+  if (prepared && prepared->directory == fi.absolutePath())
+    preparedModels = &prepared->models;
+#endif
+  paleo::app::installOnnxModelsOnOpen(m_onnxSvc, fi.absolutePath(), preparedModels);
+
+  // wave/mapping-pipeline：版本存储重绑到本工程 meta 库；读侧门面
+  // 接上数据底座的 catalog（<工程目录>/artifacts/metadata/catalog.json）。
+  *m_versionStore = MapVersionStore(metaPath);
+  m_versionStore->setReadOnly(!writable); // 值重绑带回可写默认——重设
+  QString versionErr;
+  if (!m_versionStore->open(&versionErr))
+    qWarning() << "AppContext: map version store open failed" << metaPath << versionErr;
+  // Use the already-loaded catalog; never open/read a second copy.
+  m_projectData->setCatalog(m_import->catalog(), fi.absolutePath());
+  m_projectData->setManifest(m_manifest);
+
+  // §4 井位图层（预览壳重排）：catalog 已随 setProjectDir 打开——
+  // 井点写 GeoJSON、声明「wells」、实例化后绑给 WellMapLink。
+  m_projectDir = fi.absolutePath();
+  if (prepared && prepared->directory == m_projectDir && m_import->catalog()->isOpen()) {
+    if (prepared->wellsPrepared)
+      prepared->wellsPrepared = publishPreparedLayer(m_projectDir + "/artifacts/layers/wells.geojson", prepared->wellsBytes);
+    if (prepared->trajectoriesPrepared)
+      prepared->trajectoriesPrepared = publishPreparedLayer(m_projectDir + "/artifacts/layers/well_trajectories.geojson", prepared->trajectoryBytes);
+  }
+  const bool wellsPrepared = prepared && prepared->wellsPrepared;
+  const bool trajectoriesPrepared = prepared && prepared->trajectoriesPrepared;
+  if (m_projectSvc->isOpening()) {
+    const auto directory = m_projectDir;
+    const auto session = m_projectSvc->sessionId();
+    QTimer::singleShot(16, this, [this, directory, session, wellsPrepared, trajectoriesPrepared] {
+      restoreProjectLayers(directory, session, wellsPrepared, trajectoriesPrepared);
+    });
+  } else {
+    m_layerSvc->refreshBasemaps();
+    refreshSurveyLayer();
+    if (m_import->catalog()->isOpen()) {
+      refreshWellsLayer(false, wellsPrepared);
+      refreshWellTrajectoriesLayer(trajectoriesPrepared);
+    }
+  }
+
+  // goal/fault-interpretation：FaultSet 存储值重绑本工程 meta 库并
+  // 读回；工程有断层时切割镜像层上图（内存层由模型整刷）。
+  // catalog 角色：有 seismic_survey 实体及其地震体资产时挂上下文
+  //（首次写断层时 ensure "fault" 角色链接，幂等）。
+  m_faultStore = FaultSetStore(metaPath, m_store);
+  m_faultStore.setReadOnly(!writable); // 值重绑带回可写默认——重设
+  QString faultStoreErr;
+  if (!m_faultStore.open(&faultStoreErr))
+    qWarning() << "AppContext: fault set store open failed" << metaPath
+               << faultStoreErr;
+  QString faultErr;
+  if (!m_faultCtl->reload(&faultErr))
+    qWarning() << "AppContext: fault set reload failed" << faultErr;
+
+  // 方向34：布井方案集存储值重绑本工程 meta 库；编排器接上
+  // catalog（planned 实体）与 store。
+  m_wellsitingStore = WellSitingStore(metaPath, m_store);
+  m_wellsitingStore.setReadOnly(!writable); // 值重绑带回可写默认——重设
+  QString sitingStoreErr;
+  if (!m_wellsitingStore.open(&sitingStoreErr))
+    qWarning() << "AppContext: well siting store open failed" << metaPath
+               << sitingStoreErr;
+  m_wellsitingWf->setSitingStore(&m_wellsitingStore);
+  if (m_import && m_import->catalog())
+    m_wellsitingWf->setCatalog(m_import->catalog(), fi.absolutePath());
+  if (m_import && m_import->catalog()) {
+    DataCatalog *cat = m_import->catalog();
+    const auto surveys = cat->entities(QStringLiteral("seismic_survey"));
+    if (!surveys.isEmpty()) {
+      const QString surveyId = surveys.first().id;
+      QString volumeAssetId;
+      for (const EntityAssetLink &l : cat->linksForEntity(surveyId)) {
+        if (l.role == QLatin1String("seismic_volume") && !l.assetId.isEmpty()) {
+          volumeAssetId = l.assetId;
+          break;
+        }
+      }
+      if (!volumeAssetId.isEmpty())
+        m_faultCtl->setCatalogContext(cat, surveyId, volumeAssetId);
+    }
+  }
+  if (m_faultCtl->faultSet().faultCount() > 0)
+    m_faultCtl->ensureMapLayer(DataCatalog::localGridCrsWkt());
+
+  // 图层树规整：manifest/目录都重绑完后跑一次全量归位——旧工程
+  // 的平铺树收成「置顶共享 + 层位组」，未实例化层位补齐占位组。
+  if (m_layerOrganizer)
+    m_layerOrganizer->reorganize();
+}
+
 
 AppContext::~AppContext()
 {

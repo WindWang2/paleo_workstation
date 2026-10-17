@@ -145,6 +145,13 @@ int main(int argc, char *argv[])
     }
   }
 
+  // #483：CLI --prefix 必须压过 QGIS_PREFIX_PATH env（帮助文本「Set custom
+  // QGIS prefix directory」语义）。QgisRuntime::initialize 的解析序是
+  // env > 显式实参（测试 main 的 "/usr" 兜底实参依赖该序，不可反转）——
+  // 故 CLI 值在此先写回 env，经 initialize 的常规序无例外生效。
+  if (!qgisPrefix.isEmpty())
+    qputenv("QGIS_PREFIX_PATH", qgisPrefix.toUtf8());
+
   // OpenGL 3.3 Core Profile default format must precede QApplication / QgsApplication
   // so that shared OpenGL contexts across the application (including QtWebEngine,
   // QGIS Map Canvas, and Seismic 3D Viewport) have compatible Core Profile contexts.

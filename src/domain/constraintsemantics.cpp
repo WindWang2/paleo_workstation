@@ -134,7 +134,9 @@ bool samePoint( QPointF a, QPointF b )
 
 bool segmentTouchesRect( QPointF a, QPointF b, const QRectF &r )
 {
-  // Liang–Barsky：r 为闭矩形。
+  // Liang–Barsky：r 为闭矩形。与引擎 supercover 栅格化的空间判定契约一致
+  //（constraintbarriers.cpp：贴右/下边界的点 clamp 进最后一列/行格——贴边
+  // 屏障影响边缘格，不是域外；#488 统一契约，二轮复核维持）。
   double t0 = 0, t1 = 1;
   const double dx = b.x() - a.x();
   const double dy = b.y() - a.y();
@@ -651,6 +653,14 @@ void decideByMethod( ConstraintUseDecision &d, const ConstraintSemantics &s, con
       }
       if ( context.structuralEnableBarriers && context.structuralInterpretiveStrengthPositive )
       {
+        // 二轮 R4：引擎只收「与成图域距离 ≤ 软半径」的停线——域外远处的线
+        // 无数值作用，计划同口径不消费（距离-半径精确判定在引擎，计划用
+        // 触域作保守下界）。
+        if ( d.domainKnown && !d.inDomain )
+        {
+          reject( d, QStringLiteral( "outside_compute_domain" ) );
+          return;
+        }
         consume( d, QStringLiteral( "soft_boundary" ) );
         d.warnings << ( full ? QStringLiteral( "full_block_as_contour_only_soft_boundary" )
                              : QStringLiteral( "display_only_as_interpretive_soft_boundary" ) );
@@ -718,6 +728,13 @@ void decideByMethod( ConstraintUseDecision &d, const ConstraintSemantics &s, con
   {
     if ( sem == QLatin1String( "hard_barrier" ) )
     {
+      // 二轮 R3：引擎逐线落格（未触网格的线不进连通性/凸包）——计划同口径：
+      // 域已知且部件不触域 → 不消费。
+      if ( d.domainKnown && !d.inDomain )
+      {
+        reject( d, QStringLiteral( "outside_compute_domain" ) );
+        return;
+      }
       consume( d, QStringLiteral( "hard_barrier" ) );
       d.warnings << QStringLiteral( "also_clips_convex_hull" );
       return;

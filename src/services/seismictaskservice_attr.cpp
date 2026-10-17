@@ -18,6 +18,7 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QScopeGuard>
 #include <QtEndian>
 
 #include <algorithm>
@@ -532,6 +533,12 @@ PaleoTask *SeismicTaskService::startTimeSliceAttribute(
           }
         };
         std::vector<std::thread> workers;
+        auto joinGuard = qScopeGuard([&workers] {
+          for (auto &w : workers) {
+            if (w.joinable())
+              w.join();
+          }
+        });
         for (int t = 1; t < nThreads; ++t)
         {
           const int x0 = std::min(nXl, t * chunk);
@@ -542,7 +549,10 @@ PaleoTask *SeismicTaskService::startTimeSliceAttribute(
         }
         runRange(0, std::min(nXl, chunk));
         for (auto &w : workers)
-          w.join();
+        {
+          if (w.joinable())
+            w.join();
+        }
         if (task->cancelRequested())
           return QString();
         for (int x = 0; x < nXl; ++x)
@@ -1019,6 +1029,12 @@ PaleoTask *SeismicTaskService::startAttributeVolume(
             }
           };
           std::vector<std::thread> workers;
+          auto joinGuard = qScopeGuard([&workers] {
+            for (auto &w : workers) {
+              if (w.joinable())
+                w.join();
+            }
+          });
           for (int t = 1; t < nThreads; ++t)
           {
             const int x0 = std::min(nXl, t * chunk);
@@ -1029,7 +1045,10 @@ PaleoTask *SeismicTaskService::startAttributeVolume(
           }
           runRange(0, std::min(nXl, chunk));
           for (auto &w : workers)
-            w.join();
+          {
+            if (w.joinable())
+              w.join();
+          }
           if (task->cancelRequested())
           {
             abandonPartial();

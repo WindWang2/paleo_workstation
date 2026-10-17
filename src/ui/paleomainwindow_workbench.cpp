@@ -1,5 +1,7 @@
 // 层：视图
 // token 例外：DESIGN 数据符号例外：编图参考地图固定纸面与地质预览色样。（tools/ui-token-exceptions.json 精确计数）。
+#include <QApplication>
+
 #include "../domain/faciescatalog.h"
 #include "../domain/facieshierarchy.h"
 #include "../domain/singlefactorrequest.h"
@@ -50,6 +52,7 @@
 #include <QTabWidget>
 #include <QUndoStack>
 #include <QVBoxLayout>
+#include <algorithm>
 #include <memory>
 #include <qgslayertree.h>
 #include <qgslayertreeview.h>
@@ -114,6 +117,9 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
     }
     stack->insertWidget(index, tabs);
     pages << page;
+    // X9：后台索引同步完成后，页面若有未完成的反查则自动重发一次。
+    connect(workbench, &MappingWorkbench::evidenceIndexSynced, page,
+            [page](const QVariantMap &) { page->reissueReverseQuery(); });
   }
   stack->setCurrentIndex(current);
   if (evidence) {
@@ -123,6 +129,11 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
         if (page->isVisible()) evidence->setLayer(id);
       });
       connect(page, &MappingWorkbenchPage::evidenceActivated, evidence, [evidence](const QVariantMap &row) { evidence->navigate(row); });
+      // X10：反查命中行定位命中图斑本身（含旧版本），回退走研究目标栈。
+      connect(page, &MappingWorkbenchPage::reverseHitActivated, evidence, [evidence](const QVariantMap &row) { evidence->navigateFeature(row); });
+      connect(page, &MappingWorkbenchPage::evidenceBackRequested, evidence, [evidence] { evidence->back(); });
+      connect(evidence, &EvidenceInteraction::historyChanged, page, &MappingWorkbenchPage::setCanGoBack);
+      page->setCanGoBack(evidence->canGoBack());
       connect(page, &MappingWorkbenchPage::evidenceGraphRequested, this, [this](const QVariantMap &snapshot) {
         openDataGraph(snapshot.value("asset_id").toString(), snapshot.value("version_id").toString());
         if (auto *data = findChild<DataPage *>()) data->graphPage()->setFeatureEvidence(snapshot, true);
@@ -774,51 +785,74 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
               dataPage->focusVersion(version.assetId, version.id);
             }
           } else if (action == "reverseQuery") {
+            QVariantMap meta;
             const auto rows = workbench->evidenceReverseQuery(
                 p.value("reverse_kind").toString(),
-                p.value("reverse_argument").toString(), &error);
+                p.value("reverse_argument").toString(), &error, &meta);
             ok = error.isEmpty();
-            page->setReverseResults(rows, ok ? QString() : error);
+            page->setReverseResults(rows, ok ? QString() : error, meta);
             error.clear();
           } else if (action == "impactAnalysis") {
-            // 所选图件 = 变化后的版本；同资产的上一版 = 变化前。
-            const auto after = workbench->versionForLayer(id);
-            QString before;
-            int beforeNumber = 0;
-            if (!after.assetId.isEmpty())
-              for (const auto &v : workbench->catalog()
-                                       ? workbench->catalog()->versions()
-                                       : QVector<CatalogVersion>{})
-                if (v.assetId == after.assetId && v.versionNumber < after.versionNumber &&
-                    v.versionNumber > beforeNumber) {
-                  before = v.id;
-                  beforeNumber = v.versionNumber;
-                }
-            if (before.isEmpty()) {
-              ok = false;
-              error = tr("该图件只有单一版本，没有可分析的版本变化");
-            } else {
-              m_lastImpact = workbench->analyzeImpact(
-                  {{"kind", QStringLiteral("input_version")},
-                   {"before_version_id", before},
-                   {"after_version_id", after.id},
-                   {"horizon", h}},
-                  &error);
-              ok = !m_lastImpact.isEmpty();
-              if (ok) {
-                const auto determined = m_lastImpact.value("determined").toList();
-                qint64 changedCells = 0;
-                for (const auto &value : determined)
-                  changedCells += value.toMap().value("changed_cells").toLongLong();
-                statusBar()->showMessage(
-                    tr("影响分析完成：直接依赖 %1 项，潜在影响 %2 项，可确定变化 "
-                       "%3 像元（详见 %4）")
-                        .arg(m_lastImpact.value("direct_products").toList().size())
-                        .arg(m_lastImpact.value("potential_products").toList().size())
-                        .arg(changedCells)
-                        .arg(m_lastImpact.value("report_path").toString()),
-                    20000);
-              }
+            // X13：版本对选择在功能层（同资产上一版 = 变化前），视图只传图件。
+            // 重放为同步长操作（≤64 产品 × 2 × 400 万像元）：等待光标 +
+            // 状态栏提示（DESIGN.md Motion「>1s 显示进度条」的同步路径
+            // 最小满足；异步任务化在 full-audit 台账记为剩余工作）。
+            // 光标 RAII：分析抛异常（bad_alloc 族）也不卡死在等待态（R2-07②）。
+            statusBar()->showMessage(tr("正在分析影响（重放冻结输入）…"), 0);
+            const struct WaitCursorGuard
+            {
+              ~WaitCursorGuard() { QApplication::restoreOverrideCursor(); }
+            } waitCursor;
+            QApplication::setOverrideCursor(Qt::WaitCursor);
+            m_lastImpact = workbench->analyzeLayerVersionImpact(id, h, &error);
+            ok = !m_lastImpact.isEmpty();
+            page->setImpactAvailable(ok);
+            if (ok) {
+              const auto determined = m_lastImpact.value("determined").toList();
+              qint64 changedCells = 0;
+              for (const auto &value : determined)
+                changedCells += value.toMap().value("changed_cells").toLongLong();
+              const auto reportPath =
+                  m_lastImpact.value("report_path").toString();
+              statusBar()->showMessage(
+                  reportPath.isEmpty()
+                      ? tr("影响分析完成：直接依赖 %1 项，潜在影响 %2 项，可确定"
+                           "变化 %3 像元（报告未能保存到工程目录）")
+                            .arg(m_lastImpact.value("direct_products").toList().size())
+                            .arg(m_lastImpact.value("potential_products").toList().size())
+                            .arg(changedCells)
+                      : tr("影响分析完成：直接依赖 %1 项，潜在影响 %2 项，可确定变化 "
+                           "%3 像元（详见 %4）")
+                            .arg(m_lastImpact.value("direct_products").toList().size())
+                            .arg(m_lastImpact.value("potential_products").toList().size())
+                            .arg(changedCells)
+                            .arg(reportPath),
+                  20000);
+            }
+          } else if (action == "compareRecompute") {
+            // X13：受控重算成果 vs 其替代的旧版本（像元级 diff + 报告落盘）。
+            const auto report =
+                workbench->compareWithRecomputeSource(id, &error);
+            ok = !report.isEmpty();
+            if (ok) {
+              auto matrix = report.value("code_matrix").toList();
+              std::sort(matrix.begin(), matrix.end(),
+                        [](const QVariant &a, const QVariant &b) {
+                          return a.toMap().value("cells").toLongLong() >
+                                 b.toMap().value("cells").toLongLong();
+                        });
+              QStringList top;
+              for (const auto &value : matrix.mid(0, 3))
+                top << tr("%1：%2 像元")
+                           .arg(value.toMap().value("transition").toString())
+                           .arg(value.toMap().value("cells").toLongLong());
+              statusBar()->showMessage(
+                  tr("重算对比：变化 %1/%2 像元；主要转移 %3（详见 %4）")
+                      .arg(report.value("cells_changed").toLongLong())
+                      .arg(report.value("total_cells").toLongLong())
+                      .arg(top.isEmpty() ? tr("无") : top.join("；"))
+                      .arg(report.value("report_path").toString()),
+                  20000);
             }
           } else if (action == "recompute") {
             if (m_lastImpact.isEmpty()) {
@@ -828,17 +862,33 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
               const auto plan = workbench->recomputePlan(m_lastImpact, &error);
               ok = !plan.isEmpty() && plan.value("status").toString() != QStringLiteral("empty");
               if (ok) {
+                const struct WaitCursorGuard
+                {
+                  ~WaitCursorGuard() { QApplication::restoreOverrideCursor(); }
+                } waitCursor;
+                QApplication::setOverrideCursor(Qt::WaitCursor);
                 const auto execution = workbench->executeRecompute(plan, &error);
                 const auto results = execution.value("results").toList();
                 int started = 0;
-                for (const auto &value : results)
-                  if (value.toMap().value("ok").toBool())
+                QStringList notes;
+                for (const auto &value : results) {
+                  const auto row = value.toMap();
+                  if (row.value("ok").toBool())
                     ++started;
+                  // 如实带上逐条结论（跳过/过期/已完成的 reason 都在结果行）。
+                  const auto note = row.value("reason").toString().isEmpty()
+                                        ? row.value("error").toString()
+                                        : row.value("reason").toString();
+                  if (!note.isEmpty() && notes.size() < 3)
+                    notes << note;
+                }
                 statusBar()->showMessage(
-                    tr("受控重算已启动 %1/%2 项：新版本由任务中心生成，历史版本"
+                    tr("受控重算已启动 %1/%2 项：%3新版本由任务中心生成，历史版本"
                        "与已确认解释保持不变")
                         .arg(started)
-                        .arg(results.size()),
+                        .arg(results.size())
+                        .arg(notes.isEmpty() ? QString()
+                                             : notes.join("；") + QStringLiteral("。")),
                     20000);
               } else if (error.isEmpty())
                 error = tr("影响报告中没有可重算的综合编图成果");

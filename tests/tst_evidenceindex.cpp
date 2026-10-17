@@ -6,6 +6,8 @@
 #include <QFile>
 #include <QJsonDocument>
 #include <QSet>
+#include <QSqlDatabase>
+#include <QSqlQuery>
 #include <QTemporaryDir>
 #include <cpl_error.h>
 #include <gdal.h>
@@ -244,6 +246,10 @@ private slots:
   void limitAndOffsetAreBounded();
   void reopenKeepsIndex();
   void cancelAbortsSynchronize();
+  void contradictedExcludesUnlinkedAndPendingCoversDisputed();
+  void truncationIsRecordedAndRescanned();
+  void schemaUpgradeFromV1Rebuilds();
+  void failedWriteRollsBackAndStaysUsable();
 };
 
 void TestEvidenceIndex::syncIndexesEntriesIncludingUnlinked() {
@@ -555,6 +561,184 @@ void TestEvidenceIndex::cancelAbortsSynchronize() {
   QVERIFY(index.lastError().contains(QStringLiteral("取消")));
   // 取消不产出半截索引。
   QCOMPARE(index.stats().value(QStringLiteral("entries")).toInt(), 0);
+  QCOMPARE(index.synchronize(&cat, dir.path(), {}, &error), 1);
+  QCOMPARE(index.stats().value(QStringLiteral("entries")).toInt(), 6);
+}
+
+// X8：unlinked 断链历史行不进「被反驳」结论口径；Disputed 计入待复核。
+void TestEvidenceIndex::contradictedExcludesUnlinkedAndPendingCoversDisputed() {
+  QTemporaryDir dir;
+  DataCatalog cat;
+  QVERIFY(cat.open(dir.path(), nullptr));
+  const QString gpkg = dir.filePath(QStringLiteral("result.gpkg"));
+  auto features = baseFeatures();
+  {
+    FixtureFeature f;
+    f.uid = QStringLiteral("uid-hist");
+    f.evidenceJson = encodeJson(QVariantList{
+        record(QStringLiteral("ev-hist"),
+               QVariantMap{{"role", QStringLiteral("CONTRADICTED_BY")},
+                           {"type", QStringLiteral("well")},
+                           {"unlinked", true},
+                           {"source_version", QStringLiteral("v-src-ghost")},
+                           {"text", QStringLiteral("unlinked contradiction")}})});
+    f.interpretationJson = encodeJson(
+        interpretation(QStringLiteral("interp-hist"),
+                       QStringLiteral("Disputed"), f.uid));
+    features << f;
+  }
+  QVERIFY(writeGpkg(gpkg, features));
+  QVERIFY(addMappingVersion(&cat, QStringLiteral("vx1"), gpkg));
+
+  Index index;
+  QVERIFY(index.open(dir.path(), nullptr));
+  QString error;
+  QCOMPARE(index.synchronize(&cat, dir.path(), {}, &error), 1);
+
+  // 结论口径：unlinked 反驳行被排除（只有 ev-2）。
+  const auto contradicted = index.contradicted(QStringLiteral("D61"));
+  QCOMPARE(contradicted.size(), 1);
+  QCOMPARE(contradicted.first().evidenceId, QStringLiteral("ev-2"));
+  QCOMPARE(index.countFor(QStringLiteral("contradicted"),
+                          QStringLiteral("D61")),
+           1);
+  // 历史行仍可检索（按证据 id 反查保留 tombstone 事实）。
+  const auto history = index.featuresForEvidence(QStringLiteral("ev-hist"));
+  QCOMPARE(history.size(), 1);
+  QVERIFY(history.first().unlinked);
+  // 复核口径：Disputed 计入待复核（uid-hist 的记录行）。
+  const auto pending = index.pendingReview(QStringLiteral("D61"));
+  QVERIFY(uidIn(pending, QStringLiteral("uid-hist")));
+  QCOMPARE(index.countFor(QStringLiteral("pendingReview"),
+                          QStringLiteral("D61")),
+           pending.size());
+  // distinctSourceVersions：只列有效（unlinked=0）钉定来源——
+  // v-src-ghost 是断链记录的引用，不进列表。
+  const auto sources = index.distinctSourceVersions(QStringLiteral("D61"));
+  QCOMPARE(sources.size(), 2);
+  QVERIFY(sources.contains(QStringLiteral("v-src-1")));
+  QVERIFY(sources.contains(QStringLiteral("v-src-2")));
+  QVERIFY(!sources.contains(QStringLiteral("v-src-ghost")));
+}
+
+// X12：读取上限命中如实登记 truncated——不是静默的部分索引；且截断版本
+// 不算已索引完成，默认上限的下轮同步会重灌补齐。
+void TestEvidenceIndex::truncationIsRecordedAndRescanned() {
+  QTemporaryDir dir;
+  DataCatalog cat;
+  QVERIFY(cat.open(dir.path(), nullptr));
+  const QString gpkg = dir.filePath(QStringLiteral("result.gpkg"));
+  QVERIFY(writeGpkg(gpkg, baseFeatures()));
+  QVERIFY(addMappingVersion(&cat, QStringLiteral("vx1"), gpkg));
+
+  Index index;
+  QVERIFY(index.open(dir.path(), nullptr));
+  QString error;
+  paleo::evidenceindex::SyncOptions tiny;
+  tiny.maxFeaturesPerVersion = 2;
+  tiny.maxRowsPerVersion = 3;
+  QCOMPARE(index.synchronize(&cat, dir.path(), {}, &error, tiny), 1);
+  QCOMPARE(index.stats().value(QStringLiteral("truncated_versions")).toInt(), 1);
+  QVERIFY(index.stats().value(QStringLiteral("entries")).toInt() < 6);
+  // 截断不顶包「已完成」：默认上限再同步 → 整版本重灌、标记清零。
+  QCOMPARE(index.synchronize(&cat, dir.path(), {}, &error), 1);
+  QCOMPARE(index.stats().value(QStringLiteral("truncated_versions")).toInt(), 0);
+  QCOMPARE(index.stats().value(QStringLiteral("entries")).toInt(), 6);
+}
+
+// v1→v2：旧库整库重建（drop + 重建 schema），不迁移行——索引是可重建
+// 检索结构，下一轮同步全量重灌。
+void TestEvidenceIndex::schemaUpgradeFromV1Rebuilds() {
+  QTemporaryDir dir;
+  DataCatalog cat;
+  QVERIFY(cat.open(dir.path(), nullptr));
+  const QString gpkg = dir.filePath(QStringLiteral("result.gpkg"));
+  QVERIFY(writeGpkg(gpkg, baseFeatures()));
+  QVERIFY(addMappingVersion(&cat, QStringLiteral("vx1"), gpkg));
+
+  QVERIFY(QDir().mkpath(dir.filePath(QStringLiteral("artifacts"))));
+  const QString dbPath =
+      dir.filePath(QStringLiteral("artifacts/evidence-index.sqlite"));
+  const QString legacyConn = QStringLiteral("v1-legacy-fixture");
+  {
+    QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", legacyConn);
+    db.setDatabaseName(dbPath);
+    QVERIFY(db.open());
+    QSqlQuery q(db);
+    QVERIFY(q.exec(QStringLiteral(
+        "CREATE TABLE evidence_entries (version_id TEXT)")));
+    QVERIFY(q.exec(QStringLiteral(
+        "CREATE TABLE indexed_versions (version_id TEXT PRIMARY KEY,"
+        " sha256 TEXT, indexed_at TEXT, corrupt_records INTEGER, error TEXT)")));
+    QVERIFY(q.exec(QStringLiteral(
+        "INSERT INTO indexed_versions VALUES ('stale-v1','x','',0,'')")));
+    QVERIFY(q.exec(QStringLiteral("PRAGMA user_version = 1")));
+    db.close();
+  }
+  QSqlDatabase::removeDatabase(legacyConn);
+
+  Index index;
+  QString error;
+  QVERIFY2(index.open(dir.path(), &error), qPrintable(error));
+  // 升级后 schema 是 v2：indexed_versions 有 truncated 列、user_version=2。
+  const QString checkConn = QStringLiteral("v1-check-fixture");
+  {
+    QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", checkConn);
+    db.setDatabaseName(dbPath);
+    QVERIFY(db.open());
+    QSqlQuery q(db);
+    QVERIFY(q.exec(QStringLiteral("PRAGMA user_version")) && q.next());
+    QCOMPARE(q.value(0).toInt(), 2);
+    QVERIFY(q.exec(QStringLiteral(
+        "SELECT truncated FROM indexed_versions"))); // v2 列存在
+    QVERIFY(!q.next()); // 旧行未迁移——整库重建
+    db.close();
+  }
+  QSqlDatabase::removeDatabase(checkConn);
+  // 重建后的索引照常全量同步。
+  QCOMPARE(index.synchronize(&cat, dir.path(), {}, &error), 1);
+  QCOMPARE(index.stats().value(QStringLiteral("entries")).toInt(), 6);
+}
+
+// X12：写事务中途失败（外连接持写锁 → SQLITE_BUSY）必须 rollback——
+// 连接不残留未提交事务，锁释放后同一 Index 照常完成同步。
+void TestEvidenceIndex::failedWriteRollsBackAndStaysUsable() {
+  QTemporaryDir dir;
+  DataCatalog cat;
+  QVERIFY(cat.open(dir.path(), nullptr));
+  const QString gpkg = dir.filePath(QStringLiteral("result.gpkg"));
+  QVERIFY(writeGpkg(gpkg, baseFeatures()));
+  QVERIFY(addMappingVersion(&cat, QStringLiteral("vx1"), gpkg));
+
+  Index index;
+  QVERIFY(index.open(dir.path(), nullptr));
+  const QString dbPath =
+      dir.filePath(QStringLiteral("artifacts/evidence-index.sqlite"));
+  QVERIFY(QFile::exists(dbPath));
+  const QString holdConn = QStringLiteral("hold-lock-fixture");
+  {
+    QSqlDatabase hold = QSqlDatabase::addDatabase("QSQLITE", holdConn);
+    hold.setDatabaseName(dbPath);
+    QVERIFY(hold.open());
+    {
+      QSqlQuery q(hold);
+      QVERIFY(q.exec(QStringLiteral("BEGIN IMMEDIATE")));
+      QVERIFY(q.exec(QStringLiteral(
+          "INSERT INTO index_meta (key, value) VALUES ('lock','1')")));
+    }
+    QString error;
+    QCOMPARE(index.synchronize(&cat, dir.path(), {}, &error), -1);
+    QVERIFY(!index.lastError().isEmpty());
+    {
+      QSqlQuery q(hold);
+      QVERIFY(q.exec(QStringLiteral("ROLLBACK")));
+    }
+    hold.close();
+  }
+  QSqlDatabase::removeDatabase(holdConn);
+  // 若失败路径留了未提交事务，这里会在「无法开始索引写入事务」处再败；
+  // 成功即证明回滚干净、连接可用。
+  QString error;
   QCOMPARE(index.synchronize(&cat, dir.path(), {}, &error), 1);
   QCOMPARE(index.stats().value(QStringLiteral("entries")).toInt(), 6);
 }

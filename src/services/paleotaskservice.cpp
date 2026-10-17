@@ -76,7 +76,8 @@ int PaleoTask::percent() const
   if (m_bytesDone == 0 && m_stagePercent >= 0)
     return qBound(0, m_stagePercent, 100);
   if (m_bytesTotal > 0)
-    return static_cast<int>(m_bytesDone * 100 / m_bytesTotal);
+    // 上游回灌 done>total 时钳 100——进度条溢出显示 101% 不是可接受口径。
+    return qBound(0, static_cast<int>(m_bytesDone * 100 / m_bytesTotal), 100);
   return -1;
 }
 
@@ -85,6 +86,8 @@ QString PaleoTask::etaText() const
   if (!running() || m_bytesTotal <= 0 || m_rateBytesPerSec <= 0.0)
     return QStringLiteral("--");
   const qint64 remaining = m_bytesTotal - m_bytesDone;
+  if (remaining <= 0)
+    return QStringLiteral("--"); // 回灌溢出时剩余为负：不显示「约 1s」
   const double secs = remaining / m_rateBytesPerSec;
   if (secs >= 90.0)
     return tr("约 %1min").arg(QString::number(secs / 60.0, 'f', 1));

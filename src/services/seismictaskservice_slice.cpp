@@ -758,6 +758,19 @@ PaleoTask *SeismicTaskService::startAttributeSlice(
         }
       };
       std::vector<std::thread> workers;
+      // 异常路径也必须 join：主线程分片（processColumn/分配）抛异常时，
+      // 仍 joinable 的 workers 析构会 std::terminate 杀掉整个进程——
+      // 这里应是任务失败回执，不是进程崩溃（与 attr 扫描路径同根因纪律）。
+      struct JoinWorkers
+      {
+        std::vector<std::thread> &ws;
+        ~JoinWorkers()
+        {
+          for (auto &w : ws)
+            if (w.joinable())
+              w.join();
+        }
+      } joinWorkers{workers};
       for (int t = 1; t < nThreads; ++t)
       {
         const int x0 = std::min(width, t * chunk);

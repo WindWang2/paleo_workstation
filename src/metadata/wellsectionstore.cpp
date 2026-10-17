@@ -331,8 +331,10 @@ WellSectionRecord WellSectionStore::load(const QString &sectionId,
     }
     if (!q.next())
         return rec; // 新工程：无行 → version 0
+    // #476：井 id 列的空段不得丢弃——splitEscaped 默认丢空段，空 id 会被
+    // 静默少读一口井（位序错位）。keepEmpty 保逐位往返。
     for (const QString &cell :
-         splitEscaped(q.value(0).toString(), QLatin1Char(',')))
+         splitEscaped(q.value(0).toString(), QLatin1Char(','), /*keepEmpty=*/true))
         rec.wellIds << unescapeField(cell);
     for (const QString &row :
          splitEscaped(q.value(1).toString(), QLatin1Char('|')))

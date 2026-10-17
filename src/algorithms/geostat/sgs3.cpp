@@ -9,9 +9,11 @@
 #include <limits>
 #include <queue>
 #include <random>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 // 层：数据
 namespace paleo::geostat
@@ -386,6 +388,17 @@ Sgs3Result sgs3( const std::vector<Sample3> &samples, const std::vector<Sgs3Targ
     result.message = "target budget exceeded (> 1e8)";
     return result;
   }
+  // #468：组合内存闸（与 2D 入口同口径，预算常量见 sgs_internal.h）——
+  // 放在唯一性/索引检查之前：超预算的组合不必付 O(n) 校验成本即可拒收。
+  // 此处用钳制后的 R（真正分配的实现数）。
+  const int budgetRealizations = std::clamp( params.nRealizations, 1, 64 );
+  if ( static_cast<std::int64_t>( budgetRealizations ) *
+           static_cast<std::int64_t>( targets.size() ) * 8 >
+       detail::kMaxRealizationBytes )
+  {
+    result.message = "realization memory budget exceeded (realizations x targets x 8B > 4 GiB)";
+    return result;
+  }
   for ( const Sgs3Target &target : targets )
   {
     if ( target.ix < 0 || target.iy < 0 || target.iz < 0 || target.ix >= kIndexAxisMax ||
@@ -478,16 +491,30 @@ Sgs3Result sgs3( const std::vector<Sample3> &samples, const std::vector<Sgs3Targ
                               std::vector<double>( n,
                                                    std::numeric_limits<double>::quiet_NaN() ) );
 
-  std::mt19937_64 rng( clamped.seed );
-  SimulatedLattice3 lattice;
-  std::vector<std::uint32_t> staticNeighborhood;
-  std::vector<CondPoint> simulatedNeighborhood;
-  std::vector<CondPoint> neighborhood;
-  std::vector<std::size_t> path( n );
-
-  for ( int realization = 0; realization < R; ++realization )
+  // #478：每实现一份派生随机流 + 独立工作缓冲（2D 核同口径：seed +
+  // r·黄金比常数；r=0 种子不变，实现 0 与旧共享流实现逐位一致）——
+  // 实现间零数据依赖，R 个实现天然可并行。
+  struct RealizationCounts
   {
-    // 随机路径：Fisher–Yates（随机流跨实现连续——与 2D 核同一口径）
+    int finite = 0;
+    int nodata = 0;
+    int failures = 0;
+  };
+  std::vector<RealizationCounts> counts( static_cast<std::size_t>( R ) );
+
+  const auto runRealization = [&]( int realization ) {
+    std::mt19937_64 rng( clamped.seed +
+                         static_cast<std::uint64_t>( realization ) * 0x9E3779B97F4A7C15ULL );
+    SimulatedLattice3 lattice;
+    std::vector<std::uint32_t> staticNeighborhood;
+    std::vector<CondPoint> simulatedNeighborhood;
+    std::vector<CondPoint> neighborhood;
+    std::vector<std::size_t> path( n );
+    detail::KrigingWorkspace krigeWorkspace; // #478：方程组缓冲跨目标复用
+    std::vector<double> gaussianField( n, std::numeric_limits<double>::quiet_NaN() );
+    RealizationCounts &tally = counts[static_cast<std::size_t>( realization )];
+
+    // 随机路径：Fisher–Yates（与 2D 核同一口径）
     for ( std::size_t i = 0; i < n; ++i )
       path[i] = i;
     for ( std::size_t i = n; i > 1; --i )
@@ -496,7 +523,6 @@ Sgs3Result sgs3( const std::vector<Sample3> &samples, const std::vector<Sgs3Targ
       std::swap( path[i - 1], path[j] );
     }
     lattice.reset( targets );
-    std::vector<double> gaussianField( n, std::numeric_limits<double>::quiet_NaN() );
 
     std::size_t sinceCheck = 0;
     const std::size_t checkInterval = 2048;
@@ -573,6 +599,8 @@ Sgs3Result sgs3( const std::vector<Sample3> &samples, const std::vector<Sgs3Targ
       if ( static_cast<int>( neighborhood.size() ) > clamped.maxPoints )
       {
         const CondPoint &q = query;
+        // 距离并列时按 (x,y,z) 字典序打破——等价类选取是标准库实现定义，
+        // 与 2D SGS 同一「同 seed 逐位可复现」契约（full-audit F8）。
         std::partial_sort( neighborhood.begin(), neighborhood.begin() + clamped.maxPoints,
                            neighborhood.end(),
                            [&q]( const CondPoint &a, const CondPoint &b ) {
@@ -582,7 +610,13 @@ Sgs3Result sgs3( const std::vector<Sample3> &samples, const std::vector<Sgs3Targ
                              const double db = ( b.x - q.x ) * ( b.x - q.x ) +
                                                ( b.y - q.y ) * ( b.y - q.y ) +
                                                ( b.z - q.z ) * ( b.z - q.z );
-                             return da < db;
+                             if ( da != db )
+                               return da < db;
+                             if ( a.x != b.x )
+                               return a.x < b.x;
+                             if ( a.y != b.y )
+                               return a.y < b.y;
+                             return a.z < b.z;
                            } );
         neighborhood.resize( static_cast<std::size_t>( clamped.maxPoints ) );
       }
@@ -598,7 +632,7 @@ Sgs3Result sgs3( const std::vector<Sample3> &samples, const std::vector<Sgs3Targ
       }
       else if ( !neighborhood.empty() &&
                 detail::solveSimpleKriging( neighborhood, query.x, query.y, query.z, gaussianModel,
-                                            &estimate, &variance ) )
+                                            &estimate, &variance, &krigeWorkspace ) )
       {
         solved = true;
       }
@@ -610,19 +644,16 @@ Sgs3Result sgs3( const std::vector<Sample3> &samples, const std::vector<Sgs3Targ
       }
       else
       {
-        ++result.solverFailures; // 无同组分邻域或数值失败：该目标保持 nodata（如实计数）
+        ++tally.failures; // 无同组分邻域或数值失败：该目标保持 nodata（如实计数）
       }
 
       ++sinceCheck;
       if ( sinceCheck >= checkInterval )
       {
         sinceCheck = 0;
+        // 并行档不设回调（见下），这里的轮询在并行档恒为空操作。
         if ( control.cancelled && control.cancelled() )
-        {
-          result.status = Status::Cancelled;
-          result.message = "cancelled";
-          return result;
-        }
+          return false;
         if ( control.progress )
           control.progress( ( static_cast<double>( realization ) +
                               static_cast<double>( step + 1 ) / static_cast<double>( n ) ) /
@@ -630,23 +661,60 @@ Sgs3Result sgs3( const std::vector<Sample3> &samples, const std::vector<Sgs3Targ
       }
     }
 
+    // 反变换写输出；计数随实现产出一次写入（#478：不再在实现循环里清零
+    // 重算——多实现的 nodata 模式可不同（随机路径不同），结果口径如实
+    // 取最后一实现的计数，见 sgs3.h 字段注释）。
     std::vector<double> &output = result.realizations[static_cast<std::size_t>( realization )];
-    result.finitePoints = 0;
-    result.nodataPoints = 0;
     for ( std::size_t i = 0; i < n; ++i )
     {
       const double gaussian = gaussianField[i];
       if ( std::isfinite( gaussian ) )
       {
         output[i] = table.backTransform( gaussian );
-        ++result.finitePoints;
+        ++tally.finite;
       }
       else
       {
-        ++result.nodataPoints;
+        ++tally.nodata;
+      }
+    }
+    return true;
+  };
+
+  const bool hasCallbacks = control.cancelled || control.progress;
+  if ( R > 1 && !hasCallbacks )
+  {
+    // #478：实现级并行（2D 核同款）：输出行不相交、每实现流/缓冲私有；
+    // 工作线程 ≤4；回调在场时不并行（取消/进度走顺序档）。
+    const int workers = std::min<int>( R, 4 );
+    std::vector<std::thread> threads;
+    threads.reserve( static_cast<std::size_t>( workers ) - 1 );
+    for ( int worker = 1; worker < workers; ++worker )
+      threads.emplace_back( [&runRealization, worker, workers, R] {
+        for ( int realization = worker; realization < R; realization += workers )
+          runRealization( realization );
+      } );
+    for ( int realization = 0; realization < R; realization += workers )
+      runRealization( realization );
+    for ( std::thread &thread : threads )
+      thread.join();
+  }
+  else
+  {
+    for ( int realization = 0; realization < R; ++realization )
+    {
+      if ( !runRealization( realization ) )
+      {
+        result.status = Status::Cancelled;
+        result.message = "cancelled";
+        return result;
       }
     }
   }
+  for ( const RealizationCounts &tally : counts )
+    result.solverFailures += tally.failures; // 跨实现累计（既有口径）
+  result.finitePoints = counts.back().finite;
+  result.nodataPoints = counts.back().nodata;
   if ( control.progress )
     control.progress( 1.0 );
   result.status = Status::Ok;

@@ -178,17 +178,29 @@ WellFaciesInput prepareWellFaciesInput(const ComprehensiveWellData &data,
   // 不再因为对不上模型的组名而整井拒绝。已经标了别的组则仍然拒绝。
   const bool restrictToGroup = !model.formationGroup.isEmpty() && (groupHit || namedGroup);
   const auto &depths = curves.first()->depths;
-  QVector<double> steps;
-  steps.reserve(depths.size() - 1);
-  for (qsizetype i = 1; i < depths.size(); ++i) {
-    const double diff = double(depths[i] - depths[i - 1]);
-    if (diff > 0.0001)
-      steps.append(diff);
-  }
-  if (steps.isEmpty())
+  const auto medianStep = [](const CurveData &curve) {
+    QVector<double> steps;
+    steps.reserve(curve.depths.size() - 1);
+    for (qsizetype i = 1; i < curve.depths.size(); ++i) {
+      const double diff = double(curve.depths[i] - curve.depths[i - 1]);
+      if (diff > 0.0001)
+        steps.append(diff);
+    }
+    if (steps.isEmpty())
+      return 0.0;
+    std::sort(steps.begin(), steps.end());
+    return steps[steps.size() / 2];
+  };
+  // #476：步长/缺口判据此前只取 curves.first()——其他曲线采样更稀时整井被
+  // 拒且报错文案误导。每条曲线按自身中位步长取插值容差：均匀稀疏采样照常
+  // 插值（稀疏≠缺口），自身邻距超过自身步长 1.5 倍（真缺口）仍拒绝。
+  const double step = medianStep(*curves.first());
+  if (step <= 0.0)
     return fail(tr("曲线深度采样不足"));
-  std::sort(steps.begin(), steps.end());
-  const double step = steps[steps.size() / 2];
+  QVector<double> curveSteps;
+  curveSteps.reserve(curves.size());
+  for (const auto *curve : curves)
+    curveSteps.append(qMax(step, medianStep(*curve)));
   double previous = -std::numeric_limits<double>::infinity();
   for (double depth : depths) {
     bool inGroup = !restrictToGroup;
@@ -227,7 +239,8 @@ WellFaciesInput prepareWellFaciesInput(const ComprehensiveWellData &data,
     const double maxGap = step * 1.5 + 0.001;
     for (qsizetype n = 0; n < curves.size(); ++n) {
       double value;
-      if (!curveValue(*curves[n], depth, &value, maxGap))
+      const double curveGap = curveSteps[n] * 1.5 + 0.001;
+      if (!curveValue(*curves[n], depth, &value, qMax(maxGap, curveGap)))
         return fail(
             tr("深度 %1 m 的 %2 缺少有效数值").arg(depth).arg(model.curves[n]));
       row.insert(model.curves[n], value);

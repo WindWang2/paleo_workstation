@@ -1070,6 +1070,10 @@ bool ConstraintWorkflow::declareFactorResult( QgisLayerService *layers,
 bool ConstraintWorkflow::factorBusy() const {
   return m_factorJobTask && m_factorJobTask->running();
 }
+// #480 P3-2（双栈并存备忘）：这是生产侧异步栈（generateFactor/
+// generateContours 等直接走这里）；另有「统一异步面」startConstraintJob
+//（constraintfactorjobs.cpp，生产零调用、测试锁定语义）。两栈守卫口径
+//（代次/指纹/清理）需同步演进，改本侧先对照彼侧。
 bool ConstraintWorkflow::runFactorWork(
     const QString &title, std::function<QString(PaleoTask *)> compute,
     std::function<bool(QString *)> publish, std::function<void()> cleanup,
@@ -1101,7 +1105,11 @@ bool ConstraintWorkflow::runFactorWork(
   const auto catalog = m_catalog;
   const auto dir = m_projectDir;
   const auto generation = m_publishGeneration;
-  const auto sequence = m_catalog ? m_catalog->mutationSeq() : 0;
+  // #480 P3-3：不再捕获 catalog mutationSeq——作业输入在提交时已冻结
+  //（约束快照 + 输入版本不可变），排队/计算期间任意无关 catalog 写入
+  //（导入、注册井、出版本…）此前都会在收尾闸门误取消长作业。真失效
+  // 由代次（generation）/目录/catalog 指针/session 与各作业自己的输入
+  // 指纹校验（如等值线 inputFingerprint.matches）把关。
   const auto session = m_factorTasks->session();
   QPointer<PaleoTask> task = m_factorTasks->beginExternal(title);
   m_factorJobTask = task;
@@ -1120,7 +1128,7 @@ bool ConstraintWorkflow::runFactorWork(
     }
   });
   connect(watcher, &QFutureWatcherBase::finished, this,
-          [this, watcher, task, catalog, dir, generation, sequence, session,
+          [this, watcher, task, catalog, dir, generation, session,
            publish, pending] {
             QString error;
             if (!task || task->cancelRequested() ||
@@ -1129,7 +1137,6 @@ bool ConstraintWorkflow::runFactorWork(
                 task->requestCancel();
             } else if (catalog != m_catalog || dir != m_projectDir ||
                        generation != m_publishGeneration ||
-                       (catalog && catalog->mutationSeq() != sequence) ||
                        session != m_factorTasks->session()) {
               task->requestCancel();
             } else {

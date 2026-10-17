@@ -284,11 +284,9 @@ bool SattrVolumeWriter::begin(const QString &path, const SattrVolumeInfo &info,
   block_.reserve(std::size_t(info.blockIl) * info.nXl * info.nS);
   writtenIl_ = 0;
 
-  if (QFileInfo::exists(path) && !QFile::remove(path))
-  {
-    setError(error, QStringLiteral("无法覆盖既有属性体文件 %1").arg(path));
-    return false;
-  }
+  // #477：不再「先 remove 再新建」——remove 与新建之间崩溃会丢既有文件
+  // （同文件 writeSattrSection 是 QSaveFile 口径）。WriteOnly|Truncate 等
+  // 价覆盖内容且不经过「文件不存在」窗口。
   file_.setFileName(path);
   if (!file_.open(QIODevice::WriteOnly | QIODevice::Truncate))
   {

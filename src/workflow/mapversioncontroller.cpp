@@ -57,6 +57,9 @@ bool MapVersionController::captureVersion(const QString &horizon, const QVariant
   QVector<QPair<QString, QPointer<QgsVectorLayer>>> horizonVectorLayers;
   QVector<LayerDeclaration> declared;
   bool declaredOk = false;
+  QStringList droppedLayers; // #480：实例化失败的幽灵层保持容忍语义（孤立 edit
+                             // 标记仍经 horizonVectorLayers 释放），但不再静默——
+                             // 记入 frozen provenance 披露缺层，并留痕日志。
   if ( m_layers )
   {
     declaredOk = m_layers->tryDeclared( &declared, error );
@@ -69,6 +72,13 @@ bool MapVersionController::captureVersion(const QString &horizon, const QVariant
           QString instErr;
           QgsMapLayer *layer = m_layers->instantiate( d.layerId, &instErr );
           auto *vl = qobject_cast<QgsVectorLayer *>( layer );
+          if ( !vl )
+          {
+            droppedLayers << d.layerId;
+            qWarning( "MapVersionController: declared layer '%s' failed to instantiate,"
+                      " the version snapshot will not contain it: %s",
+                      qPrintable( d.layerId ), qPrintable( instErr ) );
+          }
           horizonVectorLayers.append( { d.layerId, vl } );
         }
       }
@@ -164,6 +174,8 @@ bool MapVersionController::captureVersion(const QString &horizon, const QVariant
   frozenProvenance.insert("catalog_bound", !versionSnapshots.isEmpty());
   if (!featurePrevalidated)
     frozenProvenance.insert("cited_sources", scan.citedSources(m_catalog));
+  if (!droppedLayers.isEmpty())
+    frozenProvenance.insert("dropped_layers", droppedLayers); // #480：缺层披露
   if (m_catalog) {
     for (const auto &entry : frozenProvenance.value(QStringLiteral("cited_sources")).toList()) {
       const auto id = entry.toMap().value(QStringLiteral("version_id")).toString();
@@ -179,6 +191,8 @@ bool MapVersionController::captureVersion(const QString &horizon, const QVariant
   // commitChanges 原生清 undo 栈，undoStack()->clear() 再兜底一次，保证
   // undo 不跨版本边界。栅格图层无编辑缓冲，跳过。
   bool commitFailed = false;
+  QStringList committedWithEdits; // #480 P2-2：已成功落盘编辑的层（跨层原生
+                                  // 提交非原子——失败时这些层无版本快照可回溯）
   QVector<QPointer<MapVersionEvidenceCommitProof>> proofs;
   // Bind every proof before the first native callback. Committing A must not
   // certify changes that its callback makes to the already-scanned layer B.
@@ -195,6 +209,8 @@ bool MapVersionController::captureVersion(const QString &horizon, const QVariant
     if ( !vl )
       continue;
     bool layerCommitted = true;
+    const bool hadEditBuffer = vl->isEditable(); // #480 P2-2：原生提交非原子，
+                                                  // 记录已落盘层，失败时显式披露部分状态
     if ( vl->isEditable() )
     {
       if ( m_editSvc )
@@ -227,6 +243,8 @@ bool MapVersionController::captureVersion(const QString &horizon, const QVariant
         }
       }
     }
+    if ( layerCommitted && hadEditBuffer )
+      committedWithEdits << item.first;
     // #222：只有提交成功（或本无编辑缓冲）的层才清 undo 栈。提交失败时编辑
     // 缓冲保留供重试/回滚，撤销历史也必须一并保留；且约束会话仍挂着
     // QUndoStack::indexChanged，clear() 会触发 synchronize(0) 把失败态反向
@@ -239,6 +257,12 @@ bool MapVersionController::captureVersion(const QString &horizon, const QVariant
 
   if ( commitFailed )
   {
+    // #480 P2-2：跨层原生提交非原子——先行层可能已落盘（GPKG 已写、undo
+    // 已清）但本版本未生成。显式披露部分状态，不再只报失败层，避免用户
+    // 误以为全部编辑仍在缓冲区可重试。
+    if ( !committedWithEdits.isEmpty() && error )
+      *error = tr( "部分层已提交编辑但本次未出版本快照：%1（提交失败：%2）" )
+                   .arg( committedWithEdits.join( QLatin1Char( '、' ) ), *error );
     releaseCommittedEditLocks();
     return false;
   }

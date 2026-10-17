@@ -2,6 +2,7 @@
 #include "surfacegridding.h"
 #include "constraintuseplan.h"
 
+#include "../algorithms/constraintbarriers.h"
 #include "../algorithms/rasteralgebra.h"
 #include "../algorithms/surfacevolumes.h"
 #include "../catalog/datacatalog.h"
@@ -24,6 +25,8 @@
 #include <cmath>
 #include <limits>
 #include <vector>
+#include <QSet>
+#include <algorithm>
 
 namespace gridsolver = paleo::gridsolver;
 namespace rasteralgebra = paleo::rasteralgebra;
@@ -130,12 +133,32 @@ SurfaceGriddingWorkflow::Inspect SurfaceGriddingWorkflow::inspectHorizonText(
   {
     // P2：统一语义——只有完全阻断且几何有效的打断线才算「有屏障」
     //（停用、display_only/none、无效几何不算），与 buildBarrierMask 同口径。
+    // PR457-closure R8：勘察按层位分组计数——本层位散点的参数表只该被本
+    // 层位的屏障点亮；域取散点包围盒（运行网格 ⊇ 包围盒，勘察是保守下界）。
     const ConstraintStore store(constraintGpkgPath);
     paleo::singlefactor::ConstraintMethodContext context;
     context.methodId = QStringLiteral("min_curvature");
-    const auto plan = paleo::singlefactor::planConstraintUse(store.load(), context);
-    out.hasConstraints =
-        plan.summary.value(QStringLiteral("roles")).toMap().value(QStringLiteral("hard_barrier")).toInt() > 0;
+    context.domain = QRectF(out.minX, out.minY, out.maxX - out.minX, out.maxY - out.minY);
+    QSet<QString> horizonsWithBarriers;
+    const QVector<QVariantMap> allRows = store.load();
+    QSet<QString> seen;
+    QVector<QVariantMap> rowsOfHorizon;
+    for (const QVariantMap &row : allRows)
+      seen.insert(row.value(QStringLiteral("horizon")).toString());
+    for (const QString &h : seen)
+    {
+      rowsOfHorizon.clear();
+      for (const QVariantMap &row : allRows)
+        if (row.value(QStringLiteral("horizon")).toString() == h)
+          rowsOfHorizon.append(row);
+      context.horizon = h;
+      const auto plan = paleo::singlefactor::planConstraintUse(rowsOfHorizon, context);
+      if (plan.summary.value(QStringLiteral("roles")).toMap().value(QStringLiteral("hard_barrier")).toInt() > 0)
+        horizonsWithBarriers.insert(h);
+    }
+    out.hasConstraints = !horizonsWithBarriers.isEmpty();
+    out.barrierHorizons = horizonsWithBarriers.values();
+    std::sort(out.barrierHorizons.begin(), out.barrierHorizons.end());
   }
   out.ok = true;
   return out;
@@ -458,6 +481,15 @@ QString SurfaceGriddingWorkflow::buildBarrierMask(const QString &horizon,
   paleo::singlefactor::ConstraintMethodContext context;
   context.methodId = QStringLiteral("min_curvature");
   context.horizon = horizon;
+  if (geom.isValid())
+  {
+    // 计划与引擎同一 GridSpec（闭域契约）：域矩形 [originX, originX+cols*dx] ×
+    // [originY−rows*dy, originY]，贴右/下边界的点 clamp 进最后一列/行格——
+    // 与 supercoverPolylineCells 的引擎栅格化及计划侧 segmentTouchesRect
+    // 同口径（R2-09：旧的半开 cellOf 措辞已随 supercover 统一废止）。
+    context.domain = QRectF(geom.originX, geom.originY - geom.rows * geom.dy,
+                            geom.cols * geom.dx, geom.rows * geom.dy);
+  }
   const auto plan = paleo::singlefactor::planConstraintUse(rows, context);
   QVector<QVector<QgsPointXY>> lines;
   QVector<int> lineDecision; // lines[i] 对应的 plan.decisions 下标
@@ -485,36 +517,25 @@ QString SurfaceGriddingWorkflow::buildBarrierMask(const QString &horizon,
     return QString();
   }
   mask->assign(std::size_t(geom.rows) * geom.cols, 0);
-  const double cell = geom.dx;
-  auto cellOf = [&](double x, double y, int *row, int *col)
-  {
-    const double cf = (x - geom.originX) / geom.dx;
-    const double rf = (geom.originY - y) / geom.dy;
-    *col = int(std::floor(cf));
-    *row = int(std::floor(rf));
-    return *col >= 0 && *col < geom.cols && *row >= 0 && *row < geom.rows;
-  };
+  // P1 统一契约（#488/#496，full-audit F5）：屏障栅格化与三个 Processing 引擎
+  // 同走 supercoverPolylineCells（闭域裁剪 + 4-连通途经链，贴右/下边界点
+  // clamp 进边缘格）。此前本路径是半格采样 + 半开 floor 判格——陡斜线/穿角
+  // 点漏格（#488 已定性为 P1 缺陷），且贴边屏障回执与三引擎闭契约相反。
   for (int li = 0; li < lines.size(); ++li)
   {
     const QVector<QgsPointXY> &pl = lines.at(li);
     bool marked = false;
-    for (int i = 1; i < pl.size(); ++i)
-    {
-      const QgsPointXY &a = pl[i - 1];
-      const QgsPointXY &b = pl[i];
-      const double len = a.distance(b);
-      const int steps = std::max(1, int(std::ceil(len / (cell * 0.5))));
-      for (int s = 0; s <= steps; ++s)
-      {
-        int row = 0, col = 0;
-        if (cellOf(a.x() + (b.x() - a.x()) * s / steps,
-                   a.y() + (b.y() - a.y()) * s / steps, &row, &col))
-        {
+    QVector<QPointF> vertices;
+    vertices.reserve(pl.size());
+    for (const QgsPointXY &point : pl)
+      vertices.append(point.toQPointF());
+    paleo::algorithms::supercoverPolylineCells(
+        vertices, geom.originX, geom.originY, geom.dx, -geom.dy, geom.cols,
+        geom.rows,
+        [&](int col, int row) {
           (*mask)[std::size_t(row) * geom.cols + col] = 1;
           marked = true;
-        }
-      }
-    }
+        });
     if (!marked)
     {
       // 引擎实际：没栅格化出任何格的屏障不参与隔断。

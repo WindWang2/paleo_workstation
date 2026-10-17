@@ -16,11 +16,13 @@
 #include <QDoubleSpinBox>
 #include <QHash>
 #include <QHBoxLayout>
+#include <QDir>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLabel>
 #include <QListWidget>
 #include <QListWidgetItem>
+#include <QMessageBox>
 #include <QMenu>
 #include <QPushButton>
 #include <QSet>
@@ -344,6 +346,39 @@ void ConstraintPage::buildConstraintArea( QWidget *content, QVBoxLayout *lay, QC
   hint->setObjectName(QStringLiteral("factorConstraintHint"));
   hint->setWordWrap(true);
   constraintLay->addWidget(hint);
+  // PR457-closure 二轮（P0-2 可达性）：legacy CRS-less 约束库的真实状态可见
+  // + 显式迁移入口（#488 的 migrateLegacyCrs：字节级备份+事务+提交后校验+
+  // 失败还原；此前只有测试调用）。
+  auto *crsStatus = new QLabel(constraints);
+  crsStatus->setObjectName(QStringLiteral("constraintCrsStatus"));
+  crsStatus->setWordWrap(true);
+  crsStatus->setVisible(false);
+  constraintLay->addWidget(crsStatus);
+  auto *crsMigrate = new QPushButton(tr("为约束库登记本地网格坐标系…"), constraints);
+  crsMigrate->setObjectName(QStringLiteral("constraintCrsMigrateButton"));
+  crsMigrate->setVisible(false);
+  constraintLay->addWidget(crsMigrate);
+  connect(crsMigrate, &QPushButton::clicked, this, [this] {
+    auto *wf = qobject_cast<ConstraintWorkflow *>(property(kWfProp).value<QObject *>());
+    if (!wf)
+      return;
+    if (QMessageBox::question(this, tr("约束库坐标系迁移"),
+                              tr("将把规范本地工程网格坐标系登记进约束库（只补元数据，不动几何/属性/FID）。\n"
+                                 "迁移前生成字节级备份，提交后重新打开校验，校验失败用备份原样还原。继续？")) != QMessageBox::Yes)
+      return;
+    QString error, backup;
+    if (wf->migrateConstraintLayerCrs(&error, &backup))
+    {
+      QMessageBox::information(this, tr("约束库坐标系迁移"),
+                               tr("迁移完成。备份：%1").arg(QDir::toNativeSeparators(backup)));
+      refreshConstraintList();
+    }
+    else
+    {
+      QMessageBox::warning(this, tr("约束库坐标系迁移"),
+                           error.isEmpty() ? tr("迁移失败") : error);
+    }
+  });
   constraintLay->removeWidget(breakFamily->parentWidget());
   constraintLay->insertWidget(1, breakFamily->parentWidget());
   constraintLay->addWidget(details);
@@ -492,6 +527,20 @@ void ConstraintPage::refreshConstraintList()
     return;
   const QString keep = list->currentItem() ? list->currentItem()->data( Qt::UserRole ).toString() : QString();
   auto *wf = qobject_cast<ConstraintWorkflow *>( property( kWfProp ).value<QObject *>() );
+  if ( wf )
+  {
+    // P0-2 可达性：约束库 SRS 状态如实显示——legacy CRS-less（坐标按工程
+    // 上下文假定）可见，并提供显式迁移；新库（文件自带 SRS）不出现该行。
+    if ( auto *statusLabel = child<QLabel>( this, "constraintCrsStatus" ) )
+    {
+      const int crsState = wf->constraintLayerCrsState(); // 0=无层 1=legacy 2=已登记
+      const bool legacy = crsState == 1;
+      statusLabel->setVisible(legacy);
+      statusLabel->setText(tr("⚠ 约束库为历史无坐标系版本：坐标按本工程上下文假定（未在文件中核实）。"));
+      if ( auto *migrateButton = child<QPushButton>( this, "constraintCrsMigrateButton" ) )
+        migrateButton->setVisible(legacy);
+    }
+  }
   auto *horizons = child<QComboBox>( this, "horizonCombo" );
   const QString horizon = horizons ? horizons->currentText() : QString();
   QSet<QString> selected;

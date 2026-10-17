@@ -214,11 +214,17 @@ void MappingWorkbench::bindCatalog(DataCatalog *catalog, const QString &dir) {
   m_aliasVersions.clear(); m_pathVersions.clear(); m_productsCache.clear();
   for (const auto &adapter : std::as_const(m_evidenceSpatialAdapters)) delete adapter.data();
   m_evidenceSpatialAdapters.clear();
-  for (const auto &layer : std::as_const(m_attributionLayers)) delete layer.data();
-  m_attributionLayers.clear();
+  m_attributionLayers.clear(); // shared_ptr 缓存：清表即释放缓存引用
+  m_attributionLru.clear();
   // G08：反向索引 sidecar 绑定工程目录——切工程必须重置，否则反查打到
   // 旧工程的索引（头文件注释承诺的行为）。
   m_evidenceIndex.reset();
+  if (m_indexSyncRunner)
+    m_indexSyncRunner->requestCancel();
+  m_evidenceIndexSyncedRevision = -1;
+  m_evidenceIndexAttemptedRevision = -1;
+  m_evidenceIndexSyncError.clear();
+  m_evidenceIndexStats.clear();
   if (m_wellRemote) m_wellRemote->bindCatalog(catalog, dir);
   m_logVersion.clear();
   m_logCache = {};

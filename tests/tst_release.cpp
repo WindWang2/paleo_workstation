@@ -289,6 +289,47 @@ private slots:
     QCOMPARE(store.releases().at(0).layerCount, 0);
     QVERIFY(store.manifestAt(id).isEmpty());
   }
+
+  // #80/#476：只读实例通道（LayerManifest 同构）——const 读走独立只读连接
+  // 且不建表；库文件不存在时拒开（不在被锁目录里建库）；写方法显式拒绝。
+  void readOnlyInstanceReadsButNeverWrites()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString dbPath = dir.filePath(QStringLiteral("meta.sqlite"));
+    {
+      ReleaseStore writer(dbPath);
+      QVERIFY2(writer.open(), "schema 由写实例负责建");
+      const QString id = writer.createRelease(
+          QStringLiteral("v1"), QString(),
+          {decl(QStringLiteral("facies.T1"), QStringLiteral("T1"))});
+      QVERIFY(!id.isEmpty());
+    }
+
+    // 库不存在：只读实例拒开并如实报因，不创建文件。
+    ReleaseStore absent(dir.filePath(QStringLiteral("absent/meta.sqlite")));
+    absent.setReadOnly(true);
+    QString absentErr;
+    QVERIFY(!absent.open(&absentErr));
+    QVERIFY2(absentErr.contains(QStringLiteral("does not exist")),
+             qPrintable(absentErr));
+
+    // 已有库：只读连接 const 读正常，写被显式拒绝。
+    ReleaseStore ro(dbPath);
+    ro.setReadOnly(true);
+    QVERIFY(ro.isReadOnly());
+    QString openErr;
+    QVERIFY2(ro.open(&openErr), qPrintable(openErr));
+    QCOMPARE(ro.releases().size(), 1);
+    QVERIFY(!ro.manifestAt(QStringLiteral("rel-1")).isEmpty());
+
+    QString writeErr;
+    const QString rejected = ro.createRelease(QStringLiteral("v2"), QString(), {},
+                                              &writeErr);
+    QVERIFY(rejected.isEmpty());
+    QVERIFY2(writeErr.contains(QStringLiteral("read-only")), qPrintable(writeErr));
+    QCOMPARE(ro.releases().size(), 1); // 库未被写
+  }
 };
 
 QTEST_GUILESS_MAIN(TestReleaseStore)

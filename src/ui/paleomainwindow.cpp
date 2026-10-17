@@ -934,12 +934,17 @@ void PaleoMainWindow::syncSeismicVolumeToDocks()
     };
     const bool need3d = m_seismic3dPanel && !matches(m_seismic3dPanel->volume());
     const bool needSection = m_seismicSectionDock && !matches(m_seismicSectionDock->volume());
-    if ((!need3d && !needSection) || (m_seismicOpenPath == path && m_seismicOpenTask && m_seismicOpenTask->running()))
-      return;
+    // #481 P3-3：已就位/本会话已自动装载过/在途的体不再拦路——continue
+    // 看下一个 seismic 资产（旧 return 吞掉后续体，多地震体工程第二个
+    // 体永不自动装载）。同体在途不算失败，等下次同步再扫余体。
+    if ((!need3d && !needSection) || m_seismicAutoLoadedPaths.contains(path) ||
+        (m_seismicOpenPath == path && m_seismicOpenTask && m_seismicOpenTask->running()))
+      continue;
     if (m_seismicOpenTask)
       m_seismicOpenTask->requestCancel();
     const quint64 generation = ++m_seismicOpenGeneration;
     m_seismicOpenPath = path;
+    m_seismicAutoLoadedPaths.insert(path);
     const quint64 session = m_projectSvc ? m_projectSvc->sessionId() : 0;
     double origin = 0;
     for (const auto &link : cat->linksForAsset(asset.id))
@@ -962,13 +967,18 @@ void PaleoMainWindow::syncSeismicVolumeToDocks()
     progress->setRange(0, 0);
     status->show(); progress->show();
     QPointer<PaleoMainWindow> guard(this);
+    // #481 P3-6：状态条控件按 QPointer 捕获（attach_models 范本）——窗口
+    // 先于任务回调析构时不解引用裸指针。
+    const QPointer<QLabel> statusGuard(status);
+    const QPointer<QProgressBar> progressGuard(progress);
     m_seismicOpenTask = m_seismicTaskSvc->startVolumeLoad(path,
-        [guard, generation, session, origin, status, progress](bool ok,
+        [guard, generation, session, origin, statusGuard, progressGuard](bool ok,
               std::shared_ptr<seismic::SgyVolume> volume, const QString &error) {
       if (!guard || generation != guard->m_seismicOpenGeneration ||
           (guard->m_projectSvc && session != guard->m_projectSvc->sessionId()))
         return;
-      status->hide(); progress->hide();
+      if (statusGuard) statusGuard->hide();
+      if (progressGuard) progressGuard->hide();
       guard->m_seismicOpenPath.clear();
       if (!ok || !volume) {
         guard->statusBar()->showMessage(error, 10000);
@@ -993,11 +1003,11 @@ void PaleoMainWindow::syncSeismicVolumeToDocks()
     }, /*quiet=*/true); // 状态栏已有进度；自动加载不反复展开/收起底栏。
     if (m_seismicOpenTask) {
       QPointer<PaleoTask> task = m_seismicOpenTask;
-      connect(task, &PaleoTask::changed, this, [task, progress, generation, this] {
-        if (!task || generation != m_seismicOpenGeneration) return;
+      connect(task, &PaleoTask::changed, this, [task, progressGuard, generation, this] {
+        if (!task || !progressGuard || generation != m_seismicOpenGeneration) return;
         const int percent = task->percent();
-        progress->setRange(0, percent < 0 ? 0 : 100);
-        if (percent >= 0) progress->setValue(percent);
+        progressGuard->setRange(0, percent < 0 ? 0 : 100);
+        if (percent >= 0) progressGuard->setValue(percent);
       });
     }
     return;

@@ -1,0 +1,127 @@
+# qgs-audit-baseline —— Qgs 直连现状冻结清单（#472，tools/check_layering.py --qgs-audit）。
+# 格式：每行一个 src/ 相对路径（src/workflow 与 src/ui 中直接 include 外部
+# qgs* 头、basename 匹配 qgs*.h 的文件；repo src/qgis/ 封装头不算直连）。
+# 语义（沿用 layering-baseline 的只缩不涨机制）：
+#   - baseline 外的新增直连文件 → FAIL（exit 1）；
+#   - baseline 内文件收敛（不再直连）→ NOTE 可收缩，--strict 下红（强制删行）；
+#   - baseline 非空不判红（现状冻结，与已归零的 layering-baseline 不同期）。
+# 收敛方向：按 docs/PALEO_QGIS_PLAN.md §2 把 QGIS 调用收进 src/qgis/ 封装
+#（ui 侧 QGIS 原生控件视图可暂缓，见 #472），收敛一个删一行。
+# 豁免面（已裁决例外）：tools/layering_vocab.json 的 qgs_audit_whitelist（空）。
+# 基线：master @ ddd1325e 实测 114 文件（workflow 41 + ui 73）。#472 正文
+# 口径 112（40+72）与本闸复现命令（check_layering.py --qgs-audit）差 2——
+# 正文取证未附统计命令，以本工具的确定性口径为准。
+src/ui/attributetablepanel.cpp
+src/ui/constraintdrawcontroller.cpp
+src/ui/correlation/correlationtrack.cpp
+src/ui/datapreview/datapreviewtabgeojson.cpp
+src/ui/datapreview/datapreviewtabhorizon.cpp
+src/ui/datapreview/datapreviewtabimage.cpp
+src/ui/datapreview/datapreviewtabmapproduct.cpp
+src/ui/datapreview/datapreviewtabs.cpp
+src/ui/datapreview/datapreviewtabs_internal.h
+src/ui/datapreview/datapreviewtabs_overlay.cpp
+src/ui/datapreview/datapreviewtabs_survey.cpp
+src/ui/datapreview/datapreviewtabs_well.cpp
+src/ui/datapreview/datapreviewtabseismic.cpp
+src/ui/datapreview/datapreviewtabwelllog.cpp
+src/ui/datapreview/previewidentifypanel.cpp
+src/ui/datapreview/previewmappage.cpp
+src/ui/datapreview/previewmappage.h
+src/ui/datapreview/previewmapstates.h
+src/ui/datapreview/previewprofilepanel.h
+src/ui/datapreview/previewtocpanel.cpp
+src/ui/decorations/paleodecorations.cpp
+src/ui/decorations/paleodecorations.h
+src/ui/dialogs/projectmapsettingsdialog.cpp
+src/ui/edittools/editingtoolbar.cpp
+src/ui/edittools/editingtools.cpp
+src/ui/edittools/editingtools.h
+src/ui/edittools/editingundostack.cpp
+src/ui/edittools/vertexeditortools.cpp
+src/ui/edittools/vertexeditortools.h
+src/ui/faults/faultmanagerpanel.cpp
+src/ui/layers/layerpropertiesdialog.cpp
+src/ui/layers/layertreepanel.cpp
+src/ui/layout/layoutexportactions.cpp
+src/ui/layout/layoutexportactions.h
+src/ui/layout/layoutitempalette.cpp
+src/ui/layout/layoutitempanel.cpp
+src/ui/layout/layoutitemtree.cpp
+src/ui/layout/layouttemplates.cpp
+src/ui/layout/layoutundostack.cpp
+src/ui/layoutdesignershell.cpp
+src/ui/layoutdesignershell.h
+src/ui/locator/paleolocatorfilters.cpp
+src/ui/locator/paleolocatorfilters.h
+src/ui/maptools/capturehelpers.h
+src/ui/maptools/paleomaptools.cpp
+src/ui/maptools/paleomaptools.h
+src/ui/maptools/paleoshapetools.cpp
+src/ui/maptools/paleoshapetools.h
+src/ui/maptools/shapepreview.h
+src/ui/maptools/sitingpicktool.cpp
+src/ui/maptools/sitingpicktool.h
+src/ui/pages/mappingworkbenchpage.cpp
+src/ui/paleoicons.cpp
+src/ui/paleomainwindow.cpp
+src/ui/paleomainwindow_attach.cpp
+src/ui/paleomainwindow_attach_compose.cpp
+src/ui/paleomainwindow_attach_constraint.cpp
+src/ui/paleomainwindow_attach_data.cpp
+src/ui/paleomainwindow_attach_mapping.cpp
+src/ui/paleomainwindow_attach_models.cpp
+src/ui/paleomainwindow_attach_predict.cpp
+src/ui/paleomainwindow_attach_shell.cpp
+src/ui/paleomainwindow_docks.cpp
+src/ui/paleomainwindow_sections.cpp
+src/ui/paleomainwindow_status.cpp
+src/ui/paleomainwindow_wellsection.cpp
+src/ui/paleomainwindow_workbench.cpp
+src/ui/ribbonpanels.cpp
+src/ui/seismic3d/seismic3dviewpanel.cpp
+src/ui/symbols/symbolpickerpanel.cpp
+src/ui/typedconstraintdrawcontroller.cpp
+src/ui/vertexeditorshim.cpp
+src/ui/wellsection/fencewidget.cpp
+src/workflow/compositionworkflow.cpp
+src/workflow/constraintfactorjobs.cpp
+src/workflow/constraintfactorjobs_contours.cpp
+src/workflow/constraintfactorjobs_factor.cpp
+src/workflow/constraintfactorjobs_geostat.cpp
+src/workflow/constraintfactorjobs_interpretive.cpp
+src/workflow/constraintfactorjobs_localdirection.cpp
+src/workflow/constraintimport.cpp
+src/workflow/constraintuseplan.cpp
+src/workflow/constraintuseplan.h
+src/workflow/constraintwellfactors.cpp
+src/workflow/constraintworkflow.cpp
+src/workflow/evidenceinteraction.cpp
+src/workflow/evolutionworkflow.cpp
+src/workflow/faciesmappingworkflow.cpp
+src/workflow/faultinterpretationcontroller.cpp
+src/workflow/horizonbatchexport.cpp
+src/workflow/layouttemplatelibrary.cpp
+src/workflow/mapbookqueue.cpp
+src/workflow/mapexport.cpp
+src/workflow/mappingevidencereview.cpp
+src/workflow/mappinghierarchy.cpp
+src/workflow/mappingworkbench.cpp
+src/workflow/mappingworkbench_compose.cpp
+src/workflow/mappingworkbench_consistency.cpp
+src/workflow/mappingworkbench_edit.cpp
+src/workflow/mappingworkbench_impact.cpp
+src/workflow/mappingworkbench_polygonize.cpp
+src/workflow/mappingworkbench_predict.cpp
+src/workflow/mapversioncontroller.cpp
+src/workflow/mapversioncontroller_async.cpp
+src/workflow/mapversionvalidation_internal.h
+src/workflow/predictionworkflow.cpp
+src/workflow/realizationworkflow.cpp
+src/workflow/registration.cpp
+src/workflow/surfacegridding.cpp
+src/workflow/wellfaciesworkflow.cpp
+src/workflow/wellpredictionreview.cpp
+src/workflow/wellsitingworkflow.cpp
+src/workflow/workflows.cpp
+src/workflow/workflows_internal.h

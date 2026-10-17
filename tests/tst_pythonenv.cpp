@@ -141,6 +141,98 @@ class TestPythonEnv : public QObject
       tool.setPackageZip(QStringLiteral("/data/MAMCL_v9.zip"));
       QCOMPARE(tool.lockFile(), QStringLiteral("/data/MAMCL_v9.requirements.lock"));
     }
+
+    // #479 挂死路径：假基底解释器（可执行 shell 桩）永不退出——超时与取消
+    // 两条防线都必须把 stepFinished(false)+busyChanged(false) 送达，且随后
+    // 新步骤照常可启（busy 不再锁死到重启）。POSIX-only（桩脚本不可执行于
+    // Windows）。
+    void stepTimesOutAndUnblocks()
+    {
+#ifdef Q_OS_UNIX
+      QTemporaryDir tmp;
+      const QString hanger = writeStub(tmp.path(), QStringLiteral("hanger"),
+                                       QStringLiteral("#!/bin/sh\nexec sleep 300\n"));
+      const QString quick = writeStub(tmp.path(), QStringLiteral("quick"),
+                                      QStringLiteral("#!/bin/sh\nexit 0\n"));
+      qputenv("PALEO_PYTHON", hanger.toUtf8());
+      PythonEnvService env(tmp.path());
+      env.setTimeoutMs(1500);
+      QSignalSpy stepSpy(&env, &PythonEnvService::stepFinished);
+      QSignalSpy busySpy(&env, &PythonEnvService::busyChanged);
+      env.createVenv(QStringLiteral("t"));
+      QVERIFY2(stepSpy.wait(15000), "hung step never timed out");
+      const QList<QVariant> timedOut = stepSpy.takeFirst();
+      QCOMPARE(timedOut.at(0).toString(), QStringLiteral("createVenv"));
+      QCOMPARE(timedOut.at(1).toBool(), false);
+      QVERIFY2(timedOut.at(2).toString().contains(QStringLiteral("超时")),
+               qPrintable(timedOut.at(2).toString()));
+      QVERIFY(!env.isBusy());
+      QVERIFY(busySpy.count() >= 2);
+      QCOMPARE(busySpy.last().at(0).toBool(), false);
+
+      // busy 闸门真的复位：换上「秒退」桩，新步骤正常走完。
+      qputenv("PALEO_PYTHON", quick.toUtf8());
+      stepSpy.clear();
+      env.createVenv(QStringLiteral("t2"));
+      QVERIFY2(stepSpy.wait(15000), "service stayed busy after timeout");
+      const QList<QVariant> next = stepSpy.takeFirst();
+      QCOMPARE(next.at(1).toBool(), true);
+      qunsetenv("PALEO_PYTHON");
+#else
+      QSKIP("hanging stub interpreter is Unix-specific");
+#endif
+    }
+
+    void stepCancelAndUnblocks()
+    {
+#ifdef Q_OS_UNIX
+      QTemporaryDir tmp;
+      const QString hanger = writeStub(tmp.path(), QStringLiteral("hanger"),
+                                       QStringLiteral("#!/bin/sh\nexec sleep 300\n"));
+      const QString quick = writeStub(tmp.path(), QStringLiteral("quick"),
+                                      QStringLiteral("#!/bin/sh\nexit 0\n"));
+      qputenv("PALEO_PYTHON", hanger.toUtf8());
+      PythonEnvService env(tmp.path());
+      QSignalSpy stepSpy(&env, &PythonEnvService::stepFinished);
+      QSignalSpy busySpy(&env, &PythonEnvService::busyChanged);
+      env.createVenv(QStringLiteral("t"));
+      QTRY_COMPARE(busySpy.count(), 1); // busyChanged(true) 已到
+      env.cancel();
+      QVERIFY2(stepSpy.wait(15000), "hung step never cancelled");
+      const QList<QVariant> cancelled = stepSpy.takeFirst();
+      QCOMPARE(cancelled.at(0).toString(), QStringLiteral("createVenv"));
+      QCOMPARE(cancelled.at(1).toBool(), false);
+      QVERIFY2(cancelled.at(2).toString().contains(QStringLiteral("取消")),
+               qPrintable(cancelled.at(2).toString()));
+      QVERIFY(!env.isBusy());
+      QCOMPARE(busySpy.last().at(0).toBool(), false);
+
+      qputenv("PALEO_PYTHON", quick.toUtf8());
+      stepSpy.clear();
+      env.createVenv(QStringLiteral("t2"));
+      QVERIFY2(stepSpy.wait(15000), "service stayed busy after cancel");
+      QCOMPARE(stepSpy.takeFirst().at(1).toBool(), true);
+      qunsetenv("PALEO_PYTHON");
+#else
+      QSKIP("hanging stub interpreter is Unix-specific");
+#endif
+    }
+
+  private:
+    // 落一个带执行位的 shell 桩脚本，返回绝对路径（Unix 专用）。
+    static QString writeStub(const QString &dir, const QString &name,
+                             const QString &content)
+    {
+      const QString path = QDir(dir).filePath(name);
+      QFile f(path);
+      if (!f.open(QIODevice::WriteOnly | QIODevice::Text))
+        return QString();
+      f.write(content.toUtf8());
+      f.close();
+      f.setPermissions(QFileDevice::ExeOwner | QFileDevice::ReadOwner |
+                       QFileDevice::WriteOwner);
+      return path;
+    }
 };
 
 QTEST_GUILESS_MAIN(TestPythonEnv)

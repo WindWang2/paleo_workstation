@@ -30,6 +30,7 @@
 #include "../src/workflow/wellpredictionservice.h"
 #include <QTcpServer>
 #include <QTcpSocket>
+#include <QThreadPool>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -453,6 +454,38 @@ class TestMappingWorkbench : public QObject {
     return f.work.copyForEditing(d.layerId, {}, error);
   }
 private slots:
+  void impactCommandsAreGatedWithReasons() {
+    Fixture f;
+    QVERIFY(f.init());
+    MappingWorkbenchPage page("compose", &f.work);
+    auto *impact = page.commandButton("impactAnalysis");
+    auto *recompute = page.commandButton("recompute");
+    auto *reverse = page.commandButton("reverseQuery");
+    QVERIFY(impact && recompute && reverse);
+    // 无层位/无选中/无影响报告：三按钮禁用且带 reason（full-audit F6——
+    // 此前恒 enabled，空层位反查伪报「无匹配结果」、无选中影响分析误报
+    // 「只有单一版本」）。
+    QVERIFY(!impact->isEnabled());
+    QVERIFY2(!impact->toolTip().isEmpty(),
+             "disabled impactAnalysis needs a reason tooltip");
+    QVERIFY(!recompute->isEnabled());
+    QVERIFY2(!recompute->toolTip().isEmpty(),
+             "disabled recompute needs a reason tooltip");
+    QVERIFY(!reverse->isEnabled());
+    QVERIFY2(!reverse->toolTip().isEmpty(),
+             "disabled reverseQuery needs a reason tooltip");
+    // 层位就绪：层位范围反查（默认 pending_review）解禁；影响分析仍缺选中。
+    page.setHorizon("D61");
+    QVERIFY(reverse->isEnabled());
+    QVERIFY(!impact->isEnabled());
+    QVERIFY(!recompute->isEnabled());
+    // 影响分析成功回喂 → 受控重算解禁；回喂失败 → 重新禁用。
+    page.setImpactAvailable(true);
+    QVERIFY(recompute->isEnabled());
+    page.setImpactAvailable(false);
+    QVERIFY(!recompute->isEnabled());
+  }
+
   void advancedSingleFactorsReachMappingWithoutReopeningProject() {
     Fixture f;
     QVERIFY(f.init());
@@ -893,6 +926,135 @@ private slots:
     QCOMPARE(selection.target().featureUid, target.featureUid);
     selection.setActiveHorizon("Other"); QVERIFY(selection.target().isEmpty());
     f.project.closeProject(); QVERIFY(selection.target().isEmpty());
+  }
+  // X10 验收链 C：地图选中 → 证据定位 → 图谱同目标 → 反查命中导航到命中
+  // 图斑 → 回退恢复原主目标；全程核对工程/层位/版本/图斑/证据身份。
+  void reverseHitNavigationAndBackRestorePrimaryTarget() {
+    Fixture f; QVERIFY(f.init()); QString error;
+    const auto draft = hierarchyDraft(f, &error); QVERIFY2(!draft.isEmpty(), qPrintable(error));
+    auto *layer = qobject_cast<QgsVectorLayer *>(f.layers.instantiate(draft)); QVERIFY(layer);
+    QgsFeature a, b; auto features = layer->getFeatures();
+    QVERIFY(features.nextFeature(a)); QVERIFY(features.nextFeature(b)); features.close();
+    const auto uidA = MappingFeatureIdentity::uid(a), uidB = MappingFeatureIdentity::uid(b);
+    QVERIFY(!uidA.isEmpty()); QVERIFY(uidA != uidB);
+    // 草稿与保存版本同为 edited_facies——只取已保存（product.*）行。
+    const auto latestSavedEdited = [&f]() {
+      QString found; int ver = 0;
+      for (const auto &row : f.work.products(QStringLiteral("D61"))) {
+        const auto r = row.toMap();
+        if (r.value("kind") == QLatin1String("edited_facies") &&
+            r.value("id").toString().startsWith(QLatin1String("product.")) &&
+            r.value("version").toInt() > ver) {
+          found = r.value("id").toString(); ver = r.value("version").toInt();
+        }
+      }
+      return found;
+    };
+    // V1：保存版本作为可钉图元的证据来源。
+    QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
+    const auto v1Layer = latestSavedEdited(); QVERIFY(!v1Layer.isEmpty());
+    const auto v1 = f.work.versionForLayer(v1Layer).id; QVERIFY(!v1.isEmpty());
+    // A 与 B 各钉定一条指向 V1 内图元的来源记录（同一 source_version）。
+    QVERIFY2(f.work.addEvidence(draft, {a.id()},
+        {{"text", "链C证据A"}, {"role", "REFERENCES"}, {"type", "single_factor"},
+         {"source_layer", v1Layer}, {"source_feature_uid", uidA},
+         {"reason", "链C钉源"}, {"actor_id", "local:tester"}}, &error), qPrintable(error));
+    QVERIFY2(f.work.addEvidence(draft, {b.id()},
+        {{"text", "链C证据B"}, {"role", "REFERENCES"}, {"type", "single_factor"},
+         {"source_layer", v1Layer}, {"source_feature_uid", uidB},
+         {"reason", "链C钉源"}, {"actor_id", "local:tester"}}, &error), qPrintable(error));
+    QVERIFY2(layer->commitChanges(), qPrintable(layer->commitErrors().join(';')));
+    QVERIFY2(f.work.saveEditingVersion(draft, &error), qPrintable(error));
+    const auto v2Layer = latestSavedEdited(); QVERIFY(v2Layer != v1Layer);
+    const auto v2 = f.work.versionForLayer(v2Layer).id; QVERIFY(!v2.isEmpty()); QVERIFY(v2 != v1);
+    SelectionContext selection; selection.setActiveHorizon("D61");
+    QgisCanvasController canvas; canvas.setLayerResolver([&f](const QString &id) { return f.layers.layer(id); });
+    EvidenceInteraction interaction(&f.work, &selection, &f.layers, &f.project, &canvas);
+    const auto projectId = f.project.mapConfiguration().projectId;
+    // 1) 地图选中 A → 主目标/快照 = A
+    layer->selectByIds({a.id()});
+    QCOMPARE(selection.target().featureUid, uidA);
+    QCOMPARE(selection.target().layerId, draft);
+    QCOMPARE(selection.target().projectId, projectId);
+    QCOMPARE(interaction.snapshot().value("feature_uid").toString(), uidA);
+    QVERIFY(!interaction.canGoBack());
+    // 2) 定位 A 的证据来源：来源高亮，主目标仍是 A 且 evidenceId=E
+    QVariantMap evidenceRowA;
+    for (const auto &entry : f.work.evidence(draft, {a.id()})) {
+      const auto row = entry.toMap();
+      if (row.value("text").toString() == QStringLiteral("链C证据A"))
+        evidenceRowA = row;
+    }
+    QVERIFY(!evidenceRowA.isEmpty());
+    const auto evidenceIdA = evidenceRowA.value("id").toString();
+    QVERIFY(!evidenceIdA.isEmpty());
+    QCOMPARE(evidenceRowA.value("source_version").toString(), v1);
+    interaction.navigate(evidenceRowA);
+    QCOMPARE(selection.target().featureUid, uidA);
+    QCOMPARE(selection.target().evidenceId, evidenceIdA);
+    QVERIFY(!interaction.canGoBack()); // 来源高亮不构成新研究目标
+    // 3) 图谱：同一快照覆盖层含证据节点 E 与来源版本节点 V1
+    const auto graphIndex = paleo::datagraph::buildIndex(f.catalog, {}, {}, {});
+    QVERIFY(graphIndex);
+    paleo::datagraph::Query gq;
+    gq.mode = paleo::datagraph::Mode::Relations;
+    gq.focus = paleo::datagraph::versionKey(f.work.versionForLayer(draft).id);
+    gq.depth = 4; gq.horizon = QStringLiteral("D61");
+    gq.featureEvidence = interaction.snapshot();
+    const auto graph = paleo::datagraph::query(*graphIndex, gq, {}, {});
+    bool hasEvidence = false, hasSource = false;
+    for (const auto &node : graph.nodes) {
+      hasEvidence |= node.evidenceId == evidenceIdA;
+      hasSource |= node.versionId == v1;
+    }
+    QVERIFY2(hasEvidence, "覆盖层缺少证据节点");
+    QVERIFY2(hasSource, "覆盖层缺少来源版本节点");
+    QVERIFY(paleo::datagraph::edgesMissingProvenance(graph).isEmpty());
+    // 4) 反查 references_source(V1) → A 与 B 的命中行（V2 版本）
+    const auto rows = f.work.evidenceReverseQuery(
+        QStringLiteral("references_source"), v1, &error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QVariantMap rowB;
+    bool foundA = false;
+    for (const auto &value : rows) {
+      const auto row = value.toMap();
+      if (row.value("version_id").toString() != v2) continue;
+      if (row.value("feature_uid").toString() == uidA) foundA = true;
+      if (row.value("feature_uid").toString() == uidB) rowB = row;
+    }
+    QVERIFY(foundA); QVERIFY(!rowB.isEmpty());
+    // 5) navigateFeature 命中 B：主目标换成 B 所在的确切版本，A 入栈
+    interaction.navigateFeature(rowB);
+    QCOMPARE(selection.target().featureUid, uidB);
+    QCOMPARE(selection.target().layerId, f.work.layerForVersion(v2));
+    QCOMPARE(selection.target().versionId, v2);
+    QCOMPARE(selection.target().assetId, f.work.versionForLayer(v2Layer).assetId);
+    QCOMPARE(selection.target().horizon, QStringLiteral("D61"));
+    QCOMPARE(selection.target().projectId, projectId);
+    QVERIFY(interaction.canGoBack());
+    QCOMPARE(interaction.snapshot().value("feature_uid").toString(), uidB);
+    // 6) back() → 恢复 A（含版本/图层身份），栈空
+    interaction.back();
+    QCOMPARE(selection.target().featureUid, uidA);
+    QCOMPARE(selection.target().layerId, draft);
+    QCOMPARE(selection.target().versionId, f.work.versionForLayer(draft).id);
+    QCOMPARE(selection.target().projectId, projectId);
+    QCOMPARE(interaction.snapshot().value("feature_uid").toString(), uidA);
+    QVERIFY(!interaction.canGoBack());
+    // 7) 其他层位的命中：明确失败且不移动目标
+    QSignalSpy failures(&interaction, &EvidenceInteraction::navigationFailed);
+    auto other = rowB; other.insert(QStringLiteral("horizon"), QStringLiteral("D62"));
+    interaction.navigateFeature(other);
+    QCOMPARE(failures.count(), 1);
+    QVERIFY(failures[0][0].toString().contains(QStringLiteral("层位")));
+    QCOMPARE(selection.target().featureUid, uidA);
+    QCOMPARE(selection.target().layerId, draft);
+    // 8) reset 清空回退栈
+    interaction.navigateFeature(rowB);
+    QVERIFY(interaction.canGoBack());
+    interaction.reset();
+    QVERIFY(!interaction.canGoBack());
+    QVERIFY(!layer->isEditable());
   }
   void repeatedNativeMergesKeepOneParentTreeAndReopenableHistory() {
     Fixture f; QVERIFY(f.init()); QString error;
@@ -3198,11 +3360,22 @@ private slots:
     const auto workDir =
         f.dir.filePath(QStringLiteral("artifacts/working/") + draft);
     QVERIFY(QDir(workDir).exists());
+    // #499 句柄生命周期审计：工作副本（features.gpkg）不得被任何活层持有——
+    // copyForEditing 只声明 draft 层（惰性实例化），编辑探测用的栈层在函数
+    // 返回前已析构。Windows 上若有层/GDALDataset 持有目录内文件，目录删除
+    // 必败；此断言把「删前无活层」纪律锁进测试（泄漏路径当场红）。
+    QVERIFY(f.layers.layer(draft) == nullptr);
     const auto draftVersion = f.work.versionForLayer(draft);
     QVERIFY(!draftVersion.assetId.isEmpty());
     QVERIFY2(f.work.removeProduct(draft, &error), qPrintable(error));
     QVERIFY(f.work.declaration(draft).layerId.isEmpty());
     QVERIFY(f.catalog.assetById(draftVersion.assetId).id.isEmpty());
+    // #499：removeProduct 的文件回收（受管文件 + 工作副本目录）在任务池后台
+    // 执行（产品契约：记录同步删、文件异步收）。此处确定性等待已知后台任务
+    // 收尾（同 tst_imagelod 先例）——不是「重试等待删除成功」：若存在句柄
+    // 泄漏，等待完成后目录断言仍然红，泄漏不会被掩盖。
+    QVERIFY2(QThreadPool::globalInstance()->waitForDone(30000),
+             "background purge did not finish");
     QVERIFY(!QDir(workDir).exists());
   }
   void deleteButtonGatingFollowsSelectedRow() {

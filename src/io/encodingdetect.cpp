@@ -9,17 +9,65 @@
 
 namespace
 {
-  bool looksLikeGbLead(quint8 b)
-  {
-    return b >= 0x81; // GB18030 双/四字节首字节均 >= 0x81
-  }
-
   QString decodeGb(const QByteArray &raw)
   {
     QStringDecoder dec("GB18030", QStringConverter::Flag::Stateless);
     if (!dec.isValid())
       return QString();
     return dec.decode(raw);
+  }
+} // namespace
+
+namespace
+{
+  // detect() 的样本语义：样本可能是 UTF-8 文件被截断的前缀（尾部多字节序
+  // 列不完整不是编码错误）——分类时剥掉尾部不完整序列再走严格校验。
+  QByteArray trimIncompleteUtf8Tail(const QByteArray &raw)
+  {
+    if (raw.isEmpty())
+      return raw;
+    const auto *p = reinterpret_cast<const uchar *>(raw.constData());
+    const qsizetype n = raw.size();
+    const qsizetype last = n - 1;
+    const uchar b = p[last];
+    if (b < 0x80)
+      return raw; // ASCII 结尾：无多字节序列
+    if ((b & 0xC0) == 0x80)
+    {
+      // 续字节：回溯找首字节（最多 3 个续字节 + 1 首字节）。
+      qsizetype back = 1;
+      while (back < 4 && last - back >= 0 && (p[last - back] & 0xC0) == 0x80)
+        ++back;
+      if (last - back < 0)
+        return raw;
+      const uchar lead = p[last - back];
+      int extra = 0;
+      if ((lead & 0xE0) == 0xC0)
+        extra = 1;
+      else if ((lead & 0xF0) == 0xE0)
+        extra = 2;
+      else if ((lead & 0xF8) == 0xF0)
+        extra = 3;
+      else
+        return raw; // 无合法首字节：交严格校验报错
+      const qsizetype have = back; // lead 之后的续字节个数
+      if (have < qsizetype(extra + 1))
+        return raw.left(last - back); // 不完整：剥掉整个半截序列
+      return raw;
+    }
+    // 首字节结尾：序列缺续字节。
+    if ((b & 0xE0) == 0xC0 || (b & 0xF0) == 0xE0 || (b & 0xF8) == 0xF0)
+    {
+      int extra = 0;
+      if ((b & 0xE0) == 0xC0)
+        extra = 1;
+      else if ((b & 0xF0) == 0xE0)
+        extra = 2;
+      else
+        extra = 3;
+      return n <= qsizetype(extra) ? QByteArray() : raw.left(n - 1);
+    }
+    return raw; // 非法字节：交严格校验报错
   }
 } // namespace
 
@@ -43,7 +91,8 @@ bool EncodingDetect::isStrictUtf8(const QByteArray &raw)
     else if ((b & 0xF8) == 0xF0) { extra = 3; minCP = 0x10000; maxCP = 0x10FFFF; }
     else return false; // 0x80-0xBF 作首字节 / 0xF8+ 均非法
     if (i + extra >= n)
-      return true; // 样本在多字节序列中间截断——不算非法（整文件校验时不会发生）
+      return false; // #477：多字节序列尾部截断=非法 UTF-8（严格口径）；
+                    // 样本前缀的截断容差由 detect() 剥尾后调用承担
     quint32 cp = b & (0x3F >> extra);
     for (int k = 1; k <= extra; ++k)
     {
@@ -70,7 +119,7 @@ TextEncoding EncodingDetect::detect(const QByteArray &sample)
        (static_cast<uchar>(sample[0]) == 0xFE && static_cast<uchar>(sample[1]) == 0xFF)))
     return TextEncoding::Utf8; // UTF-16 → stripBom 转 UTF-8
 
-  if (isStrictUtf8(sample))
+  if (isStrictUtf8(trimIncompleteUtf8Tail(sample)))
     return TextEncoding::Utf8;
 
   // 非 UTF-8：出现 GB 首字节就按 GB18030 试解码；解出的串没有 U+FFFD 才认。
@@ -79,7 +128,6 @@ TextEncoding EncodingDetect::detect(const QByteArray &sample)
     if (static_cast<uchar>(c) >= 0x80) { hasHighByte = true; break; }
   if (!hasHighByte)
     return TextEncoding::Utf8; // 纯 ASCII 是 UTF-8 子集
-  Q_UNUSED(looksLikeGbLead);
   {
     // GB 文本常以 ASCII 段开头（"~VERSION…"）——只要含高位字节就按 GB 试解。
     const QString s = decodeGb(sample);

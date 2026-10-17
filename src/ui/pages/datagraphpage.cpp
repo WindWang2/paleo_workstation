@@ -106,6 +106,7 @@ public:
         : node.kind == Kind::Assertion ? QCoreApplication::translate("DataGraphPage", "地质判断")
         : node.kind == Kind::Interpretation ? QCoreApplication::translate("DataGraphPage", "地质解释")
         : node.kind == Kind::Feature ? QCoreApplication::translate("DataGraphPage", "地图图斑")
+        : node.kind == Kind::ReviewEvent ? QCoreApplication::translate("DataGraphPage", "审核事件")
             : QCoreApplication::translate("DataGraphPage", "分组");
     p->drawText(QRectF(t.spacingSm, 36, 244, 19),
                 QFontMetrics(font).elidedText(kind + QStringLiteral(" · ") +
@@ -210,7 +211,7 @@ DataGraphPage::DataGraphPage(QWidget *parent)
     m_restoring = true;
     {
       const QSignalBlocker a(m_mode), b(m_category), c(m_stage), d(m_search),
-          e(m_depth), f(m_history);
+          e(m_depth), f(m_history), g(m_relationFilter);
       m_focus = previous.focus;
       m_selected = {};
       m_mode->setCurrentIndex(m_mode->findData(int(previous.mode)));
@@ -222,6 +223,7 @@ DataGraphPage::DataGraphPage(QWidget *parent)
       m_featureEvidence = previous.featureEvidence;
       m_evidenceTypeFilter->setCurrentIndex(qMax(0, m_evidenceTypeFilter->findData(previous.evidenceType)));
       m_reviewFilter->setCurrentIndex(qMax(0, m_reviewFilter->findData(previous.reviewState)));
+      m_relationFilter->setCurrentIndex(qMax(0, m_relationFilter->findData(previous.relation)));
       m_evidencePage->setValue(previous.evidenceOffset / 50 + 1);
     }
     request();
@@ -281,12 +283,26 @@ DataGraphPage::DataGraphPage(QWidget *parent)
   for (const auto &entry : QList<QPair<QString, QString>>{{tr("拟议"), "Proposed"}, {tr("待复核"), "NeedsReview"},
       {tr("已确认"), "Confirmed"}, {tr("已驳回"), "Rejected"}, {tr("争议"), "Disputed"}, {tr("已替代"), "Superseded"}}) m_reviewFilter->addItem(entry.first, entry.second);
   evidenceTools->addWidget(m_reviewFilter);
+  m_relationFilter = new QComboBox(controls);
+  m_relationFilter->setObjectName("graphEvidenceRelation");
+  m_relationFilter->addItem(tr("全部关系类型"), QString());
+  for (const auto &entry : QList<QPair<QString, QString>>{
+           {tr("支持解释"), QStringLiteral("Supported")},
+           {tr("反驳解释"), QStringLiteral("Contradicted")},
+           {tr("约束解释"), QStringLiteral("Constrained")},
+           {tr("引用 / 参考"), QStringLiteral("References")},
+           {tr("生成血缘"), QStringLiteral("Derived")},
+           {tr("计算参与"), QStringLiteral("ConsumedIn")},
+           {tr("审核事件"), QStringLiteral("ReviewedBy")}})
+    m_relationFilter->addItem(entry.first, entry.second);
+  evidenceTools->addWidget(m_relationFilter);
   m_evidencePage = new QSpinBox(controls); m_evidencePage->setObjectName("graphEvidencePage");
   m_evidencePage->setRange(1, 200); m_evidencePage->setPrefix(tr("证据页 "));
   m_evidencePage->setToolTip(tr("每页最多 50 条关联，图谱仍遵守节点和边预算"));
   evidenceTools->addWidget(m_evidencePage); evidenceTools->addStretch(); controlLayout->addLayout(evidenceTools);
   connect(m_evidenceTypeFilter, &QComboBox::currentIndexChanged, this, [this] { m_evidencePage->setValue(1); request(); });
   connect(m_reviewFilter, &QComboBox::currentIndexChanged, this, [this] { m_evidencePage->setValue(1); request(); });
+  connect(m_relationFilter, &QComboBox::currentIndexChanged, this, [this] { m_evidencePage->setValue(1); request(); });
   connect(m_evidencePage, &QSpinBox::valueChanged, this, [this] { request(); });
   auto *controlScroll = new QScrollArea(this);
   controlScroll->setWidget(controls);
@@ -587,6 +603,7 @@ void DataGraphPage::request() {
   q.horizon = m_featureEvidence.value("horizon").toString();
   q.evidenceType = m_evidenceTypeFilter->currentData().toString();
   q.reviewState = m_reviewFilter->currentData().toString();
+  q.relation = m_relationFilter->currentData().toString();
   q.evidenceOffset = (m_evidencePage->value() - 1) * 50;
   if (m_hasQuery && !m_restoring &&
       (q.focus != m_queryState.focus || q.mode != m_queryState.mode ||
@@ -659,7 +676,8 @@ void DataGraphPage::render(const Graph &graph) {
         e.relation == Relation::Rollback || e.unresolved)
       pen.setStyle(Qt::DashLine);
     auto *item = m_scene->addPath(path, pen);
-    item->setToolTip(e.label.toHtmlEscaped());
+    item->setToolTip(
+        (e.label + QStringLiteral("\n依据：") + e.provenance).toHtmlEscaped());
     item->setData(0, e.unresolved);
     item->setData(1, e.source);
     item->setData(2, e.target);
@@ -728,6 +746,7 @@ void DataGraphPage::selectNode(const Node &node, bool navigate) {
                         e.label.isEmpty() ? tr("分组成员") : e.label,
                         titles.value(other, other)});
       row->setData(0, Qt::UserRole, other);
+      row->setToolTip(1, e.provenance);
       row->setToolTip(2, other);
     }
   for (auto it = m_items.cbegin(); it != m_items.cend(); ++it)

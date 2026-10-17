@@ -67,6 +67,18 @@ void PaleoWorkflowBindDerivedCatalog(QObject *workflow, DataCatalog *catalog,
 DataCatalog *PaleoWorkflowDerivedCatalog(const QObject *workflow);
 QString PaleoWorkflowDerivedProjectDir(const QObject *workflow);
 
+// #481 P2-1：暂存/临时目录的删除语义收进 workflow 层——视图侧不得自带
+// 无守卫 removeRecursively。守卫按「目录名本身」判定，不再对整条路径做
+// 子串匹配（用户目录名撞 paleo-sf- 即整树误删）或空路径兜底（旧行为会
+// 把当前目录递归删掉）。
+// 单因素临时树：只删目录名以 paleo-sf- 开头的目录（fileInsideTree 为树内
+// 任一文件/目录路径）。
+void PaleoWorkflowDiscardFactorTempTree(const QString &fileInsideTree);
+// 预测取消清理：只删目录名 == 该次 staging versionId 的版本目录。
+// stagingVersionId 为空或目录名不匹配一律不动。
+void PaleoWorkflowDiscardPredictionStagingDir(const QString &stagingVersionId,
+                                              const QString &fileInsideDir);
+
 // ①智能预测 — run a prediction algorithm for a horizon, declare result layer.
 class PredictionWorkflow : public QObject
 {
@@ -187,6 +199,19 @@ class ConstraintWorkflow : public QObject
     bool addConstraint(const QString &horizon, const QString &wkt, const QString &type, int faciesCode,
                        QString *error = nullptr, QString *constraintIdOut = nullptr,
                        const QVariantMap &lineParams = {});
+
+    // PR457-closure 二轮（P0-2 可达性）：约束库 CRS 存储契约的 workflow 门面——
+    // 视图层不直接依赖 io。state：0=无约束层/无库 1=legacy CRS-less（坐标按
+    // 工程上下文假定）2=已登记 SRS；migrate 见 ConstraintStore::migrateLegacyCrs
+    //（字节级备份 + 事务 + 提交后校验 + 失败还原，绝不自动调用）。
+    int constraintLayerCrsState() const;
+    bool migrateConstraintLayerCrs(QString *error = nullptr, QString *backupPath = nullptr);
+
+    // PR457-closure 九：该层位最近一次已提取井点样本的计算域（井点包围盒
+    // ±10%，与 paleo_constraint_idw 的网格 pad 同口径）。尚未提取时返回
+    // 空 QRectF——调用方（约束页计划）据此保持「域未知」，不臆造域。
+    QRectF lastFactorComputeDomain(const QString &horizon) const;
+
     // P3 用户决定 (a)：画布绘制入口。有约束库时先确保该层位处于约束编辑会话
     //（无会话则自动开启：优先 UI 启动器——编辑工具栏接管保存/取消；否则走
     // 绑定的编辑服务），再经会话写入，使每次绘制都进原生撤销栈。无会话可开时

@@ -76,6 +76,10 @@ private slots:
   // sqrt(0.32)=0.565685424949238（python）；φ≤0/φ>1/Rt≤0 → NaN。
   void testSwArchieAnalytic();
 
+  // #478：swArchie 输出查 isfinite——φ 极小时 pow(φ,m) 下溢 0 → 中间值
+  // 溢出 ±inf，必须如实 NaN（与同文件 NaN 诚实传播口径一致）。
+  void testSwArchieOverflowNan();
+
   // 各族 NaN 传播：输入端一位 NaN → 输出同位 NaN（不跨点扩散）。
   void testNaNPropagation();
 
@@ -219,6 +223,20 @@ void TestPetroPhys::testSwArchieAnalytic()
   QVERIFY(std::isnan(out[4])); // φ>1 域外
   QVERIFY(std::isnan(out[5])); // NaN 传播
   QVERIFY(std::isnan(out[6])); // Rt<0 域外
+}
+
+void TestPetroPhys::testSwArchieOverflowNan()
+{
+  // φ=1e-200（域内 >0）、m=2 → φ^m=1e-400 下溢 0 → a·rw/0 溢出 inf →
+  // pow(inf,1/n)=inf：不查 isfinite 会把 inf 当有效含水饱和度外泄。
+  const std::vector<double> phi = {1e-200, 1e-200, 0.25};
+  const std::vector<double> rt = {5.0, std::numeric_limits<double>::infinity(), 5.0};
+  std::vector<double> out(3);
+  swArchie(phi.data(), rt.data(), 3, 1.0, 2.0, 2.0, 0.1, out.data());
+  QVERIFY(std::isnan(out[0])); // 中间下溢 → inf → 如实 NaN
+  QVERIFY(std::isnan(out[1])); // Rt=inf：φ^m 下溢叠加除 inf → 0^0 幂径
+  QVERIFY(std::isfinite(out[2])); // 正常点不受邻居影响
+  QVERIFY(std::fabs(out[2] - 0.565685424949238) < 1e-9);
 }
 
 void TestPetroPhys::testNaNPropagation()

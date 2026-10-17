@@ -96,6 +96,9 @@ PreviewMapCanvas::~PreviewMapCanvas()
   // D1.9 销毁安全：在飞渲染任务全部取消。工具不在此 unset——
   // QgsMapCanvas::unsetMapTool 会构造 QCursor，进程收尾（平台拆除后）
   // 构造 QCursor 即 qFatal（实测 SIGABRT）；画布析构自带工具回收。
+  // #483：置 teardown 后层 destroyed 钩子静默——~QObject 删子对象时
+  // 画布（先建）先于层销毁，钩子里同步画布即碰已亡对象。
+  m_teardown = true;
   if ( m_canvas )
     m_canvas->stopRendering();
 }
@@ -107,6 +110,7 @@ void PreviewMapCanvas::setLayers( const QList<QgsMapLayer *> &layers )
   {
     if (l && l->providerType() == QLatin1String("gdal")) MappingArtifactWriter::restoreRasterCrs(l);
     MappingArtifactWriter::restoreVectorCrs(l); // 非矢量早退
+    watchLayer( l );
     if ( !m_visible.contains( l ) )
       m_visible.insert( l, true );
     if ( !m_opacity.contains( l ) )
@@ -123,6 +127,7 @@ void PreviewMapCanvas::addLayer( QgsMapLayer *layer )
     return;
   if (layer->providerType() == QLatin1String("gdal")) MappingArtifactWriter::restoreRasterCrs(layer);
   MappingArtifactWriter::restoreVectorCrs(layer); // 非矢量早退
+  watchLayer( layer );
   m_layers.prepend( layer );
   m_visible.insert( layer, true );
   m_opacity.insert( layer, 1.0 );
@@ -136,6 +141,7 @@ void PreviewMapCanvas::insertLayer( int index, QgsMapLayer *layer )
     return;
   if (layer->providerType() == QLatin1String("gdal")) MappingArtifactWriter::restoreRasterCrs(layer);
   MappingArtifactWriter::restoreVectorCrs(layer); // 非矢量早退
+  watchLayer( layer );
   const int clamped = qBound( 0, index, m_layers.size() );
   m_layers.insert( clamped, layer );
   m_visible.insert( layer, true );
@@ -152,7 +158,36 @@ void PreviewMapCanvas::removeLayer( QgsMapLayer *layer )
   m_visible.remove( layer );
   m_opacity.remove( layer );
   m_blend.remove( layer );
+  // 记账已清；destroyed 钩子保留无害（forgetLayer 对未登记层早退）。
   syncCanvasLayers();
+}
+
+void PreviewMapCanvas::watchLayer( QgsMapLayer *layer )
+{
+  if ( !layer || layer->property( "paleoPreviewWatched" ).toBool() )
+    return; // setLayers 反复重设同层只挂一次钩子（属性随层对象生死）
+  // 悬垂防线（#483）：层所有权归调用方父子树，外部直接销毁（未经
+  // removeLayer）时自动摘除三层记账并同步画布层表——对照 qgislayerservice
+  // 的 destroyed 钩子。
+  layer->setProperty( "paleoPreviewWatched", true );
+  connect( layer, &QObject::destroyed, this, [this]( QObject *obj ) {
+    forgetLayer( obj );
+  } );
+}
+
+void PreviewMapCanvas::forgetLayer( QObject *layer )
+{
+  if ( m_teardown )
+    return; // 析构期：画布先于层销毁，不得再同步（见 ~PreviewMapCanvas）
+  const QgsMapLayer *key = static_cast<const QgsMapLayer *>( layer );
+  const auto dead = const_cast<QgsMapLayer *>( key );
+  if ( !m_layers.contains( dead ) )
+    return; // 已被 removeLayer 正常移除（或从未登记）
+  m_layers.removeOne( dead );
+  m_visible.remove( key );
+  m_opacity.remove( key );
+  m_blend.remove( key );
+  syncCanvasLayers(); // 画布层表同步摘除，不再持有已亡层
 }
 
 void PreviewMapCanvas::moveLayer( int from, int to )

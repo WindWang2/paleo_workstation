@@ -38,10 +38,19 @@ class DerivedAssetRegistrar;
 namespace paleo::workflow_detail {
 
 /// 约束层 GPKG datasource 的层位过滤子句（|subset=horizon='…'）。
-/// 层位名是用户输入：单引号按 SQL 方言翻倍转义，杜绝 subset 失效/过滤注入
+/// 层位名是用户输入：单引号按 SQL 方式翻倍转义，杜绝 subset 失效/过滤注入
 /// （O'Connell-1、含引号/空格/中文层位都只命中本层位行）。
-inline QString constraintHorizonSubsetSuffix( const QString &horizon )
+/// 含 '|' 的层位名无法进入 OGR URI（'|' 是 URI 选项分隔符，无法转义）——
+/// 返回空串并经 error 给出原因（二轮 F3）；调用方必须按失败处理，
+/// 绝不静默退化为无过滤全表层。
+inline QString constraintHorizonSubsetSuffix( const QString &horizon, QString *error = nullptr )
 {
+  if ( horizon.contains( QLatin1Char( '|' ) ) )
+  {
+    if ( error )
+      *error = QStringLiteral( "层位名包含 '|'，无法构造安全的图层过滤器：%1" ).arg( horizon );
+    return QString();
+  }
   QString escaped = horizon;
   escaped.replace( QLatin1Char( '\'' ), QStringLiteral( "''" ) );
   return QStringLiteral( "|subset=horizon='%1'" ).arg( escaped );

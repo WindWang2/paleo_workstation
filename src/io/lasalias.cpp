@@ -123,12 +123,12 @@ QString LasAliasMap::lookupNormalized(const QString &raw, const QHash<QString, Q
 {
   QMutexLocker lock(&m_mutex);
   ++m_stats.lookups;
-  QHash<QString, QString> &memo = isCurve ? m_curveMemo : m_unitMemo;
-  const auto hit = memo.constFind(raw);
-  if (hit != memo.constEnd())
+  MemoLru &memo = isCurve ? m_curveMemo : m_unitMemo;
+  const QString memoized = memo.take(raw); // 命中即挪尾（LRU 触点）
+  if (!memoized.isNull())
   {
     ++m_stats.memoHits;
-    return hit.value();
+    return memoized;
   }
   const QString key = isCurve ? normalizeCurveKey(raw) : normalizeUnitKey(raw);
   QString result = table.value(key);
@@ -145,9 +145,7 @@ QString LasAliasMap::lookupNormalized(const QString &raw, const QHash<QString, Q
     ++m_stats.normalized;
   // 家族表只对已知曲线名扩展族信息；canonical 输出不变。
   Q_UNUSED(familyTable);
-  memo.insert(raw, result);
-  while (memo.size() > 4096)
-    memo.erase(memo.begin());
+  memo.put(raw, result); // 超容量逐出最久未用（LRU），不再随机淘汰
   return result;
 }
 

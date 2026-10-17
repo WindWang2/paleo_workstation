@@ -289,6 +289,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
     // （生成新版本，绝不覆盖历史）。
     layout->addWidget(button("impactAnalysis", tr("分析所选输入的版本变化影响")));
     layout->addWidget(button("recompute", tr("按最近影响报告受控重算")));
+    layout->addWidget(button("compareRecompute", tr("对比重算成果与旧版本")));
   }
   m_inputHint = label(QString());
   m_inputHint->setObjectName("workbenchInputHint");
@@ -469,7 +470,9 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   m_reverseResults->setMaximumHeight(100);
   evidenceLayout->addWidget(m_reverseResults);
   connect(m_reverseResults, &QListWidget::itemActivated, this, [this](QListWidgetItem *item) {
-    emit evidenceActivated(item->data(Qt::UserRole).toMap());
+    // 反查命中行的主目标是图斑本身（layer/version/feature_uid），不是其
+    // 证据来源——走独立信号，由交互层 navigateFeature 定位。
+    emit reverseHitActivated(item->data(Qt::UserRole).toMap());
   });
   connect(m_generationEvidence, &QListWidget::currentRowChanged, this, [this] {
     if (auto *button = commandButton("locateEvidence")) button->setEnabled(m_generationEvidence->currentItem() || m_evidence->currentItem());
@@ -547,6 +550,15 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   auto *navigation = new QHBoxLayout;
   navigation->addWidget(button("locateEvidence", tr("定位证据来源")));
   navigation->addWidget(button("evidenceGraph", tr("查看局部证据图谱")));
+  m_evidenceBack = new QPushButton(tr("返回上一图斑"), evidenceGroup);
+  m_evidenceBack->setObjectName("evidenceBack");
+  m_evidenceBack->setAccessibleName(m_evidenceBack->text());
+  m_evidenceBack->setEnabled(false);
+  m_evidenceBack->setToolTip(
+      tr("返回反查或图谱导航之前选中的图斑（只回溯研究目标，不回溯来源高亮）"));
+  connect(m_evidenceBack, &QPushButton::clicked, this,
+          [this] { emit evidenceBackRequested(); });
+  navigation->addWidget(m_evidenceBack);
   evidenceLayout->addLayout(navigation);
   auto *useSource = new QPushButton(tr("将候选作为关联来源"), evidenceGroup);
   useSource->setObjectName("workbench.useEvidenceSource");
@@ -588,6 +600,17 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
   m_attributionDetail->setReadOnly(true);
   m_attributionDetail->setAccessibleName(tr("计算归因详情"));
   attributionLayout->addWidget(m_attributionDetail);
+  // X14：可定位对象——图斑内井与带定位信息的冲突来源，双击复用证据导航。
+  attributionLayout->addWidget(new QLabel(tr("可定位对象"), attributionPage));
+  m_attributionTargets = new QListWidget(attributionPage);
+  m_attributionTargets->setObjectName("attributionTargets");
+  m_attributionTargets->setAccessibleName(tr("可定位对象"));
+  m_attributionTargets->setMaximumHeight(120);
+  connect(m_attributionTargets, &QListWidget::itemActivated, this,
+          [this](QListWidgetItem *item) {
+            emit evidenceActivated(item->data(Qt::UserRole).toMap());
+          });
+  attributionLayout->addWidget(m_attributionTargets);
   // #440：按键只刷新证据按钮使能，不在界面线程重算图斑证据。
   connect(m_evidenceReason, &QLineEdit::textChanged, this, [this] { refreshEvidenceCommandGates(); });
   connect(m_evidenceActor, &QLineEdit::textChanged, this, [this] { refreshEvidenceCommandGates(); });
@@ -756,6 +779,8 @@ void MappingWorkbenchPage::setHorizon(const QString &h) {
   m_evidenceSnapshotOwned = false; m_evidenceSnapshot.clear();
   // 层位切换后反查结果属于旧层位上下文——清空，避免双击定位错层。
   if (m_reverseResults) m_reverseResults->clear();
+  m_lastReverseKind.clear();
+  m_lastReverseArgument.clear();
   if (m_horizonFile) m_horizonFile->clear();
   showMessage(QString());
   refresh();
@@ -1020,6 +1045,27 @@ void MappingWorkbenchPage::updateState() {
        tr("勾选单因素图、测井相或地震相后打开联动参考窗口"));
   gate("compose", horizon && !checkedInputs().isEmpty(),
        readiness);
+  // G05/G09 证据命令门控（full-audit F6）：影响分析需要「层位 + 不在运行 +
+  // 已选图件」（无选中时误报「只有单一版本」）；受控重算需要最近一次影响
+  // 报告；反查的层位范围类需要层位（无层位时伪报「无匹配结果」）。
+  gate("impactAnalysis", horizon && !busy && selected,
+       !horizon ? tr("请先选择层位")
+                : busy ? readiness
+                       : tr("请先在结果列表选择一个图件"));
+  gate("recompute", !busy && m_impactReady,
+       busy ? readiness : tr("请先运行影响分析，再按其结果受控重算"));
+  {
+    const auto reverseKind = m_reverseKind
+        ? m_reverseKind->currentData().toString()
+        : QString();
+    const bool reverseNeedsHorizon =
+        reverseKind != QStringLiteral("search") &&
+        reverseKind != QStringLiteral("references_source");
+    gate("reverseQuery", !busy && (!reverseNeedsHorizon || horizon),
+         busy ? readiness
+              : reverseNeedsHorizon ? tr("请先选择层位（该反查类型按层位过滤）")
+                                    : tr("检索证据"));
+  }
   for (const auto &name : {"import", "draw", "schema"})
     gate(name, horizon, tr("请先选择层位"));
   const auto selectedSchema = m_workbench->versionForLayer(selectedLayer())
@@ -1119,6 +1165,9 @@ void MappingWorkbenchPage::updateState() {
        tr("请选择矢量相面或测井相点图"));
   gate("show", selected, tr("请先选择图件"));
   gate("compare", selected, tr("请先选择图件"));
+  gate("compareRecompute",
+       selected,
+       tr("请选择受控重算产生的成果（或其相面）；与普通版本对比的像元级差异"));
   gate("catalog",
        !row.value("asset_id").toString().isEmpty() &&
            !row.value("version_id").toString().isEmpty(),
@@ -1187,6 +1236,8 @@ void MappingWorkbenchPage::issue(const QString &action, QVariantMap p) {
                                         : QVariant(manual));
     } else
       p.insert("reverse_argument", m_horizon);
+    m_lastReverseKind = kind;
+    m_lastReverseArgument = p.value("reverse_argument").toString();
   }
   if (action == "locateEvidence") {
     const auto source = m_evidence->currentItem() ? m_evidence->currentItem()->data(Qt::UserRole + 1).toMap()
@@ -1298,11 +1349,49 @@ void MappingWorkbenchPage::setEvidenceSnapshot(const QVariantMap &snapshot) {
   m_evidenceSnapshot = snapshot;
   updateState();
 }
+void MappingWorkbenchPage::setImpactAvailable(bool ready) {
+  m_impactReady = ready;
+  updateState();
+}
+void MappingWorkbenchPage::setCanGoBack(bool canBack) {
+  if (m_evidenceBack)
+    m_evidenceBack->setEnabled(canBack);
+}
+void MappingWorkbenchPage::reissueReverseQuery() {
+  if (m_lastReverseKind.isEmpty())
+    return;
+  emit commandRequested(
+      QStringLiteral("reverseQuery"),
+      {{QStringLiteral("reverse_kind"), m_lastReverseKind},
+       {QStringLiteral("reverse_argument"), m_lastReverseArgument}});
+}
+
 void MappingWorkbenchPage::setReverseResults(const QVariantList &rows,
-                                            const QString &error) {
+                                            const QString &error,
+                                            const QVariantMap &meta) {
   if (!m_reverseResults)
     return;
   m_reverseResults->clear();
+  // 索引新鲜度一行如实说明：同步中/落后/失败都不静默冒充最新结果。
+  const auto state = meta.value("index_state").toString();
+  QString metaLine;
+  if (state == QLatin1String("syncing"))
+    metaLine = tr("索引状态：后台同步中，结果为已入库部分");
+  else if (state == QLatin1String("stale"))
+    metaLine = tr("索引状态：落后最新变更，已在后台发起同步");
+  else if (state == QLatin1String("error"))
+    metaLine = tr("索引状态：同步失败：%1")
+                   .arg(meta.value("index_error").toString());
+  else if (state == QLatin1String("fresh"))
+    metaLine = tr("索引状态：已是最新");
+  if (!metaLine.isEmpty() && meta.contains("total"))
+    metaLine += tr("；共 %1 条，显示 %2 条")
+                    .arg(meta.value("total").toInt())
+                    .arg(meta.value("shown").toInt());
+  if (!metaLine.isEmpty()) {
+    auto *item = new QListWidgetItem(metaLine, m_reverseResults);
+    item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
+  }
   if (!error.isEmpty()) {
     auto *item = new QListWidgetItem(error, m_reverseResults);
     item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
@@ -1310,9 +1399,18 @@ void MappingWorkbenchPage::setReverseResults(const QVariantList &rows,
   }
   for (const auto &value : rows.mid(0, 200)) {
     const auto row = value.toMap();
+    // 断链历史行与旧版本行加前缀标记——它们可检索但不是有效当前关联。
+    const QString marker =
+        (row.value("relation_state").toString() == QLatin1String("history") ||
+         row.value("unlinked").toBool())
+            ? tr("[历史关联] ")
+            : !row.value("is_current_version", true).toBool()
+                  ? tr("[旧版本] ")
+                  : QString();
     auto *item = new QListWidgetItem(
-        tr("%1 · %2%3\n%4")
-            .arg(row.value("horizon").toString().isEmpty()
+        tr("%1%2 · %3%4\n%5")
+            .arg(marker,
+                 row.value("horizon").toString().isEmpty()
                      ? tr("未知层位")
                      : row.value("horizon").toString(),
                  row.value("review_state").toString().isEmpty()
@@ -1324,10 +1422,11 @@ void MappingWorkbenchPage::setReverseResults(const QVariantList &rows,
                  row.value("text").toString()),
         m_reverseResults);
     item->setData(Qt::UserRole, row);
-    item->setToolTip(tr("双击定位图斑（层位 %1，版本 %2…）\n来源：%3")
+    item->setToolTip(tr("双击定位图斑（层位 %1，版本 %2…）\n来源：%3\n%4")
                          .arg(row.value("horizon").toString(),
                               row.value("version_id").toString().left(8),
-                              row.value("evidence_id").toString()));
+                              row.value("evidence_id").toString(),
+                              row.value("hit_reason").toString()));
   }
   if (rows.isEmpty())
     new QListWidgetItem(tr("无匹配结果（索引随成果保存增量更新）"), m_reverseResults);
@@ -1410,6 +1509,15 @@ void MappingWorkbenchPage::renderEvidenceSnapshot(const QVariantMap &snapshot) {
         }
         summary << tr("形成依据：保存时冻结的输入按优先级重放——%1")
                        .arg(parts.isEmpty() ? tr("全部像元无有效输入") : parts.join(tr("、")));
+        const auto fidelity = attribution.value("fidelity").toString();
+        if (fidelity == QLatin1String("exact")) {
+          summary << tr("重放与成果网格逐像元同口径");
+        } else if (fidelity == QLatin1String("approximate")) {
+          QStringList reasons;
+          for (const auto &r : attribution.value("fidelity_reasons").toList())
+            reasons << r.toString();
+          summary << tr("近似重放：%1").arg(reasons.join(tr("；")));
+        }
         if (attribution.contains("consistent_fraction"))
           summary << tr("重放分布与图斑相编码一致率 %1%（平滑聚合可能吸收少数像元）")
                       .arg(qRound(attribution.value("consistent_fraction").toDouble() * 100));
@@ -1437,6 +1545,20 @@ void MappingWorkbenchPage::renderEvidenceSnapshot(const QVariantMap &snapshot) {
                   .arg(input.value("decision").toString())
                   .arg(input.value("cells").toLongLong())
                   .arg(qRound(input.value("fraction").toDouble() * 100));
+      const auto alignment = input.value("alignment").toString();
+      if (!alignment.isEmpty()) {
+        line << (alignment == QLatin1String("grid_defining")
+                     ? tr("网格同口径")
+                     : alignment == QLatin1String("aligned")
+                           ? tr("网格对齐")
+                           : alignment == QLatin1String("resampled")
+                                 ? tr("重采样近似")
+                                 : alignment == QLatin1String("sampled_fallback")
+                                       ? tr("逐点取样")
+                                       : alignment == QLatin1String("categorical_nearest")
+                                             ? tr("相点最近邻")
+                                             : alignment);
+      }
       if (input.contains("value_min"))
         line << tr("值域 %1–%2")
                     .arg(input.value("value_min").toDouble(), 0, 'f', 1)
@@ -1503,6 +1625,58 @@ void MappingWorkbenchPage::renderEvidenceSnapshot(const QVariantMap &snapshot) {
                   .arg(seismic.toList().size());
     m_attributionDetail->setPlainText(
         detail.isEmpty() ? tr("暂无计算归因信息") : detail.join("\n"));
+    if (m_attributionTargets) {
+      m_attributionTargets->clear();
+      // 行数据按 EvidenceInteraction::navigate 的入参口径组织：井走实体坐标，
+      // 单因素冲突走来源版本。
+      if (snapshot.contains("wells_in_feature_unavailable")) {
+        auto *item = new QListWidgetItem(
+            snapshot.value("wells_in_feature_unavailable").toString(),
+            m_attributionTargets);
+        item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
+      }
+      for (const auto &value : wells.mid(0, 200)) {
+        const auto well = value.toMap();
+        auto *item = new QListWidgetItem(
+            tr("井 %1（%2, %3）")
+                .arg(well.value("well_name", well.value("entity_id")).toString())
+                .arg(well.value("x").toDouble(), 0, 'f', 0)
+                .arg(well.value("y").toDouble(), 0, 'f', 0),
+            m_attributionTargets);
+        item->setData(Qt::UserRole,
+                      QVariantMap{{"entity_id", well.value("entity_id")},
+                                  {"has_coordinates", true},
+                                  {"x", well.value("x")},
+                                  {"y", well.value("y")},
+                                  {"horizon", snapshot.value("horizon")}});
+        item->setToolTip(tr("双击定位井口"));
+      }
+      for (const auto &value : conflicts.mid(0, 200)) {
+        const auto finding = value.toMap();
+        const auto evidence = finding.value("evidence").toMap();
+        const auto locator = evidence.value("locator").toMap();
+        QVariantMap row;
+        if (!locator.value("entity_id").toString().isEmpty())
+          row = {{"entity_id", locator.value("entity_id")},
+                 {"has_coordinates", locator.value("has_coordinates", true)},
+                 {"x", locator.value("x")}, {"y", locator.value("y")},
+                 {"horizon", snapshot.value("horizon")}};
+        else if (!locator.value("version_id").toString().isEmpty())
+          row = {{"source_version", locator.value("version_id")},
+                 {"horizon", snapshot.value("horizon")}};
+        if (row.isEmpty())
+          continue;
+        auto *item = new QListWidgetItem(
+            tr("[%1] %2 · %3")
+                .arg(finding.value("severity").toString(),
+                     finding.value("conflict_type").toString(),
+                     evidence.value("label").toString()),
+            m_attributionTargets);
+        item->setData(Qt::UserRole, row);
+        item->setToolTip(tr("双击定位冲突来源：%1")
+                             .arg(finding.value("message").toString()));
+      }
+    }
   }
   const auto events = interpretation.value("history").toList();
   const int pages = qMax(1, (int(events.size()) + 49) / 50);

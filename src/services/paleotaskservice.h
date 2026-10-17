@@ -92,6 +92,10 @@ public:
   // publication — they must re-read state()/errorText() on changed().
   void failPublication(const QString &error);
   void discardPublication();
+  // 测试/诊断直构（full-audit F14 回归用；生产创建走
+  // PaleoTaskService::createTask 单口，不经此）。
+  static PaleoTask *forTesting(const QString &title = {})
+  { return new PaleoTask(0, title, QString(), nullptr); }
 
 signals:
   void changed();

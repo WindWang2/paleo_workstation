@@ -20,7 +20,26 @@ EvidenceInteraction::EvidenceInteraction(MappingWorkbench *workbench, SelectionC
       m_source(new EvidenceMapAdapter(canvas ? canvas->canvas() : nullptr, this)) {
   if (selection) {
     connect(selection, &SelectionContext::targetChanged, this, &EvidenceInteraction::receive);
-    connect(selection, &SelectionContext::activeHorizonChanged, this, [this] { m_source->clear(); m_primary->clear(); refresh(); });
+    connect(selection, &SelectionContext::activeHorizonChanged, this, [this] {
+      m_back.clear(); m_lastPrimary = SelectionTarget(); emit historyChanged(false);
+      m_source->clear(); m_primary->clear(); refresh();
+    });
+    connect(selection, &SelectionContext::targetChanged, this, [this](const SelectionTarget &target, const QString &origin, quint64) {
+      // 回退栈只收主研究目标的变更：来源高亮（evidence）、快照刷新、会话
+      // 恢复与 back 自身都不构成新的研究目标。
+      static const QSet<QString> noPush{QStringLiteral("refresh"), QStringLiteral("restore"),
+          QStringLiteral("project"), QStringLiteral("horizon"), QStringLiteral("back"), QStringLiteral("evidence")};
+      const bool was = canGoBack();
+      if (!noPush.contains(origin) && !m_lastPrimary.isEmpty() &&
+          (m_lastPrimary.layerId != target.layerId ||
+           m_lastPrimary.versionId != target.versionId ||
+           m_lastPrimary.featureUid != target.featureUid)) {
+        m_back.append(m_lastPrimary);
+        if (m_back.size() > 32) m_back.removeFirst();
+      }
+      m_lastPrimary = target;
+      if (canGoBack() != was) emit historyChanged(canGoBack());
+    });
     connect(selection, &SelectionContext::targetChanged, this, [this](const SelectionTarget &target, const QString &origin, quint64) {
       if (!m_project || !m_project->project() || target.isEmpty() || target.projectId != projectId() || origin == "project" || origin == "horizon" || origin == "restore") return;
       // Display selection belongs to the QGIS project, not the evidence audit.
@@ -87,6 +106,8 @@ QString EvidenceInteraction::projectId() const {
 }
 void EvidenceInteraction::reset() {
   m_primary->clear(); m_source->clear(); m_snapshot.clear();
+  m_back.clear(); m_lastPrimary = SelectionTarget();
+  emit historyChanged(false);
   if (m_selection) {
     m_selection->clearTarget("project");
     // opt-02：选择状态是工程作用域——ids 与 activeHorizon 一并复位。旧实
@@ -219,6 +240,53 @@ void EvidenceInteraction::navigate(const QVariantMap &evidence, bool locate) {
   auto selected = m_selection->target();
   selected.evidenceId = evidence.value("evidence_id", evidence.value("id")).toString();
   m_selection->setTarget(selected, "evidence");
+}
+void EvidenceInteraction::navigateFeature(const QVariantMap &hit) {
+  if (!m_selection || !m_workbench || !m_layers) return;
+  if (hit.contains("project_id") && hit.value("project_id").toString() != projectId()) { emit navigationFailed(tr("命中图斑属于其他工程")); return; }
+  if (hit.contains("project_session") && m_project && hit.value("project_session").toULongLong() != m_project->sessionId()) { emit navigationFailed(tr("反查结果已过期，请刷新")); return; }
+  const auto h = hit.value("horizon").toString();
+  if (!h.isEmpty() && h != m_selection->activeHorizon()) { emit navigationFailed(tr("命中图斑属于层位 %1，请先切换层位").arg(h)); return; }
+  const auto version = hit.value("version_id").toString();
+  QString error;
+  // 命中行定位其自身版本（可能是旧成果版本），不走来源解析。
+  const QString layerId = m_workbench->layerForVersion(version, &error);
+  if (layerId.isEmpty()) { emit navigationFailed(error.isEmpty() ? tr("命中图斑所在版本已不可定位") : error); return; }
+  auto *layer = qobject_cast<QgsVectorLayer *>(m_layers->instantiate(layerId, &error));
+  if (!layer) { emit navigationFailed(error); return; }
+  if (m_project && m_project->project())
+    if (auto *node = m_project->project()->layerTreeRoot()->findLayer(layer->id())) node->setItemVisibilityChecked(true);
+  const auto uid = hit.value("feature_uid").toString();
+  m_primary->bindLayer(layer);
+  if (!m_primary->showFeature(uid, true, &error)) { emit navigationFailed(error); return; }
+  SelectionTarget target;
+  target.projectId = projectId();
+  target.horizon = h.isEmpty() ? m_workbench->declaration(layerId).horizon : h;
+  target.layerId = layerId; target.versionId = version;
+  target.assetId = hit.value("asset_id").toString(); target.featureUid = uid;
+  target.evidenceId = hit.value("evidence_id", hit.value("id")).toString();
+  m_selection->setTarget(target, QStringLiteral("reverse_index"));
+}
+bool EvidenceInteraction::canGoBack() const {
+  if (!m_selection) return false;
+  for (const auto &target : m_back)
+    if (target.projectId == projectId() &&
+        (target.horizon.isEmpty() || target.horizon == m_selection->activeHorizon()))
+      return true;
+  return false;
+}
+void EvidenceInteraction::back() {
+  if (!m_selection) return;
+  const bool was = canGoBack();
+  while (!m_back.isEmpty()) {
+    const auto target = m_back.takeLast();
+    if (target.projectId != projectId() ||
+        (!target.horizon.isEmpty() && target.horizon != m_selection->activeHorizon()))
+      continue; // 其他工程/层位的历史项不可定位，丢弃继续找
+    m_selection->setTarget(target, QStringLiteral("back"));
+    break;
+  }
+  if (canGoBack() != was) emit historyChanged(canGoBack());
 }
 void EvidenceInteraction::navigateGraphNode(const QVariantMap &node) {
   if (!node.value("source_version").toString().isEmpty()) { navigate(node); return; }

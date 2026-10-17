@@ -405,12 +405,27 @@ StructuralResult buildStructuralSurface( const std::vector<AcquiredWell> &wells,
          std::find( result.softBoundaryIds.begin(), result.softBoundaryIds.end(), id ) == result.softBoundaryIds.end() )
       result.softBoundaryIds.push_back( id );
   };
+  double distanceBuffer = 0.0; // GEOSDistance 输出（半径可达性判定）
   if ( request.enableBarriers && request.interpretiveBoundaryStrength > 0 )
   {
     for ( const StructuralBarrier *stop : stops )
     {
       if ( stop->points.size() < 2 )
         continue;
+      // PR457-closure R4：停线按「与成图域距离 > 软半径」跳过——软边界的
+      // 趋势权重只在半径内起作用，域外远处的线数值上不产生任何效果，回执
+      // 不得虚报 consumed。触域/半径内可达的线保留完整折线（不做几何裁剪：
+      // 裁掉域外段会改变边界附近节点的距离场，破坏既有数值）。
+      GeomPtr line = makeLineString( geos.handle, stop->points );
+      bool beyondReach = false;
+      if ( line )
+      {
+        // GEOSDistance 失败（退化几何等）保守按可达处理：保数值，不丢消费。
+        if ( GEOSDistance_r( geos.handle, line.get(), domain.get(), &distanceBuffer ) != 0 )
+          beyondReach = distanceBuffer > softRadiusAuto;
+      }
+      if ( beyondReach )
+        continue; // 与域距离超半径：无数值作用，不消费
       appendSoft( stop->points, stop->lineId, softRadiusAuto,
                   request.interpretiveBoundaryStrength );
     }

@@ -71,8 +71,8 @@ struct Sgs3Result
   Status status = Status::InvalidInput;
   std::string message;
   std::vector<std::vector<double>> realizations; // 每实现每目标一个值（输入序），NaN = nodata
-  int finitePoints = 0;   // 最后一实现的计数（各实现口径一致）
-  int nodataPoints = 0;
+  int finitePoints = 0;   // 最后一实现的计数（随机路径不同，各实现的 nodata
+  int nodataPoints = 0;   // 模式可不同——如实取末实现，不冒充全实现一致）
   int solverFailures = 0; // 无同组分邻域或数值失败的目标次数（跨实现累计）
   int mergedDuplicates = 0;
   double sampleMean = 0;

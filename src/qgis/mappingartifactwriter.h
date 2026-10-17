@@ -17,6 +17,10 @@ struct ComposeReceipt {
   QList<qint64> winningCells;
   qint64 decidedCells = 0;
   qint64 totalCells = 0;
+  // 融合网格钉版（X2）：重放必须按同一网格取样；存标量避免头文件依赖
+  // QgsRectangle。
+  double xMin = 0, yMin = 0, xMax = 0, yMax = 0;
+  int cols = 0, rows = 0;
 };
 void restoreRasterCrs(QgsMapLayer *layer);
 // OGR 同病灶的矢量侧：GPKG/GeoJSON 回读把 Paleo 局部网格 EDATUM 名归一成

@@ -145,7 +145,6 @@ struct FaultSurfaceMesh {
     bool isBranching() const { return junctionVertexIndices.size() > 0; }
     bool hasExtrapolated() const;
     // 顶点落在哪几条带上（分支号升序去重）；索引越界返回空。
-    QVector<int> branchesOfVertex(int idx) const;
     // 索引所属的带（-1 = 不在任何带里，如悬空顶点）。
     int segmentOfTriangle(int idx) const { return segmentIndexForTriangle(idx); }
     QVariantMap toMap() const;
@@ -159,7 +158,6 @@ private:
     // 顶点 → 分支号，首次查询时按 segments 建一次；segments 改后由
     // 非 const 访问路径重建（mesh 生成后即只读，故一次性足够）。
     void ensureVertexBranchIndex() const;
-    mutable QHash<int, QVector<int>> m_vertexBranches;
 };
 
 // 命名断层实体。

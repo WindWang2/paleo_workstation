@@ -71,10 +71,12 @@ struct CrossValidationResult {
   int folds = 0;
 };
 // Stratified k-fold cross-validation over the labeled rows only. Fold
-// assignment shuffles each class with std::mt19937_64(seed), so identical
-// inputs produce identical output. The requested fold count is clamped to
-// the smallest class sample count, because a class too small to populate
-// every fold cannot be stratified.
+// assignment shuffles each class with a hand-rolled Fisher-Yates over the raw
+// mt19937_64(seed) stream (#470: std::shuffle sequences are
+// implementation-defined and drift across standard libraries), so identical
+// inputs produce identical output on every platform. The requested fold
+// count is clamped to the smallest class sample count, because a class too
+// small to populate every fold cannot be stratified.
 CrossValidationResult crossValidate(const Matrix &,
                                     const std::vector<int> &labels,
                                     const SupervisedOptions &, int folds = 5,

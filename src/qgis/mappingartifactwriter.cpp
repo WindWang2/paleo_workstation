@@ -25,6 +25,7 @@
 #include <qgspallabeling.h>
 #include <qgsproject.h>
 #include <qgsproperty.h>
+#include <qgsproviderregistry.h>
 #include <qgsrasterlayer.h>
 #include <qgsspatialindex.h>
 #include <qgsvectordataprovider.h>
@@ -39,8 +40,26 @@ void restoreRasterCrs(QgsMapLayer *layer) {
   auto *raster = qobject_cast<QgsRasterLayer *>(layer);
   if (!raster)
     return;
+  // 每层对象只探测一次（#483）：previewmapcanvas 的 add/insert/setLayers 三个
+  // 入口都会触发本函数，同一层反复上图此前即反复 GDALOpen 磁盘探测。标记
+  // 挂在层对象上，层重建（重新 instantiate）时自然重置。
+  if (layer->property("paleoRasterCrsProbed").toBool())
+    return;
+  layer->setProperty("paleoRasterCrsProbed", true);
+  // source 可能带 provider 选项串（QGIS 栅格 URI 惯例 "?opt=v"）——
+  // GDALOpen 不认识 QGIS URI 选项，带整串就打不开（#483 静默失效）。
+  // decodeUri 实测只摘它认识的键、未知选项原样留在 path 里，故再手动
+  // 剥一次 '?' 起的选项段。
+  QString path = raster->source();
+  const QVariantMap decoded = QgsProviderRegistry::instance()->decodeUri(
+      QStringLiteral("gdal"), path);
+  const QString decodedPath = decoded.value(QStringLiteral("path")).toString();
+  if (!decodedPath.isEmpty())
+    path = decodedPath;
+  if (const int query = path.indexOf(QLatin1Char('?')); query >= 0)
+    path.truncate(query);
   GDALDatasetH ds =
-      GDALOpen(raster->source().toUtf8().constData(), GA_ReadOnly);
+      GDALOpen(path.toUtf8().constData(), GA_ReadOnly);
   if (!ds)
     return;
   const char *stored = GDALGetMetadataItem(ds, "PALEO_CRS_WKT", nullptr);
@@ -598,6 +617,13 @@ bool MappingArtifactWriter::composeRaster(
     receipt->winningCells = QList<qint64>(layers.size(), 0);
     receipt->totalCells = qint64(cols) * rows;
     receipt->decidedCells = 0;
+    // 网格定案后钉入回执：重放/影响分析必须按同一网格取样（X2）。
+    receipt->xMin = extent.xMinimum();
+    receipt->yMin = extent.yMinimum();
+    receipt->xMax = extent.xMaximum();
+    receipt->yMax = extent.yMaximum();
+    receipt->cols = cols;
+    receipt->rows = rows;
   }
   int layerIndex = 0;
   for (auto *l : layers) {

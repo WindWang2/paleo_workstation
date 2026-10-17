@@ -758,13 +758,18 @@ QVector<CodedPoly> nodeSharedEdges( const QVector<CodedPoly> &polys )
   }
 
   QVector<CodedPoly> out;
-  for ( auto it = byCode.constBegin(); it != byCode.constEnd(); ++it )
+  // 成果要素序必须确定性：QHash 迭代序随进程哈希种子漂移，同输入两次
+  // 转面会得到不同图斑序（fid 归属随之漂移）。
+  auto codeOrder = byCode.keys();
+  std::sort( codeOrder.begin(), codeOrder.end() );
+  for ( const int code : codeOrder )
   {
-    const QgsGeometry merged = it.value().size() == 1 ? it.value().at( 0 )
-                                                       : QgsGeometry::unaryUnion( it.value() );
+    const QVector<QgsGeometry> &geoms = byCode[code];
+    const QgsGeometry merged = geoms.size() == 1 ? geoms.at( 0 )
+                                                  : QgsGeometry::unaryUnion( geoms );
     if ( merged.isEmpty() )
-      throw QgsProcessingException( QStringLiteral( "failed to dissolve noded facies %1" ).arg( it.key() ) );
-    collectPolygons( merged, it.key(), out );
+      throw QgsProcessingException( QStringLiteral( "failed to dissolve noded facies %1" ).arg( code ) );
+    collectPolygons( merged, code, out );
   }
   if ( out.isEmpty() )
     throw QgsProcessingException( QStringLiteral( "noded boundaries produced no facies polygons" ) );
@@ -908,13 +913,18 @@ QVector<CodedPoly> polygonizeGrid( const QVector<int> &grid, int cols, int rows,
     OSRDestroySpatialReference( srs );
 
   QVector<CodedPoly> polys;
-  for ( auto it = byCode.constBegin(); it != byCode.constEnd(); ++it )
+  // 成果要素序必须确定性：QHash 迭代序随进程哈希种子漂移，同输入两次
+  // 转面会得到不同图斑序（fid 归属随之漂移）。
+  auto codeOrder = byCode.keys();
+  std::sort( codeOrder.begin(), codeOrder.end() );
+  for ( const int code : codeOrder )
   {
-    QgsGeometry merged = it.value().size() == 1 ? it.value().at( 0 )
-                                                : QgsGeometry::unaryUnion( it.value() );
+    const QVector<QgsGeometry> &geoms = byCode[code];
+    QgsGeometry merged = geoms.size() == 1 ? geoms.at( 0 )
+                                            : QgsGeometry::unaryUnion( geoms );
     if ( merged.isEmpty() )
-      throw QgsProcessingException( QStringLiteral( "dissolve failed for facies %1" ).arg( it.key() ) );
-    collectPolygons( merged, it.key(), polys );
+      throw QgsProcessingException( QStringLiteral( "dissolve failed for facies %1" ).arg( code ) );
+    collectPolygons( merged, code, polys );
   }
   if ( polys.isEmpty() )
     throw QgsProcessingException( QStringLiteral( "polygonize produced no facies polygons" ) );

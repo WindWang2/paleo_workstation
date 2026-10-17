@@ -2,6 +2,7 @@
 #include "geojsonaffine.h"
 
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QSaveFile>
 #include <QJsonObject>
@@ -123,6 +124,19 @@ bool geoAffineTransformFile(const QString &inPath, const QString &outPath,
 {
   if (!geoAffineParamsValid(p, error))
     return false;
+  // 大小闸（full-audit F9）：临时配准是 GUI 线程生产路径，无闸时大幅面
+  // GeoJSON 整读 + 全量 DOM（内存常为文件 3-10 倍）→ 冻结/OOM。与 LAS 家族
+  // 同一 500MB 预算口径。
+  constexpr qint64 kMaxGeoJsonBytes = 500LL * 1024 * 1024;
+  const qint64 inSize = QFileInfo(inPath).size();
+  if (inSize > kMaxGeoJsonBytes)
+  {
+    if (error)
+      *error = QStringLiteral("GeoJSON 文件过大（%1 MB > 上限 %2 MB），拒绝配准")
+                    .arg(inSize / (1024 * 1024))
+                    .arg(kMaxGeoJsonBytes / (1024 * 1024));
+    return false;
+  }
   QFile in(inPath);
   if (!in.open(QIODevice::ReadOnly))
   {
@@ -195,6 +209,16 @@ bool geoAffineTransformFile(const QString &inPath, const QString &outPath,
 
 bool geoJsonBounds(const QString &inPath, double outBounds[4], QString *error)
 {
+  constexpr qint64 kMaxGeoJsonBytes = 500LL * 1024 * 1024;
+  const qint64 inSize = QFileInfo(inPath).size();
+  if (inSize > kMaxGeoJsonBytes)
+  {
+    if (error)
+      *error = QStringLiteral("GeoJSON 文件过大（%1 MB > 上限 %2 MB）")
+                    .arg(inSize / (1024 * 1024))
+                    .arg(kMaxGeoJsonBytes / (1024 * 1024));
+    return false;
+  }
   QFile in(inPath);
   if (!in.open(QIODevice::ReadOnly))
   {

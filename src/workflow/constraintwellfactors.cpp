@@ -608,7 +608,6 @@ bool ConstraintWorkflow::extractWellFactorsImpl(const QString &horizon, const QS
             }));
     extra.insert(QStringLiteral("rows"), result->rows);
     extra.insert(QStringLiteral("depth_domain"), QStringLiteral("MD"));
-    extra.insert(QStringLiteral("layer_id"), id);
     extra.insert(QStringLiteral("manifest_layer_id"), id);
     extra.insert(QStringLiteral("layer_id"), QStringLiteral("product.%1").arg(st.versionId));
     extra.insert(QStringLiteral("mapping_product"), true);

@@ -13,6 +13,7 @@
 #include <QDir>
 #include <QFile>
 #include <QIODevice>
+#include <cmath>
 
 namespace seismic {
 
@@ -265,8 +266,12 @@ void SeismicSectionDockWidget::runInversion(const InversionPanelParams &params) 
                 .arg(job->failedTraces)
                 .arg(job->req.lowCutHz)
                 .arg(job->req.method == QStringLiteral("sparse")
-                         ? tr("平均残差能量比 %1").arg(job->meanResidualEnergyRatio, 0, 'f', 3)
-                         : tr("低频方差占比 %1").arg(job->meanLowFreqVarianceFraction, 0, 'f', 3))
+                         ? std::isnan(job->meanResidualEnergyRatio)
+                               ? tr("平均残差能量比 无成功道")
+                               : tr("平均残差能量比 %1").arg(job->meanResidualEnergyRatio, 0, 'f', 3)
+                         : std::isnan(job->meanLowFreqVarianceFraction)
+                               ? tr("低频方差占比 无成功道")
+                               : tr("低频方差占比 %1").arg(job->meanLowFreqVarianceFraction, 0, 'f', 3))
                 + (job->wavelet.amplitudeScale > 0.0
                        ? QString()
                        : tr("｜子波无振幅标定（旧资产/解析子波），道振幅按反射系数直接使用"))

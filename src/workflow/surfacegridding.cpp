@@ -2,6 +2,7 @@
 #include "surfacegridding.h"
 #include "constraintuseplan.h"
 
+#include "../algorithms/constraintbarriers.h"
 #include "../algorithms/rasteralgebra.h"
 #include "../algorithms/surfacevolumes.h"
 #include "../catalog/datacatalog.h"
@@ -482,10 +483,10 @@ QString SurfaceGriddingWorkflow::buildBarrierMask(const QString &horizon,
   context.horizon = horizon;
   if (geom.isValid())
   {
-    // 计划与引擎同一 GridSpec：geom 覆盖 x∈[originX, originX+cols*dx)、
-    // y∈(originY−rows*dy, originY]——x 左闭右开，y 上闭下开（行号自上而下：
-    // y==originY 是第 0 行下边界，y==originY−rows*dy 落在网格外），与像元
-    // 判定 cellOf 同口径（见 constraintsemantics::segmentTouchesRect）。
+    // 计划与引擎同一 GridSpec（闭域契约）：域矩形 [originX, originX+cols*dx] ×
+    // [originY−rows*dy, originY]，贴右/下边界的点 clamp 进最后一列/行格——
+    // 与 supercoverPolylineCells 的引擎栅格化及计划侧 segmentTouchesRect
+    // 同口径（R2-09：旧的半开 cellOf 措辞已随 supercover 统一废止）。
     context.domain = QRectF(geom.originX, geom.originY - geom.rows * geom.dy,
                             geom.cols * geom.dx, geom.rows * geom.dy);
   }
@@ -516,36 +517,25 @@ QString SurfaceGriddingWorkflow::buildBarrierMask(const QString &horizon,
     return QString();
   }
   mask->assign(std::size_t(geom.rows) * geom.cols, 0);
-  const double cell = geom.dx;
-  auto cellOf = [&](double x, double y, int *row, int *col)
-  {
-    const double cf = (x - geom.originX) / geom.dx;
-    const double rf = (geom.originY - y) / geom.dy;
-    *col = int(std::floor(cf));
-    *row = int(std::floor(rf));
-    return *col >= 0 && *col < geom.cols && *row >= 0 && *row < geom.rows;
-  };
+  // P1 统一契约（#488/#496，full-audit F5）：屏障栅格化与三个 Processing 引擎
+  // 同走 supercoverPolylineCells（闭域裁剪 + 4-连通途经链，贴右/下边界点
+  // clamp 进边缘格）。此前本路径是半格采样 + 半开 floor 判格——陡斜线/穿角
+  // 点漏格（#488 已定性为 P1 缺陷），且贴边屏障回执与三引擎闭契约相反。
   for (int li = 0; li < lines.size(); ++li)
   {
     const QVector<QgsPointXY> &pl = lines.at(li);
     bool marked = false;
-    for (int i = 1; i < pl.size(); ++i)
-    {
-      const QgsPointXY &a = pl[i - 1];
-      const QgsPointXY &b = pl[i];
-      const double len = a.distance(b);
-      const int steps = std::max(1, int(std::ceil(len / (cell * 0.5))));
-      for (int s = 0; s <= steps; ++s)
-      {
-        int row = 0, col = 0;
-        if (cellOf(a.x() + (b.x() - a.x()) * s / steps,
-                   a.y() + (b.y() - a.y()) * s / steps, &row, &col))
-        {
+    QVector<QPointF> vertices;
+    vertices.reserve(pl.size());
+    for (const QgsPointXY &point : pl)
+      vertices.append(point.toQPointF());
+    paleo::algorithms::supercoverPolylineCells(
+        vertices, geom.originX, geom.originY, geom.dx, -geom.dy, geom.cols,
+        geom.rows,
+        [&](int col, int row) {
           (*mask)[std::size_t(row) * geom.cols + col] = 1;
           marked = true;
-        }
-      }
-    }
+        });
     if (!marked)
     {
       // 引擎实际：没栅格化出任何格的屏障不参与隔断。

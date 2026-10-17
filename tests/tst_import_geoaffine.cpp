@@ -6,6 +6,7 @@
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QFileInfo>
 #include <QJsonObject>
 
 #include <cmath>
@@ -35,6 +36,7 @@ private slots:
   void rejectsNonFiniteAndZeroScale_data();
   void rejectsNonFiniteAndZeroScale();
   void validParamsUnchanged();
+  void rejectsOversizedInputBeforeReading();
 };
 
 void TestGeoAffineGuard::rejectsNonFiniteAndZeroScale_data()
@@ -112,6 +114,36 @@ void TestGeoAffineGuard::validParamsUnchanged()
   QCOMPARE(pt.at(0).toDouble(), ex);
   QCOMPARE(pt.at(1).toDouble(), ey);
   QVERIFY(std::isfinite(ex) && std::isfinite(ey));
+}
+
+// full-audit F9（R2-02 补测）：超 500MB 预算的 GeoJSON 在读盘前被拒——
+// 临时配准是 GUI 线程路径，整读 + 全量 DOM 会冻结/OOM。稀疏文件构造
+// （ftruncate）零成本；闸先于 open/readAll 生效（拒绝消息含上限）。
+void TestGeoAffineGuard::rejectsOversizedInputBeforeReading()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString src = dir.filePath(QStringLiteral("huge.geojson"));
+  {
+    QFile f(src);
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    QVERIFY(f.resize(500LL * 1024 * 1024 + 1)); // 稀疏：不占实盘空间
+  }
+  QCOMPARE(QFileInfo(src).size(), qint64(500LL * 1024 * 1024 + 1));
+  GeoAffineParams p; // 合法参数——被拒的只能是大小闸
+  QString err;
+  int n = -1;
+  double b[4] = {0, 0, 0, 0};
+  QVERIFY2(!geoAffineTransformFile(src, dir.filePath(QStringLiteral("out.geojson")),
+                                   p, &err, &n, b),
+           "oversized input must be rejected");
+  QVERIFY2(err.contains(QStringLiteral("过大")),
+           qPrintable(err));
+  QVERIFY(!QFile::exists(dir.filePath(QStringLiteral("out.geojson"))));
+
+  double b2[4] = {0, 0, 0, 0};
+  QVERIFY2(!geoJsonBounds(src, b2, &err), "bounds entry shares the size gate");
+  QVERIFY2(err.contains(QStringLiteral("过大")), qPrintable(err));
 }
 
 QTEST_GUILESS_MAIN(TestGeoAffineGuard)

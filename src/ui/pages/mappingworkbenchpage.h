@@ -34,6 +34,9 @@ public:
   // meta 携带索引新鲜度（index_state / index_error / total / shown）。
   void setReverseResults(const QVariantList &rows, const QString &error = {},
                          const QVariantMap &meta = {});
+  // G05/G09：影响分析成功后回喂页面——「按最近影响报告受控重算」按钮的
+  // 可用条件（无影响报告时禁用并给 reason，不再让点击后吃错误）。
+  void setImpactAvailable(bool ready);
   // X9：索引后台同步完成后自动重发最近一次反查（仅存 kind+argument，
   // 不重新读控件——避免层位/输入变化把查询口径悄悄换掉）。
   void reissueReverseQuery();
@@ -68,6 +71,7 @@ private:
   QLabel *m_status = nullptr;
   QString m_labelLayer;
   bool m_labelModeDirty = false;
+  bool m_impactReady = false; // 最近一次影响分析成功（recompute 按钮门控）
   QListWidget *m_inputs = nullptr;
   QTreeWidget *m_results;
   QComboBox *m_kind = nullptr, *m_points = nullptr, *m_factor = nullptr;

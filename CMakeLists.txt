@@ -1519,7 +1519,11 @@ set(_paleo_perf_tests
   tst_perf_regress tst_petrophysperf tst_seismic_perf tst_seismic_baseline
   tst_seismic_budgets tst_seismicattrperf tst_horizontrackperf tst_timedepthperf
   tst_wellcomposite_perf tst_cache_las tst_welllogset_perf tst_geostat_perf
-  tst_lasperf tst_dataperf_index tst_coldstart tst_inversion_perf)
+  tst_lasperf tst_dataperf_index tst_coldstart tst_inversion_perf
+  # full-audit F10：吞吐比率断言（largeFieldThroughputRatio）无预热/无最小时
+  # 长闸，CI linux 并行轮实证红、串行重跑洗白（run 38835970978）——挂 perf
+  # 标签 + RUN_SERIAL 与同类比率门同一纪律。
+  tst_wellsiting_kernel)
 foreach(_t IN LISTS _paleo_perf_tests)
   if(TEST ${_t})
     set_property(TEST ${_t} APPEND PROPERTY LABELS perf)

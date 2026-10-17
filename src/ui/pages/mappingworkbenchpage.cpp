@@ -1045,6 +1045,27 @@ void MappingWorkbenchPage::updateState() {
        tr("勾选单因素图、测井相或地震相后打开联动参考窗口"));
   gate("compose", horizon && !checkedInputs().isEmpty(),
        readiness);
+  // G05/G09 证据命令门控（full-audit F6）：影响分析需要「层位 + 不在运行 +
+  // 已选图件」（无选中时误报「只有单一版本」）；受控重算需要最近一次影响
+  // 报告；反查的层位范围类需要层位（无层位时伪报「无匹配结果」）。
+  gate("impactAnalysis", horizon && !busy && selected,
+       !horizon ? tr("请先选择层位")
+                : busy ? readiness
+                       : tr("请先在结果列表选择一个图件"));
+  gate("recompute", !busy && m_impactReady,
+       busy ? readiness : tr("请先运行影响分析，再按其结果受控重算"));
+  {
+    const auto reverseKind = m_reverseKind
+        ? m_reverseKind->currentData().toString()
+        : QString();
+    const bool reverseNeedsHorizon =
+        reverseKind != QStringLiteral("search") &&
+        reverseKind != QStringLiteral("references_source");
+    gate("reverseQuery", !busy && (!reverseNeedsHorizon || horizon),
+         busy ? readiness
+              : reverseNeedsHorizon ? tr("请先选择层位（该反查类型按层位过滤）")
+                                    : tr("检索证据"));
+  }
   for (const auto &name : {"import", "draw", "schema"})
     gate(name, horizon, tr("请先选择层位"));
   const auto selectedSchema = m_workbench->versionForLayer(selectedLayer())
@@ -1326,6 +1347,10 @@ bool MappingWorkbenchPage::nativeSelectionMatchesEvidence() const {
 void MappingWorkbenchPage::setEvidenceSnapshot(const QVariantMap &snapshot) {
   m_evidenceSnapshotOwned = true;
   m_evidenceSnapshot = snapshot;
+  updateState();
+}
+void MappingWorkbenchPage::setImpactAvailable(bool ready) {
+  m_impactReady = ready;
   updateState();
 }
 void MappingWorkbenchPage::setCanGoBack(bool canBack) {

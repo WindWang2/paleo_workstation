@@ -1,5 +1,7 @@
 // 层：视图
 // token 例外：DESIGN 数据符号例外：编图参考地图固定纸面与地质预览色样。（tools/ui-token-exceptions.json 精确计数）。
+#include <QApplication>
+
 #include "../domain/faciescatalog.h"
 #include "../domain/facieshierarchy.h"
 #include "../domain/singlefactorrequest.h"
@@ -792,20 +794,39 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
             error.clear();
           } else if (action == "impactAnalysis") {
             // X13：版本对选择在功能层（同资产上一版 = 变化前），视图只传图件。
+            // 重放为同步长操作（≤64 产品 × 2 × 400 万像元）：等待光标 +
+            // 状态栏提示（DESIGN.md Motion「>1s 显示进度条」的同步路径
+            // 最小满足；异步任务化在 full-audit 台账记为剩余工作）。
+            // 光标 RAII：分析抛异常（bad_alloc 族）也不卡死在等待态（R2-07②）。
+            statusBar()->showMessage(tr("正在分析影响（重放冻结输入）…"), 0);
+            const struct WaitCursorGuard
+            {
+              ~WaitCursorGuard() { QApplication::restoreOverrideCursor(); }
+            } waitCursor;
+            QApplication::setOverrideCursor(Qt::WaitCursor);
             m_lastImpact = workbench->analyzeLayerVersionImpact(id, h, &error);
             ok = !m_lastImpact.isEmpty();
+            page->setImpactAvailable(ok);
             if (ok) {
               const auto determined = m_lastImpact.value("determined").toList();
               qint64 changedCells = 0;
               for (const auto &value : determined)
                 changedCells += value.toMap().value("changed_cells").toLongLong();
+              const auto reportPath =
+                  m_lastImpact.value("report_path").toString();
               statusBar()->showMessage(
-                  tr("影响分析完成：直接依赖 %1 项，潜在影响 %2 项，可确定变化 "
-                     "%3 像元（详见 %4）")
-                      .arg(m_lastImpact.value("direct_products").toList().size())
-                      .arg(m_lastImpact.value("potential_products").toList().size())
-                      .arg(changedCells)
-                      .arg(m_lastImpact.value("report_path").toString()),
+                  reportPath.isEmpty()
+                      ? tr("影响分析完成：直接依赖 %1 项，潜在影响 %2 项，可确定"
+                           "变化 %3 像元（报告未能保存到工程目录）")
+                            .arg(m_lastImpact.value("direct_products").toList().size())
+                            .arg(m_lastImpact.value("potential_products").toList().size())
+                            .arg(changedCells)
+                      : tr("影响分析完成：直接依赖 %1 项，潜在影响 %2 项，可确定变化 "
+                           "%3 像元（详见 %4）")
+                            .arg(m_lastImpact.value("direct_products").toList().size())
+                            .arg(m_lastImpact.value("potential_products").toList().size())
+                            .arg(changedCells)
+                            .arg(reportPath),
                   20000);
             }
           } else if (action == "compareRecompute") {
@@ -841,6 +862,11 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
               const auto plan = workbench->recomputePlan(m_lastImpact, &error);
               ok = !plan.isEmpty() && plan.value("status").toString() != QStringLiteral("empty");
               if (ok) {
+                const struct WaitCursorGuard
+                {
+                  ~WaitCursorGuard() { QApplication::restoreOverrideCursor(); }
+                } waitCursor;
+                QApplication::setOverrideCursor(Qt::WaitCursor);
                 const auto execution = workbench->executeRecompute(plan, &error);
                 const auto results = execution.value("results").toList();
                 int started = 0;

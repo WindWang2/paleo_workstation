@@ -92,6 +92,7 @@ private slots:
   void unresolvedLinkRoundTripsWithEmptyEntityId();
   void resolvedLinkStillNeedsEntityId();
   void currentVersionPicksHighestNumber();
+  void derivedVersionWithSameAssetParentIsNotBornStale();
   void managedPathLayout();
   void unsafePathSegmentsRejected();
   void versionBySha256FindsStored();
@@ -385,6 +386,49 @@ void TestCatalog::currentVersionPicksHighestNumber()
   const CatalogVersion cur = cat.currentVersion(a.id);
   QCOMPARE(cur.id, QStringLiteral("ver-3"));
   QCOMPARE(cur.stage, QStringLiteral("DERIVED"));
+}
+
+// supersede 级联不得把「新加入的、以同资产旧版本为父」的 DERIVED 版本自身标
+// stale：registration 的临时配准（parent={src}, 同资产, number=src+1）与
+// assetops 的 DERIVED 回滚（显式 remove stale 后 addVersion）都走这条路径。
+// 出生即 stale 会让治理面误报、removeStaleVersions 把当前版本列为可删。
+// 回归背景：addVersion 先 versionAdded 注册父边再跑 supersede 级联，闭包把
+// 新版本自己卷进去，打上「被自身取代」的自指标记。
+void TestCatalog::derivedVersionWithSameAssetParentIsNotBornStale()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  DataCatalog cat;
+  QVERIFY(cat.open(dir.path()));
+  CatalogAsset a;
+  a.id = QStringLiteral("ast-der");
+  a.type = QStringLiteral("geojson");
+  QVERIFY(cat.addAsset(a));
+  CatalogVersion raw;
+  raw.id = QStringLiteral("ver-raw");
+  raw.assetId = a.id;
+  raw.stage = QStringLiteral("RAW");
+  raw.versionNumber = 1;
+  raw.fileName = QStringLiteral("f.geojson");
+  QVERIFY(cat.addVersion(raw));
+
+  CatalogVersion derived;
+  derived.id = QStringLiteral("ver-der");
+  derived.assetId = a.id;
+  derived.stage = QStringLiteral("DERIVED");
+  derived.versionNumber = 2; // 高于父 → 父进入 supersede 集合
+  derived.parentVersionIds = QStringList{raw.id};
+  derived.fileName = QStringLiteral("d.geojson");
+  QVERIFY(cat.addVersion(derived));
+
+  const CatalogVersion stored = cat.versionById(QStringLiteral("ver-der"));
+  QVERIFY(!stored.id.isEmpty());
+  QVERIFY2(!stored.extra.value(QStringLiteral("stale")).toBool(),
+           "new DERIVED version with same-asset parent must not be born stale");
+  QVERIFY(!stored.extra.contains(QStringLiteral("staleReason")));
+  // 父版本本身也不带 stale（supersede 只标下游 DERIVED 输入，父不是下游）。
+  const CatalogVersion rawBack = cat.versionById(QStringLiteral("ver-raw"));
+  QVERIFY(!rawBack.extra.value(QStringLiteral("stale")).toBool());
 }
 
 void TestCatalog::managedPathLayout()

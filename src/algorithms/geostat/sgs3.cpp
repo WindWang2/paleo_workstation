@@ -599,6 +599,8 @@ Sgs3Result sgs3( const std::vector<Sample3> &samples, const std::vector<Sgs3Targ
       if ( static_cast<int>( neighborhood.size() ) > clamped.maxPoints )
       {
         const CondPoint &q = query;
+        // 距离并列时按 (x,y,z) 字典序打破——等价类选取是标准库实现定义，
+        // 与 2D SGS 同一「同 seed 逐位可复现」契约（full-audit F8）。
         std::partial_sort( neighborhood.begin(), neighborhood.begin() + clamped.maxPoints,
                            neighborhood.end(),
                            [&q]( const CondPoint &a, const CondPoint &b ) {
@@ -608,7 +610,13 @@ Sgs3Result sgs3( const std::vector<Sample3> &samples, const std::vector<Sgs3Targ
                              const double db = ( b.x - q.x ) * ( b.x - q.x ) +
                                                ( b.y - q.y ) * ( b.y - q.y ) +
                                                ( b.z - q.z ) * ( b.z - q.z );
-                             return da < db;
+                             if ( da != db )
+                               return da < db;
+                             if ( a.x != b.x )
+                               return a.x < b.x;
+                             if ( a.y != b.y )
+                               return a.y < b.y;
+                             return a.z < b.z;
                            } );
         neighborhood.resize( static_cast<std::size_t>( clamped.maxPoints ) );
       }

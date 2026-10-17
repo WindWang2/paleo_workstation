@@ -56,7 +56,11 @@ inline std::vector<Sample> dedupeSamples( const std::vector<Sample> &samples, in
              []( const std::pair<Sample, std::uint32_t> &a, const std::pair<Sample, std::uint32_t> &b ) {
                if ( a.first.x != b.first.x )
                  return a.first.x < b.first.x;
-               return a.first.y < b.first.y;
+               if ( a.first.y != b.first.y )
+                 return a.first.y < b.first.y;
+               // 完全重合点互为等价：合并求值的累加序是实现定义（末位 bit
+               // 跨标准库漂移）——用输入下标次键钉死（full-audit F8）。
+               return a.second < b.second;
              } );
   std::vector<Sample> merged;
   std::vector<std::size_t> mergedCounts;

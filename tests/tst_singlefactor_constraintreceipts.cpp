@@ -642,7 +642,7 @@ private slots:
   // #488 统一闭域契约：supercover 把贴边点 clamp 进最后一列/行格——贴边
   // 屏障影响边缘格、不是域外；计划侧 polylineTouchesRect 同为闭矩形。三个
   // 引擎（旧 IDW / 距离变换 / 最小曲率）回执一致：四条贴边线全部消费。
-  void edgeAlignedBarrierIsOutsideForAllGridEngines()
+  void edgeAlignedBarrierIsConsumedForAllGridEngines()
   {
     QgsVectorLayer lines( QStringLiteral( "MultiLineString?crs=EPSG:3857&field=id:string&field=horizon:string&field=type:string"
                                           "&field=params_json:string&field=schema_version:integer" ),
@@ -662,7 +662,10 @@ private slots:
     };
     addLine( QStringLiteral( "edge_right" ), QStringLiteral( "LINESTRING(110 0, 110 100)" ) );
     addLine( QStringLiteral( "edge_inside" ), QStringLiteral( "LINESTRING(109 0, 109 100)" ) );
-    // 闭契约：四条贴边线（x==±110 / y==±110 域界）clamp 进边缘格，全部消费。
+    // 闭契约：成图域 [-10,110]（井点 0..100 + 10% pad），四条贴边线
+    // （x==110 / x==-10 / y==110 / y==-10）clamp 进边缘格，全部消费
+    // （full-audit F15：补左边缘 x==-10——原测试声称四边缘但缺测这条）。
+    addLine( QStringLiteral( "edge_left" ), QStringLiteral( "LINESTRING(-10 0, -10 100)" ) );
     addLine( QStringLiteral( "edge_top" ), QStringLiteral( "LINESTRING(20 110, 80 110)" ) );
     addLine( QStringLiteral( "edge_bottom" ), QStringLiteral( "LINESTRING(20 -10, 80 -10)" ) );
     QVERIFY( lines.dataProvider()->addFeatures( features ) );
@@ -686,6 +689,7 @@ private slots:
       const QJsonArray receipts =
           QJsonDocument::fromJson( result.value( QStringLiteral( "CONSTRAINT_RECEIPTS" ) ).toString().toUtf8() ).array();
       bool sawEdge = false, sawInside = false, sawTop = false, sawBottom = false;
+      bool sawLeft = false;
       QString insideRole, topRole;
       for ( const QJsonValue &v : receipts )
       {
@@ -696,6 +700,12 @@ private slots:
           sawEdge = true;
           QVERIFY2( receipt.value( QStringLiteral( "consumed" ) ).toBool(),
                     qPrintable( algorithm + ": closed contract — edge line clamps into edge cell" ) );
+        }
+        if ( id == QLatin1String( "edge_left" ) )
+        {
+          sawLeft = true;
+          QVERIFY2( receipt.value( QStringLiteral( "consumed" ) ).toBool(),
+                    qPrintable( algorithm + ": closed contract — left edge clamps into first column" ) );
         }
         if ( id == QLatin1String( "edge_inside" ) )
         {
@@ -717,7 +727,7 @@ private slots:
                     qPrintable( algorithm + ": closed contract — edge line clamps into edge cell" ) );
         }
       }
-      QVERIFY2( sawEdge && sawInside && sawTop && sawBottom, qPrintable( algorithm ) );
+      QVERIFY2( sawEdge && sawLeft && sawInside && sawTop && sawBottom, qPrintable( algorithm ) );
       QCOMPARE( insideRole, QStringLiteral( "hard_barrier" ) );
       QCOMPARE( topRole, QStringLiteral( "hard_barrier" ) );
     }

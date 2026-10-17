@@ -45,6 +45,7 @@
 #include "../src/ui/paleomainwindow.h"
 #include "../src/ui/seismicsection/seismicsectiondockwidget.h"
 #include "../src/workflow/faultinterpretationcontroller.h"
+#include "../src/workflow/surfacegridding.h"
 #include "../src/workflow/wellsitingworkflow.h"
 
 #include <qgsproject.h>
@@ -324,6 +325,12 @@ private slots:
       foundTif = true;
     }
     QVERIFY2(foundTif, "网格化产物必须写进第二个工程的受管区（projectDir 调用时现取）");
+
+    // #481 P3-9：两次网格化（跨工程）共用挂窗下的同一只 SurfaceGriddingWorkflow
+    //（objectName 寻址复用、信号连接只在首建时打一次）——不得随命令次数累积实例。
+    QCOMPARE(m_win->findChildren<SurfaceGriddingWorkflow *>().size(), 1);
+    QVERIFY2(m_win->findChild<SurfaceGriddingWorkflow *>(QStringLiteral("paleoGriddingWorkflow")),
+             "共享网格化 workflow 必须以 paleoGriddingWorkflow 命名（寻址复用键）");
   }
 
   // #275：编辑分层入口调用时现取 projectDir——开工程后不再闸住，且对话框

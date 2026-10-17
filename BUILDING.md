@@ -304,7 +304,22 @@ QGIS 4.2.x（三路口径统一上游 4.2.3，`tools/check_qgis_versions.py` 门
   **已知边界：Windows NativeFormat 走注册表
   不受 env 控制**，Windows 侧保持串行 ctest。
 - **层护栏**：`ctest -R layering`（提示）/`layering_strict`（防回升闸门：
-  baseline 非空或可收缩即红）/`layering_selftest`（扫描器自检）。
+  baseline 非空或可收缩即红）/`layering_selftest`（扫描器自检）/
+  `layering_symbol_audit`（零基线：非视图层 ui 类构造即红）/
+  `layering_transitive`（传递债四指标对 `tools/transitive-baseline.txt`
+  只缩不涨；heavy_* 恒可闸，func/ui 需 QGIS 头目录——CI lint 全闸）。
+- **测试车道与快速道（#503 反馈周期）**：LABELS 体系 = 模块名（`io`/`qgis`/
+  `ui`/`workflow`…，首模块决定，伞式回退 `core`）+ 语义标签
+  `perf`（墙钟预算，`-LE perf` 排除、`-L perf` 串行单独跑）/
+  `golden`（渲染像素比对）/`envdebt`（`ctest -L envdebt` 一键重跑环境债
+  清单）/`heavy`（全栈/独占类功能巨测：tst_panels、tst_edittools、
+  tst_import、tst_mappingworkbench、tst_correlation_full 等）。
+  本地快速道：`ctest -LE 'heavy|perf' --output-on-failure`（巨测与预算类
+  之外的全量，分钟级）；再叠 `PALEO_TEST_FAST=1` 可让个别巨测内部减样
+  （tst_import 并发导入 12→4、tst_mappingworkbench 合并轮数 20→5——
+  默认语义不变，CI 不设此变量）。快速道**不能替代**合入前全量：Windows
+  全量 ctest 约 44min 的根治方向见 TODOS.md（ctest 并行化/构建产物复用），
+  不在标签体系内解决。
 
 ## 加速与实验档（devex）
 

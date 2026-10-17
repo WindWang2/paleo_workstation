@@ -109,10 +109,16 @@ jobs:
           echo "tidy base: $base ($(git rev-parse --short "$base" 2>/dev/null || echo '?'))"
           python3 tools/check_tidy.py --base "$base"
       - name: Source gates (layering / ui invariants / ui size / i18n / QGIS 版本口径 / docs drift，按脚本位置定位源码根)
+        env:
+          # #474：--transitive 的 QGIS 头目录探测约定名（vendor deb 闭包前缀，
+          # 与上面 compile_commands 的 QGIS_PREFIX_PATH 同源）——func/ui 两指标
+          # 的外部 qgs 边可解析才参与闸门；缺位时工具自动只闸 heavy_*。
+          QGIS_PREFIX: ${{ github.workspace }}/vendor/prefix/usr
         run: |
           python3 tools/check_layering.py --strict
           python3 tools/check_layering.py --selftest
           python3 tools/check_layering.py --symbol-audit
+          python3 tools/check_layering.py --transitive
           python3 tools/check_ui_invariants.py --strict
           python3 tools/check_ui_invariants.py --selftest
           python3 tools/check_ui_size.py --strict
@@ -460,3 +466,86 @@ jobs:
           retention-days: 14
           if-no-files-found: ignore
           path: build/Testing/
+
+  # #497/#475：红项分诊汇总 job。master 长期全红期间，把红拆成两类——
+  # docs/ci/known-reds.json 登记的已知红项降级 ::warning + issue 链接；
+  # 未知红项才让本 job 红。不改动 lint/linux/windows 的判定语义（required
+  # check context 名零变化）；本 job 是新增 context，未列入 required checks
+  # 前不阻断合入——先恢复「红得明白」的单点信号（#497 的 windows+linux
+  # 必绿门禁恢复是分支保护决策，不在 yml 层强推）。
+  # 观察档（linux-perf/linux-asan，continue-on-error）的 job 级真实 conclusion
+  # 每轮在此点名（needs 上下文里它们恒 success，只有 Actions API 可见）——
+  # #484 P2「asan 断链静默腐烂」的每轮状态追踪位。
+  triage:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    needs: [lint, linux, linux-perf, linux-asan, windows]
+    if: ${{ always() }}
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0 # known-reds diff notice 需要 base 可达（同 lint tidy 口径）
+      # #497：known-reds 变更须 PR 显式——对 docs/ci/known-reds.json 的 paths
+      # diff 输出 ::notice 点名（新增/删除/预算调整必须随 PR 评审，不允许在
+      # 分诊未过时悄悄扩名单）。
+      - name: known-reds diff notice
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PR_BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ] && [ -n "$PR_BASE_REF" ]; then
+            base="origin/$PR_BASE_REF"
+          elif [ -n "$PUSH_BEFORE" ] && ! printf '%s' "$PUSH_BEFORE" | grep -qE '^0+$' \
+               && git cat-file -e "${PUSH_BEFORE}^{commit}" 2>/dev/null; then
+            base="$PUSH_BEFORE"
+          else
+            base="HEAD~1"
+          fi
+          echo "known-reds diff base: $base"
+          if git diff --quiet "$base" -- docs/ci/known-reds.json; then
+            echo "docs/ci/known-reds.json 无变更。"
+          else
+            {
+              echo "::notice title=known-reds 名单变更（#497 分诊清单）::docs/ci/known-reds.json 相对 ${base} 有变更——已知红项的增删/预算调整/续期必须随本 PR 显式评审："
+              git diff "$base" -- docs/ci/known-reds.json \
+                | grep -E '^[+-][^+-]' || true
+            }
+          fi
+      # 各车道测试日志（同 run artifact，best-effort：早期失败的车道没有产物，
+      # 该车道按无测试级明细参与分诊——job 级红路径接管）。
+      - name: Download lane test logs (best effort)
+        run: |
+          mkdir -p redlogs
+          for lane in linux windows; do
+            gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+              --name "test-logs-$lane" --dir "redlogs/$lane" \
+              || echo "::warning::test-logs-$lane artifact 缺失（该车道早期失败），按无测试明细分诊"
+          done
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name perf-results-linux --dir redlogs/linux-perf \
+            || echo "NOTE perf-results-linux 缺失，linux-perf 按无明细分诊"
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name test-logs-linux-asan --dir redlogs/linux-asan \
+            || echo "NOTE test-logs-linux-asan 缺失，linux-asan 按无明细分诊"
+      # job 级真实结论（continue-on-error 车道只有这里可见）。
+      - name: Fetch job conclusions
+        run: >-
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs?per_page=100"
+          > jobs.json
+      # 分诊本体：已知红降级 warning + issue 链接 + golden 预算只缩不涨（#475）；
+      # 未知红（gating 车道）/预算超涨/复审到期才 exit 1。golden 明细汇总
+      #（GOLDEN-SUMMARY/GOLDEN-DIFF，tests/tst_wellcomposite_visual 输出）写入
+      # step summary。
+      - name: Triage reds against docs/ci/known-reds.json
+        run: |
+          python3 tools/ci_triage_reds.py --jobs jobs.json \
+            --logs linux=redlogs/linux \
+            --logs windows=redlogs/windows \
+            --logs linux-perf=redlogs/linux-perf \
+            --logs linux-asan=redlogs/linux-asan

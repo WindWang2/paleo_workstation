@@ -15,7 +15,7 @@ QVariantList classification() {
 struct Fixture {
   QgsVectorLayer layer{"MultiPolygon?crs=EPSG:3857&field=facies_code:integer&field=facies_name:string&field=subfacies:string&field=microfacies:string&field=facies_label:string&field=facies_evidence:string&field=paleo_interpretation:string&field=value_min:double&field=value_max:double", "partition", "memory"};
   QgsFeatureIds ids;
-  bool init(QString *error, bool sameClass = false, bool hole = false, bool gap = false) {
+  bool init(QString *error, bool sameClass = false, bool hole = false, bool gap = false, bool cap = false) {
     QgsFeatureList features;
     for (int i = 0; i < 2; ++i) {
       QgsFeature f(layer.fields());
@@ -26,6 +26,11 @@ struct Fixture {
       f.setAttribute("facies_code", sameClass ? 1 : i + 1);
       f.setAttribute("facies_evidence", "[]"); f.setAttribute("paleo_interpretation", "{}");
       f.setAttribute("value_min", .2); f.setAttribute("value_max", .4); features << f;
+    }
+    if (cap) {
+      QgsFeature f(layer.fields()); f.setAttribute("facies_code", 1);
+      auto geometry = QgsGeometry::fromWkt("POLYGON((0 100,100 100,200 100,200 200,0 200,0 100))");
+      geometry.convertToMultiType(); f.setGeometry(geometry); features << f;
     }
     if (!layer.dataProvider()->addFeatures(features)) return false;
     layer.updateExtents();
@@ -124,6 +129,22 @@ private slots:
     QVERIFY(!FaciesPartitionEditor::merge(&f.layer, 3, &error));
     QVERIFY(error.contains("连通")); QCOMPARE(f.layer.featureCount(), 2);
     QCOMPARE(f.layer.undoStack()->count(), 0); QCOMPARE(f.area(), 20000.);
+  }
+  void mergeKeepsUntouchedNeighborsJunctions() {
+    Fixture f; QString error; QVERIFY2(f.init(&error, false, false, false, true), qPrintable(error));
+    QgsFeatureIds selected; auto it = f.layer.getFeatures(); QgsFeature feature;
+    while (it.nextFeature(feature)) if (feature.geometry().boundingBox().yMaximum() <= 100) selected.insert(feature.id());
+    QCOMPARE(selected.size(), 2); f.layer.selectByIds(selected);
+    QVERIFY2(FaciesPartitionEditor::merge(&f.layer, 3, &error), qPrintable(error));
+    QCOMPARE(f.layer.featureCount(), 2); QCOMPARE(f.area(), 40000.);
+    QVERIFY2(FaciesPartitionEditor::validate(&f.layer, &error), qPrintable(error));
+    it = f.layer.getFeatures();
+    while (it.nextFeature(feature)) {
+      bool junction = false; auto vertices = feature.geometry().vertices();
+      while (vertices.hasNext()) { const auto point = vertices.next();
+        junction |= qgsDoubleNear(point.x(), 100) && qgsDoubleNear(point.y(), 100); }
+      QVERIFY(junction);
+    }
   }
   void missingClassificationCannotBypassPartitionValidation() {
     Fixture f; QString error; QVERIFY2(f.init(&error), qPrintable(error));

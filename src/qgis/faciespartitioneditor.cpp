@@ -118,7 +118,13 @@ bool apply(QgsVectorLayer *v, Plan plan, const QString &kind, const QString &tit
   for (auto id : plan.removed) ok = v->deleteFeature(id) && ok;
   for (auto &f : plan.added) ok = v->addFeature(f) && ok;
   // Insert every new junction into BOTH faces, including unselected neighbors.
-  const auto junctionGeometries = plan.added + plan.changed;
+  auto junctionGeometries = plan.added + plan.changed;
+  QgsRectangle affected; affected.setNull();
+  for (const auto &f : junctionGeometries) affected.combineExtentWith(f.geometry().boundingBox());
+  // Union/split may remove collinear vertices on an outer edge. Feed the
+  // untouched neighbors' junctions back into the new faces as well.
+  auto neighbors = v->getFeatures(QgsFeatureRequest().setFilterRect(affected)); QgsFeature neighbor;
+  while (neighbors.nextFeature(neighbor)) junctionGeometries << neighbor;
   for (const auto &f : junctionGeometries) { const int result = v->addTopologicalPoints(f.geometry());
     if (result != 0 && result != 2) ok = false; }
   if (ok) ok = FaciesPartitionEditor::validate(v, error);

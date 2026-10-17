@@ -165,11 +165,18 @@ int smoothMajority( QVector<int> &grid, int cols, int rows )
             ++counts[v];
         }
       }
-      int best = grid.at( i );
-      int bestCount = counts.value( best, 0 );
+      // FB-001：并列裁决与 GeologicalSmoothing 同口径——最高计数胜；并列
+      // 保持中心码；挑战者之间并列取数值更小的码。原实现的「先遍历到者胜」
+      // 由 QHash 迭代序决定（Qt 6.8 每进程随机种子、应用未钉种子），同一
+      // 输入栅格跨进程会产出不同图斑/PROVENANCE——与本文件边界图/合链
+      // 两处的键排序钉死同一纪律。
+      const int center = grid.at( i );
+      int best = center;
+      int bestCount = counts.value( center, 0 );
       for ( auto it = counts.cbegin(); it != counts.cend(); ++it )
       {
-        if ( it.value() > bestCount )
+        if ( it.value() > bestCount ||
+             ( it.value() == bestCount && best != center && it.key() < best ) )
         {
           best = it.key();
           bestCount = it.value();

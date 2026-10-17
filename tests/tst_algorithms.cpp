@@ -18,6 +18,7 @@
 #include <QTemporaryDir>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QHash>
 #include <cmath>
 #include <memory>
 #include "../src/algorithms/paleoalgorithms.h"
@@ -820,6 +821,72 @@ private slots:
     QCOMPARE( prov.value( QStringLiteral( "algorithm" ) ).toString(),
               QStringLiteral( "paleo:paleo_facies_polygonize" ) );
     QCOMPARE( prov.value( QStringLiteral( "faces" ) ).toInt(), 3 );
+  }
+
+  // FB-001：SMOOTH 并列计票不得依赖 QHash 迭代序（Qt 6.8 每进程随机种子）。
+  // 中心 1 的 3×3 邻域里 3 与 7 各 4 票并列——同一栅格在多个全局哈希种子下
+  // 图斑序/几何/PROVENANCE 必须逐位一致（并列：中心码胜，挑战者取小码）。
+  void faciesPolygonsSmoothTieDeterministicAcrossHashSeeds()
+  {
+    const QVector<float> px = { 3, 3, 7,
+                                7, 1, 3,
+                                3, 7, 7 };
+    QString referenceLog;
+    QVector<int> referenceCodes;
+    QVector<double> referenceAreas;
+    QStringList referenceWkts;
+    QString referenceProv;
+    for ( const int seed : { 1, 2, 3, 5, 7, 11 } )
+    {
+      qSetGlobalQHashSeed( seed );
+      QString log;
+      QVariantMap params;
+      params.insert( QStringLiteral( "SMOOTH" ), 1 );
+      params.insert( QStringLiteral( "MIN_CELLS" ), 0 );
+      params.insert( QStringLiteral( "BOUNDARY_SMOOTH" ), 0 );
+      const QString out = runFacies( QStringLiteral( "tieseed%1" ).arg( seed ), 3, 3, px,
+                                     params, nullptr, &log );
+      qSetGlobalQHashSeed( -1 ); // 恢复进程随机种子
+      QVERIFY2( !out.isEmpty(), qPrintable( log ) );
+      const QVector<Face> faces = readFaces( out );
+      QVERIFY( faces.size() >= 2 );
+      QVector<int> codes;
+      QVector<double> areas;
+      QStringList wkts;
+      for ( const Face &face : faces )
+      {
+        codes << face.code;
+        areas << face.area;
+        wkts << face.geom.asWkt();
+      }
+      const QString prov = mLast.value( QStringLiteral( "PROVENANCE" ) ).toString();
+      // 归一化：去掉随 seed 变化的夹具路径（input），其余字段必须逐键一致。
+      const auto normalize = []( const QString &provenance ) {
+        QJsonObject obj = QJsonDocument::fromJson( provenance.toUtf8() ).object();
+        obj.remove( QStringLiteral( "input" ) );
+        return QJsonDocument( obj ).toJson( QJsonDocument::Compact );
+      };
+      if ( referenceCodes.isEmpty() )
+      {
+        referenceCodes = codes;
+        referenceAreas = areas;
+        referenceWkts = wkts;
+        referenceProv = normalize( prov );
+        referenceLog = log;
+      }
+      else
+      {
+        QVERIFY2( codes == referenceCodes,
+                  qPrintable( QStringLiteral( "seed %1 图斑码序漂移（QHash 迭代序渗透进成果）" )
+                                  .arg( seed ) ) );
+        QCOMPARE( areas, referenceAreas );
+        QCOMPARE( wkts, referenceWkts );
+        QCOMPARE( normalize( prov ), referenceProv );
+      }
+    }
+    // 并列挑战者取小码：中心格平滑后归 3（4 票并列 3<7），不是 7。
+    QVERIFY( referenceCodes.contains( 3 ) );
+    QVERIFY( !referenceWkts.isEmpty() );
   }
 
   // 1.4 rounds to 1, 1.6 rounds to 2.（单像元精度语义——显式关平滑/聚合）

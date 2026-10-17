@@ -395,6 +395,11 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
              previous.extra.value("title").toString(), "vector",
              evidenceParents, extra, error, "|layername=features", id);
   if (!output.isEmpty()) {
+    // #465：本批 spatial_edit_events 已随不可变版本 output 入档；重试时
+    // versionForLayer(id) 返回的正是 output，事件经 previous.extra 继承。
+    // 若推迟到井属性合并成功后才 acknowledge，合并失败→重试会把同一批观察
+    // 记录再追加一遍（新 event_id，无法判重）。故版本登记成功即确认。
+    if (observer) observer->acknowledge();
     styleLayer(id);
     if (layer->fields().indexOf("facies_intervals") >= 0) {
       QVariantList points;
@@ -405,12 +410,17 @@ bool MappingWorkbench::saveEditingVersion(const QString &id, QString *error) {
           if (layer->fields().indexOf(field) >= 0) point.insert(field, feature.attribute(field));
         points << point;
       }
+      QString mergeError;
       if (!WellAttributeStore::mergeIntervals(m_catalog, m_dir, m_layers,
-          wellAttributeUpdates(points, previous.extra.value("facies").toList(), d.horizon, false), error) ||
+          wellAttributeUpdates(points, previous.extra.value("facies").toList(), d.horizon, false), &mergeError) ||
           !WellAttributeStore::mergeFormations(m_catalog, m_dir, m_layers,
-          wellFormationUpdates(points, previous.extra.value("facies").toList(), false), error)) return false;
+          wellFormationUpdates(points, previous.extra.value("facies").toList(), false), &mergeError)) {
+        // 部分完成态如实披露：版本已存在，失败的只是井属性同步。
+        fail(error, tr("图件版本已保存（%1），但测井属性同步失败：%2。修正后可再次保存，"
+                       "编辑事件不会重复入档。").arg(output, mergeError));
+        return false;
+      }
     }
-    if (observer) observer->acknowledge();
   }
   return !output.isEmpty();
 }

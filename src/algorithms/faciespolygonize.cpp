@@ -999,6 +999,10 @@ void writeGpkg( const QString &path, const QVector<CodedPoly> &polys, const QStr
     }
     OGR_F_Destroy( feat );
   }
+  // GPKG 会把 ENGCRS 降成 LOCAL_CS。原始 WKT 留在元数据里，打开时才能
+  // 对回工程网格，显式配准才认这层的坐标。
+  if ( !wkt.isEmpty() )
+    GDALSetMetadataItem( ds, "PALEO_CRS_WKT", wkt.toUtf8().constData(), nullptr );
   GDALSetMetadataItem( ds, "PALEO_PROVENANCE", provenance.toUtf8().constData(), nullptr );
   GDALClose( ds );
 }

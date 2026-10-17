@@ -36,6 +36,9 @@
 #include <QJsonObject>
 #include <QFileInfo>
 #include <cmath>
+#include <qgslayertree.h>
+#include <qgsmaplayer.h>
+#include <qgsproject.h>
 #include <qgsrasterdataprovider.h>
 #include <qgseditorwidgetsetup.h>
 #include "../src/workflow/workflows.h"
@@ -1222,6 +1225,11 @@ private slots:
     QCOMPARE(deleted.first().value("actor_id").toString(), QString("local:geologist"));
     QCOMPARE(snapshotStore.historyForHorizon("D61").size(), 3);
     QCOMPARE(f.constraints.loadConstraints("D61").size(), 1);
+    const auto versions = f.catalog.versions().size();
+    const auto again = f.work.snapshotConstraints("D61", {}, &error);
+    QVERIFY2(!again.isEmpty(), qPrintable(error));
+    QCOMPARE(again, layerId);
+    QCOMPARE(f.catalog.versions().size(), versions);
   }
   void linkedCanvasesFollowExtentCursorAndCanDisconnect() {
     QgsMapCanvas main, reference;
@@ -2234,8 +2242,7 @@ private slots:
     FaciesCatalog::formationRange(QVariant(), 5.0, &top, &base);
     QVERIFY(std::isinf(top) && std::isinf(base));
   }
-  // 2026-10-10 用户要求①②：编图链三页图层列表保证测井基础图层在场（存在
-  // 才物化），地层点带文字标注（formation 名绕点排开），不只有颜色。
+  // 测井岩性与地层相表在预测后物化，供属性表维护；不进入图层树。
   void wellBaseLayersMaterializedWithFormationLabels() {
     Fixture f;
     QVERIFY(f.init());
@@ -2255,6 +2262,22 @@ private slots:
     auto *formations = qobject_cast<QgsVectorLayer *>(
         f.layers.layer(WellAttributeStore::formationLayerId()));
     QVERIFY(formations);
+    auto *intervals = qobject_cast<QgsVectorLayer *>(
+        f.layers.layer(WellAttributeStore::intervalLayerId()));
+    QVERIFY(intervals);
+    QgsProject *project = formations->project();
+    QVERIFY(project && project->layerTreeRoot());
+    QVERIFY(!project->layerTreeRoot()->findLayer(formations->id()));
+    QVERIFY(!project->layerTreeRoot()->findLayer(intervals->id()));
+    QVERIFY(formations->flags().testFlag(QgsMapLayer::Private));
+    QVERIFY(intervals->flags().testFlag(QgsMapLayer::Private));
+    QCoreApplication::processEvents();
+    QCOMPARE(project->mapLayer(formations->id()), static_cast<QgsMapLayer *>(formations));
+    QCOMPARE(project->mapLayer(intervals->id()), static_cast<QgsMapLayer *>(intervals));
+    QCOMPARE(f.layers.layer(WellAttributeStore::formationLayerId()),
+             static_cast<QgsMapLayer *>(formations));
+    QCOMPARE(f.layers.layer(WellAttributeStore::intervalLayerId()),
+             static_cast<QgsMapLayer *>(intervals));
     // facies-ux 3：相点按相分类着色（规则渲染：层位分类 → 缺省分类 → 灰）。
     QCOMPARE(formations->renderer()->type(), QString("RuleRenderer"));
     {
@@ -2303,10 +2326,7 @@ private slots:
     auto *labels = dynamic_cast<QgsVectorLayerSimpleLabeling *>(formations->labeling());
     QVERIFY(labels);
     QVERIFY(labels->settings().fieldName.contains(QLatin1String("formation")));
-    // 井段属性层：小空心点，不标注（每井多行同位堆叠）。
-    auto *intervals = qobject_cast<QgsVectorLayer *>(
-        f.layers.layer(WellAttributeStore::intervalLayerId()));
-    QVERIFY(intervals);
+    // 井段属性层：小空心点，不标注（每井多行同位堆叠），且不在图层树里。
     QVERIFY(!intervals->labelsEnabled());
   }
   void faciesConsistencyReportsWellVsSeismic() {

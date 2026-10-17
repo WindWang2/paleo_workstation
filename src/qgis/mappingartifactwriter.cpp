@@ -35,11 +35,15 @@
 
 #include <qgstextbuffersettings.h>
 #include <qgstextformat.h>
+#include <ogr_api.h>
+#include <ogr_srs_api.h>
 namespace MappingArtifactWriter {
 void restoreRasterCrs(QgsMapLayer *layer) {
   auto *raster = qobject_cast<QgsRasterLayer *>(layer);
-  if (!raster)
+  if (!raster) {
+    restoreVectorCrs(layer);
     return;
+  }
   // 每层对象只探测一次（#483）：previewmapcanvas 的 add/insert/setLayers 三个
   // 入口都会触发本函数，同一层反复上图此前即反复 GDALOpen 磁盘探测。标记
   // 挂在层对象上，层重建（重新 instantiate）时自然重置。

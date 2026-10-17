@@ -9,12 +9,16 @@
 #include <QMap>
 #include <QPointer>
 #include <QSet>
+#include <QtGlobal>
 #include <algorithm>
 #include <cmath>
 #include <memory>
 #include <qgsfeatureiterator.h>
 #include <qgsfield.h>
 #include <qgsgeometry.h>
+#include <qgslayertree.h>
+#include <qgslayertreeregistrybridge.h>
+#include <qgsmaplayer.h>
 #include <qgsproject.h>
 #include <qgsvectordataprovider.h>
 #include <qgsvectorfilewriter.h>
@@ -40,6 +44,58 @@ QString uri(const QString &dir, Table table) {
   return path(dir, table) + "|layername=attributes";
 }
 Table tableOf(bool factors) { return factors ? Table::Factors : Table::Intervals; }
+// QGIS 4 的注册表桥在图层节点被摘掉后会排队 removeMapLayers，
+// 而且这条路径不看 setEnabled。只断开桥自己的两个槽，树模型仍能刷新。
+bool reconnectBridgeSlot(QgsLayerTree *root, QgsLayerTreeRegistryBridge *bridge,
+                         const char *signal, const char *slot) {
+  const int sig = root->metaObject()->indexOfSignal(
+      QMetaObject::normalizedSignature(signal));
+  const int slt = bridge->metaObject()->indexOfSlot(
+      QMetaObject::normalizedSignature(slot));
+  return sig >= 0 && slt >= 0 && QMetaObject::connect(root, sig, bridge, slt);
+}
+// 岩性与地层相是属性表，不是地图图层。整份测井结果不进图层树，
+// 避免按层位和相展开。图层本身留在工程里，属性表仍能打开。
+void detachAttributeTableFromLegend(QgsMapLayer *layer) {
+  if (!layer)
+    return;
+  layer->setFlags(layer->flags() | QgsMapLayer::Private);
+  QgsProject *project = layer->project();
+  QgsLayerTree *root = project ? project->layerTreeRoot() : nullptr;
+  if (!root)
+    return;
+  if (root->hasCustomLayerOrder()) {
+    QList<QgsMapLayer *> order = root->customLayerOrder();
+    if (order.removeAll(layer) > 0)
+      root->setCustomLayerOrder(order);
+  }
+  QgsLayerTreeLayer *node = root->findLayer(layer->id());
+  if (!node)
+    return;
+  auto *parent = qobject_cast<QgsLayerTreeGroup *>(node->parent());
+  if (!parent)
+    return;
+  auto *bridge = project->layerTreeRegistryBridge();
+  const bool droppedWill =
+      bridge && QObject::disconnect(
+                    root, SIGNAL(willRemoveChildren(QgsLayerTreeNode*,int,int)),
+                    bridge, nullptr);
+  const bool droppedRemoved =
+      bridge && QObject::disconnect(
+                    root, SIGNAL(removedChildren(QgsLayerTreeNode*,int,int)),
+                    bridge, nullptr);
+  parent->removeChildNode(node);
+  if (droppedWill &&
+      !reconnectBridgeSlot(root, bridge,
+                           "willRemoveChildren(QgsLayerTreeNode*,int,int)",
+                           "groupWillRemoveChildren(QgsLayerTreeNode*,int,int)"))
+    qWarning("WellAttributeStore: failed to restore legend removal tracking");
+  if (droppedRemoved &&
+      !reconnectBridgeSlot(root, bridge,
+                           "removedChildren(QgsLayerTreeNode*,int,int)",
+                           "groupRemovedChildren()"))
+    qWarning("WellAttributeStore: failed to restore legend removal cleanup");
+}
 // 地层优势相表的数值列：均为非负有限数，占比/覆盖率另限 0–1。
 const QStringList kFormationNumbers{"top_md", "base_md", "thickness_md",
                                     "dominant_thickness_md", "dominant_ratio",
@@ -252,13 +308,14 @@ QgsVectorLayer *open(DataCatalog *catalog, const QString &dir,
       layer->updateFields();
     }
   }
-  // 地图符号与文字标注（2026-10-10）：地层点标注地层名绕点排开；
-  // 井段/井点单因素点小空心点不标注（多行同位堆叠，文字在属性表读）。
-  // facies-ux 3：相点按层位相分类着色（与相栅格/相面同色）。
+  // 地图符号只服务于仍留在图层树里的井点单因素。岩性与地层相
+  // 同样记一份样式，但随后退出图层树，图例不再按层位和相展开。
   if (table == Table::Formations)
     QgisStyleService::applyWellFormationLayerStyle(layer, faciesSchemas(catalog));
   else
     QgisStyleService::applyWellAttributeLayerStyle(layer, faciesSchemas(catalog));
+  if (table != Table::Factors)
+    detachAttributeTableFromLegend(layer);
   const QMap<QString, QString> aliases{
       {"well_id", tr("井 ID")},
       {"well_name", tr("井名")},

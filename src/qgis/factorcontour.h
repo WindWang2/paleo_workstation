@@ -46,7 +46,8 @@ bool generateStructuralContours( const QString &rasterPath,
                                  double interval,
                                  QVector<double> *levelsUsed = nullptr,
                                  QString *error = nullptr,
-                                 const std::function<bool()> &cancelled = {} );
+                                 const std::function<bool()> &cancelled = {},
+                                 bool smooth = true );
 
 void requestContours(const QString &rasterPath, const QString &outputGpkg,
                      double interval, PaleoTaskService *tasks,

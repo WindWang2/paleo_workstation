@@ -155,9 +155,6 @@ struct FaultSurfaceMesh {
 
 private:
     int segmentIndexForTriangle(int idx) const;
-    // 顶点 → 分支号，首次查询时按 segments 建一次；segments 改后由
-    // 非 const 访问路径重建（mesh 生成后即只读，故一次性足够）。
-    void ensureVertexBranchIndex() const;
 };
 
 // 命名断层实体。

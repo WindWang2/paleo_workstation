@@ -149,11 +149,14 @@ public:
   bool readCell(int ilIdx, int xlIdx, int sIdx, float *out, QString *error = nullptr);
 
 private:
-  bool readBlock(int blockIndex, QString *error); // 整块进 blockScratch_
+  // 整块进 blockScratch_。#477：带当前块缓存——逐单元 readCell 在同块内
+  // 连续点取样（3D 悬停等）不再每格整块重读；换块时才真正落盘 IO。
+  bool readBlock(int blockIndex, QString *error);
 
   SattrVolumeInfo info_;
   QFile file_;
   std::vector<float> blockScratch_;
+  int lastBlock_ = -1; // blockScratch_ 现持的块号（-1 = 无缓存）
   struct BlockEntry
   {
     quint64 offset = 0;

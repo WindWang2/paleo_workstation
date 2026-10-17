@@ -304,6 +304,45 @@ private slots:
     QFile::remove(QDir::temp().absoluteFilePath(
         QStringLiteral("wc_tpl_%1.wc.json").arg(QCoreApplication::applicationPid())));
   }
+
+  // ---- #482 收敛：sidecar 读写走数据层 jsonsidecar helper 后的语义锚定 ----
+  // 不存在 → 合法空库；损坏（半截 JSON，断电/崩溃现场）→ load() 如实失败，
+  // 不当空库成功（半截库静默成功 = 钉注/书签/地层归属丢失且无日志线索）。
+  // save() 的原子写（QSaveFile）由 helper 契约保证。
+  void testSidecarCorruptionFailsHonestly()
+  {
+    const QString src = QDir::temp().absoluteFilePath(
+        QStringLiteral("wc_corrupt_%1.xml").arg(QCoreApplication::applicationPid()));
+    const QString sidecar = src.left(src.lastIndexOf(QLatin1Char('.')))
+                            + QStringLiteral(".wc.json");
+    QFile::remove(sidecar);
+
+    WellCompositeStore fresh(src);
+    QVERIFY(fresh.load()); // 不存在 = 正常初始态
+
+    QFile f(sidecar);
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    f.write("{\"pins\": [{\"depth\": 1234.5, \"text\": \"截断"); // 无换行截断
+    f.close();
+    WellCompositeStore corrupt(src);
+    QVERIFY(!corrupt.load());
+
+    WellCompositeStore store(src);
+    QVERIFY(!store.load()); // 损坏仍在场；空内存库直接覆写救回
+    QList<DepthPin> pins;
+    DepthPin pin;
+    pin.depth = 1234.5;
+    pin.text = QStringLiteral("标志层");
+    pins << pin;
+    store.setPins(pins);
+    QVERIFY(store.save());
+    WellCompositeStore reread(src);
+    QVERIFY(reread.load());
+    QCOMPARE(reread.pins().size(), 1);
+    QCOMPARE(reread.pins().first().depth, 1234.5);
+
+    QFile::remove(sidecar);
+  }
 };
 
 int main(int argc, char *argv[])

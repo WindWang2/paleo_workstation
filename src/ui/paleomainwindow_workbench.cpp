@@ -64,6 +64,15 @@
 #include <qgsrasterrenderer.h>
 #include <qgsvectorlayer.h>
 
+// ---------------------------------------------------------------------------
+// #473 拆分：attachWorkbench 入口只留幂等守卫 + 页签构建 + 顺序编排
+//（本函数原 1060 行）。各子域编排体逐字平移（行为守恒）：
+//   - 证据面板/图谱联动 → attachWorkbenchEvidence（_evidence.cpp）
+//   - 井预测修订域（dock/自动保存/右键改相）→ attachWorkbenchWells（_wells.cpp）
+//   - 命令分发 lambda 链 → runWorkbenchCommand（_commands.cpp）
+//   - 图例/上图/参考窗（显示编排域）→ 下方三个工厂（留在本 TU，含
+//     Qt::white 纸面色 token 例外所在行）
+// ---------------------------------------------------------------------------
 void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInteraction *evidence) {
   if (!workbench || property("workbenchAttached").toBool())
     return;
@@ -119,33 +128,9 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
             [page](const QVariantMap &) { page->reissueReverseQuery(); });
   }
   stack->setCurrentIndex(current);
-  if (evidence) {
-    connect(evidence, &EvidenceInteraction::navigationFailed, this, [this](const QString &error) { statusBar()->showMessage(error, 12000); });
-    for (auto *page : pages) {
-      connect(page, &MappingWorkbenchPage::targetLayerChanged, evidence, [evidence, page](const QString &id) {
-        if (page->isVisible()) evidence->setLayer(id);
-      });
-      connect(page, &MappingWorkbenchPage::evidenceActivated, evidence, [evidence](const QVariantMap &row) { evidence->navigate(row); });
-      // X10：反查命中行定位命中图斑本身（含旧版本），回退走研究目标栈。
-      connect(page, &MappingWorkbenchPage::reverseHitActivated, evidence, [evidence](const QVariantMap &row) { evidence->navigateFeature(row); });
-      connect(page, &MappingWorkbenchPage::evidenceBackRequested, evidence, [evidence] { evidence->back(); });
-      connect(evidence, &EvidenceInteraction::historyChanged, page, &MappingWorkbenchPage::setCanGoBack);
-      page->setCanGoBack(evidence->canGoBack());
-      connect(page, &MappingWorkbenchPage::evidenceGraphRequested, this, [this](const QVariantMap &snapshot) {
-        openDataGraph(snapshot.value("asset_id").toString(), snapshot.value("version_id").toString());
-        if (auto *data = findChild<DataPage *>()) data->graphPage()->setFeatureEvidence(snapshot, true);
-      });
-    }
-    connect(evidence, &EvidenceInteraction::detailsChanged, this, [this, pages](const QVariantMap &snapshot, quint64) {
-      for (auto *page : pages) {
-        if (page->isVisible() && page->horizon() == snapshot.value("horizon").toString()) page->selectLayer(snapshot.value("layer_id").toString());
-        if (snapshot.isEmpty() || page->selectedLayer() == snapshot.value("layer_id").toString()) page->setEvidenceSnapshot(snapshot);
-      }
-      if (auto *data = findChild<DataPage *>()) data->graphPage()->setFeatureEvidence(snapshot);
-    });
-    if (auto *data = findChild<DataPage *>())
-      connect(data->graphPage(), &DataGraphPage::evidenceTargetRequested, evidence, &EvidenceInteraction::navigateGraphNode);
-  }
+  // #473：证据面板/图谱联动接线（原 if (evidence) 块逐字平移）。
+  if (evidence)
+    attachWorkbenchEvidence(evidence, pages);
   if (m_decorMgr) {
     m_decorMgr->setNorthArrowEnabled(true);
     m_decorMgr->setScaleBarEnabled(true);
@@ -167,141 +152,18 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
                 statusBar()->showMessage(
                     error.isEmpty() ? tr("测区边界导入失败") : error, 15000);
             });
-  auto legend = [this, workbench](const QString &id = QString()) {
-    if (!m_decorMgr)
-      return;
-    const auto h = m_selection->activeHorizon();
-    auto v = workbench->versionForLayer(id);
-    auto d = workbench->declaration(id);
-    const auto legendKind = v.extra.value("kind").toString();
-    const auto legendSource = v.extra.value("value_source").toString();
-    const bool analysisRaster =
-        paleo::singlefactor::isAnalysisFactorRaster(legendKind, legendSource);
-    const bool cartographic =
-        paleo::singlefactor::rejectsQuantitativeUse(legendKind, legendSource);
-    bool product = !v.id.isEmpty() && d.horizon == h &&
-                   v.extra.contains("facies") &&
-                   !legendKind.startsWith(QLatin1String("constraint")) &&
-                   !analysisRaster && !cartographic;
-    auto schema =
-        product ? v.extra.value("facies").toList() : workbench->facies(h);
-    QString title = h.isEmpty() ? tr("请选择层位") : tr("%1 · 三级相图例").arg(h);
-    if (product)
-      title +=
-          tr(" · v%1%2")
-              .arg(v.versionNumber)
-              .arg(v.extra.value("mock").toBool() ? tr(" Mock") : QString());
-    if (analysisRaster || cartographic) {
-      schema.clear();
-      if (auto *r = qobject_cast<QgsRasterLayer *>(m_layerSvc->layer(id));
-          r && r->renderer())
-        for (const auto &item : r->renderer()->legendSymbologyItems())
-          schema << QVariantMap{{"name", item.first},
-                                {"color", item.second.name()}};
-      title = cartographic
-                  ? tr("%1 · 解释性制图 v%2").arg(h).arg(v.versionNumber)
-                  : tr("%1 · 数值图例 v%2").arg(h).arg(v.versionNumber);
-    } else if (legendKind.startsWith(QLatin1String("constraint")) ||
-               legendKind == QLatin1String("contour_lines")) {
-      schema.clear();
-      title = tr("%1 · %2").arg(h, legendKind == QLatin1String("contour_lines")
-                                       ? tr("等值线")
-                                       : tr("约束线"));
-    }
-    if (product) {
-      schema = workbench->displayLegend(id);
-      auto *wellLayer = qobject_cast<QgsVectorLayer *>(m_layerSvc->layer(id));
-      const bool wellResult = wellLayer && wellLayer->fields().indexOf("facies_intervals") >= 0;
-      title = tr("%1 · %2 · v%3")
-                  .arg(h, wellResult ? tr("测井预测 · %1").arg(FaciesHierarchy::title(workbench->resolvedLevel(id))) : FaciesHierarchy::title(workbench->resolvedLevel(id)))
-                  .arg(v.versionNumber);
-      if (v.extra.value("mock").toBool())
-        title += tr(" · Mock");
-    }
-    m_decorMgr->setFaciesLegend(title, h.isEmpty() ? QVariantList() : schema, product ? m_layerSvc->layer(id) : nullptr);
-  };
+  // #473：图例/上图/参考窗三个编排体拆至下方工厂（本 TU）。legend 薄转发
+  // 保持默认实参（std::function 不携带默认实参），下游 legend()/legend(id)
+  // 调用点零改动。
+  const auto legendCore = makeWorkbenchLegend(workbench);
+  auto legend = [legendCore](const QString &id = QString()) { legendCore(id); };
   auto shown = std::make_shared<QHash<QString, QString>>();
   if (m_projectSvc) {
     connect(m_projectSvc, &QgisProjectService::projectOpened, this,
             [shown] { shown->clear(); });
   }
-  auto show = [this, workbench, legend, shown](const QString &id,
-                                               QString *error) {
-    const auto d = workbench->declaration(id);
-    if (!d.horizon.isEmpty() && d.horizon != m_selection->activeHorizon()) {
-      if (error)
-        *error = tr("请切换至图件所属层位 %1，或打开参考面板").arg(d.horizon);
-      return false;
-    }
-    auto *layer = m_layerSvc->instantiate(id, error);
-    if (!layer)
-      return false;
-    // 初次实例化和编辑/比例尺变化已负责样式；显示缓存图层无需重建。
-    auto *canvas = m_canvasCtl->canvas();
-    const bool wasFrozen = canvas->isFrozen();
-    canvas->freeze(true);
-    if (!canvas->mapTool()) {
-      auto *pan = canvas->findChild<QgsMapToolPan *>("workbenchPan");
-      if (!pan) {
-        pan = new QgsMapToolPan(canvas);
-        pan->setParent(canvas);
-        pan->setObjectName("workbenchPan");
-      }
-      canvas->setMapTool(pan);
-    }
-    // Focus one generated result while retaining base data. History stays in
-    // the result list and can be compared in independent panels.
-    auto *treeRoot = (m_projectSvc && m_projectSvc->project())
-                         ? m_projectSvc->project()->layerTreeRoot()
-                         : nullptr;
-    if (treeRoot) {
-      for (const auto &other : m_layerSvc->declared())
-        if (other.layerId != id && other.horizon == d.horizon &&
-            (other.layerId.startsWith("product.") ||
-             other.layerId.startsWith("factor.") ||
-             other.layerId.startsWith("contours.") ||
-             other.layerId.startsWith("cartographic.") ||
-             other.layerId.startsWith("draft."))) {
-          if (auto *old = m_layerSvc->layer(other.layerId))
-            if (auto *node = treeRoot->findLayer(old->id()))
-              node->setItemVisibilityChecked(false);
-        }
-      if (auto *node = treeRoot->findLayer(layer->id()))
-        node->setItemVisibilityCheckedParentRecursive(true);
-      if (auto *vector = qobject_cast<QgsVectorLayer *>(layer);
-          vector && vector->fields().indexOf("facies_intervals") >= 0) {
-        // 共享井位/维护表位于树顶部；显示预测时把本图件放到绘制顺序首位，
-        // 否则同坐标的基础井点会盖住预测点及其相标注。
-        auto order = treeRoot->layerOrder();
-        order.removeAll(layer);
-        order.prepend(layer);
-        treeRoot->setCustomLayerOrder(order);
-        treeRoot->setHasCustomLayerOrder(true);
-      } else {
-        // 自定义绘制顺序一旦生效，新实例化的产层会被追加到序列表尾
-        // （画在最底），落在不透明的离线地形底图/阴影之下即整层不可见。
-        // 按树序找位（facies-ux 2）：布局器已把图件收进所属地层组并按组序
-        // 摆好，绘制序跟随树序——相面压在同层位相栅格之上、底图之上、
-        // 井位等共享矢量之下。
-        QgisLayerOrganizer::slotIntoCustomOrder(treeRoot, layer);
-      }
-    }
-    if (auto *tree = findChild<QgsLayerTreeView *>())
-      tree->setCurrentLayer(layer);
-    canvas->setCurrentLayer(layer);
-    if (m_profileSvc)
-      m_profileSvc->captureCurrentAsTheme(
-          QgisLayerProfileService::pageThemeName(currentPage()));
-    m_canvasCtl->zoomToLayer(id);
-    canvas->freeze(wasFrozen);
-    if (!wasFrozen) canvas->refresh();
-    legend(id);
-    shown->insert(d.horizon, id);
-    return true;
-  };
-  auto compare = [this](const QString &id, QString *error) {
-    return showMappingReference(id, error);
-  };
+  const auto show = makeWorkbenchShow(workbench, legend, shown);
+  const auto compare = makeWorkbenchCompare(workbench);
   if (edit) {
     connect(edit->actionAddPolygon(), &QAction::triggered, this, [this, compare] {
       if (currentPage() != QLatin1String("compose")) return;
@@ -312,288 +174,13 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
       m_canvasCtl->canvas()->setFocus();
     });
   }
-  auto *wellDock = new QDockWidget(tr("测井预测相与修订"), this);
-  wellDock->setObjectName("wellPredictionDock");
-  auto *wellPanel = new WellPredictionPanel(wellDock);
-  wellDock->setWidget(wellPanel);
-  addDockWidget(Qt::BottomDockWidgetArea, wellDock);
-  wellDock->hide();
-  if (auto *dataPage = findChild<DataPage *>())
-    connect(dataPage, &DataPage::mappingReferenceRequested, this,
-            [this, workbench, compare](const QString &version) {
-              const QPointer<QgsMapLayer> target =
-                  m_canvasCtl->canvas()->currentLayer();
-              QString error;
-              const auto id = workbench->layerForVersion(version, &error);
-              if (id.isEmpty() || !compare(id, &error)) {
-                statusBar()->showMessage(error, 15000);
-                return;
-              }
-              showPage("compose");
-              if (target) {
-                if (auto *node =
-                        m_projectSvc->project()->layerTreeRoot()->findLayer(
-                            target->id()))
-                  node->setItemVisibilityCheckedParentRecursive(true);
-                if (auto *tree = findChild<QgsLayerTreeView *>())
-                  tree->setCurrentLayer(target);
-                m_canvasCtl->canvas()->setCurrentLayer(target);
-                m_canvasCtl->canvas()->refresh();
-                if (m_profileSvc)
-                  m_profileSvc->captureCurrentAsTheme(
-                      QgisLayerProfileService::pageThemeName(currentPage()));
-              }
-              statusBar()->showMessage(tr("已打开所选保存版本的联动参考图。"),
-                                       8000);
-            });
-  auto openWells = [this, workbench, wellPanel, wellDock](const QString &id) {
-    const auto wells = workbench->wellPredictions(id);
-    if (wells.isEmpty())
-      return;
-    wellPanel->setResult(
-        id, wells,
-        workbench->versionForLayer(id).extra.value("facies").toList(),
-        workbench->versionForLayer(id).extra.value("mock").toBool());
-    if (auto *v = qobject_cast<QgsVectorLayer *>(m_layerSvc->layer(id)))
-      wellPanel->setUndoAvailable(
-          (v->isEditable() && v->undoStack()->canUndo()) ||
-          (DraftAutosave::of(v) && DraftAutosave::of(v)->canUndo()));
-    wellDock->show();
-    wellDock->raise();
-  };
-  // facies-ux 4：工作副本属性修订随时自动保存（只在已持有编辑锁时提交）。
-  const auto attachAutosave = [this, wellPanel](QgsVectorLayer *vector) {
-    if (!vector ||
-        !vector->customProperty("paleoLayerId").toString().startsWith("draft.") ||
-        DraftAutosave::of(vector))
-      return;
-    auto *autosave = DraftAutosave::attach(vector);
-    const QPointer<QgsVectorLayer> guard(vector);
-    connect(autosave, &DraftAutosave::failed, this, [this](const QString &error) {
-      const auto text = tr("自动保存失败，修改仍保留在编辑缓冲中：%1").arg(error);
-      statusBar()->showMessage(text, 15000);
-      PaleoNotify::warning(this, tr("自动保存失败"), text);
-    });
-    connect(autosave, &DraftAutosave::historyChanged, this, [wellPanel, guard] {
-      if (guard &&
-          guard->customProperty("paleoLayerId").toString() == wellPanel->layerId())
-        wellPanel->setUndoAvailable(
-            (guard->isEditable() && guard->undoStack()->canUndo()) ||
-            DraftAutosave::of(guard)->canUndo());
-    });
-  };
-  if (m_projectSvc && m_projectSvc->project()) {
-    connect(m_projectSvc->project(), &QgsProject::layersAdded, this,
-            [attachAutosave](const QList<QgsMapLayer *> &layers) {
-              for (auto *layer : layers)
-                attachAutosave(qobject_cast<QgsVectorLayer *>(layer));
-            });
-    for (auto *layer : m_projectSvc->project()->mapLayers())
-      attachAutosave(qobject_cast<QgsVectorLayer *>(layer));
-  }
-  connect(wellPanel, &WellPredictionPanel::graphRequested, this,
-          [this, workbench](const QString &layer) {
-            const auto v = workbench->versionForLayer(layer);
-            if (!v.id.isEmpty()) openDataGraph(v.assetId, v.id);
-            else statusBar()->showMessage(tr("请先保存修订版本，再追溯其来源"), 8000);
-          });
-  if (auto *dataPage = findChild<DataPage *>())
-    connect(dataPage->graphPage(), &DataGraphPage::workspaceRequested, this,
-            [this, workbench, pages, show, compare, openWells](const QString &version, const QString &action) {
-      QString error;
-      const auto id = workbench->layerForVersion(version, &error);
-      if (id.isEmpty()) { statusBar()->showMessage(error, 15000); return; }
-      const auto declaration = workbench->declaration(id);
-      const auto metadata = workbench->versionForLayer(id).extra;
-      const auto kind = metadata.value("kind").toString();
-      const QString pageId = metadata.value("result_kind") == "formation_prediction" ||
-          kind.contains("prediction") || kind.contains("well") || kind.contains("seismic")
-          ? QStringLiteral("predict") : kind.startsWith("single_factor") || kind.startsWith("constraint") || kind == "contour_lines"
-          ? QStringLiteral("constraint") : QStringLiteral("compose");
-      if (!declaration.horizon.isEmpty()) m_selection->setActiveHorizon(declaration.horizon);
-      showPage(pageId);
-      for (auto *page : pages) {
-        page->setHorizon(m_selection->activeHorizon()); page->refresh(); page->selectLayer(id);
-      }
-      bool ok = action == "compare" ? compare(id, &error) : show(id, &error);
-      if (ok && action == "welltracks") {
-        if (workbench->wellPredictions(id).isEmpty()) { ok = false; error = tr("所选版本没有可修订的测井预测结果"); }
-        else openWells(id);
-      }
-      statusBar()->showMessage(ok ? tr("已打开图谱中选择的保存版本") : error, ok ? 8000 : 15000);
-    });
-  auto beginEdit = [this, edit, attachAutosave](const QString &id) {
-    auto *vector = qobject_cast<QgsVectorLayer *>(m_layerSvc->instantiate(id));
-    attachAutosave(vector);
-    if (edit && vector) {
-      edit->refreshFromProject();
-      edit->setCurrentLayer(vector);
-      const bool ok = edit->startEditing();
-      if (ok && !edit->actionSelect()->isChecked())
-        edit->actionSelect()->trigger();
-      return ok;
-    }
-    return false;
-  };
-  connect(wellPanel, &WellPredictionPanel::logRequested, this,
-          [workbench, wellPanel](const QString &version) {
-            wellPanel->setLog(workbench->predictionLog(version));
-          });
-  connect(wellPanel, &WellPredictionPanel::featureSelected, this,
-          [this, wellPanel](qint64 fid) {
-            if (auto *v = qobject_cast<QgsVectorLayer *>(
-                    m_layerSvc->layer(wellPanel->layerId())))
-              v->selectByIds({fid});
-          });
-  connect(wellPanel, &WellPredictionPanel::reviseRequested, this,
-          [this, workbench, wellPanel, beginEdit, openWells](
-              const QString &well, int interval, int code) {
-            QString error;
-            auto id = wellPanel->layerId();
-            if (!id.startsWith("draft.")) {
-              // 直接在预测相上修订：预测原件不可变，首次修订自动创建修订副本
-              // 并切换到副本（与画布右键改相同一条路径）。
-              id = workbench->copyForEditing(id, {}, &error);
-              if (id.isEmpty()) {
-                statusBar()->showMessage(error, 10000);
-                return;
-              }
-              openWells(id);
-            }
-            if (beginEdit(id) &&
-                workbench->reviseWellInterval(id, well, interval, code, &error))
-              statusBar()->showMessage(
-                  tr("当前地层的预测相已更新并自动保存到修订副本；可撤销，保存修订版本后登记新版本。"), 10000);
-            else
-              statusBar()->showMessage(
-                  error.isEmpty() ? tr("请先结束其他图层的编辑") : error,
-                  10000);
-          });
-  connect(wellPanel, &WellPredictionPanel::saveRequested, this,
-          [this, workbench, wellPanel, edit] {
-            QString error;
-            auto id = wellPanel->layerId();
-            auto *v = qobject_cast<QgsVectorLayer *>(m_layerSvc->layer(id));
-            if (v && v->isEditable()) {
-              if (edit && edit->currentLayer() == v)
-                edit->saveEditing();
-              else
-                statusBar()->showMessage(tr("请先结束其他图层的编辑"), 10000);
-            } else if (!workbench->saveEditingVersion(id, &error))
-              statusBar()->showMessage(error, 10000);
-          });
-  connect(wellPanel, &WellPredictionPanel::undoRequested, this,
-          [this, workbench, wellPanel] {
-            const auto id = wellPanel->layerId();
-            auto *v = qobject_cast<QgsVectorLayer *>(m_layerSvc->layer(id));
-            if (v && v->isEditable() && v->undoStack()->canUndo()) {
-              v->undoStack()->undo();
-              v->triggerRepaint();
-              emit workbench->faciesEdited(id);
-            } else if (auto *autosave = DraftAutosave::of(v);
-                       autosave && autosave->canUndo()) {
-              // 已自动保存的修订：按自带历史写回旧值并再次自动保存。
-              QString error;
-              if (autosave->undo(&error))
-                emit workbench->faciesEdited(id);
-              else
-                statusBar()->showMessage(error, 10000);
-            }
-          });
-  connect(
-      workbench, &MappingWorkbench::faciesEdited, this,
-      [this, workbench, wellPanel, legend](const QString &id) {
-        workbench->styleLayer(id);
-        m_canvasCtl->canvas()->refresh();
-        legend(id);
-        if (wellPanel->layerId() == id) {
-          wellPanel->setResult(
-              id, workbench->wellPredictions(id),
-              workbench->versionForLayer(id).extra.value("facies").toList(),
-              workbench->versionForLayer(id).extra.value("mock").toBool());
-          if (auto *v = qobject_cast<QgsVectorLayer *>(m_layerSvc->layer(id)))
-            wellPanel->setUndoAvailable(
-                (v->isEditable() && v->undoStack()->canUndo()) ||
-                (DraftAutosave::of(v) && DraftAutosave::of(v)->canUndo()));
-        }
-      });
-  connect(m_selection, &SelectionContext::activeHorizonChanged, wellPanel,
-          [wellPanel, wellDock] {
-            wellPanel->clear();
-            wellDock->hide();
-          });
-  if (m_projectSvc) {
-    connect(m_projectSvc, &QgisProjectService::projectOpened, wellPanel,
-            [wellPanel, wellDock] {
-              wellPanel->clear();
-              wellDock->hide();
-            });
-  }
-  connect(
-      m_canvasCtl->canvas(), &QgsMapCanvas::contextMenuAboutToShow, this,
-      [this, workbench, show, beginEdit](QMenu *menu, QgsMapMouseEvent *event) {
-        auto *v = qobject_cast<QgsVectorLayer *>(
-            m_canvasCtl->canvas()->currentLayer());
-        if (!v || v->fields().indexOf("facies_code") < 0)
-          return;
-        const auto id = v->customProperty("paleoLayerId").toString();
-        const auto schema =
-            workbench->versionForLayer(id).extra.value("facies").toList();
-        if (schema.isEmpty())
-          return;
-        QgsMapToolIdentify identify(m_canvasCtl->canvas());
-        const auto hits =
-            identify.identify(event->pos().x(), event->pos().y(), {v},
-                              QgsMapToolIdentify::TopDownAll);
-        if (hits.isEmpty())
-          return;
-        auto *changes = menu->addMenu(tr("更改此要素的相"));
-        changes->setObjectName("changeFeatureFacies");
-        const auto original = hits.first().mFeature;
-        for (const auto &entry : schema) {
-          auto f = entry.toMap();
-          auto *action = changes->addAction(
-              QIcon(FaciesCatalog::resourcePath(f.value("icon", f.value("texture")).toString())),
-              f.value("name").toString());
-          connect(
-              action, &QAction::triggered, this,
-              [this, workbench, id, original, code = f.value("code").toInt(),
-               show, beginEdit] {
-                QString error;
-                QString target = id;
-                QgsFeatureId fid = original.id();
-                if (!target.startsWith("draft.")) {
-                  target = workbench->copyForEditing(id, {}, &error);
-                  auto *copy = qobject_cast<QgsVectorLayer *>(
-                      m_layerSvc->instantiate(target));
-                  if (copy) {
-                    auto it = copy->getFeatures();
-                    QgsFeature f;
-                    fid = FID_NULL;
-                    while (it.nextFeature(f))
-                      if (f.geometry().asWkb() == original.geometry().asWkb() &&
-                          f.attribute("facies_code") ==
-                              original.attribute("facies_code")) {
-                        fid = f.id();
-                        break;
-                      }
-                  }
-                }
-                if (target.isEmpty() || fid == FID_NULL || !beginEdit(target) ||
-                    !workbench->assignFacies(target, {fid}, code, &error))
-                  statusBar()->showMessage(
-                      error.isEmpty() ? tr("无法修改；请先结束其他图层的编辑")
-                                      : error,
-                      10000);
-                else {
-                  show(target, &error);
-                  statusBar()->showMessage(
-                      tr("相类别已更新并自动保存到工作副本，可撤销；保存编辑后登记新版本。"),
-                      10000);
-                }
-              });
-        }
-      });
+  // #473：井预测修订域拆至 attachWorkbenchWells；返回句柄沿用原局部名，
+  // 下游 connect 捕获列表零改动。
+  const auto wells = attachWorkbenchWells(workbench, edit, pages, legend, show, compare);
+  auto *wellPanel = wells.panel;
+  auto *wellDock = wells.dock;
+  const auto openWells = wells.openWells;
+  const auto beginEdit = wells.beginEdit;
   workbench->updateDisplayScale(m_canvasCtl->canvas()->scale());
   connect(m_canvasCtl->canvas(), &QgsMapCanvas::scaleChanged, workbench,
           &MappingWorkbench::updateDisplayScale);
@@ -639,384 +226,15 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
     page->setHorizon(m_selection->activeHorizon());
     connect(m_selection, &SelectionContext::activeHorizonChanged, page,
             &MappingWorkbenchPage::setHorizon);
+    // #473：命令分发 lambda 链拆至 runWorkbenchCommand——捕获面转参数，
+    // 捕获列表保持原名原序。
     connect(
         page, &MappingWorkbenchPage::commandRequested, this,
         [this, workbench, page, show, compare, edit, constraint, legend,
          openWells, beginEdit, shown, wellPanel, wellDock](const QString &action, const QVariantMap &p) {
-          QString error;
-          bool ok = true;
-          const auto h = p.value("horizon").toString(),
-                     id = p.value("layer").toString();
-          const auto inputs = p.value("inputs").toStringList();
-          if (action == "predict")
-            ok = workbench->predict(h, p.value("kind").toString(), inputs,
-                                    &error, p.value("horizon_file").toString());
-          else if (action == "wellattributes") {
-            const auto layer = workbench->openWellAttributes(&error);
-            ok = !layer.isEmpty();
-            if (ok) showAttributeTable(layer);
-          }
-          else if (action == "wellformations") {
-            const auto layer = workbench->openWellFormations(&error);
-            ok = !layer.isEmpty();
-            if (ok) showAttributeTable(layer);
-          }
-          else if (action == "cancel")
-            workbench->cancelPrediction();
-          else if (action == "show")
-            ok = show(id, &error);
-          else if (action == "graph") {
-            const auto version = workbench->versionForLayer(id);
-            if (version.id.isEmpty()) { ok = false; error = tr("所选图件尚未登记到数据管理"); }
-            else openDataGraph(version.assetId, version.id);
-          }
-          else if (action == "catalog") {
-            const auto version = workbench->versionForLayer(id);
-            auto *dataPage = findChild<DataPage *>();
-            if (!dataPage || version.id.isEmpty()) {
-              ok = false;
-              error = tr("所选图件尚未登记到数据管理");
-            } else {
-              showPage("data");
-              if (m_previewTabs)
-                m_previewTabs->openVersion(version.id);
-              dataPage->focusVersion(version.assetId, version.id);
-            }
-          } else if (action == "reverseQuery") {
-            QVariantMap meta;
-            const auto rows = workbench->evidenceReverseQuery(
-                p.value("reverse_kind").toString(),
-                p.value("reverse_argument").toString(), &error, &meta);
-            ok = error.isEmpty();
-            page->setReverseResults(rows, ok ? QString() : error, meta);
-            error.clear();
-          } else if (action == "impactAnalysis") {
-            // X13：版本对选择在功能层（同资产上一版 = 变化前），视图只传图件。
-            // 重放为同步长操作（≤64 产品 × 2 × 400 万像元）：等待光标 +
-            // 状态栏提示（DESIGN.md Motion「>1s 显示进度条」的同步路径
-            // 最小满足；异步任务化在 full-audit 台账记为剩余工作）。
-            // 光标 RAII：分析抛异常（bad_alloc 族）也不卡死在等待态（R2-07②）。
-            statusBar()->showMessage(tr("正在分析影响（重放冻结输入）…"), 0);
-            const struct WaitCursorGuard
-            {
-              ~WaitCursorGuard() { QApplication::restoreOverrideCursor(); }
-            } waitCursor;
-            QApplication::setOverrideCursor(Qt::WaitCursor);
-            m_lastImpact = workbench->analyzeLayerVersionImpact(id, h, &error);
-            ok = !m_lastImpact.isEmpty();
-            page->setImpactAvailable(ok);
-            if (ok) {
-              const auto determined = m_lastImpact.value("determined").toList();
-              qint64 changedCells = 0;
-              for (const auto &value : determined)
-                changedCells += value.toMap().value("changed_cells").toLongLong();
-              const auto reportPath =
-                  m_lastImpact.value("report_path").toString();
-              statusBar()->showMessage(
-                  reportPath.isEmpty()
-                      ? tr("影响分析完成：直接依赖 %1 项，潜在影响 %2 项，可确定"
-                           "变化 %3 像元（报告未能保存到工程目录）")
-                            .arg(m_lastImpact.value("direct_products").toList().size())
-                            .arg(m_lastImpact.value("potential_products").toList().size())
-                            .arg(changedCells)
-                      : tr("影响分析完成：直接依赖 %1 项，潜在影响 %2 项，可确定变化 "
-                           "%3 像元（详见 %4）")
-                            .arg(m_lastImpact.value("direct_products").toList().size())
-                            .arg(m_lastImpact.value("potential_products").toList().size())
-                            .arg(changedCells)
-                            .arg(reportPath),
-                  20000);
-            }
-          } else if (action == "compareRecompute") {
-            // X13：受控重算成果 vs 其替代的旧版本（像元级 diff + 报告落盘）。
-            const auto report =
-                workbench->compareWithRecomputeSource(id, &error);
-            ok = !report.isEmpty();
-            if (ok) {
-              auto matrix = report.value("code_matrix").toList();
-              std::sort(matrix.begin(), matrix.end(),
-                        [](const QVariant &a, const QVariant &b) {
-                          return a.toMap().value("cells").toLongLong() >
-                                 b.toMap().value("cells").toLongLong();
-                        });
-              QStringList top;
-              for (const auto &value : matrix.mid(0, 3))
-                top << tr("%1：%2 像元")
-                           .arg(value.toMap().value("transition").toString())
-                           .arg(value.toMap().value("cells").toLongLong());
-              statusBar()->showMessage(
-                  tr("重算对比：变化 %1/%2 像元；主要转移 %3（详见 %4）")
-                      .arg(report.value("cells_changed").toLongLong())
-                      .arg(report.value("total_cells").toLongLong())
-                      .arg(top.isEmpty() ? tr("无") : top.join("；"))
-                      .arg(report.value("report_path").toString()),
-                  20000);
-            }
-          } else if (action == "recompute") {
-            if (m_lastImpact.isEmpty()) {
-              ok = false;
-              error = tr("请先运行影响分析，再按其结果受控重算");
-            } else {
-              const auto plan = workbench->recomputePlan(m_lastImpact, &error);
-              ok = !plan.isEmpty() && plan.value("status").toString() != QStringLiteral("empty");
-              if (ok) {
-                const struct WaitCursorGuard
-                {
-                  ~WaitCursorGuard() { QApplication::restoreOverrideCursor(); }
-                } waitCursor;
-                QApplication::setOverrideCursor(Qt::WaitCursor);
-                const auto execution = workbench->executeRecompute(plan, &error);
-                const auto results = execution.value("results").toList();
-                int started = 0;
-                QStringList notes;
-                for (const auto &value : results) {
-                  const auto row = value.toMap();
-                  if (row.value("ok").toBool())
-                    ++started;
-                  // 如实带上逐条结论（跳过/过期/已完成的 reason 都在结果行）。
-                  const auto note = row.value("reason").toString().isEmpty()
-                                        ? row.value("error").toString()
-                                        : row.value("reason").toString();
-                  if (!note.isEmpty() && notes.size() < 3)
-                    notes << note;
-                }
-                statusBar()->showMessage(
-                    tr("受控重算已启动 %1/%2 项：%3新版本由任务中心生成，历史版本"
-                       "与已确认解释保持不变")
-                        .arg(started)
-                        .arg(results.size())
-                        .arg(notes.isEmpty() ? QString()
-                                             : notes.join("；") + QStringLiteral("。")),
-                    20000);
-              } else if (error.isEmpty())
-                error = tr("影响报告中没有可重算的综合编图成果");
-            }
-          } else if (action == "labels")
-            ok = workbench->setLabelMode(id, p.value("label_mode").toInt(),
-                                         &error);
-          else if (action == "welltracks")
-            openWells(id);
-          else if (action == "selectHierarchy") {
-            ok = workbench->selectHierarchyMembers(
-                id, p.value("edit_level").toString(), &error);
-          } else if (action == "displayLevel") {
-            ok = workbench->setDisplayMode(
-                id, p.value("display_mode").toString(), &error);
-          } else if (action == "addEvidence" || action == "removeEvidence" || action == "updateEvidence" || action == "verifyEvidence" || action == "reviewInterpretation") {
-            if (!beginEdit(id)) {
-              ok = false;
-              error = tr("请先结束其他图层的编辑");
-            } else if (action == "addEvidence")
-              ok = workbench->addEvidence(id, workbench->selectedFeatures(id),
-                                          p, &error);
-            else {
-              auto parameters = p;
-              if (action == "removeEvidence" && parameters.value("reason").toString().trimmed().isEmpty()) parameters.insert("reason", tr("解除错误的证据关联"));
-              const auto change = action == "removeEvidence" ? QStringLiteral("unlink") : action == "updateEvidence" ? QStringLiteral("update_evidence") :
-                  action == "verifyEvidence" ? QStringLiteral("verify_evidence") : QStringLiteral("review");
-              ok = workbench->changeEvidence(id, workbench->selectedFeatures(id), change, parameters, &error);
-            }
-          } else if (action == "assignFacies") {
-            auto *v =
-                qobject_cast<QgsVectorLayer *>(m_layerSvc->instantiate(id));
-            if (!v || v->selectedFeatureIds().isEmpty()) {
-              ok = false;
-              error = tr("请先用画布选择工具选中要素");
-            } else if (!beginEdit(id)) {
-              ok = false;
-              error = tr("请先结束其他图层的编辑");
-            } else
-              ok = workbench->assignHierarchy(
-                  id, v->selectedFeatureIds().values(), p.value("code").toInt(),
-                  p.value("edit_level", "micro_facies").toString(), &error);
-          } else if (action == "referencePanel") {
-            ok = compare(QString(), &error);
-          } else if (action == "references") {
-            for (const auto &ref : inputs) {
-              if (!compare(ref, &error)) {
-                ok = false;
-                break;
-              }
-            }
-          } else if (action == "compare")
-            ok = compare(id, &error);
-          else if (action == "consistency") {
-            ok = workbench->startFaciesConsistency(id, &error);
-          } else if (action == "polygonize")
-            ok = workbench->startPolygonize(id, &error);
-          else if (action == "copy") {
-            const auto draft = workbench->copyForEditing(id, inputs, &error);
-            ok = !draft.isEmpty();
-            if (ok && edit) {
-              show(draft, &error);
-              ok = beginEdit(draft);
-              if (!ok)
-                error = tr("副本已创建，请先结束其他图层的编辑");
-            }
-          } else if (action == "save") {
-            auto *vector =
-                qobject_cast<QgsVectorLayer *>(m_layerSvc->layer(id));
-            if (vector && vector->isEditable()) {
-              if (edit && edit->currentLayer() == vector) {
-                if (edit->saveEditing())
-                  return;
-                ok = false;
-                error = tr("画布编辑未能提交，请检查编辑提示");
-              } else {
-                ok = false;
-                error = tr("请先保存正在编辑的图层");
-              }
-            } else
-              ok = workbench->saveEditingVersion(id, &error);
-          } else if (action == "delete") {
-            const auto title = workbench->declaration(id).title;
-            const auto products = workbench->removalProducts(id, &error);
-            QStringList entries, versionIds;
-            for (const auto &value : products) {
-              const auto product = value.toMap();
-              entries << tr("• %1（%2 个版本）").arg(product.value("title").toString())
-                             .arg(product.value("versions").toInt());
-              if (m_previewDoc && m_previewDoc->catalog())
-                for (const auto &version : m_previewDoc->catalog()->versionsForAsset(
-                         product.value("asset_id").toString())) versionIds << version.id;
-            }
-            if (products.isEmpty()) {
-              ok = false;
-            } else if (!PaleoNotify::ask(
-                    this, tr("删除图件"),
-                    tr("永久删除图件「%1」？\n"
-                       "以下图件（含关联派生图件）的全部版本、数据管理记录与受管文件将一并删除，不可恢复：\n%2")
-                        .arg(title.isEmpty() ? id : title, entries.join("\n")),
-                    PaleoNotify::AskButtons::OkCancel,
-                    PaleoNotify::AskDefault::Reject,
-                    PaleoNotify::AskIcon::Warning))
-              return;
-            else {
-              auto *deleteCanvas = m_canvasCtl->canvas();
-              const bool wasFrozen = deleteCanvas->isFrozen();
-              deleteCanvas->freeze(true);
-              ok = workbench->removeProduct(id, &error, true);
-              deleteCanvas->freeze(wasFrozen);
-              if (!wasFrozen) deleteCanvas->refresh();
-              if (ok) {
-                for (auto *view : findChildren<MappingReferencePanel *>())
-                  if (versionIds.contains(view->property("paleo.referenceVersion").toString()))
-                    view->clearReference(tr("所选证据版本已删除，请选择其他证据。"));
-                if (!wellPanel->layerId().isEmpty() &&
-                    workbench->versionForLayer(wellPanel->layerId()).id.isEmpty()) {
-                  wellPanel->clear();
-                  wellDock->hide();
-                }
-                for (auto it = shown->begin(); it != shown->end();)
-                  if (workbench->declaration(it.value()).layerId.isEmpty()) it = shown->erase(it);
-                  else ++it;
-                auto *canvas = m_canvasCtl->canvas();
-                legend(canvas->currentLayer()
-                           ? canvas->currentLayer()->customProperty("paleoLayerId").toString() : QString());
-                canvas->refresh();
-              }
-            }
-          } else if (action == "import") {
-            const auto path = QFileDialog::getOpenFileName(
-                this, tr("导入局部米制约束线"), QString(),
-                tr("矢量文件 (*.gpkg *.geojson *.json *.shp)"));
-            if (path.isEmpty())
-              return;
-            ok = workbench->importConstraints(h, path, QStringLiteral("auto"),
-                                              &error);
-            // auto 判定失败 → 询问用户角色后重试（方向线 / 打断线）。
-            if (!ok && error.contains(tr("无法判断约束线类型"))) {
-              const QString choice = QInputDialog::getItem(
-                  this, tr("约束线类型"), tr("无法自动判断，请选择约束线类型："),
-                  {tr("方向线"), tr("打断线")}, 0, false, &ok);
-              if (ok)
-                ok = workbench->importConstraints(
-                    h, path,
-                    choice == tr("方向线") ? QStringLiteral("direction")
-                                          : QStringLiteral("barrier"),
-                    &error);
-              else
-                return;
-            }
-          } else if (action == "draw") {
-            if (constraint) {
-              constraint->drawConstraintRequested(h, "line", -1);
-              page->showMessage(
-                  tr("在画布逐点绘制约束线，右键结束；Esc 取消。"));
-              return;
-            } else {
-              ok = false;
-              error = tr("约束绘制工具不可用");
-            }
-          } else if (action == "factor") {
-            if (m_factorTask && m_factorTask->running()) {
-              ok = false;
-              error = tr("已有单因素计算在进行");
-            } else
-              ok = workbench->generateFactor(h, p.value("factor").toString(), p,
-                                             &error);
-          }
-          else if (action == "contours")
-            ok = workbench->generateContours(
-                h, id, p.value("interval").toDouble(), &error);
-          else if (action == "compose")
-            ok = workbench->startCompose(h, inputs, p, &error);
-          else if (action == "schema") {
-            ok = workbench->saveFacies(h, p.value("facies").toList(), &error);
-            auto *layer = m_canvasCtl->canvas()->currentLayer();
-            legend(layer ? layer->customProperty("paleoLayerId").toString()
-                         : QString());
-          }
-          QString message;
-          if (!ok)
-            message = error.isEmpty() ? tr("操作未完成，请检查输入。") : error;
-          else if (action == "predict")
-            message = tr("预测已在后台执行，进度见底栏任务中心；完成后自动登记并显示图件。");
-          else if (action == "polygonize")
-            message = workbench->polygonizeBusy()
-                          ? tr("相栅格转相面已在后台执行，进度见底栏任务中心；完成后自动登记并显示在对应地层组。")
-                          : tr("相栅格已转为相面。");
-          else if (action == "compose" || action == "consistency" ||
-                   action == "factor" || action == "contours")
-            message =
-                tr("任务已提交，进度和取消操作见任务中心；完成后显示结果。");
-          else if (action == "wellattributes")
-            message = tr("已打开测井矢量属性表；保存后更新井道与单因素输入。");
-          else if (action == "wellformations")
-            message = tr("已打开地层相属性表；每口井每个地层（组/段）一行，预测输出即该地层的相，可直接维护。");
-          else if (action == "cancel")
-            message = tr("已请求取消预测。");
-          else if (action == "show")
-            message = tr("已在画布显示并定位选中图件。");
-          else if (action == "compare" || action == "references" || action == "referencePanel")
-            message =
-                tr("已打开证据联动面板；可选择参考图件、添加并排视图，并开关范围与光标联动。");
-          else if (action == "catalog")
-            message = tr("已在数据管理中定位图件的保存版本和来源谱系。");
-          else if (action == "displayLevel")
-            message = tr("相图显示层级、标注与图例已更新。");
-          else if (action == "addEvidence" || action == "removeEvidence")
-            message = tr("解释证据已更新，可撤销；保存图件版本后持久化。");
-          else if (action == "labels")
-            message = tr("选中图件的标注已更新。");
-          else if (action == "schema")
-            message = tr("当前层位相分类已保存，已有图件保留原分类。");
-          else if (action == "draw")
-            message = tr("请在画布逐点绘制约束线，右键结束，Esc 取消。");
-          else if (action == "assignFacies")
-            message = tr("选中要素的相类别已更新，请保存编辑以登记新版本。");
-          else if (action == "welltracks")
-            message = tr("已打开井道与预测相修订面板。");
-          else if (action == "consistency")
-            message = tr("已生成地震相与测井相一致性报告并留档；双击逐井行可在画布定位。");
-          else if (action == "delete")
-            message = tr("已删除图件及版本记录，受管文件正在后台清理。");
-          else
-            message = tr("操作完成，图件与版本已更新。");
-          page->showMessage(message);
-          statusBar()->showMessage(message, 10000);
-          if (!ok && action == "delete")
-            PaleoNotify::warning(this, tr("图件未删除"), message);
+          runWorkbenchCommand(workbench, page, edit, constraint, wellPanel,
+                              wellDock, legend, show, compare, openWells,
+                              beginEdit, shown, action, p);
         });
   }
   connect(workbench, &MappingWorkbench::polygonizeFinished, this,
@@ -1154,4 +372,154 @@ void PaleoMainWindow::attachWorkbench(MappingWorkbench *workbench, EvidenceInter
       panel->addSmallAction(action);
     }
   legend();
+}
+
+// ---------------------------------------------------------------------------
+// #473 显示编排域工厂（逐字平移自 attachWorkbench 原地 lambda，行为守恒）：
+// 图例 schema/标题组装（legend）、上图互斥与定制绘制序（show）、联动参考
+// 窗构造（compare，含参考画布纸面色 token 例外行）。
+// ---------------------------------------------------------------------------
+PaleoMainWindow::WorkbenchLegendFn PaleoMainWindow::makeWorkbenchLegend(
+    MappingWorkbench *workbench) {
+  return [this, workbench](const QString &id = QString()) {
+    if (!m_decorMgr)
+      return;
+    const auto h = m_selection->activeHorizon();
+    auto v = workbench->versionForLayer(id);
+    auto d = workbench->declaration(id);
+    const auto legendKind = v.extra.value("kind").toString();
+    const auto legendSource = v.extra.value("value_source").toString();
+    const bool analysisRaster =
+        paleo::singlefactor::isAnalysisFactorRaster(legendKind, legendSource);
+    const bool cartographic =
+        paleo::singlefactor::rejectsQuantitativeUse(legendKind, legendSource);
+    bool product = !v.id.isEmpty() && d.horizon == h &&
+                   v.extra.contains("facies") &&
+                   !legendKind.startsWith(QLatin1String("constraint")) &&
+                   !analysisRaster && !cartographic;
+    auto schema =
+        product ? v.extra.value("facies").toList() : workbench->facies(h);
+    QString title = h.isEmpty() ? tr("请选择层位") : tr("%1 · 三级相图例").arg(h);
+    if (product)
+      title +=
+          tr(" · v%1%2")
+              .arg(v.versionNumber)
+              .arg(v.extra.value("mock").toBool() ? tr(" Mock") : QString());
+    if (analysisRaster || cartographic) {
+      schema.clear();
+      if (auto *r = qobject_cast<QgsRasterLayer *>(m_layerSvc->layer(id));
+          r && r->renderer())
+        for (const auto &item : r->renderer()->legendSymbologyItems())
+          schema << QVariantMap{{"name", item.first},
+                                {"color", item.second.name()}};
+      title = cartographic
+                  ? tr("%1 · 解释性制图 v%2").arg(h).arg(v.versionNumber)
+                  : tr("%1 · 数值图例 v%2").arg(h).arg(v.versionNumber);
+    } else if (legendKind.startsWith(QLatin1String("constraint")) ||
+               legendKind == QLatin1String("contour_lines")) {
+      schema.clear();
+      title = tr("%1 · %2").arg(h, legendKind == QLatin1String("contour_lines")
+                                       ? tr("等值线")
+                                       : tr("约束线"));
+    }
+    if (product) {
+      schema = workbench->displayLegend(id);
+      auto *wellLayer = qobject_cast<QgsVectorLayer *>(m_layerSvc->layer(id));
+      const bool wellResult = wellLayer && wellLayer->fields().indexOf("facies_intervals") >= 0;
+      title = tr("%1 · %2 · v%3")
+                  .arg(h, wellResult ? tr("测井预测 · %1").arg(FaciesHierarchy::title(workbench->resolvedLevel(id))) : FaciesHierarchy::title(workbench->resolvedLevel(id)))
+                  .arg(v.versionNumber);
+      if (v.extra.value("mock").toBool())
+        title += tr(" · Mock");
+    }
+    m_decorMgr->setFaciesLegend(title, h.isEmpty() ? QVariantList() : schema,
+                                product ? m_layerSvc->layer(id) : nullptr);
+  };
+}
+
+PaleoMainWindow::WorkbenchShowFn PaleoMainWindow::makeWorkbenchShow(
+    MappingWorkbench *workbench, const WorkbenchLegendFn &legend,
+    const std::shared_ptr<QHash<QString, QString>> &shown) {
+  return [this, workbench, legend, shown](const QString &id,
+                                          QString *error) {
+    const auto d = workbench->declaration(id);
+    if (!d.horizon.isEmpty() && d.horizon != m_selection->activeHorizon()) {
+      if (error)
+        *error = tr("请切换至图件所属层位 %1，或打开参考面板").arg(d.horizon);
+      return false;
+    }
+    auto *layer = m_layerSvc->instantiate(id, error);
+    if (!layer)
+      return false;
+    // 初次实例化和编辑/比例尺变化已负责样式；显示缓存图层无需重建。
+    auto *canvas = m_canvasCtl->canvas();
+    const bool wasFrozen = canvas->isFrozen();
+    canvas->freeze(true);
+    if (!canvas->mapTool()) {
+      auto *pan = canvas->findChild<QgsMapToolPan *>("workbenchPan");
+      if (!pan) {
+        pan = new QgsMapToolPan(canvas);
+        pan->setParent(canvas);
+        pan->setObjectName("workbenchPan");
+      }
+      canvas->setMapTool(pan);
+    }
+    // Focus one generated result while retaining base data. History stays in
+    // the result list and can be compared in independent panels.
+    auto *treeRoot = (m_projectSvc && m_projectSvc->project())
+                         ? m_projectSvc->project()->layerTreeRoot()
+                         : nullptr;
+    if (treeRoot) {
+      for (const auto &other : m_layerSvc->declared())
+        if (other.layerId != id && other.horizon == d.horizon &&
+            (other.layerId.startsWith("product.") ||
+             other.layerId.startsWith("factor.") ||
+             other.layerId.startsWith("contours.") ||
+             other.layerId.startsWith("cartographic.") ||
+             other.layerId.startsWith("draft."))) {
+          if (auto *old = m_layerSvc->layer(other.layerId))
+            if (auto *node = treeRoot->findLayer(old->id()))
+              node->setItemVisibilityChecked(false);
+        }
+      if (auto *node = treeRoot->findLayer(layer->id()))
+        node->setItemVisibilityCheckedParentRecursive(true);
+      if (auto *vector = qobject_cast<QgsVectorLayer *>(layer);
+          vector && vector->fields().indexOf("facies_intervals") >= 0) {
+        // 共享井位/维护表位于树顶部；显示预测时把本图件放到绘制顺序首位，
+        // 否则同坐标的基础井点会盖住预测点及其相标注。
+        auto order = treeRoot->layerOrder();
+        order.removeAll(layer);
+        order.prepend(layer);
+        treeRoot->setCustomLayerOrder(order);
+        treeRoot->setHasCustomLayerOrder(true);
+      } else {
+        // 自定义绘制顺序一旦生效，新实例化的产层会被追加到序列表尾
+        //（画在最底），落在不透明的离线地形底图/阴影之下即整层不可见。
+        // 按树序找位（facies-ux 2）：布局器已把图件收进所属地层组并按组序
+        // 摆好，绘制序跟随树序——相面压在同层位相栅格之上、底图之上、
+        // 井位等共享矢量之下。
+        QgisLayerOrganizer::slotIntoCustomOrder(treeRoot, layer);
+      }
+    }
+    if (auto *tree = findChild<QgsLayerTreeView *>())
+      tree->setCurrentLayer(layer);
+    canvas->setCurrentLayer(layer);
+    if (m_profileSvc)
+      m_profileSvc->captureCurrentAsTheme(
+          QgisLayerProfileService::pageThemeName(currentPage()));
+    m_canvasCtl->zoomToLayer(id);
+    canvas->freeze(wasFrozen);
+    if (!wasFrozen) canvas->refresh();
+    legend(id);
+    shown->insert(d.horizon, id);
+    return true;
+  };
+}
+
+PaleoMainWindow::WorkbenchShowFn PaleoMainWindow::makeWorkbenchCompare(
+    MappingWorkbench *workbench) {
+  Q_UNUSED(workbench); // #516：参考窗口体系由 MappingReferencePanel 承载
+  return [this](const QString &id, QString *error) {
+    return showMappingReference(id, error);
+  };
 }

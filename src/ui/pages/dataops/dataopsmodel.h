@@ -29,6 +29,7 @@
 #include <QVector>
 
 #include "../../../catalog/datacatalog.h"
+#include "../../../services/jsonsidecar.h"
 
 namespace paleo::dataops
 {
@@ -65,19 +66,9 @@ inline QJsonObject loadSidecarObject(DataCatalog *cat, const QString &name)
   const QString path = sidecarPath(cat, name);
   if (path.isEmpty())
     return QJsonObject();
-  QFile f(path);
-  if (!f.open(QIODevice::ReadOnly))
-    return QJsonObject(); // 文件不存在 = 无 sidecar，属正常初始态
-  QJsonParseError err;
-  const QJsonDocument doc = QJsonDocument::fromJson(f.readAll(), &err);
-  if (err.error != QJsonParseError::NoError)
-  {
-    // 损坏要留痕：静默回空会把「有回收清单/有标签」读成「从未有过」。
-    qWarning() << "dataops sidecar corrupt, treated as empty:" << path
-               << err.errorString();
-    return QJsonObject();
-  }
-  return doc.object();
+  // #482 收敛：读/写走数据层 jsonsidecar helper——原子写 + 损坏留痕清洗
+  // 的契约不再散落（警告文案保持 "dataops sidecar ..." 前缀，测试按此断言）。
+  return paleo::readJsonFile(path, "dataops sidecar").object();
 }
 
 inline bool saveSidecarObject(DataCatalog *cat, const QString &name,
@@ -86,22 +77,7 @@ inline bool saveSidecarObject(DataCatalog *cat, const QString &name,
   const QString path = sidecarPath(cat, name);
   if (path.isEmpty())
     return false;
-  QDir().mkpath(QFileInfo(path).absolutePath());
-  // QSaveFile 原子落盘：断电/崩溃不会留下半截 JSON（回收清单/标签半截
-  // = 重开静默全丢）。提交失败自动清理临时文件，原文件保持完好。
-  QSaveFile f(path);
-  if (!f.open(QIODevice::WriteOnly))
-  {
-    qWarning() << "dataops sidecar write failed:" << path;
-    return false;
-  }
-  f.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
-  if (!f.commit())
-  {
-    qWarning() << "dataops sidecar commit failed:" << path;
-    return false;
-  }
-  return true;
+  return paleo::writeJsonFile(path, QJsonDocument(root), "dataops sidecar");
 }
 
 // ---- 资产行快照（过滤/排序/分组/导出的统一输入） ---------------------------

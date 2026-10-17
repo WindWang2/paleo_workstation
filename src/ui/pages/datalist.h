@@ -23,6 +23,7 @@
 
 class PreviewDocService;
 class QStackedWidget;
+class QTableWidget;
 class CatalogHealthDialog;
 class StorageGovernanceController;
 class StorageGovernanceDialog;
@@ -297,6 +298,9 @@ class DataListPanel : public QWidget
     // P3 部件指针（buildDataOpsUi 创建；objectName 见各部件）。
     QPushButton *m_undoBtn = nullptr;                       // dataUndoButton
     QPushButton *m_redoBtn = nullptr;                       // dataRedoButton
+    // #482：资产表缓存——eventFilter 的 Resize 热路径原先每次 findChild 全
+    // 子树遍历 ×2；表随页构造建一次，QPointer 兜底异常销毁（空则跳过该分支）。
+    QPointer<QTableWidget> m_assetTable;
     paleo::dataops::FilterBar *m_filterBar = nullptr;
     paleo::dataops::FilterChipBar *m_chipBar = nullptr;
     paleo::dataops::PendingQuickBar *m_quickBar = nullptr;

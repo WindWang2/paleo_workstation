@@ -36,6 +36,10 @@ private slots:
   void failedLoadKeepsPoolAndSession();
   void inputDimMismatchHonestError();
   void concurrentRunsAllValid();
+  // #479 锁分离：会话构建锁（m_loadMutex）与推理锁（m_mutex 短临界区）分离
+  // 的行为锚定——模型加载期间推理不停摆、tile 并行不退化单线程。
+  void concurrentLoadBuildsSingleSession();   // 并发首载不重复建会话
+  void inferenceSurvivesPoolChurnUnderLoad(); // 加载/LRU 淘汰期间推理不悬垂
   // #144：runTensorOn 绑定模型名——别的任务换了活动模型也不受影响；
   // 未加载的模型明确失败，不落到活动模型。
   void runTensorOnBindsToNamedModel();
@@ -367,6 +371,109 @@ void TestOnnxSessions::concurrentRunsAllValid()
   for ( int i = 0; i < 4; ++i )
     threads[i].join();
   QCOMPARE( failures.load(), 0 );
+}
+
+void TestOnnxSessions::concurrentLoadBuildsSingleSession()
+{
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  QVERIFY( OnnxFixtureWriter::writeAddScalar( dir.filePath( QStringLiteral( "m40.onnx" ) ), 40.0f ) );
+  PaleoOnnxService svc;
+  svc.setModelRoot( dir.path() );
+
+  // 4 线程同时首载同一模型：构建锁串行化后只应建一个会话（后来者池命中
+  // 直接复用），不能出现 4 份并发构建的重复会话。
+  std::atomic_int oks{ 0 };
+  auto loader = [ &svc, &oks ]() {
+    for ( int i = 0; i < 8; ++i )
+    {
+      QString e;
+      OnnxModelMeta meta;
+      if ( svc.loadModelMeta( QStringLiteral( "m40" ), &meta, &e ) == OnnxLoadStatus::Ok )
+        oks.fetch_add( 1 );
+    }
+  };
+  std::thread threads[4];
+  for ( auto &t : threads )
+    t = std::thread( loader );
+  for ( auto &t : threads )
+    t.join();
+  QCOMPARE( oks.load(), 32 );
+  QCOMPARE( svc.sessionPoolSize(), 1 );
+}
+
+void TestOnnxSessions::inferenceSurvivesPoolChurnUnderLoad()
+{
+  // 6 个 addScalar 模型（池容量 4）——加载线程循环加载必触发 LRU 淘汰/重建；
+  // 同时推理线程持续 runTensorOn。#479 retire/release 协议的行为锚定：
+  //   · 推理拿到的会话即使被淘汰也活到 Run 结束（不悬垂、不崩溃）；
+  //   · 成功的推理结果必须正确（y = x + k）；
+  //   · 失败只允许「会话不在池中」（淘汰竞态的诚实错误），不得是别的错。
+  QTemporaryDir dir;
+  QVERIFY( dir.isValid() );
+  constexpr int kModels = 6;
+  const float gains[kModels] = { 1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f };
+  for ( int i = 0; i < kModels; ++i )
+    QVERIFY( OnnxFixtureWriter::writeAddScalar(
+      dir.filePath( QStringLiteral( "m%1.onnx" ).arg( i ) ), gains[i] ) );
+  PaleoOnnxService svc;
+  svc.setModelRoot( dir.path() );
+
+  std::atomic<bool> stop{ false };
+  std::atomic_int wrongResults{ 0 };
+  std::atomic_int unexpectedErrors{ 0 };
+  std::atomic_int successes{ 0 };
+
+  std::atomic_int loads{ 0 };
+  std::thread churn( [ & ]() {
+    QString e;
+    while ( !stop.load() )
+      for ( int i = 0; i < kModels; ++i )
+      {
+        svc.loadModelMeta( QStringLiteral( "m%1" ).arg( i ), nullptr, &e );
+        loads.fetch_add( 1 );
+        QThread::msleep( 1 ); // 高速淘汰/重建，但留可见窗口（对抗性满速
+                              // 循环会把断言退化为调度竞走）
+      }
+  } );
+
+  const int kRounds = 60;
+  for ( int r = 0; r < kRounds; ++r )
+  {
+    for ( int i = 0; i < kModels; ++i )
+    {
+      QString e;
+      const OnnxTensor t = svc.runTensorOn(
+        QStringLiteral( "m%1" ).arg( i ), QStringLiteral( "x" ), { 2.0f }, { 1 }, &e );
+      if ( e.isEmpty() )
+      {
+        successes.fetch_add( 1 );
+        if ( qAbs( t.values.value( 0 ) - ( 2.0f + gains[i] ) ) > 1e-5f )
+          wrongResults.fetch_add( 1 );
+      }
+      else if ( !e.contains( QStringLiteral( "不在池中" ) ) )
+        unexpectedErrors.fetch_add( 1 );
+    }
+  }
+  stop = true;
+  churn.join();
+
+  // 契约锚定：搅动期不错果、失败只有「会话不在池中」的诚实错误（淘汰
+  // 竞态）；是否恰好抢到成功属调度，不做断言。搅动确实发生了。
+  QCOMPARE( wrongResults.load(), 0 );
+  QCOMPARE( unexpectedErrors.load(), 0 );
+  QVERIFY( loads.load() >= kModels );
+  // 确定性成功路径：停止搅动后补一次装载，推理必须成功且正确
+  //（y = x + k；retire/release 协议收尾后池路径可正常命中）。
+  QString loadErr;
+  QVERIFY( svc.loadModelMeta( QStringLiteral( "m0" ), nullptr, &loadErr ) ==
+           OnnxLoadStatus::Ok );
+  QString runErr;
+  const OnnxTensor after = svc.runTensorOn(
+    QStringLiteral( "m0" ), QStringLiteral( "x" ), { 2.0f }, { 1 }, &runErr );
+  QVERIFY2( runErr.isEmpty(), qPrintable( runErr ) );
+  QVERIFY( qAbs( after.values.value( 0 ) - 3.0f ) <= 1e-5f );
+  Q_UNUSED( successes );
 }
 
 void TestOnnxSessions::runTensorOnBindsToNamedModel()

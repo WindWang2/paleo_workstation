@@ -2671,6 +2671,101 @@ private slots:
              qPrintable(error));
     QCOMPARE(f.constraints.loadConstraints("D62").size(), 1);
   }
+  // 回归：编图流程页的等值线走 m_taskSvc 手工任务（不经 runFactorWork，
+  // 发布时 factorBusy()==false）——成果仍须默认激活：补 product.<v> 别名、
+  // 发 productReady、进成果列表。此前 publishFactorAlias 按 factorBusy()
+  // 门控把该路径挡在成果外。
+  void generatedContourActivatesForNonWorkbenchPublish() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto source = f.dir.filePath("samples.geojson");
+    QVERIFY(MappingArtifactWriter::points(
+        source,
+        {QVariantMap{{"x", 0}, {"y", 0}, {"z", 0}},
+         QVariantMap{{"x", 100}, {"y", 0}, {"z", 20}},
+         QVariantMap{{"x", 0}, {"y", 100}, {"z", 40}},
+         QVariantMap{{"x", 100}, {"y", 100}, {"z", 60}}},
+        &error));
+    LayerDeclaration d;
+    d.layerId = "wells.D61";
+    d.horizon = "D61";
+    d.type = "vector";
+    d.source = source;
+    d.title = "样点";
+    QVERIFY(f.layers.declare(d, &error));
+    QVERIFY2(f.constraints.addConstraint("D61", "LINESTRING(50 0,50 100)",
+                                         "line", -1, &error),
+             qPrintable(error));
+    const QVariantMap params{
+        {"pointsLayerId", d.layerId}, {"field", "z"}, {"cellSize", 10}};
+    QVERIFY2(f.work.generateFactor("D61", "sandthick", params, &error),
+             qPrintable(error));
+    QSignalSpy ready(&f.work, &MappingWorkbench::productReady);
+    // 直调 ConstraintWorkflow（同步发布，factorBusy()==false，与约束页手工
+    // 任务路径的发布时序等价）。
+    QVERIFY2(f.constraints.generateContours("D61", "factor.D61.sandthick", 10,
+                                            &error),
+             qPrintable(error));
+    QCOMPARE(ready.count(), 1);
+    const auto contours = f.latest("contour_lines");
+    QVERIFY(!contours.isEmpty());
+    QCOMPARE(ready.first().at(0).toString(), QString("D61"));
+    QCOMPARE(ready.first().at(1).toString(), contours);
+    QVERIFY2(f.layers.instantiate(contours, &error), qPrintable(error));
+  }
+  // productReady 对每个生成的等值线恰好发射一次：同步/异步都不双发
+  //（发布点唯一——contoursGenerated→publishFactorAlias 信号链）。
+  void generatedContourReadyEmittedOnce() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    const auto source = f.dir.filePath("samples.geojson");
+    QVERIFY(MappingArtifactWriter::points(
+        source,
+        {QVariantMap{{"x", 0}, {"y", 0}, {"z", 0}},
+         QVariantMap{{"x", 100}, {"y", 0}, {"z", 20}},
+         QVariantMap{{"x", 0}, {"y", 100}, {"z", 40}},
+         QVariantMap{{"x", 100}, {"y", 100}, {"z", 60}}},
+        &error));
+    LayerDeclaration d;
+    d.layerId = "wells.D61";
+    d.horizon = "D61";
+    d.type = "vector";
+    d.source = source;
+    d.title = "样点";
+    QVERIFY(f.layers.declare(d, &error));
+    QVERIFY2(f.constraints.addConstraint("D61", "LINESTRING(50 0,50 100)",
+                                         "line", -1, &error),
+             qPrintable(error));
+    const QVariantMap params{
+        {"pointsLayerId", d.layerId}, {"field", "z"}, {"cellSize", 10}};
+    QVERIFY2(f.work.generateFactor("D61", "sandthick", params, &error),
+             qPrintable(error));
+    // 同步路径：一次发射。
+    {
+      QSignalSpy ready(&f.work, &MappingWorkbench::productReady);
+      QVERIFY2(f.work.generateContours("D61", "factor.D61.sandthick", 10,
+                                       &error),
+               qPrintable(error));
+      QCOMPARE(ready.count(), 1);
+    }
+    // 任务中心路径：同样一次发射（早退 + 信号收尾，不再叠加旧尾部自发布）。
+    {
+      PaleoTaskService tasks;
+      f.constraints.setTaskService(&tasks);
+      f.work.setTaskService(&tasks);
+      QSignalSpy ready(&f.work, &MappingWorkbench::productReady);
+      QVERIFY2(f.work.generateContours("D61", "factor.D61.sandthick", 10,
+                                       &error),
+               qPrintable(error));
+      QTRY_VERIFY_WITH_TIMEOUT(ready.count() >= 1, 15000);
+      QCOMPARE(ready.count(), 1);
+      QVERIFY(!f.latest("contour_lines").isEmpty());
+      f.constraints.setTaskService(nullptr);
+      f.work.setTaskService(nullptr);
+    }
+  }
   void rejectsBadAndLateRemoteResponses() {
     Fixture f;
     QVERIFY(f.init());

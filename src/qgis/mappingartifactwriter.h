@@ -19,6 +19,11 @@ struct ComposeReceipt {
   qint64 totalCells = 0;
 };
 void restoreRasterCrs(QgsMapLayer *layer);
+// OGR 同病灶的矢量侧：GPKG/GeoJSON 回读把 Paleo 局部网格 EDATUM 名归一成
+// "Unknown engineering datum"，与画布规范 WKT 不再同对象——PROJ 对两个不同
+// 工程基准造不出坐标操作（transform.isValid()==false），mapExtent/fullExtent
+// /鹰眼整链失效。按图层名恢复规范 WKT。
+void restoreVectorCrs(QgsMapLayer *layer);
 bool composeRaster(const QString &path, const QList<QgsMapLayer *> &layers,
                    const QVariantList &facies, const QList<double> &thresholds,
                    const QSet<QString> &continuous, QString *error,

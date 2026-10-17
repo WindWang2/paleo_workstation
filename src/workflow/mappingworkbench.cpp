@@ -146,15 +146,17 @@ MappingWorkbench::MappingWorkbench(QgisLayerService *layers,
   // 显式选择的 Mock 模式，产物记录真实反射特征来源与 Mock 类别解释。
   connect(m_constraints, &ConstraintWorkflow::factorJobFailed, this,
           &MappingWorkbench::errorOccurred);
+  // 发布的成果（单因素栅格/等值线）一律激活：补 product.<v> 不可变别名、
+  // 发 productReady（上图 + 选中 + 提示）。不能按 factorBusy() 门控——约束页
+  // 的等值线走 m_taskSvc 手工任务而非 runFactorWork，m_factorJobTask 从未
+  // 设置，门控会把那条链的成果挡在成果列表外。
   connect(m_constraints, &ConstraintWorkflow::factorGenerated, this,
           [this](const QString &h, const QString &, const QString &id) {
-            if (m_constraints->factorBusy())
-              publishFactorAlias(h, id);
+            publishFactorAlias(h, id);
           });
   connect(m_constraints, &ConstraintWorkflow::contoursGenerated, this,
           [this](const QString &h, const QString &, const QString &id) {
-            if (m_constraints->factorBusy())
-              publishFactorAlias(h, id);
+            publishFactorAlias(h, id);
           });
   connect(m_layers, &QgisLayerService::layerInstantiated, this,
           &MappingWorkbench::styleLayer);
@@ -865,17 +867,10 @@ bool MappingWorkbench::generateFactor(const QString &h, const QString &factor,
   }
   if (!m_constraints->generateFactor(h, factor, options, error))
     return false;
-  if (m_taskSvc && m_constraints->factorBusy())
+  // 在途任务由 factorGenerated→publishFactorAlias 收尾；同步路径同一条
+  // 信号链已在调用内发射，这里不再自行 declare/productReady（否则双发）。
+  if (m_constraints->factorBusy())
     return true;
-  const auto id = QStringLiteral("factor.%1.%2").arg(h, factor);
-  const auto v = versionForLayer(id);
-  auto d = declaration(id);
-  d.layerId = v.extra.value("layer_id").toString();
-  d.title += tr(" · v%1").arg(v.versionNumber);
-  if (!d.layerId.isEmpty())
-    m_layers->declare(d, error);
-  emit changed();
-  emit productReady(h, d.layerId.isEmpty() ? id : d.layerId);
   if (m_project && !m_project->projectPath().isEmpty())
     m_project->writeProject();
   return true;
@@ -900,19 +895,10 @@ bool MappingWorkbench::generateContours(const QString &h, const QString &id,
   }
   if (!m_constraints->generateContours(h, id, interval, error))
     return false;
-  if (m_taskSvc && m_constraints->factorBusy())
+  // 在途任务由 contoursGenerated→publishFactorAlias 收尾；同步路径同一条
+  // 信号链已在调用内发射，这里不再自行 declare/productReady（否则双发）。
+  if (m_constraints->factorBusy())
     return true;
-  const auto prefix = QStringLiteral("factor.%1.").arg(h);
-  const auto key = id.startsWith(prefix) ? id.mid(prefix.size()) : id;
-  const auto output = QStringLiteral("contours.%1.%2").arg(h, key);
-  const auto v = versionForLayer(output);
-  auto d = declaration(output);
-  d.layerId = v.extra.value("layer_id").toString();
-  d.title += tr(" · v%1").arg(v.versionNumber);
-  if (!d.layerId.isEmpty())
-    m_layers->declare(d, error);
-  emit changed();
-  emit productReady(h, d.layerId.isEmpty() ? output : d.layerId);
   if (m_project && !m_project->projectPath().isEmpty())
     m_project->writeProject();
   return true;

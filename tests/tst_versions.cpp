@@ -1109,6 +1109,72 @@ class TestVersions : public QObject
         QVERIFY(tasks.shutdown());
     }
 
+    // #464：busy-token 跨工程残留。快照在飞时切工程（AppContext 的
+    // projectAboutToClose → abandonForProjectClose + 新工程 setProjectPaths），
+    // 确定性层 id（如 constraints.H1）在新工程不得被旧 token 锁死；旧任务
+    // 收尾的 owner 作用域释放不得误放新工程的锁；回 A 后标记/释放语义原样。
+    void crossProjectBusyTokensDoNotLeakAcrossProjects()
+    {
+        Fixture f; QVERIFY( f.init() ); f.controller.setProjectStore( &f.store );
+        PaleoTaskService tasks; tasks.setMaxWorkerThreads( 1 ); f.controller.setTaskService( &tasks );
+        const auto gate = std::make_shared<QSemaphore>(); const auto entered = std::make_shared<QSemaphore>();
+        tasks.start("hold-worker", [gate, entered](PaleoTask *) { entered->release(); gate->acquire(); return QString(); });
+        const auto release = qScopeGuard([&] { gate->release(); });
+        QTRY_VERIFY(entered->available() > 0);
+
+        const QString gpkg = makeFaciesGpkg( f.dir.filePath( QStringLiteral( "facies-xproj.gpkg" ) ) );
+        QVERIFY( !gpkg.isEmpty() );
+        LayerDeclaration decl;
+        decl.layerId = QStringLiteral( "constraints.H1" ); // 跨工程同名的确定性层 id
+        decl.horizon = QStringLiteral( "H1" );
+        decl.type = QStringLiteral( "vector" );
+        decl.source = QStringLiteral( "%1|layername=facies_polygons" ).arg( gpkg );
+        decl.group = QStringLiteral( "05_PaleoMap" );
+        QString err;
+        QVERIFY2( f.layers.declare( decl, &err ), qPrintable( err ) );
+
+        QSignalSpy finished( &f.controller, &MapVersionController::snapshotFinished );
+        QVERIFY2( f.controller.startSaveVersion( QStringLiteral( "H1" ), QVariantMap(), &err ),
+                  qPrintable( err ) );
+        // 快照任务持锁：launchSaveSnapshot 以随机 tokenOwner markLayerBusy。
+        QTRY_VERIFY_WITH_TIMEOUT( f.store.layerBusy( decl.layerId ), 15000 );
+
+        // 切工程：关旧工程（epoch 翻页）+ 绑新工程路径（store 清 busy）。
+        f.controller.abandonForProjectClose();
+        QTemporaryDir projectB;
+        QVERIFY( projectB.isValid() );
+        f.store.setProjectPaths( projectB.filePath( QStringLiteral( "b.qgz" ) ),
+                                 projectB.filePath( QStringLiteral( "b.gpkg" ) ),
+                                 projectB.filePath( QStringLiteral( "b.sqlite" ) ) );
+        // 旧 token 不得残留到新工程：同名层可编辑（beginEdit 的 busy 门放行）。
+        QVERIFY( !f.store.layerBusy( decl.layerId ) );
+
+        // 新工程自己的任务锁住同名层（不同 owner）。
+        f.store.markLayerBusy( decl.layerId, QStringLiteral( "task-B" ),
+                               QStringLiteral( "B 工程任务" ) );
+        QVERIFY( f.store.layerBusy( decl.layerId ) );
+
+        gate->release(); // 旧快照任务收尾：releaseTokens 按 tokenOwner 释放
+        QTRY_VERIFY_WITH_TIMEOUT( !f.controller.snapshotBusy(), 15000 );
+        // owner 不匹配 → 旧任务收尾不得误放新工程的锁。
+        QString reason;
+        QVERIFY( f.store.layerBusy( decl.layerId, &reason ) );
+        QVERIFY2( reason.startsWith( QStringLiteral( "task-B" ) ), qPrintable( reason ) );
+        QCOMPARE( finished.size(), 0 ); // epoch 已翻——旧完成不得打扰新工程 UI
+        QVERIFY( tasks.shutdown() );
+
+        // 回 A 工程：标记/释放语义不破坏。
+        f.store.setProjectPaths( f.dir.filePath( QStringLiteral( "proj.qgz" ) ),
+                                 f.dir.filePath( QStringLiteral( "proj.gpkg" ) ),
+                                 f.metaPath() );
+        QVERIFY( !f.store.layerBusy( decl.layerId ) );
+        f.store.markLayerBusy( decl.layerId, QStringLiteral( "edit" ), QStringLiteral( "editing" ) );
+        QVERIFY( f.store.layerBusy( decl.layerId ) );
+        QVERIFY( f.store.releaseLayerBusy( decl.layerId, QStringLiteral( "edit" ) ) );
+        QVERIFY( !f.store.layerBusy( decl.layerId ) );
+        QVERIFY( f.store.busyLayers().isEmpty() );
+    }
+
     void asyncPublicationFailureCleansFilesAndCanRetry()
     {
         Fixture f; QVERIFY(f.init());

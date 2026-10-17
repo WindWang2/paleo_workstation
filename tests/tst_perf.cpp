@@ -13,6 +13,8 @@
 
 #include "../src/qgis/qgisruntime.h"
 #include "../src/qgis/qgisprojectservice.h"
+#include "../src/services/paleotaskservice.h" // FE-002：真实并发上限
+#include "../src/algorithms/paleoalgorithms.h" // FE-002：真实网格策略守卫
 
 // ET10 (P2) performance acceptance — §41.6 minimum NFR numbers:
 //   * project open ≤ 10 s on the golden fixture
@@ -77,16 +79,16 @@ private slots:
              qPrintable(QStringLiteral("open took %1 ms > 10 s budget").arg(elapsedMs)));
   }
 
-  // §41.6: PaleoTaskManager caps concurrent heavy tasks at max(2, cores/4).
-  // Policy-value check only — the manager itself is not part of this slice.
+  // §41.6 concurrency NFR, bound to the real production value (FE-002): the
+  // old body computed qMax(2, cores/4) locally and asserted it against itself —
+  // a formula that exists nowhere in src/ (production is a dedicated pool with
+  // maxThreadCount 4, paleotaskservice.cpp D4.5). Mutating the production cap
+  // now turns this red.
   void concurrencyCap()
   {
-    const int cores = QThread::idealThreadCount(); // -1 if undetectable
-    const int cap = qMax(2, cores / 4);
-    qDebug() << "idealThreadCount:" << cores << "-> concurrency cap:" << cap;
-    QVERIFY2(cap >= 2, "cap must never drop below 2 even on degenerate cores");
-    if (cores > 0)
-      QVERIFY(cap <= cores);
+    PaleoTaskService svc;
+    QCOMPARE(svc.workerPool()->maxThreadCount(), 4);
+    qDebug() << "PaleoTaskService worker cap:" << svc.workerPool()->maxThreadCount();
   }
 
   // §41.6: derived rasters > 50 MB must carry overviews. Two assertions:
@@ -124,9 +126,13 @@ private slots:
              "read-only GTiff BuildOverviews must yield external .ovr sidecar");
   }
 
-  // §41.6: default derived-raster cell size = work-area extent / 2048.
-  // Golden work_area is POLYGON 100–110 × 30–40 (10×10 deg), so the default
-  // cell = 10/2048 ≈ 0.0049 deg.
+  // §41.6 default derived-raster grid policy, bound to the real production
+  // guard (FE-002): the old body recomputed extent/2048 in-test and asserted
+  // ≈0.0049 against the golden fixture — a 2048 division policy that exists
+  // nowhere in src/. Production truth is PaleoAlgoGuards::gridDimsForExtent
+  // (ceil(extent/cell) dimensions with the 1e8-cell budget); mutating that
+  // guard now turns this red. The §41.6 "extent/2048" strategy stays unproven
+  // in production and is left to policy work, not a self-asserting test.
   void defaultCellSize()
   {
     QgsVectorLayer workArea(goldenGpkg() + QStringLiteral("|layername=work_area"),
@@ -138,10 +144,18 @@ private slots:
     QCOMPARE(ext.width(), 10.0);
     QCOMPARE(ext.height(), 10.0);
 
-    const double cellSize = ext.width() / 2048.0;
-    qDebug() << "work_area extent" << ext.width() << "deg -> default cell size" << cellSize;
-    QVERIFY2(qAbs(cellSize - 0.0049) < 0.0001,
-             qPrintable(QStringLiteral("cell %1 not ≈0.0049 deg").arg(cellSize)));
+    const auto dims = PaleoAlgoGuards::gridDimsForExtent(ext, 10.0 / 2048.0);
+    QCOMPARE(dims.cols, 2048);
+    QCOMPARE(dims.rows, 2048);
+
+    bool threw = false;
+    try {
+      // 1e9 cells > 1e8 budget — the real production rejection path.
+      PaleoAlgoGuards::gridDimsForExtent(ext, 10.0 / 100000.0);
+    } catch (const QgsProcessingException &) {
+      threw = true;
+    }
+    QVERIFY2(threw, "cell budget guard must reject >1e8-cell grids");
   }
 };
 

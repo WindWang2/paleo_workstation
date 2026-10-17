@@ -1113,7 +1113,7 @@ add_paleo_test(tst_mappingpages LIBS paleo_ui)
 add_paleo_test(tst_wellattributes LIBS paleo_ui)
 add_paleo_test(tst_factorworkflow LIBS paleo_workflow) # m2(B)：单因素生成链真实栈（tst_workflows 模式）
 add_paleo_test(tst_composeworkflow) # m2(C)：相属性回写 edit buffer + 壳自动编辑态（tst_ui 模式；伞式兼容样本）
-add_paleo_test(tst_perf LIBS paleo_qgis)
+add_paleo_test(tst_perf LIBS paleo_qgis paleo_services paleo_algorithms)
 set_tests_properties(tst_perf PROPERTIES RUN_SERIAL TRUE)
 add_paleo_test(tst_locator LIBS paleo_ui)
 add_paleo_test(tst_layoutshell LIBS paleo_ui)

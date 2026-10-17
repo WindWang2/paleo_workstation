@@ -8,6 +8,7 @@
 #include <QUrl>
 #include <QVector>
 #include <memory>
+#include <vector>
 
 class QNetworkAccessManager;
 class QNetworkReply;
@@ -156,6 +157,8 @@ private:
   QPointer<RemoteTransport> m_transport;
   LocalPredictor *m_local = nullptr;             // 非拥有（调用方持有）
   std::unique_ptr<LocalPredictor> m_ownedLocal; // setLocalFallback 建的引擎
+  // 重绑后等池排空再释放的旧引擎（在飞降级持其快照；析构序在池之后清空）。
+  std::vector<std::unique_ptr<LocalPredictor>> m_retiredLocals;
   QThreadPool m_fallbackPool;                    // 降级推理专用（≤1 线程）
   bool m_fallbackEnabled = true;
   int m_healthTimeoutMs = 2000;

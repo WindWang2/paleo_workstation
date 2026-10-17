@@ -1100,7 +1100,7 @@ void Seismic3DViewPanel::buildDisplayBar() {
     const QStringList entries = settings.value(QStringLiteral("seismic/3dCamBookmarks")).toStringList();
     QList<CamBookmark> restored;
     constexpr int kNumericFields = 6;    // 当前格式
-    constexpr int kLegacyNumericFields = 5; // #463 前旧格式（无 target.z）
+    constexpr int kLegacyNumericFields = 5; // 5 字段退化输入（防御性宽容：仓库历史无此格式，纯损坏/前向容错）
     int padded = 0, extraIgnored = 0, skipped = 0;
     const SeismicCameraController::CameraState defaults{};
     for (const QString &e : entries) {

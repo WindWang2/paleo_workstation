@@ -79,7 +79,9 @@ QString filePath(const QString &source) { return source.section('|', 0, 0); }
 // 对应 GeoPackage/工作副本文件，删除必败；Linux 允许 unlink 打开的 fd，
 // 平台差异被掩盖）。删除（或派发后台删除）任何受管文件前，先显式销毁层
 // 实例释放句柄——processEvents/qWait 默认不处理 DeferredDelete，必须
-// sendPostedEvents（同 tst_versions #499 审计注释的纪律）。
+// sendPostedEvents（同 tst_versions #499 审计注释的纪律）。注意这是全队列
+// 提前落地：调用点不得处于「对已 deleteLater 对象仍持引用」的调用链中
+//（Qt 契约下此类引用本就非法）。
 void releaseLayerHandles()
 {
   QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);

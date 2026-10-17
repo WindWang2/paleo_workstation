@@ -119,6 +119,7 @@ jobs:
           python3 tools/check_layering.py --selftest
           python3 tools/check_layering.py --symbol-audit
           python3 tools/check_layering.py --transitive
+          python3 tools/check_qgis_spread.py --strict
           python3 tools/check_ui_invariants.py --strict
           python3 tools/check_ui_invariants.py --selftest
           python3 tools/check_ui_size.py --strict

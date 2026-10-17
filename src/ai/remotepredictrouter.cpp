@@ -284,9 +284,11 @@ RemotePredictionRouter::RemotePredictionRouter(RemoteTransport *transport,
 RemotePredictionRouter::~RemotePredictionRouter()
 {
   // 排空降级 worker：worker 内对 this 的排队回调随 QObject 析构清队，
-  // 不会在析构后触达；m_ownedLocal 在成员析构序中晚于池排空，安全。
+  // 不会在析构后触达；m_ownedLocal/m_retiredLocals 在成员析构序中晚于
+  // 池排空（声明序在池之前），安全。
   m_fallbackPool.clear();
   m_fallbackPool.waitForDone();
+  m_retiredLocals.clear();
 }
 
 void RemotePredictionRouter::setLocalPredictor(LocalPredictor *predictor)

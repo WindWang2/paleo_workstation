@@ -148,6 +148,13 @@ bool runFirstOutput( Ort::Session *session, const QByteArray &inputNameUtf8,
     *error = QString::fromUtf8( e.what() );
     return false;
   }
+  catch ( ... )
+  {
+    // 非 std 异常也必须翻译成错误返回（审 P3）：调用方在锁外 Run 后要归还
+    // 引用计数，异常逃逸会让 m_inFlight 永不归零、析构排空挂死。
+    *error = QObject::tr( "Inference failed (unknown exception)" );
+    return false;
+  }
 }
 
 QString elemTypeLabel( int t )

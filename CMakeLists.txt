@@ -980,6 +980,13 @@ if(PALEO_PYTHON3)
   add_test(NAME layering_transitive COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/check_layering.py --transitive)
   # #497：CI 红项分诊名单（docs/ci/known-reds.json）结构校验 + 分诊器夹具
+add_test(NAME qgis_spread COMMAND ${PALEO_PYTHON3}
+         ${CMAKE_SOURCE_DIR}/tools/check_qgis_spread.py)
+add_test(NAME qgis_spread_strict COMMAND ${PALEO_PYTHON3}
+         ${CMAKE_SOURCE_DIR}/tools/check_qgis_spread.py --strict)
+add_test(NAME qgis_spread_selftest COMMAND ${PALEO_PYTHON3}
+         ${CMAKE_SOURCE_DIR}/tools/check_qgis_spread.py --selftest)
+set_tests_properties(qgis_spread qgis_spread_strict PROPERTIES LABELS layering)
   #（triage job 消费前，本地/ctest 先过一遍名单合法性与解析器回归）。
   add_test(NAME ci_known_reds COMMAND ${PALEO_PYTHON3}
            ${CMAKE_SOURCE_DIR}/tools/ci_triage_reds.py --validate)

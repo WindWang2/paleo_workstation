@@ -103,6 +103,15 @@ void EvolutionPlayerPanel::setPlayIntervalMs( int ms )
   m_timer->setInterval( ms );
 }
 
+void EvolutionPlayerPanel::reloadFrames()
+{
+  m_frames = mappingHorizons();
+  if ( m_selection )
+    applyFrame( m_selection->activeHorizon() ); // 集合外层位不挪帧（applyFrame 同口径）
+  else if ( m_index >= m_frames.size() )
+    m_index = -1; // 无激活上下文时越界帧位复位
+}
+
 void EvolutionPlayerPanel::applyFrame( const QString &horizon )
 {
   const int index = m_frames.indexOf( horizon );

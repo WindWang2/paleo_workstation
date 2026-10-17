@@ -34,6 +34,10 @@ class EvolutionPlayerPanel : public QWidget
     bool isPlaying() const;
     // 播放帧间隔（毫秒）；只影响 QTimer 周期，测试可调短。
     void setPlayIntervalMs( int ms );
+    // FD-001：工程打开后 AreaRules 换装 project_area.json 的 sequence_boundaries
+    // 时重灌帧表（与 HorizonChipBar::reloadHorizons 同点位调用）；帧标签按
+    // 当前 activeHorizon 重对位（集合外层位不挪帧，与 applyFrame 同口径）。
+    void reloadFrames();
 
   signals:
     // 定格导出 intent：壳侧按当前画布抓帧登记 OUTPUT 资产。

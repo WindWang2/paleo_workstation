@@ -10,6 +10,9 @@
 #include "../services/jobrunner.h"
 #include "../services/paleotaskservice.h"
 #include <QDir>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
 #include <QFile>
 #include <QUuid>
 #include <qgscoordinatereferencesystem.h>
@@ -65,6 +68,27 @@ bool MappingWorkbench::preparePolygonize(const QString &id, PolygonizeJob *job,
   job->dir = m_dir;
   job->facies = sourceVersion.extra.value("facies", facies(d.horizon)).toList();
   job->mock = sourceVersion.extra.value("mock");
+  // 连续单因素分级的阈值 → 各编码值域（首类无下界、末类无上界，写 null）。
+  {
+    const auto thresholds = sourceVersion.extra.value("thresholds").toList();
+    QList<int> codes;
+    for (const auto &v : job->facies)
+      codes << v.toMap().value("code").toInt();
+    std::sort(codes.begin(), codes.end());
+    if (!thresholds.isEmpty() && thresholds.size() == codes.size() - 1) {
+      QJsonObject ranges;
+      for (int i = 0; i < codes.size(); ++i) {
+        QJsonArray pair;
+        if (i > 0) pair.append(thresholds.at(i - 1).toDouble());
+        else pair.append(QJsonValue());
+        if (i + 1 < codes.size()) pair.append(thresholds.at(i).toDouble());
+        else pair.append(QJsonValue());
+        ranges.insert(QString::number(codes.at(i)), pair);
+      }
+      job->valueRanges = QString::fromUtf8(
+          QJsonDocument(ranges).toJson(QJsonDocument::Compact));
+    }
+  }
   job->catalog = m_catalog;
   return true;
 }
@@ -105,7 +129,8 @@ bool MappingWorkbench::computePolygonize(PolygonizeJob &job,
        {"MIN_FRACTION", 0.0025},
        {"MIN_AREA", 0.0},
        {"SIMPLIFY", 0.0},
-       {"BOUNDARY_SMOOTH", 2}},
+       {"BOUNDARY_SMOOTH", 2},
+       {"VALUE_RANGES", job.valueRanges}},
       &runErr, hooks);
   if (output.isEmpty()) {
     job.error = runErr.isEmpty() ? tr("相栅格转面未返回结果") : runErr;

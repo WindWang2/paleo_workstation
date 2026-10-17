@@ -1046,7 +1046,7 @@ QVector<CodedPoly> polygonizeGrid( const QVector<int> &grid, int cols, int rows,
 }
 
 void writeGpkg( const QString &path, const QVector<CodedPoly> &polys, const QString &wkt,
-                const QString &provenance )
+                const QString &provenance, const QHash<int, std::pair<double, bool>> valueBounds[2] = nullptr )
 {
   if ( QFile::exists( path ) && !QFile::remove( path ) )
     throw QgsProcessingException( QStringLiteral( "cannot replace %1" ).arg( path ) );
@@ -1089,6 +1089,14 @@ void writeGpkg( const QString &path, const QVector<CodedPoly> &polys, const QStr
   OGRFieldDefnH areaFld = OGR_Fld_Create( "area", OFTReal );
   OGR_L_CreateField( layer, areaFld, TRUE );
   OGR_Fld_Destroy( areaFld );
+  const bool withRanges = valueBounds && ( !valueBounds[0].isEmpty() || !valueBounds[1].isEmpty() );
+  if ( withRanges )
+    for ( const char *name : { "value_min", "value_max" } )
+    {
+      OGRFieldDefnH fld = OGR_Fld_Create( name, OFTReal );
+      OGR_L_CreateField( layer, fld, TRUE );
+      OGR_Fld_Destroy( fld );
+    }
 
   for ( const CodedPoly &poly : polys )
   {
@@ -1103,6 +1111,13 @@ void writeGpkg( const QString &path, const QVector<CodedPoly> &polys, const QStr
     OGRFeatureH feat = OGR_F_Create( OGR_L_GetLayerDefn( layer ) );
     OGR_F_SetFieldInteger( feat, 0, poly.code );
     OGR_F_SetFieldDouble( feat, 1, poly.geom.area() );
+    if ( withRanges )
+      for ( int i = 0; i < 2; ++i )
+      {
+        const auto bound = valueBounds[i].value( poly.code );
+        if ( bound.second )
+          OGR_F_SetFieldDouble( feat, 2 + i, bound.first );
+      }
     OGR_F_SetGeometry( feat, og );
     OGR_G_DestroyGeometry( og );
     if ( OGR_L_CreateFeature( layer, feat ) != OGRERR_NONE )
@@ -1174,6 +1189,10 @@ void FaciesPolygonizeAlgorithm::initAlgorithm( const QVariantMap & )
   addParameter( new QgsProcessingParameterNumber(
       QStringLiteral( "ANGLE_TOLERANCE" ), QStringLiteral( "Constraint angle tolerance (degrees)" ),
       Qgis::ProcessingNumberParameterType::Double, 15.0, true, 0.0, 90.0 ) );
+  addParameter( new QgsProcessingParameterString(
+      QStringLiteral( "VALUE_RANGES" ),
+      QStringLiteral( "Class value ranges JSON ({code: [min, max]})" ),
+      QVariant(), true, true ) );
   addParameter( new QgsProcessingParameterFeatureSource(
       QStringLiteral( "CONSTRAINTS" ),
       QStringLiteral( "Constraint lines, polygons, or points" ),
@@ -1207,6 +1226,26 @@ QVariantMap FaciesPolygonizeAlgorithm::processAlgorithm( const QVariantMap &para
   const QString outPath = parameterAsOutputLayer( parameters, QStringLiteral( "OUTPUT" ), context );
   if ( outPath.isEmpty() )
     throw QgsProcessingException( QStringLiteral( "Invalid OUTPUT vector destination" ) );
+
+  // 连续单因素分级的值域（{code: [min, max]}，min/max 可为 null）：写入
+  // 每个相面的 value_min/value_max，标注与属性表能回答“这块是砂地比多少”。
+  QHash<int, std::pair<double, bool>> valueBounds[2];
+  const QString rangesJson = parameters.value( QStringLiteral( "VALUE_RANGES" ) ).toString();
+  if ( !rangesJson.isEmpty() )
+  {
+    const auto ranges = QJsonDocument::fromJson( rangesJson.toUtf8() ).object();
+    for ( auto it = ranges.begin(); it != ranges.end(); ++it )
+    {
+      bool okCode = false;
+      const int code = it.key().toInt( &okCode );
+      const auto pair = it.value().toArray();
+      if ( !okCode || pair.size() != 2 )
+        throw QgsProcessingException( QStringLiteral( "VALUE_RANGES entries must be {\"code\": [min, max]}" ) );
+      for ( int i = 0; i < 2; ++i )
+        if ( pair.at( i ).isDouble() )
+          valueBounds[i].insert( code, { pair.at( i ).toDouble(), true } );
+    }
+  }
 
   QString src = rl->source();
   const int bar = src.indexOf( QLatin1Char( '|' ) );
@@ -1397,7 +1436,7 @@ QVariantMap FaciesPolygonizeAlgorithm::processAlgorithm( const QVariantMap &para
   prov.insert( QStringLiteral( "steps" ), steps );
   const QString provenance = QString::fromUtf8( QJsonDocument( prov ).toJson( QJsonDocument::Compact ) );
 
-  writeGpkg( outPath, polys, wkt, provenance );
+  writeGpkg( outPath, polys, wkt, provenance, valueBounds );
   if ( feedback )
     feedback->setProgress( 100 );
 

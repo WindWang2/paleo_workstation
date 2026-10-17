@@ -928,7 +928,7 @@ bool MappingWorkbench::setLabelMode(const QString &id, int mode,
                                     QString *error) {
   auto *layer = qobject_cast<QgsVectorLayer *>(m_layers->instantiate(id));
   if (!layer || layer->fields().indexOf("facies_code") < 0 || mode < 0 ||
-      mode > 3) {
+      mode > 4) {
     fail(error, tr("请选择井相点图或矢量相面；栅格请先转为相面。"));
     return false;
   }

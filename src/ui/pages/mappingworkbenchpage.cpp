@@ -394,7 +394,7 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
     m_labelModeDirty = true;
   });
   labelMode->addItems({tr("隐藏标注"), tr("井名 / 要素序号"), tr("相名称"),
-                       tr("井名 / 序号 ＋ 相名称")});
+                       tr("井名 / 序号 ＋ 相名称"), tr("分级区间（单因素值域）")});
   labelMode->setCurrentIndex(2);
   auto *labelRow = new QHBoxLayout;
   labelRow->addWidget(new QLabel(tr("画布文本标注"), body));

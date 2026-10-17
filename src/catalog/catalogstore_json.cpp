@@ -279,6 +279,15 @@ bool loadTables(QSqlDatabase &db, CatalogStore::Tables *out, QString *error)
         out->links.append(l);
       else if (ord >= 0)
       {
+        // FA-004：损坏/手改库的 ord 巨值会让 resize 做天文数字分配（工程
+        // 打开即崩）。正常增量写的 ord 恒连续——与已读行数偏离过大按损坏
+        // 行跳过并告警（同上方 unsafeVersion 行的既有口径）。
+        if (ord > out->links.size() + 4096)
+        {
+          qWarning("catalogstore: skip corrupt link row ord=%d (row count %lld)",
+                   ord, static_cast<qint64>(out->links.size()));
+          continue;
+        }
         if (ord > out->links.size())
           out->links.resize(ord + 1);
         out->links[ord] = l;

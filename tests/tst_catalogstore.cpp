@@ -524,6 +524,7 @@ private slots:
   void futureUserVersionRefusesWithoutBak();
   void futureSchemaEpochRefusesWithoutBak();
   void unsafeVersionInsertedLaterIsSkippedButKept();
+  void corruptLinkOrdSkippedNotHugeResize();
   void rollbackLeavesSqliteUnchanged();
 };
 
@@ -949,6 +950,47 @@ void TestCatalogStore::unsafeVersionInsertedLaterIsSkippedButKept()
   QVERIFY2(sqlScalar(sqlitePath, QStringLiteral("SELECT COUNT(*) FROM versions"), &count, &err),
            qPrintable(err));
   QCOMPARE(count.toInt(), 2);
+}
+
+// FA-004：损坏库的 links.ord 巨值（如 2e9）不得触发 QVector::resize 天文分配
+//（工程打开即崩）——偏离已读行数过大按损坏行跳过，load 正常完成。
+void TestCatalogStore::corruptLinkOrdSkippedNotHugeResize()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString sqlitePath = CatalogStore::sqlitePathFor(dir.path());
+  QString err;
+
+  {
+    CatalogStore store;
+    CatalogStore::Tables tables;
+    QVERIFY2(store.openProject(dir.path(), false, &tables, &err), qPrintable(err));
+    EntityAssetLink l;
+    l.entityType = QStringLiteral("well");
+    l.entityId = QStringLiteral("ent-1");
+    l.assetId = QStringLiteral("ast-1");
+    l.role = QStringLiteral("log");
+    QVERIFY2(store.begin(&err), qPrintable(err));
+    QVERIFY2(store.upsertLink(0, l, &err), qPrintable(err));
+    QVERIFY2(store.commit(&err), qPrintable(err));
+    store.close();
+  }
+
+  // 模拟手改/损坏：塞入 ord=2000000000 的链接行。
+  const QString insertBad = QStringLiteral(
+      "INSERT INTO entity_asset_links (ord, entity_type, entity_id, asset_id, role, is_primary,"
+      " unresolved, ordinal, note) VALUES (2000000000, 'well', 'ent-x', 'ast-x', 'log', 1, 0, 0, '')");
+  QVERIFY2(execSql(sqlitePath, insertBad, &err), qPrintable(err));
+
+  {
+    CatalogStore store;
+    CatalogStore::Tables tables;
+    // 旧代码在 loadTables 的 resize(2^31) 处 bad_alloc/长挂——这里必须正常打开。
+    QVERIFY2(store.openProject(dir.path(), false, &tables, &err), qPrintable(err));
+    QCOMPARE(tables.links.size(), 1);
+    QCOMPARE(tables.links.at(0).entityId, QStringLiteral("ent-1"));
+    store.close();
+  }
 }
 
 void TestCatalogStore::rollbackLeavesSqliteUnchanged()

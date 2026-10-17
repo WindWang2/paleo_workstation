@@ -32,7 +32,7 @@ src/ui/edittools/vertexeditortools.cpp:fn:deleteVertexAtMapPoint:245
 src/ui/pages/composepage.cpp:fn:ComposePage:422
 src/ui/pages/constraintpage_constraints.cpp:fn:buildConstraintArea:311
 src/ui/pages/constraintpage_interpolation.cpp:fn:buildAdvancedSection:207
-src/ui/pages/datagraphpage.cpp:fn:DataGraphPage:349
+src/ui/pages/datagraphpage.cpp:fn:DataGraphPage:348
 src/ui/pages/datalist.cpp:file:1008
 src/ui/pages/datalist.cpp:fn:DataListPanel:509
 src/ui/pages/datalist.cpp:fn:buildDataOpsUi:331

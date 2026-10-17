@@ -265,6 +265,7 @@ std::shared_ptr<const Index> buildIndex(const DataCatalog &snapshot,
     Node n;
     n.id = entityKey(entity.id);
     n.entityId = entity.id;
+    n.entityType = entity.entityType;
     n.title = presentation.entityNames.value(entity.id, entity.name);
     n.detail = entity.entityType;
     n.kind = Kind::Entity;
@@ -565,6 +566,16 @@ std::shared_ptr<const Index> buildIndex(const DataCatalog &snapshot,
   std::sort(index->assets.begin(), index->assets.end());
   std::sort(index->entities.begin(), index->entities.end());
   report(progress, 45, "关系索引就绪");
+  for (const auto &id : index->entities) {
+    auto &node = index->nodes[id];
+    QSet<QString> members;
+    for (int row : index->outgoing.value(id))
+      if (index->edges[row].relation == Relation::Linked) members.insert(index->edges[row].target);
+    node.count = members.size();
+    const auto type = entityTypes.value(node.entityId);
+    node.detail = (type == "well" ? text("井") : type == "seismic_survey" ? text("地震测区") : type) +
+        text(" · 文件集合 · 共 %1 份资料").arg(node.count);
+  }
   return index;
 }
 Graph query(const Index &index, const Query &q, const Cancel &cancel,
@@ -604,7 +615,40 @@ Graph query(const Index &index, const Query &q, const Cancel &cancel,
   };
   const bool summary = q.mode == Mode::Overview && q.category.isEmpty() &&
                        q.stage.isEmpty() && q.search.isEmpty();
-  if (q.mode == Mode::Entities) {
+  if (q.mode == Mode::Knowledge) {
+    for (const auto &id : index.assets) {
+      if (stopped(cancel)) return {};
+      const auto &asset = index.nodes[id];
+      auto scope = q; scope.search.clear();
+      if (!matches(asset, scope)) continue;
+      bool searchHit = matches(asset, q);
+      auto entityScope = q; entityScope.stage.clear();
+      QVector<Node> owners;
+      QSet<QString> ownerIds;
+      for (int row : index.incoming.value(id)) {
+        const auto &relation = index.edges[row];
+        if (relation.relation == Relation::Linked && matches(index.nodes[relation.source], entityScope)) searchHit = true;
+        if (relation.relation == Relation::Linked && !visible.contains(relation.source) && !ownerIds.contains(relation.source)) {
+          owners << index.nodes[relation.source]; ownerIds.insert(relation.source);
+        }
+      }
+      if (!searchHit) continue;
+      if (graph.nodes.size() + owners.size() + 1 > baseBudget) { ++graph.hidden; continue; }
+      for (const auto &owner : owners) add(owner);
+      add(asset);
+    }
+    for (const auto &id : index.entities) {
+      const auto &entity = index.nodes[id];
+      if (!visible.contains(id) && matches(entity, q) && !add(entity)) ++graph.hidden;
+    }
+    for (const auto &node : graph.nodes)
+      if (node.kind == Kind::Asset)
+        for (int row : index.incoming.value(node.id)) {
+          const auto &relation = index.edges[row];
+          if (relation.relation == Relation::Linked && visible.contains(relation.source)) edge(relation);
+        }
+    graph.message = text("井和地震测区是资料集合，连线标明各文件用途；双击集合查看全部关联，双击文件打开预览。");
+  } else if (q.mode == Mode::Entities) {
     for (const auto &id : index.entities) {
       if (stopped(cancel))
         return {};
@@ -991,7 +1035,9 @@ Graph query(const Index &index, const Query &q, const Cancel &cancel,
   if (stopped(cancel))
     return {};
   report(progress, 75, "计算图谱布局");
-  layout(graph, cancel);
+  if (q.mode == Mode::Knowledge || q.mode == Mode::Relations || q.mode == Mode::Entities)
+    layoutKnowledgeGraph(graph, cancel);
+  else layout(graph, cancel);
   for (Node &node : graph.nodes) {
     if (stopped(cancel))
       return {};

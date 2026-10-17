@@ -27,9 +27,11 @@ using paleo::store_detail::setError;
     if (!def)
       return kUnknownRoleMark + l.role;
     if (!l.entityType.isEmpty() && !def->entityTypes.isEmpty() &&
-        !def->entityTypes.contains(l.entityType))
-      return kRoleTypeMismatchMark +
-             QStringLiteral("%1 于 %2").arg(l.role, l.entityType);
+        !def->entityTypes.contains(l.entityType)) {
+      for (const auto &scoped : roles.forEntity(l.entityType))
+        if (scoped.role == l.role) return QString(); // interpretation / other 可跨井与地震词表复用。
+      return kRoleTypeMismatchMark + QStringLiteral("%1 于 %2").arg(l.role, l.entityType);
+    }
     return QString();
   }
 
@@ -100,6 +102,45 @@ bool DataCatalog::addLink(const EntityAssetLink &l, QString *error)
   for (int i : demotedRows)
     m_links[i].isPrimary = true;
   m_links.removeLast();
+  m_idx.linksMutated(m_links);
+  return false;
+}
+
+bool DataCatalog::updateLink(int index, const EntityAssetLink &link, QString *error)
+{
+  if (!checkWriteThread("updateLink", error) || !ensureOpen(error)) return false;
+  if (index < 0 || index >= m_links.size() || m_links[index].assetId != link.assetId ||
+      assetById(link.assetId).id.isEmpty() || link.role.isEmpty()) {
+    setError(error, tr("关联已变化，请重新选择文件关联")); return false;
+  }
+  if (link.unresolved && (!link.entityId.isEmpty() || link.isPrimary)) {
+    setError(error, tr("待关联资料不能指定实体或主文件")); return false;
+  }
+  if (!link.unresolved) {
+    const auto entity = entityById(link.entityId);
+    if (entity.id.isEmpty() || entity.entityType != link.entityType) {
+      setError(error, tr("目标井或地震测区不存在，或类型不符")); return false;
+    }
+  }
+  const auto previous = m_links;
+  m_links[index] = link;
+  annotateRoleDiagnostics(m_links[index], m_roles);
+  m_dirtyLinkOrds.insert(index);
+  if (link.isPrimary && !link.unresolved)
+    for (int i = 0; i < m_links.size(); ++i)
+      if (i != index && !m_links[i].unresolved && m_links[i].isPrimary &&
+          m_links[i].entityId == link.entityId && m_links[i].entityType == link.entityType &&
+          m_links[i].role == link.role) {
+        m_links[i].isPrimary = false;
+        m_dirtyLinkOrds.insert(i);
+      }
+  if (save(error)) {
+    m_idx.linksMutated(m_links);
+    CatalogOp op; op.kind = CatalogOp::Kind::UpdateLink; op.index = index; op.link = link;
+    recordOp(std::move(op));
+    return true;
+  }
+  m_links = previous;
   m_idx.linksMutated(m_links);
   return false;
 }

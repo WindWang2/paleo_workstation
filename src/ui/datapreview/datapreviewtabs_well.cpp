@@ -291,11 +291,11 @@ QWidget *DataPreviewTabs::buildWellBody(const CatalogAsset &asset, const QString
       if (r.x > -99990.0 && r.y > -99990.0) // 坐标哨兵过滤
         addMemoryPoint(wellsVl, r.x, r.y, r.name,
                        (rec && matchWell(r.name)) ? QStringLiteral("highlight")
-                                                   : QStringLiteral("well"));
+                         : QStringLiteral("well"), uniqueWellPointId(m_doc->catalog(), r.name));
     stylePointLayer(wellsVl, true);
     auto *mapPage = new PreviewMapPage(holder);
     mapPage->setTaskService(m_doc ? m_doc->taskService() : nullptr);
-    mapPage->setObjectName(QStringLiteral("wellHeadPreviewPage"));
+    mapPage->setObjectName(QStringLiteral("wellHeadPreviewPage")); wireWellNavigation(mapPage, wellsVl);
     mapPage->mapCanvas()->canvas()->setObjectName(QStringLiteral("wellHeadMapCanvas"));
     mapPage->setProfileEnabled(false);
     QgsMapCanvas *canvas = mapPage->mapCanvas()->canvas();

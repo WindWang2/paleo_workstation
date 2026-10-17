@@ -39,6 +39,7 @@ class DataPage : public QWidget
   public slots:
     void refreshAssetTable();                     // 资产表/树 + 实体视图一并重取
     void refreshEntityView();                     // 实体角色槽视图重取
+    void focusWell(const QString &entityId);
     void selectAssetsForEntities(const QStringList &entityIds); // D6 地图→表联动
     void setUnresolvedFilter(bool on);            // T31「查看未决」过滤
     void applyListFilter();                       // 搜索/类型筛选

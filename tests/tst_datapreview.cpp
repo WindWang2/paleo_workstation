@@ -97,6 +97,7 @@ private slots:
   void unresolvedMultiWellTabShowsDeadEnd();
   void lasPreviewHasNoSingleCurveView();
   void surveyAreaOpensQgisCanvasAndEmitsShowOnMain();
+  void surveyWellPointsNavigateAndDraggingDoesNot();
 
 private:
   // 共享一次导入的夹具集（每个测试自建栈，互不污染）。
@@ -178,6 +179,19 @@ void TestDataPreview::wellHeadSelectionEmitsHighlight()
   combo->setCurrentIndex(idx);
   QCOMPARE(spy.count(), 1);
   QCOMPARE(spy.at(0).at(0).toString(), QStringLiteral("well-A1"));
+  st->preview->resize(1100, 700); st->preview->show(); QTest::qWait(100);
+  const auto target = st->importSvc->catalog()->entityById("well-A2");
+  QVERIFY(target.hasSurface);
+  QPointer<QgsMapCanvas> oldCanvas = page->findChild<QgsMapCanvas *>("wellHeadMapCanvas");
+  QVERIFY(oldCanvas);
+  oldCanvas->setExtent(QgsRectangle(target.surfaceX - 50, target.surfaceY - 50, target.surfaceX + 50, target.surfaceY + 50));
+  oldCanvas->refresh();
+  const auto point = oldCanvas->mapSettings().mapToPixel().transform(target.surfaceX, target.surfaceY).toQPointF().toPoint();
+  QTest::mouseClick(oldCanvas->viewport(), Qt::LeftButton, {}, point);
+  QTRY_COMPARE(combo->currentData().toString(), QString("well-A2"));
+  QVERIFY(oldCanvas.isNull()); // 导航重建正文，拾取工具不能继续引用旧画布。
+  QCOMPARE(spy.last().first().toString(), QString("well-A2"));
+  QCOMPARE(st->preview->tabCount(), 1);
 }
 
 void TestDataPreview::missingExternalSourceShowsState()
@@ -1465,3 +1479,31 @@ int main(int argc, char *argv[])
 }
 
 #include "tst_datapreview.moc"
+
+void TestDataPreview::surveyWellPointsNavigateAndDraggingDoesNot() {
+  QTemporaryDir dir;
+  auto stack = makeStack(dir.path()); QVERIFY(stack);
+  auto *cat = stack->importSvc->catalog();
+  for (int i = 0; i < 2; ++i) {
+    CatalogEntity well; well.id = QString("well-%1").arg(i); well.name = "同名井";
+    well.entityType = "well"; well.hasSurface = true; well.surfaceX = i * 100; well.surfaceY = 100;
+    QVERIFY(cat->addEntity(well));
+  }
+  stack->preview->resize(1100, 700); stack->preview->show(); stack->preview->openSurveyArea();
+  auto *canvas = stack->preview->findChild<QgsMapCanvas *>("surveyMapCanvas"); QVERIFY(canvas);
+  QTest::qWait(200); // 等全图初始定位与原生布局落定。
+  canvas->setExtent(QgsRectangle(-100, 0, 200, 200)); canvas->refresh();
+  QSignalSpy selected(stack->preview.get(), &DataPreviewTabs::wellSelected);
+  const auto pixel = canvas->mapSettings().mapToPixel().transform(0, 100).toQPointF().toPoint();
+  QTest::mousePress(canvas->viewport(), Qt::LeftButton, {}, pixel);
+  QTest::mouseMove(canvas->viewport(), pixel + QPoint(70, 0));
+  QTest::mouseRelease(canvas->viewport(), Qt::LeftButton, {}, pixel + QPoint(70, 0));
+  QTest::qWait(30); QCOMPARE(selected.count(), 0);
+  canvas->setExtent(QgsRectangle(-100, 0, 200, 200)); canvas->refresh();
+  const auto point = canvas->mapSettings().mapToPixel().transform(0, 100).toQPointF().toPoint();
+  QTest::mouseClick(canvas->viewport(), Qt::LeftButton, {}, point);
+  QTRY_COMPARE(selected.count(), 1);
+  QCOMPARE(selected.first().first().toString(), QString("well-0"));
+  QTest::mouseClick(canvas->viewport(), Qt::LeftButton, {}, QPoint(5, 5));
+  QTest::qWait(30); QCOMPARE(selected.count(), 1);
+}

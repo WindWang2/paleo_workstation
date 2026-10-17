@@ -308,6 +308,7 @@ bool DataCatalog::applyJournal(const QVector<CatalogOp> &ops, QString *error)
       case CatalogOp::Kind::AddAsset: ok = addAsset(op.asset, &opErr); break;
       case CatalogOp::Kind::AddVersion: ok = addVersion(op.version, &opErr); break;
       case CatalogOp::Kind::AddLink: ok = addLink(op.link, &opErr); break;
+      case CatalogOp::Kind::UpdateLink: ok = updateLink(op.index, op.link, &opErr); break;
       case CatalogOp::Kind::AttachLink: ok = attachLink(op.index, op.id, &opErr); break;
       case CatalogOp::Kind::SetLinkUnresolved: ok = setLinkUnresolved(op.index, &opErr); break;
       case CatalogOp::Kind::SetLinkPrimary: ok = setLinkPrimary(op.index, &opErr); break;

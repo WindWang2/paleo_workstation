@@ -14,6 +14,7 @@
 #include "../src/io/perffixtures.h"
 #include "../src/services/datagraph.h"
 #include "../src/workflow/datagraphworkflow.h"
+#include "../src/workflow/assetassociation.h"
 
 using namespace paleo::datagraph;
 
@@ -95,6 +96,8 @@ private slots:
   void initTestCase() {
     qRegisterMetaType<paleo::datagraph::Graph>();
   }
+  void associationChangesAreAtomicAndPersist();
+  void knowledgeGraphModelsEntityCollections();
   void indexStructureAndEvidenceProjection();
   void unresolvedAndMissingSourcesAreHonest();
   void cycleDiagnosisFlagsComputationalLoop();
@@ -134,6 +137,98 @@ private:
     return spy.last().first().value<paleo::datagraph::Graph>();
   }
 };
+
+void TestDataGraph::associationChangesAreAtomicAndPersist() {
+  QTemporaryDir dir;
+  DataCatalog cat;
+  QVERIFY(cat.open(dir.path()));
+  QVERIFY(cat.addEntity(entity("w1", "well")));
+  QVERIFY(cat.addEntity(entity("w2", "well")));
+  QVERIFY(cat.addEntity(entity("s1", "seismic_survey")));
+  for (const auto &id : {QString("old"), QString("new"), QString("volume"), QString("new-volume"), QString("interp")})
+    QVERIFY(cat.addAsset(asset(id, "auxiliary")));
+  QVERIFY(cat.addLink(link("w1", "old", "tops")));
+  QString error;
+  using paleo::assetassociation::Change;
+  auto apply = [&](const QString &file, const QString &target, const QString &role, bool primary, int source = -1) {
+    return paleo::assetassociation::apply(&cat, Change{file, target, role, cat.mutationSeq(), source, primary}, &error);
+  };
+  QVERIFY2(apply("new", "w1", "tops", false), qPrintable(error));
+  QVERIFY(cat.linksForAsset("old").front().isPrimary);
+  QVERIFY(!cat.linksForAsset("new").front().isPrimary);
+  const int members = cat.links().size();
+  QVERIFY(apply("new", "w1", "tops", false));
+  QCOMPARE(cat.links().size(), members); // 重复添加不制造重复节点/关联。
+  QSignalSpy changed(&cat, &DataCatalog::changed);
+  QVERIFY(apply("new", "w1", "tops", true));
+  QCOMPARE(changed.count(), 1);
+  QVERIFY(!cat.linksForAsset("old").front().isPrimary);
+  QVERIFY(cat.linksForAsset("new").front().isPrimary);
+  QVERIFY(apply("new", "w2", "well_log", true, 1));
+  QCOMPARE(cat.linksForAsset("new").front().entityId, QString("w2"));
+  QCOMPARE(cat.linksForAsset("new").front().role, QString("well_log"));
+  QVERIFY(apply("volume", "s1", "seismic_volume", true));
+  QVERIFY(apply("new-volume", "s1", "seismic_volume", true));
+  QVERIFY(!cat.linksForAsset("volume").front().isPrimary);
+  QVERIFY(cat.linksForAsset("new-volume").front().isPrimary);
+  QVERIFY(apply("interp", "s1", "interpretation", true));
+  QVERIFY(cat.invalidRoleLinks().isEmpty());
+  const auto sequence = cat.mutationSeq();
+  QVERIFY(!apply("new", "s1", "tops", true));
+  QCOMPARE(cat.mutationSeq(), sequence);
+  QVERIFY(!paleo::assetassociation::apply(&cat, Change{"new", "w1", "tops", sequence - 1, -1, true}, &error));
+  QCOMPARE(cat.mutationSeq(), sequence);
+  // 批次中更改、主关联降级与操作日志一起回滚。
+  {
+    DataCatalog::BatchSave rollback(&cat);
+    auto change = cat.links()[1]; change.entityId = "w1"; change.role = "tops";
+    QVERIFY(cat.updateLink(1, change));
+    rollback.abort();
+  }
+  QCOMPARE(cat.linksForAsset("new").front().entityId, QString("w2"));
+  DataCatalog reopened;
+  QVERIFY(reopened.open(dir.path()));
+  QCOMPARE(reopened.linksForAsset("new").front().role, QString("well_log"));
+  QVERIFY(reopened.linksForAsset("new-volume").front().isPrimary);
+  QVERIFY(!reopened.linksForAsset("volume").front().isPrimary);
+}
+
+void TestDataGraph::knowledgeGraphModelsEntityCollections() {
+  QTemporaryDir dir;
+  DataCatalog cat;
+  QVERIFY(cat.open(dir.path()));
+  QVERIFY(cat.addEntity(entity("w1", "well", "A1")));
+  QVERIFY(cat.addEntity(entity("s1", "seismic_survey", "测区甲")));
+  for (const auto &id : {QString("log"), QString("tops"), QString("volume"), QString("horizon")}) {
+    QVERIFY(cat.addAsset(asset(id, "auxiliary")));
+    QVERIFY(cat.addVersion(version("v-" + id, id)));
+    auto association = link(id == "log" || id == "tops" ? "w1" : "s1", id,
+        id == "log" ? "well_log" : id == "volume" ? "seismic_volume" : id);
+    if (association.entityId == "s1") association.entityType = "seismic_survey";
+    QVERIFY(cat.addLink(association));
+  }
+  const auto index = buildIndex(cat, {}, {}, {});
+  QVERIFY(index);
+  Query request; request.mode = Mode::Knowledge;
+  const auto graph = query(*index, request, {}, {});
+  QCOMPARE(countKind(graph, Kind::Entity), 2);
+  QCOMPARE(countKind(graph, Kind::Asset), 4);
+  QCOMPARE(countKind(graph, Kind::Group), 0);
+  QCOMPARE(graph.edges.size(), 4);
+  QVERIFY(edgesMissingProvenance(graph).isEmpty());
+  for (const auto &node : graph.nodes)
+    if (node.kind == Kind::Entity) QCOMPARE(node.count, 2);
+  auto search = request; search.search = "A1";
+  const auto byWell = query(*index, search, {}, {});
+  QCOMPARE(countKind(byWell, Kind::Asset), 2);
+  QCOMPARE(countKind(byWell, Kind::Entity), 1);
+  const auto same = query(*index, request, {}, {});
+  for (int i = 0; i < graph.nodes.size(); ++i) {
+    QCOMPARE(graph.nodes[i].position, same.nodes[i].position);
+    for (int j = i + 1; j < graph.nodes.size(); ++j)
+      QVERIFY(!QRectF(graph.nodes[i].position, QSizeF(260, 112)).intersects(QRectF(graph.nodes[j].position, QSizeF(260, 112))));
+  }
+}
 
 // ---- 服务层：索引结构 / 证据投影 / 诚实呈现 ----
 

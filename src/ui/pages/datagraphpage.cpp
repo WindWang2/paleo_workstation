@@ -1,5 +1,6 @@
 // 层：视图
 #include "datagraphpage.h"
+#include "datagraphsceneitems.h"
 #include "../../catalog/datacatalog.h"
 #include "../../services/previewdoc.h"
 #include "../../workflow/datagraphworkflow.h"
@@ -63,119 +64,6 @@ protected:
                                                      width()));
   }
 };
-class NodeItem final : public QGraphicsObject {
-public:
-  Node node;
-  std::function<void(const Node &, bool)> selected;
-  std::function<void(const Node &)> activated;
-  explicit NodeItem(const Node &n) : node(n) {
-    setFlags(ItemIsSelectable | ItemIsFocusable);
-    setCursor(Qt::PointingHandCursor);
-    setZValue(1);
-    updateNode(n);
-  }
-  QRectF boundingRect() const override { return QRectF(0, 0, 260, 88); }
-  void updateNode(const Node &n) {
-    node = n;
-    setPos(n.position);
-    setToolTip(
-        (n.title + QLatin1Char('\n') + n.detail + QLatin1Char('\n') + n.path)
-            .toHtmlEscaped());
-    update();
-  }
-  void paint(QPainter *p, const QStyleOptionGraphicsItem *,
-             QWidget *) override {
-    const auto &t = PaleoTheme::tokens();
-    p->setPen(QPen(isSelected() || hasFocus()                    ? t.focusRing
-                   : node.stale || node.unresolved || node.cycle ? t.warning
-                                                                 : t.border,
-                   isSelected() || hasFocus() ? 2 : 1));
-    p->setBrush(node.kind == Kind::Group ? t.surfaceAlt : t.surface);
-    p->drawRoundedRect(boundingRect().adjusted(1, 1, -1, -1), t.radiusSm,
-                       t.radiusSm);
-    QFont font = p->font();
-    font.setPointSize(t.bodyPt);
-    font.setBold(node.kind == Kind::Group);
-    p->setFont(font);
-    p->setPen(t.text);
-    const qreal lod = QStyleOptionGraphicsItem::levelOfDetailFromTransform(
-        p->worldTransform());
-    if (lod < .35)
-      return;
-    p->drawText(
-        QRectF(t.spacingSm, t.spacingSm, 244, 26), Qt::AlignVCenter,
-        QFontMetrics(font).elidedText(node.title, Qt::ElideMiddle, 244));
-    if (lod < .65)
-      return;
-    font.setBold(false);
-    font.setPointSize(t.labelPt);
-    p->setFont(font);
-    p->setPen(t.textMuted);
-    QString kind =
-        node.kind == Kind::Entity
-            ? QCoreApplication::translate("DataGraphPage", "实体")
-        : node.kind == Kind::Asset
-            ? QCoreApplication::translate("DataGraphPage", "文件资料")
-        : node.kind == Kind::Version
-            ? QCoreApplication::translate("DataGraphPage", "资料版本")
-        : node.kind == Kind::Activity
-            ? QCoreApplication::translate("DataGraphPage", "生成记录")
-        : node.kind == Kind::Missing
-            ? QCoreApplication::translate("DataGraphPage", "待核实")
-        : node.kind == Kind::Evidence ? QCoreApplication::translate("DataGraphPage", "地质证据")
-        : node.kind == Kind::Assertion ? QCoreApplication::translate("DataGraphPage", "地质判断")
-        : node.kind == Kind::Interpretation ? QCoreApplication::translate("DataGraphPage", "地质解释")
-        : node.kind == Kind::Feature ? QCoreApplication::translate("DataGraphPage", "地图图斑")
-        : node.kind == Kind::ReviewEvent ? QCoreApplication::translate("DataGraphPage", "审核事件")
-            : QCoreApplication::translate("DataGraphPage", "分组");
-    p->drawText(QRectF(t.spacingSm, 36, 244, 19),
-                QFontMetrics(font).elidedText(kind + QStringLiteral(" · ") +
-                                                  node.detail,
-                                              Qt::ElideRight, 244));
-    QString state =
-        node.kind == Kind::Asset ? stageText(node.stage) : node.path;
-    if (node.stale)
-      state += QCoreApplication::translate("DataGraphPage", " · 已过期");
-    if (node.unresolved)
-      state += QCoreApplication::translate("DataGraphPage", " · 待关联");
-    p->drawText(QRectF(t.spacingSm, 58, 244, 19),
-                QFontMetrics(font).elidedText(state, Qt::ElideMiddle, 244));
-  }
-  void mousePressEvent(QGraphicsSceneMouseEvent *e) override {
-    QGraphicsObject::mousePressEvent(e);
-    dispatch(false);
-  }
-  void mouseDoubleClickEvent(QGraphicsSceneMouseEvent *e) override {
-    e->accept();
-    dispatch(true);
-  }
-  void keyPressEvent(QKeyEvent *e) override {
-    if (e->key() == Qt::Key_Return || e->key() == Qt::Key_Enter) {
-      dispatch(true);
-      e->accept();
-    } else if (e->key() == Qt::Key_Space) {
-      dispatch(false);
-      e->accept();
-    } else
-      QGraphicsObject::keyPressEvent(e);
-  }
-
-private:
-  void dispatch(bool open) {
-    // Selection can refresh other panels and eventually rebuild the scene;
-    // leave item event stack first.
-    const Node value = node;
-    const auto pick = selected;
-    const auto activate = activated;
-    QTimer::singleShot(0, this, [value, pick, activate, open] {
-      if (open) {
-        if (activate)
-          activate(value);
-      } else if (pick)
-        pick(value, true);
-    });
-  }
-};
 } // namespace
 DataGraphPage::DataGraphPage(QWidget *parent)
     : QWidget(parent), m_workflow(new DataGraphWorkflow(this)) {
@@ -211,7 +99,7 @@ DataGraphPage::DataGraphPage(QWidget *parent)
   m_mode = new QComboBox(bar);
   m_mode->setObjectName("dataGraphMode");
   m_mode->setToolTip(tr("图谱模式"));
-  m_mode->addItem(tr("工区概览"), int(Mode::Overview));
+  m_mode->addItem(tr("资料知识图谱"), int(Mode::Knowledge)); m_mode->addItem(tr("分类统计概览"), int(Mode::Overview));
   m_mode->addItem(tr("资料关联"), int(Mode::Relations));
   m_mode->addItem(tr("成果追溯"), int(Mode::Lineage));
   m_mode->addItem(tr("实体目录"), int(Mode::Entities));
@@ -233,25 +121,7 @@ DataGraphPage::DataGraphPage(QWidget *parent)
         QStringLiteral("DERIVED"), QStringLiteral("OUTPUT"),
         QStringLiteral("NONE")})
     m_stage->addItem(stageText(s), s);
-  m_evidenceTypeFilter = new QComboBox(bar);
-  m_evidenceTypeFilter->setObjectName("graphEvidenceType");
-  m_evidenceTypeFilter->setToolTip(tr("证据类型"));
-  m_evidenceTypeFilter->addItem(tr("全部证据类型"), QString());
-  for (const auto &entry : QList<QPair<QString, QString>>{
-           {tr("井资料"), "well"}, {tr("地震资料"), "seismic"},
-           {tr("单因素"), "single_factor"}, {tr("约束"), "constraint"},
-           {tr("规则"), "rule"}, {tr("人工"), "manual"},
-           {tr("参考"), "reference"}, {tr("计算"), "computation"}})
-    m_evidenceTypeFilter->addItem(entry.first, entry.second);
-  m_reviewFilter = new QComboBox(bar);
-  m_reviewFilter->setObjectName("graphEvidenceReview");
-  m_reviewFilter->setToolTip(tr("解释状态"));
-  m_reviewFilter->addItem(tr("全部解释状态"), QString());
-  for (const auto &entry : QList<QPair<QString, QString>>{
-           {tr("拟议"), "Proposed"}, {tr("待复核"), "NeedsReview"},
-           {tr("已确认"), "Confirmed"}, {tr("已驳回"), "Rejected"},
-           {tr("争议"), "Disputed"}, {tr("已替代"), "Superseded"}})
-    m_reviewFilter->addItem(entry.first, entry.second);
+  createEvidenceFilters(bar);
   m_search = new QLineEdit(bar);
   m_search->setObjectName("dataGraphSearch");
   m_search->setPlaceholderText(tr("搜索"));
@@ -272,11 +142,6 @@ DataGraphPage::DataGraphPage(QWidget *parent)
   m_history = iconButton("dataGraphHistory", "mActionHistory.svg",
                          tr("包含历史版本"));
   m_history->setCheckable(true);
-  m_evidencePage = new QSpinBox(bar);
-  m_evidencePage->setObjectName("graphEvidencePage");
-  m_evidencePage->setRange(1, 200);
-  m_evidencePage->setToolTip(tr("证据页，每页最多 50 条关联"));
-  m_evidencePage->setAccessibleName(tr("证据页"));
   auto *refreshButton =
       iconButton("dataGraphRefresh", "mActionRefresh.svg", tr("刷新图谱"));
   auto *fit = iconButton("dataGraphFit", "mActionZoomFullExtent.svg",
@@ -304,7 +169,7 @@ DataGraphPage::DataGraphPage(QWidget *parent)
   m_summary = new ElideLabel(bar);
   m_summary->setObjectName(QStringLiteral("dataGraphSummary"));
   for (QWidget *widget : std::initializer_list<QWidget *>{
-           m_mode, m_category, m_stage, m_evidenceTypeFilter, m_reviewFilter,
+           m_mode, m_category, m_stage, m_evidenceTypeFilter, m_reviewFilter, m_relationFilter,
            m_search, m_back, m_depth, m_history, m_evidencePage, refreshButton,
            fit, zoomIn, zoomOut, m_cancel, governance, m_export})
     barLayout->addWidget(widget);
@@ -346,10 +211,6 @@ DataGraphPage::DataGraphPage(QWidget *parent)
       return;
     m_workflow->exportGraph(m_graph, dialog.selectedFiles().first());
   });
-  connect(m_evidenceTypeFilter, &QComboBox::currentIndexChanged, this, [this] { m_evidencePage->setValue(1); request(); });
-  connect(m_reviewFilter, &QComboBox::currentIndexChanged, this, [this] { m_evidencePage->setValue(1); request(); });
-  connect(m_relationFilter, &QComboBox::currentIndexChanged, this, [this] { m_evidencePage->setValue(1); request(); });
-  connect(m_evidencePage, &QSpinBox::valueChanged, this, [this] { request(); });
   auto *splitter = new QSplitter(this);
   splitter->setChildrenCollapsible(false);
   m_scene = new QGraphicsScene(this);
@@ -358,7 +219,10 @@ DataGraphPage::DataGraphPage(QWidget *parent)
   m_view->setRenderHint(QPainter::Antialiasing);
   m_view->setDragMode(QGraphicsView::ScrollHandDrag);
   m_view->setAccessibleName(tr("资料图谱画布"));
-  auto *details = new QWidget(splitter);
+  // 空场景下 QGraphicsView 的 sizeHint 极小，分栏的拉伸权重 = 初始尺寸 ×
+  // stretch——先给画布一个初始尺寸意见，图谱才能拿到主区；宽度之后由用户拖动决定。
+  m_view->resize(760, 600);
+  auto *details = new QWidget(splitter); details->setMinimumWidth(250);
   auto *dl = new QVBoxLayout(details);
   dl->setContentsMargins(t.spacingSm, 0, 0, 0);
   auto *detailTabs = new QTabWidget(details);
@@ -403,7 +267,7 @@ DataGraphPage::DataGraphPage(QWidget *parent)
   auto *manageMenu = new QMenu(m_manage);
   for (const auto &[title, action] :
        {qMakePair(tr("版本管理 / 对比 / 回滚"), QStringLiteral("versions")),
-        qMakePair(tr("编辑关联角色"), QStringLiteral("role")),
+        qMakePair(tr("调整资料归属与用途"), QStringLiteral("role")),
         qMakePair(tr("添加标签"), QStringLiteral("tag")),
         qMakePair(tr("移入回收清单"), QStringLiteral("remove"))})
     connect(manageMenu->addAction(title), &QAction::triggered, this,
@@ -423,11 +287,11 @@ DataGraphPage::DataGraphPage(QWidget *parent)
   int row = 0;
   for (auto *button : {m_open, m_locate, m_folder, m_related, m_trace, m_impact, m_map,
                        m_reference, m_wells, m_manage}) {
-    actionGrid->addWidget(button, row / 2, row % 2);
+    actionGrid->addWidget(button, row, 0);
     button->setEnabled(false);
     ++row;
   }
-  actionGrid->addWidget(tasks, row / 2, row % 2);
+  actionGrid->addWidget(tasks, row, 0);
   dl->addLayout(actionGrid);
   connect(tasks, &QPushButton::clicked, this,
           &DataGraphPage::taskCenterRequested);
@@ -506,10 +370,7 @@ DataGraphPage::DataGraphPage(QWidget *parent)
   connect(m_depth, &QSpinBox::valueChanged, this, [this] { request(); });
   connect(m_history, &QToolButton::toggled, this, [this] { request(); });
   connect(refreshButton, &QToolButton::clicked, this, &DataGraphPage::refresh);
-  connect(fit, &QToolButton::clicked, this, [this] {
-    m_view->fitInView(m_scene->itemsBoundingRect().adjusted(-16, -16, 16, 16),
-                      Qt::KeepAspectRatio);
-  });
+  connect(fit, &QToolButton::clicked, this, &DataGraphPage::fitGraphToView);
   connect(zoomIn, &QToolButton::clicked, this, [this] {
     if (m_view->transform().m11() < 4)
       m_view->scale(1.2, 1.2);
@@ -551,11 +412,51 @@ DataGraphPage::DataGraphPage(QWidget *parent)
       pen.setColor(path->data(3).toBool()   ? tokens.focusRing
                    : path->data(0).toBool() ? tokens.warning
                                             : tokens.textMuted);
-      path->setPen(pen);
+      path->setPen(pen); updateDataGraphEdgeLabels(path);
     }
     return QString();
   });
 }
+void DataGraphPage::createEvidenceFilters(QWidget *bar) {
+  m_evidenceTypeFilter = new QComboBox(bar);
+  m_evidenceTypeFilter->setObjectName("graphEvidenceType");
+  m_evidenceTypeFilter->setToolTip(tr("证据类型"));
+  m_evidenceTypeFilter->addItem(tr("全部证据类型"), QString());
+  for (const auto &entry : QList<QPair<QString, QString>>{
+           {tr("井资料"), "well"}, {tr("地震资料"), "seismic"},
+           {tr("单因素"), "single_factor"}, {tr("约束"), "constraint"},
+           {tr("规则"), "rule"}, {tr("人工"), "manual"},
+           {tr("参考"), "reference"}, {tr("计算"), "computation"}})
+    m_evidenceTypeFilter->addItem(entry.first, entry.second);
+  m_reviewFilter = new QComboBox(bar);
+  m_reviewFilter->setObjectName("graphEvidenceReview");
+  m_reviewFilter->setToolTip(tr("解释状态"));
+  m_reviewFilter->addItem(tr("全部解释状态"), QString());
+  for (const auto &entry : QList<QPair<QString, QString>>{
+           {tr("拟议"), "Proposed"}, {tr("待复核"), "NeedsReview"},
+           {tr("已确认"), "Confirmed"}, {tr("已驳回"), "Rejected"},
+           {tr("争议"), "Disputed"}, {tr("已替代"), "Superseded"}})
+    m_reviewFilter->addItem(entry.first, entry.second);
+  m_relationFilter = new QComboBox(bar);
+  m_relationFilter->setObjectName("graphEvidenceRelation");
+  m_relationFilter->setToolTip(tr("筛选当前图斑的证据关系"));
+  m_relationFilter->addItem(tr("全部证据关系"), QString());
+  for (const auto &entry : QList<QPair<QString, QString>>{
+      {tr("支持"), "Supported"}, {tr("反驳"), "Contradicted"}, {tr("约束"), "Constrained"},
+      {tr("参考"), "References"}, {tr("形成判断"), "Informs"}, {tr("物化解释"), "Materializes"},
+      {tr("参与编图"), "ConsumedIn"}, {tr("审核"), "ReviewedBy"}, {tr("替代"), "Supersedes"}})
+    m_relationFilter->addItem(entry.first, entry.second);
+  m_evidencePage = new QSpinBox(bar);
+  m_evidencePage->setObjectName("graphEvidencePage");
+  m_evidencePage->setRange(1, 200);
+  m_evidencePage->setToolTip(tr("证据页，每页最多 50 条关联"));
+  m_evidencePage->setAccessibleName(tr("证据页"));
+  connect(m_evidenceTypeFilter, &QComboBox::currentIndexChanged, this, [this] { m_evidencePage->setValue(1); request(); });
+  connect(m_reviewFilter, &QComboBox::currentIndexChanged, this, [this] { m_evidencePage->setValue(1); request(); });
+  connect(m_relationFilter, &QComboBox::currentIndexChanged, this, [this] { m_evidencePage->setValue(1); request(); });
+  connect(m_evidencePage, &QSpinBox::valueChanged, this, [this] { request(); });
+}
+
 void DataGraphPage::setDocService(PreviewDocService *doc) {
   m_doc = doc;
   m_workflow->setContext(doc ? doc->catalog() : nullptr,
@@ -578,8 +479,8 @@ void DataGraphPage::setSelection(const QString &entity, const QString &asset,
   if (m_focus == key)
     return;
   m_focus = key;
-  if (m_mode->currentIndex() != 0)
-    request();
+  if (m_mode->currentData().toInt() != int(Mode::Knowledge) &&
+      m_mode->currentData().toInt() != int(Mode::Overview)) request();
 }
 void DataGraphPage::openRelations(const QString &asset, const QString &version,
                                   const QString &entity) {
@@ -618,7 +519,10 @@ void DataGraphPage::refresh() {
   request();
 }
 void DataGraphPage::request() {
-  m_history->setEnabled(m_mode->currentIndex() == 1);
+  const bool evidence = !m_featureEvidence.isEmpty();
+  for (auto *widget : std::initializer_list<QWidget *>{m_evidenceTypeFilter, m_reviewFilter, m_relationFilter, m_evidencePage})
+    widget->setVisible(evidence);
+  m_history->setEnabled(m_mode->currentData().toInt() == int(Mode::Relations));
   m_stage->setEnabled(m_mode->currentData().toInt() != int(Mode::Entities));
   m_history->setToolTip(tr("资料关联视图可展开历史版本；成果追溯按实际版本血缘"
                            "显示，工区概览按当前版本统计。"));
@@ -659,8 +563,18 @@ void DataGraphPage::hideEvent(QHideEvent *event) {
   m_workflow->cancel();
   QWidget::hideEvent(event);
 }
+void DataGraphPage::fitGraphToView() {
+  if (!m_graph.nodes.isEmpty())
+    m_view->fitInView(m_scene->itemsBoundingRect().adjusted(-16, -16, 16, 16), Qt::KeepAspectRatio);
+}
 void DataGraphPage::render(const Graph &graph) {
+  const bool newScope = m_graph.nodes.isEmpty() || m_graph.query.mode != graph.query.mode ||
+      m_graph.query.focus != graph.query.focus || m_graph.query.search != graph.query.search ||
+      m_graph.query.category != graph.query.category || m_graph.query.stage != graph.query.stage;
   m_graph = graph;
+  if (newScope) QTimer::singleShot(0, this, [this, query = graph.query] {
+    if (m_graph.query == query) fitGraphToView();
+  });
   m_graphMessage = graph.message;
   QSet<QString> keep;
   for (const Node &n : graph.nodes)
@@ -673,9 +587,9 @@ void DataGraphPage::render(const Graph &graph) {
       ++it;
   }
   for (const Node &n : graph.nodes) {
-    auto *item = static_cast<NodeItem *>(m_items.value(n.id));
+    auto *item = static_cast<DataGraphNodeItem *>(m_items.value(n.id));
     if (!item) {
-      item = new NodeItem(n);
+      item = new DataGraphNodeItem(n);
       item->selected = [this](const Node &node, bool navigate) {
         selectNode(node, navigate);
       };
@@ -688,28 +602,14 @@ void DataGraphPage::render(const Graph &graph) {
   for (auto *e : m_edges)
     delete e;
   m_edges.clear();
+  QHash<QPair<QString, QString>, int> totals, lanes;
+  for (const auto &edge : graph.edges) ++totals[qMakePair(edge.source, edge.target)];
   for (const Edge &e : graph.edges) {
     if (!m_items.contains(e.source) || !m_items.contains(e.target))
       continue;
-    const QPointF start = m_items[e.source]->pos() + QPointF(260, 44),
-                  end = m_items[e.target]->pos() + QPointF(0, 44);
-    QPainterPath path;
-    path.moveTo(start);
-    if (end.x() <= start.x())
-      path.cubicTo(start + QPointF(30, -70), end + QPointF(-30, -70), end);
-    else
-      path.cubicTo(start + QPointF(30, 0), end - QPointF(30, 0), end);
-    const double angle = end.x() > start.x() ? 0 : std::atan2(70.0, 30.0);
-    path.moveTo(end - QPointF(std::cos(angle - .5), std::sin(angle - .5)) * 8);
-    path.lineTo(end);
-    path.lineTo(end - QPointF(std::cos(angle + .5), std::sin(angle + .5)) * 8);
-    QPen pen(e.unresolved ? PaleoTheme::tokens().warning
-                          : PaleoTheme::tokens().textMuted,
-             1);
-    if (e.relation == Relation::EditBaseline ||
-        e.relation == Relation::Rollback || e.unresolved)
-      pen.setStyle(Qt::DashLine);
-    auto *item = m_scene->addPath(path, pen);
+    const auto pair = qMakePair(e.source, e.target);
+    const double bend = (lanes[pair]++ - (totals[pair] - 1) / 2.0) * PaleoTheme::tokens().spacingLg * 2;
+    auto *item = addDataGraphEdge(m_scene, m_items[e.source], m_items[e.target], e, bend);
     item->setToolTip(
         (e.label + QStringLiteral("\n依据：") + e.provenance).toHtmlEscaped());
     item->setData(0, e.unresolved);
@@ -869,7 +769,7 @@ void DataGraphPage::selectNode(const Node &node, bool navigate) {
     emit assetFocusRequested(node.assetId);
   else if (!node.entityId.isEmpty()) {
     emit entityFocusRequested(node.entityId);
-    if (node.detail == QLatin1String("well"))
+    if (node.entityType == QLatin1String("well"))
       emit wellSelected(node.entityId);
   }
 }
@@ -898,7 +798,7 @@ void DataGraphPage::activateNode(const Node &node) {
   }
   if (node.kind == Kind::Group) {
     QSignalBlocker a(m_category), b(m_stage), c(m_mode);
-    m_mode->setCurrentIndex(0);
+    m_mode->setCurrentIndex(m_mode->findData(int(Mode::Overview)));
     m_category->setCurrentIndex(m_category->findData(node.categories.value(0)));
     m_stage->setCurrentIndex(
         node.stage.isEmpty() ? 0 : m_stage->findData(node.stage));
@@ -939,7 +839,7 @@ void DataGraphPage::setFeatureEvidence(const QVariantMap &snapshot, bool open) {
   if (open) {
     const QSignalBlocker mode(m_mode), depth(m_depth), page(m_evidencePage);
     m_focus = versionKey(snapshot.value("version_id").toString());
-    m_mode->setCurrentIndex(int(Mode::Relations)); m_depth->setValue(4); m_evidencePage->setValue(1);
+    m_mode->setCurrentIndex(m_mode->findData(int(Mode::Relations))); m_depth->setValue(4); m_evidencePage->setValue(1);
   }
   request();
 }

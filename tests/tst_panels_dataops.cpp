@@ -2402,24 +2402,29 @@ class TestPanelsDataOps : public QObject
         }();
         QVERIFY(row >= 0);
         table->selectRow(row);
-        // 三拍：角色对话框选 tops → accept → 警告框 Yes。
-        driveModalNextTick([](QWidget *w) {
-            if (auto *dlg = qobject_cast<paleo::dataops::RoleEditDialog *>(w))
-            {
-                auto *combo =
-                    dlg->findChild<QComboBox *>(QStringLiteral("roleEditCombo"));
-                const int idx = combo->findText(QStringLiteral("tops"));
-                if (idx >= 0)
-                    combo->setCurrentIndex(idx);
-                dlg->accept();
-            }
-            QTimer::singleShot(0, [] {
-                if (auto *mb = qobject_cast<QMessageBox *>(
-                        QApplication::activeModalWidget()))
-                    mb->button(QMessageBox::Yes)->click();
-            });
-        });
+        // 统一关联编辑器（非模态）：以「添加补充资料」给 A1 增加 tops 用途。
         lp->editRoleForSelection();
+        auto *editor =
+            lp->findChild<QDialog *>(QStringLiteral("assetAssociationEditor"));
+        QVERIFY(editor);
+        auto *target =
+            editor->findChild<QComboBox *>(QStringLiteral("associationTarget"));
+        auto *role =
+            editor->findChild<QComboBox *>(QStringLiteral("associationRole"));
+        auto *operation = editor->findChild<QComboBox *>(
+            QStringLiteral("associationOperation"));
+        QVERIFY(target && role && operation);
+        operation->setCurrentIndex(0); // 添加补充资料
+        const int targetIdx = target->findData(fx.wellA);
+        QVERIFY(targetIdx >= 0);
+        target->setCurrentIndex(targetIdx);
+        const int roleIdx = role->findData(QStringLiteral("tops"));
+        QVERIFY(roleIdx >= 0);
+        role->setCurrentIndex(roleIdx);
+        auto *buttons = editor->findChild<QDialogButtonBox *>();
+        QVERIFY(buttons);
+        QVERIFY(buttons->button(QDialogButtonBox::Save)->isEnabled());
+        buttons->button(QDialogButtonBox::Save)->click();
         // 新角色链接在场（旧角色保留——catalog 无删除 API，GAPS）。
         bool sawTops = false, sawLog = false;
         for (const EntityAssetLink &l :

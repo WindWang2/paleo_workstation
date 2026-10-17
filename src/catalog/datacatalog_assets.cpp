@@ -64,13 +64,15 @@ bool DataCatalog::addAsset(const CatalogAsset &a, QString *error)
 
 QVector<CatalogAsset> DataCatalog::assets() const
 {
-  noteRead("assets");
+  if (!noteRead("assets"))
+    return {};
   return m_assets;
 }
 
 CatalogAsset DataCatalog::assetById(const QString &id) const
 {
-  noteRead("assetById");
+  if (!noteRead("assetById"))
+    return {};
   const int row = m_idx.assetRow(id); // D5.1 O(1)
   return row >= 0 ? m_assets.at(row) : CatalogAsset();
 }
@@ -160,7 +162,8 @@ bool DataCatalog::removeAssets(const QStringList &assetIds, QString *error)
 
 QString DataCatalog::nextAssetId()
 {
-  noteRead("nextAssetId");
+  if (!noteRead("nextAssetId"))
+    return {};
   ++m_mutationSeq; // 分配 id 也是 owner 侧状态变化（提交基线要看见）
   QString id;
   do { id = QStringLiteral("ast-%1").arg(++m_assetSeq); }

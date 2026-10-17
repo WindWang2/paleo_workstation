@@ -311,7 +311,8 @@ QVector<EntityAssetLink> DataCatalog::invalidRoleLinks() const
 
 QVector<EntityAssetLink> DataCatalog::linksForEntity(const QString &entityId) const
 {
-  noteRead("linksForEntity");
+  if (!noteRead("linksForEntity"))
+    return {};
   // audit row 35：空 id 不等于「全部未决链接」——未决集合走 unresolvedLinks()；
   // 这里如实返回空集，不然调用方拿空串查询会静默命中全部未决链接。
   if (entityId.isEmpty())
@@ -342,7 +343,8 @@ QVector<EntityAssetLink> DataCatalog::unresolvedLinks() const
 
 QVector<EntityAssetLink> DataCatalog::linksForAsset(const QString &assetId) const
 {
-  noteRead("linksForAsset");
+  if (!noteRead("linksForAsset"))
+    return {};
   QVector<EntityAssetLink> out;
   const QVector<int> rows = m_idx.linkRowsForAsset(assetId); // D5.1（行升序）
   out.reserve(rows.size());
@@ -353,6 +355,7 @@ QVector<EntityAssetLink> DataCatalog::linksForAsset(const QString &assetId) cons
 
 QVector<EntityAssetLink> DataCatalog::links() const
 {
-  noteRead("links");
+  if (!noteRead("links"))
+    return {};
   return m_links;
 }

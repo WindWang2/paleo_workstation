@@ -374,7 +374,8 @@ MappingWorkbenchPage::MappingWorkbenchPage(const QString &mode,
           [this] { updateState(); });
   auto *hierarchyHint = new QLabel(
       tr("三级共用边界。相／亚相改类会更新整个选中父类，并保留目标分类内兼容的"
-         "下级；微相改类只作用于选中面。缺少层级明确标为未定义，预测与编图前须补齐。"),
+         "下级；微相改类只作用于选中面。旧分类打开时自动归入三级体系（相／亚相级"
+         "落「未细分」，无法识别的落「其他／未归类」），可在维护表重挂归属。"),
       appearance);
   hierarchyHint->setWordWrap(true);
   appearanceLayout->addWidget(hierarchyHint);

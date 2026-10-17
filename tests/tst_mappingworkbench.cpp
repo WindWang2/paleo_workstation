@@ -1,6 +1,7 @@
 #include "../src/ai/remotepredictconfig.h"
 #include "../src/app/aiwiring.h"
 #include "../src/domain/faciescatalog.h"
+#include "../src/domain/faciestaxonomy.h"
 #include "../src/domain/facieshierarchy.h"
 #include "../src/metadata/paleoprojectstore.h"
 #include "../src/qgis/facieshierarchyrenderer.h"
@@ -714,9 +715,9 @@ private slots:
              QString("micro_facies"));
     QCOMPARE(FaciesHierarchy::resolveLevel("facies", 1), QString("facies"));
     QCOMPARE(FaciesHierarchy::path({{"microfacies", "仅微相"}}),
-             QStringList({"未定义相", "未定义亚相", "仅微相"}));
+             QStringList({"其他", "未归类", "仅微相"}));
     QCOMPARE(FaciesHierarchy::path({{"facies", "相"}, {"microfacies", "微相"}}),
-             QStringList({"相", "未定义亚相", "微相"}));
+             QStringList({"相", "未细分", "微相"}));
     auto schema = hierarchySchema();
     QCOMPARE(FaciesHierarchy::legend(schema, "facies", {1, 2, 3, 4, 5}).size(),
              3);
@@ -732,6 +733,46 @@ private slots:
     QCOMPARE(
         FaciesHierarchy::legend(schema, "facies", {1, 77, QVariant()}).size(),
         2);
+  }
+  void legacySchemaIsUpgradedOnRead() {
+    Fixture f;
+    QVERIFY(f.init());
+    QString error;
+    // 直接注入平级旧分类（绕过 saveFacies 校验，模拟合并前的旧工程目录）。
+    {
+      DerivedAssetRegistrar r(&f.catalog, f.dir.path());
+      auto st = r.stage("facies_schema", QStringLiteral("facies-schema-D61"),
+                        QStringLiteral("facies.json"), &error);
+      QVERIFY2(st.isValid(), qPrintable(error));
+      const QVariantList legacy{
+          QVariantMap{{"code", 1}, {"name", "河流相"}, {"facies", "河流相"}, {"color", "#E8D5B0"}},
+          QVariantMap{{"code", 2}, {"name", "三角洲相"}, {"facies", "三角洲相"}, {"color", "#E8D5B0"}},
+          QVariantMap{{"code", 3}, {"name", "湖泊相"}, {"facies", "湖泊相"}, {"color", "#D5E8D0"}}};
+      QFile file(st.absolutePath);
+      QVERIFY(file.open(QIODevice::WriteOnly));
+      file.write(QJsonDocument::fromVariant(legacy).toJson());
+      file.close();
+      QVERIFY2(r.commit(st, {}, "fixture",
+                        {{"horizon", "D61"}, {"facies", legacy}}, &error),
+               qPrintable(error));
+    }
+    // 读出即迁移：三级恒有值，项目里不出现未定义相。
+    const auto schema = f.work.facies("D61");
+    QCOMPARE(schema.size(), 3);
+    for (const auto &v : schema) {
+      const auto m = v.toMap();
+      QVERIFY2(!m.value("facies").toString().isEmpty(), "facies");
+      QVERIFY2(!m.value("subfacies").toString().isEmpty(), "subfacies");
+      QVERIFY2(!m.value("microfacies").toString().isEmpty(), "microfacies");
+    }
+    QCOMPARE(schema[1].toMap().value("facies").toString(), QStringLiteral("三角洲相"));
+    QCOMPARE(schema[1].toMap().value("subfacies").toString(), QStringLiteral("未细分"));
+    QCOMPARE(schema[2].toMap().value("facies").toString(), QStringLiteral("湖泊相"));
+    // 升级后的分类通过正规校验并可回写——预测/编图不再被旧分类拒绝。
+    QVariantList normalized;
+    QVERIFY2(FaciesTaxonomy::normalize(schema, &normalized, &error),
+             qPrintable(error));
+    QVERIFY2(f.work.saveFacies("D61", schema, &error), qPrintable(error));
   }
   void hierarchyRenderingMergesAndUpdatesLabelsWithoutChangingGeometry() {
     Fixture f;
@@ -1731,7 +1772,11 @@ private slots:
     layer.updateExtents();
     for (const auto &level : {"micro_facies", "facies", "micro_facies"}) {
       const auto legend = FaciesHierarchyRenderer::apply(&layer, schema, level);
-      QCOMPARE(legend.size(), 4);
+      // 迁移后微相挂回真实相：相级聚合为三角洲相 + 未预测，微相级仍是逐微相。
+      const bool micro = QLatin1String(level) == QLatin1String("micro_facies");
+      QCOMPARE(legend.size(), micro ? 4 : 2);
+      if (!micro)
+        continue;
       auto *renderer = dynamic_cast<QgsCategorizedSymbolRenderer *>(layer.renderer());
       QVERIFY(renderer);
       for (int i = 0; i < names.size(); ++i) {

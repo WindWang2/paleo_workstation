@@ -1,5 +1,6 @@
 // 层：QGIS 封装
 #include "faciesmaplegend.h"
+#include "../domain/faciestaxonomy.h"
 #include "../domain/facieshierarchy.h"
 #include <QPointer>
 #include <utility>
@@ -122,11 +123,14 @@ void FaciesMapLegend::install(QgsMapLayer *layer) {
       }
 }
 QVariantList FaciesMapLegend::symbolEntries(QgsMapLayer *layer, const QVariantList &entries) {
+  QVariantList migrated;
+  FaciesTaxonomy::upgrade(entries, &migrated);  // 旧冻结分类迁进三级体系
+  const auto effective = migrated.isEmpty() && !entries.isEmpty() ? entries : migrated;
   const auto *vector = qobject_cast<QgsVectorLayer *>(layer);
   const auto symbols = vector && vector->renderer() ? vector->renderer()->legendSymbolItems() : QgsLegendSymbolList{};
   QVariantList result;
-  for (int i = 0; i < entries.size(); ++i) {
-    auto row = entries[i].toMap();
+  for (int i = 0; i < effective.size(); ++i) {
+    auto row = effective[i].toMap();
     QIcon icon;
     if (i < symbols.size()) icon = QgsSymbolLayerUtils::symbolPreviewIcon(symbols[i].symbol(), QSize(32, 16));
     else {

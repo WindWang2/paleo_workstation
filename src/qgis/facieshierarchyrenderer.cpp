@@ -1,5 +1,6 @@
 // 层：QGIS 封装
 #include "facieshierarchyrenderer.h"
+#include "../domain/faciestaxonomy.h"
 #include "faciesmaplegend.h"
 #include "../domain/facieshierarchy.h"
 #include "../domain/faciescatalog.h"
@@ -63,9 +64,13 @@ QVariantList codes(QgsMapLayer *layer) {
 }
 QVariantList legend(QgsMapLayer *layer, const QVariantList &schema,
                     const QString &level) {
+  // 旧冻结分类迁进三级体系，图例不出现未定义相。
+  QVariantList migrated;
+  const auto effective =
+      FaciesTaxonomy::upgrade(schema, &migrated) ? migrated : schema;
   const auto present = codes(layer);
   QVariantList styled;
-  for (const auto &v : schema) styled << FaciesCatalog::appearance(v.toMap());
+  for (const auto &v : effective) styled << FaciesCatalog::appearance(v.toMap());
   auto entries = FaciesHierarchy::legend(styled, level, present);
   if (auto *v = qobject_cast<QgsVectorLayer *>(layer);
       v && v->geometryType() == Qgis::GeometryType::Point)

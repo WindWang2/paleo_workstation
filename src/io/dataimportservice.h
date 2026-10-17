@@ -2,6 +2,7 @@
 #pragma once
 #include <QHash>
 #include <QList>
+#include <QTemporaryDir>
 #include <QObject>
 #include <QPair>
 #include <QSet>
@@ -320,6 +321,10 @@ class DataImportService : public QObject
     QString m_converter;            // "" 未解析/不可用
     bool m_converterResolved = false;
     QProcess *m_convProc = nullptr; // 非空即转换在途
+    // FE-004：LibreOffice 独立 UserInstallation 目录——随机名（防多用户机
+    // 预布设 symlink）+ 服务存续期保活 + 析构自动清理（旧实现是固定名
+    // /tmp/paleo-lo-profile-<pid> 且全仓无清理，跨会话在 /tmp 永久累积）。
+    std::unique_ptr<QTemporaryDir> m_convProfileDir;
     QList<QPair<QString, QString>> m_convQueue; // (assetId, outExt)："pdf"|"xlsx"
     QString m_convCurrent;          // 在途 assetId
     QString m_convCurrentExt;       // 在途输出扩展名

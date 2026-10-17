@@ -297,10 +297,14 @@ void DataImportService::startNextConversion()
                   m_convCurrentExt;
 
   // 独立 UserInstallation：避开 LibreOffice 单实例 profile 锁，且 URL 合规。
-  const QString profileDir = QDir::temp().filePath(
-      QStringLiteral("paleo-lo-profile-%1").arg(QCoreApplication::applicationPid()));
+  // FE-004：QTemporaryDir 随机名 + 服务析构自动清理——固定可预测名
+  // /tmp/paleo-lo-profile-<pid> 是多用户机上的预布设面（symlink），且旧
+  // 实现从不清理，每个做过转换的进程都在 /tmp 遗留一个 profile 目录。
+  if (!m_convProfileDir)
+    m_convProfileDir = std::make_unique<QTemporaryDir>(
+        QDir::temp().absoluteFilePath(QStringLiteral("paleo-lo-profile-XXXXXX")));
   const QString profile = QStringLiteral("-env:UserInstallation=") +
-                          QUrl::fromLocalFile(profileDir).toString();
+                          QUrl::fromLocalFile(m_convProfileDir->path()).toString();
 
   m_convProc = new QProcess(this);
   connect(m_convProc, qOverload<int, QProcess::ExitStatus>(&QProcess::finished),

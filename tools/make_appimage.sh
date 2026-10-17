@@ -29,11 +29,16 @@ if [ -z "$MKSQUASHFS" ]; then
 fi
 [ -x "$BIN" ] || { echo "error: $BIN 不存在，先编译" >&2; exit 1; }
 
-# AppImage type2 runtime（纯 ELF，直接下载）
+# AppImage type2 runtime（纯 ELF，直接下载）。
+# FE-003：钉具体 release 资产 + sha256 校验——runtime 是 AppImage 里第一段
+# 被执行的代码，可变 tag（continuous）+ 无校验的下载与本仓「actions 钉
+# SHA、vendored 依赖钉哈希」的供应链纪律相悖。升级时同步换 URL 与摘要。
+RUNTIME_URL="https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64"
+RUNTIME_SHA256="2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d"
 if [ ! -x "$RUNTIME" ]; then
-  echo ">> 下载 AppImage runtime"
-  curl -fL --retry 3 -o "$RUNTIME" \
-    https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64
+  echo ">> 下载 AppImage runtime（type2-runtime 20251108，sha256 钉版）"
+  curl -fL --retry 3 -o "$RUNTIME" "$RUNTIME_URL"
+  echo "$RUNTIME_SHA256  $RUNTIME" | sha256sum -c
   chmod +x "$RUNTIME"
 fi
 

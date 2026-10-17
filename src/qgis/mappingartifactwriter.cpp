@@ -75,6 +75,20 @@ void restoreRasterCrs(QgsMapLayer *layer) {
     raster->setCrs(crs);
 }
 
+void restoreVectorCrs(QgsMapLayer *layer) {
+  auto *vector = qobject_cast<QgsVectorLayer *>(layer);
+  if (!vector)
+    return;
+  // 矢量无 PALEO_CRS_WKT 元数据通道（GPKG srs_def 只能写 WKT1 LOCAL_CS，
+  // EDATUM 名必丢），只能按图层名恢复。已是规范 WKT 时跳过 setCrs——
+  // QgsMapLayer::setCrs 无条件发 crsChanged，重复调用会多余触发下游重算。
+  const auto canonical = QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt());
+  if (vector->crs().type() == Qgis::CrsType::Engineering &&
+      vector->crs() != canonical && canonical.isValid() &&
+      vector->crs().toWkt().contains(QStringLiteral("Paleo local engineering grid")))
+    vector->setCrs(canonical);
+}
+
 bool raster(const QString &path, const QVector<int> &cells, int cols, int rows,
             const QRectF &extent, QString *error) {
   return raster(path, cells, cols, rows, extent, QString(), error);

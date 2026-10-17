@@ -70,6 +70,8 @@ class PreviewMapPage::PreviewOverviewMap : public QWidget
       m_canvas->setFixedSize( 200, 150 );
       // 不给工具：事件过滤接管点击/拖动（避免小画布抢滚轮/右键）。
       m_canvas->installEventFilter( this );
+      // 停靠右下角（TOOLS.md §5）：父画布尺寸变化时随行。
+      m_host->m_canvas->installEventFilter( this );
 
       auto *lay = new QVBoxLayout( this );
       lay->setContentsMargins( 0, 0, 0, 0 );
@@ -89,6 +91,14 @@ class PreviewMapPage::PreviewOverviewMap : public QWidget
       } );
       raise();
       show();
+      reposition();
+    }
+
+    void reposition()
+    {
+      const int m = PaleoTheme::tokens().spacingSm;
+      move( qMax( 0, m_host->m_canvas->width() - width() - m ),
+            qMax( 0, m_host->m_canvas->height() - height() - m ) );
     }
 
     void syncLayers( const QList<QgsMapLayer *> &layers )
@@ -129,7 +139,12 @@ class PreviewMapPage::PreviewOverviewMap : public QWidget
   protected:
     bool eventFilter( QObject *watched, QEvent *event ) override
     {
-      if ( watched == m_canvas )
+      if ( watched == m_host->m_canvas )
+      {
+        if ( event->type() == QEvent::Resize || event->type() == QEvent::Show )
+          reposition();
+      }
+      else if ( watched == m_canvas )
       {
         if ( event->type() == QEvent::MouseButtonPress ||
              event->type() == QEvent::MouseMove )

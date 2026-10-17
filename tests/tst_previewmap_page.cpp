@@ -4,6 +4,7 @@
 #include "../src/ui/datapreview/previewmappage.h"
 #include "../src/ui/datapreview/previewidentifypanel.h"
 #include "../src/ui/datapreview/previewmapstates.h"
+#include "../src/ui/paleotheme.h"
 #include "../src/catalog/datacatalog.h"
 #include "../src/qgis/qgisruntime.h"
 #include "../src/qgis/previewrendercache.h"
@@ -15,6 +16,7 @@
 #include <QTabWidget>
 #include <QToolBar>
 
+#include <qgscoordinatereferencesystem.h>
 #include <qgsmapcanvas.h>
 #include <qgsmapmouseevent.h>
 #include <qgsmaptool.h>
@@ -72,6 +74,7 @@ class TestPreviewMapPage : public QObject
     void pageLayerManagementApi();
     void measureAreaReadoutLandsInStatusBar();
     void identifyRectRoutesToPanel();
+    void overviewRendersManagedGridVector();
 
   private:
     QgsVectorLayer *addPointLayer(int n);
@@ -459,6 +462,62 @@ void TestPreviewMapPage::identifyRectRoutesToPanel()
   QTRY_VERIFY_WITH_TIMEOUT(m_page->identifyPanel()->resultCount() >= 1, 2000);
   auto *side = m_page->findChild<QTabWidget *>(QStringLiteral("previewSideTabs"));
   QCOMPARE(side->currentIndex(), 1);
+}
+
+void TestPreviewMapPage::overviewRendersManagedGridVector()
+{
+  // GDAL 归一化病灶（MappingArtifactWriter::restoreVectorCrs 修复对象）：
+  // OGR 读回 Paleo 工程网格产物时 EDATUM 降级成 "Unknown engineering datum"，
+  // 与画布规范 WKT 不再同对象——PROJ 造不出坐标操作 → fullExtent 空 →
+  // 鹰眼 syncExtent 早退 → mapSettings 恒 invalid → refresh 空转 → 白屏。
+  // 这里用 memory 层 + setCrs 复现同样的退化 CRS，不依赖外部 gpkg 文件。
+  const QString degraded = QStringLiteral(
+      "ENGCRS[\"Paleo local engineering grid\","
+      "EDATUM[\"Unknown engineering datum\"],"
+      "CS[Cartesian,2],"
+      "AXIS[\"easting\",east,ORDER[1],LENGTHUNIT[\"metre\",1,ID[\"EPSG\",9001]]],"
+      "AXIS[\"northing\",north,ORDER[2],LENGTHUNIT[\"metre\",1,ID[\"EPSG\",9001]]]]");
+  const auto canonical =
+      QgsCoordinateReferenceSystem::fromWkt(DataCatalog::localGridCrsWkt());
+  auto *vl = new QgsVectorLayer(QStringLiteral("Polygon?field=name:string"),
+                                QStringLiteral("poly"), QStringLiteral("memory"));
+  vl->setCrs(QgsCoordinateReferenceSystem::fromWkt(degraded));
+  QVERIFY(vl->crs().isValid());
+  QVERIFY(vl->crs() != canonical);
+  QgsFeature f(vl->fields());
+  f.setAttribute(QStringLiteral("name"), QStringLiteral("p1"));
+  f.setGeometry(QgsGeometry::fromPolygonXY(
+      {{QgsPointXY(0, 0), QgsPointXY(100, 0), QgsPointXY(100, 80),
+        QgsPointXY(0, 80), QgsPointXY(0, 0)}}));
+  vl->dataProvider()->addFeature(f);
+  vl->updateExtents();
+  vl->setParent(m_page.get());
+  m_page->addMapLayer(vl, QStringLiteral("poly"), QStringLiteral("memory://poly"));
+
+  // 修复点 1：入画布时恢复规范 ENGCRS，fullExtent 才有输出。
+  QCOMPARE(vl->crs(), canonical);
+  QVERIFY(!m_page->mapCanvas()->fullExtent().isEmpty());
+
+  m_page->show();
+  QTest::qWaitForWindowExposed(m_page.get());
+  m_page->mapCanvas()->zoomToFullExtent();
+
+  auto *ov = m_page->findChild<QWidget *>(QStringLiteral("previewOverviewMap"));
+  QVERIFY(ov);
+  auto *ovCanvas = ov->findChild<QgsMapCanvas *>(QStringLiteral("previewOverviewCanvas"));
+  QVERIFY(ovCanvas);
+  // 修复点 2：鹰眼拿到有效 settings（extent 非空 + outputSize 非零），
+  // refresh 才真正渲出内容。
+  QTRY_VERIFY_WITH_TIMEOUT(ovCanvas->mapSettings().hasValidSettings(), 5000);
+  QCOMPARE(ovCanvas->layers().size(), 1);
+  QVERIFY(!ovCanvas->extent().isEmpty());
+
+  // 修复点 3：停靠右下角（TOOLS.md §5「右下角 200×150 导航小图」）。
+  QCOMPARE(ov->size(), QSize(200, 150));
+  const int margin = PaleoTheme::tokens().spacingSm;
+  const auto *host = m_page->mapCanvas();
+  QCOMPARE(ov->x() + ov->width(), host->width() - margin);
+  QCOMPARE(ov->y() + ov->height(), host->height() - margin);
 }
 
 int main(int argc, char *argv[])

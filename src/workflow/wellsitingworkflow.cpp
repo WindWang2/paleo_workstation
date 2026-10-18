@@ -1,5 +1,6 @@
 // 层：功能
 #include "wellsitingworkflow.h"
+#include "workflowerrors_internal.h" // raiseToErrorHub：#556 吞错路径收口
 
 #include "../catalog/datacatalog.h"
 #include "../domain/wellsitingplan.h"
@@ -533,6 +534,9 @@ void WellSitingWorkflow::writeHolesLayer( const paleo::wellsiting::CoverageRepor
   if ( !d->layers->declare( decl, &declareError ) )
   {
     qWarning() << "WellSitingWorkflow: holes layer declare failed:" << declareError;
+    paleo::workflow_detail::raiseToErrorHub( ErrorHub::Level::Error,
+                                             QStringLiteral( "wellsiting" ),
+                                             tr( "井网覆盖空洞层声明失败" ), declareError );
     return;
   }
   QString instantiateError;
@@ -858,6 +862,9 @@ void WellSitingWorkflow::refreshPlannedLayer()
   if ( !d->layers->declare( decl, &declareError ) )
   {
     qWarning() << "WellSitingWorkflow: planned wells layer declare failed:" << declareError;
+    paleo::workflow_detail::raiseToErrorHub( ErrorHub::Level::Error,
+                                             QStringLiteral( "wellsiting" ),
+                                             tr( "计划井层声明失败" ), declareError );
     return;
   }
   QString instantiateError;

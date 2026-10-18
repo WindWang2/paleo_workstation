@@ -17,6 +17,7 @@
 #include "io/laswriter.h"
 #include "io/wellfileparsers.h" // parseTimeDepthText（方向44 TIME 基准对齐）
 #include "metadata/paleoprojectstore.h"
+#include "errorhub.h" // #556：深度单位假设/非单调 NaN 风险入账（用户可见）
 #include "paleotaskservice.h"
 #include "welllogset.h"
 
@@ -645,16 +646,35 @@ bool loadWellCurves(const PetroPhysTaskService::WellRef &well, const WellMergePl
     {
       const double factor = depthFactorToDriver(fileUnit, driver.curves.at(0).unit);
       if (std::isnan(factor))
+      {
         qWarning("petrophys merge: depth unit '%s' of %s vs driver '%s' unknown — assuming same unit",
                  qPrintable(fileUnit), qPrintable(path), qPrintable(driver.curves.at(0).unit));
+        // #556：数据正确性风险不能只落日志——同步入账 ErrorHub（未安装全局
+        // hub 的单测环境为 no-op，qWarning 已兜底诊断）。
+        if (ErrorHub *hub = ErrorHub::global())
+          hub->raise(ErrorHub::Level::Warning, QStringLiteral("petrophys"),
+                     QObject::tr("测井合并深度单位未知"),
+                     QObject::tr("%1：深度单位「%2」与驱动井「%3」无法换算，"
+                                 "已按同一单位合并，合并深度可能错位")
+                         .arg(QFileInfo(path).fileName(), fileUnit,
+                              driver.curves.at(0).unit));
+      }
       else if (factor != 1.0)
         for (double &d : srcDepth)
           d *= factor;
     }
     const bool usable = depthUsable(srcDepth);
     if (!usable && doc.ok)
+    {
       qWarning("petrophys merge: depth of %s is not strictly monotonic/finite — curves left NaN",
                qPrintable(path));
+      if (ErrorHub *hub = ErrorHub::global())
+        hub->raise(ErrorHub::Level::Warning, QStringLiteral("petrophys"),
+                   QObject::tr("测井合并深度轴不可用"),
+                   QObject::tr("%1：深度轴非严格单调或含非有限值，"
+                               "该井曲线在合并结果中保留为空值（NaN）")
+                       .arg(QFileInfo(path).fileName()));
+    }
     for (const CurvePiece &piece : pieces)
     {
       LasCurve curve;

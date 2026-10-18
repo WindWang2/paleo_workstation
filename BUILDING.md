@@ -24,7 +24,10 @@
 
 1. **自编译 vendor（superbuild，首选）**——GEOS→PROJ→GDAL→QGIS 按源码
    tarball + SHA256 pin（`URL_HASH`）构建进 `vendor/superbuild/prefix`
-   （启用步骤见其 README；尚无 CI 覆盖，端到端可用性未在干净环境验证）。动机：系统包状态不受本仓
+   （启用步骤见其 README；周检 CI `.github/workflows/superbuild-weekly.yml`
+   每周日在干净 runner 从零 configure+build 一轮，PR 触及
+   `vendor/superbuild/**` 时增跑，#561 起接入——非 required check，首跑
+   状态以 Actions 页为准）。动机：系统包状态不受本仓
    控制——发行版升级/卸载即破坏构建与运行（2026-10-01 本机实证：Arch
    系统 qgis/cmake 被卸载后，二进制缺 `libqgis_core.so.4.2.2` 无法启动，
    构建工具链同步失踪）；自编译 prefix 把版本、ABI、裁剪面钉进仓库，

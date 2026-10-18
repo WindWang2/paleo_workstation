@@ -303,6 +303,10 @@ void DataImportService::startNextConversion()
   if (!m_convProfileDir)
     m_convProfileDir = std::make_unique<QTemporaryDir>(
         QDir::temp().absoluteFilePath(QStringLiteral("paleo-lo-profile-XXXXXX")));
+  // R2-SF-05：/tmp 不可用时如实失败——不得把 XXXXXX 模板字面量路径传给
+  // LibreOffice（旧实现无校验，QTemporaryDir 失败时 path() 返回模板串）。
+  if (!m_convProfileDir->isValid())
+    return finishConversion(-1);
   const QString profile = QStringLiteral("-env:UserInstallation=") +
                           QUrl::fromLocalFile(m_convProfileDir->path()).toString();
 

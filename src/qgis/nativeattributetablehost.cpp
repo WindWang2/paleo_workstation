@@ -95,15 +95,14 @@ bool PaleoAttributeTableHost::stopEditing(QgsVectorLayer *layer, bool allowCance
 {
   if (!layer || !layer->isEditable()) return true;
   if (layer->isModified()) {
-    if (QGuiApplication::platformName() == QLatin1String("offscreen") || !m_parent) {
-      return saveEdits(layer, false);
-    }
+    // R2-SF-04：seam 先于 offscreen 早退判定——注入的 ask 是显式契约（含
+    // 测试驱动），无头环境同样生效；未注入时 offscreen 保持直存语义。
     if (m_saveDiscardAsk && allowCancel) {
-      // FD-004：注入的 ask seam（壳侧接 PaleoNotify::askSaveDiscard，Tier-2
-      // 收敛）；未注入时回落下方原生 QMessageBox（降级契约不变）。
       const auto choice = m_saveDiscardAsk(layer->name());
       if (choice == SaveChoice::Cancel) return false;
       if (choice == SaveChoice::Save) return saveEdits(layer, false);
+    } else if (QGuiApplication::platformName() == QLatin1String("offscreen") || !m_parent) {
+      return saveEdits(layer, false);
     } else {
       const auto answer = QMessageBox::question(m_parent, tr("保存编辑"),
         tr("是否保存图层「%1」的修改？").arg(layer->name()),

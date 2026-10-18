@@ -884,9 +884,19 @@ private slots:
         QCOMPARE( normalize( prov ), referenceProv );
       }
     }
-    // 并列挑战者取小码：中心格平滑后归 3（4 票并列 3<7），不是 7。
-    QVERIFY( referenceCodes.contains( 3 ) );
-    QVERIFY( !referenceWkts.isEmpty() );
+    // 并列挑战者取小码——方向用 golden 面积钉死（R2-SF-01：contains(3) 对
+    // 输入本含 3 的夹具恒真）：SMOOTH 后中心格归 3，两相面积 {3: 5.0 格,
+    // 7: 4.0 格}；若并列裁决偏向 7 则翻转为 {3: 4.0, 7: 5.0}。
+    const int face3 = referenceCodes.indexOf( 3 );
+    const int face7 = referenceCodes.indexOf( 7 );
+    QVERIFY2( face3 >= 0, "code 3 face missing after smooth" );
+    QVERIFY2( face7 >= 0, "code 7 face missing after smooth" );
+    QVERIFY2( std::fabs( referenceAreas.at( face3 ) - 5.0 ) < 1e-4,
+              qPrintable( QStringLiteral( "code 3 area %1 != 5.0 (tie-break direction flipped)" )
+                              .arg( referenceAreas.at( face3 ) ) ) );
+    QVERIFY2( std::fabs( referenceAreas.at( face7 ) - 4.0 ) < 1e-4,
+              qPrintable( QStringLiteral( "code 7 area %1 != 4.0 (tie-break direction flipped)" )
+                              .arg( referenceAreas.at( face7 ) ) ) );
   }
 
   // 1.4 rounds to 1, 1.6 rounds to 2.（单像元精度语义——显式关平滑/聚合）

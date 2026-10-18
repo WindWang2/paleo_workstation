@@ -480,13 +480,18 @@ bool MapVersionController::startPublish(const QString &horizon, const QString &r
   *connection = connect(&m_async->runner, &paleo::jobs::JobRunnerBase::jobCompleted, this,
       [this, job, connection](quint64, bool) {
     disconnect(*connection);
+    m_async->disconnectSourceWatches(); // R2-SF-03：legacy 守卫连接随任务收口（save 路径同款）
     job->vectors.clear(); job->temporary.reset();
     emit snapshotBusyChanged(snapshotBusy());
     if (job->epoch == m_snapshotEpoch)
       emit snapshotFinished(job->input.horizon, "publish", job->prepared.committed, job->cancelled, job->error);
   });
   auto *task = m_async->runner.start(tr("%1 发布地图与证据快照").arg(horizon), job, callbacks);
-  if (!task) { disconnect(*connection); return false; }
+  if (!task) {
+    disconnect(*connection);
+    m_async->disconnectSourceWatches(); // R2-SF-03：启动失败同样不悬挂守卫连接
+    return false;
+  }
   emit snapshotBusyChanged(snapshotBusy());
   task->setNavigationContext({{"horizon", horizon}, {"workspace", "compose"}, {"operation", "map_snapshot_publish"}});
   return true;

@@ -478,6 +478,9 @@ WorkbookReadResult readXlsx( const QString &path )
     return result;
   }
 
+  // R2-MF-01：xlsx 预算与 .xml 路径同口径——**整簿累计**（此前声明在 sheet
+  // 循环内每表重置，多表恶意簿每表 pad 到 ~4M 格仍可 N×4M 放大驻留）。
+  qint64 cellBudget = kMaxWorkbookCells; // FA-001：累计格数预算（列填充放大闸）
   for ( const QPair<QString, QString> &item : sheetTargets )
   {
     QByteArray sheetBytes;
@@ -497,7 +500,6 @@ WorkbookReadResult readXlsx( const QString &path )
     bool rowHasError = false;
     bool rowIsExplicit = false;
     QSet<int> usedColumns;
-    qint64 cellBudget = kMaxWorkbookCells; // FA-001：累计格数预算（列填充放大闸）
     const auto finishRow = [&]() {
       if ( !inRow )
         return;
